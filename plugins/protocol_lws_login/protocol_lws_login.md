@@ -213,3 +213,27 @@ expired, 1 not in db, 0 live` — browsers legitimately hold several
 `auth_refresh_session` values at once, ordered oldest-first, so resolution
 walks them all rather than trusting the first).  CSRF double-submit failures
 log which half was missing and the lengths, never the values themselves.
+
+### Status probe diagnostics
+
+A "Not logged in" widget on a device you cannot inspect (a tablet, a phone)
+is otherwise a dead end: the only thing that decides that state is the JWT
+cookie the browser presented, and the browser will not show you it.  So when
+the widget's `.lws-login-status` probe finds no usable JWT, the bouncer logs
+at `notice` exactly what the request carried, attributed to the wsi:
+
+ - no `Cookie` header at all, or none of the configured `cookie-name`
+   (listing the cookie names and value lengths that *were* sent);
+ - for **every** same-named cookie in the header, whether its signature
+   verifies against `jwt-jwk`, and if so its `sub` and whether it is live or
+   how long ago it expired.
+
+The second point matters because `lws_jwt_auth_create()` only ever consults
+the first cookie of that name, while browsers legitimately hold several at
+once (host-only alongside `Domain=`, or leftovers minted under an earlier
+`cookie-domain` config) ordered oldest-first, so a stale first cookie can
+shadow a live one behind it: every renewal and login re-mints the *other*
+scope and the widget stays "Not logged in" until the stale one ages out.
+The probe log calls that case out explicitly.  Only the status probe emits
+these lines, since it is the one request a not-logged-in widget always makes
+and scanners never do.

@@ -1278,6 +1278,139 @@ simple_response(struct lws *wsi, struct pss_login *pss, const char *msg, const c
 	return 0;
 }
 
+
+/*
+ * Explain, at notice level, why this request did not yield a usable JWT in
+ * terms of what the browser actually presented.  Only emitted for the
+ * widget's .lws-login-status probe: that is the one request a "Not logged
+ * in" widget always makes, and bots scanning the mount never do, so it
+ * cannot become log spam.
+ *
+ * lws_jwt_auth_create() only ever looks at the FIRST cookie of the configured
+ * name, but browsers legitimately hold several same-named cookies at once
+ * (host-only alongside Domain=, or leftovers minted under an earlier
+ * cookie-domain config), ordered oldest-first per RFC 6265, so a stale value
+ * can shadow a live one sitting behind it in the same Cookie header.  Walk
+ * every occurrence and verify each against our JWK, so the log says which of
+ * "no cookie", "signature does not verify", "expired" or "shadowed by a
+ * stale duplicate" applies.  None of that is observable on the device (eg a
+ * tablet), and without it the not-logged-in widget is undiagnosable.
+ */
+static void
+lws_login_diag_jar(struct lws *wsi, struct vhd_login *vhd)
+{
+	uint64_t now = (uint64_t)lws_now_secs();
+	int n = 0, ck_len, expired = 0;
+
+	ck_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
+	if (ck_len <= 0) {
+		lwsl_wsi_notice(wsi, "status probe: no JWT: request carries no "
+				     "Cookie header at all");
+		return;
+	}
+
+	for (;;) {
+		char jwt[8192], temp[2048], out[2048], sub[64];
+		size_t jwt_len = sizeof(jwt), out_len = sizeof(out), alen;
+		const char *v;
+		uint64_t exp = 0;
+
+		if (lws_http_cookie_get_nth(wsi, vhd->cookie_name, n, jwt,
+					    &jwt_len)) {
+			if (n)
+				break;
+
+			/*
+			 * No cookie of our name at all: say which names the
+			 * browser did send (names and value lengths only, the
+			 * values may be credentials for something else)
+			 */
+			{
+				char names[512], *ck, *q, *e;
+				int nl = 0;
+
+				ck = malloc((size_t)ck_len + 1);
+				if (!ck)
+					return;
+				if (lws_hdr_copy(wsi, ck, ck_len + 1,
+						 WSI_TOKEN_HTTP_COOKIE) <= 0) {
+					free(ck);
+					return;
+				}
+				names[0] = '\0';
+				q = ck;
+				while (q && *q) {
+					while (*q == ' ' || *q == ';')
+						q++;
+					e = strchr(q, ';');
+					if (e)
+						*e++ = '\0';
+					v = strchr(q, '=');
+					if (*q)
+						nl += lws_snprintf(names + nl,
+							sizeof(names) - (size_t)nl,
+							"%s%.*s(%d)", nl ? ", " : "",
+							v ? (int)(v - q) : (int)strlen(q),
+							q, v ? (int)strlen(v + 1) : 0);
+					q = e;
+					if ((size_t)nl >= sizeof(names) - 8)
+						break;
+				}
+				free(ck);
+				lwsl_wsi_notice(wsi, "status probe: no JWT: no "
+					"'%s' cookie in a %d-byte Cookie header "
+					"(cookies presented: %s)",
+					vhd->cookie_name, ck_len, names);
+			}
+			return;
+		}
+
+		if (lws_jwt_signed_validate(lws_get_context(wsi), &vhd->jwk,
+			"ES256,ES384,ES512,RS256,RS384,RS512,HS256", jwt,
+			jwt_len, temp, sizeof(temp), out, &out_len)) {
+			lwsl_wsi_notice(wsi, "status probe: '%s' cookie #%d "
+				"(%u bytes): signature does not verify against "
+				"jwt-jwk", vhd->cookie_name, n,
+				(unsigned int)jwt_len);
+			n++;
+			continue;
+		}
+
+		v = lws_json_simple_find(out, out_len, "\"exp\":", &alen);
+		if (v)
+			exp = (uint64_t)atoll(v);
+		sub[0] = '\0';
+		v = lws_json_simple_find(out, out_len, "\"sub\":", &alen);
+		if (v)
+			lws_strnncpy(sub, v, alen, sizeof(sub));
+
+		if (!exp || exp <= now) {
+			expired++;
+			lwsl_wsi_notice(wsi, "status probe: '%s' cookie #%d: "
+				"sub '%s' EXPIRED %llus ago (exp %llu)",
+				vhd->cookie_name, n, sub,
+				(unsigned long long)(exp ? now - exp : 0),
+				(unsigned long long)exp);
+		} else
+			lwsl_wsi_notice(wsi, "status probe: '%s' cookie #%d: "
+				"sub '%s' live for another %llus",
+				vhd->cookie_name, n, sub,
+				(unsigned long long)(exp - now));
+		n++;
+	}
+
+	if (n > 1)
+		lwsl_wsi_notice(wsi, "status probe: %d same-named '%s' cookies "
+			"presented but only #0 is ever consulted: a stale #0 "
+			"shadows any live one behind it (host-only vs Domain= "
+			"scope, or a leftover from an earlier cookie-domain "
+			"config)", n, vhd->cookie_name);
+	else if (expired)
+		lwsl_wsi_notice(wsi, "status probe: single expired '%s' JWT, "
+			"expect the widget's silent renewal to re-mint it next",
+			vhd->cookie_name);
+}
+
 /*
  * A "global admin" is solely the holder of the "*" wildcard grant -- the
  * established "god" grant, the TOFU bootstrap account that can manage every
@@ -1921,6 +2054,9 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_jwt_auth_destroy(&pss->ja);
 			}
 		}
+
+		if (!pss->ja && lws_login_ends_with(path, "/.lws-login-status"))
+			lws_login_diag_jar(wsi, vhd);
 
 		if (pss->ja) {
 			int level = lws_jwt_auth_query_grant(pss->ja, service_name);
