@@ -639,8 +639,9 @@ lws_h3_parse_path(struct lws *wsi, const char *value, size_t value_len)
 		int k;
 		char *p = &ah->data[ah->frags[ah->nfrag].offset];
 		int plen = ah->frags[ah->nfrag].len;
+		/* RFC 9114 4.2 / RFC 9113 8.2.1: CR, LF and NUL are malformed */
 		for (k = 0; k < plen; k++) {
-			if (p[k] == '\r' || p[k] == '\n') {
+			if (p[k] == '\r' || p[k] == '\n' || !p[k]) {
 				lws_quic_enter_closing_state(nwsi, LWS_H3_MESSAGE_ERROR, 0, 1);
 				return -1;
 			}
@@ -1285,7 +1286,26 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						len -= consumed;
 					}
 				} else {
-					/* Not enough data */
+					/*
+					 * Not enough data to complete the
+					 * instruction.  Every decoder instruction
+					 * is a single prefixed varint, which needs
+					 * at most 1 + 10 bytes: if we already have
+					 * that many and it still does not complete,
+					 * it never will (or the varint is
+					 * over-long), so treat it as a decoder
+					 * stream error instead of parking the
+					 * stream forever.  Otherwise stash the
+					 * partial bytes (necessarily < 11, so they
+					 * fit) for the next packet.
+					 */
+					if (plen >= 11) {
+						struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+
+						lwsl_wsi_notice(wsi, "QPACK decoder instr overlong");
+						lws_quic_enter_closing_state(nwsi, LWS_QPACK_DECODER_STREAM_ERROR, 0, 1);
+						return 1;
+					}
 					if (wsi->h3.rx_dec_instr_len == 0) {
 						memcpy(wsi->h3.rx_dec_instr_buf, buf, len);
 						wsi->h3.rx_dec_instr_len = (uint8_t)len;
