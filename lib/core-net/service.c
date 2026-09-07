@@ -460,9 +460,20 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&pt->dll_buflist_owner)) {
 		struct lws *wsi = lws_container_of(d, struct lws, dll_buflist);
 
+		/*
+		 * Only if the wsi is in a state where the h1 service path
+		 * will actually consume the buffered rx.  While it is
+		 * issuing a file or flushing before close, it stashes /
+		 * ignores rx without consuming it, so forcing a zero wait
+		 * here would just spin the event loop for the duration of
+		 * the transfer; the state change at the end of the
+		 * transaction brings it back here.
+		 */
 		if (!lws_is_flowcontrolled(wsi) &&
 		     lwsi_state(wsi) != LRS_DEFERRING_ACTION &&
-		     lwsi_state(wsi) != LRS_AWAITING_FILE_READ) {
+		     lwsi_state(wsi) != LRS_AWAITING_FILE_READ &&
+		     lwsi_state(wsi) != LRS_ISSUING_FILE &&
+		     lwsi_state(wsi) != LRS_FLUSHING_BEFORE_CLOSE) {
 			return 0;
 		}
 
