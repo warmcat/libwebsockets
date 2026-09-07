@@ -393,6 +393,13 @@ lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 #if defined __LP64__
 		wsi->ws->rx_packet_length = ((size_t)c) << 56;
 #else
+		/*
+		 * size_t cannot hold the high bytes here: rather than drop
+		 * them (and then parse the rest of a >4GB frame as new
+		 * frame headers), refuse a frame that needs them
+		 */
+		if (c)
+			goto huge_frame;
 		wsi->ws->rx_packet_length = 0;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_7;
@@ -401,6 +408,9 @@ lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 	case LWS_RXPS_04_FRAME_HDR_LEN64_7:
 #if defined __LP64__
 		wsi->ws->rx_packet_length |= ((size_t)c) << 48;
+#else
+		if (c)
+			goto huge_frame;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_6;
 		break;
@@ -408,6 +418,9 @@ lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 	case LWS_RXPS_04_FRAME_HDR_LEN64_6:
 #if defined __LP64__
 		wsi->ws->rx_packet_length |= ((size_t)c) << 40;
+#else
+		if (c)
+			goto huge_frame;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_5;
 		break;
@@ -415,6 +428,9 @@ lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 	case LWS_RXPS_04_FRAME_HDR_LEN64_5:
 #if defined __LP64__
 		wsi->ws->rx_packet_length |= ((size_t)c) << 32;
+#else
+		if (c)
+			goto huge_frame;
 #endif
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_4;
 		break;
@@ -434,6 +450,11 @@ lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_1;
 		break;
 
+#if !defined __LP64__
+huge_frame:
+		lwsl_wsi_warn(wsi, "ws frame length exceeds size_t");
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+#endif
 	case LWS_RXPS_04_FRAME_HDR_LEN64_1:
 		wsi->ws->rx_packet_length |= (size_t)c;
 		if (wsi->ws->this_frame_masked)
