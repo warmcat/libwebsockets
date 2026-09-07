@@ -148,10 +148,18 @@ You can get a trusted cert bundle from here
 
 Save it into `C:\Program Files\Common Files\SSL\cert.pem` where openssl will be able to see it.
 
-## Required: pthreads
+## Optional: pthreads
 
 It's amazing but after all these years windows doesn't offer pthreads compatibility
 itself.  Just like the many other missing POSIX bits like fork().
+
+The default build no longer needs pthreads on windows: the internal
+`lws_mutex_t` abstraction falls back to the native win32 `SRWLOCK` when
+`LWS_HAVE_PTHREAD_H` is not set, so SMD and async-dns build fine without it.
+You only need external pthreads for the explicitly threaded pieces, ie,
+`LWS_MAX_SMP` > 1, `LWS_WITH_THREADPOOL`, `LWS_WITH_ASYNC_QUEUE` or the
+txpacer.  A plain `-DLWS_WITH_SCHANNEL=1` build has no pthreads dependency at
+all.  If you do want pthreads, here's how I set it up.
 
 I downloaded the latest (2012) zip release of pthreads-win32 from here
 

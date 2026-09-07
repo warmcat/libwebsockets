@@ -101,7 +101,7 @@
 		"w11/x86_64-amd/msvc-schannel": {
 			"default": false,
 			"build": [
-				"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" -S . -B build -DLWS_WITH_SCHANNEL=1 -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake}",
+				"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" -S . -B build -DLWS_WITH_SCHANNEL=1 ${cmake}",
 				"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" --build build --config DEBUG --parallel %SAI_PARALLEL%",
 				"\"C:\\Program Files\\CMake\\bin\\ctest.exe\" --test-dir build -C DEBUG -j%SAI_PARALLEL% --output-on-failure --repeat until-pass:3"
 			]
