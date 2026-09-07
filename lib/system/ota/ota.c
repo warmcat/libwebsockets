@@ -97,6 +97,7 @@ ota_write_sul_cb(lws_sorted_usec_list_t *sul)
 		}
 
 		g->state = LWSOS_FETCHING_INITED_GZ_HASH;
+		g->hash_inited = 1;
 
 		/* we don't want to create a dupe of ourselves while
 		 * we're busy doing the OTA */
@@ -237,6 +238,7 @@ update_impossible:
 
 		lws_upng_inflator_destroy(&g->inflate);
 		lws_genhash_destroy(&g->ctx, temp);
+		g->hash_inited = 0;
 
 		if (memcmp(temp, g->sha512, sizeof(temp))) {
 			lwsl_err("%s: payload hash differs\n", __func__);
@@ -667,10 +669,19 @@ ota_state(void *userobj, void *h_src, lws_ss_constate_t state,
 		lws_ss_cx_from_user(g)->ota_ss = NULL;
 		lws_buflist_destroy_all_segments(&g->flow.bl);
 		lws_sul_cancel(&g->sul_drain);
-		if (g->state == LWSOS_FETCHING_INITED_GZ_HASH)
+
+		/*
+		 * Free whatever we still own, judged by ownership rather than
+		 * by g->state: the update_impossible path sets LWSOS_FAILED,
+		 * which sorts after LWSOS_FINALIZING, and the normal
+		 * completion path destroys both while still in the fetching
+		 * states, so state-range gates both leak and double-free.
+		 */
+		if (g->hash_inited) {
 			lws_genhash_destroy(&g->ctx, NULL);
-		if (g->state >= LWSOS_FETCHING_INITED_GZ &&
-		    g->state < LWSOS_FINALIZING)
+			g->hash_inited = 0;
+		}
+		if (g->inflate)
 			lws_upng_inflator_destroy(&g->inflate);
 
 		return LWSSSSRET_OK;

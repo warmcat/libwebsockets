@@ -1278,6 +1278,7 @@ typedef struct lws_ota {
 
 	uint8_t				last_pc;
 	uint8_t				ota_start_done;
+	uint8_t				hash_inited;
 
 
 	uint8_t				async_completed;
