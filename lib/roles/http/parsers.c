@@ -743,7 +743,7 @@ lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s)
 	}
 
 	wsi->http.ah->nfrag++;
-	if (wsi->http.ah->nfrag == LWS_ARRAY_SIZE(wsi->http.ah->frags)) {
+	if (wsi->http.ah->nfrag >= LWS_ARRAY_SIZE(wsi->http.ah->frags)) {
 		lwsl_warn("More hdr frags than we can deal with, dropping\n");
 		return -1;
 	}
@@ -1484,7 +1484,7 @@ unknown_hdr:
 start_fragment:
 			ah->nfrag++;
 excessive:
-			if (ah->nfrag == LWS_ARRAY_SIZE(ah->frags)) {
+			if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frags)) {
 				lwsl_warn("More hdr frags than we can deal with\n");
 				return LPR_FAIL;
 			}
