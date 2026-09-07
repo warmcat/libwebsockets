@@ -2448,7 +2448,22 @@ deal_body:
 	 * action to expecting BODY on the stream wsi, if it's
 	 * in a bundle like h2.  So if the stream wsi has its
 	 * own buflist, we need to deal with that first.
+	 *
+	 * This is only for mux stream wsis, whose DATA arrives via the
+	 * network wsi and is parked on the stream's own buflist while it
+	 * was deferring.  For h1 we are called from inside the outer
+	 * lws_read_h1() which is itself working through the head segment
+	 * of wsi->buflist when a pipelined request was stashed there: the
+	 * segment has not been marked consumed yet, so draining it here
+	 * would re-read the request head as body, double-count it, and
+	 * (once the inner read completes the transaction and the state
+	 * moves on without consuming) never make progress.  The outer
+	 * lws_read_h1() already handles any body bytes that arrived with
+	 * the h1 headers and stashes the remainder.
 	 */
+
+	if (!wsi->mux_substream)
+		return 0;
 
 	while (1) {
 		struct lws_tokens ebuf;
@@ -2467,6 +2482,13 @@ deal_body:
 		if (lws_buflist_aware_finished_consuming(wsi, &ebuf, m, 1,
 							 __func__))
 			return -1;
+
+		/*
+		 * The read consumed nothing (eg, the state no longer wants
+		 * body): nothing further will change, do not spin
+		 */
+		if (!m)
+			break;
 	}
 
 	return 0;
