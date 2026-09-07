@@ -48,6 +48,7 @@ struct lws_qpack_dynamic_table {
 	uint16_t num_entries;
 	uint16_t used_entries;
 	uint16_t pos;
+	uint8_t  entries_owned; /* entries allocated by qpack, not embedder */
 };
 
 /* TX Encoder structures */

@@ -1222,6 +1222,7 @@ lws_qpack_dynamic_size(struct lws_qpack_context *ctx, int size)
 		if (!ctx->dyn_table.entries)
 			return 1;
 		ctx->dyn_table.num_entries = (uint16_t)n;
+		ctx->dyn_table.entries_owned = 1;
 		ctx->dyn_table.virtual_payload_max = (uint32_t)size;
 
 		return 0;
@@ -1263,10 +1264,14 @@ lws_qpack_destroy_dynamic_header(struct lws_qpack_context *ctx)
 		return;
 
 	/*
-	 * The entries array itself belongs to the embedder (h3n's rx_entries
-	 * array): free the per-entry strings and reset the table state, but
-	 * leave the array alone so the connection can continue using it,
-	 * eg after a peer dynamic table size update to 0
+	 * The entries array itself usually belongs to the embedder (h3n's
+	 * rx_entries array): free the per-entry strings and reset the table
+	 * state, but leave the array alone so the connection can continue
+	 * using it, eg after a peer dynamic table size update to 0.
+	 *
+	 * If we allocated it ourselves in lws_qpack_dynamic_size() for a
+	 * standalone user, it is ours to free; a later nonzero capacity
+	 * update will allocate it again.
 	 */
 	for (i = 0; i < ctx->dyn_table.num_entries; i++)
 		if (ctx->dyn_table.entries[i].value) {
@@ -1277,6 +1282,12 @@ lws_qpack_destroy_dynamic_header(struct lws_qpack_context *ctx)
 	ctx->dyn_table.used_entries = 0;
 	ctx->dyn_table.pos = 0;
 	ctx->dyn_table.virtual_payload_usage = 0;
+
+	if (ctx->dyn_table.entries_owned) {
+		lws_free_set_NULL(ctx->dyn_table.entries);
+		ctx->dyn_table.num_entries = 0;
+		ctx->dyn_table.entries_owned = 0;
+	}
 }
 
 #if defined(LWS_ROLE_H3)
