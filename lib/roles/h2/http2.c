@@ -1511,6 +1511,21 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			return 1;
 		}
 
+		/*
+		 * A stream that has moved away from an http role (eg, an
+		 * established ws-over-h2 stream, RFC 8441) no longer has an
+		 * ah to decode a header block into, and
+		 * lws_header_table_attach() asserts on non-http roles.  We
+		 * can't ignore the block either, since the hpack dynamic
+		 * table is shared by the whole connection, so it's a
+		 * connection error.
+		 */
+		if (h2n->swsi && !lwsi_role_http(h2n->swsi)) {
+			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				      "HEADERS on non-http stream");
+			break;
+		}
+
 #if defined(LWS_WITH_CLIENT)
 		if (wsi->client_h2_alpn) {
 			if (h2n->sid) {
@@ -1602,6 +1617,17 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	//	lws_header_table_reset(h2n->swsi, 0);
 
 update_end_headers:
+		/*
+		 * Whatever path brought us here, hpack must have an ah on
+		 * the stream to decode into (the client path above does not
+		 * attach one, and the ah is dropped on eg, ws upgrade)
+		 */
+		if (!h2n->swsi->http.ah) {
+			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				      "HEADERS on stream without ah");
+			break;
+		}
+
 		if (lws_check_opt(h2n->swsi->a.vhost->options,
 			       LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL)) {
 
