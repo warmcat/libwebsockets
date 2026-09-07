@@ -684,7 +684,12 @@ struct lws_vhost {
 	uint32_t		tls_session_cache_max;
 #endif
 	uint32_t		quic_mtu;
-	uint32_t		protocol_init; /* bitmap indicating if protocol initialized */
+	/*
+	 * bitmap, one bit per protocol on the vhost, set when that protocol's
+	 * PROTOCOL_INIT succeeded; sized for count_protocols (a vhost can carry
+	 * far more than 32 protocols, a fixed word was not enough)
+	 */
+	uint8_t			*protocol_init;
 #if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY) || defined(LWS_WITH_SECURE_STREAMS_CPP)
 	int8_t			ss_refcount;
 	/**< refcount of number of ss connections with streamtypes using this

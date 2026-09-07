@@ -419,10 +419,23 @@ lws_vhost_protocol_options(struct lws_vhost *vh, const char *name)
 }
 
 int
+#define lws_vh_pinit_set(vh, n) \
+	((vh)->protocol_init[(n) >> 3] |= (uint8_t)(1 << ((n) & 7)))
+#define lws_vh_pinit_get(vh, n) \
+	((vh)->protocol_init && \
+	 ((vh)->protocol_init[(n) >> 3] & (uint8_t)(1 << ((n) & 7))))
+
 lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 {
 	const struct lws_protocol_vhost_options *pvo, *pvo1;
 	int n;
+
+	if (!vh->protocol_init) {
+		vh->protocol_init = lws_zalloc(((size_t)vh->count_protocols + 7) / 8,
+					       "protocol_init");
+		if (!vh->protocol_init)
+			return 1;
+	}
 #if defined(LWS_PLAT_FREERTOS)
 	struct lws_a _lwsa, *lwsa = &_lwsa;
 
@@ -528,7 +541,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 
 
 			} else
-				vh->protocol_init |= 1u << n;
+				lws_vh_pinit_set(vh, n);
 		}
 	}
 
@@ -620,7 +633,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 
 
 			} else
-				vh->protocol_init |= 1u << n;
+				lws_vh_pinit_set(vh, n);
 		}
 	}
 
@@ -1722,7 +1735,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 		while (n < vh->count_protocols) {
 			wsi.a.protocol = protocol;
 
-			if (protocol->callback && (vh->protocol_init & (1u << n))) {
+			if (protocol->callback && lws_vh_pinit_get(vh, n)) {
 				lwsl_vhost_debug(vh, "protocol %s destroy", protocol->name);
 				protocol->callback(&wsi, LWS_CALLBACK_PROTOCOL_DESTROY,
 					   NULL, NULL, 0);
@@ -1782,6 +1795,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	}
 	if (vh->protocol_vh_privs)
 		lws_free(vh->protocol_vh_privs);
+	lws_free_set_NULL(vh->protocol_init);
 #if defined(LWS_WITH_SERVER)
 	lws_tls_ctx_ref_destroy_all(vh);
 #endif
