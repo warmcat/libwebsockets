@@ -2756,13 +2756,43 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 						__func__, n,
 						(unsigned int)h2n->count,
 						(unsigned int)h2n->length);
-					in += h2n->length - h2n->count;
-					h2n->inside = h2n->length;
-					h2n->count = h2n->length - 1;
 
-					//if (n < 0)
-					//	goto already_closed_swsi;
-					goto close_swsi_and_return;
+					/*
+					 * The stream is going away, so the rest
+					 * of this DATA frame is to be dropped.
+					 * But we may only hold part of the
+					 * frame: we must never advance past the
+					 * end of the rx buffer, or we report
+					 * consuming more than we were given
+					 * (asserting in buflist on the buffered
+					 * path) and lose frame sync on the
+					 * connection.  If the frame is not all
+					 * here, swallow what we have and mark
+					 * the frame ignored so the remainder is
+					 * discarded byte by byte as it arrives.
+					 */
+					m = lws_ptr_diff(iend, in);
+					if ((uint32_t)m >=
+						     h2n->length - h2n->count) {
+						in += h2n->length - h2n->count;
+						h2n->inside = h2n->length;
+						h2n->count = h2n->length - 1;
+
+						goto close_swsi_and_return;
+					}
+
+					in = iend;
+					h2n->count += (uint32_t)m;
+					h2n->inside = h2n->count;
+					h2n->type = LWS_H2_FRAME_TYPE_COUNT;
+
+					lws_close_free_wsi(h2n->swsi, 0,
+							   "close_swsi_partial");
+					h2n->swsi = NULL;
+					*inused = (lws_filepos_t)
+						lws_ptr_diff_size_t(in, oldin);
+
+					return 2;
 				}
 
 				lwsl_info("%s: lws_read_h1 telling %d %u / %u\n",
@@ -3466,6 +3496,15 @@ lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		m = lws_h2_parser(wsi, buf, len, &body_chunk_len);
 
                body_chunk_len &= 0xffffffff; /* attempt workaround for finding len=7167 --> len = 0xffffffff00001bff on lws.org */
+
+		/*
+		 * The parser must never claim to have used more than it was
+		 * given; if it did, the caller would advance its buflist past
+		 * the end of the segment.  Clamp so a parser accounting slip
+		 * costs sync on this connection only, not memory safety.
+		 */
+		if (body_chunk_len > len)
+			body_chunk_len = len;
 
 		if (m && m != 2) {
 			lwsl_debug("%s: http2_parser bail: %d\n", __func__, m);
