@@ -235,7 +235,7 @@ build_fixture_dir(void)
 	 * guessable, possibly pre-created one.
 	 */
 
-	lws_strncpy(fixture_dir, "/tmp/lws-hls-dir-test-XXXXXX",
+	lws_strncpy(fixture_dir, "/tmp/lws-hls-dir-test-XXXXXX", // NOSONAR
 		    sizeof(fixture_dir));
 
 	if (!mkdtemp(fixture_dir)) {

@@ -428,15 +428,26 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	lws_service(context, 0);
+	/*
+	 * With an event lib attached, lws_service() blocks in the loop's
+	 * run_pt and only returns when the loop is done.  But if we ended up
+	 * on poll ops (eg, the evlib plugin could not be loaded), run_pt is
+	 * NULL and one lws_service() call is a single poll round: we must
+	 * loop.  info.pcontext makes lws NULL `context` when the context has
+	 * really gone away, either way.
+	 */
+	while (context)
+		if (lws_service(context, 0) < 0)
+			break;
 
 	/*
 	 * If we fell out of the event loop unexpectedly, these show the state
 	 * that caused it; match them against the destroy-initiation logs in
 	 * the lib to find who started the exit
 	 */
-	lwsl_err("%s: closing (ctx deprecated %d, uv loop alive %d)\n", __func__,
-			lws_context_is_deprecated(context),
+	lwsl_err("%s: closing (ctx %p, deprecated %d, uv loop alive %d)\n",
+			__func__, (void *)context,
+			context ? lws_context_is_deprecated(context) : 0,
 			uv_loop_alive(&loop));
 
 	for (n = 0; n < 3; n++) {
