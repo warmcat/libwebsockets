@@ -2151,10 +2151,12 @@ lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
 			     const void *buf, uint32_t len, int is_complete)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	uint8_t *b = (uint8_t *)pt->serv_buf, *start, *p;
+	uint8_t *b = (uint8_t *)pt->serv_buf, *start, *p,
+		*end = b + wsi->a.context->pt_serv_buf_size;
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	lws_mqtt_str_t mqtt_vh_payload;
 	uint32_t vh_len, rem_len;
+	int n;
 
 	assert(pub->topic);
 
@@ -2201,14 +2203,27 @@ lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
 	rem_len = vh_len + pub->payload_len;
 	lwsl_debug("%s: Remaining len = %d\n", __func__, (int) rem_len);
 
-	/* Will the chunk of payload fit? */
-	if ((vh_len + len) >=
-	    (wsi->a.context->pt_serv_buf_size - LWS_PRE)) {
+	n = lws_mqtt_vbi_encode(rem_len, p);
+	if (n < 0) {
+		lwsl_err("%s: rem_len %u too large\n", __func__,
+			 (unsigned int)rem_len);
+		return 1;
+	}
+	p += n;
+
+	/*
+	 * Will it fit?  We compose from start (serv_buf + LWS_PRE) and
+	 * must stay inside serv_buf.  What we write is exactly the fixed
+	 * header + remaining length vbi already at p, then the topic len
+	 * u16 + topic + packet id for QoS > 0 (vh_len), plus the NUL that
+	 * lws_strncpy() puts after the topic (only survives if nothing
+	 * follows it, but count it), plus this chunk of payload.
+	 */
+	if (lws_ptr_diff_size_t(p, start) + vh_len + 1 + len >
+	    lws_ptr_diff_size_t(end, start)) {
 		lwsl_err("%s: Payload is too big\n", __func__);
 		return 1;
 	}
-
-	p += lws_mqtt_vbi_encode(rem_len, p);
 
 	/* Topic's Len */
 	lws_ser_wu16be(p, pub->topic_len);
@@ -2313,7 +2328,8 @@ int
 lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	uint8_t *b = (uint8_t *)pt->serv_buf + LWS_PRE, *start = b, *p = start;
+	uint8_t *b = (uint8_t *)pt->serv_buf + LWS_PRE, *start = b, *p = start,
+		*end = (uint8_t *)pt->serv_buf + wsi->a.context->pt_serv_buf_size;
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	lws_mqtt_str_t mqtt_vh_payload;
 	uint8_t exists[LWS_MQTT_MAX_TOPICS], extant;
@@ -2323,6 +2339,7 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 	uint32_t tops;
 #endif
 	uint32_t n;
+	int m;
 
 	/*
 	 * num_topics comes from the application and is used to index the
@@ -2422,10 +2439,23 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 			   __func__, (int)tops, (int)rem_len);
 #endif
 
-		p += lws_mqtt_vbi_encode(rem_len, p);
+		m = lws_mqtt_vbi_encode(rem_len, p);
+		if (m < 0) {
+			lwsl_err("%s: rem_len %u too large\n", __func__,
+				 (unsigned int)rem_len);
+			return 1;
+		}
+		p += m;
 
-		if ((rem_len + lws_ptr_diff_size_t(p, start)) >=
-					       wsi->a.context->pt_serv_buf_size) {
+		/*
+		 * start is serv_buf + LWS_PRE, so the space we have is
+		 * from there to the end of serv_buf, not pt_serv_buf_size.
+		 * We write exactly fixed header + vbi (already at p) then
+		 * rem_len bytes: the NUL lws_strncpy() puts after each topic
+		 * lands on the following QoS byte, inside rem_len.
+		 */
+		if (lws_ptr_diff_size_t(p, start) + rem_len >
+		    lws_ptr_diff_size_t(end, start)) {
 			lwsl_err("%s: Payload is too big\n", __func__);
 			return 1;
 		}
@@ -2509,12 +2539,14 @@ lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 				const lws_mqtt_subscribe_param_t *unsub)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	uint8_t *b = (uint8_t *)pt->serv_buf + LWS_PRE, *start = b, *p = start;
+	uint8_t *b = (uint8_t *)pt->serv_buf + LWS_PRE, *start = b, *p = start,
+		*end = (uint8_t *)pt->serv_buf + wsi->a.context->pt_serv_buf_size;
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	lws_mqtt_str_t mqtt_vh_payload;
 	uint8_t send_unsub[LWS_MQTT_MAX_TOPICS], orphaned;
 	uint32_t rem_len, n;
 	lws_mqtt_subs_t *mysub;
+	int m;
 #if defined(_DEBUG)
 	uint32_t tops;
 #endif
@@ -2608,10 +2640,23 @@ lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 			   __func__, (int)tops, (int)rem_len);
 #endif
 
-		p += lws_mqtt_vbi_encode(rem_len, p);
+		m = lws_mqtt_vbi_encode(rem_len, p);
+		if (m < 0) {
+			lwsl_err("%s: rem_len %u too large\n", __func__,
+				 (unsigned int)rem_len);
+			return 1;
+		}
+		p += m;
 
-		if ((rem_len + lws_ptr_diff_size_t(p, start)) >=
-					       wsi->a.context->pt_serv_buf_size) {
+		/*
+		 * start is serv_buf + LWS_PRE, so the space we have is
+		 * from there to the end of serv_buf, not pt_serv_buf_size.
+		 * We write exactly fixed header + vbi (already at p) then
+		 * rem_len bytes, plus one more for the NUL lws_strncpy()
+		 * puts after the last topic (nothing overwrites it here).
+		 */
+		if (lws_ptr_diff_size_t(p, start) + rem_len + 1 >
+		    lws_ptr_diff_size_t(end, start)) {
 			lwsl_err("%s: Payload is too big\n", __func__);
 			return 1;
 		}
