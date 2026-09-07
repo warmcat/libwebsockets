@@ -1055,7 +1055,7 @@ done:
 
 		/* every 16th char needs \uXXXX escaping */
 		for (bn = 0; bn < (int)sizeof(bs.s) - 1; bn++)
-			bs.s[bn] = (bn & 15) ? (char)('A' + (bn % 26)) : '"';
+			bs.s[bn] = (char)((bn & 15) ? ('A' + (bn % 26)) : '"');
 		bs.s[sizeof(bs.s) - 1] = '\0';
 
 		jser = lws_struct_json_serialize_create(lsm_schema_bigstr,
