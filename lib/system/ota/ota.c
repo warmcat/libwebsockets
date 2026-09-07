@@ -517,6 +517,17 @@ fetch_fail:
 		goto bail1;
 	}
 
+	/*
+	 * lws_strnncpy() truncates to fit g->file, but the metadata below
+	 * is described by alen, so alen must fit too: refuse a path that
+	 * would not fit rather than describe bytes g->file does not hold.
+	 */
+	if (alen >= sizeof(g->file)) {
+		lwsl_err("%s: path too long (%u)\n", __func__,
+			 (unsigned int)alen);
+		goto bail1;
+	}
+
 	lws_strnncpy(g->file, p, alen, sizeof(g->file));
 	if (lws_ss_set_metadata(lws_ss_from_user(g), "file", g->file, alen)) {
 		lwsl_err("%s: failed to set firmware file %s\n", __func__,
