@@ -743,8 +743,15 @@ struct lws_pollargs {
 #endif
 #define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? \
 		((n) + (_LWS_PAD_SIZE - ((n) % _LWS_PAD_SIZE))) : (n))
-/* last 2 is for lws-meta */
-#define LWS_PRE _LWS_PAD(4 + 10 + 2)
+/*
+ * Headroom lws needs before a buffer passed to lws_write(): the largest ws
+ * frame header (10) plus its client-side mask (4), plus 2 for lws-meta, plus
+ * the 9-byte h2 DATA frame header that is prepended in place when a ws
+ * stream is carried over h2 (RFC 8441).  Without the last term a ws-over-h2
+ * frame of 126+ bytes (client) or 64KB+ (server) wrote up to 7 bytes before
+ * the caller's buffer.  Pads to 32 on 64-bit.
+ */
+#define LWS_PRE _LWS_PAD(4 + 10 + 2 + 9)
 /* used prior to 1.7 and retained for backward compatibility */
 #define LWS_SEND_BUFFER_PRE_PADDING LWS_PRE
 #define LWS_SEND_BUFFER_POST_PADDING 0
