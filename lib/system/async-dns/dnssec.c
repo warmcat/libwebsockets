@@ -489,6 +489,23 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len)
 			return -1;
 		}
 
+		/*
+		 * RFC 4035 5.3.1: the validator's current time must lie within
+		 * the RRSIG inception .. expiration window, using RFC 1982
+		 * serial arithmetic.  Without this an expired (or not yet
+		 * valid) signature captured earlier validates forever.
+		 */
+		{
+			uint32_t now = (uint32_t)lws_now_secs();
+
+			if ((int32_t)(now - s.sig_inception) < 0 ||
+			    (int32_t)(s.sig_expiration - now) < 0) {
+				lwsl_notice("%s: RRSIG outside validity window\n",
+					    __func__);
+				return -1;
+			}
+		}
+
 		if (lws_genhash_init(&hash_ctx, hashtype))
 			return -1;
 
@@ -538,9 +555,9 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len)
 		if (sig_len <= (int)sizeof(vctx->sig_buf)) {
 			memcpy(vctx->sig_buf, s.rrsig_payload + rrsig_rdata_up_to_sig_len, (size_t)sig_len);
 		} else {
+			/* hash_ctx was already finalized above */
 			lwsl_err("%s: signature too large for buffer\n", __func__);
 			lws_free(vctx);
-			lws_genhash_destroy(&hash_ctx, NULL);
 			return -1;
 		}
 
