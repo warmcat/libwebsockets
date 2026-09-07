@@ -1481,6 +1481,30 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 								return 1;
 							lwsl_debug("H3_TRACE: deferred %d bytes in buflist\n", (int)chunk);
 						} else {
+							/*
+							 * DATA is only meaningful as
+							 * body after a complete header
+							 * block and before the body was
+							 * completed: once the body is
+							 * done the ah is detached and
+							 * lws_read_h1() would try to
+							 * parse into it (NULL); before
+							 * the headers it is
+							 * H3_FRAME_UNEXPECTED.  Mirror
+							 * h2: a stream still in
+							 * ESTABLISHED with its ah moves
+							 * to LRS_BODY here.
+							 */
+							if (lwsi_role_http(wsi) &&
+							    (!wsi->hdr_parsing_completed ||
+							     !wsi->http.ah)) {
+								lwsl_wsi_notice(wsi, "DATA outside body phase");
+								return 1;
+							}
+							if (lwsi_role_http(wsi) &&
+							    lwsi_state(wsi) == LRS_ESTABLISHED)
+								lwsi_set_state(wsi, LRS_BODY);
+
 							wsi->outer_will_close = 1;
 							n = lws_read_h1(wsi, (unsigned char *)buf, chunk);
 							wsi->outer_will_close = 0;
