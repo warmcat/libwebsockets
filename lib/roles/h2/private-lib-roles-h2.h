@@ -164,7 +164,15 @@ enum http2_hpack_type {
 struct hpack_dt_entry {
 	char *value; /* malloc'd */
 	uint16_t value_len;
-	uint16_t hdr_len; /* virtual, for accounting */
+	/*
+	 * virtual, for accounting.  A literal header name can run to the
+	 * whole header block (~1MB with CONTINUATION), so this must hold the
+	 * same width that is added to virtual_payload_usage at insert, or the
+	 * eviction subtracts less than was added and the usage drifts
+	 * upwards forever, taking our dynamic table out of step with the
+	 * peer's.
+	 */
+	uint32_t hdr_len;
 	uint16_t lws_hdr_idx; /* LWS_HPACK_IGNORE_ENTRY = IGNORE */
 };
 

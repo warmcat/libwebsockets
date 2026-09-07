@@ -472,7 +472,7 @@ lws_h2_dynamic_table_dump(struct lws *wsi)
 			p = "(ignored)";
 		lwsl_header("   %3d: tok %s: (len %d) val '%s'\n",
 			    (int)(n + LWS_ARRAY_SIZE(static_token)), p,
-			    dyn->entries[m].hdr_len, dyn->entries[m].value ?
+			    (int)dyn->entries[m].hdr_len, dyn->entries[m].value ?
 			    dyn->entries[m].value : "null");
 	}
 #endif
@@ -483,8 +483,10 @@ static void
 lws_dynamic_free(struct hpack_dynamic_table *dyn, int idx)
 {
 	lwsl_header("freeing %d for reuse\n", idx);
-	dyn->virtual_payload_usage = (uint32_t)((unsigned int)dyn->virtual_payload_usage - (unsigned int)(dyn->entries[idx].value_len +
-				dyn->entries[idx].hdr_len));
+	/* must subtract exactly what lws_dynamic_token_insert() added */
+	dyn->virtual_payload_usage = (uint32_t)(dyn->virtual_payload_usage -
+				((uint32_t)dyn->entries[idx].value_len +
+				 dyn->entries[idx].hdr_len));
 	lws_free_set_NULL(dyn->entries[idx].value);
 	dyn->entries[idx].value = NULL;
 	dyn->entries[idx].value_len = 0;
@@ -582,7 +584,7 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 		dyn->entries[new_index].value = NULL;
 
 	dyn->entries[new_index].lws_hdr_idx = (uint16_t)lws_hdr_index;
-	dyn->entries[new_index].hdr_len = (uint16_t)hdr_len;
+	dyn->entries[new_index].hdr_len = (uint32_t)hdr_len;
 
 	dyn->virtual_payload_usage = (uint32_t)(dyn->virtual_payload_usage +
 					(unsigned int)hdr_len + len);
