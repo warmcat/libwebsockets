@@ -2141,7 +2141,8 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 
 #if defined(LWS_WITH_HTTP_DIGEST_AUTH)
     if (wsi->http.digest_auth_hdr) {
-        p += lws_snprintf(p, 1024, "Authorization: %s\x0d\x0a",
+        p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+			  "Authorization: %s\x0d\x0a",
                           wsi->http.digest_auth_hdr);
         lws_free(wsi->http.digest_auth_hdr);
         wsi->http.digest_auth_hdr = NULL;
