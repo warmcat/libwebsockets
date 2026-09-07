@@ -1602,30 +1602,38 @@ add_it:
 			}
 		}
 
-		if (h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY && lws_frag_end(wsi))
-			return 1;
+		if (h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY) {
+			/*
+			 * RFC 9113 8.2.1: a field value containing NUL, CR or
+			 * LF is malformed and must be treated as a stream /
+			 * connection error.  HPACK carries values as opaque
+			 * bytes, so unlike h1 nothing structural stops them
+			 * arriving; if we stored them they would reach the
+			 * access log, onward-proxied h1 requests, and apps
+			 * that splice header values into their own lines.
+			 * This is the still-open fragment, ie, exactly the
+			 * value that just completed.
+			 */
+			const char *fp = &ah->data[ah->frags[ah->nfrag].offset];
+			unsigned int i;
+
+			for (i = 0; i < ah->frags[ah->nfrag].len; i++)
+				if (fp[i] == '\r' || fp[i] == '\n' ||
+				    !fp[i]) {
+					lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
+						      "CR/LF/NUL in header value");
+					return 1;
+				}
+
+			if (lws_frag_end(wsi))
+				return 1;
+		}
 
 		if (m != -1 && m != LWS_HPACK_IGNORE_ENTRY)
 			lws_dump_header(wsi, m);
 
 		if (lws_hpack_handle_pseudo_rules(nwsi, wsi, m))
 			return 1;
-
-		if (m == WSI_TOKEN_HTTP_COLON_PATH) {
-			char *p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);
-			int plen = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
-
-			if (p) {
-				int i;
-
-				for (i = 0; i < plen; i++)
-					if (p[i] == '\r' || p[i] == '\n') {
-						lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
-							      "CRLF in path");
-						return 1;
-					}
-			}
-		}
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 		/*

@@ -40,6 +40,26 @@ static const char * const hver[] = {
 	"HTTP/1.0", "HTTP/1.1", "HTTP/2"
 };
 
+/*
+ * The log line is one record per request; peer-controlled fields must not
+ * be able to add fake records (CR / LF), hide the rest of the line (NUL /
+ * other C0 controls) or break the quoting.  h1 framing already excludes
+ * CR / LF from header values and hpack refuses them on h2, so this is
+ * defence in depth for the log format itself.
+ */
+static void
+lws_access_log_sanitize(char *s, int len)
+{
+	int m;
+
+	for (m = 0; m < len && s[m]; m++)
+		if (s[m] == '\"')
+			s[m] = '\'';
+		else
+			if ((unsigned char)s[m] < 0x20 || s[m] == 0x7f)
+				s[m] = '_';
+}
+
 void
 lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int meth)
 {
@@ -47,6 +67,9 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	time_t t = time(NULL);
 	struct lws *nwsi;
 	const char *me;
+#if defined(LWS_ROLE_H2)
+	char me_buf[16];
+#endif
 	int l = 256, m;
 	struct tm *ptm = NULL;
 #if defined(LWS_HAVE_LOCALTIME_R)
@@ -78,9 +101,18 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 		strcpy(da, "01/Jan/1970:00:00:00 +0000");
 
 #if defined(LWS_ROLE_H2)
-	if (wsi->mux_substream)
-		me = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
-	else
+	if (wsi->mux_substream) {
+		/*
+		 * :method is peer-chosen text on h2; take a bounded, sanitized
+		 * copy rather than pointing into the ah
+		 */
+		if (lws_hdr_copy(wsi, me_buf, sizeof(me_buf),
+				 WSI_TOKEN_HTTP_COLON_METHOD) > 0) {
+			lws_access_log_sanitize(me_buf, (int)strlen(me_buf));
+			me = me_buf;
+		} else
+			me = NULL;
+	} else
 #endif
 		me = method_names[meth];
 
@@ -93,6 +125,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 
 	strncpy(uri, uri_ptr, (unsigned int)m);
 	uri[m] = '\0';
+	lws_access_log_sanitize(uri, m);
 
 	nwsi = lws_get_network_wsi(wsi);
 
@@ -120,9 +153,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 
 		if (lws_hdr_copy(wsi, wsi->http.access_log.user_agent, l + 4,
 				 WSI_TOKEN_HTTP_USER_AGENT) >= 0)
-			for (m = 0; m < l; m++)
-				if (wsi->http.access_log.user_agent[m] == '\"')
-					wsi->http.access_log.user_agent[m] = '\'';
+			lws_access_log_sanitize(wsi->http.access_log.user_agent, l);
 	}
 	l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER);
 	if (l) {
@@ -137,9 +168,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 		if (lws_hdr_copy(wsi, wsi->http.access_log.referrer,
 				l + 4, WSI_TOKEN_HTTP_REFERER) >= 0)
 
-			for (m = 0; m < l; m++)
-				if (wsi->http.access_log.referrer[m] == '\"')
-					wsi->http.access_log.referrer[m] = '\'';
+			lws_access_log_sanitize(wsi->http.access_log.referrer, l);
 	}
 	wsi->access_log_pending = 1;
 }
