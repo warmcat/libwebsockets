@@ -1130,6 +1130,9 @@ error_handling:
 				lws_dll2_add_tail(&f_hd->list, &wsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 				lws_callback_on_writable(wsi);
 			}
+
+			/* replaces the handshake deadline with idle reaping */
+			lws_quic_server_idle_check(wsi->quic.qn->nwsi);
 		}
 
 		lwsi_set_state(wsi, LRS_ESTABLISHED);

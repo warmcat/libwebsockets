@@ -1487,6 +1487,9 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						lws_close_free_wsi(wsi_child, LWS_CLOSE_STATUS_NOSTATUS, "quic stream oom");
 						return -1;
 					}
+
+					/* a new request stream means we are not idle */
+					lws_quic_server_idle_check(nwsi);
 					
 #if defined(LWS_ROLE_H3)
 					wsi_child->h3.h3n = nwsi->h3.h3n;

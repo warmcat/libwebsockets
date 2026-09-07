@@ -1524,6 +1524,18 @@ tp_ok:
 			return LWS_HPI_RET_HANDLED;
 		}
 
+		/*
+		 * Nothing else bounds the life of a server connection that
+		 * never gets to send: PTO only arms on tx, and we only tx once
+		 * CRYPTO offset 0 has arrived and TLS has something to say.
+		 * So a spoofed Initial with no usable CRYPTO in it would sit
+		 * here for ever.  Give the handshake the same deadline as a
+		 * TLS accept; lws_quic_server_idle_check() takes over once
+		 * the handshake completes.
+		 */
+		lws_set_timeout(nwsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
+				(int)wsi->a.context->timeout_secs);
+
 		lwsl_wsi_info(wsi, "QUIC RX: Created new connection! (loc_cid len %d)", nwsi->quic.qn->loc_cid.len);
 	}
 #else
@@ -2234,6 +2246,17 @@ tp_ok:
 					}
 				} lws_end_foreach_dll_safe(d, d1);
 			}
+
+			/*
+			 * A packet that authenticated and parsed is activity:
+			 * refresh the idle timeout, as h2 does on rx, so a
+			 * peer keeping the connection alive with PINGs (RFC
+			 * 9000 10.1.2) is not reaped as idle.
+			 */
+			if (parse_res >= 0 && nwsi && nwsi->quic.qn &&
+			    nwsi->quic.qn->is_server &&
+			    nwsi->pending_timeout == PENDING_TIMEOUT_UDP_IDLE)
+				lws_quic_server_idle_check(nwsi);
 
 			if (parse_res < 0) {
 				lwsl_wsi_notice(wsi, "QUIC RX: Frame parsing aborted");
@@ -4128,6 +4151,52 @@ lws_quic_stream_cleanup(struct lws *wsi)
 	lws_free_set_NULL(wsi->quic.qs);
 }
 
+/*
+ * Server-side idle reaping.
+ *
+ * A server connection is idle when it has no bidirectional (request)
+ * streams.  The child count cannot be used for that: the h3 control and
+ * qpack unidi streams are children of the network wsi that live as long as
+ * the connection, and they are marked immortal, which also makes
+ * lws_set_timeout() refuse PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE for the
+ * network wsi.  So count request streams directly and use a reason the
+ * immortal check does not apply to.
+ *
+ * Called when the handshake completes, when a peer-initiated stream is
+ * created, when a child closes, and (to refresh) when a packet is accepted
+ * while the idle timeout is armed.  Leaves the timeout alone if something
+ * else owns it, eg, the CONNECTION_CLOSE drain in lws_quic_enter_closing_state().
+ */
+void
+lws_quic_server_idle_check(struct lws *nwsi)
+{
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
+
+	if (!qn || !qn->is_server || !qn->handshake_done || qn->is_closing)
+		return;
+
+	if (nwsi->pending_timeout != NO_PENDING_TIMEOUT &&
+	    nwsi->pending_timeout != PENDING_TIMEOUT_UDP_IDLE &&
+	    nwsi->pending_timeout != PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND)
+		return;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
+		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
+
+		if (w->quic.qs && !w->quic.qs->is_unidirectional) {
+			/* has a request stream: not idle */
+			if (nwsi->pending_timeout != NO_PENDING_TIMEOUT)
+				lws_set_timeout(nwsi, NO_PENDING_TIMEOUT, 0);
+			return;
+		}
+	} lws_end_foreach_dll(d);
+
+	lws_set_timeout(nwsi, PENDING_TIMEOUT_UDP_IDLE,
+			nwsi->a.vhost->keepalive_timeout ?
+				nwsi->a.vhost->keepalive_timeout : 5);
+}
+
 static int
 rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 {
@@ -4140,10 +4209,8 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 	if (wsi->mux.parent_wsi) {
 		struct lws *nwsi = wsi->mux.parent_wsi;
 		lws_wsi_mux_sibling_disconnect(wsi);
-		if (lws_wsi_mux_child_count(nwsi) == 0 && nwsi->quic.qn)
-			lws_set_timeout(nwsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
-					nwsi->a.vhost->keepalive_timeout ?
-					nwsi->a.vhost->keepalive_timeout : 5);
+		if (nwsi->quic.qn)
+			lws_quic_server_idle_check(nwsi);
 	}
 
 	lws_quic_stream_cleanup(wsi);

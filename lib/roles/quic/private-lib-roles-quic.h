@@ -615,6 +615,9 @@ lws_get_quic_network_wsi(struct lws *wsi);
 void
 lws_quic_enter_closing_state(struct lws *wsi, uint64_t err_code, uint64_t frame_type, int is_app_error);
 
+void
+lws_quic_server_idle_check(struct lws *nwsi);
+
 int
 lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t len);
 
