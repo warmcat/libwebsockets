@@ -1427,6 +1427,20 @@ cmd_completion:
 				wsi->mqtt = lws_zalloc(sizeof(*wsi->mqtt), "nwsi mqtt");
 				if (!wsi->mqtt)
 					return -1;
+
+				/*
+				 * par was bound by our caller to the parser
+				 * inside the struct we just handed to the
+				 * child.  Anything else in this rx chunk must
+				 * be parsed with the nwsi's new parser, since
+				 * that is what the next read will resume
+				 * from, and the rest of the parser already
+				 * reaches per-packet state via wsi->mqtt.
+				 * We are at IDLE with nothing carried over,
+				 * so the fresh zeroed parser is consistent.
+				 */
+				par = &wsi->mqtt->client.par;
+
 				w->mqtt->wsi = w;
 				w->a.protocol = wsi->a.protocol;
 				if (w->user_space &&
