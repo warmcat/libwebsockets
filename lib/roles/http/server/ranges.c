@@ -121,6 +121,20 @@ lws_ranges_next(struct lws_range_parsing *rp)
 				if (c == ',')
 					rp->pos++;
 
+				rp->did_try = 1;
+
+				/*
+				 * RFC 7233 2.1: an empty representation has
+				 * no satisfiable byte-range at all (and
+				 * extent - 1 below would wrap).
+				 */
+				if (!rp->extent) {
+					if (c == ',')
+						break;
+					rp->state = LWSRS_COMPLETED;
+					return 0;
+				}
+
 				/*
 				 * By the end of this, start and end are
 				 * always valid if the range still is
@@ -136,10 +150,21 @@ lws_ranges_next(struct lws_range_parsing *rp)
 					if (!rp->end_valid)
 						rp->end = rp->extent - 1;
 
-				rp->did_try = 1;
+				/*
+				 * RFC 7233 2.1: a last-byte-pos at or past
+				 * the representation length means "to the
+				 * end"; without the clamp we would promise a
+				 * Content-Length / Content-Range we cannot
+				 * deliver and desync the connection.  A
+				 * first-byte-pos past the end is
+				 * unsatisfiable.
+				 */
+				if (rp->end >= rp->extent)
+					rp->end = rp->extent - 1;
 
 				/* end must be >= start or ignore it */
-				if (rp->end < rp->start) {
+				if (rp->end < rp->start ||
+				    rp->start >= rp->extent) {
 					if (c == ',')
 						break;
 					rp->state = LWSRS_COMPLETED;
