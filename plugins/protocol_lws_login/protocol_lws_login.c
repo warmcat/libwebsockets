@@ -751,6 +751,41 @@ lws_login_kick_refresh_selfheal(struct vhd_login *vhd, struct lws *wsi,
 }
 
 /*
+ * Max-Age for a cookie carrying token: the smaller of jwt-validity-secs and
+ * the token's own remaining lifetime.  A cookie that outlives the JWT inside
+ * it is pure liability: it can only ever fail verification, and if the
+ * browser orders it ahead of a live same-named cookie (host-only vs Domain=
+ * scope) it shadows that one.  A token we cannot verify or that carries no
+ * exp falls back to jwt-validity-secs, exactly as before.
+ */
+static unsigned long long
+lws_login_token_max_age(struct lws *wsi, struct vhd_login *vhd,
+			const char *token)
+{
+	uint64_t now = (uint64_t)lws_now_secs(), exp;
+	char temp[2048], out[2048];
+	size_t out_len = sizeof(out), alen;
+	const char *v;
+
+	if (lws_jwt_signed_validate(lws_get_context(wsi), &vhd->jwk,
+			"ES256,ES384,ES512,RS256,RS384,RS512,HS256", token,
+			strlen(token), temp, sizeof(temp), out, &out_len))
+		return (unsigned long long)vhd->jwt_validity_secs;
+
+	v = lws_json_simple_find(out, out_len, "\"exp\":", &alen);
+	if (!v)
+		return (unsigned long long)vhd->jwt_validity_secs;
+
+	exp = (uint64_t)atoll(v);
+	if (exp <= now + 1)
+		return 1;
+	if (exp - now < vhd->jwt_validity_secs)
+		return (unsigned long long)(exp - now);
+
+	return (unsigned long long)vhd->jwt_validity_secs;
+}
+
+/*
  * Serve the protected page to the browser by re-issuing the JWT cookie and
  * 302-ing back to the same URL the browser originally asked for.  Used by:
  *  - the grant-mismatch "silent update" path (logged in, but grants changed),
@@ -791,8 +826,7 @@ lws_login_serve_self_redirect_with_cookie(struct lws *wsi, struct pss_login *pss
 	if (lws_http_cookie_compose(cookie, sizeof(cookie),
 				     vhd->cookie_name, token,
 				     vhd->cookie_domain,
-				     (unsigned long long)
-							vhd->jwt_validity_secs,
+				     lws_login_token_max_age(wsi, vhd, token),
 				     NULL) < 0) {
 		lwsl_wsi_err(wsi, "%s: %s Set-Cookie too large for the "
 			     "composed buffer (token %d, domain %d)",
@@ -1286,15 +1320,15 @@ simple_response(struct lws *wsi, struct pss_login *pss, const char *msg, const c
  * in" widget always makes, and bots scanning the mount never do, so it
  * cannot become log spam.
  *
- * lws_jwt_auth_create() only ever looks at the FIRST cookie of the configured
- * name, but browsers legitimately hold several same-named cookies at once
- * (host-only alongside Domain=, or leftovers minted under an earlier
- * cookie-domain config), ordered oldest-first per RFC 6265, so a stale value
- * can shadow a live one sitting behind it in the same Cookie header.  Walk
- * every occurrence and verify each against our JWK, so the log says which of
- * "no cookie", "signature does not verify", "expired" or "shadowed by a
- * stale duplicate" applies.  None of that is observable on the device (eg a
- * tablet), and without it the not-logged-in widget is undiagnosable.
+ * Browsers legitimately hold several same-named cookies at once (host-only
+ * alongside Domain=, or leftovers minted under an earlier cookie-domain
+ * config), ordered oldest-first per RFC 6265.  lws_jwt_auth_create() walks
+ * them all and prefers a live one, but a jar full of stale duplicates is
+ * still worth knowing about, so walk every occurrence and verify each
+ * against our JWK: the log then says which of "no cookie", "signature does
+ * not verify" or "expired" applies, per cookie.  None of that is observable
+ * on the device (eg a tablet), and without it the not-logged-in widget is
+ * undiagnosable.
  */
 static void
 lws_login_diag_jar(struct lws *wsi, struct vhd_login *vhd)
@@ -1401,10 +1435,9 @@ lws_login_diag_jar(struct lws *wsi, struct vhd_login *vhd)
 
 	if (n > 1)
 		lwsl_wsi_notice(wsi, "status probe: %d same-named '%s' cookies "
-			"presented but only #0 is ever consulted: a stale #0 "
-			"shadows any live one behind it (host-only vs Domain= "
-			"scope, or a leftover from an earlier cookie-domain "
-			"config)", n, vhd->cookie_name);
+			"presented, none live (host-only vs Domain= scope, or "
+			"a leftover from an earlier cookie-domain config)",
+			n, vhd->cookie_name);
 	else if (expired)
 		lwsl_wsi_notice(wsi, "status probe: single expired '%s' JWT, "
 			"expect the widget's silent renewal to re-mint it next",
@@ -2729,8 +2762,9 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 							vhd->cookie_name,
 							pss->silent_update_jwt,
 							vhd->cookie_domain,
-							(unsigned long long)
-								vhd->jwt_validity_secs,
+							lws_login_token_max_age(
+								wsi, vhd,
+								pss->silent_update_jwt),
 							NULL) < 0) {
 						lwsl_wsi_err(wsi, "%s: %s "
 							     "Set-Cookie too "
@@ -2949,8 +2983,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 							    vhd->cookie_name,
 							    ps->token,
 							    vhd->cookie_domain,
-							    (unsigned long long)
-								vhd->jwt_validity_secs,
+							    lws_login_token_max_age(
+								wsi, vhd, ps->token),
 							    NULL);
 				if (n < 0) {
 					lwsl_wsi_err(wsi, "%s: %s Set-Cookie "

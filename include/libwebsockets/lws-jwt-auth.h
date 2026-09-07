@@ -39,7 +39,13 @@ typedef int (*lws_jwt_auth_cb_t)(struct lws_jwt_auth *ja, int state, void *user)
  * executes lightweight lejp JSON parsing to extract the exp timestamp and ANY custom grants dictionaries,
  * allocates the tracking object, and registers the proactive SUL timer natively.
  *
- * Returns NULL on failure, or the allocated opaque object on a successful verification.
+ * Browsers can present several same-named cookies at once (host-only
+ * alongside Domain=, or a leftover from an earlier cookie scope), oldest
+ * first.  Every occurrence is tried: the first one that verifies and is
+ * unexpired wins.  If none is live, the first that verified is returned so
+ * the caller decides what an expired token means (check lws_jwt_auth_get_exp()).
+ *
+ * Returns NULL if no occurrence verified, or the allocated opaque object.
  */
 LWS_VISIBLE LWS_EXTERN struct lws_jwt_auth *
 lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,

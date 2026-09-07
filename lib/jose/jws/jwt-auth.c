@@ -210,37 +210,87 @@ lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
 		    lws_jwt_auth_cb_t cb, void *user,
 		    const char **reason)
 {
+	struct lws_jwt_auth *ja = NULL, *cand;
+	uint64_t now = (uint64_t)lws_now_secs();
+	const char *r = NULL, *cr;
 	char jwt[8192];
-	size_t jwt_len = sizeof(jwt);
-	struct lws_jwt_auth *ja;
-	int n;
+	size_t jwt_len;
+	int n = 0, m;
 
-	n = lws_http_cookie_get(wsi, cookie_name, jwt, &jwt_len);
-	if (n) {
-		if (reason)
-			*reason = n == 2 ? "Cookie value too large for buffer" :
-					   "Cookie not found";
-		return NULL;
+	/*
+	 * Browsers legitimately present several same-named cookies at once
+	 * (host-only alongside Domain=, or a leftover minted under an earlier
+	 * cookie-domain config), ordered oldest-first per RFC 6265.  Taking
+	 * only the first lets a stale one shadow a live one sitting behind it
+	 * in the same header, and since every renewal and login re-mints the
+	 * *other* scope, the user stays "not logged in" until the stale cookie
+	 * ages out.  So walk every occurrence and take the first that
+	 * verifies and is unexpired.  If none is live, return the first that
+	 * verified: what an expired token means is the caller's decision,
+	 * exactly as before.  NULL only when nothing verified at all.
+	 */
+	for (;;) {
+		jwt_len = sizeof(jwt);
+		if (!n)
+			/*
+			 * occurrence 0 via the prefix-aware lookup, so the
+			 * __Host- / __Secure- aliases keep working when no
+			 * plain-named cookie exists
+			 */
+			m = lws_http_cookie_get(wsi, cookie_name, jwt, &jwt_len);
+		else
+			m = lws_http_cookie_get_nth(wsi, cookie_name, n, jwt,
+						    &jwt_len);
+		if (m) {
+			if (!r)
+				r = m == 2 ? "Cookie value too large for buffer" :
+					     "Cookie not found";
+			if (m != 2)
+				break; /* no more occurrences */
+			n++; /* oversized: skip it, look behind it */
+			continue;
+		}
+
+		cand = lws_zalloc(sizeof(*cand), __func__);
+		if (!cand) {
+			r = "OOM";
+			break;
+		}
+
+		cand->cx = lws_get_context(wsi);
+		cand->wsi = wsi;
+		cand->jwk = jwk;
+		cand->cb = cb;
+		cand->user = user;
+		lws_strncpy(cand->cookie_name, cookie_name,
+			    sizeof(cand->cookie_name));
+
+		cr = NULL;
+		if (lws_jwt_auth_update(cand, jwt, &cr)) {
+			if (!r)
+				r = cr;
+			lws_jwt_auth_destroy(&cand);
+			n++;
+			continue;
+		}
+
+		if (!cand->exp || cand->exp > now) {
+			/* live: this is the one, drop any expired fallback */
+			if (ja)
+				lws_jwt_auth_destroy(&ja);
+			ja = cand;
+			break;
+		}
+
+		if (!ja)
+			ja = cand; /* verified but expired: fallback only */
+		else
+			lws_jwt_auth_destroy(&cand);
+		n++;
 	}
 
-	ja = lws_zalloc(sizeof(*ja), __func__);
-	if (!ja) {
-		if (reason)
-			*reason = "OOM";
-		return NULL;
-	}
-
-	ja->cx = lws_get_context(wsi);
-	ja->wsi = wsi;
-	ja->jwk = jwk;
-	ja->cb = cb;
-	ja->user = user;
-	lws_strncpy(ja->cookie_name, cookie_name, sizeof(ja->cookie_name));
-
-	if (lws_jwt_auth_update(ja, jwt, reason)) {
-		lws_free(ja);
-		return NULL;
-	}
+	if (!ja && reason)
+		*reason = r ? r : "Cookie not found";
 
 	return ja;
 }

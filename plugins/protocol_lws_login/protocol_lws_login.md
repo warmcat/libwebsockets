@@ -228,12 +228,14 @@ at `notice` exactly what the request carried, attributed to the wsi:
    verifies against `jwt-jwk`, and if so its `sub` and whether it is live or
    how long ago it expired.
 
-The second point matters because `lws_jwt_auth_create()` only ever consults
-the first cookie of that name, while browsers legitimately hold several at
-once (host-only alongside `Domain=`, or leftovers minted under an earlier
-`cookie-domain` config) ordered oldest-first, so a stale first cookie can
-shadow a live one behind it: every renewal and login re-mints the *other*
-scope and the widget stays "Not logged in" until the stale one ages out.
-The probe log calls that case out explicitly.  Only the status probe emits
-these lines, since it is the one request a not-logged-in widget always makes
-and scanners never do.
+The second point matters because browsers legitimately hold several
+same-named cookies at once (host-only alongside `Domain=`, or leftovers
+minted under an earlier `cookie-domain` config), ordered oldest-first.
+`lws_jwt_auth_create()` walks every occurrence and uses the first that
+verifies and is unexpired, so a stale duplicate cannot shadow a live one;
+before that, a stale first cookie left the widget "Not logged in" until it
+aged out, since every renewal and login re-minted the *other* scope.  To
+stop such stale duplicates accumulating, every `auth_session` cookie this
+plugin mints has its `Max-Age` capped at the JWT's own remaining `exp`, never
+just `jwt-validity-secs`.  Only the status probe emits these lines, since it
+is the one request a not-logged-in widget always makes and scanners never do.
