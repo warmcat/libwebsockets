@@ -279,7 +279,12 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 			t = tok;
 			while (*t && *t != '=' && p < end - 4)
 				*p++ = *t++;
-			if (*t == '=')
+			/*
+			 * bound this write too: an arg starting with '='
+			 * skips the loop above, so each such fragment would
+			 * otherwise advance p past the end of the buffer
+			 */
+			if (*t == '=' && p < end - 2)
 				*p++ = *t++;
 			i = urlencode(t, i - lws_ptr_diff(t, tok), p, lws_ptr_diff(end, p));
 			if (i >= 0) {
