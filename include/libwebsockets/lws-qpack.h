@@ -105,6 +105,8 @@ struct lws_qpack_stream_state {
 	uint8_t is_name; /* 1 if currently parsing name, 0 for value */
 	uint8_t huff;
 	uint16_t huff_pos;
+	uint8_t huff_pad; /* bits consumed since the last complete symbol */
+	uint8_t huff_pad_zero; /* a 0 bit was seen in those (not valid padding) */
 	
 	uint64_t str_len;
 	uint64_t str_pos;

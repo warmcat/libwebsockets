@@ -674,6 +674,14 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 				int n;
 				for (n = 0; n < 8; n++) {
 					b = (c >> (7 - n)) & 1;
+					/*
+					 * RFC 7541 5.2: the bits after the last
+					 * complete symbol must be a prefix of EOS,
+					 * ie, all ones, and fewer than 8 of them
+					 */
+					if (!b)
+						state->huff_pad_zero = 1;
+					state->huff_pad++;
 					state->huff_pos = (uint16_t)lws_qpack_huftable_decode((int)state->huff_pos, b);
 					if (state->huff_pos == 0xffff) {
 						lwsl_notice("Huffman decode error\n");
@@ -681,6 +689,21 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					}
 					if (state->huff_pos & 0x8000) {
 						char dec = (char)(state->huff_pos & 0x7fff);
+
+						/*
+						 * The EOS symbol (256) lands here
+						 * as 0 too: a decoder must treat
+						 * an explicit EOS as an error, and
+						 * a NUL is not allowed in a field
+						 * name or value either (RFC 9114
+						 * 4.2 via RFC 9113 8.2.1)
+						 */
+						if (!dec) {
+							lwsl_notice("Huffman EOS / NUL in field\n");
+							return 1;
+						}
+						state->huff_pad = 0;
+						state->huff_pad_zero = 0;
 						size_t capm1 = state->is_name ? sizeof(state->name_buf) - 1 :
 										 sizeof(state->val_buf) - 1;
 						size_t *pos = state->is_name ? &state->name_pos : &state->val_pos;
@@ -714,6 +737,14 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 			}
 			
 			if (++state->str_pos >= state->str_len) {
+				if (state->huff &&
+				    (state->huff_pad > 7 ||
+				     (state->huff_pad_zero && state->huff_pad))) {
+					lwsl_notice("Huffman bad padding\n");
+					return 1;
+				}
+				state->huff_pad = 0;
+				state->huff_pad_zero = 0;
 				if (state->is_name) {
 					state->state = LQP_DEC_STR_LEN;
 				} else {
@@ -1085,6 +1116,14 @@ lws_qpack_decode_encoder_stream(struct lws_qpack_stream_state *state,
 				int n;
 				for (n = 0; n < 8; n++) {
 					b = (c >> (7 - n)) & 1;
+					/*
+					 * RFC 7541 5.2: the bits after the last
+					 * complete symbol must be a prefix of EOS,
+					 * ie, all ones, and fewer than 8 of them
+					 */
+					if (!b)
+						state->huff_pad_zero = 1;
+					state->huff_pad++;
 					state->huff_pos = (uint16_t)lws_qpack_huftable_decode((int)state->huff_pos, b);
 					if (state->huff_pos == 0xffff) {
 						lwsl_notice("Huffman decode error\n");
@@ -1092,6 +1131,21 @@ lws_qpack_decode_encoder_stream(struct lws_qpack_stream_state *state,
 					}
 					if (state->huff_pos & 0x8000) {
 						char dec = (char)(state->huff_pos & 0x7fff);
+
+						/*
+						 * The EOS symbol (256) lands here
+						 * as 0 too: a decoder must treat
+						 * an explicit EOS as an error, and
+						 * a NUL is not allowed in a field
+						 * name or value either (RFC 9114
+						 * 4.2 via RFC 9113 8.2.1)
+						 */
+						if (!dec) {
+							lwsl_notice("Huffman EOS / NUL in field\n");
+							return 1;
+						}
+						state->huff_pad = 0;
+						state->huff_pad_zero = 0;
 						size_t capm1 = state->is_name ? sizeof(state->name_buf) - 1 :
 										 sizeof(state->val_buf) - 1;
 						size_t *pos = state->is_name ? &state->name_pos : &state->val_pos;
@@ -1125,6 +1179,14 @@ lws_qpack_decode_encoder_stream(struct lws_qpack_stream_state *state,
 			}
 			
 			if (++state->str_pos >= state->str_len) {
+				if (state->huff &&
+				    (state->huff_pad > 7 ||
+				     (state->huff_pad_zero && state->huff_pad))) {
+					lwsl_notice("Huffman bad padding\n");
+					return 1;
+				}
+				state->huff_pad = 0;
+				state->huff_pad_zero = 0;
 				if (state->is_name) {
 					state->state = LQP_DEC_STR_LEN;
 				} else {
