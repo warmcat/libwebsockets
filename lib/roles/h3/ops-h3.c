@@ -677,6 +677,28 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 	if (name) {
 		/* It's an unknown header, or string-based. We need to match it. */
 		tok = lws_http_string_to_known_header(name, name_len);
+		/*
+		 * That lookup is a prefix match over the lextable strings,
+		 * which also hold the method + URI tokens ("get " etc).  A
+		 * literal QPACK name like "get" would map to WSI_TOKEN_GET_URI
+		 * and its value would be stored verbatim, bypassing the
+		 * :path decode and normalization.  Only accept an exact
+		 * field-name match: pseudo headers are stored as ":name",
+		 * regular headers as "name:".
+		 */
+		if (tok >= 0 && tok < WSI_TOKEN_COUNT) {
+			const char *ts = (const char *)lws_token_to_string(
+						(enum lws_token_indexes)tok);
+			size_t tl = ts ? strlen(ts) : 0;
+
+			if (!ts || strncmp(ts, name, name_len) ||
+			    !(tl == name_len ||
+			      (tl == name_len + 1 && ts[name_len] == ':'))) {
+				lwsl_wsi_notice(wsi, "refusing field name %.*s",
+						(int)name_len, name);
+				return -1;
+			}
+		}
 		if (name_len > 0 && name[0] == ':')
 			is_pseudo = 1;
 		if (tok >= 0 && tok < WSI_TOKEN_COUNT &&
