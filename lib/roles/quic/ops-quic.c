@@ -637,16 +637,27 @@ lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
 }
 
 void
-lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn, int is_largest_ack, uint64_t ack_delay)
+lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t pn_lo,
+		    uint64_t pn_hi, int is_largest_ack, uint64_t ack_delay)
 {
 	struct lws_quic_netconn *qn = nwsi->quic.qn;
+	lws_usec_t rtt_largest = 0;
+
 	if (!qn) return;
+
+	/*
+	 * The parser clamps ack_delay to the peer's max_ack_delay; this is
+	 * only a last line of defense so the lws_usec_t arithmetic below can
+	 * never see a negative value.
+	 */
+	if (ack_delay > 0x7fffffff)
+		ack_delay = 0x7fffffff;
 
 	/* PMTUD: Check if our active probe was acknowledged */
 	if (qn->pmtud_probe_pn != LWS_QUIC_PMTUD_PROBE_NONE &&
-	    acked_pn == qn->pmtud_probe_pn) {
+	    qn->pmtud_probe_pn >= pn_lo && qn->pmtud_probe_pn <= pn_hi) {
 		lwsl_wsi_info(nwsi, "QUIC PMTUD: Probe %llu ACKed! MTU upgraded from %d to %d",
-			(unsigned long long)acked_pn, (int)qn->current_mtu, (int)qn->probed_mtu);
+			(unsigned long long)qn->pmtud_probe_pn, (int)qn->current_mtu, (int)qn->probed_mtu);
 		qn->current_mtu = qn->probed_mtu;
 		qn->pmtud_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
 		qn->consecutive_mtu_losses = 0;
@@ -667,10 +678,16 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn, int is_large
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->in_flight[curlvl].head) {
 			struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
 
-			if (f->sent_in_pn == acked_pn) {
+			if (f->sent_in_pn >= pn_lo && f->sent_in_pn <= pn_hi) {
 				uint64_t sid = f->stream_id;
 				bytes_acked += f->wire_len;
 				rtt = now > f->sent_time_us ? now - f->sent_time_us : 0;
+				/*
+				 * RFC 9002 5.1: an RTT sample is only taken when
+				 * the Largest Acknowledged is newly acked
+				 */
+				if (f->sent_in_pn == pn_hi)
+					rtt_largest = rtt;
 				/* Packet was received successfully, free the frame! */
 				lws_dll2_remove(&f->list);
 				lws_free(f);
@@ -692,8 +709,10 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn, int is_large
 		qn->pto_count = 0;
 
 		/* Update RTT Estimator (RFC 9002 5.3) */
-		if (is_largest_ack && rtt > 0) {
-			lws_usec_t adjusted_rtt = rtt;
+		if (is_largest_ack && rtt_largest > 0) {
+			lws_usec_t adjusted_rtt = rtt_largest;
+
+			rtt = rtt_largest;
 			if (qn->min_rtt && rtt > qn->min_rtt + (lws_usec_t)ack_delay) {
 				adjusted_rtt = rtt - (lws_usec_t)ack_delay;
 			}

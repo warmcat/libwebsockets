@@ -633,25 +633,19 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 		case LWS_QUIC_FT_ACK:
 		case LWS_QUIC_FT_ACK_ECN: {
 			uint64_t largest_ack, ack_delay, ack_range_count, first_ack_range;
+			uint64_t actual_ack_delay_us, ack_delay_cap;
+			unsigned int ade = (unsigned int)qn->peer_ack_delay_exponent;
 
 			/*
-			 * ACK frames describe packet numbers we sent.  An ACK can
-			 * legitimately only refer to PNs we actually transmitted, so
-			 * the number of distinct lws_quic_handle_ack() invocations
-			 * that can do useful work is bounded by the number of packets
-			 * currently in flight at this level (plus a small margin for
-			 * races against loss detection draining the list).  Any ACK
-			 * claiming more is either corrupt or a deliberate attempt to
-			 * spin the event loop by describing a vast range of PNs.
-			 *
-			 * F1/F2 (GHSA / issue #3651 class): previously a single
-			 * attacker-controlled first_ack_range (up to 2^62) drove an
-			 * unbounded loop.  Cap the total work per ACK frame to what
-			 * could conceivably match something in our in-flight list.
+			 * ACK frames describe packet numbers we sent.  Each ACK
+			 * range is handed to lws_quic_handle_ack() as a [lo, hi]
+			 * pair costing one walk of the in-flight list, so the work
+			 * per frame is O(ranges x in_flight) regardless of how
+			 * wide the ranges are (an attacker-controlled range of up
+			 * to 2^62 PNs is the F1/F2 issue #3651 class), and the
+			 * range count is bounded below by both a fixed cap and the
+			 * frame's own length.
 			 */
-			uint64_t in_flight_count = qn ? qn->in_flight[level].count : 0;
-			uint64_t ack_budget = in_flight_count + 16; /* margin */
-			uint64_t ack_processed = 0;
 
 			/* 1. Largest Acknowledged */
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &largest_ack);
@@ -663,7 +657,25 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			if (!consumed) return -1;
 			pos += consumed;
 
-			uint64_t actual_ack_delay_us = ack_delay << (nwsi->quic.qn ? nwsi->quic.qn->peer_ack_delay_exponent : 3);
+			/*
+			 * RFC 9002 5.3: the peer's ack_delay is scaled by its
+			 * ack_delay_exponent and may not exceed its max_ack_delay
+			 * (25ms if it did not send TP 0x0b).  Unclamped, a hostile
+			 * value shifted by up to 20 bits overflows int64 and, as
+			 * lws_usec_t in the RTT estimator, goes negative: then
+			 * smoothed_rtt goes negative, the PTO never fires and every
+			 * in-flight frame is declared lost on each ACK.  Saturate
+			 * the shift and clamp before it is used anywhere.
+			 */
+			ack_delay_cap = qn->peer_max_ack_delay_us ?
+					(uint64_t)qn->peer_max_ack_delay_us :
+					(uint64_t)(25 * LWS_US_PER_MS);
+			if (ack_delay > ((uint64_t)~0ull >> ade))
+				actual_ack_delay_us = ack_delay_cap;
+			else
+				actual_ack_delay_us = ack_delay << ade;
+			if (actual_ack_delay_us > ack_delay_cap)
+				actual_ack_delay_us = ack_delay_cap;
 
 			/* 3. ACK Range Count */
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ack_range_count);
@@ -706,14 +718,16 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
 				return -1;
 			}
-			for (uint64_t i = 0; i <= first_ack_range; i++) {
-				if (ack_processed >= ack_budget)
-					break; /* budget exhausted: stop the costly
-						* handle_ack walk, but keep parsing the
-						* remaining range varints below so the
-						* parser offset stays valid. */
-				lws_quic_handle_ack(nwsi, level, pn - i, (i == 0) ? 1 : 0, actual_ack_delay_us);
-				ack_processed++;
+			lws_quic_handle_ack(nwsi, level, pn - first_ack_range, pn, 1,
+					    actual_ack_delay_us);
+			/*
+			 * RFC 9000 19.3.1: a further range when this one already
+			 * reaches PN 0 cannot describe any packet (and would
+			 * wrap pn below).
+			 */
+			if (ack_range_count && first_ack_range == pn) {
+				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+				return -1;
 			}
 			pn -= (first_ack_range + 1);
 
@@ -749,16 +763,12 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				}
 				pn -= gap + 1;
 
-				if (ack_range > pn) {
+				if (ack_range > pn ||
+				    (r + 1 < ack_range_count && ack_range == pn)) {
 					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
 					return -1;
 				}
-				for (uint64_t i = 0; i <= ack_range; i++) {
-					if (ack_processed >= ack_budget)
-						break; /* budget exhausted: see above */
-					lws_quic_handle_ack(nwsi, level, pn - i, 0, 0);
-					ack_processed++;
-				}
+				lws_quic_handle_ack(nwsi, level, pn - ack_range, pn, 0, 0);
 				pn -= (ack_range + 1);
 			}
 

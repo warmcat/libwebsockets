@@ -35,6 +35,13 @@ extern const struct lws_role_ops role_ops_quic;
 #define LWS_QUIC_DEFAULT_WINDOW (1024 * 1024)
 #define LWS_QUIC_MAX_WINDOW     (16 * 1024 * 1024)
 
+/*
+ * Most CRYPTO stream bytes we will hold per encryption level, whether as the
+ * contiguous TLS buffer or as out-of-order chunks waiting for a gap to fill
+ * (RFC 9000 7.5 suggests 4KB minimum; we allow a lot more for large certs).
+ */
+#define LWS_QUIC_CRYPTO_RX_MAX	262144
+
 struct lws_quic_cid {
 	uint8_t		id[LWS_QUIC_MAX_CID_LEN];
 	uint8_t		len;
@@ -177,6 +184,17 @@ enum lws_quic_frame_type {
 #define LWS_QUIC_PN_FORWARD_JUMP_LIMIT	1024u
 
 /*
+ * LWS_QUIC_PROBE_MIN_DATAGRAM: smallest anti-amplification allowance for an
+ *	unvalidated peer address that lets the tx bundler emit a packet
+ *	carrying just a PATH_CHALLENGE (short header up to 23 bytes, 9-byte
+ *	frame, 16-byte tag, plus the bundler's own fit margins).  Below this
+ *	the probe is abandoned rather than left spinning in pending_tx; the
+ *	allowance keeps accruing per address so the next packet from it can
+ *	restart the probe.
+ */
+#define LWS_QUIC_PROBE_MIN_DATAGRAM	160u
+
+/*
  * A logical frame queued for transmission or in-flight waiting for ACK.
  */
 struct lws_quic_tx_frame {
@@ -224,6 +242,7 @@ struct lws_quic_stream {
 
 	uint64_t		rx_offset;
 	lws_dll2_owner_t	rx_chunks; /* struct lws_quic_rx_chunk */
+	size_t			rx_buffered; /* bytes held in rx_chunks */
 
 	uint64_t		tx_offset;
 	/* Frames wait in the nwsi's pending_tx list, not here.
@@ -322,6 +341,15 @@ struct lws_quic_netconn {
 	/* RX Crypto Reassembly Buffers (Streams are handled by child WSIs) */
 	uint64_t		rx_crypto_offset[LWS_QUIC_LEVEL_COUNT];
 	lws_dll2_owner_t	rx_crypto_chunks[LWS_QUIC_LEVEL_COUNT];
+	/*
+	 * Bytes actually held in out-of-order reassembly chunks, per level for
+	 * CRYPTO and summed over all streams for STREAM data.  The flow control
+	 * window only bounds the highest offset the peer may send; without
+	 * charging the bytes we really buffer, overlapping chunks at distinct
+	 * offsets could pin memory far beyond the advertised window.
+	 */
+	size_t			rx_crypto_buffered[LWS_QUIC_LEVEL_COUNT];
+	size_t			rx_stream_buffered;
 
 	/* Probe Timeout timer for packet loss detection */
 	lws_sorted_usec_list_t	pto_sul;
@@ -398,6 +426,17 @@ struct lws_quic_netconn {
 	lws_sockaddr46		probing_sa46;
 	uint8_t			probing_sa46_valid:1;
 	uint8_t			rx_has_non_probing:1;
+	/*
+	 * Server-side peer migration (RFC 9000 9.3): while probing_sa46 is
+	 * unvalidated we keep sending on the committed path (udp->sa46) and
+	 * only PATH_CHALLENGE / PATH_RESPONSE go to the new address, limited
+	 * to 3x the bytes we received from it (9.3.1 / 8.1).  The probe is
+	 * abandoned when path_probe_sul fires without a matching
+	 * PATH_RESPONSE from that address (8.2.4).
+	 */
+	uint64_t		probe_bytes_received;
+	uint64_t		probe_bytes_sent;
+	lws_sorted_usec_list_t	path_probe_sul;
 
 	/*
 	 * Client preferred_address active migration (RFC 9000 Section 9.5/9.6).
@@ -527,8 +566,31 @@ lws_quic_write_varint(uint8_t *buf, size_t len, uint64_t val);
 int
 lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payload_len, const lws_sockaddr46 *sa46);
 
+/*
+ * Process one contiguous ACK range [pn_lo, pn_hi] with a single walk of the
+ * in-flight list.  is_largest_ack indicates pn_hi is the frame's Largest
+ * Acknowledged, which is the only PN an RTT sample is taken from.  ack_delay
+ * is in microseconds and must already be clamped to a sane ceiling.
+ */
 void
-lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn, int is_largest_ack, uint64_t ack_delay);
+lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t pn_lo,
+		    uint64_t pn_hi, int is_largest_ack, uint64_t ack_delay);
+
+/*
+ * Full 4-tuple comparison of two peer addresses (family, address and port),
+ * unlike lws_sa46_compare_ads() which ignores the port.  A NAT rebinding
+ * changes only the port, so path identity must include it.  Returns nonzero
+ * if they are the same path.
+ */
+int
+lws_quic_sa46_same_path(const lws_sockaddr46 *a, const lws_sockaddr46 *b);
+
+/*
+ * Abandon any server-side path probe (RFC 9000 8.2.4), continuing on the
+ * committed path.  Safe to call when no probe is active.
+ */
+void
+lws_quic_path_probe_abandon(struct lws *nwsi);
 
 void
 lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked);
