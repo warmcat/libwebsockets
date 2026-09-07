@@ -2637,11 +2637,23 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 				 * in front of us
 				 */
 
+				/*
+				 * Only the frame payload between the preamble
+				 * (pad length byte) and the trailing padding is
+				 * body; h2n->inside counts the body bytes of
+				 * this frame we already delivered.
+				 */
+				m = (int)h2n->length;
+				if ((uint32_t)m > h2n->preamble + h2n->padding)
+					m -= (int)(h2n->preamble + h2n->padding);
+				else
+					m = 0;
+
 				if (lws_hdr_total_length(h2n->swsi,
 					     WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
 				    h2n->swsi->http.rx_content_length &&
-				    h2n->swsi->http.rx_content_remain <
-						     h2n->length - h2n->inside && /* last */
+				    h2n->swsi->http.rx_content_remain +
+					h2n->inside < (lws_filepos_t)m && /* last */
 				    h2n->inside < h2n->length) {
 
 					lwsl_warn("%s: rx.cl: %lu, rx.content_remain: %lu, buf left: %lu, "
@@ -2663,11 +2675,19 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 				 * hand may exceed the current frame.
 				 */
 
+				/*
+				 * Also stop short of any trailing padding: it
+				 * is not body, and clipping here is what lets
+				 * the per-byte padding check above see (and
+				 * validate) the pad bytes at all.
+				 */
 				n = (int)lws_ptr_diff_size_t(iend, in)  + 1;
-				if (n > (int)(h2n->length - h2n->count + 1)) {
-					if (h2n->count > h2n->length)
-						goto close_swsi_and_return;
-					n = (int)(h2n->length - h2n->count) + 1;
+				if (h2n->count + h2n->padding > h2n->length)
+					goto close_swsi_and_return;
+				m = (int)(h2n->length - h2n->padding -
+					  h2n->count) + 1;
+				if (n > m) {
+					n = m;
 					lwsl_debug("---- restricting len to %d "
 						   "\n", n);
 				}
