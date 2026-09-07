@@ -141,7 +141,6 @@ enum {
 	LWS_FZ_ERR_NOT_FOUND,
 	LWS_FZ_ERR_ZLIB_INIT,
 	LWS_FZ_ERR_READ_CONTENT,
-	LWS_FZ_ERR_SEEK_COMPRESSED,
 };
 
 #define eff_size(_priv) (_priv->hdr.method == ZIP_COMPRESSION_METHOD_STORE ? \
@@ -255,7 +254,8 @@ lws_fops_zip_scan(lws_fops_zip_t priv, const char *name, int len)
 		if (amount != ZL_HEADER_LENGTH)
 			return LWS_FZ_ERR_NAME_READ;
 
-		priv->content_start = priv->hdr.offset +
+		/* widen first, the operands are all <= 32-bit and would wrap */
+		priv->content_start = (lws_filepos_t)priv->hdr.offset +
 				      ZL_HEADER_LENGTH +
 				      priv->hdr.filename_len +
 				      get_u16(buf + ZL_REL_OFFSET_CONTENT);
@@ -263,7 +263,14 @@ lws_fops_zip_scan(lws_fops_zip_t priv, const char *name, int len)
 		lwsl_debug("content supposed to start at 0x%lx\n",
                           (unsigned long)priv->content_start);
 
-		if (priv->content_start > priv->zip_fop_fd->len)
+		/*
+		 * The payload extent comes from the untrusted central directory,
+		 * it must lie entirely inside the zip.  Otherwise reads at the
+		 * end of the entry come up short and the virtual file can never
+		 * be served to its declared length.
+		 */
+		if (priv->content_start > priv->zip_fop_fd->len ||
+		    eff_size(priv) > priv->zip_fop_fd->len - priv->content_start)
 			return LWS_FZ_ERR_CONTENT_SANITY;
 
 		if (lws_vfs_file_seek_set(priv->zip_fop_fd,
@@ -332,6 +339,9 @@ lws_fops_zip_inflate(lws_fops_zip_t priv, lws_filepos_t *amount,
 {
 	lws_filepos_t ramount = 0, rlen, cur = lws_vfs_tell(priv->zip_fop_fd);
 	int ret;
+
+	/* never leave a stale count in *amount if we fail partway */
+	*amount = 0;
 
 	priv->inflate.avail_out = (unsigned int)len;
 	priv->inflate.next_out = buf;
@@ -611,20 +621,46 @@ lws_fops_zip_seek_cur(lws_fop_fd_t fd, lws_fileofs_t offset_from_cur_pos)
 	return (lws_fileofs_t)fd->pos;
 }
 
+/*
+ * The virtual file length was taken from the zip directory, so a read that
+ * produced nothing while there is still supposed to be data left means the
+ * entry is truncated or corrupt.  A successful read with *amount == 0 looks
+ * like EOF to callers that then retry, without ever making progress; fail it
+ * instead so they close the connection.
+ */
+
+static int
+lws_fops_zip_read_short(lws_fop_fd_t fd, const lws_filepos_t *amount,
+			lws_filepos_t len)
+{
+	if (!len || *amount || fd->pos >= fd->len)
+		return 0;
+
+	lwsl_notice("%s: truncated zip entry at %llu / %llu\n", __func__,
+		    (unsigned long long)fd->pos, (unsigned long long)fd->len);
+
+	return -1;
+}
+
+/*
+ * fops read contract, as relied on by lws_serve_http_file_fragment() and
+ * implemented by the platform fops: return < 0 on failure with *amount zeroed,
+ * else 0 with *amount set to what was actually read.
+ */
+
 static int
 lws_fops_zip_read(lws_fop_fd_t fd, lws_filepos_t *amount, uint8_t *buf,
 		  lws_filepos_t len)
 {
 	lws_fops_zip_t priv = fop_fd_to_priv(fd);
 	lws_filepos_t ramount = 0, rlen, cur = lws_vfs_tell(fd);
-	int ret;
+
+	*amount = 0;
 
 	if (priv->decompress) {
 
-		if (!len) {
-			*amount = 0;
+		if (!len)
 			return 0;
-		}
 
 		if (priv->exp_uncomp_pos != fd->pos) {
 			/*
@@ -635,43 +671,39 @@ lws_fops_zip_read(lws_fop_fd_t fd, lws_filepos_t *amount, uint8_t *buf,
 			 */
 			lwsl_info("seek in decompressed\n");
 
-			ret = lws_fops_zip_reset_inflate(priv);
-			if (ret)
-				return ret;
+			if (lws_fops_zip_reset_inflate(priv))
+				return -1;
 
 			while (priv->exp_uncomp_pos < fd->pos) {
 				rlen = fd->pos - priv->exp_uncomp_pos;
 				if (rlen > len)
 					rlen = len;
-				ret = lws_fops_zip_inflate(priv, amount, buf,
-							   rlen);
-				if (ret)
-					return LWS_FZ_ERR_SEEK_COMPRESSED;
-				if (!*amount)
-					/*
-					 * the inflated data ran out before we
-					 * could reach the seek point
-					 */
-					return LWS_FZ_ERR_SEEK_COMPRESSED;
+				/*
+				 * inflate failed, or the inflated data ran out
+				 * before we could reach the seek point... on
+				 * failure *amount is already 0, so the scratch
+				 * bytes are never reported as file content
+				 */
+				if (lws_fops_zip_inflate(priv, amount, buf,
+							 rlen) || !*amount)
+					return -1;
 				priv->exp_uncomp_pos += *amount;
 			}
 			*amount = 0;
 		}
 
-		ret = lws_fops_zip_inflate(priv, amount, buf, len);
-		if (ret)
-			return ret;
+		if (lws_fops_zip_inflate(priv, amount, buf, len))
+			return -1;
 
 		priv->exp_uncomp_pos += *amount;
 		fd->pos += *amount;
 
-		return 0;
+		return lws_fops_zip_read_short(fd, amount, len);
 	}
 
 	if (priv->add_gzip_container) {
 
 		lwsl_info("%s: gzip + container\n", __func__);
-		*amount = 0;
 
 		/* place the canned header at the start */
 
@@ -701,8 +733,10 @@ lws_fops_zip_read(lws_fop_fd_t fd, lws_filepos_t *amount, uint8_t *buf,
 			    priv->zip_fop_fd->pos < (priv->hdr.comp_size +
 					    	     priv->content_start)) {
 				if (lws_vfs_file_read(priv->zip_fop_fd,
-						      &ramount, buf, rlen))
-					return LWS_FZ_ERR_READ_CONTENT;
+						      &ramount, buf, rlen)) {
+					*amount = 0;
+					return -1;
+				}
 				*amount += ramount;
 				fd->pos += ramount; // virtual pos
 				buf += ramount;
@@ -726,7 +760,11 @@ lws_fops_zip_read(lws_fop_fd_t fd, lws_filepos_t *amount, uint8_t *buf,
 			fd->pos += rlen;
 		}
 
-		return 0;
+		/*
+		 * len was only reduced by what was added to *amount, so if
+		 * *amount is still 0 here, len is still the original request
+		 */
+		return lws_fops_zip_read_short(fd, amount, len);
 	}
 
 	lwsl_info("%s: store\n", __func__);
@@ -735,12 +773,14 @@ lws_fops_zip_read(lws_fop_fd_t fd, lws_filepos_t *amount, uint8_t *buf,
 		len = eff_size(priv) - cur;
 
 	if (priv->zip_fop_fd->fops->LWS_FOP_READ(priv->zip_fop_fd,
-						 amount, buf, len))
-		return LWS_FZ_ERR_READ_CONTENT;
+						 amount, buf, len)) {
+		*amount = 0;
+		return -1;
+	}
 
 	fd->pos += *amount;
 
-	return 0;
+	return lws_fops_zip_read_short(fd, amount, len);
 }
 
 struct lws_plat_file_ops fops_zip = {
