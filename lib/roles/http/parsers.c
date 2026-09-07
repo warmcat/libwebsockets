@@ -216,8 +216,12 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 		  pt->http.ah_count_in_use);
 
 	if (!lwsi_role_http(wsi)) {
+		/*
+		 * A caller asking for an ah on a non-http role is a bug on
+		 * its side, but the input that got it there can be remote
+		 * (C-016 was exactly that), so refuse rather than abort.
+		 */
 		lwsl_err("%s: bad role %s\n", __func__, wsi->role_ops->name);
-		assert(0);
 		return -1;
 	}
 
