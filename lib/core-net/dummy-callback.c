@@ -27,10 +27,14 @@
 /* max individual proxied header payload size */
 #define MAXHDRVAL 1024
 
+/* most repeats of one repeatable header (eg, Set-Cookie) we will forward */
+#define MAXHDRFRAGS 32
+
 #if defined(LWS_WITH_HTTP_PROXY)
 /*
- * Copy header `index` from the parent (or onward client) wsi ah into the
- * headers being serialized at *p.
+ * Copy one fragment (frag >= 0) or the whole, aggregated value (frag < 0) of
+ * header `index` from the parent (or onward client) wsi ah into the headers
+ * being serialized at *p.
  *
  * The caller passes a fixed stack temp for the common case; headers can be
  * legitimately longer than any fixed buffer we could afford on the stack (eg,
@@ -39,11 +43,16 @@
  * parent side already had to accept and store the header.
  */
 static int
-proxy_header(struct lws *wsi, struct lws *par, unsigned char *temp,
-	     int temp_len, int index, unsigned char **p, unsigned char *end)
+proxy_header_frag(struct lws *wsi, struct lws *par, unsigned char *temp,
+		  int temp_len, int index, int frag, unsigned char **p,
+		  unsigned char *end)
 {
+	enum lws_token_indexes h = (enum lws_token_indexes)index;
 	unsigned char *heap = NULL;
-	int n = lws_hdr_total_length(par, (enum lws_token_indexes)index);
+	int n, r = -1;
+
+	n = frag < 0 ? lws_hdr_total_length(par, h) :
+		       lws_hdr_fragment_length(par, h, frag);
 
 	if (n < 1) {
 		lwsl_wsi_debug(wsi, "no index %d:", index);
@@ -63,25 +72,64 @@ proxy_header(struct lws *wsi, struct lws *par, unsigned char *temp,
 		temp_len = n + 1;
 	}
 
-	if (lws_hdr_copy(par, (char *)temp, temp_len, (enum lws_token_indexes)index) < 0) {
+	if ((frag < 0 ? lws_hdr_copy(par, (char *)temp, temp_len, h) :
+			lws_hdr_copy_fragment(par, (char *)temp, temp_len, h,
+					      frag)) < 0) {
 		lwsl_wsi_notice(wsi, "unable to copy par hdr idx %d (len %d)",
 				      index, n);
-		lws_free(heap);
 
-		return -1;
+		goto bail;
 	}
 
 	lwsl_wsi_debug(wsi, "index %d: %s", index, (char *)temp);
 
-	if (lws_add_http_header_by_token(wsi, (enum lws_token_indexes)index, temp, n, p, end)) {
+	if (lws_add_http_header_by_token(wsi, h, temp, n, p, end)) {
 		lwsl_wsi_notice(wsi, "unable to append par hdr idx %d (len %d)",
 				     index, n);
-		lws_free(heap);
 
-		return -1;
+		goto bail;
 	}
 
+	r = 0;
+
+bail:
 	lws_free(heap);
+
+	return r;
+}
+
+static int
+proxy_header(struct lws *wsi, struct lws *par, unsigned char *temp,
+	     int temp_len, int index, unsigned char **p, unsigned char *end)
+{
+	return proxy_header_frag(wsi, par, temp, temp_len, index, -1, p, end);
+}
+
+/*
+ * Repeatable headers arrive as a chain of fragments on the ah, and
+ * lws_hdr_copy() flattens the chain into a single joined value.  For
+ * Set-Cookie that is destructive: joined with ';', the second and later
+ * cookies become *attributes* of the first, so every cookie but the first is
+ * silently lost and the first inherits their HttpOnly / Secure / SameSite.
+ * Emit one header per fragment instead, so the client sees what the backend
+ * sent.
+ */
+static int
+proxy_header_each_frag(struct lws *wsi, struct lws *par, unsigned char *temp,
+		       int temp_len, int index, unsigned char **p,
+		       unsigned char *end)
+{
+	int frag = 0;
+
+	while (frag < MAXHDRFRAGS &&
+	       lws_hdr_fragment_length(par, (enum lws_token_indexes)index,
+				       frag) > 0) {
+		if (proxy_header_frag(wsi, par, temp, temp_len, index, frag, p,
+				      end))
+			return -1;
+
+		frag++;
+	}
 
 	return 0;
 }
@@ -217,6 +265,21 @@ bail:
 
 #endif
 
+/*
+ * Both directions of a proxied ws connection queue whole frames on the
+ * far-side wsi until it is writeable.  The source is read at serv_buf
+ * granularity every service iteration, while the sink drains one queued frame
+ * per POLLOUT, so without backpressure a fast peer talking to a slow one grows
+ * the queue without bound.
+ *
+ * Above _HI we stop reading the source, and resume below _LO; _MAX is a
+ * backstop for cases rx flow control cannot cover (eg, a muxed parent), where
+ * we drop the connection rather than the process.
+ */
+#define LWS_WS_PROXY_BUFFERED_MAX	(10 * 1024 * 1024)
+#define LWS_WS_PROXY_BUFFERED_HI	(256 * 1024)
+#define LWS_WS_PROXY_BUFFERED_LO	(64 * 1024)
+
 struct lws_proxy_pkt {
 	struct lws_dll2 pkt_list;
 	size_t len;
@@ -277,17 +340,26 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 				    tmp[MAXHDRVAL];
 		char peer[64];
 
-		proxy_header(wsi, wsi->parent, tmp, sizeof(tmp),
-			      WSI_TOKEN_HTTP_ACCEPT_LANGUAGE, p, end);
+		if (!wsi->parent)
+			break;
 
-		proxy_header(wsi, wsi->parent, tmp, sizeof(tmp),
-			      WSI_TOKEN_HTTP_COOKIE, p, end);
+		/*
+		 * Only request headers may be copied onto the onward request.
+		 * Set-Cookie is a *response* header: forwarding the client's
+		 * own one puts a header of his choosing into the request we
+		 * make to the backend.
+		 */
 
-		proxy_header(wsi, wsi->parent, tmp, sizeof(tmp),
-			      WSI_TOKEN_HTTP_SET_COOKIE, p, end);
+		if (proxy_header(wsi, wsi->parent, tmp, sizeof(tmp),
+			      WSI_TOKEN_HTTP_ACCEPT_LANGUAGE, p, end))
+			return -1;
+
+		if (proxy_header(wsi, wsi->parent, tmp, sizeof(tmp),
+			      WSI_TOKEN_HTTP_COOKIE, p, end))
+			return -1;
 
 		lws_get_peer_simple(wsi->parent, peer, sizeof(peer));
-		
+
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_X_FORWARDED_FOR,
 						 (uint8_t *)peer, (int)strlen(peer), p, end))
                 	lwsl_wsi_notice(wsi, "unable to append forwarded_for");
@@ -304,12 +376,18 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
-		wsi->parent->ws->proxy_buffered += len;
-		if (wsi->parent->ws->proxy_buffered > 10 * 1024 * 1024) {
+		if (!wsi->parent || !wsi->parent->ws) {
+			lwsl_wsi_warn(wsi, "Proxy client side RX: no parent ws");
+			break;
+		}
+
+		if (wsi->parent->ws->proxy_buffered + len >
+						LWS_WS_PROXY_BUFFERED_MAX) {
 			lwsl_wsi_err(wsi, "proxied ws connection "
 					  "excessive buffering: dropping");
 			return -1;
 		}
+
 		pkt = lws_zalloc(sizeof(*pkt) + LWS_PRE + len, __func__);
 		if (!pkt)
 			return -1;
@@ -321,8 +399,13 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		memcpy(((uint8_t *)&pkt[1]) + LWS_PRE, in, len);
 
+		wsi->parent->ws->proxy_buffered += len;
 		lws_dll2_add_tail(&pkt->pkt_list, &wsi->parent->ws->proxy_owner);
 		lws_callback_on_writable(wsi->parent);
+
+		if (wsi->parent->ws->proxy_buffered > LWS_WS_PROXY_BUFFERED_HI)
+			/* stop reading the backend until the client catches up */
+			lws_rx_flow_control(wsi, 0);
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
@@ -337,8 +420,16 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 					pkt->first, pkt->final)) < 0)
 			return -1;
 
+		if (wsi->ws->proxy_buffered >= pkt->len)
+			wsi->ws->proxy_buffered -= pkt->len;
+
 		lws_dll2_remove(dll);
 		lws_free(pkt);
+
+		if (wsi->parent &&
+		    wsi->ws->proxy_buffered < LWS_WS_PROXY_BUFFERED_LO)
+			/* we have room again, let the client talk */
+			lws_rx_flow_control(wsi->parent, 1);
 
 		if (lws_dll2_get_head(&wsi->ws->proxy_owner))
 			lws_callback_on_writable(wsi);
@@ -365,6 +456,18 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		}
 
+		/*
+		 * This direction queues on the child, so it is the child's
+		 * proxy_buffered that accounts for it
+		 */
+
+		if (child->ws->proxy_buffered + len >
+						LWS_WS_PROXY_BUFFERED_MAX) {
+			lwsl_wsi_err(wsi, "proxied ws connection "
+					  "excessive buffering: dropping");
+			return -1;
+		}
+
 		pkt = lws_zalloc(sizeof(*pkt) + LWS_PRE + len, __func__);
 		if (!pkt)
 			return -1;
@@ -376,9 +479,14 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		memcpy(((uint8_t *)&pkt[1]) + LWS_PRE, in, len);
 
+		child->ws->proxy_buffered += len;
 		lws_dll2_add_tail(&pkt->pkt_list,
 				  &child->ws->proxy_owner);
 		lws_callback_on_writable(child);
+
+		if (child->ws->proxy_buffered > LWS_WS_PROXY_BUFFERED_HI)
+			/* stop reading the client until the backend catches up */
+			lws_rx_flow_control(wsi, 0);
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
@@ -393,10 +501,16 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 					pkt->first, pkt->final)) < 0)
 			return -1;
 
-		wsi->ws->proxy_buffered -= pkt->len;
+		if (wsi->ws->proxy_buffered >= pkt->len)
+			wsi->ws->proxy_buffered -= pkt->len;
 
 		lws_dll2_remove(dll);
 		lws_free(pkt);
+
+		child = lws_get_child(wsi);
+		if (child && wsi->ws->proxy_buffered < LWS_WS_PROXY_BUFFERED_LO)
+			/* we have room again, let the backend talk */
+			lws_rx_flow_control(child, 1);
 
 		if (lws_dll2_get_head(&wsi->ws->proxy_owner))
 			lws_callback_on_writable(wsi);
@@ -553,8 +667,17 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				     (char)~LWS_CB_REASON_AUX_BF__PROXY_HEADERS;
 
 			n = LWS_WRITE_HTTP_HEADERS;
-			if (!wsi->http.prh_content_length)
+			if (!wsi->http.prh_content_length) {
 				n |= LWS_WRITE_H2_STREAM_END;
+				/*
+				 * On a muxed parent a zero-length response is
+				 * complete with its headers... remember we
+				 * already ended the stream, so the transaction
+				 * end does not end it a second time
+				 */
+				if (wsi->mux_substream)
+					wsi->http.did_stream_close = 1;
+			}
 
 			lwsl_wsi_debug(wsi, "issuing proxy headers: clen %d",
 				    (int)wsi->http.prh_content_length);
@@ -734,22 +857,48 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		 * copy these headers from the client connection to the parent
 		 */
 
-		proxy_header(parent, wsi, end, MAXHDRVAL,
-			     WSI_TOKEN_HTTP_CONTENT_LENGTH, &p, end);
-		proxy_header(parent, wsi, end, MAXHDRVAL,
-			     WSI_TOKEN_HTTP_CONTENT_TYPE, &p, end);
-		proxy_header(parent, wsi, end, MAXHDRVAL,
-			     WSI_TOKEN_HTTP_ETAG, &p, end);
-		proxy_header(parent, wsi, end, MAXHDRVAL,
-			     WSI_TOKEN_HTTP_ACCEPT_LANGUAGE, &p, end);
-		proxy_header(parent, wsi, end, MAXHDRVAL,
-			     WSI_TOKEN_HTTP_CONTENT_ENCODING, &p, end);
-		proxy_header(parent, wsi, end, MAXHDRVAL,
-			     WSI_TOKEN_HTTP_CACHE_CONTROL, &p, end);
-		proxy_header(parent, wsi, end, MAXHDRVAL,
-			     WSI_TOKEN_HTTP_SET_COOKIE, &p, end);
-		proxy_header(parent, wsi, end, MAXHDRVAL,
-			     WSI_TOKEN_HTTP_LOCATION, &p, end);
+		/*
+		 * A Content-Length we cannot make sense of decides the framing
+		 * of the response we give the client, so an ambiguous one from
+		 * the backend is fatal rather than something to guess at: a
+		 * second Content-Length header, or one with an empty value
+		 * (which lws_hdr_total_length() reports as absent, but
+		 * atoll("") would take as 0 and end the response early).
+		 */
+
+		n = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH);
+
+		if (lws_hdr_fragment_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
+					    1) > 0 ||
+		    (n < 1 && lws_hdr_extant(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH))) {
+			lwsl_wsi_notice(wsi, "bad upstream content-length");
+
+			return -1;
+		}
+
+		/*
+		 * Any of these failing has left the header cursor mid-header,
+		 * so the response we would produce is mangled: fail the
+		 * transaction instead of sending it
+		 */
+
+		if (proxy_header(parent, wsi, end, MAXHDRVAL,
+			     WSI_TOKEN_HTTP_CONTENT_LENGTH, &p, end) ||
+		    proxy_header(parent, wsi, end, MAXHDRVAL,
+			     WSI_TOKEN_HTTP_CONTENT_TYPE, &p, end) ||
+		    proxy_header(parent, wsi, end, MAXHDRVAL,
+			     WSI_TOKEN_HTTP_ETAG, &p, end) ||
+		    proxy_header(parent, wsi, end, MAXHDRVAL,
+			     WSI_TOKEN_HTTP_ACCEPT_LANGUAGE, &p, end) ||
+		    proxy_header(parent, wsi, end, MAXHDRVAL,
+			     WSI_TOKEN_HTTP_CONTENT_ENCODING, &p, end) ||
+		    proxy_header(parent, wsi, end, MAXHDRVAL,
+			     WSI_TOKEN_HTTP_CACHE_CONTROL, &p, end) ||
+		    proxy_header_each_frag(parent, wsi, end, MAXHDRVAL,
+			     WSI_TOKEN_HTTP_SET_COOKIE, &p, end) ||
+		    proxy_header(parent, wsi, end, MAXHDRVAL,
+			     WSI_TOKEN_HTTP_LOCATION, &p, end))
+			return -1;
 
 		if (!parent->mux_substream)
 			if (lws_add_http_header_by_token(parent,
@@ -765,8 +914,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		 * our own chunking since we still don't know the size.
 		 */
 
-		if (!parent->mux_substream &&
-		    !lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
+		if (!parent->mux_substream && n < 1) {
 			lwsl_wsi_debug(wsi, "downstream parent chunked");
 			if (lws_add_http_header_by_token(parent,
 					WSI_TOKEN_HTTP_TRANSFER_ENCODING,
@@ -779,8 +927,15 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_finalize_http_header(parent, &p, end))
 			return 1;
 
+		/*
+		 * Same predicate as the chunking decision above: if we told
+		 * the client the response is chunked, prh_content_length must
+		 * stay (size_t)-1 so the transaction end emits the chunk
+		 * terminator
+		 */
+
 		parent->http.prh_content_length = (size_t)-1;
-		if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH))
+		if (n > 0)
 			parent->http.prh_content_length = (size_t)atoll(
 				lws_hdr_simple_ptr(wsi,
 						WSI_TOKEN_HTTP_CONTENT_LENGTH));
@@ -844,18 +999,19 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		 * connection's request
 		 */
 
-		proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
-				WSI_TOKEN_HTTP_ETAG, p, end);
-		proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
-				WSI_TOKEN_HTTP_IF_MODIFIED_SINCE, p, end);
-		proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
-				WSI_TOKEN_HTTP_ACCEPT_LANGUAGE, p, end);
-		proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
-				WSI_TOKEN_HTTP_ACCEPT_ENCODING, p, end);
-		proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
-				WSI_TOKEN_HTTP_CACHE_CONTROL, p, end);
-		proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
-				WSI_TOKEN_HTTP_COOKIE, p, end);
+		if (proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
+				WSI_TOKEN_HTTP_ETAG, p, end) ||
+		    proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
+				WSI_TOKEN_HTTP_IF_MODIFIED_SINCE, p, end) ||
+		    proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
+				WSI_TOKEN_HTTP_ACCEPT_LANGUAGE, p, end) ||
+		    proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
+				WSI_TOKEN_HTTP_ACCEPT_ENCODING, p, end) ||
+		    proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
+				WSI_TOKEN_HTTP_CACHE_CONTROL, p, end) ||
+		    proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
+				WSI_TOKEN_HTTP_COOKIE, p, end))
+			return -1;
 
 		buf[0] = '\0';
 		lws_get_peer_simple(parent, buf, sizeof(buf));
