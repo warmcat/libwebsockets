@@ -2122,12 +2122,20 @@ const lws_humanize_unit_t humanize_schema_us[] = {
 
 /* biggest ull is 18446744073709551615 (20 chars) */
 
+/*
+ * \p max is how many bytes are available at \p r, including the NUL we always
+ * write... so we can emit at most max - 1 digits
+ */
+
 static int
-decim(char *r, uint64_t v, char chars, char leading)
+decim(char *r, size_t max, uint64_t v, char chars, char leading)
 {
 	uint64_t q = 1;
 	char *ro = r;
 	int n = 1;
+
+	if (!max)
+		return 0;
 
 	while ((leading || v > (q * 10) - 1) && n < 20 && n < chars) {
 		q = q * 10;
@@ -2135,6 +2143,9 @@ decim(char *r, uint64_t v, char chars, char leading)
 	}
 
 	/* n is how many chars needed */
+
+	if ((size_t)n > max - 1)
+		n = (int)(max - 1);
 
 	while (n--) {
 		*r++ = (char)('0' + (char)((v / q) % 10));
@@ -2152,33 +2163,49 @@ lws_humanize(char *p, size_t len, uint64_t v, const lws_humanize_unit_t *schema)
 	const lws_humanize_unit_t *s = NULL;
 	char *obuf = p, *end = p + len;
 
+	if (!len)
+		return 0;
+
 	do {
 		if (v >= schema->factor || schema->factor == 1) {
 			if (schema[1].name)
 				s = &schema[1];
 
 			if (schema->factor == 1) {
-				p += decim(p, v, 4, 0);
+				p += decim(p, lws_ptr_diff_size_t(end, p), v,
+					   4, 0);
 				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 						"%s", schema->name);
 				return lws_ptr_diff(p, obuf);
 			}
 
-			p += decim(p, v / schema->factor, 4, 0);
+			p += decim(p, lws_ptr_diff_size_t(end, p),
+				   v / schema->factor, 4, 0);
 			if (s) {
 				uint64_t iif = schema->factor / s->factor;
+
+				/*
+				 * decim() always leaves p pointing at its NUL,
+				 * ie, at end - 1 at worst... we need one byte
+				 * for the separator and one for the NUL after
+				 * it before we may write the separator
+				 */
 
 				if (s->factor * 1000 == schema->factor ||
 				    s->factor * 1024 == schema->factor) { /* decimal */
 					uint64_t d = (v % schema->factor) / (schema->factor / 1000);
 
-					if (d) { /* we want, eg 123ms rather than 123.000ms */
+					if (d && lws_ptr_diff_size_t(end, p) > 1) {
+						/* we want, eg 123ms rather than 123.000ms */
 						*p++ = '.';
-						p += decim(p, d, 3, 1);
+						p += decim(p, lws_ptr_diff_size_t(end, p),
+							   d, 3, 1);
 					}
-				} else { /* imperial fraction, eg, h:m */
+				} else if (lws_ptr_diff_size_t(end, p) > 1) {
+					/* imperial fraction, eg, h:m */
 					*p++ = ':';
-					p += decim(p, (v % schema->factor) / s->factor,
+					p += decim(p, lws_ptr_diff_size_t(end, p),
+						   (v % schema->factor) / s->factor,
 							iif >= 100 ? 3 : (iif >= 10 ? 2 : 1), 1);
 				}
 			}
@@ -2189,7 +2216,7 @@ lws_humanize(char *p, size_t len, uint64_t v, const lws_humanize_unit_t *schema)
 	} while (schema->name);
 
 	assert(0);
-	strncpy(p, "unknown value", len);
+	lws_strncpy(p, "unknown value", len);
 
 	return 0;
 }
