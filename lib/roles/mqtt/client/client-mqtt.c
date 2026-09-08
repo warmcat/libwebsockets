@@ -257,8 +257,15 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
 		 * timeout protection set in client-handshake.c
 		 */
-		if (pollfd->revents & LWS_POLLOUT)
-			lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd);
+		if ((pollfd->revents & LWS_POLLOUT) &&
+		    !lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd))
+			/*
+			 * It dispositioned the failed attempt by closing and
+			 * freeing the wsi; our caller maps nonzero to
+			 * LWS_HPI_RET_WSI_ALREADY_DIED so nothing else touches
+			 * it.  Same contract as ops-h1 / ops-raw-skt.
+			 */
+			return -1;
 		break;
 
 #if defined(LWS_WITH_TLS)
