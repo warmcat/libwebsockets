@@ -247,6 +247,23 @@ struct lws_access_log {
 #define LWS_HTTP_CHUNK_HDR_MAX_SIZE (6 + 2) /* 6 hex digits and then CRLF */
 #define LWS_HTTP_CHUNK_TRL_MAX_SIZE (2 + 5) /* CRLF, then maybe 0 CRLF CRLF */
 
+#if defined(LWS_WITH_HTTP_PROXY)
+/*
+ * When proxying, the client's request body is stashed on the client-facing
+ * (parent) wsi until the onward, backend connection is writeable, and drained
+ * from there by the h1 POLLOUT path.  Without backpressure, a client that
+ * uploads faster than the backend accepts grows the stash on the heap up to
+ * the whole allowed body size.
+ *
+ * Above _HI we stop reading the client, and resume below _LO; a muxed parent
+ * (h2 stream) ignores rx flow control, so there we can only bound the stash at
+ * _MAX and fail the transaction rather than the process.
+ */
+#define LWS_HTTP_PROXY_BODY_BUFFERED_MAX	(10 * 1024 * 1024)
+#define LWS_HTTP_PROXY_BODY_BUFFERED_HI		(256 * 1024)
+#define LWS_HTTP_PROXY_BODY_BUFFERED_LO		(64 * 1024)
+#endif
+
 struct _lws_http_mode_related {
 	struct lws *new_wsi_list;
 
@@ -257,6 +274,7 @@ struct _lws_http_mode_related {
 #if defined(LWS_WITH_HTTP_PROXY)
 	struct lws_rewrite *rw;
 	struct lws_buflist *buflist_post_body;
+	size_t buflist_post_body_len;
 #endif
 	struct allocated_headers *ah;
 	struct lws *ah_wait_list;

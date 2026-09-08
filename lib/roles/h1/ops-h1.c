@@ -826,16 +826,28 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 	    lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY) {
 #if defined(LWS_WITH_HTTP_PROXY)
 		if (wsi->http.proxy_clientside) {
-			unsigned char *buf, prebuf[LWS_PRE + 1024];
-			size_t len = lws_buflist_next_segment_len(
-					&wsi->parent->http.buflist_post_body, &buf);
+			struct lws_context_per_thread *pt =
+					&wsi->a.context->pt[(int)wsi->tsi];
+			struct lws *par = lws_get_parent(wsi);
+			size_t max = wsi->a.context->pt_serv_buf_size - LWS_PRE;
+			unsigned char *buf;
+			size_t len;
 			int n;
 
-			if (len > sizeof(prebuf) - LWS_PRE)
-				len = sizeof(prebuf) - LWS_PRE;
+			if (!par) {
+				lwsl_wsi_info(wsi, "proxy body: parent gone");
+
+				return LWS_HP_RET_BAIL_DIE;
+			}
+
+			len = lws_buflist_next_segment_len(
+					&par->http.buflist_post_body, &buf);
+
+			if (len > max)
+				len = max;
 
 			if (len) {
-				memcpy(prebuf + LWS_PRE, buf, len);
+				memcpy(pt->serv_buf + LWS_PRE, buf, len);
 
 				lwsl_debug("%s: %s: proxying body %d %d %d %d %d\n",
 						__func__, lws_wsi_tag(wsi), (int)len,
@@ -845,21 +857,36 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 						(int)wsi->http.rx_content_remain
 						);
 
-				n = lws_write(wsi, prebuf + LWS_PRE, len, LWS_WRITE_HTTP);
+				n = lws_write(wsi, pt->serv_buf + LWS_PRE, len,
+					      LWS_WRITE_HTTP);
 				if (n < 0) {
 					lwsl_err("%s: PROXY_BODY: write %d failed\n",
 						 __func__, (int)len);
 					return LWS_HP_RET_BAIL_DIE;
 				}
 
-				lws_buflist_use_segment(&wsi->parent->http.buflist_post_body, len);
+				lws_buflist_use_segment(&par->http.buflist_post_body, len);
 
+				if (par->http.buflist_post_body_len >= len)
+					par->http.buflist_post_body_len -= len;
+				else
+					par->http.buflist_post_body_len = 0;
+
+				if (par->http.buflist_post_body_len <
+					    LWS_HTTP_PROXY_BODY_BUFFERED_LO)
+					/* we have room again, let him talk */
+					lws_rx_flow_control(par, 1);
 			}
 
-			if (wsi->parent->http.buflist_post_body) {
+			if (par->http.buflist_post_body) {
 				lws_callback_on_writable(wsi);
 				return LWS_HP_RET_DROP_POLLOUT;
 			}
+
+			/* the stash is drained, he is free to talk again */
+
+			par->http.buflist_post_body_len = 0;
+			lws_rx_flow_control(par, 1);
 
 			lwsl_wsi_info(wsi, "nothing to send");
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)

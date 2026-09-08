@@ -604,8 +604,36 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_buflist_append_segment(
 				     &wsi->http.buflist_post_body, in, len) < 0)
 				return -1;
+
+			wsi->http.buflist_post_body_len += len;
+
 			lws_client_http_body_pending(lws_get_child(wsi), 1);
 			lws_callback_on_writable(lws_get_child(wsi));
+
+			if (wsi->http.buflist_post_body_len <=
+					LWS_HTTP_PROXY_BODY_BUFFERED_HI)
+				break;
+
+			if (wsi->mux_substream || lwsi_role_h2(wsi)) {
+				/*
+				 * rx flow control is a NOP on a muxed stream,
+				 * so we have no way to make him wait for the
+				 * backend... bound the stash and fail the
+				 * stream rather than the process
+				 */
+				if (wsi->http.buflist_post_body_len >
+					   LWS_HTTP_PROXY_BODY_BUFFERED_MAX) {
+					lwsl_wsi_err(wsi, "proxied body "
+						 "excessive buffering: "
+						 "dropping");
+					return -1;
+				}
+				break;
+			}
+
+			/* stop reading him until the backend catches up */
+
+			lws_rx_flow_control(wsi, 0);
 		}
 		break;
 #endif
