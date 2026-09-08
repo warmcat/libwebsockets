@@ -48,6 +48,13 @@
 #define PSS_MAGIC 0x50535301
 #define MONITOR_IPC_BUF_SIZE 65536
 
+/*
+ * Smallest amount of room in the shared IPC tx buffer worth starting a new
+ * response into: comfortably larger than any fixed response envelope in this
+ * file, so a response either fits or is not begun at all
+ */
+#define MONITOR_TX_MIN_ROOM 1024
+
 struct pss {
 	uint32_t magic;
 	struct lws *wsi;
@@ -1927,9 +1934,21 @@ handle_req_get_acme_log(struct vhd *vhd, struct pss *root_pss, struct monitor_re
 				buf[n] = '\0';
 				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_log\",\"status\":\"ok\",\"log\":\"");
 				for (ssize_t i = 0; i < n; i++) {
-					if (buf[i] == '\n') tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\\n");
-					else if (buf[i] == '"') tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\\\"");
-					else if (buf[i] == '\\') tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\\\\");
+					/*
+					 * Each iteration can store two bytes and
+					 * the closing "\"}\n" needs four more, so
+					 * stop while both still fit: this shares
+					 * the one tx buffer with any responses
+					 * already composed into it by earlier
+					 * requests from the same read
+					 */
+					if (tx >= tx_end - 12) {
+						tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "...");
+						break;
+					}
+					if (buf[i] == '\n') { *tx++ = '\\'; *tx++ = 'n'; }
+					else if (buf[i] == '"') { *tx++ = '\\'; *tx++ = '"'; }
+					else if (buf[i] == '\\') { *tx++ = '\\'; *tx++ = '\\'; }
 					else if (buf[i] >= 32 && buf[i] <= 126) *tx++ = buf[i];
 				}
 				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"}\n");
@@ -2465,6 +2484,21 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	const size_t req_map_size = LWS_ARRAY_SIZE(req_map);
+	int n;
+
+	/*
+	 * Responses from every request that arrived in one read accumulate
+	 * into this one shared tx buffer, and every composer here saturates
+	 * rather than growing it.  Starting a response with too little room
+	 * left would emit a truncated line into the newline-framed IPC
+	 * stream, so drop the request instead; this also guarantees the
+	 * handlers see tx < tx_end, ie their lws_ptr_diff_size_t(tx_end, tx)
+	 * cannot underflow to a huge size_t
+	 */
+	if (root_pss->tx_len + MONITOR_TX_MIN_ROOM >= sizeof(root_pss->tx) - LWS_PRE) {
+		lwsl_notice("%s: IPC tx buffer full, request dropped\n", __func__);
+		return;
+	}
 
 	memset(&a, 0, sizeof(a));
 	lejp_construct(&jctx, monitor_req_cb, &a, monitor_req_paths, LWS_ARRAY_SIZE(monitor_req_paths));
