@@ -938,6 +938,16 @@ lws_create_vhost(struct lws_context *context,
 	vh->tls.cfg_server_ssl_ca_mem_len = info->server_ssl_ca_mem_len;
 
 #if defined(LWS_WITH_CLIENT)
+	if (info->client_ssl_ca_filepath)
+		vh->tls.cfg_client_ssl_ca_filepath =
+				lws_strdup(info->client_ssl_ca_filepath);
+	if (info->client_ssl_cert_filepath)
+		vh->tls.cfg_client_ssl_cert_filepath =
+				lws_strdup(info->client_ssl_cert_filepath);
+	if (info->client_ssl_private_key_filepath)
+		vh->tls.cfg_client_ssl_private_key_filepath =
+				lws_strdup(info->client_ssl_private_key_filepath);
+
 	vh->tls.cfg_client_ssl_ca_mem = info->client_ssl_ca_mem;
 	vh->tls.cfg_client_ssl_ca_mem_len = info->client_ssl_ca_mem_len;
 	vh->tls.cfg_client_ssl_cert_mem = info->client_ssl_cert_mem;
@@ -1353,6 +1363,9 @@ bail:
 	lws_free_set_NULL(vh->tls.cfg_ecdh_curve);
 #if defined(LWS_WITH_CLIENT)
 	lws_free_set_NULL(vh->tls.cfg_client_ecdh_curve);
+	lws_free_set_NULL(vh->tls.cfg_client_ssl_ca_filepath);
+	lws_free_set_NULL(vh->tls.cfg_client_ssl_cert_filepath);
+	lws_free_set_NULL(vh->tls.cfg_client_ssl_private_key_filepath);
 #endif
 	vh->tls.cfg_key_path = NULL;
 #endif
@@ -1888,6 +1901,9 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	lws_free_set_NULL(vh->tls.cfg_ecdh_curve);
 #if defined(LWS_WITH_CLIENT)
 	lws_free_set_NULL(vh->tls.cfg_client_ecdh_curve);
+	lws_free_set_NULL(vh->tls.cfg_client_ssl_ca_filepath);
+	lws_free_set_NULL(vh->tls.cfg_client_ssl_cert_filepath);
+	lws_free_set_NULL(vh->tls.cfg_client_ssl_private_key_filepath);
 #endif
 	vh->tls.cfg_key_path = NULL;
 #endif

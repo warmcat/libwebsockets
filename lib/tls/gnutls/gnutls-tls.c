@@ -639,7 +639,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 	if (!wsi->a.vhost->tls.ssl_client_ctx) {
 		struct lws_vhost *vh = wsi->a.vhost;
-		const char *ca_filepath = vh->tls.cfg_ssl_ca_filepath;
+		const char *ca_filepath, *cert_filepath, *key_filepath;
 
 		/*
 		 * The vhost was created without
@@ -647,17 +647,30 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		 * ADOPT_APPLY_LISTEN_ACCEPT_CONFIG), so lws_context_init_
 		 * client_ssl() never made the client ctx.  Make it here from
 		 * what the vhost actually stored, so a pinned CA, a client
-		 * cert pair given in memory and the configured cipher list are
-		 * applied... creating it from nothing would silently downgrade
-		 * the vhost's client TLS policy to "trust every public root"
+		 * cert pair given by file or in memory and the configured
+		 * cipher list are applied... creating it from nothing would
+		 * silently downgrade the vhost's client TLS policy to "trust
+		 * every public root"
+		 *
+		 * We follow the same precedence as
+		 * lws_context_init_client_ssl(): the client_ssl_* members win
+		 * over the generic ssl_* ones
 		 */
 
-		if (vh->tls.ssl_ctx && !vh->tls.cfg_client_ssl_ca_mem)
+		ca_filepath = vh->tls.cfg_client_ssl_ca_filepath ?
+				vh->tls.cfg_client_ssl_ca_filepath :
+				vh->tls.cfg_ssl_ca_filepath;
+		cert_filepath = vh->tls.cfg_client_ssl_cert_filepath;
+		key_filepath = vh->tls.cfg_client_ssl_private_key_filepath;
+
+		if (vh->tls.ssl_ctx && !vh->tls.cfg_client_ssl_ca_filepath &&
+		    !cert_filepath && !key_filepath)
 			/*
 			 * ...the same compat rule lws_context_init_client_ssl()
 			 * applies: a vhost that also has a server ctx is not
 			 * asking for its server CA to become the client trust
-			 * store
+			 * store.  For the same reason, the server cert + key
+			 * are never offered as the client identity
 			 */
 			ca_filepath = NULL;
 
@@ -668,10 +681,10 @@ lws_ssl_client_bio_create(struct lws *wsi)
 				ca_filepath,
 				vh->tls.cfg_client_ssl_ca_mem,
 				vh->tls.cfg_client_ssl_ca_mem_len,
-				NULL,
+				cert_filepath,
 				vh->tls.cfg_client_ssl_cert_mem,
 				vh->tls.cfg_client_ssl_cert_mem_len,
-				NULL,
+				key_filepath,
 				vh->tls.cfg_client_ssl_key_mem,
 				vh->tls.cfg_client_ssl_key_mem_len) ||
 		    !vh->tls.ssl_client_ctx) {

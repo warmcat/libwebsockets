@@ -112,6 +112,15 @@ struct lws_vhost_tls {
 	const void *cfg_server_ssl_ca_mem;
 	unsigned int cfg_server_ssl_ca_mem_len;
 #if defined(LWS_WITH_CLIENT)
+	/*
+	 * the client-side file paths have to be kept around as well as the
+	 * in-memory blobs, so a client ctx that is only created lazily (at the
+	 * first client connection on a vhost that was made without client tls
+	 * init) can still apply the vhost's pinned CA and mTLS cert + key
+	 */
+	char *cfg_client_ssl_ca_filepath;
+	char *cfg_client_ssl_cert_filepath;
+	char *cfg_client_ssl_private_key_filepath;
 	const void *cfg_client_ssl_ca_mem;
 	unsigned int cfg_client_ssl_ca_mem_len;
 	const void *cfg_client_ssl_cert_mem;
