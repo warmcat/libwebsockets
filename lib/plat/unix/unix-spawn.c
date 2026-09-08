@@ -53,6 +53,9 @@ lws_spawn_timeout(struct lws_sorted_usec_list *sul)
 
 	lwsl_warn("%s: spawn exceeded timeout, killing\n", __func__);
 
+	/* so the reap_cb can tell this apart from him going on his own */
+	lsp->we_killed_him_timeout = 1;
+
 	lws_spawn_piped_kill_child_process(lsp);
 }
 
@@ -64,27 +67,57 @@ lws_spawn_sul_reap(struct lws_sorted_usec_list *sul)
 
 	lwsl_info("%s: reaping spawn after last stdpipe, tries left %d\n",
 		    __func__, lsp->reap_retry_budget);
-	if (!lws_spawn_reap(lsp) && !lsp->pipes_alive) {
-		if (--lsp->reap_retry_budget) {
-			lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi,
-					 &lsp->sul_reap, lws_spawn_sul_reap,
-					 250 * LWS_US_PER_MS);
-		} else {
-			lwsl_err("%s: Unable to reap lsp %p, killing\n",
-				 __func__, lsp);
-			lsp->reap_retry_budget = 20;
-			lws_spawn_piped_kill_child_process(lsp);
-			/*
-			 * If the stdwsi are already gone (why we are here),
-			 * there will be no more pipe close events to call
-			 * lws_spawn_reap()... keep retrying until the killed
-			 * child is actually reapable.
-			 */
-			lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi,
-					 &lsp->sul_reap, lws_spawn_sul_reap,
-					 250 * LWS_US_PER_MS);
-		}
+	if (lws_spawn_reap(lsp) || lsp->pipes_alive)
+		return;
+
+	if (--lsp->reap_retry_budget > 0) {
+		/*
+		 * If the stdwsi are already gone (why we are here), there will
+		 * be no more pipe close events to call lws_spawn_reap()... come
+		 * back and look at him ourselves.
+		 */
+		lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi,
+				 &lsp->sul_reap, lws_spawn_sul_reap,
+				 250 * LWS_US_PER_MS);
+
+		return;
 	}
+
+	if (!lsp->ungraceful) {
+		/*
+		 * Out of patience... kill him once, and allow one bounded
+		 * second round of retries for him to become reapable
+		 */
+
+		lwsl_err("%s: Unable to reap lsp %p, killing\n", __func__, lsp);
+
+		lsp->we_killed_him_timeout = 1;
+		lws_spawn_piped_kill_child_process(lsp); /* sets ungraceful */
+		lsp->reap_retry_budget = 20;
+
+		lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi,
+				 &lsp->sul_reap, lws_spawn_sul_reap,
+				 250 * LWS_US_PER_MS);
+
+		return;
+	}
+
+	/*
+	 * We killed him and he is still not reapable.  Stop chasing him: the
+	 * budget is deliberately not restored again, since we must not sit here
+	 * forever signalling a pid the kernel is free to have handed to
+	 * somebody else.  Complete the reap ourselves with an "unknown" status,
+	 * so the owner gets his callback exactly once and the lsp is destroyed.
+	 */
+
+	lwsl_err("%s: lsp %p unreapable after kill, completing anyway\n",
+		 __func__, lsp);
+
+	lsp->reaped = lws_now_usecs();
+	lsp->si.si_code = 0;
+	lsp->si.si_status = -1;
+
+	lws_spawn_reap(lsp);
 }
 
 static struct lws *
@@ -189,25 +222,70 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	if (lsp->child_pid < 1)
 		return 0;
 
-	/* check if exited, do not reap yet */
-
-	memset(&lsp->si, 0, sizeof(lsp->si));
-	n = wait4(lsp->child_pid, &status, WNOHANG, &ru);
-	if (n < 0) {
-		lwsl_info("%s: child %d still running (errno %d)\n", __func__,
-			  lsp->child_pid, errno);
-		return 0;
-	}
-
-	if (!n)
-		return 0;
-
-	lsp->si.si_code = WIFEXITED(status);
-	lsp->si.si_status = WEXITSTATUS(status);
-
-	/* his process has exited... */
+	/*
+	 * Check if he exited, but do not finalize the reap yet.
+	 *
+	 * wait4() consumes the zombie, so it can only tell us he went once...
+	 * lsp->reaped latches that, and lsp->si / lsp->res hold what we learned
+	 * about him, since we may come back here several times afterwards
+	 * waiting for the stdwsi to drain.
+	 */
 
 	if (!lsp->reaped) {
+		memset(&ru, 0, sizeof(ru));
+		memset(&lsp->si, 0, sizeof(lsp->si));
+
+		n = wait4(lsp->child_pid, &status, WNOHANG, &ru);
+		if (!n)
+			return 0; /* he is still running */
+
+		if (n < 0 && errno != ECHILD) {
+			lwsl_info("%s: wait4 child %d failed (errno %d)\n",
+				  __func__, lsp->child_pid, errno);
+
+			return 0;
+		}
+
+		if (n > 0) {
+			if (WIFEXITED(status)) {
+				lsp->si.si_code = 1;
+				lsp->si.si_status = WEXITSTATUS(status);
+			} else {
+				/*
+				 * He was killed by a signal (perhaps by us, on
+				 * timeout)... report it the way a shell does, so
+				 * it can never be mistaken for a clean exit 0
+				 */
+				lsp->si.si_code = 0;
+				lsp->si.si_status = WIFSIGNALED(status) ?
+					128 + WTERMSIG(status) : -1;
+			}
+
+			lsp->res.us_cpu_user = ((uint64_t)ru.ru_utime.tv_sec *
+					LWS_US_PER_SEC) +
+					(uint64_t)ru.ru_utime.tv_usec;
+			lsp->res.us_cpu_sys = ((uint64_t)ru.ru_stime.tv_sec *
+					LWS_US_PER_SEC) +
+					(uint64_t)ru.ru_stime.tv_usec;
+			/* ru_maxrss is in KB */
+			lsp->res.peak_mem_rss = (uint64_t)ru.ru_maxrss * 1024;
+		} else {
+			/*
+			 * ECHILD: he is not our child any more, ie, somebody
+			 * else already reaped him (our own kill path, or a
+			 * waitpid(-1) elsewhere in the process).  He is
+			 * definitively gone; we have no status or resource
+			 * usage for him, but we must still complete the reap
+			 * exactly once, or the lsp is never destroyed and the
+			 * owner never learns his helper died.
+			 */
+			lwsl_info("%s: child %d was reaped elsewhere\n",
+				  __func__, lsp->child_pid);
+
+			lsp->si.si_code = 0;
+			lsp->si.si_status = -1;
+		}
+
 		/* mark the earliest time we knew he had gone */
 		lsp->reaped = lws_now_usecs();
 
@@ -254,37 +332,12 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 #endif
 
 	/*
-	 * All the stdwsi went down, nothing more is coming... it's over
-	 * Collect the final information and then reap the dead process
+	 * All the stdwsi went down, nothing more is coming... it's over.
+	 * He was already collected above, when we first saw him go.
 	 */
 
-	lsp->res.us_cpu_user =
-		((uint64_t)ru.ru_utime.tv_sec * 1000000) + (uint64_t)ru.ru_utime.tv_usec;
-	lsp->res.us_cpu_sys =
-		((uint64_t)ru.ru_stime.tv_sec * 1000000) + (uint64_t)ru.ru_stime.tv_usec;
-
-	/* ru_maxrss is in KB */
-	lsp->res.peak_mem_rss = (uint64_t)ru.ru_maxrss * 1024;
-
-#if 0
-	if (getrusage(RUSAGE_CHILDREN, &ru) == 0) {
-		lsp->res.us_cpu_user +=
-			((uint64_t)ru.ru_utime.tv_sec * 1000000) + (uint64_t)ru.ru_utime.tv_usec;
-		lsp->res.us_cpu_sys +=
-			((uint64_t)ru.ru_stime.tv_sec * 1000000) + (uint64_t)ru.ru_stime.tv_usec;
-		/* ru_maxrss is in KB */
-		lsp->res.peak_mem_rss += (uint64_t)ru.ru_maxrss * 1024;
-	} else
-		lwsl_err("%s: getrusage failed\n", __func__);
-#endif
-
-	n = waitpid(lsp->child_pid, &status, WNOHANG);
-	if (n < 0) {
-		lwsl_info("%s: child %d vanished\n", __func__, lsp->child_pid);
-	}
-
-	lwsl_info("%s: waitd says %d, process exit %d\n",
-		    __func__, n, lsp->si.si_status);
+	lwsl_info("%s: process %d exit status %d\n", __func__,
+		  (int)lsp->child_pid, lsp->si.si_status);
 
 	lsp->child_pid		= -1;
 	si			= lsp->si;
@@ -435,6 +488,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 {
 	const struct lws_protocols *pcol = NULL;
 	struct lws_context *context = i->vh->context;
+	struct lws_context_per_thread *pt = &context->pt[(int)i->tsi];
 	struct lws_spawn_piped *lsp;
 #if defined(__linux__)
 	int do_cgroup = 0;
@@ -532,11 +586,31 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 	for (n = 0; n < 3; n++) {
 		if (!i->pty_mode) {
+#if defined(LWS_HAVE_PIPE2)
+			if (pipe2(lsp->pipe_fds[n], O_CLOEXEC) == -1)
+				goto bail1;
+
+			continue;
+#else
 			if (pipe(lsp->pipe_fds[n]) == -1)
 				goto bail1;
+#endif
 		}
 
-		if (lsp->pipe_fds[n][0] >= 0 && lws_plat_apply_FD_CLOEXEC(lsp->pipe_fds[n][n == 0]))
+		/*
+		 * Every fd we hold here is CLOEXEC, both ends: a spawn issued
+		 * concurrently on another pt must not inherit them, or its
+		 * child keeps our stdout / stderr wr side open and we never see
+		 * EOF on them.  The child clears it for its own 0, 1 and 2
+		 * after the dup2()s below.
+		 */
+
+		if (lsp->pipe_fds[n][0] >= 0 &&
+		    lws_plat_apply_FD_CLOEXEC(lsp->pipe_fds[n][0]))
+			lwsl_info("%s: FD_CLOEXEC didn't stick\n", __func__);
+
+		if (lsp->pipe_fds[n][1] >= 0 &&
+		    lws_plat_apply_FD_CLOEXEC(lsp->pipe_fds[n][1]))
 			lwsl_info("%s: FD_CLOEXEC didn't stick\n", __func__);
 	}
 
@@ -591,7 +665,6 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	/*
 	 * Stitch the wsi fd into the poll wait
 	 */
-	struct lws_context_per_thread *pt = &context->pt[(int)i->tsi];
 
 	lws_pt_lock(pt, __func__);
 
@@ -700,9 +773,16 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		prctl(PR_SET_PDEATHSIG, SIGTERM);
 #endif
 
-	if (lsp->info.disable_ctrlc)
-		/* stops non-daemonized main processess getting SIGINT
-		 * from TTY */
+	if (!lsp->child_pid && lsp->info.disable_ctrlc)
+		/*
+		 * Stops non-daemonized main processess getting SIGINT from TTY.
+		 *
+		 * Only the child may do this... if the parent did it too, it
+		 * would move the whole server into a new process group, so the
+		 * kill(-pid) / waitpid(-pid) in
+		 * lws_spawn_piped_kill_child_process() would no longer refer to
+		 * the group of children spawned without disable_ctrlc.
+		 */
 #if defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
 		setpgid(0, 0);
 #else
@@ -757,6 +837,17 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	 * Because of vfork(), we cannot do anything that changes pages in
 	 * the parent environment.  Stuff that changes kernel state for the
 	 * process is OK.  Stuff that happens after the execvpe() is OK.
+	 *
+	 * That means: no logging (the log emit path reaches user callbacks and
+	 * lws context state), no exit() (it runs atexit handlers and flushes
+	 * the parent's stdio), and never any of the bailN: labels below, which
+	 * are the parent's unwind and would free the parent's heap objects from
+	 * here.  We can only leave via exec, or _exit() with a code that says
+	 * what went wrong:
+	 *
+	 *   1: exec failed		121: could not join cgroup
+	 *   2: chroot failed		122: could not open cgroup.procs
+	 *   3: dup2 of a stdio fd failed
 	 */
 
 #if defined(__linux__)
@@ -785,23 +876,21 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	}
 #endif
 
-	if (i->chroot_path && chroot(i->chroot_path)) {
-		lwsl_err("%s: child chroot %s failed, errno %d\n",
-			 __func__, i->chroot_path, errno);
+	if (i->chroot_path && chroot(i->chroot_path))
+		_exit(2);
 
-		exit(2);
+	if (chdir("/")) { /* cov */
+		/* nothing we can safely say about it from here */
 	}
-
-	if (chdir("/")) /* cov */
-		lwsl_notice("%s: Failed to cd to /\n", __func__);
 
 	/* cwd: somewhere we can at least read things and enter it */
 
 	wd = i->wd;
 	if (!wd)
 		wd = "/tmp";
-	if (chdir(wd))
-		lwsl_notice("%s: Failed to cd to %s\n", __func__, wd);
+	if (chdir(wd)) {
+		/* ditto... the child just keeps the cwd it has */
+	}
 
 	/*
 	 * Bind the child's stdin / out / err to its side of our pipes
@@ -816,11 +905,17 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		for (m = 0; m < 3; m++) {
 			if (cfd[m] < 0)
 				continue;
-			if (dup2(cfd[m], m) < 0) {
-				lwsl_err("%s: dup2 failed for fd index %d (oldfd %d, newfd %d): errno %d (%s)\n",
-					 __func__, m, cfd[m], m, errno, strerror(errno));
-				goto bail3;
-			}
+			if (dup2(cfd[m], m) < 0)
+				_exit(3);
+
+			/*
+			 * dup2() clears FD_CLOEXEC on the new fd... except
+			 * when oldfd == newfd, where it does nothing at all.
+			 * Clear it ourselves for that case, or we would exec
+			 * with no stdin / stdout / stderr.
+			 */
+			if (cfd[m] == m)
+				(void)fcntl(m, F_SETFD, 0);
 		}
 
 		for (m = 0; m < 3; m++) {
@@ -869,31 +964,48 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		(char **)&i->env_array[0]);
 #endif
 
-
-
-	lwsl_err("%s: child exec of %s failed %d\n", __func__, i->exec_array[0],
-		 LWS_ERRNO);
+	/* exec failed... we may not log from here, see the note above */
 
 	_exit(1);
 
 bail3_unlock:
 	lws_pt_unlock(pt);
 bail3:
+	/* __remove_wsi_socket_from_fds() mutates pt->fds under the pt lock */
 
+	lws_pt_lock(pt, __func__);
 	while (--n >= 0)
 		if (lsp->stdwsi[n])
 			__remove_wsi_socket_from_fds(lsp->stdwsi[n]);
+	lws_pt_unlock(pt);
+
 bail2:
+	/* __lws_free_wsi() unbinds the vhost, under the context lock */
+
+	lws_context_lock(context, __func__);
 	for (n = 0; n < 3; n++)
 		if (lsp->stdwsi[n])
 			__lws_free_wsi(lsp->stdwsi[n]);
+	lws_context_unlock(context);
 
 bail1:
+	if (i->pty_mode) {
+		/*
+		 * In pty mode, the stdout and stderr wr sides are aliases of
+		 * the single pty slave fd that is also stdin's rd side... only
+		 * close it once (the parent and child paths after the fork
+		 * take the same care)
+		 */
+		lsp->pipe_fds[LWS_STDOUT][1] = -1;
+		lsp->pipe_fds[LWS_STDERR][1] = -1;
+	}
+
 	for (n = 0; n < 3; n++) {
 		if (lsp->pipe_fds[n][0] >= 0)
 			close(lsp->pipe_fds[n][0]);
 		if (lsp->pipe_fds[n][1] >= 0)
 			close(lsp->pipe_fds[n][1]);
+		lsp->pipe_fds[n][0] = lsp->pipe_fds[n][1] = -1;
 	}
 
 	lws_free(lsp);
