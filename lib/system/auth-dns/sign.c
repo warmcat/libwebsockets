@@ -1141,8 +1141,20 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 	uint8_t salt[256];
 	size_t salt_len = 0;
 	if (salt_hex && salt_hex[0] != '-') {
-		salt_len = strlen(salt_hex) / 2;
-		lws_hex_to_byte_array(salt_hex, salt, (int)salt_len);
+		int n;
+
+		/*
+		 * The salt is caller-supplied hex of any length; RFC 5155
+		 * limits it to 255 octets and salt[] is on the stack, so
+		 * bound it by the buffer rather than by strlen() of the input
+		 */
+		n = lws_hex_to_byte_array(salt_hex, salt, (int)sizeof(salt));
+		if (n < 0) {
+			lwsl_err("%s: bad nsec3 salt\n", __func__);
+
+			return -1;
+		}
+		salt_len = (size_t)n;
 	}
 
 	for (int i = 0; i < num_names; i++) {
