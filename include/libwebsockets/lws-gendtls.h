@@ -125,8 +125,14 @@ struct lws_gendtls_ctx {
 #else /* OpenSSL */
 	void					*ssl; /* SSL * */
 	/* OpenSSL Bio mems are handled internally via SSL_set_bio */
+	lws_usec_t				created_us;
+	unsigned int				timeout_ms;
+	uint8_t					failed;
 #endif
 };
+
+/** Default overall DTLS handshake deadline, if info->timeout_ms is 0 */
+#define LWS_GENDTLS_TIMEOUT_DEFAULT_MS 60000
 
 enum lws_gendtls_conn_mode {
 	LWS_GENDTLS_MODE_CLIENT,
@@ -137,7 +143,15 @@ struct lws_gendtls_creation_info {
 	struct lws_context			*context;
 	enum lws_gendtls_conn_mode		mode;
 	unsigned int				mtu;
+	/**< transport MTU, 0 for a backend default */
 	unsigned int				timeout_ms;
+	/**< overall deadline for the DTLS handshake to complete, 0 for
+	 * LWS_GENDTLS_TIMEOUT_DEFAULT_MS.  Handshake flight retransmission is
+	 * driven from lws_gendtls_get_rx() / lws_gendtls_get_tx(), so the
+	 * caller must keep polling those while the handshake is in progress;
+	 * once the deadline passes they return < 0 and the caller must
+	 * lws_gendtls_destroy() the ctx.  A half-open handshake is otherwise
+	 * only reaped when the caller's own object lifetime ends. */
 	const char				*use_srtp;
 };
 
@@ -147,6 +161,22 @@ struct lws_gendtls_creation_info {
  * \param info: creation info struct
  *
  * Creates a DTLS context.
+ *
+ * Minimum protocol version is DTLS 1.2 and renegotiation is disabled, as
+ * RFC 8827 requires for WebRTC.
+ *
+ * In LWS_GENDTLS_MODE_SERVER, the peer certificate is requested but its chain
+ * is deliberately not validated: DTLS-SRTP peers are self-signed and the trust
+ * anchor is the a=fingerprint carried on the signalling channel.  The caller
+ * is therefore responsible for comparing the peer certificate fingerprint
+ * against the signalled one before it uses any exported keying material; a
+ * caller that skips that has an entirely unauthenticated peer.
+ *
+ * Not every backend performs a HelloVerifyRequest cookie exchange (mbedtls and
+ * gnutls do, the OpenSSL and openHiTLS backends do not, since the API takes
+ * datagrams rather than a socket and so has no source address to bind a cookie
+ * to).  Callers feeding datagrams straight in must do their own source
+ * validation first, as the in-tree webrtc consumer does with ICE/STUN.
  *
  * Returns 0 for OK or nonzero for error.
  */

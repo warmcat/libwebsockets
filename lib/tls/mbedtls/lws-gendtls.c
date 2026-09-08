@@ -167,7 +167,15 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 					      &ctx->cookie_ctx);
 	}
 
-	mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_NONE);
+	/*
+	 * OPTIONAL, not NONE: as the DTLS server we must send a
+	 * CertificateRequest, else the peer sends no certificate and there is
+	 * nothing for the caller's a=fingerprint check to bind the media to
+	 * (RFC 5763 5).  We must not *require* the chain to verify, since
+	 * DTLS-SRTP peer certificates are self-signed by design and the trust
+	 * anchor is the signalled fingerprint, which the caller compares.
+	 */
+	mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
 
 	mbedtls_ssl_conf_rng(&ctx->conf, mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
 

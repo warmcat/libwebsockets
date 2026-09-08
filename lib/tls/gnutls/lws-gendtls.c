@@ -103,7 +103,8 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 	struct lws_context *context = info->context;
 	enum lws_gendtls_conn_mode mode = info->mode;
 	unsigned int mtu = info->mtu ? info->mtu : 1400;
-	unsigned int timeout_ms = info->timeout_ms ? info->timeout_ms : 1000;
+	unsigned int timeout_ms = info->timeout_ms ? info->timeout_ms :
+						     LWS_GENDTLS_TIMEOUT_DEFAULT_MS;
 	unsigned int flags = GNUTLS_DATAGRAM | GNUTLS_NONBLOCK;
 	int ret;
 
@@ -127,8 +128,12 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 
 	gnutls_dtls_set_mtu(ctx->session, mtu);
 
-	/* Set default priorities */
-	ret = gnutls_priority_set_direct(ctx->session, "NORMAL", NULL);
+	/*
+	 * Set default priorities.  RFC 8827 6 requires DTLS 1.2 or later; DTLS
+	 * 1.0 drags in the TLS 1.0-era CBC / SHA1 record layer.
+	 */
+	ret = gnutls_priority_set_direct(ctx->session, "NORMAL:-VERS-DTLS1.0",
+					 NULL);
 	if (ret != GNUTLS_E_SUCCESS) {
 		lwsl_err("%s: gnutls_priority_set_direct failed\n", __func__);
 		goto bail;
@@ -175,6 +180,18 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 	}
 
 	if (mode == LWS_GENDTLS_MODE_SERVER) {
+		/*
+		 * As the DTLS server we must send a CertificateRequest, else
+		 * the peer sends no certificate and there is nothing for the
+		 * caller's a=fingerprint check to bind the media to (RFC 5763
+		 * 5).  GNUTLS_CERT_REQUEST rather than GNUTLS_CERT_REQUIRE, and
+		 * no verification function is installed: DTLS-SRTP peer
+		 * certificates are self-signed by design and the trust anchor
+		 * is the signalled fingerprint, which the caller compares.
+		 */
+		gnutls_certificate_server_set_request(ctx->session,
+						      GNUTLS_CERT_REQUEST);
+
 		ret = gnutls_key_generate(&ctx->cookie_key, GNUTLS_COOKIE_KEY_SIZE);
 		if (ret < 0) {
 			lwsl_err("%s: gnutls_key_generate failed\n", __func__);
@@ -196,7 +213,12 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 	gnutls_transport_set_errno_function(ctx->session,
 			lws_gendtls_gnutls_errno);
 
-	gnutls_dtls_set_timeouts(ctx->session, timeout_ms, 60000);
+	/*
+	 * info->timeout_ms is the overall handshake deadline (see
+	 * lws-gendtls.h); the per-flight retransmission timeout is the DTLS
+	 * default of 1s.
+	 */
+	gnutls_dtls_set_timeouts(ctx->session, 1000, timeout_ms);
 
 	return 0;
 

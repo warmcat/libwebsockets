@@ -34,7 +34,12 @@
 
 #define LWS_OPENHITLS_GENDTLS_QUEUE_LIMIT	(64 * 1024)
 #define LWS_OPENHITLS_GENDTLS_MTU_DEFAULT	1400
-#define LWS_OPENHITLS_GENDTLS_TIMEOUT_DEFAULT	1000
+/*
+ * NB: ctx->timeout_ms is recorded but not yet enforced on this backend -- there
+ * is no openHiTLS retransmission timer wired up here, so the caller must impose
+ * its own handshake deadline (see lws-gendtls.h).
+ */
+#define LWS_OPENHITLS_GENDTLS_TIMEOUT_DEFAULT	LWS_GENDTLS_TIMEOUT_DEFAULT_MS
 
 struct lws_openhitls_gendtls_uio_wrap {
 	struct lws_gendtls_ctx *gctx;
@@ -291,7 +296,20 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 		return -1;
 	}
 
+	/*
+	 * Continue the handshake when chain verification fails: DTLS-SRTP peer
+	 * certificates are self-signed by design and the trust anchor is the
+	 * a=fingerprint from the signalling channel, which the caller compares.
+	 * But as the DTLS server we must still *ask* for the certificate (RFC
+	 * 5763 5), else there is nothing for the caller to fingerprint.  An
+	 * empty client certificate stays acceptable, so plain DTLS consumers
+	 * that have no client certificate are unaffected.
+	 */
 	(void)HITLS_CFG_SetVerifyNoneSupport(ctx->config, true);
+	if (info->mode == LWS_GENDTLS_MODE_SERVER) {
+		(void)HITLS_CFG_SetClientVerifySupport(ctx->config, true);
+		(void)HITLS_CFG_SetNoClientCertSupport(ctx->config, true);
+	}
 	(void)HITLS_CFG_SetReadAhead(ctx->config, 1);
 	(void)HITLS_CFG_SetDtlsCookieExchangeSupport(ctx->config, false);
 
