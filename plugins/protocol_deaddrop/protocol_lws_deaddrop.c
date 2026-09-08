@@ -889,6 +889,28 @@ deaddrop_handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss
 	deaddrop_scan_upload_dir(vhd);
 }
 
+/*
+ * JSON-escape src into dst (which is clamped and always terminated).
+ * Usernames and uploader names are attacker-influenced and must not be able
+ * to close the string and forge members, nor emit invalid JSON that kills
+ * JSON.parse() in every connected client's UI.
+ */
+
+static const char *
+deaddrop_json_esc(char *dst, size_t dst_len, const char *src)
+{
+	int in_used = 0;
+
+	return lws_json_purify(dst, src, (int)dst_len, &in_used);
+}
+
+/*
+ * Worst-case emitted length of one connected-user / one file object below,
+ * used to stop before the fixed send buffer truncates mid-token
+ */
+#define DEADDROP_USER_ENTRY_MAX 384
+#define DEADDROP_FILE_ENTRY_MAX 512
+
 static int
 deaddrop_handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 			    struct lws *wsi)
@@ -909,7 +931,9 @@ deaddrop_handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddr
 		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 				  "{\"max_size\":%llu, \"user\":\"%s\", \"cookie\":\"%s\"",
 				  vhd->max_size,
-				  pss->user[0] ? pss->user : "",
+				  deaddrop_json_esc(esc_user,
+						    sizeof(esc_user),
+						    pss->user),
 				  vhd->cookie_name);
 
 		if (send_users) {
@@ -925,12 +949,20 @@ deaddrop_handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddr
 
 				/* Only list authenticated connections */
 				if (pss1->wsi && pss1->user[0]) {
+					/* stop before we truncate mid-token */
+					if (lws_ptr_diff_size_t(end, p) <
+							DEADDROP_USER_ENTRY_MAX)
+						break;
+
 					p += lws_snprintf((char *)p,
 							  lws_ptr_diff_size_t(end, p),
 						"%c{\"user\":\"%s\", \"ip\":\"%s\", "
 						"\"platform\":\"%s\", \"browser\":\"%s\"%s%s}",
 						first_user ? ' ' : ',',
-						pss1->user, pss1->ip, pss1->platform,
+						deaddrop_json_esc(esc_user,
+								  sizeof(esc_user),
+								  pss1->user),
+						pss1->ip, pss1->platform,
 						pss1->browser,
 						pss1->has_star_grant ? ", \"is_admin\":1" : "",
 						(pss1 == pss) ? ", \"is_self\":1" : "");
@@ -955,8 +987,21 @@ deaddrop_handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddr
 
 	n = 5;
 	while (n-- && pss->dire) {
-		int is_yours = (pss->has_star_grant || !strcmp(pss->user, pss->dire->user)) &&
-			       pss->user[0];
+		int is_yours;
+
+		/*
+		 * Stop before the entry would be truncated: pss->dire is our
+		 * resume cursor, so the rest simply goes out in the next
+		 * writeable.  Otherwise a long filename or a busy user list
+		 * cuts the JSON mid-token and every client's JSON.parse()
+		 * throws, permanently.
+		 */
+		if (lws_ptr_diff_size_t(end, p) < DEADDROP_FILE_ENTRY_MAX)
+			break;
+
+		is_yours = (pss->has_star_grant ||
+			    !strcmp(pss->user, pss->dire->user)) &&
+			   pss->user[0];
 		const char *fname = (const char *)&pss->dire[1];
 		const char *p_fn = fname;
 		int is_text = 0;
@@ -983,7 +1028,8 @@ deaddrop_handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddr
 				  "\"is_text\":%d}",
 				  pss->first ? ' ' : ',',
 				  escaped_fname,
-				  pss->dire->user,
+				  deaddrop_json_esc(esc_up, sizeof(esc_up),
+						    pss->dire->user),
 				  pss->dire->size,
 				  (unsigned long long)pss->dire->mtime,
 				  is_yours, is_text);
