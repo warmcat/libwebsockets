@@ -883,7 +883,9 @@ lws_create_vhost(struct lws_context *context,
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
 	if (lws_rops_fidx(ar, LWS_ROPS_init_vhost) &&
 	    (lws_rops_func_fidx(ar, LWS_ROPS_init_vhost)).init_vhost(vh, info))
-		return NULL;
+		/* not "return NULL"... that leaks the vhost and leaves its
+		 * lifecycle group node pointing at it forever */
+		goto bail;
 	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 
 
@@ -996,6 +998,14 @@ lws_create_vhost(struct lws_context *context,
 				   (unsigned int)abs_pcol_count +
 				   (unsigned int)sec_pcol_count +
 				   (unsigned int)dht_count +
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+				   /*
+				    * the async-dns protocol we may append to
+				    * the first vhost below has to have its own
+				    * slot, or it eats the NULL terminator slot
+				    */
+				   1 +
+#endif
 #if defined(LWS_WITH_CLIENT)
 				   1 +
 #endif
@@ -1127,6 +1137,15 @@ lws_create_vhost(struct lws_context *context,
 	vh->same_vh_protocol_owner = (struct lws_dll2_owner *)
 			lws_zalloc(sizeof(struct lws_dll2_owner) *
 				   (unsigned int)vh->count_protocols, "same vh list");
+	if (!vh->same_vh_protocol_owner) {
+		/*
+		 * lws_same_vh_protocol_insert() indexes this unguarded, ie,
+		 * it would write through NULL + n * sizeof(owner) at the first
+		 * protocol bind... don't let the vhost exist without it
+		 */
+		lwsl_err("OOM\n");
+		goto bail;
+	}
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	vh->http.mount_list = info->mounts;
 #endif
@@ -1308,6 +1327,36 @@ bail1:
 	return NULL;
 
 bail:
+	/*
+	 * We can be entered here from any point after the vhost struct itself
+	 * exists, ie, with any subset of the allocations below already done.
+	 * The vhost is not on the context vhost list and has no wsi bound to
+	 * it yet, so we can't use lws_vhost_destroy(); free by hand what
+	 * __lws_vhost_destroy2() would have freed, all of it NULL-tolerant.
+	 */
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SYS_METRICS)
+	lws_metric_destroy(&vh->mt_traffic_rx, 0);
+	lws_metric_destroy(&vh->mt_traffic_tx, 0);
+#endif
+#if defined(LWS_WITH_TLS)
+	lws_free_set_NULL(vh->tls.cfg_alloc_cert_path);
+	lws_free_set_NULL(vh->tls.cfg_ssl_cipher_list);
+	lws_free_set_NULL(vh->tls.cfg_tls1_3_plus_cipher_list);
+	lws_free_set_NULL(vh->tls.cfg_tls_client_cipher_list);
+	lws_free_set_NULL(vh->tls.cfg_tls_ciphers_iana);
+	lws_free_set_NULL(vh->tls.cfg_ssl_ca_filepath);
+	lws_free_set_NULL(vh->tls.cfg_ecdh_curve);
+#if defined(LWS_WITH_CLIENT)
+	lws_free_set_NULL(vh->tls.cfg_client_ecdh_curve);
+#endif
+	vh->tls.cfg_key_path = NULL;
+#endif
+	lws_free_set_NULL(vh->same_vh_protocol_owner);
+	if (vh->allocated_vhost_protocols) {
+		lws_free((void *)vh->protocols);
+		vh->protocols = NULL;
+	}
+
 	__lws_lc_untag(vh->context, &vh->lc);
 	lws_fi_destroy(&vh->fic);
 	lws_free(vh);
