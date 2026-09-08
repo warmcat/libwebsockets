@@ -423,6 +423,14 @@ struct lws_kex {
 	uint8_t match_bitfield;
 	uint8_t newkeys; /* which sides newkeys have been applied */
 
+	/*
+	 * The peer's host key name-list is parsed one name at a time; cache
+	 * the type of our host key here so we read + parse the key file once
+	 * per KEX and not once per name the peer chose to send
+	 */
+	char hostkey_type[32];
+	uint8_t hostkey_checked;
+
 	struct lws_ssh_keys keys_next_cts;
 	struct lws_ssh_keys keys_next_stc;
 };
@@ -476,6 +484,12 @@ struct per_session_data__sshd {
 	uint8_t K[LWS_SIZE_EC25519]; /* shared secret */
 	uint8_t session_id[LWS_SIZE_SHA256]; /* H from first working KEX */
 	char name[64];
+	/*
+	 * name[] is the rx parser's scratch and is rewritten by every string
+	 * the peer sends; the service name has to survive until the deferred
+	 * SERVICE_ACCEPT write task is rendered, so keep a copy of it
+	 */
+	char service[64];
 	char last_auth_req_username[32];
 	char last_auth_req_service[32];
 
@@ -520,6 +534,7 @@ struct per_session_data__sshd {
 	uint32_t sent_banner:1;
 	uint32_t seen_auth_req_before:1;
 	uint32_t serviced_stderr_last:1;
+	uint32_t wt_overflow:1; /* a write task had to be dropped */
 	uint32_t kex_state;
 	uint32_t chrq_server_port;
 	uint32_t ch_recip;
