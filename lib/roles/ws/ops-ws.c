@@ -1136,7 +1136,12 @@ post_pollout:
 	}
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	if (wsi->ws->tx_draining_ext) {
-		if (lws_handle_POLLOUT_event(wsi, pollfd))
+		int hr = lws_handle_POLLOUT_event(wsi, pollfd);
+
+		if (hr < 0)
+			/* connect racing already closed and freed the wsi */
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
+		if (hr)
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		//lwsl_notice("%s: tx drain\n", __func__);
 		/*

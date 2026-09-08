@@ -136,6 +136,12 @@ lws_callback_as_writeable(struct lws *wsi)
 	return m;
 }
 
+/*
+ * Returns 0 = handled (wsi alive), 1 = caller should close the wsi (it is
+ * alive), or -1 = the wsi has already been synchronously closed and freed in
+ * here (client connect racing paths) and must not be touched or closed again.
+ */
+
 int
 lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 {
@@ -242,7 +248,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		if (pollfd)
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 				lwsl_wsi_info(wsi, "failed at set pollfd");
-				return 1;
+				goto bail_die;
 			}
 		goto user_service_go_again;
 	}
@@ -333,7 +339,14 @@ user_service_go_again:
 		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 			goto bail_die;
 
-	return n;
+	/*
+	 * Any nonzero return from the user protocol callback means "close this
+	 * connection".  Normalize it to our 1 = "caller should close me"
+	 * disposition: it must not be able to alias -1, which means "the wsi
+	 * is already closed and freed, do not touch it".
+	 */
+
+	return !!n;
 
 	/*
 	 * since these don't disable the POLLOUT, they are always doing the
@@ -350,7 +363,14 @@ bail_die:
 	vwsi->handling_pollout = 0;
 	vwsi->leave_pollout_active = 0;
 
-	return -1;
+	/*
+	 * The wsi is still alive here, it just cannot continue: it's the
+	 * caller's job to close it.  -1 is reserved for the case the wsi was
+	 * already synchronously closed and freed inside here (see the client
+	 * connect racing intercept at the top).
+	 */
+
+	return 1;
 }
 
 int
@@ -514,11 +534,22 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 	// lws_buflist_describe(&wsi->buflist, wsi, __func__);
 
 	(void)hint;
-	if (!ebuf->token)
+
+	/*
+	 * "No buffer" and "no length" both mean the same thing, use the pt
+	 * serv_buf... the substitution has to be all-or-nothing, since giving
+	 * a caller-provided (short) buffer the pt serv_buf's length would let
+	 * the read below overflow it.
+	 */
+
+	if (!ebuf->token || ebuf->len <= 0) {
 		ebuf->token = pt->serv_buf + LWS_PRE;
-	if (!ebuf->len ||
-	    (unsigned int)ebuf->len > wsi->a.context->pt_serv_buf_size - LWS_PRE)
 		ebuf->len = (int)(wsi->a.context->pt_serv_buf_size - LWS_PRE);
+	} else
+		if ((unsigned int)ebuf->len >
+				wsi->a.context->pt_serv_buf_size - LWS_PRE)
+			ebuf->len = (int)(wsi->a.context->pt_serv_buf_size -
+					  LWS_PRE);
 
 	e = ebuf->len;
 	ep = ebuf->token;
@@ -921,11 +952,15 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	switch (lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_handle_POLLIN).
 					       handle_POLLIN(pt, wsi, pollfd)) {
 	case LWS_HPI_RET_WSI_ALREADY_DIED:
-#if defined (_WIN32)
-		break;
-#else
+		/*
+		 * wsi is closed and freed already: we must not touch it, and
+		 * we must not touch pollfd either, since the delete-swap in
+		 * __remove_wsi_socket_from_fds() may have moved a different
+		 * wsi's entry into this slot (same reasoning as at
+		 * close_and_handled_l below).  This is why we cannot fall
+		 * through to the revents / "callback on writable" tail.
+		 */
 		return 1;
-#endif
 	case LWS_HPI_RET_HANDLED:
 		break;
 	case LWS_HPI_RET_PLEASE_CLOSE_ME:

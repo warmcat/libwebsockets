@@ -115,7 +115,12 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 
 #ifdef LWS_WITH_CGI
 	if (wsi->http.cgi && (pollfd->revents & LWS_POLLOUT)) {
-		if (lws_handle_POLLOUT_event(wsi, pollfd))
+		int hr = lws_handle_POLLOUT_event(wsi, pollfd);
+
+		if (hr < 0)
+			/* connect racing already closed and freed the wsi */
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
+		if (hr)
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 		return LWS_HPI_RET_HANDLED;
