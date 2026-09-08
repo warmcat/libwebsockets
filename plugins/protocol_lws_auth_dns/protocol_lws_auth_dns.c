@@ -1896,7 +1896,21 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			}
 
 send_refused:
-			rflags |= 5; /* REFUSED */
+			/*
+			 * C-243: REFUSED is always composed from a clean
+			 * header.  The DNSBL drop paths reach here from the
+			 * answer branch, after the header (with a nonzero
+			 * ANCOUNT) and the question were already written;
+			 * falling into send_out: then appended a *second*
+			 * header and question at the current rp and left the
+			 * real RCODE at NOERROR.  Rewinding rp and
+			 * recomposing rflags means no answer RR, and no
+			 * stale count, can survive into a REFUSED reply.
+			 */
+			rp = dbuf + (is_tcp ? 2 : 0);
+			rp[0] = (uint8_t)(id >> 8);
+			rp[1] = (uint8_t)(id & 0xff);
+			rflags = (uint16_t)(0x8400 | (flags & 0x0100) | 5);
 			goto send_out;
 
 send_nxdomain:
