@@ -15,8 +15,11 @@ Commandline option|Meaning
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
 -c / --createindex|Create an index file, instead of searching
 -i / --index <file>|Use this file as the index
+-f / --file|Report the filepaths containing the search term
+-l / --lines|Report the line numbers and file offsets of each hit
+-s / --selftest|Create an index and check the results it gives back (this is what ctest runs)
 
-The two modes are:
+The three modes are:
 
  - create an index: `--createindex inputfile [inputfile...]`
 
@@ -51,3 +54,21 @@ The two modes are:
 [2018/10/15 07:15:44:1444] NOTICE: lws_fts_results_dump: AC boy: 36 agg hits
 ```
 
+
+ - selftest: `--selftest --index <index file> inputfile [inputfile...]`
+
+This is the mode ctest uses.  It indexes the given files plus a small
+generated LF-only file (the two shipped corpus files are CRLF, so their tokens
+are terminated by the CR rather than by the newline itself), then queries the
+index and confirms every match record it gets back against the original input
+files: the line number must exist, the reported file offset must be where that
+line actually starts, and the quoted line must contain the search term.
+
+```
+ $ ./lws-api-test-fts --selftest --index /tmp/test.index \
+	./the-picture-of-dorian-gray.txt ./les-mis-utf8.txt
+[2026/09/08 18:49:59:0256] U: LWS API selftest: full-text search
+[2026/09/08 18:49:59:0257] N: Creating index
+[2026/09/08 18:49:59:3976] N: lws_fts_serialize: index 3 files (1MiB) ...
+[2026/09/08 18:49:59:4275] U: Completed: PASS
+```
