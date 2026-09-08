@@ -85,10 +85,12 @@ lws_stub_spawn(const struct lws_stub_config *config);
  * lws_stub_server_init() - Initialize the UDS server inside the stub process
  *
  * \param config: pointer to the stub configuration
- * \param secret_out: buffer of at least 129 bytes to store the received secret
+ * \param secret_out: buffer of exactly 129 bytes to store the received secret
+ *		      (128 chars and the NUL); it is zeroed on entry and on
+ *		      failure, and only filled in if the whole secret arrived
  *
  * Called by the child stub process upon startup. It reads the secret from stdin,
- * creates a raw UDS vhost bound to config->uds_path with 0600 permissions,
+ * creates a raw UDS vhost bound to config->uds_path only its own uid can reach,
  * and sets up JSON-RPC dispatching for config->rpc_methods.
  *
  * On platforms with getppid() and sigaction(), the stub also arranges to
@@ -150,7 +152,13 @@ lws_stub_request(struct lws_stub_manager *mgr,
  * were queued: the channel carries no request ids.
  *
  * A request with neither callback is "fire and forget", and is retired as
- * soon as it has been written.  A request with either callback expects a
+ * soon as it has been written; the stub must not answer such a request, since
+ * with no request ids there would be nothing to attribute the reply to.  Give
+ * a request that may be answered at least a \p raw_cb, even if you throw the
+ * reply away.  Rx that cannot be attributed to the request at the head of the
+ * queue drops the connection, which is retried with whatever is still queued.
+ *
+ * A request with either callback expects a
  * reply, and is retired when the JSON reply completes (that is the only
  * framing the reply has), or when the reply cannot be parsed, or when the
  * UDS connection closes with the request on the wire, or when the manager is

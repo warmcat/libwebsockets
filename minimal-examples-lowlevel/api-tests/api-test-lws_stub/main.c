@@ -490,6 +490,116 @@ phase2(int argc, const char **argv)
 	return 0;
 }
 
+/*
+ * Phase 4: spawn and destroy the stub repeatedly on a context that stays up,
+ * the way a config reload does.
+ *
+ * Each spawn creates a private "<stub name>-client" vhost to make its UDS
+ * client connection on, and each destroy has to take that away again, or a
+ * long-lived process accumulates a vhost (and its fd) per reload, with several
+ * of them sharing one name.
+ */
+
+static int p4_established;
+
+static void
+phase4_connected_cb(struct lws_stub_manager *mgr)
+{
+	(void)mgr;
+
+	p4_established = 1;
+}
+
+static int
+phase4(int argc, const char **argv)
+{
+	struct lws_context_creation_info info;
+	struct lws_stub_config sc;
+	struct lws_context *cx;
+	struct lws_vhost *vh;
+	char vhname[192];
+	lws_usec_t start;
+	int result = 0, n;
+
+	lws_context_info_defaults(&info, NULL);
+	info.port = CONTEXT_PORT_NO_LISTEN;
+	info.protocols = parent_protocols;
+	info.argc = argc;
+	info.argv = argv;
+
+	cx = lws_create_context(&info);
+	if (!cx) {
+		lwsl_err("phase 4: lws_create_context failed\n");
+		return 1;
+	}
+
+	info.vhost_name = "phase4-vhost";
+	vh = lws_create_vhost(cx, &info);
+	if (!vh) {
+		lwsl_err("phase 4: lws_create_vhost failed\n");
+		lws_context_destroy(cx);
+		return 1;
+	}
+
+	lws_snprintf(vhname, sizeof(vhname), "%s-client", STUB_NAME);
+
+	for (n = 0; n < 3; n++) {
+		memset(&sc, 0, sizeof(sc));
+		sc.cx			= cx;
+		sc.vh			= vh;
+		sc.stub_name		= STUB_NAME;
+		sc.uds_path		= stub_uds_path(STUB_NAME);
+		sc.protocols		= stub_protocols;
+		sc.parent_protocol_name	= "lws-demo-stub";
+		/* the stub child in this test always reads an extra payload */
+		sc.extra_payload	= "phase4";
+		sc.extra_payload_len	= strlen("phase4") + 1;
+		sc.connected_cb		= phase4_connected_cb;
+
+		p4_established = 0;
+		g_stub_mgr = lws_stub_spawn(&sc);
+		if (!g_stub_mgr) {
+			lwsl_err("phase 4: spawn %d failed\n", n);
+			result = 1;
+			break;
+		}
+
+		start = lws_now_usecs();
+		while (!p4_established && lws_now_usecs() - start < 5000000)
+			lws_service(cx, 100);
+
+		if (!p4_established) {
+			lwsl_err("phase 4: spawn %d never connected\n", n);
+			result = 1;
+			break;
+		}
+
+		if (!lws_get_vhost_by_name(cx, vhname)) {
+			lwsl_err("phase 4: no client vhost '%s'\n", vhname);
+			result = 1;
+			break;
+		}
+
+		lws_stub_destroy(&g_stub_mgr);
+
+		if (lws_get_vhost_by_name(cx, vhname)) {
+			lwsl_err("phase 4: client vhost '%s' outlived "
+				 "the stub\n", vhname);
+			result = 1;
+			break;
+		}
+
+		/* let the deferred parts of the teardown complete */
+		start = lws_now_usecs();
+		while (lws_now_usecs() - start < 300000)
+			lws_service(cx, 50);
+	}
+
+	lws_context_destroy(cx);
+
+	return result;
+}
+
 #if !defined(WIN32)
 
 /*
@@ -704,8 +814,9 @@ int main(int argc, const char **argv)
 		       "      Do not pass --lws-stub manually unless you are the spawned child.\n"
 		       "      The test runs in phases: request / reply over UDS (including a\n"
 		       "      raw-only request and a cancelled one), teardown at context\n"
-		       "      destroy, and the stub noticing its parent died and exiting\n"
-		       "      autonomously (POSIX only).\n");
+		       "      destroy, repeated spawn / destroy on a live context, and the\n"
+		       "      stub noticing its parent died and exiting autonomously\n"
+		       "      (POSIX only).\n");
 		return 0;
 	}
 
@@ -848,6 +959,8 @@ done:
 
 	if (!result)
 		result = phase2(argc, argv);
+	if (!result)
+		result = phase4(argc, argv);
 #if !defined(WIN32)
 	if (!result)
 		result = phase3(argc, argv);

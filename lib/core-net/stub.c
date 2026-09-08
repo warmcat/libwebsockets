@@ -244,9 +244,23 @@ lws_stub_spawn(const struct lws_stub_config *config)
 	 */
 	lws_dll2_add_tail(&mgr->cx_list, &config->cx->owner_stub_mgrs);
 
-	/* Generate a secure 128-char secret */
-	lws_get_random(mgr->cx, rand, sizeof(rand));
+	/*
+	 * Generate a secure 128-char secret.  It is the only thing that
+	 * authenticates a request to the privileged stub, so a short or failed
+	 * RNG read must fail the spawn rather than hex-encode whatever was on
+	 * the stack.
+	 */
+	if (lws_get_random(mgr->cx, rand, sizeof(rand)) != sizeof(rand)) {
+		lwsl_vhost_err(mgr->vh, "%s: stub '%s': unable to get %u "
+			       "random bytes for the stub secret\n", __func__,
+			       config->stub_name ? config->stub_name : "?",
+			       (unsigned int)sizeof(rand));
+		lws_stub_destroy(&mgr);
+
+		return NULL;
+	}
 	lws_hex_from_byte_array(rand, sizeof(rand), mgr->secret, sizeof(mgr->secret));
+	lws_explicit_bzero(rand, sizeof(rand));
 
 	memset(&spawn_info, 0, sizeof(spawn_info));
 	const char *exe_path = "/usr/local/bin/lwsws";
@@ -604,6 +618,9 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 {
 	struct lws_context_creation_info info;
 	struct lws_vhost *vh_uds;
+#if !defined(WIN32)
+	mode_t om;
+#endif
 
 	size_t rx = 0;
 
@@ -611,7 +628,14 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 	_setmode(0, _O_BINARY);
 #endif
 
-	/* 1. Read secret from stdin */
+	/*
+	 * 1. Read the secret from stdin.  It is exactly 128 chars and it is
+	 *    compared against by length, so anything shorter is useless: a
+	 *    partial read would otherwise leave the tail of the buffer
+	 *    uninitialised inside the secret we compare with.
+	 */
+	memset(secret_out, 0, 129);
+
 	while (rx < 128) {
 		ssize_t n = read(0, (void *)(secret_out + rx), 128 - (unsigned int)rx);
 		if (n <= 0)
@@ -619,11 +643,12 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 		rx += (size_t)n;
 	}
 
-	if (rx < 64) {
+	if (rx != 128) {
 		lwsl_err("%s: stub '%s': Failed to read secret from stdin\n", __func__, config->stub_name ? config->stub_name : "unknown");
+		lws_explicit_bzero(secret_out, 129);
+
 		return -1;
 	}
-	secret_out[128] = '\0';
 
 	/* 1.5. Read extra payload if provided */
 	if (extra_out && extra_len > 0) {
@@ -644,17 +669,33 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 	info.vhost_name = config->stub_name;
 	info.user = config->user;
 
+	/*
+	 * Secure permissions: only the uid we run as may connect.
+	 *
+	 * bind() inside lws_create_vhost() creates the socket file with its
+	 * mode masked by the process umask, so that is the only place the mode
+	 * can be decided without a window where it is wrong: lws_daemonize()
+	 * sets umask(0), which would create it world-connectable, and a
+	 * chmod() afterwards both leaves that window open and resolves the
+	 * path again (following any symlink a local user managed to put there
+	 * in the meantime, with our privilege).  So bind under our own umask
+	 * and do not chmod the path at all.
+	 */
+#if !defined(WIN32)
+	om = umask(0077);
+#endif
+
 	unlink(info.iface);
 	vh_uds = lws_create_vhost(config->cx, &info);
+
+#if !defined(WIN32)
+	umask(om);
+#endif
+
 	if (!vh_uds) {
 		lwsl_err("%s: stub '%s': Failed to create UDS vhost\n", __func__, config->stub_name ? config->stub_name : "unknown");
 		return -1;
 	}
-
-	/* 3. Secure permissions: Only root (and unprivileged clients dropping privs) */
-#if !defined(WIN32)
-	chmod(info.iface, 0600);
-#endif
 
 #if defined(LWS_STUB_AUTONOMOUS_EXIT)
 	/*
@@ -869,18 +910,26 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 		struct lws_stub_req *req;
 		int m;
 
-		if (!d)
-			break; /* Received RX but no active request? */
+		req = d ? lws_container_of(d, struct lws_stub_req, list) : NULL;
 
-		req = lws_container_of(d, struct lws_stub_req, list);
-
-		if (!req->awaits_reply)
+		if (!req || !req->awaits_reply || req->tx_pos != req->tx_len) {
 			/*
-			 * The head is not expecting a reply, so this rx cannot
-			 * belong to it, and with no request ids in the
-			 * protocol there is nothing else to attribute it to
+			 * Replies are matched to requests positionally, so the
+			 * only request this rx can belong to is the head, and
+			 * only if the head is completely on the wire and does
+			 * expect a reply.  Anything else means the stub
+			 * answered something we are not tracking (eg, a
+			 * fire-and-forget request, which by contract is not
+			 * answered) and we no longer know what a subsequent
+			 * reply would belong to... drop the connection to
+			 * resync rather than hand it to the wrong requester.
 			 */
-			break;
+			lwsl_vhost_err(mgr->vh, "%s: stub '%s': unattributable "
+				       "rx, resyncing\n", __func__,
+				       mgr->config.stub_name);
+
+			return -1;
+		}
 
 		if (req->raw_cb)
 			req->raw_cb((const char *)in, len, req->user);
@@ -1094,6 +1143,19 @@ lws_stub_destroy(struct lws_stub_manager **_mgr)
 
 	if (mgr->wsi_client)
 		lws_set_opaque_user_data(mgr->wsi_client, NULL);
+
+	/*
+	 * The client vhost is private to us and nothing else is bound to it,
+	 * so it goes when we go... its dieback closes wsi_client (which no
+	 * longer points at us) and it is finalized when that has completed.
+	 * During context destruction every vhost is destroyed anyway, and
+	 * doing it from in here would recurse into the walk doing that.
+	 */
+	if (mgr->vh_client && !mgr->cx->being_destroyed)
+		lws_vhost_destroy(mgr->vh_client);
+
+	mgr->vh_client = NULL;
+	mgr->wsi_client = NULL;
 
 	if (mgr->lsp) {
 		lws_spawn_piped_kill_child_process(mgr->lsp);
