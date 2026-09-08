@@ -758,7 +758,15 @@ lws_urldecode(char *string, const char *escaped, int len)
 	int state = 0, n;
 	char sum = 0;
 
-	while (*escaped && len) {
+	if (len < 1)
+		return -1;
+
+	/*
+	 * \p len is the size of the output buffer, and we always write the
+	 * NUL... so we can only emit len - 1 decoded chars
+	 */
+
+	while (*escaped && len > 1) {
 		switch (state) {
 		case 0:
 			if (*escaped == '%') {
