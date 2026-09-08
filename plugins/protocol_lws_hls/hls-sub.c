@@ -288,6 +288,29 @@ track_cmp(const void *a, const void *b)
 	return strcmp(ta->path, tb->path); /* sidecars by filename */
 }
 
+/*
+ * NAME= and LANGUAGE= are emitted into RFC 8216 quoted-string attributes of
+ * the master playlist's #EXT-X-MEDIA lines.  Their contents come from the
+ * container's "title" / "language" metadata tags or from a sidecar's
+ * filename, ie, from whoever is able to put media into media_dir, and they
+ * are not otherwise validated.
+ *
+ * A quoted-string may not contain '"', CR or LF: a '"' closes the attribute
+ * early and lets further attributes be forged on the same tag, and a LF ends
+ * the line, letting a whole new playlist directive (eg, an #EXT-X-KEY or
+ * #EXT-X-MEDIA pointing at an attacker's host) be injected into a playlist
+ * the player fetched from us.  Replace those, and the rest of the C0/DEL
+ * controls, with '_'; >= 0x80 is left alone so UTF-8 track titles survive.
+ */
+static void
+sub_attr_sanitize(char *s)
+{
+	for (; *s; s++)
+		if (*s == '"' || (unsigned char)*s < 0x20 ||
+		    (unsigned char)*s == 0x7f)
+			*s = '_';
+}
+
 struct hls_sub_track *
 lws_hls_discover_tracks(const char *media_dir, const char *filename, int *out_count)
 {
@@ -460,6 +483,9 @@ done_embedded:
 				lws_snprintf(tracks[i].id, sizeof(tracks[i].id),
 					 "s%d", sidx++);
 			}
+			/* these two go into quoted playlist attributes */
+			sub_attr_sanitize(tracks[i].name);
+			sub_attr_sanitize(tracks[i].lang);
 		}
 	}
 
@@ -998,10 +1024,20 @@ build_timeline(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
 		/* fall back to duration / HLS_SEGMENT_DUR like serve_manifest */
 		double dur = ic->duration > 0 ? (double)ic->duration /
 				(double)AV_TIME_BASE : 0.0;
-		total = (int)(dur / (double)HLS_SEGMENT_DUR + 0.999);
+		double n = dur / (double)HLS_SEGMENT_DUR + 0.999;
+
+		/* the container's declared duration is untrusted, and the
+		 * (int) cast of an out-of-range double is UB */
+		if (n > (double)HLS_MAX_SEGMENTS)
+			n = (double)HLS_MAX_SEGMENTS;
+		total = (int)n;
 		if (total <= 0)
 			total = 1;
 	}
+
+	/* keep the subtitle timeline on the same clamp as the A/V playlist */
+	if (total > HLS_MAX_SEGMENTS)
+		total = HLS_MAX_SEGMENTS;
 
 	out->durations = calloc((size_t)total, sizeof(double));
 	if (!out->durations)
@@ -1020,6 +1056,10 @@ build_timeline(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
 			d = info.duration_sec;
 		else
 			d = (double)HLS_SEGMENT_DUR;
+		/* clamp before the cast: (int) of an out-of-range double is
+		 * UB, and d is derived from container timestamps */
+		if (d > HLS_MAX_SEG_DUR)
+			d = HLS_MAX_SEG_DUR;
 		out->durations[i] = d;
 		if ((int)(d + 0.999) > out->target_duration)
 			out->target_duration = (int)(d + 0.999);
@@ -1327,7 +1367,7 @@ lws_hls_serve_sub_segment(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 	if (out.len + _l + 1 > out.cap) { \
 		size_t _nc = out.cap * 2 + _l; \
 		char *_np = realloc(out.p, _nc); \
-		if (!_np) goto seg_done; \
+		if (!_np) goto seg_done_locked; \
 		out.p = _np; out.cap = _nc; \
 	} \
 	memcpy(out.p + out.len, s, _l); out.len += _l; out.p[out.len] = '\0'; \
@@ -1389,6 +1429,14 @@ lws_hls_serve_sub_segment(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 
 	ret = send_body(wsi, "text/vtt; charset=\"utf-8\"",
 			(uint8_t *)out.p, out.len);
+	goto seg_done;
+
+seg_done_locked:
+	/* APPEND() bails out here with sub_lock still held; the mutex is a
+	 * plain one, so orphaning it wedges every later /subseg/ request and
+	 * PROTOCOL_DESTROY on the single-threaded event loop for good */
+	pthread_mutex_unlock(&vhd->sub_lock);
+
 seg_done:
 	free(out.p);
 	lws_hls_free_tracks(tracks, ntracks);

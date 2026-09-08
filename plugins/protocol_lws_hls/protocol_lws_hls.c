@@ -19,19 +19,60 @@
 #include <unistd.h>
 #include <libgen.h>
 
-static const char * const stub_req_paths[] = { "delete" };
+static const char * const stub_req_paths[] = { "secret", "delete" };
 
 static signed char
 stub_req_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct per_session_data__lws_hls *pss = (struct per_session_data__lws_hls *)ctx->user;
-	struct per_vhost_data__lws_hls *vhd = (struct per_vhost_data__lws_hls *)
+	struct per_vhost_data__lws_hls *vhd;
+	size_t sl;
+
+	if (reason == LEJPCB_VAL_STR_END) {
+		switch (ctx->path_match - 1) {
+		case 0:
+			lws_strncpy(pss->stub_secret, ctx->buf,
+				    sizeof(pss->stub_secret));
+			break;
+		case 1:
+			lws_strncpy(pss->stub_delete, ctx->buf,
+				    sizeof(pss->stub_delete));
+			break;
+		}
+
+		return 0;
+	}
+
+	if (reason != LEJPCB_COMPLETE)
+		return 0;
+
+	/* lejp_construct() already called us with LEJPCB_CONSTRUCTED before
+	 * pss->wsi was set, so only look the vhd up once we need it */
+	vhd = (struct per_vhost_data__lws_hls *)
 			lws_protocol_vh_priv_get(lws_get_vhost(pss->wsi),
 					lws_get_protocol(pss->wsi));
+	if (!vhd)
+		return -1;
 
-	if (reason == LEJPCB_VAL_STR_END && ctx->path_match - 1 == 0) {
+	/*
+	 * Only the file permissions on the UDS gate who may connect here, and
+	 * those are applied after the bind(); so, like the cert-dist stub, we
+	 * require the peer to prove it knows the secret our parent handed us
+	 * on stdin before we act on anything it says.
+	 */
+	sl = strlen(vhd->stub_secret);
+	if (!sl || strlen(pss->stub_secret) != sl ||
+	    lws_timingsafe_bcmp(pss->stub_secret, vhd->stub_secret,
+				(uint32_t)sl)) {
+		lwsl_err("%s: stub request secret mismatch\n", __func__);
+		return -1;
+	}
+
+	if (pss->stub_delete[0]) {
 		char filename[256];
-		lws_strncpy(filename, ctx->buf, sizeof(filename));
+		lws_strncpy(filename, pss->stub_delete, sizeof(filename));
+		/* one request per object; don't replay it on the next one */
+		pss->stub_delete[0] = '\0';
 		lws_filename_purify_inplace(filename);
 		if (strchr(filename, '/'))
 			return 0;
@@ -96,7 +137,6 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 				return 0;
 
 			struct lws_stub_config sc;
-			char secret[129];
 			char extra[512];
 			memset(&sc, 0, sizeof(sc));
 			memset(extra, 0, sizeof(extra));
@@ -106,7 +146,10 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			sc.uds_path = "/tmp/lws-hls-stub.sock"; // NOSONAR
 			sc.protocols = stub_prots;
 			
-			if (lws_stub_server_init(&sc, secret, extra, sizeof(extra)) < 0)
+			/* kept in vhd so stub_req_cb() can authenticate the
+			 * peer on the UDS before acting on its request */
+			if (lws_stub_server_init(&sc, vhd->stub_secret, extra,
+						 sizeof(extra)) < 0)
 				return 1;
 				
 			/* Update our media_dir to the one provided by the parent via extra_payload */
@@ -402,8 +445,20 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 #if defined(LWS_WITH_STUB)
 			if (vhd->stub_mgr) {
-				char json[256];
-				lws_snprintf(json, sizeof(json), "{\"delete\":\"%s\"}", filename);
+				const char *sec = lws_stub_get_secret(vhd->stub_mgr);
+				char json[512];
+
+				/* purify leaves '"' alone, and it would break
+				 * out of the JSON string we are composing */
+				if (!sec || strchr(filename, '"')) {
+					lws_return_http_status(wsi,
+						HTTP_STATUS_NOT_FOUND, "Not Found");
+					return -1;
+				}
+
+				lws_snprintf(json, sizeof(json),
+					     "{\"secret\":\"%s\",\"delete\":\"%s\"}",
+					     sec, filename);
 				lws_stub_request(vhd->stub_mgr, json, NULL, 0, NULL, NULL, NULL);
 			}
 #endif
@@ -577,8 +632,11 @@ err_404:
 		if (!pss)
 			break;
 		if (!pss->parser_valid) {
-			lejp_construct(&pss->jctx, stub_req_cb, pss, stub_req_paths, 1);
+			/* before lejp_construct(), which calls the cb */
 			pss->wsi = wsi;
+			lejp_construct(&pss->jctx, stub_req_cb, pss,
+				       stub_req_paths,
+				       (unsigned char)LWS_ARRAY_SIZE(stub_req_paths));
 			pss->parser_valid = 1;
 		}
 		if (lejp_parse(&pss->jctx, (uint8_t *)in, (int)len) < 0) {

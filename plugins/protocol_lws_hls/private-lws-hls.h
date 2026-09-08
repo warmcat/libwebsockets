@@ -107,6 +107,24 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
  */
 #define HLS_SEGMENT_DUR 10
 
+/*
+ * Upper bound on the segment count of any generated playlist.  The count is
+ * derived either from the container's keyframe index or from its declared
+ * duration, and neither is trustworthy: unclamped, the sizing arithmetic
+ * (`total_segments * 128`) overflows int, and the composition loop and its
+ * allocation become unbounded.  HLS_MAX_SEGMENTS x HLS_SEGMENT_DUR is over
+ * 55 hours of media, ie, well past anything legitimate.
+ */
+#define HLS_MAX_SEGMENTS 20000
+
+/*
+ * Sanity ceiling in seconds for one segment's EXTINF duration.  It is
+ * computed from container timestamps scaled by the container's own
+ * time_base, so a hostile file can make it astronomically large, and "%f"
+ * of such a double is hundreds of characters wide.
+ */
+#define HLS_MAX_SEG_DUR 86400.0
+
 struct thumb_task {
 	lws_dll2_t list;	/* vhd->tasks FIFO membership */
 	char filename[256];
@@ -148,6 +166,9 @@ struct per_vhost_data__lws_hls {
 
 #if defined(LWS_WITH_STUB)
 	struct lws_stub_manager *stub_mgr;
+	/* stub process side: the spawn secret we were handed on stdin, which
+	 * every request arriving on the UDS must prove knowledge of */
+	char stub_secret[129];
 #endif
 	int has_jwk;
 	struct lws_jwk jwk;
@@ -227,9 +248,13 @@ struct per_session_data__lws_hls {
 	
 	int has_star_grant;
 
-	/* stub lejp parsing */
+	/* stub lejp parsing.  The request members are collected and only acted
+	 * on once the whole object has parsed, so the secret can be checked
+	 * before anything is deleted regardless of member order. */
 	struct lejp_ctx jctx;
 	int parser_valid;
+	char stub_secret[129];
+	char stub_delete[256];
 };
 
 /* hls-av.c */

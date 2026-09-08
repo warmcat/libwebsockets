@@ -231,24 +231,63 @@ lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir, const char *file
 
 /* Custom AVIOContext writer for memory */
 struct hls_buffer {
-        uint8_t *ptr;
-        size_t size;
-        size_t allocated;
+	uint8_t *ptr;
+	size_t size;
+	size_t allocated;
+	int err;	/* sticky: allocation failed, or the cap was hit */
 };
+
+/*
+ * Hard ceiling on how much muxed output we are willing to accumulate in RAM
+ * for a single request.  One segment is only HLS_SEGMENT_DUR seconds, so
+ * anything approaching this is either a pathological input or an attempt to
+ * make us buffer without bound; fail the request instead of growing.
+ */
+#define HLS_BUF_MAX ((size_t)64 * 1024 * 1024)
 
 #if LIBAVFORMAT_VERSION_MAJOR >= 61
 static int write_packet(void *opaque, const uint8_t *buf, int buf_size) {
 #else
 static int write_packet(void *opaque, uint8_t *buf, int buf_size) {
 #endif
-        struct hls_buffer *hb = (struct hls_buffer *)opaque;
-        if (hb->size + (size_t)buf_size > hb->allocated) {
-                hb->allocated = (hb->size + (size_t)buf_size) * 2;
-                hb->ptr = realloc(hb->ptr, hb->allocated);
-        }
-        memcpy(hb->ptr + hb->size, buf, (size_t)buf_size);
-        hb->size += (size_t)buf_size;
-        return buf_size;
+	struct hls_buffer *hb = (struct hls_buffer *)opaque;
+	size_t need;
+
+	if (hb->err || buf_size < 0)
+		return AVERROR(ENOMEM);
+
+	need = hb->size + (size_t)buf_size;
+
+	if (need > hb->allocated) {
+		size_t na = need * 2;
+		uint8_t *np;
+
+		if (need > HLS_BUF_MAX) {
+			hb->err = 1;
+			return AVERROR(ENOMEM);
+		}
+		if (na > HLS_BUF_MAX)
+			na = HLS_BUF_MAX;
+
+		/*
+		 * realloc() returning NULL must not clobber the old pointer:
+		 * that both leaks it and leaves the memcpy() below writing at
+		 * NULL + hb->size, ie, far past the guard page.
+		 */
+		np = realloc(hb->ptr, na);
+		if (!np) {
+			hb->err = 1;
+			return AVERROR(ENOMEM);
+		}
+
+		hb->ptr = np;
+		hb->allocated = na;
+	}
+
+	memcpy(hb->ptr + hb->size, buf, (size_t)buf_size);
+	hb->size = need;
+
+	return buf_size;
 }
 
 static size_t find_moof_offset(uint8_t *buf, size_t size) {
@@ -721,9 +760,17 @@ lws_hls_serve_init(struct lws *wsi, const char *media_dir, const char *filename)
         }
 
         struct hls_buffer hb;
-        hb.size = 0;
+        memset(&hb, 0, sizeof(hb));
         hb.allocated = 1024 * 1024;
         hb.ptr = malloc(hb.allocated);
+        if (!hb.ptr) {
+                /* write_packet() would otherwise memcpy() into NULL */
+                avformat_free_context(out_ctx);
+                avformat_close_input(&in_ctx);
+                lws_return_http_status(wsi,
+                                HTTP_STATUS_INTERNAL_SERVER_ERROR, "OOM");
+                return -1;
+        }
 
         unsigned char *avio_ctx_buffer = av_malloc(32768);
         AVIOContext *avio_ctx = avio_alloc_context(avio_ctx_buffer, 32768, 1, &hb, NULL, write_packet, NULL);
@@ -765,7 +812,9 @@ lws_hls_serve_init(struct lws *wsi, const char *media_dir, const char *filename)
         avformat_close_input(&in_ctx);
 
         struct per_session_data__lws_hls *pss = (struct per_session_data__lws_hls *)lws_wsi_user(wsi);
-        if (!pss || hb.size == 0) {
+        /* hb.err: the muxed output hit the RAM cap or an allocation
+         * failed, so the buffer contents are incomplete - do not ship it */
+        if (!pss || hb.size == 0 || hb.err) {
                 free(hb.ptr);
                 return -1;
         }
@@ -1085,9 +1134,28 @@ lws_hls_serve_manifest(struct lws *wsi, const char *media_dir, const char *filen
 	if (video_idx >= 0 && lws_hls_get_segment_info(vhd, filename, fmt_ctx, video_idx, -1, NULL, &total_segments) == 0) {
 		has_index = 1;
 	} else {
-		total_segments = (int)(duration / ((int64_t)HLS_SEGMENT_DUR * AV_TIME_BASE));
-		if (duration % ((int64_t)HLS_SEGMENT_DUR * AV_TIME_BASE) != 0)
-			total_segments++;
+		int64_t segdur = (int64_t)HLS_SEGMENT_DUR * AV_TIME_BASE;
+		int64_t n = duration / segdur;
+
+		if (duration % segdur)
+			n++;
+		if (n > HLS_MAX_SEGMENTS)
+			n = HLS_MAX_SEGMENTS;
+		total_segments = (int)n;
+	}
+
+	/*
+	 * total_segments came from the container (its keyframe index, or its
+	 * declared duration); clamp it before it is used for the sizing
+	 * arithmetic and the composition loop below, so a hostile file cannot
+	 * overflow the size computation or make the loop unbounded.
+	 */
+	if (total_segments < 0)
+		total_segments = 0;
+	if (total_segments > HLS_MAX_SEGMENTS) {
+		lwsl_warn("%s: %s: %d segments, clamping to %d\n", __func__,
+			  filename, total_segments, HLS_MAX_SEGMENTS);
+		total_segments = HLS_MAX_SEGMENTS;
 	}
 
 	/* We must compute max target duration from index to be standard compliant */
@@ -1102,10 +1170,22 @@ lws_hls_serve_manifest(struct lws *wsi, const char *media_dir, const char *filen
 				if (sinfo.duration_sec > max_dur) max_dur = sinfo.duration_sec;
 			}
 		}
+		/* clamp before the cast: (int) of an out-of-range double is UB */
+		if (max_dur > HLS_MAX_SEG_DUR)
+			max_dur = HLS_MAX_SEG_DUR;
+		if (max_dur < 0.0)
+			max_dur = 0.0;
 		target_duration = (int)(max_dur + 0.999); /* round up */
 	}
 
-	size_t m3u8_max = 1024 + (size_t)(total_segments * 128);
+	/*
+	 * Size from the real string lengths rather than a fixed 128 bytes per
+	 * line: the filename (up to 255 bytes) appears in every EXTINF entry.
+	 * Composition itself uses the clamped hls_append_fmt() cursor, so even
+	 * if this estimate were wrong the playlist can only truncate (F-059).
+	 */
+	size_t fnlen = strlen(filename);
+	size_t m3u8_max = 256 + fnlen + (size_t)total_segments * (64 + fnlen);
 	char *m3u8 = malloc(LWS_PRE + m3u8_max);
 	if (!m3u8) {
 		avformat_close_input(&fmt_ctx);
@@ -1113,8 +1193,11 @@ lws_hls_serve_manifest(struct lws *wsi, const char *media_dir, const char *filen
 		return -1;
 	}
 
-	char *p_m3u8 = m3u8 + LWS_PRE;
-	p_m3u8 += snprintf(p_m3u8, m3u8_max,
+	char *body = m3u8 + LWS_PRE;
+	char *p_m3u8 = body;
+
+	*body = '\0';
+	p_m3u8 = hls_append_fmt(p_m3u8, body, m3u8_max,
 		"#EXTM3U\n"
 		"#EXT-X-VERSION:7\n"
 		"#EXT-X-TARGETDURATION:%d\n"
@@ -1136,12 +1219,13 @@ lws_hls_serve_manifest(struct lws *wsi, const char *media_dir, const char *filen
 				int64_t rem = duration - (int64_t)i * HLS_SEGMENT_DUR * AV_TIME_BASE;
 				dur = (double)rem / AV_TIME_BASE;
 			}
-			if (dur <= 0.0) {
-				dur = 0.1;
-			}
 		}
-		size_t rem_buf = m3u8_max - (size_t)(p_m3u8 - (m3u8 + LWS_PRE));
-		p_m3u8 += snprintf(p_m3u8, rem_buf,
+		/* keep "%f" of a container-derived double to a sane width */
+		if (!(dur > 0.0))
+			dur = 0.1;
+		if (dur > HLS_MAX_SEG_DUR)
+			dur = HLS_MAX_SEG_DUR;
+		p_m3u8 = hls_append_fmt(p_m3u8, body, m3u8_max,
 			"#EXTINF:%f,\n"
 			"../segment/%s/%d\n",
 			dur, filename, i);
@@ -1149,10 +1233,9 @@ lws_hls_serve_manifest(struct lws *wsi, const char *media_dir, const char *filen
 
 	avformat_close_input(&fmt_ctx);
 
-	size_t rem = m3u8_max - (size_t)(p_m3u8 - (m3u8 + LWS_PRE));
-	snprintf(p_m3u8, rem, "#EXT-X-ENDLIST\n");
-	
-	size_t len = strlen(m3u8 + LWS_PRE);
+	p_m3u8 = hls_append_fmt(p_m3u8, body, m3u8_max, "#EXT-X-ENDLIST\n");
+
+	size_t len = (size_t)(p_m3u8 - body);
 
 	struct per_session_data__lws_hls *pss = (struct per_session_data__lws_hls *)lws_wsi_user(wsi);
 	if (!pss) {
@@ -1223,6 +1306,12 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 	int transcode_audio = 0;
 
 	int *stream_mapping = malloc((size_t)in_ctx->nb_streams * sizeof(int));
+	if (!stream_mapping) {
+		avformat_free_context(out_ctx);
+		avformat_close_input(&in_ctx);
+		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "OOM");
+		return -1;
+	}
 	for (unsigned int i = 0; i < in_ctx->nb_streams; i++) {
 		stream_mapping[i] = -1;
 	}
@@ -1284,9 +1373,19 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 	}
 
 	struct hls_buffer hb;
-	hb.size = 0;
+	memset(&hb, 0, sizeof(hb));
 	hb.allocated = 1024 * 1024; /* 1MB init */
 	hb.ptr = malloc(hb.allocated);
+	if (!hb.ptr) {
+		/* write_packet() would otherwise memcpy() into NULL */
+		if (audio_tx)
+			free_audio_transcoder(audio_tx);
+		avformat_free_context(out_ctx);
+		avformat_close_input(&in_ctx);
+		free(stream_mapping);
+		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "OOM");
+		return -1;
+	}
 
 	unsigned char *avio_ctx_buffer = av_malloc(32768);
 	AVIOContext *avio_ctx = avio_alloc_context(avio_ctx_buffer, 32768,
@@ -1808,7 +1907,6 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 	}
 	
 	av_write_trailer(out_ctx);
-        av_dict_free(&opts);
 
 	if (video_idx >= 0 && stream_mapping[video_idx] >= 0) {
 		video_out_time_base = out_ctx->streams[stream_mapping[video_idx]]->time_base;
@@ -1818,6 +1916,11 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 	}
 
 done:
+	/* freed here, not on the success path, so the goto done above (eg,
+	 * avformat_write_header() refusing a codec the mp4 muxer won't take,
+	 * which a client can trigger repeatably) does not leak it */
+	av_dict_free(&opts);
+
 	if (audio_tx) {
 		free_audio_transcoder(audio_tx);
 	}
@@ -1843,7 +1946,9 @@ done:
 	/* Wait, lws_protocol_vh_priv_get gets VHD. We want PSS! */
 	pss = (struct per_session_data__lws_hls *)lws_wsi_user(wsi);
 	
-	if (!pss || hb.size == 0) {
+	/* hb.err: the muxed output hit the RAM cap or an allocation failed,
+	 * so the buffer contents are incomplete - do not ship it */
+	if (!pss || hb.size == 0 || hb.err) {
 		free(hb.ptr);
 		return -1;
 	}

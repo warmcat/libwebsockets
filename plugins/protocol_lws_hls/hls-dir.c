@@ -16,11 +16,22 @@ struct file_entry {
  * per-entry markup is ~180 bytes */
 #define HLS_DIR_ENTRY_FIXED 256
 
+/*
+ * Maximum directory nesting we will walk below media_dir.  lws_dir() reports
+ * a symlink as LDOT_DIR wherever the platform has no d_type and _fill_lde()
+ * falls back to stat() (which follows the link), so a symlink to '.' or to
+ * an ancestor would otherwise recurse until the stack is exhausted - each
+ * level costs the 1KB path[] here plus lws_dir()'s own frame.  Compare
+ * lws_dir_rm_rf_cb() in lib/misc/dir.c, which guards the same case.
+ */
+#define HLS_DIR_MAX_DEPTH 8
+
 struct dir_state {
 	struct file_entry *entries;
 	size_t count;
 	size_t max;
 	const char *base_dir;
+	int depth;
 };
 
 static int
@@ -36,7 +47,13 @@ hls_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
 
 	if (lde->type == LDOT_DIR) {
+		if (ds->depth >= HLS_DIR_MAX_DEPTH) {
+			lwsl_notice("%s: depth limit at %s\n", __func__, path);
+			return 0;
+		}
+		ds->depth++;
 		lws_dir(path, ds, hls_dir_cb);
+		ds->depth--;
 		return 0;
 	}
 
