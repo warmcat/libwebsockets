@@ -35,7 +35,8 @@ This plugin handles several PVO options to control the redirection routing and t
 | `db-path` | Absolute filepath to the shared sqlite3 permissions database (used to instantly verify and rewrite valid cookies suffering from revoked grants). Defaults to `/var/db/lws-auth.sqlite3`. |
 | `whitelist` | Optional array of CIDR netblock strings (e.g. `10.0.0.0/8`, `192.168.1.0/24`). If any are provided, the connecting peer must match at least one explicitly or they will uniformly receive a `403 Forbidden` bypass, regardless of login state. |
 | `unauth-allow` | If set to `1`, unauthenticated connections are **not** actively bounced via a 302 redirect. Traffic is instead permitted through to the underlying application mount unhindered. This enables scenarios where an underlying mount might conditionally render public views while relying securely on `/.lws-login-status` responses to dictate authenticated view logic without hard-failing unauthenticated guests. |
-| `unauth-protocols` | Optional comma-separated list of `Sec-WebSocket-Protocol` names (e.g., `lws-oauth-preauth`) that are permitted to bypass the JWT requirement during the upgrade phase. This allows unauthenticated headless devices to negotiate specific protocols to complete RFC 8628 Device Flow pairing. |
+| `unauth-protocols` | Optional comma-separated list of `Sec-WebSocket-Protocol` names (e.g., `lws-oauth-preauth`) that are permitted to bypass the JWT requirement during the upgrade phase. This allows unauthenticated headless devices to negotiate specific protocols to complete RFC 8628 Device Flow pairing. Names offered by the client are matched as **whole tokens** against this list, so a configured `lws-oauth-preauth` does not also wave through `auth` or `preauth`. |
+| `trust-forwarded-proto` | Defaults to `1`. Whether an `X-Forwarded-Proto: https` request header from a TLS-terminating reverse proxy in front of us may set the scheme of the `redirect_uri` we hand to the auth server (and of the cold-load self-redirect). It can only ever *upgrade* to `https`: a real TLS link is always reported as `https` whatever the header says, so a client cannot downgrade its own login round trip to cleartext. Set to `0` on a vhost that browsers reach directly, so the client-settable header is ignored entirely. |
 
 **Where does the JWK come from?**
 The central `auth-server` plugin automatically generates an Elliptic Curve (EC P-256) keypair upon its first startup and saves it to its configured `jwk_path` (e.g., `/var/db/lws-auth.jwk`). To configure the `jwt-jwk` PVO for this bouncer mount, you simply take the contents of that generated file.
@@ -76,6 +77,13 @@ The central Auth Server portal will parse these parameters. If the user is unaut
 ## Injected Backend Headers
 
 When a request is allowed through to the backend app mounted behind the bouncer, `lws-login` stamps the cooked, trusted authentication result onto the request as `x-lws-login-*` headers (anti-spoofed via `lws_http_zap_header()` first, so a browser cannot elevate itself). The backend reads these with no JWT or grant logic of its own. They are only trustworthy when the request actually transited the bouncer's proxy path; a backend reachable directly must not rely on them.
+
+Two details of the anti-spoof are worth knowing, since both are worked around
+here rather than in the library: the ah stores a custom header's name
+*including* its `:`, so `lws_http_zap_header()` must be given the colon or it
+matches nothing at all; and it unlinks only the first record it finds, so a
+header the client sent twice needs the call repeated until the header is gone.
+`lws_login_zap_header()` does both.
 
 | Header | Value | Meaning |
 |---|---|---|
@@ -195,9 +203,13 @@ refresh session is genuinely invalid the auth server still 401s and the
 widget escalates as before.  Without this, a live session whose sidecar died
 was classified as dead and the user's whole page was navigated to the auth
 form — trashing eg an in-progress HLS playback for a split-second re-login
-round trip.  These self-heal events (and any remaining denials) are logged
-with the raw cookie jar at `notice`, since the affected devices usually
-cannot be inspected.
+round trip.  These self-heal events (and any remaining denials) are logged at
+`notice` along with a jar summary listing the cookie **names and value
+lengths** only (`lws_login_diag_jar()`), which is enough to tell which cookie
+was missing on a device that cannot be inspected.  The jar itself must never
+be logged verbatim: it carries `auth_session` and the long-term
+`auth_refresh_session`, and anything written to the log is replayable by
+whoever can read the log.
 
 ### Denial observability
 
@@ -239,3 +251,28 @@ stop such stale duplicates accumulating, every `auth_session` cookie this
 plugin mints has its `Max-Age` capped at the JWT's own remaining `exp`, never
 just `jwt-validity-secs`.  Only the status probe emits these lines, since it
 is the one request a not-logged-in widget always makes and scanners never do.
+
+### Session expiry and the endpoint's known gaps
+
+`lws_jwt_auth_create()` deliberately returns a token that *verified* but has
+already expired, leaving "what an expired token means" to the caller; only its
+signature is being asserted, not that the session is live.  Every gate here
+therefore checks `exp` itself (`lws_login_jwt_expired()`) -- the interceptor
+verdict, the `LWS_CALLBACK_USER + 1` bypass API, and the `LWS_CALLBACK_HTTP`
+path alike.  A gate that only tests the handle for NULL turns any once-valid
+`auth_session` value into a session that never ends.
+
+Two known gaps remain, both deliberate for now:
+
+- `/.lws-login-logout` is a state-changing `GET` with no CSRF token, so any
+  page the visitor loads can force them to be logged out.  It is session
+  denial only -- the endpoint grants nothing -- but making it a `POST` with the
+  `auth_csrf` double submit needs the canned widget's Logout link changed at
+  the same time.  Its `redirect_uri` is no longer decoded twice (the URI
+  parser has already percent-decoded the arg), and is rejected outright if it
+  contains a control byte, a backslash, or userinfo in its authority.
+
+- the request URI is read into a 256-byte buffer.  A longer URI cannot be
+  fetched, and rather than silently evaluating the request against the
+  vhost-wide defaults instead of the mount's PMOs, every path now **denies**
+  it.
