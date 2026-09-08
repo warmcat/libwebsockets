@@ -79,16 +79,97 @@ time_t time(time_t *t)
 }
 #endif
 
+/*
+ * BCRYPT_USE_SYSTEM_PREFERRED_RNG, from bcrypt.h... we resolve the entrypoints
+ * at runtime rather than link bcrypt.lib / advapi32.lib, so that this works
+ * the same on every toolchain and SDK vintage lws is built with.
+ */
+
+#define LWS_BCRYPT_USE_SYSTEM_PREFERRED_RNG 0x00000002
+
+typedef LONG (WINAPI *lws_pfn_bcryptgenrandom_t)(void *, unsigned char *,
+						 ULONG, ULONG);
+typedef BOOLEAN (WINAPI *lws_pfn_rtlgenrandom_t)(void *, ULONG);
+
+static lws_pfn_bcryptgenrandom_t	lws_pfn_bcryptgenrandom;
+static lws_pfn_rtlgenrandom_t		lws_pfn_rtlgenrandom;
+
+/* 0 = not tried yet, 1 = resolution in progress, 2 = resolved */
+static volatile LONG			lws_random_resolved;
+
+static void
+lws_plat_random_resolve(void)
+{
+	HMODULE h;
+
+	if (lws_random_resolved == 2)
+		return;
+
+	if (InterlockedCompareExchange(&lws_random_resolved, 1, 0)) {
+		/* someone else is doing it... wait for him to finish */
+		while (lws_random_resolved != 2)
+			Sleep(0);
+
+		return;
+	}
+
+	h = LoadLibraryA("bcrypt.dll");
+	if (h)
+		lws_pfn_bcryptgenrandom = (lws_pfn_bcryptgenrandom_t)
+					GetProcAddress(h, "BCryptGenRandom");
+
+	if (!lws_pfn_bcryptgenrandom) {
+		/* Vista and before... RtlGenRandom, aka SystemFunction036 */
+
+		h = LoadLibraryA("advapi32.dll");
+		if (h)
+			lws_pfn_rtlgenrandom = (lws_pfn_rtlgenrandom_t)
+					GetProcAddress(h, "SystemFunction036");
+	}
+
+	InterlockedExchange(&lws_random_resolved, 2);
+}
+
 size_t
 lws_get_random(struct lws_context *context, void *buf, size_t len)
 {
-	size_t n;
-	char *p = (char *)buf;
+	uint8_t *p = (uint8_t *)buf;
+	size_t done = 0;
 
-	for (n = 0; n < len; n++)
-		p[n] = (unsigned char)rand();
+	/*
+	 * Callers are entitled to believe that a return of len means len good
+	 * random bytes, and use the result directly as key, IV or nonce
+	 * material... so on any failure, destroy whatever we produced and
+	 * return 0 rather than hand out something predictable.
+	 */
 
-	return n;
+	lws_plat_random_resolve();
+
+	while (done < len) {
+		ULONG chunk = (ULONG)((len - done > 0x10000000u) ?
+					0x10000000u : len - done);
+
+		if (lws_pfn_bcryptgenrandom) {
+			if (lws_pfn_bcryptgenrandom(NULL, p + done, chunk,
+					LWS_BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0)
+				goto fail;
+		} else {
+			if (!lws_pfn_rtlgenrandom ||
+			    !lws_pfn_rtlgenrandom(p + done, chunk))
+				goto fail;
+		}
+
+		done += chunk;
+	}
+
+	return done;
+
+fail:
+	lwsl_err("%s: no system entropy source\n", __func__);
+
+	lws_explicit_bzero(buf, len);
+
+	return 0;
 }
 
 
