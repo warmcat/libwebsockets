@@ -236,7 +236,16 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 		 * We have to make our own, new session
 		 */
 
-		if (lws_dll2_count(&vh->tls_sessions) == vh->tls_session_cache_max) {
+		/*
+		 * ">=" and the same "unset means 10" default as
+		 * lws_tls_session_add_entry(), or a count that got past the
+		 * max never prunes again... and with a zero max and an empty
+		 * list, "== max" was true and destroyed the NULL head
+		 */
+
+		if (lws_dll2_count(&vh->tls_sessions) >=
+					(vh->tls_session_cache_max ?
+					 vh->tls_session_cache_max : 10)) {
 			/*
 			 * We have reached the vhost's session cache limit,
 			 * prune the LRU / head
@@ -244,11 +253,13 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 			ts = lws_container_of(lws_dll2_get_head(&vh->tls_sessions),
 					      lws_tls_scm_t, list);
 
-			lwsl_tlssess("%s: pruning oldest session (hit max %u)\n",
-				     __func__,
-				     (unsigned int)vh->tls_session_cache_max);
+			if (ts) {
+				lwsl_tlssess("%s: pruning oldest session "
+					     "(hit max %u)\n", __func__,
+					     (unsigned int)vh->tls_session_cache_max);
 
-			__lws_tls_session_destroy(ts);
+				__lws_tls_session_destroy(ts);
+			}
 		}
 
 		ts = lws_malloc(sizeof(*ts) + nl + 1, __func__);
@@ -348,7 +359,7 @@ lws_tls_session_add_entry(struct lws_vhost *vh, const char *tag)
 	lws_tls_scm_t *ts;
 	size_t nl = strlen(tag);
 
-	if (lws_dll2_count(&vh->tls_sessions) == (vh->tls_session_cache_max ?
+	if (lws_dll2_count(&vh->tls_sessions) >= (vh->tls_session_cache_max ?
 				      vh->tls_session_cache_max : 10)) {
 		/*
 		 * We have reached the vhost's session cache limit,

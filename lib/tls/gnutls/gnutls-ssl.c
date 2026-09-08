@@ -220,9 +220,20 @@ lws_tls_server_accept(struct lws *wsi)
 				else
 					lws_strncpy(cn, "unknown", sizeof(cn));
 
-				lwsl_notice("%s: vh %s: mTLS: accepted client "
-					    "cert CN=%s\n", __func__,
-					    wsi->a.vhost->name, cn);
+				/*
+				 * With PEER_CERT_NOT_REQUIRED, we are here
+				 * whether the cert verified or not: say which,
+				 * so a log of "accepted client cert CN=x" is
+				 * not read as "x was authenticated".  The app
+				 * can ask for the same answer with
+				 * LWS_TLS_CERT_INFO_VERIFIED
+				 */
+
+				lwsl_notice("%s: vh %s: mTLS: accepted %s "
+					    "client cert CN=%s\n", __func__,
+					    wsi->a.vhost->name,
+					    status ? "UNVERIFIED" : "verified",
+					    cn);
 			}
 		}
 
@@ -373,47 +384,98 @@ lws_tls_server_abort_connection(struct lws *wsi)
 }
 #endif
 
+#if defined(LWS_WITH_CLIENT)
 int
 lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 {
-	unsigned int status = 0;
 	gnutls_session_t session = (gnutls_session_t)wsi->tls.ssl;
+	unsigned int status = 0, allowed = 0;
+	char hostname[128];
+	int n;
 
-	if (gnutls_certificate_verify_peers2(session, &status) < 0) {
-		snprintf(ebuf, ebuf_len, "gnutls_certificate_verify_peers2 failed");
+	if (!session)
+		return -1;
+
+	/*
+	 * gnutls_certificate_verify_peers2() only walks the chain to a trust
+	 * anchor... whose name the certificate carries is not its business.
+	 * Unless the connection asked us not to, the peer name has to go to
+	 * the "3" variant, which is what does for us what
+	 * X509_VERIFY_PARAM_set1_host() does on the openssl backend
+	 */
+
+	if (wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)
+		n = gnutls_certificate_verify_peers2(session, &status);
+	else {
+		if (lws_gnutls_client_hostname(wsi, hostname,
+					       sizeof(hostname))) {
+			lws_snprintf(ebuf, ebuf_len, "no hostname to check "
+				     "the peer certificate against");
+			return -1;
+		}
+
+		n = gnutls_certificate_verify_peers3(session, hostname,
+						     &status);
+	}
+
+	if (n < 0) {
+		lws_snprintf(ebuf, ebuf_len,
+			     "gnutls_certificate_verify_peers failed");
 		return -1;
 	}
 
-	if (status != 0) {
-		unsigned int allowed = 0;
+	if (!status)
+		return 0;
 
-		if (wsi->tls.use_ssl & LCCSCF_ALLOW_INSECURE)
-			allowed = status;
+	/*
+	 * The same flag semantics as the openssl backend: ALLOW_INSECURE and
+	 * friends forgive chain problems, but only
+	 * LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK (handled above, by not
+	 * asking for the name check at all) forgives the wrong name
+	 */
 
-		if (wsi->tls.use_ssl & LCCSCF_ALLOW_SELFSIGNED)
-			allowed |= GNUTLS_CERT_INVALID | GNUTLS_CERT_SIGNER_NOT_FOUND | GNUTLS_CERT_SIGNER_NOT_CA;
+	if (wsi->tls.use_ssl & LCCSCF_ALLOW_INSECURE)
+		allowed = status & (unsigned int)~GNUTLS_CERT_UNEXPECTED_OWNER;
 
-		if (wsi->tls.use_ssl & LCCSCF_ALLOW_EXPIRED)
-			allowed |= GNUTLS_CERT_EXPIRED | GNUTLS_CERT_NOT_ACTIVATED;
+	if (wsi->tls.use_ssl & LCCSCF_ALLOW_SELFSIGNED)
+		allowed |= GNUTLS_CERT_SIGNER_NOT_FOUND |
+			   GNUTLS_CERT_SIGNER_NOT_CA;
 
-		if ((status & ~allowed) == 0) {
-			lwsl_info("%s: allowing anyway\n", __func__);
-			return 0;
-		}
+	if (wsi->tls.use_ssl & LCCSCF_ALLOW_EXPIRED)
+		allowed |= GNUTLS_CERT_EXPIRED | GNUTLS_CERT_NOT_ACTIVATED;
 
+	/*
+	 * GNUTLS_CERT_INVALID is just the "something below is set" summary
+	 * bit, it is meaningless on its own... let it go if everything it is
+	 * summarizing was allowed
+	 */
+
+	if (allowed)
+		allowed |= GNUTLS_CERT_INVALID;
+
+	if (!(status & ~allowed)) {
+		lwsl_info("%s: allowing anyway\n", __func__);
+		return 0;
+	}
+
+	{
 		gnutls_datum_t ds;
-		gnutls_certificate_verification_status_print(status, gnutls_certificate_type_get(session), &ds, 0);
-		if (ds.data) {
-			snprintf(ebuf, ebuf_len, "Peer cert verify failed: %s", ds.data);
+
+		if (!gnutls_certificate_verification_status_print(status,
+				gnutls_certificate_type_get(session), &ds, 0)) {
+			lws_snprintf(ebuf, ebuf_len, "Peer cert verify "
+				     "failed: %s", ds.data);
 			gnutls_free(ds.data);
-		} else {
-			snprintf(ebuf, ebuf_len, "Peer cert verify failed with status %d", status); lwsl_err("GnuTLS verify failed: status=%u, allowed=%u\n", status, allowed);
-		}
-		return -1;
+		} else
+			lws_snprintf(ebuf, ebuf_len, "Peer cert verify failed "
+				     "with status 0x%x", status);
 	}
 
-	return 0;
+	lwsl_notice("%s: %s\n", __func__, ebuf);
+
+	return -1;
 }
+#endif
 
 static int
 tops_fake_POLLIN_for_buffered_gnutls(struct lws_context_per_thread *pt)
