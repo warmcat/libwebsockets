@@ -155,7 +155,15 @@ _lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj, int flag
 		      robj->priority == rou->priority)
 		    ) {
 			lwsl_cx_info(pt->context, "deleting route");
-			_lws_route_pt_close_route_users(pt, robj->uidx);
+			/*
+			 * wsi are tagged with the uidx of the *stored* route
+			 * they were estimated to use.  robj is only the
+			 * caller's search pattern, it is memset to zero by its
+			 * producers and its uidx is always 0, which
+			 * _lws_route_pt_close_route_users() takes as "nothing
+			 * to do"... so we must pass the matched route's uidx.
+			 */
+			_lws_route_pt_close_route_users(pt, rou->uidx);
 			lws_dll2_remove(&rou->list);
 			lws_free(rou);
 		}
@@ -190,6 +198,12 @@ _lws_route_table_ifdown(struct lws_context_per_thread *pt, int idx)
 		lws_route_t *rou = lws_container_of(d, lws_route_t, list);
 
 		if (rou->if_idx == idx) {
+			/*
+			 * Same as _lws_route_remove()... anything that was
+			 * estimated to be routed via this must be closed
+			 * before we lose the uidx that identifies it
+			 */
+			_lws_route_pt_close_route_users(pt, rou->uidx);
 			lws_dll2_remove(&rou->list);
 			lws_free(rou);
 		}
