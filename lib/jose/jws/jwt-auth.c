@@ -289,8 +289,13 @@ lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
 		n++;
 	}
 
+	/*
+	 * Every way out of the loop with ja still NULL has set r: a cookie
+	 * lookup miss, OOM, or lws_jwt_auth_update() failing, which always
+	 * supplies a reason.
+	 */
 	if (!ja && reason)
-		*reason = r ? r : "Cookie not found";
+		*reason = r;
 
 	return ja;
 }
