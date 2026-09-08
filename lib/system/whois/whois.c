@@ -45,6 +45,7 @@ struct lws_whois {
 	int			        state; /* 0 = IANA / initial, 1 = authoritative, 2 = error */
 	int			        last_effline;
 	uint8_t			        is_value;
+	uint8_t			        in_trigger; /* inside the connect call */
 };
 
 static void
@@ -61,7 +62,6 @@ static int
 lws_whois_trigger(struct lws_whois *w, const char *server)
 {
 	struct lws_client_connect_info i;
-	struct lws *wsi = NULL;
 
 	memset(&i, 0, sizeof(i));
 	i.context               = w->args.context;
@@ -75,7 +75,6 @@ lws_whois_trigger(struct lws_whois *w, const char *server)
 	i.method                = "RAW";
 	i.protocol              = "lws-whois";
 	i.opaque_user_data      = w;
-	i.pwsi                  = &wsi;
 	i.fi_wsi_name           = "whois";
 
 	lwsl_cx_notice(w->args.context, "whois connecting to %s for domain: %s (state %d)", server, w->args.domain, w->state);
@@ -94,12 +93,22 @@ lws_whois_trigger(struct lws_whois *w, const char *server)
 	w->is_value             = 0;
 	w->last_effline         = 0;
 
+	/*
+	 * The connect can fail synchronously in here, and if it does, it can
+	 * already have issued CLIENT_CONNECTION_ERROR on us before it returns.
+	 * Flag that, so the callback leaves ownership of w with us instead of
+	 * completing and destroying it under our feet.
+	 */
+	w->in_trigger = 1;
 	w->wsi = lws_client_connect_via_info(&i);
+	w->in_trigger = 0;
 	if (!w->wsi) {
+		/*
+		 * A NULL return always means the wsi is gone... there is no
+		 * live wsi left to report the failure later, so it's ours.
+		 */
 		lwsl_cx_err(w->args.context, "Failed to connect to WHOIS %s", server);
-		if (!wsi)
-			return 1;
-		return 0;
+		return 1;
 	}
 
 	return 0;
@@ -210,21 +219,44 @@ callback_whois(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		if (!w)
+			break;
+
+		/*
+		 * lws makes CLIENT_CONNECTION_ERROR mutually exclusive with the
+		 * role close callback (see __lws_close_free_wsi()), so no
+		 * RAW_CLOSE is coming for a connection that failed to
+		 * establish... we have to complete and destroy w here, or the
+		 * caller waits forever for a callback and w is leaked.
+		 */
+
 		w->state = 2;
+		w->wsi = NULL;
+		lws_set_opaque_user_data(wsi, NULL);
+
+		if (w->in_trigger)
+			/*
+			 * We're being called from inside the connect itself,
+			 * which is going to return failure to whoever called
+			 * lws_whois_trigger()... he owns completing and
+			 * destroying w then, we must not do it twice.
+			 */
+			break;
+
+		if (w->args.cb)
+			w->args.cb(w->args.opaque, NULL);
+		lws_whois_destroy(w);
 		break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
 		if (!w)
 			break;
 		w->wsi = NULL;
-
-		if (w->state == 2) {
-			if (w->args.cb)
-				w->args.cb(w->args.opaque, NULL);
-			lws_set_opaque_user_data(wsi, NULL);
-			lws_whois_destroy(w);
-			break;
-		}
+		/*
+		 * This is the last callback for this wsi, and below we may
+		 * destroy w, or hand it on to a referral connection
+		 */
+		lws_set_opaque_user_data(wsi, NULL);
 
 		/* finish loose ends tokenizing */
 		w->ts.flags &= (uint16_t)~LWS_TOKENIZE_F_EXPECT_MORE;
@@ -309,7 +341,12 @@ callback_whois(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_RAW_WRITEABLE:
 		{
 			char d[LWS_WHS_DOMAIN_MAX + 3];
-			int n = lws_snprintf(d, sizeof(d), "%s\r\n", w->domain);
+			int n;
+
+			if (!w)
+				break;
+
+			n = lws_snprintf(d, sizeof(d), "%s\r\n", w->domain);
 			if (lws_write(wsi, (uint8_t *)d, (size_t)n, LWS_WRITE_RAW) != n)
 				return -1;
 		}
