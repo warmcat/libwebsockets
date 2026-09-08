@@ -5,6 +5,10 @@
 #include <unistd.h>
 #include <errno.h>
 
+#if !defined(O_NOFOLLOW)
+#define O_NOFOLLOW 0
+#endif
+
 static struct lws_dll2_owner active_client_vhds;
 
 struct vhd_cert_dist_client {
@@ -62,10 +66,58 @@ struct dist_client_conn {
 	char                            addr[64];
 	int                             port;
 	char                            prot[16];
-	char                            name[64];
+	char                            name[CERT_DIST_NAME_LEN];
 	char                            hash[65];
 	int                             fetching_hash;
 };
+
+/*
+ * The install name becomes a directory under base_dir, and is interpolated
+ * into JSON: only accept something that can safely be both.  Nothing that
+ * gets here should ever fail this, so failing closed costs nothing.
+ */
+
+static int
+cert_dist_valid_name(const char *s, size_t max)
+{
+	size_t n = strlen(s);
+	const char *p;
+
+	if (!n || n >= max)
+		return 0;
+
+	if (*s == '.' || *s == '-')
+		return 0;
+
+	for (p = s; *p; p++) {
+		if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+		      (*p >= '0' && *p <= '9') || *p == '.' || *p == '-' ||
+		      *p == '_'))
+			return 0;
+		if (*p == '.' && p[1] == '.')
+			return 0;
+	}
+
+	return 1;
+}
+
+/*
+ * Create or open a file we are about to write a cert or a key into, as root,
+ * in a directory an unprivileged local user may be able to create entries in
+ * if it pre-existed.  It must not already exist and must not be a symlink.
+ */
+
+static int
+cert_dist_create_excl(const char *path)
+{
+	int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+
+	if (fd < 0)
+		lwsl_err("%s: unable to create '%s': %s\n", __func__, path,
+			 strerror(errno));
+
+	return fd;
+}
 
 static const uint32_t backoff_ms[] = { 1000, 2000, 3000, 4000, 5000 };
 
@@ -445,13 +497,32 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 		lwsl_notice("%s: Valid command for %s\n", __func__, a->subdomain);
 
 		gettimeofday(&tv, NULL);
-		lws_snprintf(timestamp, sizeof(timestamp), "%lld", (long long)tv.tv_sec);
+		lws_snprintf(timestamp, sizeof(timestamp), "%lld.%06lld",
+			     (long long)tv.tv_sec, (long long)tv.tv_usec);
 
 		/* 1. Ensure directory exists */
 		lws_snprintf(path, sizeof(path), "%s/%s", a->vhd->base_dir, a->subdomain);
 		if (mkdir(path, 0700) < 0 && errno != EEXIST) {
 			lwsl_err("%s: Failed to create directory '%s': %s (errno=%d)\n", __func__, path, strerror(errno), errno);
 			return 1;
+		}
+
+		/*
+		 * We are root and about to write a private key in there: if
+		 * the directory already existed, it must be a real directory
+		 * that we own and that nobody else can write to, or a local
+		 * user could have planted symlinks in it
+		 */
+		{
+			struct stat sd;
+
+			if (lstat(path, &sd) || !S_ISDIR(sd.st_mode) ||
+			    sd.st_uid != geteuid() ||
+			    (sd.st_mode & (S_IWGRP | S_IWOTH))) {
+				lwsl_err("%s: '%s' is not a private directory "
+					 "we own\n", __func__, path);
+				return 1;
+			}
 		}
 
 		/* 1.5 Check if certificate actually changed */
@@ -478,37 +549,53 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 
 		/* 2. Write fullchain */
 		lws_snprintf(path, sizeof(path), "%s/%s/fullchain.pem.%s", a->vhd->base_dir, a->subdomain, timestamp);
-		fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-		if (fd >= 0) {
-			if (write(fd, a->fullchain, (size_t)a->fc_len) < 0)
-				lwsl_err("%s: Failed writing fullchain\n", __func__);
+		fd = cert_dist_create_excl(path);
+		if (fd < 0)
+			return 1;
+		if (write(fd, a->fullchain, (size_t)a->fc_len) != (ssize_t)a->fc_len) {
+			lwsl_err("%s: Failed writing fullchain\n", __func__);
 			close(fd);
+			unlink(path);
+
+			return 1;
 		}
+		close(fd);
 
 		/* 3. Write privkey */
 		lws_snprintf(path2, sizeof(path2), "%s/%s/privkey.pem.%s", a->vhd->base_dir, a->subdomain, timestamp);
-		fd = open(path2, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-		if (fd >= 0) {
-			if (write(fd, a->privkey, (size_t)a->pk_len) < 0)
-				lwsl_err("%s: Failed writing privkey\n", __func__);
-			close(fd);
+		fd = cert_dist_create_excl(path2);
+		if (fd < 0) {
+			unlink(path);
+
+			return 1;
 		}
+		if (write(fd, a->privkey, (size_t)a->pk_len) != (ssize_t)a->pk_len) {
+			lwsl_err("%s: Failed writing privkey\n", __func__);
+			close(fd);
+			unlink(path2);
+			unlink(path);
+
+			return 1;
+		}
+		close(fd);
 
 		/* 4. Atomic symlink update */
 		char sym_tmp[512];
-		
+
 		lws_snprintf(sym, sizeof(sym), "%s/%s/fullchain.pem", a->vhd->base_dir, a->subdomain);
 		lws_snprintf(sym_tmp, sizeof(sym_tmp), "%s.tmp", sym);
 		unlink(sym_tmp);
-		symlink(path, sym_tmp);
-		if (rename(sym_tmp, sym))
+		if (symlink(path, sym_tmp))
+			lwsl_err("%s: symlink %s failed\n", __func__, sym_tmp);
+		else if (rename(sym_tmp, sym))
 			lwsl_err("%s: rename %s failed\n", __func__, sym);
 
 		lws_snprintf(sym, sizeof(sym), "%s/%s/privkey.pem", a->vhd->base_dir, a->subdomain);
 		lws_snprintf(sym_tmp, sizeof(sym_tmp), "%s.tmp", sym);
 		unlink(sym_tmp);
-		symlink(path2, sym_tmp);
-		if (rename(sym_tmp, sym))
+		if (symlink(path2, sym_tmp))
+			lwsl_err("%s: symlink %s failed\n", __func__, sym_tmp);
+		else if (rename(sym_tmp, sym))
 			lwsl_err("%s: rename %s failed\n", __func__, sym);
 
 		lwsl_notice("%s: Files updated for %s, active vhosts will rotate dynamically via proxy\n", __func__, a->subdomain);
