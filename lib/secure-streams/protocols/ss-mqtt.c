@@ -117,12 +117,25 @@ secstream_mqtt_subscribe(struct lws *wsi)
 
 	h->u.mqtt.sub_top.qos = h->policy->u.mqtt.qos;
 	memset(&h->u.mqtt.sub_info, 0, sizeof(h->u.mqtt.sub_info));
-	h->u.mqtt.sub_info.num_topics = 1;
-	h->u.mqtt.sub_info.topic = &h->u.mqtt.sub_top;
+
+	/*
+	 * num_topics stays 0 until both the array and its name are actually
+	 * there, so an OOM can't leave secstream_mqtt_cleanup() walking a NULL
+	 * or uninitialized element
+	 */
+
 	h->u.mqtt.sub_info.topic =
 			    lws_malloc(sizeof(lws_mqtt_topic_elem_t), __func__);
+	if (!h->u.mqtt.sub_info.topic)
+		goto oom;
+
 	h->u.mqtt.sub_info.topic[0].name = lws_strdup(expbuf);
+	if (!h->u.mqtt.sub_info.topic[0].name) {
+		lws_free_set_NULL(h->u.mqtt.sub_info.topic);
+		goto oom;
+	}
 	h->u.mqtt.sub_info.topic[0].qos = h->policy->u.mqtt.qos;
+	h->u.mqtt.sub_info.num_topics = 1;
 
 	if (lws_mqtt_client_send_subcribe(wsi, &h->u.mqtt.sub_info)) {
 		lwsl_notice("%s: unable to subscribe", __func__);
@@ -139,6 +152,13 @@ secstream_mqtt_subscribe(struct lws *wsi)
 		return -1;
 	}
 	return 0;
+
+oom:
+	lwsl_err("%s: OOM on subscribe topic\n", __func__);
+	lws_free(expbuf);
+	h->u.mqtt.sub_top.name = NULL;
+
+	return -1;
 }
 
 static int
@@ -487,6 +507,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	uint8_t buf[LWS_PRE + 1400];
 	size_t buflen = sizeof(buf) - LWS_PRE;
 	lws_ss_metadata_t *omd = NULL;
+	const char *mdname = NULL;
 	char *sub_topic = NULL;
 	lws_strexp_t exp;
 	int f = 0;
@@ -508,12 +529,17 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 #endif
 
 		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
-		h->wsi = NULL;
+		if (h->wsi == wsi) /* not a newer wsi the app just started */
+			h->wsi = NULL;
 
 		secstream_mqtt_cleanup(h);
 
 		if (r == LWSSSSRET_DESTROY_ME)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
+
+		if (h->wsi)
+			/* the app connected again from inside the callback */
+			break;
 
 		r = lws_ss_backoff(h);
 		if (r != LWSSSSRET_OK)
@@ -532,16 +558,24 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			r = lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
 		else
 			r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
-		if (h->wsi)
-			lws_set_opaque_user_data(h->wsi, NULL);
-		h->wsi = NULL;
+		/*
+		 * The DISCONNECTED helper above already cleared h->wsi before
+		 * calling the app's state callback... if it's set now, the app
+		 * started a new connection from inside that callback and we
+		 * must detach only the wsi that is actually closing
+		 */
+		if (h->wsi == wsi) {
+			lws_set_opaque_user_data(wsi, NULL);
+			h->wsi = NULL;
+		}
 
 		secstream_mqtt_cleanup(h);
 
 		if (r)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
-		if (h->policy && !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
+		if (!h->wsi && /* don't retry if a connection is already live */
+		    h->policy && !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
 		    !h->txn_ok && !wsi->a.context->being_destroyed) {
 			r = lws_ss_backoff(h);
 			if (r != LWSSSSRET_OK)
@@ -669,20 +703,49 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					 __func__);
 				return -1;
 			}
-			sub_topic = omd->value__may_own_heap;
-			topic_len = omd->length;
+			/*
+			 * exp.name and everything else here lives in this
+			 * stack frame, and pmqpp->topic belongs to the mqtt
+			 * role... the metadata item outlives both, so it must
+			 * only ever be left holding storage it owns, and its
+			 * name must be the policy's long-lived one
+			 */
 
-			_lws_ss_set_metadata(omd, exp.name,
-					     (const void *)pmqpp->topic,
-					     pmqpp->topic_len);
+			mdname = omd->name;
+			topic_len = omd->length;
+			sub_topic = NULL;
+
+			if (omd->value__may_own_heap && topic_len) {
+				sub_topic = lws_malloc(topic_len, __func__);
+				if (!sub_topic)
+					return -1;
+				memcpy(sub_topic, omd->value__may_own_heap,
+				       topic_len);
+			}
+
+			if (pmqpp->topic && pmqpp->topic_len) {
+				if (_lws_ss_alloc_set_metadata(omd, mdname,
+							       pmqpp->topic,
+							       pmqpp->topic_len)) {
+					lws_free(sub_topic);
+					return -1;
+				}
+			} else
+				_lws_ss_set_metadata(omd, mdname, NULL, 0);
 		}
 
 		r = h->info.rx(ss_to_userobj(h), (const uint8_t *)pmqpp->payload,
 			   len, f);
 
-		if (wsi->mqtt->inside_shadow)
-			_lws_ss_set_metadata(omd, exp.name, &sub_topic,
-					     topic_len);
+		if (omd) { /* ie, we replaced it above */
+			/* restore the previous value, as an owned copy */
+			if (!sub_topic ||
+			    _lws_ss_alloc_set_metadata(omd, mdname, sub_topic,
+						       topic_len))
+				_lws_ss_set_metadata(omd, mdname, NULL, 0);
+			lws_free(sub_topic);
+			sub_topic = NULL;
+		}
 
 		if (r != LWSSSSRET_OK)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
