@@ -145,8 +145,7 @@ _lws_smd_msg_peer_owes_refcount(lws_smd_peer_t *pr, lws_smd_msg_t *msg)
  */
 
 static int
-_lws_smd_msg_assess_peers_interested(lws_smd_t *smd, lws_smd_msg_t *msg,
-				     struct lws_smd_peer *exc)
+_lws_smd_msg_assess_peers_interested(lws_smd_t *smd, lws_smd_msg_t *msg)
 {
 	struct lws_context *ctx = lws_container_of(smd, struct lws_context, smd);
 	int interested = 0;
@@ -204,9 +203,7 @@ _lws_smd_msg_destroy(struct lws_context *cx, lws_smd_t *smd, lws_smd_msg_t *msg)
 		if (xpr->tail == msg) {
 			lwsl_cx_err(cx, "peer %p has msg %p "
 				 "we are about to destroy as tail", xpr, msg);
-#if !defined(LWS_PLAT_FREERTOS)
-			assert(0);
-#endif
+			xpr->tail = _lws_smd_msg_next_matching_filter(xpr);
 		}
 
 	} lws_end_foreach_dll_safe(p, p1);
@@ -345,18 +342,25 @@ lws_smd_msg_printf(struct lws_context *ctx, lws_smd_class_t _class,
 	va_start(ap, format);
 	n = vsnprintf(NULL, 0, format, ap);
 	va_end(ap);
-	if (n > LWS_SMD_MAX_PAYLOAD)
+
+	/*
+	 * n < 0 is a vsnprintf() failure; we must not cast that to size_t.
+	 * The allocation is n + 1 for the NUL vsnprintf() insists on writing,
+	 * so it's n + 1 that has to fit inside LWS_SMD_MAX_PAYLOAD.
+	 */
+
+	if (n < 0 || (size_t)n + 1 > LWS_SMD_MAX_PAYLOAD)
 		/* too large to send */
 		return 1;
 
-	p = lws_smd_msg_alloc(ctx, _class, (size_t)n + 2);
+	p = lws_smd_msg_alloc(ctx, _class, (size_t)n + 1);
 	if (!p)
 		return 1;
 	msg = (lws_smd_msg_t *)(((uint8_t *)p) - LWS_SMD_SS_RX_HEADER_LEN_EFF -
 								sizeof(*msg));
 	msg->length = (uint16_t)n;
 	va_start(ap, format);
-	vsnprintf((char *)p, (unsigned int)n + 2, format, ap);
+	vsnprintf((char *)p, (size_t)n + 1, format, ap);
 	va_end(ap);
 
 	/*
@@ -440,13 +444,19 @@ _lws_smd_ss_rx_forward(struct lws_context *ctx, const char *tag,
 		 */
 		return 0;
 
-	p = lws_smd_msg_alloc(ctx, _class, len);
+	/*
+	 * len includes the class + timestamp header, the payload is what's
+	 * left after that... allocating len would both waste the header size
+	 * and, for payloads just under the limit, blow the
+	 * LWS_SMD_MAX_PAYLOAD assert in lws_smd_msg_alloc()
+	 */
+
+	p = lws_smd_msg_alloc(ctx, _class, len - LWS_SMD_SS_RX_HEADER_LEN_EFF);
 	if (!p)
 		return 1;
 
 	msg = (lws_smd_msg_t *)(((uint8_t *)p) - LWS_SMD_SS_RX_HEADER_LEN_EFF -
 								sizeof(*msg));
-	msg->length = (uint16_t)(len - LWS_SMD_SS_RX_HEADER_LEN_EFF);
 	/* adopt the original source timestamp, not time we forwarded it */
 	msg->timestamp = (lws_usec_t)lws_ser_ru64be(buf + 8);
 
