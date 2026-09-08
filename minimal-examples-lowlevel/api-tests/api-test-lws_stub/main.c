@@ -174,9 +174,23 @@ callback_stub_server(struct lws *wsi, enum lws_callback_reasons reason,
 			pss->wsi = wsi;
 			pss->parser_valid = 1;
 		}
-		if (lejp_parse(&pss->jctx, (uint8_t *)in, (int)len) < 0) {
-			lwsl_err("Stub lejp parse failed\n");
-			return -1;
+		{
+			int m = lejp_parse(&pss->jctx, (uint8_t *)in, (int)len);
+
+			if (m < 0 && m != LEJP_CONTINUE) {
+				lwsl_err("Stub lejp parse failed\n");
+				return -1;
+			}
+
+			if (!m) {
+				/*
+				 * That request is complete... we stay
+				 * connected and serve the next one, so the
+				 * parser has to be re-armed for it
+				 */
+				lejp_destruct(&pss->jctx);
+				pss->parser_valid = 0;
+			}
 		}
 		break;
 
@@ -185,8 +199,9 @@ callback_stub_server(struct lws *wsi, enum lws_callback_reasons reason,
 			char response[128];
 			int n = lws_snprintf(response + LWS_PRE, sizeof(response) - LWS_PRE,
 					     "{\"reply\":\"Hello from root stub!\"}");
-			lws_write(wsi, (unsigned char *)response + LWS_PRE, (size_t)n, LWS_WRITE_RAW);
-			return -1; /* Disconnect after sending response */
+			if (lws_write(wsi, (unsigned char *)response + LWS_PRE,
+				      (size_t)n, LWS_WRITE_RAW) < 0)
+				return -1;
 		}
 		break;
 
@@ -302,6 +317,10 @@ struct parent_state {
 	struct lws_context *cx;
 	struct lws_stub_manager *mgr;
 	char reply[128];
+	char raw[128];
+	size_t raw_len;
+	int raw_retired;
+	int cancelled_seen;
 };
 
 static const char * const parent_rx_paths[] = { "reply" };
@@ -320,6 +339,47 @@ parent_rx_cb(struct lejp_ctx *ctx, char reason)
 		lwsl_user("Success: Parent finished communicating with stub.\n");
 		interrupted = 1; /* Terminate the event loop safely */
 	}
+
+	return 0;
+}
+
+/*
+ * A request that only has a raw callback gets the reply bytes verbatim, and
+ * then one call with NULL / 0 when the stub layer retired it.  Getting that
+ * is what proves a raw-only request does not jam at the head of the queue.
+ */
+
+static void
+parent_raw_cb(const char *in, size_t len, void *user)
+{
+	struct parent_state *ps = (struct parent_state *)user;
+
+	if (!in) {
+		lwsl_notice("Raw-only request retired, %u reply bytes: %s\n",
+			    (unsigned int)ps->raw_len, ps->raw);
+		ps->raw_retired = 1;
+		return;
+	}
+
+	if (ps->raw_len + len < sizeof(ps->raw)) {
+		memcpy(ps->raw + ps->raw_len, in, len);
+		ps->raw_len += len;
+	}
+}
+
+/*
+ * The cancelled request must never be answered: the only callback it may see
+ * is the LEJPCB_DESTRUCTED that the cancel itself issues, while its owner is
+ * still alive.  Anything parsed here means its reply reached us anyway.
+ */
+
+static signed char
+parent_cancelled_rx_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct parent_state *ps = (struct parent_state *)ctx->user;
+
+	if (reason == LEJPCB_VAL_STR_END || reason == LEJPCB_OBJECT_END)
+		ps->cancelled_seen = 1;
 
 	return 0;
 }
@@ -642,9 +702,10 @@ int main(int argc, const char **argv)
 		       "  --help            Show this help message\n\n"
 		       "Note: This tool spawns a child process and communicates via UDS.\n"
 		       "      Do not pass --lws-stub manually unless you are the spawned child.\n"
-		       "      The test runs in phases: request / reply over UDS, teardown at\n"
-		       "      context destroy, and the stub noticing its parent died and\n"
-		       "      exiting autonomously (POSIX only).\n");
+		       "      The test runs in phases: request / reply over UDS (including a\n"
+		       "      raw-only request and a cancelled one), teardown at context\n"
+		       "      destroy, and the stub noticing its parent died and exiting\n"
+		       "      autonomously (POSIX only).\n");
 		return 0;
 	}
 
@@ -680,6 +741,7 @@ int main(int argc, const char **argv)
 		/* We are the parent process */
 		struct lws_stub_config sc;
 		struct parent_state ps;
+		lws_stub_req_h h_cancel;
 
 		memset(&ps, 0, sizeof(ps));
 		ps.cx = cx;
@@ -705,7 +767,47 @@ int main(int argc, const char **argv)
 		 * destroy, like lwsws plugins do it */
 		g_stub_mgr = ps.mgr;
 
-		/* Request something from the stub */
+		/*
+		 * Request 1: we only want the reply bytes, no parsing.  A
+		 * request like this has nothing of its own that can tell the
+		 * stub layer the reply ended, so if it were not retired for
+		 * us it would sit at the head of the queue forever and the
+		 * two requests below would never be sent.
+		 */
+
+		if (lws_stub_request(ps.mgr, "{\"hello\":\"raw\"}", NULL, 0,
+				     NULL, parent_raw_cb, &ps) < 0) {
+			lwsl_err("Failed to send raw request to stub\n");
+			result = 1;
+			goto done;
+		}
+
+		/*
+		 * Request 2: queued and then immediately cancelled, the way a
+		 * caller has to when the object that owns a queued request
+		 * (typically a pss) goes away before the reply.  We have not
+		 * serviced yet, so it is still only queued and must simply
+		 * disappear, without ever being sent or calling back.
+		 */
+
+		h_cancel = lws_stub_request_h(ps.mgr, "{\"hello\":\"cancelled\"}",
+					      parent_rx_paths, 1,
+					      parent_cancelled_rx_cb, NULL, &ps);
+		if (!h_cancel) {
+			lwsl_err("Failed to queue cancellable request\n");
+			result = 1;
+			goto done;
+		}
+
+		lws_stub_request_cancel(ps.mgr, h_cancel);
+		/* cancelling a dead handle is a no-op, not a crash */
+		lws_stub_request_cancel(ps.mgr, h_cancel);
+
+		/*
+		 * Request 3: the ordinary parsed one.  It can only be
+		 * answered if the queue moved on past the two above.
+		 */
+
 		if (lws_stub_request(ps.mgr, "{\"hello\":\"world\"}", parent_rx_paths, 1, parent_rx_cb, NULL, &ps) < 0) {
 			lwsl_err("Failed to send request to stub\n");
 			result = 1;
@@ -719,6 +821,14 @@ int main(int argc, const char **argv)
 
 		if (!interrupted) {
 			lwsl_err("Timeout waiting for stub!\n");
+			result = 1;
+		} else if (!ps.raw_retired ||
+			   !strstr(ps.raw, "Hello from root stub!")) {
+			lwsl_err("Raw-only request: retired %d, reply '%s'\n",
+				 ps.raw_retired, ps.raw);
+			result = 1;
+		} else if (ps.cancelled_seen) {
+			lwsl_err("Cancelled request was answered anyway!\n");
 			result = 1;
 		} else {
 #if defined(WIN32)

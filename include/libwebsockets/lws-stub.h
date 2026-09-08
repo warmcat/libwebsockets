@@ -32,6 +32,14 @@
 
 struct lws_stub_manager;
 
+/*
+ * Opaque handle for one queued request, valid until the request is retired.
+ * Zero is never a valid handle, and handles are never reused, so a handle
+ * kept after its request was retired is simply dead and safe to pass to
+ * lws_stub_request_cancel().
+ */
+typedef uint64_t lws_stub_req_h;
+
 struct lws_stub_config {
 	struct lws_context		*cx;
 	struct lws_vhost		*vh;
@@ -98,18 +106,22 @@ LWS_VISIBLE LWS_EXTERN int
 lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, void *extra_out, size_t extra_len);
 
 /**
- * lws_stub_rpc_request() - Send a JSON-RPC request to the stub
+ * lws_stub_request() - Send a JSON-RPC request to the stub
  *
  * \param mgr: The manager returned by lws_stub_spawn
  * \param json: Complete JSON string to send to the stub
  * \param rx_paths: Array of lejp paths to match in the response
  * \param rx_paths_count: Number of paths in the array
- * \param rx_cb: LEJP callback to handle the parsed response JSON
- * \param user: Opaque user pointer passed to the callback
+ * \param rx_cb: LEJP callback to handle the parsed response JSON, or NULL
+ * \param raw_cb: callback given the reply bytes verbatim, or NULL
+ * \param user: Opaque user pointer passed to the callbacks
  *
  * Queues an asynchronous JSON request over the UDS connection to the stub.
  * The underlying connection is managed automatically (connect/retry).
  * Returns 0 if queued, < 0 if failed.
+ *
+ * Same as lws_stub_request_h() below, but without giving you the handle you
+ * would need to cancel the request.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_stub_request(struct lws_stub_manager *mgr,
@@ -119,6 +131,68 @@ lws_stub_request(struct lws_stub_manager *mgr,
 		 signed char (*rx_cb)(struct lejp_ctx *ctx, char reason),
 		 void (*raw_cb)(const char *in, size_t len, void *user),
 		 void *user);
+
+/**
+ * lws_stub_request_h() - Send a JSON-RPC request to the stub, cancellably
+ *
+ * \param mgr: The manager returned by lws_stub_spawn
+ * \param json: Complete JSON string to send to the stub
+ * \param rx_paths: Array of lejp paths to match in the response
+ * \param rx_paths_count: Number of paths in the array
+ * \param rx_cb: LEJP callback to handle the parsed response JSON, or NULL
+ * \param raw_cb: callback given the reply bytes verbatim, or NULL
+ * \param user: Opaque user pointer passed to the callbacks
+ *
+ * As lws_stub_request(), but returns a handle for the queued request, or 0 if
+ * it could not be queued.
+ *
+ * Requests are sent, and their replies consumed, strictly in the order they
+ * were queued: the channel carries no request ids.
+ *
+ * A request with neither callback is "fire and forget", and is retired as
+ * soon as it has been written.  A request with either callback expects a
+ * reply, and is retired when the JSON reply completes (that is the only
+ * framing the reply has), or when the reply cannot be parsed, or when the
+ * UDS connection closes with the request on the wire, or when the manager is
+ * destroyed.
+ *
+ * Exactly one end-of-request notification is issued, whichever of those it
+ * was: LEJPCB_DESTRUCTED to \p rx_cb, and a call of \p raw_cb with \p in NULL
+ * and \p len 0.  After it, the request's handle is dead and \p user is no
+ * longer held.
+ *
+ * \p user is held until the request is retired, so if it can go away before
+ * then (eg, it is a pss), keep the handle and use lws_stub_request_cancel().
+ */
+LWS_VISIBLE LWS_EXTERN lws_stub_req_h
+lws_stub_request_h(struct lws_stub_manager *mgr,
+		   const char *json,
+		   const char * const *rx_paths,
+		   size_t rx_paths_count,
+		   signed char (*rx_cb)(struct lejp_ctx *ctx, char reason),
+		   void (*raw_cb)(const char *in, size_t len, void *user),
+		   void *user);
+
+/**
+ * lws_stub_request_cancel() - Drop a request whose owner is going away
+ *
+ * \param mgr: The manager returned by lws_stub_spawn
+ * \param h: The handle from lws_stub_request_h(), or 0
+ *
+ * Detaches the request named by \p h from its callbacks and its user pointer,
+ * so nothing can reach the owner through it any more.  A request that has not
+ * been written yet simply disappears; one that is already on the wire stays
+ * at the head of the queue so its reply still gets consumed, but the reply is
+ * discarded and the request retired when it completes (or immediately, if the
+ * connection closes first).
+ *
+ * The end-of-request notification described above is issued synchronously
+ * from inside this call, while the owner is still alive, and never
+ * afterwards.  Cancelling 0, an unknown handle, or a request that was already
+ * retired, does nothing.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_stub_request_cancel(struct lws_stub_manager *mgr, lws_stub_req_h h);
 
 /**
  * lws_stub_destroy() - Destroy a stub manager

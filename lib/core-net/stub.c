@@ -72,6 +72,8 @@ struct lws_stub_req {
 	signed char			(*rx_cb)(struct lejp_ctx *ctx, char reason);
 	void				(*raw_cb)(const char *in, size_t len, void *user);
 	void				*user;
+	lws_stub_req_h			h;
+	uint8_t				awaits_reply;	/* jctx is constructed */
 };
 
 struct lws_stub_manager {
@@ -90,6 +92,7 @@ struct lws_stub_manager {
 
 	struct lws			*wsi_client;
 	struct lws_dll2_owner		reqs;
+	lws_stub_req_h			next_h;	/* last handle we issued */
 
 	lws_sorted_usec_list_t		sul;
 	uint16_t			ctry;
@@ -101,6 +104,81 @@ struct lws_stub_manager {
 
 static int
 lws_stub_client_connect(struct lws_stub_manager *mgr);
+
+/*
+ * Parser for the reply to a request that has no rx_cb of its own.  It exists
+ * only so that lejp tells us when the JSON reply completed: that is the only
+ * framing a reply has, and without it a raw request would sit at the head of
+ * the queue forever and block every request queued behind it.
+ */
+static signed char
+lws_stub_reply_done_cb(struct lejp_ctx *ctx, char reason)
+{
+	(void)ctx;
+	(void)reason;
+
+	return 0;
+}
+
+/*
+ * Tell the owner his request is over, exactly once however it ended, and stop
+ * pointing at anything of his afterwards.
+ *
+ * The request itself may live on after this (a cancelled request that is
+ * already on the wire has to stay at the head of the queue until its reply
+ * has been consumed, since replies are matched to requests positionally).
+ */
+static void
+lws_stub_req_detach(struct lws_stub_req *req)
+{
+	if (req->awaits_reply) {
+		/*
+		 * Swap his parser callback for our do-nothing one, keeping
+		 * the parse position so a reply that is already half-consumed
+		 * still ends where it really ends.  That issues his
+		 * LEJPCB_DESTRUCTED, and neither his callback, his user
+		 * pointer nor his paths are touched again after it.
+		 */
+		lejp_change_callback(&req->jctx, lws_stub_reply_done_cb);
+		req->jctx.user = NULL;
+		req->jctx.pst[0].paths = NULL;
+		req->jctx.pst[0].count_paths = 0;
+	}
+
+	if (req->raw_cb)
+		/* the raw request's equivalent of LEJPCB_DESTRUCTED */
+		req->raw_cb(NULL, 0, req->user);
+
+	req->rx_cb	= NULL;
+	req->raw_cb	= NULL;
+	req->user	= NULL;
+	req->h		= 0;
+}
+
+/*
+ * Retire a request: it is off the queue and gone after this, whether it was
+ * answered, abandoned or cancelled.
+ */
+static void
+lws_stub_req_retire(struct lws_stub_req *req)
+{
+	lws_dll2_remove(&req->list);
+	lws_stub_req_detach(req);
+
+	if (req->awaits_reply)
+		lejp_destruct(&req->jctx);
+
+	if (req->tx_buf) {
+		/*
+		 * Every request carries the stub secret, and some of them a
+		 * private key: do not leave it lying in the heap
+		 */
+		lws_explicit_bzero(req->tx_buf, req->tx_len + LWS_PRE + 1);
+		lws_free(req->tx_buf);
+	}
+
+	lws_free(req);
+}
 
 /*
  * The stub client connection is made on its own private, no-listen vhost,
@@ -689,6 +767,44 @@ stub_retry_cb(lws_sorted_usec_list_t *sul)
 		lws_stub_client_connect(mgr);
 }
 
+/*
+ * The UDS connection went away.
+ *
+ * A request that already went (even partly) on the wire cannot be retried: we
+ * do not know if the stub acted on it, and resuming a partial write on a new
+ * connection would send the tail of one request as the start of a new one.
+ * So retire it, telling its owner it is over.
+ *
+ * Requests that never reached the wire (only the queue head is ever written)
+ * are untouched and go out on the reconnect.
+ */
+static void
+lws_stub_conn_lost(struct lws_stub_manager *mgr)
+{
+	struct lws_dll2 *d = lws_dll2_get_head(&mgr->reqs);
+
+	if (d) {
+		struct lws_stub_req *req = lws_container_of(d,
+						struct lws_stub_req, list);
+
+		if (req->tx_pos) {
+			lwsl_vhost_warn(mgr->vh, "%s: stub '%s': connection "
+					"lost with a request in flight\n",
+					__func__, mgr->config.stub_name);
+
+			lws_stub_req_retire(req);
+		}
+	}
+
+	if (lws_dll2_is_empty(&mgr->reqs) || mgr->cx->being_destroyed)
+		return;
+
+	/* there is still work queued: get the connection back */
+
+	lws_retry_sul_schedule(mgr->cx, 0, &mgr->sul, &stub_retry,
+			       stub_retry_cb, &mgr->ctry);
+}
+
 LWS_VISIBLE int
 lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 		     void *user, void *in, size_t len)
@@ -721,10 +837,12 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_WRITEABLE: {
 		struct lws_dll2 *d = lws_dll2_get_head(&mgr->reqs);
+		struct lws_stub_req *req;
+
 		if (!d)
 			break;
 
-		struct lws_stub_req *req = lws_container_of(d, struct lws_stub_req, list);
+		req = lws_container_of(d, struct lws_stub_req, list);
 		if (req->tx_pos < req->tx_len) {
 			int n = lws_write(wsi, (unsigned char *)req->tx_buf + LWS_PRE + req->tx_pos,
 					  req->tx_len - req->tx_pos, LWS_WRITE_RAW);
@@ -735,14 +853,12 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (req->tx_pos < req->tx_len) {
 			lws_callback_on_writable(wsi);
-		} else if (!req->rx_cb && !req->raw_cb) {
+		} else if (!req->awaits_reply) {
 			/* No response expected, so we can complete and free the request immediately */
-			lws_dll2_remove(&req->list);
-			lws_free(req->tx_buf);
-			lws_free(req);
-			
+			lws_stub_req_retire(req);
+
 			/* If there are more requests queued, ask for writable again */
-			if(!lws_dll2_is_empty(&mgr->reqs))
+			if (!lws_dll2_is_empty(&mgr->reqs))
 				lws_callback_on_writable(wsi);
 		}
 		break;
@@ -750,34 +866,55 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_RX: {
 		struct lws_dll2 *d = lws_dll2_get_head(&mgr->reqs);
+		struct lws_stub_req *req;
+		int m;
+
 		if (!d)
 			break; /* Received RX but no active request? */
 
-		struct lws_stub_req *req = lws_container_of(d, struct lws_stub_req, list);
+		req = lws_container_of(d, struct lws_stub_req, list);
+
+		if (!req->awaits_reply)
+			/*
+			 * The head is not expecting a reply, so this rx cannot
+			 * belong to it, and with no request ids in the
+			 * protocol there is nothing else to attribute it to
+			 */
+			break;
+
 		if (req->raw_cb)
 			req->raw_cb((const char *)in, len, req->user);
 
-		if (req->rx_cb) {
-			int m = lejp_parse(&req->jctx, (uint8_t *)in, (int)len);
-			if (m < 0 && m != LEJP_CONTINUE) {
-				lwsl_vhost_err(mgr->vh, "%s: stub '%s' lejp parse failed: %d\n", __func__, mgr->config.stub_name, m);
-				lws_dll2_remove(&req->list);
-				lws_free(req->tx_buf);
-				lejp_destruct(&req->jctx);
-				lws_free(req);
-			} else if (m == 0) {
-				/*
-				 * The reply completed the request: retire it,
-				 * or it stays at the head of the queue forever
-				 * and blocks every later queued request
-				 */
-				lws_dll2_remove(&req->list);
-				lws_free(req->tx_buf);
-				lejp_destruct(&req->jctx);
-				lws_free(req);
-				if (!lws_dll2_is_empty(&mgr->reqs))
-					lws_callback_on_writable(wsi);
-			}
+		/*
+		 * Every request that expects a reply has a parser, even one
+		 * that only wanted the raw bytes: completion of the JSON
+		 * reply is the only signal that the request is over and the
+		 * next one may go.
+		 */
+
+		m = lejp_parse(&req->jctx, (uint8_t *)in, (int)len);
+		if (m < 0 && m != LEJP_CONTINUE) {
+			lwsl_vhost_err(mgr->vh, "%s: stub '%s' lejp parse failed: %d\n", __func__, mgr->config.stub_name, m);
+			lws_stub_req_retire(req);
+
+			/*
+			 * We have no idea where in the reply stream we are any
+			 * more, so we cannot attribute what follows either...
+			 * drop the connection to resync, anything still queued
+			 * goes out on the reconnect
+			 */
+			return -1;
+		}
+
+		if (!m) {
+			/*
+			 * The reply completed the request: retire it, or it
+			 * stays at the head of the queue forever and blocks
+			 * every later queued request
+			 */
+			lws_stub_req_retire(req);
+			if (!lws_dll2_is_empty(&mgr->reqs))
+				lws_callback_on_writable(wsi);
 		}
 		break;
 	}
@@ -785,6 +922,7 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_CLOSE:
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		mgr->wsi_client = NULL;
+		lws_stub_conn_lost(mgr);
 		break;
 
 	case LWS_CALLBACK_WSI_DESTROY:
@@ -806,34 +944,57 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 	return 0;
 }
 
-int
-lws_stub_request(struct lws_stub_manager *mgr,
-		 const char *json,
-		 const char * const *rx_paths,
-		 size_t rx_paths_count,
-		 signed char (*rx_cb)(struct lejp_ctx *ctx, char reason),
-		 void (*raw_cb)(const char *in, size_t len, void *user),
-		 void *user)
+lws_stub_req_h
+lws_stub_request_h(struct lws_stub_manager *mgr,
+		   const char *json,
+		   const char * const *rx_paths,
+		   size_t rx_paths_count,
+		   signed char (*rx_cb)(struct lejp_ctx *ctx, char reason),
+		   void (*raw_cb)(const char *in, size_t len, void *user),
+		   void *user)
 {
-	struct lws_stub_req *req = lws_zalloc(sizeof(*req), "stub_req");
+	struct lws_stub_req *req;
+	size_t n;
+
+	if (!mgr)
+		return 0;
+
+	req = lws_zalloc(sizeof(*req), "stub_req");
 	if (!req)
-		return -1;
+		return 0;
 
 	req->rx_cb	= rx_cb;
 	req->raw_cb	= raw_cb;
 	req->user	= user;
+	/*
+	 * Whether the stub will answer this one decides when the next request
+	 * may go on the wire, and whether rx arriving while it is at the head
+	 * may be attributed to it
+	 */
+	req->awaits_reply = !!(rx_cb || raw_cb);
 
-	if (rx_cb)
-		lejp_construct(&req->jctx, rx_cb, user, rx_paths, (uint8_t)rx_paths_count);
+	if (req->awaits_reply)
+		/*
+		 * A request that only wants the raw reply bytes has no way to
+		 * tell us the reply ended, so it gets our do-nothing parser
+		 * purely so we can see that and retire it
+		 */
+		lejp_construct(&req->jctx, rx_cb ? rx_cb : lws_stub_reply_done_cb,
+			       user, rx_cb ? rx_paths : NULL,
+			       rx_cb ? (uint8_t)rx_paths_count : 0);
 
-	size_t n = strlen(json);
+	n = strlen(json);
 	req->tx_buf = lws_malloc(n + LWS_PRE + 1, "stub_req_tx");
 	if (!req->tx_buf) {
+		if (req->awaits_reply)
+			lejp_destruct(&req->jctx);
 		lws_free(req);
-		return -1;
+		return 0;
 	}
 	memcpy((unsigned char *)req->tx_buf + LWS_PRE, json, n);
 	req->tx_len = n;
+
+	req->h = ++mgr->next_h;
 
 	lws_dll2_add_tail(&req->list, &mgr->reqs);
 
@@ -848,7 +1009,55 @@ lws_stub_request(struct lws_stub_manager *mgr,
 	} else
 		lws_callback_on_writable(mgr->wsi_client);
 
-	return 0;
+	return req->h;
+}
+
+int
+lws_stub_request(struct lws_stub_manager *mgr,
+		 const char *json,
+		 const char * const *rx_paths,
+		 size_t rx_paths_count,
+		 signed char (*rx_cb)(struct lejp_ctx *ctx, char reason),
+		 void (*raw_cb)(const char *in, size_t len, void *user),
+		 void *user)
+{
+	return lws_stub_request_h(mgr, json, rx_paths, rx_paths_count, rx_cb,
+				  raw_cb, user) ? 0 : -1;
+}
+
+void
+lws_stub_request_cancel(struct lws_stub_manager *mgr, lws_stub_req_h h)
+{
+	if (!mgr || !h)
+		return;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&mgr->reqs)) {
+		struct lws_stub_req *req = lws_container_of(d,
+						struct lws_stub_req, list);
+
+		if (req->h != h)
+			continue;
+
+		if (!req->tx_pos) {
+			/* it never went on the wire: it can just disappear */
+			lws_stub_req_retire(req);
+
+			return;
+		}
+
+		/*
+		 * It is already on the wire and the stub may still answer it.
+		 * Replies are matched to requests positionally, so it has to
+		 * stay at the head and consume its reply... but nothing of
+		 * the owner's is reachable through it any more, and it is
+		 * retired when the reply completes or the connection goes.
+		 */
+		lws_stub_req_detach(req);
+
+		return;
+
+	} lws_end_foreach_dll(d);
 }
 
 
@@ -879,12 +1088,8 @@ lws_stub_destroy(struct lws_stub_manager **_mgr)
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&mgr->reqs)) {
 		struct lws_stub_req *req = lws_container_of(d, struct lws_stub_req, list);
-		lws_dll2_remove(d);
-		if (req->tx_buf)
-			lws_free(req->tx_buf);
-		if (req->rx_cb)
-			lejp_destruct(&req->jctx);
-		lws_free(req);
+
+		lws_stub_req_retire(req);
 	} lws_end_foreach_dll_safe(d, d1);
 
 	if (mgr->wsi_client)

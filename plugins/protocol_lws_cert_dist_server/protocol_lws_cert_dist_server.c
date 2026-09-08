@@ -12,7 +12,6 @@ struct vhd_cert_dist_server {
 	const struct lws_protocols          *protocol;
 	char                                pki_root[256];
 	struct lws_dll2_owner               connections;
-	struct lws_dll2_owner               pending;
 #if defined(LWS_WITH_DIR)
 	struct lws_dir_notify               *dn;
 #endif
@@ -27,8 +26,6 @@ struct vhd_cert_dist_server {
 
 static struct lws_dll2_owner active_server_vhds;
 
-struct cert_dist_server_pending;
-
 struct pss_cert_dist_server {
 	struct lws_dll2                     list;
 	struct lws                          *wsi;
@@ -37,7 +34,7 @@ struct pss_cert_dist_server {
 	int                                 established;
 	int                                 needs_cert_update;
 
-	struct cert_dist_server_pending     *pending;
+	lws_stub_req_h                      stub_req;
 	char                                *uds_tx;
 	int                                 uds_tx_len;
 	int                                 uds_tx_pos;
@@ -46,20 +43,6 @@ struct pss_cert_dist_server {
 	int                                 uds_rx_len;
 	int                                 uds_rx_pos;
 	char                                hash[65];
-};
-
-/*
- * A stub request is asynchronous and there is no way to cancel one that is
- * already queued.  So the request is given one of these to point at, instead
- * of the pss directly: when the ws connection goes away, LWS_CALLBACK_CLOSED
- * detaches the pss from any pending request that still refers to it, and the
- * late reply then has nothing to write to.
- */
-
-struct cert_dist_server_pending {
-	struct lws_dll2                     list;   /* on vhd->pending */
-	struct vhd_cert_dist_server         *vhd;
-	struct pss_cert_dist_server         *pss;   /* NULL: ws went away */
 };
 
 /*
@@ -437,16 +420,26 @@ static const struct lws_protocols stub_protocols[] = {
 
 
 
+/*
+ * We take the stub reply verbatim and have no interest in its contents, we
+ * just forward it to the ws client that asked for it.
+ *
+ * The stub layer calls us with NULL / 0 exactly once when the request is
+ * over, however it ended, which is where our handle for it dies.  The pss
+ * cancels the request if it goes away first, so we can only be called while
+ * it is alive.
+ */
+
 static void
 cert_dist_server_raw_cb(const char *in, size_t len, void *user)
 {
-	struct cert_dist_server_pending *pend =
-			(struct cert_dist_server_pending *)user;
-	struct pss_cert_dist_server *pss = pend->pss;
+	struct pss_cert_dist_server *pss =
+			(struct pss_cert_dist_server *)user;
 
-	if (!pss)
-		/* the ws connection that asked for this went away */
+	if (!in) {
+		pss->stub_req = 0;
 		return;
+	}
 
 	if (!pss->uds_rx) {
 		pss->uds_rx = malloc(LWS_PRE + 65536);
@@ -460,34 +453,6 @@ cert_dist_server_raw_cb(const char *in, size_t len, void *user)
 		pss->uds_rx_len += (int)len;
 		lws_callback_on_writable(pss->wsi);
 	}
-}
-
-/*
- * We take the stub reply verbatim via the raw cb above and have no interest
- * in its contents.  But a stub request is only ever retired if it has an rx
- * callback... without one, it jams at the head of the request queue forever
- * and no later request is ever sent.  So we attach this do-nothing parser as
- * well, purely so the stub layer can see the reply complete and retire the
- * request.  LEJPCB_DESTRUCTED is issued exactly once, when that happens,
- * however it happens (completion, parse failure, or stub manager destroy).
- */
-
-static signed char
-cert_dist_server_retire_cb(struct lejp_ctx *ctx, char reason)
-{
-	struct cert_dist_server_pending *pend =
-			(struct cert_dist_server_pending *)ctx->user;
-
-	if (reason != LEJPCB_DESTRUCTED)
-		return 0;
-
-	if (pend->pss)
-		pend->pss->pending = NULL;
-
-	lws_dll2_remove(&pend->list);
-	free(pend);
-
-	return 0;
 }
 
 /* --- MAIN SERVER IMPLEMENTATION --- */
@@ -690,24 +655,13 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			if (vhd->dn)
 				lws_dir_notify_destroy(&vhd->dn);
 #endif
+			/*
+			 * Every ws connection is gone by now, so it already
+			 * cancelled any stub request of its own; this retires
+			 * whatever else is still queued
+			 */
 			if (vhd->stub_mgr)
 				lws_stub_destroy(&vhd->stub_mgr);
-
-			/*
-			 * lws_stub_destroy() retires every queued request,
-			 * which frees the pending objects they own; anything
-			 * left never made it onto a request
-			 */
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-					lws_dll2_get_head(&vhd->pending)) {
-				struct cert_dist_server_pending *pend =
-					lws_container_of(d,
-						struct cert_dist_server_pending,
-						list);
-
-				lws_dll2_remove(&pend->list);
-				free(pend);
-			} lws_end_foreach_dll_safe(d, d1);
 		}
 		break;
 
@@ -762,7 +716,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_TIMER:
-		if (vhd && !vhd->is_stub && pss->established && !pss->pending && !pss->needs_cert_update) {
+		if (vhd && !vhd->is_stub && pss->established && !pss->stub_req && !pss->needs_cert_update) {
 			/* Timer expired without getting a hash, fetch anyway */
 			pss->needs_cert_update = 1;
 			lws_callback_on_writable(wsi);
@@ -802,22 +756,12 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 			/*
 			 * lws is about to free the pss: a stub request we
-			 * queued may still be in flight and pointing at it,
-			 * and there is no way to cancel one.  Detach it, the
-			 * reply will then be dropped when it arrives.
+			 * queued may still be waiting or in flight and
+			 * pointing at it.  Cancel it, so nothing can reach
+			 * the pss through it and any reply is discarded.
 			 */
-			lws_start_foreach_dll(struct lws_dll2 *, d,
-					      lws_dll2_get_head(&vhd->pending)) {
-				struct cert_dist_server_pending *pend =
-					lws_container_of(d,
-						struct cert_dist_server_pending,
-						list);
-
-				if (pend->pss == pss)
-					pend->pss = NULL;
-			} lws_end_foreach_dll(d);
-
-			pss->pending = NULL;
+			lws_stub_request_cancel(vhd->stub_mgr, pss->stub_req);
+			pss->stub_req = 0;
 		}
 		break;
 
@@ -844,9 +788,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		/* If we haven't asked UDS yet, ask UDS */
-		if (!pss->pending && pss->needs_cert_update) {
-			struct cert_dist_server_pending *pend;
-
+		if (!pss->stub_req && pss->needs_cert_update) {
 			pss->needs_cert_update = 0;
 
 			if (!vhd->stub_mgr) {
@@ -875,27 +817,15 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 					sec ? sec : "", pss->subdomain, pss->domain);
 			}
 
-			pend = malloc(sizeof(*pend));
-			if (!pend) {
-				lwsl_err("%s: OOM\n", __func__);
-				return -1;
-			}
-			memset(pend, 0, sizeof(*pend));
-			pend->vhd = vhd;
-			pend->pss = pss;
-			lws_dll2_add_tail(&pend->list, &vhd->pending);
-
-			if (lws_stub_request(vhd->stub_mgr, tx, NULL, 0,
-					     cert_dist_server_retire_cb,
-					     cert_dist_server_raw_cb,
-					     pend) < 0) {
+			pss->stub_req = lws_stub_request_h(vhd->stub_mgr, tx,
+							   NULL, 0, NULL,
+							   cert_dist_server_raw_cb,
+							   pss);
+			if (!pss->stub_req) {
 				lwsl_err("%s: lws_stub_request failed\n", __func__);
-				lws_dll2_remove(&pend->list);
-				free(pend);
 				pss->needs_cert_update = 1;
 				lws_set_timer_usecs(wsi, 1 * LWS_USEC_PER_SEC);
-			} else
-				pss->pending = pend;
+			}
 		}
 		break;
 

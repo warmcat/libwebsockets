@@ -53,6 +53,7 @@ struct pss_cert_dist_client {
 	char                            *uds_tx;
 	int                             uds_tx_len;
 	int                             uds_tx_pos;
+	lws_stub_req_h                  stub_req;
 };
 
 struct dist_client_conn {
@@ -69,6 +70,7 @@ struct dist_client_conn {
 	char                            name[CERT_DIST_NAME_LEN];
 	char                            hash[65];
 	int                             fetching_hash;
+	lws_stub_req_h                  hash_req;
 };
 
 /*
@@ -185,6 +187,10 @@ hash_rx_cb(struct lejp_ctx *ctx, char reason)
 		lws_sul_schedule(conn->vhd->cx, 0, &conn->sul, connect_client, 1);
 	}
 
+	if (reason == LEJPCB_DESTRUCTED)
+		/* the request is over, however it ended: our handle is dead */
+		conn->hash_req = 0;
+
 	return 0;
 }
 
@@ -206,6 +212,15 @@ hash_timeout_cb(lws_sorted_usec_list_t *sul)
 		  __func__, conn->name);
 	conn->fetching_hash = 0;
 	conn->hash[0] = '\0';
+
+	/*
+	 * We are done waiting for it: drop it, so a late reply cannot come
+	 * back and start a second connection underneath the one we are about
+	 * to make
+	 */
+	lws_stub_request_cancel(conn->vhd->stub_mgr, conn->hash_req);
+	conn->hash_req = 0;
+
 	lws_sul_schedule(conn->vhd->cx, 0, &conn->sul, connect_client, 1);
 }
 
@@ -237,7 +252,9 @@ fetch_local_hash(lws_sorted_usec_list_t *sul)
 			     sec ? sec : "", conn->name);
 	}
 
-	if (lws_stub_request(conn->vhd->stub_mgr, req, hash_paths, 1, hash_rx_cb, NULL, conn) < 0) {
+	conn->hash_req = lws_stub_request_h(conn->vhd->stub_mgr, req, hash_paths,
+					    1, hash_rx_cb, NULL, conn);
+	if (!conn->hash_req) {
 		lwsl_err("%s: Failed requesting hash for %s\n", __func__, conn->name);
 		/* connect anyway without hash */
 		conn->hash[0] = '\0';
@@ -830,7 +847,10 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 				lwsl_notice("%s: JSON payload built, pushing to UDS stub for %s\n", __func__, conn->name);
 
-				if (lws_stub_request(vhd->stub_mgr, pss->uds_tx + LWS_PRE, NULL, 0, NULL, NULL, pss) < 0) {
+				pss->stub_req = lws_stub_request_h(vhd->stub_mgr,
+						pss->uds_tx + LWS_PRE, NULL, 0,
+						NULL, NULL, pss);
+				if (!pss->stub_req) {
 					lwsl_err("%s: Failed pushing to UDS stub\n", __func__);
 				} else {
 					pss->wsi_uds = (struct lws *)1;
@@ -887,6 +907,20 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 					if (pss->key) { free(pss->key); pss->key = NULL; }
 					if (pss->uds_tx) { free(pss->uds_tx); pss->uds_tx = NULL; }
 					lejp_destruct(&pss->jctx);
+
+					/*
+					 * lws is about to free the pss: an
+					 * install request of ours may still be
+					 * queued, holding the private key it
+					 * would have sent
+					 */
+					if (vhd) {
+						lws_stub_request_cancel(
+							vhd->stub_mgr,
+							pss->stub_req);
+						pss->stub_req = 0;
+					}
+
 					pss->wsi = NULL;
 				} else if (pss->wsi_uds == wsi) {
 					pss->wsi_uds = NULL;
@@ -1227,6 +1261,18 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		lws_dll2_remove(&vhd->list_vhd);
+
+		/*
+		 * Drop any hash request still pointing at a conn before the
+		 * conns are freed below
+		 */
+		lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&vhd->clients)) {
+			struct dist_client_conn *conn = lws_container_of(p, struct dist_client_conn, list);
+
+			lws_stub_request_cancel(vhd->stub_mgr, conn->hash_req);
+			conn->hash_req = 0;
+		} lws_end_foreach_dll(p);
+
 		if (vhd->stub_mgr)
 			lws_stub_destroy(&vhd->stub_mgr);
 
