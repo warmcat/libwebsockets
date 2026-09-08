@@ -341,15 +341,26 @@ start_ws_handshake:
 			n = lws_read_mqtt(wsi, ebuf.token, (unsigned int)ebuf.len);
 
 		if (n < 0) {
-			lws_mqttc_t *c = &wsi->mqtt->client;
+			/*
+			 * The parser may have replaced or removed wsi->mqtt on
+			 * its way out: at CONNACK the struct holding the
+			 * client id is handed to the new sid 1 child and we
+			 * get a fresh, zeroed one instead (or, if that
+			 * allocation failed, none at all).  So neither
+			 * wsi->mqtt nor c->id may be assumed here.
+			 */
+			lws_mqttc_t *c = wsi->mqtt ? &wsi->mqtt->client : NULL;
 			char msg[128];
 
-			switch (c->par.reason) {
+			switch (c ? c->par.reason : LMQCP_REASON_PROTOCOL_ERROR) {
 			case LMQCP_REASON_UNSUPPORTED_PROTOCOL:
 				n = lws_snprintf(msg, sizeof(msg), "reason: server does not support MQTT protocol " MQTT_VER_STRING "\n");
 			   break;
 			case LMQCP_REASON_CLIENT_ID_INVALID:
-				n = lws_snprintf(msg, sizeof(msg), "reason: server does not accept client ID %.*s\n", c->id->len, c->id->buf);
+				if (c && c->id)
+					n = lws_snprintf(msg, sizeof(msg), "reason: server does not accept client ID %.*s\n", c->id->len, c->id->buf);
+				else
+					n = lws_snprintf(msg, sizeof(msg), "reason: server does not accept client ID\n");
 				break;
 			case LMQCP_REASON_BAD_CREDENTIALS:
 				n = lws_snprintf(msg, sizeof(msg), "reason: invalid credentials\n");

@@ -1040,6 +1040,21 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				goto send_unsupp_connack_and_close;
 			}
 
+			/*
+			 * There is exactly one CONNACK per connection, and it
+			 * only makes sense while we are waiting for it.  After
+			 * it, our mqtt struct (with the client id and the
+			 * connect flags in it) has been handed to the sid 1
+			 * child and we own a fresh, zeroed one; a second
+			 * CONNACK would be parsed against that and its error
+			 * paths would report state we no longer have.
+			 */
+			if (lwsi_state(wsi) != LRS_MQTTC_AWAIT_CONNACK) {
+				lwsl_notice("%s: unexpected CONNACK\n",
+					    __func__);
+				goto send_protocol_error_and_close;
+			}
+
 			lwsl_debug("%s: received CONNACK pkt\n", __func__);
 			lws_mqtt_vbi_init(&par->vbit);
 			switch (lws_mqtt_vbi_r(&par->vbit, &buf, &len)) {
@@ -1424,8 +1439,23 @@ cmd_completion:
 #endif
 
 				w->mqtt = wsi->mqtt;
+
+				/*
+				 * The suls in the struct we just handed over
+				 * find their wsi via mqtt->wsi; retarget it
+				 * before anything can fail, so the child is
+				 * self-consistent even on the error path.
+				 */
+				w->mqtt->wsi = w;
+
 				wsi->mqtt = lws_zalloc(sizeof(*wsi->mqtt), "nwsi mqtt");
 				if (!wsi->mqtt)
+					/*
+					 * We have no mqtt struct on the nwsi at
+					 * all now; our caller must cope with
+					 * that and close us (the child is
+					 * closed with us as a mux child).
+					 */
 					return -1;
 
 				/*
@@ -1441,7 +1471,6 @@ cmd_completion:
 				 */
 				par = &wsi->mqtt->client.par;
 
-				w->mqtt->wsi = w;
 				w->a.protocol = wsi->a.protocol;
 				if (w->user_space &&
 				    !w->user_space_externally_allocated)
