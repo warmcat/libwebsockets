@@ -150,7 +150,8 @@ lws_display_dlo_jpeg_metadata_scan(lws_dlo_jpeg_t *dlo_jpeg)
 		l1 = l = dlo_jpeg->flow.len > 128 ? 128 : dlo_jpeg->flow.len;
 
 		r = lws_jpeg_emit_next_line(dlo_jpeg->j, &pix, &dlo_jpeg->flow.data, &l, 1);
-		if (r >= LWS_SRET_FATAL) {
+		/* LWS_SRET_FATAL is a flag bit: >= also matched RETRY / YIELD */
+		if (r & LWS_SRET_FATAL) {
 			lwsl_err("%s: hdr parse failed %d\n", __func__, r);
 			return r;
 		}
