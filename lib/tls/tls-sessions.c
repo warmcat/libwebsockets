@@ -42,31 +42,18 @@ int
 lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len)
 {
 	const char *host = NULL;
+#if defined(LWS_WITH_CLIENT)
+	unsigned int relaxed;
+#endif
 
 	if (!wsi)
 		return 1;
 
 #if defined(LWS_WITH_CLIENT)
-	/*
-	 * The tag is only vhost name + host + port... it deliberately cannot
-	 * carry the per-connection LCCSCF_ flags, since the same tag has to be
-	 * computable by lws_tls_session_tag_discrete() from the dump / load
-	 * apis, which only know those three things.
-	 *
-	 * So a session established by a connection that opted out of some or
-	 * all peer validation must not go in the cache at all: on resumption
-	 * the server sends no Certificate, the verify callback and the
-	 * hostname check never run, and the cached (forced) X509_V_OK is what
-	 * the next connection sees... silently disabling validation for a
-	 * connection that did not ask for that.
-	 */
-
-	if (wsi->tls.use_ssl & (LCCSCF_ALLOW_SELFSIGNED |
-				LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK |
-				LCCSCF_ALLOW_EXPIRED |
-				LCCSCF_ALLOW_INSECURE))
-		return 1;
-
+	relaxed = wsi->tls.use_ssl & (LCCSCF_ALLOW_SELFSIGNED |
+				      LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK |
+				      LCCSCF_ALLOW_EXPIRED |
+				      LCCSCF_ALLOW_INSECURE);
 
 	if (wsi->stash) {
 		host = wsi->stash->cis[CIS_HOST];
@@ -82,6 +69,33 @@ lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len)
 
 	lws_tls_session_tag_discrete(wsi->a.vhost->name, host, wsi->c_port,
 				     buf, len);
+
+#if defined(LWS_WITH_CLIENT)
+	if (relaxed) {
+		/*
+		 * On resumption the server sends no Certificate, so the verify
+		 * callback and hostname check never run: whatever validation
+		 * the original connection did (or opted out of) is what the
+		 * resuming connection inherits.  A session negotiated with
+		 * relaxed validation must therefore never be resumed by a
+		 * connection that asked for full validation.
+		 *
+		 * Segregate them by suffixing the tag with the relaxation
+		 * flags: only a connection with the identical posture, to the
+		 * same vhost / host / port, can find and resume it.  The
+		 * plain vhost_host_port tag is reserved for fully validated
+		 * sessions, so the dump / load apis (which only know those
+		 * three things) never export a relaxed session, and a loaded
+		 * one is only ever offered to a strict connection.
+		 */
+		size_t n = strlen(buf);
+
+		if (n + 1 >= len)
+			return 1;
+
+		lws_snprintf(buf + n, len - n, "_r%x", relaxed);
+	}
+#endif
 
 	lwsl_info("lws_tls_session_tag_from_wsi: generated tag '%s' for host '%s'\n", buf, host);
 

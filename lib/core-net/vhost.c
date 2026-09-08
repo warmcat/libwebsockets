@@ -2206,8 +2206,8 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 		      * established with, eg, LCCSCF_ALLOW_SELFSIGNED, its
 		      * request and credentials silently travel over a TLS
 		      * session nobody authenticated... the same hazard
-		      * lws_tls_session_tag_from_wsi() refuses for the session
-		      * resumption cache, by a different mechanism.
+		      * lws_tls_session_tag_from_wsi() keeps out of the session
+		      * resumption cache, by segregating the tags.
 		      */
 #endif
 		    wsi->c_port == w->c_port) {
