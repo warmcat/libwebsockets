@@ -75,6 +75,7 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 					      (mbedtls_md_type_t)hash_id :
 					      MBEDTLS_MD_NONE)) {
 		lwsl_notice("%s: mbedtls_rsa_set_padding failed\n", __func__);
+		mbedtls_rsa_free(ctx->ctx);
 		lws_free_set_NULL(ctx->ctx);
 
 		return -1;
@@ -100,6 +101,13 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 			    mbedtls_mpi_read_binary(mpi[n], el[n].buf,
 					    	    el[n].len)) {
 				lwsl_notice("mpi load failed\n");
+				/*
+				 * the mpis read in so far own heap limb
+				 * allocations holding key material... they have
+				 * to be freed and wiped by mbedtls before the
+				 * containing struct goes
+				 */
+				mbedtls_rsa_free(ctx->ctx);
 				lws_free_set_NULL(ctx->ctx);
 
 				return -1;
@@ -117,6 +125,7 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 			{
 				lwsl_notice("%s: you have to provide P and Q\n", __func__);
 #endif
+				mbedtls_rsa_free(ctx->ctx);
 				lws_free_set_NULL(ctx->ctx);
 
 				return -1;
@@ -210,7 +219,14 @@ cleanup:
 		if (el[n].buf)
 			lws_free_set_NULL(el[n].buf);
 cleanup_1:
-	lws_free(ctx->ctx);
+	/*
+	 * mbedtls_rsa_gen_key() may already have filled in (and heap-allocated
+	 * the limbs for) the private key... release and wipe it through
+	 * mbedtls, and leave ctx->ctx NULL so the caller's unconditional
+	 * lws_genrsa_destroy() cannot walk or free the block a second time
+	 */
+	mbedtls_rsa_free(ctx->ctx);
+	lws_free_set_NULL(ctx->ctx);
 
 	return -1;
 }
@@ -222,11 +238,23 @@ lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	size_t olen = 0;
 	int n;
 
-	ctx->ctx->MBEDTLS_PRIVATE(len) = in_len;
-
 #if defined(LWS_HAVE_mbedtls_rsa_complete)
 	mbedtls_rsa_complete(ctx->ctx);
 #endif
+
+	/*
+	 * The mbedtls decrypt entrypoints take no input length, they read
+	 * exactly ctx->len (ie, modulus-sized) bytes from "in"... a ciphertext
+	 * that is not modulus-sized is invalid anyway, so refuse it here
+	 * rather than over-read the caller's buffer by the difference
+	 */
+
+	if (in_len != ctx->ctx->MBEDTLS_PRIVATE(len)) {
+		lwsl_notice("%s: ciphertext len %d, modulus %d\n", __func__,
+			    (int)in_len, (int)ctx->ctx->MBEDTLS_PRIVATE(len));
+
+		return -1;
+	}
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
@@ -266,11 +294,23 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	size_t olen = 0;
 	int n;
 
-	ctx->ctx->MBEDTLS_PRIVATE(len) = in_len;
-
 #if defined(LWS_HAVE_mbedtls_rsa_complete)
 	mbedtls_rsa_complete(ctx->ctx);
 #endif
+
+	/*
+	 * The mbedtls decrypt entrypoints take no input length, they read
+	 * exactly ctx->len (ie, modulus-sized) bytes from "in"... eg, the JWE
+	 * Encrypted Key is a peer-sized field, so refuse anything that is not
+	 * modulus-sized rather than over-read the caller's buffer
+	 */
+
+	if (in_len != ctx->ctx->MBEDTLS_PRIVATE(len)) {
+		lwsl_notice("%s: ciphertext len %d, modulus %d\n", __func__,
+			    (int)in_len, (int)ctx->ctx->MBEDTLS_PRIVATE(len));
+
+		return -1;
+	}
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
@@ -425,14 +465,25 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 							in, sig);
 		break;
 	case LGRSAM_PKCS1_OAEP_PSS:
-		n = mbedtls_rsa_rsassa_pss_verify(ctx->ctx,
+		/*
+		 * RFC7518 3.5: PS256/384/512 mean "RSASSA-PSS using SHA-nnn and
+		 * MGF1 with SHA-nnn", with the salt the same length as the
+		 * hash.  mbedtls_rsa_rsassa_pss_verify() would take MGF1 from
+		 * ctx->hash_id (which is the OAEP MGF1 hash, SHA-1 by default)
+		 * and accept any salt length, ie, check something weaker than
+		 * the alg the JOSE header declared.  The _ext form ignores
+		 * ctx->hash_id and lets us pin both.
+		 */
+		n = mbedtls_rsa_rsassa_pss_verify_ext(ctx->ctx,
 #if !defined(MBEDTLS_VERSION_NUMBER) || MBEDTLS_VERSION_NUMBER < 0x03000000
 						  NULL, NULL,
 						  MBEDTLS_RSA_PUBLIC,
 #endif
 						  (mbedtls_md_type_t)h,
 						  (unsigned int)lws_genhash_size(hash_type),
-						  in, sig);
+						  in, (mbedtls_md_type_t)h,
+						  (int)lws_genhash_size(hash_type),
+						  sig);
 		break;
 	default:
 		return -1;
@@ -480,15 +531,36 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 						      in, sig);
 		break;
 	case LGRSAM_PKCS1_OAEP_PSS:
+		/*
+		 * As for verify: RFC7518 3.5 wants MGF1 with the signature
+		 * hash and a salt the same length as the hash.  mbedtls takes
+		 * the MGF1 hash for signing from ctx->hash_id, which was set
+		 * for OAEP (SHA-1 if the caller had no preference), so it has
+		 * to be pointed at the signature hash here.
+		 */
+#if !defined(MBEDTLS_VERSION_NUMBER) || MBEDTLS_VERSION_NUMBER < 0x03000000
+		mbedtls_rsa_set_padding(ctx->ctx, MBEDTLS_RSA_PKCS_V21, h);
 		n = mbedtls_rsa_rsassa_pss_sign(ctx->ctx,
 						mbedtls_ctr_drbg_random,
 						&ctx->context->mcdc,
-#if !defined(MBEDTLS_VERSION_NUMBER) || MBEDTLS_VERSION_NUMBER < 0x03000000
 						MBEDTLS_RSA_PRIVATE,
-#endif
 						(mbedtls_md_type_t)h,
 						(unsigned int)lws_genhash_size(hash_type),
 						in, sig);
+#else
+		if (mbedtls_rsa_set_padding(ctx->ctx, MBEDTLS_RSA_PKCS_V21,
+					    (mbedtls_md_type_t)h))
+			return -1;
+
+		n = mbedtls_rsa_rsassa_pss_sign_ext(ctx->ctx,
+						mbedtls_ctr_drbg_random,
+						&ctx->context->mcdc,
+						(mbedtls_md_type_t)h,
+						(unsigned int)lws_genhash_size(hash_type),
+						in,
+						(int)lws_genhash_size(hash_type),
+						sig);
+#endif
 		break;
 	default:
 		return -1;
@@ -507,7 +579,7 @@ int
 lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 			    uint8_t *pkey_asn1, size_t pkey_asn1_len)
 {
-	uint8_t *p = pkey_asn1, *totlen, *end = pkey_asn1 + pkey_asn1_len - 1;
+	uint8_t *p = pkey_asn1, *totlen, *end = pkey_asn1 + pkey_asn1_len;
 	mbedtls_mpi *mpi[LWS_GENCRYPTO_RSA_KEYEL_COUNT] = {
 		&ctx->ctx->MBEDTLS_PRIVATE(N),
 		&ctx->ctx->MBEDTLS_PRIVATE(E),
@@ -536,6 +608,9 @@ lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 	 *
 	 *  */
 
+	if (pkey_asn1_len < 7)
+		return -1;
+
 	*p++ = 0x30;
 	*p++ = 0x82;
 	totlen = p;
@@ -546,37 +621,40 @@ lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 	*p++ = 0x00;
 
 	for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++) {
-		int m = (int)mbedtls_mpi_size(mpi[n]);
-		uint8_t *elen;
+		size_t m = mbedtls_mpi_size(mpi[n]), hdr;
+		int lead = 0;
+
+		/*
+		 * A DER INTEGER is signed, so an mpi whose top bit is set needs
+		 * a leading 0x00.  Settle that from the mpi itself, before
+		 * anything is emitted: the length has to be written once, in
+		 * its final form, and only after the space for the whole
+		 * tag + length + content was confirmed available.
+		 */
+
+		if (m && mbedtls_mpi_get_bit(mpi[n], (m * 8) - 1))
+			lead = 1;
+
+		hdr = 1 + ((m + (size_t)lead) < 0x80 ? 1u : 3u);
+
+		if (lws_ptr_diff_size_t(end, p) < hdr + m + (size_t)lead)
+			return -1;
 
 		*p++ = 0x02;
-		elen = p;
-		if (m < 0x7f)
-			*p++ = (uint8_t)m;
+		if ((m + (size_t)lead) < 0x80)
+			*p++ = (uint8_t)(m + (size_t)lead);
 		else {
 			*p++ = 0x82;
-			*p++ = (uint8_t)(m >> 8);
-			*p++ = (uint8_t)(m & 0xff);
+			*p++ = (uint8_t)((m + (size_t)lead) >> 8);
+			*p++ = (uint8_t)((m + (size_t)lead) & 0xff);
 		}
 
-		if (p + m > end)
+		if (lead)
+			*p++ = 0x00;
+
+		if (m && mbedtls_mpi_write_binary(mpi[n], p, m))
 			return -1;
 
-		if (mbedtls_mpi_write_binary(mpi[n], p, (unsigned int)m))
-			return -1;
-		if (p[0] & 0x80) {
-			p[0] = 0x00;
-			if (mbedtls_mpi_write_binary(mpi[n], &p[1], (unsigned int)m))
-				return -1;
-			m++;
-		}
-		if (m < 0x7f)
-			*elen = (uint8_t)m;
-		else {
-			*elen++ = 0x82;
-			*elen++ = (uint8_t)(m >> 8);
-			*elen = (uint8_t)(m & 0xff);
-		}
 		p += m;
 	}
 
