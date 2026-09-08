@@ -104,8 +104,13 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_INIT:
 		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub"))
 			return 0;
-		if (!in)
-			return 0;
+
+		/*
+		 * We take no pvos of our own, so `in` (which is the pvo's
+		 * child options, not the pvo itself) may well be NULL... we
+		 * must still create the vhd, since every per-connection
+		 * callback below needs it.
+		 */
 
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi),
@@ -127,6 +132,10 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 		 * memory needed to make the data vs time to send it.
 		 */
 
+		if (!vhd)
+			/* we never got inited on this vhost... refuse him */
+			return -1;
+
 		lws_dll2_add_head(&pss->list, &vhd->live_pss_list);
 
 		pss->wss_over_h2 = !!len;
@@ -143,6 +152,9 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
+		if (!vhd)
+			return -1;
+
 		switch (pss->walk) {
 		case WALK_INITIAL:
 			n = LWS_WRITE_TEXT | LWS_WRITE_NO_FIN;
@@ -238,6 +250,9 @@ walk_final:
 
 	case LWS_CALLBACK_CLOSED:
 		// lwsl_debug("****** LWS_CALLBACK_CLOSED\n");
+		if (!vhd)
+			break;
+
 		lws_dll2_remove(&pss->list);
 
 		trigger_resend(vhd);
