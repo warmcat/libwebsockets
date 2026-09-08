@@ -33,6 +33,14 @@ typedef struct lws_tls_session_cache_openssl {
 	/* name is overallocated here */
 } lws_tls_sco_t;
 
+/*
+ * Bounds we are prepared to accept for a peer-provided session ticket
+ * lifetime hint, in seconds
+ */
+
+#define LWS_TLS_SESSION_TTL_MAX		(7 * 24 * 3600)
+#define LWS_TLS_SESSION_TTL_DEFAULT	300
+
 #define tlssess_loglevel		LLL_INFO
 #if (_LWS_ENABLED_LOGS & tlssess_loglevel)
 #define lwsl_tlssess(...)		_lws_log(tlssess_loglevel, __VA_ARGS__)
@@ -248,6 +256,16 @@ lws_tls_session_new_cb(SSL *ssl, SSL_SESSION *sess)
 	 * default (300s) or max uint32_t */
 	ttl = SSL_SESSION_get_timeout(sess);
 
+	/*
+	 * For TLS1.2 this is the peer's ticket_lifetime_hint, ie, wholly
+	 * peer-controlled: on a 32-bit long it can come back negative and
+	 * evict the entry immediately, and on 64-bit it can pin the entry
+	 * effectively forever.  Clamp it to something we are willing to hold
+	 */
+
+	if (ttl <= 0 || ttl > (long)LWS_TLS_SESSION_TTL_MAX)
+		ttl = (long)LWS_TLS_SESSION_TTL_DEFAULT;
+
 	lws_context_lock(vh->context, __func__); /* -------------- cx { */
 	lws_vhost_lock(vh); /* -------------- vh { */
 
@@ -278,6 +296,15 @@ lws_tls_session_new_cb(SSL *ssl, SSL_SESSION *sess)
 		 * with a newer one
 		 */
 		SSL_SESSION_free(ts->session);
+
+		/*
+		 * The replacement session has its own lifetime, so the expiry
+		 * has to follow it rather than stay on the old one's schedule
+		 */
+
+		lws_sul_schedule(wsi->a.context, wsi->tsi, &ts->sul_ttl,
+				 lws_tls_session_expiry_cb,
+				 ttl * LWS_US_PER_SEC);
 
 		/* keep our session list sorted in lru -> mru order */
 
