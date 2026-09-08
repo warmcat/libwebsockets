@@ -101,10 +101,16 @@ lws_vbi_decode(const void *buf, uint64_t *value, size_t len)
 
 	while (p < end) {
 		v |= (((uint64_t)(*p)) & 0x7f) << s;
-		if (*p & 0x80) {
+		/*
+		 * lws_vbi_encode() sets the continuation bit on every byte
+		 * except the last one, so a CLEAR top bit is what ends the
+		 * value... and we must report the number of bytes consumed,
+		 * including the terminating one, not its offset
+		 */
+		if (!(*p & 0x80)) {
 			*value = v;
 
-			return lws_ptr_diff(p, buf);
+			return lws_ptr_diff(p, buf) + 1;
 		}
 		s += 7;
 		if (s >= 64)
@@ -978,6 +984,10 @@ lws_snprintf(char *str, size_t size, const char *format, ...)
 char *
 lws_strncpy(char *dest, const char *src, size_t size)
 {
+	if (!size)
+		/* size - 1 would be SIZE_MAX, ie, an unbounded strncpy() */
+		return dest;
+
 	strncpy(dest, src, size - 1);
 	dest[size - 1] = '\0';
 
@@ -2272,9 +2282,12 @@ lws_humanize(char *p, size_t len, uint64_t v, const lws_humanize_unit_t *schema)
 int
 lws_humanize_pad(char *p, size_t len, uint64_t v, const lws_humanize_unit_t *schema)
 {
-       size_t m, w = 0, n = (size_t)lws_humanize(p, len, v, schema);
+	size_t m, w = 0, n = (size_t)lws_humanize(p, len, v, schema);
 	const lws_humanize_unit_t *s = schema;
-       int t;
+	int t;
+
+	if (!n)
+		return 0;
 
 	while (s->name) {
 		if (strlen(s->name) > w)
