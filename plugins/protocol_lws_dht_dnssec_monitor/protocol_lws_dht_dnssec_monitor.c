@@ -1308,6 +1308,7 @@ handle_req_get_ipv6_suffix(struct vhd *vhd, struct pss *root_pss, struct monitor
 	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char path[1024];
 	char suffix[64] = {0};
+	char esc_suffix[MON_ESC_FIELD_SZ];
 
 	lws_snprintf(path, sizeof(path), "%s/domains/ipv6_suffix.txt", vhd->base_dir);
 	int fd = open(path, O_RDONLY);
@@ -1580,12 +1581,21 @@ handle_req_delete_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
+/*
+ * \p mode is decided by the caller from which request this is, not sniffed
+ * from the filename: a private key must be 0600 whatever the requester chose
+ * to call it.
+ *
+ * The content is written to a sibling temp file opened O_EXCL | O_NOFOLLOW and
+ * renamed over the target, so a reader never sees a half-written key or cert,
+ * and a symlink planted at either path cannot redirect the write.
+ */
 static void
-handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a, const char *dir_suffix)
+handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a, const char *dir_suffix, mode_t mode)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
-	char d_path[1024];
+	char d_path[1024], t_path[1024 + 8];
 
 	if (!a->zone_buf || !a->domain[0] || !a->subdomain[0]) {
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing payload, domain, or filename\"}\n", a->req);
@@ -1625,13 +1635,17 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s/%s", vhd->base_dir, a->domain, dir_suffix, a->subdomain);
 
-	int perms = 0600;
-	if ((char *)strstr(a->subdomain, ".crt"))
-		perms = 0644;
+	lws_snprintf(t_path, sizeof(t_path), "%s.tmp", d_path);
+	unlink(t_path); /* a leftover from an interrupted earlier save */
 
-	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, perms);
+	int fd = open(t_path, O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, mode);
 	if (fd >= 0) {
-		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len) {
+		/* the mode argument is subject to the umask, this is not */
+		if (fchmod(fd, mode) < 0)
+			lwsl_notice("%s: fchmod %s failed: %d\n", __func__, t_path, errno);
+
+		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len &&
+		    !fsync(fd) && !rename(t_path, d_path)) {
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
 
 			if ((char *)strstr(a->subdomain, ".crt") || (char *)strstr(a->subdomain, ".key")) {
@@ -1659,6 +1673,7 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 				}
 			}
 		} else {
+			unlink(t_path);
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Partial write failure\"}\n", a->req);
 		}
 		close(fd);
@@ -1672,7 +1687,7 @@ done:
 static void
 handle_req_save_auth_key(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	handle_req_save_acme_file(vhd, root_pss, a, "");
+	handle_req_save_acme_file(vhd, root_pss, a, "", 0600);
 }
 
 /*
@@ -1688,7 +1703,7 @@ handle_req_save_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_a
 	char dir_suffix[64];
 	refresh_acme_production(vhd);
 	lws_snprintf(dir_suffix, sizeof(dir_suffix), "certs/%s/crt", vhd->acme_production ? "production" : "staging");
-	handle_req_save_acme_file(vhd, root_pss, a, dir_suffix);
+	handle_req_save_acme_file(vhd, root_pss, a, dir_suffix, 0644);
 }
 
 static void
@@ -1697,7 +1712,7 @@ handle_req_save_key(struct vhd *vhd, struct pss *root_pss, struct monitor_req_ar
 	char dir_suffix[64];
 	refresh_acme_production(vhd);
 	lws_snprintf(dir_suffix, sizeof(dir_suffix), "certs/%s/key", vhd->acme_production ? "production" : "staging");
-	handle_req_save_acme_file(vhd, root_pss, a, dir_suffix);
+	handle_req_save_acme_file(vhd, root_pss, a, dir_suffix, 0600);
 }
 
 static void
@@ -2575,7 +2590,7 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 
 	if (m < 0 && m != LEJP_REJECT_UNKNOWN) {
 		lwsl_notice("[INSTRUMENT] handle_monitor_request: JSON parser failed! Error %d, len %d, in:\n%.*s\n", m, (int)len, (int)len, in);
-		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"JSON parse failed: %d\"}\n", a.req[0] ? a.req : "unknown", m);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"unknown\",\"status\":\"error\",\"msg\":\"JSON parse failed: %d\"}\n", m);
 		goto done;
 	}
 
