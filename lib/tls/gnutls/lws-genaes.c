@@ -260,6 +260,24 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 		return n;
 	}
 
+	if (ctx->mode == LWS_GAESM_GCM && ctx->op == LWS_GAESO_DEC &&
+	    stream_block_16 && taglen > 0) {
+		/*
+		 * On decrypt, stream_block_16 is the *expected* tag from the
+		 * peer... keep it, lws_genaes_destroy()'s own tag argument is
+		 * an out buffer and must not be what we compare against
+		 */
+
+		if ((size_t)taglen > sizeof(ctx->tag)) {
+			lwsl_err("%s: taglen %d too big\n", __func__, taglen);
+
+			return -1;
+		}
+
+		memcpy(ctx->tag, stream_block_16, (size_t)taglen);
+		ctx->taglen = taglen;
+	}
+
 	if (ctx->mode == LWS_GAESM_ECB) {
 		uint8_t zero_iv[16] = {0};
 		gnutls_cipher_set_iv(ctx->ctx, zero_iv, 16);
@@ -330,29 +348,30 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 	int ret = 0;
 	if (ctx->ctx) {
 		if (tag && tlen && ctx->mode == LWS_GAESM_GCM) {
-			if (ctx->op == LWS_GAESO_ENC)
-				gnutls_cipher_tag(ctx->ctx, tag, tlen);
-			else {
-				unsigned char calc_tag[16];
-				if (tlen <= sizeof(calc_tag)) {
-					if (gnutls_cipher_tag(ctx->ctx, calc_tag, tlen) == 0) {
-						if (lws_timingsafe_bcmp(calc_tag, tag, (uint32_t)tlen)) {
-							lwsl_err("%s: GCM tag mismatch\n", __func__);
-							lwsl_hexdump_err(calc_tag, tlen);
-							lwsl_hexdump_err(tag, tlen);
-							ret = -1;
-						}
-					} else {
-						ret = -1;
-					}
-				} else {
+			/*
+			 * tag is an out buffer in both directions: it receives
+			 * the tag we computed.  On decrypt we then compare it
+			 * with the expected tag lws_genaes_crypt() was handed
+			 */
+
+			if (gnutls_cipher_tag(ctx->ctx, tag, tlen))
+				ret = -1;
+			else if (ctx->op != LWS_GAESO_ENC) {
+				if ((size_t)ctx->taglen != tlen) {
+					lwsl_err("%s: no expected GCM tag\n",
+						 __func__);
+					ret = -1;
+				} else if (lws_timingsafe_bcmp(ctx->tag, tag,
+							(uint32_t)tlen)) {
+					lwsl_err("%s: GCM tag mismatch\n",
+						 __func__);
 					ret = -1;
 				}
 			}
 		}
 
 		if (ctx->op == LWS_GAESO_ENC && ctx->padding == LWS_GAESP_WITH_PADDING &&
-		    ctx->mode == LWS_GAESM_CBC && tag) {
+		    ctx->mode == LWS_GAESM_CBC && tag && tlen >= 16) {
 			uint8_t pad_val = (uint8_t)(16 - ctx->buf_len);
 			memset(ctx->buf + ctx->buf_len, pad_val, (size_t)pad_val);
 			if (gnutls_cipher_encrypt2(ctx->ctx, ctx->buf, 16, tag, 16) < 0)
