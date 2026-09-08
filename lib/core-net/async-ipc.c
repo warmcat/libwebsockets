@@ -47,6 +47,43 @@ struct lws_async_ipc {
 	int                     connecting;
 };
 
+/*
+ * Empty the queue of messages that will never be sent now
+ */
+static void
+lws_async_ipc_drain_queue(struct lws_async_ipc *ipc)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&ipc->msg_queue)) {
+		struct lws_async_ipc_msg *msg = lws_container_of(d, struct lws_async_ipc_msg, list);
+		lws_dll2_remove(d);
+		lws_free(msg);
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
+/*
+ * Stop pointing at the wsi, and stop the wsi pointing at us.
+ *
+ * We were given to the connection as i.userdata, so the wsi holds us as its
+ * user_space and hands us to every callback for the whole of its life.  It
+ * outlives our pointer to it (LWS_TO_KILL_ASYNC only schedules the close, and
+ * the ipc may be destroyed from inside one of our own callbacks), so it must
+ * be told to forget us before we can be freed.
+ */
+static void
+lws_async_ipc_detach_wsi(struct lws_async_ipc *ipc, int kill_it)
+{
+	if (!ipc->wsi)
+		return;
+
+	lws_set_wsi_user(ipc->wsi, NULL);
+
+	if (kill_it)
+		lws_set_timeout(ipc->wsi, 1, LWS_TO_KILL_ASYNC);
+
+	ipc->wsi = NULL;
+	ipc->connecting = 0;
+}
+
 static void
 lws_async_ipc_timeout_cb(lws_sorted_usec_list_t *sul)
 {
@@ -54,17 +91,13 @@ lws_async_ipc_timeout_cb(lws_sorted_usec_list_t *sul)
 
 	lwsl_err("lws_async_ipc: timeout waiting for IPC %s\n", ipc->uds_path);
 
-	/* Clear queue */
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&ipc->msg_queue)) {
-		struct lws_async_ipc_msg *msg = lws_container_of(d, struct lws_async_ipc_msg, list);
-		lws_dll2_remove(d);
-		lws_free(msg);
-	} lws_end_foreach_dll_safe(d, d1);
+	lws_async_ipc_drain_queue(ipc);
 
-	if (ipc->wsi) {
-		lws_set_timeout(ipc->wsi, 1, LWS_TO_KILL_ASYNC);
-		ipc->wsi = NULL;
-	}
+	/*
+	 * Detach before the callback: it is entitled to destroy us, and the
+	 * wsi must not be left holding us then
+	 */
+	lws_async_ipc_detach_wsi(ipc, 1);
 
 	ipc->connecting = 0;
 
@@ -98,20 +131,16 @@ callback_async_ipc(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("lws_async_ipc: connection error: %s\n", in ? (char *)in : "unknown");
 		if (ipc) {
-			ipc->wsi = NULL;
-			ipc->connecting = 0;
+			lws_async_ipc_detach_wsi(ipc, 0);
 			lws_sul_cancel(&ipc->sul_timeout);
-
-			/* Clear queue */
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&ipc->msg_queue)) {
-				struct lws_async_ipc_msg *msg = lws_container_of(d, struct lws_async_ipc_msg, list);
-				lws_dll2_remove(d);
-				lws_free(msg);
-			} lws_end_foreach_dll_safe(d, d1);
+			lws_async_ipc_drain_queue(ipc);
 
 			if (ipc->cb) {
 				args.state = LWS_ASYNC_IPC_STATE_ERROR;
+				/* he may destroy the ipc from in here */
 				ipc->cb(&args);
+
+				return 0;
 			}
 		}
 		break;
@@ -128,7 +157,10 @@ callback_async_ipc(struct lws *wsi, enum lws_callback_reasons reason,
 				args.state = LWS_ASYNC_IPC_STATE_CONNECTED;
 				args.data  = NULL;
 				args.len   = 0;
+				/* he may destroy the ipc from in here */
 				ipc->cb(&args);
+
+				return 0;
 			}
 		}
 		break;
@@ -173,7 +205,10 @@ callback_async_ipc(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_sul_cancel(&ipc->sul_timeout);
 			if (ipc->cb) {
 				args.state = LWS_ASYNC_IPC_STATE_RX;
+				/* he may destroy the ipc from in here */
 				ipc->cb(&args);
+
+				return 0;
 			}
 		}
 		break;
@@ -181,8 +216,7 @@ callback_async_ipc(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_CLOSE:
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		if (ipc) {
-			ipc->wsi = NULL;
-			ipc->connecting = 0;
+			lws_async_ipc_detach_wsi(ipc, 0);
 			lws_sul_cancel(&ipc->sul_timeout);
 		}
 		break;
@@ -262,18 +296,18 @@ lws_async_ipc_destroy(struct lws_async_ipc **_ipc)
 	if (!ipc)
 		return;
 
-	if (ipc->wsi) {
-		lws_set_timeout(ipc->wsi, 1, LWS_TO_KILL_ASYNC);
-		ipc->wsi = NULL;
-	}
+	*_ipc = NULL;
+
+	/*
+	 * The wsi is only scheduled to close, it is still in pt->fds[] and it
+	 * still holds us as its user_space... take us away from it before we
+	 * are freed, or its close callback arrives on freed memory
+	 */
+	lws_async_ipc_detach_wsi(ipc, 1);
 
 	lws_sul_cancel(&ipc->sul_timeout);
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&ipc->msg_queue)) {
-		struct lws_async_ipc_msg *msg = lws_container_of(d, struct lws_async_ipc_msg, list);
-		lws_dll2_remove(d);
-		lws_free(msg);
-	} lws_end_foreach_dll_safe(d, d1);
+	lws_async_ipc_drain_queue(ipc);
 
 	if (ipc->cb) {
 		struct lws_async_ipc_cb_args args = {
@@ -287,7 +321,6 @@ lws_async_ipc_destroy(struct lws_async_ipc **_ipc)
 	}
 
 	lws_free(ipc);
-	*_ipc = NULL;
 }
 
 LWS_VISIBLE LWS_EXTERN int
