@@ -27,6 +27,22 @@
 
 #include <assert.h>
 
+/*
+ * Drop any collated string chunks.  Nothing outside this file owns the
+ * ac_chunks lwsac, so it has to be released whenever we are done with the
+ * pending chunks: after every consumed value, and again when the parse ends
+ * (a document truncated in the middle of a string value leaves chunks on the
+ * list, and the callers only ever lwsac_free() args->ac).
+ */
+
+static void
+lws_struct_args_chunks_free(lws_struct_args_t *args)
+{
+	lwsac_free(&args->ac_chunks);
+	lws_dll2_owner_clear(&args->chunks_owner);
+	args->chunks_length = 0;
+}
+
 signed char
 lws_struct_schema_only_lejp_cb(struct lejp_ctx *ctx, char reason)
 {
@@ -35,6 +51,13 @@ lws_struct_schema_only_lejp_cb(struct lejp_ctx *ctx, char reason)
 	size_t n = a->map_entries_st[ctx->pst_sp], imp = 0;
 	lejp_callback cb = map->lejp_cb;
 	void *v;
+
+	if (reason == LEJPCB_COMPLETE || reason == LEJPCB_FAILED ||
+	    reason == LEJPCB_DESTRUCTED) {
+		lws_struct_args_chunks_free(a);
+
+		return 0;
+	}
 
 	if (reason == LEJPCB_PAIR_NAME && strcmp(ctx->path, "schema")) {
 		/*
@@ -129,8 +152,21 @@ lws_struct_lejp_push(struct lejp_ctx *ctx, lws_struct_args_t *args,
 	if (!cb)
 		cb = lws_struct_default_lejp_cb;
 
-	lejp_parser_push(ctx, ch, (const char * const*)map->child_map,
-			 (uint8_t)map->child_map_size, cb);
+	/*
+	 * If the parsing stack is full, lejp_parser_push() fails without
+	 * changing ctx->pst_sp.  We must not then bind the child map over the
+	 * current level's entry: ctx->pst[] would still be matching against
+	 * the parent's paths while map_st[] pointed at the (possibly shorter)
+	 * child map, and ctx->path_match - 1 could index past its end.
+	 */
+
+	if (lejp_parser_push(ctx, ch, (const char * const*)map->child_map,
+			     (uint8_t)map->child_map_size, cb)) {
+		lwsl_err("%s: parsing stack overflow at '%s'\n", __func__,
+			 map->colname);
+
+		return 1;
+	}
 
 	args->map_st[ctx->pst_sp] = map->child_map;
 	args->map_entries_st[ctx->pst_sp] = map->child_map_size;
@@ -150,6 +186,13 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 	if (reason == LEJPCB_ARRAY_END)
 		return 0;
 
+	if (reason == LEJPCB_COMPLETE || reason == LEJPCB_FAILED ||
+	    reason == LEJPCB_DESTRUCTED) {
+		lws_struct_args_chunks_free(args);
+
+		return 0;
+	}
+
 	if (reason == LEJPCB_ARRAY_START) {
 		if (!ctx->path_match) {
 			lwsl_info("%s: ARRAY_START with ctx->path_match 0\n", __func__);
@@ -157,8 +200,9 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 		}
 		map = &args->map_st[ctx->pst_sp][ctx->path_match - 1];
 
-		if (map->type == LSMT_LIST)
-			lws_struct_lejp_push(ctx, args, map, NULL);
+		if (map->type == LSMT_LIST &&
+		    lws_struct_lejp_push(ctx, args, map, NULL))
+			return 1;
 
 		return 0;
 	}
@@ -185,7 +229,8 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 		}
 		pmap = map;
 
-		lws_struct_lejp_push(ctx, args, map, NULL);
+		if (lws_struct_lejp_push(ctx, args, map, NULL))
+			return 1;
 	}
 
 	if (reason == LEJPCB_OBJECT_END && pmap) {
@@ -205,8 +250,21 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 
 	if (map->type == LSMT_SCHEMA) {
 
+		/*
+		 * Only the *value* names the schema, and ctx->buf / ctx->npos
+		 * are only meaningful for it at VAL_STR_END (lejp NUL-
+		 * terminates ctx->buf there).  We used to arrive here for any
+		 * reason and strncmp() against a stale ctx->npos, which at
+		 * PAIR_NAME time is typically 0 -- and strncmp(a, b, 0) is 0,
+		 * so the first schema in the array was selected whatever the
+		 * document actually said.  Compare the whole name.
+		 */
+
+		if (reason != LEJPCB_VAL_STR_END)
+			return 0;
+
 		while (n--) {
-			if (strncmp(map->colname, ctx->buf, ctx->npos)) {
+			if (strcmp(map->colname, ctx->buf)) {
 				map++;
 				continue;
 			}
@@ -221,7 +279,8 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 				return 1;
 			}
 
-			lws_struct_lejp_push(ctx, args, map, ch);
+			if (lws_struct_lejp_push(ctx, args, map, ch))
+				return 1;
 
 			return 0;
 		}
@@ -342,10 +401,23 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 
 		switch (map->type) {
 		case LSMT_SIGNED:
+			/*
+			 * These have to be selected on the member's real width
+			 * (map->aux is sizeof(member)).  There was no 2-byte
+			 * arm and the final else was unguarded, so a 16-bit
+			 * member was written with an 8-byte store, 6 bytes past
+			 * its end.  An unrecognized width is now a hard fail.
+			 */
 			if (map->aux == sizeof(signed char)) {
 				signed char *pc;
 				pc = (signed char *)(u + map->ofs);
 				*pc = (signed char)atoi(ctx->buf);
+				break;
+			}
+			if (map->aux == sizeof(short)) {
+				short *ps;
+				ps = (short *)(u + map->ofs);
+				*ps = (short)atoi(ctx->buf);
 				break;
 			}
 			if (map->aux == sizeof(int)) {
@@ -358,18 +430,28 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 				long *pl;
 				pl = (long *)(u + map->ofs);
 				*pl = atol(ctx->buf);
-			} else {
+				break;
+			}
+			if (map->aux == sizeof(long long)) {
 				long long *pll;
 				pll = (long long *)(u + map->ofs);
 				*pll = atoll(ctx->buf);
+				break;
 			}
-			break;
+			goto bad_width;
 
 		case LSMT_UNSIGNED:
+			/* see the note on member widths above */
 			if (map->aux == sizeof(unsigned char)) {
 				unsigned char *pc;
 				pc = (unsigned char *)(u + map->ofs);
 				*pc = (unsigned char)(unsigned int)atoi(ctx->buf);
+				break;
+			}
+			if (map->aux == sizeof(unsigned short)) {
+				unsigned short *ps;
+				ps = (unsigned short *)(u + map->ofs);
+				*ps = (unsigned short)(unsigned long)atol(ctx->buf);
 				break;
 			}
 			if (map->aux == sizeof(unsigned int)) {
@@ -382,14 +464,18 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 				unsigned long *pl;
 				pl = (unsigned long *)(u + map->ofs);
 				*pl = (unsigned long)atol(ctx->buf);
-			} else {
+				break;
+			}
+			if (map->aux == sizeof(unsigned long long)) {
 				unsigned long long *pll;
 				pll = (unsigned long long *)(u + map->ofs);
 				*pll = (unsigned long long)atoll(ctx->buf);
+				break;
 			}
-			break;
+			goto bad_width;
 
 		case LSMT_BOOLEAN:
+			/* see the note on member widths above */
 			li = reason == LEJPCB_VAL_TRUE;
 			if (map->aux == sizeof(char)) {
 				char *pc;
@@ -397,16 +483,25 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 				*pc = (char)li;
 				break;
 			}
+			if (map->aux == sizeof(short)) {
+				short *ps;
+				ps = (short *)(u + map->ofs);
+				*ps = (short)li;
+				break;
+			}
 			if (map->aux == sizeof(int)) {
 				int *pi;
 				pi = (int *)(u + map->ofs);
 				*pi = (int)li;
-			} else {
+				break;
+			}
+			if (map->aux == sizeof(uint64_t)) {
 				uint64_t *p64;
 				p64 = (uint64_t *)(u + map->ofs);
 				*p64 = (uint64_t)li;
+				break;
 			}
-			break;
+			goto bad_width;
 
 		case LSMT_STRING_CHAR_ARRAY:
 			s = (char *)(u + map->ofs);
@@ -438,10 +533,6 @@ chunk_copy_l:
 				}
 			} lws_end_foreach_dll_safe(p, p1);
 
-			lwsac_free(&args->ac_chunks);
-			lws_dll2_owner_clear(&args->chunks_owner);
-			args->chunks_length = 0;
-
 			if (lim) {
 				b = ctx->npos;
 				if (b > lim)
@@ -455,15 +546,28 @@ chunk_copy_l:
 		}
 	}
 
+	/*
+	 * The value is consumed... drop any collated string chunks
+	 * unconditionally.  Only the two string cases used to clear them, so
+	 * a string value landing on eg an LSMT_UNSIGNED member left its bytes
+	 * on the list to be silently prepended to the *next* string member's
+	 * value.
+	 */
+
+	lws_struct_args_chunks_free(args);
+
 	if (args->cb)
 		args->cb(args->dest, args->cb_arg);
 
 	return 0;
 
+bad_width:
+	lwsl_err("%s: '%s': bad member width %d\n", __func__, map->colname,
+		 (int)map->aux);
+
 cleanup:
 	lwsl_notice("%s: cleanup\n", __func__);
-	lwsac_free(&args->ac_chunks);
-	lws_dll2_owner_clear(&args->chunks_owner);
+	lws_struct_args_chunks_free(args);
 
 	return 1;
 }
@@ -519,20 +623,51 @@ lws_struct_json_serialize_destroy(lws_struct_serialize_t **pjs)
 	*pjs = NULL;
 }
 
-static void
+/*
+ * Returns nonzero (and writes nothing) if the indent does not fit in what is
+ * left of the caller's buffer.  One byte is always kept spare for the NUL we
+ * write after the official end.
+ */
+
+static int
 lws_struct_pretty(lws_struct_serialize_t *js, uint8_t **pbuf, size_t *plen)
 {
 	if (js->flags & LSSERJ_FLAG_PRETTY) {
-		int n;
+		int n, idt = js->st[js->sp].idt;
+
+		if (idt < 0)
+			idt = 0;
+
+		if (*plen < (size_t)idt + 2)
+			return 1;
 
 		*(*pbuf)++ = '\n';
 		(*plen)--;
-		for (n = 0; n < js->st[js->sp].idt; n++) {
+		for (n = 0; n < idt; n++) {
 			*(*pbuf)++ = ' ';
 			(*plen)--;
 		}
 	}
+
+	return 0;
 }
+
+/*
+ * Emit one byte, keeping one byte spare for the NUL we always write after the
+ * official end.  `len` is a size_t and these stores used to be unguarded: a
+ * string that consumed the loop's headroom exactly could take len to 0 and
+ * then wrap it to SIZE_MAX during the check_up: unwinding, after which the
+ * emit loop happily continued past the end of the caller's buffer.  There is
+ * no way to resume from a half-emitted structural token, so fail closed.
+ */
+
+#define ser_emit(_c) \
+	do { \
+		if (len < 2) \
+			return LSJS_RESULT_ERROR; \
+		*buf++ = (uint8_t)(_c); \
+		len--; \
+	} while (0)
 
 lws_struct_json_serialize_result_t
 lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
@@ -550,6 +685,10 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 	int n, used = 0;
 
 	*written = 0;
+
+	if (!len) /* we always write a NUL at *buf */
+		return LSJS_RESULT_ERROR;
+
 	*buf = '\0';
 
 	while (len > sizeof(dbuf) + 20) {
@@ -589,37 +728,53 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 		}
 
 		if (j->subsequent && !js->offset) {
-			*buf++ = ',';
-			len--;
-			lws_struct_pretty(js, &buf, &len);
+			ser_emit(',');
+			if (lws_struct_pretty(js, &buf, &len))
+				return LSJS_RESULT_ERROR;
 		}
 		j->subsequent = 1;
 
 		if (map->type != LSMT_SCHEMA && !js->offset) {
 			n = lws_snprintf((char *)buf, len, "\"%s\":",
 					    map->colname);
+			/*
+			 * lws_snprintf() returns the size it was given when it
+			 * truncated, so a long colname can consume the whole
+			 * remaining buffer here
+			 */
+			if ((size_t)n + 1 >= len)
+				return LSJS_RESULT_ERROR;
 			buf += n;
 			len = len - (unsigned int)n;
 			if (js->flags & LSSERJ_FLAG_PRETTY) {
-				*buf++ = ' ';
-				len--;
+				ser_emit(' ');
 			}
 		}
 
 		switch (map->type) {
 		case LSMT_BOOLEAN:
 		case LSMT_UNSIGNED:
-			if (map->aux == sizeof(char)) {
+			/*
+			 * Take the member's real width... a 2-byte member used
+			 * to fall through to the unsigned long long arm and be
+			 * read 8 bytes wide.  Anything we don't recognize is a
+			 * hard fail, not a widened access.
+			 */
+			if (map->aux == sizeof(char))
 				uli = *(unsigned char *)q;
-			} else {
-				if (map->aux == sizeof(int)) {
-					uli = *(unsigned int *)q;
-				} else {
-					if (map->aux == sizeof(long))
-						uli = *(unsigned long *)q;
-					else
-						uli = *(unsigned long long *)q;
-				}
+			else if (map->aux == sizeof(unsigned short))
+				uli = *(unsigned short *)q;
+			else if (map->aux == sizeof(unsigned int))
+				uli = *(unsigned int *)q;
+			else if (map->aux == sizeof(unsigned long))
+				uli = *(unsigned long *)q;
+			else if (map->aux == sizeof(unsigned long long))
+				uli = *(unsigned long long *)q;
+			else {
+				lwsl_err("%s: '%s': bad member width %d\n",
+					 __func__, map->colname, (int)map->aux);
+
+				return LSJS_RESULT_ERROR;
 			}
 			q = dbuf;
 
@@ -632,17 +787,22 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			break;
 
 		case LSMT_SIGNED:
-			if (map->aux == sizeof(signed char)) {
+			/* see the note on member widths above */
+			if (map->aux == sizeof(signed char))
 				li = (long long)*(signed char *)q;
-			} else {
-				if (map->aux == sizeof(int)) {
-					li = (long long)*(int *)q;
-				} else {
-					if (map->aux == sizeof(long))
-						li = (long long)*(long *)q;
-					else
-						li = *(long long *)q;
-				}
+			else if (map->aux == sizeof(short))
+				li = (long long)*(short *)q;
+			else if (map->aux == sizeof(int))
+				li = (long long)*(int *)q;
+			else if (map->aux == sizeof(long))
+				li = (long long)*(long *)q;
+			else if (map->aux == sizeof(long long))
+				li = *(long long *)q;
+			else {
+				lwsl_err("%s: '%s': bad member width %d\n",
+					 __func__, map->colname, (int)map->aux);
+
+				return LSJS_RESULT_ERROR;
 			}
 			q = dbuf;
 			budget = (unsigned int)lws_snprintf(dbuf, sizeof(dbuf), "%lld", li);
@@ -651,14 +811,12 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 		case LSMT_STRING_CHAR_ARRAY:
 		case LSMT_STRING_PTR:
 			if (!js->offset) {
-				*buf++ = '\"';
-				len--;
+				ser_emit('\"');
 			}
 			break;
 
 		case LSMT_LIST:
-			*buf++ = '[';
-			len--;
+			ser_emit('[');
 			if (js->sp + 1 == LEJP_MAX_PARSING_STACK_DEPTH)
 				return LSJS_RESULT_ERROR;
 
@@ -668,8 +826,7 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			p = j->dllpos = lws_dll2_get_head(o);
 
 			if (!j->dllpos) {
-				*buf++ = ']';
-				len--;
+				ser_emit(']');
 				do_up = 1;
 				goto check_up;
 			}
@@ -682,10 +839,11 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			j->size = map->aux;
 			j->subsequent = 0;
 			j->map_entry = 0;
-			lws_struct_pretty(js, &buf, &len);
-			*buf++ = '{';
-			len--;
-			lws_struct_pretty(js, &buf, &len);
+			if (lws_struct_pretty(js, &buf, &len))
+				return LSJS_RESULT_ERROR;
+			ser_emit('{');
+			if (lws_struct_pretty(js, &buf, &len))
+				return LSJS_RESULT_ERROR;
 			if (p)
 				j->obj = ((char *)p) - j->map->ofs_clist;
 			else
@@ -707,19 +865,19 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			j->size = map->aux;
 			j->subsequent = 0;
 			j->map_entry = 0;
-			*buf++ = '{';
-			len--;
-			lws_struct_pretty(js, &buf, &len);
+			ser_emit('{');
+			if (lws_struct_pretty(js, &buf, &len))
+				return LSJS_RESULT_ERROR;
 			j->obj = q;
 
 			continue;
 
 		case LSMT_SCHEMA:
 			q = dbuf;
-			*buf++ = '{';
-			len--;
+			ser_emit('{');
 			j = &js->st[++js->sp];
-			lws_struct_pretty(js, &buf, &len);
+			if (lws_struct_pretty(js, &buf, &len))
+				return LSJS_RESULT_ERROR;
 			if (!(js->flags & LSSERJ_FLAG_OMIT_SCHEMA)) {
 				budget = (unsigned int)lws_snprintf(dbuf, 15, "\"schema\":");
 				if (js->flags & LSSERJ_FLAG_PRETTY)
@@ -774,7 +932,16 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			 */
 
 			used = 0;
-			lws_json_purify((char *)buf, q, (int)len, &used);
+			/*
+			 * Hand purify one byte less than we have, so that
+			 * whatever it does there is always room left for the
+			 * closing quote below plus the trailing NUL; it can
+			 * otherwise consume all but one byte and leave the
+			 * quote to be written past the end.
+			 */
+			if (len < 3)
+				return LSJS_RESULT_ERROR;
+			lws_json_purify((char *)buf, q, (int)len - 1, &used);
 			m = strlen((const char *)buf);
 			buf += m;
 			len -= m;
@@ -789,10 +956,15 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			q += js->offset;
 			budget -= js->remaining;
 
-			if (budget > len) {
-				js->remaining = budget - len;
-				js->offset = len;
-				budget = len;
+			/* keep one byte spare for the NUL at *buf below */
+
+			if (len < 2)
+				return LSJS_RESULT_ERROR;
+
+			if (budget > len - 1) {
+				js->remaining = budget - (len - 1);
+				js->offset = len - 1;
+				budget = len - 1;
 			} else {
 				js->remaining = 0;
 				js->offset = 0;
@@ -811,8 +983,7 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 		case LSMT_STRING_CHAR_ARRAY:
 		case LSMT_STRING_PTR:
 			if (!js->remaining) {
-				*buf++ = '\"';
-				len--;
+				ser_emit('\"');
 			}
 			break;
 		case LSMT_SCHEMA:
@@ -836,10 +1007,11 @@ check_up:
 					break;
 				js->sp--;
 				if (!js->sp) {
-					lws_struct_pretty(js, &buf, &len);
-					*buf++ = '}';
-					len--;
-					lws_struct_pretty(js, &buf, &len);
+					if (lws_struct_pretty(js, &buf, &len))
+						return LSJS_RESULT_ERROR;
+					ser_emit('}');
+					if (lws_struct_pretty(js, &buf, &len))
+						return LSJS_RESULT_ERROR;
 
 					*written = olen - len;
 					*buf = '\0'; /* convenience, a NUL after the official end */
@@ -851,9 +1023,9 @@ check_up:
 				map = &j->map[j->map_entry];
 
 				if (map->type == LSMT_CHILD_PTR) {
-					lws_struct_pretty(js, &buf, &len);
-					*buf++ = '}';
-					len--;
+					if (lws_struct_pretty(js, &buf, &len))
+						return LSJS_RESULT_ERROR;
+					ser_emit('}');
 
 					/* we have done the singular child pointer */
 
@@ -868,9 +1040,9 @@ check_up:
 				 * advance to the next array member if there is one
 				 */
 
-				lws_struct_pretty(js, &buf, &len);
-				*buf++ = '}';
-				len--;
+				if (lws_struct_pretty(js, &buf, &len))
+					return LSJS_RESULT_ERROR;
+				ser_emit('}');
 
 				j->dllpos = lws_dll2_get_next(j->dllpos);
 				p = j->dllpos;
@@ -879,17 +1051,17 @@ check_up:
 					 * there was another item in the array to do... let's
 					 * move on to that and do it
 					 */
-					*buf++ = ',';
-					len--;
-					lws_struct_pretty(js, &buf, &len);
+					ser_emit(',');
+					if (lws_struct_pretty(js, &buf, &len))
+						return LSJS_RESULT_ERROR;
 					js->offset = 0;
 					j = &js->st[++js->sp];
 					j->map_entry = 0;
 					map = &j->map[j->map_entry];
 
-					*buf++ = '{';
-					len--;
-					lws_struct_pretty(js, &buf, &len);
+					ser_emit('{');
+					if (lws_struct_pretty(js, &buf, &len))
+						return LSJS_RESULT_ERROR;
 
 					j->subsequent = 0;
 					j->obj = ((char *)p) - j->map->ofs_clist;
@@ -899,9 +1071,9 @@ check_up:
 				/* there are no further items in the array */
 
 				js->offset = 0;
-				lws_struct_pretty(js, &buf, &len);
-				*buf++ = ']';
-				len--;
+				if (lws_struct_pretty(js, &buf, &len))
+					return LSJS_RESULT_ERROR;
+				ser_emit(']');
 			}
 		}
 	}
@@ -911,3 +1083,5 @@ check_up:
 
 	return LSJS_RESULT_CONTINUE;
 }
+
+#undef ser_emit
