@@ -475,8 +475,13 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 
 	lws_jose_init(&jose);
 
-	/* only valid if no signature or key */
-	if (!map_b64->buf[LJWS_SIG] && !map->buf[LJWS_UHDR])
+	/*
+	 * only valid if no signature or key... an empty b64 signature block
+	 * still has a non-NULL buf (it points just after the '.'), so the
+	 * length has to be considered too
+	 */
+	if ((!map_b64->buf[LJWS_SIG] || !map_b64->len[LJWS_SIG]) &&
+	    !map->buf[LJWS_UHDR])
 		b = 2;
 
 	if (lws_jws_parse_jose(&jose, map->buf[LJWS_JOSE], (int)map->len[LJWS_JOSE],
@@ -497,6 +502,18 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 	/* all other have 3 blocks: jose.payload.sig */
 	if (b != 3 || !jwk) {
 		lwsl_notice("%s: %d blocks\n", __func__, b);
+		goto bail;
+	}
+
+	/*
+	 * A compact JWS whose signature block is empty (eg, a trailing '.')
+	 * decodes to a NULL map entry with len 0... every alg below hands the
+	 * signature element to a comparison or a backend verify, so refuse it
+	 * here rather than have each of them dereference NULL
+	 */
+
+	if (!map->buf[LJWS_SIG] || !map->len[LJWS_SIG]) {
+		lwsl_notice("%s: no signature\n", __func__);
 		goto bail;
 	}
 
@@ -565,6 +582,18 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 
 		h_len = (int)lws_genhmac_size(jose.alg->hmac_type);
 
+		/*
+		 * The HMAC comparison below is over h_len bytes of the
+		 * signature element... require it to actually be that long,
+		 * or a short signature would be read past its end
+		 */
+
+		if ((int)map->len[LJWS_SIG] != h_len) {
+			lwsl_notice("%s: sig len %u, expected %d\n", __func__,
+				    map->len[LJWS_SIG], h_len);
+			goto bail;
+		}
+
 		/* 6) compute HMAC over payload */
 
 		if (lws_genhmac_init(&ctx, jose.alg->hmac_type,
@@ -592,7 +621,8 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 
 		/* 7) Compare the computed and decoded hashes */
 
-		if (lws_timingsafe_bcmp(digest, map->buf[2], (uint32_t)h_len)) {
+		if (lws_timingsafe_bcmp(digest, map->buf[LJWS_SIG],
+					(uint32_t)h_len)) {
 			lwsl_notice("digest mismatch\n");
 
 			goto bail;
