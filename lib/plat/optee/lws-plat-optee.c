@@ -48,10 +48,18 @@ char *strncpy(char *dest, const char *src, size_t limit)
 {
 	char *desto = dest;
 
-	while (*src && limit--)
-		*(dest++) = *(src++);
+	/*
+	 * C requires exactly this: at most limit bytes are written, and if
+	 * src is shorter than limit the remainder of dest is NUL-padded.
+	 * Nothing at all may be written at dest[limit] or beyond.
+	 */
 
-	if (limit)
+	while (limit && *src) {
+		*(dest++) = *(src++);
+		limit--;
+	}
+
+	while (limit--)
 		*(dest++) = '\0';
 
 	return desto;
@@ -76,10 +84,27 @@ lws_now_usecs(void)
 size_t
 lws_get_random(struct lws_context *context, void *buf, size_t len)
 {
+	/*
+	 * Callers are entitled to believe a return of len means len good
+	 * random bytes; so on any failure we must destroy whatever is in the
+	 * buffer and return 0, rather than hand out stack garbage as key
+	 * material
+	 */
+
+#if SIZE_MAX > 0xffffffffu
+	if (len > 0xffffffffu) /* the TEE apis take a uint32_t length */
+		return 0;
+#endif
+
 #if defined(LWS_WITH_NETWORK)
-	TEE_GenerateRandom(buf, len);
+	/* GP TEE_GenerateRandom() is void, it cannot report failure */
+	TEE_GenerateRandom(buf, (uint32_t)len);
 #else
-	crypto_rng_read(buf, len);
+	if (crypto_rng_read(buf, len) != TEE_SUCCESS) {
+		lws_explicit_bzero(buf, len);
+
+		return 0;
+	}
 #endif
 
 	return len;
@@ -98,6 +123,7 @@ static const char * const colours[] = {
         "[33;1m", /* LLL_CLIENT */
         "[33;1m", /* LLL_LATENCY */
         "[30;1m", /* LLL_USER */
+	"[31;1m", /* LLL_THREAD */
 };
 
 void lwsl_emit_optee(int level, const char *line)
@@ -114,6 +140,15 @@ void lwsl_emit_optee(int level, const char *line)
                 m--;
                 n >>= 1;
         }
+
+	/*
+	 * A level bit above what colours[] knows about walks m off the bottom
+	 * of the array... use the last entry rather than colours[-1]
+	 */
+
+	if (m < 0)
+		m = (int)LWS_ARRAY_SIZE(colours) - 1;
+
         n = strlen(line);
         if ((unsigned int)n > sizeof(linecp) - 1)
                 n = sizeof(linecp) - 1;
