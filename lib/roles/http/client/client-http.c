@@ -1052,6 +1052,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	char *p = NULL, *q, *simp;
 	char new_path[300];
+#if defined(LWS_ROLE_WT)
+	char wt_cce[40];
+#endif
 	void *opaque;
 	lws_parse_uri_t *puri = NULL;
 
@@ -1079,6 +1082,27 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 #if defined(LWS_ROLE_WT)
 		if (wsi->a.protocol && !strcmp(wsi->a.protocol->name, "webtransport")) {
 			extern const struct lws_role_ops role_ops_wt;
+			const char *st = lws_hdr_simple_ptr(wsi,
+						WSI_TOKEN_HTTP_COLON_STATUS);
+
+			/*
+			 * The server may refuse the WebTransport CONNECT, eg,
+			 * 403 from LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION.
+			 * Anything other than 2xx means there is no session:
+			 * fail the client connection rather than entering the
+			 * wt role and waiting for a FIN.
+			 */
+			n = st ? atoi(st) : 0;
+			if (n < 200 || n > 299) {
+				if (ah)
+					ah->http_response = (unsigned int)n;
+				lws_snprintf(wt_cce, sizeof(wt_cce),
+					     "HS: WT CONNECT refused %d", n);
+				lwsl_wsi_notice(wsi, "%s", wt_cce);
+				cce = wt_cce;
+				goto bail3_l;
+			}
+
 			lwsl_debug("%s: %s: transitioning to WebTransport client\n",
 				   __func__, lws_wsi_tag(wsi));
 			lws_role_transition(wsi, LWSIFR_CLIENT,
