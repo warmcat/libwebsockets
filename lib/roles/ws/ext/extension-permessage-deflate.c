@@ -133,13 +133,18 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		if (!oa->option_name)
 			break;
 		lwsl_wsi_ext(wsi, "named option set: %s", oa->option_name);
-		for (n = 0; n < (int)LWS_ARRAY_SIZE(lws_ext_pm_deflate_options);
-		     n++)
+		/*
+		 * The table has a { NULL, 0 } sentinel after the PMD_ARG_COUNT
+		 * real entries, so stop at PMD_ARG_COUNT: walking the whole
+		 * array would strcmp() against the sentinel's NULL name, and
+		 * then use the sentinel's index to write past args[]
+		 */
+		for (n = 0; n < (int)PMD_ARG_COUNT; n++)
 			if (!strcmp(lws_ext_pm_deflate_options[n].name,
 				    oa->option_name))
 				break;
 
-		if (n == (int)LWS_ARRAY_SIZE(lws_ext_pm_deflate_options))
+		if (n == (int)PMD_ARG_COUNT)
 			break;
 		oa->option_index = n;
 
@@ -149,6 +154,15 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		oa = in;
 		lwsl_wsi_ext(wsi, "option set: idx %d, %s, len %d",
 			 oa->option_index, oa->start, oa->len);
+
+		/* args[] is indexed by it, do not trust the caller */
+
+		if (oa->option_index < 0 || oa->option_index >= PMD_ARG_COUNT) {
+			lwsl_wsi_notice(wsi, "pmd option index %d out of range",
+					oa->option_index);
+			return -1;
+		}
+
 		if (oa->start) {
 			int v = atoi(oa->start);
 			if (!lws_ext_pm_deflate_arg_valid(oa->option_index, v)) {
@@ -193,9 +207,17 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 
 		/* fill in **user */
 		priv = lws_zalloc(sizeof(*priv), "pmd priv");
+		if (!priv) {
+			/*
+			 * the negotiation sites treat a nonzero return as
+			 * "ext failed construction" and carry on without it,
+			 * so bail cleanly rather than write through NULL
+			 */
+			lwsl_wsi_err(wsi, "OOM");
+			return -1;
+		}
 		*((void **)user) = priv;
 		lwsl_wsi_ext(wsi, "LWS_EXT_CB_*CONSTRUCT");
-		memset(priv, 0, sizeof(*priv));
 
 		/* fill in pointer to options list */
 		if (in)
@@ -225,7 +247,10 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 
 	case LWS_EXT_CB_DESTROY:
 		lwsl_wsi_ext(wsi, "LWS_EXT_CB_DESTROY");
+		if (!priv)
+			return ret;
 		lws_free(priv->buf_rx_inflated);
+		lws_free(priv->buf_rx_holding);
 		lws_free(priv->buf_tx_deflated);
 		lws_free(priv->buf_tx_holding);
 		if (priv->rx_init)
