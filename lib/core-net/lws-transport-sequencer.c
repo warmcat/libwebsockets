@@ -32,6 +32,15 @@ struct lws_transport_sequencer_range {
 	uint8_t				acked;
 };
 
+/*
+ * Bound on how many out-of-order rx ranges we will track for one sequencer.
+ * The peer is unauthenticated, so without this he can make us allocate a range
+ * struct per packet just by leaving gaps, and every subsequent packet then
+ * walks the whole list twice.
+ */
+
+#define LWS_TS_MAX_RX_RANGES 64
+
 static int
 range_compare(const lws_dll2_t *d, const lws_dll2_t *i)
 {
@@ -328,12 +337,41 @@ lws_transport_sequencer_rx(struct lws_transport_sequencer *ts,
 			   uint64_t offset, const uint8_t *buf, size_t len)
 {
 	struct lws_transport_sequencer_range *r;
+	uint64_t ack_offset = offset;
+	size_t ack_len = len;
 
 	/* Check if we already have this OOO range or part of it, OR cumulative */
 	if (offset + len <= ts->next_rx_offset) {
 		ts->stats.rx_duplicates++;
 		ts->info.ops->tx_ack(ts, offset, len);
 		return 0;
+	}
+
+	/*
+	 * Refuse anything outside the receive window outright... along with
+	 * the range count cap below, that is what bounds the scoreboard
+	 * against an unauthenticated peer choosing arbitrary offsets.
+	 */
+
+	if (ts->info.window_size &&
+	    offset > ts->next_rx_offset + ts->info.window_size)
+		return 0;
+
+	/*
+	 * If it straddles our cumulative point, we already delivered the part
+	 * below it... deliver and record only the new part.  Otherwise the
+	 * peer can make us re-deliver stream bytes, and leave behind a range
+	 * that the retire loop below can never match.  We still ACK what he
+	 * actually sent, so he can retire his whole chunk.
+	 */
+
+	if (offset < ts->next_rx_offset) {
+		size_t adj = (size_t)(ts->next_rx_offset - offset);
+
+		ts->stats.rx_duplicates++;
+		buf += adj;
+		len -= adj;
+		offset = ts->next_rx_offset;
 	}
 
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ts->rx_scoreboard)) {
@@ -345,10 +383,20 @@ lws_transport_sequencer_rx(struct lws_transport_sequencer *ts,
 		 */
 		if (offset >= r->offset && offset + len <= (uint64_t)r->offset + r->len) {
 			ts->stats.rx_duplicates++;
-			ts->info.ops->tx_ack(ts, offset, len);
+			ts->info.ops->tx_ack(ts, ack_offset, ack_len);
 			return 0;
 		}
 	} lws_end_foreach_dll(d);
+
+	/*
+	 * Don't let him grow the scoreboard without bound by leaving gaps...
+	 * dropping the packet is fail-safe, we simply don't ACK it and he
+	 * retransmits it once the hole in front of it is filled.
+	 */
+
+	if (offset != ts->next_rx_offset &&
+	    lws_dll2_count(&ts->rx_scoreboard) >= LWS_TS_MAX_RX_RANGES)
+		return 0;
 
 	/* Deliver immediately - Sparse Transport */
 	ts->info.ops->on_rx_data(ts, offset, buf, len);
@@ -389,20 +437,26 @@ lws_transport_sequencer_rx(struct lws_transport_sequencer *ts,
 		if (r->offset > ts->next_rx_offset)
 			break;
 
-		if (r->offset == ts->next_rx_offset) {
-			ts->next_rx_offset += r->len;
-			/* Note: for a receiver, ack_offset in stats refers to next_rx_offset */
-			ts->stats.ack_offset = ts->next_rx_offset; /* Update stats.ack_offset for RX */
-			lws_dll2_remove(&r->list);
-			lws_free(r);
-		} else if (r->offset + r->len <= ts->next_rx_offset) {
-			/* Already covered */
-			lws_dll2_remove(&r->list);
-			lws_free(r);
+		/*
+		 * This range starts at or before our cumulative point, so it
+		 * can only extend it, and either way we have no further use
+		 * for it.  Ranges that straddle the cumulative point used to
+		 * match neither the "==" nor the "already covered" test and
+		 * stayed on the list for the life of the sequencer.
+		 */
+
+		if ((uint64_t)r->offset + r->len > ts->next_rx_offset) {
+			ts->next_rx_offset = (uint64_t)r->offset + r->len;
+			/* for a receiver, stats ack_offset is next_rx_offset */
+			ts->stats.ack_offset = ts->next_rx_offset;
 		}
+
+		lws_dll2_remove(&r->list);
+		lws_free(r);
+
 	} lws_end_foreach_dll_safe(d, d1);
 
-	ts->info.ops->tx_ack(ts, offset, len);
+	ts->info.ops->tx_ack(ts, ack_offset, ack_len);
 
 	return 0;
 }
