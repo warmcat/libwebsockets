@@ -262,6 +262,9 @@ struct hls_file_index {
 	int video_idx;
 	int count;
 	struct hls_index_entry *entries;
+	/* some keyframes were found in the bitstream but not flagged by the
+	 * container: seeks must not rely on the demuxer's keyframe skipping */
+	int unflagged_keyframes;
 };
 
 /* Per-segment boundaries, computed from the input video's keyframe index.
@@ -271,6 +274,7 @@ struct hls_segment_info {
 	int64_t end_pts;
 	int64_t seek_pts;
 	double duration_sec;
+	int seek_any;		/* seek with AVSEEK_FLAG_ANY, see above */
 };
 
 /* --- WebVTT subtitle support (hls-sub.c) --- */

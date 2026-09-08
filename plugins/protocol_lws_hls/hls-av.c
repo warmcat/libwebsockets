@@ -1,6 +1,9 @@
 #include "private-lws-hls.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 
 /* thumbnail extraction: returns a malloc'd JPEG, or NULL */
@@ -1110,6 +1113,276 @@ lws_hls_build_init(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
 #define get_index_entry(st, idx) (&((st)->index_entries[idx]))
 #endif
 
+/*
+ * Is this video packet a keyframe?
+ *
+ * libavformat's matroska demuxer takes AV_PKT_FLAG_KEY from the container's
+ * SimpleBlock flag / BlockGroup ReferenceBlock, and only for H.264 does it
+ * recover a missing flag from the bitstream on demux.  A release MKV whose
+ * muxer did not understand HEVC carries no keyframe flags for the video
+ * track (typically just the first frame), and no video cues either, so
+ * libavformat reports one keyframe in the whole film.  For us that means an
+ * index with one entry, a playlist with one segment covering the entire
+ * film, and a segment 0 that never sees the keyframe it is waiting for to
+ * stop.
+ *
+ * So for HEVC and H.264, when the flag is missing, look at the NAL unit
+ * types in the packet: an access unit whose first VCL NAL is an IRAP (HEVC
+ * types 16..23) or an IDR slice (H.264 type 5) is a keyframe.  Packets in
+ * MKV / MP4 are length-prefixed per the hvcC / avcC extradata; Annex B start
+ * codes are handled for completeness.
+ */
+static int
+hls_video_pkt_is_key(const AVStream *st, const AVPacket *pkt)
+{
+	const uint8_t *ed = st->codecpar->extradata;
+	int edl = st->codecpar->extradata_size;
+	const uint8_t *p = pkt->data, *end;
+	int annexb = 0, lensz = 4, n = 0, hevc;
+
+	if (pkt->flags & AV_PKT_FLAG_KEY)
+		return 1;
+	if (!p || pkt->size < 5)
+		return 0;
+
+	switch (st->codecpar->codec_id) {
+	case AV_CODEC_ID_HEVC:
+		hevc = 1;
+		if (ed && edl >= 23 && ed[0] == 1)
+			lensz = (ed[21] & 3) + 1;
+		else
+			annexb = 1;
+		break;
+	case AV_CODEC_ID_H264:
+		hevc = 0;
+		if (ed && edl >= 5 && ed[0] == 1)
+			lensz = (ed[4] & 3) + 1;
+		else
+			annexb = 1;
+		break;
+	default:
+		return 0;
+	}
+
+	end = p + pkt->size;
+
+	/* parameter sets, AUD and SEI precede the first slice: walk a few */
+	while (p + lensz < end && n++ < 64) {
+		const uint8_t *nal;
+		uint32_t nl = 0;
+		int t;
+
+		if (annexb) {
+			while (p + 3 < end &&
+			       !(p[0] == 0 && p[1] == 0 && p[2] == 1))
+				p++;
+			if (p + 3 >= end)
+				return 0;
+			nal = p + 3;
+			p = nal;
+			nl = (uint32_t)(end - nal);
+		} else {
+			int i;
+
+			for (i = 0; i < lensz; i++)
+				nl = (nl << 8) | *p++;
+			nal = p;
+			if (nl > (uint32_t)(end - p))
+				return 0;
+			p += nl;
+		}
+		if (nl < 2)
+			continue;
+
+		if (hevc) {
+			t = (nal[0] >> 1) & 0x3f;
+			if (t >= 16 && t <= 23)
+				return 1;	/* BLA / IDR / CRA / reserved IRAP */
+			if (t < 16)
+				return 0;	/* a non-IRAP slice came first */
+		} else {
+			t = nal[0] & 0x1f;
+			if (t == 5)
+				return 1;	/* IDR slice */
+			if (t >= 1 && t <= 4)
+				return 0;	/* non-IDR slice / partition */
+		}
+	}
+
+	return 0;
+}
+
+/* one video keyframe seen by scan_keyframes() */
+struct scan_kf {
+	int64_t pos;
+	int64_t pts;
+	int64_t dts;
+	int size;
+	int flagged;	/* the container marked it as a keyframe too */
+};
+
+/* well past anything legitimate: 55h at one keyframe a second */
+#define HLS_SCAN_MAX_KF 200000
+
+/*
+ * For matroska, is there a Cluster header in the bytes just before the block
+ * whose frame data starts at pos?  If so return its file position, else -1.
+ *
+ * What the matroska demuxer seeks to for an index entry must be a Cluster:
+ * it parses from there at segment level, and a position inside a cluster
+ * just gets skipped over element by element until the next Cluster ID, ie,
+ * the seek lands one cluster late.  Cue entries carry Cluster positions, but
+ * pkt->pos is the frame data position, so when we build the index from a
+ * scan we have to find the enclosing Cluster ourselves.
+ *
+ * A Cluster starts [1F 43 B6 75][size vint][E7 Timecode ...][blocks...],
+ * with optional A7 Position / AB PrevSize elements before the first block,
+ * so for the first block of a cluster the ID is within a few dozen bytes
+ * before the frame data.  The size vint and the following element ID are
+ * checked too, so a chance 4-byte match inside the previous block's data is
+ * not taken for a header.
+ */
+static int64_t
+mkv_cluster_start_before(int fd, int64_t pos)
+{
+	uint8_t b[64];
+	int64_t base = pos - (int64_t)sizeof(b);
+	ssize_t n;
+	int i;
+
+	if (pos <= 0)
+		return -1;
+	if (base < 0)
+		base = 0;
+
+	n = pread(fd, b, (size_t)(pos - base), (off_t)base);
+	if (n < 8)
+		return -1;
+
+	for (i = (int)n - 8; i >= 0; i--) {
+		int j, vl;
+
+		if (b[i] != 0x1f || b[i + 1] != 0x43 ||
+		    b[i + 2] != 0xb6 || b[i + 3] != 0x75)
+			continue;
+
+		/* size vint: leading zero bits + 1 give its length */
+		j = i + 4;
+		if (!b[j])
+			continue;
+		vl = 1;
+		while (!(b[j] & (0x80 >> (vl - 1))))
+			vl++;
+		j += vl;
+		if (j >= (int)n)
+			continue;
+		/* Timecode, Position, PrevSize, CRC-32, Void, SilentTracks */
+		if (b[j] == 0xe7 || b[j] == 0xa7 || b[j] == 0xab ||
+		    b[j] == 0xbf || b[j] == 0xec || b[j] == 0x58)
+			return base + i;
+	}
+
+	return -1;
+}
+
+/*
+ * Walk the whole file from its first packet and collect every video
+ * keyframe (as hls_video_pkt_is_key() sees them), for building the index of
+ * a file with no cues, and for learning the true dts of the cue entries of
+ * one that has them.
+ *
+ * This opens its own demuxer context on the file rather than reusing the
+ * caller's.  On a file with no cues the matroska demuxer cannot seek at all,
+ * and av_seek_frame() to 0 on the caller's context fails, but not before
+ * libavformat has flushed the packets it buffered during stream probing: a
+ * scan on that context starts wherever probing left the file position, which
+ * for a small file is EOF, and for a large one is some seconds in.  A fresh
+ * context always starts from the first packet.
+ *
+ * pkt->pos is what the demuxer will seek to for an index entry (for matroska
+ * the containing cluster), so it is what the index entry gets.
+ */
+static int
+scan_keyframes(const char *url, int video_idx, volatile int *cancel,
+	       struct scan_kf **out, int *out_n)
+{
+	AVFormatContext *sc = NULL;
+	struct scan_kf *arr = NULL;
+	int n = 0, cap = 0, ret = -1, fd = -1;
+	int64_t cluster_pos = -1;
+	AVStream *st;
+	AVPacket pkt;
+
+	*out = NULL;
+	*out_n = 0;
+
+	if (!url || avformat_open_input(&sc, url, NULL, NULL) < 0)
+		return -1;
+	if (avformat_find_stream_info(sc, NULL) < 0 ||
+	    (unsigned int)video_idx >= sc->nb_streams)
+		goto bail;
+	st = sc->streams[video_idx];
+
+	/* matroska: we need Cluster positions, see mkv_cluster_start_before() */
+	if (sc->iformat && sc->iformat->name &&
+	    !strncmp(sc->iformat->name, "matroska", 8))
+		fd = open(url, O_RDONLY);
+
+	while (av_read_frame(sc, &pkt) >= 0) {
+		if (fd >= 0) {
+			/* any stream's block may be the first in a cluster */
+			int64_t c = mkv_cluster_start_before(fd, pkt.pos);
+
+			if (c >= 0)
+				cluster_pos = c;
+		}
+
+		if (pkt.stream_index == video_idx &&
+		    hls_video_pkt_is_key(st, &pkt)) {
+			if (n == cap) {
+				int nc = cap ? cap * 2 : 256;
+				struct scan_kf *na;
+
+				if (nc > HLS_SCAN_MAX_KF)
+					nc = HLS_SCAN_MAX_KF;
+				if (nc == cap) {
+					av_packet_unref(&pkt);
+					break;
+				}
+				na = realloc(arr, (size_t)nc * sizeof(*na));
+				if (!na) {
+					av_packet_unref(&pkt);
+					goto bail;
+				}
+				arr = na;
+				cap = nc;
+			}
+			arr[n].pos = cluster_pos >= 0 ? cluster_pos : pkt.pos;
+			arr[n].pts = pkt.pts;
+			arr[n].dts = pkt.dts;
+			arr[n].size = pkt.size;
+			arr[n].flagged = !!(pkt.flags & AV_PKT_FLAG_KEY);
+			n++;
+		}
+		av_packet_unref(&pkt);
+		if (HLS_CANCELLED(cancel))
+			goto bail;
+	}
+
+	*out = arr;
+	*out_n = n;
+	arr = NULL;
+	ret = 0;
+
+bail:
+	if (fd >= 0)
+		close(fd);
+	free(arr);
+	avformat_close_input(&sc);
+
+	return ret;
+}
+
 static int64_t
 get_entry_dts(AVStream *st, const AVIndexEntry *entry)
 {
@@ -1176,26 +1449,22 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 			}
 			count = get_index_count(st);
 		}
+		struct scan_kf *scanned = NULL;
+		int n_scanned = 0;
+
 		if (count <= 1) {
-			/* Fallback: Scan the file once to build index entries */
-			lwsl_user("HLS-INDEX: Index missing or empty, scanning file to build index...\n");
-			av_seek_frame(in_ctx, video_idx, 0, AVSEEK_FLAG_BACKWARD);
-			AVPacket pkt;
-			while (av_read_frame(in_ctx, &pkt) >= 0) {
-				if (pkt.stream_index == video_idx && (pkt.flags & AV_PKT_FLAG_KEY)) {
-					av_add_index_entry(st, pkt.pos, pkt.pts, pkt.size, 0, AVINDEX_KEYFRAME);
-				}
-				av_packet_unref(&pkt);
-				if (HLS_CANCELLED(cancel))
-					return -1;
-			}
-			/* Clear EOF flags to restore stream readability */
-			if (in_ctx->pb) {
-				in_ctx->pb->eof_reached = 0;
-				in_ctx->pb->error = 0;
-			}
-			av_seek_frame(in_ctx, video_idx, 0, AVSEEK_FLAG_BACKWARD);
+			/* no usable cues: scan the file once to build the index */
+			lwsl_user("HLS-INDEX: %s: no usable cues (%d), scanning file to build index...\n",
+				  filename, count);
+			if (scan_keyframes(in_ctx->url, video_idx, cancel,
+					   &scanned, &n_scanned) < 0)
+				return -1;
+			for (int i = 0; i < n_scanned; i++)
+				av_add_index_entry(st, scanned[i].pos, scanned[i].pts,
+						   scanned[i].size, 0, AVINDEX_KEYFRAME);
 			count = get_index_count(st);
+			lwsl_notice("HLS-INDEX: %s: scan found %d keyframes\n",
+				    filename, count);
 		}
 
 		/* Save index to cache if successfully built */
@@ -1208,6 +1477,18 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 				new_idx->count = count;
 				new_idx->entries = malloc((size_t)count * sizeof(struct hls_index_entry));
 				if (new_idx->entries) {
+					int hint = 0;
+
+					/* the index came from cues: we still need to
+					 * walk the file for the true dts of each entry */
+					if (!scanned &&
+					    scan_keyframes(in_ctx->url, video_idx, cancel,
+							   &scanned, &n_scanned) < 0) {
+						free(new_idx->entries);
+						free(new_idx);
+						return -1;
+					}
+
 					for (int i = 0; i < count; i++) {
 						const AVIndexEntry *entry = get_index_entry(st, i);
 						new_idx->entries[i].pos = entry->pos;
@@ -1216,32 +1497,40 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 						new_idx->entries[i].size = entry->size;
 						new_idx->entries[i].flags = entry->flags;
 						new_idx->entries[i].dts = AV_NOPTS_VALUE;
-					}
 
-					/* Now scan the file to retrieve the true DTS for each index entry */
-					av_seek_frame(in_ctx, video_idx, 0, AVSEEK_FLAG_BACKWARD);
-					AVPacket scan_pkt;
-					while (av_read_frame(in_ctx, &scan_pkt) >= 0) {
-						if (scan_pkt.stream_index == video_idx && (scan_pkt.flags & AV_PKT_FLAG_KEY)) {
-							for (int i = 0; i < count; i++) {
-								if (new_idx->entries[i].pos == scan_pkt.pos || new_idx->entries[i].timestamp == scan_pkt.pts) {
-									new_idx->entries[i].dts = scan_pkt.dts;
-									break;
-								}
+						/*
+						 * Match on pts only: several
+						 * keyframes can share a cluster,
+						 * so pos does not identify one.
+						 * Both lists are in file order, so
+						 * resume from the last match.
+						 */
+						for (int j = 0; j < n_scanned; j++) {
+							int k = (hint + j) % n_scanned;
+
+							if (scanned[k].pts == entry->timestamp) {
+								new_idx->entries[i].dts = scanned[k].dts;
+								hint = k;
+								break;
 							}
 						}
-						av_packet_unref(&scan_pkt);
-						if (HLS_CANCELLED(cancel)) {
-							free(new_idx->entries);
-							free(new_idx);
-							return -1;
+					}
+
+					/*
+					 * Keyframes the container did not flag
+					 * mean the demuxer's own post-seek
+					 * keyframe skipping will never let a
+					 * packet through: segment seeks on this
+					 * file must use AVSEEK_FLAG_ANY
+					 */
+					for (int k = 0; k < n_scanned; k++)
+						if (!scanned[k].flagged) {
+							new_idx->unflagged_keyframes = 1;
+							break;
 						}
-					}
-					if (in_ctx->pb) {
-						in_ctx->pb->eof_reached = 0;
-						in_ctx->pb->error = 0;
-					}
-					av_seek_frame(in_ctx, video_idx, 0, AVSEEK_FLAG_BACKWARD);
+					if (new_idx->unflagged_keyframes)
+						lwsl_notice("HLS-INDEX: %s: keyframes not flagged by the container\n",
+							    filename);
 
 					pthread_mutex_lock(&vhd->lock);
 					lws_dll2_clear(&new_idx->list);
@@ -1253,7 +1542,11 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 					free(new_idx);
 				}
 			}
-		}
+		} else if (count <= 1)
+			lwsl_warn("HLS-INDEX: %s: only %d keyframe(s) found, the playlist will be a single segment\n",
+				  filename, count);
+
+		free(scanned);
 	}
 
 	lwsl_info("HLS-INDEX-DEBUG: video_idx=%d, count=%d, target_seg_idx=%d, duration=%lld\n",
@@ -1261,6 +1554,9 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 	if (count <= 0) {
 		return -1;
 	}
+
+	if (out_info)
+		out_info->seek_any = idx ? idx->unflagged_keyframes : 0;
 
 	for (int i = 0; i < count && i < 10; i++) {
 		const AVIndexEntry *entry = get_index_entry(st, i);
@@ -1728,15 +2024,26 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 	if (video_idx >= 0 && has_index) {
 		int64_t target_ts = sinfo.start_pts;
 		int64_t max_ts = sinfo.seek_pts;
+		/*
+		 * On a file whose container does not flag its keyframes, the
+		 * matroska demuxer would otherwise discard every packet after
+		 * the seek waiting for a flagged one that never comes.  With
+		 * AVSEEK_FLAG_ANY it delivers from the requested timestamp
+		 * (logging "keyframes not correctly marked" once), and the
+		 * loop below already discards anything before the keyframe it
+		 * is waiting for.
+		 */
+		int seek_flags = sinfo.seek_any ? AVSEEK_FLAG_ANY :
+						  AVSEEK_FLAG_FRAME;
 
 		/* the seek itself is functional, only the ret capture is for logs */
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
-		int ret = avformat_seek_file(in_ctx, video_idx, target_ts - 500, target_ts, max_ts, AVSEEK_FLAG_FRAME);
+		int ret = avformat_seek_file(in_ctx, video_idx, target_ts - 500, target_ts, max_ts, seek_flags);
 
-		lwsl_info("HLS-DEBUG: Segment %d video seek requested to %lld -> ret=%d\n",
-			  segment_idx, (long long)target_ts, ret);
+		lwsl_info("HLS-DEBUG: Segment %d video seek requested to %lld (flags %d) -> ret=%d\n",
+			  segment_idx, (long long)target_ts, seek_flags, ret);
 #else
-		avformat_seek_file(in_ctx, video_idx, target_ts - 500, target_ts, max_ts, AVSEEK_FLAG_FRAME);
+		avformat_seek_file(in_ctx, video_idx, target_ts - 500, target_ts, max_ts, seek_flags);
 #endif
 	} else {
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
@@ -1829,10 +2136,22 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 
 		/* Use PTS for boundary checks (always valid after synthesis) */
 		int64_t pkt_ts = pkt.pts != AV_NOPTS_VALUE ? pkt.pts : pkt.dts;
-		/* these are only referenced from info logs, which may be built out */
+		/*
+		 * Keyframe as far as we are concerned, whether or not the
+		 * container said so (see hls_video_pkt_is_key()).  Mark the
+		 * packet too, so the mp4 muxer's sync sample table agrees.
+		 */
+		int is_key = 0;
+		if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO &&
+		    hls_video_pkt_is_key(in_stream, &pkt)) {
+			is_key = 1;
+			pkt.flags |= AV_PKT_FLAG_KEY;
+		}
+		/* only referenced from info logs, which may be built out */
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
 		const char *type = (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) ? "VIDEO" : "AUDIO";
-		int is_key = (pkt.flags & AV_PKT_FLAG_KEY) != 0;
+#else
+		(void)is_key;
 #endif
 
 		if (pkt_ts != AV_NOPTS_VALUE) {

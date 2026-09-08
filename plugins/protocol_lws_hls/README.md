@@ -74,6 +74,20 @@ queued drops it; one that closes while its task is running sets a cancel flag
 the demux and index scan loops poll, so the worker stops early rather than
 finishing work nobody will collect.
 
+## Keyframe index
+
+Segment boundaries come from the video track's keyframe index: the container's
+cues when it has them, otherwise a one-off scan of the whole file (cached per
+vhost).  The scan does not trust the container's keyframe flags alone: for
+HEVC and H.264 it also looks at the NAL unit types, because libavformat only
+recovers missing flags from the bitstream for H.264, and a release MKV whose
+muxer did not understand HEVC typically flags nothing but the first frame.
+For matroska the scan also locates each keyframe's enclosing Cluster, which is
+what the demuxer needs to seek to.  When keyframes had to be found in the
+bitstream, segment seeks use `AVSEEK_FLAG_ANY`, so the demuxer does not sit
+waiting for a flagged keyframe that never comes; libavformat logs "keyframes
+not correctly marked" once per seek on such files.
+
 Independently of that, the input walked for a single media segment is bounded
 (`HLS_SEGMENT_MAX_SPAN_US`, `HLS_SEGMENT_MAX_PKTS`, `HLS_BUF_MAX` in
 `hls-av.c`), so a keyframe index that turns out to describe the wrong
