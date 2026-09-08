@@ -1144,6 +1144,17 @@ lws_tokenize(struct lws_tokenize *ts)
 
 			ts->reset_token = 1;
 
+			if (ts->token_len == LWS_TOKENIZE_DISCARDING) {
+				/*
+				 * The name part overran collect[] in an earlier
+				 * call... we must not hand it back as a valid
+				 * NAME_EQUALS with token_len still holding the
+				 * discard sentinel
+				 */
+				ts->token_len = 0;
+				return LWS_TOKZE_TOO_LONG;
+			}
+
 			if (num == 1)
 				return LWS_TOKZE_ERR_NUM_ON_LHS;
 			/* swallow the = */
@@ -1156,6 +1167,12 @@ lws_tokenize(struct lws_tokenize *ts)
 		    (ts->state == LWS_TOKZS_TOKEN_POST_TERMINAL ||
 		     ts->state == LWS_TOKZS_TOKEN)) {
 			ts->reset_token = 1;
+
+			if (ts->token_len == LWS_TOKENIZE_DISCARDING) {
+				/* as for NAME_EQUALS above */
+				ts->token_len = 0;
+				return LWS_TOKZE_TOO_LONG;
+			}
 
 			/* swallow the : */
 			return LWS_TOKZE_TOKEN_NAME_COLON;
