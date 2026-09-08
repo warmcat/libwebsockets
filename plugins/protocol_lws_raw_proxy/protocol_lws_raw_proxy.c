@@ -97,16 +97,12 @@ __destroy_packet(void *_pkt)
 }
 
 static void
-destroy_conn(struct raw_vhd *vhd, struct raw_pss *pss)
+destroy_conn(struct conn *conn)
 {
-	struct conn *conn = pss->conn;
-
 	if (conn->r[ACC])
 		lws_ring_destroy(conn->r[ACC]);
 	if (conn->r[ONW])
 		lws_ring_destroy(conn->r[ONW]);
-
-	pss->conn = NULL;
 
 	free(conn);
 }
@@ -259,6 +255,37 @@ bad_onward:
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
+
+		/*
+		 * The onward connection failed before it was adopted, so we
+		 * never saw CLI_ADOPT and our pss does not know the shared
+		 * conn yet.  Since we already did CCE, lws will not also give
+		 * us CLI_CLOSE for this wsi, so this is the only chance to
+		 * mark the onward side down: without it the accepted side
+		 * stays wedged with no timeout, and the shared conn and both
+		 * rings are leaked when it eventually goes away.
+		 */
+
+		conn = lws_get_opaque_user_data(wsi);
+		if (!conn)
+			break;
+
+		if (pss)
+			pss->conn = NULL;
+
+		conn->wsi[ONW] = NULL;
+		conn->closed[ONW] = 1;
+		conn->established[ONW] = 0;
+
+		if (conn->closed[ACC]) {
+			destroy_conn(conn);
+			break;
+		}
+
+		/* take the accepted side down with us */
+
+		if (conn->wsi[ACC])
+			lws_wsi_close(conn->wsi[ACC], LWS_TO_KILL_ASYNC);
 		break;
 
         case LWS_CALLBACK_RAW_PROXY_CLI_ADOPT:
@@ -269,11 +296,12 @@ bad_onward:
 		if (!conn)
 			break;
 		conn->established[ONW] = 1;
-		/* they start enabled */
-		conn->rx_enabled[ACC] = 1;
-		conn->rx_enabled[ONW] = 1;
 
-		/* he disabled his rx while waiting for use to be established */
+		/*
+		 * The accepted side disabled his rx while waiting for us to
+		 * be established... rx_enabled[] was initialized at SRV_ADOPT
+		 * and must not be reset here, or this re-enable becomes a nop.
+		 */
 		flow_control(conn, ACC, 1);
 
 		lws_callback_on_writable(wsi);
@@ -285,10 +313,12 @@ bad_onward:
 		if (!conn)
 			break;
 
+		pss->conn = NULL;
+		conn->wsi[ONW] = NULL;
 		conn->closed[ONW] = 1;
 
 		if (conn->closed[ACC])
-			destroy_conn(vhd, pss);
+			destroy_conn(conn);
 
 		break;
 
@@ -345,6 +375,14 @@ bad_onward:
 		if (ppkt->ticket != conn->ticket_retired + 1) {
 			lwsl_info("%s: acc ring has %d but next %d\n", __func__,
 				  ppkt->ticket, conn->ticket_retired + 1);
+			/*
+			 * The tickets are shared between both directions, so
+			 * the packet we need retired next may be sitting in
+			 * the other ring; only the accepted side can retire
+			 * it.  If it has gone, nothing will ever unblock us.
+			 */
+			if (conn->closed[ACC] || !conn->wsi[ACC])
+				return -1;
 			lws_callback_on_writable(conn->wsi[ACC]);
 			break;
 		}
@@ -396,7 +434,7 @@ bad_onward:
 
         case LWS_CALLBACK_RAW_PROXY_SRV_ADOPT:
 		lwsl_debug("LWS_CALLBACK_RAW_SRV_ADOPT\n");
-		if (!pss)
+		if (!pss || !vhd)
 			return -1;
 		conn = pss->conn = malloc(sizeof(struct conn));
 		if (!pss->conn)
@@ -410,19 +448,24 @@ bad_onward:
 					       RING_DEPTH, __destroy_packet);
 		if (!conn->r[ACC]) {
 			lwsl_err("%s: OOM\n", __func__);
-			return -1;
+			goto adopt_fail;
 		}
 		conn->r[ONW] = lws_ring_create(sizeof(struct packet),
 					       RING_DEPTH, __destroy_packet);
 		if (!conn->r[ONW]) {
-			lws_ring_destroy(conn->r[ACC]);
-			conn->r[ACC] = NULL;
 			lwsl_err("%s: OOM\n", __func__);
 
-			return -1;
+			goto adopt_fail;
 		}
 
 		conn->established[ACC] = 1;
+		/*
+		 * rx is enabled by default, so we must reflect that before
+		 * asking flow_control() to disable it, or it decides there is
+		 * nothing to do and the disable below silently does nothing.
+		 */
+		conn->rx_enabled[ACC] = 1;
+		conn->rx_enabled[ONW] = 1;
 
 		/* disable any rx until the client side is up */
 		flow_control(conn, ACC, 0);
@@ -430,8 +473,22 @@ bad_onward:
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 		/* try to create the onward client connection */
-		connect_client(vhd, pss);
-                break;
+		if (connect_client(vhd, pss))
+			goto adopt_fail;
+		break;
+
+adopt_fail:
+		if (conn->closed[ONW])
+			/*
+			 * CLIENT_CONNECTION_ERROR already ran for the onward
+			 * side and left the conn for our SRV_CLOSE to free
+			 */
+			return -1;
+
+		destroy_conn(conn);
+		pss->conn = NULL;
+
+		return -1;
 
 	case LWS_CALLBACK_RAW_PROXY_SRV_CLOSE:
 		lwsl_debug("LWS_CALLBACK_RAW_PROXY_SRV_CLOSE:\n");
@@ -439,9 +496,11 @@ bad_onward:
 		if (!conn)
 			break;
 
+		pss->conn = NULL;
+		conn->wsi[ACC] = NULL;
 		conn->closed[ACC] = 1;
 		if (conn->closed[ONW])
-			destroy_conn(vhd, pss);
+			destroy_conn(conn);
 		break;
 
 	case LWS_CALLBACK_RAW_PROXY_SRV_RX:
