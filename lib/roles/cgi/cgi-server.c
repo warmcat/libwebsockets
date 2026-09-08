@@ -120,6 +120,9 @@ lws_cgi_reap_cb(void *opaque, const struct lws_spawn_resource_us *res, siginfo_t
 	struct lws *wsi = (struct lws *)opaque;
 	struct lws_cgi_args args;
 
+	/* nothing in here is meaningful for TERMINATED, but do not leak stack */
+	memset(&args, 0, sizeof(args));
+
 	if (wsi->http.cgi &&
 	    user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 					LWS_CALLBACK_CGI_TERMINATED,
