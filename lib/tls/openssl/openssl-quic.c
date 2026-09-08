@@ -298,7 +298,12 @@ static int
 send_alert(SSL *ssl, enum ssl_encryption_level_t level, uint8_t alert)
 {
 	struct lws *wsi = (struct lws *)SSL_get_app_data(ssl);
-	lwsl_err("send_alert called with alert %d, wsi %p\n", alert, wsi);
+
+	/*
+	 * Any unauthenticated peer can drive the TLS stack to emit alerts, so
+	 * this must not be err-level.
+	 */
+	lwsl_info("%s: alert %d, wsi %p\n", __func__, alert, (void *)wsi);
 	if (wsi)
 		wsi->tls.quic_alert = alert;
 	return 1;
@@ -343,11 +348,20 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 		}
 		SSL_set_connect_state(wsi->tls.ssl);
 	} else {
-		if (wsi->a.vhost && (wsi->a.vhost->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA)) {
-#if !defined(USE_WOLFSSL) && !defined(LWS_WITH_MBEDTLS)
-			SSL_set_early_data_enabled(wsi->tls.ssl, 1);
-#endif
-		}
+		/*
+		 * We deliberately do not enable server-side 0-RTT.  RFC 9001
+		 * 9.2 and RFC 9114 10.9 require the application to be protected
+		 * against replay of early data; lws has no strike register and
+		 * does not restrict non-idempotent methods carried in 0-RTT, so
+		 * accepting it would hand an off-path observer a replay of
+		 * whatever the peer sent.  Say so rather than silently
+		 * accepting replayable requests.
+		 */
+		if (wsi->a.vhost &&
+		    (wsi->a.vhost->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA))
+			lwsl_wsi_info(wsi, "LWS_SERVER_OPTION_ALLOW_EARLY_DATA "
+					   "ignored: no 0-RTT replay mitigation");
+
 		SSL_set_accept_state(wsi->tls.ssl);
 	}
 
@@ -448,6 +462,37 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		}
 	}
 
+	/*
+	 * RFC 9000 has no flow control for the CRYPTO stream, and CRYPTO frames
+	 * remain legal at the application level after the handshake completes
+	 * (NewSessionTicket, KeyUpdate, NewToken...).  SSL_do_handshake() on a
+	 * completed connection returns 1 at once *without* draining what
+	 * SSL_provide_quic_data() buffered, so feeding it post-handshake CRYPTO
+	 * grows the TLS stack's buffer 1:1 with what the peer sends, for the
+	 * life of the connection.  Only SSL_process_quic_post_handshake()
+	 * consumes it, and it is also what parses NewSessionTicket, without
+	 * which session resumption can never work.  A failure here is a fatal
+	 * TLS error, so tear the connection down.
+	 */
+	if (wsi->tls.quic_secret_cb != test_secret_cb &&
+	    SSL_is_init_finished(wsi->tls.ssl)) {
+#if defined(USE_WOLFSSL)
+		if (wolfSSL_process_quic_post_handshake(wsi->tls.ssl) != 1) {
+#else
+		if (SSL_process_quic_post_handshake(wsi->tls.ssl) != 1) {
+#endif
+			unsigned long pe = ERR_get_error();
+
+			lwsl_wsi_info(wsi, "post-handshake CRYPTO rejected: "
+					   "%lu (%s)", pe,
+					   ERR_error_string((uint32_t)pe, NULL));
+
+			return -1;
+		}
+
+		return 0;
+	}
+
 #if defined(USE_WOLFSSL)
 	hs_n = wolfSSL_quic_do_handshake(wsi->tls.ssl);
 #else
@@ -464,9 +509,20 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			return 1;
 
 		unsigned long e = ERR_get_error();
-		lwsl_wsi_err(wsi, "SSL_do_handshake failed: hs_n %d, err %d, openssl err %lu (%s)",
-			hs_n, err, e, ERR_error_string((uint32_t)e, NULL));
-		ERR_print_errors_fp(stderr);
+
+		/*
+		 * Any unauthenticated peer can force a handshake failure, so
+		 * this is info-level, and the OpenSSL error queue is drained
+		 * through lwsl_ rather than written straight to stderr where
+		 * neither lws log control nor the app's log_cx can reach it.
+		 */
+		lwsl_wsi_info(wsi, "SSL_do_handshake failed: hs_n %d, err %d, "
+				   "openssl err %lu (%s)", hs_n, err, e,
+				   ERR_error_string((uint32_t)e, NULL));
+		while ((e = ERR_get_error()))
+			lwsl_wsi_debug(wsi, "  %s",
+				       ERR_error_string((uint32_t)e, NULL));
+
 		return -1;
 	}
 
@@ -525,6 +581,9 @@ from_hex(char c)
 
 #define TLSEXT_TYPE_quic_transport_parameters 57
 
+/* RFC 9000 transport parameters are a few hundred bytes; cap what we copy */
+#define LWS_QUIC_TP_RECV_MAX 4096
+
 static int
 openssl_quic_ext_add_cb(SSL *ssl, unsigned int ext_type,
 			unsigned int context,
@@ -563,7 +622,26 @@ openssl_quic_ext_parse_cb(SSL *ssl, unsigned int ext_type,
 	if (!wsi)
 		return 1;
 
-	lwsl_wsi_notice(wsi, "openssl_quic_ext_parse_cb: ext_type %u, inlen %zu", ext_type, inlen);
+	lwsl_wsi_info(wsi, "%s: ext_type %u, inlen %zu", __func__, ext_type,
+		      inlen);
+
+	/*
+	 * A client can force a HelloRetryRequest just by offering a key_share
+	 * for a group we do not prefer, and then sends its transport parameters
+	 * again in the second ClientHello, so this callback can run more than
+	 * once on the same wsi.  Free any earlier allocation first, else it
+	 * becomes unreachable (openssl-ssl.c only frees the pointer still
+	 * stored), and bound the size: transport parameters are a few hundred
+	 * bytes, a TLS extension body can be 64KB.
+	 */
+
+	if (inlen > LWS_QUIC_TP_RECV_MAX) {
+		*al = SSL_AD_ILLEGAL_PARAMETER;
+		return 0;
+	}
+
+	lws_free_set_NULL(wsi->tls.quic_tp_recv);
+	wsi->tls.quic_tp_recv_len = 0;
 
 	wsi->tls.quic_tp_recv = lws_malloc(inlen, "quic_tp_recv");
 	if (!wsi->tls.quic_tp_recv) {
@@ -663,9 +741,17 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	if (lwsi_role_client(wsi)) {
 		SSL_set_connect_state(wsi->tls.ssl);
 	} else {
-		if (wsi->a.vhost && (wsi->a.vhost->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA)) {
-			SSL_set_max_early_data(wsi->tls.ssl, wsi->a.context->quic_0rtt_max_size ? wsi->a.context->quic_0rtt_max_size : 0xFFFFFFFF);
-		}
+		/*
+		 * See the note in the BoringSSL-API arm above: lws has no 0-RTT
+		 * replay mitigation, so server-side early data stays off rather
+		 * than defaulting to a 4GiB early-data budget.
+		 */
+		if (wsi->a.vhost &&
+		    (wsi->a.vhost->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA))
+			lwsl_wsi_info(wsi, "LWS_SERVER_OPTION_ALLOW_EARLY_DATA "
+					   "ignored: no 0-RTT replay mitigation");
+
+		SSL_set_max_early_data(wsi->tls.ssl, 0);
 		SSL_set_accept_state(wsi->tls.ssl);
 	}
 
@@ -683,6 +769,29 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 	BIO *wbio = SSL_get_wbio(wsi->tls.ssl);
 	int hs_n;
 	size_t written = 0;
+
+	/*
+	 * NOTE: this arm is unreachable in any configuration CMake can produce
+	 * today -- CMakeLists.txt clears LWS_ROLE_QUIC unless a backend with a
+	 * real QUIC TLS API is selected, so LWS_HAVE_BORINGSSL_QUIC_API is
+	 * always defined here -- and it must not be revived as it stands:
+	 *
+	 *  - every encryption level is merged into one memory BIO, whereas
+	 *    RFC 9001 4.1.3 requires per-level CRYPTO streams precisely so that
+	 *    handshake-level TLS messages cannot be injected inside an Initial
+	 *    packet, whose keys are derivable by anyone who sees the DCID;
+	 *  - outgoing crypto is attributed to the level of the packet that was
+	 *    last *received*, not the level it belongs to;
+	 *  - a flight larger than the caller's buffer is silently left in the
+	 *    BIO with no indication;
+	 *  - this frames raw TLS records while lws_tls_quic_rx_crypto() scans
+	 *    its input as bare TLS handshake messages, so the two ends of the
+	 *    same path disagree about the framing.
+	 *
+	 * It should be deleted, or rewritten against a real per-level API such
+	 * as OpenSSL 3.5's SSL_set_quic_tls_cbs(), before any backend without
+	 * the BoringSSL QUIC API is allowed to set LWS_ROLE_QUIC.
+	 */
 
 	if (!rbio || !wbio)
 		return -1;
@@ -720,9 +829,20 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			return 1; /* In progress */
 
 		unsigned long e = ERR_get_error();
-		lwsl_wsi_err(wsi, "SSL_do_handshake failed: hs_n %d, err %d, openssl err %lu (%s)",
-			hs_n, err, e, ERR_error_string((uint32_t)e, NULL));
-		ERR_print_errors_fp(stderr);
+
+		/*
+		 * Any unauthenticated peer can force a handshake failure, so
+		 * this is info-level, and the OpenSSL error queue is drained
+		 * through lwsl_ rather than written straight to stderr where
+		 * neither lws log control nor the app's log_cx can reach it.
+		 */
+		lwsl_wsi_info(wsi, "SSL_do_handshake failed: hs_n %d, err %d, "
+				   "openssl err %lu (%s)", hs_n, err, e,
+				   ERR_error_string((uint32_t)e, NULL));
+		while ((e = ERR_get_error()))
+			lwsl_wsi_debug(wsi, "  %s",
+				       ERR_error_string((uint32_t)e, NULL));
+
 		return -1;
 	}
 
