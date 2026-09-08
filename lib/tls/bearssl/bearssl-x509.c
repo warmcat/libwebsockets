@@ -78,52 +78,299 @@ lws_asn1_get_tlv(const uint8_t **p, const uint8_t *end, int *tag, size_t *len)
 	return 0;
 }
 
-/* Extracts Common Name (2.5.4.3) or Issuer string from a Name SEQUENCE */
+/*
+ * Render an X.501 Name SEQUENCE as "C=US,O=Let's Encrypt,CN=R11", the same
+ * shape gnutls produces, so consumers see one format from either backend.
+ * Multi-valued RDNs are joined with '+', unknown attribute types are shown
+ * as dotted OIDs, and RFC 4514 special characters in values are escaped.
+ *
+ * With get_cn set, only the value of the (last) CN attribute is returned.
+ *
+ * Returns 0 with buf->ns.name / len filled, -1 on malformed input or if
+ * the caller's buffer is too small.
+ */
+static const struct {
+	const char *oid;
+	size_t oid_len;
+	const char *name;
+} lws_x501_attr_names[] = {
+	{ "\x55\x04\x03", 3, "CN" },
+	{ "\x55\x04\x06", 3, "C" },
+	{ "\x55\x04\x07", 3, "L" },
+	{ "\x55\x04\x08", 3, "ST" },
+	{ "\x55\x04\x0a", 3, "O" },
+	{ "\x55\x04\x0b", 3, "OU" },
+	{ "\x55\x04\x05", 3, "serialNumber" },
+	{ "\x55\x04\x0c", 3, "title" },
+	{ "\x55\x04\x2a", 3, "GN" },
+	{ "\x55\x04\x04", 3, "SN" },
+	{ "\x55\x04\x09", 3, "street" },
+	{ "\x55\x04\x11", 3, "postalCode" },
+	{ "\x2a\x86\x48\x86\xf7\x0d\x01\x09\x01", 9, "emailAddress" },
+	{ "\x09\x92\x26\x89\x93\xf2\x2c\x64\x01\x19", 10, "DC" },
+	{ "\x09\x92\x26\x89\x93\xf2\x2c\x64\x01\x01", 10, "UID" },
+};
+
 static int
-lws_x509_extract_name(const uint8_t *name, size_t name_len, int get_cn, union lws_tls_cert_info_results *buf, size_t max_len)
+lws_x509_dn_put(char *out, size_t max, size_t *pos, const char *str, size_t n)
+{
+	if (*pos + n >= max)
+		return -1;
+	memcpy(out + *pos, str, n);
+	*pos += n;
+	return 0;
+}
+
+static int
+lws_x509_dn_put_oid(char *out, size_t max, size_t *pos, const uint8_t *oid,
+		    size_t oid_len)
+{
+	char tmp[16];
+	size_t i;
+	unsigned int v = 0;
+	int first = 1, n;
+
+	for (i = 0; i < oid_len; i++) {
+		v = (v << 7) | (oid[i] & 0x7f);
+		if (oid[i] & 0x80)
+			continue;
+		if (first) {
+			n = lws_snprintf(tmp, sizeof(tmp), "%u.%u", v / 40 > 2 ? 2 : v / 40,
+					 v / 40 > 2 ? v - 80 : v % 40);
+			first = 0;
+		} else
+			n = lws_snprintf(tmp, sizeof(tmp), ".%u", v);
+		if (lws_x509_dn_put(out, max, pos, tmp, (size_t)n))
+			return -1;
+		v = 0;
+	}
+
+	return first ? -1 : 0;
+}
+
+static int
+lws_x509_dn_put_value(char *out, size_t max, size_t *pos, const uint8_t *val,
+		      size_t val_len)
+{
+	size_t i;
+
+	for (i = 0; i < val_len; i++) {
+		char c = (char)val[i];
+
+		if (c == ',' || c == '+' || c == '"' || c == '\\' || c == '<' ||
+		    c == '>' || c == ';' || (c == '#' && !i) ||
+		    (c == ' ' && (!i || i == val_len - 1)))
+			if (lws_x509_dn_put(out, max, pos, "\\", 1))
+				return -1;
+		if (!c)
+			c = '?';
+		if (lws_x509_dn_put(out, max, pos, &c, 1))
+			return -1;
+	}
+
+	return 0;
+}
+
+static int
+lws_x509_render_name(const uint8_t *name, size_t name_len, int get_cn,
+		     char *out, size_t max_len, size_t *ppos)
 {
 	const uint8_t *p = name, *end = name + name_len;
-	int tag; size_t len;
-	int found_cn = 0;
-
-	/*
-	 * JIT_TRUST logs the ISSUER_NAME. Returning the CN from the issuer is
-	 * usually sufficient for logging if a full stringizer isn't available.
-	 */
+	size_t len, pos = *ppos, i;
+	int tag, found_cn = 0, first_rdn = 1;
 
 	while (p < end) {
-		/* SET */
-		if (lws_asn1_get_tlv(&p, end, &tag, &len) || tag != 0x31) return -1;
-		const uint8_t *s_end = p + len;
-		while (p < s_end) {
-			/* SEQUENCE */
-			if (lws_asn1_get_tlv(&p, s_end, &tag, &len) || tag != 0x30) return -1;
-			const uint8_t *sq_end = p + len;
-			/* OID */
-			if (lws_asn1_get_tlv(&p, sq_end, &tag, &len) || tag != 0x06) return -1;
-			const uint8_t *oid = p; size_t oid_len = len; p += len;
-			/* Value */
-			if (lws_asn1_get_tlv(&p, sq_end, &tag, &len)) return -1;
-			const uint8_t *val = p; size_t val_len = len; p += len;
+		const uint8_t *s_end;
+		int first_atv = 1;
 
-			/* OID 2.5.4.3 -> 55 04 03 (Common Name) */
-			if (oid_len == 3 && oid[0] == 0x55 && oid[1] == 0x04 && oid[2] == 0x03) {
-				if (val_len >= max_len) return -1;
-				memcpy(buf->ns.name, val, val_len);
-				buf->ns.name[val_len] = '\0';
-				buf->ns.len = (int)val_len;
-				found_cn = 1;
-				if (get_cn) return 0;
+		/* RelativeDistinguishedName ::= SET OF AttributeTypeAndValue */
+		if (lws_asn1_get_tlv(&p, end, &tag, &len) || tag != 0x31)
+			return -1;
+		s_end = p + len;
+
+		if (!get_cn && !first_rdn &&
+		    lws_x509_dn_put(out, max_len, &pos, ",", 1))
+			return -1;
+		first_rdn = 0;
+
+		while (p < s_end) {
+			const uint8_t *sq_end, *oid, *val;
+			size_t oid_len, val_len;
+
+			if (lws_asn1_get_tlv(&p, s_end, &tag, &len) || tag != 0x30)
+				return -1;
+			sq_end = p + len;
+			if (lws_asn1_get_tlv(&p, sq_end, &tag, &len) || tag != 0x06)
+				return -1;
+			oid = p; oid_len = len; p += len;
+			if (lws_asn1_get_tlv(&p, sq_end, &tag, &len))
+				return -1;
+			val = p; val_len = len; p += len;
+
+			if (get_cn) {
+				if (oid_len == 3 && oid[0] == 0x55 &&
+				    oid[1] == 0x04 && oid[2] == 0x03) {
+					if (val_len >= max_len)
+						return -1;
+					memcpy(out, val, val_len);
+					out[val_len] = '\0';
+					pos = val_len;
+					found_cn = 1;
+				}
+				continue;
 			}
+
+			if (!first_atv &&
+			    lws_x509_dn_put(out, max_len, &pos, "+", 1))
+				return -1;
+			first_atv = 0;
+
+			for (i = 0; i < LWS_ARRAY_SIZE(lws_x501_attr_names); i++)
+				if (oid_len == lws_x501_attr_names[i].oid_len &&
+				    !memcmp(oid, lws_x501_attr_names[i].oid, oid_len))
+					break;
+
+			if (i < LWS_ARRAY_SIZE(lws_x501_attr_names)) {
+				if (lws_x509_dn_put(out, max_len, &pos,
+						    lws_x501_attr_names[i].name,
+						    strlen(lws_x501_attr_names[i].name)))
+					return -1;
+			} else
+				if (lws_x509_dn_put_oid(out, max_len, &pos,
+							oid, oid_len))
+					return -1;
+
+			if (lws_x509_dn_put(out, max_len, &pos, "=", 1) ||
+			    lws_x509_dn_put_value(out, max_len, &pos,
+						  val, val_len))
+				return -1;
 		}
 	}
-	/* If we were asked for Issuer and couldn't format it nicely, we can return the CN we found,
-	 * or return -1. Since JIT_TRUST only logs it, returning the CN of the issuer is helpful. */
-	if (!get_cn && found_cn) return 0;
-	return -1;
+
+	if (get_cn && !found_cn)
+		return -1;
+
+	out[pos] = '\0';
+	*ppos = pos;
+
+	return 0;
+}
+
+static int
+lws_x509_extract_name(const uint8_t *name, size_t name_len, int get_cn,
+		      union lws_tls_cert_info_results *buf, size_t max_len)
+{
+	size_t pos = 0;
+
+	buf->ns.len = 0;
+	if (lws_x509_render_name(name, name_len, get_cn, buf->ns.name, max_len, &pos))
+		return -1;
+	buf->ns.len = (int)pos;
+
+	return 0;
+}
+
+/*
+ * Walk the AuthorityKeyIdentifier extension value.  Returns 0 with buf
+ * filled, 1 if the wanted component isn't present, -1 on malformed input
+ * or if the caller's buffer is too small.
+ */
+static int
+lws_x509_akid_component(const uint8_t *val, size_t val_len,
+			enum lws_tls_cert_info type,
+			union lws_tls_cert_info_results *buf, size_t len)
+{
+	const uint8_t *v = val, *v_end = val + val_len;
+	size_t tlen;
+	int tag;
+
+	if (lws_asn1_get_tlv(&v, v_end, &tag, &tlen) || tag != 0x30)
+		return -1;
+	v_end = v + tlen;
+
+	while (v < v_end) {
+		if (lws_asn1_get_tlv(&v, v_end, &tag, &tlen))
+			return -1;
+
+		switch (tag & 0x1f) {
+		case 0: /* keyIdentifier [0] IMPLICIT OCTET STRING */
+			if (type != LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID)
+				break;
+			if (tlen > len)
+				return -1;
+			memcpy(buf->ns.name, v, tlen);
+			buf->ns.len = (int)tlen;
+			return 0;
+
+		case 1: /* authorityCertIssuer [1] IMPLICIT GeneralNames */
+		{
+			const uint8_t *g = v, *g_end = v + tlen;
+			size_t pos = 0;
+
+			if (type != LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_ISSUER)
+				break;
+
+			/*
+			 * Like the other backends, concatenate whatever
+			 * GeneralNames are there; a directoryName is
+			 * rendered as a DN, string forms are copied
+			 */
+			while (g < g_end) {
+				size_t glen;
+				int gtag;
+
+				if (lws_asn1_get_tlv(&g, g_end, &gtag, &glen))
+					return -1;
+
+				if ((gtag & 0x1f) == 4) { /* directoryName [4] EXPLICIT Name */
+					const uint8_t *d = g;
+					size_t dlen;
+					int dtag;
+
+					if (lws_asn1_get_tlv(&d, g + glen, &dtag, &dlen) ||
+					    dtag != 0x30)
+						return -1;
+					if (lws_x509_render_name(d, dlen, 0, buf->ns.name,
+								 len, &pos))
+						return -1;
+				} else if ((gtag & 0x1f) == 1 || (gtag & 0x1f) == 2 ||
+					   (gtag & 0x1f) == 6) {
+					/* rfc822Name, dNSName, uniformResourceIdentifier */
+					if (lws_x509_dn_put(buf->ns.name, len, &pos,
+							    (const char *)g, glen))
+						return -1;
+				}
+				g += glen;
+			}
+
+			if (!pos)
+				return 1;
+			buf->ns.name[pos] = '\0';
+			buf->ns.len = (int)pos;
+			return 0;
+		}
+
+		case 2: /* authorityCertSerialNumber [2] IMPLICIT INTEGER */
+			if (type != LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_SERIAL)
+				break;
+			if (tlen > len)
+				return -1;
+			memcpy(buf->ns.name, v, tlen);
+			buf->ns.len = (int)tlen;
+			return 0;
+
+		default:
+			break;
+		}
+		v += tlen;
+	}
+
+	return 1;
 }
 
 int lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type, union lws_tls_cert_info_results *buf, size_t len) {
+	buf->ns.len = 0;
+
 	if (!x509 || !x509->der) return -1;
 
 	/*
@@ -134,12 +381,10 @@ int lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type, union
 		len = sizeof(buf->ns.name);
 
 	if (type == LWS_TLS_CERT_INFO_DER_RAW) {
-		if (x509->der_len > len) {
-			buf->ns.len = (int)x509->der_len;
-			return -1;
-		}
-		memcpy(buf->ns.name, x509->der, x509->der_len);
 		buf->ns.len = (int)x509->der_len;
+		if (x509->der_len > len)
+			return -1;
+		memcpy(buf->ns.name, x509->der, x509->der_len);
 		return 0;
 	}
 
@@ -170,11 +415,17 @@ int lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type, union
 				buf->ns.len = (int)(pk->key.rsa.nlen + pk->key.rsa.elen);
 				return 0;
 			}
+			if (pk->key_type == BR_KEYTYPE_EC) {
+				if (pk->key.ec.qlen > len) return -1;
+				memcpy(buf->ns.name, pk->key.ec.q, pk->key.ec.qlen);
+				buf->ns.len = (int)pk->key.ec.qlen;
+				return 0;
+			}
 			return -1;
 		}
 	}
 
-	/* Custom ASN.1 extraction for CN, Issuer, AKID, SKID */
+	/* Custom ASN.1 extraction for CN, Issuer, SPKI, usage, AKID, SKID */
 	const uint8_t *p = x509->der, *end = x509->der + x509->der_len;
 	int tag; size_t tlen;
 
@@ -213,9 +464,11 @@ int lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type, union
 	if (lws_asn1_get_tlv(&p, tbs_end, &tag, &tlen) || tag != 0x30) return -1;
 	if (type == LWS_TLS_CERT_INFO_DER_SPKI) {
 		size_t spki_len = (size_t)(p - spki) + tlen;
+
+		/* documented size-query: report the needed size on too-small */
+		buf->ns.len = (int)spki_len;
 		if (spki_len > len) return -1;
 		memcpy(buf->ns.name, spki, spki_len);
-		buf->ns.len = (int)spki_len;
 		return 0;
 	}
 	p += tlen;
@@ -247,32 +500,72 @@ int lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type, union
 			if (lws_asn1_get_tlv(&p, e_end, &tag, &tlen) || tag != 0x04) return -1;
 			const uint8_t *val = p; size_t val_len = tlen; p += tlen;
 
-			if (type == LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID && oid_len == 3 && oid[0]==0x55 && oid[1]==0x1d && oid[2]==0x23) {
-				const uint8_t *v = val, *v_end = val + val_len;
-				if (lws_asn1_get_tlv(&v, v_end, &tag, &tlen) || tag != 0x30) return -1;
-				v_end = v + tlen;
-				while (v < v_end) {
-					if (lws_asn1_get_tlv(&v, v_end, &tag, &tlen)) return -1;
-					if ((tag & 0x1F) == 0) { /* keyIdentifier [0] */
-						if (tlen > len) return -1;
-						memcpy(buf->ns.name, v, tlen);
-						buf->ns.len = (int)tlen;
-						return 0;
-					}
-					v += tlen;
-				}
-			}
-			if (type == LWS_TLS_CERT_INFO_SUBJECT_KEY_ID && oid_len == 3 && oid[0]==0x55 && oid[1]==0x1d && oid[2]==0x0E) {
-				const uint8_t *v = val, *v_end = val + val_len;
-				if (lws_asn1_get_tlv(&v, v_end, &tag, &tlen) || tag != 0x04) return -1;
-				if (tlen > len) return -1;
-				memcpy(buf->ns.name, v, tlen);
-				buf->ns.len = (int)tlen;
+			if (oid_len != 3 || oid[0] != 0x55 || oid[1] != 0x1d)
+				continue;
+
+			switch (oid[2]) {
+			case 0x0f: /* keyUsage: BIT STRING */
+			{
+				const uint8_t *v = val;
+				int vtag; size_t vlen;
+
+				if (type != LWS_TLS_CERT_INFO_USAGE)
+					break;
+				if (lws_asn1_get_tlv(&v, val + val_len, &vtag, &vlen) ||
+				    vtag != 0x03 || vlen < 2)
+					return -1;
+				/*
+				 * v[0] is the unused-bits count; the flag bytes
+				 * that follow are already in the layout openssl
+				 * and mbedtls expose (digitalSignature = 0x80,
+				 * ... decipherOnly = 0x8000)
+				 */
+				buf->usage = v[1];
+				if (vlen > 2)
+					buf->usage |= (unsigned int)v[2] << 8;
 				return 0;
+			}
+
+			case 0x23: /* authorityKeyIdentifier */
+				if (type != LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID &&
+				    type != LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_ISSUER &&
+				    type != LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_SERIAL)
+					break;
+				return lws_x509_akid_component(val, val_len, type, buf, len);
+
+			case 0x0e: /* subjectKeyIdentifier: OCTET STRING */
+			{
+				const uint8_t *v = val;
+				int vtag; size_t vlen;
+
+				if (type != LWS_TLS_CERT_INFO_SUBJECT_KEY_ID)
+					break;
+				if (lws_asn1_get_tlv(&v, val + val_len, &vtag, &vlen) ||
+				    vtag != 0x04)
+					return -1;
+				if (vlen > len) return -1;
+				memcpy(buf->ns.name, v, vlen);
+				buf->ns.len = (int)vlen;
+				return 0;
+			}
+
+			default:
+				break;
 			}
 		}
 	}
-	return -1;
+
+	switch (type) {
+	case LWS_TLS_CERT_INFO_USAGE:
+	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID:
+	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_ISSUER:
+	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_SERIAL:
+	case LWS_TLS_CERT_INFO_SUBJECT_KEY_ID:
+		/* the extension isn't there: "not present", as openssl says */
+		return 1;
+	default:
+		return -1;
+	}
 }
 
 int lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted, const char *common_name);
@@ -800,7 +1093,20 @@ int lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi, const ch
 	return 0;
 }
 int lws_tls_server_client_cert_verify_config(struct lws_vhost *vh) { return 0; }
-int lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type, union lws_tls_cert_info_results *buf, size_t len) { return -1; }
+int lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type, union lws_tls_cert_info_results *buf, size_t len)
+{
+	struct lws_tls_ctx *ctx = vhost->tls.ssl_ctx;
+	struct lws_x509_cert leaf;
+
+	if (!ctx || !ctx->chain || !ctx->chain_len)
+		return -1;
+
+	/* the leaf is chain[0]; wrap its DER without copying it */
+	leaf.der = ctx->chain[0].data;
+	leaf.der_len = ctx->chain[0].data_len;
+
+	return lws_x509_info(&leaf, type, buf, len);
+}
 
 struct dn_append_ctx {
 	uint8_t *data;
