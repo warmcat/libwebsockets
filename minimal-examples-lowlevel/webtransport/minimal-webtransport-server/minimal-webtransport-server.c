@@ -23,6 +23,28 @@ callback_webtransport(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	switch (reason) {
 
+	/*
+	 * Issued on the h3 CONNECT stream after the wt protocol was bound but
+	 * before the 200 is sent, so the request headers are still available.
+	 * Return nonzero to refuse the session with a 403, eg, based on the
+	 * :path or a urlarg like /wt?code=...
+	 */
+	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION: {
+		char path[128], code[64];
+		int n;
+
+		n = lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_HTTP_COLON_PATH);
+		lwsl_user("LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION (wsi: %p, "
+			  "protocol: %s, path: %s)\n", wsi, in ? (const char *)in :
+			  "(none)", n > 0 ? path : "?");
+
+		if (lws_get_urlarg_by_name_safe(wsi, "code", code,
+						sizeof(code)) >= 0)
+			lwsl_user("  urlarg code=%s\n", code);
+
+		break;
+	}
+
 	case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
 		lwsl_user("LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED "
 			  "(wsi: %p)\n", wsi);

@@ -449,7 +449,16 @@ enum lws_callback_reasons {
 	 * headers using the header enums lws_token_indexes from
 	 * libwebsockets.h to check for and read the supported header
 	 * presence and content before deciding to allow the handshake
-	 * to proceed or to kill the connection. */
+	 * to proceed or to kill the connection.
+	 *
+	 * For a WebTransport session, this is issued on the h3 CONNECT
+	 * stream after the protocol has been selected and bound, but before
+	 * the 200 is sent.  in is the name of the negotiated wt protocol, or
+	 * NULL if none was found.  The request headers are still available,
+	 * so eg, lws_hdr_copy() of WSI_TOKEN_HTTP_COLON_PATH or
+	 * lws_get_urlarg_by_name() can be used to inspect the path and
+	 * urlargs.  Returning nonzero answers the CONNECT with 403 instead
+	 * of upgrading the stream. */
 
 	LWS_CALLBACK_CONFIRM_EXTENSION_OKAY			= 25,
 	/**< When the server handshake code

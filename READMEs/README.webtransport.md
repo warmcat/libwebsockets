@@ -45,6 +45,20 @@ They are only about the logical binding of the session or stream `wsi` to your p
 - the drop is where those allocations must be destroyed, and where anything pointing into the pss (eg, a `lws_dll2_t` list node living inside it) must be removed. The pss may be freed immediately afterwards, either because the `wsi` is closing or because it is being rebound
 - a `wsi` that was bound while still in the `h3` role, and then transitioned into `wt` (the session `wsi` after the `CONNECT`, and any peer stream that had to be rebound), saw `LWS_CALLBACK_HTTP_BIND_PROTOCOL` for that original bind. A protocol that can be reached both ways should handle both drop reasons.
 
+### Filtering the CONNECT
+
+Before the server answers the `CONNECT` with a 200 and the stream leaves the
+`h3` role, the protocol that was selected for the session receives
+`LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION`, exactly as for a ws upgrade.  `in`
+is the negotiated wt protocol name (or NULL).  The request headers are still
+attached at that point, so the `:path` and any urlargs can be inspected with
+`lws_hdr_copy()` / `lws_get_urlarg_by_name_safe()`.  Returning nonzero refuses
+the session: the `CONNECT` is answered with a 403 and the stream is closed,
+with no `LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED`.
+
+This is the place to do things like `/wt?code=...` token checks, since the
+browser WebTransport API does not let a page set request headers.
+
 ## Quick Start Example
 
 ### Server-side Initialization

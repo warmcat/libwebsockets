@@ -2061,41 +2061,6 @@ rops_check_upgrades_h3(struct lws *wsi)
 		char negotiated[64] = "";
 		int draft_len, cp_len;
 
-		lws_mux_mark_immortal(wsi);
-		lws_metrics_tag_wsi_add(wsi, "upg", "wt_over_h3");
-
-		/* Construct HTTP/3 response headers for CONNECT upgrade to WebTransport */
-		if (lws_add_http_header_status(wsi, 200, &rp, end))
-			return LWS_UPG_RET_BAIL;
-
-		/* Copy and send back the draft version */
-		draft_len = lws_hdr_custom_copy(wsi, draft, sizeof(draft) - 1,
-						"sec-webtransport-http3-draft", 28);
-		if (draft_len > 0) {
-			draft[draft_len] = '\0';
-			if (lws_add_http_header_by_name(wsi,
-					(const unsigned char *)"sec-webtransport-http3-draft:",
-					(const unsigned char *)draft, draft_len, &rp, end))
-				return LWS_UPG_RET_BAIL;
-		} else {
-			/* Check if client sent sec-webtransport-http3-draft02 */
-			char draft02_val[16];
-			int d02_len = lws_hdr_custom_copy(wsi, draft02_val, sizeof(draft02_val) - 1,
-							  "sec-webtransport-http3-draft02", 30);
-			if (d02_len > 0) {
-				if (lws_add_http_header_by_name(wsi,
-						(const unsigned char *)"sec-webtransport-http3-draft02:",
-						(const unsigned char *)"1", 1, &rp, end))
-					return LWS_UPG_RET_BAIL;
-			} else {
-				/* Default to draft02 if not sent */
-				if (lws_add_http_header_by_name(wsi,
-						(const unsigned char *)"sec-webtransport-http3-draft:",
-						(const unsigned char *)"draft02", 7, &rp, end))
-					return LWS_UPG_RET_BAIL;
-			}
-		}
-
 		/*
 		 * Subprotocol negotiation: select the first protocol the client
 		 * offered in wt-available-protocols that is loaded on this vhost
@@ -2173,22 +2138,81 @@ rops_check_upgrades_h3(struct lws *wsi)
 			if (lws_bind_protocol(wsi, prot, __func__))
 				return LWS_UPG_RET_BAIL;
 			lwsl_notice("H3 WT Upgrade: bound to protocol '%s'\n", prot->name);
+		} else {
+			lwsl_notice("H3 WT Upgrade: no WebTransport protocol found on vhost\n");
+		}
 
+		/*
+		 * Give the user code a chance to study the CONNECT request (:path,
+		 * urlargs, headers) and deny it before we commit to the upgrade:
+		 * same semantics as the ws upgrade.  If it is refused, answer 403
+		 * on the stream instead of the 200.
+		 */
+		if (wsi->a.protocol && wsi->a.protocol->callback &&
+		    wsi->a.protocol->callback(wsi,
+					      LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
+					      wsi->user_space,
+					      prot ? (void *)prot->name : NULL, 0)) {
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
+			char name[64];
+			lwsl_warn("User code denied wt connection: protocol=%s, peer=%s\n",
+				  prot ? prot->name : "(none)",
+				  lws_get_peer_simple(wsi, name, sizeof(name)));
+#endif
+			if (lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL))
+				return LWS_UPG_RET_BAIL;
+
+			return LWS_UPG_RET_DONE;
+		}
+
+		lws_mux_mark_immortal(wsi);
+		lws_metrics_tag_wsi_add(wsi, "upg", "wt_over_h3");
+
+		/* Construct HTTP/3 response headers for CONNECT upgrade to WebTransport */
+		if (lws_add_http_header_status(wsi, 200, &rp, end))
+			return LWS_UPG_RET_BAIL;
+
+		/* Copy and send back the draft version */
+		draft_len = lws_hdr_custom_copy(wsi, draft, sizeof(draft) - 1,
+						"sec-webtransport-http3-draft", 28);
+		if (draft_len > 0) {
+			draft[draft_len] = '\0';
+			if (lws_add_http_header_by_name(wsi,
+					(const unsigned char *)"sec-webtransport-http3-draft:",
+					(const unsigned char *)draft, draft_len, &rp, end))
+				return LWS_UPG_RET_BAIL;
+		} else {
+			/* Check if client sent sec-webtransport-http3-draft02 */
+			char draft02_val[16];
+			int d02_len = lws_hdr_custom_copy(wsi, draft02_val, sizeof(draft02_val) - 1,
+							  "sec-webtransport-http3-draft02", 30);
+			if (d02_len > 0) {
+				if (lws_add_http_header_by_name(wsi,
+						(const unsigned char *)"sec-webtransport-http3-draft02:",
+						(const unsigned char *)"1", 1, &rp, end))
+					return LWS_UPG_RET_BAIL;
+			} else {
+				/* Default to draft02 if not sent */
+				if (lws_add_http_header_by_name(wsi,
+						(const unsigned char *)"sec-webtransport-http3-draft:",
+						(const unsigned char *)"draft02", 7, &rp, end))
+					return LWS_UPG_RET_BAIL;
+			}
+		}
+
+		if (prot) {
 			/*
 			 * Echo the protocol that got bound, so the client can
 			 * determine what was negotiated even if it offered no
 			 * protocol list of its own.
 			 */
-			{
-				char wt_prot_val[128];
-				int wpl = lws_snprintf(wt_prot_val, sizeof(wt_prot_val), "\"%s\"", prot->name);
-				if (lws_add_http_header_by_name(wsi,
-						(const unsigned char *)"wt-protocol:",
-						(const unsigned char *)wt_prot_val, wpl, &rp, end))
-					return LWS_UPG_RET_BAIL;
-			}
-		} else {
-			lwsl_notice("H3 WT Upgrade: no WebTransport protocol found on vhost\n");
+			char wt_prot_val[128];
+			int wpl = lws_snprintf(wt_prot_val, sizeof(wt_prot_val), "\"%s\"", prot->name);
+
+			if (lws_add_http_header_by_name(wsi,
+					(const unsigned char *)"wt-protocol:",
+					(const unsigned char *)wt_prot_val, wpl, &rp, end))
+				return LWS_UPG_RET_BAIL;
 		}
 
 		if (lws_finalize_http_header(wsi, &rp, end))

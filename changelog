@@ -41,6 +41,9 @@ Development
  native tls library for tls and gencrypto
  - SS: Support urlargs on server side
  - lhp: various improvements (still not very usable)
+ - WebTransport: LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION is now issued on the
+ h3 CONNECT stream after the wt protocol is bound and before the 200 is sent,
+ so user code can inspect :path / urlargs and refuse the session with a 403
 
 v4.5.0
 ======
