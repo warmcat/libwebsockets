@@ -443,18 +443,48 @@ function updateOverlay() {
         typeClass = "connection-overlay ws";
     }
     
+    /*
+     * lastSent / lastRecv are raw wire text.  Build this with the DOM rather
+     * than innerHTML so that whatever the far end sends stays text: JSON.parse
+     * succeeding says nothing about the contents of the strings inside.
+     */
+    const mkdiv = (cls, parent) => {
+        const d = document.createElement("div");
+        if (cls) d.className = cls;
+        parent.appendChild(d);
+        return d;
+    };
+    const mkstat = (label, value, parent) => {
+        const d = mkdiv(null, parent);
+        d.appendChild(document.createTextNode(label + " "));
+        const b = document.createElement("strong");
+        b.textContent = value;
+        d.appendChild(b);
+    };
+    const mkjson = (label, value, parent) => {
+        const d = mkdiv(null, parent);
+        const b = document.createElement("strong");
+        b.textContent = label;
+        d.appendChild(b);
+        d.appendChild(document.createTextNode(" "));
+        const s = document.createElement("span");
+        s.className = "json-text";
+        s.textContent = value;
+        d.appendChild(s);
+    };
+
     overlay.className = typeClass;
-    overlay.innerHTML = `
-        <div class="overlay-title">${typeText}</div>
-        <div class="overlay-stats">
-            <div>Sent: <strong>${stats.sentCount}</strong></div>
-            <div>Recv: <strong>${stats.recvCount}</strong></div>
-        </div>
-        <div class="overlay-json">
-            <div><strong>Last Sent:</strong> <span class="json-text">${stats.lastSent || 'None'}</span></div>
-            <div><strong>Last Recv:</strong> <span class="json-text">${stats.lastRecv || 'None'}</span></div>
-        </div>
-    `;
+    overlay.textContent = "";
+
+    mkdiv("overlay-title", overlay).textContent = typeText;
+
+    const st = mkdiv("overlay-stats", overlay);
+    mkstat("Sent:", String(stats.sentCount), st);
+    mkstat("Recv:", String(stats.recvCount), st);
+
+    const js = mkdiv("overlay-json", overlay);
+    mkjson("Last Sent:", stats.lastSent || "None", js);
+    mkjson("Last Recv:", stats.lastRecv || "None", js);
 }
 
 function handleServerMessage(msg) {
@@ -470,7 +500,9 @@ function handleServerMessage(msg) {
             const obj = JSON.parse(part);
             console.log("Parsed JSON message:", obj);
             stats.recvCount++;
-            stats.lastRecv = part;
+            /* this is only a debug display, cap what we retain of it */
+            stats.lastRecv = part.length > 512 ?
+                             part.slice(0, 512) + "..." : part;
             updateOverlay();
             
             if (obj.seed) {

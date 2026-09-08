@@ -1,7 +1,13 @@
 html, body {
     margin: 0;
     padding: 0;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    /*
+     * System font stack only: no webfont is fetched, so no third party sees
+     * a request for every dashboard visitor, and nothing here needs a
+     * relaxation of the deployment's style-src CSP.
+     */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
     background-color: #121212;
     color: #f1f1f1;
 }
