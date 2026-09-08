@@ -43,6 +43,26 @@
 
 #define LWS_AUTH_DNS_MAX_ZONE_SIZE (1024 * 1024)
 
+/* absolute length caps on the two suspended-query queues */
+#define LWS_AUTH_DNS_MAX_PENDING_QUERIES	1024
+#define LWS_AUTH_DNS_MAX_PENDING_DNSBL		256
+
+/*
+ * RFC 5155 7.2: a denial of existence never needs more than the NSEC3 RRs
+ * matching the closest encloser and covering the next closer name and the
+ * wildcard at the closest encloser
+ */
+#define LWS_AUTH_DNS_MAX_NSEC3_PROOF		3
+
+/*
+ * The NSEC3 owner hash is recomputed per query, so the zone's iteration
+ * count is a CPU cost an (untrusted, eg DHT-published) zone gets to choose.
+ * RFC 5155 A.1 caps useful iterations at 150 and RFC 9276 deprecates any
+ * value above 0, so refuse to hash beyond that rather than burn the event
+ * loop thread.
+ */
+#define LWS_AUTH_DNS_MAX_NSEC3_ITERATIONS	150
+
 #if !defined(O_NOFOLLOW)
 #define O_NOFOLLOW 0
 #endif
@@ -102,6 +122,376 @@ name_to_wire(const char *name, const char *origin, uint8_t *wire, size_t *wire_l
 
 	*wire_len = wl;
 	return 0;
+}
+
+/*
+ * Serialize one RR (owner name, type, class, ttl, rdlen, rdata) into the
+ * response at *rp, returning nonzero without writing anything if it does not
+ * fit inside max_buf.
+ *
+ * C-237: the owner name is encoded into a scratch buffer first because
+ * name_to_wire() may re-qualify a relative owner name with the zone origin,
+ * eg "hash.example.com" under "$ORIGIN example.com" (no trailing dot, which
+ * the zone parser accepts) encodes as "hash.example.com.example.com".  Its
+ * encoded length therefore cannot be predicted from strlen(rs->name), and
+ * the room has to be checked against what was actually produced.
+ */
+
+static int
+auth_dns_emit_rr(uint8_t **rp, uint8_t *dbuf, size_t max_buf,
+		 struct auth_dns_rrset *rs, struct auth_dns_rr *rr,
+		 const char *origin)
+{
+	uint8_t wire[256], *p = *rp;
+	size_t wl = sizeof(wire);
+
+	if (name_to_wire(rs->name, origin, wire, &wl))
+		return 1;
+
+	if (lws_ptr_diff_size_t(p, dbuf) + wl + 10 + rr->wire_rdata_len >
+								      max_buf)
+		return 1;
+
+	memcpy(p, wire, wl);
+	p += wl;
+
+	*p++ = (uint8_t)(rs->type >> 8);	*p++ = (uint8_t)(rs->type);
+	*p++ = (uint8_t)(rs->class_ >> 8);	*p++ = (uint8_t)(rs->class_);
+	*p++ = (uint8_t)(rs->ttl >> 24);	*p++ = (uint8_t)(rs->ttl >> 16);
+	*p++ = (uint8_t)(rs->ttl >> 8);		*p++ = (uint8_t)(rs->ttl);
+	*p++ = (uint8_t)(rr->wire_rdata_len >> 8);
+	*p++ = (uint8_t)(rr->wire_rdata_len);
+
+	memcpy(p, rr->wire_rdata, rr->wire_rdata_len);
+	*rp = p + rr->wire_rdata_len;
+
+	return 0;
+}
+
+/*
+ * base32hex (RFC 4648 7, no padding) as used for NSEC3 owner names.  The
+ * alphabet is ordered, so encoded hashes can be compared with strcmp() to
+ * place a hash in the NSEC3 chain.
+ */
+
+static const char b32hextab[] = "0123456789ABCDEFGHIJKLMNOPQRSTUV";
+
+static void
+auth_dns_b32hex(const uint8_t *in, size_t len, char *out, size_t out_len)
+{
+	unsigned int bitb = 0;
+	size_t o = 0;
+	int bits = 0;
+
+	while (len--) {
+		bitb = (bitb << 8) | *in++;
+		bits += 8;
+
+		while (bits >= 5 && o + 2 <= out_len) {
+			out[o++] = b32hextab[(bitb >> (bits - 5)) & 31];
+			bits -= 5;
+		}
+	}
+
+	if (bits && o + 2 <= out_len)
+		out[o++] = b32hextab[(bitb << (5 - bits)) & 31];
+
+	out[o] = '\0';
+}
+
+struct auth_dns_nsec3_params {
+	uint8_t		salt[255];
+	size_t		salt_len;
+	uint16_t	iterations;
+	uint8_t		alg;
+};
+
+/*
+ * NSEC3PARAM and NSEC3 RDATA both start with
+ * alg(1) flags(1) iterations(2) salt-len(1) salt(salt-len), so either kind
+ * of record can tell us the zone's hash parameters.  Returns 0 if usable
+ * parameters were found.
+ */
+
+static int
+auth_dns_nsec3_params(struct auth_dns_zone *z,
+		      struct auth_dns_nsec3_params *pa)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&z->rrset_list)) {
+		struct auth_dns_rrset *rs = lws_container_of(d,
+						struct auth_dns_rrset, list);
+		struct auth_dns_rr *rr;
+
+		if ((rs->type != 50 && rs->type != 51) ||
+		    lws_dll2_is_empty(&rs->rr_list))
+			continue;
+
+		rr = lws_container_of(lws_dll2_get_head(&rs->rr_list),
+				      struct auth_dns_rr, list);
+
+		if (rr->wire_rdata_len < 5)
+			continue;
+
+		pa->alg = rr->wire_rdata[0];
+		pa->iterations = (uint16_t)((rr->wire_rdata[2] << 8) |
+					     rr->wire_rdata[3]);
+		pa->salt_len = rr->wire_rdata[4];
+
+		if (pa->salt_len > sizeof(pa->salt) ||
+		    5 + pa->salt_len > rr->wire_rdata_len)
+			continue;
+
+		if (pa->salt_len)
+			memcpy(pa->salt, rr->wire_rdata + 5, pa->salt_len);
+
+		/* SHA-1 is the only defined NSEC3 hash algorithm */
+
+		return pa->alg != 1 ||
+		       pa->iterations > LWS_AUTH_DNS_MAX_NSEC3_ITERATIONS;
+	} lws_end_foreach_dll(d);
+
+	return 1;
+}
+
+/*
+ * Compute the base32hex NSEC3 owner hash of a name.  The name is used fully
+ * qualified so name_to_wire() cannot append the origin to it a second time.
+ */
+
+static int
+auth_dns_nsec3_hash(const char *name, const struct auth_dns_nsec3_params *pa,
+		    char *b32, size_t b32_len)
+{
+	struct lws_genhash_ctx hctx;
+	uint8_t wire[256], hash[20];
+	size_t wl = sizeof(wire), nl = strlen(name);
+	char fq[260];
+	int n;
+
+	lws_snprintf(fq, sizeof(fq), "%s%s", name,
+		     nl && name[nl - 1] == '.' ? "" : ".");
+
+	if (name_to_wire(fq, "", wire, &wl))
+		return 1;
+
+	if (lws_genhash_init(&hctx, LWS_GENHASH_TYPE_SHA1) ||
+	    (pa->salt_len && lws_genhash_update(&hctx, pa->salt, pa->salt_len)) ||
+	    lws_genhash_update(&hctx, wire, wl) ||
+	    lws_genhash_destroy(&hctx, hash)) {
+		lws_genhash_destroy(&hctx, NULL);
+
+		return 1;
+	}
+
+	for (n = 0; n < (int)pa->iterations; n++)
+		if (lws_genhash_init(&hctx, LWS_GENHASH_TYPE_SHA1) ||
+		    (pa->salt_len && lws_genhash_update(&hctx, pa->salt,
+							pa->salt_len)) ||
+		    lws_genhash_update(&hctx, hash, sizeof(hash)) ||
+		    lws_genhash_destroy(&hctx, hash)) {
+			lws_genhash_destroy(&hctx, NULL);
+
+			return 1;
+		}
+
+	auth_dns_b32hex(hash, sizeof(hash), b32, b32_len);
+
+	return 0;
+}
+
+/* the first label of an NSEC3 owner name, uppercased for comparison */
+
+static void
+auth_dns_nsec3_owner_hash(const char *name, char *b32, size_t b32_len)
+{
+	size_t n = 0;
+
+	while (name[n] && name[n] != '.' && n + 1 < b32_len) {
+		b32[n] = (char)toupper((unsigned char)name[n]);
+		n++;
+	}
+
+	b32[n] = '\0';
+}
+
+/* the Next Hashed Owner Name field of an NSEC3 RDATA, base32hex encoded */
+
+static int
+auth_dns_nsec3_next_hash(const struct auth_dns_rr *rr, char *b32,
+			 size_t b32_len)
+{
+	size_t sl, hl;
+
+	if (rr->wire_rdata_len < 6)
+		return 1;
+
+	sl = rr->wire_rdata[4];
+	if (6 + sl > rr->wire_rdata_len)
+		return 1;
+
+	hl = rr->wire_rdata[5 + sl];
+	if (6 + sl + hl > rr->wire_rdata_len)
+		return 1;
+
+	auth_dns_b32hex(rr->wire_rdata + 6 + sl, hl, b32, b32_len);
+
+	return 0;
+}
+
+/*
+ * An NSEC3 RR covers a hash when the hash sorts after its owner hash and
+ * before its next hash.  The last RR in the chain wraps, ie, its owner hash
+ * sorts after its next hash.
+ */
+
+static int
+auth_dns_nsec3_covers(const char *owner, const char *next, const char *h)
+{
+	if (strcmp(owner, next) < 0)
+		return strcmp(owner, h) < 0 && strcmp(h, next) < 0;
+
+	return strcmp(owner, h) < 0 || strcmp(h, next) < 0;
+}
+
+static struct auth_dns_rrset *
+auth_dns_nsec3_find(struct auth_dns_zone *z, const char *h, int cover)
+{
+	char owner[64], next[64];
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&z->rrset_list)) {
+		struct auth_dns_rrset *rs = lws_container_of(d,
+						struct auth_dns_rrset, list);
+		struct auth_dns_rr *rr;
+
+		if (rs->type != 50 || lws_dll2_is_empty(&rs->rr_list))
+			continue;
+
+		auth_dns_nsec3_owner_hash(rs->name, owner, sizeof(owner));
+
+		if (!cover) {
+			if (!strcmp(owner, h))
+				return rs;
+			continue;
+		}
+
+		rr = lws_container_of(lws_dll2_get_head(&rs->rr_list),
+				      struct auth_dns_rr, list);
+
+		if (!auth_dns_nsec3_next_hash(rr, next, sizeof(next)) &&
+		    auth_dns_nsec3_covers(owner, next, h))
+			return rs;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+/* does any rrset in the zone own this (trailing-dot-insensitive) name? */
+
+static int
+auth_dns_name_exists(struct auth_dns_zone *z, const char *name)
+{
+	size_t nl = strlen(name);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&z->rrset_list)) {
+		struct auth_dns_rrset *rs = lws_container_of(d,
+						struct auth_dns_rrset, list);
+		size_t rnl = strlen(rs->name);
+
+		if (rnl && rs->name[rnl - 1] == '.')
+			rnl--;
+
+		if (rnl == nl && !strncmp(rs->name, name, nl))
+			return 1;
+	} lws_end_foreach_dll(d);
+
+	return 0;
+}
+
+/*
+ * C-238: fill sel[] with the NSEC3 rrsets that RFC 5155 7.2 requires to deny
+ * qname, returning how many were found (0 - 3).
+ *
+ * We used to serialize *every* NSEC3 rrset in the zone into the authority
+ * section of every negative answer.  That handed each querier the complete
+ * set of owner-name hashes -- offline zone walking for free, which is
+ * precisely what NSEC3 exists to prevent -- and made every NXDOMAIN a
+ * maximum-sized response regardless of the size of the query.
+ */
+
+static int
+auth_dns_nsec3_proof(struct auth_dns_zone *z, const char *qname,
+		     struct auth_dns_rrset **sel, int max)
+{
+	char ce[256], nc[256], wc[260], h[64];
+	struct auth_dns_nsec3_params pa;
+	struct auth_dns_rrset *r;
+	int count = 0, n, have_nc = 0;
+
+	if (max < LWS_AUTH_DNS_MAX_NSEC3_PROOF || auth_dns_nsec3_params(z, &pa))
+		return 0;
+
+	/*
+	 * The closest encloser is the longest ancestor of qname that exists
+	 * in the zone (qname itself in the NODATA case); the next closer
+	 * name is the ancestor one label below that.
+	 */
+
+	lws_strncpy(ce, qname, sizeof(ce));
+	nc[0] = '\0';
+
+	while (ce[0] && !auth_dns_name_exists(z, ce)) {
+		const char *dot = strchr(ce, '.');
+
+		lws_strncpy(nc, ce, sizeof(nc));
+		have_nc = 1;
+
+		if (!dot) {
+			ce[0] = '\0';
+			break;
+		}
+
+		memmove(ce, dot + 1, strlen(dot + 1) + 1);
+	}
+
+	if (!ce[0])
+		return 0;
+
+	if (!have_nc) {
+		/* NODATA: the name exists, prove the type at it does not */
+
+		if (!auth_dns_nsec3_hash(qname, &pa, h, sizeof(h)) &&
+		    (r = auth_dns_nsec3_find(z, h, 0)) != NULL)
+			sel[count++] = r;
+
+		return count;
+	}
+
+	if (!auth_dns_nsec3_hash(ce, &pa, h, sizeof(h)) &&
+	    (r = auth_dns_nsec3_find(z, h, 0)) != NULL)
+		sel[count++] = r;
+
+	if (!auth_dns_nsec3_hash(nc, &pa, h, sizeof(h)) &&
+	    (r = auth_dns_nsec3_find(z, h, 1)) != NULL) {
+		for (n = 0; n < count && sel[n] != r; n++)
+			;
+		if (n == count)
+			sel[count++] = r;
+	}
+
+	lws_snprintf(wc, sizeof(wc), "*.%s", ce);
+
+	if (!auth_dns_nsec3_hash(wc, &pa, h, sizeof(h)) &&
+	    (r = auth_dns_nsec3_find(z, h, 1)) != NULL) {
+		for (n = 0; n < count && sel[n] != r; n++)
+			;
+		if (n == count)
+			sel[count++] = r;
+	}
+
+	return count;
 }
 
 struct auth_dns_cache_entry {
@@ -1456,6 +1846,7 @@ send_nxdomain:
 				rp[6] = 0; rp[7] = 0; /* ANCOUNT = 0 */
 
 				/* Write standard DNS Question */
+				uint8_t *rp_flags = rp + 2; /* Save pointer to flags */
 				uint8_t *rp_auth_count = rp + 8; /* Save pointer to NSCOUNT */
 				rp[8] = 0; rp[9] = 0; /* NSCOUNT */
 				rp[10] = 0; rp[11] = 0; /* ARCOUNT = 0 */
@@ -1491,44 +1882,70 @@ send_nxdomain:
 					}
 				}
 
-				/* Serialize NSEC3 and their RRSIGs if requested */
+				/*
+				 * Serialize the NSEC3 denial-of-existence
+				 * proof and its RRSIGs, if the querier asked
+				 * for DNSSEC.  C-238: only the (at most
+				 * three) NSEC3 RRs RFC 5155 7.2 actually
+				 * requires, not the whole chain.
+				 */
 				if (do_bit) {
-					lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&matched_ce->zone.rrset_list)) {
-						struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
-						if (rs->type == 50 || (rs->type == 46)) {
-							/* check if it's an RRSIG for NSEC3 */
-							int is_nsec3_rrsig = 0;
-							if (rs->type == 46 &&
-							    !lws_dll2_is_empty(&rs->rr_list)) {
-								struct auth_dns_rr *rr = lws_container_of(lws_dll2_get_head(
-									&rs->rr_list), struct auth_dns_rr, list);
-								if (rr->wire_rdata_len >= 2 && ((rr->wire_rdata[0] << 8) | rr->wire_rdata[1]) == 50)
-									is_nsec3_rrsig = 1;
-							}
+					struct auth_dns_rrset *sel[LWS_AUTH_DNS_MAX_NSEC3_PROOF];
+					int sn, sel_count, trunc = 0;
 
-							if (rs->type == 50 || is_nsec3_rrsig) {
-								lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
-									struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
-									size_t nlen = strlen(rs->name);
-									if ((size_t)(rp - dbuf) + 12 + nlen + 1 + rr->wire_rdata_len <= max_buf) {
-										size_t rem = max_buf - (size_t)(rp - dbuf);
-										if (name_to_wire(rs->name, matched_ce->zone.origin, rp, &rem) == 0) {
-											size_t written_len = rem; /* Name length including root dot */
-											rp += written_len;
-											*rp++ = (uint8_t)(rs->type >> 8); *rp++ = (uint8_t)(rs->type & 0xff);
-											*rp++ = (uint8_t)(rs->class_ >> 8); *rp++ = (uint8_t)(rs->class_ & 0xff);
-											*rp++ = (uint8_t)(rs->ttl >> 24); *rp++ = (uint8_t)(rs->ttl >> 16);
-											*rp++ = (uint8_t)(rs->ttl >> 8); *rp++ = (uint8_t)(rs->ttl);
-											*rp++ = (uint8_t)(rr->wire_rdata_len >> 8); *rp++ = (uint8_t)(rr->wire_rdata_len);
-											memcpy(rp, rr->wire_rdata, rr->wire_rdata_len);
-											rp += rr->wire_rdata_len;
-											added_auth++;
-										}
-									}
-								} lws_end_foreach_dll(d2);
+					sel_count = auth_dns_nsec3_proof(
+						&matched_ce->zone, qname, sel,
+						LWS_ARRAY_SIZE(sel));
+
+					for (sn = 0; sn < sel_count && !trunc; sn++) {
+						struct auth_dns_rrset *n3 = sel[sn];
+
+						lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&n3->rr_list)) {
+							struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
+
+							if (auth_dns_emit_rr(&rp, dbuf, max_buf, n3, rr,
+									     matched_ce->zone.origin)) {
+								trunc = 1;
+								break;
 							}
-						}
-					} lws_end_foreach_dll(d);
+							added_auth++;
+						} lws_end_foreach_dll(d2);
+
+						/* ... and the RRSIG(s) covering it */
+
+						lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&matched_ce->zone.rrset_list)) {
+							struct auth_dns_rrset *sg = lws_container_of(d, struct auth_dns_rrset, list);
+
+							if (trunc || sg->type != 46 || strcmp(sg->name, n3->name))
+								continue;
+
+							lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&sg->rr_list)) {
+								struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
+
+								if (rr->wire_rdata_len < 2 ||
+								    ((rr->wire_rdata[0] << 8) | rr->wire_rdata[1]) != 50)
+									continue;
+
+								if (auth_dns_emit_rr(&rp, dbuf, max_buf, sg, rr,
+										     matched_ce->zone.origin)) {
+									trunc = 1;
+									break;
+								}
+								added_auth++;
+							} lws_end_foreach_dll(d2);
+						} lws_end_foreach_dll(d);
+					}
+
+					if (trunc) {
+						/*
+						 * an incomplete proof is not a
+						 * proof; say so rather than
+						 * emit a partial one
+						 */
+						rflags |= 0x0200; /* TC */
+						rp_flags[0] = (uint8_t)(rflags >> 8);
+						rp_flags[1] = (uint8_t)(rflags & 0xff);
+					}
 				}
 
 				/* Update Authority Count dynamically */
