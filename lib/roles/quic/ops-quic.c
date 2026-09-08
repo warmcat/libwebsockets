@@ -1875,6 +1875,19 @@ tp_ok:
 			lws_quic_keys_release_aead_rx(k);
 			lws_quic_keys_release_aead_tx(k);
 			*k = scratch_keys;
+			/*
+			 * The keyelems point at the key arrays inside the
+			 * struct they were derived into; lws_quic_update_keys()
+			 * anchored the new rx key inside scratch_keys, which
+			 * is about to go out of scope.  Re-anchor every elem
+			 * to this struct's own arrays, otherwise backends
+			 * that read the key per packet (chacha, non-gnutls
+			 * aes) would use a dead stack frame.
+			 */
+			k->el_aead_rx.buf = k->key_aead_rx;
+			k->el_aead_tx.buf = k->key_aead_tx;
+			k->el_hp_rx.buf = k->key_hp_rx;
+			k->el_hp_tx.buf = k->key_hp_tx;
 			nwsi->quic.qn->rx_key_phase ^= 1;
 			nwsi->quic.qn->rx_packets_since_update = 0;
 			if (!nwsi->quic.qn->key_update_pending) {
