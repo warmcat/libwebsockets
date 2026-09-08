@@ -118,6 +118,14 @@ lws_jwk_dump(struct lws_jwk *jwk)
 int
 _lws_jwk_set_el_jwk(struct lws_gencrypto_keyelem *e, char *in, size_t len)
 {
+	/*
+	 * JSON does not stop anybody sending the same member twice, and lejp
+	 * is a streaming parser that reports each occurrence... without this,
+	 * occurrence n orphans the allocation from occurrence n - 1, which is
+	 * an unauthenticated heap leak for a JWK arriving in a JOSE header
+	 */
+	lws_jwk_destroy_elements(e, 1);
+
 	e->buf = lws_malloc(len + 1, "jwk");
 	if (!e->buf)
 		return -1;
@@ -172,14 +180,22 @@ lws_jwk_dup_oct(struct lws_jwk *jwk, const void *key, int len)
 {
 	unsigned int ulen = (unsigned int)len;
 
-	jwk->e[LWS_GENCRYPTO_KTY_OCT].buf = lws_malloc(ulen, __func__);
-	if (!jwk->e[LWS_GENCRYPTO_KTY_OCT].buf)
-		return -1;
+	/*
+	 * e[] is indexed by *key element* (LWS_GENCRYPTO_OCT_KEYEL_K == 0),
+	 * not by *key type* (LWS_GENCRYPTO_KTY_OCT == 1)... using the kty here
+	 * put the key bytes in e[1] while the length went to e[0], so every
+	 * consumer got a NULL buf with a nonzero len
+	 */
 
 	jwk->kty = LWS_GENCRYPTO_KTY_OCT;
+
+	jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = lws_malloc(ulen, __func__);
+	if (!jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf)
+		return -1;
+
 	jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].len = ulen;
 
-	memcpy(jwk->e[LWS_GENCRYPTO_KTY_OCT].buf, key, ulen);
+	memcpy(jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, key, ulen);
 
 	return 0;
 }

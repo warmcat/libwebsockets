@@ -169,6 +169,9 @@ _lws_jwk_set_el_jwk_b64(struct lws_gencrypto_keyelem *e, char *in, int len)
 	size_t dec_size = (unsigned int)lws_base64_size(len);
 	int n;
 
+	/* a repeated member must not orphan the previous allocation */
+	lws_jwk_destroy_elements(e, 1);
+
 	e->buf = lws_malloc(dec_size, "jwk");
 	if (!e->buf)
 		return -1;
@@ -188,6 +191,9 @@ _lws_jwk_set_el_jwk_b64u(struct lws_gencrypto_keyelem *e, char *in, int len)
 {
 	size_t dec_size = (size_t)lws_base64_size(len);
 	int n;
+
+	/* a repeated member must not orphan the previous allocation */
+	lws_jwk_destroy_elements(e, 1);
 
 	e->buf = lws_malloc(dec_size, "jwk");
 	if (!e->buf)
@@ -216,7 +222,7 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 	if (reason == LEJPCB_VAL_STR_START)
 		jps->pos = 0;
 
-	if (reason == LEJPCB_OBJECT_START && ctx->path_match == 0 + 1)
+	if (reason == LEJPCB_OBJECT_START && ctx->path_match == 0 + 1) {
 		/*
 		 * new keys[] member is starting
 		 *
@@ -227,24 +233,27 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 		 */
 		jps->possible = F_RSA | F_EC | F_OCT | F_OKP;
 
-	if (reason == LEJPCB_OBJECT_END && ctx->path_match == 0 + 1) {
-		/* we completed parsing a key */
-		if (jps->per_key_cb && jps->possible) {
-			if (jps->per_key_cb(jps->jwk, jps->user)) {
-
-				lwsl_notice("%s: user cb halts import\n",
-					    __func__);
-
-				return -2;
-			}
-
-			/* clear it down */
-			lws_jwk_destroy(jps->jwk);
-			jps->possible = 0;
-		}
+		/*
+		 * lws_jwk_destroy() only frees the elements, it leaves ->kty
+		 * and ->private_key behind... without resetting them here, a
+		 * keys[] member that gives no "kty" of its own inherits the
+		 * previous key's type, and eg an RSA "e" would be handed to
+		 * the user callback as if it were an "oct" key's secret
+		 */
+		jwk->kty = LWS_GENCRYPTO_KTY_UNKNOWN;
+		jwk->private_key = 0;
 	}
 
-	if (reason == LEJPCB_COMPLETE) {
+	/*
+	 * A key is complete either at the end of a keys[] member, or at the
+	 * end of the document for a detached, single key.  Both need the same
+	 * completeness / consistency checks... the keys[] case used to get
+	 * none of them, since jps->possible was already zeroed by the time
+	 * LEJPCB_COMPLETE arrived for the document as a whole.
+	 */
+
+	if (reason == LEJPCB_COMPLETE ||
+	    (reason == LEJPCB_OBJECT_END && ctx->path_match == 0 + 1)) {
 
 		/*
 		 * Now we saw the whole jwk and know the key type, let'jwk insist
@@ -331,6 +340,23 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 		     jwk->kty == LWS_GENCRYPTO_KTY_OKP) &&
 		    jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf)
 		jwk->private_key = 1;
+	}
+
+	if (reason == LEJPCB_OBJECT_END && ctx->path_match == 0 + 1) {
+		/* we completed parsing a key, and it checked out above */
+		if (jps->per_key_cb && jps->possible) {
+			if (jps->per_key_cb(jps->jwk, jps->user)) {
+
+				lwsl_notice("%s: user cb halts import\n",
+					    __func__);
+
+				return -2;
+			}
+
+			/* clear it down */
+			lws_jwk_destroy(jps->jwk);
+			jps->possible = 0;
+		}
 	}
 
 	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
@@ -529,12 +555,22 @@ _jwk_ex_putc(char **pp, char *end, char c)
 	return 0;
 }
 
+/*
+ * Emit srclen bytes of src inside a JSON "..." context, escaping anything
+ * that JSON does not allow there literally.
+ *
+ * Import does not restrict what a string member may contain (lejp already
+ * turned any \" in the source into a literal "), so without escaping here an
+ * imported key can inject its own members into its re-export, and into the
+ * RFC7638 thumbprint that is computed over that same serialisation.
+ */
+
 static int
 _jwk_ex_putn(char **pp, char *end, const void *src, size_t srclen)
 {
-	const char *hit = memchr(src, 0, srclen);
-	size_t len = hit ? (size_t)((const char *)hit - (const char *)src)
-			 : srclen;
+	const char *s = (const char *)src, *hit = memchr(src, 0, srclen);
+	size_t len = hit ? (size_t)(hit - s) : srclen, n;
+	char *p = *pp;
 
 	/*
 	 * String members may have their terminating NUL included in .len
@@ -542,12 +578,35 @@ _jwk_ex_putn(char **pp, char *end, const void *src, size_t srclen)
 	 * JSON... the content and a NUL must fit
 	 */
 
-	if (len + 1 > lws_ptr_diff_size_t(end, *pp))
+	for (n = 0; n < len; n++) {
+		unsigned char c = (unsigned char)s[n];
+
+		if (c == '\"' || c == '\\') {
+			if (lws_ptr_diff_size_t(end, p) < 3)
+				return 1;
+			*p++ = '\\';
+			*p++ = (char)c;
+			continue;
+		}
+
+		if (c < 0x20) {
+			if (lws_ptr_diff_size_t(end, p) < 7)
+				return 1;
+			p += lws_snprintf(p, 7, "\\u%04X", c);
+			continue;
+		}
+
+		if (lws_ptr_diff_size_t(end, p) < 2)
+			return 1;
+
+		*p++ = (char)c;
+	}
+
+	if (p >= end)
 		return 1;
 
-	memcpy(*pp, src, len);
-	(*pp)[len] = '\0';
-	*pp += len;
+	*p = '\0';
+	*pp = p;
 
 	return 0;
 }
@@ -645,8 +704,11 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 						if (!f && _jwk_ex_putc(&p, end, ','))
 							goto trunc;
 						f = 0;
-						if (_jwk_ex_printf(&p, end,
-								"\"%s\"", tok))
+						/* tok is imported data: escape it */
+						if (_jwk_ex_putc(&p, end, '\"') ||
+						    _jwk_ex_putn(&p, end, tok,
+								 strlen(tok)) ||
+						    _jwk_ex_putc(&p, end, '\"'))
 							goto trunc;
 					}
 					q++;
