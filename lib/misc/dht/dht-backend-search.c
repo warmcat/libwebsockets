@@ -106,7 +106,7 @@ insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id,
 			break;
 	}
 
-	if (i == SEARCH_NODES)
+	if (i >= SEARCH_NODES)
 		return 0;
 
 	/*
@@ -123,10 +123,10 @@ insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id,
 	 * the end by overwriting it, so destroy its id first or it is leaked
 	 * unrecoverably (nothing walks past ->numnodes).
 	 */
-	if (sr->numnodes == SEARCH_NODES)
+	if (sr->numnodes >= SEARCH_NODES) {
 		lws_dht_hash_destroy(&sr->nodes[SEARCH_NODES - 1].id);
-
-	if (sr->numnodes < SEARCH_NODES)
+		sr->numnodes = SEARCH_NODES;
+	} else
 		sr->numnodes++;
 
 	for (j = sr->numnodes - 1; j > i; j--) {
