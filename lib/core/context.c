@@ -138,15 +138,17 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 
 #if defined(LWS_WITH_OTA)
 	if (target == LWS_SYSTATE_OPERATIONAL) {
-		uint16_t b;
+		uint16_t b = 0;
 
 		/*
 		 * We add jitter, so possibly large numbers of devices don't
 		 * all wake up and check for updates at the same moment after a
-		 * power outage
+		 * power outage.  If we can't get random, b stays 0 rather than
+		 * being an uninitialized stack value.
 		 */
 
-		lws_get_random(context, &b, 2);
+		if (lws_get_random(context, &b, 2) != 2)
+			b = 0;
 		lws_sul_schedule(context, 0, &context->sul_ota_periodic,
 				 lws_ota_periodic_cb, (/* 30 + */ (b % 1000) *
 							LWS_US_PER_MS));
@@ -433,9 +435,18 @@ static const struct lws_evlib_map {
 	{ LWS_SERVER_OPTION_SDEVENT,  "evlib_sd" },
 	{ LWS_SERVER_OPTION_ULOOP,    "evlib_uloop" },
 };
+/*
+ * Deliberately NOT "." here: the process cwd is not a trustworthy place to
+ * load code from.  dlopen() runs the .so's constructors before any of the
+ * plugin magic / build hash / class checks get a chance to reject it, and
+ * this happens during context creation, ie, before any privilege drop.  So
+ * anyone able to create a file in our cwd could run code as us.
+ *
+ * An app that needs to look somewhere else can say so explicitly in
+ * info->plugin_dirs, which is checked ahead of the install dir below.
+ */
 static const char * const dlist[] = {
-	".",				/* Priority 1: plugins in cwd */
-	LWS_INSTALL_LIBDIR,		/* Priority 2: plugins in install dir */
+	LWS_INSTALL_LIBDIR,		/* plugins in install dir */
 	NULL
 };
 #endif
@@ -480,6 +491,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 	unsigned int lpf = info->fd_limit_per_thread;
 #if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS)
 	struct lws_plugin		*evlib_plugin_list = NULL;
+	const char * const		*dp = dlist;
+#if defined(LWS_WITH_PLUGINS)
+	const char			*dl[8];
+#endif
 #if defined(_DEBUG) && !defined(LWS_WITH_NO_LOGS)
 	char		*ld_env;
 #endif
@@ -525,6 +540,21 @@ lws_create_context(const struct lws_context_creation_info *info)
 	if (info->pt_serv_buf_size)
 		s1 = info->pt_serv_buf_size;
 
+	/*
+	 * Enforce a floor... lots of consumers do arithmetic like
+	 * "pt_serv_buf_size - LWS_PRE" or "(pt_serv_buf_size / 2) - LWS_PRE"
+	 * in unsigned types, so anything at or below LWS_PRE wraps to a
+	 * ~4GB "end" pointer and defeats every bounds check made against it.
+	 * Nothing in lws can usefully serve out of less than this anyway.
+	 */
+
+	if (s1 < LWS_PRE + 1024) {
+		lwsl_err("%s: pt_serv_buf_size %u too small, using %u\n",
+			 __func__, (unsigned int)s1,
+			 (unsigned int)(LWS_PRE + 1024));
+		s1 = LWS_PRE + 1024;
+	}
+
 	/* pt fakewsi and the pt serv buf allocations ride after the context */
 	size += count_threads * s1;
 #if !defined(LWS_PLAT_FREERTOS)
@@ -564,6 +594,27 @@ lws_create_context(const struct lws_context_creation_info *info)
 			LWS_INSTALL_LIBDIR, ld_env);
 #endif
 
+#if defined(LWS_WITH_PLUGINS)
+	/*
+	 * If the app named explicit, trusted plugin dirs, look in those before
+	 * the install dir (see the comment on dlist[] about why "." is not in
+	 * the search list)
+	 */
+
+	if (info->plugin_dirs && *info->plugin_dirs) {
+		const char * const *q = info->plugin_dirs;
+		size_t dn = 0;
+
+		while (*q && dn < LWS_ARRAY_SIZE(dl) - 2)
+			dl[dn++] = *q++;
+
+		dl[dn++] = LWS_INSTALL_LIBDIR;
+		dl[dn] = NULL;
+
+		dp = dl;
+	}
+#endif
+
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(map); n++) {
 		char ok = 0;
 
@@ -571,7 +622,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 			continue;
 
 		if (!lws_plugins_init(&evlib_plugin_list,
-				     dlist, "lws_evlib_plugin",
+				     dp, "lws_evlib_plugin",
 				     map[n].name, NULL, NULL))
 			ok = 1;
 
@@ -1210,15 +1261,23 @@ lws_create_context(const struct lws_context_creation_info *info)
 		context->tls.alpn_default = info->alpn;
 	else {
 		char *p = context->tls.alpn_discovered, first = 1;
+		char *lim = context->tls.alpn_discovered +
+			    sizeof(context->tls.alpn_discovered) - 2;
 
 		LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
 			if (ar->alpn) {
+				/*
+				 * lws_snprintf() returns the size it was
+				 * given when it truncated, so p can arrive
+				 * here already at lim... the separator has to
+				 * be bounds-checked like the copy is
+				 */
+				if (p >= lim)
+					break;
 				if (!first)
 					*p++ = ',';
-				p += lws_snprintf(p, (unsigned int)(
-					(context->tls.alpn_discovered +
-					sizeof(context->tls.alpn_discovered) -
-					2) - p), "%s", ar->alpn);
+				p += lws_snprintf(p, lws_ptr_diff_size_t(lim, p),
+						  "%s", ar->alpn);
 				first = 0;
 			}
 		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
@@ -1389,8 +1448,22 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 	context->pl_hash_elements =
 		(context->count_threads * context->fd_limit_per_thread) / 16;
+
+	/*
+	 * ... but with a small fd budget that division gives 0, and
+	 * lws_get_or_create_peer() then bails on !pl_hash_elements, ie, the
+	 * per-ip limits the app asked for would be silently not enforced
+	 */
+
+	if (!context->pl_hash_elements)
+		context->pl_hash_elements = 1;
+
 	context->pl_hash_table = lws_zalloc(sizeof(lws_dll2_owner_t) *
 			context->pl_hash_elements, "peer limits hash table");
+	if (!context->pl_hash_table) {
+		lwsl_cx_err(context, "OOM on peer limits hash table");
+		goto free_context_fail;
+	}
 
 	context->ip_limit_ah = info->ip_limit_ah;
 	context->ip_limit_wsi = info->ip_limit_wsi;
@@ -1875,8 +1948,21 @@ lws_create_context(const struct lws_context_creation_info *info)
 	lws_cancel_service(context);
 #endif
 
-	lws_get_random(context, context->quic_retry_secret,
-		       sizeof(context->quic_retry_secret));
+#if defined(LWS_WITH_NETWORK)
+	/*
+	 * This keys the QUIC Retry token... if we silently accepted a failed
+	 * or short read here, the secret would stay all-zeros from the
+	 * context zalloc and Retry tokens could be forged offline, ie, the
+	 * address validation it exists for would be worth nothing
+	 */
+
+	if (lws_get_random(context, context->quic_retry_secret,
+			   sizeof(context->quic_retry_secret)) !=
+					sizeof(context->quic_retry_secret)) {
+		lwsl_cx_err(context, "unable to get random for retry secret");
+		goto bail_libuv_aware;
+	}
+#endif
 
 	return context;
 
@@ -2112,14 +2198,21 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API) && defined(LWS_WITH_CLIENT)
 	lws_dll2_foreach_safe(&pt->ss_client_owner, NULL, lws_sspc_destroy_dll);
 #endif
-
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-		while(!lws_dll2_is_empty(&pt->http.ah_owner))
-			_lws_destroy_ah(pt, lws_container_of(
-					lws_dll2_get_head(&pt->http.ah_owner),
-					struct allocated_headers, list));
 #endif
 
+	/*
+	 * This was nested inside the LWS_WITH_SECURE_STREAMS block above,
+	 * which the indentation shows was not the intention... ah has nothing
+	 * to do with SS.  Both call sites drain the ah owner themselves
+	 * beforehand, so this is normally a no-op, but it must not be
+	 * conditional on SS being enabled.
+	 */
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	while (!lws_dll2_is_empty(&pt->http.ah_owner))
+		_lws_destroy_ah(pt, lws_container_of(
+				lws_dll2_get_head(&pt->http.ah_owner),
+				struct allocated_headers, list));
 #endif
 
 	lws_pt_unlock(pt);
