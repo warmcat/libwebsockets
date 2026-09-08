@@ -41,7 +41,13 @@ lws_ev_hrtimer_cb(struct ev_loop *loop, struct ev_timer *watcher, int revents)
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
 	if (us) {
-		ev_timer_set(&ptpr->hrtimer, ((float)us) / 1000000.0, 0);
+		/*
+		 * libev requires the watcher to be stopped before ev_timer_set,
+		 * its ordering key is cached in the timer heap while it is
+		 * active, and ev_timer_start() no-ops on an active watcher
+		 */
+		ev_timer_stop(ptpr->io_loop, &ptpr->hrtimer);
+		ev_timer_set(&ptpr->hrtimer, ((double)us) / 1000000.0, 0);
 		ev_timer_start(ptpr->io_loop, &ptpr->hrtimer);
 	}
 	lws_pt_unlock(pt);
@@ -71,7 +77,9 @@ lws_ev_idle_cb(struct ev_loop *loop, struct ev_idle *handle, int revents)
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
 	if (us) {
-		ev_timer_set(&ptpr->hrtimer, ((float)us) / 1000000.0, 0);
+		/* the hrtimer may still be armed from a previous round */
+		ev_timer_stop(ptpr->io_loop, &ptpr->hrtimer);
+		ev_timer_set(&ptpr->hrtimer, ((double)us) / 1000000.0, 0);
 		ev_timer_start(ptpr->io_loop, &ptpr->hrtimer);
 	}
 	lws_pt_unlock(pt);
@@ -484,16 +492,43 @@ elops_promote_parallel_ev(struct lws *wsi, int pidx)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
 	struct lws_wsi_eventlibs_libev *w = wsi_to_priv_ev(wsi);
+	int fd = (int)wsi->parallel_conns[pidx].desc.sockfd, ar, aw;
+
+	/*
+	 * An ev_io is an intrusive list node: once started, libev holds the
+	 * address of the watcher itself in its per-fd list.  So the racer's
+	 * watchers cannot be moved into the primary slot by copying them, that
+	 * would leave libev's list pointing into the racing[] slot we are about
+	 * to clear (and, since the copies come over already "active",
+	 * ev_io_start() on the primary would silently no-op forever after).
+	 *
+	 * Instead stop both sides and re-init + restart the primary watchers
+	 * on the winner's fd.
+	 */
+
+	ar = ev_is_active(&w->racing[pidx].w_read.watcher);
+	aw = ev_is_active(&w->racing[pidx].w_write.watcher);
+
+	ev_io_stop(ptpr->io_loop, &w->racing[pidx].w_read.watcher);
+	ev_io_stop(ptpr->io_loop, &w->racing[pidx].w_write.watcher);
 
 	/* stop primary */
 	ev_io_stop(ptpr->io_loop, &w->w_read.watcher);
 	ev_io_stop(ptpr->io_loop, &w->w_write.watcher);
 
-	/* copy racing to primary */
-	w->w_read = w->racing[pidx].w_read;
-	w->w_write = w->racing[pidx].w_write;
+	w->w_read.context = wsi->a.context;
+	w->w_write.context = wsi->a.context;
+
+	ev_io_init(&w->w_read.watcher, lws_accept_cb, fd, EV_READ);
+	ev_io_init(&w->w_write.watcher, lws_accept_cb, fd, EV_WRITE);
+
+	if (ar)
+		ev_io_start(ptpr->io_loop, &w->w_read.watcher);
+	if (aw)
+		ev_io_start(ptpr->io_loop, &w->w_write.watcher);
 
 	memset(&w->racing[pidx], 0, sizeof(w->racing[pidx]));
+
 	return 0;
 }
 #endif

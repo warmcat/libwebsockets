@@ -28,6 +28,26 @@
 #define pt_to_priv_uloop(_pt) ((struct lws_pt_eventlibs_uloop *)(_pt)->evlib_pt)
 #define wsi_to_priv_uloop(_w) ((struct lws_wsi_eventlibs_uloop *)(_w)->evlib_wsi)
 
+/*
+ * uloop_timeout_set() takes an int ms... a sul scheduled further out than
+ * INT_MAX ms (~24.8 days) would wrap negative and produce a deadline in the
+ * past, ie, an immediate-refire busy loop.  Clamp instead.
+ */
+
+static int
+lws_uloop_ms(lws_usec_t us)
+{
+	if (us < 1000)
+		return 1;
+
+	us /= 1000;
+
+	if (us > (lws_usec_t)INT_MAX)
+		return INT_MAX;
+
+	return (int)us;
+}
+
 static void
 lws_uloop_hrtimer_cb(struct uloop_timeout *ti)
 {
@@ -40,7 +60,7 @@ lws_uloop_hrtimer_cb(struct uloop_timeout *ti)
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
 	if (us)
-		uloop_timeout_set(ti, us < 1000 ? 1 : (int)(us / 1000));
+		uloop_timeout_set(ti, lws_uloop_ms(us));
 
 	lws_pt_unlock(pt);
 }
@@ -82,8 +102,7 @@ lws_uloop_idle_timer_cb(struct uloop_timeout *ti)
 				    lws_now_usecs());
 	if (us) {
 		uloop_timeout_cancel(&upt->hrtimer);
-		uloop_timeout_set(&upt->hrtimer,
-				  us < 1000 ? 1 : (int)(us / 1000));
+		uloop_timeout_set(&upt->hrtimer, lws_uloop_ms(us));
 	}
 
 	lws_pt_unlock(pt);
@@ -334,13 +353,28 @@ static int
 elops_promote_parallel_uloop(struct lws *wsi, int pidx)
 {
 	struct lws_wsi_eventlibs_uloop *wu = wsi_to_priv_uloop(wsi);
+	unsigned int ev = wu->racing[pidx].actual_events;
+
+	/*
+	 * uloop_fd_add() registers the *address* of the struct uloop_fd with
+	 * epoll and recovers the callback through it, so the racer's
+	 * registration cannot be moved into the primary slot by copying the
+	 * struct.  Deregister both and register the primary afresh on the
+	 * winner's fd.
+	 */
 
 	uloop_fd_delete(&wu->fd);
+	uloop_fd_delete(&wu->racing[pidx].fd);
 
-	wu->fd = wu->racing[pidx].fd;
-	wu->actual_events = wu->racing[pidx].actual_events;
+	wu->wsi = wsi;
+	wu->fd.fd = wsi->parallel_conns[pidx].desc.sockfd;
+	wu->fd.cb = lws_uloop_cb;
+
+	uloop_fd_add(&wu->fd, ev);
+	wu->actual_events = ev;
 
 	memset(&wu->racing[pidx], 0, sizeof(wu->racing[pidx]));
+
 	return 0;
 }
 #endif
