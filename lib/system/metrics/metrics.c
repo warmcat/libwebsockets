@@ -600,11 +600,51 @@ happy:
 	return 0;
 }
 
+/*
+ * OpenMetrics label values are quoted strings in which only \\, \" and \n may
+ * appear escaped.  The hostname comes off the wire (the client's requested
+ * authority), so an unescaped " or , in it would close the value and let the
+ * peer forge extra labels into the exported line.
+ */
+
+static const char *
+lws_metrics_label_esc(char *dst, size_t dl, const char *src)
+{
+	char *p = dst, *end = dst + dl - 1;
+
+	while (*src && p + 2 < end) {
+		switch (*src) {
+		case '"':
+			*p++ = '\\';
+			*p++ = '"';
+			break;
+		case '\\':
+			*p++ = '\\';
+			*p++ = '\\';
+			break;
+		case '\n':
+			*p++ = '\\';
+			*p++ = 'n';
+			break;
+		default:
+			if ((unsigned char)*src < 32)
+				*p++ = '?';
+			else
+				*p++ = *src;
+			break;
+		}
+		src++;
+	}
+	*p = '\0';
+
+	return dst;
+}
+
 int
 lws_metrics_hist_bump_describe_wsi(struct lws *wsi, lws_metric_pub_t *pub,
 				   const char *name)
 {
-	char desc[192], d1[48], *p = desc, *end = desc + sizeof(desc);
+	char desc[192], d1[48], esc[128], *p = desc, *end = desc + sizeof(desc);
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
@@ -612,7 +652,7 @@ lws_metrics_hist_bump_describe_wsi(struct lws *wsi, lws_metric_pub_t *pub,
 		lws_sspc_handle_t *h = (lws_sspc_handle_t *)wsi->a.opaque_user_data;
 		if (h)
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "ss=\"%s\",",
-				  h->ssi.streamtype);
+				  lws_metrics_label_esc(esc, sizeof(esc), h->ssi.streamtype));
 	} else
 		if (wsi->client_proxy_onward) {
 			lws_ss_handle_t *h = (lws_ss_handle_t *)wsi->a.opaque_user_data;
@@ -621,21 +661,23 @@ lws_metrics_hist_bump_describe_wsi(struct lws *wsi, lws_metric_pub_t *pub,
 			if (conn && conn->ss)
 				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 						  "ss=\"%s\",",
-						  conn->ss->info.streamtype);
+						  lws_metrics_label_esc(esc, sizeof(esc),
+							conn->ss->info.streamtype));
 		} else
 #endif
 	if (wsi->for_ss) {
 		lws_ss_handle_t *h = (lws_ss_handle_t *)wsi->a.opaque_user_data;
 		if (h)
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "ss=\"%s\",",
-				  h->info.streamtype);
+				  lws_metrics_label_esc(esc, sizeof(esc), h->info.streamtype));
 	}
 #endif
 
 #if defined(LWS_WITH_CLIENT)
 	if (wsi->stash && wsi->stash->cis[CIS_HOST])
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "hostname=\"%s\",",
-				wsi->stash->cis[CIS_HOST]);
+				lws_metrics_label_esc(esc, sizeof(esc),
+						      wsi->stash->cis[CIS_HOST]));
 #endif
 
 	lws_sa46_write_numeric_address(&wsi->sa46_peer, d1, sizeof(d1));
