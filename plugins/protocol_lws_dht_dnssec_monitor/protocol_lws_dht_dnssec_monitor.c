@@ -613,8 +613,16 @@ json_escape(char *esc, size_t esc_len, const char *s)
 
 /*
  * A raw file snippet is only interpolated into a response as a JSON value if
- * it actually parses as JSON; otherwise a corrupt or hostile file could break
- * the whole response envelope.  Returns 1 if buf parses cleanly.
+ * the whole of it is one complete, well-formed JSON value; otherwise a corrupt
+ * or hostile file could break the response envelope, or slip extra members in
+ * behind the value it appears to be.  Returns 1 if buf parses cleanly.
+ *
+ * lejp_parse() returns LEJP_CONTINUE (-1) for input that merely stopped early,
+ * some other negative LEJP_REJECT_... for input it would not accept (including
+ * LEJP_REJECT_UNKNOWN, which means it gave up on an overlong path rather than
+ * that the rest of the buffer is good), and otherwise the number of bytes of
+ * the buffer it did not need.  So only a nonnegative return whose leftover is
+ * pure whitespace means the buffer is exactly one JSON value.
  */
 static signed char
 json_snippet_lejp_cb(struct lejp_ctx *ctx, char reason)
@@ -629,13 +637,41 @@ static int
 json_snippet_valid(const char *buf)
 {
 	struct lejp_ctx jctx;
+	size_t len = strlen(buf);
 	int n;
 
 	lejp_construct(&jctx, json_snippet_lejp_cb, NULL, NULL, 0);
-	n = lejp_parse(&jctx, (const uint8_t *)buf, (int)strlen(buf));
+	n = lejp_parse(&jctx, (const uint8_t *)buf, (int)len);
 	lejp_destruct(&jctx);
 
-	return n >= 0 || n == LEJP_REJECT_UNKNOWN;
+	if (n < 0)
+		return 0;
+
+	while (n > 0) {
+		char c = buf[len - (size_t)n];
+
+		if (c != ' ' && c != '\t' && c != '\r' && c != '\n')
+			return 0;
+		n--;
+	}
+
+	return 1;
+}
+
+/*
+ * Responses are newline-framed all the way from the root process to the
+ * browser, so a snippet spliced in from a pretty-printed file must not carry
+ * the frame delimiter with it.  Whitespace between JSON tokens is
+ * insignificant, so folding it to spaces does not change what it means.
+ */
+static void
+json_snippet_flatten(char *buf)
+{
+	while (*buf) {
+		if (*buf == '\n' || *buf == '\r')
+			*buf = ' ';
+		buf++;
+	}
 }
 
 struct monitor_req_args {
@@ -1115,8 +1151,16 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 				lws_snprintf(dns_path, sizeof(dns_path), "%s/domains/%s/dns_state.json", vhd->base_dir, de->d_name);
 				if ((fd = open(dns_path, O_RDONLY)) >= 0) {
 					ssize_t nw = read(fd, dns_buf, sizeof(dns_buf) - 1);
-					if (nw > 0) dns_buf[nw] = '\0';
 					close(fd);
+					/*
+					 * A file that exactly filled the buffer
+					 * was truncated by the read, so it can
+					 * only be a partial value
+					 */
+					if (nw > 0 && (size_t)nw < sizeof(dns_buf) - 1)
+						dns_buf[nw] = '\0';
+					else
+						lws_strncpy(dns_buf, "{}", sizeof(dns_buf));
 				}
 
 				lws_snprintf(ds_path, sizeof(ds_path), "%s/domains/%s/dns_ds.txt", vhd->base_dir, de->d_name);
@@ -1134,12 +1178,17 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 				if (access(disabled_path, F_OK) == 0)
 					acme_enabled = 0;
 
+				if (dns_buf[0] && json_snippet_valid(dns_buf))
+					json_snippet_flatten(dns_buf);
+				else
+					lws_strncpy(dns_buf, "{}", sizeof(dns_buf));
+
 				if (!first) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
 				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx),
 					"{\"name\":\"%s\",\"whois\":%s,\"dns\":%s,\"local_ds\":\"%s\",\"acme_enabled\":%s}",
 					json_escape(esc_name, sizeof(esc_name), de->d_name),
 					whois_canon,
-					dns_buf[0] && json_snippet_valid(dns_buf) ? dns_buf : "{}",
+					dns_buf,
 					json_escape(esc_ds, sizeof(esc_ds), ds_buf),
 					acme_enabled ? "true" : "false");
 				first = 0;
@@ -1843,10 +1892,14 @@ handle_req_get_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor
 	if (fd >= 0) {
 		char buf[4096];
 		ssize_t n = read(fd, buf, sizeof(buf) - 1);
-		if (n > 0) {
+		/* a read that filled the buffer truncated the file */
+		if (n > 0 && (size_t)n < sizeof(buf) - 1) {
 			buf[n] = '\0';
-			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_config\",\"status\":\"ok\",\"config\":%s}\n",
-					json_snippet_valid(buf) ? buf : "{}");
+			if (json_snippet_valid(buf))
+				json_snippet_flatten(buf);
+			else
+				lws_strncpy(buf, "{}", sizeof(buf));
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_config\",\"status\":\"ok\",\"config\":%s}\n", buf);
 		} else {
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_config\",\"status\":\"ok\",\"config\":{}}\n");
 		}
