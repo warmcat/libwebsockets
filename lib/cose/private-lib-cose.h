@@ -26,6 +26,14 @@
 
 #define MAX_BLOBBED_PARAMS		96 /* largest bstr-encoded params */
 
+/*
+ * For everything except cose_sign1 we have to stash the whole payload in heap
+ * before we can hash it (the algs only become known after the payload).  The
+ * length comes from the untrusted bstr header, so cap what we are willing to
+ * allocate on the strength of it.
+ */
+#define MAX_STASHED_PAYLOAD		(1024 * 1024)
+
 enum {
 	ST_UNKNOWN,
 
@@ -70,6 +78,9 @@ typedef struct lws_cose_validate_param_stack {
 	int				ph_pos[4];
 	struct lws_gencrypto_keyelem	kid;
 	cose_param_t			alg;
+	char				alg_prot;
+	/**< set if .alg came from a protected bucket, so the unprotected
+	 * one (which is not covered by the signature) cannot replace it */
 } lws_cose_validate_param_stack_t;
 
 struct lws_cose_validate_context {

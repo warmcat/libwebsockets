@@ -151,11 +151,21 @@ lws_cose_val_alg_create(struct lws_context *cx, lws_cose_key_t *ck,
 		break;
 
 	case 3: /* HMAC */
-		if (lws_cose_key_checks(ck, LWSCOSE_WKKTV_SYMMETRIC,
-					cose_alg, op, NULL))
+		/*
+		 * RFC9052 7: an HMAC uses the MAC key ops, not the signature
+		 * ones our caller asked about
+		 */
+		if (lws_cose_key_checks(ck, LWSCOSE_WKKTV_SYMMETRIC, cose_alg,
+					op == LWSCOSE_WKKO_SIGN ?
+						LWSCOSE_WKKO_MAC_CREATE :
+						LWSCOSE_WKKO_MAC_VERIFY, NULL))
 			goto bail_hmac;
 
 		ke = &ck->e[LWS_GENCRYPTO_OCT_KEYEL_K];
+		if (!ke->buf || !ke->len) {
+			lwsl_notice("%s: symmetric key has no k\n", __func__);
+			goto bail_hmac;
+		}
 		if (lws_genhmac_init(&alg->u.hmacctx, ghm, ke->buf, ke->len))
 			goto bail_hmac;
 		break;
@@ -164,6 +174,21 @@ lws_cose_val_alg_create(struct lws_context *cx, lws_cose_key_t *ck,
 		if (lws_cose_key_checks(ck, LWSCOSE_WKKTV_RSA, cose_alg,
 					op, NULL))
 			goto bail_hmac;
+
+		/*
+		 * The verify reads modulus-many bytes of signature out of the
+		 * caller's aggregation buffer, which is sizeof(alg->rhash)...
+		 * an oversized key from the key set must not be able to send
+		 * the crypto layer past it
+		 */
+
+		if (!ck->e[LWS_GENCRYPTO_RSA_KEYEL_N].len ||
+		    ck->e[LWS_GENCRYPTO_RSA_KEYEL_N].len > sizeof(alg->rhash)) {
+			lwsl_warn("%s: bad RSA modulus size %u\n", __func__,
+				  ck->e[LWS_GENCRYPTO_RSA_KEYEL_N].len);
+			goto bail_hmac;
+		}
+
 		alg->keybits = (int)ck->e[LWS_GENCRYPTO_RSA_KEYEL_N].len * 8;
 
 		if (lws_genhash_init(&alg->hash_ctx, gh))

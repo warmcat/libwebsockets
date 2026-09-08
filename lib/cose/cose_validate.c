@@ -203,6 +203,29 @@ alg_get_head(struct lws_cose_validate_context *cps)
 	return d ? lws_container_of(d, lws_cose_sig_alg_t, list) : NULL;
 }
 
+/*
+ * Accumulate a piece of the signature bstr.
+ *
+ * The bstr header length can't be trusted to bound this: for an
+ * indefinite-length bstr lecp never sets item.u.u64, and there is no limit on
+ * how many fragments follow.  So bound every append by the room actually left.
+ */
+
+static int
+sig_agg(struct lws_cose_validate_context *cps, struct lecp_ctx *ctx)
+{
+	if (cps->sig_agg_pos + ctx->npos > sizeof(cps->sig_agg)) {
+		lwsl_notice("%s: oversize signature\n", __func__);
+
+		return 1;
+	}
+
+	memcpy(cps->sig_agg + cps->sig_agg_pos, ctx->buf, ctx->npos);
+	cps->sig_agg_pos += ctx->npos;
+
+	return 0;
+}
+
 static int
 apply_external(struct lws_cose_validate_context *cps)
 {
@@ -271,7 +294,16 @@ create_alg(struct lecp_ctx *ctx, struct lws_cose_validate_context *cps)
 
 	// lwsl_notice("%s: cps->alg %d\n", __func__, (int)cps->alg);
 
-	alg = lws_cose_val_alg_create(cps->info.cx, ck, cps->st[0].alg,
+	/*
+	 * sl0->alg is the alg for the thing we are validating: for cose_sign
+	 * the per-signature state IS sl0 (sp stays 0 inside the signature
+	 * array) and it is reset at the start of every cose_signature, so each
+	 * signature gets its own alg.  For cose_mac, sl is the recipient and
+	 * its alg is a key-management alg (eg, "direct"), not the MAC alg,
+	 * which only exists at the body level.
+	 */
+
+	alg = lws_cose_val_alg_create(cps->info.cx, ck, sl0->alg,
 				      LWSCOSE_WKKO_VERIFY);
 	if (!alg) {
 		lwsl_info("%s: no alg\n", __func__);
@@ -541,6 +573,31 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 
 		if (ctx->pst[ctx->pst_sp].ppos == 4 ||
 		    ctx->pst[ctx->pst_sp].ppos == 6) {
+
+			if (ctx->pst[ctx->pst_sp].ppos == 4) {
+				/*
+				 * A new cose_signature is starting.  Rearm the
+				 * signer state: without this only the first
+				 * signature of a cose_sign was ever parsed
+				 * (tli stuck at ST_INNER_EXCESS), and each
+				 * signature must use its own alg and kid
+				 * rather than inherit the previous one's.
+				 */
+				if (cps->tli == ST_INNER_EXCESS)
+					cps->tli = ST_INNER_PROTECTED;
+
+				if (cps->tli == ST_INNER_PROTECTED) {
+					sl = &cps->st[cps->sp];
+					sl->alg = 0;
+					sl->alg_prot = 0;
+					if (sl->kid.buf) {
+						lws_free(sl->kid.buf);
+						sl->kid.buf = NULL;
+						sl->kid.len = 0;
+					}
+				}
+			}
+
 			switch (cps->tli) {
 			case ST_INNER_UNPROTECTED:
 			case ST_INNER_PROTECTED:
@@ -596,8 +653,16 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 			sl = &cps->st[cps->sp];
 			switch (cps->tli) {
 			case ST_OUTER_UNPROTECTED:
+				/*
+				 * The outer unprotected map is parsed inline,
+				 * we don't want to reparse the raw capture of
+				 * it... but we must still stop capturing, or
+				 * every later byte (the payload!) keeps being
+				 * appended into the protected header buffers
+				 */
+				lecp_parse_report_raw(ctx, 0);
 				break;
-				/* fallthru */
+
 			case ST_OUTER_PROTECTED:
 				lecp_parse_report_raw(ctx, 0);
 
@@ -747,16 +812,30 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 			// lwsl_notice("%s: key %d val %d\n", __func__, (int)cps->map_key, (int)ctx->item.u.i64);
 
 			if (cps->map_key == LWSCOSE_WKL_ALG) {
+				int prot = cps->tli == ST_OUTER_PROTECTED ||
+					   cps->tli == ST_INNER_PROTECTED;
+
 				sl = &cps->st[cps->sp];
 				cps->map_key = 0;
-				if (cps->tli == ST_INNER_PROTECTED ||
-				     cps->tli == ST_INNER_UNPROTECTED ||
-				     cps->tli == ST_INNER_SIGNATURE) {
-					sl->alg = ctx->item.u.i64;
-					if (!cps->st[0].alg)
-						cps->st[0].alg = sl->alg;
-				} else
-					sl->alg = ctx->item.u.i64;
+
+				/*
+				 * RFC9052 3.1: the unprotected bucket is not
+				 * covered by the signature, so an alg from
+				 * there must never replace one that came from
+				 * the protected bucket... otherwise anybody can
+				 * downgrade the alg of an otherwise valid
+				 * object (eg, HS512 -> HS256_64, or an ECDSA
+				 * object into an HMAC one).  We still accept an
+				 * unprotected alg if the protected bucket did
+				 * not give us one, as RFC9052's own test
+				 * vectors require.
+				 */
+
+				if (!prot && sl->alg_prot)
+					break;
+
+				sl->alg = ctx->item.u.i64;
+				sl->alg_prot = (char)prot;
 				break;
 			}
 			break;
@@ -776,9 +855,15 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 
 		if (cps->tli == ST_OUTER_SIGN1_SIGNATURE ||
 		    cps->tli == ST_INNER_SIGNATURE) {
+			/*
+			 * Reset unconditionally: for an indefinite-length bstr
+			 * lecp does not set item.u.u64 at all, so this length
+			 * is not something we can rely on (the accumulate
+			 * itself is bounded below)
+			 */
+			cps->sig_agg_pos = 0;
 			if (ctx->item.u.u64 > sizeof(cps->sig_agg))
 				goto bail;
-			cps->sig_agg_pos = 0;
 			break;
 		}
 
@@ -804,6 +889,25 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 			}
 
 			break;
+		}
+
+		/*
+		 * We are about to allocate on the strength of a length the
+		 * attacker wrote in the bstr header, before a single payload
+		 * byte has arrived... cap it.  And the payload slot must hold
+		 * exactly one bstr: a second one would otherwise silently
+		 * replace (and leak) the buffer we already have.
+		 */
+
+		if (cps->payload_stash) {
+			lwsl_notice("%s: extra payload bstr\n", __func__);
+			goto bail;
+		}
+
+		if (ctx->item.u.u64 > MAX_STASHED_PAYLOAD) {
+			lwsl_notice("%s: payload len %llu too big\n", __func__,
+				    (unsigned long long)ctx->item.u.u64);
+			goto bail;
 		}
 
 		cps->payload_stash_size = (size_t)(ctx->item.u.u64 + s);
@@ -851,9 +955,8 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 		case ST_OUTER_SIGN1_SIGNATURE:
 			/* the sig is big compared to ctx->buf... we need to
 			 * stash it then */
-			memcpy(cps->sig_agg + cps->sig_agg_pos, ctx->buf,
-				ctx->npos);
-			cps->sig_agg_pos = cps->sig_agg_pos + ctx->npos;
+			if (sig_agg(cps, ctx))
+				goto bail;
 			break;
 		}
 		break;
@@ -863,9 +966,8 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 
 		case ST_INNER_SIGNATURE:
 			if (cps->info.sigtype == SIGTYPE_MULTI) {
-				memcpy(cps->sig_agg + cps->sig_agg_pos, ctx->buf,
-					ctx->npos);
-				cps->sig_agg_pos = cps->sig_agg_pos + ctx->npos;
+				if (sig_agg(cps, ctx))
+					goto bail;
 				// lwsl_err("Y: alg %d\n", (int)cps->alg);
 				if (create_alg(ctx, cps))
 					goto bail;
@@ -920,9 +1022,8 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 			if (cps->info.sigtype == SIGTYPE_MULTI)
 				break;
 
-			memcpy(cps->sig_agg + cps->sig_agg_pos, ctx->buf,
-				ctx->npos);
-			cps->sig_agg_pos += ctx->npos;
+			if (sig_agg(cps, ctx))
+				goto bail;
 
 			alg = alg_get_head(cps);
 			lwsl_notice("b\n");

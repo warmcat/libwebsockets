@@ -152,11 +152,21 @@ lws_cose_sign_alg_create(struct lws_context *cx, const lws_cose_key_t *ck,
 		break;
 
 	case 3: /* HMAC */
-		if (lws_cose_key_checks(ck, LWSCOSE_WKKTV_SYMMETRIC,
-					cose_alg, op, NULL))
+		/*
+		 * RFC9052 7: an HMAC uses the MAC key ops, not the signature
+		 * ones our caller asked about
+		 */
+		if (lws_cose_key_checks(ck, LWSCOSE_WKKTV_SYMMETRIC, cose_alg,
+					op == LWSCOSE_WKKO_SIGN ?
+						LWSCOSE_WKKO_MAC_CREATE :
+						LWSCOSE_WKKO_MAC_VERIFY, NULL))
 			goto bail_hmac;
 
 		ke = &ck->e[LWS_GENCRYPTO_OCT_KEYEL_K];
+		if (!ke->buf || !ke->len) {
+			lwsl_notice("%s: symmetric key has no k\n", __func__);
+			goto bail_hmac;
+		}
 		if (lws_genhmac_init(&alg->u.hmacctx, ghm, ke->buf, ke->len))
 			goto bail_hmac;
 		break;
@@ -165,6 +175,19 @@ lws_cose_sign_alg_create(struct lws_context *cx, const lws_cose_key_t *ck,
 		if (lws_cose_key_checks(ck, LWSCOSE_WKKTV_RSA, cose_alg,
 					op, NULL))
 			goto bail_hmac;
+
+		/*
+		 * We will be asked to produce a modulus-sized signature into
+		 * alg->rhash, and the crypto layer only knows the modulus
+		 * size... refuse a key whose signature would not fit
+		 */
+
+		if (!ck->e[LWS_GENCRYPTO_RSA_KEYEL_N].len ||
+		    ck->e[LWS_GENCRYPTO_RSA_KEYEL_N].len > sizeof(alg->rhash)) {
+			lwsl_warn("%s: bad RSA modulus size %u\n", __func__,
+				  ck->e[LWS_GENCRYPTO_RSA_KEYEL_N].len);
+			goto bail_hmac;
+		}
 
 		alg->keybits = (int)ck->e[LWS_GENCRYPTO_RSA_KEYEL_N].len * 8;
 
