@@ -44,6 +44,15 @@
 
 #define MAX_MIRROR_INSTANCES 3
 
+/*
+ * Max strlen of a mirror instance name.  The name is the only thing separating
+ * one mirror instance from another, so we must be able to store it whole: a
+ * longer name is refused, rather than stored truncated and then matched
+ * against in full (which would let a prefix of somebody's long name join his
+ * instance).
+ */
+#define MIRROR_NAME_LEN 29
+
 struct mirror_instance;
 
 struct per_session_data__lws_mirror {
@@ -67,7 +76,7 @@ struct mirror_instance {
 	 * to change mi list membership */
 	struct lws_ring *ring;
 	int messages_allocated;
-	char name[30];
+	char name[MIRROR_NAME_LEN + 1];
 	char rx_enabled;
 };
 
@@ -241,10 +250,29 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		 * "?mirror=xxx", will be "xxx"
 		 */
 
-		if (lws_get_urlarg_by_name_safe(wsi, "mirror", name,
-					        sizeof(name) - 1) < 0) {
+		n = lws_get_urlarg_by_name_safe(wsi, "mirror", name,
+						sizeof(name) - 1);
+		if (n < 0) {
+			if (n != -1) {
+				/*
+				 * It was there but did not fit... don't
+				 * silently drop him into the default instance
+				 */
+				lwsl_notice("%s: mirror name too long\n",
+					    __func__);
+
+				return -1;
+			}
+
 			lwsl_debug("get urlarg failed\n");
 			name[0] = '\0';
+			n = 0;
+		}
+
+		if (n > MIRROR_NAME_LEN) {
+			lwsl_notice("%s: mirror name too long\n", __func__);
+
+			return -1;
 		}
 
 		//lwsl_notice("%s: mirror name '%s'\n", __func__, pn);
@@ -289,7 +317,8 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		lws_dll2_add_head(&mi->list, &v->mi_list);
-		lws_snprintf(mi->name, sizeof(mi->name) - 1, "%s", pn);
+		/* the name was length-checked above, so this is exact */
+		lws_strncpy(mi->name, pn, sizeof(mi->name));
 		mi->rx_enabled = 1;
 
 		lws_pthread_mutex_init(&mi->lock);
