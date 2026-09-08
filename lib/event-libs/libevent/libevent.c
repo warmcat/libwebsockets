@@ -340,10 +340,20 @@ elops_listen_destroy_event(struct lws_dll2 *d, void *user)
 	struct lws *wsi = lws_container_of(d, struct lws, listen_list);
 	struct lws_wsi_eventlibs_libevent *w = wsi_to_priv_event(wsi);
 
-	event_free(w->w_read.watcher);
-	w->w_read.watcher = NULL;
-	event_free(w->w_write.watcher);
-	w->w_write.watcher = NULL;
+	/*
+	 * elops_destroy_wsi_event() may already have freed and NULLed these...
+	 * libevent2's event_free() asserts on NULL
+	 */
+
+	if (w->w_read.watcher) {
+		event_free(w->w_read.watcher);
+		w->w_read.watcher = NULL;
+	}
+
+	if (w->w_write.watcher) {
+		event_free(w->w_write.watcher);
+		w->w_write.watcher = NULL;
+	}
 #endif
 
 	return 0;

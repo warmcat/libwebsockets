@@ -123,6 +123,18 @@ sock_accept_handler(sd_event_source *s, int fd, uint32_t revents, void *userdata
 		eventfd.revents |= LWS_POLLOUT;
 	}
 
+	/*
+	 * epoll reports these whether or not they were asked for... if we do
+	 * not translate them, we dispatch with nothing set, lws does nothing,
+	 * and we re-arm... ie, a busy loop for as long as the peer stays hung
+	 * up.  The other evlibs map them to LWS_POLLHUP.
+	 */
+
+	if (revents & (EPOLLERR | EPOLLHUP)) {
+		eventfd.events |= LWS_POLLHUP;
+		eventfd.revents |= LWS_POLLHUP;
+	}
+
 	lws_pt_unlock(pt);
 	lws_context_unlock(pt->context);
 
@@ -212,12 +224,18 @@ io_sd(struct lws *wsi, unsigned int flags)
 		sd_event_source_set_io_events(wsi_to_priv_sd(wsi)->source,
 					      wsi_to_priv_sd(wsi)->events);
 
+		/*
+		 * Nothing left wanted -> stop the source; otherwise re-arm it
+		 * with what remains (the same shape as uv_poll_stop() vs
+		 * uv_poll_start() in libuv.c)
+		 */
+
 		if (!(wsi_to_priv_sd(wsi)->events & (EPOLLIN | EPOLLOUT)))
 			sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->source,
-						    SD_EVENT_ONESHOT);
+						    SD_EVENT_OFF);
 		else
 			sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->source,
-						    SD_EVENT_OFF);
+						    SD_EVENT_ONESHOT);
 	}
 }
 
@@ -468,10 +486,10 @@ io_parallel_sd(struct lws *wsi, int pidx, unsigned int flags)
 
 		if (!(wsi_to_priv_sd(wsi)->racing[pidx].events & (EPOLLIN | EPOLLOUT)))
 			sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->racing[pidx].source,
-						    SD_EVENT_ONESHOT);
+						    SD_EVENT_OFF);
 		else
 			sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->racing[pidx].source,
-						    SD_EVENT_OFF);
+						    SD_EVENT_ONESHOT);
 	}
 }
 
