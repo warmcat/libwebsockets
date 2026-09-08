@@ -58,6 +58,8 @@ struct lws_x509_cert {
 	PCCERT_CONTEXT cert;
 };
 
+#define LWS_FT_UNIX_EPOCH 116444736000000000ULL
+
 static time_t
 filetime_to_unix(FILETIME ft)
 {
@@ -65,7 +67,21 @@ filetime_to_unix(FILETIME ft)
 	ull.LowPart = ft.dwLowDateTime;
 	ull.HighPart = ft.dwHighDateTime;
 
-	return (time_t)((ull.QuadPart - 116444736000000000ULL) / 10000000ULL);
+	/*
+	 * QuadPart is unsigned: a certificate date before 1970 (or a garbage
+	 * NotAfter) would wrap the subtraction and come back out as a time
+	 * ~56000 years in the future, ie, "never expires"
+	 */
+
+	if (ull.QuadPart < LWS_FT_UNIX_EPOCH)
+		return (time_t)0;
+
+	ull.QuadPart = (ull.QuadPart - LWS_FT_UNIX_EPOCH) / 10000000ULL;
+
+	if (sizeof(time_t) < 8 && ull.QuadPart > 0x7fffffffULL)
+		return (time_t)0x7fffffff;
+
+	return (time_t)ull.QuadPart;
 }
 
 static int
@@ -75,6 +91,18 @@ lws_tls_schannel_cert_info(PCCERT_CONTEXT pCert, enum lws_tls_cert_info type,
 	if (!pCert)
 		return -1;
 
+	/*
+	 * A zero len means "the union's own ns.name[]", which is the contract
+	 * the other backends implement.  Without this, CertNameToStrA() /
+	 * CertGetNameStringA() are asked for a zero-sized buffer, write
+	 * nothing, return the size they would have needed (ie, nonzero, so
+	 * "success"), and we hand the caller a strlen() of uninitialised
+	 * stack as a certificate name.
+	 */
+
+	if (!len)
+		len = sizeof(buf->ns.name);
+
 	switch(type) {
 		case LWS_TLS_CERT_INFO_VALIDITY_FROM:
 			buf->time = filetime_to_unix(pCert->pCertInfo->NotBefore);
@@ -83,14 +111,21 @@ lws_tls_schannel_cert_info(PCCERT_CONTEXT pCert, enum lws_tls_cert_info type,
 			buf->time = filetime_to_unix(pCert->pCertInfo->NotAfter);
 			break;
 		case LWS_TLS_CERT_INFO_COMMON_NAME:
-			if (!CertGetNameStringA(pCert, CERT_NAME_ATTR_TYPE, 0, szOID_COMMON_NAME, buf->ns.name, (DWORD)len))
+			/* a return of 1 is just the NUL, ie, there is no CN */
+			if (CertGetNameStringA(pCert, CERT_NAME_ATTR_TYPE, 0,
+					       szOID_COMMON_NAME, buf->ns.name,
+					       (DWORD)len) < 2)
 				return -1;
+			buf->ns.name[len - 1] = '\0';
 			buf->ns.len = (int)strlen(buf->ns.name);
 			break;
 		case LWS_TLS_CERT_INFO_ISSUER_NAME:
-			if (!CertNameToStrA(pCert->dwCertEncodingType, &pCert->pCertInfo->Issuer,
-						CERT_X500_NAME_STR, buf->ns.name, (DWORD)len))
+			if (CertNameToStrA(pCert->dwCertEncodingType,
+					   &pCert->pCertInfo->Issuer,
+					   CERT_X500_NAME_STR, buf->ns.name,
+					   (DWORD)len) < 2)
 				return -1;
+			buf->ns.name[len - 1] = '\0';
 			buf->ns.len = (int)strlen(buf->ns.name);
 			break;
 		case LWS_TLS_CERT_INFO_USAGE:
@@ -168,11 +203,21 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 
 	switch (type) {
 		case LWS_TLS_CERT_INFO_VERIFIED:
-			/* If we are here, handshake succeeded. */
-			/* SChannel verifies by default unless SCH_CRED_NO_SERVER_CREDENTIALS */
-			/* But lws_tls_client_confirm_peer_cert does extra checks */
-			/* We can assume true if handshake passed, or check flags if we stored them */
-			buf->verified = 1;
+			/*
+			 * The real result recorded by
+			 * lws_tls_schannel_confirm_cert(), ie, did the chain
+			 * verify with nothing forgiven.  This used to be
+			 * hardcoded to 1, which made it a constant-true
+			 * authorisation predicate: a peer accepted only
+			 * because LCCSCF_ALLOW_SELFSIGNED was set reported
+			 * itself verified.  If nothing checked the peer at
+			 * all, we have no answer and must fail closed.
+			 */
+			if (!conn->f_peer_cert_checked) {
+				ret = -1;
+				break;
+			}
+			buf->verified = (unsigned int)conn->f_peer_cert_verified;
 			break;
 		default:
 			ret = lws_tls_schannel_cert_info(pCert, type, buf, len);
@@ -193,6 +238,44 @@ lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type,
 int
 lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 {
+	/*
+	 * The vhost may legitimately have no ctx, eg, it was created with
+	 * LWS_SERVER_OPTION_IGNORE_MISSING_CERT and the cert has not arrived
+	 * yet... there is nothing to configure on then.
+	 */
+
+	if (!vh->tls.ssl_ctx)
+		return 0;
+
+	if (!lws_check_opt(vh->options,
+			   LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) &&
+	    !lws_check_opt(vh->options,
+		LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE))
+		return 0;
+
+	/*
+	 * The handshake asks for the client cert (ASC_REQ_MUTUAL_AUTH) and
+	 * lws_tls_schannel_server_client_cert() checks it against
+	 * ssl_ctx->ca_store.  With no CA there is nothing to check it
+	 * against, so refuse to bring the vhost up rather than come up
+	 * accepting anonymous peers on an endpoint whose only authentication
+	 * is mTLS.
+	 */
+
+	if (!vh->tls.ssl_ctx->ca_store &&
+	    lws_check_opt(vh->options,
+			  LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) &&
+	    !lws_check_opt(vh->options,
+			   LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED)) {
+		lwsl_vhost_err(vh, "requires a valid client cert but no CA "
+			       "was configured (ssl_ca_filepath / "
+			       "server_ssl_ca_mem)");
+
+		return 1;
+	}
+
+	lwsl_vhost_notice(vh, "will request and check client certificates");
+
 	return 0;
 }
 
@@ -272,26 +355,97 @@ lws_x509_parse_from_pem(struct lws_x509_cert *x509, const void *pem, size_t len)
 /* Manually checking issuer match? */
 
 int
-lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted, const char *common_name)
+lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted,
+		const char *common_name)
 {
-       DWORD dwFlags = CERT_STORE_SIGNATURE_FLAG;
-       char cn[256];
+	HCERTCHAINENGINE engine = NULL;
+	PCCERT_CHAIN_CONTEXT chain = NULL;
+	LWS_CERT_CHAIN_ENGINE_CONFIG cfg;
+	CERT_CHAIN_PARA cp;
+	HCERTSTORE store;
+	char cn[256];
+	int ret = -1;
 
-       if (common_name) {
-               if (!CertGetNameStringA(x509->cert, CERT_NAME_ATTR_TYPE, 0, szOID_COMMON_NAME, cn, sizeof(cn))) {
-                       lwsl_err("%s: CertGetNameStringA failed\n", __func__);
-                       return -1;
-               }
-               if (strcmp(cn, common_name)) {
-                       lwsl_err("%s: common name mismatch (expected %s, got %s)\n", __func__, common_name, cn);
-                       return -1;
-               }
-       }
+	if (!x509 || !x509->cert || !trusted || !trusted->cert)
+		return -1;
 
-       if (CertVerifySubjectCertificateContext(x509->cert, trusted->cert, &dwFlags) && (dwFlags == 0))
-		return 0;
+	if (common_name) {
+		if (CertGetNameStringA(x509->cert, CERT_NAME_ATTR_TYPE, 0,
+				       szOID_COMMON_NAME, cn, sizeof(cn)) < 2) {
+			lwsl_err("%s: CertGetNameStringA failed\n", __func__);
 
-	return -1;
+			return -1;
+		}
+		cn[sizeof(cn) - 1] = '\0';
+		if (strcmp(cn, common_name)) {
+			lwsl_err("%s: common name mismatch (expected %s, got %s)\n",
+				 __func__, common_name, cn);
+
+			return -1;
+		}
+	}
+
+	/*
+	 * Build and validate a real chain with `trusted` as the exclusive
+	 * root, rather than only asking "did this key sign that cert".  A
+	 * bare signature check accepts an expired CA, and accepts a leaf
+	 * certificate with no basicConstraints CA:TRUE acting as an issuer,
+	 * ie, it lets anyone holding a certificate we know mint further
+	 * "verified" certificates.
+	 */
+
+	store = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0, NULL);
+	if (!store)
+		return -1;
+
+	if (!CertAddCertificateContextToStore(store, trusted->cert,
+					      CERT_STORE_ADD_ALWAYS, NULL))
+		goto bail;
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.hExclusiveRoot = store;
+	cfg.dwExclusiveFlags = CERT_CHAIN_EXCLUSIVE_ENABLE_CA_FLAG;
+	cfg.cbSize = sizeof(cfg);
+
+	if (!CertCreateCertificateChainEngine(
+			(PCERT_CHAIN_ENGINE_CONFIG)&cfg, &engine)) {
+		cfg.dwExclusiveFlags = 0;
+		cfg.cbSize = (DWORD)offsetof(LWS_CERT_CHAIN_ENGINE_CONFIG,
+					     dwExclusiveFlags);
+		if (!CertCreateCertificateChainEngine(
+				(PCERT_CHAIN_ENGINE_CONFIG)&cfg, &engine))
+			goto bail;
+	}
+
+	memset(&cp, 0, sizeof(cp));
+	cp.cbSize = sizeof(cp);
+
+	if (!CertGetCertificateChain(engine, x509->cert, NULL, store, &cp, 0,
+				     NULL, &chain) || !chain)
+		goto bail;
+
+	/*
+	 * We do no revocation lookups, so "unknown" is the expected answer
+	 * for those and is not a reason to refuse; everything else (expiry,
+	 * basic constraints, name constraints, untrusted root) is.
+	 */
+
+	if (!(chain->TrustStatus.dwErrorStatus &
+	      ~(DWORD)(CERT_TRUST_REVOCATION_STATUS_UNKNOWN |
+		       CERT_TRUST_IS_OFFLINE_REVOCATION)))
+		ret = 0;
+	else
+		lwsl_err("%s: chain error 0x%x\n", __func__,
+			 (unsigned int)chain->TrustStatus.dwErrorStatus);
+
+bail:
+	if (chain)
+		CertFreeCertificateChain(chain);
+	if (engine)
+		CertFreeCertificateChainEngine(engine);
+	CertCloseStore(store, 0);
+
+	return ret;
 }
 
 /* Minimal ASN.1 Reader Helpers */
@@ -317,6 +471,16 @@ lws_asn1_read_length(const uint8_t **p, const uint8_t *end, size_t *len)
 	*len = 0;
 	while (bytes--)
 		*len = (*len << 8) | *(*p)++;
+
+	/*
+	 * The length *bytes* were in bounds, but the length *value* has to be
+	 * too: every caller then either advances by it or reads through it,
+	 * and on 32-bit an unvalidated value up to 0xffffffff also wraps the
+	 * `p >= end` tests that follow those advances
+	 */
+
+	if (*len > (size_t)(end - *p))
+		return -1;
 
 	return 0;
 }
@@ -394,9 +558,10 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 		BCRYPT_RSAKEY_BLOB *rsablob = lws_malloc(dwBlobLen, "rsa pub");
 		if (rsablob) {
 			if (BCRYPT_SUCCESS(BCryptExportKey(hKey, NULL, BCRYPT_RSAPUBLIC_BLOB, (PUCHAR)rsablob, dwBlobLen, &dwBlobLen, 0))) {
-				if (rsa_min_bits && rsablob->cbModulus * 8 < (uint32_t)rsa_min_bits) {
+				if (rsa_min_bits && (uint64_t)rsablob->cbModulus * 8 <
+							(uint64_t)rsa_min_bits) {
 					lwsl_err("%s: key bits %d less than minimum %d\n", __func__,
-						 rsablob->cbModulus * 8, rsa_min_bits);
+						 (int)(rsablob->cbModulus * 8), rsa_min_bits);
 					lws_free(rsablob);
 					goto bail;
 				}
@@ -405,13 +570,21 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 				uint8_t *p = (uint8_t *)(rsablob + 1);
 
 				/* Exponent */
-				jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].len = rsablob->cbPublicExp;
 				jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf = lws_malloc(rsablob->cbPublicExp, "rsa e");
+				if (!jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf) {
+					lws_free(rsablob);
+					goto bail;
+				}
+				jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].len = rsablob->cbPublicExp;
 				memcpy(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf, p, rsablob->cbPublicExp);
 				p += rsablob->cbPublicExp;
 				/* Modulus */
-				jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].len = rsablob->cbModulus;
 				jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].buf = lws_malloc(rsablob->cbModulus, "rsa n");
+				if (!jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].buf) {
+					lws_free(rsablob);
+					goto bail;
+				}
+				jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].len = rsablob->cbModulus;
 				memcpy(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, p, rsablob->cbModulus);
 				ret = 0;
 			}
@@ -437,27 +610,70 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 
 	if (BCRYPT_SUCCESS(BCryptExportKey(hKey, NULL, BCRYPT_ECCPUBLIC_BLOB, (PUCHAR)eccblob, dwBlobLen, &dwBlobLen, 0))) {
 		uint8_t *p = (uint8_t *)(eccblob + 1);
+		const char *crv;
+
+		/*
+		 * The curve is implied by the coordinate size.  Leaving 'crv'
+		 * unset (as this did) hands downstream JOSE code a JWK it
+		 * cannot identify the curve of, and made the 'curves'
+		 * allowlist argument unenforceable.
+		 */
+
+		switch (eccblob->cbKey) {
+		case 32:
+			crv = "P-256";
+			break;
+		case 48:
+			crv = "P-384";
+			break;
+		case 66:
+			crv = "P-521";
+			break;
+		default:
+			lwsl_err("%s: unsupported EC key size %d\n", __func__,
+				 (int)eccblob->cbKey);
+			goto bail_ec;
+		}
+
+		if (!strstr(curves, crv)) {
+			lwsl_err("%s: curve %s not in allowed list %s\n",
+				 __func__, crv, curves);
+			goto bail_ec;
+		}
+
+		jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf =
+				(uint8_t *)lws_strdup(crv);
+		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf)
+			goto bail_ec;
+		jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].len =
+				(uint32_t)strlen(crv);
 
 		/* X */
-		jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].len = eccblob->cbKey;
 		jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf = lws_malloc(eccblob->cbKey, "ec x");
+		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf)
+			goto bail_ec;
+		jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].len = eccblob->cbKey;
 		memcpy(jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf, p, eccblob->cbKey);
 		p += eccblob->cbKey;
 		/* Y */
-		jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].len = eccblob->cbKey;
 		jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf = lws_malloc(eccblob->cbKey, "ec y");
+		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf)
+			goto bail_ec;
+		jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].len = eccblob->cbKey;
 		memcpy(jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, p, eccblob->cbKey);
 
-		/* Map Curve? dwMagic tells us */
-		/* Assume P-256 for now or derive from Magic/Length */
-		/* JWK needs 'crv' string? The caller might have validated 'curves' arg. */
-		/* We leave 'crv' element empty for now or set it if we can deduce */
 		ret = 0;
 	}
+
+bail_ec:
 	lws_free(eccblob);
 
 bail:
 	BCryptDestroyKey(hKey);
+
+	if (ret)
+		/* do not leave half-populated key material behind */
+		lws_jwk_destroy(jwk);
 
 	return ret;
 }
@@ -765,9 +981,12 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 		return 1; /* No cert */
 	}
 
-	if (phStore)
+	if (phStore) {
+		/* do not leak a store the caller already had installed */
+		if (*phStore)
+			CertCloseStore(*phStore, 0);
 		*phStore = hStore;
-	else
+	} else
 		CertCloseStore(hStore, 0);
 
 	if (!x509_obj.cert) {
@@ -818,7 +1037,9 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 							if (lws_asn1_read_length(&kp, kend, &alg_len) == 0) {
 								/* Check OID: 1.2.840.10045.2.1 is 06 07 2A 86 48 CE 3D 02 01 */
 								/* ec_oid is already declared at the top */
-								if (alg_len >= sizeof(ec_oid) && !memcmp(kp, ec_oid, sizeof(ec_oid))) {
+								if (alg_len >= sizeof(ec_oid) &&
+								    kp + sizeof(ec_oid) <= kend &&
+								    !memcmp(kp, ec_oid, sizeof(ec_oid))) {
 									is_ec = 1;
 								}
 							}
@@ -1161,37 +1382,25 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 
 	return 0;
 
+	/*
+	 * Every success path returns directly above, so we are always here on
+	 * failure and ret is always -1
+	 */
+
 cleanup:
 	if (hKey)
 		CryptDestroyKey(hKey);
 
-	if (hProvCNG) {
-		if (!ret && phKey) {
-			*phKey = (void*)hKeyCNG;
-			if (pKeyType)
-				*pKeyType = 1; /* CNG */
-			/* Success, handle stays with cert. Keep provider alive. */
-			hProvCNG = 0;
-		} else {
-			/* Failure, free everything */
-			if (hKeyCNG)
-				NCryptFreeObject(hKeyCNG);
-			NCryptFreeObject(hProvCNG);
-		}
-	} else {
-		if (!ret && phKey) {
-			*phKey = (void*)hProv;
-			if (pKeyType)
-				*pKeyType = 0; /* CAPI */
-			hProv = 0; /* Caller owns hProv now */
-		}
-	}
+	if (hKeyCNG)
+		NCryptFreeObject(hKeyCNG);
+	if (hProvCNG)
+		NCryptFreeObject(hProvCNG);
 	if (hProv)
 		CryptReleaseContext(hProv, 0);
 
-	if (ret && x509_obj.cert)
+	if (x509_obj.cert)
 		CertFreeCertificateContext(x509_obj.cert);
-	if (ret && phStore && *phStore) {
+	if (phStore && *phStore) {
 		CertCloseStore(*phStore, 0);
 		*phStore = NULL;
 	}
@@ -1228,6 +1437,15 @@ _lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[]
 	int ret = -1;
 	DWORD cbPriv = 0;
 	BYTE *pbPriv = NULL;
+	int csr_b64_len = -1;
+
+	/*
+	 * The caller reads and eventually frees *privkey_pem on our success
+	 * return, so it must be defined on every path
+	 */
+
+	*privkey_pem = NULL;
+	*privkey_len = 0;
 
 	if (NCryptOpenStorageProvider(&hProv, MS_KEY_STORAGE_PROVIDER, 0) != ERROR_SUCCESS)
 		return -1;
@@ -1327,9 +1545,15 @@ _lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[]
 						     &reqInfo, &algId, NULL, pbCsr, &cbCsr))
 		goto bail;
 
-	/* Convert CSR to base64url */
-	ret = lws_jws_base64_enc((char *)pbCsr, (size_t)cbCsr, (char *)csr, csr_len);
-	if (ret < 0)
+	/*
+	 * Convert CSR to base64url.  Keep the length in its own variable:
+	 * assigning it to `ret` made every subsequent `goto bail` return a
+	 * non-negative value, ie, success, with *privkey_pem never assigned.
+	 */
+
+	csr_b64_len = lws_jws_base64_enc((char *)pbCsr, (size_t)cbCsr,
+					 (char *)csr, csr_len);
+	if (csr_b64_len < 0)
 		goto bail;
 
 	/* Export Private Key as PEM */
@@ -1345,19 +1569,31 @@ _lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[]
 		goto bail;
 
 	{
-		DWORD cchPem = 0;
-		if (CryptBinaryToStringA(pbPriv, cbPriv, CRYPT_STRING_BASE64HEADER, NULL, &cchPem)) {
-			*privkey_pem = malloc(cchPem);
-			if (*privkey_pem) {
-				CryptBinaryToStringA(pbPriv, cbPriv, CRYPT_STRING_BASE64HEADER, *privkey_pem, &cchPem);
-				*privkey_len = strlen(*privkey_pem);
-			} else {
-				ret = -1;
-			}
-		} else {
-			ret = -1;
+		DWORD cchPem = 0, alloc;
+
+		if (!CryptBinaryToStringA(pbPriv, cbPriv,
+					  CRYPT_STRING_BASE64HEADER, NULL,
+					  &cchPem))
+			goto bail;
+
+		/* the size query counts the NUL, the conversion does not */
+		alloc = cchPem;
+		*privkey_pem = lws_malloc(alloc, "privkey_pem");
+		if (!*privkey_pem)
+			goto bail;
+
+		if (!CryptBinaryToStringA(pbPriv, cbPriv,
+					  CRYPT_STRING_BASE64HEADER,
+					  *privkey_pem, &cchPem)) {
+			lws_free_set_NULL(*privkey_pem);
+			goto bail;
 		}
+
+		(*privkey_pem)[alloc - 1] = '\0';
+		*privkey_len = strlen(*privkey_pem);
 	}
+
+	ret = csr_b64_len;
 
 bail:
 	if (pbPriv) lws_free(pbPriv);
