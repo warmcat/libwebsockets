@@ -37,12 +37,28 @@ lws_tls_openhitls_bsltime_to_unix(BSL_TIME *bsl_time)
 	memset(&t, 0, sizeof(t));
 	t.tm_year = bsl_time->year - 1900;
 	t.tm_mon = bsl_time->month - 1;
-	t.tm_mday = bsl_time->day - 1;
+	/* tm_mon is 0-based, but tm_mday is 1-based like the cert field */
+	t.tm_mday = bsl_time->day;
 	t.tm_hour = bsl_time->hour;
 	t.tm_min = bsl_time->minute;
 	t.tm_sec = bsl_time->second;
 	t.tm_isdst = 0;
+
+	/*
+	 * X.509 times are UTC, so they must not be reinterpreted in the local
+	 * timezone... mktime() is only a fallback for platforms lacking a UTC
+	 * conversion, and skews the result by the local UTC offset.
+	 */
+
+#if defined(WIN32)
+	return _mkgmtime(&t);
+#else
+#if defined(LWS_HAVE_TIMEGM) && !defined(OPTEE_DEV_KIT)
+	return timegm(&t);
+#else
 	return mktime(&t);
+#endif
+#endif
 #else
 	return (time_t)-1;
 #endif
@@ -788,9 +804,22 @@ lws_x509_jwk_privkey_pem_rsa(struct lws_jwk *jwk, CRYPT_EAL_PkeyCtx *pkey, CRYPT
 bail:
 	lws_free(tmp_n);
 	lws_free(tmp_e);
-	lws_free(tmp_d);
-	lws_free(tmp_p);
-	lws_free(tmp_q);
+
+	/* d, p and q are private key material, wipe our copies of it */
+
+	if (tmp_d) {
+		lws_explicit_bzero(tmp_d, key_bytes);
+		lws_free(tmp_d);
+	}
+	if (tmp_p) {
+		lws_explicit_bzero(tmp_p, key_bytes);
+		lws_free(tmp_p);
+	}
+	if (tmp_q) {
+		lws_explicit_bzero(tmp_q, key_bytes);
+		lws_free(tmp_q);
+	}
+
 	return result;
 }
 

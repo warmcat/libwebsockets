@@ -33,6 +33,14 @@ typedef struct lws_tls_session_cache_openhitls {
 	/* name is overallocated here */
 } lws_tls_sco_t;
 
+/*
+ * Bounds we are prepared to accept for a peer-provided session ticket
+ * lifetime hint, in seconds
+ */
+
+#define LWS_TLS_SESSION_TTL_MAX		(7 * 24 * 3600)
+#define LWS_TLS_SESSION_TTL_DEFAULT	300
+
 #define tlssess_loglevel		LLL_INFO
 #if (_LWS_ENABLED_LOGS & tlssess_loglevel)
 	#define lwsl_tlssess(...)		_lws_log(tlssess_loglevel, __VA_ARGS__)
@@ -231,6 +239,16 @@ lws_tls_session_new_cb(HITLS_Ctx *ssl, HITLS_Session *sess)
 	/* api return is long, although we only support setting
 		* default (300s) or max uint32_t */
 	ttl = (long)HITLS_SESS_GetTimeout(sess);
+
+	/*
+	 * This is the peer's ticket_lifetime_hint, ie, wholly peer-controlled:
+	 * on a 32-bit long it can come back negative and evict the entry
+	 * immediately, and on 64-bit it can pin the entry effectively forever.
+	 * Clamp it to something we are willing to hold
+	 */
+
+	if (ttl <= 0 || ttl > (long)LWS_TLS_SESSION_TTL_MAX)
+		ttl = (long)LWS_TLS_SESSION_TTL_DEFAULT;
 
 	lws_context_lock(vh->context, __func__); /* -------------- cx { */
 	lws_vhost_lock(vh); /* -------------- vh { */

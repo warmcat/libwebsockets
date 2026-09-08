@@ -26,13 +26,15 @@
 
 #include <hitls_pki_errno.h>
 #include <hitls_pki_x509.h>
+#include <hitls_pki_utils.h>
 
 #include "private-lib-core.h"
 #include "private-lib-tls.h"
 #include "private.h"
+
 static void
-lws_openhitls_verify_result_to_policy(int vr, HITLS_X509_Cert *peer_cert,
-				      const char **type, unsigned int *avoid)
+lws_openhitls_verify_result_to_policy(int vr, const char **type,
+				      unsigned int *avoid)
 {
 	const char *lt = "tls=verify";
 	unsigned int la = 0;
@@ -46,8 +48,14 @@ lws_openhitls_verify_result_to_policy(int vr, HITLS_X509_Cert *peer_cert,
 	case HITLS_X509_ERR_VFY_INTERCA_INVALID_BCONS:
 	case HITLS_X509_ERR_ISSUE_CERT_NOT_FOUND:
 	case HITLS_X509_ERR_ROOT_CERT_NOT_FOUND:
+		/*
+		 * openHiTLS raises these from the chain builder, ie, before
+		 * the verify callback's own LCCSCF_ALLOW_SELFSIGNED /
+		 * LCCSCF_ALLOW_INSECURE ladder could ever see them, so both
+		 * flags have to be honoured here instead
+		 */
 		lt = "tls=invalidca";
-		la = LCCSCF_ALLOW_SELFSIGNED;
+		la = LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_INSECURE;
 		break;
 	case HITLS_X509_ERR_VFY_NOTBEFORE_IN_FUTURE:
 	case HITLS_X509_ERR_TIME_FUTURE:
@@ -69,6 +77,43 @@ lws_openhitls_verify_result_to_policy(int vr, HITLS_X509_Cert *peer_cert,
 		*avoid = la;
 }
 
+/*
+ * The name we require the server certificate to be valid for: the connection's
+ * Host: with any :port part removed, since certificates do not carry it.
+ * Returns nonzero if we have no name to check against.
+ */
+
+static int
+lws_openhitls_client_hostname(struct lws *wsi, char *buf, size_t len)
+{
+	char *p;
+
+	buf[0] = '\0';
+
+	if (wsi->stash && wsi->stash->cis[CIS_HOST]) {
+		lws_strncpy(buf, wsi->stash->cis[CIS_HOST], len);
+	} else {
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+		if (lws_hdr_copy(wsi, buf, (int)len,
+				 _WSI_TOKEN_CLIENT_HOST) <= 0)
+#endif
+		{
+			return -1;
+		}
+	}
+
+	p = buf;
+	while (*p) {
+		if (*p == ':') {
+			*p = '\0';
+			break;
+		}
+		p++;
+	}
+
+	return !buf[0];
+}
+
 static int lws_openhitls_client_ctx_fingerprint(
     struct lws_vhost *vh,
     const struct lws_context_creation_info *info,
@@ -79,6 +124,8 @@ static int lws_openhitls_client_ctx_fingerprint(
     const void *cert_mem,
     unsigned int cert_mem_len,
     const char *private_key_filepath,
+    const void *key_mem,
+    unsigned int key_mem_len,
     uint8_t hash[32])
 {
 	struct lws_genhash_ctx hash_ctx;
@@ -135,6 +182,24 @@ static int lws_openhitls_client_ctx_fingerprint(
 
 	if (cert_mem && cert_mem_len &&
 	    lws_genhash_update(&hash_ctx, cert_mem, cert_mem_len)) {
+		goto bail_hash;
+	}
+
+	/*
+	 * The in-memory client key is part of the identity the context will
+	 * present: without it in the fingerprint, two vhosts with the same
+	 * client cert but different keys share one HITLS_Config, and the
+	 * second silently authenticates with the first one's key
+	 */
+
+	if (key_mem && key_mem_len &&
+	    lws_genhash_update(&hash_ctx, key_mem, key_mem_len)) {
+		goto bail_hash;
+	}
+
+	if (info->client_ssl_private_key_password &&
+	    lws_genhash_update(&hash_ctx, info->client_ssl_private_key_password,
+			       strlen(info->client_ssl_private_key_password))) {
 		goto bail_hash;
 	}
 
@@ -212,11 +277,20 @@ static void lws_openhitls_collect_peer_kids(struct lws *wsi,
 			    &ski.kid, &wsi->tls.kid_chain.skid[idx]);
 		}
 
+		/*
+		 * EXT_GET_AKI allocates aki.issuerName when the peer's AKID
+		 * carries an authorityCertIssuer (the peer chooses how many
+		 * GeneralNames that is), so it must be cleared even if the
+		 * ctrl failed after partly populating it.  EXT_GET_SKI above
+		 * is documented as a shallow copy and must not be freed.
+		 */
+
 		if (HITLS_X509_CertCtrl(cert, HITLS_X509_EXT_GET_AKI, &aki,
 					sizeof(aki)) == HITLS_SUCCESS) {
 			lws_openhitls_kid_from_bsl(
 			    &aki.kid, &wsi->tls.kid_chain.akid[idx]);
 		}
+		HITLS_X509_ClearAuthorityKeyId(&aki);
 
 		wsi->tls.kid_chain.count++;
 	}
@@ -394,37 +468,16 @@ int lws_ssl_client_bio_create(struct lws *wsi)
 	BSL_UIO *uio;
 	const uint8_t *data;
 	size_t size;
-	char *p;
 	int ret;
 	int n;
 
-	if (wsi->stash) {
-		lws_strncpy(hostname, wsi->stash->cis[CIS_HOST],
-			    sizeof(hostname));
+	if (wsi->stash)
 		alpn_comma = wsi->stash->cis[CIS_ALPN];
-	} else {
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-		if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
-				 _WSI_TOKEN_CLIENT_HOST) <= 0)
-#endif
-		{
-			lwsl_err("%s: Unable to get hostname\n", __func__);
 
-			return -1;
-		}
-	}
+	if (lws_openhitls_client_hostname(wsi, hostname, sizeof(hostname))) {
+		lwsl_err("%s: Unable to get hostname\n", __func__);
 
-	/*
-	 * remove any :port part on the hostname... necessary for network
-	 * connection but typical certificates do not contain it
-	 */
-	p = hostname;
-	while (*p) {
-		if (*p == ':') {
-			*p = '\0';
-			break;
-		}
-		p++;
+		return -1;
 	}
 
 	/* Create new SSL connection */
@@ -657,7 +710,14 @@ enum lws_ssl_capable_status lws_tls_client_connect(struct lws *wsi,
 	if (m == HITLS_WANT_WRITE) {
 		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 	}
-	if (ret == HITLS_SUCCESS || m == HITLS_ERR_SYSCALL) {
+	/*
+	 * Only a completed handshake may be reported DONE... on Windows a
+	 * HITLS_ERR_SYSCALL with errno 0 escapes the test above, and treating
+	 * it as success here announced an established, "verified" session for
+	 * a handshake that never completed
+	 */
+
+	if (ret == HITLS_SUCCESS) {
 		uint8_t *proto = NULL;
 		uint32_t proto_len = 0;
 
@@ -693,6 +753,74 @@ enum lws_ssl_capable_status lws_tls_client_connect(struct lws *wsi,
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
+/*
+ * openHiTLS stops verifying at the first failure, and the chain-building
+ * failures (no issuer, no root, invalid CA) are raised before it ever looks at
+ * the certificate's validity window or its names.  So when a connection's
+ * policy flags let us forgive such a failure, we have to run the checks that
+ * were never reached ourselves... otherwise eg LCCSCF_ALLOW_SELFSIGNED would
+ * silently mean "accept any certificate at all", where on openssl the verify
+ * callback clears the trust error and verification carries on to produce the
+ * hostname / expiry errors separately.
+ */
+
+static int
+lws_openhitls_recheck_skipped(struct lws *wsi, HITLS_X509_Cert *cert,
+			      char *ebuf, size_t ebuf_len)
+{
+	union lws_tls_cert_info_results ir;
+	char hostname[128];
+	time_t now;
+
+	if (!cert) {
+		lws_snprintf(ebuf, ebuf_len, "no peer certificate");
+
+		return -1;
+	}
+
+	if (!(wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
+
+		if (lws_openhitls_client_hostname(wsi, hostname,
+						  sizeof(hostname))) {
+			lws_snprintf(ebuf, ebuf_len,
+				     "no hostname to check the cert against");
+
+			return -1;
+		}
+
+		if (HITLS_X509_VerifyHostname(cert, 0, hostname,
+					      (uint32_t)strlen(hostname)) !=
+							HITLS_PKI_SUCCESS) {
+			lws_snprintf(ebuf, ebuf_len,
+				     "server cert not valid for '%s'",
+				     hostname);
+
+			return -1;
+		}
+	}
+
+	if (wsi->tls.use_ssl & LCCSCF_ALLOW_EXPIRED)
+		return 0;
+
+	now = (time_t)lws_now_secs();
+
+	if (lws_tls_openhitls_cert_info(cert, LWS_TLS_CERT_INFO_VALIDITY_FROM,
+					&ir, 0) || ir.time > now) {
+		lws_snprintf(ebuf, ebuf_len, "server cert not yet valid");
+
+		return -1;
+	}
+
+	if (lws_tls_openhitls_cert_info(cert, LWS_TLS_CERT_INFO_VALIDITY_TO,
+					&ir, 0) || ir.time < now) {
+		lws_snprintf(ebuf, ebuf_len, "server cert expired");
+
+		return -1;
+	}
+
+	return 0;
+}
+
 int lws_tls_client_confirm_peer_cert(struct lws *wsi,
 				     char *ebuf,
 				     size_t ebuf_len)
@@ -701,9 +829,20 @@ int lws_tls_client_confirm_peer_cert(struct lws *wsi,
 	HITLS_X509_Cert *tls_cert;
 	const char *type = "";
 	unsigned int avoid = 0;
-	int vr;
+	char reason[128];
+	int vr, ret = -1;
 
-	HITLS_GetVerifyResult((const HITLS_Ctx *)wsi->tls.ssl, &verify_result);
+	/*
+	 * A failed call leaves verify_result at its initializer, ie, "fine"...
+	 * treat not knowing as not verified
+	 */
+
+	if (HITLS_GetVerifyResult((const HITLS_Ctx *)wsi->tls.ssl,
+				  &verify_result) != HITLS_SUCCESS) {
+		lws_snprintf(ebuf, ebuf_len, "no cert verify result available");
+
+		return -1;
+	}
 
 	if (verify_result == HITLS_X509_V_OK) {
 		return 0;
@@ -712,7 +851,7 @@ int lws_tls_client_confirm_peer_cert(struct lws *wsi,
 	vr = (int)verify_result;
 	tls_cert = HITLS_GetPeerCertificate(wsi->tls.ssl);
 
-	lws_openhitls_verify_result_to_policy(vr, tls_cert, &type, &avoid);
+	lws_openhitls_verify_result_to_policy(vr, &type, &avoid);
 
 	lwsl_info("%s: cert problem: %s (0x%x)\n", __func__, type,
 		  verify_result);
@@ -724,9 +863,21 @@ int lws_tls_client_confirm_peer_cert(struct lws *wsi,
 #endif
 
 	if (wsi->tls.use_ssl & avoid) {
-		lwsl_info("%s: allowing verify error 0x%x due to policy\n",
-			  __func__, verify_result);
-		return 0;
+		reason[0] = '\0';
+
+		if (!lws_openhitls_recheck_skipped(wsi, tls_cert, reason,
+						   sizeof(reason))) {
+			lwsl_info("%s: allowing verify error 0x%x due to "
+				  "policy\n", __func__, verify_result);
+			ret = 0;
+
+			goto done;
+		}
+
+		lws_snprintf(ebuf, ebuf_len, "%s", reason);
+		lwsl_info("%s: %s\n", __func__, reason);
+
+		goto done;
 	}
 
 	lws_snprintf(
@@ -737,7 +888,13 @@ int lws_tls_client_confirm_peer_cert(struct lws *wsi,
 		  verify_result);
 	lws_tls_err_describe_clear();
 
-	return -1;
+done:
+	/* HITLS_GetPeerCertificate() up-refs, we must give it back */
+
+	if (tls_cert)
+		HITLS_X509_CertFree(tls_cert);
+
+	return ret;
 }
 
 int lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
@@ -787,7 +944,7 @@ int lws_tls_client_create_vhost_context(
 	if (lws_openhitls_client_ctx_fingerprint(
 		vh, info, ca_filepath, ca_mem, ca_mem_len,
 		cert_filepath, cert_mem, cert_mem_len, private_key_filepath,
-		hash)) {
+		key_mem, key_mem_len, hash)) {
 		return -1;
 	}
 

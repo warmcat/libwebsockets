@@ -58,7 +58,7 @@ lws_openhitls_log_error_string(const char *prefix, const char *subject,
 
 /*
  * openHiTLS verify callback return convention:
- *   return 0 = OK / accept
+ *   return 0 = "suppress this error and carry on verifying"
  *   return non-zero = reject / propagate error
  *
  * The first argument behaves like the client-side callback: it is a verify
@@ -106,7 +106,40 @@ OpenHiTLS_verify_callback(int32_t verify_code, HITLS_CERT_StoreCtx *store_ctx)
 			 LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
 			 store_ctx, ssl, (unsigned int)internal_allow);
 
-	return n;
+	if (n)
+		/* the user callback explicitly rejected the cert */
+		return n;
+
+	/*
+	 * The vhost asked for a *valid* client cert.  A protocols[0] handler
+	 * that does not implement this callback (eg, lws_callback_http_dummy)
+	 * also returns 0, and on this backend a 0 return means "drop the
+	 * error and continue"... so silence from the user code must not be
+	 * taken as acceptance of a cert openHiTLS already refused.
+	 *
+	 * User code that means to overrule the failure must say so by
+	 * clearing the error with HITLS_X509_STORECTX_SET_ERROR /
+	 * HITLS_X509_V_OK before it returns 0, exactly as the client-side
+	 * callback in openhitls-client.c requires.
+	 */
+
+	if (!internal_allow) {
+		int32_t vr = (int32_t)HITLS_X509_V_OK;
+
+		HITLS_X509_StoreCtxCtrl((HITLS_X509_StoreCtx *)store_ctx,
+					HITLS_X509_STORECTX_GET_ERROR, &vr,
+					(uint32_t)sizeof(vr));
+
+		if (vr != (int32_t)HITLS_X509_V_OK) {
+			lwsl_notice("%s: vh %s: client cert rejected: 0x%x\n",
+				    __func__, wsi->a.vhost->name,
+				    (unsigned int)vr);
+
+			return vr;
+		}
+	}
+
+	return 0;
 }
 
 int
@@ -140,9 +173,16 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 		return -1;
 	}
 
-	if (HITLS_CFG_SetSessionIdCtx(ctx,
-				      (const uint8_t *)vh->context,
-				      sizeof(void *)) != HITLS_SUCCESS) {
+	/*
+	 * The session id context must differ between vhosts that have
+	 * different client cert policies, or a session established under one
+	 * may be resumed under another.  Hashing vh->context took the first
+	 * bytes of the context *object*, which is the same for every vhost in
+	 * the process... use the vhost pointer's own value instead.
+	 */
+
+	if (HITLS_CFG_SetSessionIdCtx(ctx, (const uint8_t *)&vh,
+				      sizeof(vh)) != HITLS_SUCCESS) {
 		lwsl_err("%s: HITLS_CFG_SetSessionIdCtx failed\n", __func__);
 		return -1;
 	}
@@ -163,6 +203,8 @@ lws_ssl_server_name_cb(HITLS_Ctx *ssl, int *alert, void *arg)
 	struct lws_vhost *vhost, *vh;
 	lws_tls_ctx *target_ctx;
 	const char *servername;
+	struct lws *wsi;
+	int verify;
 
 	(void)alert;
 
@@ -203,6 +245,50 @@ lws_ssl_server_name_cb(HITLS_Ctx *ssl, int *alert, void *arg)
 
 	if (!HITLS_SetNewConfig(ssl, target_ctx)) {
 		return HITLS_ACCEPT_SNI_ERR_ALERT_FATAL;
+	}
+
+	/*
+	 * HITLS_SetNewConfig() only moves the certificate manager, the
+	 * session id context and the config user data over to the selected
+	 * vhost's config... the live connection keeps the *listening* vhost's
+	 * client-certificate posture.  Reapply the posture of the vhost the
+	 * SNI name actually selected, or a vhost requiring mTLS behind a
+	 * shared listener never asks for a client cert at all (and one that
+	 * does not require it inherits the listener's demand).
+	 */
+
+	verify = lws_check_opt(vhost->options,
+			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT);
+
+	if (HITLS_SetClientVerifySupport(ssl, verify != 0) != HITLS_SUCCESS ||
+	    HITLS_SetNoClientCertSupport(ssl, verify &&
+			lws_check_opt(vhost->options,
+				      LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
+							!= HITLS_SUCCESS) {
+		lwsl_err("%s: vh %s: can't apply client cert policy\n",
+			 __func__, vhost->name);
+
+		return HITLS_ACCEPT_SNI_ERR_ALERT_FATAL;
+	}
+
+	if (verify && HITLS_SetVerifyCb(ssl, OpenHiTLS_verify_callback) !=
+							HITLS_SUCCESS) {
+		lwsl_err("%s: vh %s: can't set verify cb\n", __func__,
+			 vhost->name);
+
+		return HITLS_ACCEPT_SNI_ERR_ALERT_FATAL;
+	}
+
+	/*
+	 * Bind the wsi to the vhost that will actually serve him now, so the
+	 * verify callback consults the right vhost's protocols[0] handler.
+	 * lws_vhost_bind_wsi() gives back the count held on the listening
+	 * vhost and refuses a move onto a vhost that is being destroyed.
+	 */
+
+	wsi = (struct lws *)HITLS_GetUserData(ssl);
+	if (wsi) {
+		lws_vhost_bind_wsi(vhost, wsi);
 	}
 
 	lwsl_info("SNI: Found: %s:%d\n", servername, vh->listen_port);
@@ -297,6 +383,14 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 				return 1;
 			}
 		}
+
+		/*
+		 * Certs that were missing at vhost creation time have arrived:
+		 * clear the flag or lws_tls_check_cert_lifetime() never looks
+		 * at this vhost's expiry again
+		 */
+
+		vhost->tls.skipped_certs = 0;
 
 		return 0;
 	}
@@ -427,11 +521,20 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 	HITLS_CFG_SetServerNameCb(config, lws_ssl_server_name_cb);
 	HITLS_CFG_SetServerNameArg(config, vhost->context);
 
+	/*
+	 * A vhost that named a client-CA file and cannot load it would come
+	 * up with client verification enabled but an empty trust store...
+	 * treat it as fatal like every other backend does, rather than
+	 * silently losing the trust anchor.
+	 */
+
 	if (info->ssl_ca_filepath &&
 	    HITLS_CFG_LoadVerifyFile(config, info->ssl_ca_filepath) !=
 			    HITLS_SUCCESS) {
-		lwsl_err("%s: HITLS_CFG_LoadVerifyFile unhappy\n",
-			 __func__);
+		lwsl_err("%s: HITLS_CFG_LoadVerifyFile '%s' failed\n",
+			 __func__, info->ssl_ca_filepath);
+
+		return 1;
 	}
 
 	if (!vhost->tls.use_ssl ||
