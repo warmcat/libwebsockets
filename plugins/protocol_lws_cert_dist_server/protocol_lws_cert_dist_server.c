@@ -281,10 +281,39 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 			return -1;
 		}
 
-		if ((char *)strchr(pss->args.subdomain, '/') || (char *)strstr(pss->args.subdomain, "..") ||
-		    (char *)strchr(pss->args.domain, '/') || (char *)strstr(pss->args.domain, "..")) {
-			lwsl_err("%s: Path traversal\n", __func__);
+		if (!cert_dist_valid_name(pss->args.subdomain,
+					  sizeof(pss->args.subdomain)) ||
+		    !cert_dist_valid_name(pss->args.domain,
+					  sizeof(pss->args.domain))) {
+			lwsl_err("%s: Bad subdomain or domain\n", __func__);
 			return -1;
+		}
+
+		/*
+		 * Authorisation: the peer authenticated with a cert its CN
+		 * says is for <subdomain>, but that alone must not be enough
+		 * to hand out <domain>'s private key.  We require that this
+		 * server was explicitly provisioned to distribute <domain> to
+		 * <subdomain>, by the presence of the distribution client
+		 * cert we issued for it.  Fail closed.
+		 */
+		{
+			char auth_path[512];
+			struct stat sta;
+
+			lws_snprintf(auth_path, sizeof(auth_path),
+				     "%s/domains/%s/dist-client/"
+				     "distribution-client-%s.crt",
+				     vhd->pki_root, pss->args.domain,
+				     pss->args.subdomain);
+
+			if (stat(auth_path, &sta) || !S_ISREG(sta.st_mode)) {
+				lwsl_err("%s: '%s' not authorized for '%s' "
+					 "(no %s)\n", __func__,
+					 pss->args.subdomain,
+					 pss->args.domain, auth_path);
+				return -1;
+			}
 		}
 
 		{
