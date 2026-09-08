@@ -35,9 +35,26 @@
 #include <sys/stat.h>
 #ifdef WIN32
 #include <io.h>
+#include <process.h>
+#define post_demo_getpid() _getpid()
+#else
+#include <unistd.h>
+#define post_demo_getpid() getpid()
 #endif
 #include <stdio.h>
 #include <errno.h>
+
+/*
+ * Not every platform we build on has O_NOFOLLOW; where it exists it is a
+ * cheap extra guard against the temp path having been replaced by a symlink
+ * (O_CREAT | O_EXCL already refuses to follow one).
+ */
+
+#if defined(O_NOFOLLOW)
+#define POST_DEMO_O_NOFOLLOW O_NOFOLLOW
+#else
+#define POST_DEMO_O_NOFOLLOW 0
+#endif
 
 struct per_session_data__post_demo {
 	struct lws_spa *spa;
@@ -70,6 +87,48 @@ enum enum_param_names {
 	EPN_UPLOAD,
 };
 
+#if !defined(LWS_WITH_ESP32)
+
+/*
+ * The temp name is visible to anybody who can list /tmp for as long as the
+ * upload lasts, so it must not leak a live pointer (which would disclose the
+ * heap layout); pid + a per-process counter is enough to be unique.
+ */
+
+static unsigned int post_demo_tempname_unique;
+
+static void
+post_demo_fd_invalidate(struct per_session_data__post_demo *pss)
+{
+#if defined(__MINGW32__)
+	pss->fd = -1;
+#else
+	pss->fd = LWS_INVALID_FILE;
+#endif
+}
+
+static int
+post_demo_fd_valid(struct per_session_data__post_demo *pss)
+{
+#if defined(__MINGW32__)
+	return pss->fd != -1;
+#else
+	return pss->fd != LWS_INVALID_FILE;
+#endif
+}
+
+static void
+post_demo_close(struct per_session_data__post_demo *pss)
+{
+	if (!post_demo_fd_valid(pss))
+		return;
+
+	close((int)(lws_intptr_t)pss->fd);
+	post_demo_fd_invalidate(pss);
+}
+
+#endif
+
 static int
 file_upload_cb(void *data, const char *name, const char *filename,
 	       char *buf, int len, enum lws_spa_fileupload_states state)
@@ -84,15 +143,41 @@ file_upload_cb(void *data, const char *name, const char *filename,
 
 	switch (state) {
 	case LWS_UFS_OPEN:
+#if !defined(LWS_WITH_ESP32)
+		/*
+		 * A multipart body may contain any number of file parts, and
+		 * we are only able to track one at a time... don't leak the
+		 * fd, nor the temp file, of any previous part.
+		 */
+		post_demo_close(pss);
+		if (pss->filename[0]) {
+			unlink(pss->filename);
+			pss->filename[0] = '\0';
+		}
+#endif
 		lws_strncpy(pss->filename, filename, sizeof(pss->filename));
 		/* we get the original filename in @filename arg, but for
 		 * simple demo use a unique name so we don't have to deal with
 		 * attacks  */
 #if !defined(LWS_WITH_ESP32)
 		lws_snprintf(pss->filename, sizeof(pss->filename),
-			     "/tmp/post-file-%p", pss->wsi); // NOSONAR
+			     "/tmp/post-file-%d-%u", (int)post_demo_getpid(),
+			     ++post_demo_tempname_unique);
+
+		/*
+		 * O_EXCL so we cannot be made to write through a symlink or
+		 * into a file somebody else on the box prepared for us.
+		 */
 		pss->fd = (lws_filefd_type)(lws_intptr_t)lws_open(pss->filename,
-			       O_CREAT | O_TRUNC | O_RDWR, 0600);
+			       O_CREAT | O_EXCL | O_RDWR |
+			       POST_DEMO_O_NOFOLLOW, 0600);
+		if (!post_demo_fd_valid(pss)) {
+			lwsl_warn("%s: unable to create %s: errno %d\n",
+				  __func__, pss->filename, errno);
+			pss->filename[0] = '\0';
+
+			return -1;
+		}
 #endif
 		break;
 	case LWS_UFS_FINAL_CONTENT:
@@ -101,8 +186,12 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			pss->file_length += len;
 
 			/* if the file length is too big, drop it */
-			if (pss->file_length > 100000)
+			if (pss->file_length > 100000) {
+#if !defined(LWS_WITH_ESP32)
+				post_demo_close(pss);
+#endif
 				return 1;
+			}
 
 #if !defined(LWS_WITH_ESP32)
 			n = (int)write((int)(lws_intptr_t)pss->fd, buf, (unsigned int)len);
@@ -114,12 +203,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		if (state == LWS_UFS_CONTENT)
 			break;
 #if !defined(LWS_WITH_ESP32)
-		close((int)(lws_intptr_t)pss->fd);
-#if defined(__MINGW32__)
-		pss->fd = -1;
-#else
-		pss->fd = LWS_INVALID_FILE;
-#endif
+		post_demo_close(pss);
 #endif
 		break;
 	case LWS_UFS_CLOSE:
@@ -175,10 +259,22 @@ format_result(struct per_session_data__post_demo *pss)
 		}
 	}
 
-	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-			"</table><br><b>filename:</b> %s, "
-			"<b>length</b> %ld",
-			pss->filename, pss->file_length);
+	{
+		char escaped_fn[256];
+
+		/*
+		 * On ESP32 this is still the client-provided filename from the
+		 * multipart Content-Disposition, so it must be escaped like
+		 * any other form field
+		 */
+
+		html_escape(pss->filename, escaped_fn, sizeof(escaped_fn));
+
+		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
+				"</table><br><b>filename:</b> %s, "
+				"<b>length</b> %ld",
+				escaped_fn, pss->file_length);
+	}
 
 	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "</body></html>");
 
@@ -186,20 +282,31 @@ bail:
 	return (int)lws_ptr_diff(p, start);
 }
 
+/*
+ * Escape the five characters that can break out of HTML text or of a quoted
+ * attribute value.  The loop only starts another character while there is room
+ * for the longest expansion (6, "&quot;") plus the NUL, so it truncates on a
+ * character boundary and can never emit a half-written entity.
+ */
+
 static const char *
 html_escape(const char *in, char *out, size_t out_size)
 {
-        char *p = out;
-        while (*in && p + 6 < out + out_size) {
-                if (*in == '<') { memcpy(p, "&lt;", 4); p += 4; }
-                else if (*in == '>') { memcpy(p, "&gt;", 4); p += 4; }
-                else if (*in == '&') { memcpy(p, "&amp;", 5); p += 5; }
-                else if (*in == '"') { memcpy(p, "&quot;", 6); p += 6; }
-                else *p++ = *in;
-                in++;
-        }
-        *p = '\0';
-        return out;
+	char *p = out;
+
+	while (*in && p + 6 < out + out_size) {
+		if (*in == '<') { memcpy(p, "&lt;", 4); p += 4; }
+		else if (*in == '>') { memcpy(p, "&gt;", 4); p += 4; }
+		else if (*in == '&') { memcpy(p, "&amp;", 5); p += 5; }
+		else if (*in == '"') { memcpy(p, "&quot;", 6); p += 6; }
+		else if (*in == '\'') { memcpy(p, "&#39;", 5); p += 5; }
+		else *p++ = *in;
+		in++;
+	}
+
+	*p = '\0';
+
+	return out;
 }
 
 static int
@@ -212,6 +319,17 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 	int n;
 
 	switch (reason) {
+	case LWS_CALLBACK_HTTP_BIND_PROTOCOL:
+#if !defined(LWS_WITH_ESP32)
+		/*
+		 * The pss arrives zeroed, so without this pss->fd would be 0,
+		 * ie, stdin, and the DROP_PROTOCOL close below would close it
+		 * even for a transaction that never uploaded anything
+		 */
+		post_demo_fd_invalidate(pss);
+#endif
+		break;
+
 	case LWS_CALLBACK_HTTP_BODY:
 		/* create the POST argument parser if not already existing */
 		if (!pss->spa) {
@@ -225,11 +343,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 			pss->filename[0] = '\0';
 			pss->file_length = 0;
 #if !defined(LWS_WITH_ESP32)
-#if defined(__MINGW32__)
-			pss->fd = -1;
-#else
-			pss->fd = LWS_INVALID_FILE;
-#endif
+			post_demo_fd_invalidate(pss);
 #endif
 		}
 
@@ -303,17 +417,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 			pss->spa = NULL;
 		}
 #if !defined(LWS_WITH_ESP32)
-#if defined(__MINGW32__)
-		if (pss->fd != -1) {
-			close((int)pss->fd);
-			pss->fd = -1;
-		}
-#else
-		if (pss->fd != LWS_INVALID_FILE) {
-			close((int)(lws_intptr_t)pss->fd);
-			pss->fd = LWS_INVALID_FILE;
-		}
-#endif
+		post_demo_close(pss);
 		if (pss->filename[0]) {
 			if (unlink(pss->filename) < 0)
 				lwsl_info("%s: unlink %s failed: %d\n", __func__, pss->filename, errno);
