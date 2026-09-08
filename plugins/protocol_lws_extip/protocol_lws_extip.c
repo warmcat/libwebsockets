@@ -87,6 +87,33 @@ generate_cookie(struct vhd_extip *vhd, const struct sockaddr *sa, socklen_t sale
 	return 0;
 }
 
+/*
+ * The client's udp sockets are bound, not connected, so the kernel hands us
+ * every datagram sent to the bound port, whatever the source.  Everything the
+ * client does with a reply mutates process-wide external-IP state, so we must
+ * check the datagram actually came from the server we asked before acting on
+ * it.
+ */
+
+static int
+extip_from_server(const lws_sockaddr46 *from, const lws_sockaddr46 *srv)
+{
+	uint16_t pf, ps;
+
+	if (!srv->sa4.sin_family || from->sa4.sin_family != srv->sa4.sin_family)
+		return 0;
+
+	if (lws_sa46_compare_ads(from, srv))
+		return 0;
+
+	pf = from->sa4.sin_family == AF_INET ? from->sa4.sin_port :
+					       from->sa6.sin6_port;
+	ps = srv->sa4.sin_family == AF_INET ? srv->sa4.sin_port :
+					      srv->sa6.sin6_port;
+
+	return pf == ps;
+}
+
 static void
 extip_client_sul_cb(struct lws_sorted_usec_list *sul);
 
@@ -309,8 +336,17 @@ callback_extip(struct lws *wsi, enum lws_callback_reasons reason, void *user, vo
 	}
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		if (vhd)
+		if (vhd) {
 			lws_sul_cancel(&vhd->sul);
+			/*
+			 * Our A / AAAA lookups are standalone queries (NULL
+			 * wsi) carrying vhd as the opaque; the vhd is about to
+			 * be freed with the vhost, so any still in flight must
+			 * be destroyed or their callback will run on freed
+			 * heap
+			 */
+			lws_async_dns_cancel_by_opaque(vhd->context, vhd);
+		}
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
@@ -333,7 +369,9 @@ callback_extip(struct lws *wsi, enum lws_callback_reasons reason, void *user, vo
 		if (vhd->is_server && len == (1 + LENGTH_EXTIP_COOKIE) && buf[0] == 'P') {
 			uint8_t expected[LENGTH_EXTIP_COOKIE];
 			if (!generate_cookie(vhd, sa46_sockaddr(&udp->sa46), sa46_socklen(&udp->sa46), expected)) {
-				if (memcmp(expected, buf + 1, LENGTH_EXTIP_COOKIE) == 0) {
+				/* constant-time: the cookie is a MAC */
+				if (!lws_timingsafe_bcmp(expected, buf + 1,
+							 LENGTH_EXTIP_COOKIE)) {
 					/* Valid */
 					reply[0] = 'O';
 					memcpy(reply + 1, buf + 1, LENGTH_EXTIP_COOKIE);
@@ -353,8 +391,32 @@ callback_extip(struct lws *wsi, enum lws_callback_reasons reason, void *user, vo
 			break;
 
 		int is_v6 = (wsi == vhd->ip[1].cwsi);
-		
-		if (len >= (1 + LENGTH_EXTIP_COOKIE) && buf[0] == 'C') {
+
+		/*
+		 * Only the server we sent the request to may drive our idea
+		 * of our own external IP; otherwise anybody who can get a
+		 * datagram to our bound port - including an off-path spoofer -
+		 * can set it, replace our cookie, or suppress the offline
+		 * detection.
+		 */
+
+		if (wsi != vhd->ip[is_v6].cwsi ||
+		    !extip_from_server(&udp->sa46, &vhd->ip[is_v6].srv_sa46)) {
+			lwsl_info("%s: dropping datagram from non-server\n",
+				  __func__);
+			break;
+		}
+
+		/*
+		 * We only ever send 'R' when we have no cookie, and 'P' when we
+		 * do; so 'C' can only be a legitimate answer in the first case
+		 * and 'O' / 'I' only in the second.  Pairing the reply with the
+		 * request we actually made means a reply we did not ask for
+		 * cannot drive a state transition, even from the server.
+		 */
+
+		if (len >= (1 + LENGTH_EXTIP_COOKIE) && buf[0] == 'C' &&
+		    !vhd->ip[is_v6].has_cookie) {
 			memcpy(vhd->ip[is_v6].cookie, buf + 1, LENGTH_EXTIP_COOKIE);
 			vhd->ip[is_v6].has_cookie	= 1;
 			vhd->ip[is_v6].last_rx		= lws_now_usecs();
@@ -371,22 +433,30 @@ callback_extip(struct lws *wsi, enum lws_callback_reasons reason, void *user, vo
 				ip_str[l] = '\0';
 				
 				memset(&sa46, 0, sizeof(sa46));
-				lws_sa46_parse_numeric_address(ip_str, &sa46);
-				lwsl_notice("EXTIP_DEBUG: Client reporting online IP to lws_extip_report\n");
-				lws_extip_report(vhd->context, LWS_EXTIP_SRC_EXTIP, &sa46, sa46.sa4.sin_family == AF_INET ? AF_INET : AF_INET6, 1, NULL, 0);
+				/*
+				 * An unparseable address leaves sa46 zeroed;
+				 * reporting that would be taken as "offline"
+				 * and would clear the address we do have
+				 */
+				if (lws_sa46_parse_numeric_address(ip_str, &sa46))
+					lwsl_warn("%s: unparseable address "
+						  "'%s'\n", __func__, ip_str);
+				else
+					lws_extip_report(vhd->context, LWS_EXTIP_SRC_EXTIP, &sa46, sa46.sa4.sin_family == AF_INET ? AF_INET : AF_INET6, 1, NULL, 0);
 			}
 
 			lws_sul_schedule(vhd->context, 0, &vhd->sul, extip_client_sul_cb, 1);
 			break;
 		}
 
-		if (len == (1 + LENGTH_EXTIP_COOKIE) && buf[0] == 'O') {
+		if (len == (1 + LENGTH_EXTIP_COOKIE) && buf[0] == 'O' &&
+		    vhd->ip[is_v6].has_cookie) {
 			vhd->ip[is_v6].last_rx		= lws_now_usecs();
 			vhd->ip[is_v6].offline		= 0;
 			break;
 		}
 
-		if (len > 1 && buf[0] == 'I') {
+		if (len > 1 && buf[0] == 'I' && vhd->ip[is_v6].has_cookie) {
 			lws_sockaddr46 sa46;
 			char ip_str[64];
 			size_t l = len - 1;
@@ -396,10 +466,19 @@ callback_extip(struct lws *wsi, enum lws_callback_reasons reason, void *user, vo
 			ip_str[l] = '\0';
 
 			lwsl_notice("%s: extip client: reported IP change to %s\n", __func__, ip_str);
-			
+
 			memset(&sa46, 0, sizeof(sa46));
-			lws_sa46_parse_numeric_address(ip_str, &sa46);
-			
+			/*
+			 * An unparseable address leaves sa46 zeroed; reporting
+			 * that would be taken as "offline" and would clear the
+			 * address we do have
+			 */
+			if (lws_sa46_parse_numeric_address(ip_str, &sa46)) {
+				lwsl_warn("%s: unparseable address '%s'\n",
+					  __func__, ip_str);
+				break;
+			}
+
 			vhd->ip[is_v6].has_cookie	= 0;
 			vhd->ip[is_v6].last_rx		= lws_now_usecs();
 			vhd->ip[is_v6].offline		= 0;

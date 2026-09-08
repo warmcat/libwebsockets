@@ -59,3 +59,27 @@ To configure the plugin to run as a server using the `lwsws` JSON convention, yo
   ]
 }
 ```
+
+## Security notes
+
+- The client sockets are bound rather than connected, so the kernel delivers
+  datagrams from any source to them.  The client therefore checks that the
+  source address *and* port of a `C` / `O` / `I` datagram match the server
+  address it resolved and sent its request to, and drops anything else.  Since
+  these replies set the process-wide notion of the node's external IP (and the
+  SMD `ext-ips` broadcast derived from it), without that check any host able to
+  reach the bound port - including an off-path spoofer - could set it.
+- The client also pairs each reply with the request it actually made: it only
+  sends `R` when it has no cookie and `P` when it has one, so a `C` is only
+  honoured while no cookie is held, and an `O` or `I` only while one is.  An
+  unsolicited reply cannot drive a state transition.
+- An `I` (or the address trailing a `C`) that does not parse as a numeric
+  address is dropped rather than reported: reporting the zeroed result would
+  be taken as "offline" and would clear the address we do have.
+- The server compares the ping cookie with `lws_timingsafe_bcmp()`.
+- The server still answers an `R` from an unvalidated source (it must, to
+  bootstrap the cookie), so it is technically a UDP reflector; the reply is
+  only around 1.5x - 2x the size of the request, and everything after the
+  bootstrap requires a cookie the sender can only obtain at its own address.
+  Do not expose the server port to the internet without a packet-rate limit in
+  front of it if that gain matters to you.
