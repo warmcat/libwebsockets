@@ -88,3 +88,40 @@ parses separately.  Do not "simplify" that back into splicing the raw blob in
 as JSON: a peer could then close the enclosing object and append its own
 top-level keys, ie, forge any server message --- including a WebRTC `answer`
 or ICE `candidate` --- to every other peer in the room.
+
+## ICE servers (browser assets)
+
+`assets/main.js` creates its `RTCPeerConnection` with **no** ICE servers by
+default.  A STUN or TURN server is a third party that learns the visitor's
+public IP address and NAT mapping on every page load that reaches `join()`, so
+which one (if any) to use is deployment policy and is not hard coded here.
+For a mixer that the browsers can reach directly --- the usual case, since the
+mixer is the only peer --- host candidates are all that is needed.
+
+To configure one, set `data-ice-servers` on the `<script>` tag in
+`assets/index.html` that loads `main.js` (its `id` must stay `mixerScript`) to
+a JSON array of `RTCIceServer` dictionaries:
+
+```html
+<script id="mixerScript" src="main.js"
+	data-ice-servers='[{"urls":"stun:stun.example.com:19302"}]'></script>
+```
+
+An empty or unparseable value means no ICE servers.
+
+## Known gaps
+
+ - The server does not rate limit `chat`.  A joined participant is bounded
+   only by `al <= 1024` per message and by the 20-entry room history, so N
+   messages in still means N broadcasts out to every joined peer.  The client
+   now caps what it keeps in the DOM, but the broadcast amplification is a
+   server-side concern: `chat` should carry a per-participant token bucket
+   (say a handful per second, with a small burst) beside the existing length
+   check, in the same place `request_caps` is already rate limited.
+
+ - The `layout` message is one shared broadcast string whose regions are
+   identified only by the participant's cosmetic display name.  A client
+   therefore cannot reliably tell which region is its own, and only accepts a
+   name match when exactly one region carries its name.  Tagging each region
+   with the opaque participant id would let the client identify its own tile
+   authoritatively.
