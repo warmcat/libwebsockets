@@ -1470,6 +1470,21 @@ lws_strexp_expand(lws_strexp_t *exp, const char *in, size_t len,
 	size_t used = 0;
 	int n;
 
+	/*
+	 * We can be re-entered after having reported LSTRX_FILLED_OUT with the
+	 * out buffer exactly full.  Unless the caller did
+	 * lws_strexp_reset_out(), there is no room for another char, nor for
+	 * the NUL we write at out[pos] at the end... report it filled again
+	 * rather than writing at out[olen]
+	 */
+
+	if (exp->out && exp->pos >= exp->olen) {
+		*pused_in = 0;
+		*pused_out = exp->pos;
+
+		return LSTRX_FILLED_OUT;
+	}
+
 	while (used < len) {
 
 		switch (exp->state) {
