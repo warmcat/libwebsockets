@@ -48,7 +48,24 @@ rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
 
 	if (lde->type == LDOT_DIR) {
-		lws_dir(path, NULL, rm_rf_cb);
+#if !defined(__COVERITY__)
+		char dummy[8];
+
+		/*
+		 * A symlink to a directory can be reported as LDOT_DIR (eg,
+		 * when the fs gave no d_type and we had to fall back to a
+		 * stat()).  Recursing into it would take the deletion outside
+		 * the session dir, so like lws_dir_rm_rf_cb() only recurse if
+		 * readlink() says it is not a symlink.
+		 *
+		 * dummy[] is immediately discarded without being looked in, so
+		 * its lack of NUL termination cannot bite us.  Hidden from
+		 * Coverity, which flags any use of readlink() even if safe.
+		 */
+		if (readlink(path, dummy, sizeof(dummy)) < 0)
+#endif
+			lws_dir(path, NULL, rm_rf_cb);
+
 		rmdir(path);
 	} else
 		unlink(path);
@@ -134,8 +151,16 @@ lws_fsmount_mount(struct lws_fsmount *fsm)
 	 * even if the overlay path is empty or /
 	 */
 
-	lws_snprintf(opts, sizeof(opts), "%s/overlays/%s/session",
-		     fsm->overlay_path, fsm->ovname);
+	n = lws_snprintf(opts, sizeof(opts), "%s/overlays/%s/session",
+			 fsm->overlay_path, fsm->ovname);
+	if (n >= (int)sizeof(opts))
+		/*
+		 * lws_snprintf() returns the buffer size on truncation... a
+		 * truncated path here names a *parent* dir, so we must not
+		 * hand it to the recursive delete
+		 */
+		goto too_long;
+
 	lwsl_info("%s: emptying session dir %s\n", __func__, opts);
 	lws_dir(opts, NULL, rm_rf_cb);
 

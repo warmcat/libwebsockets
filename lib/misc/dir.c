@@ -86,7 +86,20 @@ lws_dir_via_stat(char *combo, size_t l, const char *path, struct lws_dir_entry *
 
         lde->type = LDOT_UNKNOWN;
 
+	/*
+	 * This is the fallback for filesystems that don't fill in d_type (XFS
+	 * with ftype=0, ZFS) and for platforms that never do.  It must agree
+	 * with what the d_type path reports, ie, a symlink must come out as
+	 * LDOT_LINK and not as whatever it points at... stat() follows the
+	 * link and would report a symlink-to-dir as LDOT_DIR, letting rm -rf
+	 * style callbacks recurse out of the tree they are walking.
+	 */
+
+#if defined(WIN32) || defined(_WIN32)
         if (!stat(combo, &s)) {
+#else
+        if (!lstat(combo, &s)) {
+#endif
 		switch (s.st_mode & S_IFMT) {
 		case S_IFBLK:
 			lde->type = LDOT_BLOCK;
