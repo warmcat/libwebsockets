@@ -126,6 +126,13 @@ lws_x509_extract_name(const uint8_t *name, size_t name_len, int get_cn, union lw
 int lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type, union lws_tls_cert_info_results *buf, size_t len) {
 	if (!x509 || !x509->der) return -1;
 
+	/*
+	 * Same contract as the openssl / mbedtls / openhitls backends: a zero
+	 * len means the caller is using the union's own 64-byte name field
+	 */
+	if (!len)
+		len = sizeof(buf->ns.name);
+
 	if (type == LWS_TLS_CERT_INFO_DER_RAW) {
 		if (x509->der_len > len) {
 			buf->ns.len = (int)x509->der_len;
