@@ -2207,13 +2207,27 @@ lws_humanize_pad(char *p, size_t len, uint64_t v, const lws_humanize_unit_t *sch
 		s++;
 	}
 
-	m = (3 + 1 + 3 + w) - (size_t)n;
+	/*
+	 * lws_humanize() can produce more than the pad width (eg, "1000.001KiB"
+	 * is 11 chars against a pad width of 3 + 1 + 3 + 3)... m is size_t, so
+	 * we must not let it go negative, and the shifted result plus its NUL
+	 * has to fit in the caller's buffer.  Either way, hand back what
+	 * lws_humanize() produced, unpadded.
+	 */
 
-       for (t = (int)n - 1; t >= 0; t--)
-               p[(size_t)t + m] = p[t];
+	if (n >= 3 + 1 + 3 + w)
+		return (int)n;
+
+	m = (3 + 1 + 3 + w) - n;
+
+	if (m + n + 1 > len)
+		return (int)n;
+
+	for (t = (int)n - 1; t >= 0; t--)
+		p[(size_t)t + m] = p[t];
 	p[m + n] = '\0';
 
-       for (t = 0; t < (int)m; t++)
+	for (t = 0; t < (int)m; t++)
 		p[t] = ' ';
 
 	return (int)(n + m);
