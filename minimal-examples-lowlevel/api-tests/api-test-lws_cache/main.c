@@ -12,6 +12,23 @@
 static struct lws_context *cx;
 static int tests, fail;
 
+/*
+ * A sul that lives in the app and so outlives the context... used to confirm
+ * the context destroy detaches it, so lws_sul_cancel() on it afterwards is a
+ * NOP and not a write into the freed context
+ */
+
+static lws_sorted_usec_list_t sul_outlives_cx;
+static int sul_outlives_cx_fired;
+
+static void
+sul_outlives_cx_cb(lws_sorted_usec_list_t *sul)
+{
+	(void)sul;
+
+	sul_outlives_cx_fired++;
+}
+
 static int
 test_just_l1(void)
 {
@@ -500,7 +517,27 @@ int main(int argc, const char **argv)
 		fail++;
 #endif
 
+	/*
+	 * Schedule an app-owned sul far enough in the future it can't fire,
+	 * and leave it scheduled over the context destroy... the destroy must
+	 * detach it from the pt sul list, so the lws_sul_cancel() below is a
+	 * NOP rather than a write into the freed context
+	 */
+
+	tests++;
+	lws_sul_schedule(cx, 0, &sul_outlives_cx, sul_outlives_cx_cb,
+			 3600 * LWS_US_PER_SEC);
+
 	lws_context_destroy(cx);
+
+	lws_sul_cancel(&sul_outlives_cx);
+
+	if (sul_outlives_cx_fired ||
+	    !lws_dll2_is_detached(&sul_outlives_cx.list)) {
+		lwsl_err("%s: app sul not detached by context destroy\n",
+			 __func__);
+		fail++;
+	}
 
 	if (tests && !fail)
 		lwsl_user("Completed: PASS\n");

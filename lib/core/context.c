@@ -2795,6 +2795,39 @@ next_l:
 			lws_dll2_remove(lws_dll2_get_head(&context->mgr_system.notify_list));
 #endif
 
+#if defined(LWS_WITH_NETWORK)
+		/*
+		 * Any sul still scheduled on the pt sul lists at this point
+		 * lives in an object that outlives the context, eg, a static
+		 * sul in the app.  The context, and so the pt sul owner lists,
+		 * are about to be freed... detach the suls from the lists so
+		 * their dll2 doesn't point into freed heap, which would make a
+		 * later lws_sul_cancel() from the app a write-after-free.
+		 * Detaching leaves lws_sul_cancel() on them a NOP.  Their
+		 * callbacks are not, and must not be, called from here.
+		 */
+
+		for (n = 0; n < context->count_threads; n++) {
+			int m;
+
+			pt = &context->pt[n];
+
+			for (m = 0; m < LWS_COUNT_PT_SUL_OWNERS; m++)
+				while (lws_dll2_get_head(&pt->pt_sul_owner[m])) {
+					lws_sorted_usec_list_t *sul =
+					   lws_container_of(lws_dll2_get_head(
+							 &pt->pt_sul_owner[m]),
+						lws_sorted_usec_list_t, list);
+
+					lwsl_cx_info(context, "pt %d: detaching "
+						     "sul (list %d) cb %p",
+						     n, m, sul->cb);
+
+					lws_sul_cancel(sul);
+				}
+		}
+#endif
+
 		lwsl_refcount_cx(context->log_cx, -1);
 
 		lws_free(context);
