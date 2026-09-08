@@ -68,17 +68,20 @@ lws_backtrace_compression_stream(lws_backtrace_comp_t *c, uintptr_t v,
 	int nbits = (int)bits;
 
 	while (nbits-- >= 0) {
-		if (!(c->pos & 7))
-			c->comp[c->pos >> 3] = 0;
-		if (v & (1 << nbits))
-			c->comp[c->pos >> 3] |= (1 << (7 - (c->pos & 7)));
+		/* the bound check must happen before the writes, not after */
 
-		c->pos++;
-
-		if ((c->pos >> 3) == c->len) {
-			lwsl_err("%s: overrun %u\n", __func__, (unsigned int)c->len);
+		if ((c->pos >> 3) >= c->len) {
+			lwsl_err("%s: overrun %u\n", __func__,
+				 (unsigned int)c->len);
 			return 1;
 		}
+
+		if (!(c->pos & 7))
+			c->comp[c->pos >> 3] = 0;
+		if (v & (((uintptr_t)1) << nbits))
+			c->comp[c->pos >> 3] |= (uint8_t)(1 << (7 - (c->pos & 7)));
+
+		c->pos++;
 	}
 
 	return 0;
@@ -92,10 +95,10 @@ lws_backtrace_compression_destream(lws_backtrace_comp_t *c, uintptr_t *_v,
 	uintptr_t v = 0;
 
 	while (nbits-- >= 0) {
-		if ((c->pos >> 3) == c->len)
+		if ((c->pos >> 3) >= c->len)
 			return 1;
 		if (c->comp[c->pos >> 3] & (1 << (7 - (c->pos & 7))))
-			v |= (1 << nbits);
+			v |= ((uintptr_t)1) << nbits;
 		c->pos++;
 	}
 
@@ -120,11 +123,12 @@ lws_backtrace_compress_backtrace(lws_backtrace_info_t *si,
 {
 	int n;
 
-	lws_backtrace_compression_stream(c, si->sp, 5);
+	if (lws_backtrace_compression_stream(c, si->sp, 5))
+		return 1;
 
 	for (n = 0; n < si->sp; n++) { /* go through each in turn */
 		uintptr_t delta = (uintptr_t)~0ll, d1;
-		char hit = -1, sign, _sign;
+		char hit = -1, sign = 0, _sign;
 		unsigned int q, ql;
 		int m;
 
@@ -164,19 +168,19 @@ lws_backtrace_compress_backtrace(lws_backtrace_info_t *si,
 
 		if (n && hit && q + 11 < ql + 7) {
 			/* shorter to issue a delta froma previous address */
-			lws_backtrace_compression_stream(c, 1, 1);
-			lws_backtrace_compression_stream(c, (uintptr_t)((n - hit) - 1), 3);
-			lws_backtrace_compression_stream(c, (uintptr_t)sign, 1);
-			lws_backtrace_compression_stream(c, q, 6);
-
-			if (lws_backtrace_compression_stream(c, delta, q))
+			if (lws_backtrace_compression_stream(c, 1, 1) ||
+			    lws_backtrace_compression_stream(c,
+					(uintptr_t)((n - hit) - 1), 3) ||
+			    lws_backtrace_compression_stream(c,
+					(uintptr_t)sign, 1) ||
+			    lws_backtrace_compression_stream(c, q, 6) ||
+			    lws_backtrace_compression_stream(c, delta, q))
 				return 1;
 		} else {
 			/* shorter to issue a literal */
-			lws_backtrace_compression_stream(c, 0, 1);
-			lws_backtrace_compression_stream(c, ql, 6);
-
-			if (lws_backtrace_compression_stream(c, si->st[n], ql))
+			if (lws_backtrace_compression_stream(c, 0, 1) ||
+			    lws_backtrace_compression_stream(c, ql, 6) ||
+			    lws_backtrace_compression_stream(c, si->st[n], ql))
 				return 1;
 		}
 	}
@@ -216,8 +220,10 @@ lws_alloc_metadata_gen(size_t size, uint8_t *comp, size_t comp_len,
 
 	if (!lws_backtrace_compress_backtrace(&si, &c)) {
 
-		lws_backtrace_compression_stream(&c, lws_sigbits(size), 6);
-		lws_backtrace_compression_stream(&c, size, lws_sigbits(size));
+		if (lws_backtrace_compression_stream(&c, lws_sigbits(size), 6) ||
+		    lws_backtrace_compression_stream(&c, size,
+						     lws_sigbits(size)))
+			goto nope;
 
 		q = (unsigned int)(c.pos >> 3);
 		if (c.pos & 7)
@@ -313,7 +319,19 @@ lws_alloc_metadata_parse(lws_backtrace_info_t *si, const uint8_t *past_len)
 	if (lws_backtrace_compression_destream(&c, &entries, 5))
 		return 1;
 
-	while (si->sp != entries) {
+	/*
+	 * The depth comes from the (possibly corrupt) blob... it must not be
+	 * allowed to walk si->st[] off the end of the caller's struct
+	 */
+
+	if (entries > (uintptr_t)LWS_ARRAY_SIZE(si->st)) {
+		lwsl_err("%s: callstack depth %u too large\n", __func__,
+			 (unsigned int)entries);
+
+		return 1;
+	}
+
+	while (si->sp < entries) {
 
 		if (lws_backtrace_compression_destream(&c, &n, 1))
 			return 1;
@@ -375,8 +393,17 @@ lws_alloc_metadata_dump_stdout(struct lws_dll2 *d, void *user)
 	ab[0] = '~';
 	ab[1] = 'm';
 	ab[2] = '#';
-	lws_b64_encode_string((const char *)p, (int)cofs,
-			      ab + 3, (int)sizeof(ab) - 4);
+	/*
+	 * lws_b64_encode_string() returns < 0 and leaves the output
+	 * unterminated if it did not fit... puts() would then run off the end
+	 * of the stack buffer
+	 */
+	if (lws_b64_encode_string((const char *)p, (int)cofs,
+				  ab + 3, (int)sizeof(ab) - 4) < 0) {
+		lwsl_err("%s: metadata too big to dump\n", __func__);
+
+		return 0;
+	}
 
 	puts(ab);
 
