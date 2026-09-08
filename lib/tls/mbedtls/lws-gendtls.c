@@ -22,6 +22,15 @@
  * IN THE SOFTWARE.
  */
 
+/*
+ * mbedtls 3.x only exposes the negotiated DTLS-SRTP profile inside
+ * mbedtls_dtls_srtp_info, whose members are MBEDTLS_PRIVATE(), and there is no
+ * getter for it; this is the same approach lib/plat/windows/windows-sockets.c
+ * takes.  It changes nothing but how the member names expand, and on 2.x the
+ * members are public anyway.
+ */
+#define MBEDTLS_ALLOW_PRIVATE_ACCESS
+
 #include "private-lib-core.h"
 #include "private-lib-tls-mbedtls.h"
 
@@ -433,9 +442,12 @@ const char *
 lws_gendtls_get_srtp_profile(struct lws_gendtls_ctx *ctx)
 {
 #if defined(MBEDTLS_SSL_DTLS_SRTP)
-	mbedtls_ssl_srtp_profile profile = mbedtls_ssl_get_dtls_srtp_protection_profile(&ctx->ssl);
+	mbedtls_dtls_srtp_info info;
 
-	switch (profile) {
+	memset(&info, 0, sizeof(info));
+	mbedtls_ssl_get_dtls_srtp_negotiation_result(&ctx->ssl, &info);
+
+	switch (info.MBEDTLS_PRIVATE(chosen_dtls_srtp_profile)) {
 	case MBEDTLS_TLS_SRTP_AES128_CM_HMAC_SHA1_80:
 		return "SRTP_AES128_CM_SHA1_80";
 	case MBEDTLS_TLS_SRTP_AES128_CM_HMAC_SHA1_32:
