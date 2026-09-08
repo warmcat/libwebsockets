@@ -1546,23 +1546,30 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_RAW_CLOSE:
 		if (vhd) {
+			/*
+			 * C-242: whether the wsi being destroyed is the
+			 * accepted TCP connection or the adopted UDP
+			 * listener has no bearing on whether a suspended
+			 * query is holding a pointer to it; the "&&
+			 * q->is_tcp" that used to be here left every
+			 * UDP-originated entry with a dangling q->wsi that
+			 * the 5s timeout then called back through.
+			 */
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->pending_queries)) {
 				struct pending_dns_query *q = lws_container_of(d, struct pending_dns_query, list);
-				if (q->wsi == wsi && q->is_tcp) {
+				if (q->wsi == wsi)
 					q->wsi = NULL;
-				}
 			} lws_end_foreach_dll_safe(d, d1);
 
 			/*
 			 * Same for queries suspended on DNSBL lookups: the
-			 * TCP client wsi is about to be destroyed, later
-			 * completion / timeout must not deref it.
+			 * wsi is about to be destroyed, later completion /
+			 * timeout must not deref it.
 			 */
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->pending_dnsbl)) {
 				struct pending_dnsbl_query *q = lws_container_of(d, struct pending_dnsbl_query, list);
-				if (q->wsi == wsi && q->is_tcp) {
+				if (q->wsi == wsi)
 					q->wsi = NULL;
-				}
 			} lws_end_foreach_dll_safe(d, d1);
 		}
 		break;
