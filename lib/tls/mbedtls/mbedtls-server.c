@@ -35,11 +35,41 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 {
 	int verify_options = MBEDTLS_SSL_VERIFY_OPTIONAL;
 
+	/*
+	 * The vhost may legitimately have no ctx, eg, it was created with
+	 * LWS_SERVER_OPTION_IGNORE_MISSING_CERT and the cert has not arrived
+	 * yet... there is nothing to configure on then.
+	 */
+
+	if (!vh->tls.ssl_ctx)
+		return 0;
+
 	if (lws_check_opt(vh->options,
 			  LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE)) {
+		/*
+		 * He wants the client cert collected and kept so he can decide
+		 * about it himself after the handshake.  mbedtls only sends a
+		 * CertificateRequest, and only parses and keeps what comes
+		 * back, if the authmode is not VERIFY_NONE... and VERIFY_NONE
+		 * is what mbedtls_ssl_config_defaults() leaves a server at.
+		 * So VERIFY_OPTIONAL is precisely what this option means: ask
+		 * for the cert and keep it, but don't fail the handshake on
+		 * it.  Leaving it at the default made the option a silent
+		 * no-op, ie, there was never any client cert to inspect.
+		 */
 		lwsl_notice("%s: vh %s can verify client cert post-handshake\n",
 				__func__, vh->name);
-		/* mbedtls does not easily support post-handshake auth without custom code */
+
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000 && \
+    !defined(MBEDTLS_SSL_KEEP_PEER_CERTIFICATE)
+		lwsl_warn("%s: mbedtls lacks MBEDTLS_SSL_KEEP_PEER_CERTIFICATE:"
+			  " the peer cert will not be readable after the "
+			  "handshake\n", __func__);
+#endif
+
+		mbedtls_ssl_conf_authmode(&vh->tls.ssl_ctx->conf,
+					  MBEDTLS_SSL_VERIFY_OPTIONAL);
+
 		return 0;
 	}
 
@@ -60,51 +90,89 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 	return 0;
 }
 
+/*
+ * mbedtls has no SSL_get_SSL_CTX(), so identify the listening vhost this
+ * handshake belongs to by its config.  A vhost whose cert was hot-reloaded
+ * keeps the retired ctx alive for the connections still using it, so those
+ * have to be searched too... otherwise the caller cannot tell which listener
+ * the connection arrived on.
+ */
+
+static struct lws_vhost *
+lws_mbedtls_vhost_from_conf(struct lws_context *context,
+			    const mbedtls_ssl_config *conf)
+{
+	struct lws_vhost *vh = lws_vhost_first(context);
+
+	while (vh) {
+		if (vh->being_destroyed) {
+			vh = lws_vhost_next(vh);
+			continue;
+		}
+
+		if (vh->tls.ssl_ctx && &vh->tls.ssl_ctx->conf == conf)
+			return vh;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				lws_dll2_get_head(&vh->tls.retired_ctx_list)) {
+			struct lws_tls_ctx_ref *r = lws_container_of(d,
+						struct lws_tls_ctx_ref, list);
+
+			if (r->ctx && &r->ctx->conf == conf)
+				return vh;
+		} lws_end_foreach_dll(d);
+
+		vh = lws_vhost_next(vh);
+	}
+
+	return NULL;
+}
+
 static int
 lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 		   const unsigned char *servername, size_t len)
 {
 	struct lws_context *context = (struct lws_context *)arg;
 	struct lws_vhost *vhost, *vh;
-	/* get the wsi via user_data if we need it, but we can just find vhost */
-
-	lwsl_notice("%s: %s\n", __func__, servername);
+	char sn_str[128];
 
 	/*
-	 * find out which listening one took us and only match vhosts on the
-	 * same port.
-	 * mbedtls does not have SSL_get_SSL_CTX.
-	 * But we can just search all vhosts.
+	 * mbedtls documents this as "not '\0'-terminated, use len"... it
+	 * points into the received ClientHello, so it must be copied out
+	 * bounded before it can go anywhere near a "%s".
 	 */
-	vh = lws_vhost_first(context);
-	while (vh) {
-		if (!vh->being_destroyed && vh->tls.ssl_ctx && &vh->tls.ssl_ctx->conf == mbedtls_ctx->MBEDTLS_PRIVATE(conf))
-			break;
-		vh = lws_vhost_next(vh);
-	}
 
+	lws_strnncpy(sn_str, (const char *)servername, len, sizeof(sn_str));
+
+	lwsl_info("%s: SNI '%s'\n", __func__, sn_str);
+
+	/*
+	 * Find out which listening vhost took us, so we only match vhosts on
+	 * the same port.
+	 */
+
+	vh = lws_mbedtls_vhost_from_conf(context,
+					 mbedtls_ctx->MBEDTLS_PRIVATE(conf));
 	if (!vh) {
-		/* Not strictly found, maybe just use first vhost with TLS */
-		vh = lws_vhost_first(context);
-		while (vh && !vh->tls.ssl_ctx)
-			vh = lws_vhost_next(vh);
-		if (!vh)
-			return 0;
-	}
+		/*
+		 * We can't tell which listener this is... we must not borrow
+		 * an arbitrary TLS vhost's listen_port to search with, that
+		 * would let SNI select a vhost belonging to a different
+		 * listener.  Leave him on the vhost he arrived on.
+		 */
+		lwsl_info("%s: no vhost owns this tls conf\n", __func__);
 
-	char sn_str[128];
-	if (len >= sizeof(sn_str))
-		len = sizeof(sn_str) - 1;
-	memcpy(sn_str, servername, len);
-	sn_str[len] = '\0';
-
-	vhost = lws_select_vhost(context, vh->listen_port, sn_str);
-	if (!vhost) {
-		lwsl_info("SNI: none: %s:%d\n", servername, vh->listen_port);
 		return 0;
 	}
 
-	lwsl_info("SNI: Found: %s:%d at vhost '%s'\n", servername,
+	vhost = lws_select_vhost(context, vh->listen_port, sn_str);
+	if (!vhost) {
+		lwsl_info("SNI: none: %s:%d\n", sn_str, vh->listen_port);
+
+		return 0;
+	}
+
+	lwsl_info("SNI: Found: %s:%d at vhost '%s'\n", sn_str,
 					vh->listen_port, vhost->name);
 
 	if (!vhost->tls.ssl_ctx) {
@@ -114,8 +182,21 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 	}
 
 	mbedtls_ssl_set_hs_own_cert(mbedtls_ctx, vhost->tls.ssl_ctx->chain, vhost->tls.ssl_ctx->key);
-	if (vhost->tls.ssl_ctx->ca_chain)
-		mbedtls_ssl_set_hs_ca_chain(mbedtls_ctx, vhost->tls.ssl_ctx->ca_chain, NULL);
+
+	/*
+	 * Unlike openssl's SSL_set_SSL_CTX(), ssl->conf still points at the
+	 * *listening* vhost's config for the rest of the handshake; these
+	 * per-handshake overrides are the only things that change.  So the CA
+	 * chain has to be set unconditionally, including to NULL: a vhost
+	 * that requires a client cert but configures no CA of its own would
+	 * otherwise raise the authmode to REQUIRED while still validating
+	 * against the listening vhost's trust store, ie, accept a client cert
+	 * issued by somebody else's CA.  (lws configures no CRL for mbedtls
+	 * anywhere, so NULL is what the non-SNI path uses too.)
+	 */
+
+	mbedtls_ssl_set_hs_ca_chain(mbedtls_ctx, vhost->tls.ssl_ctx->ca_chain,
+				    NULL);
 	mbedtls_ssl_set_hs_authmode(mbedtls_ctx, vhost->tls.ssl_ctx->conf.MBEDTLS_PRIVATE(authmode));
 
 	return 0;
@@ -280,7 +361,9 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 		if (!ctx->ca_chain)
 			return 1;
 		mbedtls_x509_crt_init(ctx->ca_chain);
-		n = mbedtls_x509_crt_parse(ctx->ca_chain, vhost->tls.cfg_server_ssl_ca_mem, vhost->tls.cfg_server_ssl_ca_mem_len);
+		n = lws_mbedtls_x509_crt_parse_mem(ctx->ca_chain,
+					vhost->tls.cfg_server_ssl_ca_mem,
+					vhost->tls.cfg_server_ssl_ca_mem_len);
 		if (n != 0) {
 			lwsl_err("%s: mem CA parse unhappy: %d\n", __func__, n);
 			return 1;
