@@ -186,7 +186,52 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 	}
 
+	/*
+	 * The sub-parser only ever sees the members, never the end of its own
+	 * document, so without this it skips the completeness and consistency
+	 * checks that cb_jwk() does at LEJPCB_COMPLETE, and a header key with
+	 * eg a kty but no mandatory elements would be accepted with NULL
+	 * element pointers in it.  Synthesize the completion at the end of the
+	 * jwk / epk object.
+	 */
+
+	if (reason == LEJPCB_OBJECT_END &&
+	    (!strcmp(ctx->path, "jwk") ||
+	     (args->is_jwe && !strcmp(ctx->path, "epk")))) {
+		args->jwk_jctx.path[0] = '\0';
+		args->jwk_jctx.path_match = 0;
+
+		if (args->jwk_jctx.pst[args->jwk_jctx.pst_sp].
+				callback(&args->jwk_jctx, LEJPCB_COMPLETE))
+			return -1;
+	}
+
 	// lwsl_notice("%s: %s %d (%d)\n", __func__, ctx->path, reason, ctx->sp);
+
+	/*
+	 * RFC7515 4.1.11 (and RFC7516 4.1.13): if the header carries "crit",
+	 * the recipient MUST reject the object unless it understands and
+	 * processes every extension named in it.  We implement no crit
+	 * extension at all, so any "crit" must be refused... that also covers
+	 * the RFC-forbidden empty array, since we never look inside it.
+	 *
+	 * The array members arrive with the lejp path "crit[]", which matches
+	 * no token in jws_jose[], so this has to be tested on the raw path
+	 * before the path_match filter below.  Match it wherever it appears as
+	 * a whole member name, so a crit inside a JWE recipients[] header is
+	 * refused as well.
+	 */
+
+	n = (int)strlen(ctx->path);
+	if (n >= 2 && !strcmp(ctx->path + n - 2, "[]"))
+		n -= 2;
+
+	if (n >= 4 && !strncmp(ctx->path + n - 4, "crit", 4) &&
+	    (n == 4 || ctx->path[n - 5] == '.')) {
+		lwsl_notice("%s: unsupported crit header\n", __func__);
+
+		return -1;
+	}
 
 	/* at the end of each recipients[] entry, bump recipients count */
 
@@ -486,6 +531,10 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 	if (!jose->alg || !jose->alg->alg)
 		goto bail;
 
+	/* we need room for at least the "{" and the "}" */
+	if (out_len < 2)
+		goto bail;
+
 	*out++ = '{';
 
 	for (n = 0; n < LWS_COUNT_JOSE_HDR_ELEMENTS; n++) {
@@ -573,7 +622,8 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 
 		case LJJHI_CRIT:/* Optional for send, REQUIRED: array of strings:
 				 * mustn't contain standardized strings or null set */
-			if (!jose->e[n].buf)
+			/* RFC7515 4.1.11: the empty array is not allowed */
+			if (!jose->e[n].buf || !jose->e[n].len)
 				break;
 
 			out += lws_snprintf(out, lws_ptr_diff_size_t(end, out),
@@ -582,7 +632,13 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 
 			m = 0;
 			f = 1;
-			while ((unsigned int)m < jose->e[n].len && (end - out) > 1) {
+			/*
+			 * one iteration can emit up to 3 bytes (',', '"' and
+			 * the payload byte), and we must still be able to
+			 * close the string, the array and the object after
+			 */
+			while ((unsigned int)m < jose->e[n].len &&
+			       lws_ptr_diff(end, out) > 3) {
 				if (jose->e[n].buf[m] == ' ') {
 					if (!f)
 						*out++ = '\"';
@@ -603,14 +659,29 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 				m++;
 			}
 
+			/*
+			 * Truncation here would emit an unterminated array,
+			 * ie, invalid JSON... refuse instead
+			 */
+
+			if ((unsigned int)m != jose->e[n].len ||
+			    lws_ptr_diff(end, out) < (f ? 2 : 3))
+				return -1;
+
+			if (!f)
+				*out++ = '\"';
+
+			*out++ = ']';
+
 			break;
 		}
 	}
 
-	*out++ = '}';
-
-	if (out > end - 2)
+	/* bounds-check before the write, not after it */
+	if (out >= end)
 		return -1;
+
+	*out++ = '}';
 
 	return lws_ptr_diff(out_len, (end - out)) - 1;
 
