@@ -157,9 +157,16 @@ lws_threadpool_destroy(struct lws_threadpool *tp);
  * Returns NULL or an opaque pointer to the queued (or running, or completed)
  * task.
  *
- * Once a task is created and enqueued, it can only be destroyed by calling
+ * Once a task is created and enqueued, it is destroyed either by calling
  * lws_threadpool_task_status() on it after it has reached the state
- * LWS_TP_STATUS_FINISHED or LWS_TP_STATUS_STOPPED.
+ * LWS_TP_STATUS_FINISHED or LWS_TP_STATUS_STOPPED, or by calling
+ * lws_threadpool_dequeue_task() on it, or, if the connection it was bound to
+ * went away first, by the threadpool itself as soon as the task stops.
+ *
+ * For that last reason, don't cache the returned pointer across service
+ * callbacks... get it back from lws_threadpool_get_task_wsi() / _ss() (or
+ * lws_threadpool_foreach_task_wsi() / _ss()), which only produce tasks that are
+ * still bound to the connection and so still exist.
  */
 LWS_VISIBLE LWS_EXTERN struct lws_threadpool_task *
 lws_threadpool_enqueue(struct lws_threadpool *tp,
@@ -171,12 +178,9 @@ lws_threadpool_enqueue(struct lws_threadpool *tp,
  *
  * \param wsi: the wsi whose current task we want to eliminate
  *
- * Returns 0 is the task was dequeued or already compeleted, or 1 if the task
- * has been asked to stop asynchronously.
+ * Returns 0.
  *
- * This doesn't free the task.  It only shortcuts it to state
- * LWS_TP_STATUS_STOPPED.  lws_threadpool_task_status() must be performed on
- * the task separately once it is in LWS_TP_STATUS_STOPPED to free the task.
+ * See lws_threadpool_dequeue_task() for the task lifecycle this implies.
  *
  * DEPRECATED: You should use lws_threadpool_dequeue_task() with
  * lws_threadpool_get_task_wsi() / _ss() if you know there can only be one task
@@ -186,6 +190,22 @@ lws_threadpool_enqueue(struct lws_threadpool *tp,
 LWS_VISIBLE LWS_EXTERN int
 lws_threadpool_dequeue(struct lws *wsi) LWS_WARN_DEPRECATED;
 
+/**
+ * lws_threadpool_dequeue_task() - detach and dispose of a task
+ *
+ * \param task: the task to dispose of, or NULL (a NOP)
+ *
+ * Detaches \p task from its connection and disposes of it.
+ *
+ * THE CALLER MUST NOT TOUCH \p task AFTER THIS RETURNS.  If the task was still
+ * queued, or had already completed, it is destroyed (running its cleanup
+ * callback) before this returns.  If a worker thread is running it, it is
+ * detached from the connection and shortcut to LWS_TP_STATUS_STOPPING, and the
+ * worker destroys it when it stops; there is then nothing left for the service
+ * thread to reap and lws_threadpool_task_status() must not be called on it.
+ *
+ * Returns 0.
+ */
 LWS_VISIBLE LWS_EXTERN int
 lws_threadpool_dequeue_task(struct lws_threadpool_task *task);
 

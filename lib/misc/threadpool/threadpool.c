@@ -964,6 +964,9 @@ lws_threadpool_dequeue_task(struct lws_threadpool_task *task)
 	struct lws_threadpool_task **c;
 	int n;
 
+	if (!task || !task->tp)
+		return 0;
+
 	tp = task->tp;
 	pthread_mutex_lock(&tp->lock); /* ======================== tpool lock */
 
@@ -1307,8 +1310,33 @@ disassociate_wsi(struct lws_threadpool_task *task,
 		  void *user)
 {
 #if !defined(__COVERITY__)
+	struct lws_threadpool *tp = task->tp;
+	int n = 0;
+
+	/*
+	 * We are called under tp->lock by lws_threadpool_foreach_task_wsi().
+	 * If a worker is running this task, it may be testing task_to_wsi()
+	 * under its own pool lock, so take that too before we change the
+	 * binding, the same way lws_threadpool_dequeue_task() does (lock order
+	 * is tp->lock then pool_list[n].lock)
+	 */
+
+	if (tp) {
+		while (n < tp->threads_in_pool && tp->pool_list[n].task != task)
+			n++;
+
+		if (n != tp->threads_in_pool)
+			pthread_mutex_lock(&tp->pool_list[n].lock);
+	}
+
 	task->args.wsi = NULL;
+#if defined(LWS_WITH_SECURE_STREAMS)
+	task->args.ss = NULL;
+#endif
 	lws_dll2_remove(&task->list);
+
+	if (tp && n != tp->threads_in_pool)
+		pthread_mutex_unlock(&tp->pool_list[n].lock);
 #endif
 
 	return 0;
