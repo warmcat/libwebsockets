@@ -2531,6 +2531,89 @@ bail:
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
+/*
+ * Fill cr->local_msg from the cert we hold on disk for fqdn, the same
+ * <base>/domains/<domain>/certs/<production|staging>/crt/<fqdn>-latest.crt
+ * the acme client writes and get_dane_hash() / get_cert_remaining read.
+ * vhd->acme_production is refreshed from acme_config.json first so we look
+ * in the subdir the acme client is currently saving into.
+ *
+ * If use_local_issuer is set, cr->issuer is also taken from the local cert
+ * (for probe failures, where there is no remote issuer to report).
+ */
+static void
+fill_local_cert_status(struct vhd *vhd, const char *domain, const char *fqdn,
+		       struct cert_check_result *cr, int use_local_issuer)
+{
+	char path[1024];
+	struct stat st;
+	int fd;
+
+	lws_strncpy(cr->local_msg, "Not Found", sizeof(cr->local_msg));
+
+	if (!domain || !domain[0] || !fqdn || !fqdn[0])
+		return;
+
+	if ((char *)strchr(domain, '/') || (char *)strstr(domain, "..") || (char *)strchr(domain, '\\') ||
+	    (char *)strchr(fqdn, '/') || (char *)strstr(fqdn, "..") || (char *)strchr(fqdn, '\\'))
+		return;
+
+	refresh_acme_production(vhd);
+
+	lws_snprintf(path, sizeof(path), "%s/domains/%s/certs/%s/crt/%s-latest.crt",
+		     vhd->base_dir, domain, vhd->acme_production ? "production" : "staging", fqdn);
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		lwsl_info("%s: no local cert at %s: %d\n", __func__, path, errno);
+		return;
+	}
+
+	if (!fstat(fd, &st) && st.st_size > 0) {
+		uint8_t *pem = malloc((size_t)st.st_size + 1);
+
+		if (pem) {
+			if (read(fd, pem, (size_t)st.st_size) == (ssize_t)st.st_size) {
+				struct lws_x509_cert *x509 = NULL;
+
+				pem[st.st_size] = '\0';
+				if (!lws_x509_create(&x509)) {
+					if (!lws_x509_parse_from_pem(x509, pem, (size_t)st.st_size + 1)) {
+						union lws_tls_cert_info_results lci;
+
+						if (use_local_issuer &&
+						    !lws_x509_info(x509, LWS_TLS_CERT_INFO_ISSUER_NAME, &lci, 0)) {
+							lws_strncpy(cr->issuer, lci.ns.name, sizeof(cr->issuer));
+							for (int i = 0; cr->issuer[i]; i++) {
+								if (cr->issuer[i] == '\n' || cr->issuer[i] == '\r') cr->issuer[i] = ' ';
+								if (cr->issuer[i] == '"') cr->issuer[i] = '\'';
+								if (cr->issuer[i] == '\\') cr->issuer[i] = '/';
+							}
+						}
+						if (!lws_x509_info(x509, LWS_TLS_CERT_INFO_VALIDITY_TO, &lci, 0)) {
+							time_t now;
+
+							time(&now);
+							if (now > lci.time)
+								lws_snprintf(cr->local_msg, sizeof(cr->local_msg), "Expired");
+							else
+								lws_snprintf(cr->local_msg, sizeof(cr->local_msg), "%d days",
+									     (int)((lci.time - now) / (24 * 3600)));
+						} else
+							lws_strncpy(cr->local_msg, "No validity", sizeof(cr->local_msg));
+					} else {
+						lwsl_err("%s: Failed to parse PEM at %s\n", __func__, path);
+						lws_strncpy(cr->local_msg, "Parse failed", sizeof(cr->local_msg));
+					}
+					lws_x509_destroy(&x509);
+				}
+			}
+			free(pem);
+		}
+	}
+	close(fd);
+}
+
 static void
 handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
@@ -2569,46 +2652,8 @@ handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 			memset(cr, 0, sizeof(*cr));
 			lws_strncpy(cr->fqdn, a->subdomain, sizeof(cr->fqdn));
 			lws_strncpy(cr->msg, "Connection failed", sizeof(cr->msg));
-			lws_strncpy(cr->local_msg, "Not Found", sizeof(cr->local_msg));
 			lws_strncpy(cr->issuer, "Unknown", sizeof(cr->issuer));
-
-			if (a->domain[0]) {
-				char path[1024];
-				lws_snprintf(path, sizeof(path), "%s/domains/%s/certs/%s/crt/%s-latest.crt", vhd->base_dir, a->domain, vhd->acme_production ? "production" : "staging", a->subdomain);
-				lwsl_notice("%s: Checking local cert at %s\n", __func__, path);
-				int fd = open(path, O_RDONLY);
-				if (fd >= 0) {
-					struct stat st;
-					if (!fstat(fd, &st) && st.st_size > 0) {
-						uint8_t *pem = malloc((size_t)st.st_size + 1);
-						if (pem) {
-							if (read(fd, pem, (size_t)st.st_size) == (ssize_t)st.st_size) {
-								pem[st.st_size] = '\0';
-								struct lws_x509_cert *x509 = NULL;
-								if (!lws_x509_create(&x509)) {
-									if (!lws_x509_parse_from_pem(x509, pem, (size_t)st.st_size + 1)) {
-										union lws_tls_cert_info_results lci;
-										if (!lws_x509_info(x509, LWS_TLS_CERT_INFO_ISSUER_NAME, &lci, 0))
-											lws_strncpy(cr->issuer, lci.ns.name, sizeof(cr->issuer));
-										if (!lws_x509_info(x509, LWS_TLS_CERT_INFO_VALIDITY_TO, &lci, 0)) {
-											time_t now; time(&now);
-											if (now > lci.time) lws_snprintf(cr->local_msg, sizeof(cr->local_msg), "Expired");
-											else lws_snprintf(cr->local_msg, sizeof(cr->local_msg), "%d days", (int)((lci.time - now) / (24 * 3600)));
-										}
-									} else {
-										lwsl_err("%s: Failed to parse PEM at %s\n", __func__, path);
-									}
-									lws_x509_destroy(&x509);
-								}
-							}
-							free(pem);
-						}
-					}
-					close(fd);
-				} else {
-					lwsl_err("%s: Failed to open %s: %d\n", __func__, path, errno);
-				}
-			}
+			fill_local_cert_status(vhd, a->domain, a->subdomain, cr, 1);
 
 			cr->port = a->port; cr->status_err = 1;
 
@@ -2915,6 +2960,7 @@ static void extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, stru
 		} else {
 			lws_strncpy(cr->issuer, "Unknown", sizeof(cr->issuer));
 		}
+		fill_local_cert_status(vhd, cci->domain, cr->fqdn, cr, 0);
 		char json[1024];
 		int n = lws_snprintf(json, sizeof(json), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"port\":%d,\"status\":\"%s\",\"msg\":\"%s\",\"local_msg\":\"%s\",\"issuer\":\"%s\"}\n",
 			cr->fqdn, cr->port, cr->status_err ? "error" : "ok", cr->msg, cr->local_msg, cr->issuer);
@@ -3583,6 +3629,8 @@ fallback:
 							if (cr->msg[i] == '\\') cr->msg[i] = '/';
 						}
 						cr->status_err = 1;
+						lws_strncpy(cr->issuer, "Unknown", sizeof(cr->issuer));
+						fill_local_cert_status(vhd, cci->domain, cr->fqdn, cr, 1);
 
 						char json[1024];
 						int n = lws_snprintf(json, sizeof(json), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"port\":%d,\"status\":\"error\",\"msg\":\"%s\",\"local_msg\":\"%s\",\"issuer\":\"%s\"}\n",
