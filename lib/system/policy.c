@@ -103,10 +103,20 @@ lws_system_parse_policy(struct lws_context *cx, const char *filepath, lws_system
 		const char *pt = strrchr(filepath, '/');
 		if (pt) {
 			char dir[256];
-			lws_strncpy(dir, filepath, sizeof(dir));
-			dir[pt - filepath] = '\0';
-			if (mkdir(dir, 0750) < 0)
-				lwsl_debug("%s: mkdir %s failed (may exist)\n", __func__, dir);
+			size_t dl = lws_ptr_diff_size_t(pt, filepath);
+
+			/*
+			 * The last / can be at any offset in the caller's
+			 * path... only make the dir if the whole of it fits
+			 */
+
+			if (dl < sizeof(dir)) {
+				lws_strnncpy(dir, filepath, dl, sizeof(dir));
+				if (mkdir(dir, 0750) < 0)
+					lwsl_debug("%s: mkdir %s failed "
+						   "(may exist)\n", __func__,
+						   dir);
+			}
 		}
 #endif
 		fd = lws_open(filepath, O_CREAT | O_WRONLY | O_TRUNC, 0644);
