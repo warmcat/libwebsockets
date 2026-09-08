@@ -168,8 +168,12 @@ __lws_reset_wsi(struct lws *wsi)
 #endif
 
 #if defined(LWS_WITH_PEER_LIMITS)
+	/*
+	 * Note wsi->peer is deliberately NOT cleared here...
+	 * __lws_header_table_detach() below still needs it to give back the
+	 * peer's ah count.  It is cleared just after that.
+	 */
 	lws_peer_track_wsi_close(wsi->a.context, wsi->peer);
-	wsi->peer = NULL;
 #endif
 
 	/* since we will destroy the wsi, make absolutely sure now */
@@ -197,6 +201,10 @@ __lws_reset_wsi(struct lws *wsi)
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	__lws_header_table_detach(wsi, 0);
+#endif
+
+#if defined(LWS_WITH_PEER_LIMITS)
+	wsi->peer = NULL;
 #endif
 
 #if defined(LWS_ROLE_H2)

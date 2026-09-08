@@ -300,7 +300,21 @@ lws_peer_track_ah_detach(struct lws_context *context, struct lws_peer *peer)
 
 	lws_context_lock(context, "peer ah detach"); /* <==================== */
 	assert(peer->http.count_ah);
-	peer->http.count_ah--;
+	if (peer->http.count_ah)
+		peer->http.count_ah--;
+
+	/*
+	 * If the wsi that held this ah already closed, lws_peer_track_wsi_close
+	 * declined to put the peer on the wait list because the ah was still
+	 * outstanding.  Now it isn't, so the peer has nothing left and must go
+	 * on the wait list, otherwise it can never be culled.
+	 */
+
+	if (!peer->count_wsi && !peer->http.count_ah) {
+		time(&peer->time_closed_all);
+		__lws_peer_add_to_peer_wait_list(context, peer);
+	}
+
 	lws_context_unlock(context); /* ====================================> */
 }
 #endif
