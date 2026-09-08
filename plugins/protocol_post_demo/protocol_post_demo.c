@@ -161,7 +161,8 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		 * attacks  */
 #if !defined(LWS_WITH_ESP32)
 		lws_snprintf(pss->filename, sizeof(pss->filename),
-			     "/tmp/post-file-%d-%u", (int)post_demo_getpid(),
+			     "/tmp/post-file-%d-%u", /* NOSONAR: O_EXCL below */
+			     (int)post_demo_getpid(),
 			     ++post_demo_tempname_unique);
 
 		/*
