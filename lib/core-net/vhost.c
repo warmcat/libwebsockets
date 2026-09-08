@@ -2035,6 +2035,19 @@ lws_get_vhost_by_name(struct lws_context *context, const char *name)
  * ACTIVE_CONNS_SOLO: There's no existing conn to join either way
  */
 
+#if defined(LWS_WITH_TLS)
+/*
+ * The tls flags two connections must agree on before one may ride on the
+ * other's tls session: whether tls is used at all, and every opt-out from
+ * peer validation.
+ */
+#define LWS_ACTIVE_CONN_TLS_MASK (LCCSCF_USE_SSL | \
+				  LCCSCF_ALLOW_SELFSIGNED | \
+				  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | \
+				  LCCSCF_ALLOW_EXPIRED | \
+				  LCCSCF_ALLOW_INSECURE)
+#endif
+
 int
 lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 {
@@ -2110,9 +2123,22 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 		   !(newconn_cannot_use_h1 && w->role_ops == &role_ops_h1) &&
 #endif
 		   /* if we can't use h1, old guy must not be h1 */
-		    (wsi->tls.use_ssl & LCCSCF_USE_SSL) ==
-		     (w->tls.use_ssl & LCCSCF_USE_SSL) &&
-		     /* must both agree on tls use or not */
+		    (wsi->tls.use_ssl & LWS_ACTIVE_CONN_TLS_MASK) ==
+		     (w->tls.use_ssl & LWS_ACTIVE_CONN_TLS_MASK) &&
+		     /*
+		      * Must both agree on tls use or not, and on which parts
+		      * of peer validation they opted out of.
+		      *
+		      * A piggybacking connection never does a handshake of its
+		      * own (see lws_client_connect_4_established()), it just
+		      * rides the existing one.  So if we let a connection that
+		      * asked for full validation share a connection that was
+		      * established with, eg, LCCSCF_ALLOW_SELFSIGNED, its
+		      * request and credentials silently travel over a TLS
+		      * session nobody authenticated... the same hazard
+		      * lws_tls_session_tag_from_wsi() refuses for the session
+		      * resumption cache, by a different mechanism.
+		      */
 #endif
 		    wsi->c_port == w->c_port) {
 			/* same endpoint port */
