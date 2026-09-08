@@ -39,9 +39,37 @@ struct pss__wt_test {
 	size_t recv_pos;
 	struct lws_genhash_ctx hash_ctx_rx;
 	uint8_t hash_rx_expected[HASH_SIZE];
-	
+
 	int established;
+	int rx_hash_live;
 };
+
+/*
+ * Start (or restart) the rx hash context.
+ *
+ * lws_genhash_destroy() is what both finalizes and frees the underlying
+ * context, so we have to track whether we are holding a live one: updating a
+ * destroyed context is a NULL deref on the openssl backend, and initializing
+ * over a live one leaks it.
+ */
+
+static int
+wt_test_hash_rx_start(struct pss__wt_test *pss)
+{
+	uint8_t discard[HASH_SIZE];
+
+	if (pss->rx_hash_live) {
+		lws_genhash_destroy(&pss->hash_ctx_rx, discard);
+		pss->rx_hash_live = 0;
+	}
+
+	if (lws_genhash_init(&pss->hash_ctx_rx, LWS_GENHASH_TYPE_SHA256))
+		return 1;
+
+	pss->rx_hash_live = 1;
+
+	return 0;
+}
 
 static int
 callback_wt_test(struct lws *wsi, enum lws_callback_reasons reason,
@@ -58,8 +86,11 @@ callback_wt_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
-		if (!in)
-			return 0;
+		/*
+		 * We take no pvo options, but we must still create the vhost
+		 * priv here, since this is the only chance we get and every
+		 * connection needs the blob and its hash
+		 */
 
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi),
@@ -103,24 +134,50 @@ callback_wt_test(struct lws *wsi, enum lws_callback_reasons reason,
 		/* We only care about WebTransport child streams for data transfer */
 		if (lws_wt_is_session(wsi)) {
 			lwsl_user("Session established\n");
-		} else {
-			lwsl_user("Stream established\n");
-			pss->send_count = 0;
-			pss->send_pos = 0;
-			pss->recv_count = 0;
-			pss->recv_pos = 0;
-			
-			if (lws_genhash_init(&pss->hash_ctx_rx, LWS_GENHASH_TYPE_SHA256)) {
-				return -1;
-			}
-			pss->established = 1;
-			lws_callback_on_writable(wsi);
+			break;
 		}
+
+		/*
+		 * role_ops_wt's protocol bind and unbind callback reasons are
+		 * both 0, ie, LWS_CALLBACK_ESTABLISHED, so both of these
+		 * reasons can arrive for the same stream.  A second one on a
+		 * pss we already initialized is lws_bind_protocol() telling us
+		 * it is about to free that pss, so let the hash context it
+		 * owns go rather than leak one per stream.
+		 */
+
+		if (pss->established) {
+			if (reason == LWS_CALLBACK_ESTABLISHED &&
+			    pss->rx_hash_live) {
+				uint8_t discard[HASH_SIZE];
+
+				lws_genhash_destroy(&pss->hash_ctx_rx, discard);
+				pss->rx_hash_live = 0;
+			}
+			break;
+		}
+
+		lwsl_user("Stream established\n");
+		pss->send_count = 0;
+		pss->send_pos = 0;
+		pss->recv_count = 0;
+		pss->recv_pos = 0;
+
+		if (wt_test_hash_rx_start(pss))
+			return -1;
+
+		pss->established = 1;
+		lws_callback_on_writable(wsi);
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 		if (!pss->established || pss->send_count >= TEST_ITERATIONS)
 			break;
+
+		if (!vhd || !vhd->blob) {
+			lwsl_wsi_warn(wsi, "protocol not initialized on vhost");
+			return -1;
+		}
 
 		to_send = TOTAL_SEND_SIZE - pss->send_pos;
 		{
@@ -175,6 +232,17 @@ callback_wt_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 		p = (uint8_t *)in;
 		while (len > 0) {
+			/*
+			 * The peer picks the STREAM frame boundaries, so the
+			 * chunk that completes the last blob can carry more
+			 * after it... the test is over at that point and the
+			 * hash context is gone, so discard the remainder
+			 * rather than feed it to a destroyed context
+			 */
+
+			if (pss->recv_count >= TEST_ITERATIONS)
+				break;
+
 			if (pss->recv_pos < BLOB_SIZE) {
 				chunk = BLOB_SIZE - pss->recv_pos;
 				if (chunk > len) chunk = len;
@@ -197,8 +265,10 @@ callback_wt_test(struct lws *wsi, enum lws_callback_reasons reason,
 				
 				if (pss->recv_pos == TOTAL_SEND_SIZE) {
 					uint8_t computed[HASH_SIZE];
+
 					lws_genhash_destroy(&pss->hash_ctx_rx, computed);
-					
+					pss->rx_hash_live = 0;
+
 					if (memcmp(computed, pss->hash_rx_expected, HASH_SIZE) == 0) {
 						pss->recv_count++;
 						lwsl_user("Received and verified blob %d/%d\n", 
@@ -210,22 +280,37 @@ callback_wt_test(struct lws *wsi, enum lws_callback_reasons reason,
 					
 					/* Prepare for next blob */
 					pss->recv_pos = 0;
-					if (pss->recv_count < TEST_ITERATIONS) {
-						if (lws_genhash_init(&pss->hash_ctx_rx, LWS_GENHASH_TYPE_SHA256))
-							return -1;
-					}
+					if (pss->recv_count < TEST_ITERATIONS &&
+					    wt_test_hash_rx_start(pss))
+						return -1;
 				}
 			}
 		}
 		break;
 
+	/*
+	 * A stream we initialized may be closed, or have its pss freed and
+	 * replaced under it, by any of these depending on the role it ended up
+	 * in... a QUIC stream that never became a WebTransport one closes as
+	 * h3, and lws_bind_protocol() frees the pss on the unbind reasons even
+	 * when the protocol is unchanged.  We have to release the hash context
+	 * the pss owns on all of them.
+	 */
+
 	case LWS_CALLBACK_CLOSED:
-		if (pss->established) {
-			/* If we haven't finished the hash, destroy it to avoid leaks */
-			if (pss->recv_count < TEST_ITERATIONS && pss->recv_pos < TOTAL_SEND_SIZE) {
-				uint8_t computed[HASH_SIZE];
-				lws_genhash_destroy(&pss->hash_ctx_rx, computed);
-			}
+	case LWS_CALLBACK_CLOSED_HTTP:
+	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
+	case LWS_CALLBACK_CLIENT_HTTP_DROP_PROTOCOL:
+		if (!pss)
+			break;
+
+		/* if we are still holding a hash context, destroy it */
+
+		if (pss->rx_hash_live) {
+			uint8_t computed[HASH_SIZE];
+
+			lws_genhash_destroy(&pss->hash_ctx_rx, computed);
+			pss->rx_hash_live = 0;
 		}
 		break;
 
