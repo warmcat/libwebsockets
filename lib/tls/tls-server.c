@@ -105,7 +105,14 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 		if (vhost->tls.ssl_ctx && !vhost->tls.active_ctx_ref)
 			vhost->tls.active_ctx_ref = lws_tls_ctx_ref_create(vhost, vhost->tls.ssl_ctx);
 
-		lws_tls_server_client_cert_verify_config(vhost);
+		/*
+		 * A backend that cannot enforce the vhost's client-cert
+		 * policy must be able to refuse the vhost here rather than
+		 * let it come up accepting anonymous peers
+		 */
+		if (vhost->tls.ssl_ctx &&
+		    lws_tls_server_client_cert_verify_config(vhost))
+			return -1;
 
 		if (vhost->protocols[0].callback((struct lws *)plwsa,
 			    LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
