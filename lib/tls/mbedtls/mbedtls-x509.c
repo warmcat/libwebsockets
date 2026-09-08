@@ -64,42 +64,81 @@ lws_tls_mbedtls_time_to_unix(mbedtls_x509_time *xtime)
 	memset(&t, 0, sizeof(t));
 
 	t.tm_year = xtime->MBEDTLS_PRIVATE_V30_ONLY(year) - 1900;
-	t.tm_mon = xtime->MBEDTLS_PRIVATE_V30_ONLY(mon) - 1; /* mbedtls months are 1+, tm are 0+ */
-	t.tm_mday = xtime->MBEDTLS_PRIVATE_V30_ONLY(day) - 1; /* mbedtls days are 1+, tm are 0+ */
+	t.tm_mon = xtime->MBEDTLS_PRIVATE_V30_ONLY(mon) - 1; /* mbedtls months are 1+, tm_mon is 0+ */
+	/* tm_mon is 0-based, but tm_mday is 1-based like the cert field */
+	t.tm_mday = xtime->MBEDTLS_PRIVATE_V30_ONLY(day);
 	t.tm_hour = xtime->MBEDTLS_PRIVATE_V30_ONLY(hour);
 	t.tm_min = xtime->MBEDTLS_PRIVATE_V30_ONLY(min);
 	t.tm_sec = xtime->MBEDTLS_PRIVATE_V30_ONLY(sec);
-	t.tm_isdst = -1;
+	t.tm_isdst = 0;
 
+	/*
+	 * X.509 times are UTC, so they must not be reinterpreted in the local
+	 * timezone... mktime() is only a fallback for platforms lacking a UTC
+	 * conversion, and skews the result by the local UTC offset.
+	 */
+
+#if defined(WIN32)
+	return _mkgmtime(&t);
+#else
+#if defined(LWS_HAVE_TIMEGM) && !defined(LWS_PLAT_OPTEE) && \
+    !defined(OPTEE_DEV_KIT)
+	return timegm(&t);
+#else
 	return mktime(&t);
+#endif
+#endif
 }
 
+/*
+ * Return the value of the first RDN in the name list carrying the given OID,
+ * eg, id-at-commonName.  Without the OID filter, this would return every
+ * subject attribute value concatenated, ie, a peer able to get a CA to sign
+ * any other attribute of its choosing could dictate what an app that
+ * authorizes on the "CN" sees.  The other backends return only the CN, so
+ * this also keeps the api meaning the same thing on every backend.
+ */
+
 static int
-lws_tls_mbedtls_get_x509_name(mbedtls_x509_name *name,
-			      union lws_tls_cert_info_results *buf, size_t len)
+lws_tls_mbedtls_get_x509_rdn(mbedtls_x509_name *name, const char *oid,
+			     size_t oid_len,
+			     union lws_tls_cert_info_results *buf, size_t len)
 {
-	int r = -1;
+	size_t n;
 
 	buf->ns.len = 0;
+	buf->ns.name[0] = '\0';
 
 	while (name) {
-		/*
-		if (MBEDTLS_OID_CMP(type, &name->oid)) {
-			name = name->next;
-			continue;
-		}
-*/
-		lws_strnncpy(&buf->ns.name[buf->ns.len],
-			     (const char *)name->MBEDTLS_PRIVATE_V30_ONLY(val).MBEDTLS_PRIVATE_V30_ONLY(p),
-			     name->MBEDTLS_PRIVATE_V30_ONLY(val).MBEDTLS_PRIVATE_V30_ONLY(len),
-			     len - (size_t)buf->ns.len);
-		buf->ns.len = (int)strlen(buf->ns.name);
+		if (name->MBEDTLS_PRIVATE_V30_ONLY(oid).MBEDTLS_PRIVATE_V30_ONLY(len) == oid_len &&
+		    name->MBEDTLS_PRIVATE_V30_ONLY(oid).MBEDTLS_PRIVATE_V30_ONLY(p) &&
+		    !memcmp(name->MBEDTLS_PRIVATE_V30_ONLY(oid).MBEDTLS_PRIVATE_V30_ONLY(p),
+			    oid, oid_len)) {
+			lws_strnncpy(buf->ns.name,
+				     (const char *)name->MBEDTLS_PRIVATE_V30_ONLY(val).MBEDTLS_PRIVATE_V30_ONLY(p),
+				     name->MBEDTLS_PRIVATE_V30_ONLY(val).MBEDTLS_PRIVATE_V30_ONLY(len),
+				     len);
 
-		r = 0;
+			/*
+			 * The value is attacker-chosen and ends up in logs and
+			 * app string handling... let no control characters
+			 * (eg, CR / LF log injection) out of here.
+			 */
+
+			for (n = 0; buf->ns.name[n]; n++)
+				if ((unsigned char)buf->ns.name[n] < 0x20 ||
+				    (unsigned char)buf->ns.name[n] == 0x7f)
+					buf->ns.name[n] = '?';
+
+			buf->ns.len = (int)n;
+
+			return 0;
+		}
+
 		name = name->MBEDTLS_PRIVATE_V30_ONLY(next);
 	}
 
-	return r;
+	return -1;
 }
 
 
@@ -148,10 +187,27 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 		break;
 
 	case LWS_TLS_CERT_INFO_COMMON_NAME:
-		return lws_tls_mbedtls_get_x509_name(&x509->MBEDTLS_PRIVATE_V30_ONLY(subject), buf, len);
+	{
+		static const char cn_oid[] = MBEDTLS_OID_AT_CN;
+
+		return lws_tls_mbedtls_get_x509_rdn(
+				&x509->MBEDTLS_PRIVATE_V30_ONLY(subject),
+				cn_oid, sizeof(cn_oid) - 1, buf, len);
+	}
 
 	case LWS_TLS_CERT_INFO_ISSUER_NAME:
-		return lws_tls_mbedtls_get_x509_name(&x509->MBEDTLS_PRIVATE_V30_ONLY(issuer), buf, len);
+	{
+		/* the other backends give the whole issuer DN for this */
+		int n = mbedtls_x509_dn_gets(buf->ns.name, len,
+					     &x509->MBEDTLS_PRIVATE_V30_ONLY(issuer));
+
+		if (n < 0)
+			return -1;
+
+		buf->ns.len = (int)strlen(buf->ns.name);
+
+		return 0;
+	}
 
 	case LWS_TLS_CERT_INFO_USAGE:
 		buf->usage = x509->MBEDTLS_PRIVATE(key_usage);
@@ -406,8 +462,18 @@ int
 lws_x509_create(struct lws_x509_cert **x509)
 {
 	*x509 = lws_malloc(sizeof(**x509), __func__);
+	if (!*x509)
+		return 1;
 
-	return !(*x509);
+	/*
+	 * The mbedtls_x509_crt is embedded by value and lws_x509_destroy()
+	 * frees it unconditionally... it must be in a valid, empty state even
+	 * if the caller never manages to parse anything into it.
+	 */
+
+	mbedtls_x509_crt_init(&(*x509)->cert);
+
+	return 0;
 }
 
 /*
@@ -981,7 +1047,11 @@ lws_x509_create_cert(struct lws_context *context,
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
 	{
 		uint8_t serial_val[8];
-		mbedtls_ctr_drbg_random(pdrbg, serial_val, sizeof(serial_val));
+
+		/* on failure serial_val[] would be uninitialised stack */
+		if (mbedtls_ctr_drbg_random(pdrbg, serial_val,
+					    sizeof(serial_val)))
+			goto bail;
 		serial_val[0] &= 0x7f; /* Positive */
 		if (mbedtls_x509write_crt_set_serial_raw(&crt, serial_val, sizeof(serial_val)))
 			goto bail;
@@ -989,7 +1059,10 @@ lws_x509_create_cert(struct lws_context *context,
 #else
 	{
 		unsigned char rnd[8];
-		mbedtls_ctr_drbg_random(pdrbg, rnd, sizeof(rnd));
+
+		/* on failure rnd[] would be uninitialised stack */
+		if (mbedtls_ctr_drbg_random(pdrbg, rnd, sizeof(rnd)))
+			goto bail;
 		rnd[0] &= 0x7f; /* Positive */
 		if (mbedtls_mpi_read_binary(&serial, rnd, sizeof(rnd)))
 			goto bail;
@@ -1086,12 +1159,14 @@ lws_x509_create_cert(struct lws_context *context,
 	len = mbedtls_pk_write_key_der(&key, buf, sizeof(buf));
 	if (len < 0) {
 		free(*cert_buf);
+		*cert_buf = NULL; /* we return failure: don't leave it dangling */
 		goto bail;
 	}
 
 	*key_buf = malloc((size_t)len);
 	if (!*key_buf) {
 		free(*cert_buf);
+		*cert_buf = NULL; /* we return failure: don't leave it dangling */
 		goto bail;
 	}
 	memcpy(*key_buf, buf + sizeof(buf) - len, (size_t)len);
