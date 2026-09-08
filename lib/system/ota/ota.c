@@ -247,6 +247,18 @@ update_impossible:
 		}
 	}
 
+	/*
+	 * Never hand image data to the platform writer unless the platform
+	 * actually acknowledged ota_start() (eg, it may have declined for want
+	 * of a free partition)
+	 */
+
+	if (!g->ota_start_done) {
+		lwsl_ss_err(g->ss, "write without successful ota_start");
+
+		goto fail;
+	}
+
 	g->cx->system_ops->ota_ops.ota_queue(g, LWS_OTA_ASYNC_WRITE);
 
 	return;
@@ -362,7 +374,15 @@ ota_rx(void *userobj, const uint8_t *in, size_t len, int flags)
 	size_t alen;
 	int n;
 
-	if (g->state >= LWSOS_FETCHING) {
+	/*
+	 * LWSOS_FAILED sorts above LWSOS_FETCHING in lws_ota_state_t, so it
+	 * must be excluded explicitly here: otherwise rx arriving after we
+	 * gave up (eg, in the ~1ms before the abort timeout fires) is treated
+	 * as an in-progress download and resets the state to LWSOS_WRITING,
+	 * resuming with a NULL inflator or an uninitialized hash context.
+	 */
+
+	if (g->state >= LWSOS_FETCHING && g->state != LWSOS_FAILED) {
 
 		lwsl_info("%s: fetching %u, fl 0x%02X\n", __func__, (unsigned int)len, flags);
 
