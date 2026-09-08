@@ -646,10 +646,17 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	if (p)
 		colon = lws_ptr_diff(p, servername);
 
-	/* Priotity 1: first try exact matches */
+	/*
+	 * Priority 1: first try exact matches.  The name must match to its
+	 * end, not just for the length of the SNI: a client naming "abc" must
+	 * not be handed a vhost called "abcdef".  A vhost that is being
+	 * destroyed can no longer be selected either (its connections would be
+	 * served from a dying config, and refused at bind anyway).
+	 */
 
 	while (vhost) {
-		if (port == vhost->listen_port &&
+		if (port == vhost->listen_port && !vhost->being_destroyed &&
+		    strlen(vhost->name) == (size_t)colon &&
 		    !strncmp(vhost->name, servername, (unsigned int)colon)) {
 			lwsl_info("SNI: Found: %s\n", servername);
 			return vhost;
@@ -668,6 +675,7 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	while (vhost) {
 		int m = (int)strlen(vhost->name);
 		if (port && port == vhost->listen_port &&
+		    !vhost->being_destroyed &&
 		    m <= (colon - 2) &&
 		    servername[colon - m - 1] == '.' &&
 		    !strncmp(vhost->name, servername + colon - m, (unsigned int)m)) {
@@ -682,7 +690,8 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 
 	vhost = lws_vhost_first(context);
 	while (vhost) {
-		if (port && port == vhost->listen_port) {
+		if (port && port == vhost->listen_port &&
+		    !vhost->being_destroyed) {
 			lwsl_info("%s: vhost match to %s based on port %d\n",
 					__func__, vhost->name, port);
 			return vhost;
