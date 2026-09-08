@@ -682,7 +682,7 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 	 * and do not chmod the path at all.
 	 */
 #if !defined(WIN32)
-	om = umask(0077);
+	om = umask(0077); /* NOSONAR: tightening, not loosening, see above */
 #endif
 
 	unlink(info.iface);
