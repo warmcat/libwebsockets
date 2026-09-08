@@ -399,6 +399,20 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	mbedtls_rsa_complete(ctx->ctx);
 #endif
 
+	/*
+	 * mbedtls reads exactly ctx->len bytes from "sig" and has no idea how
+	 * many we actually have... a signature that is not modulus-sized is
+	 * invalid anyway, so refuse it here rather than over-read the caller's
+	 * buffer with whatever the peer sent
+	 */
+
+	if (sig_len != ctx->ctx->MBEDTLS_PRIVATE(len)) {
+		lwsl_notice("%s: sig len %d, modulus %d\n", __func__,
+			    (int)sig_len, (int)ctx->ctx->MBEDTLS_PRIVATE(len));
+
+		return -1;
+	}
+
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
 		n = mbedtls_rsa_rsassa_pkcs1_v15_verify(ctx->ctx,
