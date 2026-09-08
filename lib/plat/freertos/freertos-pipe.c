@@ -96,15 +96,24 @@ lws_plat_pipe_create(struct lws *wsi)
 #endif
 
 	/*
-	 * Query the socket to set context->frt_pipe_si to the full sockaddr it
-	 * wants to be addressed by, including the port that lwip chose.
+	 * Query the socket to find the full sockaddr it wants to be addressed
+	 * by, including the port that lwip chose, and connect() the sending
+	 * socket to it.
 	 *
-	 * Afterwards, we can use this prepared sockaddr stashed in the context
-	 * to trigger the "pipe" without any other preliminaries.
+	 * The sockaddr itself must not be stashed anywhere per-context: this
+	 * is called once per pt and each pt has its own dummy_pipe_fds[], so a
+	 * single context-level copy would just hold whichever pt was created
+	 * last and lws_cancel_service_pt() would then wake the wrong thread.
+	 * connect()ing binds the peer to the socket instead, which is
+	 * inherently per-pt (and also stops any other local socket being able
+	 * to deliver to our wait socket).
 	 */
 
 	sl = sizeof(*si);
 	if (lwip_getsockname(fd[0], (struct sockaddr *)si, &sl))
+		goto bail;
+
+	if (lwip_connect(fd[1], (const struct sockaddr *)si, sizeof(*si)) < 0)
 		goto bail;
 
 #if defined(LWS_WITH_IPV4)
@@ -127,20 +136,16 @@ int
 lws_plat_pipe_signal(struct lws_context *ctx, int tsi)
 {
 	struct lws_context_per_thread *pt = &ctx->pt[tsi];
-#if defined(LWS_WITH_IPV4)
-	struct sockaddr_in *si = &ctx->frt_pipe_si;
-#else
-	struct sockaddr_in6 *si = &ctx->frt_pipe_si;
-#endif
 	lws_sockfd_type *fd = pt->dummy_pipe_fds;
 	uint8_t u = 0;
 	int n;
 
 	/*
-	 * Send a single UDP byte payload to the listening socket fd[0], forcing
-	 * the event loop wait to wake.  fd[1] and context->frt_pipe_si are
-	 * set at context creation and are static, the UDP sendto is supposed to
-	 * be threadsafe for lwip:
+	 * Send a single UDP byte payload to this pt's listening socket fd[0],
+	 * forcing the event loop wait to wake.  fd[1] was connect()ed to it at
+	 * pt creation, so no address is needed here and there is no shared
+	 * context-level state to get confused between pts.  The UDP send is
+	 * supposed to be threadsafe for lwip:
 	 *
 	 * https://lwip.fandom.com/wiki/LwIP_and_multithreading
 	 *
@@ -148,7 +153,7 @@ lws_plat_pipe_signal(struct lws_context *ctx, int tsi)
 	 * (on udp/raw netconn, doing a sendto/recv is currently possible).
 	 */
 
-	n = lwip_sendto(fd[1], &u, 1, 0, (struct sockaddr *)si, sizeof(*si));
+	n = lwip_send(fd[1], &u, 1, 0);
 
 	return n != 1;
 }
