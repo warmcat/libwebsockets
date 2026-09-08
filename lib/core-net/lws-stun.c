@@ -35,7 +35,7 @@ lws_stun_validate_and_reply(struct lws *wsi, uint8_t *in, size_t in_len,
 	uint8_t mi[20], *mi_ptr = NULL;
 	uint32_t fp;
 	struct lws_genhmac_ctx hmac_ctx;
-	size_t i, mi_offset = 0;
+	size_t i, msg_end, mi_offset = 0;
 
 	/*
 	 * 1. Validate incoming STUN Request
@@ -51,13 +51,24 @@ lws_stun_validate_and_reply(struct lws *wsi, uint8_t *in, size_t in_len,
 	if (0x21 != p[4] || 0x12 != p[5] || 0xA4 != p[6] || 0x42 != p[7])
 		return 0; /* bad magic */
 
+	/*
+	 * The attribute walk must be bounded by the message's own declared
+	 * length, otherwise trailing bytes after the end of the STUN message
+	 * get parsed as attributes (a parser differential against conformant
+	 * STUN stacks)
+	 */
+
+	msg_end = (size_t)20 + (size_t)((p[2] << 8) | p[3]);
+	if (msg_end > in_len)
+		return 0;
+
 	/* Parse attributes to find MI and Fingerprint */
 	i = 20;
-	while (i + 4 <= in_len) {
+	while (i + 4 <= msg_end) {
 		attr_type = (uint16_t)((in[i] << 8) | in[i + 1]);
 		attr_len = (uint16_t)((in[i + 2] << 8) | in[i + 3]);
 
-		if ((size_t)(i + 4 + attr_len) > in_len) {
+		if ((size_t)(i + 4 + attr_len) > msg_end) {
 			lwsl_notice("STUN attribute truncated\n");
 			break;
 		}
@@ -67,17 +78,40 @@ lws_stun_validate_and_reply(struct lws *wsi, uint8_t *in, size_t in_len,
 				return 0;
 			mi_ptr = &in[i + 4];
 			mi_offset = i;
+			/*
+			 * RFC 5389 15.4: MESSAGE-INTEGRITY is the last
+			 * attribute bar FINGERPRINT and everything after it is
+			 * ignored... only honour the first one, so a second
+			 * one can't move the HMAC coverage
+			 */
+			break;
 		}
 
 		i += 4 + attr_len;
-		i = (i + 3) & ~3U; /* Align to 4 bytes */
+		i = (i + 3) & ~(size_t)3; /* Align to 4 bytes */
 	}
 
 	/* Verify the REQUEST's Message Integrity if password provided */
-	if (password && mi_ptr) {
-		uint8_t req_mi[20];
-		uint8_t saved_l1 = in[2], saved_l2 = in[3];
-		uint16_t adj_len = (uint16_t)(mi_offset + 24 - 20);
+	if (password) {
+		uint8_t req_mi[20], saved_l1, saved_l2;
+		uint16_t adj_len;
+		int bad;
+
+		/*
+		 * RFC 5389 10.1.2: when we have credentials, a request that
+		 * simply omits MESSAGE-INTEGRITY must never be answered with a
+		 * success response... it would both bypass the ICE short-term
+		 * credential check and act as an HMAC oracle on our password
+		 */
+
+		if (!mi_ptr) {
+			lwsl_notice("STUN Request with no MESSAGE-INTEGRITY\n");
+			return 0;
+		}
+
+		saved_l1 = in[2];
+		saved_l2 = in[3];
+		adj_len = (uint16_t)(mi_offset + 24 - 20);
 
 		in[2] = (uint8_t)(adj_len >> 8);
 		in[3] = (uint8_t)(adj_len & 0xff);
@@ -87,19 +121,33 @@ lws_stun_validate_and_reply(struct lws *wsi, uint8_t *in, size_t in_len,
 		 * Ideally we should take password_len as arg.
 		 * Assuming NULL terminated string for now.
 		 */
-		if (lws_genhmac_init(&hmac_ctx, LWS_GENHMAC_TYPE_SHA1, (uint8_t *)password, strlen(password)) ||
-		    lws_genhmac_update(&hmac_ctx, in, mi_offset) ||
-		    lws_genhmac_destroy(&hmac_ctx, req_mi)) {
-			lwsl_err("Failed to compute request HMAC\n");
-			/* We proceed, but maybe we should fail? */
-		} else {
-			if (memcmp(req_mi, mi_ptr, 20)) {
-				lwsl_err("STUN Request MESSAGE-INTEGRITY MISMATCH!\n");
-				/* RFC: If MI fails, discard silently */
-				return 0;
-			}
+		if (lws_genhmac_init(&hmac_ctx, LWS_GENHMAC_TYPE_SHA1,
+				     (uint8_t *)password, strlen(password)))
+			bad = 1;
+		else {
+			if (lws_genhmac_update(&hmac_ctx, in, mi_offset)) {
+				lws_genhmac_destroy(&hmac_ctx, NULL);
+				bad = 1;
+			} else
+				/* the tag is secret-derived, compare it in
+				 * constant time */
+				bad = lws_genhmac_destroy(&hmac_ctx, req_mi) ||
+				      lws_timingsafe_bcmp(req_mi, mi_ptr, 20);
 		}
-		in[2] = saved_l1; in[3] = saved_l2;
+
+		/* the buffer is the caller's, don't leave it mutated */
+		in[2] = saved_l1;
+		in[3] = saved_l2;
+
+		if (bad) {
+			/*
+			 * Fail closed... an HMAC we were unable to compute is
+			 * not a pass.  RFC: if MI fails, discard silently
+			 */
+			lwsl_notice("STUN Request MESSAGE-INTEGRITY fail\n");
+
+			return 0;
+		}
 	}
 
 
@@ -145,9 +193,20 @@ lws_stun_validate_and_reply(struct lws *wsi, uint8_t *in, size_t in_len,
 		out[2] = 0;
 		out[3] = (uint8_t)(mi_offset + 24 - 20); /* Length up to start of MI attr */
 
-		if (lws_genhmac_init(&hmac_ctx, LWS_GENHMAC_TYPE_SHA1, (uint8_t *)password, strlen(password)) ||
-		    lws_genhmac_update(&hmac_ctx, out, mi_offset) ||
-		    lws_genhmac_destroy(&hmac_ctx, mi)) {
+		if (lws_genhmac_init(&hmac_ctx, LWS_GENHMAC_TYPE_SHA1,
+				     (uint8_t *)password, strlen(password))) {
+			lwsl_err("Failed to compute response HMAC\n");
+			return 0;
+		}
+
+		if (lws_genhmac_update(&hmac_ctx, out, mi_offset)) {
+			/* don't leak the hmac ctx on the failure path */
+			lws_genhmac_destroy(&hmac_ctx, NULL);
+			lwsl_err("Failed to compute response HMAC\n");
+			return 0;
+		}
+
+		if (lws_genhmac_destroy(&hmac_ctx, mi)) {
 			lwsl_err("Failed to compute response HMAC\n");
 			return 0;
 		}
