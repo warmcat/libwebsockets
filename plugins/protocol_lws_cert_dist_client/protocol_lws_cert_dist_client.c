@@ -1061,6 +1061,27 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			lws_sul_cancel(&conn->sul);
 			lws_sul_cancel(&conn->sul_timeout);
+
+			/*
+			 * The client wsi holds conn as its opaque user data,
+			 * and both it and the vhost we created for it outlive
+			 * this callback.  Detach the wsi and take the vhost
+			 * down (asynchronously, if wsi are still bound to it)
+			 * before conn goes away, or the close or connection
+			 * error callback re-arms conn->sul inside freed
+			 * memory
+			 */
+			if (conn->wsi) {
+				lws_set_opaque_user_data(conn->wsi, NULL);
+				conn->wsi = NULL;
+			}
+			if (conn->vh) {
+				struct lws_vhost *cvh = conn->vh;
+
+				conn->vh = NULL;
+				lws_vhost_destroy(cvh);
+			}
+
 			lws_dll2_remove(&conn->list);
 			free(conn);
 		} lws_end_foreach_dll_safe(p, tp);
