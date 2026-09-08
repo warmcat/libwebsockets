@@ -252,68 +252,59 @@ init_failed:
 static void
 crash_handler(int signum)
 {
+	static const char msg[] = "FATAL: lwsws caught a fatal signal, "
+				  "backtrace follows\n";
 	void *array[20];
 	int size;
-	char **strings;
 
-	lwsl_err("FATAL: Caught signal %d, producing backtrace:\n", signum);
-
-	size = backtrace(array, 20);
-	strings = backtrace_symbols(array, size);
-
-	if (strings != NULL) {
-		for (int i = 0; i < size; i++)
-			lwsl_err("  %s\n", strings[i]);
-		free(strings);
-	}
+	/*
+	 * We typically get here because the heap is corrupt, which means the
+	 * allocator lock may be held and its metadata invalid.  So nothing here
+	 * may allocate or use stdio or the lws logs: backtrace_symbols_fd()
+	 * does neither, unlike backtrace_symbols().  Restore the default
+	 * disposition first, so a fault in here just kills us.
+	 */
 
 	signal(signum, SIG_DFL);
-	abort();
+
+	if (write(2, msg, sizeof(msg) - 1)) { }
+
+	size = backtrace(array, (int)LWS_ARRAY_SIZE(array));
+	backtrace_symbols_fd(array, size, 2);
+
+	raise(signum);
 }
 #endif
 
 /*
- * root-level sighup handler
+ * root-level signal handler
+ *
+ * Async-signal-safety: this may only set flags, everything else (logging,
+ * sleeping, signalling and reaping the children) is done from the root loop
+ * below, which polls these.
  */
+
+#ifndef _WIN32
+static volatile sig_atomic_t sig_reload, sig_terminate;
 
 static void
 reload_handler(int signum)
 {
-#ifndef _WIN32
-	int m;
-
 	switch (signum) {
-
 	case SIGHUP: /* reload */
-		fprintf(stderr, "root process receives reload\n");
-		if (!do_reload) {
-			fprintf(stderr, "passing HUP to child processes\n");
-			for (m = 0; m < (int)LWS_ARRAY_SIZE(pids); m++)
-				if (pids[m])
-					kill(pids[m], SIGHUP);
-			sleep(1);
-		}
-		do_reload = 1;
+		sig_reload = 1;
 		break;
 	case SIGINT:
 	case SIGTERM:
-	case SIGKILL:
-		fprintf(stderr, "parent process waiting 2s...\n");
-		sleep(2); /* give children a chance to deal with the signal */
-		fprintf(stderr, "killing service processes\n");
-		for (m = 0; m < (int)LWS_ARRAY_SIZE(pids); m++)
-			if (pids[m])
-				kill(pids[m], SIGTERM);
-		exit(0);
+		sig_terminate = 1;
+		break;
 	}
-#else
-	// kill() implementation needed for WIN32
-#endif
 }
+#endif
 
 int main(int argc, char **argv)
 {
-	int n = 0, budget = 100, debug_level = 1024 + 7;
+	int n = 0, budget = 100, debug_level = 1024 + 7, debug_given = 0, ret = 0;
 #ifndef _WIN32
 	int m;
 	int status;//, syslog_options = LOG_PID | LOG_PERROR;
@@ -333,6 +324,7 @@ int main(int argc, char **argv)
 		switch (n) {
 		case 'd':
 			debug_level = atoi(optarg);
+			debug_given = 1;
 			break;
 		case 'n':
 			default_plugin_path = 0;
@@ -377,8 +369,23 @@ int main(int argc, char **argv)
 				if (do_reload) {
 					do_reload = 0;
 					n = fork();
-					if (n == 0) /* new */
+					if (n == 0) {
+						/*
+						 * We are the new worker: until
+						 * libuv installs its own
+						 * handlers below, we would
+						 * otherwise still act as the
+						 * root supervisor and signal
+						 * our siblings.  Go back to the
+						 * default dispositions and
+						 * forget the inherited pids.
+						 */
+						signal(SIGHUP, SIG_DFL);
+						signal(SIGINT, SIG_DFL);
+						signal(SIGTERM, SIG_DFL);
+						memset(pids, 0, sizeof(pids));
 						break;
+					}
 					/* old */
 					if (n > 0)
 						for (m = 0; m < (int)LWS_ARRAY_SIZE(pids); m++)
@@ -388,7 +395,36 @@ int main(int argc, char **argv)
 							}
 				}
 #ifndef _WIN32
-				sleep(2);
+				sleep(2); /* interrupted by our signals */
+
+				if (sig_terminate) {
+					fprintf(stderr, "parent process "
+							"waiting 2s...\n");
+					/* let the children see it first */
+					sleep(2);
+					fprintf(stderr, "killing service "
+							"processes\n");
+					for (m = 0; m < (int)LWS_ARRAY_SIZE(pids); m++)
+						if (pids[m])
+							kill(pids[m], SIGTERM);
+
+					return 0;
+				}
+
+				if (sig_reload) {
+					sig_reload = 0;
+					fprintf(stderr, "root process receives "
+							"reload\n");
+					if (!do_reload) {
+						fprintf(stderr, "passing HUP to "
+							"child processes\n");
+						for (m = 0; m < (int)LWS_ARRAY_SIZE(pids); m++)
+							if (pids[m])
+								kill(pids[m], SIGHUP);
+						sleep(1);
+					}
+					do_reload = 1;
+				}
 
 				n = waitpid(-1, &status, WNOHANG);
 				if (n > 0) {
@@ -420,12 +456,22 @@ int main(int argc, char **argv)
 	lwsl_notice("(C) Copyright 2010-2026 Andy Green <andy@warmcat.com>\n");
 
 #if defined(__linux__) || defined(__APPLE__)
-	signal(SIGSEGV, crash_handler);
-	signal(SIGABRT, crash_handler);
-	signal(SIGBUS, crash_handler);
-	signal(SIGILL, crash_handler);
-	signal(SIGFPE, crash_handler);
+	/*
+	 * Only when the operator explicitly asked for debug: by default we
+	 * prefer the default action (prompt death and a core dump), since the
+	 * resolved code addresses in a backtrace are an ASLR / text layout
+	 * disclosure to anyone who can read our stderr or the journal
+	 */
+
+	if (debug_given) {
+		signal(SIGSEGV, crash_handler);
+		signal(SIGABRT, crash_handler);
+		signal(SIGBUS, crash_handler);
+		signal(SIGILL, crash_handler);
+		signal(SIGFPE, crash_handler);
+	}
 #endif
+	(void)debug_given;
 
 #if (UV_VERSION_MAJOR > 0) // Travis...
 	uv_loop_init(&loop);
@@ -497,5 +543,5 @@ int main(int argc, char **argv)
 
 	context = NULL;
 
-	return 0;
+	return ret;
 }
