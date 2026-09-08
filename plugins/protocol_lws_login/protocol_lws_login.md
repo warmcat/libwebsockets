@@ -262,6 +262,24 @@ verdict, the `LWS_CALLBACK_USER + 1` bypass API, and the `LWS_CALLBACK_HTTP`
 path alike.  A gate that only tests the handle for NULL turns any once-valid
 `auth_session` value into a session that never ends.
 
+### `login-assets/` is a sample, not a served page
+
+`login-assets/` (`index.html`, `login.css`, `login.js`) is a static sample
+login page.  `lws-login` never serves it: an unauthenticated request is
+bounced to the auth server, which serves its own form, and the status widget
+(`lws-login.js` / `lws-login.css`) is generated in C.  The sample is only
+`install`ed, for an operator who wants a starting point.
+
+If you do mount it, mount it on the auth server's own origin: its form posts
+to `/api/login`, which is the auth server's endpoint.  A form with no `action`
+posts to the URL of the page it is on, and a form with no `method` submits by
+`GET` -- which for a password form puts the credentials in the address bar,
+the access log, the history and the `Referer`.  Its `?error=` handling
+deliberately maps a fixed set of error *codes* to fixed strings rather than
+rendering the urlarg: the sink is `textContent` so markup is inert, but
+arbitrary attacker-supplied text in the error box of a real login form is a
+phishing surface on its own.
+
 Two known gaps remain, both deliberate for now:
 
 - `/.lws-login-logout` is a state-changing `GET` with no CSRF token, so any

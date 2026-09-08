@@ -10,7 +10,16 @@
     <div class="login-container">
         <h1>Login Required</h1>
         <p id="error-msg" class="error"></p>
-        <form id="login-form" method="POST">
+        <!--
+          Sample login page.  lws-login itself never serves this: it
+          bounces unauthenticated requests to the auth server, which
+          serves its own form.  If you do mount this page, mount it on
+          the auth server's own origin, because the action below is the
+          auth server's login endpoint - a form with no action submits
+          to the URL of the page it is on, which for a password form
+          means the credentials end up wherever that resolves to.
+        -->
+        <form id="login-form" method="POST" action="/api/login">
             <div class="form-group">
                 <label for="username">Username</label>
                 <input type="text" id="username" name="username" required autocomplete="username">
