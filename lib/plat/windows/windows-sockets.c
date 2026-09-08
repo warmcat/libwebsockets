@@ -253,8 +253,17 @@ lws_interface_to_sa(int ipv6,
 
 	if (address == INADDR_NONE) {
 		struct hostent *entry = gethostbyname(ifname);
-		if (entry)
-			address = ((struct in_addr *)entry->h_addr_list[0])->s_addr;
+
+		/*
+		 * A name can resolve without having any address of the family
+		 * we asked about, in which case h_addr_list[0] is NULL
+		 */
+
+		if (entry && entry->h_addrtype == AF_INET &&
+		    entry->h_length == (int)sizeof(struct in_addr) &&
+		    entry->h_addr_list && entry->h_addr_list[0])
+			address = ((struct in_addr *)
+					entry->h_addr_list[0])->s_addr;
 	}
 
 	if (address == INADDR_NONE)
@@ -543,12 +552,59 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, socklen_t cnt)
 	return ok ? dst : NULL;
 }
 
+/*
+ * WSAStringToAddressW() is not inet_pton()... it implements the much looser
+ * Winsock address-string grammar, so it also accepts "1.2.3.4:80",
+ * "[::1]:80" and "fe80::1%3", filling in a port / scope that we then throw
+ * away and returning success.  lws uses lws_plat_inet_pton() as the "is this
+ * a literal numeric address?" oracle, so it has to answer the same as POSIX
+ * inet_pton() does on the other platforms.
+ */
+
+static int
+lws_plat_pton_strict(int af, const char *src)
+{
+	int dots = 0, field = 0;
+	const char *p = src;
+
+	if (!*src)
+		return 0;
+
+	while (*p) {
+		if (af == AF_INET) {
+			if (*p == '.') {
+				if (!field || ++dots > 3)
+					return 0;
+				field = 0;
+			} else {
+				if (*p < '0' || *p > '9' || ++field > 3)
+					return 0;
+			}
+		} else
+			if (*p != ':' && *p != '.' &&
+			    !(*p >= '0' && *p <= '9') &&
+			    !(*p >= 'a' && *p <= 'f') &&
+			    !(*p >= 'A' && *p <= 'F'))
+				return 0;
+
+		p++;
+	}
+
+	if (af == AF_INET && (dots != 3 || !field))
+		return 0;
+
+	return 1;
+}
+
 int
 lws_plat_inet_pton(int af, const char *src, void *dst)
 {
 	WCHAR *buffer;
 	size_t bufferlen = strlen(src) + 1;
 	BOOL ok = FALSE;
+
+	if (!lws_plat_pton_strict(af, src))
+		return 0;
 
 	buffer = lws_malloc(bufferlen * 2, "inet_pton");
 	if (!buffer) {
