@@ -433,6 +433,15 @@ lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 		return -1;
 
 	/*
+	 * We write exactly keybytes of R and then keybytes of S into "sig"...
+	 * confirm the caller really gave us that much, the same way the verify
+	 * twin below does (RFC7518 3.4 fixes the signature at 2 x keybytes).
+	 */
+
+	if (keybytes <= 0 || sig_len < (size_t)keybytes * 2)
+		return -1;
+
+	/*
 	 * The ECDSA P-256 SHA-256 digital signature is generated as follows:
 	 *
 	 * 1.  Generate a digital signature of the JWS Signing Input using ECDSA

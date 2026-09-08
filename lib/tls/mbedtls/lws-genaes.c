@@ -150,6 +150,19 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 			lwsl_notice("%s: mbedtls_gcm_finish: -0x%x\n",
 				    __func__, -n);
 		if (tag && ctx->op == MBEDTLS_AES_DECRYPT && !n) {
+			/*
+			 * "tag" is tlen bytes and holds the tag mbedtls just
+			 * computed; ctx->tag is ctx->taglen bytes and holds
+			 * the one the peer sent.  The two lengths arrive from
+			 * different calls, so a mismatch means the caller is
+			 * confused about the tag size... it can only be
+			 * treated as a failed authentication.
+			 */
+			if (tlen != (size_t)ctx->taglen) {
+				lwsl_err("%s: tag len %d, expected %d\n",
+					 __func__, (int)tlen, ctx->taglen);
+				n = -1;
+			} else
 			if (lws_timingsafe_bcmp(ctx->tag, tag, (unsigned int)ctx->taglen)) {
 				lwsl_err("%s: lws_genaes_crypt tag "
 					 "mismatch (bad first)\n",
@@ -400,6 +413,20 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 #endif
 	case LWS_GAESM_GCM:
 		if (!ctx->underway) {
+			/*
+			 * ctx->tag is a fixed 16 bytes... the tag length is a
+			 * per-call argument, so it has to be bounded against
+			 * that here, otherwise a caller asking for a longer
+			 * (or negative, ie ~4GB unsigned) tag overflows it
+			 */
+
+			if (taglen < 4 || (size_t)taglen > sizeof(ctx->tag)) {
+				lwsl_err("%s: bad taglen %d\n", __func__,
+					 taglen);
+
+				return -1;
+			}
+
 			ctx->underway = 1;
 
 			memcpy(ctx->tag, stream_block_16, (unsigned int)taglen);
@@ -624,10 +651,17 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			}
 			memcpy(padin, in, len);
 			len += _write_pkcs7_pad((uint8_t *)padin, (int)len);
-			status = psa_cipher_update(&ctx->cipher_ctx, padin, len, out, len + 16, &olen);
+			/*
+			 * The lws_genaes_crypt() contract is that "out" holds
+			 * as many bytes as we pass in (the PKCS#7 padding is
+			 * already accounted for in len)... we must not tell
+			 * PSA there is more room than that, it is the only
+			 * bound it can apply.
+			 */
+			status = psa_cipher_update(&ctx->cipher_ctx, padin, len, out, len, &olen);
 			lws_free(padin);
 		} else {
-			status = psa_cipher_update(&ctx->cipher_ctx, in, len, out, len + 16, &olen);
+			status = psa_cipher_update(&ctx->cipher_ctx, in, len, out, len, &olen);
 		}
 
 		if (status != PSA_SUCCESS) {
@@ -635,8 +669,12 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			return -1;
 		}
 
-		/* finish */
-		status = psa_cipher_finish(&ctx->cipher_ctx, out + olen, 16, &olen);
+		/*
+		 * All the algorithms we configure here are unpadded, so finish
+		 * emits nothing... there is no room left in "out" for it to
+		 * emit into either.
+		 */
+		status = psa_cipher_finish(&ctx->cipher_ctx, out + olen, 0, &olen);
 		if (status != PSA_SUCCESS) return -1;
 		break;
 
@@ -662,7 +700,8 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			break;
 		}
 
-		status = psa_aead_update(&ctx->aead_ctx, in, len, out, len + 16, &olen);
+		/* as above, "out" is only len bytes */
+		status = psa_aead_update(&ctx->aead_ctx, in, len, out, len, &olen);
 		if (status != PSA_SUCCESS) return -1;
 		break;
 	}
