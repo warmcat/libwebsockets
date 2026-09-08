@@ -165,6 +165,20 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 		if (!vh->being_destroyed && wsi->tls.ssl &&
 		    vh->tls.ssl_ctx == lws_tls_ctx_from_wsi(wsi)) {
 			lwsl_info("setting wsi to vh %s\n", vh->name);
+			/*
+			 * lws_vhost_bind_wsi() only ever increments the new
+			 * vhost's count_bound_wsi, so we have to release the
+			 * count we hold on the accepting vhost first...
+			 * otherwise a peer choosing an SNI name other than the
+			 * listen vhost's leaks a count on it for every
+			 * connection, and that vhost can then never be
+			 * destroyed.
+			 */
+			if (wsi->a.vhost != vh) {
+				lws_context_lock(context, __func__);
+				__lws_vhost_unbind_wsi(wsi);
+				lws_context_unlock(context);
+			}
 			lws_vhost_bind_wsi(vh, wsi);
 			break;
 		}
@@ -243,6 +257,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 		lws_pt_lock(pt, __func__);
 		if (__insert_wsi_socket_into_fds(context, wsi)) {
 			lwsl_err("%s: failed to insert into fds\n", __func__);
+			/* we must not leave the pt locked on the error path */
+			lws_pt_unlock(pt);
 			goto fail;
 		}
 		lws_pt_unlock(pt);
@@ -315,6 +331,24 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 				 * is enabled and normally mandatory
 				 */
 				wsi->tls.ssl = NULL;
+
+				/*
+				 * The backend lws_ssl_close() paths that return
+				 * the tls restriction slot and the vhost
+				 * SSL_CTX ref are all gated on wsi->tls.ssl,
+				 * which we just cleared.  So we have to hand
+				 * both back here, or an unauthenticated peer
+				 * can permanently exhaust
+				 * .simultaneous_ssl_restriction (which also
+				 * gates accepts) and pin the vhost's SSL_CTX,
+				 * with one plaintext byte per connection.
+				 */
+
+				lws_tls_restrict_return(wsi);
+				if (wsi->tls.ctx_ref) {
+					lws_tls_ctx_ref_unref(wsi->tls.ctx_ref);
+					wsi->tls.ctx_ref = NULL;
+				}
 
 				if (lws_check_opt(wsi->a.vhost->options,
 				    LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS)) {

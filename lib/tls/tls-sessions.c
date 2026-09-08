@@ -47,6 +47,27 @@ lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len)
 		return 1;
 
 #if defined(LWS_WITH_CLIENT)
+	/*
+	 * The tag is only vhost name + host + port... it deliberately cannot
+	 * carry the per-connection LCCSCF_ flags, since the same tag has to be
+	 * computable by lws_tls_session_tag_discrete() from the dump / load
+	 * apis, which only know those three things.
+	 *
+	 * So a session established by a connection that opted out of some or
+	 * all peer validation must not go in the cache at all: on resumption
+	 * the server sends no Certificate, the verify callback and the
+	 * hostname check never run, and the cached (forced) X509_V_OK is what
+	 * the next connection sees... silently disabling validation for a
+	 * connection that did not ask for that.
+	 */
+
+	if (wsi->tls.use_ssl & (LCCSCF_ALLOW_SELFSIGNED |
+				LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK |
+				LCCSCF_ALLOW_EXPIRED |
+				LCCSCF_ALLOW_INSECURE))
+		return 1;
+
+
 	if (wsi->stash) {
 		host = wsi->stash->cis[CIS_HOST];
 		if (!host)

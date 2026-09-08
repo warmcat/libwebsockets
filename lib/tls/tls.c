@@ -512,6 +512,12 @@ int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 	}
 
 	*amount = s;
+	/*
+	 * The allocation is s + 1... keep the spare byte NUL so that parsers
+	 * that do fixed-length compares (eg, strncmp() for "-----") or use
+	 * strstr() on the result cannot read past the end of the file data.
+	 */
+	(*buf)[s] = '\0';
 
 bail:
 	if (f)
@@ -538,8 +544,8 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 			      const char *inbuf, lws_filepos_t inlen,
 			      uint8_t **buf, lws_filepos_t *amount)
 {
+	lws_filepos_t len, flen = 0;
 	uint8_t *pem = NULL, *p, *end;
-	lws_filepos_t len;
 	uint8_t *q;
 	int n;
 
@@ -547,6 +553,7 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 		n = alloc_file(context, filename, (uint8_t **)&pem, &len);
 		if (n)
 			return n;
+		flen = len;
 	} else {
 		pem = (uint8_t *)inbuf;
 		len = inlen;
@@ -558,9 +565,26 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 	p = pem;
 	end = p + len;
 
-	if (strncmp((char *)p, "-----", 5)) {
+	/* the compare below reads 5 bytes, so we must have at least that */
+
+	if (len < 5 || strncmp((char *)p, "-----", 5)) {
 
 		/* take it as being already DER */
+
+		if (filename) {
+			/*
+			 * It came from a file, so the DER is the file buffer we
+			 * already allocated... hand that over.  Using the
+			 * inbuf / inlen memory args here instead would both
+			 * leak the file buffer and produce a zero-length DER,
+			 * since callers that pass a filename pass NULL / 0 for
+			 * those.
+			 */
+			*buf = pem;
+			*amount = flen;
+
+			return 0;
+		}
 
 		pem = lws_malloc((size_t)inlen, "alloc_der");
 		if (!pem)
@@ -608,11 +632,18 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 
 	/* find the end of the base64 block */
 
+	/*
+	 * The compare consumes 8 bytes, so the last position we may test at
+	 * is end - 8... testing up to end - 1 would read up to 7 bytes past
+	 * the buffer for input whose tail happens to be a prefix of the
+	 * pattern.
+	 */
+
 	q = p;
-	while (q < end && strncmp((const char *)q, "-----END", 8))
+	while (q + 8 <= end && strncmp((const char *)q, "-----END", 8))
 		q++;
 
-	if (q == end)
+	if (q + 8 > end)
 		goto bail;
 
 	/* we can't write into the input buffer for mem, since it may be in RO
@@ -647,6 +678,27 @@ bail:
 }
 
 #if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_CLIENT)
+
+/*
+ * strstr() confined to [p, end)... ca_mem is described only by a pointer and a
+ * length and is not required to be NUL-terminated (the JIT Trust path hands us
+ * an exact-sized heap DER), so we must not scan for a NUL to find the end.
+ */
+
+static const char *
+lws_tls_strnstr(const char *p, const char *end, const char *needle)
+{
+	size_t nl = strlen(needle);
+
+	while (p + nl <= end) {
+		if (!memcmp(p, needle, nl))
+			return p;
+		p++;
+	}
+
+	return NULL;
+}
+
 int
 lws_tls_client_vhost_ca_mem_parse(struct lws_vhost *vh, const void *ca_mem,
 				  unsigned int ca_mem_len)
@@ -662,20 +714,20 @@ lws_tls_client_vhost_ca_mem_parse(struct lws_vhost *vh, const void *ca_mem,
 		return 0;
 
 	/* If it doesn't start with or contain PEM header, assume raw DER */
-	b = strstr(p, "-----BEGIN");
-	if (!b || b >= end) {
+	b = lws_tls_strnstr(p, end, "-----BEGIN");
+	if (!b) {
 		return lws_tls_client_vhost_extra_cert_mem(vh, (const uint8_t *)ca_mem,
 							   (size_t)ca_mem_len);
 	}
 
 	/* It's PEM - loop over all certificate blocks in the buffer */
 	while (p < end) {
-		b = strstr(p, "-----BEGIN");
-		if (!b || b >= end)
+		b = lws_tls_strnstr(p, end, "-----BEGIN");
+		if (!b)
 			break;
 
-		e = strstr(b, "-----END");
-		if (!e || e >= end)
+		e = lws_tls_strnstr(b, end, "-----END");
+		if (!e)
 			break;
 
 		/* Advance past "-----END ... -----\n" line */
@@ -1007,6 +1059,15 @@ lws_tls_find_versioned_certs(const char *filepath, char *dirpath, size_t dirpath
 		p = strrchr(filepath, '\\');
 #endif
 	if (!p)
+		return;
+
+	/*
+	 * lws_strncpy()'s length arg is how much it may write into the
+	 * destination, so it has to be bounded by the destination and not by
+	 * the (config-supplied, unbounded) path length
+	 */
+
+	if (lws_ptr_diff_size_t(p, filepath) + 2 > dirpath_len)
 		return;
 
 	lws_strncpy(dirpath, filepath, lws_ptr_diff_size_t(p, filepath) + 2);

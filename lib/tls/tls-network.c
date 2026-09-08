@@ -298,6 +298,14 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 {
 	struct lws wsi;
 
+	/*
+	 * This is handed to lws_tls_server_certs_load() and from there to the
+	 * app's protocol[0] callback... every member other than the two we set
+	 * below would otherwise be stack garbage for the callback to trip over
+	 */
+
+	memset(&wsi, 0, sizeof(wsi));
+
 	wsi.a.context = context;
 
 	lws_start_foreach_vhost(v, context) {
