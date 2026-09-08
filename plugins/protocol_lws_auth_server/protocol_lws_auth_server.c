@@ -1192,6 +1192,169 @@ auth_check_csrf(struct lws *wsi, struct per_vhost_data__auth_server *vhd, struct
 }
 
 /*
+ * Return the caller's auth_csrf token in csrf (which must be at least 33
+ * bytes), minting a fresh one when the caller presented none.
+ *
+ * A presented value is only adopted if it has the exact 32-lowercase-hex
+ * shape we are the only setter of: the token is composed into a JSON
+ * string (/api/status) and into an HTML attribute (/api/device), and a
+ * cookie planted by, say, a sibling host must not be able to break out
+ * of either context.  Anything else is treated as "no token": the caller
+ * is given a fresh one, which also overwrites the bogus cookie.
+ *
+ * Returns 1 if the caller already holds this token (no Set-Cookie
+ * needed), 0 if it was just minted and must be handed out.
+ */
+static int
+auth_csrf_get_or_make(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
+		      char *csrf, size_t csrf_size)
+{
+	size_t csrf_len = csrf_size;
+	uint8_t rnd[16];
+	int n;
+
+	csrf[0] = '\0';
+
+	if (!lws_http_cookie_get(wsi, "auth_csrf", csrf, &csrf_len) &&
+	    strlen(csrf) == 32) {
+		for (n = 0; n < 32; n++)
+			if (!((csrf[n] >= '0' && csrf[n] <= '9') ||
+			      (csrf[n] >= 'a' && csrf[n] <= 'f')))
+				break;
+
+		if (n == 32)
+			return 1;
+
+		lwsl_wsi_notice(wsi, "discarding malformed auth_csrf cookie");
+	}
+
+	lws_get_random(vhd->context, rnd, sizeof(rnd));
+	lws_hex_from_byte_array(rnd, sizeof(rnd), csrf, csrf_size);
+
+	return 0;
+}
+
+/*
+ * Delete the auth_sessions row for EVERY auth_refresh_session value the
+ * browser presented: jars can legitimately hold several same-named values
+ * (host-only alongside Domain-scoped), and deleting only the
+ * first-or-nothing left live rows behind -- which then keep "silent
+ * renewal" half-alive on other hosts after this logout.
+ *
+ * Returns the number of rows deleted; *seen, if given, gets the number of
+ * cookie values presented.
+ */
+static int
+auth_server_destroy_refresh_sessions(struct lws *wsi,
+				     struct per_vhost_data__auth_server *vhd,
+				     int *seen)
+{
+	char refresh_tk[128];
+	int n, deleted = 0, saw = 0;
+
+	for (n = 0; n < 16; n++) {
+		size_t rl = sizeof(refresh_tk);
+		sqlite3_stmt *stmt;
+		int m;
+
+		m = lws_http_cookie_get_nth(wsi, "auth_refresh_session", n,
+					    refresh_tk, &rl);
+		if (m) {
+			/*
+			 * 2 is "too large for the buffer": skip it and look
+			 * behind it, or one planted oversized value would
+			 * hide every real one and logout would delete no
+			 * rows at all.
+			 */
+			if (m != 2)
+				break;
+			continue;
+		}
+		saw++;
+		if (!refresh_tk[0])
+			continue;
+		if (sqlite3_prepare_v2(vhd->db,
+				       "DELETE FROM auth_sessions "
+				       "WHERE session_id = ?",
+				       -1, &stmt, NULL) == SQLITE_OK) {
+			sqlite3_bind_text(stmt, 1, refresh_tk, -1,
+					  SQLITE_TRANSIENT);
+			sqlite3_step(stmt);
+			sqlite3_finalize(stmt);
+			deleted++;
+		} else
+			lwsl_wsi_err(wsi, "DB prepare failed: %s",
+				     sqlite3_errmsg(vhd->db));
+	}
+
+	if (seen)
+		*seen = saw;
+
+	return deleted;
+}
+
+/*
+ * Compose the six clearing Set-Cookie headers a session teardown emits:
+ * the session JWT, auth_csrf and auth_refresh_session, each in its
+ * Domain-scoped and its host-only form (a jar can hold both).  Entries
+ * that would not fit come back empty and must be skipped by the caller,
+ * see auth_server_clear_cookie().
+ */
+static void
+auth_server_clear_session_cookies(struct per_vhost_data__auth_server *vhd,
+				  char hdr[AUTH_SERVER_CLEAR_COOKIES]
+					  [AUTH_SERVER_CLEAR_COOKIE_SZ])
+{
+	char exp[64];
+	time_t t = 0;
+#if defined(WIN32) || defined(_WIN32)
+	struct tm tmp;
+	struct tm *tm = gmtime_s(&tmp, &t) == 0 ? &tmp : NULL;
+#else
+	struct tm tmp;
+	struct tm *tm = gmtime_r(&t, &tmp);
+#endif
+
+	if (tm)
+		strftime(exp, sizeof(exp), "%a, %d %b %Y %H:%M:%S GMT", tm);
+	else
+		exp[0] = '\0';
+
+	auth_server_clear_cookie(hdr[0], vhd->cookie_name,
+				 vhd->cookie_domain, exp);
+	auth_server_clear_cookie(hdr[1], vhd->cookie_name, NULL, exp);
+	auth_server_clear_cookie(hdr[2], "auth_csrf",
+				 vhd->cookie_domain, exp);
+	auth_server_clear_cookie(hdr[3], "auth_csrf", NULL, exp);
+	auth_server_clear_cookie(hdr[4], "auth_refresh_session",
+				 vhd->cookie_domain, exp);
+	auth_server_clear_cookie(hdr[5], "auth_refresh_session", NULL, exp);
+}
+
+/*
+ * Emit the composed clearing Set-Cookies, skipping any that did not fit.
+ * Returns nonzero if a header did not fit in the caller's header buffer.
+ */
+static int
+auth_server_add_clear_cookies(struct lws *wsi,
+			      char hdr[AUTH_SERVER_CLEAR_COOKIES]
+				      [AUTH_SERVER_CLEAR_COOKIE_SZ],
+			      unsigned char **p, unsigned char *end)
+{
+	int n;
+
+	for (n = 0; n < AUTH_SERVER_CLEAR_COOKIES; n++)
+		if (hdr[n][0] &&
+		    lws_add_http_header_by_name(wsi,
+				(unsigned char *)"set-cookie:",
+				(unsigned char *)hdr[n],
+				(int)strlen(hdr[n]), p, end))
+			return 1;
+
+	return 0;
+}
+
+/*
  * Resolve the uid behind the auth_refresh_session cookie(s) presented on wsi.
  *
  * A browser can legitimately hold several cookies sharing this one name at
@@ -3116,7 +3279,17 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				"<h2>Authorize Device</h2>"
 				"<p>Enter the 8-character code displayed on your device or in the waiting room.</p>"
 				"<input type=\"text\" id=\"userCode\" maxlength=\"9\" placeholder=\"XXXX-YYYY\" value=\"%s\" />"
-				"<button id=\"authBtn\">Authorize Device</button>"
+				/*
+				 * The auth_csrf cookie is HttpOnly, so
+				 * device.js cannot read the double-submit
+				 * token out of document.cookie: hand it to
+				 * the page here instead, the way
+				 * /api/status hands it to auth.js.  The
+				 * value is 32 hex chars (enforced by
+				 * auth_csrf_get_or_make()), so it cannot
+				 * break out of the attribute.
+				 */
+				"<button id=\"authBtn\" data-csrf=\"%s\">Authorize Device</button>"
 				"<div id=\"statusMsg\" class=\"status\"></div>"
 				"</div>"
 				"<script src=\"/assets/device.js\"></script></body></html>";
@@ -3152,10 +3325,14 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					break;
 				}
 
+			char csrf[33];
+			int has_csrf = auth_csrf_get_or_make(wsi, vhd, csrf,
+							     sizeof(csrf));
+
 			size_t html_len = (size_t)lws_snprintf(pl + LWS_PRE, max_html_len, html_fmt,
 				vhd->ui_css[0] ? "<link rel=\"stylesheet\" href=\"" : "",
 				vhd->ui_css[0] ? vhd->ui_css : "",
-				vhd->ui_css[0] ? "\">" : "", prefill);
+				vhd->ui_css[0] ? "\">" : "", prefill, csrf);
 
 			if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, html_len + LWS_PRE) < 0) {
 				free(pl);
@@ -3378,15 +3555,9 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 				} lws_end_foreach_dll_safe(d, d1);
 
-				char csrf[33] = {0};
-				size_t csrf_len = sizeof(csrf);
-				int has_csrf = lws_http_cookie_get(wsi, "auth_csrf", csrf, &csrf_len) == 0 && csrf[0] ? 1 : 0;
-
-				if (!has_csrf) {
-					uint8_t rnd[16];
-					lws_get_random(vhd->context, rnd, 16);
-					lws_hex_from_byte_array(rnd, 16, csrf, 33);
-				}
+				char csrf[33];
+				int has_csrf = auth_csrf_get_or_make(wsi, vhd,
+							csrf, sizeof(csrf));
 
 				int logged_in = 0;
 				int is_admin = 0;

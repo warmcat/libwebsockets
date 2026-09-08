@@ -1,6 +1,13 @@
-function getCookie(name) {
-  let match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
-  return match ? match[2] : '';
+/*
+ * The auth_csrf cookie is the server half of the double-submit pair and
+ * is deliberately HttpOnly, so script cannot read it out of
+ * document.cookie.  The /api/device page therefore carries the current
+ * token in a data-csrf attribute on the button, exactly as /api/status
+ * hands it to auth.js in its JSON.
+ */
+function getCsrfToken() {
+  const btn = document.getElementById('authBtn');
+  return btn ? (btn.getAttribute('data-csrf') || '') : '';
 }
 async function authorize() {
   const code = document.getElementById('userCode').value.trim();
@@ -11,7 +18,7 @@ async function authorize() {
     const res = await fetch('/api/device_approve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'user_code=' + encodeURIComponent(code) + '&csrf_token=' + encodeURIComponent(getCookie('auth_csrf'))
+      body: 'user_code=' + encodeURIComponent(code) + '&csrf_token=' + encodeURIComponent(getCsrfToken())
     });
     if (res.ok) {
       msg.textContent = 'Device authorized successfully! You may close this window.';
