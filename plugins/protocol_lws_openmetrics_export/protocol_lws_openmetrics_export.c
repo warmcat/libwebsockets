@@ -78,6 +78,12 @@
 #endif
 #include <assert.h>
 
+/*
+ * Cap on how much of a single metrics dump we will accumulate from one proxy
+ * ws client before dropping the connection.  A real dump is a few kB.
+ */
+#define OM_MAX_DUMP_SIZE (1024 * 1024)
+
 struct vhd {
 	struct lws_context	*cx;
 	struct lws_vhost	*vhost;
@@ -110,6 +116,7 @@ struct pss {
 	char			proxy_path[64];
 	struct lwsac		*ac;	/* the translated metrics, one ac per line */
 	struct lwsac		*walk;	/* iterator for ac when writing */
+	struct lwsac		*ac_head; /* head of the ac \p walk iterates */
 	size_t			tot;	/* content-length computation */
 	struct lws		*wsi;
 
@@ -203,6 +210,81 @@ openmetrics_san(char *nm, size_t nl)
 			nm[m] = '_';
 }
 
+/*
+ * A histogram bucket name is a precomposed OpenMetrics label set, eg
+ *
+ *    hostname="warmcat.com",peer="1.2.3.4",tls=expired
+ *
+ * and it is emitted verbatim between the '{' and '}' of the metric line.  The
+ * label *values* in it can carry remote data (eg,
+ * lws_metrics_hist_bump_describe_wsi() embeds the connection's host, which a
+ * hostile server can influence via the authority of a redirect Location:), so
+ * without care they can carry the characters that delimit the label set and
+ * corrupt the scraper's ingestion.
+ *
+ * Walk the label set replacing every character that could be structural -
+ * a quote that is not opening or closing a value, a backslash, a brace, a
+ * control character - wherever it appears.  We only substitute in place, so
+ * this cannot grow the string and every legal label set passes through
+ * unchanged; the only append is a repair quote if the name was truncated with
+ * its closing quote missing.  That guarantees the emitted document stays
+ * well-formed: nothing can escape the '{' ... '}' of its own metric line,
+ * start a new line, or leave a value unterminated.
+ *
+ * What it cannot do is tell a *forged* label from a real one: by the time we
+ * see the bucket name, an injected `a",forged="b` is already indistinguishable
+ * from two labels the producer meant to emit.  Only the code that composes the
+ * label set knows where a value ends, so escaping '"' and '\' in the values
+ * belongs there (lws_metrics_hist_bump_describe_wsi()), not here.
+ */
+
+static void
+openmetrics_san_labelset(char *ls, size_t len)
+{
+	int in_value = 0;
+	size_t l;
+	char *p;
+
+	for (p = ls; *p; p++) {
+
+		if (!in_value) {
+			/*
+			 * Structural part... a quote here can only be legal as
+			 * the one opening a label value
+			 */
+			if (*p == '=' && p[1] == '"') {
+				in_value = 1;
+				p++;
+
+				continue;
+			}
+		} else
+			/* a quote here can only be legal as the closing one */
+			if (*p == '"' && (!p[1] || p[1] == ',')) {
+				in_value = 0;
+
+				continue;
+			}
+
+		if (*p == '"' || *p == '\\' || *p == '{' || *p == '}' ||
+		    (unsigned char)*p < ' ' || (unsigned char)*p == 0x7f)
+			*p = '_';
+	}
+
+	if (!in_value)
+		return;
+
+	/* it was truncated inside a value... rebalance the quote */
+
+	l = strlen(ls);
+	if (l + 1 < len) {
+		ls[l] = '"';
+		ls[l + 1] = '\0';
+	} else
+		if (l)
+			ls[l - 1] = '"';
+}
+
 static int
 lws_metrics_om_format_agg(lws_metric_pub_t *pub, const char *nm, lws_usec_t now,
 			  int gng, char *buf, size_t len)
@@ -292,6 +374,7 @@ lws_metrics_om_format(struct pss *pss, lws_metric_pub_t *pub, const char *nm)
 		while (buck) {
 			lws_strncpy(tmp, lws_metric_bucket_name(buck),
 				    sizeof(tmp));
+			openmetrics_san_labelset(tmp, sizeof(tmp));
 
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 					  "%s{%s} %llu\n", nm, tmp,
@@ -396,6 +479,14 @@ ome_prepare(struct lws_context *ctx, struct pss *pss)
 	     *end = buf + sizeof(buf) - 1;
 	char hn[64];
 
+	/*
+	 * A pss can be reused for more than one dump (an h1 keep-alive scrape,
+	 * or a proxy client asked to dump again); start from a clean lwsac so
+	 * we cannot append to, or walk, a previous one
+	 */
+	lwsac_free(&pss->ac);
+	pss->walk = NULL;
+	pss->ac_head = NULL;
 	pss->tot = 0;
 
 	/*
@@ -462,6 +553,7 @@ ome_prepare(struct lws_context *ctx, struct pss *pss)
 		return 1;
 
 	pss->walk = pss->ac;
+	pss->ac_head = pss->ac;
 
 	return 0;
 }
@@ -484,7 +576,8 @@ callback_lws_openmetrics_export(struct lws *wsi,
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 
-		ome_prepare(cx, pss);
+		if (ome_prepare(cx, pss))
+			return 1;
 
 		p = start;
 		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
@@ -499,7 +592,20 @@ callback_lws_openmetrics_export(struct lws *wsi,
 		return 0;
 
 	case LWS_CALLBACK_CLOSED_HTTP:
+	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
+		/*
+		 * On an h1 keep-alive connection, the end of the transaction
+		 * rebinds the wsi to protocols[0] and frees our pss on the way,
+		 * so CLOSED_HTTP is delivered to that protocol and never to us.
+		 * DROP_PROTOCOL is the last callback we see holding our own
+		 * pss, so it is the backstop that stops a scraper leaking the
+		 * whole metrics lwsac on every request of a keep-alive session.
+		 */
+		if (!pss)
+			break;
 		lwsac_free(&pss->ac);
+		pss->walk = NULL;
+		pss->ac_head = NULL;
 		break;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
@@ -508,12 +614,12 @@ callback_lws_openmetrics_export(struct lws *wsi,
 
 		do {
 			ip = (uint8_t *)pss->walk +
-				lwsac_sizeof(pss->walk == pss->ac) + LWS_PRE;
+				lwsac_sizeof(pss->walk == pss->ac_head) + LWS_PRE;
 			m = (unsigned int)((ip[0] << 8) | ip[1]);
 
 			/* coverity */
 			if (m > lwsac_get_tail_pos(pss->walk) -
-				lwsac_sizeof(pss->walk == pss->ac))
+				lwsac_sizeof(pss->walk == pss->ac_head))
 				return -1;
 
 			if (lws_ptr_diff_size_t(end, p) < m)
@@ -537,7 +643,17 @@ callback_lws_openmetrics_export(struct lws *wsi,
 			return 1;
 
 		if (!pss->walk) {
-			 if (lws_http_transaction_completed(wsi))
+			/*
+			 * Free at the end of the *transaction*, not the end of
+			 * the connection: an h1 keep-alive scrape ends the
+			 * transaction, drops our protocol and frees the pss,
+			 * so waiting for CLOSED_HTTP leaks the whole lwsac
+			 * once per request
+			 */
+			lwsac_free(&pss->ac);
+			pss->ac_head = NULL;
+
+			if (lws_http_transaction_completed(wsi))
 				return -1;
 		} else
 			lws_callback_on_writable(wsi);
@@ -556,8 +672,19 @@ omc_lws_om_get_other_side_pss_client(struct vhd *vhd, struct pss *pss)
 {
 	/*
 	 * Search through our partner's clients list looking for one with the
-	 * same proxy path
+	 * same proxy path.
+	 *
+	 * The two halves of the proxy live on separate vhosts and are bound to
+	 * each other by a pvo name; either half can be missing entirely (an
+	 * asymmetric config), or can go away later (a vhost destroy / lwsws
+	 * config reload).  Every caller is on a peer-driven path, so we must
+	 * tolerate having no partner rather than walking a NULL or freed
+	 * dll2 owner.
 	 */
+
+	if (!vhd || !vhd->bind_partner_vhd)
+		return NULL;
+
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			lws_dll2_get_head(&vhd->bind_partner_vhd->clients)) {
 		struct pss *apss = lws_container_of(d, struct pss, list);
@@ -644,8 +771,18 @@ callback_lws_openmetrics_prox_agg(struct lws *wsi,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		if (vhd)
-			lws_sul_cancel(&vhd->sul);
+		if (!vhd)
+			break;
+		lws_sul_cancel(&vhd->sul);
+		/*
+		 * Our vhd is about to be freed with its vhost; if the other
+		 * half of the proxy outlives us it must not keep walking our
+		 * clients list
+		 */
+		if (vhd->bind_partner_vhd) {
+			vhd->bind_partner_vhd->bind_partner_vhd = NULL;
+			vhd->bind_partner_vhd = NULL;
+		}
 		break;
 
 	case LWS_CALLBACK_HTTP:
@@ -655,7 +792,7 @@ callback_lws_openmetrics_prox_agg(struct lws *wsi,
 		 * we need to match what it wants to
 		 */
 
-		if (!vhd->bind_partner_vhd)
+		if (!vhd || !vhd->bind_partner_vhd || !in)
 			return 0;
 
 		lws_strnncpy(pss->proxy_path, (const char *)in, len,
@@ -687,7 +824,12 @@ callback_lws_openmetrics_prox_agg(struct lws *wsi,
 		return 0;
 
 	case LWS_CALLBACK_CLOSED_HTTP:
+	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
+		if (!pss)
+			break;
 		lwsac_free(&pss->ac);
+		pss->walk = NULL;
+		pss->ac_head = NULL;
 		lws_dll2_remove(&pss->list);
 		break;
 
@@ -703,13 +845,18 @@ callback_lws_openmetrics_prox_agg(struct lws *wsi,
 			return -1;
 
 		do {
+			/*
+			 * ac_head is the lwsac head the producer handed us, so
+			 * the "is this the first chunk" test cannot be fooled
+			 * into being computed against a different pss's lwsac
+			 */
 			ip = (uint8_t *)pss->walk +
-				lwsac_sizeof(pss->walk == partner_pss->ac) + LWS_PRE;
+				lwsac_sizeof(pss->walk == pss->ac_head) + LWS_PRE;
 			m = (unsigned int)((ip[0] << 8) | ip[1]);
 
 			/* coverity */
 			if (m > lwsac_get_tail_pos(pss->walk) -
-				lwsac_sizeof(pss->walk == partner_pss->ac))
+				lwsac_sizeof(pss->walk == pss->ac_head))
 				return -1;
 
 			if (lws_ptr_diff_size_t(end, p) < m)
@@ -735,7 +882,10 @@ callback_lws_openmetrics_prox_agg(struct lws *wsi,
 		if (!pss->walk) {
 			lwsl_info("%s: whole msg proxied to scraper\n", __func__);
 			lws_dll2_remove(&pss->list);
+			partner_pss->walk = NULL;
+			partner_pss->ac_head = NULL;
 			lwsac_free(&partner_pss->ac);
+			pss->ac_head = NULL;
 //			if (lws_http_transaction_completed(wsi))
 			return -1;
 		} else
@@ -826,6 +976,17 @@ callback_lws_openmetrics_prox_server(struct lws *wsi,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
+		if (!vhd)
+			break;
+		/*
+		 * Our vhd is about to be freed with its vhost; if the other
+		 * half of the proxy outlives us it must not keep walking our
+		 * clients list
+		 */
+		if (vhd->bind_partner_vhd) {
+			vhd->bind_partner_vhd->bind_partner_vhd = NULL;
+			vhd->bind_partner_vhd = NULL;
+		}
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED:
@@ -833,6 +994,9 @@ callback_lws_openmetrics_prox_server(struct lws *wsi,
 		 * a client has joined... we need to add his pss to our list
 		 * of live, joined clients
 		 */
+
+		if (!vhd || !pss)
+			return -1;
 
 		/* mark us as waiting for the reference name from the client */
 		pss->greet = 1;
@@ -845,23 +1009,68 @@ callback_lws_openmetrics_prox_server(struct lws *wsi,
 		/*
 		 * a client has parted
 		 */
-		lws_dll2_remove(&pss->list);
-		lwsl_warn("%s: client %s left (%u)\n", __func__,
-				pss->proxy_path,
-				(unsigned int)lws_dll2_count(&vhd->clients));
-		lwsac_free(&pss->ac);
+		if (!pss)
+			break;
 
-		/* let's kill the scraper connection accordingly, if still up */
+		lws_dll2_remove(&pss->list);
+		if (vhd)
+			lwsl_warn("%s: client %s left (%u)\n", __func__,
+				  pss->proxy_path,
+				  (unsigned int)lws_dll2_count(&vhd->clients));
+
+		/*
+		 * The scraper side walks *our* lwsac, so it has to stop before
+		 * we free it, even though its close is asynchronous
+		 */
 		partner_pss = omc_lws_om_get_other_side_pss_client(vhd, pss);
-		if (partner_pss)
+		if (partner_pss) {
+			partner_pss->walk = NULL;
+			partner_pss->ac_head = NULL;
 			lws_wsi_close(partner_pss->wsi, LWS_TO_KILL_ASYNC);
+		}
+
+		lwsac_free(&pss->ac);
+		pss->walk = NULL;
+		pss->ac_head = NULL;
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
+		if (!vhd || !pss || !in)
+			return -1;
+
 		if (pss->greet) {
 			pss->greet = 0;
 			lws_strnncpy(pss->proxy_path, (const char *)in, len,
 				     sizeof(pss->proxy_path));
+
+			if (!pss->proxy_path[0]) {
+				lwsl_warn("%s: empty greet rejected\n",
+					  __func__);
+
+				return -1;
+			}
+
+			/*
+			 * The greet is the client's entire identity at the
+			 * proxy.  If we let a second client claim a path that
+			 * is already joined, a scrape for that path can be
+			 * answered by either of them, ie a joining client can
+			 * forge another device's metrics.
+			 */
+
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					      lws_dll2_get_head(&vhd->clients)) {
+				struct pss *apss = lws_container_of(d,
+							struct pss, list);
+
+				if (!strcmp(pss->proxy_path, apss->proxy_path)) {
+					lwsl_warn("%s: greet '%s' already "
+						  "taken\n", __func__,
+						  pss->proxy_path);
+
+					return -1;
+				}
+			} lws_end_foreach_dll(d);
 
 			lws_validity_confirmed(wsi);
 			lwsl_notice("%s: received greet '%s'\n", __func__,
@@ -879,10 +1088,49 @@ callback_lws_openmetrics_prox_server(struct lws *wsi,
 		 * pss lwsac before worrying about anything else
 		 */
 
-		if (lws_is_first_fragment(wsi))
-			pss->tot = 0;
+		if (lws_is_first_fragment(wsi)) {
+			struct pss *ppss;
 
-		lws_metrics_om_ac_stash(pss, (const char *)in, len);
+			/*
+			 * A dump the scraper never drained is still sitting in
+			 * our lwsac; appending to it would both grow without
+			 * bound across messages and desync the content-length
+			 * the scraper side declares from what it writes.  Drop
+			 * it, first making sure the scraper side is not left
+			 * walking the chunks we are about to free.
+			 */
+
+			ppss = omc_lws_om_get_other_side_pss_client(vhd, pss);
+			if (ppss && ppss->ac_head == pss->ac) {
+				ppss->walk = NULL;
+				ppss->ac_head = NULL;
+			}
+
+			lwsac_free(&pss->ac);
+			pss->walk = NULL;
+			pss->ac_head = NULL;
+			pss->tot = 0;
+		}
+
+		/*
+		 * A ws message may legally be enormous, and the client may
+		 * simply never send the final fragment; cap what one client
+		 * can make us hold
+		 */
+
+		if (pss->tot + len > OM_MAX_DUMP_SIZE) {
+			lwsl_warn("%s: client '%s' exceeded dump cap\n",
+				  __func__, pss->proxy_path);
+
+			return -1;
+		}
+
+		if (lws_metrics_om_ac_stash(pss, (const char *)in, len)) {
+			pss->walk = NULL;
+			pss->ac_head = NULL;
+
+			return -1;
+		}
 
 		if (lws_is_final_fragment(wsi)) {
 			struct pss *partner_pss;
@@ -892,6 +1140,7 @@ callback_lws_openmetrics_prox_server(struct lws *wsi,
 
 			/* the lwsac is complete */
 			pss->walk = pss->ac;
+			pss->ac_head = pss->ac;
 			partner_pss = omc_lws_om_get_other_side_pss_client(vhd, pss);
 			if (!partner_pss) {
 				lwsl_notice("%s: no partner A\n", __func__);
@@ -912,6 +1161,7 @@ callback_lws_openmetrics_prox_server(struct lws *wsi,
 			/* indicate to scraper side we want to issue now */
 
 			partner_pss->walk = pss->ac;
+			partner_pss->ac_head = pss->ac;
 			partner_pss->trigger = 1;
 			lws_callback_on_writable(partner_pss->wsi);
 		}
@@ -1067,6 +1317,8 @@ callback_lws_openmetrics_prox_client(struct lws *wsi,
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		lwsl_notice("%s: client closed\n", __func__);
 		lwsac_free(&pss->ac);
+		pss->walk = NULL;
+		pss->ac_head = NULL;
 		goto do_retry;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
@@ -1074,8 +1326,8 @@ callback_lws_openmetrics_prox_client(struct lws *wsi,
 		 * Proxy serverside sends us something to trigger us to create
 		 * our metrics message and send it back over the ws link
 		 */
-		ome_prepare(cx, pss);
-		pss->walk = pss->ac;
+		if (ome_prepare(cx, pss))
+			return -1;
 		lws_callback_on_writable(wsi);
 		lwsl_info("%s: dump requested\n", __func__);
 		break;
@@ -1112,16 +1364,16 @@ callback_lws_openmetrics_prox_client(struct lws *wsi,
 		 * and keep coming back until it's finished
 		 */
 
-		first = pss->walk == pss->ac;
+		first = pss->walk == pss->ac_head;
 
 		do {
 			ip = (uint8_t *)pss->walk +
-				lwsac_sizeof(pss->walk == pss->ac) + LWS_PRE;
+				lwsac_sizeof(pss->walk == pss->ac_head) + LWS_PRE;
 			m = (unsigned int)((ip[0] << 8) | ip[1]);
 
 			/* coverity */
 			if (m > lwsac_get_tail_pos(pss->walk) -
-				lwsac_sizeof(pss->walk == pss->ac)) {
+				lwsac_sizeof(pss->walk == pss->ac_head)) {
 				lwsl_err("%s: size blow\n", __func__);
 				return -1;
 			}
@@ -1153,6 +1405,7 @@ callback_lws_openmetrics_prox_client(struct lws *wsi,
 		if (!pss->walk) {
 			lwsl_info("%s: dump send completed\n", __func__);
 			lwsac_free(&pss->ac);
+			pss->ac_head = NULL;
 		} else
 			lws_callback_on_writable(wsi);
 
