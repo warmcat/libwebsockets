@@ -64,7 +64,17 @@ lws_rtp_h264_packetize(struct lws_rtp_ctx *ctx, const uint8_t *nal, size_t len,
 		       int last_nal, size_t mtu, lws_rtp_cb_t cb, void *priv)
 {
 	uint8_t pkt[2048]; /* Should be enough for MTU + RTP header + FU header */
-	size_t rtp_mtu = mtu - LWS_RTP_HEADER_LEN;
+	size_t rtp_mtu;
+
+	/*
+	 * mtu is caller-provided... below the header size it underflows
+	 * rtp_mtu, and above our packet buffer it overflows pkt[]
+	 */
+
+	if (mtu < LWS_RTP_HEADER_LEN + 8 || mtu > sizeof(pkt))
+		return -1;
+
+	rtp_mtu = mtu - LWS_RTP_HEADER_LEN;
 
 	if (len <= rtp_mtu) {
 		lws_rtp_write_header(ctx, pkt, last_nal);
@@ -107,7 +117,17 @@ lws_rtp_av1_packetize(struct lws_rtp_ctx *ctx, const uint8_t *obu, size_t len,
 		       int last_obu, size_t mtu, lws_rtp_cb_t cb, void *priv)
 {
 	uint8_t pkt[2048];
-	size_t rtp_mtu = mtu - LWS_RTP_HEADER_LEN;
+	size_t rtp_mtu;
+
+	/*
+	 * mtu is caller-provided... below the header size it underflows
+	 * rtp_mtu, and above our packet buffer it overflows pkt[]
+	 */
+
+	if (mtu < LWS_RTP_HEADER_LEN + 8 || mtu > sizeof(pkt))
+		return -1;
+
+	rtp_mtu = mtu - LWS_RTP_HEADER_LEN;
 
 	if (len <= rtp_mtu - 1) {
 		lws_rtp_write_header(ctx, pkt, last_obu);
