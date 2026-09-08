@@ -707,8 +707,9 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 						/* tok is imported data: escape it */
 						if (_jwk_ex_putc(&p, end, '\"') ||
 						    _jwk_ex_putn(&p, end, tok,
-								 strlen(tok)) ||
-						    _jwk_ex_putc(&p, end, '\"'))
+								 strlen(tok)))
+							goto trunc;
+						if (_jwk_ex_putc(&p, end, '\"'))
 							goto trunc;
 					}
 					q++;
