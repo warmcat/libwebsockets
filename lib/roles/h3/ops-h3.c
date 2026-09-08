@@ -2056,10 +2056,9 @@ rops_check_upgrades_h3(struct lws *wsi)
 		lwsl_info("Upgrade h3 to wt\n");
 		extern const struct lws_role_ops role_ops_wt;
 		unsigned char response_buf[LWS_PRE + 4096], *rp = response_buf + LWS_PRE, *end = response_buf + sizeof(response_buf);
-		char draft[32];
 		char client_protos[256];
 		char negotiated[64] = "";
-		int draft_len, cp_len;
+		int cp_len;
 
 		/*
 		 * Subprotocol negotiation: select the first protocol the client
@@ -2172,33 +2171,17 @@ rops_check_upgrades_h3(struct lws *wsi)
 		if (lws_add_http_header_status(wsi, 200, &rp, end))
 			return LWS_UPG_RET_BAIL;
 
-		/* Copy and send back the draft version */
-		draft_len = lws_hdr_custom_copy(wsi, draft, sizeof(draft) - 1,
-						"sec-webtransport-http3-draft", 28);
-		if (draft_len > 0) {
-			draft[draft_len] = '\0';
-			if (lws_add_http_header_by_name(wsi,
-					(const unsigned char *)"sec-webtransport-http3-draft:",
-					(const unsigned char *)draft, draft_len, &rp, end))
-				return LWS_UPG_RET_BAIL;
-		} else {
-			/* Check if client sent sec-webtransport-http3-draft02 */
-			char draft02_val[16];
-			int d02_len = lws_hdr_custom_copy(wsi, draft02_val, sizeof(draft02_val) - 1,
-							  "sec-webtransport-http3-draft02", 30);
-			if (d02_len > 0) {
-				if (lws_add_http_header_by_name(wsi,
-						(const unsigned char *)"sec-webtransport-http3-draft02:",
-						(const unsigned char *)"1", 1, &rp, end))
-					return LWS_UPG_RET_BAIL;
-			} else {
-				/* Default to draft02 if not sent */
-				if (lws_add_http_header_by_name(wsi,
-						(const unsigned char *)"sec-webtransport-http3-draft:",
-						(const unsigned char *)"draft02", 7, &rp, end))
-					return LWS_UPG_RET_BAIL;
-			}
-		}
+		/*
+		 * draft-ietf-webtrans-http3-02 clients send
+		 * "sec-webtransport-http3-draft02: 1" and expect
+		 * "sec-webtransport-http3-draft: draft02" back; later drafts
+		 * dropped the version headers and ignore this one.  Always
+		 * answering draft02 satisfies both.
+		 */
+		if (lws_add_http_header_by_name(wsi,
+				(const unsigned char *)"sec-webtransport-http3-draft:",
+				(const unsigned char *)"draft02", 7, &rp, end))
+			return LWS_UPG_RET_BAIL;
 
 		if (prot) {
 			/*
