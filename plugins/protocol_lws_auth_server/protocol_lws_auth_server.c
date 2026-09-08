@@ -94,6 +94,13 @@ enum enum_param_names {
 	(63 + 1 + 8 + 9 + 127 + 10 + 29 + 11 + 32 + 1)
 
 /*
+ * How many clearing Set-Cookies a session teardown emits: the session
+ * JWT, auth_csrf and auth_refresh_session, each in its Domain-scoped and
+ * its host-only form.
+ */
+#define AUTH_SERVER_CLEAR_COOKIES 6
+
+/*
  * F-048: compose one of the logout / session-destroy *clearing* Set-Cookies
  * (empty value, Expires at epoch, Max-Age=0) into out
  * (AUTH_SERVER_CLEAR_COOKIE_SZ bytes); domain may be NULL / "" for the
@@ -1807,6 +1814,68 @@ send:
 	return send_auth_headers(wsi, pss, "application/json", NULL, NULL);
 }
 
+/*
+ * POST /api/logout: tear the session down.
+ *
+ * This is the state-changing sibling of the GET /api/logout link
+ * lws-login points a top-level navigation at.  Having a body, it can
+ * carry -- and require -- the auth_csrf double submit, so a third-party
+ * page cannot force a logout with a scripted fetch or form post.  It is
+ * what assets/auth.js uses, replacing the CSRF-free GET
+ * /api/status?destroy=1 it used to fetch.
+ */
+static int
+lws_auth_api_logout(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
+		    struct per_session_data__auth_server *pss)
+{
+	char hdr[AUTH_SERVER_CLEAR_COOKIES][AUTH_SERVER_CLEAR_COOKIE_SZ];
+	char buf[LWS_SSO_MAX_COOKIE + LWS_PRE], pl[LWS_PRE + 64];
+	uint8_t *start = (uint8_t *)buf + LWS_PRE, *p = start,
+		*end = (uint8_t *)buf + sizeof(buf) - 1;
+	size_t pl_len;
+	int deleted;
+
+	if (auth_check_csrf(wsi, vhd, pss)) {
+		pss->http_response_code = HTTP_STATUS_FORBIDDEN;
+		pl_len = (size_t)lws_snprintf(pl + LWS_PRE,
+					      sizeof(pl) - LWS_PRE,
+					      "{\"error\":\"CSRF validation "
+					      "failed\"}");
+		if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl,
+					       pl_len + LWS_PRE) < 0)
+			return -1;
+
+		return send_auth_headers(wsi, pss, "application/json", NULL,
+					 NULL);
+	}
+
+	deleted = auth_server_destroy_refresh_sessions(wsi, vhd, NULL);
+	lwsl_wsi_notice(wsi, "logout: %d session row(s) deleted", deleted);
+
+	auth_server_clear_session_cookies(vhd, hdr);
+
+	pss->http_response_code = HTTP_STATUS_OK;
+	pl_len = (size_t)lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE,
+				      "{\"destroy\":1}");
+
+	if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/json",
+					(lws_filepos_t)pl_len, &p, end) ||
+	    lws_add_http_header_by_name(wsi, (unsigned char *)"Cache-Control:",
+			(unsigned char *)"no-cache, no-store, must-revalidate",
+			35, &p, end) ||
+	    auth_server_add_clear_cookies(wsi, hdr, &p, end) ||
+	    lws_finalize_write_http_header(wsi, start, &p, end))
+		return -1;
+
+	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl,
+				       pl_len + LWS_PRE) < 0)
+		return -1;
+
+	lws_callback_on_writable(wsi);
+
+	return 0;
+}
+
 static int
 lws_auth_api_forgot_password(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 			     struct per_session_data__auth_server *pss)
@@ -3340,6 +3409,24 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 			free(pl);
 
+			if (!has_csrf) {
+				/*
+				 * Same fixed-shape composition as /status:
+				 * a browser-session cookie (no Max-Age),
+				 * which lws_http_cookie_compose()'s scoping
+				 * does not express, and provably 82 bytes.
+				 */
+				char cookie_hdr[128];
+
+				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
+					     "auth_csrf=%s; Path=/; "
+					     "SameSite=Lax; HttpOnly; Secure",
+					     csrf);
+
+				return send_auth_headers(wsi, pss, "text/html",
+							 cookie_hdr, NULL);
+			}
+
 			return send_auth_headers(wsi, pss, "text/html", NULL, NULL);
 		}
 
@@ -3369,7 +3456,14 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			return 0;
 		}
 
-		if (in && (!strncmp((const char *)in, "/logout", 7))) {
+		/*
+		 * The GET form: a top-level navigation the app-side bouncer
+		 * links to, which ends in a redirect.  A POST to the same
+		 * path falls through to the SPA path below, where
+		 * lws_auth_api_logout() can require the CSRF double submit.
+		 */
+		if (in && (!strncmp((const char *)in, "/logout", 7)) &&
+		    !lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
 			lwsl_notice("%s: Hit /logout endpoint. in=%s\n", __func__, (const char *)in);
 			char redirect_uri[512] = {0};
 			char buf[LWS_SSO_MAX_COOKIE + LWS_PRE];
@@ -3383,58 +3477,9 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_notice("%s: Extracted redirect_uri: %s\n", __func__, redirect_uri);
 
 			{
-				/*
-				 * Delete the auth_sessions row for EVERY
-				 * auth_refresh_session value the browser
-				 * presented: jars can legitimately hold several
-				 * same-named values (host-only alongside
-				 * Domain-scoped), and deleting only the
-				 * first-or-nothing left live rows behind --
-				 * which then keep "silent renewal" half-alive on
-				 * other hosts after this logout.
-				 */
-				int n, deleted = 0, seen = 0;
-				char refresh_tk[128];
-
-				for (n = 0; n < 16; n++) {
-					size_t rl = sizeof(refresh_tk);
-					sqlite3_stmt *stmt;
-					int m;
-
-					m = lws_http_cookie_get_nth(wsi,
-							"auth_refresh_session", n,
-							refresh_tk, &rl);
-					if (m) {
-						/*
-						 * 2 is "too large for the
-						 * buffer": skip it and look
-						 * behind it, or one planted
-						 * oversized value would hide
-						 * every real one and logout
-						 * would delete no rows at all.
-						 */
-						if (m != 2)
-							break;
-						continue;
-					}
-					seen++;
-					if (!refresh_tk[0])
-						continue;
-					if (sqlite3_prepare_v2(vhd->db,
-						    "DELETE FROM auth_sessions "
-						    "WHERE session_id = ?",
-						    -1, &stmt, NULL) == SQLITE_OK) {
-						sqlite3_bind_text(stmt, 1,
-								refresh_tk, -1,
-								SQLITE_TRANSIENT);
-						sqlite3_step(stmt);
-						sqlite3_finalize(stmt);
-						deleted++;
-					} else
-						lwsl_wsi_err(wsi, "DB prepare "
-							"failed: %s",
-							sqlite3_errmsg(vhd->db));
-				}
+				int seen = 0, deleted =
+					auth_server_destroy_refresh_sessions(wsi,
+								vhd, &seen);
 
 				lwsl_wsi_notice(wsi, "logout: %d "
 					"auth_refresh_session value(s) "
@@ -3442,46 +3487,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					seen, deleted);
 			}
 
-			char cookie_hdr1[AUTH_SERVER_CLEAR_COOKIE_SZ];
-			char cookie_hdr1_host[AUTH_SERVER_CLEAR_COOKIE_SZ];
-			char cookie_hdr2[AUTH_SERVER_CLEAR_COOKIE_SZ];
-			char cookie_hdr2_host[AUTH_SERVER_CLEAR_COOKIE_SZ];
-			char cookie_hdr3[AUTH_SERVER_CLEAR_COOKIE_SZ];
-			char cookie_hdr3_host[AUTH_SERVER_CLEAR_COOKIE_SZ];
-			char exp[64];
-			time_t t = 0;
-#if defined(WIN32) || defined(_WIN32)
-			struct tm tmp;
-			struct tm *tm = gmtime_s(&tmp, &t) == 0 ? &tmp : NULL;
-#else
-			struct tm tmp;
-			struct tm *tm = gmtime_r(&t, &tmp);
-#endif
-			if (tm)
-				strftime(exp, sizeof(exp), "%a, %d %b %Y %H:%M:%S GMT", tm);
-			else
-				exp[0] = '\0';
+			char hdr[AUTH_SERVER_CLEAR_COOKIES]
+				[AUTH_SERVER_CLEAR_COOKIE_SZ];
 
-			/*
-			 * F-048: clearing cookies compose via the fail-closed
-			 * lws_http_cookie_compose(); an empty buffer means
-			 * the cookie is skipped, never emitted with a
-			 * truncated attribute tail
-			 */
-			auth_server_clear_cookie(cookie_hdr1, vhd->cookie_name,
-						 vhd->cookie_domain, exp);
-			auth_server_clear_cookie(cookie_hdr2, "auth_csrf",
-						 vhd->cookie_domain, exp);
-			auth_server_clear_cookie(cookie_hdr3,
-						 "auth_refresh_session",
-						 vhd->cookie_domain, exp);
-			auth_server_clear_cookie(cookie_hdr1_host,
-						 vhd->cookie_name, NULL, exp);
-			auth_server_clear_cookie(cookie_hdr2_host, "auth_csrf",
-						 NULL, exp);
-			auth_server_clear_cookie(cookie_hdr3_host,
-						 "auth_refresh_session",
-						 NULL, exp);
+			auth_server_clear_session_cookies(vhd, hdr);
 
 			char html[LWS_PRE + 1024];
 			char urlenc_path[512];
@@ -3499,12 +3508,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_SEE_OTHER, "text/html", (unsigned int)html_len, (unsigned char **)&p, (unsigned char *)end))
 				return 1;
 
-			if (cookie_hdr1[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1, (int)strlen(cookie_hdr1), (unsigned char **)&p, (unsigned char *)end)) return 1;
-			if (cookie_hdr1_host[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1_host, (int)strlen(cookie_hdr1_host), (unsigned char **)&p, (unsigned char *)end)) return 1;
-			if (cookie_hdr2[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr2, (int)strlen(cookie_hdr2), (unsigned char **)&p, (unsigned char *)end)) return 1;
-			if (cookie_hdr2_host[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr2_host, (int)strlen(cookie_hdr2_host), (unsigned char **)&p, (unsigned char *)end)) return 1;
-			if (cookie_hdr3[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr3, (int)strlen(cookie_hdr3), (unsigned char **)&p, (unsigned char *)end)) return 1;
-			if (cookie_hdr3_host[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr3_host, (int)strlen(cookie_hdr3_host), (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (auth_server_add_clear_cookies(wsi, hdr,
+						(unsigned char **)&p,
+						(unsigned char *)end))
+				return 1;
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
 							 (unsigned char *)redirect_uri, (int)strlen(redirect_uri),
 							 (unsigned char **)&p, (unsigned char *)end))
@@ -3670,121 +3677,6 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 				}
 
-				if (lws_get_urlarg_by_name_safe(wsi, "destroy=", sname, sizeof(sname)) > 0) {
-					/* client wants to terminate session via async fetch */
-					lwsl_info("-> TERMINATING SESSION MANUALLY! destroy URL arg present. Emitting 200 OK JSON.\n");
-					logged_in = 0;
-					users_empty = 0;
-					lacks_grant = 0;
-
-					char cookie_hdr1[AUTH_SERVER_CLEAR_COOKIE_SZ],
-					     cookie_hdr1_host[AUTH_SERVER_CLEAR_COOKIE_SZ],
-					     cookie_hdr2[AUTH_SERVER_CLEAR_COOKIE_SZ],
-					     cookie_hdr2_host[AUTH_SERVER_CLEAR_COOKIE_SZ],
-					     cookie_hdr3[AUTH_SERVER_CLEAR_COOKIE_SZ],
-					     cookie_hdr3_host[AUTH_SERVER_CLEAR_COOKIE_SZ];
-					char exp[64];
-					time_t t = 0;
-#if defined(WIN32) || defined(_WIN32)
-					struct tm tmp;
-					struct tm *tm = gmtime_s(&tmp, &t) == 0 ? &tmp : NULL;
-#else
-					struct tm tmp;
-					struct tm *tm = gmtime_r(&t, &tmp);
-#endif
-					if (tm)
-						strftime(exp, sizeof(exp), "%a, %d %b %Y %H:%M:%S GMT", tm);
-					else
-						exp[0] = '\0';
-
-					/*
-					 * F-048: clearing cookies compose via
-					 * the fail-closed
-					 * lws_http_cookie_compose(); an empty
-					 * buffer means the cookie is skipped,
-					 * never emitted with a truncated
-					 * attribute tail
-					 */
-					auth_server_clear_cookie(cookie_hdr1,
-								 vhd->cookie_name,
-								 vhd->cookie_domain, exp);
-					auth_server_clear_cookie(cookie_hdr2,
-								 "auth_csrf",
-								 vhd->cookie_domain, exp);
-					auth_server_clear_cookie(cookie_hdr3,
-								 "auth_refresh_session",
-								 vhd->cookie_domain, exp);
-					auth_server_clear_cookie(cookie_hdr1_host,
-								 vhd->cookie_name,
-								 NULL, exp);
-					auth_server_clear_cookie(cookie_hdr2_host,
-								 "auth_csrf",
-								 NULL, exp);
-					auth_server_clear_cookie(cookie_hdr3_host,
-								 "auth_refresh_session",
-								 NULL, exp);
-
-					/* same all-values teardown as /api/logout */
-					{
-						char refresh_tk[128];
-						int dn, deleted = 0;
-
-						for (dn = 0; dn < 16; dn++) {
-							size_t rl = sizeof(refresh_tk);
-							sqlite3_stmt *stmt;
-							int m;
-
-							m = lws_http_cookie_get_nth(wsi,
-									"auth_refresh_session", dn,
-									refresh_tk, &rl);
-							if (m) {
-								/* 2 = oversized: skip, look behind it */
-								if (m != 2)
-									break;
-								continue;
-							}
-							if (!refresh_tk[0])
-								continue;
-							if (sqlite3_prepare_v2(vhd->db,
-								    "DELETE FROM auth_sessions "
-								    "WHERE session_id = ?",
-								    -1, &stmt, NULL) == SQLITE_OK) {
-								sqlite3_bind_text(stmt, 1,
-										refresh_tk, -1,
-										SQLITE_TRANSIENT);
-								sqlite3_step(stmt);
-								sqlite3_finalize(stmt);
-								deleted++;
-							}
-						}
-						lwsl_wsi_info(wsi, "destroy: %d "
-							"session row(s) deleted",
-							deleted);
-					}
-
-					pss->http_response_code = HTTP_STATUS_OK;
-					char buf[LWS_SSO_MAX_COOKIE + LWS_PRE];
-					uint8_t *start = (uint8_t *)buf + LWS_PRE, *p = start, *end = (uint8_t *)buf + sizeof(buf) - 1;
-
-					size_t payload_len = 13; /* {"destroy":1} */
-
-					if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/json", (lws_filepos_t)payload_len, &p, end)) return -1;
-					if (lws_add_http_header_by_name(wsi, (unsigned char *)"Cache-Control:", (unsigned char *)"no-cache, no-store, must-revalidate", 35, &p, end)) return -1;
-					if (cookie_hdr1[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1, (int)strlen(cookie_hdr1), &p, end)) return -1;
-					if (cookie_hdr1_host[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1_host, (int)strlen(cookie_hdr1_host), &p, end)) return -1;
-					if (cookie_hdr2[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr2, (int)strlen(cookie_hdr2), &p, end)) return -1;
-					if (cookie_hdr2_host[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr2_host, (int)strlen(cookie_hdr2_host), &p, end)) return -1;
-					if (cookie_hdr3[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr3, (int)strlen(cookie_hdr3), &p, end)) return -1;
-					if (cookie_hdr3_host[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr3_host, (int)strlen(cookie_hdr3_host), &p, end)) return -1;
-					if (lws_finalize_write_http_header(wsi, start, &p, end)) return -1;
-
-					char pl[LWS_PRE + 64];
-					size_t pl_len = (size_t)lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"destroy\":1}");
-					if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, pl_len + LWS_PRE) < 0) return -1;
-
-					lws_callback_on_writable(wsi);
-					return 0;
-				}
 
 #if 0
 				{
@@ -4374,7 +4266,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				return lws_http_transaction_completed(wsi);
 			}
 
-		if (in && ((char *)strstr((const char *)in, "login") || (char *)strstr((const char *)in, "register") || (char *)strstr((const char *)in, "forgot_password") || (char *)strstr((const char *)in, "reset_password") || (char *)strstr((const char *)in, "token") || (char *)strstr((const char *)in, "sso_exchange") || (char *)strstr((const char *)in, "device_auth") || (char *)strstr((const char *)in, "device_approve"))) {
+		if (in && ((char *)strstr((const char *)in, "login") || (char *)strstr((const char *)in, "logout") || (char *)strstr((const char *)in, "register") || (char *)strstr((const char *)in, "forgot_password") || (char *)strstr((const char *)in, "reset_password") || (char *)strstr((const char *)in, "token") || (char *)strstr((const char *)in, "sso_exchange") || (char *)strstr((const char *)in, "device_auth") || (char *)strstr((const char *)in, "device_approve"))) {
 			lws_strncpy(pss->requesting_url, (const char *)in, sizeof(pss->requesting_url));
 
 			lwsl_info("%s: Processing POST to '%s'\n", __func__, pss->requesting_url);
@@ -4416,7 +4308,9 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		lws_spa_finalize(pss->spa);
 
-		if ((char *)strstr(pss->requesting_url, "device_auth"))
+		if ((char *)strstr(pss->requesting_url, "logout"))
+			return lws_auth_api_logout(wsi, vhd, pss);
+		else if ((char *)strstr(pss->requesting_url, "device_auth"))
 			return lws_auth_api_device_auth(wsi, vhd, pss);
 		else if ((char *)strstr(pss->requesting_url, "device_token"))
 			return lws_auth_api_device_token(wsi, vhd, pss);
