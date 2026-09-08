@@ -29,6 +29,7 @@ struct lws_jwt_auth {
 	struct lws_dll2_owner grants;
 	uint64_t iat;
 	uint64_t exp;
+	uint64_t nbf;
 	char cookie_name[64];
 	char sub[128];
 	char did[128];
@@ -94,6 +95,8 @@ lws_jwt_auth_schedule(struct lws_jwt_auth *ja)
 struct jwt_auth_parse_ctx {
 	struct lws_jwt_auth *ja;
 	int parsing_grants;
+	int spos;		/* collation offset for the current string */
+	char got_sub;		/* a "sub" claim was seen: "email" can't win */
 };
 
 static const char * const auth_paths[] = {
@@ -106,6 +109,7 @@ static const char * const auth_paths[] = {
 	"uid",
 	"did",
 	"sec",
+	"nbf",
 };
 
 enum {
@@ -118,7 +122,29 @@ enum {
 	JAP_UID,
 	JAP_DID,
 	JAP_SEC,
+	JAP_NBF,
 };
+
+/*
+ * lejp delivers a long string value in LEJP_STRING_CHUNK pieces: collate them
+ * from *pos instead of letting each piece overwrite the last, which would
+ * store the *tail* of the claim as the identity.  A value that does not fit
+ * is refused rather than truncated, since two different subjects must never
+ * be able to collapse into one.
+ */
+
+static int
+jwt_auth_collate(char *dest, size_t dest_len, int *pos, struct lejp_ctx *ctx)
+{
+	if ((size_t)*pos + (size_t)ctx->npos >= dest_len)
+		return -1;
+
+	memcpy(dest + *pos, ctx->buf, (size_t)ctx->npos);
+	*pos += ctx->npos;
+	dest[*pos] = '\0';
+
+	return 0;
+}
 
 static signed char
 jwt_auth_lejp_cb(struct lejp_ctx *ctx, char reason)
@@ -134,9 +160,17 @@ jwt_auth_lejp_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 	}
 
+	if (reason == LEJPCB_VAL_STR_START) {
+		pctx->spos = 0;
+
+		return 0;
+	}
+
 	if (reason == LEJPCB_VAL_NUM_INT) {
 		if (ctx->path_match == JAP_EXP + 1) {
 			pctx->ja->exp = (uint64_t)atoll(ctx->buf);
+		} else if (ctx->path_match == JAP_NBF + 1) {
+			pctx->ja->nbf = (uint64_t)atoll(ctx->buf);
 		} else if (ctx->path_match == JAP_IAT + 1) {
 			pctx->ja->iat = (uint64_t)atoll(ctx->buf);
 		} else if (ctx->path_match == JAP_UID + 1) {
@@ -153,10 +187,30 @@ jwt_auth_lejp_cb(struct lejp_ctx *ctx, char reason)
 			}
 		}
 	} else if (reason == LEJPCB_VAL_STR_CHUNK || reason == LEJPCB_VAL_STR_END) {
-		if (ctx->path_match == JAP_SUB + 1 || ctx->path_match == JAP_EMAIL + 1) {
-			lws_strncpy(pctx->ja->sub, ctx->buf, sizeof(pctx->ja->sub));
+		/*
+		 * "sub" and "email" share one storage slot, so without a
+		 * precedence rule the identity is decided by JSON member
+		 * order... an issuer that emits a user-settable "email"
+		 * alongside "sub" would then let the user choose his own
+		 * subject.  "sub" always wins.
+		 */
+		if (ctx->path_match == JAP_SUB + 1) {
+			if (jwt_auth_collate(pctx->ja->sub,
+					     sizeof(pctx->ja->sub),
+					     &pctx->spos, ctx))
+				return -1;
+			if (reason == LEJPCB_VAL_STR_END)
+				pctx->got_sub = 1;
+		} else if (ctx->path_match == JAP_EMAIL + 1 && !pctx->got_sub) {
+			if (jwt_auth_collate(pctx->ja->sub,
+					     sizeof(pctx->ja->sub),
+					     &pctx->spos, ctx))
+				return -1;
 		} else if (ctx->path_match == JAP_DID + 1) {
-			lws_strncpy(pctx->ja->did, ctx->buf, sizeof(pctx->ja->did));
+			if (jwt_auth_collate(pctx->ja->did,
+					     sizeof(pctx->ja->did),
+					     &pctx->spos, ctx))
+				return -1;
 		}
 	}
 
@@ -186,8 +240,14 @@ lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reaso
 		return -1;
 	}
 
+	memset(&pctx, 0, sizeof(pctx));
 	pctx.ja = ja;
-	pctx.parsing_grants = 0;
+
+	/* re-parsing an existing object must not inherit the old claims */
+	ja->exp = 0;
+	ja->nbf = 0;
+	ja->sub[0] = '\0';
+	ja->did[0] = '\0';
 	lejp_construct(&ctx, jwt_auth_lejp_cb, &pctx, auth_paths, LWS_ARRAY_SIZE(auth_paths));
 	m = (int)(lejp_parse(&ctx, (uint8_t *)out, (int)out_len));
 	lejp_destruct(&ctx);
@@ -196,6 +256,28 @@ lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reaso
 		lwsl_err("%s: JSON decode failed\n", __func__);
 		if (reason)
 			*reason = "Failed to parse JWT payload JSON";
+		return -1;
+	}
+
+	/*
+	 * RFC7519 leaves "exp" optional, but a session token without one never
+	 * expires: refuse it rather than treat it as live forever.  All lws
+	 * issuers mint an "exp".
+	 */
+
+	if (!ja->exp) {
+		lwsl_err("%s: JWT has no exp claim\n", __func__);
+		if (reason)
+			*reason = "JWT has no exp claim";
+		return -1;
+	}
+
+	/* and a token that is not valid yet is not usable either */
+
+	if (ja->nbf && ja->nbf > (uint64_t)lws_now_secs()) {
+		lwsl_err("%s: JWT not valid yet\n", __func__);
+		if (reason)
+			*reason = "JWT is not valid yet";
 		return -1;
 	}
 
@@ -274,7 +356,8 @@ lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
 			continue;
 		}
 
-		if (!cand->exp || cand->exp > now) {
+		/* lws_jwt_auth_update() guarantees a nonzero exp */
+		if (cand->exp > now) {
 			/* live: this is the one, drop any expired fallback */
 			if (ja)
 				lws_jwt_auth_destroy(&ja);
