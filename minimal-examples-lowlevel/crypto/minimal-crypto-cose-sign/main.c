@@ -212,7 +212,14 @@ int main(int argc, const char **argv)
 	}
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_KID_HEX].sw))) {
-		kid_len = (size_t)lws_hex_to_byte_array(p, ktmp, sizeof(ktmp));
+		int n = lws_hex_to_byte_array(p, ktmp, sizeof(ktmp));
+
+		if (n < 0) {
+			lwsl_err("%s: bad or over-long kid hex\n", __func__);
+
+			return 1;
+		}
+		kid_len = (size_t)n;
 		kid = (uint8_t *)ktmp;
 	}
 
