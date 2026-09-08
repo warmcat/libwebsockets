@@ -132,11 +132,22 @@ struct pss__xip {
 /* helpers                                                             */
 /* ------------------------------------------------------------------ */
 
+/*
+ * Queue one frame to a session.  A queue that has hit the cap belongs to a
+ * peer that is not draining it (or is asking for more than it reads), and
+ * there is nothing useful left to do with it: close it asynchronously.
+ */
 static int
 pss_queue(struct pss__xip *pss, const char *frame, size_t len)
 {
-	if (xip_txq_append(&pss->txq, frame, len))
+	if (xip_txq_append(&pss->txq, frame, len, pss->vhd->max_txq)) {
+		lwsl_notice("xip: session %u tx queue full, closing\n",
+			    pss->id);
+		lws_set_timeout(pss->wsi, PENDING_TIMEOUT_CLOSE_SEND,
+				LWS_TO_KILL_ASYNC);
+
 		return -1;
+	}
 	lws_callback_on_writable(pss->wsi);
 
 	return 0;
@@ -188,8 +199,14 @@ broadcast_clip(struct grp__xip *grp, struct pss__xip *sender,
 							struct pss__xip, list);
 
 			if (t != sender && t->authed) {
-				if (!xip_txq_append(&t->txq, frame, fl))
+				if (!xip_txq_append(&t->txq, frame, fl,
+						    t->vhd->max_txq))
 					lws_callback_on_writable(t->wsi);
+				else
+					/* stalled peer: stop feeding it */
+					lws_set_timeout(t->wsi,
+						PENDING_TIMEOUT_CLOSE_SEND,
+						LWS_TO_KILL_ASYNC);
 				sent++;
 			}
 		} lws_end_foreach_dll_safe(d, d1);

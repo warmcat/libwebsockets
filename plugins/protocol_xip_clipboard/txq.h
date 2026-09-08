@@ -21,9 +21,14 @@ struct xip_txq_node {
 	size_t		off;		/* payload offset (partial writes) */
 };
 
-/* 0 = ok, -1 = OOM */
+/*
+ * Append a frame, refusing it if the queue already holds max_bytes of
+ * unsent payload (max_bytes 0 means no cap).
+ *
+ * 0 = ok, -1 = OOM or over the cap
+ */
 int xip_txq_append(struct xip_txq_node **head, const void *payload,
-		   size_t len);
+		   size_t len, size_t max_bytes);
 
 struct xip_txq_node *xip_txq_pop(struct xip_txq_node **head);
 void xip_txq_free_node(struct xip_txq_node *n);

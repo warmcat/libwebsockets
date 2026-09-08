@@ -4,12 +4,25 @@
 #include "txq.h"
 
 int
-xip_txq_append(struct xip_txq_node **head, const void *payload, size_t len)
+xip_txq_append(struct xip_txq_node **head, const void *payload, size_t len,
+	       size_t max_bytes)
 {
-	struct xip_txq_node *n = (struct xip_txq_node *)
-			malloc(sizeof(*n));
-	struct xip_txq_node **tail;
+	struct xip_txq_node *n, **tail;
+	size_t queued = 0;
 
+	/*
+	 * We are walking to the tail anyway, so total up what is already
+	 * waiting: a peer that never reads (or that spams cheap "fetch"
+	 * requests, each of which queues the whole cached clip) otherwise
+	 * grows this list without any bound at all.
+	 */
+	for (tail = head; *tail; tail = &(*tail)->next)
+		queued += (*tail)->len - (*tail)->off;
+
+	if (max_bytes && queued + len > max_bytes)
+		return -1;
+
+	n = (struct xip_txq_node *)malloc(sizeof(*n));
 	if (!n)
 		return -1;
 	n->next = NULL;
@@ -22,8 +35,6 @@ xip_txq_append(struct xip_txq_node **head, const void *payload, size_t len)
 	n->len = len;
 	n->off = 0;
 
-	for (tail = head; *tail; tail = &(*tail)->next)
-		;
 	*tail = n;
 
 	return 0;
