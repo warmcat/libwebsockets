@@ -431,10 +431,15 @@ int lws_wsi_extract_from_loop(struct lws *wsi) {
 		__remove_wsi_socket_from_fds(wsi);
 
 	if (!wsi->a.context->event_loop_ops->destroy_wsi &&
-			wsi->a.context->event_loop_ops->wsi_logical_close) {
-		wsi->a.context->event_loop_ops->wsi_logical_close(wsi);
-		return 1; /* close / destroy continues async */
-	}
+			wsi->a.context->event_loop_ops->wsi_logical_close)
+		/*
+		 * Only the event lib knows whether it actually queued an
+		 * asynchronous close (it may have nothing to close, eg, a wsi
+		 * that never got a handle)... if it did not, we must tell the
+		 * caller he is responsible for destroying the wsi now, or it
+		 * and its fd are simply never freed
+		 */
+		return !!wsi->a.context->event_loop_ops->wsi_logical_close(wsi);
 
 	if (wsi->a.context->event_loop_ops->destroy_wsi)
 		wsi->a.context->event_loop_ops->destroy_wsi(wsi);
@@ -1338,8 +1343,19 @@ int _lws_generic_transaction_completed_active_conn(struct lws **_wsi,
 #if defined(LWS_WITH_EVENT_LIBS)
 	if (wsi->a.context->event_loop_ops->destroy_wsi)
 		wsi->a.context->event_loop_ops->destroy_wsi(wsi);
-	if (wsi->a.context->event_loop_ops->sock_accept)
-		wsi->a.context->event_loop_ops->sock_accept(wnew);
+	if (wsi->a.context->event_loop_ops->sock_accept &&
+	    wsi->a.context->event_loop_ops->sock_accept(wnew)) {
+		/*
+		 * The event lib could not take the fd (eg, libuv already had
+		 * a handle on it)... the new guy has no watcher, so he must
+		 * not go into the fds table where nothing would ever service
+		 * or close his fd
+		 */
+		compatible_close(wnew->desc.sockfd);
+		wnew->desc.sockfd = LWS_SOCK_INVALID;
+
+		goto bail;
+	}
 #endif
 
 	/* point the fd table entry to new guy */
