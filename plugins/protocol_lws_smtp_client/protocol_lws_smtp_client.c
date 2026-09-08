@@ -29,6 +29,28 @@ struct smtp_email {
 	char *to;
 	char *subject;
 	char *body;
+	uint8_t tries;		/* transient (4xx / disconnect) attempts made */
+};
+
+/*
+ * A mail the relay will never accept must not be able to sit at the head of
+ * the queue forever: it would both block everything queued behind it and,
+ * since the connection is retried as soon as it closes, spin connect / 5xx /
+ * close as fast as the event loop allows.  So we bound the attempts, bound
+ * the queue, and back off between connections.
+ */
+#define SMTP_MAX_TRIES		5
+#define SMTP_MAX_QUEUE		128
+
+static const uint32_t smtp_backoff_ms[] = { 100, 1000, 5000, 15000, 30000 };
+
+static const lws_retry_bo_t smtp_retry = {
+	.retry_ms_table			= smtp_backoff_ms,
+	.retry_ms_table_count		= LWS_ARRAY_SIZE(smtp_backoff_ms),
+	.conceal_count			= LWS_RETRY_CONCEAL_ALWAYS,
+	.secs_since_valid_ping		= 0,
+	.secs_since_valid_hangup	= 0,
+	.jitter_percent			= 20,
 };
 
 /* How the upstream MTA connection is secured. */
@@ -46,10 +68,13 @@ struct per_vhost_data__smtp_client {
 	struct lws_vhost *vh;
 	lws_dll2_owner_t emails_ready;
 	struct lws *wsi;
+	lws_sorted_usec_list_t sul;	/* backed-off connection attempt */
 
 	char smtp_host[64];	/* upstream MTA host, default "127.0.0.1" */
 	int smtp_port;		/* upstream MTA port, default 25 */
 	int tls_mode;		/* enum smtp_tls_mode, default SMTP_TLS_NONE */
+
+	uint16_t retry_count;	/* consecutive failed connection attempts */
 };
 
 /*
@@ -86,7 +111,47 @@ struct per_session_data__smtp_client {
 };
 
 static void
-trigger_smtp_if_needed(struct per_vhost_data__smtp_client *vhd)
+smtp_email_destroy(struct smtp_email *e)
+{
+	lws_dll2_remove(&e->list);
+	free(e->from);
+	free(e->to);
+	free(e->subject);
+	free(e->body);
+	free(e);
+}
+
+static void
+smtp_connect_sul_cb(lws_sorted_usec_list_t *sul);
+
+/*
+ * Arm a backed-off connection attempt.  Every path that ends a connection
+ * attempt - a synchronous connect failure, an asynchronous
+ * CLIENT_CONNECTION_ERROR, or the close of an established connection - comes
+ * through here, so we can never spin on a relay that is down or that refuses
+ * the head of the queue.
+ */
+
+static void
+smtp_retry_later(struct per_vhost_data__smtp_client *vhd)
+{
+	if (vhd->wsi)
+		return;
+
+	if (!lws_dll2_count(&vhd->emails_ready)) {
+		/* nothing left to send... forget the backoff state */
+		lws_sul_cancel(&vhd->sul);
+		vhd->retry_count = 0;
+
+		return;
+	}
+
+	lws_retry_sul_schedule(vhd->cx, 0, &vhd->sul, &smtp_retry,
+			       smtp_connect_sul_cb, &vhd->retry_count);
+}
+
+static void
+smtp_connect(struct per_vhost_data__smtp_client *vhd)
 {
 	struct lws_client_connect_info i;
 
@@ -119,6 +184,34 @@ trigger_smtp_if_needed(struct per_vhost_data__smtp_client *vhd)
 	/* SMTP defines no ALPN; leave i.alpn NULL */
 
 	vhd->wsi = lws_client_connect_via_info(&i);
+	if (!vhd->wsi) {
+		lwsl_vhost_warn(vhd->vh, "%s: connect to %s:%d failed\n",
+				__func__, vhd->smtp_host, vhd->smtp_port);
+		smtp_retry_later(vhd);
+	}
+}
+
+static void
+smtp_connect_sul_cb(lws_sorted_usec_list_t *sul)
+{
+	smtp_connect(lws_container_of(sul, struct per_vhost_data__smtp_client,
+				      sul));
+}
+
+static void
+trigger_smtp_if_needed(struct per_vhost_data__smtp_client *vhd)
+{
+	if (vhd->wsi || !lws_dll2_count(&vhd->emails_ready))
+		return;
+
+	/*
+	 * If we are already in backoff after a failure, let that run rather
+	 * than letting a newly queued mail short-circuit it.
+	 */
+	if (vhd->retry_count)
+		return;
+
+	lws_sul_schedule(vhd->cx, 0, &vhd->sul, smtp_connect_sul_cb, 1);
 }
 
 static void
@@ -181,6 +274,13 @@ lws_smtp_client_send_email(struct lws_context *cx, struct lws_vhost *vh, const l
 
 	vhd = lws_protocol_vh_priv_get(vh, pp);
 	if (!vhd) return -1;
+
+	if (lws_dll2_count(&vhd->emails_ready) >= SMTP_MAX_QUEUE) {
+		lwsl_vhost_warn(vh, "%s: mail queue full (%d), dropping\n",
+				__func__, SMTP_MAX_QUEUE);
+
+		return -1;
+	}
 
 	e = malloc(sizeof(*e));
 	if (!e) return -1;
@@ -297,19 +397,20 @@ callback_smtp_client(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!vhd)
 			break;
 
+		lws_sul_cancel(&vhd->sul);
+
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 					   lws_dll2_get_head(&vhd->emails_ready)) {
 			struct smtp_email *e = lws_container_of(d, struct smtp_email, list);
-			lws_dll2_remove(&e->list);
-			free(e->from);
-			free(e->to);
-			free(e->subject);
-			free(e->body);
-			free(e);
+
+			smtp_email_destroy(e);
 		} lws_end_foreach_dll_safe(d, d1);
 		break;
 
 	case LWS_CALLBACK_RAW_CONNECTED:
+		if (!vhd || !pss)
+			return -1;
+		vhd->retry_count = 0;
 		pss->starttls = (vhd->tls_mode == SMTP_TLS_STARTTLS);
 		pss->state = SMTP_STATE_GREETING;
 		if(!lws_dll2_is_empty(&vhd->emails_ready)) {
@@ -324,6 +425,9 @@ callback_smtp_client(struct lws *wsi, enum lws_callback_reasons reason,
 			char *resp = (char *)in;
 			char *last_line = resp;
 			int code;
+
+			if (!vhd || !pss || !in)
+				return -1;
 
 			/*
 			 * While the STARTTLS handshake is in flight, the
@@ -351,16 +455,28 @@ callback_smtp_client(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			/*
-			 * Q-25: parse the server's SMTP reply code with strtol
-			 * (atoi silently returns 0 on non-numeric/garbage and
-			 * truncates on overflow).  A valid reply code is a 3-digit
-			 * value; reject anything that isn't pure digits or is out
-			 * of range rather than driving the state machine off 0.
+			 * Parse the server's SMTP reply code.  `in` is the
+			 * raw rx buffer, it is not NUL-terminated, so strtol()
+			 * must not be pointed into it directly - given an
+			 * all-digit reply that fills the buffer it would run
+			 * off the end of the allocation.  Check we have a
+			 * whole reply code first, then parse it out of a
+			 * terminated scratch copy.  A valid reply code is
+			 * exactly 3 digits in 100..599.
 			 */
+
+			if ((size_t)((resp + len) - last_line) < 4)
+				return 0; /* incomplete, wait for more data */
+
 			{
-				char *endp = NULL;
-				long c = strtol(last_line, &endp, 10);
-				if (endp == last_line || c < 100 || c > 599) {
+				char cbuf[4], *endp = NULL;
+				long c;
+
+				memcpy(cbuf, last_line, 3);
+				cbuf[3] = '\0';
+
+				c = strtol(cbuf, &endp, 10);
+				if (endp != cbuf + 3 || c < 100 || c > 599) {
 					size_t rl = len < 128 ? len : 128;
 					lwsl_err("SMTP: malformed reply code in '%.*s'\n",
 						 (int)rl, resp);
@@ -370,11 +486,33 @@ callback_smtp_client(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 			if (code >= 400) {
 				lwsl_err("SMTP error: %.*s\n", (int)len, resp);
+
+				/*
+				 * If the relay rejected something specific to
+				 * this mail (ie, we are past the greeting and
+				 * the HELO), a 5xx is permanent: retrying it
+				 * only spins connect / reject / close forever
+				 * and head-of-line blocks the whole queue.
+				 * Drop it.  A 4xx is transient, but bound the
+				 * attempts so a mail that is always refused
+				 * cannot wedge the queue either.
+				 */
+
+				if (pss->email && pss->state >= SMTP_STATE_RCPT_TO) {
+					if (code >= 500 ||
+					    ++pss->email->tries >= SMTP_MAX_TRIES) {
+						lwsl_warn("%s: giving up on mail after %d\n",
+							  __func__, code);
+						smtp_email_destroy(pss->email);
+					}
+					pss->email = NULL;
+				}
+
 				return -1;
 			}
 
-			if ((resp + len) - last_line < 4 || last_line[3] != ' ') {
-				return 0; /* Wait for more data, either incomplete or continuation */
+			if (last_line[3] != ' ') {
+				return 0; /* multiline continuation, wait */
 			}
 
 			if (pss->state == SMTP_STATE_IDLE)
@@ -454,6 +592,9 @@ callback_smtp_client(struct lws *wsi, enum lws_callback_reasons reason,
 			char *p = (char *)&buf[LWS_PRE];
 			int n = 0;
 
+			if (!vhd || !pss)
+				return -1;
+
 			/* Until the STARTTLS handshake completes, emit nothing. */
 			if (pss->state == SMTP_STATE_TLS_UPGRADING) {
 #if defined(LWS_WITH_TLS)
@@ -523,13 +664,14 @@ callback_smtp_client(struct lws *wsi, enum lws_callback_reasons reason,
 					pss->email->subject, pss->email->to, pss->email->body);
 				pss->state = SMTP_STATE_QUIT;
 
-				lws_dll2_remove(&pss->email->list);
-				free(pss->email->from);
-				free(pss->email->to);
-				free(pss->email->subject);
-				free(pss->email->body);
-				free(pss->email);
+				smtp_email_destroy(pss->email);
 				pss->email = NULL;
+
+				/*
+				 * The relay is working... come back promptly
+				 * for whatever else is queued
+				 */
+				vhd->retry_count = 0;
 				break;
 			case SMTP_STATE_QUIT:
 				n = lws_snprintf(p, 1024, "QUIT\r\n");
@@ -545,9 +687,43 @@ callback_smtp_client(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		break;
 
-	case LWS_CALLBACK_RAW_CLOSE:
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		/*
+		 * A raw client wsi that never established gets CCE and no
+		 * RAW_CLOSE, so this is the only chance to drop our reference
+		 * to it.  Without this, vhd->wsi stays pointing at freed
+		 * memory and acts as a permanent "busy" flag, silently killing
+		 * all outgoing mail - including address verification and
+		 * password recovery - for the life of the process.
+		 */
+		if (!vhd)
+			break;
+		lwsl_vhost_warn(vhd->vh, "%s: MTA connect failed: %s\n",
+				__func__, in ? (const char *)in : "(null)");
 		vhd->wsi = NULL;
-		trigger_smtp_if_needed(vhd);
+		smtp_retry_later(vhd);
+		break;
+
+	case LWS_CALLBACK_RAW_CLOSE:
+		if (!vhd)
+			break;
+
+		/*
+		 * The connection died with the head mail still queued; count
+		 * it against that mail so one that always breaks the
+		 * transaction cannot block the queue forever either.
+		 */
+		if (pss && pss->email &&
+		    ++pss->email->tries >= SMTP_MAX_TRIES) {
+			lwsl_vhost_warn(vhd->vh, "%s: giving up on mail after "
+					"%d attempts\n", __func__,
+					SMTP_MAX_TRIES);
+			smtp_email_destroy(pss->email);
+			pss->email = NULL;
+		}
+
+		vhd->wsi = NULL;
+		smtp_retry_later(vhd);
 		break;
 
 	default:

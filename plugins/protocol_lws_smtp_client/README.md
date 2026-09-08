@@ -52,3 +52,22 @@ In both TLS modes the server certificate is validated against the trusted CA sto
 
 - **No SMTP AUTH.** The state machine does not perform `AUTH PLAIN`/`AUTH LOGIN`. A submission relay that requires authentication (typical of public `:587` MSAs) will reject the `MAIL FROM`. Use a local relay that accepts unauthenticated submission from the loopback, or relay through a host that does. AUTH support may be added in a later phase.
 - **No STARTTLS capability gating.** When `smtp-tls=starttls` is set the plugin always issues `STARTTLS`; it does not fall back to plaintext if the server fails to advertise the capability.
+
+## Queueing, retry and failure handling
+
+Mails are queued on the vhost and delivered one connection at a time.
+
+- The queue is capped at 128 pending mails; `send_email()` returns `-1` once it
+  is full, so an unauthenticated caller (eg, a registration form) cannot grow
+  the queue without bound.
+- Connections to the relay are made from a backed-off scheduler
+  (100ms, 1s, 5s, 15s, then 30s with 20% jitter), so a relay that is down, or
+  that refuses the mail at the head of the queue, cannot be reconnected in a
+  tight loop.  The backoff resets once a connection is established.
+- A `5xx` reply to a per-mail command (`MAIL FROM` onwards) is permanent: the
+  mail is dropped and delivery moves on to the next queued mail, rather than
+  retrying it forever and head-of-line blocking everything behind it.
+- A `4xx` reply, or a connection that dies mid-transaction, is transient: the
+  mail is retried, but at most 5 times, after which it is dropped.
+
+There is currently no dead-letter reporting; a dropped mail is only logged.
