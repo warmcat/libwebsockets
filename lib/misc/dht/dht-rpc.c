@@ -507,11 +507,11 @@ token_match(struct lws_dht_ctx *ctx, const uint8_t *token, size_t token_len,
 		return 0;
 
 	make_token(ctx, sa, 0, t);
-	if (memcmp(t, token, TOKEN_SIZE) == 0)
+	if (!lws_timingsafe_bcmp(t, token, TOKEN_SIZE))
 		return 1;
 
 	make_token(ctx, sa, 1, t);
-	if (memcmp(t, token, TOKEN_SIZE) == 0)
+	if (!lws_timingsafe_bcmp(t, token, TOKEN_SIZE))
 		return 1;
 
 	return 0;

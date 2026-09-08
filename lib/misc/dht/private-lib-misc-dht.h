@@ -256,8 +256,8 @@ struct lws_dht_ctx {
 
 	struct timeval		now;
 
-	uint8_t			secret[8];
-	uint8_t			oldsecret[8];
+	uint8_t			secret[16]; /* token key, rotated */
+	uint8_t			oldsecret[16];
 	uint8_t			my_v[9];
 	uint8_t			aux;
 

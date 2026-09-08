@@ -121,27 +121,52 @@ lws_dht_hash_cmp(const lws_dht_hash_t *a, const lws_dht_hash_t *b)
 	return memcmp(a->id, b->id, a->len);
 }
 
+/*
+ * Default keyed hash for tokens etc: SHA-1 over the concatenated inputs,
+ * extended by re-hashing if more than a digest is wanted.  The previous
+ * default XOR-folded the inputs, so a token handed to a peer revealed the
+ * secret it was derived from and any peer could then forge tokens for any
+ * address.
+ */
 static void
 dht_default_hash(void *hash_return, int hash_size,
 		 const void *v1, int len1,
 		 const void *v2, int len2,
 		 const void *v3, int len3)
 {
+	uint8_t buf[256], d[20];
 	uint8_t *h = hash_return;
-	const uint8_t *p;
-	int i;
+	size_t n = 0;
 
-	memset(h, 0, (size_t)hash_size);
+	if (len1 < 0 || len2 < 0 || len3 < 0)
+		len1 = len2 = len3 = 0;
 
-	p = v1;
-	for (i = 0; i < len1; i++)
-		h[i % hash_size] ^= p[i];
-	p = v2;
-	for (i = 0; i < len2; i++)
-		h[i % hash_size] ^= p[i];
-	p = v3;
-	for (i = 0; i < len3; i++)
-		h[i % hash_size] ^= p[i];
+	if ((size_t)len1 + (size_t)len2 + (size_t)len3 > sizeof(buf)) {
+		/* not reached in-tree: hash the parts, then the digests */
+		lws_SHA1(v1, (size_t)len1, buf);
+		lws_SHA1(v2, (size_t)len2, buf + 20);
+		lws_SHA1(v3, (size_t)len3, buf + 40);
+		n = 60;
+	} else {
+		memcpy(buf + n, v1, (size_t)len1);
+		n += (size_t)len1;
+		memcpy(buf + n, v2, (size_t)len2);
+		n += (size_t)len2;
+		memcpy(buf + n, v3, (size_t)len3);
+		n += (size_t)len3;
+	}
+
+	lws_SHA1(buf, n, d);
+
+	while (hash_size > 0) {
+		int m = hash_size > (int)sizeof(d) ? (int)sizeof(d) : hash_size;
+
+		memcpy(h, d, (size_t)m);
+		h += m;
+		hash_size -= m;
+		if (hash_size > 0)
+			lws_SHA1(d, sizeof(d), d);
+	}
 }
 
 void
