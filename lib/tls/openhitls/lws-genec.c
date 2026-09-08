@@ -646,6 +646,21 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
 		return -1;
 	}
 
+	/*
+	 * RFC 7518 s4.6: the peer's ephemeral key MUST be on the same curve as
+	 * ours.  Whether the scalar multiply refuses a point from a different
+	 * group is an internal detail of the crypto library... lws is the
+	 * layer that is supposed to prevent the invalid-curve setup, and it
+	 * must do so on every backend.
+	 */
+
+	if (CRYPT_EAL_PkeyGetParaId(ctx->ctx[LDHS_OURS]) !=
+	    CRYPT_EAL_PkeyGetParaId(ctx->ctx[LDHS_THEIRS])) {
+		lwsl_err("%s: peer key is on a different curve\n", __func__);
+
+		return -1;
+	}
+
 	ret = CRYPT_EAL_PkeyComputeShareKey(ctx->ctx[LDHS_OURS],
 					    ctx->ctx[LDHS_THEIRS],
 					    ss, &shareLen);

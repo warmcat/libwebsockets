@@ -176,6 +176,7 @@ struct lws_genrsa_keypair_bufs {
 	uint8_t *d;
 	uint8_t *p;
 	uint8_t *q;
+	uint32_t bytes;		/* n and d allocation size, p and q are half */
 };
 
 static void
@@ -185,12 +186,25 @@ lws_genrsa_keypair_bufs_destroy(struct lws_genrsa_keypair_bufs *bufs)
 		lws_free(bufs->n);
 	if (bufs->e)
 		lws_free(bufs->e);
-	if (bufs->d)
+
+	/*
+	 * d, p and q are private key material... don't leave copies of them
+	 * behind in the heap for a later uninitialized read, a core dump or
+	 * swap to find
+	 */
+
+	if (bufs->d) {
+		lws_explicit_bzero(bufs->d, bufs->bytes);
 		lws_free(bufs->d);
-	if (bufs->p)
+	}
+	if (bufs->p) {
+		lws_explicit_bzero(bufs->p, bufs->bytes / 2);
 		lws_free(bufs->p);
-	if (bufs->q)
+	}
+	if (bufs->q) {
+		lws_explicit_bzero(bufs->q, bufs->bytes / 2);
 		lws_free(bufs->q);
+	}
 
 	memset(bufs, 0, sizeof(*bufs));
 }
@@ -198,6 +212,7 @@ lws_genrsa_keypair_bufs_destroy(struct lws_genrsa_keypair_bufs *bufs)
 static int
 lws_genrsa_keypair_bufs_alloc(struct lws_genrsa_keypair_bufs *bufs, uint32_t bytes)
 {
+	bufs->bytes = bytes;
 	bufs->n = lws_malloc(bytes, "rsa-n");
 	bufs->e = lws_malloc(3, "rsa-e");
 	bufs->d = lws_malloc(bytes, "rsa-d");
@@ -484,13 +499,18 @@ lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		goto bail;
 	}
 
+	/* the padded buffer holds the message we just signed... wipe it */
+
+	lws_explicit_bzero(padded, padded_len);
 	lws_free(padded);
 
 	return (int)outLen;
 
 bail:
-	if (padded)
+	if (padded) {
+		lws_explicit_bzero(padded, padded_len);
 		lws_free(padded);
+	}
 
 	return -1;
 }
@@ -531,6 +551,19 @@ lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	}
 
 	if (ctx->mode == LGRSAM_PKCS1_1_5) {
+		/*
+		 * RFC 8017 s9.2: EM is exactly the modulus length, and the
+		 * padding string is at least 8 octets.  Without those, this is
+		 * the classic Bleichenbacher'06 forgery shape for small public
+		 * exponents, since the recovered message may then be followed
+		 * by attacker-chosen bytes.
+		 */
+
+		if (outLen != key_len) {
+			lwsl_err("%s: PKCS#1 v1.5 EM is not the key length\n",
+				 __func__);
+			goto bail;
+		}
 		if (outLen < 11 || buf[0] != 0x00 || buf[1] != 0x01) {
 			lwsl_err("%s: invalid PKCS#1 v1.5 type 1 padding\n", __func__);
 			goto bail;
@@ -545,6 +578,11 @@ lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		}
 		if (i >= outLen - 1) {
 			lwsl_err("%s: missing 0x00 separator in PKCS#1 v1.5 padding\n", __func__);
+			goto bail;
+		}
+		if (i < 10) {
+			lwsl_err("%s: PKCS#1 v1.5 padding shorter than 8 octets\n",
+				 __func__);
 			goto bail;
 		}
 		i++; /* skip the 0x00 separator */

@@ -159,8 +159,15 @@ lws_openhitls_aes_destroy_gcm(struct lws_genaes_ctx *ctx, unsigned char *tag,
 	ret = CRYPT_EAL_CipherCtrl(ctx->ctx, CRYPT_CTRL_GET_TAG, tag_out,
 		tagLen);
 	if (ret != CRYPT_SUCCESS) {
+		/*
+		 * We could not compute the tag, so for a decrypt we never
+		 * compared it... that must be reported as a failure with the
+		 * same sign as every other failure here, since callers in
+		 * lib/jose test the destroy result with < 0
+		 */
 		lwsl_err("%s: GET_TAG failed (%d)\n", __func__, (int)ret);
-		return 1;
+
+		return -1;
 	}
 
 	if (ctx->op == LWS_GAESO_DEC &&

@@ -517,6 +517,7 @@ int
 lws_gendtls_put_tx(struct lws_gendtls_ctx *ctx, const uint8_t *in, size_t len)
 {
 	uint32_t written = 0;
+	int progress = 0;
 	int ret;
 
 	if (!ctx || !ctx->ctx || !in || !len)
@@ -532,18 +533,41 @@ lws_gendtls_put_tx(struct lws_gendtls_ctx *ctx, const uint8_t *in, size_t len)
 	while (len) {
 		size_t chunk = len > UINT32_MAX ? UINT32_MAX : len;
 
+		written = 0;
 		ret = HITLS_Write(ctx->ctx, in, (uint32_t)chunk, &written);
 		if (ret != HITLS_SUCCESS) {
+			/*
+			 * "Retry" is only meaningful while we have not
+			 * committed any of the caller's buffer to the
+			 * connection: our API contract is 0 = all of it went
+			 * in, so once part of it has, a caller that re-offers
+			 * the whole buffer would duplicate the written prefix
+			 * inside the DTLS stream.  Fail instead.
+			 */
 			if (lws_openhitls_gendtls_is_retryable(ctx, ret))
-				return 0;
+				return progress ? -1 : 0;
 			lwsl_err("%s: HITLS_Write failed: 0x%x\n",
 				 __func__, ret);
 			lws_tls_err_describe_clear();
 			return -1;
 		}
 
+		if (!written || written > chunk) {
+			/*
+			 * The library reported success without consuming a
+			 * sane amount... looping on it would spin here with
+			 * the event loop blocked
+			 */
+			lwsl_err("%s: HITLS_Write consumed %u of %u\n",
+				 __func__, (unsigned int)written,
+				 (unsigned int)chunk);
+
+			return -1;
+		}
+
 		in += written;
 		len -= written;
+		progress = 1;
 	}
 
 	return 0;
