@@ -42,12 +42,38 @@ struct lws_fts_file;
 
 /* one filepath's results */
 
+/*
+ * Immediately after the struct comes the match table, then the filepath
+ * string (of filepath_length, NUL-terminated); .matches_length is the number
+ * of bytes in the match table, so the filepath is always at
+ * ((char *)&fp[1]) + fp->matches_length.
+ *
+ * The match table holds exactly .matches fixed-size records, in this order,
+ * with no padding and no omissions:
+ *
+ *  - nothing at all, if LWSFTS_F_QUERY_FILE_LINES was not given
+ *
+ *  - uint32_t line number, uint32_t byte offset of that line in the original
+ *    file, if LWSFTS_F_QUERY_FILE_LINES was given
+ *
+ *  - the two uint32_t above, then a const char * to a NUL-terminated quote of
+ *    the line (also in the results lwsac), if LWSFTS_F_QUERY_QUOTE_LINE was
+ *    also given
+ *
+ * The stride is fixed: if the library could not resolve a particular match
+ * (eg, the original file has changed since it was indexed), that record is
+ * present but zero, ie, the offset is 0 and the quote pointer is NULL.
+ * Consumers must be ready for a NULL quote pointer, but may rely on the
+ * record count and stride.
+ */
+
 struct lws_fts_result_filepath {
 	struct lws_fts_result_filepath *next;
 	int matches;	/* logical number of matches */
 	int matches_length;	/* bytes in length table (may be zero) */
 	int lines_in_file;
 	int filepath_length;
+	char truncated;	/* there were more matches, capped by max_lines */
 
 	/* - uint32_t line table follows (first for alignment) */
 	/* - filepath (of filepath_length) follows */
@@ -76,6 +102,7 @@ struct lws_fts_result {
 	struct lws_fts_result_autocomplete *autocomplete_head;
 	int duration_ms;
 	int effective_flags; /* the search flags that were used */
+	char truncated; /* there were more filepaths, capped by max_files */
 };
 
 /*
@@ -126,6 +153,11 @@ lws_fts_file_index(struct lws_fts *t, const char *filepath, int filepath_len,
  * \param len: The number of bytes in buf
  *
  * Indexes a buffer of data from the input file.
+ *
+ * The input files must be filled one after another, ie, all the buffers for
+ * one file_index, then all the buffers for the next.  Each filepath's line
+ * table is written to the index contiguously as it is filled, so returning to
+ * a file_index that was already filled is not supported.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_fts_fill(struct lws_fts *t, uint32_t file_index, const char *buf,
@@ -174,9 +206,18 @@ struct lws_fts_search_params {
 	int flags;
 	/* maximum number of autocomplete suggestions to return */
 	int max_autocomplete;
-	/* maximum number of filepaths to return */
+	/*
+	 * Maximum number of filepaths to return, 0 = no limit.  If the walk
+	 * stopped here, result.truncated is set.  Any caller acting on an
+	 * untrusted needle should set this: a one-character needle otherwise
+	 * walks the whole indexed corpus into the results lwsac.
+	 */
 	int max_files;
-	/* maximum number of line number results to return per filepath */
+	/*
+	 * Maximum number of line number results to return per filepath, 0 =
+	 * no limit (there is still an internal ceiling).  If a filepath's
+	 * results stopped here, that filepath result's .truncated is set.
+	 */
 	int max_lines;
 };
 

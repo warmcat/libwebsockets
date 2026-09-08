@@ -27,12 +27,20 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <assert.h>
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
 #define AC_COUNT_STASHED_CHILDREN 8
+
+/*
+ * Hard ceiling on how many matches we will report for one filepath, if the
+ * caller didn't set ftsp->max_lines.  It exists so the per-filepath results
+ * footprint can't overflow size_t on 32-bit from a corrupt index; see also
+ * the index-length bound applied alongside it.
+ */
+
+#define LWS_FTS_MAX_MATCHES_PER_FILEPATH (1024 * 1024)
 
 struct ch {
 	jg2_file_offset ofs;
@@ -74,13 +82,19 @@ struct linetable {
 static uint32_t
 b32(unsigned char *b)
 {
-	return (uint32_t)((b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]);
+	/*
+	 * the casts are required: b[0] would otherwise promote to int and
+	 * << 24 on a value with bit 7 set is signed overflow, ie, UB
+	 */
+
+	return ((uint32_t)b[0] << 24) | ((uint32_t)b[1] << 16) |
+	       ((uint32_t)b[2] << 8) | (uint32_t)b[3];
 }
 
 static uint16_t
 b16(unsigned char *b)
 {
-	return (uint16_t)((b[0] << 8) | b[1]);
+	return (uint16_t)(((uint32_t)b[0] << 8) | (uint32_t)b[1]);
 }
 
 static int
@@ -93,7 +107,7 @@ lws_fts_filepath(struct lws_fts_file *jtf, int filepath_index, char *result,
 	size_t m;
 	off_t o;
 
-	if (filepath_index >= jtf->filepaths)
+	if (!len || filepath_index < 0 || filepath_index >= jtf->filepaths)
 		return 1;
 
 	if (lseek(jtf->fd, (off_t)(jtf->filepath_table + (4 * (unsigned int)filepath_index)),
@@ -103,11 +117,15 @@ lws_fts_filepath(struct lws_fts_file *jtf, int filepath_index, char *result,
 		return 1;
 	}
 
-	ra = (int)read(jtf->fd, buf, 4);
-	if (ra < 0)
+	if (read(jtf->fd, buf, 4) != 4)
 		return 1;
 
+	/* the filepath record must lie inside the index, after the header */
+
 	o = (off_t)b32(buf);
+	if (o <= TRIE_FILE_HDR_SIZE || (jg2_file_offset)o >= jtf->flen)
+		return 1;
+
 	if (lseek(jtf->fd, o, SEEK_SET) < 0) {
 		lwsl_err("%s: unable to seek\n", __func__);
 
@@ -115,8 +133,17 @@ lws_fts_filepath(struct lws_fts_file *jtf, int filepath_index, char *result,
 	}
 
 	ra = (int)read(jtf->fd, buf, sizeof(buf));
-	if (ra < 0)
+	if (ra <= 0)
 		return 1;
+
+	/*
+	 * a short read at the end of the index is legal, but then only the
+	 * first ra bytes of buf are meaningful... zero the rest so the VLI
+	 * decode can only ever see zeros rather than stack garbage
+	 */
+
+	if ((size_t)ra < sizeof(buf))
+		memset(buf + ra, 0, sizeof(buf) - (size_t)ra);
 
 	if (ofs_linetable)
 		bp += rq32(&buf[bp], ofs_linetable);
@@ -128,9 +155,14 @@ lws_fts_filepath(struct lws_fts_file *jtf, int filepath_index, char *result,
 		bp += rq32(&buf[bp], &flen);
 	bp += rq32(&buf[bp], &flen);
 
+	/* the filepath must be wholly inside what we actually read */
+
+	if (flen > (uint32_t)ra || bp + (int)flen > ra)
+		return 1;
+
 	m = flen;
-	if (len - 1 < m)
-		m = flen - 1;
+	if (m > len - 1)
+		m = len - 1;
 
 	strncpy(result, (char *)&buf[bp], m);
 	result[m] = '\0';
@@ -224,6 +256,18 @@ lws_fts_close(struct lws_fts_file *jtf)
 	lws_free(jtf);
 }
 
+/*
+ * Load _size bytes of the index at _pos into buf.
+ *
+ * A read that returns nothing at all means we were pointed outside the index,
+ * ie, the index is corrupt or truncated: that's a hard fail.  A short read is
+ * legal at the end of the index, but the bytes after it are meaningless, so
+ * they are zeroed and ra is then left describing the whole buffer.  That way
+ * a parse that runs past the real data can only ever see zeros, never stale
+ * bytes from the previous load nor uninitialized stack, and the callers'
+ * "how much have I got left" arithmetic can never go negative.
+ */
+
 #define grab(_pos, _size) { \
 		bp = 0; \
 		if (lseek(jtf->fd, (off_t)(_pos), SEEK_SET) < 0) { \
@@ -233,8 +277,11 @@ lws_fts_close(struct lws_fts_file *jtf)
 		} \
 \
 		ra = (int)read(jtf->fd, buf, (size_t)(_size)); \
-		if (ra < 0) \
+		if (ra <= 0) \
 			goto bail; \
+		if ((size_t)ra < (size_t)(_size)) \
+			memset(buf + ra, 0, (size_t)(_size) - (size_t)ra); \
+		ra = (int)(_size); \
 }
 
 static struct linetable *
@@ -242,13 +289,27 @@ lws_fts_cache_chunktable(struct lws_fts_file *jtf, uint32_t ofs_linetable,
 			 struct lwsac **linetable_head)
 {
 	struct linetable *lt, *first = NULL, **prev = NULL;
+	int line = 1, bp, ra, budget;
 	unsigned char buf[8];
-	int line = 1, bp, ra;
 	off_t cfs = 0;
 
 	*linetable_head = NULL;
 
+	/*
+	 * every chunk in the chain has an 8-byte header of its own, so a
+	 * well-formed index cannot have more chunks than that in it... this
+	 * bounds the walk if the chain in a corrupt index does not terminate
+	 */
+
+	budget = (int)(jtf->flen / 8) + 1;
+
 	do {
+		if (!budget--)
+			goto bail;
+
+		if (ofs_linetable >= jtf->flen)
+			goto bail;
+
 		grab(ofs_linetable, sizeof(buf));
 
 		lt = lwsac_use(linetable_head, sizeof(*lt), 0);
@@ -264,12 +325,26 @@ lws_fts_cache_chunktable(struct lws_fts_file *jtf, uint32_t ofs_linetable,
 
 		lt->chunk_line_number_start = line;
 		lt->chunk_line_number_count = b16(&buf[bp + 2]);
+
+		/*
+		 * the indexer never emits more than this per chunk, and
+		 * lws_fts_getfileoffset() sizes its buffer for it
+		 */
+
+		if (lt->chunk_line_number_count > LWS_FTS_LINES_PER_CHUNK)
+			lt->chunk_line_number_count = LWS_FTS_LINES_PER_CHUNK;
+
 		lt->vli_ofs_in_index = (off_t)(ofs_linetable + 8);
 		lt->chunk_filepos_start = cfs;
 
+		if (line > 0x7fffffff - LWS_FTS_LINES_PER_CHUNK)
+			goto bail;
+
 		line += lt->chunk_line_number_count;
 
-		cfs += (int32_t)b32(&buf[bp + 4]);
+		/* the deltas are counts, they are never negative */
+
+		cfs += (off_t)b32(&buf[bp + 4]);
 		ofs_linetable += b16(&buf[bp]);
 
 	} while (b16(&buf[bp]));
@@ -315,8 +390,18 @@ lws_fts_getfileoffset(struct lws_fts_file *jtf, struct linetable *ltstart,
 
 	bp = 0;
 	while (line) {
+		/*
+		 * chunk_line_number_count is clamped to
+		 * LWS_FTS_LINES_PER_CHUNK when the chunk table is built, so
+		 * bp cannot reach here... but the buffer bound is what
+		 * actually keeps us inside buf, so state it
+		 */
+
+		if ((size_t)bp + MAX_VLI > sizeof(buf))
+			goto bail;
+
 		bp += rq32(&buf[bp], &ll);
-		ofs += (int32_t)ll;
+		ofs += (off_t)ll; /* line lengths are counts, never negative */
 		line--;
 	}
 
@@ -394,7 +479,8 @@ lws_fts_search(struct lws_fts_file *jtf, struct lws_fts_search_params *ftsp)
 {
 	uint32_t children, instances, co, sl, agg, slt, chunk,
 		 fileofs_tif_start, desc, agg_instances;
-	int pos = 0, n, m, nl, bp, base = 0, ra, palm, budget, sp, ofd = -1;
+	int pos = 0, n, m, nl, bp, base = 0, ra, palm, budget, sp, ofd = -1,
+	    files = 0, cbase = 0;
 	unsigned long long tf = (unsigned long long)lws_now_usecs();
 	struct lws_fts_result_autocomplete **pac = NULL;
 	char stasis, nac = 0, credible, needle[32];
@@ -482,11 +568,35 @@ lws_fts_search(struct lws_fts_file *jtf, struct lws_fts_search_params *ftsp)
 		for (n = 0; (uint32_t)n < children; n++) {
 			uint32_t inst;
 
+			/*
+			 * bp may be anywhere up to (and past) the end of buf
+			 * when we come back around here, since the no-match
+			 * paths skip over the child match string without
+			 * reloading.  Make sure we can read this child's five
+			 * VLIs and compare the rest of the needle without
+			 * leaving buf.
+			 */
+
+			if (bp && (size_t)bp + (5 * MAX_VLI) + sizeof(needle) >
+								   sizeof(buf)) {
+				base += bp;
+				grab(o + base, sizeof(buf));
+			}
+
 			bp += rq32(&buf[bp], &co);
 			bp += rq32(&buf[bp], &inst);
 			bp += rq32(&buf[bp], &agg);
 			bp += rq32(&buf[bp], &desc);
 			bp += rq32(&buf[bp], &sl);
+
+			/*
+			 * The child match string is a token suffix, so it is
+			 * always small.  A huge one means a corrupt index and
+			 * would send bp negative on the skip-over paths.
+			 */
+
+			if (sl > sizeof(buf) - ((5 * MAX_VLI) + sizeof(needle)))
+				goto bail;
 
 			if (sl > (uint32_t)(nl - pos)) {
 
@@ -621,7 +731,9 @@ ensure:
 		struct lwsac *lt_head = NULL;
 		struct linetable *ltst;
 		char path[256], *pp;
-		int footprint;
+		char lt_trunc = 0;
+		size_t footprint;
+		int mw;
 		off_t fo;
 
 		ofd = -1;
@@ -631,12 +743,44 @@ ensure:
 		bp += rq32(&buf[bp], &_o);
 		o = (off_t)_o;
 
-		assert(!o || o > TRIE_FILE_HDR_SIZE);
+		/*
+		 * the tif list is chained backwards through the index... a
+		 * link that doesn't land inside it means a corrupt index
+		 */
+
+		if (o && (o <= TRIE_FILE_HDR_SIZE ||
+			  (jg2_file_offset)o >= jtf->flen)) {
+			lwsl_info("%s: tif link outside index\n", __func__);
+			goto bail;
+		}
 
 		bp += rq32(&buf[bp], &fi);
 		bp += rq32(&buf[bp], &tot);
 
-		if (lws_fts_filepath(jtf, (int)fi, path, sizeof(path) - 1,
+		/*
+		 * tot comes from the index and is otherwise unbounded... each
+		 * line number costs at least one VLI byte there, so it can't
+		 * exceed the index length; the hard ceiling then keeps the
+		 * footprint computation below away from size_t overflow, and
+		 * finally the caller's cap (if any) applies.
+		 */
+
+		if (tot > jtf->flen) {
+			tot = jtf->flen;
+			lt_trunc = 1;
+		}
+
+		if (tot > LWS_FTS_MAX_MATCHES_PER_FILEPATH) {
+			tot = LWS_FTS_MAX_MATCHES_PER_FILEPATH;
+			lt_trunc = 1;
+		}
+
+		if (ftsp->max_lines && tot > (uint32_t)ftsp->max_lines) {
+			tot = (uint32_t)ftsp->max_lines;
+			lt_trunc = 1;
+		}
+
+		if (lws_fts_filepath(jtf, (int)fi, path, sizeof(path),
 				     &ofs_linetable, &lines)) {
 			lwsl_err("can't get filepath index %d\n", fi);
 			goto bail;
@@ -657,18 +801,24 @@ ensure:
 			}
 		}
 
+		/* words in one fixed-size per-match record */
+
+		mw = 2;
+		if (ftsp->flags & LWSFTS_F_QUERY_QUOTE_LINE)
+			mw += (int)(sizeof(const char *) / sizeof(uint32_t));
+
 		fplen = (uint32_t)strlen(path);
-		footprint = (int)(sizeof(*fp) + fplen + 1);
-		if (ftsp->flags & LWSFTS_F_QUERY_FILE_LINES) {
-			/* line number and offset in file */
-			footprint += (int)(2 * sizeof(uint32_t) * tot);
+		footprint = sizeof(*fp) + fplen + 1;
+		if (ftsp->flags & LWSFTS_F_QUERY_FILE_LINES)
+			footprint += (size_t)mw * sizeof(uint32_t) * tot;
 
-			if (ftsp->flags & LWSFTS_F_QUERY_QUOTE_LINE)
-				/* pointer to quote string */
-				footprint += (int)(sizeof(void *) * tot);
-		}
+		/*
+		 * zeroed, so a match whose line or quote can't be resolved
+		 * still presents a well-formed record of 0 / NULL rather than
+		 * recycled heap the caller will dereference
+		 */
 
-		fp = lwsac_use(&ftsp->results_head, (unsigned int)footprint, 0);
+		fp = lwsac_use_zero(&ftsp->results_head, footprint, 0);
 		if (!fp) {
 			lwsac_free(&lt_head);
 			goto bail;
@@ -677,7 +827,9 @@ ensure:
 		fp->filepath_length = (int)fplen;
 		fp->lines_in_file = (int)lines;
 		fp->matches = (int)tot;
-		fp->matches_length = footprint - (int)sizeof(*fp) - (int)(fplen + 1);
+		fp->matches_length = (int)(footprint - sizeof(*fp) -
+					   (fplen + 1));
+		fp->truncated = lt_trunc;
 		fp->next = result->filepath_head;
 		result->filepath_head = fp;
 
@@ -687,27 +839,32 @@ ensure:
 
 		if (ftsp->flags & LWSFTS_F_QUERY_FILE_LINES) {
 
-			/* for each line number */
+			/*
+			 * for each line number... the record stride is fixed
+			 * at mw words (see lws-fts.h), u is advanced by the
+			 * loop itself, so no failure below can leave a short
+			 * record and desynchronise the caller's walk
+			 */
 
-			for (n = 0; (uint32_t)n < tot; n++) {
+			for (n = 0; (uint32_t)n < tot; n++, u += mw) {
 
 				unsigned char lbuf[256], *p;
 				char ebuf[384];
 				const char **v;
 				int m;
 
-				if ((ra - bp) < 8) {
+				if (ra - bp < MAX_VLI) {
 					base += bp;
 					grab((int32_t)ro + base, sizeof(buf));
 				}
 
 				bp += rq32(&buf[bp], &line);
-				*u++ = line;
+				u[0] = line;
 
 				if (lws_fts_getfileoffset(jtf, ltst, (int)line, &fo))
 					continue;
 
-				*u++ = (uint32_t)fo;
+				u[1] = (uint32_t)fo;
 
 				if (!(ftsp->flags & LWSFTS_F_QUERY_QUOTE_LINE))
 					continue;
@@ -716,9 +873,12 @@ ensure:
 					continue;
 
 				m = (int)read(ofd, lbuf, sizeof(lbuf) - 1);
-				if (m < 0)
+				if (m <= 0)
 					continue;
-				lbuf[sizeof(lbuf) - 1] = '\0';
+
+				/* only the m bytes we read are meaningful */
+
+				lbuf[m] = '\0';
 
 				p = (unsigned char *)(char *)strchr((char *)lbuf, '\n');
 				if (p)
@@ -741,9 +901,8 @@ ensure:
 
 				memcpy(p, ebuf, (unsigned int)m);
 				p[m] = '\0';
-				v = (const char **)u;
+				v = (const char **)&u[2];
 				*v = (const char *)p;
-				u += sizeof(const char *) / sizeof(uint32_t);
 			}
 		}
 
@@ -760,6 +919,18 @@ ensure:
 
 		if (ftsp->only_filepath)
 			break;
+
+		/*
+		 * honour the caller's cap on how many filepath results he is
+		 * willing to be given... a query on a common token in a large
+		 * index otherwise walks the whole corpus into the results
+		 * lwsac inside the caller's callback
+		 */
+
+		if (ftsp->max_files && ++files >= ftsp->max_files) {
+			result->truncated = (char)!!o;
+			break;
+		}
 
 	} while (o);
 
@@ -843,6 +1014,7 @@ autocomp:
 		struct ch *tch = &s[sp].ch[s[sp].child - 1];
 
 		grab(child_ofs, sizeof(buf));
+		cbase = 0;
 
 		bp += rq32(&buf[bp], &fileofs_tif_start);
 		bp += rq32(&buf[bp], &children);
@@ -880,11 +1052,39 @@ autocomp:
 				struct ch *ch = &s[sp].ch[i];
 				size_t max;
 
+				/*
+				 * The child table can be much larger than one
+				 * bufferload... make sure we have this child's
+				 * five VLIs and as much of his match string as
+				 * we are going to copy, reloading from where we
+				 * got to if not (bp may be past the end of buf
+				 * already, since we skip over match strings
+				 * without reloading)
+				 */
+
+				if (bp && (size_t)bp + (5 * MAX_VLI) +
+					  sizeof(ch->name) > sizeof(buf)) {
+					cbase += bp;
+					grab((off_t)((size_t)child_ofs +
+						     (size_t)cbase),
+					     sizeof(buf));
+				}
+
 				bp += rq32(&buf[bp], &cho);
 				bp += rq32(&buf[bp], &inst);
 				bp += rq32(&buf[bp], &agg);
 				bp += rq32(&buf[bp], &desc);
 				bp += rq32(&buf[bp], &slen);
+
+				/*
+				 * a match string that can't fit in the read
+				 * window means a corrupt index, and would send
+				 * bp negative on the skip below
+				 */
+
+				if (slen > sizeof(buf) - ((5 * MAX_VLI) +
+							  sizeof(ch->name)))
+					goto bail;
 
 				max = slen;
 				if (max > sizeof(ch->name) - 1)
