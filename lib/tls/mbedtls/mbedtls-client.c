@@ -193,8 +193,16 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	if (wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)
 		flags &= ~(uint32_t)MBEDTLS_X509_BADCERT_CN_MISMATCH;
 
+	/*
+	 * "self-signed is OK" is only about chain trust... it must not also
+	 * excuse BADCERT_BAD_MD ("signed with a hash the profile rejects",
+	 * eg MD5 / SHA-1), which is an independent property.  The openssl
+	 * backend maps this flag only to the three self-signed / invalid-CA
+	 * errors and never relaxes the signature algorithm check.
+	 */
+
 	if (wsi->tls.use_ssl & LCCSCF_ALLOW_SELFSIGNED)
-		flags &= ~((uint32_t)MBEDTLS_X509_BADCERT_NOT_TRUSTED | (uint32_t)MBEDTLS_X509_BADCERT_BAD_MD);
+		flags &= ~(uint32_t)MBEDTLS_X509_BADCERT_NOT_TRUSTED;
 
 	if (wsi->tls.use_ssl & LCCSCF_ALLOW_EXPIRED)
 		flags &= ~((uint32_t)MBEDTLS_X509_BADCERT_EXPIRED | (uint32_t)MBEDTLS_X509_BADCERT_FUTURE);
@@ -252,6 +260,21 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	}
 
 	mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
+
+	/*
+	 * There is no mapping in this backend from the openssl-style cipher
+	 * names lws takes in its info / config to mbedtls ciphersuite ids, so
+	 * a restricted list cannot be honoured here.  Say so loudly rather
+	 * than let an operator believe a security control took effect: what is
+	 * actually in force is the mbedtls PRESET_DEFAULT suite list.
+	 */
+
+	if (cipher_list || info->client_tls_1_3_plus_cipher_list)
+		lwsl_err("%s: vh %s: mbedtls backend cannot apply a client "
+			 "cipher list, '%s' / '%s' IGNORED\n", __func__,
+			 vh->name, cipher_list ? cipher_list : "",
+			 info->client_tls_1_3_plus_cipher_list ?
+			 info->client_tls_1_3_plus_cipher_list : "");
 
 #if !defined(LWS_HAVE_MBEDTLS_V4)
 	mbedtls_ssl_conf_rng(&ctx->conf, lws_gencrypto_mbedtls_rngf, vh->context);

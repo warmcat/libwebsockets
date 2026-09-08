@@ -42,6 +42,23 @@ typedef struct lws_tls_session_cache_mbedtls {
 
 
 
+/*
+ * The serialized blob is the whole mbedtls_ssl_session: for TLS1.2 that
+ * includes the master secret, and for TLS1.3 the resumption PSK and the
+ * ticket.  It must not be left lying around in freed heap.
+ */
+
+static void
+lws_tls_session_ser_free(lws_tls_scm_t *ts)
+{
+	if (!ts->ser_data)
+		return;
+
+	lws_explicit_bzero(ts->ser_data, sizeof(*ts->ser_data));
+	lws_free(ts->ser_data);
+	ts->ser_data = NULL;
+}
+
 static void
 __lws_tls_session_destroy(lws_tls_scm_t *ts)
 {
@@ -54,8 +71,7 @@ __lws_tls_session_destroy(lws_tls_scm_t *ts)
 
 	lws_sul_cancel(&ts->sul_ttl);
 	lws_dll2_remove(&ts->list);		/* vh lock */
-	if (ts->ser_data)
-		lws_free(ts->ser_data);
+	lws_tls_session_ser_free(ts);
 
 	lws_free(ts);
 }
@@ -121,14 +137,20 @@ lws_tls_reuse_session(struct lws *wsi)
 	goto bail;
 #endif
 
-	lwsl_tlssess("%s: %s\n", __func__, (const char *)&ts[1]);
-	wsi->tls_session_reused = 1;
-
 	msc = &wsi->tls.ssl->ssl;
 	if (mbedtls_ssl_set_session(msc, &session)) {
-		/* Failed to set session, clean up and bail */
+		/*
+		 * Nothing was installed, so we are about to do a full
+		 * handshake... lws_tls_session_is_reused() must not tell the
+		 * application otherwise.
+		 */
+		mbedtls_ssl_session_free(&session);
+		goto bail;
 	}
 	mbedtls_ssl_session_free(&session);
+
+	lwsl_tlssess("%s: %s\n", __func__, (const char *)&ts[1]);
+	wsi->tls_session_reused = 1;
 
 	/* keep our session list sorted in lru -> mru order */
 
@@ -221,6 +243,24 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 
 	msc = &wsi->tls.ssl->ssl;
 
+	/*
+	 * mbedtls clients run at VERIFY_OPTIONAL, so the handshake completes
+	 * even when the peer cert did not verify... lws only decides about it
+	 * afterwards, in lws_tls_client_confirm_peer_cert().  We are called
+	 * from the handshake completion and again from lws_ssl_close(), ie,
+	 * both before and after that decision, so check the result ourselves:
+	 * a session from a connection we are going to reject must not enter
+	 * the cache (nor evict a genuine entry from it).  This is what openssl
+	 * gets from only caching in its new_session_cb.
+	 */
+
+	if (mbedtls_ssl_get_verify_result(msc)) {
+		lwsl_tlssess("%s: %s: not caching unverified session\n",
+			     __func__, buf);
+
+		return 0;
+	}
+
 	mbedtls_ssl_session_init(&temp_session);
 
 	lws_context_lock(vh->context, __func__); /* -------------- cx { */
@@ -233,7 +273,9 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 		 * We have to make our own, new session
 		 */
 
-		if (lws_dll2_count(&vh->tls_sessions) == vh->tls_session_cache_max) {
+		if (lws_dll2_count(&vh->tls_sessions) &&
+		    lws_dll2_count(&vh->tls_sessions) >=
+					     vh->tls_session_cache_max) {
 
 			/*
 			 * We have reached the vhost's session cache limit,
@@ -266,7 +308,7 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 		}
 
 		if (mbedtls_ssl_get_session(msc, &temp_session)) {
-			lws_free(ts->ser_data);
+			lws_tls_session_ser_free(ts);
 			lws_free(ts);
 			/* no joy for whatever reason */
 			goto bail;
@@ -277,13 +319,11 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 					     sizeof(ts->ser_data->data),
 					     &ts->ser_data->len)) {
 			/* Serialization failed, cache entry will be invalid */
-			lws_free(ts->ser_data);
-			ts->ser_data = NULL;
+			lws_tls_session_ser_free(ts);
 		}
 #else
 		/* Session save not supported in this mbedtls version */
-		lws_free(ts->ser_data);
-		ts->ser_data = NULL;
+		lws_tls_session_ser_free(ts);
 #endif
 
 		lws_dll2_add_tail(&ts->list, &vh->tls_sessions);
@@ -312,13 +352,11 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 					     sizeof(ts->ser_data->data),
 					     &ts->ser_data->len)) {
 			/* Serialization failed, cache entry will be invalid */
-			lws_free(ts->ser_data);
-			ts->ser_data = NULL;
+			lws_tls_session_ser_free(ts);
 		}
 #else
 		/* Session save not supported in this mbedtls version */
-		lws_free(ts->ser_data);
-		ts->ser_data = NULL;
+		lws_tls_session_ser_free(ts);
 #endif
 
 		/* keep our session list sorted in lru -> mru order */
