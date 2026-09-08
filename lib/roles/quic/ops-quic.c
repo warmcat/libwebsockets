@@ -1654,12 +1654,21 @@ tp_ok:
 						if (!lws_quic_validate_retry_tag(nwsi->quic.qn, nwsi->quic.qn->rem_cid.id, nwsi->quic.qn->rem_cid.len, p, tag_pos, &p[tag_pos])) {
 							nwsi->quic.qn->retry_scid = scid;
 							nwsi->quic.qn->rem_cid = scid;
-							nwsi->quic.qn->retry_token_len = tag_pos - tok_pos;
-							if (nwsi->quic.qn->retry_token_len > sizeof(nwsi->quic.qn->retry_token)) {
+							/*
+							 * Check the token fits before
+							 * committing anything: a
+							 * too-long length left in
+							 * retry_token_len would be
+							 * read past retry_token[] on
+							 * to the wire in every
+							 * following Initial
+							 */
+							if (tag_pos - tok_pos > sizeof(nwsi->quic.qn->retry_token)) {
 								lwsl_wsi_notice(wsi, "QUIC RX: Retry token too large, dropping packet");
 								n = 0;
 								break;
 							}
+							nwsi->quic.qn->retry_token_len = tag_pos - tok_pos;
 							memcpy(nwsi->quic.qn->retry_token, &p[tok_pos], nwsi->quic.qn->retry_token_len);
 							
 							/* RFC 9000 17.2.5.1: The client MUST NOT change the cryptographic keys it uses for Initial packets */
