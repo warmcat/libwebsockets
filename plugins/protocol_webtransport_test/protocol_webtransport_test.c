@@ -138,24 +138,13 @@ callback_wt_test(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		/*
-		 * role_ops_wt's protocol bind and unbind callback reasons are
-		 * both 0, ie, LWS_CALLBACK_ESTABLISHED, so both of these
-		 * reasons can arrive for the same stream.  A second one on a
-		 * pss we already initialized is lws_bind_protocol() telling us
-		 * it is about to free that pss, so let the hash context it
-		 * owns go rather than leak one per stream.
+		 * The stream may be told it was adopted more than once, eg, if
+		 * it gets rebound when its WebTransport session is resolved.
+		 * Only the first one starts the test.
 		 */
 
-		if (pss->established) {
-			if (reason == LWS_CALLBACK_ESTABLISHED &&
-			    pss->rx_hash_live) {
-				uint8_t discard[HASH_SIZE];
-
-				lws_genhash_destroy(&pss->hash_ctx_rx, discard);
-				pss->rx_hash_live = 0;
-			}
+		if (pss->established)
 			break;
-		}
 
 		lwsl_user("Stream established\n");
 		pss->send_count = 0;
@@ -301,6 +290,7 @@ callback_wt_test(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLOSED_HTTP:
 	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
 	case LWS_CALLBACK_CLIENT_HTTP_DROP_PROTOCOL:
+	case LWS_CALLBACK_WT_DROP_PROTOCOL:
 		if (!pss)
 			break;
 

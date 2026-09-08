@@ -32,8 +32,18 @@ A WebTransport connection starts with an HTTP/3 `CONNECT` request specifying the
 Within the WebTransport session, you can spawn multiple independent QUIC streams. 
 
 - **Creation**: Call `lws_wt_create_stream(session_wsi, is_unidi)` to create a new child stream. `is_unidi` determines whether it is a unidirectional or bidirectional stream.
-- **Handling**: Each child stream gets its own `wsi` running the `wt` role. It will trigger its own `LWS_CALLBACK_ESTABLISHED`, `LWS_CALLBACK_RECEIVE`, and `LWS_CALLBACK_CLOSED` events. 
+- **Handling**: Each child stream gets its own `wsi` running the `wt` role, and its own pss. It will trigger its own `LWS_CALLBACK_WT_BIND_PROTOCOL`, `LWS_CALLBACK_RECEIVE`, `LWS_CALLBACK_CLOSED` and `LWS_CALLBACK_WT_DROP_PROTOCOL` events. A stream the peer created is also announced with `LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED`.
 - **Writing**: Data written to a child stream using `lws_write` is framed directly as a QUIC `STREAM` payload, avoiding multiplexing overhead.
+
+### Protocol bind and unbind
+
+`LWS_CALLBACK_WT_BIND_PROTOCOL` and `LWS_CALLBACK_WT_DROP_PROTOCOL` are the `wt` role's analogues of `LWS_CALLBACK_HTTP_BIND_PROTOCOL` / `LWS_CALLBACK_HTTP_DROP_PROTOCOL`.
+
+They are only about the logical binding of the session or stream `wsi` to your protocol, and say nothing about the state of the connection or the stream: they are not `LWS_CALLBACK_ESTABLISHED` / `LWS_CALLBACK_CLOSED` under another name.
+
+- the bind is where anything the protocol wants to allocate for the `wsi` should be created; it is also the only announcement a stream that you created yourself with `lws_wt_create_stream()` gets, since nobody adopted it
+- the drop is where those allocations must be destroyed, and where anything pointing into the pss (eg, a `lws_dll2_t` list node living inside it) must be removed. The pss may be freed immediately afterwards, either because the `wsi` is closing or because it is being rebound
+- a `wsi` that was bound while still in the `h3` role, and then transitioned into `wt` (the session `wsi` after the `CONNECT`, and any peer stream that had to be rebound), saw `LWS_CALLBACK_HTTP_BIND_PROTOCOL` for that original bind. A protocol that can be reached both ways should handle both drop reasons.
 
 ## Quick Start Example
 
@@ -64,14 +74,24 @@ callback_webtransport(struct lws *wsi, enum lws_callback_reasons reason,
                       void *user, void *in, size_t len)
 {
     switch (reason) {
-        case LWS_CALLBACK_ESTABLISHED:
+        case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
             if (lws_wt_is_session(wsi)) {
                 /* New WebTransport session established.
                  * You can create streams here, or wait for the client to initiate them. */
                 struct lws *stream_wsi = lws_wt_create_stream(wsi, 0 /* bidi */);
             } else {
-                /* A child stream was established. */
+                /* The peer created a child stream. */
             }
+            break;
+
+        case LWS_CALLBACK_WT_BIND_PROTOCOL:
+            /* This session or stream wsi is now bound to us... create
+             * anything the pss needs.  This is not about connection state. */
+            break;
+
+        case LWS_CALLBACK_WT_DROP_PROTOCOL:
+            /* Unbound... destroy whatever the pss owns, and remove anything
+             * that points into the pss, it may be freed straight after. */
             break;
 
         case LWS_CALLBACK_RECEIVE:

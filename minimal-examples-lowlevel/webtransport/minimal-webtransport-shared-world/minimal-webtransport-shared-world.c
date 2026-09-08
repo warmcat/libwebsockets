@@ -52,8 +52,16 @@ int main(int argc, const char **argv)
 	info.port = 7681;
 	info.mounts = &mount;
 	info.error_document_404 = "/404.html";
+	/*
+	 * The world protocol needs its vhost priv, which it can only create
+	 * from its own LWS_CALLBACK_PROTOCOL_INIT.  We give it no pvo, so ask
+	 * for every protocol on the vhost to be instantiated, otherwise the
+	 * protocol is only initialized if something happens to reference it.
+	 */
+
 	info.options =
 		LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
+		LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS |
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
 	info.pvo = NULL;

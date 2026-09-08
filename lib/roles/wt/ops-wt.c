@@ -371,7 +371,9 @@ const struct lws_role_ops role_ops_wt = {
 	/* rx_cb clnt, srv */		{ LWS_CALLBACK_RECEIVE, LWS_CALLBACK_RECEIVE },
 	/* writeable cb clnt, srv */	{ LWS_CALLBACK_CLIENT_WRITEABLE, LWS_CALLBACK_SERVER_WRITEABLE },
 	/* close cb clnt, srv */	{ LWS_CALLBACK_CLOSED, LWS_CALLBACK_CLOSED },
-	/* protocol_bind_cb c,s */	{ 0, 0 },
-	/* protocol_unbind_cb c,s */	{ 0, 0 },
+	/* protocol_bind_cb c,s */	{ LWS_CALLBACK_WT_BIND_PROTOCOL,
+					  LWS_CALLBACK_WT_BIND_PROTOCOL },
+	/* protocol_unbind_cb c,s */	{ LWS_CALLBACK_WT_DROP_PROTOCOL,
+					  LWS_CALLBACK_WT_DROP_PROTOCOL },
 	/* file_handle */		0,
 };

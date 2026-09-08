@@ -241,33 +241,22 @@ callback_shared_world(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
 #if defined(LWS_ROLE_WT)
-		if (!lws_wt_is_session(wsi) && lws_wt_get_session_wsi(wsi) != NULL) {
-			goto init_session;
-		}
-#endif
-		break;
+		/*
+		 * The session wsi is only the transport for the streams, it is
+		 * not itself a player
+		 */
 
-	case LWS_CALLBACK_ESTABLISHED:
-#if defined(LWS_ROLE_WT)
 		if (lws_wt_is_session(wsi)) {
 			lwsl_user("WT Session established\n");
 			break;
 		}
 
-		/*
-		 * role_ops_wt's protocol bind and unbind callback reasons are
-		 * both 0, ie, LWS_CALLBACK_ESTABLISHED.  So a second one of
-		 * these on a pss we already adopted is lws_bind_protocol()
-		 * telling us it is about to free that pss... we have to take
-		 * the list node that lives inside it out of the player list
-		 * before that happens.
-		 */
-
-		if (pss && pss->wsi) {
-			sw_unregister(vhd, pss, wsi);
-			break;
-		}
+		if (lws_wt_get_session_wsi(wsi) != NULL)
+			goto init_session;
 #endif
+		break;
+
+	case LWS_CALLBACK_ESTABLISHED:
 #if defined(LWS_ROLE_WT)
 	init_session:
 #endif
@@ -288,9 +277,8 @@ callback_shared_world(struct lws *wsi, enum lws_callback_reasons reason,
 		{
 			const char *tt = "WebSocket";
 #if defined(LWS_ROLE_WT)
-			if (lws_wt_is_session(wsi) || lws_wt_get_session_wsi(wsi) != NULL) {
+			if (lws_wt_get_session_wsi(wsi) != NULL)
 				tt = "WebTransport";
-			}
 #endif
 			lwsl_user("Connection/Stream established (protocol: %s, transport: %s)\n",
 				  lws_get_protocol(wsi)->name, tt);
@@ -334,7 +322,8 @@ callback_shared_world(struct lws *wsi, enum lws_callback_reasons reason,
 	/*
 	 * A stream we adopted as a player may be closed, or have its pss freed
 	 * and replaced under it, by any of these depending on the role it ended
-	 * up in... lws_bind_protocol() frees the pss on the unbind reasons even
+	 * up in... a QUIC stream that never became a WebTransport one closes as
+	 * h3, and lws_bind_protocol() frees the pss on the unbind reasons even
 	 * when the protocol is unchanged.  Unregistering on all of them is what
 	 * stops the player list keeping a node that lives in freed heap.
 	 */
@@ -343,13 +332,12 @@ callback_shared_world(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLOSED_HTTP:
 	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
 	case LWS_CALLBACK_CLIENT_HTTP_DROP_PROTOCOL:
+#if defined(LWS_ROLE_WT)
+	case LWS_CALLBACK_WT_DROP_PROTOCOL:
+#endif
 		if (!pss || !pss->wsi)
 			break;
-#if defined(LWS_ROLE_WT)
-		if (lws_wt_is_session(wsi)) {
-			break;
-		}
-#endif
+
 		lwsl_user("Connection/Stream closed (player %u)\n",
 			  pss->player_id);
 

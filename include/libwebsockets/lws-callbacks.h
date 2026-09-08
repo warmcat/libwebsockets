@@ -924,6 +924,36 @@ enum lws_callback_reasons {
 	 * it can return 1 from this callback to enable early WRITEABLE callbacks
 	 * before the handshake completes. Return 0 to ignore 0-RTT. */
 
+	LWS_CALLBACK_WT_BIND_PROTOCOL					= 220,
+	/**< By default, all WebTransport handling is done in the protocol the
+	 * CONNECT mount selected.  This callback occurs in the protocol when a
+	 * WebTransport session wsi, or one of the QUIC stream wsi belonging to
+	 * a session, is bound to that protocol.  Any protocol allocation
+	 * related to the wsi (typically in its pss) should be created then.
+	 *
+	 * These specific reasons are necessary because a WebTransport session
+	 * carries an indefinite number of streams, each with its own wsi and
+	 * pss, whose protocol bind lifetime is just that stream and not the
+	 * session or the QUIC connection.
+	 *
+	 * This is only about the logical binding of the wsi to the protocol,
+	 * it says nothing about the state of the underlying connection or
+	 * stream and must not be confused with LWS_CALLBACK_ESTABLISHED.  A
+	 * stream that was bound and then transitioned into the wt role from
+	 * h3 saw LWS_CALLBACK_HTTP_BIND_PROTOCOL for its original bind. */
+
+	LWS_CALLBACK_WT_DROP_PROTOCOL					= 221,
+	/**< This is called when a WebTransport session or stream wsi is
+	 * unbound from a protocol, either because the wsi is closing or
+	 * because it is being rebound (which frees and reallocates the pss).
+	 * Any protocol allocation related to the wsi should be destroyed, and
+	 * anything pointing into the pss (eg, a list node that lives inside
+	 * it) must be removed, since the pss may be freed immediately after.
+	 *
+	 * Like the bind reason, this is only about the protocol binding and is
+	 * independent of connection state, it must not be confused with
+	 * LWS_CALLBACK_CLOSED. */
+
 	/****** add new things just above ---^ ******/
 
 	LWS_CALLBACK_USER = 1000,

@@ -23,8 +23,9 @@ callback_webtransport(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	switch (reason) {
 
-	case LWS_CALLBACK_ESTABLISHED:
-		lwsl_user("LWS_CALLBACK_ESTABLISHED (wsi: %p)\n", wsi);
+	case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
+		lwsl_user("LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED "
+			  "(wsi: %p)\n", wsi);
 		/* If it's a session WSI, we can create streams */
 		if (lws_wt_is_session(wsi)) {
 			lwsl_user("  WebTransport Session Established\n");
@@ -36,6 +37,25 @@ callback_webtransport(struct lws *wsi, enum lws_callback_reasons reason,
 		} else {
 			lwsl_user("  WebTransport Stream Established\n");
 		}
+		break;
+
+	/*
+	 * These two are about the logical binding of the session or stream wsi
+	 * to this protocol, they say nothing about the state of the connection
+	 * or the stream.  A stream we created ourselves is announced by the
+	 * bind, since nobody adopted it.  Anything the protocol allocated for
+	 * the wsi must be destroyed at the drop, the pss may be freed
+	 * immediately afterwards.
+	 */
+
+	case LWS_CALLBACK_WT_BIND_PROTOCOL:
+		lwsl_user("LWS_CALLBACK_WT_BIND_PROTOCOL (wsi: %p, %s)\n", wsi,
+			  lws_wt_is_session(wsi) ? "session" : "stream");
+		break;
+
+	case LWS_CALLBACK_WT_DROP_PROTOCOL:
+		lwsl_user("LWS_CALLBACK_WT_DROP_PROTOCOL (wsi: %p, %s)\n", wsi,
+			  lws_wt_is_session(wsi) ? "session" : "stream");
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
