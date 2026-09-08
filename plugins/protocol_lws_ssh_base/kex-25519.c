@@ -116,10 +116,31 @@ lws_mpint_rfc4251(uint8_t *dest, const uint8_t *src, int bytes, int uns)
 	return lws_ptr_diff(dest, odest);
 }
 
+/*
+ * Fetch one RFC4251 u32 length out of the key blob and confirm that a body of
+ * that many bytes also fits before the end.
+ *
+ * The host key file is not peer-supplied in a normal deployment, but it may be
+ * truncated or corrupt, and without this the parse walked off the end of the
+ * 256-byte stack buffer it was read into, and memcpy()d from there into the
+ * key material we then sign with.
+ */
+static int
+ed25519_len_get(uint8_t **p, const uint8_t *end, uint32_t *l)
+{
+	if ((size_t)(end - *p) < 4)
+		return 1;
+
+	*l = lws_g32(p);
+
+	return *l > (uint32_t)(end - *p);
+}
+
 int
 ed25519_key_parse(uint8_t *p, size_t len, char *type, size_t type_len,
 		  uint8_t *pub, uint8_t *pri)
 {
+	const uint8_t *end = p + len;
 	uint32_t l, publ, m;
 	uint8_t *op = p;
 
@@ -131,29 +152,35 @@ ed25519_key_parse(uint8_t *p, size_t len, char *type, size_t type_len,
 
 	p += 15;
 
-	l = lws_g32(&p); /* ciphername */
+	if (ed25519_len_get(&p, end, &l)) /* ciphername */
+		return 3;
 	if (l != 4 || memcmp(p, "none", 4))
 		return 3;
 	p += l;
 
-	l = lws_g32(&p); /* kdfname */
+	if (ed25519_len_get(&p, end, &l)) /* kdfname */
+		return 4;
 	if (l != 4 || memcmp(p, "none", 4))
 		return 4;
 	p += l;
 
-	l = lws_g32(&p); /* kdfoptions */
+	if (ed25519_len_get(&p, end, &l)) /* kdfoptions */
+		return 5;
 	if (l)
 		return 5;
 
-	l = lws_g32(&p); /* number of keys */
+	if (ed25519_len_get(&p, end, &l)) /* number of keys */
+		return 6;
 	if (l != 1)
 		return 6;
 
-	publ = lws_g32(&p); /* length of pubkey block */
+	if (ed25519_len_get(&p, end, &publ)) /* length of pubkey block */
+		return 7;
 	if ((size_t)((uint32_t)(p - op) + publ) >= len)
 		return 7;
 
-	l = lws_g32(&p); /* key type length */
+	if (ed25519_len_get(&p, end, &l)) /* key type length */
+		return 8;
 	if (l > 31)
 		return 8;
 	m = l;
@@ -162,31 +189,38 @@ ed25519_key_parse(uint8_t *p, size_t len, char *type, size_t type_len,
 	lws_strncpy(type, (const char *)p, m + 1);
 
 	p += l;
-	l = lws_g32(&p); /* pub key length */
+	if (ed25519_len_get(&p, end, &l)) /* pub key length */
+		return 10;
 	if (l != 32)
 		return 10;
 
 	p += l;
 
-	publ = lws_g32(&p); /* length of private key block */
+	if (ed25519_len_get(&p, end, &publ)) /* length of private key block */
+		return 11;
 	if ((size_t)((uint32_t)(p - op) + publ) != len)
 		return 11;
 
+	if ((size_t)(end - p) < 8)
+		return 12;
 	l = lws_g32(&p); /* checkint 1 */
 	if (lws_g32(&p) != l) /* must match checkint 2 */
 		return 12;
 
-	l = lws_g32(&p); /* key type length */
+	if (ed25519_len_get(&p, end, &l)) /* key type length */
+		return 13;
 
 	p += l;
-	l = lws_g32(&p); /* public key part length */
+	if (ed25519_len_get(&p, end, &l)) /* public key part length */
+		return 15;
 	if (l != LWS_SIZE_EC25519_PUBKEY)
 		return 15;
 
 	if (pub)
 		memcpy(pub, p, LWS_SIZE_EC25519_PUBKEY);
 	p += l;
-	l = lws_g32(&p); /* private key part length */
+	if (ed25519_len_get(&p, end, &l)) /* private key part length */
+		return 16;
 	if (l != LWS_SIZE_EC25519_PRIKEY)
 		return 16;
 

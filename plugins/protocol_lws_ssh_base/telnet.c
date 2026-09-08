@@ -226,7 +226,9 @@ lws_callback_raw_telnet(struct lws *wsi, enum lws_callback_reasons reason,
 	                }
 		}
 
-		if (vhd->ops->tx_waiting(&pss->priv))
+		/* ops take the priv the app made in channel_create(), not
+		 * the address of our member holding it */
+		if (vhd->ops->tx_waiting(pss->priv))
 		       lws_callback_on_writable(wsi);
 		break;
 
