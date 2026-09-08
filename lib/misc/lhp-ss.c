@@ -143,6 +143,16 @@ htmlss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		break;
 
 	case LWSSSCS_DESTROYING:
+		/*
+		 * m (and so m->sul) dies with the ss handle... the sul is
+		 * scheduled both from our rx and, via lhp.sshtmlevsul, from
+		 * the asset streams' rx, so it must not be left on the
+		 * context's sul owner list pointing into freed memory
+		 */
+		lws_sul_cancel(&m->sul);
+		m->lhp.sshtmlevsul = NULL;
+		m->lhp.sshtmlevcb = NULL;
+
 		lws_lhp_destruct(&m->lhp);
 		lws_buflist_destroy_all_segments(&m->flow.bl);
 		m->drt.dl = NULL;
