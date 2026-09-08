@@ -1484,26 +1484,46 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 							/*
 							 * DATA is only meaningful as
 							 * body after a complete header
-							 * block and before the body was
-							 * completed: once the body is
-							 * done the ah is detached and
-							 * lws_read_h1() would try to
-							 * parse into it (NULL); before
-							 * the headers it is
-							 * H3_FRAME_UNEXPECTED.  Mirror
-							 * h2: a stream still in
+							 * block: before it, DATA is
+							 * H3_FRAME_UNEXPECTED.  And a
+							 * stream back in ESTABLISHED
+							 * with its ah detached has
+							 * finished its body: a further
+							 * DATA frame would go into
+							 * lws_read_h1()'s header parser
+							 * with a NULL ah.  Refuse both.
+							 *
+							 * But the ah being gone is not
+							 * by itself "outside the body
+							 * phase": the POLLOUT handler
+							 * detaches it as soon as
+							 * lws_http_action() returned,
+							 * while a POST stream is still
+							 * legitimately in LRS_BODY
+							 * waiting for its body, and in
+							 * the body states lws_read_h1()
+							 * goes straight to the body
+							 * path and needs no ah.  Gating
+							 * on the ah alone refused every
+							 * h3 POST body.
+							 *
+							 * Mirror h2: a stream still in
 							 * ESTABLISHED with its ah moves
 							 * to LRS_BODY here.
 							 */
-							if (lwsi_role_http(wsi) &&
-							    (!wsi->hdr_parsing_completed ||
-							     !wsi->http.ah)) {
-								lwsl_wsi_notice(wsi, "DATA outside body phase");
-								return 1;
+							if (lwsi_role_http(wsi)) {
+								if (!wsi->hdr_parsing_completed) {
+									lwsl_wsi_notice(wsi, "DATA before header block");
+									return 1;
+								}
+								if (lwsi_state(wsi) == LRS_ESTABLISHED) {
+									if (!wsi->http.ah) {
+										lwsl_wsi_notice(wsi, "DATA after body completed");
+										return 1;
+									}
+									lwsi_set_state(wsi, LRS_BODY);
+								}
 							}
-							if (lwsi_role_http(wsi) &&
-							    lwsi_state(wsi) == LRS_ESTABLISHED)
-								lwsi_set_state(wsi, LRS_BODY);
 
 							wsi->outer_will_close = 1;
 							n = lws_read_h1(wsi, (unsigned char *)buf, chunk);
