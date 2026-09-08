@@ -1502,6 +1502,15 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->pending_queries)) {
 				struct pending_dns_query *q = lws_container_of(d, struct pending_dns_query, list);
+				/*
+				 * C-241: the 5s replay timeout is a live node
+				 * in the pt sul list until it is cancelled;
+				 * freeing without cancelling left it pointing
+				 * into freed heap, and on a vhost destroy
+				 * (eg, lwsws config reload) the context
+				 * outlives it and services it.
+				 */
+				lws_sul_cancel(&q->sul_timeout);
 				lws_dll2_remove(&q->list);
 				if (vhd->dht_ops && vhd->dht_ops->fetch_zone) {
 					struct lws_dht_dnssec_fetch_zone_args args;
