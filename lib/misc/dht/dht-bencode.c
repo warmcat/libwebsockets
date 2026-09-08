@@ -1117,6 +1117,20 @@ skip_ip_tracking:
 			} lws_end_foreach_dll(d);
 
 			if (!found) {
+				/*
+				 * The dedup above keys on (source address, tid)
+				 * and the tid is up to 15 attacker-chosen bytes,
+				 * so one source can otherwise create unlimited
+				 * subscribers on a hash it keeps alive; the scan
+				 * itself then costs O(n) per packet.  Cap it.
+				 */
+				if (lws_dll2_count(&st->subscribers) >=
+						    LWS_DHT_MAX_SUBSCRIBERS) {
+					lwsl_dht_rx_warn("%s: subscriber limit "
+							 "reached\n", __func__);
+					goto fail;
+				}
+
 				sub = lws_zalloc(sizeof(*sub), "dht subscriber");
 				if (!sub) goto fail;
 				memcpy(&sub->ss, from, fromlen);

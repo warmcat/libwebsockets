@@ -49,7 +49,7 @@ storage_store(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 	struct storage *st;
 	struct peer *p;
 	uint8_t *ip;
-	int i, len;
+	int i, len, from_src = 0;
 
 	switch (sa->sa_family) {
 	case AF_INET:
@@ -81,10 +81,29 @@ storage_store(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 		lws_dll2_add_head(&st->list, &ctx->storage);
 	}
 
-	for (i = 0; i < st->numpeers; i++)
-		if (st->peers[i].port == port && st->peers[i].len == len &&
-		    !memcmp(st->peers[i].ip, ip, (size_t)len))
+	/*
+	 * The announced port comes from the message rather than from the source
+	 * socket, so without per-source accounting one host can fill all
+	 * DHT_MAX_PEERS slots of every hash by itself.  We are already walking
+	 * the array to dedup, so count this source's existing entries in the
+	 * same pass and refuse it more than its share.
+	 */
+	for (i = 0; i < st->numpeers; i++) {
+		if (st->peers[i].len != len ||
+		    memcmp(st->peers[i].ip, ip, (size_t)len))
+			continue;
+
+		if (st->peers[i].port == port)
 			break;
+
+		from_src++;
+	}
+
+	if (i >= st->numpeers && from_src >= LWS_DHT_MAX_PEERS_PER_SRC) {
+		lwsl_dht_warn("%s: source announce limit reached\n", __func__);
+
+		return 0;
+	}
 
 	if (i < st->numpeers) {
 		/* Already there, only need to refresh */
@@ -136,17 +155,29 @@ expire_storage(struct lws_dht_ctx *ctx)
 			i++;
 		}
 
-		if (st->numpeers == 0) {
-			lws_dll2_remove(d);
+		/*
+		 * Nothing else reaps subscribers, so an expired one used to
+		 * live until the whole storage object went away.  Drop them
+		 * here on their own 1h TTL.
+		 */
+		lws_start_foreach_dll_safe(struct lws_dll2 *, ds, ds1,
+					   lws_dll2_get_head(&st->subscribers)) {
+			struct subscriber *sub = lws_container_of(ds,
+						struct subscriber, list);
 
-			while(!lws_dll2_is_empty(&st->subscribers)) {
-				struct subscriber *sub = lws_container_of(
-					lws_dll2_get_head(&st->subscribers),
-					struct subscriber, list);
-
-				lws_dll2_remove(&sub->list);
+			if (sub->expire <= ctx->now.tv_sec) {
+				lws_dll2_remove(ds);
 				lws_free(sub);
 			}
+		} lws_end_foreach_dll_safe(ds, ds1);
+
+		/*
+		 * Only retire the storage object once it has neither peers nor
+		 * subscribers: destroying it while subscribers remain silently
+		 * cancelled subscriptions on a hash with no announced peers.
+		 */
+		if (st->numpeers == 0 && lws_dll2_is_empty(&st->subscribers)) {
+			lws_dll2_remove(d);
 
 			lws_free(st->peers);
 			lws_dht_hash_destroy(&st->id);
