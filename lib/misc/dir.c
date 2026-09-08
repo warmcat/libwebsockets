@@ -32,6 +32,9 @@
 #include "private-lib-core.h"
 #include <string.h>
 #include <stdio.h>
+#if defined(__linux__) && defined(__GLIBC__)
+#include <sys/auxv.h>
+#endif
 
 #include <sys/stat.h>
 #if defined(WIN32)
@@ -515,6 +518,21 @@ lws_plugins_init(struct lws_plugin **pplugin, const char * const *d,
 	 */
 
 	ld_env = getenv("LD_LIBRARY_PATH");
+	/*
+	 * The dynamic loader ignores LD_LIBRARY_PATH for set-uid / set-gid
+	 * (AT_SECURE) processes precisely so an unprivileged caller cannot
+	 * pick the code a privileged process loads; scanning it ourselves
+	 * for plugins to dlopen() would reintroduce that.  Honour the same
+	 * rule.
+	 */
+#if defined(__linux__) && defined(__GLIBC__)
+	if (ld_env && getauxval(AT_SECURE))
+		ld_env = NULL;
+#elif defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || \
+      defined(__APPLE__)
+	if (ld_env && issetugid())
+		ld_env = NULL;
+#endif
 	if (ld_env) {
 		char temp[128];
 		struct lws_tokenize ts;
