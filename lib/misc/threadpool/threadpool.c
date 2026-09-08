@@ -702,7 +702,7 @@ lws_threadpool_worker(void *d)
 		tp->done_queue_depth++;
 		pool->task->done = lws_now_usecs();
 
-		if (!pool->task->args.wsi &&
+		if (!task_to_wsi(pool->task) &&
 		    (pool->task->status == LWS_TP_STATUS_STOPPED ||
 		     pool->task->status == LWS_TP_STATUS_FINISHED)) {
 
