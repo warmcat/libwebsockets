@@ -695,6 +695,64 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	return NULL;
 }
 
+/*
+ * The TLS handshake happened against whichever vhost's client-cert policy
+ * SNI (or the listener default) selected.  Afterwards the peer gets to name
+ * the vhost that actually serves him, in Host: / :authority, and nothing
+ * re-checks TLS at that point.  So a peer can handshake under a vhost with no
+ * client-cert requirement, presenting no certificate at all, and then ask to
+ * be served by an mTLS-protected vhost on the same listener.
+ *
+ * Refuse to move him onto a vhost that requires a valid client cert unless
+ * this connection actually presented one that verified.
+ *
+ * The natural home for this is lws_vhost_bind_wsi(), which every rebind path
+ * funnels through; it lives here for now, so the h3 :authority rebind in
+ * lib/roles/h3/ops-h3.c still needs the same treatment.
+ */
+
+static int
+lws_vhost_rebind_mtls_refused(struct lws *wsi, struct lws_vhost *vh)
+{
+#if defined(LWS_WITH_TLS)
+	union lws_tls_cert_info_results ir;
+
+	if (vh == wsi->a.vhost)
+		return 0;
+
+	if (!lws_check_opt(vh->options,
+			   LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT))
+		return 0;
+
+	/*
+	 * These two say "I only want the cert if he has one" and "leave the
+	 * decision about the cert to me", ie, the vhost is not itself
+	 * enforcing that a valid client cert exists.
+	 */
+
+	if (lws_check_opt(vh->options,
+			  LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED) ||
+	    lws_check_opt(vh->options,
+		  LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE))
+		return 0;
+
+	if (lws_get_network_wsi(wsi)->tls.ssl &&
+	    !lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VERIFIED, &ir,
+				    sizeof(ir.ns.name)) && ir.verified)
+		return 0;
+
+	lwsl_wsi_notice(wsi, "refusing move to mTLS vhost %s: connection has "
+			     "no verified client cert", vh->name);
+
+	return 1;
+#else
+	(void)wsi;
+	(void)vh;
+
+	return 0;
+#endif
+}
+
 static const struct lws_mimetype {
 	const char *extension;
 	const char *mimetype;
@@ -2706,6 +2764,12 @@ raw_transition:
 			struct lws_vhost *vhost = lws_select_vhost(
 				context, wsi->a.vhost->listen_port,
 				lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
+
+			if (vhost && lws_vhost_rebind_mtls_refused(wsi, vhost)) {
+				/* 421 Misdirected Request */
+				lws_return_http_status(wsi, 421, NULL);
+				goto bail_nuke_ah;
+			}
 
 			if (vhost)
 				lws_vhost_bind_wsi(vhost, wsi);
