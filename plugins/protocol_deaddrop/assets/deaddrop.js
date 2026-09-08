@@ -2,6 +2,9 @@
 
 	var server_max_size = 0, username = "", ws;
 
+	/* most text we will pull into the textarea from a shared file */
+	var max_text_view = 1024 * 1024;
+
 	function san(s)
 	{
 		if (!s)
@@ -17,9 +20,16 @@
 		return n < 10 ? '0' + n : n;
 	}
 
+	/*
+	 * Everything we build a URL from here is a single path segment (a
+	 * filename), so it must be escaped with encodeURIComponent(), not
+	 * encodeURI(): encodeURI() deliberately passes the reserved set
+	 * through, so a name containing '#', '?', '/' or '&' would change
+	 * which resource the URL names.
+	 */
 	function lws_urlencode(s)
 	{
-		return encodeURI(s).replace(/@/g, "%40");
+		return encodeURIComponent(s);
 	}
 
 	function trim(num)
@@ -198,18 +208,32 @@
 		text_inp(); // Manually update button state after clearing
 	}
 
-	function delfile(e)
+	/*
+	 * `filename` is the original, unescaped name as it arrived in the
+	 * listing JSON, held in the click closure.  Do not recover it from the
+	 * markup: the HTML parser decodes the escaping san() applied, so what
+	 * comes back out of the attribute is the raw name again.  And compose
+	 * the request with JSON.stringify() rather than by concatenation, so a
+	 * name containing a quote or a backslash cannot forge the message.
+	 */
+	function delfile(e, filename)
 	{
 		e.stopPropagation();
 		e.preventDefault();
 
-		ws.send("{\"del\":\"" + e.target.getAttribute("file") + "\"}");
+		if (ws && ws.readyState === WebSocket.OPEN)
+			ws.send(JSON.stringify({ del: filename }));
 	}
 
-	function load_text(e)
+	/*
+	 * The drop is shared, so this loads content another user uploaded.  It
+	 * goes into the textarea only: the clipboard is the user's, and is not
+	 * ours to overwrite as a side effect of viewing a file.  "Copy" does
+	 * that, when the user asks for it.
+	 */
+	function load_text(e, filename)
 	{
-		var filename = e.target.getAttribute("file"),
-		    content = document.getElementById("text_content");
+		var content = document.getElementById("text_content");
 
 		e.stopPropagation();
 		e.preventDefault();
@@ -219,12 +243,25 @@
 		})
 		.then(response => response.text())
 		.then(text => {
+			if (text.length > max_text_view)
+				text = text.substring(0, max_text_view);
 			content.value = text;
 			content.select();
-			if (navigator.clipboard)
-				navigator.clipboard.writeText(text);
 			text_inp();
-		});
+		})
+		.catch((ex) => { console.error("load_text failed", ex); });
+	}
+
+	function copy_text_button(e)
+	{
+		var content = document.getElementById("text_content");
+
+		e.preventDefault();
+
+		content.select();
+		if (navigator.clipboard)
+			navigator.clipboard.writeText(content.value).
+				catch((ex) => { console.error("clipboard", ex); });
 	}
 
 	function body_drop(e) {
@@ -239,8 +276,11 @@
 
 	function text_inp() {
 		var content = document.getElementById("text_content"),
-		    upl_text = document.getElementById("upl_text");
+		    upl_text = document.getElementById("upl_text"),
+		    copy_text = document.getElementById("copy_text");
 		upl_text.disabled = !content.value.length;
+		if (copy_text)
+			copy_text.disabled = !content.value.length;
 	}
 
 	function get_appropriate_ws_url(extra_url) {
@@ -353,7 +393,8 @@
 		    fi = document.getElementById("file"),
 		    upl = document.getElementById("upl"),
 		    text_content = document.getElementById("text_content"),
-		    upl_text = document.getElementById("upl_text");
+		    upl_text = document.getElementById("upl_text"),
+		    copy_text = document.getElementById("copy_text");
 
 		da.addEventListener("dragenter", da_enter, false);
 		da.addEventListener("dragleave", da_leave, false);
@@ -364,6 +405,8 @@
 		fi.addEventListener("change", file_inp, false);
 
 		upl_text.addEventListener("click", upl_text_button, false);
+		if (copy_text)
+			copy_text.addEventListener("click", copy_text_button, false);
 		text_content.addEventListener("input", text_inp, false);
 
 		window.addEventListener("dragover", body_drop, false);
@@ -414,26 +457,44 @@
 										   "<td class=\"dow\">" + date.toDateString() + " " + date.toLocaleTimeString() + "</td>" +
 										   "<td class=\"btn-cell\">";
 
+								/*
+								 * No filename is carried in the markup: the
+								 * click handlers close over the original name
+								 * from the listing instead.
+								 */
 								if (f.is_text)
-									html += "<button class=\"textbtn\" file=\"" + san(fullName) + "\">T</button>";
+									html += "<button class=\"textbtn\" title=\"" + san(displayName) + "\">T</button>";
 								else
 									html += "<span class=\"textbtn_spacer\"></span>";
 
 								if (isOwner)
-									html += "<img class=\"delbtn\" file=\"" + san(fullName) + "\">";
+									html += "<img class=\"delbtn\" title=\"Delete " + san(displayName) + "\">";
 								else
 									html += " ";
 
+								/*
+								 * encodeURIComponent() escapes '&', '"', '<'
+								 * and '>', so its result is already safe in
+								 * this double-quoted attribute; san()ing it
+								 * first would only get undone by the HTML
+								 * parser and corrupt the path.
+								 */
 								html += "</td><td class=\"ogn\"><a href=\"get/" +
-										lws_urlencode(san(fullName)) + "\" download=\"" + san(displayName) + "\">" +
+										lws_urlencode(fullName) + "\" download=\"" + san(displayName) + "\">" +
 										san(displayName) + "</a></td>";
 								return html;
 							},
-							function(tr) {
+							function(tr, f) {
+								/*
+								 * onclick, not addEventListener: this runs on
+								 * every listing update, including ones that
+								 * leave the row's markup (and so its button
+								 * elements) alone.
+								 */
 								var d = tr.querySelector(".delbtn");
-								if (d) d.addEventListener("click", delfile, false);
+								if (d) d.onclick = function(e) { delfile(e, f.name); };
 								var t = tr.querySelector(".textbtn");
-								if (t) t.addEventListener("click", load_text, false);
+								if (t) t.onclick = function(e) { load_text(e, f.name); };
 							}
 						);
 					}

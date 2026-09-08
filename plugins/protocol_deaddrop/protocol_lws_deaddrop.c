@@ -93,6 +93,14 @@ struct vhd_deaddrop {
 	uint8_t				basic_auth:1;
 	/* set by the "allow-anonymous" pvo: serve unauthenticated ws peers */
 	uint8_t				allow_anon:1;
+	/*
+	 * set by the "require-origin" pvo: also refuse requests that carry no
+	 * Origin header at all, ie, non-browser clients
+	 */
+	uint8_t				require_origin:1;
+
+	/* the "origin-allow" pvo: extra origins accepted, comma-separated */
+	const char			*origin_allow;
 };
 
 struct pss_deaddrop {
@@ -239,6 +247,124 @@ deaddrop_get_auth_identity(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 	lwsl_wsi_info(wsi, "%s: JWT user '%s'", __func__, pss->user);
 
 	lws_jwt_auth_destroy(&ja);
+}
+
+/* portable, locale-independent ASCII case-insensitive compare */
+
+static int
+deaddrop_ncasecmp(const char *a, const char *b, size_t n)
+{
+	while (n--) {
+		char ca = *a++, cb = *b++;
+
+		if (ca >= 'A' && ca <= 'Z')
+			ca = (char)(ca + 32);
+		if (cb >= 'A' && cb <= 'Z')
+			cb = (char)(cb + 32);
+
+		if (ca != cb)
+			return 1;
+		if (!ca)
+			return 0;
+	}
+
+	return 0;
+}
+
+/*
+ * The "origin-allow" pvo is a comma-separated list of complete origins, eg
+ * "https://a.example.com,https://b.example.com:8443"
+ */
+
+static int
+deaddrop_origin_listed(const char *list, const char *origin)
+{
+	size_t ol = strlen(origin);
+
+	while (*list) {
+		const char *e;
+		size_t n;
+
+		while (*list == ' ' || *list == '\t' || *list == ',')
+			list++;
+		if (!*list)
+			break;
+
+		e = strchr(list, ',');
+		n = e ? (size_t)(e - list) : strlen(list);
+
+		while (n && (list[n - 1] == ' ' || list[n - 1] == '\t'))
+			n--;
+
+		if (n == ol && !deaddrop_ncasecmp(list, origin, n))
+			return 1;
+
+		if (!e)
+			break;
+
+		list = e + 1;
+	}
+
+	return 0;
+}
+
+/*
+ * Both the ws upgrade and the upload POST are authenticated by an ambient
+ * credential (the JWT session cookie, or basic auth), and neither is subject
+ * to the same-origin policy by itself: a ws upgrade is exempt, and a
+ * multipart POST is a CORS "simple request".  So without this, any page the
+ * victim visits while logged in can open our ws (and receive the whole file
+ * listing plus every connected user's IP), delete the victim's files, and
+ * upload files in the victim's name.
+ *
+ * Returns 0 if the request may proceed, nonzero to refuse it.
+ *
+ * Policy when the request carries no Origin at all: allow, unless the vhost
+ * gave us the "require-origin" pvo.  Browsers always send Origin on a ws
+ * upgrade and on any POST, so no Origin means a non-browser client (curl, a
+ * script, another service), and it is precisely the browser that a hostile
+ * page can aim at us with the victim's cookie attached.  Refusing those
+ * would break scripted use of the drop without closing anything, so it is
+ * the deployment's choice; "require-origin" is right for a vhost that only
+ * ever serves browsers.  Note that a sandboxed or otherwise opaque document
+ * sends the literal "null", which is not absent, and never matches.
+ */
+
+static int
+deaddrop_origin_ok(struct vhd_deaddrop *vhd, struct lws *wsi)
+{
+	char origin[256], host[256];
+	const char *p;
+
+	if (lws_hdr_copy(wsi, origin, sizeof(origin),
+			 WSI_TOKEN_ORIGIN) <= 0 || !origin[0])
+		return vhd->require_origin;
+
+	if (vhd->origin_allow && deaddrop_origin_listed(vhd->origin_allow,
+							origin))
+		return 0;
+
+	/* h2 and h3 carry the authority in :authority, h1 in Host */
+
+	if (lws_hdr_copy(wsi, host, sizeof(host),
+			 WSI_TOKEN_HTTP_COLON_AUTHORITY) <= 0 &&
+	    lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST) <= 0)
+		return 1;
+
+	if (!strncmp(origin, "https://", 8))
+		p = origin + 8;
+	else if (!lws_is_ssl(wsi) && !strncmp(origin, "http://", 7))
+		/*
+		 * We are not the TLS terminator, so we cannot tell an http
+		 * deployment from an https one in front of a proxy; accept
+		 * our own host over either scheme in that case.  A vhost
+		 * doing its own TLS only ever accepts https.
+		 */
+		p = origin + 7;
+	else
+		return 1;
+
+	return !!deaddrop_ncasecmp(p, host, strlen(p) + 1);
 }
 
 static int
@@ -589,6 +715,11 @@ deaddrop_handler_server_protocol_init(struct lws *wsi, void *in)
 	if (!lws_pvo_get_str(in, "allow-anonymous", &cp) &&
 	    strcmp(cp, "off") && strcmp(cp, "0"))
 		vhd->allow_anon = 1;
+	if (!lws_pvo_get_str(in, "require-origin", &cp) &&
+	    strcmp(cp, "off") && strcmp(cp, "0"))
+		vhd->require_origin = 1;
+	if (lws_pvo_get_str(in, "origin-allow", &vhd->origin_allow))
+		vhd->origin_allow = NULL;
 	if (!lws_pvo_get_str(in, "jwt-jwk", &cp)) {
 		if (cp[0] == '{' || lws_jwk_load(&vhd->jwk, cp, NULL, NULL)) {
 			if (lws_jwk_import(&vhd->jwk, NULL, NULL, cp, strlen(cp))) {
@@ -671,6 +802,19 @@ deaddrop_handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 		return 1;
 	if (!(char *)strstr(uri_ptr, "/upload/"))
 		return 1;
+
+	/*
+	 * A cross-origin multipart POST is a CORS "simple request", ie, it is
+	 * sent with the victim's cookie and no preflight.  Refuse it here,
+	 * before any of the body is parsed or any file is created.
+	 */
+	if (deaddrop_origin_ok(vhd, wsi)) {
+		lwsl_wsi_notice(wsi, "%s: refusing upload, bad Origin",
+				__func__);
+		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+
+		return -1;
+	}
 
 	pss->vhd = vhd;
 
@@ -821,6 +965,17 @@ deaddrop_handler_server_ws_filter_protocol_connection(struct vhd_deaddrop *vhd,
 	if (!pss->user[0] && !vhd->allow_anon) {
 		lwsl_wsi_notice(wsi, "%s: refusing unauthenticated ws",
 				__func__);
+
+		return 1;
+	}
+
+	/*
+	 * The upgrade is authenticated by the ambient session cookie and the
+	 * ws handshake is exempt from the same-origin policy, so without this
+	 * any page the victim visits can open this socket as the victim.
+	 */
+	if (deaddrop_origin_ok(vhd, wsi)) {
+		lwsl_wsi_notice(wsi, "%s: refusing ws, bad Origin", __func__);
 
 		return 1;
 	}
@@ -1194,8 +1349,14 @@ _deaddrop_callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP:
-		if (!deaddrop_handler_server_http(vhd, pss, wsi))
+		switch (deaddrop_handler_server_http(vhd, pss, wsi)) {
+		case 0:
 			return 0;
+		case -1:	 /* refused, status already sent */
+			return -1;
+		default:	 /* not a POST for us, let the dummy handle it */
+			break;
+		}
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
