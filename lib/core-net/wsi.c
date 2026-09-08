@@ -54,8 +54,30 @@ void lws_log_prepend_wsi(struct lws_log_cx *cx, void *obj, char **p, char *e) {
 }
 
 void lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi) {
+	const struct lws_protocols *p = NULL;
+
 	if (wsi->a.vhost == vh)
 		return;
+
+	/*
+	 * A peer can ask to be rebound to any vhost on a shared listener by
+	 * naming it in Host:, SNI or :authority.  If we allow him to name a
+	 * vhost the application has already asked to destroy, he is served
+	 * out of the dying vhost's config, and his bind count also stops
+	 * __lws_vhost_destroy2() ever being reached, ie, he can pin the
+	 * destruction off indefinitely.  Refuse the move and leave him on the
+	 * vhost he already has (the listening / default one).
+	 *
+	 * Initial binds (he has no vhost yet) must still be allowed, or he
+	 * would be left with no vhost at all... that includes the listen
+	 * socket handover inside lws_vhost_destroy1(), which unbinds first
+	 * and only ever targets a vhost that is not being destroyed.
+	 */
+	if (vh->being_destroyed && wsi->a.vhost) {
+		lwsl_wsi_info(wsi, "refusing rebind to dying vh %s", vh->name);
+
+		return;
+	}
 
 	lws_context_lock(vh->context, __func__); /* ---------- context { */
 
@@ -67,6 +89,36 @@ void lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi) {
 	 * leaving, for every connection, and that vhost can then never
 	 * complete its destruction.
 	 */
+
+	/*
+	 * His same_vh_protocol list node, if he is on one, is linked into an
+	 * owner inside the *old* vhost's same_vh_protocol_owner array, which
+	 * is freed along with that vhost.  Nothing else on the rebind path
+	 * touches it, so we must take him off it here, before the unbind can
+	 * destroy the vhost holding it.
+	 *
+	 * If the new vhost has a protocol of the same name, note it so we can
+	 * relink him there below and lws_callback_on_writable_all_protocol_
+	 * vhost() still finds him; otherwise leave him detached and the next
+	 * lws_bind_protocol() places him.
+	 */
+
+	if (!lws_dll2_is_detached(&wsi->same_vh_protocol)) {
+		if (wsi->a.protocol && wsi->a.protocol->name)
+			p = lws_vhost_name_to_protocol(vh, wsi->a.protocol->name);
+
+		if (wsi->a.vhost)
+			lws_same_vh_protocol_remove(wsi);
+		else
+			/*
+			 * Some callers (tls SNI, jit-trust redirect) already
+			 * unbound him from his old vhost themselves; we can no
+			 * longer reach that vhost to take its lock, but we must
+			 * still unlink him from its array
+			 */
+			lws_dll2_remove(&wsi->same_vh_protocol);
+	}
+
 	if (wsi->a.vhost)
 		__lws_vhost_unbind_wsi(wsi); /* req cx lock, takes vh lock */
 
@@ -89,6 +141,12 @@ void lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi) {
 #endif
 
 	vh->count_bound_wsi++;
+
+	/* relink him on the new vhost's equivalent protocol, if there is one */
+
+	if (p && vh->same_vh_protocol_owner)
+		lws_same_vh_protocol_insert(wsi, (int)(p - vh->protocols));
+
 	lws_context_unlock(vh->context); /* } context ---------- */
 
 	lwsl_wsi_debug(wsi, "vh %s: wsi %s/%s, count_bound_wsi %d\n", vh->name,
