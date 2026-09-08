@@ -453,7 +453,9 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 	     reason == LEJPCB_VAL_STR_CHUNK ||
 	     reason == LEJPCB_VAL_STR_END) &&
 	    lejp_string_unify_part(ctx, &a->ac, reason))
-		return 1;
+		/* -1 is the only return lejp treats as failure for all of
+		 * these reasons... 1 would let an OOM be ignored */
+		return -1;
 
 	/* we only match on the prepared path strings */
 	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
@@ -529,7 +531,15 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 #endif
 		break;
 	case LEJPGP_PLUGIN_DIR:
-		if (a->count_plugin_dirs == MAX_PLUGIN_DIRS - 1) {
+		/*
+		 * ">=", not "==": the pre-fill from info->plugin_dirs may
+		 * have left the count above the limit already.  And a value
+		 * arriving in chunks reaches here once per chunk, but only
+		 * consumes one slot, at the same a->p.
+		 */
+		if (reason == LEJPCB_VAL_STR_CHUNK)
+			break;
+		if (a->count_plugin_dirs >= MAX_PLUGIN_DIRS - 1) {
 			lwsl_err("Too many plugin dirs\n");
 			return -1;
 		}
@@ -603,13 +613,16 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	struct lws_protocol_vhost_options *mp_cgienv, *headers;
 	struct lws_http_mount *m;
 	char *p, *p1;
+	size_t mpl;
 	int n;
 
 	if ((reason == LEJPCB_VAL_STR_START ||
 	     reason == LEJPCB_VAL_STR_CHUNK ||
 	     reason == LEJPCB_VAL_STR_END) &&
 	    lejp_string_unify_part(ctx, &a->ac, reason))
-		return 1;
+		/* -1 is the only return lejp treats as failure for all of
+		 * these reasons... 1 would let an OOM be ignored */
+		return -1;
 
 #if 0
 	lwsl_notice(" %d: %s (%d)\n", reason, ctx->path, ctx->path_match);
@@ -909,6 +922,21 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			lwsl_err("mountpoint and origin required\n");
 			return 1;
 		}
+
+		/*
+		 * Every consumer treats mountpoint_len as authoritative for
+		 * how much of the URI the mount owns, so it must come from the
+		 * whole stored string, and a mountpoint that doesn't fit in it
+		 * has to be refused rather than silently truncated
+		 */
+
+		mpl = strlen(a->m.mountpoint);
+		if (mpl > 255) {
+			lwsl_err("mountpoint too long (%d)\n", (int)mpl);
+			return 1;
+		}
+		a->m.mountpoint_len = (unsigned char)mpl;
+
 		lwsl_debug("adding mount %s\n", a->m.mountpoint);
 		m = lwsws_alloc(a, sizeof(*m));
 		if (!m)
@@ -932,6 +960,15 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			lwsl_err("unsupported protocol:// %s\n", a->m.origin);
 			return 1;
 		}
+
+		if (m->origin_protocol == LWSMPRO_CALLBACK)
+			/*
+			 * the protocol name is whatever follows "callback://",
+			 * ie, exactly what the scheme scan above left in
+			 * m->origin.  Decided here rather than at the value,
+			 * where only the last chunk of it was visible.
+			 */
+			m->protocol = m->origin;
 
 		/* attach the tree of mountpoint headers, if any */
 		m->headers = a->pvo_mp;
@@ -1017,13 +1054,15 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->info->log_filepath = a->p;
 		break;
 	case LEJPVP_MOUNTPOINT:
+		/*
+		 * mountpoint_len can only be known once the whole value is in
+		 * the arena: ctx->buf holds just the last lejp chunk of it.
+		 * It is set at LEJPCB_OBJECT_END below.
+		 */
 		a->m.mountpoint = a->p;
-		a->m.mountpoint_len = (unsigned char)strlen(ctx->buf);
 		break;
 	case LEJPVP_ORIGIN:
-		if (!strncmp(ctx->buf, "callback://", 11))
-			a->m.protocol = a->p + 11;
-
+		/* likewise the callback:// test, see LEJPCB_OBJECT_END */
 		if (!a->m.origin)
 			a->m.origin = a->p;
 		break;
@@ -1392,7 +1431,13 @@ dostring:
 	}
 
 	if (reason == LEJPCB_VAL_STR_END) {
-		lejp_string_unify(ctx, &a->ac);
+		/*
+		 * If this fails, the field that was bound to a->p above would
+		 * silently alias whatever value is written there next... fail
+		 * the parse instead, as the globals callback does
+		 */
+		if (lejp_string_unify(ctx, &a->ac))
+			return lwsws_exhausted(ctx);
 		p = ctx->su.fp;
 	} else
 		p = ctx->buf;
@@ -1414,8 +1459,13 @@ dostring:
 	if (!lwsws_room(a, a->p, lwsws_string_len(p) + 1))
 		return lwsws_exhausted(ctx);
 
-	p1 = (char *)strstr(p, ESC_INSTALL_DATADIR);
-	if (p1) {
+	/*
+	 * lwsws_string_len() above reserved room for *every* datadir escape,
+	 * so we have to expand every one of them here too, or we write fewer
+	 * bytes than were reserved and leave the later escapes as literals
+	 */
+
+	while ((p1 = (char *)strstr(p, ESC_INSTALL_DATADIR)) != NULL) {
 		n = lws_ptr_diff(p1, p);
 		lws_strncpy(a->p, p, (unsigned int)n + 1u);
 		a->p += n;
@@ -1425,8 +1475,16 @@ dostring:
 	}
 
 	a->p += lws_snprintf(a->p, lws_ptr_diff_size_t(a->end, a->p), "%s", p);
-	if (reason == LEJPCB_VAL_STR_END)
-		*(a->p)++ = '\0';
+
+	/*
+	 * Non-string values (numbers, true / false / null) and the
+	 * ws-protocols LEJPCB_OBJECT_START case reach here too, and their
+	 * fields were bound to a->p just the same... every one of them has to
+	 * be terminated, or the next value is written over the terminator and
+	 * the two fields alias
+	 */
+
+	*(a->p)++ = '\0';
 
 	return 0;
 }
@@ -2020,9 +2078,19 @@ lwsws_get_config_globals_defs(struct lws_lejp_conf_defs *defs,
 #if defined(LWS_WITH_PLUGINS)
 	/* copy any default paths */
 
-	while (old && *old) {
+	/*
+	 * the array is MAX_PLUGIN_DIRS entries and the last one must stay
+	 * available for the NULL terminator below
+	 */
+
+	while (old && *old && a.count_plugin_dirs < MAX_PLUGIN_DIRS - 1) {
 		a.plugin_dirs[a.count_plugin_dirs++] = *old;
 		old++;
+	}
+
+	if (old && *old) {
+		lwsl_err("Too many plugin dirs\n");
+		return 1;
 	}
 #endif
 
@@ -2030,7 +2098,7 @@ lwsws_get_config_globals_defs(struct lws_lejp_conf_defs *defs,
 	if (lwsws_get_config(&a, dd, paths_global,
 			     LWS_ARRAY_SIZE(paths_global), lejp_globals_cb,
 			     defs, 1) > 1)
-		return 1;
+		goto bail;
 	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
 
 	da.user = &a;
@@ -2045,7 +2113,7 @@ lwsws_get_config_globals_defs(struct lws_lejp_conf_defs *defs,
 	 * by returning nonzero when a conf.d file could not be parsed
 	 */
 	if (!lws_dir(dd, &da, lwsws_get_config_d_cb))
-		return 1;
+		goto bail;
 
 	a.plugin_dirs[a.count_plugin_dirs] = NULL;
 
@@ -2055,6 +2123,12 @@ lwsws_get_config_globals_defs(struct lws_lejp_conf_defs *defs,
 	*len = lws_ptr_diff(a.end, a.p);
 
 	return 0;
+
+bail:
+	/* the string-piece arena is per-parse, don't leak it on the way out */
+	lwsac_free(&a.ac);
+
+	return 1;
 }
 
 #if 0
@@ -2127,7 +2201,9 @@ lwsws_get_config_vhosts_defs(struct lws_lejp_conf_defs *defs,
 	if (!a.info->retry_and_idle_policy)
 		a.info->retry_and_idle_policy = &rebo;
 	a.p = *cs;
-	a.end = a.p + *len;
+	/* as in lwsws_get_config_globals_defs(): a.end is exclusive and the
+	 * last byte of the caller's buffer is deliberately never used */
+	a.end = (a.p + *len) - 1;
 	a.valid = 0;
 	a.context = context;
 	a.protocols = info->protocols;
@@ -2141,7 +2217,7 @@ lwsws_get_config_vhosts_defs(struct lws_lejp_conf_defs *defs,
 	if (lwsws_get_config(&a, dd, paths_vhosts,
 			     LWS_ARRAY_SIZE(paths_vhosts), lejp_vhosts_cb,
 			     defs, 0) > 1)
-		return 1;
+		goto bail;
 	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
 
 	da.user = &a;
@@ -2153,7 +2229,7 @@ lwsws_get_config_vhosts_defs(struct lws_lejp_conf_defs *defs,
 
 	/* as in lwsws_get_config_globals(), lws_dir() 0 means a file failed */
 	if (!lws_dir(dd, &da, lwsws_get_config_d_cb))
-		return 1;
+		goto bail;
 
 	*cs = a.p;
 	*len = lws_ptr_diff(a.end, a.p);
@@ -2168,4 +2244,10 @@ lwsws_get_config_vhosts_defs(struct lws_lejp_conf_defs *defs,
 //	lws_finalize_startup(context, __func__);
 
 	return 0;
+
+bail:
+	/* the string-piece arena is per-parse, don't leak it on the way out */
+	lwsac_free(&a.ac);
+
+	return 1;
 }
