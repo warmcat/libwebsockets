@@ -59,7 +59,11 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (r == LWSSSSRET_DESTROY_ME)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
-		h->wsi = NULL;
+		if (h->wsi == wsi) /* not a newer wsi the app just started */
+			h->wsi = NULL;
+		if (h->wsi)
+			/* the app connected again from inside the callback */
+			break;
 		r = lws_ss_backoff(h);
 		if (r != LWSSSSRET_OK)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
@@ -79,9 +83,17 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (r == LWSSSSRET_DESTROY_ME)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
-		if (h->wsi)
-			lws_set_opaque_user_data(h->wsi, NULL);
-		h->wsi = NULL;
+		/*
+		 * The DISCONNECTED helper above already cleared h->wsi before
+		 * calling the app's state callback... if it's set now, the app
+		 * started a new connection from inside that callback and we
+		 * must detach only the wsi that is actually closing, not the
+		 * live one that has taken its place
+		 */
+		if (h->wsi == wsi) {
+			lws_set_opaque_user_data(wsi, NULL);
+			h->wsi = NULL;
+		}
 
 #if defined(LWS_WITH_SERVER)
 		lws_pt_lock(pt, __func__);
@@ -90,7 +102,8 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 #endif
 
 		if (reason == LWS_CALLBACK_CLIENT_CLOSED) {
-			if (h->policy &&
+			if (!h->wsi && /* not if one is already live */
+			    h->policy &&
 			    !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
 #if defined(LWS_WITH_SERVER)
 			    !(h->info.flags & LWSSSINFLAGS_ACCEPTED) && /* not server */

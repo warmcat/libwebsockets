@@ -43,10 +43,19 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	switch (reason) {
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		assert(h);
-		assert(h->policy);
+		/*
+		 * lws NULLs the wsi's opaque user data when the ss handle goes
+		 * away under a live wsi, so h can legitimately be NULL here...
+		 * asserts compile out under NDEBUG, we need a real check like
+		 * the other ss protocol adapters have
+		 */
+		if (!h)
+			break;
+
 		lwsl_info("%s: %s, %s CLIENT_CONNECTION_ERROR: %s\n", __func__,
-			  lws_ss_tag(h), h->policy->streamtype, in ? (char *)in : "(null)");
+			  lws_ss_tag(h),
+			  h->policy ? h->policy->streamtype : "no policy",
+			  in ? (char *)in : "(null)");
 
 #if defined(LWS_WITH_CONMON)
 		lws_conmon_ss_json(h);
@@ -55,7 +64,10 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
 		if (r == LWSSSSRET_DESTROY_ME)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
-		h->wsi = NULL;
+		if (h->wsi == wsi)
+			h->wsi = NULL;
+		if (h->wsi) /* the app already started a new connection */
+			break;
 		r = lws_ss_backoff(h);
 		if (r != LWSSSSRET_OK)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
@@ -72,7 +84,13 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		lwsl_info("%s: %s, %s RAW_CLOSE\n", __func__, lws_ss_tag(h),
 			  h->policy ? h->policy->streamtype : "no policy");
-		h->wsi = NULL;
+		/*
+		 * Only detach if this wsi is still the one the handle believes
+		 * represents him; a stale wsi closing later must not clear
+		 * h->wsi pointing at a newer, live connection
+		 */
+		if (h->wsi == wsi)
+			h->wsi = NULL;
 #if defined(LWS_WITH_SERVER)
 		lws_pt_lock(pt, __func__);
 		lws_dll2_remove(&h->cli_list);
@@ -84,7 +102,8 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (r == LWSSSSRET_DESTROY_ME)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
-		if (h->policy && !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
+		if (!h->wsi && /* don't retry if a connection is already live */
+		    h->policy && !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
 #if defined(LWS_WITH_SERVER)
 			    !(h->info.flags & LWSSSINFLAGS_ACCEPTED) && /* not server */
 #endif
@@ -99,6 +118,9 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_RAW_CONNECTED:
 		lwsl_info("%s: RAW_CONNECTED\n", __func__);
+
+		if (!h) /* the ss handle may have gone away under the wsi */
+			break;
 
 		h->retry = 0;
 		h->seqstate = SSSEQ_CONNECTED;
