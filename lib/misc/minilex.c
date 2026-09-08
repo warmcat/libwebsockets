@@ -79,6 +79,14 @@ main(void)
 
 	free(line);
 
+	/* the terminal index is stored in s[].c[], which is a char */
+
+	if (setmembers > 127) {
+		fprintf(stderr, "%s: more than 127 terminals\n", __func__);
+
+		return 1;
+	}
+
 	/* Step 2: produce an enum template for the strings in a comment */
 
 	printf("/* enum {\n");
@@ -87,7 +95,8 @@ main(void)
 	while (n < setmembers) {
 		char def[100];
 
-		strncpy(def, rset[n], sizeof(def));
+		strncpy(def, rset[n], sizeof(def) - 1);
+		def[sizeof(def) - 1] = '\0';
 		j = 0;
 		while (def[j]) {
 			if (def[j] == '-')
@@ -140,6 +149,26 @@ main(void)
 			 * matches on "xx" and "xxy" where "xx" is
 			 * listed first */
 
+			/*
+			 * The tables we emit are shipped in the library, so
+			 * refuse to silently produce a corrupt one
+			 */
+
+			if (s[walk].count >= PARALLEL) {
+				fprintf(stderr, "%s: more than %d branches "
+					"at one node\n", __func__, PARALLEL);
+
+				return 1;
+			}
+
+			if (next >= (int)(sizeof(s) / sizeof(s[0]))) {
+				fprintf(stderr, "%s: more than %d states\n",
+					__func__,
+					(int)(sizeof(s) / sizeof(s[0])));
+
+				return 1;
+			}
+
 			s[walk].count++;
 
 			if (s[walk].count > 1 &&
@@ -168,6 +197,13 @@ main(void)
 		}
 
 		/* reached the end of rset[n] */
+
+		if (s[walk].count >= PARALLEL) {
+			fprintf(stderr, "%s: more than %d branches at one "
+				"node\n", __func__, PARALLEL);
+
+			return 1;
+		}
 
 		s[walk].c[s[walk].count] = n++;
 		s[walk].s[s[walk].count++] = 0; /* terminal marker */
