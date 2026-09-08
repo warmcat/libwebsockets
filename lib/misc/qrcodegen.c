@@ -133,6 +133,15 @@ static const int PENALTY_N4 = 10;
 LWS_VISIBLE bool qrcodegen_encodeText(const char *text, uint8_t tempBuffer[], uint8_t qrcode[],
 		enum qrcodegen_Ecc ecl, int minVersion, int maxVersion, enum qrcodegen_Mask mask, bool boostEcl) {
 
+	// The asserts in qrcodegen_encodeSegmentsAdvanced() below are compiled
+	// out under NDEBUG, and bufLen is derived from maxVersion, so the
+	// version range has to be checked for real before it is used here.
+	if (minVersion < qrcodegen_VERSION_MIN || maxVersion > qrcodegen_VERSION_MAX
+			|| minVersion > maxVersion) {
+		qrcode[0] = 0;  // Set size to invalid value for safety
+		return false;
+	}
+
 	size_t textLen = strlen(text);
 	if (textLen == 0)
 		return qrcodegen_encodeSegmentsAdvanced(NULL, 0, ecl, minVersion, maxVersion, mask, boostEcl, tempBuffer, qrcode);
@@ -210,6 +219,19 @@ LWS_VISIBLE bool qrcodegen_encodeSegmentsAdvanced(const struct qrcodegen_Segment
 	assert(segs != NULL || len == 0);
 	assert(qrcodegen_VERSION_MIN <= minVersion && minVersion <= maxVersion && maxVersion <= qrcodegen_VERSION_MAX);
 	assert(0 <= (int)ecl && (int)ecl <= 3 && -1 <= (int)mask && (int)mask <= 7);
+
+	// These are public entry points and the asserts above vanish under
+	// NDEBUG, so check the ranges the version / ecl tables are indexed
+	// with (and that qrcode[] is sized from) for real.
+	if ((segs == NULL && len != 0)
+			|| minVersion < qrcodegen_VERSION_MIN
+			|| maxVersion > qrcodegen_VERSION_MAX
+			|| minVersion > maxVersion
+			|| (int)ecl < 0 || (int)ecl > 3
+			|| (int)mask < -1 || (int)mask > 7) {
+		qrcode[0] = 0;  // Set size to invalid value for safety
+		return false;
+	}
 
 	// Find the minimal version number to use
 	int version, dataUsedBits;
@@ -757,6 +779,13 @@ LWS_VISIBLE int qrcodegen_getSize(const uint8_t qrcode[]) {
 	int result = qrcode[0];
 	assert((qrcodegen_VERSION_MIN * 4 + 17) <= result
 		&& result <= (qrcodegen_VERSION_MAX * 4 + 17));
+	// The assert is compiled out under NDEBUG; callers loop over the
+	// returned size, so a buffer that does not hold a valid symbol (eg,
+	// one a failed encode set to 0) must report 0, not a size that would
+	// walk them off the end.
+	if (result < (qrcodegen_VERSION_MIN * 4 + 17)
+			|| result > (qrcodegen_VERSION_MAX * 4 + 17))
+		return 0;
 	return result;
 }
 
@@ -765,6 +794,12 @@ LWS_VISIBLE int qrcodegen_getSize(const uint8_t qrcode[]) {
 LWS_VISIBLE bool qrcodegen_getModule(const uint8_t qrcode[], int x, int y) {
 	assert(qrcode != NULL);
 	int qrsize = qrcode[0];
+	// qrsize comes from the buffer itself, and getModuleBounded() indexes
+	// with y * qrsize + x, so it has to be a real symbol size before it
+	// can be trusted to bound x and y.
+	if (qrsize < (qrcodegen_VERSION_MIN * 4 + 17)
+			|| qrsize > (qrcodegen_VERSION_MAX * 4 + 17))
+		return false;
 	return (0 <= x && x < qrsize && 0 <= y && y < qrsize) && getModuleBounded(qrcode, x, y);
 }
 
