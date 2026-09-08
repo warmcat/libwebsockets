@@ -2055,7 +2055,15 @@ bail1:
 			case LMSPR_NEED_MORE:
 				break;
 			case LMSPR_COMPLETED:
-				if (lws_mqtt_pconsume(par, par->s_temp.len))
+				/*
+				 * A UTF-8 string property costs its own len
+				 * plus the two length bytes that introduced
+				 * it (see lws_mqtt_str_init()); charging only
+				 * s_temp.len leaves the property block looking
+				 * 2 bytes short per string and overruns it
+				 * into whatever follows.
+				 */
+				if (lws_mqtt_pconsume(par, par->s_temp.len + 2))
 					goto send_protocol_error_and_close;
 				break;
 

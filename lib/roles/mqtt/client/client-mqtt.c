@@ -54,6 +54,18 @@ lws_mqtt_generate_id(struct lws* wsi, lws_mqtt_str_t **ms, const char *client_id
 	else
 		len = LWS_MQTT_RANDOM_CIDLEN;
 
+	/*
+	 * The allocation below is sized by a uint16_t, but the copy after it
+	 * uses the full size_t len; if (len + 1) wrapped we would allocate a
+	 * couple of bytes and then copy the whole client id into them.
+	 */
+	if (len > 0xfffe) {
+		lwsl_err("%s: client ID too long (%u)\n", __func__,
+			 (unsigned int)len);
+
+		return 1;
+	}
+
 	*ms = lws_mqtt_str_create((uint16_t)(len + 1));
 	if (!*ms)
 		return 1;
@@ -112,7 +124,7 @@ lws_create_client_mqtt_object(const struct lws_client_connect_info *i,
 
 	if (lws_mqtt_generate_id(wsi, &c->id, cp->client_id)) {
 		lwsl_err("%s: Error generating client ID\n", __func__);
-		return 1;
+		goto oom1;
 	}
 	lwsl_info("%s: using client id '%.*s'\n", __func__, c->id->len,
 			(const char *)c->id->buf);
@@ -179,6 +191,13 @@ oom2:
 	lws_mqtt_str_free(&c->will.topic);
 oom1:
 	lws_mqtt_str_free(&c->id);
+
+	/*
+	 * We allocated wsi->mqtt, and on this path the wsi will not be
+	 * transitioned into the mqtt role, so no close_role will come along
+	 * later to free it... clean up after ourselves.
+	 */
+	lws_free_set_NULL(wsi->mqtt);
 oom:
 	lwsl_err("%s: OOM!\n", __func__);
 	return 1;

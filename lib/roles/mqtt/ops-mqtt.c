@@ -282,8 +282,13 @@ rops_client_bind_mqtt(struct lws *wsi, const struct lws_client_connect_info *i)
 	if (strcmp(i->method, "MQTT"))
 		return 0; /* no match */
 
+	/*
+	 * Returning nonzero here means "this role took it", ie, success; we
+	 * must return < 0 for failure, otherwise the connect proceeds with the
+	 * default role and a half-initialized wsi->mqtt nothing will free.
+	 */
 	if (lws_create_client_mqtt_object(i, wsi))
-		return 1;
+		return -1;
 
 	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
 				&role_ops_mqtt);
