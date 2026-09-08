@@ -50,6 +50,14 @@ enum {
 	AUTH_IDX_ROOT,
 };
 
+/*
+ * Sanity limits applied to what the auth server tells us
+ */
+
+#define LWS_LWA_MAX_TOKEN_LEN	4096
+#define LWS_LWA_MIN_EXPIRY_SECS	60
+#define LWS_LWA_MAX_EXPIRY_SECS	(24 * 60 * 60)
+
 static void
 lws_ss_sys_auth_api_amazon_com_kick(lws_sorted_usec_list_t *sul)
 {
@@ -89,6 +97,19 @@ auth_api_amazon_com_parser_cb(struct lejp_ctx *ctx, char reason)
 		if (!blob)
 			return -1;
 
+		/*
+		 * The response is untrusted and the blob is only emptied at
+		 * SOM, so without a cap the server can grow our heap without
+		 * limit, using long values or repeated "access_token" keys
+		 */
+
+		if (lws_system_blob_get_size(blob) + ctx->npos >
+						LWS_LWA_MAX_TOKEN_LEN) {
+			lwsl_err("%s: auth token oversize\n", __func__);
+
+			return -1;
+		}
+
 		if (lws_system_blob_heap_append(blob,
 						(const uint8_t *)ctx->buf,
 						ctx->npos)) {
@@ -98,7 +119,18 @@ auth_api_amazon_com_parser_cb(struct lejp_ctx *ctx, char reason)
 		}
 		break;
 	case LSSPPT_EXPIRES_IN:
+		/*
+		 * Untrusted... a zero or negative expiry would schedule the
+		 * renew at or before now, and we would then reauth in a tight
+		 * loop for as long as the server keeps answering that way
+		 */
+
 		m->expires_secs = atoi(ctx->buf);
+		if (m->expires_secs < LWS_LWA_MIN_EXPIRY_SECS)
+			m->expires_secs = LWS_LWA_MIN_EXPIRY_SECS;
+		if (m->expires_secs > LWS_LWA_MAX_EXPIRY_SECS)
+			m->expires_secs = LWS_LWA_MAX_EXPIRY_SECS;
+
 		lws_sul_schedule(context, 0, &context->sul_api_amazon_com,
 				 lws_ss_sys_auth_api_amazon_com_renew,
 				 (lws_usec_t)m->expires_secs * LWS_US_PER_SEC);
@@ -219,6 +251,15 @@ ss_api_amazon_auth_state(void *userobj, void *sh, lws_ss_constate_t state,
 		return LWSSSSRET_DESTROY_ME;
 
 	switch (state) {
+	case LWSSSCS_DESTROYING:
+		/*
+		 * We can be destroyed from outside, eg, by a policy update,
+		 * without ever seeing DISCONNECTED... the context back-pointer
+		 * must not be left dangling or auth can never run again
+		 */
+		context->hss_auth = NULL;
+		break;
+
 	case LWSSSCS_CREATING:
 		//if (lws_ss_set_metadata(m->ss, "ctype", "application/json", 16))
 		//	return LWSSSSRET_DESTROY_ME;

@@ -105,11 +105,18 @@ init_sigv4(struct lws *wsi, struct lws_ss_handle *h, struct sigv4 *s)
 					return -1;
 			}
 		}
-		if (!strcmp(h->metadata[m].name, h->policy->aws_region) &&
+		/*
+		 * aws_region / aws_service are optional in the policy, they
+		 * are NULL if the policy did not give them
+		 */
+
+		if (h->policy->aws_region && h->metadata[m].name &&
+		    !strcmp(h->metadata[m].name, h->policy->aws_region) &&
 		    h->metadata[m].value__may_own_heap)
 			s->region = h->metadata[m].value__may_own_heap;
 
-		if (!strcmp(h->metadata[m].name, h->policy->aws_service) &&
+		if (h->policy->aws_service && h->metadata[m].name &&
+		    !strcmp(h->metadata[m].name, h->policy->aws_service) &&
 		    h->metadata[m].value__may_own_heap)
 			s->service = h->metadata[m].value__may_own_heap;
 
@@ -134,17 +141,28 @@ init_sigv4(struct lws *wsi, struct lws_ss_handle *h, struct sigv4 *s)
 	return 0;
 }
 
-static void
-bin2hex(uint8_t *in, size_t len, char *out)
+/*
+ * Returns 0 if the hex + NUL fitted in olen, else nonzero having written
+ * nothing... the caller's output budget can have been exhausted by
+ * policy- or metadata-derived strings before we get here.
+ */
+
+static int
+bin2hex(uint8_t *in, size_t len, char *out, size_t olen)
 {
 	static const char *hex = "0123456789abcdef";
 	size_t n;
+
+	if (olen < (len * 2) + 1)
+		return 1;
 
 	for (n = 0; n < len; n++) {
 		*out++ = hex[(in[n] >> 4) & 0xf];
 		*out++ = hex[in[n] & 15];
 	}
 	*out = '\0';
+
+	return 0;
 }
 
 static int
@@ -249,7 +267,8 @@ build_sign_string(struct lws *wsi, char *buf, size_t bufsz,
 		return -1;
 	}
 
-	bin2hex(hash_bin, sizeof(hash_bin), hash);
+	if (bin2hex(hash_bin, sizeof(hash_bin), hash, sizeof(hash)))
+		return -1;
 	/*
 	 * build sign string like the following
 	 *
@@ -342,7 +361,7 @@ build_auth_string(struct lws *wsi, char * buf, size_t bufsz,
 		struct lws_ss_handle *h, struct sigv4 *s,
 		uint8_t *signature_bin)
 {
-#if defined(_DEBUG)
+#if defined(_DEBUG) && !defined(LWS_WITH_NO_LOGS)
 	char *start = buf;
 #endif
 	char *end = &buf[bufsz - 1];
@@ -362,6 +381,9 @@ build_auth_string(struct lws *wsi, char * buf, size_t bufsz,
 
 	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "%s",
 							"Credential=");
+	if (keyidlen > lws_ptr_diff_size_t(end, buf))
+		keyidlen = lws_ptr_diff_size_t(end, buf);
+
 	n = lws_system_blob_get(ab,(uint8_t *)buf, &keyidlen, 0);
 	if (n < 0)
 		return -1;
@@ -382,11 +404,14 @@ build_auth_string(struct lws *wsi, char * buf, size_t bufsz,
 
 	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf),
 			    "%s", " Signature=");
-	bin2hex(signature_bin, 32, buf);
+	if (bin2hex(signature_bin, 32, buf,
+		    lws_ptr_diff_size_t(end, buf) + 1)) {
+		lwsl_err("%s: no room for signature\n", __func__);
 
-#if defined(_DEBUG)
-	assert(buf + 65 <= start + bufsz);
+		return -1;
+	}
 
+#if defined(_DEBUG) && !defined(LWS_WITH_NO_LOGS)
 	lwsl_debug("%s %s\n", __func__, start);
 #endif
 
@@ -405,9 +430,26 @@ lws_ss_apply_sigv4(struct lws *wsi, struct lws_ss_handle *h,
 
 	bp = buf;
 
+	if (!h->policy->auth ||
+	    h->policy->auth->blob_index >= LWS_ARRAY_SIZE(blob_idx)) {
+		lwsl_err("%s: bad auth blob index\n", __func__);
+		return -1;
+	}
+
 	init_sigv4(wsi, h, &s);
 	if (!s.timestamp || !s.payload_hash) {
 		lwsl_err("%s missing headers\n", __func__);
+		return -1;
+	}
+
+	/*
+	 * region and service come from metadata via the policy... both are
+	 * used with %s and strlen() below, we can't sign without them
+	 */
+
+	if (!s.region || !s.service) {
+		lwsl_err("%s: no aws_region / aws_service metadata\n",
+			 __func__);
 		return -1;
 	}
 
@@ -441,7 +483,7 @@ lws_ss_sigv4_set_aws_key(struct lws_context* context, uint8_t idx,
 	lws_system_blob_t *ab;
 	int i;
 
-	if (idx > LWS_ARRAY_SIZE(blob_idx))
+	if (idx >= LWS_ARRAY_SIZE(blob_idx))
 		return -1;
 
 	for (i = 0; i < LWS_SS_SIGV4_BLOB_SLOTS; i++) {

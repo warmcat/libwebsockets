@@ -485,6 +485,14 @@ enum {
 };
 
 
+/*
+ * How many external auth blob slots (LWS_SYSBLOB_TYPE_EXT_AUTHn) a policy
+ * "auth" object's .blob_index may select between... see blob_idx[] in
+ * secure-streams/system/auth-sigv4/sign.c
+ */
+
+#define LWS_SS_POLICY_AUTH_BLOB_SLOTS 4
+
 struct policy_cb_args {
 	struct lejp_ctx jctx;
 	struct lws_context *context;
@@ -503,12 +511,31 @@ struct policy_cb_args {
 
 	uint8_t *p;
 
+	/*
+	 * for a non-overlay parse, the policy list that was in force when we
+	 * started, so we can put it back if the new one does not parse
+	 */
+	const lws_ss_policy_t *prev_pss_policies;
+
 	int count;
 	int pvosp;
 	char pending_respmap;
 
 	uint8_t parse_data:1;
+	uint8_t overlay:1;
+	/*
+	 * Set when the JSON is coming from an untrusted source, eg, fetched
+	 * over the network.  Conveniences meant for app-provided policy, like
+	 * "a buffer that doesn't start with { is a filename", are then refused.
+	 */
+	uint8_t untrusted:1;
 };
+
+/*
+ * Mark the in-progress policy parse as being fed from an untrusted source
+ */
+void
+lws_ss_policy_parse_untrusted(struct lws_context *context);
 
 #if defined(LWS_WITH_SYS_SMD)
 extern const lws_ss_policy_t pol_smd;

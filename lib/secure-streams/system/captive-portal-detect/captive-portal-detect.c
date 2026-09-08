@@ -54,6 +54,15 @@ ss_cpd_state(void *userobj, void *sh, lws_ss_constate_t state,
 		cx->ss_cpd = NULL;
 		return LWSSSSRET_DESTROY_ME;
 
+	case LWSSSCS_DESTROYING:
+		/*
+		 * We can be destroyed from outside, eg, by a policy update,
+		 * without ever seeing DISCONNECTED... the context back-pointer
+		 * must not be left dangling or CPD can never run again
+		 */
+		cx->ss_cpd = NULL;
+		break;
+
 	case LWSSSCS_TIMEOUT:
 	case LWSSSCS_ALL_RETRIES_FAILED:
 	case LWSSSCS_DISCONNECTED:
