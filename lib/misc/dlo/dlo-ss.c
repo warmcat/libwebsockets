@@ -29,6 +29,14 @@
 
 #if defined(LWS_WITH_LHP)
 
+/*
+ * Upper bound on how many assets (images, stylesheets) one document may have
+ * being fetched at the same time... each one costs a connection and a rx
+ * window, so an unbounded number of them is fatal on the small targets
+ */
+
+#define LWS_DLO_MAX_CONCURRENT_ASSETS	16
+
 LWS_SS_USER_TYPEDEF
 	sul_cb_t			on_rx;
 	lhp_ctx_t			*lhp;
@@ -69,7 +77,13 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 		lws_dlo_contents(dlo, &dim);
 		lws_display_dlo_adjust_dims(dlo, &dim);
 
-		if (lws_dll2_owner(&dlo->list)) {
+		/*
+		 * The toplevel dlo is owned by the lws_displaylist_t itself,
+		 * its owner is not some dlo's children owner, so only walk up
+		 * if we really do have a parent dlo
+		 */
+
+		if (!dlo->flag_toplevel && lws_dll2_owner(&dlo->list)) {
 			dlo = lws_dll2_owner_container(&dlo->list, lws_dlo_t, children);
 
 			lws_dlo_contents(dlo, &dim);
@@ -258,7 +272,7 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 	lws_dlo_jpeg_t *dlo_jpeg = NULL;
 	lws_dlo_png_t *dlo_png = NULL;
 	char rebased_url[LHP_URL_LEN];
-	size_t ul = strlen(i->url);
+	size_t ul = strlen(i->url), el;
 	struct lws_ss_handle *h;
 	lws_dlo_t *dlo = NULL;
 	lws_ss_info_t ssi;
@@ -271,23 +285,51 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 	if (ul < 5)
 		return 1;
 
+	/*
+	 * Assets are only ever fetched on behalf of a document, so cap how many
+	 * of them one document can have in flight at once... on the small
+	 * targets this code exists for, each one is a connection plus a window
+	 */
+
+	if (i->cx && lws_dll2_count(&i->cx->active_assets) >=
+					LWS_DLO_MAX_CONCURRENT_ASSETS) {
+		lwsl_warn("%s: too many assets in flight, dropping %s\n",
+			  __func__, i->url);
+		return 1;
+	}
+
 	p = (char *)strchr(i->url, '?');
 	if (!p)
 		p = i->url + ul;
 
-	if (!strncmp(p - 4, ".png", 4))
+	/* how many chars of url there are before any '?' */
+	el = lws_ptr_diff_size_t(p, i->url);
+
+	if (el >= 4 && !strncmp(p - 4, ".png", 4))
 		type = LWSDLOSS_TYPE_PNG;
 	else
-		if (!strncmp(p - 4, ".jpg", 4) ||
-		    !strncmp(p - 5, ".jpeg", 4))
+		if ((el >= 4 && !strncmp(p - 4, ".jpg", 4)) ||
+		    (el >= 5 && !strncmp(p - 5, ".jpeg", 5)))
 			type = LWSDLOSS_TYPE_JPEG;
 		else
-			if (!strncmp(p - 4, ".css", 4))
+			if (el >= 4 && !strncmp(p - 4, ".css", 4))
 				type = LWSDLOSS_TYPE_CSS;
 			else {
 				lwsl_warn("%s: unknown file type %s\n", __func__, i->url);
 				return 1;
 			}
+
+	/*
+	 * Only a stylesheet <link> can consume css... if the document asked for
+	 * a stylesheet as an image, there is no dlo we can hand back, and our
+	 * success return would leave the caller with a NULL one
+	 */
+
+	if (type == LWSDLOSS_TYPE_CSS && i->lhp && i->lhp->npos == 3 &&
+	    !strncmp(i->lhp->buf, "img", 3)) {
+		lwsl_warn("%s: css asset requested as an image\n", __func__);
+		return 1;
+	}
 
 	if (lws_http_rel_to_url(rebased_url, sizeof(rebased_url), i->lhp->base_url, i->url)) {
 		lwsl_warn("%s: failed to rebase url\n", __func__);
