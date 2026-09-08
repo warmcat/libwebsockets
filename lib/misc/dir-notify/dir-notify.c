@@ -34,6 +34,7 @@ struct lws_dir_notify {
 	int dir_fd;
 	struct lws *wsi;
 	lws_dll2_t list;
+	char destroyed; /* user called destroy, free us when the wsi is gone */
 };
 
 #if !defined(LWS_WITH_NETWORK)
@@ -76,6 +77,14 @@ lws_dir_notify_rx(struct lws *wsi, enum lws_callback_reasons reason,
 		  void *user, void *in, size_t len)
 {
 	struct lws_dir_notify *dn = (struct lws_dir_notify *)lws_get_opaque_user_data(wsi);
+
+	/*
+	 * dn is gone, or the user has destroyed it and is just waiting for the
+	 * wsi close to catch up... either way we must not touch dn->cb
+	 */
+	if (!dn || (dn->destroyed && reason != LWS_CALLBACK_RAW_CLOSE_FILE))
+		return 0;
+
 	if (reason == LWS_CALLBACK_RAW_RX_FILE) {
 		char buf[4096] __attribute__ ((aligned(__alignof__(struct inotify_event))));
 		const struct inotify_event *event;
@@ -95,14 +104,20 @@ lws_dir_notify_rx(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 	} else if (reason == LWS_CALLBACK_RAW_CLOSE_FILE) {
 		/* Clean up if the raw file wsi closes unexpectedly */
-		if (dn) {
-			if (dn->fd >= 0)
-				close(dn->fd);
-			dn->fd = -1;
-			dn->wsi = NULL;
-			/* we can't safely free(dn) if lws_dir_notify_destroy
-			 * hasn't been called, since user code holds a ptr. */
-		}
+		if (dn->fd >= 0)
+			close(dn->fd);
+		dn->fd = -1;
+		dn->wsi = NULL;
+		lws_set_opaque_user_data(wsi, NULL);
+
+		/*
+		 * If lws_dir_notify_destroy() hasn't been called, user code
+		 * still holds a ptr to dn and we must leave it allocated.  If
+		 * it has, it deferred the free to us, because the wsi held dn
+		 * as its opaque user data until now.
+		 */
+		if (dn->destroyed)
+			lws_free(dn);
 	}
 	return 0;
 }
@@ -128,13 +143,14 @@ lws_dir_notify_create(struct lws_context *ctx, const char *path,
 			return NULL;
 	}
 
-	dn = lws_malloc(sizeof(*dn), __func__);
+	dn = lws_zalloc(sizeof(*dn), __func__);
 	if (!dn)
 		return NULL;
 
 	dn->ctx = ctx;
 	dn->cb = cb;
 	dn->user = user;
+	dn->dir_fd = -1;
 
 	dn->fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
 	if (dn->fd < 0)
@@ -170,13 +186,25 @@ lws_dir_notify_destroy(struct lws_dir_notify **pdn)
 	if (!dn)
 		return;
 
-	if (dn->wsi)
+	*pdn = NULL;
+
+	if (dn->wsi) {
+		/*
+		 * LWS_TO_KILL_ASYNC is not synchronous... the wsi is still in
+		 * pt->fds[] and still holds dn as its opaque user data, so we
+		 * must not free dn here.  Mark it and let the close callback
+		 * free it once the wsi has really gone.
+		 */
+		dn->destroyed = 1;
 		lws_set_timeout(dn->wsi, 1, LWS_TO_KILL_ASYNC);
-	else if (dn->fd >= 0)
+
+		return;
+	}
+
+	if (dn->fd >= 0)
 		close(dn->fd);
 
 	lws_free(dn);
-	*pdn = NULL;
 }
 
 #elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
@@ -191,6 +219,14 @@ lws_dir_notify_rx(struct lws *wsi, enum lws_callback_reasons reason,
 		  void *user, void *in, size_t len)
 {
 	struct lws_dir_notify *dn = (struct lws_dir_notify *)lws_get_opaque_user_data(wsi);
+
+	/*
+	 * dn is gone, or the user has destroyed it and is just waiting for the
+	 * wsi close to catch up... either way we must not touch dn->cb
+	 */
+	if (!dn || (dn->destroyed && reason != LWS_CALLBACK_RAW_CLOSE_FILE))
+		return 0;
+
 	if (reason == LWS_CALLBACK_RAW_RX_FILE) {
 		struct kevent kev;
 		struct timespec ts = {0, 0};
@@ -204,15 +240,23 @@ lws_dir_notify_rx(struct lws *wsi, enum lws_callback_reasons reason,
 			dn->cb("", 0, dn->user);
 		}
 	} else if (reason == LWS_CALLBACK_RAW_CLOSE_FILE) {
-		if (dn) {
-			if (dn->fd >= 0)
-				close(dn->fd);
-			if (dn->dir_fd >= 0)
-				close(dn->dir_fd);
-			dn->fd = -1;
-			dn->dir_fd = -1;
-			dn->wsi = NULL;
-		}
+		if (dn->fd >= 0)
+			close(dn->fd);
+		if (dn->dir_fd >= 0)
+			close(dn->dir_fd);
+		dn->fd = -1;
+		dn->dir_fd = -1;
+		dn->wsi = NULL;
+		lws_set_opaque_user_data(wsi, NULL);
+
+		/*
+		 * If lws_dir_notify_destroy() hasn't been called, user code
+		 * still holds a ptr to dn and we must leave it allocated.  If
+		 * it has, it deferred the free to us, because the wsi held dn
+		 * as its opaque user data until now.
+		 */
+		if (dn->destroyed)
+			lws_free(dn);
 	}
 	return 0;
 }
@@ -238,13 +282,14 @@ lws_dir_notify_create(struct lws_context *ctx, const char *path,
 			return NULL;
 	}
 
-	dn = lws_malloc(sizeof(*dn), __func__);
+	dn = lws_zalloc(sizeof(*dn), __func__);
 	if (!dn)
 		return NULL;
 
 	dn->ctx = ctx;
 	dn->cb = cb;
 	dn->user = user;
+	dn->fd = -1;
 
 	dn->dir_fd = open(path, O_RDONLY | O_NONBLOCK);
 	if (dn->dir_fd < 0)
@@ -291,17 +336,27 @@ lws_dir_notify_destroy(struct lws_dir_notify **pdn)
 	if (!dn)
 		return;
 
-	if (dn->wsi)
+	*pdn = NULL;
+
+	if (dn->wsi) {
+		/*
+		 * LWS_TO_KILL_ASYNC is not synchronous... the wsi is still in
+		 * pt->fds[] and still holds dn as its opaque user data, so we
+		 * must not free dn here.  Mark it and let the close callback
+		 * free it once the wsi has really gone.
+		 */
+		dn->destroyed = 1;
 		lws_set_timeout(dn->wsi, 1, LWS_TO_KILL_ASYNC);
-	else {
-		if (dn->fd >= 0)
-			close(dn->fd);
-		if (dn->dir_fd >= 0)
-			close(dn->dir_fd);
+
+		return;
 	}
 
+	if (dn->fd >= 0)
+		close(dn->fd);
+	if (dn->dir_fd >= 0)
+		close(dn->dir_fd);
+
 	lws_free(dn);
-	*pdn = NULL;
 }
 
 #elif defined(WIN32)
