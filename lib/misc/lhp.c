@@ -39,6 +39,20 @@ static uint8_t css_propconst_lextable[] = { /* the css property values */
 
 #define LHP_AC_GRANULE 512
 
+/*
+ * Largest whole part we will accumulate for a css number; any real length is
+ * orders of magnitude smaller, and this keeps the int32_t lws_fx_t whole part
+ * away from overflow no matter how many digits the document offers
+ */
+#define LHP_CSS_MAX_WHOLE 1000000
+
+/*
+ * Most attributes we will store for one element... the element stack is capped
+ * by LHP_MAX_ELEMS_NEST, but without this an element with a huge number of
+ * attributes can allocate without limit until its '>' arrives
+ */
+#define LHP_MAX_ATR_PER_ELEM 64
+
 enum {
 	/* html */
 
@@ -637,11 +651,23 @@ static lhp_atr_t *
 lhp_atr_new(lhp_ctx_t *ctx, size_t name_len, size_t value_len)
 {
 	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack), lhp_pstack_t, list);
+	lhp_atr_t *a;
+	size_t n;
+
+	/*
+	 * Attributes are only freed when the element level is popped, ie, at
+	 * the '>'... so an element with an unbounded number of attributes can
+	 * allocate without bound before we ever get there
+	 */
+
+	if (lws_dll2_count(&ps->atr) >= LHP_MAX_ATR_PER_ELEM) {
+		lwsl_err("%s: too many attributes\n", __func__);
+		return NULL;
+	}
 
 	/* create the element name attribute */
-	lhp_atr_t *a = lws_malloc(sizeof(*a) + name_len + 1 + value_len + 1,
-				  "html_elem_atr");
-	size_t n;
+	a = lws_malloc(sizeof(*a) + name_len + 1 + value_len + 1,
+		       "html_elem_atr");
 
 	if (!a)
 		return NULL;
@@ -687,6 +713,18 @@ hspace(uint8_t c)
 void
 lhp_uni_emit(lhp_ctx_t *ctx)
 {
+	/*
+	 * We can emit up to 4 bytes, and we are called from places with
+	 * different npos preconditions (entity names are collected into buf
+	 * itself, so npos can be right at the end of buf when we are asked to
+	 * replace them by their expansion).  Refuse to emit at all unless the
+	 * worst case fits, leaving buf[LHP_STRING_CHUNK] free for the NUL that
+	 * various consumers add at buf[npos].
+	 */
+
+	if (ctx->npos < 0 || ctx->npos > LHP_STRING_CHUNK - 4)
+		return;
+
 	/* emit */
 	if (ctx->temp <= 0x7f) {
 		ctx->buf[ctx->npos++] = (char)(ctx->temp & 0x7f);
@@ -1576,6 +1614,8 @@ elem_start:
 					ps->dlo = (lws_dlo_t *)lws_display_dlo_rect_new(
 							drt->dl, NULL, &box, 0,
 							col);
+					if (!ps->dlo)
+						goto oom;
 
 					ps->dlo->flag_toplevel = 1;
 
@@ -1600,7 +1640,17 @@ elem_start:
 					aa = lws_css_cascade_get_prop_atr(ctx,
 						LCSP_PROP_BACKGROUND_IMAGE);
 
-					if (aa)
+					/*
+					 * Only string and url atrs have a
+					 * NUL-terminated payload after the
+					 * atr... eg, "background-image: none"
+					 * is a well-known propval atr with
+					 * nothing at all after it
+					 */
+
+					if (aa && aa->value_len &&
+					    (aa->unit == LCSP_UNIT_STRING ||
+					     aa->unit == LCSP_UNIT_URL))
 						pname = (const char *)(aa + 1);
 				}
 
@@ -1691,7 +1741,10 @@ elem_start:
 					}
 				} else {
 					// lwsl_cx_warn(cx, "Found in-progress %s\n", url);
-					if (ctx->npos == 3 && !strncmp(ctx->buf, "img", 3))
+					/* an in-progress asset that isn't an
+					 * image (eg, a stylesheet) has no dlo */
+					if (u.u.dlo_png && ctx->npos == 3 &&
+					    !strncmp(ctx->buf, "img", 3))
 						ps->dlo = &u.u.dlo_png->dlo;
 				}
 
@@ -1707,6 +1760,18 @@ elem_start:
 				/*
 				 * It's on its way to some extent and *u set...
 				 *
+				 * ... unless it isn't: a url that isn't an
+				 * image asset (eg, a .css given as an
+				 * element's src=) can be accepted for
+				 * fetching without producing any image dlo
+				 * for us to describe.  Nothing more we can do
+				 * with it here.
+				 */
+
+				if (!u.u.dlo_png)
+					goto check_closing;
+
+				/*
 				 * If he has given explicit width and height
 				 * for the image, no need to wait for them
 				 */
@@ -1749,12 +1814,18 @@ elem_start:
 
 				if (!lws_dlo_image_width(&u) ||
 				    !lws_dlo_image_height(&u)) {
-					ps->dlo->budget++;
-					if (ps->dlo->budget < 8) {
+					/*
+					 * ps->dlo is only set for body and
+					 * img... for, eg, a div with a css
+					 * background-image, there's nowhere to
+					 * keep the retry budget, so don't
+					 * spin waiting for the dimensions
+					 */
+					if (ps->dlo && ++ps->dlo->budget < 8) {
 						lwsl_warn("%s: exiting with AWAIT_RETRY due to no dims\n", __func__);
 						return LWS_SRET_AWAIT_RETRY;
-					} else
-						lwsl_err("%s: ignoring no dims\n", __func__);
+					}
+					lwsl_err("%s: ignoring no dims\n", __func__);
 				}
 
 				u.u.dlo_png->dlo.box.w.whole = (int32_t)lws_dlo_image_width(&u);
@@ -1817,14 +1888,18 @@ check_closing:
 
 			if ((ctx->u.f.inq || !hspace(c)) &&
 			    (c != '/' || ctx->u.f.inq) && c != '>') {
-				/* collect the attrib name */
-				ctx->buf[ctx->npos++] = (char)c;
-				/* sanity */
-				if (ctx->npos == LHP_STRING_CHUNK) {
+				/*
+				 * sanity: check before the write, and with
+				 * >=, since npos can have been advanced by
+				 * more than one by an entity expansion
+				 */
+				if (ctx->npos >= LHP_STRING_CHUNK) {
 					lwsl_err("%s: string chunk\n", __func__);
 					ps->cb(ctx, LHPCB_FAILED);
 					return LWS_SRET_FATAL;
 				}
+				/* collect the attrib name */
+				ctx->buf[ctx->npos++] = (char)c;
 				if (c == '=') {
 					ctx->nl_temp = ctx->npos - 1;
 					ctx->state = LHPS_ATTRIB_VAL;
@@ -1864,14 +1939,18 @@ check_closing:
 
 			if ((ctx->u.f.inq || !hspace(c)) &&
 			    c != '>' && c != '\'' && c != '\"') {
-				/* collect the attrib value */
-				ctx->buf[ctx->npos++] = (char)c;
-				/* sanity */
-				if (ctx->npos == LHP_STRING_CHUNK) {
+				/*
+				 * sanity: check before the write, and with
+				 * >=, since npos can have been advanced by
+				 * more than one by an entity expansion
+				 */
+				if (ctx->npos >= LHP_STRING_CHUNK) {
 					lwsl_err("%s: string chunk 2\n", __func__);
 					ps->cb(ctx, LHPCB_FAILED);
 					return LWS_SRET_FATAL;
 				}
+				/* collect the attrib value */
+				ctx->buf[ctx->npos++] = (char)c;
 				break;
 			}
 			if (c == '/') {
@@ -1886,10 +1965,21 @@ check_closing:
 				break;
 
 			if (ctx->npos) {
-				ctx->buf[ctx->npos] = '\0';
-				if (!lhp_atr_new(ctx, (size_t)ctx->nl_temp,
-					 (size_t)ctx->npos - (size_t)ctx->nl_temp - 1u))
-					goto oom;
+				/*
+				 * nl_temp is where the '=' sits in buf, so
+				 * npos must be beyond it for the value length
+				 * to be derivable.  Entity handling can reset
+				 * npos out from under nl_temp; in that case
+				 * just drop the attribute rather than
+				 * underflow value_len.
+				 */
+				if (ctx->npos > ctx->nl_temp) {
+					ctx->buf[ctx->npos] = '\0';
+					if (!lhp_atr_new(ctx, (size_t)ctx->nl_temp,
+							 (size_t)(ctx->npos -
+								  ctx->nl_temp - 1)))
+						goto oom;
+				}
 				ctx->state = LHPS_ATTRIB;
 				ctx->npos = 0;
 				if (c != '>')
@@ -1942,7 +2032,14 @@ check_closing:
 					ctx->npos += 2;
 					ctx->state = ctx->saved_state;
 				} else {
+					/*
+					 * We're dumping what we collected...
+					 * nl_temp indexes into it, so it has
+					 * to go too or the attribute lengths
+					 * derived from it are garbage
+					 */
 					ctx->npos = 0;
+					ctx->nl_temp = 0;
 					ctx->state = ctx->saved_state;
 				}
 				break;
@@ -1958,7 +2055,10 @@ check_closing:
 				(*buf)--;
 				ctx->state = ctx->saved_state;
 			} else {
+				/* as above, nl_temp indexes into what we are
+				 * dropping, it can't survive it */
 				ctx->npos = 0;
+				ctx->nl_temp = 0;
 				ctx->state = ctx->saved_state;
 			}
 done_amp:
@@ -1995,9 +2095,18 @@ done_amp:
 				break;
 			}
 
-			if (c >= '0' && c <= '9')
-				ctx->temp = (uint32_t)(((int)ctx->temp * 10) + ((int)c - '0'));
-			else
+			if (c >= '0' && c <= '9') {
+				/*
+				 * The digit count limit above doesn't bound
+				 * the value; stop accumulating once we are
+				 * already outside unicode range, so we can't
+				 * overflow (the out-of-range value is still
+				 * handled by lhp_uni_emit())
+				 */
+				if (ctx->temp <= 0x10ffff)
+					ctx->temp = (ctx->temp * 10) +
+						    (uint32_t)(c - '0');
+			} else
 				ctx->state = ctx->saved_state;
 
 			break;
@@ -2026,18 +2135,30 @@ done_amp:
 				break;
 			}
 
+			/*
+			 * As for the decimal case, the digit count limit
+			 * above doesn't bound the value; stop accumulating
+			 * once we are already outside unicode range
+			 */
+
 			if (c >= '0' && c <= '9') {
-				ctx->temp = (uint32_t)(((int)ctx->temp << 4) + ((int)c - '0'));
+				if (ctx->temp <= 0x10ffff)
+					ctx->temp = (ctx->temp << 4) +
+						    (uint32_t)(c - '0');
 				break;
 			}
 
 			if (c >= 'A' && c <= 'F') {
-				ctx->temp = (uint32_t)(((int)ctx->temp << 4) + ((int)c - 'A') + 10);
+				if (ctx->temp <= 0x10ffff)
+					ctx->temp = (ctx->temp << 4) +
+						    (uint32_t)(c - 'A') + 10;
 				break;
 			}
 
 			if (c >= 'a' && c <= 'f') {
-				ctx->temp = (uint32_t)(((int)ctx->temp << 4) + ((int)c - 'a') + 10);
+				if (ctx->temp <= 0x10ffff)
+					ctx->temp = (ctx->temp << 4) +
+						    (uint32_t)(c - 'a') + 10;
 				break;
 			}
 
@@ -2270,11 +2391,20 @@ done_amp:
 					((c >= '0' && c <= '9') ||
 					(c >= 'a' && c <= 'f') ||
 					(c >= 'A' && c <= 'F'))) {
-					ctx->temp = (uint32_t)(((int)ctx->temp << 4) |
-						((c <= '9') ? c - '0' :
-							(c >= 'a') ? 10 + (c - 'a') :
-								10 + (c - 'A')));
-					ctx->temp_count++;
+					/*
+					 * #rrggbbaa is the longest form we
+					 * understand; don't shift past the
+					 * end of temp for longer garbage
+					 */
+					if (ctx->temp_count < 8)
+						ctx->temp = (ctx->temp << 4) |
+							(uint32_t)((c <= '9') ? c - '0' :
+								(c >= 'a') ? 10 + (c - 'a') :
+									10 + (c - 'A'));
+					if (ctx->temp_count < 9)
+						/* 9 == "too long", no valid
+						 * length matches it */
+						ctx->temp_count++;
 					break;
 				}
 
@@ -2299,11 +2429,20 @@ done_amp:
 
 					if (ctx->u.f.integer < LHP_CSS_PROPVAL_INT_UNIT &&
 					    c >= '0' && c <= '9') {
-						if (ctx->u.f.integer == LHP_CSS_PROPVAL_INT_WHOLE)
-							ctx->tf.whole =
-								(ctx->tf.whole * 10) +
-								(c - '0');
-						else {
+						if (ctx->u.f.integer == LHP_CSS_PROPVAL_INT_WHOLE) {
+							/*
+							 * tf.whole is int32_t and
+							 * nothing else bounds the
+							 * digit count; stop
+							 * accumulating well before
+							 * it can overflow
+							 */
+							if (ctx->tf.whole <
+								   LHP_CSS_MAX_WHOLE)
+								ctx->tf.whole =
+								  (ctx->tf.whole * 10) +
+								  (c - '0');
+						} else {
 							if (ctx->temp) {
 								ctx->tf.frac += (int32_t)ctx->temp * (c - '0');
 								ctx->temp /= 10;
