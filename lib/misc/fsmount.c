@@ -93,24 +93,41 @@ lws_fsmount_mount(struct lws_fsmount *fsm)
 	 * Piece together the options for the overlay mount...
 	 */
 
+	/*
+	 * lws_snprintf() returns the given size on truncation, so after any
+	 * append n may be exactly sizeof(opts)... check after each one, since
+	 * continuing would write opts[sizeof(opts)] with the ':' below and then
+	 * underflow the remaining-length arg to (size_t)-1.  A truncated mount
+	 * option string is unusable anyway, since it would name the wrong dirs.
+	 */
+
 	n = lws_snprintf(opts, sizeof(opts), "lowerdir=");
 	for (m = LWS_ARRAY_SIZE(fsm->layers) - 1; m >= 0; m--)
 		if (fsm->layers[m]) {
+			if (n >= (int)sizeof(opts) - 1)
+				goto too_long;
+
 			if (n != 9)
 				opts[n++] = ':';
 
-			n += lws_snprintf(&opts[n], (size_t)(sizeof(opts) - (unsigned int)n),
+			n += lws_snprintf(&opts[n], sizeof(opts) - (size_t)n,
 					  "%s/%s/%s", fsm->layers_path,
 					  fsm->distro, fsm->layers[m]);
+			if (n >= (int)sizeof(opts))
+				goto too_long;
 		}
 
-	n += lws_snprintf(&opts[n], (size_t)(sizeof(opts) - (unsigned int)n),
+	n += lws_snprintf(&opts[n], sizeof(opts) - (size_t)n,
 			  ",upperdir=%s/overlays/%s/session",
 			  fsm->overlay_path, fsm->ovname);
+	if (n >= (int)sizeof(opts))
+		goto too_long;
 
-	n += lws_snprintf(&opts[n], (size_t)(sizeof(opts) - (unsigned int)n),
+	n += lws_snprintf(&opts[n], sizeof(opts) - (size_t)n,
 			  ",workdir=%s/overlays/%s/work",
 			  fsm->overlay_path, fsm->ovname);
+	if (n >= (int)sizeof(opts))
+		goto too_long;
 
 	ctx = mnt_new_context();
 	if (!ctx)
@@ -131,6 +148,11 @@ lws_fsmount_mount(struct lws_fsmount *fsm)
 	mnt_free_context(ctx);
 
 	return m;
+
+too_long:
+	lwsl_err("%s: overlay paths too long\n", __func__);
+
+	return 1;
 }
 
 int
