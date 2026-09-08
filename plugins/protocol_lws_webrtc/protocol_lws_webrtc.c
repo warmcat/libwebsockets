@@ -2047,9 +2047,15 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 {
 	struct pss_webrtc *pss = *ppss;
 	uint8_t *p = (uint8_t *)in;
-	uint16_t type = (uint16_t)((p[0] << 8) | p[1]);
+	uint16_t type;
 	char ads[64];
 	const struct lws_udp *udp_desc = lws_get_udp(wsi);
+
+	/* the demux only checked len > 0; a STUN header is 20 bytes */
+	if (len < 20)
+		return 0;
+
+	type = (uint16_t)((p[0] << 8) | p[1]);
 
 	lws_sa46_write_numeric_address((lws_sockaddr46 *)sin, ads, sizeof(ads));
 
