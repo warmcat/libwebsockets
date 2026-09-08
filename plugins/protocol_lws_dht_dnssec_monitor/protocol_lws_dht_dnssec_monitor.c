@@ -1273,7 +1273,12 @@ handle_req_get_ipv6_suffix(struct vhd *vhd, struct pss *root_pss, struct monitor
 			suffix[i] = '\0';
 	}
 
-	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"suffix\":\"%s\"}\n", a->req, suffix);
+	/*
+	 * The stored file is only as trustworthy as whoever can write it, so
+	 * escape it on the way out as well as validating it on the way in
+	 */
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"suffix\":\"%s\"}\n", a->req,
+			   json_escape(esc_suffix, sizeof(esc_suffix), suffix));
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
@@ -2525,6 +2530,23 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 		goto done;
 	}
 
+	/*
+	 * a.req is echoed back into most of the composed responses below, and
+	 * lejp has already turned any \" or \n escapes in it into real bytes.
+	 * The IPC stream is newline-framed, so restrict it to the alphabet the
+	 * request names in req_map actually use: then no echo of it can close
+	 * the JSON string, inject a member or start a forged response line
+	 */
+	for (n = 0; a.req[n]; n++)
+		if (!((a.req[n] >= 'a' && a.req[n] <= 'z') ||
+		      (a.req[n] >= 'A' && a.req[n] <= 'Z') ||
+		      (a.req[n] >= '0' && a.req[n] <= '9') ||
+		      a.req[n] == '_' || a.req[n] == '-')) {
+			lwsl_notice("%s: Rejecting malformed req string\n", __func__);
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"unknown\",\"status\":\"error\",\"msg\":\"Invalid req\"}\n");
+			goto done;
+		}
+
 	lwsl_debug("[INSTRUMENT] handle_monitor_request: Routed valid requested endpoint: '%s'\n", a.req);
 
 	if (vhd->auth_jwk.kty == LWS_GENCRYPTO_KTY_OCT) {
@@ -2575,6 +2597,23 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Invalid domain name\"}\n", a.req);
 		goto done;
 	}
+
+	/*
+	 * suffix is an IPv6 interface identifier that set_ipv6_suffix stores
+	 * verbatim and get_ipv6_suffix hands back to every admin's browser:
+	 * hex digits and ':' are its whole legal alphabet, and restricting it
+	 * here stops a stored quote or newline injecting JSON members or whole
+	 * forged response lines into the shared UI stream
+	 */
+	for (n = 0; a.suffix[n]; n++)
+		if (!((a.suffix[n] >= '0' && a.suffix[n] <= '9') ||
+		      (a.suffix[n] >= 'a' && a.suffix[n] <= 'f') ||
+		      (a.suffix[n] >= 'A' && a.suffix[n] <= 'F') ||
+		      a.suffix[n] == ':')) {
+			lwsl_notice("%s: Rejecting malformed ipv6 suffix\n", __func__);
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Invalid suffix\"}\n", a.req);
+			goto done;
+		}
 
 	for (size_t i = 0; i < req_map_size; i++) {
 		if (!strcmp(a.req, req_map[i].name)) {
