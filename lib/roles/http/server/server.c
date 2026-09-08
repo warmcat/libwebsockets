@@ -816,6 +816,22 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	if (!wsi->a.vhost)
 		return -1;
 
+#if defined(WIN32)
+	/*
+	 * The URI sanitiser only knows '/' as the path separator, but
+	 * CreateFileW() treats '\\' the same way, so a backslash (%5C) in the
+	 * requested path could form a ".." component the sanitiser never saw
+	 * and walk out of the mount.  There is no legitimate use for it in a
+	 * path we serve from a mount.
+	 */
+	if (strchr(uri, '\\')) {
+		lwsl_wsi_notice(wsi, "refusing backslash in served path");
+		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+
+		return -1;
+	}
+#endif
+
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 	if (wsi->a.vhost->http.error_document_404) {
 		const char *e = wsi->a.vhost->http.error_document_404;
@@ -866,8 +882,11 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 #if defined(LWS_HAVE__STAT32I64)
 		{
 			WCHAR buf[MAX_PATH];
-			MultiByteToWideChar(CP_UTF8, 0, path, -1, buf, LWS_ARRAY_SIZE(buf));
-			if (_wstat32i64(buf, &st)) {
+
+			/* a path that does not fit is unterminated garbage */
+			if (MultiByteToWideChar(CP_UTF8, 0, path, -1, buf,
+						LWS_ARRAY_SIZE(buf)) <= 0 ||
+			    _wstat32i64(buf, &st)) {
 				lwsl_info("unable to stat %s\n", path);
 				goto notfound;
 			}
