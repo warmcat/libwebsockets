@@ -2667,8 +2667,25 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 							 __func__);
 						token = NULL;
 					} else if (!chk_url) {
-						lwsl_err("%s: blocking SSO token: no origin/referer to check against %s (login CSRF?)\n",
-							 __func__, vhd->auth_api_url);
+						/*
+						 * "Origin: null" with no Referer
+						 * is what a browser sends for a
+						 * cross-origin POST from a document
+						 * under Referrer-Policy: no-referrer
+						 * -- typically a site-wide hardening
+						 * header on the auth server itself,
+						 * which the auth server's index.html
+						 * overrides with a meta referrer for
+						 * this reason.  Say so, since the
+						 * legit flow is otherwise
+						 * indistinguishable from the CSRF it
+						 * is blocked as.
+						 */
+						lwsl_err("%s: blocking SSO token: %s to check against %s (login CSRF, or auth server page sent Referrer-Policy: no-referrer?)\n",
+							 __func__,
+							 has_origin ? "Origin: null and no Referer" :
+								      "no Origin or Referer",
+							 vhd->auth_api_url);
 						token = NULL;
 					} else {
 						puri_auth = lws_parse_uri_create(vhd->auth_api_url);
