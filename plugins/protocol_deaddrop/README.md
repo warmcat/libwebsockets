@@ -12,11 +12,15 @@ Just configure lws with `cmake .. -DLWS_WITH_PLUGINS=1` and build lws as normal.
 |max-size|Maximum individual file size in bytes|
 |jwt-jwk|Path to the JSON Web Key (JWK) used to verify JWT signatures|
 |cookie-name|Optional: Name of the HTTP cookie that the server should expect the JWT payload in. Defaults to `auth_session`|
+|basic-auth|Optional: path to an lws basic-auth password file.  The `Authorization` header is only trusted as an identity if this is set, since that is what makes lws validate and rewrite it|
+|allow-anonymous|Optional: set to other than `off` / `0` to allow unauthenticated ws connections.  By default they are refused|
 
 ## Required mounts
 
 To use deaddrop meaningfully, all the mounts and the ws protocol must be
-protected by JWT authentication.  And to use JWT securely, the connection must
+protected by JWT authentication.  Note the ws upgrade never passes through
+mounts, so the `lws-login` bouncer cannot protect it: the plugin itself
+refuses the upgrade for a peer with no valid, unexpired session.  And to use JWT securely, the connection must
 be protected from snooping by tls.
 
 1) Set the `jwt-jwk` pvo to require valid signatures on WebSocket connections as described above.

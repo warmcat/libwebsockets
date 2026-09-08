@@ -84,6 +84,15 @@ struct vhd_deaddrop {
 #endif
 	struct lws_jwk			jwk;
 	uint8_t				has_jwk:1;
+	/*
+	 * set if this vhost gave the protocol a "basic-auth" pvo, ie, lws
+	 * itself checks the Authorization header at ws upgrade and rewrites
+	 * it to the validated username.  Without it, the header is just
+	 * something the peer typed and must not be believed.
+	 */
+	uint8_t				basic_auth:1;
+	/* set by the "allow-anonymous" pvo: serve unauthenticated ws peers */
+	uint8_t				allow_anon:1;
 };
 
 struct pss_deaddrop {
@@ -464,6 +473,16 @@ deaddrop_handler_server_protocol_init(struct lws *wsi, void *in)
 		vhd->max_size = (unsigned long long)atoll(cp);
 	if (lws_pvo_get_str(in, "cookie-name", &vhd->cookie_name))
 		lwsl_info("%s: using default cookie-name\n", __func__);
+	/*
+	 * This is the same pvo lws itself consults to apply basic auth to the
+	 * ws upgrade; we only note whether it exists, so we know if the
+	 * Authorization header we see was validated and rewritten by lws
+	 */
+	if (!lws_pvo_get_str(in, "basic-auth", &cp))
+		vhd->basic_auth = 1;
+	if (!lws_pvo_get_str(in, "allow-anonymous", &cp) &&
+	    strcmp(cp, "off") && strcmp(cp, "0"))
+		vhd->allow_anon = 1;
 	if (!lws_pvo_get_str(in, "jwt-jwk", &cp)) {
 		if (cp[0] == '{' || lws_jwk_load(&vhd->jwk, cp, NULL, NULL)) {
 			if (lws_jwk_import(&vhd->jwk, NULL, NULL, cp, strlen(cp))) {
@@ -533,30 +552,13 @@ deaddrop_handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 	int meth;
 
 	memset(pss, 0, sizeof(*pss));
-	pss->user[0] = '\0';
-	/* Correctly get username after lws basic auth processing */
-	if (lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
-			 WSI_TOKEN_HTTP_AUTHORIZATION) > 0 &&
-	    strncmp(pss->user, "Basic ", 6) && strncmp(pss->user, "Bearer ", 7)) {
-		lwsl_wsi_info(wsi, "%s: POST auth user (pss %p): '%s'\n",
-			      __func__, (void *)pss, pss->user);
-	} else {
-		pss->user[0] = '\0'; /* flush raw headers if basic auth skipped */
-		if (vhd->has_jwk) {
-			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, wsi, NULL);
-			if (ja) {
-				const char *sub = lws_jwt_auth_get_sub(ja);
-				if (sub) {
-					lws_strncpy(pss->user, sub, sizeof(pss->user));
-					lwsl_wsi_info(wsi, "%s: POST JWT user (pss %p): '%s'\n",
-						__func__, (void *)pss, pss->user);
-				}
-				lws_jwt_auth_destroy(&ja);
-			}
-		}
-		if (!pss->user[0])
-			lwsl_wsi_warn(wsi, "%s: HTTP POST: no auth\n", __func__);
-	}
+	/* 0 is a perfectly good fd number, so this cannot be left memset */
+	pss->fd = LWS_INVALID_FILE;
+	pss->wsi = wsi;
+
+	deaddrop_get_auth_identity(vhd, pss, wsi);
+	if (!pss->user[0])
+		lwsl_wsi_warn(wsi, "%s: HTTP POST: no auth\n", __func__);
 
 	meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
 	if (meth != LWSHUMETH_POST || !uri_ptr)
@@ -565,7 +567,6 @@ deaddrop_handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 		return 1;
 
 	pss->vhd = vhd;
-	pss->wsi = wsi;
 
 	return 0;
 }
@@ -698,79 +699,23 @@ deaddrop_handler_server_ws_filter_protocol_connection(struct vhd_deaddrop *vhd,
 {
 	char ua_buf[256];
 
-	pss->user[0]		= '\0';
 	pss->platform[0]	= '\0';
 	pss->browser[0]		= '\0';
 
-	/* Correctly get username after lws basic auth processing */
-	if (lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
-			 WSI_TOKEN_HTTP_AUTHORIZATION) > 0 &&
-	    strncmp(pss->user, "Basic ", 6) && strncmp(pss->user, "Bearer ", 7)) {
-		lwsl_wsi_info(wsi, "%s: WS filter auth user (pss %p): '%s'\n",
-			  __func__, (void *)pss, pss->user);
-	} else {
-		pss->user[0] = '\0'; /* flush raw headers if basic auth skipped */
-		if (vhd->has_jwk) {
-			int cookie_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
+	deaddrop_get_auth_identity(vhd, pss, wsi);
 
-			if (cookie_len > 0) {
-				char *cookie_buf = NULL;
+	/*
+	 * The ws upgrade never passes through mounts or the lws-login
+	 * bouncer: this callback is the only place the upgrade can be
+	 * refused.  Anonymous sessions otherwise receive the whole file
+	 * listing and every logged-in user's IP, so unless the vhost
+	 * explicitly asked for that, they end here.
+	 */
+	if (!pss->user[0] && !vhd->allow_anon) {
+		lwsl_wsi_notice(wsi, "%s: refusing unauthenticated ws",
+				__func__);
 
-				/* lws_jwt_auth_create uses 1024 stack buf, bypass if too large */
-				if (cookie_len > 1000) {
-					cookie_buf = malloc((size_t)cookie_len + 1);
-					if (cookie_buf && lws_hdr_copy(wsi, cookie_buf, cookie_len + 1, WSI_TOKEN_HTTP_COOKIE) > 0) {
-						char *p = (char *)strstr(cookie_buf, vhd->cookie_name);
-						if (p) {
-							p += strlen(vhd->cookie_name);
-							if (*p == '=') {
-								p++;
-								char *jwt = p, *end = p;
-								while (*end && *end != ';')
-									end++;
-								*end = '\0';
-
-								/* Manual parsing for large cookie bypass using public APIs */
-								char temp[2048], out[2048];
-								size_t out_len = sizeof(out);
-								int ret = lws_jwt_signed_validate(lws_get_context(wsi), &vhd->jwk,
-									"ES256,ES384,ES512,RS256,RS384,RS512,HS256",
-									jwt, strlen(jwt), temp, sizeof(temp), out, &out_len);
-
-								if (ret == 0) {
-									size_t alen = 0;
-									const char *sub = lws_json_simple_find(out, out_len, "\"sub\":", &alen);
-									if (sub && alen < sizeof(pss->user)) {
-										lws_strncpy(pss->user, sub, alen + 1);
-									}
-									const char *grant = lws_json_simple_find(out, out_len, "\"grant\":", &alen);
-									if (grant && ((alen == 1 && grant[0] == '*') || (alen > 1 && !strncmp(grant, "*", 1)))) {
-										pss->has_star_grant = 1;
-									}
-								}
-							}
-						}
-					}
-					if (cookie_buf)
-						free(cookie_buf);
-				} else {
-					struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, wsi, NULL);
-					if (ja) {
-						const char *sub = lws_jwt_auth_get_sub(ja);
-						if (sub) {
-							lws_strncpy(pss->user, sub, sizeof(pss->user));
-						}
-
-						if (lws_jwt_auth_query_grant(ja, "*") >= 1) {
-							pss->has_star_grant = 1;
-						}
-						lws_jwt_auth_destroy(&ja);
-					}
-				}
-			}
-		}
-		// if (!pss->user[0])
-		//	lwsl_wsi_warn(wsi, "WS filter: no auth\n");
+		return 1;
 	}
 
 	if (lws_hdr_copy(wsi, ua_buf, sizeof(ua_buf),
