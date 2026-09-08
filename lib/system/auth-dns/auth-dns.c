@@ -361,7 +361,10 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 	struct lws_jose jose;
 	struct lws_jws jws;
 	struct stat ost;
-	char *outbuf = NULL;
+	char *outbuf = NULL, *compact = NULL, *temp = NULL;
+
+	/* it is logged below even if the fstat did not happen */
+	memset(&ost, 0, sizeof(ost));
 
 	lwsl_info("%s: starting zone signing from %s\n", __func__, info->input_filepath);
 
@@ -512,7 +515,7 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 	ofd = open(info->output_filepath ? info->output_filepath : "signed.zone", LWS_O_RDONLY);
 	if (ofd < 0 || fstat(ofd, &ost) || ost.st_size <= 0 || ost.st_size >= 1048576) {
 		lwsl_err("Failed file open/stat ofd=%d st_size=%ld\n", ofd, (long)ost.st_size);
-		goto bail_jwk;
+		goto bail_ofd;
 	}
 
 	outbuf = lws_malloc((size_t)ost.st_size, "auth_dns_out_jws");
@@ -520,9 +523,6 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 		lwsl_err("Failed read or malloc\n");
 		goto bail_ofd;
 	}
-
-	char *compact = NULL;
-	char *temp = NULL;
 
 	compact = lws_malloc((size_t)ost.st_size * 2 + 1024, "jws_compact");
 	if (!compact) {
@@ -619,21 +619,24 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 		}
 	}
 
-	lws_free(compact);
-	lws_free(temp);
+	lws_free_set_NULL(compact);
+	lws_free_set_NULL(temp);
 
 bail_jose:
 	lws_jose_destroy(&jose);
 bail_ofd:
+	/* NULL on the success path, which already freed them */
+	lws_free(compact);
+	lws_free(temp);
 	if (outbuf)
 		lws_free(outbuf);
 	if (ofd >= 0)
 		close(ofd);
-bail_jwk:
 	lws_jwk_destroy(&jwk);
 bail_jws:
-	lws_auth_dns_free_zone(&zone);
 bail_zone:
+	/* every path here has a zone that must be freed */
+	lws_auth_dns_free_zone(&zone);
 	lws_free(expbuf);
 	lws_free(buf);
 
