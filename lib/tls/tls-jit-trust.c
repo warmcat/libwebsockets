@@ -683,7 +683,7 @@ lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 	 * Do we need to add more trusted certs from inflight?
 	 */
 
-	while (n < inf->ders) {
+	while (n < inf->ders && n < (int)LWS_ARRAY_SIZE(inf->der)) {
 
 #if defined(_DEBUG)
 		lws_tls_jit_trust_cert_info(inf->der[n],
