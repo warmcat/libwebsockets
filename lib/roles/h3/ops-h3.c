@@ -1095,6 +1095,8 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					lws_role_transition(wsi, lwsi_role_client(wsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_ESTABLISHED, &role_ops_wt);
 					wsi->wt.is_unidi = 1;
 					wsi->wt.is_session = 0;
+					/* the session this stream belongs to (C-068) */
+					wsi->wt.session_wsi = session_wsi;
 
 					/*
 					 * The stream was already bound to its
@@ -1156,6 +1158,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					lws_role_transition(wsi, lwsi_role_client(wsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_ESTABLISHED, &role_ops_wt);
 					wsi->wt.is_unidi = 0;
 					wsi->wt.is_session = 0;
+					wsi->wt.session_wsi = session_wsi;
 
 					/*
 					 * Ditto, only rebind when the target
@@ -2162,10 +2165,15 @@ rops_check_upgrades_h3(struct lws *wsi)
 					const char *name = hit->origin;
 					if (hit->protocol)
 						name = hit->protocol;
-					else if (!strncmp(name, "callback://", 11))
+					else if (!name) {
+						/* a mount may legitimately have no origin */
+						lwsl_notice("H3 WT Upgrade: mount has no protocol or origin\n");
+						negotiated[0] = '\0';
+					} else if (!strncmp(name, "callback://", 11))
 						name += 11;
-					
-					lws_strncpy(negotiated, name, sizeof(negotiated));
+
+					if (name)
+						lws_strncpy(negotiated, name, sizeof(negotiated));
 				} else {
 					lwsl_notice("H3 WT Upgrade: no mount matched path\n");
 				}
