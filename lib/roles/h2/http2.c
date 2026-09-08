@@ -2065,6 +2065,13 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			h2n->swsi->http.rx_content_remain =
 					h2n->swsi->http.rx_content_length;
 			h2n->swsi->http.content_length_given = 1;
+			/*
+			 * As for h1: an explicit zero means "no body", so
+			 * the POST bind path completes the body at once
+			 * instead of waiting for DATA that must not come
+			 */
+			h2n->swsi->http.content_length_explicitly_zero =
+					!h2n->swsi->http.rx_content_length;
 			lwsl_info("setting rx_content_length %lld\n",
 				  (long long)h2n->swsi->http.rx_content_length);
 		}
@@ -2649,9 +2656,16 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 				else
 					m = 0;
 
+				/*
+				 * This also catches DATA payload on a stream
+				 * whose Content-Length was 0 (remain 0 <
+				 * payload), which used to be stashed and
+				 * delivered as body after the request had
+				 * already been completed as bodyless
+				 */
 				if (lws_hdr_total_length(h2n->swsi,
 					     WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
-				    h2n->swsi->http.rx_content_length &&
+				    h2n->swsi->http.content_length_given &&
 				    h2n->swsi->http.rx_content_remain +
 					h2n->inside < (lws_filepos_t)m && /* last */
 				    h2n->inside < h2n->length) {
