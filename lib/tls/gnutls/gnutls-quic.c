@@ -325,17 +325,32 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 		user_ciphers = wsi->a.vhost ? wsi->a.vhost->tls.cfg_ssl_cipher_list : NULL;
 	}
 
-	if (user_ciphers) {
-		lws_snprintf(priority, sizeof(priority), "%s:%%DISABLE_TLS13_COMPAT_MODE", user_ciphers);
-	} else {
-		lws_snprintf(priority, sizeof(priority), "NORMAL:-VERS-ALL:+VERS-TLS1.3:%%DISABLE_TLS13_COMPAT_MODE");
+	/*
+	 * Enforce QUIC requirements: TLS 1.3 only, NO compatibility mode
+	 * (empty legacy_session_id).  RFC9001 3 requires TLS 1.3, so the
+	 * version selection is appended to a configured cipher list too, and
+	 * a list too long to hold it is a config error rather than something
+	 * to silently truncate
+	 */
+
+	if ((size_t)lws_snprintf(priority, sizeof(priority),
+				 "%s:-VERS-ALL:+VERS-TLS1.3"
+				 ":%%DISABLE_TLS13_COMPAT_MODE",
+				 user_ciphers ? user_ciphers : "NORMAL") >=
+							sizeof(priority)) {
+		lwsl_err("%s: cipher list too long for QUIC priority\n",
+			 __func__);
+
+		return -1;
 	}
 
-
-	/* Enforce QUIC requirements: TLS 1.3 only, NO compatibility mode (empty legacy_session_id) */
 	ret = gnutls_priority_set_direct(session, priority, NULL);
-	if (ret < 0)
-		lwsl_notice("gnutls_priority_set_direct failed: %s\n", gnutls_strerror(ret));
+	if (ret < 0) {
+		lwsl_err("%s: gnutls_priority_set_direct '%s' failed: %s\n",
+			 __func__, priority, gnutls_strerror(ret));
+
+		return -1;
+	}
 
 	if (!wsi->tls.quic_tp_send) {
 		/* Construct dynamically to include loc_cid */
@@ -394,8 +409,12 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 				alpn[i].size = (unsigned int)lws_ptr_diff_size_t(end, p);
 				p = end;
 			}
-			/* Replace comma with NUL for cleaner logging, though gnutls only uses size */
-			if (comma) *comma = '\0';
+			/*
+			 * gnutls only uses the sizes... wsi->alpn is the wsi's
+			 * own storage and writing NULs into it would leave any
+			 * later reader (a retry, or the TCP-TLS copy of this
+			 * loop) seeing only the first protocol
+			 */
 			i++;
 		}
 		gnutls_alpn_set_protocols(session, alpn, i, GNUTLS_ALPN_MANDATORY);
