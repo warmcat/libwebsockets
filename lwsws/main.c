@@ -99,13 +99,15 @@ static struct option options[] = {
 
 void signal_cb(uv_signal_t *watcher, int signum)
 {
+	int n;
+
 	switch (watcher->signum) {
 	case SIGTERM:
 	case SIGINT:
 		break;
 
 	case SIGHUP:
-		if (lws_context_is_deprecated(context))
+		if (!context || lws_context_is_deprecated(context))
 			return;
 		lwsl_notice("Dropping listen sockets\n");
 		lws_context_deprecate(context, NULL);
@@ -117,8 +119,23 @@ void signal_cb(uv_signal_t *watcher, int signum)
 		break;
 	}
 	lwsl_err("Signal %d caught\n", watcher->signum);
-	uv_signal_stop(watcher);
-	uv_signal_stop(&signal_outer[1]);
+
+	/*
+	 * These are our own watchers on our own foreign loop: lws will never
+	 * uv_stop() a foreign loop, so if we leave any of them started, uv_run()
+	 * can never return and the drained worker lingers forever
+	 */
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(signal_outer); n++)
+		uv_signal_stop(&signal_outer[n]);
+
+	/*
+	 * Unlink our sul from the pt sul list while the context that owns that
+	 * list is still allocated
+	 */
+
+	lws_sul_cancel(&sul_lwsws);
+
 	lws_context_destroy(context);
 }
 
@@ -450,13 +467,20 @@ int main(int argc, char **argv)
 			context ? lws_context_is_deprecated(context) : 0,
 			uv_loop_alive(&loop));
 
-	for (n = 0; n < 3; n++) {
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(signal_outer); n++) {
 		uv_signal_stop(&signal_outer[n]);
 		uv_close((uv_handle_t *)&signal_outer[n], NULL);
 	}
 
-	/* cancel the per-minute sul */
-	lws_sul_cancel(&sul_lwsws);
+	/*
+	 * Cancel the per-minute sul, but only while the context that owns the
+	 * pt sul list it is linked into still exists.  lws NULLs `context` via
+	 * info.pcontext only after it has freed the context, so unlinking from
+	 * that list afterwards would write into freed heap.
+	 */
+
+	if (context)
+		lws_sul_cancel(&sul_lwsws);
 
 	lws_context_destroy(context);
 	(void)budget;
