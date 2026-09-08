@@ -689,6 +689,10 @@ lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 	if (!vhost->tls.ssl_ctx || !vhost->tls.ssl_ctx->creds)
 		return -1;
 
+	/* zero len means the union's own 64-byte name field, as elsewhere */
+	if (!len)
+		len = sizeof(buf->ns.name);
+
 	/* Get the certificates explicitly configured on this server */
 	if (gnutls_certificate_get_x509_crt(vhost->tls.ssl_ctx->creds, 0, &crt_list, &crt_list_size) < 0 || crt_list_size == 0)
 		return -1;
@@ -798,6 +802,14 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 
 	if (!wsi->tls.ssl)
 		return -1;
+
+	/*
+	 * Same contract as the other backends: a zero len means the caller is
+	 * using the union's own 64-byte name field.  Handing gnutls a zero
+	 * buffer size makes every DN query fail with SHORT_MEMORY_BUFFER
+	 */
+	if (!len)
+		len = sizeof(buf->ns.name);
 
 	cert_list = gnutls_certificate_get_peers((gnutls_session_t)wsi->tls.ssl, &cert_list_size);
 	if (!cert_list || cert_list_size == 0)

@@ -469,10 +469,20 @@ lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type,
 {
 	size_t s = len;
 
+	/* zero len means the union's own 64-byte name field, as elsewhere */
+	if (!s)
+		s = len = sizeof(buf->ns.name);
+
 	switch (type) {
 	case LWS_TLS_CERT_INFO_COMMON_NAME:
 		if (gnutls_x509_crt_get_dn_by_oid(x509->cert, GNUTLS_OID_X520_COMMON_NAME,
 						  0, 0, buf->ns.name, &s) < 0)
+			return -1;
+		buf->ns.len = (int)s;
+		break;
+
+	case LWS_TLS_CERT_INFO_ISSUER_NAME:
+		if (gnutls_x509_crt_get_issuer_dn(x509->cert, buf->ns.name, &s) < 0)
 			return -1;
 		buf->ns.len = (int)s;
 		break;
