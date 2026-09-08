@@ -665,7 +665,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 #if defined(LWS_WITH_TLS)
 #if defined(LWS_WITH_CLIENT)
 #if defined(LWS_WITH_GNUTLS)
-		a->info->client_ssl_cipher_list = "NORMAL";
+		a->info->client_ssl_cipher_list = "NORMAL:-VERS-TLS1.0:-VERS-TLS1.1";
 #else
 		a->info->client_ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
 			"ECDHE-RSA-AES256-GCM-SHA384:"
@@ -684,7 +684,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 #endif
 #if defined(LWS_WITH_SERVER)
 #if defined(LWS_WITH_GNUTLS)
-		a->info->ssl_cipher_list = "NORMAL";
+		a->info->ssl_cipher_list = "NORMAL:-VERS-TLS1.0:-VERS-TLS1.1";
 #else
 		a->info->ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
 				       "ECDHE-RSA-AES256-GCM-SHA384:"

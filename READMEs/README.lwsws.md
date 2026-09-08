@@ -302,11 +302,13 @@ may have typed .../myapp, to get them to .../myapp/ where the app actually takes
 
  - `"enable-client-ssl"`: `"1"` enables the vhost's client SSL context, you will need this if you plan to create client conections on the vhost that will use SSL.  You don't need it if you only want http / ws client connections.
 
- - "`ciphers`": "<cipher list>"  OPENSSL only: sets the allowed list of TLS <= 1.2 ciphers and key exchange protocols for the serving SSL_CTX on the vhost.  The default list is restricted to only those providing PFS (Perfect Forward Secrecy) on the author's Fedora system.
+ - "`ciphers`": "<cipher list>"  sets the allowed list of TLS <= 1.2 ciphers and key exchange protocols for the serving SSL_CTX on the vhost.  With OPENSSL, the default list is restricted to only those providing PFS (Perfect Forward Secrecy) on the author's Fedora system.
+
+ With GNUTLS, this string is used verbatim as the gnutls priority string for the vhost's server side, and controls the protocol versions as well as the ciphers.  The default is "`NORMAL:-VERS-TLS1.0:-VERS-TLS1.1`", ie, the gnutls NORMAL set with TLS1.0 and TLS1.1 disabled, since offering those caps the server at a "B" on ssllabs.com.  If you need TLS1.2 only, use eg "`NORMAL:-VERS-ALL:+VERS-TLS1.2:+VERS-TLS1.3`".
  
  If you need to allow weaker ciphers, you can provide an alternative list here per-vhost.
 
- - "`client-ssl-ciphers`": "<cipher list>"  OPENSSL only: sets the allowed list of <= TLS1.2 ciphers and key exchange protocols for the client SSL_CTX on the vhost
+ - "`client-ssl-ciphers`": "<cipher list>"  sets the allowed list of <= TLS1.2 ciphers and key exchange protocols for the client SSL_CTX on the vhost.  With GNUTLS, this is the gnutls priority string for the vhost's client side, defaulting to "`NORMAL:-VERS-TLS1.0:-VERS-TLS1.1`".
 
  - "`tls13-ciphers`": "<cipher list>"  OPENSSL 1.1.1+ only: sets allowed list of TLS1.3+ ciphers and key exchange protocols for the client SSL_CTX on the vhost.  The default is to allow all.
 
