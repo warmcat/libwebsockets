@@ -400,6 +400,8 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 				/* any existing solution is better than this */
 				if (sco != IP_SCORE_NONE)
 					break;
+				if (addrlen < sizeof(struct sockaddr_in6))
+					goto unrepresentable;
 				sco = IP_SCORE_NONNATIVE;
 				rc = LWS_ITOSA_USABLE;
 				/* map IPv4 to IPv6 */
@@ -413,7 +415,10 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 				lwsl_debug("%s: uplevelling ipv4 bind to ipv6\n", __func__);
 				break;
 			}
-
+#endif
+			if (addrlen < sizeof(struct sockaddr_in))
+				goto unrepresentable;
+#if defined(LWS_WITH_IPV6)
 			sco = IP_SCORE_GLOBAL_NATIVE;
 #endif
 			rc = LWS_ITOSA_USABLE;
@@ -423,6 +428,17 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 #endif
 #if defined(LWS_WITH_IPV6)
 		case AF_INET6:
+			/*
+			 * addr6 aliases the caller's buffer, and sin6_addr sits
+			 * at offset 8 of a 24-byte struct sockaddr_in6... so we
+			 * may only touch it if the caller both asked for ipv6
+			 * and gave us something that large.  The AF_INET arm of
+			 * lws_socket_bind() passes a 16-byte struct sockaddr_in
+			 * with ipv6 == 0.
+			 */
+			if (!ipv6 || addrlen < sizeof(struct sockaddr_in6))
+				goto unrepresentable;
+
 			p = (const uint8_t *)
 				&((struct sockaddr_in6 *)ifc->ifa_addr)->sin6_addr;
 			ts = IP_SCORE_IPV6_SCOPE_BASE;
@@ -442,6 +458,17 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 #endif
 		default:
 			break;
+
+#if defined(LWS_WITH_IPV4) || defined(LWS_WITH_IPV6)
+unrepresentable:
+			/*
+			 * The interface exists, but this address of it is not
+			 * something we may write into what the caller gave us
+			 */
+			if (rc == LWS_ITOSA_NOT_EXIST)
+				rc = LWS_ITOSA_NOT_USABLE;
+			break;
+#endif
 		}
 	}
 
