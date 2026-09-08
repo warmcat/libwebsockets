@@ -129,12 +129,12 @@ name_to_wire(const char *name, const char *origin, uint8_t *wire, size_t *wire_l
  * response at *rp, returning nonzero without writing anything if it does not
  * fit inside max_buf.
  *
- * C-237: the owner name is encoded into a scratch buffer first because
+ * The owner name is encoded into a scratch buffer first because
  * name_to_wire() may re-qualify a relative owner name with the zone origin,
- * eg "hash.example.com" under "$ORIGIN example.com" (no trailing dot, which
- * the zone parser accepts) encodes as "hash.example.com.example.com".  Its
- * encoded length therefore cannot be predicted from strlen(rs->name), and
- * the room has to be checked against what was actually produced.
+ * so its encoded length cannot be predicted from strlen(rs->name) and the
+ * room has to be checked against what was actually produced.  The zone
+ * parser now stores every owner name fully qualified, but this stays the
+ * belt-and-braces check on the actual encoded length.
  */
 
 static int

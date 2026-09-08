@@ -1366,19 +1366,128 @@ done:
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
+/*
+ * The signer and the authoritative DNS server qualify a relative owner name
+ * by appending $ORIGIN, and decide a name is already absolute by its
+ * trailing root dot.  An origin that is itself missing that dot is therefore
+ * appended to names that already end in it, and the zone signs and NSEC3
+ * hashes as "x.example.com.example.com".
+ *
+ * So the zone text the UI hands us is normalised on the way in: every
+ * $ORIGIN gets its trailing dot, and its value has to be a DNS hostname.
+ *
+ * Returns a normalised copy for the caller to free, with its length in
+ * \p olen, or NULL if the zone carries an $ORIGIN we will not store.
+ */
+
+static char *
+zone_normalise_origin(const char *in, size_t len, size_t *olen)
+{
+	const char *p = in, *end = in + len;
+	size_t n, alloc = len + 2;
+	char *out, *o;
+
+	/* worst case, one $ORIGIN line each gaining one dot */
+
+	for (n = 0; n < len; n++)
+		if (in[n] == '\n')
+			alloc++;
+
+	out = malloc(alloc);
+	if (!out)
+		return NULL;
+
+	o = out;
+
+	while (p < end) {
+		const char *le = memchr(p, '\n', lws_ptr_diff_size_t(end, p));
+		size_t ll;
+
+		if (!le)
+			le = end;
+		ll = lws_ptr_diff_size_t(le, p);
+
+		if (ll > 8 && !strncmp(p, "$ORIGIN", 7) &&
+		    (p[7] == ' ' || p[7] == '\t')) {
+			const char *v = p + 7, *ve;
+			char origin[256];
+			size_t vl;
+
+			while (v < le && (*v == ' ' || *v == '\t'))
+				v++;
+
+			ve = v;
+			while (ve < le && *ve != ' ' && *ve != '\t' &&
+			       *ve != '\r' && *ve != ';')
+				ve++;
+
+			vl = lws_ptr_diff_size_t(ve, v);
+			if (!vl || vl > sizeof(origin) - 2)
+				goto bad;
+
+			memcpy(origin, v, vl);
+			origin[vl] = '\0';
+
+			if (!lws_dht_valid_domain_name(origin))
+				goto bad;
+
+			if (origin[vl - 1] != '.') {
+				origin[vl++] = '.';
+				origin[vl] = '\0';
+			}
+
+			o += lws_snprintf(o, lws_ptr_diff_size_t(out + alloc, o),
+					  "$ORIGIN %s", origin);
+
+			/* keep anything that followed it, eg a comment */
+
+			ll = lws_ptr_diff_size_t(le, ve);
+			memcpy(o, ve, ll);
+			o += ll;
+		} else {
+			memcpy(o, p, ll);
+			o += ll;
+		}
+
+		if (le < end)
+			*o++ = '\n';
+
+		p = le + 1;
+	}
+
+	*o = '\0';
+	*olen = lws_ptr_diff_size_t(o, out);
+
+	return out;
+
+bad:
+	free(out);
+
+	return NULL;
+}
+
 static void
 handle_req_update_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
+	char *zbuf = NULL;
+	size_t zlen = 0;
+	int fd;
 
-	if (!a->zone_buf) goto fail;
+	if (!a->zone_buf || a->zone_len < 0) goto fail;
+
+	zbuf = zone_normalise_origin(a->zone_buf, (size_t)a->zone_len, &zlen);
+	if (!zbuf) {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Invalid $ORIGIN\"}\n", a->req);
+		goto done;
+	}
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s.zone", vhd->base_dir, a->domain, a->domain);
-	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
 	if (fd >= 0) {
-		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len) {
+		if (write(fd, zbuf, zlen) == (ssize_t)zlen) {
 			char signed_path[1024];
 			lws_snprintf(signed_path, sizeof(signed_path), "%s/domains/%s/%s.zone.signed", vhd->base_dir, a->domain, a->domain);
 			lwsl_user("%s: Unlinking signed zone %s to trigger immediate resign\n", __func__, signed_path);
@@ -1398,6 +1507,10 @@ handle_req_update_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 fail:
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Could not open zone for writing\"}\n", a->req);
 	}
+
+	free(zbuf);
+
+done:
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 

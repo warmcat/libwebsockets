@@ -86,6 +86,63 @@ strexp_cb(void *priv, const char *name, char *out, size_t *pos,
 	return LSTRX_FILLED_OUT;
 }
 
+/*
+ * Zone files may write $ORIGIN with or without the trailing root dot, but
+ * everything downstream (the signer's name_to_wire(), the NSEC3 hashing, the
+ * plugin's answer serialization) decides whether a name still needs the
+ * origin appended by looking for that dot.  A dotless origin therefore makes
+ * an already-qualified owner name get the origin appended a second time, eg
+ * "x.example.com" under "$ORIGIN example.com" hashes and encodes as
+ * "x.example.com.example.com".
+ *
+ * So we normalise here, once, at the only place zones enter the library: the
+ * origin always ends in a dot, and every owner name is stored fully
+ * qualified with a trailing dot.
+ */
+
+static void
+auth_dns_origin_normalise(char *origin, size_t len)
+{
+	size_t l = strlen(origin);
+
+	if (!l || origin[l - 1] == '.' || l + 2 > len)
+		return;
+
+	origin[l] = '.';
+	origin[l + 1] = '\0';
+}
+
+/*
+ * Bring one owner name to fully-qualified form: "@" is the origin, a name
+ * that already ends in a dot is left alone, and anything else gets the
+ * (already normalised) origin appended.  Without an origin there is nothing
+ * to qualify against, so the name is left as it was.
+ */
+
+static void
+auth_dns_name_qualify(char *name, size_t len, const char *origin)
+{
+	size_t l = strlen(name);
+	char t[256];
+
+	if (!strcmp(name, "@")) {
+		if (origin[0])
+			lws_strncpy(name, origin, len);
+
+		return;
+	}
+
+	if (!l || name[l - 1] == '.' || !origin[0])
+		return;
+
+	if (!strcmp(origin, "."))
+		lws_snprintf(t, sizeof(t), "%s.", name);
+	else
+		lws_snprintf(t, sizeof(t), "%s.%s", name, origin);
+
+	lws_strncpy(name, t, len);
+}
+
 int
 lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *zone, const char *ipv4, const char *ipv6)
 {
@@ -164,6 +221,8 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 					char *sp = (char *)strchr(zone->origin, ' ');
 					if (!sp) sp = (char *)strchr(zone->origin, '\t');
 					if (sp) *sp = '\0';
+					auth_dns_origin_normalise(zone->origin,
+							  sizeof(zone->origin));
 				} else if (!strncmp(line_accum, "$TTL", 4)) {
 					const char *v = line_accum + 4;
 					while (*v == ' ' || *v == '\t') v++;
@@ -202,14 +261,9 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 							type_idx++;
 						}
 
-						/* canonicalize name: lowercase and append origin if relative */
-						if (!strcmp(cur_name, "@") && zone->origin[0]) {
-							lws_strncpy(cur_name, zone->origin, sizeof(cur_name));
-						} else if (cur_name[0] && cur_name[strlen(cur_name) - 1] != '.' && zone->origin[0]) {
-							char t[256];
-							lws_snprintf(t, sizeof(t), "%s.%s", cur_name, zone->origin);
-							lws_strncpy(cur_name, t, sizeof(cur_name));
-						}
+						/* canonicalize name: fully qualify it, then lowercase */
+						auth_dns_name_qualify(cur_name, sizeof(cur_name),
+								      zone->origin);
 						for (char *c = cur_name; *c; c++)
 							*c = (char)tolower((unsigned char)*c);
 

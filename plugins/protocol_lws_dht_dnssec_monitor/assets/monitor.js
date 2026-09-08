@@ -73,6 +73,24 @@ function generateId() {
     return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
 
+/*
+ * The signer qualifies a relative owner name by appending $ORIGIN, and takes
+ * a name that already ends in the root dot to be absolute already.  An
+ * $ORIGIN missing that dot is therefore appended to names that already end
+ * in it, and the zone signs and NSEC3-hashes as "x.example.com.example.com".
+ * So give every $ORIGIN we emit its trailing dot.  The server normalises the
+ * zone it is handed as well; this just keeps the editor showing what will
+ * actually be stored.
+ */
+function normaliseOriginLine(line) {
+    const m = /^(\$ORIGIN[ \t]+)([^ \t;\r]+)(.*)$/.exec(line);
+
+    if (!m)
+        return line;
+
+    return m[1] + (m[2].endsWith('.') ? m[2] : m[2] + '.') + m[3];
+}
+
 class ZoneFile {
     constructor(zoneText) {
         this.records = [];
@@ -256,7 +274,8 @@ class ZoneFile {
     }
 
     serialize() {
-        return this.records.map(r => r.raw).join('\n');
+        return this.records.map(r =>
+            r.type === 'macro' ? normaliseOriginLine(r.raw) : r.raw).join('\n');
     }
 }
 
