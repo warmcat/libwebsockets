@@ -105,6 +105,17 @@ lwsac_extend(struct lwsac *head, size_t amount)
 	return 0;
 }
 
+/*
+ * Can this chunk take an aligned allocation of al bytes?  A zero-length
+ * request must still get a pointer inside the chunk, not one-past-the-end
+ * of a full one, so the fit needs at least one free byte as well.
+ */
+static int
+lwsac_chunk_fits(const struct lwsac *bf, size_t al)
+{
+	return bf->ofs < bf->alloc_size && bf->alloc_size - bf->ofs >= al;
+}
+
 static void *
 _lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size, char backfill)
 {
@@ -135,7 +146,7 @@ _lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size, char backfill)
 		 * check if anything can take it, from the start
 		 */
 		while (bf) {
-			if (bf->alloc_size - bf->ofs >= al)
+			if (lwsac_chunk_fits(bf, al))
 				goto do_use;
 
 			bf = lwsac_next_chunk(bf);
@@ -146,7 +157,7 @@ _lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size, char backfill)
 		 */
 		if (lachead && lachead->curr) {
 			bf = lachead->curr;
-			if (bf->alloc_size - bf->ofs >= al)
+			if (lwsac_chunk_fits(bf, al))
 				goto do_use;
 		}
 	}
