@@ -67,7 +67,13 @@ struct pss {
 	uint8_t tx[LWS_PRE + MONITOR_IPC_BUF_SIZE];
 	size_t tx_len;
 
-	/* RX (root -> proxy) buffer */
+	/*
+	 * RX buffer: on the proxy side it holds the root's responses waiting
+	 * to go out on the browser ws; on the root side it is the line
+	 * reassembly buffer for this one UDS client's requests.  It has to be
+	 * per-connection either way, since UDS clients do not trust each
+	 * other and a request can span several reads
+	 */
 	uint8_t rx[LWS_PRE + MONITOR_IPC_BUF_SIZE];
 	size_t rx_len;
 
@@ -100,10 +106,6 @@ struct vhd {
 	char cookie_name[64];
 	char jwk_path[256];
 	struct lws_jwk jwk;
-
-	/* UDS raw rx buffer for server */
-	uint8_t rx[LWS_PRE + MONITOR_IPC_BUF_SIZE];
-	size_t rx_len;
 
 	char auth_token[129];
 	struct lws_jwk auth_jwk;
@@ -3624,17 +3626,28 @@ fallback:
 					return -1;
 				}
 
-				if (vhd->rx_len + len > sizeof(vhd->rx) - LWS_PRE - 1) return -1;
-				memcpy(&vhd->rx[LWS_PRE + vhd->rx_len], in, len);
-				vhd->rx_len += len;
-				vhd->rx[LWS_PRE + vhd->rx_len] = '\0';
-
 				struct pss *root_pss = (struct pss *)user;
 				/* root_pss->tx_len = 0; REMOVED to prevent overwriting batched responses */
 
-				lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RAW_RX (ROOT): Processing %d bytes buffer\n", (int)vhd->rx_len);
+				if (!root_pss)
+					return -1;
 
-				char *p = (char *)&vhd->rx[LWS_PRE];
+				/*
+				 * Reassembly is per-connection: a request
+				 * larger than one read arrives as several
+				 * RAW_RX with no newline in the earlier ones,
+				 * and another UDS client serviced in between
+				 * must not have its line glued onto this
+				 * client's partial prefix
+				 */
+				if (root_pss->rx_len + len > sizeof(root_pss->rx) - LWS_PRE - 1) return -1;
+				memcpy(&root_pss->rx[LWS_PRE + root_pss->rx_len], in, len);
+				root_pss->rx_len += len;
+				root_pss->rx[LWS_PRE + root_pss->rx_len] = '\0';
+
+				lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RAW_RX (ROOT): Processing %d bytes buffer\n", (int)root_pss->rx_len);
+
+				char *p = (char *)&root_pss->rx[LWS_PRE];
 				char *start = p;
 				while (p && *p) {
 					char *nl = (char *)strchr(p, '\n');
@@ -3650,13 +3663,13 @@ fallback:
 					}
 				}
 
-				if (start > (char *)&vhd->rx[LWS_PRE]) {
-					size_t unparsed = lws_ptr_diff_size_t((char *)&vhd->rx[LWS_PRE + vhd->rx_len], start);
+				if (start > (char *)&root_pss->rx[LWS_PRE]) {
+					size_t unparsed = lws_ptr_diff_size_t((char *)&root_pss->rx[LWS_PRE + root_pss->rx_len], start);
 					if (unparsed > 0) {
-						memmove(&vhd->rx[LWS_PRE], start, unparsed);
+						memmove(&root_pss->rx[LWS_PRE], start, unparsed);
 					}
-					vhd->rx_len = unparsed;
-					vhd->rx[LWS_PRE + vhd->rx_len] = '\0';
+					root_pss->rx_len = unparsed;
+					root_pss->rx[LWS_PRE + root_pss->rx_len] = '\0';
 				}
 
 				if (root_pss->tx_len) {
@@ -3730,9 +3743,16 @@ fallback:
 				struct pss *wpss = (struct pss *)magic;
 				wpss->cwsi = NULL;
 			} else if (!magic) {
-				if (vhd && vhd->root_process_active) {
-					struct pss *root_pss = (struct pss *)user;
+				struct pss *root_pss = (struct pss *)user;
+
+				/*
+				 * Unconditional: the entry must leave
+				 * vhd->clients even if root_process_active
+				 * changed since RAW_ADOPT linked it
+				 */
+				if (root_pss) {
 					lws_dll2_remove(&root_pss->list);
+					root_pss->rx_len = 0;
 				}
 			}
 			lwsl_notice("%s: UDS connection closed\n", __func__);
