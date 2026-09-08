@@ -1104,6 +1104,33 @@ error_handling:
 			return -1;
 		}
 
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+		/*
+		 * Nothing on the QUIC path passes through
+		 * lws_ssl_client_connect2(), which is where the TCP TLS client
+		 * confirms the peer certificate and applies the connection's
+		 * LCCSCF_ flags to the result... so the client has to do it
+		 * here, before it treats the handshake as done, otherwise it
+		 * accepts any server certificate at all
+		 */
+
+		if (!wsi->quic.qn->is_server) {
+			struct lws *twsi = orig_wsi->tls.ssl ? orig_wsi : wsi;
+			char ebuf[128];
+
+			ebuf[0] = '\0';
+			if (lws_tls_client_confirm_peer_cert(twsi, ebuf,
+							     sizeof(ebuf))) {
+				lwsl_wsi_err(twsi, "QUIC peer cert rejected: %s",
+					     ebuf);
+				lws_quic_enter_closing_state(wsi, 0x0100 +
+					42 /* bad_certificate */, 0, 0);
+
+				return -1;
+			}
+		}
+#endif
+
 		wsi->quic.qn->handshake_done = 1;
 
 		/*
