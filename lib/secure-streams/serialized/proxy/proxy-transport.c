@@ -74,8 +74,15 @@ lws_ssproxy_txp_close_conn(struct lws_sss_proxy_conn *conn)
 {
 	lws_transport_priv_t epriv;
 
-	conn->txp_path.priv_onw = NULL;
+	/*
+	 * Capture the client-link transport private *before* clearing it...
+	 * the guard below wants to know if the onward wsi is the same wsi we
+	 * are already inside the close of, and reading it back after the
+	 * clear would always produce NULL
+	 */
+
 	epriv = conn->txp_path.priv_onw;
+	conn->txp_path.priv_onw = NULL;
 
 	/*
 	 * If there's an outgoing, proxied SS conn on our behalf, we
@@ -248,7 +255,15 @@ lws_ssproxy_txp_proxy_can_write(lws_transport_priv_t priv
 
 			while (rsp && rsn++ < LWS_ARRAY_SIZE(
 				  ((lws_sspc_handle_t *)NULL)->rideshare_ofs)) {
-				if (n != 4 && n < (int)sizeof(_s) - LWS_PRE - 2)
+				/*
+				 * The list starts at offset 8 (after the
+				 * 4-byte header and the 4-byte recommended
+				 * dsh size), so the separator goes in before
+				 * every entry except the first... testing
+				 * against 4 here left the list starting with
+				 * an empty, comma-introduced first element
+				 */
+				if (n != 8 && n < (int)sizeof(_s) - LWS_PRE - 2)
 					*(s + (n++)) = ',';
 				n += lws_snprintf(s + n, sizeof(_s) - LWS_PRE - (unsigned int)n,
 						"%s", rsp->streamtype);
@@ -333,8 +348,14 @@ lws_ssproxy_txp_proxy_can_write(lws_transport_priv_t priv
 		if (conn->ss && conn->ss->conmon_json) {
 			unsigned int xlen = conn->ss->conmon_len;
 
-			if (xlen > sizeof(s) - 3)
-				xlen = sizeof(s) - 3;
+			/*
+			 * s is a char *, so sizeof(s) here was the pointer
+			 * size... clamp to what actually remains in the
+			 * scratch buffer after the 3-byte header
+			 */
+
+			if (xlen > (unsigned int)(sizeof(_s) - LWS_PRE - 3))
+				xlen = (unsigned int)(sizeof(_s) - LWS_PRE - 3);
 			cp = (uint8_t *)s;
 			p = (uint8_t *)s;
 			p[0] = LWSSS_SER_RXPRE_PERF;

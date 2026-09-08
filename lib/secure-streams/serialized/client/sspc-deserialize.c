@@ -974,7 +974,7 @@ payload_ff:
 			par->rsl_idx = 0;
 
 			memset(&h->rideshare_ofs[0], 0,
-			       sizeof(h->rideshare_ofs[0]));
+			       sizeof(h->rideshare_ofs));
 			h->rideshare_list[0] = '\0';
 			h->rsidx = 0;
 
@@ -1002,8 +1002,19 @@ payload_ff:
 				h->rideshare_ofs[++par->rsl_idx] = par->rsl_pos;
 			} else
 				h->rideshare_list[par->rsl_pos++] = (char)*cp++;
-			if (!--par->rem)
+			if (!--par->rem) {
+				/*
+				 * The last element is not comma-terminated,
+				 * so NUL-terminate it ourselves... otherwise
+				 * a shorter list arriving after a longer one
+				 * (eg, on reconnect) would read on into the
+				 * tail of the previous list.  rem was capped
+				 * below sizeof(rideshare_list) above, so
+				 * rsl_pos is still inside the buffer here.
+				 */
+				h->rideshare_list[par->rsl_pos] = '\0';
 				par->ps = RPAR_TYPE;
+			}
 			break;
 
 		case RPAR_STATEINDEX:
