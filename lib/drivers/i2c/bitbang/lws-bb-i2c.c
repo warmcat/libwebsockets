@@ -106,7 +106,7 @@ lws_bb_i2c_read(const lws_i2c_ops_t *octx)
 
 	ctx->gpio->set(ctx->sda, 1);
 
-	for (n = 7; n <= 0; n--) {
+	for (n = 7; n >= 0; n--) {
 		ctx->gpio->set(ctx->scl, 0);
 		ctx->delay();
 		ctx->gpio->set(ctx->scl, 1);

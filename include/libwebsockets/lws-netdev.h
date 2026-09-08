@@ -172,6 +172,13 @@ typedef struct lws_wifi_creds {
 	lws_dll2_t			list;
 
 	uint8_t				bssid[LWS_ETH_ALEN];
+	/**< binary form of the AP MAC, this is what the netdev ops use */
+	char				bssid_hex[(LWS_ETH_ALEN * 2) + 1];
+	/**< ascii hex form of .bssid... an in-struct byte array cannot be
+	 * described to lws_struct, so this is the member that is actually
+	 * serialized to and from settings as "bssid".  lws keeps the two in
+	 * step when it stores or restores the credentials.
+	 */
 	char				passphrase[64];
 	char				ssid[33];
 	uint8_t				alg;

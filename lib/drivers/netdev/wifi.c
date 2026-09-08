@@ -222,7 +222,16 @@ lws_netdev_wifi_redo_last(lws_netdev_instance_wifi_t *wnd)
 	pb = lws_json_simple_find((const char *)buf, l, "\"bssid\":", &al);
 	if (!pb)
 		return 1;
-	lws_hex_to_byte_array(pb, bssid, sizeof(bssid));
+
+	/*
+	 * buf came from the settings backend and is not NUL-terminated, so the
+	 * hex must be bounded by the length lws_json_simple_find() gave us and
+	 * not by strlen()
+	 */
+
+	if (lws_hex_len_to_byte_array(pb, al, bssid, (int)sizeof(bssid)) !=
+					(int)sizeof(bssid))
+		return 1;
 
 	/*
 	 * make sure we have our device's connection credentials at hand

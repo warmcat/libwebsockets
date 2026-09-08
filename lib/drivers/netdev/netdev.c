@@ -28,7 +28,7 @@ static const lws_struct_map_t lsm_wifi_creds[] = {
 	LSM_CARRAY	(lws_wifi_creds_t, ssid,		"ssid"),
 	LSM_CARRAY	(lws_wifi_creds_t, passphrase,		"passphrase"),
 	LSM_UNSIGNED	(lws_wifi_creds_t, alg,			"alg"),
-	LSM_STRING_PTR	(lws_wifi_creds_t, bssid,		"bssid"),
+	LSM_CARRAY	(lws_wifi_creds_t, bssid_hex,		"bssid"),
 };
 
 static const lws_struct_map_t lsm_netdev_credentials[] = {
@@ -55,6 +55,19 @@ lws_netdev_credentials_settings_set(lws_netdevs_t *nds)
 	uint8_t *buf;
 
 	buf = lws_malloc(max, __func__); /* length should be computed */
+	if (!buf)
+		return 1;
+
+	/* bring the serializable hex form of each bssid up to date */
+
+	lws_start_foreach_dll(struct lws_dll2 *, p,
+			      lws_dll2_get_head(&nds->owner_creds)) {
+		lws_wifi_creds_t *cr = lws_container_of(p, lws_wifi_creds_t, list);
+
+		lws_hex_from_byte_array(cr->bssid, sizeof(cr->bssid),
+					cr->bssid_hex, sizeof(cr->bssid_hex));
+
+	} lws_end_foreach_dll(p);
 
 	js = lws_struct_json_serialize_create(lsm_netdev_schema,
 			LWS_ARRAY_SIZE(lsm_netdev_schema), 0, nds);
@@ -66,7 +79,13 @@ lws_netdev_credentials_settings_set(lws_netdevs_t *nds)
 	if (n != LSJS_RESULT_FINISH)
 		goto bail;
 
-	lwsl_notice("%s: setting %s\n", __func__, buf);
+	/*
+	 * The serialized blob contains the passphrases... it must not be
+	 * logged, only counted
+	 */
+
+	lwsl_notice("%s: storing %u credential(s)\n", __func__,
+		    (unsigned int)lws_dll2_count(&nds->owner_creds));
 
 	if (!lws_settings_plat_set(nds->si, "netdev.creds", buf, w))
 		r = 0;
@@ -124,6 +143,24 @@ lws_netdev_credentials_settings_get(lws_netdevs_t *nds)
 	nds->owner_creds = ((lws_netdevs_t *)a.dest)->owner_creds;
 	nds->ac_creds = a.ac;
 
+	/*
+	 * Recover the binary bssid from the (untrusted, settings-provided)
+	 * hex form... anything that isn't exactly LWS_ETH_ALEN bytes of hex
+	 * leaves the bssid zeroed rather than half-filled
+	 */
+
+	lws_start_foreach_dll(struct lws_dll2 *, p,
+			      lws_dll2_get_head(&nds->owner_creds)) {
+		lws_wifi_creds_t *cr = lws_container_of(p, lws_wifi_creds_t, list);
+
+		if (lws_hex_len_to_byte_array(cr->bssid_hex,
+					      strlen(cr->bssid_hex), cr->bssid,
+					      (int)sizeof(cr->bssid)) !=
+							(int)sizeof(cr->bssid))
+			memset(cr->bssid, 0, sizeof(cr->bssid));
+
+	} lws_end_foreach_dll(p);
+
 	return 0;
 
 bail:
@@ -142,8 +179,14 @@ lws_netdev_credentials_find(lws_netdevs_t *netdevs, const char *ssid,
 	                                               &netdevs->owner_creds)) {
 		lws_wifi_creds_t *w = lws_container_of(p, lws_wifi_creds_t, list);
 
-		if (!strcmp(ssid, (const char *)&w[1]) &&
-		    !memcmp(bssid, w->bssid, 6))
+		/*
+		 * Unlike lws_wifi_sta_t, lws_wifi_creds_t is not
+		 * overallocated with the ssid after it, it has its own
+		 * .ssid member
+		 */
+
+		if (!strcmp(ssid, w->ssid) &&
+		    !memcmp(bssid, w->bssid, sizeof(w->bssid)))
 			return w;
 
 	} lws_end_foreach_dll(p);
@@ -176,6 +219,8 @@ lws_netdev_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 		  void *buf, size_t len)
 {
 	struct lws_context *ctx = (struct lws_context *)opaque;
+	char pure_ssid[(sizeof(((lws_netdev_instance_wifi_t *)0)->
+					current_attempt_ssid) * 6) + 1];
 	const char *iface;
 	char setname[16];
 	size_t al = 0;
@@ -214,10 +259,20 @@ lws_netdev_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 				lws_snprintf(setname, sizeof(setname),
 						"netdev.last.%s", iface);
 
+				/*
+				 * An 802.11 SSID is 0 - 32 arbitrary octets
+				 * chosen by the AP, it must be escaped before
+				 * it can go into a JSON document
+				 */
+
+				lws_json_purify(pure_ssid,
+						wnd->current_attempt_ssid,
+						(int)sizeof(pure_ssid), NULL);
+
 				lws_settings_plat_printf(ctx->netdevs.si,
 					setname, "{\"ssid\":\"%s\",\"bssid\":"
 					"\"%02X%02X%02X%02X%02X%02X\"}",
-					wnd->current_attempt_ssid,
+					pure_ssid,
 					wnd->current_attempt_bssid[0],
 					wnd->current_attempt_bssid[1],
 					wnd->current_attempt_bssid[2],
