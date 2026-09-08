@@ -245,6 +245,25 @@ struct hls_buffer {
  */
 #define HLS_BUF_MAX ((size_t)64 * 1024 * 1024)
 
+/*
+ * Bounds on how much input we will walk for one segment, independent of what
+ * the keyframe index said.  The index decides where a segment ends, and when
+ * it hands back an open-ended final segment (end_pts == AV_NOPTS_VALUE), or
+ * its boundaries do not match what the demuxer actually produces, the demux
+ * loop would otherwise carry on to EOF, transcoding the whole film's audio
+ * into "one segment" and pinning the thread for minutes.
+ *
+ * HLS_BUF_MAX alone does not bound this: the mp4 muxer accumulates the
+ * fragment in its own memory and only hands it to write_packet() at the
+ * trailer, so the cap there trips after all the work has been done.
+ *
+ * A legitimate segment is HLS_SEGMENT_DUR plus at most one GOP, so these are
+ * generous.  The byte count is of input packets handed to the muxer or the
+ * audio transcoder, which for the transcode case overestimates the output.
+ */
+#define HLS_SEGMENT_MAX_SPAN_US ((int64_t)6 * HLS_SEGMENT_DUR * AV_TIME_BASE)
+#define HLS_SEGMENT_MAX_PKTS 250000
+
 #if LIBAVFORMAT_VERSION_MAJOR >= 61
 static int write_packet(void *opaque, const uint8_t *buf, int buf_size) {
 #else
@@ -437,7 +456,12 @@ init_audio_transcoder(AVFormatContext *in_ctx, int audio_idx)
         return tx;
 }
 
-static void
+/*
+ * Returns 0, or -1 if the muxer refused an encoded packet (the output buffer
+ * cap tripped, or the avio is otherwise in error): there is no point decoding
+ * and encoding anything further for this segment once that has happened.
+ */
+static int
 transcode_audio_packet(AVFormatContext *in_ctx, AVFormatContext *out_ctx,
                        struct hls_audio_transcoder *audio_tx, AVPacket *pkt,
                        int out_stream_idx, int64_t shift_offset_out_audio,
@@ -457,7 +481,7 @@ transcode_audio_packet(AVFormatContext *in_ctx, AVFormatContext *out_ctx,
         ret = avcodec_send_packet(audio_tx->dec_ctx, pkt);
         if (ret < 0) {
                 lwsl_err("HLS-TRANS: Error sending packet to decoder: %d\n", ret);
-                return;
+                return 0;
         }
 
         AVFrame *frame = av_frame_alloc();
@@ -555,11 +579,17 @@ transcode_audio_packet(AVFormatContext *in_ctx, AVFormatContext *out_ctx,
                                           segment_idx, (long long)enc_pkt->pts, (long long)enc_pkt->dts);
                         }
 
-                        av_interleaved_write_frame(out_ctx, enc_pkt);
+                        ret = av_interleaved_write_frame(out_ctx, enc_pkt);
                         av_packet_unref(enc_pkt);
+                        if (ret < 0) {
+                                av_packet_free(&enc_pkt);
+                                return -1;
+                        }
                 }
                 av_packet_free(&enc_pkt);
         }
+
+        return 0;
 }
 
 static void
@@ -1525,9 +1555,30 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 		next_video_dts = sinfo.start_pts;
 	}
 
+	/* see HLS_SEGMENT_MAX_SPAN_US: bounds on the walk that do not depend
+	 * on the index or the demuxer's timestamps being what we expected */
+	int64_t pkts_read = 0;
+	size_t bytes_fed = 0;
+
 	AVPacket pkt;
 	while (av_read_frame(in_ctx, &pkt) >= 0) {
 		AVStream *in_stream  = in_ctx->streams[pkt.stream_index];
+
+		if (hb.err) {
+			lwsl_warn("HLS: Segment %d: output cap hit, stopping\n",
+				  segment_idx);
+			av_packet_unref(&pkt);
+			break;
+		}
+		if (++pkts_read > HLS_SEGMENT_MAX_PKTS ||
+		    bytes_fed > HLS_BUF_MAX) {
+			lwsl_warn("HLS: Segment %d: %lld pkts / %zu bytes without "
+				  "reaching segment end, stopping\n", segment_idx,
+				  (long long)pkts_read, bytes_fed);
+			av_packet_unref(&pkt);
+			break;
+		}
+
 		if (stream_mapping[pkt.stream_index] < 0) {
 			av_packet_unref(&pkt);
 			continue;
@@ -1581,6 +1632,22 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 
 		if (pkt_ts != AV_NOPTS_VALUE) {
 			int64_t pkt_time = av_rescale_q(pkt_ts, in_stream->time_base, AV_TIME_BASE_Q);
+
+			/*
+			 * Whether or not we have started, and whatever the index
+			 * claimed the segment end was, do not walk further past
+			 * the segment start than a legitimate segment could span
+			 */
+			if (pkt_time - start_time > HLS_SEGMENT_MAX_SPAN_US) {
+				lwsl_warn("HLS: Segment %d: input %.1fs past segment "
+					  "start without reaching its end "
+					  "(started=%d, video_finished=%d), "
+					  "stopping\n", segment_idx,
+					  (double)(pkt_time - start_time) / AV_TIME_BASE,
+					  started, video_finished);
+				av_packet_unref(&pkt);
+				break;
+			}
 
 			if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && (pkt.flags & AV_PKT_FLAG_KEY)) {
 				lwsl_info("HLS-DEBUG: Seg %d parsed KEYFRAME pkt_time=%.3fs (pts=%lld). started=%d, finished=%d. start_time=%.3fs\n",
@@ -1731,13 +1798,15 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 				AVPacket *abuf_pkt = &audio_buffer[j];
 				if (abuf_pkt->dts != AV_NOPTS_VALUE && abuf_pkt->dts <= target_dts_audio) {
 					int out_stream_idx = stream_mapping[audio_idx];
+					bytes_fed += (size_t)abuf_pkt->size;
 					if (transcode_audio && audio_tx) {
-						transcode_audio_packet(in_ctx, out_ctx, audio_tx, abuf_pkt,
+						if (transcode_audio_packet(in_ctx, out_ctx, audio_tx, abuf_pkt,
 									out_stream_idx, shift_offset_out_audio,
 									&first_audio_pts, &first_audio_dts,
 									&last_audio_pts, &last_audio_dts,
 									&audio_packets_written, &last_dts[out_stream_idx],
-									segment_idx);
+									segment_idx) < 0)
+							hb.err = 1;
 					} else {
 						abuf_pkt->stream_index = out_stream_idx;
 						AVStream *out_stream = out_ctx->streams[out_stream_idx];
@@ -1790,13 +1859,15 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 		}
 
 		int out_stream_idx = stream_mapping[pkt.stream_index];
+		bytes_fed += (size_t)pkt.size;
 		if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO && transcode_audio && audio_tx) {
-			transcode_audio_packet(in_ctx, out_ctx, audio_tx, &pkt,
+			if (transcode_audio_packet(in_ctx, out_ctx, audio_tx, &pkt,
 						out_stream_idx, shift_offset_out_audio,
 						&first_audio_pts, &first_audio_dts,
 						&last_audio_pts, &last_audio_dts,
 						&audio_packets_written, &last_dts[out_stream_idx],
-						segment_idx);
+						segment_idx) < 0)
+				hb.err = 1;
 			av_packet_unref(&pkt);
 			continue;
 		}
@@ -1855,14 +1926,18 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 		av_packet_unref(&pkt);
 	}
 
-	/* Flush any remaining buffered audio packets at the end */
+	/* Flush any remaining buffered audio packets at the end (not worth
+	 * draining the transcoder into an output we are going to discard) */
 	if (audio_idx >= 0 && stream_mapping[audio_idx] >= 0) {
 		if (transcode_audio && audio_tx) {
-			flush_audio_transcoder(out_ctx, audio_tx, stream_mapping[audio_idx],
-					       &first_audio_pts, &first_audio_dts,
-					       &last_audio_pts, &last_audio_dts,
-					       &audio_packets_written, &last_dts[stream_mapping[audio_idx]],
-					       segment_idx);
+			if (!hb.err)
+				flush_audio_transcoder(out_ctx, audio_tx,
+					stream_mapping[audio_idx],
+					&first_audio_pts, &first_audio_dts,
+					&last_audio_pts, &last_audio_dts,
+					&audio_packets_written,
+					&last_dts[stream_mapping[audio_idx]],
+					segment_idx);
 		} else {
 			for (int j = 0; j < audio_buffer_count; j++) {
 				AVPacket *abuf_pkt = &audio_buffer[j];
