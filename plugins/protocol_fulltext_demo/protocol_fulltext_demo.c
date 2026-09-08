@@ -140,6 +140,8 @@ callback_fts(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				       LWSFTS_F_QUERY_QUOTE_LINE;
 		params.max_autocomplete = 10;
 		params.max_files = 10;
+		/* per-file line hits: the results page shows a handful anyway */
+		params.max_lines = 128;
 
 		jtf = lws_fts_open(vhd->indexpath);
 		if (!jtf) {
