@@ -688,8 +688,12 @@ lws_gencrypto_destroy_elements(struct lws_gencrypto_keyelem *el, int m)
 	int n;
 
 	for (n = 0; n < m; n++)
-		if (el[n].buf)
+		if (el[n].buf) {
+			/* wipe all key material when it goes out of scope */
+			lws_explicit_bzero(el[n].buf, el[n].len);
 			lws_free_set_NULL(el[n].buf);
+			el[n].len = 0;
+		}
 }
 
 void

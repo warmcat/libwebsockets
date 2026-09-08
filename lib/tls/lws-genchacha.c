@@ -80,6 +80,15 @@ lws_genchacha_crypt(struct lws_genchacha_ctx *ctx,
 		    const uint8_t *aad, size_t aad_len,
 		    uint8_t *tag, size_t tag_len)
 {
+	/*
+	 * RFC 8439 only defines a 16-byte tag, and the mbedtls and native
+	 * paths below can only do 16... refuse anything else here rather than
+	 * have the backends disagree about how big `tag` is
+	 */
+
+	if (tag_len != 16)
+		return -1;
+
 #if defined(LWS_WITH_OPENSSL) && (OPENSSL_VERSION_NUMBER >= 0x10100000L) && !defined(LIBRESSL_VERSION_NUMBER)
 	int outl;
 
@@ -190,8 +199,25 @@ lws_genchacha_stream(struct lws_genchacha_ctx *ctx,
 		     const uint8_t *nonce, size_t nonce_len)
 {
 #if defined(LWS_WITH_OPENSSL) && (OPENSSL_VERSION_NUMBER >= 0x10100000L) && !defined(LIBRESSL_VERSION_NUMBER)
+	uint8_t iv[16];
 	int outl;
-	if (EVP_EncryptInit_ex(ctx->ctx, EVP_chacha20(), NULL, ctx->k->buf, nonce) != 1) return -1;
+
+	/*
+	 * EVP_chacha20() unconditionally reads a 16-byte IV (a 4-byte LE block
+	 * counter then the 12-byte nonce), so the 12-byte form the native path
+	 * below accepts has to be expanded here rather than over-read from the
+	 * caller's buffer... and both paths must then agree on the keystream
+	 */
+
+	if (nonce_len == 16)
+		memcpy(iv, nonce, sizeof(iv));
+	else if (nonce_len == 12) {
+		memset(iv, 0, 4);
+		memcpy(iv + 4, nonce, 12);
+	} else
+		return -1;
+
+	if (EVP_EncryptInit_ex(ctx->ctx, EVP_chacha20(), NULL, ctx->k->buf, iv) != 1) return -1;
 	if (EVP_EncryptUpdate(ctx->ctx, out, &outl, in, (int)len) != 1) return -1;
 	if (EVP_EncryptFinal_ex(ctx->ctx, out + outl, &outl) != 1) return -1;
 	return 0;

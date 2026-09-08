@@ -113,8 +113,12 @@ lws_genec_destroy_elements(struct lws_gencrypto_keyelem *el)
 	int n;
 
 	for (n = 0; n < LWS_GENCRYPTO_EC_KEYEL_COUNT; n++)
-		if (el[n].buf)
+		if (el[n].buf) {
+			/* wipe all key material when it goes out of scope */
+			lws_explicit_bzero(el[n].buf, el[n].len);
 			lws_free_set_NULL(el[n].buf);
+			el[n].len = 0;
+		}
 }
 
 static const char *enames[] = { "crv", "x", "d", "y" };
