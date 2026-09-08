@@ -21,7 +21,15 @@ This is the client-side protocol plugin for the certificate distribution system.
 
 ## Usage
 
-When enabled, the plugin checks if it is running as root and if certs are configured. If so, it spawns a privileged stub process to handle file system operations and sets up a UDS server. Unprivileged clients connect to this UDS server, which forwards JSON payloads received from the central distribution server.
+When enabled, the plugin checks if it is running as root and if certs are configured. If so, it spawns a privileged stub process (named `certdistcli-<vhost>`) to handle file system operations and sets up a UDS server. Unprivileged clients connect to this UDS server, which forwards JSON payloads received from the central distribution server.
+
+### What is installed where
+
+Each `certs` entry is installed under `<base-dir>/<name>/`, where `name` is the entry's own key in the config (`example-com` and `test-org` below), *not* a name chosen by the distribution server.  The server's `subdomain` in the reply is only logged if it disagrees; a compromised distribution server can therefore replace the cert and key of the domain a given link was established for, and of no other.
+
+Entry names must be plain names (`[A-Za-z0-9._-]`, no leading `.` or `-`, no `..`); an entry with an unusable name is skipped at init.  The stub enforces the same rule again before it touches the filesystem, refuses to write into a `<base-dir>/<name>` directory it does not own or that is group- or world-writable, and creates the timestamped cert and key files with `O_EXCL | O_NOFOLLOW` before swapping the `fullchain.pem` / `privkey.pem` symlinks over them atomically.
+
+A `fullchain` or `privkey` larger than 256KB is refused and the connection to the distribution server is dropped.
 
 ### Example `lwsws` Configuration
 

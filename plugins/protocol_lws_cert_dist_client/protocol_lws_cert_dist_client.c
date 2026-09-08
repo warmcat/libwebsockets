@@ -459,9 +459,14 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 			return 1;
 		}
 
-		/* STRICT ENFORCEMENT: prevent directory traversal */
-		if ((char *)strchr(a->subdomain, '/') || (char *)strstr(a->subdomain, "..")) {
-			lwsl_err("%s: Invalid domain format (path traversal detected)\n", __func__);
+		/*
+		 * STRICT ENFORCEMENT: the name is a directory under
+		 * base_dir, it must not be empty (which would collapse the
+		 * paths into base_dir itself), escape it, or be anything but
+		 * a plain name
+		 */
+		if (!cert_dist_valid_name(a->subdomain, sizeof(a->subdomain))) {
+			lwsl_err("%s: Invalid domain format\n", __func__);
 			return 1;
 		}
 
@@ -1099,6 +1104,19 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			if (!cert_path || !key_path) {
 				lwsl_err("%s: certs PVO missing cert or key path\n", __func__);
+				certs_pvo = certs_pvo->next;
+				continue;
+			}
+
+			/*
+			 * The certs[] name is what we install under: it goes
+			 * into the JSON we send the privileged stub and
+			 * becomes a directory under base_dir there
+			 */
+			if (!cert_dist_valid_name(certs_pvo->name,
+						  CERT_DIST_NAME_LEN)) {
+				lwsl_err("%s: certs PVO name '%s' unusable\n",
+					 __func__, certs_pvo->name);
 				certs_pvo = certs_pvo->next;
 				continue;
 			}
