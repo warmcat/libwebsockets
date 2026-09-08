@@ -57,6 +57,12 @@ enum {
 	LJT_OFS_DER			= 0x1c,
 };
 
+/*
+ * Sanity bound on a single trusted CA cert DER handed to us by the app's
+ * jit_trust_query() store... real CA certs are a couple of kB
+ */
+#define LWS_JIT_TRUST_MAX_DER	((size_t)16384)
+
 typedef struct {
 	uint8_t				kid[20];
 	uint8_t				kid_len;
@@ -99,7 +105,12 @@ typedef struct {
 					      * the order of SKID results
 					      */
 
-	short				der_len[2];
+	/*
+	 * Must be able to hold any der_len we accepted and memcpy'd into
+	 * der[]... a short both truncates and, being signed, sign-extends into
+	 * the size_t the backend cert parsers take
+	 */
+	size_t				der_len[2];
 
 	char				refcount; /* expected results left */
 

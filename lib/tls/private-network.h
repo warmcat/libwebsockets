@@ -30,12 +30,41 @@ struct lws_tls_ops {
 	void (*process_cleanup)(void);
 };
 
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+/*
+ * JIT Trust creates client vhosts of its own, long after the app's creation
+ * info went out of scope.  Without a copy of the app's client-side TLS
+ * hardening, those vhosts would silently come up with library-default protocol
+ * versions and ciphers, and without the app's client cert... ie, a remote
+ * server could downgrade the client's policy just by presenting a chain we
+ * have to JIT-trust.  So we keep the client-side parts of the info here.
+ *
+ * These are all pointers into the app's own creation info, which lws already
+ * treats as having context lifetime (eg, .protocols).
+ */
+struct lws_tls_client_policy {
+	const char	*alpn;
+	const char	*cipher_list;
+	const char	*ciphers_iana;
+	const char	*tls_1_3_plus_cipher_list;
+	const char	*ecdh_curve;
+	const char	*cert_filepath;
+	const char	*private_key_filepath;
+	long		options_set;
+	long		options_clear;
+	char		captured;
+};
+#endif
+
 struct lws_context_tls {
 	char alpn_discovered[32];
 	const char *alpn_default;
 	time_t last_cert_check_s;
 	struct lws_dll2_owner cc_owner;
 	int count_client_contexts;
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	struct lws_tls_client_policy jit_client_policy;
+#endif
 };
 
 struct lws_pt_tls {

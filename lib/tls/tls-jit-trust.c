@@ -92,23 +92,27 @@ lws_tls_kid_cmp(const lws_tls_kid_t *a, const lws_tls_kid_t *b)
 int
 lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 {
-	size_t hl;
 	lws_tls_jit_inflight_t *inf;
-	int n, m, sanity = 10;
-	const char *host = wsi->cli_hostname_copy;
+	int n, m, q = 0, sanity = 10;
+	const char *host;
 	char more = 1;
+	size_t hl;
 
 	lwsl_info("%s\n", __func__);
 
-	if (!host) {
-		if (wsi->stash && wsi->stash->cis[CIS_HOST])
-			host = wsi->stash->cis[CIS_HOST];
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-		else
-			host = lws_hdr_simple_ptr(wsi,
-					      _WSI_TOKEN_CLIENT_PEER_ADDRESS);
-	}
-#endif
+	/*
+	 * The trust cache entry we are going to write below is read back by
+	 * lws_tls_jit_trust_vhost_bind() using the *connect address*.  So we
+	 * have to key it on that too... the Host: header (which is what
+	 * wsi->cli_hostname_copy holds) is a different identity as soon as the
+	 * app sets .host itself, goes via a proxy, or connects to a literal IP.
+	 *
+	 * lws_wsi_client_stash_item() also takes care of the case there is no
+	 * stash, and of builds with neither H1 nor H2.
+	 */
+
+	host = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
+					 _WSI_TOKEN_CLIENT_PEER_ADDRESS);
 	if (!host)
 		return 1;
 
@@ -208,6 +212,27 @@ lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 	} lws_end_foreach_dll(d);
 
 	/*
+	 * Only AKIDs we can actually look something up with are worth a query,
+	 * and only those may be counted into the inflight refcount... a
+	 * zero-length AKID is rejected out of hand by the trust query (there is
+	 * nothing to match on), so if we counted it here the inflight would
+	 * never reach refcount 0 and would leak until context destroy.
+	 *
+	 * If none of them are usable, we cannot identify any CA to ask for, and
+	 * we must fail the connection rather than pretend we tried.
+	 */
+
+	for (n = 0; n < ch->count; n++)
+		if (ch->akid[n].kid_len)
+			q++;
+
+	if (!q) {
+		lwsl_info("%s: no usable AKID in the peer chain\n", __func__);
+
+		return 1;
+	}
+
+	/*
 	 * No... let's make an inflight entry for this host, then
 	 */
 
@@ -216,7 +241,7 @@ lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 		return 1;
 
 	memcpy(&inf[1], host, hl + 1);
-	inf->refcount = (char)ch->count;
+	inf->refcount = (char)q;
 	lws_dll2_add_tail(&inf->list, &wsi->a.context->jit_inflight);
 
 	/*
@@ -226,10 +251,13 @@ lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 	 * multiple (the inflight accepts up to 2) CAs needed.
 	 */
 
-	for (n = 0; n < ch->count; n++)
+	for (n = 0; n < ch->count; n++) {
+		if (!ch->akid[n].kid_len)
+			continue;
 		wsi->a.context->system_ops->jit_trust_query(wsi->a.context,
 			ch->akid[n].kid, (size_t)ch->akid[n].kid_len,
 			(void *)inf);
+	}
 
 	return 0;
 }
@@ -260,6 +288,15 @@ lws_tls_jit_trust_vhost_bind(struct lws_context *cx, const char *address,
 
 	/* gotten cache item may be evicted by jit_trust_query */
 	jci = *ci;
+
+	if (size != sizeof(jci) || jci.count_skids <= 0 ||
+	    jci.count_skids > (int)LWS_ARRAY_SIZE(jci.skids))
+		/*
+		 * Not something we wrote, or nothing we can query with...
+		 * count_skids is used below as a loop bound and as the inflight
+		 * refcount, so it has to be sane before we act on it
+		 */
+		return 1;
 
 	/*
 	 * We have some trust cache information for this host already, it tells
@@ -454,8 +491,30 @@ lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 
 	inf->refcount--;
 
+	/*
+	 * A CA cert DER is a few kB... anything wildly bigger than that is a
+	 * corrupt or hostile trust store rather than something we should
+	 * allocate for and hand to an ASN.1 parser
+	 */
+
+	if (der && der_len > LWS_JIT_TRUST_MAX_DER) {
+		lwsl_warn("%s: ignoring oversize CA DER %u\n", __func__,
+			  (unsigned int)der_len);
+		der = NULL;
+		der_len = 0;
+	}
+
+	/*
+	 * The tag is just an opaque commutative name for the CA set, so any
+	 * fixed byte order will do... but the skid pointer comes from the app's
+	 * trust blob at whatever alignment the packed SKID table put it, so we
+	 * must not do a naked uint32_t load through it (unaligned trap on the
+	 * mcu-class targets this feature exists for, and strict-aliasing UB
+	 * everywhere).
+	 */
+
 	if (skid_len >= 4)
-		inf->tag ^= *((uint32_t *)skid);
+		inf->tag ^= lws_ser_ru32be(skid);
 
 	if (der && inf->ders < (int)LWS_ARRAY_SIZE(inf->der) && inf->refcount) {
 		/*
@@ -473,7 +532,7 @@ lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 		if (!inf->der[inf->ders])
 			return 1;
 		memcpy(inf->der[inf->ders], der, der_len);
-		inf->der_len[inf->ders] = (short)der_len;
+		inf->der_len[inf->ders] = der_len;
 		inf->ders++;
 
 		return 0;
@@ -568,6 +627,26 @@ lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 	info.vhost_name = vhtag;
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.options = cx->options;
+
+	/*
+	 * Carry over the app's client TLS hardening... otherwise a server that
+	 * can make us JIT-trust anything also gets to move the connection onto
+	 * an SSL_CTX built with library-default protocol versions and ciphers,
+	 * and with no client cert for mTLS.  The CA trust itself stays limited
+	 * to the DER(s) we just fetched.
+	 */
+
+	info.alpn				= cx->tls.jit_client_policy.alpn;
+	info.client_ssl_cipher_list		= cx->tls.jit_client_policy.cipher_list;
+	info.client_tls_ciphers_iana		= cx->tls.jit_client_policy.ciphers_iana;
+	info.client_tls_1_3_plus_cipher_list	=
+				cx->tls.jit_client_policy.tls_1_3_plus_cipher_list;
+	info.client_ecdh_curve			= cx->tls.jit_client_policy.ecdh_curve;
+	info.client_ssl_cert_filepath		= cx->tls.jit_client_policy.cert_filepath;
+	info.client_ssl_private_key_filepath	=
+				cx->tls.jit_client_policy.private_key_filepath;
+	info.ssl_client_options_set		= cx->tls.jit_client_policy.options_set;
+	info.ssl_client_options_clear		= cx->tls.jit_client_policy.options_clear;
 
 	/*
 	 * We have to create the vhost with the first valid trusted DER...
@@ -669,9 +748,15 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 
 	while (certs--) {
 
-		/* paranoia / sanity */
+		/*
+		 * paranoia / sanity... these must be "are the bytes we are
+		 * about to consume inside the blob", not just "is the cursor
+		 * inside the blob": the memcmp() below reads skid_len (up to
+		 * 20) bytes from pskids, and *pskidlen is attacker-chosen
+		 * content of the same untrusted blob, so it bounds nothing.
+		 */
 
-		if (pskids >= blob + blen) {
+		if (pskids + skid_len > blob + blen) {
 			assert(0);
 			break;
 		}
@@ -679,11 +764,11 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 			assert(0);
 			break;
 		}
-		if (pskidlen >= blob + blen) {
+		if (pskidlen + 1 > blob + blen) {
 			assert(0);
 			break;
 		}
-		if ((uint8_t *)pderlen >= blob + blen) {
+		if ((const uint8_t *)pderlen + 2 > blob + blen) {
 			assert(0);
 			break;
 		}

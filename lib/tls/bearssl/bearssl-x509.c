@@ -646,9 +646,15 @@ wrap_end_cert(const br_x509_class **ctx)
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	if (conn->wsi && conn->temp_cert && conn->wsi->tls.kid_chain.count < LWS_ARRAY_SIZE(conn->wsi->tls.kid_chain.akid)) {
 		union lws_tls_cert_info_results ci;
-		if (!lws_x509_info(conn->temp_cert, LWS_TLS_CERT_INFO_SUBJECT_KEY_ID, &ci, 0))
+		/*
+		 * len is the usable size of ci.ns.name[]... passing 0 makes the
+		 * backend's "does it fit" test fail for every real key
+		 * identifier, so no KID would ever be captured and JIT trust
+		 * could never engage
+		 */
+		if (!lws_x509_info(conn->temp_cert, LWS_TLS_CERT_INFO_SUBJECT_KEY_ID, &ci, sizeof(ci.ns.name)))
 			lws_tls_kid_copy(&ci, &conn->wsi->tls.kid_chain.skid[conn->wsi->tls.kid_chain.count]);
-		if (!lws_x509_info(conn->temp_cert, LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID, &ci, 0))
+		if (!lws_x509_info(conn->temp_cert, LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID, &ci, sizeof(ci.ns.name)))
 			lws_tls_kid_copy(&ci, &conn->wsi->tls.kid_chain.akid[conn->wsi->tls.kid_chain.count]);
 		conn->wsi->tls.kid_chain.count++;
 	}

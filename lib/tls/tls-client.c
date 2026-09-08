@@ -118,6 +118,45 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	if (vhost->options & LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG)
 		return 0;
 
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	{
+		struct lws_tls_client_policy *cp =
+				&vhost->context->tls.jit_client_policy;
+
+		/*
+		 * Remember the app's client TLS hardening, so JIT Trust vhosts
+		 * (which lws creates itself later, with no info to hand) come
+		 * up with the same policy instead of library defaults.  We take
+		 * the app's own first client vhost, preferring "default", which
+		 * is the vhost a JIT vhost displaces at connect.c.  JIT vhosts
+		 * themselves are named "jitt-XXXXXXXX" and must not overwrite
+		 * what they are supposed to inherit.
+		 */
+
+		if (vhost->name && strncmp(vhost->name, "jitt-", 5) &&
+		    (!cp->captured || !strcmp(vhost->name, "default"))) {
+			cp->alpn			= info->alpn;
+			cp->cipher_list			= info->client_ssl_cipher_list ?
+							  info->client_ssl_cipher_list :
+							  info->ssl_cipher_list;
+			cp->ciphers_iana		= info->client_tls_ciphers_iana;
+			cp->tls_1_3_plus_cipher_list	=
+					info->client_tls_1_3_plus_cipher_list ?
+					info->client_tls_1_3_plus_cipher_list :
+					info->tls1_3_plus_cipher_list;
+			cp->ecdh_curve			= info->client_ecdh_curve ?
+							  info->client_ecdh_curve :
+							  info->ecdh_curve;
+			cp->cert_filepath		= info->client_ssl_cert_filepath;
+			cp->private_key_filepath	=
+					info->client_ssl_private_key_filepath;
+			cp->options_set			= (long)info->ssl_client_options_set;
+			cp->options_clear		= (long)info->ssl_client_options_clear;
+			cp->captured			= 1;
+		}
+	}
+#endif
+
 	/*
 	 *  for backwards-compatibility default to using ssl_... members, but
 	 * if the newer client-specific ones are given, use those
