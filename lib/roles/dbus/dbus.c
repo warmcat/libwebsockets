@@ -202,10 +202,15 @@ lws_dbus_add_watch(DBusWatch *w, void *data)
 	return TRUE;
 }
 
-/* cx + vh lock */
+/*
+ * Takes the cx + vh locks itself.  Returns nonzero if it destroyed the wsi,
+ * in which case the caller must not touch the wsi or its pollfd again.
+ */
+
 static int
-__check_destroy_shadow_wsi(struct lws_dbus_ctx *ctx, struct lws *wsi)
+check_destroy_shadow_wsi(struct lws_dbus_ctx *ctx, struct lws *wsi)
 {
+	struct lws_context_per_thread *pt;
 	int n;
 
 	if (!wsi)
@@ -215,14 +220,29 @@ __check_destroy_shadow_wsi(struct lws_dbus_ctx *ctx, struct lws *wsi)
 		if (ctx->w[n])
 			return 0;
 
-	__lws_shadow_wsi_destroy(ctx, wsi);
+	/*
+	 * __lws_shadow_wsi_destroy() mutates the fds table and the vhost wsi
+	 * list, so it needs the same locks lws_dbus_add_watch() takes
+	 */
+
+	pt = &ctx->vh->context->pt[ctx->tsi];
+
+	lws_context_lock(pt->context, __func__);
+	lws_vhost_lock(ctx->vh);
+	n = __lws_shadow_wsi_destroy(ctx, wsi);
+	lws_vhost_unlock(ctx->vh);
+	lws_context_unlock(pt->context);
+
+	if (n)
+		/* it's still there... */
+		return 0;
 
 	if (!ctx->conn || !ctx->hup || ctx->timeouts)
-		return 0;
+		return 1;
 
 	if (dbus_connection_get_dispatch_status(ctx->conn) ==
 						     DBUS_DISPATCH_DATA_REMAINS)
-		return 0;
+		return 1;
 
 	if (ctx->cb_closing)
 		ctx->cb_closing(ctx);
@@ -287,17 +307,40 @@ lws_dbus_sul_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws_context_per_thread *pt = lws_container_of(sul,
 				struct lws_context_per_thread, dbus.sul);
+	time_t now = time(NULL);
+	int more;
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, rdt, nx,
-			 lws_dll2_get_head(&pt->dbus.timer_list_owner)) {
-		struct lws_role_dbus_timer *r = lws_container_of(rdt,
+	/*
+	 * dbus_timeout_handle() dispatches into libdbus, which is free to add
+	 * or remove (ie, free) any timer on this list, including whichever one
+	 * we would have cached as "next".  So don't hold a pointer across the
+	 * dispatch: re-arm the timer we are about to fire (so it can't be
+	 * selected again this round), fire it, and restart the walk.
+	 */
+
+	do {
+		more = 0;
+
+		lws_start_foreach_dll(struct lws_dll2 *, rdt,
+				 lws_dll2_get_head(&pt->dbus.timer_list_owner)) {
+			struct lws_role_dbus_timer *r = lws_container_of(rdt,
 					struct lws_role_dbus_timer, timer_list);
+			int ms;
 
-		if (time(NULL) > r->fire) {
+			if (now <= r->fire)
+				continue;
+
+			ms = dbus_timeout_get_interval(r->data);
+			if (ms < 1000)
+				ms = 1000;
+			r->fire = now + (ms / 1000);
+
 			lwsl_notice("%s: firing timer\n", __func__);
 			dbus_timeout_handle(r->data);
-		}
-	} lws_end_foreach_dll_safe(rdt, nx);
+			more = 1;
+			break;
+		} lws_end_foreach_dll(rdt);
+	} while (more);
 
 	if (lws_dll2_count(&pt->dbus.timer_list_owner))
 		lws_sul_schedule(pt->context, pt->tid, &pt->dbus.sul,
@@ -327,7 +370,8 @@ lws_dbus_add_timeout(DBusTimeout *t, void *data)
 			dbus_timeout_get_interval(t));
 
 	dbt->data = t;
-	dbt->fire = ti + (ms < 1000);
+	/* the requested interval, in whole seconds (>= 1 after the clamp) */
+	dbt->fire = ti + (ms / 1000);
 	lws_dll2_clear(&dbt->timer_list);
 	lws_dll2_add_head(&dbt->timer_list, &pt->dbus.timer_list_owner);
 
@@ -508,7 +552,14 @@ rops_handle_POLLIN_dbus(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		handle_dispatch_status(NULL, DBUS_DISPATCH_DATA_REMAINS, NULL);
 
-		__check_destroy_shadow_wsi(ctx, wsi);
+		if (check_destroy_shadow_wsi(ctx, wsi))
+			/*
+			 * The wsi is gone and its slot in pt->fds has been
+			 * reused by another wsi... the service layer must not
+			 * go on to clear "our" pollfd revents or ask for
+			 * writeability on freed memory
+			 */
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
 	} else
 		if (ctx->dbs)
 			/* ??? */
