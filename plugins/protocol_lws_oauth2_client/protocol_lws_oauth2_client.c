@@ -52,6 +52,36 @@
 #define OAUTH2_SET_COOKIE_BUFL(value_len) \
 	(63 + 1 + (value_len) + 8 + 9 + 127 + 10 + 20 + 32 + 1)
 
+/*
+ * How long a /oauth/login may stay pending before its state is expired and
+ * the allocation reclaimed.  This is both the sul period and the Max-Age of
+ * the user-agent binding cookie, so the two can never disagree.
+ */
+#define OAUTH2_PENDING_AUTH_SECS 300
+
+/*
+ * Name of the short-lived, HttpOnly, SameSite=Lax, host-only cookie minted at
+ * /oauth/login carrying a random nonce, which /oauth/callback requires to
+ * match the pending entry the presented state selected.  RFC 6749 s10.12
+ * requires the client to bind the state to the user agent; without it a
+ * callback URL captured from the attacker's own authorize round trip can be
+ * fed to a victim's browser, silently signing the victim in as the attacker
+ * (login CSRF / session fixation).
+ */
+#define OAUTH2_STATE_COOKIE "auth_oauth_state"
+
+/* nonce is 16 random bytes as hex + NUL */
+#define OAUTH2_STATE_NONCE_LEN 33
+
+/*
+ * Default cap on simultaneously-pending /oauth/login states, per vhost.
+ * /oauth/login is unauthenticated and each request allocates ~8KB held for
+ * OAUTH2_PENDING_AUTH_SECS, so without a cap a single keep-alive connection
+ * can drive the process into OOM.  Overridable with the max-pending-auths
+ * pvo; the preauth plugin caps its waiting room the same way.
+ */
+#define OAUTH2_DEFAULT_MAX_PENDING_AUTHS 512
+
 struct vhd_oauth2_client {
 	struct lws_context *context;
 	struct lws_vhost *vhost;
@@ -68,6 +98,7 @@ struct vhd_oauth2_client {
 	 */
 	char cookie_domain[128];
 	unsigned long cookie_max_age_secs;	/* fallback Max-Age when no expires_in is available */
+	unsigned int max_pending_auths;		/* cap on pending_auth_list */
 
 	lws_dll2_owner_t pending_auth_list;
 };
@@ -84,6 +115,18 @@ struct pending_auth_state {
 	struct lws *wsi_server;
 	struct lws *wsi_client;
 
+	/*
+	 * Set the moment a /oauth/callback selects this entry.  The state is
+	 * single-use: a second callback presenting the same state must not be
+	 * able to select it again.  Without this, two concurrent callbacks
+	 * both drive one entry -- each overwrites wsi_server / wsi_client and
+	 * re-runs lejp_construct() on the context the other is parsing into,
+	 * so the two-leg accounting in pending_auth_release() frees ps while a
+	 * live client wsi still holds it as its user_space (write-after-free
+	 * and a double free).
+	 */
+	uint8_t claimed;
+
 	struct lejp_ctx jctx;
 	const char *fatal_error;
 
@@ -95,6 +138,15 @@ struct pending_auth_state {
 	char token_error_desc[128];
 
 	char state[48];
+	/*
+	 * Random nonce minted with the state and planted on the browser that
+	 * asked for the login as the OAUTH2_STATE_COOKIE cookie; /oauth/callback
+	 * requires the presented cookie to match this before it will exchange
+	 * the code.  This is the RFC 6749 s10.12 binding of the state to the
+	 * user agent -- knowing a state string is then not enough, you must
+	 * also be the browser that started the login.
+	 */
+	char state_nonce[OAUTH2_STATE_NONCE_LEN];
 	char code_verifier[64];
 	char redirect_uri[OAUTH2_REDIRECT_URI_LEN];
 	/* The absolute OAuth callback URL (https://<app-host>/oauth/callback) we
@@ -412,6 +464,7 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->context = lws_get_context(wsi);
 		vhd->vhost = lws_get_vhost(wsi);
 		vhd->cookie_name = "auth_session";
+		vhd->max_pending_auths = OAUTH2_DEFAULT_MAX_PENDING_AUTHS;
 
 		{
 			const struct lws_protocol_vhost_options *pvo =
@@ -432,6 +485,10 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 				    pvo->value && pvo->value[0])
 					vhd->cookie_max_age_secs =
 						(unsigned long)atoll(pvo->value);
+				if (!strcmp(pvo->name, "max-pending-auths") &&
+				    pvo->value && pvo->value[0])
+					vhd->max_pending_auths =
+						(unsigned int)atoi(pvo->value);
 				pvo = pvo->next;
 			}
 		}
@@ -460,6 +517,25 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_HTTP: {
 		char uri[256];
 		size_t ulen;
+
+		/*
+		 * PROTOCOL_INIT returns early without allocating vhd for
+		 * --lws-stub, and when the protocol is enabled on a vhost with
+		 * no per-protocol options block (in == NULL).  Every deref
+		 * below (vhd->context, vhd->remote_auth_url, the pending list)
+		 * would then be a NULL deref driven by an unauthenticated
+		 * request, ie a remote crash on a plausible misconfiguration.
+		 */
+		if (!vhd) {
+			lwsl_wsi_err(wsi, "%s: lws-oauth2-client is not "
+				     "initialized on vhost %s (no pvo block?)",
+				     __func__,
+				     lws_get_vhost_name(lws_get_vhost(wsi)));
+			lws_return_http_status(wsi,
+					HTTP_STATUS_INTERNAL_SERVER_ERROR,
+					"oauth client not initialized");
+			return lws_http_transaction_completed(wsi);
+		}
 
 		if (lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_GET_URI) < 0 &&
 		    lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_POST_URI) < 0)
@@ -494,14 +570,43 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			 * service_name + fixed text, so a long-but-clean
 			 * service_name cannot silently truncate the Location */
 			char loc[1600];
+			/* the user-agent binding Set-Cookie composed below */
+			char state_cookie[OAUTH2_SET_COOKIE_BUFL(
+						OAUTH2_STATE_NONCE_LEN)];
+			int scl;
 			struct lws_genhash_ctx hctx;
 			/* Sized to absorb the vhost's default header block (CSP,
 			 * permissions-policy, HSTS, etc -- can be ~1KB on hosts
 			 * like libwebsockets.org) that lws_add_http_header_status
-			 * auto-appends, plus the Location: header and headroom.
+			 * auto-appends, plus the Location: header, the state
+			 * cookie and headroom.
 			 * A 1KB buffer ran out and the 302 silently failed there. */
-			unsigned char buf[LWS_SSO_MAX_COOKIE + 512 + LWS_PRE], *p = buf + LWS_PRE,
+			unsigned char buf[LWS_SSO_MAX_COOKIE + 512 + LWS_PRE +
+					  OAUTH2_SET_COOKIE_BUFL(
+						OAUTH2_STATE_NONCE_LEN)],
+					*p = buf + LWS_PRE,
 					*end = buf + sizeof(buf) - 1;
+
+			/*
+			 * /oauth/login is unauthenticated and each pending entry
+			 * is ~8KB held for OAUTH2_PENDING_AUTH_SECS.  Cap how
+			 * many can be live at once per vhost so a peer cannot
+			 * drive the whole process into OOM just by asking to log
+			 * in; the sibling preauth plugin caps its waiting room
+			 * the same way.  Refuse before allocating anything.
+			 */
+			if (vhd->max_pending_auths &&
+			    lws_dll2_count(&vhd->pending_auth_list) >=
+						vhd->max_pending_auths) {
+				lwsl_wsi_warn(wsi, "/oauth/login: %u pending "
+					      "auths already, refusing",
+					      lws_dll2_count(
+						  &vhd->pending_auth_list));
+				lws_return_http_status(wsi,
+					HTTP_STATUS_SERVICE_UNAVAILABLE,
+					"Too many pending logins");
+				return lws_http_transaction_completed(wsi);
+			}
 
 			ps = malloc(sizeof(*ps));
 			if (!ps)
@@ -659,6 +764,19 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 							ps->csrf, sizeof(ps->csrf));
 			}
 
+			/*
+			 * Mint the user-agent binding nonce that goes back as
+			 * the OAUTH2_STATE_COOKIE cookie and must be presented
+			 * again at /oauth/callback (RFC 6749 s10.12).
+			 */
+			{
+				uint8_t rnd[16];
+				lws_get_random(vhd->context, rnd, sizeof(rnd));
+				lws_hex_from_byte_array(rnd, sizeof(rnd),
+							ps->state_nonce,
+							sizeof(ps->state_nonce));
+			}
+
 			if (lws_genhash_init(&hctx, LWS_GENHASH_TYPE_SHA256) ||
 			    lws_genhash_update(&hctx, ps->code_verifier, strlen(ps->code_verifier)) ||
 			    lws_genhash_destroy(&hctx, hash)) {
@@ -718,8 +836,37 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 			}
 
+			/*
+			 * Compose the user-agent binding cookie before we
+			 * commit ps to the pending list: if it cannot be
+			 * composed whole, there is no point starting a login
+			 * whose callback could never satisfy the binding.
+			 * Host-only (no Domain=) on purpose: /oauth/callback is
+			 * on this same origin, so the narrowest possible scope
+			 * still works and no sibling host can plant it.
+			 */
+			scl = lws_http_cookie_compose(state_cookie,
+						      sizeof(state_cookie),
+						      OAUTH2_STATE_COOKIE,
+						      ps->state_nonce, NULL,
+						      OAUTH2_PENDING_AUTH_SECS,
+						      NULL);
+			if (scl < 0) {
+				lwsl_wsi_err(wsi, "/oauth/login: could not "
+					     "compose the %s cookie",
+					     OAUTH2_STATE_COOKIE);
+				free(ps);
+				lws_return_http_status(wsi,
+					HTTP_STATUS_INTERNAL_SERVER_ERROR,
+					"Set-Cookie too large");
+				return lws_http_transaction_completed(wsi);
+			}
+
 			lws_dll2_add_tail(&ps->list, &vhd->pending_auth_list);
-			lws_sul_schedule(vhd->context, 0, &ps->sul, sul_pending_auth_cb, 5 * 60 * LWS_US_PER_SEC);
+			lws_sul_schedule(vhd->context, 0, &ps->sul,
+					 sul_pending_auth_cb,
+					 OAUTH2_PENDING_AUTH_SECS *
+							 LWS_US_PER_SEC);
 
 			{
 				char enc_uri[512];
@@ -749,6 +896,14 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, (unsigned char *)loc, (int)strlen(loc), &p, end)) {
 				lwsl_wsi_notice(wsi, "/oauth/login: add_location failed (loc len %d, room %d)",
 						(int)strlen(loc), (int)lws_ptr_diff(end, p));
+				return 1;
+			}
+			/* the user-agent binding for this state */
+			if (lws_add_http_header_by_name(wsi,
+					(const uint8_t *)"set-cookie:",
+					(const uint8_t *)state_cookie, scl,
+					&p, end)) {
+				lwsl_wsi_notice(wsi, "/oauth/login: add_cookie failed");
 				return 1;
 			}
 			if (lws_finalize_http_header(wsi, &p, end)) {
@@ -797,6 +952,14 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 						   lws_dll2_get_head(&vhd->pending_auth_list)) {
 				struct pending_auth_state *s = lws_container_of(d, struct pending_auth_state, list);
+				/*
+				 * A state is single-use: an entry already
+				 * claimed by an earlier callback is invisible
+				 * here, so two concurrent callbacks can never
+				 * end up driving (and freeing) one entry.
+				 */
+				if (s->claimed)
+					continue;
 				if (strlen(s->state) == strlen(state_in) && !lws_timingsafe_bcmp(s->state, state_in, (uint32_t)strlen(s->state))) {
 					ps = s;
 					break;
@@ -810,8 +973,64 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 				return lws_http_transaction_completed(wsi);
 			}
 
+			/*
+			 * Claim it before anything else can fail: from here the
+			 * entry belongs to this wsi alone and no later callback
+			 * can select it, whichever way we leave.
+			 */
+			ps->claimed = 1;
+
 			// We found it! Suspend timeout
 			lws_sul_cancel(&ps->sul);
+
+			/*
+			 * RFC 6749 s10.12: the state must be bound to the user
+			 * agent, otherwise a callback URL captured from the
+			 * attacker's own authorize round trip can be handed to
+			 * a victim (a plain top-level GET, which SameSite=Lax
+			 * permits) and the victim is silently signed in as the
+			 * attacker.  Require the browser to present the nonce
+			 * we planted at /oauth/login.  Walk the same-named
+			 * cookies rather than trusting the first: a browser can
+			 * legitimately present a host-only and a Domain-scoped
+			 * cookie of the same name.
+			 */
+			{
+				char nonce_in[OAUTH2_STATE_NONCE_LEN];
+				size_t nl;
+				int n, ok = 0;
+
+				for (n = 0; !ok && n < 4; n++) {
+					int r;
+
+					nl = sizeof(nonce_in);
+					r = lws_http_cookie_get_nth(wsi,
+							OAUTH2_STATE_COOKIE, n,
+							nonce_in, &nl);
+					if (r == 1) /* no n-th one: done */
+						break;
+					if (r) /* eg oversized: try the next */
+						continue;
+					if (nl == strlen(ps->state_nonce) &&
+					    !lws_timingsafe_bcmp(nonce_in,
+							ps->state_nonce,
+							(uint32_t)nl))
+						ok = 1;
+				}
+
+				if (!ok) {
+					lwsl_wsi_notice(wsi, "/oauth/callback: "
+							"missing or mismatched %s "
+							"cookie: this browser did "
+							"not start this login",
+							OAUTH2_STATE_COOKIE);
+					pending_auth_release(ps);
+					lws_return_http_status(wsi,
+						HTTP_STATUS_BAD_REQUEST,
+						"Invalid or expired state");
+					return lws_http_transaction_completed(wsi);
+				}
+			}
 
 			/*
 			 * F-018 class: the code urlarg is forwarded into the
@@ -871,13 +1090,48 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 				/* Must byte-match the redirect_uri sent to /api/authorize
 				 * (the auth server compares it against oauth_codes). */
 				char enc_uri[512];
+				/*
+				 * The code urlarg reaches us already
+				 * percent-decoded by the uri parser, so an
+				 * encoded '&' or '=' in it arrives as a literal
+				 * one.  Spliced in raw it would inject extra
+				 * parameters into a form body we send on our own
+				 * behalf -- an earlier code_verifier= that
+				 * first-wins parsers prefer over the real one.
+				 * Encode it like enc_uri / enc_sname already are.
+				 */
+				char enc_code[LWS_ARRAY_SIZE(ps->code) * 3];
+
 				lws_urlencode(enc_uri, ps->oauth_redirect_uri,
 					      sizeof(enc_uri));
+				lws_urlencode(enc_code, ps->code,
+					      (int)sizeof(enc_code));
 				ps->payload_len = lws_snprintf(ps->payload + LWS_PRE,
 					sizeof(ps->payload) - LWS_PRE,
 					"grant_type=authorization_code&client_id=%s&redirect_uri=%s&code=%s&code_verifier=%s",
-					vhd->client_id, enc_uri, ps->code,
+					vhd->client_id, enc_uri, enc_code,
 					ps->code_verifier);
+
+				/*
+				 * lws_snprintf() returns what it actually
+				 * wrote, so a full buffer means the tail --
+				 * including code_verifier -- was cut.  Sending
+				 * a half-formed exchange is worse than failing
+				 * it: bail rather than have the auth server
+				 * reject an unexplainable body.
+				 */
+				if (ps->payload_len >= (int)(sizeof(ps->payload) -
+							     LWS_PRE) - 1) {
+					lwsl_wsi_notice(wsi, "/oauth/callback: "
+							"token exchange body "
+							"would truncate");
+					ps->wsi_server = NULL;
+					pending_auth_release(ps);
+					lws_return_http_status(wsi,
+						HTTP_STATUS_BAD_REQUEST,
+						"Invalid code parameter");
+					return lws_http_transaction_completed(wsi);
+				}
 			}
 			ps->payload_pos = 0;
 
@@ -979,6 +1233,10 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 				  OAUTH2_SET_COOKIE_BUFL(127) + 128],
 			      *p = buf + LWS_PRE,
 			      *end = buf + sizeof(buf) - 1;
+
+		/* no vhd -> no pending list to be on (see LWS_CALLBACK_HTTP) */
+		if (!vhd)
+			break;
 
 		// Find if this WSI belongs to a pending auth state that just finished
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -1173,6 +1431,10 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_CLOSED_HTTP: {
+		/* no vhd -> no pending list to be on (see LWS_CALLBACK_HTTP) */
+		if (!vhd)
+			break;
+
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 					   lws_dll2_get_head(&vhd->pending_auth_list)) {
 			struct pending_auth_state *s = lws_container_of(d, struct pending_auth_state, list);
