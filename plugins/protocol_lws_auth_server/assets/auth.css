@@ -291,6 +291,13 @@ input:focus {
 .auth-status-row.success-row .auth-status-text { color: var(--acc-success); word-break: break-all; }
 .auth-status-row.error-row .auth-status-text { color: var(--acc-error); word-break: break-all; margin-top: 4px; }
 .auth-status-spacer { margin-bottom: 20px; }
+/*
+ * The admin affordance in the session box: these used to be inline
+ * style="" attributes composed into innerHTML by auth.js, which the
+ * project's strict CSP (style-src 'self', no 'unsafe-inline') refuses.
+ */
+.auth-status-admin-row { margin-top: 10px; }
+.auth-admin-link { color: var(--primary-color, #007bff); text-decoration: none; font-weight: bold; }
 
 /* Auth Log Styles */
 .auth-log-table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; text-align: left; }

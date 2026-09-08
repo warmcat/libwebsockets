@@ -60,7 +60,7 @@ This example mounts the front-end UI at `/` (the assets dir with `index.html` as
       "origin": "file://_lws_ddir_/libwebsockets-test-server/auth",
       "default": "index.html",
       "headers": [{
-        "Content-Security-Policy": "default-src 'none'; img-src 'self' data: ; script-src 'self'; font-src 'self'; style-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://libwebsockets.org;"
+        "Content-Security-Policy": "default-src 'none'; img-src 'self' data: ; script-src 'self'; font-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://libwebsockets.org;"
       }]
     }],
     "ws-protocols": [{
@@ -121,6 +121,35 @@ The plugin maintains several core tables natively initialized within SQLite:
 ## Front-end Assets
 
 We serve a strict CSP-compliant UI from `./assets` mapped into this plugin.
+There are no inline `<script>` blocks, no inline event handlers and no inline
+`style=` attributes anywhere in it, so `script-src 'self'; style-src 'self'`
+(no `'unsafe-inline'`) holds.
+
+Two directives in the example policy above are coupled to how this plugin
+works, and are worth understanding before you copy it:
+
+- **`form-action` must list every `lws-login` app origin.**  SSO completion is
+  by design a *cross-origin* form POST from this vhost to
+  `https://<app>/.lws-login-sso` carrying the session JWT in the body, and
+  `form-action` is exactly the directive that restricts where a form may be
+  submitted.  Under a bare `form-action 'self'` — which is what the built-in
+  `LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE` policy
+  emits — the browser refuses that submission, and it does so silently as far
+  as the page is concerned: `form.submit()` returns normally.  `auth.js`
+  listens for the `securitypolicyviolation` event and shows an error rather
+  than leaving a dead login page, but the login still cannot complete.  Add
+  each app's origin (`https://app.example.com`) to `form-action` on this
+  vhost.  Do **not** answer this with `form-action *` or by dropping the
+  `headers` block: that also drops `script-src 'self'`, which is the
+  containment the admin and login DOM relies on.
+- **`connect-src 'self'` is deliberate.**  `ws:` / `wss:` in a source list are
+  *scheme* sources: they match every host, so they would let any injected
+  script open a WebSocket to an arbitrary origin and stream the admin
+  console's user list, grants and CSRF token out.  The assets do not need
+  them — `auth.js` fetches same-origin paths and `admin.js` builds its socket
+  from `window.location.host`, and a same-origin `ws://`/`wss://` URL already
+  matches `'self'`.  Only widen this if your own pages talk to a third-party
+  WebSocket endpoint.
 
 ## Security notes for operators
 
@@ -132,6 +161,25 @@ only.  The plugin *also* serves HTML of its own from the
 `/api/verify` confirmation page — and those get no CSP at all unless you add a
 `headers` block to that mount as well.  Do that: it is defence in depth behind
 the plugin's own output escaping.
+
+### The CSRF double submit
+
+Every state-changing endpoint (`/api/login`, `/api/register`,
+`/api/forgot_password`, `/api/reset_password`, `/api/device_approve`,
+`/api/sso_exchange`, `POST /api/logout`) requires a `csrf_token` form field
+matching the `auth_csrf` cookie, compared with `lws_timingsafe_bcmp()`.
+
+That cookie is `HttpOnly`, so the page cannot read it back out of
+`document.cookie`: the server hands the token to the page separately, in the
+`/api/status` JSON for `index.html`, and in a `data-csrf` attribute on the
+button for the `/api/device` page.  If you write your own front end, take the
+token from one of those and never from `document.cookie` — and do not make the
+cookie readable to fix it, since that is what the double submit is proving.
+
+A presented `auth_csrf` cookie is only adopted if it has the exact
+32-lowercase-hex shape the server is the only setter of; anything else is
+replaced with a fresh token, so a cookie planted by a sibling host cannot
+reach the JSON or the HTML attribute the token is composed into.
 
 ### Session revocation
 
@@ -168,14 +216,16 @@ floor, not a policy — put a real one in front of it if you need one.
 
 ### Known gaps
 
-- `/api/logout` and `/api/status?destroy=` mutate server-side session state on
-  a `GET` with no CSRF token, so a third-party page the victim visits can force
-  a logout (the session cookies are `SameSite=Lax`, which a top-level
-  navigation carries).  The effect is a nuisance denial of service against one
-  user, not privilege escalation.  Closing it means moving both to `POST` with
-  the `auth_csrf` double-submit the API endpoints already use, which requires
-  matching changes in `assets/auth.js` (the `?destroy=` fetch) and in whatever
-  emits the logout link.
+- `/api/logout` still accepts a `GET`, which mutates server-side session state
+  with no CSRF token, so a third-party page can force a logout by navigating
+  the victim at it (the session cookies are `SameSite=Lax`, which a top-level
+  navigation carries; a subresource `GET` does not).  The effect is a nuisance
+  denial of service against one user, not privilege escalation.  The `GET`
+  form is kept because `lws-login` links a top-level navigation at it to log
+  the user out of the app and the auth server together.  The session teardown
+  the UI itself uses is now `POST /api/logout` with the `auth_csrf`
+  double-submit (`assets/auth.js`), and the CSRF-free `GET
+  /api/status?destroy=` it used to call has been removed.
 - `/api/register` answers `409` distinguishably for an already-registered
   address and for one with a verification pending, which enumerates accounts.
   Collapsing them to a single always-`200` "if the address is free you will

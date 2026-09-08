@@ -86,18 +86,18 @@ function renderTable(users) {
     users.forEach(u => {
         let grantsHtml = Object.keys(u.grants).map(k => {
             const cls = k === '*' ? 'badge star' : 'badge';
-            return `<span class="${cls}">${lwsAdminEsc(k)}:${u.grants[k]}</span>`;
+            return `<span class="${cls}">${lwsAdminEsc(k)}:${lwsAdminEsc(u.grants[k])}</span>`;
         }).join('');
 
         const isGod = u.grants && u.grants['*'] !== undefined;
         const actionsHtml = isGod ?
             `<span class="protected-admin-label">Protected Administrator</span>` :
-            `<button class="editBtn" data-uid="${u.uid}" data-grants="${lwsAdminEsc(JSON.stringify(u.grants))}">Edit</button>
-             <button class="danger deleteBtn" data-uid="${u.uid}" data-user="${lwsAdminEsc(u.user)}">Delete</button>`;
+            `<button class="editBtn" data-uid="${lwsAdminEsc(u.uid)}" data-grants="${lwsAdminEsc(JSON.stringify(u.grants))}">Edit</button>
+             <button class="danger deleteBtn" data-uid="${lwsAdminEsc(u.uid)}" data-user="${lwsAdminEsc(u.user)}">Delete</button>`;
 
         tbody.innerHTML += `
             <tr>
-                <td>${u.uid}</td>
+                <td>${lwsAdminEsc(u.uid)}</td>
                 <td><b>${lwsAdminEsc(u.user)}</b></td>
                 <td>${grantsHtml}</td>
                 <td>${actionsHtml}</td>

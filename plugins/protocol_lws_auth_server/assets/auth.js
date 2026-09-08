@@ -13,6 +13,20 @@ function lwsAuthEsc(s) {
     return String(s).replace(/[&<>"']/g, c => m[c]);
 }
 
+/*
+ * A target that did not parse as an absolute URL is only followed if it
+ * is a same-origin *path*.  A leading "//" -- or "/\", or "/<TAB>/",
+ * since the URL parser folds backslash and strips tab/LF/CR first -- is
+ * an authority, ie somebody else's host.  Returns null if unsafe.
+ */
+function lwsAuthSafeRelative(s) {
+    if (typeof s !== 'string' || /[\u0000-\u001f\u007f]/.test(s) ||
+        s[0] !== '/' || s[1] === '/' || s[1] === '\\')
+        return null;
+
+    return s;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     // Elements
     const loginForm = document.getElementById('login-form');
@@ -104,9 +118,9 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>`;
 
         if (data.is_admin) {
-            headerHtml += `<div class="auth-status-row auth-status-spacer" style="margin-top: 10px;">
+            headerHtml += `<div class="auth-status-row auth-status-spacer auth-status-admin-row">
                 <span class="auth-status-icon">🛠️</span>
-                <span class="auth-status-text"><a href="/api/admin" style="color: var(--primary-color, #007bff); text-decoration: none; font-weight: bold;">Admin Console</a></span>
+                <span class="auth-status-text"><a href="/api/admin" class="auth-admin-link">Admin Console</a></span>
             </div>`;
         }
 
@@ -130,7 +144,23 @@ document.addEventListener('DOMContentLoaded', () => {
             const btn = this;
             btn.innerText = "Logging out...";
             btn.disabled = true;
-            await fetch('/api/status?destroy=1', { cache: 'no-store', credentials: 'include' });
+            /*
+             * Teardown is state-changing: a POST carrying the
+             * auth_csrf double submit, not a CSRF-able GET.
+             */
+            const body = new URLSearchParams();
+            body.append('csrf_token', window.csrf_token || '');
+            try {
+                await fetch('/api/logout', {
+                    method: 'POST',
+                    cache: 'no-store',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: body.toString()
+                });
+            } catch (e) {
+                console.error("Logout failed", e);
+            }
             window.location.reload();
         });
     }
@@ -244,6 +274,20 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error("Status polling failed", e);
         }
     }
+
+    /*
+     * SSO completion is a cross-origin form POST, so the app's origin
+     * must be in this vhost's CSP form-action (see the README).  If it
+     * is not, the browser refuses the submission silently -- form.submit()
+     * returns normally -- so report the violation instead of idling.
+     */
+    document.addEventListener('securitypolicyviolation', (e) => {
+        if (e.effectiveDirective === 'form-action' ||
+            e.violatedDirective === 'form-action')
+            showNotif('error', 'The browser blocked handover to the ' +
+                      'application: this auth server\'s CSP form-action ' +
+                      'does not list its origin.');
+    });
 
     loadManifest();
     checkServerStatus();
@@ -381,7 +425,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         document.body.appendChild(form);
                         form.submit();
                     } else {
-                        window.location.href = redirectUri;
+                        /* not a URL: a same-origin path or nothing */
+                        const rel = lwsAuthSafeRelative(redirectUri);
+                        if (!rel)
+                            console.error("Unusable redirect target");
+                        window.location.href = rel || '/';
                     }
                 } else {
                     window.location.href = '/';

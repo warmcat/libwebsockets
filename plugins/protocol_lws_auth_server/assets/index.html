@@ -45,8 +45,19 @@
                 </div>
             </noscript>
 
+            <!--
+              auth.js submits these forms itself with fetch() and calls
+              preventDefault(), so the method / action below are never
+              used in normal operation.  They are still required: a form
+              with no method defaults to GET and with no action submits
+              to the current URL, so any JS failure before the submit
+              listeners are attached would put the password (or the
+              reset token) into the address bar, the access log, the
+              history and the Referer.  With these, the degraded path is
+              a POST to the endpoint that would have handled it.
+            -->
             <!-- Login Form -->
-            <form id="login-form" class="auth-form active">
+            <form id="login-form" class="auth-form active" method="post" action="/api/login">
                 <div class="input-group">
                     <label for="login-username">Email Address</label>
                     <input type="email" id="login-username" name="username" required autocomplete="username">
@@ -71,7 +82,7 @@
             </form>
 
             <!-- Registration Form (Hidden natively... it is toggled via JS) -->
-            <form id="register-form" class="auth-form hidden">
+            <form id="register-form" class="auth-form hidden" method="post" action="/api/register">
                 <div class="input-group">
                     <label for="reg-username">Email Address</label>
                     <input type="email" id="reg-username" name="username" required autocomplete="email">
@@ -114,7 +125,7 @@
             </div>
 
             <!-- Forgot Password Form -->
-            <form id="forgot-password-form" class="auth-form hidden">
+            <form id="forgot-password-form" class="auth-form hidden" method="post" action="/api/forgot_password">
                 <div class="input-group">
                     <label for="forgot-email">Email Address</label>
                     <input type="email" id="forgot-email" name="email" required autocomplete="email">
@@ -126,7 +137,7 @@
             </form>
 
             <!-- Reset Password Form -->
-            <form id="reset-password-form" class="auth-form hidden">
+            <form id="reset-password-form" class="auth-form hidden" method="post" action="/api/reset_password">
                 <input type="hidden" id="reset-token" name="reset_token">
                 <div class="input-group">
                     <label for="reset-password">New Password</label>
