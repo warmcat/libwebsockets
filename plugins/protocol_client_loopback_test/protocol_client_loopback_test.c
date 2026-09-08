@@ -149,8 +149,9 @@ callback_client_loopback_test(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!vhd)
 			return 1;
 
-		if (in)
-			lws_pvo_get_str(in, "allow", &vhd->allow);
+		if (!in || lws_pvo_get_str(in, "allow", &vhd->allow))
+			/* no "allow" pvo: clt_addr_permitted() permits nothing */
+			vhd->allow = NULL;
 		break;
 
 	/* HTTP part */
