@@ -172,6 +172,75 @@ deaddrop_parse_user_agent(const char *ua, char *platform, size_t plat_len,
 		lws_strncpy(browser, "Chrome", browser_len);
 }
 
+/*
+ * Establish the authenticated identity for this connection into pss->user
+ * (left empty if there is none) and pss->has_star_grant.
+ *
+ * Two sources are accepted:
+ *
+ *  - the Authorization header, but ONLY if this vhost actually configured
+ *    basic auth on the protocol.  In that case lws has already validated it
+ *    and rewritten the header to the bare username
+ *    (lws_authorization_rewrite()).  Without that pvo, nothing validates or
+ *    rewrites it, and any peer could just send "Authorization: alice" and
+ *    be treated as alice.
+ *
+ *  - the JWT session cookie, which must both verify and still be live:
+ *    lws_jwt_auth_create() deliberately hands back a token that verified but
+ *    has expired, leaving the expiry policy to us.  For a session credential,
+ *    expired means no session.
+ */
+
+static void
+deaddrop_get_auth_identity(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
+			   struct lws *wsi)
+{
+	struct lws_jwt_auth *ja;
+	const char *sub;
+
+	pss->user[0]		= '\0';
+	pss->has_star_grant	= 0;
+
+	if (vhd->basic_auth &&
+	    lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
+			 WSI_TOKEN_HTTP_AUTHORIZATION) > 0 &&
+	    strncmp(pss->user, "Basic ", 6) &&
+	    strncmp(pss->user, "Bearer ", 7)) {
+		lwsl_wsi_info(wsi, "%s: basic auth user '%s'", __func__,
+			      pss->user);
+
+		return;
+	}
+
+	pss->user[0] = '\0'; /* discard any raw header we do not trust */
+
+	if (!vhd->has_jwk)
+		return;
+
+	ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, wsi,
+				 NULL);
+	if (!ja)
+		return;
+
+	if (lws_jwt_auth_get_exp(ja) <= (uint64_t)lws_now_secs()) {
+		lwsl_wsi_notice(wsi, "%s: JWT session expired", __func__);
+		lws_jwt_auth_destroy(&ja);
+
+		return;
+	}
+
+	sub = lws_jwt_auth_get_sub(ja);
+	if (sub)
+		lws_strncpy(pss->user, sub, sizeof(pss->user));
+
+	if (pss->user[0] && lws_jwt_auth_query_grant(ja, "*") >= 1)
+		pss->has_star_grant = 1;
+
+	lwsl_wsi_info(wsi, "%s: JWT user '%s'", __func__, pss->user);
+
+	lws_jwt_auth_destroy(&ja);
+}
+
 static int
 deaddrop_de_mtime_sort(lws_list_ptr a, lws_list_ptr b)
 {
@@ -805,7 +874,7 @@ deaddrop_handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss
 #else
 	char path[512];
 #endif
-	char fname[256], *wp;
+	char fname[256], user[sizeof(pss->user)], *wp;
 	const char *cp;
 	int n;
 
@@ -918,6 +987,7 @@ deaddrop_handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddr
 	uint8_t buf[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE],
 		*start = &buf[LWS_PRE], *p = start,
 		*end = &buf[sizeof(buf) - 1];
+	char esc_user[128], esc_up[64];
 	int n, was = 0;
 
 	/* if nothing to write, write nothing */
@@ -1086,6 +1156,30 @@ _deaddrop_callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 							 lws_get_protocol(wsi));
 	struct pss_deaddrop *pss = (struct pss_deaddrop *)user;
+
+	/*
+	 * lws offers every loaded plugin protocol on every vhost, but only
+	 * calls PROTOCOL_INIT for a vhost that has a pvo for it.  On any other
+	 * vhost of the same process, vhd stays NULL forever, and a peer can
+	 * still bind us with "Sec-WebSocket-Protocol: lws-deaddrop" or by a
+	 * callback mount.  Refuse those cleanly rather than deref NULL.
+	 */
+
+	switch (reason) {
+	case LWS_CALLBACK_HTTP:
+	case LWS_CALLBACK_HTTP_BODY:
+	case LWS_CALLBACK_RAW_RX_FILE:
+	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
+	case LWS_CALLBACK_ESTABLISHED:
+	case LWS_CALLBACK_CLOSED:
+	case LWS_CALLBACK_RECEIVE:
+	case LWS_CALLBACK_SERVER_WRITEABLE:
+		if (!vhd)
+			return -1;
+		break;
+	default:
+		break;
+	}
 
 	switch (reason) {
 
