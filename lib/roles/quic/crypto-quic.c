@@ -1331,7 +1331,9 @@ lws_quic_create_retry_token(struct lws *wsi,
         uint8_t nonce[12];
         uint64_t now = (uint64_t)lws_now_usecs();
 
-        lws_get_random(wsi->a.context, nonce, 12);
+        /* the AEAD nonce must never be reused or predictable */
+        if (lws_get_random(wsi->a.context, nonce, 12) != 12)
+                return -1;
 
         pt[pt_len++] = (uint8_t)dcid_len;
         memcpy(&pt[pt_len], client_dcid, dcid_len);

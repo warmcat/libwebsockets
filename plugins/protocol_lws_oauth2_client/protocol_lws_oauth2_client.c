@@ -745,10 +745,17 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 					sname[0] = '\0';
 				}
 
-			lws_get_random(vhd->context, rand_bytes, 16);
+			/*
+			 * state, the PKCE verifier, the CSRF token and the
+			 * user-agent nonce are all security-critical: none of
+			 * them may be minted from a failed random read
+			 */
+			if (lws_get_random(vhd->context, rand_bytes, 16) != 16)
+				goto rand_fail;
 			lws_b64_encode_string_url((const char *)rand_bytes, 16, ps->state, sizeof(ps->state));
 
-			lws_get_random(vhd->context, rand_bytes, 32);
+			if (lws_get_random(vhd->context, rand_bytes, 32) != 32)
+				goto rand_fail;
 			lws_b64_encode_string_url((const char *)rand_bytes, 32, ps->code_verifier, sizeof(ps->code_verifier));
 
 			/*
@@ -759,7 +766,10 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			 */
 			{
 				uint8_t rnd[16];
-				lws_get_random(vhd->context, rnd, sizeof(rnd));
+
+				if (lws_get_random(vhd->context, rnd,
+						   sizeof(rnd)) != sizeof(rnd))
+					goto rand_fail;
 				lws_hex_from_byte_array(rnd, sizeof(rnd),
 							ps->csrf, sizeof(ps->csrf));
 			}
@@ -771,10 +781,20 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			 */
 			{
 				uint8_t rnd[16];
-				lws_get_random(vhd->context, rnd, sizeof(rnd));
+
+				if (lws_get_random(vhd->context, rnd,
+						   sizeof(rnd)) != sizeof(rnd))
+					goto rand_fail;
 				lws_hex_from_byte_array(rnd, sizeof(rnd),
 							ps->state_nonce,
 							sizeof(ps->state_nonce));
+			}
+
+			if (0) {
+rand_fail:
+				lwsl_wsi_err(wsi, "/oauth/login: no randomness");
+				free(ps);
+				return -1;
 			}
 
 			if (lws_genhash_init(&hctx, LWS_GENHASH_TYPE_SHA256) ||

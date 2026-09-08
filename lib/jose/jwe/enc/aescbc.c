@@ -69,7 +69,13 @@ lws_jwe_encrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *cek,
 	 *    2.  The IV used is a 128-bit value generated randomly or
 	 *        pseudorandomly for use in the cipher.
 	 */
-	lws_get_random(jwe->jws.context, (void *)jwe->jws.map.buf[LJWE_IV], 16);
+	if (lws_get_random(jwe->jws.context,
+			   (void *)jwe->jws.map.buf[LJWE_IV], 16) != 16) {
+		/* a predictable or zero IV must never be used */
+		lwsl_err("%s: unable to get random IV\n", __func__);
+
+		return -1;
+	}
 
 	/*
 	 *  3.  The plaintext is CBC encrypted using PKCS #7 padding using
