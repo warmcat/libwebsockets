@@ -274,6 +274,7 @@ endif()
 
 if (LWS_WITH_HTTP_DIGEST_AUTH)
 	set(LWS_WITH_GENCRYPTO 1)
+	set(LWS_WITH_HTTP_BASIC_AUTH 1)
 endif()
 
 if (APPLE)
