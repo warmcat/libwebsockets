@@ -851,6 +851,16 @@ lws_parse_numeric_address(const char *ads, uint8_t *result, size_t max_len)
 	if (ipv6 && max_len < 16)
 		return -4;
 
+	/*
+	 * We can only ever produce 4 (v4) or 16 (v6) bytes... a caller with a
+	 * bigger buffer must not let us accept an overlong literal, since the
+	 * "::" reassembly at ENDED below is written around a 16-byte result
+	 * (and it is the ipv6 entry check above that guarantees 16 are there).
+	 */
+
+	if (max_len > 16)
+		max_len = 16;
+
 	if (ipv6)
 		memset(result, 0, max_len);
 
@@ -909,7 +919,19 @@ lws_parse_numeric_address(const char *ads, uint8_t *result, size_t max_len)
 					return -8;
 				if (*ts.token != ':')
 					return -9;
-				/* back to back : */
+				/*
+				 * back to back :
+				 *
+				 * RFC4291 4.2: "::" may only appear once in an
+				 * address, since more than one occurrence
+				 * cannot be resolved unambiguously.  We would
+				 * otherwise accept it and silently normalize
+				 * to something other than a conformant parser
+				 * (eg, the OS resolver, or a peer or proxy)
+				 * would, which is an ACL bypass primitive.
+				 */
+				if (skip_point != -1)
+					return -16;
 				if (result - orig + 2 > (int)max_len)
 					return -15;
 				*result++ = 0;
@@ -1064,13 +1086,13 @@ lws_write_numeric_address(const uint8_t *ads, int size, char *buf, size_t len)
 				    ads[0], ads[1], ads[2], ads[3]);
 
 	if (size != 16)
-		return -1;
+		goto bail;
 
 	for (c = 0; c < (char)size / 2; c++) {
 		uint16_t v = (uint16_t)((ads[q] << 8) | ads[q + 1]);
 
 		if (buf + 8 > e)
-			return -1;
+			goto bail;
 
 		q += 2;
 		if (soe) {
@@ -1108,7 +1130,7 @@ lws_write_numeric_address(const uint8_t *ads, int size, char *buf, size_t len)
 		}
 	}
 	if (buf + 3 > e)
-		return -1;
+		goto bail;
 
 	if (soe) { /* as is the case for all zeros */
 		*buf++ = ':';
@@ -1117,6 +1139,19 @@ lws_write_numeric_address(const uint8_t *ads, int size, char *buf, size_t len)
 	}
 
 	return lws_ptr_diff(buf, obuf);
+
+bail:
+	/*
+	 * We're failing: the buffer may hold a partial address, and the
+	 * ipv4-tail path deliberately overwrites the NUL lws_snprintf() left,
+	 * so we can be leaving an unterminated "string" behind.  Hand back a
+	 * valid, empty one instead.
+	 */
+
+	if (len)
+		*obuf = '\0';
+
+	return -1;
 }
 
 int
@@ -1270,6 +1305,18 @@ lws_sa46_on_net(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46_net,
 	} else
 #endif
 		return 1;
+
+	/*
+	 * Both operands are exactly 16 bytes wide from here on: whatever the
+	 * caller believed the prefix length was, we can only ever compare 128
+	 * bits of it, and walking further would read off the end of the
+	 * normalization buffers and of the caller's lws_sockaddr46.
+	 */
+
+	if (net_len > 128)
+		net_len = 128;
+	if (net_len < 0)
+		net_len = 0;
 
 	while (net_len > 0) {
 		if (net_len < 8)
@@ -1464,7 +1511,23 @@ lws_parse_cidr(const char *cidr, lws_sockaddr46 *sa46, int *len)
 	if (!p) {
 		*len = -1; /* no mask */
 	} else {
+		const char *q;
+
 		*p++ = '\0';
+
+		/*
+		 * It must be a plain decimal prefix length... "/" alone, or
+		 * anything nonnumeric, would otherwise atoi() to 0, ie, a
+		 * prefix that silently matches every address
+		 */
+
+		if (!*p || strlen(p) > 3)
+			return -1;
+
+		for (q = p; *q; q++)
+			if (*q < '0' || *q > '9')
+				return -1;
+
 		*len = atoi(p);
 	}
 
@@ -1472,8 +1535,22 @@ lws_parse_cidr(const char *cidr, lws_sockaddr46 *sa46, int *len)
 	if (n)
 		return n;
 
-	if (*len == -1)
+	if (*len == -1) {
 		*len = sa46->sa4.sin_family == AF_INET6 ? 128 : 32;
+
+		return 0;
+	}
+
+	/*
+	 * The prefix length is in the address family space of the net address
+	 * (an IPv6-only build stores v4 nets as v4-mapped AF_INET6, with the
+	 * prefix length still in v4 space, so accept up to 128 for AF_INET6);
+	 * refuse anything wider, so consumers like lws_sa46_on_net() can never
+	 * be handed a prefix wider than the addresses they compare.
+	 */
+
+	if (*len > (sa46->sa4.sin_family == AF_INET6 ? 128 : 32))
+		return -1;
 
 	return 0;
 }
