@@ -245,6 +245,11 @@ lws_gendtls_destroy(struct lws_gendtls_ctx *ctx)
 	if (ctx->cookie_key.data)
 		gnutls_free(ctx->cookie_key.data);
 
+	/* the cert and key copies taken by set_cert_mem() / set_key_mem() */
+
+	lws_free_set_NULL(ctx->cert_mem);
+	lws_free_set_NULL(ctx->key_mem);
+
 	lws_buflist_destroy_all_segments(&ctx->rx_head);
 	lws_buflist_destroy_all_segments(&ctx->tx_head);
 }
