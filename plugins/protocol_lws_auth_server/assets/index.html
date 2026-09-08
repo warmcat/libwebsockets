@@ -4,6 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Secure Authentication Server Login">
+    <!--
+      The SSO completion is a cross-origin form POST to the app's
+      /.lws-login-sso, which lws-login only honours when the request
+      carries an Origin (or Referer) naming this auth server.  A
+      site-wide "Referrer-Policy: no-referrer" header makes browsers
+      send "Origin: null" and no Referer on that POST, so the token is
+      rejected as login CSRF.  This meta overrides any such header for
+      this document so the POST always identifies us.
+    -->
+    <meta name="referrer" content="strict-origin-when-cross-origin">
     <title>Auth Server | Secure Login</title>
     <link rel="stylesheet" href="auth.css">
 </head>
