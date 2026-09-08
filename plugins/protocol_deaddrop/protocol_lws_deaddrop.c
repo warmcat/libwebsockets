@@ -816,23 +816,12 @@ deaddrop_handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss
 	if (strncmp((const char *)in, "{\"del\":\"", 8))
 		return;
 
-	cp = (char *)strchr((const char *)in + 8, '_');
-	if (!cp) {
-		lwsl_warn("%s: del: no owner in filename\n", __func__);
-		return;
-	}
-
-	/* Check if the authenticated user matches the file owner prefix */
-	n = (int)(cp - (((const char *)in) + 8));
-
-	if (!pss->has_star_grant && ((int)strlen(pss->user) != n ||
-	    strncmp(pss->user, ((const char *)in) + 8, (unsigned int)n))) {
-		lwsl_wsi_notice(wsi, "del: auth mismatch "
-			    " user '%s' tried to delete file with "
-			    "owner '%.*s'", pss->user, n,
-			    ((const char *)in) + 8);
-		return;
-	}
+	/*
+	 * Purify the requested name FIRST: the name we are going to unlink is
+	 * the purified one, so that is what the ownership check has to be
+	 * made on.  Checking the raw request instead lets, eg, user 'bob$1'
+	 * pass the check with 'bob$1_x' and then unlink 'bob_1's file.
+	 */
 
 	lws_strncpy(fname, ((const char *)in) + 8, sizeof(fname));
 	wp = (char *)strchr((const char *)fname, '\"');
@@ -840,6 +829,38 @@ deaddrop_handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss
 		*wp = '\0';
 
 	lws_filename_purify_inplace(fname);
+
+	cp = (char *)strchr(fname, '_');
+	if (!cp) {
+		lwsl_warn("%s: del: no owner in filename\n", __func__);
+		return;
+	}
+
+	n = (int)(cp - fname);
+
+	/*
+	 * An anonymous session owns nothing, and neither does the empty owner
+	 * prefix of, eg, "_x": without these, pss->user "" == "" and the
+	 * comparison below passes for an unauthenticated peer.
+	 */
+	if (!pss->user[0] || !n) {
+		lwsl_wsi_notice(wsi, "del: refusing '%s' for unowned request",
+				fname);
+		return;
+	}
+
+	/* the owner prefix on disk was formed from the purified username */
+
+	lws_strncpy(user, pss->user, sizeof(user));
+	lws_filename_purify_inplace(user);
+
+	if (!pss->has_star_grant && ((int)strlen(user) != n ||
+	    strncmp(user, fname, (unsigned int)n))) {
+		lwsl_wsi_notice(wsi, "del: auth mismatch "
+			    " user '%s' tried to delete file with "
+			    "owner '%.*s'", pss->user, n, fname);
+		return;
+	}
 
 	lws_snprintf(path, sizeof(path), "%s/%s", vhd->upload_dir,
 		     fname);
