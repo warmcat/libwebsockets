@@ -66,8 +66,34 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 			LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
 					   x509_ctx, ssl, (unsigned int)preverify_ok);
 
+	if (n)
+		/* the user callback explicitly rejected the cert */
+		return 0;
+
+	/*
+	 * The vhost asked for a *valid* client cert.  A protocols[0] handler
+	 * that does not implement this callback (eg, lws_callback_http_dummy)
+	 * also returns 0, so silence from the user code must not be taken as
+	 * acceptance of a cert openssl already refused.
+	 *
+	 * As on the client side, user code that means to overrule the failure
+	 * must say so by clearing the error with
+	 * X509_STORE_CTX_set_error(x509_ctx, X509_V_OK) before returning 0.
+	 */
+
+	if (!preverify_ok && X509_STORE_CTX_get_error(x509_ctx) != X509_V_OK) {
+		int err = X509_STORE_CTX_get_error(x509_ctx);
+
+		lwsl_notice("%s: vh %s: client cert rejected: %s (depth %d)\n",
+			    __func__, wsi->a.vhost->name,
+			    X509_verify_cert_error_string(err),
+			    X509_STORE_CTX_get_error_depth(x509_ctx));
+
+		return 0;
+	}
+
 	/* convert return code from 0 = OK to 1 = OK */
-	return !n;
+	return 1;
 }
 
 int
@@ -85,8 +111,16 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 			   LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
 		verify_options |= SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
 
-	SSL_CTX_set_session_id_context(vh->tls.ssl_ctx, (uint8_t *)vh->context,
-				       sizeof(void *));
+	/*
+	 * The session id context must differ between vhosts that have
+	 * different client cert policies, or a session established under one
+	 * may be resumed under another.  Casting the context pointer to
+	 * uint8_t * hashed the first bytes of the context *object* (the same
+	 * for every vhost); use the vhost pointer's own value instead
+	 */
+
+	SSL_CTX_set_session_id_context(vh->tls.ssl_ctx, (uint8_t *)&vh,
+				       sizeof(vh));
 
 	/* absolutely require the client cert */
 	SSL_CTX_set_verify(vh->tls.ssl_ctx, verify_options,
@@ -976,6 +1010,11 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	if (!EVP_PKEY_assign_RSA(vhost->tls.ss->pkey, vhost->tls.ss->rsa))
 		goto bail2;
 
+	/*
+	 * From here the EVP_PKEY owns the RSA key, so any failure must unwind
+	 * via bail1 (which frees the pkey) and never free the RSA separately
+	 */
+
 	X509_set_pubkey(vhost->tls.ss->x509, vhost->tls.ss->pkey);
 
 	/*
@@ -991,7 +1030,7 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 				   (unsigned char *)"temp.acme.invalid",
 				   	   	   -1, -1, 0) != 1) {
 		lwsl_notice("failed to add CN\n");
-		goto bail2;
+		goto bail1;
 	}
 	X509_set_issuer_name(vhost->tls.ss->x509, name);
 
@@ -999,42 +1038,50 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 
 	gen = GENERAL_NAME_new();
 	ia5 = ASN1_IA5STRING_new();
-	if (!ASN1_STRING_set(ia5, san_a, -1)) {
+	if (!gen || !ia5 || !ASN1_STRING_set(ia5, san_a, -1)) {
 		lwsl_notice("failed to set ia5\n");
 		GENERAL_NAME_free(gen);
-		goto bail2;
+		ASN1_STRING_free(ia5);
+		goto bail1;
 	}
 	GENERAL_NAME_set0_value(gen, GEN_DNS, ia5);
 	sk_GENERAL_NAME_push(gens, gen);
 
 	if (X509_add1_ext_i2d(vhost->tls.ss->x509, NID_subject_alt_name,
 			    gens, 0, X509V3_ADD_APPEND) != 1)
-		goto bail2;
+		goto bail1;
 
+	/* NULL it so the bail path can't free it a second time */
 	GENERAL_NAMES_free(gens);
+	gens = NULL;
 
 	if (san_b && san_b[0]) {
 		gens = sk_GENERAL_NAME_new_null();
+		if (!gens)
+			goto bail1;
+
 		gen = GENERAL_NAME_new();
 		ia5 = ASN1_IA5STRING_new();
-		if (!ASN1_STRING_set(ia5, san_a, -1)) {
+		if (!gen || !ia5 || !ASN1_STRING_set(ia5, san_b, -1)) {
 			lwsl_notice("failed to set ia5\n");
 			GENERAL_NAME_free(gen);
-			goto bail2;
+			ASN1_STRING_free(ia5);
+			goto bail1;
 		}
 		GENERAL_NAME_set0_value(gen, GEN_DNS, ia5);
 		sk_GENERAL_NAME_push(gens, gen);
 
 		if (X509_add1_ext_i2d(vhost->tls.ss->x509, NID_subject_alt_name,
 				    gens, 0, X509V3_ADD_APPEND) != 1)
-			goto bail2;
+			goto bail1;
 
 		GENERAL_NAMES_free(gens);
+		gens = NULL;
 	}
 
 	/* sign it with our private key */
 	if (!X509_sign(vhost->tls.ss->x509, vhost->tls.ss->pkey, EVP_sha256()))
-		goto bail2;
+		goto bail1;
 
 #if 0
 	{/* useful to take a sample of a working cert for mbedtls to crib */
@@ -1059,8 +1106,10 @@ bail1:
 bail0:
 	X509_free(vhost->tls.ss->x509);
 bail:
-	lws_free(vhost->tls.ss);
-	GENERAL_NAMES_free(gens);
+	/* must NULL it, or vhost destroy walks the freed object */
+	lws_free_set_NULL(vhost->tls.ss);
+	if (gens)
+		GENERAL_NAMES_free(gens);
 
 	return 1;
 }

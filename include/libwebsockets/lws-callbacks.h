@@ -157,9 +157,12 @@ enum lws_callback_reasons {
 	 * in is the ssl pointer and len is preverify_ok
 	 * Notice that this callback maintains libwebsocket return
 	 * conventions, return 0 to mean the cert is OK or 1 to fail it.
-	 * This also means that if you don't handle this callback then
-	 * the default callback action of returning 0 allows the client
-	 * certificates. */
+	 * Returning 0 does not override a cert the tls backend already
+	 * rejected: if you don't handle this callback, or handle it and
+	 * return 0, the backend's own verification result stands.  To
+	 * accept a cert the backend refused, clear the error yourself
+	 * with X509_STORE_CTX_set_error(x509_ctx, X509_V_OK) and then
+	 * return 0. */
 
 	LWS_CALLBACK_SSL_INFO					= 67,
 	/**< SSL connections only.  An event you registered an

@@ -523,11 +523,18 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 
 	m = lws_ssl_get_error(wsi, n);
 
-	if (m == SSL_ERROR_SYSCALL
-#if defined(WIN32)
-			&& en
-#endif
-	) {
+	/*
+	 * SSL_ERROR_SYSCALL means the transport failed under us, ie, the
+	 * handshake did not complete.  On windows the socket error appears in
+	 * WSAGetLastError() (which LWS_ERRNO reflects) and the CRT errno is
+	 * typically 0, so gating the bail on errno used to let a truncated
+	 * handshake fall through to the "connect OK" test below and be
+	 * reported upstairs as an established, cert-verified connection
+	 */
+
+	if (m == SSL_ERROR_SYSCALL) {
+		if (!en)
+			en = LWS_ERRNO;
 #if defined(WIN32) || (_LWS_ENABLED_LOGS & LLL_INFO)
 		lwsl_info("%s: n %d, m %d, errno %d\n", __func__, n, m, en);
 #endif
@@ -563,7 +570,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 	if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->tls.ssl))
 		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
-	if (n == 1 || m == SSL_ERROR_SYSCALL) {
+	if (n == 1) {
 		/*
 		 * Handle the negotiated ALPN the same way at handshake
 		 * completion as the gnutls backend does: this also records
@@ -823,6 +830,20 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 	if (cert_mem && cert_mem_len)
 		EVP_DigestUpdate(mdctx, cert_mem, cert_mem_len);
+
+	/*
+	 * The in-memory client key is part of the identity the context will
+	 * present: without it in the fingerprint, two vhosts with the same
+	 * client cert but different keys share one SSL_CTX, and the second
+	 * silently gets the first one's key
+	 */
+
+	if (key_mem && key_mem_len)
+		EVP_DigestUpdate(mdctx, key_mem, key_mem_len);
+
+	if (info->client_ssl_private_key_password)
+		EVP_DigestUpdate(mdctx, info->client_ssl_private_key_password,
+				 strlen(info->client_ssl_private_key_password));
 
 	len = sizeof(hash);
 	EVP_DigestFinal_ex(mdctx, hash, &len);
