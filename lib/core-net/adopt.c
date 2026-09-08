@@ -149,15 +149,21 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	/* bring in specific fault injection rules early */
 	lws_fi_inherit_copy(&new_wsi->fic, &context->fic, "wsi", fi_wsi_name);
 
-	if (lws_fi(&new_wsi->fic, "createfail")) {
-		lws_fi_destroy(&new_wsi->fic);
+	pt = &context->pt[(int)new_wsi->tsi];
 
-		return NULL;
+	if (lws_fi(&new_wsi->fic, "createfail")) {
+		/*
+		 * He is already tagged, bound to the vhost and on the pt's
+		 * pre-natal list... returning NULL from here without giving
+		 * all of that back leaks him and permanently inflates the
+		 * vhost's count_bound_wsi, so it can never be destroyed.
+		 */
+		lws_pt_lock(pt, __func__); /* -------------- pt { */
+		goto bail;
 	}
 
 	new_wsi->a.opaque_user_data = opaque;
 
-	pt = &context->pt[(int)new_wsi->tsi];
 	lws_pt_lock(pt, __func__);
 
 	if (parent) {
@@ -221,21 +227,29 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 
 	return new_wsi;
 
-bail:
-        lws_pt_lock(pt, __func__); /* -------------- pt { */
-        lws_dll2_remove(&new_wsi->pre_natal);
-        lws_pt_unlock(pt); /* } pt --------------- */
-
+bail: /* entered with the pt lock held */
 	lwsl_wsi_notice(new_wsi, "exiting on bail");
+
+	lws_dll2_remove(&new_wsi->pre_natal);
 	if (parent)
 		lws_dll2_remove(&new_wsi->sibling_list);
+
+	lws_pt_unlock(pt); /* } pt --------------- */
+
 	if (new_wsi->user_space)
 		lws_free(new_wsi->user_space);
 
 	lws_fi_destroy(&new_wsi->fic);
 
-	lws_pt_unlock(pt);
 	__lws_vhost_unbind_wsi(new_wsi); /* req cx, acq vh lock */
+
+	/*
+	 * He was added to his lifecycle group when he was created; freeing him
+	 * without untagging leaves the group owner's head / tail / neighbour
+	 * pointers aimed inside the freed wsi, and never gives back the
+	 * refcount he took on his log_cx
+	 */
+	__lws_lc_untag(context, &new_wsi->lc);
 
 	lws_free(new_wsi);
 
@@ -370,6 +384,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 {
 	struct lws_context_per_thread *pt =
 			&new_wsi->a.context->pt[(int)new_wsi->tsi];
+	struct lws_context *cx = new_wsi->a.context;
 	int n;
 
 	/* enforce that every fd is nonblocking */
