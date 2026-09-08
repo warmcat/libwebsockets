@@ -1603,6 +1603,21 @@ lws_strcmp_wildcard(const char *wildcard, size_t wlen, const char *check,
 		   *cend = check + clen;
 	int sp = 0;
 
+	if (!clen) {
+		/*
+		 * There is nothing to dereference at \p check... the loop
+		 * below is do {} while and would read check[0] before testing
+		 * check < cend.  Only a wildcard that is empty or entirely
+		 * '*' can match an empty string.
+		 */
+
+		while (wildcard < wc_end)
+			if (*wildcard++ != '*')
+				return 1;
+
+		return 0;
+	}
+
 	do {
 
 		if (wildcard == wc_end) {
