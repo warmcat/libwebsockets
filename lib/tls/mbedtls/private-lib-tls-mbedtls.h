@@ -49,18 +49,20 @@ struct lws_tls_conn {
 	mbedtls_ssl_context ssl;
 	mbedtls_net_context net;
 	struct lws_tls_ctx *ctx;
-#if defined(LWS_WITH_CLIENT)
 	/*
-	 * Client ALPN is per-connection, but mbedtls only takes it on the
-	 * config, and stores the pointer array without copying it.  When we
-	 * have a per-connection list, conf is a private, shallow copy of
-	 * ctx->conf that carries it (it aliases ctx->conf's contents and must
-	 * never be passed to mbedtls_ssl_config_free()).
+	 * Some things mbedtls only takes on the ssl config are actually
+	 * per-connection: the client ALPN list (which it stores by pointer,
+	 * without copying), and the QUIC transport mode.  ctx->conf is shared
+	 * by every connection on the vhost, so when we have any of those, conf
+	 * is a private, shallow copy of ctx->conf that carries them (it
+	 * aliases ctx->conf's contents and must never be passed to
+	 * mbedtls_ssl_config_free()).
 	 */
 	mbedtls_ssl_config conf;
+	uint8_t own_conf;
+#if defined(LWS_WITH_CLIENT)
 	char alpn_strings[128];
 	const char *alpn_protocols[8];
-	uint8_t own_conf;
 #endif
 };
 

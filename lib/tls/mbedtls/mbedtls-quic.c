@@ -33,14 +33,58 @@ mbedtls_quic_bio_free(struct lws *wsi);
 
 #if defined(LWS_HAVE_mbedtls_ssl_set_quic_transport_ops)
 
+/*
+ * RFC9001 4.1.3: each encryption level has its own, separate CRYPTO stream,
+ * and handshake bytes that arrived at one level must not be consumed as if
+ * they had arrived at another.  Initial-level packets are forgeable by any
+ * observer (the Initial keys come from the cleartext DCID), so flattening the
+ * levels into one buffer would let those bytes be spliced into the
+ * authenticated part of the transcript.
+ */
+
+enum {
+	LWS_MBQ_LEVEL_INITIAL,
+	LWS_MBQ_LEVEL_EARLY_DATA,
+	LWS_MBQ_LEVEL_HANDSHAKE,
+	LWS_MBQ_LEVEL_APPLICATION,
+
+	LWS_MBQ_LEVEL_COUNT
+};
+
+/*
+ * Cap on the CRYPTO bytes we will buffer per level awaiting mbedtls consuming
+ * them.  Nothing drains these once the handshake is over, and the QUIC role's
+ * own guard is on its reassembly buffer, which it resets after every handover.
+ * Matches the openssl backend's limit.
+ */
+
+#define LWS_MBQ_MAX_RX_PER_LEVEL ((size_t)262144)
+
 struct mbedtls_quic_buf {
-	uint8_t *rx_buf;
-	size_t rx_len;
+	uint8_t *rx_buf[LWS_MBQ_LEVEL_COUNT];
+	size_t rx_len[LWS_MBQ_LEVEL_COUNT];
 
 	uint8_t *out;
 	size_t out_max;
 	size_t out_len;
 };
+
+static int
+mbedtls_quic_level_idx(mbedtls_ssl_quic_enc_level_t level)
+{
+	switch (level) {
+	case MBEDTLS_SSL_QUIC_ENC_LEVEL_INITIAL:
+		return LWS_MBQ_LEVEL_INITIAL;
+	case MBEDTLS_SSL_QUIC_ENC_LEVEL_EARLY_DATA:
+		return LWS_MBQ_LEVEL_EARLY_DATA;
+	case MBEDTLS_SSL_QUIC_ENC_LEVEL_HANDSHAKE:
+		return LWS_MBQ_LEVEL_HANDSHAKE;
+	case MBEDTLS_SSL_QUIC_ENC_LEVEL_APPLICATION:
+		return LWS_MBQ_LEVEL_APPLICATION;
+	default:
+		return -1;
+	}
+}
 
 static int
 mbedtls_quic_write_handshake_msg(mbedtls_ssl_context *ssl, mbedtls_ssl_quic_enc_level_t level, const unsigned char *buf, size_t len)
@@ -80,29 +124,42 @@ mbedtls_quic_read_handshake_msg(mbedtls_ssl_context *ssl,
 	struct lws *wsi = (struct lws *)mbedtls_ssl_get_user_data_p(ssl);
 	struct mbedtls_quic_buf *b;
 	size_t msg_len, total_len;
+	uint8_t *rx;
+	int li;
 
 	if (!wsi || !wsi->tls.client_bio)
 		return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
 
 	b = (struct mbedtls_quic_buf *)wsi->tls.client_bio;
 
-	if (b->rx_len < 4)
+	/*
+	 * Only ever hand mbedtls bytes that arrived at the level it is asking
+	 * for... bytes from another level are not part of this stream.
+	 */
+
+	li = mbedtls_quic_level_idx(level);
+	if (li < 0)
+		return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
+
+	rx = b->rx_buf[li];
+
+	if (b->rx_len[li] < 4)
 		return MBEDTLS_ERR_SSL_WANT_READ;
 
-	msg_len = ((size_t)b->rx_buf[1] << 16) | ((size_t)b->rx_buf[2] << 8) | b->rx_buf[3];
+	msg_len = ((size_t)rx[1] << 16) | ((size_t)rx[2] << 8) | rx[3];
 	total_len = msg_len + 4;
 
-	if (b->rx_len < total_len)
+	if (b->rx_len[li] < total_len)
 		return MBEDTLS_ERR_SSL_WANT_READ;
 
 	if (len < total_len)
 		return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
 
-	memcpy(buf, b->rx_buf, total_len);
+	memcpy(buf, rx, total_len);
 
-	if (b->rx_len > total_len)
-		memmove(b->rx_buf, b->rx_buf + total_len, b->rx_len - total_len);
-	b->rx_len -= total_len;
+	if (b->rx_len[li] > total_len)
+		memmove(rx, rx + total_len, b->rx_len[li] - total_len);
+	b->rx_len[li] -= total_len;
 
 	lwsl_notice("%s: returning %d bytes (level %d)\n", __func__, (int)total_len, (int)level);
 	return (int)total_len;
@@ -268,21 +325,36 @@ static mbedtls_ssl_custom_ext_t quic_ext = {
 int
 lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 {
+	struct lws_tls_conn *conn;
 	mbedtls_ssl_context *msc;
 	struct mbedtls_quic_buf *b;
-	mbedtls_ssl_config *conf;
 
 	if (!wsi->tls.ssl)
 		return -1;
 
-	msc = &wsi->tls.ssl->ssl;
-	if (!msc)
+	conn = wsi->tls.ssl;
+	msc = &conn->ssl;
+
+	if (!conn->ctx)
 		return -1;
 
-	conf = (mbedtls_ssl_config *)mbedtls_ssl_context_get_config(msc);
-	if (conf) {
-		mbedtls_ssl_conf_transport(conf, MBEDTLS_SSL_TRANSPORT_QUIC);
+	/*
+	 * The QUIC transport mode is a property of this connection, but
+	 * mbedtls only takes it on the ssl config... which is the vhost-wide
+	 * object that every other connection on the vhost, TLS-over-TCP
+	 * included, is also using.  Setting it there would reframe them all.
+	 * So set it on this connection's own shallow copy, the same way the
+	 * client ALPN list does (and reuse that copy if it already exists).
+	 */
+
+	if (!conn->own_conf) {
+		conn->conf = conn->ctx->conf;
+		conn->own_conf = 1;
 	}
+
+	mbedtls_ssl_conf_transport(&conn->conf, MBEDTLS_SSL_TRANSPORT_QUIC);
+	msc->MBEDTLS_PRIVATE(conf) = &conn->conf;
+
 	mbedtls_ssl_set_quic_transport_ops(msc, &quic_ops);
 	mbedtls_ssl_set_quic_custom_ext(msc, &quic_ext);
 
@@ -312,13 +384,35 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 
 	b = (struct mbedtls_quic_buf *)wsi->tls.client_bio;
 
+	if (level < 0 || level >= LWS_MBQ_LEVEL_COUNT) {
+		lwsl_wsi_err(wsi, "bad crypto level %d", level);
+
+		return -1;
+	}
+
 	if (in && in_len > 0) {
-		uint8_t *p = lws_realloc(b->rx_buf, b->rx_len + in_len, "quic rx");
+		uint8_t *p;
+
+		/*
+		 * Nothing consumes this once the handshake is over, but
+		 * post-handshake CRYPTO frames keep arriving... cap what a
+		 * peer can make us hold.
+		 */
+
+		if (b->rx_len[level] + in_len > LWS_MBQ_MAX_RX_PER_LEVEL) {
+			lwsl_wsi_err(wsi, "level %d crypto rx over %d",
+				     level, (int)LWS_MBQ_MAX_RX_PER_LEVEL);
+
+			return -1;
+		}
+
+		p = lws_realloc(b->rx_buf[level], b->rx_len[level] + in_len,
+				"quic rx");
 		if (!p)
 			return -1;
-		b->rx_buf = p;
-		memcpy(b->rx_buf + b->rx_len, in, in_len);
-		b->rx_len += in_len;
+		b->rx_buf[level] = p;
+		memcpy(b->rx_buf[level] + b->rx_len[level], in, in_len);
+		b->rx_len[level] += in_len;
 	}
 
 	b->out = out;
@@ -357,16 +451,28 @@ lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t
 {
 	uint8_t *p;
 
-	if (wsi->tls.quic_tp_send)
-		lws_free((void *)wsi->tls.quic_tp_send);
+	if (!tp || !tp_len)
+		return -1;
+
+	/*
+	 * Only drop the live copy once the replacement actually exists: on a
+	 * failed allocation the old pointer would otherwise be left dangling
+	 * in the wsi, to be freed a second time at close and memcpy'd out of
+	 * into the TLS extension we send in the meantime.
+	 */
 
 	p = lws_malloc(tp_len, "quic tp send");
 	if (!p)
 		return -1;
 
 	memcpy(p, tp, tp_len);
+
+	if (wsi->tls.quic_tp_send)
+		lws_free((void *)wsi->tls.quic_tp_send);
+
 	wsi->tls.quic_tp_send = p;
 	wsi->tls.quic_tp_send_len = tp_len;
+
 	return 0;
 }
 
@@ -468,9 +574,12 @@ mbedtls_quic_bio_free(struct lws *wsi)
 		return;
 
 	if (wsi->tls.client_bio) {
+		int n;
+
 		b = (struct mbedtls_quic_buf *)wsi->tls.client_bio;
-		if (b->rx_buf)
-			lws_free(b->rx_buf);
+		for (n = 0; n < LWS_MBQ_LEVEL_COUNT; n++)
+			if (b->rx_buf[n])
+				lws_free(b->rx_buf[n]);
 		lws_free(wsi->tls.client_bio);
 		wsi->tls.client_bio = NULL;
 	}
