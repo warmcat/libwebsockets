@@ -401,6 +401,7 @@ promote_parallel_fd(struct lws *wsi, int pidx)
 }
 #endif
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
 struct lws *
 lws_client_connect_3_https_cb(struct lws *wsi, const char *ads,
 			      const struct addrinfo *result, int n, void *opaque)
@@ -430,7 +431,6 @@ lws_client_connect_3_https_cb(struct lws *wsi, const char *ads,
 					lws_now_usecs() + (3600ll * LWS_US_PER_SEC), NULL);
 	}
 
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
 	if (result)
 		/*
 		 * The completion (or the cache-hit path) took a refcount on
@@ -438,12 +438,12 @@ lws_client_connect_3_https_cb(struct lws *wsi, const char *ads,
 		 * entry can never be trimmed or expired.
 		 */
 		lws_async_dns_freeaddrinfo(&result);
-#endif
 
 	/* NULL means "the wsi was closed"... there is no wsi here */
 
 	return LADNS_NO_WSI_BUT_OK;
 }
+#endif
 
 struct lws *
 lws_client_connect_3_connect(struct lws *wsi, const char *ads,

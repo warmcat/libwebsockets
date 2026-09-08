@@ -468,6 +468,8 @@ struct lws *
 lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			     const struct addrinfo *result, int n, void *opaque);
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
 struct lws *
 lws_client_connect_3_https_cb(struct lws *wsi, const char *ads,
 			      const struct addrinfo *result, int n, void *opaque);
+#endif
