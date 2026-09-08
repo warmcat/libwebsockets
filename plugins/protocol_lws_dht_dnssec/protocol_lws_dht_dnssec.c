@@ -1762,6 +1762,14 @@ verb_put_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 
 	lwsl_user("%s: PUT [START] %s offset %llu len %llu payload_len %zu\n", __func__, msg->hash, msg->offset, msg->len, msg->payload_len);
 
+	if (!from || !fromlen)
+		/*
+		 * The dispatcher always gives us the datagram source, and we
+		 * need it both to bind the transfer to one peer and to send
+		 * the ACK / ERR... a PUT with no peer has nowhere to go
+		 */
+		return 0;
+
 	if (!dht_dnssec_hash_token_ok(msg->hash)) {
 		lwsl_warn("%s: rejecting PUT with malformed hash token\n", __func__);
 		return -1;
@@ -1827,7 +1835,7 @@ verb_put_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 		 * offset of its choosing, and misdirect the ACK/ERR and the
 		 * strike accounting that follows.
 		 */
-		if (from && fromlen > 0 && fromlen <= sizeof(frag->from_sa)) {
+		if (fromlen <= sizeof(frag->from_sa)) {
 			memcpy(&frag->from_sa, from, fromlen);
 			frag->from_salen = fromlen;
 		}
