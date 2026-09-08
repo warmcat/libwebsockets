@@ -552,7 +552,8 @@ mixer_on_media(struct lws *wsi_ws, int tid, const uint8_t *buf, size_t len, int 
 				msg.codec = LWS_CODEC_H264; /* If in doubt, assume H264 standard */
 		} else {
 			/* We did not find an explicit match. Default to the primary negotiated video codec. */
-			if (we_ops && we_ops->get_video_pt_av1 && we_ops->get_video_pt(pss) == we_ops->get_video_pt_av1(pss))
+			if (we_ops && we_ops->get_video_pt && we_ops->get_video_pt_av1 &&
+			    we_ops->get_video_pt(pss) == we_ops->get_video_pt_av1(pss))
 				msg.codec = LWS_CODEC_AV1;
 			else
 				msg.codec = LWS_CODEC_H264;
