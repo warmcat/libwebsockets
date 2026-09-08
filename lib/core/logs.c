@@ -151,6 +151,18 @@ __lws_lc_tag_append(lws_lifecycle_t *lc, const char *app)
 	else
 		n = lc->recycle_len;
 
+	if ((unsigned int)n + 2u >= sizeof(lc->gutag)) {
+		/*
+		 * No room to append anything... sizeof(gutag) - 2 - n would
+		 * underflow to a huge size_t and lws_snprintf() only rejects
+		 * size 0.  Just make sure the tag is closed and terminated.
+		 */
+		lc->gutag[sizeof(lc->gutag) - 2] = ']';
+		lc->gutag[sizeof(lc->gutag) - 1] = '\0';
+
+		return;
+	}
+
 	n += lws_snprintf(&lc->gutag[n], sizeof(lc->gutag) - 2u -
 					 (unsigned int)n, "|%s]", app);
 
