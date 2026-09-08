@@ -783,8 +783,26 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 		goto done;
 	}
 
-	if (message > DHT_REPLY && message != DHT_DATA) {
-		/* Rate limit requests. */
+	/*
+	 * Rate limit requests.
+	 *
+	 * This used to read "message > DHT_REPLY", which was correct for the
+	 * original enum where REPLY was 1 and every request sorted above it.
+	 * With the lws numbering (see private-lib-misc-dht.h) that expression
+	 * selects only DHT_ERROR (already dropped above) and DHT_PING, ie, it
+	 * had stopped limiting anything that matters.  Enumerate the request
+	 * verbs explicitly instead so renumbering cannot silently disable it
+	 * again.
+	 *
+	 * DHT_DATA stays outside the limiter: it is one chunk of an in-progress
+	 * reliable transfer rather than a standalone query, and 100/s would
+	 * throttle legitimate bulk transfer.  Its cost is bounded instead by
+	 * the LWS_DHT_MAX_TS cap on concurrent sequencers.
+	 */
+	if (message == DHT_PING || message == DHT_FIND_NODE ||
+	    message == DHT_GET_PEERS || message == DHT_ANNOUNCE_PEER ||
+	    message == DHT_SUBSCRIBE || message == DHT_SUBSCRIBE_CONFIRM ||
+	    message == DHT_NOTIFY) {
 #if defined(LWS_WITH_DHT_BACKEND)
 		if (!token_bucket(ctx)) {
 			ctx->stats_current.rx_drops++;
