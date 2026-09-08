@@ -94,13 +94,18 @@ __lws_reset_wsi(struct lws *wsi)
 	/*
 	 * Protocol user data may be allocated either internally by lws
 	 * or by specified the user. We should only free what we allocated.
+	 *
+	 * The test is on ownership, not on per_session_data_size...
+	 * lws_ensure_user_space() also allocates when per_session_data_size is
+	 * zero but the protocol answered LWS_CALLBACK_GET_PSS_SIZE with a
+	 * size, and those allocations must be freed here too.
 	 */
-	if (wsi->a.protocol && wsi->a.protocol->per_session_data_size &&
-	    wsi->user_space && !wsi->user_space_externally_allocated) {
+	if (wsi->user_space && !wsi->user_space_externally_allocated) {
 		/* confirm no sul left scheduled in user data itself */
 		lws_sul_debug_zombies(wsi->a.context, wsi->user_space,
-				wsi->a.protocol->per_session_data_size, __func__);
+				wsi->user_space_len, __func__);
 		lws_free_set_NULL(wsi->user_space);
+		wsi->user_space_len = 0;
 	}
 
 	/*
@@ -200,6 +205,15 @@ __lws_reset_wsi(struct lws *wsi)
 	 */
 
 	memset(&wsi->h2, 0, sizeof(wsi->h2));
+
+	/*
+	 * We must give back any immortal count we hold on the network wsi
+	 * before we clear mux_stream_immortal below... lws_client_reset()
+	 * calls us directly on the redirect / fallback path, ie, without
+	 * having gone through __lws_close_free_wsi()'s decrement
+	 */
+	if (wsi->mux_stream_immortal)
+		lws_http_close_immortal(wsi);
 
 	wsi->hdr_parsing_completed = wsi->mux_substream =
 	wsi->upgraded_to_http2 = wsi->mux_stream_immortal =
@@ -512,6 +526,20 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		return;
 
 	lwsl_wsi_info(wsi, "caller: %s", caller);
+
+	if (lwsi_state(wsi) == LRS_DEAD_SOCKET)
+		/*
+		 * We are already in the middle of closing him in an outer
+		 * stack frame (eg, we were re-entered from one of his own
+		 * close callbacks).  We must do nothing at all here: the
+		 * role-specific paths below "goto just_kill_connection" and
+		 * would otherwise reach __lws_close_free_wsi_final() and free
+		 * the wsi under the feet of the outer frame.
+		 *
+		 * The generic child-close loop below relies on this bail to
+		 * detect and break re-entrant closes.
+		 */
+		return;
 
 	lws_access_log(wsi);
 
@@ -1185,7 +1213,8 @@ __lws_close_free_wsi_final(struct lws *wsi)
 		wsi->hdr_parsing_completed = 0;
 
 #if defined(LWS_WITH_TLS)
-		if (wsi->stash->cis[CIS_ALPN])
+		/* guarded like the CIS_ADDRESS use further down */
+		if (wsi->stash && wsi->stash->cis[CIS_ALPN])
 			lws_strncpy(wsi->alpn, wsi->stash->cis[CIS_ALPN],
 				    sizeof(wsi->alpn));
 #endif

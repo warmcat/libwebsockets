@@ -66,8 +66,10 @@ extern "C" {
 #endif
 
 #define __lws_sul_insert_us(owner, sul, _us) \
+	do { \
 		(sul)->us = lws_now_usecs() + (lws_usec_t)(_us); \
-		__lws_sul_insert(owner, sul)
+		__lws_sul_insert(owner, sul); \
+	} while (0)
 
 
 /*
@@ -987,6 +989,10 @@ struct lws {
 #endif
 #endif /* WITH_CLIENT */
 	void				*user_space;
+	size_t				user_space_len;
+	/**< nonzero only if lws allocated user_space itself: how big it is,
+	 * since the size may have come from LWS_CALLBACK_GET_PSS_SIZE and not
+	 * from protocol->per_session_data_size */
 	void				*opaque_parent_data;
 
 	struct lws_buflist		*buflist; /* input-side buflist */

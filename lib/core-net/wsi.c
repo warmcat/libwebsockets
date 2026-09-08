@@ -58,12 +58,33 @@ void lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi) {
 		return;
 
 	lws_context_lock(vh->context, __func__); /* ---------- context { */
+
+	/*
+	 * If he was bound to a different vhost before, we have to give back
+	 * the count we were holding on that one first... otherwise a peer
+	 * that makes us rebind (by naming another vhost on a shared listener
+	 * with Host:, SNI or :authority) leaks a count on the vhost we are
+	 * leaving, for every connection, and that vhost can then never
+	 * complete its destruction.
+	 */
+	if (wsi->a.vhost)
+		__lws_vhost_unbind_wsi(wsi); /* req cx lock, takes vh lock */
+
 	wsi->a.vhost = vh;
 
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	if (!vh->count_bound_wsi && vh->grace_after_unref) {
+		struct lws_context_per_thread *pt = &vh->context->pt[0];
+
 		lwsl_wsi_info(wsi, "in use");
+		/*
+		 * vh->sul_unref always lives on pt[0]'s sul list (see
+		 * lws_tls_jit_trust_vh_start_grace()) but we may be called
+		 * from any pt... take pt[0]'s lock before splicing it out
+		 */
+		lws_pt_lock(pt, __func__);
 		lws_sul_cancel(&vh->sul_unref);
+		lws_pt_unlock(pt);
 	}
 #endif
 
@@ -372,7 +393,14 @@ int lws_callback_vhost_protocols_vhost(struct lws_vhost *vh, int reason,
 		return 1;
 
 	wsi->a.context = vh->context;
-	lws_vhost_bind_wsi(vh, wsi);
+	/*
+	 * This is only a stack-in of a wsi to give the protocol callbacks
+	 * something to work with, it's freed below without ever going through
+	 * the close path... so bind the vhost directly, like
+	 * __lws_vhost_destroy2() does, rather than taking a count on it that
+	 * nothing will ever give back
+	 */
+	wsi->a.vhost = vh;
 
 	for (n = 0; n < wsi->a.vhost->count_protocols; n++) {
 		wsi->a.protocol = &vh->protocols[n];
@@ -545,6 +573,13 @@ LWS_VISIBLE int lws_ensure_user_space(struct lws *wsi) {
 				lwsl_wsi_err(wsi, "OOM");
 				return 1;
 			}
+			/*
+			 * Remember how big it is... the size may have come
+			 * from LWS_CALLBACK_GET_PSS_SIZE rather than from
+			 * protocol->per_session_data_size, and the close path
+			 * has to be able to check it for zombie sul
+			 */
+			wsi->user_space_len = s;
 		}
 	} else
 		lwsl_wsi_debug(wsi, "protocol pss %lu, user_space=%p",
@@ -857,7 +892,7 @@ int lws_get_urlarg_by_name_safe(struct lws *wsi, const char *name, char *buf,
 	int sl = (int)strlen(name);
 	int fi;
 
-	if (!ah || !len)
+	if (!ah || !len || !sl)
 		return -1;
 
 	/*
@@ -875,9 +910,18 @@ int lws_get_urlarg_by_name_safe(struct lws *wsi, const char *name, char *buf,
 	while (fi) {
 		struct lws_fragments *f = &ah->frags[fi];
 
+		/*
+		 * The name has to match the whole arg name, not just be a
+		 * prefix of it... otherwise, for a caller that gave the name
+		 * without the trailing '=', "?statexyz=evil" would satisfy a
+		 * lookup of "state" and synthesize "xyz=evil" as its value,
+		 * even though no state= arg was sent at all.
+		 */
 		if (f->len >= sl &&
 				!strncmp((const char *)&ah->data[f->offset],
-					 name, (size_t)sl)) {
+					 name, (size_t)sl) &&
+				(name[sl - 1] == '=' || (int)f->len == sl ||
+				 ah->data[f->offset + (ah_data_idx_t)sl] == '=')) {
 			ah_data_idx_t vo;	/* value start in ah->data */
 			int ol;			/* value length to copy */
 			int a_sl = sl;
@@ -1073,6 +1117,7 @@ void lws_set_wsi_user(struct lws *wsi, void *data) {
 
 	wsi->user_space_externally_allocated = 1;
 	wsi->user_space = data;
+	wsi->user_space_len = 0; /* we don't own it and don't know its size */
 }
 
 struct lws *lws_get_parent(const struct lws *wsi) { return wsi->parent; }
@@ -1217,7 +1262,7 @@ int _lws_generic_transaction_completed_active_conn(struct lws **_wsi,
 	/* disconnect the fd from association with old wsi */
 
 	if (__remove_wsi_socket_from_fds(wsi))
-		return -1;
+		goto bail; /* we must not return holding the vh lock */
 
 	sanity_assert_no_wsi_traces(wsi->a.context, wsi);
 	sanity_assert_no_sockfd_traces(wsi->a.context, wsi->desc.sockfd);
@@ -1243,8 +1288,18 @@ int _lws_generic_transaction_completed_active_conn(struct lws **_wsi,
 
 	assert(lws_socket_is_valid(wnew->desc.sockfd));
 
-	if (__insert_wsi_socket_into_fds(wsi->a.context, wnew))
-		return -1;
+	if (__insert_wsi_socket_into_fds(wsi->a.context, wnew)) {
+		/*
+		 * We already took the fd away from the old wsi, and it did not
+		 * make it into the fds table on the new guy... nothing will
+		 * ever poll or close it now, so close it here rather than
+		 * leak it
+		 */
+		compatible_close(wnew->desc.sockfd);
+		wnew->desc.sockfd = LWS_SOCK_INVALID;
+
+		goto bail;
+	}
 
 #if defined(LWS_WITH_TLS)
 	/* pass on the tls */
@@ -1308,6 +1363,13 @@ int _lws_generic_transaction_completed_active_conn(struct lws **_wsi,
 	*_wsi = wnew; /* inform caller we swapped */
 
 	return 1; /* new transaction */
+
+bail:
+	/* we must not return holding the vhost lock */
+	if (take_vh_lock)
+		lws_vhost_unlock(wsi->a.vhost);
+
+	return -1;
 }
 #endif
 
@@ -1344,8 +1406,10 @@ int lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p,
 				wsi->user_space, (void *)reason, 0);
 		wsi->protocol_bind_balance = 0;
 	}
-	if (!wsi->user_space_externally_allocated)
+	if (!wsi->user_space_externally_allocated) {
 		lws_free_set_NULL(wsi->user_space);
+		wsi->user_space_len = 0;
+	}
 
 	lws_same_vh_protocol_remove(wsi);
 
@@ -1390,10 +1454,23 @@ int lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p,
 void lws_http_close_immortal(struct lws *wsi) {
 	struct lws *nwsi;
 
-	if (!wsi->mux_substream)
+	/*
+	 * This must accept exactly what lws_mux_mark_immortal() accepts, or a
+	 * substream that was marked immortal on the client_mux_substream test
+	 * alone never gives back the nwsi's immortal_substream_count, and the
+	 * nwsi can then never have an idle keepalive timeout applied again
+	 */
+	if (!wsi->mux_substream
+#if defined(LWS_WITH_CLIENT)
+			&& !wsi->client_mux_substream
+#endif
+	   )
 		return;
 
-	assert(wsi->mux_stream_immortal);
+	if (!wsi->mux_stream_immortal)
+		/* nothing to give back */
+		return;
+
 	wsi->mux_stream_immortal = 0;
 
 	nwsi = lws_get_network_wsi(wsi);
