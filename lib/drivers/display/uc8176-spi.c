@@ -669,7 +669,17 @@ lws_display_uc8176_spi_blit(struct lws_display_state *lds, const uint8_t *src,
 		/* compute separately, since we may be doing a partial */
 		int maxplanes = 1 + ((ic->greyscale && ic->palette_depth > 2) ||
 				      !ic->greyscale);
-		size_t plane_alloc = plane_line_bytes * maxplanes;
+		/*
+		 * A partial update is forced into two-plane (BWR) mode below
+		 * no matter how the panel itself is configured, and
+		 * pack_native_pixel() then stores the second plane
+		 * plane_line_bytes into the line buffer.  So if this surface
+		 * can do partials at all, the line buffers must be able to
+		 * hold two planes even on a one-plane B&W panel.
+		 */
+		int lineplanes = ic->partial && maxplanes < 2 ? 2 : maxplanes;
+		size_t plane_alloc = (size_t)plane_line_bytes *
+							(size_t)lineplanes;
 
 		/*
 		 * We have to allocate the packed line and error diffusion
@@ -831,10 +841,26 @@ go_l:
 		if (priv->partial && priv->partbuf) {
 			/* update the old copy of the partial area */
 			desc.count_write = (priv->upd.w.whole + 7) / 8;
-			memcpy((uint8_t *)priv->partbuf + priv->partbuf_pos,
-					(uint8_t *)lo, desc.count_write);
-			/* packed at byte boundaries */
-			priv->partbuf_pos += desc.count_write;
+
+			/*
+			 * The rasterizer decides how many lines it sends us,
+			 * priv->upd.h does not... it may rasterize from the top
+			 * of the panel and only skip *sending* the lines above
+			 * the partial region.  So only lines that are actually
+			 * inside the region, and only as many bytes as partbuf
+			 * was sized for, may be stored.
+			 */
+
+			if (box->y.whole >= priv->upd.y.whole &&
+			    box->y.whole < priv->upd.y.whole +
+					   priv->upd.h.whole &&
+			    priv->partbuf_pos + desc.count_write <=
+						priv->partbuf_len) {
+				memcpy((uint8_t *)priv->partbuf + priv->partbuf_pos,
+						(uint8_t *)lo, desc.count_write);
+				/* packed at byte boundaries */
+				priv->partbuf_pos += desc.count_write;
+			}
 		}
 
 		desc.data = priv->pb_len || priv->partial ? (uint8_t *)lo + plane_line_bytes :
@@ -866,8 +892,14 @@ go_l:
 		 * capable and configured normally.
 		 */
 
+		/*
+		 * Only offer partial if the surface declared it can do it...
+		 * the line buffers are only sized for the forced two-plane
+		 * partial mode in that case
+		 */
+
 		priv->partial = 0;
-		if (ids && lws_dll2_count(ids)) {
+		if (ic->partial && ids && lws_dll2_count(ids)) {
 			id = lws_container_of(lws_dll2_get_head(ids), lws_display_id_t, list);
 			if (id->exists)
 				priv->partial = 1;
@@ -876,9 +908,53 @@ go_l:
 		priv->pb_pos = 0;
 
 		if (priv->partial) {
+			int sw = ic->wh_px[LWS_LHPREF_WIDTH].whole;
+			int sh = ic->wh_px[LWS_LHPREF_HEIGHT].whole;
 			uint8_t *p = priv->pcmd;
+			int px, py, pw, ph;
+			size_t need;
 
-			priv->upd = id->box;
+			/*
+			 * id->box is the laid-out position of an element in the
+			 * document we are rendering, ie, it is derived from
+			 * untrusted content and nothing upstream bounds it to
+			 * the panel.  Intersect it with the surface before we
+			 * size any buffer from it, offset the line buffer by
+			 * it, or hand it to the panel's partial window
+			 * registers.
+			 */
+
+			px = id->box.x.whole;
+			py = id->box.y.whole;
+			pw = id->box.w.whole;
+			ph = id->box.h.whole;
+
+			if (px < 0) {
+				pw += px;
+				px = 0;
+			}
+			if (py < 0) {
+				ph += py;
+				py = 0;
+			}
+			if (pw > 0 && px + pw > sw)
+				pw = sw - px;
+			if (ph > 0 && py + ph > sh)
+				ph = sh - py;
+
+			if (px >= sw || py >= sh || pw <= 0 || ph <= 0) {
+				lwsl_err("%s: partial region outside panel\n",
+					 __func__);
+				priv->partial = 0;
+				goto fully_l;
+			}
+
+			memset(&priv->upd, 0, sizeof(priv->upd));
+			priv->upd.x.whole = px;
+			priv->upd.y.whole = py;
+			priv->upd.w.whole = pw;
+			priv->upd.h.whole = ph;
+
 			lws_display_render_dump_ids(ids);
 
 			lwsl_user("%s: PARTIAL %d: (%d,%d) %dx%d\n", __func__, (int)priv->partial,
@@ -886,13 +962,22 @@ go_l:
 					(int)priv->upd.h.whole);
 
 			/* lines packed at byte boundaries */
-			priv->partbuf_len = ((priv->upd.w.whole + 7) / 8) * priv->upd.h.whole;
+			need = (size_t)((pw + 7) / 8) * (size_t)ph;
 
-			if (!priv->partbuf_len) {
-				lwsl_err("%s: partbuf_len is zero\n", __func__);
-				priv->partial = 0;
-				goto fully_l;
+			if (priv->partbuf && need != priv->partbuf_len) {
+				/*
+				 * The region changed size since the last
+				 * partial, the retained copy is neither the
+				 * right size nor meaningful any more
+				 */
+				if (ea->spi->free_dma)
+					ea->spi->free_dma(ea->spi,
+						      (void **)&priv->partbuf);
+				else
+					lws_free_set_NULL(priv->partbuf);
 			}
+
+			priv->partbuf_len = need;
 
 			/*
 			 * Partial being B&W has some implications.  Since it's

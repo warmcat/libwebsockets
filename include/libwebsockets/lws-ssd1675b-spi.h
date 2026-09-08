@@ -44,7 +44,7 @@ int
 lws_display_ssd1675b_spi_init(lws_display_state_t *lds);
 int
 lws_display_ssd1675b_spi_blit(lws_display_state_t *lds, const uint8_t *src,
-			     lws_box_t *box);
+			     lws_box_t *box, lws_dll2_owner_t *ids);
 int
 lws_display_ssd1675b_spi_power(lws_display_state_t *lds, int state);
 

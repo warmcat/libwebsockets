@@ -215,6 +215,14 @@ lws_display_ili9341_spi_blit(lws_display_state_t *lds, const uint8_t *src,
 	lws_greyscale_error_t *gedl_this, *gedl_next;
 	lws_colour_error_t *edl_this, *edl_next;
 	int bytes_pl = ic->wh_px[0].whole * 2;
+	/*
+	 * pack_native_pixel() packs two RGB565 pixels per u32 and does a
+	 * whole 32-bit store for the even one of the pair... for an odd
+	 * pixel width the last pixel would write 2 bytes past a
+	 * bytes_pl-sized line, so the line buffers are strided to a whole
+	 * u32 (only bytes_pl of each is sent to the panel)
+	 */
+	int stride_pl = (bytes_pl + 3) & ~3;
 	static DMA_ATTR uint32_t buf[5];
 	lws_display_list_coord_t h, y;
 	lws_display_colour_t c;
@@ -226,17 +234,17 @@ lws_display_ili9341_spi_blit(lws_display_state_t *lds, const uint8_t *src,
 	if (!priv->line[0]) {
 		if (disp->spi->alloc_dma)
 			priv->line[0] = disp->spi->alloc_dma(disp->spi,
-							     bytes_pl * 2);
+							     stride_pl * 2);
 		else
-			priv->line[0] = lws_malloc(bytes_pl * 2, __func__);
+			priv->line[0] = lws_malloc((size_t)stride_pl * 2, __func__);
 
 		if (!priv->line[0]) {
 			lwsl_err("%s: failed to alloc %u\n", __func__,
-					(unsigned int)bytes_pl * 2);
+					(unsigned int)stride_pl * 2);
 			return 1;
 		}
 
-		priv->line[1] = (uint32_t *)((uint8_t *)priv->line[0] + bytes_pl);
+		priv->line[1] = (uint32_t *)((uint8_t *)priv->line[0] + stride_pl);
 
 		if (lws_display_alloc_diffusion(ic, priv->u)) {
 			if (disp->spi->free_dma)

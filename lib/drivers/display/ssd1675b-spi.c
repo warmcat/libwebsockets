@@ -350,7 +350,7 @@ lws_display_ssd1675b_spi_brightness(const struct lws_display *disp, uint8_t b)
 
 int
 lws_display_ssd1675b_spi_blit(struct lws_display_state *lds, const uint8_t *src,
-			     lws_box_t *box)
+			     lws_box_t *box, lws_dll2_owner_t *ids)
 {
 	const lws_display_ssd1675b_spi_t *ea = lds_to_disp(lds);
 	lws_display_ssd1675b_spi_state_t *priv = lds_to_priv(lds);
@@ -426,7 +426,7 @@ lws_display_ssd1675b_spi_blit(struct lws_display_state *lds, const uint8_t *src,
 		if (ic->greyscale) {
 			gedl_next[ic->wh_px[0].whole - 1].rgb[0] = 0;
 
-			for (n = 0; n < plane_line_bytes * 8; n++) {
+			for (n = 0; n < ic->wh_px[0].whole; n++) {
 				c = (pc[0] << 16) | (pc[0] << 8) | pc[0];
 
 				m = lws_display_palettize_grey(ic, ic->palette,
@@ -435,15 +435,23 @@ lws_display_ssd1675b_spi_blit(struct lws_display_state *lds, const uint8_t *src,
 
 				dist_err_floyd_steinberg_grey(n, ic->wh_px[0].whole,
 							      gedl_this, gedl_next);
-				if (n < ic->wh_px[0].whole)
-					pc++;
+				pc++;
 			}
+
+			/*
+			 * The packed line is a whole number of bytes, pad any
+			 * bits past the panel width with white rather than
+			 * reading past the end of the source line
+			 */
+
+			for (; n < plane_line_bytes * 8; n++)
+				pack_native_pixel(lo, n, 1 /* white */);
 		} else {
 			edl_next[ic->wh_px[0].whole - 1].rgb[0] = 0;
 			edl_next[ic->wh_px[0].whole - 1].rgb[1] = 0;
 			edl_next[ic->wh_px[0].whole - 1].rgb[2] = 0;
 
-			for (n = 0; n < plane_line_bytes * 8; n++) {
+			for (n = 0; n < ic->wh_px[0].whole; n++) {
 				c = (pc[2] << 16) | (pc[1] << 8) | pc[0];
 
 				m = lws_display_palettize_col(ic, ic->palette,
@@ -453,9 +461,13 @@ lws_display_ssd1675b_spi_blit(struct lws_display_state *lds, const uint8_t *src,
 				dist_err_floyd_steinberg_col(n, ic->wh_px[0].whole,
 							     edl_this, edl_next);
 
-				if (n < ic->wh_px[0].whole)
-					pc += 3;
+				pc += 3;
 			}
+
+			/* pad the rest of the packed line with white */
+
+			for (; n < plane_line_bytes * 8; n++)
+				pack_native_pixel(lo, n, 1 /* white */);
 		}
 go_l:
 		memset(&desc, 0, sizeof(desc));

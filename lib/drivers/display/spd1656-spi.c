@@ -362,6 +362,18 @@ lws_display_spd1656_spi_blit(struct lws_display_state *lds, const uint8_t *src,
 	case 0: /* update is finished */
 		priv->state = LWSDISPST_WRITE1;
 		lws_sul_schedule(priv->lds->ctx, 0, &priv->sul, async_cb, 1);
+
+		/*
+		 * The line buffers were queued with
+		 * LWS_SPI_FLAG_DMA_BOUNCE_NOT_NEEDED, ie, the DMA engine reads
+		 * them directly... we can't free them until the last transfer
+		 * that references them has completed
+		 */
+
+		if (ea->spi->in_flight)
+			while (ea->spi->in_flight(ea->spi))
+				;
+
 		if (ea->spi->free_dma)
 			ea->spi->free_dma(ea->spi,
 					    (void **)&priv->line[0]);
