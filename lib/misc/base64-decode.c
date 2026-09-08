@@ -243,16 +243,32 @@ _lws_b64_decode_string(const char *in, int in_len, char *out, size_t out_size)
 	return ol;
 }
 
+/*
+ * out_size and in_len are widened to size_t inside; a negative one would
+ * become a huge size_t and make the decoder's "out + 3 <= end_out" bound
+ * vacuous, ie, the output would be unbounded.  Callers commonly compute
+ * out_size by subtraction from a running offset, so refuse it here rather
+ * than trust every caller's arithmetic.  in_len == -1 means "until NUL".
+ */
+
 int
 lws_b64_decode_string(const char *in, char *out, int out_size)
 {
+	if (out_size <= 0)
+		return -1;
+
 	return (int)_lws_b64_decode_string(in, -1, out, (unsigned int)out_size);
 }
 
 int
 lws_b64_decode_string_len(const char *in, int in_len, char *out, int out_size)
 {
-	size_t s = _lws_b64_decode_string(in, in_len, out, (unsigned int)out_size);
+	size_t s;
+
+	if (out_size <= 0 || in_len < -1)
+		return -1;
+
+	s = _lws_b64_decode_string(in, in_len, out, (unsigned int)out_size);
 
 	return !s ? -1 : (int)s;
 }
@@ -322,9 +338,13 @@ static const int8_t decode_b32[256] = {
 int
 lws_b32_decode_string_len(const char *in, int in_len, char *out, int out_size)
 {
-	int done = 0;
+	int done = 0, nb;
 	int buf[8] = {0};
+	char tmp[5];
 	int i;
+
+	if (out_size <= 0 || in_len < -1)
+		return -1;
 
 	if (in_len == -1)
 		in_len = (int)strlen(in);
@@ -354,22 +374,33 @@ lws_b32_decode_string_len(const char *in, int in_len, char *out, int out_size)
 
 		if (len == 0) break;
 
-		if (done + 5 > out_size) return -1;
+		/*
+		 * How many bytes does this group actually yield?  A padded
+		 * group ("AA======") yields 1 byte, not 5.  We must bound and
+		 * advance by that, since writing / stepping 5 while only
+		 * counting 1 against out_size let a run of padded groups walk
+		 * the write pointer 5x past the end of the caller's buffer.
+		 */
 
-		out[0] = (char)((buf[0] << 3) | (buf[1] >> 2));
-		out[1] = (char)(((buf[1] & 0x03) << 6) | (buf[2] << 1) | (buf[3] >> 4));
-		out[2] = (char)(((buf[3] & 0x0f) << 4) | (buf[4] >> 1));
-		out[3] = (char)(((buf[4] & 0x01) << 7) | (buf[5] << 2) | (buf[6] >> 3));
-		out[4] = (char)(((buf[6] & 0x07) << 5) | buf[7]);
-
-		if (len == 2) done += 1;
-		else if (len == 4) done += 2;
-		else if (len == 5) done += 3;
-		else if (len == 7) done += 4;
-		else if (len == 8) done += 5;
+		if (len == 2) nb = 1;
+		else if (len == 4) nb = 2;
+		else if (len == 5) nb = 3;
+		else if (len == 7) nb = 4;
+		else if (len == 8) nb = 5;
 		else return -1; /* invalid base32 chunk */
 
-		out += 5;
+		if (done + nb > out_size) return -1;
+
+		tmp[0] = (char)((buf[0] << 3) | (buf[1] >> 2));
+		tmp[1] = (char)(((buf[1] & 0x03) << 6) | (buf[2] << 1) | (buf[3] >> 4));
+		tmp[2] = (char)(((buf[3] & 0x0f) << 4) | (buf[4] >> 1));
+		tmp[3] = (char)(((buf[4] & 0x01) << 7) | (buf[5] << 2) | (buf[6] >> 3));
+		tmp[4] = (char)(((buf[6] & 0x07) << 5) | buf[7]);
+
+		memcpy(out, tmp, (size_t)nb);
+
+		out += nb;
+		done += nb;
 	}
 
 	if (done < out_size)
