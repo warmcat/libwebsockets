@@ -48,7 +48,15 @@ lws_set_socks(struct lws_vhost *vhost, const char *socks)
 			goto bail;
 		}
 
-		p_colon_in = (char *)strchr(socks, ':');
+		/*
+		 * The ':' we want is the user:password one, ie, it must be
+		 * inside the auth part... searching the whole string finds the
+		 * address's port colon for a "user@host:port" and computes a
+		 * negative length from it
+		 */
+
+		p_colon_in = (const char *)memchr(socks, ':',
+					lws_ptr_diff_size_t(p_at, socks));
 		if (p_colon_in) {
 			if (lws_ptr_diff_size_t(p_colon_in, socks) >
 							     sizeof(user) - 1) {
@@ -67,9 +75,11 @@ lws_set_socks(struct lws_vhost *vhost, const char *socks)
 				lws_ptr_diff_size_t(p_at, (p_colon_in + 1)) + 1);
 		}
 
+		/* the proxy password is a secret, it doesn't go in the log */
 		lwsl_vhost_info(vhost, " Socks auth, user: %s, password: %s",
 				       vhost->socks_user,
-				       vhost->socks_password);
+				       vhost->socks_password[0] ? "<set>" :
+								  "<none>");
 
 		socks = p_at + 1;
 	}
@@ -195,12 +205,22 @@ int
 lws_socks5c_ads_server(struct lws_vhost *vh,
 		      const struct lws_context_creation_info *info)
 {
+	/*
+	 * A nonzero socks_proxy_port is the only "is socks enabled" test
+	 * later, so if we couldn't parse the config we must clear it again...
+	 * else we route client connections via a proxy with no address
+	 */
+
 	/* socks proxy */
 	if (info->socks_proxy_address) {
 		/* override for backwards compatibility */
 		if (info->socks_proxy_port)
 			vh->socks_proxy_port = info->socks_proxy_port;
-		lws_set_socks(vh, info->socks_proxy_address);
+		if (lws_set_socks(vh, info->socks_proxy_address)) {
+			vh->socks_proxy_port = 0;
+
+			return -1;
+		}
 
 		return 0;
 	}
@@ -208,8 +228,12 @@ lws_socks5c_ads_server(struct lws_vhost *vh,
 	{
 		char *p = getenv("socks_proxy");
 
-		if (p && strlen(p) > 0 && strlen(p) < 95)
-			lws_set_socks(vh, p);
+		if (p && strlen(p) > 0 && strlen(p) < 95 &&
+		    lws_set_socks(vh, p)) {
+			vh->socks_proxy_port = 0;
+
+			return -1;
+		}
 	}
 #endif
 
@@ -278,6 +302,21 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 		}
 		lwsl_wsi_err(wsi, "ERROR reading from SOCKS socket");
 		*pcce = "socks recv fail";
+		return LW5CHS_RET_BAIL3;
+	}
+
+	/*
+	 * Every state below acts on serv_buf[0] and [1]... n == 0 means the
+	 * proxy went away, and for anything shorter than the two bytes we're
+	 * going to consume, we would be deciding the handshake on stale
+	 * content left in the shared, per-thread serv_buf.  Reply fragments
+	 * that small aren't worth reassembling, treat them as a failure.
+	 */
+
+	if (n < 2) {
+		lwsl_wsi_err(wsi, "SOCKS short read %d", n);
+		*pcce = n ? "socks short reply" : "socks conn dead";
+
 		return LW5CHS_RET_BAIL3;
 	}
 
