@@ -99,11 +99,18 @@ lws_cache_heap_item_destroy(lws_cache_ttl_lru_t_heap_t *cache,
 		lws_cache_ttl_item_heap_t *i = lws_container_of(d,
 						lws_cache_ttl_item_heap_t,
 						list_lru);
-		const char *iname = ((const char *)&item[1]) + item->size;
-		uint8_t *pay = (uint8_t *)&item[1], *end = pay + item->size;
+		/*
+		 * ...these describe the meta item we are looking at, ie the
+		 * loop cursor i, not the item being destroyed.  Deriving them
+		 * from item made the test below always false (item is known
+		 * not to be a meta item by the early-out above), so no cached
+		 * result set naming the destroyed item was ever invalidated.
+		 */
+		const char *iname = ((const char *)&i[1]) + i->size;
+		uint8_t *pay = (uint8_t *)&i[1], *end = pay + i->size;
 
 		if (*iname == META_ITEM_LEADING) {
-			size_t taglen = strlen(iname);
+			size_t taglen = strlen(tag);
 
 			/*
 			 * If the item about to be destroyed makes an
@@ -111,11 +118,15 @@ lws_cache_heap_item_destroy(lws_cache_ttl_lru_t_heap_t *cache,
 			 * the meta result item to force recalc next time
 			 */
 
-			while (pay < end) {
+			while (pay + 8 <= end) {
 				uint32_t tlen = lws_ser_ru32be(pay + 4);
 
+				/* don't trust the serialization blindly */
+				if (pay + 8 + tlen + 1 > end)
+					break;
+
 				if (tlen == taglen &&
-				    !strcmp((const char *)pay + 8, iname)) {
+				    !strcmp((const char *)pay + 8, tag)) {
 #if defined(_DEBUG)
 					/*
 					 * Sanity check that the item tag is
@@ -131,16 +142,6 @@ lws_cache_heap_item_destroy(lws_cache_ttl_lru_t_heap_t *cache,
 				}
 				pay += 8 + tlen + 1;
 			}
-
-#if defined(_DEBUG)
-			/*
-			 * Sanity check that the item tag really isn't a match
-			 * for that meta results item
-			 */
-
-			assert (backing->info.ops->tag_match(backing, iname + 1,
-							  tag, 1));
-#endif
 		}
 
 	} lws_end_foreach_dll_safe(d, d1);
@@ -157,7 +158,13 @@ lws_cache_item_evict_lru(lws_cache_ttl_lru_t_heap_t *cache)
 	if(lws_dll2_is_empty(&cache->items_lru))
 		return;
 
-	ei = lws_container_of(lws_dll2_get_head(&cache->items_lru),
+	/*
+	 * New items are added at the head and a successful get() moves the
+	 * item to the head... so the head is the *most* recently used and the
+	 * least recently used one, the one we want to evict, is the tail
+	 */
+
+	ei = lws_container_of(lws_dll2_get_tail(&cache->items_lru),
 			      lws_cache_ttl_item_heap_t, list_lru);
 
 	lws_cache_heap_item_destroy(cache, ei, 0);
@@ -214,8 +221,13 @@ update_sul(lws_cache_ttl_lru_t_heap_t *cache)
 {
 	lws_usec_t earliest;
 
-	/* weed out any newly-expired */
-	expiry_cb(&cache->cache.sul);
+	/*
+	 * We are called from item destroy, which is itself reached from inside
+	 * *_foreach_safe() walks of items_lru.  So we must not sweep expired
+	 * items from here: that could free the walk's saved "next" cursor and
+	 * leave the caller iterating freed memory.  Just (re)arm the sul and
+	 * let expiry_cb() do the sweeping from the event loop.
+	 */
 
 	/* figure out the next soonest expiring item */
 	if (earliest_expiry(cache, &earliest)) {
@@ -305,7 +317,17 @@ lws_cache_heap_lookup(struct lws_cache_ttl_lru *_c, const char *wildcard_key,
 					return 1;
 				}
 
-				memset(&m->list, 0, sizeof(m->list));
+				/*
+				 * All of it: lws_cache_lookup() consumes
+				 * ->expiry as the meta result's TTL and
+				 * serialises ->payload_size into the result
+				 * blob it hands back to the caller, so leaving
+				 * either uninitialised both misdates the meta
+				 * entry and leaks heap content to the consumer
+				 */
+				memset(m, 0, sizeof(*m));
+				m->expiry = item->expiry;
+				m->payload_size = item->size;
 				m->tag_size = ilen;
 				memcpy(&m[1], iname, ilen + 1);
 

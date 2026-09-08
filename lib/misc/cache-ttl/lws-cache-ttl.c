@@ -140,7 +140,11 @@ lws_cache_lookup(struct lws_cache_ttl_lru *cache, const char *wildcard_key,
 		sum += 8; /* payload size, name length */
 		sum += m->tag_size + 1;
 
-		if (m->expiry && (!expiry || expiry < m->expiry))
+		/*
+		 * ...the *earliest*, so the meta entry cannot outlive any of
+		 * the components it names
+		 */
+		if (m->expiry && (!expiry || m->expiry < expiry))
 			expiry = m->expiry;
 
 	} lws_end_foreach_dll(d);
