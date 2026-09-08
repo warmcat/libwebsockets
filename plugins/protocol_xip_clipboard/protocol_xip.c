@@ -283,33 +283,35 @@ group_free(struct grp__xip *grp)
  * Keep at most vhd->max_cached groups that no session holds any more,
  * evicting the one idle for longest.  Otherwise every distinct URL path an
  * attacker pushes a clip to pins its cache for the life of the process.
+ *
+ * This is called each time exactly one group goes idle, so the bound can
+ * only ever be exceeded by one and a single eviction restores it.  That
+ * keeps it a single walk with the free after the walk, rather than a
+ * re-walk of the list after the free.
  */
 static void
 groups_reclaim(struct vhd__xip *vhd)
 {
-	for (;;) {
-		struct grp__xip *oldest = NULL;
-		unsigned int idle = 0;
+	struct grp__xip *oldest = NULL;
+	unsigned int idle = 0;
 
-		lws_start_foreach_dll(struct lws_dll2 *, d,
-				      lws_dll2_get_head(&vhd->groups)) {
-			struct grp__xip *g = lws_container_of(d,
-							struct grp__xip, list);
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->groups)) {
+		struct grp__xip *g = lws_container_of(d, struct grp__xip, list);
 
-			if (g->refcount)
-				continue;
+		if (g->refcount)
+			continue;
 
-			idle++;
-			if (!oldest || g->idle_since < oldest->idle_since)
-				oldest = g;
-		} lws_end_foreach_dll(d);
+		idle++;
+		if (!oldest || g->idle_since < oldest->idle_since)
+			oldest = g;
+	} lws_end_foreach_dll(d);
 
-		if (!oldest || idle <= vhd->max_cached)
-			return;
+	if (!oldest || idle <= vhd->max_cached)
+		return;
 
-		lwsl_notice("xip: evicting cached group '%s'\n", oldest->path);
-		group_free(oldest);
-	}
+	lwsl_notice("xip: evicting cached group '%s'\n", oldest->path);
+	group_free(oldest);
 }
 
 /* release a group ref from a closing session; may free it */
