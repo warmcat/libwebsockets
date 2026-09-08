@@ -669,8 +669,23 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (!vhd || vhd->is_stub) return -1; /* Stub doesn't accept WSS */
 
-		if (lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME, ir, sizeof(buf))) {
+		/*
+		 * The len argument is the space available for ir->ns.name[]
+		 * alone, not the size of the array backing the union
+		 * (see lws-x509.h)
+		 */
+		if (lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME,
+					   ir, sizeof(buf) - sizeof(*ir) +
+					       sizeof(ir->ns.name))) {
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_POLICY_VIOLATION, (unsigned char *)"No CN in client cert", 20);
+			return -1;
+		}
+
+		if (!cert_dist_valid_name(ir->ns.name, sizeof(pss->subdomain))) {
+			lwsl_wsi_warn(wsi, "%s: client cert CN is not a "
+					   "hostname\n", __func__);
+			lws_close_reason(wsi, LWS_CLOSE_STATUS_POLICY_VIOLATION,
+					 (unsigned char *)"Bad CN in client cert", 21);
 			return -1;
 		}
 
