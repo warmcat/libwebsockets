@@ -1224,17 +1224,33 @@ malformed_l:
 #endif
 			conceal_eom = 1;
 			/* end of rideshares */
-			if (!h->rideshare->rideshare_streamtype) {
+			if (!h->rideshare || !h->rideshare->rideshare_streamtype) {
 				lws_client_http_body_pending(wsi, 0);
 #if defined(LWS_WITH_SS_RIDESHARE)
-				if (h->rideshare->u.http.multipart_name)
+				if (h->rideshare &&
+				    h->rideshare->u.http.multipart_name)
 					lws_client_http_multipart(wsi, NULL, NULL, NULL,
 						(char **)&p, (char *)end);
 				conceal_eom = 0;
 #endif
 			} else {
+				const char *rs = h->rideshare->rideshare_streamtype;
+
 				h->rideshare = lws_ss_policy_lookup(wsi->a.context,
-						h->rideshare->rideshare_streamtype);
+								    rs);
+				if (!h->rideshare) {
+					/*
+					 * The policy names a rideshare
+					 * streamtype that does not exist...
+					 * nothing validates that at policy
+					 * parse time, and the next WRITEABLE
+					 * would dereference it.  Fatal for the
+					 * connection.
+					 */
+					lwsl_ss_err(h, "unknown rideshare "
+						       "streamtype '%s'", rs);
+					return -1;
+				}
 				lws_callback_on_writable(wsi);
 			}
 #if defined(LWS_WITH_SERVER)
