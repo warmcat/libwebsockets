@@ -10,4 +10,4 @@ This plugin handles the following Per-Vhost Options (PVOs):
 
 | PVO Name | Description |
 |---|---|
-| `indexpath` | **Required.** An absolute file path where the pre-generated FTS index file to be searched against is stored. |
+| `indexpath` | **Required.** An absolute file path where the pre-generated FTS index file to be searched against is stored.  If it is missing, the protocol fails init on that vhost and answers 404. |
