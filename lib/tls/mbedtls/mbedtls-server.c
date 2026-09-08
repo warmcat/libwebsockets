@@ -33,7 +33,7 @@ extern int lws_plat_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len);
 int
 lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 {
-	int verify_options = MBEDTLS_SSL_VERIFY_OPTIONAL;
+	int verify_options = MBEDTLS_SSL_VERIFY_OPTIONAL, post_handshake, require;
 
 	/*
 	 * The vhost may legitimately have no ctx, eg, it was created with
@@ -44,8 +44,18 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 	if (!vh->tls.ssl_ctx)
 		return 0;
 
-	if (lws_check_opt(vh->options,
-			  LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE)) {
+	post_handshake = !!lws_check_opt(vh->options,
+		LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE);
+	require = !!lws_check_opt(vh->options,
+		LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT);
+
+	if (!post_handshake && !require) {
+		lwsl_notice("no client cert required\n");
+
+		return 0;
+	}
+
+	if (post_handshake) {
 		/*
 		 * He wants the client cert collected and kept so he can decide
 		 * about it himself after the handshake.  mbedtls only sends a
@@ -66,23 +76,21 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 			  " the peer cert will not be readable after the "
 			  "handshake\n", __func__);
 #endif
-
-		mbedtls_ssl_conf_authmode(&vh->tls.ssl_ctx->conf,
-					  MBEDTLS_SSL_VERIFY_OPTIONAL);
-
-		return 0;
 	}
 
-	if (!lws_check_opt(vh->options,
-			  LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)) {
-		lwsl_notice("no client cert required\n");
-		return 0;
-	}
+	/*
+	 * The two options are orthogonal: asking to inspect the cert after the
+	 * handshake must not quietly cancel an explicit "require a valid
+	 * client cert".  VERIFY_REQUIRED keeps the peer cert around for
+	 * inspection just the same, it only additionally refuses the ones that
+	 * do not verify.
+	 */
 
-	if (!lws_check_opt(vh->options, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
+	if (require &&
+	    !lws_check_opt(vh->options, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
 		verify_options = MBEDTLS_SSL_VERIFY_REQUIRED;
 
-	lwsl_notice("%s: vh %s requires client cert %d\n", __func__, vh->name,
+	lwsl_notice("%s: vh %s client cert authmode %d\n", __func__, vh->name,
 		    verify_options);
 
 	mbedtls_ssl_conf_authmode(&vh->tls.ssl_ctx->conf, verify_options);
@@ -385,6 +393,22 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 
 	mbedtls_ssl_conf_sni(&vhost->tls.ssl_ctx->conf, lws_mbedtls_sni_cb, vhost->context);
 
+	/*
+	 * There is no mapping in this backend from the openssl-style cipher
+	 * names lws takes in its info / config to mbedtls ciphersuite ids, so
+	 * a restricted list cannot be honoured here.  Say so loudly rather
+	 * than let an operator believe a security control took effect: what is
+	 * actually in force is the mbedtls PRESET_DEFAULT suite list.
+	 */
+
+	if (info->ssl_cipher_list || info->tls1_3_plus_cipher_list)
+		lwsl_err("%s: vh %s: mbedtls backend cannot apply a server "
+			 "cipher list, '%s' / '%s' IGNORED\n", __func__,
+			 vhost->name,
+			 info->ssl_cipher_list ? info->ssl_cipher_list : "",
+			 info->tls1_3_plus_cipher_list ?
+			 info->tls1_3_plus_cipher_list : "");
+
 	if (!vhost->tls.use_ssl ||
 	    (!info->ssl_cert_filepath && !info->server_ssl_cert_mem))
 		return 0;
@@ -492,6 +516,40 @@ lws_tls_server_accept(struct lws *wsi)
 		if ((char *)strstr(wsi->a.vhost->name, ".invalid")) {
 			lwsl_notice("%s: vhost has .invalid, rejecting accept\n", __func__);
 			return LWS_SSL_CAPABLE_ERROR;
+		}
+
+		if (lws_check_opt(wsi->a.vhost->options,
+			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)) {
+			uint32_t f = mbedtls_ssl_get_verify_result(
+							&wsi->tls.ssl->ssl);
+
+			/*
+			 * With LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED the
+			 * authmode had to stay VERIFY_OPTIONAL, and mbedtls
+			 * completes the handshake under that whatever the cert
+			 * turned out to be, just recording the result here.
+			 *
+			 * openssl's SSL_VERIFY_PEER (which is what lws asks
+			 * for there) means "no cert is OK, a bad cert is not".
+			 * So tolerate only the absence of a cert: anything
+			 * that was presented and failed must fail the accept,
+			 * otherwise an app reading the CN or SAN afterwards to
+			 * authorize is reading an unvalidated identity.
+			 */
+
+			f &= ~((uint32_t)MBEDTLS_X509_BADCERT_MISSING |
+			       (uint32_t)MBEDTLS_X509_BADCERT_SKIP_VERIFY);
+
+			if (f) {
+				char vi[256];
+
+				mbedtls_x509_crt_verify_info(vi, sizeof(vi),
+							     "  ! ", f);
+				lwsl_notice("%s: %s: client cert rejected: %s\n",
+					    __func__, lws_wsi_tag(wsi), vi);
+
+				return LWS_SSL_CAPABLE_ERROR;
+			}
 		}
 
 		n = lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME,
