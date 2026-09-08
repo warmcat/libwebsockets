@@ -62,6 +62,7 @@ main(void)
 	char *line = NULL;
 	ssize_t r;
 	int setmembers = 0;
+	int ret = 1;
 
 	memset(rset, 0, sizeof(rset));
 
@@ -84,7 +85,7 @@ main(void)
 	if (setmembers > 127) {
 		fprintf(stderr, "%s: more than 127 terminals\n", __func__);
 
-		return 1;
+		goto bail;
 	}
 
 	/* Step 2: produce an enum template for the strings in a comment */
@@ -158,7 +159,7 @@ main(void)
 				fprintf(stderr, "%s: more than %d branches "
 					"at one node\n", __func__, PARALLEL);
 
-				return 1;
+				goto bail;
 			}
 
 			if (next >= (int)(sizeof(s) / sizeof(s[0]))) {
@@ -166,7 +167,7 @@ main(void)
 					__func__,
 					(int)(sizeof(s) / sizeof(s[0])));
 
-				return 1;
+				goto bail;
 			}
 
 			s[walk].count++;
@@ -202,7 +203,7 @@ main(void)
 			fprintf(stderr, "%s: more than %d branches at one "
 				"node\n", __func__, PARALLEL);
 
-			return 1;
+			goto bail;
 		}
 
 		s[walk].c[s[walk].count] = n++;
@@ -260,7 +261,8 @@ main(void)
 
 				if (y > 0x7ff) {
 					fprintf(stderr, "terminal too big\n");
-					return 2;
+					ret = 2;
+					goto bail;
 				}
 
 				fprintf(stdout, "   0x%02X, 0x%02X           "
@@ -293,7 +295,7 @@ main(void)
 				fprintf(stderr,
 				  "Jump > 64K bytes ahead (%d to %d)\n",
 					s[n].real_pos, s[saw].real_pos);
-				return 1;
+				goto bail;
 			}
 			fprintf(stdout, "   0x%02X /* '%c' */, 0x%02X, 0x%02X  "
 				"/* (to 0x%04X s %3d) */,\n",
@@ -314,11 +316,13 @@ main(void)
 	}
 
 	fprintf(stdout, "/* total size %d bytes */\n", pos);
+	ret = 0;
 
-	for (n = 0;n < setmembers; n++) {
+bail:
+	for (n = 0; n < setmembers; n++) {
 		free((void *)rset[n]);
 		rset[n] = NULL;
 	}
 
-	return 0;
+	return ret;
 }
