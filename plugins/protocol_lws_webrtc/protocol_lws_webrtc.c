@@ -240,17 +240,37 @@ rtp_packet_tx_cb(void *priv, const uint8_t *pkt, size_t len, int marker)
 	if (!media || !media->wsi_udp || !media->has_peer_sa46)
 		return;
 
+	/*
+	 * The video packetizers cap themselves at the RTP MTU, but the audio
+	 * path and any out-of-tree media source reaching us via lws_webrtc_ops
+	 * do not: refuse anything that would not fit, rather than smashing the
+	 * stack.  lws_srtp_protect() also appends its tag in here, so it gets
+	 * the real buffer size instead of a hardcoded 2048.
+	 */
+	if (len > sizeof(protected_pkt) - LWS_PRE) {
+		lwsl_err("%s: oversize RTP packet %zu\n", __func__, len);
+		return;
+	}
+
 	memcpy(p, pkt, len);
 	if (marker) p[1] |= 0x80;
 
-	if (lws_srtp_protect(&media->srtp_ctx_tx, p, &protected_len, 2048)) {
+	if (lws_srtp_protect(&media->srtp_ctx_tx, p, &protected_len,
+			     sizeof(protected_pkt) - LWS_PRE)) {
 		lwsl_err("%s: SRTP protect failed\n", __func__);
 		return;
 	}
 
 #if defined(LWS_HAVE_PTHREAD_H)
 	if (media->txpacer) {
-		uint8_t *heap_buf = malloc(protected_len);
+		/*
+		 * lws_txp_append() takes ownership and releases this with
+		 * lws_free(), which is not free() under
+		 * LWS_WITH_ALLOC_METADATA_LWS or a lws_set_allocator() build.
+		 * lws_malloc() is a private macro, so use the exported
+		 * lws_realloc() it expands to.
+		 */
+		uint8_t *heap_buf = lws_realloc(NULL, protected_len, __func__);
 		if (heap_buf) {
 			memcpy(heap_buf, p, protected_len);
 			if (lws_txp_append(media->txpacer, heap_buf, protected_len) < 0) {
@@ -572,6 +592,16 @@ lws_webrtc_send_audio(struct lws_webrtc_peer_media *media, const uint8_t *buf, s
 	if (!media || !media->handshake_done)
 		return 0;
 
+	/*
+	 * len is the caller's, and lws_webrtc_ops::send_audio is a public
+	 * contract for out-of-tree media sources: bound it against the packet
+	 * buffer before the memcpy below rather than trusting it.
+	 */
+	if (len > sizeof(pkt) - LWS_PRE - LWS_RTP_HEADER_LEN) {
+		lwsl_err("%s: oversize audio frame %zu\n", __func__, len);
+		return -1;
+	}
+
 	pthread_mutex_lock(&media->lock_tx);
 
 	if (timestamp != 0) {
@@ -752,10 +782,14 @@ lws_webrtc_create_offer(struct pss_webrtc *pss)
 			"{\"type\":\"offer\",\"sdp\":\"v=0\\r\\no=- 123456 2 IN IP4 %s\\r\\ns=-\\r\\nt=0 0\\r\\na=msid-semantic: WMS lws-stream\\r\\na=ice-lite\\r\\na=group:BUNDLE 0 1\\r\\n%s%s\"}",
 			vhd->external_ip[0] ? vhd->external_ip : "127.0.0.1", audio_m, video_m);
 
+	/* sizeof - 1, not a hand-counted length: the END one was one over */
+	static const char sdp_o_s[] = "\n--- START SDP OFFER ---\n",
+			  sdp_o_e[] = "\n--- END SDP OFFER ---\n\n";
+
 	webrtc_pss_log(pss, "Generated SDP OFFER (%zu bytes)\n%s\n", n_sdp, p);
-	if (write(2, "\n--- START SDP OFFER ---\n", 25) < 0 ||
+	if (write(2, sdp_o_s, sizeof(sdp_o_s) - 1) < 0 ||
 	    write(2, p, n_sdp) < 0 ||
-	    write(2, "\n--- END SDP OFFER ---\n\n", 25) < 0) {
+	    write(2, sdp_o_e, sizeof(sdp_o_e) - 1) < 0) {
 		webrtc_pss_err(pss, "Failed writing SDP offer to stderr\n");
 		return -1;
 	}
@@ -872,7 +906,8 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 	int state = 0;
 
 	while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
-		lwsl_notice("%s: Token: '%.*s' (len %d, type %d), state %d\n", __func__, (int)ts.token_len, ts.token, (int)ts.token_len, ts.e, state);
+		/* debug: one line per token of every candidate a client sends */
+		lwsl_debug("%s: Token: '%.*s' (len %d, type %d), state %d\n", __func__, (int)ts.token_len, ts.token, (int)ts.token_len, ts.e, state);
 		if (state == 0 && ts.token_len == 3 && !strncasecmp(ts.token, "udp", 3)) {
 			state = 1; /* Found Protocol udp */
 		} else if (state == 1) {
@@ -899,6 +934,18 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 
 		if (pss->media && pss->media->peer_stun_received) {
 			webrtc_pss_log(pss, "Skipping candidate parsing as ICE is already resolved via STUN.\n");
+			return 0;
+		}
+
+		/*
+		 * Each accepted candidate costs us an HMAC-SHA1 and a ~200 byte
+		 * STUN datagram sent to an address and port the peer chose, so
+		 * an unlimited SDP would make us a controllable reflector and
+		 * CPU sink.  A real ICE peer offers a handful of candidates.
+		 */
+		if (pss->stun_punches >= LWS_WEBRTC_MAX_PUNCHES) {
+			webrtc_pss_log(pss, "Ignoring ICE candidate: punch limit (%d) reached\n",
+				       LWS_WEBRTC_MAX_PUNCHES);
 			return 0;
 		}
 
@@ -952,6 +999,7 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 		}
 
 		lws_get_random(vhd->context, tid, 12);
+		pss->stun_punches++;
 		int n = lws_webrtc_stun_req_pack(pss, stun, sizeof(stun), tid);
 		if (n > 0) {
 			int fd = (int)(lws_intptr_t)lws_get_socket_fd(pss->media->wsi_udp);
@@ -1720,10 +1768,13 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 			audio_first ? mid_audio : mid_video, audio_first ? mid_video : mid_audio,
 			audio_first ? audio_m : video_m, audio_first ? video_m : audio_m);
 
+	static const char sdp_a_s[] = "\n--- START SDP ANSWER ---\n",
+			  sdp_a_e[] = "\n--- END SDP ANSWER ---\n\n";
+
 	webrtc_pss_log(pss, "Generated SDP ANSWER (%zu bytes)\n%s\n", n_sdp, p);
-	if (write(2, "\n--- START SDP ANSWER ---\n", 26) < 0 ||
+	if (write(2, sdp_a_s, sizeof(sdp_a_s) - 1) < 0 ||
 	    write(2, p, n_sdp) < 0 ||
-	    write(2, "\n--- END SDP ANSWER ---\n\n", 25) < 0) {
+	    write(2, sdp_a_e, sizeof(sdp_a_e) - 1) < 0) {
 		webrtc_pss_err(pss, "Failed writing SDP answer to log\n");
 		free(json_out);
 		return -1;
@@ -1989,6 +2040,8 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 				break;
 			}
 
+		/* CLIENT_CLOSED too: CLIENT_ESTABLISHED allocates the same things */
+		case LWS_CALLBACK_CLIENT_CLOSED:
 		case LWS_CALLBACK_CLOSED:
 			lwsl_notice("%s: LWS_CALLBACK_CLOSED\n", __func__);
 			if (pss->connection_log) {
@@ -2002,6 +2055,24 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 				pss->handshake_started = 0;
 			}
 			lws_buflist_destroy_all_segments(&pss->buflist);
+			/*
+			 * Drop the reference the pss took at ESTABLISHED.  pss
+			 * is about to be freed by lws and was the only owner in
+			 * the common case, so without this every ws connect /
+			 * disconnect cycle leaked the media object, its pacer
+			 * and the pacer's thread (8MB of stack reservation
+			 * each), which any unauthenticated client can cycle.
+			 *
+			 * Clear wsi_udp first: the pacer thread dereferences it
+			 * for each queued segment, and lws_txp_destroy() (via
+			 * lws_webrtc_media_unref()) only joins the thread after
+			 * this point.
+			 */
+			if (pss->media) {
+				pss->media->wsi_udp = NULL;
+				pss->media->has_peer_sa46 = 0;
+				lws_webrtc_media_unref(&pss->media);
+			}
 			break;
 
 		case LWS_CALLBACK_PROTOCOL_DESTROY:
@@ -2017,25 +2088,38 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
-/* Helper: Find session by peer address */
+/* Helper: network-order port out of either family of an lws_sockaddr46 */
+	static uint16_t
+webrtc_sa46_port(const lws_sockaddr46 *sa46)
+{
+#if defined(LWS_WITH_IPV6)
+	if (sa46->sa4.sin_family == AF_INET6)
+		return sa46->sa6.sin6_port;
+#endif
+	return sa46->sa4.sin_port;
+}
+
+/*
+ * Helper: Find session by peer address
+ *
+ * Compare the whole address, not just its low 32 bits: for a real (not
+ * v4-mapped) v6 peer those bits live in the interface identifier, so anyone
+ * on the victim's /64 could collide with his session and, since the DTLS
+ * path is reached on this match alone, inject records into his handshake.
+ * lws_sa46_compare_ads() normalizes v4 against v4-mapped v6 and also
+ * requires the families to agree.
+ */
 	static struct pss_webrtc *
-webrtc_find_session(struct vhd_webrtc *vhd, const struct sockaddr_in *sin)
+webrtc_find_session(struct vhd_webrtc *vhd, const lws_sockaddr46 *sa46)
 {
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 		struct pss_webrtc *s = lws_container_of(d, struct pss_webrtc, list);
-		if (s->media && s->media->has_peer_sa46) {
-			uint32_t stored_a = 0;
-			uint16_t stored_p = 0;
-			if (s->media->peer_sa46.sa4.sin_family == AF_INET) {
-				stored_a = s->media->peer_sa46.sa4.sin_addr.s_addr;
-				stored_p = s->media->peer_sa46.sa4.sin_port;
-			} else {
-				memcpy(&stored_a, &s->media->peer_sa46.sa6.sin6_addr.s6_addr[12], 4);
-				stored_p = s->media->peer_sa46.sa6.sin6_port;
-			}
-			if (stored_a == sin->sin_addr.s_addr && stored_p == sin->sin_port)
-				return s;
-		}
+
+		if (s->media && s->media->has_peer_sa46 &&
+		    webrtc_sa46_port(&s->media->peer_sa46) ==
+						webrtc_sa46_port(sa46) &&
+		    !lws_sa46_compare_ads(&s->media->peer_sa46, sa46))
+			return s;
 	} lws_end_foreach_dll(d);
 	return NULL;
 }
@@ -2070,15 +2154,23 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 	/* If we don't know the PSS yet (NAT), try to find it via USERNAME */
 	int found_username = 0;
 	if (!pss) {
+		/*
+		 * C-089: bound the walk by the declared STUN message length, not
+		 * by whatever the datagram happened to carry after it.
+		 */
+		size_t i = 20, slen = 20 + (size_t)((p[2] << 8) | p[3]);
+
+		if (slen > len)
+			slen = len;
+
 		/* Parse attributes to find USERNAME */
-		size_t i = 20;
-		while (i + 4 <= len) {
+		while (i + 4 <= slen) {
 			uint16_t attr_type = (uint16_t)((p[i] << 8) | p[i + 1]);
 			uint16_t attr_len = (uint16_t)((p[i + 2] << 8) | p[i + 3]);
 
 			if (attr_type == LWS_STUN_ATTR_USERNAME) { /* USERNAME */
 				found_username = 1;
-				if (i + 4 + attr_len > len)
+				if (i + 4 + attr_len > slen)
 					break;
 
 				char username[128];
@@ -2097,19 +2189,24 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 
 					lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 						struct pss_webrtc *s = lws_container_of(d, struct pss_webrtc, list);
-						// Match first part against our ufrag
+						/*
+						 * Match the first part against our ufrag.
+						 * The ufrag is public (it is in the SDP and in
+						 * cleartext in every check the real peer sends),
+						 * so a match here only selects which credential
+						 * to validate against.  It must NOT move the
+						 * session's peer address: doing that before
+						 * MESSAGE-INTEGRITY passed let any off-path
+						 * sender who knows the ufrag steer the whole
+						 * outbound media flow at a victim.  The address
+						 * is committed below, only once
+						 * lws_stun_validate_and_reply() succeeded.
+						 */
 						if (!strcmp(s->ice_ufrag, u_dest)) {
 							pss = s;
 							webrtc_pss_log(pss, "Mapped ICE identity to Peer IP '%s:%s'\n", u_dest, u_src);
-							if (pss->media) {
-								/* Save original sa46 for outbound sendto */
-								pss->media->peer_sa46 = udp_desc->sa46;
-								pss->media->has_peer_sa46 = 1;
-							}
 							*ppss = s;
 							break;
-						} else {
-							webrtc_pss_log(s, "STUN Mapping Miss: packet ufrag '%s' != our ufrag '%s'\n", u_dest, s->ice_ufrag);
 						}
 					} lws_end_foreach_dll(d);
 				}
@@ -2120,10 +2217,14 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 		}
 
 		if (!pss) {
-			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
-				struct pss_webrtc *s = lws_container_of(d, struct pss_webrtc, list);
-				webrtc_pss_log(s, "Received STUN packet that could not be mapped (found_username=%d)\n", found_username);
-			} lws_end_foreach_dll(d);
+			/*
+			 * Unauthenticated senders reach here.  Log it once at
+			 * debug: fanning it out over every live session cost
+			 * O(datagrams * sessions) log lines and 64KB-bounded
+			 * memmoves into each session's log, on attacker demand.
+			 */
+			lwsl_debug("%s: unmappable STUN packet (found_username=%d)\n",
+				   __func__, found_username);
 			return 0;
 		}
 	}
@@ -2142,8 +2243,8 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 			int fd = (int)(lws_intptr_t)lws_get_socket_fd(wsi);
 			if (fd >= 0) {
 				socklen_t slen = udp_desc->sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(udp_desc->sa46.sa6) : (socklen_t)sizeof(udp_desc->sa46.sa4);
-				lwsl_user(">>> STUN RESPONSE (%d bytes) TO %s:%u <<<\n", n_stun, ads, ntohs(sin->sin_port));
-				lwsl_hexdump_user(out, (size_t)n_stun);
+				lwsl_debug(">>> STUN RESPONSE (%d bytes) TO %s:%u <<<\n", n_stun, ads, ntohs(sin->sin_port));
+				lwsl_hexdump_debug(out, (size_t)n_stun);
 				webrtc_pss_log(pss, "Sent STUN Response (%d bytes) successfully.\n", n_stun);
 				ssize_t sent = sendto((lws_sockfd_type)(lws_intptr_t)fd, (const char *)out, (size_t)n_stun, 0, (const struct sockaddr *)&udp_desc->sa46, slen);
 				if (sent < 0) {
@@ -2495,7 +2596,12 @@ lws_shared_webrtc_udp_callback(struct lws *wsi, enum lws_callback_reasons reason
 
 		case LWS_CALLBACK_RAW_RX:
 			if (!vhd || !udp_desc) return 0;
-			lwsl_notice("%s: UDP packet received on port %u (len %zu)\n", __func__, vhd->udp_port, len);
+			/*
+			 * debug, not notice: this is every media datagram, and
+			 * anyone can send them.  At notice it is a remote
+			 * log-flood / event-loop stall on demand.
+			 */
+			lwsl_debug("%s: UDP packet received on port %u (len %zu)\n", __func__, vhd->udp_port, len);
 
 			/* Create pure IPv4 mapping for logic checks */
 			struct sockaddr_in pure_sin;
@@ -2513,8 +2619,13 @@ lws_shared_webrtc_udp_callback(struct lws *wsi, enum lws_callback_reasons reason
 
 			const struct sockaddr_in *sin = &pure_sin;
 
-			/* Find session by address */
-			pss = webrtc_find_session(vhd, sin);
+			/*
+			 * Find session by address: on the full sa46, since the
+			 * flattened pure_sin above discards 96 bits of a v6 peer
+			 * (it exists only because the STUN validator's API takes
+			 * a struct sockaddr_in).
+			 */
+			pss = webrtc_find_session(vhd, &udp_desc->sa46);
 
 			if (len > 0) {
 				uint8_t *p = (uint8_t *)in;

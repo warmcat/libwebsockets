@@ -207,18 +207,18 @@ callback_rtc_camera(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 
 					if (lws_json_simple_find((const char *)in, len, "\"type\":\"peer_ip\"", &al)) {
-						const char *p = lws_json_simple_find((const char *)in, len, "\"ip\":", &al);
-						if (p) {
-							char ip_buf[64];
-							size_t nl = al;
-							if (*p == '\"') { p++; nl -= 2; }
-							if (nl >= sizeof(ip_buf)) nl = sizeof(ip_buf) - 1;
-							memcpy(ip_buf, p, nl);
-							ip_buf[nl] = '\0';
-							if (we_ops && we_ops->create_offer) {
-								we_ops->create_offer(app_state->pss);
-							}
-						}
+						/*
+						 * lws_json_simple_find() already returns the
+						 * value with its quotes stripped, so the old
+						 * "skip the quote and take off 2" fixup only
+						 * ever fired on an empty value "", where it
+						 * underflowed the size_t length into a 63-byte
+						 * read past the rx buffer.  We do not use the
+						 * address anyway, so just check it is present.
+						 */
+						if (lws_json_simple_find((const char *)in, len, "\"ip\":", &al) &&
+						    we_ops && we_ops->create_offer)
+							we_ops->create_offer(app_state->pss);
 					}
 
 					if (lws_json_simple_find((const char *)in, len, "\"type\":\"request_caps\"", &al) ||
@@ -306,7 +306,28 @@ callback_rtc_camera(struct lws *wsi, enum lws_callback_reasons reason,
 #endif
 
 				if (app_state->ops && app_state->ops->init(app_state) < 0) {
+					/*
+					 * We are already installed as the webrtc
+					 * session's user data, and returning nonzero
+					 * closes the wsi, so CLIENT_CLOSED will come
+					 * and use it: uninstall before freeing, or
+					 * that is a UAF read, an indirect call
+					 * through app_state->ops and a double free.
+					 */
+					if (we_ops && we_ops->set_user_data)
+						we_ops->set_user_data(we_pss, NULL);
+					free((void *)app_state->video_device);
+					free((void *)app_state->audio_device);
 					free(app_state);
+					/* args is only freed at the end of this block */
+					if (args) {
+						lws_set_opaque_user_data(wsi, NULL);
+						free(args->name);
+						free(args->device_path);
+						free(args->audio_device_path);
+						free(args->auth_token);
+						free(args);
+					}
 					return -1;
 				}
 

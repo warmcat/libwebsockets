@@ -5,6 +5,12 @@
 #include <libwebsockets/lws-srtp.h>
 #include <libwebsockets/lws-stun.h>
 
+/*
+ * Most ICE agents offer a handful of candidates; anything past this is either
+ * broken or an attempt to use us as a UDP reflector, so we stop punching.
+ */
+#define LWS_WEBRTC_MAX_PUNCHES 16
+
 struct vhd_webrtc {
 	struct lws_context      *context;
 	struct lws_vhost        *vhost;
@@ -114,6 +120,13 @@ struct pss_webrtc {
 
 	int                     last_tu_id;
 	lws_usec_t              last_pli_req_time;
+
+	/*
+	 * How many ICE candidates from the peer we have already hole-punched
+	 * for this session.  Capped, since each one is an HMAC + a STUN
+	 * datagram to an address the peer chose, ie, a reflector.
+	 */
+	uint16_t                stun_punches;
 
 	struct lws_buflist      *buflist;
 
