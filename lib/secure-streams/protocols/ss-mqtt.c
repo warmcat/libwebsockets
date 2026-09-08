@@ -750,7 +750,8 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (r != LWSSSSRET_OK)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
-		if (wsi->mqtt->inside_shadow) {
+		/* a PUBLISH always carries a topic, but be explicit about it */
+		if (wsi->mqtt->inside_shadow && pmqpp->topic) {
 			size_t acc_n = strlen(LWS_MQTT_SHADOW_RESP_ACCEPTED_STR);
 			size_t rej_n = strlen(LWS_MQTT_SHADOW_RESP_REJECTED_STR);
 			uint32_t i;
