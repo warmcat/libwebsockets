@@ -87,6 +87,30 @@ rops_write_role_protocol_wt(struct lws *wsi, unsigned char *buf, size_t len,
 static int
 rops_close_kill_connection_wt(struct lws *wsi, enum lws_close_status reason)
 {
+	if (wsi->wt.is_session && wsi->mux.parent_wsi) {
+		/*
+		 * The WT session is going down: every stream that declared
+		 * this session must go with it (draft-ietf-webtrans-http3:
+		 * closing a session resets its associated streams).  Otherwise
+		 * they stay ESTABLISHED, bound to the session's protocol and
+		 * holding a QUIC stream slot, delivering rx to an app whose
+		 * session context is gone... a peer can accumulate orphans
+		 * that way by repeatedly opening and dropping sessions.
+		 */
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			lws_dll2_get_head(&wsi->mux.parent_wsi->
+						mux.child_list_owner)) {
+			struct lws *child = lws_container_of(d, struct lws,
+							     mux.sibling_list);
+
+			if (child == wsi || child->wt.session_wsi != wsi)
+				continue;
+
+			child->wt.session_wsi = NULL;
+			lws_wsi_close(child, LWS_TO_KILL_ASYNC);
+		} lws_end_foreach_dll_safe(d, d1);
+	}
+
 	if (wsi->wt.wtn) {
 		lws_free_set_NULL(wsi->wt.wtn);
 	}
@@ -113,10 +137,21 @@ lws_wt_create_stream(struct lws *wsi_session, int unidi)
 	if (!cwsi)
 		return NULL;
 
-	lws_role_transition(cwsi, LWSIFR_CLIENT, LRS_ESTABLISHED, &role_ops_wt);
+	/*
+	 * Take the client/server sense from the connection, don't just claim
+	 * to be a client: lws_role_transition() *replaces* the LWSIFR_SERVER
+	 * that lws_create_new_server_wsi() set, and role_ops_wt's callback
+	 * tables and the generic lwsi_role_client() paths are selected by it.
+	 * A server-created stream marked as a client silently gets
+	 * LWS_CALLBACK_CLIENT_WRITEABLE and the client teardown paths.
+	 */
+	lws_role_transition(cwsi, lwsi_role_client(nwsi) ? LWSIFR_CLIENT :
+							   LWSIFR_SERVER,
+			    LRS_ESTABLISHED, &role_ops_wt);
 	cwsi->mux_substream = 1;
 #if defined(LWS_WITH_CLIENT)
-	cwsi->client_mux_substream = 1;
+	if (lwsi_role_client(nwsi))
+		cwsi->client_mux_substream = 1;
 #endif
 
 	cwsi->quic.qs = lws_zalloc(sizeof(*cwsi->quic.qs), "quic stream");
@@ -162,9 +197,29 @@ lws_wt_create_stream(struct lws *wsi_session, int unidi)
 
 	lws_wsi_mux_insert(cwsi, nwsi, cwsi->quic.qs->stream_id);
 	cwsi->mux.my_sid = cwsi->quic.qs->stream_id;
-	
-	cwsi->a.protocol = wsi_session->a.protocol;
-	
+
+	/*
+	 * Remember which session owns this stream: streams are siblings of the
+	 * session wsi rather than its children, so there is nothing else to
+	 * derive the association from later
+	 */
+
+	cwsi->wt.session_wsi = wsi_session;
+
+	/*
+	 * Bind the protocol the normal way rather than just assigning
+	 * a.protocol: that is what allocates the per-session user space (the
+	 * app's callbacks are entitled to a zeroed per_session_data_size
+	 * allocation, a raw assignment leaves user_space NULL) and keeps the
+	 * protocol bind / unbind accounting balanced.
+	 */
+
+	if (lws_bind_protocol(cwsi, wsi_session->a.protocol, __func__)) {
+		lws_close_free_wsi(cwsi, LWS_CLOSE_STATUS_NOSTATUS,
+				   "wt stream bind");
+		return NULL;
+	}
+
 	/* Send WebTransport Stream Header (Type + Quarter Session ID) */
 	{
 		uint8_t pre[LWS_PRE + 16];
@@ -197,35 +252,58 @@ lws_wt_is_unidi(struct lws *wsi)
 LWS_VISIBLE struct lws *
 lws_wt_create_stream_from_child(struct lws *child_wsi, int unidi)
 {
-	struct lws *quic_nwsi = lws_get_quic_network_wsi(child_wsi);
-	if (quic_nwsi) {
-		lws_start_foreach_dll(struct lws_dll2 *, d,
-				lws_dll2_get_head(&quic_nwsi->mux.child_list_owner)) {
-			struct lws *child = lws_container_of(d, struct lws,
-							     mux.sibling_list);
-			if (child->wt.is_session)
-				return lws_wt_create_stream(child, unidi);
-		}
-		lws_end_foreach_dll(d);
-	}
-	return NULL;
+	struct lws *session = lws_wt_get_session_wsi(child_wsi);
+
+	if (!session)
+		return NULL;
+
+	return lws_wt_create_stream(session, unidi);
 }
 
 LWS_VISIBLE struct lws *
 lws_wt_get_session_wsi(struct lws *wsi)
 {
-	struct lws *quic_nwsi = lws_get_quic_network_wsi(wsi);
-	if (quic_nwsi) {
-		lws_start_foreach_dll(struct lws_dll2 *, d,
-				lws_dll2_get_head(&quic_nwsi->mux.child_list_owner)) {
-			struct lws *child = lws_container_of(d, struct lws,
-							     mux.sibling_list);
-			if (child->wt.is_session)
-				return child;
+	struct lws *quic_nwsi, *only = NULL;
+	int sessions = 0;
+
+	if (wsi->wt.is_session)
+		return wsi;
+
+	/* the association recorded when the stream was created / adopted */
+
+	if (wsi->wt.session_wsi)
+		return wsi->wt.session_wsi;
+
+	/*
+	 * Nothing was recorded for this stream.  A peer may have more than one
+	 * WebTransport session on the same H3 connection, and answering with
+	 * whichever session happens to come first in the sibling list would
+	 * attribute the stream to the wrong session, ie, to the wrong
+	 * authorization context.  So only answer when it is unambiguous.
+	 */
+
+	quic_nwsi = lws_get_quic_network_wsi(wsi);
+	if (!quic_nwsi)
+		return NULL;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			lws_dll2_get_head(&quic_nwsi->mux.child_list_owner)) {
+		struct lws *child = lws_container_of(d, struct lws,
+						     mux.sibling_list);
+		if (child->wt.is_session) {
+			only = child;
+			sessions++;
 		}
-		lws_end_foreach_dll(d);
 	}
-	return NULL;
+	lws_end_foreach_dll(d);
+
+	if (sessions != 1) {
+		lwsl_wsi_notice(wsi, "%d WT sessions, association unknown",
+				sessions);
+		return NULL;
+	}
+
+	return only;
 }
 
 static int

@@ -33,6 +33,15 @@ struct lws_wt_netconn {
 
 struct _lws_wt_related {
 	struct lws_wt_netconn *wtn; /* allocated for session WSI */
+	/*
+	 * For a WT stream, the session wsi whose id the stream carried in its
+	 * header, ie, the session that owns it.  NULL on the session wsi
+	 * itself, and cleared on every associated stream when the session is
+	 * closed, so it can never dangle.  Streams are siblings of the session
+	 * under the QUIC network wsi, not its children, so this is the only
+	 * record of the association.
+	 */
+	struct lws *session_wsi;
 	uint8_t is_session:1;
 	uint8_t is_unidi:1;
 };
