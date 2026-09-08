@@ -108,16 +108,33 @@
 
 #define compatible_close(x) close(x)
 #define lws_plat_socket_offset() LWIP_SOCKET_OFFSET
-#define wsi_from_fd(A,B)  A->lws_lookup[B - lws_plat_socket_offset()]
 
 struct lws_context;
 struct lws;
 
+/*
+ * context->lws_lookup[] is indexed by the lwip socket slot number, ie, by
+ * (sockfd - LWIP_SOCKET_OFFSET).  Those slots are handed out globally by lwip
+ * to everything in the image (dhcp, sntp, mdns, the app...) and have nothing
+ * to do with how many fds lws itself was configured for; context->max_fds is
+ * routinely tuned down on an MCU with info.fd_limit_per_thread, and the core's
+ * "fd too high" guard in __insert_wsi_socket_into_fds() is skipped exactly
+ * when that was done.
+ *
+ * So the table is sized to cover the whole possible socket index space, and
+ * the three accessors below range-check the index anyway.
+ */
+
+#define lws_plat_lookup_entries() ((unsigned int)getdtablesize())
+
 int
 insert_wsi(const struct lws_context *context, struct lws *wsi);
 
-#define delete_from_fd(A,B) assert((int)A->max_fds > B - lws_plat_socket_offset()); \
-    A->lws_lookup[B - lws_plat_socket_offset()] = 0
+struct lws *
+wsi_from_fd(const struct lws_context *context, int fd);
+
+int
+delete_from_fd(const struct lws_context *context, int fd);
 
 #define LWS_PLAT_TIMER_TYPE		TimerHandle_t
 #define LWS_PLAT_TIMER_CB(name, var)	void name(TimerHandle_t var)

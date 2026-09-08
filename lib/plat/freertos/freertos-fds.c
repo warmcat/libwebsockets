@@ -48,14 +48,63 @@ lws_plat_change_pollfd(struct lws_context *context,
 	return 0;
 }
 
+/*
+ * The lws_lookup[] index is the lwip socket slot number, which lwip hands out
+ * globally and independently of anything lws knows about... so it must be
+ * range-checked here, it cannot be inferred from context->max_fds.
+ */
+
+static int
+lws_plat_lookup_index(const struct lws_context *context, int fd)
+{
+	int idx = fd - lws_plat_socket_offset();
+
+	if (!context->lws_lookup || idx < 0 ||
+	    (unsigned int)idx >= lws_plat_lookup_entries())
+		return -1;
+
+	return idx;
+}
+
 int
 insert_wsi(const struct lws_context *context, struct lws *wsi)
 {
-    assert(context->lws_lookup[wsi->desc.sockfd -
-                               lws_plat_socket_offset()] == 0);
+	int idx = lws_plat_lookup_index(context, wsi->desc.sockfd);
 
-    context->lws_lookup[wsi->desc.sockfd - \
-                      lws_plat_socket_offset()] = wsi;
+	if (idx < 0) {
+		lwsl_err("%s: socket fd %d outside lookup table\n", __func__,
+			 wsi->desc.sockfd);
 
-    return 0;
+		return 1;
+	}
+
+	assert(context->lws_lookup[idx] == 0);
+
+	context->lws_lookup[idx] = wsi;
+
+	return 0;
+}
+
+struct lws *
+wsi_from_fd(const struct lws_context *context, int fd)
+{
+	int idx = lws_plat_lookup_index(context, fd);
+
+	if (idx < 0)
+		return NULL;
+
+	return context->lws_lookup[idx];
+}
+
+int
+delete_from_fd(const struct lws_context *context, int fd)
+{
+	int idx = lws_plat_lookup_index(context, fd);
+
+	if (idx < 0)
+		return 1;
+
+	context->lws_lookup[idx] = NULL;
+
+	return 0;
 }

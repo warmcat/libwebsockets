@@ -100,9 +100,19 @@ lws_plat_init(struct lws_context *context,
 #endif
 #endif
 
-	/* context has the global fd lookup array */
+	/*
+	 * Context has the global fd lookup array.
+	 *
+	 * It is indexed by the lwip socket slot number, which lwip allocates
+	 * globally to everything in the image; it is not related to
+	 * context->max_fds (which the user may have tuned down with
+	 * info.fd_limit_per_thread).  So size it for the whole socket index
+	 * space rather than for how many fds lws intends to use.
+	 */
+
 	context->lws_lookup = lws_zalloc(sizeof(struct lws *) *
-					 context->max_fds, "esp32 lws_lookup");
+					 lws_plat_lookup_entries(),
+					 "esp32 lws_lookup");
 	if (context->lws_lookup == NULL) {
 		lwsl_err("OOM on lws_lookup array for %d connections\n",
 			 context->max_fds);
@@ -110,7 +120,8 @@ lws_plat_init(struct lws_context *context,
 	}
 
 	lwsl_notice(" mem: platform fd map: %5lu bytes\n",
-		    (unsigned long)(sizeof(struct lws *) * context->max_fds));
+		    (unsigned long)(sizeof(struct lws *) *
+				    lws_plat_lookup_entries()));
 
 #ifdef LWS_WITH_PLUGINS
 	if (info->plugin_dirs)
