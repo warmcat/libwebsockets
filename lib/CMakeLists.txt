@@ -124,6 +124,21 @@ CHECK_C_SOURCE_COMPILES("
 		return pipe2(fd, 0);
 	}" LWS_HAVE_PIPE2)
 
+# ... and accept4(), so the accepted fd is CLOEXEC atomically, and cannot be
+# inherited by a spawn racing on another pt
+
+CHECK_C_SOURCE_COMPILES("
+	#ifndef _GNU_SOURCE
+	#define _GNU_SOURCE
+	#endif
+	#include <sys/types.h>
+	#include <sys/socket.h>
+	int main(void) {
+		struct sockaddr sa;
+		socklen_t sl = (socklen_t)sizeof(sa);
+		return accept4(0, &sa, &sl, SOCK_CLOEXEC);
+	}" LWS_HAVE_ACCEPT4)
+
 # tcp keepalive needs this on linux to work practically... but it only exists
 # after kernel 2.6.37
 
@@ -495,6 +510,7 @@ set(TEST_SERVER_SSL_KEY "${TEST_SERVER_SSL_KEY}" PARENT_SCOPE)
 set(TEST_SERVER_SSL_CERT "${TEST_SERVER_SSL_CERT}" PARENT_SCOPE)
 set(TEST_SERVER_DATA ${TEST_SERVER_DATA} PARENT_SCOPE)
 set(LWS_HAVE_PIPE2 ${LWS_HAVE_PIPE2} PARENT_SCOPE)
+set(LWS_HAVE_ACCEPT4 ${LWS_HAVE_ACCEPT4} PARENT_SCOPE)
 set(LWS_LIBRARIES ${LWS_LIBRARIES} PARENT_SCOPE)
 if (DEFINED WIN32_HELPERS_PATH)
 	set(WIN32_HELPERS_PATH ${WIN32_HELPERS_PATH} PARENT_SCOPE)

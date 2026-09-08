@@ -96,6 +96,7 @@
 #cmakedefine LWS_HAVE_OPENSSL_ECDH_H
 #cmakedefine LWS_HAVE_OPENSSL_STACK
 #cmakedefine LWS_HAVE_PIPE2
+#cmakedefine LWS_HAVE_ACCEPT4
 #cmakedefine LWS_HAVE_EVENTFD
 #cmakedefine LWS_HAVE_PTHREAD_H
 #cmakedefine LWS_HAVE_RSA_SET0_KEY

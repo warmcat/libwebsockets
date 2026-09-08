@@ -22,6 +22,12 @@
  * IN THE SOFTWARE.
  */
 
+/* accept4() lives behind _GNU_SOURCE on glibc, and must be set before the
+ * first system header is pulled in */
+#if !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+
 #include <private-lib-core.h>
 
 static void
@@ -98,9 +104,35 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 		lws_usec_t _acc_start = lws_now_usecs();
 #endif
 
+#if defined(LWS_HAVE_ACCEPT4)
+		/*
+		 * Take the accepted fd already CLOEXEC... otherwise a spawn
+		 * racing on another pt between here and the fcntl() done in
+		 * lws_plat_set_socket_options() below inherits the accepted
+		 * connection
+		 */
+
+		filt.accept_fd = accept4((int)pollfd->fd,
+					 (struct sockaddr *)&filt.cli_addr,
+					 &filt.clilen, SOCK_CLOEXEC);
+
+		if (filt.accept_fd == LWS_SOCK_INVALID && LWS_ERRNO == ENOSYS) {
+
+			/*
+			 * libc knows about it, but the kernel we ended up
+			 * running on does not... fall back to the racy way
+			 */
+
+			filt.clilen = sizeof(filt.cli_addr);
+			filt.accept_fd = accept((int)pollfd->fd,
+					(struct sockaddr *)&filt.cli_addr,
+					&filt.clilen);
+		}
+#else
 		filt.accept_fd = accept((int)pollfd->fd,
 					(struct sockaddr *)&filt.cli_addr,
 					&filt.clilen);
+#endif
 
 #if defined(LWS_WITH_LATENCY)
 		{
