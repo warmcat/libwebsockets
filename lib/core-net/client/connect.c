@@ -665,6 +665,23 @@ bail:
 	lws_fi_destroy(&wsi->fic);
 
 	lws_context_lock(i->context, __func__);
+
+	if (!wsi->lc.gutag[0])
+		/*
+		 * We bailed before PHASE 6 tagged the wsi into the client
+		 * lifecycle group (eg, tls requested on a build without tls,
+		 * or stash allocation failed).  __lws_free_wsi() untags
+		 * unconditionally and treats a never-tagged object as a bug,
+		 * so give it the tag it would have had, so the lifecycle
+		 * accounting sees a matched tag / untag pair.
+		 */
+		__lws_lc_tag(i->context, &i->context->lcg[LWSLCG_WSI_CLIENT],
+			     &wsi->lc, "%s/%s/%s/%s", i->method ? i->method : "WS",
+			     wsi->role_ops && wsi->role_ops->name ?
+					     wsi->role_ops->name : "norole",
+			     wsi->a.vhost ? wsi->a.vhost->name : "novh",
+			     i->address ? i->address : "");
+
 	__lws_free_wsi(wsi); /* acquires vhost lock in wsi reset */
 	lws_context_unlock(i->context);
 
