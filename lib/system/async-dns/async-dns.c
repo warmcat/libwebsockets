@@ -1762,7 +1762,21 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 		if (!found) {
 			lwsl_cx_info(context, "%s: cached but missing 0x%x, bypassing", name, qtype);
-			lws_dll2_remove(&c->list); /* Remove from cache list, let sul expire it */
+			/*
+			 * We want a fresh query to replace this entry.  It
+			 * must stay owned by dns->cached until it is freed,
+			 * since that list is what lws_async_dns_deinit()
+			 * walks: unlinking it here and waiting for the ttl sul
+			 * leaked it if the context was destroyed first.
+			 *
+			 * If nobody holds its results, just destroy it now.
+			 * Otherwise flag it incomplete so lws_adns_get_cache()
+			 * skips it, and let the ttl sul or deinit free it.
+			 */
+			if (!c->refcount)
+				lws_adns_cache_destroy(c);
+			else
+				c->incomplete = 1;
 			c = NULL;
 		}
 	}
