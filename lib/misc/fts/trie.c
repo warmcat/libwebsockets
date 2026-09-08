@@ -200,6 +200,25 @@ fts_fp_prev(struct lws_fts_filepath *fp)
 	return d ? lws_container_of(d, struct lws_fts_filepath, list) : NULL;
 }
 
+static struct lws_fts_filepath *
+fts_fp_by_index(struct lws_fts *t, uint32_t file_index)
+{
+	/* the list is built head-first, so the usual "the one we just
+	 * created" case is found immediately */
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&t->filepath_list_owner)) {
+		struct lws_fts_filepath *fp = lws_container_of(d,
+					struct lws_fts_filepath, list);
+
+		if ((uint32_t)fp->file_index == file_index)
+			return fp;
+
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
 #define spill(margin, force) \
 	if (bp && ((uint32_t)bp >= (sizeof(buf) - (size_t)(margin)) || (force))) { \
 		if ((int)write(t->fd, buf, (size_t)bp) != bp) { \
@@ -358,7 +377,12 @@ lws_fts_file_index(struct lws_fts *t, const char *filepath, int filepath_len,
 {
 	struct lws_fts_filepath *fp;
 
-	fp = lwsac_use(&t->lwsac_head, sizeof(*fp), TRIE_LWSAC_BLOCK_SIZE);
+	/*
+	 * zeroed... lws_dll2_add_head() requires a detached list member, and
+	 * lwsac_use() hands back whatever was in the heap
+	 */
+
+	fp = lwsac_use_zero(&t->lwsac_head, sizeof(*fp), TRIE_LWSAC_BLOCK_SIZE);
 	if (!fp)
 		return -1;
 
@@ -367,7 +391,15 @@ lws_fts_file_index(struct lws_fts *t, const char *filepath, int filepath_len,
 	fp->filepath[sizeof(fp->filepath) - 1] = '\0';
 	fp->filepath_len = filepath_len;
 	fp->file_index = t->next_file_index++;
-	fp->line_table_ofs = t->c;
+	/*
+	 * The line table for this filepath does not start here... the previous
+	 * filepath's line table is only terminated when the first fill for
+	 * this one arrives, so latching t->c now would point this filepath at
+	 * the previous one's terminator.  0 means "not started yet", it's
+	 * filled in by lws_fts_fill() (or lws_fts_serialize(), if this
+	 * filepath never gets any content at all).
+	 */
+	fp->line_table_ofs = 0;
 	fp->priority = priority;
 	fp->total_lines = 0;
 	t->fp = fp;
@@ -573,6 +605,7 @@ lws_fts_fill(struct lws_fts *t, uint32_t file_index, const char *buf,
 	struct lws_fts_instance_file *tif;
 	int bp = 0, sline, chars, m;
 	char *osuff, skipline = 0;
+	uint32_t tokline = 1;
 	struct lws_fts_lines *tl;
 	unsigned int olen, n;
 	off_t lbh;
@@ -584,6 +617,37 @@ lws_fts_fill(struct lws_fts *t, uint32_t file_index, const char *buf,
 		t->line_number = 1;
 		t->chars_in_line = 0;
 		t->lines_in_unsealed_linetable = 0;
+
+		/*
+		 * The tokenizer context must not straddle input files: if the
+		 * previous file ended midway through a token, the first chars
+		 * of this one would otherwise be appended to it, producing a
+		 * token that exists in neither file.
+		 */
+
+		t->parser = t->root;
+		t->str_match_pos = 0;
+		t->aggregate = 0;
+		t->agg_pos = 0;
+
+		/*
+		 * Point at the filepath this fill is for (the caller may not
+		 * be filling the filepath he indexed most recently), and if
+		 * this is its first content, latch where its line table
+		 * starts... which is only knowable now the previous filepath's
+		 * line table has been terminated by finalize_per_input().
+		 */
+
+		t->fp = fts_fp_by_index(t, file_index);
+		if (!t->fp) {
+			lwsl_err("%s: unknown file index %u\n", __func__,
+				 (unsigned int)file_index);
+
+			return 1;
+		}
+
+		if (!t->fp->line_table_ofs)
+			t->fp->line_table_ofs = t->c;
 	}
 
 	t->agg_raw_input += len;
@@ -604,6 +668,15 @@ lws_fts_fill(struct lws_fts *t, uint32_t file_index, const char *buf,
 			break;
 
 		len--;
+
+		/*
+		 * The line the token being sealed belongs to... a token that
+		 * is terminated by the newline itself must be filed under the
+		 * line it is on, not the one that starts after it, or the
+		 * reader can't find it in the line table chunk covering it.
+		 */
+
+		tokline = (uint32_t)t->line_number;
 
 		c = (unsigned char)*buf++;
 		t->chars_in_line++;
@@ -1013,14 +1086,14 @@ seal:
 		 * more vli space and continues chaining those if needed.
 		 */
 
-		n = (unsigned int)wq32(vlibuf, (uint32_t)t->line_number);
+		n = (unsigned int)wq32(vlibuf, tokline);
 		tif = t->parser->inst_file_list;
 
 		if (!tif->lines_list) {
 			/* we are still trying to use the file inst vli */
 			if (LWS_ARRAY_SIZE(tif->vli) - (size_t)tif->count >= n) {
 				tif->count = (char)((char)tif->count + (char)wq32(tif->vli + tif->count,
-						   (uint32_t)t->line_number));
+						   tokline));
 				goto after;
 			}
 			/* we are going to have to allocate */
@@ -1032,7 +1105,7 @@ seal:
 				(unsigned char)tif->lines_tail->count >= n) {
 			tif->lines_tail->count = (char)((char)tif->lines_tail->count + (char)wq32(tif->lines_tail->vli +
 						       tif->lines_tail->count,
-						       (uint32_t)t->line_number));
+						       tokline));
 			goto after;
 		}
 
@@ -1053,7 +1126,7 @@ seal:
 		if (!tif->lines_list)
 			tif->lines_list = tl;
 
-		tl->count = (char)wq32(tl->vli, (uint32_t)t->line_number);
+		tl->count = (char)wq32(tl->vli, tokline);
 after:
 		tif->total++;
 #if 0
@@ -1126,6 +1199,7 @@ lws_fts_serialize(struct lws_fts *t)
 	struct lws_fts_entry *e, *e1, *s[256];
 	unsigned char buf[8192], stasis;
 	struct lws_fts_entry *te1, *te2;
+	jg2_file_offset empty_lt;
 	int n, bp, sp = 0, do_parent;
 
 	(void)tf;
@@ -1181,6 +1255,35 @@ lws_fts_serialize(struct lws_fts *t)
 			} else
 				sp--;
 		} while (sp >= 0);
+	}
+
+	/*
+	 * A filepath that was indexed but never given any content has no line
+	 * table of its own.  It still needs to point at a valid, terminated
+	 * one, or the reader's chunk walk would start on whatever happens to
+	 * be at that fileoffset... they can all share a single empty one.
+	 */
+
+	empty_lt = 0;
+	fp = lws_container_of(lws_dll2_get_head(&t->filepath_list_owner),
+			      struct lws_fts_filepath, list);
+	while (fp) {
+		if (!fp->line_table_ofs) {
+			if (!empty_lt) {
+				memset(buf, 0, 8);
+				if (write(t->fd, buf, 8) != 8) {
+					lwsl_err("%s: empty linetable write "
+						 "failed\n", __func__);
+					goto bail;
+				}
+				empty_lt = t->c;
+				t->c += 8;
+			}
+
+			fp->line_table_ofs = empty_lt;
+		}
+
+		fp = fts_fp_next(fp);
 	}
 
 	/* dump the filepaths */
