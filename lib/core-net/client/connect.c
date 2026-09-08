@@ -639,16 +639,35 @@ bail3:
 #endif
 
 bail:
-	lws_dll2_remove(&wsi->pre_natal);
+	/*
+	 * By the time we can come here, the wsi may be bound to a vhost (so
+	 * vh->count_bound_wsi is incremented), bound to a protocol (so it is
+	 * on the vhost's same_vh_protocol_owner list), tagged into the
+	 * context's client lifecycle group, carrying metrics tags, and a child
+	 * of a parent wsi.  A plain lws_free() leaves all of those lists with
+	 * a member inside freed heap -- the next client wsi to be tagged
+	 * writes through the freed one -- and leaks the vhost binding so the
+	 * vhost can never be destroyed.
+	 *
+	 * Use the same teardown the connect3 oom path uses for a wsi that
+	 * never made it into the fd tables.
+	 */
+
+	lws_dll2_remove(&wsi->sibling_list);
+	wsi->parent = NULL;
 
 #if defined(LWS_WITH_TLS)
 	if (wsi->tls.ssl)
 		lws_tls_restrict_return(wsi);
 #endif
 
-	lws_free_set_NULL(wsi->stash);
+	lws_metrics_caliper_cancel(wsi->cal_conn);
 	lws_fi_destroy(&wsi->fic);
-	lws_free(wsi);
+
+	lws_context_lock(i->context, __func__);
+	__lws_free_wsi(wsi); /* acquires vhost lock in wsi reset */
+	lws_context_unlock(i->context);
+
 bail2:
 
 	if (i->pwsi)

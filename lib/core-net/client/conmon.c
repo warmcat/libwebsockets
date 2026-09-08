@@ -59,10 +59,19 @@ lws_conmon_append_copy_new_dns_results(struct lws *wsi,
 
 		while (ai) {
 
-			if (ai->ai_family != cai->ai_family &&
-			    ai->ai_addrlen != cai->ai_addrlen &&
-			    ai->ai_protocol != cai->ai_protocol &&
-			    ai->ai_socktype != cai->ai_socktype &&
+			/*
+			 * These have to be a conjunction of equalities: as
+			 * inequalities, a genuine duplicate failed every one
+			 * of them, so nothing was ever deduplicated, and the
+			 * only case that got as far as the address compare
+			 * below was two entries of *different* family, where
+			 * the compare picks the type from ai but dereferences
+			 * cai with it, reading past a sockaddr_in.
+			 */
+			if (ai->ai_family == cai->ai_family &&
+			    ai->ai_addrlen == cai->ai_addrlen &&
+			    ai->ai_protocol == cai->ai_protocol &&
+			    ai->ai_socktype == cai->ai_socktype &&
 			    /* either ipv4 or v6 address must match */
 			    ((ai->ai_family == AF_INET &&
 			      ((struct sockaddr_in *)ai->ai_addr)->

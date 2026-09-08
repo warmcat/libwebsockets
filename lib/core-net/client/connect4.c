@@ -58,6 +58,21 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 	/* http proxy */
 	if (wsi->a.vhost->http.http_proxy_port) {
 		const char *cpa;
+		/*
+		 * The CONNECT is composed into the first 256 bytes of the
+		 * serv_buf... but pt_serv_buf_size is the user's choice and
+		 * has no enforced minimum, so clip to what actually exists.
+		 *
+		 * Each append must be given the space that is actually left,
+		 * not the whole region again: lws_snprintf() returns the size
+		 * it was given when it truncated, so the constant 256 used for
+		 * every append meant a long address could compose up to 517
+		 * bytes into a region believed to be 256.
+		 */
+		size_t room = wsi->a.context->pt_serv_buf_size;
+
+		if (room > 256)
+			room = 256;
 
 		cpa = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
 						_WSI_TOKEN_CLIENT_PEER_ADDRESS);
@@ -66,21 +81,34 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 
 		lwsl_wsi_info(wsi, "going via proxy");
 
-		plen = lws_snprintf((char *)pt->serv_buf, 256,
+		plen = lws_snprintf((char *)pt->serv_buf, room,
 			"CONNECT %s:%u HTTP/1.1\x0d\x0a"
 			"Host: %s:%u\x0d\x0a"
 			"User-agent: lws\x0d\x0a", cpa, wsi->ocport,
 						   cpa, wsi->ocport);
 
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
-		if (wsi->a.vhost->proxy_basic_auth_token[0])
-			plen += lws_snprintf((char *)pt->serv_buf + plen, 256,
+		if ((size_t)plen < room &&
+		    wsi->a.vhost->proxy_basic_auth_token[0])
+			plen += lws_snprintf((char *)pt->serv_buf + plen,
+					room - (size_t)plen,
 					"Proxy-authorization: basic %s\x0d\x0a",
 					wsi->a.vhost->proxy_basic_auth_token);
 #endif
 
-		plen += lws_snprintf((char *)pt->serv_buf + plen, 5,
-					"\x0d\x0a");
+		if ((size_t)plen + 3 > room) {
+			/*
+			 * Truncated... plen is then one past a NUL, and
+			 * appending the terminator would send the proxy a
+			 * CONNECT with an embedded NUL in it.  Fail instead.
+			 */
+			cce = "proxy CONNECT too long";
+			lwsl_wsi_err(wsi, "%s", cce);
+			goto failed;
+		}
+
+		plen += lws_snprintf((char *)pt->serv_buf + plen,
+					room - (size_t)plen, "\x0d\x0a");
 
 		/* lwsl_hexdump_notice(pt->serv_buf, plen); */
 
