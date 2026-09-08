@@ -444,21 +444,35 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 		capacity = avg * BATCH_COUNT;
 
 		/*
+		 * avg is a rounded-down integer and can be 0 (eg, a cache full
+		 * of empty objects), which would make the division below a
+		 * divide-by-zero, ie, SIGFPE
+		 */
+
+		if (!capacity)
+			capacity = 1;
+
+		/*
 		 * if the cache grew by 10%, would we hit the limit even then?
 		 */
 		projected = (lds->agg_size * 11) / 10;
-		if (projected < cache_size_limit)
+		if (projected < cache_size_limit) {
 			/* no... */
-			lds->secs_waiting  = (int)((256 / 2) * ((cache_size_limit -
-						    projected) / capacity));
+			uint64_t secs = (256 / 2) *
+					((cache_size_limit - projected) /
+					 capacity);
 
-		/*
-		 * large waits imply we may not have enough info yet, so
-		 * check once an hour at least.
-		 */
+			/*
+			 * large waits imply we may not have enough info yet, so
+			 * check once an hour at least.  Clamp before the cast,
+			 * the product can be far larger than INT_MAX.
+			 */
 
-		if (lds->secs_waiting > 3600)
-			lds->secs_waiting = 3600;
+			if (secs > 3600)
+				secs = 3600;
+
+			lds->secs_waiting = (int)secs;
+		}
 	} else
 		lds->secs_waiting = 0;
 
