@@ -234,9 +234,20 @@ lws_ssproxy_txp_proxy_can_write(lws_transport_priv_t priv
 		 */
 
 		if (conn->ss) {
+			unsigned int rsn = 0;
+
 			rsp = conn->ss->policy;
 
-			while (rsp) {
+			/*
+			 * The rideshare chain is walked through the policy,
+			 * which is not guaranteed acyclic; and the client can
+			 * only store LWS_ARRAY_SIZE(h->rideshare_ofs) entries
+			 * anyway.  Bound the walk to that, so a cyclic policy
+			 * can't spin the proxy event loop here forever.
+			 */
+
+			while (rsp && rsn++ < LWS_ARRAY_SIZE(
+				  ((lws_sspc_handle_t *)NULL)->rideshare_ofs)) {
 				if (n != 4 && n < (int)sizeof(_s) - LWS_PRE - 2)
 					*(s + (n++)) = ',';
 				n += lws_snprintf(s + n, sizeof(_s) - LWS_PRE - (unsigned int)n,
@@ -245,6 +256,19 @@ lws_ssproxy_txp_proxy_can_write(lws_transport_priv_t priv
 					rsp->rideshare_streamtype);
 			}
 		}
+
+		/*
+		 * The frame length is carried in the single byte at s[2]...
+		 * refuse to emit a frame whose declared length would not match
+		 * the number of bytes we actually write, since the client would
+		 * then parse the remainder as fresh TLVs
+		 */
+
+		if (n - 3 > 255) {
+			lwsl_err("%s: create_result %d too long\n", __func__, n);
+			goto hangup;
+		}
+
 		*(s + 2) = (char)(n - 3);
 		conn->state = LPCSPROX_OPERATIONAL;
 		conn->txp_path.ops_onw->event_client_up(conn->txp_path.priv_onw);
@@ -257,7 +281,16 @@ lws_ssproxy_txp_proxy_can_write(lws_transport_priv_t priv
 		 * rx metadata has priority 1
 		 */
 
-		md = conn->ss->metadata;
+		/*
+		 * The onward ss can go away asynchronously (lws_ss_destroy()
+		 * NULLs conn->ss before it issues DISCONNECTED / DESTROYING)
+		 * while we are still OPERATIONAL with the client link up and
+		 * serialized state still queued in the dsh to drain to him.
+		 * So the pieces that need the onward handle are conditional,
+		 * but the dsh drain below is not.
+		 */
+
+		md = conn->ss ? conn->ss->metadata : NULL;
 		while (md) {
 			// lwsl_notice("%s: check %s: %d\n", __func__,
 			// md->name, md->pending_onward);
@@ -297,7 +330,7 @@ lws_ssproxy_txp_proxy_can_write(lws_transport_priv_t priv
 		 */
 
 #if defined(LWS_WITH_CONMON)
-		if (conn->ss->conmon_json) {
+		if (conn->ss && conn->ss->conmon_json) {
 			unsigned int xlen = conn->ss->conmon_len;
 
 			if (xlen > sizeof(s) - 3)
@@ -369,6 +402,7 @@ do_write_nz:
 				 */
 
 				if (conn->onward_in_flow_control &&
+				    conn->ss && conn->ss->policy &&
 				    conn->ss->policy->proxy_buflen_rxflow_on_above &&
 				    conn->ss->wsi &&
 				    lws_dsh_get_size(conn->dsh, KIND_SS_TO_P) <

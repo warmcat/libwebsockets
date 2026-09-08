@@ -1053,6 +1053,17 @@ process_markers(lws_jpeg_t *j, uint8_t *pMarker)
 						(j->fs_pm_skip_budget - totalRead);
 	
 					huffCreate(j->fs_pm_bits, ht);
+
+					/*
+					 * A DHT segment may hold several
+					 * tables; go back to reading the next
+					 * table's index byte, or the enclosing
+					 * while() re-enters case 3 with no
+					 * bytes left to read and burns the
+					 * budget on repeated huffCreate()
+					 */
+
+					j->fs_pm_skip = 1;
 					break;
 				}
 			}
@@ -1336,6 +1347,14 @@ interval_restart(lws_jpeg_t *j)
 		if (r)
 			return r;
 
+		/*
+		 * fs_ir_i is the per-restart-interval budget for the marker
+		 * scan; it has to go back to zero along with the phase, or it
+		 * accumulates across restarts and every stream using DRI/RSTn
+		 * fails once 1536 bytes have cumulatively been skipped
+		 */
+
+		j->fs_ir_i = 0;
 		j->fs_ir_phase = 0;
 		break;
 	}
@@ -1435,6 +1454,14 @@ init_scan(lws_jpeg_t *j)
 			j->restarts_left = j->restart_interval;
 			j->restart_num = 0;
 		}
+
+		/*
+		 * We're priming the entropy stash for a new scan; stashc is
+		 * provably 0 here today, but the two pushes below have no
+		 * bound of their own and stash[2] aliases stashc itself
+		 */
+
+		j->stashc = 0;
 
 		if (j->bits_left > 0)
 			j->stash[j->stashc++] = (uint8_t)j->bits;
@@ -2813,13 +2840,26 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 			/* fallthru */
 			
 		case LWSJDS_INIT_SCAN:
-			
+
+			/*
+			 * If we're only after the metadata, stop here, before
+			 * init_scan() consumes the SOS and primes the entropy
+			 * stash.  We must go via fin: so the input we already
+			 * consumed is published to the caller, otherwise he
+			 * replays it into a different parser state; and by
+			 * stopping before init_scan() rather than after it, the
+			 * retry can't run init_scan() a second time over bytes
+			 * the first run already ate.
+			 */
+
+			if (j->hold_at_metadata) {
+				r = LWS_SRET_AWAIT_RETRY;
+				goto fin;
+			}
+
 			r = init_scan(j);
 			if (r)
 				goto fin;
-
-			if (j->hold_at_metadata)
-				return LWS_SRET_AWAIT_RETRY;
 
 			/*
 			 * 8, or 16 lines of 24-bpp according to MCU height

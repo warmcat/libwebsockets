@@ -44,6 +44,17 @@
 #include <string.h>
 #include <limits.h>
 
+/*
+ * PNG itself allows dimensions up to 2^31 - 1, which as a line buffer is
+ * meaningless for us: we're a streaming decoder for embedded display lists and
+ * the line pair buffer is allocated up-front from the IHDR alone.  Cap what we
+ * accept at the same limits the jpeg decoder uses, so a 25-byte hostile header
+ * can't ask for a multi-GB allocation.
+ */
+
+#define LWS_UPNG_MAX_WIDTH	16384
+#define LWS_UPNG_MAX_HEIGHT	16384
+
 typedef enum upng_color {
 	LWS_UPNG_LUM		= 0,
 	LWS_UPNG_RGB		= 2,
@@ -408,7 +419,7 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 			u->acc = (u->acc << 8) | *pos++;
 			if (++u->sctr == 4) {
 				u->width = u->acc;
-				if (!u->acc)
+				if (!u->acc || u->acc > LWS_UPNG_MAX_WIDTH)
 					return LWS_SRET_FATAL + 18;
 				u->of++;
 				u->sctr = 0;
@@ -419,6 +430,8 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 			u->acc = (u->acc << 8) | *pos++;
 			if (++u->sctr == 4) {
 				u->height = u->acc;
+				if (!u->acc || u->acc > LWS_UPNG_MAX_HEIGHT)
+					return LWS_SRET_FATAL + 21;
 				u->of++;
 				u->sctr = 0;
 			}
@@ -487,16 +500,38 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 
 		case UOF_CHUNK_LEN:
 			if (!u->inf.out) {
-				size_t ims = (u->u.bypl * 2) + u->inf.info_size;
+				size_t ims;
 
-				if (u->u.bypl > UINT_MAX / 2 || u->inf.info_size > UINT_MAX - (u->u.bypl * 2)) {
-					lwsl_err("%s: integer overflow occur in ims %llu",
-						 __func__, (unsigned long long)ims);
+				/*
+				 * Confirm the line-pair + window arithmetic
+				 * can't wrap *before* we evaluate it.  width
+				 * and bpp are already capped at IHDR, this is
+				 * belt-and-braces on the allocation size.
+				 */
+
+				if (u->u.bypl > UINT_MAX / 2 ||
+				    u->inf.info_size >
+					      UINT_MAX - (u->u.bypl * 2)) {
+					lwsl_err("%s: ims overflow\n",
+						 __func__);
+
 					return LWS_SRET_FATAL + 27;
 				}
 
-				if (u->hold_at_metadata)
-					return LWS_SRET_AWAIT_RETRY;
+				ims = (size_t)(u->u.bypl * 2) +
+						u->inf.info_size;
+
+				/*
+				 * We must publish how much of the caller's
+				 * buffer we consumed, even on this early exit,
+				 * or he will replay bytes we already ate into
+				 * a different parser state
+				 */
+
+				if (u->hold_at_metadata) {
+					r = LWS_SRET_AWAIT_RETRY;
+					goto bail;
+				}
 
 				u->inf.out = (uint8_t *)lws_malloc(ims, __func__);
 				if (!u->inf.out) {
@@ -723,9 +758,13 @@ lws_upng_get_pixelsize(const lws_upng_t* upng)
 	unsigned bits = lws_upng_get_bitdepth(upng) *
 				lws_upng_get_components(upng);
 
-	bits += bits % 8;
+	/*
+	 * Round up to whole bytes... "bits += bits % 8" gave 2 for a 1bpp
+	 * image, ie, a zero-byte pixel stride at the consumer, and did not
+	 * match the (bpp + 7) / 8 bytes-per-pixel the decoder actually emits
+	 */
 
-	return bits;
+	return ((bits + 7) / 8) * 8;
 }
 
 lws_upng_format_t

@@ -50,7 +50,9 @@ lws_display_render_png(struct lws_display_render_state *rs)
 	lws_fx_t ax, ay, t, t1;
 	lws_display_colour_t pc;
 	lws_stateful_ret_t r;
+	lws_upng_format_t fmt;
 	const uint8_t *pix;
+	unsigned int bypp;
 	int s, e;
 
 	if (!lws_upng_get_height(dlo_png->png)) {
@@ -109,21 +111,48 @@ lws_display_render_png(struct lws_display_render_state *rs)
 
 	} while (!pix);
 
-	pix = pix + (( (unsigned int)(s - ax.whole) *
-			(lws_upng_get_pixelsize(dlo_png->png) / 8)));
+	fmt = lws_upng_get_format(dlo_png->png);
+	bypp = lws_upng_get_pixelsize(dlo_png->png) / 8;
+
+	pix = pix + ((unsigned int)(s - ax.whole) * bypp);
 
 	while (s < e && s >= ax.whole && s < lws_fx_roundup(&t) &&
 	       (s - ax.whole) < (int)lws_upng_get_width(dlo_png->png)) {
 
-		if (lws_upng_get_pixelsize(dlo_png->png))
-			pc = LWSDC_RGBA(pix[0], pix[0], pix[0], pix[1]);
+		/*
+		 * The decoder emits bypp bytes per pixel according to the PNG
+		 * colour type, and the line pair buffer is only width * bypp
+		 * long.  So we must decompose according to the actual format;
+		 * blindly taking pix[0..3] overran the allocation by up to 3
+		 * bytes on the last pixel of every odd scanline.
+		 */
 
-		pc = LWSDC_RGBA(pix[0], pix[1], pix[2], pix[3]);
+		switch (fmt) {
+		case LWS_UPNG_RGBA8:
+			pc = LWSDC_RGBA(pix[0], pix[1], pix[2], pix[3]);
+			break;
+		case LWS_UPNG_RGBA16:
+			pc = LWSDC_RGBA(pix[0], pix[2], pix[4], pix[6]);
+			break;
+		case LWS_UPNG_RGB8:
+			pc = LWSDC_RGBA(pix[0], pix[1], pix[2], 0xff);
+			break;
+		case LWS_UPNG_RGB16:
+			pc = LWSDC_RGBA(pix[0], pix[2], pix[4], 0xff);
+			break;
+		case LWS_UPNG_LUMINANCE_ALPHA8:
+			pc = LWSDC_RGBA(pix[0], pix[0], pix[0], pix[1]);
+			break;
+		default:
+			/* the rest are all 1 byte per pixel of luminance */
+			pc = LWSDC_RGBA(pix[0], pix[0], pix[0], 0xff);
+			break;
+		}
 
 		lws_surface_set_px(rs->ic, rs->line, s, &pc);
 
 		s++;
-		pix += lws_upng_get_pixelsize(dlo_png->png) / 8;
+		pix += bypp;
 	}
 
 	return LWS_SRET_OK;

@@ -730,10 +730,24 @@ fill_l:
 
 			inf->distance += tu;
 
-			if (inf->distance > inf->info_size) {
-				lwsl_err("%s: distance %lu\n", __func__,
-						(unsigned long)inf->distance);
-				assert(0);
+			/*
+			 * RFC1951: a match may not reference further back than
+			 * the number of bytes we already produced, ie, "invalid
+			 * distance too far back".  Without this, the first
+			 * bytes of the stream can copy out of the part of the
+			 * sliding window we never wrote, leaking uninitialized
+			 * heap into the decode output.  It must also not exceed
+			 * the sliding window itself, since anything older than
+			 * that has already been overwritten in the ring.
+			 */
+
+			if (inf->distance > inf->outpos_linear ||
+			    inf->distance > inf->info_size) {
+				lwsl_err("%s: distance %lu too far back\n",
+					 __func__,
+					 (unsigned long)inf->distance);
+
+				return LWS_SRET_FATAL + 12;
 			}
 
 			/*

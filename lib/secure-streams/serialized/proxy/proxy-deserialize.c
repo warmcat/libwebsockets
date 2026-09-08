@@ -109,18 +109,10 @@ lws_ss_deserialize_tx_payload(struct lws_dsh *dsh, struct lws *wsi,
  */
 
 /* convert userdata ptr _pss to handle pointer, allowing for any layout in
- * userdata */
-#define client_pss_to_sspc_h(_pss, _ssi) (*((lws_sspc_handle_t **) \
-				     ((uint8_t *)_pss) + _ssi->handle_offset))
-/* client pss to sspc userdata */
-#define client_pss_to_userdata(_pss) ((void *)_pss)
-/* proxy convert pss to ss handle */
-#define proxy_pss_to_ss_h(_pss) (*_pss)
-
-/* convert userdata ptr _pss to handle pointer, allowing for any layout in
- * userdata */
-#define client_pss_to_sspc_h(_pss, _ssi) (*((lws_sspc_handle_t **) \
-				     ((uint8_t *)_pss) + _ssi->handle_offset))
+ * userdata.  handle_offset is a *byte* offset (that's how lws_sspc_create()
+ * stores the handle), so the addition must be done on the uint8_t * */
+#define client_pss_to_sspc_h(_pss, _ssi) (*(lws_sspc_handle_t **) \
+				     (((uint8_t *)(_pss)) + (_ssi)->handle_offset))
 /* client pss to sspc userdata */
 #define client_pss_to_userdata(_pss) ((void *)_pss)
 /* proxy convert pss to ss handle */
@@ -332,7 +324,14 @@ lws_ss_proxy_deserialize_parse(struct lws_ss_serialization_parser *par,
 			par->ps++;
 			if (par->rem-- < par->slen)
 				goto hangup;
-			if (par->slen >= sizeof(par->rideshare)) {
+			/*
+			 * slen must leave room for the NUL, and it must not be
+			 * zero: RPAR_RIDESHARE terminates on ctr reaching slen,
+			 * and ctr only ever counts up from 1, so a zero slen
+			 * would never terminate inside the buffer
+			 */
+			if (!par->slen ||
+			    par->slen >= sizeof(par->rideshare)) {
 				lwsl_err("%s: rideshare slen %d >= buffer %zu\n",
 					 __func__, (unsigned)par->slen, sizeof(par->rideshare));
 				goto hangup;
@@ -355,11 +354,19 @@ lws_ss_proxy_deserialize_parse(struct lws_ss_serialization_parser *par,
 			break;
 
 		case RPAR_RIDESHARE:
+			/*
+			 * Bound the store itself, and terminate on >= rather
+			 * than != , so no combination of slen and ctr can walk
+			 * past the end of the buffer.  Leave room for the NUL.
+			 */
+			if (par->ctr >= (int)sizeof(par->rideshare) - 1)
+				goto hangup;
 			par->rideshare[par->ctr++] = (char)*cp++;
 			if (!par->rem--)
 				goto hangup;
-			if (par->ctr != par->slen)
+			if (par->ctr < par->slen)
 				break;
+			par->rideshare[par->ctr] = '\0';
 			par->ps = RPAR_PAYLOAD;
 			if (par->rem)
 				break;
@@ -649,7 +656,14 @@ payload_ff_l:
 			if (!--par->rem)
 				goto hangup;
 			par->slen = *cp++;
-			if (par->slen >= sizeof(par->metadata_name) - 1)
+			/*
+			 * A zero-length metadata name is meaningless, and
+			 * RPAR_METADATA_NAME can only terminate on ctr
+			 * reaching slen, where ctr counts up from 1... so a
+			 * zero slen would never terminate inside the buffer
+			 */
+			if (!par->slen ||
+			    par->slen >= sizeof(par->metadata_name) - 1)
 				goto hangup;
 			par->ctr = 0;
 			par->ps++;
@@ -659,8 +673,11 @@ payload_ff_l:
 			/* both client and proxy */
 			if (!--par->rem)
 				goto hangup;
+			/* bound the store, and terminate on >= not != */
+			if (par->ctr >= (int)sizeof(par->metadata_name) - 1)
+				goto hangup;
 			par->metadata_name[par->ctr++] = (char)*cp++;
-			if (par->ctr != par->slen)
+			if (par->ctr < par->slen)
 				break;
 			par->metadata_name[par->ctr] = '\0';
 			par->ps = RPAR_METADATA_VALUE;
@@ -720,6 +737,19 @@ payload_ff_l:
 
 		case RPAR_METADATA_VALUE:
 			/* both client and proxy */
+
+			/*
+			 * par->ssmd points into the onward ss handle's metadata
+			 * and was taken in RPAR_METADATA_NAME, possibly in an
+			 * earlier rx callback... *pss may have gone away
+			 * asynchronously inbetweentimes, taking par->ssmd with
+			 * it, so confirm the handle is still there
+			 */
+
+			if (!proxy_pss_to_ss_h(pss)) {
+				par->ssmd = NULL;
+				goto hangup;
+			}
 
 			if (!par->ssmd) {
 				/* we don't recognize the name */

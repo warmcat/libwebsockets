@@ -108,6 +108,20 @@ lws_dsh_create(lws_dll2_owner_t *owner, size_t buf_len, int _count_kinds)
 	assert(buf_len);
 	assert(count_kinds > 1);
 	assert(buf_len > sizeof(lws_dsh_t) + oha_len);
+
+	/*
+	 * buf_len may have come from a policy or, for the serialized SS
+	 * client, from the proxy... it must be able to hold the initial free
+	 * object that lws_dsh_empty() places at the start of the buffer, and
+	 * it must not be able to wrap either the + 64 below or the malloc
+	 * length.  The asserts above are compiled out in production, so this
+	 * has to be checked at runtime.
+	 */
+
+	if (buf_len < sizeof(lws_dsh_obj_t) ||
+	    buf_len > (size_t)-1 - (64 + sizeof(lws_dsh_t) + oha_len))
+		return NULL;
+
 	buf_len += 64;
 
 	dsh = lws_malloc(sizeof(lws_dsh_t) + buf_len + oha_len, __func__);

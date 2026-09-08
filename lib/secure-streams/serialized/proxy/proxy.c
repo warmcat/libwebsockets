@@ -127,6 +127,18 @@ lws_ss_serialize_rx_payload(struct lws_dsh *dsh, const uint8_t *buf,
 		if (!rsp)
 			return 1;
 		l = (int)strlen(rsp);
+		/*
+		 * The rideshare name is copied into pre[] after the 19-byte
+		 * header and a 1-byte length... streamtype names come from the
+		 * policy and are not otherwise bounded by what fits here, or
+		 * by what the 1-byte length can describe
+		 */
+		if (l > (int)sizeof(pre) - 20) {
+			lwsl_err("%s: rideshare name %d too long for header\n",
+				 __func__, l);
+
+			return 1;
+		}
 		est += 1 + l;
 	} else
 		assert(!rsp);

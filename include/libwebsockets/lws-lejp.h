@@ -80,7 +80,8 @@ enum lejp_reasons {
 	LEJP_REJECT_NUM_TOO_LONG = -20,
 	LEJP_REJECT_MP_C_OR_E_NEITHER = -21,
 	LEJP_REJECT_UNKNOWN = -22,
-	LEJP_REJECT_CALLBACK = -23
+	LEJP_REJECT_CALLBACK = -23,
+	LEJP_REJECT_MP_KEY_ILLEGAL_CHAR = -24
 };
 
 #define LEJP_FLAG_CB_IS_VALUE 64
@@ -270,11 +271,22 @@ struct lejp_ctx {
 	/* short */
 
 	uint16_t uni;
+	uint16_t uni_hi; /* pending \uD800-\uDBFF surrogate half, or 0 */
 #define LEJP_FLAG_FEAT_OBJECT_INDEXES				(1 << 0)
 #define LEJP_FLAG_FEAT_LEADING_WC				(1 << 1)
+/*
+ * Reject object key names containing the characters lejp uses to represent
+ * the document structure in ctx->path, ie, '.', '[' and ']'.  Without this,
+ * a peer can choose a key name that synthesizes the same path as a completely
+ * different document shape, eg, {"s[].foo":1} produces the same path as
+ * {"s":[{"foo":1}]}.  It's optional since a key legitimately containing '.'
+ * (eg, a hostname) is not that unusual; set it if your paths care.
+ */
+#define LEJP_FLAG_FEAT_STRICT_KEY_CHARS				(1 << 2)
 #define LEJP_FLAG_LATEST \
 					(LEJP_FLAG_FEAT_OBJECT_INDEXES | \
-					 LEJP_FLAG_FEAT_LEADING_WC)
+					 LEJP_FLAG_FEAT_LEADING_WC | \
+					 LEJP_FLAG_FEAT_STRICT_KEY_CHARS)
 	uint16_t flags;
 
 	/* char */
