@@ -41,9 +41,17 @@ lws_plat_pipe_create(struct lws *wsi)
 	goto set;
 
 #elif defined(LWS_HAVE_PIPE2)
-	n = pipe2(pt->dummy_pipe_fds, O_NONBLOCK);
+	n = pipe2(pt->dummy_pipe_fds, O_NONBLOCK | O_CLOEXEC);
 #else
 	n = pipe(pt->dummy_pipe_fds);
+	if (n >= 0 &&
+	    (lws_plat_apply_FD_CLOEXEC(pt->dummy_pipe_fds[0]) ||
+	     lws_plat_apply_FD_CLOEXEC(pt->dummy_pipe_fds[1])))
+		/*
+		 * Not fatal, but a spawned child then holds the service pipe
+		 * open across its exec
+		 */
+		lwsl_info("%s: FD_CLOEXEC didn't stick\n", __func__);
 #endif
 
 #if defined(LWS_HAVE_EVENTFD)

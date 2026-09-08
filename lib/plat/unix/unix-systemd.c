@@ -36,9 +36,16 @@ int
 lws_systemd_inherited_fd(unsigned int index,
 			 struct lws_context_creation_info *info)
 {
-	unsigned int inherited = (unsigned int)sd_listen_fds(0);
+	/*
+	 * sd_listen_fds() returns a negative errno on failure (eg, LISTEN_FDS
+	 * unparseable)... casting that to unsigned would turn the bound check
+	 * below into a pass, and we would adopt whatever descriptor we happen
+	 * to have open at SD_LISTEN_FDS_START + index as a listen socket
+	 */
 
-	if (index >= inherited)
+	int inherited = sd_listen_fds(0);
+
+	if (inherited <= 0 || index >= (unsigned int)inherited)
 		return -1;
 
 	info->vh_listen_sockfd = (int)(SD_LISTEN_FDS_START + index);
