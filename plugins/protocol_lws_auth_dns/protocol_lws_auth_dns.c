@@ -518,6 +518,14 @@ struct per_vhost_data__auth_dns {
 	lws_dll2_owner_t pending_queries;
 	lws_sorted_usec_list_t sul_evict;
 
+	/*
+	 * C-239: count of distinct domains in pending_queries, maintained
+	 * incrementally.  It used to be recomputed by a nested walk of the
+	 * (up to 1024-entry) queue on every cache-missing query, ie, O(n^2)
+	 * strcmp() on the event loop thread driven by unauthenticated UDP.
+	 */
+	uint32_t pending_unique_domains;
+
 	/* DNSBL tracking */
 	int has_dnsbl;                     /* 1 if we have any DNSBLs configured */
 	char dnsbl_list[256];              /* Comma-separated list of DNSBL domains */
@@ -1056,6 +1064,39 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 	}
 }
 
+/*
+ * Take one pending query off the vhd queue, cancelling its timeout and
+ * keeping vhd->pending_unique_domains in step.  Every free of a
+ * struct pending_dns_query goes through here.
+ */
+
+static void
+pending_query_detach(struct pending_dns_query *q)
+{
+	struct per_vhost_data__auth_dns *vhd = q->vhd;
+	int others = 0;
+
+	lws_sul_cancel(&q->sul_timeout);
+	lws_dll2_remove(&q->list);
+
+	if (!vhd)
+		return;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->pending_queries)) {
+		struct pending_dns_query *q2 = lws_container_of(d,
+					struct pending_dns_query, list);
+
+		if (!strcmp(q2->domain, q->domain)) {
+			others = 1;
+			break;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (!others && vhd->pending_unique_domains)
+		vhd->pending_unique_domains--;
+}
+
 static void
 auth_dns_fetch_cb(void *opaque, const char *domain, int status)
 {
@@ -1071,8 +1112,7 @@ auth_dns_fetch_cb(void *opaque, const char *domain, int status)
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->pending_queries)) {
 		struct pending_dns_query *q = lws_container_of(d, struct pending_dns_query, list);
 		if (!strcmp(q->domain, domain)) {
-			lws_sul_cancel(&q->sul_timeout);
-			lws_dll2_remove(&q->list);
+			pending_query_detach(q);
 
 			if (q->wsi) {
 				const struct lws_protocols *prot = lws_get_protocol(q->wsi);
@@ -1182,12 +1222,15 @@ pending_query_timeout_cb(lws_sorted_usec_list_t *sul)
 {
 	struct pending_dns_query *q = lws_container_of(sul, struct pending_dns_query, sul_timeout);
 	lwsl_info("%s: timeout for query\n", __func__);
+
+	pending_query_detach(q);
+
 	if (q->wsi) {
 		const struct lws_protocols *prot = lws_get_protocol(q->wsi);
 		if (prot && prot->callback)
 			prot->callback(q->wsi, LWS_CALLBACK_USER, lws_wsi_user(q->wsi), q, 0);
 	}
-	lws_dll2_remove(&q->list);
+
 	free(q);
 }
 
@@ -1472,6 +1515,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				free(q);
 			} lws_end_foreach_dll_safe(d, d1);
 
+			vhd->pending_unique_domains = 0;
+
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->pending_dnsbl)) {
 				struct pending_dnsbl_query *q = lws_container_of(d, struct pending_dnsbl_query, list);
 				lws_sul_cancel(&q->sul_timeout);
@@ -1726,11 +1771,18 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 				int is_already_fetching_globally = 0;
 				int is_already_fetching_ip = 0;
-				int global_domains_count = 0;
 
 				const char *ip_domains[16];
 				int ip_domains_count = 0;
 				int ip_total_queries = 0;
+
+				/*
+				 * C-239: one cheap pass.  The unique-domain
+				 * total is kept incrementally on the vhd, and
+				 * each entry carries the printable form of
+				 * its peer address so we do not run an
+				 * inet_ntop() per queue entry per query.
+				 */
 
 				lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->pending_queries)) {
 					struct pending_dns_query *q = lws_container_of(d, struct pending_dns_query, list);
@@ -1738,60 +1790,55 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					if (!strcmp(q->domain, base))
 						is_already_fetching_globally = 1;
 
-					int is_unique_global = 1;
-					lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&vhd->pending_queries)) {
-						if (d2 == d) break;
-						struct pending_dns_query *q2 = lws_container_of(d2, struct pending_dns_query, list);
-						if (!strcmp(q->domain, q2->domain)) {
-							is_unique_global = 0;
-							break;
-						}
-					} lws_end_foreach_dll(d2);
-					if (is_unique_global)
-						global_domains_count++;
+					if (strcmp(q->peer_ip, peer_ip))
+						continue;
 
-					char q_ip[64];
-					lws_sa46_write_numeric_address(&q->sa46_peer, q_ip, sizeof(q_ip));
-					if (!strcmp(q_ip, peer_ip)) {
-						ip_total_queries++;
-						if (!strcmp(q->domain, base))
-							is_already_fetching_ip = 1;
+					ip_total_queries++;
+					if (!strcmp(q->domain, base))
+						is_already_fetching_ip = 1;
 
-						int found = 0;
-						for (int i = 0; i < ip_domains_count; i++) {
-							if (!strcmp(ip_domains[i], q->domain)) { found = 1; break; }
-						}
-						if (!found && ip_domains_count < 16) {
+					if (ip_domains_count < 16) {
+						int i, found = 0;
+
+						for (i = 0; i < ip_domains_count; i++)
+							if (!strcmp(ip_domains[i], q->domain)) {
+								found = 1;
+								break;
+							}
+
+						if (!found)
 							ip_domains[ip_domains_count++] = q->domain;
-						}
 					}
 				} lws_end_foreach_dll(d);
 
 				if (!is_already_fetching_globally) {
-					if (global_domains_count >= (int)vhd->dht_max_pending) {
-						lwsl_notice("dht pending queries maxed out (globally %d unique) for %s from %s\n", global_domains_count, base, peer_ip);
+					if (vhd->pending_unique_domains >= vhd->dht_max_pending) {
+						lwsl_notice("dht pending queries maxed out (globally %u unique) from %s\n",
+							    (unsigned int)vhd->pending_unique_domains, peer_ip);
 						goto send_refused;
 					}
 				}
 
 				if (!is_already_fetching_ip) {
 					if (ip_domains_count >= 16) {
-						lwsl_notice("dht pending queries IP limit maxed out (16 unique domains) for %s from %s\n", base, peer_ip);
+						lwsl_notice("dht pending queries IP limit maxed out (16 unique domains) from %s\n", peer_ip);
 						goto send_refused;
 					}
 				}
 
 				if (ip_total_queries >= 64) {
-					lwsl_notice("dht pending queries IP absolute limit (64) reached for %s from %s\n", base, peer_ip);
+					lwsl_notice("dht pending queries IP absolute limit (64) reached from %s\n", peer_ip);
 					goto send_refused;
 				}
 
-				if ((uint32_t)lws_dll2_count(&vhd->pending_queries) >= 1024) {
-					lwsl_notice("dht pending queries absolute queue limit (1024) reached for %s from %s\n", base, peer_ip);
+				if ((uint32_t)lws_dll2_count(&vhd->pending_queries) >=
+						LWS_AUTH_DNS_MAX_PENDING_QUERIES) {
+					lwsl_notice("dht pending queries absolute queue limit reached from %s\n", peer_ip);
 					goto send_refused;
 				}
 
-				lwsl_notice("Initiating DHT fetch for missing zone %s (qname %s)\n", base, qname);
+				lwsl_info("Initiating DHT fetch for missing zone %s\n",
+					  lws_json_purify(pn, base, (int)sizeof(pn), NULL));
 
 				struct pending_dns_query *pq = malloc(sizeof(*pq));
 				if (!pq) goto send_refused;
@@ -1802,9 +1849,19 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				else if (!is_tcp && lws_get_udp(wsi)) pq->sa46_peer = lws_get_udp(wsi)->sa46;
 				pq->is_tcp = is_tcp;
 				lws_strncpy(pq->domain, base, sizeof(pq->domain));
+				lws_strncpy(pq->peer_ip, peer_ip, sizeof(pq->peer_ip));
 				pq->packet_len = is_tcp ? (size_t)req_len : len;
-				if (pq->packet_len <= sizeof(pq->packet))
-					memcpy(pq->packet, p, pq->packet_len);
+				/*
+				 * The stored length is what the replay uses as
+				 * the packet end, so it must never exceed what
+				 * we actually copied
+				 */
+				if (pq->packet_len > sizeof(pq->packet))
+					pq->packet_len = sizeof(pq->packet);
+				memcpy(pq->packet, p, pq->packet_len);
+
+				if (!is_already_fetching_globally)
+					vhd->pending_unique_domains++;
 
 				lws_dll2_add_tail(&pq->list, &vhd->pending_queries);
 				lws_sul_schedule(vhd->context, 0, &pq->sul_timeout, pending_query_timeout_cb, 5 * LWS_US_PER_SEC);
