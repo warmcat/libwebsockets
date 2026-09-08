@@ -49,7 +49,13 @@ callback_system_stdin(struct lws *wsi, enum lws_callback_reasons reason, void *u
 			 * Bring in the process argv 
 			 */
 
-			if (cx->argc > (int)LWS_ARRAY_SIZE(cx->stdin_argv)) {
+			/*
+			 * ">=": argc == LWS_ARRAY_SIZE() fills the array
+			 * completely, leaving no room at all for the stdin
+			 * args that are appended to it below
+			 */
+
+			if (cx->argc >= (int)LWS_ARRAY_SIZE(cx->stdin_argv)) {
 				lwsl_err("%s: Too many commandline args\n", __func__);
 				return -1;
 			}
@@ -87,17 +93,19 @@ callback_system_stdin(struct lws *wsi, enum lws_callback_reasons reason, void *u
 				}
 				if (*p == '\n' || *p == ' ') {
 					*p = '\0';
-					cx->stdin_argv[cx->stdin_argc++] = s;
-					if (cx->stdin_argc >= (int)LWS_ARRAY_SIZE(cx->stdin_argv) - 1) {
+					/* check before the write, not after */
+					if (cx->stdin_argc >= (int)LWS_ARRAY_SIZE(cx->stdin_argv)) {
 						lwsl_err("%s: reached stdin argv limit\n", __func__);
 						break;
 					}
+					cx->stdin_argv[cx->stdin_argc++] = s;
 					s = p + 1;
 				}
 next_l:
 				p++;
 			}
-			if (p != s)
+			if (p != s &&
+			    cx->stdin_argc < (int)LWS_ARRAY_SIZE(cx->stdin_argv))
 				cx->stdin_argv[cx->stdin_argc++] = s;
 
 		}
