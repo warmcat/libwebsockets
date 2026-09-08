@@ -148,7 +148,12 @@ lws_hex_len_to_byte_array(const char *h, size_t hlen, uint8_t *dest, int max)
 		hlen -= 2;
 	}
 
-	if (max < -1)
+	if (hlen > 1)
+		/*
+		 * We ran out of dest before we ran out of hex input... report
+		 * that rather than silently handing back a truncated version
+		 * of a length-checked field
+		 */
 		return -1;
 
 	return lws_ptr_diff(dest, odest);
