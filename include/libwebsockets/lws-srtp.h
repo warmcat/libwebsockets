@@ -44,11 +44,18 @@ struct lws_srtp_ctx {
 
 	/* Multi-SSRC support (RFC 3711 requires per-SSRC ROC/Seq) */
     struct lws_srtp_src_ctx {
+        /* RFC 3711 3.3.2 replay list: window of 64 below replay_base */
+        uint64_t replay_base;
+        uint64_t replay_bitmap;
         uint32_t ssrc; /* 0 = unused slot */
         uint32_t roc;
         uint16_t last_seq;
         uint8_t  any_packet_received;
     } src[4]; /* Support up to 4 streams (Video, Audio, RTX, etc) */
+
+	/* RFC 3711 3.3.2 replay list for the received SRTCP index */
+	uint64_t srtcp_rx_base;
+	uint64_t srtcp_rx_bitmap;
 
 	uint32_t srtcp_index;
 
@@ -114,7 +121,8 @@ lws_srtp_protect_rtcp(struct lws_srtp_ctx *ctx, uint8_t *pkt, size_t *len, size_
  * \param pkt: Protected RTP packet (header + payload + tag)
  * \param len: Pointer to packet length (updated on success to reflect decrypted payload)
  *
- * Returns 0 for OK or nonzero for error.
+ * Returns 0 for OK, -1 if unusable (not keyed, or shorter than an SRTP
+ * packet can be), -2 if the auth tag did not verify, or -3 if it is a replay.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_srtp_unprotect_rtp(struct lws_srtp_ctx *ctx, uint8_t *pkt, size_t *len);
@@ -126,7 +134,8 @@ lws_srtp_unprotect_rtp(struct lws_srtp_ctx *ctx, uint8_t *pkt, size_t *len);
  * \param pkt: Protected RTCP packet (header + payload + index/E + tag)
  * \param len: Pointer to packet length (updated on success to reflect decrypted payload)
  *
- * Returns 0 for OK or nonzero for error.
+ * Returns 0 for OK, -1 if unusable (not keyed, or shorter than an SRTCP
+ * packet can be), -2 if the auth tag did not verify, or -3 if it is a replay.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_srtp_unprotect_rtcp(struct lws_srtp_ctx *ctx, uint8_t *pkt, size_t *len);
