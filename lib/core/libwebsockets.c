@@ -507,7 +507,12 @@ lws_json_simple_find(const char *buf, size_t len, const char *name, size_t *alen
 	       (!qu || *np != '\"') && /* end quote is EOT if quoted */
 	       (qu || (*np != '}' && *np != ']' && *np != ',')) /* delimiters */
 	) {
-		if (qu && *np == '\\') /* skip next char if quoted escape */
+		/*
+		 * Skip the next char if quoted escape... but only if it is
+		 * actually inside the buffer, or a trailing '\' would let np
+		 * end up at end + 1 and *alen count a byte that isn't there
+		 */
+		if (qu && *np == '\\' && np + 1 < end)
 			np++;
 		np++;
 	}
