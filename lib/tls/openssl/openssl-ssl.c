@@ -397,7 +397,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 {
 #if defined(LWS_WITH_LATENCY)
 	struct lws_context *context = wsi->a.context;
-	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi]; /* NOSONAR: tsi < LWS_MAX_SMP */
 #endif
 	int n, m;
 
