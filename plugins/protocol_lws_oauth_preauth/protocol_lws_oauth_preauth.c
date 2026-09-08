@@ -126,7 +126,21 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 		pss->is_listener = 0;
 		if (vhd->jwk.kty) {
 			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL, NULL);
-			if (ja && lws_jwt_auth_get_uid(ja) > 0) {
+			/*
+			 * lws_jwt_auth_create() documents that when no
+			 * presented occurrence of the cookie is live, it hands
+			 * back the first that merely *verified*, so "the caller
+			 * decides what an expired token means (check
+			 * lws_jwt_auth_get_exp())".  Here it means nothing: a
+			 * listener is the admin of the pairing waiting room and
+			 * is immediately shown every pending device's user_code,
+			 * which is the secret an RFC 8628 approval turns on.
+			 * Require a live token, as protocol_lws_login.c and the
+			 * auth server both do.
+			 */
+			if (ja && lws_jwt_auth_get_exp(ja) >
+					  (uint64_t)lws_now_secs() &&
+			    lws_jwt_auth_get_uid(ja) > 0) {
 				if (lws_jwt_auth_query_grant(ja, "admin") > 0)
 					pss->is_listener = 1;
 			}

@@ -35,6 +35,14 @@ struct auth_device_session {
 	lws_sorted_usec_list_t sul_poll;
 	struct lws *wsi_preauth;
 	struct lws_context *cx;
+	/*
+	 * RFC 8628 s3.2 / s3.5: the token endpoint tells us how often we may
+	 * poll ("interval") and how long the device code lives ("expires_in"),
+	 * and can ask us to back off with a "slow_down" error.  Honour both
+	 * rather than hammering it at a fixed rate for ever.
+	 */
+	unsigned int interval_secs;
+	unsigned long deadline;
 };
 
 struct per_vhost_data {
@@ -49,7 +57,68 @@ struct client_action {
 	int phase;
 };
 
+/*
+ * Exact, length-checked match of a lws_json_simple_find() value against a
+ * string literal.  The bare strncmp(p, "...", al) it replaces was bounded by
+ * the *received* length, so a one-character value compared equal to any
+ * literal starting with it.
+ */
+#define json_val_is(p, al, lit) \
+	((al) == sizeof(lit) - 1 && !memcmp((p), (lit), sizeof(lit) - 1))
+
+/* default poll period when the server does not state an "interval" */
+#define AUTH_DEVICE_DEFAULT_INTERVAL_SECS 5
+/* sanity cap so a hostile / broken "interval" cannot park us for ever */
+#define AUTH_DEVICE_MAX_INTERVAL_SECS 300
+/* fallback device-code lifetime when the server states no "expires_in" */
+#define AUTH_DEVICE_DEFAULT_EXPIRES_SECS 900
+
 static void poll_cb(lws_sorted_usec_list_t *sul);
+
+/*
+ * Fish an unsigned decimal member out of a short, well-known JSON object,
+ * returning \p def if it is absent or is not purely digits.
+ */
+static unsigned long
+json_uint(const char *buf, size_t len, const char *name, unsigned long def)
+{
+	char tmp[16];
+	const char *p;
+	size_t al = 0, n;
+
+	p = lws_json_simple_find(buf, len, name, &al);
+	if (!p || !al || al >= sizeof(tmp))
+		return def;
+
+	for (n = 0; n < al; n++)
+		if (p[n] < '0' || p[n] > '9')
+			return def;
+
+	memcpy(tmp, p, al);
+	tmp[al] = '\0';
+
+	return (unsigned long)atol(tmp);
+}
+
+/*
+ * The client_action is malloc'd per outgoing connection and carried as the
+ * wsi's opaque_user_data.  Free it exactly once from whichever terminal
+ * callback that wsi gets -- CLIENT_CONNECTION_ERROR, CLIENT_CLOSED (ws leg)
+ * or CLOSED_CLIENT_HTTP (every http leg) -- and clear the wsi's pointer to it
+ * so no second callback can reach the freed block.
+ *
+ * CLOSED_CLIENT_HTTP used to free nothing, so each 5-second device_token poll
+ * leaked one action for the life of the process.
+ */
+static void
+client_action_free(struct lws *wsi, struct client_action *action)
+{
+	if (!action)
+		return;
+
+	lws_set_opaque_user_data(wsi, NULL);
+	free(action);
+}
 
 static struct lws *
 connect_to(struct lws_context *ctx, struct lws_vhost *vhost, const char *url_str,
@@ -153,8 +222,7 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_info("Auth client connection error: %s\n", in ? (char *)in : "(null)");
-		if (action)
-                        free(action);
+		client_action_free(wsi, action);
 		break;
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
@@ -166,7 +234,7 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 					lws_sul_cancel(&session->sul_poll);
 				}
 			}
-			free(action);
+			client_action_free(wsi, action);
 		}
 		break;
 
@@ -191,6 +259,25 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 		lws_parse_uri_t *puri = lws_parse_uri_create(loc);
 		if (!puri)
 			break;
+
+		/*
+		 * Everything after this redirect -- the device_auth POST, the
+		 * device_token poll and the preauth ws -- runs against the URL
+		 * we are about to adopt, and the device's long-lived access
+		 * token comes back over it and is written to disk.  So a
+		 * mixer (or anyone on-path to it) must not be able to move all
+		 * of that onto cleartext just by answering with an http://
+		 * Location.  Refuse the downgrade; a deployment that is
+		 * cleartext to begin with is unaffected.
+		 */
+		if (lws_is_ssl(lws_get_network_wsi(wsi)) &&
+		    strcmp(puri->scheme, "https") &&
+		    strcmp(puri->scheme, "wss")) {
+			lwsl_err("%s: refusing redirect from TLS to plaintext "
+				 "'%s'\n", __func__, puri->scheme);
+			lws_parse_uri_destroy(&puri);
+			return -1;
+		}
 
 		if (session) {
 			if (puri->path && puri->path[0]) {
@@ -308,10 +395,34 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 			if ((p = lws_json_simple_find((const char *)in, len, "\"user_code\":", &al)))
 				lws_strnncpy(session->user_code, p, al, sizeof(session->user_code));
 
+			/*
+			 * RFC 8628 s3.2: the server states how often we may
+			 * poll and how long the device code is good for.
+			 * Clamp the interval so a bogus value cannot park the
+			 * pairing for ever (or spin on the server).
+			 */
+			session->interval_secs = (unsigned int)json_uint(
+					(const char *)in, len, "\"interval\":",
+					AUTH_DEVICE_DEFAULT_INTERVAL_SECS);
+			if (!session->interval_secs)
+				session->interval_secs =
+					AUTH_DEVICE_DEFAULT_INTERVAL_SECS;
+			if (session->interval_secs > AUTH_DEVICE_MAX_INTERVAL_SECS)
+				session->interval_secs =
+					AUTH_DEVICE_MAX_INTERVAL_SECS;
+
+			session->deadline = lws_now_secs() +
+					json_uint((const char *)in, len,
+						  "\"expires_in\":",
+						  AUTH_DEVICE_DEFAULT_EXPIRES_SECS);
+
 			if (vhd && vhd->app_ops && vhd->app_ops->display_code)
 				vhd->app_ops->display_code(vhd->vh, session->logical_name, session->user_code);
 
-			lws_sul_schedule(lws_get_context(wsi), 0, &session->sul_poll, poll_cb, 5 * LWS_US_PER_SEC);
+			lws_sul_schedule(lws_get_context(wsi), 0,
+					 &session->sul_poll, poll_cb,
+					 (lws_usec_t)session->interval_secs *
+							 LWS_US_PER_SEC);
 
 			session->wsi_preauth = connect_to(lws_get_context(wsi), lws_get_vhost(wsi), session->auth_server_url, "/", NULL, "lws-oauth-preauth", 3, session);
 			if (!session->wsi_preauth)
@@ -348,7 +459,22 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 					vhd->app_ops->auth_success(vhd->vh, session->logical_name, session->access_token);
 			} else {
 				p = lws_json_simple_find((const char *)in, len, "\"error\":", &al);
-				if (p && strncmp(p, "authorization_pending", al)) {
+				if (p && json_val_is(p, al, "slow_down")) {
+					/*
+					 * RFC 8628 s3.5: slow_down means keep
+					 * polling but add 5s to the interval.
+					 * Treating it as fatal (which the
+					 * catch-all else did) threw away a
+					 * pairing the server was still willing
+					 * to complete.
+					 */
+					if (session->interval_secs + 5 <=
+						  AUTH_DEVICE_MAX_INTERVAL_SECS)
+						session->interval_secs += 5;
+					lwsl_notice("%s: slow_down, polling every %us\n",
+						    __func__, session->interval_secs);
+				} else if (p && !json_val_is(p, al,
+						"authorization_pending")) {
 					lwsl_notice("%s: Authorization failed or expired, stopping polling\n", __func__);
 					lws_sul_cancel(&session->sul_poll);
 					if (session->wsi_preauth) {
@@ -413,12 +539,45 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 		break;
 	}
 
+	case LWS_CALLBACK_PROTOCOL_DESTROY:
+		/*
+		 * The sessions and their poll suls live on the context, but
+		 * they cache the vhost that lws is destroying right now: a
+		 * still-armed poll_cb would fire afterwards and hand the freed
+		 * vhost to lws_client_connect_via_info().  Cancel and free
+		 * them here.  (vhd itself is freed by lws after this returns,
+		 * so vhd->sessions must not outlive it either.)
+		 */
+		if (!vhd)
+			break;
+
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					   lws_dll2_get_head(&vhd->sessions)) {
+			struct auth_device_session *s = lws_container_of(d,
+					struct auth_device_session, list);
+
+			lws_sul_cancel(&s->sul_poll);
+			s->wsi_preauth = NULL;
+			lws_dll2_remove(&s->list);
+			free(s);
+		} lws_end_foreach_dll_safe(d, d1);
+		break;
+
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_notice("%s: HTTP client transaction completed\n", __func__);
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		lwsl_notice("%s: HTTP client connection closed\n", __func__);
+		/*
+		 * This -- not CLIENT_CLOSED, which only the ws role emits --
+		 * is the terminal callback for the http legs (phase 0/1/2), so
+		 * it is where their action is freed.  lws makes it mutually
+		 * exclusive with CLIENT_CONNECTION_ERROR (already_did_cce), and
+		 * client_action_free() clears the wsi's pointer, so this cannot
+		 * double free.
+		 */
+		client_action_free(wsi, action);
 		break;
 
 	default:
@@ -435,10 +594,30 @@ poll_cb(lws_sorted_usec_list_t *sul) {
 
 	if (session->access_token[0]) return; // already paired
 
+	/*
+	 * RFC 8628 s3.2: the device code has a lifetime.  Without this the
+	 * poll re-armed unconditionally, so a pairing nobody ever approves --
+	 * or one whose connections simply fail, since a failed connect reaches
+	 * none of the error handling -- polled the auth server for ever.
+	 */
+	if (session->deadline && lws_now_secs() > session->deadline) {
+		lwsl_notice("%s: device code expired, stopping polling\n",
+			    __func__);
+		if (session->wsi_preauth) {
+			lws_set_timeout(session->wsi_preauth, 1, LWS_TO_KILL_ASYNC);
+			session->wsi_preauth = NULL;
+		}
+		return;
+	}
+
 	if (!connect_to(session->cx, session->vh, session->auth_server_url, "/api/device_token", "POST", "lws-auth-device-client", 2, session))
 		lwsl_err("Failed to poll token\n");
 
-	lws_sul_schedule(session->cx, 0, &session->sul_poll, poll_cb, 5 * LWS_US_PER_SEC);
+	if (!session->interval_secs)
+		session->interval_secs = AUTH_DEVICE_DEFAULT_INTERVAL_SECS;
+
+	lws_sul_schedule(session->cx, 0, &session->sul_poll, poll_cb,
+			 (lws_usec_t)session->interval_secs * LWS_US_PER_SEC);
 }
 
 static void
