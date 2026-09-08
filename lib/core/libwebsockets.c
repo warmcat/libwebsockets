@@ -55,13 +55,19 @@ lws_ser_wu64be(uint8_t *b, uint64_t u64)
 uint16_t
 lws_ser_ru16be(const uint8_t *b)
 {
-	return (uint16_t)((b[0] << 8) | b[1]);
+	return (uint16_t)(((uint32_t)b[0] << 8) | (uint32_t)b[1]);
 }
 
 uint32_t
 lws_ser_ru32be(const uint8_t *b)
 {
-	return (unsigned int)((b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]);
+	/*
+	 * b[n] promotes to int, so b[0] << 24 with b[0] >= 0x80 is signed
+	 * left-shift overflow (UB)... compose in uint32_t instead
+	 */
+
+	return ((uint32_t)b[0] << 24) | ((uint32_t)b[1] << 16) |
+	       ((uint32_t)b[2] << 8)  |  (uint32_t)b[3];
 }
 
 uint64_t
@@ -176,7 +182,17 @@ static char *hexch = "0123456789abcdef";
 void
 lws_hex_from_byte_array(const uint8_t *src, size_t slen, char *dest, size_t len)
 {
-	char *end = &dest[len - 1];
+	char *end;
+
+	if (!len)
+		/*
+		 * len - 1 would be SIZE_MAX, ie, end would be before dest and
+		 * the loop bound would never fire; and there is nowhere to
+		 * put the terminating NUL either
+		 */
+		return;
+
+	end = &dest[len - 1];
 
 	while (slen-- && dest != end) {
 		uint8_t b = *src++;
@@ -192,8 +208,18 @@ lws_hex_from_byte_array(const uint8_t *src, size_t slen, char *dest, size_t len)
 int
 lws_hex_random(struct lws_context *context, char *dest, size_t len)
 {
-	size_t n = ((len - 1) / 2) + 1;
-	uint8_t b, *r = (uint8_t *)dest + len - n;
+	size_t n;
+	uint8_t b, *r;
+
+	if (!len)
+		/*
+		 * len - 1 would be SIZE_MAX, giving n = 2^63 and an r that is
+		 * 2^63 bytes before dest
+		 */
+		return 1;
+
+	n = ((len - 1) / 2) + 1;
+	r = (uint8_t *)dest + len - n;
 
 	if (lws_get_random(context, r, n) != n)
 		return 1;

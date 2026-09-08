@@ -105,18 +105,29 @@ typedef enum {
 } lws_tokenize_state;
 
 typedef struct lws_tokenize {
-	char collect[256]; /* token length limit */
+	char collect[256]; /**< private: the token assembly buffer, and so the
+			        token length limit... a token longer than
+			        this - 1 gets LWS_TOKZE_TOO_LONG */
 	const char *start; /**< set to the start of the string to tokenize */
-	const char *token; /**< the start of an identified token or delimiter */
+	const char *token; /**< the start of an identified token or delimiter;
+			        only valid when the last lws_tokenize() return
+			        was > 0 */
 	size_t len;	/**< set to the length of the string to tokenize */
-	size_t token_len;	/**< the length of the identied token or delimiter */
+	size_t token_len;	/**< the length of the identified token or
+				     delimiter; only valid when the last
+				     lws_tokenize() return was > 0.  It is also
+				     used as internal scratch state between
+				     calls and can hold a sentinel value on a
+				     <= 0 return; never read it then. */
 
 	lws_tokenize_state state;
 
 	int line;
 	int effline;
 
-	uint16_t flags;	/**< optional LWS_TOKENIZE_F_ flags, or 0 */
+	uint16_t flags;	/**< optional LWS_TOKENIZE_F_ flags, or 0.  This is
+			     16-bit, and lws_tokenize_init() takes an int into
+			     it, so the LWS_TOKENIZE_F_ space ends at bit 15 */
 	uint8_t delim;
 
 	int8_t e; /**< convenient for storing lws_tokenize return */

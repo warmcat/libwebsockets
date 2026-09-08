@@ -120,10 +120,13 @@ struct lws_plat_file_ops {
 	/**< Read from file.  Returns 0 on success with *amount set to the
 	 * bytes actually read (0 only at end of file), or < 0 on failure with
 	 * *amount set to 0.  Callers treat 0 with *amount == 0 as EOF, so an
-	 * implementation must never report a failure as a 0-byte success. */
+	 * implementation must never report a failure as a 0-byte success.
+	 * *amount must never exceed len: callers use it directly as the count
+	 * of valid bytes in buf and will read past the buffer if it does. */
 	int (*LWS_FOP_WRITE)(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 			     uint8_t *buf, lws_filepos_t len);
-	/**< Write to file, on exit *amount is set to amount actually written */
+	/**< Write to file, on exit *amount is set to amount actually written.
+	 * *amount must never exceed len. */
 
 	struct lws_fops_index fi[3];
 	/**< vfs path signatures implying use of this fops */
@@ -225,41 +228,73 @@ lws_vfs_file_close(lws_fop_fd_t *fop_fd)
  * lws_plat_file_seek_cur() - close file
  *
  *
- * \param fop_fd: file handle
+ * \param fop_fd: file handle, may be NULL
  * \param offset: position to seek to
+ *
+ * Returns the new position, or < 0 for failure (including a NULL \p fop_fd).
  */
 static LWS_INLINE lws_fileofs_t
 lws_vfs_file_seek_cur(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 {
+	if (!fop_fd || !fop_fd->fops)
+		return -1;
+
 	return fop_fd->fops->LWS_FOP_SEEK_CUR(fop_fd, offset);
 }
 /**
  * lws_plat_file_read() - read from file
  *
- * \param fop_fd: file handle
+ * \param fop_fd: file handle, may be NULL
  * \param amount: how much to read (rewritten by call)
  * \param buf: buffer to write to
  * \param len: max length
+ *
+ * Returns 0 on success with \p *amount set to the bytes read, or < 0 on
+ * failure (including a NULL \p fop_fd).  \p *amount is clamped to \p len on
+ * the way out, so a fops that overshoots cannot make the caller consume bytes
+ * past the end of \p buf.
  */
 static LWS_INLINE int LWS_WARN_UNUSED_RESULT
 lws_vfs_file_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		   uint8_t *buf, lws_filepos_t len)
 {
-	return fop_fd->fops->LWS_FOP_READ(fop_fd, amount, buf, len);
+	int n;
+
+	if (!fop_fd || !fop_fd->fops)
+		return -1;
+
+	n = fop_fd->fops->LWS_FOP_READ(fop_fd, amount, buf, len);
+	if (n >= 0 && *amount > len)
+		*amount = len;
+
+	return n;
 }
 /**
  * lws_plat_file_write() - write from file
  *
- * \param fop_fd: file handle
+ * \param fop_fd: file handle, may be NULL
  * \param amount: how much to write (rewritten by call)
  * \param buf: buffer to read from
  * \param len: max length
+ *
+ * Returns 0 on success with \p *amount set to the bytes written, or < 0 on
+ * failure (including a NULL \p fop_fd).  \p *amount is clamped to \p len on
+ * the way out.
  */
 static LWS_INLINE int LWS_WARN_UNUSED_RESULT
 lws_vfs_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		    uint8_t *buf, lws_filepos_t len)
 {
-	return fop_fd->fops->LWS_FOP_WRITE(fop_fd, amount, buf, len);
+	int n;
+
+	if (!fop_fd || !fop_fd->fops)
+		return -1;
+
+	n = fop_fd->fops->LWS_FOP_WRITE(fop_fd, amount, buf, len);
+	if (n >= 0 && *amount > len)
+		*amount = len;
+
+	return n;
 }
 
 /* these are the platform file operations implementations... they can

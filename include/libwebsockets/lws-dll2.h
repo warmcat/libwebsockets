@@ -504,6 +504,11 @@ lws_dll2_describe(struct lws_dll2_owner *owner, const char *desc);
  * NOTE: the recovery path restarts from the live head, which can revisit
  * earlier nodes still on the list; loop bodies must be idempotent under
  * being re-run for a node they already saw.
+ *
+ * NOTE: the owner is read on every advance (that is how the guard is
+ * cheap), so unlike the unguarded iterator the owner must stay valid for
+ * the whole loop.  A loop body that destroys the object embedding the
+ * owner must break out of the loop before doing so.
  */
 
 #define lws_start_foreach_dll_safe(___type, ___it, ___tmp, ___start) \
@@ -558,6 +563,9 @@ lws_dll2_describe(struct lws_dll2_owner *owner, const char *desc);
  *
  * NOTE: ___start must be side-effect-free since it is evaluated once into
  * a temporary.
+ *
+ * NOTE: as for the forwards _safe iterator, the owner is read on every
+ * advance and so must stay valid for the whole loop.
  */
 
 #define lws_start_foreach_dll_safe_back(___type, ___it, ___tmp, ___start) \

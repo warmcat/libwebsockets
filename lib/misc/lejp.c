@@ -680,7 +680,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				}
 				/* drop the path [n] bit */
 				if (ctx->sp) {
-					ctx->pst[ctx->pst_sp].ppos = (unsigned char)
+					ctx->pst[ctx->pst_sp].ppos =
 							ctx->st[ctx->sp - 1].p;
 					ctx->ipos = (unsigned char)ctx->st[ctx->sp - 1].i;
 				} else
@@ -846,7 +846,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					ctx->path_match = 0;
 					break;
 				}
-				ctx->pst[ctx->pst_sp].ppos = (unsigned char)ctx->st[ctx->sp - 1].p;
+				ctx->pst[ctx->pst_sp].ppos = ctx->st[ctx->sp - 1].p;
 				ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
 				if (ctx->path_match &&
 				    ctx->pst[ctx->pst_sp].ppos <= ctx->path_match_len)
@@ -882,7 +882,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 
 				/* drop the path [n] bit */
 				if (ctx->sp) {
-					ctx->pst[ctx->pst_sp].ppos = (unsigned char)
+					ctx->pst[ctx->pst_sp].ppos =
 							ctx->st[ctx->sp - 1].p;
 					ctx->ipos = (unsigned char)ctx->st[ctx->sp - 1].i;
 				} else
@@ -927,7 +927,7 @@ pop_level_l:
 			}
 			ctx->sp--;
 			if (ctx->sp) {
-				ctx->pst[ctx->pst_sp].ppos = (unsigned char)ctx->st[ctx->sp].p;
+				ctx->pst[ctx->pst_sp].ppos = ctx->st[ctx->sp].p;
 				ctx->ipos = (unsigned char)ctx->st[ctx->sp].i;
 				/*
 				 * st[].i was saved after the '{' added this
@@ -972,7 +972,7 @@ array_end_l:
 					ctx->i[ctx->ipos - 1]++;
 				ctx->st[ctx->sp].s = LEJP_MP_VALUE;
 				if (ctx->sp)
-					ctx->pst[ctx->pst_sp].ppos = (unsigned char)
+					ctx->pst[ctx->pst_sp].ppos =
 							ctx->st[ctx->sp - 1].p;
 				ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
 				lejp_check_path_match(ctx);
@@ -1010,7 +1010,7 @@ add_stack_level:
 			ctx->path[ctx->pst[ctx->pst_sp].ppos++] = '.';
 		}
 
-		ctx->st[ctx->sp].p = (char)ctx->pst[ctx->pst_sp].ppos;
+		ctx->st[ctx->sp].p = ctx->pst[ctx->pst_sp].ppos;
 		ctx->st[ctx->sp].i = (char)ctx->ipos;
 		if (ctx->sp + 1 >= (int)LWS_ARRAY_SIZE(ctx->st)) {
 			ret = LEJP_REJECT_STACK_OVERFLOW;

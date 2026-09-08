@@ -490,6 +490,23 @@ lws_flow_req(lws_flow_t *flow);
 #define lws_ptr_diff(head, tail) \
 			((int)((char *)(head) - (char *)(tail)))
 
+/**
+ * lws_ptr_diff_size_t(): distance between pointers as a size_t
+ *
+ * \param head: the pointer with the larger address
+ * \param tail: the pointer with the smaller address
+ *
+ * As lws_ptr_diff(), but the result is a size_t suitable for passing directly
+ * as a buffer size.
+ *
+ * \p head MUST be >= \p tail: if it is not, the result is close to SIZE_MAX
+ * and any bounded API you hand it to (lws_snprintf(), lws_strncpy(),
+ * lws_strnncpy(), the base64 encoders) becomes unbounded.
+ *
+ * When \p head is an "end" pointer and \p tail is a cursor that a previous
+ * lws_snprintf() may have advanced (it returns size on truncation, so the
+ * cursor can land exactly on end), check tail >= head before using this.
+ */
 #define lws_ptr_diff_size_t(head, tail) \
 			((size_t)(ssize_t)((char *)(head) - (char *)(tail)))
 
@@ -501,8 +518,14 @@ lws_flow_req(lws_flow_t *flow);
  * \param format: format string
  * \param ...: args for format
  *
- * This lets you correctly truncate buffers by concatenating lengths, if you
- * reach the limit the reported length doesn't exceed the limit.
+ * This lets you correctly truncate buffers by concatenating lengths.  On
+ * truncation the return is exactly \p size (never more), so the idiom
+ * p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ...) can leave p sitting
+ * exactly on end: check for that before writing another byte yourself, and
+ * never use the return as an index into a buffer of \p size bytes.
+ *
+ * Returns 0 without writing anything if \p str is NULL or \p size is 0.  The
+ * output is always NUL-terminated when size is nonzero.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_snprintf(char *str, size_t size, const char *format, ...) LWS_FORMAT(3);
@@ -512,21 +535,49 @@ lws_snprintf(char *str, size_t size, const char *format, ...) LWS_FORMAT(3);
  *
  * \param dest: destination buffer
  * \param src: source buffer
- * \param size: bytes left in destination buffer
+ * \param size: total bytes available in the destination buffer
  *
- * This lets you correctly truncate buffers by concatenating lengths, if you
- * reach the limit the reported length doesn't exceed the limit.
+ * Copies at most size - 1 bytes and always writes a terminating NUL at
+ * dest[size - 1], so the result is NUL-terminated even when truncated.
+ *
+ * As a special case, size == 0 writes nothing at all and returns dest
+ * unmodified, since there is nowhere to put the NUL.  So a caller that derived
+ * size from a remaining-space calculation must check for 0 itself before
+ * treating dest as a string.
+ *
+ * Returns dest.
  */
 LWS_VISIBLE LWS_EXTERN char *
 lws_strncpy(char *dest, const char *src, size_t size);
 
+/**
+ * lws_strnncpy_size(): destination size lws_strnncpy() should use
+ *
+ * \param size1: length of the source string, which need not be NUL-terminated
+ * \param destsize: total bytes available in the destination buffer
+ *
+ * Returns the smaller of \p size1 + 1 and \p destsize, computed in size_t and
+ * without wrapping when \p size1 is SIZE_MAX.  Exists so lws_strnncpy()
+ * evaluates each of its length arguments exactly once.
+ */
+static LWS_INLINE size_t
+lws_strnncpy_size(size_t size1, size_t destsize)
+{
+	if (size1 == (size_t)-1)
+		/* size1 + 1 would wrap to 0, leaving dest unterminated */
+		return destsize;
+
+	return size1 + 1u < destsize ? size1 + 1u : destsize;
+}
+
 /*
  * Variation where we want to use the smaller of two lengths, useful when the
- * source string is not NUL terminated
+ * source string is not NUL terminated.  \p size1 is the source length, ie, one
+ * less than the destination size it implies.
  */
 #define lws_strnncpy(dest, src, size1, destsize) \
-	lws_strncpy(dest, src, (size_t)(size1 + 1) < (size_t)(destsize) ? \
-				(size_t)(size1 + 1) : (size_t)(destsize))
+	lws_strncpy(dest, src, lws_strnncpy_size((size_t)(size1), \
+						 (size_t)(destsize)))
 
 /**
  * lws_nstrstr(): like strstr for length-based strings without terminating NUL
@@ -634,23 +685,28 @@ lws_hex_to_byte_array(const char *h, uint8_t *dest, int max);
  * \param src: incoming binary source array
  * \param slen: length of src in bytes
  * \param dest: array to fill with hex chars representing src
- * \param len: max extent of dest
+ * \param len: max extent of dest, in bytes; must be at least 1
  *
  * This converts binary data of length slen at src, into a hex string at dest
- * of maximum length len.  Even if truncated, the result will be NUL-terminated.
+ * of maximum length len, including the terminating NUL.  Even if truncated,
+ * the result will be NUL-terminated.  If len is 0 nothing is written at all,
+ * so dest is left as it was and is not NUL-terminated.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_hex_from_byte_array(const uint8_t *src, size_t slen, char *dest, size_t len);
 
 /**
- * lws_hex_random(): generate len - 1 or - 2 characters of random ascii hex
+ * lws_hex_random(): generate len - 1 characters of random ascii hex
  *
  * \param context: the lws_context used to get the random
  * \param dest: destination for hex ascii chars
- * \param len: the number of bytes the buffer dest points to can hold
+ * \param len: the number of bytes the buffer dest points to can hold; must
+ *	       be at least 1
  *
- * This creates random ascii-hex strings up to a given length, with a
- * terminating NUL.
+ * This writes exactly len - 1 random ascii-hex characters followed by a
+ * terminating NUL, ie, it always fills the buffer.  Returns 0 on success, or
+ * nonzero if len was 0 or the platform random was unavailable, in which case
+ * dest is not modified.
  *
  * There will not be any characters produced that are not 0-9, a-f, so it's
  * safe to go straight into, eg, JSON.

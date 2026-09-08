@@ -94,9 +94,10 @@ enum lws_write_protocol {
 	 */
 
 	LWS_WRITE_CLIENT_IGNORE_XOR_MASK = 0x80
-	/**< client packet payload goes out on wire unmunged
-	 * only useful for security tests since normal servers cannot
-	 * decode the content if used */
+	/**< DEPRECATED and inert: ws client masking is decided by the role,
+	 * this flag has not been consulted since v4.x.  Note it is the same
+	 * bit as LWS_WRITE_H2_STREAM_END, so passing it on an h2 / h3 stream
+	 * will end the stream.  Do not use it in new code. */
 };
 
 /* used with LWS_CALLBACK_CHILD_WRITE_VIA_PARENT */
@@ -141,8 +142,9 @@ struct lws_write_passthru {
  * or sending on http/2... the send buffer has to have LWS_PRE bytes valid
  * BEFORE the buffer pointer you pass to lws_write().  Since you'll probably
  * want to use http/2 before too long, it's wise to just always do this with
- * lws_write buffers... LWS_PRE is typically 16 bytes it's not going to hurt
- * usually.
+ * lws_write buffers... LWS_PRE is 32 bytes on a 64-bit build and it's not
+ * going to hurt usually.  Always use the LWS_PRE macro rather than a literal:
+ * it is ABI-visible and has changed.
  *
  * start of alloc       ptr passed to lws_write      end of allocation
  *       |                         |                         |
@@ -166,8 +168,12 @@ struct lws_write_passthru {
  *   		return -1;
  *   }
  *
- * LWS_PRE is currently 16, which covers ws and h2 frame headers, and is
- * compatible with 32 and 64-bit alignment requirements.
+ * LWS_PRE is _LWS_PAD(4 + 10 + 2 + 9): the largest ws frame header (10) plus
+ * its client-side mask (4), plus 2 for lws-meta, plus the 9-byte h2 DATA frame
+ * header that is prepended in place when a ws stream is carried over h2
+ * (RFC 8441).  That pads to 32 on 64-bit and 28 on 32-bit.  It grew from 16 in
+ * v4.4; applications must be rebuilt against this header to get the headroom
+ * lws now writes into.
  *
  * (LWS_SEND_BUFFER_POST_PADDING is deprecated, it's now 0 and can be left off.)
  *

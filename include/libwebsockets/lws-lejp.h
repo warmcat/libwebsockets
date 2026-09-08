@@ -204,6 +204,21 @@ typedef signed char (*lejp_callback)(struct lejp_ctx *ctx, char reason);
 #define LEJP_STRING_CHUNK 254
 #endif
 
+/*
+ * These are tunable, but every index into the arrays they size is a uint8_t
+ * in struct lejp_ctx, so they are hard-capped: LEJP_MAX_PATH, LEJP_MAX_DEPTH,
+ * LEJP_MAX_INDEX_DEPTH and LEJP_MAX_PARSING_STACK_DEPTH must each be <= 255,
+ * and LEJP_STRING_CHUNK <= 254.  Raising one past its cap does not overflow
+ * the array, but the bounds checks stop firing and the parser silently
+ * corrupts what it collected.
+ */
+
+#if LEJP_MAX_PATH > 255 || LEJP_MAX_DEPTH > 255 || \
+    LEJP_MAX_INDEX_DEPTH > 255 || LEJP_MAX_PARSING_STACK_DEPTH > 255 || \
+    LEJP_STRING_CHUNK > 254
+#error "LEJP_ size knob is larger than its uint8_t index can represent"
+#endif
+
 enum num_flags {
 	LEJP_SEEN_MINUS		= (1 << 0),
 	LEJP_SEEN_POINT		= (1 << 1),
@@ -213,7 +228,7 @@ enum num_flags {
 
 struct _lejp_stack {
 	char			s; /* lejp_state stack*/
-	char			p;	/* path length */
+	uint8_t			p;	/* path length, 0 .. LEJP_MAX_PATH - 1 */
 	char			i; /* index array length */
 	char			b; /* user bitfield */
 };

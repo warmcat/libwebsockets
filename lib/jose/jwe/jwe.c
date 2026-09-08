@@ -791,8 +791,9 @@ lws_jwe_render_flattened(struct lws_jwe *jwe, char *out, size_t out_len)
 	/*
 	 * lws_snprintf() returns the size it was given when it truncated, so
 	 * p1 can be sitting exactly on end1 here.  lws_strnncpy() with a zero
-	 * destination size degenerates into strncpy(dest, src, SIZE_MAX), so
-	 * bail on truncation rather than hand it a 0
+	 * destination size now copies nothing (and cannot terminate), so a
+	 * silently empty header is the failure mode... bail on truncation
+	 * instead, which is what the caller needs to know anyway
 	 */
 
 	if (p1 >= end1) {

@@ -167,6 +167,10 @@ const uint32_t ss_state_txn_validity[] = {
 char *
 lws_strncpy(char *dest, const char *src, size_t size)
 {
+	if (!size)
+		/* size - 1 would be SIZE_MAX, ie, an unbounded strncpy() */
+		return dest;
+
 	strncpy(dest, src, size - 1);
 	dest[size - 1] = '\0';
 
