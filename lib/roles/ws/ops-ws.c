@@ -788,8 +788,16 @@ drain_extension:
 						pmdrx.eb_out.token,
 						(size_t)pmdrx.eb_out.len);
 
-					if (_ret)
+					if (_ret) {
+						/*
+						 * The callback asked to close:
+						 * do not keep draining the rest
+						 * of this (possibly inflated)
+						 * message into it
+						 */
 						ret = LWS_HPI_RET_PLEASE_CLOSE_ME;
+						goto already_done;
+					}
 				}
 				wsi->ws->first_fragment = 0;
 			}
