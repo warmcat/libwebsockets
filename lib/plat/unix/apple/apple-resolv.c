@@ -111,9 +111,19 @@ lws_adns_store_list(SCDynamicStoreRef store, char ads[][48], int max)
 
 	/* then every active network service's effective set */
 
+	/*
+	 * CFDictionaryGetKeysAndValues() takes no length... its contract is
+	 * that our arrays can hold CFDictionaryGetCount() entries, and it
+	 * writes exactly that many.  Clamping count afterwards would only bound
+	 * the read loop below, long after the framework overflowed kbuf / vbuf.
+	 */
+
 	count = CFDictionaryGetCount(resp);
-	if (count > (CFIndex)LWS_ARRAY_SIZE(kbuf))
-		count = LWS_ARRAY_SIZE(kbuf);
+	if (count > (CFIndex)LWS_ARRAY_SIZE(kbuf)) {
+		lwsl_warn("%s: %d DNS services, only using the global set\n",
+			  __func__, (int)count);
+		goto bail;
+	}
 
 	CFDictionaryGetKeysAndValues(resp, kbuf, vbuf);
 	for (n = 0; n < count; n++) {
