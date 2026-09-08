@@ -425,6 +425,19 @@ lws_threadpool_worker_sync(struct lws_pool *pool,
 		    pool->tp->name, task, task->name, lws_wsi_tag(task_to_wsi(task)));
 
 	temp = task->status;
+
+	/*
+	 * If we have already been asked to stop, there is nobody left who is
+	 * going to call lws_threadpool_task_sync() on us... don't sit in the
+	 * retry loop below for 100 x 3s waiting for a sync that cannot come.
+	 */
+
+	if (temp == LWS_TP_STATUS_STOPPING) {
+		pthread_mutex_unlock(&pool->lock); /* ------------ pool unlock */
+
+		return 0;
+	}
+
 	state_transition(task, LWS_TP_STATUS_SYNCING);
 	while (tries--) {
 		wsi = task_to_wsi(task);
@@ -770,32 +783,79 @@ lws_threadpool_create(struct lws_context *context,
 	pthread_mutex_init(&tp->lock, NULL);
 	pthread_cond_init(&tp->wake_idle, NULL);
 
+	/*
+	 * Workers are always placed in the first threads_in_pool slots, so a
+	 * failed pthread_create() cannot leave a hole that lws_threadpool_
+	 * destroy() would later pthread_join() / pthread_mutex_destroy() on
+	 * (while skipping a slot that has a live worker in it)
+	 */
+
 	for (n = 0; n < args->threads; n++) {
+		struct lws_pool *pool = &tp->pool_list[tp->threads_in_pool];
 #if defined(LWS_HAS_PTHREAD_SETNAME_NP)
 		char name[16];
 #endif
-		tp->pool_list[n].tp = tp;
-		tp->pool_list[n].worker_index = n;
-		pthread_mutex_init(&tp->pool_list[n].lock, NULL);
-		if (pthread_create(&tp->pool_list[n].thread, NULL,
-				   lws_threadpool_worker, &tp->pool_list[n])) {
+		pool->tp = tp;
+		pool->worker_index = tp->threads_in_pool;
+		pthread_mutex_init(&pool->lock, NULL);
+		if (pthread_create(&pool->thread, NULL,
+				   lws_threadpool_worker, pool)) {
 			lwsl_err("thread creation failed\n");
+			pthread_mutex_destroy(&pool->lock);
 		} else {
 #if defined(LWS_HAS_PTHREAD_SETNAME_NP)
-			lws_snprintf(name, sizeof(name), "%s-%d", tp->name, n);
-			pthread_setname_np(tp->pool_list[n].thread, name);
+			lws_snprintf(name, sizeof(name), "%s-%d", tp->name,
+				     pool->worker_index);
+			pthread_setname_np(pool->thread, name);
 #endif
 			tp->threads_in_pool++;
 		}
 	}
 
+	if (args->threads && !tp->threads_in_pool) {
+		/*
+		 * Nothing would ever run... don't hand back a pool that
+		 * silently swallows tasks forever
+		 */
+		lwsl_err("%s: no worker threads could be created\n", __func__);
+		lws_threadpool_destroy(tp);
+
+		return NULL;
+	}
+
 	return tp;
+}
+
+/*
+ * Kick any task that is blocked in LWS_TP_RETURN_SYNC out of its cond wait, so
+ * it can notice the pool is going down at its next "resurface" instead of
+ * sitting in the late-sync retry loop for the whole 100 x 3s window.
+ *
+ * tp->lock must be held; we take pool_list[n].lock inside it, which is the
+ * same order as lws_threadpool_dequeue_task() and lws_threadpool_task_sync().
+ */
+
+static void
+__lws_threadpool_wake_syncing(struct lws_threadpool *tp)
+{
+	int n;
+
+	for (n = 0; n < tp->threads_in_pool; n++) {
+		struct lws_threadpool_task *task = tp->pool_list[n].task;
+
+		if (!task)
+			continue;
+
+		pthread_mutex_lock(&tp->pool_list[n].lock);
+		pthread_cond_signal(&task->wake_idle);
+		pthread_mutex_unlock(&tp->pool_list[n].lock);
+	}
 }
 
 void
 lws_threadpool_finish(struct lws_threadpool *tp)
 {
-	struct lws_threadpool_task **c, *task;
+	struct lws_threadpool_task *task;
 
 	pthread_mutex_lock(&tp->lock); /* ======================== tpool lock */
 
@@ -805,19 +865,23 @@ lws_threadpool_finish(struct lws_threadpool *tp)
 
 	/* stop everyone in the pending queue and move to the done queue */
 
-	c = &tp->task_queue_head;
-	while (*c) {
-		task = *c;
-		*c = task->task_queue_next;
+	/*
+	 * Always re-read the pending head: task_queue_next is reused as the
+	 * done-queue link below, so a cursor kept into the task we just moved
+	 * would follow the done queue instead of the rest of the pending queue
+	 */
+
+	while ((task = tp->task_queue_head)) {
+		tp->task_queue_head = task->task_queue_next;
 		task->task_queue_next = tp->task_done_head;
 		tp->task_done_head = task;
 		state_transition(task, LWS_TP_STATUS_STOPPED);
 		tp->queue_depth--;
 		tp->done_queue_depth++;
 		task->done = lws_now_usecs();
-
-		c = &task->task_queue_next;
 	}
+
+	__lws_threadpool_wake_syncing(tp);
 
 	pthread_cond_broadcast(&tp->wake_idle);
 	pthread_mutex_unlock(&tp->lock); /* -------------------- tpool unlock */
@@ -852,6 +916,7 @@ lws_threadpool_destroy(struct lws_threadpool *tp)
 
 	pthread_mutex_lock(&tp->lock); /* ======================== tpool lock */
 	tp->destroying = 1;
+	__lws_threadpool_wake_syncing(tp);
 	pthread_cond_broadcast(&tp->wake_idle);
 	pthread_mutex_unlock(&tp->lock); /* -------------------- tpool unlock */
 
