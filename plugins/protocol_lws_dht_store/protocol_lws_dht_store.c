@@ -31,6 +31,8 @@ struct vhd_dht_store {
 	const char *storage_path;
 	const char *dht_iface;
 	int dht_port;
+
+	uint8_t echo:1;
 };
 
 static void
@@ -59,7 +61,14 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 		break;
 	case LWS_DHT_EVENT_DATA:
 		lwsl_notice("%s: LWS_DHT_EVENT_DATA: %d bytes\n", __func__, (int)data_len);
-		if (data_len >= 5 && memcmp(data, "ECHO ", 5) == 0) {
+		/*
+		 * DHT data arrives from any host with no return-routability
+		 * check, and a spoofed source address is enough to make us
+		 * emit an attacker-chosen datagram at a third party.  So the
+		 * loopback diagnostic is only available when the operator
+		 * explicitly asked for it with the dht-echo pvo.
+		 */
+		if (vhd->echo && data_len >= 5 && memcmp(data, "ECHO ", 5) == 0) {
 			/* Echo back the rest of the data */
 			lwsl_notice("%s: Echoing data back\n", __func__);
 			lws_dht_send_data(vhd->dht, from, (const char *)data + 5, data_len - 5);
@@ -112,6 +121,10 @@ callback_lws_dht_store(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_pvo_get_str(in, "dht-iface", &vhd->dht_iface))
 			lwsl_info("no pvo for dht-iface\n");
 
+		if (!lws_pvo_get_str(in, "dht-echo", &pvo_val) &&
+		    pvo_val && pvo_val[0] == '1')
+			vhd->echo = 1;
+
 		lwsl_user("%s: init: path '%s', port %d\n", __func__,
 				vhd->storage_path, vhd->dht_port);
 
@@ -133,8 +146,15 @@ callback_lws_dht_store(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		if (vhd && vhd->dht)
-			lws_dht_destroy(&vhd->dht);
+		/*
+		 * vhd->dht is owned by the vhost, and lws_vhost_destroy2()
+		 * already called lws_dht_destroy_all_on_vhost() on it before
+		 * getting here... it is also potentially shared with other
+		 * DHT protocols on the same vhost (lws_dht_create() hands back
+		 * the vhost's existing context).  Just drop our reference.
+		 */
+		if (vhd)
+			vhd->dht = NULL;
 		break;
 
 	default:
@@ -151,6 +171,7 @@ static const struct lws_protocols protocols[] = {
 		0,
 		0, 0, NULL, 0
 	},
+	LWS_PROTOCOL_LIST_TERM
 };
 
 /*
@@ -167,7 +188,7 @@ LWS_VISIBLE const lws_plugin_protocol_t lws_dht_store = {
 	},
 
 	.protocols = protocols,
-	.count_protocols = LWS_ARRAY_SIZE(protocols),
+	.count_protocols = LWS_ARRAY_SIZE(protocols) - 1,
 	.extensions = NULL,
 	.count_extensions = 0,
 };
