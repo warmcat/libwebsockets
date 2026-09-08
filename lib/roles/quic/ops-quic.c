@@ -402,6 +402,15 @@ lws_quic_find_child_by_dcid(struct lws *listener,
 						 mux.sibling_list);
 		if (!w->quic.qn)
 			continue;
+		/*
+		 * A zero-length DCID would "match" any connection whose
+		 * orig_dcid / preferred-address cid is simply unset (len 0),
+		 * letting an off-path sender inject into someone else's
+		 * connection.  A server multiplexing on one socket never
+		 * issues zero-length cids, so refuse to match on one.
+		 */
+		if (!dcid->len)
+			return NULL;
 		if ((w->quic.qn->loc_cid.len == dcid->len &&
 		     !memcmp(w->quic.qn->loc_cid.id, dcid->id, dcid->len)) ||
 		    (w->quic.qn->orig_dcid.len == dcid->len &&
