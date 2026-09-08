@@ -89,7 +89,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		if (strncmp((const char *)in, "reset\n", 6) == 0)
 			pss->number = 0;
-		if (strncmp((const char *)in, "closeme\n", 8) == 0) {
+		if (len >= 8 && strncmp((const char *)in, "closeme\n", 8) == 0) {
 			lwsl_notice("dumb_inc: closing as requested\n");
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_GOINGAWAY,
 					 (unsigned char *)"seeya", 5);

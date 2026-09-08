@@ -125,6 +125,12 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		vhd->context = lws_get_context(wsi);
 		vhd->protocol = lws_get_protocol(wsi);
 		vhd->vhost = lws_get_vhost(wsi);
+		/*
+		 * The vhd arrives zeroed, and 0 is a perfectly good fd number
+		 * (stdin)... make sure PROTOCOL_DESTROY cannot close it if we
+		 * never actually opened the fifo
+		 */
+		vhd->fifo = -1;
 		{
 			const struct lws_protocol_vhost_options *pvo =
 				(const struct lws_protocol_vhost_options *)in;
@@ -160,6 +166,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 						NULL)) {
 			lwsl_err("Failed to adopt fifo descriptor\n");
 			close(vhd->fifo);
+			vhd->fifo = -1;
 			unlink(vhd->fifo_path);
 			return 1;
 		}
@@ -170,6 +177,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 		if (vhd->fifo >= 0) {
 			close(vhd->fifo);
+			vhd->fifo = -1;
 			unlink(vhd->fifo_path);
 		}
 		break;
@@ -186,6 +194,8 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_RAW_RX_FILE:
 		lwsl_notice("LWS_CALLBACK_RAW_RX_FILE\n");
+		if (!vhd || vhd->fifo < 0)
+			return 1;
 		{
 			char buf[256];
 			int n;
@@ -219,9 +229,12 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_RAW_CLOSE_FILE:
 		lwsl_notice("LWS_CALLBACK_RAW_CLOSE_FILE\n");
+		if (!vhd)
+			break;
 		if (vhd->zero_length_read) {
 			vhd->zero_length_read = 0;
-			close(vhd->fifo);
+			if (vhd->fifo >= 0)
+				close(vhd->fifo);
 			/* the wsi that adopted the fifo file is closing...
 			 * reopen the fifo and readopt
 			 */
@@ -237,6 +250,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					"protocol-lws-raw-test", NULL)) {
 				lwsl_err("Failed to adopt fifo descriptor\n");
 				close(vhd->fifo);
+				vhd->fifo = -1;
 				return 1;
 			}
 		}
