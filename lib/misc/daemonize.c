@@ -117,13 +117,17 @@ lws_daemonize(const char *_lock_path)
 		if (fd >= 0) {
 			char buf[10];
 
-			n = (int)read(fd, buf, sizeof(buf));
+			n = (int)read(fd, buf, sizeof(buf) - 1);
 			close(fd);
-			if (n) {
-				int ret;
+			if (n > 0) {
+				/* the file contents are untrusted... make
+				 * sure atoi() cannot run off the end of buf */
+				buf[n] = '\0';
 				n = atoi(buf);
-				ret = kill(n, 0);
-				if (ret >= 0) {
+				/* pid <= 0 would make kill() address a whole
+				 * process group, or every process we may
+				 * signal, and always "succeed" */
+				if (n > 0 && kill(n, 0) >= 0) {
 					fprintf(stderr,
 					     "Daemon already running pid %d\n",
 					     n);
@@ -132,7 +136,7 @@ lws_daemonize(const char *_lock_path)
 				fprintf(stderr,
 				    "Removing stale lock %s from dead pid %d\n",
 							_lock_path, n);
-				unlink(lock_path);
+				unlink(_lock_path);
 			}
 		}
 
