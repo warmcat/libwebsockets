@@ -74,7 +74,7 @@ getifaddrs2(struct ifaddrs **ifap, int af, int siocgifconf, int siocgifflags,
 	size_t sz;
 	struct sockaddr sa_zero;
 	struct ifreq *ifr;
-	struct ifaddrs *start,  **end = &start;
+	struct ifaddrs *start = NULL,  **end = &start;
 
 	buf = NULL;
 
@@ -120,6 +120,11 @@ getifaddrs2(struct ifaddrs **ifap, int af, int siocgifconf, int siocgifflags,
 		struct sockaddr *sa;
 		size_t salen;
 
+		size_t rem = (size_t)((ifconf.ifc_buf + ifconf.ifc_len) - p);
+
+		if (rem < ifreq_sz)
+			break; /* truncated trailing entry */
+
 		ifr = (struct ifreq *)p;
 		sa  = &ifr->ifr_addr;
 
@@ -133,6 +138,19 @@ getifaddrs2(struct ifaddrs **ifap, int af, int siocgifconf, int siocgifflags,
 		salen = SA_LEN(sa);
 		sz = max(sz, sizeof(ifr->ifr_name) + SA_LEN(sa));
 #endif
+		/*
+		 * salen / sz come from the kernel-provided sockaddr on
+		 * sa_len platforms... don't let a truncated last entry make
+		 * us read (or step) past what SIOCGIFCONF actually returned
+		 */
+
+		if (sz > rem)
+			sz = rem;
+		if (salen > rem - ((size_t)((char *)sa - p)))
+			salen = rem - ((size_t)((char *)sa - p));
+		if (!salen)
+			break;
+
 		memset(&ifreq, 0, sizeof(ifreq));
 		memcpy(ifreq.ifr_name, ifr->ifr_name, sizeof(ifr->ifr_name));
 
@@ -142,13 +160,25 @@ getifaddrs2(struct ifaddrs **ifap, int af, int siocgifconf, int siocgifflags,
 		}
 
 		*end = lws_malloc(sizeof(**end), "getifaddrs");
+		if (!*end) {
+			ret = ENOMEM;
+			goto error_out;
+		}
 
 		(*end)->ifa_next = NULL;
 		(*end)->ifa_name = strdup(ifr->ifr_name);
 		(*end)->ifa_flags = (unsigned int)ifreq.ifr_flags;
 		(*end)->ifa_addr = lws_malloc(salen, "getifaddrs");
-		memcpy((*end)->ifa_addr, sa, salen);
 		(*end)->ifa_netmask = NULL;
+		(*end)->ifa_dstaddr = NULL;
+		(*end)->ifa_data = NULL;
+
+		if (!(*end)->ifa_name || !(*end)->ifa_addr) {
+			ret = ENOMEM;
+			goto error_out;
+		}
+
+		memcpy((*end)->ifa_addr, sa, salen);
 
 #if 0
 		/* fix these when we actually need them */
@@ -178,6 +208,7 @@ getifaddrs2(struct ifaddrs **ifap, int af, int siocgifconf, int siocgifflags,
 	return 0;
 
 error_out:
+	freeifaddrs(start);
 	close(fd);
 	lws_free(buf);
 	errno = ret;
