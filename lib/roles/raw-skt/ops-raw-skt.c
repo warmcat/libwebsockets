@@ -184,6 +184,17 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			case 0:
 				if (wsi->unix_skt)
 					break;
+#if defined(LWS_WITH_UDP)
+				if (lws_wsi_is_udp(wsi)) {
+					/*
+					 * An empty datagram is legal and says
+					 * nothing about the socket... consume
+					 * it and keep the wsi alive
+					 */
+					lwsl_wsi_info(wsi, "empty datagram");
+					goto try_pollout;
+				}
+#endif
 				lwsl_wsi_info(wsi, "read 0 len");
 				wsi->seen_zero_length_recv = 1;
 				if (lws_change_pollfd(wsi, LWS_POLLIN, 0))

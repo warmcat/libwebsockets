@@ -286,6 +286,16 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 		if (!n && wsi->unix_skt)
 			goto do_err;
 
+#if defined(LWS_WITH_UDP)
+		/*
+		 * A zero-length datagram is a completely legal datagram and,
+		 * unlike a stream socket, does not indicate EOF... it must not
+		 * be turned into an error that destroys the UDP wsi
+		 */
+		if (!n && lws_wsi_is_udp(wsi))
+			return 0;
+#endif
+
 		/*
 		 * See https://libwebsockets.org/
 		 * pipermail/libwebsockets/2019-March/007857.html
