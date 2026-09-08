@@ -298,6 +298,20 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 	switch (ctx->mode) {
 	case LWS_GAESM_KW:
 #if defined(LWS_HAVE_mbedtls_internal_aes_encrypt)
+		/*
+		 * KW has no output length argument, so the block count is
+		 * derived from len alone... RFC3394 requires whole 64-bit
+		 * blocks, and at least one of them on top of the 8-byte IV.
+		 * Without this, a short unwrap makes the block count negative
+		 * and 8 * (unsigned)c64 a ~4GB memcpy.
+		 */
+		if (len < (ctx->op == MBEDTLS_AES_ENCRYPT ? 16u : 24u) ||
+		    (len & 7)) {
+			lwsl_err("%s: bad KW length %d\n", __func__, (int)len);
+
+			return -1;
+		}
+
 		/* a key of length ctx->k->len is wrapped by a 128-bit KEK */
 		n = lws_genaes_rfc3394_wrap(ctx->op == MBEDTLS_AES_ENCRYPT,
 				(ctx->op == MBEDTLS_AES_ENCRYPT ? (int)len * 8 :

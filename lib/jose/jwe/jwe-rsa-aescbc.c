@@ -189,6 +189,19 @@ lws_jwe_auth_and_decrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe)
 		return n < -1 ? n : -1;
 	}
 
+	/*
+	 * The attacker picks the OAEP plaintext, so he picks its length too...
+	 * lws_jwe_auth_and_decrypt_cbc_hs() consumes hlen bytes of enc_cek[]
+	 * as MAC_KEY || ENC_KEY, so a short CEK would make key material out of
+	 * uninitialised stack.  The CEK must be exactly the enc alg's hash len
+	 */
+
+	if (n != (int)lws_genhmac_size(jwe->jose.enc_alg->hmac_type)) {
+		lwsl_err("%s: unexpected CEK len %d\n", __func__, n);
+
+		return -1;
+	}
+
 	n = lws_jwe_auth_and_decrypt_cbc_hs(jwe, enc_cek,
 			     (uint8_t *)jwe->jws.map_b64.buf[LJWE_JOSE],
 			     (int)jwe->jws.map_b64.len[LJWE_JOSE]);

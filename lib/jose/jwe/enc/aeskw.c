@@ -128,10 +128,25 @@ lws_jwe_auth_and_decrypt_aeskw_cbc_hs(struct lws_jwe *jwe)
 		return -1;
 	}
 
-	/* the CEK is 256-bit in the example encrypted with a 128-bit key */
+	/*
+	 * The CEK for the CBC-HS "enc" algs is MAC_KEY || ENC_KEY, ie, exactly
+	 * the enc alg's hash length; wrapped, that is that plus the RFC3394
+	 * overhead.  The KW unwrap has no output length argument and emits
+	 * len - 8 bytes, and lws_jwe_auth_and_decrypt_cbc_hs() then consumes
+	 * hlen bytes of enc_cek[] regardless, so any other EKEY length would
+	 * make key material out of uninitialised stack (and on some backends
+	 * underflow the unwrap block count) before anything is authenticated
+	 */
 
-	if (jwe->jws.map.len[LJWE_EKEY] > sizeof(enc_cek))
+	if (jwe->jws.map.len[LJWE_EKEY] !=
+			(unsigned int)lws_genhmac_size(
+					jwe->jose.enc_alg->hmac_type) +
+			LWS_JWE_RFC3394_OVERHEAD_BYTES) {
+		lwsl_err("%s: bad EKEY len %u\n", __func__,
+			 jwe->jws.map.len[LJWE_EKEY]);
+
 		return -1;
+	}
 
 	/* 1) Decrypt the JWE Encrypted Key to get the raw MAC / CEK */
 

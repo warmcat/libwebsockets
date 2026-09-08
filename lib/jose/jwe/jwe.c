@@ -787,7 +787,20 @@ lws_jwe_render_flattened(struct lws_jwe *jwe, char *out, size_t out_len)
 	/* unprotected not supported atm */
 
 	p1 += lws_snprintf(p1, lws_ptr_diff_size_t(end1, p1), "\",\n\"header\":");
-	lws_strnncpy(p1, buf, jlen, end1 - p1);
+
+	/*
+	 * lws_snprintf() returns the size it was given when it truncated, so
+	 * p1 can be sitting exactly on end1 here.  lws_strnncpy() with a zero
+	 * destination size degenerates into strncpy(dest, src, SIZE_MAX), so
+	 * bail on truncation rather than hand it a 0
+	 */
+
+	if (p1 >= end1) {
+		lwsl_notice("%s: out buffer too small\n", __func__);
+		goto bail;
+	}
+
+	lws_strnncpy(p1, buf, jlen, lws_ptr_diff_size_t(end1, p1));
 	p1 += strlen(p1);
 
 	for (m = 0; m < (int)LWS_ARRAY_SIZE(protected_en); m++)

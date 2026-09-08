@@ -183,6 +183,19 @@ lws_jwe_auth_and_decrypt_rsa_aes_gcm(struct lws_jwe *jwe)
 		return n < -1 ? n : -1;
 	}
 
+	/*
+	 * The attacker picks the OAEP plaintext, so he picks its length too...
+	 * lws_jwe_auth_and_decrypt_gcm() uses keybits_fixed / 8 bytes of
+	 * enc_cek[] as the CEK, so a short CEK would make key material out of
+	 * uninitialised stack.  It must be exactly the enc alg's key length
+	 */
+
+	if (n != (int)jwe->jose.enc_alg->keybits_fixed / 8) {
+		lwsl_err("%s: unexpected CEK len %d\n", __func__, n);
+
+		return -1;
+	}
+
 	n = lws_jwe_auth_and_decrypt_gcm(jwe, enc_cek,
 			(uint8_t *)jwe->jws.map_b64.buf[LJWE_JOSE],
 				(int)jwe->jws.map_b64.len[LJWE_JOSE]);

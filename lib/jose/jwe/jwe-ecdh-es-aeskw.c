@@ -385,8 +385,6 @@ lws_jwe_encrypt_ecdh_cbc_hs(struct lws_jwe *jwe, char *temp, int *temp_len)
 	int ss_len, // kw_hlen = lws_genhash_size(jwe->jose.alg->hash_type),
 	    enc_hlen = (int)lws_genhmac_size(jwe->jose.enc_alg->hmac_type);
 	uint8_t cek[LWS_JWE_LIMIT_KEY_ELEMENT_BYTES];
-	int ekbytes = jwe->jose.alg->keybits_fixed ?
-			jwe->jose.alg->keybits_fixed / 8 : enc_hlen;
 	int n, ot = *temp_len, ret = -1;
 
 	/* if we will produce an EKEY, make space for it */
@@ -442,7 +440,8 @@ bail:
 		jwe->jws.map.len[LJWE_EKEY] = 0;
 	}
 
-	lws_explicit_bzero(cek, (unsigned int)ekbytes);
+	/* cleanse the whole buffer, the CEK is longer than the KW key */
+	lws_explicit_bzero(cek, sizeof(cek));
 
 	return ret;
 }
@@ -461,8 +460,6 @@ lws_jwe_auth_and_decrypt_ecdh(struct lws_jwe *jwe)
 	uint8_t shared_secret[LWS_JWE_LIMIT_KEY_ELEMENT_BYTES],
 		derived[LWS_JWE_LIMIT_KEY_ELEMENT_BYTES];
 	int enc_hlen = (int)lws_genhmac_size(jwe->jose.enc_alg->hmac_type);
-	int ekbytes = jwe->jose.enc_alg->keybits_fixed ?
-			jwe->jose.enc_alg->keybits_fixed / 8 : enc_hlen;
 	struct lws_genec_ctx ecctx;
 	int n, ret = -1, ss_len = sizeof(shared_secret);
 
@@ -617,10 +614,13 @@ bail:
 
 	lws_genec_destroy(&ecctx);
 
-	/* cleanse wrapped on stack that contained the CEK / wrapped key */
-	lws_explicit_bzero(derived, (unsigned int)ekbytes);
-	/* cleanse the shared secret */
-	lws_explicit_bzero(shared_secret, (unsigned int)ekbytes);
+	/*
+	 * Cleanse the whole of both buffers, not just ekbytes of them: the raw
+	 * ECDH secret can be longer than the CEK (66 bytes for P-521), and the
+	 * KW unwrap wrote the recovered CEK into shared_secret[] as well
+	 */
+	lws_explicit_bzero(derived, sizeof(derived));
+	lws_explicit_bzero(shared_secret, sizeof(shared_secret));
 
 	return ret;
 }
