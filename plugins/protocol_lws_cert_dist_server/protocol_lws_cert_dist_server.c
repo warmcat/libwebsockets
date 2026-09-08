@@ -776,16 +776,21 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RECEIVE:
 		if (vhd && !vhd->is_stub && pss->established && !pss->needs_cert_update) {
-			/* Expecting {"hash":"..."} */
-			const char *h = strstr((char *)in, "\"hash\":\"");
-			if (h) {
-				h += 8;
-				char *end = (char *)strchr(h, '"');
-				if (end) {
-					*end = '\0';
-					lws_strncpy(pss->hash, h, sizeof(pss->hash));
-					lwsl_notice("%s: Received hash from client: %s\n", __func__, pss->hash);
-				}
+			/*
+			 * Expecting {"hash":"..."}.  lws only NUL-terminates
+			 * the ws rx buffer if the frame had a payload, so the
+			 * parse must be bounded by len; and we must not write
+			 * into the rx buffer either.
+			 */
+			size_t alen = 0;
+			const char *h = in && len ?
+				lws_json_simple_find((const char *)in, len,
+						     "\"hash\":", &alen) : NULL;
+
+			if (h && cert_dist_valid_hash(h, alen)) {
+				lws_strnncpy(pss->hash, h, alen,
+					     sizeof(pss->hash));
+				lwsl_notice("%s: Received hash from client: %s\n", __func__, pss->hash);
 			}
 			/* Cancel timer and fetch */
 			lws_set_timer_usecs(wsi, LWS_SET_TIMER_USEC_CANCEL);
