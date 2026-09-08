@@ -121,10 +121,24 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 		}
 	}
 
-	if (ctx->u.pbMacContext) lws_free(ctx->u.pbMacContext);
-	if (ctx->u.pbNonce) lws_free(ctx->u.pbNonce);
-	if (ctx->u.pbAuthData) lws_free(ctx->u.pbAuthData);
-	if (ctx->u.pbTag) lws_free(ctx->u.pbTag);
+	/* none of this should be readable in the freed heap afterwards */
+
+	if (ctx->u.pbMacContext) {
+		lws_explicit_bzero(ctx->u.pbMacContext, ctx->u.cbMacContext);
+		lws_free(ctx->u.pbMacContext);
+	}
+	if (ctx->u.pbNonce) {
+		lws_explicit_bzero(ctx->u.pbNonce, ctx->u.cbNonce);
+		lws_free(ctx->u.pbNonce);
+	}
+	if (ctx->u.pbAuthData) {
+		lws_explicit_bzero(ctx->u.pbAuthData, ctx->u.cbAuthData);
+		lws_free(ctx->u.pbAuthData);
+	}
+	if (ctx->u.pbTag) {
+		lws_explicit_bzero(ctx->u.pbTag, ctx->u.cbTag);
+		lws_free(ctx->u.pbTag);
+	}
 
 	if (ctx->u.hKey)
 		BCryptDestroyKey(ctx->u.hKey);

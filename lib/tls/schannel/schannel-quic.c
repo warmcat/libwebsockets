@@ -361,6 +361,18 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		ext->HandshakeType = lwsi_role_client(wsi) ? LWS_SCH_QUIC_TP_HS_TYPE_CLIENT_HELLO : LWS_SCH_QUIC_TP_HS_TYPE_ENCRYPTED_EXT;
 		ext->Flags = 0;
 		if (wsi->tls.quic_tp_send && wsi->tls.quic_tp_send_len) {
+			/*
+			 * ext lives in the 4096-byte tp_u; the (WORD) cast
+			 * would also truncate anything >= 64KB
+			 */
+			if (wsi->tls.quic_tp_send_len > sizeof(tp_u.buf) -
+				offsetof(SEND_GENERIC_TLS_EXTENSION, Buffer)) {
+				lwsl_wsi_err(wsi, "quic tp too big (%u)",
+					     (unsigned int)
+					     wsi->tls.quic_tp_send_len);
+
+				return -1;
+			}
 			ext->BufferSize = (WORD)wsi->tls.quic_tp_send_len;
 			memcpy(ext->Buffer, wsi->tls.quic_tp_send, ext->BufferSize);
 		} else {
@@ -414,11 +426,28 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 	out_desc.pBuffers = out_bufs;
 
 	if (lwsi_role_client(wsi) || !wsi->a.vhost->listen_port) {
-		char *target_name = conn->hostname;
-		if (target_name && target_name[0] >= '0' && target_name[0] <= '9') {
-			/* SChannel strictly rejects IP addresses for SNI. Pass "localhost" for local tests. */
-			target_name = "localhost";
-		}
+		const char *target_name = conn->hostname;
+		uint8_t ipbuf[16];
+
+		/*
+		 * Schannel rejects an IP literal as the SNI name, so we omit
+		 * the name in that case.  The old test was "the first
+		 * character is a digit", which also matched perfectly ordinary
+		 * hostnames like 1.example.com and then sent them the SNI
+		 * "localhost" -- so a multi-tenant server handed back the
+		 * wrong certificate, and the name Schannel would check
+		 * against was not the one we connected to either.
+		 */
+
+		if (target_name && (!*target_name ||
+				    lws_plat_inet_pton(AF_INET, target_name,
+						       ipbuf) == 1
+#if defined(LWS_WITH_IPV6)
+				    || lws_plat_inet_pton(AF_INET6, target_name,
+							  ipbuf) == 1
+#endif
+				    ))
+			target_name = NULL;
 
 		WCHAR wTargetName[256];
 		WCHAR *pwTargetName = NULL;
@@ -426,6 +455,12 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			if (MultiByteToWideChar(CP_UTF8, 0, target_name, -1, wTargetName, 256) > 0) {
 				pwTargetName = wTargetName;
 			}
+		}
+
+		if (!wsi->a.vhost->tls.ssl_client_ctx) {
+			lwsl_wsi_err(wsi, "no client tls ctx");
+
+			return -1;
 		}
 
 #ifndef SECURITY_NATIVE_DREP
@@ -483,7 +518,12 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 						wsi->tls.quic_tp_recv_len = ext_len;
 					}
 				}
-				FreeContextBuffer(out_bufs[j].pvBuffer);
+				/*
+				 * No FreeContextBuffer() here: req_flags does
+				 * not include ISC_REQ_ALLOCATE_MEMORY, so
+				 * every out buffer is one of our own stack
+				 * buffers
+				 */
 			}
 
 	if (status != SEC_E_OK &&
@@ -572,9 +612,13 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 						}
 					}
 
-					if (type <= 4) {
+					/*
+					 * bound the value we actually index
+					 * with, not a different one
+					 */
+					if ((unsigned int)secrets->TrafficSecretType <
+					    LWS_ARRAY_SIZE(conn->quic_secret_type_count))
 						conn->quic_secret_type_count[secrets->TrafficSecretType]++;
-					}
 
 					enum lws_tls_quic_secret_type mapped_type;
 					switch (type) {
@@ -648,6 +692,27 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		}
 
 		if (status == SEC_E_OK) {
+			/*
+			 * The credential carries
+			 * SCH_CRED_MANUAL_CRED_VALIDATION, so Schannel did no
+			 * chain validation at all, and nothing on the QUIC
+			 * path calls lws_ssl_client_connect2() (which is
+			 * where the TCP client's peer cert confirmation
+			 * happens).  Without this the QUIC client accepted
+			 * any certificate at all.
+			 */
+			if (lwsi_role_client(wsi)) {
+				char ebuf[128];
+
+				ebuf[0] = '\0';
+				if (lws_tls_client_confirm_peer_cert(wsi, ebuf,
+							sizeof(ebuf))) {
+					lwsl_wsi_err(wsi, "peer cert: %s",
+						     ebuf);
+
+					return -1;
+				}
+			}
 #if defined(SECPKG_ATTR_APPLICATION_PROTOCOL) || defined(SECPKG_ATTR_APP_DATA)
                        SecPkgContext_ApplicationProtocol alpn_result;
                        if (QueryContextAttributes(&conn->ctxt, SECPKG_ATTR_APPLICATION_PROTOCOL, &alpn_result) == SEC_E_OK) {

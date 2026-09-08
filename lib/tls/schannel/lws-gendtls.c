@@ -252,13 +252,21 @@ lws_gendtls_get_rx(struct lws_gendtls_ctx *ctx, uint8_t *out, size_t max_len)
 	size_t avail;
 	int ret;
 
+	/*
+	 * The DTLS server has to ask for the peer's certificate
+	 * (ASC_REQ_MUTUAL_AUTH), the same as the other backends do since
+	 * C-298: without it no CertificateRequest is sent and the WebRTC peer
+	 * never has to present the certificate whose fingerprint its SDP
+	 * advertised, so there is nothing for the fingerprint check to check.
+	 */
+
 	if (ctx->mode == LWS_GENDTLS_MODE_SERVER)
 		req_flags = ASC_REQ_SEQUENCE_DETECT | ASC_REQ_REPLAY_DETECT |
 			    ASC_REQ_CONFIDENTIALITY | ASC_REQ_ALLOCATE_MEMORY |
-			    ASC_REQ_DATAGRAM;
+			    ASC_REQ_DATAGRAM | ASC_REQ_MUTUAL_AUTH;
 
-	int getting_fragments = 0;
-	while (!ctx->handshake_done) {
+	int getting_fragments = 0, budget = 64;
+	while (!ctx->handshake_done && budget--) {
 		uint8_t *flat_buf = NULL;
 
 		avail = lws_buflist_total_len(&ctx->rx_head);
@@ -340,14 +348,37 @@ lws_gendtls_get_rx(struct lws_gendtls_ctx *ctx, uint8_t *out, size_t max_len)
 		    status == SEC_I_CONTINUE_NEEDED ||
 		    status == SEC_I_MESSAGE_FRAGMENT) {
 
-			/* Consume used input */
+			/*
+			 * Consume used input.  A handshake flight routinely
+			 * spans more than one datagram, ie, more than one
+			 * buflist segment, and lws_buflist_use_segment()
+			 * only ever operates on the head segment: charging
+			 * the whole amount to it asserted in a debug build
+			 * and silently destroyed the next datagram in a
+			 * release one.  Walk the segments like the decrypt
+			 * path below does.
+			 */
 			if (pass_avail) {
 				size_t consumed = pass_avail;
-				if (in_bufs[1].BufferType == SECBUFFER_EXTRA) {
-					consumed = pass_avail - in_bufs[1].cbBuffer;
+
+				if (in_bufs[1].BufferType == SECBUFFER_EXTRA &&
+				    in_bufs[1].cbBuffer <= pass_avail)
+					consumed = pass_avail -
+						   in_bufs[1].cbBuffer;
+
+				while (consumed) {
+					size_t seg = lws_buflist_next_segment_len(
+							&ctx->rx_head, NULL);
+					size_t chunk;
+
+					if (!seg)
+						break;
+
+					chunk = consumed > seg ? seg : consumed;
+					lws_buflist_use_segment(&ctx->rx_head,
+								chunk);
+					consumed -= chunk;
 				}
-				if (consumed)
-					lws_buflist_use_segment(&ctx->rx_head, consumed);
 			}
 
 			if (flat_buf) lws_free(flat_buf);
@@ -376,8 +407,15 @@ lws_gendtls_get_rx(struct lws_gendtls_ctx *ctx, uint8_t *out, size_t max_len)
 				return 0;
 			}
 
-			/* Loop to consume the next record if we have an extra buffer remaining */
-			if (in_bufs[1].BufferType == SECBUFFER_EXTRA && in_bufs[1].cbBuffer > 0) {
+			/*
+			 * Loop to consume the next record if we have an extra
+			 * buffer remaining... but only if this pass actually
+			 * consumed something, else we re-enter with identical
+			 * input and spin
+			 */
+			if (in_bufs[1].BufferType == SECBUFFER_EXTRA &&
+			    in_bufs[1].cbBuffer > 0 &&
+			    in_bufs[1].cbBuffer < pass_avail) {
 				continue;
 			}
 
