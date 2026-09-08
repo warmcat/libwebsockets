@@ -342,6 +342,17 @@ deaddrop_file_upload_cb(void *data, const char *name, const char *filename,
 
 	switch (state) {
 	case LWS_UFS_OPEN:
+		/*
+		 * We can be bound to the protocol by a POST that never
+		 * matched our "/upload/" path (eg, straight to the
+		 * mountpoint itself), in which case we have no vhd
+		 */
+		if (!pss->vhd) {
+			pss->response_code = HTTP_STATUS_NOT_FOUND;
+
+			return -1;
+		}
+
 		/* REQUIRE an authenticated user on the upload POST itself */
 		if (!pss->user[0]) {
 			pss->response_code = HTTP_STATUS_FORBIDDEN;
@@ -350,7 +361,20 @@ deaddrop_file_upload_cb(void *data, const char *name, const char *filename,
 			return -1;
 		}
 
-		lws_urldecode(filename2, filename, sizeof(filename2) - 1);
+		/*
+		 * lws_urldecode() only terminates its output after a clean
+		 * run: on a malformed % escape it returns -1 having written
+		 * no NUL.  Consuming filename2 then walks off the end of an
+		 * uninitialized stack buffer, so refuse the upload instead.
+		 */
+		filename2[0] = '\0';
+		if (lws_urldecode(filename2, filename, sizeof(filename2) - 1)) {
+			pss->response_code = HTTP_STATUS_BAD_REQUEST;
+			lwsl_wsi_warn(pss->wsi, "%s: bad urlencoded filename",
+				      __func__);
+
+			return -1;
+		}
 		lws_filename_purify_inplace(filename2);
 		lws_filename_purify_inplace(pss->user);
 
@@ -417,6 +441,19 @@ deaddrop_file_upload_cb(void *data, const char *name, const char *filename,
 
 		break;
 	case LWS_UFS_CLOSE:
+		/*
+		 * The spa delivers this even when the client vanished
+		 * mid-body: in that case LWS_UFS_FINAL_CONTENT never came, so
+		 * the fd is still open and the partial temp file is still on
+		 * disk.  Without cleaning both up here, every aborted upload
+		 * leaks an fd and a file for the life of the process.
+		 */
+		if (pss->fd != LWS_INVALID_FILE) {
+			close((int)(lws_intptr_t)pss->fd);
+			pss->fd = LWS_INVALID_FILE;
+			if (pss->filename[0])
+				unlink(pss->filename);
+		}
 		break;
 	}
 
@@ -584,6 +621,7 @@ deaddrop_handler_server_http_body(struct vhd_deaddrop *vhd, struct pss_deaddrop 
 			return -1;
 
 		pss->filename[0] = '\0';
+		pss->fd = LWS_INVALID_FILE;
 		pss->file_length = 0;
 		pss->response_code = HTTP_STATUS_SERVICE_UNAVAILABLE;
 	}
