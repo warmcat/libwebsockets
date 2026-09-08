@@ -31,6 +31,10 @@ struct per_session_data__client_loopback_test {
 	struct lws *wsi;
 };
 
+struct per_vhost_data__client_loopback_test {
+	const char *allow;	/* optional extra permitted addresses */
+};
+
 /*
  * This is a bit fiddly...
  *
@@ -62,20 +66,92 @@ struct per_session_data__client_loopback_test {
  * 4) The HTTP part of this test protocol will try to do the requested
  *    ws client connection, to the same test protocol on the same
  *    server.
+ *
+ * The destination in the URI is a *request*, not an instruction: an unauthed
+ * peer must not be able to make us open connections to arbitrary hosts (SSRF),
+ * so we only accept the loopback names and the vhost's own name, and the port
+ * always comes from the vhost we are mounted on, never from the URI.  A vhost
+ * that really wants other destinations must name them itself with the "allow"
+ * pvo, eg
+ *
+ *     "client-loopback-test": {
+ *      "status": "ok",
+ *      "allow": "10.0.0.1,my-peer.example.com"
+ *     },
  */
+
+static int
+clt_addr_permitted(struct lws_vhost *vh, const char *allow, const char *addr)
+{
+	const char *p = allow, *e, *vn = lws_get_vhost_name(vh);
+	size_t al = strlen(addr);
+
+	/*
+	 * Loopback is always OK... we force the port to the vhost's own listen
+	 * port, so these can only reach us
+	 */
+
+	if (!strcmp(addr, "localhost") || !strcmp(addr, "127.0.0.1") ||
+	    !strcmp(addr, "::1"))
+		return 1;
+
+	if (vn && !strcmp(addr, vn))
+		return 1;
+
+	/* ... otherwise it has to be listed in the vhost's "allow" pvo */
+
+	while (p && *p) {
+		const char *q;
+
+		while (*p == ',' || *p == ' ')
+			p++;
+
+		e = p;
+		while (*e && *e != ',')
+			e++;
+
+		q = e;
+		while (q > p && q[-1] == ' ')
+			q--;
+
+		if ((size_t)(q - p) == al && !strncmp(p, addr, al))
+			return 1;
+
+		p = e;
+	}
+
+	return 0;
+}
 
 static int
 callback_client_loopback_test(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
+	struct per_vhost_data__client_loopback_test *vhd =
+		(struct per_vhost_data__client_loopback_test *)
+			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
+						 lws_get_protocol(wsi));
 	struct lws_client_connect_info i;
 	struct per_session_data__client_loopback_test *pss =
 			(struct per_session_data__client_loopback_test *)user;
 	const char *p = (const char *)in;
-	char buf[100];
+	char buf[100], addr[128];
 	int n;
 
 	switch (reason) {
+
+	case LWS_CALLBACK_PROTOCOL_INIT:
+		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub"))
+			return 0;
+
+		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
+				lws_get_protocol(wsi), sizeof(*vhd));
+		if (!vhd)
+			return 1;
+
+		if (in)
+			lws_pvo_get_str(in, "allow", &vhd->allow);
+		break;
 
 	/* HTTP part */
 
@@ -99,23 +175,55 @@ callback_client_loopback_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (strncmp(p, "ws:/", 4) == 0) {
 			i.ssl_connection = 0;
-			i.port = 80;
 			p += 4;
 		} else
 			if (strncmp(p, "wss:/", 5) == 0) {
-				i.port = 443;
 				i.ssl_connection = 1;
 				p += 5;
 			} else {
-				lws_snprintf(buf, sizeof(buf), "Arg %s is not in format ws://xxx or wss://xxx\n", p);
-				lws_return_http_status(wsi, 400, buf);
+				/*
+				 * Deliberately not quoting his URI back at
+				 * him... lws_return_http_status() formats what
+				 * we give it into a text/html page as-is
+				 */
+				lws_return_http_status(wsi, 400, "Arg is not in format ws://xxx or wss://xxx");
 				return -1;
 			}
 
-		i.address = p;
-		i.path = "";
-		i.host = p;
-		i.origin = p;
+		while (*p == '/')
+			p++;
+
+		/* take just the host part, discarding any port or path */
+
+		n = 0;
+		while (*p && *p != '/' && *p != ':' && *p != '?' &&
+		       n < (int)sizeof(addr) - 1)
+			addr[n++] = *p++;
+		addr[n] = '\0';
+
+		if (!n || !clt_addr_permitted(lws_get_vhost(wsi),
+					      vhd ? vhd->allow : NULL, addr)) {
+			lwsl_notice("%s: refusing onward connection\n",
+				    __func__);
+			lws_return_http_status(wsi, 403, "client-loopback-test: destination not allowed");
+			return -1;
+		}
+
+		/*
+		 * The port is ours, not his... that is what makes this a
+		 * loopback test and not an open proxy
+		 */
+
+		i.port = lws_get_vhost_port(lws_get_vhost(wsi));
+		if (i.port <= 0) {
+			lws_return_http_status(wsi, 403, "client-loopback-test: vhost is not listening");
+			return -1;
+		}
+
+		i.address = addr;
+		i.path = "/";
+		i.host = addr;
+		i.origin = addr;
 		i.ietf_version_or_minus_one = -1;
 		i.protocol = "client-loopback-test";
 
@@ -154,7 +262,12 @@ callback_client_loopback_test(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
-		lws_strncpy(buf, in, sizeof(buf));
+		/*
+		 * lws only NUL-terminates the rx buffer for a nonzero length
+		 * payload, so use the length rather than treating `in` as a
+		 * C string
+		 */
+		lws_strnncpy(buf, (const char *)in, len, sizeof(buf));
 		lwsl_notice("Client connection received %ld from server '%s'\n",
 			    (long)len, buf);
 
