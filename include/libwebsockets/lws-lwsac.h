@@ -258,6 +258,11 @@ lwsac_get_tail_pos(struct lwsac *lac);
 LWS_VISIBLE LWS_EXTERN struct lwsac *
 lwsac_get_next(struct lwsac *lac);
 
+/*
+ * Rounds \p length up to the platform's generic struct alignment.  Returns 0
+ * if a nonzero \p length is so large that rounding it up would wrap, ie, it
+ * can never be satisfied.
+ */
 LWS_VISIBLE LWS_EXTERN size_t
 lwsac_align(size_t length);
 

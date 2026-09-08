@@ -45,8 +45,16 @@ lwsac_align(size_t length)
 {
 	size_t align = sizeof(int *);
 
-	if (length & (align - 1))
+	if (length & (align - 1)) {
+		if (length > (size_t)-1 - align)
+			/*
+			 * Rounding up would wrap... report 0, which callers
+			 * treat as "impossible size" for a nonzero length
+			 */
+			return 0;
+
 		length += align - (length & (align - 1));
+	}
 
 	return length;
 }
@@ -81,13 +89,17 @@ lwsac_extend(struct lwsac *head, size_t amount)
 	bf = lachead->curr;
 	assert(bf);
 
-	if (bf->alloc_size - bf->ofs < lwsac_align(amount))
+	al = lwsac_align(amount);
+	if (!al && amount)
+		return 1; /* the aligned size wrapped */
+
+	if (bf->alloc_size - bf->ofs < al)
 		return 1;
 
 	/* memset so constant folding never sees uninitialized data */
 
-	memset(((uint8_t *)bf) + bf->ofs, 0, lwsac_align(amount));
-	bf->ofs += lwsac_align(amount);
+	memset(((uint8_t *)bf) + bf->ofs, 0, al);
+	bf->ofs += al;
 
 	return 0;
 }
@@ -103,6 +115,17 @@ _lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size, char backfill)
 		lachead = (struct lwsac_head *)&bf[1];
 
 	al = lwsac_align(ensure);
+	if (!al && ensure) {
+		lwsl_err("%s: %llu bytes cannot be aligned\n", __func__,
+			 (unsigned long long)ensure);
+
+		return NULL;
+	}
+
+	/*
+	 * The fit tests must use the *aligned* size, since that is what
+	 * do_use: below consumes and zero-fills
+	 */
 
 	/* backfill into earlier chunks if that is allowed */
 
@@ -132,6 +155,16 @@ _lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size, char backfill)
 	hp = sizeof(*bf); /* always need the normal header part... */
 	if (!*head)
 		hp += sizeof(struct lwsac_head);
+
+	/* refuse sizes where adding the header part would wrap */
+
+	if (al > (size_t)-1 - hp ||
+	    (chunk_size && chunk_size > (size_t)-1 - hp)) {
+		lwsl_err("%s: oversize request %llu\n", __func__,
+			 (unsigned long long)ensure);
+
+		return NULL;
+	}
 
 	if (!chunk_size)
 		alloc = LWSAC_CHUNK_SIZE + hp;
