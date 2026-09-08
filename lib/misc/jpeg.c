@@ -2906,13 +2906,28 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 			if (!j->mcu_count_left_x && !j->mcu_count_left_y)
 				return LWS_SRET_OK;
 
+			/*
+			 * EOI means no more MCUs are coming.  Retire the MCU
+			 * budget, then emit the band we already prepared; when
+			 * the ring realigns, the check above returns OK and we
+			 * stop.  Without retiring the budget these paths never
+			 * decrement the counters, so we re-emitted the last
+			 * band as WANT_OUTPUT for ever -- which is what every
+			 * well-formed image does, since its last MCU is
+			 * followed directly by EOI.
+			 */
+
 			if (j->seen_eoi) {
+				j->mcu_count_left_x = 0;
+				j->mcu_count_left_y = 0;
 				r = LWS_SRET_OK;
 				goto intra;
 			}
 
 			r = lws_jpeg_mcu_next(j);
 			if (j->seen_eoi) {
+				j->mcu_count_left_x = 0;
+				j->mcu_count_left_y = 0;
 				r = LWS_SRET_OK;
 				goto intra;
 			}
