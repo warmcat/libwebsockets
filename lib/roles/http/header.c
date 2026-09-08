@@ -1019,18 +1019,40 @@ lws_http_zap_header(struct lws *wsi, const char *name)
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 	{
 		ah_data_idx_t ll = wsi->http.ah->unk_ll_head, prev = 0;
+		char cname[128];
+
+		/*
+		 * Custom header names are stored with their trailing ':'
+		 * (that is what lws_hdr_custom_length() etc take).  The
+		 * documented usage of this api passes a bare name, and a
+		 * bare name never matched anything, so the anti-spoofing
+		 * zaps in the interceptor and lws-login were no-ops.
+		 * Normalise here.  And remove every duplicate, not just the
+		 * first: a peer can send the header more than once.
+		 */
+		if (n && name[n - 1] != ':') {
+			if (n + 2 > (int)sizeof(cname))
+				return 1;
+			memcpy(cname, name, (size_t)n);
+			cname[n++] = ':';
+			cname[n] = '\0';
+			name = cname;
+		}
 
 		while (ll) {
+			ah_data_idx_t next;
+
 			if (ll >= wsi->http.ah->data_length)
 				return 1;
 
+			next = lws_ser_ru32be(
+				(uint8_t *)&wsi->http.ah->data[ll + UHO_LL]);
+
 			if (n == lws_ser_ru16be(
 				(uint8_t *)&wsi->http.ah->data[ll + UHO_NLEN]) &&
-			    !strncmp(name, &wsi->http.ah->data[ll + UHO_NAME], (unsigned int)n)) {
-				/* found it, remove from list */
-				ah_data_idx_t next = lws_ser_ru32be(
-					(uint8_t *)&wsi->http.ah->data[ll + UHO_LL]);
-
+			    !strncasecmp(name, &wsi->http.ah->data[ll + UHO_NAME],
+					 (unsigned int)n)) {
+				/* found one, remove from list and carry on */
 				if (!prev)
 					wsi->http.ah->unk_ll_head = next;
 				else
@@ -1041,13 +1063,14 @@ lws_http_zap_header(struct lws *wsi, const char *name)
 				if (!next)
 					wsi->http.ah->unk_ll_tail = prev;
 
-				return 0;
+				ll = next;
+				continue;
 			}
 
-		prev = ll;
-		ll = lws_ser_ru32be((uint8_t *)&wsi->http.ah->data[ll + UHO_LL]);
+			prev = ll;
+			ll = next;
+		}
 	}
-}
 #endif
 
 	return 0;
