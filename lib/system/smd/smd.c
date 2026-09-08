@@ -572,7 +572,7 @@ _lws_smd_msg_deliver_peer(struct lws_context *ctx, lws_smd_peer_t *pr)
 {
 	lws_smd_msg_t *msg;
 
-	if (!pr->tail)
+	if (pr->dead || !pr->tail)
 		return 0;
 
 	msg = lws_container_of(pr->tail, lws_smd_msg_t, list);
@@ -646,6 +646,25 @@ lws_smd_msg_distribute(struct lws_context *ctx)
 			lws_smd_peer_t *pr = lws_container_of(p, lws_smd_peer_t, list);
 
 			more = (char)(more | !!_lws_smd_msg_deliver_peer(ctx, pr));
+
+		} lws_end_foreach_dll_safe(p, p1);
+
+		/*
+		 * Reap any peers that unregistered from inside their own
+		 * delivery callback... the delivery loop above (and the
+		 * latched p1) held references to them, so lws_smd_unregister()
+		 * only marked them dead.  Now the loop has unwound, it's safe
+		 * to unlink them and give their refcounts back.
+		 */
+
+		lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
+					   lws_dll2_get_head(&ctx->smd.owner_peers)) {
+			lws_smd_peer_t *pr = lws_container_of(p, lws_smd_peer_t, list);
+
+			if (pr->dead) {
+				lwsl_cx_notice(ctx, "reaping peer %p", pr);
+				_lws_smd_peer_destroy(pr);
+			}
 
 		} lws_end_foreach_dll_safe(p, p1);
 
@@ -728,18 +747,33 @@ void
 lws_smd_unregister(struct lws_smd_peer *pr)
 {
 	lws_smd_t *smd = lws_dll2_owner_container(&pr->list, lws_smd_t, owner_peers);
-	int locked_peers = 0;
 
-	if (!smd->delivering || !lws_thread_is(smd->tid_holding)) {
-		if (lws_mutex_lock(smd->lock_peers)) /* +++++++++++++++++++ peers */
-			return; /* For Coverity */
-		locked_peers = 1;
+	if (smd->delivering && lws_thread_is(smd->tid_holding)) {
+
+		/*
+		 * We're being called from inside a delivery callback (that is
+		 * what delivering + our own tid means), directly or via
+		 * lws_ss_destroy().  _lws_smd_msg_deliver_peer() is going to
+		 * carry on using this peer when we return, and
+		 * lws_smd_msg_distribute() latched the next peer before the
+		 * callback... so we can't free him here.  Mark him dead so no
+		 * further delivery happens, and let lws_smd_msg_distribute()
+		 * reap him after the delivery loop has unwound.
+		 */
+
+		lwsl_cx_notice(pr->ctx, "deferring destroy of peer %p", pr);
+		pr->dead = 1;
+
+		return;
 	}
+
+	if (lws_mutex_lock(smd->lock_peers)) /* +++++++++++++++++++++++ peers */
+		return; /* For Coverity */
+
 	lwsl_cx_notice(pr->ctx, "destroying peer %p", pr);
 	_lws_smd_peer_destroy(pr);
 
-	if (locked_peers)
-		lws_mutex_unlock(smd->lock_peers); /* ----------------- peers */
+	lws_mutex_unlock(smd->lock_peers); /* ------------------------- peers */
 }
 
 int

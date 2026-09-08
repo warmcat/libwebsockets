@@ -60,6 +60,16 @@ typedef struct lws_smd_peer {
 	lws_smd_msg_t			*tail;
 
 	lws_smd_class_t			_class_filter;
+
+	/*
+	 * Set if he unregistered from inside his own delivery callback: the
+	 * delivery loop above him still holds references to him and to the
+	 * latched next peer, so the actual unlink + free is deferred to
+	 * lws_smd_msg_distribute() once that loop has unwound.  No further
+	 * delivery is made to a dead peer, but he still owes the refcounts
+	 * he took, and gives them back when he is finally reaped.
+	 */
+	uint8_t				dead;
 } lws_smd_peer_t;
 
 /*
