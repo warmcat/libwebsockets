@@ -110,23 +110,55 @@ lws_auth_dns_b32hex_decode(const char *in, uint8_t *out, size_t out_max)
 	return (int)olen;
 }
 
+/*
+ * Scratch for one RDATA conversion.  It is heap-allocated because it is far
+ * too big for the stack of an event-loop thread (the zone text this is driven
+ * from can come from the network, see the DHT DNSSEC plugin).
+ *
+ * `w` is sized for the largest RDATA the DNS wire format can express, and
+ * every write into it below is bounds-checked with WCHK() before it happens.
+ * Sizing the output from the length of the presentation text (which is what we
+ * used to do) is not safe: several types emit more wire bytes than they
+ * consume text bytes, eg, an NSEC3 type bitmap costs 34 wire bytes per ~5
+ * bytes of token, an SVCB ipv6hint 16 wire bytes per 2-byte "::", and an SOA
+ * emits two 256-byte names and 20 bytes of integers for as little as 13 bytes
+ * of text when $ORIGIN is long.
+ */
+
+struct auth_dns_rdata_scratch {
+	char		toks[64][1024];
+	char		accum[65536];	/* hex / base64 reassembly */
+	uint8_t		window_blocks[256][32]; /* NSEC3: 256 windows, 32B max */
+	uint8_t		window_max[256];
+	uint8_t		w[65535];	/* max RDATA the wire format allows */
+};
+
+/* bail unless there is room for _n more bytes of wire RDATA */
+#define WCHK(_n) do { if (wl + (size_t)(_n) > sizeof(sc->w)) goto fail; } while (0)
+
 int
 lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint16_t type, const char *ipv4, const char *ipv6)
 {
+	struct auth_dns_rdata_scratch *sc;
+	char (*toks)[1024];
 	uint8_t *w;
 	size_t wl = 0;
 
-	/* Rough over-allocation for most rdata */
-	w = lws_malloc(rr->rdata_len + 512, "auth_dns_wire");
-	if (!w)
+	if (!rr->rdata)
 		return 1;
+
+	sc = lws_malloc(sizeof(*sc), "auth_dns_wire");
+	if (!sc)
+		return 1;
+
+	w = sc->w;
+	toks = sc->toks;
 
 	lws_tokenize_t ts;
 	lws_tokenize_elem e;
-	char toks[64][1024];
 	int num_toks = 0, n;
 
-	memset(toks, 0, sizeof(toks));
+	memset(sc->toks, 0, sizeof(sc->toks));
 	lws_tokenize_init(&ts, rr->rdata, LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM | LWS_TOKENIZE_F_CHUNK);
 	ts.len = strlen(rr->rdata);
 
@@ -169,21 +201,20 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		int gen_len = atoi(toks[0]);
 		if (gen_len < 0 || gen_len > 65535) goto fail;
 
-		char hex_accum[65536] = "";
+		sc->accum[0] = '\0';
 		for (int i = 1; i < num_toks; i++) {
-			strncat(hex_accum, toks[i], sizeof(hex_accum) - strlen(hex_accum) - 1);
+			strncat(sc->accum, toks[i], sizeof(sc->accum) - strlen(sc->accum) - 1);
 		}
-		size_t hlen = strlen(hex_accum) / 2;
+		size_t hlen = strlen(sc->accum) / 2;
 		if (hlen != (size_t)gen_len) {
 			lwsl_err("generic RDATA length mismatch: expected %d, got %zu\n", gen_len, hlen);
 			goto fail;
 		}
-		lws_hex_to_byte_array(hex_accum, w, gen_len);
+		WCHK(gen_len);
+		lws_hex_to_byte_array(sc->accum, w, gen_len);
 		wl = (size_t)gen_len;
 
-		rr->wire_rdata = w;
-		rr->wire_rdata_len = wl;
-		return 0;
+		goto done;
 	}
 
 	if (type == 1 && num_toks >= 1) { // A
@@ -193,6 +224,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		if (!strcmp(tgt, "MHWC_DYNAMIC") && ipv4 && ipv4[0]) tgt = ipv4;
 		if (inet_pton(AF_INET, tgt, &sin.sin_addr) != 1)
 			goto fail;
+		WCHK(4);
 		memcpy(w, &sin.sin_addr, 4);
 		wl = 4;
 	} else if (type == 28 && num_toks >= 1) { // AAAA
@@ -202,29 +234,37 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		if (!strcmp(tgt, "MHWC6_DYNAMIC") && ipv6 && ipv6[0]) tgt = ipv6;
 		if (inet_pton(AF_INET6, tgt, &sin6.sin6_addr) != 1)
 			goto fail;
+		WCHK(16);
 		memcpy(w, &sin6.sin6_addr, 16);
 		wl = 16;
 	} else if (type == 2 && num_toks >= 1) { // NS
-		size_t av = 512;
+		size_t av = sizeof(sc->w);
 		if (name_to_wire(toks[0], z->origin, w, &av)) goto fail;
 		wl = av;
 	} else if (type == 5 && num_toks >= 1) { // CNAME
-		size_t av = 512;
+		size_t av = sizeof(sc->w);
 		if (name_to_wire(toks[0], z->origin, w, &av)) goto fail;
 		wl = av;
 	} else if (type == 15 && num_toks >= 2) { // MX
 		uint16_t p = (uint16_t)atoi(toks[0]);
+		WCHK(2);
 		w[0] = (uint8_t)(p >> 8); w[1] = (uint8_t)(p & 0xff);
 		wl = 2;
-		size_t av = 510;
+		size_t av = sizeof(sc->w) - wl;
 		if (name_to_wire(toks[1], z->origin, w + 2, &av)) goto fail;
 		wl += av;
 	} else if (type == 6 && num_toks >= 7) { // SOA
-		size_t av1 = 256, av2 = 256;
+		/*
+		 * name_to_wire() bounds itself only against the space we tell
+		 * it about, so it must be told what is actually left
+		 */
+		size_t av1 = sizeof(sc->w), av2;
 		if (name_to_wire(toks[0], z->origin, w, &av1)) { lwsl_err("FAIL on rdata: %s (toks[0]: %s)", rr->rdata, toks[0]); goto fail; }
 		wl += av1;
+		av2 = sizeof(sc->w) - wl;
 		if (name_to_wire(toks[1], z->origin, w + wl, &av2)) { lwsl_err("FAIL on rdata: %s (toks[0]: %s)", rr->rdata, toks[0]); goto fail; }
 		wl += av2;
+		WCHK(5 * 4);
 		for (int i = 0; i < 5; i++) {
 			uint32_t val = (uint32_t)atoll(toks[2 + i]);
 			w[wl++] = (uint8_t)(val >> 24);
@@ -237,23 +277,24 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		for (int i = 0; i < num_toks && i < 16; i++) {
 			n = (int)strlen(toks[i]);
 			if (n > 255) n = 255;
-			if (wl + 1 + (size_t)n > rr->rdata_len + 512)
-				goto fail;
+			WCHK(1 + (size_t)n);
 			w[wl++] = (uint8_t)n;
 			memcpy(w + wl, toks[i], (size_t)n);
 			wl += (size_t)n;
 		}
 	} else if (type == 52 && num_toks >= 4) { // TLSA
+		WCHK(3);
 		w[wl++] = (uint8_t)atoi(toks[0]); /* Usage */
 		w[wl++] = (uint8_t)atoi(toks[1]); /* Selector */
 		w[wl++] = (uint8_t)atoi(toks[2]); /* Matching Type */
 
-		char hex_accum[4096] = "";
+		sc->accum[0] = '\0';
 		for (int i = 3; i < num_toks; i++) {
-			strncat(hex_accum, toks[i], sizeof(hex_accum) - strlen(hex_accum) - 1);
+			strncat(sc->accum, toks[i], sizeof(sc->accum) - strlen(sc->accum) - 1);
 		}
-		size_t hlen = strlen(hex_accum) / 2;
-		lws_hex_to_byte_array(hex_accum, w + wl, (int)hlen);
+		size_t hlen = strlen(sc->accum) / 2;
+		WCHK(hlen);
+		lws_hex_to_byte_array(sc->accum, w + wl, (int)hlen);
 		wl += hlen;
 	} else if (type == 50 && num_toks >= 5) { // NSEC3
 		int tidx = 0;
@@ -262,6 +303,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		if (num_toks - tidx < 5) goto fail;
 
 		/* Format: HashAlg Flags Iterations Salt NextB32 Type1 Type2 ... */
+		WCHK(4);
 		w[wl++] = (uint8_t)atoi(toks[tidx + 0]); /* Hash Alg */
 		w[wl++] = (uint8_t)atoi(toks[tidx + 1]); /* Flags */
 		uint16_t iters = (uint16_t)atoi(toks[tidx + 2]); /* Iterations */
@@ -270,9 +312,12 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 
 		/* Salt Length & Salt */
 		if (!strcmp(toks[tidx + 3], "-")) {
+			WCHK(1);
 			w[wl++] = 0;
 		} else {
 			size_t slen = strlen(toks[tidx + 3]) / 2;
+			if (slen > 255) goto fail;
+			WCHK(1 + slen);
 			w[wl++] = (uint8_t)slen;
 			lws_hex_to_byte_array(toks[tidx + 3], w + wl, (int)slen);
 			wl += slen;
@@ -284,16 +329,17 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		uint8_t nxt_hash[64];
 		int nxt_len = lws_auth_dns_b32hex_decode(toks[tidx + 4], nxt_hash, sizeof(nxt_hash));
 		if (nxt_len < 0) goto fail;
+		WCHK(1 + (size_t)nxt_len);
 		w[wl++] = (uint8_t)nxt_len;
 		memcpy(w + wl, nxt_hash, (size_t)nxt_len);
 		wl += (size_t)nxt_len;
 
 		/* Type Bit Maps */
 		/* Build the type bit maps from the remaining tokens */
-		uint8_t window_blocks[256][32]; /* 256 windows, each 32 bytes max */
-		uint8_t window_max[256];
-		memset(window_blocks, 0, sizeof(window_blocks));
-		memset(window_max, 0, sizeof(window_max));
+		uint8_t (*window_blocks)[32] = sc->window_blocks;
+		uint8_t *window_max = sc->window_max;
+		memset(sc->window_blocks, 0, sizeof(sc->window_blocks));
+		memset(sc->window_max, 0, sizeof(sc->window_max));
 
 		for (int i = tidx + 5; i < num_toks; i++) {
 			uint16_t ty = 0;
@@ -324,6 +370,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 
 		for (int win = 0; win < 256; win++) {
 			if (window_max[win] > 0) {
+				WCHK(2 + window_max[win]);
 				w[wl++] = (uint8_t)win; /* Window Block number */
 				w[wl++] = window_max[win]; /* Bitmap Length */
 				memcpy(w + wl, window_blocks[win], window_max[win]);
@@ -337,6 +384,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		if (num_toks - tidx < 4) goto fail;
 
 		/* Hash Algorithm */
+		WCHK(4);
 		w[wl++] = (uint8_t)atoi(toks[tidx + 0]);
 		/* Flags */
 		w[wl++] = (uint8_t)atoi(toks[tidx + 1]);
@@ -346,33 +394,37 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		w[wl++] = (uint8_t)(iters & 0xff);
 		/* Salt Length & Salt */
 		if (!strcmp(toks[tidx + 3], "-")) {
+			WCHK(1);
 			w[wl++] = 0;
 		} else {
 			size_t slen = strlen(toks[tidx + 3]) / 2;
+			if (slen > 255) goto fail;
+			WCHK(1 + slen);
 			w[wl++] = (uint8_t)slen;
 			lws_hex_to_byte_array(toks[tidx + 3], w + wl, (int)slen);
 			wl += slen;
 		}
 	} else if (type == 48 && num_toks >= 4) { // DNSKEY
+		WCHK(4);
 		w[wl++] = (uint8_t)(atoi(toks[0]) >> 8);
 		w[wl++] = (uint8_t)(atoi(toks[0]) & 0xff);
 		w[wl++] = (uint8_t)atoi(toks[1]);
 		w[wl++] = (uint8_t)atoi(toks[2]);
 
 		/* The remaining toks are fragments of the base64 key due to chunking/whitespace. Reassemble them first. */
-		char b64_accum[4096] = "";
+		sc->accum[0] = '\0';
 		for (int i = 3; i < num_toks; i++) {
-			strncat(b64_accum, toks[i], sizeof(b64_accum) - strlen(b64_accum) - 1);
+			strncat(sc->accum, toks[i], sizeof(sc->accum) - strlen(sc->accum) - 1);
 		}
 
-		int b64_len = 0;
-		if (lws_b64_decode_string(b64_accum, (char *)w + wl, 4096 - (int)wl) > 0) {
-			b64_len = lws_b64_decode_string(b64_accum, (char *)w + wl, 4096 - (int)wl);
-			wl += (size_t)b64_len;
-		} else {
-			lwsl_err("RDATA_TO_WIRE: DNSKEY string decoding Failed. b64='%s'\n", b64_accum);
+		/* the decode must be bounded by what is left of w, not by 4096 */
+		int b64_len = lws_b64_decode_string(sc->accum, (char *)w + wl,
+						    (int)(sizeof(sc->w) - wl));
+		if (b64_len <= 0) {
+			lwsl_err("RDATA_TO_WIRE: DNSKEY string decoding Failed. b64='%s'\n", sc->accum);
 			{ lwsl_err("FAIL on rdata: %s (toks[0]: %s)", rr->rdata, toks[0]); goto fail; }
 		}
+		wl += (size_t)b64_len;
 	} else if (type == 46 && num_toks >= 9) { // RRSIG
 		/* Type Covered */
 		uint16_t tc = 0;
@@ -387,6 +439,9 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		else if (!strcmp(toks[0], "NSEC3PARAM")) tc = 51;
 		else if (!strcmp(toks[0], "TLSA")) tc = 52;
 		else tc = (uint16_t)atoi(toks[0]);
+
+		/* type covered, alg, labels, orig ttl, exp, inc, keytag */
+		WCHK(2 + 1 + 1 + 4 + 4 + 4 + 2);
 
 		w[wl++] = (uint8_t)(tc >> 8); w[wl++] = (uint8_t)(tc & 0xff);
 		w[wl++] = (uint8_t)atoi(toks[1]); /* Algorithm */
@@ -416,42 +471,51 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		uint16_t kt = (uint16_t)atoi(toks[6]);
 		w[wl++] = (uint8_t)(kt >> 8); w[wl++] = (uint8_t)(kt & 0xff);
 
-		size_t av = 512;
+		size_t av = sizeof(sc->w) - wl;
 		if (name_to_wire(toks[7], z->origin, w + wl, &av)) goto fail;
 		wl += av;
 
-		char b64_accum[4096] = "";
+		sc->accum[0] = '\0';
 		for (int i = 8; i < num_toks; i++) {
-			strncat(b64_accum, toks[i], sizeof(b64_accum) - strlen(b64_accum) - 1);
+			strncat(sc->accum, toks[i], sizeof(sc->accum) - strlen(sc->accum) - 1);
 		}
 
-		if (lws_b64_decode_string(b64_accum, (char *)w + wl, 4096 - (int)wl) > 0) {
-			wl += (size_t)lws_b64_decode_string(b64_accum, (char *)w + wl, 4096 - (int)wl);
-		} else goto fail;
+		/* the decode must be bounded by what is left of w, not by 4096 */
+		int sig_len = lws_b64_decode_string(sc->accum, (char *)w + wl,
+						    (int)(sizeof(sc->w) - wl));
+		if (sig_len <= 0) goto fail;
+		wl += (size_t)sig_len;
 	} else if (type == 257 && num_toks >= 3) { // CAA
+		size_t tag_len = strlen(toks[1]), val_len = strlen(toks[2]);
+		const char *val = toks[2];
+
+		if (tag_len > 255)
+			goto fail;
+
+		/* The value might be enclosed in quotes like "letsencrypt.org", if so strip them */
+		if (val_len >= 2 && val[0] == '"' && val[val_len - 1] == '"') {
+			val++;
+			val_len -= 2;
+		}
+
+		WCHK(2 + tag_len + val_len);
+
 		/* Flags */
 		w[wl++] = (uint8_t)atoi(toks[0]);
 		/* Tag Length + Tag */
-		int tag_len = (int)strlen(toks[1]);
 		w[wl++] = (uint8_t)tag_len;
-		memcpy(w + wl, toks[1], (size_t)tag_len);
-		wl += (size_t)tag_len;
+		memcpy(w + wl, toks[1], tag_len);
+		wl += tag_len;
 		/* Value */
-		int val_len = (int)strlen(toks[2]);
-		/* The value might be enclosed in quotes like "letsencrypt.org", if so strip them */
-		if (val_len >= 2 && toks[2][0] == '"' && toks[2][val_len - 1] == '"') {
-			memcpy(w + wl, toks[2] + 1, (size_t)(val_len - 2));
-			wl += (size_t)(val_len - 2);
-		} else {
-			memcpy(w + wl, toks[2], (size_t)val_len);
-			wl += (size_t)val_len;
-		}
+		memcpy(w + wl, val, val_len);
+		wl += val_len;
 	} else if (type == 65 && num_toks >= 2) { // HTTPS
 		uint16_t priority = (uint16_t)atoi(toks[0]);
+		WCHK(2);
 		w[wl++] = (uint8_t)(priority >> 8);
 		w[wl++] = (uint8_t)(priority & 0xff);
 
-		size_t av = 512;
+		size_t av = sizeof(sc->w) - wl;
 		if (name_to_wire(toks[1], z->origin, w + wl, &av)) goto fail;
 		wl += av;
 
@@ -502,6 +566,8 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 					p_alpn = comma + 1;
 				}
 
+				WCHK(4 + alpn_wire_len);
+
 				w[wl++] = (uint8_t)(param_key >> 8);
 				w[wl++] = (uint8_t)(param_key & 0xff);
 				w[wl++] = (uint8_t)(alpn_wire_len >> 8);
@@ -518,12 +584,14 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 					p_alpn = comma + 1;
 				}
 			} else if (param_key == 2) { /* no-default-alpn */
+				WCHK(4);
 				w[wl++] = (uint8_t)(param_key >> 8);
 				w[wl++] = (uint8_t)(param_key & 0xff);
 				w[wl++] = 0;
 				w[wl++] = 0;
 			} else if (param_key == 3) { /* port */
 				uint16_t port_val = (uint16_t)atoi(val_clean);
+				WCHK(6);
 				w[wl++] = (uint8_t)(param_key >> 8);
 				w[wl++] = (uint8_t)(param_key & 0xff);
 				w[wl++] = 0;
@@ -539,6 +607,8 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 					if (!comma) break;
 					p_ip = comma + 1;
 				}
+
+				WCHK(4 + (ip_count * 4));
 
 				w[wl++] = (uint8_t)(param_key >> 8);
 				w[wl++] = (uint8_t)(param_key & 0xff);
@@ -572,6 +642,8 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 					if (!comma) break;
 					p_ip = comma + 1;
 				}
+
+				WCHK(4 + (ip_count * 16));
 
 				w[wl++] = (uint8_t)(param_key >> 8);
 				w[wl++] = (uint8_t)(param_key & 0xff);
@@ -607,6 +679,12 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 				}
 
 				size_t dlen = (size_t)dec_len;
+
+				if (wl + 4 + dlen > sizeof(sc->w)) {
+					lws_free(dec_buf);
+					goto fail;
+				}
+
 				w[wl++] = (uint8_t)(param_key >> 8);
 				w[wl++] = (uint8_t)(param_key & 0xff);
 				w[wl++] = (uint8_t)(dlen >> 8);
@@ -615,6 +693,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 				wl += dlen;
 				lws_free(dec_buf);
 			} else { /* generic custom keys (raw string) */
+				WCHK(4 + vlen);
 				w[wl++] = (uint8_t)(param_key >> 8);
 				w[wl++] = (uint8_t)(param_key & 0xff);
 				w[wl++] = (uint8_t)(vlen >> 8);
@@ -627,14 +706,25 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		{ lwsl_err("FAIL on rdata: %s (toks[0]: %s)", rr->rdata, toks[0]); goto fail; }
 	}
 
-	rr->wire_rdata = w;
+done:
+	/* keep only what we actually used */
+	rr->wire_rdata = lws_malloc(wl + 1, "auth_dns_wire");
+	if (!rr->wire_rdata)
+		goto fail;
+
+	memcpy(rr->wire_rdata, w, wl);
 	rr->wire_rdata_len = wl;
+	lws_free(sc);
+
 	return 0;
 
 fail:
-	lws_free(w);
+	lws_free(sc);
+
 	return 1;
 }
+
+#undef WCHK
 
 static int
 cmp_rr(const void *a, const void *b)
@@ -737,6 +827,93 @@ lws_auth_dns_b32hex_encode(const uint8_t *in, size_t len, char *out)
 	*out = '\0';
 }
 
+/*
+ * Compose the DNSKEY RDATA (RFC 4034 2.1 / RFC 3110) for an imported public
+ * key into `wire`, returning the length used or 0 if it will not fit.
+ *
+ * The key element lengths come from the JWK exactly as it was imported and
+ * are not bounded by anything else, so eg an RSA-4096 key (a perfectly legal
+ * DNSSEC key) must not be allowed to run off the end of the caller's buffer.
+ */
+
+#define LWS_AUTH_DNS_DNSKEY_WIRE 1040 /* 4 + 3 + e + 8192-bit n */
+
+static size_t
+lws_auth_dns_dnskey_wire(struct lws_jwk *jwk, int flags, int dnssec_alg,
+			 uint8_t *wire, size_t wire_max)
+{
+	size_t wl = 0;
+
+	if (wire_max < 4)
+		return 0;
+
+	/* Flags: 256 for ZSK, 257 for KSK */
+	wire[wl++] = (uint8_t)(flags >> 8);
+	wire[wl++] = (uint8_t)(flags & 0xff);
+	wire[wl++] = 3; /* Protocol */
+	wire[wl++] = (uint8_t)dnssec_alg; /* Algorithm */
+
+	if (jwk->kty == LWS_GENCRYPTO_KTY_EC) {
+		size_t xl = jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].len,
+		       yl = jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
+
+		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf ||
+		    !jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf ||
+		    wl + xl + yl > wire_max)
+			return 0;
+
+		/* Append X and Y */
+		memcpy(wire + wl, jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf, xl);
+		wl += xl;
+		memcpy(wire + wl, jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, yl);
+		wl += yl;
+
+		return wl;
+	}
+
+	if (jwk->kty == LWS_GENCRYPTO_KTY_RSA) {
+		/* RFC 3110 RSA Public Key Format */
+		uint8_t *e_buf = jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf,
+			*n_buf = jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].buf;
+		size_t e_len = jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].len,
+		       n_len = jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+
+		if (!e_buf || !n_buf || !e_len || !n_len)
+			return 0;
+
+		/* Remove leading zero bytes from E and N if any */
+		while (e_len > 1 && *e_buf == 0) {
+			e_buf++;
+			e_len--;
+		}
+		while (n_len > 1 && *n_buf == 0) {
+			n_buf++;
+			n_len--;
+		}
+
+		if (e_len > 0xffff ||
+		    wl + (e_len <= 255 ? 1u : 3u) + e_len + n_len > wire_max)
+			return 0;
+
+		if (e_len <= 255)
+			wire[wl++] = (uint8_t)e_len;
+		else {
+			wire[wl++] = 0;
+			wire[wl++] = (uint8_t)(e_len >> 8);
+			wire[wl++] = (uint8_t)(e_len & 0xff);
+		}
+
+		memcpy(wire + wl, e_buf, e_len);
+		wl += e_len;
+		memcpy(wire + wl, n_buf, n_len);
+		wl += n_len;
+
+		return wl;
+	}
+
+	return 0;
+}
+
 static int
 lws_auth_dns_add_dnskey(struct auth_dns_zone *z, const char *jwk_path, int flags)
 {
@@ -747,8 +924,10 @@ lws_auth_dns_add_dnskey(struct auth_dns_zone *z, const char *jwk_path, int flags
 	struct stat st;
 	ssize_t n;
 	int fd, ret = 1;
-	uint8_t wire[512];
-	size_t wl = 0;
+	uint8_t wire[LWS_AUTH_DNS_DNSKEY_WIRE];
+	char b64[(LWS_AUTH_DNS_DNSKEY_WIRE * 4) / 3 + 16];
+	char rdata_buf[sizeof(b64) + 32];
+	size_t wl;
 
 	if (!jwk_path)
 		return 0;
@@ -791,13 +970,6 @@ lws_auth_dns_add_dnskey(struct auth_dns_zone *z, const char *jwk_path, int flags
 		goto bail;
 	}
 
-	/* Flags: 256 for ZSK, 257 for KSK */
-	wire[wl++] = (uint8_t)(flags >> 8);
-	wire[wl++] = (uint8_t)(flags & 0xff);
-
-	/* Protocol = 3 */
-	wire[wl++] = 3;
-
 	int dnssec_alg = 8; /* RSASHA256 Default */
 
 	if (jwk.kty == LWS_GENCRYPTO_KTY_EC) {
@@ -809,51 +981,22 @@ lws_auth_dns_add_dnskey(struct auth_dns_zone *z, const char *jwk_path, int flags
 		}
 	}
 
-	/* Algorithm */
-	wire[wl++] = (uint8_t)dnssec_alg;
-
-	if (jwk.kty == LWS_GENCRYPTO_KTY_EC) {
-		/* Append X and Y */
-		memcpy(wire + wl, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf,
-			   jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len);
-		wl += jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len;
-
-		memcpy(wire + wl, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf,
-			   jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len);
-		wl += jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
-	} else if (jwk.kty == LWS_GENCRYPTO_KTY_RSA) {
-		/* RFC 3110 RSA Public Key Format */
-		uint8_t *e_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf;
-		size_t e_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
-
-		/* Remove leading zero bytes from E if any */
-		while (e_len > 1 && *e_buf == 0) {
-			e_buf++;
-			e_len--;
-		}
-
-		if (e_len <= 255) {
-			wire[wl++] = (uint8_t)e_len;
-		} else {
-			wire[wl++] = 0;
-			wire[wl++] = (uint8_t)(e_len >> 8);
-			wire[wl++] = (uint8_t)(e_len & 0xff);
-		}
-		memcpy(wire + wl, e_buf, e_len);
-		wl += e_len;
-
-		uint8_t *n_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf;
-		size_t n_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
-
-		/* Remove leading zero bytes from N if any */
-		while (n_len > 1 && *n_buf == 0) {
-			n_buf++;
-			n_len--;
-		}
-
-		memcpy(wire + wl, n_buf, n_len);
-		wl += n_len;
+	wl = lws_auth_dns_dnskey_wire(&jwk, flags, dnssec_alg, wire, sizeof(wire));
+	if (!wl) {
+		lwsl_err("%s: %s key too large for DNSKEY RDATA\n", __func__,
+			 jwk_path);
+		goto bail_jwk;
 	}
+
+	/* Format RDATA: flags protocol algorithm base64_key */
+	if (lws_b64_encode_string((const char *)wire + 4, (int)wl - 4, b64,
+				  (int)sizeof(b64)) < 0) {
+		lwsl_err("%s: %s key base64 overflow\n", __func__, jwk_path);
+		goto bail_jwk;
+	}
+
+	lws_snprintf(rdata_buf, sizeof(rdata_buf), "%d %d %d %s", flags, 3,
+		     dnssec_alg, b64);
 
 	/* find existing rrset */
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z->rrset_list)) {
@@ -888,12 +1031,6 @@ lws_auth_dns_add_dnskey(struct auth_dns_zone *z, const char *jwk_path, int flags
 	memcpy(rr->wire_rdata, wire, wl);
 	rr->wire_rdata_len = wl;
 
-	/* Format RDATA: flags protocol algorithm base64_key */
-	char b64[1024];
-	lws_b64_encode_string((const char *)wire + 4, (int)wl - 4, b64, sizeof(b64));
-
-	char rdata_buf[1024];
-	lws_snprintf(rdata_buf, sizeof(rdata_buf), "%d %d %d %s", flags, 3, dnssec_alg, b64);
 	rr->rdata = lws_strdup(rdata_buf);
 	rr->rdata_len = strlen(rr->rdata);
 
@@ -903,7 +1040,10 @@ lws_auth_dns_add_dnskey(struct auth_dns_zone *z, const char *jwk_path, int flags
 bail_jwk:
 	lws_jwk_destroy(&jwk);
 bail:
+	/* this held the JWK JSON, ie, the private key in the clear */
+	lws_explicit_bzero(buf, (size_t)st.st_size);
 	lws_free(buf);
+
 	return ret;
 }
 
@@ -913,6 +1053,30 @@ struct nsec3_node {
 	char b32[64];
 	char type_list[512];
 };
+
+/*
+ * The NSEC3 covered-type list is accumulated as a space-separated string of
+ * mnemonics... a plain strstr() would consider "A" to be present already
+ * because of the "A" inside "SOA" (likewise NS vs NSEC3, NSEC3 vs NSEC3PARAM),
+ * and so drop the type from the signed bitmap, which is an authenticated
+ * denial of existence for a type the zone actually serves.  Compare whole
+ * space-delimited tokens.
+ */
+
+static int
+type_list_has(const char *list, const char *ts)
+{
+	size_t l = strlen(ts);
+	const char *p = list;
+
+	while ((p = strstr(p, ts))) {
+		if ((p == list || p[-1] == ' ') && (!p[l] || p[l] == ' '))
+			return 1;
+		p += l;
+	}
+
+	return 0;
+}
 
 static int
 cmp_nsec3_node(const void *a, const void *b)
@@ -963,7 +1127,7 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 				case 65: ts = "HTTPS"; break;
 			}
 			/* Append type if not already there */
-			if (!(char *)strstr(nodes[found]->type_list, ts)) {
+			if (!type_list_has(nodes[found]->type_list, ts)) {
 				size_t len = strlen(nodes[found]->type_list);
 				if (len < sizeof(nodes[found]->type_list) - 32) {
 					if (len > 0) { nodes[found]->type_list[len++] = ' '; nodes[found]->type_list[len] = '\0'; }
@@ -1015,10 +1179,12 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 		lws_auth_dns_b32hex_encode(nodes[i]->hash, 20, nodes[i]->b32);
 
 		/* Always add RRSIG to type list, as all records will be signed */
-		if (!(char *)strstr(nodes[i]->type_list, "RRSIG")) {
+		if (!type_list_has(nodes[i]->type_list, "RRSIG")) {
 			size_t len = strlen(nodes[i]->type_list);
-			if (len > 0) { nodes[i]->type_list[len++] = ' '; nodes[i]->type_list[len] = '\0'; }
-			strcat(nodes[i]->type_list, "RRSIG");
+			if (len < sizeof(nodes[i]->type_list) - 32) {
+				if (len > 0) { nodes[i]->type_list[len++] = ' '; nodes[i]->type_list[len] = '\0'; }
+				strcat(nodes[i]->type_list, "RRSIG");
+			}
 		}
 	}
 
@@ -1160,7 +1326,7 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 		struct stat st_zsk, st_ksk;
 		int fd_zsk = -1, fd_ksk = -1;
 		ssize_t n;
-		int has_ksk = 0;
+		int has_ksk = 0, ksk_ctx = 0;
 		uint16_t keytag_ksk = 0, keytag_zsk = 0;
 		(void)keytag_zsk; /* Silences unused variable warnings when loops branch differently */
 		struct lws_genec_ctx genec_zsk, genec_ksk;
@@ -1177,16 +1343,24 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 				buf_ksk = lws_malloc((size_t)st_ksk.st_size + 1, "ksk_read");
 				if (buf_ksk && read(fd_ksk, buf_ksk, (unsigned int)st_ksk.st_size) == st_ksk.st_size) {
 					buf_ksk[st_ksk.st_size] = '\0';
-					if (lws_jwk_import(&ksk, NULL, NULL, buf_ksk, (size_t)st_ksk.st_size) == 0 &&
+					/*
+					 * an import that succeeded still owns key elements even
+					 * if we reject the kty below, so the jwk is destroyed
+					 * unconditionally at the end of the function
+					 */
+					if (lws_jwk_import(&ksk, NULL, NULL, buf_ksk,
+							   (size_t)st_ksk.st_size) == 0 &&
 						(ksk.kty == LWS_GENCRYPTO_KTY_EC || ksk.kty == LWS_GENCRYPTO_KTY_RSA)) {
 
 						if (ksk.kty == LWS_GENCRYPTO_KTY_EC) {
 							if (lws_genecdsa_create(&genec_ksk, info->cx, NULL) == 0 && lws_genecdsa_set_key(&genec_ksk, ksk.e) == 0) {
 								has_ksk = 1;
+								ksk_ctx = 1;
 							}
 						} else if (ksk.kty == LWS_GENCRYPTO_KTY_RSA) {
 							if (lws_genrsa_create(&genrsa_ksk, ksk.e, info->cx, LGRSAM_PKCS1_1_5, LWS_GENHASH_TYPE_UNKNOWN) == 0) {
 								has_ksk = 1;
+								ksk_ctx = 1;
 							}
 						}
 
@@ -1214,31 +1388,19 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 						}
 
 						/* Create the wire format of the KSK to compute Keytag and DS hash */
-						uint8_t wire[512];
-						size_t wl = 0;
-						wire[wl++] = 257 >> 8; /* Flags: 257 for KSK */
-						wire[wl++] = 257 & 0xff;
-						wire[wl++] = 3; /* Protocol */
-						wire[wl++] = (uint8_t)dnssec_alg; /* Algorithm */
-						if (ksk.kty == LWS_GENCRYPTO_KTY_EC) {
-							memcpy(wire + wl, ksk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, ksk.e[LWS_GENCRYPTO_EC_KEYEL_X].len);
-							wl += ksk.e[LWS_GENCRYPTO_EC_KEYEL_X].len;
-							memcpy(wire + wl, ksk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, ksk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len);
-							wl += ksk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
-						} else {
-							uint8_t *e_buf = ksk.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf;
-							size_t e_len = ksk.e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
-							while (e_len > 1 && *e_buf == 0) { e_buf++; e_len--; }
-							if (e_len <= 255) {
-								wire[wl++] = (uint8_t)e_len;
-							} else {
-								wire[wl++] = 0; wire[wl++] = (uint8_t)(e_len >> 8); wire[wl++] = (uint8_t)(e_len & 0xff);
-							}
-							memcpy(wire + wl, e_buf, e_len); wl += e_len;
-							uint8_t *n_buf = ksk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf;
-							size_t n_len = ksk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
-							while (n_len > 1 && *n_buf == 0) { n_buf++; n_len--; }
-							memcpy(wire + wl, n_buf, n_len); wl += n_len;
+						uint8_t wire[LWS_AUTH_DNS_DNSKEY_WIRE];
+						size_t wl = lws_auth_dns_dnskey_wire(&ksk, 257,
+									dnssec_alg, wire, sizeof(wire));
+
+						if (!wl) {
+							/*
+							 * we cannot express this key as DNSKEY
+							 * RDATA, so we cannot compute a valid
+							 * keytag for it either... fail closed
+							 * rather than sign with a bogus one
+							 */
+							lwsl_err("%s: KSK unusable as DNSKEY RDATA\n", __func__);
+							has_ksk = 0;
 						}
 
 						/* Compute keytag (RFC4034 Appendix B) */
@@ -1273,9 +1435,16 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 							}
 						}
 					}
-					if (buf_ksk) lws_free(buf_ksk);
+					if (buf_ksk) {
+						/* this held the private key in the clear */
+						lws_explicit_bzero(buf_ksk, (size_t)st_ksk.st_size);
+						lws_free(buf_ksk);
+						buf_ksk = NULL;
+					}
 			} else {
-				lwsl_err("%s: Failed to open or fstat KSK at %s\n", __func__, info->ksk_jwk_filepath);
+				lwsl_err("%s: Failed to read KSK at %s\n", __func__, info->ksk_jwk_filepath);
+				lws_free(buf_ksk);
+				buf_ksk = NULL;
 			}
 			if (fd_ksk >= 0) {
 				close(fd_ksk);
@@ -1321,31 +1490,13 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 
 								/* Compute ZSK Keytag dynamically */
 								uint16_t keytag_zsk = 0;
-								uint8_t wire_zsk[512];
-								size_t wl_zsk = 0;
-								wire_zsk[wl_zsk++] = 256 >> 8; /* Flags: 256 for ZSK */
-								wire_zsk[wl_zsk++] = 256 & 0xff;
-								wire_zsk[wl_zsk++] = 3; /* Protocol */
-								wire_zsk[wl_zsk++] = (uint8_t)zsk_alg; /* Algorithm */
-								if (zsk.kty == LWS_GENCRYPTO_KTY_EC) {
-									memcpy(wire_zsk + wl_zsk, zsk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, zsk.e[LWS_GENCRYPTO_EC_KEYEL_X].len);
-									wl_zsk += zsk.e[LWS_GENCRYPTO_EC_KEYEL_X].len;
-									memcpy(wire_zsk + wl_zsk, zsk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, zsk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len);
-									wl_zsk += zsk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
-								} else {
-									uint8_t *e_buf = zsk.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf;
-									size_t e_len = zsk.e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
-									while (e_len > 1 && *e_buf == 0) { e_buf++; e_len--; }
-									if (e_len <= 255) {
-										wire_zsk[wl_zsk++] = (uint8_t)e_len;
-									} else {
-										wire_zsk[wl_zsk++] = 0; wire_zsk[wl_zsk++] = (uint8_t)(e_len >> 8); wire_zsk[wl_zsk++] = (uint8_t)(e_len & 0xff);
-									}
-									memcpy(wire_zsk + wl_zsk, e_buf, e_len); wl_zsk += e_len;
-									uint8_t *n_buf = zsk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf;
-									size_t n_len = zsk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
-									while (n_len > 1 && *n_buf == 0) { n_buf++; n_len--; }
-									memcpy(wire_zsk + wl_zsk, n_buf, n_len); wl_zsk += n_len;
+								uint8_t wire_zsk[LWS_AUTH_DNS_DNSKEY_WIRE];
+								size_t wl_zsk = lws_auth_dns_dnskey_wire(&zsk, 256,
+											zsk_alg, wire_zsk, sizeof(wire_zsk));
+
+								if (!wl_zsk) {
+									lwsl_err("%s: ZSK unusable as DNSKEY RDATA\n", __func__);
+									goto zsk_done;
 								}
 
 								uint32_t ac_zsk = 0;
@@ -1510,27 +1661,44 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 next_rrset:
 											;
 										} lws_end_foreach_dll_safe(d4, d6);
-									}
-									if (zsk_ready && zsk.kty == LWS_GENCRYPTO_KTY_EC) lws_genec_destroy(&genec_zsk);
-									if (zsk_ready && zsk.kty == LWS_GENCRYPTO_KTY_RSA) lws_genrsa_destroy(&genrsa_zsk);
+
+zsk_done:
+									;
 								}
+								if (zsk_ready && zsk.kty == LWS_GENCRYPTO_KTY_EC) lws_genec_destroy(&genec_zsk);
+								if (zsk_ready && zsk.kty == LWS_GENCRYPTO_KTY_RSA) lws_genrsa_destroy(&genrsa_zsk);
 							}
-							lws_jwk_destroy(&zsk);
 						}
+						/*
+						 * unconditionally: an import that failed partway,
+						 * or one we rejected on kty, can still own
+						 * allocated key elements
+						 */
+						lws_jwk_destroy(&zsk);
 					}
+				}
+				if (buf_zsk) {
+					/* this held the private key in the clear */
+					lws_explicit_bzero(buf_zsk, (size_t)st_zsk.st_size);
 					lws_free(buf_zsk);
 				}
 			}
+		}
 			if (fd_zsk >= 0)
 				close(fd_zsk);
 		} else {
 			lwsl_err("%s: Failed to open ZSK at %s\n", __func__, info->zsk_jwk_filepath);
 		}
-		if (has_ksk) {
+		if (ksk_ctx) {
+			/*
+			 * `has_ksk` can have been cleared after the ctx was created,
+			 * and the jwk must go even if we rejected its kty or its
+			 * import failed partway
+			 */
 			if (ksk.kty == LWS_GENCRYPTO_KTY_EC) lws_genec_destroy(&genec_ksk);
 			if (ksk.kty == LWS_GENCRYPTO_KTY_RSA) lws_genrsa_destroy(&genrsa_ksk);
-			lws_jwk_destroy(&ksk);
 		}
+		lws_jwk_destroy(&ksk);
 		if (fd_ksk >= 0)
 			close(fd_ksk);
 	}
@@ -1592,7 +1760,7 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 	struct lws_genec_ctx genec_zsk, genec_ksk;
 	memset(&genec_zsk, 0, sizeof(genec_zsk));
 	memset(&genec_ksk, 0, sizeof(genec_ksk));
-	int has_ksk = 0;
+	int has_ksk = 0, has_zsk = 0;
 
 	if (0) {
 		/* Original JWK loading code replaced by native DNSKEY extraction below */
@@ -1612,7 +1780,17 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 					int raw_l = lws_b64_decode_string(b64, (char *)raw, sizeof(raw));
 					if (raw_l > 0) {
 						struct lws_genec_ctx *target_genec = (flags == 257) ? &genec_ksk : &genec_zsk;
+						int *target_has = (flags == 257) ? &has_ksk : &has_zsk;
+
+						/*
+						 * anything from here that disturbs the ctx must also
+						 * clear the related has_ flag: lws_genec_destroy()
+						 * NULLs ctx[0] but leaves genec_alg set, so a
+						 * destroyed ctx sails through the LEGENEC_ECDSA
+						 * guard in the verify path and NULL-derefs
+						 */
 						lws_genec_destroy(target_genec); /* may already hold an earlier DNSKEY */
+						*target_has = 0;
 						if (lws_genecdsa_create(target_genec, info->cx, NULL) == 0) {
 							/* We need to re-construct an ephemeral struct lws_jwk's EC elements
 							 * from the RAW ANS.1/DNSKEY export format: [flags][proto][alg][key...]
@@ -1639,8 +1817,8 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 								memcpy(tmp.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, raw + coord_len, (size_t)coord_len);
 
 								if (lws_genecdsa_set_key(target_genec, tmp.e) == 0) {
+									*target_has = 1;
 									if (flags == 257) {
-										has_ksk = 1;
 										/* we must persist the KSK e to match keytags below;
 										 * last-set-wins: free any previous key's elements */
 										lws_jwk_destroy(&ksk);
@@ -1662,6 +1840,7 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 									}
 								} else {
 									lwsl_err("Failed to instantiate extracted DNSKEY in OpenSSL context\n");
+									lws_genec_destroy(target_genec);
 								}
 								lws_jwk_destroy(&tmp);
 							} else {
@@ -1823,6 +2002,13 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 						if (sig_alg == 14) ver_keybits = 384;
 						else if (sig_alg == 15) ver_keybits = 521;
 
+						/* never verify against a ctx we do not hold a key in */
+						if (active_genec == &genec_zsk && !has_zsk) {
+							lwsl_err("No usable ZSK for RRset %s (type %d)\n", rs->name, tc);
+							fails++;
+							continue;
+						}
+
 						if (lws_genecdsa_hash_sig_verify_jws(active_genec, hash, hash_type, ver_keybits, sig, (size_t)sig_l) < 0) {
 							lwsl_err("Failed DNSSEC RRSIG verification for RRset %s (type %d)\n", rs->name, tc);
 							fails++;
@@ -1839,10 +2025,9 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 	lws_free(buf);
 	lws_genec_destroy(&genec_zsk);
 	lws_jwk_destroy(&zsk);
-	if (has_ksk) {
-		lws_genec_destroy(&genec_ksk);
-		lws_jwk_destroy(&ksk);
-	}
+	/* both are safe on a ctx / jwk that was never created or already destroyed */
+	lws_genec_destroy(&genec_ksk);
+	lws_jwk_destroy(&ksk);
 
 	lwsl_info("Verified %d inner RRSIGs natively, %d failed\n", passes, fails);
 
