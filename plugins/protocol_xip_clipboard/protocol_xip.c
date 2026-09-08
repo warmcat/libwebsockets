@@ -19,6 +19,11 @@
  *        "cache":      "on"
  *   } } ]
  *
+ * Optional limits, all defaulted: "max-txq" (unsent bytes allowed to pile
+ * up for one session before it is closed, default 2 x max-bytes plus one
+ * frame) and "max-cached-groups" (idle groups whose late-joiner cache is
+ * kept, oldest-idle evicted first, default 32).
+ *
  * The plugin contains no clipboard code: every participating machine
  * (including the one running lwsws) runs the `xip` client binary.
  */
@@ -66,6 +71,8 @@ struct vhd__xip {
 	int			 have_token;
 
 	size_t			 max_bytes;
+	size_t			 max_txq;	/* per-session unsent bytes */
+	unsigned int		 max_cached;	/* idle cached groups kept */
 	int			 cache;
 
 	lws_dll2_owner_t	 groups;	/* path-keyed groups */
@@ -77,7 +84,8 @@ struct vhd__xip {
  * clipboard and late-joiner cache.  A cached group outlives its last
  * session (push -> later pull must work per group); an empty group with
  * nothing cached is freed when its last session leaves, so random-path
- * connections cannot pin memory.
+ * connections cannot pin memory.  Only vhd->max_cached idle cached groups
+ * are kept, oldest-idle evicted first, so neither can cached ones.
  */
 struct grp__xip {
 	lws_dll2_t		 list;		/* vhd's group list */
@@ -85,6 +93,13 @@ struct grp__xip {
 	char			 path[XIP_PATH_MAX + 1];
 
 	lws_dll2_owner_t	 sessions;	/* group session list */
+	/*
+	 * every session holding a pointer to us counts here, not just the
+	 * authenticated ones on the sessions list: an unauthenticated session
+	 * is given the group at ESTABLISHED and only joins the list at HELLO
+	 */
+	unsigned int		 refcount;
+	lws_usec_t		 idle_since;	/* when refcount hit 0 */
 
 	/* cached last clip */
 	uint8_t		       *clip_data;
@@ -219,8 +234,11 @@ group_get(struct vhd__xip *vhd, const char *path)
 {
 	struct grp__xip *g = group_find(vhd, path);
 
-	if (g)
+	if (g) {
+		g->refcount++;
+
 		return g;
+	}
 
 	g = (struct grp__xip *)calloc(1, sizeof(*g));
 	if (!g)
@@ -228,25 +246,79 @@ group_get(struct vhd__xip *vhd, const char *path)
 
 	lws_strncpy(g->path, path, sizeof(g->path));
 	g->vhd = vhd;
+	g->refcount = 1;
 	lws_dll2_add_head(&g->list, &vhd->groups);
 	lwsl_notice("xip: new group '%s'\n", g->path);
 
 	return g;
 }
 
+static void
+group_free(struct grp__xip *grp)
+{
+	lws_dll2_remove(&grp->list);
+	free(grp->clip_data);
+	free(grp);
+}
+
+/*
+ * Keep at most vhd->max_cached groups that no session holds any more,
+ * evicting the one idle for longest.  Otherwise every distinct URL path an
+ * attacker pushes a clip to pins its cache for the life of the process.
+ */
+static void
+groups_reclaim(struct vhd__xip *vhd)
+{
+	for (;;) {
+		struct grp__xip *oldest = NULL;
+		unsigned int idle = 0;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&vhd->groups)) {
+			struct grp__xip *g = lws_container_of(d,
+							struct grp__xip, list);
+
+			if (g->refcount)
+				continue;
+
+			idle++;
+			if (!oldest || g->idle_since < oldest->idle_since)
+				oldest = g;
+		} lws_end_foreach_dll(d);
+
+		if (!oldest || idle <= vhd->max_cached)
+			return;
+
+		lwsl_notice("xip: evicting cached group '%s'\n", oldest->path);
+		group_free(oldest);
+	}
+}
+
 /* release a group ref from a closing session; may free it */
 static void
 group_put(struct vhd__xip *vhd, struct grp__xip *grp)
 {
-	if (!lws_dll2_is_empty(&grp->sessions))
+	/*
+	 * Every session that was given the group holds a ref, authenticated
+	 * or not.  Counting only the linked (authenticated) sessions freed
+	 * the group from under unauthenticated peers still pointing at it,
+	 * which two ungated connections to the same path could turn into a
+	 * double free.
+	 */
+	if (grp->refcount)
+		grp->refcount--;
+	if (grp->refcount)
 		return;
-	if (vhd->cache && grp->have_clip)
-		return;		/* keep the late-joiner cache warm */
 
-	lws_dll2_remove(&grp->list);
+	if (vhd->cache && grp->have_clip) {
+		/* keep the late-joiner cache warm, but not forever */
+		grp->idle_since = lws_now_usecs();
+		groups_reclaim(vhd);
 
-	free(grp->clip_data);
-	free(grp);
+		return;
+	}
+
+	group_free(grp);
 }
 
 /* constant-time token compare; length mismatch is allowed to leak */
@@ -477,6 +549,7 @@ callback_xip(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->vh = lws_get_vhost(wsi);
 		vhd->cx = lws_get_context(wsi);
 		vhd->max_bytes = XIP_MAX_BYTES_DEFAULT;
+		vhd->max_cached = XIP_MAX_CACHED_GROUPS;
 		vhd->cache = 1;
 
 		{
@@ -499,9 +572,19 @@ callback_xip(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 			if (lws_pvo_get_str(in, "max-bytes", &s) == 0)
 				vhd->max_bytes = (size_t)atoll(s);
+			if (lws_pvo_get_str(in, "max-cached-groups", &s) == 0)
+				vhd->max_cached = (unsigned int)atoi(s);
 			if (lws_pvo_get_str(in, "cache", &s) == 0)
 				vhd->cache = strcmp(s, "off") &&
 					     strcmp(s, "0");
+
+			/*
+			 * one clip's worth of frames plus slack; a peer that
+			 * lets more than this pile up unsent is not draining
+			 */
+			vhd->max_txq = vhd->max_bytes * 2 + XIP_FRAME_MAX;
+			if (lws_pvo_get_str(in, "max-txq", &s) == 0)
+				vhd->max_txq = (size_t)atoll(s);
 		}
 
 		if (!vhd->have_token)
@@ -633,9 +716,7 @@ callback_xip(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_dll2_get_head(&vhd->groups),
 					struct grp__xip, list);
 
-				lws_dll2_remove(&g->list);
-				free(g->clip_data);
-				free(g);
+				group_free(g);
 			}
 		}
 		break;

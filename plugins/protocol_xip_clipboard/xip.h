@@ -41,6 +41,10 @@ extern "C" {
 #define XIP_FRAME_MAX		((size_t)XIP_CHUNK_RAW / 3u * 4u + 512u)
 
 #define XIP_MAX_BYTES_DEFAULT	(4u * 1024u * 1024u)
+/* idle groups whose late-joiner cache we keep, oldest-idle evicted first */
+#define XIP_MAX_CACHED_GROUPS	32
+/* an unauthenticated session may not send more than this before its hello */
+#define XIP_PREAUTH_RX_MAX	4096
 
 #define XIP_TOKEN_MAX		128
 #define XIP_NAME_MAX		48
