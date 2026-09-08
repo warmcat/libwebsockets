@@ -1523,6 +1523,10 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd);
 
 void
 lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi);
+
+/* nonzero if moving wsi onto vh would bypass vh's client-cert requirement */
+int
+lws_vhost_rebind_mtls_refused(struct lws *wsi, struct lws_vhost *vh);
 void
 __lws_vhost_unbind_wsi(struct lws *wsi); /* req cx + vh lock */
 
