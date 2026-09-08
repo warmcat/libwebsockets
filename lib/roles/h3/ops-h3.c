@@ -2096,53 +2096,31 @@ rops_check_upgrades_h3(struct lws *wsi)
 			}
 		}
 
-		/* Subprotocol negotiation */
+		/*
+		 * Subprotocol negotiation: select the first protocol the client
+		 * offered in wt-available-protocols that is loaded on this vhost
+		 */
 		cp_len = lws_hdr_custom_copy(wsi, client_protos, sizeof(client_protos) - 1,
 					     "wt-available-protocols:", 23);
 		if (cp_len > 0) {
-			const char *env_protocols = getenv("PROTOCOLS_SERVER");
-			client_protos[cp_len] = '\0';
-			if (!env_protocols)
-				env_protocols = getenv("PROTOCOLS");
-
 			struct lws_tokenize ts;
+			lws_tokenize_elem e;
+
+			client_protos[cp_len] = '\0';
 			lws_tokenize_init(&ts, client_protos, LWS_TOKENIZE_F_COMMA_SEP_LIST |
 							      LWS_TOKENIZE_F_MINUS_NONTERM);
 			ts.len = (unsigned int)cp_len;
-			lws_tokenize_elem e;
 
 			do {
+				char name[64];
+
 				e = lws_tokenize(&ts);
-				if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING) {
-					char name[64];
-					if (!lws_tokenize_cstr(&ts, name, sizeof(name))) {
-						if (env_protocols) {
-							struct lws_tokenize ts_srv;
-							lws_tokenize_init(&ts_srv, env_protocols, LWS_TOKENIZE_F_MINUS_NONTERM);
-							lws_tokenize_elem e_srv;
-							do {
-								e_srv = lws_tokenize(&ts_srv);
-								if (e_srv == LWS_TOKZE_TOKEN || e_srv == LWS_TOKZE_QUOTED_STRING) {
-									char srv_name[64];
-									if (!lws_tokenize_cstr(&ts_srv, srv_name, sizeof(srv_name))) {
-										if (strcmp(name, srv_name) == 0) {
-											lws_strncpy(negotiated, name, sizeof(negotiated));
-											break;
-										}
-									}
-								}
-							} while (e_srv > 0);
-						} else {
-							/* No env protocols filter - select if loaded on this vhost */
-							if (lws_vhost_name_to_protocol(wsi->a.vhost, name)) {
-								lws_strncpy(negotiated, name, sizeof(negotiated));
-								break;
-							}
-						}
-					}
-				}
-				if (negotiated[0])
+				if ((e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING) &&
+				    !lws_tokenize_cstr(&ts, name, sizeof(name)) &&
+				    lws_vhost_name_to_protocol(wsi->a.vhost, name)) {
+					lws_strncpy(negotiated, name, sizeof(negotiated));
 					break;
+				}
 			} while (e > 0);
 		}
 
