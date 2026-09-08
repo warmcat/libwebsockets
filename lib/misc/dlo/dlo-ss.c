@@ -298,6 +298,16 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 		return 1;
 	}
 
+	if (!i->lhp) {
+		/*
+		 * The dlo we create stores i->lhp and dereferences it from its
+		 * rx callback and to rebase the url below... there is nothing
+		 * useful we can do without it
+		 */
+		lwsl_warn("%s: no lhp\n", __func__);
+		return 1;
+	}
+
 	p = (char *)strchr(i->url, '?');
 	if (!p)
 		p = i->url + ul;
@@ -325,7 +335,7 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 	 * success return would leave the caller with a NULL one
 	 */
 
-	if (type == LWSDLOSS_TYPE_CSS && i->lhp && i->lhp->npos == 3 &&
+	if (type == LWSDLOSS_TYPE_CSS && i->lhp->npos == 3 &&
 	    !strncmp(i->lhp->buf, "img", 3)) {
 		lwsl_warn("%s: css asset requested as an image\n", __func__);
 		return 1;
