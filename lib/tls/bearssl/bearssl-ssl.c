@@ -245,6 +245,17 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 		if (st & BR_SSL_SENDREC)
 			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
+		/*
+		 * the caller recomputes its own cap on every call, and
+		 * advances its buflist by what we return... so never claim
+		 * more than this call actually offered
+		 */
+		if (conn->pending_app_data_len > len) {
+			conn->pending_app_data_len -= len;
+
+			return (int)len;
+		}
+
 		int ret = (int)conn->pending_app_data_len;
 		conn->pending_app_data_len = 0;
 		return ret;

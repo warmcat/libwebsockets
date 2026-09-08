@@ -64,6 +64,25 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		/* Basic init */
 		br_ssl_client_init_full(&conn->u.client, &conn->x509_ctx, tas, num_tas);
 
+		/*
+		 * mTLS: if the vhost was configured with a client cert, it
+		 * has to actually be offered when the server asks for one
+		 */
+
+		if (ctx && ctx->chain && ctx->chain_len && ctx->key_buf) {
+			if (ctx->is_rsa)
+				br_ssl_client_set_single_rsa(&conn->u.client,
+					ctx->chain, ctx->chain_len,
+					&ctx->rsa_key,
+					br_rsa_pkcs1_sign_get_default());
+			else
+				br_ssl_client_set_single_ec(&conn->u.client,
+					ctx->chain, ctx->chain_len,
+					&ctx->ec_key, BR_KEYTYPE_SIGN, 0,
+					br_ec_get_default(),
+					br_ecdsa_sign_asn1_get_default());
+		}
+
 		conn->tls_use_ssl = wsi->tls.use_ssl;
 		lws_bearssl_x509_wrap_conn(conn);
 
@@ -103,11 +122,19 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 			}
 		}
 
-		/* Extract hostname for SNI */
+		/* Extract hostname for SNI and the server name check */
 		if (wsi->stash) {
-			conn->client_hostname = lws_strdup(wsi->stash->cis[CIS_HOST]);
+			if (wsi->stash->cis[CIS_HOST])
+				conn->client_hostname = lws_strdup(wsi->stash->cis[CIS_HOST]);
 		} else {
-			char temp_host[128];
+			/*
+			 * sized for br_ssl_engine_context.server_name[256]
+			 * and the 253-byte DNS name limit... a name that does
+			 * not fit fails below, it must never silently turn
+			 * into "no name to check"
+			 */
+			char temp_host[256];
+
 			if (lws_hdr_copy(wsi, temp_host, sizeof(temp_host), _WSI_TOKEN_CLIENT_HOST) > 0)
 				conn->client_hostname = lws_strdup(temp_host);
 		}
@@ -124,6 +151,21 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 			resume = lws_tls_reuse_session(wsi);
 #endif
 		int skip = (wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK);
+
+		/*
+		 * BearSSL takes a NULL server_name as "do not check the name
+		 * at all" and sends no SNI... so if we could not get the
+		 * hostname, fail the connection like the openssl backend
+		 * rather than accept any cert that chains to a trusted root
+		 */
+
+		if (!skip && !conn->client_hostname) {
+			lws_snprintf(errbuf, elen,
+				     "Unable to get hostname for cert check");
+
+			return LWS_SSL_CAPABLE_ERROR;
+		}
+
 		br_ssl_client_reset(&conn->u.client, skip ? NULL : conn->client_hostname, resume);
 		conn->initialized = 1;
 	}
@@ -223,6 +265,9 @@ lws_tls_bearssl_load_pem_certs(struct lws_vhost *vh, const char *filepath)
 
 			if (!strncmp(line, "-----BEGIN", 10)) {
 				inside = 1;
+				/* a truncated block leaves the last one here */
+				if (der)
+					lws_free(der);
 				der_size = 2048;
 				der = lws_malloc(der_size, "pem");
 				if (!der) {
@@ -308,6 +353,89 @@ lws_tls_bearssl_load_certs_dir_cb(const char *dirpath, void *user,
 	return 0;
 }
 
+/*
+ * Load the client certificate chain and its private key into the client ctx,
+ * for mTLS.  Both must be present; a half-configured client cert is refused
+ * rather than quietly connecting anonymously
+ */
+
+static int
+lws_tls_bearssl_client_cert_load(struct lws_vhost *vh, struct lws_tls_ctx *ctx,
+				 const char *cert_filepath,
+				 const void *cert_mem, unsigned int cert_mem_len,
+				 const char *private_key_filepath,
+				 const void *key_mem, unsigned int key_mem_len)
+{
+	lws_filepos_t amount;
+	uint8_t *buf;
+	int err;
+
+	if (!private_key_filepath && !key_mem) {
+		lwsl_err("%s: client cert given with no private key\n",
+			 __func__);
+
+		return 1;
+	}
+
+	if (lws_tls_alloc_pem_to_der_file(vh->context, cert_filepath, cert_mem,
+					  cert_mem_len, &buf, &amount)) {
+		lwsl_err("%s: failed to load client cert\n", __func__);
+
+		return 1;
+	}
+
+	ctx->chain = lws_zalloc(sizeof(br_x509_certificate), "bearssl cchain");
+	if (!ctx->chain) {
+		lws_free(buf);
+
+		return 1;
+	}
+
+	ctx->chain[0].data = buf;
+	ctx->chain[0].data_len = (size_t)amount;
+	ctx->chain_len = 1;
+
+	if (lws_tls_alloc_pem_to_der_file(vh->context, private_key_filepath,
+					  key_mem, key_mem_len, &buf, &amount)) {
+		lwsl_err("%s: failed to load client private key\n", __func__);
+
+		return 1;
+	}
+
+	/* the decoder does not copy; rsa_key / ec_key point into key_buf */
+
+	ctx->key_buf = buf;
+	br_skey_decoder_init(&ctx->skc);
+	br_skey_decoder_push(&ctx->skc, buf, amount);
+	err = br_skey_decoder_last_error(&ctx->skc);
+	if (err) {
+		lwsl_err("%s: failed to decode client private key: %d\n",
+			 __func__, err);
+
+		return 1;
+	}
+
+	switch (br_skey_decoder_key_type(&ctx->skc)) {
+	case BR_KEYTYPE_RSA:
+		ctx->is_rsa = 1;
+		ctx->rsa_key = *br_skey_decoder_get_rsa(&ctx->skc);
+		break;
+	case BR_KEYTYPE_EC:
+		ctx->is_rsa = 0;
+		ctx->ec_key = *br_skey_decoder_get_ec(&ctx->skc);
+		break;
+	default:
+		lwsl_err("%s: unsupported client private key type\n", __func__);
+
+		return 1;
+	}
+
+	lwsl_notice("%s: vh %s: client cert loaded for mTLS\n", __func__,
+		    vh->name);
+
+	return 0;
+}
+
 int
 lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			    const struct lws_context_creation_info *info,
@@ -369,6 +497,22 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		if (lws_tls_client_vhost_extra_cert_mem(vh, ca_mem, ca_mem_len))
 			return 1;
 	}
+
+	if (cert_filepath || cert_mem) {
+		/*
+		 * mTLS: it is not OK to ignore a configured client cert and
+		 * connect anonymously, so a failure here fails the vhost
+		 */
+		if (lws_tls_bearssl_client_cert_load(vh, ctx, cert_filepath,
+						     cert_mem, cert_mem_len,
+						     private_key_filepath,
+						     key_mem, key_mem_len))
+			return 1;
+	} else
+		if (private_key_filepath || key_mem)
+			lwsl_warn("%s: client private key without a client "
+				  "cert, no client cert will be offered\n",
+				  __func__);
 
 	return 0;
 }

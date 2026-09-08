@@ -48,6 +48,21 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 {
 	int n;
 
+	/*
+	 * mTLS is not implemented on this backend (see the note on
+	 * lws_tls_server_client_cert_verify_config() in bearssl-x509.c)...
+	 * refuse to create a vhost that asks for it rather than accept every
+	 * anonymous client on a vhost the app believes is protected
+	 */
+
+	if (lws_tls_bearssl_vh_wants_client_certs(vhost)) {
+		lwsl_err("%s: vh %s: BearSSL backend has no client cert "
+			 "verification, refusing vhost\n", __func__,
+			 vhost->name);
+
+		return 1;
+	}
+
 	if (lws_tls_vhost_backend_create_ctx(vhost))
 		return 1;
 
@@ -101,11 +116,24 @@ enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
 {
 	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
-	struct lws_tls_ctx *ctx = wsi->a.vhost->tls.ssl_ctx;
+	/*
+	 * the ctx the accept took the lifetime reference on... the vhost's
+	 * current tls.ssl_ctx may already be a different one (cert rotation),
+	 * and BearSSL keeps the chain / key / cache pointers we give it for
+	 * the life of the connection
+	 */
+	struct lws_tls_ctx *ctx = conn->ctx;
 	unsigned st;
 	int err;
 
 	if (!conn->initialized) {
+		if (lws_tls_bearssl_vh_wants_client_certs(wsi->a.vhost)) {
+			lwsl_err("%s: vh %s wants client certs, unsupported\n",
+				 __func__, wsi->a.vhost->name);
+
+			return LWS_SSL_CAPABLE_ERROR;
+		}
+
 		if (!ctx || !ctx->chain) {
 			lwsl_err("%s: no server certs\n", __func__);
 			return LWS_SSL_CAPABLE_ERROR;

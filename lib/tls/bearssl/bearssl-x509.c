@@ -368,6 +368,40 @@ lws_x509_akid_component(const uint8_t *val, size_t val_len,
 	return 1;
 }
 
+/*
+ * BearSSL gives cert validity times as a day count from year 0 plus seconds
+ * in the day, both taken from the (attacker-chosen) cert.  Converting to a
+ * unix time_t is only meaningful inside a sane window: before the epoch the
+ * unsigned subtraction wraps, and absurdly distant dates overflow a 32-bit
+ * time_t.  Refuse both rather than report an arbitrary time
+ */
+
+#define LWS_X509_DAYS_TO_EPOCH	719528	/* 0000-01-01 .. 1970-01-01 */
+#define LWS_X509_DAYS_MAX	3652060	/* .. 9999-12-31 */
+
+static int
+lws_x509_days_to_time(uint32_t days, uint32_t seconds,
+		      union lws_tls_cert_info_results *buf)
+{
+	int64_t t;
+
+	if (days < LWS_X509_DAYS_TO_EPOCH ||
+	    days > LWS_X509_DAYS_TO_EPOCH + LWS_X509_DAYS_MAX ||
+	    seconds >= 86400)
+		return -1;
+
+	t = (int64_t)(days - LWS_X509_DAYS_TO_EPOCH) * 86400ll +
+	    (int64_t)seconds;
+
+	/* and it has to survive the platform's time_t */
+	if ((int64_t)(time_t)t != t)
+		return -1;
+
+	buf->time = (time_t)t;
+
+	return 0;
+}
+
 int lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type, union lws_tls_cert_info_results *buf, size_t len) {
 	buf->ns.len = 0;
 
@@ -394,14 +428,12 @@ int lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type, union
 		br_x509_decoder_push(&dc, x509->der, x509->der_len);
 		if (br_x509_decoder_last_error(&dc) != 0) return -1;
 
-		if (type == LWS_TLS_CERT_INFO_VALIDITY_FROM) {
-			buf->time = (time_t)(((uint64_t)dc.notbefore_days - 719528) * 86400ull + dc.notbefore_seconds);
-			return 0;
-		}
-		if (type == LWS_TLS_CERT_INFO_VALIDITY_TO) {
-			buf->time = (time_t)(((uint64_t)dc.notafter_days - 719528) * 86400ull + dc.notafter_seconds);
-			return 0;
-		}
+		if (type == LWS_TLS_CERT_INFO_VALIDITY_FROM)
+			return lws_x509_days_to_time(dc.notbefore_days,
+						     dc.notbefore_seconds, buf);
+		if (type == LWS_TLS_CERT_INFO_VALIDITY_TO)
+			return lws_x509_days_to_time(dc.notafter_days,
+						     dc.notafter_seconds, buf);
 		if (type == LWS_TLS_CERT_INFO_OPAQUE_PUBLIC_KEY) {
 			br_x509_pkey *pk = br_x509_decoder_get_pkey(&dc);
 			if (!pk) return -1;
@@ -563,6 +595,15 @@ int lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type, union
 	case LWS_TLS_CERT_INFO_SUBJECT_KEY_ID:
 		/* the extension isn't there: "not present", as openssl says */
 		return 1;
+	case LWS_TLS_CERT_INFO_VERIFIED:
+		/*
+		 * a bare cert carries no chain result... it is the connection
+		 * that knows, so lws_tls_peer_cert_info() answers this one.
+		 * Leave the union in a fail-closed state for any caller that
+		 * ignores our return
+		 */
+		buf->verified = 0;
+		return -1;
 	default:
 		return -1;
 	}
@@ -894,28 +935,50 @@ wrap_start_chain(const br_x509_class **ctx, const char *server_name)
 	br_x509_minimal_vtable.start_chain(ctx, server_name);
 }
 
+/*
+ * length here is the 24-bit per-certificate length announced in the peer's
+ * Certificate message, ie, up to 16MB, and it arrives before any of the
+ * certificate body does.  Our copy of the cert is a convenience for
+ * lws_tls_peer_cert_info() and JIT trust, so simply decline to capture
+ * anything implausibly large rather than let an unauthenticated peer direct
+ * tens of MB of heap per connection.  Real leaf certs are 1 - 2KB
+ */
+
+#define LWS_BEARSSL_MAX_CAPTURED_CERT 32768
+
 static void
 wrap_start_cert(const br_x509_class **ctx, uint32_t length)
 {
 	lws_tls_conn *conn = lws_container_of((br_x509_minimal_context *)ctx, lws_tls_conn, x509_ctx);
-	if (conn->capturing_peer_cert) {
-		if (!lws_x509_create(&conn->peer_cert)) {
-			conn->peer_cert->der = lws_malloc(length, "peer_cert");
-			if (!conn->peer_cert->der)
-				lws_x509_destroy(&conn->peer_cert);
-			else
-				conn->peer_cert->der_len = 0;
+
+	if (length && length <= LWS_BEARSSL_MAX_CAPTURED_CERT) {
+		if (conn->capturing_peer_cert) {
+			if (!lws_x509_create(&conn->peer_cert)) {
+				conn->peer_cert->der = lws_malloc(length, "peer_cert");
+				if (!conn->peer_cert->der)
+					lws_x509_destroy(&conn->peer_cert);
+				else {
+					conn->peer_cert->der_len = 0;
+					conn->peer_cert->der_max = length;
+				}
+			}
 		}
-	}
 #if defined(LWS_WITH_TLS_JIT_TRUST)
-	if (!lws_x509_create(&conn->temp_cert)) {
-		conn->temp_cert->der = lws_malloc(length, "temp_cert");
-		if (!conn->temp_cert->der)
-			lws_x509_destroy(&conn->temp_cert);
-		else
-			conn->temp_cert->der_len = 0;
-	}
+		if (!lws_x509_create(&conn->temp_cert)) {
+			conn->temp_cert->der = lws_malloc(length, "temp_cert");
+			if (!conn->temp_cert->der)
+				lws_x509_destroy(&conn->temp_cert);
+			else {
+				conn->temp_cert->der_len = 0;
+				conn->temp_cert->der_max = length;
+			}
+		}
 #endif
+	} else
+		if (length)
+			lwsl_notice("%s: declining to capture %u byte cert\n",
+				    __func__, (unsigned int)length);
+
 	br_x509_minimal_vtable.start_cert(ctx, length);
 }
 
@@ -923,12 +986,21 @@ static void
 wrap_append(const br_x509_class **ctx, const unsigned char *buf, size_t len)
 {
 	lws_tls_conn *conn = lws_container_of((br_x509_minimal_context *)ctx, lws_tls_conn, x509_ctx);
-	if (conn->capturing_peer_cert && conn->peer_cert && conn->peer_cert->der) {
+
+	/*
+	 * BearSSL only appends the number of bytes it announced at
+	 * start_cert(), but the buffer size is derived from a peer-controlled
+	 * length, so confirm it rather than trust it
+	 */
+
+	if (conn->capturing_peer_cert && conn->peer_cert && conn->peer_cert->der &&
+	    conn->peer_cert->der_len + len <= conn->peer_cert->der_max) {
 		memcpy(conn->peer_cert->der + conn->peer_cert->der_len, buf, len);
 		conn->peer_cert->der_len += len;
 	}
 #if defined(LWS_WITH_TLS_JIT_TRUST)
-	if (conn->temp_cert && conn->temp_cert->der) {
+	if (conn->temp_cert && conn->temp_cert->der &&
+	    conn->temp_cert->der_len + len <= conn->temp_cert->der_max) {
 		memcpy(conn->temp_cert->der + conn->temp_cert->der_len, buf, len);
 		conn->temp_cert->der_len += len;
 	}
@@ -968,6 +1040,13 @@ wrap_end_chain(const br_x509_class **ctx)
 {
 	lws_tls_conn *conn = lws_container_of((br_x509_minimal_context *)ctx, lws_tls_conn, x509_ctx);
 	unsigned err = br_x509_minimal_vtable.end_chain(ctx);
+
+	/*
+	 * record the real chain result for LWS_TLS_CERT_INFO_VERIFIED; the
+	 * LCCSCF_ALLOW_* bypasses below let the connection continue, but they
+	 * do not make the peer "verified"
+	 */
+	conn->peer_cert_verified = !err;
 
 	if (!err)
 		return 0;
@@ -1092,7 +1171,45 @@ int lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi, const ch
 
 	return 0;
 }
-int lws_tls_server_client_cert_verify_config(struct lws_vhost *vh) { return 0; }
+/*
+ * Client-certificate (mutual TLS) support on the server side is NOT
+ * implemented on this backend: nothing here arms a CertificateRequest, and
+ * BearSSL's server engine is built with br_ssl_server_init_full_{rsa,ec}(),
+ * which installs no client-certificate policy.
+ *
+ * So the only safe thing to do with a vhost that asks for client certs is
+ * refuse it, rather than silently accept every anonymous client on a vhost
+ * the app believes is mTLS-protected.  lws_tls_server_vhost_backend_init()
+ * refuses vhost creation, and lws_tls_server_accept() refuses the handshake
+ * as a backstop.
+ *
+ * Supported here: server cert + key (ssl_cert_filepath /
+ * ssl_private_key_filepath and the _mem forms).
+ * Not supported here: LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT,
+ * LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE,
+ * client_ssl_ca_filepath for verifying client certs.
+ */
+
+int
+lws_tls_bearssl_vh_wants_client_certs(struct lws_vhost *vh)
+{
+	return !!lws_check_opt(vh->options,
+			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) ||
+	       !!lws_check_opt(vh->options,
+			LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE);
+}
+
+int
+lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
+{
+	if (!lws_tls_bearssl_vh_wants_client_certs(vh))
+		return 0;
+
+	lwsl_err("%s: vh %s: BearSSL backend cannot verify client certs\n",
+		 __func__, vh->name);
+
+	return 1;
+}
 int lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type, union lws_tls_cert_info_results *buf, size_t len)
 {
 	struct lws_tls_ctx *ctx = vhost->tls.ssl_ctx;
@@ -1112,19 +1229,32 @@ struct dn_append_ctx {
 	uint8_t *data;
 	size_t len;
 	size_t size;
+	char failed;
 };
 
 static void
 append_dn(void *ctx, const void *buf, size_t len)
 {
 	struct dn_append_ctx *dn_ctx = ctx;
+
+	/*
+	 * a chunk we could not store would leave a hole in the middle of the
+	 * DN, ie, a trust anchor that silently matches nothing... once we
+	 * have missed anything, the whole DN is useless
+	 */
+
+	if (dn_ctx->failed)
+		return;
+
 	if (dn_ctx->len + len > dn_ctx->size) {
 		size_t new_size = dn_ctx->size ? dn_ctx->size * 2 : 128;
 		while (dn_ctx->len + len > new_size)
 			new_size *= 2;
 		uint8_t *new_data = lws_realloc(dn_ctx->data, new_size, "ta_dn");
-		if (!new_data)
-			return; /* out of memory */
+		if (!new_data) {
+			dn_ctx->failed = 1;
+			return;
+		}
 		dn_ctx->data = new_data;
 		dn_ctx->size = new_size;
 	}
@@ -1147,7 +1277,7 @@ int lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh, const uint8_t *der
 	br_x509_decoder_init(&dc, append_dn, &dn_ctx);
 	br_x509_decoder_push(&dc, der, der_len);
 	pk = br_x509_decoder_get_pkey(&dc);
-	if (pk == NULL) {
+	if (pk == NULL || dn_ctx.failed) {
 		lwsl_err("%s: CA decoding failed (der_len %zu) (err %d)\n", __func__, der_len, br_x509_decoder_last_error(&dc));
 		if (dn_ctx.data)
 			lws_free(dn_ctx.data);
@@ -1185,7 +1315,7 @@ int lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh, const uint8_t *der
 		break;
 	default:
 		lwsl_err("%s: unsupported CA public key type\n", __func__);
-		return 1;
+		goto fail_ta;
 	}
 
 	new_ta = lws_realloc(ctx->trust_anchors, sizeof(br_x509_trust_anchor) * (ctx->num_trust_anchors + 1), "bearssl ta list");
@@ -1211,7 +1341,20 @@ fail_ta:
 int lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type, union lws_tls_cert_info_results *buf, size_t len)
 {
 	lws_tls_conn *conn = wsi->tls.ssl;
-	if (!conn || !conn->peer_cert) return -1;
+
+	if (!conn)
+		return -1;
+
+	if (type == LWS_TLS_CERT_INFO_VERIFIED) {
+		/* the result the wrapped validator recorded at end of chain */
+		buf->verified = (unsigned int)(conn->peer_cert_verified & 1);
+
+		return 0;
+	}
+
+	if (!conn->peer_cert)
+		return -1;
+
 	return lws_x509_info(conn->peer_cert, type, buf, len);
 }
 
@@ -1247,7 +1390,7 @@ int lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted, c
 	br_x509_decoder_init(&dc, append_dn, &dn_ctx);
 	br_x509_decoder_push(&dc, trusted->der, trusted->der_len);
 	pk = br_x509_decoder_get_pkey(&dc);
-	if (!pk) {
+	if (!pk || dn_ctx.failed) {
 		if (dn_ctx.data) lws_free(dn_ctx.data);
 		return -1;
 	}

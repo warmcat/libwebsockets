@@ -58,8 +58,14 @@ struct lws_tls_conn {
 
 	br_x509_minimal_context x509_ctx;
 
-	unsigned char iobuf_in[BR_SSL_BUFSIZE_BIDI];
-	unsigned char iobuf_out[BR_SSL_BUFSIZE_BIDI];
+	/*
+	 * BR_SSL_BUFSIZE_BIDI is the size of the *combined* bidirectional
+	 * buffer, ie, INPUT + OUTPUT... using it for each direction doubles
+	 * the ~33KB per TLS connection an unauthenticated peer can commit
+	 * just by completing the TCP handshake
+	 */
+	unsigned char iobuf_in[BR_SSL_BUFSIZE_INPUT];
+	unsigned char iobuf_out[BR_SSL_BUFSIZE_OUTPUT];
 
 	int is_client;
 	char initialized;
@@ -67,6 +73,7 @@ struct lws_tls_conn {
 	struct lws_x509_cert *peer_cert;
 	br_x509_class x509_vtable;
 	int capturing_peer_cert;
+	char peer_cert_verified;
 
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	struct lws_x509_cert *temp_cert;
@@ -89,6 +96,7 @@ typedef void lws_tls_bio;
 struct lws_x509_cert {
 	uint8_t *der;
 	size_t der_len;
+	size_t der_max;	/* allocated size of der */
 };
 typedef struct lws_x509_cert lws_tls_x509;
 
@@ -96,5 +104,6 @@ int lws_bearssl_pump(struct lws *wsi);
 void lws_bearssl_x509_wrap_conn(lws_tls_conn *conn);
 int lws_tls_session_new_bearssl(struct lws *wsi);
 int lws_bearssl_set_alpn(struct lws_tls_conn *conn, const uint8_t *alpn, size_t alpn_len);
+int lws_tls_bearssl_vh_wants_client_certs(struct lws_vhost *vh);
 
 #endif
