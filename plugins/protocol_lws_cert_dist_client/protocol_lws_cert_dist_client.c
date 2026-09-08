@@ -22,6 +22,15 @@ struct vhd_cert_dist_client {
 	const char                      *server_url;
 };
 
+/*
+ * A PEM cert chain or key larger than this is not something we are going to
+ * install, and accepting one lets the server make us buffer without limit
+ */
+#define CERT_DIST_MAX_PEM	(256 * 1024)
+
+/* the name a cert is installed under, ie, the certs[] PVO name */
+#define CERT_DIST_NAME_LEN	64
+
 struct pss_cert_dist_client {
 	lws_sorted_usec_list_t          sul;
 	struct lws                      *wsi;
@@ -35,6 +44,7 @@ struct pss_cert_dist_client {
 	char                            *key;
 	int                             cert_len;
 	int                             key_len;
+	int                             oversize;
 
 	char                            *uds_tx;
 	int                             uds_tx_len;
@@ -212,6 +222,11 @@ client_rx_cb(struct lejp_ctx *ctx, char reason)
 				lws_strncpy(pss->subdomain, ctx->buf, sizeof(pss->subdomain));
 			break;
 		case CRX_CERT:
+			if ((size_t)pss->cert_len + (size_t)ctx->npos >
+							CERT_DIST_MAX_PEM) {
+				pss->oversize = 1;
+				break;
+			}
 			if (!pss->cert) {
 				pss->cert = malloc((size_t)ctx->npos + 1);
 				if (pss->cert) {
@@ -230,6 +245,11 @@ client_rx_cb(struct lejp_ctx *ctx, char reason)
 			}
 			break;
 		case CRX_KEY:
+			if ((size_t)pss->key_len + (size_t)ctx->npos >
+							CERT_DIST_MAX_PEM) {
+				pss->oversize = 1;
+				break;
+			}
 			if (!pss->key) {
 				pss->key = malloc((size_t)ctx->npos + 1);
 				if (pss->key) {
@@ -251,6 +271,17 @@ client_rx_cb(struct lejp_ctx *ctx, char reason)
 		break;
 
         case LEJPCB_OBJECT_END:
+		if (pss->oversize) {
+			lwsl_err("%s: server sent > %d of PEM, dropping\n",
+				 __func__, (int)CERT_DIST_MAX_PEM);
+			if (pss->cert) { free(pss->cert); pss->cert = NULL; }
+			if (pss->key) { free(pss->key); pss->key = NULL; }
+			pss->cert_len = 0;
+			pss->key_len = 0;
+			pss->oversize = 0;
+
+			return 1;
+		}
 		if (!pss->cert_len && !pss->key_len) {
 			lwsl_info("%s: Server reported certificate unchanged, skipping\n", __func__);
 			/* We successfully checked, keep connection open */
@@ -604,8 +635,14 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_notice("%s: Received chunk of JSON from distribution server (%d bytes)\n", __func__, (int)len);
 			int m = lejp_parse(&pss->jctx, (uint8_t *)in, (int)len);
 			if (m < 0 && m != LEJP_CONTINUE) {
+				/*
+				 * The parser is left in an indeterminate
+				 * state: drop the connection rather than
+				 * feed it more of what the server is saying
+				 */
 				lwsl_err("%s: lejp parse failed\n", __func__);
-                                break;
+
+				return -1;
 			}
                         if (m >= 0) {
 				lwsl_notice("%s: lejp parsing complete, resetting parser for next update\n", __func__);
@@ -637,43 +674,75 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				    __func__, wsi, pss->wsi, pss->cert, pss->key, pss->wsi_uds);
 
 			if (pss->wsi == wsi && pss->cert && pss->key && !pss->wsi_uds) {
+				size_t est_len;
+				const char *sec;
+
 				if (!vhd->stub_mgr) {
 					lwsl_err("%s: No local stub available to save certs!\n", __func__);
 					break;
 				}
 
-				const char *sec = lws_stub_get_secret(vhd->stub_mgr);
-				int est_len = (pss->cert_len * 2) + (pss->key_len * 2) + (int)strlen(pss->subdomain) + (sec ? (int)strlen(sec) : 0) + 128;
-				pss->uds_tx = malloc((size_t)est_len + LWS_PRE);
+				if (!conn) {
+					lwsl_err("%s: no conn for wsi\n", __func__);
+					break;
+				}
+
+				/*
+				 * We install under the name we asked for, not
+				 * under whatever name the server chose to
+				 * answer with: otherwise one connection lets
+				 * the server replace the cert and key of every
+				 * other domain this host serves
+				 */
+				if (pss->subdomain[0] &&
+				    strcmp(pss->subdomain, conn->name))
+					lwsl_warn("%s: server answered for '%s' "
+						  "on the '%s' link, using "
+						  "'%s'\n", __func__,
+						  pss->subdomain, conn->name,
+						  conn->name);
+
+				sec = lws_stub_get_secret(vhd->stub_mgr);
+
+				/*
+				 * Escaping expands by at most 2x, and both
+				 * PEMs are capped at CERT_DIST_MAX_PEM, so
+				 * this cannot overflow size_t
+				 */
+				est_len = ((size_t)pss->cert_len * 2) +
+					  ((size_t)pss->key_len * 2) +
+					  strlen(conn->name) +
+					  (sec ? strlen(sec) : 0) + 128;
+				pss->uds_tx = malloc(est_len + LWS_PRE);
 				if (!pss->uds_tx) {
 					lwsl_err("%s: OOM alloc uds tx\n", __func__);
 					break;
 				}
-				pss->uds_tx_len = lws_snprintf(pss->uds_tx + LWS_PRE, (size_t)est_len,
+				pss->uds_tx_len = lws_snprintf(pss->uds_tx + LWS_PRE, est_len,
 					"{\"secret\":\"%s\",\"subdomain\":\"%s\",\"fullchain\":\"",
-					sec ? sec : "", pss->subdomain);
+					sec ? sec : "", conn->name);
 
 				char *p = pss->uds_tx + LWS_PRE + pss->uds_tx_len;
 				char *src = pss->cert;
 				while (*src) { if (*src == '\n') { *p++ = '\\'; *p++ = 'n'; } else if (*src != '\r') { *p++ = *src; } src++; }
 
 				pss->uds_tx_len = (int)(p - (pss->uds_tx + LWS_PRE));
-				pss->uds_tx_len += lws_snprintf(pss->uds_tx + LWS_PRE + pss->uds_tx_len, (size_t)(est_len - pss->uds_tx_len), "\",\"privkey\":\"");
+				pss->uds_tx_len += lws_snprintf(pss->uds_tx + LWS_PRE + pss->uds_tx_len, est_len - (size_t)pss->uds_tx_len, "\",\"privkey\":\"");
 
 				p = pss->uds_tx + LWS_PRE + pss->uds_tx_len;
 				src = pss->key;
 				while (*src) { if (*src == '\n') { *p++ = '\\'; *p++ = 'n'; } else if (*src != '\r') { *p++ = *src; } src++; }
 
 				pss->uds_tx_len = (int)(p - (pss->uds_tx + LWS_PRE));
-				pss->uds_tx_len += lws_snprintf(pss->uds_tx + LWS_PRE + pss->uds_tx_len, (size_t)(est_len - pss->uds_tx_len), "\"}\n");
+				pss->uds_tx_len += lws_snprintf(pss->uds_tx + LWS_PRE + pss->uds_tx_len, est_len - (size_t)pss->uds_tx_len, "\"}\n");
 
-				lwsl_notice("%s: JSON payload built, pushing to UDS stub for %s\n", __func__, pss->subdomain);
+				lwsl_notice("%s: JSON payload built, pushing to UDS stub for %s\n", __func__, conn->name);
 
 				if (lws_stub_request(vhd->stub_mgr, pss->uds_tx + LWS_PRE, NULL, 0, NULL, NULL, pss) < 0) {
 					lwsl_err("%s: Failed pushing to UDS stub\n", __func__);
 				} else {
 					pss->wsi_uds = (struct lws *)1;
-					lwsl_notice("%s: Sent complete cert update to local UDS stub for %s\n", __func__, pss->subdomain);
+					lwsl_notice("%s: Sent complete cert update to local UDS stub for %s\n", __func__, conn->name);
 				}
 
 				free(pss->uds_tx);
