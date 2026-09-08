@@ -3170,6 +3170,19 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_notice("%s: No valid JWT found, bounced proxy UI connection\n", __func__);
 				return -1;
 			}
+			/*
+			 * lws_jwt_auth_create() documents that if no presented
+			 * occurrence of the cookie is live, the first that
+			 * merely verified is returned "so the caller decides
+			 * what an expired token means".  Here it means no
+			 * session: everything behind this gate can rewrite
+			 * zones and hand out distribution private keys
+			 */
+			if (lws_jwt_auth_get_exp(ja) <= (uint64_t)lws_now_secs()) {
+				lwsl_notice("%s: JWT session expired, bounced proxy UI connection\n", __func__);
+				lws_jwt_auth_destroy(&ja);
+				return -1;
+			}
 			int level = lws_jwt_auth_query_grant(ja, "domain-admin");
 			lws_jwt_auth_destroy(&ja);
 			if (level <= 0) {
