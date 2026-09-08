@@ -1380,11 +1380,25 @@ done:
  * \p olen, or NULL if the zone carries an $ORIGIN we will not store.
  */
 
+/* bounded append into the normalised copy: refuse rather than overrun */
+static int
+zn_put(char **o, size_t *rem, const void *src, size_t l)
+{
+	if (*rem <= l)
+		return 1;
+
+	memcpy(*o, src, l);
+	*o += l;
+	*rem -= l;
+
+	return 0;
+}
+
 static char *
 zone_normalise_origin(const char *in, size_t len, size_t *olen)
 {
-	const char *p = in, *end = in + len;
-	size_t n, alloc = len + 2;
+	size_t n, alloc = len + 2, rem, left = len;
+	const char *p = in;
 	char *out, *o;
 
 	/* worst case, one $ORIGIN line each gaining one dot */
@@ -1398,14 +1412,14 @@ zone_normalise_origin(const char *in, size_t len, size_t *olen)
 		return NULL;
 
 	o = out;
+	rem = alloc; /* output space left, including the NUL */
 
-	while (p < end) {
-		const char *le = memchr(p, '\n', lws_ptr_diff_size_t(end, p));
-		size_t ll;
+	while (left) {
+		const char *le = memchr(p, '\n', left);
+		size_t ll = le ? lws_ptr_diff_size_t(le, p) : left;
 
-		if (!le)
-			le = end;
-		ll = lws_ptr_diff_size_t(le, p);
+		/* end of this line's text, never past the input */
+		le = p + ll;
 
 		if (ll > 8 && !strncmp(p, "$ORIGIN", 7) &&
 		    (p[7] == ' ' || p[7] == '\t')) {
@@ -1431,28 +1445,28 @@ zone_normalise_origin(const char *in, size_t len, size_t *olen)
 			if (!lws_dht_valid_domain_name(origin))
 				goto bad;
 
-			if (origin[vl - 1] != '.') {
+			if (origin[vl - 1] != '.')
 				origin[vl++] = '.';
-				origin[vl] = '\0';
-			}
 
-			o += lws_snprintf(o, lws_ptr_diff_size_t(out + alloc, o),
-					  "$ORIGIN %s", origin);
+			if (zn_put(&o, &rem, "$ORIGIN ", 8) ||
+			    zn_put(&o, &rem, origin, vl) ||
+			    /* keep anything that followed it, eg a comment */
+			    zn_put(&o, &rem, ve, lws_ptr_diff_size_t(le, ve)))
+				goto bad;
+		} else
+			if (zn_put(&o, &rem, p, ll))
+				goto bad;
 
-			/* keep anything that followed it, eg a comment */
+		p += ll;
+		left -= ll;
 
-			ll = lws_ptr_diff_size_t(le, ve);
-			memcpy(o, ve, ll);
-			o += ll;
-		} else {
-			memcpy(o, p, ll);
-			o += ll;
+		if (left) {
+			/* the newline we stopped at */
+			if (zn_put(&o, &rem, "\n", 1))
+				goto bad;
+			p++;
+			left--;
 		}
-
-		if (le < end)
-			*o++ = '\n';
-
-		p = le + 1;
 	}
 
 	*o = '\0';
