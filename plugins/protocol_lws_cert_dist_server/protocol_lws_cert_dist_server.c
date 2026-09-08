@@ -12,6 +12,7 @@ struct vhd_cert_dist_server {
 	const struct lws_protocols          *protocol;
 	char                                pki_root[256];
 	struct lws_dll2_owner               connections;
+	struct lws_dll2_owner               pending;
 #if defined(LWS_WITH_DIR)
 	struct lws_dir_notify               *dn;
 #endif
@@ -25,6 +26,8 @@ struct vhd_cert_dist_server {
 };
 
 static struct lws_dll2_owner active_server_vhds;
+
+struct cert_dist_server_pending;
 
 struct pss_cert_dist_server {
 	struct lws_dll2                     list;
@@ -44,6 +47,72 @@ struct pss_cert_dist_server {
 	int                                 uds_rx_pos;
 	char                                hash[65];
 };
+
+/*
+ * A stub request is asynchronous and there is no way to cancel one that is
+ * already queued.  So the request is given one of these to point at, instead
+ * of the pss directly: when the ws connection goes away, LWS_CALLBACK_CLOSED
+ * detaches the pss from any pending request that still refers to it, and the
+ * late reply then has nothing to write to.
+ */
+
+struct cert_dist_server_pending {
+	struct lws_dll2                     list;   /* on vhd->pending */
+	struct vhd_cert_dist_server         *vhd;
+	struct pss_cert_dist_server         *pss;   /* NULL: ws went away */
+};
+
+/*
+ * The client cert CN ends up as a path component under the pki root, and
+ * inside the JSON we hand to the privileged stub.  Only accept something
+ * that can be a hostname, so it can neither escape the pki root nor break
+ * out of its JSON string.
+ */
+
+static int
+cert_dist_valid_name(const char *s, size_t max)
+{
+	size_t n = strlen(s);
+	const char *p;
+
+	if (!n || n >= max)
+		return 0;
+
+	if (*s == '.' || *s == '-' || s[n - 1] == '.' || s[n - 1] == '-')
+		return 0;
+
+	for (p = s; *p; p++) {
+		if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+		      (*p >= '0' && *p <= '9') || *p == '.' || *p == '-'))
+			return 0;
+		if (*p == '.' && p[1] == '.')
+			return 0;
+	}
+
+	return 1;
+}
+
+/*
+ * The cert hash is a SHA-1 in hex: anything else cannot match and has no
+ * business being interpolated into the stub request JSON
+ */
+
+static int
+cert_dist_valid_hash(const char *s, size_t len)
+{
+	size_t n;
+
+	if (!len || len > 40)
+		return 0;
+
+	for (n = 0; n < len; n++)
+		if (!((s[n] >= '0' && s[n] <= '9') ||
+		      (s[n] >= 'a' && s[n] <= 'f') ||
+		      (s[n] >= 'A' && s[n] <= 'F')))
+			return 0;
+
+	return 1;
+}
 
 /* --- STUB SERVER IMPLEMENTATION --- */
 
@@ -237,14 +306,23 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 				lws_hex_from_byte_array(digest, 20, current_hash, sizeof(current_hash));
 				if (strlen(current_hash) == strlen(pss->args.hash) && !lws_timingsafe_bcmp(current_hash, pss->args.hash, (uint32_t)strlen(current_hash))) {
 					lwsl_notice("%s: Hash matches %s, returning unchanged\n", __func__, pss->args.hash);
-					pss->response = malloc(LWS_PRE + 256);
-					if (pss->response) {
-						pss->response_len = lws_snprintf(pss->response + LWS_PRE, 256,
-							"{\"subdomain\":\"%s\",\"fullchain\":\"\",\"privkey\":\"\"}", pss->args.subdomain);
-						pss->response_pos = 0;
-					}
 					free(cert_buf);
 					cert_buf = NULL;
+
+					pss->response = malloc(LWS_PRE + 256);
+					if (!pss->response)
+						return -1;
+
+					pss->response_len = lws_snprintf(pss->response + LWS_PRE, 256,
+						"{\"subdomain\":\"%s\",\"fullchain\":\"\",\"privkey\":\"\"}", pss->args.subdomain);
+					pss->response_pos = 0;
+					/*
+					 * We are inside the writeable that
+					 * generated it: ask for another one to
+					 * actually send it, or the requester
+					 * never hears back
+					 */
+					lws_callback_on_writable(wsi);
 				}
 			}
 
@@ -256,7 +334,13 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 					lwsl_notice("%s: Found both cert and key for %s, preparing response\n", __func__, pss->args.domain);
 					size_t jlen = (strlen(cert_buf) * 2) + (strlen(key_buf) * 2) + 512;
 					pss->response = malloc(LWS_PRE + jlen);
-					if (pss->response) {
+					if (!pss->response) {
+						free(key_buf);
+						free(cert_buf);
+
+						return -1;
+					}
+					{
 						char *p = pss->response + LWS_PRE, *end = pss->response + LWS_PRE + jlen;
 						p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"subdomain\":\"%s\",\"fullchain\":\"", pss->args.subdomain);
 						char *src = cert_buf;
@@ -327,10 +411,18 @@ static const struct lws_protocols stub_protocols[] = {
 static void
 cert_dist_server_raw_cb(const char *in, size_t len, void *user)
 {
-	struct pss_cert_dist_server *pss = (struct pss_cert_dist_server *)user;
+	struct cert_dist_server_pending *pend =
+			(struct cert_dist_server_pending *)user;
+	struct pss_cert_dist_server *pss = pend->pss;
+
+	if (!pss)
+		/* the ws connection that asked for this went away */
+		return;
 
 	if (!pss->uds_rx) {
 		pss->uds_rx = malloc(LWS_PRE + 65536);
+		if (!pss->uds_rx)
+			return;
 		pss->uds_rx_len = 0;
 		pss->uds_rx_pos = 0;
 	}
@@ -339,6 +431,34 @@ cert_dist_server_raw_cb(const char *in, size_t len, void *user)
 		pss->uds_rx_len += (int)len;
 		lws_callback_on_writable(pss->wsi);
 	}
+}
+
+/*
+ * We take the stub reply verbatim via the raw cb above and have no interest
+ * in its contents.  But a stub request is only ever retired if it has an rx
+ * callback... without one, it jams at the head of the request queue forever
+ * and no later request is ever sent.  So we attach this do-nothing parser as
+ * well, purely so the stub layer can see the reply complete and retire the
+ * request.  LEJPCB_DESTRUCTED is issued exactly once, when that happens,
+ * however it happens (completion, parse failure, or stub manager destroy).
+ */
+
+static signed char
+cert_dist_server_retire_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct cert_dist_server_pending *pend =
+			(struct cert_dist_server_pending *)ctx->user;
+
+	if (reason != LEJPCB_DESTRUCTED)
+		return 0;
+
+	if (pend->pss)
+		pend->pss->pending = NULL;
+
+	lws_dll2_remove(&pend->list);
+	free(pend);
+
+	return 0;
 }
 
 /* --- MAIN SERVER IMPLEMENTATION --- */
@@ -578,7 +698,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_TIMER:
-		if (vhd && !vhd->is_stub && pss->established && !pss->wsi_uds && !pss->needs_cert_update) {
+		if (vhd && !vhd->is_stub && pss->established && !pss->pending && !pss->needs_cert_update) {
 			/* Timer expired without getting a hash, fetch anyway */
 			pss->needs_cert_update = 1;
 			lws_callback_on_writable(wsi);
@@ -610,10 +730,25 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_dll2_remove(&pss->list);
 			if (pss->uds_tx) free(pss->uds_tx);
 			if (pss->uds_rx) free(pss->uds_rx);
-			if (pss->wsi_uds && pss->wsi_uds != (struct lws *)1) {
-				/* disconnect UDS safely */
-				lws_set_opaque_user_data(pss->wsi_uds, NULL);
-			}
+
+			/*
+			 * lws is about to free the pss: a stub request we
+			 * queued may still be in flight and pointing at it,
+			 * and there is no way to cancel one.  Detach it, the
+			 * reply will then be dropped when it arrives.
+			 */
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					      lws_dll2_get_head(&vhd->pending)) {
+				struct cert_dist_server_pending *pend =
+					lws_container_of(d,
+						struct cert_dist_server_pending,
+						list);
+
+				if (pend->pss == pss)
+					pend->pss = NULL;
+			} lws_end_foreach_dll(d);
+
+			pss->pending = NULL;
 		}
 		break;
 
@@ -634,14 +769,15 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_notice("%s: Sent complete cert update to WSS client for %s\n", __func__, pss->domain);
 				free(pss->uds_rx);
 				pss->uds_rx = NULL;
-				pss->wsi_uds = NULL;
 				/* Keep connection open for future updates */
 			}
 			break;
 		}
 
 		/* If we haven't asked UDS yet, ask UDS */
-		if (!pss->wsi_uds && pss->needs_cert_update) {
+		if (!pss->pending && pss->needs_cert_update) {
+			struct cert_dist_server_pending *pend;
+
 			pss->needs_cert_update = 0;
 
 			if (!vhd->stub_mgr) {
