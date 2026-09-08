@@ -2027,23 +2027,14 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	 */
 	if (!dsrv || !dsrv->wsi) {
 		lwsl_cx_notice(context, "no usable async dns server wsi");
-		/*
-		 * q is allocated but has not yet been published on dns->waiting
-		 * and has no scheduled sul / metrics caliper yet, so the failed:
-		 * path below (which expects a published q) would leak it.  Detach
-		 * any wsi bound to it and free q directly first.
-		 */
-		if (wsi)
-			lws_dll2_remove(&wsi->adns);
-		lws_free(q);
-		goto failed;
+		goto failed_unpublished_q;
 	}
 
 	q->issue_time = lws_now_usecs();
 
 	if (lws_async_dns_get_new_tid(context, q)) {
 		lwsl_cx_err(context, "tid fail");
-		goto failed;
+		goto failed_unpublished_q;
 	}
 
 	LADNS_MOST_RECENT_TID(q) &= 0xfffe;
@@ -2057,7 +2048,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	/* schedule a retry according to the retry policy on the wsi */
 	if (lws_retry_sul_schedule_retry_wsi(dsrv->wsi, &q->sul,
 					 lws_async_dns_sul_cb_retry, &q->retry))
-		goto failed;
+		goto failed_unpublished_q;
 
 	/* fail us if we can't write by this timeout */
 	lws_sul_schedule(context, 0, &q->write_sul, sul_cb_write, LWS_US_PER_SEC);
@@ -2089,6 +2080,24 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	lws_adns_dump(dns);
 
 	return LADNS_RET_CONTINUING;
+
+failed_unpublished_q:
+	/*
+	 * We are failing after q was allocated, but before it was published on
+	 * dns->waiting and before its metrics caliper was bound... so nothing
+	 * will ever find it again to destroy it.  The failed: path below only
+	 * does the user callback, so we have to take q down by hand here:
+	 * otherwise q leaks and, worse, the requester wsi stays linked into the
+	 * orphaned q->wsi_adns owner and can never issue another DNS query for
+	 * the rest of its life (it trips the "already bound" check above).
+	 */
+	if (wsi)
+		lws_dll2_remove(&wsi->adns);
+	lws_sul_cancel(&q->sul);
+	lws_sul_cancel(&q->write_sul);
+	if (pq)
+		*pq = NULL;
+	lws_free(q);
 
 failed:
 	lwsl_cx_notice(context, "failed");
