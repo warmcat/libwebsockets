@@ -216,6 +216,24 @@ context_creation(int argc, const char **argv)
 		goto init_failed;
 	}
 
+	if (lws_context_is_being_destroyed(context)) {
+		/*
+		 * Because we gave a foreign loop, a failure inside context
+		 * creation comes back as a non-NULL context that has already
+		 * had its destroy started, so we can run the loop to let the
+		 * deferred destroy complete.  It is not a usable context: we
+		 * must not create vhosts on it or arm suls on its pt.
+		 *
+		 * config_strings is owned by the context as external baggage
+		 * and freed when the deferred destroy finalizes, so we must
+		 * not free it here.
+		 */
+		lwsl_err("libwebsocket init failed (deferred destroy)\n");
+		lwsac_free(&defs.ac);
+
+		return 2;
+	}
+
 	/*
 	 * then create the vhosts... protocols are entirely coming from
 	 * plugins, so we leave it NULL
@@ -486,9 +504,28 @@ int main(int argc, char **argv)
 	uv_signal_init(&loop, &signal_outer[2]);
 	uv_signal_start(&signal_outer[2], signal_cb, SIGTERM);
 
-	if (context_creation(argc, (const char **)argv)) {
+	/*
+	 * The loop is ours (lws is a guest on it and so deliberately never
+	 * uv_stop()s it).  Our signal watchers must not be what keeps it alive,
+	 * or uv_run() can never return once lws has closed its own handles.
+	 * They still fire normally while the loop runs.
+	 */
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(signal_outer); n++)
+		uv_unref((uv_handle_t *)&signal_outer[n]);
+
+	n = context_creation(argc, (const char **)argv);
+	if (n) {
 		lwsl_err("Context creation failed\n");
-		return 1;
+		ret = 1;
+		if (n != 2)
+			return 1;
+
+		/*
+		 * n == 2 means we have a non-NULL context that is already being
+		 * destroyed... all we may do with it is run the loop until the
+		 * deferred destroy has completed
+		 */
 	}
 
 	/*
