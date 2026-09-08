@@ -61,6 +61,15 @@
 #define LWS_DHT_NODE_EXPIRE_SECS	7200
 #define LWS_DHT_IDLE_EXPIRE_SECS	120
 #define LWS_DHT_PACKET_SANITY_LIMIT	1500
+/*
+ * Cap on concurrent transport sequencers (one per peer address).  Each one
+ * allocates its dsh up front, and an unauthenticated inbound 'data' datagram
+ * can create one, so this is what bounds that memory.
+ */
+#define LWS_DHT_MAX_TS			64
+/* per storage object: cap subscribers, and peers announced by one source ip */
+#define LWS_DHT_MAX_SUBSCRIBERS		32
+#define LWS_DHT_MAX_PEERS_PER_SRC	8
 
 /* Serialization Field Sizes */
 #define LWS_DHT_IPV4_VLEN                  4
@@ -365,6 +374,7 @@ void lws_dht_dump_tables(struct lws_dht_ctx *ctx);
 int bucket_maintenance(struct lws_dht_ctx *ctx, int af);
 int neighbourhood_maintenance(struct lws_dht_ctx *ctx, int af);
 struct search * find_search(struct lws_dht_ctx *ctx, unsigned short tid, int af);
+int search_awaiting_reply_from(struct lws_dht_ctx *ctx, struct search *sr, const struct sockaddr *sa);
 int insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen, struct search *sr, int replied, const uint8_t *token, size_t token_len);
 void expire_searches(struct lws_dht_ctx *ctx);
 int search_send_get_peers(struct lws_dht_ctx *ctx, struct search *sr, struct search_node *n);
@@ -375,6 +385,7 @@ int expire_storage(struct lws_dht_ctx *ctx);
 void lws_dht_periodic_cb(lws_sorted_usec_list_t *sul);
 #endif
 int lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen, const struct sockaddr *from, size_t fromlen);
+int dht_sa_cmp(const struct sockaddr *a, const struct sockaddr *b);
 int dht_tx_check(size_t size, size_t offset, size_t delta);
 int dht_tx_skip(size_t *offset, size_t size, size_t delta);
 int dht_tx_id_len(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id);

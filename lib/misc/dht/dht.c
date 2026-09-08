@@ -73,6 +73,41 @@ is_martian(const struct sockaddr *sa)
 
 
 
+/*
+ * Compare two socket addresses by family, address and port; 0 if they are the
+ * same endpoint.  Deliberately does not look at any other sockaddr member, so
+ * it is safe against differing socklens and uninitialised tails.
+ */
+
+int
+dht_sa_cmp(const struct sockaddr *a, const struct sockaddr *b)
+{
+	if (a->sa_family != b->sa_family)
+		return 1;
+
+	switch (a->sa_family) {
+	case AF_INET: {
+		const struct sockaddr_in *s1 = (const struct sockaddr_in *)a,
+					 *s2 = (const struct sockaddr_in *)b;
+
+		return !(s1->sin_addr.s_addr == s2->sin_addr.s_addr &&
+			 s1->sin_port == s2->sin_port);
+	}
+	case AF_INET6: {
+		const struct sockaddr_in6 *s1 = (const struct sockaddr_in6 *)a,
+					  *s2 = (const struct sockaddr_in6 *)b;
+
+		return !(!memcmp(s1->sin6_addr.s6_addr,
+				 s2->sin6_addr.s6_addr, 16) &&
+			 s1->sin6_port == s2->sin6_port);
+	}
+	default:
+		break;
+	}
+
+	return 1;
+}
+
 int
 dht_tx_chunk(struct lws_transport_sequencer *ts, uint64_t offset,
 	     const uint8_t *buf, size_t len)
@@ -301,13 +336,18 @@ pass:
 }
 
 static void
-lws_dht_ts_idle_cb(lws_sorted_usec_list_t *sul)
+lws_dht_ts_destroy(lws_dht_ts_t *dts)
 {
-	lws_dht_ts_t *dts = lws_container_of(sul, lws_dht_ts_t, sul_idle);
-
+	lws_sul_cancel(&dts->sul_idle);
 	lws_transport_sequencer_destroy(&dts->ts);
 	lws_dll2_remove(&dts->list);
 	lws_free(dts);
+}
+
+static void
+lws_dht_ts_idle_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_dht_ts_destroy(lws_container_of(sul, lws_dht_ts_t, sul_idle));
 }
 
 void
@@ -322,12 +362,8 @@ dht_on_state_change(struct lws_transport_sequencer *ts, int state, int status)
 			     NULL, (void *)(intptr_t)status, 0,
 			     (struct sockaddr *)&dts->sa, dts->salen);
 
-	if (state != 0) {
-		lws_sul_cancel(&dts->sul_idle);
-		lws_transport_sequencer_destroy(&dts->ts);
-		lws_dll2_remove(&dts->list);
-		lws_free(dts);
-	}
+	if (state != 0)
+		lws_dht_ts_destroy(dts);
 }
 
 static const lws_transport_sequencer_ops_t dht_seq_ops = {
@@ -351,32 +387,16 @@ lws_dht_get_ts(struct lws_dht_ctx *ctx, const struct sockaddr *dest, size_t sale
 
 	while (d) {
 		lws_dht_ts_t *dts = lws_container_of(d, lws_dht_ts_t, list);
-		int match = 0;
 
-		if (dts->sa.ss_family == dest->sa_family) {
-			switch (dest->sa_family) {
-			case AF_INET: {
-				struct sockaddr_in *sin1 = (struct sockaddr_in *)&dts->sa;
-				struct sockaddr_in *sin2 = (struct sockaddr_in *)dest;
-
-				if (sin1->sin_addr.s_addr == sin2->sin_addr.s_addr &&
-				    sin1->sin_port == sin2->sin_port)
-					match = 1;
-				break;
-			}
-			case AF_INET6: {
-				struct sockaddr_in6 *sin1 = (struct sockaddr_in6 *)&dts->sa;
-				struct sockaddr_in6 *sin2 = (struct sockaddr_in6 *)dest;
-
-				if (!memcmp(sin1->sin6_addr.s6_addr, sin2->sin6_addr.s6_addr, 16) &&
-				    sin1->sin6_port == sin2->sin6_port)
-					match = 1;
-				break;
-			}
-			}
-		}
-
-		if (match) {
+		if (!dht_sa_cmp((const struct sockaddr *)&dts->sa, dest)) {
+			/*
+			 * ->ts_owner is kept in least-recently-used order with
+			 * the stalest at the head, so that the cap below evicts
+			 * the least interesting sequencer.  Move this one to
+			 * the tail now that it has seen traffic.
+			 */
+			lws_dll2_remove(&dts->list);
+			lws_dll2_add_tail(&dts->list, &ctx->ts_owner);
 			lws_sul_schedule(ctx->vhost->context, 0, &dts->sul_idle, lws_dht_ts_idle_cb, 30 * LWS_US_PER_SEC);
 			return dts->ts;
 		}
@@ -393,6 +413,25 @@ lws_dht_get_ts(struct lws_dht_ctx *ctx, const struct sockaddr *dest, size_t sale
 	if ((dest->sa_family == AF_INET && salen < sizeof(struct sockaddr_in)) ||
 	    (dest->sa_family == AF_INET6 && salen < sizeof(struct sockaddr_in6)))
 		return NULL;
+
+	/*
+	 * A sequencer costs ~160KB of dsh up front, and a single unsolicited
+	 * (and trivially spoofable) inbound 'data' datagram is enough to make
+	 * one for a source address we have never spoken to.  Bound how many can
+	 * exist at once, recycling the least-recently-used, so that a flood
+	 * churns a fixed-size table instead of growing the heap without limit;
+	 * it also bounds the cost of the linear lookup above.
+	 */
+	while (lws_dll2_count(&ctx->ts_owner) >= LWS_DHT_MAX_TS) {
+		lws_dll2_t *lru = lws_dll2_get_head(&ctx->ts_owner);
+
+		if (!lru)
+			break;
+
+		lwsl_dht_warn("%s: sequencer table full, evicting LRU\n",
+			      __func__);
+		lws_dht_ts_destroy(lws_container_of(lru, lws_dht_ts_t, list));
+	}
 
 	lws_dht_ts_t *dts = lws_zalloc(sizeof(*dts), "dht ts");
 	if (!dts)
