@@ -12,7 +12,7 @@ It acts as a central identity provider and issues time-limited JWTs to outsource
 - **JWT Issuance**: Built-in `lws_jose` and `lws-genjwt` to issue cryptographically signed JWTs.
 - **Double Submit Cookie CSRF**: Natively protects the SPA API endpoints via a stateless `csrf_token` form payload and transparent `HttpOnly` validation pairing.
 - **Autonomous IP Rate Limiting**: Employs an internal LRU cache to natively track authentication strikes, issuing global 24-hour network bans dynamically to throttle arbitrary SMTP execution scripts or registration bot floods.
-- **Single-Use Verification Pipeline**: Ephemeral registration hashes securely operate as absolute one-time read tokens for extracting the generated TOTP graphics (`/totp_svg`), passively reaping unused records natively.
+- **Single-Use Verification Pipeline**: Ephemeral registration hashes operate as one-time read tokens: the first `/verify` visit is the one that creates the `users` row, and a replay of the link fails the same way an invalid one does (so the TOTP secret is shown once, and exactly one set of backup codes is ever minted).  The QR graphic fetch (`/totp_svg`) then reaps the record.
 - **Decoupled SMTP Templating**: Administratively definable PVO overlays (`email-subject`, `email-body`) instantly decouple arbitrary verification alerts natively.
 - **Mobile Authenticator Deep-Linking**: Implicitly wraps the generated TOTP vector graphic explicitly into a tappable `otpauth://` deep-link anchor to seamlessly trigger iOS/Android 2FA applications organically.
 - **Refresh Token Support**: Supports stateful OAuth2 refresh tokens for silent session renewal, with configurable token lifetimes.  This is optional and disabled by default.
@@ -114,7 +114,72 @@ The plugin maintains several core tables natively initialized within SQLite:
 3. `oauth_clients`: Stores registered OAuth2 consumers (`client_id`, `client_secret_hash`, `redirect_uris`, `name`).
 4. `oauth_codes`: Tracks ephemeral authorization codes during the OAuth2 exchange, including structural PKCE challenges (`code`, `client_id`, `uid`, `redirect_uri`, `expires`, `code_challenge`, `code_challenge_method`).
 5. `auth_sessions`: Maintains short-lived stateless HttpOnly cookies allowing transparent redirect resolutions (`session_id`, `uid`, `expires`).
+6. `devices`: One row per paired device-flow credential (`device_id`, `uid`, `name`, `created`); deleting a row revokes that device's token.
+
+`users.session_epoch` and `users.totp_last` are added automatically by `ALTER TABLE` when an older database is opened.
 
 ## Front-end Assets
 
 We serve a strict CSP-compliant UI from `./assets` mapped into this plugin.
+
+## Security notes for operators
+
+### Put the CSP on the API mount too
+
+The example above attaches `Content-Security-Policy` to the `/` file mount
+only.  The plugin *also* serves HTML of its own from the
+`callback://lws-auth-server` mount — `/api/admin`, `/api/device` and the
+`/api/verify` confirmation page — and those get no CSP at all unless you add a
+`headers` block to that mount as well.  Do that: it is defence in depth behind
+the plugin's own output escaping.
+
+### Session revocation
+
+Every issued JWT carries the user's `session_epoch` as the `sec` claim, and
+every session resolution in the plugin rejects a token whose `sec` no longer
+matches the `users` row.  So `UPDATE users SET session_epoch = session_epoch+1`
+(which `/api/reset_password` does) immediately invalidates every outstanding
+JWT for that user, as well as their `auth_sessions` refresh rows.
+
+Device-flow tokens are long-lived (ten years) but are now also checked against
+the `devices` table on every use: `DELETE FROM devices WHERE device_id = ...`
+revokes one device without touching the user's other sessions.  There is no
+admin UI for that yet — do it with `sqlite3` on `db_path`.
+
+### Rate limiting is keyed on the transport peer address
+
+Strikes, bans and the `auth_log` rows all use the *socket* peer.  Behind a
+reverse proxy that is the proxy, not the user, which means:
+
+- a proxy on the same host presents a local address, and local addresses are
+  deliberately never struck (they are our own in-process API clients), so the
+  login/registration throttles become no-ops; and
+- a proxy on another host means one abusive client's fifth failure bans the
+  proxy address, ie every user, for 24 hours.
+
+**Terminate TLS and serve this vhost directly**, or restrict it at the network
+layer.  Consuming a forwarded client address safely needs a trusted-proxy
+configuration this plugin does not have yet.
+
+### Password policy
+
+Registration and password reset both require at least 8 characters.  That is a
+floor, not a policy — put a real one in front of it if you need one.
+
+### Known gaps
+
+- `/api/logout` and `/api/status?destroy=` mutate server-side session state on
+  a `GET` with no CSRF token, so a third-party page the victim visits can force
+  a logout (the session cookies are `SameSite=Lax`, which a top-level
+  navigation carries).  The effect is a nuisance denial of service against one
+  user, not privilege escalation.  Closing it means moving both to `POST` with
+  the `auth_csrf` double-submit the API endpoints already use, which requires
+  matching changes in `assets/auth.js` (the `?destroy=` fetch) and in whatever
+  emits the logout link.
+- `/api/register` answers `409` distinguishably for an already-registered
+  address and for one with a verification pending, which enumerates accounts.
+  Collapsing them to a single always-`200` "if the address is free you will
+  receive a verification email" answer is the real fix and changes the
+  registration UX.
+- The 100000-round PBKDF2 runs inline on the event loop thread.  The limiter is
+  now applied before it, but it still belongs on the threadpool.
