@@ -45,6 +45,13 @@ int
 lws_display_dlo_add(lws_displaylist_t *dl, lws_dlo_t *dlo_parent, lws_dlo_t *dlo)
 {
 	if (!dlo_parent && !lws_dll2_get_head(&dl->dl)) {
+		/*
+		 * This one is going on the display list itself, so its list
+		 * node's owner is not any dlo's children owner... mark it so
+		 * nobody tries to walk up from it to a "parent" dlo
+		 */
+
+		dlo->flag_toplevel = 1;
 		lws_dll2_add_tail(&dlo->list, &dl->dl);
 
 		return 0;
@@ -208,10 +215,19 @@ lws_display_dlo_adjust_dims(lws_dlo_t *dlo, lws_dlo_dim_t *dim)
 	/* move peers below him accordingly */
 
 	do {
-		lws_dlo_t *dp = lws_dll2_owner_container(&dlo->list, lws_dlo_t, children);
+		lws_dlo_t *dp;
 
-		if (!lws_dll2_owner(&dlo->list))
+		/*
+		 * The toplevel dlo's list node is owned by the lws_displaylist_t
+		 * and not by any dlo's children owner, so we must not convert
+		 * its owner to an lws_dlo_t *... and there is nothing above it
+		 * to walk up to anyway.  Same story if we are detached.
+		 */
+
+		if (dlo->flag_toplevel || !lws_dll2_owner(&dlo->list))
 			break;
+
+		dp = lws_dll2_owner_container(&dlo->list, lws_dlo_t, children);
 
 		/*
 		 * Adjust y pos of siblings below us

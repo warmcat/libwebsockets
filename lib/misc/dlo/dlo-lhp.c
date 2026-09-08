@@ -99,6 +99,25 @@ static const struct {
 	{ "span",	4 },
 };
 
+/*
+ * The cascade only fills in a css_* attribute pointer if some stanza that is
+ * active for the element actually sets that property.  An absent attribute is
+ * completely normal (eg, nothing in the default css sets "position" on a
+ * <span>) and means "use the CSS initial value for the property"... so we must
+ * never dereference these blind.
+ */
+
+static int
+lhp_propval(const lcsp_atr_t *a, int initial)
+{
+	return a ? a->propval : initial;
+}
+
+/* the element's "position", defaulting to the initial value "static" */
+#define lhp_position(_ps) lhp_propval((_ps)->css_position, LCSP_PROPVAL_STATIC)
+/* the element's "display", defaulting to the initial value "inline" */
+#define lhp_display(_ps) lhp_propval((_ps)->css_display, LCSP_PROPVAL_INLINE)
+
 static int
 lhp_tag_cmp(const char *buf, const char *name, size_t len)
 {
@@ -310,6 +329,10 @@ lhp_set_dlo_adjust_to_contents(lhp_pstack_t *ps)
 	lhp_pstack_t *psb = lws_container_of(lws_dll2_get_prev(&ps->list), lhp_pstack_t, list);
 	lws_dlo_dim_t dim;
 
+	if (!ps->dlo)
+		/* nothing to adjust */
+		return;
+
 	lws_dlo_contents(ps->dlo, &dim);
 
 	/*
@@ -325,10 +348,11 @@ lhp_set_dlo_adjust_to_contents(lhp_pstack_t *ps)
 	 */
 
 	if (ps->css_width && ps->css_width->unit != LCSP_UNIT_NONE &&
-	    ps->css_height->unit != LCSP_UNIT_LENGTH_PERCENT &&
+	    (!ps->css_height ||
+	     ps->css_height->unit != LCSP_UNIT_LENGTH_PERCENT) &&
 	    ps->css_width->propval != LCSP_PROPVAL_AUTO)
 		dim.w = *lws_csp_px(ps->css_width, ps);
-	else if (ps->css_display->propval == LCSP_PROPVAL_BLOCK &&
+	else if (lhp_display(ps) == LCSP_PROPVAL_BLOCK &&
 		 !lhp_is_inline(ps))
 		dim.w = ps->dlo->box.w;
 
@@ -342,6 +366,10 @@ lhp_set_dlo_adjust_to_contents(lhp_pstack_t *ps)
 	}
 
 	lws_display_dlo_adjust_dims(ps->dlo, &dim);
+
+	if (!psb)
+		/* we are the outermost element, there is nothing above us */
+		return;
 
 	if (lws_fx_comp(&dim.w, &psb->widest) > 0)
 		psb->widest = dim.w;
@@ -376,8 +404,10 @@ lws_lhp_dlo_adjust_div_type_element(lhp_ctx_t *ctx, lhp_pstack_t *psb,
 		lws_csp_px(ps->css_padding[CCPAS_BOTTOM], ps));
 
 	if (psb && ps->dlo &&
-	    ps->css_margin[CCPAS_LEFT]->propval == LCSP_PROPVAL_AUTO &&
-	    ps->css_margin[CCPAS_RIGHT]->propval == LCSP_PROPVAL_AUTO) {
+	    lhp_propval(ps->css_margin[CCPAS_LEFT], LCSP_PROPVAL_NONE) ==
+						LCSP_PROPVAL_AUTO &&
+	    lhp_propval(ps->css_margin[CCPAS_RIGHT], LCSP_PROPVAL_NONE) ==
+						LCSP_PROPVAL_AUTO) {
 		lws_dlo_rect_t *re = (lws_dlo_rect_t *)ps->dlo;
 
 		/* h-center a div... find the available h space first */
@@ -538,7 +568,7 @@ lws_lhp_dlo_adjust_div_type_element(lhp_ctx_t *ctx, lhp_pstack_t *psb,
 		} lws_end_foreach_dll(ro);
 	}
 
-	if (psb && ps->css_position->propval != LCSP_PROPVAL_ABSOLUTE) {
+	if (psb && lhp_position(ps) != LCSP_PROPVAL_ABSOLUTE) {
 		/* parent should account for our margin */
 		if (elem_match == LHP_ELEM_DIV) {
 			lws_fx_add(&psb->curx, &psb->curx, &ps->widest);
@@ -552,7 +582,7 @@ lws_lhp_dlo_adjust_div_type_element(lhp_ctx_t *ctx, lhp_pstack_t *psb,
 		}
 
 		if (elem_match != LHP_ELEM_TD) {
-			if (ps->css_display->propval != LCSP_PROPVAL_INLINE_BLOCK &&
+			if (lhp_display(ps) != LCSP_PROPVAL_INLINE_BLOCK &&
 			    !lhp_is_inline(ps)) {
 				lws_fx_add(&psb->cury, &psb->cury, &ps->dlo->box.h);
 				psb->dlo_set_cury = ps->dlo;
@@ -767,7 +797,7 @@ do_rect_l:
 			abut_x = NULL;
 			abut_y = NULL;
 
-			if (ps->css_position->propval == LCSP_PROPVAL_ABSOLUTE) {
+			if (lhp_position(ps) == LCSP_PROPVAL_ABSOLUTE) {
 				box.x = *lws_csp_px(ps->css_pos[CCPAS_LEFT], ps);
 				box.y = *lws_csp_px(ps->css_pos[CCPAS_TOP], ps);
 			} else {
@@ -831,7 +861,8 @@ do_rect_l:
 			psp = lws_container_of(lws_dll2_get_prev(&ps->list), lhp_pstack_t, list);
 
 			ps->dlo = (lws_dlo_t *)lws_display_dlo_rect_new(drt->dl,
-					ps->css_position->propval == LCSP_PROPVAL_ABSOLUTE ? NULL : psp->dlo,
+					lhp_position(ps) == LCSP_PROPVAL_ABSOLUTE ||
+							!psp ? NULL : psp->dlo,
 					&box, br, ps->css_background_color ?
 					  ps->css_background_color->u.rgba : 0);
 			if (!ps->dlo) {
@@ -869,7 +900,7 @@ do_rect_l:
 			lws_fx_set(box.w, 0, 0);
 			lws_fx_set(box.h, 0, 0);
 
-			if (ps->css_position->propval == LCSP_PROPVAL_ABSOLUTE) {
+			if (lhp_position(ps) == LCSP_PROPVAL_ABSOLUTE) {
 				box.x = *lws_csp_px(ps->css_pos[CCPAS_LEFT], ps);
 				box.y = *lws_csp_px(ps->css_pos[CCPAS_TOP], ps);
 			} else {
@@ -901,7 +932,15 @@ do_rect_l:
 						ctx->base_url, pname))
 				break;
 
-			lws_urldecode(url, url1, sizeof(url) - 1);
+			if (lws_urldecode(url, url1, sizeof(url))) {
+				/*
+				 * On failure the output is left truncated and
+				 * unterminated... we can't look it up
+				 */
+				lwsl_err("%s: bad urlencoding in img src\n",
+					 __func__);
+				break;
+			}
 
 			if (lws_dlo_ss_find(cx, url, &u)) {
 				lwsl_err("%s: no ss for %s\n", __func__, url);
@@ -1164,11 +1203,11 @@ do_end_rect_l:
 
 			/* move parent on according to used area plus bottom margin */
 
-			if (psb && ps->css_position->propval != LCSP_PROPVAL_ABSOLUTE) {
+			if (psb && lhp_position(ps) != LCSP_PROPVAL_ABSOLUTE) {
 
 				switch (lhp_is_inline(ps) ?
 						LCSP_PROPVAL_INLINE :
-						ps->css_display->propval) {
+						lhp_display(ps)) {
 				case LCSP_PROPVAL_BLOCK:
 				case LCSP_PROPVAL_LIST_ITEM:
 				case LCSP_PROPVAL_TABLE:
@@ -1176,7 +1215,7 @@ do_end_rect_l:
 					lws_fx_set(psb->curx, 0, 0);
 					psb->dlo_set_curx = NULL;
 
-					if (ps->css_display->propval == LCSP_PROPVAL_TABLE_ROW)
+					if (lhp_display(ps) == LCSP_PROPVAL_TABLE_ROW)
 						break;
 					lws_fx_add(&psb->cury, &psb->cury, lws_csp_px(ps->css_margin[CCPAS_BOTTOM], ps));
 					break;
@@ -1280,7 +1319,8 @@ do_end_rect_l:
 
 			if (ps_con->css_width &&
 				(ps_con->css_width->propval == LCSP_PROPVAL_AUTO ||
-				 ps->css_width->propval == LCSP_PROPVAL_AUTO) &&
+				 lhp_propval(ps->css_width, LCSP_PROPVAL_NONE) ==
+							LCSP_PROPVAL_AUTO) &&
 				 !lhp_is_inline(ps)) {
 				//lws_fx_sub(&box.w, &ctx->ic.wh_px[0], &box.x);
 				box.w = ctx->ic.wh_px[0];
