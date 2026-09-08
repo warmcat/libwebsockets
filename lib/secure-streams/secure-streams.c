@@ -478,15 +478,39 @@ _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(lws_ss_state_return_t r, struct lws 
 	if (r == LWSSSSRET_DESTROY_ME) {
 		lwsl_info("%s: DESTROY ME: %s, %s\n", __func__,
 				lws_wsi_tag(wsi), lws_ss_tag(*ph));
+		/*
+		 * We NULL h->wsi below, since we can be inside its own
+		 * callback and must kill it async... that means
+		 * lws_ss_destroy() will not see it and cannot do this
+		 * bookkeeping for us.
+		 */
+
+		if ((*ph)->wsi && (*ph)->wsi->bound_ss_proxy_conn) {
+			struct lws_sss_proxy_conn *conn =
+				(struct lws_sss_proxy_conn *)
+				   lws_get_opaque_user_data((*ph)->wsi);
+
+			if (conn)
+				conn->ss = NULL;
+		}
+
+		/*
+		 * We may be holding two different wsi here, the one the
+		 * callback came in on and h->wsi.  Since we are about to free
+		 * the handle, both of them must stop pointing at it, or the
+		 * one we left behind does a UAF on the handle when it closes.
+		 */
+
+		if ((*ph)->wsi && (*ph)->wsi != wsi) {
+			lws_set_opaque_user_data((*ph)->wsi, NULL);
+			lws_set_timeout((*ph)->wsi, 1, LWS_TO_KILL_ASYNC);
+		}
+
 		if (wsi) {
 			lws_set_opaque_user_data(wsi, NULL);
 			lws_set_timeout(wsi, 1, LWS_TO_KILL_ASYNC);
-		} else {
-			if ((*ph)->wsi) {
-				lws_set_opaque_user_data((*ph)->wsi, NULL);
-				lws_set_timeout((*ph)->wsi, 1, LWS_TO_KILL_ASYNC);
-			}
 		}
+
 		(*ph)->wsi = NULL;
 		lws_ss_destroy(ph);
 	}
@@ -707,7 +731,10 @@ lws_ss_fops_sul_cb(lws_sorted_usec_list_t *sul)
 	if (lws_vfs_file_read(h->fop_fd, &amount, lump, sizeof(lump)))
 		goto disconn;
 
-	r = h->info.rx(h + 1, lump, (size_t)amount,
+	if (!h->info.rx)
+		goto disconn;
+
+	r = h->info.rx(ss_to_userobj(h), lump, (size_t)amount,
 			(!h->fop_fd->pos ? LWSSS_FLAG_SOM : 0) |
 			(h->fop_fd->pos == h->fop_fd->len ?
 					LWSSS_FLAG_EOM : 0));
@@ -721,8 +748,16 @@ lws_ss_fops_sul_cb(lws_sorted_usec_list_t *sul)
 disconn:
 	lws_vfs_file_close(&h->fop_fd);
 
-	if (lws_ss_event_helper(h, LWSSSCS_DISCONNECTED))
-		return;
+	/*
+	 * Either the rx callback or the DISCONNECTED state callback (which
+	 * forces it for accepted handles) can ask for the destroy... we must
+	 * not let the event_helper return swallow the rx one, or the handle
+	 * leaks
+	 */
+
+	if (lws_ss_event_helper(h, LWSSSCS_DISCONNECTED) ==
+						LWSSSSRET_DESTROY_ME)
+		r = LWSSSSRET_DESTROY_ME;
 
 	if (r == LWSSSSRET_DESTROY_ME)
 		lws_ss_destroy(&h);
@@ -739,7 +774,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	union lws_ss_contemp ct;
 	lws_parse_uri_t *puri = NULL;
 	lws_ss_state_return_t r;
-	int port, tls;
+	int port, tls, subst;
 	char *path, ep[LHP_URL_LEN];
 	lws_strexp_t exp;
 	struct lws *wsi;
@@ -795,6 +830,9 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	 * time, so this can be set dynamically...
 	 */
 
+	subst = h->policy->endpoint &&
+		strstr(h->policy->endpoint, "${") != NULL;
+
 	lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata, ep, sizeof(ep));
 
 	if (lws_strexp_expand(&exp, h->policy->endpoint,
@@ -803,6 +841,26 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 		lwsl_err("%s: address strexp failed\n", __func__);
 
 		return LWSSSSRET_TX_DONT_SEND;
+	}
+
+	if (subst) {
+		const unsigned char *pp = (const unsigned char *)ep;
+
+		/*
+		 * Metadata is untrusted (a proxy peer sets it, or it was
+		 * captured from a server response header), and this ends up as
+		 * the Host: header and the SNI name... CTL, SP or DEL in there
+		 * would let whoever set it inject extra headers
+		 */
+
+		while (*pp) {
+			if (*pp <= ' ' || *pp == 0x7f) {
+				lwsl_ss_err(h, "bad char in endpoint");
+
+				return LWSSSSRET_TX_DONT_SEND;
+			}
+			pp++;
+		}
 	}
 
 	/*
@@ -870,8 +928,20 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	tls = !!(h->policy->flags & LWSSSPOLF_TLS);
 
 	if (prot && (!strcmp(prot, "http") || !strcmp(prot, "ws") ||
-		     !strcmp(prot, "mqtt")))
-		tls = 0;
+		     !strcmp(prot, "mqtt"))) {
+		/*
+		 * The scheme in the endpoint asks for no tls.  That's the
+		 * policy author's business if he wrote the scheme himself...
+		 * but if the endpoint contains a ${metadata} substitution, the
+		 * scheme may have come from an untrusted place, and it must
+		 * not be able to turn off tls the policy mandated.
+		 */
+		if (tls && subst)
+			lwsl_ss_warn(h, "ignoring non-tls scheme from "
+					"endpoint substitution");
+		else
+			tls = 0;
+	}
 
 	if (tls) {
 		lwsl_info("%s: using tls\n", __func__);
@@ -1709,10 +1779,14 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 			struct lws_sss_proxy_conn *conn = (struct lws_sss_proxy_conn *)
 				lws_get_opaque_user_data(h->wsi);
 
-			if (!conn)
-				return;
+			/*
+			 * We already latched h->destroying, we must not return
+			 * from here or the handle is never freed and never
+			 * leaves pt->ss_owner
+			 */
 
-			conn->ss = NULL;
+			if (conn)
+				conn->ss = NULL;
 		}
 
 		/*
@@ -1721,6 +1795,15 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 		 */
 		lws_set_opaque_user_data(h->wsi, NULL);
 		lws_set_timeout(h->wsi, 1, LWS_TO_KILL_SYNC);
+
+		/*
+		 * KILL_SYNC freed the wsi inline, and since we cleared its
+		 * opaque_user_data above, the close path did not clear h->wsi
+		 * for us... the DESTROYING callback below can call SS apis
+		 * that use h->wsi, so it must not be left dangling
+		 */
+
+		h->wsi = NULL;
 	}
 
 #if defined(LWS_WITH_SERVER)
