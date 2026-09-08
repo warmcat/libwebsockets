@@ -45,8 +45,18 @@ lws_dhcpc_destroy(lws_dhcpc_req_t **pr)
 	lws_sul_cancel(&r->sul_write);
 	lws_sul_cancel(&r->sul_renew);
 
-	if (r->wsi_raw)
+	if (r->wsi_raw) {
+		/*
+		 * The wsi's user_space points to r and is flagged externally
+		 * allocated, so lws will not clean it up... and the kill is
+		 * async, the close callbacks come later.  Detach r from the
+		 * wsi before we free it, or those callbacks act on freed
+		 * memory (and can arm suls that live inside it).
+		 */
+		r->wsi_raw->user_space = NULL;
 		lws_set_timeout(r->wsi_raw, 1, LWS_TO_KILL_ASYNC);
+		r->wsi_raw = NULL;
+	}
 
 	lws_dll2_remove(&r->list);
 
