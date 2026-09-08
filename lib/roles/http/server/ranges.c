@@ -216,7 +216,7 @@ lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp,
 
 	rp->extent = extent;
 
-	if (lws_hdr_copy(wsi, (char *)rp->buf, sizeof(rp->buf),
+	if (lws_hdr_copy(wsi, rp->buf, sizeof(rp->buf),
 			 WSI_TOKEN_HTTP_RANGE) <= 0)
 		return 0;
 

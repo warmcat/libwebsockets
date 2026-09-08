@@ -87,7 +87,7 @@ enum range_states {
 
 struct lws_range_parsing {
 	unsigned long long start, end, extent, agg, budget;
-	const char buf[128];
+	char buf[128];
 	int pos;
 	enum range_states state;
 	char start_valid, end_valid, ctr, count_ranges, did_try, inside, send_ctr;
