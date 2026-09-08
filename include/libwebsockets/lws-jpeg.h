@@ -79,7 +79,7 @@ lws_jpeg_free(lws_jpeg_t **j);
  * Return will be one of LWS_SRET_WANT_INPUT is the decoder is stalled waiting
  * for more input to be provided, LWS_SRET_WANT_OUTPUT is the decoder stopped
  * because it had produced a whole line of output pixels (which can be found
- * starting at *ppix), LWS_SRET_OK is it completed and LWS_SRET_FATAL or larger
+ * starting at *ppix), LWS_SRET_OK is it completed and a return with the LWS_SRET_FATAL bit set
  * if the decode failed.
  *
  * The output at *ppix is either 3-byte per pixel RGB, or 1-byte grayscale, you

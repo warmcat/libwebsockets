@@ -314,7 +314,7 @@ lws_transcode_mjpeg_to_yuv420p(void *jpeg_dec, const uint8_t *mjpeg, size_t len,
 		r = lws_jpeg_emit_next_line(dec, &line, &buf, &size, 0);
 		if (r == LWS_SRET_WANT_INPUT)
 			break;
-		if (r >= LWS_SRET_FATAL)
+		if (r & LWS_SRET_FATAL)
 			return -1;
 		if (r == LWS_SRET_WANT_OUTPUT) {
 			uint8_t *y_plane = yuv + (y_row * w);

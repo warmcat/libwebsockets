@@ -94,7 +94,7 @@ lws_upng_free(lws_upng_t **upng);
  * Return will be one of LWS_SRET_WANT_INPUT is the decoder is stalled waiting
  * for more input to be provided, LWS_SRET_WANT_OUTPUT is the decoder stopped
  * because it had produced a whole line of output pixels (which can be found
- * starting at *ppix), LWS_SRET_OK is it completed and LWS_SRET_FATAL or larger
+ * starting at *ppix), LWS_SRET_OK is it completed and a return with the LWS_SRET_FATAL bit set
  * if the decode failed.
  */
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t

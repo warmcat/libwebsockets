@@ -1370,7 +1370,7 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 			rbuf = (const uint8_t *)default_css;
 			rsize = strlen(default_css);
 			r = lws_lhp_parse(ctx, &rbuf, &rsize);
-			if (r >= LWS_SRET_FATAL) {
+			if (r & LWS_SRET_FATAL) {
 				lwsl_err("%s: css parse fail\n", __func__);
 				return r;
 			}
