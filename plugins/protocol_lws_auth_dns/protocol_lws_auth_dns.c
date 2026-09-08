@@ -544,6 +544,14 @@ struct pending_dns_query {
 	char domain[256];
 	uint8_t packet[512];
 	size_t packet_len;
+
+	/*
+	 * ^ up to here the layout must stay identical to struct
+	 * pending_dnsbl_query, LWS_CALLBACK_USER casts either kind to this
+	 * type and reads only that common prefix
+	 */
+
+	char peer_ip[64];
 	lws_sorted_usec_list_t sul_timeout;
 };
 
@@ -613,7 +621,8 @@ extract_base_domain(const char *qname, char *base, size_t max)
 	if (bl > 0 && base[bl - 1] == '.')
 		base[bl - 1] = '\0';
 
-	lwsl_notice("%s: Extracted base domain '%s' from qname '%s'\n", __func__, base, qname);
+	lwsl_info("%s: Extracted base domain '%s'\n", __func__,
+		  lws_json_purify(pn, base, (int)sizeof(pn), NULL));
 }
 
 static void
@@ -1601,6 +1610,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		char qname[256];
 		int qname_len = 0;
 		char peer_ip[64] = "unknown";
+		char pn[512]; /* purified copy of a wire name, for logging */
 		struct pending_dns_query *delayed_q = NULL;
 
 		if (reason == LWS_CALLBACK_USER) {
@@ -2180,19 +2190,51 @@ after_refused:
 				}
 
 				if (missing_cache) {
-					lwsl_notice("%s: Suspending query for DNSBL lookups (%d targets)\n", __func__, num_targets);
+					/*
+					 * C-244: the DNSBL cache is only
+					 * populated when a lookup completes,
+					 * so without these two guards every
+					 * repeat of the same query inside the
+					 * 5s window allocated another ~1KB
+					 * entry and issued another
+					 * targets * dnsbls (up to 256)
+					 * outbound lookups... ie, an
+					 * unauthenticated, spoofable heap
+					 * growth and query amplifier aimed at
+					 * the configured DNSBL operators.
+					 */
+
+					lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->pending_dnsbl)) {
+						struct pending_dnsbl_query *iq = lws_container_of(d, struct pending_dnsbl_query, list);
+
+						if (!strcmp(iq->domain, qname)) {
+							lwsl_info("%s: DNSBL lookups already in flight for this name, dropping\n", __func__);
+							goto done;
+						}
+					} lws_end_foreach_dll(d);
+
+					if ((uint32_t)lws_dll2_count(&vhd->pending_dnsbl) >=
+							LWS_AUTH_DNS_MAX_PENDING_DNSBL) {
+						lwsl_notice("%s: dnsbl pending queue limit reached from %s\n", __func__, peer_ip);
+						goto send_refused;
+					}
+
+					lwsl_info("%s: Suspending query for DNSBL lookups (%d targets)\n", __func__, num_targets);
 					struct pending_dnsbl_query *q = calloc(1, sizeof(*q));
 					if (!q) goto send_refused;
 					q->wsi = wsi;
 					q->vhd = vhd;
 					q->is_tcp = is_tcp;
+					lws_strncpy(q->domain, qname, sizeof(q->domain));
 					if (!is_tcp) {
 						const struct lws_udp *udp = lws_get_udp(wsi);
 						if (udp) q->sa46_peer = udp->sa46;
 					}
 					q->packet_len = is_tcp ? (size_t)req_len : len;
-					if (q->packet_len <= sizeof(q->packet))
-						memcpy(q->packet, p, q->packet_len);
+					/* the replay uses this as the packet end */
+					if (q->packet_len > sizeof(q->packet))
+						q->packet_len = sizeof(q->packet);
+					memcpy(q->packet, p, q->packet_len);
 
 					lws_dll2_add_tail(&q->list, &vhd->pending_dnsbl);
 					lws_sul_schedule(vhd->context, 0, &q->sul_timeout, dnsbl_timeout_cb, 5 * LWS_US_PER_SEC);
