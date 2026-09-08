@@ -569,9 +569,18 @@ struct per_session_data__auth_dns {
 	int len;
 };
 
+/*
+ * C-240: qname and everything derived from it comes straight off the wire,
+ * and a DNS label may contain any octet, including newlines and terminal
+ * escapes.  Nothing wire-derived may reach a log line without passing
+ * through lws_json_purify() first, and per-query lines are info level so an
+ * unauthenticated peer cannot drive the operator's log volume.
+ */
+
 static void
 extract_base_domain(const char *qname, char *base, size_t max)
 {
+	char pn[512];
 	int dots = 0;
 	const char *p = qname + strlen(qname) - 1;
 
@@ -1212,7 +1221,10 @@ static struct lws *
 dnsbl_query_cb(struct lws *wsi, const char *ads, const struct addrinfo *result, int n, void *opaque)
 {
 	struct pending_dnsbl_query *q = (struct pending_dnsbl_query *)opaque;
-	lwsl_info("%s: n=%d for ads=%s\n", __func__, n, ads ? ads : "null");
+	char pn[512];
+
+	lwsl_info("%s: n=%d for ads=%s\n", __func__, n,
+		  ads ? lws_json_purify(pn, ads, (int)sizeof(pn), NULL) : "null");
 
 	q->pending_lookups--;
 
@@ -1223,7 +1235,9 @@ dnsbl_query_cb(struct lws *wsi, const char *ads, const struct addrinfo *result, 
 	 */
 	if (n >= 0 && (n & ~LWS_ADNS_DNSSEC_VALID) == LADNS_RET_FOUND) {
 		/* Found an A record on the DNSBL - it's blacklisted! */
-		lwsl_notice("%s: DNSBL HIT for %s\n", __func__, ads ? ads : "known target");
+		lwsl_notice("%s: DNSBL HIT for %s\n", __func__,
+			    ads ? lws_json_purify(pn, ads, (int)sizeof(pn), NULL) :
+				  "known target");
 		dnsbl_cache_add(q->vhd, ads, 1);
 		q->is_blacklisted = 1;
 	} else if (ads && (n == LADNS_RET_NXDOMAIN || n == LADNS_RET_TIMEDOUT || n == LADNS_RET_FAILED)) {
@@ -1616,7 +1630,9 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		qclass = (q[2] << 8) | q[3];
 		q += 4;
 
-		lwsl_info("DNS qname '%s' type %d class %d\n", qname, qtype, qclass);
+		lwsl_info("DNS qname '%s' type %d class %d\n",
+			  lws_json_purify(pn, qname, (int)sizeof(pn), NULL),
+			  qtype, qclass);
 
 		int do_bit = 0;
 		uint16_t udp_payload_size = 512;
@@ -1691,8 +1707,9 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			/* MRU Promotion */
 			lws_dll2_remove(&matched_ce->list);
 			lws_dll2_add_head(&matched_ce->list, &vhd->zones);
-			lwsl_notice("'%s' %d from %s, %s serial %llu\n",
-				qname, qtype, peer_ip, matched_ce->zone.origin,
+			lwsl_info("'%s' %d from %s, %s serial %llu\n",
+				lws_json_purify(pn, qname, (int)sizeof(pn), NULL),
+				qtype, peer_ip, matched_ce->zone.origin,
 				(unsigned long long)matched_ce->serial);
 		}
 
@@ -2102,7 +2119,8 @@ after_refused:
 							for (b = 0; b < vhd->dnsbl_count; b++) {
 								char lookup[512];
 								lws_snprintf(lookup, sizeof(lookup), "%s.%s", targets[i], vhd->dnsbl[b]);
-								lwsl_notice("%s: Issuing DNSBL lookup for %s\n", __func__, lookup);
+								lwsl_info("%s: Issuing DNSBL lookup for %s\n", __func__,
+									  lws_json_purify(pn, lookup, (int)sizeof(pn), NULL));
 								q->pending_lookups++;
 
 								/*
