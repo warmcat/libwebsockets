@@ -11,7 +11,12 @@ window.activeTls = [];
 window.allTlsCache = {};
 window.certStatusCache = {};
 
-/* Escape untrusted text before it reaches an innerHTML sink */
+/*
+ * Escape untrusted text before it reaches an innerHTML sink.  Quotes are
+ * escaped too, so this is equally correct for a value interpolated inside a
+ * quoted attribute; the browser decodes the entities again, so an id or
+ * data- attribute still compares equal to the raw string afterwards.
+ */
 function escapeHtml(s) {
     return String(s)
         .replace(/&/g, '&amp;')
@@ -19,6 +24,11 @@ function escapeHtml(s) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+/* Quote a server-supplied string for literal use inside a RegExp */
+function escapeRegExp(s) {
+    return String(s).replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
 }
 
 function processCertQueue() {
@@ -269,37 +279,42 @@ function connect() {
         sendReq({ req: 'get_domains' });
     };
 
+    /*
+     * The server frames one response per line and never emits a raw newline
+     * inside one, so anything before the last '\n' is a complete line: parse
+     * it and drop it whether or not it parsed.  Carrying an unparseable line
+     * forward instead would poison every later message and grow the buffer
+     * for ever, so cap what we are willing to hold as one incomplete line.
+     */
+    const WS_STREAM_BUFFER_MAX = 1024 * 1024;
+
     ws.onmessage = function(msg) {
         window.wsStreamBuffer = (window.wsStreamBuffer || '') + msg.data;
-        const parts = window.wsStreamBuffer.split('\n');
-        let testBuffer = '';
-        let successfullyParsedUpToPart = -1;
 
-        for (let i = 0; i < parts.length; i++) {
-            testBuffer += (testBuffer ? '\n' : '') + parts[i];
-            let p = testBuffer.trim();
-            if (!p) {
-                testBuffer = '';
-                successfullyParsedUpToPart = i;
-                continue;
-            }
-
-            try {
-                const data = JSON.parse(p);
-                handleResponse(data);
-                testBuffer = '';
-                successfullyParsedUpToPart = i;
-            } catch(e) {
-                // Expected when receiving fragmented JSON over UDS.
-                // The state machine will buffer and re-attempt on the next chunk.
-            }
-        }
-
-        if (successfullyParsedUpToPart === parts.length - 1) {
+        if (window.wsStreamBuffer.length > WS_STREAM_BUFFER_MAX) {
+            console.warn('[INSTRUMENT] WS onmessage: reassembly buffer over cap, discarding');
             window.wsStreamBuffer = '';
-        } else {
-            window.wsStreamBuffer = parts.slice(successfullyParsedUpToPart + 1).join('\n');
+            return;
         }
+
+        const parts = window.wsStreamBuffer.split('\n');
+
+        /* whatever follows the last newline is the incomplete remainder */
+        window.wsStreamBuffer = parts.pop();
+
+        parts.forEach(part => {
+            const p = part.trim();
+            if (!p) return;
+
+            let data;
+            try {
+                data = JSON.parse(p);
+            } catch(e) {
+                console.warn('[INSTRUMENT] WS onmessage: dropping unparseable line');
+                return;
+            }
+            handleResponse(data);
+        });
     };
 
     ws.onclose = function() {
@@ -378,7 +393,7 @@ function handleResponse(data) {
                             ip = parts.join(':') + ':' + window.ipv6_suffix;
                         }
                     }
-                    content += `<tr><td>${type}:</td><td><b>${ip}</b></td></tr>`;
+                    content += `<tr><td>${type}:</td><td><b>${escapeHtml(ip)}</b></td></tr>`;
                 });
                 content += '</table>';
                 bdg.classList.remove('hide'); bdg.classList.add('show-inline');
@@ -860,10 +875,15 @@ function renderWhoisHeader() {
     }
     dsStatusHTML = `DNSSEC Delegation: <span class="${isSigned ? 'dns-fg-green' : 'dns-fg-gray'}">${isSigned ? '✔' : '⚠'}</span>`;
 
+    /*
+     * dns_state.json is written outside this tree from DNS answers fetched
+     * off the public internet, so the key tag is untrusted markup until it
+     * has been escaped
+     */
     const extractKeyTag = (dsStr) => {
         if (!dsStr) return 'Missing';
         const parts = dsStr.trim().split(/\s+/);
-        return parts.length > 0 ? parts[0] : 'Unknown';
+        return escapeHtml(parts.length > 0 ? parts[0] : 'Unknown');
     };
 
     if (currentDomainObj.dns_ds || currentDomainObj.dns_ds_global) {
@@ -884,7 +904,7 @@ function renderWhoisHeader() {
     }
 
     if (currentDomainObj.alg) {
-        dsStatusHTML += `<br><span class="dns-fg-gray text-sm">Key: ${currentDomainObj.alg} &nbsp; <a href="#" id="link-regen-keys" class="ext-link">replace</a> &nbsp; <a href="#" id="link-info-keys" class="ext-link">info</a></span>`;
+        dsStatusHTML += `<br><span class="dns-fg-gray text-sm">Key: ${escapeHtml(currentDomainObj.alg)} &nbsp; <a href="#" id="link-regen-keys" class="ext-link">replace</a> &nbsp; <a href="#" id="link-info-keys" class="ext-link">info</a></span>`;
     }
 
     let overallSigned = isSigned && !localMismatch && !globalMismatch;
@@ -1018,20 +1038,25 @@ function updateGlobalTlsTable() {
         let remExp = 'Checking...';
         let issuer = 'Checking...';
 
+        /*
+         * issuer / msg come from whatever answered the probe, and
+         * handle_req_check_cert deliberately connects with all certificate
+         * validation off: treat them as remote attacker text
+         */
         if (cached) {
             if (cached.status === 'ok') {
-                locExp = cached.local_msg || 'Unknown';
-                remExp = cached.msg || 'Unknown';
-                issuer = cached.issuer || 'Unknown';
+                locExp = escapeHtml(cached.local_msg || 'Unknown');
+                remExp = escapeHtml(cached.msg || 'Unknown');
+                issuer = escapeHtml(cached.issuer || 'Unknown');
             } else {
-                remExp = `<span class="text-red">${cached.msg}</span>`;
-                locExp = cached.local_msg || 'Error';
-                issuer = cached.issuer || 'Error';
+                remExp = `<span class="text-red">${escapeHtml(cached.msg)}</span>`;
+                locExp = escapeHtml(cached.local_msg || 'Error');
+                issuer = escapeHtml(cached.issuer || 'Error');
             }
         }
 
         tr.innerHTML = `
-            <td>${t.fqdn}:${t.port}</td>
+            <td>${escapeHtml(t.fqdn)}:${escapeHtml(t.port)}</td>
             <td>${locExp}</td>
             <td>${remExp}</td>
             <td>${issuer}</td>
@@ -1113,8 +1138,8 @@ function updateDistClientsTable() {
     allTlsList.forEach(t => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td>${t.domain}</td>
-            <td>${t.fqdn}:${t.port}</td>
+            <td>${escapeHtml(t.domain)}</td>
+            <td>${escapeHtml(t.fqdn)}:${escapeHtml(t.port)}</td>
             <td><button class="btn btn-sm primary btn-dist-gen">Generate & Download</button></td>
         `;
         const btn = tr.querySelector('.btn-dist-gen');
@@ -1171,12 +1196,21 @@ function renderZoneTable() {
         let ttlStr = r.parsed?.ttl || '-';
         let valStr = r.parsed?.value;
 
-        if (r.type === 'SOA') {
+        if (r.type === 'SOA')
             valStr = `${r.parsed?.serial} (MNAME: ${r.parsed?.mname})`;
-        } else if (valStr && typeof window.getSubstitutions === 'function') {
+
+        /*
+         * The zone text is whatever some admin last stored: escape it into
+         * markup first, and only then splice the substitution preview spans
+         * into the escaped result
+         */
+        let valHtml = escapeHtml(valStr || '-');
+
+        if (r.type !== 'SOA' && valStr && typeof window.getSubstitutions === 'function') {
             window.getSubstitutions().forEach(sub => {
-                let regex = new RegExp(`\\$\\{${sub.key}\\}`, 'g');
-                valStr = valStr.replace(regex, `\$\{${sub.key}\}<span class="subst-preview">${sub.val}</span>`);
+                let regex = new RegExp(`\\$\\{${escapeRegExp(sub.key)}\\}`, 'g');
+                valHtml = valHtml.replace(regex, () =>
+                    `\$\{${escapeHtml(sub.key)}\}<span class="subst-preview">${escapeHtml(sub.val)}</span>`);
             });
         }
 
@@ -1201,18 +1235,18 @@ function renderZoneTable() {
 
             tlsTd = `<td class="ext-tls-cell">
                          <div class="tls-port-wrapper">
-                             <input type="number" class="tls-port ext-port tls-port-input" data-fqdn="${fqdn}" value="${portVal}" maxlength="5" placeholder="Port">
+                             <input type="number" class="tls-port ext-port tls-port-input" data-fqdn="${escapeHtml(fqdn)}" value="${escapeHtml(portVal)}" maxlength="5" placeholder="Port">
                              <br>
-                             <span id="cert-status-${fqdn}" class="cert-status tls-cert-status ${initColorClass}">${initStatus}</span>
+                             <span id="cert-status-${escapeHtml(fqdn)}" class="cert-status tls-cert-status ${initColorClass}">${escapeHtml(initStatus)}</span>
                          </div>
                      </td>`;
         }
 
         tr.innerHTML = `
-            <td class="ext-mono">${nameStr}</td>
-            <td>${ttlStr}</td>
-            <td><span class="status-badge ext-badge">${typeStr}</span></td>
-            <td class="ext-value">${valStr || '-'}</td>
+            <td class="ext-mono">${escapeHtml(nameStr)}</td>
+            <td>${escapeHtml(ttlStr)}</td>
+            <td><span class="status-badge ext-badge">${escapeHtml(typeStr)}</span></td>
+            <td class="ext-value">${valHtml}</td>
             ${tlsTd}
         `;
 
@@ -1288,15 +1322,16 @@ let editingRecordId = null;
 function renderFormFields(type, data) {
     const form = document.getElementById('editor-form');
 
+    /* every value below comes out of the stored zone file: escape it */
     let common = `
         <div class="ext-grid-1">
             <div>
                 <label>Name (e.g. @ or www)</label>
-                <input type="text" id="edit-name" value="${data.name || ''}" placeholder="@">
+                <input type="text" id="edit-name" value="${escapeHtml(data.name || '')}" placeholder="@">
             </div>
             <div>
                 <label>TTL</label>
-                <input type="text" id="edit-ttl" value="${data.ttl || ''}" placeholder="3600">
+                <input type="text" id="edit-ttl" value="${escapeHtml(data.ttl || '')}" placeholder="3600">
             </div>
         </div>
     `;
@@ -1305,17 +1340,17 @@ function renderFormFields(type, data) {
         form.innerHTML = `
             ${common}
             <div class="ext-grid-2">
-                <div><label>MNAME (Primary NS)</label><input type="text" id="edit-mname" value="${data.mname || ''}"></div>
-                <div><label>RNAME (Admin Email)</label><input type="text" id="edit-rname" value="${data.rname || ''}"></div>
+                <div><label>MNAME (Primary NS)</label><input type="text" id="edit-mname" value="${escapeHtml(data.mname || '')}"></div>
+                <div><label>RNAME (Admin Email)</label><input type="text" id="edit-rname" value="${escapeHtml(data.rname || '')}"></div>
             </div>
             <div class="ext-grid-4">
-                <div><label>Serial</label><input type="number" id="edit-serial" value="${data.serial || ''}"></div>
-                <div><label>Refresh</label><input type="number" id="edit-refresh" value="${data.refresh || ''}"></div>
-                <div><label>Retry</label><input type="number" id="edit-retry" value="${data.retry || ''}"></div>
-                <div><label>Expire</label><input type="number" id="edit-expire" value="${data.expire || ''}"></div>
+                <div><label>Serial</label><input type="number" id="edit-serial" value="${escapeHtml(data.serial || '')}"></div>
+                <div><label>Refresh</label><input type="number" id="edit-refresh" value="${escapeHtml(data.refresh || '')}"></div>
+                <div><label>Retry</label><input type="number" id="edit-retry" value="${escapeHtml(data.retry || '')}"></div>
+                <div><label>Expire</label><input type="number" id="edit-expire" value="${escapeHtml(data.expire || '')}"></div>
             </div>
             <div class="ext-mt">
-                <label>Minimum TTL</label><input type="number" id="edit-minimum" value="${data.minimum || ''}">
+                <label>Minimum TTL</label><input type="number" id="edit-minimum" value="${escapeHtml(data.minimum || '')}">
             </div>
             <input type="hidden" id="edit-type" value="SOA">
         `;
@@ -1340,7 +1375,7 @@ function renderFormFields(type, data) {
                 </div>
                 <div>
                     <label>${valueLabel}</label>
-                    <input type="text" id="edit-value" value="${(data.value || '').replace(/"/g, '&quot;')}" placeholder="...">
+                    <input type="text" id="edit-value" value="${escapeHtml(data.value || '')}" placeholder="...">
                 </div>
             </div>
         `;
@@ -1470,8 +1505,8 @@ function initApp() {
     window.padVariables = function(text) {
         let subs = window.getSubstitutions();
         subs.forEach(sub => {
-            let regex = new RegExp(`\\$\\{${sub.key}\\}`, 'g');
-            text = text.replace(regex, `\$\{${sub.key}\}` + '\u2007'.repeat(sub.val.length));
+            let regex = new RegExp(`\\$\\{${escapeRegExp(sub.key)}\\}`, 'g');
+            text = text.replace(regex, () => `\$\{${sub.key}\}` + '\u2007'.repeat(sub.val.length));
         });
 
         // Unconditionally pad any DANE0/DANE1 macro with 70 chars if it hasn't been padded yet
@@ -1495,10 +1530,12 @@ function initApp() {
         
         let subs = window.getSubstitutions();
         subs.forEach(sub => {
-            let safeKey = sub.key.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+            let safeKey = escapeRegExp(sub.key);
             let padded = `\\$\\{${safeKey}\\}` + '\u2007'.repeat(sub.val.length);
             let regex = new RegExp(padded, 'g');
-            html = html.replace(regex, `\$\{${sub.key}\}<span class="subst-preview">${sub.val}</span>`);
+            /* html is already escaped: sub.val must be too before it joins it */
+            html = html.replace(regex, () =>
+                `\$\{${escapeHtml(sub.key)}\}<span class="subst-preview">${escapeHtml(sub.val)}</span>`);
         });
 
         if (text.endsWith('\n')) html += '<br>';
