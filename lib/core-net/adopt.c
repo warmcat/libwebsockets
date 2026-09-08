@@ -503,9 +503,40 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 	return new_wsi;
 
 fail:
-	if (type & LWS_ADOPT_SOCKET)
+	if (type & LWS_ADOPT_SOCKET) {
 		lws_close_free_wsi(new_wsi, LWS_CLOSE_STATUS_NOSTATUS,
 				   "adopt skt fail");
+
+		return NULL;
+	}
+
+	/*
+	 * LWS_ADOPT_RAW_FILE_DESC is 0, so this is the non-socket adopt.  The
+	 * API contract is that if we return NULL, the caller still owns the fd
+	 * and will close it himself... so we must not close it here.
+	 *
+	 * But we may already have put him in the fds table above (the failing
+	 * user callback is issued after that, deliberately, so it can use
+	 * lws_callback_on_writable()).  If we just return, we keep polling an
+	 * fd number the caller has closed, and will service this wsi against
+	 * whatever the OS hands that number to next.
+	 *
+	 * Take him back out of the fds table and the fd lookup while his desc
+	 * is still valid, then forget the desc so the close path can't close
+	 * an fd that isn't ours, and free him.
+	 */
+
+	lws_context_lock(cx, __func__); /* ---------------------- context { */
+	lws_pt_lock(pt, __func__); /* -------------------------------- pt { */
+
+	__remove_wsi_socket_from_fds(new_wsi);
+	new_wsi->desc.sockfd = LWS_SOCK_INVALID;
+
+	__lws_close_free_wsi(new_wsi, LWS_CLOSE_STATUS_NOSTATUS,
+			     "adopt file fail");
+
+	lws_pt_unlock(pt); /* --------------------------------------- } pt */
+	lws_context_unlock(cx); /* ---------------------------- } context */
 
 	return NULL;
 }
