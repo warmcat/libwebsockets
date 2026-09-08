@@ -740,6 +740,10 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 				goto bail;
 		}
 
+		/* match the integer arm: a top-level string has no map */
+		if (!ctx->sp)
+			goto bail;
+
 		if (!lecp_parse_map_is_key(ctx) &&
 		    cps->cose_state == LWSCOSE_WKK_ALG) {
 			size_t n;
