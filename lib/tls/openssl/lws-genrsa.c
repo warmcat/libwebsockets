@@ -445,6 +445,20 @@ lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 {
 #if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
 	size_t out_len = out_max;
+
+	/*
+	 * For the v1.5 padding modes OpenSSL bounds the plaintext by the
+	 * modulus size and not by the `outsize` it was given, so lws must
+	 * enforce the caller's buffer size itself
+	 */
+
+	if (out_max < (size_t)EVP_PKEY_size(EVP_PKEY_CTX_get0_pkey(ctx->ctx))) {
+		lwsl_err("%s: out_max %d too small for key\n", __func__,
+			 (int)out_max);
+
+		return -1;
+	}
+
 	if (EVP_PKEY_verify_recover_init(ctx->ctx) <= 0 ||
 	    EVP_PKEY_CTX_set_rsa_padding(ctx->ctx, mode_map_crypt[ctx->mode]) <= 0 ||
 	    EVP_PKEY_verify_recover(ctx->ctx, out, &out_len, in, in_len) <= 0) {
@@ -453,7 +467,18 @@ lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	}
 	return (int)out_len;
 #else
-	int n = RSA_public_decrypt(SSL_SIZE_T_CAST(in_len), in, out, ctx->rsa,
+	int n;
+
+	/* RSA_public_decrypt() bounds `out` by the modulus size, not out_max */
+
+	if (out_max < (size_t)RSA_size(ctx->rsa)) {
+		lwsl_err("%s: out_max %d too small for key\n", __func__,
+			 (int)out_max);
+
+		return -1;
+	}
+
+	n = RSA_public_decrypt(SSL_SIZE_T_CAST(in_len), in, out, ctx->rsa,
 			       mode_map_crypt[ctx->mode]);
 	if (n < 0) {
 		lwsl_err("%s: RSA_public_decrypt failed\n", __func__);
@@ -470,6 +495,20 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 {
 #if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
 	size_t out_len = out_max;
+
+	/*
+	 * For the v1.5 padding modes OpenSSL bounds the plaintext by the
+	 * modulus size and not by the `outsize` it was given, so lws must
+	 * enforce the caller's buffer size itself
+	 */
+
+	if (out_max < (size_t)EVP_PKEY_size(EVP_PKEY_CTX_get0_pkey(ctx->ctx))) {
+		lwsl_err("%s: out_max %d too small for key\n", __func__,
+			 (int)out_max);
+
+		return -1;
+	}
+
 	if (EVP_PKEY_decrypt_init(ctx->ctx) <= 0 ||
 	    EVP_PKEY_CTX_set_rsa_padding(ctx->ctx, mode_map_crypt[ctx->mode]) <= 0 ||
 	    (ctx->mode == LGRSAM_PKCS1_OAEP_PSS &&
@@ -481,7 +520,18 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	}
 	return (int)out_len;
 #else
-	int n = RSA_private_decrypt(SSL_SIZE_T_CAST(in_len), in, out, ctx->rsa,
+	int n;
+
+	/* RSA_private_decrypt() bounds `out` by the modulus size, not out_max */
+
+	if (out_max < (size_t)RSA_size(ctx->rsa)) {
+		lwsl_err("%s: out_max %d too small for key\n", __func__,
+			 (int)out_max);
+
+		return -1;
+	}
+
+	n = RSA_private_decrypt(SSL_SIZE_T_CAST(in_len), in, out, ctx->rsa,
 			        mode_map_crypt[ctx->mode]);
 	if (n < 0) {
 		lwsl_err("%s: RSA_private_decrypt failed\n", __func__);
@@ -569,7 +619,6 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	int n = lws_gencrypto_openssl_hash_to_NID(hash_type),
 	    h = (int)lws_genhash_size(hash_type);
 	unsigned int used = 0;
-	EVP_MD_CTX *mdctx = NULL;
 	const EVP_MD *md = NULL;
 
 	if (n < 0)
@@ -606,44 +655,51 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		break;
 
 	case LGRSAM_PKCS1_OAEP_PSS:
-
-		md = lws_gencrypto_openssl_hash_to_EVP_MD(hash_type);
-		if (!md)
-			return -1;
-
-		if (EVP_PKEY_CTX_set_rsa_padding(ctx->ctx,
-						 mode_map_sig[ctx->mode]) != 1) {
-			lwsl_err("%s: set_rsa_padding failed\n", __func__);
-
-			goto bail;
-		}
-
-		mdctx = EVP_MD_CTX_create();
-		if (!mdctx)
-			goto bail;
-
-		if (EVP_DigestSignInit(mdctx, NULL, md, NULL,
+		{
+			/*
+			 * `in` is already the digest, so this is a sign-of-
+			 * hash, not a digest-and-sign; and the PSS padding and
+			 * salt length can only be selected after the sign
+			 * operation has been initialized on the ctx, so it has
+			 * to be a per-call one like the v1.5 arm above.
+			 *
+			 * Salt length -1 (= digest length) matches what
+			 * lws_genrsa_hash_sig_verify() requires.
+			 *
+			 * Care: these apis return 1 for success.
+			 */
+			EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new(
 #if defined(USE_WOLFSSL)
-					ctx->ctx->pkey)) {
+					ctx->ctx->pkey,
 #else
-				       EVP_PKEY_CTX_get0_pkey(ctx->ctx))) {
+					EVP_PKEY_CTX_get0_pkey(ctx->ctx),
 #endif
-			lwsl_err("%s: EVP_DigestSignInit failed\n", __func__);
+					NULL);
+			size_t slen = sig_len;
 
-			goto bail;
-		}
-		if (EVP_DigestSignUpdate(mdctx, in, (unsigned int)EVP_MD_size(md))) {
-			lwsl_err("%s: EVP_DigestSignUpdate failed\n", __func__);
+			md = lws_gencrypto_openssl_hash_to_EVP_MD(hash_type);
+			if (!pctx || !md) {
+				if (pctx)
+					EVP_PKEY_CTX_free(pctx);
+				goto bail;
+			}
 
-			goto bail;
-		}
-		if (EVP_DigestSignFinal(mdctx, sig, &sig_len)) {
-			lwsl_err("%s: EVP_DigestSignFinal failed\n", __func__);
+			if (EVP_PKEY_sign_init(pctx) <= 0 ||
+			    EVP_PKEY_CTX_set_rsa_padding(pctx,
+					    mode_map_sig[ctx->mode]) <= 0 ||
+			    EVP_PKEY_CTX_set_signature_md(pctx, md) <= 0 ||
+			    EVP_PKEY_CTX_set_rsa_pss_saltlen(pctx, -1) <= 0 ||
+			    EVP_PKEY_sign(pctx, sig, &slen, in,
+					  (size_t)h) <= 0) {
+				lwsl_err("%s: PSS sign failed\n", __func__);
+				lws_tls_err_describe_clear();
+				EVP_PKEY_CTX_free(pctx);
+				goto bail;
+			}
 
-			goto bail;
+			used = (unsigned int)slen;
+			EVP_PKEY_CTX_free(pctx);
 		}
-		EVP_MD_CTX_free(mdctx);
-		used = (unsigned int)sig_len;
 		break;
 
 	default:
@@ -653,9 +709,6 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	return (int)used;
 
 bail:
-	if (mdctx)
-		EVP_MD_CTX_free(mdctx);
-
 	return -1;
 }
 

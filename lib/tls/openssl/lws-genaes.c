@@ -52,6 +52,8 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 	ctx->init = 0;
 	ctx->op = op;
 	ctx->padding = padding;
+	/* the ctx is caller storage that may be uninitialized */
+	ctx->cipher = NULL;
 
 	switch (ctx->k->len) {
 	case 128 / 8:
@@ -97,9 +99,10 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 #endif
 #if defined(LWS_HAVE_EVP_aes_128_xts) && !defined(LWS_WITH_BORINGSSL) && !defined(LWS_WITH_BORINGSSL)
 		case LWS_GAESM_XTS:
+			/* no cipher was selected, we must not continue */
 			lwsl_err("%s: AES XTS requires double-length key\n",
 				 __func__);
-			break;
+			goto bail;
 #endif
 		case LWS_GAESM_GCM:
 			ctx->cipher = EVP_aes_128_gcm();
@@ -279,17 +282,30 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 				n = -1;
 			}
 
-			if (ctx->mode == LWS_GAESM_GCM) {
+			/*
+			 * `tag` is optional (cleanup on an error path passes
+			 * NULL) and `tlen` is how much of it we may write...
+			 * OpenSSL copies into `tag` unconditionally, so both
+			 * have to be honoured here rather than assumed
+			 */
+
+			if (ctx->mode == LWS_GAESM_GCM && tag && tlen) {
+				int tl = ctx->taglen;
+
+				if (tl > 0 && tlen < (size_t)tl)
+					tl = (int)tlen;
+
 				if (EVP_CIPHER_CTX_ctrl(ctx->ctx,
 						EVP_CTRL_GCM_GET_TAG,
-						    ctx->taglen, tag) != 1) {
+						    tl, tag) != 1) {
 					lwsl_err("get tag ctrl failed\n");
 					//lws_tls_err_describe_clear();
 					n = 1;
 				}
 			}
-			if (ctx->mode == LWS_GAESM_CBC)
-				memcpy(tag, buf, (unsigned int)outl);
+			if (ctx->mode == LWS_GAESM_CBC && tag && tlen && outl > 0)
+				memcpy(tag, buf, (size_t)outl > tlen ?
+							tlen : (size_t)outl);
 
 			break;
 

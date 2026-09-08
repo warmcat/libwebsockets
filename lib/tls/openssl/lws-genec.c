@@ -970,6 +970,23 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
 	eckey[LDHS_THEIRS] = EVP_PKEY_get1_EC_KEY(
 				EVP_PKEY_CTX_get0_pkey(ctx->ctx[LDHS_THEIRS]));
 
+	/*
+	 * RFC 7518 s4.6: the peer's key MUST be on the same curve as ours.
+	 * The O3 path gets this from EVP_PKEY_derive_set_peer(), but
+	 * ECDH_compute_key() will happily do the scalar multiply in our group
+	 * with a point that came from a different one, so check it here
+	 */
+
+	if (!eckey[LDHS_OURS] || !eckey[LDHS_THEIRS] ||
+	    EC_GROUP_cmp(EC_KEY_get0_group(eckey[LDHS_OURS]),
+			 EC_KEY_get0_group(eckey[LDHS_THEIRS]), NULL)) {
+		lwsl_err("%s: peer key is on a different curve\n", __func__);
+		EC_KEY_free(eckey[LDHS_OURS]);
+		EC_KEY_free(eckey[LDHS_THEIRS]);
+
+		return -1;
+	}
+
 	len =
 #if defined(LWS_WITH_BORINGSSL) || defined(LWS_WITH_AWSLC)
 		(int)
@@ -1012,6 +1029,26 @@ lws_geneddsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 	return 0;
 }
 
+#if defined(EVP_PKEY_ED25519) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(USE_WOLFSSL)
+/*
+ * The producers of e[CRV] disagree about whether the element length counts the
+ * NUL (jwk.c does not, lws_gen*_new_keypair() does), so accept both... but
+ * compare the whole name, a prefix match would let "Ed25519X" in
+ */
+
+static int
+lws_geneddsa_crv_is(const struct lws_gencrypto_keyelem *el, const char *name)
+{
+	size_t n = strlen(name);
+
+	if (!el->buf || (el->len != n &&
+			 (el->len != n + 1 || el->buf[n])))
+		return 0;
+
+	return !memcmp(el->buf, name, n);
+}
+#endif
+
 int
 lws_geneddsa_set_key(struct lws_genec_ctx *ctx,
 		     const struct lws_gencrypto_keyelem *el)
@@ -1023,11 +1060,9 @@ lws_geneddsa_set_key(struct lws_genec_ctx *ctx,
 	if (ctx->genec_alg != LEGENEC_EDDSA)
 		return -1;
 
-	if ((el[LWS_GENCRYPTO_OKP_KEYEL_CRV].len == 7 || el[LWS_GENCRYPTO_OKP_KEYEL_CRV].len == 8) &&
-	    !strncmp((const char *)el[LWS_GENCRYPTO_OKP_KEYEL_CRV].buf, "Ed25519", 7))
+	if (lws_geneddsa_crv_is(&el[LWS_GENCRYPTO_OKP_KEYEL_CRV], "Ed25519"))
 		nid = EVP_PKEY_ED25519;
-	else if ((el[LWS_GENCRYPTO_OKP_KEYEL_CRV].len == 5 || el[LWS_GENCRYPTO_OKP_KEYEL_CRV].len == 6) &&
-		 !strncmp((const char *)el[LWS_GENCRYPTO_OKP_KEYEL_CRV].buf, "Ed448", 5))
+	else if (lws_geneddsa_crv_is(&el[LWS_GENCRYPTO_OKP_KEYEL_CRV], "Ed448"))
 		nid = EVP_PKEY_ED448;
 	else
 		return -1;
@@ -1113,28 +1148,49 @@ lws_geneddsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
 	lws_genec_keypair_destroy(&ctx->ctx[0]);
 
 	ctx->ctx[0] = EVP_PKEY_CTX_new(pkey, NULL);
+	if (!ctx->ctx[0])
+		goto bail;
 
-	/* extract X and D */
+	/*
+	 * extract CRV, X and D... check every allocation and extraction, like
+	 * lws_genec_new_keypair() does, so a failure cannot leave the caller
+	 * with a half-populated el[] he believes is a key
+	 */
+
 	el[LWS_GENCRYPTO_OKP_KEYEL_CRV].len = (uint32_t)strlen(curve_name) + 1;
 	el[LWS_GENCRYPTO_OKP_KEYEL_CRV].buf =
 			lws_malloc(el[LWS_GENCRYPTO_OKP_KEYEL_CRV].len, "okp");
+	if (!el[LWS_GENCRYPTO_OKP_KEYEL_CRV].buf)
+		goto bail_el;
 	strcpy((char *)el[LWS_GENCRYPTO_OKP_KEYEL_CRV].buf, curve_name);
 
 	/* OpenSSL EVP_PKEY_get_raw_public_key / private_key */
-	if (EVP_PKEY_get_raw_public_key(pkey, NULL, &len) == 1) {
-		el[LWS_GENCRYPTO_OKP_KEYEL_X].len = (uint32_t)len;
-		el[LWS_GENCRYPTO_OKP_KEYEL_X].buf = lws_malloc((uint32_t)len, "okpx");
-		EVP_PKEY_get_raw_public_key(pkey, el[LWS_GENCRYPTO_OKP_KEYEL_X].buf, &len);
-	}
+	if (EVP_PKEY_get_raw_public_key(pkey, NULL, &len) != 1)
+		goto bail_el;
 
-	if (EVP_PKEY_get_raw_private_key(pkey, NULL, &len) == 1) {
-		el[LWS_GENCRYPTO_OKP_KEYEL_D].len = (uint32_t)len;
-		el[LWS_GENCRYPTO_OKP_KEYEL_D].buf = lws_malloc((uint32_t)len, "okpd");
-		EVP_PKEY_get_raw_private_key(pkey, el[LWS_GENCRYPTO_OKP_KEYEL_D].buf, &len);
-	}
+	el[LWS_GENCRYPTO_OKP_KEYEL_X].len = (uint32_t)len;
+	el[LWS_GENCRYPTO_OKP_KEYEL_X].buf = lws_malloc((uint32_t)len, "okpx");
+	if (!el[LWS_GENCRYPTO_OKP_KEYEL_X].buf ||
+	    EVP_PKEY_get_raw_public_key(pkey,
+			el[LWS_GENCRYPTO_OKP_KEYEL_X].buf, &len) != 1)
+		goto bail_el;
+
+	if (EVP_PKEY_get_raw_private_key(pkey, NULL, &len) != 1)
+		goto bail_el;
+
+	el[LWS_GENCRYPTO_OKP_KEYEL_D].len = (uint32_t)len;
+	el[LWS_GENCRYPTO_OKP_KEYEL_D].buf = lws_malloc((uint32_t)len, "okpd");
+	if (!el[LWS_GENCRYPTO_OKP_KEYEL_D].buf ||
+	    EVP_PKEY_get_raw_private_key(pkey,
+			el[LWS_GENCRYPTO_OKP_KEYEL_D].buf, &len) != 1)
+		goto bail_el;
+
 	EVP_PKEY_free(pkey);
 	ctx->has_private = 1;
 	return 0;
+
+bail_el:
+	lws_gencrypto_destroy_elements(el, LWS_GENCRYPTO_OKP_KEYEL_COUNT);
 bail:
 	if (pctx)
 		EVP_PKEY_CTX_free(pctx);
