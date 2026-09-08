@@ -56,12 +56,62 @@ rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	return 0;
 }
 
+/*
+ * ovname, distro and the layer names are pasted both into the overlayfs mount
+ * option string (where ':' separates lowerdirs and ',' separates options) and
+ * into a path we then recursively delete.  Confine them to a conservative
+ * alphabet, so that neither the option string can be extended with attacker-
+ * chosen lowerdir / upperdir / workdir options, nor the deletion walked out of
+ * the overlay base by a '/' or a ".." component.
+ */
+
+static int
+fsmount_name_ok(const char *name)
+{
+	const char *p = name;
+
+	if (!name || !*name || !strcmp(name, "..") || !strcmp(name, "."))
+		return 0;
+
+	while (*p) {
+		if (!(*p >= 'a' && *p <= 'z') && !(*p >= 'A' && *p <= 'Z') &&
+		    !(*p >= '0' && *p <= '9') &&
+		    *p != '.' && *p != '_' && *p != '-')
+			return 0;
+		p++;
+	}
+
+	return 1;
+}
+
 int
 lws_fsmount_mount(struct lws_fsmount *fsm)
 {
 	struct libmnt_context *ctx;
 	char opts[512], c;
 	int n, m;
+
+	/*
+	 * These come from the caller's config or, typically, from a job
+	 * description that arrived over the network... validate them before
+	 * they are pasted into a mount option string or into a path we rm -rf.
+	 * They are fixed-size arrays, so also confirm they are terminated.
+	 */
+
+	if (!memchr(fsm->ovname, '\0', sizeof(fsm->ovname)) ||
+	    !memchr(fsm->distro, '\0', sizeof(fsm->distro)) ||
+	    !fsmount_name_ok(fsm->ovname) || !fsmount_name_ok(fsm->distro)) {
+		lwsl_err("%s: bad ovname or distro\n", __func__);
+
+		return 1;
+	}
+
+	for (m = 0; m < (int)LWS_ARRAY_SIZE(fsm->layers); m++)
+		if (fsm->layers[m] && !fsmount_name_ok(fsm->layers[m])) {
+			lwsl_err("%s: bad layer name\n", __func__);
+
+			return 1;
+		}
 
 	/*
 	 * For robustness, there are a couple of sticky situations caused by

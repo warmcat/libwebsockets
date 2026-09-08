@@ -1792,6 +1792,11 @@ struct lws_fsmount {
  *
  * Returns 0 if mounted OK, nonzero if errors.
  *
+ * fsm.ovname, fsm.distro and the fsm.layers[] entries are pasted both into the
+ * overlayfs mount option string and into a path that is recursively deleted,
+ * so they must consist only of [A-Za-z0-9._-] and may not be "." or "..";
+ * anything else is rejected with a nonzero return.
+ *
  * Retain fsm for use with unmounting.
  */
 LWS_VISIBLE LWS_EXTERN int
