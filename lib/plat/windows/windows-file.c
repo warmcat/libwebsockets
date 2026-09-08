@@ -32,6 +32,44 @@ int lws_plat_apply_FD_CLOEXEC(int n)
 	return 0;
 }
 
+/*
+ * Win32 treats '\' and '/' identically as path separators and resolves ".."
+ * itself inside CreateFileW() etc.  Generic path sanitisers (eg, the http
+ * URI one, which normalises "/../" away) only know about '/', so a '\' can
+ * carry a ".." component past them and out of the mount.
+ *
+ * Refuse those here, at the last moment before the path becomes a real Win32
+ * path.  A ".." bounded by '\' has no legitimate use in lws (relative paths
+ * given by the application use '/'), and neither does a ':' anywhere except
+ * as the drive letter at [1] (it otherwise names an NTFS alternate data
+ * stream, which is another way to get at a file the caller did not mean).
+ */
+
+static int
+lws_plat_path_ok(const char *filename)
+{
+	const char *p = filename;
+	size_t n;
+
+	for (n = 0; filename[n]; n++)
+		if (filename[n] == ':' && n != 1)
+			return 0;
+
+	while (*p) {
+		if (p[0] == '.' && p[1] == '.' &&
+		    /* is it a whole path component? */
+		    (p == filename || p[-1] == '/' || p[-1] == '\\') &&
+		    (!p[2] || p[2] == '/' || p[2] == '\\') &&
+		    /* is a '\' one of its separators? */
+		    ((p != filename && p[-1] == '\\') || p[2] == '\\'))
+			return 0;
+
+		p++;
+	}
+
+	return 1;
+}
+
 lws_fop_fd_t
 _lws_plat_file_open(const struct lws_plat_file_ops *fops_own,
 		    const struct lws_plat_file_ops *fops, const char *filename,
@@ -42,7 +80,26 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops_own,
 	lws_fop_fd_t fop_fd;
 	LARGE_INTEGER llFileSize = {0};
 
-	MultiByteToWideChar(CP_UTF8, 0, filename, -1, buf, LWS_ARRAY_SIZE(buf));
+	if (!lws_plat_path_ok(filename)) {
+		lwsl_err("%s: refusing path '%s'\n", __func__, filename);
+
+		return NULL;
+	}
+
+	/*
+	 * If the conversion does not fit, MultiByteToWideChar() returns 0 and
+	 * leaves buf unterminated... CreateFileW() would then read off the end
+	 * of the stack array looking for the NUL
+	 */
+
+	if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, buf,
+				(int)LWS_ARRAY_SIZE(buf)) <= 0) {
+		lwsl_err("%s: unable to convert path (%d)\n", __func__,
+			 (int)GetLastError());
+
+		return NULL;
+	}
+
 	if (((*flags) & 7) == _O_RDONLY)
 		ret = CreateFileW(buf, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
 				  NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
