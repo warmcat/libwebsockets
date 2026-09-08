@@ -124,6 +124,20 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 				hit = 1;
 
 			if (hit) {
+				/*
+				 * We are handing out a peer that may be sitting
+				 * on the wait list with an old time_closed_all,
+				 * and the caller uses it after we drop the lock
+				 * and before lws_peer_add_wsi() takes it off
+				 * the list.  Refresh the timestamp so the cull
+				 * (which runs from pt[0] and needs the peer to
+				 * have been idle > 10s) cannot free it in that
+				 * window.  If the caller then rejects the
+				 * connection it stays on the wait list and is
+				 * culled normally later.
+				 */
+				time(&peerx->time_closed_all);
+
 				lws_context_unlock(context); /* === */
 
 				return peerx;
