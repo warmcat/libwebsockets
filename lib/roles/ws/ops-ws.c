@@ -2277,6 +2277,9 @@ ws_destroy_proxy_buf(struct lws_dll2 *d, void *user)
 static int
 rops_destroy_role_ws(struct lws *wsi)
 {
+	/* the role can be set before wsi->ws is allocated (OOM at upgrade) */
+	if (!wsi->ws)
+		return 0;
 #if defined(LWS_WITH_HTTP_PROXY)
 	lws_dll2_foreach_safe(&wsi->ws->proxy_owner, NULL, ws_destroy_proxy_buf);
 #endif
