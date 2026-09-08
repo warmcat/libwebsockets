@@ -544,6 +544,9 @@ typedef struct lws_transport_mux {
 	uint8_t					issue_pong:1;
 	uint8_t					issue_pongack:1;
 	uint8_t					awaiting_pong:1;
+	uint8_t					mp_discard:1;
+	/**< the payload of the mux frame we are parsing is being dropped,
+	 * because its channel was not open when the frame started */
 } lws_transport_mux_t;
 
 lws_transport_mux_t *

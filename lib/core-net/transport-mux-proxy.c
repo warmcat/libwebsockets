@@ -190,6 +190,14 @@ ltm_ch_payload(lws_transport_mux_ch_t *tmc, const uint8_t *buf, size_t len)
 	lws_transport_path_proxy_dump(&tm->info.txp_ppath, __func__);
 #endif
 
+	if (!tmc->priv) {
+		/* no conn bound to this channel yet... drop it */
+		lwsl_warn("%s: payload on unbound ch %u\n", __func__,
+			  tmc->ch_idx);
+
+		return 0;
+	}
+
 	lws_txp_inside_proxy.proxy_read(tmc->priv, buf, len);
 
 	return 0;

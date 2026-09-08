@@ -178,7 +178,50 @@ lws_transport_mux_write(lws_transport_priv_t priv, uint8_t *buf, size_t len)
 static void
 lws_transport_mux_close(lws_transport_priv_t priv)
 {
+	lws_transport_mux_ch_t *tmc = (lws_transport_mux_ch_t *)priv;
+	lws_transport_mux_t *tm;
 
+	if (!tmc)
+		return;
+
+	assert_is_tmch(tmc);
+
+	/*
+	 * The sspc handle that is our channel's priv is being destroyed.  This
+	 * used to do nothing at all, leaving tmc->priv dangling at the freed
+	 * handle (any later payload or write opportunity on the channel then
+	 * used it) and leaving the channel, and the peer's conn behind it,
+	 * around for the life of the transport link.
+	 */
+
+	tmc->priv = NULL;
+
+	if (!lws_dll2_owner(&tmc->list))
+		/* not on a mux (any more)... nothing we can announce */
+		return;
+
+	tm = lws_dll2_owner_container(&tmc->list, lws_transport_mux_t, owner);
+	assert_is_tm(tm);
+
+	if (tmc->state != LWSTMC_OPERATIONAL) {
+		/*
+		 * It never reached open, so there is nothing for the peer to
+		 * close... just drop our side and release the channel index
+		 */
+		lws_transport_mux_destroy_channel(tm, &tmc);
+
+		return;
+	}
+
+	/*
+	 * Ask the peer to close it; his CHANNEL_CLOSE_ACK destroys the channel
+	 */
+
+	tmc->state = LWSTMC_PENDING_CLOSE_CHANNEL;
+	if (lws_dll2_is_detached(&tmc->list_pending_tx))
+		lws_dll2_add_tail(&tmc->list_pending_tx, &tm->pending_tx);
+
+	lws_transport_mux_client_request_tx(tm);
 }
 static void
 lws_transport_mux_stream_up(lws_transport_priv_t priv)
@@ -198,6 +241,14 @@ ltm_ch_payload(lws_transport_mux_ch_t *tmc, const uint8_t *buf, size_t len)
 	assert_is_tmch(tmc);
 
 //	lwsl_hexdump_notice(buf, len);
+
+	if (!tmc->priv) {
+		/* no sspc handle bound to this channel yet... drop it */
+		lwsl_warn("%s: payload on unbound ch %u\n", __func__,
+			  tmc->ch_idx);
+
+		return 0;
+	}
 
 	r = lws_txp_inside_sspc.event_read(tmc->priv, buf, len);
 	if (r) {
@@ -300,12 +351,15 @@ lws_ss_state_return_t
 lws_transport_mux_event_closed(lws_transport_priv_t priv)
 {
 	lws_transport_mux_ch_t *tmc = (lws_transport_mux_ch_t *)priv;
-#if defined(_DEBUG)
-	lws_transport_mux_t *tm = lws_dll2_owner_container(&tmc->list,
-				   lws_transport_mux_t, owner);
-#endif
+
+	/*
+	 * We are called from lws_transport_mux_destroy_channel() after it
+	 * already unlinked tmc->list, so the mux cannot be recovered from the
+	 * list owner here (it would come back NULL and assert_is_tm() would
+	 * dereference it in _DEBUG builds).  Nothing here needs the mux.
+	 */
+
 	assert_is_tmch(tmc);
-	assert_is_tm(tm);
 
 	if (tmc->priv) {
 		lwsl_notice("%s: calling sspc event closed\n", __func__);

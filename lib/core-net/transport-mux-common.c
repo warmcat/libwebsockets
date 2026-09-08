@@ -223,6 +223,21 @@ lws_transport_mux_pending(lws_transport_mux_t *tm, uint8_t *buf, size_t *len,
 	lws_transport_mux_ch_t *mc;
 	int n;
 
+	/*
+	 * We may write up to 10 bytes (RESET_TRANSPORT + PING + its 8-byte
+	 * timestamp) before the first length check below, and that check
+	 * itself relies on p not having passed end.  Rather than rely on
+	 * every caller having provided a large enough buffer, require the
+	 * room for the largest unchecked write plus the 18 the first guard
+	 * wants to see.
+	 */
+
+	if (*len < 19) {
+		*len = 0;
+
+		return 0;
+	}
+
 	/* pings and pongs go first */
 
 	if (tm->issue_ping) {
@@ -277,7 +292,7 @@ lws_transport_mux_pending(lws_transport_mux_t *tm, uint8_t *buf, size_t *len,
 			for (m = 0; m < 32 && lws_ptr_diff_size_t(end, p) > 2; m++)
 				if (tm->fin[n] & (1u << m)) {
 					lwsl_notice("%s: FIN on closed ch %d\n", __func__, (n << 5) |m);
-					tm->fin[n] &= (uint32_t)~(1 << m);
+					tm->fin[n] &= (uint32_t)~(1u << m);
 					*p++ = LWSSSS_LLM_CHANNEL_NACK;
 					*p++ = (uint8_t)((n << 5) | m);
 					cbs->txp_req_write(tm);
@@ -324,7 +339,10 @@ lws_transport_mux_pending(lws_transport_mux_t *tm, uint8_t *buf, size_t *len,
 					tm->_open[mc->ch_idx >> 5] |
 						(1u << (mc->ch_idx & 31)));
 			cbs->ch_opens(mc, 0);
-			mc->state = LPCSPROX_OPERATIONAL;
+			/* mc->state is an LWSTMC_ state... it only worked
+			 * before because LPCSPROX_OPERATIONAL happens to have
+			 * the same value */
+			mc->state = LWSTMC_OPERATIONAL;
 			break;
 
 		case LWSTMC_PENDING_CREATE_CHANNEL_NACK:
@@ -345,12 +363,17 @@ lws_transport_mux_pending(lws_transport_mux_t *tm, uint8_t *buf, size_t *len,
 			mc->state = LWSTMC_AWAITING_CLOSE_CHANNEL_ACK;
 			break;
 
-		case LWSSSS_LLM_CHANNEL_CLOSE_ACK:
+		case LWSTMC_PENDING_CLOSE_CHANNEL_ACK:
 			/*
 			 * We're telling the peer we saw and actioned his
 			 * close request.  Then we can remove our side.
+			 *
+			 * (This used to be labelled with the wire opcode
+			 * rather than the channel state, so it never matched
+			 * and a channel the peer closed was leaked along with
+			 * its conn, dsh and channel index.)
 			 */
-			*p++ = LWSSSS_LLM_CHANNEL_CLOSE;
+			*p++ = LWSSSS_LLM_CHANNEL_CLOSE_ACK;
 			*p++ = mc->ch_idx;
 
 			cbs->ch_closes(mc);
@@ -482,9 +505,14 @@ lws_transport_mux_rx_parse(lws_transport_mux_t *tm,
 					if (tm->mp_cmd == LWSSSS_LLM_CHANNEL_NACK) {
 						lwsl_warn("%s: taking as FIN ch %d\n",
 								__func__, tm->mp_idx);
-						tm->_open[tm->mp_idx >> 5] &= (uint32_t)~(
-								1 << (tm->mp_idx & 31));
+						/*
+						 * Tear the channel down for real...
+						 * just clearing the open bit used to
+						 * leave the mc, its conn and its dsh
+						 * on the mux for the life of the link
+						 */
 						cbs->ch_closes(mc);
+						lws_transport_mux_destroy_channel(tm, &mc);
 					}
 					break;
 				}
@@ -560,8 +588,26 @@ lws_transport_mux_rx_parse(lws_transport_mux_t *tm,
 		case LWSTMCPAR_PLENL:
 			tm->mp_pay |= *buf++;
 			mc = lws_transport_mux_get_channel(tm, tm->mp_idx);
+
+			/*
+			 * DATA is only meaningful on a channel that reached
+			 * fully-open.  A channel we only created a placeholder
+			 * for (because the peer just asked us to open it, and
+			 * we did not emit the ACK yet) still has a NULL
+			 * transport priv, and one we already saw the FIN for
+			 * has no conn any more... in both cases handing the
+			 * payload to the callbacks dereferences NULL, so treat
+			 * it exactly like the unknown-channel case.
+			 */
+
+			if (mc && !(tm->_open[tm->mp_idx >> 5] &
+					(1u << (tm->mp_idx & 31))))
+				mc = NULL;
+
+			tm->mp_discard = 0;
+
 			if (!mc) {
-				lwsl_warn("%s: DATA for unknown ch\n",
+				lwsl_warn("%s: DATA for unknown or unopened ch\n",
 					  __func__);
 				/* assertively NAK the channel */
 				tm->fin[tm->mp_idx >> 5] |= 1u << (tm->mp_idx & 31);
@@ -572,12 +618,19 @@ lws_transport_mux_rx_parse(lws_transport_mux_t *tm,
 				tm->mp_pay = (uint32_t)(tm->mp_pay - av);
 				if (!tm->mp_pay)
 					tm->mp_state = LWSTMCPAR_CMD;
-				else
+				else {
+					/*
+					 * The rest of the payload may arrive
+					 * after the channel became open... it
+					 * still belongs to a frame we already
+					 * started discarding, so remember that
+					 */
+					tm->mp_discard = 1;
 					tm->mp_state = LWSTMCPAR_PAY;
+				}
 				goto ask_to_send;
 			}
 		//	lwsl_notice("%s: mux data frame len %d\n", __func__, (int)tm->mp_pay);
-			assert(tm->_open[tm->mp_idx >> 5] & (1u << (tm->mp_idx & 31)));
 			if (!tm->mp_pay)
 				tm->mp_state = LWSTMCPAR_CMD;
 			else
@@ -588,7 +641,12 @@ lws_transport_mux_rx_parse(lws_transport_mux_t *tm,
 			av = lws_ptr_diff_size_t(end, buf);
 			if (av > tm->mp_pay)
 				av = tm->mp_pay;
-			mc = lws_transport_mux_get_channel(tm, tm->mp_idx);
+			mc = tm->mp_discard ? NULL :
+				lws_transport_mux_get_channel(tm, tm->mp_idx);
+			if (mc && !(tm->_open[tm->mp_idx >> 5] &
+					(1u << (tm->mp_idx & 31))))
+				/* it was closed under us mid-frame */
+				mc = NULL;
 			if (mc) {
 				if (cbs->payload(mc, buf, av)) {
 					/*
@@ -739,9 +797,16 @@ lws_transport_mux_destroy_channel(lws_transport_mux_t *tm,
 	lwsl_notice("%s: mux ch %u\n", __func__, mc->ch_idx);
 
 	if (mc->state >= LWSTMC_PENDING_CREATE_CHANNEL_ACK)
-		/* he only sets the open bit on receipt of the ACK */
-		tm->_open[mc->ch_idx >> 5] &= (lws_mux_ch_idx_t)
-						~(1 << (mc->ch_idx & 31));
+		/*
+		 * he only sets the open bit on receipt of the ACK
+		 *
+		 * The mask must be the width of the _open[] word... casting it
+		 * to lws_mux_ch_idx_t (uint8_t) used to truncate it to 0x00 ..
+		 * 0xff, so closing any channel also marked channels
+		 * (idx | 8) .. (idx | 31) in the same word as not open.
+		 */
+		tm->_open[mc->ch_idx >> 5] &= (uint32_t)
+						~(1u << (mc->ch_idx & 31));
 
 	cpath_ops = tm->info.txp_cpath.ops_in;
 	ppath_ops = tm->info.txp_ppath.ops_in;
@@ -765,7 +830,15 @@ lws_transport_mux_destroy_channel(lws_transport_mux_t *tm,
 	 * We must report channel closure... proxy side
 	 */
 
-	if (ppath_ops && ppath_ops->event_close_conn) {
+	/*
+	 * ... but only if the channel actually got as far as having a conn.
+	 * A channel the peer asked to create, that we destroy before we
+	 * emitted the ACK (eg, he sent RESET_TRANSPORT, or the PONG grace
+	 * period expired), still has a NULL priv and the proxy's close
+	 * handler dereferences its conn arg immediately.
+	 */
+
+	if (priv && ppath_ops && ppath_ops->event_close_conn) {
 		lwsl_notice("%s: calling %s event_close_conn\n", __func__,
 				ppath_ops->name);
 		ppath_ops->event_close_conn(priv);
@@ -806,6 +879,14 @@ lws_transport_mux_destroy(lws_transport_mux_t **tm)
 {
 	lws_transport_mux_t *mux = *tm;
 	lws_transport_mux_ch_t *mc;
+
+	/*
+	 * The ping timer is rearmed on every link transition and every
+	 * PING / PONG / PONGACK, so it is basically always pending... it must
+	 * not be left on the pt's sul list pointing into the freed mux.
+	 */
+
+	lws_sul_cancel(&mux->sul_ping);
 
 	while (!lws_dll2_is_empty(&mux->owner)) {
 		mc = lws_container_of(lws_dll2_get_head(&mux->owner),
