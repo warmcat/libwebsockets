@@ -218,10 +218,24 @@ post_pollout:
 			 * (new RX may trigger new http_action() that
 			 * expect to be able to send)
 			 */
-			if (!lwsi_role_client(wsi))
+			if (!lwsi_role_client(wsi)) {
+				/*
+				 * Nothing will consume the rx until the
+				 * partial send drains, and rx flow control
+				 * is a no-op for h2, so leaving POLLIN
+				 * level-armed would spin the event loop at
+				 * 100% for as long as the peer withholds
+				 * its window.  Drop POLLIN on the network
+				 * wsi; lws_handle_POLLOUT_event() restores
+				 * it once the buffered output is gone.
+				 */
+				if (lws_change_pollfd(wsi1, LWS_POLLIN, 0))
+					return LWS_HPI_RET_PLEASE_CLOSE_ME;
+
 				return LWS_HPI_RET_HANDLED;
-			else
-				lwsl_notice("%s: allowing POLLIN despite buffered out (client)\n", __func__);
+			}
+
+			lwsl_notice("%s: allowing POLLIN despite buffered out (client)\n", __func__);
 		}
 	}
 

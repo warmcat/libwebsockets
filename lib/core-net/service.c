@@ -190,6 +190,17 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 			lwsl_wsi_info(wsi, "signalling to close");
 			goto bail_die;
 		}
+#if defined(LWS_ROLE_H2)
+		/*
+		 * An h2 server network wsi stops reading (and drops POLLIN)
+		 * while a partial send is pending; if that just drained,
+		 * let it read again
+		 */
+		if (!lws_has_buffered_out(wsi) && wsi->upgraded_to_http2 &&
+		    !lwsi_role_client(wsi) &&
+		    lws_change_pollfd(wsi, 0, LWS_POLLIN))
+			goto bail_die;
+#endif
 		/* leave POLLOUT active either way */
 		goto bail_ok;
 	} else
