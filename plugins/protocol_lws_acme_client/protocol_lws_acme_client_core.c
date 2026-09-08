@@ -84,8 +84,6 @@ struct acme_connection {
 	char detail[64];
 	char status[16];
 	char key_auth[256];
-	char http01_mountpoint[256];
-	struct lws_http_mount mount;
 	char urls[6][256]; /* directory contents */
 	char active_url[256];
 	char authz_url[256];
@@ -97,7 +95,6 @@ struct acme_connection {
 	lws_acme_state state;
 	struct lws_client_connect_info i;
 	struct lejp_ctx jctx;
-	struct lws_context_creation_info ci;
 	struct lws_vhost *vhost;
 
 	struct lws *cwsi;
@@ -138,6 +135,21 @@ struct per_vhost_data__lws_acme_client {
 
 	struct lws_jwk jwk;
 	char *dns_base_dir;
+
+	/*
+	 * State owned by the temporary http-01 challenge vhost.
+	 *
+	 * lws_vhost_destroy() is asynchronous while wsi are still bound, so the
+	 * temp vhost (and the mount matching that walks its mount list) can
+	 * outlive the acquisition that created it.  Everything the temp vhost
+	 * points at must therefore live here in the vhd, which lasts as long as
+	 * the parent vhost, and not in the ac we free at the end of each
+	 * attempt
+	 */
+	struct lws_context_creation_info chall_ci;
+	struct lws_http_mount chall_mount;
+	char chall_mountpoint[256];
+	char chall_key_auth[256];
 
 	lws_dll2_owner_t cert_configs;
     struct lws_acme_cert_config *active_cert;
@@ -210,21 +222,51 @@ acme_ipc_sign_jwt(struct per_vhost_data__lws_acme_client *vhd, char *jwt, size_t
 			char hex[129];
 			char temp[2048];
 			struct lws_jwk jwk;
+			uint8_t key[sizeof(hex) / 2];
+			size_t klen;
+
 			if (hex_len >= sizeof(hex)) hex_len = sizeof(hex) - 1;
-			lws_system_blob_get(b, (uint8_t *)hex, &hex_len, 0);
+			if (lws_system_blob_get(b, (uint8_t *)hex, &hex_len, 0))
+				return;
 			hex[hex_len] = '\0';
+
+			/*
+			 * The blob is the key as hex; a short or malformed one
+			 * must not be padded out with whatever was already in
+			 * the key buffer, or we sign with uninitialised bytes
+			 */
+			if (hex_len < 2 || (hex_len & 1))
+				return;
+
+			klen = hex_len / 2;
+			if (lws_hex_to_byte_array(hex, key, (int)klen) !=
+								(int)klen) {
+				lwsl_vhost_err(vhd->vhost,
+					       "acme: bad IPC auth key blob");
+
+				return;
+			}
+
+			/*
+			 * The key is on the stack: lws_malloc() is not exported
+			 * to plugins, so a heap one could not be released by
+			 * lws_jwk_destroy()'s lws_free_set_NULL() safely.  Take
+			 * the element back off the jwk before destroying it.
+			 */
 			memset(&jwk, 0, sizeof(jwk));
 			jwk.kty = LWS_GENCRYPTO_KTY_OCT;
-			jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
-			jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
-			lws_hex_to_byte_array(hex, jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, 64);
+			jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = (uint32_t)klen;
+			jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = key;
 
 			uint64_t now = (uint64_t)time(NULL);
 			lws_jwt_sign_compact(vhd->context, &jwk, "HS256", jwt, &jwt_len, temp, sizeof(temp),
 			    "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu}",
 			    (unsigned long long)now, (unsigned long long)now, (unsigned long long)now + 300);
 
+			jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = NULL;
+			jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 0;
 			lws_jwk_destroy(&jwk);
+			lws_explicit_bzero(key, sizeof(key));
 		}
 	}
 #endif
@@ -235,10 +277,22 @@ acme_ipc_save_payload(struct per_vhost_data__lws_acme_client *vhd, const char *r
 {
 	char header[3072];
 	char jwt[2048] = {0};
+	char esc_domain[512], esc_filename[512];
 
 	acme_ipc_sign_jwt(vhd, jwt, sizeof(jwt));
 
-	int hlen = lws_snprintf(header, sizeof(header), "{\"req\":\"%s\",\"jwt\":\"%s\",\"domain\":\"%s\",\"subdomain\":\"%s\",\"zone\":\"", req, jwt, domain, filename);
+	/*
+	 * The payload below is escaped as it is copied, but these header fields
+	 * come from the on-disk config (a domain directory name, a common name)
+	 * and would otherwise be able to close the JSON string and inject
+	 * another "req" key into a request to the root-privileged daemon.  req
+	 * is a literal at every call site and jwt is our own base64url compact
+	 * JWS, so those two need no escaping
+	 */
+	lws_json_purify(esc_domain, domain, (int)sizeof(esc_domain), NULL);
+	lws_json_purify(esc_filename, filename, (int)sizeof(esc_filename), NULL);
+
+	int hlen = lws_snprintf(header, sizeof(header), "{\"req\":\"%s\",\"jwt\":\"%s\",\"domain\":\"%s\",\"subdomain\":\"%s\",\"zone\":\"", req, jwt, esc_domain, esc_filename);
 
 	size_t est_len = (size_t)hlen + (payload_len * 2) + 4;
 	char *dyn_buf = malloc(est_len);
@@ -294,15 +348,23 @@ callback_chall_http01(struct lws *wsi, enum lws_callback_reasons reason,
         void *user, void *in, size_t len)
 {
 	struct lws_vhost *vhost = lws_get_vhost(wsi);
-	struct acme_connection *ac = lws_vhost_user(vhost);
+	/*
+	 * The temp vhost's user is the vhd, not the acquisition: the vhost
+	 * destroy is asynchronous and can leave wsi bound to it after the ac
+	 * has been freed
+	 */
+	struct per_vhost_data__lws_acme_client *vhd = lws_vhost_user(vhost);
 	uint8_t buf[LWS_PRE + 2048], *start = &buf[LWS_PRE], *p = start,
 		*end = &buf[sizeof(buf) - 1];
 	int n;
 
+	if (!vhd)
+		return lws_callback_http_dummy(wsi, reason, user, in, len);
+
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 		lwsl_wsi_notice(wsi, "CA connection received, key_auth %s",
-			    ac->key_auth);
+			    vhd->chall_key_auth);
 
 		if (lws_add_http_header_status(wsi, HTTP_STATUS_OK, &p, end)) {
 			lwsl_wsi_warn(wsi, "add status failed");
@@ -317,7 +379,7 @@ callback_chall_http01(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 
-		n = (int)strlen(ac->key_auth);
+		n = (int)strlen(vhd->chall_key_auth);
 		if (lws_add_http_header_content_length(wsi, (lws_filepos_t)n, &p, end)) {
 			lwsl_wsi_warn(wsi, "add content_length failed");
 			return -1;
@@ -340,7 +402,8 @@ callback_chall_http01(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
-		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "%s", ac->key_auth);
+		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "%s",
+				  vhd->chall_key_auth);
 		// lwsl_notice("%s: len %d\n", __func__, lws_ptr_diff(p, start));
 		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff_size_t(p, start),
 			      LWS_WRITE_HTTP_FINAL) != lws_ptr_diff(p, start)) {
@@ -508,6 +571,19 @@ cb_dir(struct lejp_ctx *ctx, char reason)
 	struct per_vhost_data__lws_acme_client *s =
 		(struct per_vhost_data__lws_acme_client *)ctx->user;
 
+	/*
+	 * The accumulator state lives in the vhd, but s->dest points into the
+	 * per-acquisition ac, which is freed at the end of each attempt.  Make
+	 * sure no pointer from a previous parse survives into this one
+	 */
+	if (reason == LEJPCB_CONSTRUCTED) {
+		s->dest = NULL;
+		s->pos = 0;
+		s->len = 0;
+
+		return 0;
+	}
+
 	if (reason == LEJPCB_VAL_STR_START && ctx->path_match) {
 		s->pos = 0;
 		s->len = sizeof(s->ac->urls[0]) - 1;
@@ -515,7 +591,15 @@ cb_dir(struct lejp_ctx *ctx, char reason)
 		return 0;
 	}
 
-	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
+	/*
+	 * LEJP_FLAG_CB_IS_VALUE is also set for true / false / null and for
+	 * numbers, none of which passed through LEJPCB_VAL_STR_START above.
+	 * Only accumulate string pieces, and only into a dest we actually set:
+	 * otherwise a directory like { "newNonce": null } writes through a NULL
+	 * or stale dest
+	 */
+	if ((reason != LEJPCB_VAL_STR_CHUNK && reason != LEJPCB_VAL_STR_END) ||
+	    !ctx->path_match || !s->dest)
 		return 0;
 
 	if (s->pos + ctx->npos > s->len) {
@@ -530,6 +614,23 @@ cb_dir(struct lejp_ctx *ctx, char reason)
 	return 0;
 }
 
+
+/*
+ * lejp delivers a string value longer than LEJP_STRING_CHUNK as a series of
+ * LEJPCB_VAL_STR_CHUNK callbacks with only that piece in ctx->buf, ending with
+ * LEJPCB_VAL_STR_END.  The callbacks below each copy ctx->buf straight into a
+ * fixed field, so without this an over-long value would silently leave the
+ * *tail* of the value there (eg, a URL with no scheme or host).  None of the
+ * fields we care about can legitimately be this long, so fail the parse rather
+ * than act on a fragment
+ */
+static signed char
+acme_reject_long_value(struct lejp_ctx *ctx)
+{
+	lwsl_notice("%s: over-long JSON value for %s\n", __func__, ctx->path);
+
+	return -1;
+}
 
 /* order JSON parsing */
 
@@ -563,6 +664,9 @@ cb_order(struct lejp_ctx *ctx, char reason)
 
 	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
 		return 0;
+
+	if (reason == LEJPCB_VAL_STR_CHUNK)
+		return acme_reject_long_value(ctx);
 
 	switch (ctx->path_match - 1) {
 	case JAO_STATUS:
@@ -630,6 +734,9 @@ cb_authz(struct lejp_ctx *ctx, char reason)
 
 	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
 		return 0;
+
+	if (reason == LEJPCB_VAL_STR_CHUNK)
+		return acme_reject_long_value(ctx);
 
 	switch (ctx->path_match - 1) {
 	case JAAZ_ID_TYPE:
@@ -702,6 +809,9 @@ cb_chac(struct lejp_ctx *ctx, char reason)
 
 	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
 		return 0;
+
+	if (reason == LEJPCB_VAL_STR_CHUNK)
+		return acme_reject_long_value(ctx);
 
 	switch (ctx->path_match - 1) {
 	case JCAC_TYPE:
@@ -842,6 +952,12 @@ lws_acme_finished(struct per_vhost_data__lws_acme_client *vhd)
 			free(vhd->ac->alloc_privkey_pem);
 		free(vhd->ac);
 	}
+
+	/* cb_dir's accumulator pointed into the ac we just freed */
+
+	vhd->dest = NULL;
+	vhd->pos = 0;
+	vhd->len = 0;
 
 	lws_jwk_destroy(&vhd->jwk);
 
@@ -1058,6 +1174,11 @@ lws_acme_start_acquisition(struct per_vhost_data__lws_acme_client *vhd,
 			"(via vhost %s)", vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], lws_get_vhost_name(vhd->vhost));
 
 	vhd->ac = malloc(sizeof(*vhd->ac));
+	if (!vhd->ac) {
+		lwsl_vhost_err(vhd->vhost, "acme: OOM allocating acquisition");
+
+		return 1;
+	}
 	memset(vhd->ac, 0, sizeof(*vhd->ac));
 
 	/* a healthy acquisition, including the 20s dns-01 propagation wait
@@ -1121,6 +1242,33 @@ struct acme_scan_ctx {
 	char domain[256];
 };
 
+/*
+ * Domain directory names and config common-names end up in the JSON control
+ * messages we send to the root-privileged daemon, and (for dns-01) in the zone
+ * lines it signs.  Nothing that is not a plausible hostname has any business
+ * being there, so refuse it at the point we load it rather than relying on
+ * escaping downstream.  '*' is allowed for wildcard certs.
+ */
+static int
+acme_valid_hostname(const char *p)
+{
+	size_t n = 0;
+
+	if (!p || !*p)
+		return 0;
+
+	while (*p) {
+		if (!isalnum((unsigned char)*p) && *p != '.' && *p != '-' &&
+		    *p != '_' && *p != '*')
+			return 0;
+		p++;
+		if (++n > 255)
+			return 0;
+	}
+
+	return 1;
+}
+
 static int
 lws_acme_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
@@ -1170,6 +1318,11 @@ lws_acme_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
     }
 
     cfg = (struct lws_acme_cert_config *)args.dest;
+    if (cfg && !acme_valid_hostname(cfg->common_name)) {
+        lwsl_vhost_err(vhd->vhost, "acme: %s: refusing invalid common-name", path);
+        goto done;
+    }
+
     if (cfg) {
 		char common_name_s[128];
 		char dir_path[256];
@@ -1272,6 +1425,13 @@ lws_acme_scan_domains_cb(const char *dirpath, void *user, struct lws_dir_entry *
 
 	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
 		return 0;
+
+	/* the directory name is used as the domain in the daemon IPC */
+	if (!acme_valid_hostname(lde->name)) {
+		lwsl_vhost_warn(vhd->vhost, "acme: ignoring domain dir '%s': "
+				"not a valid hostname", lde->name);
+		return 0;
+	}
 
 	scan_ctx.vhd = vhd;
 	lws_strncpy(scan_ctx.domain, lde->name, sizeof(scan_ctx.domain));
@@ -1825,14 +1985,21 @@ pkt_add_hdrs:
 			/*
 			 * It should be the DER cert...
 			 * ACME 2.0 can send certs chain with 3 certs, store only first bytes
+			 *
+			 * Reserve the last byte for the NUL: what we collect here
+			 * is later scanned with strstr(), and a full 4096-byte
+			 * body with no terminator would run that scan on into the
+			 * rest of the struct (and could yield a cpos larger than
+			 * the buffer)
 			 */
-			if ((unsigned int)ac->cpos + len > sizeof(ac->buf))
-				len = sizeof(ac->buf) - (unsigned int)ac->cpos;
+			if ((unsigned int)ac->cpos + len > sizeof(ac->buf) - 1)
+				len = sizeof(ac->buf) - 1 - (unsigned int)ac->cpos;
 
 			if (len) {
 				memcpy(&ac->buf[ac->cpos], in, len);
 				ac->cpos += (int)len;
 			}
+			ac->buf[ac->cpos] = '\0';
 			break;
 		default:
 			break;
@@ -1953,8 +2120,6 @@ pkt_add_hdrs:
 			lws_acme_report_status(vhd->vhost, LWS_CUS_CHALLENGE,
 					NULL);
 
-			memset(&ac->ci, 0, sizeof(ac->ci));
-
 			/* compute the key authorization */
 
 			p = ac->key_auth;
@@ -1986,34 +2151,44 @@ pkt_add_hdrs:
 				}
 				return -1; /* dns-01 is asynchronous, it will reconnect Let's Encrypt after the propagation delay! */
 			} else {
-				lws_snprintf(ac->http01_mountpoint,
-						sizeof(ac->http01_mountpoint),
+				/*
+				 * The temp vhost is destroyed asynchronously, so
+				 * the mount, the mountpoint string, the .user and
+				 * the key auth it serves all have to outlive the
+				 * ac: they live in the vhd
+				 */
+				lws_snprintf(vhd->chall_mountpoint,
+						sizeof(vhd->chall_mountpoint),
 						"/.well-known/acme-challenge/%s",
 						ac->chall_token);
+				lws_strncpy(vhd->chall_key_auth, ac->key_auth,
+					    sizeof(vhd->chall_key_auth));
 
-				memset(&ac->mount, 0, sizeof (struct lws_http_mount));
-				ac->mount.protocol = "http";
-				ac->mount.mountpoint = ac->http01_mountpoint;
-				ac->mount.mountpoint_len = (unsigned char)
-					strlen(ac->http01_mountpoint);
-				ac->mount.origin_protocol = LWSMPRO_CALLBACK;
+				memset(&vhd->chall_mount, 0,
+				       sizeof(vhd->chall_mount));
+				vhd->chall_mount.protocol = "http";
+				vhd->chall_mount.mountpoint = vhd->chall_mountpoint;
+				vhd->chall_mount.mountpoint_len = (unsigned char)
+					strlen(vhd->chall_mountpoint);
+				vhd->chall_mount.origin_protocol = LWSMPRO_CALLBACK;
 
-				ac->ci.mounts = &ac->mount;
+				memset(&vhd->chall_ci, 0, sizeof(vhd->chall_ci));
+				vhd->chall_ci.mounts = &vhd->chall_mount;
 
 				/* listen on the same port as the vhost that triggered us */
-				ac->ci.port = 80;
+				vhd->chall_ci.port = 80;
 
 				/* make ourselves protocols[0] for the new vhost */
-				ac->ci.protocols = chall_http01_protocols;
+				vhd->chall_ci.protocols = chall_http01_protocols;
 
 				/*
-				 * vhost .user points to the ac associated with the
+				 * vhost .user points to the vhd that owns the
 				 * temporary vhost
 				 */
-				ac->ci.user = ac;
+				vhd->chall_ci.user = vhd;
 
 				ac->vhost = lws_create_vhost(lws_get_context(wsi),
-						&ac->ci);
+						&vhd->chall_ci);
 				if (!ac->vhost)
 					goto failed;
 			}
@@ -2184,6 +2359,11 @@ poll_again:
 				char *p;
 				int cpos_fullchain = ac->cpos;
 
+				/*
+				 * ac->buf was NUL-terminated as it was filled,
+				 * so the needle can only match wholly inside it
+				 * and the cpos derived from it stays in bounds
+				 */
 				const char *end_cert = strstr(ac->buf, "END CERTIFICATE-----");
 
 				if (end_cert) {
@@ -2542,10 +2722,16 @@ acme_aging_next_cert(struct per_vhost_data__lws_acme_client *vhd)
 		/* Asynchronous IPC validity check */
 		char req_buf[2048];
 		char jwt[2048] = {0};
+		char esc_domain[512], esc_cn[512];
+
 		acme_ipc_sign_jwt(vhd, jwt, sizeof(jwt));
 
+		/* config-derived, so escape it before it enters the IPC JSON */
+		lws_json_purify(esc_domain, domain, (int)sizeof(esc_domain), NULL);
+		lws_json_purify(esc_cn, cn, (int)sizeof(esc_cn), NULL);
+
 		int len = lws_snprintf(req_buf, sizeof(req_buf), "{\"req\":\"get_cert_validity\",\"jwt\":\"%s\",\"domain\":\"%s\",\"subdomain\":\"%s\"}\n",
-				jwt, domain, cn);
+				jwt, esc_domain, esc_cn);
 
 		if (vhd->ipc) {
 			lws_async_ipc_queue_payload(vhd->ipc, req_buf, (size_t)len);
