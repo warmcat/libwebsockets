@@ -178,8 +178,14 @@ lws_dht_dnssec_monitor_reap_cb(void *opaque, const struct lws_spawn_resource_us 
 			       siginfo_t *si, int we_killed_him)
 {
 	struct vhd *vhd = (struct vhd *)opaque;
+
 	lwsl_notice("%s: Spawned root monitor process terminated (killed: %d)\n", __func__, we_killed_him);
+
+	if (!vhd)
+		return;
+
 	vhd->root_process_active = 0;
+	/* lws_spawn_reap() already destroyed the lsp and NULLed our pointer */
 	vhd->lsp = NULL;
 }
 
@@ -3068,6 +3074,12 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				spawn_info.exec_array = exec_array;
 				spawn_info.timeout_us = 0; /* runs forever */
 				spawn_info.plsp = &vhd->lsp;
+				/*
+				 * lws_spawn_reap() hands .opaque to .reap_cb:
+				 * without it the callback dereferences NULL in
+				 * the parent as soon as the child exits
+				 */
+				spawn_info.opaque = vhd;
 				spawn_info.reap_cb = lws_dht_dnssec_monitor_reap_cb;
 				spawn_info.protocol_name = "lws-dht-dnssec-stdwsi";
 				spawn_info.vh = vhd->vhost;
