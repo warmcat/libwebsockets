@@ -7,6 +7,59 @@
 
 #include "mixer-media.h"
 
+/*
+ * Map a GStreamer element name back to the session that created it.
+ *
+ * The elements we add per session are named "<role>_<session id>", eg,
+ * "appsrc_17".  The id is a plain integer allocated per vhost, and we
+ * resolve it by walking the worker's live session list, so an element name
+ * that names a session that has since gone away (or an element from the
+ * operator's own pipeline that happens to contain an underscore) simply
+ * finds nothing.  We must never materialise a pointer out of a name.
+ *
+ * Worker thread only (bus_call() is reached from process_room_mix()).
+ */
+static struct mixer_media_session *
+mixer_session_by_element_name(struct vhd_mixer *vhd, const char *name)
+{
+	const char *us;
+	uint32_t id = 0;
+
+	if (!vhd || !name)
+		return NULL;
+
+	us = strrchr(name, '_');
+	if (!us || !us[1])
+		return NULL;
+
+	/* the whole suffix must be a decimal id that fits in 32 bits */
+	for (us++; *us; us++) {
+		uint32_t dig;
+
+		if (*us < '0' || *us > '9')
+			return NULL;
+
+		dig = (uint32_t)(*us - '0');
+		if (id > (0xffffffffu - dig) / 10)
+			return NULL;
+
+		id = (id * 10) + dig;
+	}
+
+	/* session ids start at 1, so a "_0" suffix simply finds nothing */
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->sessions)) {
+		struct mixer_media_session *s = lws_container_of(d,
+					struct mixer_media_session, list);
+
+		if (s->id == id)
+			return s;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
 static gboolean
 bus_call(GstBus *bus, GstMessage *msg, gpointer data)
 {
@@ -43,14 +96,11 @@ bus_call(GstBus *bus, GstMessage *msg, gpointer data)
 		gst_message_parse_qos_stats(msg, NULL, &processed, &dropped);
 
 		const gchar *src_name = GST_MESSAGE_SRC_NAME(msg);
-		struct mixer_media_session *s_qos = NULL;
-		const char *us = strchr(src_name, '_');
-		if (us) {
-			sscanf(us + 1, "%p", &s_qos);
-		}
-		if (s_qos) {
+		struct mixer_media_session *s_qos =
+					mixer_session_by_element_name(r->vhd, src_name);
+
+		if (s_qos)
 			s_qos->gst_qos_drops += (uint32_t)dropped;
-		}
 
 		lwsl_notice("GStreamer QoS (room %s) from %s: processed %llu, dropped %llu\n",
 				r->name, src_name, (long long unsigned)processed, (long long unsigned)dropped);
@@ -108,28 +158,38 @@ on_appsrc_buffer_probe(GstPad *pad, GstPadProbeInfo *info, gpointer data)
 
 /* Session Lifecycle */
 
+/*
+ * lws_ring element destructor for ring_input: each queued message owns a
+ * malloc'd RTP payload, which would otherwise leak when the session is
+ * destroyed with frames still queued.
+ */
+static void
+mixer_msg_destroy(void *element)
+{
+	struct mixer_msg *msg = (struct mixer_msg *)element;
+
+	if (msg->payload) {
+		free(msg->payload);
+		msg->payload = NULL;
+	}
+}
+
 struct mixer_media_session *
-mixer_media_session_create(struct vhd_mixer *vhd, void *parent)
+mixer_media_session_create(struct vhd_mixer *vhd)
 {
 	struct mixer_media_session *s = malloc(sizeof(*s));
 	if (!s) return NULL;
 	memset(s, 0, sizeof(*s));
 
 	s->ref_count = 1;
-	s->parent_p = parent;
+	s->id = ++vhd->next_session_id;
 	lws_mutex_init(s->mutex);
 
 	/* Create Input Ring (LWS -> Worker) */
 	/* Buffer 2048 messages? */
-	s->ring_input = lws_ring_create(sizeof(struct mixer_msg), 2048, NULL);
+	s->ring_input = lws_ring_create(sizeof(struct mixer_msg), 2048,
+					mixer_msg_destroy);
 	if (!s->ring_input) {
-		free(s);
-		return NULL;
-	}
-
-	s->ring_input_buffer = malloc(sizeof(struct mixer_msg) * 2048);
-	if (!s->ring_input_buffer) {
-		lws_ring_destroy(s->ring_input);
 		free(s);
 		return NULL;
 	}
@@ -155,7 +215,6 @@ mixer_media_session_create(struct vhd_mixer *vhd, void *parent)
 	s->ring_buffer = malloc(elem_count * sizeof(int16_t));
 	if (!s->ring_buffer) {
 		lwsl_err("%s: OOM ring buffer\n", __func__);
-		free(s->ring_input_buffer);
 		lws_ring_destroy(s->ring_input);
 		free(s);
 		return NULL;
@@ -163,7 +222,6 @@ mixer_media_session_create(struct vhd_mixer *vhd, void *parent)
 	s->ring_pcm = lws_ring_create(sizeof(int16_t), elem_count, NULL);
 	if (!s->ring_pcm) {
 		free(s->ring_buffer);
-		free(s->ring_input_buffer);
 		lws_ring_destroy(s->ring_input);
 		free(s);
 		return NULL;
@@ -180,6 +238,45 @@ mixer_media_session_ref(struct mixer_media_session *s)
 	lws_mutex_lock(s->mutex);
 	s->ref_count++;
 	lws_mutex_unlock(s->mutex);
+}
+
+void
+mixer_media_session_set_ident(struct mixer_media_session *s, const char *name,
+			      const char *stats)
+{
+	lws_mutex_lock(s->mutex);
+	if (name)
+		lws_strncpy(s->name, name, sizeof(s->name));
+	if (stats)
+		lws_strncpy(s->stats, stats, sizeof(s->stats));
+	lws_mutex_unlock(s->mutex);
+}
+
+int
+mixer_media_session_publish(struct mixer_media_session *s, struct mixer_room *r)
+{
+	struct mixer_msg msg;
+	int ok;
+
+	memset(&msg, 0, sizeof(msg));
+	msg.type = MSG_ADD_SESSION;
+	msg.session = s;
+	msg.room = r;
+
+	mixer_media_session_ref(s); /* the worker's reference */
+
+	lws_mutex_lock(r->vhd->mutex_rx);
+	ok = lws_ring_insert(r->vhd->ring_rx, &msg, 1) == 1;
+	lws_mutex_unlock(r->vhd->mutex_rx);
+
+	if (!ok) {
+		lwsl_err("%s: Failed to insert ADD_SESSION\n", __func__);
+		mixer_media_session_unref(s); /* hand the worker's ref back */
+
+		return -1;
+	}
+
+	return 0;
 }
 
 void
@@ -203,23 +300,27 @@ mixer_media_session_destroy(struct mixer_media_session *s)
 		s->encoder = NULL;
 	}
 
-	struct participant *pp = (struct participant *)s->parent_p;
+	/*
+	 * s->room is worker-owned and rooms outlive every session, so unlike
+	 * the participant back-pointer this used to use, it is always safe to
+	 * follow here.
+	 */
 	if (s->compositor_pad) {
-		if (pp && pp->room && pp->room->compositor) {
-			gst_element_release_request_pad(pp->room->compositor, s->compositor_pad);
+		if (s->room && s->room->compositor) {
+			gst_element_release_request_pad(s->room->compositor, s->compositor_pad);
 		}
 		gst_object_unref(s->compositor_pad);
 		s->compositor_pad = NULL;
 	}
 
-	if (pp && pp->room && pp->room->pipeline) {
+	if (s->room && s->room->pipeline) {
 		if (s->decodebin) {
 			gst_element_set_state(s->decodebin, GST_STATE_NULL);
-			gst_bin_remove(GST_BIN(pp->room->pipeline), s->decodebin);
+			gst_bin_remove(GST_BIN(s->room->pipeline), s->decodebin);
 		}
 		if (s->appsrc) {
 			gst_element_set_state(s->appsrc, GST_STATE_NULL);
-			gst_bin_remove(GST_BIN(pp->room->pipeline), s->appsrc);
+			gst_bin_remove(GST_BIN(s->room->pipeline), s->appsrc);
 		}
 	} else {
 		if (s->decodebin) {
@@ -297,77 +398,174 @@ struct codec_counts {
 /* Re-implementing with correct structure */
 
 static void
+worker_remove_session(struct vhd_mixer *vhd, struct mixer_media_session *s);
+
+static void
 process_control_message(struct vhd_mixer *vhd, struct mixer_msg *msg)
 {
 	struct mixer_media_session *s = msg->session;
 
 	if (msg->type == MSG_ADD_SESSION) {
-		/* room_name is in payload */
+		/*
+		 * The lws thread created the room before handing us the
+		 * session, and rooms are never destroyed while the worker
+		 * runs, so we can just take the pointer.  We keep our own
+		 * room list so that we never walk vhd->rooms, which the lws
+		 * thread appends to without a lock.
+		 */
+		s->room = msg->room;
 
-		/* Let's simply add to vhd->sessions. */
 		lws_dll2_add_tail(&s->list, &vhd->sessions);
 
-		/* Copy room name from payload */
-		if (msg->payload) {
-			lws_strncpy(s->room_name, (const char *)msg->payload, sizeof(s->room_name));
-			free(msg->payload);
-		}
+		if (s->room && lws_dll2_is_detached(&s->room->w_list))
+			lws_dll2_add_tail(&s->room->w_list, &vhd->w_rooms);
 
 		return;
 	}
 
-	if (msg->type == MSG_REMOVE_SESSION) {
-		/* Find the room to release the compositor pad */
-		struct mixer_room *r = NULL;
-		lws_start_foreach_dll(struct lws_dll2 *, d_r, lws_dll2_get_head(&vhd->rooms)) {
-			struct mixer_room *tr = lws_container_of(d_r, struct mixer_room, list);
-			if (!strcmp(tr->name, s->room_name)) {
-				r = tr;
-				break;
-			}
-		} lws_end_foreach_dll(d_r);
+	if (msg->type == MSG_REMOVE_SESSION)
+		worker_remove_session(vhd, s);
+}
 
-		if (s->compositor_pad && r && r->compositor) {
-			lwsl_notice("Releasing compositor pad %s for session %p in room %s\n",
-					gst_pad_get_name(s->compositor_pad), s, s->room_name);
-			gst_element_release_request_pad(r->compositor, s->compositor_pad);
-			gst_object_unref(s->compositor_pad);
-			s->compositor_pad = NULL;
-		}
+/*
+ * Worker side: retire a session --- release its compositor pad, take it off
+ * our session list, park the room's pipeline if that was the last one --- and
+ * drop the worker's reference to it.
+ */
+static void
+worker_remove_session(struct vhd_mixer *vhd, struct mixer_media_session *s)
+{
+	struct mixer_room *r = s->room;
 
-		if (!lws_dll2_is_detached(&s->list)) {
-			lws_dll2_remove(&s->list);
-		}
-
-		if (r) {
-			int active_sessions = 0;
-			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
-				struct mixer_media_session *ts = lws_container_of(d, struct mixer_media_session, list);
-				if (!strcmp(ts->room_name, r->name))
-					active_sessions++;
-			} lws_end_foreach_dll(d);
-
-			if (active_sessions == 0) {
-				lwsl_notice("Room %s is empty, resetting pipeline to READY to prevent catch-up bursts\n", r->name);
-				/*
-				 * We must use READY instead of PAUSED.
-				 * PAUSED preserves the running time. When a new user joins, their injected PTS
-				 * will reflect the old running time, but the compositor's output will have stalled,
-				 * causing a massive gap that it attempts to catch up with fast-forward frames.
-				 * READY completely resets the pipeline running time to 0 for the next session.
-				 */
-				gst_element_set_state(r->pipeline, GST_STATE_READY);
-			}
-		}
-
-		mixer_media_session_unref(s);
-		return;
+	if (s->compositor_pad && r && r->compositor) {
+		lwsl_notice("Releasing compositor pad %s for session %u in room %s\n",
+				gst_pad_get_name(s->compositor_pad), s->id, r->name);
+		gst_element_release_request_pad(r->compositor, s->compositor_pad);
+		gst_object_unref(s->compositor_pad);
+		s->compositor_pad = NULL;
 	}
 
-	if (msg->type == MSG_UNREF_SESSION) {
-		mixer_media_session_unref(s);
-		return;
+	if (!lws_dll2_is_detached(&s->list))
+		lws_dll2_remove(&s->list);
+
+	if (r) {
+		int active_sessions = 0;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
+			struct mixer_media_session *ts = lws_container_of(d, struct mixer_media_session, list);
+			if (ts->room == r)
+				active_sessions++;
+		} lws_end_foreach_dll(d);
+
+		if (active_sessions == 0) {
+			lwsl_notice("Room %s is empty, resetting pipeline to READY to prevent catch-up bursts\n", r->name);
+			/*
+			 * We must use READY instead of PAUSED.
+			 * PAUSED preserves the running time. When a new user joins, their injected PTS
+			 * will reflect the old running time, but the compositor's output will have stalled,
+			 * causing a massive gap that it attempts to catch up with fast-forward frames.
+			 * READY completely resets the pipeline running time to 0 for the next session.
+			 */
+			gst_element_set_state(r->pipeline, GST_STATE_READY);
+		}
 	}
+
+	mixer_media_session_unref(s);
+}
+
+/*
+ * Called on the lws thread once the worker has been joined, before the rooms
+ * are torn down.
+ *
+ * Anything still in the control ring, and anything still on the worker's
+ * session list, is holding the worker's reference on a session --- and those
+ * sessions hold pointers into the rooms and their GStreamer pipelines.  We
+ * are the only thread left, so we can run the worker's own retirement path
+ * for them and leave nothing pointing into what we are about to free.
+ */
+void
+mixer_worker_drain(struct vhd_mixer *vhd)
+{
+	struct mixer_msg *msg;
+
+	while (lws_ring_get_count_waiting_elements(vhd->ring_rx,
+						   &vhd->ring_rx_tail) > 0) {
+		msg = (struct mixer_msg *)lws_ring_get_element(vhd->ring_rx,
+							      &vhd->ring_rx_tail);
+		if (!msg)
+			break;
+
+		process_control_message(vhd, msg);
+		lws_ring_consume(vhd->ring_rx, &vhd->ring_rx_tail, NULL, 1);
+		lws_ring_update_oldest_tail(vhd->ring_rx, vhd->ring_rx_tail);
+	}
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&vhd->sessions)) {
+		struct mixer_media_session *s = lws_container_of(d,
+					struct mixer_media_session, list);
+
+		worker_remove_session(vhd, s);
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
+/*
+ * Append `len` bytes to a growable accumulation buffer, growing it if needed.
+ *
+ * Returns 0 if the bytes were appended.  On any failure --- the cap would be
+ * exceeded, or realloc() could not grow the buffer --- it returns 1 having
+ * appended nothing and having reset *plen to 0, ie, the partly-accumulated
+ * frame is dropped and the caller must stop appending to it.  This is the
+ * only correct response to a failed grow: the old buffer is still valid but
+ * is too small, so writing into it anyway would be a heap overflow of
+ * attacker-chosen length.
+ */
+static int
+mixer_buf_append(uint8_t **pbuf, size_t *plen, size_t *palloc,
+		 const uint8_t *data, size_t len, size_t cap)
+{
+	size_t needed = *plen + len;
+
+	if (needed > cap || needed < *plen /* overflow */)
+		goto drop;
+
+	if (*palloc < needed) {
+		size_t na = needed + 4096;
+		uint8_t *tmp = realloc(*pbuf, na);
+
+		if (!tmp)
+			goto drop;
+
+		*pbuf = tmp;
+		*palloc = na;
+	}
+
+	memcpy(*pbuf + *plen, data, len);
+	*plen = needed;
+
+	return 0;
+
+drop:
+	*plen = 0;
+
+	return 1;
+}
+
+/* the accumulated Annex-B frame and the reassembled AV1 OBU are both capped */
+#define MIXER_VIDEO_BUF_CAP (16 * 1024 * 1024)
+
+static int
+mixer_video_append(struct mixer_media_session *s, const uint8_t *d, size_t n)
+{
+	return mixer_buf_append(&s->video_buf, &s->video_len, &s->video_alloc,
+				d, n, MIXER_VIDEO_BUF_CAP);
+}
+
+static int
+mixer_obu_append(struct mixer_media_session *s, const uint8_t *d, size_t n)
+{
+	return mixer_buf_append(&s->obu_buf, &s->obu_len, &s->obu_alloc,
+				d, n, MIXER_VIDEO_BUF_CAP);
 }
 
 static void
@@ -489,6 +687,13 @@ process_session_media(struct mixer_media_session *s)
 			break;
 		}
 		msg_copy = *msg_ptr;
+		/*
+		 * Ownership of the payload allocation moves to our copy, so
+		 * clear it in the ring slot before we advance the oldest tail
+		 * --- otherwise the ring's element destructor would free it
+		 * from under us.
+		 */
+		msg_ptr->payload = NULL;
 		lws_ring_consume(s->ring_input, &s->ring_tail, NULL, 1);
 		lws_ring_update_oldest_tail(s->ring_input, s->ring_tail);
 		lws_mutex_unlock(s->mutex);
@@ -540,9 +745,9 @@ process_session_media(struct mixer_media_session *s)
 
 			/* Handle Video logic */
 
-			if (!s->appsrc && s->parent_p) {
+			if (!s->appsrc && s->room) {
 				s->last_dec_codec = msg->codec;
-				init_participant_media((struct participant *)s->parent_p, msg->codec);
+				init_session_media(s, msg->codec);
 			}
 
 			if (s->appsrc) {
@@ -569,26 +774,8 @@ process_session_media(struct mixer_media_session *s)
 
 					if (type >= 1 && type <= 23) {
 						/* Single NAL Unit */
-						size_t needed = s->video_len + in_len + 4;
-						if (needed > 16 * 1024 * 1024) {
-							s->video_len = 0;
-						} else {
-							if (s->video_alloc < needed) {
-								/* Q-13: realloc to temp, commit on success */
-								size_t na = needed + 1024;
-								uint8_t *tmp = realloc(s->video_buf, na);
-								if (tmp) {
-									s->video_buf = tmp;
-									s->video_alloc = na;
-								}
-							}
-							if (s->video_buf) {
-								memcpy(s->video_buf + s->video_len, annexb_start, 4);
-								s->video_len += 4;
-								memcpy(s->video_buf + s->video_len, in_data, in_len);
-								s->video_len += in_len;
-							}
-						}
+						if (!mixer_video_append(s, annexb_start, 4))
+							mixer_video_append(s, in_data, in_len);
 					} else if (type == 24) {
 						/* STAP-A: Single-Time Aggregation Packet */
 						size_t off = 1; /* Skip STAP-A header */
@@ -600,28 +787,14 @@ process_session_media(struct mixer_media_session *s)
 								break;
 							}
 							if (off + nal_size > in_len) break;
-							size_t needed = s->video_len + nal_size + 4;
-							if (needed > 16 * 1024 * 1024) {
-								s->video_len = 0;
+
+							if (mixer_video_append(s, annexb_start, 4) ||
+							    mixer_video_append(s, in_data + off, nal_size))
 								break;
-							}
-							if (s->video_alloc < needed) {
-								/* Q-13: realloc to temp, commit on success */
-								size_t na = needed + 1024;
-								uint8_t *tmp = realloc(s->video_buf, na);
-								if (tmp) {
-									s->video_buf = tmp;
-									s->video_alloc = na;
-								}
-							}
-							if (s->video_buf) {
-								memcpy(s->video_buf + s->video_len, annexb_start, 4);
-								s->video_len += 4;
-								memcpy(s->video_buf + s->video_len, in_data + off, nal_size);
-								s->video_len += nal_size;
-								static int dbg_stap = 0;
-								if (dbg_stap++ % 100 == 0) lwsl_notice("STAP-A: appended %u bytes\n", nal_size);
-							}
+
+							static int dbg_stap = 0;
+							if (dbg_stap++ % 100 == 0) lwsl_notice("STAP-A: appended %u bytes\n", nal_size);
+
 							off += nal_size;
 						}
 					} else if (type == 28) {
@@ -636,60 +809,19 @@ process_session_media(struct mixer_media_session *s)
 
 							if (S) {
 								/* Start of fragment */
-								s->fu_a_active = 1;
-								size_t needed = s->video_len + payload_len + 5;
-								if (needed > 16 * 1024 * 1024) {
-									s->video_len = 0;
-									s->fu_a_active = 0;
-								} else {
-									if (s->video_alloc < needed) {
-										/* Q-13: realloc to temp, commit on success */
-										size_t na = needed + 4096;
-										uint8_t *tmp = realloc(s->video_buf, na);
-										if (tmp) {
-											s->video_buf = tmp;
-											s->video_alloc = na;
-										}
-									}
-									if (s->video_buf) {
-										memcpy(s->video_buf + s->video_len, annexb_start, 4);
-										s->video_len += 4;
-										/* Reconstruct NAL header */
-										s->video_buf[s->video_len] = (header & 0xE0) | nal_type;
-										s->video_len += 1;
-										memcpy(s->video_buf + s->video_len, payload, payload_len);
-										s->video_len += payload_len;
+								uint8_t nal_hdr = (uint8_t)((header & 0xE0) | nal_type);
 
-										// static int dbg_fua1 = 0;
-										// if (dbg_fua1++ % 500 == 0)
-										// 	lwsl_notice("FU-A: Start fragment, NAL type %u, len %zu\n", nal_type, payload_len);
-									}
-								}
+								s->fu_a_active = 1;
+
+								/* Reconstruct start code + NAL header + payload */
+								if (mixer_video_append(s, annexb_start, 4) ||
+								    mixer_video_append(s, &nal_hdr, 1) ||
+								    mixer_video_append(s, payload, payload_len))
+									s->fu_a_active = 0;
 							} else if (s->video_buf && s->video_len > 0 && s->fu_a_active) {
 								/* Middle or end of fragment */
-								size_t needed = s->video_len + payload_len;
-								if (needed > 16 * 1024 * 1024) {
-									s->video_len = 0;
+								if (mixer_video_append(s, payload, payload_len))
 									s->fu_a_active = 0;
-								} else {
-									if (s->video_alloc < needed) {
-										/* Q-13: realloc to temp, commit on success */
-										size_t na = needed + 4096;
-										uint8_t *tmp = realloc(s->video_buf, na);
-										if (tmp) {
-											s->video_buf = tmp;
-											s->video_alloc = na;
-										}
-									}
-									if (s->video_buf) {
-										memcpy(s->video_buf + s->video_len, payload, payload_len);
-										s->video_len += payload_len;
-
-										// static int dbg_fua2 = 0;
-										// if (dbg_fua2++ % 2000 == 0)
-										// 	lwsl_notice("FU-A: Cont fragment, len %zu\n", payload_len);
-									}
-								}
 								/* We don't decode on 'E', we decode on 'marker' */
 							}
 						}
@@ -788,27 +920,11 @@ process_session_media(struct mixer_media_session *s)
 						if (is_first_elem && Z == 1) {
 							/* Continuation fragment from a PREVIOUS packet */
 							if (!drop_fragment && s->obu_buf) {
-								if (s->obu_len + obu_size > 16 * 1024 * 1024) {
-									s->obu_len = 0;
-								} else {
-									if (s->obu_len + obu_size > s->obu_alloc) {
-										/* Q-13: realloc to temp, commit on success */
-										size_t na = s->obu_len + obu_size + 4096;
-										uint8_t *tmp = realloc(s->obu_buf, na);
-										if (tmp) {
-											s->obu_buf = tmp;
-											s->obu_alloc = na;
-										}
-									}
-									if (s->obu_buf) {
-										memcpy(s->obu_buf + s->obu_len, in_data + off, obu_size);
-										s->obu_len += obu_size;
-
-										/* Complete if not continuing into NEXT packet */
-										if (!(is_last_elem_in_packet && Y == 1)) {
-											append_av1_obu(s, s->obu_buf, s->obu_len);
-											s->obu_len = 0;
-										}
+								if (!mixer_obu_append(s, in_data + off, obu_size)) {
+									/* Complete if not continuing into NEXT packet */
+									if (!(is_last_elem_in_packet && Y == 1)) {
+										append_av1_obu(s, s->obu_buf, s->obu_len);
+										s->obu_len = 0;
 									}
 								}
 							}
@@ -818,23 +934,8 @@ process_session_media(struct mixer_media_session *s)
 								/* Begins here, continues into NEXT packet */
 								if (dbg_aggr < 50) lwsl_notice("  -> Frag START: idx=%d, size=%zu\n", elem_idx, obu_size);
 								s->obu_len = 0;
-								if (obu_size > 16 * 1024 * 1024) {
-									/* Too large */
-								} else {
-									if (obu_size > s->obu_alloc) {
-										/* Q-13: realloc to temp, commit on success */
-										size_t na = obu_size + 4096;
-										uint8_t *tmp = realloc(s->obu_buf, na);
-										if (tmp) {
-											s->obu_buf = tmp;
-											s->obu_alloc = na;
-										}
-									}
-									if (s->obu_buf && obu_size > 0) {
-										memcpy(s->obu_buf, in_data + off, obu_size);
-										s->obu_len = obu_size;
-									}
-								}
+								if (obu_size > 0)
+									mixer_obu_append(s, in_data + off, obu_size);
 							} else {
 								/* Complete within this packet */
 								if (dbg_aggr < 50) lwsl_notice("  -> Frag COMPLETE: idx=%d, size=%zu\n", elem_idx, obu_size);
@@ -853,7 +954,7 @@ process_session_media(struct mixer_media_session *s)
 					if (msg->marker) {
 						static int dbg_marker = 0;
 						if (dbg_marker++ % 50 == 0)
-							lwsl_notice("%s: Received RTP marker for room %s, frame len %zu\n", __func__, s->room_name, s->video_len);
+							lwsl_notice("%s: Received RTP marker for room %s, frame len %zu\n", __func__, s->room->name, s->video_len);
 						if (s->video_buf && s->video_len > 0) {
 							in_data = s->video_buf;
 							in_len = s->video_len;
@@ -875,9 +976,8 @@ process_session_media(struct mixer_media_session *s)
 					GstClock *clock = gst_element_get_clock(s->appsrc);
 					GstClockTime pts = GST_CLOCK_TIME_NONE;
 					if (clock) {
-						struct participant *pp = (struct participant *)s->parent_p;
-						if (pp && pp->room && pp->room->pipeline) {
-							pts = gst_clock_get_time(clock) - gst_element_get_base_time(pp->room->pipeline);
+						if (s->room && s->room->pipeline) {
+							pts = gst_clock_get_time(clock) - gst_element_get_base_time(s->room->pipeline);
 						} else {
 							pts = gst_clock_get_time(clock) - gst_element_get_base_time(s->appsrc);
 						}
@@ -887,7 +987,7 @@ process_session_media(struct mixer_media_session *s)
 							lwsl_notice("INJECT: pts %llu ms, clock %llu ms, base %llu ms\n",
 								(unsigned long long)(pts / 1000000),
 								(unsigned long long)(gst_clock_get_time(clock) / 1000000),
-								(unsigned long long)(gst_element_get_base_time(pp && pp->room ? pp->room->pipeline : s->appsrc) / 1000000));
+								(unsigned long long)(gst_element_get_base_time(s->room && s->room->pipeline ? s->room->pipeline : s->appsrc) / 1000000));
 
 						gst_object_unref(clock);
 					}
@@ -948,7 +1048,7 @@ process_room_mix(struct vhd_mixer *vhd, struct mixer_room *r, lws_usec_t deadlin
 
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 		struct mixer_media_session *s = lws_container_of(d, struct mixer_media_session, list);
-		if (strcmp(s->room_name, r->name)) goto skip_decode;
+		if (s->room != r) goto skip_decode;
 
 		/* Jitter Buffer Consumer Logic */
 		lws_mutex_lock(s->mutex); /* Protected access to ring_pcm */
@@ -966,7 +1066,7 @@ process_room_mix(struct vhd_mixer *vhd, struct mixer_room *r, lws_usec_t deadlin
 					lws_ring_update_oldest_tail(s->ring_pcm, s->ring_pcm_tail);
 					static int dbg_drift = 0;
 					if (dbg_drift++ % 50 == 0)
-						lwsl_notice("%s: Audio DRIFT catch-up! Dropped %zu samples for %s\n", __func__, drop, s->room_name);
+						lwsl_notice("%s: Audio DRIFT catch-up! Dropped %zu samples for %s\n", __func__, drop, r->name);
 					waiting = lws_ring_get_count_waiting_elements(s->ring_pcm, &s->ring_pcm_tail);
 				}
 			}
@@ -1007,7 +1107,7 @@ skip_decode:
 	/* 2. Encode Audio (Mix-Minus) & Send */
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 		struct mixer_media_session *s = lws_container_of(d, struct mixer_media_session, list);
-		if (strcmp(s->room_name, r->name)) goto skip_encode;
+		if (s->room != r) goto skip_encode;
 
 		if (s->encoder) {
 			int16_t out_pcm[AUDIO_SAMPLES_PER_FRAME];
@@ -1059,7 +1159,7 @@ skip_encode:
 
 			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 				struct mixer_media_session *s = lws_container_of(d, struct mixer_media_session, list);
-				if (strcmp(s->room_name, r->name)) goto next_tx_h264;
+				if (s->room != r) goto next_tx_h264;
 				lws_mutex_lock(s->mutex);
 				int can_rx_h264 = s->can_rx_h264;
 				lws_mutex_unlock(s->mutex);
@@ -1090,7 +1190,7 @@ next_tx_h264:;
 
 			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 				struct mixer_media_session *s = lws_container_of(d, struct mixer_media_session, list);
-				if (strcmp(s->room_name, r->name)) goto next_tx_av1;
+				if (s->room != r) goto next_tx_av1;
 				lws_mutex_lock(s->mutex);
 				int can_rx_av1 = s->can_rx_av1;
 				lws_mutex_unlock(s->mutex);
@@ -1110,6 +1210,23 @@ next_tx_av1:;
 
 		/* Apply Layout to GStreamer Compositor Pads */
 		r->lm_ops->update(r, r->lm_ctx);
+
+		/*
+		 * Render the layout to JSON here, on the thread that owns the
+		 * layout context, and publish just the finished string.  The
+		 * lws thread used to call get_json() itself, walking the
+		 * region array and the session pointers in it while this
+		 * thread was reallocating and refilling them.
+		 */
+		if (r->lm_ops->get_json) {
+			char *j = r->lm_ops->get_json(r->lm_ctx);
+
+			lws_mutex_lock(r->mutex_layout);
+			free(r->layout_json);
+			r->layout_json = j;
+			lws_mutex_unlock(r->mutex_layout);
+		}
+
 		int num_regions = 0;
 		const struct lws_mixer_layout_region *regions = r->lm_ops->get_regions(r->lm_ctx, &num_regions);
 
@@ -1117,7 +1234,7 @@ next_tx_av1:;
 			const struct lws_mixer_layout_region *reg = &regions[i];
 			struct mixer_media_session *s = reg->s;
 
-			if (s->compositor_pad && s->decoded_frames > 0) {
+			if (s && s->compositor_pad && s->decoded_frames > 0) {
 				static int dbg_pad = 0;
 				if (dbg_pad++ % 100 == 0)
 					lwsl_notice("Setting pad %p: %dx%d @ %d,%d\n",
@@ -1177,15 +1294,29 @@ media_worker_thread(void *d)
 
 
 
-        /* 2. Process Session Media (Decode) */
-        lws_start_foreach_dll(struct lws_dll2 *, d_s, lws_dll2_get_head(&vhd->sessions)) {
+        /* 2. Process Session Media (Decode), reaping any orphans */
+        lws_start_foreach_dll_safe(struct lws_dll2 *, d_s, d_s1, lws_dll2_get_head(&vhd->sessions)) {
              struct mixer_media_session *s = lws_container_of(d_s, struct mixer_media_session, list);
-             process_session_media(s);
-        } lws_end_foreach_dll(d_s);
+             int orphaned;
 
-        /* 3. Mix & Encode */
-        lws_start_foreach_dll(struct lws_dll2 *, d_r, lws_dll2_get_head(&vhd->rooms)) {
-            struct mixer_room *r = lws_container_of(d_r, struct mixer_room, list);
+             lws_mutex_lock(s->mutex);
+             orphaned = s->orphaned;
+             lws_mutex_unlock(s->mutex);
+
+             if (orphaned) {
+                  worker_remove_session(vhd, s);
+                  continue;
+             }
+
+             process_session_media(s);
+        } lws_end_foreach_dll_safe(d_s, d_s1);
+
+        /*
+         * 3. Mix & Encode.  We walk our own room list, not vhd->rooms which
+         * the lws thread appends to without a lock.
+         */
+        lws_start_foreach_dll(struct lws_dll2 *, d_r, lws_dll2_get_head(&vhd->w_rooms)) {
+            struct mixer_room *r = lws_container_of(d_r, struct mixer_room, w_list);
             int h264_dropped = process_room_mix(vhd, r, next_frame_time);
 
             /* Report CPU keeping up (true if finished within 20ms of deadline and encoder didn't drop frames) */
@@ -1376,6 +1507,7 @@ mixer_room_init(struct mixer_room *r)
 		gst_init(NULL, NULL);
 
 	pthread_mutex_init(&r->encode_mutex, NULL);
+	lws_mutex_init(r->mutex_layout);
 	lws_dll2_owner_clear(&r->h264_queue);
 	lws_dll2_owner_clear(&r->av1_queue);
 
@@ -1383,6 +1515,8 @@ mixer_room_init(struct mixer_room *r)
 	if (!r->pipeline) {
 		lwsl_err("%s: GStreamer pipeline parse failed: %s\n", __func__, err ? err->message : "Unknown");
 		if (err) g_error_free(err);
+		lws_mutex_destroy(r->mutex_layout);
+		pthread_mutex_destroy(&r->encode_mutex);
 		return -1;
 	}
 
@@ -1390,13 +1524,28 @@ mixer_room_init(struct mixer_room *r)
 
 
 
-	GstBus *bus = gst_element_get_bus(r->pipeline);
-	gst_bus_add_watch(bus, (GstBusFunc)bus_call, r);
-	gst_object_unref(bus);
+	/*
+	 * We deliberately do NOT gst_bus_add_watch() here: process_room_mix()
+	 * drains the bus itself with gst_bus_pop() on the worker thread, and
+	 * bus_call() resolves element names against the worker-owned session
+	 * list.  A watch would hand the same work to whatever thread happens
+	 * to run the GLib main context, and it would also outlive the room on
+	 * any error path here.
+	 */
 
 	r->compositor = gst_bin_get_by_name(GST_BIN(r->pipeline), "comp");
 	if (!r->compositor) {
 		lwsl_err("%s: Failed to find compositor 'comp' in pipeline\n", __func__);
+		/*
+		 * The caller is about to free the room, so the pipeline it
+		 * parsed has to go with it rather than being leaked.
+		 */
+		gst_element_set_state(r->pipeline, GST_STATE_NULL);
+		gst_object_unref(r->pipeline);
+		r->pipeline = NULL;
+		lws_mutex_destroy(r->mutex_layout);
+		pthread_mutex_destroy(&r->encode_mutex);
+
 		return -1;
 	}
 	/* Ensure compositor aligns output PTS with the first incoming frame's PTS to avoid catch-up gaps */
@@ -1467,6 +1616,10 @@ mixer_room_deinit(struct mixer_room *r)
 
 	if (r->adapt_h264) lws_adapt_destroy(&r->adapt_h264);
 
+	free(r->layout_json);
+	r->layout_json = NULL;
+	lws_mutex_destroy(r->mutex_layout);
+
 	pthread_mutex_destroy(&r->encode_mutex);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&r->h264_queue)) {
@@ -1486,34 +1639,35 @@ mixer_room_deinit(struct mixer_room *r)
 	free_chat_history(r);
 }
 
-void
-on_decoder_pad_added(GstElement *element, GstPad *new_pad, gpointer data)
+/*
+ * How many sessions the worker currently has in this room.
+ */
+static int
+mixer_room_session_count(struct mixer_room *r)
 {
-	/* This is only for decodebin fallback */
-	struct mixer_media_session *s = (struct mixer_media_session *)data;
-	struct participant *p = (struct participant *)s->parent_p;
+	int n = 0;
 
-	if (p && p->room && p->room->compositor) {
-		if (!s->compositor_pad) {
-			s->compositor_pad = gst_element_request_pad_simple(p->room->compositor, "sink_%u");
-			if (lws_dll2_count(&p->room->participants) <= 1) p->room->master_pts = 0;
-		}
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&r->vhd->sessions)) {
+		struct mixer_media_session *ts = lws_container_of(d,
+					struct mixer_media_session, list);
 
-		/* Link: decoder -> compositor_sink */
-		GstPadLinkReturn ret = gst_pad_link(new_pad, s->compositor_pad);
-		if (GST_PAD_LINK_FAILED(ret)) {
-			lwsl_err("%s: Failed to link decoder to compositor (err %d)\n", __func__, ret);
-		}
-	}
+		if (ts->room == r)
+			n++;
+	} lws_end_foreach_dll(d);
+
+	return n;
 }
 
+/*
+ * Worker thread only.  Reaches the room through s->room, never through a
+ * participant, see the ownership rule at struct mixer_media_session.
+ */
 int
-init_participant_media(struct participant *p, enum lws_video_codec codec)
+init_session_media(struct mixer_media_session *s, enum lws_video_codec codec)
 {
+	struct mixer_room *r = s->room;
 	int err;
-	struct mixer_media_session *s = p->session;
-
-	if (!s) return -1;
 
 	/* 1. Init Opus Codecs */
 	if (!s->decoder) {
@@ -1544,15 +1698,21 @@ init_participant_media(struct participant *p, enum lws_video_codec codec)
 
 	s->last_pts = GST_CLOCK_TIME_NONE;
 	char n_appsrc[64], n_dec[64], n_que[64], n_parse[64], n_deint[64], n_vconv[64], n_vscale[64], n_vrate[64], n_cfilt[64];
-	lws_snprintf(n_appsrc, sizeof(n_appsrc), "appsrc_%p", s);
-	lws_snprintf(n_dec, sizeof(n_dec), "dec_%p", s);
-	lws_snprintf(n_que, sizeof(n_que), "que_%p", s);
-	lws_snprintf(n_parse, sizeof(n_parse), "parse_%p", s);
-	lws_snprintf(n_deint, sizeof(n_deint), "deint_%p", s);
-	lws_snprintf(n_vconv, sizeof(n_vconv), "vconv_%p", s);
-	lws_snprintf(n_vscale, sizeof(n_vscale), "vscale_%p", s);
-	lws_snprintf(n_vrate, sizeof(n_vrate), "vrate_%p", s);
-	lws_snprintf(n_cfilt, sizeof(n_cfilt), "cfilt_%p", s);
+	/*
+	 * The element name suffix is the session's integer id, not its
+	 * address: mixer_session_by_element_name() has to be able to map a
+	 * name on the bus back to a *live* session without ever
+	 * materialising a pointer out of a string.
+	 */
+	lws_snprintf(n_appsrc, sizeof(n_appsrc), "appsrc_%u", s->id);
+	lws_snprintf(n_dec, sizeof(n_dec), "dec_%u", s->id);
+	lws_snprintf(n_que, sizeof(n_que), "que_%u", s->id);
+	lws_snprintf(n_parse, sizeof(n_parse), "parse_%u", s->id);
+	lws_snprintf(n_deint, sizeof(n_deint), "deint_%u", s->id);
+	lws_snprintf(n_vconv, sizeof(n_vconv), "vconv_%u", s->id);
+	lws_snprintf(n_vscale, sizeof(n_vscale), "vscale_%u", s->id);
+	lws_snprintf(n_vrate, sizeof(n_vrate), "vrate_%u", s->id);
+	lws_snprintf(n_cfilt, sizeof(n_cfilt), "cfilt_%u", s->id);
 
 	s->appsrc = gst_element_factory_make("appsrc", n_appsrc);
 	
@@ -1607,19 +1767,19 @@ init_participant_media(struct participant *p, enum lws_video_codec codec)
 			"is-live", TRUE, "do-timestamp", FALSE, NULL);
 	gst_caps_unref(caps);
 
-	if (p->room && p->room->pipeline) {
+	if (r && r->pipeline) {
 		/* Use system clock for maximum stability with live jittery streams */
-		gst_pipeline_use_clock(GST_PIPELINE(p->room->pipeline), gst_system_clock_obtain());
+		gst_pipeline_use_clock(GST_PIPELINE(r->pipeline), gst_system_clock_obtain());
 
 		if (!s->compositor_pad) {
-			s->compositor_pad = gst_element_request_pad_simple(p->room->compositor, "sink_%u");
-			if (lws_dll2_count(&p->room->participants) <= 1) p->room->master_pts = 0;
+			s->compositor_pad = gst_element_request_pad_simple(r->compositor, "sink_%u");
+			if (mixer_room_session_count(r) <= 1) r->master_pts = 0;
 		}
 
 		/* Set compositor pad to be as lenient as possible */
-		g_object_set(G_OBJECT(p->room->compositor), "latency", (GstClockTime)0, NULL);
+		g_object_set(G_OBJECT(r->compositor), "latency", (GstClockTime)0, NULL);
 
-		gst_bin_add_many(GST_BIN(p->room->pipeline), s->appsrc, que, parser, s->decodebin, deint, vconv, vscale, vrate, cfilter, NULL);
+		gst_bin_add_many(GST_BIN(r->pipeline), s->appsrc, que, parser, s->decodebin, deint, vconv, vscale, vrate, cfilter, NULL);
 
 		/* Direct link: appsrc -> que -> parser -> decoder -> deinterlace -> vconv -> vscale -> videorate -> cfilter */
 		if (!gst_element_link_many(s->appsrc, que, parser, s->decodebin, deint, vconv, vscale, vrate, cfilter, NULL)) {
@@ -1655,10 +1815,10 @@ init_participant_media(struct participant *p, enum lws_video_codec codec)
 		gst_element_sync_state_with_parent(cfilter);
 
 		GstState state;
-		gst_element_get_state(p->room->pipeline, &state, NULL, 0);
+		gst_element_get_state(r->pipeline, &state, NULL, 0);
 		if (state != GST_STATE_PLAYING) {
-			lwsl_notice("Resuming pipeline on first media frame for room %s\n", p->room->name);
-			gst_element_set_state(p->room->pipeline, GST_STATE_PLAYING);
+			lwsl_notice("Resuming pipeline on first media frame for room %s\n", r->name);
+			gst_element_set_state(r->pipeline, GST_STATE_PLAYING);
 		}
 	}
 
@@ -1705,32 +1865,62 @@ init_participant_media(struct participant *p, enum lws_video_codec codec)
 
 /* Old deinit removed */
 
+/*
+ * Drop the lws thread's handle on the participant's media session.
+ *
+ * There are exactly two references on a session: the lws thread's (taken by
+ * mixer_media_session_create()) and the worker's (taken alongside the
+ * MSG_ADD_SESSION post).  MSG_REMOVE_SESSION consumes the worker's; we must
+ * drop ours here too or the whole session --- two lws_rings, the jitter
+ * buffer, the Opus codecs and up to 16MB of accumulated video --- leaks for
+ * the life of the process on every disconnect.
+ *
+ * We drop ours first and post afterwards: the worker cannot release its own
+ * reference before it sees the message, so this makes the last reference go
+ * away on the worker thread every time, which is where the GStreamer
+ * teardown in mixer_media_session_destroy() belongs.
+ */
 void
 deinit_participant_media(struct participant *p)
 {
-    if (p->session) {
-        p->session->parent_p = NULL;
+	struct mixer_media_session *s = p->session;
+	int posted = 0;
 
-        /* Defer destruction to the worker thread safely */
-        if (p->room && p->room->vhd) {
-            struct mixer_msg msg;
-            memset(&msg, 0, sizeof(msg));
-            msg.type = MSG_REMOVE_SESSION;
-            msg.session = p->session;
+	if (!s)
+		return;
 
-            lws_mutex_lock(p->room->vhd->mutex_rx);
-            if (lws_ring_insert(p->room->vhd->ring_rx, &msg, 1) != 1) {
-                lwsl_err("%s: Failed to insert REMOVE_SESSION\n", __func__);
-                mixer_media_session_unref(p->session);
-            }
-            lws_mutex_unlock(p->room->vhd->mutex_rx);
-        } else {
-            /* Fallback if somehow room is missing */
-            mixer_media_session_unref(p->session);
-        }
+	p->session = NULL;
 
-        p->session = NULL;
-    }
+	/* our reference; the worker still holds its own */
+	mixer_media_session_unref(s);
+
+	/* Defer destruction to the worker thread safely */
+	if (p->room && p->room->vhd) {
+		struct mixer_msg msg;
+
+		memset(&msg, 0, sizeof(msg));
+		msg.type = MSG_REMOVE_SESSION;
+		msg.session = s;
+
+		lws_mutex_lock(p->room->vhd->mutex_rx);
+		posted = lws_ring_insert(p->room->vhd->ring_rx, &msg, 1) == 1;
+		lws_mutex_unlock(p->room->vhd->mutex_rx);
+
+		if (!posted)
+			lwsl_err("%s: Failed to insert REMOVE_SESSION\n", __func__);
+	}
+
+	if (!posted) {
+		/*
+		 * Nobody will consume the worker's reference.  We must not
+		 * drop it here: the session is still on the worker's session
+		 * list and only the worker may unlink it.  Flag it instead
+		 * and let the worker reap it on its next tick.
+		 */
+		lws_mutex_lock(s->mutex);
+		s->orphaned = 1;
+		lws_mutex_unlock(s->mutex);
+	}
 }
 
 void

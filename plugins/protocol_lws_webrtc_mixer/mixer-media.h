@@ -50,7 +50,6 @@ enum mixer_msg_type {
 	MSG_AUDIO_FRAME,
 	MSG_VIDEO_FRAME,
 	MSG_VSYNC_TICK, /* Optional internal tick */
-	MSG_UNREF_SESSION,
 	MSG_REQ_PLI,
 };
 
@@ -62,6 +61,7 @@ struct mixer_msg {
 	void                    *payload;
 	size_t                  len;
 	struct mixer_media_session *session;
+	struct mixer_room       *room; /* MSG_ADD_SESSION: room to join */
 
 	/* Metadata for media frames */
 	uint32_t                timestamp;
@@ -72,17 +72,64 @@ struct mixer_msg {
 
 /*
  * Long-lived Media Session Object
- * Ref-counted: 1 ref for LWS (participant), 1 ref for Worker
+ *
+ * ==========================================================================
+ * OWNERSHIP RULE (the plugin runs two threads over these objects)
+ * ==========================================================================
+ *
+ * Thread A is the lws event loop thread: callback_mixer(), sul_stats_cb(),
+ * broadcast_*(), mixer_on_media(), deinit_participant_media().
+ * Thread B is the detached media worker (media_worker_thread()):
+ * process_control_message(), process_session_media(), process_room_mix()
+ * and the layout manager ops.
+ *
+ * 1) `struct mixer_media_session` is the ONLY object shared between the two
+ *    threads.  It is refcounted: one reference is held by the lws thread (the
+ *    participant's handle) and one by the worker (its `vhd->sessions` entry).
+ *    Both are dropped explicitly, and whichever thread drops the last one
+ *    destroys it.
+ *
+ * 2) `struct participant`, `mixer_room::participants`, `mixer_room::
+ *    chat_history`, `mixer_room::playing_sounds` and `vhd->rooms` are owned
+ *    by the lws thread ALONE.  The worker must never reach a participant;
+ *    that is why the session has no back-pointer to one.  Anything the
+ *    worker needs from the participant (its display name and stats line) is
+ *    snapshotted into the session below under `mutex`.
+ *
+ * 3) `struct mixer_room` objects themselves, and their GStreamer pipelines,
+ *    are created by the lws thread before the session is handed over and are
+ *    never destroyed until LWS_CALLBACK_PROTOCOL_DESTROY (which happens only
+ *    after the worker has been joined).  The room pointer in a session is
+ *    therefore stable, and the worker reaches rooms through it and through
+ *    its own `vhd->w_rooms` list, never through `vhd->rooms`.  Because rooms
+ *    are immortal for the life of the vhost, their number is capped, see
+ *    `vhd->max_rooms`.
+ *
+ * 4) Fields below marked [mutex] may be touched by both threads and only
+ *    under `mutex`.  Fields marked [worker] or [lws] belong to that thread.
+ *    The `int` flags marked [lws->worker] have a single writer (the lws
+ *    thread) and are only ever read as a whole word by the worker.
  */
 struct mixer_media_session {
 	lws_mutex_t             mutex;
-	int                     ref_count;
+	int                     ref_count; /* [mutex] */
 
 	struct lws_webrtc_peer_media *media;
-	void                    *parent_p; /* Back-pointer to participant (Access only with Mutex) */
-	char                    room_name[64];
-	int                     joined;
-	int                     out_only;
+	struct mixer_room       *room; /* [worker] set at MSG_ADD_SESSION */
+	uint32_t                id; /* immutable, unique per vhost */
+	char                    name[64]; /* [mutex] snapshot of participant */
+	char                    stats[128]; /* [mutex] snapshot of participant */
+	int                     joined; /* [lws->worker] */
+	int                     out_only; /* [lws->worker] */
+
+	/*
+	 * Set by the lws thread (under mutex) when it dropped its reference
+	 * but could not post MSG_REMOVE_SESSION because the control ring was
+	 * full.  The worker reaps these itself: the lws thread must never
+	 * unlink a session from the worker's list.
+	 */
+	int                     orphaned; /* [mutex] */
+
 
 	/* Audio Resources */
 	OpusDecoder             *decoder;
@@ -95,12 +142,12 @@ struct mixer_media_session {
 	uint32_t                ring_tail;
 	uint32_t                ring_pcm_tail;
 	int                     last_codec;
-	int                     can_rx_h264;
-	int                     can_rx_av1;
+	int                     can_rx_h264; /* [mutex] */
+	int                     can_rx_av1; /* [mutex] */
 	int                     has_pcm;
 	int                     audio_seen;
 	int                     audio_energy;
-	int                     video_muted;
+	int                     video_muted; /* [lws->worker] */
 
 	/* Sequence Number Handling */
 	lws_dll2_owner_t        rtp_queue;     /* Raw RTP packets (sorted) */
@@ -152,12 +199,14 @@ struct mixer_media_session {
 
 	lws_dll2_t              list; /* List in vhd->sessions (Worker Side) */
 
-	/* Input Queue (LWS -> Worker) */
-	/* We use a lock-protected ring for input to this session */
+	/* Input Queue (LWS -> Worker), and its tail: both [mutex] */
 	struct lws_ring         *ring_input;
-	struct mixer_msg        *ring_input_buffer;
 };
 
+/*
+ * struct participant is owned by the lws event loop thread alone, see the
+ * ownership rule at struct mixer_media_session.  The worker never sees one.
+ */
 struct participant {
 	struct mixer_media_session *session; /* Ref-counted handle */
 
@@ -186,6 +235,17 @@ struct participant {
 	/* Telemetry Rate Calculation */
 	struct lws_webrtc_telemetry last_telemetry;
 	uint32_t                last_gst_qos_drops;
+
+	/*
+	 * Authorization state, see README.md.  `id` is the opaque,
+	 * server-assigned handle other peers must use to address this
+	 * participant; `controller` is set on the first participant to join
+	 * the room, and only the controller may drive somebody else's camera
+	 * controls or read their device capabilities.
+	 */
+	char                    id[24];
+	int                     controller;
+	lws_usec_t              last_caps_req;
 
 	struct mixer_room       *room;
 	struct pss_webrtc       *pss;
@@ -251,7 +311,8 @@ struct mixer_encoded_frame {
 };
 
 struct mixer_room {
-	lws_dll2_t              list; /* stored in vhd->rooms */
+	lws_dll2_t              list; /* [lws] stored in vhd->rooms */
+	lws_dll2_t              w_list; /* [worker] stored in vhd->w_rooms */
 	struct vhd_mixer        *vhd;  /* parent */
 	char                    name[64];
 	lws_dll2_owner_t        sessions; /* Worker Side: List of active mixer_media_session */
@@ -289,8 +350,16 @@ struct mixer_room {
 	uint32_t                master_w, master_h;
 	int64_t                 master_pts;
 
-	const struct layout_manager_ops *lm_ops;
-	void                    *lm_ctx;
+	/*
+	 * The layout context is worker-owned.  The worker renders it to JSON
+	 * and publishes the string here; the lws thread only ever copies the
+	 * finished string out under mutex_layout to broadcast it, so it never
+	 * walks the region array or a session pointer.
+	 */
+	const struct layout_manager_ops *lm_ops; /* [worker] */
+	void                    *lm_ctx; /* [worker] */
+	lws_mutex_t             mutex_layout;
+	char                    *layout_json; /* [mutex_layout] */
 
 	lws_audio_vu_info_t     audio_info;
 	lws_usec_t              avg_tick_us;
@@ -319,10 +388,31 @@ struct layout_manager_ops {
 LWS_VISIBLE LWS_EXTERN_FOR_DATA const struct layout_manager_ops lm_quad_ops;
 LWS_VISIBLE LWS_EXTERN_FOR_DATA const struct layout_manager_ops lm_speaker_ops;
 
+/*
+ * Rooms are never destroyed while the vhost lives (see the ownership rule at
+ * struct mixer_media_session), and each one owns a full GStreamer encode
+ * pipeline, so the count has to be capped: an unauthenticated peer picks the
+ * room name.  Overridable with the "max-rooms" pvo.
+ */
+#define MIXER_DEFAULT_MAX_ROOMS 8
+
+/* the largest device-capability blob we will store and relay per participant */
+#define MIXER_MAX_CAPS_LEN 2048
+
+/* minimum interval between request_caps from one participant */
+#define MIXER_CAPS_REQ_MIN_INTERVAL_US (1 * LWS_US_PER_SEC)
+
+/* don't add to a peer's tx backlog past this */
+#define MIXER_MAX_TX_BACKLOG 262144
+
 struct vhd_mixer {
 	struct vhd_webrtc       *vhd;
 
-	lws_dll2_owner_t        rooms; /* list of struct mixer_room */
+	lws_dll2_owner_t        rooms; /* [lws] list of struct mixer_room */
+	lws_dll2_owner_t        w_rooms; /* [worker] the same rooms */
+	int                     num_rooms; /* [lws] */
+	int                     max_rooms; /* immutable after PROTOCOL_INIT */
+	uint32_t                next_session_id; /* [lws] */
 	lws_sorted_usec_list_t  sul_stats; /* Global system stats */
 
 	/* Worker Threading */
@@ -369,7 +459,7 @@ void
 mixer_room_deinit(struct mixer_room *r);
 
 int
-init_participant_media(struct participant *p, enum lws_video_codec codec);
+init_session_media(struct mixer_media_session *s, enum lws_video_codec codec);
 
 void
 deinit_participant_media(struct participant *p);
@@ -380,8 +470,34 @@ media_handle_video_packet(struct participant *p, const uint8_t *buf, size_t len,
 void *
 media_worker_thread(void *d);
 
+/*
+ * Retire everything the worker still owns.  Only legal on the lws thread
+ * after the worker has been joined, and it must be done before the rooms are
+ * destroyed, since the sessions it releases reach into their pipelines.
+ */
+void
+mixer_worker_drain(struct vhd_mixer *vhd);
+
 struct mixer_media_session *
-mixer_media_session_create(struct vhd_mixer *vhd, void *parent);
+mixer_media_session_create(struct vhd_mixer *vhd);
+
+/*
+ * Hand a newly created session to the worker thread for room \p r.
+ *
+ * On success (0) the worker owns a second reference, which it releases when
+ * it processes the matching MSG_REMOVE_SESSION.  On failure (-1) no
+ * reference was handed over and the caller must simply unref its own.
+ */
+int
+mixer_media_session_publish(struct mixer_media_session *s, struct mixer_room *r);
+
+/*
+ * Update the worker-visible snapshot of the participant's display name and
+ * stats line.  Called on the lws thread only; takes s->mutex.
+ */
+void
+mixer_media_session_set_ident(struct mixer_media_session *s, const char *name,
+			      const char *stats);
 
 void
 mixer_media_session_ref(struct mixer_media_session *s);

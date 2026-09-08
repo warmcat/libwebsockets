@@ -81,7 +81,7 @@ lm_speaker_update(struct mixer_room *r, void *vctx)
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 		struct mixer_media_session *s = lws_container_of(d, struct mixer_media_session, list);
 
-		if (strcmp(s->room_name, r->name))
+		if (s->room != r)
 			goto skip;
 
 		if (!s->joined && !s->out_only)
@@ -210,9 +210,10 @@ skip:
 
 	if (best_part) {
 		if (ctx->current_speaker != best_part->s) {
-			lwsl_notice("[INSTRUMENT] %s: Switching speaker from '%s' to '%s'\n",
-					__func__, ctx->current_speaker ? ((struct participant *)ctx->current_speaker->parent_p)->name : "none",
-					((struct participant *)best_part->s->parent_p)->name);
+			lwsl_notice("[INSTRUMENT] %s: Switching speaker from session %u to %u\n",
+					__func__, ctx->current_speaker ?
+						ctx->current_speaker->id : 0,
+					best_part->s->id);
 		}
 		ctx->current_speaker = best_part->s;
 		best_part->last_speaker_time = lws_now_usecs();
@@ -224,6 +225,7 @@ skip:
 	struct speaker_part **margin_parts = malloc((size_t)(ctx->num_parts) * sizeof(struct speaker_part *));
 	if (!margin_parts) {
 		lwsl_err("%s: OOM\n", __func__);
+		ctx->num_regions = 0;
 		return;
 	}
 
@@ -233,17 +235,26 @@ skip:
 			margin_parts[num_margin++] = &ctx->parts[i];
 	}
 
-	/* Allocate regions */
-	ctx->num_regions = num_margin + 1; /* 1 for current_speaker + margin */
-	if (ctx->num_regions > ctx->max_regions) {
-		ctx->max_regions = ctx->num_regions;
-		void *p = realloc(ctx->regions, (size_t)ctx->max_regions * sizeof(*ctx->regions));
+	/*
+	 * Allocate regions.  num_regions is published only once the array is
+	 * both large enough and filled in below --- it is the bound every
+	 * reader uses, so growing it ahead of the allocation (or growing
+	 * max_regions when the realloc failed) is an out-of-bounds read
+	 * waiting to happen.
+	 */
+	int need_regions = num_margin + 1; /* 1 for current_speaker + margin */
+
+	if (need_regions > ctx->max_regions) {
+		void *p = realloc(ctx->regions,
+				  (size_t)need_regions * sizeof(*ctx->regions));
 		if (!p) {
 			lwsl_err("%s: OOM\n", __func__);
+			ctx->num_regions = 0;
 			free(margin_parts);
 			return;
 		}
 		ctx->regions = p;
+		ctx->max_regions = need_regions;
 	}
 
 	/* Sort margin parts */
@@ -305,6 +316,8 @@ skip:
 		margin_y += margin_item_h + 10; // 10px spacing between margin items
 	}
 
+	ctx->num_regions = need_regions;
+
 	free(margin_parts);
 }
 
@@ -323,14 +336,17 @@ lm_speaker_get_json(void *vctx)
 	char buf[LWS_PRE + 4096];
 	char *p = buf + LWS_PRE;
 	char *end = buf + sizeof(buf);
-	int i;
+	int i, emitted = 0;
 
 	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"type\":\"layout\",\"regions\":[");
 
 	for (i = 0; i < ctx->num_regions; i++) {
 		struct lws_mixer_layout_region *reg = &ctx->regions[i];
 		struct mixer_media_session *s = reg->s;
-		struct participant *part = (struct participant *)s->parent_p;
+		char name[sizeof(s->name)], stats[sizeof(s->stats)];
+
+		if (!s)
+			continue;
 
 		/* Calculate percentages */
 		int x_pct = (reg->x * 100) / (int)ctx->room->master_w;
@@ -338,15 +354,24 @@ lm_speaker_get_json(void *vctx)
 		int w_pct = (reg->w * 100) / (int)ctx->room->master_w;
 		int h_pct = (reg->h * 100) / (int)ctx->room->master_h;
 
-		if (i > 0)
+		if (emitted++)
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ",");
 
 		char name_esc[64] = {0};
 		char stats_esc[128] = {0};
-		if (part) {
-			lws_json_purify(name_esc, part->name, sizeof(name_esc), NULL);
-			lws_json_purify(stats_esc, part->stats, sizeof(stats_esc), NULL);
-		}
+
+		/*
+		 * The participant that owns this session belongs to the lws
+		 * thread and we must not follow a pointer to it; the session
+		 * carries a snapshot of its identity for us instead.
+		 */
+		lws_mutex_lock(s->mutex);
+		lws_strncpy(name, s->name, sizeof(name));
+		lws_strncpy(stats, s->stats, sizeof(stats));
+		lws_mutex_unlock(s->mutex);
+
+		lws_json_purify(name_esc, name, sizeof(name_esc), NULL);
+		lws_json_purify(stats_esc, stats, sizeof(stats_esc), NULL);
 
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 			"{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"px_w\":%d,\"px_h\":%d,\"text\":\"%s\\n%s\"}",

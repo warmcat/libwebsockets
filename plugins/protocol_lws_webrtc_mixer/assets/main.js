@@ -779,20 +779,46 @@ async function connectSignalling() {
                     await track.applyConstraints({ width: { ideal: msg.width }, height: { ideal: msg.height } });
                 }
             } else if (msg.type === 'remote_capabilities') {
-                /* {"type":"remote_capabilities","target":"<name>","payload":{"type":"capabilities","kind":"video","controls":[...]}} */
-                log("Remote caps received for " + msg.target);
-                const payload = msg.payload;
+                /*
+                 * {"type":"remote_capabilities","target":"<opaque id>",
+                 *  "name":"<display name>",
+                 *  "payload":"<the owner's capabilities message, as a JSON
+                 *              *string* we parse ourselves>"}
+                 *
+                 * The server does not parse the payload, so it can not splice
+                 * it into this message as JSON: it hands it to us escaped as
+                 * a string and we parse it here.  "target" is the server's
+                 * opaque handle for the participant, not a name the
+                 * participant chose, and it is what we must quote back when
+                 * addressing it.
+                 */
+                let payload;
+                try {
+                    payload = typeof msg.payload === 'string' ?
+                              JSON.parse(msg.payload) : msg.payload;
+                } catch (e) {
+                    console.warn("remote_capabilities: bad payload", e);
+                    return;
+                }
+                if (!payload || !Array.isArray(payload.controls)) {
+                    console.warn("remote_capabilities: no controls array");
+                    return;
+                }
 
-                // Find or create remote node
-                // We use ID = "remote_" + target_name + "_" + kind
+                const displayName = msg.name || msg.target;
+
+                log("Remote caps received for " + displayName);
+
+                // Find or create remote node, keyed by the opaque target id
                 const id = `remote_${msg.target}_${payload.kind}`;
-                const label = `${msg.target} (${payload.kind})`;
+                const label = `${displayName} (${payload.kind})`;
                 const kind = payload.kind === 'video' ? 'videoinput' : 'audioinput';
 
                 let node = remoteNodes.find(n => n.id === id);
                 if (!node) {
                     node = new MediaNode(id, label, kind, true);
                     node.targetName = msg.target;
+                    node.displayName = displayName;
                     remoteNodes.push(node);
                 }
 
@@ -815,7 +841,7 @@ async function connectSignalling() {
 
                 // If remote modal is open for this participant, refresh it
                 if (!remoteSettingsModal.classList.contains('hidden') &&
-                    remoteModalTitle.innerText.includes(msg.target)) {
+                    remoteModalTitle.innerText.includes(displayName)) {
                      // Re-render
                      // Find all nodes for this target
                      const nodes = remoteNodes.filter(n => n.targetName === msg.target);
@@ -1313,13 +1339,19 @@ document.getElementById('partDeviceBtn').onclick = () => {
         return;
     }
 
-    const pName = activeParticipant;
-    const vNode = remoteNodes.find(n => n.targetName === pName && n.kind === 'videoinput');
+    /*
+     * activeParticipant is {id, name}: `id` is the server's opaque handle and
+     * is what everything on the wire is addressed by; `name` is only for
+     * display.
+     */
+    const pId = activeParticipant.id;
+    const pName = activeParticipant.name || activeParticipant.id;
+    const vNode = remoteNodes.find(n => n.targetName === pId && n.kind === 'videoinput');
 
     if (!vNode) {
         // Request it
         if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'request_caps', target: pName }));
+            ws.send(JSON.stringify({ type: 'request_caps', target: pId }));
             log(`Requesting controls for ${pName}...`);
         }
     }
@@ -1368,7 +1400,7 @@ document.getElementById('partDeviceBtn').onclick = () => {
     document.getElementById('localSettingsGroup').classList.remove('hidden');
 
     // Find all nodes for this target
-    const nodes = remoteNodes.filter(n => n.targetName === pName);
+    const nodes = remoteNodes.filter(n => n.targetName === pId);
     console.log(`[DEBUG] Opening sidebar settings for ${pName}. Found ${nodes.length} nodes.`);
 
     if (nodes.length === 0) {
@@ -1393,10 +1425,10 @@ document.getElementById('partDeviceBtn').onclick = () => {
     }
 };
 
-function showParticipantMenu(e, name) {
+function showParticipantMenu(e, client) {
     e.preventDefault();
     e.stopPropagation();
-    activeParticipant = name;
+    activeParticipant = client;
 
     // Position menu
     partMenu.animate([
@@ -1424,7 +1456,7 @@ function updateParticipants(clients) {
             item.className = 'participant-item' + (c.joined ? '' : ' unjoined');
             item.classList.add('cursor-pointer');
 
-            item.onclick = (e) => showParticipantMenu(e, c.name);
+            item.onclick = (e) => showParticipantMenu(e, { id: c.id, name: c.name });
 
             // Icon for everyone
             const icon = document.createElement('span');
