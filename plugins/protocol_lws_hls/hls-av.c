@@ -3,32 +3,12 @@
 #include <stdlib.h>
 
 
-void *
-lws_hls_thumbnail_worker(void *d)
+/* thumbnail extraction: returns a malloc'd JPEG, or NULL */
+static uint8_t *
+run_thumb_task(struct per_vhost_data__lws_hls *vhd, struct hls_task *t,
+	       int *jpeg_size_out)
 {
-        struct per_vhost_data__lws_hls *vhd = (struct per_vhost_data__lws_hls *)d;
-
-        while (1) {
-                pthread_mutex_lock(&vhd->lock);
-
-                while (!vhd->thread_exit && !lws_dll2_get_head(&vhd->tasks)) {
-                        pthread_cond_wait(&vhd->cond, &vhd->lock);
-                }
-                if (vhd->thread_exit) {
-                        pthread_mutex_unlock(&vhd->lock);
-                        break;
-                }
-
-                struct thumb_task *t = lws_container_of(
-                                lws_dll2_get_head(&vhd->tasks),
-                                struct thumb_task, list);
-                lws_dll2_remove(&t->list);
-
-                lws_strncpy(vhd->current_task_filename, t->filename,
-                            sizeof(vhd->current_task_filename));
-                
-                pthread_mutex_unlock(&vhd->lock);
-                
+        {
                 char filepath[512];
                 snprintf(filepath, sizeof(filepath), "%s/%s", vhd->media_dir, t->filename);
                 
@@ -124,40 +104,281 @@ lws_hls_thumbnail_worker(void *d)
                         }
                         avformat_close_input(&fmt_ctx);
                 }
-                
+
+                *jpeg_size_out = jpeg_size;
+
+                return jpeg_data;
+        }
+}
+
+/* worker thread: file the thumbnail in the shared cache */
+static void
+finish_thumb_task(struct per_vhost_data__lws_hls *vhd, struct hls_task *t,
+		  uint8_t *jpeg_data, int jpeg_size)
+{
+	struct thumb_cache *c = malloc(sizeof(*c));
+
+	pthread_mutex_lock(&vhd->lock);
+
+	if (c) {
+		lws_strncpy(c->filename, t->filename, sizeof(c->filename));
+		c->data = jpeg_data;
+		c->len = (size_t)jpeg_size;
+
+		lws_dll2_clear(&c->list);
+		lws_dll2_add_head(&c->list, &vhd->thumb_cache);
+		vhd->cache_count++;
+
+		if (vhd->cache_count > 20) {
+			/* drop the least-recently-used guy at the tail */
+			struct thumb_cache *curr = lws_container_of(
+					lws_dll2_get_tail(&vhd->thumb_cache),
+					struct thumb_cache, list);
+
+			lws_dll2_remove(&curr->list);
+			if (curr->data)
+				free(curr->data);
+			free(curr);
+			vhd->cache_count--;
+		}
+	} else
+		free(jpeg_data);
+
+	vhd->current_task_filename[0] = '\0';
+	vhd->running = NULL;
+
+	pthread_mutex_unlock(&vhd->lock);
+	free(t);
+}
+
+/* worker thread: build one session's body into the task */
+static void
+run_body_task(struct per_vhost_data__lws_hls *vhd, struct hls_task *t)
+{
+	switch (t->type) {
+	case HLS_TASK_INIT:
+		lws_hls_build_init(vhd, vhd->media_dir, t->filename, &t->cancel,
+				   &t->r);
+		break;
+	case HLS_TASK_MANIFEST:
+		lws_hls_build_manifest(vhd, vhd->media_dir, t->filename,
+				       &t->cancel, &t->r);
+		break;
+	case HLS_TASK_SEGMENT:
+		lws_hls_build_segment(vhd, vhd->media_dir, t->filename,
+				      t->segment_idx, &t->cancel, &t->r);
+		break;
+	case HLS_TASK_STREAM:
+		lws_hls_build_stream(vhd, vhd->media_dir, t->filename,
+				     &t->cancel, &t->r);
+		break;
+	case HLS_TASK_SUB_PLAYLIST:
+		lws_hls_build_sub_playlist(vhd, vhd->media_dir, t->filename,
+					   t->trackid, &t->cancel, &t->r);
+		break;
+	case HLS_TASK_SUB_SEGMENT:
+		lws_hls_build_sub_segment(vhd, vhd->media_dir, t->filename,
+					  t->trackid, t->segment_idx,
+					  &t->cancel, &t->r);
+		break;
+	default:
+		t->r.status = HTTP_STATUS_INTERNAL_SERVER_ERROR;
+		break;
+	}
+}
+
+void
+lws_hls_task_free(struct hls_task *t)
+{
+	if (!t)
+		return;
+	free(t->r.body);
+	free(t);
+}
+
+void *
+lws_hls_worker(void *d)
+{
+        struct per_vhost_data__lws_hls *vhd = (struct per_vhost_data__lws_hls *)d;
+
+        while (1) {
+		struct hls_task *t;
+
                 pthread_mutex_lock(&vhd->lock);
 
-                struct thumb_cache *c = malloc(sizeof(*c));
-                lws_strncpy(c->filename, t->filename, sizeof(c->filename));
-                c->data = jpeg_data;
-                c->len = (size_t)jpeg_size;
-
-                lws_dll2_clear(&c->list);
-                lws_dll2_add_head(&c->list, &vhd->thumb_cache);
-                vhd->cache_count++;
-
-                if (vhd->cache_count > 20) {
-                        /* drop the least-recently-used guy at the tail */
-                        struct thumb_cache *curr = lws_container_of(
-                                        lws_dll2_get_tail(&vhd->thumb_cache),
-                                        struct thumb_cache, list);
-
-                        lws_dll2_remove(&curr->list);
-                        if (curr->data)
-                                free(curr->data);
-                        free(curr);
-                        vhd->cache_count--;
+                while (!vhd->thread_exit && !lws_dll2_get_head(&vhd->tasks)) {
+                        pthread_cond_wait(&vhd->cond, &vhd->lock);
                 }
-                
-                vhd->current_task_filename[0] = '\0';
+                if (vhd->thread_exit) {
+                        pthread_mutex_unlock(&vhd->lock);
+                        break;
+                }
+
+                t = lws_container_of(lws_dll2_get_head(&vhd->tasks),
+				     struct hls_task, list);
+                lws_dll2_remove(&t->list);
+		t->state = HLS_TASK_RUNNING;
+		vhd->running = t;
+
+		if (t->type == HLS_TASK_THUMB)
+			lws_strncpy(vhd->current_task_filename, t->filename,
+				    sizeof(vhd->current_task_filename));
 
                 pthread_mutex_unlock(&vhd->lock);
-                free(t);
-                
-                lws_cancel_service(vhd->context);
+
+		if (t->type == HLS_TASK_THUMB) {
+			int jpeg_size = 0;
+			uint8_t *jpeg = run_thumb_task(vhd, t, &jpeg_size);
+
+			finish_thumb_task(vhd, t, jpeg, jpeg_size);
+			lws_cancel_service(vhd->context);
+			continue;
+		}
+
+		run_body_task(vhd, t);
+
+		/*
+		 * Hand it to the event loop.  Whether anyone is still waiting
+		 * for it is the collector's business: t->pss is event loop
+		 * state and we do not look at it.
+		 */
+		pthread_mutex_lock(&vhd->lock);
+		t->state = HLS_TASK_DONE;
+		vhd->running = NULL;
+		lws_dll2_add_tail(&t->list, &vhd->done);
+		pthread_mutex_unlock(&vhd->lock);
+
+		lws_cancel_service(vhd->context);
         }
-        
+
         return NULL;
+}
+
+int
+lws_hls_queue_task(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
+		   enum hls_task_type type, const char *filename,
+		   const char *trackid, int segment_idx)
+{
+	struct per_session_data__lws_hls *pss =
+		(struct per_session_data__lws_hls *)lws_wsi_user(wsi);
+	struct hls_task *t;
+
+	if (!vhd || !pss)
+		return -1;
+
+	/* one transaction, one task */
+	if (pss->task) {
+		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR,
+				       NULL);
+		return -1;
+	}
+
+	t = calloc(1, sizeof(*t));
+	if (!t) {
+		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR,
+				       NULL);
+		return -1;
+	}
+
+	t->type = type;
+	t->state = HLS_TASK_PENDING;
+	lws_strncpy(t->filename, filename, sizeof(t->filename));
+	if (trackid)
+		lws_strncpy(t->trackid, trackid, sizeof(t->trackid));
+	t->segment_idx = segment_idx;
+	t->pss = pss;
+	t->r.status = HTTP_STATUS_INTERNAL_SERVER_ERROR;
+
+	pss->task = t;
+	pss->resp_ready = 0;
+
+	pthread_mutex_lock(&vhd->lock);
+	lws_dll2_add_tail(&t->list, &vhd->tasks);
+	pthread_cond_signal(&vhd->cond);
+	pthread_mutex_unlock(&vhd->lock);
+
+	/*
+	 * lws put the context's default content timeout on the transaction
+	 * before calling us; we may legitimately wait longer than that for
+	 * our turn on the worker
+	 */
+	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+			HLS_TASK_TIMEOUT_SECS);
+
+	return 0;
+}
+
+void
+lws_hls_task_detach(struct per_vhost_data__lws_hls *vhd,
+		    struct per_session_data__lws_hls *pss)
+{
+	struct hls_task *t = pss->task;
+
+	if (!t)
+		return;
+
+	pss->task = NULL;
+
+	pthread_mutex_lock(&vhd->lock);
+
+	t->pss = NULL;
+	t->cancel = 1;
+
+	/*
+	 * Pending: nobody else has a reference, drop it now.  Running: the
+	 * worker will move it to done and the collector will find no pss
+	 * and free it.  Done: the collector will do the same.
+	 */
+	if (t->state == HLS_TASK_PENDING) {
+		lws_dll2_remove(&t->list);
+		pthread_mutex_unlock(&vhd->lock);
+		lws_hls_task_free(t);
+		return;
+	}
+
+	pthread_mutex_unlock(&vhd->lock);
+}
+
+void
+lws_hls_collect_done(struct per_vhost_data__lws_hls *vhd)
+{
+	lws_dll2_owner_t mine;
+
+	/* take the whole done list under the lock, deal with it outside */
+	memset(&mine, 0, sizeof(mine));
+	pthread_mutex_lock(&vhd->lock);
+	while (lws_dll2_get_head(&vhd->done)) {
+		struct hls_task *t = lws_container_of(
+				lws_dll2_get_head(&vhd->done),
+				struct hls_task, list);
+
+		lws_dll2_remove(&t->list);
+		lws_dll2_add_tail(&t->list, &mine);
+	}
+	pthread_mutex_unlock(&vhd->lock);
+
+	while (lws_dll2_get_head(&mine)) {
+		struct hls_task *t = lws_container_of(lws_dll2_get_head(&mine),
+						      struct hls_task, list);
+		struct per_session_data__lws_hls *pss = t->pss;
+
+		lws_dll2_remove(&t->list);
+
+		if (pss) {
+			pss->task = NULL;
+			free(pss->segment_buf);
+			pss->segment_buf = t->r.body;
+			t->r.body = NULL;
+			pss->segment_len = t->r.len;
+			pss->segment_pos = 0;
+			pss->resp_status = t->r.status;
+			pss->resp_content_type = t->r.content_type;
+			pss->resp_ready = 1;
+			lws_callback_on_writable(pss->wsi);
+		}
+
+		lws_hls_task_free(t);
+	}
 }
 
 int
@@ -195,23 +416,30 @@ lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir, const char *file
 
         int already_queued = 0;
         lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&vhd->tasks)) {
-                struct thumb_task *t = lws_container_of(d2,
-                                                struct thumb_task, list);
+                struct hls_task *t = lws_container_of(d2,
+                                                struct hls_task, list);
 
-                if (!strcmp(t->filename, filename)) {
+                if (t->type == HLS_TASK_THUMB &&
+		    !strcmp(t->filename, filename)) {
                         already_queued = 1;
                         break;
                 }
         } lws_end_foreach_dll(d2);
 
+	/* ...or being extracted right now */
+	if (vhd->current_task_filename[0] &&
+	    !strcmp(vhd->current_task_filename, filename))
+		already_queued = 1;
+
         if (!already_queued) {
-                struct thumb_task *nt = malloc(sizeof(*nt));
+                struct hls_task *nt = calloc(1, sizeof(*nt));
                 if (!nt) {
                         pthread_mutex_unlock(&vhd->lock);
                         return -1;
                 }
+		nt->type = HLS_TASK_THUMB;
+		nt->state = HLS_TASK_PENDING;
                 lws_strncpy(nt->filename, filename, sizeof(nt->filename));
-                lws_dll2_clear(&nt->list);
 
                 lws_dll2_add_tail(&nt->list, &vhd->tasks);
 
@@ -709,31 +937,35 @@ flush_audio_transcoder(AVFormatContext *out_ctx, struct hls_audio_transcoder *au
         av_packet_free(&enc_pkt);
 }
 
-int
-lws_hls_serve_init(struct lws *wsi, const char *media_dir, const char *filename)
+void
+lws_hls_build_init(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
+		   const char *filename, volatile int *cancel,
+		   struct hls_result *r)
 {
         char filepath[1024];
         snprintf(filepath, sizeof(filepath), "%s/%s", media_dir, filename);
 
+	(void)vhd;
+	(void)cancel;
+	r->status = HTTP_STATUS_INTERNAL_SERVER_ERROR;
+
         AVFormatContext *in_ctx = NULL;
         if (avformat_open_input(&in_ctx, filepath, NULL, NULL) < 0) {
-                lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, "File not found");
-                return -1;
+		r->status = HTTP_STATUS_NOT_FOUND;
+                return;
         }
         in_ctx->flags |= AVFMT_FLAG_GENPTS;
 
         if (avformat_find_stream_info(in_ctx, NULL) < 0) {
                 avformat_close_input(&in_ctx);
-                lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "Stream info error");
-                return -1;
+                return;
         }
 
         AVFormatContext *out_ctx = NULL;
         avformat_alloc_output_context2(&out_ctx, NULL, "mp4", NULL);
         if (!out_ctx) {
                 avformat_close_input(&in_ctx);
-                lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "Out ctx error");
-                return -1;
+                return;
         }
 
         int video_idx = -1;
@@ -797,9 +1029,7 @@ lws_hls_serve_init(struct lws *wsi, const char *media_dir, const char *filename)
                 /* write_packet() would otherwise memcpy() into NULL */
                 avformat_free_context(out_ctx);
                 avformat_close_input(&in_ctx);
-                lws_return_http_status(wsi,
-                                HTTP_STATUS_INTERNAL_SERVER_ERROR, "OOM");
-                return -1;
+                return;
         }
 
         unsigned char *avio_ctx_buffer = av_malloc(32768);
@@ -829,7 +1059,7 @@ lws_hls_serve_init(struct lws *wsi, const char *media_dir, const char *filename)
                 }
                 avformat_close_input(&in_ctx);
                 free(hb.ptr);
-                return -1;
+                return;
         }
         av_write_trailer(out_ctx);
         av_dict_free(&opts);
@@ -841,12 +1071,11 @@ lws_hls_serve_init(struct lws *wsi, const char *media_dir, const char *filename)
         }
         avformat_close_input(&in_ctx);
 
-        struct per_session_data__lws_hls *pss = (struct per_session_data__lws_hls *)lws_wsi_user(wsi);
         /* hb.err: the muxed output hit the RAM cap or an allocation
          * failed, so the buffer contents are incomplete - do not ship it */
-        if (!pss || hb.size == 0 || hb.err) {
+        if (hb.size == 0 || hb.err) {
                 free(hb.ptr);
-                return -1;
+                return;
         }
 
         /*
@@ -861,27 +1090,17 @@ lws_hls_serve_init(struct lws *wsi, const char *media_dir, const char *filename)
         lwsl_info("HLS: Init segment: total=%zu, moof_offset=%zu, "
                   "sending=%zu (ftyp+moov)\n", hb.size, moof_off, send_size);
 
-        pss->segment_buf = malloc(LWS_PRE + send_size);
-        if (!pss->segment_buf) {
+        r->body = malloc(LWS_PRE + send_size);
+        if (!r->body) {
                 free(hb.ptr);
-                return -1;
+                return;
         }
 
-        memcpy(pss->segment_buf + LWS_PRE, hb.ptr, send_size);
-        pss->segment_len = send_size;
-
-        pss->segment_pos = 0;
+        memcpy(r->body + LWS_PRE, hb.ptr, send_size);
+        r->len = send_size;
+	r->content_type = "video/mp4";
+	r->status = HTTP_STATUS_OK;
         free(hb.ptr);
-
-        uint8_t hbuf[LWS_PRE + 2048], *start = hbuf + LWS_PRE, *p = start, *end = p + 2048;
-        if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "video/mp4",
-                                        (lws_filepos_t)pss->segment_len, &p, end) ||
-            lws_finalize_write_http_header(wsi, start, &p, end)) {
-                return -1;
-        }
-
-        lws_callback_on_writable(wsi);
-        return 0;
 }
 #if LIBAVFORMAT_VERSION_MAJOR >= 58
 #define get_index_count(st) avformat_index_get_entries_count(st)
@@ -912,7 +1131,8 @@ get_entry_dts(AVStream *st, const AVIndexEntry *entry)
 int
 lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filename,
                          AVFormatContext *in_ctx, int video_idx, int target_seg_idx,
-			 struct hls_segment_info *out_info, int *out_total_segments)
+			 struct hls_segment_info *out_info, int *out_total_segments,
+			 volatile int *cancel)
 {
 	AVStream *st = in_ctx->streams[video_idx];
 	int count = get_index_count(st);
@@ -966,6 +1186,8 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 					av_add_index_entry(st, pkt.pos, pkt.pts, pkt.size, 0, AVINDEX_KEYFRAME);
 				}
 				av_packet_unref(&pkt);
+				if (HLS_CANCELLED(cancel))
+					return -1;
 			}
 			/* Clear EOF flags to restore stream readability */
 			if (in_ctx->pb) {
@@ -1009,6 +1231,11 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 							}
 						}
 						av_packet_unref(&scan_pkt);
+						if (HLS_CANCELLED(cancel)) {
+							free(new_idx->entries);
+							free(new_idx);
+							return -1;
+						}
 					}
 					if (in_ctx->pb) {
 						in_ctx->pb->eof_reached = 0;
@@ -1113,28 +1340,26 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 	return 0;
 }
 
-int
-lws_hls_serve_manifest(struct lws *wsi, const char *media_dir, const char *filename)
+void
+lws_hls_build_manifest(struct per_vhost_data__lws_hls *vhd,
+		       const char *media_dir, const char *filename,
+		       volatile int *cancel, struct hls_result *r)
 {
 	char filepath[1024];
 	snprintf(filepath, sizeof(filepath), "%s/%s", media_dir, filename);
 
-	struct per_vhost_data__lws_hls *vhd =
-			(struct per_vhost_data__lws_hls *)
-			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
-					lws_get_protocol(wsi));
+	r->status = HTTP_STATUS_INTERNAL_SERVER_ERROR;
 
 	AVFormatContext *fmt_ctx = NULL;
 	if (avformat_open_input(&fmt_ctx, filepath, NULL, NULL) < 0) {
-		lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, "File not found");
-		return -1;
+		r->status = HTTP_STATUS_NOT_FOUND;
+		return;
 	}
 	fmt_ctx->flags |= AVFMT_FLAG_GENPTS;
 
 	if (avformat_find_stream_info(fmt_ctx, NULL) < 0) {
 		avformat_close_input(&fmt_ctx);
-		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "Stream info error");
-		return -1;
+		return;
 	}
 
 	int video_idx = -1;
@@ -1156,13 +1381,15 @@ lws_hls_serve_manifest(struct lws *wsi, const char *media_dir, const char *filen
 	
 	if (duration <= 0) {
 		avformat_close_input(&fmt_ctx);
-		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "Unknown duration");
-		return -1;
+		return;
 	}
 
 	int has_index = 0;
-	if (video_idx >= 0 && lws_hls_get_segment_info(vhd, filename, fmt_ctx, video_idx, -1, NULL, &total_segments) == 0) {
+	if (video_idx >= 0 && lws_hls_get_segment_info(vhd, filename, fmt_ctx, video_idx, -1, NULL, &total_segments, cancel) == 0) {
 		has_index = 1;
+	} else if (HLS_CANCELLED(cancel)) {
+		avformat_close_input(&fmt_ctx);
+		return;
 	} else {
 		int64_t segdur = (int64_t)HLS_SEGMENT_DUR * AV_TIME_BASE;
 		int64_t n = duration / segdur;
@@ -1196,7 +1423,7 @@ lws_hls_serve_manifest(struct lws *wsi, const char *media_dir, const char *filen
 			struct hls_segment_info sinfo;
 			memset(&sinfo, 0, sizeof(sinfo));
 			sinfo.end_pts = AV_NOPTS_VALUE;
-			if (lws_hls_get_segment_info(vhd, filename, fmt_ctx, video_idx, i, &sinfo, NULL) == 0) {
+			if (lws_hls_get_segment_info(vhd, filename, fmt_ctx, video_idx, i, &sinfo, NULL, cancel) == 0) {
 				if (sinfo.duration_sec > max_dur) max_dur = sinfo.duration_sec;
 			}
 		}
@@ -1219,8 +1446,7 @@ lws_hls_serve_manifest(struct lws *wsi, const char *media_dir, const char *filen
 	char *m3u8 = malloc(LWS_PRE + m3u8_max);
 	if (!m3u8) {
 		avformat_close_input(&fmt_ctx);
-		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "OOM");
-		return -1;
+		return;
 	}
 
 	char *body = m3u8 + LWS_PRE;
@@ -1241,7 +1467,7 @@ lws_hls_serve_manifest(struct lws *wsi, const char *media_dir, const char *filen
 			struct hls_segment_info sinfo;
 			memset(&sinfo, 0, sizeof(sinfo));
 			sinfo.end_pts = AV_NOPTS_VALUE;
-			if (lws_hls_get_segment_info(vhd, filename, fmt_ctx, video_idx, i, &sinfo, NULL) == 0) {
+			if (lws_hls_get_segment_info(vhd, filename, fmt_ctx, video_idx, i, &sinfo, NULL, cancel) == 0) {
 				dur = sinfo.duration_sec;
 			}
 		} else {
@@ -1265,71 +1491,42 @@ lws_hls_serve_manifest(struct lws *wsi, const char *media_dir, const char *filen
 
 	p_m3u8 = hls_append_fmt(p_m3u8, body, m3u8_max, "#EXT-X-ENDLIST\n");
 
-	size_t len = (size_t)(p_m3u8 - body);
-
-	struct per_session_data__lws_hls *pss = (struct per_session_data__lws_hls *)lws_wsi_user(wsi);
-	if (!pss) {
-		free(m3u8);
-		return -1;
-	}
-
-	pss->segment_buf = malloc(LWS_PRE + len);
-	if (!pss->segment_buf) {
-		free(m3u8);
-		return -1;
-	}
-
-	memcpy(pss->segment_buf + LWS_PRE, m3u8 + LWS_PRE, len);
-	pss->segment_len = len;
-	pss->segment_pos = 0;
-	free(m3u8);
-
-	/* Send HTTP headers */
-	uint8_t hbuf[LWS_PRE + 2048], *start = hbuf + LWS_PRE, *p = start, *end = p + 2048;
-	if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/vnd.apple.mpegurl",
-					(lws_filepos_t)pss->segment_len, &p, end) ||
-	    lws_finalize_write_http_header(wsi, start, &p, end)) {
-		free(pss->segment_buf);
-		pss->segment_buf = NULL;
-		return -1;
-	}
-
-	/* Request writable callback to pump data in safe chunks */
-	lws_callback_on_writable(wsi);
-	return 0;
+	/* m3u8 already carries the LWS_PRE headroom, hand it over as is */
+	r->body = (uint8_t *)m3u8;
+	r->len = (size_t)(p_m3u8 - body);
+	r->content_type = "application/vnd.apple.mpegurl";
+	r->status = HTTP_STATUS_OK;
 }
 
 
-int
-lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filename, int segment_idx)
+void
+lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
+		      const char *media_dir, const char *filename,
+		      int segment_idx, volatile int *cancel,
+		      struct hls_result *r)
 {
 	char filepath[1024];
 	snprintf(filepath, sizeof(filepath), "%s/%s", media_dir, filename);
 
-	struct per_vhost_data__lws_hls *vhd =
-			(struct per_vhost_data__lws_hls *)
-			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
-					lws_get_protocol(wsi));
+	r->status = HTTP_STATUS_INTERNAL_SERVER_ERROR;
 
 	AVFormatContext *in_ctx = NULL;
 	if (avformat_open_input(&in_ctx, filepath, NULL, NULL) < 0) {
-		lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, "File not found");
-		return -1;
+		r->status = HTTP_STATUS_NOT_FOUND;
+		return;
 	}
 	in_ctx->flags |= AVFMT_FLAG_GENPTS;
 
 	if (avformat_find_stream_info(in_ctx, NULL) < 0) {
 		avformat_close_input(&in_ctx);
-		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "Stream info error");
-		return -1;
+		return;
 	}
 
 	AVFormatContext *out_ctx = NULL;
 	avformat_alloc_output_context2(&out_ctx, NULL, "mp4", NULL);
 	if (!out_ctx) {
 		avformat_close_input(&in_ctx);
-		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "Out ctx error");
-		return -1;
+		return;
 	}
 
 	struct hls_audio_transcoder *audio_tx = NULL;
@@ -1339,8 +1536,7 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 	if (!stream_mapping) {
 		avformat_free_context(out_ctx);
 		avformat_close_input(&in_ctx);
-		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "OOM");
-		return -1;
+		return;
 	}
 	for (unsigned int i = 0; i < in_ctx->nb_streams; i++) {
 		stream_mapping[i] = -1;
@@ -1413,8 +1609,7 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 		avformat_free_context(out_ctx);
 		avformat_close_input(&in_ctx);
 		free(stream_mapping);
-		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "OOM");
-		return -1;
+		return;
 	}
 
 	unsigned char *avio_ctx_buffer = av_malloc(32768);
@@ -1499,7 +1694,7 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 	memset(&sinfo, 0, sizeof(sinfo));
 	sinfo.end_pts = AV_NOPTS_VALUE;
 
-	if (video_idx >= 0 && lws_hls_get_segment_info(vhd, filename, in_ctx, video_idx, segment_idx, &sinfo, NULL) == 0) {
+	if (video_idx >= 0 && lws_hls_get_segment_info(vhd, filename, in_ctx, video_idx, segment_idx, &sinfo, NULL, cancel) == 0) {
 		has_index = 1;
 		start_time = av_rescale_q(sinfo.start_pts, in_ctx->streams[video_idx]->time_base, AV_TIME_BASE_Q);
 		if (sinfo.end_pts != AV_NOPTS_VALUE) {
@@ -1515,7 +1710,11 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 					in_ctx->streams[video_idx]->time_base, AV_TIME_BASE_Q);
 	}
 	
+	if (HLS_CANCELLED(cancel))
+		goto done;
+
 	if (!has_index && duration > 0 && start_time >= duration) {
+		r->status = HTTP_STATUS_NOT_FOUND;
 		goto done;
 	}
 	
@@ -1564,6 +1763,12 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 	while (av_read_frame(in_ctx, &pkt) >= 0) {
 		AVStream *in_stream  = in_ctx->streams[pkt.stream_index];
 
+		if (HLS_CANCELLED(cancel)) {
+			/* the session went away: nobody wants this */
+			hb.err = 1;
+			av_packet_unref(&pkt);
+			break;
+		}
 		if (hb.err) {
 			lwsl_warn("HLS: Segment %d: output cap hit, stopping\n",
 				  segment_idx);
@@ -2010,22 +2215,11 @@ done:
 	avformat_close_input(&in_ctx);
 	free(stream_mapping);
 
-	/* Now we have the segment in hb.ptr! Send it to the client via LWS.
-	   For proper LWS async writing, we should save `hb` to per-session data and trigger WRITEABLE.
-	   We will allocate the buffer with LWS_PRE, attach to wsi, and request WRITEABLE. */
-	
-	struct per_session_data__lws_hls *pss = 
-		(struct per_session_data__lws_hls *)lws_protocol_vh_priv_get(
-			lws_get_vhost(wsi), lws_get_protocol(wsi));
-	
-	/* Wait, lws_protocol_vh_priv_get gets VHD. We want PSS! */
-	pss = (struct per_session_data__lws_hls *)lws_wsi_user(wsi);
-	
 	/* hb.err: the muxed output hit the RAM cap or an allocation failed,
 	 * so the buffer contents are incomplete - do not ship it */
-	if (!pss || hb.size == 0 || hb.err) {
+	if (hb.size == 0 || hb.err) {
 		free(hb.ptr);
-		return -1;
+		return;
 	}
 	
 	
@@ -2079,28 +2273,15 @@ done:
 		  end_av_delta_sec,
 		  hb.size, send_size);
 
-        pss->segment_buf = malloc(LWS_PRE + send_size);
-        if (!pss->segment_buf) {
+        r->body = malloc(LWS_PRE + send_size);
+        if (!r->body) {
                 free(hb.ptr);
-                return -1;
+                return;
         }
 
-        memcpy(pss->segment_buf + LWS_PRE, hb.ptr + offset, send_size);
-        pss->segment_len = send_size;
-
-	pss->segment_pos = 0;
+        memcpy(r->body + LWS_PRE, hb.ptr + offset, send_size);
+        r->len = send_size;
+	r->content_type = "video/mp4";
+	r->status = HTTP_STATUS_OK;
 	free(hb.ptr);
-	
-	/* Send HTTP headers */
-	uint8_t hbuf[LWS_PRE + 2048], *start = hbuf + LWS_PRE, *p = start, *end = p + 2048;
-	if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "video/mp4",
-					(lws_filepos_t)pss->segment_len, &p, end) ||
-	    lws_finalize_write_http_header(wsi, start, &p, end)) {
-		return -1;
-	}
-	
-	/* Request writable callback to pump data */
-	lws_callback_on_writable(wsi);
-	
-	return 0; /* Keep connection alive to write data */
 }

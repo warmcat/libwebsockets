@@ -542,10 +542,12 @@ push_cue(struct hls_webvtt_cue **pcues, int *pn, int *pcap,
 	return 0;
 }
 
-/* Decode an embedded text subtitle stream into cues (seconds from start). */
+/* Decode an embedded text subtitle stream into cues (seconds from start).
+ * This walks the whole file, so worker thread only. */
 static int
 load_embedded_cues(const char *media_dir, const char *filename, int stream_index,
-		   struct hls_webvtt_cue **out_cues, int *out_n)
+		   struct hls_webvtt_cue **out_cues, int *out_n,
+		   volatile int *cancel)
 {
 	AVFormatContext *ic = NULL;
 	AVCodecContext *dec = NULL;
@@ -583,6 +585,11 @@ load_embedded_cues(const char *media_dir, const char *filename, int stream_index
 	while (av_read_frame(ic, pkt) >= 0) {
 		AVSubtitle sub;
 		int got = 0;
+
+		if (HLS_CANCELLED(cancel)) {
+			av_packet_unref(pkt);
+			goto out;
+		}
 
 		if (pkt->stream_index != stream_index) {
 			av_packet_unref(pkt);
@@ -897,11 +904,12 @@ sc_err:
 
 static int
 load_track_cues(struct hls_sub_track *tk, const char *media_dir,
-		const char *filename, struct hls_webvtt_cue **out, int *out_n)
+		const char *filename, struct hls_webvtt_cue **out, int *out_n,
+		volatile int *cancel)
 {
 	if (tk->kind == HLS_SUB_EMBEDDED)
 		return load_embedded_cues(media_dir, filename, tk->stream_index,
-					  out, out_n);
+					  out, out_n, cancel);
 	return load_sidecar_cues(media_dir, tk->path, tk->is_vtt, out, out_n);
 }
 
@@ -909,7 +917,8 @@ load_track_cues(struct hls_sub_track *tk, const char *media_dir,
  * decoding on first access. Caller must hold vhd->sub_lock. */
 static struct hls_sub_cache *
 cache_get(struct per_vhost_data__lws_hls *vhd, const char *filename,
-	  const char *trackid, struct hls_sub_track *tk, const char *media_dir)
+	  const char *trackid, struct hls_sub_track *tk, const char *media_dir,
+	  volatile int *cancel)
 {
 	struct hls_sub_cache *c;
 	char key[sizeof(c->key)];
@@ -934,7 +943,8 @@ cache_get(struct per_vhost_data__lws_hls *vhd, const char *filename,
 	if (!c)
 		return NULL;
 	lws_strncpy(c->key, key, sizeof(c->key));
-	if (load_track_cues(tk, media_dir, filename, &c->cues, &c->n_cues) < 0) {
+	if (load_track_cues(tk, media_dir, filename, &c->cues, &c->n_cues,
+			    cancel) < 0) {
 		lwsl_notice("HLS-SUB: %s: track %s -> cue decode FAILED\n",
 			    filename, trackid);
 		free(c);
@@ -988,7 +998,8 @@ timeline_free(struct seg_timeline *tl)
  * list using the same lws_hls_get_segment_info() the A/V playlist uses. */
 static int
 build_timeline(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
-	       const char *filename, struct seg_timeline *out)
+	       const char *filename, struct seg_timeline *out,
+	       volatile int *cancel)
 {
 	AVFormatContext *ic = NULL;
 	char path[512];
@@ -1017,8 +1028,11 @@ build_timeline(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
 		memset(&info, 0, sizeof(info));
 		info.end_pts = AV_NOPTS_VALUE;
 		lws_hls_get_segment_info(vhd, filename, ic, video_idx, 0, &info,
-					 &total);
+					 &total, cancel);
 	}
+
+	if (HLS_CANCELLED(cancel))
+		goto out;
 
 	if (total <= 0) {
 		/* fall back to duration / HLS_SEGMENT_DUR like serve_manifest */
@@ -1051,7 +1065,7 @@ build_timeline(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
 		memset(&info, 0, sizeof(info));
 		info.end_pts = AV_NOPTS_VALUE;
 		if (lws_hls_get_segment_info(vhd, filename, ic, video_idx, i,
-					     &info, NULL) == 0 &&
+					     &info, NULL, cancel) == 0 &&
 		    info.duration_sec > 0.0)
 			d = info.duration_sec;
 		else
@@ -1083,71 +1097,45 @@ out:
  * private-lws-hls.h (shared with hls-dir.c) for why the naive
  * `q += snprintf(q, rem, ...)` cursor pattern is a heap smash. */
 
-/* Stash a body in pss and begin an HTTP response with the given content type
- * and length. The generic LWS_CALLBACK_HTTP_WRITEABLE handler drains it. */
-static int
-send_body(struct lws *wsi, const char *content_type, const uint8_t *body,
-	  size_t len)
+/* Copy a body into the task result with the LWS_PRE headroom the writeable
+ * handler wants, and mark it 200. */
+static void
+set_body(struct hls_result *r, const char *content_type, const uint8_t *body,
+	 size_t len)
 {
-	struct per_session_data__lws_hls *pss =
-			(struct per_session_data__lws_hls *)lws_wsi_user(wsi);
-	uint8_t *buf, *start, *p, *end;
-	uint8_t *seg;
+	uint8_t *seg = malloc(LWS_PRE + len);
 
-	if (!pss)
-		return -1;
-
-	seg = malloc(LWS_PRE + len);
 	if (!seg) {
-		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR,
-				       NULL);
-		return -1;
+		r->status = HTTP_STATUS_INTERNAL_SERVER_ERROR;
+		return;
 	}
 	memcpy(seg + LWS_PRE, body, len);
-	pss->segment_buf = seg;
-	pss->segment_len = len;
-	pss->segment_pos = 0;
-
-	buf = malloc(LWS_PRE + 2048);
-	if (!buf) {
-		free(seg);
-		pss->segment_buf = NULL;
-		return -1;
-	}
-	start = buf + LWS_PRE;
-	p = start;
-	end = p + 2048;
-
-	if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, content_type,
-					(lws_filepos_t)len, &p, end)) {
-		free(buf);
-		return -1;
-	}
-	if (lws_finalize_write_http_header(wsi, start, &p, end)) {
-		free(buf);
-		return -1;
-	}
-
-	free(buf);
-	lws_callback_on_writable(wsi);
-	return 0;
+	r->body = seg;
+	r->len = len;
+	r->content_type = content_type;
+	r->status = HTTP_STATUS_OK;
 }
 
 /* ------------------------------------------------------------------ */
 /* manifest / segment rendering                                        */
 /* ------------------------------------------------------------------ */
 
-int
-lws_hls_serve_stream(struct lws *wsi, const char *media_dir, const char *filename)
+void
+lws_hls_build_stream(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
+		     const char *filename, volatile int *cancel,
+		     struct hls_result *r)
 {
 	struct hls_sub_track *tracks;
 	int ntracks;
+
+	r->status = HTTP_STATUS_INTERNAL_SERVER_ERROR;
 
 	tracks = lws_hls_discover_tracks(media_dir, filename, &ntracks);
 	if (ntracks == 0 || !tracks) {
 		/* no subtitles: behave exactly like the old media playlist */
 		lws_hls_free_tracks(tracks, ntracks);
-		return lws_hls_serve_manifest(wsi, media_dir, filename);
+		lws_hls_build_manifest(vhd, media_dir, filename, cancel, r);
+		return;
 	}
 
 	/* Build a master playlist.
@@ -1163,14 +1151,12 @@ lws_hls_serve_stream(struct lws *wsi, const char *media_dir, const char *filenam
 		 * generously from the actual string lengths rather than a guess. */
 		size_t fnlen = strlen(filename);
 		size_t cap = 256 + (size_t)ntracks * (320 + fnlen * 2) + fnlen * 2;
-		int i, ret;
+		int i;
 
 		buf = malloc(cap);
 		if (!buf) {
 			lws_hls_free_tracks(tracks, ntracks);
-			lws_return_http_status(wsi,
-					HTTP_STATUS_INTERNAL_SERVER_ERROR, NULL);
-			return -1;
+			return;
 		}
 		q = buf;
 		q = hls_append_fmt(q, buf, cap,
@@ -1193,40 +1179,39 @@ lws_hls_serve_stream(struct lws *wsi, const char *media_dir, const char *filenam
 			"../avstream/%s\n",
 			filename);
 
-		ret = send_body(wsi, "application/vnd.apple.mpegurl",
-				(uint8_t *)buf, (size_t)(q - buf));
+		set_body(r, "application/vnd.apple.mpegurl",
+			 (uint8_t *)buf, (size_t)(q - buf));
 		free(buf);
 		lws_hls_free_tracks(tracks, ntracks);
-		return ret;
 	}
 }
 
-int
-lws_hls_serve_sub_playlist(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
+void
+lws_hls_build_sub_playlist(struct per_vhost_data__lws_hls *vhd,
 			   const char *media_dir, const char *filename,
-			   const char *trackid)
+			   const char *trackid, volatile int *cancel,
+			   struct hls_result *r)
 {
 	struct hls_sub_track *tracks;
 	int ntracks, ti, i;
 	struct seg_timeline tl;
 	char *buf, *q;
 	size_t cap;
-	int ret;
+
+	r->status = HTTP_STATUS_INTERNAL_SERVER_ERROR;
 
 	tracks = lws_hls_discover_tracks(media_dir, filename, &ntracks);
 	ti = lws_hls_find_track(tracks, ntracks, trackid);
 	if (ti < 0) {
 		lws_hls_free_tracks(tracks, ntracks);
-		lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
-		return -1;
+		r->status = HTTP_STATUS_NOT_FOUND;
+		return;
 	}
 
 	memset(&tl, 0, sizeof(tl));
-	if (build_timeline(vhd, media_dir, filename, &tl) < 0) {
+	if (build_timeline(vhd, media_dir, filename, &tl, cancel) < 0) {
 		lws_hls_free_tracks(tracks, ntracks);
-		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR,
-				       NULL);
-		return -1;
+		return;
 	}
 
 	lwsl_notice("HLS-SUB: %s: sub playlist track=%s -> %d segment(s), "
@@ -1243,9 +1228,7 @@ lws_hls_serve_sub_playlist(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 	if (!buf) {
 		timeline_free(&tl);
 		lws_hls_free_tracks(tracks, ntracks);
-		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR,
-				       NULL);
-		return -1;
+		return;
 	}
 	q = buf;
 	q = hls_append_fmt(q, buf, cap,
@@ -1266,12 +1249,11 @@ lws_hls_serve_sub_playlist(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 	}
 	q = hls_append_fmt(q, buf, cap, "#EXT-X-ENDLIST\n");
 
-	ret = send_body(wsi, "application/vnd.apple.mpegurl",
-			(uint8_t *)buf, (size_t)(q - buf));
+	set_body(r, "application/vnd.apple.mpegurl",
+		 (uint8_t *)buf, (size_t)(q - buf));
 	free(buf);
 	timeline_free(&tl);
 	lws_hls_free_tracks(tracks, ntracks);
-	return ret;
 }
 
 static void
@@ -1294,10 +1276,11 @@ fmt_vtt_ts(char *buf, size_t bufsz, double t)
 	lws_snprintf(buf, bufsz, "%02u:%02u:%02u.%03u", hh, mm, ss_whole, ms);
 }
 
-int
-lws_hls_serve_sub_segment(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
+void
+lws_hls_build_sub_segment(struct per_vhost_data__lws_hls *vhd,
 			  const char *media_dir, const char *filename,
-			  const char *trackid, int seg_idx)
+			  const char *trackid, int seg_idx, volatile int *cancel,
+			  struct hls_result *r)
 {
 	struct hls_sub_track *tracks;
 	int ntracks, ti;
@@ -1309,29 +1292,29 @@ lws_hls_serve_sub_segment(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 		size_t cap;
 	} out = { NULL, 0, 0 };
 	double t0 = 0.0, t1 = 0.0;
-	int i, ret = -1;
+	int i;
 	char ts0[16], ts1[16];
+
+	r->status = HTTP_STATUS_INTERNAL_SERVER_ERROR;
 
 	tracks = lws_hls_discover_tracks(media_dir, filename, &ntracks);
 	ti = lws_hls_find_track(tracks, ntracks, trackid);
 	if (ti < 0) {
 		lws_hls_free_tracks(tracks, ntracks);
-		lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
-		return -1;
+		r->status = HTTP_STATUS_NOT_FOUND;
+		return;
 	}
 
 	memset(&tl, 0, sizeof(tl));
-	if (build_timeline(vhd, media_dir, filename, &tl) < 0) {
+	if (build_timeline(vhd, media_dir, filename, &tl, cancel) < 0) {
 		lws_hls_free_tracks(tracks, ntracks);
-		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR,
-				       NULL);
-		return -1;
+		return;
 	}
 	if (seg_idx < 0 || seg_idx >= tl.count) {
 		timeline_free(&tl);
 		lws_hls_free_tracks(tracks, ntracks);
-		lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
-		return -1;
+		r->status = HTTP_STATUS_NOT_FOUND;
+		return;
 	}
 
 	/* [t0, t1) = absolute time window of this segment */
@@ -1345,12 +1328,13 @@ lws_hls_serve_sub_segment(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 
 	/* fetch / decode cues under the cache lock */
 	pthread_mutex_lock(&vhd->sub_lock);
-	cache = cache_get(vhd, filename, trackid, &tracks[ti], media_dir);
+	cache = cache_get(vhd, filename, trackid, &tracks[ti], media_dir,
+			  cancel);
 	if (!cache) {
 		pthread_mutex_unlock(&vhd->sub_lock);
 		lws_hls_free_tracks(tracks, ntracks);
-		lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
-		return -1;
+		r->status = HTTP_STATUS_NOT_FOUND;
+		return;
 	}
 
 	/* Render cues that overlap [t0, t1), rebased to segment-relative
@@ -1360,7 +1344,7 @@ lws_hls_serve_sub_segment(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 	if (!out.p) {
 		pthread_mutex_unlock(&vhd->sub_lock);
 		lws_hls_free_tracks(tracks, ntracks);
-		return -1;
+		return;
 	}
 #define APPEND(s) do { \
 	size_t _l = strlen(s); \
@@ -1427,19 +1411,17 @@ lws_hls_serve_sub_segment(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 
 	pthread_mutex_unlock(&vhd->sub_lock);
 
-	ret = send_body(wsi, "text/vtt; charset=\"utf-8\"",
-			(uint8_t *)out.p, out.len);
+	set_body(r, "text/vtt; charset=\"utf-8\"", (uint8_t *)out.p, out.len);
 	goto seg_done;
 
 seg_done_locked:
 	/* APPEND() bails out here with sub_lock still held; the mutex is a
 	 * plain one, so orphaning it wedges every later /subseg/ request and
-	 * PROTOCOL_DESTROY on the single-threaded event loop for good */
+	 * PROTOCOL_DESTROY for good */
 	pthread_mutex_unlock(&vhd->sub_lock);
 
 seg_done:
 	free(out.p);
 	lws_hls_free_tracks(tracks, ntracks);
-	return ret;
 #undef APPEND
 }

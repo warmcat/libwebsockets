@@ -125,10 +125,81 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
  */
 #define HLS_MAX_SEG_DUR 86400.0
 
-struct thumb_task {
-	lws_dll2_t list;	/* vhd->tasks FIFO membership */
-	char filename[256];
+/*
+ * Everything that opens a media file with libavformat runs on the vhost's
+ * worker thread, never on the event loop: opening a 10GB MKV, scanning it to
+ * build a keyframe index when it has no cues, demuxing a segment, and
+ * transcoding its audio all take from tens of milliseconds to minutes, and
+ * done synchronously inside LWS_CALLBACK_HTTP they stall every vhost on the
+ * context for the duration.
+ *
+ * The HTTP callback validates the URL, queues an hls_task naming what is
+ * wanted, and returns with the transaction pending.  The worker pops tasks
+ * FIFO, builds the response body into the task, moves the task to vhd->done
+ * and wakes the event loop with lws_cancel_service(); the event loop then
+ * hands the body to the waiting session and starts the HTTP response.
+ *
+ * Thumbnails are the exception in that their result goes into a shared
+ * cache rather than to one session, since several sessions typically ask
+ * for the same one at once (the directory listing).
+ */
+enum hls_task_type {
+	HLS_TASK_THUMB,		/* result goes into vhd->thumb_cache */
+	HLS_TASK_INIT,		/* the rest produce a body for one session */
+	HLS_TASK_MANIFEST,
+	HLS_TASK_SEGMENT,
+	HLS_TASK_STREAM,
+	HLS_TASK_SUB_PLAYLIST,
+	HLS_TASK_SUB_SEGMENT,
 };
+
+enum hls_task_state {
+	HLS_TASK_PENDING,	/* on vhd->tasks, not started */
+	HLS_TASK_RUNNING,	/* the worker has it */
+	HLS_TASK_DONE,		/* on vhd->done, awaiting collection */
+};
+
+/* what a task hands back: an HTTP status, and for 200, a body */
+struct hls_result {
+	uint8_t *body;		/* malloc'd, payload at body + LWS_PRE */
+	size_t len;
+	const char *content_type;
+	int status;		/* HTTP status code */
+};
+
+struct hls_task {
+	lws_dll2_t list;	/* vhd->tasks (pending) or vhd->done */
+	enum hls_task_type type;
+	enum hls_task_state state;	/* under vhd->lock */
+	char filename[256];
+	char trackid[16];
+	int segment_idx;
+
+	/*
+	 * The session waiting on us, or NULL if it went away first.  Only
+	 * the event loop reads or writes this; the worker never looks at it.
+	 */
+	struct per_session_data__lws_hls *pss;
+	/*
+	 * Set by the event loop when the session goes away or the vhost is
+	 * being destroyed, polled by the worker inside its long loops so it
+	 * stops early rather than finishing work nobody will collect.
+	 */
+	volatile int cancel;
+
+	struct hls_result r;
+};
+
+#define HLS_CANCELLED(c) ((c) && *(c))
+
+/*
+ * How long a session waits for its task.  The queue is FIFO through one
+ * worker, and the first touch of a large file without cues scans it twice
+ * to build the keyframe index, so this has to cover a few of those queued
+ * back to back.  A session that times out detaches from its task, which then
+ * cancels at the next check.
+ */
+#define HLS_TASK_TIMEOUT_SECS 300
 
 struct thumb_cache {
 	lws_dll2_t list;	/* vhd->thumb_cache membership, MRU first */
@@ -144,14 +215,16 @@ struct per_vhost_data__lws_hls {
 	
 	const char *media_dir; /* configured via pvo */
 
-	/* Thumbnail worker thread */
-	pthread_t thumb_thread;
+	/* worker thread: see enum hls_task_type */
+	pthread_t worker_thread;
 	pthread_mutex_t lock;
 	pthread_cond_t cond;
 	int thread_exit;
 
-	lws_dll2_owner_t tasks;		/* pending thumbnail work, FIFO */
-	char current_task_filename[256];
+	lws_dll2_owner_t tasks;		/* pending work, FIFO */
+	lws_dll2_owner_t done;		/* finished, awaiting collection */
+	struct hls_task *running;	/* what the worker has, under lock */
+	char current_task_filename[256]; /* thumbnail being extracted */
 
 	lws_dll2_owner_t thumb_cache;	/* finished thumbnails, MRU first */
 	int cache_count;
@@ -241,7 +314,15 @@ struct per_session_data__lws_hls {
 	uint8_t *segment_buf;
 	size_t segment_len;
 	size_t segment_pos;
-	
+
+	/* the task we are waiting on, if any (event loop only) */
+	struct hls_task *task;
+	/* set when the task's result has been moved into segment_buf and the
+	 * HTTP response is yet to be started */
+	int resp_ready;
+	int resp_status;
+	const char *resp_content_type;
+
 	/* Thumbnail async state */
 	int waiting_for_thumbnail;
 	char thumb_filename[256];
@@ -258,8 +339,35 @@ struct per_session_data__lws_hls {
 };
 
 /* hls-av.c */
+
+/* the vhost's worker thread body */
 void *
-lws_hls_thumbnail_worker(void *d);
+lws_hls_worker(void *d);
+
+/*
+ * Event loop side of the task queue.
+ *
+ * lws_hls_queue_task() queues work for the session on wsi and leaves the
+ * HTTP transaction pending; returns -1 (with a status already sent where
+ * possible) if it could not.  lws_hls_collect_done() is called from
+ * LWS_CALLBACK_EVENT_WAIT_CANCELLED to hand finished results to their
+ * sessions.  lws_hls_task_detach() is called when a session goes away, so
+ * its task is dropped or cancelled rather than delivered to freed memory.
+ */
+int
+lws_hls_queue_task(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
+		   enum hls_task_type type, const char *filename,
+		   const char *trackid, int segment_idx);
+
+void
+lws_hls_collect_done(struct per_vhost_data__lws_hls *vhd);
+
+void
+lws_hls_task_detach(struct per_vhost_data__lws_hls *vhd,
+		    struct per_session_data__lws_hls *pss);
+
+void
+lws_hls_task_free(struct hls_task *t);
 
 int
 lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir, const char *filename);
@@ -267,24 +375,39 @@ lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir, const char *file
 int
 lws_hls_serve_dir(struct lws *wsi, const char *media_dir);
 
-int
-lws_hls_serve_init(struct lws *wsi, const char *media_dir, const char *filename);
+/*
+ * Body builders, run on the worker thread.  They never touch a wsi; they
+ * fill r->status, and for HTTP_STATUS_OK, r->body / r->len / r->content_type.
+ * cancel may be NULL.
+ */
+void
+lws_hls_build_init(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
+		   const char *filename, volatile int *cancel,
+		   struct hls_result *r);
 
 /* A/V media playlist (referenced as a variant from the master playlist
  * when subtitles exist, or served directly otherwise). */
-int
-lws_hls_serve_manifest(struct lws *wsi, const char *media_dir, const char *filename);
+void
+lws_hls_build_manifest(struct per_vhost_data__lws_hls *vhd,
+		       const char *media_dir, const char *filename,
+		       volatile int *cancel, struct hls_result *r);
 
-int
-lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filename, int segment_idx);
+void
+lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
+		      const char *media_dir, const char *filename,
+		      int segment_idx, volatile int *cancel,
+		      struct hls_result *r);
 
 /* Compute segment [start_pts, end_pts] / duration for the target segment
  * index of a media file, plus the total segment count. Used by both the
- * A/V and subtitle playlist generators to keep a shared timeline. */
+ * A/V and subtitle playlist generators to keep a shared timeline.  May scan
+ * the whole file (twice) to build the index the first time a file is seen,
+ * so worker thread only. */
 int
 lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filename,
 			 AVFormatContext *in_ctx, int video_idx, int target_seg_idx,
-			 struct hls_segment_info *out_info, int *out_total_segments);
+			 struct hls_segment_info *out_info, int *out_total_segments,
+			 volatile int *cancel);
 
 /* hls-sub.c */
 
@@ -303,22 +426,30 @@ lws_hls_free_tracks(struct hls_sub_track *tracks, int count);
 int
 lws_hls_find_track(struct hls_sub_track *tracks, int count, const char *trackid);
 
+/*
+ * Body builders, worker thread only, same contract as the hls-av.c ones.
+ */
+
 /* Master playlist dispatcher: if the file has subtitle tracks, emit a
  * master playlist (one #EXT-X-STREAM-INF + per-track #EXT-X-MEDIA
  * TYPE=SUBTITLES); otherwise delegate to the plain A/V media playlist. */
-int
-lws_hls_serve_stream(struct lws *wsi, const char *media_dir, const char *filename);
+void
+lws_hls_build_stream(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
+		     const char *filename, volatile int *cancel,
+		     struct hls_result *r);
 
 /* Subtitle media playlist for one track. */
-int
-lws_hls_serve_sub_playlist(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
+void
+lws_hls_build_sub_playlist(struct per_vhost_data__lws_hls *vhd,
 			   const char *media_dir, const char *filename,
-			   const char *trackid);
+			   const char *trackid, volatile int *cancel,
+			   struct hls_result *r);
 
 /* One WebVTT segment: cues whose window overlaps [seg_start, seg_end),
  * rebased to segment-relative timestamps. */
-int
-lws_hls_serve_sub_segment(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
+void
+lws_hls_build_sub_segment(struct per_vhost_data__lws_hls *vhd,
 			  const char *media_dir, const char *filename,
-			  const char *trackid, int seg_idx);
+			  const char *trackid, int seg_idx, volatile int *cancel,
+			  struct hls_result *r);
 #endif /* PRIVATE_LWS_HLS_H */

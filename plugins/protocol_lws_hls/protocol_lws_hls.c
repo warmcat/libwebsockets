@@ -195,8 +195,8 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		pthread_cond_init(&vhd->cond, NULL);
 		pthread_mutex_init(&vhd->sub_lock, NULL);
 		vhd->thread_exit = 0;
-		if (pthread_create(&vhd->thumb_thread, NULL, lws_hls_thumbnail_worker, vhd)) {
-			lwsl_err("Failed to create thumbnail thread\n");
+		if (pthread_create(&vhd->worker_thread, NULL, lws_hls_worker, vhd)) {
+			lwsl_err("Failed to create worker thread\n");
 			return 1;
 		}
 
@@ -205,9 +205,14 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (!vhd)
 			break;
+		pthread_mutex_lock(&vhd->lock);
 		vhd->thread_exit = 1;
+		/* don't wait for a long build to finish for nobody */
+		if (vhd->running)
+			vhd->running->cancel = 1;
 		pthread_cond_signal(&vhd->cond);
-		pthread_join(vhd->thumb_thread, NULL);
+		pthread_mutex_unlock(&vhd->lock);
+		pthread_join(vhd->worker_thread, NULL);
 		pthread_mutex_destroy(&vhd->lock);
 		pthread_cond_destroy(&vhd->cond);
 		
@@ -222,14 +227,22 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			free(c);
 		}
 
-		/* free task queue */
+		/* free task queue, and anything finished but not collected */
 		while (lws_dll2_get_head(&vhd->tasks)) {
-			struct thumb_task *t = lws_container_of(
+			struct hls_task *t = lws_container_of(
 					lws_dll2_get_head(&vhd->tasks),
-					struct thumb_task, list);
+					struct hls_task, list);
 
 			lws_dll2_remove(&t->list);
-			free(t);
+			lws_hls_task_free(t);
+		}
+		while (lws_dll2_get_head(&vhd->done)) {
+			struct hls_task *t = lws_container_of(
+					lws_dll2_get_head(&vhd->done),
+					struct hls_task, list);
+
+			lws_dll2_remove(&t->list);
+			lws_hls_task_free(t);
 		}
 
 		/* free index cache */
@@ -340,7 +353,8 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 				goto err_404;
 			/* master playlist if subtitles exist, else the A/V
 			 * media playlist unchanged */
-			return lws_hls_serve_stream(wsi, vhd->media_dir, filename);
+			return lws_hls_queue_task(wsi, vhd, HLS_TASK_STREAM,
+						  filename, NULL, 0);
 		}
 		else if (!strncmp(url, "/avstream/", 10)) {
 			char filename[256];
@@ -348,7 +362,8 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_filename_purify_inplace(filename);
 			if (strchr(filename, '/'))
 				goto err_404;
-			return lws_hls_serve_manifest(wsi, vhd->media_dir, filename);
+			return lws_hls_queue_task(wsi, vhd, HLS_TASK_MANIFEST,
+						  filename, NULL, 0);
 		}
 		else if (!strncmp(url, "/subsm/", 7)) {
 			/* /subsm/<filename>/<trackid> */
@@ -372,8 +387,8 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			if (tid_len == 0 || tid_len >= sizeof(trackid))
 				goto err_404;
 			lws_strncpy(trackid, sep + 1, sizeof(trackid));
-			return lws_hls_serve_sub_playlist(wsi, vhd,
-					vhd->media_dir, filename, trackid);
+			return lws_hls_queue_task(wsi, vhd, HLS_TASK_SUB_PLAYLIST,
+						  filename, trackid, 0);
 		}
 		else if (!strncmp(url, "/subseg/", 8)) {
 			/* /subseg/<filename>/<trackid>/<idx> */
@@ -400,9 +415,9 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			memcpy(trackid, sep1 + 1, tid_len);
 			trackid[tid_len] = '\0';
 
-			return lws_hls_serve_sub_segment(wsi, vhd,
-					vhd->media_dir, filename, trackid,
-					atoi(sep2 + 1));
+			return lws_hls_queue_task(wsi, vhd, HLS_TASK_SUB_SEGMENT,
+						  filename, trackid,
+						  atoi(sep2 + 1));
 		}
 		else if (!strncmp(url, "/init/", 6)) {
 			char filename[256];
@@ -410,7 +425,8 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_filename_purify_inplace(filename);
 			if (strchr(filename, '/'))
 				goto err_404;
-			return lws_hls_serve_init(wsi, vhd->media_dir, filename);
+			return lws_hls_queue_task(wsi, vhd, HLS_TASK_INIT,
+						  filename, NULL, 0);
 		}
 		else if (!strncmp(url, "/segment/", 9)) {
 			const char *p = url + 9;
@@ -430,7 +446,8 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 				goto err_404;
 			
 			int segment_idx = atoi(sep + 1);
-			return lws_hls_serve_segment(wsi, vhd->media_dir, filename, segment_idx);
+			return lws_hls_queue_task(wsi, vhd, HLS_TASK_SEGMENT,
+						  filename, NULL, segment_idx);
 		} else if (!strncmp(url, "/delete/", 8)) {
 			if (!pss->has_star_grant) {
 				lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, "Forbidden");
@@ -480,18 +497,52 @@ err_404:
 
 		if (!vhd)
 			break;
-	/* Thread finished a thumbnail. Wake up all waiting HTTP sessions */
-	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      lws_dll2_get_head(&vhd->pss_list)) {
-		struct per_session_data__lws_hls *ps = lws_container_of(d,
-					struct per_session_data__lws_hls, pss_list);
 
-		if (ps->waiting_for_thumbnail)
-			lws_callback_on_writable(ps->wsi);
-	} lws_end_foreach_dll(d);
-	break;
+		/* the worker finished something: hand bodies to their
+		 * sessions... */
+		lws_hls_collect_done(vhd);
+
+		/* ...and wake anyone waiting on a thumbnail */
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&vhd->pss_list)) {
+			struct per_session_data__lws_hls *ps = lws_container_of(d,
+						struct per_session_data__lws_hls, pss_list);
+
+			if (ps->waiting_for_thumbnail)
+				lws_callback_on_writable(ps->wsi);
+		} lws_end_foreach_dll(d);
+		break;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
+		if (pss && pss->resp_ready) {
+			/* a task result arrived: start the response */
+			uint8_t buf[LWS_PRE + 2048];
+			uint8_t *start = buf + LWS_PRE;
+			uint8_t *p = start;
+			uint8_t *end = buf + sizeof(buf) - 1;
+
+			pss->resp_ready = 0;
+
+			if (pss->resp_status != HTTP_STATUS_OK) {
+				free(pss->segment_buf);
+				pss->segment_buf = NULL;
+				lws_return_http_status(wsi,
+					(unsigned int)pss->resp_status, NULL);
+				return -1;
+			}
+
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+					pss->resp_content_type,
+					(lws_filepos_t)pss->segment_len,
+					&p, end) ||
+			    lws_finalize_write_http_header(wsi, start, &p, end))
+				return -1;
+
+			/* the body pump below takes it from here */
+			lws_callback_on_writable(wsi);
+			return 0;
+		}
+
 		if (pss && pss->waiting_for_thumbnail) {
 			pthread_mutex_lock(&vhd->lock);
 			struct thumb_cache *c = NULL;
@@ -556,10 +607,11 @@ err_404:
 			int is_pending = 0;
 			lws_start_foreach_dll(struct lws_dll2 *, d2,
 					      lws_dll2_get_head(&vhd->tasks)) {
-				struct thumb_task *t = lws_container_of(d2,
-							struct thumb_task, list);
+				struct hls_task *t = lws_container_of(d2,
+							struct hls_task, list);
 
-				if (!strcmp(t->filename, pss->thumb_filename)) {
+				if (t->type == HLS_TASK_THUMB &&
+				    !strcmp(t->filename, pss->thumb_filename)) {
 					is_pending = 1;
 					break;
 				}
@@ -619,8 +671,12 @@ err_404:
 	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
 	case LWS_CALLBACK_CLOSED_HTTP:
 		if (pss) {
-			if (vhd)
+			if (vhd) {
 				lws_dll2_remove(&pss->pss_list);
+				/* a task in flight must not deliver to us */
+				lws_hls_task_detach(vhd, pss);
+			}
+			pss->resp_ready = 0;
 			if (pss->segment_buf) {
 				free(pss->segment_buf);
 				pss->segment_buf = NULL;
