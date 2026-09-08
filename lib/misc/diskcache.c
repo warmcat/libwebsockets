@@ -89,6 +89,9 @@ struct lws_diskcache_scan {
 
 static const char *hex = "0123456789abcdef";
 
+/* just for uniquifying temp cache object names within this process */
+static unsigned int tempname_unique;
+
 #define BATCH_COUNT 128
 
 static int
@@ -227,10 +230,16 @@ lws_diskcache_query(struct lws_diskcache_scan *lds, int is_bot,
 	if (is_bot)
 		return LWS_DISKCACHE_QUERY_NO_CACHE;
 
-	/* let's create it first with a unique temp name */
+	/*
+	 * Let's create it first with a unique temp name... the name is visible
+	 * to anyone who can list the cache dir for as long as the object is
+	 * being generated, and is left behind if generation fails, so it must
+	 * not contain a live pointer (which would disclose the heap / stack
+	 * layout).  pid + a per-process counter is enough to be unique.
+	 */
 
-	lws_snprintf(cache + n, (size_t)cache_len - (unsigned int)n, "~%d-%p", (int)getpid(),
-		     extant_cache_len);
+	lws_snprintf(cache + n, (size_t)cache_len - (unsigned int)n, "~%d-%u",
+		     (int)getpid(), ++tempname_unique);
 
 	*_fd = open(cache, O_RDWR | O_CREAT | O_TRUNC, 0600);
 	if (*_fd < 0) {
@@ -294,12 +303,20 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 		if (lds->last_scan_completed + lds->secs_waiting > time(NULL))
 			return 0;
 
-		lds->batch = lws_malloc(sizeof(struct file_entry) *
-				BATCH_COUNT, "cache_trim");
-		if (!lds->batch) {
-			lwsl_err("%s: OOM\n", __func__);
+		/*
+		 * A failed opendir() below leaves cache_subdir at 0, so we come
+		 * back in here next time... only allocate if we don't have one
+		 * already, otherwise we orphan the previous allocation
+		 */
 
-			return 1;
+		if (!lds->batch) {
+			lds->batch = lws_malloc(sizeof(struct file_entry) *
+					BATCH_COUNT, "cache_trim");
+			if (!lds->batch) {
+				lwsl_err("%s: OOM\n", __func__);
+
+				return 1;
+			}
 		}
 		lds->agg_size = 0;
 		lws_dll2_owner_clear(&lds->batch_sorted);
@@ -315,6 +332,12 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 	if (!dir) {
 		lwsl_err("Unable to walk repo dir '%s'\n",
 			 lds->cache_dir_base);
+
+		/* we're giving up on this scan, don't hold the batch */
+
+		lws_free_set_NULL(lds->batch);
+		lds->cache_subdir = 0;
+
 		return -1;
 	}
 
