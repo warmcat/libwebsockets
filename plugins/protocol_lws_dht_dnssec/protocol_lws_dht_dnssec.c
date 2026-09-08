@@ -2953,7 +2953,7 @@ verb_notify_handler(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vhd, const s
 		/* Challenged NOTIFY. Verify cookie. */
 		uint8_t hash[LWS_GENHASH_LARGEST], prev[LWS_GENHASH_LARGEST];
 		const uint8_t *p = (const uint8_t *)msg->payload;
-		int ok;
+		int ok, cur_bad, prev_bad;
 
 		if (notify_cookie(vhd, vhd->notify_secret, from, fromlen, hash) ||
 		    notify_cookie(vhd, vhd->notify_secret_prev, from, fromlen,
@@ -2965,9 +2965,14 @@ verb_notify_handler(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vhd, const s
 		 * memcmp() would let a peer walk the cookie out of us.  The
 		 * previous secret is still accepted so a challenge issued
 		 * just before a rotation is not silently invalidated.
+		 *
+		 * Both comparisons are always performed, so the accept /
+		 * reject timing does not reveal which secret (if any) the
+		 * cookie matched.
 		 */
-		ok = !lws_timingsafe_bcmp(p + 8, hash, 8) |
-		     !lws_timingsafe_bcmp(p + 8, prev, 8);
+		cur_bad = lws_timingsafe_bcmp(p + 8, hash, 8);
+		prev_bad = lws_timingsafe_bcmp(p + 8, prev, 8);
+		ok = !cur_bad || !prev_bad;
 
 		if (!ok) {
 			lwsl_notice("%s: NOTIFY cookie validation failed\n", __func__);
