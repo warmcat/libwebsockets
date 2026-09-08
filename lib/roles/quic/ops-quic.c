@@ -1147,8 +1147,18 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		uint32_t pkt_version = ((uint32_t)p[1] << 24) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 8) | p[4];
 
 		if (pkt_version != LWS_QUIC_VERSION_1 && pkt_version != LWS_QUIC_VERSION_2) {
-			lwsl_wsi_notice(wsi, "QUIC RX: Unsupported version 0x%08X, sending VN packet", pkt_version);
 			uint8_t vn[128];
+
+			/*
+			 * RFC 9000 6.1 / 14.1: a server MUST NOT send Version
+			 * Negotiation in response to a datagram smaller than
+			 * the 1200-byte minimum, otherwise a spoofed-source
+			 * one-liner makes us a reflector
+			 */
+			if (orig_n < 1200)
+				return LWS_HPI_RET_HANDLED;
+
+			lwsl_wsi_notice(wsi, "QUIC RX: Unsupported version 0x%08X, sending VN packet", pkt_version);
 			uint8_t *vp = vn;
 			*vp++ = 0x80; /* Long Header */
 			*vp++ = 0; *vp++ = 0; *vp++ = 0; *vp++ = 0; /* Version 0 */
