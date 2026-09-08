@@ -233,8 +233,14 @@ lws_display_dlo_text_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 static const char *
 castrstr(const char *haystack, const char *needle)
 {
-	size_t sn = strlen(needle), h = strlen(haystack) - sn + 1, n;
+	size_t sn = strlen(needle), hn = strlen(haystack), h, n;
 	char c, c1;
+
+	if (hn < sn)
+		/* the needle can't fit in the haystack at all */
+		return NULL;
+
+	h = hn - sn;
 
 	while (1) {
 		for (n = 0; n < sn; n++) {
@@ -260,16 +266,61 @@ int
 lws_font_register(struct lws_context *cx, const uint8_t *data, size_t data_len)
 {
 	lws_display_font_t *a;
+	uint32_t o, entries;
+	const char *name;
+
+	/*
+	 * The font blob is untrusted data like anything else... validate the
+	 * parts of the header we and the decoder rely on against data_len
+	 * before we keep any of it
+	 */
+
+	if (data_len < (size_t)MCUFO16_LINE_HEIGHT + 2) {
+		lwsl_err("%s: font blob too small\n", __func__);
+		return 1;
+	}
 
 	if (lws_ser_ru32be(data) != LWS_FOURCC('M', 'C', 'U', 'F'))
 		return 1;
+
+	/* the full name must be a NUL-terminated string inside the blob */
+
+	o = lws_ser_ru32be(data + MCUFO_FOFS_FULLNAME);
+	if ((size_t)o >= data_len) {
+		lwsl_err("%s: font name offset outside blob\n", __func__);
+		return 1;
+	}
+	name = (const char *)data + o;
+	if (!memchr(name, '\0', data_len - o)) {
+		lwsl_err("%s: font name not terminated\n", __func__);
+		return 1;
+	}
+
+	/* the char range tables must be inside the blob */
+
+	entries = lws_ser_ru32be(data + MCUFO_COUNT_CHAR_RANGE_TABLES);
+	o = lws_ser_ru32be(data + MCUFO_FOFS_CHAR_RANGE_TABLES);
+	if (entries > 8u || (size_t)o > data_len ||
+	    (data_len - o) / 16 < entries) {
+		lwsl_err("%s: bad char range tables\n", __func__);
+		return 1;
+	}
+
+	/*
+	 * lws_font_glyph_t.x is an int8_t and the renderer counts it up to the
+	 * font's declared width, so a wider font would overflow it
+	 */
+
+	if (lws_ser_ru16be(data + MCUFO16_WIDTH) > 127) {
+		lwsl_err("%s: font too wide\n", __func__);
+		return 1;
+	}
 
 	a = lws_zalloc(sizeof(*a), __func__);
 	if (!a)
 		return 1;
 
-	a->choice.family_name = (const char *)data +
-				lws_ser_ru32be(data + MCUFO_FOFS_FULLNAME);
+	a->choice.family_name = name;
 
 	if (castrstr(a->choice.family_name, "serif") ||
 	    castrstr(a->choice.family_name, "roman"))

@@ -38,6 +38,13 @@
 #define DICT_START		24
 #define REF_FILLZEROS		16
 
+/*
+ * How many glyph objects to allocate per lwsac chunk... the text run length
+ * comes from the document, so we don't let it size the allocation itself
+ */
+
+#define LWS_DLO_GLYPH_AC_GRANULE	64
+
 #define RLE_CODEMASK    	0xC0
 #define RLE_VALMASK     	0x3F
 #define RLE_ZEROS       	0x00
@@ -78,7 +85,13 @@ typedef struct mcu_glyph {
 	lws_font_glyph_t	fg;
 	const uint8_t		*comp;
 
-	mcu_stack_t		st[3];
+	/*
+	 * The decoder's own nesting is COMP -> ref dict entry (DICT3) ->
+	 * fill entry (DICT1) -> DICT1_CONT, ie, four levels; mcu_push()
+	 * refuses to go deeper than the array whatever the font says
+	 */
+
+	mcu_stack_t		st[4];
 	int32_t			runlen;
 
 	int8_t			sp;
@@ -87,6 +100,58 @@ typedef struct mcu_glyph {
 	uint8_t			alpha;
 	uint8_t			code;
 } mcu_glyph_t;
+
+/*
+ * Abandon the rest of this glyph safely: emit transparent pixels until the
+ * render loop hits the glyph width and moves on.  Used when a font asks us to
+ * do something we can't do inside our decoder state.
+ */
+
+static void
+mcu_abandon_glyph(mcu_glyph_t *g)
+{
+	g->alpha = 0;
+	g->runlen = 1000000;
+	g->runstate = RS_WRITE_PX;
+}
+
+/*
+ * Push a new decoder stack level and return it, or NULL if we already used
+ * them all (only possible with a corrupt or hostile font)
+ */
+
+static mcu_stack_t *
+mcu_push(mcu_glyph_t *g)
+{
+	if (g->sp < 0 || (size_t)(g->sp + 1) >= LWS_ARRAY_SIZE(g->st)) {
+		lwsl_warn("%s: font glyph nesting too deep\n", __func__);
+		mcu_abandon_glyph(g);
+
+		return NULL;
+	}
+
+	return &g->st[(int)++g->sp];
+}
+
+/*
+ * Pop a decoder stack level... returns nonzero if there was nothing to pop,
+ * meaning the caller should stop decoding this glyph
+ */
+
+static int
+mcu_pop(mcu_glyph_t *g)
+{
+	if (g->sp <= 0) {
+		lwsl_warn("%s: font glyph stack underflow\n", __func__);
+		mcu_abandon_glyph(g);
+
+		return 1;
+	}
+
+	g->sp--;
+
+	return 0;
+}
 
 /* Get bit count for the "fill entries" */
 static uint8_t
@@ -144,6 +209,7 @@ draw_px(lws_dlo_text_t *t, mcu_glyph_t *g)
 static void
 write_ref_codeword(mcu_glyph_t *g, const uint8_t *bf, uint8_t c)
 {
+	mcu_stack_t *st;
 	uint32_t o, o1;
 
 	if (!c) {
@@ -169,19 +235,27 @@ write_ref_codeword(mcu_glyph_t *g, const uint8_t *bf, uint8_t c)
 
 	if (c < DICT_START + lws_ser_ru32be(bf + MCUFO_COUNT_RLE_DICT)) {
 		/* write_rle_dictentry */
+		st = mcu_push(g);
+		if (!st)
+			return;
+
 		o1 = lws_ser_ru32be(bf + MCUFO_FOFS_DICT_OFS);
 		o = lws_ser_ru16be(bf + o1 + ((c - DICT_START) * 2));
-		g->st[(int)++g->sp].dictlen = (int16_t)(lws_ser_ru16be(bf + o1 +
+		st->dictlen = (int16_t)(lws_ser_ru16be(bf + o1 +
 						((c - DICT_START + 1) * 2)) - o);
 
-		g->st[(int)g->sp].dict = bf + lws_ser_ru32be(bf + MCUFO_FOFS_DICT_DATA) + o;
-		g->st[(int)g->sp].state = DICT2;
+		st->dict = bf + lws_ser_ru32be(bf + MCUFO_FOFS_DICT_DATA) + o;
+		st->state = DICT2;
 		return;
 	}
 
-	g->st[(int)++g->sp].bitcount = fillentry_bitcount(c);
-	g->st[(int)g->sp].byte = (uint8_t)(c - DICT_START7BIT);
-	g->st[(int)g->sp].state = DICT1;
+	st = mcu_push(g);
+	if (!st)
+		return;
+
+	st->bitcount = fillentry_bitcount(c);
+	st->byte = (uint8_t)(c - DICT_START7BIT);
+	st->state = DICT1;
 	g->runlen = 0;
 }
 
@@ -192,6 +266,7 @@ mcufont_next_code(mcu_glyph_t *g)
 					     glyphs);
 	const uint8_t *bf = (const uint8_t *)t->font->data;
 	uint8_t c = *g->comp++;
+	mcu_stack_t *st;
 	uint32_t o, o1;
 
 	if (c < DICT_START + lws_ser_ru32be(&bf[MCUFO_COUNT_RLE_DICT]) ||
@@ -202,13 +277,17 @@ mcufont_next_code(mcu_glyph_t *g)
 
 	/* write_ref_dictentry() */
 
+	st = mcu_push(g);
+	if (!st)
+		return;
+
 	o1 = lws_ser_ru32be(bf + MCUFO_FOFS_DICT_OFS);
 	o = lws_ser_ru16be(bf + o1 + ((c - DICT_START) * 2));
-	g->st[(int)++g->sp].dictlen = (int16_t)(lws_ser_ru16be(bf + o1 +
+	st->dictlen = (int16_t)(lws_ser_ru16be(bf + o1 +
 					((c - DICT_START + 1) * 2)) - o);
 
-	g->st[(int)g->sp].dict = bf + lws_ser_ru32be(bf + MCUFO_FOFS_DICT_DATA) + o;
-	g->st[(int)g->sp].state = DICT3;
+	st->dict = bf + lws_ser_ru32be(bf + MCUFO_FOFS_DICT_DATA) + o;
+	st->state = DICT3;
 }
 
 /* lookup and append a glyph for specific unicode to the text glyph list */
@@ -262,14 +341,26 @@ font_mcufont_uniglyph(lws_dlo_text_t *text, uint32_t unicode)
 	const uint8_t *bf = (const uint8_t *)text->font->data;
 	uint32_t ofs;
 	mcu_glyph_t *g;
+	size_t n;
 
 	ofs = font_mcufont_uniglyph_lookup(text, unicode);
 	if (!ofs)
 		return NULL;
 
 //	lwsl_warn("%s: text->text_len %u: %c\n", __func__, text->text_len, (char)unicode);
-	g = lwsac_use_zero(&text->ac_glyphs, sizeof(*g),
-					     (text->text_len + 1) * sizeof(*g));
+
+	/*
+	 * text_len is the count of bytes of the run that fitted in the box, ie,
+	 * it comes from the document.  It's only a hint for how big to make the
+	 * lwsac chunks, so bound it to a sane granule and let lwsac add further
+	 * chunks if the run really does need that many glyphs
+	 */
+
+	n = text->text_len + 1;
+	if (n > LWS_DLO_GLYPH_AC_GRANULE)
+		n = LWS_DLO_GLYPH_AC_GRANULE;
+
+	g = lwsac_use_zero(&text->ac_glyphs, sizeof(*g), n * sizeof(*g));
 	if (!g)
 		return NULL;
 
@@ -406,7 +497,9 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 					break;
 
 				case DICT1_CONT:
-					--g->sp; /* back to DICT1 after doing the skip */
+					/* back to DICT1 after doing the skip */
+					if (mcu_pop(g))
+						continue;
 					g->runstate = RS_SKIP_PX;
 					g->runlen = 1;
 					continue;
@@ -421,11 +514,19 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 							g->st[(int)g->sp].runlen++;
 						else {
 							if (g->st[(int)g->sp].runlen) {
+								mcu_stack_t *sn;
+								int rl = g->st[(int)g->sp].runlen;
+
+								g->st[(int)g->sp].runlen = 0;
+								sn = mcu_push(g);
+								if (!sn) {
+									el = 1;
+									break;
+								}
 								g->alpha = 255;
 								g->runstate = RS_WRITE_PX;
-								g->runlen = g->st[(int)g->sp].runlen;
-								g->st[(int)g->sp].runlen = 0;
-								g->st[(int)++g->sp].state = DICT1_CONT;
+								g->runlen = rl;
+								sn->state = DICT1_CONT;
 								el = 1;
 								break;
 							}
@@ -440,9 +541,8 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 						continue;
 
 					/* back out of DICT1 */
-					if (!g->sp)
-						assert(0);
-					g->sp--;
+					if (mcu_pop(g))
+						continue;
 
 					if (g->st[(int)g->sp + 1].runlen) {
 						g->alpha = 255;
@@ -455,11 +555,9 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 
 				case DICT2: /* write_rle_dictentry */
 					c = (*g->st[(int)g->sp].dict++);
-					if (!--g->st[(int)g->sp].dictlen) {
-						if (!g->sp)
-							assert(0);
-						g->sp--;
-					}
+					if (--g->st[(int)g->sp].dictlen <= 0 &&
+					    mcu_pop(g))
+						continue;
 					if ((c & RLE_CODEMASK) == RLE_ZEROS) {
 						g->runstate = RS_SKIP_PX;
 						g->runlen = c & RLE_VALMASK;
@@ -486,12 +584,9 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 
 				case DICT3:
 					c = *g->st[(int)g->sp].dict++;
-					if (!--g->st[(int)g->sp].dictlen) {
-						if (!g->sp)
-							assert(0);
-
-						g->sp--;
-					}
+					if (--g->st[(int)g->sp].dictlen <= 0 &&
+					    mcu_pop(g))
+						continue;
 
 					write_ref_codeword(g, bf,  c);
 					break;
