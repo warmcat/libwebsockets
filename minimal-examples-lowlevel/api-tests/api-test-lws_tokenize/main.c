@@ -1399,6 +1399,170 @@ int main(int argc, const char **argv)
 		fail++;
 	}
 
+	/*
+	 * A name part that overran collect[] must also be reported as
+	 * LWS_TOKZE_TOO_LONG when the '=' arrives, never as a
+	 * LWS_TOKZE_TOKEN_NAME_EQUALS still carrying the internal
+	 * "discarding the rest of the token" token_len sentinel
+	 */
+
+	{
+		char big[512];
+		int in_fail = fail;
+		struct expected follow[] = {
+			{ LWS_TOKZE_TOO_LONG,	NULL, 0 },
+			{ LWS_TOKZE_TOO_LONG,	NULL, 0 },
+			{ LWS_TOKZE_TOKEN,	"value", 5 },
+			{ LWS_TOKZE_ENDED,	NULL, 0 },
+		};
+		size_t fl = 0;
+
+		memset(big, 'a', sizeof(big));
+		memcpy(big + 300, "=value", 6);
+		big[306] = '\0';
+
+		memset(&ts, 0, sizeof(ts));
+		ts.start = big;
+		ts.len = strlen(big);
+
+		do {
+			e = lws_tokenize(&ts);
+
+			if (fl >= LWS_ARRAY_SIZE(follow) || e != follow[fl].e ||
+			    ts.token_len > sizeof(ts.collect)) {
+				lwsl_notice("fail: name= overlong at %d: %s "
+					    "len %d\n", (int)fl,
+					    element_names[e + LWS_TOKZE_ERRS],
+					    (int)ts.token_len);
+				fail++;
+				break;
+			}
+
+			if (follow[fl].value &&
+			    (ts.token_len != follow[fl].len ||
+			     memcmp(follow[fl].value, ts.token,
+				    follow[fl].len))) {
+				lws_strnncpy(dotstar, ts.token, ts.token_len,
+					     sizeof(dotstar));
+				lwsl_notice("fail: name= overlong token at %d: "
+					    "'%s'\n", (int)fl, dotstar);
+				fail++;
+				break;
+			}
+
+			fl++;
+		} while (e != LWS_TOKZE_ENDED);
+
+		if (fail == in_fail)
+			ok++;
+	}
+
+	/*
+	 * lws_strcmp_wildcard() must not dereference check[0] when clen is 0
+	 */
+
+	if (lws_strcmp_wildcard("*", 1, "", 0)) {
+		lwsl_user("%s: wc 17 fail\n", __func__);
+		fail++;
+	}
+	if (lws_strcmp_wildcard("", 0, "", 0)) {
+		lwsl_user("%s: wc 18 fail\n", __func__);
+		fail++;
+	}
+	if (!lws_strcmp_wildcard("a", 1, "", 0)) {
+		lwsl_user("%s: wc 19 fail\n", __func__);
+		fail++;
+	}
+
+	/*
+	 * lws_hex_len_to_byte_array() must reject input needing more than
+	 * \p max bytes, rather than silently truncating a length-checked field
+	 */
+
+	{
+		uint8_t hb[4];
+
+		if (lws_hex_to_byte_array("01020304", hb, (int)sizeof(hb)) != 4) {
+			lwsl_user("%s: hex 1 fail\n", __func__);
+			fail++;
+		}
+		if (lws_hex_to_byte_array("0102030405", hb, 2) != -1) {
+			lwsl_user("%s: hex 2 fail\n", __func__);
+			fail++;
+		}
+	}
+
+	/*
+	 * lws_urldecode() must write at most \p len bytes, including the NUL
+	 */
+
+	{
+		char ud[16];
+
+		memset(ud, 'x', sizeof(ud));
+		if (lws_urldecode(ud, "abcdefghij", 8) || strcmp(ud, "abcdefg") ||
+		    ud[8] != 'x') {
+			lwsl_user("%s: urldecode 1 fail '%s' (%d)\n", __func__,
+				  ud, (int)ud[8]);
+			fail++;
+		}
+	}
+
+	/*
+	 * lws_vbi_decode() must consume what lws_vbi_encode() produced, and
+	 * report the number of bytes it consumed
+	 */
+
+	{
+		static const uint64_t vbi_t[] = { 0, 1, 127, 128, 16383, 16384,
+						  0xfffffff };
+		uint8_t vb[8];
+		uint64_t vv;
+		size_t vn;
+
+		for (vn = 0; vn < LWS_ARRAY_SIZE(vbi_t); vn++) {
+			int el = lws_vbi_encode(vbi_t[vn], vb), dl;
+
+			vv = 0xdeadbeef;
+			dl = lws_vbi_decode(vb, &vv, sizeof(vb));
+
+			if (el < 1 || dl != el || vv != vbi_t[vn]) {
+				lwsl_user("%s: vbi %d fail (%d, %d, %llu)\n",
+					  __func__, (int)vn, el, dl,
+					  (unsigned long long)vv);
+				fail++;
+			}
+		}
+	}
+
+	/*
+	 * lws_humanize_pad() must not underflow its pad width when the
+	 * rendering is already wider than the pad
+	 */
+
+	{
+		struct { char buf[24]; char guard[8]; } hp;
+		int hn;
+
+		memset(&hp, 0xa5, sizeof(hp));
+		hn = lws_humanize_pad(hp.buf, sizeof(hp.buf), 1024001,
+				      humanize_schema_si_bytes);
+		if (hn != 11 || strcmp(hp.buf, "1000.001KiB")) {
+			lwsl_user("%s: humanize_pad 1 fail '%s' (%d)\n",
+				  __func__, hp.buf, hn);
+			fail++;
+		}
+
+		memset(&hp, 0xa5, sizeof(hp));
+		hn = lws_humanize_pad(hp.buf, sizeof(hp.buf), 1024,
+				      humanize_schema_si_bytes);
+		if (hn != 10 || strcmp(hp.buf, "      1KiB")) {
+			lwsl_user("%s: humanize_pad 2 fail '%s' (%d)\n",
+				  __func__, hp.buf, hn);
+			fail++;
+		}
+	}
+
 	lwsl_user("Completed: PASS: %d, FAIL: %d\n", ok, fail);
 
 	lws_context_destroy(cx);
