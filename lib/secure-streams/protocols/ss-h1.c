@@ -32,10 +32,12 @@
 
 #if defined(LWS_WITH_SS_RIDESHARE)
 static int
-ss_http_multipart_parser(lws_ss_handle_t *h, void *in, size_t len)
+ss_http_multipart_parser(lws_ss_handle_t *h, struct lws *wsi, void *in,
+			 size_t len)
 {
 	uint8_t *q = (uint8_t *)in;
 	int pending_issue = 0, n = 0;
+	lws_ss_state_return_t r;
 
 
 	/* let's stick it in the boundary state machine first */
@@ -76,13 +78,16 @@ ss_http_multipart_parser(lws_ss_handle_t *h, void *in, size_t len)
 			 */
 			if (n >= pending_issue + h->u.http.boundary_len +
 			    (h->u.http.any ? 2 : 0) + 1) {
-				h->info.rx(ss_to_userobj(h),
+				r = h->info.rx(ss_to_userobj(h),
 					   &q[pending_issue],
 					   (unsigned int)(n - pending_issue -
 					   h->u.http.boundary_len - 1 -
 					   (h->u.http.any ? 2 : 0) /* crlf */),
 				   (!h->u.http.som ? LWSSS_FLAG_SOM : 0) |
 				   LWSSS_FLAG_EOM | LWSSS_FLAG_RELATED_END);
+				if (r != LWSSSSRET_OK)
+					return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(
+								r, wsi, &h);
 				h->u.http.eom = 1;
 			}
 
@@ -127,12 +132,15 @@ ss_http_multipart_parser(lws_ss_handle_t *h, void *in, size_t len)
 			 */
 			if (n >= pending_issue + h->u.http.boundary_len +
 			    (h->u.http.any ? 2 : 0)) {
-				h->info.rx(ss_to_userobj(h), &q[pending_issue],
+				r = h->info.rx(ss_to_userobj(h), &q[pending_issue],
 					   (unsigned int)(n - pending_issue -
 					       h->u.http.boundary_len -
 					       (h->u.http.any ? 2 /* crlf */ : 0)),
 					   (!h->u.http.som ? LWSSS_FLAG_SOM : 0) |
 					   LWSSS_FLAG_EOM);
+				if (r != LWSSSSRET_OK)
+					return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(
+								r, wsi, &h);
 				h->u.http.eom = 1;
 			}
 		}
@@ -168,13 +176,16 @@ around:
 			oh = 1;
 		}
 
-		h->info.rx(ss_to_userobj(h), &q[pending_issue],
+		r = h->info.rx(ss_to_userobj(h), &q[pending_issue],
 				(unsigned int)(oh ?
 				(n - pending_issue - h->u.http.boundary_len -
 					(h->u.http.any ? 2 : 0)) :
 				(n - pending_issue)),
 			   (!h->u.http.som ? LWSSS_FLAG_SOM : 0) |
 			     (oh && h->u.http.any ? LWSSS_FLAG_EOM : 0));
+		if (r != LWSSSSRET_OK)
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r,
+								wsi, &h);
 
 		if (oh && h->u.http.any)
 			h->u.http.eom = 1;
@@ -204,6 +215,29 @@ lws_ss_http_resp_to_state(lws_ss_handle_t *h, int resp)
 			r++;
 
 	return 0; /* no hit */
+}
+
+/*
+ * Metadata values are length-delimited blobs, they are NOT necessarily NUL-
+ * terminated (eg, _lws_ss_alloc_set_metadata() allocates exactly the length it
+ * was given, and the value may have come from a peer's header).  So we can't
+ * hand one to atoi().  We only need to know if it's a nonzero decimal number.
+ */
+
+static int
+ss_md_nonzero_num(const void *value, size_t len)
+{
+	const uint8_t *p = (const uint8_t *)value;
+	size_t n;
+
+	for (n = 0; n < len; n++) {
+		if (p[n] < '0' || p[n] > '9')
+			return 0; /* not (or no longer) a decimal number */
+		if (p[n] != '0')
+			return 1;
+	}
+
+	return 0;
 }
 
 /*
@@ -238,7 +272,8 @@ lws_apply_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 			 */
 
 			if (!strncmp(polmd->value__may_own_heap, "content-length", 14) &&
-			    atoi(h->metadata[m].value__may_own_heap))
+			    ss_md_nonzero_num(h->metadata[m].value__may_own_heap,
+					      h->metadata[m].length))
 				lws_client_http_body_pending(wsi, 1);
 		}
 
@@ -295,7 +330,8 @@ lws_apply_instant_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 			/* it's possible user set content-length directly */
 			if (!strncmp(imd->name,
 				     "content-length", 14) &&
-			    atoi(imd->value__may_own_heap))
+			    ss_md_nonzero_num(imd->value__may_own_heap,
+					      imd->length))
 				lws_client_http_body_pending(wsi, 1);
 
 		}
@@ -428,6 +464,66 @@ static const uint8_t blob_idx[] = {
 	LWS_SYSBLOB_TYPE_DEVICE_TYPE,
 };
 
+/*
+ * The peer picks the Location: we would be redirected to, but the handshake we
+ * would send there re-emits the blob headers below (the system auth token, and
+ * the device serial / fw version / device type) and any cached cookies.  Those
+ * belong to the authority the policy named... following a redirect to a
+ * different authority, or one that drops us out of tls, would hand them to a
+ * host of the peer's choosing, in the clear in the tls-downgrade case.
+ *
+ * Returns nonzero if the redirect must be refused.
+ */
+
+static int
+ss_h1_redirect_leaks_identity(lws_ss_handle_t *h, struct lws *wsi,
+			      const char *loc)
+{
+	const char *cur;
+	lws_parse_uri_t *puri;
+	int m, bad = 0;
+
+	if (!loc)
+		return 1;
+
+	/* does this stream carry anything of ours worth protecting? */
+
+	for (m = 0; m < _LWSSS_HBI_COUNT; m++)
+		if (h->policy->u.http.blob_header[m])
+			break;
+
+	if (m == _LWSSS_HBI_COUNT &&
+	    !(h->policy->flags & LWSSSPOLF_HTTP_CACHE_COOKIES))
+		return 0;
+
+	/* relative references stay on the authority we're already talking to */
+
+	if (loc[0] == '/' || !strchr(loc, ':'))
+		return 0;
+
+	puri = lws_parse_uri_create(loc);
+	if (!puri)
+		return 1;
+
+	cur = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+
+	if (!cur || strcasecmp(puri->host, cur) || puri->port != wsi->c_port)
+		bad = 1;
+
+#if defined(LWS_WITH_TLS)
+	if (!bad && (wsi->tls.use_ssl & LCCSCF_USE_SSL) &&
+	    strcmp(puri->scheme, "https") && strcmp(puri->scheme, "wss"))
+		bad = 1; /* tls downgrade */
+#endif
+
+	lws_parse_uri_destroy(&puri);
+
+	if (bad)
+		lwsl_ss_warn(h, "refusing redirect to different authority");
+
+	return bad;
+}
+
 int
 secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	     void *in, size_t len)
@@ -484,7 +580,15 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			}
 		}
 
-		h->wsi = NULL;
+		if (h->wsi == wsi) /* not a newer wsi the app just started */
+			h->wsi = NULL;
+		if (h->wsi)
+			/*
+			 * The app started a new connection from inside the
+			 * state callback above; it owns the handle now, we
+			 * must not schedule a competing retry on top of it
+			 */
+			break;
 		r = lws_ss_backoff(h);
 		if (r != LWSSSSRET_OK) {
 			if (h->inside_connect) {
@@ -504,11 +608,26 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lws_system_cpd_set(lws_get_context(wsi),
 					   LWS_CPD_CAPTIVE_PORTAL);
 		/* unless it's explicitly allowed, reject to follow it */
-		return !(h->policy->flags & LWSSSPOLF_ALLOW_REDIRECTS);
+		if (!(h->policy->flags & LWSSSPOLF_ALLOW_REDIRECTS))
+			return 1;
+
+		/* ... and even then, not off to another authority */
+		return ss_h1_redirect_leaks_identity(h, wsi, (const char *)in);
 
 	case LWS_CALLBACK_CLOSED_HTTP: /* server */
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		if (!h)
+			break;
+
+		/*
+		 * Only the wsi the handle believes represents him may report
+		 * closure up: this is the guard ss-h2 / ss-h3 already apply
+		 * before delegating here.  A stale wsi closing later must not
+		 * be allowed to reset the handle state, clear h->wsi or start
+		 * a retry on behalf of a different, live connection.
+		 */
+
+		if (h->wsi && h->wsi != wsi)
 			break;
 
 		h->txn_n_acked = 0;
@@ -530,7 +649,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		//lwsl_notice("%s: %s LWS_CALLBACK_CLOSED_CLIENT_HTTP\n",
 		//		__func__, wsi->lc.gutag);
 
-		h->wsi = NULL;
+		h->wsi = NULL; /* guarded above to be NULL or wsi already */
 		h->hanging_som = 0;
 		h->subseq = 0;
 
@@ -756,8 +875,18 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					lws_strnncpy(h->u.http.boundary + 4,
 						     ts.token, ts.token_len,
 						     sizeof(h->u.http.boundary) - 4);
-					h->u.http.boundary_len =
-						(uint8_t)(ts.token_len + 4);
+					/*
+					 * The copy above is clamped to the
+					 * boundary buffer, so the recorded
+					 * length must come from what actually
+					 * landed there and not from the peer's
+					 * token length... otherwise the
+					 * matcher below indexes boundary[]
+					 * out of bounds (and boundary_len,
+					 * being uint8_t, can even wrap)
+					 */
+					h->u.http.boundary_len = (uint8_t)
+						strlen(h->u.http.boundary);
 					h->u.http.boundary_seq = 2;
 					h->u.http.boundary_dashes = 0;
 				}
@@ -768,9 +897,13 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			/* inform the ss that a related message group begins */
 
 			if ((h->policy->flags & LWSSSPOLF_HTTP_MULTIPART_IN) &&
-			    h->u.http.boundary[0])
-				h->info.rx(ss_to_userobj(h), NULL, 0,
-					   LWSSS_FLAG_RELATED_START);
+			    h->u.http.boundary[0] && h->info.rx) {
+				r = h->info.rx(ss_to_userobj(h), NULL, 0,
+					       LWSSS_FLAG_RELATED_START);
+				if (r != LWSSSSRET_OK)
+					return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(
+								r, wsi, &h);
+			}
 
 			// lws_header_table_detach(wsi, 0);
 		}
@@ -903,7 +1036,7 @@ malformed_l:
 #if defined(LWS_WITH_SS_RIDESHARE)
 		if ((h->policy->flags & LWSSSPOLF_HTTP_MULTIPART_IN) &&
 		    h->u.http.boundary[0])
-			return ss_http_multipart_parser(h, in, len);
+			return ss_http_multipart_parser(h, wsi, in, len);
 #endif
 
 		if (!h->subseq) {
@@ -945,9 +1078,16 @@ malformed_l:
 			return -1;
 
 		if (h->hanging_som) {
-			h->info.rx(ss_to_userobj(h), NULL, 0, LWSSS_FLAG_EOM);
+			r = LWSSSSRET_OK;
+			if (h->info.rx)
+				r = h->info.rx(ss_to_userobj(h), NULL, 0,
+					       LWSSS_FLAG_EOM);
 			h->hanging_som = 0;
 			h->subseq = 0;
+			/* the app may have answered DESTROY_ME / DISCONNECT_ME */
+			if (r != LWSSSSRET_OK)
+				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(
+								r, wsi, &h);
 		}
 
 		wsi->http.writeable_len = h->writeable_len = 0;
@@ -1043,8 +1183,27 @@ malformed_l:
 				(char **)&p, (char *)end);
 
 		buflen = lws_ptr_diff_size_t(end, p);
-		if (h->policy->u.http.multipart_name)
+		if (h->rideshare && h->rideshare->u.http.multipart_name) {
+			/*
+			 * We must keep room for the closing "\r\n--" +
+			 * boundary + "--\r\n" that gets written after whatever
+			 * the user tx gives us.  The part preamble above can
+			 * legally have consumed almost all of buf, so check
+			 * rather than let the size_t subtraction underflow and
+			 * offer the user tx a ~2^64 byte "buffer".  Retrying
+			 * can't help (we'd compose the same preamble again),
+			 * so it's fatal for the connection.
+			 *
+			 * It's h->rideshare, not h->policy, that decides if the
+			 * closing boundary gets written below.
+			 */
+			if (buflen < 24) {
+				lwsl_err("%s: multipart preamble too big\n",
+					 __func__);
+				return -1;
+			}
 			buflen -= 24; /* allow space for end of multipart */
+		}
 #else
 		buflen = lws_ptr_diff_size_t(end, p);
 #endif
