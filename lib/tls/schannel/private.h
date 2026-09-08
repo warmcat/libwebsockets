@@ -76,10 +76,45 @@ typedef struct _SUBSCRIBE_GENERIC_TLS_EXTENSION {
 #define ISC_REQ_MESSAGES 0x100000000ULL
 #endif
 
+/*
+ * Our own copy of CERT_CHAIN_ENGINE_CONFIG: the SDK only declares the
+ * hExclusiveRoot / dwExclusiveFlags members when NTDDI_VERSION is high
+ * enough, and we decide which of the three documented sizes to ask for at
+ * runtime rather than at build time
+ */
+
+typedef struct _LWS_CERT_CHAIN_ENGINE_CONFIG {
+	DWORD		cbSize;
+	HCERTSTORE	hRestrictedRoot;
+	HCERTSTORE	hRestrictedTrust;
+	HCERTSTORE	hRestrictedOther;
+	DWORD		cAdditionalStore;
+	HCERTSTORE	*rghAdditionalStore;
+	DWORD		dwFlags;
+	DWORD		dwUrlRetrievalTimeout;
+	DWORD		MaximumCachedCertificates;
+	DWORD		CycleDetectionModulus;
+	HCERTSTORE	hExclusiveRoot;
+	HCERTSTORE	hExclusiveTrustedPeople;
+	DWORD		dwExclusiveFlags;
+} LWS_CERT_CHAIN_ENGINE_CONFIG;
+
+#ifndef CERT_CHAIN_EXCLUSIVE_ENABLE_CA_FLAG
+#define CERT_CHAIN_EXCLUSIVE_ENABLE_CA_FLAG 0x1
+#endif
 
 struct lws_tls_schannel_ctx {
 	CredHandle cred;
 	HCERTSTORE store;
+	/*
+	 * When the app pinned a CA (ca_filepath / ca_mem, JIT trust, or the
+	 * vhost CA used to check client certs), it goes in here and becomes
+	 * the *exclusive* trust root via chain_engine... ie, the OS ROOT
+	 * store stops being trusted for this vhost, which is what pinning
+	 * means everywhere else in lws
+	 */
+	HCERTSTORE ca_store;
+	HCERTCHAINENGINE chain_engine;
     union {
         HCRYPTPROV key_prov; /* CAPI */
         NCRYPT_KEY_HANDLE key_cng; /* CNG */
@@ -107,8 +142,10 @@ struct lws_tls_schannel_conn {
 
 	int f_context_init; /* 1 if context initialized (handshake started) */
 	int f_handshake_finished; /* 1 if handshake complete */
-	int f_allow_self_signed;
-	int f_socket_is_blocking; /* 1 if recv returned EWOULDBLOCK, so rx_buf might be incomplete */
+	unsigned int relax; /* LCCSCF_ALLOW_... bits that apply to this conn */
+	int f_peer_cert_checked; /* 1 if we ran the peer cert check at all */
+	int f_peer_cert_verified; /* 1 if it passed with no relaxation */
+	int f_want_client_cert; /* server: we asked for a client certificate */
 
 	char alpn[64];
     char hostname[128];
@@ -120,6 +157,44 @@ struct lws_tls_schannel_conn {
 struct lws_tls_schannel_x509 {
 	PCCERT_CONTEXT cert;
 };
+
+/*
+ * Add one DER CA to ctx->ca_store (creating it), and drop any chain engine
+ * built from the old contents so it gets rebuilt with this CA included
+ */
+int
+lws_tls_schannel_ca_add(struct lws_tls_schannel_ctx *ctx, const uint8_t *der,
+			size_t der_len);
+
+/*
+ * The chain engine that has ctx->ca_store as its exclusive trust root, or
+ * NULL (ie, the default engine, which trusts the OS ROOT store) when no CA
+ * was pinned on this ctx
+ */
+HCERTCHAINENGINE
+lws_tls_schannel_chain_engine(struct lws_tls_schannel_ctx *ctx);
+
+void
+lws_tls_schannel_ca_destroy(struct lws_tls_schannel_ctx *ctx);
+
+/*
+ * Confirm a peer certificate against the ctx's trust and the connection's
+ * relaxation flags.  hostname NULL means "do not check the name" (ie, we are
+ * checking a client certificate).  Returns 0 if the peer may be accepted.
+ */
+int
+lws_tls_schannel_confirm_cert(struct lws_tls_schannel_ctx *ctx,
+			      struct lws_tls_schannel_conn *conn,
+			      PCCERT_CONTEXT pCert, const char *hostname,
+			      char *ebuf, size_t ebuf_len);
+
+/*
+ * Server side: after a successful handshake on a vhost that asked for a
+ * client certificate, fetch and check it.  Returns nonzero if the handshake
+ * must be failed.
+ */
+int
+lws_tls_schannel_server_client_cert(struct lws *wsi);
 
 /* Certificate loader prototype */
 int

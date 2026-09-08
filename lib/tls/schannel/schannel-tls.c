@@ -34,6 +34,240 @@ lws_context_init_ssl_library(struct lws_context *cx,
 	return 0;
 }
 
+/*
+ * A CA the app pinned.  It goes in ctx->ca_store, which
+ * lws_tls_schannel_chain_engine() then makes the *only* trust root for
+ * chains built with this ctx: pinning a CA has to mean the OS ROOT store
+ * stops being trusted, otherwise "trust only my private CA" quietly means
+ * "trust my private CA and every public CA as well".
+ */
+
+int
+lws_tls_schannel_ca_add(struct lws_tls_schannel_ctx *ctx, const uint8_t *der,
+			size_t der_len)
+{
+	if (!ctx)
+		return 1;
+
+	if (!ctx->ca_store) {
+		ctx->ca_store = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0,
+					      NULL);
+		if (!ctx->ca_store) {
+			lwsl_err("%s: CertOpenStore failed: 0x%x\n", __func__,
+				 (unsigned int)GetLastError());
+
+			return 1;
+		}
+	}
+
+	if (!CertAddEncodedCertificateToStore(ctx->ca_store,
+					      X509_ASN_ENCODING |
+					      PKCS_7_ASN_ENCODING, der,
+					      (DWORD)der_len,
+					      CERT_STORE_ADD_REPLACE_EXISTING,
+					      NULL)) {
+		lwsl_err("%s: CertAddEncodedCertificateToStore failed: 0x%x\n",
+			 __func__, (unsigned int)GetLastError());
+
+		return 1;
+	}
+
+	/* it has to be rebuilt now the trust set changed */
+
+	if (ctx->chain_engine) {
+		CertFreeCertificateChainEngine(ctx->chain_engine);
+		ctx->chain_engine = NULL;
+	}
+
+	return 0;
+}
+
+/*
+ * Walk PEM blocks (or a bare DER blob) and add each certificate to the ctx's
+ * pinned CA store.  Returns nonzero if nothing could be added.
+ */
+
+static int
+lws_tls_schannel_ca_parse(struct lws_context *cx,
+			  struct lws_tls_schannel_ctx *ctx,
+			  const uint8_t *p, size_t len)
+{
+	static const char beg[] = "-----BEGIN", end[] = "-----END";
+	const uint8_t *e = p + len;
+	lws_filepos_t der_len;
+	uint8_t *der;
+	int count = 0, first = 1;
+
+	if (!p || !len)
+		return 1;
+
+	while (p < e) {
+		const uint8_t *b = NULL, *f = NULL, *q;
+
+		for (q = p; q + sizeof(beg) - 1 <= e; q++)
+			if (!memcmp(q, beg, sizeof(beg) - 1)) {
+				b = q;
+				break;
+			}
+
+		if (!b) {
+			if (!first)
+				break;
+
+			/* no PEM header at all: take it as raw DER */
+
+			return lws_tls_schannel_ca_add(ctx, p, len);
+		}
+
+		first = 0;
+
+		for (q = b; q + sizeof(end) - 1 <= e; q++)
+			if (!memcmp(q, end, sizeof(end) - 1)) {
+				f = q;
+				break;
+			}
+
+		if (!f)
+			break;
+
+		/* step over the "-----END ...-----" line */
+
+		f += sizeof(end) - 1;
+		while (f < e && *f != '\n')
+			f++;
+		if (f < e)
+			f++;
+
+		der = NULL;
+		der_len = 0;
+		if (!lws_tls_alloc_pem_to_der_file(cx, NULL, (const char *)b,
+						   (lws_filepos_t)
+						   lws_ptr_diff_size_t(f, b),
+						   &der, &der_len)) {
+			if (der && der_len &&
+			    !lws_tls_schannel_ca_add(ctx, der, (size_t)der_len))
+				count++;
+			if (der)
+				lws_free(der);
+		}
+
+		p = f;
+	}
+
+	if (!count) {
+		lwsl_err("%s: no CA certs could be parsed\n", __func__);
+
+		return 1;
+	}
+
+	lwsl_info("%s: loaded %d CA cert(s)\n", __func__, count);
+
+	return 0;
+}
+
+/*
+ * Load the pinned CA set from a file and / or a memory blob
+ */
+
+static int
+lws_tls_schannel_ca_load(struct lws_context *cx,
+			 struct lws_tls_schannel_ctx *ctx,
+			 const char *filepath, const void *mem,
+			 unsigned int mem_len)
+{
+	lws_filepos_t amount;
+	uint8_t *buf;
+	int n;
+
+	if (filepath) {
+		if (alloc_file(cx, filepath, &buf, &amount)) {
+			lwsl_err("%s: cannot read CA %s\n", __func__, filepath);
+
+			return 1;
+		}
+
+		n = lws_tls_schannel_ca_parse(cx, ctx, buf, (size_t)amount);
+		lws_free(buf);
+
+		if (n)
+			return 1;
+	}
+
+	if (mem && mem_len)
+		return lws_tls_schannel_ca_parse(cx, ctx, mem, mem_len);
+
+	return 0;
+}
+
+HCERTCHAINENGINE
+lws_tls_schannel_chain_engine(struct lws_tls_schannel_ctx *ctx)
+{
+	LWS_CERT_CHAIN_ENGINE_CONFIG cfg;
+
+	if (!ctx || !ctx->ca_store)
+		return NULL; /* ie, the default engine: the OS ROOT store */
+
+	if (ctx->chain_engine)
+		return ctx->chain_engine;
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.hExclusiveRoot = ctx->ca_store;
+	cfg.hExclusiveTrustedPeople = NULL;
+
+	/*
+	 * Win8 and later also let a pinned *intermediate* terminate the
+	 * chain; ask for that first and fall back to the Win7 config, which
+	 * requires the pinned cert to be the chain's root, if the OS does not
+	 * know that member
+	 */
+
+	cfg.dwExclusiveFlags = CERT_CHAIN_EXCLUSIVE_ENABLE_CA_FLAG;
+	cfg.cbSize = sizeof(cfg);
+
+	if (CertCreateCertificateChainEngine(
+			(PCERT_CHAIN_ENGINE_CONFIG)&cfg, &ctx->chain_engine))
+		return ctx->chain_engine;
+
+	cfg.dwExclusiveFlags = 0;
+	cfg.cbSize = (DWORD)offsetof(LWS_CERT_CHAIN_ENGINE_CONFIG,
+				     dwExclusiveFlags);
+
+	if (CertCreateCertificateChainEngine(
+			(PCERT_CHAIN_ENGINE_CONFIG)&cfg, &ctx->chain_engine))
+		return ctx->chain_engine;
+
+	/*
+	 * We cannot build a chain engine that trusts only the pinned CA.  The
+	 * caller must treat NULL-with-a-ca_store as a failure rather than as
+	 * "use the default engine", which would silently widen the trust back
+	 * out to the whole OS root store
+	 */
+
+	lwsl_err("%s: cannot create pinned chain engine: 0x%x\n", __func__,
+		 (unsigned int)GetLastError());
+
+	ctx->chain_engine = NULL;
+
+	return NULL;
+}
+
+void
+lws_tls_schannel_ca_destroy(struct lws_tls_schannel_ctx *ctx)
+{
+	if (!ctx)
+		return;
+
+	if (ctx->chain_engine) {
+		CertFreeCertificateChainEngine(ctx->chain_engine);
+		ctx->chain_engine = NULL;
+	}
+
+	if (ctx->ca_store) {
+		CertCloseStore(ctx->ca_store, 0);
+		ctx->ca_store = NULL;
+	}
+}
+
 void
 lws_context_deinit_ssl_library(struct lws_context *context)
 {
@@ -64,8 +298,34 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
                                         &vhost->tls.ssl_ctx->key_type,
                                         vhost->tls.ssl_ctx->key_container_name)) {
         lwsl_err("%s: Failed to load server certs\n", __func__);
-        lws_free(vhost->tls.ssl_ctx);
-        vhost->tls.ssl_ctx = NULL;
+
+        /*
+         * We do not own vhost->tls.ssl_ctx: on the cert rotation path
+         * lws_tls_cert_updated() already created an lws_tls_ctx_ref for it
+         * and unrefs it when we return nonzero, which is what actually
+         * tears it down (and does it properly, releasing the credential,
+         * the key container and the stores).  Freeing it here left that ref
+         * pointing at freed memory.
+         */
+
+        return 1;
+    }
+
+    /*
+     * The CA we check client certificates against, if the vhost configured
+     * one.  This is also what makes the pinned CA the exclusive trust root
+     * for that check rather than the machine's whole root store.
+     */
+
+    if ((vhost->tls.cfg_ssl_ca_filepath ||
+         vhost->tls.cfg_server_ssl_ca_mem) &&
+        lws_tls_schannel_ca_load(vhost->context, vhost->tls.ssl_ctx,
+                                 vhost->tls.cfg_ssl_ca_filepath,
+                                 vhost->tls.cfg_server_ssl_ca_mem,
+                                 vhost->tls.cfg_server_ssl_ca_mem_len)) {
+        lwsl_err("%s: Failed to load vhost CA\n", __func__);
+        CertFreeCertificateContext(pCertCtx);
+
         return 1;
     }
 
@@ -78,10 +338,20 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 #ifndef SP_PROT_TLS1_3_SERVER
 #define SP_PROT_TLS1_3_SERVER 0x00001000
 #endif
+#ifndef SP_PROT_TLS1_2_SERVER
+#define SP_PROT_TLS1_2_SERVER 0x00000400
+#endif
     LWS_TLS_PARAMETERS tls_params = { 0 };
     tls_params.grbitDisabledProtocols = (DWORD)~SP_PROT_TLS1_3_SERVER;
 
-    schannel_cred.dwFlags = SCH_CRED_NO_DEFAULT_CREDS | SCH_CRED_NO_SYSTEM_MAPPER | SCH_USE_STRONG_CRYPTO;
+    /*
+     * SCH_CRED_MANUAL_CRED_VALIDATION: any client certificate is checked by
+     * lws_tls_schannel_server_client_cert() against the vhost's own CA, not
+     * by Schannel against the machine root store
+     */
+
+    schannel_cred.dwFlags = SCH_CRED_NO_DEFAULT_CREDS | SCH_CRED_NO_SYSTEM_MAPPER |
+                            SCH_CRED_MANUAL_CRED_VALIDATION | SCH_USE_STRONG_CRYPTO;
     schannel_cred.cTlsParameters = 1;
     schannel_cred.pTlsParameters = &tls_params;
 
@@ -94,7 +364,15 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
         old_cred.dwVersion = SCHANNEL_CRED_VERSION;
         old_cred.cCreds = 1;
         old_cred.paCred = &pCertCtx;
-        old_cred.dwFlags = SCH_CRED_NO_DEFAULT_CREDS | SCH_CRED_NO_SYSTEM_MAPPER | SCH_USE_STRONG_CRYPTO;
+        old_cred.dwFlags = schannel_cred.dwFlags;
+        /*
+         * The SCH_CREDENTIALS path restricts us to TLS1.3 via
+         * pTlsParameters; leaving grbitEnabledProtocols at 0 here would
+         * quietly drop back to the OS default set, which can still include
+         * SSL3 / TLS1.0 / TLS1.1
+         */
+        old_cred.grbitEnabledProtocols = SP_PROT_TLS1_3_SERVER |
+                                         SP_PROT_TLS1_2_SERVER;
         status = AcquireCredentialsHandleA(NULL, UNISP_NAME_A, SECPKG_CRED_INBOUND, NULL,
                                           &old_cred, NULL, NULL,
                                           &vhost->tls.ssl_ctx->cred, &tsExpiry);
@@ -104,8 +382,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 
     if (status != SEC_E_OK) {
         lwsl_err("%s: AcquireCredentialsHandle failed 0x%x\n", __func__, (int)status);
-        lws_free(vhost->tls.ssl_ctx);
-        vhost->tls.ssl_ctx = NULL;
+
         return 1;
     }
 
@@ -142,6 +419,8 @@ lws_ssl_destroy(struct lws_vhost *vhost)
              if (vhost->tls.ssl_client_ctx->u.key_cng)
                  NCryptFreeObject(vhost->tls.ssl_client_ctx->u.key_cng);
         }
+
+        lws_tls_schannel_ca_destroy(vhost->tls.ssl_client_ctx);
 
         if (vhost->tls.ssl_client_ctx->store)
             CertCloseStore(vhost->tls.ssl_client_ctx->store, 0);
@@ -198,6 +477,9 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 #ifndef SP_PROT_TLS1_3_CLIENT
 #define SP_PROT_TLS1_3_CLIENT 0x00002000
 #endif
+#ifndef SP_PROT_TLS1_2_CLIENT
+#define SP_PROT_TLS1_2_CLIENT 0x00000800
+#endif
 
     LWS_TLS_PARAMETERS tls_params = { 0 };
     tls_params.grbitDisabledProtocols = (DWORD)~SP_PROT_TLS1_3_CLIENT;
@@ -205,6 +487,39 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
     schannel_cred.dwFlags = SCH_CRED_MANUAL_CRED_VALIDATION | SCH_CRED_NO_DEFAULT_CREDS | SCH_USE_STRONG_CRYPTO;
     schannel_cred.cTlsParameters = 1;
     schannel_cred.pTlsParameters = &tls_params;
+
+    /*
+     * The CA the app pinned.  Since the credential carries
+     * SCH_CRED_MANUAL_CRED_VALIDATION, all the checking is ours to do, and
+     * lws_tls_schannel_confirm_cert() makes this store the exclusive trust
+     * root: an app that pinned one CA is not asking us to keep trusting
+     * every CA in the machine's root store as well.  These parameters used
+     * to be ignored altogether.
+     */
+
+    if (ca_filepath || (ca_mem && ca_mem_len)) {
+        if (lws_tls_schannel_ca_load(vh->context, vh->tls.ssl_client_ctx,
+                                     ca_filepath, ca_mem, ca_mem_len)) {
+            lwsl_err("%s: Unable to load client CA\n", __func__);
+            goto bail;
+        }
+    } else
+        if (lws_check_opt(vh->options, LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS)) {
+            /*
+             * No CA and no OS CAs either: an empty exclusive root store, so
+             * nothing verifies, rather than quietly using the OS roots
+             */
+            lwsl_notice("%s: vh %s: OS CA certs disabled\n", __func__,
+                        vh->name);
+            vh->tls.ssl_client_ctx->ca_store =
+                    CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0, NULL);
+            if (!vh->tls.ssl_client_ctx->ca_store)
+                goto bail;
+        }
+
+    if (cipher_list)
+        lwsl_info("%s: vh %s: cipher_list is not settable on schannel\n",
+                  __func__, vh->name);
 
     if (cert_filepath || cert_mem) {
         if (lws_tls_schannel_cert_info_load(vh->context, cert_filepath, private_key_filepath,
@@ -230,6 +545,9 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
         old_cred.dwFlags = schannel_cred.dwFlags;
         old_cred.cCreds = schannel_cred.cCreds;
         old_cred.paCred = schannel_cred.paCred;
+        /* do not let the fallback quietly reintroduce SSL3 / TLS1.0 / 1.1 */
+        old_cred.grbitEnabledProtocols = SP_PROT_TLS1_3_CLIENT |
+                                         SP_PROT_TLS1_2_CLIENT;
         status = AcquireCredentialsHandleW(NULL, (SEC_WCHAR*)UNISP_NAME_W, SECPKG_CRED_OUTBOUND, NULL,
                                           &old_cred, NULL, NULL,
                                           &vh->tls.ssl_client_ctx->cred, &tsExpiry);
@@ -253,17 +571,30 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
         }
     }
 
-    if (pCertCtx) CertFreeCertificateContext(pCertCtx);
+    if (pCertCtx) {
+        CertFreeCertificateContext(pCertCtx);
+        pCertCtx = NULL;
+    }
 
     if (status != SEC_E_OK) {
         lwsl_err("%s: AcquireCredentialsHandle failed 0x%x\n", __func__, (int)status);
-        lws_free(vh->tls.ssl_client_ctx);
-        vh->tls.ssl_client_ctx = NULL;
-        return 1;
+        goto bail;
     }
 
     vh->tls.ssl_client_ctx->initialized = 1;
+
     return 0;
+
+bail:
+    if (pCertCtx)
+        CertFreeCertificateContext(pCertCtx);
+    lws_tls_schannel_ca_destroy(vh->tls.ssl_client_ctx);
+    if (vh->tls.ssl_client_ctx->store)
+        CertCloseStore(vh->tls.ssl_client_ctx->store, 0);
+    lws_free(vh->tls.ssl_client_ctx);
+    vh->tls.ssl_client_ctx = NULL;
+
+    return 1;
 }
 
 void
@@ -308,6 +639,8 @@ lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
         }
     }
 
+    lws_tls_schannel_ca_destroy(ctx);
+
     if (ctx->store)
         CertCloseStore(ctx->store, 0);
     lws_free(ctx);
@@ -345,7 +678,9 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
     if (n == LWS_TLS_EXTANT_NO &&
         (vhost->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT)) {
         lwsl_notice("No certs found, continuing without SSL_CTX\n");
-        lws_free_set_NULL(vhost->tls.ssl_ctx);
+        lws_tls_vhost_backend_free_ctx(vhost->tls.ssl_ctx);
+        vhost->tls.ssl_ctx = NULL;
+
         return 0;
     }
 
@@ -358,6 +693,14 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
                                      info->server_ssl_private_key_mem_len);
     if (n) {
         lwsl_err("%s: failed to load certs\n", __func__);
+        /*
+         * No lws_tls_ctx_ref exists yet on this path, so the ctx is ours
+         * to tear down... and it must be the backend teardown, not a bare
+         * lws_free(), or the credential / key container / stores leak
+         */
+        lws_tls_vhost_backend_free_ctx(vhost->tls.ssl_ctx);
+        vhost->tls.ssl_ctx = NULL;
+
         return 1;
     }
 

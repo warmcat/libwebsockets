@@ -40,21 +40,14 @@ lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
 	if (!ctx)
 		return 1;
 
-	if (!ctx->store) {
-		ctx->store = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0, NULL);
-		if (!ctx->store) {
-			lwsl_vhost_err(vh, "CertOpenStore failed: 0x%x", (unsigned int)GetLastError());
-			return 1;
-		}
-	}
+	/*
+	 * This is a CA the caller wants trusted (JIT trust, ca_mem, an SS
+	 * policy's trust store), so it belongs in the pinned CA store that
+	 * becomes the exclusive trust root, not in the "extra certs to build
+	 * a chain out of" store
+	 */
 
-	if (!CertAddEncodedCertificateToStore(ctx->store, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
-					      der, (DWORD)der_len, CERT_STORE_ADD_REPLACE_EXISTING, NULL)) {
-		lwsl_vhost_err(vh, "CertAddEncodedCertificateToStore failed: 0x%x", (unsigned int)GetLastError());
-		return 1;
-	}
-
-	return 0;
+	return lws_tls_schannel_ca_add(ctx, der, der_len);
 }
 
 
