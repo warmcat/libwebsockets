@@ -29,10 +29,30 @@ static const struct lws_http_mount mount_stats = {
 
 ## Per-Vhost Options (PVOs)
 
-The `lws-dht-stats` plugin is designed to operate seamlessly without requiring explicit Per-Vhost Options (PVOs).
+The `lws-dht-stats` plugin does not consume any Per-Vhost Options (PVOs) of its
+own.
 
-It automatically intelligently detects the underlying DHT execution context using the following resolution methodology:
-1. It queries `lws_get_vhost_by_name(..., "dht")` attempting to attach to a globally initialized `dht` designated vhost (which is the recommended LWS architecture pattern for isolating the DHT UDP backend).
-2. If the `"dht"` vhost is not explicitly defined, it safely falls back to polling the context from the native vhost handling the active HTTP request.
+However, as for any lws protocol plugin, the protocol still has to be named in
+the vhost's pvo list for lws to bind and initialize it on that vhost.  With
+lwsws, that is an empty `ws-protocols` entry:
 
-As a result, no explicit `info.pvo` array fields string mappings are necessary to configure this plugin.
+```json
+"ws-protocols": [{
+    "lws-dht-stats": {
+    }
+}]
+```
+
+and programmatically, a `lws_protocol_vhost_options` naming `lws-dht-stats`
+with `options` left NULL.  There are no sub-options to give in either case,
+and the plugin initializes correctly either way.
+
+It resolves the underlying DHT execution context afresh on every use, so that a
+vhost destroyed at runtime (eg, by an lwsws config reload) can never be left
+behind as a stale pointer:
+
+1. It queries `lws_get_vhost_by_name(..., "dht")`, attaching to a `dht`
+   designated vhost (which is the recommended lws architecture pattern for
+   isolating the DHT UDP backend).
+2. If the `"dht"` vhost does not exist, it falls back to the vhost this
+   protocol is itself bound to.

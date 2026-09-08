@@ -30,7 +30,8 @@
 #include <stdlib.h>
 
 struct per_vhost_data__dht_stats {
-	struct lws_vhost *dht_vh;
+	struct lws_context *context;
+	struct lws_vhost *vhost;
 };
 
 struct per_session_data__dht_stats {
@@ -52,6 +53,22 @@ append_stats_json(char *buf, size_t size, const struct lws_dht_stats *s, int idx
 		(unsigned)s->peer_count);
 }
 
+/*
+ * The DHT is typically bound to its own vhost, conventionally named "dht",
+ * while this stats protocol is bound to the vhost serving the dashboard.  That
+ * vhost is destroyable at runtime (lws_vhost_destroy(), lwsws config reload),
+ * so we must not cache the pointer to it... resolve it on each use and fall
+ * back to our own vhost if there is no separate one.
+ */
+
+static struct lws_vhost *
+dht_stats_resolve_dht_vhost(struct per_vhost_data__dht_stats *vhd)
+{
+	struct lws_vhost *vh = lws_get_vhost_by_name(vhd->context, "dht");
+
+	return vh ? vh : vhd->vhost;
+}
+
 static int
 callback_lws_dht_stats(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len)
 {
@@ -65,20 +82,26 @@ callback_lws_dht_stats(struct lws *wsi, enum lws_callback_reasons reason, void *
 	case LWS_CALLBACK_PROTOCOL_INIT:
 		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub"))
 			return 0;
-		if (!in)
-			return 0;
+
+		/*
+		 * `in` is the protocol's pvo *sub-option* list, which is NULL
+		 * for the documented "no options needed" configuration.  We
+		 * are marked initialised and reachable either way, so the vhd
+		 * has to exist either way.
+		 */
 
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi),
 				sizeof(struct per_vhost_data__dht_stats));
 		if (!vhd)
 			return -1;
-		vhd->dht_vh = lws_get_vhost_by_name(lws_get_context(wsi), "dht");
-		if (!vhd->dht_vh)
-			vhd->dht_vh = lws_get_vhost(wsi);
+		vhd->context = lws_get_context(wsi);
+		vhd->vhost = lws_get_vhost(wsi);
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED:
+		if (!pss || !vhd)
+			return -1;
 		pss->vhd = vhd;
 		lws_set_timer_usecs(wsi, LWS_US_PER_SEC);
 		break;
@@ -88,17 +111,22 @@ callback_lws_dht_stats(struct lws *wsi, enum lws_callback_reasons reason, void *
 		const struct lws_dht_stats *history;
 		int head;
 		size_t alloc_size = LWS_PRE + 32768; /* 32KB max for 48 buckets */
-		uint8_t *pre = malloc(alloc_size);
+		uint8_t *pre;
 		char *p;
 		char *end;
 
+		if (!pss || !pss->vhd)
+			return -1;
+
+		pre = malloc(alloc_size);
 		if (!pre)
 			return 1;
 
 		p = (char *)pre + LWS_PRE;
 		end = (char *)pre + alloc_size - 1;
 
-		if (lws_dht_get_stats(vhd->dht_vh, &current, &history, &head)) {
+		if (lws_dht_get_stats(dht_stats_resolve_dht_vhost(pss->vhd),
+				      &current, &history, &head)) {
 			free(pre);
 			return 0;
 		}
@@ -126,6 +154,8 @@ callback_lws_dht_stats(struct lws *wsi, enum lws_callback_reasons reason, void *
 	}
 
 	case LWS_CALLBACK_TIMER:
+		if (!pss || !pss->vhd)
+			return -1;
 		lws_callback_on_writable(wsi);
 		lws_set_timer_usecs(wsi, LWS_US_PER_SEC);
 		break;
@@ -145,7 +175,7 @@ LWS_VISIBLE const struct lws_protocols lws_dht_stats_protocols[] = {
 		32768, /* rx buffer size - not really needed */
 		0, NULL, 0
 	},
-	{ NULL, NULL, 0, 0, 0, NULL, 0 }
+	LWS_PROTOCOL_LIST_TERM
 };
 
 /*
@@ -161,7 +191,7 @@ LWS_VISIBLE const lws_plugin_protocol_t lws_dht_stats = {
 		.api_magic = LWS_PLUGIN_API_MAGIC
 	},
 	.protocols = lws_dht_stats_protocols,
-	.count_protocols = LWS_ARRAY_SIZE(lws_dht_stats_protocols),
+	.count_protocols = LWS_ARRAY_SIZE(lws_dht_stats_protocols) - 1,
 	.extensions = NULL,
 	.count_extensions = 0,
 };
