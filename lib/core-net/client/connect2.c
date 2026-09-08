@@ -191,6 +191,27 @@ lws_client_connect_dns_https_cb(struct lws *wsi, const char *ads,
 #endif
 #endif
 
+/*
+ * The active-conns list is keyed on the Host: (cli_hostname_copy) + port +
+ * vhost, it does not know the connect address at all.  That's only safe when
+ * the Host: actually identifies the endpoint, ie, it is the connect address,
+ * optionally with the usual ":port" suffix.
+ *
+ * If it is something else -- eg, a pinned-IP or multi-POP client that aims
+ * several different backend addresses at one Host: -- then two connections
+ * sharing a Host: are not the same endpoint at all, and sharing a connection
+ * between them would deliver one request, and its Authorization: / cookies,
+ * to the other one's peer.
+ */
+
+static int
+lws_client_host_is_the_address(const char *host, const char *ads)
+{
+	size_t n = strlen(ads);
+
+	return !strncmp(host, ads, n) && (!host[n] || host[n] == ':');
+}
+
 struct lws *
 lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 {
@@ -270,9 +291,19 @@ lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 	 * differ, eg, host carries a :port suffix, the strcmp() in
 	 * lws_vhost_active_conns() can never match and pipelining silently
 	 * degrades to a fresh connection per transaction.
+	 *
+	 * But only when the Host: is our own address (with or without the
+	 * ":port" suffix), so that it really does identify the endpoint...
+	 * see lws_client_host_is_the_address().  Otherwise fall back to
+	 * probing with the address, which cannot match anything that
+	 * registered under a different Host: and so can only find a conn to
+	 * the same endpoint.
 	 */
 
-	switch (lws_vhost_active_conns(wsi, &w, (wsi->cli_hostname_copy && *adsin != '+') ?
+	switch (lws_vhost_active_conns(wsi, &w,
+			(wsi->cli_hostname_copy && *adsin != '+' &&
+			 lws_client_host_is_the_address(wsi->cli_hostname_copy,
+							adsin)) ?
 					wsi->cli_hostname_copy : adsin)) {
 	case ACTIVE_CONNS_SOLO:
 		break;
@@ -320,6 +351,15 @@ solo:
 
 	if (meth && (!strcmp(meth, "RAW") || _lws_is_http_method(meth) ||
 		     !strcmp(meth, "MQTT")) &&
+	    /*
+	     * lws_vhost_active_conns() matches candidates against our
+	     * cli_hostname_copy, so we may only offer ourselves as a target
+	     * if that really identifies the endpoint we connected to.  If it
+	     * doesn't, someone else's identically-named Host: would otherwise
+	     * be aimed at our peer instead of his own.
+	     */
+	    (!wsi->cli_hostname_copy || (adsin &&
+	     lws_client_host_is_the_address(wsi->cli_hostname_copy, adsin))) &&
 	    lws_dll2_is_detached(&wsi->dll2_cli_txn_queue) &&
 	    lws_dll2_is_detached(&wsi->dll_cli_active_conns)) {
 		lws_context_lock(wsi->a.context, __func__);
@@ -556,9 +596,16 @@ solo:
 
 #if defined(LWS_WITH_TLS)
 		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+			/*
+			 * Standalone query (no wsi), so the h3 discovery does
+			 * not gate the A lookup we actually need.  Nothing
+			 * cancels it when the wsi goes away, so the opaque is
+			 * the context, which outlives any query, and never the
+			 * wsi.
+			 */
 			lws_async_dns_query(wsi->a.context, wsi->tsi, adsin,
 					LWS_ADNS_RECORD_HTTPS, lws_client_connect_3_https_cb,
-					NULL, wsi, NULL);
+					NULL, wsi->a.context, NULL);
 		}
 #endif
 		n = lws_async_dns_query(wsi->a.context, wsi->tsi, adsin,

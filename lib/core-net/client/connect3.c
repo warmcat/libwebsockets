@@ -24,6 +24,14 @@
 
 #include "private-lib-core.h"
 
+/*
+ * How many times we retry the dns lookup, at one second intervals, before
+ * failing the connection.  There is no other bound on the LRS_WAITING_DNS
+ * phase.
+ */
+
+#define LWS_CLIENT_DNS_RETRIES 5
+
 #if defined(WIN32)
 
 /*
@@ -348,6 +356,16 @@ lws_remove_parallel_fd_safely(struct lws *wsi, int pidx)
 	if (!wsi->parallel_conns[pidx].is_valid || hole_pos == LWS_NO_FDS_POS)
 		return;
 
+	/*
+	 * __remove_wsi_socket_from_fds() requires the pt lock (it asserts it),
+	 * and we additionally borrow the wsi's own desc / fds position for the
+	 * duration below.  Most callers do not hold the lock; the ones that do
+	 * (eg, __lws_close_free_wsi()) are fine, since the pt lock is
+	 * recursive for the thread that owns it.
+	 */
+
+	lws_pt_lock(pt, __func__);
+
 	wsi->desc.sockfd = wsi->parallel_conns[pidx].desc.sockfd;
 	wsi->position_in_fds_table = hole_pos;
 
@@ -370,6 +388,8 @@ lws_remove_parallel_fd_safely(struct lws *wsi, int pidx)
 			wsi->parallel_conns[i].position_in_fds_table = hole_pos;
 		}
 	}
+
+	lws_pt_unlock(pt);
 }
 
 static void
@@ -385,15 +405,44 @@ struct lws *
 lws_client_connect_3_https_cb(struct lws *wsi, const char *ads,
 			      const struct addrinfo *result, int n, void *opaque)
 {
-	struct lws *real_wsi = (struct lws *)opaque;
-	if (n == 0 && result && real_wsi->a.context->h3_cap_cache) {
+	struct lws_context *cx = (struct lws_context *)opaque;
+
+	/*
+	 * This one is issued as a "standalone" query, ie, with no wsi attached
+	 * to it, so that the type-65 lookup does not delay the A lookup the
+	 * connection actually needs.  That means lws_async_dns_cancel() at wsi
+	 * close cannot detach us, and the query outlives the connection that
+	 * started it whenever the peer's resolver is slower to answer HTTPS
+	 * than A (or simply never does, until the query times out).
+	 *
+	 * So the opaque must not be the wsi... all we want from it is the
+	 * context-level h3 capability cache, and the context outlives every
+	 * query.
+	 */
+
+	(void)wsi;
+
+	if (n == LADNS_RET_FOUND && result && cx->h3_cap_cache) {
 		lws_h3_state_t state = LWS_H3_STATE_HTTPS_RECORD_EXISTS;
 		/* Cache the capability with a 1 hour TTL */
-		lws_cache_write_through(real_wsi->a.context->h3_cap_cache, ads,
+		lws_cache_write_through(cx->h3_cap_cache, ads,
 					(const uint8_t *)&state, sizeof(state),
 					lws_now_usecs() + (3600ll * LWS_US_PER_SEC), NULL);
 	}
-	return real_wsi;
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	if (result)
+		/*
+		 * The completion (or the cache-hit path) took a refcount on
+		 * the cache entry on our behalf... without dropping it, the
+		 * entry can never be trimmed or expired.
+		 */
+		lws_async_dns_freeaddrinfo(&result);
+#endif
+
+	/* NULL means "the wsi was closed"... there is no wsi here */
+
+	return LADNS_NO_WSI_BUT_OK;
 }
 
 struct lws *
@@ -443,6 +492,8 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	 */
 
 	if (result) {
+		/* dns came good... reset the dns retry budget */
+		wsi->retry = 0;
 		lws_sul_cancel(&wsi->sul_connect_timeout);
 
 #if defined(LWS_WITH_CONMON)
@@ -479,18 +530,31 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		lwsl_wsi_notice(wsi, "dns lookup failed %d", n);
 
 		/*
-		 * DNS lookup itself failed... let's try again until we
-		 * timeout
+		 * DNS lookup itself failed... let's try again, until we run
+		 * out of budget.
+		 *
+		 * Nothing else bounds this: lws_set_timeout() for the connect
+		 * is only armed once we have a socket, and there is no
+		 * PENDING_TIMEOUT covering LRS_WAITING_DNS.  So without a
+		 * budget here, a name that does not resolve pins the wsi (and
+		 * its ah, stash, user_space and any ss handle) for the life of
+		 * the process, emitting one dns query a second forever.
+		 *
+		 * wsi->retry is reset by __lws_reset_wsi(), so a redirect that
+		 * restarts the connection from DNS gets a fresh budget.
 		 */
+
+		if (++wsi->retry > LWS_CLIENT_DNS_RETRIES) {
+			lwsl_wsi_notice(wsi, "dns lookup failed, out of retries");
+			cce = "dns lookup failed";
+			goto oom4;
+		}
 
 		lwsi_set_state(wsi, LRS_UNCONNECTED);
 		lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_connect_timeout,
 				 lws_client_dns_retry_timeout,
 						 LWS_USEC_PER_SEC);
 		return wsi;
-
-//		cce = "dns lookup failed";
-//		goto oom4;
 	}
 
 	/*
@@ -1013,7 +1077,20 @@ ads_known:
 				wsi->parallel_count--;
 				wsi->position_in_fds_table = saved_pos;
 				wsi->desc = saved_fd;
-			}
+			} else
+				/*
+				 * The insertion failed before it assigned
+				 * position_in_fds_table, and we just closed
+				 * the fd... it must not stay installed as the
+				 * wsi's socket.  Otherwise try_next_dns_result
+				 * below sees a "valid" fd and believes an
+				 * attempt is still running (so the wsi hangs
+				 * with no timeout and no CCE), and the
+				 * eventual close closes that fd number a
+				 * second time, by then likely reissued to an
+				 * unrelated socket or file.
+				 */
+				wsi->desc.sockfd = LWS_SOCK_INVALID;
 			goto try_next_dns_result;
 		}
 		lws_pt_unlock(pt);
