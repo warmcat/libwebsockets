@@ -282,6 +282,51 @@ lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	return -1;
 }
 
+/*
+ * The JWS "PS256/384/512" algs and the "RS256/384/512" ones use the same hash
+ * but different paddings, and the whole point of the JOSE header binding the
+ * alg is that they must not be interchangeable... ctx->mode carries which one
+ * the caller asked for and is authoritative here
+ */
+
+static int
+lws_genrsa_sign_alg(struct lws_genrsa_ctx *ctx,
+		    enum lws_genhash_types hash_type,
+		    gnutls_sign_algorithm_t *alg)
+{
+	if (ctx->mode == LGRSAM_PKCS1_OAEP_PSS) {
+#if GNUTLS_VERSION_NUMBER >= 0x030600
+		switch (hash_type) {
+		case LWS_GENHASH_TYPE_SHA256:
+			*alg = GNUTLS_SIGN_RSA_PSS_RSAE_SHA256;
+			return 0;
+		case LWS_GENHASH_TYPE_SHA384:
+			*alg = GNUTLS_SIGN_RSA_PSS_RSAE_SHA384;
+			return 0;
+		case LWS_GENHASH_TYPE_SHA512:
+			*alg = GNUTLS_SIGN_RSA_PSS_RSAE_SHA512;
+			return 0;
+		default:
+			break;
+		}
+#endif
+		lwsl_err("%s: no RSA-PSS for hash %d in this gnutls\n",
+			 __func__, (int)hash_type);
+
+		return -1;
+	}
+
+	switch (hash_type) {
+	case LWS_GENHASH_TYPE_SHA1: *alg = GNUTLS_SIGN_RSA_SHA1; break;
+	case LWS_GENHASH_TYPE_SHA256: *alg = GNUTLS_SIGN_RSA_SHA256; break;
+	case LWS_GENHASH_TYPE_SHA384: *alg = GNUTLS_SIGN_RSA_SHA384; break;
+	case LWS_GENHASH_TYPE_SHA512: *alg = GNUTLS_SIGN_RSA_SHA512; break;
+	default: return -1;
+	}
+
+	return 0;
+}
+
 int
 lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			   enum lws_genhash_types hash_type,
@@ -290,13 +335,8 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	gnutls_datum_t v_hash, v_sig;
 	gnutls_sign_algorithm_t alg;
 
-	switch (hash_type) {
-	case LWS_GENHASH_TYPE_SHA1: alg = GNUTLS_SIGN_RSA_SHA1; break;
-	case LWS_GENHASH_TYPE_SHA256: alg = GNUTLS_SIGN_RSA_SHA256; break;
-	case LWS_GENHASH_TYPE_SHA384: alg = GNUTLS_SIGN_RSA_SHA384; break;
-	case LWS_GENHASH_TYPE_SHA512: alg = GNUTLS_SIGN_RSA_SHA512; break;
-	default: return -1;
-	}
+	if (lws_genrsa_sign_alg(ctx, hash_type, &alg))
+		return -1;
 
 	v_hash.data = (uint8_t *)in;
 	v_hash.size = (unsigned int)lws_genhash_size(hash_type);
@@ -317,13 +357,8 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	gnutls_datum_t v_hash, v_sig;
 	gnutls_sign_algorithm_t alg;
 
-	switch (hash_type) {
-	case LWS_GENHASH_TYPE_SHA1: alg = GNUTLS_SIGN_RSA_SHA1; break;
-	case LWS_GENHASH_TYPE_SHA256: alg = GNUTLS_SIGN_RSA_SHA256; break;
-	case LWS_GENHASH_TYPE_SHA384: alg = GNUTLS_SIGN_RSA_SHA384; break;
-	case LWS_GENHASH_TYPE_SHA512: alg = GNUTLS_SIGN_RSA_SHA512; break;
-	default: return -1;
-	}
+	if (lws_genrsa_sign_alg(ctx, hash_type, &alg))
+		return -1;
 
 	v_hash.data = (uint8_t *)in;
 	v_hash.size = (unsigned int)lws_genhash_size(hash_type);
