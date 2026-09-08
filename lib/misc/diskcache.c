@@ -51,11 +51,21 @@
 #endif
 #endif
 
+/*
+ * Cache object names are the caller's hash in hex... size this to hold a
+ * SHA-512 hex name (128 chars) plus the NUL.  Names that don't fit are skipped
+ * rather than silently truncated, since a truncated name would either fail to
+ * unlink (leaving the trim unable to bring the cache back under its limit, and
+ * so rescanning flat-out forever) or unlink some other file.
+ */
+#define LWS_DISKCACHE_NAME_MAX 129
+
 struct file_entry {
 	lws_dll2_t	sorted;		/* on lds->batch_sorted, newest first */
-	char name[64];
+	char name[LWS_DISKCACHE_NAME_MAX];
 	time_t modified;
 	size_t size;
+	uint8_t subdir;			/* which of the 256 subdirs it was in */
 };
 
 struct lws_diskcache_scan {
@@ -270,7 +280,7 @@ int
 lws_diskcache_trim(struct lws_diskcache_scan *lds)
 {
 	size_t cache_size_limit = (size_t)lds->cache_size_limit;
-	char dirpath[132], filepath[132 + 32];
+	char dirpath[132], filepath[132 + LWS_DISKCACHE_NAME_MAX];
 	int files_trimmed = 0;
 	struct file_entry *p;
 	int fd, n, ret = -1;
@@ -315,6 +325,17 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 
 		if (de->d_type != DT_REG)
 			continue;
+
+		if (strlen(de->d_name) >= LWS_DISKCACHE_NAME_MAX) {
+			/*
+			 * We could not store this name without truncating it,
+			 * and so could not reliably unlink it later... don't
+			 * account for it either, so the trim can still converge
+			 */
+			lwsl_warn("%s: ignoring overlong name in %s\n",
+				  __func__, dirpath);
+			continue;
+		}
 
 		lds->agg_file_count++;
 
@@ -363,8 +384,8 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 			p = &lds->batch[lds->batch_in_use++];
 
 		lws_dll2_clear(&p->sorted);
-		strncpy(p->name, de->d_name, sizeof(p->name) - 1);
-		p->name[sizeof(p->name) - 1] = '\0';
+		lws_strncpy(p->name, de->d_name, sizeof(p->name));
+		p->subdir = (uint8_t)lds->cache_subdir;
 		p->modified = s.st_mtime;
 		p->size = (size_t)s.st_size;
 
@@ -396,9 +417,16 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 
 			p = lws_container_of(tail, struct file_entry, sorted);
 
+			/*
+			 * Compose from the subdir the entry was actually found
+			 * in... deriving it from p->name[0] / p->name[1] embeds
+			 * a NUL in the path for a 1-char name
+			 */
+
 			lws_snprintf(filepath, sizeof(filepath), "%s/%c/%c/%s",
-				     lds->cache_dir_base, p->name[0],
-				     p->name[1], p->name);
+				     lds->cache_dir_base,
+				     hex[(p->subdir >> 4) & 15],
+				     hex[p->subdir & 15], p->name);
 
 			if (!unlink(filepath)) {
 				lds->agg_size -= p->size;
