@@ -3196,6 +3196,24 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 		if (vhd->lsp) {
 			lws_spawn_piped_kill_child_process(vhd->lsp);
 		}
+
+		/*
+		 * The vhd owns these lists but the entries live in pss that
+		 * lws frees on its own schedule: detach them (and any sul they
+		 * still have scheduled) rather than leave them pointing at an
+		 * owner that is about to go away
+		 */
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ui_clients)) {
+			struct pss *pss1 = lws_container_of(d, struct pss, list);
+
+			lws_sul_cancel(&pss1->sul);
+			lws_dll2_remove(d);
+		} lws_end_foreach_dll_safe(d, d1);
+
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->clients)) {
+			lws_dll2_remove(d);
+		} lws_end_foreach_dll_safe(d, d1);
+
 		if (vhd->base_dir) {
 			free(vhd->base_dir);
 			vhd->base_dir = NULL;
@@ -3250,7 +3268,15 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED:
-		if (vhd && vhd->root_process_active) {
+		/*
+		 * Teardown is keyed on what ESTABLISHED actually did, not on
+		 * root_process_active: the reap callback can clear that flag
+		 * asynchronously between the two, and skipping the teardown
+		 * would leave this pss linked on vhd->ui_clients, its sul
+		 * scheduled and its cwsi's opaque pointing at it after lws has
+		 * freed it
+		 */
+		if (pss && pss->magic == PSS_MAGIC) {
 			lws_dll2_remove(&pss->list);
 			lws_sul_cancel(&pss->sul);
 			if (pss->cwsi) {
@@ -3258,6 +3284,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_wsi_close(pss->cwsi, LWS_TO_KILL_ASYNC);
 				pss->cwsi = NULL;
 			}
+			pss->magic = 0;
 		}
 		break;
 
