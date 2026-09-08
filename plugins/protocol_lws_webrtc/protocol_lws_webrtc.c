@@ -50,7 +50,9 @@
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 #include <mbedtls/md.h>
-#elif !defined(LWS_WITH_GNUTLS) && !defined(LWS_WITH_SCHANNEL) && !defined(LWS_WITH_OPENHITLS)
+#elif defined(LWS_WITH_GNUTLS)
+#include <gnutls/gnutls.h>
+#elif !defined(LWS_WITH_SCHANNEL) && !defined(LWS_WITH_OPENHITLS)
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 #endif
@@ -144,6 +146,12 @@ lws_webrtc_set_user_data(struct pss_webrtc *pss, void *data)
 
 static int
 lws_webrtc_send_pli(struct pss_webrtc *pss);
+
+static int
+webrtc_dtls_service(struct pss_webrtc *pss);
+
+static void
+webrtc_dtls_fail(struct pss_webrtc *pss, const char *reason);
 
 static struct lws_vhost *
 lws_webrtc_get_vhost(struct vhd_webrtc *vhd)
@@ -704,6 +712,8 @@ lws_webrtc_create_offer(struct pss_webrtc *pss)
 		lws_gendtls_set_key_mem(&pss->dtls_ctx, vhd->key_mem, vhd->key_len);
 		pss->media->wsi_udp = vhd->wsi_udp;
 		pss->handshake_started = 1;
+		/* poll the handshake, see LWS_CALLBACK_TIMER */
+		lws_set_timer_usecs(pss->wsi_ws, LWS_WEBRTC_DTLS_POLL_US);
 	}
 
 	/* Default PTs for Offer */
@@ -1597,6 +1607,8 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 		lws_gendtls_set_key_mem(&pss->dtls_ctx, vhd->key_mem, vhd->key_len);
 		pss->handshake_started = 1;
 		pss->media->wsi_udp = vhd->wsi_udp;
+		/* poll the handshake, see LWS_CALLBACK_TIMER */
+		lws_set_timer_usecs(pss->wsi_ws, LWS_WEBRTC_DTLS_POLL_US);
 	}
 
 	/* Generate Answer */
@@ -1992,6 +2004,25 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 			// return -1; /* falling through to close transaction inside dummy cb leads to delays */
 			break;
 
+		case LWS_CALLBACK_TIMER:
+			/*
+			 * DTLS is otherwise only driven by datagrams the peer
+			 * sends us, so poll it until the handshake is settled:
+			 * that is what makes flight retransmission and the
+			 * handshake deadline actually happen.
+			 */
+			if (!pss->handshake_started || !pss->media ||
+			    pss->media->handshake_done)
+				break;
+
+			if (webrtc_dtls_service(pss)) {
+				webrtc_dtls_fail(pss, "handshake timed out or failed");
+				break;
+			}
+
+			lws_set_timer_usecs(wsi, LWS_WEBRTC_DTLS_POLL_US);
+			break;
+
 		case LWS_CALLBACK_CLIENT_WRITEABLE:
 		case LWS_CALLBACK_SERVER_WRITEABLE:
 			{
@@ -2122,6 +2153,105 @@ webrtc_find_session(struct vhd_webrtc *vhd, const lws_sockaddr46 *sa46)
 			return s;
 	} lws_end_foreach_dll(d);
 	return NULL;
+}
+
+/*
+ * Helper: put whatever the DTLS state machine produced on the wire, to the
+ * peer media address that ICE already validated.
+ *
+ * Returns 0, or -1 if the handshake must be abandoned.
+ */
+	static int
+webrtc_dtls_flush_tx(struct pss_webrtc *pss)
+{
+	uint8_t out[2048];
+	lws_sockfd_type fd;
+	socklen_t slen;
+	int n;
+
+	if (!pss->handshake_started || !pss->media || !pss->media->wsi_udp ||
+	    !pss->media->has_peer_sa46)
+		return 0;
+
+	fd = lws_get_socket_fd(pss->media->wsi_udp);
+	if (fd == LWS_SOCK_INVALID)
+		return 0;
+
+	slen = pss->media->peer_sa46.sa4.sin_family == AF_INET6 ?
+			(socklen_t)sizeof(pss->media->peer_sa46.sa6) :
+			(socklen_t)sizeof(pss->media->peer_sa46.sa4);
+
+	while ((n = lws_gendtls_get_tx(&pss->dtls_ctx, out, sizeof(out))) > 0) {
+		/*
+		 * debug, not notice: the peer chooses how many of these there
+		 * are, so at notice it is remote log volume on demand.
+		 */
+		lwsl_debug("%s: sending DTLS (%d bytes)\n", __func__, n);
+
+		if (sendto(fd, (const char *)out, (size_t)n, 0,
+			   (const struct sockaddr *)&pss->media->peer_sa46,
+			   slen) < 0)
+			webrtc_pss_err(pss, "DTLS sendto failed: errno %d\n",
+				       errno);
+	}
+
+	if (n < 0 && !lws_gendtls_handshake_done(&pss->dtls_ctx))
+		return -1;
+
+	return 0;
+}
+
+/*
+ * Helper: drive the DTLS state machine, ie, consume anything it decrypted
+ * (including the handshake flights) and send anything it wants to send.
+ *
+ * Returns 0, or -1 if the handshake must be abandoned.
+ */
+	static int
+webrtc_dtls_service(struct pss_webrtc *pss)
+{
+	uint8_t rx[2048];
+	int n;
+
+	if (!pss->handshake_started || !pss->media)
+		return 0;
+
+	while ((n = lws_gendtls_get_rx(&pss->dtls_ctx, rx, sizeof(rx))) > 0)
+		;
+
+	if (n < 0 && !lws_gendtls_handshake_done(&pss->dtls_ctx))
+		return -1;
+
+	return webrtc_dtls_flush_tx(pss);
+}
+
+/*
+ * Helper: the DTLS handshake cannot complete (fatal error, or the deadline
+ * passed, or the peer certificate did not match the signalled fingerprint).
+ *
+ * Drop the DTLS ctx and take the session down with it: leaving it half-open
+ * pins the ctx and the media object until the ws session happens to close,
+ * and keeps the session reachable at its media address meanwhile.
+ */
+	static void
+webrtc_dtls_fail(struct pss_webrtc *pss, const char *reason)
+{
+	webrtc_pss_err(pss, "DTLS: %s, closing session\n", reason);
+
+	if (pss->handshake_started) {
+		lws_gendtls_destroy(&pss->dtls_ctx);
+		pss->handshake_started = 0;
+	}
+
+	if (pss->media) {
+		pss->media->handshake_done = 0;
+		pss->media->has_peer_sa46 = 0;
+	}
+
+	if (pss->wsi_ws) {
+		lws_set_timer_usecs(pss->wsi_ws, LWS_SET_TIMER_USEC_CANCEL);
+		lws_wsi_close(pss->wsi_ws, LWS_TO_KILL_ASYNC);
+	}
 }
 
 /* Helper: Handle STUN packets */
@@ -2257,19 +2387,12 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 				 * Trigger DTLS Client Hello now that we have proven connectivity
 				 * via a successful STUN Request/Response cycle.
 				 */
-				if (pss->is_client && pss->handshake_started && pss->media && !pss->media->handshake_done) {
-					uint8_t dummy;
-					lws_gendtls_get_rx(&pss->dtls_ctx, &dummy, 1);
-					uint8_t out_dtls[2048];
-					int _tx_len;
-					while ((_tx_len = lws_gendtls_get_tx(&pss->dtls_ctx, out_dtls, sizeof(out_dtls))) > 0) {
-						lwsl_notice("%s: Sending Initial DTLS ClientHello (%d bytes) to %s:%u\n",
-								__func__, _tx_len, ads, ntohs(sin->sin_port));
-						if (sendto((lws_sockfd_type)(lws_intptr_t)fd, (const char *)out_dtls, (size_t)_tx_len, 0,
-								(const struct sockaddr *)&udp_desc->sa46, slen) < 0) {
-							webrtc_pss_err(pss, "DTLS ClientHello sendto failed: errno %d\n", errno);
-						}
-					}
+				if (pss->is_client && pss->handshake_started &&
+				    pss->media && !pss->media->handshake_done &&
+				    webrtc_dtls_service(pss)) {
+					webrtc_dtls_fail(pss, "failed to start handshake");
+
+					return 0;
 				}
 			}
 		}
@@ -2283,72 +2406,100 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 
 /* Helper: Handle DTLS packets */
 	static int
-webrtc_handle_dtls(struct lws *wsi, struct pss_webrtc *pss, const struct sockaddr_in *sin,
-		uint8_t *in, size_t len)
+webrtc_handle_dtls(struct pss_webrtc *pss, uint8_t *in, size_t len)
 {
 	if (!pss || !pss->handshake_started || !pss->media)
 		return 0;
 
-	webrtc_pss_log(pss, "Incoming DTLS packet (%zu bytes)\n", len);
+	/*
+	 * debug, not notice: this is every DTLS datagram from a peer who
+	 * chooses how many he sends, ie, remote log volume on demand.
+	 */
+	lwsl_debug("%s: incoming DTLS packet (%zu bytes)\n", __func__, len);
 
 	if (lws_gendtls_put_rx(&pss->dtls_ctx, (uint8_t *)in, len) == 0) {
-		/* Drive state machine by reading */
-		uint8_t rx_dump[2048];
-		while (lws_gendtls_get_rx(&pss->dtls_ctx, rx_dump, sizeof(rx_dump)) > 0);
-		/* Check if we need to send anything */
-		uint8_t out[2048];
-		int _tx_len;
-		int _fd = (int)(lws_intptr_t)lws_get_socket_fd(wsi);
-		while ((_tx_len = lws_gendtls_get_tx(&pss->dtls_ctx, out, sizeof(out))) > 0) {
-			lwsl_notice("%s: Sending DTLS Reply (%d bytes)\n", __func__, _tx_len);
-			if (_fd >= 0) {
-				if (sendto((lws_sockfd_type)(lws_intptr_t)_fd, (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->media->peer_sa46, pss->media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(pss->media->peer_sa46.sa6) : (socklen_t)sizeof(pss->media->peer_sa46.sa4)) < 0) {
-					webrtc_pss_err(pss, "DTLS reply sendto failed: errno %d\n", errno);
-				}
-			}
+		/* drive the state machine and flush whatever it produced */
+		if (webrtc_dtls_service(pss)) {
+			webrtc_dtls_fail(pss, "handshake failed");
+
+			return -1;
 		}
 
 		if (!pss->media->handshake_done && lws_gendtls_handshake_done(&pss->dtls_ctx)) {
-			/* F-108: Verify peer fingerprint */
-			int verified = 0;
+			/*
+			 * F-108: verify the peer certificate against the
+			 * a=fingerprint that came in on the signalling
+			 * channel.
+			 *
+			 * The DTLS chain is self-signed and deliberately not
+			 * validated (RFC 8827), so this comparison is the only
+			 * thing authenticating the peer before we export the
+			 * media keys.  Every backend must therefore either
+			 * perform it, or refuse the session.
+			 */
+			uint8_t md[32];
+			unsigned int i;
+			int have_md = 0, verified = 0;
 #if defined(LWS_WITH_MBEDTLS)
-			const mbedtls_x509_crt *cert = mbedtls_ssl_get_peer_cert(&pss->dtls_ctx.ssl);
-			if (cert) {
-				unsigned char md[32];
-				if (mbedtls_md(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), cert->raw.p, cert->raw.len, md) == 0) {
-					char computed[128];
-					for (unsigned int i = 0; i < 32; i++) {
-						lws_snprintf(computed + (i * 3), 4, "%02X%c", md[i], i == 31 ? '\0' : ':');
-					}
-					if (pss->fingerprint_remote[0] != '\0' && strlen(pss->fingerprint_remote) == 95 &&
-					    !lws_timingsafe_bcmp(computed, pss->fingerprint_remote, 95))
-						verified = 1;
+			{
+				const mbedtls_x509_crt *cert =
+					mbedtls_ssl_get_peer_cert(&pss->dtls_ctx.ssl);
+
+				if (cert && !mbedtls_md(mbedtls_md_info_from_type(
+							MBEDTLS_MD_SHA256),
+							cert->raw.p, cert->raw.len, md))
+					have_md = 1;
+			}
+#elif defined(LWS_WITH_GNUTLS)
+			{
+				const gnutls_datum_t *cd;
+				unsigned int nc = 0;
+				size_t ml = sizeof(md);
+
+				cd = gnutls_certificate_get_peers(pss->dtls_ctx.session, &nc);
+				if (cd && nc &&
+				    !gnutls_fingerprint(GNUTLS_DIG_SHA256, &cd[0], md, &ml) &&
+				    ml == sizeof(md))
+					have_md = 1;
+			}
+#elif defined(LWS_WITH_SCHANNEL) || defined(LWS_WITH_OPENHITLS)
+			/*
+			 * No peer-certificate accessor for this backend yet:
+			 * fail closed.  Accepting here would hand the media
+			 * keys to whoever completed the handshake, ie, to
+			 * anybody at all.
+			 */
+			lwsl_err("%s: DTLS fingerprint check not implemented "
+				 "on this tls backend\n", __func__);
+#else /* OpenSSL */
+			{
+				X509 *cert = SSL_get_peer_certificate((SSL *)pss->dtls_ctx.ssl);
+				unsigned int ml = 0;
+
+				if (cert) {
+					if (X509_digest(cert, EVP_sha256(), md, &ml) &&
+					    ml == sizeof(md))
+						have_md = 1;
+					X509_free(cert);
 				}
 			}
-#elif !defined(LWS_WITH_GNUTLS) && !defined(LWS_WITH_SCHANNEL) && !defined(LWS_WITH_OPENHITLS)
-			/* Assume OpenSSL */
-			X509 *cert = SSL_get_peer_certificate((SSL *)pss->dtls_ctx.ssl);
-			if (cert) {
-				unsigned char md[EVP_MAX_MD_SIZE];
-				unsigned int md_len = 0;
-				if (X509_digest(cert, EVP_sha256(), md, &md_len) && md_len == 32) {
-					char computed[128];
-					for (unsigned int i = 0; i < md_len; i++) {
-						lws_snprintf(computed + (i * 3), 4, "%02X%c", md[i], i == 31 ? '\0' : ':');
-					}
-					if (pss->fingerprint_remote[0] != '\0' && strlen(pss->fingerprint_remote) == 95 &&
-					    !lws_timingsafe_bcmp(computed, pss->fingerprint_remote, 95))
-						verified = 1;
-				}
-				X509_free(cert);
-			}
-#else
-			/* Fallback if unsupported crypto, accept for now */
-			lwsl_wsi_err(wsi, "DTLS fingerprint check not supported on this TLS backend");
-			verified = 1;
 #endif
+			if (have_md) {
+				char computed[(sizeof(md) * 3) + 1];
+
+				for (i = 0; i < sizeof(md); i++)
+					lws_snprintf(computed + (i * 3), 4, "%02X%c",
+						     md[i], i == sizeof(md) - 1 ? '\0' : ':');
+
+				verified = pss->fingerprint_remote[0] != '\0' &&
+					   strlen(pss->fingerprint_remote) == 95 &&
+					   !lws_timingsafe_bcmp(computed,
+						   pss->fingerprint_remote, 95);
+			}
+
 			if (!verified) {
-				lwsl_err("%s: DTLS Fingerprint mismatch! Rejecting connection.\n", __func__);
+				webrtc_dtls_fail(pss, "peer fingerprint mismatch");
+
 				return -1;
 			}
 
@@ -2637,7 +2788,7 @@ lws_shared_webrtc_udp_callback(struct lws *wsi, enum lws_callback_reasons reason
 				}
 				/* DTLS: 20-63 */
 				else if (b0 >= 20 && b0 <= 63) {
-					webrtc_handle_dtls(wsi, pss, sin, (uint8_t *)in, len);
+					webrtc_handle_dtls(pss, (uint8_t *)in, len);
 				}
 				/* RTP/RTCP: 128-191 */
 				else if (b0 >= 128 && b0 <= 191) {

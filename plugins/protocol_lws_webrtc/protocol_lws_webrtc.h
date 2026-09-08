@@ -11,6 +11,16 @@
  */
 #define LWS_WEBRTC_MAX_PUNCHES 16
 
+/*
+ * How often we poll the DTLS state machine while its handshake is in
+ * progress.  Flight retransmission and the overall handshake deadline are
+ * both driven from lws_gendtls_get_rx() / lws_gendtls_get_tx(), so without
+ * an independent poll nothing happens at all once the peer goes quiet: a
+ * lost flight is never retransmitted, and an abandoned handshake sits there
+ * holding its ctx and media object until the ws session happens to close.
+ */
+#define LWS_WEBRTC_DTLS_POLL_US (100 * LWS_US_PER_MS)
+
 struct vhd_webrtc {
 	struct lws_context      *context;
 	struct lws_vhost        *vhost;
