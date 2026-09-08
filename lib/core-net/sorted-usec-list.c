@@ -146,14 +146,20 @@ __lws_sul_service_ripe(lws_dll2_owner_t *own, int own_len, lws_usec_t usnow)
 
 		/* his moment has come... remove him from his owning list */
 
-		if (!hit->cb) {
-			lwsl_err("%s: sul with NULL callback (did not cancel on destory?)\n", __func__);
-
-			return 0;
-		}
-
 		lws_dll2_remove(&hit->list);
 		hit->us = 0;
+
+		if (!hit->cb) {
+			/*
+			 * Removed before bailing on purpose: it is ripe and
+			 * cannot be serviced, if we left it on the list it
+			 * would be found again on every service and no sul on
+			 * this pt would ever fire again
+			 */
+			lwsl_err("%s: sul with NULL callback (did not cancel on destory?)\n", __func__);
+
+			continue;
+		}
 
 		// lwsl_notice("%s: sul: %p\n", __func__, hit->cb);
 

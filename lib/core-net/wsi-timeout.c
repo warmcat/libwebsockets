@@ -237,6 +237,12 @@ lws_set_timeout_us(struct lws *wsi, enum pending_timeout reason, lws_usec_t us)
 		return;
 
 	lws_pt_lock(pt, __func__);
+	/*
+	 * Arm the callback like __lws_set_timeout() does... a wsi that never
+	 * went through lws_set_timeout() still has a NULL cb here, and a sul
+	 * on the pt list with a NULL cb stalls that pt's whole timer wheel
+	 */
+	wsi->sul_timeout.cb = lws_sul_wsitimeout_cb;
 	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
 			    &wsi->sul_timeout, us);
 
