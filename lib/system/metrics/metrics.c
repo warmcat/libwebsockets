@@ -108,8 +108,14 @@ lws_metrics_tags_destroy(lws_dll2_owner_t *owner)
 size_t
 lws_metrics_tags_serialize(lws_dll2_owner_t *owner, char *buf, size_t len)
 {
-	char *end = buf + len - 1, *p = buf;
+	char *end, *p = buf;
 	lws_metrics_tag_t *t;
+
+	if (!buf || !len)
+		/* there's not even room for the NUL */
+		return 0;
+
+	end = buf + len - 1;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(owner)) {
 		t = lws_container_of(d, lws_metrics_tag_t, list);
@@ -363,7 +369,7 @@ lws_metric_create(struct lws_context *ctx, uint8_t flags, const char *name)
 			lwsl_notice("%s: metpol %s\n", __func__, name);
 			lws_dll2_add_tail(&mt->list, &dmp->owner);
 
-			return 0;
+			return mt;
 		}
 	}
 
