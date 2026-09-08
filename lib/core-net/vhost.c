@@ -371,7 +371,12 @@ lws_vhd_find_by_pvo(struct lws_context *cx, const char *protname,
 		for (n = 0; n < vh->count_protocols; n++) {
 			const struct lws_protocol_vhost_options *pv;
 
-			if (strcmp(vh->protocols[n].name, protname))
+			/*
+			 * a plugin that counted its list terminator as a
+			 * protocol leaves a NULL name in the table
+			 */
+			if (!vh->protocols[n].name ||
+			    strcmp(vh->protocols[n].name, protname))
 				continue;
 
 			/* this vh has an instance of the required protocol */
