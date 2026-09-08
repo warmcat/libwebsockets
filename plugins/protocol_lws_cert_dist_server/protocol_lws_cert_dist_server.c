@@ -657,8 +657,33 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (vhd) {
 			lws_dll2_remove(&vhd->list_vhd);
+#if defined(LWS_WITH_DIR)
+			/*
+			 * The monitor is adopted on the system vhost, not
+			 * ours, so it outlives the vhd it points at unless we
+			 * take it down here
+			 */
+			if (vhd->dn)
+				lws_dir_notify_destroy(&vhd->dn);
+#endif
 			if (vhd->stub_mgr)
 				lws_stub_destroy(&vhd->stub_mgr);
+
+			/*
+			 * lws_stub_destroy() retires every queued request,
+			 * which frees the pending objects they own; anything
+			 * left never made it onto a request
+			 */
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					lws_dll2_get_head(&vhd->pending)) {
+				struct cert_dist_server_pending *pend =
+					lws_container_of(d,
+						struct cert_dist_server_pending,
+						list);
+
+				lws_dll2_remove(&pend->list);
+				free(pend);
+			} lws_end_foreach_dll_safe(d, d1);
 		}
 		break;
 
