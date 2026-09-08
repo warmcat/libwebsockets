@@ -261,9 +261,11 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 
 		/*
 		 * we shouldn't come back in here if we already applied the
-		 * trailer for this compressed packet
+		 * trailer for this compressed packet... unless zlib could not
+		 * take all of it yet and we still owe it the rest
 		 */
-		if (!wsi->ws->pmd_trailer_application)
+		if (!wsi->ws->pmd_trailer_application &&
+		    !priv->rx_trailer_pending)
 			return PMDR_DID_NOTHING;
 
 		pmdrx->eb_out.len = 0;
@@ -330,7 +332,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		    !wsi->ws->rx_packet_length &&
 		    wsi->ws->pmd_trailer_application) {
 			lwsl_wsi_ext(wsi, "trailer apply 1");
-			was_fin = 1;
+			priv->rx_trailer_pending = 1;
 			wsi->ws->pmd_trailer_application = 0;
 			priv->rx.next_in = trail;
 			priv->rx.avail_in = sizeof(trail);
@@ -344,7 +346,8 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		if (!priv->rx.avail_in)
 			return PMDR_DID_NOTHING;
 
-		n = inflate(&priv->rx, was_fin ? Z_SYNC_FLUSH : Z_NO_FLUSH);
+		n = inflate(&priv->rx, priv->rx_trailer_pending ? Z_SYNC_FLUSH :
+								  Z_NO_FLUSH);
 		lwsl_wsi_ext(wsi, "inflate ret %d, avi %d, avo %d, wsifinal %d", n,
 			 priv->rx.avail_in, priv->rx.avail_out, wsi->ws->final);
 		switch (n) {
@@ -355,6 +358,20 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			lwsl_wsi_err(wsi, "zlib error inflate %d: \"%s\"",
 				  n, priv->rx.msg);
 			return PMDR_FAILED;
+		}
+
+		/*
+		 * The message is only over once the whole synthetic trailer
+		 * went in.  zlib can return with avail_in still set if it ran
+		 * out of output room (eg, it still owed us the tail of a match
+		 * when we handed it the trailer); trail[] is static, so it is
+		 * safe to keep pointing at the rest of it and finish it on a
+		 * later pass with a fresh output buffer.
+		 */
+
+		if (priv->rx_trailer_pending && !priv->rx.avail_in) {
+			priv->rx_trailer_pending = 0;
+			was_fin = 1;
 		}
 
 		/*
@@ -381,6 +398,43 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			/* nothing of the offered token could be consumed yet */
 			pmdrx->eb_in.len = 0;
 
+		/*
+		 * If we still hold unconsumed input that came from what he
+		 * offered us this call, stop pointing zlib into his buffer:
+		 * we are about to return to the event loop with the drain
+		 * still pending, and by the time we are called back to finish
+		 * it, his buffer (pt->serv_buf, which is shared by every wsi
+		 * on the thread, or a buflist segment, which is freed the
+		 * moment it is fully consumed) may have been reused or freed.
+		 * Copy the remainder somewhere we own, exactly like the TX
+		 * side does with buf_tx_holding.
+		 */
+
+		if (pmdrx->eb_in.len && pmdrx->eb_in.token) {
+			if (priv->len_rx_holding < (size_t)pmdrx->eb_in.len) {
+				lws_free(priv->buf_rx_holding);
+				priv->len_rx_holding = (size_t)pmdrx->eb_in.len;
+				priv->buf_rx_holding = lws_malloc(
+						priv->len_rx_holding,
+						"pmd rx holding buf");
+				if (!priv->buf_rx_holding) {
+					priv->len_rx_holding = 0;
+					return PMDR_FAILED;
+				}
+			}
+			memcpy(priv->buf_rx_holding, pmdrx->eb_in.token,
+			       (size_t)pmdrx->eb_in.len);
+			priv->rx.next_in = priv->buf_rx_holding;
+
+			lwsl_wsi_ext(wsi, "RX holding %u unconsumed input",
+					(unsigned int)pmdrx->eb_in.len);
+		} else if (!priv->rx.avail_in && priv->buf_rx_holding) {
+			/* any held input is fully inflated now, let it go */
+			lws_free_set_NULL(priv->buf_rx_holding);
+			priv->len_rx_holding = 0;
+			priv->rx.next_in = NULL;
+		}
+
 		lwsl_wsi_debug(wsi, "%d %d %d %d %d",
 				priv->rx.avail_in,
 				wsi->ws->final,
@@ -399,7 +453,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			 * we might issue something */
 			priv->rx.avail_out += 5;
 
-			was_fin = 1;
+			priv->rx_trailer_pending = 1;
 			wsi->ws->pmd_trailer_application = 0;
 			priv->rx.next_in = trail;
 			priv->rx.avail_in = sizeof(trail);
@@ -416,7 +470,22 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 				return -1;
 			}
 
-			assert(priv->rx.avail_out);
+			/*
+			 * The peer chooses the compressed content, so he can
+			 * arrange for zlib to still owe us output when we get
+			 * here (eg, the tail of a match that did not fit the
+			 * output buffer).  Then it cannot take the whole
+			 * trailer in the 5 bytes of slack we have, which used
+			 * to fire an assert() he could reach at will.  Just
+			 * leave the rest of the static trail[] as pending
+			 * input and finish it below on a pass with a fresh
+			 * output buffer.
+			 */
+
+			if (!priv->rx.avail_in) {
+				priv->rx_trailer_pending = 0;
+				was_fin = 1;
+			}
 		}
 
 		pmdrx->eb_out.len = lws_ptr_diff(priv->rx.next_out,
@@ -439,6 +508,14 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 				lwsl_wsi_ext(wsi, "PMD_SERVER_NO_CONTEXT_TAKEOVER");
 				(void)inflateEnd(&priv->rx);
 				priv->rx_init = 0;
+				/*
+				 * inflateInit2() does not touch next_in /
+				 * avail_in, so make sure the reinit does not
+				 * inherit any input state from the message
+				 * that just ended
+				 */
+				priv->rx.next_in = NULL;
+				priv->rx.avail_in = 0;
 			}
 
 			return PMDR_EMPTY_FINAL;
