@@ -162,16 +162,17 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 				     LWS_ARRAY_SIZE(wsi->tls.kid_chain.akid); n++) {
 				X509 *x509 = OPENSSL_sk_value((const OPENSSL_STACK *)x509_stack, n);
 
+				/* the len is the buffer size, 0 meant "never fits" */
 				if (!lws_tls_openssl_cert_info(x509,
 					    LWS_TLS_CERT_INFO_SUBJECT_KEY_ID,
-					    &ci, 0))
+					    &ci, sizeof(ci.ns.name)))
 					lws_tls_kid_copy(&ci,
 						&wsi->tls.kid_chain.skid[
 						     wsi->tls.kid_chain.count]);
 
 				if (!lws_tls_openssl_cert_info(x509,
 					     LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID,
-					     &ci, 0))
+					     &ci, sizeof(ci.ns.name)))
 					lws_tls_kid_copy(&ci,
 						 &wsi->tls.kid_chain.akid[
 						     wsi->tls.kid_chain.count]);

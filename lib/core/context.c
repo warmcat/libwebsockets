@@ -741,6 +741,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 		ci.ops = &lws_cache_ops_heap;
 		ci.name = "jitt";
 		ci.max_footprint = info->jitt_cache_max_footprint;
+		/* a hostile chain per connection must not grow this unbounded */
+		ci.max_items = 32;
 		context->trust_cache = lws_cache_create(&ci);
 	}
 #endif

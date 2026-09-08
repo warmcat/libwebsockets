@@ -1207,14 +1207,16 @@ __lws_close_free_wsi_final(struct lws *wsi)
 			lws_tls_jit_trust_vhost_bind(wsi->a.context,
 						     wsi->stash->cis[CIS_ADDRESS],
 						     &vh);
-			if (vh) {
-				if (!vh->count_bound_wsi && vh->grace_after_unref) {
-					lwsl_wsi_info(wsi, "%s in use\n",
-								vh->lc.gutag);
-					lws_sul_cancel(&vh->sul_unref);
-				}
-				vh->count_bound_wsi++;
-				wsi->a.vhost = vh;
+			/*
+			 * Rebind through the proper helpers: the open-coded
+			 * increment never unbound the old vhost, leaking its
+			 * count_bound_wsi and blocking its destroy
+			 */
+			if (vh && vh != wsi->a.vhost) {
+				lws_context_lock(wsi->a.context, __func__);
+				__lws_vhost_unbind_wsi(wsi);
+				lws_context_unlock(wsi->a.context);
+				lws_vhost_bind_wsi(vh, wsi);
 			}
 		}
 #endif
