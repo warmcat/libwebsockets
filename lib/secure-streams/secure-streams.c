@@ -534,6 +534,9 @@ lws_ss_exp_cb_metadata(void *priv, const char *name, char *out, size_t *pos,
 
 	total = hmd->length;
 
+	if (*pos >= olen) /* no room at all... don't underflow the budget */
+		return LSTRX_FILLED_OUT;
+
 	budget = olen - *pos;
 	total -= *exp_ofs;
 	if (total < budget)
@@ -959,8 +962,43 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 		return LWSSSSRET_TX_DONT_SEND;
 	}
 
-	if (ssp->munge) /* eg, raw doesn't use; endpoint strexp already done */
-		ssp->munge(h, path, h->context->max_http_header_data, &i, &ct);
+	if (ssp->munge) { /* eg, raw doesn't use; endpoint strexp already done */
+
+		/*
+		 * The munge fails if, eg, a ${metadata} in the policy url is
+		 * unknown or did not fit the path buffer.  We must not connect
+		 * with a half-composed path, nor (for mqtt) with connect
+		 * parameters the munge did not get as far as filling in.
+		 */
+
+		if (ssp->munge(h, path, h->context->max_http_header_data,
+			       &i, &ct)) {
+			lwsl_err("%s: %s: munge failed\n", __func__,
+				 lws_ss_tag(h));
+			goto bail_path;
+		}
+
+		/*
+		 * Metadata substituted into the request path is untrusted, and
+		 * unlike header values (which lws_hdr_add_value_bad() filters)
+		 * the path goes into the request line verbatim.  Any CTL, SP or
+		 * DEL in there would let the peer that set the metadata inject
+		 * a second request line or extra headers.
+		 */
+
+		if (i.path) {
+			const unsigned char *pp = (const unsigned char *)i.path;
+
+			while (*pp) {
+				if (*pp <= ' ' || *pp == 0x7f) {
+					lwsl_err("%s: %s: bad char in path\n",
+						 __func__, lws_ss_tag(h));
+					goto bail_path;
+				}
+				pp++;
+			}
+		}
+	}
 
 	i.pwsi = &h->wsi;
 
@@ -1035,6 +1073,13 @@ fail_out:
 	if (puri)
 		lws_parse_uri_destroy(&puri);
 	return LWSSSSRET_OK;
+
+bail_path:
+	lws_free(path);
+	if (puri)
+		lws_parse_uri_destroy(&puri);
+
+	return LWSSSSRET_TX_DONT_SEND;
 }
 
 lws_ss_state_return_t

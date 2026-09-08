@@ -1447,7 +1447,12 @@ lws_strexp_expand(lws_strexp_t *exp, const char *in, size_t len,
 			if (exp->out)
 				exp->out[exp->pos] = *in;
 			exp->pos++;
-			if (exp->olen - exp->pos < 1) {
+			/*
+			 * Compare rather than subtract: if pos ever reached
+			 * olen, olen - pos underflows in size_t and the guard
+			 * silently stops working
+			 */
+			if (exp->pos >= exp->olen) {
 				*pused_in = used + 1;
 				*pused_out = exp->pos;
 				return LSTRX_FILLED_OUT;
@@ -1469,7 +1474,7 @@ lws_strexp_expand(lws_strexp_t *exp, const char *in, size_t len,
 			 * the out buffer and call us again to continue, the
 			 * pending '$' has already been consumed.
 			 */
-			if (exp->olen - exp->pos < 3) {
+			if (exp->pos + 3 > exp->olen) {
 				*pused_in = used;
 				*pused_out = exp->pos;
 
@@ -1508,6 +1513,23 @@ drain_l:
 				return n;
 
 			exp->state = LWS_EXPS_LITERAL;
+
+			/*
+			 * The cb is allowed to report DONE having exactly
+			 * filled the out buffer.  We must not re-enter LITERAL
+			 * in that state: there is no room left for another
+			 * char, nor for the NUL we write at out[pos] at the
+			 * end, and olen - pos would underflow.  Report the out
+			 * buffer as filled instead.  The drain itself is
+			 * complete, so the resume point is after the '}'.
+			 */
+
+			if (exp->pos >= exp->olen) {
+				*pused_in = used + 1;
+				*pused_out = exp->pos;
+
+				return LSTRX_FILLED_OUT;
+			}
 			break;
 		}
 
