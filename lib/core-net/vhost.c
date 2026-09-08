@@ -1218,7 +1218,10 @@ lws_create_vhost(struct lws_context *context,
 	}
 #endif
 #if defined(LWS_WITH_SOCKS5)
-	lws_socks5c_ads_server(vh, info);
+	if (lws_socks5c_ads_server(vh, info)) {
+		lwsl_vhost_err(vh, "bad socks proxy address");
+		goto bail;
+	}
 #endif
 
 	vh->ka_time = info->ka_time;
