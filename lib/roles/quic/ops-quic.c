@@ -1840,6 +1840,13 @@ tp_ok:
 						pn_space);
 					lws_quic_enter_closing_state(nwsi,
 						LWS_QUIC_ERR_NO_VIABLE_PATH, 0, 0);
+					/*
+					 * On the server, wsi is the listener
+					 * shared by every connection: only
+					 * the affected child may be closed
+					 */
+					if (nwsi != wsi)
+						goto next_packet;
 					return LWS_HPI_RET_PLEASE_CLOSE_ME;
 				}
 			}
@@ -1850,6 +1857,10 @@ tp_ok:
 				if (memcmp(nwsi->quic.qn->rem_stateless_reset_token, zero_token, 16) &&
 				    !memcmp(&p[n - 16], nwsi->quic.qn->rem_stateless_reset_token, 16)) {
 					lwsl_wsi_notice(wsi, "QUIC RX: Stateless reset token matched! Terminating connection silently.");
+					if (nwsi != wsi) {
+						lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NORMAL, "quic stateless reset");
+						goto next_packet;
+					}
 					return LWS_HPI_RET_PLEASE_CLOSE_ME;
 				}
 			}
