@@ -31,7 +31,7 @@ int
 main(int argc, const char **argv)
 {
 	int n, fd, fail = 0, fi;
-	static char buf[32768];
+	static char buf[65536];
 	size_t len = 0;
 	(void)argc; (void)argv;
 
