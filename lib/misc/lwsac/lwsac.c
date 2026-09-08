@@ -82,6 +82,7 @@ lwsac_extend(struct lwsac *head, size_t amount)
 {
 	struct lwsac_head *lachead;
 	struct lwsac *bf;
+	size_t al;
 
 	assert(head);
 	lachead = (struct lwsac_head *)&head[1];
@@ -134,7 +135,7 @@ _lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size, char backfill)
 		 * check if anything can take it, from the start
 		 */
 		while (bf) {
-			if (bf->alloc_size - bf->ofs >= ensure)
+			if (bf->alloc_size - bf->ofs >= al)
 				goto do_use;
 
 			bf = lwsac_next_chunk(bf);
@@ -145,7 +146,7 @@ _lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size, char backfill)
 		 */
 		if (lachead && lachead->curr) {
 			bf = lachead->curr;
-			if (bf->alloc_size - bf->ofs >= ensure)
+			if (bf->alloc_size - bf->ofs >= al)
 				goto do_use;
 		}
 	}
@@ -248,11 +249,26 @@ lwsac_use_backfill(struct lwsac **head, size_t ensure, size_t chunk_size)
 uint8_t *
 lwsac_scan_extant(struct lwsac *head, uint8_t *find, size_t len, int nul)
 {
-	while (head) {
-		uint8_t *pos = (uint8_t *)&head[1],
-			*end = ((uint8_t *)head) + head->ofs - len;
+	int first = 1;
 
-		if (head->ofs - sizeof(*head) >= len)
+	if (!len)
+		/* pos[len - 1] / find[len - 1] would read before the buffers */
+		return NULL;
+
+	while (head) {
+		/*
+		 * The first chunk carries struct lwsac_head after its struct
+		 * lwsac; that is live allocator state, not user data, so the
+		 * scan must not be able to return a pointer into it
+		 */
+		size_t hdr = lwsac_sizeof(first);
+
+		first = 0;
+
+		if (head->ofs >= len && head->ofs - len >= hdr) {
+			uint8_t *pos = ((uint8_t *)head) + hdr,
+				*end = ((uint8_t *)head) + (head->ofs - len);
+
 			while (pos < end) {
 				if (*pos == *find && (!nul || !pos[len]) &&
 				    pos[len - 1] == find[len - 1] &&
@@ -261,6 +277,7 @@ lwsac_scan_extant(struct lwsac *head, uint8_t *find, size_t len, int nul)
 					return pos;
 				pos++;
 			}
+		}
 
 		head = lwsac_next_chunk(head);
 	}
