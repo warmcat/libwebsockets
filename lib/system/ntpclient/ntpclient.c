@@ -27,8 +27,10 @@
 #define LWSNTPC_LI_NONE			0
 #define LWSNTPC_VN_3			3
 #define LWSNTPC_MODE_CLIENT		3
+#define LWSNTPC_MODE_SERVER		4
 
 struct vhd_ntpc {
+	uint8_t				txts[8]; /* our transmit ts: nonce the reply must echo */
 	struct lws_context		*context;
 	struct lws_vhost		*vhost;
 	const struct lws_protocols	*protocol;
@@ -198,13 +200,41 @@ do_close_l:
 			return 0; /* ignore it */
 
 		/*
-		 * First get the seconds, corrected for the ntp epoch of 1900
-		 * vs the unix epoch of 1970.  Then shift the seconds up by 1bn
-		 * and add in the ns
+		 * Anyone can send UDP to our port, and what we do with the
+		 * reply is set the system clock that TLS validity depends on.
+		 * RFC 5905 8: it must be a server-mode reply (LI != alarm,
+		 * stratum 1..15, so no Kiss-o'-Death or unsynchronized
+		 * servers) whose Origin Timestamp echoes the nonce we sent as
+		 * our Transmit Timestamp; then retire the nonce so the same
+		 * reply cannot be replayed.
+		 */
+		{
+			const uint8_t *r = (const uint8_t *)in;
+			uint8_t stratum = r[1];
+
+			if ((r[0] & 7) != LWSNTPC_MODE_SERVER ||
+			    (r[0] >> 6) == 3 || !stratum || stratum > 15 ||
+			    lws_timingsafe_bcmp(r + 24, v->txts, 8)) {
+				lwsl_wsi_notice(wsi, "ignoring bad ntp reply");
+				return 0;
+			}
+		}
+		memset(v->txts, 0, sizeof(v->txts));
+
+		/*
+		 * Seconds since the ntp epoch of 1900; below 1970 it must be
+		 * the next ntp era (2036 onwards), so lift it rather than let
+		 * the epoch correction wrap.  Then shift the seconds up by
+		 * 1bn and add in the ns from the 32-bit binary fraction.
 		 */
 
-		ns = (uint64_t)lws_ser_ru32be(((uint8_t *)in) + 40) - (uint64_t)2208988800;
-		ns = (ns * 1000000000) + lws_ser_ru32be(((uint8_t *)in) + 44);
+		ns = (uint64_t)lws_ser_ru32be(((uint8_t *)in) + 40);
+		if (ns < (uint64_t)2208988800)
+			ns += 0x100000000ull;
+		ns -= (uint64_t)2208988800;
+		ns = (ns * 1000000000) +
+		     (((uint64_t)lws_ser_ru32be(((uint8_t *)in) + 44) *
+						1000000000ull) >> 32);
 
 		/*
 		 * Compute the step
@@ -268,6 +298,15 @@ do_close_l:
 		pkt[LWS_PRE] = (LWSNTPC_LI_NONE << 6) |
 			       (LWSNTPC_VN_3 << 3) |
 			       (LWSNTPC_MODE_CLIENT << 0);
+		/*
+		 * Our Transmit Timestamp is echoed back as the reply's Origin
+		 * Timestamp: use a random nonce so a reply must have seen
+		 * our request
+		 */
+		if (lws_get_random(wsi->a.context, v->txts, sizeof(v->txts)) !=
+							sizeof(v->txts))
+			goto retry_conn;
+		memcpy(pkt + LWS_PRE + 40, v->txts, sizeof(v->txts));
 
 		if (lws_write(wsi, pkt + LWS_PRE, sizeof(pkt) - LWS_PRE, 0) ==
 						  sizeof(pkt) - LWS_PRE)
