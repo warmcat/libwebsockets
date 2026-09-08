@@ -48,10 +48,6 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 	/* append at the tail */
 	while (*head) {
 		tot += (*head)->len;
-		if (tot > LWS_BUFLIST_OOM_LIMIT) {
-			lwsl_err("%s: buflist reached sanity limit bytes\n", __func__);
-			return -1;
-		}
 		if (!--sanity) {
 			lwsl_err("%s: buflist reached sanity limit\n", __func__);
 			return -1;
@@ -61,6 +57,17 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 			return -1;
 		}
 		head = &((*head)->next);
+	}
+
+	/*
+	 * The limit test must be outside the walk, or an append to an empty
+	 * buflist (where the walk body never runs) is not limited at all.
+	 * It also keeps the allocation size below from being able to wrap.
+	 */
+
+	if (tot > LWS_BUFLIST_OOM_LIMIT) {
+		lwsl_err("%s: buflist reached sanity limit bytes\n", __func__);
+		return -1;
 	}
 
 	(void)p;
@@ -104,10 +111,6 @@ lws_buflist_append_segment_take_ownership(struct lws_buflist **head, uint8_t *bu
 	/* append at the tail */
 	while (*head) {
 		tot += (*head)->len;
-		if (tot > LWS_BUFLIST_OOM_LIMIT) {
-			lwsl_err("%s: buflist reached sanity limit bytes\n", __func__);
-			return -1;
-		}
 		if (!--sanity) {
 			lwsl_err("%s: buflist reached sanity limit\n", __func__);
 			return -1;
@@ -117,6 +120,13 @@ lws_buflist_append_segment_take_ownership(struct lws_buflist **head, uint8_t *bu
 			return -1;
 		}
 		head = &((*head)->next);
+	}
+
+	/* as above, the limit test has to be outside the walk */
+
+	if (tot > LWS_BUFLIST_OOM_LIMIT) {
+		lwsl_err("%s: buflist reached sanity limit bytes\n", __func__);
+		return -1;
 	}
 
 	nbuf = (struct lws_buflist *)lws_malloc(sizeof(struct lws_buflist), __func__);
@@ -168,6 +178,23 @@ lws_buflist_destroy_all_segments(struct lws_buflist **head)
 	*head = NULL;
 }
 
+/*
+ * A segment either carries its payload inline after the struct (with LWS_PRE
+ * of headroom), or, for take-ownership segments, only points at a separately
+ * allocated payload in .heap_alloc.  Everything that touches the payload has
+ * to select the base the same way, or it walks off the end of a bare
+ * sizeof(struct lws_buflist) allocation.
+ */
+
+static uint8_t *
+lws_buflist_seg_base(struct lws_buflist *b)
+{
+	if (b->heap_alloc)
+		return (uint8_t *)b->heap_alloc;
+
+	return ((uint8_t *)b) + sizeof(*b) + LWS_PRE;
+}
+
 size_t
 lws_buflist_next_segment_len(struct lws_buflist **head, uint8_t **buf)
 {
@@ -189,12 +216,8 @@ lws_buflist_next_segment_len(struct lws_buflist **head, uint8_t **buf)
 
 	assert(b->pos < b->len);
 
-	if (buf) {
-		if (b->heap_alloc)
-			*buf = ((uint8_t *)b->heap_alloc) + b->pos;
-		else
-			*buf = ((uint8_t *)b) + sizeof(*b) + b->pos + LWS_PRE;
-	}
+	if (buf)
+		*buf = lws_buflist_seg_base(b) + b->pos;
 
 	return b->len - b->pos;
 }
@@ -228,8 +251,15 @@ lws_buflist_total_len(struct lws_buflist **head)
 	struct lws_buflist *p = *head;
 	size_t size = 0;
 
+	/*
+	 * [pos, len) is the live region of a segment... counting the whole of
+	 * len here would disagree with lws_buflist_linear_use(), which only
+	 * hands over len - pos, and leave its caller with an uninitialized
+	 * tail in the buffer it sized from us
+	 */
+
 	while (p) {
-		size += p->len;
+		size += p->len - p->pos;
 		p = p->next;
 	}
 
@@ -245,16 +275,18 @@ lws_buflist_linear_copy(struct lws_buflist **head, size_t ofs, uint8_t *buf,
 	size_t s;
 
 	while (p && len) {
-		if (ofs < p->len) {
-			s = p->len - ofs;
+		size_t avail = p->len - p->pos; /* live region only */
+
+		if (ofs < avail) {
+			s = avail - ofs;
 			if (s > len)
 				s = len;
-			memcpy(buf, ((uint8_t *)&p[1]) + LWS_PRE + ofs, s);
+			memcpy(buf, lws_buflist_seg_base(p) + p->pos + ofs, s);
 			len -= s;
 			buf += s;
 			ofs = 0;
 		} else
-			ofs -= p->len;
+			ofs -= avail;
 		p = p->next;
 	}
 
@@ -271,8 +303,7 @@ lws_buflist_linear_use(struct lws_buflist **head, uint8_t *buf, size_t len)
 		s = (*head)->len - (*head)->pos;
 		if (s > len)
 			s = len;
-		memcpy(buf, ((uint8_t *)((*head) + 1)) +
-			    LWS_PRE + (*head)->pos, s);
+		memcpy(buf, lws_buflist_seg_base(*head) + (*head)->pos, s);
 		len -= s;
 		buf += s;
 		lws_buflist_use_segment(head, s);
@@ -304,7 +335,7 @@ lws_buflist_fragment_use(struct lws_buflist **head, uint8_t *buf,
 	if (!buf || !len)
 		return 0;
 
-	memcpy(buf, ((uint8_t *)((*head) + 1)) + LWS_PRE + (*head)->pos, s);
+	memcpy(buf, lws_buflist_seg_base(*head) + (*head)->pos, s);
 	buf += s;
 	lws_buflist_use_segment(head, s);
 
@@ -348,10 +379,7 @@ lws_buflist_get_frag_start_or_NULL(struct lws_buflist **head)
 	if (!b)
 		return NULL;	/* there is no segment to work on */
 
-	if (b->heap_alloc)
-		return b->heap_alloc;
-
-	return ((uint8_t *)b) + sizeof(*b) + LWS_PRE;
+	return lws_buflist_seg_base(b);
 }
 
 /* --- lws_buflist2 --- */

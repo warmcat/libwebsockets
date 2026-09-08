@@ -122,6 +122,16 @@ _realloc(void *ptr, size_t size, const char *reason)
 #if defined(LWS_WITH_ALLOC_METADATA_LWS)
 		lws_alloc_metadata_gen(size, comp, sizeof(comp), &adj, &complen);
 		size += adj;
+
+		/*
+		 * The pointer we handed the caller last time points into the
+		 * middle of the real allocation, behind our metadata... we
+		 * have to recover the true base (which also unlinks the old
+		 * metadata node from "active") before realloc() may see it
+		 */
+
+		if (ptr)
+			_lws_alloc_metadata_trim(&ptr, NULL, NULL);
 #endif
 
 #if defined(LWS_PLAT_FREERTOS)
@@ -139,10 +149,6 @@ _realloc(void *ptr, size_t size, const char *reason)
 #if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
 		if (ptr)
 			allocated -= malloc_usable_size(ptr);
-#endif
-
-#if defined(LWS_WITH_ALLOC_METADATA_LWS)
-		size += adj;
 #endif
 
 #if defined(LWS_PLAT_OPTEE)

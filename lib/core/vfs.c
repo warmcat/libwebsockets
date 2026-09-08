@@ -63,8 +63,15 @@ lws_vfs_file_seek_set(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 lws_fileofs_t
 lws_vfs_file_seek_end(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 {
+	/*
+	 * SEEK_CUR is relative to where we are now, so to land on
+	 * len + offset we must ask for (len + offset) - pos... pos is
+	 * subtracted, not added
+	 */
+
 	return fop_fd->fops->LWS_FOP_SEEK_CUR(fop_fd,
-			(lws_fileofs_t)fop_fd->len + (lws_fileofs_t)fop_fd->pos + offset);
+			(lws_fileofs_t)fop_fd->len + offset -
+					(lws_fileofs_t)fop_fd->pos);
 }
 
 
@@ -90,17 +97,28 @@ lws_vfs_select_fops(const struct lws_plat_file_ops *fops, const char *vfs_path,
 
 	pf = fops->next; /* the first one is always platform fops, so skip */
 	while (pf) {
-		n = 0;
-		while (pf && n < (int)LWS_ARRAY_SIZE(pf->fi) && pf->fi[n].sig) {
+		/*
+		 * pf must only advance in the outer loop... advancing it in
+		 * the sig loop both skipped sigs and, for a fops whose
+		 * fi[0].sig is NULL (nothing requires an app-provided fops to
+		 * set one), left pf unchanged forever, spinning here
+		 */
+
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(pf->fi) && pf->fi[n].sig;
+		     n++) {
+
+			if (!pf->fi[n].len)
+				continue; /* a zero-length sig matches nothing */
+
 			if (!strncmp(p, pf->fi[n].sig, pf->fi[n].len)) {
 				*vpath = p + pf->fi[n].len;
 				//lwsl_notice("%s: hit, vpath '%s'\n",
 				//		__func__, *vpath);
 				return pf;
 			}
-			pf = pf->next;
-			n++;
 		}
+
+		pf = pf->next;
 	}
 
 	while (p && *p) {
@@ -111,23 +129,35 @@ lws_vfs_select_fops(const struct lws_plat_file_ops *fops, const char *vfs_path,
 
 		pf = fops->next; /* the first one is always platform fops, so skip */
 		while (pf) {
-			n = 0;
-			while (n < (int)LWS_ARRAY_SIZE(pf->fi) && pf->fi[n].sig) {
-				lwsl_warn("%s %s\n", p, pf->fi[n].sig);
-				if (p >= vfs_path + pf->fi[n].len)
-					/*
-					 * Accept sigs like .... .zip or
-					 * mysig...
-					 */
-					if (!strncmp(p - (pf->fi[n].len - 1),
-						     pf->fi[n].sig,
-						     (unsigned int)(pf->fi[n].len - 1)) ||
-					    !strncmp(p, pf->fi[n].sig, pf->fi[n].len)) {
-						*vpath = p + 1;
-						return pf;
-					}
+			for (n = 0; n < (int)LWS_ARRAY_SIZE(pf->fi) &&
+				    pf->fi[n].sig; n++) {
 
-				n++;
+				/*
+				 * len == 0 would make the back-reference
+				 * length below (len - 1) evaluate to -1 and
+				 * become a huge size_t at the strncmp
+				 */
+
+				if (!pf->fi[n].len)
+					continue;
+
+				lwsl_debug("%s: %s %s\n", __func__, p,
+					   pf->fi[n].sig);
+
+				if (p < vfs_path + pf->fi[n].len)
+					continue;
+
+				/*
+				 * Accept sigs like .... .zip or
+				 * mysig...
+				 */
+				if (!strncmp(p - (pf->fi[n].len - 1),
+					     pf->fi[n].sig,
+					     (size_t)(pf->fi[n].len - 1)) ||
+				    !strncmp(p, pf->fi[n].sig, pf->fi[n].len)) {
+					*vpath = p + 1;
+					return pf;
+				}
 			}
 			pf = pf->next;
 		}
