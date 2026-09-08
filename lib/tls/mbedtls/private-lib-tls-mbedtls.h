@@ -49,6 +49,19 @@ struct lws_tls_conn {
 	mbedtls_ssl_context ssl;
 	mbedtls_net_context net;
 	struct lws_tls_ctx *ctx;
+#if defined(LWS_WITH_CLIENT)
+	/*
+	 * Client ALPN is per-connection, but mbedtls only takes it on the
+	 * config, and stores the pointer array without copying it.  When we
+	 * have a per-connection list, conf is a private, shallow copy of
+	 * ctx->conf that carries it (it aliases ctx->conf's contents and must
+	 * never be passed to mbedtls_ssl_config_free()).
+	 */
+	mbedtls_ssl_config conf;
+	char alpn_strings[128];
+	const char *alpn_protocols[8];
+	uint8_t own_conf;
+#endif
 };
 
 typedef struct lws_tls_conn lws_tls_conn;
@@ -73,6 +86,19 @@ lws_gencrypto_mbedtls_rngf(void *context, unsigned char *buf, size_t len);
 
 void mbedtls_quic_bio_free(struct lws *wsi);
 void lws_mbedtls_set_alpn(struct lws_tls_ctx *ctx, const char *alpn_comma);
+
+#if defined(LWS_WITH_CLIENT)
+int
+lws_mbedtls_conn_set_alpn(struct lws_tls_conn *conn, const char *alpn_comma);
+#endif
+
+int
+lws_mbedtls_x509_crt_parse_mem(mbedtls_x509_crt *crt, const void *mem,
+			       size_t len);
+
+int
+lws_mbedtls_pk_parse_key_mem(struct lws_context *cx, mbedtls_pk_context *key,
+			     const void *mem, size_t len);
 
 int
 lws_tls_session_new_mbedtls(struct lws *wsi);

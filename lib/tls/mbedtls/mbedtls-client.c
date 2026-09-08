@@ -71,29 +71,16 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 	wsi->tls.ssl = (lws_tls_conn *)conn;
 	conn->ctx = wsi->a.vhost->tls.ssl_client_ctx;
-
-	mbedtls_ssl_init(&conn->ssl);
-	mbedtls_net_init(&conn->net);
-
-	if (mbedtls_ssl_setup(&conn->ssl, &conn->ctx->conf)) {
-		lwsl_info("%s: mbedtls_ssl_setup failed\n", __func__);
-		mbedtls_ssl_free(&conn->ssl);
+	if (!conn->ctx) {
+		lwsl_err("%s: vhost has no client tls ctx\n", __func__);
 		lws_free(conn);
 		wsi->tls.ssl = NULL;
+
 		return -1;
 	}
 
-#if defined(LWS_WITH_TLS_SESSIONS)
-	if (!(wsi->a.vhost->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE))
-		lws_tls_reuse_session(wsi);
-#endif
-
-	if (!(wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
-		lwsl_info("%s: setting hostname %s\n", __func__, hostname);
-		if (mbedtls_ssl_set_hostname(&conn->ssl, hostname)) {
-			return -1;
-		}
-	}
+	mbedtls_ssl_init(&conn->ssl);
+	mbedtls_net_init(&conn->net);
 
 	if (wsi->a.vhost->tls.alpn)
 		alpn_comma = wsi->a.vhost->tls.alpn;
@@ -123,7 +110,31 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	if (alpn_comma) {
 		lwsl_info("%s: %s: client conn sending ALPN list '%s'\n",
 			  __func__, lws_wsi_tag(wsi), alpn_comma);
-		lws_mbedtls_set_alpn(conn->ctx, alpn_comma);
+		/*
+		 * this is per-connection, it must not be written into the
+		 * vhost-shared client config
+		 */
+		lws_mbedtls_conn_set_alpn(conn, alpn_comma);
+	}
+
+	if (mbedtls_ssl_setup(&conn->ssl, conn->own_conf ? &conn->conf :
+							  &conn->ctx->conf)) {
+		lwsl_info("%s: mbedtls_ssl_setup failed\n", __func__);
+		mbedtls_ssl_free(&conn->ssl);
+		lws_free(conn);
+		wsi->tls.ssl = NULL;
+		return -1;
+	}
+
+#if defined(LWS_WITH_TLS_SESSIONS)
+	if (!(wsi->a.vhost->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE))
+		lws_tls_reuse_session(wsi);
+#endif
+
+	if (!(wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
+		lwsl_info("%s: setting hostname %s\n", __func__, hostname);
+		if (mbedtls_ssl_set_hostname(&conn->ssl, hostname))
+			return -1;
 	}
 
 	conn->net.MBEDTLS_PRIVATE_V30_ONLY(fd) = (int)wsi->desc.sockfd;
@@ -274,28 +285,8 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		if (!ctx->ca_chain)
 			return 1;
 		mbedtls_x509_crt_init(ctx->ca_chain);
-		/*
-		 * mbedtls_x509_crt_parse() only treats the buffer as PEM when it
-		 * is NUL-terminated and the length includes that NUL; otherwise
-		 * it falls back to DER and PEM CAs fail with
-		 * MBEDTLS_ERR_X509_INVALID_FORMAT (-0x2180). Callers commonly
-		 * pass the content length without the terminator, so parse a
-		 * NUL-terminated copy when the buffer isn't already terminated.
-		 */
-		if (((const uint8_t *)ca_mem)[ca_mem_len - 1] == '\0')
-			n = mbedtls_x509_crt_parse(ctx->ca_chain, ca_mem,
+		n = lws_mbedtls_x509_crt_parse_mem(ctx->ca_chain, ca_mem,
 						   ca_mem_len);
-		else {
-			uint8_t *tmp = lws_malloc(ca_mem_len + 1, "ca_mem nul");
-
-			if (!tmp)
-				return 1;
-			memcpy(tmp, ca_mem, ca_mem_len);
-			tmp[ca_mem_len] = '\0';
-			n = mbedtls_x509_crt_parse(ctx->ca_chain, tmp,
-						   ca_mem_len + 1);
-			lws_free(tmp);
-		}
 		if (n != 0) {
 			lwsl_err("client CA: x509 parse failed: %d\n", n);
 			return 1;
@@ -322,7 +313,8 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			}
 #endif
 		} else {
-			n = mbedtls_x509_crt_parse(ctx->chain, cert_mem, cert_mem_len);
+			n = lws_mbedtls_x509_crt_parse_mem(ctx->chain, cert_mem,
+							   cert_mem_len);
 			if (n != 0) {
 				lwsl_err("problem interpreting client cert: %d\n", n);
 				return 1;
@@ -342,11 +334,8 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			}
 #endif
 		} else if (key_mem && key_mem_len) {
-#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000 && !defined(LWS_HAVE_MBEDTLS_V4)
-			n = mbedtls_pk_parse_key(ctx->key, key_mem, key_mem_len, NULL, 0, lws_gencrypto_mbedtls_rngf, vh->context);
-#else
-			n = mbedtls_pk_parse_key(ctx->key, key_mem, key_mem_len, NULL, 0);
-#endif
+			n = lws_mbedtls_pk_parse_key_mem(vh->context, ctx->key,
+							 key_mem, key_mem_len);
 			if (n != 0) {
 				lwsl_err("problem interpreting private key: %d\n", n);
 				return 1;

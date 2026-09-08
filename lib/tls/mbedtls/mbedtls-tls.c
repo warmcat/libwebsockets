@@ -48,40 +48,197 @@ lws_context_deinit_ssl_library(struct lws_context *context)
 
 }
 
-#if defined(LWS_HAVE_mbedtls_ssl_conf_alpn_protocols)
-void lws_mbedtls_set_alpn(struct lws_tls_ctx *ctx, const char *alpn_comma)
+/*
+ * mbedtls only considers a memory buffer to be PEM if it is NUL-terminated
+ * and the length passed in includes that NUL; otherwise it goes straight to
+ * DER and a PEM buffer fails with MBEDTLS_ERR_X509_INVALID_FORMAT.  Callers
+ * naturally hand us the strlen() of a PEM without the terminator, so if the
+ * buffer parses as neither, retry it as a NUL-terminated copy.
+ */
+
+int
+lws_mbedtls_x509_crt_parse_mem(mbedtls_x509_crt *crt, const void *mem,
+			       size_t len)
 {
-	int count = 0;
+	uint8_t *tmp;
+	int n;
+
+	if (!mem || !len)
+		return MBEDTLS_ERR_X509_BAD_INPUT_DATA;
+
+	n = mbedtls_x509_crt_parse(crt, mem, len);
+	if (!n || !((const uint8_t *)mem)[len - 1])
+		return n;
+
+	tmp = lws_malloc(len + 1, __func__);
+	if (!tmp)
+		return n;
+
+	memcpy(tmp, mem, len);
+	tmp[len] = '\0';
+	n = mbedtls_x509_crt_parse(crt, tmp, len + 1);
+	lws_free(tmp);
+
+	return n;
+}
+
+int
+lws_mbedtls_pk_parse_key_mem(struct lws_context *cx, mbedtls_pk_context *key,
+			     const void *mem, size_t len)
+{
+	uint8_t *tmp;
+	int n;
+
+	(void)cx;
+
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000 && \
+    !defined(LWS_HAVE_MBEDTLS_V4)
+#define lws_mbedtls_pkpk(_k, _b, _l) \
+	mbedtls_pk_parse_key(_k, _b, _l, NULL, 0, \
+			     lws_gencrypto_mbedtls_rngf, cx)
+#else
+#define lws_mbedtls_pkpk(_k, _b, _l) \
+	mbedtls_pk_parse_key(_k, _b, _l, NULL, 0)
+#endif
+
+	if (!mem || !len)
+		return MBEDTLS_ERR_PK_BAD_INPUT_DATA;
+
+	n = lws_mbedtls_pkpk(key, mem, len);
+	if (!n || !((const uint8_t *)mem)[len - 1])
+		return n;
+
+	tmp = lws_malloc(len + 1, __func__);
+	if (!tmp)
+		return n;
+
+	memcpy(tmp, mem, len);
+	tmp[len] = '\0';
+	n = lws_mbedtls_pkpk(key, tmp, len + 1);
+	lws_explicit_bzero(tmp, len + 1); /* it's private key material */
+	lws_free(tmp);
+
+	return n;
+
+#undef lws_mbedtls_pkpk
+}
+
+#if defined(LWS_HAVE_mbedtls_ssl_conf_alpn_protocols)
+
+/*
+ * mbedtls_ssl_conf_alpn_protocols() stores the array of pointers we give it,
+ * it does not copy anything... so the strings and the pointer array have to
+ * live as long as the config does, and only the owner of that config may
+ * write them.
+ */
+
+static int
+lws_mbedtls_alpn_list(mbedtls_ssl_config *conf, char *strings, size_t strings_len,
+		      const char **protocols, size_t protocols_len,
+		      const char *alpn_comma)
+{
+	int count = 0, r;
 	char *p, *start;
 
-	if (!alpn_comma)
-		return;
+	lws_strncpy(strings, alpn_comma, strings_len);
+	start = strings;
 
-	lws_strncpy(ctx->alpn_strings, alpn_comma, sizeof(ctx->alpn_strings));
-	start = ctx->alpn_strings;
-
-	while (count < (int)LWS_ARRAY_SIZE(ctx->alpn_protocols) - 1) {
+	while (count < (int)protocols_len - 1) {
 		p = strchr(start, ',');
 		if (p)
 			*p = '\0';
 
 		if (*start)
-			ctx->alpn_protocols[count++] = start;
+			protocols[count++] = start;
 
 		if (!p)
 			break;
 		start = p + 1;
 	}
 
-	ctx->alpn_protocols[count] = NULL;
+	protocols[count] = NULL;
 
-	if (count) {
-		int r = mbedtls_ssl_conf_alpn_protocols(&ctx->conf, ctx->alpn_protocols);
-		lwsl_notice("%s: set %d ALPN protocols (first: %s), ret %d\n", __func__, count, ctx->alpn_protocols[0], r);
+	if (!count)
+		return 1;
+
+	r = mbedtls_ssl_conf_alpn_protocols(conf, protocols);
+	if (r) {
+		lwsl_err("%s: mbedtls_ssl_conf_alpn_protocols: %d\n",
+			 __func__, r);
+
+		return 1;
 	}
+
+	lwsl_info("%s: set %d ALPN protocols (first: %s)\n", __func__, count,
+		  protocols[0]);
+
+	return 0;
 }
+
+void lws_mbedtls_set_alpn(struct lws_tls_ctx *ctx, const char *alpn_comma)
+{
+	/*
+	 * the vhost may legitimately have no ctx, eg, it was created with
+	 * LWS_SERVER_OPTION_IGNORE_MISSING_CERT and the cert has not turned
+	 * up yet
+	 */
+	if (!ctx || !alpn_comma)
+		return;
+
+	lws_mbedtls_alpn_list(&ctx->conf, ctx->alpn_strings,
+			      sizeof(ctx->alpn_strings), ctx->alpn_protocols,
+			      LWS_ARRAY_SIZE(ctx->alpn_protocols), alpn_comma);
+}
+
+#if defined(LWS_WITH_CLIENT)
+int
+lws_mbedtls_conn_set_alpn(struct lws_tls_conn *conn, const char *alpn_comma)
+{
+	if (!conn || !conn->ctx || !alpn_comma)
+		return 1;
+
+	/*
+	 * The ALPN list is per-connection, but the vhost's mbedtls_ssl_config
+	 * is shared by every client connection on the vhost... writing the
+	 * list into that would let one connection change what another one
+	 * offers, and change what a completed connection reads back as the
+	 * negotiated protocol (which selects the h1 / h2 / h3 role).
+	 *
+	 * mbedtls only ever reads ssl->conf, so give this connection a
+	 * private copy of the config to hang its own list on.  It aliases the
+	 * vhost config's contents by design and must never be freed with
+	 * mbedtls_ssl_config_free().
+	 */
+
+	conn->conf = conn->ctx->conf;
+
+	if (lws_mbedtls_alpn_list(&conn->conf, conn->alpn_strings,
+				  sizeof(conn->alpn_strings),
+				  conn->alpn_protocols,
+				  LWS_ARRAY_SIZE(conn->alpn_protocols),
+				  alpn_comma))
+		return 1;
+
+	conn->own_conf = 1;
+
+	return 0;
+}
+#endif
+
 #else
 void lws_mbedtls_set_alpn(struct lws_tls_ctx *ctx, const char *alpn_comma)
 {
+	(void)ctx;
+	(void)alpn_comma;
 }
+#if defined(LWS_WITH_CLIENT)
+int
+lws_mbedtls_conn_set_alpn(struct lws_tls_conn *conn, const char *alpn_comma)
+{
+	(void)conn;
+	(void)alpn_comma;
+
+	return 1;
+}
+#endif
 #endif
