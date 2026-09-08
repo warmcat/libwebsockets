@@ -60,6 +60,7 @@ enum {
 	LWS_SW_LOAD_TICKET,
 	LWS_SW_SEQ,
 	LWS_SW_QUIC_INITIAL_CWND,
+	LWS_SW_CA_FILE,
 	LWS_SW_HELP,
 };
 
@@ -87,6 +88,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_LOAD_TICKET] = { "--load-ticket", "Path to load TLS session ticket" },
 	[LWS_SW_SEQ]         = { "--seq", "Run sequentially" },
 	[LWS_SW_QUIC_INITIAL_CWND] = { "--quic-initial-cwnd", "Initial congestion window in bytes" },
+	[LWS_SW_CA_FILE]     = { "--ca-file", "PEM CA file to trust for the server cert (instead of the OS trust store)" },
 	[LWS_SW_HELP]	= { "--help", 		"Show this help information" },
 };
 
@@ -718,6 +720,15 @@ int main(int argc, const char **argv)
 	 */
 	info.client_ssl_ca_filepath = "./warmcat.com.cer";
 #endif
+
+	/*
+	 * Explicitly trust a CA file, eg, the QUIC interop runner's
+	 * /certs/ca.pem: the peer cert is then verified strictly, which is
+	 * what lets its session go in the session cache for resumption and
+	 * 0-RTT... sessions from -j / -k / -m connections are never cached
+	 */
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_CA_FILE].sw)))
+		info.client_ssl_ca_filepath = p;
 
 	/* vhost option allowing tls session reuse, requires
 	 * LWS_WITH_TLS_SESSIONS build option */
