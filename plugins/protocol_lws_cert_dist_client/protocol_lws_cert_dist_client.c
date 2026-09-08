@@ -738,10 +738,13 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			const char *stub = lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub");
 
 			if (stub) {
-				/* only our own stubs: other plugins' "stub-*"
-				 * children must not have their stdin secret
-				 * consumed by us */
-				if (strncmp(stub, "stub-client-", 12))
+				/*
+				 * Only claim our own stub children.  The
+				 * prefix must not be a prefix of any other
+				 * plugin's stub name, or we consume its stdin
+				 * secret and break its UDS listener
+				 */
+				if (strncmp(stub, "certdistcli-", 12))
 					return 0;
 
 				const char *orig_vh = stub + 12;
@@ -841,7 +844,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			char stub_name[256];
 			lws_strncpy(vhd->vh_name, vh_name, sizeof(vhd->vh_name));
 			lws_snprintf(uds_path, sizeof(uds_path), "/var/run/lws-cert-dist-stub-%s.sock", vh_name);
-			lws_snprintf(stub_name, sizeof(stub_name), "stub-client-%s", vh_name);
+			lws_snprintf(stub_name, sizeof(stub_name), "certdistcli-%s", vh_name);
 
 			lwsl_notice("%s: allocated vhd\n", __func__);
 

@@ -37,7 +37,7 @@ struct pss_cert_dist_server {
 	int                                 established;
 	int                                 needs_cert_update;
 
-	struct lws                          *wsi_uds;
+	struct cert_dist_server_pending     *pending;
 	char                                *uds_tx;
 	int                                 uds_tx_len;
 	int                                 uds_tx_pos;
@@ -525,22 +525,17 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		const char *stub = lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub");
 		const char *vh_name = lws_get_vhost_name(lws_get_vhost(wsi));
 
-		/* Prevent spawning inside other plugins' stubs */
-		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-dht-dnssec-monitor-root") ||
-		    lws_cmdline_option_cx(lws_get_context(wsi), "--lws-acme-client-root"))
-			return 0;
-
 		if (stub) {
-			/* "stub-client-..." stubs belong to the cert dist client
-			 * plugin: claiming one here steals its stdin secret and
-			 * breaks its UDS listener */
-			if (!strncmp(stub, "stub-client-", 12))
+			/*
+			 * Only claim our own stub children.  The prefix must
+			 * not be a prefix of any other plugin's stub name, or
+			 * we consume its stdin secret and break its UDS
+			 * listener
+			 */
+			if (strncmp(stub, "certdistsrv-", 12))
 				return 0;
 
-			if (strncmp(stub, "stub-", 5))
-				return 0;
-
-			const char *orig_vh = stub + 5;
+			const char *orig_vh = stub + 12;
 
 			/*
 			 * We are instantiated on every vhost in the stub
@@ -634,7 +629,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_snprintf(uds_path, sizeof(uds_path), "/var/run/lws-cert-dist-server-stub-%s.sock", vh_name);
 
 		char stub_name[256];
-		lws_snprintf(stub_name, sizeof(stub_name), "stub-%s", vh_name);
+		lws_snprintf(stub_name, sizeof(stub_name), "certdistsrv-%s", vh_name);
 
 		struct vhd_cert_dist_server *old_vhd = NULL;
 		lws_start_foreach_dll(struct lws_dll2 *, d, active_server_vhds.head) {
@@ -862,6 +857,13 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 			const char *sec = lws_stub_get_secret(vhd->stub_mgr);
 			char tx[512];
+
+			/*
+			 * subdomain and domain came from the client cert CN
+			 * and passed cert_dist_valid_name(), and hash passed
+			 * cert_dist_valid_hash(), so none of them can contain
+			 * anything needing JSON escaping here
+			 */
 			lwsl_notice("%s: Requesting cert for %s from server UDS stub\n", __func__, pss->domain);
 			if (pss->hash[0]) {
 				lws_snprintf(tx, sizeof(tx),
@@ -873,14 +875,27 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 					sec ? sec : "", pss->subdomain, pss->domain);
 			}
 
-			if (lws_stub_request(vhd->stub_mgr, tx, NULL, 0, NULL, cert_dist_server_raw_cb, pss) < 0) {
+			pend = malloc(sizeof(*pend));
+			if (!pend) {
+				lwsl_err("%s: OOM\n", __func__);
+				return -1;
+			}
+			memset(pend, 0, sizeof(*pend));
+			pend->vhd = vhd;
+			pend->pss = pss;
+			lws_dll2_add_tail(&pend->list, &vhd->pending);
+
+			if (lws_stub_request(vhd->stub_mgr, tx, NULL, 0,
+					     cert_dist_server_retire_cb,
+					     cert_dist_server_raw_cb,
+					     pend) < 0) {
 				lwsl_err("%s: lws_stub_request failed\n", __func__);
+				lws_dll2_remove(&pend->list);
+				free(pend);
 				pss->needs_cert_update = 1;
 				lws_set_timer_usecs(wsi, 1 * LWS_USEC_PER_SEC);
-			} else {
-				/* We use pss->wsi_uds = (void *)1 just as a marker that a request is pending */
-				pss->wsi_uds = (struct lws *)1;
-			}
+			} else
+				pss->pending = pend;
 		}
 		break;
 
