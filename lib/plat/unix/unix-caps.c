@@ -56,14 +56,32 @@ lws_plat_user_to_uid(const char *username, uid_t *puid)
 	if (!username || !username[0])
 		return 1;
 
-	/* check if numeric string */
-	{
+	/* check if numeric string (only digits, so no sign and no whitespace) */
+
+	if (username[0] >= '0' && username[0] <= '9') {
 		char *endptr = NULL;
-		long val = strtol(username, &endptr, 10);
-		if (*endptr == '\0' && val >= 0) {
-			*puid = (uid_t)val;
-			return 0;
+		long val;
+
+		errno = 0;
+		val = strtol(username, &endptr, 10);
+
+		/*
+		 * uid_t is usually a 32-bit type while long is 64-bit... an id
+		 * that does not fit must be rejected rather than truncated,
+		 * since eg "4294967296" would otherwise silently become uid 0
+		 */
+
+		if (*endptr || errno || val < 0 || (long)(uid_t)val != val ||
+		    (uid_t)val == (uid_t)-1) {
+			lwsl_err("%s: uid '%s' out of range\n", __func__,
+				 username);
+
+			return 1;
 		}
+
+		*puid = (uid_t)val;
+
+		return 0;
 	}
 
 #if defined(LWS_HAVE_GETPWNAM_R)
@@ -95,14 +113,28 @@ lws_plat_group_to_gid(const char *groupname, gid_t *pgid)
 	if (!groupname || !groupname[0])
 		return 1;
 
-	/* check if numeric string */
-	{
+	/* check if numeric string (only digits, so no sign and no whitespace) */
+
+	if (groupname[0] >= '0' && groupname[0] <= '9') {
 		char *endptr = NULL;
-		long val = strtol(groupname, &endptr, 10);
-		if (*endptr == '\0' && val >= 0) {
-			*pgid = (gid_t)val;
-			return 0;
+		long val;
+
+		errno = 0;
+		val = strtol(groupname, &endptr, 10);
+
+		/* as for the uid above, do not truncate an out-of-range id */
+
+		if (*endptr || errno || val < 0 || (long)(gid_t)val != val ||
+		    (gid_t)val == (gid_t)-1) {
+			lwsl_err("%s: gid '%s' out of range\n", __func__,
+				 groupname);
+
+			return 1;
 		}
+
+		*pgid = (gid_t)val;
+
+		return 0;
 	}
 
 #if defined(LWS_HAVE_GETGRNAM_R)
@@ -159,6 +191,14 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 {
 	struct passwd *p = NULL;
 	struct group *g = NULL;
+#if defined(LWS_HAVE_GETPWUID_R)
+	struct passwd pr;
+	char pstrs[1024];
+#endif
+#if defined(LWS_HAVE_GETGRGID_R)
+	struct group gr;
+	char gstrs[1024];
+#endif
 
 	/* if he gave us the groupname, align gid to match it */
 
@@ -193,14 +233,38 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 	if (!actually_drop)
 		return 0;
 
-	/* if he gave us the gid or we have it from the groupname, set it */
+	/*
+	 * Find the target user first: we need his primary group before we can
+	 * decide what group credentials to end up with, and every group-side
+	 * step has to complete while we still have the privileges to do it, ie,
+	 * before the setuid().
+	 */
 
-	if (context->gid && context->gid != (gid_t)-1l) {
+	if (context->uid && context->uid != (uid_t)-1l) {
+#if defined(LWS_HAVE_GETPWUID_R)
+		if (getpwuid_r(context->uid, &pr, pstrs, sizeof(pstrs), &p) || !p) {
+#else
+		p = getpwuid(context->uid);
+		if (!p) {
+#endif
+			lwsl_cx_err(context, "getpwuid: unable to find uid %d",
+				 context->uid);
+			return 1;
+		}
+	}
+
+	/*
+	 * "Not given" is 0 for a memset info struct... if he named a user but
+	 * no group, his own primary group is the right answer.  Otherwise we
+	 * would leave the supposedly unprivileged process in root's group.
+	 */
+
+	if (p && (!context->gid || context->gid == (gid_t)-1l))
+		context->gid = p->pw_gid;
+
+	if ((p || context->gid) && context->gid != (gid_t)-1l) {
 #if defined(LWS_HAVE_GETGRGID_R)
-		struct group gr;
-		char strs[1024];
-
-		if (getgrgid_r(context->gid, &gr, strs, sizeof(strs), &g) || !g) {
+		if (getgrgid_r(context->gid, &gr, gstrs, sizeof(gstrs), &g) || !g) {
 #else
 		g = getgrgid(context->gid);
 		if (!g) {
@@ -210,6 +274,32 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 
 			return 1;
 		}
+
+		/*
+		 * Replace the supplementary group list wholesale, so none of
+		 * the privileged process's groups (in particular group 0)
+		 * survive the drop.  initgroups() is given the target gid, so
+		 * it must not be called before we know what that is.
+		 */
+
+		if (p) {
+			if (initgroups(p->pw_name,
+#if defined(__APPLE__)
+					(int)
+#endif
+					context->gid)) {
+				lwsl_cx_err(context, "initgroups: %s failed",
+					    strerror(LWS_ERRNO));
+
+				return 1;
+			}
+		} else
+			if (setgroups(0, NULL)) {
+				lwsl_cx_err(context, "setgroups: %s failed",
+					    strerror(LWS_ERRNO));
+
+				return 1;
+			}
 
 		if (setgid(context->gid)) {
 			lwsl_cx_err(context, "setgid: %s failed",
@@ -222,35 +312,13 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 	} else
 		lwsl_cx_info(context, "not changing group");
 
+	/* and only now, the uid... this is what ends our privileges */
 
-	/* if he gave us the uid or we have it from the username, set it */
-
-	if (context->uid && context->uid != (uid_t)-1l) {
-#if defined(LWS_HAVE_GETPWUID_R)
-		struct passwd pr;
-		char strs[1024];
-
-		if (getpwuid_r(context->uid, &pr, strs, sizeof(strs), &p) || !p) {
-#else
-		p = getpwuid(context->uid);
-		if (!p) {
-#endif
-			lwsl_cx_err(context, "getpwuid: unable to find uid %d",
-				 context->uid);
-			return 1;
-		}
-
+	if (p) {
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 		_lws_plat_apply_caps(CAP_PERMITTED, context->caps,
 				     context->count_caps);
 #endif
-
-		if (initgroups(p->pw_name,
-#if defined(__APPLE__)
-				(int)
-#endif
-				context->gid))
-			return 1;
 
 		if (setuid(context->uid)) {
 			lwsl_cx_err(context, "setuid: %s failed",
