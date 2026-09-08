@@ -59,8 +59,8 @@ typedef enum {
 
 typedef struct {
 	uint32_t value;
-	char budget;
-	char consumed;
+	uint8_t budget;  /* plain char is signed on some archs, unsigned on */
+	uint8_t consumed; /* others; neither is wanted for these counters */
 } lws_mqtt_vbi;
 
 /* works for vbi, 2-byte and 4-byte fixed length */

@@ -94,9 +94,16 @@ lws_mqtt_vbi_r(lws_mqtt_vbi *vbi, const uint8_t **in, size_t *len)
 		return LMSPR_FAILED_ALREADY_COMPLETED;
 	}
 
-	while (*len && vbi->budget--) {
+	/*
+	 * Decrement inside the body, not in the condition: post-decrementing
+	 * an exhausted budget in the condition leaves it nonzero (-1 or 255
+	 * depending on the signedness of char), which defeats both of the
+	 * "budget ran out" checks and lets a >4-byte vbi through.
+	 */
+	while (*len && vbi->budget) {
 		uint8_t u = *((*in)++);
 
+		vbi->budget--;
 		(*len)--;
 		unsigned int multiplier = (unsigned int)(7 * vbi->consumed);
 		vbi->consumed++;
@@ -125,8 +132,11 @@ lws_mqtt_mb_parse(lws_mqtt_vbi *vbi, const uint8_t **in, size_t *len)
 	if (!vbi->budget)
 		return LMSPR_FAILED_ALREADY_COMPLETED;
 
-	while (*len && vbi->budget--) {
+	/* see lws_mqtt_vbi_r() for why the decrement is not in the condition */
+
+	while (*len && vbi->budget) {
 		vbi->value = (vbi->value << 8) | *((*in)++);
+		vbi->budget--;
 		(*len)--;
 		vbi->consumed++;
 	}
