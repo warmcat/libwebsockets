@@ -156,9 +156,32 @@ lws_adns_parse_label(const uint8_t *pkt, int len, const uint8_t *ls, int budget,
 
 struct label_stack {
 	char name[DNS_MAX + 10];
-	int enl;
 	const uint8_t *p;
 };
+
+/*
+ * Compare two decoded DNS names, case-insensitively as required by RFC 4343,
+ * and tolerating the trailing '.' that lws_adns_parse_label() appends, on
+ * either or both sides.
+ *
+ * Returns 0 if they are the same name.
+ */
+
+static int
+lws_adns_name_cmp(const char *a, const char *b)
+{
+	size_t al = strlen(a), bl = strlen(b);
+
+	if (al && a[al - 1] == '.')
+		al--;
+	if (bl && b[bl - 1] == '.')
+		bl--;
+
+	if (!al || al != bl)
+		return 1;
+
+	return strncasecmp(a, b, al);
+}
 
 /*
  * Walk the response packet, calling back to the user-provided callback for each
@@ -175,18 +198,40 @@ int
 lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 		 const char *expname, lws_async_dns_find_t cb, void *opaque)
 {
+	uint16_t rrtype, rrpaylen, expqtype, expqtype2;
 	const uint8_t *e = pkt + len, *p, *pay;
+	int n = 0, stp = 0, ansc, found = 0;
+	char rrname[DNS_MAX + 10];
 	struct label_stack stack[8];
-	int n = 0, stp = 0, ansc, m, found = 0;
-	uint16_t rrtype, rrpaylen;
 	char *sp, inq;
 	uint32_t ttl;
 
 	if (len < DHO_SIZEOF || len > LWS_ADNS_MAX_PAYLOAD)
 		return -1;
 
+	/*
+	 * stack[0].name holds the name we are looking for and is never used as
+	 * decode scratch... each RR's owner name is decoded into rrname and
+	 * compared against the name at the current stack level (which is the
+	 * queried name at level 0, or the CNAME target we are following).
+	 */
+
 	lws_strncpy(stack[0].name, expname, sizeof(stack[0].name));
-	stack[0].enl = (int)strlen(expname);
+
+	if (q->qtype == LWS_ADNS_RECORD_A || q->qtype == LWS_ADNS_RECORD_AAAA) {
+		/*
+		 * An address lookup is issued as two queries, one for A and one
+		 * for AAAA, whose tids differ only in b0; b0 of the response tid
+		 * (already matched against ours by our caller) selects which of
+		 * the two this response belongs to.  So accept either type in
+		 * the question echo... which of the pair it is does not change
+		 * how we treat the response, and the type of each RR we
+		 * actually consume is validated separately below.
+		 */
+		expqtype = LWS_ADNS_RECORD_A;
+		expqtype2 = LWS_ADNS_RECORD_AAAA;
+	} else
+		expqtype = expqtype2 = q->qtype;
 
 	do {
 		int restart = 0;
@@ -225,13 +270,12 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 		 * what the query the TID belongs to actually asked for.
 		 */
 
-		sp = stack[0].name;
+		sp = rrname;
 
 		/* while we have more labels */
 
 		n = lws_adns_parse_label(pkt, len, p, lws_ptr_diff(e, p), &sp,
-					 sizeof(stack[0].name) -
-					 lws_ptr_diff_size_t(sp, stack[0].name));
+					 sizeof(rrname));
 		if (n < 0)
 			return -1;
 
@@ -254,6 +298,27 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 		}
 
 		if (inq) {
+			/*
+			 * The question section must be echoing the question we
+			 * actually asked... if it isn't, this is not a response
+			 * to our query whatever tid it arrived with.
+			 */
+
+			if (lws_adns_name_cmp(rrname, stack[0].name)) {
+				lwsl_notice("%s: question name '%s' != '%s'\n",
+					    __func__, rrname, stack[0].name);
+
+				return -1;
+			}
+
+			if (lws_ser_ru16be(&p[0]) != expqtype &&
+			    lws_ser_ru16be(&p[0]) != expqtype2) {
+				lwsl_notice("%s: question type 0x%x unexpected\n",
+					    __func__, lws_ser_ru16be(&p[0]));
+
+				return -1;
+			}
+
 			lwsl_debug("%s: reached end of inq\n", __func__);
 			inq = 0;
 			p += 4;
@@ -275,22 +340,14 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 		pay = p;
 
 		/*
-		 * Compare the RR names, allowing for the decoded labelname
-		 * to have an extra '.' at the end.
+		 * This RR only concerns us if its owner name is the name we
+		 * are currently looking for, ie, the queried name, or the
+		 * target of a CNAME we are following.
 		 */
 
-		n = lws_ptr_diff(sp, stack[0].name);
-		if (n > 0 && stack[0].name[n - 1] == '.')
-			n--;
-
-		m = stack[stp].enl;
-		if (m > 0 && stack[stp].name[m - 1] == '.')
-			m--;
-
-		if (n < 1 || n != m ||
-		    strncmp(stack[0].name, stack[stp].name, (unsigned int)n)) {
+		if (lws_adns_name_cmp(rrname, stack[stp].name)) {
 			lwsl_info("%s: skipping %s vs %s\n", __func__,
-			stack[0].name, stack[stp].name);
+				  rrname, stack[stp].name);
 			goto skip;
 		}
 
@@ -332,7 +389,7 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 #if defined(LWS_WITH_IPV6)
 do_cb:
 #endif
-			cb(stack[0].name, opaque, ttl, rrtype, rrpaylen, p);
+			cb(rrname, opaque, ttl, rrtype, rrpaylen, p);
 			found++;
 			break;
 
@@ -386,7 +443,6 @@ do_cb:
 			lwsl_info("%s: recursing looking for %s\n", __func__,
 					stack[stp].name);
 
-			stack[stp].enl = lws_ptr_diff(sp, stack[stp].name);
 			/* when we unstack, resume from here */
 			stack[stp].p = pay + rrpaylen;
 			restart = 1;
@@ -403,7 +459,7 @@ do_cb:
 			 * it can store/evaluate them.
 			 */
 			// lwsl_notice("lws_adns_iterate: Calling CB for DNSSEC RR %d (len %d)\n", rrtype, rrpaylen);
-			cb(stack[0].name, opaque, ttl, rrtype, rrpaylen, p);
+			cb(rrname, opaque, ttl, rrtype, rrpaylen, p);
 			if (rrtype == LWS_ADNS_RECORD_HTTPS)
 				found++;
 			break;
