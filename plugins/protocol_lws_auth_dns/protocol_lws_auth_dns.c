@@ -284,6 +284,13 @@ auth_dns_nsec3_hash(const char *name, const struct auth_dns_nsec3_params *pa,
 		return 1;
 	}
 
+	/*
+	 * auth_dns_nsec3_params() already refuses a zone whose NSEC3PARAM asks
+	 * for more than this, but the bound belongs next to the loop it limits
+	 */
+	if (pa->iterations > LWS_AUTH_DNS_MAX_NSEC3_ITERATIONS)
+		return 1;
+
 	for (n = 0; n < (int)pa->iterations; n++)
 		if (lws_genhash_init(&hctx, LWS_GENHASH_TYPE_SHA1) ||
 		    (pa->salt_len && lws_genhash_update(&hctx, pa->salt,
