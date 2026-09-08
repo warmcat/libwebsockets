@@ -88,6 +88,15 @@ lws_context_init_ssl_pem_passwd_cb(char *buf, int size, int rwflag,
 	struct lws_context_creation_info * info =
 			(struct lws_context_creation_info *)userdata;
 
+	/*
+	 * The callback is bound if *either* the server or the client key
+	 * password was given, so a vhost that only set the client one can
+	 * still arrive here with no server password
+	 */
+
+	if (size < 1 || !info->ssl_private_key_password)
+		return -1;
+
 	strncpy(buf, info->ssl_private_key_password, (unsigned int)size);
 	buf[size - 1] = '\0';
 
@@ -106,6 +115,11 @@ lws_context_init_ssl_pem_passwd_client_cb(char *buf, int size, int rwflag,
 
 	if (info->client_ssl_private_key_password)
 		p = info->client_ssl_private_key_password;
+
+	/* likewise, only the server key password may have been given */
+
+	if (size < 1 || !p)
+		return -1;
 
 	strncpy(buf, p, (unsigned int)size);
 	buf[size - 1] = '\0';

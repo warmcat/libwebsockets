@@ -927,7 +927,13 @@ lws_x509_cert_fingerprint(struct lws_x509_cert *x509, int type,
 	if (!hash_len || len < hash_len)
 		return -1;
 
-	der = lws_malloc(4096, "cert_fingerprint_der");
+	/*
+	 * The len we give lws_x509_info() is the space for ns.name[] alone,
+	 * so the allocation must also cover the rest of the union that
+	 * precedes it (see the comment on union lws_tls_cert_info_results)
+	 */
+
+	der = lws_malloc(sizeof(*res) + 4096, "cert_fingerprint_der");
 	if (!der)
 		return -1;
 
