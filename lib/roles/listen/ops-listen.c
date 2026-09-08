@@ -132,7 +132,13 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 				if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
 					lwsl_wsi_info(wsi, "failed disable POLLIN");
 
-				lws_sul_schedule(context, 0, &wsi->sul_validity,
+				/*
+				 * must be scheduled on the listener's own tsi:
+				 * the cb does lws_change_pollfd() on this
+				 * wsi, ie, mutates pt[wsi->tsi]->fds
+				 */
+				lws_sul_schedule(context, wsi->tsi,
+						 &wsi->sul_validity,
 						 lws_accept_pause_cb,
 						 100 * LWS_US_PER_MS);
 				break;
