@@ -45,7 +45,13 @@ insert_wsi(struct lws_context *context, struct lws *wsi)
 {
 	int h = LWS_FD_HASH(wsi->desc.sockfd);
 
-	if (context->fd_hashtable[h].length == (getdtablesize() - 1)) {
+	/*
+	 * The bucket is context->max_fds entries, and max_fds is reduced from
+	 * getdtablesize() if the user set info.fd_limit_per_thread... so the
+	 * bound has to come from the actual allocation
+	 */
+
+	if (context->fd_hashtable[h].length >= (int)context->max_fds) {
 		lwsl_err("hash table overflow\n");
 		return 1;
 	}
@@ -63,7 +69,12 @@ delete_from_fd(struct lws_context *context, lws_sockfd_type fd)
 
 	for (n = 0; n < context->fd_hashtable[h].length; n++)
 		if (context->fd_hashtable[h].wsi[n]->desc.sockfd == fd) {
-			while (n < context->fd_hashtable[h].length) {
+			/*
+			 * Compaction must stop at the last live element...
+			 * going to length would read wsi[length], one past it
+			 */
+
+			while (n < context->fd_hashtable[h].length - 1) {
 				context->fd_hashtable[h].wsi[n] =
 					context->fd_hashtable[h].wsi[n + 1];
 				n++;

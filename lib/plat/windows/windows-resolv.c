@@ -35,7 +35,7 @@ lws_plat_asyncdns_get_server(struct lws_context *context, int index,
 	int n = 0, current = 0, ret = -1;
 	DWORD dw;
 
-	ul = sizeof(fi);
+	ul = sizeof(*fi); /* not sizeof(fi), which is just the pointer */
 
 	do {
 		fi = (FIXED_INFO *)lws_malloc(ul, __func__);

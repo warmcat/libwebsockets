@@ -175,6 +175,21 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	for (n = 0; n < (int)pt->fds_count; n++)
 		if (pt->fds[n].fd != LWS_SOCK_INVALID && pt->fds[n].revents) {
 //			lwsl_notice("%s: idx %d, revents 0x%x\n", __func__, n, pt->fds[n].revents);
+
+			/*
+			 * WSAPoll can report POLLERR or POLLNVAL on their own.
+			 * Unlike unix, LWS_POLLHUP here is only POLLHUP, so
+			 * those alone match none of the role handlers' tests,
+			 * nothing closes the wsi, and WSAPoll reports the same
+			 * thing again immediately... ie, a 100% CPU spin for
+			 * as long as the fd stays in the set.  Present them as
+			 * the hangup they are.
+			 */
+
+			if (pt->fds[n].revents & (POLLERR | POLLNVAL))
+				pt->fds[n].revents = (SHORT)
+					(pt->fds[n].revents | LWS_POLLHUP);
+
 			lws_service_fd_tsi(context, &pt->fds[n], tsi);
 		}
 		
