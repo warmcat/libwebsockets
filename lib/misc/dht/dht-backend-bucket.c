@@ -77,13 +77,19 @@ static struct node *
 random_node(struct lws_dht_ctx *ctx, struct bucket *b)
 {
 	lws_dll2_t *d;
+	uint32_t r;
 	int nn;
 
 	if (!lws_dll2_count(&b->nodes))
 		return NULL;
 
-	nn = (int)(lws_get_random(ctx->vhost->context, &nn, sizeof(nn)) %
-		   (unsigned int)lws_dll2_count(&b->nodes));
+	/*
+	 * lws_get_random() returns the number of bytes it set, not the random
+	 * value; using its return here made this always pick index
+	 * 4 % count, so all maintenance probes went to a predictable node.
+	 */
+	lws_get_random(ctx->vhost->context, &r, sizeof(r));
+	nn = (int)(r % (uint32_t)lws_dll2_count(&b->nodes));
 	d = lws_dll2_get_head(&b->nodes);
 
 	while (nn > 0 && d) {
@@ -419,6 +425,17 @@ maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 		if (split) {
 			lwsl_dht_info("Splitting.\n");
 			b = split_bucket(ctx, b);
+			/*
+			 * split_bucket() returns NULL without changing any
+			 * state (OOM, or no bits left to split on).  Recursing
+			 * with identical arguments and identical state would
+			 * then repeat forever until the stack ran out, so just
+			 * drop the node.  When it does succeed we make
+			 * progress, and the depth is bounded by the id bits.
+			 */
+			if (!b)
+				return NULL;
+
 			return maybe_new_node(ctx, id, sa, salen, confirm);
 		}
 
@@ -463,6 +480,8 @@ maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 int
 expire_buckets(struct lws_dht_ctx *ctx, lws_dll2_owner_t *bo)
 {
+	uint32_t r;
+
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(bo)) {
 		struct bucket *b = lws_container_of(d, struct bucket, list);
 		int changed = 0;
@@ -484,7 +503,13 @@ expire_buckets(struct lws_dht_ctx *ctx, lws_dll2_owner_t *bo)
 
 	} lws_end_foreach_dll_safe(d, d1);
 
-	ctx->expire_stuff_time = ctx->now.tv_sec + LWS_DHT_IDLE_EXPIRE_SECS + ((lws_get_random(ctx->vhost->context, &ctx->expire_stuff_time, sizeof(ctx->expire_stuff_time)), ctx->expire_stuff_time) % (2 * LWS_DHT_IDLE_EXPIRE_SECS));
+	/*
+	 * Jitter is drawn into an unsigned type: % of a negative signed random
+	 * is negative in C99, which would put the next pass in the past.
+	 */
+	lws_get_random(ctx->vhost->context, &r, sizeof(r));
+	ctx->expire_stuff_time = ctx->now.tv_sec + LWS_DHT_IDLE_EXPIRE_SECS +
+			(time_t)(r % (2 * LWS_DHT_IDLE_EXPIRE_SECS));
 
 	return 1;
 }

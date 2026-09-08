@@ -109,10 +109,17 @@ flush_search_node(struct search_node *n, struct search *sr)
 int
 rotate_secrets(struct lws_dht_ctx *ctx)
 {
+	uint32_t r;
 	size_t rc;
 
-	ctx->rotate_secrets_time = ctx->now.tv_sec + 900 +
-		((lws_get_random(ctx->vhost->context, &ctx->rotate_secrets_time, sizeof(ctx->rotate_secrets_time)), ctx->rotate_secrets_time) % 1800);
+	/*
+	 * Draw the jitter into an unsigned type: C99 % of a negative signed
+	 * random is negative, which would set the next rotation in the past and
+	 * rotate again on the very next tick, burning through oldsecret too and
+	 * invalidating tokens we handed out seconds earlier.
+	 */
+	lws_get_random(ctx->vhost->context, &r, sizeof(r));
+	ctx->rotate_secrets_time = ctx->now.tv_sec + 900 + (time_t)(r % 1800);
 
 	memcpy(ctx->oldsecret, ctx->secret, sizeof(ctx->secret));
 
@@ -440,13 +447,25 @@ fail:
 int
 token_bucket(struct lws_dht_ctx *ctx)
 {
-	if (ctx->token_bucket_tokens == 0) {
-		ctx->token_bucket_tokens = (int)MIN((long)MAX_TOKEN_BUCKET_TOKENS,
-				100 * (long)(ctx->now.tv_sec - ctx->token_bucket_time));
+	/*
+	 * ->now.tv_sec is wall clock, so a backwards step (NTP, snapshot
+	 * restore) can make the elapsed time negative.  Test <= 0 and clamp the
+	 * refill at 0: with the old "== 0" test a single negative refill left
+	 * the counter negative forever, so the limiter silently never fired
+	 * again for the life of the context.
+	 */
+	if (ctx->token_bucket_tokens <= 0) {
+		long elapsed = (long)(ctx->now.tv_sec - ctx->token_bucket_time);
+
+		if (elapsed < 0)
+			elapsed = 0;
+
+		ctx->token_bucket_tokens = (int)MIN(
+				(long)MAX_TOKEN_BUCKET_TOKENS, 100 * elapsed);
 		ctx->token_bucket_time = ctx->now.tv_sec;
 	}
 
-	if (ctx->token_bucket_tokens == 0)
+	if (ctx->token_bucket_tokens <= 0)
 		return 0;
 
 	ctx->token_bucket_tokens--;

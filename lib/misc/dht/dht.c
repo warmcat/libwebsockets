@@ -658,14 +658,14 @@ struct lws_dht_ctx *
 lws_dht_create(const lws_dht_info_t *info)
 {
 	struct lws_dht_ctx *ctx;
-	int rc;
+	uint32_t r;
 
 	if (info->vhost && lws_dll2_get_head(&info->vhost->dht_owner)) {
 		return lws_container_of(lws_dll2_get_head(&info->vhost->dht_owner), struct lws_dht_ctx, list);
 	}
 
 	ctx = lws_zalloc(sizeof(*ctx), "dht ctx");
-	(void)rc;
+	(void)r;
 
 	if (!ctx) {
 		lwsl_err("lws_zalloc failed\n");
@@ -721,9 +721,14 @@ lws_dht_create(const lws_dht_info_t *info)
 #if defined(LWS_WITH_DHT_BACKEND)
 	ctx->mybucket_grow_time		= ctx->now.tv_sec;
 	ctx->mybucket6_grow_time	= ctx->now.tv_sec;
-	ctx->confirm_nodes_time		= ctx->now.tv_sec + ((lws_get_random(ctx->vhost->context, &rc, sizeof(rc)), rc) % 3);
+	/*
+	 * Jitter must be drawn into an unsigned type: C99 % on a negative
+	 * signed random gives a negative remainder, which would schedule the
+	 * first maintenance pass in the past.
+	 */
+	ctx->confirm_nodes_time		= ctx->now.tv_sec + (time_t)((lws_get_random(ctx->vhost->context, &r, sizeof(r)), r) % 3);
 
-	ctx->search_id			= (unsigned short)((lws_get_random(ctx->vhost->context, &rc, sizeof(rc)), rc) & 0xFFFF);
+	ctx->search_id			= (unsigned short)((lws_get_random(ctx->vhost->context, &r, sizeof(r)), r) & 0xFFFF);
 	ctx->search_time		= 0;
 #endif
 
@@ -738,8 +743,7 @@ lws_dht_create(const lws_dht_info_t *info)
 
 #if defined(LWS_WITH_DHT_BACKEND)
 	memset(ctx->secret, 0, sizeof(ctx->secret));
-	rc = rotate_secrets(ctx);
-	if (rc < 0) {
+	if (rotate_secrets(ctx) < 0) {
 		lwsl_err("rotate_secrets failed\n");
 		goto fail;
 	}
@@ -1048,6 +1052,15 @@ lws_dht_valid_domain_name(const char *domain)
 		label++;
 	}
 
+	/*
+	 * The residual label never met the c == '.' test above, so apply the
+	 * same length rule to it here: an over-63 label cannot be encoded in
+	 * DNS wire format at all (the length byte would alias the 0xc0
+	 * compression-pointer bits), and callers rely on us for that.
+	 */
+	if (label > 63)
+		return 0;
+
 	/* final label may be empty only for a single trailing root dot */
 	return label || domain[len - 1] == '.';
 }
@@ -1062,12 +1075,12 @@ lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out)
 
 	memset(out, 0, sizeof(*out));
 
-	/* Print the top level header for debug */
-	if (len > 32) {
-		char dbg[128];
-		lws_strncpy(dbg, in, sizeof(dbg));
-		// lwsl_notice("lws_dht_msg_parse: len=%zu header='%s'\n", len, dbg);
-	}
+	/*
+	 * (a dead debug block that lws_strncpy()d from `in` used to live here;
+	 * `in` points into the received datagram and is not NUL-terminated, so
+	 * that read was bounded only by the first NUL in adjacent memory, not
+	 * by `len`)
+	 */
 
 	const char *p = in;
 	const char *end = in + len;

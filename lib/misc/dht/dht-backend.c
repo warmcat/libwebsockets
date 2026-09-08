@@ -101,6 +101,7 @@ lws_dht_periodic_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws_dht_ctx *ctx = lws_container_of(sul, struct lws_dht_ctx, sul);
 	time_t tosleep = 10;
+	uint32_t r;
 
 	ctx->now.tv_sec = (time_t)lws_now_secs();
 
@@ -126,12 +127,18 @@ lws_dht_periodic_cb(lws_sorted_usec_list_t *sul)
 	}
 
 	if (ctx->search_time > 0 && ctx->now.tv_sec >= ctx->search_time) {
-		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->searches)) {
+		/*
+		 * search_step() dispatches the app's SEARCH_DONE callback, and
+		 * an app that starts a search from there can retire a done
+		 * search underneath us, so walk with the safe iterator.
+		 */
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					   lws_dll2_get_head(&ctx->searches)) {
 			struct search *sr = lws_container_of(d, struct search, list);
 
 			if (!sr->done && sr->step_time + 5 <= ctx->now.tv_sec)
 				search_step(ctx, sr, ctx->cb, ctx->closure);
-		} lws_end_foreach_dll(d);
+		} lws_end_foreach_dll_safe(d, d1);
 
 		ctx->search_time = 0;
 
@@ -139,9 +146,12 @@ lws_dht_periodic_cb(lws_sorted_usec_list_t *sul)
 			struct search *sr = lws_container_of(d2, struct search, list);
 
 			if (!sr->done) {
+				uint32_t r;
 				time_t tm;
-				lws_get_random(ctx->vhost->context, &tm, sizeof(tm));
-				tm = sr->step_time + LWS_DHT_PING_TIMEOUT_SECS + (tm % 10);
+
+				lws_get_random(ctx->vhost->context, &r, sizeof(r));
+				tm = sr->step_time + LWS_DHT_PING_TIMEOUT_SECS +
+						(time_t)(r % 10);
 				if (ctx->search_time == 0 || ctx->search_time > tm)
 					ctx->search_time = tm;
 			}
@@ -159,10 +169,17 @@ lws_dht_periodic_cb(lws_sorted_usec_list_t *sul)
 				soon |= neighbourhood_maintenance(ctx, AF_INET6);
 		}
 
+		/*
+		 * Unsigned draw: % of a negative signed random is negative in
+		 * C99, which would leave confirm_nodes_time in the past, make
+		 * tosleep 0 and burst find_node into the event loop.
+		 */
+		lws_get_random(ctx->vhost->context, &r, sizeof(r));
+
 		if (soon)
-			ctx->confirm_nodes_time = ctx->now.tv_sec + 5 + ((lws_get_random(ctx->vhost->context, &soon, sizeof(soon)), soon) % 20);
+			ctx->confirm_nodes_time = ctx->now.tv_sec + 5 + (time_t)(r % 20);
 		else
-			ctx->confirm_nodes_time = ctx->now.tv_sec + 60 + ((lws_get_random(ctx->vhost->context, &soon, sizeof(soon)), soon) % 120);
+			ctx->confirm_nodes_time = ctx->now.tv_sec + 60 + (time_t)(r % 120);
 	}
 
 	if (ctx->confirm_nodes_time > ctx->now.tv_sec)
