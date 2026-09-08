@@ -223,6 +223,160 @@ lws_dnssec_rrsig_cb(const char *name, void *opaque, uint32_t ttl,
 	return 0;
 }
 
+/*
+ * Canonical wire form of a DNS name (RFC 4034 6.2): each label preceded by its
+ * length byte, lowercased, terminated by the root label.  Names decoded by
+ * lws_adns_parse_label() carry a trailing '.', and the root name is just ".".
+ *
+ * Returns the count of bytes used at \p wire, or -1.
+ */
+
+static int
+lws_dnssec_name_wire(const char *name, uint8_t *wire, size_t wire_len)
+{
+	const char *p = name;
+	size_t used = 0;
+
+	while (*p) {
+		size_t l = 0;
+
+		while (p[l] && p[l] != '.')
+			l++;
+
+		if (l) {
+			if (l > 63 || used + l + 1 >= wire_len)
+				return -1;
+
+			wire[used++] = (uint8_t)l;
+
+			while (l--) {
+				char c = *p++;
+
+				wire[used++] = (uint8_t)((c >= 'A' && c <= 'Z') ?
+							 c + 32 : c);
+			}
+		}
+
+		if (*p == '.')
+			p++;
+	}
+
+	if (used + 1 > wire_len)
+		return -1;
+
+	wire[used++] = 0;
+
+	return (int)used;
+}
+
+/*
+ * RFC 4034 5.1.4: a DS record authenticates a DNSKEY if
+ *
+ *    DS digest == H(canonical owner name | DNSKEY RDATA)
+ *
+ * \p kn / \p keylen is the whole DNSKEY RDATA (flags, protocol, algorithm and
+ * the public key).  Returns 1 if the DS authenticates the key.
+ */
+
+static int
+lws_dnssec_ds_matches_dnskey(const char *zone, const uint8_t *kn, size_t keylen,
+			     uint8_t digest_type, const uint8_t *digest,
+			     size_t digest_len)
+{
+	uint8_t wire[DNS_MAX + 8], res[64];
+	enum lws_genhash_types ht;
+	struct lws_genhash_ctx hc;
+	int n;
+
+	switch (digest_type) {
+	case 2: /* SHA-256, RFC 4509 */
+		ht = LWS_GENHASH_TYPE_SHA256;
+		break;
+	case 4: /* SHA-384, RFC 6605 */
+		ht = LWS_GENHASH_TYPE_SHA384;
+		break;
+	default:
+		/* SHA-1 (1) and GOST (3) are not acceptable to us */
+		return 0;
+	}
+
+	if (digest_len != (size_t)lws_genhash_size(ht))
+		return 0;
+
+	n = lws_dnssec_name_wire(zone, wire, sizeof(wire));
+	if (n < 0)
+		return 0;
+
+	if (lws_genhash_init(&hc, ht))
+		return 0;
+
+	if (lws_genhash_update(&hc, wire, (size_t)n) ||
+	    lws_genhash_update(&hc, kn, keylen)) {
+		lws_genhash_destroy(&hc, NULL);
+
+		return 0;
+	}
+
+	if (lws_genhash_destroy(&hc, res))
+		return 0;
+
+	return !lws_timingsafe_bcmp(res, digest, (uint32_t)digest_len);
+}
+
+/*
+ * RFC 4035 5.2: a DNSKEY may only be used to validate an RRset once the key
+ * itself has been authenticated, by a DS record in the parent zone that chains
+ * up to a trust anchor we already hold.  Without that, an attacker who can
+ * answer both the original query and our DNSKEY sub-query just signs his own
+ * forged RRset with his own key, answers the DNSKEY lookup with it, and we
+ * "validate" it.
+ *
+ * We hold the ICANN root KSK DS records in lws_adns_root_ds[], so a DNSKEY of
+ * the root zone can be authenticated here directly.
+ *
+ * INCOMPLETE: for a zone below the root, closing the chain additionally needs
+ *
+ *  - the DS RRset of the zone fetched from its parent, and its RRSIG validated
+ *    with the parent zone's already-authenticated DNSKEY, repeated up to the
+ *    root, and
+ *
+ *  - within each zone, the DS matching the KSK, the DNSKEY RRset's own RRSIG
+ *    validated with that KSK, and only then the ZSK from that validated RRset
+ *    used on the data RRset.
+ *
+ * Neither exists yet, so any key below the root counts as unauthenticated here
+ * and validation fails closed, rather than trusting a key the peer handed us.
+ */
+
+static int
+lws_dnssec_dnskey_authenticated(const char *zone, uint16_t key_tag, uint8_t algo,
+				const uint8_t *kn, size_t keylen)
+{
+	size_t i;
+
+	if (*zone && strcmp(zone, "."))
+		return 0; /* below the root: no validated DS available to us */
+
+	for (i = 0; i < LWS_ARRAY_SIZE(lws_adns_root_ds); i++) {
+		uint8_t dig[32];
+
+		if (lws_adns_root_ds[i].keytag != key_tag ||
+		    lws_adns_root_ds[i].algo != algo)
+			continue;
+
+		if (lws_hex_to_byte_array(lws_adns_root_ds[i].digest_hex, dig,
+					  (int)sizeof(dig)) != (int)sizeof(dig))
+			continue;
+
+		if (lws_dnssec_ds_matches_dnskey(zone, kn, keylen,
+						 lws_adns_root_ds[i].digest_type,
+						 dig, sizeof(dig)))
+			return 1;
+	}
+
+	return 0;
+}
+
 static struct lws *
 lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *data, int m, void *opaque)
 {
@@ -236,17 +390,24 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 
 	is_async = q->dnssec_verify_rrsig;
 
+	/*
+	 * We only get here in REQUIRE mode (see lws_adns_parse_udp()), ie, the
+	 * user asked us to only accept validated results.  If we could not get
+	 * the signer's DNSKEY, we cannot validate anything and must fail the
+	 * query closed... setting lacks_dnssec here instead would let anybody
+	 * who can make the DNSKEY lookup fail (an empty answer, NXDOMAIN, a
+	 * forged failure) downgrade REQUIRE to "accept whatever came".
+	 */
+
 	if (m != LWS_ADNS_DNSSEC_VALID && m != 0 && m != LWS_ADNS_DNSSEC_INVALID) {
 		lwsl_notice("%s: DNSKEY lookup failed (ret=%d)\n", __func__, m);
-		q->lacks_dnssec = 1;
-		goto complete;
+		goto fail;
 	}
 
 	c = lws_adns_get_cache(q->dns, vctx->signer_name);
 	if (!c || !c->rr_results) {
 		lwsl_notice("%s: DNSKEY cache absent\n", __func__);
-		q->lacks_dnssec = 1;
-		goto complete;
+		goto fail;
 	}
 
 	lws_adns_rr_t *rr = c->rr_results;
@@ -278,6 +439,27 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 				if (calc_tag == vctx->key_tag) {
 					const uint8_t *key_data = &kn[4];
 					int key_data_len = keylen - 4;
+
+					/*
+					 * The key has to be authenticated itself
+					 * before we may believe anything it
+					 * signed... otherwise we would only be
+					 * confirming that the answer is signed
+					 * by a key that came with the answer.
+					 */
+
+					if (!lws_dnssec_dnskey_authenticated(
+							vctx->signer_name,
+							calc_tag, alg, kn,
+							(size_t)keylen)) {
+						lwsl_notice("%s: DNSKEY for %s "
+							    "not authenticated by "
+							    "a DS chaining to a "
+							    "trust anchor\n",
+							    __func__,
+							    vctx->signer_name);
+						break;
+					}
 
 					if (alg == LWS_ADNS_DSA_ECDSAP256SHA256 || alg == LWS_ADNS_DSA_ECDSAP384SHA384) {
 						struct lws_genec_ctx ctx;
@@ -369,7 +551,6 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 		goto fail;
 	}
 
-complete:
 	q->dnssec_verify_rrsig = 0;
 	q->dnssec_valid = 1;
 
