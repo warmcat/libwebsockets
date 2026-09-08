@@ -118,6 +118,7 @@ struct pss__xip {
 	struct grp__xip	*grp;
 
 	unsigned int		 id;
+	size_t			 preauth_rx;	/* bytes rx'd before hello */
 	int			 authed;
 	int			 auth_fail;	/* flush error frame, then close */
 	char			 name[XIP_NAME_MAX + 1];
@@ -676,6 +677,21 @@ callback_xip(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RECEIVE: {
 		int r;
+
+		/*
+		 * Until it has said a valid hello, all a session is entitled
+		 * to send is that hello: do not let an anonymous peer feed
+		 * the parser (or the reassembler behind it) indefinitely.
+		 */
+		if (!pss->authed) {
+			pss->preauth_rx += len;
+			if (pss->preauth_rx > XIP_PREAUTH_RX_MAX) {
+				lwsl_notice("xip: too much unauthenticated "
+					    "rx, closing\n");
+
+				return -1;
+			}
+		}
 
 		r = xip_parser_feed(&pss->parser, in, len);
 		if (r < 0) {

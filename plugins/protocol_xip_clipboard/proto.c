@@ -230,6 +230,16 @@ acc_append(struct xip_parser *p, const char *s)
 {
 	size_t l = strlen(s);
 
+	/*
+	 * One clip chunk is at most XIP_CHUNK_RAW raw bytes, so its base64
+	 * "d" value cannot legitimately exceed a single XIP_FRAME_MAX frame.
+	 * Without this the accumulator just keeps doubling for as long as an
+	 * (unauthenticated) peer keeps streaming an unterminated string, and
+	 * the process grows until it is OOM-killed.
+	 */
+	if (p->acc_len + l + 1 > XIP_FRAME_MAX)
+		return -1;
+
 	if (p->acc_len + l + 1 > p->acc_cap) {
 		size_t nc = p->acc_cap ? p->acc_cap : 4096;
 		char *nb;
