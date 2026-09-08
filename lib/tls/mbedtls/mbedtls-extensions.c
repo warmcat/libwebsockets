@@ -263,6 +263,17 @@ lws_mbedtls_x509_parse_general_name(const mbedtls_x509_buf *name_buf,
 			return ret;
 		}
 
+		/*
+		 * mbedtls_x509_get_name() allocates one mbedtls_x509_name per
+		 * RDN after the first and chains them on .next; the caller
+		 * only ever reads the head we copy out, and nothing else knows
+		 * about the tail, so it has to go here or a crafted cert leaks
+		 * one allocation per RDN per directoryName entry.
+		 */
+
+		lws_x509_clean_name(&rfc822Name);
+		rfc822Name.MBEDTLS_PRIVATE_V30_ONLY(next) = NULL;
+
 		memset(name, 0, sizeof(*name));
 		name->type = LWS_MBEDTLS_X509_SAN_OTHER_NAME;
 		memcpy(&name->san.other_name,
