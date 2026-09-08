@@ -40,6 +40,44 @@ find_search(struct lws_dht_ctx *ctx, unsigned short tid, int af)
 }
 
 /*
+ * Did we actually send a request to this address as part of this search?
+ *
+ * A search tid is only 16 bits and find_search() matches on (tid, af) alone,
+ * so without this an off-path peer that guesses or observes a tid can inject
+ * nodes, a token and search *results* into somebody else's lookup, and end it
+ * early.  The search node list is our pending-request table: it holds the
+ * addresses we sent get_peers / announce_peer to, along with the time, so we
+ * require the reply to come from one of those with a request outstanding.
+ */
+
+int
+search_awaiting_reply_from(struct lws_dht_ctx *ctx, struct search *sr,
+			   const struct sockaddr *sa)
+{
+	int i;
+
+	for (i = 0; i < sr->numnodes; i++) {
+		struct search_node *n = &sr->nodes[i];
+
+		/*
+		 * Accept either a node with a request outstanding, or one that
+		 * already passed this test and replied, so that a late
+		 * duplicate or a second reply datagram from a node we really
+		 * did query still counts.  ->replied is only ever set from
+		 * this path, and the reuse path in lws_dht_search() clears it.
+		 */
+		if (!n->replied && (!n->request_time || n->request_time <
+			    ctx->now.tv_sec - LWS_DHT_PING_TIMEOUT_SECS))
+			continue;
+
+		if (!dht_sa_cmp((const struct sockaddr *)&n->ss, sa))
+			return 1;
+	}
+
+	return 0;
+}
+
+/*
  * A search contains a list of nodes, sorted by decreasing distance to the
  * target.  We just got a new candidate, insert it at the right spot or
  * discard it.
@@ -50,6 +88,7 @@ insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id,
 		struct search *sr, int replied,
 		const uint8_t *token, size_t token_len)
 {
+	lws_dht_hash_t *nid;
 	struct search_node *n;
 	int i, j;
 
@@ -70,6 +109,23 @@ insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id,
 	if (i == SEARCH_NODES)
 		return 0;
 
+	/*
+	 * Take the copy of the id before disturbing the list, so a failure here
+	 * cannot leave a counted entry behind with a NULL ->id.
+	 */
+	nid = lws_dht_hash_dup(id);
+	if (!nid)
+		return 0;
+
+	/*
+	 * ->id is a heap object here (it is inline in the original dht.c).  If
+	 * the list is already full, the shift below drops the last entry off
+	 * the end by overwriting it, so destroy its id first or it is leaked
+	 * unrecoverably (nothing walks past ->numnodes).
+	 */
+	if (sr->numnodes == SEARCH_NODES)
+		lws_dht_hash_destroy(&sr->nodes[SEARCH_NODES - 1].id);
+
 	if (sr->numnodes < SEARCH_NODES)
 		sr->numnodes++;
 
@@ -80,9 +136,7 @@ insert_search_node(struct lws_dht_ctx *ctx, lws_dht_hash_t *id,
 	n = &sr->nodes[i];
 
 	memset(n, 0, sizeof(struct search_node));
-	n->id = lws_dht_hash_dup(id);
-	if (!n->id)
-		return 0;
+	n->id = nid;
 
 found:
 	memcpy(&n->ss, sa, (size_t)salen);
@@ -243,12 +297,19 @@ search_step(struct lws_dht_ctx *ctx, struct search *sr, lws_dht_callback_t *call
 
 done:
 	sr->done = 1;
+	/*
+	 * Update ->step_time *before* dispatching: the app may start another
+	 * search from its SEARCH_DONE handler, and new_search() then sees this
+	 * one as the oldest done search and may free or recycle it.  Writing
+	 * ->step_time after the callback returned would be a write into freed
+	 * or reused memory.
+	 */
+	sr->step_time = ctx->now.tv_sec;
+
 	if (callback)
 		(*callback)(closure, sr->af == AF_INET ?
 				LWS_DHT_EVENT_SEARCH_DONE : LWS_DHT_EVENT_SEARCH_DONE6,
 				sr->id, NULL, 0, NULL, 0);
-
-	sr->step_time = ctx->now.tv_sec;
 }
 
 static struct search *

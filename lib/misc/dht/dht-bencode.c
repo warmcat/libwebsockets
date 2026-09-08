@@ -535,6 +535,19 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 		gp = 1;
 #if defined(LWS_WITH_DHT_BACKEND)
 		sr = find_search(ctx, ttid, from->sa_family);
+		/*
+		 * find_search() matches on the 16-bit tid alone, so bind the
+		 * reply to the address we actually sent that tid to before we
+		 * let it touch the search: otherwise anyone who guesses a tid
+		 * can stuff our lookup with his own nodes, token and values.
+		 * The reply may still teach the routing table below.
+		 */
+		if (sr && !search_awaiting_reply_from(ctx, sr, from)) {
+			lwsl_dht_rx_warn("%s: get_peers reply from an address "
+					 "with no request outstanding\n",
+					 __func__);
+			sr = NULL;
+		}
 #endif
 	}
 
