@@ -28,6 +28,9 @@
 #define pt_to_priv_uv(_pt) ((struct lws_pt_eventlibs_libuv *)(_pt)->evlib_pt)
 #define wsi_to_priv_uv(_w) ((struct lws_wsi_eventlibs_libuv *)(_w)->evlib_wsi)
 
+static int
+lws_libuv_closehandle_int(struct lws *wsi);
+
 static void
 lws_uv_sultimer_cb(uv_timer_t *timer
 #if UV_VERSION_MAJOR == 0
@@ -432,7 +435,29 @@ elops_destroy_context2_uv(struct lws_context *context)
 				uv_stop(pt_to_priv_uv(pt)->io_loop);
 			else {
 #if UV_VERSION_MAJOR > 0
-				uv_loop_close(pt_to_priv_uv(pt)->io_loop);
+				int budget = 10000;
+
+				/*
+				 * uv_loop_close() answers UV_EBUSY if any
+				 * handle is still on the loop, eg, waiting for
+				 * its close callback... in that case it has NOT
+				 * released the loop's internal resources and
+				 * freeing the loop would leak the backend fd
+				 * and orphan the pending callbacks (which are
+				 * what close our sockets).  Drain and retry.
+				 */
+
+				while (uv_loop_close(pt_to_priv_uv(pt)->io_loop) ==
+								UV_EBUSY && budget--)
+					uv_run(pt_to_priv_uv(pt)->io_loop,
+					       UV_RUN_NOWAIT);
+
+				if (budget < 0) {
+					lwsl_cx_err(context, "tsi %d: loop still "
+						    "busy, leaking it", n);
+					pt_to_priv_uv(pt)->io_loop = NULL;
+					continue;
+				}
 #endif
 				lws_free_set_NULL(pt_to_priv_uv(pt)->io_loop);
 			}
@@ -459,11 +484,15 @@ elops_wsi_logical_close_uv(struct lws *wsi)
 	}
 	lwsl_wsi_debug(wsi, "lws_libuv_closehandle");
 	/*
-	 * libuv has to do his own close handle processing asynchronously
+	 * libuv has to do his own close handle processing asynchronously.
+	 *
+	 * We may only report "deferred" if a uv_close() was actually queued...
+	 * if there was no handle left to close, nobody is going to come back
+	 * and call __lws_close_free_wsi_final() for us, and the wsi and its
+	 * socket fd would leak permanently.
 	 */
-	lws_libuv_closehandle(wsi);
 
-	return 1; /* do not complete the wsi close, uv close cb will do it */
+	return lws_libuv_closehandle_int(wsi);
 }
 
 static int
@@ -492,6 +521,23 @@ elops_close_handle_manually_uv(struct lws *wsi)
 {
 	uv_handle_t *h = (uv_handle_t *)wsi_to_priv_uv(wsi)->w_read.pwatcher;
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+
+	/*
+	 * There may be no handle at all, eg, a previous manual close already
+	 * took it, or the accept-time uv_poll_init() failed (the
+	 * ..._parallel_uv() sibling has the same guard).  We still owe the
+	 * caller the fd close this op promises, just without the uv handle
+	 * teardown.
+	 */
+
+	if (!h) {
+		if (lws_socket_is_valid(wsi->desc.sockfd))
+			compatible_close(wsi->desc.sockfd);
+		wsi->desc.sockfd = LWS_SOCK_INVALID;
+		wsi->told_event_loop_closed = 1;
+
+		return;
+	}
 
 	lwsl_wsi_debug(wsi, "lws_libuv_closehandle");
 
@@ -938,17 +984,26 @@ lws_libuv_closewsi(uv_handle_t* handle)
 	lws_context_unlock(context);
 }
 
-void
-lws_libuv_closehandle(struct lws *wsi)
+/*
+ * Returns 1 if a uv_close() was actually queued, ie, lws_libuv_closewsi() will
+ * come back later and do __lws_close_free_wsi_final(); 0 if there was no handle
+ * to close and the caller must complete the wsi close itself.
+ */
+
+static int
+lws_libuv_closehandle_int(struct lws *wsi)
 {
 	uv_handle_t* handle;
 	struct lws_io_watcher_libuv *w_read = &wsi_to_priv_uv(wsi)->w_read;
 
-	if (!w_read->pwatcher)
-		return;
+	/*
+	 * pwatcher is the definitive record of whether we still own a uv
+	 * handle for this wsi, and it is NULLed below, so it is also what
+	 * ensures we can only do this once
+	 */
 
-	if (wsi->told_event_loop_closed)
-		return;
+	if (!w_read->pwatcher)
+		return 0;
 
 //	lwsl_wsi_debug(wsi, "in");
 
@@ -961,11 +1016,17 @@ lws_libuv_closehandle(struct lws *wsi)
 
 	handle = (uv_handle_t *)w_read->pwatcher;
 
-	/* ensure we can only do this once */
-
 	w_read->pwatcher = NULL;
 
 	uv_close(handle, lws_libuv_closewsi);
+
+	return 1;
+}
+
+void
+lws_libuv_closehandle(struct lws *wsi)
+{
+	lws_libuv_closehandle_int(wsi);
 }
 
 static int
