@@ -283,16 +283,41 @@ lws_transcode_scale(void *sws, void *src_frame, void *dst_frame)
 void
 lws_transcode_yuyv_to_yuv420p(const uint8_t *yuyv, uint8_t *yuv, uint32_t w, uint32_t h)
 {
-	uint8_t *y = yuv;
 	uint8_t *u = yuv + (w * h);
 	uint8_t *v = yuv + (w * h) + (w * h) / 4;
-	uint32_t i, j;
+	uint32_t i, j, we, he;
 
-	for (i = 0; i < h; i++) {
-		for (j = 0; j < w; j += 2) {
-			*y++ = yuyv[(i * w + j) * 2];
-			*y++ = yuyv[(i * w + j + 1) * 2];
-			if (i % 2 == 0) {
+	if (!yuyv || !yuv || w < 2 || h < 2)
+		return;
+
+	/*
+	 * yuv420p subsamples chroma 2x2, and the destination plane layout the
+	 * caller allocated, (w * h) + 2 * ((w * h) / 4), can only describe even
+	 * dimensions.  V4L2 hands back whatever geometry the driver chose, so
+	 * drop any odd trailing row or column rather than write past the
+	 * chroma planes (or read past the end of the source frame).
+	 */
+
+	we = w & ~(uint32_t)1;
+	he = h & ~(uint32_t)1;
+
+	if (we != w || he != h) {
+		/*
+		 * the odd trailing row / column has nowhere to put its chroma,
+		 * so it is skipped below... blank it rather than leave the
+		 * caller's uninitialized frame buffer showing through
+		 */
+		memset(yuv, 16, w * h);
+		memset(yuv + (w * h), 128, ((w * h) / 4) * 2);
+	}
+
+	for (i = 0; i < he; i++) {
+		uint8_t *y = yuv + (i * w);
+
+		for (j = 0; j < we; j += 2) {
+			y[j] = yuyv[(i * w + j) * 2];
+			y[j + 1] = yuyv[(i * w + j + 1) * 2];
+			if (!(i & 1)) {
 				*u++ = yuyv[(i * w + j) * 2 + 1];
 				*v++ = yuyv[(i * w + j) * 2 + 3];
 			}
@@ -303,12 +328,22 @@ lws_transcode_yuyv_to_yuv420p(const uint8_t *yuyv, uint8_t *yuv, uint32_t w, uin
 int
 lws_transcode_mjpeg_to_yuv420p(void *jpeg_dec, const uint8_t *mjpeg, size_t len, uint8_t *yuv, uint32_t w, uint32_t h)
 {
+	uint32_t y_row = 0, cols = 0, comps = 0, x;
 	lws_jpeg_t *dec = (lws_jpeg_t *)jpeg_dec;
 	const uint8_t *buf = mjpeg;
 	size_t size = len;
 	const uint8_t *line;
 	lws_stateful_ret_t r;
-	uint32_t y_row = 0;
+
+	/*
+	 * w and h are the geometry the caller negotiated with the camera, they
+	 * are not related to what the (untrusted) MJPEG frame declares in its
+	 * SOF... the decoded line geometry is only discovered below, and
+	 * everything we read out of the decoded line must be bounded by it.
+	 */
+
+	if (!dec || !mjpeg || !yuv || w < 2 || h < 2 || (w & 1) || (h & 1))
+		return -1;
 
 	while (y_row < h) {
 		r = lws_jpeg_emit_next_line(dec, &line, &buf, &size, 0);
@@ -321,20 +356,52 @@ lws_transcode_mjpeg_to_yuv420p(void *jpeg_dec, const uint8_t *mjpeg, size_t len,
 			uint8_t *u_plane = yuv + (w * h) + (y_row / 2) * (w / 2);
 			uint8_t *v_plane = yuv + (w * h) + (w * h) / 4 + (y_row / 2) * (w / 2);
 
-			for (uint32_t x = 0; x < w; x++) {
+			if (!comps) {
+				/* the SOF has been seen by now */
+				comps = lws_jpeg_get_components(dec);
+				if (comps != 1 && comps != 3)
+					return -1;
+				cols = lws_jpeg_get_width(dec);
+				if (cols > w)
+					cols = w;
+			}
+
+			for (x = 0; x < cols; x++) {
 				/* ITU-R BT.601 Integer Constants */
-				int r_val = line[x * 3], g_val = line[x * 3 + 1], b_val = line[x * 3 + 2];
+				const uint8_t *px = line + (x * comps);
+				int r_val = px[0], g_val = px[comps == 3 ? 1 : 0],
+				    b_val = px[comps == 3 ? 2 : 0];
 				y_plane[x] = (uint8_t)(( (  66 * r_val + 129 * g_val +  25 * b_val + 128) >> 8) + 16);
 				if (y_row % 2 == 0 && x % 2 == 0) {
 					u_plane[x / 2] = (uint8_t)(( ( -38 * r_val -  74 * g_val + 112 * b_val + 128) >> 8) + 128);
 					v_plane[x / 2] = (uint8_t)(( ( 112 * r_val -  94 * g_val -  18 * b_val + 128) >> 8) + 128);
 				}
 			}
+
+			/* letterbox any columns the JPEG was too narrow to fill */
+
+			for (; x < w; x++) {
+				y_plane[x] = 16;
+				if (y_row % 2 == 0 && x % 2 == 0) {
+					u_plane[x / 2] = 128;
+					v_plane[x / 2] = 128;
+				}
+			}
+
 			y_row++;
 		}
 		if (r == LWS_SRET_OK)
 			break;
 	}
+
+	/*
+	 * A truncated or corrupt frame leaves the tail of the caller's
+	 * (uninitialized) frame buffer unwritten... fail so he drops it,
+	 * rather than encode and transmit heap residue
+	 */
+
+	if (y_row != h)
+		return -1;
 
 	return 0;
 }

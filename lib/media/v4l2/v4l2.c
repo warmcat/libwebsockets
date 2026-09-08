@@ -113,8 +113,21 @@ lws_v4l2_create(const struct lws_v4l2_info *info)
 		ctx->buffers[ctx->n_buffers].start = mmap(NULL, buf.length,
 				PROT_READ | PROT_WRITE, MAP_SHARED, ctx->fd, buf.m.offset);
 
-		if (ioctl(ctx->fd, VIDIOC_QBUF, &buf) < 0)
+		if (ctx->buffers[ctx->n_buffers].start == MAP_FAILED) {
+			/*
+			 * MAP_FAILED is (void *)-1, not NULL... don't let it
+			 * reach lws_v4l2_get_buffer() or the munmap loop
+			 */
+			ctx->buffers[ctx->n_buffers].start = NULL;
+			ctx->buffers[ctx->n_buffers].length = 0;
 			goto bail;
+		}
+
+		if (ioctl(ctx->fd, VIDIOC_QBUF, &buf) < 0) {
+			/* this one is mapped, account for it before bailing */
+			ctx->n_buffers++;
+			goto bail;
+		}
 	}
 
 	enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;

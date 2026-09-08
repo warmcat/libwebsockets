@@ -58,8 +58,17 @@ lws_media_audio_calc_energy(const lws_audio_vu_info_t *info,
 		energy += (uint64_t)val;
 	}
 
-	/* 3. Apply Squelch and Logarithmic Scaling */
-	if (energy > info->squelch_level) {
+	/*
+	 * 3. Apply Squelch and Logarithmic Scaling
+	 *
+	 * log10(0) is -HUGE_VAL, which turns the scaling into a NaN and then
+	 * the conversion to int into UB, so both endpoints must be positive
+	 * and ordered before we go anywhere near log10()
+	 */
+
+	if (info->squelch_level > 0.0 &&
+	    info->max_energy > info->squelch_level &&
+	    (double)energy > info->squelch_level) {
 		double db_min = log10(info->squelch_level);
 		double db_max = log10(info->max_energy);
 		double db_cur = log10((double)energy);
