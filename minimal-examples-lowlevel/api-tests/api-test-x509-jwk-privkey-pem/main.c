@@ -346,7 +346,7 @@ int main(int argc, const char **argv)
 			.curves = "P-256",
 			.rsa_min_bits = 0,
 			.expected_kty = LWS_GENCRYPTO_KTY_EC,
-			.expected_result = 0
+			.expected_result = -1
 		},
 	};
 	const char *cert_dir = ".";

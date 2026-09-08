@@ -910,6 +910,46 @@ done:
 		if (!ec)
 			goto bail;
 
+		{
+			unsigned char kbuf[BR_EC_KBUF_PUB_MAX_SIZE];
+			br_ec_public_key pub;
+			size_t coord_len;
+
+			/*
+			 * Confirm the private key belongs to the cert...
+			 * without deriving the public point from the scalar,
+			 * any other key on the same curve is accepted, since
+			 * every P-256 x is 32 bytes
+			 */
+
+			memset(&pub, 0, sizeof(pub));
+			if (!br_ec_compute_pub(br_ec_get_default(), &pub, kbuf,
+					       ec) ||
+			    pub.qlen < 3 || !(pub.qlen & 1) ||
+			    pub.q[0] != 0x04) {
+				lwsl_err("%s: unable to derive EC pubkey\n",
+					 __func__);
+				goto bail;
+			}
+
+			coord_len = (pub.qlen - 1) / 2;
+
+			if (coord_len != jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].len ||
+			    !jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf ||
+			    lws_timingsafe_bcmp(pub.q + 1,
+					jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf,
+					(unsigned int)coord_len) ||
+			    coord_len != jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].len ||
+			    !jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf ||
+			    lws_timingsafe_bcmp(pub.q + 1 + coord_len,
+					jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf,
+					(unsigned int)coord_len)) {
+				lwsl_err("%s: EC privkey doesn't match jwk "
+					 "pubkey\n", __func__);
+				goto bail;
+			}
+		}
+
 		jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf = lws_malloc(ec->xlen, "certjwk");
 		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf)
 			goto bail;

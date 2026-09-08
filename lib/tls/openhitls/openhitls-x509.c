@@ -700,6 +700,54 @@ lws_x509_jwk_privkey_pem_ec(struct lws_jwk *jwk, CRYPT_EAL_PkeyCtx *pkey, CRYPT_
 		lwsl_err("%s: JWK EC Y coordinate length is 0\n", __func__);
 		return -1;
 	}
+
+	/*
+	 * Confirm the private key belongs to the cert... without comparing the
+	 * public point, any other key on the same curve is accepted, since
+	 * every P-256 x is 32 bytes
+	 */
+
+	{
+		CRYPT_EAL_PkeyPub ecc_pub = {0};
+		uint32_t pub_len = 1 + 2 * coord_len;
+		uint8_t *pub_buf;
+		int mismatch;
+
+		if (coord_len != jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].len ||
+		    !jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf ||
+		    !jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf) {
+			lwsl_err("%s: jwk has no usable EC pubkey\n", __func__);
+			return -1;
+		}
+
+		pub_buf = lws_malloc(pub_len, "jwk-ecc-pub");
+		if (!pub_buf) {
+			return -1;
+		}
+		ecc_pub.id = CRYPT_PKEY_ECDSA;
+		ecc_pub.key.eccPub.data = pub_buf;
+		ecc_pub.key.eccPub.len = pub_len;
+		ret = CRYPT_EAL_PkeyGetPub(pkey, &ecc_pub);
+		if (ret != CRYPT_SUCCESS) {
+			lwsl_err("%s: CRYPT_EAL_PkeyGetPub failed for EC, ret=0x%x\n", __func__, ret);
+			lws_free(pub_buf);
+			return -1;
+		}
+		mismatch = ecc_pub.key.eccPub.len != pub_len ||
+			   pub_buf[0] != 0x04 ||
+			   !!memcmp(pub_buf + 1,
+				    jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf,
+				    coord_len) ||
+			   !!memcmp(pub_buf + 1 + coord_len,
+				    jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf,
+				    coord_len);
+		lws_free(pub_buf);
+		if (mismatch) {
+			lwsl_err("%s: EC privkey doesn't match jwk pubkey\n", __func__);
+			return -1;
+		}
+	}
+
 	tmp_ec_d = lws_malloc(coord_len, "jwk-ec-d");
 	if (!tmp_ec_d) {
 		return -1;

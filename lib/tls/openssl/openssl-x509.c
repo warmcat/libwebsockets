@@ -825,6 +825,31 @@ lws_x509_jwk_privkey_pem_pp_cb(char *buf, int size, int rwflag, void *u)
 	return (int)n;
 }
 
+/*
+ * Confirm one EC public coordinate that came with the private key is the same
+ * one the jwk already has from the cert.  Both sides are unpadded big-endian
+ * here, so compare them as bignums
+ */
+
+static int
+lws_x509_ec_coord_matches(const BIGNUM *bn, struct lws_gencrypto_keyelem *el)
+{
+	BIGNUM *b;
+	int n;
+
+	if (!bn || !el->buf || !el->len)
+		return 1;
+
+	b = BN_bin2bn(el->buf, SSL_SIZE_T_CAST(el->len), NULL);
+	if (!b)
+		return 1;
+
+	n = BN_cmp(b, bn);
+	BN_clear_free(b);
+
+	return !!n;
+}
+
 int
 lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 			 void *pem, size_t len, const char *passphrase)
@@ -836,6 +861,9 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 	EC_KEY *ecpriv = NULL;
 	RSA *rsapriv = NULL;
 	const BIGNUM *cmpi;
+	const EC_POINT *ecpoint;
+	const EC_GROUP *ecgroup;
+	BIGNUM *qx, *qy;
 #endif
 	int n, m, ret = -1;
 
@@ -862,19 +890,46 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		}
 #if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
 		{
-			BIGNUM *priv = NULL;
+			BIGNUM *priv = NULL, *qx = NULL, *qy = NULL;
+
 			if (!EVP_PKEY_get_bn_param(pkey, "priv", &priv)) {
 				lwsl_notice("%s: missing EC key\n", __func__);
 				goto bail;
 			}
-			
-			n = (int)BN_num_bytes(priv);
-			if (jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].len != (uint32_t)n) {
-				lwsl_err("%s: jwk key size doesn't match\n", __func__);
+
+			/*
+			 * Comparing the coordinate lengths only would accept
+			 * any other key on the same curve, since every P-256
+			 * x is 32 bytes... compare the public point the way
+			 * the RSA arm below compares n and e
+			 */
+
+			if (!EVP_PKEY_get_bn_param(pkey, "qx", &qx) ||
+			    !EVP_PKEY_get_bn_param(pkey, "qy", &qy)) {
+				lwsl_err("%s: missing EC pubkey coords\n",
+					 __func__);
+				BN_clear_free(priv);
+				BN_clear_free(qx);
+				BN_clear_free(qy);
+				goto bail;
+			}
+
+			m = lws_x509_ec_coord_matches(qx,
+				&jwk->e[LWS_GENCRYPTO_EC_KEYEL_X]) ||
+			    lws_x509_ec_coord_matches(qy,
+				&jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y]);
+
+			BN_clear_free(qx);
+			BN_clear_free(qy);
+
+			if (m) {
+				lwsl_err("%s: EC privkey doesn't match jwk "
+					 "pubkey\n", __func__);
 				BN_clear_free(priv);
 				goto bail1;
 			}
 
+			n = (int)BN_num_bytes(priv);
 			jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].len = (unsigned int)n;
 			jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf = lws_malloc((unsigned int)n, "ec");
 			if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf) {
@@ -895,11 +950,52 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 			goto bail;
 		}
 		cmpi = EC_KEY_get0_private_key(ecpriv);
-		n = (int)BN_num_bytes(cmpi);
-		if (jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].len != (uint32_t)n) {
-			lwsl_err("%s: jwk key size doesn't match\n", __func__);
+
+		/*
+		 * Comparing the coordinate lengths only would accept any other
+		 * key on the same curve, since every P-256 x is 32 bytes...
+		 * compare the public point the way the RSA arm below compares
+		 * n and e
+		 */
+
+		ecpoint = EC_KEY_get0_public_key(ecpriv);
+		ecgroup = EC_KEY_get0_group(ecpriv);
+		if (!cmpi || !ecpoint || !ecgroup) {
+			lwsl_err("%s: missing EC key parts\n", __func__);
 			goto bail1;
 		}
+
+		qx = BN_new();
+		qy = BN_new();
+		if (!qx || !qy) {
+			BN_clear_free(qx);
+			BN_clear_free(qy);
+			goto bail1;
+		}
+
+#if defined(LWS_HAVE_EC_POINT_get_affine_coordinates)
+		m = EC_POINT_get_affine_coordinates(ecgroup, ecpoint, qx, qy,
+						    NULL) != 1;
+#else
+		m = EC_POINT_get_affine_coordinates_GFp(ecgroup, ecpoint, qx,
+							qy, NULL) != 1;
+#endif
+		if (!m)
+			m = lws_x509_ec_coord_matches(qx,
+					&jwk->e[LWS_GENCRYPTO_EC_KEYEL_X]) ||
+			    lws_x509_ec_coord_matches(qy,
+					&jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y]);
+
+		BN_clear_free(qx);
+		BN_clear_free(qy);
+
+		if (m) {
+			lwsl_err("%s: EC privkey doesn't match jwk pubkey\n",
+				 __func__);
+			goto bail1;
+		}
+
+		n = (int)BN_num_bytes(cmpi);
 		jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].len = (unsigned int)n;
 		jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf = lws_malloc((unsigned int)n, "ec");
 		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf)
