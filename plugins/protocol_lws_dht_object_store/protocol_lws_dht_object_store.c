@@ -33,8 +33,33 @@
 #include <errno.h>
 #include <sys/stat.h>
 
+#if !defined(O_NOFOLLOW)
+#define O_NOFOLLOW 0
+#endif
+
 #define LWS_DHT_FRAGMENT_SIZE		(1024 * 1024)
 #define LWS_DHT_STORE_GENHASH		LWS_GENHASH_TYPE_SHA256
+
+/*
+ * Everything a PUT or a RSP costs us is attacker-chosen and unauthenticated,
+ * so all of it has to be bounded.  These are the defaults; dht-max-object-size
+ * and dht-store-quota override the sizes from pvos.
+ */
+
+#define LWS_DHT_STORE_MAX_OBJECT	(16u * 1024 * 1024)
+	/**< largest object we will accept, in bytes */
+#define LWS_DHT_STORE_QUOTA		(256u * 1024 * 1024)
+	/**< total bytes we will commit to the store while we are up */
+#define LWS_DHT_STORE_MAX_INFLIGHT	16
+	/**< concurrent incomplete transfers, ie, open fds + genhash contexts */
+#define LWS_DHT_STORE_XFER_TIMEOUT_US	(30 * LWS_US_PER_SEC)
+	/**< an in-flight transfer that stalls this long is discarded */
+#define LWS_DHT_STORE_REQ_TIMEOUT_US	(30 * LWS_US_PER_SEC)
+	/**< how long a GET we sent stays outstanding for a RSP to match */
+#define LWS_DHT_STORE_GET_BURST		32
+	/**< GET responses we will emit back-to-back */
+#define LWS_DHT_STORE_GET_REFILL_US	(1 * LWS_US_PER_SEC)
+	/**< the GET token bucket refills by one burst per this interval */
 
 struct vhd_dht_store {
 	struct lws_context		*context;
@@ -43,11 +68,19 @@ struct vhd_dht_store {
 	lws_sorted_usec_list_t		sul_bulk;
 	lws_sorted_usec_list_t		sul_speed;
 	lws_sorted_usec_list_t		sul_stats;
+	lws_sorted_usec_list_t		sul_get_tokens;
 	lws_xos_t			xos;
 	uint64_t			bulk_sent;
 	uint64_t			bulk_total;
 	uint64_t			last_bulk_sent;
 	struct lws_dll2_owner		fragments;
+	struct lws_dll2_owner		requests;
+
+	uint64_t			max_object;
+	uint64_t			quota;
+	uint64_t			store_bytes;
+	uint32_t			get_tokens;
+
 	char				current_fragment_hash[LWS_GENHASH_LARGEST * 2 + 1];
 
 	uint32_t			manifest_fragments_requested;
@@ -57,6 +90,7 @@ struct vhd_dht_store {
 	uint8_t				bulk_fragment_checking:1;
 	uint8_t				cli_bulk:1;
 	uint8_t				gen_manifest:1;
+	uint8_t				client_mode:1;
 	int				bulk_fragment_check_retries;
 
 	uint64_t			bulk_heads[4];
@@ -93,13 +127,30 @@ struct vhd_dht_store {
 
 struct dht_fragment {
 	lws_dll2_t			list;
+	lws_sorted_usec_list_t		sul_timeout;
 	struct lws_genhash_ctx		ctx;
+	struct vhd_dht_store		*vhd;
+	struct sockaddr_storage		from_sa;
+	size_t				from_salen;
 	char				safe_hash[LWS_GENHASH_LARGEST * 2 + 1];
 	uint64_t			total_len;
 	uint64_t			received_len;
 	int				fd;
 	int				hash_init_done;
 	int				retries;
+};
+
+/*
+ * A GET we sent and are still willing to accept a RSP for.  RSP is only
+ * honoured against one of these, so an unsolicited RSP cannot make us create
+ * anything.
+ */
+
+struct dht_request {
+	lws_dll2_t			list;
+	lws_sorted_usec_list_t		sul_timeout;
+	struct vhd_dht_store		*vhd;
+	char				hash[LWS_GENHASH_LARGEST * 2 + 1];
 };
 
 typedef struct lws_dht_ts {
@@ -122,6 +173,191 @@ dht_obj_store_find_fragment(struct vhd_dht_store *vhd, const char *hash)
 	} lws_end_foreach_dll(d);
 
 	return NULL;
+}
+
+/*
+ * Compose <storage_path>/[.]<hash>[.part].  Truncation would alias two
+ * different keys onto one path, so it is a hard failure.
+ */
+
+static int
+dht_obj_store_path(struct vhd_dht_store *vhd, const char *hash, int partial,
+		   char *path, size_t path_len)
+{
+	int n = lws_snprintf(path, path_len, "%s/%s%s%s", vhd->storage_path,
+			     partial ? "." : "", hash, partial ? ".part" : "");
+
+	if (n < 0 || (size_t)n >= path_len - 1) {
+		lwsl_err("%s: storage path for %s too long\n", __func__, hash);
+
+		return -1;
+	}
+
+	return 0;
+}
+
+static void
+dht_obj_store_fragment_destroy(struct dht_fragment **pfrag)
+{
+	struct dht_fragment *frag = *pfrag;
+	char path[256];
+
+	if (!frag)
+		return;
+
+	*pfrag = NULL;
+
+	lws_sul_cancel(&frag->sul_timeout);
+
+	if (frag->hash_init_done) {
+		lws_genhash_destroy(&frag->ctx, NULL);
+		frag->hash_init_done = 0;
+	}
+
+	if (frag->fd >= 0) {
+		close(frag->fd);
+		frag->fd = -1;
+	}
+
+	/* an incomplete or failed transfer never becomes visible */
+
+	if (!dht_obj_store_path(frag->vhd, frag->safe_hash, 1, path,
+				sizeof(path)))
+		unlink(path);
+
+	lws_dll2_remove(&frag->list);
+	free(frag);
+}
+
+static void
+dht_obj_store_frag_timeout_cb(lws_sorted_usec_list_t *sul)
+{
+	struct dht_fragment *frag = lws_container_of(sul, struct dht_fragment,
+						     sul_timeout);
+
+	lwsl_notice("%s: discarding stalled transfer %s\n", __func__,
+		    frag->safe_hash);
+
+	dht_obj_store_fragment_destroy(&frag);
+}
+
+static struct dht_request *
+dht_obj_store_find_request(struct vhd_dht_store *vhd, const char *hash)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->requests)) {
+		struct dht_request *req = lws_container_of(d, struct dht_request, list);
+
+		if (!strcmp(req->hash, hash))
+			return req;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+static void
+dht_obj_store_request_destroy(struct dht_request **preq)
+{
+	struct dht_request *req = *preq;
+
+	if (!req)
+		return;
+
+	*preq = NULL;
+
+	lws_sul_cancel(&req->sul_timeout);
+	lws_dll2_remove(&req->list);
+	free(req);
+}
+
+static void
+dht_obj_store_req_timeout_cb(lws_sorted_usec_list_t *sul)
+{
+	struct dht_request *req = lws_container_of(sul, struct dht_request,
+						   sul_timeout);
+
+	lwsl_notice("%s: GET for %s timed out\n", __func__, req->hash);
+
+	dht_obj_store_request_destroy(&req);
+}
+
+static int
+dht_obj_store_request_add(struct vhd_dht_store *vhd, const char *hash)
+{
+	struct dht_request *req;
+
+	if (dht_obj_store_find_request(vhd, hash))
+		return 0;
+
+	req = calloc(1, sizeof(*req));
+	if (!req)
+		return -1;
+
+	req->vhd = vhd;
+	lws_strncpy(req->hash, hash, sizeof(req->hash));
+	lws_dll2_add_tail(&req->list, &vhd->requests);
+	lws_sul_schedule(vhd->context, 0, &req->sul_timeout,
+			 dht_obj_store_req_timeout_cb,
+			 LWS_DHT_STORE_REQ_TIMEOUT_US);
+
+	return 0;
+}
+
+/*
+ * dht-policy-allow / dht-policy-deny are comma-separated lists of lowercase
+ * hex object-key prefixes.  Deny is checked first and wins; if an allow list
+ * was given, the key must also match one of its prefixes.
+ */
+
+static int
+dht_obj_store_policy_match(const char *list, const char *hash)
+{
+	struct lws_tokenize ts;
+	lws_tokenize_elem e;
+
+	if (!list || !*list)
+		return 0;
+
+	lws_tokenize_init(&ts, list, LWS_TOKENIZE_F_NO_INTEGERS |
+				     LWS_TOKENIZE_F_NO_FLOATS |
+				     LWS_TOKENIZE_F_COMMA_SEP_LIST);
+	ts.len = strlen(list);
+
+	do {
+		e = lws_tokenize(&ts);
+
+		if (e == LWS_TOKZE_TOKEN && ts.token_len &&
+		    ts.token_len <= strlen(hash) &&
+		    !strncmp(hash, ts.token, ts.token_len))
+			return 1;
+
+	} while (e > 0);
+
+	return 0;
+}
+
+static int
+dht_obj_store_policy_allows(struct vhd_dht_store *vhd, const char *hash)
+{
+	if (dht_obj_store_policy_match(vhd->policy_deny, hash))
+		return 0;
+
+	if (vhd->policy_allow && *vhd->policy_allow &&
+	    !dht_obj_store_policy_match(vhd->policy_allow, hash))
+		return 0;
+
+	return 1;
+}
+
+static void
+dht_obj_store_get_tokens_cb(lws_sorted_usec_list_t *sul)
+{
+	struct vhd_dht_store *vhd = lws_container_of(sul, struct vhd_dht_store,
+						     sul_get_tokens);
+
+	vhd->get_tokens = LWS_DHT_STORE_GET_BURST;
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_get_tokens,
+			 dht_obj_store_get_tokens_cb,
+			 LWS_DHT_STORE_GET_REFILL_US);
 }
 
 static void
@@ -157,108 +393,249 @@ dht_obj_store_jwk_load_or_gen(struct vhd_dht_store *vhd)
 
 /* --- Verb Handlers --- */
 
+/*
+ * Common receive path for PUT (a peer pushing an object at us) and RSP (the
+ * answer to a GET we sent).  Everything arriving here is unauthenticated and
+ * attacker-chosen, so
+ *
+ *  - the object size, the number of concurrent transfers and the total bytes
+ *    we will ever commit to the store are all capped
+ *  - chunks must arrive strictly in order, so there is no attacker-chosen
+ *    lseek() (which could otherwise produce a petabyte-apparent-size file from
+ *    one datagram) and the streaming digest actually describes the file
+ *  - content goes to a .part temp file created O_EXCL | O_NOFOLLOW, and is
+ *    only rename()d onto the key's name once its SHA-256 matches the key it
+ *    was offered under, so we never serve content that does not hash to the
+ *    content-address it is filed at, and never write through a planted symlink
+ *  - a stalled transfer is discarded by a per-transfer timeout, releasing the
+ *    fd, the digest context and the partial file
+ *  - a transfer belongs to the address that opened it, since the key is public
+ *    and transfers are otherwise found by key alone
+ *
+ * Returns 0 if the chunk was accepted, and sets *completed if that finished
+ * and committed the object.
+ */
+
+static int
+dht_obj_store_ingest(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd,
+		     const struct lws_dht_msg *msg, const struct sockaddr *from,
+		     size_t fromlen, int *completed)
+{
+	char path[256], final[256], hex[LWS_GENHASH_LARGEST * 2 + 1];
+	uint8_t digest[LWS_GENHASH_LARGEST];
+	struct dht_fragment *frag;
+	ssize_t w;
+
+	*completed = 0;
+
+	if (!msg->payload || !msg->payload_len)
+		return -1;
+
+	if (!dht_obj_store_policy_allows(vhd, msg->hash)) {
+		lwsl_notice("%s: policy rejects %s\n", __func__, msg->hash);
+
+		return -1;
+	}
+
+	frag = dht_obj_store_find_fragment(vhd, msg->hash);
+	if (!frag) {
+		if (msg->len < (unsigned long long)msg->payload_len ||
+		    msg->len > vhd->max_object) {
+			lwsl_notice("%s: %s: object len %llu out of range\n",
+				    __func__, msg->hash, msg->len);
+
+			return -1;
+		}
+
+		if (lws_dll2_count(&vhd->fragments) >= LWS_DHT_STORE_MAX_INFLIGHT) {
+			lwsl_notice("%s: %u transfers already in flight\n",
+				    __func__, lws_dll2_count(&vhd->fragments));
+
+			return -1;
+		}
+
+		if (vhd->store_bytes + msg->len > vhd->quota) {
+			lwsl_notice("%s: store quota %llu exhausted\n", __func__,
+				    (unsigned long long)vhd->quota);
+
+			return -1;
+		}
+
+		if (dht_obj_store_path(vhd, msg->hash, 1, path, sizeof(path)))
+			return -1;
+
+		if (mkdir(vhd->storage_path, 0700) < 0 && errno != EEXIST) {
+			lwsl_err("%s: unable to create storage dir %s (errno %d)\n",
+				 __func__, vhd->storage_path, errno);
+
+			return -1;
+		}
+
+		frag = calloc(1, sizeof(*frag));
+		if (!frag)
+			return -1;
+
+		frag->vhd = vhd;
+		frag->fd = -1;
+		frag->total_len = msg->len;
+		lws_strncpy(frag->safe_hash, msg->hash, sizeof(frag->safe_hash));
+
+		if (from && fromlen && fromlen <= sizeof(frag->from_sa)) {
+			memcpy(&frag->from_sa, from, fromlen);
+			frag->from_salen = fromlen;
+		}
+
+		lws_dll2_add_tail(&frag->list, &vhd->fragments);
+
+		/*
+		 * Drop any leftover partial from an earlier, interrupted
+		 * transfer (unlink() acts on the symlink, not its target) and
+		 * then insist on creating the temp file ourselves
+		 */
+
+		unlink(path);
+
+		frag->fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW,
+				0600);
+		if (frag->fd < 0) {
+			lwsl_err("%s: unable to create %s (errno %d)\n",
+				 __func__, path, errno);
+			goto drop;
+		}
+
+		if (lws_genhash_init(&frag->ctx, LWS_DHT_STORE_GENHASH))
+			goto drop;
+
+		frag->hash_init_done = 1;
+	} else {
+
+		/*
+		 * The key is public, so without this any peer can inject a
+		 * chunk into (or, since a bad chunk drops the transfer, tear
+		 * down) a transfer another peer opened.
+		 */
+
+		if (frag->from_salen && from &&
+		    lws_sa46_compare_ads((const lws_sockaddr46 *)&frag->from_sa,
+					 (const lws_sockaddr46 *)from)) {
+			lwsl_notice("%s: %s: chunk from an address other than "
+				    "the one that opened the transfer\n",
+				    __func__, frag->safe_hash);
+
+			return -1;
+		}
+	}
+
+	if (msg->offset != frag->received_len ||
+	    (unsigned long long)msg->payload_len >
+				frag->total_len - frag->received_len) {
+		lwsl_notice("%s: %s: chunk at %llu len %zu rejected, wanted %llu\n",
+			    __func__, frag->safe_hash, msg->offset,
+			    msg->payload_len,
+			    (unsigned long long)frag->received_len);
+		goto drop;
+	}
+
+	w = write(frag->fd, msg->payload, msg->payload_len);
+	if (w < 0 || (size_t)w != msg->payload_len) {
+		lwsl_err("%s: write failed (errno %d)\n", __func__, errno);
+		goto drop;
+	}
+
+	if (lws_genhash_update(&frag->ctx, msg->payload, msg->payload_len))
+		goto drop;
+
+	frag->received_len += msg->payload_len;
+
+	if (frag->received_len < frag->total_len) {
+		lws_sul_schedule(vhd->context, 0, &frag->sul_timeout,
+				 dht_obj_store_frag_timeout_cb,
+				 LWS_DHT_STORE_XFER_TIMEOUT_US);
+
+		return 0;
+	}
+
+	frag->hash_init_done = 0;
+	if (lws_genhash_destroy(&frag->ctx, digest))
+		goto drop;
+
+	lws_hex_from_byte_array(digest,
+				(size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH),
+				hex, sizeof(hex));
+
+	if (strcmp(hex, frag->safe_hash)) {
+		lwsl_warn("%s: content hashes to %s but was offered as %s\n",
+			  __func__, hex, frag->safe_hash);
+		goto drop;
+	}
+
+	close(frag->fd);
+	frag->fd = -1;
+
+	if (dht_obj_store_path(vhd, frag->safe_hash, 1, path, sizeof(path)) ||
+	    dht_obj_store_path(vhd, frag->safe_hash, 0, final, sizeof(final)))
+		goto drop;
+
+	/* rename() replaces the name, it does not follow a symlink at it */
+
+	if (rename(path, final) < 0) {
+		lwsl_err("%s: unable to commit %s (errno %d)\n", __func__,
+			 final, errno);
+		goto drop;
+	}
+
+	vhd->store_bytes += frag->total_len;
+
+	lwsl_user("%s: %s committed, %llu bytes\n", __func__, frag->safe_hash,
+		  (unsigned long long)frag->total_len);
+
+	/* Notify anyone subscribed to this key */
+
+	{
+		uint8_t raw_hash[32];
+
+		if (lws_hex_to_byte_array(frag->safe_hash, raw_hash,
+					  (int)sizeof(raw_hash)) ==
+						(int)sizeof(raw_hash)) {
+			lws_dht_hash_t *id = lws_dht_hash_create(
+					LWS_DHT_HASH_TYPE_SHA256,
+					(int)sizeof(raw_hash), raw_hash);
+
+			if (id) {
+				lws_dht_notify_subscribers(ctx, id, digest,
+							   NULL, 0);
+				lws_dht_hash_destroy(&id);
+			}
+		}
+	}
+
+	*completed = 1;
+	dht_obj_store_fragment_destroy(&frag);
+
+	return 0;
+
+drop:
+	dht_obj_store_fragment_destroy(&frag);
+
+	return -1;
+}
+
 static int
 verb_put_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struct lws_dht_msg *msg,
 		 const struct sockaddr *from, size_t fromlen)
 {
-	struct dht_fragment *frag;
-	char path[256];
-	int n;
+	char ack[128];
+	int completed;
 
-	lwsl_user("%s: PUT [START] %s offset %llu len %llu payload_len %zu\n", __func__, msg->hash, msg->offset, msg->len, msg->payload_len);
-
-	frag = dht_obj_store_find_fragment(vhd, msg->hash);
-	if (!frag) {
-		lwsl_user("%s: PUT fragment not found in queue. Initializing new transfer metadata for hash %s\n", __func__, msg->hash);
-		frag = calloc(1, sizeof(*frag));
-		if (!frag) return -1;
-		lws_strncpy(frag->safe_hash, msg->hash, sizeof(frag->safe_hash));
-		frag->total_len = msg->len;
-		lws_dll2_add_tail(&frag->list, &vhd->fragments);
-
-		lws_snprintf(path, sizeof(path), "%s/%s", vhd->storage_path, frag->safe_hash);
-		lwsl_user("%s: PUT targeting filepath: %s\n", __func__, path);
-
-		if (mkdir(vhd->storage_path, 0770) < 0 && errno != EEXIST) {
-			lwsl_err("%s: Failed to create storage dir %s (errno %d)\n", __func__,
-				 vhd->storage_path, errno);
-		} else {
-			lwsl_user("%s: Storage dir %s is verified\n", __func__, vhd->storage_path);
-		}
-
-		frag->fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0660);
-		if (frag->fd < 0) {
-			lwsl_err("%s: Failed to open %s (errno %d)\n", __func__, path, errno);
-			lws_dll2_remove(&frag->list);
-			free(frag);
-			return -1;
-		}
-		lwsl_user("%s: Successfully opened filepath %s for writing\n", __func__, path);
-
-		if (lws_genhash_init(&frag->ctx, LWS_DHT_STORE_GENHASH)) {
-			close(frag->fd);
-			lws_dll2_remove(&frag->list);
-			free(frag);
-			return -1;
-		}
-		frag->hash_init_done = 1;
-	} else {
-		lwsl_user("%s: Continuing existing transfer! Safe Hash: %s, Current Total Bytes Received: %llu\n", __func__, frag->safe_hash, (unsigned long long)frag->received_len);
-	}
-
-	if (lseek(frag->fd, (off_t)msg->offset, SEEK_SET) < 0) {
-		lwsl_err("%s: lseek failed for offset %llu\n", __func__, msg->offset);
+	if (dht_obj_store_ingest(ctx, vhd, msg, from, fromlen, &completed))
 		return -1;
-	}
-	n = (int)write(frag->fd, msg->payload, msg->payload_len);
-	if (n < 0 || (size_t)n != msg->payload_len) {
-		lwsl_err("%s: write failed (wrote %d of expected %zu, errno %d)\n", __func__, n, msg->payload_len, errno);
-		return -1;
-	}
-	lwsl_user("%s: Successfully wrote %d bytes (Total Received now: %llu/%llu)\n", __func__, n, (unsigned long long)(frag->received_len + msg->payload_len), (unsigned long long)msg->len);
 
-	if (lws_genhash_update(&frag->ctx, msg->payload, msg->payload_len)) return -1;
-	frag->received_len += msg->payload_len;
+	if (completed && vhd->client_mode && vhd->cb_completion)
+		vhd->cb_completion(vhd->cb_closure, 0);
 
-	if (frag->received_len >= frag->total_len) {
-		uint8_t hash[LWS_GENHASH_LARGEST];
-		char hex[LWS_GENHASH_LARGEST * 2 + 1];
-
-		lws_genhash_destroy(&frag->ctx, hash);
-		frag->hash_init_done = 0;
-		lws_hex_from_byte_array(hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH), hex, sizeof(hex));
-		lwsl_user("%s: PUT COMPLETION Finished: File completely written %s, Final validation hash %s\n", __func__, frag->safe_hash, hex);
-
-		/* Notify anyone tracking this hash */
-		{
-			uint8_t raw_hash[20];
-			if (!lws_hex_to_byte_array(frag->safe_hash, raw_hash, sizeof(raw_hash))) {
-				lws_dht_hash_t *id = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA1, 20, raw_hash);
-				if (id) {
-					lws_dht_notify_subscribers(ctx, id, hash, NULL, 0);
-					lws_dht_hash_destroy(&id);
-				}
-			}
-		}
-
-		close(frag->fd);
-		frag->fd = -1;
-
-		if ((vhd->cli_put_file || vhd->cli_get_hash || vhd->cli_bulk || vhd->gen_manifest || vhd->cli_receiver) &&
-		    vhd->cb_completion)
-			vhd->cb_completion(vhd->cb_closure, 0);
-
-		lws_dll2_remove(&frag->list);
-		free(frag);
-	}
-
-	/* Send ACK */
-	{
-		char ack[128];
-		lwsl_user("%s: Sending ACK back to client for %s offset %llu payload_len %zu\n", __func__, msg->hash, msg->offset, msg->payload_len);
-		lws_dht_msg_gen(ack, sizeof(ack), "ACK", msg->hash, msg->offset, msg->payload_len);
-		lws_dht_send_data(ctx, from, ack, strlen(ack));
-	}
+	lws_dht_msg_gen(ack, sizeof(ack), "ACK", msg->hash, msg->offset,
+			(unsigned long long)msg->payload_len);
+	lws_dht_send_data(ctx, from, ack, strlen(ack));
 
 	return 0;
 }
@@ -272,12 +649,36 @@ verb_get_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struc
 	size_t blen = 1024 + 1024;
 	int hlen;
 
-	// lwsl_user("%s: GET %s offset %llu len %llu\n", __func__, msg->hash, msg->offset, msg->len);
+	(void)fromlen;
 
-	lws_snprintf(path, sizeof(path), "%s/%s", vhd->storage_path, msg->hash);
-	fd = open(path, O_RDONLY);
+	/*
+	 * GET is unauthenticated, needs no reply from the peer to be useful,
+	 * and answers ~100 bytes of request with ~1200 bytes at whatever
+	 * source address the request claimed... ie, it is an amplifier aimed
+	 * at a spoofable third party.  There is no per-peer state here to hang
+	 * a per-source bucket on, so cap the responses we will emit at all.
+	 */
+
+	if (!vhd->get_tokens) {
+		lwsl_notice("%s: GET response rate cap reached\n", __func__);
+
+		return -1;
+	}
+
+	if (!dht_obj_store_policy_allows(vhd, msg->hash)) {
+		lwsl_notice("%s: policy rejects GET %s\n", __func__, msg->hash);
+
+		return -1;
+	}
+
+	if (dht_obj_store_path(vhd, msg->hash, 0, path, sizeof(path)))
+		return -1;
+
+	fd = open(path, O_RDONLY | O_NOFOLLOW);
 	if (fd < 0) {
-		lwsl_err("%s: Not found %s\n", __func__, path);
+		/* peer-driven, so not an error level */
+		lwsl_info("%s: not found %s\n", __func__, path);
+
 		return -1;
 	}
 
@@ -294,6 +695,8 @@ verb_get_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struc
 	hlen = lws_dht_msg_gen(buf, 1024, "RSP", msg->hash, msg->offset, (unsigned long long)n);
 	if (hlen < 0) goto fail;
 	memmove((uint8_t *)buf + hlen, (uint8_t *)buf + 1024, (size_t)n);
+
+	vhd->get_tokens--;
 	lws_dht_send_data(ctx, from, buf, (size_t)hlen + (size_t)n);
 
 	free(buf);
@@ -310,7 +713,15 @@ static int
 verb_ack_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struct lws_dht_msg *msg,
 		 const struct sockaddr *from, size_t fromlen)
 {
+	(void)ctx;
+	(void)from;
+	(void)fromlen;
+
 	lwsl_user("%s: ACK for %s offset %llu\n", __func__, msg->hash, msg->offset);
+
+	if (!vhd->client_mode)
+		return 0;
+
 	if (vhd->cli_put_file) {
 		vhd->bulk_sent += msg->len;
 		if (vhd->bulk_sent >= vhd->bulk_total) {
@@ -337,34 +748,38 @@ static int
 verb_rsp_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struct lws_dht_msg *msg,
 		 const struct sockaddr *from, size_t fromlen)
 {
-	struct dht_fragment *frag;
+	struct dht_request *req;
+	int completed;
 
 	lwsl_user("%s: RSP for %s offset %llu len %llu payload %zu\n", __func__, msg->hash, msg->offset, msg->len, msg->payload_len);
 
-	frag = dht_obj_store_find_fragment(vhd, msg->hash);
-	if (!frag) {
-		frag = calloc(1, sizeof(*frag));
-		if (!frag) return -1;
-		lws_strncpy(frag->safe_hash, msg->hash, sizeof(frag->safe_hash));
-		frag->total_len = msg->len;
-		lws_dll2_add_tail(&frag->list, &vhd->fragments);
+	/*
+	 * A RSP is only meaningful as the answer to a GET we sent.  Without
+	 * this, any peer can hand us an unsolicited RSP and make us create and
+	 * fill a file of its choosing, permanently costing an fd and a digest
+	 * context per distinct key it invents.
+	 */
 
-		frag->fd = open(frag->safe_hash, O_RDWR | O_CREAT | O_TRUNC, 0660);
-		if (frag->fd < 0) return -1;
-		if (lws_genhash_init(&frag->ctx, LWS_DHT_STORE_GENHASH)) return -1;
-		frag->hash_init_done = 1;
+	req = dht_obj_store_find_request(vhd, msg->hash);
+	if (!req) {
+		lwsl_notice("%s: unsolicited RSP for %s ignored\n", __func__,
+			    msg->hash);
+
+		return -1;
 	}
 
-	if (lseek(frag->fd, (off_t)msg->offset, SEEK_SET) < 0) return -1;
-	if (write(frag->fd, msg->payload, msg->payload_len) < 0) return -1;
-	if (lws_genhash_update(&frag->ctx, msg->payload, msg->payload_len)) return -1;
+	if (dht_obj_store_ingest(ctx, vhd, msg, from, fromlen, &completed))
+		return -1;
 
-	frag->received_len += msg->payload_len;
-	if (frag->received_len >= frag->total_len) {
-		lwsl_user("GET complete for %s\n", frag->safe_hash);
-		if (vhd->cb_completion)
-			vhd->cb_completion(vhd->cb_closure, 0);
-	}
+	if (!completed)
+		return 0;
+
+	lwsl_user("%s: GET complete for %s\n", __func__, msg->hash);
+
+	dht_obj_store_request_destroy(&req);
+
+	if (vhd->client_mode && vhd->cb_completion)
+		vhd->cb_completion(vhd->cb_closure, 0);
 
 	return 0;
 }
@@ -497,6 +912,11 @@ dht_obj_store_sul_get_cb(void *v)
 
 	lwsl_user("Sending GET %s to %s:%d\n", vhd->cli_get_hash, vhd->target_ip, vhd->target_port);
 
+	/* only a RSP matching this is allowed to make us write anything */
+
+	if (dht_obj_store_request_add(vhd, vhd->cli_get_hash))
+		return;
+
 	lws_dht_msg_gen(buf, sizeof(buf), "GET", vhd->cli_get_hash, 0, 1024);
 	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sa46, buf, strlen(buf));
 }
@@ -593,7 +1013,17 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_DHT_VERB_DISPATCH: {
 		struct lws_dht_verb_dispatch_args *args =
 			(struct lws_dht_verb_dispatch_args *)in;
-		const char *h = args->msg->hash;
+		const char *h;
+
+		/*
+		 * Verbs are only registered after our vhd exists, but the DHT
+		 * ctx can be shared with other protocols on this vhost
+		 */
+
+		if (!args || !vhd)
+			return -1;
+
+		h = args->msg->hash;
 
 		while (*h) {
 			if (!(*h >= '0' && *h <= '9') && !(*h >= 'a' && *h <= 'f') && !(*h >= 'A' && *h <= 'F')) {
@@ -635,6 +1065,7 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 		if (!vhd) return -1;
 		vhd->context = lws_get_context(wsi); vhd->vhost = vhost;
 		lws_dll2_owner_clear(&vhd->fragments);
+		lws_dll2_owner_clear(&vhd->requests);
 		vhd->bulk_fd = -1;
 		vhd->main_result = 1;
 
@@ -643,6 +1074,9 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 		vhd->target_port = 49100;
 		vhd->dht_port = 49100;
 		vhd->storage_path = "./dht-store";
+		vhd->max_object = LWS_DHT_STORE_MAX_OBJECT;
+		vhd->quota = LWS_DHT_STORE_QUOTA;
+		vhd->get_tokens = LWS_DHT_STORE_GET_BURST;
 
 		/* Override from PVOs */
 		if (lws_pvo_get_str(in, "dht-storage-path", &vhd->storage_path))
@@ -663,8 +1097,34 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 		if (!lws_pvo_get_str(in, "dht-test-handshake", &p) && p && p[0]) vhd->test_handshake = 1;
 		if (!lws_pvo_get_str(in, "receiver", &p) && p && p[0]) vhd->cli_receiver = 1;
 
-		if ((pvo = lws_pvo_search(in, "completion-cb"))) vhd->cb_completion = (lws_dht_store_completion_cb_t)(void *)pvo->value;
-		if ((pvo = lws_pvo_search(in, "completion-cb-arg"))) vhd->cb_closure = (void *)pvo->value;
+		if ((pvo = lws_pvo_search(in, "dht-max-object-size")) && pvo->value && pvo->value[0])
+			vhd->max_object = strtoull(pvo->value, NULL, 10);
+		if ((pvo = lws_pvo_search(in, "dht-store-quota")) && pvo->value && pvo->value[0])
+			vhd->quota = strtoull(pvo->value, NULL, 10);
+		if (!vhd->max_object || vhd->max_object > LWS_DHT_STORE_MAX_OBJECT)
+			vhd->max_object = LWS_DHT_STORE_MAX_OBJECT;
+		if (vhd->quota < vhd->max_object)
+			vhd->quota = vhd->max_object;
+
+		/*
+		 * The client / test modes are the only reason the completion
+		 * callback exists.  Its pvo value is a raw function pointer,
+		 * which is only meaningful when the pvo list was built
+		 * programmatically... from a JSON config, pvo->value is a
+		 * pointer into the parsed config text.  So only look at it at
+		 * all when one of those modes was asked for, which keeps it
+		 * out of reach of anything a server deployment can be driven
+		 * into by a datagram.
+		 */
+
+		vhd->client_mode = !!(vhd->cli_put_file || vhd->cli_get_hash ||
+				      vhd->cli_bulk || vhd->gen_manifest ||
+				      vhd->cli_receiver || vhd->test_handshake);
+
+		if (vhd->client_mode) {
+			if ((pvo = lws_pvo_search(in, "completion-cb"))) vhd->cb_completion = (lws_dht_store_completion_cb_t)(void *)pvo->value;
+			if ((pvo = lws_pvo_search(in, "completion-cb-arg"))) vhd->cb_closure = (void *)pvo->value;
+		}
 
 		if (dht_obj_store_jwk_load_or_gen(vhd)) {
 			lwsl_vhost_warn(vhd->vhost, "Failed to load or generate JWK at '%s'\n", vhd->cli_jwk_path);
@@ -689,6 +1149,9 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 		lws_dht_register_verbs(vhd->dht, store_verbs, LWS_ARRAY_SIZE(store_verbs), protocol);
 
 		lws_sul_schedule(vhd->context, 0, &vhd->sul_stats, sul_stats_cb, 100 * LWS_US_PER_MS);
+		lws_sul_schedule(vhd->context, 0, &vhd->sul_get_tokens,
+				 dht_obj_store_get_tokens_cb,
+				 LWS_DHT_STORE_GET_REFILL_US);
 
 		lwsl_vhost_notice(vhd->vhost, "Attached lws-dht-object-store to UDP port %d (JWK at %s, store at %s)\n",
 				 vhd->dht_port, vhd->cli_jwk_path, vhd->storage_path);
@@ -723,15 +1186,17 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 			lws_sul_cancel(&vhd->sul_stats);
 			lws_sul_cancel(&vhd->sul_speed);
 			lws_sul_cancel(&vhd->sul_bulk);
+			lws_sul_cancel(&vhd->sul_get_tokens);
 			lws_jwk_destroy(&vhd->jwk);
 			lws_start_foreach_dll_safe(struct lws_dll2*, d, d1, lws_dll2_get_head(&vhd->fragments)) {
 				struct dht_fragment* frag = lws_container_of(d, struct dht_fragment, list);
-				if (frag->hash_init_done)
-					lws_genhash_destroy(&frag->ctx, NULL);
-				if (frag->fd >= 0)
-					close(frag->fd);
-				lws_dll2_remove(&frag->list);
-				free(frag);
+
+				dht_obj_store_fragment_destroy(&frag);
+			} lws_end_foreach_dll_safe(d, d1);
+			lws_start_foreach_dll_safe(struct lws_dll2*, d, d1, lws_dll2_get_head(&vhd->requests)) {
+				struct dht_request* req = lws_container_of(d, struct dht_request, list);
+
+				dht_obj_store_request_destroy(&req);
 			} lws_end_foreach_dll_safe(d, d1);
 			/* vhd->dht is already torn down by lws_vhost_destroy2() */
 			vhd->dht = NULL;
