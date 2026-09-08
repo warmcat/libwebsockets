@@ -1121,6 +1121,14 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!vhd)
 			return -1;
 
+		/*
+		 * Every path into here has a wsi: RAW_RX is only issued
+		 * for a live connection, and the delayed LWS_CALLBACK_USER
+		 * re-entry is only made while q->wsi is still set.
+		 */
+		if (!wsi)
+			return -1;
+
 		uint8_t *end = p + len;
 		int is_tcp = (lws_get_udp(wsi) == NULL);
 		uint16_t req_len = 0;
@@ -1151,13 +1159,13 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			delayed_q = pqdht;
 			lws_sa46_write_numeric_address(&delayed_q->sa46_peer, peer_ip, sizeof(peer_ip));
 		} else {
-			if (wsi) {
-				const struct lws_udp *udp = lws_get_udp(wsi);
-				if (!is_tcp && udp)
-					lws_sa46_write_numeric_address((lws_sockaddr46 *)&udp->sa46, peer_ip, sizeof(peer_ip));
-				else
-					lws_get_peer_simple(wsi, peer_ip, sizeof(peer_ip));
-			}
+			const struct lws_udp *udp = lws_get_udp(wsi);
+
+			if (!is_tcp && udp)
+				lws_sa46_write_numeric_address((lws_sockaddr46 *)&udp->sa46, peer_ip, sizeof(peer_ip));
+			else
+				lws_get_peer_simple(wsi, peer_ip, sizeof(peer_ip));
+
 			if (is_tcp) {
 				if ((size_t)pss->rx_len + len > sizeof(pss->rx_buf)) { lwsl_notice("tcp req too large (%d)\n", (int)len); return -1; }
 				memcpy(pss->rx_buf + pss->rx_len, in, len);
