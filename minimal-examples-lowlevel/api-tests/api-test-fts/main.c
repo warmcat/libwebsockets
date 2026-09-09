@@ -77,7 +77,7 @@ selftest_filepath(struct lws_fts_result_filepath *fp, const char *needle,
 {
 	const char *path = ((const char *)(fp + 1)) + fp->matches_length;
 	const uint32_t *li = (const uint32_t *)(void *)(fp + 1);
-	size_t *lofs = NULL, nlines = 0, len = 0, alloc, m;
+	size_t *lofs = NULL, nlines = 0, count = 0, len = 0, alloc, m;
 	int fd, n, stride, ret = 1;
 	char *fb = NULL;
 	off_t size;
@@ -120,15 +120,16 @@ selftest_filepath(struct lws_fts_result_filepath *fp, const char *needle,
 
 	for (m = 0; m < len; m++)
 		if (fb[m] == '\n')
-			nlines++;
+			count++;
 
-	lofs = malloc((nlines + 1) * sizeof(*lofs));
+	lofs = malloc((count + 1) * sizeof(*lofs));
 	if (!lofs)
 		goto bail;
 
+	/* the same scan again, bounded by what we just counted and sized for */
+
 	lofs[0] = 0;
-	nlines = 0;
-	for (m = 0; m < len; m++)
+	for (m = 0; m < len && nlines < count; m++)
 		if (fb[m] == '\n')
 			lofs[++nlines] = m + 1;
 
