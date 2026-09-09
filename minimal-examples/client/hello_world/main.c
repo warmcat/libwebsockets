@@ -83,13 +83,12 @@ main(int argc, const char **argv)
 
 	lwsl_cx_user(cx, "LWS hello_world example [-d<verb>]\n");
 
-	if (lws_ss_create(cx, 0, &ssi_hello_world_t, NULL, &h, NULL, NULL)) {
+	/* the url is given to the SS as its opaque user data, so the stream
+	 * can set it as the endpoint metadata in LWSSSCS_CREATING, before its
+	 * first tx request tries to connect */
+	if (lws_ss_create(cx, 0, &ssi_hello_world_t, (void *)url, &h, NULL,
+			  NULL)) {
 		lwsl_cx_err(cx, "failed to create SS");
-		goto bail;
-	}
-
-	if (lws_ss_set_metadata(h, "endpoint", url, strlen(url))) {
-		lwsl_err("%s: failed to use metadata %s\n", __func__, url);
 		goto bail;
 	}
 

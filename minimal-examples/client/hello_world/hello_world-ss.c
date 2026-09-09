@@ -49,6 +49,19 @@ hello_world_state(void *userobj, void *h_src, lws_ss_constate_t state,
 
 	switch ((int)state) {
 	case LWSSSCS_CREATING: /* start the transaction as soon as we exist */
+		/*
+		 * main.c passed the url to fetch as our opaque user data...
+		 * it has to be set as the endpoint metadata before we ask to
+		 * tx, or the first connection attempt has nowhere to go
+		 */
+		{
+			const char *url = (const char *)lws_ss_opaque_from_user(g);
+
+			if (lws_ss_set_metadata(lws_ss_from_user(g), "endpoint",
+						url, strlen(url)))
+				return LWSSSSRET_DESTROY_ME;
+		}
+
 		return lws_ss_request_tx(lws_ss_from_user(g));
 
 	case LWSSSCS_QOS_ACK_REMOTE: /* server liked our request */
