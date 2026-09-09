@@ -1333,8 +1333,27 @@ int _lws_generic_transaction_completed_active_conn(struct lws **_wsi,
 	 * If not, that's it for us.
 	 */
 
-	if (lws_dll2_is_detached(&wsi->dll_cli_active_conns))
-		return 0; /* no new transaction */
+	if (lws_dll2_is_detached(&wsi->dll_cli_active_conns)) {
+		/*
+		 * We are not a leader that others can queue on.
+		 *
+		 * If we are a mux substream, the network connection belongs to
+		 * our parent and there is nothing for us to do here.
+		 *
+		 * But if we own the connection ourselves, eg, an h1 client
+		 * whose Host: did not identify the address it dialled and so
+		 * could not offer itself as a pipelining target, we must still
+		 * idle it the same as a leader with nothing queued.  Otherwise
+		 * it is left in LRS_ESTABLISHED with its headers marked as
+		 * complete, and the peer closing after our "connection: close"
+		 * is handed to the user as RECEIVE_CLIENT_HTTP whose read then
+		 * fails, instead of being absorbed by the IDLING path.
+		 */
+		if (wsi->client_mux_substream)
+			return 0; /* no new transaction */
+
+		goto idle;
+	}
 
 	/*
 	 * With h1 queuing, the original "active client" moves his attributes
@@ -1351,11 +1370,12 @@ int _lws_generic_transaction_completed_active_conn(struct lws **_wsi,
 	 * For that reason, see if we have any queued child now...
 	 */
 
-	if(lws_dll2_is_empty(&wsi->dll2_cli_txn_queue_owner)) {
+	if (lws_dll2_is_empty(&wsi->dll2_cli_txn_queue_owner)) {
 		/*
 		 * Nothing pipelined... we should hang around a bit
 		 * in case something turns up... otherwise we'll close
 		 */
+idle:
 		lwsl_wsi_info(wsi, "nothing pipelined waiting");
 		lwsi_set_state(wsi, LRS_IDLING);
 
