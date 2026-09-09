@@ -97,6 +97,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		context->event_loop_ops->run_pt(context, tsi);
 
 	for (i = 0; i < pt->fds_count; ++i) {
+		lws_sockfd_type fd;
+
 		pfd = &pt->fds[i];
 
 		if (!(pfd->events & LWS_POLLOUT))
@@ -107,6 +109,9 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			continue;
 		if (wsi->sock_send_blocking)
 			continue;
+
+		fd = pfd->fd;
+
 		pfd->revents = LWS_POLLOUT;
 		n = lws_service_fd(context, pfd);
 		if (n < 0)
@@ -118,8 +123,20 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		 */
 		timeout_us = 0;
 
-		/* if something closed, retry this slot */
-		if (n)
+		/*
+		 * If the service closed a wsi, __remove_wsi_socket_from_fds()
+		 * swapped the last entry into this slot, so it has to be
+		 * looked at again.  That must be decided from the fds table
+		 * itself and not from lws_service_fd()'s return: the roles
+		 * also return "already died" for a wsi that is in fact still
+		 * alive and still asking for POLLOUT in this same slot (eg,
+		 * a client connect still in progress, or a user callback
+		 * refusing LWS_CALLBACK_COMPLETED_CLIENT_HTTP), and retrying
+		 * the slot on that never terminates: the sul list is only
+		 * serviced after this loop, so no timeout can ever fire and
+		 * the process hangs here for ever at 100% CPU.
+		 */
+		if (i < pt->fds_count && pt->fds[i].fd != fd)
 			i--;
 	}
 
