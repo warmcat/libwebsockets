@@ -737,19 +737,28 @@ message(" GENCERTS = ${GENCERTS}")
 if (GENCERTS)
 	message("Generating SSL Certificates for the test-server...")
 
+	#
+	# The ctests dial the local test servers as "localhost" on dual-stack
+	# builds, but as the literal 127.0.0.1 or ::1 when only one family is
+	# built in (see LWS_CTEST_SERVER_RESOLVE)... the client still checks
+	# the peer name in every case, so the cert must name all three
+	#
+	set(TEST_SERVER_SSL_SAN "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1")
+
 	set(TEST_SERVER_SSL_KEY "${PROJECT_BINARY_DIR}/libwebsockets-test-server.key.pem")
 	set(TEST_SERVER_SSL_CERT "${PROJECT_BINARY_DIR}/libwebsockets-test-server.pem")
 
 	if (WIN32)
 		if (MINGW)
-			message("cmd = \"${OPENSSL_EXECUTABLE}\" req -new -newkey rsa:2048 -days 10000 -nodes -x509 -subj \"/C=GB/ST=Erewhon/L=All around/O=libwebsockets-test/CN=localhost\" -keyout \"${TEST_SERVER_SSL_KEY}\" -out \"${TEST_SERVER_SSL_CERT}\"")
+			message("cmd = \"${OPENSSL_EXECUTABLE}\" req -new -newkey rsa:2048 -days 10000 -nodes -x509 -subj \"/C=GB/ST=Erewhon/L=All around/O=libwebsockets-test/CN=localhost\" -addext \"${TEST_SERVER_SSL_SAN}\" -keyout \"${TEST_SERVER_SSL_KEY}\" -out \"${TEST_SERVER_SSL_CERT}\"")
 			execute_process(
-				COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:2048 -days 10000 -nodes -x509 -subj "/C=GB/ST=Erewhon/L=All around/O=libwebsockets-test/CN=localhost" -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+				COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:2048 -days 10000 -nodes -x509 -subj "/C=GB/ST=Erewhon/L=All around/O=libwebsockets-test/CN=localhost" -addext "${TEST_SERVER_SSL_SAN}" -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
 				RESULT_VARIABLE OPENSSL_RETURN_CODE)
 		else()
 			file(WRITE "${PROJECT_BINARY_DIR}/openssl_test_server.cnf"
 				"[req]\n"
 				"distinguished_name=req_distinguished_name\n"
+				"x509_extensions=v3\n"
 				"prompt=no\n"
 				"\n"
 				"[req_distinguished_name]\n"
@@ -758,6 +767,9 @@ if (GENCERTS)
 				"L=All around\n"
 				"O=libwebsockets-test\n"
 				"CN=localhost\n"
+				"\n"
+				"[v3]\n"
+				"${TEST_SERVER_SSL_SAN}\n"
 				)
 
 			execute_process(
@@ -776,7 +788,7 @@ if (GENCERTS)
                if (CMAKE_HOST_SYSTEM_NAME MATCHES "NetBSD")
                 execute_process(
                         COMMAND "${OPENSSL_EXECUTABLE}"
-                                req -new -newkey rsa:2048 -days 10000 -nodes -x509 -subj "/O=lws/CN=localhost" -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+                                req -new -newkey rsa:2048 -days 10000 -nodes -x509 -subj "/O=lws/CN=localhost" -addext "${TEST_SERVER_SSL_SAN}" -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
                         RESULT_VARIABLE OPENSSL_RETURN_CODE
                         #               OUTPUT_QUIET ERROR_QUIET
                         )
@@ -787,7 +799,7 @@ if (GENCERTS)
                execute_process(
                        COMMAND printf "GB\\nErewhon\\nAll around\\nlibwebsockets-test\\n\\nlocalhost\\nnone@invalid.org\\n"
                        COMMAND "${OPENSSL_EXECUTABLE}"
-                               req -config /etc/ssl/openssl.cnf -new -newkey rsa:2048 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+                               req -config /etc/ssl/openssl.cnf -new -newkey rsa:2048 -days 10000 -nodes -x509 -addext "${TEST_SERVER_SSL_SAN}" -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
                        RESULT_VARIABLE OPENSSL_RETURN_CODE
                        #               OUTPUT_QUIET ERROR_QUIET
                        )
