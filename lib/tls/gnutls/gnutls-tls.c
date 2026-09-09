@@ -578,7 +578,6 @@ lws_gnutls_client_hostname(struct lws *wsi, char *buf, size_t len)
 {
 	const char *from = lws_wsi_client_stash_item(wsi, CIS_HOST,
 						     _WSI_TOKEN_CLIENT_HOST);
-	char *p;
 
 	if (!from)
 		from = wsi->cli_hostname_copy;
@@ -592,14 +591,7 @@ lws_gnutls_client_hostname(struct lws *wsi, char *buf, size_t len)
 	 * remove any :port part on the hostname... necessary for network
 	 * connection but typical certificates do not contain it
 	 */
-	p = buf;
-	while (*p) {
-		if (*p == ':') {
-			*p = '\0';
-			break;
-		}
-		p++;
-	}
+	lws_tls_client_strip_port(buf);
 
 	return !buf[0];
 }
@@ -706,7 +698,14 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 	gnutls_transport_set_int(session, (int)wsi->desc.sockfd);
 
-	gnutls_server_name_set(session, GNUTLS_NAME_DNS, hostname, strlen(hostname));
+	/*
+	 * RFC 6066 3: SNI carries only hostnames, "literal IPv4 and IPv6
+	 * addresses are not permitted"... gnutls does not filter it for us
+	 * and a gnutls server rejects the handshake if it sees one
+	 */
+	if (!lws_tls_client_host_is_literal(hostname))
+		gnutls_server_name_set(session, GNUTLS_NAME_DNS, hostname,
+				       strlen(hostname));
 	gnutls_session_set_ptr(session, wsi);
 
 #if defined(LWS_WITH_TLS_KEYLOG) && \

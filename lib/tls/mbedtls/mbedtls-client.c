@@ -41,7 +41,7 @@ int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
 	struct lws_tls_conn *conn;
-	char hostname[128], *p;
+	char hostname[128];
 	char temp_alpn[128];
 	const char *alpn_comma = wsi->a.context->tls.alpn_default;
 
@@ -54,14 +54,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 			return -1;
 		}
 
-	p = hostname;
-	while (*p) {
-		if (*p == ':') {
-			*p = '\0';
-			break;
-		}
-		p++;
-	}
+	/* remove any :port part on the hostname */
+	lws_tls_client_strip_port(hostname);
 
 	conn = lws_zalloc(sizeof(*conn), "mbedtls client conn");
 	if (!conn) {

@@ -251,7 +251,7 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
-	char hostname[128], *p;
+	char hostname[128];
 #if (defined(LWS_HAVE_SSL_set_alpn_protos) || defined(OPENSSL_IS_AWSLC)) && \
     (defined(LWS_HAVE_SSL_get0_alpn_selected) || defined(OPENSSL_IS_AWSLC))
 	uint8_t openssl_alpn[40];
@@ -281,14 +281,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	 * remove any :port part on the hostname... necessary for network
 	 * connection but typical certificates do not contain it
 	 */
-	p = hostname;
-	while (*p) {
-		if (*p == ':') {
-			*p = '\0';
-			break;
-		}
-		p++;
-	}
+	lws_tls_client_strip_port(hostname);
 
 	wsi->tls.ssl = SSL_new(wsi->a.vhost->tls.ssl_client_ctx);
 	if (!wsi->tls.ssl) {
@@ -347,8 +340,10 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #endif
 	/*
 	 * use server name indication (SNI), if supported,
-	 * when establishing connection
+	 * when establishing connection... but RFC 6066 3 says literal IPv4
+	 * and IPv6 addresses are not permitted in there
 	 */
+	if (!lws_tls_client_host_is_literal(hostname)) {
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
 #ifdef CYASSL_SNI_HOST_NAME
@@ -366,6 +361,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	SSL_set_tlsext_host_name(wsi->tls.ssl, hostname);
 #endif
 #endif
+	}
 
 #ifdef USE_WOLFSSL
 	/*

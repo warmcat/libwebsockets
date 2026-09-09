@@ -24,6 +24,59 @@
 
 #include "private-lib-core.h"
 
+/*
+ * The client tls backends need the bare hostname for SNI and for the peer
+ * cert name check.  The stashed host may carry a :port suffix, which no cert
+ * ever names, so that has to go... but a bare IPv6 literal like ::1 is all
+ * colons, and cutting at the first one left an empty name: gnutls, mbedtls
+ * and schannel then fail the connection, and openssl silently treats it as
+ * "no hostname to check".
+ *
+ * Accept host, host:port, [v6], [v6]:port and bare v6, leaving just the
+ * name in place.
+ */
+
+void
+lws_tls_client_strip_port(char *host)
+{
+	char *p = host, *q;
+	int colons = 0;
+
+	if (*host == '[') {
+		q = strchr(host, ']');
+		if (!q) {
+			/* malformed... leave nothing for the check to accept */
+			*host = '\0';
+			return;
+		}
+		memmove(host, host + 1, (size_t)(q - host - 1));
+		host[q - host - 1] = '\0';
+		return;
+	}
+
+	while (*p)
+		if (*p++ == ':')
+			colons++;
+
+	if (colons != 1)
+		return; /* no port, or a bare IPv6 literal */
+
+	*strchr(host, ':') = '\0';
+}
+
+/*
+ * RFC 6066 3: "Literal IPv4 and IPv6 addresses are not permitted in
+ * HostName"... the backends must not offer these as SNI
+ */
+
+int
+lws_tls_client_host_is_literal(const char *host)
+{
+	uint8_t nb[16];
+
+	return lws_parse_numeric_address(host, nb, sizeof(nb)) > 0;
+}
+
 #if defined(LWS_WITH_TCP_TLS)
 static int
 lws_ssl_client_connect1(struct lws *wsi, char *errbuf, size_t len)

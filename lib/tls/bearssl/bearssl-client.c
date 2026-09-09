@@ -139,11 +139,8 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 				conn->client_hostname = lws_strdup(temp_host);
 		}
 
-		if (conn->client_hostname) {
-			char *p = (char *)strchr(conn->client_hostname, ':');
-			if (p)
-				*p = '\0';
-		}
+		if (conn->client_hostname)
+			lws_tls_client_strip_port(conn->client_hostname);
 
 		int resume = 0;
 #if defined(LWS_WITH_TLS_SESSIONS)

@@ -86,8 +86,6 @@ lws_openhitls_verify_result_to_policy(int vr, const char **type,
 static int
 lws_openhitls_client_hostname(struct lws *wsi, char *buf, size_t len)
 {
-	char *p;
-
 	buf[0] = '\0';
 
 	if (wsi->stash && wsi->stash->cis[CIS_HOST]) {
@@ -102,14 +100,7 @@ lws_openhitls_client_hostname(struct lws *wsi, char *buf, size_t len)
 		}
 	}
 
-	p = buf;
-	while (*p) {
-		if (*p == ':') {
-			*p = '\0';
-			break;
-		}
-		p++;
-	}
+	lws_tls_client_strip_port(buf);
 
 	return !buf[0];
 }
@@ -524,9 +515,11 @@ int lws_ssl_client_bio_create(struct lws *wsi)
 	}
 	HITLS_SetModeSupport(ssl, HITLS_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
-	/* use server name indication (SNI), if supported */
-	HITLS_SetServerName(ssl, (uint8_t *)hostname,
-			    (uint32_t)strlen(hostname));
+	/* use server name indication (SNI), if supported... RFC 6066 3 does
+	 * not permit literal IPv4 or IPv6 addresses in there */
+	if (!lws_tls_client_host_is_literal(hostname))
+		HITLS_SetServerName(ssl, (uint8_t *)hostname,
+				    (uint32_t)strlen(hostname));
 
 	/* Create and attach BSL_UIO (TCP socket) */
 	uio = BSL_UIO_New(BSL_UIO_TcpMethod());

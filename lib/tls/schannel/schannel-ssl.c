@@ -46,7 +46,7 @@ int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
 	struct lws_tls_schannel_conn *conn;
-	char hostname[128], *p;
+	char hostname[128];
 
 	conn = lws_zalloc(sizeof(*conn), "schannel_conn");
 	if (!conn) return -1;
@@ -67,14 +67,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	}
 
 	/* Handle port stripping */
-	p = hostname;
-	while (*p) {
-		if (*p == ':') {
-			*p = '\0';
-			break;
-		}
-		p++;
-	}
+	lws_tls_client_strip_port(hostname);
 
 	lws_strncpy(conn->hostname, hostname, sizeof(conn->hostname));
 
