@@ -861,6 +861,19 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 			}
 			pp++;
 		}
+
+		if (!ep[0]) {
+			/*
+			 * The endpoint was all ${metadata} and nobody set it
+			 * yet, eg, the stream asked to tx from CREATING before
+			 * the app had a chance to.  There is nothing to connect
+			 * to, and handing "" to DNS asks for the root zone...
+			 * treat it as unreachable so the retry policy has
+			 * another go later, by which time it may be set.
+			 */
+			lwsl_ss_warn(h, "empty endpoint after substitution");
+			goto fail_out;
+		}
 	}
 
 	/*
@@ -1111,9 +1124,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 			return h->pending_ret;
 		}
 
-#if defined(LWS_WITH_FILE_OPS)
 fail_out:
-#endif
 		if (h->prev_ss_state != LWSSSCS_UNREACHABLE &&
 		    h->prev_ss_state != LWSSSCS_ALL_RETRIES_FAILED) {
 			/*
