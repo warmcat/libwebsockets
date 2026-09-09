@@ -705,9 +705,7 @@ lws_dht_create(const lws_dht_info_t *info)
 
 	if (!ctx->myid) {
 		lwsl_err("ctx->myid creation failed\n");
-		lws_free(ctx);
-
-		return NULL;
+		goto fail;
 	}
 
 	if (info->v) {
