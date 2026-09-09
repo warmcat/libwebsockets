@@ -177,8 +177,17 @@ lws_adns_name_cmp(const char *a, const char *b)
 	if (bl && b[bl - 1] == '.')
 		bl--;
 
-	if (!al || al != bl)
+	if (al != bl)
 		return 1;
+
+	/*
+	 * Both empty after stripping the trailing dot: this is the root name,
+	 * which we asked for as "" or "." and which comes back from the wire
+	 * as "."... those are the same name, eg, the root DNSKEY query used
+	 * to anchor DNSSEC validation must be able to match its own response
+	 */
+	if (!al)
+		return 0;
 
 	return strncasecmp(a, b, al);
 }
