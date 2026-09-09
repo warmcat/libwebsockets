@@ -33,15 +33,28 @@
 static int interrupted;
 int is_stub = 0;
 
-/* stub names used by the test phases */
-#define STUB_NAME	"demo-stub"
-#define STUB_NAME_P3	"demo-stub-p3"
+/*
+ * Stub names used by the test phases.
+ *
+ * They carry the pid of the test process, so several instances of this test
+ * running at the same time on one host (eg, ctests from different build trees
+ * on a builder) each get their own UDS socket path and marker file, rather
+ * than all meeting at one fixed /tmp path where one instance's stub answers
+ * another's requests and its teardown unlinks the other's socket.
+ *
+ * The exec'd stub child only knows its name from its --lws-stub= argument
+ * (it gets no environment), so everything else is derived from the name.
+ */
+#define STUB_NAME_PREFIX	"demo-stub-"
+#define STUB_NAME_P3_PREFIX	"demo-stub-p3-"
+
+static char test_stub[64], test_stub_p3[64];
 
 /*
  * Where the stub's UDS lives.  The stub child computes exactly the same
- * path for itself from the environment, so parent and child agree where
- * to meet.  All users must go through this one helper so the phases
- * cannot get out of step with the child.
+ * path for itself from the stub name it was exec'd with, so parent and
+ * child agree where to meet.  All users must go through this one helper so
+ * the phases cannot get out of step with the child.
  */
 static const char *
 stub_uds_path(const char *stub_name)
@@ -74,7 +87,7 @@ stub_gone_marker_path(void)
 {
 	static char path[300];
 
-	lws_snprintf(path, sizeof(path), "/tmp/lws-%s.gone", STUB_NAME_P3); // NOSONAR
+	lws_snprintf(path, sizeof(path), "/tmp/lws-%s.gone", test_stub_p3); // NOSONAR
 
 	return path;
 }
@@ -264,7 +277,8 @@ static void stub_parent_gone_cb(void *user)
 		  stub_name);
 
 #if !defined(WIN32)
-	if (strcmp(stub_name, STUB_NAME_P3))
+	if (strncmp(stub_name, STUB_NAME_P3_PREFIX,
+		    strlen(STUB_NAME_P3_PREFIX)))
 		/* only the phase 3 stub leaves a marker for the test */
 		return;
 
@@ -458,8 +472,8 @@ phase2(int argc, const char **argv)
 	memset(&sc, 0, sizeof(sc));
 	sc.cx = cx;
 	sc.vh = vh;
-	sc.stub_name = STUB_NAME;
-	sc.uds_path = stub_uds_path(STUB_NAME);
+	sc.stub_name = test_stub;
+	sc.uds_path = stub_uds_path(test_stub);
 	sc.protocols = stub_protocols;
 	sc.parent_protocol_name = "lws-demo-stub";
 	/* the stub child always reads the extra payload in this test */
@@ -541,14 +555,14 @@ phase4(int argc, const char **argv)
 		return 1;
 	}
 
-	lws_snprintf(vhname, sizeof(vhname), "%s-client", STUB_NAME);
+	lws_snprintf(vhname, sizeof(vhname), "%s-client", test_stub);
 
 	for (n = 0; n < 3; n++) {
 		memset(&sc, 0, sizeof(sc));
 		sc.cx			= cx;
 		sc.vh			= vh;
-		sc.stub_name		= STUB_NAME;
-		sc.uds_path		= stub_uds_path(STUB_NAME);
+		sc.stub_name		= test_stub;
+		sc.uds_path		= stub_uds_path(test_stub);
 		sc.protocols		= stub_protocols;
 		sc.parent_protocol_name	= "lws-demo-stub";
 		/* the stub child in this test always reads an extra payload */
@@ -657,8 +671,8 @@ phase3_intermediate(int ready_fd, int argc, const char **argv)
 	memset(&sc, 0, sizeof(sc));
 	sc.cx = cx;
 	sc.vh = vh;
-	sc.stub_name = STUB_NAME_P3;
-	sc.uds_path = stub_uds_path(STUB_NAME_P3);
+	sc.stub_name = test_stub_p3;
+	sc.uds_path = stub_uds_path(test_stub_p3);
 	sc.protocols = stub_protocols;
 	sc.parent_protocol_name = "lws-demo-stub";
 	sc.extra_payload = "phase3";
@@ -708,7 +722,7 @@ phase3(int argc, const char **argv)
 	char ok;
 
 	/* clean up any leftovers from earlier runs */
-	unlink(stub_uds_path(STUB_NAME_P3));
+	unlink(stub_uds_path(test_stub_p3));
 	unlink(stub_gone_marker_path());
 
 	if (pipe(fds)) {
@@ -747,7 +761,7 @@ phase3(int argc, const char **argv)
 		lwsl_err("phase 3: stub ran parent-gone cleanup while parent alive\n");
 		goto bail;
 	}
-	if (stat(stub_uds_path(STUB_NAME_P3), &st)) {
+	if (stat(stub_uds_path(test_stub_p3), &st)) {
 		lwsl_err("phase 3: stub UDS socket missing while parent alive\n");
 		goto bail;
 	}
@@ -767,7 +781,7 @@ phase3(int argc, const char **argv)
 	while (lws_now_usecs() - start < 10000000) { /* 10s */
 		struct timespec ts = { .tv_nsec = 100 * 1000 * 1000 };
 		if (gone_marker_present() &&
-		    stat(stub_uds_path(STUB_NAME_P3), &st))
+		    stat(stub_uds_path(test_stub_p3), &st))
 			break;
 		nanosleep(&ts, NULL);
 	}
@@ -777,7 +791,7 @@ phase3(int argc, const char **argv)
 		goto bail;
 	}
 
-	if (!stat(stub_uds_path(STUB_NAME_P3), &st)) {
+	if (!stat(stub_uds_path(test_stub_p3), &st)) {
 		lwsl_err("phase 3: stub left its UDS socket behind\n");
 		goto bail;
 	}
@@ -824,6 +838,12 @@ int main(int argc, const char **argv)
 	setvbuf(stderr, NULL, _IONBF, 0);
 	signal(SIGINT, sigint_handler);
 
+	/* our stubs, and their paths, are private to this test process */
+	lws_snprintf(test_stub, sizeof(test_stub), STUB_NAME_PREFIX "%d",
+		     (int)getpid());
+	lws_snprintf(test_stub_p3, sizeof(test_stub_p3),
+		     STUB_NAME_P3_PREFIX "%d", (int)getpid());
+
 	lws_context_info_defaults(&info, NULL);
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = stub_protocols;
@@ -860,8 +880,8 @@ int main(int argc, const char **argv)
 	memset(&sc, 0, sizeof(sc));
 	sc.cx = cx;
 	sc.vh = vh;
-	sc.stub_name = STUB_NAME;
-	sc.uds_path = stub_uds_path(STUB_NAME);
+	sc.stub_name = test_stub;
+	sc.uds_path = stub_uds_path(test_stub);
 	sc.protocols = stub_protocols;
 	sc.parent_protocol_name = "lws-demo-stub";
 	sc.extra_payload = "initialization_data_for_stub";
@@ -964,6 +984,10 @@ done:
 #if !defined(WIN32)
 	if (!result)
 		result = phase3(argc, argv);
+
+	/* do not litter /tmp with per-pid leftovers if something went wrong */
+	unlink(stub_uds_path(test_stub));
+	unlink(stub_uds_path(test_stub_p3));
 #endif
 
 	lwsl_user("Exiting with result %d\n", result);
