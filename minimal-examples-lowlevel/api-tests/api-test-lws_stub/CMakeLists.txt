@@ -17,6 +17,14 @@ if (requirements)
 
 	add_executable(${SAMP} ${SRCS})
 	add_test(NAME api-test-lws_stub COMMAND lws-api-test-lws_stub)
+	#
+	# Every phase already bounds its own waits (5s per stub connect, 300ms
+	# teardown settles), so a healthy run takes a few seconds; this is
+	# only the backstop for a wedged process.  Without it ctest's default
+	# of 1500s applies, which turns a hang into half an hour of dead time
+	# on a builder.
+	#
+	set_tests_properties(api-test-lws_stub PROPERTIES TIMEOUT 30)
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
