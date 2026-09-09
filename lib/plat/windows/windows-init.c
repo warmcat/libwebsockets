@@ -26,6 +26,9 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #endif
 #include "private-lib-core.h"
+#if defined(_DEBUG) && defined(_MSC_VER)
+#include <crtdbg.h>
+#endif
 
 int
 lws_plat_drop_app_privileges(struct lws_context *context, int actually_set)
@@ -54,6 +57,27 @@ lws_plat_context_early_init(void)
 
 	/* Use the MAKEWORD(lowbyte, highbyte) macro from Windef.h */
 	wVersionRequested = MAKEWORD(2, 2);
+
+#if defined(_DEBUG) && defined(_MSC_VER)
+	/*
+	 * The Debug CRT reports a failed assert(), a CRT error or an abort()
+	 * by putting up a modal message box and waiting for someone to click
+	 * it.  Nobody ever does for an unattended process (ctest on a CI
+	 * builder, a service), the report never reaches stderr, and what is
+	 * a one-line failure everywhere else becomes a silent hang until some
+	 * external timeout kills the process with its output cut off wherever
+	 * it happened to be.  Send the reports to stderr and let the process
+	 * die the same way it does on other platforms; likewise don't hand a
+	 * crash to WER to sit in a dialog.
+	 */
+	_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+	_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+	_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+	_CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+	_set_abort_behavior(0, _CALL_REPORTFAULT);
+	SetErrorMode(SetErrorMode(0) | SEM_FAILCRITICALERRORS |
+		     SEM_NOGPFAULTERRORBOX);
+#endif
 
 	err = WSAStartup(wVersionRequested, &wsaData);
 	if (!err)
