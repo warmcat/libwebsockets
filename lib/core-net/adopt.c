@@ -970,7 +970,16 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 		if (wsi->udp)
 			wsi->udp->sa46 = s->dest;
-		wsi->sa46_peer = s->dest;
+		/*
+		 * Only a connected socket has a peer.  A bound listener's
+		 * address is our own side, and recording it as the peer makes
+		 * the routing-table checks judge a wildcard bind like :: or
+		 * 0.0.0.0 as an unreachable destination and cull the listener
+		 * when the netlink coldplug completes on a host without a
+		 * route of that family.
+		 */
+		if (!wsi->do_bind)
+			wsi->sa46_peer = s->dest;
 
 		/* we connected: complete the udp socket adoption flow */
 
@@ -1142,7 +1151,8 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 	if (wsi->udp)
 		wsi->udp->sa46 = dest;
-	wsi->sa46_peer = dest;
+	if (!wsi->do_bind)
+		wsi->sa46_peer = dest;
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	{
