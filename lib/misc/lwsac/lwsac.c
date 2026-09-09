@@ -234,13 +234,19 @@ do_use:
 
 	ofs = bf->ofs;
 
+	/*
+	 * Both routes here already established this, but make it visible at
+	 * the point of use: the result lies strictly inside the chunk and al
+	 * bytes after it still do
+	 */
+	if (ofs >= bf->alloc_size || bf->alloc_size - ofs < al)
+		return NULL;
+
 	if (al > ensure)
 		/* zero down the alignment padding part */
 		memset((char *)bf + ofs + ensure, 0, al - ensure);
 
-	bf->ofs += al;
-	if (bf->ofs >= bf->alloc_size)
-		bf->ofs = bf->alloc_size;
+	bf->ofs = ofs + al;
 
 	return (char *)bf + ofs;
 }
