@@ -28,7 +28,7 @@
 #include "private-lib-core.h"
 #include <string.h>
 
-#if defined(LWS_STUB_AUTONOMOUS_EXIT)
+#if !defined(WIN32)
 #include <signal.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -93,6 +93,12 @@ struct lws_stub_manager {
 	struct lws			*wsi_client;
 	struct lws_dll2_owner		reqs;
 	lws_stub_req_h			next_h;	/* last handle we issued */
+
+	/* identity of the socket file we connected to, so at destroy we only
+	 * remove the file if it is still the one that was ours */
+	dev_t				uds_dev;
+	ino_t				uds_ino;
+	char				have_uds_ino;
 
 	lws_sorted_usec_list_t		sul;
 	uint16_t			ctry;
@@ -412,6 +418,102 @@ spawn_fail:
 }
 #endif
 
+#if defined(LWS_WITH_CLIENT) || defined(LWS_STUB_AUTONOMOUS_EXIT)
+/*
+ * Record the identity of the socket file at path, so whoever wants to remove
+ * it later can first check it is still the same file.  Comparing the path
+ * stat against a socket fd does not work for UDS: on linux they live in
+ * different filesystems (eg, tmpfs dirent vs sockfs), so the identity has
+ * to come from the path.  Returns 1 if the identity could be taken.
+ */
+static char
+lws_stub_uds_identity(const char *path, dev_t *dev, ino_t *ino)
+{
+	struct stat st;
+
+	if (stat(path, &st))
+		return 0;
+
+	*dev = st.st_dev;
+	*ino = st.st_ino;
+
+	return 1;
+}
+
+/*
+ * Remove the UDS socket file at path, but only if it is still the one whose
+ * identity was recorded: if the socket file at the path has a different
+ * inode (eg, a newer stub instance that has already re-used the path, or
+ * another process's stub that happens to use the same path), we must not
+ * touch it.
+ *
+ * We hold a fd on the socket file's parent directory, and issue both the
+ * identity check and the unlink against it using only the basename: the
+ * path is not re-resolved between the check and the use, and symlinks at
+ * the socket path are not followed when deciding.  POSIX can only unlink
+ * by name, so a race on the basename inside the one directory is inherent;
+ * the dev+ino comparison limits the damage of that to removing a socket
+ * file we created ourselves.
+ */
+static void
+lws_stub_unlink_uds_if_own(const char *path, dev_t dev, ino_t ino)
+{
+#if defined(WIN32)
+	struct stat st;
+
+	/* no inodes to compare here, the best we can do is the device */
+	if (!stat(path, &st) && st.st_dev == dev)
+		unlink(path);
+#else
+	char dir[256];
+	struct stat st;
+	const char *base;
+	const char *slash;
+	int dirfd;
+
+	slash = strrchr(path, '/');
+	base = slash ? slash + 1 : path;
+
+	if (!*base)
+		/* path has no basename (eg, it ends in '/'), not our socket */
+		return;
+
+	if (!slash) {
+		/* bare filename in the current working directory */
+		dirfd = AT_FDCWD;
+	} else {
+		size_t dn = (size_t)(slash - path);
+
+		if (dn >= sizeof(dir))
+			return;
+
+		if (dn) {
+			memcpy(dir, path, dn);
+			dir[dn] = '\0';
+		} else
+			/* the socket file sits directly under "/" */
+			dir[0] = '/', dir[1] = '\0';
+
+		dirfd = lws_open(dir, O_RDONLY | O_DIRECTORY);
+		if (dirfd < 0)
+			/* cannot get at the directory, so cannot check */
+			return;
+	}
+
+	/*
+	 * Only unlink it if what is at the basename now is still the socket
+	 * file that was recorded, rather than a symlink or a replacement file
+	 */
+	if (!fstatat(dirfd, base, &st, AT_SYMLINK_NOFOLLOW) &&
+	    st.st_dev == dev && st.st_ino == ino)
+		unlinkat(dirfd, base, 0);
+
+	if (slash)
+		close(dirfd);
+#endif
+}
+#endif
+
 #if defined(LWS_STUB_AUTONOMOUS_EXIT)
 
 /* how often we check if the parent process is still alive */
@@ -450,68 +552,16 @@ lws_stub_child_sigterm_cb(int sig)
 }
 
 /*
- * Remove our UDS socket file, but only if it is still ours: if the socket
- * file at the path has a different inode (eg, a newer stub instance that has
- * already re-used the path, or our parent already removed it and something
- * else appeared there), we must not touch it.
- *
- * We hold a fd on the socket file's parent directory, and issue both the
- * identity check and the unlink against it using only the basename: the
- * path is not re-resolved between the check and the use, and symlinks at
- * the socket path are not followed when deciding.  POSIX can only unlink
- * by name, so a race on the basename inside the one directory is inherent;
- * the dev+ino comparison limits the damage of that to removing a socket
- * file we created ourselves.
+ * Remove our UDS socket file, but only if it is still ours
  */
 static void
 lws_stub_child_unlink_own_uds(void)
 {
-	char dir[sizeof(stub_child.uds_path)];
-	struct stat st;
-	const char *base;
-	char *slash;
-	int dirfd;
-
 	if (!stub_child.have_uds_ino)
 		return;
 
-	slash = strrchr(stub_child.uds_path, '/');
-	base = slash ? slash + 1 : stub_child.uds_path;
-
-	if (!*base)
-		/* path has no basename (eg, it ends in '/'), not our socket */
-		return;
-
-	if (!slash) {
-		/* bare filename in the current working directory */
-		dirfd = AT_FDCWD;
-	} else {
-		size_t dn = (size_t)(slash - stub_child.uds_path);
-
-		if (dn) {
-			memcpy(dir, stub_child.uds_path, dn);
-			dir[dn] = '\0';
-		} else
-			/* the socket file sits directly under "/" */
-			dir[0] = '/', dir[1] = '\0';
-
-		dirfd = lws_open(dir, O_RDONLY | O_DIRECTORY);
-		if (dirfd < 0)
-			/* cannot get at the directory, so cannot check */
-			return;
-	}
-
-	/*
-	 * Only unlink it if what is at the basename now is still the socket
-	 * file we created, rather than a symlink or a replacement file
-	 */
-	if (!fstatat(dirfd, base, &st, AT_SYMLINK_NOFOLLOW) &&
-	    st.st_dev == stub_child.uds_dev &&
-	    st.st_ino == stub_child.uds_ino)
-		unlinkat(dirfd, base, 0);
-
-	if (slash)
-		close(dirfd);
+	lws_stub_unlink_uds_if_own(stub_child.uds_path, stub_child.uds_dev,
+				   stub_child.uds_ino);
 }
 
 /*
@@ -550,7 +600,6 @@ static void
 lws_stub_child_watchdog_init(const struct lws_stub_config *config)
 {
 	struct sigaction sa_now, sa;
-	struct stat st;
 
 	if (stub_child.inited)
 		lwsl_warn("%s: stub '%s': autonomous exit is already "
@@ -575,15 +624,12 @@ lws_stub_child_watchdog_init(const struct lws_stub_config *config)
 
 	/*
 	 * Record the identity of the socket file we just created, so at exit
-	 * we only unlink it if it is still ours.  Comparing the path stat
-	 * against the listener fd does not work for UDS: on linux they live
-	 * in different filesystems (eg, tmpfs dirent vs sockfs).
+	 * we only unlink it if it is still ours
 	 */
-	stub_child.have_uds_ino = !stat(config->uds_path, &st);
-	if (stub_child.have_uds_ino) {
-		stub_child.uds_dev = st.st_dev;
-		stub_child.uds_ino = st.st_ino;
-	} else
+	stub_child.have_uds_ino = lws_stub_uds_identity(config->uds_path,
+							&stub_child.uds_dev,
+							&stub_child.uds_ino);
+	if (!stub_child.have_uds_ino)
 		lwsl_warn("%s: stub '%s': cannot identify our own UDS "
 			  "socket file\n", __func__,
 			  config->stub_name ? config->stub_name : "?");
@@ -871,6 +917,14 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_CONNECTED:
 		lwsl_vhost_notice(mgr->vh, "%s: stub '%s': UDS connected\n", __func__, mgr->config.stub_name);
 		mgr->ctry = 0; /* Reset retry counter on success */
+		/*
+		 * This is the moment we know the socket file at the path is
+		 * the one our stub is behind: remember its identity, so at
+		 * destroy we only remove the file if it is still that one
+		 */
+		mgr->have_uds_ino = lws_stub_uds_identity(mgr->uds_path,
+							  &mgr->uds_dev,
+							  &mgr->uds_ino);
 		if (mgr->config.connected_cb)
 			mgr->config.connected_cb(mgr);
 		lws_callback_on_writable(wsi);
@@ -1168,7 +1222,16 @@ lws_stub_destroy(struct lws_stub_manager **_mgr)
 		lws_spawn_piped_destroy(&mgr->lsp);
 	}
 
-	unlink(mgr->uds_path);
+	/*
+	 * Only remove the socket file if it is still the one we connected to.
+	 * If we never connected, we cannot tell whose file is at the path
+	 * (another process may have a stub of its own there), so we leave it:
+	 * our stub removes its own file when it exits, and a stale file from
+	 * a stub that died is unlinked by the next stub to bind there anyway.
+	 */
+	if (mgr->have_uds_ino)
+		lws_stub_unlink_uds_if_own(mgr->uds_path, mgr->uds_dev,
+					   mgr->uds_ino);
 
 	lws_free(mgr);
 }
