@@ -39,7 +39,7 @@
 void
 lws_tls_client_strip_port(char *host)
 {
-	char *p = host, *q;
+	char *p = host, *q, *colon = NULL;
 	int colons = 0;
 
 	if (*host == '[') {
@@ -54,14 +54,18 @@ lws_tls_client_strip_port(char *host)
 		return;
 	}
 
-	while (*p)
-		if (*p++ == ':')
+	while (*p) {
+		if (*p == ':') {
+			colon = p;
 			colons++;
+		}
+		p++;
+	}
 
-	if (colons != 1)
+	if (colons != 1 || !colon)
 		return; /* no port, or a bare IPv6 literal */
 
-	*strchr(host, ':') = '\0';
+	*colon = '\0';
 }
 
 /*
