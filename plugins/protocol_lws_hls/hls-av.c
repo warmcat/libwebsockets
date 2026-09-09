@@ -1310,11 +1310,21 @@ scan_keyframes(const char *url, int video_idx, volatile int *cancel,
 	struct scan_kf *arr = NULL;
 	int n = 0, cap = 0, ret = -1, fd = -1;
 	int64_t cluster_pos = -1;
+	lws_usec_t t0 = lws_now_usecs();
 	AVStream *st;
 	AVPacket pkt;
 
 	*out = NULL;
 	*out_n = 0;
+
+	/*
+	 * This reads the whole file once, which for a large file without cues
+	 * is seconds to minutes; say so up front and time it, since it happens
+	 * on the worker thread and holds up other requests for the same vhost
+	 * until it caches.
+	 */
+	lwsl_notice("HLS-INDEX: scanning '%s' for keyframes (whole-file read)...\n",
+		    url ? url : "(null)");
 
 	if (!url || avformat_open_input(&sc, url, NULL, NULL) < 0)
 		return -1;
@@ -1380,6 +1390,10 @@ bail:
 	free(arr);
 	avformat_close_input(&sc);
 
+	lwsl_notice("HLS-INDEX: scan of '%s' %s: %d keyframes in %llums\n",
+		    url ? url : "(null)", ret ? "ABORTED" : "done", *out_n,
+		    (unsigned long long)((lws_now_usecs() - t0) / 1000));
+
 	return ret;
 }
 
@@ -1409,6 +1423,20 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 {
 	AVStream *st = in_ctx->streams[video_idx];
 	int count = get_index_count(st);
+
+	/*
+	 * Building the index means reading the whole file, and the result is
+	 * shared, cached vhost state that unblocks every request for this
+	 * file, not just the one that happened to trigger it.  So the scans
+	 * below are governed by vhost teardown, never by the requesting
+	 * client going away: if a client times out on the first (cold) request
+	 * and disconnects, the scan must still finish and cache, so the
+	 * client's retry - and everyone else - hits the cache instead of
+	 * re-triggering the whole scan and never converging.  (The per-request
+	 * `cancel` still governs the segment mux loop in lws_hls_build_segment,
+	 * which is per-client and cheap.)
+	 */
+	volatile int *bc = vhd ? (volatile int *)&vhd->thread_exit : cancel;
 
 	/* Check index cache first */
 	struct hls_file_index *idx = NULL;
@@ -1456,7 +1484,7 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 			/* no usable cues: scan the file once to build the index */
 			lwsl_user("HLS-INDEX: %s: no usable cues (%d), scanning file to build index...\n",
 				  filename, count);
-			if (scan_keyframes(in_ctx->url, video_idx, cancel,
+			if (scan_keyframes(in_ctx->url, video_idx, bc,
 					   &scanned, &n_scanned) < 0)
 				return -1;
 			for (int i = 0; i < n_scanned; i++)
@@ -1482,7 +1510,7 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 					/* the index came from cues: we still need to
 					 * walk the file for the true dts of each entry */
 					if (!scanned &&
-					    scan_keyframes(in_ctx->url, video_idx, cancel,
+					    scan_keyframes(in_ctx->url, video_idx, bc,
 							   &scanned, &n_scanned) < 0) {
 						free(new_idx->entries);
 						free(new_idx);
