@@ -135,7 +135,7 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 		 */
 		pfd = &pt->fds[wsi->position_in_fds_table];
 		pfd->revents |= LWS_POLLIN;
-		lwsl_err("%s: calling service\n", __func__);
+		lwsl_info("%s: calling service\n", __func__);
 		lws_service_fd_tsi(wsi->a.context, pfd, wsi->tsi);
 	}
 }
@@ -384,7 +384,28 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	wsi->http.ah = ah;
 	ah->wsi = wsi; /* new owner */
 
-	__lws_header_table_reset(wsi, autoservice);
+	/*
+	 * Complete the wait list bookkeeping *before* anything below can
+	 * reenter the event loop.
+	 *
+	 * __lws_header_table_reset() with autoservice set calls
+	 * lws_service_fd_tsi() on the recipient, which can close and free it
+	 * (and detach its ah, unlinking it from the wait list itself).  If we
+	 * still had the list cursor and the length count outstanding at that
+	 * point, we would then write through a stale pwsi_eligible (truncating
+	 * the list, orphaning every waiter behind him), decrement the length a
+	 * second time, and touch the freed wsi.
+	 */
+
+	/* point prev guy to next guy in list instead */
+	*pwsi_eligible = wsi->http.ah_wait_list;
+	/* the guy who got one is out of the list */
+	wsi->http.ah_wait_list = NULL;
+	pt->http.ah_wait_list_length--;
+
+	assert(!!pt->http.ah_wait_list_length ==
+			!!(lws_intptr_t)pt->http.ah_wait_list);
+
 #if defined(LWS_WITH_PEER_LIMITS) && (defined(LWS_ROLE_H1) || \
     defined(LWS_ROLE_H2))
 	lws_context_lock(context, "ah detach"); /* <========================= */
@@ -403,29 +424,51 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 		_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
 	}
 
-	/* point prev guy to next guy in list instead */
-	*pwsi_eligible = wsi->http.ah_wait_list;
-	/* the guy who got one is out of the list */
-	wsi->http.ah_wait_list = NULL;
-	pt->http.ah_wait_list_length--;
-
 #if defined(LWS_WITH_CLIENT)
 	if (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED) {
+		int cr = 0;
+
+		/*
+		 * An unconnected client has no fd in the fds table and so no
+		 * pending rx to autoservice; reset without it, so nothing
+		 * reentrant can run before we hand him to the connect.
+		 */
+		__lws_header_table_reset(wsi, 0);
+
+		/*
+		 * The connect must not run under the pt lock... drop it around
+		 * the call and take it again, so that on return the caller's
+		 * lock ownership is exactly what it was on entry.  Leaving it
+		 * dropped took lws_mutex_refcount's depth negative and let the
+		 * outer holder (eg, lws_sul_http_ah_lifecheck()) walk the ah
+		 * pool and the wait list believing it still held the lock.
+		 */
 		lws_pt_unlock(pt);
 
-		if (!lws_http_client_connect_via_info2(wsi)) {
+		if (!lws_http_client_connect_via_info2(wsi))
 			/* our client connect has failed, the wsi
 			 * has been closed
 			 */
+			cr = -1;
 
-			return -1;
-		}
-		return 0;
+		lws_pt_lock(pt, __func__);
+
+		return cr;
 	}
 #endif
 
-	assert(!!pt->http.ah_wait_list_length ==
-			!!(lws_intptr_t)pt->http.ah_wait_list);
+	__lws_header_table_reset(wsi, autoservice);
+
+	/*
+	 * The reset above may have serviced, closed and freed the recipient:
+	 * wsi must not be touched again here.
+	 */
+
+	lwsl_info("%s: ah %p (tsi=%d, count = %d)\n", __func__, (void *)ah,
+		  pt->tid, pt->http.ah_count_in_use);
+
+	return 0;
+
 bail:
 	lwsl_info("%s: %s: ah %p (tsi=%d, count = %d)\n", __func__,
 		  lws_wsi_tag(wsi), (void *)ah, pt->tid, pt->http.ah_count_in_use);
