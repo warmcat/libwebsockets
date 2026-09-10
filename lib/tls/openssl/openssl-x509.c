@@ -47,8 +47,10 @@ lws_tls_openssl_asn1time_to_unix(ASN1_TIME *as)
 
 #if defined(USE_WOLFSSL)
 	const char *p = (const char *)ASN1_STRING_get0_data((const WOLFSSL_ASN1_STRING *)as);
+	int al = ASN1_STRING_length((const WOLFSSL_ASN1_STRING *)as);
 #else
 	const char *p = (const char *)ASN1_STRING_get0_data(as);
+	int al = ASN1_STRING_length(as);
 #endif
 	struct tm t;
 	size_t pl, n;
@@ -58,16 +60,24 @@ lws_tls_openssl_asn1time_to_unix(ASN1_TIME *as)
 	if (!p)
 		return (time_t)-1;
 
-	pl = strlen(p);
-
 	/*
 	 * The X509 notBefore / notAfter are decoded as an ASN1 MSTRING, which
 	 * only checks the tag and copies the content octets verbatim: neither
 	 * the length nor the digits are validated by openssl on this path.  So
 	 * a peer cert can carry any length here, and we must confirm the
 	 * RFC5280 UTCTime / GeneralizedTime shape ourselves before indexing
-	 * into it
+	 * into it.
+	 *
+	 * The length that has to be confirmed is the ASN.1 one, not strlen():
+	 * the content octets may contain a NUL, and taking strlen() of them
+	 * would accept eg a 20-byte field as a well-formed 13-byte UTCTime
+	 * and report a validity openssl itself rejected.
 	 */
+
+	if (al < 0)
+		return (time_t)-1;
+
+	pl = (size_t)al;
 
 	if (pl != 13 && pl != 15)
 		return (time_t)-1;
@@ -181,6 +191,15 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 		xn = X509_get_subject_name(x509);
 		if (!xn)
 			return -1;
+		/*
+		 * X509_NAME_oneline() writes nothing at all if the size it is
+		 * given is not positive, leaving the caller's buffer as it
+		 * found it... the scan below would then run on uninitialised
+		 * memory.  We take off 2 for the "/CN=" trim, so we need 3
+		 */
+		if (len < 3)
+			return -1;
+		buf->ns.name[0] = '\0';
 		X509_NAME_oneline((X509_NAME *)xn, buf->ns.name, (int)len - 2);
 		p = (char *)strstr(buf->ns.name, "/CN=");
 		if (p) {
@@ -200,6 +219,9 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 		xn = X509_get_issuer_name(x509);
 		if (!xn)
 			return -1;
+		if (len < 2)
+			return -1;
+		buf->ns.name[0] = '\0';
 		X509_NAME_oneline((X509_NAME *)xn, buf->ns.name, (int)len - 1);
 		buf->ns.len = (int)strlen(buf->ns.name);
 		return 0;
@@ -1141,7 +1163,7 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		break;
 	default:
 		lwsl_err("%s: JWK has unknown kty %d\n", __func__, jwk->kty);
-		return -1;
+		goto bail;
 	}
 
 	ret = 0;
