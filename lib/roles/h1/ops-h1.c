@@ -232,14 +232,31 @@ http_postbody:
 			buf += n;
 
 #if defined(LWS_ROLE_H2)
-			if (lwsi_role_h2(wsi) && !wsi->http.content_length_given) {
-				struct lws *w = lws_get_network_wsi(wsi);
+			if (lwsi_role_h2(wsi) && wsi->mux_substream &&
+			    !wsi->http.content_length_given) {
+				/*
+				 * h2 request body with no content-length: the
+				 * peer's END_STREAM is what ends it.
+				 *
+				 * That is a property of *this stream*, ie,
+				 * wsi->h2.END_STREAM, which the h2 DATA path
+				 * latches once the END_STREAM-bearing frame's
+				 * last body byte has been handed to us.  It is
+				 * not the flags byte of whatever frame the
+				 * network wsi parsed most recently: that is a
+				 * connection-wide, already-moved-on value, and
+				 * peeking at it completes the body early
+				 * whenever the frame is split across reads, or
+				 * for the wrong stream when the body is drained
+				 * from the buflist after later frames arrived.
+				 *
+				 * We must also have consumed everything we were
+				 * offered: the cgi stdin path may take less
+				 * than the chunk, and the tail is re-offered.
+				 */
 
-				if (w)
-					lwsl_info("%s: h2: nwsi h2 flags %d\n", __func__,
-						w->h2.h2n ? w->h2.h2n->flags: -1);
-
-				if (w && w->h2.h2n && !(w->h2.h2n->flags & 1)) {
+				if (!wsi->h2.END_STREAM ||
+				    (lws_filepos_t)n != body_chunk_len) {
 					lwsl_info("%s: h2, no cl, not END_STREAM, continuing\n", __func__);
 					lws_set_timeout(wsi,
 						PENDING_TIMEOUT_HTTP_CONTENT,

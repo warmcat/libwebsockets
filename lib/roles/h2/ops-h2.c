@@ -952,6 +952,24 @@ lws_h2_await_body_timeout(struct lws *wsi)
 				(int)wsi->a.context->timeout_secs);
 }
 
+/*
+ * Returns
+ *
+ *   0: this is not a POST we take over, the caller must dispatch the request
+ *      with lws_http_action() as usual (it does its own body / stashed-body
+ *      handling for mux streams)
+ *
+ *   1: we bound the POST and took over its dispatch, ie, the user code already
+ *      had its LWS_CALLBACK_HTTP and will get the
+ *      LWS_CALLBACK_HTTP_BODY[_COMPLETION] from here.  The caller must NOT
+ *      then call lws_http_action(): that would rebind the protocol
+ *      (destroying wsi->user_space, ie, whatever the user allocated at
+ *      LWS_CALLBACK_HTTP, along with any lws_spa) and deliver a second
+ *      LWS_CALLBACK_HTTP for the same request
+ *
+ *  -1: fatal, close
+ */
+
 static int
 lws_h2_bind_for_post_before_action(struct lws *wsi)
 {
@@ -976,7 +994,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		 *
 		 * But Coverity insists to see us check it.
 		 */
-		return 1;
+		return -1;
 
 	hit = lws_find_mount(wsi,
 		  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH),
@@ -1003,11 +1021,11 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		pp = lws_vhost_name_to_protocol(wsi->a.vhost, name);
 		if (!pp) {
 			lwsl_info("Unable to find protocol '%s'\n", name);
-			return 1;
+			return -1;
 		}
 
 		if (lws_bind_protocol(wsi, pp, __func__))
-			return 1;
+			return -1;
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
 		/* basic auth? */
 
@@ -1017,10 +1035,11 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		case LCBA_AUTH_RETRY_KEEPALIVE:
 			break;
 		case LCBA_FAILED_AUTH:
-			return lws_unauthorised_basic_auth(wsi);
+			/* the response is already on its way out */
+			return lws_unauthorised_basic_auth(wsi) ? -1 : 1;
 		case LCBA_END_TRANSACTION:
 			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
-			return lws_http_transaction_completed(wsi);
+			return lws_http_transaction_completed(wsi) ? -1 : 1;
 		}
 #endif
 	}
@@ -1035,7 +1054,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 					      (size_t)(hit ? uri_len -
 							  hit->mountpoint_len :
 							  uri_len)))
-			return 1;
+			return -1;
 
 #if defined(LWS_WITH_ACCESS_LOG)
 	lws_prepare_access_log_info(wsi, uri_ptr, uri_len, methidx);
@@ -1052,9 +1071,31 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		 * his side of the stream, we are still waiting on him for the
 		 * END_STREAM before we may reply
 		 */
-		lws_h2_await_body_timeout(wsi);
+		if (!wsi->h2.END_STREAM) {
+			lws_h2_await_body_timeout(wsi);
 
-		return 0;
+			return 1;
+		}
+
+		/*
+		 * He did end his side of the stream, so the (empty) body is
+		 * complete.  Give the empty LWS_CALLBACK_HTTP_BODY before the
+		 * completion exactly as lws_http_action() does for an h1 POST
+		 * with "Content-Length: 0", so user code that only creates its
+		 * lws_spa at HTTP_BODY is not confronted with a completion for
+		 * a body it never saw start.
+		 */
+
+		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY,
+					      wsi->user_space, NULL, 0))
+			return -1;
+
+		if (wsi->a.protocol->callback(wsi,
+					      LWS_CALLBACK_HTTP_BODY_COMPLETION,
+					      wsi->user_space, NULL, 0))
+			return -1;
+
+		return 1;
 	}
 
 	/*
@@ -1077,12 +1118,12 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 
 		if (lwsi_role_server(wsi) && !wsi->http.content_length_given && wsi->http.rx_content_remain < blen) {
 			lwsl_warn("%s: deferred body exceeded max size\n", __func__);
-			return 1;
+			return -1;
 		}
 
 		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY,
 				wsi->user_space, buffered, blen))
-			return 1;
+			return -1;
 		lws_buflist_use_segment(&wsi->buflist, blen);
 
 		wsi->http.rx_content_length -= blen;
@@ -1108,17 +1149,37 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		lws_dll2_remove(&wsi->dll_buflist);
 
 	if (wsi->http.content_length_given && wsi->http.rx_content_length) {
+		if (wsi->h2.END_STREAM) {
+			/*
+			 * He ended his side of the stream while still owing us
+			 * the body his content-length promised.  Nothing more
+			 * can arrive on the stream, so waiting is pointless...
+			 * this is the deferred-body twin of the "Not enough rx
+			 * content" check in lws_h2_parse_end_of_frame(), which
+			 * cannot see the stashed body's accounting.
+			 */
+			lwsl_info("%s: %s: END_STREAM, %llu owed\n",
+				  __func__, lws_wsi_tag(wsi),
+				  (unsigned long long)
+					wsi->http.rx_content_length);
+
+			lws_h2_rst_stream(wsi, H2_ERR_PROTOCOL_ERROR,
+					  "Not enough rx content");
+
+			return 1;
+		}
+
 		/* still a-ways to go */
 		lws_h2_await_body_timeout(wsi);
 
-		return 0;
+		return 1;
 	}
 
 	if (!wsi->http.content_length_given && !wsi->h2.END_STREAM) {
 		/* no content-length, so we're waiting for his END_STREAM */
 		lws_h2_await_body_timeout(wsi);
 
-		return 0;
+		return 1;
 	}
 
 	/*
@@ -1129,9 +1190,9 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 
 	if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY_COMPLETION,
 				      wsi->user_space, NULL, 0))
-		return 1;
+		return -1;
 
-	return 0;
+	return 1;
 }
 #endif
 
@@ -1388,19 +1449,23 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 					&pt->dll_buflist_owner);
 			}
 
-			if (lws_h2_bind_for_post_before_action(w))
+			n = lws_h2_bind_for_post_before_action(w);
+			if (n < 0)
 				return -1;
 
 			/*
-			 * Well, we could be getting a POST from the client, it
-			 * may not have any content-length.  In that case, we
-			 * will be in LRS_BODY state, we can't actually start
-			 * the action until we had the body and the stream is
-			 * half-closed, indicating that we can reply
+			 * If it was a POST we bind ahead of the action, that
+			 * function is the dispatch: the user code has had its
+			 * LWS_CALLBACK_HTTP and gets the body (and its
+			 * completion) from there or from lws_read_h1() as the
+			 * DATA frames arrive.  Running lws_http_action() over
+			 * the top of it would rebind the protocol -- freeing
+			 * wsi->user_space and everything the user hung off it
+			 * at LWS_CALLBACK_HTTP, eg, his lws_spa -- and deliver
+			 * a second LWS_CALLBACK_HTTP for the same request.
 			 */
 
-			if (lwsi_state(w) == LRS_BODY &&
-			    w->h2.h2_state != LWS_H2_STATE_HALF_CLOSED_REMOTE)
+			if (n)
 				continue;
 
 			lwsl_info("  h2 action start...\n");

@@ -203,6 +203,38 @@ lws_h2_state(struct lws *wsi, enum lws_h2_states s)
 	wsi->h2.h2_state = (uint8_t)s;
 }
 
+/*
+ * The peer has finished sending on this stream: a frame carrying END_STREAM
+ * has been consumed as far as this stream is concerned.
+ *
+ * wsi->h2.END_STREAM is the single source of truth for "the peer closed his
+ * side", used by the frame-header validity checks, the HALF_CLOSED_REMOTE /
+ * CLOSED transitions in lws_h2_parse_end_of_frame(), lws_read_h1()'s body
+ * completion for a request with no content-length, and
+ * lws_h2_bind_for_post_before_action().  It is only ever latched here and (for
+ * a HEADERS block, which may also clear it) at update_end_headers.
+ *
+ * A vhost using LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL deliberately
+ * ignores the peer's END_STREAM so its half-closed streams can live on as
+ * immortal long polls; that is decided for the HEADERS at update_end_headers,
+ * and a DATA frame on such a stream must not latch it either.
+ */
+
+static void
+lws_h2_peer_ended_stream(struct lws *swsi)
+{
+	if (swsi->h2.END_STREAM)
+		return;
+
+	if (lws_check_opt(swsi->a.vhost->options,
+			  LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL))
+		return;
+
+	lwsl_info("%s: %s: peer END_STREAM\n", __func__, lws_wsi_tag(swsi));
+
+	swsi->h2.END_STREAM = 1;
+}
+
 int
 lws_h2_update_peer_txcredit(struct lws *wsi, unsigned int sid, int bump)
 {
@@ -2045,7 +2077,17 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 				}
 			}
 
-			if (lws_hdr_total_length(h2n->swsi,
+			/*
+			 * As for the same check on DATA below: only the server
+			 * side keeps rx_content_remain in step here, and while
+			 * the stream is still deferring its action its body is
+			 * stashed on its own buflist and has not been counted
+			 * against rx_content_remain yet
+			 */
+
+			if (lwsi_role_server(h2n->swsi) &&
+			    lwsi_state(h2n->swsi) != LRS_DEFERRING_ACTION &&
+			    lws_hdr_total_length(h2n->swsi,
 						 WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
 			    h2n->swsi->h2.END_STREAM &&
 			    h2n->swsi->http.rx_content_length &&
@@ -2288,7 +2330,33 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		if (!h2n->swsi)
 			break;
 
-		if (lws_hdr_total_length(h2n->swsi,
+		/*
+		 * Belt-and-braces for the latch in the payload loop: it is
+		 * only reached if the frame had at least one body byte, so a
+		 * zero-length DATA with END_STREAM (the normal way to end a
+		 * body-bearing request), or one that was all pad-length byte
+		 * and padding, arrives here with nothing latched yet.
+		 */
+
+		if (h2n->flags & LWS_H2_FLAG_END_STREAM)
+			lws_h2_peer_ended_stream(h2n->swsi);
+
+		/*
+		 * He ended his side of the stream owing us body he promised in
+		 * his content-length.
+		 *
+		 * Only the server side is in a position to say so here: the h2
+		 * client hands DATA straight to the user callback without
+		 * touching rx_content_remain, and a stream still in
+		 * LRS_DEFERRING_ACTION has its body stashed on its own buflist,
+		 * not accounted against rx_content_remain until
+		 * lws_h2_bind_for_post_before_action() drains it (which makes
+		 * the same check there).
+		 */
+
+		if (lwsi_role_server(h2n->swsi) &&
+		    lwsi_state(h2n->swsi) != LRS_DEFERRING_ACTION &&
+		    lws_hdr_total_length(h2n->swsi,
 					 WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
 		    h2n->swsi->h2.END_STREAM &&
 		    h2n->swsi->http.rx_content_length &&
@@ -2774,6 +2842,29 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 					lwsl_debug("---- restricting len to %d "
 						   "\n", n);
 				}
+
+				/*
+				 * If this DATA frame carries END_STREAM and
+				 * the chunk we are about to hand on ends
+				 * exactly at the frame's last body byte (m is
+				 * the count of body bytes left in the frame
+				 * including the current one, so n == m means
+				 * this chunk finishes it), then the peer is
+				 * done sending on this stream.
+				 *
+				 * It has to be latched here rather than at
+				 * end-of-frame, because the consumers below --
+				 * lws_read_h1() inline, and the deferred-action
+				 * stash that
+				 * lws_h2_bind_for_post_before_action() drains
+				 * later -- decide body completion from it.
+				 * Any trailing padding is not body and is
+				 * consumed after this.
+				 */
+
+				if ((h2n->flags & LWS_H2_FLAG_END_STREAM) &&
+				    n == m)
+					lws_h2_peer_ended_stream(h2n->swsi);
 #if defined(LWS_WITH_CLIENT)
 				/*
 				 * A client stream carrying ws (RFC 8441) is
