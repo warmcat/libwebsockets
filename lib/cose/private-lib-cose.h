@@ -34,6 +34,15 @@
  */
 #define MAX_STASHED_PAYLOAD		(1024 * 1024)
 
+/*
+ * Every cose_signature / recipient in the object costs us a complete hash of
+ * the stashed payload and a public key verify, and the cheapest one an
+ * attacker can write is a handful of bytes... so the object's cost is
+ * quadratic in its size unless we bound how many of them we are willing to
+ * process.  RFC9052 has no use for more than a few.
+ */
+#define MAX_COSE_SIGNATURES		16
+
 enum {
 	ST_UNKNOWN,
 
@@ -109,6 +118,7 @@ struct lws_cose_validate_context {
 
 	int				tli; /* toplevel item */
 	int				sp;
+	int				sigs; /* signatures / recipients seen */
 
 	uint8_t				sub;
 };

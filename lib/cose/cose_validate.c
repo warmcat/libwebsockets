@@ -279,16 +279,29 @@ create_alg(struct lecp_ctx *ctx, struct lws_cose_validate_context *cps)
 	lws_cose_validate_res_t *res;
 	lws_cose_sig_alg_t *alg;
 	lws_cose_key_t *ck;
-	uint8_t *p;
+	const uint8_t *p;
 	size_t s;
+
+	/*
+	 * Each of these costs a hash of the whole (stashed) payload and a
+	 * public key verify, and each also creates a result object that lives
+	 * until the validation context is destroyed... the object chooses how
+	 * many of them there are, so the cost is quadratic in its size unless
+	 * we refuse to go past a sane number
+	 */
+
+	if (++cps->sigs > MAX_COSE_SIGNATURES) {
+		lwsl_warn("%s: too many signatures\n", __func__);
+
+		return 1;
+	}
 
 	/* with sign1, we can hash the payload in a
 	 * single pass */
 
 	ck = lws_cose_key_from_set(cps->info.keyset, sl->kid.buf, sl->kid.len);
 	if (!ck) {
-		lwsl_notice("%s: no key\n", __func__);
-		lwsl_hexdump_notice(sl->kid.buf, sl->kid.len);
+		lwsl_info("%s: no key\n", __func__);
 		goto no_key_or_alg;
 	}
 
