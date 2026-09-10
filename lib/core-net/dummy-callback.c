@@ -1206,7 +1206,13 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 				lws_remove_child_from_any_parent(siwsi);
 				lws_wsi_close(siwsi, LWS_TO_KILL_ASYNC);
-				wsi->http.cgi->lsp->stdwsi[LWS_STDIN] = NULL;
+				/*
+				 * lws_spawn_stdwsi_closed() finds which pipe
+				 * died by looking the stdwsi up in the lsp and
+				 * clears the slot itself, so it must not be
+				 * cleared first or pipes_alive is never
+				 * decremented and the graceful reap is blocked
+				 */
 				lws_spawn_stdwsi_closed(wsi->http.cgi->lsp, siwsi);
 			}
 		}
