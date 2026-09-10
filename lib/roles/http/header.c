@@ -477,7 +477,15 @@ struct lws_protocol_vhost_options pvo_hsbph[] = {{
 	&pvo_hsbph[3], NULL, "content-security-policy:",
 	"default-src 'none'; img-src 'self' data: ; "
 		"script-src 'self'; font-src 'self'; "
-		"style-src 'self'; connect-src 'self' ws: wss:; "
+		/*
+		 * CSP3 'self' matches same-origin ws: / wss: as well as
+		 * http(s):, so scheme sources are not needed for our own
+		 * websockets, and "ws: wss:" would have allowed an injected
+		 * script to open a socket to ANY host.  A deployment that
+		 * talks to a third-party websocket supplies its own headers
+		 * pvo instead of this built-in set.
+		 */
+		"style-src 'self'; connect-src 'self'; "
 		"frame-ancestors 'none'; base-uri 'none';"
 		"form-action 'self';"
 }};
