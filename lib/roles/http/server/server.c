@@ -1355,8 +1355,28 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(methods); n++)
 		if (lws_hdr_total_length(wsi, methods[n])) {
+			int tl = lws_hdr_total_length(wsi, methods[n]);
+
+			/*
+			 * We hand out (ptr, len) together, and every consumer
+			 * of it assumes the two agree, ie, that len bytes of
+			 * contiguous, NUL-terminated URI live at ptr.  That is
+			 * only true while the method URI token is a single
+			 * fragment: lws_hdr_total_length() sums the fragments
+			 * and their separators, while lws_hdr_simple_ptr()
+			 * only points at the first one, so a fragmented URI
+			 * would walk consumers past the token's NUL into
+			 * unrelated ah data.  Nothing legitimately fragments
+			 * it, so refuse rather than paper over it.
+			 */
+			if (tl != lws_hdr_fragment_length(wsi, methods[n], 0)) {
+				lwsl_wsi_warn(wsi, "fragmented method URI");
+				return -1;
+			}
+
 			*puri_ptr = lws_hdr_simple_ptr(wsi, methods[n]);
-			*puri_len = lws_hdr_total_length(wsi, methods[n]);
+			*puri_len = tl;
+
 			return n;
 		}
 

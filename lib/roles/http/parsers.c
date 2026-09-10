@@ -886,8 +886,25 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 	switch (ah->ups) {
 	case URIPS_IDLE:
 
-		/* genuine delimiter */
-		if ((c == '&' || c == ';') && !enc) {
+		/*
+		 * Genuine urlarg delimiter... but only once a '?' has moved us
+		 * into WSI_TOKEN_HTTP_URI_ARGS, the same guard the '?' and '/'
+		 * tests below use.
+		 *
+		 * Before that we are still in the path, where '&' and ';' are
+		 * ordinary path bytes.  Splitting there appended a second
+		 * fragment to the *method URI* token, breaking the "the method
+		 * URI can only be in 1 fragment" invariant asserted by the
+		 * /../ backup loops and relied on by every (uri_ptr, uri_len)
+		 * consumer: lws_hdr_total_length() then exceeded
+		 * strlen(lws_hdr_simple_ptr()), so length-honouring consumers
+		 * read past the token's NUL, while string-honouring consumers
+		 * (mount matching, the access log) silently truncated the path
+		 * at the first '&' or ';' and served a different resource than
+		 * anything in front of us had seen.
+		 */
+		if ((c == '&' || c == ';') && !enc &&
+		    ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS]) {
 			if (issue_char(wsi, '\0') < 0)
 				return -1;
 			/* don't account for it */
@@ -897,9 +914,23 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 			ah->nfrag++;
 			if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frags))
 				goto excessive;
-			/* start next fragment after the & */
+			/*
+			 * Start the next fragment on the byte directly after
+			 * the safety NUL issue_char() just wrote.
+			 *
+			 * An extra ++ here left one never-written byte inside
+			 * the extent lws_hdr_total_length() reports for the
+			 * token (which sums the fragments plus one separator
+			 * byte each), ie, a byte of stale ah->data from an
+			 * earlier request on an earlier connection; and it
+			 * could take ah->pos one past max_http_header_data,
+			 * unlike the identical '?' site below.
+			 */
 			ah->post_literal_equal = 0;
-			ah->frags[ah->nfrag].offset = ++ah->pos;
+			ah->frags[ah->nfrag].offset = ah->pos;
+			if ((unsigned int)ah->pos >=
+					wsi->a.context->max_http_header_data)
+				goto excessive;
 			ah->frags[ah->nfrag].len = 0;
 			ah->frags[ah->nfrag].nfrag = 0;
 			goto swallow;
