@@ -61,6 +61,10 @@ instrumentation, so it should stay OFF for normal builds and normal CI.
 Long campaigns belong on a dedicated runner or a nightly job via
 `./fuzz/run.sh`.
 
+`run.sh` turns on everything the targets need that it can find on the
+host (gnutls for h3 / JOSE / COSE / DNSSEC, zlib for permessage-deflate);
+a target whose option is off is skipped, not an error.
+
 ## Targets
 
 | target | parser under test | notes |
@@ -95,19 +99,24 @@ covered in normal CI.
 
 ## Survey: what to harness next
 
-The wsi-bound h1, h2/hpack and ws parsers are covered via `peer.h`.  The
-remaining untrusted-input surfaces, easiest first:
+The wsi-bound h1, h2/hpack and ws parsers are covered via `peer.h`, and
+the standalone decoders (lejp, lecp, qpack, upng, jpeg, lhp, tokenize +
+helpers, JOSE, COSE, async-dns) directly.  The remaining untrusted-input
+surfaces, easiest first:
 
- - mqtt rx parser (`lib/roles/mqtt/mqtt.c`): an evil-peer target with a
-   canned CONNECT prelude, same shape as `fuzz-ws`
- - JPEG decoder (`lib/misc/jpeg.c`, `LWS_WITH_JPEG`) — standalone, same
-   shape as `fuzz-upng`
- - async DNS wire parser (`lib/system/async-dns/async-dns-parse.c`)
- - auth-dns zone parser (`lib/system/auth-dns/`)
- - COSE sign/validate (`lib/cose/`), jrpc (`lib/misc/jrpc/`),
-   dht messages (`lib/misc/dht`), sshd userauth / bipacket
- - `lws_tokenize`, `lws_b64_decode`, iso8601 and friends — standalone,
-   cheap to add
+ - the parsers that take bytes from a malicious *server*: mqtt rx
+   (`lib/roles/mqtt/mqtt.c`), h1 client response, ws client frames
+   (`client-parser-ws.c`), Set-Cookie (`lib/roles/http/cookie.c`).  These
+   need a client-mode variant of `peer.h` (lws connects out to the
+   harness's socketpair end instead of adopting it); one helper unlocks
+   all four
+ - Secure Streams serialized proxy / client deserializers
+   (`lib/secure-streams/serialized/`): byte state machines over a local
+   unix socket, evil-peer shape against the proxy's listener
+ - dht bencode / rpc (`lib/misc/dht`): needs a dht ctx with a UDP wsi
+ - auth-dns zone parser (`lib/system/auth-dns/`), jrpc (`lib/misc/jrpc/`),
+   `lws_struct` JSON-to-struct (`lib/misc/lws-struct-lejp.c`), sshd
+   userauth / bipacket
  - wt (WebTransport) and full h3/QUIC framing: these need the UDP/QUIC
    stack stood up, a larger project than a socketpair
 
