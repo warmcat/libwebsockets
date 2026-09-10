@@ -301,9 +301,19 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		if (vhd->has_jwk) {
 			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, "auth_session", NULL, wsi, NULL);
 			if (ja) {
-				if (lws_jwt_auth_query_grant(ja, "*") >= 1 || lws_jwt_auth_query_grant(ja, "hls:2") >= 1) {
+				uint64_t exp = lws_jwt_auth_get_exp(ja);
+
+				/*
+				 * lws_jwt_auth_create() returns a token that
+				 * verified but has already expired, leaving the
+				 * expiry decision to us: an expired session
+				 * cookie grants nothing
+				 */
+				if (exp && exp > (uint64_t)lws_now_secs() &&
+				    (lws_jwt_auth_query_grant(ja, "*") >= 1 ||
+				     lws_jwt_auth_query_grant(ja, "hls:2") >= 1))
 					pss->has_star_grant = 1;
-				}
+
 				lws_jwt_auth_destroy(&ja);
 			}
 		}
