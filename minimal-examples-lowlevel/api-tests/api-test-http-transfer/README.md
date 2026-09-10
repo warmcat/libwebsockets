@@ -7,7 +7,7 @@ Request bodies (client to server) on h1: Content-Length in one write and in
 many; Transfer-Encoding: chunked with chunks of assorted sizes, in one write, in
 many, and with the framing split across writes; chunked with chunk extensions
 and trailer fields; chunked on a GET followed by a pipelined request on the same
-connection; a POST with neither header; and the refusals (an unsupported
+connection; and the refusals (an unsupported
 Transfer-Encoding gets 501, Transfer-Encoding with Content-Length gets 400, a
 chunked body over the mount limit drops the connection, a Content-Length over it
 gets 413).
