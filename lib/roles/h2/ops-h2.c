@@ -935,6 +935,32 @@ rops_callback_on_writable_h2(struct lws *wsi)
 }
 
 #if defined(LWS_WITH_SERVER)
+
+/*
+ * We bound a POST but its body is not all here yet, so the request cannot be
+ * dispatched: the POLLOUT mux walk will leave the stream parked in LRS_BODY
+ * with its requested_POLLOUT already cleared, waiting on the peer.
+ *
+ * Nothing else arms any timeout on an h2 stream wsi... lws_http_action() (the
+ * only thing that arms PENDING_TIMEOUT_HTTP_CONTENT on a request wsi) is
+ * exactly what we are deferring, and the timeouts the h2 parser sets belong to
+ * the network wsi, which the peer keeps fresh with any frame at all.  So
+ * without this a HEADERS whose body never comes holds the stream wsi, its ah
+ * and whatever the user allocated at LWS_CALLBACK_HTTP for the life of the
+ * connection.
+ *
+ * Arm the same body timeout h1 uses: lws_read_h1() re-arms it as body arrives
+ * and clears it at body completion.
+ */
+
+static void
+lws_h2_await_body_timeout(struct lws *wsi)
+{
+	if (!wsi->mux_stream_immortal)
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+				(int)wsi->a.context->timeout_secs);
+}
+
 static int
 lws_h2_bind_for_post_before_action(struct lws *wsi)
 {
@@ -1029,8 +1055,16 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 
 	lwsi_set_state(wsi, LRS_BODY);
 
-	if (wsi->http.content_length_explicitly_zero)
+	if (wsi->http.content_length_explicitly_zero) {
+		/*
+		 * He told us there is no body... but if he did not also end
+		 * his side of the stream, we are still waiting on him for the
+		 * END_STREAM before we may reply
+		 */
+		lws_h2_await_body_timeout(wsi);
+
 		return 0;
+	}
 
 	/*
 	 * Dump any stashed body
@@ -1082,12 +1116,25 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		/* Take us off the pt's "wsi holding input buflist" list */
 		lws_dll2_remove(&wsi->dll_buflist);
 
-	if (wsi->http.content_length_given && wsi->http.rx_content_length)
+	if (wsi->http.content_length_given && wsi->http.rx_content_length) {
 		/* still a-ways to go */
-		return 0;
+		lws_h2_await_body_timeout(wsi);
 
-	if (!wsi->http.content_length_given && !wsi->h2.END_STREAM)
 		return 0;
+	}
+
+	if (!wsi->http.content_length_given && !wsi->h2.END_STREAM) {
+		/* no content-length, so we're waiting for his END_STREAM */
+		lws_h2_await_body_timeout(wsi);
+
+		return 0;
+	}
+
+	/*
+	 * The body is complete: like h1's postbody_completion, the peer owes us
+	 * nothing more, so no body timeout is left armed.  From here the
+	 * response watchdog lws_http_response_started() arms takes over.
+	 */
 
 	if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY_COMPLETION,
 				      wsi->user_space, NULL, 0))
