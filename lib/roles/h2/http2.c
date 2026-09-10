@@ -2557,7 +2557,25 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 			}
 
 
-			if (h2n->flags & LWS_H2_FLAG_PADDED &&
+			/*
+			 * RFC 7540 4.1: flags that have no defined semantics
+			 * for a particular frame type MUST be ignored.  PADDED
+			 * (0x8) is only defined for DATA, HEADERS and
+			 * PUSH_PROMISE, and PRIORITY (0x20) only for HEADERS.
+			 *
+			 * Acting on them for other frame types let a peer make
+			 * us silently eat a chosen prefix (up to 1 + 5 bytes)
+			 * and suffix (up to 255 bytes) of any frame's payload,
+			 * while still treating the frame as well-formed... eg,
+			 * a DATA frame's body then disagrees with its framed
+			 * length without tripping the content-length check, and
+			 * a SETTINGS payload is parsed one byte out of phase.
+			 */
+
+			if ((h2n->flags & LWS_H2_FLAG_PADDED) &&
+			    (h2n->type == LWS_H2_FRAME_TYPE_DATA ||
+			     h2n->type == LWS_H2_FRAME_TYPE_HEADERS ||
+			     h2n->type == LWS_H2_FRAME_TYPE_PUSH_PROMISE) &&
 			    !h2n->pad_length) {
 				/*
 				 * Get the padding count... actual padding is
@@ -2574,7 +2592,8 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 				break; /* we consumed this */
 			}
 
-			if (h2n->flags & LWS_H2_FLAG_PRIORITY &&
+			if ((h2n->flags & LWS_H2_FLAG_PRIORITY) &&
+			    h2n->type == LWS_H2_FRAME_TYPE_HEADERS &&
 			    !h2n->collected_priority) {
 				/* going to be 5 preamble bytes */
 
