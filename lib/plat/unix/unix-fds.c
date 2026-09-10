@@ -116,6 +116,13 @@ sanity_assert_no_sockfd_traces(const struct lws_context *context,
 
 	if (!context->max_fds_unrelated_to_ulimit &&
 	    context->lws_lookup[sfd - lws_plat_socket_offset()]) {
+		struct lws *w = context->lws_lookup[sfd -
+						    lws_plat_socket_offset()];
+
+		lwsl_err("%s: fd %d still in lws_lookup as %s (wsistate 0x%x, "
+			 "fds pos %d, its sockfd %d)\n", __func__, (int)sfd,
+			 lws_wsi_tag(w), (unsigned int)w->wsistate,
+			 w->position_in_fds_table, (int)w->desc.sockfd);
 		assert(0); /* the fd is still in use */
 		return 1;
 	}
@@ -143,6 +150,10 @@ sanity_assert_no_sockfd_traces(const struct lws_context *context,
 	if (p == done)
 		return 0;
 
+	lwsl_err("%s: fd %d still in lws_lookup[%d] as %s (wsistate 0x%x, "
+		 "fds pos %d)\n", __func__, (int)sfd,
+		 (int)(p - context->lws_lookup), lws_wsi_tag(*p),
+		 (unsigned int)(*p)->wsistate, (*p)->position_in_fds_table);
 	assert(0); /* this fd is still in the tables */
 
 	return 1;
