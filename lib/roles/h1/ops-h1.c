@@ -177,6 +177,14 @@ http_postbody:
 			if (wsi->http.cgi) {
 				struct lws_cgi_args args;
 
+				if (!wsi->http.cgi->lsp)
+					/*
+					 * The child was already reaped and
+					 * the lsp destroyed, there is nothing
+					 * left to relay the body to
+					 */
+					goto bail;
+
 				args.ch = LWS_STDIN;
 				args.stdwsi = &wsi->http.cgi->lsp->stdwsi[0];
 				args.data = buf;

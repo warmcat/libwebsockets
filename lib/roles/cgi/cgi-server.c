@@ -573,6 +573,15 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 	if (!wsi->http.cgi)
 		return -1;
 
+	/*
+	 * Note ->lsp can be NULL here even though ->cgi is not:
+	 * lws_spawn_reap() destroys the lsp and NULLs it via info.plsp before
+	 * it calls us back, while wsi->http.cgi and the wsi itself stay
+	 * around so we can still flush any headers we already collected.
+	 * So every ->lsp use below goes via lws_cgi_get_stdwsi(), which
+	 * checks it.
+	 */
+
 	while (wsi->hdr_state != LHCS_PAYLOAD) {
 		/*
 		 * We have to separate header / finalize and payload chunks,
@@ -784,7 +793,7 @@ post_hpack_recode:
 			return -1;
 		}
 
-		n = lws_get_socket_fd(wsi->http.cgi->lsp->stdwsi[LWS_STDOUT]);
+		n = lws_get_socket_fd(lws_cgi_get_stdwsi(wsi, LWS_STDOUT));
 		if (n < 0)
 			return -1;
 		n = (int)read(n, &c, 1);
@@ -932,7 +941,7 @@ agin:
 
 	m = !wsi->http.cgi->implied_chunked && !wsi->mux_substream &&
 	    !wsi->http.cgi->content_length;
-	n = lws_get_socket_fd(wsi->http.cgi->lsp->stdwsi[LWS_STDOUT]);
+	n = lws_get_socket_fd(lws_cgi_get_stdwsi(wsi, LWS_STDOUT));
 	if (n < 0)
 		return -1;
 
@@ -1082,7 +1091,12 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			cgi = *pcgi;
 			pcgi = &(*pcgi)->cgi_list;
 
-			if (cgi->lsp->child_pid <= 0)
+			/*
+			 * ->lsp is NULLed by lws_spawn_reap() while the cgi
+			 * stays on our list, so it must be checked here too
+			 */
+
+			if (!cgi->lsp || cgi->lsp->child_pid <= 0)
 				continue;
 
 			/* finish sending cached headers */
