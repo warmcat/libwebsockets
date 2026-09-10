@@ -486,6 +486,7 @@ int
 lws_ssl_close(struct lws *wsi)
 {
 	lws_sockfd_type n = LWS_SOCK_INVALID;
+	int closed = 0;
 	BSL_UIO *uio;
 
 	if (!wsi->tls.ssl) {
@@ -508,8 +509,22 @@ lws_ssl_close(struct lws *wsi)
 	if (uio)
 		BSL_UIO_Ctrl(uio, BSL_UIO_GET_FD, sizeof(lws_sockfd_type), &n);
 
-	if (lws_socket_is_valid(n))
-		compatible_close(n);
+	/*
+	 * The UIO holds the fd the TLS object was created on; the wsi's
+	 * socket can have been replaced since (racer promotion, QUIC socket
+	 * swap) and that fd number reissued to somebody else.  Only close it
+	 * if it is still the wsi's socket, and only report the close as
+	 * handled if we did it, so the caller closes the real socket
+	 * otherwise.
+	 */
+	if (lws_socket_is_valid(n)) {
+		if (n == wsi->desc.sockfd) {
+			compatible_close(n);
+			closed = 1;
+		} else
+			lwsl_wsi_info(wsi, "tls fd %d is not the wsi socket %d",
+				      (int)n, (int)wsi->desc.sockfd);
+	}
 	/*
 	 * Detach the fd from the UIO so neither HITLS_Free() nor BSL_UIO_Free()
 	 * can touch the (already closed) wsi-owned socket, then drop the TLS
@@ -525,7 +540,7 @@ lws_ssl_close(struct lws *wsi)
 		BSL_UIO_Free(uio);
 	lws_tls_restrict_return(wsi);
 
-	return 1; /* handled */
+	return closed; /* 1: we closed the wsi's socket */
 }
 
 void

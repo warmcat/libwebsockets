@@ -529,6 +529,7 @@ int
 lws_ssl_close(struct lws *wsi)
 {
 	lws_sockfd_type n;
+	int closed = 0;
 
 	if (!wsi->tls.ssl)
 		return 0; /* not handled */
@@ -553,8 +554,28 @@ lws_ssl_close(struct lws *wsi)
 	n = SSL_get_fd(wsi->tls.ssl);
 	if (!wsi->socket_is_permanently_unusable)
 		SSL_shutdown(wsi->tls.ssl);
-	if (n != (lws_sockfd_type)LWS_SOCK_INVALID && n != (lws_sockfd_type)-1)
-		compatible_close(n);
+
+	/*
+	 * The socket BIO holds whatever wsi->desc.sockfd was when the TLS
+	 * object was created.  The wsi's socket can be replaced under it
+	 * later (a happy-eyeballs racer promoted over a QUIC socket, a QUIC
+	 * preferred-address socket swap), after which the old fd number is
+	 * closed and reissued to an unrelated socket.  Closing SSL_get_fd()
+	 * then kills somebody else's live socket, and since we report the
+	 * close as handled, the wsi's real socket is never closed either.
+	 * So only close the fd if it is still the wsi's socket, and only
+	 * claim to have handled the close if we did.  (A QUIC connection on
+	 * memory BIOs has no fd here at all, and used to leak its datagram
+	 * socket the same way.)
+	 */
+	if (n != (lws_sockfd_type)LWS_SOCK_INVALID && n != (lws_sockfd_type)-1) {
+		if (n == wsi->desc.sockfd) {
+			compatible_close(n);
+			closed = 1;
+		} else
+			lwsl_wsi_info(wsi, "tls fd %d is not the wsi socket %d",
+				      (int)n, (int)wsi->desc.sockfd);
+	}
 	SSL_free(wsi->tls.ssl);
 	wsi->tls.ssl = NULL;
 
@@ -578,7 +599,7 @@ lws_ssl_close(struct lws *wsi)
 		wsi->tls.ctx_ref = NULL;
 	}
 
-	return 1; /* handled */
+	return closed; /* 1: we closed the wsi's socket */
 }
 
 void
