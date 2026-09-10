@@ -841,8 +841,41 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 			}
 			break;
 		}
-		if (cps->meta_idx >= 0)
+		if (cps->meta_idx >= 0) {
+
+			/*
+			 * RFC9052 7.1: key_ops is an array of int / tstr, a
+			 * bstr is not a legal key op.  At BLOB_END it would
+			 * become meta[KEY_OPS] wholesale, ie, up to 1KB of
+			 * unchecked bytes replacing the ops array the integer
+			 * arm validated one op at a time, which is exactly
+			 * what lws_cose_key_checks() then walks.  Drop it
+			 * rather than treat arbitrary bytes as ops: a key with
+			 * no ops is no weaker than one whose ops the same
+			 * attacker could have removed.
+			 */
+
+			if (cps->meta_idx == COSEKEY_META_KEY_OPS) {
+				lwsl_warn("%s: ignoring bstr key_ops\n",
+						__func__);
+				cps->meta_idx = -1;
+				cps->cose_state = 0;
+				break;
+			}
+
+			/*
+			 * Same for alg (int / tstr): the export side chooses
+			 * bstr or tstr by which meta it is, so bytes accepted
+			 * here come back out inside a CBOR text string
+			 */
+
+			if (cps->meta_idx == COSEKEY_META_ALG) {
+				lwsl_warn("%s: bstr alg\n", __func__);
+				goto bail;
+			}
+
 			break;
+		}
 
 		goto bail;
 
