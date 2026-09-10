@@ -36,7 +36,19 @@ lws_token_to_string(enum lws_token_indexes token)
 }
 
 /*
- * Return http header index if one matches slen chars of s, or -1
+ * Return http header index if one exactly matches the slen chars of field
+ * name at s, else LWS_HTTP_NO_KNOWN_HEADER.
+ *
+ * The lextable strings carry their trailing ':' (and the method + status
+ * tokens a trailing ' '), so both "cookie" and "cookie:" are accepted as
+ * naming WSI_TOKEN_HTTP_COOKIE, but nothing else is.
+ *
+ * This used to be a bare strncmp() over slen bytes, ie, a *prefix* match:
+ * "auth" resolved to WSI_TOKEN_HTTP_AUTHORIZATION, "x-auth" to
+ * WSI_TOKEN_X_AUTH_TOKEN, "get" to WSI_TOKEN_GET_URI and so on.  Callers use
+ * this to name a header to remove (the anti-spoof zaps in the interceptor and
+ * lws-login) or to bind a metadata name to a token, and for those a prefix
+ * hit silently acts on a completely different header than the one named.
  */
 
 int
@@ -44,9 +56,22 @@ lws_http_string_to_known_header(const char *s, size_t slen)
 {
 	int n;
 
-	for (n = 0; n < (int)LWS_ARRAY_SIZE(set); n++)
+	if (!slen)
+		return LWS_HTTP_NO_KNOWN_HEADER;
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(set); n++) {
+		size_t tl = strlen(set[n]);
+
+		/* the placeholder entries are not matchable */
+		if (!tl)
+			continue;
+
+		if (tl != slen && !(tl == slen + 1 && set[n][slen] == ':'))
+			continue;
+
 		if (!strncmp(set[n], s, slen))
 			return n;
+	}
 
 	return LWS_HTTP_NO_KNOWN_HEADER;
 }
