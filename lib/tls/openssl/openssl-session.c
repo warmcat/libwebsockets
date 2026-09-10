@@ -386,8 +386,18 @@ lws_tls_session_cache(struct lws_vhost *vh, uint32_t ttl)
 
 	cmode = SSL_CTX_get_session_cache_mode(vh->tls.ssl_client_ctx);
 
+	/*
+	 * We keep and look up our own tagged sessions in vh->tls_sessions and
+	 * never ask openssl's internal store for anything, so leaving that
+	 * store enabled is pure retention: a server sending a stream of
+	 * NewSessionTickets can park thousands of SSL_SESSIONs, each with its
+	 * own ticket, in a ctx that is shared between vhosts, for as long as
+	 * the ctx timeout.  Ask for the callback without the store.
+	 */
+
 	SSL_CTX_set_session_cache_mode(vh->tls.ssl_client_ctx,
-				       (int)(cmode | SSL_SESS_CACHE_CLIENT));
+				       (int)(cmode | SSL_SESS_CACHE_CLIENT |
+					     SSL_SESS_CACHE_NO_INTERNAL_STORE));
 
 	SSL_CTX_sess_set_new_cb(vh->tls.ssl_client_ctx, lws_tls_session_new_cb);
 
