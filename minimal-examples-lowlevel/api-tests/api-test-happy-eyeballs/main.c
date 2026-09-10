@@ -114,7 +114,7 @@ static struct lws *client_wsi = NULL;
 static int established_success = 0;
 static int next_step = 0;
 static char via[16]; /* x-via response header value for this step */
-static lws_sorted_usec_list_t sul_step;
+static lws_sorted_usec_list_t sul_step, sul_deadline;
 static const char *bind_iface;
 /* the --race-fast variants require "localhost" to resolve to both families,
  * so the refused primary deterministically meets a live racer on the other
@@ -211,6 +211,32 @@ static void
 schedule_next_step(void)
 {
 	lws_sul_schedule(context, 0, &sul_step, step_cb, 1);
+}
+
+/*
+ * The steps only advance on connection events, so a connection that neither
+ * completes nor errors leaves the test sitting in lws_service() until ctest
+ * kills it, with the log cut off wherever that happened to be.  Put a
+ * deadline on the whole run so a stall is reported as a failure that says
+ * which step it was in.
+ */
+
+#define TEST_DEADLINE_S 40
+
+static void
+deadline_cb(lws_sorted_usec_list_t *sul)
+{
+	(void)sul;
+
+	lwsl_err("--- deadline: no result after %ds, step %d, client %s ---\n",
+		 TEST_DEADLINE_S, client_step, client_wsi ? "live" : "none");
+	result = 1;
+	interrupted = 1;
+
+	/* as step_cb: unwind a blocking internal event lib loop via destroy */
+
+	lws_context_destroy(context);
+	context = NULL;
 }
 
 static void
@@ -597,6 +623,9 @@ int main(int argc, const char **argv)
 		lwsl_err("Failed to create Client vhost\n");
 		goto bail;
 	}
+
+	lws_sul_schedule(context, 0, &sul_deadline, deadline_cb,
+			 TEST_DEADLINE_S * LWS_US_PER_SEC);
 
 	lwsl_notice("--- Starting Step 1: TCP connection for Alt-Svc ---\n");
 	start_client_connection();
