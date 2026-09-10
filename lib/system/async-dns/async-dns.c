@@ -28,8 +28,17 @@
 static const uint32_t botable[] = { 300, 500, 700, 1250, 5000
 				/* in case everything just dog slow */ };
 static const lws_retry_bo_t retry_policy = {
-	botable, LWS_ARRAY_SIZE(botable), LWS_RETRY_CONCEAL_ALWAYS,
-	/* don't conceal after the last table entry */ 0, 0, 20 };
+	botable, LWS_ARRAY_SIZE(botable),
+	/*
+	 * conceal_count: don't conceal after the last table entry, ie, the
+	 * query fails once we have been through the backoff table.
+	 * LWS_RETRY_CONCEAL_ALWAYS here (which is what this used to say) makes
+	 * lws_retry_get_delay_ms() conceal forever, since the try counter
+	 * saturates at the same 0xffff it compares against... a query that is
+	 * never answered then retransmits every 5s for the life of the
+	 * process, and a standalone (wsi-less) one is never failed at all.
+	 */
+	LWS_ARRAY_SIZE(botable), 0, 0, 20 };
 
 void
 lws_adns_q_destroy(lws_adns_q_t *q)
@@ -42,6 +51,7 @@ lws_adns_q_destroy(lws_adns_q_t *q)
 
 	lws_sul_cancel(&q->sul);
 	lws_sul_cancel(&q->write_sul);
+	lws_sul_cancel(&q->deadline_sul);
 	lws_dll2_remove(&q->list);
 
 	if (q->wsi_tcp) {
@@ -214,6 +224,31 @@ lws_async_dns_sul_cb_retry(struct lws_sorted_usec_list *sul)
 		q->is_retry = 1;
 		lws_callback_on_writable(q->dsrv->wsi);
 	}
+}
+
+static void
+lws_async_dns_sul_cb_deadline(struct lws_sorted_usec_list *sul)
+{
+	lws_adns_q_t *q = lws_container_of(sul, lws_adns_q_t, deadline_sul);
+
+	/*
+	 * Hard backstop on the query lifetime: however it got stuck (a
+	 * resolver that answers nothing, a DNSSEC sub-lookup that never
+	 * completes, a retry policy that conceals more than we expected), it
+	 * may not live forever.  A standalone (wsi-less) query has no
+	 * requester wsi whose own timeout would eventually reap it.
+	 */
+
+	lwsl_cx_notice(q->context, "async dns query %s timed out",
+		       (const char *)&q[1]);
+
+	if (q->firstcache) {
+		lws_adns_cache_destroy(q->firstcache);
+		q->firstcache = NULL;
+	}
+
+	lws_async_dns_complete(q, NULL);
+	lws_adns_q_destroy(q);
 }
 
 static void
@@ -2105,6 +2140,11 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	/* fail us if we can't write by this timeout */
 	lws_sul_schedule(context, 0, &q->write_sul, sul_cb_write, LWS_US_PER_SEC);
 
+	/* ... and fail us if the whole query isn't done by this one */
+	lws_sul_schedule(context, 0, &q->deadline_sul,
+			 lws_async_dns_sul_cb_deadline,
+			 DNS_QUERY_TIMEOUT * LWS_US_PER_SEC);
+
 	/*
 	 * We may rewrite the copy at +sizeof(*q) for CNAME recursion.  Keep
 	 * a second copy at + sizeof(*q) + DNS_MAX so we can create the cache
@@ -2147,6 +2187,7 @@ failed_unpublished_q:
 		lws_dll2_remove(&wsi->adns);
 	lws_sul_cancel(&q->sul);
 	lws_sul_cancel(&q->write_sul);
+	lws_sul_cancel(&q->deadline_sul);
 	if (pq)
 		*pq = NULL;
 	lws_free(q);

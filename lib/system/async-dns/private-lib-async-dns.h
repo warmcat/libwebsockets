@@ -116,6 +116,7 @@ typedef int (*lws_async_dns_find_t)(const char *name, void *opaque,
 typedef struct lws_adns_q {
 	lws_sorted_usec_list_t	sul;	/* per-query write retry timer */
 	lws_sorted_usec_list_t	write_sul;	/* fail if unable to write by this time */
+	lws_sorted_usec_list_t	deadline_sul;	/* hard limit on the whole query */
 	lws_dll2_t		list;
 
 	lws_metrics_caliper_compose(metcal)
