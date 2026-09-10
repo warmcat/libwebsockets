@@ -135,6 +135,52 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 #endif
 
 #if defined(LWS_WITH_TCP_TLS)
+
+/*
+ * Which vhost owns the tls ctx this connection actually handshaked under?
+ *
+ * Normally that is the vhost whose tls.ssl_ctx it is.  But if the vhost's
+ * certificate was rotated between the ctx being taken for this connection and
+ * the handshake completing, the vhost's tls.ssl_ctx is already the
+ * replacement, and the ctx in use has been parked on that vhost's
+ * retired_ctx_list.  Matching only the active ctx then finds no vhost at all,
+ * and a connection that SNI had moved to a permissive vhost stays bound to
+ * the (possibly mTLS) vhost that accepted it.
+ */
+
+static struct lws_vhost *
+lws_tls_vhost_owning_ctx(struct lws_context *cx, lws_tls_ctx *ctx)
+{
+	struct lws_vhost *vh;
+
+	if (!ctx)
+		return NULL;
+
+	vh = lws_vhost_first(cx);
+	while (vh) {
+		if (!vh->being_destroyed && vh->tls.ssl_ctx == ctx)
+			return vh;
+		vh = lws_vhost_next(vh);
+	}
+
+	vh = lws_vhost_first(cx);
+	while (vh) {
+		if (!vh->being_destroyed) {
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+				  lws_dll2_get_head(&vh->tls.retired_ctx_list)) {
+				struct lws_tls_ctx_ref *r = lws_container_of(d,
+						struct lws_tls_ctx_ref, list);
+
+				if (r->ctx == ctx)
+					return vh;
+			} lws_end_foreach_dll(d);
+		}
+		vh = lws_vhost_next(vh);
+	}
+
+	return NULL;
+}
+
 int
 lws_tls_server_accept_completed(struct lws *wsi, int n)
 {
@@ -167,29 +213,30 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 	}
 
 	/* adapt our vhost to match the SNI SSL_CTX that was chosen */
-	vh = lws_vhost_first(context);
-	while (vh) {
-		if (!vh->being_destroyed && wsi->tls.ssl &&
-		    vh->tls.ssl_ctx == lws_tls_ctx_from_wsi(wsi)) {
+
+	if (wsi->tls.ssl) {
+		vh = lws_tls_vhost_owning_ctx(context, lws_tls_ctx_from_wsi(wsi));
+		if (vh) {
 			lwsl_info("setting wsi to vh %s\n", vh->name);
 			/*
-			 * lws_vhost_bind_wsi() only ever increments the new
-			 * vhost's count_bound_wsi, so we have to release the
-			 * count we hold on the accepting vhost first...
-			 * otherwise a peer choosing an SNI name other than the
-			 * listen vhost's leaks a count on it for every
-			 * connection, and that vhost can then never be
-			 * destroyed.
+			 * lws_vhost_bind_wsi() releases the count we hold on
+			 * the accepting vhost itself, so we must NOT unbind
+			 * here first: doing so clears wsi->a.vhost, and both
+			 * of the refusals in lws_vhost_bind_wsi() (the dying
+			 * vhost one and the mTLS rebind one) are conditioned
+			 * on it being non-NULL, ie, unbinding first silently
+			 * turns them off for this rebind.
+			 *
+			 * Neither refusal can wrongly reject the SNI move:
+			 * this vhost's SSL_CTX and verify mode are what the
+			 * handshake just completed under, so if it requires a
+			 * client cert, the peer already presented a verified
+			 * one.
 			 */
-			if (wsi->a.vhost != vh) {
-				lws_context_lock(context, __func__);
-				__lws_vhost_unbind_wsi(wsi);
-				lws_context_unlock(context);
-			}
 			lws_vhost_bind_wsi(vh, wsi);
-			break;
-		}
-		vh = lws_vhost_next(vh);
+		} else
+			lwsl_wsi_notice(wsi, "no vhost owns the tls ctx this "
+					     "connection handshaked under");
 	}
 
 	/* OK, we are accepted... give him some time to negotiate */
