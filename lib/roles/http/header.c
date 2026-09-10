@@ -924,7 +924,16 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 		char buf[256];
 		const unsigned char *c;
 
+		/*
+		 * The ah is held for the whole transaction, not just while
+		 * the headers are being received, so a total-hold criterion
+		 * would close every legitimate slow download or upload that
+		 * runs past a few minutes.  The hazard this backstops is a
+		 * peer that never finishes sending its headers, so only look
+		 * at connections still in that phase.
+		 */
 		if (!ah->in_use || !ah->wsi || !ah->assigned ||
+		    lwsi_state(ah->wsi) != LRS_HEADERS ||
 		    (ah->wsi->a.vhost &&
 		     (now - ah->assigned) <
 		     ah->wsi->a.vhost->timeout_secs_ah_idle + 360)) {
@@ -996,6 +1005,16 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 
 		ah = lws_pt_first_ah(&pt->http.ah_owner);
 	}
+
+	/*
+	 * This is the pt's periodic backstop against a peer holding an ah (and
+	 * so an fd, a wsi and max_http_header_data bytes) forever, so it has
+	 * to re-arm itself every time it runs... the pt destroy path removes
+	 * it from the sul owner.
+	 */
+
+	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+			    sul, 30 * LWS_US_PER_SEC);
 
 	lws_pt_unlock(pt);
 }

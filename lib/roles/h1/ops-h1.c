@@ -1248,10 +1248,15 @@ rops_pt_init_destroy_h1(struct lws_context *context,
 		    struct lws_context_per_thread *pt, int destroy)
 {
 	/*
-	 * We only want to do this once... we will do it if no h2 support
-	 * otherwise let h2 ops do it.
+	 * We only want to do this once, and h1 is the role that is always
+	 * built when any http role is (h2 fails the cmake configure without
+	 * it), so h1 owns the pt's "ah excessive hold" watchdog for every
+	 * build.  It used to be guarded on !LWS_ROLE_H2 here and "let h2 ops
+	 * do it", but the h2 copy carried the same inverted guard inside a
+	 * translation unit only compiled when LWS_ROLE_H2 is defined... so in
+	 * the default build neither ran and the watchdog never existed.
 	 */
-#if !defined(LWS_ROLE_H2) && defined(LWS_WITH_SERVER)
+#if defined(LWS_WITH_SERVER)
 	if (!destroy) {
 
 		pt->sul_ah_lifecheck.cb = lws_sul_http_ah_lifecheck;

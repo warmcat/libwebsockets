@@ -703,19 +703,10 @@ rops_pt_init_destroy_h2(struct lws_context *context,
 		context->set = lws_h2_stock_settings;
 
 	/*
-	 * We only want to do this once... we will do it if we are built
-	 * otherwise h1 ops will do it (or nobody if no http at all)
+	 * The pt's ah lifecheck watchdog is registered by the h1 role ops,
+	 * which are always built when h2 is (this used to carry a copy
+	 * guarded on !LWS_ROLE_H2, ie, dead in its own translation unit)
 	 */
-#if !defined(LWS_ROLE_H2) && defined(LWS_WITH_SERVER)
-	if (!destroy) {
-
-		pt->sul_ah_lifecheck.cb = lws_sul_http_ah_lifecheck;
-
-		__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
-				 &pt->sul_ah_lifecheck, 30 * LWS_US_PER_SEC);
-	} else
-		lws_dll2_remove(&pt->sul_ah_lifecheck.list);
-#endif
 
 	return 0;
 }
