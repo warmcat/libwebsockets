@@ -637,6 +637,27 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 				}
 
 				if (p) {
+					size_t need = (ret ? 2u : 0u) +
+						      c.l[CE_NAME] + 1 +
+						      c.l[CE_VALUE];
+
+					/*
+					 * The write pass must bound itself
+					 * against its own destination: it
+					 * cannot just trust the size the
+					 * measuring pass returned earlier,
+					 * since the two passes are separated
+					 * by the header reservation and each
+					 * one re-walks the cookie cache.
+					 */
+					if (need > lws_ptr_diff_size_t(end, p)) {
+						lwsl_err("%s: cookie buf\n",
+							 __func__);
+						lws_free(cache_name);
+
+						return -1;
+					}
+
 					if (ret) {
 						*p = ';';
 						p++;
@@ -899,7 +920,16 @@ lws_cookie_send_cookies(struct lws *wsi, char **pp, char *end)
 #endif
 		p = *pp - size - 2;
 
-	if (lws_cookie_attach_cookies(wsi, p, p + size) <= 0) {
+	/*
+	 * The reservation above only moved *pp on, it did not initialize the
+	 * reserved bytes (lws_add_http_header_by_name() skips the copy for a
+	 * NULL value), so they still hold whatever was in the serv_buf.  If
+	 * the second pass writes fewer bytes than the first pass measured --
+	 * eg, a cookie's TTL lapsed in between and the cache walk stopped
+	 * early -- the tail of the Cookie: header we send would be that stale
+	 * scratch content.  Insist the two passes agree exactly.
+	 */
+	if (lws_cookie_attach_cookies(wsi, p, p + size) != size) {
 		lwsl_err("%s:failed to attach cookies\n", __func__);
 		return -1;
 	}
