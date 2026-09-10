@@ -939,6 +939,16 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 
 			pub->payload_pos = 0;
 
+			/*
+			 * The dup decision belongs to the PUBLISH we are
+			 * starting now... only QoS1 / QoS2 pass through
+			 * LMQCPP_PUBLISH_VH_PKT_ID, so clearing it there
+			 * would leave one duplicate QoS2 id suppressing
+			 * delivery of every later QoS0 PUBLISH on this
+			 * shared connection.
+			 */
+			wsi->mqtt->qos2_duplicate = 0;
+
 			overhead = (unsigned int)(2 + pub->topic_len + ((pub->qos) ? 2 : 0));
 			if (par->cpkt_remlen < overhead) {
 				par->reason = LMQCP_REASON_MALFORMED_PACKET;
@@ -982,7 +992,6 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			buf += 2;
 			len -= 2;
 			wsi->mqtt->peer_ack_pkt_id = par->cpkt_id;
-			wsi->mqtt->qos2_duplicate = 0;
 
 			if (pub->qos == QOS2) {
 				lws_mqtt_qos2_rx_t *rx;
