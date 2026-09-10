@@ -404,6 +404,63 @@ static void sigint_handler(int sig)
 }
 
 /*
+ * lws_service() does not honour its timeout_ms argument: it returns when
+ * there is something to do or the next scheduled event is due, and otherwise
+ * blocks indefinitely.  So a loop like
+ *
+ *	while (lws_now_usecs() - start < N)
+ *		lws_service(cx, 100);
+ *
+ * is not bounded by N at all: it only re-checks the clock when some unrelated
+ * event (eg, the platform's 30s housekeeping tick) happens to wake the service
+ * loop.  To wait for something for a bounded time, the deadline itself has to
+ * be an event, ie, a sul.
+ *
+ * Service cx until *flag becomes nonzero (flag may be NULL to just wait the
+ * whole period out) or us has elapsed.  Returns nonzero if the flag was set.
+ */
+
+struct timed_wait {
+	lws_sorted_usec_list_t	sul;
+	struct lws_context	*cx;
+	int			expired;
+};
+
+static void
+timed_wait_cb(lws_sorted_usec_list_t *sul)
+{
+	struct timed_wait *tw = lws_container_of(sul, struct timed_wait, sul);
+
+	tw->expired = 1;
+
+	/*
+	 * lws_service() runs the ripe suls and then goes straight on to wait
+	 * for the next event in the same call, so setting the flag alone
+	 * would not be noticed until something else woke it.  Wake it now.
+	 */
+	lws_cancel_service(tw->cx);
+}
+
+static int
+service_until(struct lws_context *cx, lws_usec_t us, int *flag)
+{
+	struct timed_wait tw;
+
+	memset(&tw, 0, sizeof(tw));
+	tw.cx = cx;
+	lws_sul_schedule(cx, 0, &tw.sul, timed_wait_cb, us);
+
+	while (!tw.expired && !(flag && *flag))
+		if (lws_service(cx, 0) < 0)
+			break;
+
+	/* it lives on our stack: never leave it on the context's sul list */
+	lws_sul_cancel(&tw.sul);
+
+	return flag && *flag;
+}
+
+/*
  * Phase 2: destroy the context while the stub connection is established and
  * the stub manager is only destroyed from PROTOCOL_DESTROY.
  *
@@ -439,7 +496,6 @@ phase2(int argc, const char **argv)
 	struct lws_stub_config sc;
 	struct lws_context *cx;
 	struct lws_vhost *vh;
-	lws_usec_t start;
 
 	established = 0;
 
@@ -488,9 +544,7 @@ phase2(int argc, const char **argv)
 		return 1;
 	}
 
-	start = lws_now_usecs();
-	while (!established && lws_now_usecs() - start < 5000000) /* 5s */
-		lws_service(cx, 100);
+	service_until(cx, 5 * LWS_US_PER_SEC, &established);
 
 	/* stub is destroyed from PROTOCOL_DESTROY inside here, after its
 	 * client wsi was closed and freed */
@@ -532,7 +586,6 @@ phase4(int argc, const char **argv)
 	struct lws_context *cx;
 	struct lws_vhost *vh;
 	char vhname[192];
-	lws_usec_t start;
 	int result = 0, n;
 
 	lws_context_info_defaults(&info, NULL);
@@ -578,9 +631,7 @@ phase4(int argc, const char **argv)
 			break;
 		}
 
-		start = lws_now_usecs();
-		while (!p4_established && lws_now_usecs() - start < 5000000)
-			lws_service(cx, 100);
+		service_until(cx, 5 * LWS_US_PER_SEC, &p4_established);
 
 		if (!p4_established) {
 			lwsl_err("phase 4: spawn %d never connected\n", n);
@@ -604,9 +655,7 @@ phase4(int argc, const char **argv)
 		}
 
 		/* let the deferred parts of the teardown complete */
-		start = lws_now_usecs();
-		while (lws_now_usecs() - start < 300000)
-			lws_service(cx, 50);
+		service_until(cx, 300 * LWS_US_PER_MS, NULL);
 	}
 
 	lws_context_destroy(cx);
@@ -647,7 +696,6 @@ phase3_intermediate(int ready_fd, int argc, const char **argv)
 	struct lws_stub_config sc;
 	struct lws_context *cx;
 	struct lws_vhost *vh;
-	lws_usec_t start;
 	char ok = '1';
 
 	lws_context_info_defaults(&info, NULL);
@@ -685,9 +733,7 @@ phase3_intermediate(int ready_fd, int argc, const char **argv)
 		return 1;
 	}
 
-	start = lws_now_usecs();
-	while (!p3_established && lws_now_usecs() - start < 5000000) /* 5s */
-		lws_service(cx, 100);
+	service_until(cx, 5 * LWS_US_PER_SEC, &p3_established);
 
 	if (!p3_established) {
 		lwsl_err("phase 3: stub connection never established\n");
@@ -698,9 +744,7 @@ phase3_intermediate(int ready_fd, int argc, const char **argv)
 	 * Stay alive with the stub connection established for a while, so we
 	 * can also prove the stub does NOT clean up while its parent lives
 	 */
-	start = lws_now_usecs();
-	while (lws_now_usecs() - start < 1000000) /* 1s */
-		lws_service(cx, 100);
+	service_until(cx, LWS_US_PER_SEC, NULL);
 
 	/* tell the test process we are ready to be killed */
 	if (write(ready_fd, &ok, 1) != 1)
@@ -945,10 +989,7 @@ int main(int argc, const char **argv)
 			goto done;
 		}
 
-		lws_usec_t start = lws_now_usecs();
-		while (!interrupted && lws_now_usecs() - start < 5000000) { /* 5s */
-			lws_service(cx, 100);
-		}
+		service_until(cx, 5 * LWS_US_PER_SEC, &interrupted);
 
 		if (!interrupted) {
 			lwsl_err("Timeout waiting for stub!\n");
@@ -967,7 +1008,7 @@ int main(int argc, const char **argv)
 			 * Wait an extra 100ms to ensure the 50ms windows_pipe_poll_hack timer
 			 * fires and drains the final child MSVCRT logs before destruction.
 			 */
-			lws_service(cx, 100);
+			service_until(cx, 100 * LWS_US_PER_MS, NULL);
 #endif
 		}
 
