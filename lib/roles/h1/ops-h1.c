@@ -304,6 +304,18 @@ postbody_completion:
 
 					if (lws_http_transaction_completed(wsi))
 						goto bail;
+
+					if (lwsi_state(wsi) == LRS_DISCARD_BODY) {
+						/*
+						 * It did not take, and nothing
+						 * else will move us on from
+						 * here: the buflist would just
+						 * re-offer whatever follows
+						 * the body for ever
+						 */
+						lwsl_wsi_warn(wsi, "discard-body completion stalled");
+						goto bail;
+					}
 					break;
 				}
 #endif

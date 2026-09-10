@@ -4303,9 +4303,21 @@ all_sent:
 						return -1;
 				}
 
-			if (wsi->http.ah)
+			/*
+			 * If the completion above was deferred because the
+			 * request body still has to be discarded (we are in
+			 * LRS_DISCARD_BODY), the transaction is not over yet.
+			 * Resetting the ah here would clear
+			 * hdr_parsing_completed, and the completion that
+			 * follows the discard would then be ignored as
+			 * "parsing incomplete", leaving the connection
+			 * spinning on the bytes of the next request.  The
+			 * discard path completes the transaction, and with
+			 * it the ah, once the body is gone.
+			 */
+			if (wsi->http.ah &&
+			    lwsi_state(wsi) != LRS_DISCARD_BODY)
 				lws_header_table_reset(wsi, 0);
-
 
 			return 1;  /* >0 indicates completed */
 		}
