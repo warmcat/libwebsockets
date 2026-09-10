@@ -22,7 +22,15 @@
  * IN THE SOFTWARE.
  */
 
-#define VERBOSE
+/*
+ * Uncomment this by hand if you are debugging the COSE parse.
+ *
+ * It must not be enabled in normal builds: _LWS_LINIT enables NOTICE and WARN,
+ * so it hexdumps every byte that is hashed (on the signing side, that is the
+ * application's plaintext) and emits a line per parser callback, ie, it turns
+ * any COSE operation into an unbounded, attacker-paced log flood.
+ */
+// #define VERBOSE
 
 #define MAX_BLOBBED_PARAMS		96 /* largest bstr-encoded params */
 

@@ -436,7 +436,6 @@ no_key_or_alg:
 
 	if (lws_cose_val_alg_hash(alg, cps->payload_stash, cps->payload_pos))
 		goto bail;
-lwsl_notice("a %d\n", (int)cps->sig_agg_pos);
 
 	lws_cose_val_alg_destroy(cps, &alg, (const uint8_t *)cps->sig_agg,
 				 cps->sig_agg_pos);
@@ -526,7 +525,7 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 
 	case LECPCB_TAG_START:
 
-		lwsl_notice("%s: tag sigtype %d\n", __func__, cps->info.sigtype);
+		lwsl_info("%s: tag sigtype %d\n", __func__, cps->info.sigtype);
 
 		switch (cps->info.sigtype) {
 		default:
@@ -717,10 +716,7 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 				break;
 
 			case ST_INNER_UNPROTECTED:
-				lwsl_notice("ST_INNER_UNPROTECTED end\n");
-				break;
 			case ST_INNER_PROTECTED:
-				lwsl_notice("ST_INNER_PROTECTED end\n");
 				break;
 
 			case ST_INNER_EXCESS:
@@ -1039,7 +1035,6 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 				goto bail;
 
 			alg = alg_get_head(cps);
-			lwsl_notice("b\n");
 			if (alg)
 				lws_cose_val_alg_destroy(cps, &alg,
 							 cps->sig_agg,

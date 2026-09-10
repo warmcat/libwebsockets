@@ -225,7 +225,7 @@ int
 lws_cose_val_alg_hash(lws_cose_sig_alg_t *alg, const uint8_t *in, size_t in_len)
 {
 #if defined(VERBOSE)
-	lwsl_hexdump_warn(in, in_len);
+	lwsl_hexdump_debug(in, in_len);
 #endif
 
 	switch (alg->cose_alg) {
@@ -259,7 +259,7 @@ lws_cose_val_alg_destroy(struct lws_cose_validate_context *cps,
 	uint8_t digest[LWS_GENHASH_LARGEST];
 	lws_cose_sig_alg_t *alg = *_alg;
 	lws_cose_validate_res_t *res;
-	size_t hs, shs;
+	size_t shs;
 	int keybits;
 	uint8_t ht;
 
@@ -281,10 +281,7 @@ lws_cose_val_alg_destroy(struct lws_cose_validate_context *cps,
 	case LWSCOSE_WKAECDSA_ALG_ES256: /* ECDSA w/ SHA-256 */
 	case LWSCOSE_WKAECDSA_ALG_ES384: /* ECDSA w/ SHA-384 */
 	case LWSCOSE_WKAECDSA_ALG_ES512: /* ECDSA w/ SHA-512 */
-		hs = lws_genhash_size(alg->hash_ctx.type);
 		lws_genhash_destroy(&alg->hash_ctx, digest);
-
-		lwsl_notice("%d %d %d\n", (int)hs, (int)keybits, (int)against_len);
 
 		if (res && against)
 			res->result = lws_genecdsa_hash_sig_verify_jws(
@@ -308,7 +305,7 @@ lws_cose_val_alg_destroy(struct lws_cose_validate_context *cps,
 	case LWSCOSE_WKAHMAC_256_256:
 	case LWSCOSE_WKAHMAC_384_384:
 	case LWSCOSE_WKAHMAC_512_512:
-		shs = hs = lws_genhmac_size(alg->u.hmacctx.type);
+		shs = lws_genhmac_size(alg->u.hmacctx.type);
 		if (alg->cose_alg == LWSCOSE_WKAHMAC_256_64)
 			shs = 8;
 

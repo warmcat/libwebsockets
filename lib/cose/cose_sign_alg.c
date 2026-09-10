@@ -223,7 +223,7 @@ int
 lws_cose_sign_alg_hash(lws_cose_sig_alg_t *alg, const uint8_t *in, size_t in_len)
 {
 #if defined(VERBOSE)
-	lwsl_hexdump_warn(in, in_len);
+	lwsl_hexdump_debug(in, in_len);
 #endif
 
 	switch (alg->cose_alg) {
