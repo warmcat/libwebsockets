@@ -465,7 +465,13 @@ secstream_mqtt_shadow_subscribe(struct lws *wsi)
 		lwsl_ss_err(h, "Failed to allocate Shadow topics");
 		return -1;
 	}
-	h->u.mqtt.shadow_sub.num_topics = suffixes_len;
+	/*
+	 * num_topics only ever counts elements whose name is really there, so
+	 * a failure partway through can't leave secstream_mqtt_shadow_cleanup()
+	 * freeing uninitialized heap words (lws_malloc() does not zero).  Same
+	 * approach as secstream_mqtt_subscribe().
+	 */
+
 	for (i = 0; i < suffixes_len; i++) {
 		expbuf = expand_metadata(h, h->policy->u.mqtt.topic, suffixes[i],
 					 LWS_MQTT_MAX_AWSIOT_TOPICLEN);
@@ -477,11 +483,14 @@ secstream_mqtt_shadow_subscribe(struct lws *wsi)
 		}
 		h->u.mqtt.shadow_sub.topic[i].name = expbuf;
 		h->u.mqtt.shadow_sub.topic[i].qos = h->policy->u.mqtt.qos;
+		h->u.mqtt.shadow_sub.num_topics = i + 1;
 	}
 	h->u.mqtt.shadow_sub.packet_id = (uint16_t)(h->txord - 1);
 
 	if (lws_mqtt_client_send_subcribe(wsi, &h->u.mqtt.shadow_sub)) {
 		lwsl_wsi_notice(wsi, "Unable to subscribe Shadow topics");
+		/* nothing went out, so nothing else will consume the array */
+		secstream_mqtt_shadow_cleanup(wsi);
 
 		return 0;
 	}
