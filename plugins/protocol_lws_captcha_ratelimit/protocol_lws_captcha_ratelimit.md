@@ -19,6 +19,29 @@ This plugin is configured entirely by Per-Vhost Options (PVOs):
 | `asset-dir` | Path to the directory where static web assets shown for captcha portals (HTML/CSS) live. |
 | `pre-delay-ms` | Time in milliseconds to delay before the captcha interaction button appears to the user. |
 | `post-delay-ms` | Time in milliseconds to delay processing after the user has submitted the captcha. |
+
+## Gated methods
+
+The interceptor decision is made for every request to a guarded mount, whatever
+its method and whatever the http role (h1, h2 or h3), before the guarded mount's
+protocol is bound.  A request whose captcha session token checks out proceeds to
+the mount as usual.
+
+A request the interceptor takes is answered by the plugin instead:
+
+ - `GET` / `HEAD` get the captcha page (or one of its assets) in place of the
+   page they asked for, and pick up the visit cookie the challenge needs.
+
+ - any other method -- `POST`, `PUT`, `PATCH` ... -- is refused with a
+   `303 See Other` back to the same url, so a browser re-issues it as a `GET`,
+   lands on the captcha page and can complete the challenge.  Such a request is
+   never mistaken for the captcha form's own `POST` to the interceptor's
+   mountpoint, which is the only thing that mints the pass token.
+
+Any request body that was still on its way when the request was refused is
+discarded (h1, so the connection stays synchronized for the next request on it)
+or the stream reset (h2 / h3).
+
 ## Stacking with `lws-login`
 
 When `captcha_ratelimit` works in sequence with authentication interceptors like `lws-login`, unauthenticated public guests must endure the captcha delays prior to attempting log-in operations or browsing unauthenticated domains. If a user is already fundamentally logged into your application ecosystem, repeatedly forcing a captcha check hinders experience.
