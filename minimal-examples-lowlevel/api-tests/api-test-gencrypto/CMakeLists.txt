@@ -6,7 +6,8 @@ include(CheckCSourceCompiles)
 include(LwsCheckRequirements)
 
 set(SAMP lws-api-test-gencrypto)
-set(SRCS main.c lws-genaes.c lws-genec.c lws-genhkdf.c lws-genchacha.c lws-genrsa.c)
+set(SRCS main.c lws-genaes.c lws-genec.c lws-genhkdf.c lws-genchacha.c
+	 lws-genrsa.c lws-mbedtls-cipherlist.c)
 
 set(requirements 1)
 require_lws_config(LWS_WITH_GENCRYPTO 1 requirements)

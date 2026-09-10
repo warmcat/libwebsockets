@@ -36,6 +36,15 @@ struct lws_x509_cert {
 };
 typedef struct lws_x509_cert lws_tls_x509;
 
+/*
+ * How many ciphersuites a vhost's configured cipher list may resolve to.
+ * mbedtls_ssl_conf_ciphersuites() keeps the array by pointer, so it lives in
+ * the ctx it belongs to; a configured list is a restriction, if it needs more
+ * entries than this it is not restricting anything useful.
+ */
+
+#define LWS_MBEDTLS_CS_MAX 40
+
 struct lws_tls_ctx {
 	mbedtls_ssl_config conf;
 	mbedtls_x509_crt *chain;
@@ -43,6 +52,7 @@ struct lws_tls_ctx {
 	mbedtls_pk_context *key;
 	char alpn_strings[128];
 	const char *alpn_protocols[8];
+	int ciphersuites[LWS_MBEDTLS_CS_MAX + 1]; /* 0-terminated */
 };
 
 struct lws_tls_conn {
@@ -91,6 +101,11 @@ void lws_mbedtls_set_alpn(struct lws_tls_ctx *ctx, const char *alpn_comma);
 
 void
 lws_mbedtls_conf_floor(mbedtls_ssl_config *conf, long options_clear);
+
+int
+lws_mbedtls_conf_ciphers(struct lws_tls_ctx *ctx, const char *vhname,
+			 const char *iana, const char *list12,
+			 const char *list13);
 
 #if defined(LWS_WITH_CLIENT)
 int

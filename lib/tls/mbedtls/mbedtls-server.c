@@ -391,6 +391,17 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 	 * override is vhost->tls.ssl_options_clear (info.ssl_options_clear) */
 	lws_mbedtls_conf_floor(&ctx->conf, vhost->tls.ssl_options_clear);
 
+	/*
+	 * Applied here rather than in lws_tls_server_vhost_backend_init(), so
+	 * a ctx recreated later (eg, on a cert update) also gets it
+	 */
+
+	if (lws_mbedtls_conf_ciphers(ctx, vhost->name,
+				     vhost->tls.cfg_tls_ciphers_iana,
+				     vhost->tls.cfg_ssl_cipher_list,
+				     vhost->tls.cfg_tls1_3_plus_cipher_list))
+		return 1;
+
 #if !defined(LWS_HAVE_MBEDTLS_V4)
 	mbedtls_ssl_conf_rng(&ctx->conf, lws_gencrypto_mbedtls_rngf, vhost->context);
 #endif
@@ -438,20 +449,10 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 	mbedtls_ssl_conf_sni(&vhost->tls.ssl_ctx->conf, lws_mbedtls_sni_cb, vhost->context);
 
 	/*
-	 * There is no mapping in this backend from the openssl-style cipher
-	 * names lws takes in its info / config to mbedtls ciphersuite ids, so
-	 * a restricted list cannot be honoured here.  Say so loudly rather
-	 * than let an operator believe a security control took effect: what is
-	 * actually in force is the mbedtls PRESET_DEFAULT suite list.
+	 * The configured cipher lists were mapped to mbedtls ciphersuite ids
+	 * and applied in lws_tls_vhost_backend_create_ctx() above, which
+	 * fails if any entry could not be mapped
 	 */
-
-	if (info->ssl_cipher_list || info->tls1_3_plus_cipher_list)
-		lwsl_err("%s: vh %s: mbedtls backend cannot apply a server "
-			 "cipher list, '%s' / '%s' IGNORED\n", __func__,
-			 vhost->name,
-			 info->ssl_cipher_list ? info->ssl_cipher_list : "",
-			 info->tls1_3_plus_cipher_list ?
-			 info->tls1_3_plus_cipher_list : "");
 
 	if (!vhost->tls.use_ssl ||
 	    (!info->ssl_cert_filepath && !info->server_ssl_cert_mem))

@@ -27,9 +27,10 @@ test_genec(struct lws_context *context);
 int
 test_genrsa(struct lws_context *context);
 
-#if defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_TLS)
-/* int
-test_mbedtls_cipherlist(struct lws_context *context); */
+#if defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_TLS) && \
+    defined(LWS_WITH_NETWORK) && defined(LWS_WITH_CLIENT)
+int
+test_mbedtls_cipherlist(struct lws_context *context);
 #endif
 
 int main(int argc, const char **argv)
@@ -68,8 +69,9 @@ int main(int argc, const char **argv)
 	result |= test_genec(context);
 	result |= test_genrsa(context);
 
-#if defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_TLS)
-	/* result |= test_mbedtls_cipherlist(context); */ /* Requires static linking to access inner OpenSSL shim symbols */
+#if defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_TLS) && \
+    defined(LWS_WITH_NETWORK) && defined(LWS_WITH_CLIENT)
+	result |= test_mbedtls_cipherlist(context);
 #endif
 
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");

@@ -261,19 +261,18 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
 
 	/*
-	 * There is no mapping in this backend from the openssl-style cipher
-	 * names lws takes in its info / config to mbedtls ciphersuite ids, so
-	 * a restricted list cannot be honoured here.  Say so loudly rather
-	 * than let an operator believe a security control took effect: what is
-	 * actually in force is the mbedtls PRESET_DEFAULT suite list.
+	 * Map the configured cipher list (OpenSSL, IANA or mbedtls spelling)
+	 * to mbedtls ciphersuite ids and apply it... an entry that maps to
+	 * nothing fails the vhost, rather than leaving the caller believing a
+	 * restriction is in force when it is not
 	 */
 
-	if (cipher_list || info->client_tls_1_3_plus_cipher_list)
-		lwsl_err("%s: vh %s: mbedtls backend cannot apply a client "
-			 "cipher list, '%s' / '%s' IGNORED\n", __func__,
-			 vh->name, cipher_list ? cipher_list : "",
-			 info->client_tls_1_3_plus_cipher_list ?
-			 info->client_tls_1_3_plus_cipher_list : "");
+	if (lws_mbedtls_conf_ciphers(ctx, vh->name,
+				     info ? info->client_tls_ciphers_iana : NULL,
+				     cipher_list,
+				     info ? info->client_tls_1_3_plus_cipher_list :
+					    NULL))
+		return 1;
 
 #if !defined(LWS_HAVE_MBEDTLS_V4)
 	mbedtls_ssl_conf_rng(&ctx->conf, lws_gencrypto_mbedtls_rngf, vh->context);
