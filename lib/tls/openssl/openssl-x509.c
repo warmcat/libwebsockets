@@ -103,7 +103,22 @@ lws_tls_openssl_asn1time_to_unix(ASN1_TIME *as)
 	t.tm_sec = (dec(p[0]) * 10) + dec(p[1]);
 	t.tm_isdst = 0;
 
+	/*
+	 * X.509 times are UTC, so they must not be reinterpreted in the local
+	 * timezone... mktime() is only a fallback for platforms lacking a UTC
+	 * conversion, and skews the result by the local UTC offset.
+	 */
+
+#if defined(WIN32)
+	return _mkgmtime(&t);
+#else
+#if defined(LWS_HAVE_TIMEGM) && !defined(LWS_PLAT_OPTEE) && \
+    !defined(OPTEE_DEV_KIT)
+	return timegm(&t);
+#else
 	return mktime(&t);
+#endif
+#endif
 #else
 	return (time_t)-1;
 #endif
