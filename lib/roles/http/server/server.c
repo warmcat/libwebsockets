@@ -1887,6 +1887,43 @@ lws_http_evaluate_interceptors(struct lws *wsi, const struct lws_http_mount *hit
 	return hit;
 }
 
+/*
+ * RFC 9110 8.6 defines Content-Length as 1*DIGIT.  strtoull() is no good for
+ * it: it skips leading whitespace, accepts a leading '+' or '-', and for '-'
+ * returns the negation modulo 2^64, so eg "-18446744073709551615" arrives as
+ * 1 and no "is it negative" test downstream can see it.  Parse it ourselves,
+ * rejecting anything that is not digits (trailing spaces are tolerated, as
+ * they always have been here) and refusing to wrap.
+ *
+ * Returns 0 and sets *result if the value is a valid Content-Length.
+ */
+
+static int
+lws_http_parse_content_length(const char *in, uint64_t *result)
+{
+	uint64_t v = 0, lim = (uint64_t)-1;
+
+	if (*in < '0' || *in > '9')
+		return 1;
+
+	while (*in >= '0' && *in <= '9') {
+		if (v > (lim - (uint64_t)(*in - '0')) / 10)
+			return 1;
+
+		v = (v * 10) + (uint64_t)(*in++ - '0');
+	}
+
+	while (*in == ' ')
+		in++;
+
+	if (*in)
+		return 1;
+
+	*result = v;
+
+	return 0;
+}
+
 int
 lws_http_action(struct lws *wsi)
 {
@@ -1991,43 +2028,56 @@ lws_http_action(struct lws *wsi)
 			return 1;
 		}
 
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
-		    lws_hdr_copy(wsi, content_length_str,
-				 sizeof(content_length_str) - 1,
-				 WSI_TOKEN_HTTP_CONTENT_LENGTH) > 0) {
-			char *endptr;
-			long long cl_val;
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
+			uint64_t cl_val = 0;
+
+			/*
+			 * More than one Content-Length is a framing
+			 * disagreement waiting to happen.  A second fragment
+			 * exists unless lws_hdr_copy_fragment() reports there
+			 * is none (-1)... -2 means there is one but it did not
+			 * fit in our buffer, which is just as unacceptable.
+			 */
 
 			if (lws_hdr_copy_fragment(wsi, content_length_str,
 						  sizeof(content_length_str) - 1,
-						  WSI_TOKEN_HTTP_CONTENT_LENGTH, 1) > 0) {
-				lwsl_warn("%s: multiple Content-Length headers\n", __func__);
-				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, NULL);
+						  WSI_TOKEN_HTTP_CONTENT_LENGTH,
+						  1) != -1) {
+				lwsl_warn("%s: multiple Content-Length headers\n",
+					  __func__);
+				lws_return_http_status(wsi,
+						HTTP_STATUS_BAD_REQUEST, NULL);
 				return 1;
 			}
-			lws_hdr_copy(wsi, content_length_str,
-				     sizeof(content_length_str) - 1,
-				     WSI_TOKEN_HTTP_CONTENT_LENGTH);
 
-			cl_val = (long long)strtoull(content_length_str, &endptr, 10);
-			while (*endptr == ' ') endptr++;
-			if (endptr == content_length_str || *endptr != '\0') {
-				lwsl_warn("%s: invalid Content-Length: %s\n", __func__, content_length_str);
-				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, NULL);
-				return 1;
-			}
-			if (cl_val < 0) {
-				lwsl_warn("%s: rejected negative Content-Length: %s\n",
+			/*
+			 * A Content-Length that is too long for us to even
+			 * copy must be rejected rather than ignored: ignoring
+			 * it leaves us framing the connection differently from
+			 * whatever intermediary did understand it.
+			 */
+
+			if (lws_hdr_copy(wsi, content_length_str,
+					 sizeof(content_length_str) - 1,
+					 WSI_TOKEN_HTTP_CONTENT_LENGTH) <= 0 ||
+			    lws_http_parse_content_length(content_length_str,
+							  &cl_val)) {
+				lwsl_warn("%s: invalid Content-Length: %s\n",
 					  __func__, content_length_str);
-				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, NULL);
+				lws_return_http_status(wsi,
+						HTTP_STATUS_BAD_REQUEST, NULL);
 				return 1;
 			}
-			if ((uint64_t)cl_val > max_body) {
-				lwsl_warn("%s: rejected Content-Length %lld > max %llu\n",
-					  __func__, cl_val, (unsigned long long)max_body);
-				lws_return_http_status(wsi, HTTP_STATUS_REQ_ENTITY_TOO_LARGE, NULL);
+
+			if (cl_val > max_body) {
+				lwsl_warn("%s: rejected Content-Length %llu > max %llu\n",
+					  __func__, (unsigned long long)cl_val,
+					  (unsigned long long)max_body);
+				lws_return_http_status(wsi,
+					HTTP_STATUS_REQ_ENTITY_TOO_LARGE, NULL);
 				return 1;
 			}
+
 			wsi->http.rx_content_remain = wsi->http.rx_content_length =
 					(lws_filepos_t)cl_val;
 			wsi->http.content_length_given = 1;
