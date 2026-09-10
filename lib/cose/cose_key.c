@@ -1354,8 +1354,18 @@ lws_cose_key_export(lws_cose_key_t *ck, lws_lec_pctx_t *ctx, int flags)
 		 * right size.
 		 */
 
+		/*
+		 * The count predicate has to be identical to the emit
+		 * predicate below... a zero-length element (which import
+		 * happily produces from eg `-2: h''`) is counted but not
+		 * emitted otherwise, and the map header then declares more
+		 * pairs than follow it.  Inside a key set that eats the next
+		 * key's first pair.
+		 */
+
 		for (n = 0; n < (int)LWS_ARRAY_SIZE(ck->e); n++)
-			if ((ctx->opaque[2] & (1 << n)) && ck->e[n].buf)
+			if ((ctx->opaque[2] & (1 << n)) && ck->e[n].buf &&
+			    ck->e[n].len)
 				ctx->opaque[0]++;
 
 		/*
@@ -1377,13 +1387,17 @@ lws_cose_key_export(lws_cose_key_t *ck, lws_lec_pctx_t *ctx, int flags)
 		 * KID / ALG / KEY_OPS / BASE_IV
 		 */
 
-		if (ck->meta[COSEKEY_META_KID].buf)
+		if (ck->meta[COSEKEY_META_KID].buf &&
+		    ck->meta[COSEKEY_META_KID].len)
 			ctx->opaque[0]++;
-		if (ck->meta[COSEKEY_META_ALG].buf)
+		if (ck->meta[COSEKEY_META_ALG].buf &&
+		    ck->meta[COSEKEY_META_ALG].len)
 			ctx->opaque[0]++;
+		/* key_ops is emitted as an array, even an empty one */
 		if (ck->meta[COSEKEY_META_KEY_OPS].buf)
 			ctx->opaque[0]++;
-		if (ck->meta[COSEKEY_META_BASE_IV].buf)
+		if (ck->meta[COSEKEY_META_BASE_IV].buf &&
+		    ck->meta[COSEKEY_META_BASE_IV].len)
 			ctx->opaque[0]++;
 
 		lws_lec_int(ctx, LWS_CBOR_MAJTYP_MAP, 0, (uint64_t)ctx->opaque[0]);
