@@ -459,15 +459,29 @@ lws_jws_compact_encode(struct lws_jws_map *map_b64, /* b64-encoded */
 {
 	int n, m;
 
+	/*
+	 * Slots with no plaintext block stay NULL / 0... the caller (eg,
+	 * lws_jws_sig_confirm_compact()) hands us an automatic map_b64, so
+	 * every slot must be written here or it verifies against stack junk
+	 */
+
+	memset(map_b64, 0, sizeof(*map_b64));
+
 	for (n = 0; n < LWS_JWS_MAX_COMPACT_BLOCKS; n++) {
-		if (!map->buf[n]) {
-			map_b64->buf[n] = NULL;
-			map_b64->len[n] = 0;
+		if (!map->buf[n])
 			continue;
-		}
-		m = lws_jws_base64_enc(map->buf[n], map->len[n], buf, (size_t)*len);
+
+		if (*len < 1)
+			return -1;
+
+		m = lws_jws_base64_enc(map->buf[n], map->len[n], buf,
+				       (size_t)*len);
 		if (m < 0)
 			return -1;
+
+		map_b64->buf[n] = buf;
+		map_b64->len[n] = (uint32_t)m;
+
 		buf += m;
 		*len -= m;
 		if (*len < 1)
