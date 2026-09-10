@@ -81,11 +81,28 @@ lws_adns_get_query(lws_async_dns_t *dns, adns_query_type_t qtype,
 		}
 
 		if (name) {
-			int type_match = 0;
-			if (q->qtype == LWS_ADNS_RECORD_A || q->qtype == LWS_ADNS_RECORD_AAAA)
-				type_match = (q->qtype == ((tid & 1) ? LWS_ADNS_RECORD_AAAA : LWS_ADNS_RECORD_A));
+			/* q->qtype only ever holds the RR type, not the
+			 * LWS_ADNS_* option flags the caller may pass */
+			adns_query_type_t qt = (adns_query_type_t)
+							(qtype & 0xffff);
+			int type_match;
+
+			/*
+			 * An address lookup is one query object issuing both
+			 * an A and an AAAA question, so either of those can be
+			 * served by a pending address lookup... but anything
+			 * else must match the type that is actually pending,
+			 * or eg a DNSKEY requester rides on an A query and is
+			 * handed addresses (or, with no wsi to attach, is
+			 * never called back at all).
+			 */
+
+			if (qt == LWS_ADNS_RECORD_A ||
+			    qt == LWS_ADNS_RECORD_AAAA)
+				type_match = q->qtype == LWS_ADNS_RECORD_A ||
+					     q->qtype == LWS_ADNS_RECORD_AAAA;
 			else
-				type_match = (q->qtype == qtype) || (qtype == 0);
+				type_match = !qt || q->qtype == qt;
 
 			if (type_match && !strcasecmp(name, (const char *)&q[1]))
 				return q;
@@ -1946,7 +1963,16 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	lws_async_dns_create_server_wsi(context);
 
-	/* there's an ongoing query we can share the result of? */
+	/*
+	 * There's an ongoing query we can share the result of?
+	 *
+	 * Only a wsi requester can ride on one: q holds exactly one
+	 * standalone_cb / opaque pair and it is already taken by whoever
+	 * created it.  Riding anyway used to drop a standalone caller's cb and
+	 * opaque on the floor, so it never heard back and, for the DNSSEC
+	 * DNSKEY sub-lookup, leaked its validation context.  A standalone
+	 * requester gets a separate query with its own tid instead.
+	 */
 
 	q = lws_adns_get_query(dns, qtype, 0, name);
 	if (q && wsi) {
