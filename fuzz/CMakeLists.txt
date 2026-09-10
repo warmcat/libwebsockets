@@ -95,4 +95,11 @@ if (UNIX AND LWS_WITH_NETWORK)
 			lws_add_fuzz_target(ws-pmd)
 		endif()
 	endif()
+
+	# not wsi-bound, but it sinks the query lws sends into a UDP socket
+	# it binds itself, so POSIX sockets too
+
+	if (LWS_WITH_SYS_ASYNC_DNS)
+		lws_add_fuzz_target(adns)
+	endif()
 endif()
