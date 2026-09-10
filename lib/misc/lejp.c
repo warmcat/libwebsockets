@@ -83,6 +83,19 @@ lejp_construct(struct lejp_ctx *ctx,
 	ctx->path_match = 0;
 	ctx->path_stride = 0;
 	ctx->path[0] = '\0';
+	/*
+	 * Callers declare their struct lejp_ctx on the stack and do not zero
+	 * it, so anything the public apis can read before the first structural
+	 * byte has to be initialised here.  lejp_get_wildcard() reads
+	 * wildcount / wild[] and lejp_string_unify() reads su
+	 */
+	ctx->npos = 0;
+	ctx->dcount = 0;
+	ctx->f = 0;
+	ctx->uni = 0;
+	ctx->wildcount = 0;
+	ctx->path_match_len = 0;
+	memset(&ctx->su, 0, sizeof(ctx->su));
 	ctx->user = user;
 	ctx->line = 1;
 	ctx->flags = 0; /* user may set after construction */
@@ -1151,7 +1164,16 @@ lejp_string_unify(struct lejp_ctx *ctx, struct lwsac **ac)
 {
 	char *p;
 
+	if (!ctx->su.sp_next)
+		/*
+		 * No LEJPCB_VAL_STR_START ever initialised the unifier, so
+		 * there is nothing to unify and ctx->su.fp is meaningless...
+		 * fail rather than hand the caller a wild pointer
+		 */
+		return 1;
+
 	if (ctx->su.pieces == 1)
+		/* the single piece is already NUL-terminated at ctx->su.fp */
 		return 0;
 
 	ctx->su.fp = lwsac_use(ac, ctx->su.asl + 1u, 512);
@@ -1195,6 +1217,7 @@ lejp_string_unify_part(struct lejp_ctx *ctx, struct lwsac **ac, char reason)
 		s->piece = ctx->su.fp;
 		s->len = ctx->npos;
 		ctx->su.asl += ctx->npos;
+		ctx->su.pieces++;
 		ctx->su.sp_next = &s->next;
 
 		if (reason == LEJPCB_VAL_STR_END)
