@@ -123,7 +123,6 @@ lws_role_by_name(const char *name)
 int
 lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 {
-#if defined(LWS_WITH_TLS)
 	int is_quic;
 
 	if (!alpn)
@@ -171,7 +170,6 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 						   alpn_negotiated(wsi, alpn);
 		}
 	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
-#endif
 	return 0;
 }
 

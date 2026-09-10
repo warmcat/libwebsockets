@@ -231,6 +231,17 @@ start_ws_handshake_l:
 			}
 		}
 #endif
+#if !defined(LWS_WITH_TLS) && defined(LWS_ROLE_H2)
+		/*
+		 * No TLS in this build, so no LRS_WAITING_SSL case above to
+		 * do it: cleartext h2 prior knowledge still has to move us to
+		 * the h2 role before the preface goes out below.
+		 */
+		if (wsi->flags & LCCSCF_H2_PRIOR_KNOWLEDGE) {
+			lwsl_info("h2 prior knowledge\n");
+			lws_role_call_alpn_negotiated(wsi, "h2");
+		}
+#endif
 
 #if defined (LWS_WITH_HTTP2)
 		if (wsi->client_h2_alpn //&&
