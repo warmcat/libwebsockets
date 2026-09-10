@@ -88,12 +88,24 @@ lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len)
 		 * three things) never export a relaxed session, and a loaded
 		 * one is only ever offered to a strict connection.
 		 */
-		size_t n = strlen(buf);
+		char sfx[16];
+		size_t n = strlen(buf), sl;
 
-		if (n + 1 >= len)
+		sl = (size_t)lws_snprintf(sfx, sizeof(sfx), "_r%x", relaxed);
+
+		/*
+		 * The suffix must not be truncated: "_r" alone, or a "_r1"
+		 * that lost its last nibble, makes every relaxed posture that
+		 * shares the prefix land in one cache slot, which is exactly
+		 * the aliasing the segregation exists to prevent.  If it does
+		 * not fit, refuse to produce a tag at all so nothing is
+		 * cached or resumed.
+		 */
+
+		if (n + sl + 1 > len)
 			return 1;
 
-		lws_snprintf(buf + n, len - n, "_r%x", relaxed);
+		memcpy(buf + n, sfx, sl + 1);
 	}
 #endif
 
