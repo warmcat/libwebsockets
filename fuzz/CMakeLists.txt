@@ -78,6 +78,10 @@ endif()
 # lws_tokenize and the core string helpers are always built
 lws_add_fuzz_target(tokenize)
 
+if (LWS_WITH_JOSE)
+	lws_add_fuzz_target(jose)
+endif()
+
 # the wsi-bound protocol parsers need the evil-peer helper in peer.h, which
 # uses socketpair + adopt, so they are POSIX-only
 

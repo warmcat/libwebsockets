@@ -30,7 +30,7 @@ fi
 if [ "$#" -gt 0 ]; then
 	TARGETS="$*"
 else
-	TARGETS="lejp lecp qpack upng jpeg lhp tokenize adns h1 h2 ws ws-pmd"
+	TARGETS="lejp lecp qpack upng jpeg lhp tokenize jose adns h1 h2 ws ws-pmd"
 fi
 
 if [ -z "$CC" ]; then
@@ -44,12 +44,13 @@ fi
 
 # qpack fuzzing needs the h3 role, which needs a QUIC-capable TLS provider;
 # with gnutls available we can bring it in, otherwise that one target is
-# silently skipped and the rest still fuzz.  DNSSEC needs a crypto provider
-# too, so it rides on the same condition.
+# silently skipped and the rest still fuzz.  JOSE / DNSSEC need a crypto
+# provider too, so they ride on the same condition.
 
 FUZZ_SSL="-DLWS_WITH_SSL=OFF"
 if pkg-config --exists gnutls 2>/dev/null; then
-	FUZZ_SSL="-DLWS_WITH_SSL=ON -DLWS_WITH_SYS_ASYNC_DNS_DNSSEC=ON"
+	FUZZ_SSL="-DLWS_WITH_SSL=ON -DLWS_WITH_GENCRYPTO=ON -DLWS_WITH_JOSE=ON \
+		  -DLWS_WITH_SYS_ASYNC_DNS_DNSSEC=ON"
 fi
 
 # ws permessage-deflate needs zlib; without it ws-pmd is skipped
