@@ -237,13 +237,44 @@ lws_cose_val_alg_hash(lws_cose_sig_alg_t *alg, const uint8_t *in, size_t in_len)
 
 	case LWSCOSE_WKAEDDSA_ALG_EDDSA:
 	{
+		size_t need = alg->eddsa_in_len + in_len, na;
 		uint8_t *n;
-		n = lws_realloc(alg->eddsa_in, alg->eddsa_in_len + in_len, "eddsa sigval");
-		if (!n)
+
+		/*
+		 * EdDSA isn't hash-then-sign, so we have no choice except to
+		 * buffer the whole Sig_structure... but for cose_sign1 the
+		 * payload comes straight from the wire without going via the
+		 * stash, so this is the only place its size is bounded.  Cap
+		 * it the same way, and grow geometrically, so an
+		 * indefinite-length payload can't make us realloc and copy
+		 * once per 254-byte lecp chunk either.
+		 */
+
+		if (need > MAX_STASHED_PAYLOAD) {
+			lwsl_notice("%s: eddsa payload too big\n", __func__);
+			alg->failed = 1;
+
 			return -1;
-		alg->eddsa_in = n;
+		}
+
+		if (need > alg->eddsa_in_alloc) {
+			na = alg->eddsa_in_alloc ? alg->eddsa_in_alloc * 2 : 512;
+			if (na < need)
+				na = need;
+			if (na > MAX_STASHED_PAYLOAD)
+				na = MAX_STASHED_PAYLOAD;
+
+			n = lws_realloc(alg->eddsa_in, na, "eddsa sigval");
+			if (!n)
+				return -1;
+
+			alg->eddsa_in = n;
+			alg->eddsa_in_alloc = na;
+		}
+
 		memcpy(alg->eddsa_in + alg->eddsa_in_len, in, in_len);
-		alg->eddsa_in_len += in_len;
+		alg->eddsa_in_len = need;
+
 		return 0;
 	}
 	}
