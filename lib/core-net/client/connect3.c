@@ -477,6 +477,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 #endif
 	int m, af = 0, en;
 	int is_parallel = 0;
+	int want_udp = 0;
 	int pidx = -1;
 	lws_sockfd_type new_fd = LWS_SOCK_INVALID;
 	int saved_pos = -1;
@@ -874,7 +875,8 @@ next_dns_result_seq:
 	lws_dll2_remove(&curr->list);
 	wsi->sa46_peer = curr->dest;
 #if defined(LWS_WITH_UDP)
-	if (wsi->udp) {
+	/* the datagram peer is the primary attempt's, not a TCP racer's */
+	if (wsi->udp && !lws_socket_is_valid(wsi->desc.sockfd)) {
 		wsi->udp->sa46 = curr->dest;
 		sa46_sockport(&wsi->udp->sa46, htons(port));
 	}
@@ -924,12 +926,22 @@ ads_known:
 #endif
 		{
 			af = wsi->sa46_peer.sa4.sin_family;
-			int want_udp = 0;
+			/*
+			 * Only the primary attempt of a UDP or QUIC client
+			 * gets a datagram socket.  A happy-eyeballs racer
+			 * opened during a QUIC race is the TCP fallback: a
+			 * datagram "racer" connect()s synchronously and is
+			 * promoted over the QUIC socket 1us after it was
+			 * created, closing the socket the Initial just went
+			 * out on (and, on TLS backends with a socket BIO,
+			 * leaving the TLS object bound to a dead fd number).
+			 */
+			want_udp = !is_parallel && (
 #if defined(LWS_WITH_UDP)
-			want_udp = wsi->udp || (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") && !is_parallel);
-#else
-			want_udp = (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") && !is_parallel);
+				    wsi->udp ||
 #endif
+				    (wsi->role_ops &&
+				     !strcmp(wsi->role_ops->name, "quic")));
 			new_fd = socket(wsi->sa46_peer.sa4.sin_family, want_udp ? SOCK_DGRAM : SOCK_STREAM, 0);
 			if (lws_socket_is_valid(new_fd) && want_udp) {
 				int opt = 4 * 1024 * 1024;
@@ -954,11 +966,7 @@ ads_known:
 			goto try_next_dns_result;
 		}
 
-#if defined(LWS_WITH_UDP)
-		if (!wsi->udp && strcmp(wsi->role_ops->name, "quic") != 0 && lws_plat_set_socket_options(wsi->a.vhost, new_fd,
-#else
-		if (strcmp(wsi->role_ops->name, "quic") != 0 && lws_plat_set_socket_options(wsi->a.vhost, new_fd,
-#endif
+		if (!want_udp && lws_plat_set_socket_options(wsi->a.vhost, new_fd,
 #if defined(LWS_WITH_UNIX_SOCK)
 						wsi->unix_skt)) {
 #else
@@ -976,11 +984,7 @@ ads_known:
 			goto try_next_dns_result;
 		}
 
-#if defined(LWS_WITH_UDP)
-		if (wsi->udp || !strcmp(wsi->role_ops->name, "quic")) {
-#else
-		if (!strcmp(wsi->role_ops->name, "quic")) {
-#endif
+		if (want_udp) {
 			if (lws_plat_set_nonblocking(new_fd)) {
 				cce = "conn fail: set nonblocking";
 				compatible_close(new_fd);
@@ -995,7 +999,7 @@ ads_known:
 			lwsl_wsi_warn(wsi, "unable to set ip options");
 
 #if !defined(WIN32) && !defined(_WIN32)
-                if (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
+                if (want_udp && wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
                         int opt = 1;
                         int tos = 0x02;
                         (void)opt;
