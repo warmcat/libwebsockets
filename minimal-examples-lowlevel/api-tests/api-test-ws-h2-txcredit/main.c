@@ -144,6 +144,15 @@ sul_timeout_cb(lws_sorted_usec_list_t *sul)
 	lwsl_err("--- timeout: rx %d / %d, granted %d ---\n",
 		 (int)cli_rx, TEST_TOTAL, (int)cli_granted);
 	interrupted = 1;
+
+	/*
+	 * lws_service() runs the ripe suls and then goes straight on to wait
+	 * for the next event in the same call, so the flag alone is not seen
+	 * until something else wakes the loop... on a quiet context that can
+	 * be never, and the failure shows up as a ctest TIMEOUT with the log
+	 * cut off instead of as this message
+	 */
+	lws_cancel_service(context);
 }
 
 static void
