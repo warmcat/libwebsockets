@@ -99,9 +99,16 @@ typedef struct lws_adns_cache {
 	struct addrinfo		*results;
 	struct lws_adns_rr	*rr_results; /* For DNSKEY, DS, RRSIG, etc. */
 	const char		*name;
+	/*
+	 * One per requester that was handed our results and has not returned
+	 * them with lws_async_dns_freeaddrinfo() yet, plus one for the query
+	 * that owns us while it is in flight.  Any number of requesters may
+	 * piggyback on one query, so this must be wide enough that it cannot
+	 * wrap to 0 and let the entry be trimmed under its holders.
+	 */
+	uint32_t		refcount;
 	uint8_t			flags;	/* b0 = has ipv4, b1 = has ipv6 */
-	char			refcount;
-	char			incomplete;
+	uint8_t			incomplete;
 	/* addrinfo, lws_sa46, then name overallocated here */
 } lws_adns_cache_t;
 

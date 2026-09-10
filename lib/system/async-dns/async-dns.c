@@ -165,7 +165,8 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 
 		if (c && c->results) {
 			lwsl_wsi_debug(w, "q: %p, c: %p, refcount %d -> %d",
-				    q, c, c->refcount, c->refcount + 1);
+				    q, c, (int)c->refcount,
+				    (int)c->refcount + 1);
 			c->refcount++;
 		}
 		lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
@@ -1369,7 +1370,8 @@ lws_adns_dump(lws_async_dns_t *dns)
 		lwsl_cx_info(dns->cx, "cache: '%s', exp: %lldus, incomp %d, "
 			  "fl 0x%x, refc %d, res %p\n", c->name,
 			  (long long)(c->sul.us - lws_now_usecs()),
-			  c->incomplete, c->flags, c->refcount, c->results);
+			  c->incomplete, c->flags, (int)c->refcount,
+			  c->results);
 	} lws_end_foreach_dll(d);
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
@@ -1450,13 +1452,14 @@ lws_async_dns_freeaddrinfo(const struct addrinfo **pai)
 	if (c->firstcache)
 		c = c->firstcache;
 
-	lwsl_debug("%s: c %p, %s, refcount %d -> %d\n", __func__, c,
+	lwsl_debug("%s: c %p, %s, refcount %d\n", __func__, c,
 		   (c->results && c->results->ai_canonname) ?
 				c->results->ai_canonname : "none",
-						c->refcount, c->refcount - 1);
+						(int)c->refcount);
 
 	assert(c->refcount > 0);
-	c->refcount--;
+	if (c->refcount)
+		c->refcount--;
 	*pai = NULL;
 }
 
@@ -1477,7 +1480,7 @@ lws_async_dns_trim_cache(lws_async_dns_t *dns)
 						lws_adns_cache_t, list);
 	if (c1->refcount)
 		lwsl_cx_info(dns->cx, "acache %p: refcount %d on purge",
-				c1, c1->refcount);
+				c1, (int)c1->refcount);
 	else
 		lws_adns_cache_destroy(c1);
 }
