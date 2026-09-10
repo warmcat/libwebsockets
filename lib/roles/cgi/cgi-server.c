@@ -73,24 +73,21 @@ urlencode(const char *in, int inlen, char *out, int outlen)
 
 /*
  * Take the given cgi off the pt's list of active cgis, if it is on it, and
- * stop the reaping timer if that emptied the list.  Idempotent.
+ * stop the reaping timer if that emptied the list.
+ *
+ * lws_dll2_remove() is a no-op on a node that was never added, or was already
+ * removed, so this is idempotent (and tolerates a NULL cgi) and is the single
+ * point every teardown path for a struct lws_cgi goes through before the
+ * object is freed.
  */
 
 static void
 lws_cgi_list_remove(struct lws_context_per_thread *pt, struct lws_cgi *cgi)
 {
-	struct lws_cgi **pcgi = &pt->http.cgi_list;
+	if (cgi)
+		lws_dll2_remove(&cgi->list);
 
-	while (*pcgi) {
-		if (*pcgi == cgi) {
-			/* drop us from the pt cgi list */
-			*pcgi = (*pcgi)->cgi_list;
-			break;
-		}
-		pcgi = &(*pcgi)->cgi_list;
-	}
-
-	if (!pt->http.cgi_list)
+	if (lws_dll2_is_empty(&pt->http.cgi_owner))
 		lws_sul_cancel(&pt->sul_cgi);
 }
 
@@ -204,15 +201,15 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 	/* the cgi stdout is always sending us http1.x header data first */
 	cgiinfo->wsi->hdr_state = LCHS_HEADER;
 
-	/* add us to the pt list of active cgis */
-	lwsl_wsi_debug(cgiinfo->wsi, "adding cgi %p to list", cgiinfo->wsi->http.cgi);
-	cgi->cgi_list = pt->http.cgi_list;
-	pt->http.cgi_list = cgi;
-
-	/* if it's not already running, start the cleanup timer */
-	if (!lws_dll2_owner(&pt->sul_cgi.list))
-		lws_sul_schedule(pt->context, (int)(pt - pt->context->pt), &pt->sul_cgi,
-				 lws_cgi_sul_cb, 3 * LWS_US_PER_SEC);
+	/*
+	 * Notice we do NOT put ourselves on the pt list of active cgis yet:
+	 * the whole env below is composed into the fixed-size e[] and any part
+	 * of it that does not fit is a hard failure (an unauthenticated client
+	 * can force that, since urlencode() expands the URI args up to 3:1
+	 * into QUERY_STRING).  Nothing needs reaping until there is actually a
+	 * child, so we refuse those before anything is linked or armed, and
+	 * bail: below then has nothing of ours to unpick.
+	 */
 
 	sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s ", cgiinfo->exec_array[0]);
 
@@ -499,6 +496,20 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 
 	cgiinfo->wsi->http.cgi->pi = cgiinfo->wsi->http.cgi->lsp->child_pid;
 
+	/*
+	 * There is a child now, so it is time to go on the pt list of active
+	 * cgis and make sure the reaping timer is running
+	 */
+
+	lwsl_wsi_debug(cgiinfo->wsi, "adding cgi %p to list", cgi);
+	lws_dll2_add_tail(&cgi->list, &pt->http.cgi_owner);
+
+	/* if it's not already running, start the cleanup timer */
+	if (!lws_dll2_owner(&pt->sul_cgi.list))
+		lws_sul_schedule(pt->context, (int)(pt - pt->context->pt),
+				 &pt->sul_cgi, lws_cgi_sul_cb,
+				 3 * LWS_US_PER_SEC);
+
 	/* we are the parent process */
 
 	cgiinfo->wsi->a.context->count_cgi_spawned++;
@@ -513,11 +524,14 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 
 bail:
 	/*
-	 * We linked the cgi on to the pt list before building it... it must
-	 * come off again before it is freed, both teardown paths that would
-	 * otherwise do it (lws_cgi_remove_and_kill() from the close flow and
-	 * from lws_http_transaction_completed()) are gated on wsi->http.cgi,
-	 * which we are about to NULL.
+	 * Everything that can fail above does so before we are linked, so the
+	 * removal is a no-op today; it stays because it is the invariant that
+	 * a struct lws_cgi is never freed while listed, and because both
+	 * teardown paths that would otherwise do it (lws_cgi_remove_and_kill()
+	 * from the close flow and from lws_http_transaction_completed()) are
+	 * gated on wsi->http.cgi, which we are about to NULL.
+	 * lws_cgi_list_remove() is idempotent, so it costs nothing to keep any
+	 * later bail added after the link point honest.
 	 */
 	lws_cgi_list_remove(pt, cgiinfo->wsi->http.cgi);
 	lws_sul_cancel(&cgiinfo->wsi->http.cgi->sul_grace);
@@ -1073,8 +1087,7 @@ lws_cgi_kill(struct lws *wsi)
 int
 lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 {
-	struct lws_cgi **pcgi, *cgi = NULL;
-	int status, n = 1;
+	int status, n = 1, found;
 
 	while (n > 0) {
 		/* find finished guys but don't reap yet */
@@ -1083,13 +1096,19 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			continue;
 		lwsl_cx_debug(pt->context, "observed PID %d terminated", n);
 
-		pcgi = &pt->http.cgi_list;
+		/*
+		 * Set by the walk below if one of our cgis owns the pid.  It
+		 * is deliberately a flag and not the cgi pointer: the walk can
+		 * end having just closed and freed that cgi.
+		 */
+
+		found = 0;
 
 		/* check all the subprocesses on the cgi list */
-		while (*pcgi) {
-			/* get the next one first as list may change */
-			cgi = *pcgi;
-			pcgi = &(*pcgi)->cgi_list;
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				lws_dll2_get_head(&pt->http.cgi_owner)) {
+			struct lws_cgi *cgi = lws_container_of(d,
+						struct lws_cgi, list);
 
 			/*
 			 * ->lsp is NULLed by lws_spawn_reap() while the cgi
@@ -1131,33 +1150,32 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 					 * cgi terminated to send buffered
 					 */
 					cgi->chunked_grace++;
+					found = 1;
 					continue;
 				}
 
 				/* defeat kill() */
 				cgi->lsp->child_pid = 0;
+				found = 1;
 				lws_cgi_kill(cgi->wsi);
 
 				break;
 			}
-			cgi = NULL;
-		}
+		} lws_end_foreach_dll_safe(d, d1);
+
 		/* if not found on the cgi list, as he's one of ours, reap */
-		if (!cgi)
+		if (!found)
 			waitpid(n, &status, WNOHANG);
 
 	}
 
-	pcgi = &pt->http.cgi_list;
-
 	/* check all the subprocesses on the cgi list */
-	while (*pcgi) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			lws_dll2_get_head(&pt->http.cgi_owner)) {
+		struct lws_cgi *cgi = lws_container_of(d, struct lws_cgi, list);
 		int do_finish = 0;
-		/* get the next one first as list may change */
-		cgi = *pcgi;
-		pcgi = &(*pcgi)->cgi_list;
 
-		if (!cgi || !cgi->lsp || cgi->lsp->child_pid <= 0)
+		if (!cgi->lsp || cgi->lsp->child_pid <= 0)
 			continue;
 
 		/* we deferred killing him after reaping his PID */
@@ -1201,7 +1219,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 
 			break;
 		}
-	}
+	} lws_end_foreach_dll_safe(d, d1);
 
 	return 0;
 }

@@ -123,7 +123,7 @@ lws_cgi_sul_cb(lws_sorted_usec_list_t *sul)
 
 	lws_cgi_kill_terminated(pt);
 
-	if (pt->http.cgi_list)
+	if (!lws_dll2_is_empty(&pt->http.cgi_owner))
 		lws_sul_schedule(pt->context, (int)(pt - pt->context->pt),
 				 &pt->sul_cgi, lws_cgi_sul_cb, 3 * LWS_US_PER_SEC);
 }

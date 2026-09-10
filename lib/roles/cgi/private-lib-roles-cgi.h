@@ -45,7 +45,7 @@ struct lws;
 /* wsi who is owns the cgi points to an lws_cgi */
 
 struct lws_cgi {
-	struct lws_cgi *cgi_list;
+	lws_dll2_t			list;	/* on pt->http.cgi_owner */
 
 	struct lws_spawn_piped		*lsp;
 	lws_sorted_usec_list_t		sul_grace;

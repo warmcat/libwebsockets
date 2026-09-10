@@ -211,7 +211,7 @@ struct lws_pt_role_http {
 	lws_dll2_owner_t ah_owner; /* allocated but not necessarily in use */
 	struct lws *ah_wait_list;
 #ifdef LWS_WITH_CGI
-	struct lws_cgi *cgi_list;
+	lws_dll2_owner_t cgi_owner; /* struct lws_cgi with a live child */
 #endif
 	int ah_wait_list_length;
 
