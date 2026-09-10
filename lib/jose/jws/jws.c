@@ -1129,27 +1129,51 @@ lws_jws_write_flattened_json(struct lws_jws *jws, char *flattened, size_t len)
 	if (len < 1)
 		return 1;
 
+	/*
+	 * Every step below has to leave n < len... lws_snprintf() returns the
+	 * buffer size on truncation, so without the checks n can reach len
+	 * exactly, and then "len - n" is 0, lws_strnncpy() writes nothing at
+	 * all (not even the NUL), strlen(flattened + n) reads off the end of
+	 * the caller's buffer and the next "len - n" wraps to near SIZE_MAX.
+	 */
+
 	n += (unsigned int)lws_snprintf(flattened + n, len - n , "{\"payload\": \"");
+	if (n >= len - 1)
+		return 1;
 	lws_strnncpy(flattened + n, jws->map_b64.buf[LJWS_PYLD],
 			jws->map_b64.len[LJWS_PYLD], len - n);
 	n = n + strlen(flattened + n);
+	if (n >= len - 1)
+		return 1;
 
 	n += (unsigned int)lws_snprintf(flattened + n, len - n , "\",\n \"protected\": \"");
+	if (n >= len - 1)
+		return 1;
 	lws_strnncpy(flattened + n, jws->map_b64.buf[LJWS_JOSE],
 			jws->map_b64.len[LJWS_JOSE], len - n);
 	n = n + strlen(flattened + n);
+	if (n >= len - 1)
+		return 1;
 
 	if (jws->map_b64.buf[LJWS_UHDR]) {
 		n += (unsigned int)lws_snprintf(flattened + n, len - n , "\",\n \"header\": ");
+		if (n >= len - 1)
+			return 1;
 		lws_strnncpy(flattened + n, jws->map_b64.buf[LJWS_UHDR],
 				jws->map_b64.len[LJWS_UHDR], len - n);
 		n = n + strlen(flattened + n);
+		if (n >= len - 1)
+			return 1;
 	}
 
 	n += (unsigned int)lws_snprintf(flattened + n, len - n , "\",\n \"signature\": \"");
+	if (n >= len - 1)
+		return 1;
 	lws_strnncpy(flattened + n, jws->map_b64.buf[LJWS_SIG],
 			jws->map_b64.len[LJWS_SIG], len - n);
 	n = n + strlen(flattened + n);
+	if (n >= len - 1)
+		return 1;
 
 	n += (unsigned int)lws_snprintf(flattened + n, len - n , "\"}\n");
 
