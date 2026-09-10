@@ -530,14 +530,17 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 					goto bail;
 				}
 
-				/* store the string version of the key type */
+				/*
+				 * store the string version of the key type...
+				 * via the setter, since a bstr kty earlier in
+				 * the map may already have put a buffer here
+				 * that would otherwise be dropped on the floor
+				 */
 
-				ke = &cps->ck->meta[COSEKEY_META_KTY];
-				ke->len = (uint32_t)strlen(kty_str);
-				ke->buf = lws_malloc(ke->len + 1, __func__);
-				if (!ke->buf)
+				if (lws_ck_set_el(&cps->ck->meta[COSEKEY_META_KTY],
+						  (char *)kty_str,
+						  strlen(kty_str)))
 					goto bail;
-				memcpy(ke->buf, kty_str, ke->len + 1);
 				break;
 			case LWSCOSE_WKK_ALG:
 				/*
@@ -605,15 +608,11 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 			case LWSCOSE_WKOKP_CRV:
 				cps->ck->cose_curve = (int)ctx->item.u.u64;
 				p = lws_cose_curve_id_to_name(cps->ck->cose_curve);
-				if (p) {
-					ke = &cps->ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV];
-					ke->len = (uint32_t)strlen(p);
-					ke->buf = lws_malloc(ke->len + 1, __func__);
-					if (!ke->buf)
-						goto bail;
-					memcpy(ke->buf, p, ke->len);
-					ke->buf[ke->len] = '\0';
-				}
+				/* same: replace, don't leak, any earlier crv bstr */
+				if (p && lws_ck_set_el(
+						&cps->ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV],
+						(char *)p, strlen(p)))
+					goto bail;
 				break;
 			default:
 				lwsl_warn("%s: uint not allowed in state %d\n",
