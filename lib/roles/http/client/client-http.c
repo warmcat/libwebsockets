@@ -1023,9 +1023,31 @@ str_val:
 		*/
 
 		wsi->http.digest_auth_hdr = tmp_digest;
+	} else {
+		/*
+		 * We have no stashed path to compute the digest response
+		 * against (the client connect info left .path NULL)...
+		 *
+		 * We must not return LCBA_CONTINUE here: the caller takes that
+		 * to mean we went through lws_client_reset(), ie, that the wsi
+		 * is marked close_is_redirect and so survives the
+		 * lws_close_free_wsi() it does next.  Without the reset the
+		 * wsi is really freed there and touching it afterwards is a
+		 * use-after-free.
+		 */
+
+		lwsl_wsi_err(wsi, "digest auth: no path stashed");
+
+		return LCBA_FAILED_AUTH;
 	}
 
-	return 0;
+	/*
+	 * We only get here having successfully done lws_client_reset(), so
+	 * wsi->close_is_redirect is set and the caller's close leaves the wsi
+	 * extant for the retry
+	 */
+
+	return LCBA_CONTINUE;
 
 bail:
 	lws_free(tmp_digest);
