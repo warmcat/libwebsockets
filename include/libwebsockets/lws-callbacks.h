@@ -235,10 +235,14 @@ enum lws_callback_reasons {
 
 	LWS_CALLBACK_HTTP_BODY					= 13,
 	/**< the next len bytes data from the http
-	 * request body HTTP connection is now available in in. */
+	 * request body HTTP connection is now available in in.  A request
+	 * body sent with Transfer-Encoding: chunked is decoded by lws, so
+	 * in only ever holds body payload, never the chunk framing. */
 
 	LWS_CALLBACK_HTTP_BODY_COMPLETION			= 14,
-	/**< the expected amount of http request body has been delivered */
+	/**< the expected amount of http request body has been delivered:
+	 * the Content-Length was reached, or the last-chunk of a chunked
+	 * body arrived */
 
 	LWS_CALLBACK_HTTP_FILE_COMPLETION			= 15,
 	/**< a file requested to be sent down http link has completed. */

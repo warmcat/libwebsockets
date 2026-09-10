@@ -2023,6 +2023,37 @@ lws_http_parse_content_length(const char *in, uint64_t *result)
 	return 0;
 }
 
+/*
+ * Is the request's Transfer-Encoding exactly one "chunked" coding?
+ *
+ * Only a single instance of the header whose value is "chunked" (case-
+ * insensitive, surrounding whitespace ignored) qualifies.  A list of codings
+ * would need each of them applied in turn, which we do not do, and a second
+ * instance of the header is a list however the sender split it.
+ */
+
+static int
+lws_http_te_is_chunked(struct lws *wsi)
+{
+	char te[32], *p = te, *e;
+
+	if (lws_hdr_copy_fragment(wsi, te, sizeof(te) - 1,
+				  WSI_TOKEN_HTTP_TRANSFER_ENCODING, 1) != -1)
+		return 0;
+
+	if (lws_hdr_copy(wsi, te, sizeof(te) - 1,
+			 WSI_TOKEN_HTTP_TRANSFER_ENCODING) <= 0)
+		return 0;
+
+	while (*p == ' ' || *p == '\t')
+		p++;
+	e = p + strlen(p);
+	while (e > p && (e[-1] == ' ' || e[-1] == '\t'))
+		e--;
+
+	return e - p == 7 && !strncasecmp(p, "chunked", 7);
+}
+
 int
 lws_http_action(struct lws *wsi)
 {
@@ -2125,6 +2156,41 @@ lws_http_action(struct lws *wsi)
 			lwsl_warn("%s: Both Content-Length and Transfer-Encoding present\n", __func__);
 			lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, NULL);
 			return 1;
+		}
+
+		wsi->http.rx_chunked = 0;
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
+			/*
+			 * h2 and h3 refuse Transfer-Encoding at their framing
+			 * layer, so this is an h1 request.  The only coding we
+			 * decode is a lone "chunked": anything else, including
+			 * a list that ends in chunked, gets 501 (RFC 7230
+			 * 3.3.1), since a body we would frame differently from
+			 * the peer or an intermediary is not something to
+			 * guess at.
+			 */
+			if (!lws_http_te_is_chunked(wsi)) {
+				lwsl_wsi_notice(wsi, "unsupported Transfer-Encoding");
+				lws_return_http_status(wsi,
+					HTTP_STATUS_NOT_IMPLEMENTED, NULL);
+				return 1;
+			}
+
+			wsi->http.rx_chunked = 1;
+			wsi->http.chunk_parser = ELCP_HEX;
+			wsi->http.chunk_remaining = 0;
+			wsi->http.chunk_skip = 0;
+
+			/*
+			 * The body length is only known when the last-chunk
+			 * arrives: rx_content_remain counts the decoded payload
+			 * down from the body limit instead.  This applies to
+			 * any method: a GET with a chunked body still has a
+			 * body we must decode past to stay in sync with the
+			 * peer.
+			 */
+			wsi->http.rx_content_length = max_body;
+			wsi->http.rx_content_remain = max_body;
 		}
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
@@ -3248,10 +3314,12 @@ lws_http_transaction_completed(struct lws *wsi)
 	 */
 	if (wsi->http.rx_content_length && wsi->http.rx_content_remain) {
 		/*
-		 * If we don't know the content length, we cannot safely discard the
-		 * remaining body to resync for pipelining. Drop the connection.
+		 * If we don't know where the body ends, we cannot discard the
+		 * remainder to resync for pipelining: drop the connection.  A
+		 * chunked body carries its own end marker, so it is discarded
+		 * up to its last-chunk exactly like a Content-Length body.
 		 */
-		if (!wsi->http.content_length_given) {
+		if (!wsi->http.content_length_given && !wsi->http.rx_chunked) {
 			lwsl_notice("%s: %s: unread body but no content length, closing\n",
 				  __func__, lws_wsi_tag(wsi));
 			return 1;

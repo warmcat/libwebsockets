@@ -161,12 +161,56 @@ http_postbody:
 		if (wsi->http.content_length_given && !wsi->http.rx_content_remain)
 			goto postbody_completion;
 
-		if (len && (!wsi->http.content_length_given || wsi->http.rx_content_remain)) {
+		while (len && (!wsi->http.content_length_given || wsi->http.rx_content_remain)) {
 			/* Copy as much as possible, up to the limit of:
 			 * what we have in the read buffer (len)
 			 * remaining portion of the POST body (content_remain)
 			 */
-			if (wsi->http.content_length_given) {
+			if (wsi->http.rx_chunked) {
+				/*
+				 * Transfer-Encoding: chunked request body: eat
+				 * any framing before the next payload bytes,
+				 * then deliver at most the rest of this chunk.
+				 * We go around this loop once per piece of
+				 * chunk payload in the buffer.
+				 */
+				size_t l = (size_t)len;
+				int m = lws_http_dechunk_framing(wsi, &buf, &l);
+
+				len = (lws_filepos_t)l;
+				if (m < 0) {
+					lwsl_wsi_notice(wsi, "chunked body framing error");
+					goto bail;
+				}
+				if (m > 0) {
+					/*
+					 * That was the last-chunk and trailer:
+					 * the body is complete with nothing
+					 * left unread.  Anything after it in
+					 * the buffer is the next pipelined
+					 * request, left for the caller to
+					 * stash.
+					 */
+					wsi->http.rx_content_remain = 0;
+					goto postbody_completion;
+				}
+				if (!len) {
+					/* need more bytes to reach payload */
+					lws_set_timeout(wsi,
+						PENDING_TIMEOUT_HTTP_CONTENT,
+						(int)wsi->a.context->timeout_secs);
+					break;
+				}
+				body_chunk_len = len;
+				if ((lws_filepos_t)wsi->http.chunk_remaining < len)
+					body_chunk_len = (lws_filepos_t)
+						wsi->http.chunk_remaining;
+				if (lwsi_role_server(wsi) &&
+				    body_chunk_len > wsi->http.rx_content_remain) {
+					lwsl_warn("%s: body exceeded max size\n", __func__);
+					goto bail;
+				}
+			} else if (wsi->http.content_length_given) {
 				body_chunk_len = min(wsi->http.rx_content_remain, len);
 			} else {
 				if (lwsi_role_server(wsi) && (lws_filepos_t)len > wsi->http.rx_content_remain) {
@@ -234,6 +278,29 @@ http_postbody:
 #endif
 			lwsl_info("%s: advancing buf by %d\n", __func__, (int)n);
 			buf += n;
+
+			if (wsi->http.rx_chunked) {
+				/*
+				 * Account the delivered payload against this
+				 * chunk, then go around for the framing that
+				 * follows it.  If the cgi stdin took less than
+				 * we offered, stop here: the caller stashes
+				 * the tail and re-offers it, still inside this
+				 * chunk, when the pipe drains.
+				 */
+				len -= n;
+				wsi->http.chunk_remaining -= (int)n;
+				if (!wsi->http.chunk_remaining)
+					wsi->http.chunk_parser = ELCP_POST_CR;
+
+				lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+						(int)wsi->a.context->timeout_secs);
+
+				if ((lws_filepos_t)n != body_chunk_len)
+					break;
+
+				continue;
+			}
 
 #if defined(LWS_ROLE_H2)
 			if (lwsi_role_h2(wsi) && wsi->mux_substream &&
