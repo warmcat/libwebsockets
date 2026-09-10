@@ -390,6 +390,30 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 #ifdef USE_WOLFSSL
 	/*
+	 * wolfSSL has no X509_VERIFY_PARAM_set1_host(): its equivalent is
+	 * wolfSSL_check_domain_name(), which has to be armed before the
+	 * handshake.  Without it nothing on this backend ever compared the
+	 * peer certificate against the name we asked for, ie, any certificate
+	 * from any trusted CA was accepted for any host... the same hazard
+	 * C-337 fixed on gnutls and C-408 on openssl.
+	 */
+	if (!(wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
+#ifdef USE_OLD_CYASSL
+		if (CyaSSL_check_domain_name(wsi->tls.ssl, hostname) !=
+								SSL_SUCCESS)
+#else
+		if (wolfSSL_check_domain_name(wsi->tls.ssl, hostname) !=
+								SSL_SUCCESS)
+#endif
+		{
+			lwsl_err("%s: unable to bind peer cert check to '%s'\n",
+				 __func__, hostname);
+
+			return -1;
+		}
+	}
+
+	/*
 	 * wolfSSL/CyaSSL does certificate verification differently
 	 * from OpenSSL.
 	 * If we should ignore the certificate, we need to set
@@ -682,7 +706,39 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	return -1;
 
 #else /* USE_WOLFSSL */
-	return 0;
+
+	/*
+	 * This used to return 0 unconditionally, ie, a wolfSSL-built client
+	 * accepted any server certificate at all: the chain result was never
+	 * looked at on the one path that is supposed to look at it.
+	 *
+	 * wolfSSL's compat layer does not carry the whole X509_V_ERR_ set the
+	 * openssl arm above maps onto individual LCCSCF_ relaxations, and the
+	 * ones it does carry do not have stable values across versions, so we
+	 * cannot say which relaxation would cover a particular failure here.
+	 * What we can do is fail closed on anything that is not X509_V_OK, and
+	 * honour the blanket relaxation.  LCCSCF_ALLOW_SELFSIGNED is already
+	 * handled on this backend by the wolfSSL_set_verify(SSL_VERIFY_NONE)
+	 * in lws_ssl_client_bio_create(), which leaves the result X509_V_OK.
+	 */
+
+	long n = SSL_get_verify_result(wsi->tls.ssl);
+
+	if (n == X509_V_OK)
+		return 0;
+
+	if (wsi->tls.use_ssl & LCCSCF_ALLOW_INSECURE) {
+		lwsl_info("%s: allowing anyway (LCCSCF_ALLOW_INSECURE)\n",
+			  __func__);
+
+		return 0;
+	}
+
+	lws_snprintf(ebuf, ebuf_len, "server's cert didn't look good, "
+		     "X509_V_ERR = %ld", n);
+	lwsl_info("%s\n", ebuf);
+
+	return -1;
 #endif
 }
 #endif
