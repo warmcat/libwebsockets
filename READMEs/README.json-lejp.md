@@ -38,6 +38,8 @@ newer options
 |---|---|
 |LEJP_FLAG_FEAT_OBJECT_INDEXES|Provide indexes for { x, y, x } lists same as for arrays|
 |LEJP_FLAG_FEAT_LEADING_WC|Allow path matches involving leading wildcards, like `*[]`|
+|LEJP_FLAG_FEAT_STRICT_KEY_CHARS|Reject key names containing characters outside the safe set|
+|LEJP_FLAG_FEAT_COMMENTS|Accept `#` to-end-of-line comments (an lws extension, off by default so network JSON is parsed RFC 8259 strict; lwsws config files opt in)|
 |LEJP_FLAG_LATEST|Alias indicating you want the "best" current options, even if incompatible with old behaviours|
 
 ## Type handling

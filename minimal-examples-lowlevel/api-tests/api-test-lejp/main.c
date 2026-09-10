@@ -775,6 +775,17 @@ wild_cb(struct lejp_ctx *ctx, char reason)
 	return 0;
 }
 
+/* for the LEJP_FLAG_FEAT_COMMENTS test, which only cares about the verdict */
+
+static signed char
+quiet_cb(struct lejp_ctx *ctx, char reason)
+{
+	(void)ctx;
+	(void)reason;
+
+	return 0;
+}
+
 
 
 static signed char
@@ -917,6 +928,38 @@ int main(int argc, const char **argv)
 		if (n < 0 || wild_fail) {
 			lwsl_err("%s: wildcard len guard failed (0x%x)\n",
 				 __func__, wild_fail);
+			e++;
+		}
+	}
+
+	/*
+	 * '#' to-end-of-line comments are a nonstandard extension: they must
+	 * be inert unless the user opted in with LEJP_FLAG_FEAT_COMMENTS, so
+	 * that a network-facing parse cannot be steered into seeing a
+	 * different document than an RFC 8259 parser sees
+	 */
+	{
+		static const char *cj = "{\"a\":1#,\"b\":2\n}";
+		int cjl = (int)strlen(cj);
+
+		lejp_construct(&ctx, quiet_cb, NULL, NULL, 0);
+		n = lejp_parse(&ctx, (const unsigned char *)cj, cjl);
+		lejp_destruct(&ctx);
+
+		if (n >= 0) {
+			lwsl_err("%s: '#' comment accepted with the feature "
+				 "off\n", __func__);
+			e++;
+		}
+
+		lejp_construct(&ctx, quiet_cb, NULL, NULL, 0);
+		ctx.flags = LEJP_FLAG_FEAT_COMMENTS;
+		n = lejp_parse(&ctx, (const unsigned char *)cj, cjl);
+		lejp_destruct(&ctx);
+
+		if (n < 0) {
+			lwsl_err("%s: '#' comment rejected with the feature "
+				 "on: %s\n", __func__, lejp_error_to_string(n));
 			e++;
 		}
 	}

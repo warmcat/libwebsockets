@@ -1993,6 +1993,12 @@ lwsws_get_config(void *user, const char *f, const char * const *paths,
 	lwsl_info("%s: %s\n", __func__, f);
 	lejp_construct(&ctx, lejp_conf_preproc_cb, &subs, paths,
 		       (uint8_t)(unsigned int)count_paths);
+	/*
+	 * lwsws config files are root-owned and documented (README.lwsws.md)
+	 * to allow '#' to-end-of-line comments; this is the only in-tree lejp
+	 * parse that opts in, every other one stays RFC 8259 strict
+	 */
+	ctx.flags |= LEJP_FLAG_FEAT_COMMENTS;
 
 	do {
 		n = (int)read(fd, buf, sizeof(buf));

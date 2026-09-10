@@ -308,6 +308,22 @@ struct lejp_ctx {
  * (eg, a hostname) is not that unusual; set it if your paths care.
  */
 #define LEJP_FLAG_FEAT_STRICT_KEY_CHARS				(1 << 2)
+/*
+ * Accept lejp's nonstandard '#' to-end-of-line comment extension, outside of
+ * strings, at any depth.  RFC 8259 has no comments, so with this set lejp
+ * assigns a meaning to documents every conformant JSON parser rejects, eg,
+ * {"a":1#,"b":2 LF } is {"a":1} to lejp and a syntax error to everybody else.
+ * Wherever the same bytes are also seen by another parser - a JOSE header the
+ * relying party also reads, a policy a management tool also reads - the two
+ * disagree about what the document says, and lejp's view is the one the
+ * security decision is made on.  So it's off by default and network-facing
+ * parses must leave it off; it exists for hand-written, locally-owned config
+ * files, and in-tree only lejp-conf.c (the lwsws config parser) sets it.
+ *
+ * Deliberately not part of LEJP_FLAG_LATEST, which means "the best current
+ * behaviours", ie, the strictest.
+ */
+#define LEJP_FLAG_FEAT_COMMENTS					(1 << 3)
 #define LEJP_FLAG_LATEST \
 					(LEJP_FLAG_FEAT_OBJECT_INDEXES | \
 					 LEJP_FLAG_FEAT_LEADING_WC | \

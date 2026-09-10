@@ -351,8 +351,18 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 		c = *json++;
 		s = (unsigned char)ctx->st[ctx->sp].s;
 
-		/* skip whitespace unless we should care */
-		if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '#') {
+		/*
+		 * Skip whitespace unless we should care.
+		 *
+		 * '#' only joins the whitespace class if the user opted in to
+		 * the nonstandard to-end-of-line comment extension; otherwise
+		 * it falls through to the state machine, which rejects it like
+		 * any other character that has no meaning there, so that a
+		 * network-facing parse sees the same document as an RFC 8259
+		 * parser does
+		 */
+		if (c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
+		    (c == '#' && (ctx->flags & LEJP_FLAG_FEAT_COMMENTS))) {
 			if (c == '\n') {
 				ctx->line++;
 				ctx->st[ctx->sp].s &= (char)~LEJP_FLAG_WS_COMMENTLINE;
