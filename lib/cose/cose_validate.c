@@ -226,6 +226,139 @@ sig_agg(struct lws_cose_validate_context *cps, struct lecp_ctx *ctx)
 	return 0;
 }
 
+/*
+ * How much of the start of a captured protected bucket is the bucket's own
+ * bstr header?  The raw capture holds the bstr exactly as it was serialized,
+ * which is what has to go into the Sig_structure, but the header has to come
+ * off again before the map inside can be handed back to the parser.
+ *
+ * Returns 0 if it doesn't start with a definite-length bstr header, eg, the
+ * unprotected bucket, whose map header is not part of the capture.
+ */
+
+static size_t
+bstr_hdr_len(const uint8_t *p, size_t len)
+{
+	uint8_t u;
+
+	if (!len || ((*p) & LWS_CBOR_MAJTYP_MASK) != LWS_CBOR_MAJTYP_BSTR)
+		return 0;
+
+	u = (*p) & LWS_CBOR_SUBMASK;
+
+	if (u < LWS_CBOR_1)
+		return 1;
+
+	switch (u) {
+	case LWS_CBOR_1:
+		return 2;
+	case LWS_CBOR_2:
+		return 3;
+	case LWS_CBOR_4:
+		return 5;
+	case LWS_CBOR_8:
+		return 9;
+	}
+
+	return 0; /* indefinite or reserved, not something we can strip */
+}
+
+/*
+ * The captured bucket as it has to appear in the Sig_structure.
+ *
+ * RFC9052 4.4: an empty protected bucket appears there as a zero-length bstr.
+ * Objects in the wild (and the cose-wg vectors) serialize the empty bucket
+ * either as h'' or as h'a0' (a bstr holding an empty map), but sign h'' for
+ * both, so both have to normalize here.  Anything else goes in exactly as it
+ * was serialized, which is what the raw capture holds... rebuilding a
+ * canonical bstr header from the content length instead mis-hashes a peer's
+ * long-form header and drops a one-byte bucket on the floor.
+ */
+
+static const uint8_t *
+sig_bucket(const uint8_t *p, size_t *s)
+{
+	static const uint8_t empty = LWS_CBOR_MAJTYP_BSTR; /* ie, h'' */
+	size_t hl = bstr_hdr_len(p, *s);
+
+	if (hl > *s)
+		/* malformed, the parse of it will have bailed already */
+		return p;
+
+	if (*s - hl == 0 ||
+	    (*s - hl == 1 && p[hl] == LWS_CBOR_MAJTYP_MAP /* h'a0' */)) {
+		*s = 1;
+
+		return &empty;
+	}
+
+	return p;
+}
+
+/*
+ * Hand the map inside a captured bucket back to the parser as a subtree.
+ *
+ * lecp_parse_subtree() is inside a pushed level, so it cannot return 0 to mean
+ * "the subtree was complete"... a truncated subtree, eg, a map that declares
+ * more pairs than it carries, used to be indistinguishable from a complete
+ * one.  It leaves the levels it pushed live above its barrier, and the rest of
+ * the object is then parsed at a path depth that matches none of the tests in
+ * the callback: the object "validates" to an empty results list.  Confirm the
+ * parser came back to exactly the state it went in at, and fail the whole
+ * validation if it did not.
+ */
+
+static int
+parse_bucket(struct lws_cose_validate_context *cps, uint8_t *p, size_t s)
+{
+	struct lecp_ctx *ctx = &cps->ctx;
+	uint8_t sp = ctx->sp;
+	uint8_t ppos = ctx->pst[ctx->pst_sp].ppos;
+	size_t hl = bstr_hdr_len(p, s);
+	int n;
+
+	if (hl > s)
+		return 1;
+
+	if (hl == s)
+		/* a zero-length bucket, ie, no params, nothing to parse */
+		return 0;
+
+	cps->sub = 1;
+	n = lecp_parse_subtree(ctx, p + hl, s - hl);
+	cps->sub = 0;
+
+	if (n != LECP_CONTINUE)
+		return 1;
+
+	if (ctx->sp != sp) {
+		/*
+		 * The subtree did not complete inside the bucket bytes: the
+		 * levels it pushed are still live above its barrier, and
+		 * lwcp_completed()'s walk will stop at that barrier forever
+		 * after, ie, the rest of the object is parsed at a depth the
+		 * state machine below matches nothing at
+		 */
+
+		lwsl_notice("%s: incomplete bucket\n", __func__);
+
+		return 1;
+	}
+
+	/*
+	 * A bstr map key inside the bucket appends itself to the shared path,
+	 * and at the subtree's own base level lecp_parse_map_is_key() is
+	 * looking at the parent level of the *outer* parse, across the
+	 * barrier, so the path can grow for something that is not a map key at
+	 * all.  Either way it is not the outer parse's path, put it back.
+	 */
+
+	ctx->pst[ctx->pst_sp].ppos = ppos;
+	ctx->path[ppos] = '\0';
+
+	return 0;
+}
+
 static int
 apply_external(struct lws_cose_validate_context *cps)
 {
@@ -352,30 +485,10 @@ no_key_or_alg:
 	/*
 	 * Hash step 2: A zero-length bstr, or a copy of the
 	 *              OUTER protected headers
-	 *
-	 *              A zero-entry map alone becomes a zero-
-	 *              length bstr
 	 */
 
-	if (sl0->ph_pos[0] < 2) {
-		/* nothing to speak of */
-		sl0->ph[0][0] = LWS_CBOR_MAJTYP_BSTR;
-		p = &sl0->ph[0][0];
-		s = 1;
-	} else {
-		if (sl0->ph_pos[0] < 24) {
-			sl0->ph[0][2] = (uint8_t)
-			   (LWS_CBOR_MAJTYP_BSTR | sl0->ph_pos[0]);
-			p = &sl0->ph[0][2];
-			s = (size_t)sl0->ph_pos[0] + 1;
-		} else {
-			sl0->ph[0][1] = LWS_CBOR_MAJTYP_BSTR |
-					LWS_CBOR_1;
-			sl0->ph[0][2] = (uint8_t)sl0->ph_pos[0];
-			p = &sl0->ph[0][1];
-			s = (size_t)sl0->ph_pos[0] + 2;
-		}
-	}
+	s = (size_t)sl0->ph_pos[0];
+	p = sig_bucket(sl0->ph[0] + 3, &s);
 
 	if (lws_cose_val_alg_hash(alg, p, s))
 		goto bail;
@@ -385,25 +498,8 @@ no_key_or_alg:
 	 */
 
 	if (cps->info.sigtype == SIGTYPE_MULTI) {
-		if (sl->ph_pos[2] < 2) {
-			/* nothing to speak of */
-			sl->ph[2][0] = LWS_CBOR_MAJTYP_BSTR;
-			p = &sl->ph[2][0];
-			s = 1;
-		} else {
-			if (sl->ph_pos[2] < 24) {
-				sl->ph[2][2] = (uint8_t)
-				   (LWS_CBOR_MAJTYP_BSTR | sl->ph_pos[2]);
-				p = &sl->ph[2][2];
-				s = (size_t)sl->ph_pos[2] + 1;
-			} else {
-				sl->ph[2][1] = LWS_CBOR_MAJTYP_BSTR |
-						LWS_CBOR_1;
-				sl->ph[2][2] = (uint8_t)sl->ph_pos[2];
-				p = &sl->ph[2][1];
-				s = (size_t)sl->ph_pos[2] + 2;
-			}
-		}
+		s = (size_t)sl->ph_pos[2];
+		p = sig_bucket(sl->ph[2] + 3, &s);
 
 		if (lws_cose_val_alg_hash(alg, p, s))
 			goto bail;
@@ -578,6 +674,24 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 		cps->depth++;
 		break;
 
+	case LECPCB_ARRAY_START:
+
+		if (cps->sub || cps->tli != ST_OUTER_PROTECTED ||
+		    ctx->pst[ctx->pst_sp].ppos != 2)
+			break;
+
+		/*
+		 * The outer array has just opened, and its first item is the
+		 * protected bucket.  Start the raw capture now, before the
+		 * bucket's first byte: switching it on from inside the item's
+		 * own ARRAY_ITEM_START is a byte late, which loses the bstr
+		 * header of a canonical bucket and, for a long-form one, keeps
+		 * part of that header as if it were bucket content.
+		 */
+
+		lecp_parse_report_raw(ctx, 1);
+		break;
+
 	case LECPCB_ARRAY_ITEM_START:
 
 		if (cps->sub)
@@ -683,14 +797,9 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 				if (!sl->ph_pos[hi] || cps->sub)
 					break;
 
-				cps->sub = 1;
-				s = (size_t)sl->ph_pos[hi];
-
-				if (lecp_parse_subtree(&cps->ctx,
-						       sl->ph[hi] + 3, s) !=
-							      LECP_CONTINUE)
+				if (parse_bucket(cps, sl->ph[hi] + 3,
+						 (size_t)sl->ph_pos[hi]))
 					goto bail;
-				cps->sub = 0;
 				break;
 
 			case ST_OUTER_PAYLOAD:
@@ -729,9 +838,6 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 		}
 
 		if (ctx->pst[ctx->pst_sp].ppos >= 4) {
-			uint8_t *p;
-			uint8_t u;
-			size_t s1;
 
 			switch (cps->tli) {
 			case ST_INNER_UNPROTECTED:
@@ -739,7 +845,6 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 
 				hi = ph_index(cps);
 				sl = &cps->st[cps->sp];
-				p = sl->ph[hi] + 3;
 				lecp_parse_report_raw(ctx, 0);
 
 				if (!sl->ph_pos[hi] || cps->sub) {
@@ -748,45 +853,20 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 					break;
 				}
 
-				cps->sub = 1;
-				s = (size_t)sl->ph_pos[hi];
-
 				/*
-				 * somehow the raw captures the
-				 * initial BSTR container length,
-				 * let's strip it
+				 * The capture holds the bucket as it was
+				 * serialized, ie, including its own bstr
+				 * header... parse_bucket() takes the header
+				 * off again to get at the map inside, we must
+				 * leave the capture itself alone since it is
+				 * also the Sig_structure piece
 				 */
 
-				u = (*p) & LWS_CBOR_SUBMASK;
-				if (((*p) & LWS_CBOR_MAJTYP_MASK) ==
-							LWS_CBOR_MAJTYP_BSTR) {
-					s1 = 1;
-					if (u == LWS_CBOR_1)
-						s1 = 2;
-					else if (u == LWS_CBOR_2)
-						s1 = 3;
-					else if (u == LWS_CBOR_4)
-						s1 = 5;
-					else if (u == LWS_CBOR_8)
-						s1 = 9;
-
-					if (s1 > s)
-						goto bail;
-
-					sl->ph_pos[hi] = (int)
-						(sl->ph_pos[hi] - (ssize_t)s1);
-					s = s - s1;
-					memmove(p, p + s1, s);
-				}
-
-				if (lecp_parse_subtree(&cps->ctx, p, s) !=
-								LECP_CONTINUE)
+				if (parse_bucket(cps, sl->ph[hi] + 3,
+						 (size_t)sl->ph_pos[hi]))
 					goto bail;
 
-				cps->sub = 0;
-
-				if (!cps->sub)
-					cps->tli++;
+				cps->tli++;
 				break;
 
 			case ST_INNER_SIGNATURE:
