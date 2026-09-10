@@ -924,6 +924,31 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	SSL_CTX_set_options(vh->tls.ssl_client_ctx, SSL_OP_NO_COMPRESSION);
 #endif
 
+	/*
+	 * Same floor as the server ctx: SSLv2 / SSLv3 off and TLS 1.2 the
+	 * minimum (RFC 8996).  Expressed as options so that the existing
+	 * .ssl_client_options_clear info member, applied below, is still the
+	 * way an app that must reach a legacy peer lowers it.
+	 */
+	SSL_CTX_set_options(vh->tls.ssl_client_ctx, SSL_OP_NO_SSLv2 |
+						    SSL_OP_NO_SSLv3
+#if defined(SSL_OP_NO_TLSv1)
+						    | SSL_OP_NO_TLSv1
+#endif
+#if defined(SSL_OP_NO_TLSv1_1)
+						    | SSL_OP_NO_TLSv1_1
+#endif
+			   );
+
+	/*
+	 * A server that can force renegotiation can present a different
+	 * certificate after we have already latched the peer identity check,
+	 * and it costs us a key exchange per HelloRequest.  Refuse it.
+	 */
+#if defined(SSL_OP_NO_RENEGOTIATION)
+	SSL_CTX_set_options(vh->tls.ssl_client_ctx, SSL_OP_NO_RENEGOTIATION);
+#endif
+
 	SSL_CTX_set_options(vh->tls.ssl_client_ctx,
 			    SSL_OP_CIPHER_SERVER_PREFERENCE);
 

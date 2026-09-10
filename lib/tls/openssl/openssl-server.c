@@ -592,9 +592,37 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 	SSL_CTX_set_ex_data(tls->ssl_ctx,
 			    openssl_SSL_CTX_private_data_index,
 			    (char *)vhost->context);
-	/* Disable SSLv2 and SSLv3 */
+	/*
+	 * Disable SSLv2 and SSLv3, and put the floor at TLS 1.2: RFC 8996
+	 * deprecates TLS 1.0 and 1.1, which drag in the SHA1 / CBC-with-
+	 * implicit-IV record layer and are a downgrade target.
+	 *
+	 * These are expressed as options rather than by
+	 * SSL_CTX_set_min_proto_version() deliberately, so that the existing
+	 * .ssl_options_clear vhost member (applied at the end of this
+	 * function) remains the way an app that must talk to legacy peers
+	 * lowers the floor again.
+	 */
 	SSL_CTX_set_options(tls->ssl_ctx, SSL_OP_NO_SSLv2 |
-						SSL_OP_NO_SSLv3);
+					  SSL_OP_NO_SSLv3
+#if defined(SSL_OP_NO_TLSv1)
+					  | SSL_OP_NO_TLSv1
+#endif
+#if defined(SSL_OP_NO_TLSv1_1)
+					  | SSL_OP_NO_TLSv1_1
+#endif
+			   );
+
+	/*
+	 * Peer-initiated renegotiation is a cheap asymmetric CPU amplifier: a
+	 * few hundred bytes from the peer costs us a fresh key exchange and a
+	 * private key signature, on a connection whose handshake restriction
+	 * slot has already been handed back.  Only OpenSSL 3.0 and later
+	 * refuse it by default, so ask for it explicitly.
+	 */
+#if defined(SSL_OP_NO_RENEGOTIATION)
+	SSL_CTX_set_options(tls->ssl_ctx, SSL_OP_NO_RENEGOTIATION);
+#endif
 #ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(tls->ssl_ctx, SSL_OP_NO_COMPRESSION);
 #endif
