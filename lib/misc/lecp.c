@@ -358,6 +358,7 @@ lecp_parse_map_is_key(struct lecp_ctx *ctx)
 int
 lecp_parse_subtree(struct lecp_ctx *ctx, const uint8_t *in, size_t len)
 {
+	uint8_t sp = ctx->sp, ipos = ctx->ipos;
 	struct _lecp_stack *st;
 	int n;
 
@@ -381,7 +382,24 @@ lecp_parse_subtree(struct lecp_ctx *ctx, const uint8_t *in, size_t len)
 	st->barrier		= 1;
 
 	n = lecp_parse(ctx, in, len);
-	ctx->sp--;
+
+	/*
+	 * The embedded item has to be complete inside the subtree bytes.  If
+	 * the parse ran out of input with a container still open (or mid-way
+	 * through a string or multibyte value), the levels it pushed and the
+	 * array index depth it took are still live above our barrier: only
+	 * decrementing sp would hand the outer parse a stack that no longer
+	 * matches its ipos, which is what lwcp_completed()'s assert(il)
+	 * catches in debug builds and becomes an i[-1] write in release ones.
+	 * Treat a truncated subtree as malformed and unwind to where we
+	 * started regardless.
+	 */
+	if (n == LECP_CONTINUE &&
+	    (ctx->sp != (uint8_t)(sp + 1) || ctx->st[sp + 1].s != LECP_OPC))
+		n = LECP_REJECT_BAD_CODING;
+
+	ctx->sp = sp;
+	ctx->ipos = ipos;
 
 	return n;
 }
