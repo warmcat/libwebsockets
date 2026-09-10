@@ -1671,6 +1671,22 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 							lws_quic_enter_closing_state(nwsi, LWS_H3_MESSAGE_ERROR, 0, 1);
 							return 1;
 						}
+						/*
+						 * RFC 9114 4.2: connection-specific fields
+						 * (Connection, Transfer-Encoding, ...) MUST
+						 * NOT be sent, and a message containing one
+						 * is malformed.  h3 does its own framing, so
+						 * a Transfer-Encoding here is not merely
+						 * useless: let through to an onward h1 leg
+						 * it is the downgrade request-smuggling
+						 * primitive.  h2 refuses both the same way.
+						 */
+						if (lws_hdr_extant(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING) ||
+						    lws_hdr_extant(wsi, WSI_TOKEN_CONNECTION)) {
+							lwsl_wsi_notice(wsi, "H3 MESSAGE_ERROR: connection-specific header in request");
+							lws_quic_enter_closing_state(nwsi, LWS_H3_MESSAGE_ERROR, 0, 1);
+							return 1;
+						}
 					}
 
 					/* duplicate :path into the individual method uri header index */
