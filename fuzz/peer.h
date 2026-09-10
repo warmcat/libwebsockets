@@ -62,6 +62,19 @@ static const struct lws_protocols fuzz_peer_protocols[] = {
 	{ NULL, NULL, 0, 0, 0, NULL, 0 }
 };
 
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+/*
+ * Offer permessage-deflate so a fuzzed upgrade that asks for it (fuzz-h1) or
+ * the canned pmd handshake (fuzz-ws-pmd) negotiates the extension and the
+ * rx inflate path is reachable
+ */
+static const struct lws_extension fuzz_peer_extensions[] = {
+	{ "permessage-deflate", lws_extension_callback_pm_deflate,
+	  "permessage-deflate; client_max_window_bits" },
+	{ NULL, NULL, NULL }
+};
+#endif
+
 static int
 fuzz_peer_init(void)
 {
@@ -72,12 +85,22 @@ fuzz_peer_init(void)
 	memset(&info, 0, sizeof(info));
 	info.port      = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = fuzz_peer_protocols;
+	/*
+	 * The preludes all send "Host: fuzz".  A non-listening vhost can't be
+	 * picked by port, so if the name doesn't match, the upgrade rebinds
+	 * the wsi to the first non-listening vhost, which is the internal
+	 * "system" one, and our protocols and extensions are not on that.
+	 */
+	info.vhost_name = "fuzz";
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	info.extensions = fuzz_peer_extensions;
+#endif
 
 	fuzz_peer_cx = lws_create_context(&info);
 	if (!fuzz_peer_cx)
 		return 1;
 
-	fuzz_peer_vh = lws_get_vhost_by_name(fuzz_peer_cx, "default");
+	fuzz_peer_vh = lws_get_vhost_by_name(fuzz_peer_cx, "fuzz");
 
 	return fuzz_peer_vh ? 0 : 1;
 }

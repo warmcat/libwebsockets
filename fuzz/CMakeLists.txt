@@ -90,5 +90,9 @@ if (UNIX AND LWS_WITH_NETWORK)
 
 	if (LWS_ROLE_WS)
 		lws_add_fuzz_target(ws)
+
+		if (NOT LWS_WITHOUT_EXTENSIONS)
+			lws_add_fuzz_target(ws-pmd)
+		endif()
 	endif()
 endif()

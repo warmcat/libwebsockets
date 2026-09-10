@@ -30,7 +30,7 @@ fi
 if [ "$#" -gt 0 ]; then
 	TARGETS="$*"
 else
-	TARGETS="lejp lecp qpack upng jpeg lhp tokenize h1 h2 ws"
+	TARGETS="lejp lecp qpack upng jpeg lhp tokenize h1 h2 ws ws-pmd"
 fi
 
 if [ -z "$CC" ]; then
@@ -51,9 +51,17 @@ if pkg-config --exists gnutls 2>/dev/null; then
 	FUZZ_SSL=-DLWS_WITH_SSL=ON
 fi
 
+# ws permessage-deflate needs zlib; without it ws-pmd is skipped
+
+FUZZ_ZLIB="-DLWS_WITHOUT_EXTENSIONS=ON"
+if pkg-config --exists zlib 2>/dev/null; then
+	FUZZ_ZLIB="-DLWS_WITHOUT_EXTENSIONS=OFF -DLWS_WITH_ZLIB=ON"
+fi
+
 CC="$CC" cmake -S "$REPO" -B "$BUILD" --fresh -DCMAKE_BUILD_TYPE=Debug \
 	-DLWS_WITH_FUZZERS=ON \
 	$FUZZ_SSL \
+	$FUZZ_ZLIB \
 	-DLWS_WITH_MINIMAL_EXAMPLES=OFF \
 	-DLWS_WITHOUT_TESTAPPS=ON \
 	-DLWS_WITH_CBOR=ON \
