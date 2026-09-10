@@ -163,31 +163,20 @@ struct lexico {
 	{ "x5c",	JWK_META_X5C,			1 }
 };
 
-static int
-_lws_jwk_set_el_jwk_b64(struct lws_gencrypto_keyelem *e, char *in, int len)
-{
-	size_t dec_size = (unsigned int)lws_base64_size(len);
-	int n;
-
-	/* a repeated member must not orphan the previous allocation */
-	lws_jwk_destroy_elements(e, 1);
-
-	e->buf = lws_malloc(dec_size, "jwk");
-	if (!e->buf)
-		return -1;
-
-	/* same decoder accepts both url or original styles */
-
-	n = lws_b64_decode_string_len(in, len, (char *)e->buf, (int)dec_size - 1);
-	if (n < 0)
-		return -1;
-	e->len = (uint32_t)n;
-
-	return 0;
-}
+/*
+ * The same decoder accepts both the url and the original base64 styles.
+ *
+ * \p max_len is the largest decoded element we will accept, or 0 for no limit;
+ * it is applied here rather than at the caller because nothing may be left
+ * behind in \p e on a failure path.  Our -1 return only aborts the import if
+ * the caller propagates it, and a JWK arriving inside a JOSE header is driven
+ * by a foreign callback (lws_jws_jose_cb()); so an element that is refused
+ * must also be gone, not merely reported.
+ */
 
 static int
-_lws_jwk_set_el_jwk_b64u(struct lws_gencrypto_keyelem *e, char *in, int len)
+_lws_jwk_set_el_jwk_b64(struct lws_gencrypto_keyelem *e, char *in, int len,
+			size_t max_len)
 {
 	size_t dec_size = (size_t)lws_base64_size(len);
 	int n;
@@ -199,11 +188,12 @@ _lws_jwk_set_el_jwk_b64u(struct lws_gencrypto_keyelem *e, char *in, int len)
 	if (!e->buf)
 		return -1;
 
-	/* same decoder accepts both url or original styles */
-
 	n = lws_b64_decode_string_len(in, len, (char *)e->buf, (int)dec_size - 1);
-	if (n < 0)
+	if (n < 0 || (max_len && (size_t)n > max_len)) {
+		lws_jwk_destroy_elements(e, 1);
+
 		return -1;
+	}
 	e->len = (uint32_t)n;
 
 	return 0;
@@ -443,16 +433,17 @@ cont:
 		}
 
 		if (idx & F_B64U) {
-			/* key data... do the base64 decode as needed */
-			if (_lws_jwk_set_el_jwk_b64u(&jwk->e[idx & 0x7f],
-						     jps->b64, jps->pos) < 0)
-				goto bail;
+			/*
+			 * Key data... do the base64 decode as needed.  The
+			 * element cap is enforced inside the setter, so an
+			 * oversize element is never stored even if our -1 is
+			 * discarded upstream
+			 */
 
-			if (jwk->e[idx & 0x7f].len >
-					LWS_JWE_LIMIT_KEY_ELEMENT_BYTES) {
-				lwsl_notice("%s: oversize keydata\n", __func__);
+			if (_lws_jwk_set_el_jwk_b64(&jwk->e[idx & 0x7f],
+						    jps->b64, jps->pos,
+						    LWS_JWE_LIMIT_KEY_ELEMENT_BYTES) < 0)
 				goto bail;
-			}
 
 			return 0;
 		}
@@ -461,7 +452,7 @@ cont:
 
 			/* cert data... do non-urlcoded base64 decode */
 			if (_lws_jwk_set_el_jwk_b64(&jwk->e[idx & 0x7f],
-						    jps->b64, jps->pos) < 0)
+						    jps->b64, jps->pos, 0) < 0)
 				goto bail;
 			return 0;
 		}
