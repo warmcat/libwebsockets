@@ -14,6 +14,7 @@ require_lws_config(LWS_WITH_TLS 1 requirements)
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
 	add_test(NAME api-test-x509 COMMAND lws-api-test-x509)
+	set_tests_properties(api-test-x509 PROPERTIES TIMEOUT 30)
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
