@@ -1553,6 +1553,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	/* he may choose to send us stuff in chunked transfer-coding */
 	wsi->http.rx_chunked = 0;
 	wsi->http.chunk_remaining = 0; /* ie, next thing is chunk size */
+	wsi->http.chunk_skip = 0;
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
 		simp = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING);
 

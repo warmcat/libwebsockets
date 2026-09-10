@@ -324,6 +324,7 @@ struct _lws_http_mode_related {
 	 * h1 server wsi.  chunk_parser holds an enum lws_chunk_parser.
 	 */
 	int chunk_remaining;
+	uint16_t chunk_skip;
 	char chunk_parser;
 
 #if defined(LWS_WITH_HTTP_PROXY)
@@ -360,14 +361,20 @@ struct _lws_http_mode_related {
 
 
 enum lws_chunk_parser {
-	ELCP_HEX,
+	ELCP_HEX,		/* first chunk-size hex digit is required */
+	ELCP_HEX_MORE,		/* more hex digits, extension, or CR */
+	ELCP_EXT,		/* skipping a chunk extension up to CR */
 	ELCP_CR,
 	ELCP_CONTENT,
 	ELCP_POST_CR,
 	ELCP_POST_LF,
-	ELCP_TRAILER_CR,
+	ELCP_TRAILER_CR,	/* CR ends the trailers, else a field line */
+	ELCP_TRAILER_SKIP,	/* skipping a trailer field line up to LF */
 	ELCP_TRAILER_LF
 };
+
+/* chunk extension + trailer field bytes we will skip per body */
+#define LWS_HTTP_CHUNK_SKIP_MAX 4096
 
 int
 lws_http_dechunk_framing(struct lws *wsi, unsigned char **buf, size_t *len);

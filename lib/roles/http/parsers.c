@@ -2072,7 +2072,13 @@ lws_http_remove_urlarg(struct lws *wsi, const char *name)
  * here again for the framing that follows.
  *
  * Before the first body byte, the caller sets chunk_parser to ELCP_HEX and
- * chunk_remaining to 0.
+ * chunk_remaining and chunk_skip to 0.
+ *
+ * Chunk extensions (RFC 7230 4.1.1, ";name=value" after the chunk size) and
+ * trailer fields (4.1.2, header lines between the last-chunk and the final
+ * CRLF) are skipped: we do not act on either, but a peer is entitled to send
+ * them.  What is skipped is bounded by LWS_HTTP_CHUNK_SKIP_MAX per body so a
+ * peer cannot keep us busy with an endless extension.
  *
  * Returns
  *   -1  framing error, the connection cannot be resynchronized
@@ -2092,21 +2098,51 @@ lws_http_dechunk_framing(struct lws *wsi, unsigned char **buf, size_t *len)
 
 		switch (wsi->http.chunk_parser) {
 		case ELCP_HEX:
+		case ELCP_HEX_MORE:
+			n = char_to_hex((char)c);
+			if (n >= 0) {
+				if (wsi->http.chunk_remaining >
+						(INT_MAX - 15) / 16) {
+					lwsl_wsi_notice(wsi, "chunk size overflow");
+					return -1;
+				}
+				wsi->http.chunk_remaining <<= 4;
+				wsi->http.chunk_remaining |= n;
+				wsi->http.chunk_parser = ELCP_HEX_MORE;
+				break;
+			}
+
+			/* the chunk-size must have at least one hex digit */
+
+			if (wsi->http.chunk_parser == ELCP_HEX) {
+				lwsl_wsi_notice(wsi, "chunk size not hex");
+				return -1;
+			}
+
 			if (c == '\x0d') {
 				wsi->http.chunk_parser = ELCP_CR;
 				break;
 			}
-			n = char_to_hex((char)c);
-			if (n < 0) {
-				lwsl_wsi_notice(wsi, "chunk size not hex");
+
+			if (c != ';' && c != ' ' && c != '\t') {
+				lwsl_wsi_notice(wsi, "chunk size line garbage");
 				return -1;
 			}
-			if (wsi->http.chunk_remaining > (INT_MAX - 15) / 16) {
-				lwsl_wsi_notice(wsi, "chunk size overflow");
+
+			/* a chunk extension: skip it up to the CR */
+			wsi->http.chunk_parser = ELCP_EXT;
+
+			/* fallthru */
+
+		case ELCP_EXT:
+			if (c == '\x0d') {
+				wsi->http.chunk_parser = ELCP_CR;
+				break;
+			}
+			if (++wsi->http.chunk_skip > LWS_HTTP_CHUNK_SKIP_MAX) {
+				lwsl_wsi_notice(wsi, "chunk extension too long");
 				return -1;
 			}
-			wsi->http.chunk_remaining <<= 4;
-			wsi->http.chunk_remaining |= n;
 			break;
 
 		case ELCP_CR:
@@ -2141,11 +2177,26 @@ lws_http_dechunk_framing(struct lws *wsi, unsigned char **buf, size_t *len)
 			break;
 
 		case ELCP_TRAILER_CR:
-			if (c != '\x0d') {
-				lwsl_wsi_notice(wsi, "chunk trailer: no CR");
+			/*
+			 * Either the CRLF that ends the trailer section, or the
+			 * first byte of a trailer field line, which we skip up
+			 * to and including its LF
+			 */
+			if (c == '\x0d') {
+				wsi->http.chunk_parser = ELCP_TRAILER_LF;
+				break;
+			}
+			wsi->http.chunk_parser = ELCP_TRAILER_SKIP;
+
+			/* fallthru */
+
+		case ELCP_TRAILER_SKIP:
+			if (++wsi->http.chunk_skip > LWS_HTTP_CHUNK_SKIP_MAX) {
+				lwsl_wsi_notice(wsi, "chunk trailers too long");
 				return -1;
 			}
-			wsi->http.chunk_parser = ELCP_TRAILER_LF;
+			if (c == '\x0a')
+				wsi->http.chunk_parser = ELCP_TRAILER_CR;
 			break;
 
 		case ELCP_TRAILER_LF:
