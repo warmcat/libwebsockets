@@ -268,8 +268,11 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 		 * an out buffer and must not be what we compare against
 		 */
 
-		if ((size_t)taglen > sizeof(ctx->tag)) {
-			lwsl_err("%s: taglen %d too big\n", __func__, taglen);
+		/* same 4..16 bound as the mbedtls / openssl backends (C-362):
+		 * a 0-3 byte GCM tag is not authentication */
+
+		if (taglen < 4 || (size_t)taglen > sizeof(ctx->tag)) {
+			lwsl_err("%s: bad taglen %d\n", __func__, taglen);
 
 			return -1;
 		}

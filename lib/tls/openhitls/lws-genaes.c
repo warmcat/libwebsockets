@@ -195,7 +195,10 @@ lws_openhitls_aes_crypt_gcm(struct lws_genaes_ctx *ctx,
 			return -1;
 		}
 
-		if (taglen < 0 || (unsigned int)taglen > sizeof(ctx->tag)) {
+		/* same 4..16 bound as the mbedtls / openssl backends (C-362):
+		 * a 0-3 byte GCM tag is not authentication */
+
+		if (taglen < 4 || (unsigned int)taglen > sizeof(ctx->tag)) {
 			lwsl_err("%s: invalid GCM tag length %d\n",
 				 __func__, taglen);
 			return -1;

@@ -348,6 +348,28 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 				lwsl_err("%s: SET_IVLEN failed\n", __func__);
 				return -1;
 			}
+			/*
+			 * ctx->tag is a fixed 16 bytes... the tag length is a
+			 * per-call argument, so it has to be bounded against
+			 * that here, otherwise a caller asking for a longer
+			 * (or negative, ie ~4GB unsigned) tag overflows it.
+			 * Same bound as the mbedtls backend (C-362).
+			 */
+
+			if (taglen < 4 || (size_t)taglen > sizeof(ctx->tag)) {
+				lwsl_err("%s: bad taglen %d\n", __func__,
+					 taglen);
+
+				return -1;
+			}
+
+			if (!stream_block_16) {
+				lwsl_err("%s: GCM needs the tag buffer\n",
+					 __func__);
+
+				return -1;
+			}
+
 			memcpy(ctx->tag, stream_block_16, (unsigned int)taglen);
 			ctx->taglen = taglen;
 		}

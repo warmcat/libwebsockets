@@ -217,8 +217,22 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			else
 				memset(ctx->u.pbNonce, 0, ctx->u.cbNonce);
 
-			/* Setup Internal Tag Buffer */
+			/*
+			 * Setup Internal Tag Buffer.  A GCM tag is at most 16
+			 * bytes and lws will not accept a truncation below 4;
+			 * bound the caller's per-call length the same way the
+			 * other backends do (C-362) rather than sizing an
+			 * allocation from it unchecked.
+			 */
 			int tlen = (taglen > 0) ? taglen : 16; /* Default to 16 if unknown */
+
+			if (tlen < 4 || tlen > 16) {
+				lwsl_err("%s: bad taglen %d\n", __func__,
+					 taglen);
+
+				return -1;
+			}
+
 			ctx->u.cbTag = tlen;
 			ctx->u.pbTag = lws_malloc(ctx->u.cbTag, "genaes tag");
 			if (!ctx->u.pbTag) {

@@ -1167,8 +1167,26 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len, uint
 				     *nc_or_iv_off);
 			ctx->underway = 1;
 
-			if (stream_block_16 && taglen > 0 &&
-			    taglen <= (int)sizeof(ctx->tag)) {
+			if (stream_block_16) {
+				/*
+				 * same 4..16 bound as the mbedtls / openssl
+				 * backends (C-362): a 0-3 byte GCM tag is not
+				 * authentication, and anything longer than
+				 * ctx->tag would overflow it.  Refusing here
+				 * rather than silently leaving ctx->taglen 0
+				 * turns a later "no expected tag" into a
+				 * diagnosable error at the point of the
+				 * mistake
+				 */
+
+				if (taglen < 4 ||
+				    taglen > (int)sizeof(ctx->tag)) {
+					lwsl_err("%s: bad taglen %d\n",
+						 __func__, taglen);
+
+					return -1;
+				}
+
 				memcpy(ctx->tag, stream_block_16, (size_t)taglen);
 				ctx->taglen = taglen;
 			}
