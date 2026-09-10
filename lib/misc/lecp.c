@@ -1068,6 +1068,19 @@ push_m:
 
 			if (sm < LWS_CBOR_1) {
 				st->indet = 0;
+
+				if (!sm)
+					/*
+					 * A zero-length fragment written in the
+					 * short form is still an empty
+					 * fragment... we must not enter
+					 * LECP_COLLATE with collect_rem 0,
+					 * since that consumes the next byte of
+					 * the stream as if it was the string
+					 * content
+					 */
+					break;
+
 				st->collect_rem = (uint64_t)sm;
 				st->s = LECP_COLLATE;
 				break;
