@@ -981,7 +981,19 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 
 		/* we are ending partway through utf-8 character? */
 		if (!wsi->ws->rx_packet_length && wsi->ws->final &&
-		    wsi->ws->utf8 && !n) {
+		    wsi->ws->utf8
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+		    /*
+		     * ie, the inflater has nothing more for this message...
+		     * if ext not negotiated, going to be UNKNOWN; if
+		     * negotiated but this frame is not compressed, it's
+		     * NOTHING_WE_SHOULD_DO; if it is compressed and we just
+		     * finished it, it's EMPTY_FINAL
+		     */
+		    && (n == PMDR_EMPTY_FINAL || n == PMDR_UNKNOWN ||
+			n == PMDR_NOTHING_WE_SHOULD_DO)
+#endif
+		    ) {
 			lwsl_info("FINAL utf8 error\n");
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_INVALID_PAYLOAD,
 					 (uint8_t *)"partial utf8", 12);

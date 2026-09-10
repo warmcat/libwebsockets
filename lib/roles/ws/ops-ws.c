@@ -738,8 +738,16 @@ drain_extension:
 				if (!wsi->ws->rx_packet_length &&
 				    wsi->ws->final && wsi->ws->utf8
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-				    /* if ext not negotiated, going to be UNKNOWN */
-				    && (n == PMDR_EMPTY_FINAL || n == PMDR_UNKNOWN)
+				    /*
+				     * ie, the inflater has nothing more for
+				     * this message...  if ext not negotiated,
+				     * going to be UNKNOWN; if negotiated but
+				     * this frame is not compressed, it's
+				     * NOTHING_WE_SHOULD_DO
+				     */
+				    && (n == PMDR_EMPTY_FINAL ||
+					n == PMDR_UNKNOWN ||
+					n == PMDR_NOTHING_WE_SHOULD_DO)
 #endif
 				) {
 					lwsl_info("FINAL utf8 error\n");
