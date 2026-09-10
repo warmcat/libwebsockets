@@ -2186,10 +2186,16 @@ lws_http_action(struct lws *wsi)
 			}
 		}
 #if defined(LWS_ROLE_H2)
-		else if (lwsi_role_h2(wsi) && wsi->mux_substream && wsi->h2.END_STREAM) {
+		else if (lwsi_role_h2(wsi) && wsi->mux_substream && wsi->h2.END_STREAM &&
+			 !wsi->buflist) {
 			/*
 			 * h2 with no Content-Length, but END_STREAM already arrived on
-			 * the HEADERS: the request body is empty and complete.  Without
+			 * the HEADERS (and nothing is stashed on the buflist: since
+			 * C-378 END_STREAM is also latched by the DATA frame that ends
+			 * a body, and a body that arrived stashed with the HEADERS
+			 * must not be zeroed away here, lws_read_h1() completes it
+			 * from the buflist instead): the request body is empty and
+			 * complete.  Without
 			 * this, a body-bearing method (POST/PUT/PATCH) would be left
 			 * waiting on the 100MB default above for a body that will never
 			 * come, stalling the request until it times out.  Treat it as an
