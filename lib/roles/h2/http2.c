@@ -2010,7 +2010,41 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			 * first dispatch).  Only the END_STREAM it carries
 			 * has any effect, handled the same way as END_STREAM
 			 * on a DATA frame.
+			 *
+			 * But hpack decoded the trailer fields into the same
+			 * ah, chaining repeats onto the existing value, so
+			 * whatever the peer put in the trailers is now part of
+			 * the header set the application, the access log and
+			 * any onward h1 leg will read -- after we validated
+			 * the first block.  Re-run the RFC 7540 8.1.2.2
+			 * connection-specific header checks over the ah, so a
+			 * trailer cannot smuggle in the 'connection' or 'te'
+			 * headers we refused in the first block.
 			 */
+
+			if (lws_hdr_extant(h2n->swsi, WSI_TOKEN_CONNECTION)) {
+				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+					      "Connection hdr in trailers");
+				break;
+			}
+
+			if (lws_hdr_extant(h2n->swsi, WSI_TOKEN_TE)) {
+				n = lws_hdr_total_length(h2n->swsi,
+							 WSI_TOKEN_TE);
+
+				if (n != 8 ||
+				    !lws_hdr_simple_ptr(h2n->swsi,
+							WSI_TOKEN_TE) ||
+				    strncmp(lws_hdr_simple_ptr(h2n->swsi,
+							       WSI_TOKEN_TE),
+					    "trailers", (unsigned int)n)) {
+					lws_h2_goaway(wsi,
+						      H2_ERR_PROTOCOL_ERROR,
+						      "Illegal TE in trailers");
+					break;
+				}
+			}
+
 			if (lws_hdr_total_length(h2n->swsi,
 						 WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
 			    h2n->swsi->h2.END_STREAM &&
