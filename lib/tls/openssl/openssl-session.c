@@ -470,6 +470,7 @@ lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
 	struct lws_tls_session_dump d;
 	lws_tls_sco_t *ts;
 	SSL_SESSION *sess = NULL; /* allow it to "bail" early */
+	long ttl;
 	void *v;
 
 	if (vh->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE)
@@ -521,6 +522,23 @@ lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
 	}
 
 	ts->session = sess;
+
+	/*
+	 * A session that came back from cold storage needs the same expiry
+	 * as one we just negotiated: lws_tls_session_add_entry() zeroes the
+	 * sul, so without this the entry occupies a cache slot for the life
+	 * of the vhost and keeps being offered long after the server forgot
+	 * the key.  Bound it by what the blob itself says, clamped the same
+	 * way lws_tls_session_new_cb() clamps a peer-supplied lifetime.
+	 */
+
+	ttl = SSL_SESSION_get_timeout(sess);
+	if (ttl <= 0 || ttl > (long)LWS_TLS_SESSION_TTL_MAX)
+		ttl = (long)LWS_TLS_SESSION_TTL_DEFAULT;
+
+	lws_sul_schedule(vh->context, 0, &ts->sul_ttl,
+			 lws_tls_session_expiry_cb, ttl * LWS_US_PER_SEC);
+
 	lwsl_tlssess("%s: session loaded OK\n", __func__);
 
 	lws_vhost_unlock(vh); /* } vh --------------  */
