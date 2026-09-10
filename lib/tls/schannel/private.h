@@ -146,6 +146,14 @@ struct lws_tls_schannel_conn {
 	int f_peer_cert_checked; /* 1 if we ran the peer cert check at all */
 	int f_peer_cert_verified; /* 1 if it passed with no relaxation */
 	int f_want_client_cert; /* server: we asked for a client certificate */
+	int f_post_hs; /* feeding a TLS 1.3 post-handshake message to SSPI */
+
+	/*
+	 * The peer cert as it was when the handshake completed, so that a
+	 * post-handshake exchange can be checked not to have changed it
+	 */
+	uint8_t *peer_der;
+	size_t peer_der_len;
 
 	char alpn[64];
     char hostname[128];

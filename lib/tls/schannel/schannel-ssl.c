@@ -675,6 +675,317 @@ lws_tls_schannel_server_conn_alpn(struct lws *wsi)
        return 0;
 }
 
+#ifndef SP_PROT_TLS1_3_SERVER
+#define SP_PROT_TLS1_3_SERVER 0x00001000
+#endif
+#ifndef SP_PROT_TLS1_3_CLIENT
+#define SP_PROT_TLS1_3_CLIENT 0x00002000
+#endif
+
+/*
+ * Copy of the peer's certificate as SSPI currently holds it (NULL / 0 if the
+ * peer sent none, which is normal for a client)
+ */
+
+static int
+lws_tls_schannel_peer_der(struct lws_tls_schannel_conn *conn, uint8_t **der,
+			  size_t *len)
+{
+	PCCERT_CONTEXT pc = NULL;
+
+	*der = NULL;
+	*len = 0;
+
+	if (QueryContextAttributes(&conn->ctxt, SECPKG_ATTR_REMOTE_CERT_CONTEXT,
+				   &pc) != SEC_E_OK || !pc)
+		return 0;
+
+	if (pc->cbCertEncoded) {
+		*der = lws_malloc(pc->cbCertEncoded, "schannel_peer_der");
+		if (!*der) {
+			CertFreeCertificateContext(pc);
+
+			return -1;
+		}
+		memcpy(*der, pc->pbCertEncoded, pc->cbCertEncoded);
+		*len = pc->cbCertEncoded;
+	}
+
+	CertFreeCertificateContext(pc);
+
+	return 0;
+}
+
+/*
+ * Queue a token SSPI wants sent behind any ciphertext still waiting to go
+ * out, and send as much of the lot as the socket will take now.  Whatever is
+ * left goes ahead of the next write, the same as buffered app ciphertext.
+ */
+
+static int
+lws_tls_schannel_tx_queue(struct lws *wsi, struct lws_tls_schannel_conn *conn,
+			  const void *tok, size_t len)
+{
+	uint8_t *p;
+	ssize_t n;
+
+	if (conn->tx_buf && conn->tx_pos) {
+		memmove(conn->tx_buf, conn->tx_buf + conn->tx_pos,
+			conn->tx_len - conn->tx_pos);
+		conn->tx_len -= conn->tx_pos;
+		conn->tx_pos = 0;
+	}
+
+	p = lws_realloc(conn->tx_buf, conn->tx_len + len, "schannel_tx");
+	if (!p)
+		return -1;
+
+	memcpy(p + conn->tx_len, tok, len);
+	conn->tx_buf = p;
+	conn->tx_len += len;
+
+	n = send(wsi->desc.sockfd, (char *)conn->tx_buf + conn->tx_pos,
+		 (int)(conn->tx_len - conn->tx_pos), 0);
+	if (n < 0) {
+		if (LWS_ERRNO != LWS_EAGAIN && LWS_ERRNO != LWS_EWOULDBLOCK)
+			return -1;
+		n = 0;
+	}
+
+	conn->tx_pos += (size_t)n;
+	if (conn->tx_pos == conn->tx_len) {
+		lws_free_set_NULL(conn->tx_buf);
+		conn->tx_len = 0;
+		conn->tx_pos = 0;
+
+		return 0;
+	}
+
+	lws_callback_on_writable(wsi);
+
+	return 0;
+}
+
+/*
+ * DecryptMessage() answers SEC_I_RENEGOTIATE for any post-handshake TLS
+ * message that is not application data.  On TLS 1.3 that is not a
+ * renegotiation at all: it is the NewSessionTicket the server sends right
+ * after every handshake, or a KeyUpdate.  From that moment every
+ * EncryptMessage() / DecryptMessage() fails with SEC_E_CONTEXT_EXPIRED until
+ * the message has been fed back through InitializeSecurityContext() /
+ * AcceptSecurityContext(), so refusing it outright killed every TLS 1.3
+ * connection a few ms after it was established.
+ *
+ * Re-running the SSPI handshake step here does not re-run the peer
+ * certificate confirmation (that only happens in lws_ssl_client_connect2()),
+ * which is why a real renegotiation must not be allowed to change the peer
+ * certificate behind our back.  So we only do this on TLS 1.3, where the
+ * post-handshake messages cannot carry a new peer certificate, and we insist
+ * afterwards that SSPI still holds the certificate it had when the handshake
+ * completed.
+ */
+
+static int
+lws_tls_schannel_post_hs_begin(struct lws *wsi)
+{
+	struct lws_tls_schannel_conn *conn = wsi->tls.ssl;
+	SecPkgContext_ConnectionInfo ci;
+
+	memset(&ci, 0, sizeof(ci));
+	if (QueryContextAttributes(&conn->ctxt, SECPKG_ATTR_CONNECTION_INFO,
+				   &ci) != SEC_E_OK ||
+	    !(ci.dwProtocol & (SP_PROT_TLS1_3_CLIENT | SP_PROT_TLS1_3_SERVER))) {
+		lwsl_wsi_notice(wsi, "refusing renegotiation (proto 0x%x)",
+				(unsigned int)ci.dwProtocol);
+
+		return -1;
+	}
+
+	lws_free_set_NULL(conn->peer_der);
+	if (lws_tls_schannel_peer_der(conn, &conn->peer_der,
+				      &conn->peer_der_len))
+		return -1;
+
+	conn->f_post_hs = 1;
+
+	return 0;
+}
+
+/*
+ * Push what is in rx_buf through the SSPI handshake step.  Returns -1 on
+ * error, 0 if more has to arrive from the socket first, 1 when the
+ * post-handshake message has been dealt with and rx_buf is back to holding
+ * application records
+ */
+
+static int
+lws_tls_schannel_post_hs_step(struct lws *wsi)
+{
+	struct lws_tls_schannel_conn *conn = wsi->tls.ssl;
+	struct lws_tls_schannel_ctx *ctx;
+	SecBufferDesc out_desc, in_desc;
+	SecBuffer out_buf[1], in_buf[2];
+	SECURITY_STATUS status = SEC_E_INTERNAL_ERROR;
+	ULONG req_attrs, ret_attrs;
+	int budget = LWS_SCH_HS_LOOP_BUDGET, client = lwsi_role_client(wsi);
+	size_t der_len, in_len;
+	uint8_t *der;
+	ssize_t n;
+
+	if (client) {
+		ctx = wsi->a.vhost->tls.ssl_client_ctx;
+		req_attrs = ISC_REQ_SEQUENCE_DETECT | ISC_REQ_REPLAY_DETECT |
+			    ISC_REQ_CONFIDENTIALITY | ISC_REQ_STREAM |
+			    ISC_REQ_ALLOCATE_MEMORY |
+			    ISC_REQ_MANUAL_CRED_VALIDATION |
+			    ISC_REQ_USE_SUPPLIED_CREDS;
+	} else {
+		ctx = wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx :
+					 wsi->a.vhost->tls.ssl_ctx;
+		req_attrs = ASC_REQ_SEQUENCE_DETECT | ASC_REQ_REPLAY_DETECT |
+			    ASC_REQ_CONFIDENTIALITY | ASC_REQ_STREAM |
+			    ASC_REQ_ALLOCATE_MEMORY;
+		if (conn->f_want_client_cert)
+			req_attrs |= ASC_REQ_MUTUAL_AUTH;
+	}
+
+	if (!ctx)
+		return -1;
+
+	while (budget--) {
+		in_len = conn->rx_len;
+		memset(in_buf, 0, sizeof(in_buf));
+		in_buf[0].BufferType = SECBUFFER_TOKEN;
+		in_buf[0].pvBuffer = conn->rx_buf;
+		in_buf[0].cbBuffer = (unsigned long)in_len;
+		in_buf[1].BufferType = SECBUFFER_EMPTY;
+		in_desc.cBuffers = 2;
+		in_desc.pBuffers = in_buf;
+		in_desc.ulVersion = SECBUFFER_VERSION;
+
+		out_buf[0].BufferType = SECBUFFER_TOKEN;
+		out_buf[0].cbBuffer = 0;
+		out_buf[0].pvBuffer = NULL;
+		out_desc.cBuffers = 1;
+		out_desc.pBuffers = out_buf;
+		out_desc.ulVersion = SECBUFFER_VERSION;
+
+		if (client)
+			status = InitializeSecurityContextA(&ctx->cred,
+					&conn->ctxt, conn->hostname, req_attrs,
+					0, 0, &in_desc, 0, NULL, &out_desc,
+					&ret_attrs, NULL);
+		else
+			status = AcceptSecurityContext(&ctx->cred, &conn->ctxt,
+					&in_desc, req_attrs, 0, NULL,
+					&out_desc, &ret_attrs, NULL);
+
+		lwsl_wsi_info(wsi, "post-handshake step: 0x%x, rx_len %d",
+			      (int)status, (int)conn->rx_len);
+
+		if (status == SEC_E_INCOMPLETE_MESSAGE) {
+			if (!conn->rx_alloc || conn->rx_len == conn->rx_alloc) {
+				if (lws_tls_schannel_realloc_buffer(conn,
+						conn->rx_alloc + 2048))
+					return -1;
+			}
+
+			n = recv(wsi->desc.sockfd,
+				 (char *)conn->rx_buf + conn->rx_len,
+				 (int)(conn->rx_alloc - conn->rx_len), 0);
+			if (n < 0) {
+				if (LWS_ERRNO == LWS_EAGAIN ||
+				    LWS_ERRNO == LWS_EWOULDBLOCK)
+					return 0;
+
+				return -1;
+			}
+			if (!n)
+				return -1;
+
+			conn->rx_len += (size_t)n;
+
+			continue;
+		}
+
+		if (status != SEC_I_CONTINUE_NEEDED && status != SEC_E_OK) {
+			lwsl_wsi_err(wsi, "post-handshake step failed 0x%x",
+				     (int)status);
+
+			return -1;
+		}
+
+		if (out_buf[0].cbBuffer && out_buf[0].pvBuffer) {
+			n = lws_tls_schannel_tx_queue(wsi, conn,
+						      out_buf[0].pvBuffer,
+						      out_buf[0].cbBuffer);
+			FreeContextBuffer(out_buf[0].pvBuffer);
+			if (n)
+				return -1;
+		}
+
+		if (in_buf[1].BufferType == SECBUFFER_EXTRA &&
+		    in_buf[1].cbBuffer > 0 && conn->rx_buf &&
+		    conn->rx_len >= in_buf[1].cbBuffer) {
+			memmove(conn->rx_buf, (uint8_t *)conn->rx_buf +
+					(conn->rx_len - in_buf[1].cbBuffer),
+				in_buf[1].cbBuffer);
+			conn->rx_len = in_buf[1].cbBuffer;
+		} else
+			conn->rx_len = 0;
+
+		if (status == SEC_E_OK)
+			break;
+
+		/* SEC_I_CONTINUE_NEEDED: SSPI wants the rest of the exchange */
+
+		if (!conn->rx_len)
+			return 0;
+
+		if (conn->rx_len == in_len && in_len) {
+			/* it took nothing and wants more: we would spin here */
+			lwsl_wsi_err(wsi, "post-handshake step made no progress");
+
+			return -1;
+		}
+	}
+
+	if (status != SEC_E_OK)
+		/* out of budget with SSPI still wanting more, come back later */
+		return 0;
+
+	/*
+	 * Whatever just happened, the peer must still be who we confirmed
+	 */
+
+	if (lws_tls_schannel_peer_der(conn, &der, &der_len))
+		return -1;
+
+	n = der_len != conn->peer_der_len ||
+	    (der_len && memcmp(der, conn->peer_der, der_len));
+	lws_free(der);
+	lws_free_set_NULL(conn->peer_der);
+	conn->peer_der_len = 0;
+
+	if (n) {
+		lwsl_wsi_err(wsi, "peer certificate changed post-handshake");
+
+		return -1;
+	}
+
+	if (QueryContextAttributes(&conn->ctxt, SECPKG_ATTR_STREAM_SIZES,
+				   &conn->stream_sizes) != SEC_E_OK ||
+	    !conn->stream_sizes.cbMaximumMessage) {
+		lwsl_wsi_err(wsi, "no stream sizes");
+
+		return -1;
+	}
+
+	conn->f_post_hs = 0;
+
+	return 1;
+}
+
 	int
 lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 {
@@ -699,6 +1010,21 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		lwsl_wsi_debug(wsi, "buflist pending %d, copied %d", (int)pending_len, (int)copy_len);
 		n = (int)copy_len;
 		goto check_pending;
+	}
+
+	/*
+	 * A TLS 1.3 post-handshake message that needed more of the socket
+	 * than was there last time: nothing in the connection can move until
+	 * SSPI has had it all
+	 */
+
+	if (conn->f_post_hs) {
+		int m = lws_tls_schannel_post_hs_step(wsi);
+
+		if (m < 0)
+			return LWS_SSL_CAPABLE_ERROR;
+		if (!m)
+			goto want_read;
 	}
 
 	/*
@@ -782,6 +1108,60 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 			}
 		}
 
+		if (status == SEC_I_RENEGOTIATE) {
+			int i2, m;
+
+			/*
+			 * Any application data handed over along with it is
+			 * still good, but from here on SSPI refuses to
+			 * decrypt anything until it has seen the whole
+			 * post-handshake message
+			 */
+
+			if (dec_len &&
+			    lws_buflist_append_segment(&conn->decrypted_list,
+						       dec_data, dec_len) < 0)
+				return LWS_SSL_CAPABLE_ERROR;
+
+			for (i2 = 0; i2 < 4; i2++)
+				if (msg_buf[i2].BufferType == SECBUFFER_EXTRA) {
+					memmove(conn->rx_buf,
+						msg_buf[i2].pvBuffer,
+						msg_buf[i2].cbBuffer);
+					conn->rx_len = msg_buf[i2].cbBuffer;
+					break;
+				}
+			if (i2 == 4)
+				conn->rx_len = 0;
+
+			if (lws_tls_schannel_post_hs_begin(wsi))
+				return LWS_SSL_CAPABLE_ERROR;
+
+			m = lws_tls_schannel_post_hs_step(wsi);
+			if (m < 0)
+				return LWS_SSL_CAPABLE_ERROR;
+
+			pending_len = lws_buflist_next_segment_len(
+						&conn->decrypted_list, NULL);
+			if (pending_len) {
+				size_t copy_len = pending_len > len ? len :
+								   pending_len;
+
+				lws_buflist_linear_use(&conn->decrypted_list,
+						       buf, copy_len);
+				n = (int)copy_len;
+
+				goto check_pending;
+			}
+
+			if (!m)
+				goto want_read;
+
+			/* done: what follows in rx_buf is application data */
+
+			continue;
+		}
+
 		/* Process decrypted data immediately */
 		if (dec_len > 0) {
 			size_t copy_len = dec_len > len ? len : dec_len;
@@ -798,23 +1178,6 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		} else {
                        if (status == SEC_I_CONTEXT_EXPIRED || status == SEC_E_CONTEXT_EXPIRED)
                                return LWS_SSL_CAPABLE_ERROR;
-
-			/*
-			 * Renegotiation is refused.  Re-running the handshake
-			 * here does not re-run the peer certificate
-			 * confirmation (that only happens in
-			 * lws_ssl_client_connect2()), so the peer could swap
-			 * to any certificate it liked and we would carry on
-			 * as if it were the one we verified.  TLS 1.3, which
-			 * is what this backend asks for, has no renegotiation
-			 * at all
-			 */
-
-			if (status == SEC_I_RENEGOTIATE) {
-				lwsl_wsi_notice(wsi, "refusing renegotiation");
-
-				return LWS_SSL_CAPABLE_ERROR;
-			}
 
 			/* Handshake message or empty record: go round again */
 			/* But first move extra data */
@@ -916,6 +1279,15 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 		   Actually, we should proceed to encrypt 'buf' now that we are clear.
 		   */
 	}
+
+	/*
+	 * Until the post-handshake message has gone through SSPI,
+	 * EncryptMessage() fails with SEC_E_CONTEXT_EXPIRED; the caller
+	 * buffers what it wanted to send and retries on POLLOUT
+	 */
+
+	if (conn->f_post_hs)
+		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
 	/*
 	 * EncryptMessage() will not accept more plaintext than
@@ -1034,6 +1406,7 @@ lws_ssl_close(struct lws *wsi)
 			lws_explicit_bzero(conn->tx_buf, conn->tx_len);
 		lws_free_set_NULL(conn->rx_buf);
 		lws_free_set_NULL(conn->tx_buf);
+		lws_free_set_NULL(conn->peer_der);
 		lws_buflist_destroy_all_segments(&conn->decrypted_list);
 		lws_explicit_bzero(conn, sizeof(*conn));
 		lws_free_set_NULL(conn);
