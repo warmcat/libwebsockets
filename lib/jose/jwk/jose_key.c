@@ -209,7 +209,15 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 	unsigned int poss;
 	char dotstar[64];
 
-	if (reason == LEJPCB_VAL_STR_START)
+	/*
+	 * ->pos collates the LEJP_STRING_CHUNK pieces of one member's value.
+	 * Resetting it only at LEJPCB_VAL_STR_START is not enough on its own,
+	 * since that reason is only emitted for string values... reset it at
+	 * the member name too, so nothing can be appended to the bytes of the
+	 * member before it.
+	 */
+
+	if (reason == LEJPCB_PAIR_NAME || reason == LEJPCB_VAL_STR_START)
 		jps->pos = 0;
 
 	if (reason == LEJPCB_OBJECT_START && ctx->path_match == 0 + 1) {
@@ -354,6 +362,22 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 
 	if (ctx->path_match == 0 + 1)
 		return 0;
+
+	/*
+	 * Every JWK member we understand is a JSON string (RFC7517 4,
+	 * RFC7518 6).  Refuse a number / true / false / null: lejp reports
+	 * those with ->buf holding stale bytes from the last string it did
+	 * parse (it does not even update ->npos for true / false / null), so
+	 * accepting one silently makes key material out of an unrelated
+	 * member's characters.
+	 */
+
+	if (reason != LEJPCB_VAL_STR_CHUNK && reason != LEJPCB_VAL_STR_END) {
+		lwsl_notice("%s: %s must be a JSON string\n", __func__,
+			    jwk_tok[ctx->path_match - 1]);
+
+		return -1;
+	}
 
 	idx = tok_map[ctx->path_match - 1];
 	if ((idx & 0xff) == 0xff)
