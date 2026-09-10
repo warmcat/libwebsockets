@@ -66,7 +66,12 @@ lws_jws_json_cb(struct lejp_ctx *ctx, char reason)
 	struct jws_cb_args *args = (struct jws_cb_args *)ctx->user;
 	int n, m;
 
-	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
+	/*
+	 * LEJPCB_VAL_STR_START is not flagged as a value callback but we need
+	 * it, to know when a new string value begins for one of our elements
+	 */
+	if ((!(reason & LEJP_FLAG_CB_IS_VALUE) &&
+	     reason != LEJPCB_VAL_STR_START) || !ctx->path_match)
 		return 0;
 
 	switch (ctx->path_match - 1) {
@@ -105,6 +110,23 @@ append_string:
 	 * and we can't do it until we see the protected alg.
 	 */
 
+	if (reason == LEJPCB_VAL_STR_START) {
+		/*
+		 * A second value for the same element would have its b64 run
+		 * together with the first one's, which is not contiguous in
+		 * temp any more (the first decode sits in between): refuse
+		 * duplicate elements rather than sign-check a mixture
+		 */
+		if (args->jws->map_b64.buf[m]) {
+			lwsl_err("%s: duplicate element %d\n", __func__, m);
+			return -1;
+		}
+		args->jws->map_b64.buf[m] = args->temp;
+		args->jws->map_b64.len[m] = 0;
+
+		return 0;
+	}
+
 	if (!args->jws->map_b64.buf[m]) {
 		args->jws->map_b64.buf[m] = args->temp;
 		args->jws->map_b64.len[m] = 0;
@@ -116,8 +138,6 @@ append_string:
 	args->jws->map_b64.len[m] += ctx->npos;
 
 	if (reason == LEJPCB_VAL_STR_END) {
-		args->jws->map.buf[m] = args->temp;
-
 		n = lws_b64_decode_string_len(
 			(const char *)args->jws->map_b64.buf[m],
 			(int)args->jws->map_b64.len[m],
@@ -127,9 +147,17 @@ append_string:
 			return -1;
 		}
 
+		/*
+		 * Only point the decoded map at temp once the decode has
+		 * succeeded, so a failed decode can't leave an element with a
+		 * pointer near the end of temp and a stale length from an
+		 * earlier value, which lws_jws_destroy() would then scrub
+		 * past the end of the caller's buffer
+		 */
+		args->jws->map.buf[m] = args->temp;
+		args->jws->map.len[m] = (unsigned int)n;
 		args->temp += n;
 		*args->temp_len -= n;
-		args->jws->map.len[m] = (unsigned int)n;
 	}
 
 	return 0;
