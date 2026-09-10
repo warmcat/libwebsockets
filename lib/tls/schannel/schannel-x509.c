@@ -696,6 +696,21 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		return -1;
 	}
 
+	/*
+	 * This arm only understands RSA, and it overwrites jwk->kty below.  An
+	 * EC jwk that came from the cert must not be silently turned into an
+	 * RSA one and then compared against RSA element indices that alias the
+	 * EC crv / x elements: refuse it up front, the way the other backends
+	 * refuse a private key whose public point does not match (C-343).
+	 */
+
+	if (jwk->kty != LWS_GENCRYPTO_KTY_RSA) {
+		lwsl_err("%s: only RSA private keys are supported on this "
+			 "backend (jwk kty %d)\n", __func__, jwk->kty);
+
+		return -1;
+	}
+
 	if (!CryptStringToBinaryA((LPCSTR)pem, (DWORD)len, CRYPT_STRING_ANY, NULL, &dwLen, &dwSkip, &dwFlags)) {
 		lwsl_err("%s: CryptStringToBinary failed\n", __func__);
 		return -1;
