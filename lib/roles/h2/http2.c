@@ -1510,7 +1510,10 @@ lws_h2_parse_frame_header(struct lws *wsi)
 				      "END_HEADERS already seen");
 			break;
 		}
-		/* END_STREAM is in HEADERS, skip resetting it */
+		/*
+		 * END_STREAM is in HEADERS, skip resetting it (enforced at
+		 * update_end_headers by the frame type check there)
+		 */
 		goto update_end_headers;
 
 	case LWS_H2_FRAME_TYPE_HEADERS:
@@ -1648,23 +1651,36 @@ update_end_headers:
 			break;
 		}
 
-		if (lws_check_opt(h2n->swsi->a.vhost->options,
-			       LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL)) {
+		/*
+		 * RFC 7540 6.10: the only flag defined on CONTINUATION is
+		 * END_HEADERS, all the other bits are undefined and must be
+		 * ignored.  h2n->flags is the flags byte of the frame we are
+		 * handling right now, so only a HEADERS may be allowed to say
+		 * anything about the stream's END_STREAM here -- otherwise a
+		 * CONTINUATION whose flags happen to lack b0 silently clears an
+		 * END_STREAM the peer already declared in its HEADERS (and one
+		 * with b0 set invents one he never sent).
+		 */
 
-			/*
-			 * We don't directly timeout streams that enter the
-			 * half-closed remote state, allowing immortal long
-			 * poll
-			 */
-			lws_mux_mark_immortal(h2n->swsi);
-			lwsl_info("%s: %s: h2 stream entering long poll\n",
-					__func__, lws_wsi_tag(h2n->swsi));
+		if (h2n->type == LWS_H2_FRAME_TYPE_HEADERS) {
+			if (lws_check_opt(h2n->swsi->a.vhost->options,
+				LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL)) {
 
-		} else {
-			h2n->swsi->h2.END_STREAM =
+				/*
+				 * We don't directly timeout streams that enter
+				 * the half-closed remote state, allowing
+				 * immortal long poll
+				 */
+				lws_mux_mark_immortal(h2n->swsi);
+				lwsl_info("%s: %s: h2 stream entering long poll\n",
+					  __func__, lws_wsi_tag(h2n->swsi));
+
+			} else {
+				h2n->swsi->h2.END_STREAM =
 					!!(h2n->flags & LWS_H2_FLAG_END_STREAM);
-			lwsl_debug("%s: hdr END_STREAM = %d\n",__func__,
-			  h2n->swsi->h2.END_STREAM);
+				lwsl_debug("%s: hdr END_STREAM = %d\n",__func__,
+					   h2n->swsi->h2.END_STREAM);
+			}
 		}
 
 		/* no END_HEADERS means CONTINUATION must come */
