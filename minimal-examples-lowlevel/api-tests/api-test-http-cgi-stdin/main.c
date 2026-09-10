@@ -22,6 +22,11 @@
  * receives the complete body intact (exact byte count reported back) and
  * the http transaction completes normally with 200.
  *
+ * With --chunked, the client sends the same body with Transfer-Encoding:
+ * chunked instead of a Content-Length, one chunk per write: the server must
+ * decode it, hand the CGI only the payload, and close the CGI's stdin at the
+ * last-chunk so the script's read sees EOF.
+ *
  * The test fails if
  *  - the client connection or transaction errors out,
  *  - the response status is not 200,
@@ -43,6 +48,7 @@
 #define CHUNKS		4
 
 static int interrupted;
+static int chunked;
 static int result = 1;
 static int status;
 static int port_tcp = 7681;
@@ -141,14 +147,20 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		pp = (uint8_t **)in;
 		end = (*pp) + len;
 
-		/*
-		 * Give the exact body size, so the server side takes the
-		 * bounded content-length path through LRS_BODY
-		 */
-		if (lws_add_http_header_content_length(wsi,
-					(lws_filepos_t)CHUNKS * CHUNK,
-					pp, end))
-			return -1;
+		if (chunked) {
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_TRANSFER_ENCODING,
+					(const uint8_t *)"chunked", 7, pp, end))
+				return -1;
+		} else
+			/*
+			 * Give the exact body size, so the server side takes
+			 * the bounded content-length path through LRS_BODY
+			 */
+			if (lws_add_http_header_content_length(wsi,
+						(lws_filepos_t)CHUNKS * CHUNK,
+						pp, end))
+				return -1;
 
 		/* ... we are going to send the body next ... */
 		lws_client_http_body_pending(wsi, 1);
@@ -171,9 +183,32 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			n = LWS_WRITE_HTTP_FINAL;
 		}
 
-		if (lws_write(wsi, &body[LWS_PRE], CHUNK,
-			      (enum lws_write_protocol)n) != CHUNK)
-			return -1;
+		if (chunked) {
+			/*
+			 * Frame this piece as one chunk, with the last-chunk
+			 * and trailer terminator after the final piece
+			 */
+			static uint8_t fbuf[LWS_PRE + 16 + CHUNK + 8];
+			size_t o;
+
+			o = (size_t)lws_snprintf((char *)&fbuf[LWS_PRE], 16,
+						 "%x\x0d\x0a", (unsigned int)CHUNK);
+			memcpy(&fbuf[LWS_PRE + o], &body[LWS_PRE], CHUNK);
+			o += CHUNK;
+			fbuf[LWS_PRE + o++] = '\x0d';
+			fbuf[LWS_PRE + o++] = '\x0a';
+			if (n == LWS_WRITE_HTTP_FINAL) {
+				memcpy(&fbuf[LWS_PRE + o], "0\x0d\x0a\x0d\x0a", 5);
+				o += 5;
+			}
+
+			if (lws_write(wsi, &fbuf[LWS_PRE], o,
+				      (enum lws_write_protocol)n) != (int)o)
+				return -1;
+		} else
+			if (lws_write(wsi, &body[LWS_PRE], CHUNK,
+				      (enum lws_write_protocol)n) != CHUNK)
+				return -1;
 
 		pss->chunks_done++;
 
@@ -251,10 +286,12 @@ int main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		port_tcp = atoi(p);
 
+	chunked = !!lws_cmdline_option(argc, argv, "--chunked");
+
 	signal(SIGINT, sigint_handler);
 
 	lwsl_user("LWS API selftest: POST body -> CGI stdin at serv_buf "
-		  "boundary\n");
+		  "boundary%s\n", chunked ? " (chunked)" : "");
 
 	/* deterministic body content */
 	for (n = 0; n < CHUNK; n++)
