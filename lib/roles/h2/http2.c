@@ -3307,6 +3307,15 @@ lws_h2_client_handshake(struct lws *wsi)
 		lws_cookie_send_cookies(wsi, (char **)&p, (char *)end);
 #endif
 
+	/*
+	 * p can be sitting exactly on end if a header did not fit, in which
+	 * case - 12 underflows and we would be telling the callback it has
+	 * ~unbounded room past the end of the buffer
+	 */
+
+	if (lws_ptr_diff(end, p) <= 12)
+		goto fail_length;
+
 	if (wsi->a.protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
 				wsi->user_space, &p, lws_ptr_diff_size_t(end, p) - 12))

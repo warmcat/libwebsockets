@@ -2200,10 +2200,26 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 		lws_cookie_send_cookies(wsi, &p, end);
 #endif
 
+	/*
+	 * lws_snprintf() returns size on truncation, so if any emit above did
+	 * not fit, p is sitting exactly on end and everything after it was
+	 * silently dropped.  We must not go on to tell the user callback how
+	 * much room is left by subtracting from that, since the result
+	 * underflows to ~4GB and any bound the callback derives from it is
+	 * then meaningless.  A truncated request head is not something we can
+	 * send anyway, so fail the connection.
+	 */
+
+	if (lws_ptr_diff(end, p) <= 12) {
+		lwsl_wsi_err(wsi, "request head too long for pt_serv_buf");
+
+		return NULL;
+	}
+
 	if (wsi->a.protocol->callback(wsi,
 			LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
 			wsi->user_space, &p,
-			(unsigned int)((pkt + wsi->a.context->pt_serv_buf_size) - p - 12)))
+			lws_ptr_diff_size_t(end, p) - 12))
 		return NULL;
 
 	if (wsi->flags & LCCSCF_HTTP_X_WWW_FORM_URLENCODED) {
@@ -2213,6 +2229,18 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 	}
 
 	p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p), "\x0d\x0a");
+
+	/*
+	 * Same again for anything the user callback and the tail emitted...
+	 * if p ended up on end, the head is truncated (it may not even have
+	 * its terminating CRLF) and must not be sent
+	 */
+
+	if (p >= end) {
+		lwsl_wsi_err(wsi, "request head truncated");
+
+		return NULL;
+	}
 
 	if (wsi->client_http_body_pending || lws_has_buffered_out(wsi))
 		lws_callback_on_writable(wsi);

@@ -208,7 +208,20 @@ lws_h3_client_handshake(struct lws *wsi)
 		p = p1;
 	}
 
-	/* Let the user append additional headers via callback */
+	/*
+	 * Let the user append additional headers via callback...
+	 *
+	 * p can have been left sitting exactly on end by a header that did not
+	 * fit, in which case subtracting 12 underflows to SIZE_MAX - 11 and
+	 * the callback is told it has ~unbounded room after the buffer
+	 */
+
+	if (lws_ptr_diff(end, p) <= 12) {
+		lwsl_wsi_err(wsi, "no room left for user headers");
+
+		return -1;
+	}
+
 	if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
 				wsi->user_space, &p, lws_ptr_diff_size_t(end, p) - 12))
 		return -1;
