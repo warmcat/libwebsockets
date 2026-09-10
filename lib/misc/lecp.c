@@ -351,6 +351,14 @@ lecp_parse_map_is_key(struct lecp_ctx *ctx)
 	if (!ctx->sp)
 		return 0;
 
+	/*
+	 * At the base level of a subtree parse, the "parent" is a level of the
+	 * outer parse on the far side of the barrier... it is not our map, and
+	 * a bstr at the top of the subtree is not one of its keys
+	 */
+	if (ctx->st[ctx->sp].barrier)
+		return 0;
+
 	return lwcp_st_parent(ctx)->opcode == LWS_CBOR_MAJTYP_MAP &&
 	       !(lwcp_st_parent(ctx)->ordinal & 1);
 }
@@ -359,6 +367,7 @@ int
 lecp_parse_subtree(struct lecp_ctx *ctx, const uint8_t *in, size_t len)
 {
 	uint8_t sp = ctx->sp, ipos = ctx->ipos;
+	uint8_t ppos = ctx->pst[ctx->pst_sp].ppos;
 	struct _lecp_stack *st;
 	int n;
 
@@ -398,8 +407,14 @@ lecp_parse_subtree(struct lecp_ctx *ctx, const uint8_t *in, size_t len)
 	    (ctx->sp != (uint8_t)(sp + 1) || ctx->st[sp + 1].s != LECP_OPC))
 		n = LECP_REJECT_BAD_CODING;
 
+	/*
+	 * Map keys inside the subtree append themselves to the shared path;
+	 * whatever they did to it, it belongs to the outer parse, put it back
+	 */
 	ctx->sp = sp;
 	ctx->ipos = ipos;
+	ctx->pst[ctx->pst_sp].ppos = ppos;
+	ctx->path[ppos] = '\0';
 
 	return n;
 }
@@ -529,6 +544,15 @@ i2_l:
 
 				ctx->npos = 0;
 				ctx->buf[0] = '\0';
+
+				/*
+				 * item.u.u64 is the string length the START
+				 * callback sees; for a zero-length or an
+				 * indefinite-length string nothing below sets
+				 * it, so a consumer would read whatever the
+				 * previous item left there
+				 */
+				ctx->item.u.u64 = 0;
 
 				if (!sm) {
 					if ((!ctx->sp || (ctx->sp &&
