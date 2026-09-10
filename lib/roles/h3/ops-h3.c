@@ -1756,23 +1756,33 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 							lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY),
 							lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY) ? lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY) : "NULL");
 
-						/* select vhost based on authority */
+						/*
+						 * Select vhost based on authority.
+						 *
+						 * h3 is always over tls, so the name he gave
+						 * here already had to be accepted at SNI time
+						 * by lws_select_vhost_sni()... apply the same
+						 * rules again rather than let an unrecognized
+						 * authority move him onto whichever vhost is
+						 * first on the port.  If nothing matches he
+						 * stays on the vhost that accepted him.
+						 */
 						if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY)) {
 							int port = wsi->a.vhost->listen_port;
-							struct lws_vhost *vhost = lws_select_vhost(
+							struct lws_vhost *vhost = lws_select_vhost_sni(
 								wsi->a.context, port,
 								lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY));
 
 							if (!vhost && port != 443) {
-								vhost = lws_select_vhost(wsi->a.context, 443,
+								vhost = lws_select_vhost_sni(wsi->a.context, 443,
 									lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY));
 							}
 							if (!vhost) {
-								vhost = lws_select_vhost(wsi->a.context, 0,
+								vhost = lws_select_vhost_sni(wsi->a.context, 0,
 									lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY));
 							}
 
-							lwsl_debug("H3_TRACE: lws_select_vhost returned %p (%s). Original port: %d\n", 
+							lwsl_debug("H3_TRACE: lws_select_vhost_sni returned %p (%s). Original port: %d\n", 
 								vhost, vhost ? vhost->name : "none", port);
 							if (vhost) {
 								lws_vhost_bind_wsi(vhost, wsi);

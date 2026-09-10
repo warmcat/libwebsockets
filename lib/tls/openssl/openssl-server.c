@@ -168,10 +168,19 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 }
 
 #if defined(SSL_TLSEXT_ERR_NOACK) && !defined(OPENSSL_NO_TLSEXT)
+
+#if !defined(SSL_AD_UNRECOGNIZED_NAME)
+/* not all the openssl-alikes carry the RFC 6066 alert number */
+#define SSL_AD_UNRECOGNIZED_NAME 112
+#endif
+
 static int
 lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 {
 	struct lws_context *context = (struct lws_context *)arg;
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	LWS_RATELIMIT_DEFINE_STATIC(rl);
+#endif
 	struct lws_vhost *vhost, *vh;
 	const char *servername;
 
@@ -198,11 +207,29 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 		return SSL_TLSEXT_ERR_OK;
 	}
 
-	vhost = lws_select_vhost(context, vh->listen_port, servername);
+	vhost = lws_select_vhost_sni(context, vh->listen_port, servername);
 	if (!vhost) {
 		lwsl_info("SNI: none: %s:%d\n", servername, vh->listen_port);
 
-		return SSL_TLSEXT_ERR_OK;
+		/*
+		 * He named something that is not served on this listener, and
+		 * no vhost there is the nominated sni-fallback.  Refuse him
+		 * rather than let him pick an arbitrary vhost's certificate
+		 * and client-certificate policy with an unknown name.
+		 *
+		 * The name is his to choose, so it stays out of the notice
+		 * level line; it is logged just above at info level.
+		 */
+
+		lwsl_ratelimit_notice(&rl, 10 * LWS_US_PER_SEC, "%s: refused "
+				      "tls connection on port %d, its SNI name "
+				      "matches no vhost there and none is the "
+				      "sni-fallback\n", __func__,
+				      vh->listen_port);
+
+		*ad = SSL_AD_UNRECOGNIZED_NAME;
+
+		return SSL_TLSEXT_ERR_ALERT_FATAL;
 	}
 
 	lwsl_info("SNI: Found: %s:%d\n", servername, vh->listen_port);

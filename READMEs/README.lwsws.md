@@ -229,6 +229,17 @@ true vhosts on one listening socket and the active vhost decided at SSL
 negotiation time (via SNI) or if no SSL, then after the Host: header from
 the client has been parsed.
 
+ - A tls connection whose SNI name matches no vhost on the port it arrived on is
+refused, with a fatal `unrecognized_name` alert.  Otherwise the certificate the
+peer is shown, and the client certificate policy he meets, would be decided by
+vhost creation order just because he named something that does not exist.  A
+vhost may be nominated to take those connections instead with
+`"sni-fallback": "1"`, see below.
+
+ - A connection that sends no SNI at all is not affected by that, it stays on the
+vhost that accepted it; neither is selection by `Host:` header, since a server
+with a single vhost is reached by IP address all the time.
+
 
 ## Lwsws Protocols
 
@@ -287,6 +298,15 @@ may have typed .../myapp, to get them to .../myapp/ where the app actually takes
  - If the three options `host-ssl-cert`, `host-ssl-ca` and `host-ssl-key` are given, then the vhost supports SSL.
 
  Each vhost may have its own certs, SNI is used during the initial connection negotiation to figure out which certs to use by the server name it's asking for from the request DNS name.
+
+ - "`sni-fallback`": "1" makes this vhost the one that serves tls connections
+arriving on its listen port with an SNI name that matches no vhost there.  At
+most one vhost per port needs it; if none has it, such connections are refused
+with a fatal `unrecognized_name` alert and one rate-limited notice-level log
+line.  Give it to the vhost whose certificate and client-certificate policy you
+are happy for an unknown name to meet, typically the "main" vhost on the port.
+Connections that send no SNI at all never come here, they stay on the vhost that
+accepted them.
 
  - `keeplive-timeout` (in secs) defaults to 60 for lwsws, it may be set as a vhost option
 

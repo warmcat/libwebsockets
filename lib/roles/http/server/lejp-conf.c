@@ -155,6 +155,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].client-tls13-ciphers",
 	"vhosts[].client-ecdh-curve",
 	"vhosts[].strict-host-check",
+	"vhosts[].sni-fallback",
 
 	"vhosts[].listen-accept-role",
 	"vhosts[].listen-accept-protocol",
@@ -254,6 +255,7 @@ enum lejp_vhost_paths {
 	LEJPVP_CLIENT_TLS13_CIPHERS,
 	LEJPVP_CLIENT_ECDH_CURVE,
 	LEJPVP_FLAG_STRICT_HOST_CHECK,
+	LEJPVP_FLAG_SNI_FALLBACK,
 
 	LEJPVP_LISTEN_ACCEPT_ROLE,
 	LEJPVP_LISTEN_ACCEPT_PROTOCOL,
@@ -1346,6 +1348,11 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_FLAG_STRICT_HOST_CHECK:
 		set_reset_flag(&a->info->options, ctx->buf,
 			LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK);
+		return 0;
+
+	case LEJPVP_FLAG_SNI_FALLBACK:
+		set_reset_flag(&a->info->options, ctx->buf,
+			LWS_SERVER_OPTION_SNI_FALLBACK);
 		return 0;
 
 	case LEJPVP_ERROR_DOCUMENT_404:

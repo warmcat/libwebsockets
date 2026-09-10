@@ -385,6 +385,9 @@ static int
 lws_gnutls_server_name_cb(gnutls_session_t session)
 {
 	struct lws *wsi = (struct lws *)gnutls_session_get_ptr(session);
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	LWS_RATELIMIT_DEFINE_STATIC(rl);
+#endif
 	struct lws_tls_ctx_ref *ref;
 	struct lws_vhost *vhost;
 	char servername[256];
@@ -400,10 +403,35 @@ lws_gnutls_server_name_cb(gnutls_session_t session)
 	}
 	servername[len] = '\0';
 
-	vhost = lws_select_vhost(wsi->a.context, wsi->a.vhost->listen_port, servername);
+	vhost = lws_select_vhost_sni(wsi->a.context, wsi->a.vhost->listen_port,
+				     servername);
 	if (!vhost) {
 		lwsl_info("SNI: none: %s:%d\n", servername, wsi->a.vhost->listen_port);
-		return 0;
+
+		/*
+		 * He named something that is not served on this listener, and
+		 * no vhost there is the nominated sni-fallback.  Refuse him
+		 * rather than let him pick an arbitrary vhost's certificate
+		 * and client-certificate policy with an unknown name.
+		 *
+		 * gnutls does not send an alert of its own when this hook
+		 * fails, it leaves that to the application... so send the
+		 * fatal unrecognized_name here before aborting.
+		 *
+		 * The name is his to choose, so it stays out of the notice
+		 * level line; it is logged just above at info level.
+		 */
+
+		lwsl_ratelimit_notice(&rl, 10 * LWS_US_PER_SEC, "%s: refused "
+				      "tls connection on port %d, its SNI name "
+				      "matches no vhost there and none is the "
+				      "sni-fallback\n", __func__,
+				      wsi->a.vhost->listen_port);
+
+		gnutls_alert_send(session, GNUTLS_AL_FATAL,
+				  GNUTLS_A_UNRECOGNIZED_NAME);
+
+		return GNUTLS_E_UNRECOGNIZED_NAME;
 	}
 
 	lwsl_info("SNI: Found: %s:%d\n", servername, wsi->a.vhost->listen_port);

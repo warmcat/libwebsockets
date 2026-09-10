@@ -141,6 +141,9 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 		   const unsigned char *servername, size_t len)
 {
 	struct lws_context *context = (struct lws_context *)arg;
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	LWS_RATELIMIT_DEFINE_STATIC(rl);
+#endif
 	struct lws_vhost *vhost, *vh;
 	char sn_str[128];
 
@@ -173,11 +176,29 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 		return 0;
 	}
 
-	vhost = lws_select_vhost(context, vh->listen_port, sn_str);
+	vhost = lws_select_vhost_sni(context, vh->listen_port, sn_str);
 	if (!vhost) {
 		lwsl_info("SNI: none: %s:%d\n", sn_str, vh->listen_port);
 
-		return 0;
+		/*
+		 * He named something that is not served on this listener, and
+		 * no vhost there is the nominated sni-fallback.  Refuse him
+		 * rather than let him pick an arbitrary vhost's certificate
+		 * and client-certificate policy with an unknown name...
+		 * mbedtls turns a nonzero return from the SNI callback into a
+		 * fatal unrecognized_name alert and aborts the handshake.
+		 *
+		 * The name is his to choose, so it stays out of the notice
+		 * level line; it is logged just above at info level.
+		 */
+
+		lwsl_ratelimit_notice(&rl, 10 * LWS_US_PER_SEC, "%s: refused "
+				      "tls connection on port %d, its SNI name "
+				      "matches no vhost there and none is the "
+				      "sni-fallback\n", __func__,
+				      vh->listen_port);
+
+		return -1;
 	}
 
 	lwsl_info("SNI: Found: %s:%d at vhost '%s'\n", sn_str,

@@ -633,8 +633,16 @@ check_quic:
 
 #endif
 
-struct lws_vhost *
-lws_select_vhost(struct lws_context *context, int port, const char *servername)
+/*
+ * Match a name to a vhost on the port, exactly (priority 1) or as the parent
+ * of a *.name wildcard (priority 2).  Returns NULL if the name names no vhost
+ * on the port at all... what that should mean is up to the caller, it is not
+ * the same answer for a TLS SNI name as it is for a Host: header.
+ */
+
+static struct lws_vhost *
+lws_select_vhost_by_name(struct lws_context *context, int port,
+			 const char *servername)
 {
 	struct lws_vhost *vhost = lws_vhost_first(context);
 	const char *p;
@@ -686,7 +694,28 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 		vhost = lws_vhost_next(vhost);
 	}
 
-	/* Priority 3: match the first vhost on our port */
+	/* the name doesn't name any vhost on this port */
+
+	return NULL;
+}
+
+struct lws_vhost *
+lws_select_vhost(struct lws_context *context, int port, const char *servername)
+{
+	struct lws_vhost *vhost = lws_select_vhost_by_name(context, port,
+							   servername);
+
+	if (vhost)
+		return vhost;
+
+	/*
+	 * Priority 3: match the first vhost on our port.
+	 *
+	 * This is the answer for a Host: header, since a server with a single
+	 * vhost is reached by IP address, or by any of the names that resolve
+	 * to it, all the time.  It is deliberately NOT the answer for a TLS
+	 * SNI name, see lws_select_vhost_sni().
+	 */
 
 	vhost = lws_vhost_first(context);
 	while (vhost) {
@@ -700,6 +729,56 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	}
 
 	/* no match */
+
+	return NULL;
+}
+
+struct lws_vhost *
+lws_select_vhost_sni(struct lws_context *context, int port,
+		     const char *servername)
+{
+	struct lws_vhost *vhost = lws_select_vhost_by_name(context, port,
+							   servername),
+			 *only = NULL;
+	int n = 0;
+
+	if (vhost)
+		return vhost;
+
+	/*
+	 * He named something that is not served here.  Handing him "the first
+	 * vhost on the port" would let him decide by vhost creation order
+	 * which certificate he is shown, and which client certificate policy
+	 * he meets, just by naming something that does not exist.
+	 *
+	 * So only a vhost the configuration explicitly nominated as the
+	 * fallback for this listener may take an unrecognized name... unless
+	 * the port has exactly one vhost anyway, in which case there is
+	 * nothing for him to steer between and refusing would only break
+	 * every single-vhost server whose vhost name is not what clients
+	 * dial (eg, "default" reached as https://localhost).
+	 */
+
+	vhost = lws_vhost_first(context);
+	while (vhost) {
+		if (port && port == vhost->listen_port &&
+		    !vhost->being_destroyed) {
+			if (lws_check_opt(vhost->options,
+					  LWS_SERVER_OPTION_SNI_FALLBACK)) {
+				lwsl_info("%s: unrecognized name -> fallback vhost %s\n",
+					  __func__, vhost->name);
+				return vhost;
+			}
+			only = vhost;
+			n++;
+		}
+		vhost = lws_vhost_next(vhost);
+	}
+
+	if (n == 1)
+		return only;
+
+	/* nobody nominated a fallback... the caller must refuse him */
 
 	return NULL;
 }

@@ -4,10 +4,12 @@
  * Test Sni (Server Name Indication) scenarios with OpenHITLS
  *
  * Test stages:
- *   Stage 0: Client SNI="sni.com", Server vhost="nosni.com" -> Success, use default cert
+ *   Stage 0: Client SNI="sni.com", Server vhost="nosni.com" marked sni-fallback
+ *            -> Success, use default cert
  *   Stage 1: Client sni="sni.com", Server vhost "sni.com" with sni cert -> success, use sni.com cert
  *   Stage 2: Client sni="sni.com", Server vhost "sni.com" with default cert -> success, use default cert
- *   Stage 3: Client sni="sni.com", Server no Sni vhost -> success, use default cert
+ *   Stage 3: Client sni="sni.com", Server no Sni vhost, the only vhost is marked
+ *            sni-fallback -> success, use default cert
  *
  * Each stage uses a separate context to avoid OpenHitLS certificate caching issues.
  */
@@ -140,13 +142,25 @@ sigint_handler(int sig)
 
 static struct lws_vhost *
 create_vhost_with_sni(struct lws_context *ctx, int port, const char *vhost_name,
-                      const char *cert_path, const char *key_path)
+                      const char *cert_path, const char *key_path,
+                      int sni_fallback)
 {
     struct lws_context_creation_info vhost_info;
     struct lws_vhost *vh;
     
     memset(&vhost_info, 0, sizeof(vhost_info));
     vhost_info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+
+    /*
+     * Stages where the client's SNI name matches no vhost on the port only
+     * reach a vhost at all because it is nominated as the fallback for
+     * unrecognized names... without that the connection is refused with a
+     * fatal unrecognized_name alert, and the question this test asks (which
+     * certificate is used) never comes up.
+     */
+
+    if (sni_fallback)
+        vhost_info.options |= LWS_SERVER_OPTION_SNI_FALLBACK;
     vhost_info.protocols = protocols;
     vhost_info.port = port;
     vhost_info.vhost_name = vhost_name;
@@ -190,25 +204,25 @@ create_context_for_stage(int stage)
             /* Stage 0: vhost="nosni.com" with default cert */
             lwsl_user("Stage 0: Creating vhost 'nosni.com' with default cert\n");
             vh = create_vhost_with_sni(context, base_port + 0, "nosni.com",
-                              "certs/default.pem", "certs/default.key");
+                              "certs/default.pem", "certs/default.key", 1);
             break;
         case 1:
             /* Stage 1: vhost="sni.com" with sni.com cert */
             lwsl_user("Stage 1: Creating vhost 'sni.com' with sni.com cert\n");
             vh = create_vhost_with_sni(context, base_port + 1, "sni.com",
-                              "certs/sni.pem", "certs/sni.key");
+                              "certs/sni.pem", "certs/sni.key", 0);
             break;
         case 2:
             /* Stage 2: vhost="sni.com" with default cert */
             lwsl_user("Stage 2: Creating vhost 'sni.com' with default cert\n");
             vh = create_vhost_with_sni(context, base_port + 2, "sni.com",
-                              "certs/default.pem", "certs/default.key");
+                              "certs/default.pem", "certs/default.key", 0);
             break;
         case 3:
             /* Stage 3: no SNI vhost at all, only default vhost */
             lwsl_user("Stage 3: Creating default vhost 'localhost' (no SNI vhost)\n");
             vh = create_vhost_with_sni(context, base_port + 3, "localhost",
-                              "certs/default.pem", "certs/default.key");
+                              "certs/default.pem", "certs/default.key", 1);
             break;
         default:
             /* stage is bounded to 0..3 by the caller; reject anything else */

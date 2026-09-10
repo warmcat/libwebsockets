@@ -300,6 +300,17 @@
 #define LWS_SERVER_OPTION_QUIC_LATEST_VERSION                   (1ll << 50)
         /**< (CTX) Force client to initiate QUIC connections using the latest supported version (e.g. v2) */
 
+#define LWS_SERVER_OPTION_SNI_FALLBACK                          (1ll << 53)
+	/**< (VH) This vhost is the fallback for TLS connections arriving on
+	 * its listen port with an SNI name that matches no vhost there.
+	 * Without a vhost marked like this on the port, an unrecognized SNI
+	 * name is refused with a fatal unrecognized_name alert rather than
+	 * being served by whichever vhost happens to be first on the port,
+	 * since that would decide the certificate shown and the client
+	 * certificate policy applied by vhost creation order.  Connections
+	 * that send no SNI at all are not affected either way, they stay on
+	 * the vhost that accepted them. */
+
         /****** add new things just above ---^ ******/
 
 
@@ -1485,6 +1496,32 @@ lws_get_vhost_name(struct lws_vhost *vhost);
  */
 LWS_VISIBLE LWS_EXTERN struct lws_vhost *
 lws_get_vhost_by_name(struct lws_context *context, const char *name);
+
+/**
+ * lws_select_vhost_sni() - vhost for a TLS SNI name, or NULL to refuse him
+ *
+ * \param context: the lws_context to look in
+ * \param port: the listen port the connection arrived on
+ * \param servername: the SNI name the peer sent, NUL-terminated
+ *
+ * Returns the vhost on \p port whose name matches \p servername exactly, or
+ * failing that the vhost that a *.name wildcard match resolves to, or failing
+ * that the vhost on \p port marked LWS_SERVER_OPTION_SNI_FALLBACK, if any.
+ *
+ * Returns NULL if the name matches no vhost on the port and no fallback vhost
+ * was nominated there.  In that case the caller must refuse the connection
+ * with a fatal unrecognized_name alert: continuing on an arbitrary vhost
+ * would let the peer choose which certificate he is shown, and which client
+ * certificate policy he meets, by naming something that does not exist.
+ *
+ * This is only for the TLS SNI decision.  Selecting a vhost from a Host:
+ * header after the connection is up is a different question with a different
+ * answer, since a server with a single vhost is reached by IP address all the
+ * time.
+ */
+LWS_VISIBLE LWS_EXTERN struct lws_vhost *
+lws_select_vhost_sni(struct lws_context *context, int port,
+		     const char *servername);
 
 /**
  * lws_get_vhost_port() - returns the port a vhost listens on, or -1
