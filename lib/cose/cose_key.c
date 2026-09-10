@@ -417,6 +417,25 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 			ctx->pst[ctx->pst_sp].ppos);
 #endif
 
+	/*
+	 * The value arms below take "we are inside a container" (ctx->sp) to
+	 * mean "we are inside a key map".  It isn't: a top-level
+	 * indefinite-length string also pushes a level, and the scalars and
+	 * blobs inside it then arrive here with no key allocated, so a label
+	 * followed by a bstr reaches lws_ck_set_el() through a NULL cps->ck.
+	 * Nothing that carries a value is meaningful before the key map
+	 * (or key set array item) that creates the key has started.
+	 */
+	if (!cps->ck &&
+	    ((reason & LECP_FLAG_CB_IS_VALUE) ||
+	     reason == LECPCB_VAL_STR_START ||
+	     reason == LECPCB_VAL_BLOB_START ||
+	     reason == LECPCB_PAIR_NAME ||
+	     reason == LECPCB_LITERAL_CBOR)) {
+		lwsl_warn("%s: value before any key\n", __func__);
+		goto bail;
+	}
+
 	switch (reason) {
 	case LECPCB_OBJECT_START:
 		if (cps->ck)
