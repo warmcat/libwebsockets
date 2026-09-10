@@ -798,6 +798,41 @@ lws_hpack_destroy_dynamic_header(struct lws *wsi)
 	dyn->virtual_payload_usage = 0;
 }
 
+/*
+ * Is the header block we are decoding a trailer block?
+ *
+ * RFC 9113 8.1: a stream may carry a second HEADERS block after its body, and
+ * that block is trailers.  By then the request (or response) was dispatched
+ * from the first block, and the ah holding it has been validated -- the
+ * pseudo-header rules, the Connection / Transfer-Encoding / TE refusals and
+ * the content-length were all decided on what block 1 contained.
+ *
+ * So nothing a trailer block carries may be added to the ah: hpack chains a
+ * repeat of a header onto the existing fragment list for that token, so a
+ * trailer could otherwise append a second value to cookie / authorization /
+ * host, or introduce a header that block 1 was refused for having, after all
+ * of the checking is done.  The application, the access log, the CGI
+ * environment and any onward h1 leg would then see a header set that lws never
+ * validated.
+ *
+ * We can't simply skip decoding the block, because the hpack dynamic table
+ * belongs to the whole connection and has to stay in step with the peer's
+ * index space.  So we decode it in full and discard the fields.
+ *
+ * (http2.c re-runs the connection-specific header checks over the ah after a
+ * trailer block as belt and braces; the END_STREAM the trailers carry is
+ * actioned there too, and is unaffected by this.)
+ */
+
+static int
+lws_h2_hdrs_are_trailers(struct lws *wsi)
+{
+	return wsi->hdr_parsing_completed;
+}
+
+static int
+lws_hpack_handle_pseudo_rules(struct lws *nwsi, struct lws *wsi, int m);
+
 static int
 lws_hpack_use_idx_hdr(struct lws *wsi, int idx, int known_token)
 {
@@ -828,6 +863,17 @@ lws_hpack_use_idx_hdr(struct lws *wsi, int idx, int known_token)
 
 	if (tok == LWS_HPACK_IGNORE_ENTRY)
 		return 0;
+
+	if (lws_h2_hdrs_are_trailers(wsi))
+		/*
+		 * We validated the index (which is all the connection-wide
+		 * hpack state cares about for a fully-indexed header), so throw
+		 * the field away instead of adding it to the ah... but a
+		 * trailer still may not carry a pseudo-header (RFC 9113 8.1),
+		 * which is what this decides
+		 */
+		return lws_hpack_handle_pseudo_rules(lws_get_network_wsi(wsi),
+						     wsi, tok);
 
 	if (arg)
 		p = arg;
@@ -1198,7 +1244,14 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 			 */
 			if (wsi->mux_substream && !h2n->value) {
 				ah->unk_pos = 0;
-				if (ah->pos + UHO_NAME <
+				/*
+				 * ... but not for a trailer block: leaving
+				 * unk_pos at 0 is what disables the whole
+				 * custom-header collection (name bytes, value
+				 * bytes and the UHO list linkage) for it
+				 */
+				if (!lws_h2_hdrs_are_trailers(wsi) &&
+				    ah->pos + UHO_NAME <
 				    wsi->a.context->max_http_header_data) {
 					ah->unk_pos = ah->pos;
 					for (n = 0; n < UHO_NAME; n++)
@@ -1241,6 +1294,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 			break;
 		default:
 			if (n != -1 && n != LWS_HPACK_IGNORE_ENTRY &&
+			    !lws_h2_hdrs_are_trailers(wsi) &&
 			    lws_frag_start(wsi, n)) {
 				lwsl_header("%s: frag start failed\n",
 					    __func__);
@@ -1308,7 +1362,8 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 			if (h2n->value) { /* value */
 
 				if (h2n->hdr_idx &&
-				    h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY) {
+				    h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&
+				    !lws_h2_hdrs_are_trailers(wsi)) {
 
 					if (ah->hdr_token_idx ==
 					    WSI_TOKEN_HTTP_COLON_PATH) {
@@ -1395,7 +1450,17 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 					ah->data[ah->pos++] = (char)c1;
 #endif
 				plen = 1;
+				/*
+				 * lws_parse() is not just name recognition:
+				 * on recognizing a known header it does the
+				 * lws_frag_start() that links the field into
+				 * the ah.  For a trailer block we must not let
+				 * it, so don't run it at all -- the name then
+				 * ends up "unknown" at fin below, which routes
+				 * the field to the ignored-entry handling
+				 */
 				if (!h2n->unknown_header &&
+				    !lws_h2_hdrs_are_trailers(wsi) &&
 				    lws_parse(wsi, &c1, &plen))
 					h2n->unknown_header = 1;
 			}
@@ -1428,7 +1493,26 @@ fin:
 			lwsl_header("wsi->parser_state: %d\n",
 					ah->parser_state);
 
-			if (ah->parser_state == WSI_TOKEN_NAME_PART) {
+			/*
+			 * RFC 9113 8.1: trailers must not contain
+			 * pseudo-header fields.  For a header with an indexed
+			 * name that falls out of
+			 * lws_hpack_handle_pseudo_rules() below, but a literal
+			 * name in a trailer block never reaches lws_parse()
+			 * (see above), so there is no lws token for it to
+			 * judge: the leading ':' is all we need and all we
+			 * have.
+			 */
+
+			if (lws_h2_hdrs_are_trailers(wsi) &&
+			    h2n->first_hdr_char == ':') {
+				lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
+					      "Pseudoheader in trailers");
+				return 1;
+			}
+
+			if (ah->parser_state == WSI_TOKEN_NAME_PART &&
+			    !lws_h2_hdrs_are_trailers(wsi)) {
 				/* h2 headers come without the colon */
 				c1 = ':';
 				plen = 1;
@@ -1535,20 +1619,23 @@ fin:
 				m = LWS_HPACK_IGNORE_ENTRY;
 			}
 add_it:
-			if (m == LWS_HPACK_IGNORE_ENTRY) {
+			if (m == LWS_HPACK_IGNORE_ENTRY ||
+			    lws_h2_hdrs_are_trailers(wsi)) {
 				/*
-				 * There is no lws token for this header, so
-				 * nobody started a fragment for it and
-				 * ah->frags[ah->nfrag] is not ours to look at:
-				 * it is whatever the previous header left
-				 * there or, once all the frag slots are used,
-				 * one past the end of the array.  Store the
-				 * placeholder entry without any value, so our
-				 * dynamic table indexes stay aligned with the
-				 * peer's.
+				 * There is no lws token for this header (or it
+				 * is in a trailer block, which we decode
+				 * without storing), so nobody started a
+				 * fragment for it and ah->frags[ah->nfrag] is
+				 * not ours to look at: it is whatever the
+				 * previous header left there or, once all the
+				 * frag slots are used, one past the end of the
+				 * array.  Store the placeholder entry without
+				 * any value, so our dynamic table indexes stay
+				 * aligned with the peer's.
 				 */
 				if (lws_dynamic_token_insert(wsi,
-						(int)h2n->hpack_hdr_len, m,
+						(int)h2n->hpack_hdr_len,
+						LWS_HPACK_IGNORE_ENTRY,
 						NULL, 0)) {
 					lwsl_notice("%s: tok_insert fail\n",
 						    __func__);
@@ -1597,6 +1684,7 @@ add_it:
 
 		if (m == WSI_TOKEN_HTTP_COLON_PATH &&
 		    h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&
+		    !lws_h2_hdrs_are_trailers(wsi) &&
 		    ah->ups == URIPS_SEEN_SLASH_DOT_DOT) {
 			/*
 			 * :path ended in "/..": back up one dir level if
@@ -1618,7 +1706,8 @@ add_it:
 			}
 		}
 
-		if (h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY) {
+		if (h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&
+		    !lws_h2_hdrs_are_trailers(wsi)) {
 			/*
 			 * RFC 9113 8.2.1: a field value containing NUL, CR or
 			 * LF is malformed and must be treated as a stream /
