@@ -1005,6 +1005,24 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				} lws_end_foreach_dll(p);
 
 				if (!wsi->mqtt->qos2_duplicate) {
+					/*
+					 * The peer can only have its Receive
+					 * Maximum of QoS2 PUBLISH outstanding;
+					 * a peer that never PUBRELs them would
+					 * otherwise pin a node per packet id
+					 * and make us walk all of them for
+					 * every further QoS2 PUBLISH.
+					 */
+					if (lws_dll2_count(&wsi->mqtt->qos2_rx_list) >=
+							LWS_MQTT_MAX_QOS2_RX) {
+						lwsl_notice("%s: too many "
+							    "unacked QoS2 rx\n",
+							    __func__);
+						lws_free_set_NULL(pub->topic);
+						lws_free_set_NULL(wsi->mqtt->rx_cpkt_param);
+						goto send_protocol_error_and_close;
+					}
+
 					rx = lws_malloc(sizeof(*rx), "qos2 rx");
 					if (rx) {
 						const char *cid = wsi->mqtt->client.id ? (const char *)wsi->mqtt->client.id->buf : "unknown";
@@ -2844,6 +2862,21 @@ lws_mqtt_client_qos2_rx_add(struct lws *wsi, uint16_t pkt_id)
 
 	if (!nwsi || !nwsi->mqtt)
 		return 1;
+
+	/* already there?  Restoring the same id twice is not an error */
+
+	lws_start_foreach_dll(struct lws_dll2 *, p,
+			      lws_dll2_get_head(&nwsi->mqtt->qos2_rx_list)) {
+		rx = lws_container_of(p, lws_mqtt_qos2_rx_t, list);
+		if (rx->packet_id == pkt_id)
+			return 0;
+	} lws_end_foreach_dll(p);
+
+	if (lws_dll2_count(&nwsi->mqtt->qos2_rx_list) >= LWS_MQTT_MAX_QOS2_RX) {
+		lwsl_wsi_notice(nwsi, "too many unacked QoS2 rx");
+
+		return 1;
+	}
 
 	rx = lws_malloc(sizeof(*rx), "qos2 rx");
 	if (!rx)

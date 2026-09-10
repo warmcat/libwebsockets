@@ -31,6 +31,16 @@ extern struct lws_role_ops role_ops_mqtt;
 
 #define LWS_MQTT_MAX_CHILDREN 8 /* max child streams on same parent */
 
+/*
+ * Max QoS2 packet ids we will remember as "received, PUBREL not seen yet".
+ *
+ * The peer may only have its Receive Maximum worth of QoS2 PUBLISH in
+ * flight at once, and no real broker uses a window remotely this large.
+ * Bounding it bounds both the heap the peer can pin and the cost of the
+ * dedup lookup that runs for every QoS2 PUBLISH.
+ */
+#define LWS_MQTT_MAX_QOS2_RX 256
+
 #define LMQCP_LUT_FLAG_RESERVED_FLAGS  0x10
 #define LMQCP_LUT_FLAG_PACKET_ID_NONE  0x00
 #define LMQCP_LUT_FLAG_PACKET_ID_HAS   0x20
