@@ -1572,7 +1572,12 @@ idle:
 
 #if defined(LWS_TLS_SYNTHESIZE_CB)
 	lws_sul_cancel(&wsi->tls.sul_cb_synth);
-	lws_sess_cache_synth_cb(&wsi->tls.sul_cb_synth);
+	/*
+	 * ...but only if there is a tls session to harvest: a cleartext
+	 * keepalive handover has no tls.ssl for the backend to look inside
+	 */
+	if (wsi->tls.ssl)
+		lws_sess_cache_synth_cb(&wsi->tls.sul_cb_synth);
 #endif
 
 	wnew->tls = wsi->tls;
