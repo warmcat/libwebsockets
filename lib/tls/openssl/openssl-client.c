@@ -281,7 +281,18 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	 * remove any :port part on the hostname... necessary for network
 	 * connection but typical certificates do not contain it
 	 */
-	lws_tls_client_strip_port(hostname);
+	if (lws_tls_client_strip_port(hostname) &&
+	    !(wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
+		/*
+		 * There is no name left to check the peer cert against, and we
+		 * were not told to skip that check.  Fail closed: continuing
+		 * would ask openssl to verify the chain and nothing else
+		 */
+		lwsl_err("%s: no usable hostname for peer cert check\n",
+			 __func__);
+
+		return -1;
+	}
 
 	wsi->tls.ssl = SSL_new(wsi->a.vhost->tls.ssl_client_ctx);
 	if (!wsi->tls.ssl) {
@@ -311,10 +322,24 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		/* Enable automatic hostname checks */
 		X509_VERIFY_PARAM_set_hostflags(param,
 					X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
-		/* Handle the case where the hostname is an IP address */
-		if (!X509_VERIFY_PARAM_set1_ip_asc(param, hostname))
-			X509_VERIFY_PARAM_set1_host(param, hostname,
-					strnlen(hostname, sizeof(hostname)));
+		/*
+		 * Handle the case where the hostname is an IP address.
+		 *
+		 * This is the only peer name check there is... nothing
+		 * downstream re-checks it, lws_tls_client_confirm_peer_cert()
+		 * only reads SSL_get_verify_result().  So if setting the name
+		 * we want checked did not work, we must not continue: with no
+		 * name in the verify param, openssl validates the chain alone
+		 * and reports X509_V_OK for a cert naming anything at all
+		 */
+		if (!X509_VERIFY_PARAM_set1_ip_asc(param, hostname) &&
+		    !X509_VERIFY_PARAM_set1_host(param, hostname,
+					strnlen(hostname, sizeof(hostname)))) {
+			lwsl_err("%s: unable to bind peer cert check to '%s'\n",
+				 __func__, hostname);
+
+			return -1;
+		}
 #endif
 
 	}

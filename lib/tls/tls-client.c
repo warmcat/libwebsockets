@@ -34,9 +34,14 @@
  *
  * Accept host, host:port, [v6], [v6]:port and bare v6, leaving just the
  * name in place.
+ *
+ * Returns nonzero if nothing usable is left, ie, "[" with no "]", "[]" or a
+ * bare ":port".  That must be fatal to the caller: openssl reads an empty
+ * name in the verify param as "clear the host list", ie, "do not check the
+ * peer name at all", which is the opposite of what an unusable name means.
  */
 
-void
+int
 lws_tls_client_strip_port(char *host)
 {
 	char *p = host, *q, *colon = NULL;
@@ -47,11 +52,13 @@ lws_tls_client_strip_port(char *host)
 		if (!q) {
 			/* malformed... leave nothing for the check to accept */
 			*host = '\0';
-			return;
+
+			return 1;
 		}
 		memmove(host, host + 1, (size_t)(q - host - 1));
 		host[q - host - 1] = '\0';
-		return;
+
+		return !host[0];
 	}
 
 	while (*p) {
@@ -63,9 +70,11 @@ lws_tls_client_strip_port(char *host)
 	}
 
 	if (colons != 1 || !colon)
-		return; /* no port, or a bare IPv6 literal */
+		return !host[0]; /* no port, or a bare IPv6 literal */
 
 	*colon = '\0';
+
+	return !host[0];
 }
 
 /*

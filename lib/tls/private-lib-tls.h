@@ -250,7 +250,7 @@ LWS_VISIBLE int
 lws_tls_cert_get_x509_remaining(struct lws_context *context, const char *filepath, int *days_left, int *total_days);
 
 #if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_CLIENT)
-void
+int
 lws_tls_client_strip_port(char *host);
 
 int
