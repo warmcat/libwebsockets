@@ -617,7 +617,14 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 	while (p < end && *p != '\n' && *p != '-')
 		p++;
 
-	if (*p != '-') {
+	/*
+	 * The loop above can exit with p == end, and for the in-memory path
+	 * end is one past the caller's last byte (the jit-trust blob is sized
+	 * exactly and is not NUL-terminated)... so the bound has to be
+	 * retested before the dereference
+	 */
+
+	if (p >= end || *p != '-') {
 		goto bail;
 	}
 
