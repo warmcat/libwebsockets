@@ -93,6 +93,7 @@ lejp_construct(struct lejp_ctx *ctx,
 	ctx->dcount = 0;
 	ctx->f = 0;
 	ctx->uni = 0;
+	ctx->buf[0] = '\0';
 	ctx->wildcount = 0;
 	ctx->path_match_len = 0;
 	memset(&ctx->su, 0, sizeof(ctx->su));
