@@ -2493,10 +2493,19 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			if (pss->silent_update_jwt) {
-				path[0] = '\0';
-				if (lws_hdr_copy(wsi, path, sizeof(path),
-						 WSI_TOKEN_GET_URI) < 0)
-					lwsl_debug("%s: URI copy failed\n", __func__);
+				/*
+				 * Re-mint the cookie and bounce him back to
+				 * the SAME url.  It must come from whichever
+				 * method token this request actually used: the
+				 * interceptor gates every method, so taking
+				 * only WSI_TOKEN_GET_URI left an intercepted
+				 * POST / PUT / PATCH self-redirecting to an
+				 * empty Location.
+				 */
+				if (lws_login_request_uri(wsi, path,
+							 sizeof(path)))
+					lwsl_debug("%s: URI copy failed\n",
+						   __func__);
 
 				if (!lws_login_serve_self_redirect_with_cookie(
 						wsi, pss, vhd, pss->silent_update_jwt,
@@ -2512,10 +2521,16 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 
-		path[0] = '\0';
-		if (lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_GET_URI) <= 0)
-			if (lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_POST_URI) < 0)
-				lwsl_debug("%s: URI copy failed\n", __func__);
+		/*
+		 * From here on, path is the url this request asked for, for
+		 * both our own endpoints (matched by suffix) and the bounce
+		 * target below.  Every method the interceptor gates has to
+		 * resolve it, not just GET and POST: a gated PUT / PATCH /
+		 * DELETE used to fall through to the bounce with an empty
+		 * path and get sent to a redirect_uri of just the vhost root.
+		 */
+		if (lws_login_request_uri(wsi, path, sizeof(path)))
+			lwsl_debug("%s: URI copy failed\n", __func__);
 
 		if (lws_login_ends_with(path, "/lws-login.css")) {
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "text/css",

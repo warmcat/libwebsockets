@@ -8,6 +8,24 @@ Instead of maintaining its own database, it acts as a lightweight, proactive **b
 
 Furthermore, `lws-login` natively maintains an `lws_sorted_usec_list` (SUL) expiration timer tracking the exact token `exp` boundary. Even if a WebSocket successfully upgrades over the protected mount, the connection will be gracefully terminated the exact moment the active authorization token naturally expires!
 
+## Gated methods
+
+The interceptor decision is taken for **every** request to a protected mount,
+whatever its method and whatever the http role serving it (h1, h2 or h3), before
+the protected mount's protocol is bound and before any of its code runs.
+
+An unauthenticated `POST` (or `PUT`, `PATCH`, `DELETE` ...) is therefore blocked
+exactly as an unauthenticated `GET` of the same url is: it bounces with a
+`303 See Other` to the auth server's login form, carrying the same
+`redirect_uri` back to the url that was asked for, so the user lands back there
+after logging in.  An authenticated request of any method passes straight
+through to the mount.  A request whose JWT is authentic but whose grants have
+gone stale is answered with a re-minted cookie and a self-redirect to the same
+url, again for whichever method it used.
+
+A blocked request whose body was still arriving has that body discarded before
+the connection is reused (h1) or its stream reset (h2 / h3), so nothing desyncs.
+
 ## WebSocket Upgrades
 
 When a mount is protected by an `interceptor-path` (such as `lws-login`), **both standard HTTP requests and `wss://` WebSocket upgrade requests are subjected to the exact same cryptographic JWT validation.**
