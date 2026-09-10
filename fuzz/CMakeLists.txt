@@ -71,6 +71,10 @@ if (LWS_WITH_LHP AND LWS_WITH_DLO)
 	lws_add_fuzz_target(lhp)
 endif()
 
+if (LWS_WITH_JPEG)
+	lws_add_fuzz_target(jpeg)
+endif()
+
 # the wsi-bound protocol parsers need the evil-peer helper in peer.h, which
 # uses socketpair + adopt, so they are POSIX-only
 

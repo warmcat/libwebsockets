@@ -30,7 +30,7 @@ fi
 if [ "$#" -gt 0 ]; then
 	TARGETS="$*"
 else
-	TARGETS="lejp lecp qpack upng lhp h1 h2 ws"
+	TARGETS="lejp lecp qpack upng jpeg lhp h1 h2 ws"
 fi
 
 if [ -z "$CC" ]; then
@@ -58,6 +58,7 @@ CC="$CC" cmake -S "$REPO" -B "$BUILD" --fresh -DCMAKE_BUILD_TYPE=Debug \
 	-DLWS_WITHOUT_TESTAPPS=ON \
 	-DLWS_WITH_CBOR=ON \
 	-DLWS_WITH_HTTP3=ON \
+	-DLWS_WITH_JPEG=ON \
 	$FUZZ_CMAKE_OPTS
 
 cmake --build "$BUILD" --parallel
