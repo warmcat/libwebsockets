@@ -1678,8 +1678,9 @@ lws_tls_schannel_server_client_cert(struct lws *wsi)
 	struct lws_tls_schannel_conn *conn = wsi->tls.ssl;
 	struct lws_tls_schannel_ctx *ctx = wsi->tls.ctx_ref ?
 			wsi->tls.ctx_ref->ctx : wsi->a.vhost->tls.ssl_ctx;
-	int required = lws_check_opt(wsi->a.vhost->options,
-		LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) &&
+	int req_valid = !!lws_check_opt(wsi->a.vhost->options,
+		LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT);
+	int required = req_valid &&
 		       !lws_check_opt(wsi->a.vhost->options,
 		LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED);
 	PCCERT_CONTEXT pCert = NULL;
@@ -1711,7 +1712,17 @@ lws_tls_schannel_server_client_cert(struct lws *wsi)
 		lwsl_wsi_notice(wsi, "vh %s: client cert rejected: %s",
 				wsi->a.vhost->name, ebuf);
 
-		return required;
+		/*
+		 * req_valid, not `required`: LWS_SERVER_OPTION_PEER_CERT_NOT_
+		 * REQUIRED tolerates the *absence* of a client cert, it does
+		 * not excuse one that was presented and failed to verify.
+		 * That is what openssl's SSL_VERIFY_PEER does, and what
+		 * mbedtls was brought to in C-359 and gnutls with it: an app
+		 * reading the CN or SAN afterwards to authorize must not be
+		 * reading an unvalidated identity.
+		 */
+
+		return req_valid;
 	}
 
 	CertFreeCertificateContext(pCert);

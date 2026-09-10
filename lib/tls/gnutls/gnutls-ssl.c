@@ -214,10 +214,20 @@ lws_tls_server_accept(struct lws *wsi)
 				/* absent cert is only OK if it was optional */
 				if (!opt_opt)
 					return LWS_SSL_CAPABLE_ERROR;
-			} else if (status &&
-				   !lws_check_opt(wsi->a.vhost->options,
-						LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED)) {
-				/* presented, but did not verify: reject */
+			} else if (status) {
+				/*
+				 * Presented, but did not verify: reject.
+				 *
+				 * LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED does
+				 * not excuse this.  openssl's SSL_VERIFY_PEER
+				 * (which is what lws asks for there) means "no
+				 * cert is OK, a bad cert is not", and mbedtls
+				 * was brought to the same rule in C-359: only
+				 * the *absence* of a cert is tolerated, since
+				 * an app reading the CN or SAN afterwards to
+				 * authorize would otherwise be reading an
+				 * unvalidated identity.
+				 */
 				gnutls_datum_t out;
 				char rbuf[160];
 
@@ -250,19 +260,15 @@ lws_tls_server_accept(struct lws *wsi)
 					lws_strncpy(cn, "unknown", sizeof(cn));
 
 				/*
-				 * With PEER_CERT_NOT_REQUIRED, we are here
-				 * whether the cert verified or not: say which,
-				 * so a log of "accepted client cert CN=x" is
-				 * not read as "x was authenticated".  The app
-				 * can ask for the same answer with
-				 * LWS_TLS_CERT_INFO_VERIFIED
+				 * Anything that did not verify was refused
+				 * above, so this really is an authenticated
+				 * identity.  The app can ask for the same
+				 * answer with LWS_TLS_CERT_INFO_VERIFIED
 				 */
 
-				lwsl_notice("%s: vh %s: mTLS: accepted %s "
+				lwsl_notice("%s: vh %s: mTLS: accepted verified "
 					    "client cert CN=%s\n", __func__,
-					    wsi->a.vhost->name,
-					    status ? "UNVERIFIED" : "verified",
-					    cn);
+					    wsi->a.vhost->name, cn);
 			}
 		}
 
