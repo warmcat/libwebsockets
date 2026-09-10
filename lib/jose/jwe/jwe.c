@@ -355,7 +355,7 @@ lws_jwe_be64(uint64_t c, uint8_t *p8)
 int
 lws_jwe_auth_and_decrypt(struct lws_jwe *jwe, char *temp, int *temp_len)
 {
-	int valid_aescbc_hmac, valid_aesgcm;
+	int valid_aescbc_hmac, valid_aesgcm, ot = *temp_len;
 	char dotstar[96];
 
 	if (lws_jwe_parse_jose(&jwe->jose, jwe->jws.map.buf[LJWS_JOSE],
@@ -374,6 +374,16 @@ lws_jwe_auth_and_decrypt(struct lws_jwe *jwe, char *temp, int *temp_len)
 
 		return -1;
 	}
+
+	/*
+	 * The JOSE parse consumed from the front of temp: the decoded apu,
+	 * apv, iv and tag elements live there and jose.e[] points into them.
+	 * Advance past what it used, exactly as lws_jwe_encrypt() does, or
+	 * the AAD the ECDH path encodes at temp[0] lands on top of the apu /
+	 * apv the ConcatKDF is about to hash.
+	 */
+
+	temp += ot - *temp_len;
 
 	valid_aescbc_hmac = jwe->jose.enc_alg &&
 		jwe->jose.enc_alg->algtype_crypto == LWS_JOSE_ENCTYPE_AES_CBC &&
