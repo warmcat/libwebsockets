@@ -77,6 +77,21 @@ enum lws_websocket_opcodes_07 {
 #define ALREADY_PROCESSED_NO_CB 2
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
+
+/*
+ * How many rx ext (eg, permessage-deflate) drain chunks we are willing to issue
+ * inside a single service call before going back to the event loop.
+ *
+ * A drain chunk consumes no input, it just pushes another (1 << PMD_RX_BUF_PWR2)
+ * of inflated output at the user callback; the peer chooses how many of those
+ * one small compressed frame turns into, up to the pmd zip-bomb cap.  While we
+ * are still draining, the wsi remains on pt->ws.rx_draining_ext_list and
+ * rops_service_flag_pending_ws() fakes POLLIN on it, so we come straight back
+ * and continue; this only stops one connection monopolizing the thread.
+ */
+
+#define LWS_WS_RX_EXT_DRAIN_BUDGET 8
+
 struct lws_vhost_role_ws {
 	const struct lws_extension *extensions;
 };

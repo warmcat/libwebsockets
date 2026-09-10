@@ -1389,12 +1389,43 @@ drain:
 				wsi->a.context->pt_serv_buf_size : pending;
 		if (--sanity) {
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-			while (wsi->ws->rx_draining_ext) {
-				// RX Extension needs to be drained before next read
-				if (lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR, 0) ==
-							LWS_HPI_RET_PLEASE_CLOSE_ME)
+			int drains = LWS_WS_RX_EXT_DRAIN_BUDGET;
+
+			/*
+			 * The RX extension needs to be drained before the next
+			 * read... but the peer decides how much inflated output
+			 * one small compressed frame turns into, so we may only
+			 * do our share of it here before going back to the
+			 * event loop.
+			 */
+
+			while (wsi->ws->rx_draining_ext && drains--) {
+				lws_handling_result_t hr;
+
+				/* like "2:" above, each role has its own sm */
+
+#if defined(LWS_WITH_CLIENT)
+				if (lwsi_role_client(wsi))
+					hr = lws_ws_client_rx_sm(wsi, 0);
+				else
+#endif
+					hr = lws_ws_rx_sm(wsi,
+						ALREADY_PROCESSED_IGNORE_CHAR, 0);
+
+				if (hr == LWS_HPI_RET_PLEASE_CLOSE_ME)
 					return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
+
+			if (wsi->ws->rx_draining_ext)
+				/*
+				 * Still draining... we stay on the pt's
+				 * rx_draining_ext_list, so the faked POLLIN in
+				 * rops_service_flag_pending_ws() brings us
+				 * straight back to finish it, and what is
+				 * still buffered in the tls layer is not going
+				 * anywhere.
+				 */
+				return LWS_HPI_RET_HANDLED;
 #endif
 		} else {
 			static lws_log_ratelimit_t rl = { 0, 0 };

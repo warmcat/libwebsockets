@@ -1030,6 +1030,9 @@ lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	unsigned char *bufin = *buf;
 	lws_handling_result_t hr;
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	int drains = LWS_WS_RX_EXT_DRAIN_BUDGET;
+#endif
 	int m, bulk = 0;
 
 	lwsl_debug("%s: received %d byte packet\n", __func__, (int)len);
@@ -1073,6 +1076,20 @@ lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 		if (wsi->ws->rx_draining_ext) {
 			lwsl_debug("%s: draining rx ext\n", __func__);
+
+			if (!drains--)
+				/*
+				 * The peer decides how much inflated output one
+				 * small compressed frame turns into, and a
+				 * drain consumes no input, so we can only do
+				 * our share of it in one service slot.  We stay
+				 * on the pt's rx_draining_ext_list, so the
+				 * faked POLLIN from rops_service_flag_pending_ws()
+				 * brings us straight back; the input we did not
+				 * consume goes on the wsi buflist.
+				 */
+				return 0;
+
 			if (lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR, 0) ==
 						LWS_HPI_RET_PLEASE_CLOSE_ME)
 				return -1;
