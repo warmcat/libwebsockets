@@ -1053,11 +1053,17 @@ push_m:
 				break;
 			}
 
+			/*
+			 * Fragments have to be definite-length strings of the
+			 * same major type as the enclosing indefinite-length
+			 * string.  Take the type from the fragment header we
+			 * are looking at... our own st->opcode was copied from
+			 * the parent by lecp_push() and so would always match
+			 */
+			st->opcode = ctx->item.opcode =
+					(uint8_t)(c & LWS_CBOR_MAJTYP_MASK);
+
 			if (st->opcode != lwcp_st_parent(ctx)->opcode)
-				/*
-				 * Fragments have to be of the same type as the
-				 * outer opcode
-				 */
 				goto bad_coding;
 
 			sm = c & LWS_CBOR_SUBMASK;
