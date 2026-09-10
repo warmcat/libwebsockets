@@ -370,8 +370,19 @@ lws_tls_session_cache(struct lws_vhost *vh, uint32_t ttl)
 	HITLS_CFG_GetSessionCacheMode(config, &mode_val);
 	cmode = (long)mode_val;
 
+	/*
+	 * We keep and look up our own tagged sessions in vh->tls_sessions and
+	 * never ask openHiTLS' internal store for anything, so leaving that
+	 * store enabled is pure retention: a server sending a stream of
+	 * NewSessionTickets can park thousands of sessions, each with its own
+	 * ticket, in a config that is shared between vhosts, for as long as
+	 * the config timeout.  Ask for the callback without the store (C-412).
+	 */
+
 	HITLS_CFG_SetSessionCacheMode(config,
-						(uint32_t)(cmode | HITLS_SESS_CACHE_CLIENT));
+				(uint32_t)(cmode | HITLS_SESS_CACHE_CLIENT |
+					   HITLS_SESS_DISABLE_INTERNAL_STORE |
+					   HITLS_SESS_DISABLE_INTERNAL_LOOKUP));
 
 	HITLS_CFG_SetNewSessionCb(config, lws_tls_session_new_cb);
 
@@ -496,6 +507,27 @@ lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
 	}
 
 	ts->session = sess;
+
+	/*
+	 * A session that came back from cold storage needs the same expiry as
+	 * one we just negotiated: lws_tls_session_add_entry() zeroes the sul,
+	 * so without this the entry occupies a cache slot for the life of the
+	 * vhost and keeps being offered long after the server forgot the key
+	 * (C-413).  Bound it by what the blob itself says, clamped the same
+	 * way lws_tls_session_new_openhitls() clamps a peer-supplied lifetime.
+	 */
+
+	{
+		long ttl = (long)HITLS_SESS_GetTimeout(sess);
+
+		if (ttl <= 0 || ttl > (long)LWS_TLS_SESSION_TTL_MAX)
+			ttl = (long)LWS_TLS_SESSION_TTL_DEFAULT;
+
+		lws_sul_schedule(vh->context, 0, &ts->sul_ttl,
+				 lws_tls_session_expiry_cb,
+				 ttl * LWS_US_PER_SEC);
+	}
+
 	sess = NULL;
 	ret = 0;
 	lwsl_tlssess("%s: session loaded OK\n", __func__);

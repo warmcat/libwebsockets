@@ -489,6 +489,20 @@ lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
 	ts->ser_data->len = d.blob_len;
 	free(v);
 
+	/*
+	 * A session that came back from cold storage needs the same expiry as
+	 * one we just negotiated: lws_tls_session_add_entry() zeroes the sul,
+	 * so without this the entry occupies a cache slot for the life of the
+	 * vhost and keeps being offered long after the server forgot the key
+	 * (C-413).  gnutls' serialized blob is opaque to us, so bound it by
+	 * the vhost's own session ttl.
+	 */
+
+	lws_sul_schedule(vh->context, 0, &ts->sul_ttl,
+			 lws_tls_session_expiry_cb,
+			 (int64_t)vh->tls.tls_session_cache_ttl *
+							LWS_US_PER_SEC);
+
 	lwsl_tlssess("%s: session loaded OK\n", __func__);
 
 	lws_vhost_unlock(vh); /* } vh --------------  */
