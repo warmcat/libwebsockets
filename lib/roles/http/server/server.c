@@ -1468,11 +1468,13 @@ static int
 lws_authorization_rewrite(struct lws *wsi, const char *name, size_t len)
 {
 	char *p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_AUTHORIZATION);
-	int fi = wsi->http.ah->frag_index[WSI_TOKEN_HTTP_AUTHORIZATION];
+	int fi;
 
+	/* a non-NULL p proves the ah is attached and the header is there */
 	if (!p)
 		return 1;
 
+	fi = wsi->http.ah->frag_index[WSI_TOKEN_HTTP_AUTHORIZATION];
 	wsi->http.ah->frags[fi].len = (uint16_t)len;
 	strncpy(p, name, (unsigned int)len);
 	p[len] = '\0';
