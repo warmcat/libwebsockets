@@ -2146,9 +2146,33 @@ lws_http_action(struct lws *wsi)
 		    lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI)
 #endif
 		    ) {
-			wsi->http.rx_content_length = max_body;
-			if (!wsi->http.rx_content_remain)
-				wsi->http.rx_content_remain = max_body;
+			if (wsi->mux_substream) {
+				/*
+				 * h2 / h3: the body is delimited by the
+				 * stream's END_STREAM / FIN rather than by a
+				 * Content-Length, so an absent Content-Length
+				 * means a body of unknown length, counted down
+				 * against the limit.
+				 */
+				wsi->http.rx_content_length = max_body;
+				if (!wsi->http.rx_content_remain)
+					wsi->http.rx_content_remain = max_body;
+			} else if (!lws_hdr_total_length(wsi,
+					WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
+				   !lws_hdr_total_length(wsi,
+					WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
+				/*
+				 * h1: a request with neither Content-Length nor
+				 * Transfer-Encoding has a zero-length body (RFC
+				 * 7230 3.3.3 rule 6).  Treating it as a body
+				 * that runs to the limit or the close instead
+				 * handed everything that followed on the
+				 * connection, the next request included, to
+				 * this request's LWS_CALLBACK_HTTP_BODY.
+				 */
+				wsi->http.content_length_given = 1;
+				wsi->http.content_length_explicitly_zero = 1;
+			}
 		}
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
