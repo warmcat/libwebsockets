@@ -1285,6 +1285,14 @@ lws_ss_policy_parse_begin(struct lws_context *context, int overlay)
 	*p = 0;
 	lejp_construct(&args->jctx, lws_ss_policy_parser_cb, args,
 		       lejp_tokens_policy, LWS_ARRAY_SIZE(lejp_tokens_policy));
+	/*
+	 * Policies are operator-authored documents (even when fetched over
+	 * TLS from the operator's own server) and the format has always
+	 * allowed '#' to-end-of-line comments, eg, the warmcat.com
+	 * minimal-proxy policies use them.  Opt in here; every other network
+	 * facing lejp parse stays RFC 8259 strict.
+	 */
+	args->jctx.flags |= LEJP_FLAG_FEAT_COMMENTS;
 
 	return 0;
 }
