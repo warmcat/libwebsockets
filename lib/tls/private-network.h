@@ -85,6 +85,13 @@ struct lws_tls_ctx_ref {
 	int refcount;
 };
 
+/*
+ * Length of the digest that stands in for "which CA store is this", see
+ * lws_tls_vhost_set_client_ca_id()
+ */
+
+#define LWS_TLS_CA_ID_LEN 8
+
 struct lws_vhost_tls {
 	lws_tls_ctx *ssl_ctx;
 	struct lws_tls_ctx_ref *active_ctx_ref;
@@ -135,6 +142,14 @@ struct lws_vhost_tls {
 #endif
 	struct alpn_ctx alpn_ctx;
 
+	/*
+	 * Identity of the CA store this vhost verifies *client* certificates
+	 * against, derived once from its client CA config (see
+	 * lws_tls_vhost_set_client_ca_id()).  All-zero means the vhost has no
+	 * client CA of its own.
+	 */
+	uint8_t client_ca_id[LWS_TLS_CA_ID_LEN];
+
 	int use_ssl;
 	int allow_non_ssl_on_ssl_port;
 	int ssl_info_event_mask;
@@ -176,11 +191,33 @@ struct lws_lws_tls {
 					    * TLS backend from the negotiated
 					    * TLS 1.3 cipher suite */
 
+	/*
+	 * Which vhost's client-cert CA store did this connection's peer
+	 * certificate actually get verified against?  Recorded as that
+	 * vhost's client_ca_id rather than a vhost pointer, so it stays
+	 * meaningful if the vhost is destroyed while the connection lives on.
+	 *
+	 * A later rebind (Host:, :authority) onto a vhost that requires a
+	 * valid client cert is only allowed if that vhost's client CA store
+	 * is the same one, ie, a cert verified under vhost A's CA does not
+	 * satisfy vhost B's mTLS requirement under a different CA (C-318).
+	 */
+	uint8_t			hs_ca_id[LWS_TLS_CA_ID_LEN];
+
 	unsigned int		use_ssl;
 	unsigned int		redirect_to_https:1;
 	unsigned int		ssl_accept_in_bg:1;
+	unsigned int		hs_ca_id_valid:1;
+	/* the SNI callback bound us to the vhost serving the handshake */
+	unsigned int		sni_vh_bound:1;
 };
 
+
+void
+lws_tls_vhost_set_client_ca_id(struct lws_vhost *vh);
+
+void
+lws_tls_wsi_record_hs_ca(struct lws *wsi, struct lws_vhost *vh);
 
 void
 lws_context_init_alpn(struct lws_vhost *vhost);

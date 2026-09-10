@@ -937,6 +937,14 @@ lws_create_vhost(struct lws_context *context,
 	vh->tls.cfg_server_ssl_ca_mem = info->server_ssl_ca_mem;
 	vh->tls.cfg_server_ssl_ca_mem_len = info->server_ssl_ca_mem_len;
 
+	/*
+	 * Both sources of the client-cert CA store are known now: reduce them
+	 * to the identity a connection records when its peer cert is verified
+	 * against this vhost's store (C-318)
+	 */
+
+	lws_tls_vhost_set_client_ca_id(vh);
+
 #if defined(LWS_WITH_CLIENT)
 	if (info->client_ssl_ca_filepath)
 		vh->tls.cfg_client_ssl_ca_filepath =

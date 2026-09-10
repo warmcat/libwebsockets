@@ -85,6 +85,72 @@ lws_klog_dump(const SSL *ssl, const char *line)
 
 
 #if defined(LWS_WITH_NETWORK)
+
+/*
+ * What identifies "the CA store this vhost verifies client certs against"?
+ *
+ * It is the vhost's client CA config, ie, either the CA file path or the
+ * in-memory CA blob it was created with.  We reduce that to a short digest
+ * once, at vhost creation, for two reasons: a connection can then record
+ * which store its peer certificate was actually verified against without
+ * keeping a pointer to a vhost that may be destroyed while it lives on, and
+ * comparing two vhosts' stores is then a fixed-size memcmp.
+ *
+ * Two vhosts naming the same CA file are taken to be the same store even if
+ * the file changed on disk in between; two vhosts with identical CA content
+ * reached different ways are taken to be different stores.  Both of those
+ * err the way the config reads, and the second only ever refuses.
+ */
+
+void
+lws_tls_vhost_set_client_ca_id(struct lws_vhost *vh)
+{
+	uint8_t digest[20];
+	const uint8_t *in;
+	size_t len;
+
+	memset(vh->tls.client_ca_id, 0, sizeof(vh->tls.client_ca_id));
+
+	if (vh->tls.cfg_ssl_ca_filepath) {
+		in = (const uint8_t *)vh->tls.cfg_ssl_ca_filepath;
+		/*
+		 * hash the NUL too, so a path can never collide with a blob
+		 * that happens to start with the same bytes
+		 */
+		len = strlen(vh->tls.cfg_ssl_ca_filepath) + 1;
+	} else if (vh->tls.cfg_server_ssl_ca_mem &&
+		   vh->tls.cfg_server_ssl_ca_mem_len) {
+		in = (const uint8_t *)vh->tls.cfg_server_ssl_ca_mem;
+		len = vh->tls.cfg_server_ssl_ca_mem_len;
+	} else
+		/* no client CA at all: the identity stays all-zero */
+		return;
+
+	lws_SHA1(in, len, digest);
+
+	memcpy(vh->tls.client_ca_id, digest, sizeof(vh->tls.client_ca_id));
+}
+
+/*
+ * Note on \p wsi which vhost's client-cert CA store his peer certificate was
+ * verified against, ie, whose client-cert policy his TLS handshake actually
+ * ran under.  Only the first record for a connection counts: the SNI callback
+ * knows this authoritatively and speaks first, the post-accept adaptation in
+ * lws_tls_server_accept_completed() fills it in for backends whose SNI
+ * callback cannot (C-318).
+ */
+
+void
+lws_tls_wsi_record_hs_ca(struct lws *wsi, struct lws_vhost *vh)
+{
+	if (!wsi || !vh || wsi->tls.hs_ca_id_valid)
+		return;
+
+	memcpy(wsi->tls.hs_ca_id, vh->tls.client_ca_id,
+	       sizeof(wsi->tls.hs_ca_id));
+	wsi->tls.hs_ca_id_valid = 1;
+}
+
 #if (!defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL) && \
 	!defined(LWS_WITH_SCHANNEL) && !defined(LWS_WITH_OPENHITLS) && \
 	defined(OPENSSL_VERSION_NUMBER) && \

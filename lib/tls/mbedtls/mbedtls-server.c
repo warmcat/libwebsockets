@@ -239,11 +239,12 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 		 * one (gnutls and openhitls do this in their SNI callbacks;
 		 * here conn->ctx stays the listening vhost's, so the
 		 * post-accept ctx-to-vhost adaptation cannot do it).
-		 * lws_vhost_bind_wsi() gives back the count held on the
-		 * listening vhost and refuses a move onto a dying vhost.
+		 * lws_vhost_bind_wsi_sni() gives back the count held on the
+		 * listening vhost, refuses a move onto a dying vhost, and
+		 * records whose CA store will verify his client cert (C-318).
 		 */
-		if (wsi && wsi->a.vhost != vhost)
-			lws_vhost_bind_wsi(vhost, wsi);
+		if (wsi)
+			lws_vhost_bind_wsi_sni(vhost, wsi);
 	}
 #endif
 

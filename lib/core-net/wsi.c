@@ -64,18 +64,65 @@ void lws_log_prepend_wsi(struct lws_log_cx *cx, void *obj, char **p, char *e) {
  * Refuse to move him onto a vhost that requires a valid client cert unless
  * this connection actually presented one that verified.
  *
- * lws_vhost_bind_wsi() applies this to every rebind path (h1 Host:, SNI, h3
- * :authority), refusing the move and leaving the wsi on the vhost it has;
- * the h1 server additionally answers 421 so the peer learns why.
+ * A verified client cert is not on its own enough either: it was verified
+ * against the CA store of the vhost the handshake completed under, so it only
+ * counts for a vhost whose client CA store is the same one.  Otherwise, on a
+ * shared listener, a cert issued by any one mTLS vhost's CA would open every
+ * other mTLS vhost there (C-318).
+ *
+ * lws_vhost_bind_wsi() applies this to every rebind path, refusing the move
+ * and leaving the wsi on the vhost it has; the h1 (421) and h3 (REQUEST_
+ * REJECTED) servers check first so the refusal is not silent, and
+ * lws_tls_server_accept_completed() drops a connection that a refusal left
+ * sitting on an mTLS vhost it did not satisfy.
+ *
+ * A bind from a TLS SNI callback is exempt: that is the handshake being set
+ * up on the vhost whose client-cert policy the rest of it will run under, so
+ * TLS itself enforces the requirement (see lws_vhost_bind_wsi_sni()).
+ */
+
+#if defined(LWS_WITH_TLS)
+static const uint8_t *
+lws_wsi_hs_ca_id(struct lws *wsi)
+{
+	struct lws *nwsi = lws_get_network_wsi(wsi);
+
+	if (nwsi->tls.hs_ca_id_valid)
+		return nwsi->tls.hs_ca_id;
+
+	/*
+	 * Nothing was recorded at handshake time... that is the case for
+	 * quic, whose handshake completion does not pass through
+	 * lws_tls_server_accept_completed().  Nothing moves those onto
+	 * another vhost before the peer names one either, so the vhost he is
+	 * on now is the one his handshake completed under.
+	 */
+
+	return wsi->a.vhost ? wsi->a.vhost->tls.client_ca_id : NULL;
+}
+#endif
+
+/*
+ * Nonzero if this connection's TLS handshake did not satisfy vh's
+ * client-certificate requirement, whether or not he is already bound to vh.
  */
 
 int
-lws_vhost_rebind_mtls_refused(struct lws *wsi, struct lws_vhost *vh)
+lws_vhost_mtls_unsatisfied(struct lws *wsi, struct lws_vhost *vh)
 {
 #if defined(LWS_WITH_TLS)
 	union lws_tls_cert_info_results ir;
+	const uint8_t *id;
 
-	if (vh == wsi->a.vhost)
+	/*
+	 * This is about a peer we accepted naming the vhost that serves him.
+	 * Our own client connections get rebound too (the jit-trust redirect
+	 * in close.c), and they have no client cert of ours to show a vhost
+	 * that only inherited the option from the context info... their
+	 * server-side policy is nothing to do with this.
+	 */
+
+	if (lwsi_role_client(wsi))
 		return 0;
 
 	if (!lws_check_opt(vh->options,
@@ -94,15 +141,30 @@ lws_vhost_rebind_mtls_refused(struct lws *wsi, struct lws_vhost *vh)
 		  LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE))
 		return 0;
 
-	if (lws_get_network_wsi(wsi)->tls.ssl &&
-	    !lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VERIFIED, &ir,
-				    sizeof(ir.ns.name)) && ir.verified)
-		return 0;
+	if (!lws_get_network_wsi(wsi)->tls.ssl ||
+	    lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VERIFIED, &ir,
+				   sizeof(ir.ns.name)) || !ir.verified) {
+		lwsl_wsi_notice(wsi, "mTLS vhost %s: connection has no "
+				     "verified client cert", vh->name);
 
-	lwsl_wsi_notice(wsi, "refusing move to mTLS vhost %s: connection has "
-			     "no verified client cert", vh->name);
+		return 1;
+	}
 
-	return 1;
+	/*
+	 * He has a verified client cert... but whose CA vouched for it?
+	 */
+
+	id = lws_wsi_hs_ca_id(wsi);
+
+	if (!id || memcmp(id, vh->tls.client_ca_id,
+			  sizeof(vh->tls.client_ca_id))) {
+		lwsl_wsi_notice(wsi, "mTLS vhost %s: client cert was verified "
+				     "against a different CA store", vh->name);
+
+		return 1;
+	}
+
+	return 0;
 #else
 	(void)wsi;
 	(void)vh;
@@ -111,7 +173,18 @@ lws_vhost_rebind_mtls_refused(struct lws *wsi, struct lws_vhost *vh)
 #endif
 }
 
-void lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi) {
+int
+lws_vhost_rebind_mtls_refused(struct lws *wsi, struct lws_vhost *vh)
+{
+	if (vh == wsi->a.vhost)
+		return 0;
+
+	return lws_vhost_mtls_unsatisfied(wsi, vh);
+}
+
+static void
+_lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi, int tls_hs)
+{
 	const struct lws_protocols *p = NULL;
 
 	if (wsi->a.vhost == vh)
@@ -139,10 +212,16 @@ void lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi) {
 
 	/*
 	 * Likewise refuse to move him onto a vhost that requires a verified
-	 * client certificate when this connection never presented one: the
-	 * TLS handshake is not repeated for the vhost he names afterwards
+	 * client certificate when this connection never presented one, or
+	 * presented one that another vhost's CA store verified: the TLS
+	 * handshake is not repeated for the vhost he names afterwards.
+	 *
+	 * A bind from a TLS SNI callback is not such a move: it is still the
+	 * handshake being set up, on the vhost whose certificate and
+	 * client-cert policy the rest of that handshake will use, so TLS
+	 * itself enforces the requirement and no cert has been asked for yet.
 	 */
-	if (wsi->a.vhost && lws_vhost_rebind_mtls_refused(wsi, vh))
+	if (!tls_hs && wsi->a.vhost && lws_vhost_rebind_mtls_refused(wsi, vh))
 		return;
 
 	lws_context_lock(vh->context, __func__); /* ---------- context { */
@@ -221,6 +300,33 @@ void lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi) {
 			vh->count_bound_wsi);
 	assert(wsi->a.vhost->count_bound_wsi > 0);
 }
+
+void lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi) {
+	_lws_vhost_bind_wsi(vh, wsi, 0);
+}
+
+#if defined(LWS_WITH_TLS)
+
+/*
+ * Bind from inside a TLS SNI callback, ie, while the handshake this vhost was
+ * just selected for is still being set up.
+ *
+ * We record which vhost's client-cert CA store is going to verify his cert
+ * whether or not the bind itself is allowed (the handshake uses that vhost's
+ * policy either way), and note it when he did end up bound, so the
+ * post-accept ctx-to-vhost adaptation knows the SNI callback already placed
+ * him authoritatively and leaves him alone.
+ */
+
+void lws_vhost_bind_wsi_sni(struct lws_vhost *vh, struct lws *wsi) {
+	lws_tls_wsi_record_hs_ca(wsi, vh);
+
+	_lws_vhost_bind_wsi(vh, wsi, 1);
+
+	if (wsi->a.vhost == vh)
+		wsi->tls.sni_vh_bound = 1;
+}
+#endif
 
 /* req cx lock... acquires vh lock */
 void __lws_vhost_unbind_wsi(struct lws *wsi) {

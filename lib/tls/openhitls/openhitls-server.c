@@ -342,13 +342,14 @@ lws_ssl_server_name_cb(HITLS_Ctx *ssl, int *alert, void *arg)
 	/*
 	 * Bind the wsi to the vhost that will actually serve him now, so the
 	 * verify callback consults the right vhost's protocols[0] handler.
-	 * lws_vhost_bind_wsi() gives back the count held on the listening
-	 * vhost and refuses a move onto a vhost that is being destroyed.
+	 * lws_vhost_bind_wsi_sni() gives back the count held on the listening
+	 * vhost and refuses a move onto a vhost that is being destroyed, and
+	 * records whose CA store will verify his client cert (C-318).
 	 */
 
 	wsi = (struct lws *)HITLS_GetUserData(ssl);
 	if (wsi) {
-		lws_vhost_bind_wsi(vhost, wsi);
+		lws_vhost_bind_wsi_sni(vhost, wsi);
 	}
 
 	lwsl_info("SNI: Found: %s:%d\n", servername, vh->listen_port);

@@ -1812,6 +1812,23 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 
 							lwsl_debug("H3_TRACE: lws_select_vhost_sni returned %p (%s). Original port: %d\n", 
 								vhost, vhost ? vhost->name : "none", port);
+							if (vhost && lws_vhost_rebind_mtls_refused(wsi, vhost)) {
+								/*
+								 * He named a vhost that requires a client
+								 * cert his handshake did not satisfy.
+								 * lws_vhost_bind_wsi() would refuse the
+								 * move silently and leave him being served
+								 * by the vhost he came in on, which is not
+								 * the one he asked for... reject the
+								 * request instead (h1 answers 421 here).
+								 */
+								lwsl_wsi_notice(wsi, "refusing :authority move to mTLS vh %s",
+										vhost->name);
+								lws_quic_enter_closing_state(nwsi, LWS_H3_REQUEST_REJECTED, 0, 1);
+
+								return 1;
+							}
+
 							if (vhost) {
 								lws_vhost_bind_wsi(vhost, wsi);
 								lwsl_debug("H3_TRACE: bound wsi %p to vhost %s\n", wsi, vhost->name);

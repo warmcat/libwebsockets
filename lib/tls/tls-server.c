@@ -114,7 +114,17 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 		    lws_tls_server_client_cert_verify_config(vhost))
 			return -1;
 
-		if (vhost->protocols[0].callback((struct lws *)plwsa,
+		/*
+		 * With LWS_SERVER_OPTION_IGNORE_MISSING_CERT and no cert yet,
+		 * the backend freed the ctx and NULLed it (mbedtls, openssl,
+		 * bearssl, gnutls and schannel all do).  User code given a
+		 * NULL ssl_ctx here has nothing it can load certs into and
+		 * would just dereference it, so hold the callback until the
+		 * cert arrives and the ctx is regenerated.
+		 */
+
+		if (vhost->tls.ssl_ctx &&
+		    vhost->protocols[0].callback((struct lws *)plwsa,
 			    LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
 			    vhost->tls.ssl_ctx, vhost, 0))
 			return -1;
@@ -212,9 +222,16 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 		return 0;
 	}
 
-	/* adapt our vhost to match the SNI SSL_CTX that was chosen */
+	/*
+	 * Adapt our vhost to match the SNI SSL_CTX that was chosen.
+	 *
+	 * Backends whose SNI callback binds the wsi itself have already done
+	 * this authoritatively (and on mbedtls the ctx does not even follow
+	 * the SNI selection, so looking it up here would move him back to the
+	 * listening vhost).  Leave those alone.
+	 */
 
-	if (wsi->tls.ssl) {
+	if (wsi->tls.ssl && !wsi->tls.sni_vh_bound) {
 		vh = lws_tls_vhost_owning_ctx(context, lws_tls_ctx_from_wsi(wsi));
 		if (vh) {
 			lwsl_info("setting wsi to vh %s\n", vh->name);
@@ -231,12 +248,38 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 			 * this vhost's SSL_CTX and verify mode are what the
 			 * handshake just completed under, so if it requires a
 			 * client cert, the peer already presented a verified
-			 * one.
+			 * one... which is exactly what we record here first,
+			 * whether or not the bind is then allowed, since it
+			 * is a fact about the handshake rather than about
+			 * where he ends up bound (C-318).
 			 */
+			lws_tls_wsi_record_hs_ca(wsi, vh);
 			lws_vhost_bind_wsi(vh, wsi);
-		} else
+		} else {
 			lwsl_wsi_notice(wsi, "no vhost owns the tls ctx this "
 					     "connection handshaked under");
+			lws_tls_wsi_record_hs_ca(wsi, wsi->a.vhost);
+		}
+	}
+
+	/*
+	 * Whichever vhost he ends up on, this handshake has to satisfy that
+	 * vhost's client-certificate policy.  If a rebind above (or in the
+	 * SNI callback) was refused, he is still on the vhost that accepted
+	 * him, while the handshake completed under the policy of the vhost he
+	 * named... which may not have asked for a client cert at all.  We
+	 * cannot ask for one now, so drop the connection rather than serve
+	 * him from an mTLS vhost whose requirement he did not meet.
+	 */
+
+	if (wsi->tls.ssl && wsi->a.vhost &&
+	    lws_vhost_mtls_unsatisfied(wsi, wsi->a.vhost)) {
+		lwsl_wsi_notice(wsi, "dropping: vh %s requires a client cert "
+				     "this handshake did not provide",
+				     wsi->a.vhost->name);
+		wsi->socket_is_permanently_unusable = 1;
+
+		return 1;
 	}
 
 	/* OK, we are accepted... give him some time to negotiate */

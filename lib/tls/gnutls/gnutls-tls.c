@@ -532,7 +532,7 @@ lws_gnutls_server_name_cb(gnutls_session_t session)
 				GNUTLS_CERT_REQUEST : GNUTLS_CERT_REQUIRE);
 
 	/* And update wsi's bound vhost! */
-	lws_vhost_bind_wsi(vhost, wsi);
+	lws_vhost_bind_wsi_sni(vhost, wsi);
 
 	return 0;
 }

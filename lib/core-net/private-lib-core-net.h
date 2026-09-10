@@ -1542,6 +1542,16 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd);
 void
 lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi);
 
+#if defined(LWS_WITH_TLS)
+/* bind from a TLS SNI callback, ie, while the handshake is still being set up */
+void
+lws_vhost_bind_wsi_sni(struct lws_vhost *vh, struct lws *wsi);
+#endif
+
+/* nonzero if wsi's handshake did not satisfy vh's client-cert requirement */
+int
+lws_vhost_mtls_unsatisfied(struct lws *wsi, struct lws_vhost *vh);
+
 /* nonzero if moving wsi onto vh would bypass vh's client-cert requirement */
 int
 lws_vhost_rebind_mtls_refused(struct lws *wsi, struct lws_vhost *vh);
