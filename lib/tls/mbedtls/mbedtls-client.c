@@ -253,6 +253,11 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		return 1;
 	}
 
+	/* TLS 1.2 floor + no peer-initiated renegotiation, see C-406.  The
+	 * override is info.ssl_client_options_clear */
+	lws_mbedtls_conf_floor(&ctx->conf, info ?
+				(long)info->ssl_client_options_clear : 0);
+
 	mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
 
 	/*

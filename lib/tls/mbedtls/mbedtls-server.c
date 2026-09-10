@@ -368,6 +368,10 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 		return 1;
 	}
 
+	/* TLS 1.2 floor + no peer-initiated renegotiation, see C-406.  The
+	 * override is vhost->tls.ssl_options_clear (info.ssl_options_clear) */
+	lws_mbedtls_conf_floor(&ctx->conf, vhost->tls.ssl_options_clear);
+
 #if !defined(LWS_HAVE_MBEDTLS_V4)
 	mbedtls_ssl_conf_rng(&ctx->conf, lws_gencrypto_mbedtls_rngf, vhost->context);
 #endif

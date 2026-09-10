@@ -135,24 +135,67 @@ lws_openhitls_apply_tls_version_by_ssl_options(HITLS_Config *config, long set,
 				    !((unsigned long long)clear &
 				      (unsigned long long)SSL_OP_NO_TLSv1_3);
 
+	uint16_t min = HITLS_VERSION_TLS12, max = HITLS_VERSION_TLS13;
+
 	if (no_tls12 && no_tls13) {
 		lwsl_err("%s: SSL_OP_NO_TLSv1_2 and SSL_OP_NO_TLSv1_3 cannot "
 			 "both be active\n", who);
 		return -1;
 	}
 
-	if (no_tls13) {
-		if (HITLS_CFG_SetVersion(config, HITLS_VERSION_TLS12,
-					 HITLS_VERSION_TLS12) != HITLS_SUCCESS) {
-			lwsl_err("%s: HITLS_CFG_SetVersion(TLS1.2) failed\n",
+	/*
+	 * Parity with the openssl server / client ctxs (C-406): the floor is
+	 * TLS 1.2.  HITLS_CFG_NewTLSConfig() defaults to offering SSL 3.0, TLS
+	 * 1.0 and TLS 1.1 as well; RFC 8996 deprecates 1.0 / 1.1 and SSL 3.0
+	 * is long dead, and they are all a downgrade target.
+	 *
+	 * OVERRIDE: the same .ssl_options_clear / .ssl_client_options_clear
+	 * info members the openssl backend uses, which is what this function
+	 * is handed.
+	 */
+
+	if ((unsigned long long)clear & (unsigned long long)SSL_OP_NO_TLSv1)
+		min = HITLS_VERSION_TLS10;
+	else
+		if ((unsigned long long)clear &
+		    (unsigned long long)SSL_OP_NO_TLSv1_1)
+			min = HITLS_VERSION_TLS11;
+
+	if (no_tls13)
+		max = HITLS_VERSION_TLS12;
+
+	if (no_tls12)
+		min = HITLS_VERSION_TLS13;
+
+	if (HITLS_CFG_SetVersion(config, min, max) != HITLS_SUCCESS) {
+		lwsl_err("%s: HITLS_CFG_SetVersion(0x%04x - 0x%04x) failed\n",
+			 who, min, max);
+
+		return -1;
+	}
+
+	/*
+	 * Peer-initiated renegotiation is a cheap asymmetric CPU amplifier for
+	 * a server, and on the client side lets the peer swap its certificate
+	 * after our identity check latched.  openHiTLS defaults renegotiation
+	 * off, but say so explicitly so it stays that way, and refuse a
+	 * client-side renegotiate request too.
+	 *
+	 * OVERRIDE: SSL_OP_NO_RENEGOTIATION in the corresponding _clear
+	 * member, exactly as on openssl.
+	 */
+
+	{
+		bool reneg = !!((unsigned long long)clear &
+				(unsigned long long)SSL_OP_NO_RENEGOTIATION);
+
+		if (HITLS_CFG_SetRenegotiationSupport(config, reneg) !=
+							HITLS_SUCCESS ||
+		    HITLS_CFG_SetClientRenegotiateSupport(config, reneg) !=
+							HITLS_SUCCESS) {
+			lwsl_err("%s: unable to set renegotiation policy\n",
 				 who);
-			return -1;
-		}
-	} else if (no_tls12) {
-		if (HITLS_CFG_SetVersion(config, HITLS_VERSION_TLS13,
-					 HITLS_VERSION_TLS13) != HITLS_SUCCESS) {
-			lwsl_err("%s: HITLS_CFG_SetVersion(TLS1.3) failed\n",
-				 who);
+
 			return -1;
 		}
 	}

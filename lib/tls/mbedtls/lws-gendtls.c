@@ -162,6 +162,15 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 		goto bail;
 	}
 
+	/*
+	 * RFC 8827 6: DTLS 1.2 or later only, and RFC 8827 6.5 forbids
+	 * renegotiation for WebRTC (the caller's fingerprint check is a
+	 * one-shot latch).  Parity with the openssl gendtls ctx, C-298.
+	 * There is no info struct on this api, so no override: a DTLS ctx is
+	 * only ever used for WebRTC, where the RFC is not negotiable.
+	 */
+	lws_mbedtls_conf_floor(&ctx->conf, 0);
+
 	if (mode == LWS_GENDTLS_MODE_SERVER) {
 		if ((ret = mbedtls_ssl_cookie_setup(&ctx->cookie_ctx,
 						    mbedtls_ctr_drbg_random,

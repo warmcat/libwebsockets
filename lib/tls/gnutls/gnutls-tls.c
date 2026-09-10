@@ -96,6 +96,58 @@ lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
 	lws_free(ctx);
 }
 
+/*
+ * Parity with the openssl server / client ctxs (C-406): put the protocol
+ * floor at TLS 1.2.  RFC 8996 deprecates TLS 1.0 and 1.1, which drag in the
+ * SHA1 / CBC-with-implicit-IV record layer and are a downgrade target;
+ * "NORMAL" on its own still offers them on many gnutls builds.
+ *
+ * OVERRIDE: gnutls has no SSL_CTX_set_options(), so the same public info
+ * members the openssl backend uses are honoured here directly:
+ * .ssl_options_clear (server) / .ssl_client_options_clear (client).
+ *
+ *  - SSL_OP_NO_TLSv1 in _clear   leaves TLS 1.0 and 1.1 offered
+ *  - SSL_OP_NO_TLSv1_1 in _clear leaves TLS 1.1 offered
+ *
+ * There is no renegotiation half to this: gnutls never renegotiates by
+ * itself, it reports GNUTLS_E_REHANDSHAKE to us and we fail the connection
+ * (see lws_ssl_capable_read()), which is already what
+ * SSL_OP_NO_RENEGOTIATION buys on openssl.
+ */
+
+static int
+lws_gnutls_priority_init(gnutls_priority_t *pr, const char *cipher_list,
+			 long options_clear, const char *who)
+{
+	unsigned long long oc = (unsigned long long)options_clear;
+	const char *err = NULL;
+	char prio[512];
+	int n;
+
+	n = lws_snprintf(prio, sizeof(prio), "%s:-VERS-SSL3.0%s%s",
+			 cipher_list ? cipher_list : "NORMAL",
+			 (oc & (unsigned long long)SSL_OP_NO_TLSv1) ? "" :
+							":-VERS-TLS1.0",
+			 (oc & (unsigned long long)(SSL_OP_NO_TLSv1 |
+						    SSL_OP_NO_TLSv1_1)) ? "" :
+							":-VERS-TLS1.1");
+
+	if (n >= (int)sizeof(prio) - 1) {
+		lwsl_err("%s: priority string too long\n", who);
+
+		return 1;
+	}
+
+	if (gnutls_priority_init(pr, prio, &err) < 0) {
+		lwsl_err("%s: gnutls_priority_init '%s' failed at '%s'\n", who,
+			 prio, err ? err : "(start)");
+
+		return 1;
+	}
+
+	return 0;
+}
+
 int
 lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 {
@@ -121,10 +173,9 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 		lwsl_err("%s: unable to load trust file %s\n", __func__,
 			 vhost->tls.cfg_ssl_ca_filepath);
 
-	if (gnutls_priority_init(&vhost->tls.ssl_ctx->priority,
-				 vhost->tls.cfg_ssl_cipher_list ?
-				 vhost->tls.cfg_ssl_cipher_list : "NORMAL", NULL) < 0) {
-		lwsl_err("%s: gnutls_priority_init failed\n", __func__);
+	if (lws_gnutls_priority_init(&vhost->tls.ssl_ctx->priority,
+				     vhost->tls.cfg_ssl_cipher_list,
+				     vhost->tls.ssl_options_clear, __func__)) {
 		gnutls_certificate_free_credentials(vhost->tls.ssl_ctx->creds);
 		lws_free(vhost->tls.ssl_ctx);
 		vhost->tls.ssl_ctx = NULL;
@@ -357,11 +408,11 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		}
 	}
 
-	if (gnutls_priority_init(&vh->tls.ssl_client_ctx->priority,
-				 cipher_list ? cipher_list : "NORMAL", NULL) < 0) {
-		lwsl_err("%s: gnutls_priority_init failed\n", __func__);
+	if (lws_gnutls_priority_init(&vh->tls.ssl_client_ctx->priority,
+				     cipher_list, info ?
+				     (long)info->ssl_client_options_clear : 0,
+				     __func__))
 		goto bail;
-	}
 
 #if defined(LWS_WITH_TLS_SESSIONS)
 	vh->tls_session_cache_max = (info && info->tls_session_cache_max) ?

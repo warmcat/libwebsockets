@@ -68,8 +68,17 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
                  "lws_dtls_%p_%u", ctx, (unsigned int)lws_now_secs());
 
     ctx->schannel_cred.dwVersion = SCHANNEL_CRED_VERSION;
-    ctx->schannel_cred.grbitEnabledProtocols = SP_PROT_DTLS1_0_CLIENT | SP_PROT_DTLS1_0_SERVER |
-                                               SP_PROT_DTLS1_2_CLIENT | SP_PROT_DTLS1_2_SERVER;
+
+    /*
+     * RFC 8827 6: DTLS 1.2 or later only.  DTLS 1.0 drags in the TLS 1.0-era
+     * CBC / SHA1 record layer and is a downgrade target; the openssl gendtls
+     * ctx has had a DTLS 1.2 floor since C-298.  There is no info member to
+     * override this with, and there should not be: a gendtls ctx is only ever
+     * used for WebRTC, where the RFC is not negotiable.
+     */
+
+    ctx->schannel_cred.grbitEnabledProtocols = SP_PROT_DTLS1_2_CLIENT |
+                                               SP_PROT_DTLS1_2_SERVER;
 
     ctx->schannel_cred.dwFlags = SCH_CRED_NO_DEFAULT_CREDS | SCH_CRED_MANUAL_CRED_VALIDATION;
 
@@ -176,12 +185,15 @@ lws_gendtls_schannel_update_creds(struct lws_gendtls_ctx *ctx)
                        SCH_CRED_MANUAL_CRED_VALIDATION |
                        SCH_CRED_IGNORE_NO_REVOCATION_CHECK |
                        SCH_CRED_IGNORE_REVOCATION_OFFLINE;
-/*
- * We use 0 (all enabled) to allow SChannel to negotiate.
- */
 
-    /* Let OS handle protocol enablement for DTLS */
-    sch_cred.grbitEnabledProtocols = 0;
+    /*
+     * NOT 0 ("let the OS pick"): the OS default DTLS set still includes DTLS
+     * 1.0 on every Windows that has it, and RFC 8827 6 requires DTLS 1.2 or
+     * later.  Same floor as the credential built in lws_gendtls_create().
+     */
+
+    sch_cred.grbitEnabledProtocols = SP_PROT_DTLS1_2_CLIENT |
+                                     SP_PROT_DTLS1_2_SERVER;
 
     status = AcquireCredentialsHandleA(NULL, UNISP_NAME_A,
                                       ctx->mode == LWS_GENDTLS_MODE_SERVER ? SECPKG_CRED_INBOUND : SECPKG_CRED_OUTBOUND,

@@ -71,6 +71,25 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 	}
 
+	if (n == GNUTLS_E_REHANDSHAKE) {
+		/*
+		 * The peer wants to renegotiate.  We never do: for a server it
+		 * is a cheap asymmetric CPU amplifier (a few hundred bytes in,
+		 * a key exchange and a private key signature out) on a
+		 * connection whose handshake restriction slot has already been
+		 * handed back, and for a client it would let the server
+		 * present a different certificate after the peer identity
+		 * check latched.
+		 *
+		 * gnutls never renegotiates by itself, it just tells us, so
+		 * this is where the openssl ctxs' SSL_OP_NO_RENEGOTIATION
+		 * (C-406) lands on this backend: drop the connection.
+		 */
+		lwsl_wsi_notice(wsi, "peer asked to renegotiate, refusing");
+
+		return LWS_SSL_CAPABLE_ERROR;
+	}
+
 	lwsl_info("gnutls_record_recv error %d\n", n);
 
 	return LWS_SSL_CAPABLE_ERROR;

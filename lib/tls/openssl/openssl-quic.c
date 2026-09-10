@@ -334,6 +334,17 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	wsi->tls.quic_secret_cb = cb;
 	SSL_set_app_data(wsi->tls.ssl, wsi);
 
+	/*
+	 * RFC 9001 4.2: QUIC uses TLS 1.3 and nothing else.  The vhost ctx we
+	 * are borrowing is shared with the vhost's TLS-over-TCP connections and
+	 * only has the general TLS 1.2 floor from C-406, so pin this
+	 * connection, which is a per-SSL setting and does not affect them.
+	 */
+#if defined(TLS1_3_VERSION)
+	SSL_set_min_proto_version(wsi->tls.ssl, TLS1_3_VERSION);
+	SSL_set_max_proto_version(wsi->tls.ssl, TLS1_3_VERSION);
+#endif
+
 #if defined(USE_WOLFSSL)
 	wolfSSL_set_quic_method(wsi->tls.ssl, &quic_method);
 #else
@@ -720,6 +731,17 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 		return -1;
 
 	ctx = SSL_get_SSL_CTX(wsi->tls.ssl);
+
+	/*
+	 * RFC 9001 4.2: QUIC uses TLS 1.3 and nothing else.  The vhost ctx we
+	 * are borrowing is shared with the vhost's TLS-over-TCP connections and
+	 * only has the general TLS 1.2 floor from C-406, so pin this
+	 * connection, which is a per-SSL setting and does not affect them.
+	 */
+#if defined(TLS1_3_VERSION)
+	SSL_set_min_proto_version(wsi->tls.ssl, TLS1_3_VERSION);
+	SSL_set_max_proto_version(wsi->tls.ssl, TLS1_3_VERSION);
+#endif
 
 	rbio = BIO_new(BIO_s_mem());
 	wbio = BIO_new(BIO_s_mem());

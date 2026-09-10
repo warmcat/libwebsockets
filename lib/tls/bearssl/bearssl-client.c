@@ -64,6 +64,11 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		/* Basic init */
 		br_ssl_client_init_full(&conn->u.client, &conn->x509_ctx, tas, num_tas);
 
+		/* must follow br_ssl_client_init_full(), which set the version
+		 * range back to TLS 1.0 - 1.2 */
+		lws_bearssl_engine_set_floor(&conn->u.client.eng,
+					     ctx ? ctx->options_clear : 0);
+
 		/*
 		 * mTLS: if the vhost was configured with a client cert, it
 		 * has to actually be offered when the server asks for one
@@ -460,6 +465,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		return 1;
 
 	vh->tls.ssl_client_ctx = ctx;
+
+	/* the app's override for the TLS 1.2 floor, see
+	 * lws_bearssl_engine_set_floor() */
+	ctx->options_clear = info ? (long)info->ssl_client_options_clear : 0;
 
 	if (!ca_filepath && (!ca_mem || !ca_mem_len)) {
 		ca_filepath = getenv("SSL_CERT_FILE");

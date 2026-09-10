@@ -353,6 +353,19 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	}
 
 	mbedtls_ssl_conf_transport(&conn->conf, MBEDTLS_SSL_TRANSPORT_QUIC);
+
+	/*
+	 * RFC 9001 4.2: QUIC uses TLS 1.3 and nothing else.  conn->conf is this
+	 * connection's private copy, so pinning it here does not affect the
+	 * vhost's TLS-over-TCP connections, which keep the general TLS 1.2
+	 * floor from lws_mbedtls_conf_floor() (C-406).
+	 */
+
+	mbedtls_ssl_conf_min_tls_version(&conn->conf,
+					 MBEDTLS_SSL_VERSION_TLS1_3);
+	mbedtls_ssl_conf_max_tls_version(&conn->conf,
+					 MBEDTLS_SSL_VERSION_TLS1_3);
+
 	msc->MBEDTLS_PRIVATE(conf) = &conn->conf;
 
 	mbedtls_ssl_set_quic_transport_ops(msc, &quic_ops);

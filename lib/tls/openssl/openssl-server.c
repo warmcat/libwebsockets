@@ -819,6 +819,19 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 
 	lwsl_info(" SSL options 0x%lX\n",
 			(unsigned long)SSL_CTX_get_options(tls->ssl_ctx));
+#else
+	/*
+	 * There is no SSL_CTX_clear_options() to apply here, so
+	 * .ssl_options_clear is inoperative on this build... which also means
+	 * the TLS 1.2 floor and the renegotiation refusal set above (C-406)
+	 * cannot be lowered.  Say so rather than let an operator believe his
+	 * override took effect.
+	 */
+	if (tls->ssl_options_clear)
+		lwsl_err("%s: vh %s: this TLS build has no "
+			 "SSL_CTX_clear_options(), ssl_options_clear 0x%lX "
+			 "IGNORED\n", __func__, vhost->name,
+			 (unsigned long)tls->ssl_options_clear);
 #endif
 
 	return 0;

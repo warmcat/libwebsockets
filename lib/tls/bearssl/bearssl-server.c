@@ -37,6 +37,10 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 
 	vhost->tls.ssl_ctx = ctx;
 
+	/* the app's override for the TLS 1.2 floor, see
+	 * lws_bearssl_engine_set_floor() */
+	ctx->options_clear = vhost->tls.ssl_options_clear;
+
 	return 0;
 }
 
@@ -145,6 +149,11 @@ lws_tls_server_accept(struct lws *wsi)
 			br_ssl_server_init_full_ec(&conn->u.server, ctx->chain, ctx->chain_len,
 						   BR_KEYTYPE_EC, &ctx->ec_key);
 		}
+
+		/* must follow br_ssl_server_init_full_*(), which set the
+		 * version range back to TLS 1.0 - 1.2 */
+		lws_bearssl_engine_set_floor(&conn->u.server.eng,
+					     ctx->options_clear);
 
 		br_ssl_engine_set_buffers_bidi(&conn->u.server.eng, conn->iobuf_in, sizeof(conn->iobuf_in), conn->iobuf_out, sizeof(conn->iobuf_out));
 

@@ -123,6 +123,68 @@ lws_mbedtls_pk_parse_key_mem(struct lws_context *cx, mbedtls_pk_context *key,
 #undef lws_mbedtls_pkpk
 }
 
+/*
+ * Parity with the openssl backend (C-406): put the protocol floor at (D)TLS
+ * 1.2 and refuse peer-initiated renegotiation, on every config we create,
+ * server, client, QUIC and DTLS alike.
+ *
+ * RFC 8996 deprecates TLS 1.0 / 1.1, which drag in the SHA1 / CBC-with-
+ * implicit-IV record layer and are a downgrade target.  Peer-initiated
+ * renegotiation is a cheap asymmetric CPU amplifier and, on the client side,
+ * lets a server swap its certificate after the peer identity check latched.
+ *
+ * OVERRIDE: this backend has no SSL_CTX_set_options(), so the info members
+ * .ssl_options_clear (server) / .ssl_client_options_clear (client) are
+ * honoured directly here, matching what the same bits do on openssl:
+ *
+ *  - SSL_OP_NO_TLSv1 in _clear   lowers the floor to (D)TLS 1.0
+ *  - SSL_OP_NO_TLSv1_1 in _clear lowers the floor to (D)TLS 1.1
+ *  - SSL_OP_NO_RENEGOTIATION in _clear re-enables renegotiation
+ *
+ * (mbedtls 3.x has no TLS 1.0 / 1.1 code at all, so there the floor is
+ * already 1.2 and only the renegotiation part can do anything.)
+ */
+
+void
+lws_mbedtls_conf_floor(mbedtls_ssl_config *conf, long options_clear)
+{
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+
+	/*
+	 * mbedtls >= 3.0 dropped TLS 1.0 / 1.1 entirely, there is nothing for
+	 * _clear to lower to; the floor is 1.2 regardless
+	 */
+
+	mbedtls_ssl_conf_min_tls_version(conf, MBEDTLS_SSL_VERSION_TLS1_2);
+
+#else
+	{
+		unsigned long long oc = (unsigned long long)options_clear;
+		int minor = MBEDTLS_SSL_MINOR_VERSION_3; /* TLS 1.2 */
+
+		if (oc & (unsigned long long)SSL_OP_NO_TLSv1)
+			minor = MBEDTLS_SSL_MINOR_VERSION_1; /* TLS 1.0 */
+		else
+			if (oc & (unsigned long long)SSL_OP_NO_TLSv1_1)
+				minor = MBEDTLS_SSL_MINOR_VERSION_2;
+
+		mbedtls_ssl_conf_min_version(conf, MBEDTLS_SSL_MAJOR_VERSION_3,
+					     minor);
+	}
+#endif
+
+#if defined(MBEDTLS_SSL_RENEGOTIATION)
+	mbedtls_ssl_conf_renegotiation(conf,
+			((unsigned long long)options_clear &
+			 (unsigned long long)SSL_OP_NO_RENEGOTIATION) ?
+				MBEDTLS_SSL_RENEGOTIATION_ENABLED :
+				MBEDTLS_SSL_RENEGOTIATION_DISABLED);
+#endif
+
+	(void)conf;
+	(void)options_clear;
+}
+
 #if defined(LWS_HAVE_mbedtls_ssl_conf_alpn_protocols)
 
 /*

@@ -89,6 +89,9 @@ lws_gencrypto_mbedtls_rngf(void *context, unsigned char *buf, size_t len);
 void mbedtls_quic_bio_free(struct lws *wsi);
 void lws_mbedtls_set_alpn(struct lws_tls_ctx *ctx, const char *alpn_comma);
 
+void
+lws_mbedtls_conf_floor(mbedtls_ssl_config *conf, long options_clear);
+
 #if defined(LWS_WITH_CLIENT)
 int
 lws_mbedtls_conn_set_alpn(struct lws_tls_conn *conn, const char *alpn_comma);

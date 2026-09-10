@@ -126,6 +126,46 @@
 
 #endif /* !LWS_WITH_SCHANNEL */
 
+/*
+ * The public info .ssl_options_set / .ssl_options_clear (and the _client_
+ * variants) are documented as carrying OpenSSL SSL_OP_ bit values, whatever
+ * TLS backend is actually built in: they are the portable way an app lowers
+ * the protocol floor or re-enables peer-initiated renegotiation.
+ *
+ * Backends that do not include the openssl headers still have to be able to
+ * interpret them, so provide the (ABI-fixed) OpenSSL 1.1.x / 3.x bit values
+ * for the ones the backends act on.  Each is guarded so that a backend
+ * private header that already defined it wins.
+ *
+ * This is deliberately NOT done for openssl / wolfSSL builds: those have the
+ * real definitions, and some of these bit positions meant something else
+ * entirely in openssl 1.0.x (0x40000000L was
+ * SSL_OP_NETSCAPE_DEMO_CIPHER_CHANGE_BUG), so on those backends the absence
+ * of a macro has to keep meaning "this version does not have the feature".
+ */
+
+#if defined(LWS_WITH_SCHANNEL) || defined(LWS_WITH_GNUTLS) || \
+    defined(LWS_WITH_BEARSSL) || defined(LWS_WITH_MBEDTLS) || \
+    defined(LWS_WITH_OPENHITLS)
+
+#if !defined(SSL_OP_NO_TLSv1)
+ #define SSL_OP_NO_TLSv1	0x04000000L
+#endif
+#if !defined(SSL_OP_NO_TLSv1_2)
+ #define SSL_OP_NO_TLSv1_2	0x08000000L
+#endif
+#if !defined(SSL_OP_NO_TLSv1_1)
+ #define SSL_OP_NO_TLSv1_1	0x10000000L
+#endif
+#if !defined(SSL_OP_NO_TLSv1_3)
+ #define SSL_OP_NO_TLSv1_3	0x20000000L
+#endif
+#if !defined(SSL_OP_NO_RENEGOTIATION)
+ #define SSL_OP_NO_RENEGOTIATION	0x40000000L
+#endif
+
+#endif /* non-openssl-derived backends */
+
 #endif /* LWS_WITH_TLS */
 
 enum lws_tls_extant {

@@ -297,6 +297,28 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 	}
 
 	/*
+	 * RFC 8827 6: DTLS 1.2 or later only.  HITLS_CFG_NewDTLSConfig()
+	 * defaults to offering DTLS 1.0 as well, which drags in the TLS
+	 * 1.0-era CBC / SHA1 record layer and is a downgrade target.  RFC 8827
+	 * 6.5 also forbids renegotiation for WebRTC, and the caller's
+	 * fingerprint check is a one-shot latch, so a renegotiation presenting
+	 * a different certificate would never be rechecked.
+	 *
+	 * Parity with the openssl gendtls ctx (C-298).  There is no info
+	 * struct member to override this with, and there should not be: a
+	 * gendtls ctx is only ever used for WebRTC.
+	 */
+
+	if (HITLS_CFG_SetVersion(ctx->config, HITLS_VERSION_DTLS12,
+				 HITLS_VERSION_DTLS12) != HITLS_SUCCESS) {
+		lwsl_err("%s: HITLS_CFG_SetVersion(DTLS1.2) failed\n", __func__);
+		goto bail;
+	}
+
+	(void)HITLS_CFG_SetRenegotiationSupport(ctx->config, false);
+	(void)HITLS_CFG_SetClientRenegotiateSupport(ctx->config, false);
+
+	/*
 	 * Continue the handshake when chain verification fails: DTLS-SRTP peer
 	 * certificates are self-signed by design and the trust anchor is the
 	 * a=fingerprint from the signalling channel, which the caller compares.

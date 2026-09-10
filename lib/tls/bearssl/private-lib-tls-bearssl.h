@@ -43,6 +43,12 @@ struct lws_tls_ctx {
 	 * into it, so it must be kept until the ctx is destroyed
 	 */
 	uint8_t *key_buf;
+	/*
+	 * .ssl_options_clear / .ssl_client_options_clear as given in the
+	 * creation info: the app's way to lower the protocol floor, see
+	 * lws_bearssl_engine_set_floor()
+	 */
+	long options_clear;
 #if defined(LWS_WITH_TLS_SESSIONS)
 	br_ssl_session_cache_lru lru;
 	uint8_t *lru_buffer;
@@ -105,5 +111,7 @@ void lws_bearssl_x509_wrap_conn(lws_tls_conn *conn);
 int lws_tls_session_new_bearssl(struct lws *wsi);
 int lws_bearssl_set_alpn(struct lws_tls_conn *conn, const uint8_t *alpn, size_t alpn_len);
 int lws_tls_bearssl_vh_wants_client_certs(struct lws_vhost *vh);
+void lws_bearssl_engine_set_floor(br_ssl_engine_context *eng,
+				  long options_clear);
 
 #endif

@@ -1230,6 +1230,41 @@ int lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi, const ch
  * client_ssl_ca_filepath for verifying client certs.
  */
 
+/*
+ * Parity with the openssl server / client ctxs (C-406): put the protocol
+ * floor at TLS 1.2.  br_ssl_{client,server}_init_full() leave the engine
+ * offering TLS 1.0 and 1.1, which RFC 8996 deprecates and which are a
+ * downgrade target.
+ *
+ * OVERRIDE: BearSSL has no SSL_CTX_set_options(), so the same public info
+ * members the openssl backend uses are honoured here directly, carried on the
+ * ctx as .options_clear: .ssl_options_clear (server) /
+ * .ssl_client_options_clear (client).
+ *
+ *  - SSL_OP_NO_TLSv1 in _clear   lowers the floor to TLS 1.0
+ *  - SSL_OP_NO_TLSv1_1 in _clear lowers the floor to TLS 1.1
+ *
+ * There is no renegotiation half to this: BearSSL implements no
+ * renegotiation at all, in either direction, so SSL_OP_NO_RENEGOTIATION is
+ * already unconditionally in force here.  BearSSL also implements no TLS 1.3,
+ * so BR_TLS12 is both floor and ceiling by default.
+ */
+
+void
+lws_bearssl_engine_set_floor(br_ssl_engine_context *eng, long options_clear)
+{
+	unsigned long long oc = (unsigned long long)options_clear;
+	uint16_t min = BR_TLS12;
+
+	if (oc & (unsigned long long)SSL_OP_NO_TLSv1)
+		min = BR_TLS10;
+	else
+		if (oc & (unsigned long long)SSL_OP_NO_TLSv1_1)
+			min = BR_TLS11;
+
+	br_ssl_engine_set_versions(eng, min, BR_TLS12);
+}
+
 int
 lws_tls_bearssl_vh_wants_client_certs(struct lws_vhost *vh)
 {
