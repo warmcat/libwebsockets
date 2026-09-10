@@ -115,9 +115,71 @@ lws_handling_result_t
 lws_ws_client_rx_parser_block(struct lws *wsi, const uint8_t **buf, size_t *len)
 {
 	lws_handling_result_t hpr = LWS_HPI_RET_HANDLED;
+	const uint8_t *bufin = *buf;
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	int drains = LWS_WS_RX_EXT_DRAIN_BUDGET;
+#endif
 	size_t chunk_len;
 
 	while (*len) {
+
+		/*
+		 * The user code may have asked us to stop accepting rx, eg,
+		 * from inside the RECEIVE callback we just returned from...
+		 * cache what is left and stop delivering it to him.
+		 */
+
+		if (lws_is_flowcontrolled(wsi)) {
+			lwsl_wsi_info(wsi, "doing rxflow, caching %d",
+					   (int)*len);
+
+			if (lws_rxflow_cache(wsi, (unsigned char *)*buf, 0,
+					     *len) == LWSRXFC_TRIMMED)
+				/*
+				 * What is left is already the head of our
+				 * buflist, and has been trimmed to be just the
+				 * part we did not use... so we must report we
+				 * consumed nothing of it.
+				 */
+				*buf = bufin;
+			else
+				/* it's cached now, so we "consumed" it */
+				*buf += *len;
+
+			*len = 0;
+
+			return LWS_HPI_RET_HANDLED;
+		}
+
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+		/*
+		 * The rx ext (eg, permessage-deflate) may still owe us output
+		 * from input we already gave it, and it must all come out
+		 * before we may look at any more input... draining consumes no
+		 * input byte, which is the invariant lws_ws_client_rx_sm()
+		 * asserts on entry when the drain flag is set.
+		 */
+
+		if (wsi->ws->rx_draining_ext) {
+			if (!drains--)
+				/*
+				 * We already did our share of draining for
+				 * this service slot... we are still on the
+				 * pt's rx_draining_ext_list, so the faked
+				 * POLLIN from rops_service_flag_pending_ws()
+				 * brings us straight back, and the input we
+				 * did not consume goes on the wsi buflist.
+				 */
+				return LWS_HPI_RET_HANDLED;
+
+			hpr = lws_ws_client_rx_sm(wsi, 0);
+			if (hpr != LWS_HPI_RET_HANDLED)
+				return hpr;
+
+			continue;
+		}
+#endif
+
 		/*
 		 * We can process headers and control frames byte-by-byte
 		 * using the original state machine.
