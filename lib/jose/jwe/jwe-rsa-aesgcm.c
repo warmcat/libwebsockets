@@ -205,14 +205,13 @@ lws_jwe_auth_and_decrypt_rsa_aes_gcm(struct lws_jwe *jwe)
 		return -1;
 	}
 
-#if defined(LWS_WITH_MBEDTLS) && defined(LWS_PLAT_OPTEE)
-	/* strip padding */
-
-	n = jwe->jws.map.buf[LJWE_CTXT][jwe->jws.map.len[LJWE_CTXT] - 1];
-	if (n > 16)
-		return -1;
-	jwe->jws.map.len[LJWE_CTXT] -= n;
-#endif
+	/*
+	 * There used to be an OPTEE-only PKCS#7 strip here, but AES-GCM is a
+	 * stream mode and emits no padding at all... it unconditionally chopped
+	 * plaintext[len - 1] bytes off a correct plaintext, and with the pad
+	 * byte read through a char, an attacker-chosen final byte >= 0x80 grew
+	 * map.len[LJWE_CTXT] instead, or wrapped the uint32_t to ~4GB.
+	 */
 
 	return (int)jwe->jws.map.len[LJWE_CTXT];
 }

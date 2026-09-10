@@ -211,18 +211,15 @@ lws_jwe_auth_and_decrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe)
 		return -1;
 	}
 
-#if defined(LWS_WITH_MBEDTLS) && defined(LWS_PLAT_OPTEE)
-
-	/* strip padding */
-
-	n = jwe->jws.map.buf[LJWE_CTXT][jwe->jws.map.len[LJWE_CTXT] - 1];
-	if (n > 16) {
-		lwsl_err("%s: n == %d, plen %d\n", __func__, n,
-				(int)jwe->jws.map.len[LJWE_CTXT]);
-		return -1;
-	}
-	jwe->jws.map.len[LJWE_CTXT] -= n;
-#endif
+	/*
+	 * There used to be a second, OPTEE-only PKCS#7 strip here.
+	 * lws_jwe_auth_and_decrypt_cbc_hs() has already stripped the padding
+	 * by now, so it stripped twice; and it read the pad byte through a
+	 * char, so a pad >= 0x80 was negative and *grew* map.len[LJWE_CTXT],
+	 * while a pad larger than the (already unpadded) plaintext wrapped
+	 * the uint32_t length to ~4GB.  Both are attacker-chosen, since for
+	 * RSA-OAEP the public key lets him author a JWE that authenticates.
+	 */
 
 	return (int)jwe->jws.map.len[LJWE_CTXT];
 }
