@@ -2287,6 +2287,24 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			break;
 		}
 
+		/*
+		 * RFC 9113 8.2.2: "Connection-specific header fields" -- the
+		 * list is Connection, Proxy-Connection, Keep-Alive,
+		 * Transfer-Encoding and Upgrade -- "MUST NOT be used in
+		 * HTTP/2".  h2 does its own framing, so a transfer-encoding is
+		 * not merely useless here, it is the classic h2 -> h1
+		 * downgrade request-smuggling primitive if we let it through to
+		 * an onward h1 leg.  (Connection is refused just above, and TE
+		 * -- which is allowed, but only as "trailers" -- just below.)
+		 */
+
+		if (lws_hdr_extant(h2n->swsi,
+				   WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
+			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				      "Transfer-Encoding in h2 request");
+			break;
+		}
+
 		if (lws_hdr_extant(h2n->swsi, WSI_TOKEN_TE)) {
 			n = lws_hdr_total_length(h2n->swsi, WSI_TOKEN_TE);
 
@@ -2295,7 +2313,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			    strncmp(lws_hdr_simple_ptr(h2n->swsi, WSI_TOKEN_TE),
 				  "trailers", (unsigned int)n)) {
 				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-					      "Illegal transfer-encoding");
+					      "Illegal TE");
 				break;
 			}
 		}
