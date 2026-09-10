@@ -40,6 +40,16 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
 
 	n = (int)gnutls_record_recv((gnutls_session_t)wsi->tls.ssl, buf, len);
+
+	/*
+	 * gnutls can call back into us from in there (keylog, session ticket,
+	 * verify), and a callback that closed the wsi took the session with
+	 * it... everything below dereferences wsi->tls.ssl again (C-417)
+	 */
+
+	if (!wsi->tls.ssl)
+		return LWS_SSL_CAPABLE_ERROR;
+
 	if (n > 0) {
 		struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 

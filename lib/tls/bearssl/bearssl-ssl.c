@@ -180,6 +180,15 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		/* 2. Pump the engine to read from socket and decrypt */
 		int pump_ret = lws_bearssl_pump(wsi);
 
+		/*
+		 * The pump can end up in lws callbacks (ALPN negotiation, jit
+		 * trust), and one of those closing the wsi freed conn with it:
+		 * everything below dereferences it again (C-417)
+		 */
+
+		if (wsi->tls.ssl != (lws_tls_conn *)conn)
+			return LWS_SSL_CAPABLE_ERROR;
+
 		/* 3. Check again if anything was decrypted */
 		st = br_ssl_engine_current_state(&conn->u.engine);
 		if (st == BR_SSL_CLOSED)

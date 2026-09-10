@@ -352,6 +352,15 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	if (n != (int)len)
 		goto bail;
 
+	/*
+	 * openHiTLS can call back into us from inside HITLS_Read() (the verify
+	 * callback, the info callback), and a callback that closed the wsi
+	 * freed the session with it (C-417)
+	 */
+
+	if (!wsi->tls.ssl)
+		return LWS_SSL_CAPABLE_ERROR;
+
 	if (HITLS_GetReadPendingBytes(wsi->tls.ssl)) {
 		if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
 			lws_dll2_add_head(&wsi->tls.dll_pending_tls,
