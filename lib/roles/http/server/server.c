@@ -3706,8 +3706,8 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_process_html_args args;
-	lws_filepos_t amount, poss;
-	unsigned char *p, *pstart;
+	lws_filepos_t amount, poss, room;
+	unsigned char *p, *pstart, *bufend;
 #if defined(LWS_WITH_RANGES)
 	unsigned char finished = 0;
 #endif
@@ -3759,6 +3759,7 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 
 		n = 0;
 		p = pstart = pt->serv_buf + LWS_H2_FRAME_HEADER_LENGTH;
+		bufend = pt->serv_buf + context->pt_serv_buf_size;
 
 #if defined(LWS_WITH_RANGES)
 		if (wsi->http.range.count_ranges && !wsi->http.range.inside) {
@@ -3808,7 +3809,16 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 		    poss > (lws_filepos_t)nwsi->h2.h2n->peer_set.s[H2SET_MAX_FRAME_SIZE])
 			poss = (lws_filepos_t)nwsi->h2.h2n->peer_set.s[H2SET_MAX_FRAME_SIZE];
 #endif
-		poss = poss - (lws_filepos_t)(n + LWS_H2_FRAME_HEADER_LENGTH);
+		/*
+		 * The h2 frame header and the multipart part header we may
+		 * just have written are part of the same lump... take them
+		 * off the budget, saturating rather than wrapping if the
+		 * peer chose a max frame size smaller than the part header
+		 */
+		if (poss > (lws_filepos_t)(n + LWS_H2_FRAME_HEADER_LENGTH))
+			poss -= (lws_filepos_t)(n + LWS_H2_FRAME_HEADER_LENGTH);
+		else
+			poss = 0;
 
 		if (wsi->http.tx_content_length)
 			if (poss > wsi->http.tx_content_remain)
@@ -3823,11 +3833,11 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 			poss = wsi->a.protocol->tx_packet_size;
 
 		if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_tx_credit)) {
-			lws_filepos_t txc = (unsigned int)lws_rops_func_fidx(wsi->role_ops,
-							       LWS_ROPS_tx_credit).
+			int txc = lws_rops_func_fidx(wsi->role_ops,
+						     LWS_ROPS_tx_credit).
 					tx_credit(wsi, LWSTXCR_US_TO_PEER, 0);
 
-			if (!txc) {
+			if (txc <= 0) {
 				/*
 				 * tx credit is 0. This can happen because the
 				 * QUIC pending_tx buffer throttle (64KB cap) kicked
@@ -3842,8 +3852,8 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 
 				return 0;
 			}
-			if (txc < poss)
-				poss = txc;
+			if ((lws_filepos_t)txc < poss)
+				poss = (lws_filepos_t)txc;
 
 			/*
 			 * Tracking consumption of the actual payload amount
@@ -3852,18 +3862,49 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 		}
 
 #if defined(LWS_WITH_RANGES)
-		if (wsi->http.range.count_ranges) {
-			if (wsi->http.range.count_ranges > 1)
-				poss -= 7; /* allow for final boundary */
-			if (poss > wsi->http.range.budget)
-				poss = wsi->http.range.budget;
-		}
+		if (wsi->http.range.count_ranges &&
+		    poss > wsi->http.range.budget)
+			poss = wsi->http.range.budget;
 #endif
-		if (wsi->sending_chunked) {
+		if (wsi->sending_chunked)
 			/* we need to drop the chunk size in here */
 			p += 10;
+
+		/*
+		 * Everything above clamps poss against lengths the peer chose
+		 * (his window, his tx credit, his Range budget), none of which
+		 * are related to the size of pt->serv_buf.  So compute what is
+		 * really left in the buffer at p, minus what we must keep back
+		 * for framing we will add after the content, and apply that as
+		 * the last word on the read length.
+		 */
+
+		room = p < bufend ?
+			(lws_filepos_t)lws_ptr_diff_size_t(bufend, p) : 0;
+
+#if defined(LWS_WITH_RANGES)
+		if (wsi->http.range.count_ranges > 1)
+			/* allow for final boundary */
+			room = room > 7 ? room - 7 : 0;
+#endif
+
+		if (wsi->interpreting)
 			/* allow for the chunk to grow by 128 in translation */
-			poss -= 10 + 128;
+			room = room > 128 ? room - 128 : 0;
+
+		if (poss > room)
+			poss = room;
+
+		if (!poss) {
+			/*
+			 * There is no space at all for content this time...
+			 * that can only mean the buffer is too small for the
+			 * framing, or a length we were given is 0; either way
+			 * looping would never make progress
+			 */
+			lwsl_wsi_err(wsi, "no room for file content");
+
+			goto file_had_it;
 		}
 
 #if defined(LWS_WITH_ASYNC_QUEUE)
@@ -3967,7 +4008,12 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 			if (wsi->interpreting) {
 				args.p = (char *)p;
 				args.len = n;
-				args.max_len = (int)(unsigned int)poss + 128;
+				/*
+				 * the transform may grow the content in
+				 * place: it may use everything that is
+				 * actually left in serv_buf at p, no more
+				 */
+				args.max_len = lws_ptr_diff(bufend, p);
 				args.final = wsi->http.filepos + (unsigned int)n ==
 							wsi->http.filelen;
 				args.chunked = wsi->sending_chunked;
