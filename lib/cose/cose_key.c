@@ -472,6 +472,25 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 		break;
 	case LECPCB_ARRAY_ITEM_END:
 		if (cps->pkey_set && ctx->pst[ctx->pst_sp].ppos == 2) {
+
+			/*
+			 * Every member of the set has to be a key we can
+			 * actually use... only the last one used to be checked
+			 * (in lws_cose_key_import()), so an element that is
+			 * not a map at all, or a map carrying just a kid,
+			 * stayed in the set: it can then shadow a real key,
+			 * since lws_cose_key_from_set() returns the first kid
+			 * match (or the head, for a kid-less lookup).  It was
+			 * also handed to the application's per_key_cb.
+			 */
+
+			if (!cps->ck || cps->ck->gencrypto_kty ==
+						LWS_GENCRYPTO_KTY_UNKNOWN) {
+				lwsl_warn("%s: key set member has no kty\n",
+						__func__);
+				goto bail;
+			}
+
 			if (cps->per_key_cb)
 				cps->per_key_cb(cps->ck, cps->user);
 		}
