@@ -1958,15 +1958,15 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	}
 
 	/*
-	 * A standalone (wsi-less) requester can't ride on an existing query:
-	 * q holds exactly one standalone_cb / opaque pair and it is already
-	 * taken by whoever created it.  Riding anyway used to drop this
-	 * caller's cb and opaque on the floor, so it never heard back and,
-	 * for the DNSSEC DNSKEY sub-lookup, leaked its validation context.
-	 * Issue a separate query with its own tid instead.
+	 * Two DNS_MAX regions behind q: the working copy of the name at +0,
+	 * which lws_adns_iterate() may overwrite with a CNAME target of up to
+	 * DNS_MAX - 1 chars, and the pristine copy of the original name at
+	 * +DNS_MAX, which is what we create the cache entry against.  Sizing
+	 * the first one on the original name's length instead let a long
+	 * CNAME target run off the end of the allocation.
 	 */
 
-	q = lws_zalloc(sizeof(*q) + nlen + 1 + DNS_MAX + 1, "adns-q");
+	q = lws_zalloc(sizeof(*q) + (DNS_MAX * 2), "adns-q");
 	if (!q) {
 		lwsl_cx_err(context, "OOM");
 		goto failed;

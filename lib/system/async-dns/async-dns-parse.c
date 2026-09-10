@@ -209,7 +209,7 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 {
 	uint16_t rrtype, rrpaylen, expqtype, expqtype2;
 	const uint8_t *e = pkt + len, *p, *pay;
-	int n = 0, stp = 0, ansc, found = 0;
+	int n = 0, m, stp = 0, ansc, found = 0;
 	char rrname[DNS_MAX + 10];
 	struct label_stack stack[8];
 	char *sp, inq;
@@ -433,6 +433,25 @@ do_cb:
 			if (n < 0)
 				return -1;
 
+			/*
+			 * The stack name buffer is bigger than a legal DNS
+			 * name, and if we end up chasing this CNAME we will
+			 * write it over the query name behind q, which is a
+			 * DNS_MAX region... so hold the target to the same
+			 * length limit lws_async_dns_query() applies to a
+			 * name we were asked for in the first place.
+			 */
+
+			m = (int)strlen(stack[stp].name);
+			if (m && stack[stp].name[m - 1] == '.')
+				m--;
+			if (m >= DNS_MAX - 1) {
+				lwsl_notice("%s: CNAME target too long\n",
+					    __func__);
+
+				return -1;
+			}
+
 			p += n;
 
 			if (p > e)
@@ -537,14 +556,29 @@ skip:
 	q->firstcache = NULL;
 	q->last = NULL; /* it pointed into the cache we just freed */
 
-	/* overwrite the query name with the CNAME */
+	/*
+	 * Overwrite the query name with the CNAME... the region behind q is
+	 * DNS_MAX for the working copy and DNS_MAX for the pristine copy of
+	 * the original name at +DNS_MAX (which is what the cache entry is
+	 * created against, so it must not be walked into either).
+	 *
+	 * The CNAME target was already length-checked when it was decoded,
+	 * this is just belt-and-braces on the actual destination.
+	 */
 
 	n = 0;
 	{
-		char *cp = (char *)&q[1];
+		char *cp = (char *)&q[1], *cpe = cp + DNS_MAX - 1;
 
-		while (stack[stp].name[n])
+		while (stack[stp].name[n] && cp < cpe)
 			*cp++ = (char)tolower((uint8_t)stack[stp].name[n++]);
+
+		if (stack[stp].name[n]) {
+			lwsl_notice("%s: CNAME target too long\n", __func__);
+
+			return -1;
+		}
+
 		/* trim the following . if any */
 		if (n && cp[-1] == '.')
 			cp--;
