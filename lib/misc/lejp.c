@@ -52,6 +52,7 @@ static const char * const parser_errs[] = {
 	"Unknown",
 	"Parser callback errored (see earlier error)",
 	"Illegal character in key name",
+	"Path too long",
 };
 
 /**
@@ -322,7 +323,13 @@ int
 lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 {
 	unsigned char c, n, s, defer = 0, comp = 0;
-	int ret = LEJP_REJECT_UNKNOWN;
+	/*
+	 * ret only ever holds a LEJP_REJECT_... code: it must not be used as
+	 * the temporary for anything that can legitimately be 0, or a later
+	 * "goto reject" that forgets to set it returns 0, ie, "the document
+	 * parsed completely with no bytes left over", for a rejected parse
+	 */
+	int ret = LEJP_REJECT_UNKNOWN, e;
 
 	if (!ctx->sp && !ctx->pst[ctx->pst_sp].ppos)
 		ctx->pst[ctx->pst_sp].callback(ctx, LEJPCB_START);
@@ -556,9 +563,11 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					 * 4-byte UTF-8 sequence it means,
 					 * rather than two 3-byte WTF-8 ones
 					 */
-					ret = lejp_emit_pair(ctx, ctx->uni);
-					if (ret)
+					e = lejp_emit_pair(ctx, ctx->uni);
+					if (e) {
+						ret = e;
 						goto reject;
+					}
 					break;
 				}
 
@@ -649,8 +658,10 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				ctx->st[ctx->sp].s = LEJP_MP_ARRAY_END;
 				c = LEJP_MP_VALUE;
 				if (ctx->pst[ctx->pst_sp].ppos + 3u >=
-							sizeof(ctx->path))
+							sizeof(ctx->path)) {
+					ret = LEJP_REJECT_PATH_TOO_LONG;
 					goto reject;
+				}
 				ctx->path[ctx->pst[ctx->pst_sp].ppos++] = '[';
 				ctx->path[ctx->pst[ctx->pst_sp].ppos++] = ']';
 				ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
@@ -995,9 +1006,11 @@ array_end_l:
 		continue;
 
 emit_string_char:
-		ret = lejp_emit_char(ctx, c);
-		if (ret)
+		e = lejp_emit_char(ctx, c);
+		if (e) {
+			ret = e;
 			goto reject;
+		}
 		continue;
 
 add_stack_level:
@@ -1005,8 +1018,11 @@ add_stack_level:
 		if (ctx->pst[ctx->pst_sp].ppos &&
 		    ctx->st[ctx->sp].s != LEJP_MP_COMMA_OR_END &&
 		    ctx->st[ctx->sp].s != LEJP_MP_ARRAY_END) {
-			if (ctx->pst[ctx->pst_sp].ppos + 1u >= sizeof(ctx->path))
+			if (ctx->pst[ctx->pst_sp].ppos + 1u >=
+						sizeof(ctx->path)) {
+				ret = LEJP_REJECT_PATH_TOO_LONG;
 				goto reject;
+			}
 			ctx->path[ctx->pst[ctx->pst_sp].ppos++] = '.';
 		}
 
