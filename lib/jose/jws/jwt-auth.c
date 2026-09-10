@@ -243,9 +243,17 @@ lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reaso
 	memset(&pctx, 0, sizeof(pctx));
 	pctx.ja = ja;
 
-	/* re-parsing an existing object must not inherit the old claims */
+	/*
+	 * Re-parsing an existing object must not inherit the old claims...
+	 * uid and the session epoch especially, since those are what callers
+	 * authorize and revoke on: a refresh token that omits them must not
+	 * silently keep the identity and the epoch of the token before it.
+	 */
 	ja->exp = 0;
 	ja->nbf = 0;
+	ja->iat = 0;
+	ja->uid = 0;
+	ja->session_epoch = 0;
 	ja->sub[0] = '\0';
 	ja->did[0] = '\0';
 	lejp_construct(&ctx, jwt_auth_lejp_cb, &pctx, auth_paths, LWS_ARRAY_SIZE(auth_paths));
