@@ -3074,6 +3074,35 @@ raw_transition:
 		lwsl_debug("%s: %s: ah %p\n", __func__, lws_wsi_tag(wsi),
 			   (void *)wsi->http.ah);
 
+		/*
+		 * Whatever follows the headers in this read is request body,
+		 * or the next pipelined request.  If it is sitting in
+		 * pt->serv_buf, the action below can overwrite it before it
+		 * is looked at: lws_return_http_status(), lws_serve_http_file()
+		 * and lws_http_redirect() build their response in that same
+		 * buffer, synchronously, from inside the user's
+		 * LWS_CALLBACK_HTTP.  A Content-Length body that got clobbered
+		 * was only ever going to be counted and discarded, but a
+		 * chunked body's framing has to survive intact, and a
+		 * pipelined request must not be lost.
+		 *
+		 * Park it on the buflist now, ahead of the action.  Our
+		 * caller then sees the whole read as consumed, and the parked
+		 * bytes are offered again from the buflist once the action has
+		 * left us in a state that can take them.
+		 */
+		if (len && *buf >= pt->serv_buf &&
+		    *buf < pt->serv_buf + context->pt_serv_buf_size) {
+			m = lws_buflist_append_segment(&wsi->buflist, *buf, len);
+			if (m < 0)
+				goto bail_nuke_ah;
+			if (m && lws_dll2_is_detached(&wsi->dll_buflist))
+				lws_dll2_add_head(&wsi->dll_buflist,
+						  &pt->dll_buflist_owner);
+			*buf += len;
+			len = 0;
+		}
+
 		n = lws_http_action(wsi);
 
 		return n;

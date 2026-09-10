@@ -125,13 +125,17 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			case LRS_DOING_TRANSACTION:
 				if (!lwsi_role_h1(wsi))
 					break;
-				/* 
-				 * Consume and discard spurious pipelined data 
-				 * while we are actively sending a response.
-				 * This avoids CPU spins from stashing it, and 
-				 * allows the current transaction to complete.
+				/*
+				 * Anything after the headers is the next
+				 * pipelined request, for after this
+				 * transaction completes.  Leave it unconsumed:
+				 * our caller stashes it on the buflist, and
+				 * the service loop leaves the stash alone
+				 * while we are in this state
+				 * (lws_service_adjust_timeout() and
+				 * lws_service_flag_pending() skip it), so it
+				 * neither spins nor gets discarded.
 				 */
-				buf += len;
 				return lws_ptr_diff(buf, oldbuf);
 			case LRS_DISCARD_BODY:
 			case LRS_BODY:

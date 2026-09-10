@@ -494,7 +494,8 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 		/*
 		 * Only if the wsi is in a state where the h1 service path
 		 * will actually consume the buffered rx.  While it is
-		 * issuing a file or flushing before close, it stashes /
+		 * issuing a file, in the middle of a callback-driven
+		 * transaction, or flushing before close, it stashes /
 		 * ignores rx without consuming it, so forcing a zero wait
 		 * here would just spin the event loop for the duration of
 		 * the transfer; the state change at the end of the
@@ -504,6 +505,7 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 		     lwsi_state(wsi) != LRS_DEFERRING_ACTION &&
 		     lwsi_state(wsi) != LRS_AWAITING_FILE_READ &&
 		     lwsi_state(wsi) != LRS_ISSUING_FILE &&
+		     lwsi_state(wsi) != LRS_DOING_TRANSACTION &&
 		     lwsi_state(wsi) != LRS_FLUSHING_BEFORE_CLOSE) {
 			return 0;
 		}
@@ -742,6 +744,7 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 		if (!lws_is_flowcontrolled(wsi) &&
 		    lwsi_state(wsi) != LRS_DEFERRING_ACTION &&
 		    lwsi_state(wsi) != LRS_AWAITING_FILE_READ &&
+		    lwsi_state(wsi) != LRS_DOING_TRANSACTION &&
 		    lwsi_state(wsi) != LRS_AWAITING_SSL_ACCEPT) {
 			forced = 1;
 			break;
