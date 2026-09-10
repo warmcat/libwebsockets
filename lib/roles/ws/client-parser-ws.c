@@ -162,6 +162,18 @@ lws_ws_client_rx_parser_block(struct lws *wsi, const uint8_t **buf, size_t *len)
 
 			if (wsi->ws->final &&
 			    wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8 &&
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+			    /*
+			     * The raw ws frame may be finished while the
+			     * message is not, ie, the rest of it is still
+			     * inside the inflater... then a partial utf8
+			     * character here is not the end of anything, the
+			     * drain will complete it (and do this same check
+			     * on the last chunk).  It's the same notion of
+			     * "final" that lws_is_final_fragment() uses.
+			     */
+			    !wsi->ws->rx_draining_ext &&
+#endif
 			    wsi->ws->utf8) {
 				lws_close_reason(wsi,
 					LWS_CLOSE_STATUS_INVALID_PAYLOAD,
