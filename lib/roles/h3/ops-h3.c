@@ -789,6 +789,21 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 		struct allocated_headers *ah = wsi->http.ah;
 		if (ah && name && name_len > 0 && ah->pos + 8 + name_len + 1 + value_len < (unsigned int)wsi->a.context->max_http_header_data) {
 			uint32_t unk_pos = ah->pos;
+			size_t k;
+
+			/*
+			 * RFC 9114 4.2: CR, LF and NUL are malformed in any
+			 * field value, including ones lws does not know;
+			 * the known-token path polices them in
+			 * lws_hdr_simple_create(), do the same here
+			 */
+			for (k = 0; k < value_len; k++)
+				if (value[k] == '\r' || value[k] == '\n' ||
+				    !value[k]) {
+					lws_quic_enter_closing_state(nwsi,
+						LWS_H3_MESSAGE_ERROR, 0, 1);
+					return -1;
+				}
 
 			/*
 			 * Store the name with a trailing ':' to match the

@@ -1340,9 +1340,23 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 				else if (wsi->mux_substream && ah->unk_pos &&
 					 ah->unk_value_pos && ah->pos + 1 <
-					 wsi->a.context->max_http_header_data)
+					 wsi->a.context->max_http_header_data) {
+					/*
+					 * RFC 9113 8.2.1 applies to the values
+					 * of headers lws does not know as well:
+					 * these bytes never pass through
+					 * lws_parse(), so police them here
+					 * before they are stored
+					 */
+					if (c1 == '\r' || c1 == '\n' || !c1) {
+						lws_h2_goaway(nwsi,
+							H2_ERR_PROTOCOL_ERROR,
+							"CR/LF/NUL in header value");
+						return 1;
+					}
 					/* collect unknown-header value byte */
 					ah->data[ah->pos++] = (char)c1;
+				}
 #endif
 			} else {
 				/*
