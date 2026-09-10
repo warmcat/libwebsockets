@@ -1220,9 +1220,18 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	if (n == 401 && lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_WWW_AUTHENTICATE)) {
 		if (!(wsi->stash && wsi->stash->cis[CIS_USERNAME] &&
                 		    wsi->stash->cis[CIS_PASSWORD])) {
-			lwsl_err("Digest auth requested by server but no credentials provided by user\n");
-			
-			return LCBA_FAILED_AUTH;
+			/*
+			 * Our contract with our caller is 0, or
+			 * LWS_HPI_RET_WSI_ALREADY_DIED meaning we closed the
+			 * wsi ourselves... an LCBA_xxx result here would be
+			 * taken as "already died" while leaving the wsi alive
+			 * and still in the fds table
+			 */
+
+			cce = "HS: digest auth wanted but no credentials";
+			lwsl_wsi_err(wsi, "%s", cce);
+
+			goto bail3_l;
 		}
 
 		enum lws_check_basic_auth_results auth_res = lws_http_digest_auth(wsi);
@@ -1656,8 +1665,22 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			(204 == lws_http_client_http_response(wsi) ||
 			 (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
 				(!wsi->http.rx_content_length ||
-				(simp && !strcmp(simp,"HEAD"))))))
-				return !!lws_http_transaction_completed_client(wsi);
+				(simp && !strcmp(simp,"HEAD")))))) {
+			if (!lws_http_transaction_completed_client(wsi))
+				return 0;
+
+			/*
+			 * The user callback asked us to close from
+			 * LWS_CALLBACK_COMPLETED_CLIENT_HTTP... nothing did the
+			 * close for us, and our caller only understands 0 or
+			 * LWS_HPI_RET_WSI_ALREADY_DIED, so do it here
+			 */
+
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "client txn completed close");
+
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
+		}
 
 		/*
 		 * We can also get a case where it's http/1 and there's no
