@@ -79,6 +79,17 @@ typedef struct lws_adns_rr {
 	/* payload follows */
 } lws_adns_rr_t;
 
+/*
+ * The results area behind a cache entry is sized in two independent regions,
+ * the addrinfos first and then the other RR types, so that the addrinfo list
+ * we publish is contiguous and starts at the head of the area.
+ */
+
+typedef struct lws_adns_est {
+	size_t			ai;	/* bytes of addrinfo + sockaddr */
+	size_t			rr;	/* bytes of lws_adns_rr_t + rdata */
+} lws_adns_est_t;
+
 typedef struct lws_adns_cache {
 	lws_sorted_usec_list_t	sul;	/* for cache TTL management */
 	lws_dll2_t		list;

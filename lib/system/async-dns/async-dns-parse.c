@@ -591,40 +591,56 @@ skip:
 	return 2;
 }
 
+/*
+ * The results area behind the cache object holds two kinds of object, and the
+ * addrinfo entries have to come first and contiguously: the addrinfo results
+ * we hand out are found again at free time by looking back one cache object
+ * from the head addrinfo (lws_async_dns_freeaddrinfo()), and a consumer that
+ * walked into an lws_adns_rr_t as if it were an addrinfo would be following
+ * pointers made of RDATA.
+ *
+ * So we account for the two regions separately, and lws_async_dns_store()
+ * fills them from their own bases.
+ */
+
 int
 lws_async_dns_estimate(const char *name, void *opaque, uint32_t ttl,
 			adns_query_type_t type, uint16_t rrpaylen, const uint8_t *payload)
 {
-	size_t *est = (size_t *)opaque, my;
+	lws_adns_est_t *est = (lws_adns_est_t *)opaque;
 
-	my = sizeof(struct addrinfo);
-	if (type == LWS_ADNS_RECORD_AAAA)
-		my += sizeof(struct sockaddr_in6);
-	else
-		my += sizeof(struct sockaddr_in);
+	switch (type) {
+	case LWS_ADNS_RECORD_AAAA:
+		est->ai += adns_align_len(sizeof(struct addrinfo) +
+					  sizeof(struct sockaddr_in6));
+		break;
 
-	/* DNSSEC records don't produce addrinfos, but need storage if we cache them
-	 * or pass them inside lws. Often we just evaluate them inline. But if we
-	 * need to stash them, we should do so.
-	 */
-	if (type == LWS_ADNS_RECORD_DNSKEY || type == LWS_ADNS_RECORD_RRSIG ||
-	    type == LWS_ADNS_RECORD_DS || type == LWS_ADNS_RECORD_NSEC ||
-	    type == LWS_ADNS_RECORD_NSEC3 || type == LWS_ADNS_RECORD_SOA ||
-	    type == LWS_ADNS_RECORD_HTTPS) {
-		/* We'll stash them as lws_adns_rr_t directly after the A records */
-		my += sizeof(lws_adns_rr_t) + rrpaylen;
+	case LWS_ADNS_RECORD_A:
+		est->ai += adns_align_len(sizeof(struct addrinfo) +
+					  sizeof(struct sockaddr_in));
+		break;
+
+	default:
+		/*
+		 * DNSSEC-related and HTTPS records don't produce addrinfos,
+		 * they are stashed as lws_adns_rr_t in the second region
+		 */
+		est->rr += adns_align_len(sizeof(lws_adns_rr_t) + rrpaylen);
+		break;
 	}
 
-	/* must match the stride used by lws_async_dns_store() */
-	*est += adns_align_len(my);
+	/* must match the strides used by lws_async_dns_store() */
 
 	return 0;
 }
 
 struct adstore {
 	const char *name;
-	struct addrinfo *pos;
+	struct addrinfo *pos;		/* where the next addrinfo goes */
 	struct addrinfo *prev;
+	uint8_t *rr_free;		/* where the next lws_adns_rr_t goes */
+	const uint8_t *ai_end;		/* end of the addrinfo region */
+	const uint8_t *rr_end;		/* end of the rr region */
 	lws_adns_rr_t *rr_first;
 	lws_adns_rr_t *rr_pos;
 	int ctr;
@@ -651,11 +667,21 @@ lws_async_dns_store(const char *name, void *opaque, uint32_t ttl,
 	 * DNSSEC records do not produce IPv4/IPv6 address entries.
 	 * We stash them into lws_adns_rr_t linked list.
 	 */
-	if (type == LWS_ADNS_RECORD_RRSIG || type == LWS_ADNS_RECORD_DNSKEY ||
-	    type == LWS_ADNS_RECORD_DS || type == LWS_ADNS_RECORD_NSEC ||
-	    type == LWS_ADNS_RECORD_NSEC3 || type == LWS_ADNS_RECORD_SOA ||
-	    type == LWS_ADNS_RECORD_HTTPS) {
-		lws_adns_rr_t *rr = (lws_adns_rr_t *)adst->pos;
+	if (type != LWS_ADNS_RECORD_A && type != LWS_ADNS_RECORD_AAAA) {
+		lws_adns_rr_t *rr = (lws_adns_rr_t *)adst->rr_free;
+		size_t stride = adns_align_len(sizeof(lws_adns_rr_t) + rrpaylen);
+
+		/*
+		 * The estimate pass walked the same packet with the same rules,
+		 * so this cannot happen... but we are placing objects in an
+		 * allocation sized elsewhere, using lengths from the wire
+		 */
+
+		if (adst->rr_free + stride > adst->rr_end) {
+			lwsl_err("%s: rr overflow\n", __func__);
+
+			return -1;
+		}
 
 		rr->next = NULL;
 		rr->type = type;
@@ -668,11 +694,19 @@ lws_async_dns_store(const char *name, void *opaque, uint32_t ttl,
 			adst->rr_pos->next = rr;
 		adst->rr_pos = rr;
 
-		/* Advance the generic allocation pointer for the next item */
-		adst->pos = (struct addrinfo *)((uint8_t *)adst->pos +
-					adns_align_len(sizeof(lws_adns_rr_t) +
-						       rrpaylen));
+		adst->rr_free += stride;
+
 		return 0;
+	}
+
+	i = type == LWS_ADNS_RECORD_AAAA ? sizeof(struct sockaddr_in6) :
+					   sizeof(struct sockaddr_in);
+
+	if ((const uint8_t *)adst->pos + adns_align_len(
+				sizeof(struct addrinfo) + i) > adst->ai_end) {
+		lwsl_err("%s: addrinfo overflow\n", __func__);
+
+		return -1;
 	}
 
 	if (ttl < adst->smallest_ttl || !adst->ctr)
@@ -741,9 +775,10 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	const char *nm, *nmcname;
 	lws_adns_cache_t *c;
 	struct adstore adst;
+	lws_adns_est_t est;
 	lws_adns_q_t *q;
-	int n;
-	size_t est;
+	size_t alloc;
+	int n, rn;
 
 	// lwsl_hexdump_notice(pkt, len);
 
@@ -785,11 +820,11 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		return;
 
 	if (q->qtype == LWS_ADNS_RECORD_A || q->qtype == LWS_ADNS_RECORD_AAAA)
-		n = 1 << (lws_ser_ru16be(pkt + DHO_TID) & 1);
+		rn = 1 << (lws_ser_ru16be(pkt + DHO_TID) & 1);
 	else
-		n = 1;
+		rn = 1;
 
-	if (q->responded & n) {
+	if (q->responded & rn) {
 		lwsl_notice("%s: dup\n", __func__);
 		return;
 	}
@@ -802,14 +837,14 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		lws_adapt_report_val(q->dsrv->adapt, (uint64_t)(lws_now_usecs() - q->issue_time), lws_now_usecs());
 	}
 
-	q->responded = (uint8_t)(q->responded | n);
+	q->responded = (uint8_t)(q->responded | rn);
 
 	/* did we get truncated? */
 	if ((lws_ser_ru16be(pkt + DHO_FLAGS) & 0x0200) && !q->is_tcp) {
 		lwsl_notice("%s: ADNS truncated, falling back to TCP for %s\n",
 			    __func__, ((const char *)&q[1]) + DNS_MAX);
 
-		q->responded = (uint8_t)(q->responded & ~n);
+		q->responded = (uint8_t)(q->responded & ~rn);
 		q->asked = 0;
 		q->sent[0] = 0;
 #if defined(LWS_WITH_IPV6)
@@ -841,7 +876,8 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	nm = ((const char *)&q[1]) + DNS_MAX;
 	n = (int)strlen(nm) + 1;
 
-	est = sizeof(lws_adns_cache_t) + (unsigned int)n;
+	est.ai = 0;
+	est.rr = 0;
 	if (lws_ser_ru16be(pkt + DHO_NANSWERS) || lws_ser_ru16be(pkt + DHO_NAUTH)) {
 		int ir = lws_adns_iterate(q, pkt, (int)len, nmcname,
 					  lws_async_dns_estimate, &est);
@@ -852,17 +888,19 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 			return;
 	}
 
+	alloc = sizeof(lws_adns_cache_t) + est.ai + est.rr + (unsigned int)n;
+
 	lwsl_info("%s: create cache entry for %s, %zu\n", __func__, nm,
-			est - sizeof(lws_adns_cache_t));
-	c = lws_malloc(est + 1, "async-dns-entry");
+			alloc - sizeof(lws_adns_cache_t));
+	c = lws_malloc(alloc + 1, "async-dns-entry");
 	if (!c) {
-		lwsl_err("%s: OOM %zu\n", __func__, est);
+		lwsl_err("%s: OOM %zu\n", __func__, alloc);
 		goto fail_out;
 	}
 	memset(c, 0, sizeof(*c));
 
 	/* place it at end, no need to care about alignment padding */
-	c->name = adst.name = ((const char *)c) + est - n;
+	c->name = adst.name = ((const char *)c) + alloc - n;
 	memcpy((char *)c->name, nm, (unsigned int)n);
 
 	/*
@@ -872,6 +910,9 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	 */
 
 	adst.pos = (struct addrinfo *)&c[1];
+	adst.ai_end = (const uint8_t *)&c[1] + est.ai;
+	adst.rr_free = (uint8_t *)&c[1] + est.ai;
+	adst.rr_end = adst.rr_free + est.rr;
 	adst.prev = NULL;
 	adst.rr_first = NULL;
 	adst.rr_pos = NULL;
@@ -891,6 +932,10 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	}
 
 	if (lws_ser_ru16be(pkt + DHO_NANSWERS) || lws_ser_ru16be(pkt + DHO_NAUTH)) {
+		/*
+		 * The addrinfo region starts at &c[1] and only ever contains
+		 * addrinfos, so if we stored any, the first one is there
+		 */
 		c->results = adst.ctr ? (struct addrinfo *)&c[1] : NULL;
 		c->rr_results = adst.rr_first;
 
