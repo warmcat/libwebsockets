@@ -291,6 +291,21 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	if (n <= 0) {
 		m = lws_ssl_get_error(wsi, n);
                lwsl_debug("%s: ssl err %d errno %d\n", lws_wsi_tag(wsi), m, LWS_ERRNO);
+
+		/*
+		 * 99 is what lws_ssl_get_error() says when wsi->tls.ssl went
+		 * away under us, ie, a callback openssl made from inside
+		 * SSL_read() closed the wsi.  It matches none of the error
+		 * tests below, and the retryable arm at the bottom would then
+		 * hand the freed handle to SSL_want_read()
+		 */
+
+		if (m == 99 || !wsi->tls.ssl) {
+			__lws_ssl_remove_wsi_from_buffered_list(wsi);
+
+			return LWS_SSL_CAPABLE_ERROR;
+		}
+
                 if (m == SSL_ERROR_ZERO_RETURN) { /* cleanly shut down */
 #if defined(LWS_WITH_SYS_METRICS)
                         if (wsi->a.vhost)
