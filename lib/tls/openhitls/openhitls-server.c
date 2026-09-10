@@ -57,6 +57,33 @@ lws_openhitls_log_error_string(const char *prefix, const char *subject,
 }
 
 /*
+ * Which vhost is this connection actually using the config of?
+ *
+ * On a shared listener the SNI callback moves the connection onto another
+ * vhost's config, certificate manager and client-cert posture.  Anything that
+ * decides policy from wsi->a.vhost during the handshake is looking at the
+ * listening vhost unless the rebind has already happened, so resolve it from
+ * the config the connection is really on (C-410).
+ */
+
+static struct lws_vhost *
+lws_openhitls_vhost_from_ssl(struct lws_context *cx, lws_tls_conn *ssl)
+{
+	const HITLS_Config *cfg = HITLS_GetGlobalConfig((HITLS_Ctx *)ssl);
+	struct lws_vhost *vh = lws_vhost_first(cx);
+
+	while (vh) {
+		if (!vh->being_destroyed && vh->tls.ssl_ctx &&
+		    (const HITLS_Config *)vh->tls.ssl_ctx == cfg)
+			return vh;
+
+		vh = lws_vhost_next(vh);
+	}
+
+	return NULL;
+}
+
+/*
  * openHiTLS verify callback return convention:
  *   return 0 = "suppress this error and carry on verifying"
  *   return non-zero = reject / propagate error
@@ -70,6 +97,7 @@ OpenHiTLS_verify_callback(int32_t verify_code, HITLS_CERT_StoreCtx *store_ctx)
 {
 	void *userdata = NULL;
 	struct lws *wsi;
+	struct lws_vhost *vh;
 	lws_tls_conn *ssl;
 	const struct lws_protocols *lp;
 	HITLS_X509_Cert *topcert = NULL;
@@ -101,7 +129,20 @@ OpenHiTLS_verify_callback(int32_t verify_code, HITLS_CERT_StoreCtx *store_ctx)
 	else
 		lwsl_info("%s: couldn't get client cert CN\n", __func__);
 
-	lp = &wsi->a.vhost->protocols[0];
+	/*
+	 * The chain was verified against the CA store of the vhost whose
+	 * config is on this connection, which after SNI is not necessarily
+	 * the one the wsi is bound to.  The application's accept / overrule
+	 * decision must be asked of that same vhost's protocols[0], else a
+	 * peer picks whose client-cert policy runs by picking an SNI name
+	 * (C-410).
+	 */
+
+	vh = ssl ? lws_openhitls_vhost_from_ssl(wsi->a.context, ssl) : NULL;
+	if (!vh)
+		vh = wsi->a.vhost;
+
+	lp = &vh->protocols[0];
 	n = lp->callback(wsi,
 			 LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
 			 store_ctx, ssl, (unsigned int)internal_allow);
@@ -132,8 +173,7 @@ OpenHiTLS_verify_callback(int32_t verify_code, HITLS_CERT_StoreCtx *store_ctx)
 
 		if (vr != (int32_t)HITLS_X509_V_OK) {
 			lwsl_notice("%s: vh %s: client cert rejected: 0x%x\n",
-				    __func__, wsi->a.vhost->name,
-				    (unsigned int)vr);
+				    __func__, vh->name, (unsigned int)vr);
 
 			return vr;
 		}
