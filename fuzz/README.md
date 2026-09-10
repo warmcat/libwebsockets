@@ -77,6 +77,7 @@ Long campaigns belong on a dedicated runner or a nightly job via
 | `fuzz-jpeg` | stateful JPEG decoder (`lib/misc/jpeg.c`) | same shape as `fuzz-upng`; needs `LWS_WITH_JPEG` |
 | `fuzz-tokenize` | `lws_tokenize` + core string helpers (`lib/core/libwebsockets.c`, `lib/misc/base64-decode.c`) | first byte selects the helper (tokenize / b64 / b32 / hex / urldecode / dumb-json / strexp / wildcard / iso8601 / uri / humanize / purify), next two are the tokenize flags; small output buffers so bounding bugs overflow |
 | `fuzz-jose` | JWK / JWS / JWE layer above lejp (`lib/jose/`) | first byte selects import / compact / flattened / JOSE-header / JWE decrypt, second selects the fixed oct / RSA / EC key; needs `LWS_WITH_JOSE` |
+| `fuzz-cose` | cose_key import + signature validator (`lib/cose/`) | first byte selects import vs validate against a fixed key set, second the sigtype; needs `LWS_WITH_COSE` |
 | `fuzz-adns` | async-dns response parser + dnssec (`lib/system/async-dns/`) | each input is delivered as the response to a real pending query, tid patched in; the only nameserver is a UDP sink the harness binds itself, so nothing leaves the process; first byte selects query type and DNSSEC mode |
 
 The `fuzz-h1`, `fuzz-h2` and `fuzz-ws` targets use the shared evil-peer

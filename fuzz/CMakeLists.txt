@@ -82,6 +82,10 @@ if (LWS_WITH_JOSE)
 	lws_add_fuzz_target(jose)
 endif()
 
+if (LWS_WITH_COSE)
+	lws_add_fuzz_target(cose)
+endif()
+
 # the wsi-bound protocol parsers need the evil-peer helper in peer.h, which
 # uses socketpair + adopt, so they are POSIX-only
 
