@@ -406,6 +406,35 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
 #define lws_read_h1(_a, _b, _c) (0)
 #endif
 
+/*
+ * Result from lws_header_table_attach()
+ *
+ * Attaching an ah is not a simple "did it work" question, because the attach
+ * path is reentrant: __lws_header_table_reset() with autoservice set services
+ * the wsi's fd inline, and the client path performs the actual connect.  Both
+ * of those can close and free the wsi before we return, and there have
+ * historically been many bugs from callers going on to use a wsi that no
+ * longer exists.  So the result has to be able to say "there is no wsi to go
+ * back to any more".
+ *
+ * LWS_AH_ATTACH_OK is 0, so the traditional "did it fail" boolean sense of
+ * the return is unchanged; but a caller that only tests for nonzero is a bug
+ * on any path that can reach the reentrant parts.
+ */
+
+typedef enum lws_ah_attach_result {
+	LWS_AH_ATTACH_OK		= 0,	/* wsi owns an ah, wsi valid */
+	LWS_AH_ATTACH_WAITING,			/* no ah for now, wsi is on
+						 * the pt ah wait list and
+						 * will be given one later,
+						 * wsi valid */
+	LWS_AH_ATTACH_FAIL,			/* refused, wsi valid */
+	LWS_AH_ATTACH_WSI_GONE			/* the wsi was closed and
+						 * freed inside: it must not
+						 * be dereferenced again, and
+						 * must not be closed again */
+} lws_ah_attach_result_t;
+
 void
 _lws_header_table_reset(struct allocated_headers *ah);
 

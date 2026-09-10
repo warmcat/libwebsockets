@@ -198,13 +198,14 @@ __lws_remove_from_ah_waiting_list(struct lws *wsi)
 	return 0;
 }
 
-int LWS_WARN_UNUSED_RESULT
+lws_ah_attach_result_t LWS_WARN_UNUSED_RESULT
 lws_header_table_attach(struct lws *wsi, int autoservice)
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	lws_sockfd_type lifecheck_sfd = LWS_SOCK_INVALID;
 	struct lws_pollargs pa;
-	int n;
+	int n, lifecheck = 0;
 
 #if defined(LWS_ROLE_MQTT) && defined(LWS_WITH_CLIENT)
 	if (lwsi_role_mqtt(wsi))
@@ -222,7 +223,7 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 		 * (C-016 was exactly that), so refuse rather than abort.
 		 */
 		lwsl_err("%s: bad role %s\n", __func__, wsi->role_ops->name);
-		return -1;
+		return LWS_AH_ATTACH_FAIL;
 	}
 
 	lws_pt_lock(pt, __func__);
@@ -278,7 +279,33 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 		  lws_wsi_tag(wsi), (void *)wsi->http.ah, pt->http.ah_count_in_use);
 
 reset:
+	/*
+	 * __lws_header_table_reset() with autoservice set services the wsi's
+	 * fd inline; that can complete his transaction, close him and free
+	 * him before we get control back.  There is then nothing left of the
+	 * wsi to ask about it, so take an identity for him now that we can
+	 * check afterwards without dereferencing him: his fd.  The context's
+	 * fd -> wsi lookup owns that mapping and clears it on close, so if
+	 * the fd no longer maps to this same wsi, our guy went away.
+	 *
+	 * (The pointer comparison below never dereferences wsi.)
+	 */
+
+	if (autoservice && wsi->position_in_fds_table != LWS_NO_FDS_POS &&
+	    lws_socket_is_valid(wsi->desc.sockfd)) {
+		lifecheck_sfd = wsi->desc.sockfd;
+		lifecheck = 1;
+	}
+
 	__lws_header_table_reset(wsi, autoservice);
+
+	if (lifecheck && wsi_from_fd(context, lifecheck_sfd) != wsi) {
+		lws_pt_unlock(pt);
+
+		lwsl_info("%s: wsi closed inside the reset\n", __func__);
+
+		return LWS_AH_ATTACH_WSI_GONE;
+	}
 
 	lws_pt_unlock(pt);
 
@@ -288,18 +315,21 @@ connect_via_info2:
 #endif
 	if (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED)
 		if (!lws_http_client_connect_via_info2(wsi))
-			/* our client connect has failed, the wsi
-			 * has been closed
+			/*
+			 * Our client connect has failed; by that api's
+			 * contract the wsi has been closed and freed.
 			 */
-			return -1;
+			return LWS_AH_ATTACH_WSI_GONE;
 #endif
 
-	return 0;
+	return LWS_AH_ATTACH_OK;
 
 bail:
+	/* both paths here left him on the ah wait list */
+
 	lws_pt_unlock(pt);
 
-	return 1;
+	return LWS_AH_ATTACH_WAITING;
 }
 
 int __lws_header_table_detach(struct lws *wsi, int autoservice)

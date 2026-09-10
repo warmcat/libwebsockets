@@ -1405,7 +1405,17 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags);
 int
 lws_plat_check_connection_error(struct lws *wsi);
 
-int LWS_WARN_UNUSED_RESULT
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+
+/*
+ * Attach an ah to the wsi.
+ *
+ * This may not return with the wsi still existing... see
+ * lws_ah_attach_result_t in private-lib-roles-http.h for the contract, every
+ * caller must handle LWS_AH_ATTACH_WSI_GONE without touching the wsi again.
+ */
+
+lws_ah_attach_result_t LWS_WARN_UNUSED_RESULT
 lws_header_table_attach(struct lws *wsi, int autoservice);
 
 int
@@ -1416,8 +1426,19 @@ __lws_header_table_detach(struct lws *wsi, int autoservice);
 void
 lws_header_table_reset(struct lws *wsi, int autoservice);
 
+/*
+ * Contract: with autoservice set, and the wsi in the fds table with pending
+ * buffered rx, this services the wsi's fd inline, and so can complete a
+ * transaction, close the wsi and free it before it returns.  A caller passing
+ * autoservice must either have nothing left to do with the wsi, or find out
+ * whether he survived without dereferencing him (lws_header_table_attach()
+ * shows the fd re-lookup technique for that).
+ */
+
 void
 __lws_header_table_reset(struct lws *wsi, int autoservice);
+
+#endif
 
 char * LWS_WARN_UNUSED_RESULT
 lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h);

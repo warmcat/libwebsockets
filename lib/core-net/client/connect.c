@@ -527,8 +527,13 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		int n = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_client_bind).
 							client_bind(wsi, NULL);
 
-		if (n && i->parent_wsi)
-			/* unpick from parent */
+		if (n > 0 && i->parent_wsi)
+			/*
+			 * Unpick from parent... only if the wsi still exists:
+			 * for n < 0 he was closed and freed inside the bind
+			 * (which unlinked him from any parent itself), so his
+			 * sibling_list is not ours to touch any more.
+			 */
 			lws_dll2_remove(&wsi->sibling_list);
 
 		if (n < 0)

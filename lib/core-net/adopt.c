@@ -692,6 +692,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 {
 	struct lws_context_per_thread *pt;
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	lws_ah_attach_result_t ar = LWS_AH_ATTACH_OK;
 	struct lws_pollfd *pfd;
 #endif
 	int n;
@@ -725,7 +726,18 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	 * the ah.
 	 */
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	if (wsi->http.ah || !lws_header_table_attach(wsi, 0)) {
+	if (!wsi->http.ah)
+		ar = lws_header_table_attach(wsi, 0);
+
+	if (ar == LWS_AH_ATTACH_WSI_GONE)
+		/*
+		 * The attach closed and freed him... NULL is this api's "no
+		 * wsi any more" answer, and its callers must not close him
+		 * again either.
+		 */
+		return NULL;
+
+	if (ar == LWS_AH_ATTACH_OK) {
 
 		lwsl_notice("%s: calling service on readbuf ah\n", __func__);
 

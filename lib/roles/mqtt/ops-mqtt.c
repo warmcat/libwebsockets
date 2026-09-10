@@ -264,17 +264,16 @@ rops_client_bind_mqtt(struct lws *wsi, const struct lws_client_connect_info *i)
 		 * When we do get the ah, now or later, he will end up
 		 * at lws_http_client_connect_via_info2().
 		 */
-#if defined(LWS_WITH_CLIENT)
-		if (lws_header_table_attach(wsi, 0) < 0)
+		if (lws_header_table_attach(wsi, 0) ==
+						LWS_AH_ATTACH_WSI_GONE)
 			/*
-			 * if we failed here, the connection is already closed
-			 * and freed.
+			 * The attach went on to do the connect and it failed:
+			 * the wsi is already closed and freed.  -1 is this
+			 * op's "gone" answer, our caller must not touch or
+			 * close him either.
 			 */
 			return -1;
-#else
-		if (lws_header_table_attach(wsi, 0))
-			return 0;
-#endif
+
 		return 0;
 	}
 

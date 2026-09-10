@@ -1228,7 +1228,20 @@ __lws_close_free_wsi_final(struct lws *wsi)
 				    sizeof(wsi->alpn));
 #endif
 
-		if (lws_header_table_attach(wsi, 0)) {
+		/*
+		 * Careful... this wsi is a client in LRS_UNCONNECTED, so the
+		 * attach goes on to do the actual connect, which can close
+		 * and free him.  In that case there is nothing left to log
+		 * about or to redirect, we just have to leave.
+		 */
+
+		switch (lws_header_table_attach(wsi, 0)) {
+		case LWS_AH_ATTACH_OK:
+			break;
+		case LWS_AH_ATTACH_WSI_GONE:
+			/* do not touch wsi */
+			return;
+		default:
 			lwsl_wsi_err(wsi, "failed to get ah");
 			return;
 		}

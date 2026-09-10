@@ -681,7 +681,19 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 
 	/* If we haven't attached an ah, do it now */
 	if (!wsi->http.ah) {
-		if (lws_header_table_attach(wsi, 0)) {
+		lws_ah_attach_result_t ar = lws_header_table_attach(wsi, 0);
+
+		if (ar == LWS_AH_ATTACH_WSI_GONE)
+			/*
+			 * Can't happen for an h3 stream (no autoservice, not
+			 * an unconnected client), and this qpack callback has
+			 * no way to say "your wsi is gone" to the decoder
+			 * loop.  -1 at least stops the header block here,
+			 * and we do not touch wsi again.
+			 */
+			return -1;
+
+		if (ar != LWS_AH_ATTACH_OK) {
 			lwsl_wsi_err(wsi, "Failed to attach ah");
 			return -1;
 		}

@@ -3519,8 +3519,28 @@ lws_http_transaction_completed(struct lws *wsi)
 		//lwsi_set_state(wsi, LRS_ESTABLISHED); // !!!
 	} else
 		if (lws_buflist_next_segment_len(&wsi->buflist, NULL))
-			if (lws_header_table_attach(wsi, 0))
+			switch (lws_header_table_attach(wsi, 0)) {
+			case LWS_AH_ATTACH_OK:
 				lwsl_debug("acquired ah\n");
+				break;
+			case LWS_AH_ATTACH_WSI_GONE:
+				/*
+				 * Can't happen here (a server wsi with
+				 * autoservice off reaches neither reentrant
+				 * path in the attach), and this function has
+				 * no way to tell its caller the wsi is gone
+				 * (1 means "please close him", ie, close him
+				 * a second time).  Shout, and at least do
+				 * nothing more with him in here.
+				 */
+				lwsl_err("%s: wsi vanished in ah attach\n",
+					 __func__);
+
+				return 0;
+			default:
+				lwsl_debug("%s: waiting for ah\n", __func__);
+				break;
+			}
 
 	lwsl_debug("%s: %s: keep-alive await new transaction (state 0x%x)\n",
 		   __func__, lws_wsi_tag(wsi), (int)wsi->wsistate);

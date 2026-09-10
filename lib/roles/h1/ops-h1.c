@@ -534,10 +534,18 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	     lwsi_state(wsi) == LRS_DISCARD_BODY ||
 	     lwsi_state(wsi) == LRS_BODY)) {
 
-		if (!wsi->http.ah && lws_header_table_attach(wsi, 0)) {
-			lwsl_info("%s: %s: ah not available\n", __func__,
-				  lws_wsi_tag(wsi));
-			goto try_pollout;
+		if (!wsi->http.ah) {
+			lws_ah_attach_result_t ar =
+					lws_header_table_attach(wsi, 0);
+
+			if (ar == LWS_AH_ATTACH_WSI_GONE)
+				return LWS_HPI_RET_WSI_ALREADY_DIED;
+
+			if (ar != LWS_AH_ATTACH_OK) {
+				lwsl_info("%s: %s: ah not available\n",
+					  __func__, lws_wsi_tag(wsi));
+				goto try_pollout;
+			}
 		}
 
 		/*
@@ -1194,10 +1202,27 @@ rops_adoption_bind_h1(struct lws *wsi, int type, const char *vh_prot_name)
 		return 0;
 
 	if (type & _LWS_ADOPT_FINISH) {
-		if (!lws_header_table_attach(wsi, 0))
+		switch (lws_header_table_attach(wsi, 0)) {
+		case LWS_AH_ATTACH_OK:
 			lwsl_debug("Attached ah immediately\n");
-		else
+			break;
+		case LWS_AH_ATTACH_WSI_GONE:
+			/*
+			 * Can't happen on this path (a server wsi being
+			 * adopted is neither autoserviced by the attach nor
+			 * an unconnected client), and we have no way to tell
+			 * our caller the wsi is gone: -1 is "the bind
+			 * failed", which makes him close the wsi again.  So
+			 * shout, and claim the bind so at least nothing
+			 * further happens to him in here.
+			 */
+			lwsl_err("%s: wsi vanished in ah attach\n", __func__);
+
+			return 1;
+		default:
 			lwsl_info("%s: waiting for ah\n", __func__);
+			break;
+		}
 
 		return 1;
 	}
@@ -1297,18 +1322,15 @@ rops_client_bind_h1(struct lws *wsi, const struct lws_client_connect_info *i)
 		 * When we do get the ah, now or later, he will end up at
 		 * lws_http_client_connect_via_info2().
 		 */
-		if (lws_header_table_attach(wsi, 0)
-#if defined(LWS_WITH_CLIENT)
-				< 0)
+		if (lws_header_table_attach(wsi, 0) ==
+						LWS_AH_ATTACH_WSI_GONE)
 			/*
-			 * if we failed here, the connection is already closed
-			 * and freed.
+			 * The attach went on to do the connect and it failed:
+			 * the wsi is already closed and freed.  -1 is this
+			 * op's "gone" answer, our caller must not touch or
+			 * close him either.
 			 */
 			return -1;
-#else
-			)
-				return 0;
-#endif
 
 		return 0;
 	}

@@ -1641,11 +1641,25 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		 * ah needs attaching to child wsi, even though
 		 * we only fill it from network wsi
 		 */
-		if (!h2n->swsi->http.ah)
-			if (lws_header_table_attach(h2n->swsi, 0)) {
+		if (!h2n->swsi->http.ah) {
+			lws_ah_attach_result_t ar =
+				lws_header_table_attach(h2n->swsi, 0);
+
+			if (ar == LWS_AH_ATTACH_WSI_GONE)
+				/*
+				 * The stream wsi was closed and freed inside
+				 * the attach.  We are returning failure on
+				 * the *network* wsi, which is still alive,
+				 * but h2n->swsi is now dangling and neither
+				 * we nor the frame teardown may touch it.
+				 */
+				h2n->swsi = NULL;
+
+			if (ar != LWS_AH_ATTACH_OK) {
 				lwsl_err("%s: Failed to get ah\n", __func__);
 				return 1;
 			}
+		}
 
 		/*
 		 * The first use of a new stream identifier implicitly closes
