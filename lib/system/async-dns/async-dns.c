@@ -595,8 +595,36 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_RX:
 		//lwsl_wsi_user(wsi, "LWS_CALLBACK_RAW_RX (%d)", (int)len);
 		// lwsl_hexdump_wsi_notice(wsi, in, len);
+	{
+		/*
+		 * recvfrom() left the datagram's source in wsi->udp->sa46,
+		 * which is also where we send to... put the nameserver we
+		 * chose back first, so a foreign datagram cannot redirect our
+		 * queries to whoever sent it.
+		 */
+
+		lws_sockaddr46 src = wsi->udp->sa46;
+
+		wsi->udp->sa46 = dsrv->sa46;
+
+		/*
+		 * An answer only means anything if it came from the server we
+		 * asked.  The socket is connect()ed to the nameserver on most
+		 * platforms, so the kernel already dropped everything else...
+		 * but that is compiled out on Apple platforms, where without
+		 * this an off-path attacker who can reach our ephemeral port
+		 * only has to guess the tid to poison any name.
+		 */
+
+		if (src.sa4.sin_port != dsrv->sa46.sa4.sin_port ||
+		    lws_sa46_compare_ads(&src, &dsrv->sa46)) {
+			lwsl_wsi_notice(wsi, "dns answer from unexpected source");
+			break;
+		}
+
 		lws_adns_parse_udp(dns, in, len, dsrv);
 		break;
+	}
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
 		//lwsl_wsi_user(wsi, "LWS_CALLBACK_RAW_WRITEABLE");
