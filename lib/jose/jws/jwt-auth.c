@@ -43,6 +43,25 @@ struct lws_jwt_auth_grant {
 	int grant_level;
 };
 
+/*
+ * "exp" and "iat" come out of the token, ie, they are chosen by the issuer and
+ * atoll() saturates a wild one to LLONG_MAX.  Converting that many seconds to
+ * us overflows the signed lws_usec_t (undefined, and in practice a tiny or
+ * negative delay that re-arms immediately and spins).  Saturate the delay we
+ * are willing to schedule instead.
+ */
+
+#define LWS_JWT_AUTH_MAX_SCHED_SECS ((uint64_t)10 * 365 * 24 * 60 * 60)
+
+static lws_usec_t
+lws_jwt_auth_secs_to_us(uint64_t secs)
+{
+	if (secs > LWS_JWT_AUTH_MAX_SCHED_SECS)
+		secs = LWS_JWT_AUTH_MAX_SCHED_SECS;
+
+	return (lws_usec_t)secs * LWS_US_PER_SEC;
+}
+
 static void
 lws_jwt_auth_sul_cb(lws_sorted_usec_list_t *sul)
 {
@@ -57,7 +76,7 @@ lws_jwt_auth_sul_cb(lws_sorted_usec_list_t *sul)
 			ja->cb(ja, LWS_JWT_AUTH_STATE_REAUTH, ja->user);
 
 		/* Reschedule for the actual expiration */
-		lws_usec_t us = (lws_usec_t)(ja->exp - now) * LWS_US_PER_SEC;
+		lws_usec_t us = lws_jwt_auth_secs_to_us(ja->exp - now);
 		lws_sul_schedule(ja->cx, 0, &ja->sul, lws_jwt_auth_sul_cb, us);
 	}
 }
@@ -81,13 +100,17 @@ lws_jwt_auth_schedule(struct lws_jwt_auth *ja)
 	else
 		total_val = ja->exp - now;
 
+	/* keep the 85% computation below out of uint64 wrap territory */
+	if (total_val > LWS_JWT_AUTH_MAX_SCHED_SECS)
+		total_val = LWS_JWT_AUTH_MAX_SCHED_SECS;
+
 	uint64_t reauth_point = ja->exp - (total_val * 15) / 100; /* 85% */
 
 	if (now >= reauth_point) {
-		us = (lws_usec_t)(ja->exp - now) * LWS_US_PER_SEC;
+		us = lws_jwt_auth_secs_to_us(ja->exp - now);
 		lws_sul_schedule(ja->cx, 0, &ja->sul, lws_jwt_auth_sul_cb, us);
 	} else {
-		us = (lws_usec_t)(reauth_point - now) * LWS_US_PER_SEC;
+		us = lws_jwt_auth_secs_to_us(reauth_point - now);
 		lws_sul_schedule(ja->cx, 0, &ja->sul, lws_jwt_auth_sul_cb, us);
 	}
 }
