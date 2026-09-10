@@ -13,7 +13,22 @@ require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITH_TLS 1 requirements)
-require_lws_config(LWS_WITH_OPENHITLS 1 requirements)
+
+#
+# What this exercises is backend code: which vhost, and so which certificate,
+# a TLS connection is served by according to the SNI name it asked for.  So
+# it wants running on every backend that implements server-side SNI selection.
+# openHiTLS came first; BearSSL has no servername callback that can still
+# change the certificate and reads the name out of the ClientHello itself.
+#
+set(sni_openhitls 0)
+set(sni_bearssl 0)
+require_lws_config(LWS_WITH_OPENHITLS 1 sni_openhitls)
+require_lws_config(LWS_WITH_BEARSSL 1 sni_bearssl)
+
+if (NOT sni_openhitls AND NOT sni_bearssl)
+	set(requirements 0)
+endif()
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})

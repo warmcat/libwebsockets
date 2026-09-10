@@ -116,21 +116,148 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	return 0;
 }
 
+/*
+ * Server-side SNI.
+ *
+ * BearSSL does expose the name the client asked for, but only from inside
+ * the br_ssl_server_policy_class "choose" hook, and by the time that runs the
+ * engine has already matched the ALPN list and reduced the cipher suites to
+ * those common with the ClientHello... both of which are set up from the
+ * vhost.  Worse, whether the engine can speak RSA or EC suites at all was
+ * decided by which br_ssl_server_init_full_*() we called before the
+ * handshake, so a "choose" hook could not move the connection onto a vhost
+ * whose key is of the other type.
+ *
+ * So we take the name out of the ClientHello ourselves (peeking at the
+ * socket, the engine still reads the same bytes afterwards) and select the
+ * vhost before the engine is initialized at all.  Then the chain, the key,
+ * the suite profile, the client-cert policy, the ALPN list and the session
+ * cache are all the selected vhost's from the start.
+ *
+ * Returns 0 if the handshake may proceed on wsi's (possibly just changed)
+ * vhost, 1 if we need more bytes from him first, or -1 if he has been refused
+ * (the alert is already on its way).
+ */
+
+static int
+lws_bearssl_server_sni(struct lws *wsi)
+{
+	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
+	struct lws_vhost *vh = wsi->a.vhost;
+	struct lws_tls_ctx_ref *ref;
+	char name[256];
+	uint8_t ver[2];
+	int s, n;
+
+	/*
+	 * Peek: we must not consume anything, the engine is going to read the
+	 * ClientHello from the socket itself in the usual way.
+	 *
+	 * We peek into the connection's own record input buffer: the engine
+	 * is not initialized yet, so nothing owns it, and it is by definition
+	 * big enough for the largest record TLS can send us.  (Using the pt
+	 * serv buf instead would not be safe on the async accept worker.)
+	 */
+
+	s = (int)recv(wsi->desc.sockfd, (char *)conn->iobuf_in,
+		      LWS_POSIX_LENGTH_CAST(sizeof(conn->iobuf_in)), MSG_PEEK);
+	if (s <= 0) {
+		if (s < 0 && (LWS_ERRNO == LWS_EAGAIN ||
+			      LWS_ERRNO == LWS_EWOULDBLOCK))
+			return 1;
+
+		/*
+		 * He hung up, or the socket is broken... nothing to decide,
+		 * let the engine discover it the same way it did before
+		 */
+
+		return 0;
+	}
+
+	n = lws_tls_client_hello_sni(conn->iobuf_in, (size_t)s, name,
+				     sizeof(name));
+
+	if (n == LWS_TLS_CH_SNI_MORE) {
+		if ((size_t)s < sizeof(conn->iobuf_in))
+			/* the rest of his ClientHello is still coming */
+			return 1;
+
+		/*
+		 * He filled the record buffer without completing a
+		 * ClientHello, so there is no name in there to find
+		 */
+
+		n = LWS_TLS_CH_SNI_NONE;
+	}
+
+	if (n == LWS_TLS_CH_SNI_NONE)
+		/* he named nothing: he is served by the vhost that accepted him */
+		return 0;
+
+	if (n == LWS_TLS_CH_SNI_FOUND && !lws_tls_server_sni_select(wsi, name)) {
+
+		if (wsi->a.vhost == vh)
+			return 0;
+
+		/*
+		 * We moved him to another vhost: the lifetime reference the
+		 * accept took has to follow, or the handshake would run with
+		 * the accepting vhost's chain and key
+		 */
+
+		ref = lws_tls_ctx_ref_get(wsi->a.vhost);
+		if (wsi->tls.ctx_ref)
+			lws_tls_ctx_ref_unref(wsi->tls.ctx_ref);
+		wsi->tls.ctx_ref = ref;
+		conn->ctx = ref ? ref->ctx : wsi->a.vhost->tls.ssl_ctx;
+
+		return 0;
+	}
+
+	/*
+	 * Either he named something served by no vhost on this listener, or
+	 * what he put in the server_name extension is not usable as a name.
+	 * Refuse him with the same fatal alert the other backends send, and
+	 * echo the record version he used so he can parse it.
+	 */
+
+	ver[0] = conn->iobuf_in[1];
+	ver[1] = conn->iobuf_in[2];
+
+	lws_tls_server_send_alert(wsi, ver, LWS_TLS_ALERT_UNRECOGNIZED_NAME);
+
+	wsi->socket_is_permanently_unusable = 1;
+
+	return -1;
+}
+
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
 {
 	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
-	/*
-	 * the ctx the accept took the lifetime reference on... the vhost's
-	 * current tls.ssl_ctx may already be a different one (cert rotation),
-	 * and BearSSL keeps the chain / key / cache pointers we give it for
-	 * the life of the connection
-	 */
-	struct lws_tls_ctx *ctx = conn->ctx;
 	unsigned st;
 	int err;
 
 	if (!conn->initialized) {
+		/*
+		 * the ctx the accept took the lifetime reference on... the
+		 * vhost's current tls.ssl_ctx may already be a different one
+		 * (cert rotation), and BearSSL keeps the chain / key / cache
+		 * pointers we give it for the life of the connection
+		 */
+		struct lws_tls_ctx *ctx;
+		int n = lws_bearssl_server_sni(wsi);
+
+		if (n < 0)
+			return LWS_SSL_CAPABLE_ERROR;
+
+		if (n > 0)
+			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+
+		/* the SNI selection may have moved us to another vhost's ctx */
+
+		ctx = conn->ctx;
+
 		if (lws_tls_bearssl_vh_wants_client_certs(wsi->a.vhost)) {
 			lwsl_err("%s: vh %s wants client certs, unsupported\n",
 				 __func__, wsi->a.vhost->name);

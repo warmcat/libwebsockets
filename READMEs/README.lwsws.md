@@ -240,6 +240,16 @@ vhost may be nominated to take those connections instead with
 vhost that accepted it; neither is selection by `Host:` header, since a server
 with a single vhost is reached by IP address all the time.
 
+ - All the tls backends do this the same way.  OpenSSL, mbedtls, gnutls and
+openHiTLS act on it in their servername callback; BearSSL and Schannel have no
+callback that can still change the certificate at that point (Schannel has none
+at all, and BearSSL's chain-selection hook runs after ALPN and the cipher suites
+are already settled), so on those two lws reads the name out of the ClientHello
+itself, before handing the first record to the tls library.  The only case those
+two treat differently is a ClientHello split across several tls records, which
+no client does: lws does not reassemble it, and such a peer is served as if he
+had sent no SNI.
+
 
 ## Lwsws Protocols
 

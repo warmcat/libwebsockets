@@ -337,6 +337,38 @@ lws_tls_server_abort_connection(struct lws *wsi);
 #define lws_tls_server_abort_connection(_a) (0)
 #endif
 
+#if defined(LWS_WITH_SERVER)
+
+/*
+ * Server-side SNI for the backends whose TLS library gives us no servername
+ * callback in time to change the certificate, the client-cert policy and the
+ * ALPN list (BearSSL, Schannel): they read the name out of the ClientHello
+ * themselves before handing the first record over.  See the block comment at
+ * the top of lib/tls/tls-server.c.
+ */
+
+enum {
+	LWS_TLS_CH_SNI_BAD	= -1, /* a server_name we will not act on */
+	LWS_TLS_CH_SNI_MORE	=  0, /* not enough of the ClientHello yet */
+	LWS_TLS_CH_SNI_NONE	=  1, /* no SNI: keep the accepting vhost */
+	LWS_TLS_CH_SNI_FOUND	=  2  /* the name is in \p name */
+};
+
+int
+lws_tls_client_hello_sni(const uint8_t *buf, size_t len, char *name,
+			 size_t name_len);
+
+void
+lws_tls_server_send_alert(struct lws *wsi, const uint8_t *ver, uint8_t desc);
+
+/* RFC 6066 unrecognized_name */
+#define LWS_TLS_ALERT_UNRECOGNIZED_NAME 112
+
+int
+lws_tls_server_sni_select(struct lws *wsi, const char *servername);
+
+#endif
+
 enum lws_ssl_capable_status
 __lws_tls_shutdown(struct lws *wsi);
 

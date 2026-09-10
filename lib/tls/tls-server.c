@@ -26,6 +26,328 @@
 
 #if defined(LWS_WITH_SERVER)
 
+/*
+ * SNI for the backends that have no servername callback
+ * --------------------------------------------------------------------------
+ *
+ * BearSSL hands the server the SNI name only from inside its certificate
+ * chain "choose" hook, which runs after the ClientHello extensions have
+ * already been matched (so ALPN and the cipher suite list are settled by
+ * then), and Schannel has no such hook at all: AcceptSecurityContext()
+ * consumes the ClientHello with the credential handle already chosen.
+ *
+ * On both of those, the only place the vhost decision can still change the
+ * certificate, the client-certificate policy and the ALPN list is before the
+ * TLS library sees the first record at all.  So they take the name out of the
+ * ClientHello themselves, with the parser below, and then select and bind the
+ * vhost with lws_tls_server_sni_select() exactly as the other backends' SNI
+ * callbacks do.
+ */
+
+/*
+ * Find the SNI hostname in a TLS ClientHello.
+ *
+ * Everything in \p buf is attacker-chosen: it is literally the first bytes he
+ * sent us.  So every length is checked against the bytes actually remaining
+ * before it is used, no extension ordering is assumed, and the name is only
+ * accepted if it is something we are willing to hand to a string API.
+ *
+ * We only look inside the first TLS record.  A ClientHello fragmented across
+ * several records is legal but is not something any TLS client does, and
+ * reassembling it would mean de-framing the handshake stream ahead of the TLS
+ * library; such a peer is simply treated as having sent no SNI, ie, he is
+ * served by the vhost that accepted him.
+ *
+ * \p buf: the bytes the peer sent, from the start of the connection
+ * \p len: how many of them we have
+ * \p name: where to write the NUL-terminated hostname
+ * \p name_len: sizeof(*name)
+ *
+ * Returns one of the LWS_TLS_CH_SNI_* results.  On _MORE the caller should
+ * come back with more bytes, up to whatever cap it is willing to buffer;
+ * beyond that cap it must stop asking and treat it as _NONE.
+ */
+
+int
+lws_tls_client_hello_sni(const uint8_t *buf, size_t len, char *name,
+			 size_t name_len)
+{
+	size_t pos, end, lim, n, u;
+
+	if (!name || name_len < 2)
+		return LWS_TLS_CH_SNI_NONE;
+
+	*name = '\0';
+
+	/* TLS plaintext record header: type(1) legacy_version(2) length(2) */
+
+	if (len < 5)
+		return LWS_TLS_CH_SNI_MORE;
+
+	if (buf[0] != 0x16 /* handshake */ || buf[1] != 0x03)
+		/*
+		 * Not a TLS 1.x handshake record (an SSLv2-style hello comes
+		 * here too, and carries no SNI by construction).  Nothing for
+		 * us to say about it: let the TLS backend deal with it.
+		 */
+		return LWS_TLS_CH_SNI_NONE;
+
+	end = 5 + (((size_t)buf[3] << 8) | buf[4]);
+
+	if (end <= 5 || end > 5 + 16384)
+		/* a record length TLS does not allow */
+		return LWS_TLS_CH_SNI_NONE;
+
+	if (len < end)
+		return LWS_TLS_CH_SNI_MORE;
+
+	/* handshake message header: msg_type(1) length(3) */
+
+	pos = 5;
+
+	if (end - pos < 4 || buf[pos] != 1 /* client_hello */)
+		return LWS_TLS_CH_SNI_NONE;
+
+	n = ((size_t)buf[pos + 1] << 16) | ((size_t)buf[pos + 2] << 8) |
+	     (size_t)buf[pos + 3];
+	pos += 4;
+
+	if (n > end - pos)
+		/* the ClientHello continues in a later record, see above */
+		return LWS_TLS_CH_SNI_NONE;
+
+	end = pos + n;
+
+	/* client_version(2) + random(32) */
+
+	if (end - pos < 34)
+		return LWS_TLS_CH_SNI_NONE;
+	pos += 34;
+
+	/* legacy_session_id */
+
+	if (end - pos < 1)
+		return LWS_TLS_CH_SNI_NONE;
+	n = buf[pos++];
+	if (n > end - pos)
+		return LWS_TLS_CH_SNI_NONE;
+	pos += n;
+
+	/* cipher_suites */
+
+	if (end - pos < 2)
+		return LWS_TLS_CH_SNI_NONE;
+	n = ((size_t)buf[pos] << 8) | buf[pos + 1];
+	pos += 2;
+	if (n > end - pos)
+		return LWS_TLS_CH_SNI_NONE;
+	pos += n;
+
+	/* legacy_compression_methods */
+
+	if (end - pos < 1)
+		return LWS_TLS_CH_SNI_NONE;
+	n = buf[pos++];
+	if (n > end - pos)
+		return LWS_TLS_CH_SNI_NONE;
+	pos += n;
+
+	/*
+	 * Extensions.  They are optional (a TLS 1.0 hello may simply stop
+	 * here), and they may come in any order.
+	 */
+
+	if (end - pos < 2)
+		return LWS_TLS_CH_SNI_NONE;
+	n = ((size_t)buf[pos] << 8) | buf[pos + 1];
+	pos += 2;
+	if (n > end - pos)
+		return LWS_TLS_CH_SNI_NONE;
+	end = pos + n;
+
+	while (end - pos >= 4) {
+		unsigned int type = ((unsigned int)buf[pos] << 8) | buf[pos + 1];
+
+		n = ((size_t)buf[pos + 2] << 8) | buf[pos + 3];
+		pos += 4;
+		if (n > end - pos)
+			return LWS_TLS_CH_SNI_NONE;
+
+		if (type) { /* 0 = server_name (RFC 6066) */
+			pos += n;
+			continue;
+		}
+
+		/*
+		 * ServerNameList: list_length(2) then NameType(1) length(2).
+		 *
+		 * A server_name extension we cannot make sense of at all is
+		 * treated as him not having named anything (_NONE, ie, he
+		 * keeps the accepting vhost, and the tls library gets to have
+		 * its own opinion about the malformed hello).  It is only
+		 * once he has actually named a host that a name we will not
+		 * act on becomes _BAD, ie, refused: that is the same answer
+		 * the other backends give a name that matches no vhost.
+		 */
+
+		lim = pos + n;
+
+		if (lim - pos < 2)
+			return LWS_TLS_CH_SNI_NONE;
+		n = ((size_t)buf[pos] << 8) | buf[pos + 1];
+		pos += 2;
+		if (n > lim - pos)
+			return LWS_TLS_CH_SNI_NONE;
+		lim = pos + n;
+
+		while (lim - pos >= 3) {
+			unsigned int nt = buf[pos];
+
+			n = ((size_t)buf[pos + 1] << 8) | buf[pos + 2];
+			pos += 3;
+			if (n > lim - pos)
+				return LWS_TLS_CH_SNI_NONE;
+
+			if (nt) { /* 0 = host_name, the only one defined */
+				pos += n;
+				continue;
+			}
+
+			if (!n || n >= name_len)
+				return LWS_TLS_CH_SNI_BAD;
+
+			/*
+			 * It is going into strcmp() against vhost names, and
+			 * into the logs at info level... only take it if it
+			 * is printable, NUL-free ASCII
+			 */
+
+			for (u = 0; u < n; u++)
+				if (buf[pos + u] <= ' ' || buf[pos + u] > '~')
+					return LWS_TLS_CH_SNI_BAD;
+
+			memcpy(name, buf + pos, n);
+			name[n] = '\0';
+
+			return LWS_TLS_CH_SNI_FOUND;
+		}
+
+		/* a server_name extension with no host_name in it */
+
+		return LWS_TLS_CH_SNI_NONE;
+	}
+
+	return LWS_TLS_CH_SNI_NONE;
+}
+
+/*
+ * Send a fatal TLS alert ourselves, before any TLS library owns the
+ * connection.  \p ver is the two legacy_version bytes from the record header
+ * he sent, echoed back so that even a peer that only speaks an old version
+ * can parse the record.
+ */
+
+void
+lws_tls_server_send_alert(struct lws *wsi, const uint8_t *ver, uint8_t desc)
+{
+	uint8_t rec[7];
+
+	rec[0] = 0x15;		/* content type: alert */
+	rec[1] = ver[0];
+	rec[2] = ver[1];
+	rec[3] = 0;
+	rec[4] = 2;		/* record length */
+	rec[5] = 2;		/* AlertLevel: fatal */
+	rec[6] = desc;
+
+	/*
+	 * Best effort: we are dropping him either way, and 7 bytes into a
+	 * fresh socket does not block in practice
+	 */
+
+	(void)send(wsi->desc.sockfd, (const char *)rec, sizeof(rec),
+		   MSG_NOSIGNAL);
+}
+
+/*
+ * Apply the SNI name a backend dug out of the ClientHello itself.
+ *
+ * \p servername: the name he sent, or NULL if he sent none or sent something
+ *		  unusable as a name
+ *
+ * Returns 0 if the handshake may go ahead, using whatever vhost the wsi is
+ * bound to when we return (the selected one, or still the accepting one if he
+ * sent no SNI).  Returns 1 if he must be refused: the caller sends the fatal
+ * unrecognized_name alert and drops him.
+ */
+
+int
+lws_tls_server_sni_select(struct lws *wsi, const char *servername)
+{
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	LWS_RATELIMIT_DEFINE_STATIC(rl);
+#endif
+	struct lws_vhost *vhost;
+
+	if (!servername)
+		/*
+		 * He sent no SNI, so he named nothing to steer with: he is
+		 * served by the vhost that accepted him, like on every other
+		 * backend
+		 */
+		return 0;
+
+	vhost = lws_select_vhost_sni(wsi->a.context, wsi->a.vhost->listen_port,
+				     servername);
+	if (!vhost) {
+		lwsl_info("SNI: none: %s:%d\n", servername,
+			  wsi->a.vhost->listen_port);
+
+		/*
+		 * He named something that is not served on this listener, and
+		 * no vhost there is the nominated sni-fallback.  Refuse him
+		 * rather than let him pick an arbitrary vhost's certificate
+		 * and client-certificate policy with an unknown name (C-424).
+		 *
+		 * The name is his to choose, so it stays out of the notice
+		 * level line; it is logged just above at info level.
+		 */
+
+		lwsl_ratelimit_notice(&rl, 10 * LWS_US_PER_SEC, "%s: refused "
+				      "tls connection on port %d, its SNI name "
+				      "matches no vhost there and none is the "
+				      "sni-fallback\n", __func__,
+				      wsi->a.vhost->listen_port);
+
+		return 1;
+	}
+
+	lwsl_info("SNI: Found: %s:%d\n", servername, wsi->a.vhost->listen_port);
+
+	if (!vhost->tls.ssl_ctx) {
+		lwsl_info("SNI: %s has no tls ctx yet\n", servername);
+
+		return 0;
+	}
+
+	if (vhost->being_destroyed) {
+		lwsl_info("SNI: %s is being destroyed\n", servername);
+
+		return 0;
+	}
+
+	/*
+	 * This is the handshake being set up on the vhost that is going to
+	 * run it, so it binds as an SNI bind: it records which vhost's client
+	 * CA store will vouch for any client cert (C-318), and marks the wsi
+	 * so the post-accept ctx-to-vhost adaptation leaves it alone (C-409).
+	 */
+
+	lws_vhost_bind_wsi_sni(vhost, wsi);
+
+	return 0;
+}
+
 static void
 lws_sul_tls_cb(lws_sorted_usec_list_t *sul)
 {

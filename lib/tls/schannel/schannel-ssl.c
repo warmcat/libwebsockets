@@ -399,11 +399,132 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 }
 #endif
 
+#if defined(LWS_WITH_SERVER)
+
+/*
+ * The largest ClientHello we will buffer looking for the SNI name: a TLS
+ * plaintext record cannot carry more than 16384 bytes of payload, so a
+ * ClientHello that has not appeared by then is not going to
+ */
+
+#define LWS_SCH_CLIENT_HELLO_MAX (5 + 16384)
+
+/*
+ * Server-side SNI.
+ *
+ * Schannel has no servername callback: AcceptSecurityContext() consumes the
+ * ClientHello with the credential handle, and so the certificate and the
+ * client-certificate policy, already chosen.  The only chance to choose them
+ * from the name he asked for is before that first call... at which point the
+ * ClientHello is already sitting in our own rx buffer, so we read the name
+ * out of it ourselves and select the vhost with it.
+ *
+ * Returns 0 if the handshake may proceed on wsi's (possibly just changed)
+ * vhost, 1 if we need more bytes from him first, or -1 if he has been refused
+ * (the alert is already on its way) or the connection is unusable.
+ */
+
+static int
+lws_tls_schannel_server_sni(struct lws *wsi)
+{
+	struct lws_tls_schannel_conn *conn = wsi->tls.ssl;
+	struct lws_vhost *vh = wsi->a.vhost;
+	struct lws_tls_ctx_ref *ref;
+	char name[256];
+	uint8_t ver[2];
+	ssize_t s;
+	int n;
+
+	n = lws_tls_client_hello_sni(conn->rx_buf, conn->rx_len, name,
+				     sizeof(name));
+
+	while (n == LWS_TLS_CH_SNI_MORE) {
+
+		if (conn->rx_len >= LWS_SCH_CLIENT_HELLO_MAX) {
+			/* he is not sending a ClientHello we can make sense of */
+			n = LWS_TLS_CH_SNI_NONE;
+			break;
+		}
+
+		if (conn->rx_len == conn->rx_alloc &&
+		    lws_tls_schannel_realloc_buffer(conn, conn->rx_alloc + 2048))
+			return -1;
+
+		s = recv(wsi->desc.sockfd, (char *)conn->rx_buf + conn->rx_len,
+			 (int)(conn->rx_alloc - conn->rx_len), 0);
+		if (s < 0) {
+			if (LWS_ERRNO == LWS_EAGAIN ||
+			    LWS_ERRNO == LWS_EWOULDBLOCK)
+				/*
+				 * Come back when there is more: what we have
+				 * stays in rx_buf and f_sni_done stays clear,
+				 * so we resume where we left off
+				 */
+				return 1;
+
+			return -1;
+		}
+
+		if (!s)
+			/* he hung up in the middle of his ClientHello */
+			return -1;
+
+		conn->rx_len += (size_t)s;
+
+		n = lws_tls_client_hello_sni(conn->rx_buf, conn->rx_len, name,
+					     sizeof(name));
+	}
+
+	conn->f_sni_done = 1;
+
+	if (n == LWS_TLS_CH_SNI_NONE)
+		/* he named nothing: he is served by the vhost that accepted him */
+		return 0;
+
+	if (n == LWS_TLS_CH_SNI_FOUND && !lws_tls_server_sni_select(wsi, name)) {
+
+		if (wsi->a.vhost == vh)
+			return 0;
+
+		/*
+		 * We moved him to another vhost: the lifetime reference the
+		 * accept took has to follow, since the credential handle the
+		 * handshake runs with comes from it
+		 */
+
+		ref = lws_tls_ctx_ref_get(wsi->a.vhost);
+		if (wsi->tls.ctx_ref)
+			lws_tls_ctx_ref_unref(wsi->tls.ctx_ref);
+		wsi->tls.ctx_ref = ref;
+
+		return 0;
+	}
+
+	/*
+	 * Either he named something served by no vhost on this listener, or
+	 * what he put in the server_name extension is not usable as a name.
+	 * Schannel is not involved yet, so we send the same fatal alert the
+	 * other backends send ourselves, echoing the record version he used
+	 * so he can parse it.
+	 */
+
+	ver[0] = conn->rx_buf[1];
+	ver[1] = conn->rx_buf[2];
+
+	lws_tls_server_send_alert(wsi, ver, LWS_TLS_ALERT_UNRECOGNIZED_NAME);
+
+	wsi->socket_is_permanently_unusable = 1;
+
+	return -1;
+}
+
+#endif
+
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
 {
 	struct lws_tls_schannel_conn *conn = wsi->tls.ssl;
-	struct lws_tls_schannel_ctx *ctx = wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx : wsi->a.vhost->tls.ssl_ctx;
+	struct lws_tls_schannel_ctx *ctx;
 	SecBufferDesc out_desc, in_desc;
        SecBuffer out_buf[1], in_buf[3];
 	ULONG req_attrs, ret_attrs;
@@ -411,8 +532,8 @@ lws_tls_server_accept(struct lws *wsi)
 	int budget = LWS_SCH_HS_LOOP_BUDGET;
 	ssize_t n;
 
-    if (!ctx || !conn) {
-        lwsl_wsi_err(wsi, "ctx %p (vhost %s) conn %p missing\n", ctx, wsi->a.vhost->name, conn);
+    if (!conn) {
+        lwsl_wsi_err(wsi, "conn missing\n");
         return LWS_SSL_CAPABLE_ERROR;
     }
 
@@ -433,6 +554,50 @@ lws_tls_server_accept(struct lws *wsi)
 		conn->tx_len = 0;
 	}
 
+	if (conn->rx_len == 0) {
+		if (conn->rx_alloc < 4096) lws_tls_schannel_realloc_buffer(conn, 4096);
+		n = recv(wsi->desc.sockfd, (char *)conn->rx_buf, (int)conn->rx_alloc, 0);
+		if (n < 0) {
+			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
+				return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+             lwsl_err("%s: recv failed %d\n", __func__, LWS_ERRNO);
+			return LWS_SSL_CAPABLE_ERROR;
+		} else if (n == 0) {
+            lwsl_err("%s: recv 0 (EOF)\n", __func__);
+			return LWS_SSL_CAPABLE_ERROR;
+		}
+		conn->rx_len = n;
+        lwsl_info("%s: recv %d bytes client hello\n", __func__, (int)n);
+	}
+
+	/*
+	 * The ClientHello is in rx_buf but Schannel has not seen it yet: this
+	 * is the only moment at which the name he asked for can still decide
+	 * which vhost's credential, client-cert policy and ALPN list the
+	 * handshake runs with
+	 */
+
+	if (!conn->f_sni_done) {
+		int sni = lws_tls_schannel_server_sni(wsi);
+
+		if (sni < 0)
+			return LWS_SSL_CAPABLE_ERROR;
+
+		if (sni > 0)
+			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+	}
+
+	/* ...so everything below follows the vhost we are bound to now */
+
+	ctx = wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx :
+				 wsi->a.vhost->tls.ssl_ctx;
+	if (!ctx) {
+		lwsl_wsi_err(wsi, "no tls ctx on vhost %s\n",
+			     wsi->a.vhost->name);
+
+		return LWS_SSL_CAPABLE_ERROR;
+	}
+
 	req_attrs = ASC_REQ_SEQUENCE_DETECT | ASC_REQ_REPLAY_DETECT |
 		ASC_REQ_CONFIDENTIALITY | ASC_REQ_STREAM |
 		ASC_REQ_ALLOCATE_MEMORY;
@@ -449,22 +614,6 @@ lws_tls_server_accept(struct lws *wsi)
 		LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE)) {
 		req_attrs |= ASC_REQ_MUTUAL_AUTH;
 		conn->f_want_client_cert = 1;
-	}
-
-	if (conn->rx_len == 0) {
-		if (conn->rx_alloc < 4096) lws_tls_schannel_realloc_buffer(conn, 4096);
-		n = recv(wsi->desc.sockfd, (char *)conn->rx_buf, (int)conn->rx_alloc, 0);
-		if (n < 0) {
-			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
-				return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
-             lwsl_err("%s: recv failed %d\n", __func__, LWS_ERRNO);
-			return LWS_SSL_CAPABLE_ERROR;
-		} else if (n == 0) {
-            lwsl_err("%s: recv 0 (EOF)\n", __func__);
-			return LWS_SSL_CAPABLE_ERROR;
-		}
-		conn->rx_len = n;
-        lwsl_info("%s: recv %d bytes client hello\n", __func__, (int)n);
 	}
 
        uint8_t alpn_buf[256];
