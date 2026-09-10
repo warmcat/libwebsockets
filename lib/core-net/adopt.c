@@ -1139,6 +1139,26 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 	}
 
 	if (!wsi->do_bind && !wsi->pf_packet) {
+		/*
+		 * The connect() is compiled out on Apple since dacae3a95
+		 * (2020, "osx: do not connect udp"): unlike linux or windows,
+		 * OSX blanket-rejects the subsequent sendto() with EISCONN,
+		 * so every UDP tx on a connected socket failed there.
+		 *
+		 * Since 6059d830f2, lws_ssl_capable_write_no_ssl() retries a
+		 * sendto() that came back EISCONN with a NULL destination, so
+		 * the original reason may well have gone away... but it is
+		 * left as it was until Sai shows otherwise, since we do not
+		 * have to rely on the kernel-level filter this provides:
+		 * callback_async_dns() checks the source of every answer
+		 * itself, on every platform, and restores the chosen server
+		 * to wsi->udp->sa46 before doing it, since recvfrom() left
+		 * the datagram's source (which is also the send target)
+		 * there.  See the "resolver source-check legs" in
+		 * ./minimal-examples-lowlevel/api-tests/api-test-async-dns,
+		 * which prove that check and the plain resolver round trip
+		 * against a fake nameserver on loopback, connect()ed or not.
+		 */
 #if !defined(__APPLE__)
 		if (connect(sock.sockfd, sa46_sockaddr(&dest),
 			    sa46_socklen(&dest)) == -1 &&

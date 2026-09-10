@@ -14,6 +14,10 @@
 #if !defined(WIN32)
 #include <fcntl.h>
 #include <unistd.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 /*
  * We test the platform DNS server watcher end to end by pointing the whole
  * discovery machinery at a scratch resolv.conf we control, and checking the
@@ -546,6 +550,418 @@ bail:
 }
 #endif
 
+#if !defined(WIN32)
+
+/*
+ * Resolver source-check legs (C-433).
+ *
+ * An answer only means anything if it came from the nameserver we asked.
+ * On most platforms the resolver's UDP socket is connect()ed to the chosen
+ * nameserver and the kernel enforces that for us, but that connect() is
+ * compiled out on Apple (see lib/core-net/adopt.c), so the resolver does the
+ * check itself in callback_async_dns() on every platform.  recvfrom() also
+ * leaves the datagram's source in wsi->udp->sa46, which is the send target
+ * too, so the chosen server has to be put back there before the check.
+ *
+ * Both legs stand a fake nameserver up on a loopback UDP socket of our own
+ * and point a private context's resolver at it:
+ *
+ *  - the plain leg has that fake nameserver answer the query itself, and the
+ *    query must complete with the address it gave.  That is what proves the
+ *    resolver works whether or not its socket got connect()ed.
+ *
+ *  - the foreign leg has a second local socket, bound to a different port,
+ *    answer first with a different address and the right tid.  That answer
+ *    must be ignored, and the later answer from the real fake nameserver
+ *    accepted.  Nothing may arrive at the second socket afterwards either,
+ *    which is what proves wsi->udp->sa46 was put back to the chosen server
+ *    instead of being left pointing at the foreign source.
+ *
+ * This is a unit test of our own filtering against sockets we own on
+ * loopback; nothing leaves the machine.
+ */
+
+#define SC_NAME			"srccheck.invalid"
+#define SC_TICK_US		(50 * LWS_US_PER_MS)
+#define SC_QUIET_TICKS		2	/* no new query = lws asked all it will */
+#define SC_FOREIGN_TICKS	10	/* > the 300ms first async-dns retry */
+#define SC_DEADLINE_TICKS	120	/* ~6s */
+#define SC_MAX_QUERIES		8
+
+/* the fake nameserver's answer, and the one the foreign socket tries */
+
+static const uint8_t sc_ads_good[] = { 127, 0, 0, 9 },
+		     sc_ads_foreign[] = { 10, 9, 8, 7 };
+
+struct sc_query {
+	struct sockaddr_storage	peer;
+	socklen_t		peer_len;
+	size_t			len;
+	int			answered;
+	uint8_t			pkt[512];
+};
+
+static struct sc_query sc_q[SC_MAX_QUERIES];
+static struct lws_context *sc_cx;
+static lws_sorted_usec_list_t sul_sc;
+static int sc_fd = -1, sc_foreign_fd = -1;
+static int sc_fail, sc_foreign_mode, sc_interrupted;
+static int sc_qs, sc_ticks, sc_quiet, sc_phase, sc_phase_ticks;
+static int sc_resolved, sc_bad_ads, sc_redirected;
+
+/* a nonblocking UDP socket on an ephemeral loopback port */
+
+static int
+sc_socket(uint16_t *port)
+{
+	struct sockaddr_in sin;
+	socklen_t sl = sizeof(sin);
+	int fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+	if (fd < 0)
+		return -1;
+
+	memset(&sin, 0, sizeof(sin));
+	sin.sin_family		= AF_INET;
+	sin.sin_addr.s_addr	= htonl(INADDR_LOOPBACK);
+
+	if (bind(fd, (struct sockaddr *)&sin, sizeof(sin)) ||
+	    getsockname(fd, (struct sockaddr *)&sin, &sl) ||
+	    fcntl(fd, F_SETFL, O_NONBLOCK) < 0) {
+		close(fd);
+		return -1;
+	}
+
+	*port = ntohs(sin.sin_port);
+
+	return fd;
+}
+
+/*
+ * Offset of the QTYPE in a query packet, ie, just past the qname; 0 if the
+ * packet doesn't hold a whole question.  Also tells us where the question
+ * section ends, which is where our answer RR goes.
+ */
+
+static size_t
+sc_qtype_ofs(const uint8_t *pkt, size_t len)
+{
+	size_t o = 12; /* past the DNS header */
+
+	while (o < len && pkt[o]) {
+		if (pkt[o] > 63) /* a query qname has no compression pointers */
+			return 0;
+		o += (size_t)pkt[o] + 1;
+	}
+
+	if (o + 5 > len)
+		return 0;
+
+	return o + 1;
+}
+
+/*
+ * Answer one captured query from the given socket: A gets the given address,
+ * anything else (ie, the AAAA half of the A/AAAA pair lws asks) gets an empty
+ * NOERROR answer, which is enough for the query to be considered answered for
+ * that family.
+ */
+
+static void
+sc_answer(struct sc_query *q, int fd, const uint8_t *ads)
+{
+	uint8_t resp[sizeof(q->pkt) + 16];
+	size_t qo = sc_qtype_ofs(q->pkt, q->len), o;
+	uint16_t qtype;
+
+	if (!qo)
+		return;
+
+	qtype = (uint16_t)((q->pkt[qo] << 8) | q->pkt[qo + 1]);
+	o = qo + 4; /* the question section ends after QTYPE + QCLASS */
+
+	memcpy(resp, q->pkt, o);
+
+	resp[2] = 0x81;			/* QR + RD */
+	resp[3] = 0x80;			/* RA, rcode NOERROR */
+	resp[6] = 0; resp[7] = 0;	/* ANCOUNT */
+	resp[8] = 0; resp[9] = 0;	/* NSCOUNT */
+	resp[10] = 0; resp[11] = 0;	/* ARCOUNT */
+
+	if (qtype == LWS_ADNS_RECORD_A) {
+		resp[7] = 1;
+		resp[o++] = 0xc0;	/* NAME: pointer to the qname */
+		resp[o++] = 0x0c;
+		resp[o++] = 0;
+		resp[o++] = (uint8_t)LWS_ADNS_RECORD_A;
+		resp[o++] = 0; resp[o++] = 1;	/* CLASS IN */
+		resp[o++] = 0; resp[o++] = 0;
+		resp[o++] = 0; resp[o++] = 60;	/* TTL 60s */
+		resp[o++] = 0; resp[o++] = 4;	/* RDLENGTH */
+		memcpy(&resp[o], ads, 4);
+		o += 4;
+	}
+
+	if (sendto(fd, (const char *)resp, o, 0, (struct sockaddr *)&q->peer,
+		   q->peer_len) < 0)
+		lwsl_err("%s: sendto failed, errno %d\n", __func__, errno);
+}
+
+static void
+sc_answer_all(int fd, const uint8_t *ads, int mark)
+{
+	int n;
+
+	for (n = 0; n < sc_qs; n++)
+		if (!sc_q[n].answered) {
+			sc_answer(&sc_q[n], fd, ads);
+			if (mark)
+				sc_q[n].answered = 1;
+		}
+}
+
+/* collect whatever the resolver sent our fake nameserver since last time */
+
+static void
+sc_harvest(void)
+{
+	for (;;) {
+		struct sc_query dump, *q = sc_qs < SC_MAX_QUERIES ?
+						&sc_q[sc_qs] : &dump;
+		ssize_t n;
+
+		q->peer_len = sizeof(q->peer);
+		n = recvfrom(sc_fd, (char *)q->pkt, sizeof(q->pkt), 0,
+			     (struct sockaddr *)&q->peer, &q->peer_len);
+		if (n < 12)
+			return;
+
+		sc_quiet = 0;
+
+		if (q == &dump) /* more retries than we have room for, fine */
+			continue;
+
+		q->len = (size_t)n;
+		q->answered = 0;
+		sc_qs++;
+	}
+}
+
+/*
+ * Nothing may ever arrive at the foreign socket: if the resolver had adopted
+ * the foreign source as its send target, its retry would land here.
+ */
+
+static void
+sc_check_foreign(void)
+{
+	uint8_t dump[512];
+
+	while (recv(sc_foreign_fd, (char *)dump, sizeof(dump), 0) >= 0)
+		sc_redirected++;
+}
+
+static struct lws *
+sc_cb(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
+      void *opaque)
+{
+	const struct addrinfo *ac = a;
+
+	(void)wsi_unused;
+	(void)ads;
+	(void)n;
+	(void)opaque;
+
+	sc_resolved = 1;
+	sc_bad_ads = 1;
+
+	while (ac) {
+		if (ac->ai_family == AF_INET &&
+		    !memcmp(&((struct sockaddr_in *)ac->ai_addr)->sin_addr,
+			    sc_ads_good, sizeof(sc_ads_good)))
+			sc_bad_ads = 0;
+
+		ac = ac->ai_next;
+	}
+
+	lws_async_dns_freeaddrinfo(&a);
+
+	return NULL;
+}
+
+static void
+sul_sc_cb(lws_sorted_usec_list_t *s)
+{
+	(void)s;
+
+	sc_harvest();
+	sc_check_foreign();
+
+	switch (sc_phase) {
+
+	case 0: /* wait until lws has sent all the queries it is going to */
+		if (!sc_qs || ++sc_quiet < SC_QUIET_TICKS)
+			break;
+
+		if (!sc_foreign_mode) {
+			sc_phase = 2;
+			break;
+		}
+
+		lwsl_user("%s: answering from the wrong source port\n",
+				__func__);
+		sc_answer_all(sc_foreign_fd, sc_ads_foreign, 0);
+		sc_phase = 1;
+		break;
+
+	case 1: /* the foreign answer must not be taken, nor redirect us */
+		if (sc_resolved) {
+			lwsl_err("%s: took an answer from a foreign source\n",
+					__func__);
+			sc_fail++;
+			sc_interrupted = 1;
+			break;
+		}
+
+		if (++sc_phase_ticks >= SC_FOREIGN_TICKS)
+			sc_phase = 2;
+		break;
+
+	case 2: /* the nameserver we actually asked answers */
+		sc_answer_all(sc_fd, sc_ads_good, 1);
+		if (sc_resolved)
+			sc_interrupted = 1;
+		break;
+	}
+
+	if (++sc_ticks >= SC_DEADLINE_TICKS) {
+		lwsl_err("%s: timed out in phase %d (%d queries seen)\n",
+				__func__, sc_phase, sc_qs);
+		sc_fail++;
+		sc_interrupted = 1;
+	}
+
+	if (!sc_interrupted)
+		lws_sul_schedule(sc_cx, 0, &sul_sc, sul_sc_cb, SC_TICK_US);
+}
+
+static void
+sc_run(int foreign)
+{
+	static const char *sc_servers[] = { "127.0.0.1", NULL };
+	struct lws_context_creation_info ci;
+	uint16_t port = 0, foreign_port = 0;
+	char saved[16], portstr[16];
+	const char *env;
+	int had_saved;
+
+	memset(sc_q, 0, sizeof(sc_q));
+	sc_qs = sc_ticks = sc_quiet = sc_phase = sc_phase_ticks = 0;
+	sc_resolved = sc_bad_ads = sc_redirected = sc_interrupted = 0;
+	sc_foreign_mode = foreign;
+
+	lwsl_user("*** resolver source-check leg (%s)\n",
+			foreign ? "foreign answer" : "plain");
+
+	sc_fd = sc_socket(&port);
+	sc_foreign_fd = sc_socket(&foreign_port);
+	if (sc_fd < 0 || sc_foreign_fd < 0) {
+		lwsl_err("%s: can't make the loopback sockets\n", __func__);
+		sc_fail++;
+		goto bail;
+	}
+
+	/* point the resolver's nameserver port at our fake nameserver */
+
+	env = getenv("LWS_ASYNCDNS_PORT");
+	had_saved = !!env;
+	if (env)
+		lws_strncpy(saved, env, sizeof(saved));
+	lws_snprintf(portstr, sizeof(portstr), "%u", port);
+	setenv("LWS_ASYNCDNS_PORT", portstr, 1);
+
+	lws_context_info_defaults(&ci, NULL);
+	ci.port			= CONTEXT_PORT_NO_LISTEN;
+	ci.options		= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	ci.async_dns_servers	= sc_servers;
+
+	sc_cx = lws_create_context(&ci);
+	if (!sc_cx) {
+		lwsl_err("%s: context create failed\n", __func__);
+		sc_fail++;
+		goto restore;
+	}
+
+	/* only the pinned nameserver, ie, only our own fake one */
+
+	{
+		lws_sockaddr46 sa46;
+		int index = 0;
+
+		while (!lws_plat_asyncdns_get_server(sc_cx, index++, &sa46))
+			lws_async_dns_server_remove(sc_cx, &sa46);
+	}
+
+	if (lws_async_dns_query(sc_cx, 0, SC_NAME,
+				(adns_query_type_t)(LWS_ADNS_RECORD_A |
+						LWS_ADNS_NOCACHE |
+						LWS_ADNS_IGNORE_HOSTS_FILE |
+						LWS_ADNS_INDICATE_LACKS_DNSSEC),
+				sc_cb, NULL, NULL, NULL) !=
+						LADNS_RET_CONTINUING) {
+		lwsl_err("%s: query did not start\n", __func__);
+		sc_fail++;
+		goto destroy;
+	}
+
+	lws_sul_schedule(sc_cx, 0, &sul_sc, sul_sc_cb, SC_TICK_US);
+
+	while (!sc_interrupted)
+		if (lws_service(sc_cx, 0) < 0)
+			break;
+
+destroy:
+	lws_sul_cancel(&sul_sc);
+	lws_context_destroy(sc_cx);
+	sc_cx = NULL;
+
+restore:
+	if (had_saved)
+		setenv("LWS_ASYNCDNS_PORT", saved, 1);
+	else
+		unsetenv("LWS_ASYNCDNS_PORT");
+
+bail:
+	if (sc_fd >= 0)
+		close(sc_fd);
+	if (sc_foreign_fd >= 0)
+		close(sc_foreign_fd);
+	sc_fd = sc_foreign_fd = -1;
+
+	if (sc_fail)
+		return;
+
+	if (!sc_resolved) {
+		lwsl_err("%s: query never completed\n", __func__);
+		sc_fail++;
+	} else if (sc_bad_ads) {
+		lwsl_err("%s: query completed without the nameserver's "
+			 "address\n", __func__);
+		sc_fail++;
+	}
+
+	if (sc_redirected) {
+		lwsl_err("%s: %d datagram(s) went to the foreign source\n",
+				__func__, sc_redirected);
+		sc_fail++;
+	}
+
+	if (!sc_fail)
+		lwsl_user("Resolver source-check leg (%s): PASS\n",
+				foreign ? "foreign answer" : "plain");
+}
+#endif
+
 struct lws *
 cb1(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
     void *opaque);
@@ -876,6 +1292,14 @@ main(int argc, const char **argv)
 		gate_giveup_test();
 #endif
 
+		/*
+		 * C-433: an answer is only taken from the nameserver we asked.
+		 * Own context, own fake nameserver on loopback.
+		 */
+
+		sc_run(0);
+		sc_run(1);
+
 		/* platform server set for the main context's watcher leg */
 
 		fd = open(RESOLV_TEST_CONF, O_WRONLY | O_TRUNC, 0600);
@@ -1064,7 +1488,11 @@ evloop:
 #if !defined(WIN32)
 	lwsl_user("Watcher leg: %s (%d publications)\n",
 		  watch_fail ? "FAIL" : "PASS", watch_msgs);
-#endif
+	lwsl_user("Resolver source-check legs: %s\n", sc_fail ? "FAIL" : "PASS");
+
+	return !(ok == _exp && !fail && !watch_fail && !sc_fail);
+#else
 
 	return !(ok == _exp && !fail && !watch_fail);
+#endif
 }
