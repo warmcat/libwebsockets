@@ -810,8 +810,12 @@ push_m:
 					 */
 
 					if (lwcp_is_indet_string(ctx)) {
-						/* just an empty fragment */
-						st->s = LECP_OPC;
+						/*
+						 * Just an empty fragment... the
+						 * next thing at this level is
+						 * another fragment or the BREAK
+						 */
+						st->s = LECP_ONLY_SAME;
 						break;
 					}
 
@@ -995,8 +999,24 @@ push_m:
 			ctx->npos = 0;
 			ctx->buf[0] = '\0';
 
-			if (ctx->sp && lwcp_st_parent(ctx)->indet)
-				st->s = LECP_OPC;
+			/*
+			 * We may only leave LECP_COLLATE when the piece we
+			 * were collecting is actually finished... a nonzero
+			 * collect_rem means we just spilled a full buffer of a
+			 * longer definite-length string and its remaining
+			 * content is still to come.
+			 *
+			 * When it is finished, if it was a definite-length
+			 * fragment of an indefinite-length string, go back to
+			 * accepting only same-type fragments (or the BREAK) at
+			 * this level; otherwise lwcp_completed() below moves us
+			 * on.  Testing the parent's indet instead would fire
+			 * for any indefinite container, and abandon a definite-
+			 * length string after LECP_STRING_CHUNK bytes, parsing
+			 * the rest of its content as opcodes
+			 */
+			if (!st->collect_rem && lwcp_is_indet_string(ctx))
+				st->s = LECP_ONLY_SAME;
 			if (o == LECPCB_VAL_STR_END + to &&
 			    lwcp_completed(ctx, 0))
 				goto reject_callback;
