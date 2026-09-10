@@ -1945,14 +1945,22 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	/* there's an ongoing query we can share the result of? */
 
 	q = lws_adns_get_query(dns, qtype, 0, name);
-	if (q) {
+	if (q && wsi) {
 		lwsl_cx_debug(context, "dns piggybacking: %d:%s",
 				qtype, name);
-		if (wsi)
-			lws_dll2_add_head(&wsi->adns, &q->wsi_adns);
+		lws_dll2_add_head(&wsi->adns, &q->wsi_adns);
 
 		return LADNS_RET_CONTINUING;
 	}
+
+	/*
+	 * A standalone (wsi-less) requester can't ride on an existing query:
+	 * q holds exactly one standalone_cb / opaque pair and it is already
+	 * taken by whoever created it.  Riding anyway used to drop this
+	 * caller's cb and opaque on the floor, so it never heard back and,
+	 * for the DNSSEC DNSKEY sub-lookup, leaked its validation context.
+	 * Issue a separate query with its own tid instead.
+	 */
 
 	q = lws_zalloc(sizeof(*q) + nlen + 1 + DNS_MAX + 1, "adns-q");
 	if (!q) {
