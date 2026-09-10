@@ -296,7 +296,13 @@ lejp_emit_char(struct lejp_ctx *ctx, unsigned char c)
 		return LEJP_REJECT_MP_KEY_ILLEGAL_CHAR;
 
 	if (ctx->pst[ctx->pst_sp].ppos + 1u >= sizeof(ctx->path))
-		return LEJP_REJECT_UNKNOWN;
+		/*
+		 * The same reject as the other two LEJP_MAX_PATH guards: a
+		 * distinct code because LEJP_REJECT_UNKNOWN is deliberately
+		 * tolerated by some callbacks, and an overlong key must be a
+		 * hard reject rather than a silently truncated path
+		 */
+		return LEJP_REJECT_PATH_TOO_LONG;
 
 	ctx->path[ctx->pst[ctx->pst_sp].ppos++] = (char)c;
 

@@ -283,7 +283,7 @@ lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reaso
 	m = (int)(lejp_parse(&ctx, (uint8_t *)out, (int)out_len));
 	lejp_destruct(&ctx);
 
-	if (m < 0 && m != LEJP_REJECT_UNKNOWN) {
+	if (m < 0) {
 		lwsl_err("%s: JSON decode failed\n", __func__);
 		if (reason)
 			*reason = "Failed to parse JWT payload JSON";

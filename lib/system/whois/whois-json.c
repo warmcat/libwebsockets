@@ -356,7 +356,7 @@ lws_whois_json_purify(char *out, size_t out_len, const char *in,
 	r = lejp_parse(&jctx, (const uint8_t *)in, (int)in_len);
 	lejp_destruct(&jctx);
 
-	if ((r < 0 && r != LEJP_REJECT_UNKNOWN) || !in_len || !c.complete)
+	if ((r < 0) || !in_len || !c.complete)
 		return -1;
 
 	emit(&e, "{", 1);
