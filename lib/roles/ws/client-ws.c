@@ -81,7 +81,6 @@ lws_handling_result_t
 lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	const uint8_t **cbuf = (const uint8_t **)buf;
-	unsigned char *start_buf = *buf;
 
 	if ((lwsi_state(wsi) != LRS_WAITING_PROXY_REPLY) &&
 	    (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE) &&
@@ -114,7 +113,11 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 		if (lws_ws_client_rx_parser_block(wsi, cbuf, &len) !=
 							LWS_HPI_RET_HANDLED) {
 			lwsl_wsi_info(wsi, "client_rx_parser exited, closing");
-			*buf = start_buf + len; /* Update how much we used */
+			/*
+			 * lws_ws_client_rx_parser_block() already left *buf
+			 * pointing at the first byte it did not consume, which
+			 * is what the caller uses to compute how much we used
+			 */
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 	}
