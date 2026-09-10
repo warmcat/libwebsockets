@@ -32,9 +32,13 @@
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 
+/* q->dnssec_vctx_waiting[] slot for a given response bit (b0 = A, b1 = AAAA) */
+#define lws_dnssec_vctx_idx(_resp) ((unsigned int)(_resp) >> 1)
+
 struct lws_dnssec_val_ctx {
 	lws_adns_q_t *original_q;	/* NULL if the requester went away */
 	lws_adns_q_t *sub_q;		/* the DNSKEY sub-lookup, once issued */
+	uint8_t resp_bit;		/* which response of original_q we validate */
 	uint8_t algorithm;
 	uint16_t key_tag;
 
@@ -378,13 +382,52 @@ lws_dnssec_dnskey_authenticated(const char *zone, uint16_t key_tag, uint8_t algo
 	return 0;
 }
 
+/*
+ * RFC 4035 5.3.1: the RRSIG's signer name must be the name of the zone that
+ * contains the RRset, ie, it must be the owner name itself or an ancestor of
+ * it.  Without this check the peer chooses which zone's key we go and fetch
+ * to "validate" his answer with, and the name he chooses is then used
+ * verbatim as a query name and as a cache key.
+ *
+ * Both names arrive here as lws_adns_parse_label() produced them, ie, with an
+ * optional trailing '.', and the root is "" or ".".
+ *
+ * Returns 1 if \p signer may sign an RRset owned by \p owner.
+ */
+
+static int
+lws_dnssec_signer_covers(const char *signer, const char *owner)
+{
+	size_t sl = strlen(signer), ol = strlen(owner);
+
+	if (sl && signer[sl - 1] == '.')
+		sl--;
+	if (ol && owner[ol - 1] == '.')
+		ol--;
+
+	if (!sl) /* the root zone is an ancestor of everything */
+		return 1;
+
+	if (sl > ol)
+		return 0;
+
+	if (sl != ol && owner[ol - sl - 1] != '.')
+		/* it must break at a label boundary, not mid-label */
+		return 0;
+
+	return !strncasecmp(owner + (ol - sl), signer, sl);
+}
+
 static void
 lws_dnssec_vctx_free(struct lws_dnssec_val_ctx *vctx)
 {
+	unsigned int idx = lws_dnssec_vctx_idx(vctx->resp_bit);
+
 	if (vctx->sub_q)
 		vctx->sub_q->dnssec_vctx_owned = NULL;
-	if (vctx->original_q)
-		vctx->original_q->dnssec_vctx_waiting = NULL;
+	if (vctx->original_q &&
+	    vctx->original_q->dnssec_vctx_waiting[idx] == vctx)
+		vctx->original_q->dnssec_vctx_waiting[idx] = NULL;
 
 	lws_free(vctx);
 }
@@ -397,15 +440,18 @@ lws_dnssec_vctx_free(struct lws_dnssec_val_ctx *vctx)
 void
 lws_adns_dnssec_q_destroy(lws_adns_q_t *q)
 {
-	if (q->dnssec_vctx_waiting) {
-		/*
-		 * The requester is going away while its DNSKEY sub-lookup is
-		 * still in flight: when that completes, the callback must not
-		 * touch this query
-		 */
-		q->dnssec_vctx_waiting->original_q = NULL;
-		q->dnssec_vctx_waiting = NULL;
-	}
+	unsigned int n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(q->dnssec_vctx_waiting); n++)
+		if (q->dnssec_vctx_waiting[n]) {
+			/*
+			 * The requester is going away while a DNSKEY sub-lookup
+			 * of its is still in flight: when that completes, the
+			 * callback must not touch this query
+			 */
+			q->dnssec_vctx_waiting[n]->original_q = NULL;
+			q->dnssec_vctx_waiting[n] = NULL;
+		}
 
 	if (q->dnssec_vctx_owned)
 		/* we are the sub-lookup, dying without ever calling back */
@@ -417,6 +463,7 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 {
 	struct lws_dnssec_val_ctx *vctx = (struct lws_dnssec_val_ctx *)opaque;
 	lws_adns_q_t *q = vctx->original_q;
+	uint8_t rb = vctx->resp_bit;
 	lws_adns_cache_t *c;
 	int is_async;
 
@@ -426,7 +473,12 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 		return wsi;
 	}
 
-	is_async = q->dnssec_verify_rrsig;
+	/*
+	 * Was the query suspended waiting for us (ie, are we completing it), or
+	 * are we still inside lws_adns_dnssec_verify() on our caller's stack?
+	 */
+
+	is_async = !!(q->dnssec_verify_rrsig & rb);
 
 	/*
 	 * We only get here in REQUIRE mode (see lws_adns_parse_udp()), ie, the
@@ -589,11 +641,31 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 		goto fail;
 	}
 
-	q->dnssec_verify_rrsig = 0;
-	q->dnssec_valid = 1;
+	q->dnssec_verify_rrsig = (uint8_t)(q->dnssec_verify_rrsig & ~rb);
+	q->dnssec_valid_mask = (uint8_t)(q->dnssec_valid_mask | rb);
 
-	if (is_async && q->responded == q->asked) {
-		lws_async_dns_complete(q, q->firstcache);
+	/*
+	 * The other half of an A / AAAA pair may still be validating; only the
+	 * last one out completes the query, and only if every response that
+	 * contributed records validated
+	 */
+
+	if (is_async && q->responded == q->asked && !q->dnssec_verify_rrsig) {
+		if ((q->dnssec_valid_mask & q->dnssec_need_mask) ==
+						q->dnssec_need_mask &&
+		    q->dnssec_need_mask) {
+			q->dnssec_valid = 1;
+			lws_async_dns_complete(q, q->firstcache);
+		} else {
+			lwsl_notice("%s: not all responses validated\n",
+				    __func__);
+			q->go_nogo = METRES_NOGO;
+			lws_async_dns_complete(q, NULL);
+			if (q->firstcache) {
+				lws_adns_cache_destroy(q->firstcache);
+				q->firstcache = NULL;
+			}
+		}
 		lws_adns_q_destroy(q);
 	}
 
@@ -601,7 +673,7 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 	return wsi;
 
 fail:
-	q->dnssec_verify_rrsig = 0;
+	q->dnssec_verify_rrsig = (uint8_t)(q->dnssec_verify_rrsig & ~rb);
 	if ((q->dns->dnssec_mode == LWS_ADNS_DNSSEC_REQUIRE) &&
 	    !q->lacks_dnssec) {
 		q->go_nogo = METRES_NOGO;
@@ -627,7 +699,8 @@ fail:
 }
 
 int
-lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len)
+lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
+		       uint8_t resp)
 {
 	struct rrsig_search s;
 
@@ -672,12 +745,49 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len)
 		enum lws_genhash_types hashtype;
 		const uint8_t *p = s.rrsig_payload + 18; /* After key tag */
 		char *sp = s.signer_name;
+		lws_adns_q_t *sq = NULL;
+		int ret;
 		int n = lws_adns_parse_label(pkt, (int)len, p,
 					     (int)(len - lws_ptr_diff_size_t(p, pkt)),
 					     &sp, sizeof(s.signer_name));
 		if (n < 0) {
 			lwsl_notice("%s: bad signer name\n", __func__);
 			return -1;
+		}
+
+		if (!lws_dnssec_signer_covers(s.signer_name, nmcname)) {
+			lwsl_notice("%s: RRSIG signer '%s' does not cover '%s'\n",
+				    __func__, s.signer_name, nmcname);
+
+			return -1;
+		}
+
+		/*
+		 * RFC 4035 5.3.1: the labels field counts the labels of the
+		 * owner name the signature was made over; fewer means it was
+		 * made over a wildcard, more is simply invalid
+		 */
+
+		{
+			const char *lp = nmcname;
+			int labels = 0;
+
+			while (*lp) {
+				if (*lp == '.') {
+					lp++;
+					continue;
+				}
+				labels++;
+				while (*lp && *lp != '.')
+					lp++;
+			}
+
+			if ((int)s.labels > labels) {
+				lwsl_notice("%s: RRSIG labels %d > %d\n",
+					    __func__, s.labels, labels);
+
+				return -1;
+			}
 		}
 
 		lwsl_info("%s: Found RRSIG covering %d signed by %s\n",
@@ -767,6 +877,7 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len)
 		}
 
 		vctx->original_q	= q;
+		vctx->resp_bit		= resp;
 		vctx->algorithm		= s.algorithm;
 		vctx->key_tag		= s.key_tag;
 
@@ -782,12 +893,14 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len)
 
 		lws_strncpy(vctx->signer_name, s.signer_name, sizeof(vctx->signer_name));
 
-		/* We suspend completion of `q` if the DNSKEY lookup goes async.
-		 * Temporarily set this to 0 so the callback knows if it was called synchronously. */
-		q->dnssec_verify_rrsig = 0;
+		/*
+		 * We suspend completion of `q` if the DNSKEY lookup goes
+		 * async.  Our response's bit in q->dnssec_verify_rrsig is
+		 * clear here (our caller only calls us when it is), which is
+		 * how the callback knows it was called synchronously.
+		 */
 
-		lws_adns_q_t *sq = NULL;
-		int ret = lws_async_dns_query(q->context, q->tsi, s.signer_name,
+		ret = lws_async_dns_query(q->context, q->tsi, s.signer_name,
 					LWS_ADNS_RECORD_DNSKEY, lws_dnssec_dnskey_cb,
 					NULL, vctx, &sq);
 
@@ -801,10 +914,11 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len)
 				lws_dnssec_vctx_free(vctx);
 				return -1;
 			}
-			q->dnssec_verify_rrsig = 1;
+			q->dnssec_verify_rrsig = (uint8_t)(
+					q->dnssec_verify_rrsig | resp);
 			vctx->sub_q = sq;
 			sq->dnssec_vctx_owned = vctx;
-			q->dnssec_vctx_waiting = vctx;
+			q->dnssec_vctx_waiting[lws_dnssec_vctx_idx(resp)] = vctx;
 			return 1;
 		}
 
@@ -819,7 +933,7 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len)
 
 		/* Synchronous result from cache. The callback was already executed! */
 		if ((q->dns->dnssec_mode == LWS_ADNS_DNSSEC_REQUIRE) && !q->lacks_dnssec) {
-			return q->dnssec_valid ? 0 : -1;
+			return (q->dnssec_valid_mask & resp) ? 0 : -1;
 		}
 
 		return 0;

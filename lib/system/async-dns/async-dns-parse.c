@@ -868,7 +868,13 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	 *
 	 *  lws_adns_cache_t: new cache object
 	 *  [struct addrinfo + struct sockaddr_in or _in6]: for each A or AAAA
+	 *  [lws_adns_rr_t + rdata]: for each other RR we keep
 	 *  char []: copy of resolved name
+	 *
+	 * The addrinfos must come first, and all together: c->results is
+	 * handed to consumers that walk it as a struct addrinfo list, and
+	 * lws_async_dns_freeaddrinfo() finds the cache object again by looking
+	 * back one from the head addrinfo.
 	 */
 
 	/* but we want to create the cache entry against the original request */
@@ -983,15 +989,27 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
 	if ((q->dns->dnssec_mode == LWS_ADNS_DNSSEC_REQUIRE) && !q->lacks_dnssec) {
-		if (lws_ser_ru16be(pkt + DHO_NANSWERS) > 0 || q->responded == q->asked) {
-			if (!q->dnssec_valid && !q->dnssec_verify_rrsig) {
-				n = lws_adns_dnssec_verify(q, pkt, len);
+		/*
+		 * Each response of an A / AAAA pair carries its own RRSIG over
+		 * its own RRset and contributes its own records to the result,
+		 * so each of them that brought anything must validate on its
+		 * own account... validating just the first of the pair let the
+		 * other half in unsigned.
+		 */
+		if (lws_ser_ru16be(pkt + DHO_NANSWERS) > 0) {
+			q->dnssec_need_mask = (uint8_t)(q->dnssec_need_mask | rn);
+
+			if (!(q->dnssec_valid_mask & rn) &&
+			    !(q->dnssec_verify_rrsig & rn)) {
+				n = lws_adns_dnssec_verify(q, pkt, len,
+							   (uint8_t)rn);
 				if (n < 0) {
 					q->go_nogo = METRES_NOGO;
 					goto fail_out;
 				}
 				if (n == 0)
-					q->dnssec_valid = 1;
+					q->dnssec_valid_mask = (uint8_t)
+						(q->dnssec_valid_mask | rn);
 			}
 		}
 	} else {
@@ -1005,10 +1023,17 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
 	if (q->dnssec_verify_rrsig)
+		/* the results are held until every validation has finished */
 		return;
-	if (!q->dnssec_valid) {
-		q->go_nogo = METRES_NOGO;
-		goto fail_out;
+
+	if ((q->dns->dnssec_mode == LWS_ADNS_DNSSEC_REQUIRE) && !q->lacks_dnssec) {
+		if (!q->dnssec_need_mask ||
+		    (q->dnssec_valid_mask & q->dnssec_need_mask) !=
+						q->dnssec_need_mask) {
+			q->go_nogo = METRES_NOGO;
+			goto fail_out;
+		}
+		q->dnssec_valid = 1;
 	}
 #endif
 

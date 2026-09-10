@@ -163,13 +163,24 @@ typedef struct lws_adns_q {
 	 * it: the requester dying leaves the sub-lookup's callback with no
 	 * query to complete, and the sub-lookup dying without its callback
 	 * (context destroy) would otherwise leak the context.
+	 *
+	 * An address lookup is a pair of responses (A and AAAA) that each
+	 * carry their own RRSIG over their own RRset, so there is one
+	 * validation, and one context, per response.
 	 */
 	struct lws_dnssec_val_ctx *dnssec_vctx_owned;   /* we are the DNSKEY sub-lookup */
-	struct lws_dnssec_val_ctx *dnssec_vctx_waiting; /* our RRSIG is being validated */
+	struct lws_dnssec_val_ctx *dnssec_vctx_waiting[2]; /* our RRSIGs being validated */
+
+	/*
+	 * These three are bitmaps over the responses, using the same bits as
+	 * q->responded (b0 = A, b1 = AAAA)
+	 */
+	uint8_t			dnssec_verify_rrsig; /* validations in flight */
+	uint8_t			dnssec_valid_mask; /* responses that validated */
+	uint8_t			dnssec_need_mask; /* responses that must validate */
 
 	uint8_t			dnssec_valid:1;  /* results are verified */
 	uint8_t			dnssec_chk_cname:1; /* currently checking a CNAME */
-	uint8_t			dnssec_verify_rrsig:1; /* waiting on RRSIG verify */
 	uint8_t			lacks_dnssec:1; /* per-query DNSSEC override */
 #endif
 
@@ -245,8 +256,13 @@ void
 __lws_async_dns_server_remove(lws_async_dns_t *dns, const lws_sockaddr46 *sa46);
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+/*
+ * \p resp is the bit in q->responded belonging to the response at \p pkt, so
+ * the validation state can be tracked per-response
+ */
 int
-lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len);
+lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
+		       uint8_t resp);
 #endif
 
 int
