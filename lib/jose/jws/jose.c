@@ -73,7 +73,9 @@ struct jose_cb_args {
 
 	unsigned int is_jwe;
 	unsigned int recipients_array;
+	unsigned int in_jwk;	/* inside a header-embedded jwk / epk object */
 
+	int jwk_sp;		/* lejp sp the jwk / epk object started at */
 	int recip;
 };
 
@@ -162,6 +164,42 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 	int n; //, dest;
 
 	/*
+	 * The sub-parser only ever sees the members, never the start or end
+	 * of its own document, so without this it skips the completeness and
+	 * consistency checks that cb_jwk() does at LEJPCB_COMPLETE, and a
+	 * header key with eg a kty but no mandatory elements would be
+	 * accepted with NULL element pointers in it.
+	 *
+	 * We can't recognize the end of the object by its path: lejp only
+	 * truncates ctx->path back to the object's own level at
+	 * LEJPCB_OBJECT_END if the resulting ctx->sp is nonzero (see
+	 * pop_level_l() in lib/misc/lejp.c).  A jwk / epk sitting directly in
+	 * the JOSE header lives at sp 0, so what we see at its OBJECT_END is
+	 * still the path of its last member, eg "jwk.kty".  Note the sp the
+	 * object started at instead, and match on that.
+	 */
+
+	if (reason == LEJPCB_OBJECT_START && !args->in_jwk &&
+	    ((args->is_jwe && !strcmp(ctx->path, "epk")) ||
+	     !strcmp(ctx->path, "jwk"))) {
+		args->in_jwk = 1;
+		args->jwk_sp = ctx->sp;
+	}
+
+	if (reason == LEJPCB_OBJECT_END && args->in_jwk &&
+	    ctx->sp == args->jwk_sp) {
+		args->in_jwk = 0;
+		args->jwk_jctx.path[0] = '\0';
+		args->jwk_jctx.path_match = 0;
+
+		if (args->jwk_jctx.pst[args->jwk_jctx.pst_sp].
+				callback(&args->jwk_jctx, LEJPCB_COMPLETE))
+			return -1;
+
+		return 0;
+	}
+
+	/*
 	 * In JOSE JSON, the element "epk" contains a fully-formed JWK.
 	 *
 	 * For JOSE paths beginning "epk." or "jwk.", we pass them through to a JWK
@@ -179,31 +217,19 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 			args->jwk_jctx.path_match = 0;
 		lejp_check_path_match(&args->jwk_jctx);
 
-		if (args->jwk_jctx.path_match)
-			args->jwk_jctx.pst[args->jwk_jctx.pst_sp].
-				callback(&args->jwk_jctx, reason);
+		/*
+		 * cb_jwk()'s refusals (unknown kty, inconsistent elements,
+		 * oversize key data...) are the only validation a
+		 * header-embedded key gets, so its return must fail the JOSE
+		 * parse rather than be discarded here
+		 */
+
+		if (args->jwk_jctx.path_match &&
+		    args->jwk_jctx.pst[args->jwk_jctx.pst_sp].
+				callback(&args->jwk_jctx, reason))
+			return -1;
 
 		return 0;
-	}
-
-	/*
-	 * The sub-parser only ever sees the members, never the end of its own
-	 * document, so without this it skips the completeness and consistency
-	 * checks that cb_jwk() does at LEJPCB_COMPLETE, and a header key with
-	 * eg a kty but no mandatory elements would be accepted with NULL
-	 * element pointers in it.  Synthesize the completion at the end of the
-	 * jwk / epk object.
-	 */
-
-	if (reason == LEJPCB_OBJECT_END &&
-	    (!strcmp(ctx->path, "jwk") ||
-	     (args->is_jwe && !strcmp(ctx->path, "epk")))) {
-		args->jwk_jctx.path[0] = '\0';
-		args->jwk_jctx.path_match = 0;
-
-		if (args->jwk_jctx.pst[args->jwk_jctx.pst_sp].
-				callback(&args->jwk_jctx, LEJPCB_COMPLETE))
-			return -1;
 	}
 
 	// lwsl_notice("%s: %s %d (%d)\n", __func__, ctx->path, reason, ctx->sp);
@@ -512,6 +538,8 @@ lws_jose_parse(struct lws_jose *jose, const uint8_t *buf, int n,
 	args.jose		= jose;
 	args.recip		= 0;
 	args.recipients_array	= 0;
+	args.in_jwk		= 0;
+	args.jwk_sp		= 0;
 	jose->recipients	= 0;
 
 	lejp_construct(&jctx, lws_jws_jose_cb, &args, jws_jose,
