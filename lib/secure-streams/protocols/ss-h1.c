@@ -922,8 +922,23 @@ malformed_l:
 			wsi->http.writeable_len = h->writeable_len;
 
 		{
-			uint8_t **p = (uint8_t **)in, *end = (*p) + len,
-				*oin = *(uint8_t **)in;
+			uint8_t **p = (uint8_t **)in, *end, *oin;
+
+		/*
+		 * We are about to write policy- and metadata-driven headers in
+		 * here, so do not take the composer's word for how much room
+		 * there is
+		 */
+
+		if (lws_client_hdr_append_room_bad(wsi, (unsigned char **)p,
+						   len)) {
+			lwsl_wsi_err(wsi, "bad append-header room");
+
+			return -1;
+		}
+
+		oin = *p;
+		end = (*p) + len;
 
 		/*
 		 * blob-based headers

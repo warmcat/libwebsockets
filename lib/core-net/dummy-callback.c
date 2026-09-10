@@ -30,6 +30,25 @@
 /* most repeats of one repeatable header (eg, Set-Cookie) we will forward */
 #define MAXHDRFRAGS 32
 
+/* see the commentary at the prototype in private-lib-core-net.h */
+
+int
+lws_client_hdr_append_room_bad(struct lws *wsi, unsigned char **p, size_t len)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	size_t sbs = wsi->a.context->pt_serv_buf_size;
+
+	if (!p || !*p || !pt->serv_buf)
+		return 1;
+
+	/*
+	 * len is checked first so that the *p + len below cannot itself
+	 * overflow on a bogus len
+	 */
+
+	return len > sbs || *p < pt->serv_buf || *p + len > pt->serv_buf + sbs;
+}
+
 #if defined(LWS_WITH_HTTP_PROXY)
 /*
  * Copy one fragment (frag >= 0) or the whole, aggregated value (frag < 0) of
@@ -336,12 +355,24 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
 	{
-		unsigned char **p = (unsigned char **)in, *end = (*p) + len,
-				    tmp[MAXHDRVAL];
+		unsigned char **p = (unsigned char **)in, *end, tmp[MAXHDRVAL];
 		char peer[64];
 
 		if (!wsi->parent)
 			break;
+
+		/*
+		 * We are about to copy the client's own headers in here, so
+		 * do not take the composer's word for how much room there is
+		 */
+
+		if (lws_client_hdr_append_room_bad(wsi, p, len)) {
+			lwsl_wsi_err(wsi, "bad append-header room");
+
+			return -1;
+		}
+
+		end = (*p) + len;
 
 		/*
 		 * Only request headers may be copied onto the onward request.
@@ -1020,6 +1051,18 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		p = (unsigned char **)in;
+
+		/*
+		 * We are about to copy the client's own headers in here, so
+		 * do not take the composer's word for how much room there is
+		 */
+
+		if (lws_client_hdr_append_room_bad(wsi, p, len)) {
+			lwsl_wsi_err(wsi, "bad append-header room");
+
+			return -1;
+		}
+
 		end = (*p) + len;
 
 		/*

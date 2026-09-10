@@ -1617,6 +1617,24 @@ lws_wsi_inject_to_loop(struct lws_context_per_thread *pt, struct lws *wsi);
 int
 lws_wsi_extract_from_loop(struct lws *wsi);
 
+/*
+ * Sanity-check the (in, len) pair a request-head composer handed to
+ * LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER.
+ *
+ * The h1, h2 and h3 composers all build the request head inside pt->serv_buf
+ * and pass the callback a pointer into it plus the room remaining after it.
+ * Consumers derive end = *p + len from that and write up to end, so a
+ * composer that miscomputes len (C-443 had one that underflowed to ~4GB)
+ * silently turns every one of them into an out-of-bounds write.  Consumers
+ * inside the library check the pair against the pt serv_buf it must lie
+ * inside, so a composer bug cannot arm them again.
+ *
+ * Returns nonzero if the pair is not credible, in which case the consumer
+ * must fail the connection instead of using it.
+ */
+int
+lws_client_hdr_append_room_bad(struct lws *wsi, unsigned char **p, size_t len);
+
 
 #if defined(LWS_WITH_CLIENT)
 int
