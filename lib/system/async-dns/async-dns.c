@@ -1904,7 +1904,24 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	if ((qtype & 0xff) == LWS_ADNS_RECORD_A || (qtype & 0xff) == LWS_ADNS_RECORD_AAAA) {
 		m = lws_parse_numeric_address(name, ads, 16);
-		if (m >= 4) {
+#if !defined(LWS_WITH_IPV6)
+		if (m == 16) {
+			/*
+			 * It's a valid ipv6 literal, but this build has no
+			 * ipv6... we cannot make a usable addrinfo for it and
+			 * the synthesis below would emit a zeroed one, with
+			 * ai_family 0 and ai_addr NULL, as a successful
+			 * result.  Fail the lookup instead.
+			 */
+			lwsl_cx_notice(context, "ipv6 literal in ipv4-only build");
+			goto failed;
+		}
+#endif
+		if (m == 4
+#if defined(LWS_WITH_IPV6)
+		    || m == 16
+#endif
+		) {
 			ads_lens[0] = (uint8_t)m;
 			matches = 1;
 		}
