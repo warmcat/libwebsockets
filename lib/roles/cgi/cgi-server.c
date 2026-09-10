@@ -1249,3 +1249,43 @@ lws_cgi_remove_and_kill(struct lws *wsi)
 	wsi->http.cgi->being_closed = 1;
 	lws_cgi_kill(wsi);
 }
+
+/*
+ * The request body that was being relayed to the cgi's stdin is complete:
+ * close our end of the stdin pipe so the child sees EOF, without taking the
+ * rest of the cgi and its other pipes down with it.
+ *
+ * A body with a Content-Length ends when post_in_expected is counted down to
+ * zero in the CGI_STDIN_DATA relay; a chunked body ends at its last-chunk,
+ * which only the body decoder sees, so it calls here.
+ */
+void
+lws_cgi_stdin_body_end(struct lws *wsi)
+{
+	struct lws *siwsi;
+
+	if (!wsi->http.cgi || !wsi->http.cgi->lsp)
+		return;
+
+	siwsi = wsi->http.cgi->lsp->stdwsi[LWS_STDIN];
+	if (!siwsi || siwsi->desc.filefd <= 0)
+		return;
+
+	lwsl_wsi_info(siwsi, "request body complete: closing stdin fd %d",
+		      siwsi->desc.sockfd);
+
+	/*
+	 * We don't want the child / parent relationship to be handled in
+	 * close, since we want the rest of the cgi and children to stay up
+	 */
+
+	lws_remove_child_from_any_parent(siwsi);
+	lws_wsi_close(siwsi, LWS_TO_KILL_ASYNC);
+	/*
+	 * lws_spawn_stdwsi_closed() finds which pipe died by looking the
+	 * stdwsi up in the lsp and clears the slot itself, so it must not be
+	 * cleared first or pipes_alive is never decremented and the graceful
+	 * reap is blocked
+	 */
+	lws_spawn_stdwsi_closed(wsi->http.cgi->lsp, siwsi);
+}

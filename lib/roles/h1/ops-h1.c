@@ -351,10 +351,17 @@ postbody_completion:
 			 * If we're running a cgi, we can't let him off the
 			 * hook just because he sent his POST data
 			 */
-			if (wsi->http.cgi)
+			if (wsi->http.cgi) {
 				lws_set_timeout(wsi, PENDING_TIMEOUT_CGI,
 						(int)wsi->a.context->timeout_secs);
-			else
+				/*
+				 * A chunked body has no Content-Length for the
+				 * stdin relay to count down: its end is here,
+				 * so end the child's stdin here
+				 */
+				if (wsi->http.rx_chunked)
+					lws_cgi_stdin_body_end(wsi);
+			} else
 #endif
 			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 #ifdef LWS_WITH_CGI

@@ -1226,38 +1226,13 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		    args->stdwsi[LWS_STDIN]->desc.filefd > 0) {
 			wsi->http.cgi->post_in_expected -= (unsigned int)n;
 
-			if (!wsi->http.cgi->post_in_expected) {
-				struct lws *siwsi = args->stdwsi[LWS_STDIN];
-
+			if (!wsi->http.cgi->post_in_expected)
 				/*
-				 * The situation here is that we finished
-				 * proxying the incoming body from the net to
-				 * the STDIN stdwsi... and we want to close it
-				 * so it can understand we are done (necessary
-				 * if no content-length)...
+				 * We finished proxying the incoming body from
+				 * the net to the STDIN stdwsi... close it so
+				 * the child can understand we are done
 				 */
-
-				lwsl_wsi_info(siwsi, "expected POST in end: "
-						     "closing stdin fd %d",
-						     siwsi->desc.sockfd);
-
-				/*
-				 * We don't want the child / parent relationship
-				 * to be handled in close, since we want the
-				 * rest of the cgi and children to stay up
-				 */
-
-				lws_remove_child_from_any_parent(siwsi);
-				lws_wsi_close(siwsi, LWS_TO_KILL_ASYNC);
-				/*
-				 * lws_spawn_stdwsi_closed() finds which pipe
-				 * died by looking the stdwsi up in the lsp and
-				 * clears the slot itself, so it must not be
-				 * cleared first or pipes_alive is never
-				 * decremented and the graceful reap is blocked
-				 */
-				lws_spawn_stdwsi_closed(wsi->http.cgi->lsp, siwsi);
-			}
+				lws_cgi_stdin_body_end(wsi);
 		}
 
 		return n;
