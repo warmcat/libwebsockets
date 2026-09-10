@@ -1184,18 +1184,26 @@ post_pollout:
 	 */
 
 	if (wsi->ws->rx_draining_ext) {
+		lws_handling_result_t hr;
 
 		lwsl_debug("%s: RX EXT DRAINING: Service\n", __func__);
 #if defined(LWS_WITH_CLIENT)
-		if (lwsi_role_client(wsi)) {
-			if (lws_ws_client_rx_sm(wsi, 0)  == LWS_HPI_RET_PLEASE_CLOSE_ME)
-				/* we closed wsi */
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		} else
+		if (lwsi_role_client(wsi))
+			hr = lws_ws_client_rx_sm(wsi, 0);
+		else
 #endif
-			n = (int)lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR, 0);
+			hr = lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR, 0);
 
-		return LWS_HPI_RET_HANDLED;
+		/*
+		 * Either role may have decided we must close, eg, the inflater
+		 * failed, the inflated content was not valid utf-8, or the user
+		 * callback returned nonzero... that must not be discarded just
+		 * because we came in via the drain path.
+		 */
+
+		if (hr == LWS_HPI_RET_PLEASE_CLOSE_ME)
+			/* we closed wsi */
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
 	if (wsi->ws->rx_draining_ext)
