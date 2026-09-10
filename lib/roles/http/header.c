@@ -1029,11 +1029,16 @@ lws_http_zap_header(struct lws *wsi, const char *name)
 	if (!wsi->http.ah)
 		return 0;
 
+	/*
+	 * A name may be both a known token and present in the custom header
+	 * list (eg, an h2/h3 peer can send a name that lws knows in a way that
+	 * lands it in the unknown-header chain).  Zap the known token if there
+	 * is one, but do not return here: this api's job is that the header is
+	 * gone afterwards, so we must always walk the custom headers too.
+	 */
 	index = lws_http_string_to_known_header(name, (size_t)n);
-	if (index != LWS_HTTP_NO_KNOWN_HEADER && index < WSI_TOKEN_COUNT) {
+	if (index != LWS_HTTP_NO_KNOWN_HEADER && index < WSI_TOKEN_COUNT)
 		wsi->http.ah->frag_index[index] = 0;
-		return 0;
-	}
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 	{
