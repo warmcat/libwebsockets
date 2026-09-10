@@ -837,6 +837,21 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		EVP_DigestUpdate(mdctx, &c, 1);
 	}
 
+	/*
+	 * protocols[0] is part of the context's identity, because it is what
+	 * receives LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS, and
+	 * whatever it adds there lands in the ctx's X509_STORE.  If two vhosts
+	 * with different protocols[0] shared a ctx, a private CA one of them
+	 * pins would silently become trusted by the other, which may have been
+	 * given nothing but the OS trust store on purpose.  The digest cannot
+	 * see inside the callback, but it can at least keep vhosts with
+	 * different handlers apart.
+	 */
+
+	if (vh->protocols)
+		EVP_DigestUpdate(mdctx, &vh->protocols[0].callback,
+				 sizeof(vh->protocols[0].callback));
+
 	if (ca_filepath)
 		EVP_DigestUpdate(mdctx, ca_filepath, strlen(ca_filepath));
 
