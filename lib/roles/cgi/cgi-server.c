@@ -71,6 +71,29 @@ urlencode(const char *in, int inlen, char *out, int outlen)
 	return lws_ptr_diff(out, start);
 }
 
+/*
+ * Take the given cgi off the pt's list of active cgis, if it is on it, and
+ * stop the reaping timer if that emptied the list.  Idempotent.
+ */
+
+static void
+lws_cgi_list_remove(struct lws_context_per_thread *pt, struct lws_cgi *cgi)
+{
+	struct lws_cgi **pcgi = &pt->http.cgi_list;
+
+	while (*pcgi) {
+		if (*pcgi == cgi) {
+			/* drop us from the pt cgi list */
+			*pcgi = (*pcgi)->cgi_list;
+			break;
+		}
+		pcgi = &(*pcgi)->cgi_list;
+	}
+
+	if (!pt->http.cgi_list)
+		lws_sul_cancel(&pt->sul_cgi);
+}
+
 static void
 lws_cgi_grace(lws_sorted_usec_list_t *sul)
 {
@@ -489,6 +512,14 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 	return 0;
 
 bail:
+	/*
+	 * We linked the cgi on to the pt list before building it... it must
+	 * come off again before it is freed, both teardown paths that would
+	 * otherwise do it (lws_cgi_remove_and_kill() from the close flow and
+	 * from lws_http_transaction_completed()) are gated on wsi->http.cgi,
+	 * which we are about to NULL.
+	 */
+	lws_cgi_list_remove(pt, cgiinfo->wsi->http.cgi);
 	lws_sul_cancel(&cgiinfo->wsi->http.cgi->sul_grace);
 	lws_free_set_NULL(cgiinfo->wsi->http.cgi);
 
@@ -1174,25 +1205,15 @@ void
 lws_cgi_remove_and_kill(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	struct lws_cgi **pcgi = &pt->http.cgi_list;
 
 	/* remove us from the cgi list */
 
-	while (*pcgi) {
-		if (*pcgi == wsi->http.cgi) {
-			/* drop us from the pt cgi list */
-			*pcgi = (*pcgi)->cgi_list;
-			break;
-		}
-		pcgi = &(*pcgi)->cgi_list;
-	}
+	lws_cgi_list_remove(pt, wsi->http.cgi);
+
 	if (wsi->http.cgi->headers_buf)
 		lws_free_set_NULL(wsi->http.cgi->headers_buf);
 
 	/* we have a cgi going, we must kill it */
 	wsi->http.cgi->being_closed = 1;
 	lws_cgi_kill(wsi);
-
-	if (!pt->http.cgi_list)
-		lws_sul_cancel(&pt->sul_cgi);
 }
