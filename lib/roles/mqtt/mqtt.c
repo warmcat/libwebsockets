@@ -594,6 +594,17 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			/* allows us to know if a property that can only be
 			 * given once, appears twice */
 			memset(par->props_seen, 0, sizeof(par->props_seen));
+
+			/*
+			 * Most packet types decode their remaining-length vbi
+			 * in the same case they are re-entered on NEED_MORE.
+			 * Init it once here, where the packet actually starts,
+			 * so a vbi split across reads accumulates instead of
+			 * restarting from zero, and so its 4-byte budget is
+			 * spent across the whole vbi and not per read.
+			 */
+			lws_mqtt_vbi_init(&par->vbit);
+
 			par->state = par->packet_type_flags & 0xf0;
 			break;
 
@@ -613,7 +624,6 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 #endif
 			lwsl_debug("%s: received CONNECT pkt\n", __func__);
 			par->state = LMQCPP_CONNECT_REMAINING_LEN_VBI;
-			lws_mqtt_vbi_init(&par->vbit);
 			break;
 
 		case LMQCPP_CONNECT_REMAINING_LEN_VBI:
@@ -731,7 +741,6 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 		/* PUBREC */
 		case LMQCPP_PUBREC_PACKET:
 			lwsl_debug("%s: received PUBREC pkt\n", __func__);
-			lws_mqtt_vbi_init(&par->vbit);
 			switch (lws_mqtt_vbi_r(&par->vbit, &buf, &len)) {
 			case LMSPR_NEED_MORE:
 				break;
@@ -772,7 +781,6 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 		/* PUBREL */
 		case LMQCPP_PUBREL_PACKET:
 			lwsl_debug("%s: received PUBREL pkt\n", __func__);
-			lws_mqtt_vbi_init(&par->vbit);
 			switch (lws_mqtt_vbi_r(&par->vbit, &buf, &len)) {
 			case LMSPR_NEED_MORE:
 				break;
@@ -813,7 +821,6 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 		/* PUBCOMP */
 		case LMQCPP_PUBCOMP_PACKET:
 			lwsl_debug("%s: received PUBCOMP pkt\n", __func__);
-			lws_mqtt_vbi_init(&par->vbit);
 			switch (lws_mqtt_vbi_r(&par->vbit, &buf, &len)) {
 			case LMSPR_NEED_MORE:
 				break;
@@ -859,7 +866,6 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			}
 			lwsl_info("%s: received PUBLISH pkt\n", __func__);
 			par->state = LMQCPP_PUBLISH_REMAINING_LEN_VBI;
-			lws_mqtt_vbi_init(&par->vbit);
 			break;
 		case LMQCPP_PUBLISH_REMAINING_LEN_VBI:
 			switch (lws_mqtt_vbi_r(&par->vbit, &buf, &len)) {
@@ -1056,7 +1062,6 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			}
 
 			lwsl_debug("%s: received CONNACK pkt\n", __func__);
-			lws_mqtt_vbi_init(&par->vbit);
 			switch (lws_mqtt_vbi_r(&par->vbit, &buf, &len)) {
 			case LMSPR_NEED_MORE:
 				break;
@@ -1166,7 +1171,6 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			}
 
 			lwsl_debug("%s: received SUBACK pkt\n", __func__);
-			lws_mqtt_vbi_init(&par->vbit);
 			switch (lws_mqtt_vbi_r(&par->vbit, &buf, &len)) {
 			case LMSPR_NEED_MORE:
 				break;
@@ -1239,7 +1243,6 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			}
 
 			lwsl_debug("%s: received UNSUBACK pkt\n", __func__);
-			lws_mqtt_vbi_init(&par->vbit);
 			switch (lws_mqtt_vbi_r(&par->vbit, &buf, &len)) {
 			case LMSPR_NEED_MORE:
 				break;
@@ -1279,7 +1282,6 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			goto cmd_completion;
 
 		case LMQCPP_PUBACK_PACKET:
-			lws_mqtt_vbi_init(&par->vbit);
 			switch (lws_mqtt_vbi_r(&par->vbit, &buf, &len)) {
 			case LMSPR_NEED_MORE:
 				break;
