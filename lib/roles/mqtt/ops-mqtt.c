@@ -346,10 +346,10 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 			wsi->mqtt->send_pubrel = 0;
 		} else {
 			lwsl_notice("%s: issuing PUBCOMP for pkt id: %d\n",
-				    __func__, wsi->mqtt->peer_ack_pkt_id);
+				    __func__, wsi->mqtt->pubcomp_pkt_id);
 			buf[LWS_PRE] = LMQCP_PUBCOMP << 4 | 0x2;
 			lws_ser_wu16be(&buf[LWS_PRE + 2],
-				       wsi->mqtt->peer_ack_pkt_id);
+				       wsi->mqtt->pubcomp_pkt_id);
 			wsi->mqtt->send_pubcomp = 0;
 		}
 		if (lws_write(wsi, (uint8_t *)&buf[LWS_PRE], 4,

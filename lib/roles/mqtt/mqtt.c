@@ -1619,6 +1619,7 @@ bail1:
 			case LMQCP_PUBREL:
 			{
 				lws_mqtt_qos2_rx_t *rx;
+				char known = 0;
 
 				lwsl_info("%s: cmd_completion: PUBREL\n",
 						__func__);
@@ -1630,6 +1631,7 @@ bail1:
 						const char *cid = wsi->mqtt->client.id ? (const char *)wsi->mqtt->client.id->buf : "unknown";
 						lws_dll2_remove(&rx->list);
 						lws_free(rx);
+						known = 1;
 						if (wsi->mqtt->client.qos2_state_ops &&
 						    wsi->mqtt->client.qos2_state_ops->rx_remove)
 							wsi->mqtt->client.qos2_state_ops->rx_remove(wsi, cid, par->cpkt_id);
@@ -1637,25 +1639,46 @@ bail1:
 					}
 				} lws_end_foreach_dll_safe(p, tp);
 
-				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				                           lws_dll2_get_head(&wsi->mux.child_list_owner)) {
-				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
-					uint16_t pid = par->cpkt_id;
-					if (w->a.protocol->callback(w,
-						    LWS_CALLBACK_MQTT_QOS2_RX_COMPLETE,
-						    w->user_space,
-						    (void *)&pid, 0)) {
-						/*
-						 * Callers only treat < 0 as a
-						 * close request; anything
-						 * else lets the connection
-						 * continue with the parser
-						 * desynced.
-						 */
-						return -1;
-					}
-				} lws_end_foreach_dll_safe(d, d1);
+				/*
+				 * Only tell the children a QoS2 exchange
+				 * completed if we actually had one open for
+				 * this packet id... the peer is still owed a
+				 * PUBCOMP for an unknown id, but an app that
+				 * commits on QOS2_RX_COMPLETE must not be
+				 * driven by ids it never took delivery of.
+				 */
 
+				if (known) {
+					lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					                           lws_dll2_get_head(&wsi->mux.child_list_owner)) {
+					   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
+						uint16_t pid = par->cpkt_id;
+						if (w->a.protocol->callback(w,
+							    LWS_CALLBACK_MQTT_QOS2_RX_COMPLETE,
+							    w->user_space,
+							    (void *)&pid, 0)) {
+							/*
+							 * Callers only treat < 0 as a
+							 * close request; anything
+							 * else lets the connection
+							 * continue with the parser
+							 * desynced.
+							 */
+							return -1;
+						}
+					} lws_end_foreach_dll_safe(d, d1);
+				} else
+					lwsl_notice("%s: PUBREL for unknown "
+						    "pkt id %d\n", __func__,
+						    (int)par->cpkt_id);
+
+				/*
+				 * The PUBCOMP must quote the id from this
+				 * PUBREL... peer_ack_pkt_id belongs to the
+				 * last PUBLISH and an interleaved one would
+				 * make us complete the wrong id.
+				 */
+				wsi->mqtt->pubcomp_pkt_id = par->cpkt_id;
 				wsi->mqtt->send_pubcomp = 1;
 				lws_callback_on_writable(wsi);
 				break;

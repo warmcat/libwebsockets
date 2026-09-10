@@ -371,6 +371,8 @@ struct _lws_mqtt_related {
 	uint16_t		pkt_id;
 	uint16_t		ack_pkt_id;
 	uint16_t		peer_ack_pkt_id;
+	/* packet id from the PUBREL we still owe a PUBCOMP for */
+	uint16_t		pubcomp_pkt_id;
 	uint16_t		sub_size;
 	uint32_t		peer_max_packet_size;
 
