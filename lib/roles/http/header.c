@@ -1091,7 +1091,15 @@ lws_http_zap_header(struct lws *wsi, const char *name)
 		while (ll) {
 			ah_data_idx_t next;
 
-			if (ll >= wsi->http.ah->data_length)
+			/*
+			 * The whole UHO_NAME-byte entry header has to be
+			 * inside the buffer before we read any of it, the
+			 * same bound the three sibling walkers in parsers.c
+			 * use... "ll >= data_length" alone let the 4-byte
+			 * link and the 2-byte name length be read past the
+			 * end of ah->data.
+			 */
+			if (ll + UHO_NAME >= wsi->http.ah->data_length)
 				return 1;
 
 			next = lws_ser_ru32be(
@@ -1099,6 +1107,8 @@ lws_http_zap_header(struct lws *wsi, const char *name)
 
 			if (n == lws_ser_ru16be(
 				(uint8_t *)&wsi->http.ah->data[ll + UHO_NLEN]) &&
+			    ll + UHO_NAME + (ah_data_idx_t)n <=
+					    wsi->http.ah->data_length &&
 			    !strncasecmp(name, &wsi->http.ah->data[ll + UHO_NAME],
 					 (unsigned int)n)) {
 				/* found one, remove from list and carry on */
