@@ -346,6 +346,15 @@ struct _lws_http_mode_related {
 	unsigned int multipart:1;
 	unsigned int cgi_transaction_complete:1;
 	unsigned int multipart_issue_boundary:1;
+	unsigned int interceptor_diverted:1;
+	/**< set by lws_http_evaluate_interceptors() for the duration of this
+	 * transaction when a mount interceptor took the request away from the
+	 * mount it was aimed at.  It lets the interceptor's own callback tell a
+	 * gated request that was diverted to it from one the peer actually
+	 * addressed to its mountpoint (eg, its own challenge or login form
+	 * POST), which are otherwise indistinguishable: the method URI header
+	 * still holds the original, protected URI.  Cleared on transaction
+	 * rearm. */
 	unsigned int sent_response_headers:1;
 	/**< set once we have written response headers on this transaction, so
 	 * we can distinguish "stream closed during request" from "stream closed
@@ -398,6 +407,16 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file, unsigne
 
 int
 lws_unauthorised_basic_auth(struct lws *wsi);
+
+#if defined(LWS_WITH_SERVER)
+/*
+ * The one place mount interceptors are evaluated, shared by every role that
+ * dispatches a request (see the comment on the implementation in server.c)
+ */
+const struct lws_http_mount *
+lws_http_evaluate_interceptors(struct lws *wsi, const struct lws_http_mount *hit,
+			       char **uri_ptr, int *uri_len);
+#endif
 
 #if defined(LWS_ROLE_H1)
 int

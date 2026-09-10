@@ -28,6 +28,15 @@
  * with extensions and trailers; unknown length (h1: delimited by the
  * close, h2: by END_STREAM)... each also split across many writes.
  *
+ * Mount interceptors (LWS_WITH_JOSE): a mount with an interceptor_path hands
+ * every request to the interceptor protocol first, which either lets it
+ * through to the mount or takes it over.  That decision must be identical
+ * for every method and every role -- a POST that the interceptor blocks must
+ * not reach the app on h2 any more than it does on h1, and a blocked
+ * body-bearing request must leave the h1 connection resynchronized (the body
+ * is discarded) rather than desynced.  The gated legs check both outcomes,
+ * for GET and for POST, over h1 and h2.
+ *
  * The server echoes what it decoded: a summary line "len=<n> sum=<x>\n"
  * followed by n bytes of the same deterministic pattern the client sent,
  * so the client can confirm the server saw exactly the payload it sent, and
@@ -58,6 +67,15 @@ enum xf_req {
 	XR_TE_AND_CL,	/* Transfer-Encoding: chunked with a Content-Length */
 };
 
+/* what the mount interceptor is expected to do with the request */
+
+enum xf_gate {
+	XG_NONE,	/* the case does not involve an interceptor */
+	XG_BLOCK,	/* the interceptor must take the request: the app
+			 * protocol must see no request and no body at all */
+	XG_PASS,	/* the interceptor must let it through to the app */
+};
+
 struct xcase {
 	const char	*name;
 	const char	*method;
@@ -70,33 +88,34 @@ struct xcase {
 	int		pipeline;	/* issue two pipelined requests */
 	int		expect_status;	/* 0: expect no completed 200 response */
 	long		expect_server_rx; /* -1: don't check; else payload bytes the server saw */
+	enum xf_gate	gate;
 };
 
 static const struct xcase cases[] = {
 	{ "h1 POST Content-Length 100KB, 8KB writes, CL response",
-	  "POST", "/echo-cl", XR_CL, 100000, 0, 8192, 0, 0, 200, 100000 },
+	  "POST", "/echo-cl", XR_CL, 100000, 0, 8192, 0, 0, 200, 100000, XG_NONE },
 	{ "h1 POST Content-Length 5KB, one write, chunked response",
-	  "POST", "/echo-chunked", XR_CL, 5000, 0, 8192, 0, 0, 200, 5000 },
+	  "POST", "/echo-chunked", XR_CL, 5000, 0, 8192, 0, 0, 200, 5000, XG_NONE },
 	{ "h1 POST Content-Length 30KB, 4KB writes, close-delimited response",
-	  "POST", "/echo-nolen", XR_CL, 30000, 0, 4096, 0, 0, 200, 30000 },
+	  "POST", "/echo-nolen", XR_CL, 30000, 0, 4096, 0, 0, 200, 30000, XG_NONE },
 	{ "h1 POST Content-Length 60KB, chunked response in many chunks",
-	  "POST", "/echo-chunked", XR_CL, 60000, 0, 8192, 0, 0, 200, 60000 },
+	  "POST", "/echo-chunked", XR_CL, 60000, 0, 8192, 0, 0, 200, 60000, XG_NONE },
 	{ "h1 POST chunked 100KB, 8KB writes, CL response",
-	  "POST", "/echo-cl", XR_CHUNKED, 100000, 0, 8192, 0, 0, 200, 100000 },
+	  "POST", "/echo-cl", XR_CHUNKED, 100000, 0, 8192, 0, 0, 200, 100000, XG_NONE },
 	{ "h1 POST chunked 5KB, one write, chunked response",
-	  "POST", "/echo-chunked", XR_CHUNKED, 5000, 0, 8192, 0, 0, 200, 5000 },
+	  "POST", "/echo-chunked", XR_CHUNKED, 5000, 0, 8192, 0, 0, 200, 5000, XG_NONE },
 	{ "h1 POST chunked 300B, framing split into 3-byte writes",
-	  "POST", "/echo-cl", XR_CHUNKED, 300, 0, 3, 0, 0, 200, 300 },
+	  "POST", "/echo-cl", XR_CHUNKED, 300, 0, 3, 0, 0, 200, 300, XG_NONE },
 	{ "h1 POST chunked 2KB with extensions and trailers, 7-byte writes",
-	  "POST", "/echo-cl", XR_CHUNKED_EXT, 2000, 0, 7, 0, 0, 200, 2000 },
+	  "POST", "/echo-cl", XR_CHUNKED_EXT, 2000, 0, 7, 0, 0, 200, 2000, XG_NONE },
 	{ "h1 POST chunked 5KB, 1KB writes, close-delimited response",
-	  "POST", "/echo-nolen", XR_CHUNKED, 5000, 0, 1000, 0, 0, 200, 5000 },
+	  "POST", "/echo-nolen", XR_CHUNKED, 5000, 0, 1000, 0, 0, 200, 5000, XG_NONE },
 	{ "h1 POST chunked 3KB, two requests pipelined on one connection",
-	  "POST", "/echo-cl", XR_CHUNKED, 3000, 0, 8192, 0, 1, 200, -1 },
+	  "POST", "/echo-cl", XR_CHUNKED, 3000, 0, 8192, 0, 1, 200, -1, XG_NONE },
 	{ "h1 GET with a chunked body, two requests pipelined on one connection",
-	  "GET", "/echo-cl", XR_CHUNKED, 1000, 0, 8192, 0, 1, 200, -1 },
+	  "GET", "/echo-cl", XR_CHUNKED, 1000, 0, 8192, 0, 1, 200, -1, XG_NONE },
 	{ "h1 GET with a Content-Length body, two requests pipelined",
-	  "GET", "/echo-cl", XR_CL, 1000, 0, 8192, 0, 1, 200, -1 },
+	  "GET", "/echo-cl", XR_CL, 1000, 0, 8192, 0, 1, 200, -1, XG_NONE },
 	/*
 	 * No h1 "POST with neither header" case: by lws convention such a body
 	 * is delimited by the multipart closing boundary (lws_spa) or the
@@ -104,30 +123,85 @@ static const struct xcase cases[] = {
 	 * variant below is END_STREAM delimited and does complete.
 	 */
 	{ "h1 GET, no body",
-	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0 },
+	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE },
 	{ "h1 POST Transfer-Encoding: gzip is refused with 501",
-	  "POST", "/echo-cl", XR_TE_BAD, 0, 0, 8192, 0, 0, 501, -1 },
+	  "POST", "/echo-cl", XR_TE_BAD, 0, 0, 8192, 0, 0, 501, -1, XG_NONE },
 	{ "h1 POST Transfer-Encoding with Content-Length is refused with 400",
-	  "POST", "/echo-cl", XR_TE_AND_CL, 0, 5, 8192, 0, 0, 400, -1 },
+	  "POST", "/echo-cl", XR_TE_AND_CL, 0, 5, 8192, 0, 0, 400, -1, XG_NONE },
 	{ "h1 POST chunked body over the mount limit is dropped",
-	  "POST", "/small/echo-cl", XR_CHUNKED, 200, 0, 8192, 0, 0, 0, -1 },
+	  "POST", "/small/echo-cl", XR_CHUNKED, 200, 0, 8192, 0, 0, 0, -1, XG_NONE },
 	{ "h1 POST Content-Length over the mount limit gets 413",
-	  "POST", "/small/echo-cl", XR_CL, 0, 200, 8192, 0, 0, 413, -1 },
+	  "POST", "/small/echo-cl", XR_CL, 0, 200, 8192, 0, 0, 413, -1, XG_NONE },
+#if defined(LWS_WITH_JOSE)
+	/*
+	 * Mount interceptor gating.  "/gated" is guarded by the "/bouncer"
+	 * mount's protocol, which lets a request through only if it carries
+	 * ?auth=1 and otherwise answers it itself with 403.
+	 */
+	{ "h1 GET to an interceptor-gated mount is blocked",
+	  "GET", "/gated/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, 403, 0, XG_BLOCK },
+	{ "h1 GET the interceptor passes reaches the app",
+	  "GET", "/gated/echo-cl?auth=1", XR_NONE, 0, 0, 8192, 0, 0, 200, 0,
+	  XG_PASS },
+	{ "h1 POST to an interceptor-gated mount is blocked",
+	  "POST", "/gated/echo-cl", XR_CL, 4000, 0, 8192, 0, 0, 403, 0,
+	  XG_BLOCK },
+	{ "h1 POST the interceptor passes reaches the app with its body",
+	  "POST", "/gated/echo-cl?auth=1", XR_CL, 4000, 0, 8192, 0, 0, 200,
+	  4000, XG_PASS },
+	{ "h1 POST chunked to an interceptor-gated mount is blocked",
+	  "POST", "/gated/echo-cl", XR_CHUNKED, 2000, 0, 512, 0, 0, 403, 0,
+	  XG_BLOCK },
+	/*
+	 * Blocking a request whose body is still arriving must leave the h1
+	 * connection resynchronized: the body of the refused request is
+	 * discarded, so the second, pipelined request on the same connection
+	 * is parsed as a request and not as the tail of the first one's body
+	 */
+	{ "h1 POST blocked by the interceptor, second request pipelined on the "
+	  "same connection",
+	  "POST", "/gated/echo-cl", XR_CL, 4000, 0, 8192, 0, 1, 403, 0,
+	  XG_BLOCK },
+#endif
 #if defined(LWS_WITH_HTTP2)
 	{ "h2 POST Content-Length 50KB, 8KB writes, CL response",
-	  "POST", "/echo-cl", XR_CL, 50000, 0, 8192, 1, 0, 200, 50000 },
+	  "POST", "/echo-cl", XR_CL, 50000, 0, 8192, 1, 0, 200, 50000, XG_NONE },
 	{ "h2 POST no Content-Length 20KB (END_STREAM delimited)",
-	  "POST", "/echo-cl", XR_BODY_NOHDR, 20000, 0, 4096, 1, 0, 200, 20000 },
+	  "POST", "/echo-cl", XR_BODY_NOHDR, 20000, 0, 4096, 1, 0, 200, 20000, XG_NONE },
 	{ "h2 POST Content-Length 20KB, no-length response (END_STREAM)",
-	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 1, 0, 200, 20000 },
+	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 1, 0, 200, 20000, XG_NONE },
 	{ "h2 GET, no body",
-	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 1, 0, 200, 0 },
+	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 1, 0, 200, 0, XG_NONE },
 	{ "h2 POST with neither header: zero-length body",
-	  "POST", "/echo-cl", XR_NOLEN, 0, 0, 8192, 1, 0, 200, 0 },
+	  "POST", "/echo-cl", XR_NOLEN, 0, 0, 8192, 1, 0, 200, 0, XG_NONE },
 	/*
 	 * No h2 Transfer-Encoding refusal case: the lws h2 client does not
 	 * forward a Transfer-Encoding header, so it cannot provoke one
 	 */
+#if defined(LWS_WITH_JOSE)
+	/*
+	 * The same gating on h2.  h2 dispatches a POST to a callback mount
+	 * from its own path (it must bind the protocol before the body can
+	 * arrive), which used to be a way past the mount's interceptor that
+	 * did not exist on h1.  Both the bodyless and the body-bearing shapes
+	 * of that path are covered.
+	 */
+	{ "h2 GET to an interceptor-gated mount is blocked",
+	  "GET", "/gated/echo-cl", XR_NONE, 0, 0, 8192, 1, 0, 403, 0,
+	  XG_BLOCK },
+	{ "h2 POST to an interceptor-gated mount is blocked",
+	  "POST", "/gated/echo-cl", XR_CL, 4000, 0, 8192, 1, 0, 403, 0,
+	  XG_BLOCK },
+	{ "h2 POST with no body to an interceptor-gated mount is blocked",
+	  "POST", "/gated/echo-cl", XR_NOLEN, 0, 0, 8192, 1, 0, 403, 0,
+	  XG_BLOCK },
+	{ "h2 POST with no Content-Length to a gated mount is blocked",
+	  "POST", "/gated/echo-cl", XR_BODY_NOHDR, 2000, 0, 512, 1, 0, 403, 0,
+	  XG_BLOCK },
+	{ "h2 POST the interceptor passes reaches the app with its body",
+	  "POST", "/gated/echo-cl?auth=1", XR_CL, 4000, 0, 8192, 1, 0, 200,
+	  4000, XG_PASS },
+#endif
 #endif
 };
 
@@ -177,6 +251,7 @@ static struct {
 	long		body_len;	/* decoded payload bytes, all requests */
 	int		http_cbs;	/* LWS_CALLBACK_HTTP count */
 	int		conns;		/* accepted connections */
+	int		gate_blocks;	/* requests the mount interceptor took */
 } srv;
 
 static struct lws_context *context;
@@ -443,6 +518,93 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+#if defined(LWS_WITH_JOSE)
+
+/*
+ * The interceptor protocol, mounted at /bouncer, which guards /gated.
+ *
+ * This is the contract the real interceptor plugins (lws-login, the captcha
+ * rate limiter) implement: LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK returns 0 to
+ * let the request continue to the mount it asked for, or nonzero to take it
+ * over, in which case lws diverts the request to this mount and delivers
+ * LWS_CALLBACK_HTTP here -- before the guarded mount's protocol is bound, so
+ * the app sees nothing of the request at all.
+ *
+ * "Authorized" is just ?auth=1 on the request: what a real interceptor checks
+ * is not what is under test here, only that every method and every role goes
+ * through this decision and honours it.
+ */
+
+static int
+callback_gate(struct lws *wsi, enum lws_callback_reasons reason,
+	      void *user, void *in, size_t len)
+{
+	uint8_t hbuf[LWS_PRE + 256], *start = &hbuf[LWS_PRE], *p = start,
+		*end = &hbuf[sizeof(hbuf) - 1];
+	const char *blocked = "blocked\n";
+	char arg[16];
+
+	switch (reason) {
+
+	case LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK:
+		/*
+		 * user_space belongs to whichever protocol the wsi is bound to
+		 * at this point, which is not us: only the wsi is ours to look
+		 * at
+		 */
+		if (lws_get_urlarg_by_name_safe(wsi, "auth=", arg,
+						sizeof(arg)) >= 0 &&
+		    !strcmp(arg, "1"))
+			return 0;	/* let it through to the mount */
+
+		return 1;		/* we take the request */
+
+	case LWS_CALLBACK_HTTP:
+		/*
+		 * We only ever see this for a request we took.  Answer it
+		 * ourselves: any request body still on its way is discarded
+		 * (h1, leaving the connection in sync for the next request on
+		 * it) or the stream reset (h2) by the transaction completion.
+		 */
+		srv.gate_blocks++;
+
+		lwsl_user("%s: interceptor blocking %s\n", __func__,
+			  in ? (const char *)in : "");
+
+		if (lws_add_http_common_headers(wsi, HTTP_STATUS_FORBIDDEN,
+						"text/plain",
+						(lws_filepos_t)strlen(blocked),
+						&p, end) ||
+		    lws_finalize_write_http_header(wsi, start, &p, end))
+			return 1;
+
+		memcpy(start, blocked, strlen(blocked));
+		if (lws_write(wsi, start, strlen(blocked),
+			      LWS_WRITE_HTTP_FINAL) < 0)
+			return 1;
+
+		if (lws_http_transaction_completed(wsi))
+			return -1;
+
+		return 0;
+
+	case LWS_CALLBACK_HTTP_BODY:
+	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
+		/*
+		 * A blocked request that had already been answered can still
+		 * see the tail of its body: it is not ours to act on
+		 */
+		return 0;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
+#endif
+
 /* ---- client side ---- */
 
 static void
@@ -518,6 +680,44 @@ case_evaluate(void)
 		}
 	}
 
+	switch (c->gate) {
+	case XG_NONE:
+		break;
+	case XG_BLOCK:
+		/*
+		 * The interceptor answered it, and the app protocol on the
+		 * guarded mount was never dispatched: no LWS_CALLBACK_HTTP,
+		 * and (checked by expect_server_rx below) no body either
+		 */
+		if (srv.gate_blocks != 1 + c->pipeline) {
+			lwsl_err("interceptor took %d requests, expected %d\n",
+				 srv.gate_blocks, 1 + c->pipeline);
+			case_finish(0, "interceptor did not take the request");
+			goto next;
+		}
+		if (srv.http_cbs) {
+			lwsl_err("app saw %d requests, expected none\n",
+				 srv.http_cbs);
+			case_finish(0, "blocked request reached the app");
+			goto next;
+		}
+		break;
+	case XG_PASS:
+		if (srv.gate_blocks) {
+			lwsl_err("interceptor took %d requests, expected none\n",
+				 srv.gate_blocks);
+			case_finish(0, "interceptor took an authorized request");
+			goto next;
+		}
+		if (srv.http_cbs != 1) {
+			lwsl_err("app saw %d requests, expected 1\n",
+				 srv.http_cbs);
+			case_finish(0, "authorized request did not reach the app");
+			goto next;
+		}
+		break;
+	}
+
 	if (c->expect_server_rx >= 0 && srv.body_len != c->expect_server_rx) {
 		lwsl_err("server decoded %ld body bytes, expected %ld\n",
 			 srv.body_len, c->expect_server_rx);
@@ -526,7 +726,7 @@ case_evaluate(void)
 	}
 
 	if (c->pipeline) {
-		if (srv.http_cbs != 2) {
+		if (c->gate != XG_BLOCK && srv.http_cbs != 2) {
 			lwsl_err("server saw %d requests, expected 2\n",
 				 srv.http_cbs);
 			case_finish(0, "pipelined request count");
@@ -878,6 +1078,9 @@ next_case(lws_sorted_usec_list_t *sul)
 
 static const struct lws_protocols protocols_srv[] = {
 	{ "http-xfer", callback_srv, sizeof(struct pss_srv), 0, 0, NULL, 0 },
+#if defined(LWS_WITH_JOSE)
+	{ "xfer-gate", callback_gate, 0, 0, 0, NULL, 0 },
+#endif
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -898,6 +1101,36 @@ static const struct lws_http_mount mount_small = {
 	.mountpoint_len		= 6,
 	.max_http_body_size	= 64,
 };
+
+#if defined(LWS_WITH_JOSE)
+
+/*
+ * /gated is an ordinary callback mount served by the same protocol, except
+ * that every request to it must get past the interceptor protocol on
+ * /bouncer first
+ */
+
+static const struct lws_http_mount mount_bouncer = {
+	.mount_next		= &mount_small,
+	.mountpoint		= "/bouncer",
+	.protocol		= "xfer-gate",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 8,
+};
+
+static const struct lws_http_mount mount_gated = {
+	.mount_next		= &mount_bouncer,
+	.mountpoint		= "/gated",
+	.protocol		= "http-xfer",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 6,
+	.interceptor_path	= "/bouncer",
+};
+
+#define MOUNT_LIST (&mount_gated)
+#else
+#define MOUNT_LIST (&mount_small)
+#endif
 
 void sigint_handler(int sig)
 {
@@ -941,7 +1174,7 @@ int main(int argc, const char **argv)
 	info.port = port_h1;
 	info.vhost_name = "srv-h1";
 	info.protocols = protocols_srv;
-	info.mounts = &mount_small;
+	info.mounts = MOUNT_LIST;
 
 	vh = lws_create_vhost(context, &info);
 	if (!vh) {

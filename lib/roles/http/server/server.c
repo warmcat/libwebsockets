@@ -1949,7 +1949,34 @@ bail_nuke_ah:
 	return 1;
 }
 
-static const struct lws_http_mount *
+/*
+ * Walk the mount's interceptor chain and give each interceptor protocol the
+ * chance to take the request away from the mount it was aimed at.
+ *
+ * This is the single place the decision is made, for every role and every
+ * method: h1 and h3 arrive here from lws_http_action() below, and h2 from
+ * lws_h2_bind_for_post_before_action(), which dispatches POSTs itself and
+ * would otherwise be a way in that no interceptor ever sees.  It must be
+ * called before the mount's protocol is bound and before LWS_CALLBACK_HTTP is
+ * delivered, ie, before any user code for the protected mount can run.
+ *
+ * Returns
+ *
+ *  - the interceptor's mount, having pointed uri_ptr / uri_len at its
+ *    mountpoint (a forced internal redirect), if an interceptor took the
+ *    request.  wsi->http.interceptor_diverted is then set for this
+ *    transaction, so the interceptor's own LWS_CALLBACK_HTTP can tell a
+ *    request that was gated and sent to it from one the peer addressed to
+ *    its own mountpoint (eg, a captcha or login form POST)
+ *
+ *  - hit unchanged, if the request may proceed to the mount it asked for
+ *
+ *  - NULL if the chain cannot be evaluated (a configured interceptor
+ *    protocol does not exist).  This fails CLOSED: the caller must refuse
+ *    the request rather than serve the mount
+ */
+
+const struct lws_http_mount *
 lws_http_evaluate_interceptors(struct lws *wsi, const struct lws_http_mount *hit,
 			       char **uri_ptr, int *uri_len)
 {
@@ -1972,6 +1999,7 @@ lws_http_evaluate_interceptors(struct lws *wsi, const struct lws_http_mount *hit
 
 				*uri_ptr = (char *)m_interceptor->mountpoint; /* forced internal redirect */
 				*uri_len = (int)m_interceptor->mountpoint_len;
+				wsi->http.interceptor_diverted = 1;
 				return m_interceptor;
 			}
 		} else {
@@ -3280,6 +3308,12 @@ lws_http_transaction_completed(struct lws *wsi)
 	lws_free_set_NULL(wsi->http.extra_onward_headers);
 
 	wsi->http.sent_response_headers = 0;
+	/*
+	 * Whether an interceptor took the request is a property of the
+	 * transaction, not the connection: the next request on a keepalive
+	 * connection re-evaluates the chain from scratch
+	 */
+	wsi->http.interceptor_diverted = 0;
 
 	if (wsi->http.cgi_transaction_complete)
 		return 0;

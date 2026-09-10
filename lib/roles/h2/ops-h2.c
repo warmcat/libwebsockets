@@ -967,7 +967,14 @@ lws_h2_await_body_timeout(struct lws *wsi)
  *      LWS_CALLBACK_HTTP, along with any lws_spa) and deliver a second
  *      LWS_CALLBACK_HTTP for the same request
  *
- *  -1: fatal, close
+ *   2: as for 1, but the transaction is over (it was answered or refused
+ *      without waiting for the body): the caller must close the stream.  Only
+ *      the stream... an interceptor refusing one request, or the dispatch
+ *      asking to be closed, is no reason to take down everybody else's
+ *      streams on the same h2 connection, which is what lws_http_action()
+ *      returning > 0 does here too
+ *
+ *  -1: fatal, close the connection
  */
 
 static int
@@ -996,27 +1003,73 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		 */
 		return -1;
 
-	hit = lws_find_mount(wsi,
-		  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH),
-		  lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH));
+	/*
+	 * Resolve the method URI up front: the mount lookup, the interceptor
+	 * chain and the dispatch all work from it, and an interceptor that
+	 * takes the request repoints it at the interceptor's own mountpoint.
+	 *
+	 * If we cannot get it, hand the request back to lws_http_action(),
+	 * which refuses it in exactly the same way it would on h1 rather than
+	 * having a second opinion about it here.
+	 */
 
-	lwsl_debug("%s: %s: hit %p: %s\n", __func__,
-		    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH),
+	methidx = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
+	if (methidx < 0 || !uri_ptr)
+		return 0;
+
+	hit = lws_find_mount(wsi, uri_ptr, uri_len);
+
+	lwsl_debug("%s: %s: hit %p: %s\n", __func__, uri_ptr,
 		    hit, hit ? hit->origin : "null");
+
+	/*
+	 * Mounts we do not dispatch: hand the request back to
+	 * lws_http_action(), which does the whole job for them, interceptor
+	 * chain and access logging included
+	 */
+
+	if (hit && (hit->origin_protocol == LWSMPRO_CGI ||
+		    hit->origin_protocol == LWSMPRO_HTTP ||
+		    hit->origin_protocol == LWSMPRO_HTTPS))
+		return 0;
+
+	if (hit && !hit->protocol && hit->origin_protocol == LWSMPRO_FILE)
+		return 0;
+
+	/*
+	 * From here we are the dispatch for this request.  Log what he
+	 * actually asked for, before an interceptor may repoint uri_ptr at its
+	 * own mountpoint, as lws_http_action() does... and only now that we
+	 * know nobody else will log it, since preparing it twice flushes an
+	 * access log line for a request that was never served.
+	 */
+
+#if defined(LWS_WITH_ACCESS_LOG)
+	lws_prepare_access_log_info(wsi, uri_ptr, uri_len, methidx);
+#endif
+
 	if (hit) {
 		const struct lws_protocols *pp;
-		const char *name = hit->origin;
+		const char *name;
 
-		if (hit->origin_protocol == LWSMPRO_CGI ||
-		    hit->origin_protocol == LWSMPRO_HTTP ||
-		    hit->origin_protocol == LWSMPRO_HTTPS)
-			return 0;
+		/*
+		 * The mount's interceptor chain gets the request before the
+		 * bind and before LWS_CALLBACK_HTTP, ie, before any of the
+		 * protected mount's code can run, exactly as in
+		 * lws_http_action().  Without this, dispatching the POST from
+		 * here was a way past the gate that did not exist on h1.
+		 */
 
-		if (hit->protocol)
-			name = hit->protocol;
-		else
-			if (hit->origin_protocol == LWSMPRO_FILE)
-				return 0;
+		hit = lws_http_evaluate_interceptors(wsi, hit, &uri_ptr,
+						     &uri_len);
+		if (!hit) {
+			/* a configured interceptor is missing: fail closed */
+			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+
+			return lws_http_transaction_completed(wsi) < 0 ? -1 : 2;
+		}
+
+		name = hit->protocol ? hit->protocol : hit->origin;
 
 		pp = lws_vhost_name_to_protocol(wsi->a.vhost, name);
 		if (!pp) {
@@ -1036,29 +1089,38 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 			break;
 		case LCBA_FAILED_AUTH:
 			/* the response is already on its way out */
-			return lws_unauthorised_basic_auth(wsi) ? -1 : 1;
+			return lws_unauthorised_basic_auth(wsi) < 0 ? -1 : 2;
 		case LCBA_END_TRANSACTION:
 			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
-			return lws_http_transaction_completed(wsi) ? -1 : 1;
+			return lws_http_transaction_completed(wsi) < 0 ? -1 : 2;
 		}
 #endif
 	}
 
-	methidx = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
+	if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP, wsi->user_space,
+				      hit ? uri_ptr + hit->mountpoint_len :
+					    uri_ptr,
+				      (size_t)(hit ? uri_len -
+						  (int)hit->mountpoint_len :
+						  uri_len)))
+		/*
+		 * He is done with it (commonly: an interceptor that refused
+		 * the request has already written its response and completed
+		 * the transaction).  Close the stream, not the connection
+		 */
+		return 2;
 
-	if (methidx >= 0)
-		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP,
-					      wsi->user_space,
-					      hit ? uri_ptr +
-						  hit->mountpoint_len : uri_ptr,
-					      (size_t)(hit ? uri_len -
-							  hit->mountpoint_len :
-							  uri_len)))
-			return -1;
-
-#if defined(LWS_WITH_ACCESS_LOG)
-	lws_prepare_access_log_info(wsi, uri_ptr, uri_len, methidx);
-#endif
+	if (lwsi_state(wsi) == LRS_DISCARD_BODY)
+		/*
+		 * The dispatch answered the request without consuming the
+		 * body and completed the transaction, so the core put us in
+		 * LRS_DISCARD_BODY to resync.  There is nothing to resync on a
+		 * mux stream -- it is framed independently of its neighbours
+		 * and cannot be reused -- so drop whatever body we stashed and
+		 * let the caller close the stream, which resets it if the peer
+		 * is still sending.
+		 */
+		goto discard_and_close;
 
 	lwsl_info("%s: setting LRS_BODY from 0x%x (%s)\n", __func__,
 		    (int)wsi->wsistate, wsi->a.protocol->name);
@@ -1088,12 +1150,12 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 
 		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY,
 					      wsi->user_space, NULL, 0))
-			return -1;
+			return 2;
 
 		if (wsi->a.protocol->callback(wsi,
 					      LWS_CALLBACK_HTTP_BODY_COMPLETION,
 					      wsi->user_space, NULL, 0))
-			return -1;
+			return 2;
 
 		return 1;
 	}
@@ -1123,7 +1185,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 
 		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY,
 				wsi->user_space, buffered, blen))
-			return -1;
+			return 2;
 		lws_buflist_use_segment(&wsi->buflist, blen);
 
 		wsi->http.rx_content_length -= blen;
@@ -1190,9 +1252,15 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 
 	if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY_COMPLETION,
 				      wsi->user_space, NULL, 0))
-		return -1;
+		return 2;
 
 	return 1;
+
+discard_and_close:
+	lws_buflist_destroy_all_segments(&wsi->buflist);
+	lws_dll2_remove(&wsi->dll_buflist);
+
+	return 2;
 }
 #endif
 
@@ -1463,7 +1531,20 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			 * wsi->user_space and everything the user hung off it
 			 * at LWS_CALLBACK_HTTP, eg, his lws_spa -- and deliver
 			 * a second LWS_CALLBACK_HTTP for the same request.
+			 *
+			 * 2 additionally means it is already over: the request
+			 * was answered or refused (eg, by a mount interceptor)
+			 * without waiting on the body, so this stream -- and
+			 * only this stream -- closes now.
 			 */
+
+			if (n == 2) {
+				lwsl_info("%s: closing stream after h2 POST "
+					  "dispatch\n", __func__);
+				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
+						   "h2 post dispatch done");
+				continue;
+			}
 
 			if (n)
 				continue;
