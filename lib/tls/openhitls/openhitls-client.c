@@ -144,6 +144,21 @@ static int lws_openhitls_client_ctx_fingerprint(
 		goto bail_hash;
 	}
 
+	/*
+	 * protocols[0] is part of the context's identity, because it is what
+	 * receives LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS, and
+	 * whatever it adds there lands in the ctx's trust store.  If two
+	 * vhosts with different protocols[0] shared a ctx, a private CA one of
+	 * them pins would silently become trusted by the other, which may have
+	 * been given nothing but the OS trust store on purpose (C-411).
+	 */
+
+	if (vh->protocols &&
+	    lws_genhash_update(&hash_ctx, &vh->protocols[0].callback,
+			       sizeof(vh->protocols[0].callback))) {
+		goto bail_hash;
+	}
+
 	if (!lws_check_opt(vh->options,
 			   LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS) &&
 	    (!ca_mem || !ca_mem_len) && lws_genhash_update(&hash_ctx, &c, 1)) {
