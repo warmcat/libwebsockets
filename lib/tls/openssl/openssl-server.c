@@ -35,12 +35,38 @@ extern int openssl_websocket_private_data_index,
 
 int lws_openssl_describe_cipher(struct lws *wsi);
 
+/*
+ * Which vhost is this connection actually using the SSL_CTX of?
+ *
+ * On a shared listener, lws_ssl_server_name_cb() may have moved the SSL onto
+ * a different vhost's ctx, verify mode and client CA list than the vhost that
+ * accepted, and the wsi is not rebound to it until after SSL_accept() has
+ * completed.  So during the handshake wsi->a.vhost is still the listening
+ * vhost, and anything deciding policy from it is looking at the wrong one.
+ */
+
+static struct lws_vhost *
+lws_tls_vhost_from_ssl_ctx(struct lws_context *cx, SSL *ssl)
+{
+	SSL_CTX *ctx = SSL_get_SSL_CTX(ssl);
+	struct lws_vhost *vh = lws_vhost_first(cx);
+
+	while (vh) {
+		if (!vh->being_destroyed && vh->tls.ssl_ctx == ctx)
+			return vh;
+		vh = lws_vhost_next(vh);
+	}
+
+	return NULL;
+}
+
 static int
 OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 {
 	SSL *ssl;
 	int n;
 	struct lws *wsi;
+	struct lws_vhost *vh;
 	union lws_tls_cert_info_results ir;
 	X509 *topcert = X509_STORE_CTX_get_current_cert(x509_ctx);
 
@@ -55,6 +81,18 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	if (!wsi)
 		return 0; /* OpenSSL failure */
 
+	/*
+	 * The chain was verified against the CA store of the vhost whose
+	 * SSL_CTX is on this SSL, which after SNI is not necessarily
+	 * wsi->a.vhost.  The application's accept / overrule decision must be
+	 * asked of that same vhost's protocols[0], else a peer picks whose
+	 * client-cert policy runs by picking an SNI name.
+	 */
+
+	vh = lws_tls_vhost_from_ssl_ctx(wsi->a.context, ssl);
+	if (!vh)
+		vh = wsi->a.vhost;
+
 	n = lws_tls_openssl_cert_info(topcert, LWS_TLS_CERT_INFO_COMMON_NAME,
 				      &ir, sizeof(ir.ns.name));
 	if (!n)
@@ -62,7 +100,7 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	else
 		lwsl_info("%s: couldn't get client cert CN\n", __func__);
 
-	n = wsi->a.vhost->protocols[0].callback(wsi,
+	n = vh->protocols[0].callback(wsi,
 			LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
 					   x509_ctx, ssl, (unsigned int)preverify_ok);
 
@@ -85,7 +123,7 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 		int err = X509_STORE_CTX_get_error(x509_ctx);
 
 		lwsl_notice("%s: vh %s: client cert rejected: %s (depth %d)\n",
-			    __func__, wsi->a.vhost->name,
+			    __func__, vh->name,
 			    X509_verify_cert_error_string(err),
 			    X509_STORE_CTX_get_error_depth(x509_ctx));
 
@@ -145,13 +183,7 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 	 * find out which listening one took us and only match vhosts on the
 	 * same port.
 	 */
-	vh = lws_vhost_first(context);
-	while (vh) {
-		if (!vh->being_destroyed &&
-		    vh->tls.ssl_ctx == SSL_get_SSL_CTX(ssl))
-			break;
-		vh = lws_vhost_next(vh);
-	}
+	vh = lws_tls_vhost_from_ssl_ctx(context, ssl);
 
 	if (!vh) {
 		assert(vh); /* can't match the incoming vh? */
