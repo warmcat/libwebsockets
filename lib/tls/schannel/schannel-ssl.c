@@ -1283,15 +1283,36 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 		lws_free_set_NULL(conn->tx_buf);
 		conn->tx_len = 0;
 		conn->tx_pos = 0;
-
-		/* Consumed old data, but what about new data?
-		   The caller called us to write 'buf'.
-		   We just flushed OLD data.
-		   We should now process the new data if possible, or return 0?
-		   If we return 0, LWS might think we wrote nothing.
-		   Actually, we should proceed to encrypt 'buf' now that we are clear.
-		   */
 	}
+
+	/*
+	 * If the last record could not be sent in full, we told the caller
+	 * nothing was written and it buffered the plaintext to retry on
+	 * POLLOUT... but that plaintext is already encrypted and (now) sent.
+	 * This call is that retry, from the same buffered plaintext, so hand
+	 * back those bytes as written without encrypting them again.  This is
+	 * the same trick as openssl's moving-write-buffer mode.
+	 *
+	 * A caller that did not buffer and retry (the h1 client handshake
+	 * write) is not owed anything: what it gave us has gone out with the
+	 * flush above, and this is new plaintext, so drop the credit rather
+	 * than misapply it.
+	 */
+
+	if (conn->tx_plain) {
+		size_t m = conn->tx_plain > len ? len : conn->tx_plain;
+
+		if (!lws_has_buffered_out(wsi)) {
+			conn->tx_plain = 0;
+			goto fresh;
+		}
+
+		conn->tx_plain -= m;
+
+		return (int)m;
+	}
+
+fresh:
 
 	/*
 	 * Until the post-handshake message has gone through SSPI,
@@ -1350,28 +1371,35 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 	n = send(wsi->desc.sockfd, (char *)alloc_buf, (int)total_len, 0);
 
 	if (n < 0) {
-		if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK) {
-			/* Blocked immediately. Buffer EVERYTHING. */
-			conn->tx_buf = alloc_buf;
-			conn->tx_len = total_len;
-			conn->tx_pos = 0;
-			return (int)len; /* Valid write of plaintext, but buffered ciphertext */
+		if (LWS_ERRNO != LWS_EAGAIN && LWS_ERRNO != LWS_EWOULDBLOCK) {
+			lws_free(alloc_buf);
+
+			return LWS_SSL_CAPABLE_ERROR;
 		}
-		lws_free(alloc_buf);
-		return LWS_SSL_CAPABLE_ERROR;
+		n = 0;
 	}
 
-	if ((size_t)n < total_len) {
-		/* Partial write. Buffer remainder. */
-		conn->tx_buf = alloc_buf;
-		conn->tx_len = total_len;
-		conn->tx_pos = n;
-		/* We return 'len' because we accepted the whole plaintext frame and encrypted it. */
+	if ((size_t)n == total_len) {
+		lws_free(alloc_buf);
+
 		return (int)len;
 	}
 
-	lws_free(alloc_buf);
-	return (int)len;
+	/*
+	 * The socket would not take the whole record.  Keep the ciphertext
+	 * and tell the caller nothing went out: it then buffers the plaintext,
+	 * asks for POLLOUT, and lws_send_pipe_choked() reports the truth.
+	 * Reporting the write as complete here (as this used to) left the
+	 * remainder stuck in tx_buf until the next write, which never came if
+	 * the peer was waiting for exactly these bytes.
+	 */
+
+	conn->tx_buf = alloc_buf;
+	conn->tx_len = total_len;
+	conn->tx_pos = (size_t)n;
+	conn->tx_plain = len;
+
+	return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 }
 
 	int

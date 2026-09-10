@@ -136,6 +136,12 @@ struct lws_tls_schannel_conn {
 	uint8_t *tx_buf; /* Pending data to be written to socket (e.g. handshake tokens OR encrypted app data) */
 	size_t tx_len;
 	size_t tx_pos;   /* How much we have written so far */
+	/*
+	 * Plaintext bytes the caller has not yet been told were written, but
+	 * which are already encrypted into tx_buf: handed back for free once
+	 * tx_buf has drained, so a record is never encrypted twice
+	 */
+	size_t tx_plain;
 
 	/* Buffer for decrypted data pending read by user */
     struct lws_buflist *decrypted_list;
