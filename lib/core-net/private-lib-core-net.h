@@ -1013,7 +1013,6 @@ struct lws {
 	int				position_in_fds_table;
 
 #if defined(LWS_WITH_CLIENT)
-	int				chunk_remaining;
 	int				flags;
 #endif
 	unsigned int			cache_secs;
@@ -1086,7 +1085,6 @@ struct lws {
 #endif
 #if defined(LWS_WITH_CLIENT)
 	unsigned int			do_ws:1; /* whether we are doing http or ws flow */
-	unsigned int			chunked:1; /* if the clientside connection is chunked */
 	unsigned int			client_rx_avail:1;
 	unsigned int			client_http_body_pending:1;
 	unsigned int			transaction_from_pipeline_queue:1;
@@ -1137,7 +1135,6 @@ struct lws {
 	char hdr_state;
 #endif
 #if defined(LWS_WITH_CLIENT)
-	char chunk_parser; /* enum lws_chunk_parser */
 	uint8_t addrinfo_idx;
 	uint8_t sys_tls_client_cert;
 	uint8_t c_pri;

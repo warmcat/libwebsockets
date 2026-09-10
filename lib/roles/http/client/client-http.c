@@ -1551,8 +1551,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 #endif
 
 	/* he may choose to send us stuff in chunked transfer-coding */
-	wsi->chunked = 0;
-	wsi->chunk_remaining = 0; /* ie, next thing is chunk size */
+	wsi->http.rx_chunked = 0;
+	wsi->http.chunk_remaining = 0; /* ie, next thing is chunk size */
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
 		simp = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING);
 
@@ -1560,14 +1560,14 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		if (!simp)
 			goto bail2;
 		if (!strcasecmp(simp, "chunked")) {
-			wsi->chunked = 1;
+			wsi->http.rx_chunked = 1;
 		} else {
 			lwsl_err("%s: unsupported TE %s\n", __func__, simp);
 			cce = "HS: unsupported TE";
 			goto bail2;
 		}
 		/* first thing is hex, after payload there is crlf */
-		wsi->chunk_parser = ELCP_HEX;
+		wsi->http.chunk_parser = ELCP_HEX;
 	}
 
 	wsi->http.content_length_given = 0;
@@ -1591,7 +1591,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 				wsi->http.rx_content_length;
 		wsi->http.content_length_given = 1;
 	} else { /* can't do 1.1 without a content length or chunked */
-		if (!wsi->chunked)
+		if (!wsi->http.rx_chunked)
 			wsi->http.conn_type = HTTP_CONNECTION_CLOSE;
 		lwsl_debug("%s: no content length\n", __func__);
 	}
@@ -2363,7 +2363,7 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 	 */
 
 //	lwsl_notice("%s: eb.len %d ENTRY chunk remaining %d\n", __func__, eb.len,
-//			wsi->chunk_remaining);
+//			wsi->http.chunk_remaining);
 
 	/* allow the source to signal he has data again next time */
 	if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
@@ -2372,11 +2372,11 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 	if (buffered < 0) {
 		lwsl_debug("%s: SSL capable error\n", __func__);
 		lwsl_notice("%s: SSL capable error, hdr_parsing_completed=%d, content_length_given=%d, chunked=%d, ah_ptr=%p\n",
-			__func__, wsi->hdr_parsing_completed, wsi->http.content_length_given, wsi->chunked, wsi->http.ah);
+			__func__, wsi->hdr_parsing_completed, wsi->http.content_length_given, wsi->http.rx_chunked, wsi->http.ah);
 
 		if (wsi->hdr_parsing_completed &&
 		    !wsi->http.content_length_given &&
-		    !wsi->chunked) {
+		    !wsi->http.rx_chunked) {
 			lwsl_notice("%s: generating lws_http_transaction_completed_client\n", __func__);
 			/*
 			 * We had the headers from this stream, but as there
@@ -2406,100 +2406,28 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 	 * so http client must deal with it
 	 */
 spin_chunks:
-	//lwsl_notice("%s: len %d SPIN chunk remaining %d\n", __func__, *len,
-	//		wsi->chunk_remaining);
-	while (wsi->chunked && (wsi->chunk_parser != ELCP_CONTENT) && *len) {
-		switch (wsi->chunk_parser) {
-		case ELCP_HEX:
-			if ((*buf)[0] == '\x0d') {
-				wsi->chunk_parser = ELCP_CR;
-				break;
-			}
-			n = char_to_hex((*buf)[0]);
-			if (n < 0) {
-				lwsl_err("%s: chunking failure A\n", __func__);
-				return -1;
-			}
-			if (wsi->chunk_remaining > (INT_MAX - 15) / 16) {
-				lwsl_err("%s: chunk size overflow\n", __func__);
-				return -1;
-			}
-			wsi->chunk_remaining <<= 4;
-			wsi->chunk_remaining |= n;
-			break;
-		case ELCP_CR:
-			if ((*buf)[0] != '\x0a') {
-				lwsl_err("%s: chunking failure B\n", __func__);
-				return -1;
-			}
-			if (wsi->chunk_remaining) {
-				wsi->chunk_parser = ELCP_CONTENT;
-				//lwsl_notice("starting chunk size %d (block rem %d)\n",
-				//		wsi->chunk_remaining, *len);
-				break;
-			}
+	if (wsi->http.rx_chunked) {
+		unsigned char *b = (unsigned char *)*buf;
+		size_t l = (size_t)*len;
 
-			wsi->chunk_parser = ELCP_TRAILER_CR;
-			break;
+		/* consume any chunk framing before the next payload bytes */
 
-		case ELCP_CONTENT:
-			break;
+		n = lws_http_dechunk_framing(wsi, &b, &l);
+		consumed += (int)((size_t)*len - l);
+		*buf = (char *)b;
+		*len = (int)l;
 
-		case ELCP_POST_CR:
-			if ((*buf)[0] != '\x0d') {
-				lwsl_err("%s: chunking failure C\n", __func__);
-				lwsl_hexdump_err(*buf, (unsigned int)*len);
+		if (n < 0)
+			return -1;
 
-				return -1;
-			}
-
-			wsi->chunk_parser = ELCP_POST_LF;
-			break;
-
-		case ELCP_POST_LF:
-			if ((*buf)[0] != '\x0a') {
-				lwsl_err("%s: chunking failure D\n", __func__);
-
-				return -1;
-			}
-
-			wsi->chunk_parser = ELCP_HEX;
-			wsi->chunk_remaining = 0;
-			break;
-
-		case ELCP_TRAILER_CR:
-			if ((*buf)[0] != '\x0d') {
-				lwsl_err("%s: chunking failure F\n", __func__);
-				lwsl_hexdump_err(*buf, (unsigned int)*len);
-
-				return -1;
-			}
-
-			wsi->chunk_parser = ELCP_TRAILER_LF;
-			break;
-
-		case ELCP_TRAILER_LF:
-			if ((*buf)[0] != '\x0a') {
-				lwsl_err("%s: chunking failure F\n", __func__);
-				lwsl_hexdump_err(*buf, (unsigned int)*len);
-
-				return -1;
-			}
-
-			(*buf)++;
-			(*len)--;
-			consumed++;
-
-			lwsl_info("final chunk\n");
+		if (n > 0)
+			/* that was the terminating chunk */
 			goto completed;
-		}
-		(*buf)++;
-		(*len)--;
-		consumed++;
-	}
 
-	if (wsi->chunked && !wsi->chunk_remaining)
-		goto account_and_ret;
+		if (!*len)
+			/* need more to get to the next payload bytes */
+			goto account_and_ret;
+	}
 
 	if (wsi->http.rx_content_remain &&
 	    wsi->http.rx_content_remain < (unsigned int)*len)
@@ -2507,9 +2435,9 @@ spin_chunks:
 	else
 		n = *len;
 
-	if (wsi->chunked && wsi->chunk_remaining &&
-	    wsi->chunk_remaining < n)
-		n = wsi->chunk_remaining;
+	if (wsi->http.rx_chunked && wsi->http.chunk_remaining &&
+	    wsi->http.chunk_remaining < n)
+		n = wsi->http.chunk_remaining;
 
 #if defined(LWS_WITH_HTTP_PROXY) && defined(LWS_WITH_HUBBUB)
 	/* hubbub */
@@ -2543,23 +2471,23 @@ spin_chunks:
 
 	(*buf) += n;
 	*len -= n;
-	if (wsi->chunked && wsi->chunk_remaining)
-		wsi->chunk_remaining -= n;
+	if (wsi->http.rx_chunked && wsi->http.chunk_remaining)
+		wsi->http.chunk_remaining -= n;
 
 	//lwsl_notice("chunk_remaining <- %d, block remaining %d\n",
-	//		wsi->chunk_remaining, *len);
+	//		wsi->http.chunk_remaining, *len);
 
 	consumed += n;
 	//eb.token += n;
 	//eb.len -= n;
 
-	if (wsi->chunked && !wsi->chunk_remaining)
-		wsi->chunk_parser = ELCP_POST_CR;
+	if (wsi->http.rx_chunked && !wsi->http.chunk_remaining)
+		wsi->http.chunk_parser = ELCP_POST_CR;
 
-	if (wsi->chunked && *len)
+	if (wsi->http.rx_chunked && *len)
 		goto spin_chunks;
 
-	if (wsi->chunked)
+	if (wsi->http.rx_chunked)
 		goto account_and_ret;
 
 	/* if we know the content length, decrement the content remaining */

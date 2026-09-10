@@ -318,6 +318,14 @@ struct _lws_http_mode_related {
 	lws_filepos_t rx_content_length;
 	lws_filepos_t rx_content_remain;
 
+	/*
+	 * Transfer-Encoding: chunked decoder state for the rx body on this
+	 * wsi... the response body on a client wsi, the request body on an
+	 * h1 server wsi.  chunk_parser holds an enum lws_chunk_parser.
+	 */
+	int chunk_remaining;
+	char chunk_parser;
+
 #if defined(LWS_WITH_HTTP_PROXY)
 	unsigned int perform_rewrite:1;
 	unsigned int proxy_clientside:1;
@@ -332,6 +340,7 @@ struct _lws_http_mode_related {
 	unsigned int deferred_transaction_completed:1;
 	unsigned int content_length_explicitly_zero:1;
 	unsigned int content_length_given:1;
+	unsigned int rx_chunked:1; /* rx body uses chunked transfer-coding */
 	unsigned int did_stream_close:1;
 	unsigned int multipart:1;
 	unsigned int cgi_transaction_complete:1;
@@ -350,7 +359,6 @@ struct _lws_http_mode_related {
 };
 
 
-#if defined(LWS_WITH_CLIENT)
 enum lws_chunk_parser {
 	ELCP_HEX,
 	ELCP_CR,
@@ -360,7 +368,9 @@ enum lws_chunk_parser {
 	ELCP_TRAILER_CR,
 	ELCP_TRAILER_LF
 };
-#endif
+
+int
+lws_http_dechunk_framing(struct lws *wsi, unsigned char **buf, size_t *len);
 
 enum lws_parse_urldecode_results {
 	LPUR_CONTINUE,

@@ -201,6 +201,7 @@ __lws_reset_wsi(struct lws *wsi)
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	__lws_header_table_detach(wsi, 0);
+	wsi->http.rx_chunked = 0;
 #endif
 
 #if defined(LWS_WITH_PEER_LIMITS)
@@ -243,7 +244,7 @@ __lws_reset_wsi(struct lws *wsi)
 #endif
 
 #if defined(LWS_WITH_CLIENT)
-	wsi->do_ws = wsi->chunked = wsi->client_rx_avail =
+	wsi->do_ws = wsi->client_rx_avail =
 	wsi->client_http_body_pending = wsi->transaction_from_pipeline_queue =
 	wsi->keepalive_active = wsi->keepalive_rejected =
 	wsi->redirected_to_get = wsi->client_pipeline = wsi->client_h2_alpn =

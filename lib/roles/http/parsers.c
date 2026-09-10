@@ -2058,3 +2058,113 @@ lws_http_remove_urlarg(struct lws *wsi, const char *name)
 
 	return 1;
 }
+
+/*
+ * lws_http_dechunk_framing() - consume Transfer-Encoding: chunked framing
+ *
+ * Runs the chunk framing state machine over *buf / *len, consuming only the
+ * framing bytes (chunk-size lines, the CRLF after each chunk's payload, and
+ * the last-chunk / trailer terminator) and advancing *buf / *len past them.
+ *
+ * A chunk's payload bytes are left in place for the caller to deliver: the
+ * caller subtracts what it delivered from wsi->http.chunk_remaining and sets
+ * wsi->http.chunk_parser to ELCP_POST_CR when that reaches zero, then calls
+ * here again for the framing that follows.
+ *
+ * Before the first body byte, the caller sets chunk_parser to ELCP_HEX and
+ * chunk_remaining to 0.
+ *
+ * Returns
+ *   -1  framing error, the connection cannot be resynchronized
+ *    0  stopped: either *len is exhausted, or the next bytes are chunk
+ *       payload (chunk_parser == ELCP_CONTENT, chunk_remaining is the count
+ *       of payload bytes still to come in this chunk)
+ *    1  the last-chunk and the trailer terminator were consumed: the body is
+ *       complete
+ */
+
+int
+lws_http_dechunk_framing(struct lws *wsi, unsigned char **buf, size_t *len)
+{
+	while (wsi->http.chunk_parser != ELCP_CONTENT && *len) {
+		unsigned char c = **buf;
+		int n;
+
+		switch (wsi->http.chunk_parser) {
+		case ELCP_HEX:
+			if (c == '\x0d') {
+				wsi->http.chunk_parser = ELCP_CR;
+				break;
+			}
+			n = char_to_hex((char)c);
+			if (n < 0) {
+				lwsl_wsi_notice(wsi, "chunk size not hex");
+				return -1;
+			}
+			if (wsi->http.chunk_remaining > (INT_MAX - 15) / 16) {
+				lwsl_wsi_notice(wsi, "chunk size overflow");
+				return -1;
+			}
+			wsi->http.chunk_remaining <<= 4;
+			wsi->http.chunk_remaining |= n;
+			break;
+
+		case ELCP_CR:
+			if (c != '\x0a') {
+				lwsl_wsi_notice(wsi, "chunk size line: no LF");
+				return -1;
+			}
+			if (wsi->http.chunk_remaining) {
+				wsi->http.chunk_parser = ELCP_CONTENT;
+				break;
+			}
+
+			/* zero-length chunk: last-chunk, trailer next */
+			wsi->http.chunk_parser = ELCP_TRAILER_CR;
+			break;
+
+		case ELCP_POST_CR:
+			if (c != '\x0d') {
+				lwsl_wsi_notice(wsi, "chunk payload: no CR");
+				return -1;
+			}
+			wsi->http.chunk_parser = ELCP_POST_LF;
+			break;
+
+		case ELCP_POST_LF:
+			if (c != '\x0a') {
+				lwsl_wsi_notice(wsi, "chunk payload: no LF");
+				return -1;
+			}
+			wsi->http.chunk_parser = ELCP_HEX;
+			wsi->http.chunk_remaining = 0;
+			break;
+
+		case ELCP_TRAILER_CR:
+			if (c != '\x0d') {
+				lwsl_wsi_notice(wsi, "chunk trailer: no CR");
+				return -1;
+			}
+			wsi->http.chunk_parser = ELCP_TRAILER_LF;
+			break;
+
+		case ELCP_TRAILER_LF:
+			if (c != '\x0a') {
+				lwsl_wsi_notice(wsi, "chunk trailer: no LF");
+				return -1;
+			}
+			(*buf)++;
+			(*len)--;
+
+			return 1;
+
+		default:
+			return -1;
+		}
+
+		(*buf)++;
+		(*len)--;
+	}
+
+	return 0;
+}
