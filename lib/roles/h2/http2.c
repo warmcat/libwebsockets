@@ -1116,6 +1116,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 			 * stream while it is being served).
 			 */
 			h2n->swsi->hdr_parsing_completed = 1;
+			h2n->swsi->h2.hdrs_done = 1;
 			lws_h2_state(h2n->swsi, LWS_H2_STATE_HALF_CLOSED_REMOTE);
 			lwsl_info("servicing initial http request\n");
 
@@ -2037,7 +2038,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			break;
 		}
 
-		if (h2n->swsi->hdr_parsing_completed) {
+		if (h2n->swsi->h2.hdrs_done) {
 			/*
 			 * We already processed a complete header block on
 			 * this stream, so this second block is trailers
@@ -2138,6 +2139,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		lwsl_info("http req, %s, h2n->swsi=%s\n", lws_wsi_tag(wsi),
 				lws_wsi_tag(h2n->swsi));
 		h2n->swsi->hdr_parsing_completed = 1;
+		h2n->swsi->h2.hdrs_done = 1;
 
 #if defined(LWS_WITH_CLIENT)
 		if (h2n->swsi->client_mux_substream &&

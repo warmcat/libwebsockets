@@ -827,7 +827,13 @@ lws_hpack_destroy_dynamic_header(struct lws *wsi)
 static int
 lws_h2_hdrs_are_trailers(struct lws *wsi)
 {
-	return wsi->hdr_parsing_completed;
+	/*
+	 * Not wsi->hdr_parsing_completed: that is cleared by the ah reset
+	 * when an ah is re-attached for this very block, if the stream had
+	 * released its ah after dispatch (cgi mounts do, and an early detach
+	 * generally would)
+	 */
+	return wsi->h2.hdrs_done;
 }
 
 static int

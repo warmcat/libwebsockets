@@ -313,6 +313,16 @@ struct _lws_h2_related {
 	uint8_t			send_END_STREAM:1;
 	uint8_t			long_poll:1;
 	uint8_t			initialized:1;
+	/*
+	 * The stream's first header block completed and was dispatched:
+	 * any further HEADERS on it are trailers.  This must live here and
+	 * not in wsi->hdr_parsing_completed, which __lws_header_table_reset()
+	 * clears whenever an ah is (re)attached... a trailer block arriving
+	 * after the ah was released would otherwise re-attach one, lose the
+	 * flag, and be decoded and dispatched as a second request on the
+	 * same stream.
+	 */
+	uint8_t			hdrs_done:1;
 
 	/*
 	 * Transmit-side duplicate-pseudoheader detection.  Reset to 0 at the
