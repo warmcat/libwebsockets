@@ -1245,16 +1245,13 @@ __lws_close_free_wsi_final(struct lws *wsi)
 						     wsi->stash->cis[CIS_ADDRESS],
 						     &vh);
 			/*
-			 * Rebind through the proper helpers: the open-coded
-			 * increment never unbound the old vhost, leaking its
-			 * count_bound_wsi and blocking its destroy
+			 * Rebind through the proper helper: it unbinds the
+			 * old vhost itself (unbinding here first would clear
+			 * wsi->a.vhost and disarm its dying-vhost and mTLS
+			 * rebind refusals, which test that)
 			 */
-			if (vh && vh != wsi->a.vhost) {
-				lws_context_lock(wsi->a.context, __func__);
-				__lws_vhost_unbind_wsi(wsi);
-				lws_context_unlock(wsi->a.context);
+			if (vh && vh != wsi->a.vhost)
 				lws_vhost_bind_wsi(vh, wsi);
-			}
 		}
 #endif
 
