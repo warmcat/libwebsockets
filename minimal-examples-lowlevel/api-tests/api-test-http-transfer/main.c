@@ -1146,6 +1146,16 @@ int main(int argc, const char **argv)
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	/*
+	 * The defaults budget 8 fds per thread, sized for a lone client.
+	 * We have four listen sockets (h1 + h2, v4 + v6) plus the system
+	 * fds, and a case can have both ends of an h2 connection, two
+	 * pipelined clients and a keepalive connection left over from the
+	 * previous case all open at once.  Past the budget lws stops
+	 * servicing the listeners until something closes, which here is
+	 * the previous case's idle keepalive timing out 5s later.
+	 */
+	info.fd_limit_per_thread = 0;
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		port_h1 = atoi(p);
