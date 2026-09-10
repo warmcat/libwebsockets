@@ -3506,7 +3506,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 				       6 /* final _lws\r\n */;
 
 		lws_ranges_reset(rp);
-		while (lws_ranges_next(rp)) {
+		while (lws_ranges_next(rp) == 1) {
 			n = lws_snprintf(cache_control, sizeof(cache_control),
 					"bytes %llu-%llu/%llu",
 					rp->start, rp->end, rp->extent);

@@ -222,9 +222,30 @@ lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp,
 
 	rp->state = LWSRS_BYTES_EQ;
 
-	while (lws_ranges_next(rp)) {
+	/*
+	 * Note lws_ranges_next() returns -1 (not 0) if the header does not
+	 * even start with "bytes=", so only a 1 means a range was issued
+	 */
+
+	while (lws_ranges_next(rp) == 1) {
 		rp->count_ranges++;
 		rp->agg += rp->end - rp->start + 1;
+
+		/*
+		 * RFC 7233 4.1: we are allowed to refuse an unreasonable set
+		 * of ranges.  Non-overlapping ranges can never aggregate to
+		 * more than the whole representation, so a larger total means
+		 * the peer repeated or overlapped ranges to multiply what we
+		 * send (and re-read from the filesystem) for one small header.
+		 */
+
+		if (rp->agg > rp->extent) {
+			lwsl_notice("%s: overlapping / repeated ranges\n",
+				    __func__);
+
+			return -1;
+		}
+
 		if (rp->count_ranges >= 64) {
 			lwsl_notice("Too many ranges\n");
 			return -1;
