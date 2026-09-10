@@ -448,6 +448,21 @@ lecp_parse(struct lecp_ctx *ctx, const uint8_t *cbor, size_t len)
 			sm = c & LWS_CBOR_SUBMASK;
 			to = 0;
 
+			/*
+			 * st->indet describes the item at this level we are
+			 * parsing right now, and nothing else... an item that
+			 * sets it always pushes a level immediately, so by the
+			 * time we are back here looking at a new opcode, any
+			 * indefinite item at this level is finished with.
+			 *
+			 * Leaving it set makes lwcp_completed()'s "parent needs
+			 * indet" check abandon the walk forever, wedging the
+			 * context, and lets a BREAK close something that is not
+			 * an indefinite-length container.  The individual
+			 * opcodes below set it again if they need it
+			 */
+			st->indet = 0;
+
 			lwsl_lecp("%s: %d: OPC %d|%d\n", __func__, ctx->sp,
 					c >> 5, sm);
 
