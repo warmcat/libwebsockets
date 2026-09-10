@@ -860,19 +860,18 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 
 	case LECPCB_VAL_BLOB_START:
 
-		lwsl_notice("%s: blob size %d\n", __func__, (int)ctx->item.u.u64);
-
 		if (cps->tli == ST_OUTER_SIGN1_SIGNATURE ||
 		    cps->tli == ST_INNER_SIGNATURE) {
 			/*
-			 * Reset unconditionally: for an indefinite-length bstr
-			 * lecp does not set item.u.u64 at all, so this length
-			 * is not something we can rely on (the accumulate
-			 * itself is bounded below)
+			 * Reset unconditionally, and don't look at
+			 * item.u.u64 at all: lecp does not set it for a
+			 * zero-length or an indefinite-length bstr, so what is
+			 * in there is whatever the previous item left (eg, the
+			 * alg -7 from the protected bucket, which as a u64
+			 * rejected a legal empty signature).  sig_agg() bounds
+			 * the accumulate by the room actually left.
 			 */
 			cps->sig_agg_pos = 0;
-			if (ctx->item.u.u64 > sizeof(cps->sig_agg))
-				goto bail;
 			break;
 		}
 
