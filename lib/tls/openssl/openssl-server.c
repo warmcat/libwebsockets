@@ -120,11 +120,11 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	 */
 
 	if (!preverify_ok && X509_STORE_CTX_get_error(x509_ctx) != X509_V_OK) {
-		int err = X509_STORE_CTX_get_error(x509_ctx);
-
+		/* no local for the error: LWS_WITH_NO_LOGS would leave it unused */
 		lwsl_notice("%s: vh %s: client cert rejected: %s (depth %d)\n",
 			    __func__, vh->name,
-			    X509_verify_cert_error_string(err),
+			    X509_verify_cert_error_string(
+				    X509_STORE_CTX_get_error(x509_ctx)),
 			    X509_STORE_CTX_get_error_depth(x509_ctx));
 
 		return 0;
