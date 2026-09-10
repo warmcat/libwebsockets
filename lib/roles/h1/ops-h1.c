@@ -70,11 +70,25 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			assert(0);
 		}
 		lwsl_parser("issuing %d bytes to parser\n", (int)len);
+		last_char = buf;
 #if defined(LWS_ROLE_WS) && defined(LWS_WITH_CLIENT)
 		if (lws_ws_handshake_client(wsi, &buf, (size_t)len) == LWS_HPI_RET_PLEASE_CLOSE_ME)
 			goto bail;
-#endif
+
+		/*
+		 * It may have taken some or all of the buffer (the rx flow
+		 * control cache path does *buf += len, and the ws parser
+		 * advances *buf by what it consumed) without telling us in
+		 * len... whatever it took is not there for the http parser
+		 * below to look at.
+		 */
+
+		len -= (lws_filepos_t)lws_ptr_diff_size_t(buf, last_char);
 		last_char = buf;
+
+		if (!len)
+			return lws_ptr_diff(buf, oldbuf);
+#endif
 		if (lws_handshake_server(wsi, &buf, (size_t)len))
 			/* Handshake indicates this session is done. */
 			goto bail;
