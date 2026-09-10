@@ -144,8 +144,16 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 				conn->client_hostname = lws_strdup(temp_host);
 		}
 
-		if (conn->client_hostname)
-			lws_tls_client_strip_port(conn->client_hostname);
+		if (conn->client_hostname &&
+		    lws_tls_client_strip_port(conn->client_hostname))
+			/*
+			 * Nothing usable was left of it ("[", "[]", ":port").
+			 * BearSSL reads an empty server_name exactly as it
+			 * reads NULL, ie, "do not check the name at all"
+			 * (C-408), so drop it and let the !client_hostname
+			 * refusal below deal with it uniformly.
+			 */
+			lws_free_set_NULL(conn->client_hostname);
 
 		int resume = 0;
 #if defined(LWS_WITH_TLS_SESSIONS)

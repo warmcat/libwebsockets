@@ -67,7 +67,20 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	}
 
 	/* Handle port stripping */
-	lws_tls_client_strip_port(hostname);
+	if (lws_tls_client_strip_port(hostname) &&
+	    !(wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
+		/*
+		 * Nothing usable is left of it ("[", "[]", ":port") and we were
+		 * not told to skip the name check.  Fail closed rather than
+		 * hand an empty pwszServerName to the SSL chain policy, which
+		 * is how Schannel is told "do not match the name at all"
+		 * (C-408).
+		 */
+		lwsl_err("%s: no usable hostname for peer cert check\n",
+			 __func__);
+
+		return -1;
+	}
 
 	lws_strncpy(conn->hostname, hostname, sizeof(conn->hostname));
 
