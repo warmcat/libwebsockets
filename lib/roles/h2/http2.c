@@ -3286,7 +3286,7 @@ lws_h2_client_handshake(struct lws *wsi)
 #endif
 
 	if (wsi->flags & LCCSCF_HTTP_MULTIPART_MIME) {
-		p1 = lws_http_multipart_headers(wsi, p);
+		p1 = lws_http_multipart_headers(wsi, p, end);
 		if (!p1)
 			goto fail_length;
 		p = p1;

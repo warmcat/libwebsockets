@@ -1694,10 +1694,12 @@ bail2:
 
 /*
  * set the boundary string and the content-type for client multipart mime
+ *
+ * \p end is one past the last byte we may write at \p p
  */
 
 uint8_t *
-lws_http_multipart_headers(struct lws *wsi, uint8_t *p)
+lws_http_multipart_headers(struct lws *wsi, uint8_t *p, uint8_t *end)
 {
 	char buf[10], arg[48];
 	int n;
@@ -1714,7 +1716,7 @@ lws_http_multipart_headers(struct lws *wsi, uint8_t *p)
 			 wsi->http.multipart_boundary);
 
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
-					 (uint8_t *)arg, n, &p, p + 100))
+					 (uint8_t *)arg, n, &p, end))
 		return NULL;
 
 	wsi->http.multipart = wsi->http.multipart_issue_boundary = 1;
@@ -2129,7 +2131,8 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 	}
 
 	if (wsi->flags & LCCSCF_HTTP_MULTIPART_MIME) {
-		p1 = (char *)lws_http_multipart_headers(wsi, (uint8_t *)p);
+		p1 = (char *)lws_http_multipart_headers(wsi, (uint8_t *)p,
+							(uint8_t *)end);
 		if (!p1)
 			return NULL;
 		p = p1;
@@ -2186,7 +2189,8 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 #endif
 	{
 		if (!wsi->client_pipeline)
-			p += lws_snprintf(p, 64, "connection: close\x0d\x0a");
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+					  "connection: close\x0d\x0a");
 	}
 
 	/* give userland a chance to append, eg, cookies */

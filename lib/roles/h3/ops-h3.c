@@ -202,7 +202,7 @@ lws_h3_client_handshake(struct lws *wsi)
 #endif
 
 	if (wsi->flags & LCCSCF_HTTP_MULTIPART_MIME) {
-		uint8_t *p1 = lws_http_multipart_headers(wsi, p);
+		uint8_t *p1 = lws_http_multipart_headers(wsi, p, end);
 		if (!p1)
 			return -1;
 		p = p1;
