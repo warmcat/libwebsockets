@@ -33,7 +33,8 @@
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 
 struct lws_dnssec_val_ctx {
-	lws_adns_q_t *original_q;
+	lws_adns_q_t *original_q;	/* NULL if the requester went away */
+	lws_adns_q_t *sub_q;		/* the DNSKEY sub-lookup, once issued */
 	uint8_t algorithm;
 	uint16_t key_tag;
 
@@ -377,6 +378,40 @@ lws_dnssec_dnskey_authenticated(const char *zone, uint16_t key_tag, uint8_t algo
 	return 0;
 }
 
+static void
+lws_dnssec_vctx_free(struct lws_dnssec_val_ctx *vctx)
+{
+	if (vctx->sub_q)
+		vctx->sub_q->dnssec_vctx_owned = NULL;
+	if (vctx->original_q)
+		vctx->original_q->dnssec_vctx_waiting = NULL;
+
+	lws_free(vctx);
+}
+
+/*
+ * Called from lws_adns_q_destroy() for every query, so a validation context
+ * can't outlive either of the queries it refers to
+ */
+
+void
+lws_adns_dnssec_q_destroy(lws_adns_q_t *q)
+{
+	if (q->dnssec_vctx_waiting) {
+		/*
+		 * The requester is going away while its DNSKEY sub-lookup is
+		 * still in flight: when that completes, the callback must not
+		 * touch this query
+		 */
+		q->dnssec_vctx_waiting->original_q = NULL;
+		q->dnssec_vctx_waiting = NULL;
+	}
+
+	if (q->dnssec_vctx_owned)
+		/* we are the sub-lookup, dying without ever calling back */
+		lws_dnssec_vctx_free(q->dnssec_vctx_owned);
+}
+
 static struct lws *
 lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *data, int m, void *opaque)
 {
@@ -385,8 +420,11 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 	lws_adns_cache_t *c;
 	int is_async;
 
-	if (!q)
+	if (!q) {
+		/* the requester was destroyed while we were in flight */
+		lws_dnssec_vctx_free(vctx);
 		return wsi;
+	}
 
 	is_async = q->dnssec_verify_rrsig;
 
@@ -559,7 +597,7 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 		lws_adns_q_destroy(q);
 	}
 
-	lws_free(vctx);
+	lws_dnssec_vctx_free(vctx);
 	return wsi;
 
 fail:
@@ -576,15 +614,15 @@ fail:
 		if (is_async && q->responded == q->asked) {
 			lws_async_dns_complete(q, q->firstcache);
 		} else if (!is_async && q->responded != q->asked) {
-			lws_free(vctx);
+			lws_dnssec_vctx_free(vctx);
 			return wsi;
 		} else if (is_async && q->responded != q->asked) {
-			lws_free(vctx);
+			lws_dnssec_vctx_free(vctx);
 			return wsi;
 		}
 	}
 	if (is_async) lws_adns_q_destroy(q);
-	lws_free(vctx);
+	lws_dnssec_vctx_free(vctx);
 	return wsi;
 }
 
@@ -724,7 +762,7 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len)
 		}
 
 		if (lws_genhash_destroy(&hash_ctx, vctx->hash)) {
-			lws_free(vctx);
+			lws_dnssec_vctx_free(vctx);
 			return -1;
 		}
 
@@ -738,7 +776,7 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len)
 		} else {
 			/* hash_ctx was already finalized above */
 			lwsl_err("%s: signature too large for buffer\n", __func__);
-			lws_free(vctx);
+			lws_dnssec_vctx_free(vctx);
 			return -1;
 		}
 
@@ -748,19 +786,31 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len)
 		 * Temporarily set this to 0 so the callback knows if it was called synchronously. */
 		q->dnssec_verify_rrsig = 0;
 
+		lws_adns_q_t *sq = NULL;
 		int ret = lws_async_dns_query(q->context, q->tsi, s.signer_name,
 					LWS_ADNS_RECORD_DNSKEY, lws_dnssec_dnskey_cb,
-					NULL, vctx, NULL);
+					NULL, vctx, &sq);
 
 		if (ret == LADNS_RET_CONTINUING) {
 			/* Async lookup initiated */
+			if (!sq) {
+				/*
+				 * Nothing we can attach to: the context would
+				 * be orphaned, so fail closed instead
+				 */
+				lws_dnssec_vctx_free(vctx);
+				return -1;
+			}
 			q->dnssec_verify_rrsig = 1;
+			vctx->sub_q = sq;
+			sq->dnssec_vctx_owned = vctx;
+			q->dnssec_vctx_waiting = vctx;
 			return 1;
 		}
 
 		if (ret == LADNS_RET_FAILED) {
 			/* Query failed to allocate/initiate synchronously (no callback fired) */
-			lws_free(vctx);
+			lws_dnssec_vctx_free(vctx);
 			return -1;
 		} else if (ret < 0) {
 			/* Callback WAS called synchronously and already freed vctx */

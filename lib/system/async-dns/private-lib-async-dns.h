@@ -145,6 +145,17 @@ typedef struct lws_adns_q {
 	uint8_t			ipv4_only:1;
 	uint8_t			completing:1; /* in lws_async_dns_complete() */
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	/*
+	 * A pending RRSIG validation is a second, DNSKEY query with the
+	 * validation context as its opaque.  Both queries point at that
+	 * context so that whichever of them is destroyed first can detach
+	 * it: the requester dying leaves the sub-lookup's callback with no
+	 * query to complete, and the sub-lookup dying without its callback
+	 * (context destroy) would otherwise leak the context.
+	 */
+	struct lws_dnssec_val_ctx *dnssec_vctx_owned;   /* we are the DNSKEY sub-lookup */
+	struct lws_dnssec_val_ctx *dnssec_vctx_waiting; /* our RRSIG is being validated */
+
 	uint8_t			dnssec_valid:1;  /* results are verified */
 	uint8_t			dnssec_chk_cname:1; /* currently checking a CNAME */
 	uint8_t			dnssec_verify_rrsig:1; /* waiting on RRSIG verify */
@@ -184,6 +195,11 @@ sul_cb_expire(struct lws_sorted_usec_list *sul);
 
 void
 lws_adns_cache_destroy(lws_adns_cache_t *c);
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+void
+lws_adns_dnssec_q_destroy(lws_adns_q_t *q);
+#endif
 
 lws_async_dns_retcode_t
 lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c);

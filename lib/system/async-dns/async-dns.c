@@ -36,6 +36,10 @@ lws_adns_q_destroy(lws_adns_q_t *q)
 {
 	lws_metrics_caliper_report(q->metcal, (char)q->go_nogo);
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	lws_adns_dnssec_q_destroy(q);
+#endif
+
 	lws_sul_cancel(&q->sul);
 	lws_sul_cancel(&q->write_sul);
 	lws_dll2_remove(&q->list);
