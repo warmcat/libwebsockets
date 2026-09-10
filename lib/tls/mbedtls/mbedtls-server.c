@@ -228,6 +228,25 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 				    NULL);
 	mbedtls_ssl_set_hs_authmode(mbedtls_ctx, vhost->tls.ssl_ctx->conf.MBEDTLS_PRIVATE(authmode));
 
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03020000
+	{
+		struct lws *wsi = (struct lws *)
+				mbedtls_ssl_get_user_data_p(mbedtls_ctx);
+
+		/*
+		 * Bind the wsi to the vhost that will actually serve him, so
+		 * mounts, protocols and the mTLS rebind refusals see the right
+		 * one (gnutls and openhitls do this in their SNI callbacks;
+		 * here conn->ctx stays the listening vhost's, so the
+		 * post-accept ctx-to-vhost adaptation cannot do it).
+		 * lws_vhost_bind_wsi() gives back the count held on the
+		 * listening vhost and refuses a move onto a dying vhost.
+		 */
+		if (wsi && wsi->a.vhost != vhost)
+			lws_vhost_bind_wsi(vhost, wsi);
+	}
+#endif
+
 	return 0;
 }
 
@@ -481,6 +500,10 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	conn->ctx = wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx : wsi->a.vhost->tls.ssl_ctx;
 
 	mbedtls_ssl_init(&conn->ssl);
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03020000
+	/* so the SNI callback can find the wsi to rebind */
+	mbedtls_ssl_set_user_data_p(&conn->ssl, wsi);
+#endif
 	mbedtls_net_init(&conn->net);
 
 	if (mbedtls_ssl_setup(&conn->ssl, &conn->ctx->conf)) {

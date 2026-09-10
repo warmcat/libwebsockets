@@ -443,9 +443,23 @@ lws_ssl_context_destroy(struct lws_context *context)
 lws_tls_ctx *
 lws_tls_ctx_from_wsi(struct lws *wsi)
 {
-    if (!wsi) return NULL;
-    if (wsi->a.vhost) return wsi->a.vhost->tls.ssl_ctx;
-	return NULL;
+    if (!wsi)
+        return NULL;
+
+    /*
+     * The ctx this connection actually handshaked under, which after SNI or a
+     * cert rotation is not necessarily the currently bound vhost's active
+     * one... lws_tls_server_accept_completed() (C-409) uses this to find the
+     * owning vhost, so answering with wsi->a.vhost's ctx made that a tautology
+     */
+
+    if (wsi->tls.ctx_ref)
+        return wsi->tls.ctx_ref->ctx;
+
+    if (wsi->a.vhost)
+        return wsi->a.vhost->tls.ssl_ctx;
+
+    return NULL;
 }
 
 int
