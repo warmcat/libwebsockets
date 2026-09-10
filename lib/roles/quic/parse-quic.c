@@ -1369,9 +1369,29 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				struct lws *wsi_session = lws_quic_stream_find(nwsi, sid);
 				lwsl_wsi_notice(nwsi, "QUIC RX: wsi_session found=%p (is_session=%d)", wsi_session, wsi_session ? wsi_session->wt.is_session : 0);
 				if (wsi_session && wsi_session->wt.is_session && wsi_session->a.protocol && wsi_session->a.protocol->callback) {
+					int n;
+
 					/* Route the datagram payload to the WebTransport session's callback */
-					wsi_session->a.protocol->callback(wsi_session, LWS_CALLBACK_RECEIVE,
+					n = wsi_session->a.protocol->callback(wsi_session, LWS_CALLBACK_RECEIVE,
 						wsi_session->user_space, &payload[pos + qsid_len], (size_t)(datagram_len - qsid_len));
+
+					/*
+					 * Same rule as the STREAM path
+					 * (lws_quic_rx_deliver_protocol): the
+					 * callback may have closed the session
+					 * synchronously, so re-find it before
+					 * touching it again, and a nonzero
+					 * return asks for the session stream
+					 * to close after this rx pass.
+					 */
+					if (lws_quic_stream_find(nwsi, sid) != wsi_session)
+						wsi_session = NULL;
+
+					if (n && wsi_session) {
+						lwsl_wsi_info(wsi_session, "QUIC RX: protocol asked to close WT session");
+						if (wsi_session->quic.qs)
+							wsi_session->quic.qs->close_after_rx = 1;
+					}
 				}
 			}
 
