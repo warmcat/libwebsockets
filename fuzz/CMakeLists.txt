@@ -75,6 +75,9 @@ if (LWS_WITH_JPEG)
 	lws_add_fuzz_target(jpeg)
 endif()
 
+# lws_tokenize and the core string helpers are always built
+lws_add_fuzz_target(tokenize)
+
 # the wsi-bound protocol parsers need the evil-peer helper in peer.h, which
 # uses socketpair + adopt, so they are POSIX-only
 

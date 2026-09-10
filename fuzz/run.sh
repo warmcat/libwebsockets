@@ -30,7 +30,7 @@ fi
 if [ "$#" -gt 0 ]; then
 	TARGETS="$*"
 else
-	TARGETS="lejp lecp qpack upng jpeg lhp h1 h2 ws"
+	TARGETS="lejp lecp qpack upng jpeg lhp tokenize h1 h2 ws"
 fi
 
 if [ -z "$CC" ]; then

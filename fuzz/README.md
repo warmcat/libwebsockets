@@ -74,6 +74,7 @@ Long campaigns belong on a dedicated runner or a nightly job via
 | `fuzz-h2` | h2 framing + hpack (`lib/roles/h2/`) | evil-peer: the fuzz input is h2 frames after a canned h2c upgrade + connection preface |
 | `fuzz-ws` | ws server frame parser (`lib/roles/ws/`) | evil-peer: the fuzz input is client frames after a canned upgrade handshake |
 | `fuzz-jpeg` | stateful JPEG decoder (`lib/misc/jpeg.c`) | same shape as `fuzz-upng`; needs `LWS_WITH_JPEG` |
+| `fuzz-tokenize` | `lws_tokenize` + core string helpers (`lib/core/libwebsockets.c`, `lib/misc/base64-decode.c`) | first byte selects the helper (tokenize / b64 / b32 / hex / urldecode / dumb-json / strexp / wildcard / iso8601 / uri / humanize / purify), next two are the tokenize flags; small output buffers so bounding bugs overflow |
 
 The `fuzz-h1`, `fuzz-h2` and `fuzz-ws` targets use the shared evil-peer
 helper in [peer.h](peer.h): one real, adopted server-side connection per
