@@ -433,8 +433,19 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				}
 				if (ctx->st[ctx->sp - 1].s != LEJP_MP_DELIM) {
 					ctx->buf[ctx->npos] = '\0';
+					/*
+					 * Any nonzero return means "abort",
+					 * the same as every other callback
+					 * site... only testing for < 0 here
+					 * let consumers that report OOM as a
+					 * positive 1 (eg, lws-struct-lejp.c)
+					 * have their fatal error ignored, and
+					 * the parse carry on delivering
+					 * callbacks into state they already
+					 * tore down
+					 */
 					if (ctx->pst[ctx->pst_sp].callback(ctx,
-						      LEJPCB_VAL_STR_END) < 0)
+							LEJPCB_VAL_STR_END))
 						goto reject_callback;
 				}
 				/* pop */
@@ -995,7 +1006,9 @@ array_end_l:
 			}
 			lejp_check_path_match(ctx);
 			ctx->st[ctx->sp].s = LEJP_MP_COMMA_OR_END;
-			ctx->pst[ctx->pst_sp].callback(ctx, LEJPCB_ARRAY_END);
+			if (ctx->pst[ctx->pst_sp].callback(ctx,
+							   LEJPCB_ARRAY_END))
+				goto reject_callback;
 			if (defer) {
 				lejp_parser_pop(ctx);
 				defer = 0;

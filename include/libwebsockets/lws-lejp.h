@@ -125,6 +125,15 @@ enum lejp_callbacks {
  *
  *	All of the callbacks may be ignored and just return 0.
  *
+ *	Return 0 to continue parsing.  ANY nonzero return, positive or
+ *	negative, aborts the parse: lejp issues LEJPCB_FAILED and lejp_parse()
+ *	returns LEJP_REJECT_CALLBACK.  So a callback must not return nonzero
+ *	unless it means it, and conversely a consumer reporting a fatal error
+ *	(eg, OOM) can use any nonzero value it likes.  The informational
+ *	reasons LEJPCB_CONSTRUCTED, LEJPCB_DESTRUCTED, LEJPCB_START and
+ *	LEJPCB_FAILED have nowhere to report a failure to, and their return is
+ *	ignored.
+ *
  *	The reasons it might get called, found in @reason, are:
  *
  *  LEJPCB_CONSTRUCTED:  The context was just constructed... you might want to
