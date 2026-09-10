@@ -93,6 +93,12 @@ int main(int argc, const char **argv)
 		lws_snprintf(multi_cert, sizeof(multi_cert), "%s%s", test_cert, test_cert);
 
 		memset(&vinfo, 0, sizeof(vinfo));
+		/*
+		 * We only want to exercise client_ssl_ca_mem with two concatenated
+		 * certs.  Leaving port at 0 would make lws listen on an ephemeral
+		 * port, which races other tests running in parallel under ctest.
+		 */
+		vinfo.port = CONTEXT_PORT_NO_LISTEN;
 		vinfo.vhost_name = "test_multi_ca_mem";
 		vinfo.client_ssl_ca_mem = multi_cert;
 		vinfo.client_ssl_ca_mem_len = (unsigned int)strlen(multi_cert);
