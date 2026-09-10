@@ -233,11 +233,25 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 		return -1;
 	}
 
-	/* at the end of each recipients[] entry, bump recipients count */
+	/*
+	 * At the end of each recipients[] entry, bump recipients count...
+	 * the count is used as an index into the fixed-size recipient[]
+	 * array (here, and on the lws_jwe_encrypt() error path), so a header
+	 * that declares more recipients than we can hold must be refused
+	 * rather than allowed to run the index off the end.
+	 */
 
 	if (args->is_jwe && reason == LEJPCB_OBJECT_END && ctx->sp == 1 &&
-	    !strcmp(ctx->path, "recipients[]"))
+	    !strcmp(ctx->path, "recipients[]")) {
+		if (args->jose->recipients >=
+			      (int)LWS_ARRAY_SIZE(args->jose->recipient)) {
+			lwsl_notice("%s: too many recipients\n", __func__);
+
+			return -1;
+		}
+
 		args->jose->recipients++;
+	}
 
 	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
 		return 0;
@@ -463,6 +477,20 @@ lws_jose_parse(struct lws_jose *jose, const uint8_t *buf, int n,
 	struct lejp_ctx jctx;
 	struct jose_cb_args args;
 	int m;
+
+	/*
+	 * ->recipients is the slot we are about to fill in, and it comes in
+	 * from whatever the last parse or lws_jwe_encrypt() left behind...
+	 * confirm it can be used as an index before we do so
+	 */
+
+	if (jose->recipients < 0 ||
+	    jose->recipients >= (int)LWS_ARRAY_SIZE(jose->recipient)) {
+		lwsl_err("%s: recipients %d out of range\n", __func__,
+			 jose->recipients);
+
+		return -1;
+	}
 
 	if (is_jwe) {
 		/* prepare a context for JOSE epk ephemeral jwk parsing */

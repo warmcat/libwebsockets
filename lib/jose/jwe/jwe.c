@@ -485,10 +485,18 @@ lws_jwe_encrypt(struct lws_jwe *jwe, char *temp, int *temp_len)
 					jwe->jose.enc_alg->alg : "NULL");
 
 bail:
-	if (ret)
-		memset(&jwe->jose.recipient[jwe->jose.recipients], 0,
-			sizeof(jwe->jose.recipient[0]));
-	else
+	/*
+	 * ->recipients was re-derived from the protected header by
+	 * lws_jwe_parse_jose() above, ie, it is not the value the entry test
+	 * checked... bounds-check it again before using it as an index
+	 */
+
+	if (ret) {
+		if (jwe->jose.recipients >= 0 && jwe->jose.recipients <
+				(int)LWS_ARRAY_SIZE(jwe->jose.recipient))
+			memset(&jwe->jose.recipient[jwe->jose.recipients], 0,
+			       sizeof(jwe->jose.recipient[0]));
+	} else
 		jwe->jose.recipients++;
 
 	return ret;
