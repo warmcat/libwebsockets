@@ -125,7 +125,7 @@ private:
 class lssMsg : public lss
 {
 public:
-	lssMsg(lws_ctx_t _ctx, lsscomp_t _comp, std::string _uri);
+	lssMsg(lws_ctx_t _ctx, lsscomp_t _comp, const std::string &_uri);
 	virtual ~lssMsg();
 };
 

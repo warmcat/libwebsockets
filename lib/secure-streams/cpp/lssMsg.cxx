@@ -50,11 +50,9 @@ lssmsg_state(void *userobj, void *h_src, lws_ss_constate_t state,
 }
 
 
-lssMsg::lssMsg(lws_ctx_t ctx, lsscomp_t _comp, std::string uri) :
-	lss(ctx, uri, _comp, 0, lssmsg_rx, lssmsg_tx, lssmsg_state)
+lssMsg::lssMsg(lws_ctx_t ctx, lsscomp_t _comp, const std::string &uri) :
+	lss(ctx, uri, _comp, false, lssmsg_rx, lssmsg_tx, lssmsg_state)
 {
 }
 
-lssMsg::~lssMsg()
-{
-}
+lssMsg::~lssMsg() = default;
