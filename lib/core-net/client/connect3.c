@@ -1442,6 +1442,32 @@ ads_known:
 
 conn_good:
 
+	if (is_parallel && wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") &&
+	    lws_dll2_owner(&wsi->sul_h3_grace.list)) {
+		/*
+		 * A TCP fallback racer connected synchronously (loopback on
+		 * FreeBSD does this) while the QUIC primary is still inside
+		 * its grace window.  Promoting it here would make the QUIC
+		 * role's fd the TCP socket: the Initial already went out on
+		 * the UDP socket we would close, the h2 server drops the TCP
+		 * connection when it sees no TLS, and the QUIC POLLIN handler
+		 * then spins forever on the stream socket's EOF (recv() == 0
+		 * is persistently readable).
+		 *
+		 * Park it exactly as the async POLLOUT completion path does:
+		 * leave the racer in the fds table on POLLIN only and give
+		 * the primary back its desc / fds slot.  The grace callback
+		 * either lets QUIC keep going, or restarts the connection on
+		 * TCP with the racers closed by the redirect close flow.
+		 */
+		lwsl_wsi_notice(wsi, "TCP connected synchronously, waiting for QUIC grace");
+		wsi->parallel_conns[pidx].position_in_fds_table = wsi->position_in_fds_table;
+		wsi->position_in_fds_table = saved_pos;
+		wsi->desc = saved_fd;
+
+		return wsi;
+	}
+
 	if (is_parallel) {
 		/* promote parallel to primary right away */
 		lwsl_wsi_notice(wsi, "parallel racer %d connected synchronously, promoting", pidx);
