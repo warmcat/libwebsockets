@@ -478,7 +478,8 @@ solo:
 					i.alpn = "h3";
 					lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, r);
 					if (lws_role_call_client_bind(wsi, &i)) {
-						/* failed */
+						lwsl_wsi_err(wsi, "QUIC client bind failed");
+						goto failed1;
 					}
 				}
 			}
