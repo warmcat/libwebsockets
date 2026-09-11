@@ -258,7 +258,8 @@ start_client_connection(void)
 		/* we inspect the DNS results if the race variant fails */
 		i.ssl_connection |= LCCSCF_CONMON;
 #endif
-	i.protocol = "http";	if (client_step == 0 || midrace_mode)
+	i.protocol = "http";
+	if (client_step == 0 || midrace_mode)
 		i.alpn = "h2,http/1.1";
 	else
 		i.alpn = "h3,h2";
