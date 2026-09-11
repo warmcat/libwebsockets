@@ -3145,6 +3145,8 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 	if (!wsi->http.ah) {
 		lwsl_err("%s: assert: NULL ah\n", __func__);
 		assert(0);
+		/* under NDEBUG this would hand a NULL ah to lws_parse() */
+		return 1;
 	}
 
 	while (len) {

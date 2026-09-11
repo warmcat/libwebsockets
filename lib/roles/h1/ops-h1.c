@@ -68,6 +68,8 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		if (!wsi->http.ah) {
 			lwsl_err("%s: LRS_HEADERS: NULL ah\n", __func__);
 			assert(0);
+			/* under NDEBUG this would hand a NULL ah to the parser */
+			goto bail;
 		}
 		lwsl_parser("issuing %d bytes to parser\n", (int)len);
 		last_char = buf;
