@@ -425,18 +425,6 @@ lws_unauthorised_basic_auth(struct lws *wsi);
 const struct lws_http_mount *
 lws_http_evaluate_interceptors(struct lws *wsi, const struct lws_http_mount *hit,
 			       char **uri_ptr, int *uri_len);
-
-/*
- * Release the request headers once the request has been dispatched as far as
- * user code is ever allowed to read them, ie, after LWS_CALLBACK_HTTP for a
- * request with no body and after LWS_CALLBACK_HTTP_BODY_COMPLETION for one
- * with.  `body_done` says the body completion has just been delivered, ie,
- * that the body states are no longer a reason to hold on.  Decides for itself
- * whether this particular wsi may let go of them (see the implementation in
- * server.c); safe to call when there is no ah.
- */
-void
-lws_http_ah_release_after_dispatch(struct lws *wsi, char body_done);
 #endif
 
 #if defined(LWS_ROLE_H1)
