@@ -687,8 +687,7 @@ ssh_destroy_channel(struct per_session_data__sshd *pss,
 	if (pss->ch_temp == ch)
 		pss->ch_temp = NULL;
 
-	if (ch->sub)
-		free(ch->sub);
+	free(ch->sub);
 	free(ch);
 }
 

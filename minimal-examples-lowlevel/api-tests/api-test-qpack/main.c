@@ -726,8 +726,7 @@ test_qif_file(const char *filepath)
 	
 done:
 	close(fd);
-	if (states)
-		free(states);
+	free(states);
 	lws_qpack_destroy_dynamic_header(&qctx);
 	return fails;
 }

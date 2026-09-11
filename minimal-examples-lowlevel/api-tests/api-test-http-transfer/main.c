@@ -936,8 +936,7 @@ conn_free(struct conn *cn)
 	if (*pp)
 		*pp = cn->next;
 
-	if (cn->framed)
-		free(cn->framed);
+	free(cn->framed);
 	free(cn);
 }
 
