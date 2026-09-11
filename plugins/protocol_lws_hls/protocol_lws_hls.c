@@ -119,23 +119,41 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 					lws_get_protocol(wsi));
 	const struct lws_protocol_vhost_options *pvo;
+#if defined(LWS_WITH_STUB)
+	const char *stub;
+#endif
 
 	struct per_session_data__lws_hls *pss =
 			(struct per_session_data__lws_hls *)user;
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
+#if defined(LWS_WITH_STUB)
+		stub = lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub");
+		if (stub && strcmp(stub, "lws-hls-stub"))
+			return 0;
+#endif
+
+		/*
+		 * We are offered to every vhost.  One that has no pvo for us
+		 * simply doesn't want us: leave silently without a vhd, so the
+		 * other callbacks stay inert on it.  The stub child gets its
+		 * config over the UDS instead of by pvo, so it is exempt.
+		 */
+		if (!in
+#if defined(LWS_WITH_STUB)
+		    && !stub
+#endif
+		   )
+			return 0;
+
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi), sizeof(struct per_vhost_data__lws_hls));
 		if (!vhd)
 			return 1;
 
 #if defined(LWS_WITH_STUB)
-		const char *stub = lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub");
 		if (stub) {
-			if (strcmp(stub, "lws-hls-stub"))
-				return 0;
-
 			struct lws_stub_config sc;
 			char extra[512];
 			memset(&sc, 0, sizeof(sc));
@@ -162,10 +180,10 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 #endif
 
-		if (in && (pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "media-dir")))
+		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "media-dir")))
 			vhd->media_dir = pvo->value;
 		else {
-			lwsl_err("%s: media-dir pvo required\n", __func__);
+			lwsl_vhost_err(lws_get_vhost(wsi), "%s: media-dir pvo required", __func__);
 			return 1;
 		}
 
