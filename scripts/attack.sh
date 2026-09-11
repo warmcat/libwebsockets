@@ -337,9 +337,9 @@ echo
 echo "---- http/1.1 pipelining"
 rm -f /tmp/lwscap
 wget -O/tmp/lwsdump http://localhost:7681/test.html http://localhost:7681/test.html http://localhost:7681/test.html http://localhost:7681/test.html http://localhost:7681/test.html http://localhost:7681/test.html http://localhost:7681/test.html http://localhost:7681/test.html 2>&1 | grep "Downloaded: 8 files" > /tmp/lwscap
-good=`cat $CORPUS $CORPUS $CORPUS $CORPUS $CORPUS $CORPUS $CORPUS $CORPUS | md5sum | cut -d' ' -f1`
-if [ "$good" != "`md5sum /tmp/lwsdump | cut -d' ' -f 1`" ] ; then
-	echo "FAIL: mismatched content good=$good received=`md5sum /tmp/lwsdump`"
+good=`cat $CORPUS $CORPUS $CORPUS $CORPUS $CORPUS $CORPUS $CORPUS $CORPUS | sha256sum | cut -d' ' -f1`
+if [ "$good" != "`sha256sum /tmp/lwsdump | cut -d' ' -f 1`" ] ; then
+	echo "FAIL: mismatched content good=$good received=`sha256sum /tmp/lwsdump`"
 	exit 1
 fi
 
@@ -778,7 +778,7 @@ cat <<EOF >/tmp/lwsresult1
 - "/path/to/dir/../other/dir" -> 404 "/path/to/other/dir"
 EOF
 
-if [ "`md5sum /tmp/results | cut -d' ' -f 1`" != "`md5sum /tmp/lwsresult1 | cut -d' ' -f1`" ] ; then
+if [ "`sha256sum /tmp/results | cut -d' ' -f 1`" != "`sha256sum /tmp/lwsresult1 | cut -d' ' -f1`" ] ; then
 	echo "Differences..."
 	diff -urN /tmp/lwsresult1 /tmp/results
 	cat /tmp/lwscap1
