@@ -924,7 +924,7 @@ dgr_rx_create(const char *name, size_t len, const char *endpoint, int req_index)
 		return NULL;
 	}
 
-	rx->fd = open(rx->partpath, O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
+	rx->fd = open(rx->partpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	if (rx->fd < 0) {
 		lwsl_err("Failed to open %s: %d\n", rx->partpath, errno);
 		free(rx->bm);
@@ -1603,7 +1603,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					if (mkdir("/downloads", 0777) < 0 && errno != EEXIST) { // NOSONAR
 						lwsl_err("Failed to create /downloads: %d\n", errno);
 					}
-					int nfd = open("/downloads/negotiated_protocol.txt", O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
+					int nfd = open("/downloads/negotiated_protocol.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
 					if (nfd >= 0) {
 						if (write(nfd, negotiated, LWS_POSIX_LENGTH_CAST(strlen(negotiated))) < 0) {
 							lwsl_err("Failed to write negotiated protocol\n");
@@ -1686,7 +1686,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				if (mkdir("/downloads", 0777) < 0 && errno != EEXIST) { // NOSONAR
 					lwsl_err("Failed to create /downloads: %d\n", errno);
 				}
-				int nfd = open("/downloads/negotiated_protocol.txt", O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
+				int nfd = open("/downloads/negotiated_protocol.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
 				if (nfd >= 0) {
 					if (write(nfd, n_ptr, LWS_POSIX_LENGTH_CAST(strlen(n_ptr))) < 0) {
 						lwsl_err("Failed to write negotiated protocol\n");
@@ -2114,7 +2114,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 								lws_snprintf(pss->out_part, sizeof(pss->out_part),
 									     "%s/.%s.part", dirpath, pss->filename);
 								pss->fd_out = open(pss->out_part,
-										  O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
+										  O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
 								size_t rem = data_len - i - 1;
 								lwsl_user("RECEIVE: Opened file '%s' -> fd %d (rem=%zu bytes written)\n",
@@ -2151,7 +2151,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 						lws_snprintf(pss->out_part, sizeof(pss->out_part),
 							     "%s/.%s.part", dirpath, pss->filename);
 						pss->fd_out = open(pss->out_part,
-								   O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
+								   O_WRONLY | O_CREAT | O_TRUNC, 0644);
 						lwsl_user("RECEIVE (bidi): Opened file '%s' -> fd %d\n",
 							  pss->out_final, pss->fd_out);
 					}
