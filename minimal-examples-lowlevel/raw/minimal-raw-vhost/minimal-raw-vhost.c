@@ -64,10 +64,14 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 	struct raw_vhd *vhd = (struct raw_vhd *)lws_protocol_vh_priv_get(
 				     lws_get_vhost(wsi), lws_get_protocol(wsi));
 
+	if (reason != LWS_CALLBACK_PROTOCOL_INIT && !vhd)
+		return 0;
+
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
-		lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
-				lws_get_protocol(wsi), sizeof(struct raw_vhd));
+		if (!lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
+				lws_get_protocol(wsi), sizeof(struct raw_vhd)))
+			return -1;
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
