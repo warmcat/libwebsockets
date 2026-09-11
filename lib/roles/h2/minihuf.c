@@ -394,7 +394,8 @@ again:
 		walk ++;
 	}
 
-	fprintf(stdout, "static unsigned char lextable[] = {\n");
+	fprintf(stdout, "#ifndef __LWS_H2_HUFTABLE_H__\n#define __LWS_H2_HUFTABLE_H__\n\n"
+			"static unsigned char lextable[] = {\n");
 
 #define TERMINAL_MASK 0x8000
 
@@ -497,7 +498,7 @@ again:
 						"0x100 for disambiguation with "
 						"0x0 */\n"
 						"#define HUFTABLE_0x100_PREV "
-						"%d\n", prev);
+						"%d\n\n#endif /* __LWS_H2_HUFTABLE_H__ */\n", prev);
 				}
 				break;
 			}
