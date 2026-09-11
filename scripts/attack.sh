@@ -806,7 +806,9 @@ sleep 1s
 libwebsockets-test-client 127.0.0.1 -s -O
 
 # https://github.com/curl/curl/issues/1587
-curl -v -F text=hello -F send=SEND -F upload=@../README.md https://127.0.0.1:7681/formtest -k
+curl -v -F text=hello -F send=SEND -F upload=@../README.md \
+	--cacert $SHAREDIR/libwebsockets-test-server.pem \
+	https://localhost:7681/formtest
 
 kill -2 $CPID
 
