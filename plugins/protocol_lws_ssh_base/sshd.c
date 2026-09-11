@@ -2482,17 +2482,20 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			/* we need a copy of it to generate the hash later */
-			if (pss->kex->I_S)
-				free(pss->kex->I_S);
-			pss->kex->I_S = sshd_zalloc((unsigned int)m);
-			if (!pss->kex->I_S) {
-				lwsl_notice("OOM 5: %d\n", m);
+			{
+				uint8_t *is = sshd_zalloc((unsigned int)m);
 
-				return -1;
+				if (!is) {
+					lwsl_notice("OOM 5: %d\n", m);
+
+					return -1;
+				}
+				/* without length + padcount part */
+				memcpy(is, buf + LWS_PRE + 5, (unsigned int)m);
+				free(pss->kex->I_S);
+				pss->kex->I_S = is;
+				pss->kex->I_S_payload_len = (uint32_t)m; /* without padding */
 			}
-			/* without length + padcount part */
-			memcpy(pss->kex->I_S, buf + LWS_PRE + 5, (unsigned int)m);
-			pss->kex->I_S_payload_len = (uint32_t)m; /* without padding */
 			break;
 
 		case SSH_WT_OFFER_REPLY:
