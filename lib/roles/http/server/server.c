@@ -2167,6 +2167,98 @@ lws_http_te_is_chunked(struct lws *wsi)
 	return e - p == 7 && !strncasecmp(p, "chunked", 7);
 }
 
+/*
+ * The request has been dispatched as far as user code is ever allowed to look
+ * at its headers: after LWS_CALLBACK_HTTP for a request with no body, after
+ * LWS_CALLBACK_HTTP_BODY_COMPLETION for one with.  Everything the library
+ * itself still needs from them has been snapshotted onto the wsi by now (the
+ * method, the http version, the connection type, the acceptable compression
+ * encodings, the Range, the access log line, the proxy's onward headers), so
+ * the ah can go back to the pool instead of being held for the whole
+ * transaction -- a download or upload that runs for minutes used to hold an
+ * ah, and on h2 one ah per concurrent stream, for its whole life (C-460).
+ *
+ * This is the same thing the ws upgrade has always done after
+ * LWS_CALLBACK_ESTABLISHED, cgi does at spawn, and SSE does at
+ * lws_http_mark_sse().
+ *
+ * Deciding whether this wsi may let go lives here rather than at the call
+ * sites, so every role reaches the same conclusion.  Safe to call when there
+ * is no ah.
+ */
+
+void
+lws_http_ah_release_after_dispatch(struct lws *wsi, char body_done)
+{
+	if (!wsi->http.ah)
+		return;
+
+#if defined(LWS_WITH_CLIENT)
+	if (lwsi_role_client(wsi))
+		/* a client ah holds the response headers, not a request */
+		return;
+#endif
+
+	if (!wsi->hdr_parsing_completed)
+		/*
+		 * Either no request was ever completed into this ah, or the
+		 * transaction is already over and the connection re-armed for
+		 * the next request: lws_http_transaction_completed() clears
+		 * this before it either drops the ah or resets it around an
+		 * already-parsed pipelined request.  Either way the ah is no
+		 * longer the dispatched request's, and is not ours to drop.
+		 */
+		return;
+
+	if (lwsi_state(wsi) == LRS_DEFERRING_ACTION)
+		/* already re-armed for the next request on this connection */
+		return;
+
+	if (!body_done)
+		switch (lwsi_state(wsi)) {
+		case LRS_BODY:
+		case LRS_DISCARD_BODY:
+			/*
+			 * A request body is still to come, and user code may
+			 * read the request headers up to and including
+			 * LWS_CALLBACK_HTTP_BODY_COMPLETION.  The body
+			 * completion path calls us again, with body_done set,
+			 * once it has been delivered... note that an h1 wsi is
+			 * still in LRS_BODY at that point.
+			 */
+			return;
+		default:
+			break;
+		}
+
+#if defined(LWS_WITH_CGI)
+	if (wsi->http.cgi)
+		/* cgi owns the ah lifetime itself, and let go at spawn time */
+		return;
+#endif
+
+#if defined(LWS_WITH_HTTP_PROXY)
+	if (wsi->http.proxy_clientside || lws_get_child(wsi))
+		/*
+		 * A proxy leg: the onward leg's ah is its own client-side
+		 * business, and the client-facing parent's is released when
+		 * its transaction ends
+		 */
+		return;
+#endif
+
+	lwsl_wsi_debug(wsi, "releasing request headers after dispatch");
+
+	/*
+	 * autoservice 0: if a wsi is waiting for an ah it gets this one with
+	 * its POLLIN re-enabled and is serviced by the event loop, rather than
+	 * reentrantly from inside the dispatch we are in the middle of
+	 * completing.  This is the cgi / h3 / ws-upgrade-era idiom.
+	 */
+
+	lws_header_table_detach(wsi, 0);
+}
+
 int
 lws_http_action(struct lws *wsi)
 {
@@ -2183,6 +2275,13 @@ lws_http_action(struct lws *wsi)
 #if defined(LWS_WITH_FILE_OPS)
 	char *s;
 #endif
+	/*
+	 * Set once we are past the dispatch proper, ie, once the request has
+	 * had its LWS_CALLBACK_HTTP (or was served from a file mount).  The
+	 * cgi and proxy paths jump straight into the body handling below with
+	 * this still clear: they own their own ah lifetime.
+	 */
+	char dispatched = 0;
 	unsigned int n;
 
 	lwsl_debug("H3_TRACE: lws_http_action entered for wsi %p. vhost=%s, mux_substream=%d\n", 
@@ -2763,6 +2862,8 @@ after:
 		return 1;
 	}
 
+	dispatched = 1;
+
 #if defined(LWS_WITH_CGI) || defined(LWS_WITH_HTTP_PROXY)
 deal_body:
 #endif
@@ -2775,15 +2876,26 @@ deal_body:
 	 * proceed based on state
 	 */
 	if (lwsi_state(wsi) == LRS_ISSUING_FILE)
-		return 0;
+		goto no_more_body;
 
 	/* Prepare to read body if we have a content length: */
 	lwsl_debug("wsi->http.rx_content_length %lld %d %d\n",
 		   (long long)wsi->http.rx_content_length,
 		   wsi->upgraded_to_http2, wsi->mux_substream);
 
-	if (wsi->http.content_length_explicitly_zero &&
-	    lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
+	if (wsi->http.content_length_explicitly_zero && wsi->http.method_post
+#if defined(LWS_WITH_CGI)
+	    /*
+	     * A cgi mount released its request headers inside
+	     * lws_cgi_via_info() before we got here, so this test used to be
+	     * false for it by accident; the cgi's own dispatch owns the
+	     * child's stdin lifetime, and the fallback body callbacks would
+	     * answer 200 over the top of the cgi's own response.  Keep cgi out
+	     * of it explicitly now that the method no longer comes from the ah.
+	     */
+	    && !wsi->http.cgi
+#endif
+	) {
 
 		/*
 		 * POST with an explicit content-length of zero
@@ -2803,12 +2915,12 @@ deal_body:
 					    wsi->user_space, NULL, 0))
 			return 1;
 
-		return 0;
+		goto no_more_body;
 	}
 
 	if (wsi->http.rx_content_length == 0 ||
 	    wsi->http.rx_content_length == LWS_ILLEGAL_HTTP_CONTENT_LEN)
-		return 0;
+		goto no_more_body;
 
 	if (lwsi_state(wsi) != LRS_DISCARD_BODY) {
 		lwsi_set_state(wsi, LRS_BODY);
@@ -2864,6 +2976,18 @@ deal_body:
 		if (!m)
 			break;
 	}
+
+	return 0;
+
+no_more_body:
+	/*
+	 * The request is dispatched and no body will follow, so nothing else
+	 * will ever legitimately look at the request headers: let them go
+	 * (C-460).  Not for cgi or proxy mounts, which jumped in above with
+	 * `dispatched` clear because they own their own ah lifetime.
+	 */
+	if (dispatched)
+		lws_http_ah_release_after_dispatch(wsi, 0);
 
 	return 0;
 
@@ -3567,6 +3691,24 @@ lws_http_transaction_completed(struct lws *wsi)
 	}
 
 	/*
+	 * Count the pipelining depth on the wsi, not on whether we happened to
+	 * reuse the same ah: since the ah is released as soon as the request
+	 * is dispatched (C-460), the "keep and reset the ah" branch below is
+	 * rarely taken any more, and counting only there would have quietly
+	 * stopped limiting how deep a peer may pipeline.
+	 */
+
+	if (!lws_buflist_next_segment_len(&wsi->buflist, NULL))
+		wsi->http.pipeline_count = 0;
+	else
+		if (++wsi->http.pipeline_count > 64) {
+			lwsl_warn("%s: %s: too many pipelined requests\n",
+				  __func__, lws_wsi_tag(wsi));
+
+			return 1;
+		}
+
+	/*
 	 * We already know we are on http1.1 / keepalive and the next thing
 	 * coming will be another header set.
 	 *
@@ -3581,7 +3723,6 @@ lws_http_transaction_completed(struct lws *wsi)
 	if (wsi->http.ah) {
 		// lws_buflist_describe(&wsi->buflist, wsi, __func__);
 		if (!lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
-			wsi->http.pipeline_count = 0;
 			lwsl_debug("%s: %s: nothing in buflist, detaching ah\n",
 				  __func__, lws_wsi_tag(wsi));
 			lws_header_table_detach(wsi, 1);
@@ -3602,11 +3743,6 @@ lws_http_transaction_completed(struct lws *wsi)
 			}
 #endif
 		} else {
-			if (++wsi->http.pipeline_count > 64) {
-				lwsl_warn("%s: %s: too many pipelined requests\n",
-					  __func__, lws_wsi_tag(wsi));
-				return 1;
-			}
 			lwsl_info("%s: %s: resetting/keeping ah as pipeline\n",
 				  __func__, lws_wsi_tag(wsi));
 			lws_header_table_reset(wsi, 0);

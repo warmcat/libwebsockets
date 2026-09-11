@@ -506,8 +506,18 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 		}
 		lwsl_debug("H3_TRACE: wsi %p lws_http_action returned 0 (success)\n", wsi);
 
-		/* Detach the ah now that headers are processed, to prevent ah pool exhaustion */
-		lws_header_table_detach(wsi, 0);
+		/*
+		 * Release the request headers now they are processed, to
+		 * prevent ah pool exhaustion.  This used to detach
+		 * unconditionally, including for a POST whose
+		 * LWS_CALLBACK_HTTP_BODY / ..._BODY_COMPLETION had not been
+		 * delivered yet, so header reads in the body callbacks
+		 * silently returned nothing on h3 while working on h1 and h2.
+		 * The helper holds on until the body completion for those, so
+		 * every role now ends the request headers at the same point
+		 * (C-460).
+		 */
+		lws_http_ah_release_after_dispatch(wsi, 0);
 
 		/*
 		 * lws_http_action sets LRS_DOING_TRANSACTION on the wsi BEFORE

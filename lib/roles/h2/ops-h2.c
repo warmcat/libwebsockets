@@ -1165,6 +1165,9 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 					      wsi->user_space, NULL, 0))
 			return 2;
 
+		/* the last point the request headers may be read (C-460) */
+		lws_http_ah_release_after_dispatch(wsi, 1);
+
 		return 1;
 	}
 
@@ -1264,6 +1267,9 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 	if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY_COMPLETION,
 				      wsi->user_space, NULL, 0))
 		return 2;
+
+	/* the last point the request headers may be read (C-460) */
+	lws_http_ah_release_after_dispatch(wsi, 1);
 
 	return 1;
 

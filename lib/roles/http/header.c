@@ -955,12 +955,14 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 		const unsigned char *c;
 
 		/*
-		 * The ah is held for the whole transaction, not just while
-		 * the headers are being received, so a total-hold criterion
-		 * would close every legitimate slow download or upload that
-		 * runs past a few minutes.  The hazard this backstops is a
-		 * peer that never finishes sending its headers, so only look
-		 * at connections still in that phase.
+		 * The hazard this backstops is a peer that never finishes
+		 * sending its headers, so only look at connections still in
+		 * that phase.  Since the ah is released as soon as the request
+		 * is dispatched (C-460), that is now also the natural
+		 * criterion rather than a workaround for a hold that lasted
+		 * the whole transaction: a slow download or upload no longer
+		 * holds an ah at all, and the release itself takes the ah out
+		 * of this pool walk and disarms PENDING_TIMEOUT_HOLDING_AH.
 		 */
 		if (!ah->in_use || !ah->wsi || !ah->assigned ||
 		    lwsi_state(ah->wsi) != LRS_HEADERS ||

@@ -406,6 +406,19 @@ postbody_completion:
 
 				if (wsi->mux_substream)
 					lwsi_set_state(wsi, LRS_ESTABLISHED);
+
+#if defined(LWS_WITH_SERVER)
+				/*
+				 * The body is complete and its completion has
+				 * been delivered: that is the last point user
+				 * code may read the request headers, so let
+				 * them go (C-460).  This is the h1 path and
+				 * also the h2 / h3 stream body path, which
+				 * both arrive here.
+				 */
+				if (lwsi_role_server(wsi))
+					lws_http_ah_release_after_dispatch(wsi, 1);
+#endif
 			}
 
 			break;
