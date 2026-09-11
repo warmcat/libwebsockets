@@ -102,10 +102,6 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 	int optlen = sizeof(optval);
 	DWORD dwBytesRet;
 	struct tcp_keepalive alive;
-	int protonbr;
-#ifndef _WIN32_WCE
-	struct protoent *tcp_proto;
-#endif
 
 	if (unix_skt)
 		return lws_plat_set_nonblocking(fd);
@@ -136,20 +132,8 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 
 	/* Disable Nagle */
 	optval = 1;
-#ifndef _WIN32_WCE
-	tcp_proto = getprotobyname("TCP");
-	if (!tcp_proto) {
-#if (_LWS_ENABLED_LOGS & LLL_WARN)
-		lwsl_warn("getprotobyname(\"TCP\") failed with error, falling back to 6 %d\n", LWS_ERRNO);
-#endif
-		protonbr = 6;  /* IPPROTO_TCP */
-	} else
-		protonbr = tcp_proto->p_proto;
-#else
-	protonbr = 6;
-#endif
 
-	if (setsockopt(fd, protonbr, TCP_NODELAY, (const char *)&optval, optlen) ) {
+	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&optval, optlen) ) {
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
 		lwsl_info("setsockopt TCP_NODELAY 1 failed with error %d\n", LWS_ERRNO);
 #endif
