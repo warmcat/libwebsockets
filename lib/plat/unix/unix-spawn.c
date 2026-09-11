@@ -1034,8 +1034,12 @@ lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 	 * This is part of the normal cleanup path, check if the lsp has already
 	 * been destroyed by a timeout or other error path. If the stdwsi that
 	 * is closing has already been nulled out, we have already been through
-	 * destroy.
+	 * destroy.  A handler that finds its lsp through info.plsp gets NULL
+	 * once lws_spawn_piped_destroy() has cleared it: same thing.
 	 */
+	if (!lsp)
+		return 0;
+
 	for (n = 0; n < 3; n++)
 		if (lsp->stdwsi[n] == wsi)
 			goto found;

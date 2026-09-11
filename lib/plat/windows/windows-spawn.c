@@ -1036,7 +1036,20 @@ lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 {
 	int n;
 
-	assert(lsp);
+	/*
+	 * A protocol handler that finds its lsp through the pointer it gave
+	 * as info.plsp gets NULL here when the close is the one issued by
+	 * lws_spawn_piped_destroy() itself: that clears the pointer before
+	 * closing the stdwsi synchronously, and clears lsp->stdwsi[] itself
+	 * afterwards.  Nothing to do then.
+	 *
+	 * (A wsi not found in lsp->stdwsi[] below is a different case and
+	 * must still count: the pipe poll hack clears the slot before it
+	 * closes the wsi, and the reap depends on pipes_alive reaching 0.)
+	 */
+	if (!lsp)
+		return 0;
+
 	lsp->pipes_alive--;
        lwsl_wsi_warn(wsi, "stdxxx down: pipes alive %d\n", lsp->pipes_alive);
        if (!lsp->pipes_alive && !lsp->destroying) {
