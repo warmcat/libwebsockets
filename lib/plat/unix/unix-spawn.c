@@ -879,18 +879,17 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	if (i->chroot_path && chroot(i->chroot_path))
 		_exit(2);
 
-	if (chdir("/")) { /* cov */
-		/* nothing we can safely say about it from here */
-	}
+	/* nothing we can safely say about a failure from in here */
+	n = chdir("/");
 
 	/* cwd: somewhere we can at least read things and enter it */
 
 	wd = i->wd;
 	if (!wd)
 		wd = "/tmp";
-	if (chdir(wd)) {
-		/* ditto... the child just keeps the cwd it has */
-	}
+	/* ditto... the child just keeps the cwd it has */
+	n = chdir(wd);
+	(void)n;
 
 	/*
 	 * Bind the child's stdin / out / err to its side of our pipes
