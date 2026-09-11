@@ -207,6 +207,24 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 				pt->fds[n].revents = (SHORT)
 					(pt->fds[n].revents | LWS_POLLHUP);
 
+			/*
+			 * WSAPoll reports the peer's FIN as POLLHUP alone when
+			 * no rx is pending, where unix poll() reports it as
+			 * POLLIN (a zero-length read).  The generic service
+			 * closes a POLLHUP-without-POLLIN socket on the spot,
+			 * so nothing ever read the EOF: an h1 client waiting
+			 * on a close-delimited response body (no Content-Length,
+			 * not chunked) was closed without its
+			 * LWS_CALLBACK_COMPLETED_CLIENT_HTTP.  If POLLIN was
+			 * wanted, present the hangup as readable too, so the
+			 * role reads the EOF and completes as it does on unix.
+			 */
+
+			if ((pt->fds[n].revents & LWS_POLLHUP) &&
+			    (pt->fds[n].events & LWS_POLLIN))
+				pt->fds[n].revents = (SHORT)
+					(pt->fds[n].revents | LWS_POLLIN);
+
 			lws_service_fd_tsi(context, &pt->fds[n], tsi);
 		}
 		
