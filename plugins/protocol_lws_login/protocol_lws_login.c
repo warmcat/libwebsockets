@@ -178,6 +178,16 @@ struct pending_login_refresh {
 	/* COLDLOAD: the pre-built auth-form URL (with service_name + redirect_uri),
 	 * used only on renewal failure to land the user on the login form. */
 	char                    authform_url[512];
+	/*
+	 * COLDLOAD: the authority and scheme the browser used, ie, the Host:
+	 * (or :authority) and whatever x-forwarded-proto let us conclude.  The
+	 * renewal completion composes its absolute self-redirect Location:
+	 * from the HTTP_WRITEABLE of a wsi whose request headers were released
+	 * when the request was dispatched (C-460), so, exactly like orig_path
+	 * and authform_url, these are captured while the request is in hand.
+	 */
+	char                    orig_host[128];
+	char                    orig_scheme[8];
 	int                     mode; /* LWS_LOGIN_REFRESH_* */
 };
 
@@ -579,6 +589,66 @@ lws_login_build_csrf_cookie(struct vhd_login *vhd, const char *csrf, char *out,
 				       NULL);
 }
 
+/*
+ * The scheme to compose our own https/http URLs (the redirect_uri handed to
+ * the auth server, and the cold-load self-redirect Location:) with.
+ *
+ * X-Forwarded-Proto is settable by any peer that talks to us directly, and
+ * this used to be an if/else on the header being PRESENT, so
+ * "X-Forwarded-Proto: http" sent over a genuine TLS connection downgraded the
+ * login round trip to cleartext.  A proxy header can only ever be evidence
+ * that the leg WE cannot see was TLS, so let it upgrade and never let it (or
+ * its absence) contradict lws_is_ssl().  A vhost with no reverse proxy in
+ * front should set trust-forwarded-proto 0 and have it ignored entirely.
+ *
+ * Reads the request headers, so it can only run while the request is being
+ * handled (C-460).
+ */
+static const char *
+lws_login_scheme(struct lws *wsi, struct vhd_login *vhd)
+{
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	char proto[16] = "";
+#endif
+
+	if (lws_is_ssl(lws_get_network_wsi(wsi)))
+		return "https";
+
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	if (vhd && vhd->trust_forwarded_proto &&
+	    lws_hdr_custom_copy(wsi, proto, sizeof(proto),
+				"x-forwarded-proto:", 18) > 0 &&
+	    !strcasecmp(proto, "https"))
+		return "https";
+#else
+	(void)vhd;
+#endif
+
+	return "http";
+}
+
+/*
+ * The authority the browser addressed us by.  Reads the request headers, so
+ * it can only run while the request is being handled (C-460); the deferred
+ * renewal completion passes the copy it took at kick time instead.
+ */
+
+static void
+lws_login_orig_host(struct lws *wsi, char *out, size_t out_len)
+{
+	out[0] = '\0';
+
+	if (lws_hdr_copy(wsi, out, (int)out_len, WSI_TOKEN_HOST) > 0)
+		return;
+#if defined(LWS_ROLE_H2)
+	if (lws_hdr_copy(wsi, out, (int)out_len,
+			 WSI_TOKEN_HTTP_COLON_AUTHORITY) > 0)
+		return;
+#endif
+
+	out[0] = '\0';
+}
+
 static int
 lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cookie,
 		       const char *csrf, int mode, const char *orig_path,
@@ -620,6 +690,19 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 	if (authform_url)
 		lws_strncpy(ps->authform_url, authform_url,
 			    sizeof(ps->authform_url));
+
+	/*
+	 * The renewal completion composes an absolute self-redirect from its
+	 * HTTP_WRITEABLE, by which time the request headers are gone (C-460).
+	 * Capture the authority and scheme here, while we are still inside the
+	 * request that kicked the exchange... without them a
+	 * TLS-terminating reverse proxy deployment silently emitted
+	 * http://<vhost-name><path>.
+	 */
+
+	lws_login_orig_host(wsi, ps->orig_host, sizeof(ps->orig_host));
+	lws_strncpy(ps->orig_scheme, lws_login_scheme(wsi, vhd),
+		    sizeof(ps->orig_scheme));
 
 	ps->payload_len = lws_snprintf(ps->payload + LWS_PRE,
 				       sizeof(ps->payload) - LWS_PRE,
@@ -792,41 +875,6 @@ lws_login_token_max_age(struct lws *wsi, struct vhd_login *vhd,
 }
 
 /*
- * The scheme to compose our own https/http URLs (the redirect_uri handed to
- * the auth server, and the cold-load self-redirect Location:) with.
- *
- * X-Forwarded-Proto is settable by any peer that talks to us directly, and
- * this used to be an if/else on the header being PRESENT, so
- * "X-Forwarded-Proto: http" sent over a genuine TLS connection downgraded the
- * login round trip to cleartext.  A proxy header can only ever be evidence
- * that the leg WE cannot see was TLS, so let it upgrade and never let it (or
- * its absence) contradict lws_is_ssl().  A vhost with no reverse proxy in
- * front should set trust-forwarded-proto 0 and have it ignored entirely.
- */
-static const char *
-lws_login_scheme(struct lws *wsi, struct vhd_login *vhd)
-{
-#if defined(LWS_WITH_CUSTOM_HEADERS)
-	char proto[16] = "";
-#endif
-
-	if (lws_is_ssl(lws_get_network_wsi(wsi)))
-		return "https";
-
-#if defined(LWS_WITH_CUSTOM_HEADERS)
-	if (vhd && vhd->trust_forwarded_proto &&
-	    lws_hdr_custom_copy(wsi, proto, sizeof(proto),
-				"x-forwarded-proto:", 18) > 0 &&
-	    !strcasecmp(proto, "https"))
-		return "https";
-#else
-	(void)vhd;
-#endif
-
-	return "http";
-}
-
-/*
  * Serve the protected page to the browser by re-issuing the JWT cookie and
  * 302-ing back to the same URL the browser originally asked for.  Used by:
  *  - the grant-mismatch "silent update" path (logged in, but grants changed),
@@ -842,13 +890,19 @@ lws_login_scheme(struct lws *wsi, struct vhd_login *vhd)
  * error; on success the response is fully written and the transaction is
  * completed, returning 0.
  */
+/*
+ * `host_in` and `scheme` let a caller that no longer has the request headers
+ * hand in what they were; NULL means "resolve them from the request now".
+ */
+
 static int
 lws_login_serve_self_redirect_with_cookie(struct lws *wsi, struct pss_login *pss,
 					  struct vhd_login *vhd,
 					  const char *token, const char *path,
 					  unsigned char *buf, unsigned char **pp,
 					  unsigned char *end,
-					  const char *extra_set_cookie)
+					  const char *extra_set_cookie,
+					  const char *host_in, const char *scheme)
 {
 	/* path can be a full path + query (LWS_LOGIN_MAX_URI); add room for
 	 * scheme://host so composing the absolute Location cannot truncate */
@@ -877,12 +931,14 @@ lws_login_serve_self_redirect_with_cookie(struct lws *wsi, struct pss_login *pss
 	}
 
 	host[0] = '\0';
-	if (lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST) > 0)
-		h = host;
-#if defined(LWS_ROLE_H2)
-	else if (lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HTTP_COLON_AUTHORITY) > 0)
-		h = host;
-#endif
+	if (host_in && host_in[0])
+		h = host_in;
+	else {
+		lws_login_orig_host(wsi, host, sizeof(host));
+		if (host[0])
+			h = host;
+	}
+
 	if (!h) {
 		struct lws_vhost *vh = lws_get_vhost(wsi);
 		if (vh) {
@@ -893,9 +949,10 @@ lws_login_serve_self_redirect_with_cookie(struct lws *wsi, struct pss_login *pss
 	}
 
 	{
-		const char *scheme = lws_login_scheme(wsi, vhd);
+		const char *sch = scheme && scheme[0] ? scheme :
+					lws_login_scheme(wsi, vhd);
 
-		lws_snprintf(fq_uri, sizeof(fq_uri), "%s://%s%s", scheme,
+		lws_snprintf(fq_uri, sizeof(fq_uri), "%s://%s%s", sch,
 			     h ? h : "localhost", path);
 	}
 
@@ -2511,7 +2568,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 						wsi, pss, vhd, pss->silent_update_jwt,
 						path, (unsigned char *)buf,
 						(unsigned char **)&p,
-						(unsigned char *)end, NULL)) {
+						(unsigned char *)end, NULL,
+						NULL, NULL)) {
 					free(pss->silent_update_jwt);
 					pss->silent_update_jwt = NULL;
 					return lws_http_transaction_completed(wsi);
@@ -3238,7 +3296,9 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 					if (!lws_login_serve_self_redirect_with_cookie(
 							wsi, pss, vhd, ps->token,
 							ps->orig_path, ubuf, &up, uend,
-							csrf_cookie)) {
+							csrf_cookie,
+							ps->orig_host,
+							ps->orig_scheme)) {
 						lwsl_wsi_notice(wsi, "cold-load "
 							"renewal ok, re-served %s",
 							ps->orig_path);
