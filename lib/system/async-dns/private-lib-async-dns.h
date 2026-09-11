@@ -22,6 +22,8 @@
  * IN THE SOFTWARE.
  */
 
+#ifndef __LWS_PRIVATE_LIB_ASYNC_DNS_H__
+#define __LWS_PRIVATE_LIB_ASYNC_DNS_H__
 
 #define DNS_MAX			128	/* Maximum host name		*/
 #define DNS_RECURSION_LIMIT	4
@@ -327,21 +329,6 @@ lws_adns_dump(lws_async_dns_t *dns);
 #define lws_adns_dump(_d)
 #endif
 
-/*
- * Hardcoded root DS records for Unbound-like trust anchor bootstrapping.
- * These are the current ICANN root zone KSK DS records.
- */
-static const struct {
-	uint16_t keytag;
-	uint8_t algo;
-	uint8_t digest_type;
-	const char *digest_hex;
-} lws_adns_root_ds[] = {
-	/* Key tag 20326 (KSK-2017) */
-	{ 20326, 8, 2, "e06d44b80b8f1d39a95c0b0d7c65d08458e880409bbc683457104237c7f8ec8d" },
-	/* Key tag 38696 (KSK-2024) */
-	{ 38696, 8, 2, "683d2d0acb8c9b712a1948b27f741219298d0a450d612c483af444a4c0fb2afe" }
-};
-
 #endif
 
+#endif /* __LWS_PRIVATE_LIB_ASYNC_DNS_H__ */

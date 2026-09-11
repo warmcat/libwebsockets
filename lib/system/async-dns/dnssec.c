@@ -353,6 +353,22 @@ lws_dnssec_ds_matches_dnskey(const char *zone, const uint8_t *kn, size_t keylen,
  * and validation fails closed, rather than trusting a key the peer handed us.
  */
 
+/*
+ * Hardcoded root DS records for Unbound-like trust anchor bootstrapping.
+ * These are the current ICANN root zone KSK DS records.
+ */
+static const struct {
+	uint16_t keytag;
+	uint8_t algo;
+	uint8_t digest_type;
+	const char *digest_hex;
+} lws_adns_root_ds[] = {
+	/* Key tag 20326 (KSK-2017) */
+	{ 20326, 8, 2, "e06d44b80b8f1d39a95c0b0d7c65d08458e880409bbc683457104237c7f8ec8d" },
+	/* Key tag 38696 (KSK-2024) */
+	{ 38696, 8, 2, "683d2d0acb8c9b712a1948b27f741219298d0a450d612c483af444a4c0fb2afe" }
+};
+
 static int
 lws_dnssec_dnskey_authenticated(const char *zone, uint16_t key_tag, uint8_t algo,
 				const uint8_t *kn, size_t keylen)
