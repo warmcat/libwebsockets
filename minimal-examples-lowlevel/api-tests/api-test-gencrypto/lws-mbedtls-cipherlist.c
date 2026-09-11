@@ -15,6 +15,11 @@
  * brings the vhost up, and a list with an entry naming no suite this mbedtls
  * has must fail the vhost, rather than quietly leaving the mbedtls default
  * suite list in force while the operator believes a restriction took effect.
+ *
+ * An mbedtls without TLS1.3 (2.x, or 3.x configured without it) has no suite
+ * a TLS1.3 name could mean: there the TLS1.3 list is ignored and TLS1.3 names
+ * in the other lists are skipped, as OpenSSL does when it has no
+ * SSL_CTX_set_ciphersuites(), so a list is only as good as its TLS1.2 part.
  */
 
 #include <libwebsockets.h>
@@ -22,6 +27,14 @@
 
 #if defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_TLS) && \
     defined(LWS_WITH_NETWORK) && defined(LWS_WITH_CLIENT)
+
+/* a list naming only TLS1.3 suites restricts nothing on an mbedtls without */
+
+#if defined(MBEDTLS_SSL_PROTO_TLS1_3)
+#define HAS13 1
+#else
+#define HAS13 0
+#endif
 
 static const struct {
 	const char	*l12;	/* client_ssl_cipher_list */
@@ -38,16 +51,25 @@ static const struct {
 	{ "ECDHE-RSA-CHACHA20-POLY1305",		NULL, NULL, 1 },
 	{ "ECDHE-ECDSA-AES128-CCM8",			NULL, NULL, 1 },
 
-	/* mbedtls' own spelling, TLS1.2 and TLS1.3 */
+	/*
+	 * mbedtls' own spelling, TLS1.2 and TLS1.3... without TLS1.3 the
+	 * second must fail, not pass for TLS-RSA-WITH-AES-128-GCM-SHA256
+	 */
 
 	{ "TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256",	NULL, NULL, 1 },
-	{ "TLS1-3-AES-128-GCM-SHA256",			NULL, NULL, 1 },
+	{ "TLS1-3-AES-128-GCM-SHA256",			NULL, NULL, HAS13 },
 
-	/* the IANA spelling, ',' separated as .tls_ciphers_iana is documented */
+	/*
+	 * the IANA spelling, ',' separated as .tls_ciphers_iana is documented;
+	 * with no TLS1.3 the first still has its TLS1.2 suite, the second is
+	 * a TLS1.3 list that is ignored altogether, and the third names
+	 * nothing usable
+	 */
 
 	{ NULL, NULL, "TLS_AES_256_GCM_SHA384,"
 		      "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",	      1 },
 	{ NULL, "TLS_CHACHA20_POLY1305_SHA256",		      NULL,   1 },
+	{ "TLS_AES_128_GCM_SHA256",			NULL, NULL, HAS13 },
 
 	/*
 	 * What the lwsws config produces: four suites, then OpenSSL cipher

@@ -477,6 +477,16 @@ lws_mbedtls_cs_id(const char *name)
 		return mbedtls_ssl_get_ciphersuite_id(t);
 	}
 
+	/*
+	 * The mbedtls TLS1.3 spelling could only have matched at 1)... the
+	 * canonical form drops the "TLS1-3-", so it must not go on to be
+	 * matched against the TLS1.2 suites, where TLS1-3-AES-128-GCM-SHA256
+	 * would otherwise pass for the plain-RSA TLS-RSA-WITH-AES-128-GCM-SHA256
+	 */
+
+	if (!strncmp(name, "TLS1-3-", 7))
+		return 0;
+
 	/* 4) OpenSSL spelling, by canonical match against what mbedtls has */
 
 	if (lws_mbedtls_cs_canon(canon, sizeof(canon), name))
@@ -549,6 +559,21 @@ lws_mbedtls_cs_is_selector(const char *name)
 	       (!strchr(name, '-') && !strchr(name, '_'));
 }
 
+#if !defined(MBEDTLS_SSL_PROTO_TLS1_3)
+/*
+ * TLS1.3 suites are spelled TLS1-3-... by mbedtls and TLS_... without a
+ * _WITH_ by IANA (and OpenSSL, which uses the IANA names for them); nothing
+ * else starts that way
+ */
+
+static int
+lws_mbedtls_cs_is_tls13_name(const char *name)
+{
+	return !strncmp(name, "TLS1-3-", 7) ||
+	       (!strncmp(name, "TLS_", 4) && !strstr(name, "_WITH_"));
+}
+#endif
+
 static int
 lws_mbedtls_cs_addlist(int *ids, size_t *count, const char *list,
 		       const char *vhname, const char *what)
@@ -585,6 +610,23 @@ lws_mbedtls_cs_addlist(int *ids, size_t *count, const char *list,
 					    vhname, what, name);
 				goto next;
 			}
+
+#if !defined(MBEDTLS_SSL_PROTO_TLS1_3)
+			/*
+			 * This mbedtls cannot negotiate TLS1.3 at all, so a
+			 * TLS1.3 suite in the list neither restricts nor
+			 * enables anything, the same as on an OpenSSL without
+			 * SSL_CTX_set_ciphersuites()
+			 */
+
+			if (lws_mbedtls_cs_is_tls13_name(name)) {
+				lwsl_notice("%s: vh %s: %s: '%s' names a TLS1.3 "
+					    "suite, this mbedtls has no TLS1.3, "
+					    "ignored\n", __func__, vhname, what,
+					    name);
+				goto next;
+			}
+#endif
 
 			lwsl_err("%s: vh %s: %s: '%s' does not name any "
 				 "ciphersuite this mbedtls provides\n",
@@ -636,6 +678,11 @@ next:
  * reverse case, a TLS1.3 list and no TLS1.2 list, does restrict the vhost to
  * TLS1.3 and says so.
  *
+ * An mbedtls built without TLS1.3 (all of 2.x) has no suite any TLS1.3 name
+ * could refer to; there \p list13 is ignored with a notice and TLS1.3 names
+ * in the other lists are skipped, as OpenSSL builds without
+ * SSL_CTX_set_ciphersuites() ignore the TLS1.3 list.
+ *
  * Returns 0 if the ctx is left in a state we can serve with, else nonzero and
  * the vhost creation should fail.
  */
@@ -647,11 +694,19 @@ lws_mbedtls_conf_ciphers(struct lws_tls_ctx *ctx, const char *vhname,
 {
 	size_t count = 0, n;
 
-	if (!ctx || (!iana && !list12 && !list13))
-		return 0; /* nothing configured, mbedtls' own defaults apply */
-
 	if (!vhname)
 		vhname = "?";
+
+#if !defined(MBEDTLS_SSL_PROTO_TLS1_3)
+	if (ctx && list13 && !iana) {
+		lwsl_notice("%s: vh %s: this mbedtls has no TLS1.3, the TLS1.3 "
+			    "cipher list is ignored\n", __func__, vhname);
+		list13 = NULL;
+	}
+#endif
+
+	if (!ctx || (!iana && !list12 && !list13))
+		return 0; /* nothing configured, mbedtls' own defaults apply */
 
 	if (iana) {
 		if (list12 || list13)
