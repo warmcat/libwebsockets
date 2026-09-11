@@ -204,9 +204,6 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 						    value, length, p, end);
 	}
 #endif
-	if (!wsi) {
-		/* Used occasionally by tests that pass NULL wsi */
-	}
 	if (name) {
 		char has_colon = 0;
 		while (*p < end && *name) {
