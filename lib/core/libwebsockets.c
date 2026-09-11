@@ -1582,8 +1582,18 @@ lws_strexp_expand(lws_strexp_t *exp, const char *in, size_t len,
 				exp->state = LWS_EXPS_DRAIN;
 				goto drain_l;
 			}
-			if (exp->name_pos >= sizeof(exp->name) - 1)
+			if (exp->name_pos >= sizeof(exp->name) - 1) {
+				/*
+				 * The other returns all report how much in /
+				 * out was consumed, as the api docs promise;
+				 * don't leave the caller's counters
+				 * uninitialized on this one
+				 */
+				*pused_in = used;
+				*pused_out = exp->pos;
+
 				return LSTRX_FATAL_NAME_TOO_LONG;
+			}
 
 			exp->name[exp->name_pos++] = *in;
 			break;
