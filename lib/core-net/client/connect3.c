@@ -1244,6 +1244,16 @@ ads_known:
 	wsi->conmon.ciu_sockconn = 0;
 #endif
 
+	/*
+	 * Linux always returns -1 / EINPROGRESS for a nonblocking connect(),
+	 * so on Linux only the m == -1 branch below is ever taken and the
+	 * attempt completes later via the POLLOUT path above.  FreeBSD
+	 * completes a nonblocking connect() to a loopback listener
+	 * synchronously (m == 0) and falls straight through to conn_good.
+	 * Both paths must make the same decisions (eg, parking a TCP racer
+	 * during the QUIC grace window); a Linux ctest pass only covers one.
+	 */
+
 	if (m == -1) {
 		/*
 		 * Since we're nonblocking, connect not having completed is not
