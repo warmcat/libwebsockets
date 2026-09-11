@@ -88,20 +88,27 @@ callback_fts(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub"))
 			return 0;
 
+		/*
+		 * We are offered to every vhost.  One that has no pvo for us
+		 * simply doesn't want us: leave silently without a vhd, so
+		 * LWS_CALLBACK_HTTP stays inert on it.
+		 */
+		if (!in)
+			return 0;
+
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 			     lws_get_protocol(wsi),sizeof(struct vhd_fts_demo));
 		if (!vhd)
 			return 1;
 
 		/*
-		 * `in` is the pvo's child options, which is NULL for a vhost
-		 * that enabled us with a bare pvo.  We can't work without the
-		 * index path, so fail init rather than leave the protocol
-		 * bindable with a NULL indexpath.
+		 * A vhost that does want us must say where the index is; fail
+		 * init rather than leave the protocol bindable with a NULL
+		 * indexpath.
 		 */
 
-		if (!in || lws_pvo_get_str(in, "indexpath",
-					   (const char **)&vhd->indexpath)) {
+		if (lws_pvo_get_str(in, "indexpath",
+				    (const char **)&vhd->indexpath)) {
 			lwsl_vhost_err(lws_get_vhost(wsi),
 				       "%s: indexpath pvo required", __func__);
 
