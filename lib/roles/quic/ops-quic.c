@@ -1592,9 +1592,7 @@ tp_ok:
 
 	int valid_datagram_bytes = 0;
 	
-	if (nwsi && nwsi->quic.qn) {
-		/* F-69: We no longer unconditionally increment bytes_received here */
-	}
+	/* F-69: bytes_received is no longer unconditionally incremented here */
 
 	while (n > 0) {
 		/* If ALPN negotiation migrated the connection in a previous packet, update nwsi */
