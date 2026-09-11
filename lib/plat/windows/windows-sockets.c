@@ -236,18 +236,26 @@ lws_interface_to_sa(int ipv6,
 	address = inet_addr(ifname);
 
 	if (address == INADDR_NONE) {
-		struct hostent *entry = gethostbyname(ifname);
+		struct addrinfo hints, *res = NULL;
+
+		memset(&hints, 0, sizeof(hints));
+		hints.ai_family = AF_INET;
+		hints.ai_socktype = SOCK_STREAM;
 
 		/*
 		 * A name can resolve without having any address of the family
-		 * we asked about, in which case h_addr_list[0] is NULL
+		 * we asked about, in which case getaddrinfo() fails or gives
+		 * us nothing usable
 		 */
 
-		if (entry && entry->h_addrtype == AF_INET &&
-		    entry->h_length == (int)sizeof(struct in_addr) &&
-		    entry->h_addr_list && entry->h_addr_list[0])
-			address = ((struct in_addr *)
-					entry->h_addr_list[0])->s_addr;
+		if (!getaddrinfo(ifname, NULL, &hints, &res) && res &&
+		    res->ai_family == AF_INET && res->ai_addr &&
+		    res->ai_addrlen >= sizeof(struct sockaddr_in))
+			address = ((struct sockaddr_in *)res->ai_addr)->
+							sin_addr.s_addr;
+
+		if (res)
+			freeaddrinfo(res);
 	}
 
 	if (address == INADDR_NONE)
