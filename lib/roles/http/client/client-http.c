@@ -2195,33 +2195,15 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 		p = p1;
 	}
 
-#if defined(LWS_WITH_HTTP_PROXY)
-	if (wsi->parent &&
-	    lws_hdr_total_length(wsi->parent, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-				  "Content-Length: %s\x0d\x0a",
-			lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_CONTENT_LENGTH));
-		if (atoi(lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_CONTENT_LENGTH)))
-			wsi->client_http_body_pending = 1;
-	}
-	if (wsi->parent &&
-	    lws_hdr_total_length(wsi->parent, WSI_TOKEN_HTTP_AUTHORIZATION)) {
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-				  "Authorization: %s\x0d\x0a",
-			lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_AUTHORIZATION));
-	}
-	if (wsi->parent &&
-	    lws_hdr_total_length(wsi->parent, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-				  "Content-Type: %s\x0d\x0a",
-			lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_CONTENT_TYPE));
-	}
-
-	if (wsi->parent && wsi->parent->http.extra_onward_headers) {
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s",
-				  wsi->parent->http.extra_onward_headers);
-	}
-#endif
+	/*
+	 * A proxied onward leg used to copy Content-Length, Authorization and
+	 * Content-Type from the parent's ah here, and splice the parent's
+	 * extra onward headers in verbatim.  Both now happen in the proxy's
+	 * LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER handler, from the
+	 * snapshot lws_http_proxy_start() took while the ah was attached, so
+	 * the composer has no dependency on the parent's ah (C-460), and the
+	 * same replay serves an h2 onward leg, which never saw them before.
+	 */
 
 #if defined(LWS_WITH_HTTP_DIGEST_AUTH)
     if (wsi->http.digest_auth_hdr) {

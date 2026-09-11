@@ -172,13 +172,13 @@ proxy_header_each_frag(struct lws *wsi, struct lws *par, unsigned char *temp,
  * Only the ws proxy below uses it; it lives under the same guard so the
  * proxy-only, ws-less build dimension does not warn it is unused.
  */
-#if defined(LWS_WITH_HTTP_PROXY) && defined(LWS_ROLE_WS)
+#if defined(LWS_WITH_HTTP_PROXY)
 static void
 proxy_extra_onward_headers(struct lws *wsi, unsigned char **p,
 			   unsigned char *end)
 {
 	const char *eoh, *line, *nl, *colon, *next_line;
-	char name[64], value[256];
+	char name[64];
 
 	if (!wsi->parent)
 		return;
@@ -204,15 +204,21 @@ proxy_extra_onward_headers(struct lws *wsi, unsigned char **p,
 				v++;
 			vlen = nl ? (size_t)(nl - v) : strlen(v);
 
-			if (nlen && nlen < sizeof(name) && vlen < sizeof(value)) {
+			/*
+			 * The value goes through by pointer and length: no
+			 * copy, so no size limit on it... a browser's Cookie
+			 * header is routinely far longer than any fixed
+			 * scratch buffer, and dropping it silently here is
+			 * exactly the kind of failure the proxy must not
+			 * have.  Only the name needs NUL termination.
+			 */
+			if (nlen && nlen < sizeof(name) && vlen < INT_MAX) {
 				memcpy(name, line, nlen);
 				name[nlen] = '\0';
-				memcpy(value, v, vlen);
-				value[vlen] = '\0';
 
 				if (lws_add_http_header_by_name(wsi,
 						(const unsigned char *)name,
-						(const unsigned char *)value,
+						(const unsigned char *)v,
 						(int)vlen, p, end))
 					lwsl_wsi_notice(wsi,
 						"unable to append extra hdr %s",
@@ -355,7 +361,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
 	{
-		unsigned char **p = (unsigned char **)in, *end, tmp[MAXHDRVAL];
+		unsigned char **p = (unsigned char **)in, *end;
 		char peer[64];
 
 		if (!wsi->parent)
@@ -375,19 +381,13 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		end = (*p) + len;
 
 		/*
-		 * Only request headers may be copied onto the onward request.
-		 * Set-Cookie is a *response* header: forwarding the client's
-		 * own one puts a header of his choosing into the request we
-		 * make to the backend.
+		 * The request headers we forward (Accept-Language, Cookie...
+		 * only request headers, never the client's own Set-Cookie)
+		 * were snapshotted onto the parent's extra onward headers by
+		 * lws_http_proxy_start() while its ah was attached; they are
+		 * replayed below with the interceptor-injected ones, so this
+		 * handler never reads the parent's ah (C-460).
 		 */
-
-		if (proxy_header(wsi, wsi->parent, tmp, sizeof(tmp),
-			      WSI_TOKEN_HTTP_ACCEPT_LANGUAGE, p, end))
-			return -1;
-
-		if (proxy_header(wsi, wsi->parent, tmp, sizeof(tmp),
-			      WSI_TOKEN_HTTP_COOKIE, p, end))
-			return -1;
 
 		lws_get_peer_simple(wsi->parent, peer, sizeof(peer));
 
@@ -1066,23 +1066,16 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		end = (*p) + len;
 
 		/*
-		 * copy these headers from the parent request to the client
-		 * connection's request
+		 * The parent's request headers we forward (and the ones a
+		 * mount interceptor injected) were snapshotted onto its extra
+		 * onward headers by lws_http_proxy_start() while its ah was
+		 * attached; replay them from there rather than read the ah
+		 * here, which is arbitrarily long after LWS_CALLBACK_HTTP
+		 * (C-460).  This also works for an h2 onward leg, which
+		 * previously only got them on h1.
 		 */
 
-		if (proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
-				WSI_TOKEN_HTTP_ETAG, p, end) ||
-		    proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
-				WSI_TOKEN_HTTP_IF_MODIFIED_SINCE, p, end) ||
-		    proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
-				WSI_TOKEN_HTTP_ACCEPT_LANGUAGE, p, end) ||
-		    proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
-				WSI_TOKEN_HTTP_ACCEPT_ENCODING, p, end) ||
-		    proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
-				WSI_TOKEN_HTTP_CACHE_CONTROL, p, end) ||
-		    proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
-				WSI_TOKEN_HTTP_COOKIE, p, end))
-			return -1;
+		proxy_extra_onward_headers(wsi, p, end);
 
 		buf[0] = '\0';
 		lws_get_peer_simple(parent, buf, sizeof(buf));

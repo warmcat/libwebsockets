@@ -1582,6 +1582,64 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
  * uri falls under.  Notice this can also be starting the proxying of what was
  * originally an incoming h1 upgrade, or an h2 ws "upgrade".
  */
+/*
+ * Copy the request headers the proxy forwards to the backend from the ah
+ * onto wsi->http.extra_onward_headers, so the onward handshake composer
+ * never has to look at the ah (see lws_http_proxy_start()).
+ */
+
+static int
+lws_http_proxy_snapshot_onward(struct lws *wsi, char ws)
+{
+	static const uint8_t fwd_http[] = {
+		WSI_TOKEN_HTTP_CONTENT_LENGTH,
+		WSI_TOKEN_HTTP_AUTHORIZATION,
+		WSI_TOKEN_HTTP_CONTENT_TYPE,
+		WSI_TOKEN_HTTP_ETAG,
+		WSI_TOKEN_HTTP_IF_MODIFIED_SINCE,
+		WSI_TOKEN_HTTP_ACCEPT_LANGUAGE,
+		WSI_TOKEN_HTTP_ACCEPT_ENCODING,
+		WSI_TOKEN_HTTP_CACHE_CONTROL,
+		WSI_TOKEN_HTTP_COOKIE,
+	}, fwd_ws[] = {
+		WSI_TOKEN_HTTP_ACCEPT_LANGUAGE,
+		WSI_TOKEN_HTTP_COOKIE,
+	};
+	const uint8_t *fwd = ws ? fwd_ws : fwd_http;
+	size_t count = ws ? LWS_ARRAY_SIZE(fwd_ws) : LWS_ARRAY_SIZE(fwd_http), n;
+
+	for (n = 0; n < count; n++) {
+		enum lws_token_indexes tok = (enum lws_token_indexes)fwd[n];
+		const char *ts = (const char *)lws_token_to_string(tok);
+		char name[48], *val;
+		int len, r;
+
+		len = lws_hdr_total_length(wsi, tok);
+		if (len < 1 || !ts)
+			continue;
+
+		/* the token string carries its trailing ':' */
+		lws_strnncpy(name, ts, strlen(ts) - 1, sizeof(name));
+
+		val = lws_malloc((size_t)len + 1, __func__);
+		if (!val)
+			return 1;
+
+		if (lws_hdr_copy(wsi, val, len + 1, tok) < 0) {
+			lws_free(val);
+
+			return 1;
+		}
+
+		r = lws_http_add_onward_header(wsi, name, val);
+		lws_free(val);
+		if (r)
+			return 1;
+	}
+
+	return 0;
+}
+
 int
 lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 		     char *uri_ptr, char ws)
@@ -1794,6 +1852,22 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	i.alpn = "http/1.1";
 	i.parent_wsi = wsi;
 	i.pwsi = &cwsi;
+
+	/*
+	 * Snapshot the request headers the onward leg forwards NOW, while the
+	 * ah is certainly attached, onto the extra onward headers that both
+	 * legs replay when they compose their handshake.  The composer runs
+	 * asynchronously, arbitrarily far from LWS_CALLBACK_HTTP, and must not
+	 * depend on the ah still being there (C-460).  This runs after the
+	 * mount's interceptors, so anything they zapped is already gone and
+	 * anything they injected is already in the list.
+	 */
+
+	if (lws_http_proxy_snapshot_onward(wsi, ws)) {
+		lws_free(rpath);
+
+		return 1;
+	}
 #if defined(LWS_ROLE_WS)
 	i.protocol = lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL);
 	if (ws)
@@ -1832,6 +1906,15 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	cwsi->http.mount_specific_keepalive_timeout_secs = (unsigned int)lws_wsi_keepalive_timeout_eff(wsi);
 
 	cwsi->http.proxy_clientside = 1;
+
+	/*
+	 * The onward leg used to decide this from the parent's Content-Length
+	 * while composing its handshake; that is a late ah read, decide it
+	 * here from the same header instead
+	 */
+	if (!ws && wsi->http.rx_content_length)
+		cwsi->client_http_body_pending = 1;
+
 	if (ws) {
 		wsi->proxied_ws_parent = 1;
 		cwsi->h1_ws_proxied = 1;
