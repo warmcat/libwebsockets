@@ -211,8 +211,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			return 0;
 		}
 
-		size_t len = (size_t)lws_ptr_diff(p, start);
-		// lwsl_user("%s: filling mp_sm produced %llu bytes (n=%d)\n", __func__, (unsigned long long)len, n);
+		size_t blen = (size_t)lws_ptr_diff(p, start);
+		// lwsl_user("%s: filling mp_sm produced %llu bytes (n=%d)\n", __func__, (unsigned long long)blen, n);
 
 		if (!n) {
 			lwsl_user("%s: final part, terminating body pending\n", __func__);
@@ -220,12 +220,12 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_http_mp_sm_destroy(&pss->hmp);
 		}
 
-		if (lws_write(wsi, start, len, n ? LWS_WRITE_HTTP : LWS_WRITE_HTTP_FINAL) != (int)len) {
+		if (lws_write(wsi, start, blen, n ? LWS_WRITE_HTTP : LWS_WRITE_HTTP_FINAL) != (int)blen) {
 			lwsl_err("%s: lws_write failed\n", __func__);
 			return 1;
 		}
 
-		pss->bytes_sent += len;
+		pss->bytes_sent += blen;
 		// lwsl_user("%s: payload part written successfully. total=%llu\n", __func__, (unsigned long long)pss->bytes_sent);
 
 		if (n)
