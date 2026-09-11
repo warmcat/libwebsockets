@@ -67,7 +67,8 @@ callback_spawn_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_RAW_CLOSE_FILE:
-                lws_spawn_stdwsi_closed(pss->lsp, wsi);
+		if (pss)
+			lws_spawn_stdwsi_closed(pss->lsp, wsi);
 		break;
 	default:
 		break;
