@@ -731,6 +731,10 @@ lws_parse_set_cookie(struct lws *wsi)
 	if (!l1)
 		return -1;
 
+	/* the response headers may already have been released */
+	if (!wsi->http.ah)
+		return -1;
+
 	f = wsi->http.ah->frag_index[WSI_TOKEN_HTTP_SET_COOKIE];
 
 	while (f) {
