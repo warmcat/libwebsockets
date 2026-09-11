@@ -922,8 +922,10 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	}
 #endif
 
-	if ((char *)strchr(ep, ':') &&
-	    (puri = lws_parse_uri_create(ep))) {
+	if (strchr(ep, ':'))
+		puri = lws_parse_uri_create(ep);
+
+	if (puri) {
 		if (!puri->scheme[0] && !puri->host[0])
 			lws_parse_uri_destroy(&puri);
 		else {
