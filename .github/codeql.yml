@@ -33,3 +33,11 @@ query-filters:
       id: cpp/declaration-hides-variable
   - exclude:
       id: cpp/complex-condition
+  # Flags every "http" string literal, including protocol names in a library
+  # whose job is to speak http
+  - exclude:
+      id: cpp/non-https-url
+  # Flags sending the proxy CONNECT with its basic auth to an http proxy,
+  # which is how http proxies work
+  - exclude:
+      id: cpp/cleartext-transmission
