@@ -1364,7 +1364,6 @@ ads_known:
 
 		/* schedule happy eyeballs timer if we have more dns results and the event loop supports it */
 		if (lws_dll2_count(&wsi->dns_sorted_list)) {
-			extern void lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
 			lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_happy_eyeballs,
 					lws_client_happy_eyeballs_cb,
 					/*
@@ -1435,7 +1434,6 @@ ads_known:
 					 lws_client_h3_grace_cb, grace_us);
 
 			if (lws_dll2_count(&wsi->dns_sorted_list)) {
-				extern void lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
 				lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_happy_eyeballs,
 						 lws_client_happy_eyeballs_cb, 1);
 			}

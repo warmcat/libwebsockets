@@ -1308,7 +1308,6 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 				return LWS_HPI_RET_HANDLED;
 			}
 			/* Init the memory BIOs for QUIC crypto */
-			extern int lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb);
 			if (lws_tls_quic_init(nwsi, quic_secret_cb)) {
 				lwsl_wsi_err(wsi, "QUIC RX: lws_tls_quic_init failed");
 				lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "ssl fail");

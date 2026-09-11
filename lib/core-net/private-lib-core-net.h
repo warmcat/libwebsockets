@@ -1612,6 +1612,9 @@ __lws_ss_timeout_check(struct lws_context_per_thread *pt, lws_usec_t usnow);
 struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi);
 
+void
+lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
+
 LWS_VISIBLE struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_reset(struct lws **wsi, int ssl, const char *address, int port,
 		 const char *path, const char *host, char weak);
