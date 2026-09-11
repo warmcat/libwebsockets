@@ -492,40 +492,6 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 	}
 
 	/*
-	 * Is this a request the interceptor TOOK, or one the peer addressed to
-	 * the interceptor's own mountpoint?
-	 *
-	 * We cannot tell from the URI: a request that was diverted here keeps
-	 * the original, protected URI in its method token, which is exactly
-	 * what we want for GET (the challenge page is served in place of the
-	 * gated page, and its assets resolve beside it), but is a state
-	 * confusion for POST.  The challenge form's own POST to our mountpoint
-	 * is answered below by minting the pass cookie; without this test a
-	 * POST to any gated url was handled as if it were that form
-	 * submission, so the app's POST was swallowed AND it could mint the
-	 * pass cookie for a request that answered no challenge.
-	 *
-	 * So a diverted request with an unsafe method is simply blocked, with
-	 * the same 303 the form POST gets when its visit cookie does not check
-	 * out: a browser re-issues it as a GET of the same url, lands on the
-	 * challenge page and can complete it.  Any unread request body is
-	 * discarded (h1, to resync the connection) or the stream reset (h2) by
-	 * lws_http_transaction_completed(), so nothing desyncs.
-	 */
-
-	if (wsi->http.interceptor_diverted &&
-	    !lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) &&
-	    !lws_hdr_total_length(wsi, WSI_TOKEN_HEAD_URI)) {
-		lwsl_vhost_notice(vhd->vhost, "%s: %s: blocking gated %s",
-				  __func__,
-				  wsi->role_ops ? wsi->role_ops->name : "?",
-				  lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) ?
-					  "POST" : "non-GET request");
-
-		return lws_interceptor_redirect(wsi, uri);
-	}
-
-	/*
 	 * HEAD is handled like GET: the page and asset selection is the same,
 	 * lws_serve_http_file() already answers a HEAD with headers only (and,
 	 * on h2 / h3, END_STREAM on the headers).
@@ -645,12 +611,6 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 		lwsl_vhost_err(vhd->vhost, "%s: failed to sign visit cookie", __func__);
 		goto serve_file;
 	}
-
-	/*
-	 * The challenge form's own POST, ie, one the peer addressed to our
-	 * mountpoint: the diverted-request test above has already blocked
-	 * everything else that could reach here with a POST
-	 */
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
 		unsigned long pre_delay_sec = (unsigned long)(vhd->pre_delay_ms / 1000);
