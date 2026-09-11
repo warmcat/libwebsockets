@@ -4576,6 +4576,31 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	if (!wsi->quic.qn || wsi->quic.qn->alpn_migrated)
 		return 0;
 
+#if defined(LWS_WITH_CLIENT)
+	/*
+	 * QUIC succeeded: resolve the race by killing the parallel TCP
+	 * connections NOW, before anything below is moved off this wsi.
+	 *
+	 * The racers' event-lib watchers live in wsi's evlib private block,
+	 * which the migration copies wholesale onto nwsi and then zeroes on
+	 * wsi.  Tearing the racers down after that found no watcher on wsi
+	 * and returned without closing it: the parked TCP socket kept a live
+	 * libuv poll handle whose data still pointed at this wsi, which is
+	 * freed when its h3 stream ends, and the peer's idle close of that
+	 * unused TCP connection ten to forty seconds later was the POLLIN
+	 * that dereferenced it.
+	 */
+	if (lwsi_role_client(wsi)) {
+		int i;
+
+		for (i = 0; i < wsi->parallel_count; i++)
+			if (wsi->parallel_conns[i].is_valid)
+				lws_remove_parallel_fd_safely(wsi, i);
+
+		wsi->parallel_count = 0;
+	}
+#endif
+
 	/* Create the new network WSI */
 	nwsi = lws_create_new_server_wsi(wsi->a.vhost, wsi->tsi, 0, "quic_nwsi");
 	if (!nwsi)
@@ -4734,18 +4759,11 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	nwsi->quic.qn->alpn_migrated = 1;
 
 #if defined(LWS_WITH_CLIENT)
-	/* 
-	 * QUIC succeeded! Resolve the race by killing parallel TCP connections. 
+	/*
+	 * QUIC succeeded (the racers were already torn down at the top,
+	 * before the evlib block moved): remember the host is h3-capable
 	 */
 	if (lwsi_role_client(wsi)) {
-		
-		for (int i = 0; i < wsi->parallel_count; i++) {
-			if (wsi->parallel_conns[i].is_valid) {
-				lws_remove_parallel_fd_safely(wsi, i);
-			}
-		}
-		wsi->parallel_count = 0;
-
 		if (wsi->a.context->h3_cap_cache && wsi->stash && wsi->stash->cis[CIS_HOST]) {
 			lws_h3_cap_info_t cap;
 			cap.state = LWS_H3_STATE_KNOWN_GOOD;
