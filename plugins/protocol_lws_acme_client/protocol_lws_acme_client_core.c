@@ -1067,63 +1067,42 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
 	lwsl_notice("...keypair generated\n");
 
 	if (lws_jwk_save(&vhd->jwk, vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH])) {
-        lwsl_vhost_notice(vhd->vhost, "falling back to ACME footprint IPC to save %s", vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH]);
-        char tmp_dir[256];
-        char tmp_path[256];
-        /*
-         * Q-35/Q-31: this is a short-lived IPC relay, not a persisted key.
-         * The unprivileged ACME client cannot write the real key path, so
-         * it stages the JWK in a private mkdtemp dir (0700), reads it
-         * straight back, forwards it to the privileged daemon via
-         * acme_ipc_save_payload(), then unlink()+rmdir()s both below.
-         * The relay file itself is created mode 0600 by lws_plat_write_file.
-         * Window is milliseconds; nothing is left on disk on success.
-         */
-        lws_strncpy(tmp_dir, "/tmp/lws-acme-auth-XXXXXX", sizeof(tmp_dir));
-        if (mkdtemp(tmp_dir)) {
-            lws_snprintf(tmp_path, sizeof(tmp_path), "%s/jwk", tmp_dir);
-        } else {
-            lwsl_vhost_warn(vhd->vhost, "unable to create secure temp dir for %s", vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH]);
-            vhd->last_acme_failure = lws_now_usecs();
-            return 1;
-        }
-        
-        if (!lws_jwk_save(&vhd->jwk, tmp_path)) {
-            int fd = open(tmp_path, O_RDONLY);
-            int success = 0;
-            if (fd >= 0) {
-                struct stat st;
-                if (!fstat(fd, &st) && st.st_size > 0) {
-                    char *buf = malloc((size_t)st.st_size);
-                    if (buf && read(fd, buf, (size_t)st.st_size) == st.st_size) {
-                        const char *fp = vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH];
-                        const char *fn = strrchr(fp, '/');
-                        if (fn) fn++; else fn = fp;
-                        int r = acme_ipc_save_payload(vhd,
-                            "save_auth_key",
-                            vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME],
-                            fn,
-                            buf, (size_t)st.st_size);
-                        if (!r) success = 1;
-                    }
-                    if (buf) free(buf);
-                }
-                close(fd);
-            }
-            unlink(tmp_path);
-            rmdir(tmp_dir);
-            if (!success) {
-                lwsl_vhost_warn(vhd->vhost, "unable to save %s via footprint IPC",
-                        vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH]);
-                vhd->last_acme_failure = lws_now_usecs();
-                return 1;
-            }
-        } else {
-            lwsl_vhost_warn(vhd->vhost, "unable to save %s",
-                    vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH]);
-            vhd->last_acme_failure = lws_now_usecs();
-            return 1;
-        }
+		const char *fp = vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH];
+		const char *fn = strrchr(fp, '/');
+		int buflen = 4096, r = -1;
+		char *buf;
+
+		lwsl_vhost_notice(vhd->vhost, "falling back to ACME footprint IPC to save %s", fp);
+
+		/*
+		 * Q-35/Q-31: the unprivileged ACME client cannot write the
+		 * real key path, so it exports the JWK into heap and relays
+		 * it to the privileged daemon via acme_ipc_save_payload(),
+		 * which stores it at the real path.  The private key never
+		 * touches the filesystem on this side.
+		 */
+
+		buf = malloc((size_t)buflen);
+		if (buf) {
+			int n = lws_jwk_export(&vhd->jwk, LWSJWKF_EXPORT_PRIVATE,
+					       buf, &buflen);
+
+			if (n > 0)
+				r = acme_ipc_save_payload(vhd, "save_auth_key",
+					vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ?
+					vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] :
+					vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME],
+					fn ? fn + 1 : fp, buf, (size_t)n);
+
+			lws_explicit_bzero(buf, 4096);
+			free(buf);
+		}
+
+		if (r) {
+			lwsl_vhost_warn(vhd->vhost, "unable to save %s via footprint IPC", fp);
+			vhd->last_acme_failure = lws_now_usecs();
+			return 1;
+		}
 	}
 
 	return 0;
