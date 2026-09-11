@@ -71,6 +71,12 @@ struct pss_interceptor {
 	char				*js_buf;
 	size_t				js_len;
 	size_t				js_sent;
+	/*
+	 * Where the deferred cookie mint redirects to, captured when the sul
+	 * is armed: it fires seconds later, and must not read the ah then
+	 * (C-460)
+	 */
+	char				redirect_uri[512];
 };
 
 static void
@@ -196,15 +202,58 @@ lws_interceptor_redirect(struct lws *wsi, const char *uri)
 	return lws_http_transaction_completed(wsi);
 }
 
+/*
+ * Compose the url the successful visitor is sent back to: the one he asked
+ * for, plus lws_interceptor_ok=1 so the reload is let through.  Reads the ah,
+ * so it must be called while the request is being handled, never from the
+ * deferred timer.
+ */
+
+static void
+lws_interceptor_ok_uri(struct lws *wsi, char *uri, size_t uri_len)
+{
+	int n, args_len, space;
+	char *p2;
+
+	uri[0] = '\0';
+
+	n = lws_hdr_copy(wsi, uri, (int)uri_len, WSI_TOKEN_GET_URI);
+	if (n <= 0)
+		n = lws_hdr_copy(wsi, uri, (int)uri_len, WSI_TOKEN_POST_URI);
+	if (n <= 0) {
+		uri[0] = '\0';
+
+		return;
+	}
+
+	args_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS);
+	p2 = uri + n;
+	space = (int)uri_len - n - 1;
+
+	if (args_len > 0) {
+		if (space >= 22) {
+			*p2++ = '?';
+			space--;
+			n = lws_hdr_copy(wsi, p2, space - 20,
+					 WSI_TOKEN_HTTP_URI_ARGS);
+			if (n > 0) {
+				p2 += n;
+				*p2++ = '&';
+				strcpy(p2, "lws_interceptor_ok=1");
+			}
+		}
+	} else if (space >= 21)
+		strcpy(p2, "?lws_interceptor_ok=1");
+}
+
 static int
-lws_interceptor_issue_cookie(struct lws *wsi)
+lws_interceptor_issue_cookie(struct lws *wsi, const char *redirect_uri)
 {
 	struct vhd_interceptor *vhd = (struct vhd_interceptor *)lws_protocol_vh_priv_get(
 			lws_get_vhost(wsi), lws_get_protocol(wsi));
 	char buf[LWS_PRE + 2048], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
 	struct lws_jwt_sign_set_cookie ck;
-	char ip[64], uri[512], *p2;
-	int n, args_len, space;
+	char ip[64];
 
 	if (!vhd)
 		return 1;
@@ -242,34 +291,13 @@ lws_interceptor_issue_cookie(struct lws *wsi)
 		vhd->ops->on_delay_expired(wsi);
 
 	/* Redirect back to the same URL plus lws_interceptor_ok=1 (reloading it) */
-	n = lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_GET_URI);
-	if (n <= 0)
-		n = lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_POST_URI);
-	if (n > 0) {
-		args_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS);
-		p2 = uri + n;
-		space = (int)sizeof(uri) - n - 1;
-
-		if (args_len > 0) {
-			if (space >= 22) {
-				*p2++ = '?';
-				space--;
-				n = lws_hdr_copy(wsi, p2, space - 20, WSI_TOKEN_HTTP_URI_ARGS);
-				if (n > 0) {
-					p2 += n;
-					*p2++ = '&';
-					strcpy(p2, "lws_interceptor_ok=1");
-				}
-			}
-		} else if (space >= 21)
-			strcpy(p2, "?lws_interceptor_ok=1");
-
-		if (lws_add_http_header_by_token(
-					wsi, WSI_TOKEN_HTTP_LOCATION, (unsigned char *)uri,
-					(int)strlen(uri),
-					(unsigned char **)&p, (unsigned char *)end))
-			return 1;
-	}
+	if (redirect_uri && redirect_uri[0] &&
+	    lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
+					 (unsigned char *)redirect_uri,
+					 (int)strlen(redirect_uri),
+					 (unsigned char **)&p,
+					 (unsigned char *)end))
+		return 1;
 
 	if (lws_finalize_http_header(wsi, (unsigned char **)&p,
 				(unsigned char *)end))
@@ -289,7 +317,7 @@ interceptor_cb(lws_sorted_usec_list_t *sul)
 {
 	struct pss_interceptor *pss = lws_container_of(sul, struct pss_interceptor, sul);
 
-	lws_interceptor_issue_cookie(pss->wsi);
+	lws_interceptor_issue_cookie(pss->wsi, pss->redirect_uri);
 }
 
 int
@@ -648,8 +676,13 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 			lws_interceptor_result_t res = ops->verify(wsi, NULL, 0);
 			if (res == LWS_INTERCEPTOR_RET_REJECT)
 				return lws_interceptor_redirect(wsi, uri);
-			if (res == LWS_INTERCEPTOR_RET_PASS)
-				return lws_interceptor_issue_cookie(wsi);
+			if (res == LWS_INTERCEPTOR_RET_PASS) {
+				lws_interceptor_ok_uri(wsi, pss->redirect_uri,
+						       sizeof(pss->redirect_uri));
+
+				return lws_interceptor_issue_cookie(wsi,
+							pss->redirect_uri);
+			}
 
 			/* RET_DELAYED falls through to timer setup */
 		}
@@ -661,6 +694,8 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_CONN_IDLE, 25);
 		pss->wsi = wsi;
+		lws_interceptor_ok_uri(wsi, pss->redirect_uri,
+				       sizeof(pss->redirect_uri));
 		lws_sul_schedule(vhd->context, 0, &pss->sul, interceptor_cb,
 				(lws_usec_t)vhd->post_delay_ms * LWS_US_PER_MS);
 		return 0;
