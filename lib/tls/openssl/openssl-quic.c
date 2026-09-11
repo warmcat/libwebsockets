@@ -23,6 +23,8 @@
  */
 
 #include "private-lib-core.h"
+
+extern int openssl_websocket_private_data_index;
 #include "private-lib-tls-openssl.h"
 
 #if defined(LWS_ROLE_QUIC) && defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_SCHANNEL)
@@ -1085,6 +1087,16 @@ lws_tls_quic_migrate_wsi(struct lws *old_wsi, struct lws *new_wsi)
 		return -1;
 
 	SSL_set_app_data(new_wsi->tls.ssl, new_wsi);
+
+	/*
+	 * The SSL also carries the wsi in the lws ex_data slot, set at
+	 * connect time on the pre-migration wsi: lws_tls_session_new_cb()
+	 * reads the wsi back from there when a NewSessionTicket arrives,
+	 * which on QUIC can be long after the h3 stream that started the
+	 * connection has finished and been freed.  Move it with the SSL.
+	 */
+	SSL_set_ex_data(new_wsi->tls.ssl, openssl_websocket_private_data_index,
+			new_wsi);
 
 	return 0;
 }
