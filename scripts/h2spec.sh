@@ -10,7 +10,7 @@ echo
 
 
 if [ ! -e h2spec ] ; then
-	wget https://github.com/summerwind/h2spec/releases/download/v2.1.0/h2spec_linux_amd64.tar.gz &&\
+	curl -sSfL --proto "=https" -O https://github.com/summerwind/h2spec/releases/download/v2.1.0/h2spec_linux_amd64.tar.gz &&\
 	tar xf h2spec_linux_amd64.tar.gz
 	if [ ! -e h2spec ] ; then
 		echo "Couldn't get h2spec"

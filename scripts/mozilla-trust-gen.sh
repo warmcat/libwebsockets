@@ -35,7 +35,7 @@ echo
 rm -rf _trust
 mkdir _trust
 
-wget -O _trust/trusted.txt "https://ccadb-public.secure.force.com/mozilla/IncludedRootsPEMTxt?TrustBitsInclude=Websites"
+curl -sSfL --proto "=https" -o _trust/trusted.txt "https://ccadb-public.secure.force.com/mozilla/IncludedRootsPEMTxt?TrustBitsInclude=Websites"
 #cp ~/Downloads/IncludedRootsPEM.txt _trust/trusted.txt
 
 if [ $? -ne 0 ]; then
