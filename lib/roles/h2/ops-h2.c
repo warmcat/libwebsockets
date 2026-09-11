@@ -1170,9 +1170,12 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		wsi->http.rx_content_remain = max_body;
 	}
 
-	while (((!wsi->http.content_length_given) ||
-		  wsi->http.rx_content_length) &&
-	       (blen = lws_buflist_next_segment_len(&wsi->buflist, &buffered))) {
+	while (!wsi->http.content_length_given ||
+	       wsi->http.rx_content_length) {
+
+		blen = lws_buflist_next_segment_len(&wsi->buflist, &buffered);
+		if (!blen)
+			break;
 
 		if (wsi->http.content_length_given &&
 		    (size_t)wsi->http.rx_content_length < blen)
