@@ -434,12 +434,28 @@ HTTP Header information is managed by a pool of "ah" structs.  These are a
 limited resource so there is pressure to free the headers and return the ah to
 the pool for reuse.
 
-For that reason header information on HTTP connections that get upgraded to
-websockets is lost after the ESTABLISHED callback.  Anything important that
-isn't processed by user code before then should be copied out for later.
+For that reason the request headers are released as soon as the request has
+been dispatched as far as user code is ever meant to read them:
 
-For HTTP connections that don't upgrade, header info remains available the
-whole time.
+|request|the headers are available up to and including|
+|---|---|
+|GET / HEAD, and anything else with no request body|`LWS_CALLBACK_HTTP`|
+|POST / PUT / PATCH, or any request with a body|`LWS_CALLBACK_HTTP_BODY_COMPLETION` (`LWS_CALLBACK_HTTP` and `LWS_CALLBACK_HTTP_BODY` are also inside the window)|
+|ws upgrade|`LWS_CALLBACK_ESTABLISHED` (`LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION` is the callback guaranteed to see them on every path, eg, a proxied ws parent)|
+|WebTransport upgrade over h3|`LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED`|
+
+This is what stops a download or upload that runs for minutes --- or one h2 or
+h3 stream out of many on the same connection --- from pinning an ah for its
+whole life.  Mounts that have their own lifetime, ie, cgi and the reverse
+proxy, release the headers even earlier, at spawn / proxy start.
+
+Anything important must be copied into your `pss` inside that window.  The
+accessors (`lws_hdr_copy()`, `lws_hdr_total_length()`,
+`lws_get_urlarg_by_name_safe()`, `lws_http_cookie_get()`, ...) do not fail
+loudly afterwards, they just answer "not present", so a late read is a silently
+wrong answer rather than an error.  The same goes for the `in` pointer at
+`LWS_CALLBACK_HTTP`: it points into the headers, so copy it rather than storing
+the pointer.
 
 @section http2compat Code Requirements for HTTP/2 compatibility
 
