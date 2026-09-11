@@ -2314,6 +2314,17 @@ tp_ok:
 				lwsl_wsi_notice(nwsi ? nwsi : wsi, "QUIC RX: Peer closed connection. Dropping silently.");
 				if (nwsi && nwsi != wsi) {
 					lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NORMAL, "quic peer closed");
+					/*
+					 * nwsi is freed now (synchronously with
+					 * the poll loop).  The loop head
+					 * dereferences it to find the netconn,
+					 * so it must not see the stale pointer:
+					 * with it NULL the head drops whatever
+					 * else was coalesced in this datagram,
+					 * which is all we can do for a closed
+					 * connection anyway.
+					 */
+					nwsi = NULL;
 					goto next_packet;
 				}
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
