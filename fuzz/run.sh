@@ -8,13 +8,20 @@
 #   fuzz/run.sh 600                  # 10 mins per target, all targets
 #   fuzz/run.sh 600 lejp lecp        # only named targets
 #   BUILD=~/fuzz-build fuzz/run.sh   # non-default build dir
+#   CORPUS=~/fuzz-corpus fuzz/run.sh # keep corpora outside the build dir
 #
 # Requires clang with libFuzzer (Debian-ish: clang + libclang-rt-*-dev).
-# Additional cmake options can be injected via FUZZ_CMAKE_OPTS.
+# Additional cmake options can be injected via FUZZ_CMAKE_OPTS, and extra
+# libFuzzer flags via FUZZ_OPTS (eg, FUZZ_OPTS=-verbosity=0 for CI logs).
 #
-# Corpora accumulate per-target in <build>/fuzz/corpus-<name>/ across runs,
-# seeded from the committed inputs in fuzz/fuzz-<name>/seeds/.  Crash
-# artifacts are written into <build>/fuzz/.
+# Corpora accumulate per-target in <corpus>/corpus-<name>/ across runs,
+# seeded from the committed inputs in fuzz/fuzz-<name>/seeds/.  <corpus>
+# defaults to <build>/fuzz; point CORPUS somewhere persistent when <build>
+# is disposable (eg, a CI job dir) so coverage keeps advancing between jobs.
+# Finding artifacts (crash-*, leak-*, timeout-*, oom-*) are written into
+# <build>/fuzz/ along with each target's full output in log-<name>.txt; any
+# findings produced by this run are listed by absolute path at the end and
+# make the script exit nonzero.
 #
 # The same build also provides fast smoke tests of every harness against its
 # seeds:  ctest -R fuzz-smoke
@@ -23,6 +30,7 @@ set -e
 
 REPO=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 BUILD="${BUILD:-$REPO/build-fuzz}"
+CORPUS="${CORPUS:-$BUILD/fuzz}"
 SECS="${1:-60}"
 if [ "$#" -gt 0 ]; then
 	shift
@@ -74,9 +82,22 @@ CC="$CC" cmake -S "$REPO" -B "$BUILD" --fresh -DCMAKE_BUILD_TYPE=Debug \
 
 cmake --build "$BUILD" --parallel
 
-mkdir -p "$BUILD/fuzz"
+mkdir -p "$BUILD/fuzz" "$CORPUS"
+
+# so we can tell this run's findings apart from any earlier ones in $BUILD
+STAMP="$BUILD/fuzz/.run-stamp"
+touch "$STAMP"
 
 rc=0
+
+# first corpus dir receives new discoveries, the second is read-only seeds
+run_target() {
+	"$BUILD/bin/fuzz-$1" "$CORPUS/corpus-$1" "$REPO/fuzz/fuzz-$1/seeds" \
+		-max_total_time="$SECS" \
+		-print_final_stats=1 \
+		-artifact_prefix="$BUILD/fuzz/" \
+		$FUZZ_OPTS
+}
 
 for t in $TARGETS; do
 	bin="$BUILD/bin/fuzz-$t"
@@ -89,12 +110,38 @@ for t in $TARGETS; do
 
 	echo
 	echo "=== fuzz-$t: ${SECS}s ==="
-	mkdir -p "$BUILD/fuzz/corpus-$t"
-	# first corpus dir receives new discoveries, the second is read-only seeds
-	"$bin" "$BUILD/fuzz/corpus-$t" "$seeds" \
-		-max_total_time="$SECS" \
-		-print_final_stats=1 \
-		-artifact_prefix="$BUILD/fuzz/" || rc=1
+	mkdir -p "$CORPUS/corpus-$t"
+	log="$BUILD/fuzz/log-$t.txt"
+
+	if [ -t 1 ]; then
+		# interactive: live output, plus a copy next to the artifacts
+		{ run_target "$t"; echo $? > "$log.rc"; } 2>&1 | tee "$log"
+		[ "$(cat "$log.rc")" = 0 ] || rc=1
+		rm -f "$log.rc"
+	else
+		# not a terminal (CI log capture): libFuzzer emits each status
+		# line as a dozen tiny unbuffered write()s, and collectors that
+		# store per-read chunks (sai) count every one against a spew
+		# limit; gather the target's output and emit it in one go
+		run_target "$t" > "$log" 2>&1 || rc=1
+		cat "$log"
+	fi
 done
+
+# list what this run produced, by absolute path, so the evidence can be
+# collected from the log even when the run happened somewhere else (eg, CI)
+
+FOUND=$(find "$BUILD/fuzz" -maxdepth 1 -type f -newer "$STAMP" \
+	\( -name 'crash-*' -o -name 'leak-*' -o -name 'timeout-*' \
+	   -o -name 'oom-*' -o -name 'slow-unit-*' \) | sort)
+
+echo
+if [ -n "$FOUND" ]; then
+	echo "=== FINDINGS: replay each with <build>/bin/fuzz-<target> <file> ==="
+	echo "$FOUND"
+	rc=1
+else
+	echo "=== no findings ==="
+fi
 
 exit $rc

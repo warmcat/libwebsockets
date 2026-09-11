@@ -72,6 +72,12 @@
 				"${cmake}"
 			]
 		},
+		"fuzz-linux-debian13/x86_64-amd/gcc": {
+			"default": false,
+                        "build": [
+				"${cmake}"
+			]
+		},
 
 
 #                "netbsd/aarch64BE-bcm2837-a53/gcc": {
@@ -326,9 +332,21 @@
 		"qir": {
 			"cmake":    "cd /opt/quic-interop-runner ; source venv/bin/activate ; rm -rf logs_* ; cd /opt/quic-interop-runner/lws ; if [ \"`docker ps -q`\" ] ; then docker kill $(docker ps -q) ; fi ;  docker system prune -f && docker build -f Dockerfile -t lws-quic-interop --no-cache $HOME/jobs/$SAI_VN/src && cd .. && python3 run.py -c lws -s lws --delete-successful-logs ; python3 run.py -p webtransport -c lws -s lws --delete-successful-logs -t handshake,transfer-unidirectional-receive,transfer-unidirectional-send,transfer-bidirectional-receive,transfer-bidirectional-send,transfer-datagram-receive,transfer-datagram-send",
 			"platforms":	"none, linux-debian13/x86_64-amd/gcc"
-		}
+		},
 
-#		,
+		# libFuzzer + ASan campaign over the untrusted-input parsers in
+		# ./fuzz, 60s per target (~15 min + build).  Corpora persist in
+		# $HOME across jobs so coverage keeps advancing; run.sh exits
+		# nonzero and lists the absolute paths of any findings, which
+		# are also offered as artifacts.  Needs clang + libclang-rt-*-dev
+		# on the builder (gnutls / zlib optional, see fuzz/README.md).
+
+		"fuzz": {
+			"cmake":	"CORPUS=$HOME/lws-fuzz-corpus FUZZ_OPTS=-verbosity=0 ./fuzz/run.sh 60",
+			"platforms":	"none, fuzz-linux-debian13/x86_64-amd/gcc",
+			"artifacts":	"build-fuzz/fuzz/crash-*, build-fuzz/fuzz/leak-*, build-fuzz/fuzz/timeout-*, build-fuzz/fuzz/oom-*"
+		}
+		#,
 		# awkward, we also want to test mbedtls, but coverity blocks on SSL build needing manual intervention
 #		"coverity-mbedtls": {
 #			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITHOUT_EXTENSIONS=0 -DLWS_WITH_CGI=1 -DLWS_IPV6=1 -DLWS_WITH_HTTP_PROXY=1 -DLWS_WITH_RANGES=1 -DLWS_WITH_THREADPOOL=1 -DLWS_WITH_CBOR=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_COSE=1 -DLWS_WITH_SYS_DHCP_CLIENT=1 -DLWS_WITH_FTS=1 -DLWS_WITH_STRUCT_SQLITE3=1 -DLWS_ROLE_DBUS=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_SYS_ASYNC_DNS_DNSSEC=1 -DLWS_WITH_WEBRTC=1 -DLWS_WITH_DHT=1  -DLWS_WITH_ASYNC_QUEUE=1 -DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_TLS_JIT_TRUST=1 -DLWS_ROLE_MQTT=1 -DLWS_ROLE_RAW_PROXY=1 -DLWS_WITH_EVENT_LIBS=1 -DLWS_WITH_LIBUV=1 -DLWS_WITH_STRUCT_JSON=1 -DLWS_WITH_LWS_DSH=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1 -DLWS_WITH_QUIC=1 -DLWS_WITH_HTTP3=1",
