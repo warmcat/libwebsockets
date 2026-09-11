@@ -649,9 +649,8 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 					lwsl_wsi_notice(wsi, "TCP connected, waiting for QUIC grace");
 					wsi->desc.sockfd = wsi->parallel_conns[pidx].desc.sockfd;
 					wsi->position_in_fds_table = wsi->parallel_conns[pidx].position_in_fds_table;
-					if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
-						/* ignore */
-					}
+					if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
+						lwsl_wsi_debug(wsi, "POLLOUT clear failed");
 					wsi->desc = saved_fd_tmp;
 					wsi->position_in_fds_table = saved_pos_tmp;
 					/*
