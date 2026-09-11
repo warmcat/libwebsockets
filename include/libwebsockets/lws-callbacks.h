@@ -231,53 +231,27 @@ enum lws_callback_reasons {
 	 * with the http connection, since the rest of the
 	 * activity will come by websockets from the script
 	 * that was delivered by http, so you will want to
-	 * return 1; to close and free up the connection.
-	 *
-	 * THE REQUEST HEADERS ARE ONLY AVAILABLE UP TO HERE.  lws releases
-	 * them as soon as the request has been dispatched, ie, when this
-	 * callback returns (for a request with a body, when
-	 * LWS_CALLBACK_HTTP_BODY_COMPLETION returns), so that a transfer that
-	 * runs for minutes does not hold a header allocation for its whole
-	 * life.  Anything you still want from the request later --- the URI,
-	 * a cookie, a urlarg, any header --- must be copied into your pss
-	 * here; lws_hdr_copy(), lws_get_urlarg_by_name_safe(),
-	 * lws_http_cookie_get() and friends all return "not present" from
-	 * later callbacks such as LWS_CALLBACK_HTTP_WRITEABLE,
-	 * LWS_CALLBACK_HTTP_FILE_COMPLETION and LWS_CALLBACK_CLOSED_HTTP.
-	 * That includes `in` itself: it points into the request headers, so
-	 * copy it rather than storing the pointer. */
+	 * return 1; to close and free up the connection. */
 
 	LWS_CALLBACK_HTTP_BODY					= 13,
 	/**< the next len bytes data from the http
 	 * request body HTTP connection is now available in in.  A request
 	 * body sent with Transfer-Encoding: chunked is decoded by lws, so
-	 * in only ever holds body payload, never the chunk framing.
-	 * The request headers are still available here. */
+	 * in only ever holds body payload, never the chunk framing. */
 
 	LWS_CALLBACK_HTTP_BODY_COMPLETION			= 14,
 	/**< the expected amount of http request body has been delivered:
 	 * the Content-Length was reached, or the last-chunk of a chunked
-	 * body arrived.
-	 *
-	 * For a request with a body, THE REQUEST HEADERS ARE ONLY AVAILABLE
-	 * UP TO HERE: lws releases them when this callback returns.  Copy
-	 * anything you still need (the URI, cookies, urlargs, headers) into
-	 * your pss before returning --- see LWS_CALLBACK_HTTP. */
+	 * body arrived */
 
 	LWS_CALLBACK_HTTP_FILE_COMPLETION			= 15,
-	/**< a file requested to be sent down http link has completed.
-	 * The request headers are long gone by here (see LWS_CALLBACK_HTTP):
-	 * use what you copied into your pss. */
+	/**< a file requested to be sent down http link has completed. */
 
 	LWS_CALLBACK_HTTP_WRITEABLE				= 16,
-	/**< you can write more down the http protocol link now.
-	 * The request headers are long gone by here (see LWS_CALLBACK_HTTP):
-	 * use what you copied into your pss. */
+	/**< you can write more down the http protocol link now. */
 
 	LWS_CALLBACK_CLOSED_HTTP				=  5,
-	/**< when a HTTP (non-websocket) session ends.
-	 * The request headers are long gone by here (see LWS_CALLBACK_HTTP):
-	 * use what you copied into your pss. */
+	/**< when a HTTP (non-websocket) session ends */
 
 	LWS_CALLBACK_FILTER_HTTP_CONNECTION			= 18,
 	/**< called when the request has

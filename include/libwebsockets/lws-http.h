@@ -402,26 +402,6 @@ enum lws_h2_settings {
 	H2SET_COUNT /* always last */
 };
 
-/*
- * How long the request headers below live, on a server connection
- * ---------------------------------------------------------------
- *
- * lws parses the request headers into a pooled allocation that it hands back
- * as soon as the request has been dispatched: when LWS_CALLBACK_HTTP returns,
- * or for a request with a body when LWS_CALLBACK_HTTP_BODY_COMPLETION returns,
- * and for a ws or WebTransport upgrade when the upgrade completes.  That is
- * what stops a long download or upload, or one h2 stream out of many, from
- * pinning a header allocation for its whole life.
- *
- * So every accessor below answers "not present" (0 / -1 / NULL) from any later
- * callback --- LWS_CALLBACK_HTTP_WRITEABLE, LWS_CALLBACK_HTTP_FILE_COMPLETION,
- * LWS_CALLBACK_CLOSED_HTTP, a timer or a completion of your own.  It is not an
- * error and it does not log: it is silently the wrong answer.  Copy whatever
- * you will need later into your pss while you are in the callback that has the
- * request, and never store a pointer one of these returned --- it points into
- * the allocation that is about to go back to the pool.
- */
-
 /**
  * lws_token_to_string() - returns a textual representation of a hdr token index
  *
