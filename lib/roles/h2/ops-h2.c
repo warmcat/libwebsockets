@@ -991,6 +991,14 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 	if (!p || strcmp(p, "POST"))
 		return 0;
 
+	/*
+	 * We dispatch this one ourselves rather than through
+	 * lws_http_action(), so take the method snapshot it would have taken
+	 * (C-460): from here on nothing may consult the ah for the method
+	 */
+
+	wsi->http.method_post = 1;
+	wsi->http.method_head = 0;
 
 	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH) ||
 	    !lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH))

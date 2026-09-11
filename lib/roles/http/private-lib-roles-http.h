@@ -339,6 +339,15 @@ struct _lws_http_mode_related {
 	uint32_t h3_req_ric;
 #endif
 	unsigned int deferred_transaction_completed:1;
+	unsigned int method_head:1;
+	/**< the request being served is a HEAD, ie, its response must consist
+	 * of the headers alone.  Snapshotted from the method token at dispatch
+	 * time by lws_http_action(), because the file-serve path decides
+	 * whether to emit a body long after the request headers were released
+	 * (C-460).  Re-decided for every request on the connection. */
+	unsigned int method_post:1;
+	/**< the request being served is a POST.  Same snapshot, same reason:
+	 * the body framing decisions below run after the ah is gone. */
 	unsigned int content_length_explicitly_zero:1;
 	unsigned int content_length_given:1;
 	unsigned int rx_chunked:1; /* rx body uses chunked transfer-coding */

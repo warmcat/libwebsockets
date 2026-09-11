@@ -2202,6 +2202,18 @@ lws_http_action(struct lws *wsi)
 		goto bail_nuke_ah;
 	}
 
+	/*
+	 * Snapshot what the method was, while the ah is certainly still
+	 * attached: the request headers are released once the request has been
+	 * dispatched (C-460), but the file-serve path still has to know not to
+	 * emit a body for a HEAD, and the body framing below still has to know
+	 * the method was a POST.  Re-decided for every request, so a keepalive
+	 * connection cannot carry a stale answer into the next one.
+	 */
+
+	wsi->http.method_head = methods[meth] == WSI_TOKEN_HEAD_URI;
+	wsi->http.method_post = methods[meth] == WSI_TOKEN_POST_URI;
+
 	lws_metrics_tag_wsi_add(wsi, "vh", wsi->a.vhost->name);
 	lws_metrics_tag_wsi_add(wsi, "meth", method_names[meth]);
 
@@ -4056,7 +4068,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	 * the peer waiting for a body that will never come.
 	 */
 	n = LWS_WRITE_HTTP_HEADERS;
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_HEAD_URI))
+	if (wsi->http.method_head)
 		n |= LWS_WRITE_H2_STREAM_END;
 
 	ret = lws_write(wsi, response, lws_ptr_diff_size_t(p, response),
@@ -4070,7 +4082,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	wsi->http.filepos = 0;
 	lwsi_set_state(wsi, LRS_ISSUING_FILE);
 
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_HEAD_URI)) {
+	if (wsi->http.method_head) {
 		/* we do not emit the body */
 		lws_vfs_file_close(&wsi->http.fop_fd);
 		if (lws_http_transaction_completed(wsi))
