@@ -69,14 +69,27 @@ lws_plat_context_early_init(void)
 	 * it happened to be.  Send the reports to stderr and let the process
 	 * die the same way it does on other platforms; likewise don't hand a
 	 * crash to WER to sit in a dialog.
+	 *
+	 * Also copy the reports to the debugger channel (OutputDebugString),
+	 * so a service, whose stderr goes nowhere, still shows the assert text
+	 * in DebugView or a debugger's output window, rather than just dying
+	 * with abort()'s exit code 3.
+	 *
+	 * None of this applies when a debugger is attached: then the default
+	 * assert dialog and abort()'s report-fault are exactly what lets the
+	 * person at the debugger see where it happened, so leave them alone.
 	 */
-	_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
-	_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
-	_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
-	_CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
-	_set_abort_behavior(0, _CALL_REPORTFAULT);
-	SetErrorMode(SetErrorMode(0) | SEM_FAILCRITICALERRORS |
-		     SEM_NOGPFAULTERRORBOX);
+	if (!IsDebuggerPresent()) {
+		_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE |
+					       _CRTDBG_MODE_DEBUG);
+		_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+		_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE |
+					      _CRTDBG_MODE_DEBUG);
+		_CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+		_set_abort_behavior(0, _CALL_REPORTFAULT);
+		SetErrorMode(SetErrorMode(0) | SEM_FAILCRITICALERRORS |
+			     SEM_NOGPFAULTERRORBOX);
+	}
 #endif
 
 	err = WSAStartup(wVersionRequested, &wsaData);
