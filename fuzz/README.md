@@ -16,13 +16,17 @@ provider; without gnutls that one target is silently skipped).
 ./fuzz/run.sh 3600         # an hour per target
 ./fuzz/run.sh 600 lejp qpack   # selected targets only
 BUILD=~/fz ./fuzz/run.sh   # non-default build dir
+CORPUS=~/fzc ./fuzz/run.sh # keep the corpora outside the build dir
 ```
 
 Corpora accumulate per-target in `<build>/fuzz/corpus-<name>/` across runs
 (so coverage keeps advancing between campaigns), seeded from the committed
-inputs in `fuzz/fuzz-<name>/seeds/`.  Anything the fuzzer finds is written
-to `<build>/fuzz/crash-<sha1>`; re-run it directly on the artifact file to
-reproduce:
+inputs in `fuzz/fuzz-<name>/seeds/`.  Set `CORPUS` to keep them somewhere
+persistent when the build dir is disposable, as in CI.  Anything the fuzzer
+finds is written to `<build>/fuzz/crash-<sha1>` (or `leak-` / `timeout-` /
+`oom-`); `run.sh` lists the absolute paths of everything found by the run at
+the end and exits nonzero.  Re-run the target directly on the artifact file
+to reproduce:
 
 ```sh
 ./build-fuzz/bin/fuzz-qpack build-fuzz/fuzz/crash-<sha1>   # repro under ASan
@@ -58,8 +62,10 @@ ctest -R fuzz-       # seconds, deterministic
 
 `LWS_WITH_FUZZERS` implies whole-lib `-fsanitize=fuzzer-no-link,address`
 instrumentation, so it should stay OFF for normal builds and normal CI.
-Long campaigns belong on a dedicated runner or a nightly job via
-`./fuzz/run.sh`.
+Longer campaigns belong on a dedicated runner via `./fuzz/run.sh`: the
+`fuzz` configuration in `.sai.json` runs it on one Linux builder with a
+persistent corpus, failing the job and listing the finding paths if
+anything turns up.
 
 `run.sh` turns on everything the targets need that it can find on the
 host (gnutls for h3 / JOSE / COSE / DNSSEC, zlib for permessage-deflate);

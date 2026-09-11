@@ -72,6 +72,12 @@
 				"${cmake}"
 			]
 		},
+		"linux-debian13/x86_64-amd/gcc-fuzz": {
+			"default": false,
+                        "build": [
+				"${cmake}"
+			]
+		},
 
 
 #                "netbsd/aarch64BE-bcm2837-a53/gcc": {
@@ -326,6 +332,19 @@
 		"qir": {
 			"cmake":    "cd /opt/quic-interop-runner ; source venv/bin/activate ; rm -rf logs_* ; cd /opt/quic-interop-runner/lws ; if [ \"`docker ps -q`\" ] ; then docker kill $(docker ps -q) ; fi ;  docker system prune -f && docker build -f Dockerfile -t lws-quic-interop --no-cache $HOME/jobs/$SAI_VN/src && cd .. && python3 run.py -c lws -s lws --delete-successful-logs ; python3 run.py -p webtransport -c lws -s lws --delete-successful-logs -t handshake,transfer-unidirectional-receive,transfer-unidirectional-send,transfer-bidirectional-receive,transfer-bidirectional-send,transfer-datagram-receive,transfer-datagram-send",
 			"platforms":	"none, linux-debian13/x86_64-amd/gcc"
+		},
+
+		# libFuzzer + ASan campaign over the untrusted-input parsers in
+		# ./fuzz, 60s per target (~15 min + build).  Corpora persist in
+		# $HOME across jobs so coverage keeps advancing; run.sh exits
+		# nonzero and lists the absolute paths of any findings, which
+		# are also offered as artifacts.  Needs clang + libclang-rt-*-dev
+		# on the builder (gnutls / zlib optional, see fuzz/README.md).
+
+		"fuzz": {
+			"cmake":	"CORPUS=$HOME/lws-fuzz-corpus ./fuzz/run.sh 60",
+			"platforms":	"none, linux-debian13/x86_64-amd/gcc-fuzz",
+			"artifacts":	"build-fuzz/fuzz/crash-*, build-fuzz/fuzz/leak-*, build-fuzz/fuzz/timeout-*, build-fuzz/fuzz/oom-*"
 		}
 
 #		,

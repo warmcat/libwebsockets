@@ -8,13 +8,18 @@
 #   fuzz/run.sh 600                  # 10 mins per target, all targets
 #   fuzz/run.sh 600 lejp lecp        # only named targets
 #   BUILD=~/fuzz-build fuzz/run.sh   # non-default build dir
+#   CORPUS=~/fuzz-corpus fuzz/run.sh # keep corpora outside the build dir
 #
 # Requires clang with libFuzzer (Debian-ish: clang + libclang-rt-*-dev).
 # Additional cmake options can be injected via FUZZ_CMAKE_OPTS.
 #
-# Corpora accumulate per-target in <build>/fuzz/corpus-<name>/ across runs,
-# seeded from the committed inputs in fuzz/fuzz-<name>/seeds/.  Crash
-# artifacts are written into <build>/fuzz/.
+# Corpora accumulate per-target in <corpus>/corpus-<name>/ across runs,
+# seeded from the committed inputs in fuzz/fuzz-<name>/seeds/.  <corpus>
+# defaults to <build>/fuzz; point CORPUS somewhere persistent when <build>
+# is disposable (eg, a CI job dir) so coverage keeps advancing between jobs.
+# Finding artifacts (crash-*, leak-*, timeout-*, oom-*) are written into
+# <build>/fuzz/; any produced by this run are listed by absolute path at the
+# end and make the script exit nonzero.
 #
 # The same build also provides fast smoke tests of every harness against its
 # seeds:  ctest -R fuzz-smoke
@@ -23,6 +28,7 @@ set -e
 
 REPO=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 BUILD="${BUILD:-$REPO/build-fuzz}"
+CORPUS="${CORPUS:-$BUILD/fuzz}"
 SECS="${1:-60}"
 if [ "$#" -gt 0 ]; then
 	shift
@@ -74,7 +80,11 @@ CC="$CC" cmake -S "$REPO" -B "$BUILD" --fresh -DCMAKE_BUILD_TYPE=Debug \
 
 cmake --build "$BUILD" --parallel
 
-mkdir -p "$BUILD/fuzz"
+mkdir -p "$BUILD/fuzz" "$CORPUS"
+
+# so we can tell this run's findings apart from any earlier ones in $BUILD
+STAMP="$BUILD/fuzz/.run-stamp"
+touch "$STAMP"
 
 rc=0
 
@@ -89,12 +99,28 @@ for t in $TARGETS; do
 
 	echo
 	echo "=== fuzz-$t: ${SECS}s ==="
-	mkdir -p "$BUILD/fuzz/corpus-$t"
+	mkdir -p "$CORPUS/corpus-$t"
 	# first corpus dir receives new discoveries, the second is read-only seeds
-	"$bin" "$BUILD/fuzz/corpus-$t" "$seeds" \
+	"$bin" "$CORPUS/corpus-$t" "$seeds" \
 		-max_total_time="$SECS" \
 		-print_final_stats=1 \
 		-artifact_prefix="$BUILD/fuzz/" || rc=1
 done
+
+# list what this run produced, by absolute path, so the evidence can be
+# collected from the log even when the run happened somewhere else (eg, CI)
+
+FOUND=$(find "$BUILD/fuzz" -maxdepth 1 -type f -newer "$STAMP" \
+	\( -name 'crash-*' -o -name 'leak-*' -o -name 'timeout-*' \
+	   -o -name 'oom-*' -o -name 'slow-unit-*' \) | sort)
+
+echo
+if [ -n "$FOUND" ]; then
+	echo "=== FINDINGS: replay each with <build>/bin/fuzz-<target> <file> ==="
+	echo "$FOUND"
+	rc=1
+else
+	echo "=== no findings ==="
+fi
 
 exit $rc
