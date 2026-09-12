@@ -71,9 +71,11 @@ const char *storage_path = "./dht-store";
 static struct lws_context *cx;
 
 static lws_state_notify_link_t *const app_notifier_list[] = {&nl, NULL};
-extern const struct lws_protocols lws_dht_object_store_protocols[];
-extern const struct lws_protocols lws_dht_stats_protocols[];
-extern const struct lws_protocols lws_dht_dnssec_protocols[];
+/*
+ * The lws-dht-object-store, lws-dht-stats and lws-dht-dnssec protocols
+ * are instantiated on the vhosts from the protocol plugins at runtime;
+ * nothing is linked statically from here.
+ */
 
 static void
 dht_completion_cb(void *closure, int result)
