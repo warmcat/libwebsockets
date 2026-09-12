@@ -11,7 +11,7 @@ let camera = null;
 let currentSeed = 12345;
 let myPlayerId = null;
 
-const otherAvatars = {};
+const otherAvatars = new Map();
 const keys = {};
 
 let localX = 0;
@@ -342,7 +342,7 @@ async function loadAvatar() {
 }
 
 async function spawnRemoteAvatar(id, x, z, angle, isMoving) {
-    if (otherAvatars[id]) return;
+    if (otherAvatars.has(id)) return;
     
     console.log("Spawning remote avatar placeholder for player ID:", id, "at", x, z);
     const placeholder = BABYLON.MeshBuilder.CreateSphere("placeholder-" + id, {diameter: 5}, scene);
@@ -351,14 +351,15 @@ async function spawnRemoteAvatar(id, x, z, angle, isMoving) {
     mat.diffuseColor = new BABYLON.Color3(0.8, 0.2, 0.2);
     placeholder.material = mat;
     
-    otherAvatars[id] = { placeholder, avatar: null };
+    otherAvatars.set(id, { placeholder, avatar: null });
     
     let path = window.location.pathname;
     if (!path.endsWith('/')) path += '/';
     
     try {
         const result = await BABYLON.SceneLoader.ImportMeshAsync("", path, "dummy3.babylon", scene);
-        if (otherAvatars[id]) {
+        const entry = otherAvatars.get(id);
+        if (entry) {
             const currentPos = placeholder.position.clone();
             placeholder.dispose();
             
@@ -367,8 +368,8 @@ async function spawnRemoteAvatar(id, x, z, angle, isMoving) {
             avatar.pathWrapper.rotation.y = angle;
             avatar.setMoving(isMoving);
             
-            otherAvatars[id].avatar = avatar;
-            otherAvatars[id].placeholder = null;
+            entry.avatar = avatar;
+            entry.placeholder = null;
             colorAvatar(avatar, id);
             console.log("Remote avatar mesh spawned successfully for player ID:", id);
         } else {
@@ -380,7 +381,7 @@ async function spawnRemoteAvatar(id, x, z, angle, isMoving) {
 }
 
 function updateRemoteAvatar(id, x, z, angle, isMoving) {
-    const entry = otherAvatars[id];
+    const entry = otherAvatars.get(id);
     if (entry) {
         if (entry.avatar) {
             entry.avatar.pathWrapper.position = new BABYLON.Vector3(x, getTerrainHeight(x, z, currentSeed), z);
@@ -395,11 +396,11 @@ function updateRemoteAvatar(id, x, z, angle, isMoving) {
 }
 
 function removeRemoteAvatar(id) {
-    const entry = otherAvatars[id];
+    const entry = otherAvatars.get(id);
     if (entry) {
         if (entry.placeholder) entry.placeholder.dispose();
         if (entry.avatar) entry.avatar.dispose();
-        delete otherAvatars[id];
+        otherAvatars.delete(id);
         console.log("Remote avatar removed for player ID:", id);
     }
 }
