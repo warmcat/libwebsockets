@@ -1,13 +1,13 @@
 rect (0.0,0.0) [400.0 x 300.0] rgba=FFF0FAFA
- rect (2.0,2.0) [396.0 x 18.0] rgba=FFD3D3D3
-  text (2.0,2.0) [59.0 x 14.0] rgba=FF0000FF f=12/400 "named colours"
- rect (2.0,22.0) [396.0 x 18.0] rgba=800000FF
-  text (2.0,2.0) [50.0 x 14.0] rgba=FF008000 f=12/400 "rgb and rgba"
- rect (2.0,42.0) [396.0 x 18.0] rgba=FF01FFFF
-  text (2.0,2.0) [37.0 x 14.0] rgba=FFFF0101 f=12/400 "hsl forms"
- rect (2.0,62.0) [396.0 x 18.0] rgba=FFFF0000
-  text (2.0,2.0) [174.0 x 14.0] rgba=FF996633 f=12/400 "variable and background shorthand with url"
- rect (2.0,82.0) [396.0 x 18.0] rgba=00000000
-  text (2.0,2.0) [88.0 x 14.0] rgba=FF332211 f=12/400 "transparent shorthand"
- rect (2.0,102.0) [396.0 x 18.0] rgba=00000000
-  text (2.0,2.0) [89.0 x 14.0] rgba=FF00A5FF f=12/400 "case insensitive name"
+ rect (0.0,0.0) [400.0 x 14.0] rgba=FFD3D3D3
+  text (0.0,0.0) [59.0 x 14.0] rgba=FF0000FF f=12/400 "named colours"
+ rect (0.0,14.0) [400.0 x 14.0] rgba=800000FF
+  text (0.0,0.0) [50.0 x 14.0] rgba=FF008000 f=12/400 "rgb and rgba"
+ rect (0.0,28.0) [400.0 x 14.0] rgba=FF01FFFF
+  text (0.0,0.0) [37.0 x 14.0] rgba=FFFF0101 f=12/400 "hsl forms"
+ rect (0.0,42.0) [400.0 x 14.0] rgba=FFFF0000
+  text (0.0,0.0) [174.0 x 14.0] rgba=FF996633 f=12/400 "variable and background shorthand with url"
+ rect (0.0,56.0) [400.0 x 14.0] rgba=00000000
+  text (0.0,0.0) [88.0 x 14.0] rgba=FF332211 f=12/400 "transparent shorthand"
+ rect (0.0,70.0) [400.0 x 14.0] rgba=00000000
+  text (0.0,0.0) [89.0 x 14.0] rgba=FF00A5FF f=12/400 "case insensitive name"

@@ -141,6 +141,8 @@ typedef struct lws_dlo {
 	uint8_t				flag_row:1;   /* table row box (layout) */
 	uint8_t				flag_cell:1;  /* table cell box (layout) */
 	uint8_t				flag_abs:1;   /* positioned box (layout) */
+	uint8_t				flag_float:1; /* floated box (layout) */
+	uint8_t				flag_zraise:1; /* positioned, z-index > 0 */
 
 	/* render-specific members ... */
 } lws_dlo_t;

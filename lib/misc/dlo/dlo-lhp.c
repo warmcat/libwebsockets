@@ -362,6 +362,9 @@ lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
 
 			/* text sits on the line's baseline */
 			lws_fx_set(t, c->line_asc - txt->font_y_baseline, 0);
+		} else if (dlo->flag_float) {
+			/* floats hang from the top of the line */
+			lws_fx_set(t, 0, 0);
 		} else
 			/* boxes and images sit on the bottom of the line */
 			lws_fx_sub(&t, &lh, &dlo->box.h);
@@ -417,12 +420,20 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 	size_t len = (size_t)ctx->npos;
 	lhp_pstack_t *c = lhp_container(ps);
 	lws_display_colour_t col;
-	const lcsp_atr_t *bg = NULL;
+	const lcsp_atr_t *bg = NULL, *ws;
 	lws_fx_t pl, pr, pt, pb, avail, total, word;
 	lws_box_t box;
+	int nowrap;
 
 	if (!c || !ps->font)
 		return 0;
+
+	/* white-space: nowrap / pre: the text stays on its line and
+	 * overflows rather than wrapping */
+	ws = lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_WHITE_SPACE);
+	nowrap = ws && ws->unit == LCSP_UNIT_NONE &&
+		 (ws->propval == LCSP_PROPVAL_NOWRAP ||
+		  ws->propval == LCSP_PROPVAL_PRE);
 
 	/* text that lands below the surface can never be seen */
 	if (c->abs_y + c->cury.whole > ctx->ic.wh_px[LWS_LHPREF_HEIGHT].whole)
@@ -454,6 +465,8 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 			break;
 
 		lws_fx_sub(&avail, &c->cw, &c->curx);
+		if (nowrap)
+			avail = ctx->ic.wh_px[LWS_LHPREF_WIDTH];
 		if (avail.whole <= 0 && c->curx.whole > 0) {
 			lhp_line_end(ctx, c);
 			continue;
@@ -868,8 +881,10 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 		/* floats: on the line, no wrap-around (yet) */
 		if (fl && fl->unit == LCSP_UNIT_NONE &&
 		    (fl->propval == LCSP_PROPVAL_LEFT ||
-		     fl->propval == LCSP_PROPVAL_RIGHT))
+		     fl->propval == LCSP_PROPVAL_RIGHT)) {
 			ps->is_ilevel = 1;
+			ps->is_float = 1;
+		}
 	}
 
 	/* an explicit width is the content width */
@@ -998,6 +1013,37 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 	if (w.whole < 0)
 		lws_fx_set(w, 0, 0);
 
+	/* min-width / max-width bound the content width */
+	{
+		const lcsp_atr_t *mx = lws_css_get_prop_atr_ps(ctx, ps,
+							LCSP_PROP_MAX_WIDTH),
+				 *mn = lws_css_get_prop_atr_ps(ctx, ps,
+							LCSP_PROP_MIN_WIDTH);
+		lws_fx_t lim;
+
+		if (mx && mx->unit != LCSP_UNIT_NONE) {
+			lim = lhp_len(ps, mx, &base);
+			lws_fx_add(&lim, &lim, &pl);
+			lws_fx_add(&lim, &lim, &pr);
+			if (lim.whole > 0 && lws_fx_comp(&w, &lim) > 0) {
+				w = lim;
+				if (!ps->is_ilevel && !ps->is_abs && c &&
+				    lhp_is_auto(ps->css_margin[CCPAS_LEFT]) &&
+				    lhp_is_auto(ps->css_margin[CCPAS_RIGHT])) {
+					lws_fx_sub(&t, &c->cw, &w);
+					lws_fx_div(&x, &t, &fx_2);
+				}
+			}
+		}
+		if (mn && mn->unit != LCSP_UNIT_NONE) {
+			lim = lhp_len(ps, mn, &base);
+			lws_fx_add(&lim, &lim, &pl);
+			lws_fx_add(&lim, &lim, &pr);
+			if (lws_fx_comp(&w, &lim) < 0)
+				w = lim;
+		}
+	}
+
 	memset(radii, 0, sizeof(radii));
 	for (n = 0; n < 4; n++)
 		if (ps->css_border_radius[n])
@@ -1019,6 +1065,15 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 		return LWS_SRET_FATAL;
 
 	ps->dlo->flag_abs = ps->is_abs;
+	ps->dlo->flag_float = ps->is_float;
+	if (pos != LCSP_PROPVAL_STATIC) {
+		/* a positive z-index paints it above later siblings */
+		const lcsp_atr_t *zi = lws_css_get_prop_atr_ps(ctx, ps,
+							LCSP_PROP_Z_INDEX);
+
+		ps->dlo->flag_zraise = zi && zi->unit == LCSP_UNIT_NUM &&
+				       zi->u.i.whole > 0;
+	}
 	ps->dlo->flag_row = ps->is_row;
 	ps->dlo->flag_cell = ps->is_cell;
 	ps->dlo->flag_block = !ps->is_ilevel && !ps->is_abs && !ps->is_row &&
@@ -1098,6 +1153,18 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 		else
 			/* ... or collapses through us to our own */
 			mb = lhp_fx_max(&mb, &ps->pend_mb);
+	}
+
+	{
+		const lcsp_atr_t *mn = lws_css_get_prop_atr_ps(ctx, ps,
+							LCSP_PROP_MIN_HEIGHT);
+
+		if (mn && mn->unit != LCSP_UNIT_NONE &&
+		    mn->unit != LCSP_UNIT_LENGTH_PERCENT) {
+			t = lhp_len(ps, mn, &base);
+			if (lws_fx_comp(&h, &t) < 0)
+				h = t;
+		}
 	}
 
 	if (ps->is_row) {
@@ -1210,6 +1277,53 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 	lws_fx_add(&t, &ps->minc, &pl);
 	lws_fx_add(&t, &t, &pr);
 	c->minc = lhp_fx_max(&c->minc, &t);
+}
+
+/*
+ * Painting order is list order.  Positioned boxes paint above the normal
+ * flow whatever their place in the source: absolute ones (already children
+ * of the body dlo) and any with a positive z-index are moved, in order, to
+ * the end of the body's children once the document is complete, their
+ * offsets converted to body-relative on the way.
+ */
+
+static void
+lhp_collect_positioned(lws_dlo_t *parent, const lws_fx_t *ox,
+		       const lws_fx_t *oy, lws_dll2_owner_t *raised)
+{
+	lws_start_foreach_dll_safe(lws_dll2_t *, d, d1,
+				   lws_dll2_get_head(&parent->children)) {
+		lws_dlo_t *dlo = lws_container_of(d, lws_dlo_t, list);
+		lws_fx_t cx, cy;
+
+		lws_fx_add(&cx, ox, &dlo->box.x);
+		lws_fx_add(&cy, oy, &dlo->box.y);
+
+		lhp_collect_positioned(dlo, &cx, &cy, raised);
+
+		if (dlo->flag_abs || dlo->flag_zraise) {
+			lws_dll2_remove(d);
+			dlo->box.x = cx;
+			dlo->box.y = cy;
+			lws_dll2_add_tail(d, raised);
+		}
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
+static void
+lhp_raise_positioned(lws_dlo_t *body)
+{
+	lws_dll2_owner_t raised;
+
+	memset(&raised, 0, sizeof(raised));
+	lhp_collect_positioned(body, &fx_0, &fx_0, &raised);
+
+	while (lws_dll2_get_head(&raised)) {
+		lws_dll2_t *d = lws_dll2_get_head(&raised);
+
+		lws_dll2_remove(d);
+		lws_dll2_add_tail(d, &body->children);
+	}
 }
 
 /*
@@ -1388,36 +1502,10 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 				lhp_block_close(ctx, p);
 		} lws_end_foreach_dll_back(d);
 
-		/*
-		 * Painting order is list order, and positioned boxes paint
-		 * above the normal flow whatever their place in the source:
-		 * move them, in order, to the end of the body's children
-		 */
-		if (drt && drt->dl && lws_dll2_get_head(&drt->dl->dl)) {
-			lws_dlo_t *body = lws_container_of(
+		if (drt && drt->dl && lws_dll2_get_head(&drt->dl->dl))
+			lhp_raise_positioned(lws_container_of(
 					lws_dll2_get_head(&drt->dl->dl),
-					lws_dlo_t, list);
-			lws_dll2_owner_t raised;
-
-			memset(&raised, 0, sizeof(raised));
-			lws_start_foreach_dll_safe(lws_dll2_t *, d, d1,
-					lws_dll2_get_head(&body->children)) {
-				lws_dlo_t *dlo = lws_container_of(d, lws_dlo_t,
-								  list);
-
-				if (dlo->flag_abs) {
-					lws_dll2_remove(d);
-					lws_dll2_add_tail(d, &raised);
-				}
-			} lws_end_foreach_dll_safe(d, d1);
-
-			while (lws_dll2_get_head(&raised)) {
-				lws_dll2_t *d = lws_dll2_get_head(&raised);
-
-				lws_dll2_remove(d);
-				lws_dll2_add_tail(d, &body->children);
-			}
-		}
+					lws_dlo_t, list));
 		break;
 
 	default:

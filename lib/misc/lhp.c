@@ -251,9 +251,7 @@ static const char *const default_css =
 	"html, address,blockquote, dd, div,dl, dt, fieldset, form, frame, "
 	"frameset, h1, h2, h3, h4, h5, h6, noframes, ol, p, ul, center, "
 	"dir, hr, menu, pre { top: 0px; right: 0px; bottom: 0px; left: 0px;"
-		" unicode-bidi: embed; color: #000;"
-		"padding-top: 2px; padding-left: 2px; padding-bottom: 2px; padding-right: 2px;"
-		"margin-top: 2px; margin-left: 2px; margin-bottom: 2px; margin-right: 2px;"
+		" unicode-bidi: embed; color: #000; margin: 0; padding: 0;"
 		"position: static; width: auto; height: auto;"
 			    "}\n"
 	"div             { display: block; width: auto; }\n"
@@ -264,6 +262,8 @@ static const char *const default_css =
 	"legend, optgroup, option { display: block }\n"
 	"li              { display: list-item }\n"
 	"head, script, style { display: none }\n"
+	/* vector / embedded content we can't draw: nothing inside it is text */
+	"svg, canvas, iframe, object, embed, template, video, audio { display: none }\n"
 	"table           { display: table;  }\n"
 	"tr              { display: table-row }\n"
 	"thead           { display: table-header-group }\n"
@@ -293,9 +293,10 @@ static const char *const default_css =
 	"small, sub, sup { font-size: .83em }\n"
 	"sub             { vertical-align: sub }\n"
 	"sup             { vertical-align: super }\n"
-	"table           { border-spacing: 2px; padding-top: 2px; padding-left: 2px; padding-bottom: 2px; padding-right: 2px; margin-top: 2px; margin-bottom: 2px; margin-left: 2px; margin-right: 2px }\n"
+	"table           { border-spacing: 2px; margin: 0; padding: 0 }\n"
 	"thead, tbody, tfoot           { vertical-align: middle }\n"
-	"td, th, tr      { vertical-align: inherit; width: auto; padding-top: 2px; padding-left: 2px; padding-bottom: 2px; padding-right: 2px; margin-top: 2px; margin-bottom: 2px; margin-left: 2px; margin-right: 2px }\n"
+	"td, th, tr      { vertical-align: inherit; width: auto; margin: 0 }\n"
+	"td, th          { padding: 1px }\n"
 	"s, strike, del  { text-decoration: line-through }\n"
 	"hr              { border: 1px inset }\n"
 	"ol, ul, dir, menu, dd        { margin-left: 40px }\n"
@@ -2556,6 +2557,17 @@ lws_css_cascade(lhp_ctx_t *ctx)
 		     (ps->css_height &&
 		      ps->css_height->unit == LCSP_UNIT_LENGTH_PX &&
 		      ps->css_height->u.i.whole <= 1)))
+			ps->hidden = 1;
+	}
+	if (!ps->hidden) {
+		/* text-indent: -9999px: text pushed off the surface, the
+		 * background sprite it makes room for isn't drawn either */
+		const lcsp_atr_t *ti = lws_css_cascade_get_prop_atr(ctx,
+							LCSP_PROP_TEXT_INDENT);
+
+		if (ti && (ti->unit == LCSP_UNIT_LENGTH_PX ||
+			   ti->unit == LCSP_UNIT_LENGTH_EM) &&
+		    ti->u.i.whole <= -999)
 			ps->hidden = 1;
 	}
 	if (!ps->hidden) {

@@ -1,9 +1,9 @@
 rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
- rect (5.0,5.0) [390.0 x 122.0] rgba=FF0000FF
+ rect (5.0,5.0) [390.0 x 118.0] rgba=FF0000FF
   rect (16.0,16.0) [358.0 x 22.0] rgba=FF00FF00
    text (4.0,4.0) [38.0 x 14.0] rgba=FF000000 f=12/400 "Inner text"
-  rect (13.0,44.0) [104.0 x 34.0] rgba=FFFF0000
-  rect (16.0,84.0) [358.0 x 22.0] rgba=FF00FF00
+  rect (13.0,44.0) [100.0 x 30.0] rgba=FFFF0000
+  rect (16.0,80.0) [358.0 x 22.0] rgba=FF00FF00
    text (4.0,4.0) [78.0 x 14.0] rgba=FF000000 f=12/400 "Another inner block"
- rect (5.0,132.0) [390.0 x 34.0] rgba=FF0000FF
+ rect (5.0,128.0) [390.0 x 34.0] rgba=FF0000FF
   text (10.0,10.0) [19.0 x 14.0] rgba=FF000000 f=12/400 "After"

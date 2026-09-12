@@ -457,6 +457,7 @@ typedef struct lhp_pstack {
 	uint8_t				is_inline:1; /* style scope only, no box */
 	uint8_t				is_ilevel:1; /* inline-level box (inline-block) */
 	uint8_t				is_abs:1;    /* absolutely positioned */
+	uint8_t				is_float:1;
 	uint8_t				shrink:1;    /* width decided by content at close */
 	uint8_t				has_line:1;  /* a line is being built */
 	uint8_t				last_space:1; /* line so far ends with a space */
