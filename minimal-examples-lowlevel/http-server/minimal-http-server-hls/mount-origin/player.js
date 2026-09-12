@@ -132,7 +132,10 @@ document.addEventListener('DOMContentLoaded', function() {
     function logMsg(msg) {
         if (logsContainer) {
             var time = new Date().toLocaleTimeString();
-            logsContainer.innerHTML = '[' + time + '] ' + msg + '<br>' + logsContainer.innerHTML;
+            var line = document.createElement('div');
+
+            line.textContent = '[' + time + '] ' + msg;
+            logsContainer.insertBefore(line, logsContainer.firstChild);
         }
     }
 
