@@ -921,7 +921,8 @@ lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 		       union lws_tls_cert_info_results *buf, size_t len)
 {
 	gnutls_x509_crt_t *crt_list;
-	unsigned int crt_list_size = 0;
+	unsigned int crt_list_size = 0, n;
+	int ret = -1;
 	time_t t;
 
 	if (!vhost->tls.ssl_ctx || !vhost->tls.ssl_ctx->creds)
@@ -931,7 +932,11 @@ lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 	if (!len)
 		len = sizeof(buf->ns.name);
 
-	/* Get the certificates explicitly configured on this server */
+	/*
+	 * Get the certificates explicitly configured on this server.  Since
+	 * GnuTLS 3.4 the list is a fresh array of copies that we own: each
+	 * has to be deinitialized and the array freed, on every exit.
+	 */
 	if (gnutls_certificate_get_x509_crt(vhost->tls.ssl_ctx->creds, 0, &crt_list, &crt_list_size) < 0 || crt_list_size == 0)
 		return -1;
 
@@ -939,22 +944,25 @@ lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 	case LWS_TLS_CERT_INFO_VALIDITY_TO:
 		t = gnutls_x509_crt_get_expiration_time(crt_list[0]);
 		if (t == (time_t)-1)
-			return -1;
+			break;
 		buf->time = t;
-		return 0;
+		ret = 0;
+		break;
 
 	case LWS_TLS_CERT_INFO_VALIDITY_FROM:
 		t = gnutls_x509_crt_get_activation_time(crt_list[0]);
 		if (t == (time_t)-1)
-			return -1;
+			break;
 		buf->time = t;
-		return 0;
+		ret = 0;
+		break;
 
 	case LWS_TLS_CERT_INFO_ISSUER_NAME:
 		if (gnutls_x509_crt_get_issuer_dn(crt_list[0], buf->ns.name, &len) < 0)
-			return -1;
+			break;
 		buf->ns.len = (int)len;
-		return 0;
+		ret = 0;
+		break;
 
 	case LWS_TLS_CERT_INFO_COMMON_NAME:
 		/*
@@ -965,25 +973,30 @@ lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 		if (gnutls_x509_crt_get_dn_by_oid(crt_list[0],
 						  GNUTLS_OID_X520_COMMON_NAME,
 						  0, 0, buf->ns.name, &len) < 0)
-			return -1;
+			break;
 		buf->ns.len = (int)len;
-		return 0;
+		ret = 0;
+		break;
 
 	case LWS_TLS_CERT_INFO_DER_RAW:
 		/* We don't have direct access to DER raw via this accessor cleanly here. */
-		return -1;
+		break;
 
 	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID:
 	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_ISSUER:
 	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_SERIAL:
 		/* Not fully mapped to generic lws_tls_cert_info type yet */
-		return -1;
+		break;
 
 	default:
 		break;
 	}
 
-	return -1;
+	for (n = 0; n < crt_list_size; n++)
+		gnutls_x509_crt_deinit(crt_list[n]);
+	gnutls_free(crt_list);
+
+	return ret;
 }
 
 #if defined(LWS_WITH_SERVER)
