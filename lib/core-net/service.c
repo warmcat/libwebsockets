@@ -1056,6 +1056,27 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 	return lws_service_fd_tsi(context, pollfd, 0);
 }
 
+/*
+ * The event library's internal loop has returned to us.
+ *
+ * If a context destroy was started while it ran (lws' own signal handler on
+ * the loop, or lws_context_destroy() called from a callback), the loop wound
+ * down and exited because every lws handle on it is gone.  Entering it again
+ * just exits again immediately, so an app looping on lws_service() while it
+ * returns >= 0 would spin forever, never finishing the destroy: return -1 so
+ * its loop ends and it goes on to call lws_context_destroy(), which is what
+ * completes a destroy that was deferred to after the loop exit.
+ */
+
+static int
+lws_service_evlib_result(struct lws_context *context)
+{
+	if (context->being_destroyed)
+		return -1;
+
+	return 1;
+}
+
 int
 lws_service(struct lws_context *context, int timeout_ms)
 {
@@ -1074,7 +1095,7 @@ lws_service(struct lws_context *context, int timeout_ms)
 
 		pt->inside_service = 0;
 
-		return 1;
+		return lws_service_evlib_result(context);
 	}
 	n = lws_plat_service(context, timeout_ms);
 
@@ -1105,7 +1126,7 @@ lws_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 		pt->inside_service = 0;
 
-		return 1;
+		return lws_service_evlib_result(context);
 	}
 
 	n = _lws_plat_service_tsi(context, timeout_ms, tsi);
