@@ -162,3 +162,15 @@ supported feature with analytic checks (exact span geometry, independent
 pixel-centre oracles, streaming chunk equivalence, transform invariances
 and robustness sweeps); `--dump <dir>` writes the corpus as `.svg`/`.pbm`
 pairs for eyeballing.
+
+It can also render a single file for eyeballing, in the same way as the
+lhp dlo tool renders to a 24bpp top-down `.bmp`:
+
+```
+$ lws-api-test-svg --svg icon.svg [--out icon.bmp] [--scale 2] [--bg 202020]
+```
+
+The spans are composited in document order on to the background colour
+line-at-a-time and written as the `.bmp`; the exit status is nonzero if
+the file could not be opened or parsed.  Running the tool with no `--svg`
+performs the corpus selftest.

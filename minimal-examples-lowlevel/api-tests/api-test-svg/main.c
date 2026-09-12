@@ -27,15 +27,25 @@
 #endif
 
 enum {
+	LWS_SW_SVG,
+	LWS_SW_OUT,
+	LWS_SW_SCALE,
+	LWS_SW_BG,
 	LWS_SW_DUMP,
 	LWS_SW_D,
 	LWS_SW_HELP,
 
 	MAX_CASES	= 1024,
 	DOC_BUFSZ	= 2048,
+	EYEBALL_MAXDIM	= 8192,		/* eyeball mode output size bound */
+	EYEBALL_MAXDOC	= 32 * 1024 * 1024,
 };
 
 static const struct lws_switches switches[] = {
+	[LWS_SW_SVG]	= { "--svg",		"Render this SVG file to a .bmp and exit" },
+	[LWS_SW_OUT]	= { "--out",		"Output .bmp path (default <svg>.bmp)" },
+	[LWS_SW_SCALE]	= { "--scale",		"Integer output scale (default 1)" },
+	[LWS_SW_BG]	= { "--bg",		"Background rrggbb for compositing (default ffffff)" },
 	[LWS_SW_DUMP]	= { "--dump",		"Directory to dump corpus svg+pbm into" },
 	[LWS_SW_D]	= { "-d",		"Debug logs (e.g. -d 15)" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
@@ -43,6 +53,19 @@ static const struct lws_switches switches[] = {
 
 static int checks, fails;
 static const char *dumpdir;
+
+static int
+hexdigit(int c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+
+	return -1;
+}
 
 #define CHK(_cond, _fmt, ...) do { \
 	checks++; \
@@ -1404,6 +1427,221 @@ dump_case(int idx, const bm_t *bm)
 }
 
 /* ------------------------------------------------------------------ */
+/* eyeball mode: render one svg file to a .bmp, like api-test-lhp-dlo   */
+/* ------------------------------------------------------------------ */
+
+static void
+write_bmp_header(int fd, int w, int h)
+{
+	uint8_t head[54];
+	int filesize = 54 + ((((w * 3) + 3) & ~3)) * h;
+
+	memset(head, 0, sizeof(head));
+
+	head[0] = 'B';
+	head[1] = 'M';
+	head[2] = (uint8_t)(filesize & 0xff);
+	head[3] = (uint8_t)((filesize >> 8) & 0xff);
+	head[4] = (uint8_t)((filesize >> 16) & 0xff);
+	head[5] = (uint8_t)((filesize >> 24) & 0xff);
+	head[10] = 54;
+
+	head[14] = 40;
+	head[18] = (uint8_t)(w & 0xff);
+	head[19] = (uint8_t)((w >> 8) & 0xff);
+	head[20] = (uint8_t)((w >> 16) & 0xff);
+	head[21] = (uint8_t)((w >> 24) & 0xff);
+
+	h = -h; /* top-down */
+	head[22] = (uint8_t)(h & 0xff);
+	head[23] = (uint8_t)((h >> 8) & 0xff);
+	head[24] = (uint8_t)((h >> 16) & 0xff);
+	head[25] = (uint8_t)((h >> 24) & 0xff);
+
+	head[26] = 1;
+	head[28] = 24;
+
+	if (write(fd, head, 54) < 54)
+		lwsl_err("%s: write failed\n", __func__);
+}
+
+typedef struct {
+	uint8_t		*row;	/* w * 3, RGB */
+	long		cov;
+} eyeball_t;
+
+static int
+eyeball_span_cb(void *user, int x0, int x1, uint32_t rgba)
+{
+	eyeball_t *e = (eyeball_t *)user;
+	uint8_t a = (uint8_t)LWS_SVG_ALPHA(rgba);
+	uint8_t ia = (uint8_t)(255 - a);
+	uint8_t r = (uint8_t)(rgba & 0xff),
+		g = (uint8_t)((rgba >> 8) & 0xff),
+		b = (uint8_t)((rgba >> 16) & 0xff);
+
+	e->cov += x1 - x0;
+
+	while (x0 < x1) {
+		uint8_t *p = &e->row[(size_t)x0 * 3];
+
+		p[0] = (uint8_t)((r * a + p[0] * ia) / 255);
+		p[1] = (uint8_t)((g * a + p[1] * ia) / 255);
+		p[2] = (uint8_t)((b * a + p[2] * ia) / 255);
+		x0++;
+	}
+
+	return 0;
+}
+
+static int
+eyeball(const char *inpath, const char *outpath, int scale, uint32_t bg)
+{
+	uint8_t bgr[3] = { (uint8_t)(bg & 0xff), (uint8_t)((bg >> 8) & 0xff),
+			   (uint8_t)((bg >> 16) & 0xff) };
+	uint8_t *doc, *row, pad[3] = { 0, 0, 0 };
+	size_t len = 0;
+	lws_stateful_ret_t r;
+	lws_svg_render_t ri;
+	const uint8_t *b;
+	lws_svg_t *svg;
+	ssize_t n;
+	int fd, outfd, w, h, y, padlen, ret = 1;
+	long cov = 0;
+
+	fd = lws_open(inpath, LWS_O_RDONLY, 0);
+	if (fd < 0) {
+		lwsl_user("%s: unable to open %s\n", __func__, inpath);
+		return 1;
+	}
+
+	doc = malloc(EYEBALL_MAXDOC);
+	if (!doc)
+		goto bail1;
+
+	while (len < EYEBALL_MAXDOC) {
+		n = read(fd, doc + len, EYEBALL_MAXDOC - len);
+		if (n < 0) {
+			lwsl_user("%s: read failed\n", __func__);
+			goto bail2;
+		}
+		if (!n)
+			break;
+		len += (size_t)n;
+	}
+	if (len == EYEBALL_MAXDOC) {
+		lwsl_user("%s: %s too large\n", __func__, inpath);
+		goto bail2;
+	}
+	close(fd);
+	fd = -1;
+
+	svg = lws_svg_new();
+	if (!svg)
+		goto bail2;
+
+	b = doc;
+	{
+		size_t l = len;
+
+		r = lws_svg_parse(svg, &b, &l, 0);
+	}
+	if (r & LWS_SRET_FATAL) {
+		lwsl_user("%s: parse FATAL\n", __func__);
+		goto bail3;
+	}
+
+	w = (int)(lws_svg_get_width(svg) * (unsigned int)scale);
+	h = (int)(lws_svg_get_height(svg) * (unsigned int)scale);
+
+	lwsl_user("%s: %zu bytes, ret 0x%x, complete %d, "
+		  "intrinsic %ux%u -> render %dx%d\n", __func__, len,
+		  (unsigned int)r, lws_svg_get_doc_complete(svg),
+		  lws_svg_get_width(svg), lws_svg_get_height(svg), w, h);
+
+	if (!lws_svg_get_width(svg)) {
+		lwsl_user("%s: no root <svg> tag parsed\n", __func__);
+		goto bail3;
+	}
+	if (w <= 0 || h <= 0 || w > EYEBALL_MAXDIM || h > EYEBALL_MAXDIM) {
+		lwsl_user("%s: output size %dx%d out of range\n", __func__, w, h);
+		goto bail3;
+	}
+
+	outfd = lws_open(outpath, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC,
+									0644);
+	if (outfd < 0) {
+		lwsl_user("%s: unable to open %s\n", __func__, outpath);
+		goto bail3;
+	}
+
+	write_bmp_header(outfd, w, h);
+
+	row = malloc((size_t)w * 3);
+	if (!row)
+		goto bail4;
+
+	padlen = (4 - ((w * 3) & 3)) & 3;
+
+	ri.w = w;
+	ri.h = h;
+
+	for (y = 0; y < h; y++) {
+		eyeball_t e;
+		size_t k;
+
+		for (k = 0; k < (size_t)w; k++) {
+			row[k * 3] = bgr[0];
+			row[k * 3 + 1] = bgr[1];
+			row[k * 3 + 2] = bgr[2];
+		}
+
+		e.row = row;
+		e.cov = 0;
+		if (lws_svg_render_line(svg, &ri, y, eyeball_span_cb, &e) &
+							LWS_SRET_FATAL) {
+			lwsl_user("%s: render FATAL at line %d\n", __func__, y);
+			goto bail5;
+		}
+		cov += e.cov;
+
+		/* swap RGB -> BGR */
+
+		for (k = 0; k < (size_t)w * 3; k += 3) {
+			uint8_t t = row[k];
+
+			row[k] = row[k + 2];
+			row[k + 2] = t;
+		}
+
+		if (write(outfd, row, (size_t)w * 3) < (ssize_t)((size_t)w * 3) ||
+		    (padlen && write(outfd, pad, (size_t)padlen) < padlen)) {
+			lwsl_user("%s: write failed\n", __func__);
+			goto bail5;
+		}
+	}
+
+	lwsl_user("%s: %s: %dx%d, %ld / %ld pixels covered\n", __func__,
+		  outpath, w, h, cov, (long)w * h);
+
+	ret = 0;
+
+bail5:
+	free(row);
+bail4:
+	close(outfd);
+bail3:
+	lws_svg_free(&svg);
+bail2:
+	free(doc);
+bail1:
+	if (fd >= 0)
+		close(fd);
+
+	return ret;
+}
+
+/* ------------------------------------------------------------------ */
 /* robustness                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -1623,7 +1861,7 @@ main(int argc, const char **argv)
 {
 	static bm_t bm, chunk_bm;
 	int i, result = 0;
-	const char *p;
+	const char *p, *p2;
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
 		lws_switches_print_help(argv[0], switches,
@@ -1632,12 +1870,56 @@ main(int argc, const char **argv)
 	}
 	lws_set_log_level(LLL_USER, NULL);
 
-if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_DUMP].sw)))
-	dumpdir = p;
-if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-	lws_set_log_level((int)atoi(p), NULL);
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
+		lws_set_log_level((int)atoi(p), NULL);
 
-lwsl_user("LWS SVG corpus test tool\n");
+	/*
+	 * Eyeball mode: render a single svg file to a .bmp like
+	 * api-test-lhp-dlo, instead of running the corpus
+	 */
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_SVG].sw))) {
+		const char *out = lws_cmdline_option(argc, argv,
+						switches[LWS_SW_OUT].sw);
+		const char *bgs = lws_cmdline_option(argc, argv,
+						switches[LWS_SW_BG].sw);
+		char tmp[300];
+		int scale = 1;
+		uint32_t bg = 0xffffff;
+		int i;
+
+		if ((p2 = lws_cmdline_option(argc, argv,
+						switches[LWS_SW_SCALE].sw))) {
+			scale = atoi(p2);
+			if (scale < 1)
+				scale = 1;
+		}
+
+		if (bgs && strlen(bgs) == 6) {
+			bg = 0;
+			for (i = 0; i < 6; i++) {
+				int h = hexdigit(bgs[i]);
+
+				if (h < 0)
+					break;
+				bg = (bg << 4) | (uint32_t)h;
+			}
+			if (i != 6)
+				bg = 0xffffff;
+		}
+
+		if (!out) {
+			lws_snprintf(tmp, sizeof(tmp), "%s.bmp", p);
+			out = tmp;
+		}
+
+		return eyeball(p, out, scale, bg);
+	}
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_DUMP].sw)))
+		dumpdir = p;
+
+	lwsl_user("LWS SVG corpus test tool\n");
 
 build_corpus();
 lwsl_user("corpus: %d documents\n", ncases);
