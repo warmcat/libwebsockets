@@ -140,6 +140,7 @@ typedef struct lws_dlo {
 	uint8_t				flag_block:1; /* block-level box (layout) */
 	uint8_t				flag_row:1;   /* table row box (layout) */
 	uint8_t				flag_cell:1;  /* table cell box (layout) */
+	uint8_t				flag_abs:1;   /* positioned box (layout) */
 
 	/* render-specific members ... */
 } lws_dlo_t;

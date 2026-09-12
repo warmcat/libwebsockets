@@ -925,7 +925,12 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 
 	default:
 		if (ps->is_abs) {
-			/* from the surface origin; auto width shrinks */
+			/*
+			 * From the surface origin; auto width shrinks.  With
+			 * no parent the dlo becomes a child of the body dlo,
+			 * to be moved above the normal flow when the document
+			 * is complete
+			 */
 			parent = NULL;
 			x = lhp_len(ps, ps->css_pos[CCPAS_LEFT], &base);
 			y = lhp_len(ps, ps->css_pos[CCPAS_TOP], &base);
@@ -1006,8 +1011,7 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 	if (!ps->dlo)
 		return LWS_SRET_FATAL;
 
-	if (ps->is_abs)
-		ps->dlo->flag_toplevel = 1;
+	ps->dlo->flag_abs = ps->is_abs;
 	ps->dlo->flag_row = ps->is_row;
 	ps->dlo->flag_cell = ps->is_cell;
 	ps->dlo->flag_block = !ps->is_ilevel && !ps->is_abs && !ps->is_row &&
@@ -1376,6 +1380,37 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 			else
 				lhp_block_close(ctx, p);
 		} lws_end_foreach_dll_back(d);
+
+		/*
+		 * Painting order is list order, and positioned boxes paint
+		 * above the normal flow whatever their place in the source:
+		 * move them, in order, to the end of the body's children
+		 */
+		if (drt && drt->dl && lws_dll2_get_head(&drt->dl->dl)) {
+			lws_dlo_t *body = lws_container_of(
+					lws_dll2_get_head(&drt->dl->dl),
+					lws_dlo_t, list);
+			lws_dll2_owner_t raised;
+
+			memset(&raised, 0, sizeof(raised));
+			lws_start_foreach_dll_safe(lws_dll2_t *, d, d1,
+					lws_dll2_get_head(&body->children)) {
+				lws_dlo_t *dlo = lws_container_of(d, lws_dlo_t,
+								  list);
+
+				if (dlo->flag_abs) {
+					lws_dll2_remove(d);
+					lws_dll2_add_tail(d, &raised);
+				}
+			} lws_end_foreach_dll_safe(d, d1);
+
+			while (lws_dll2_get_head(&raised)) {
+				lws_dll2_t *d = lws_dll2_get_head(&raised);
+
+				lws_dll2_remove(d);
+				lws_dll2_add_tail(d, &body->children);
+			}
+		}
 		break;
 
 	default:

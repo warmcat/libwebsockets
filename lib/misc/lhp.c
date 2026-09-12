@@ -2750,7 +2750,14 @@ elem_start:
 				memset(&i, 0, sizeof(i));
 				lws_css_cascade(ctx);
 
-				if (ctx->npos == 4 && !strncmp(ctx->buf, "body", 4)) {
+				/*
+				 * body gets a surface-sized rect to draw on;
+				 * only once, since we come back through here
+				 * when retrying after waiting for the dims of
+				 * its background image
+				 */
+				if (ctx->npos == 4 && !strncmp(ctx->buf, "body", 4) &&
+				    !ps->dlo) {
 					lws_display_colour_t col =
 						LWSDC_RGBA(255, 255, 255, 255);
 

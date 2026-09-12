@@ -1,4 +1,5 @@
 rect (0.0,0.0) [1600.0 x 2000.0] rgba=FFFFFFFF
+ jpeg (0.0,0.0) [600.0 x 448.0]
  rect (8.0,29.44) [1584.0 x 33.0] rgba=00000000
   text (1405.0,2.0) [177.0 x 29.0] rgba=FF000000 f=29/400 "libwebsockets.org"
  rect (26.0,74.44) [1548.0 x 47.0] rgba=FFFF0000 radii=16.0,16.0,16.0,16.0
@@ -13,16 +14,6 @@ rect (0.0,0.0) [1600.0 x 2000.0] rgba=FFFFFFFF
   text (4.0,2.0) [21.0 x 16.0] rgba=FF00FFFF f=14/400 "First"
   rect (27.0,2.0) [39.0 x 24.0] rgba=A00000CC
   text (29.0,2.0) [35.0 x 16.0] rgba=FF00FFFF f=14/400 "Second"
- rect (502.0,342.0) [4.0 x 4.0] rgba=00000000
- rect (502.0,252.0) [4.0 x 4.0] rgba=00000000
- rect (18.0,368.0) [204.0 x 51.0] rgba=FF00FFFF radii=8.0,8.0,8.0,8.0
-  text (9.0,5.0) [142.0 x 14.0] rgba=FF000000 f=12/400 "Well, some text in an abs div that is "
-  text (151.0,4.0) [34.0 x 15.0] rgba=FF000000 f=12/700 "too long"
-  text (185.0,5.0) [10.0 x 14.0] rgba=FF000000 f=12/400 " to "
-  text (20.0,19.0) [164.0 x 14.0] rgba=FF000000 f=12/400 "comfortably fit on one line, even with the "
-  text (74.5,33.0) [55.0 x 14.0] rgba=FF000000 f=12/400 "smallest font."
- rect (500.0,60.0) [48.0 x 48.0] rgba=FF004040 radii=24.0,24.0,24.0,24.0
- rect (500.0,130.0) [48.0 x 48.0] rgba=FF004040 radii=0.0,12.0,24.0,6.0
  text (8.0,194.44) [94.0 x 14.0] rgba=FF000000 f=12/400 "Something after the div"
  rect (20.0,210.44) [1570.0 x 130.0] rgba=00000000
   rect (4.0,4.0) [1562.0 x 122.0] rgba=FF0000FF
@@ -37,3 +28,15 @@ rect (0.0,0.0) [1600.0 x 2000.0] rgba=FFFFFFFF
  text (10.0,340.44) [71.0 x 16.0] rgba=FF00FFFF f=14/400 "cdiv 33% width"
  rect (6.0,360.44) [49.0 x 24.0] rgba=A00000CC
  text (8.0,364.44) [45.0 x 16.0] rgba=FF00FFFF f=14/400 "blah blah"
+ rect (502.0,342.0) [84.0 x 75.0] rgba=00000000
+  png (2.0,2.0) [80.0 x 71.0]
+ rect (502.0,252.0) [84.0 x 84.0] rgba=00000000
+  png (2.0,2.0) [80.0 x 80.0]
+ rect (18.0,368.0) [204.0 x 51.0] rgba=FF00FFFF radii=8.0,8.0,8.0,8.0
+  text (9.0,5.0) [142.0 x 14.0] rgba=FF000000 f=12/400 "Well, some text in an abs div that is "
+  text (151.0,4.0) [34.0 x 15.0] rgba=FF000000 f=12/700 "too long"
+  text (185.0,5.0) [10.0 x 14.0] rgba=FF000000 f=12/400 " to "
+  text (20.0,19.0) [164.0 x 14.0] rgba=FF000000 f=12/400 "comfortably fit on one line, even with the "
+  text (74.5,33.0) [55.0 x 14.0] rgba=FF000000 f=12/400 "smallest font."
+ rect (500.0,60.0) [48.0 x 48.0] rgba=FF004040 radii=24.0,24.0,24.0,24.0
+ rect (500.0,130.0) [48.0 x 48.0] rgba=FF004040 radii=0.0,12.0,24.0,6.0
