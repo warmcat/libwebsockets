@@ -6,13 +6,12 @@
     {
       "default": {
         "backoff": [
-          1000,
-          2000,
-          3000,
-          5000,
-          10000
+          200,
+          400,
+          800,
+          1600
         ],
-        "conceal": 5,
+        "conceal": 4,
         "jitterpc": 20,
         "svalidping": 30,
         "svalidhup": 35

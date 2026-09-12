@@ -461,6 +461,8 @@ static const char * const default_ss_policy =
  * .must_see, we can count a state like UNREACHABLE as a pass.
  */
 
+#define MIN_BACKOFF_US (2500 * LWS_US_PER_MS)
+
 struct tests_seq {
 	const char		*name;
 	const char		*streamtype;
@@ -468,6 +470,14 @@ struct tests_seq {
 	lws_ss_constate_t	must_see;
 	unsigned int		mask_unexpected;
 	size_t			eom_pass;
+	/*
+	 * For tests that must end in ALL_RETRIES_FAILED, the minimum time the
+	 * policy's backoff table must have made the stream spend retrying
+	 * before giving up.  The policy table is [200, 400, 800, 1600]ms with
+	 * conceal 4, so a correctly escalating backoff takes >= 3000ms; if
+	 * the retries all use the first entry it is done in ~800ms.
+	 */
+	uint64_t		min_us;
 } tests_seq[] = {
 
 	/*
@@ -479,21 +489,21 @@ struct tests_seq {
 		"t_h1", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0
+		0, 0
 	},
 	{
 		"h1:443 just get 200",
 		"t_h1_tls", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0
+		0, 0
 	},
 	{
 		"h2:443 just get 200",
 		"t_h2_tls", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0
+		0, 0
 	},
 
 	/*
@@ -507,20 +517,20 @@ struct tests_seq {
 		"d_h1", 3 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0
+		0, 0
 	},
 	{
 		"h1:443 timeout after connection",
 		"d_h1_tls", 3 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0
+		0, 0
 	},
 	{
 		"h2:443 timeout after connection",
 		"d_h2_tls", 3 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
-		0
+		0, 0
 	},
 
 	/*
@@ -533,21 +543,21 @@ struct tests_seq {
 		"nxd_h1", 35 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0
+		0, 0
 	},
 	{
 		"h1:443 NXDOMAIN",
 		"nxd_h1_tls", 35 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0
+		0, 0
 	},
 	{
 		"h2:443 NXDOMAIN",
 		"nxd_h2_tls", 35 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0
+		0, 0
 	},
 
 	/*
@@ -561,19 +571,19 @@ struct tests_seq {
 		"h1:80 NXDOMAIN exhaust retries",
 		"nxd_h1", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
-		0
+		0, MIN_BACKOFF_US
 	},
 	{
 		"h1:443 NXDOMAIN exhaust retries",
 		"nxd_h1_tls", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
-		0
+		0, MIN_BACKOFF_US
 	},
 	{
 		"h2:443 NXDOMAIN exhaust retries",
 		"nxd_h2_tls", 25 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
-		0
+		0, MIN_BACKOFF_US
 	},
 
 	/*
@@ -585,21 +595,21 @@ struct tests_seq {
 		"bulk_h1", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_ALL_RETRIES_FAILED),
-		12345
+		12345, 0
 	},
 	{
 		"h1:443 read bulk",
 		"bulk_h1_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_ALL_RETRIES_FAILED),
-		12345
+		12345, 0
 	},
 	{
 		"h2:443 read bulk",
 		"bulk_h2_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_ALL_RETRIES_FAILED),
-		12345
+		12345, 0
 	},
 
 	/*
@@ -610,19 +620,19 @@ struct tests_seq {
 		"h1:badcert_hostname",
 		"badcert_hostname", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_NACK_REMOTE),
-		0
+		0, MIN_BACKOFF_US
 	},
 	{
 		"h1:badcert_expired",
 		"badcert_expired", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_NACK_REMOTE),
-		0
+		0, MIN_BACKOFF_US
 	},
 	{
 		"h1:badcert_selfsigned",
 		"badcert_selfsigned", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_NACK_REMOTE),
-		0
+		0, MIN_BACKOFF_US
 	},
 
 };
@@ -701,6 +711,20 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 			lwsl_notice("%s: failing on rx %d, expected %d\n",
 				    __func__, (int)m->rx_seen,
 				    (int)curr_test->eom_pass);
+			m->result_reported = 1;
+			tests_fail++;
+			lws_sul_schedule(context, 0, &sul_next_test, tests_start_next, 1);
+			h = NULL;
+			return LWSSSSRET_DESTROY_ME;
+		}
+
+		if (curr_test->min_us &&
+		    (uint64_t)(lws_now_usecs() - m->start_us) < curr_test->min_us) {
+			lwsl_notice("%s: failing on %s after only %dms, "
+				    "backoff table not honoured\n", __func__,
+				    lws_ss_state_name(state),
+				    (int)((lws_now_usecs() - m->start_us) /
+							LWS_US_PER_MS));
 			m->result_reported = 1;
 			tests_fail++;
 			lws_sul_schedule(context, 0, &sul_next_test, tests_start_next, 1);
@@ -836,6 +860,8 @@ tests_start_next(lws_sorted_usec_list_t *sul)
 	if ((unsigned int)tests >= LWS_ARRAY_SIZE(tests_seq)) {
 		lwsl_notice("Completed all tests\n");
 		interrupted = 1;
+		/* don't sit in poll() until some unrelated sul fires */
+		lws_cancel_service(context);
 		return;
 	}
 

@@ -33,6 +33,7 @@ static const char * const lejp_tokens_policy[] = {
 	"schema-version",
 	"via-socks5",
 	"retry[].*.backoff",
+	"retry[].*.backoff[]",
 	"retry[].*.conceal",
 	"retry[].*.jitterpc",
 	"retry[].*.svalidping",
@@ -143,6 +144,7 @@ typedef enum {
 	LSSPPT_SCHEMA_VERSION,
 	LSSPPT_VIA_SOCKS5,
 	LSSPPT_BACKOFF,
+	LSSPPT_BACKOFF_ELEM,
 	LSSPPT_CONCEAL,
 	LSSPPT_JITTERPC,
 	LSSPPT_VALIDPING_S,
@@ -534,6 +536,14 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		goto string2;
 
 	case LSSPPT_BACKOFF:
+	case LSSPPT_BACKOFF_ELEM:
+		/*
+		 * The first array element arrives with the "backoff" pair-name
+		 * match still active, but lejp re-evaluates the path at every
+		 * array comma; the element path "backoff[]" then only matches
+		 * the explicit "[]" pattern, else it falls through to "retry[].*"
+		 * and the rest of the table is silently dropped.
+		 */
 		b = &a->curr[LTY_BACKOFF].b->r;
 		if (b->retry_ms_table_count == 8) {
 			lwsl_err("%s: > 8 backoff levels\n", __func__);
