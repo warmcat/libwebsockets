@@ -52,14 +52,17 @@ should make an extra effort to keep them clean and as quality exemplars.
 
 We are very concerned about security, architecturally and in the code.  We avoid using:
 
- - things like `scanf` for carefully parsing with code, eg with `lws_tokenize` or similar.
+ - things like `scanf` or `strtok` for carefully parsing with code, eg with `lws_tokenize` or similar.
 
- - `FILE *` and use apis like open(), read().
+ - `FILE *`: use apis like open(), read().
 
  - hand-rolled ad-hoc code when there are library helpers, eg no casual
    linked-lists or primitive lws ll api lists; use `lws_dll2_t` instead.
    Outside of the `lws_dll2_t` implementation, use helpers rather than
    direct member accesses.
+
+ - We NEVER INSTALL OR USE known attack vectors like node.js or any other
+   platform with uncontrolled remote finegrained dependencies, even on a VM
 
 We consider using:
 
@@ -104,6 +107,9 @@ Please bear in mind:
 
  - Before a vuln is found, you would have failed to take care about it.  Keep in mind
    common vuln patterns and avoid them in new code so nobody has to find your vuln.
+
+ - Coverity, SonarQube and CodeQL will be looking at your changes.  Please avoid
+   creating situations they will flag.
 
 ## Build testing
 
