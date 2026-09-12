@@ -637,6 +637,7 @@ typedef struct lhp_ctx {
 #define LHP_CSS_PROPVAL_INT_UNIT	3
 			uint32_t	integer:2;
 			uint32_t	color:2;
+			uint32_t	infunc:1; /* inside name( ... ) value */
 		} f;
 	} u;
 

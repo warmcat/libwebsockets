@@ -849,6 +849,266 @@ lcsp_append_cssval_color(lhp_ctx_t *ctx)
 
 static int lcsp_append_cssval_string(lhp_ctx_t *ctx);
 
+/* properties whose keyword values may be colour names */
+
+static int
+lcsp_prop_takes_colour(int prop)
+{
+	switch (prop) {
+	case LCSP_PROP_COLOR:
+	case LCSP_PROP_BACKGROUND_COLOR:
+	case LCSP_PROP_BACKGROUND:
+	case LCSP_PROP_BORDER_COLOR:
+	case LCSP_PROP_BORDER_TOP_COLOR:
+	case LCSP_PROP_BORDER_RIGHT_COLOR:
+	case LCSP_PROP_BORDER_BOTTOM_COLOR:
+	case LCSP_PROP_BORDER_LEFT_COLOR:
+	case LCSP_PROP_BORDER:
+	case LCSP_PROP_BORDER_TOP:
+	case LCSP_PROP_BORDER_RIGHT:
+	case LCSP_PROP_BORDER_BOTTOM:
+	case LCSP_PROP_BORDER_LEFT:
+	case LCSP_PROP_OUTLINE_COLOR:
+	case LCSP_PROP_OUTLINE:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+/* the CSS named colours pages actually use; value is 0xRRGGBB */
+
+static const struct {
+	const char	*name;
+	uint32_t	rgb;
+} lcsp_named_colours[] = {
+	{ "black",	0x000000 }, { "white",	0xffffff },
+	{ "red",	0xff0000 }, { "green",	0x008000 },
+	{ "blue",	0x0000ff }, { "yellow",	0xffff00 },
+	{ "gray",	0x808080 }, { "grey",	0x808080 },
+	{ "silver",	0xc0c0c0 }, { "maroon",	0x800000 },
+	{ "purple",	0x800080 }, { "fuchsia",	0xff00ff },
+	{ "magenta",	0xff00ff }, { "lime",	0x00ff00 },
+	{ "olive",	0x808000 }, { "navy",	0x000080 },
+	{ "teal",	0x008080 }, { "aqua",	0x00ffff },
+	{ "cyan",	0x00ffff }, { "orange",	0xffa500 },
+	{ "darkgray",	0xa9a9a9 }, { "darkgrey",	0xa9a9a9 },
+	{ "lightgray",	0xd3d3d3 }, { "lightgrey",	0xd3d3d3 },
+	{ "dimgray",	0x696969 }, { "dimgrey",	0x696969 },
+	{ "whitesmoke",	0xf5f5f5 }, { "gainsboro",	0xdcdcdc },
+	{ "darkgreen",	0x006400 }, { "darkblue",	0x00008b },
+	{ "darkred",	0x8b0000 }, { "lightblue",	0xadd8e6 },
+	{ "lightgreen",	0x90ee90 }, { "steelblue",	0x4682b4 },
+	{ "royalblue",	0x4169e1 }, { "dodgerblue",	0x1e90ff },
+	{ "skyblue",	0x87ceeb }, { "slategray",	0x708090 },
+	{ "slategrey",	0x708090 }, { "gold",	0xffd700 },
+	{ "pink",	0xffc0cb }, { "hotpink",	0xff69b4 },
+	{ "brown",	0xa52a2a }, { "tan",	0xd2b48c },
+	{ "beige",	0xf5f5dc }, { "ivory",	0xfffff0 },
+	{ "khaki",	0xf0e68c }, { "coral",	0xff7f50 },
+	{ "salmon",	0xfa8072 }, { "crimson",	0xdc143c },
+	{ "tomato",	0xff6347 }, { "orangered",	0xff4500 },
+	{ "indigo",	0x4b0082 }, { "violet",	0xee82ee },
+	{ "turquoise",	0x40e0d0 }, { "chocolate",	0xd2691e },
+	{ "firebrick",	0xb22222 }, { "forestgreen",	0x228b22 },
+	{ "seagreen",	0x2e8b57 }, { "midnightblue",	0x191970 },
+	{ "lavender",	0xe6e6fa }, { "linen",	0xfaf0e6 },
+	{ "snow",	0xfffafa }, { "aliceblue",	0xf0f8ff },
+};
+
+static int
+lcsp_append_rgba(lhp_ctx_t *ctx, uint32_t rgba)
+{
+	lcsp_atr_t *atr = lwsac_use_zero(&ctx->cssac, sizeof(*atr),
+					 LHP_AC_GRANULE);
+
+	if (!atr)
+		return 1;
+
+	atr->unit = LCSP_UNIT_RGBA;
+	atr->u.rgba = rgba;
+	lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
+
+	return 0;
+}
+
+/* a number in a functional value, with optional % or deg; 0 if none */
+
+static int
+lcsp_func_num(const char **pp, const char *end, lws_fx_t *v, int *pct)
+{
+	const char *p = *pp, *s;
+
+	while (p < end && (*p == ' ' || *p == ',' || *p == '/'))
+		p++;
+	s = p;
+	while (p < end && ((*p >= '0' && *p <= '9') || *p == '.' || *p == '-'))
+		p++;
+	if (p == s) {
+		*pp = p;
+		return 0;
+	}
+	lhp_fx_parse(v, s, (size_t)(p - s));
+	*pct = p < end && *p == '%';
+	while (p < end && ((*p >= 'a' && *p <= 'z') || *p == '%'))
+		p++;
+	*pp = p;
+
+	return 1;
+}
+
+static uint32_t
+lcsp_chan(const lws_fx_t *v, int pct, int scale)
+{
+	lws_fx_t t, c255 = { 255, 0 }, c100 = { 100, 0 }, cs = { scale, 0 };
+	int32_t r;
+
+	if (pct)
+		lws_fx_div(&t, lws_fx_mul(&t, v, &c255), &c100);
+	else
+		lws_fx_mul(&t, v, &cs);
+
+	r = lws_fx_roundup(&t);
+	if (r < 0)
+		r = 0;
+	if (r > 255)
+		r = 255;
+
+	return (uint32_t)r;
+}
+
+/* hsl to rgb, h in degrees, s and l as 0..255 */
+
+static uint32_t
+lcsp_hsl_chan(int h, int s, int l, int n)
+{
+	/* CSS Color 4 algorithm with everything scaled by 255 */
+	int k = (n * 30 + h) % 360, a, v;
+
+	if (k < 0)
+		k += 360;
+	a = s * (l < 128 ? l : 255 - l) / 255;
+
+	/* min(k - 3, 9 - k, 1) in twelfths of a turn -> degrees */
+	v = k - 90;
+	if (270 - k < v)
+		v = 270 - k;
+	if (v > 30)
+		v = 30;
+	if (v < -30)
+		v = -30;
+
+	return (uint32_t)(l - a * v / 30);
+}
+
+/*
+ * A complete name( ... ) value is in buf: turn it into the right kind of
+ * attribute
+ */
+
+static int
+lcsp_func_value(lhp_ctx_t *ctx)
+{
+	const char *b = ctx->buf, *p = strchr(b, '('), *end;
+	size_t nl;
+
+	if (!p || !ctx->def)
+		return 0;
+
+	nl = (size_t)(p - b);
+	p++;
+	end = ctx->buf + ctx->npos - 1; /* the closing paren */
+
+	if (nl == 4 && !strncasecmp(b, "calc", 4)) {
+		lcsp_atr_t *atr = lwsac_use_zero(&ctx->cssac, sizeof(*atr) +
+					(size_t)(end - p) + 1, LHP_AC_GRANULE);
+		if (!atr)
+			return 1;
+
+		atr->unit = LCSP_UNIT_CALC;
+		atr->value_len = (size_t)(end - p);
+		memcpy(&atr[1], p, atr->value_len);
+		((char *)&atr[1])[atr->value_len] = '\0';
+		lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
+
+		return 0;
+	}
+
+	if ((nl == 3 && !strncasecmp(b, "rgb", 3)) ||
+	    (nl == 4 && !strncasecmp(b, "rgba", 4))) {
+		lws_fx_t v[4];
+		int pct[4], n = 0;
+		uint32_t c[4] = { 0, 0, 0, 255 };
+
+		while (n < 4 && lcsp_func_num(&p, end, &v[n], &pct[n]))
+			n++;
+		if (n < 3)
+			return 0;
+		c[0] = lcsp_chan(&v[0], pct[0], 1);
+		c[1] = lcsp_chan(&v[1], pct[1], 1);
+		c[2] = lcsp_chan(&v[2], pct[2], 1);
+		if (n == 4)
+			c[3] = lcsp_chan(&v[3], pct[3], 255);
+
+		return lcsp_append_rgba(ctx, (c[3] << 24) | (c[2] << 16) |
+					     (c[1] << 8) | c[0]);
+	}
+
+	if ((nl == 3 && !strncasecmp(b, "hsl", 3)) ||
+	    (nl == 4 && !strncasecmp(b, "hsla", 4))) {
+		lws_fx_t v[4];
+		int pct[4], n = 0, h, sa, l;
+		uint32_t a = 255;
+
+		while (n < 4 && lcsp_func_num(&p, end, &v[n], &pct[n]))
+			n++;
+		if (n < 3)
+			return 0;
+		h = v[0].whole % 360;
+		if (h < 0)
+			h += 360;
+		sa = (int)lcsp_chan(&v[1], 1, 1);
+		l = (int)lcsp_chan(&v[2], 1, 1);
+		if (n == 4)
+			a = lcsp_chan(&v[3], pct[3], 255);
+
+		return lcsp_append_rgba(ctx, (a << 24) |
+				(lcsp_hsl_chan(h, sa, l, 4) << 16) |
+				(lcsp_hsl_chan(h, sa, l, 8) << 8) |
+				 lcsp_hsl_chan(h, sa, l, 0));
+	}
+
+	if (nl == 3 && !strncasecmp(b, "url", 3)) {
+		lcsp_atr_t *atr;
+		size_t vl;
+
+		/* the bare address: strip whitespace and quotes */
+		while (p < end && (*p == ' ' || *p == '"' || *p == '\''))
+			p++;
+		while (end > p && (end[-1] == ' ' || end[-1] == '"' ||
+				   end[-1] == '\''))
+			end--;
+		vl = (size_t)(end - p);
+
+		atr = lwsac_use_zero(&ctx->cssac, sizeof(*atr) + vl + 1,
+				     LHP_AC_GRANULE);
+		if (!atr)
+			return 1;
+
+		atr->unit = LCSP_UNIT_URL;
+		atr->value_len = vl;
+		memcpy(&atr[1], p, vl);
+		((char *)&atr[1])[vl] = '\0';
+		lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
+
+		return 0;
+	}
+
+	/* var(--x), linear-gradient(...) etc: keep the text */
+
+	return lcsp_append_cssval_string(ctx);
+}
+
 /*
  * A delimiter arrived while a keyword value was being matched: the token
  * may be a complete keyword that is also the prefix of a longer one (eg,
@@ -902,6 +1162,24 @@ lcsp_append_cssval_string(lhp_ctx_t *ctx)
 		if (ctx->def)
 			ctx->def->important = 1;
 		return 0;
+	}
+
+	if (ctx->def && lcsp_prop_takes_colour((int)ctx->def->prop)) {
+		size_t n;
+
+		if (ctx->npos == 11 && !strncasecmp(c, "transparent", 11))
+			return lcsp_append_rgba(ctx, 0);
+
+		for (n = 0; n < LWS_ARRAY_SIZE(lcsp_named_colours); n++)
+			if (strlen(lcsp_named_colours[n].name) == (size_t)ctx->npos &&
+			    !strncasecmp(c, lcsp_named_colours[n].name,
+					 (size_t)ctx->npos)) {
+				uint32_t rgb = lcsp_named_colours[n].rgb;
+
+				return lcsp_append_rgba(ctx, 0xff000000u |
+					((rgb & 0xff) << 16) | (rgb & 0xff00) |
+					(rgb >> 16));
+			}
 	}
 
 	atr = lwsac_use_zero(&ctx->cssac, sizeof(*atr) + (size_t)ctx->npos + 1u,
@@ -2080,6 +2358,20 @@ lws_css_cascade(lhp_ctx_t *ctx)
 	ps->css_border_radius[3] = lhp_side_atr(ps, LCSP_PROP_BORDER_BOTTOM_RIGHT_RADIUS, LCSP_PROP_BORDER_RADIUS, 3, 1);
 
 	ps->css_background_color = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_BACKGROUND_COLOR);
+	if (!ps->css_background_color &&
+	    lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_BACKGROUND)) {
+		/* the colour part of the background shorthand, if any */
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&ctx->active_atr)) {
+			lcsp_atr_ptr_t *ap = lws_container_of(d, lcsp_atr_ptr_t,
+							      list);
+
+			if (ap->atr->unit == LCSP_UNIT_RGBA ||
+			    (ap->atr->unit == LCSP_UNIT_STRING &&
+			     !strncmp((const char *)&ap->atr[1], "var(--", 6)))
+				ps->css_background_color = ap->atr;
+		} lws_end_foreach_dll(d);
+	}
 	if (ps->css_background_color)
 		ps->css_background_color = lhp_resolve_var_color(ctx, ps->css_background_color);
 
@@ -2532,13 +2824,11 @@ elem_start:
 
 				/*
 				 * Without a base url we can't resolve the
-				 * asset URL at all; it's not a parse error
+				 * asset URL at all; it's not a parse error,
+				 * and the element still exists for layout
 				 */
 
-				if (!ctx->base_url)
-					goto check_closing;
-
-				if (!pname)
+				if (!pname || !ctx->base_url)
 					goto issue_elem_start;
 
 				/* we should be in an <img tag or
@@ -2546,7 +2836,7 @@ elem_start:
 
 				if (lws_http_rel_to_url(url, sizeof(url),
 							ctx->base_url, pname))
-					goto check_closing;
+					goto issue_elem_start;
 
 				/* decode percent-encoding in the URL */
 				{
@@ -2589,7 +2879,7 @@ elem_start:
 					 * is no way to look for or fetch image
 					 * assets, leave the element empty
 					 */
-					goto check_closing;
+					goto issue_elem_start;
 
 				if (lws_dlo_ss_find(cx, url, &u)) {
 
@@ -2607,9 +2897,12 @@ elem_start:
 
 					lwsl_cx_info(cx, "not already in progress: %s", url);
 					if (lws_dlo_ss_create(&i, &dlo)) {
-						/* we can't get it */
+						/*
+						 * we can't get it: the element
+						 * is laid out without its image
+						 */
 						lwsl_cx_warn(cx, "Can't get %s", url);
-						goto check_closing;
+						goto issue_elem_start;
 					} else {
 						lwsl_cx_info(cx, "Created SS for %s\n", url);
 						if (ctx->npos == 3 && !strncmp(ctx->buf, "img", 3))
@@ -3255,6 +3548,15 @@ done_amp:
 			if (c == '}') {
 				ctx->state = LCSPS_CSS_OUTER;
 
+				if (ctx->u.f.infunc) {
+					ctx->u.f.infunc = 0;
+					ctx->npos = 0;
+					ctx->u.f.arg = 0;
+					ctx->css_state = 0;
+					ctx->cssval_state = 0;
+					break;
+				}
+
 				if (ctx->u.f.color) {
 					lcsp_append_cssval_color(ctx);
 					ctx->npos = 0;
@@ -3287,11 +3589,47 @@ done_amp:
 			if (ctx->u.f.arg) {
 				/* we're on the value side of prop: value */
 
+				/*
+				 * name( ... ) values: collect to the matching
+				 * ')' (this may span input chunks) and then
+				 * interpret the whole thing.  A ';' or '}'
+				 * before that means a broken value: drop it.
+				 */
+
+				if (ctx->u.f.infunc && c != ';' && c != '}') {
+					if (ctx->npos >= LHP_STRING_CHUNK) {
+						lwsl_err("%s: func too long\n", __func__);
+						goto oom;
+					}
+					ctx->buf[ctx->npos++] = (char)c;
+					if (c == '"' || c == '\'')
+						ctx->u.f.inq = ctx->u.f.inq ^ 1u;
+					else if (!ctx->u.f.inq) {
+						if (c == '(')
+							ctx->temp_count++;
+						if (c == ')' && !--ctx->temp_count) {
+							ctx->u.f.infunc = 0;
+							if (lcsp_func_value(ctx))
+								goto oom;
+							ctx->npos = 0;
+							ctx->cssval_state = 0;
+						}
+					}
+					break;
+				}
+
 				if (c == ';') {
 					/* end of this declaration: restart with
 					 * whatever is after the ';' */
 					ctx->css_state = 0;
 					ctx->u.f.arg = 0;
+
+					if (ctx->u.f.infunc) {
+						ctx->u.f.infunc = 0;
+						ctx->npos = 0;
+						ctx->cssval_state = 0;
+						break;
+					}
 
 					if (ctx->u.f.color) {
 						lcsp_append_cssval_color(ctx);
@@ -3310,14 +3648,6 @@ done_amp:
 					if (lcsp_finish_cssval_keyword(ctx))
 						goto oom;
 					ctx->npos = 0;
-					break;
-				}
-
-				if (ctx->cssval_state == (int16_t)-1 &&
-				    hspace(c)) {
-					/* resync after unknown prop: restart
-					 * with whatever is after the ';' */
-					ctx->cssval_state = 0;
 					break;
 				}
 
@@ -3476,44 +3806,19 @@ issue_post:
 					ctx->buf[ctx->npos++] = (char)c;
 				}
 
-				/* well-known property value strings */
+				if (c == '(' && ctx->npos > 1 && ctx->npos < 24) {
+					int n, fn = 1;
 
-				if (ctx->npos == 5 && !memcmp(ctx->buf, "calc(", 5)) {
-					int nested = 1;
-
-					while (*len) {
-						c = *(*buf)++;
-						(*len)--;
-
-						if (c == '(')
-							nested++;
-						if (c == ')') {
-							nested--;
-							if (!nested) {
-								lcsp_atr_t *atr = lwsac_use_zero(&ctx->cssac,
-										sizeof(*atr) +
-										(unsigned int)ctx->npos + 1 - 5,
-										LHP_AC_GRANULE);
-								if (!atr)
-									goto oom;
-
-								atr->unit = LCSP_UNIT_CALC;
-								atr->value_len = (size_t)ctx->npos - 5;
-								memcpy(&atr[1], ctx->buf + 5, atr->value_len);
-								((char *)&atr[1])[atr->value_len] = '\0';
-
-								lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
-								ctx->npos = 0;
-								break;
-							}
-						}
-						if (ctx->npos >= LHP_STRING_CHUNK) {
-							lwsl_err("%s: calc string too long\n", __func__);
-							goto oom;
-						}
-						ctx->buf[ctx->npos++] = (char)c;
+					/* only ident( starts a function */
+					for (n = 0; n < ctx->npos - 1; n++)
+						if (!lhp_ident_char(ctx->buf[n]))
+							fn = 0;
+					if (fn) {
+						ctx->u.f.infunc = 1;
+						ctx->u.f.inq = 0;
+						ctx->temp_count = 1;
+						break;
 					}
-					break;
 				}
 
 				switch(lws_minilex_parse(css_propconst_lextable,
