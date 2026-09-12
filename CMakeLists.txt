@@ -441,6 +441,13 @@ option(LWS_WITH_LWS_DSH "Support lws_dsh_t Disordered Shared Heap" OFF)
 option(LWS_CLIENT_HTTP_PROXYING "Support external http proxies for client connections" ON)
 option(LWS_WITH_FILE_OPS "Support file operations vfs" ON)
 option(LWS_WITH_UDP "Platform supports UDP" ON)
+if (NOT LWS_WITH_UDP AND LWS_WITH_SYS_ASYNC_DNS)
+	# the async dns resolver talks to nameservers over UDP, and its public
+	# header (lws-async-dns.h) is compiled out without LWS_WITH_UDP
+	message(STATUS "LWS_WITH_SYS_ASYNC_DNS requires LWS_WITH_UDP, disabling it")
+	set(LWS_WITH_SYS_ASYNC_DNS OFF)
+	set(LWS_WITH_SYS_ASYNC_DNS_DNSSEC OFF)
+endif()
 option(LWS_WITH_SPAWN "Spawn subprocesses with piped stdin/out/stderr" OFF)
 option(LWS_WITH_FSMOUNT "Overlayfs and fallback mounting apis" OFF)
 option(LWS_WITH_FANALYZER "Enable gcc -fanalyzer if compiler supports" OFF)
