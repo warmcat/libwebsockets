@@ -797,6 +797,30 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 	if (r) {
 		m = lws_sort_dns(wsi, r);
+
+		if (!ads && !m && wsi->do_bind) {
+			/*
+			 * A wildcard bind.  The resolver hands us both wildcards
+			 * with 0.0.0.0 first, and binding that gives an
+			 * IPv4-only listener on a dual-stack host.  Try :: first:
+			 * with the vhost's V6ONLY policy off (the QUIC listener
+			 * asks for that) it takes both families, and on a host
+			 * without IPv6 the bind fails and the loop below moves
+			 * on to 0.0.0.0, so either family may be absent.
+			 */
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					lws_dll2_get_head(&wsi->dns_sorted_list)) {
+				lws_dns_sort_t *s = lws_container_of(d,
+						lws_dns_sort_t, list);
+
+				if (s->dest.sa4.sin_family == AF_INET6) {
+					lws_dll2_remove(&s->list);
+					lws_dll2_add_head(&s->list,
+							  &wsi->dns_sorted_list);
+					break;
+				}
+			} lws_end_foreach_dll(d);
+		}
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 		lws_async_dns_freeaddrinfo(&r);
 #else
