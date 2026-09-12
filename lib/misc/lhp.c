@@ -365,8 +365,9 @@ lhp_clean_level(lhp_pstack_t *ps)
 	 * Keep this element's attributes on the parent as one of its recent
 	 * closed children, for the sibling combinators of later siblings
 	 */
+#if LHP_SIBLING_HISTORY > 0
 	if (parent && !lws_dll2_is_empty(&ps->atr) &&
-	    !lws_dll2_is_empty(&parent->atr) && LHP_SIBLING_HISTORY) {
+	    !lws_dll2_is_empty(&parent->atr)) {
 		lhp_sib_t *sib = lws_zalloc(sizeof(*sib), __func__);
 
 		if (sib) {
@@ -383,6 +384,7 @@ lhp_clean_level(lhp_pstack_t *ps)
 					lhp_sib_t, list));
 		}
 	}
+#endif
 
 	lws_dll2_foreach_safe(&ps->sibs, NULL, lhp_clean_sib);
 	lws_dll2_foreach_safe(&ps->atr, NULL, lhp_clean_atr);
