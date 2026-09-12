@@ -529,6 +529,8 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	    !lws_socket_is_valid(wsi->desc.sockfd) && /* no attempt ongoing */
 	    !lws_dll2_count(&wsi->speculative_connect_owner) /* no spec attempt */ ) {
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+		/* the blocking resolver path reports NXDOMAIN itself (connect2.c) */
 		if (n == LADNS_RET_NXDOMAIN) {
 			/*
 			 * The name authoritatively does not exist: there is no
@@ -544,6 +546,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			cce = "DNS NXDOMAIN";
 			goto oom4;
 		}
+#endif
 
 		/* the resolver, not the name, failed */
 		wsi->dns_reachability = 1;
