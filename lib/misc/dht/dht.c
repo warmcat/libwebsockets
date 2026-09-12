@@ -73,41 +73,6 @@ is_martian(const struct sockaddr *sa)
 
 
 
-/*
- * Compare two socket addresses by family, address and port; 0 if they are the
- * same endpoint.  Deliberately does not look at any other sockaddr member, so
- * it is safe against differing socklens and uninitialised tails.
- */
-
-int
-dht_sa_cmp(const struct sockaddr *a, const struct sockaddr *b)
-{
-	if (a->sa_family != b->sa_family)
-		return 1;
-
-	switch (a->sa_family) {
-	case AF_INET: {
-		const struct sockaddr_in *s1 = (const struct sockaddr_in *)a,
-					 *s2 = (const struct sockaddr_in *)b;
-
-		return !(s1->sin_addr.s_addr == s2->sin_addr.s_addr &&
-			 s1->sin_port == s2->sin_port);
-	}
-	case AF_INET6: {
-		const struct sockaddr_in6 *s1 = (const struct sockaddr_in6 *)a,
-					  *s2 = (const struct sockaddr_in6 *)b;
-
-		return !(!memcmp(s1->sin6_addr.s6_addr,
-				 s2->sin6_addr.s6_addr, 16) &&
-			 s1->sin6_port == s2->sin6_port);
-	}
-	default:
-		break;
-	}
-
-	return 1;
-}
-
 int
 dht_tx_chunk(struct lws_transport_sequencer *ts, uint64_t offset,
 	     const uint8_t *buf, size_t len)
@@ -388,7 +353,7 @@ lws_dht_get_ts(struct lws_dht_ctx *ctx, const struct sockaddr *dest, size_t sale
 	while (d) {
 		lws_dht_ts_t *dts = lws_container_of(d, lws_dht_ts_t, list);
 
-		if (!dht_sa_cmp((const struct sockaddr *)&dts->sa, dest)) {
+		if (dht_sa_same_peer((const struct sockaddr *)&dts->sa, dest)) {
 			/*
 			 * ->ts_owner is kept in least-recently-used order with
 			 * the stalest at the head, so that the cap below evicts

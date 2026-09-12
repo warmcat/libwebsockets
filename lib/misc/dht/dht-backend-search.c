@@ -70,7 +70,7 @@ search_awaiting_reply_from(struct lws_dht_ctx *ctx, struct search *sr,
 			    ctx->now - LWS_DHT_PING_TIMEOUT_SECS))
 			continue;
 
-		if (!dht_sa_cmp((const struct sockaddr *)&n->ss, sa))
+		if (dht_sa_same_peer((const struct sockaddr *)&n->ss, sa))
 			return 1;
 	}
 

@@ -385,7 +385,32 @@ int expire_storage(struct lws_dht_ctx *ctx);
 void lws_dht_periodic_cb(lws_sorted_usec_list_t *sul);
 #endif
 int lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen, const struct sockaddr *from, size_t fromlen);
-int dht_sa_cmp(const struct sockaddr *a, const struct sockaddr *b);
+
+/*
+ * Compare two socket addresses by family, address and port; 1 if they are
+ * the same peer endpoint.  Uses the lws sa46 address comparison (which
+ * normalizes v4 to v4-in-v6) plus the port: the sequencer table and the
+ * search reply matching key on the full endpoint, so they must not alias
+ * two peers behind one NAT address, or accept a reply from the same
+ * address on a different port.
+ */
+
+static LWS_INLINE int
+dht_sa_same_peer(const struct sockaddr *a, const struct sockaddr *b)
+{
+	const lws_sockaddr46 *x = (const lws_sockaddr46 *)a,
+			      *y = (const lws_sockaddr46 *)b;
+
+	if (lws_sa46_compare_ads(x, y))
+		return 0;
+
+#if defined(LWS_WITH_IPV6)
+	if (x->sa4.sin_family == AF_INET6)
+		return x->sa6.sin6_port == y->sa6.sin6_port;
+#endif
+
+	return x->sa4.sin_port == y->sa4.sin_port;
+}
 int dht_tx_check(size_t size, size_t offset, size_t delta);
 int dht_tx_skip(size_t *offset, size_t size, size_t delta);
 int dht_tx_id_len(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id);
