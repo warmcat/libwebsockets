@@ -88,17 +88,17 @@ Each step gets its own client context: lws remembers the negotiated ALPN and
 the advertised Alt-Svc h3 endpoint per context, so a second request on one
 context would silently be upgraded to h3 whatever role the case asked for.
 
-**`captcha-h2` fails at the time of writing**, at step 3, and it is not the
-interceptor's fault: the lws **h2 client** does not deliver a POST with a
-request body.  The client adds the body headers, arms
-`lws_client_http_body_pending()`, gets its `CLIENT_HTTP_WRITEABLE` and its
-`lws_write(..., LWS_WRITE_HTTP_FINAL)` succeeds, then the transaction ends with
-no response, and the server never dispatches the request at all (nothing
-whatever in the lwsws log for it).  `curl --http2` doing the identical POST to
-the identical url is answered 303 with the pass cookie, so the server side is
-fine.  The stock `lws-minimal-http-client-post` (multipart, h2) against the
-same server fails the same way, intermittently, so it is not this test's
-client code.  The h1 case passes every time.
+`captcha-h2` is also the regression test for **C-474**, which it found: step 3
+failed with status 0 and it was not the interceptor's fault.  The lws **h2
+client** sent the body from `CLIENT_HTTP_WRITEABLE` with zero stream credit
+(the lws server opens the stream window at 0 and grows it by `WINDOW_UPDATE`
+once it has the `HEADERS`), and the `WINDOW_UPDATE` that then arrived re-armed
+the writeable callback on the now half-closed stream; this test's callback,
+like any user's, wrote the body again, the server answered `GOAWAY`
+(`STREAM_CLOSED`) and the response was lost with the connection.  The stock
+`lws-minimal-http-client-post` (multipart, h2) hit the same thing
+intermittently.  Fixed in `ops-h2.c`: no body callback without credit, no
+writeable callback and no write at all on a stream after its `END_STREAM`.
 
 The interceptor binds its cookies to the peer's IP (the JWT `sub` claim), so
 these cases pin the client to one address family -- `localhost` resolves to

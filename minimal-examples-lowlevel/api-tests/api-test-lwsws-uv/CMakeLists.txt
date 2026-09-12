@@ -158,12 +158,10 @@ if (requirements)
 		list(APPEND mytests lwsws-uv-captcha)
 
 		#
-		# NOTE: lwsws-uv-captcha-h2 fails at the time of writing, and
-		# not on the interceptor: the lws h2 CLIENT does not deliver a
-		# POST with a request body at all (curl --http2 doing the same
-		# POST to the same url is answered correctly, and the stock
-		# lws-minimal-http-client-post fails the same way against this
-		# fixture).  Left in as the regression it is, see the README.
+		# The h2 case is also the regression test for C-474: the lws h2
+		# client re-sent the request body on the writeable callback a
+		# WINDOW_UPDATE re-armed after END_STREAM, and the server's
+		# GOAWAY killed the connection before any response.
 		#
 		if (LWS_WITH_HTTP2)
 			add_test(NAME lwsws-uv-captcha-h2

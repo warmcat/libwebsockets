@@ -29,9 +29,10 @@
  *             gated url IS the form's POST and does mint the pass cookie.
  *             It also fetches an interceptor asset with no cookies at all,
  *             the path a browser takes for the challenge page's own js/css.
- *             NOTE: captcha-h2 fails at the time of writing, and not on the
- *             interceptor: the lws h2 CLIENT does not deliver a POST with a
- *             request body at all.  See the README.
+ *             captcha-h2 is also the C-474 regression: the h2 client used
+ *             to send the body again from the writeable callback that the
+ *             server's WINDOW_UPDATE re-armed after END_STREAM, and the
+ *             GOAWAY that earned it took the response with it.
  *
  *  pipeline   h1 keepalive pipelining across a large transfer, on the
  *             cleartext listener.  Two phases: first the two requests in one

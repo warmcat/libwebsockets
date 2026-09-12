@@ -553,6 +553,23 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 		return 0;
 	}
 
+	/*
+	 * Nothing can follow END_STREAM on a stream.  A user who writes again
+	 * after his final write (eg, from a writeable callback that a later
+	 * WINDOW_UPDATE re-armed) would put DATA on a half-closed stream: the
+	 * peer answers that with a connection-level GOAWAY (STREAM_CLOSED),
+	 * taking every other stream on the connection with it.  Bin it.
+	 */
+
+	if (wsi->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_LOCAL ||
+	    wsi->h2.h2_state == LWS_H2_STATE_CLOSED) {
+		lwsl_wsi_notice(wsi, "binning %d byte write after END_STREAM "
+				     "(h2 state %d)", (int)len,
+				     (int)wsi->h2.h2_state);
+
+		return 0;
+	}
+
 	/* compression transform... */
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
@@ -1726,6 +1743,44 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 						__func__, lws_wsi_tag(w));
 			continue;
 		}
+
+#if defined(LWS_WITH_CLIENT)
+		if (lwsi_role_client(w)) {
+			/*
+			 * Once END_STREAM has gone out on a client stream
+			 * nothing more can be sent on it, so it has no use
+			 * for a writeable callback.  A WINDOW_UPDATE for the
+			 * connection or any stream re-arms every child (it
+			 * cannot know who was waiting for credit), and a user
+			 * given LWS_CALLBACK_CLIENT_HTTP_WRITEABLE again after
+			 * his final body write would write the body again:
+			 * DATA on a half-closed stream, GOAWAY from the peer.
+			 */
+			if (w->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_LOCAL ||
+			    w->h2.h2_state == LWS_H2_STATE_CLOSED) {
+				lwsl_wsi_debug(w, "no writeable cb after "
+						  "END_STREAM");
+				continue;
+			}
+
+			/*
+			 * The request body is DATA, subject to the peer's
+			 * stream and connection windows, and the peer may
+			 * open the stream window at zero and grow it by
+			 * WINDOW_UPDATE only once it has seen the HEADERS.
+			 * lws_h2_frame_write() cannot hold back an
+			 * over-window write, so do not offer the body
+			 * writeable callback until there is credit: the
+			 * WINDOW_UPDATE that brings it re-arms us.  Response
+			 * HEADERS are not flow-controlled, so only the body
+			 * phase is gated.
+			 */
+			if (lwsi_state(w) == LRS_ISSUE_HTTP_BODY &&
+			    lws_wsi_txc_check_skint(&w->txc,
+						    lws_h2_tx_cr_get(w)))
+				continue;
+		}
+#endif
 
 		if (lws_callback_as_writeable(w)) {
 			lwsl_info("Closing POLLOUT child (end stream %d)\n",
