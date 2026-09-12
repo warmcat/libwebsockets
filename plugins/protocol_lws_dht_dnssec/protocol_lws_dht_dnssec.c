@@ -634,6 +634,123 @@ dht_dnssec_jwk_load_or_gen(struct vhd_dht_dnssec *vhd)
 	return 0;
 }
 
+/*
+ * Locate the "jwk" member of a flat JOSE header object, and set *jwk_len
+ * to the exact length of its { ... } value.  The scan is string- and
+ * nesting-aware: a "jwk" that only appears inside another member's
+ * string, a jwk member whose value is not an object, or an unterminated
+ * object are all not a match.  Returns the address of the value's '{',
+ * or NULL.
+ *
+ * The header is not assumed to be NUL-terminated; everything is bounded
+ * by len, and the exact bounds are what get handed to lws_jwk_import(),
+ * so no member that follows the jwk object is offered to the key parser.
+ */
+
+static const char *
+jose_jwk_object(const char *h, size_t len, size_t *jwk_len)
+{
+	size_t i = 0, depth;
+	int in_str = 0, esc = 0, want_key, jwk_key = 0;
+
+	while (i < len && (h[i] == ' ' || h[i] == '\t' ||
+			   h[i] == '\r' || h[i] == '\n'))
+		i++;
+	if (i >= len || h[i] != '{')
+		return NULL;
+
+	i++;
+	depth = 1;
+	want_key = 1;
+
+	while (i < len) {
+		char c = h[i];
+
+		if (in_str) {
+			if (esc)
+				esc = 0;
+			else if (c == '\\')
+				esc = 1;
+			else if (c == '"')
+				in_str = 0;
+			i++;
+			continue;
+		}
+
+		switch (c) {
+		case '"':
+			/* a string in name position at the top level of the
+			 * header is a member name; anything else is a value
+			 */
+			if (depth == 1 && want_key) {
+				jwk_key = len - i >= 5 &&
+					  h[i + 1] == 'j' && h[i + 2] == 'w' &&
+					  h[i + 3] == 'k' && h[i + 4] == '"';
+				want_key = 0;
+			} else
+				jwk_key = 0;
+			in_str = 1;
+			i++;
+			break;
+
+		case '{':
+			if (depth == 1 && jwk_key) {
+				/* the jwk member's value: find its matching
+				 * close brace, respecting nested strings */
+				size_t start = i, d = 0;
+				int is = 0, ie = 0;
+
+				for (; i < len; i++) {
+					char cc = h[i];
+
+					if (is) {
+						if (ie)
+							ie = 0;
+						else if (cc == '\\')
+							ie = 1;
+						else if (cc == '"')
+							is = 0;
+						continue;
+					}
+					if (cc == '"') {
+						is = 1;
+						continue;
+					}
+					if (cc == '{')
+						d++;
+					if (cc == '}' && !--d) {
+						*jwk_len = i + 1 - start;
+						return &h[start];
+					}
+				}
+
+				return NULL; /* unterminated object */
+			}
+			depth++;
+			i++;
+			break;
+
+		case '}':
+			if (!--depth)
+				return NULL; /* end of header, no jwk */
+			i++;
+			break;
+
+		case ',':
+			if (depth == 1)
+				want_key = 1;
+			i++;
+			break;
+
+		default:
+			i++;
+			break;
+		}
+	}
+
+	return NULL;
+}
+
 static struct lws *
 dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *data, int m, void *opaque)
 {
@@ -717,287 +834,283 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 		goto drop;
 	}
 
-	/* The header is JSON parsing. We could use lejp, but for a simple JWK embedded extraction
-	   we can do a simple string search to locate the "jwk": { ... } object to pass to lws_jwk_import */
+	/*
+	 * Extract the embedded JWK from the JOSE header: locate the jwk
+	 * member's object exactly and hand lws_jwk_import() just that.
+	 * map.buf[LJWS_JOSE] points into jws_buf and is not
+	 * NUL-terminated, but lws_jwk_import() takes explicit bounds.
+	 */
 	{
-		char *header = malloc((size_t)map.len[LJWS_JOSE] + 1);
-		if (header) {
-			memcpy(header, map.buf[LJWS_JOSE], map.len[LJWS_JOSE]);
-			header[map.len[LJWS_JOSE]] = '\0';
+		const char *jwk_obj;
+		size_t jwk_obj_len;
 
-			const char *jwk_start = strstr(header, "\"jwk\":");
-			if (jwk_start) {
-				jwk_start += 6; /* skip over "jwk": */
-				while (*jwk_start == ' ' || *jwk_start == '\t' || *jwk_start == '\n' || *jwk_start == '\r')
-					jwk_start++;
+		jwk_obj = jose_jwk_object(map.buf[LJWS_JOSE],
+					  (size_t)map.len[LJWS_JOSE],
+					  &jwk_obj_len);
+		if (jwk_obj) {
+			if (lws_jwk_import(&jwk, NULL, NULL, jwk_obj, jwk_obj_len) == 0) {
+	if (jwk.kty == LWS_GENCRYPTO_KTY_EC) {
+		lwsl_user("%s: Uploaded JWS embedded key uses curve %s. Public key components:\n", __func__, (const char *)jwk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf);
+		lwsl_hexdump_user(jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len);
+		lwsl_hexdump_user(jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len);
+	}
+	int ds_hash_test_worked = 0;
+	int live_dnskey_authenticated = 0;
 
-				if (lws_jwk_import(&jwk, NULL, NULL, jwk_start, strlen(jwk_start)) == 0) {
-					if (jwk.kty == LWS_GENCRYPTO_KTY_EC) {
-						lwsl_user("%s: Uploaded JWS embedded key uses curve %s. Public key components:\n", __func__, (const char *)jwk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf);
-						lwsl_hexdump_user(jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len);
-						lwsl_hexdump_user(jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len);
-					}
-					int ds_hash_test_worked = 0;
-					int live_dnskey_authenticated = 0;
-
-					/*
-					 * The DS pre-image only covers key
-					 * material for EC and RSA; for any
-					 * other kty the digest would bind
-					 * nothing but name || flags || proto
-					 * || algo, so refuse those outright.
-					 */
-					if (jwk.kty != LWS_GENCRYPTO_KTY_EC &&
-					    jwk.kty != LWS_GENCRYPTO_KTY_RSA) {
-						lwsl_notice("%s: refusing JWS whose embedded JWK kty %d cannot be bound by a DS\n",
-							    __func__, jwk.kty);
-						lws_jwk_destroy(&jwk);
-						free(header);
-						free(temp);
-						free(jws_buf);
-						goto drop;
-					}
-
-					/* 1. Directly perform the "DS Hash Test" against the embedded JWS JWK */
-					/* Assume the JWK acts as the KSK (Flags=257) */
-					{
-						struct lws_genhash_ctx hash_ctx;
-						enum lws_genhash_types hashtype;
-						uint8_t wire[256];
-						uint8_t digest[64];
-						int wire_len = 0;
-
-						/* Convert domain name to wire format */
-						const char *p = frag->domain;
-						uint8_t *w = wire;
-						int wire_ok = 1;
-
-						/* bound the output: each label
-						 * costs 1 + len, plus the root
-						 * label */
-						while (*p && wire_ok) {
-							const char *dot = strchr(p, '.');
-							if (!dot) dot = p + strlen(p);
-							int l = (int)(dot - p);
-
-							if (l > 63 || w + 1 + l >=
-							    wire + sizeof(wire)) {
-								wire_ok = 0;
-								break;
-							}
-
-							*w++ = (uint8_t)l;
-							for (int i = 0; i < l; i++) {
-								*w++ = (uint8_t)tolower((unsigned char)p[i]);
-							}
-							p = dot;
-							if (*p == '.') p++;
-						}
-						if (!wire_ok)
-							goto ds_test_done;
-						*w++ = 0;
-						wire_len = (int)(w - wire);
-
-						if (frag->digest_type == 1) hashtype = LWS_GENHASH_TYPE_SHA1;
-						else if (frag->digest_type == 2) hashtype = LWS_GENHASH_TYPE_SHA256;
-						else if (frag->digest_type == 4) hashtype = LWS_GENHASH_TYPE_SHA384;
-						else hashtype = (enum lws_genhash_types)0;
-
-						if (hashtype != (enum lws_genhash_types)0 && !lws_genhash_init(&hash_ctx, hashtype)) {
-							uint8_t flags_proto_algo[4];
-							int hash_ok = 1;
-
-							flags_proto_algo[0] = 257 >> 8; /* Flags (KSK) */
-							flags_proto_algo[1] = 257 & 0xff;
-							flags_proto_algo[2] = 3; /* Protocol */
-							flags_proto_algo[3] = frag->algo; /* Algorithm */
-
-							hash_ok = (lws_genhash_update(&hash_ctx, wire, (size_t)wire_len) == 0) &&
-								  (lws_genhash_update(&hash_ctx, flags_proto_algo, 4) == 0);
-
-							if (hash_ok) {
-								if (jwk.kty == LWS_GENCRYPTO_KTY_EC) {
-									hash_ok = (lws_genhash_update(&hash_ctx, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len) == 0) &&
-										  (lws_genhash_update(&hash_ctx, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len) == 0);
-								} else if (jwk.kty == LWS_GENCRYPTO_KTY_RSA) {
-									uint8_t *e_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf;
-									size_t e_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
-
-									/* Remove leading zero bytes from E if any */
-									while (e_len > 1 && *e_buf == 0) {
-										e_buf++;
-										e_len--;
-									}
-
-									if (e_len <= 255) {
-										uint8_t el[1];
-										el[0] = (uint8_t)e_len;
-										hash_ok = (lws_genhash_update(&hash_ctx, el, 1) == 0);
-									} else {
-										uint8_t el[3];
-										el[0] = 0;
-										el[1] = (uint8_t)(e_len >> 8);
-										el[2] = (uint8_t)(e_len & 0xff);
-										hash_ok = (lws_genhash_update(&hash_ctx, el, 3) == 0);
-									}
-
-									if (hash_ok)
-										hash_ok = (lws_genhash_update(&hash_ctx, e_buf, e_len) == 0);
-
-									uint8_t *n_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf;
-									size_t n_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
-
-									/* Remove leading zero bytes from N if any */
-									while (n_len > 1 && *n_buf == 0) {
-										n_buf++;
-										n_len--;
-									}
-
-									if (hash_ok)
-										hash_ok = (lws_genhash_update(&hash_ctx, n_buf, n_len) == 0);
-								}
-							}
-
-							if (hash_ok) {
-								lws_genhash_destroy(&hash_ctx, digest);
-
-								if (frag->ds_digest_len ==
-								      lws_genhash_size(hashtype) &&
-								    !lws_timingsafe_bcmp(digest, frag->ds_digest,
-											 frag->ds_digest_len)) {
-									lwsl_user("%s: DS Hash Test matched the Embedded JWS JWK perfectly!\n", __func__);
-									ds_hash_test_worked = 1;
-								} else {
-									lwsl_user("%s: DS Hash Test failed! Computed vs Fetched (%d bytes):\n", __func__, frag->ds_digest_len);
-									lwsl_hexdump_user(digest, frag->ds_digest_len);
-									lwsl_hexdump_user(frag->ds_digest, frag->ds_digest_len);
-								}
-							} else {
-								lws_genhash_destroy(&hash_ctx, digest);
-							}
-						}
-ds_test_done:
-						;
-					}
-
-					/* 2. Check live DNSKEYs from authoritative nameserver (if any) */
-					if (data) {
-						int live_ds_match = 0;
-						int live_zsk_match = 0;
-						const uint8_t *rr_ptr = (const uint8_t *)data;
-
-						while (rr_ptr) {
-							const uint8_t *next = *(const uint8_t * const *)rr_ptr;
-							uint16_t type = *(const uint16_t *)(rr_ptr + sizeof(void *));
-							uint16_t paylen = *(const uint16_t *)(rr_ptr + sizeof(void *) + sizeof(uint16_t));
-
-							if (type == LWS_ADNS_RECORD_DNSKEY && paylen >= 4) {
-								const uint8_t *kn = rr_ptr + sizeof(void *) + 2 * sizeof(uint16_t);
-								uint16_t flags = lws_ser_ru16be(&kn[0]);
-
-								/* Compute Keytag for this DNSKEY (RFC 4034 Appendix B) */
-								uint32_t ac = 0;
-								int i;
-								for (i = 0; i < paylen; ++i)
-									ac += (i & 1) ? kn[i] : (uint32_t)kn[i] << 8;
-								ac += (ac >> 16) & 0xFFFF;
-								uint16_t calc_tag = (uint16_t)(ac & 0xFFFF);
-
-								if (calc_tag == frag->key_tag && flags == 257) {
-									live_ds_match = 1; /* Simplification: we assume if the network gives us the KSK keytag, it matches the DS */
-								}
-
-								/* Check if this live DNSKEY byte-matches our JWS embedded JWK */
-								if (jwk.kty == LWS_GENCRYPTO_KTY_EC) {
-									const uint8_t *kdata = &kn[4];
-									int kdata_len = paylen - 4;
-									if (jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len + jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len == (uint32_t)kdata_len) {
-										if (memcmp(kdata, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len) == 0 &&
-											memcmp(kdata + jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len) == 0) {
-											live_zsk_match = 1;
-										}
-									}
-								} else if (jwk.kty == LWS_GENCRYPTO_KTY_RSA) {
-									const uint8_t *kdata = &kn[4];
-									int kdata_len = paylen - 4;
-
-									uint32_t e_len_wire = kdata[0];
-									int e_offset = 1;
-									if (e_len_wire == 0 && kdata_len >= 3) {
-										e_len_wire = (uint32_t)((kdata[1] << 8) | kdata[2]);
-										e_offset = 3;
-									}
-
-									uint8_t *e_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf;
-									size_t e_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
-									while (e_len > 1 && *e_buf == 0) { e_buf++; e_len--; }
-
-									uint8_t *n_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf;
-									size_t n_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
-									while (n_len > 1 && *n_buf == 0) { n_buf++; n_len--; }
-
-									if ((uint32_t)e_len == e_len_wire && kdata_len >= e_offset + (int)e_len_wire && (uint32_t)n_len == (uint32_t)kdata_len - (uint32_t)e_offset - e_len_wire) {
-										if (memcmp(kdata + e_offset, e_buf, e_len) == 0 &&
-											memcmp(kdata + e_offset + e_len, n_buf, n_len) == 0) {
-											live_zsk_match = 1;
-										}
-									}
-								}
-							}
-							rr_ptr = next;
-						}
-
-						if (live_ds_match && live_zsk_match) {
-							lwsl_user("%s: Live DNSKEY verification succeeded (KSK matched DS, and ZSK matched JWK)\n", __func__);
-							live_dnskey_authenticated = 1;
-						}
-					}
-
-					if (ds_hash_test_worked || live_dnskey_authenticated) {
-						/* Final step: verify the JWS signature. */
-						// lwsl_notice("DEBUG: Proceeding to lws_jws_sig_confirm\n");
-						if (lws_jws_sig_confirm(&map_b64, &map, &jwk, vhd->context) >= 0) {
-							// lwsl_notice("DEBUG: lws_jws_sig_confirm SUCCESS\n");
-							valid = 1;
-
-							/* Extract Payload to raw file */
-							if (map.buf[LJWS_PYLD]) {
-								char tmp_ppath[256];
-								int pfd;
-
-								lws_snprintf(tmp_ppath, sizeof(tmp_ppath), "%s/tmp/%s.%08X.payload", vhd->storage_path, frag->safe_hash, frag->temp_token);
-								pfd = open(tmp_ppath, O_RDWR | O_CREAT | O_TRUNC, 0660);
-								if (pfd >= 0) {
-									if (write(pfd, map.buf[LJWS_PYLD], (size_t)map.len[LJWS_PYLD]) != (ssize_t)map.len[LJWS_PYLD]) {
-										lwsl_err("%s: Failed to write payload\n", __func__);
-									} else {
-										struct lws_genhash_ctx pctx;
-										if (!lws_genhash_init(&pctx, LWS_GENHASH_TYPE_SHA256)) {
-											if (lws_genhash_update(&pctx, map.buf[LJWS_PYLD], (size_t)map.len[LJWS_PYLD]) == 0)
-												lws_genhash_destroy(&pctx, frag->payload_hash);
-										}
-										lwsl_user("SUCCESS: Validated offline zonefile successfully unwrapped locally to %s\n", tmp_ppath);
-									}
-									close(pfd);
-								} else {
-									lwsl_err("%s: Failed to open payload extraction path: %s\n", __func__, tmp_ppath);
-								}
-							}
-						} else {
-							lwsl_notice("DEBUG: lws_jws_sig_confirm FAILED\n");
-						}
-					} else {
-						lwsl_notice("DEBUG: BOTH ds_hash_test_worked and live_dnskey_authenticated are FALSE\n");
-					}
-					lws_jwk_destroy(&jwk);
-				} else {
-					lwsl_notice("DEBUG: Failed to import embedded JWK: lws_jwk_import returned non-zero\n");
-				}
-			} else {
-				lwsl_notice("DEBUG: JWS header missing embedded 'jwk' object (strstr '\"jwk\":' failed)\n");
+	/*
+	 * The DS pre-image only covers key
+	 * material for EC and RSA; for any
+	 * other kty the digest would bind
+	 * nothing but name || flags || proto
+	 * || algo, so refuse those outright.
+	 */
+	if (jwk.kty != LWS_GENCRYPTO_KTY_EC &&
+	    jwk.kty != LWS_GENCRYPTO_KTY_RSA) {
+		lwsl_notice("%s: refusing JWS whose embedded JWK kty %d cannot be bound by a DS\n",
+			    __func__, jwk.kty);
+				lws_jwk_destroy(&jwk);
+				free(temp);
+				free(jws_buf);
+				goto drop;
 			}
 
-			free(header);
+			/* 1. Directly perform the "DS Hash Test" against the embedded JWS JWK */
+			/* Assume the JWK acts as the KSK (Flags=257) */
+			{
+				struct lws_genhash_ctx hash_ctx;
+				enum lws_genhash_types hashtype;
+				uint8_t wire[256];
+				uint8_t digest[64];
+				int wire_len = 0;
+
+				/* Convert domain name to wire format */
+				const char *p = frag->domain;
+				uint8_t *w = wire;
+				int wire_ok = 1;
+
+				/* bound the output: each label
+				 * costs 1 + len, plus the root
+				 * label */
+				while (*p && wire_ok) {
+					const char *dot = strchr(p, '.');
+					if (!dot) dot = p + strlen(p);
+					int l = (int)(dot - p);
+
+					if (l > 63 || w + 1 + l >=
+					    wire + sizeof(wire)) {
+						wire_ok = 0;
+						break;
+					}
+
+					*w++ = (uint8_t)l;
+					for (int i = 0; i < l; i++) {
+						*w++ = (uint8_t)tolower((unsigned char)p[i]);
+					}
+					p = dot;
+					if (*p == '.') p++;
+				}
+				if (!wire_ok)
+					goto ds_test_done;
+				*w++ = 0;
+				wire_len = (int)(w - wire);
+
+				if (frag->digest_type == 1) hashtype = LWS_GENHASH_TYPE_SHA1;
+				else if (frag->digest_type == 2) hashtype = LWS_GENHASH_TYPE_SHA256;
+				else if (frag->digest_type == 4) hashtype = LWS_GENHASH_TYPE_SHA384;
+				else hashtype = (enum lws_genhash_types)0;
+
+				if (hashtype != (enum lws_genhash_types)0 && !lws_genhash_init(&hash_ctx, hashtype)) {
+					uint8_t flags_proto_algo[4];
+					int hash_ok = 1;
+
+					flags_proto_algo[0] = 257 >> 8; /* Flags (KSK) */
+					flags_proto_algo[1] = 257 & 0xff;
+					flags_proto_algo[2] = 3; /* Protocol */
+					flags_proto_algo[3] = frag->algo; /* Algorithm */
+
+					hash_ok = (lws_genhash_update(&hash_ctx, wire, (size_t)wire_len) == 0) &&
+						  (lws_genhash_update(&hash_ctx, flags_proto_algo, 4) == 0);
+
+					if (hash_ok) {
+						if (jwk.kty == LWS_GENCRYPTO_KTY_EC) {
+							hash_ok = (lws_genhash_update(&hash_ctx, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len) == 0) &&
+								  (lws_genhash_update(&hash_ctx, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len) == 0);
+						} else if (jwk.kty == LWS_GENCRYPTO_KTY_RSA) {
+							uint8_t *e_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf;
+							size_t e_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
+
+							/* Remove leading zero bytes from E if any */
+							while (e_len > 1 && *e_buf == 0) {
+								e_buf++;
+								e_len--;
+							}
+
+							if (e_len <= 255) {
+								uint8_t el[1];
+								el[0] = (uint8_t)e_len;
+								hash_ok = (lws_genhash_update(&hash_ctx, el, 1) == 0);
+							} else {
+								uint8_t el[3];
+								el[0] = 0;
+								el[1] = (uint8_t)(e_len >> 8);
+								el[2] = (uint8_t)(e_len & 0xff);
+								hash_ok = (lws_genhash_update(&hash_ctx, el, 3) == 0);
+							}
+
+							if (hash_ok)
+								hash_ok = (lws_genhash_update(&hash_ctx, e_buf, e_len) == 0);
+
+							uint8_t *n_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf;
+							size_t n_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+
+							/* Remove leading zero bytes from N if any */
+							while (n_len > 1 && *n_buf == 0) {
+								n_buf++;
+								n_len--;
+							}
+
+							if (hash_ok)
+								hash_ok = (lws_genhash_update(&hash_ctx, n_buf, n_len) == 0);
+						}
+					}
+
+					if (hash_ok) {
+						lws_genhash_destroy(&hash_ctx, digest);
+
+						if (frag->ds_digest_len ==
+						      lws_genhash_size(hashtype) &&
+						    !lws_timingsafe_bcmp(digest, frag->ds_digest,
+									 frag->ds_digest_len)) {
+							lwsl_user("%s: DS Hash Test matched the Embedded JWS JWK perfectly!\n", __func__);
+							ds_hash_test_worked = 1;
+						} else {
+							lwsl_user("%s: DS Hash Test failed! Computed vs Fetched (%d bytes):\n", __func__, frag->ds_digest_len);
+							lwsl_hexdump_user(digest, frag->ds_digest_len);
+							lwsl_hexdump_user(frag->ds_digest, frag->ds_digest_len);
+						}
+					} else {
+						lws_genhash_destroy(&hash_ctx, digest);
+					}
+				}
+ds_test_done:
+				;
+			}
+
+			/* 2. Check live DNSKEYs from authoritative nameserver (if any) */
+			if (data) {
+				int live_ds_match = 0;
+				int live_zsk_match = 0;
+				const uint8_t *rr_ptr = (const uint8_t *)data;
+
+				while (rr_ptr) {
+					const uint8_t *next = *(const uint8_t * const *)rr_ptr;
+					uint16_t type = *(const uint16_t *)(rr_ptr + sizeof(void *));
+					uint16_t paylen = *(const uint16_t *)(rr_ptr + sizeof(void *) + sizeof(uint16_t));
+
+					if (type == LWS_ADNS_RECORD_DNSKEY && paylen >= 4) {
+						const uint8_t *kn = rr_ptr + sizeof(void *) + 2 * sizeof(uint16_t);
+						uint16_t flags = lws_ser_ru16be(&kn[0]);
+
+						/* Compute Keytag for this DNSKEY (RFC 4034 Appendix B) */
+						uint32_t ac = 0;
+						int i;
+						for (i = 0; i < paylen; ++i)
+							ac += (i & 1) ? kn[i] : (uint32_t)kn[i] << 8;
+						ac += (ac >> 16) & 0xFFFF;
+						uint16_t calc_tag = (uint16_t)(ac & 0xFFFF);
+
+						if (calc_tag == frag->key_tag && flags == 257) {
+							live_ds_match = 1; /* Simplification: we assume if the network gives us the KSK keytag, it matches the DS */
+						}
+
+						/* Check if this live DNSKEY byte-matches our JWS embedded JWK */
+						if (jwk.kty == LWS_GENCRYPTO_KTY_EC) {
+							const uint8_t *kdata = &kn[4];
+							int kdata_len = paylen - 4;
+							if (jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len + jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len == (uint32_t)kdata_len) {
+								if (memcmp(kdata, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len) == 0 &&
+									memcmp(kdata + jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len) == 0) {
+									live_zsk_match = 1;
+								}
+							}
+						} else if (jwk.kty == LWS_GENCRYPTO_KTY_RSA) {
+							const uint8_t *kdata = &kn[4];
+							int kdata_len = paylen - 4;
+
+							uint32_t e_len_wire = kdata[0];
+							int e_offset = 1;
+							if (e_len_wire == 0 && kdata_len >= 3) {
+								e_len_wire = (uint32_t)((kdata[1] << 8) | kdata[2]);
+								e_offset = 3;
+							}
+
+							uint8_t *e_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf;
+							size_t e_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
+							while (e_len > 1 && *e_buf == 0) { e_buf++; e_len--; }
+
+							uint8_t *n_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf;
+							size_t n_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+							while (n_len > 1 && *n_buf == 0) { n_buf++; n_len--; }
+
+							if ((uint32_t)e_len == e_len_wire && kdata_len >= e_offset + (int)e_len_wire && (uint32_t)n_len == (uint32_t)kdata_len - (uint32_t)e_offset - e_len_wire) {
+								if (memcmp(kdata + e_offset, e_buf, e_len) == 0 &&
+									memcmp(kdata + e_offset + e_len, n_buf, n_len) == 0) {
+									live_zsk_match = 1;
+								}
+							}
+						}
+					}
+					rr_ptr = next;
+				}
+
+				if (live_ds_match && live_zsk_match) {
+					lwsl_user("%s: Live DNSKEY verification succeeded (KSK matched DS, and ZSK matched JWK)\n", __func__);
+					live_dnskey_authenticated = 1;
+				}
+			}
+
+			if (ds_hash_test_worked || live_dnskey_authenticated) {
+				/* Final step: verify the JWS signature. */
+				// lwsl_notice("DEBUG: Proceeding to lws_jws_sig_confirm\n");
+				if (lws_jws_sig_confirm(&map_b64, &map, &jwk, vhd->context) >= 0) {
+					// lwsl_notice("DEBUG: lws_jws_sig_confirm SUCCESS\n");
+					valid = 1;
+
+					/* Extract Payload to raw file */
+					if (map.buf[LJWS_PYLD]) {
+						char tmp_ppath[256];
+						int pfd;
+
+						lws_snprintf(tmp_ppath, sizeof(tmp_ppath), "%s/tmp/%s.%08X.payload", vhd->storage_path, frag->safe_hash, frag->temp_token);
+						pfd = open(tmp_ppath, O_RDWR | O_CREAT | O_TRUNC, 0660);
+						if (pfd >= 0) {
+							if (write(pfd, map.buf[LJWS_PYLD], (size_t)map.len[LJWS_PYLD]) != (ssize_t)map.len[LJWS_PYLD]) {
+								lwsl_err("%s: Failed to write payload\n", __func__);
+							} else {
+								struct lws_genhash_ctx pctx;
+								if (!lws_genhash_init(&pctx, LWS_GENHASH_TYPE_SHA256)) {
+									if (lws_genhash_update(&pctx, map.buf[LJWS_PYLD], (size_t)map.len[LJWS_PYLD]) == 0)
+										lws_genhash_destroy(&pctx, frag->payload_hash);
+								}
+								lwsl_user("SUCCESS: Validated offline zonefile successfully unwrapped locally to %s\n", tmp_ppath);
+							}
+							close(pfd);
+						} else {
+							lwsl_err("%s: Failed to open payload extraction path: %s\n", __func__, tmp_ppath);
+						}
+					}
+				} else {
+					lwsl_notice("DEBUG: lws_jws_sig_confirm FAILED\n");
+				}
+			} else {
+				lwsl_notice("DEBUG: BOTH ds_hash_test_worked and live_dnskey_authenticated are FALSE\n");
+			}
+					lws_jwk_destroy(&jwk);
+			} else {
+				lwsl_notice("DEBUG: Failed to import embedded JWK: lws_jwk_import returned non-zero\n");
+			}
+		} else {
+			lwsl_notice("DEBUG: JWS header has no embedded 'jwk' object\n");
 		}
 	}
 
