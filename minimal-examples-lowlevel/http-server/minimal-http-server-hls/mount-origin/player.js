@@ -52,8 +52,25 @@ document.addEventListener('DOMContentLoaded', function() {
     var video = document.getElementById('video');
     
     var urlParams = new URLSearchParams(window.location.search);
-    var videoSrc = urlParams.get('v');
-    var rawSrc = urlParams.get('raw');
+
+    /*
+     * ?v= and ?raw= name media relative to this page's mount.  Refuse
+     * anything carrying a scheme or host, control characters, or a parent
+     * segment, so a crafted link can't point the player elsewhere.
+     */
+    function safeMediaPath(s) {
+        if (typeof s !== 'string' || !s.length ||
+            /[\u0000-\u001f\u007f]/.test(s) ||
+            /^[a-z][a-z0-9+.-]*:/i.test(s) ||
+            s[0] === '\\' || (s[0] === '/' && (s[1] === '/' || s[1] === '\\')) ||
+            s.split(/[\/\\]/).indexOf('..') !== -1)
+            return null;
+
+        return s;
+    }
+
+    var videoSrc = safeMediaPath(urlParams.get('v'));
+    var rawSrc = safeMediaPath(urlParams.get('raw'));
 
     // Preferred languages (most-preferred first). Used to pick a sensible
     // default in the audio and CC dropdowns; subtitles stay OFF until the
@@ -85,7 +102,8 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    if (rawSrc) {
+    /* whichever we play, it has to live under the hls/ mount beside this page */
+    if (rawSrc && rawSrc.indexOf('hls/') === 0) {
         // Play directly via HTTP Range requests natively supported by lws
         video.src = rawSrc;
         video.addEventListener('loadedmetadata', function() {
@@ -96,6 +114,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (!videoSrc) {
         alert("No video source provided.");
+        return;
+    }
+    if (videoSrc.indexOf('hls/') !== 0) {
+        alert("Video source must be under hls/.");
         return;
     }
 
