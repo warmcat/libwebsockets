@@ -4218,6 +4218,94 @@ calc_keytag(const uint8_t *rdata, int rdata_len)
 	return (uint16_t)(ac & 0xFFFF);
 }
 
+/*
+ * Parse a DNSKEY record from a NUL-terminated key-file buffer:
+ *
+ *   <owner> IN DNSKEY <flags> <protocol> <algorithm> <base64 key>
+ *
+ * The base64 key is much longer than lws_tokenize's internal token
+ * buffer, so the tokenizer runs in chunked mode and the pieces are
+ * assembled into b64.  Returns 0, or nonzero if the record is not
+ * exactly this shape.
+ */
+
+static int
+parse_dnskey_record(const char *buf,
+		    char *owner, size_t owner_len,
+		    int *flags, int *proto, int *alg,
+		    char *b64, size_t b64_len)
+{
+	lws_tokenize_t ts;
+	size_t bl = 0;
+	int field;
+
+	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_NO_FLOATS |
+				     LWS_TOKENIZE_F_MINUS_NONTERM |
+				     LWS_TOKENIZE_F_DOT_NONTERM |
+				     LWS_TOKENIZE_F_PLUS_NONTERM |
+				     LWS_TOKENIZE_F_SLASH_NONTERM |
+				     LWS_TOKENIZE_F_EQUALS_NONTERM |
+				     LWS_TOKENIZE_F_CHUNK);
+
+	for (field = 0; field < 6; field++) {
+		lws_tokenize_elem e = lws_tokenize(&ts);
+
+		switch (field) {
+		case 0:					/* owner name */
+			if (e != LWS_TOKZE_TOKEN ||
+			    ts.token_len >= owner_len)
+				return 1;
+			memcpy(owner, ts.token, ts.token_len);
+			owner[ts.token_len] = '\0';
+			break;
+
+		case 1:
+		case 2:					/* "IN" "DNSKEY" */
+			if (e != LWS_TOKZE_TOKEN ||
+			    ts.token_len != (size_t)(field == 1 ? 2 : 6) ||
+			    memcmp(ts.token,
+				   field == 1 ? "IN" : "DNSKEY",
+				   ts.token_len))
+				return 1;
+			break;
+
+		default: {				/* flags proto alg */
+			char tmp[16];
+			int *out = field == 3 ? flags :
+				   field == 4 ? proto : alg;
+
+			if (e != LWS_TOKZE_INTEGER ||
+			    ts.token_len >= sizeof(tmp))
+				return 1;
+			memcpy(tmp, ts.token, ts.token_len);
+			tmp[ts.token_len] = '\0';
+			*out = atoi(tmp);
+			break;
+		}
+		}
+	}
+
+	do {
+		lws_tokenize_elem e = lws_tokenize(&ts);
+
+		if (e != LWS_TOKZE_TOKEN && e != LWS_TOKZE_TOKEN_CHUNK)
+			return 1;
+
+		if (bl + ts.token_len >= b64_len)
+			return 1;
+		memcpy(b64 + bl, ts.token, ts.token_len);
+		bl += ts.token_len;
+
+		if (e == LWS_TOKZE_TOKEN)
+			break;
+	} while (1);
+	b64[bl] = '\0';
+
+	/* nothing but trailing whitespace may follow the key */
+
+	return lws_tokenize(&ts) != LWS_TOKZE_ENDED;
+}
+
 static int
 do_dsfromkey(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *args)
 {
@@ -4259,7 +4347,8 @@ do_dsfromkey(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *
 	char parsed_domain[256] = {0};
 	int flags = 0, proto = 0, alg = 0;
 	char b64[8192];
-	if (sscanf(buf, "%255s IN DNSKEY %d %d %d %8191s", parsed_domain, &flags, &proto, &alg, b64) != 5) {
+	if (parse_dnskey_record(buf, parsed_domain, sizeof(parsed_domain),
+				 &flags, &proto, &alg, b64, sizeof(b64))) {
 		lwsl_err("Failed to parse DNSKEY record\n");
 		return 1;
 	}
@@ -5134,7 +5223,8 @@ do_importnsd(struct lws_context *context, struct lws_dht_dnssec_importnsd_args *
 		char parsed_domain[256] = {0};
 		int flags = 0, proto = 0, alg = 0;
 		char b64[8192];
-		if (sscanf(buf, "%255s IN DNSKEY %d %d %d %8191s", parsed_domain, &flags, &proto, &alg, b64) != 5) {
+		if (parse_dnskey_record(buf, parsed_domain, sizeof(parsed_domain),
+					&flags, &proto, &alg, b64, sizeof(b64))) {
 			lwsl_err("%s: Failed to parse %s\n", __func__, p_key);
 			return 1;
 		}
