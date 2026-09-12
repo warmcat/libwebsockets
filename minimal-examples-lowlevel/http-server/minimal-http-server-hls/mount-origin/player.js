@@ -34,9 +34,16 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!confirm("Are you sure you want to delete this file?")) return;
             var urlParams = new URLSearchParams(window.location.search);
             var videoSrc = urlParams.get('v');
-            if (videoSrc) {
-                var filename = videoSrc.replace('hls/stream/', '');
-                fetch('hls/delete/' + filename, {
+            /* only a plain filename under hls/stream/ can be deleted */
+            var pfx = 'hls/stream/';
+            if (videoSrc && videoSrc.indexOf(pfx) === 0) {
+                var filename = videoSrc.slice(pfx.length);
+
+                if (!filename.length || filename === '.' ||
+                    filename === '..' || filename.indexOf('/') !== -1 ||
+                    filename.indexOf('\\') !== -1)
+                    return;
+                fetch('hls/delete/' + encodeURIComponent(filename), {
                     method: 'POST'
                 }).then(function(res) {
                     if (res.ok) {
