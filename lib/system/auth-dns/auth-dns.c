@@ -402,11 +402,35 @@ lws_auth_dns_free_zone(struct auth_dns_zone *z)
 	} lws_end_foreach_dll_safe(d, d1);
 }
 
+/*
+ * write() may legally return short or fail, eg, on ENOSPC or a signal.
+ * Loop until everything is out, or fail.
+ */
+static int
+auth_dns_write_all(int fd, const void *p, size_t len)
+{
+	const uint8_t *q = (const uint8_t *)p;
+
+	while (len) {
+		ssize_t w = write(fd, q, len);
+
+		if (w < 0) {
+			if (errno == EINTR)
+				continue;
+			return -1;
+		}
+		q += w;
+		len -= (size_t)w;
+	}
+
+	return 0;
+}
+
 int
 lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 {
 	char obuf[8192]; /* simple large enough buffer for test */
-	int fd, n, ofd = -1, res_wr, temp_len = 0, temp_max = 0;
+	int fd, n, ofd = -1, res_wr, temp_len = 0, temp_max = 0, ret = 1;
 	size_t uout = 0;
 	struct stat st;
 	char *buf, *expbuf;
@@ -516,7 +540,10 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 	n = lws_snprintf(obuf, sizeof(obuf), "$ORIGIN %s\n$TTL %u\n\n", zone.origin, atoi(zone.default_ttl) ? atoi(zone.default_ttl) : 3600);
 	if (n > (int)sizeof(obuf) - 1)
 		n = (int)sizeof(obuf) - 1;
-	(void)write(fd, obuf, (unsigned int)n);
+	if (auth_dns_write_all(fd, obuf, (size_t)n)) {
+		lwsl_err("%s: write failed on signed zone\n", __func__);
+		goto bail_fd;
+	}
 
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&zone.rrset_list)) {
 		struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
@@ -546,12 +573,17 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 				rs->name, rs->ttl, ts, rr->rdata ? rr->rdata : "");
 			if (n > (int)sizeof(obuf) - 1)
 				n = (int)sizeof(obuf) - 1;
-			(void)write(fd, obuf, (unsigned int)n);
+			if (auth_dns_write_all(fd, obuf, (size_t)n)) {
+				lwsl_err("%s: write failed on signed zone\n", __func__);
+				goto bail_fd;
+			}
 		} lws_end_foreach_dll(d2);
 	} lws_end_foreach_dll(d);
 
-
-	close(fd);
+	if (close(fd)) {
+		lwsl_err("%s: close failed on signed zone\n", __func__);
+		goto bail_zone;
+	}
 	lwsl_info("lws_auth_dns_sign_zone succeeded! Wrote to %s\n", info->output_filepath ? info->output_filepath : "signed.zone");
 
 	if (!info->jws_filepath || !info->ksk_jwk_filepath) {
@@ -663,18 +695,31 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 
 	{
 		int jfd = open(info->jws_filepath, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0644);
-		if (jfd >= 0) {
-			size_t clen = strlen(compact);
-			(void)write(jfd, compact, (unsigned int)clen);
-			close(jfd);
-			lwsl_info("Wrote outer signature JWS to %s\n", info->jws_filepath);
-		} else {
+
+		if (jfd < 0) {
 			lwsl_err("Failed opening JWS output file\n");
+			goto bail_jose;
 		}
+
+		if (auth_dns_write_all(jfd, compact, strlen(compact))) {
+			lwsl_err("%s: write failed on JWS output\n", __func__);
+			close(jfd);
+			goto bail_jose;
+		}
+
+		if (close(jfd)) {
+			lwsl_err("%s: close failed on JWS output\n", __func__);
+			goto bail_jose;
+		}
+
+		lwsl_info("Wrote outer signature JWS to %s\n", info->jws_filepath);
 	}
 
 	lws_free_set_NULL(compact);
 	lws_free_set_NULL(temp);
+
+	/* the only way to get here is with both output files fully written */
+	ret = 0;
 
 bail_jose:
 	lws_jose_destroy(&jose);
@@ -694,7 +739,11 @@ bail_zone:
 	lws_free(expbuf);
 	lws_free(buf);
 
-	return 0;
+	return ret;
+
+bail_fd:
+	close(fd);
+	goto bail_zone;
 
 bail:
 	if (expbuf)
