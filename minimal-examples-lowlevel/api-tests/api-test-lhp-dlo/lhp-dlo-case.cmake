@@ -29,6 +29,11 @@ if (LOCALIZE)
 	#
 	file(READ ${HTML} html)
 	string(REGEX REPLACE "(href|src)=([\"'])(https?:)?//" "\\1=\\2missing/" html "${html}")
+	# the copy lives in the build dir: keep relative references (captured
+	# stylesheets, images) pointing at the source directory
+	get_filename_component(HD ${HTML} DIRECTORY)
+	string(REGEX REPLACE "(href|src)=\"([^\"/:#][^\":]*)\"" "\\1=\"file://${HD}/\\2\"" html "${html}")
+	string(REGEX REPLACE "(href|src)=\"/([^\"/][^\":]*)\"" "\\1=\"file://${HD}/\\2\"" html "${html}")
 	get_filename_component(HN ${HTML} NAME)
 	file(WRITE ${OUT}-${HN} "${html}")
 	set(HTML ${OUT}-${HN})

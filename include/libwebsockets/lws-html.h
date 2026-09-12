@@ -34,6 +34,19 @@
 #if !defined(LHP_STRING_CHUNK)
 #define LHP_STRING_CHUNK		2048
 #endif
+/*
+ * How many of an element's closed earlier siblings are remembered (their
+ * attributes) so that the ~ and + selector combinators and :first-child can
+ * be evaluated.  Costs the attribute storage of that many elements per open
+ * level.
+ */
+#if !defined(LHP_SIBLING_HISTORY)
+#if defined(LWS_PLAT_FREERTOS) || defined(LWS_PLAT_BAREMETAL)
+#define LHP_SIBLING_HISTORY		2
+#else
+#define LHP_SIBLING_HISTORY		8
+#endif
+#endif
 
 enum lhp_callbacks {
 
@@ -335,6 +348,13 @@ typedef struct lhp_atr {
 	/* name+NUL then value+NUL follow */
 } lhp_atr_t;
 
+/* a closed element remembered on its parent for sibling selectors */
+
+typedef struct lhp_sib {
+	lws_dll2_t		list;	/* parent's sibs, newest last */
+	lws_dll2_owner_t	atr;	/* lhp_atr_t moved from the level */
+} lhp_sib_t;
+
 /*
  * In order to lay out the table, we have to incrementally adjust all foregoing
  * DLOs as newer cells change the situation.  So we have to keep track of all
@@ -401,6 +421,7 @@ typedef struct lhp_pstack {
 	uint16_t			idx;	 /* list item / table cell counter */
 
 	lws_dll2_owner_t		atr; /* lhp_atr_t */
+	lws_dll2_owner_t		sibs; /* lhp_sib_t: our closed children */
 
 	const lws_display_font_t	*f;
 
@@ -638,6 +659,7 @@ typedef struct lhp_ctx {
 			uint32_t	integer:2;
 			uint32_t	color:2;
 			uint32_t	infunc:1; /* inside name( ... ) value */
+			uint32_t	sq:1; /* attribute value quoted with ' */
 		} f;
 	} u;
 

@@ -336,8 +336,54 @@ lhp_clean_atr(lws_dll2_t *d, void *user)
 }
 
 static void
+lhp_sib_free(lhp_sib_t *sib)
+{
+	lws_dll2_foreach_safe(&sib->atr, NULL, lhp_clean_atr);
+	lws_dll2_remove(&sib->list);
+	lws_free(sib);
+}
+
+static int
+lhp_clean_sib(lws_dll2_t *d, void *user)
+{
+	lhp_sib_free(lws_container_of(d, lhp_sib_t, list));
+
+	return 0;
+}
+
+static void
 lhp_clean_level(lhp_pstack_t *ps)
 {
+	lhp_pstack_t *parent = NULL;
+
+	if (lws_dll2_get_prev(&ps->list))
+		parent = lws_container_of(lws_dll2_get_prev(&ps->list),
+					  lhp_pstack_t, list);
+
+	/*
+	 * Keep this element's attributes on the parent as one of its recent
+	 * closed children, for the sibling combinators of later siblings
+	 */
+	if (parent && !lws_dll2_is_empty(&ps->atr) &&
+	    !lws_dll2_is_empty(&parent->atr) && LHP_SIBLING_HISTORY) {
+		lhp_sib_t *sib = lws_zalloc(sizeof(*sib), __func__);
+
+		if (sib) {
+			while (lws_dll2_get_head(&ps->atr)) {
+				lws_dll2_t *d = lws_dll2_get_head(&ps->atr);
+
+				lws_dll2_remove(d);
+				lws_dll2_add_tail(d, &sib->atr);
+			}
+			lws_dll2_add_tail(&sib->list, &parent->sibs);
+			while (lws_dll2_count(&parent->sibs) > LHP_SIBLING_HISTORY)
+				lhp_sib_free(lws_container_of(
+					lws_dll2_get_head(&parent->sibs),
+					lhp_sib_t, list));
+		}
+	}
+
+	lws_dll2_foreach_safe(&ps->sibs, NULL, lhp_clean_sib);
 	lws_dll2_foreach_safe(&ps->atr, NULL, lhp_clean_atr);
 	lws_dll2_remove(&ps->list);
 
@@ -1203,10 +1249,30 @@ lcsp_append_cssval_string(lhp_ctx_t *ctx)
 const char *
 lws_html_get_atr(lhp_pstack_t *ps, const char *aname, size_t aname_len);
 
-static int
-lhp_element_has_class(lhp_pstack_t *ps, const char *name, size_t name_len)
+/* attribute lookup on an element's attribute list; the head is the tag */
+
+static const char *
+lhp_atr_get(lws_dll2_owner_t *atr, const char *aname, size_t aname_len,
+	    int ci)
 {
-	const char *c = lws_html_get_atr(ps, "class", 5);
+	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(atr)) {
+		const lhp_atr_t *at = lws_container_of(p, lhp_atr_t, list);
+		const char *ats = (const char *)&at[1];
+
+		if (p != lws_dll2_get_head(atr) && at->name_len == aname_len &&
+		    (ci ? !strncasecmp(ats, aname, aname_len) :
+			  !memcmp(ats, aname, aname_len)))
+			return ats + aname_len + 1;
+
+	} lws_end_foreach_dll(p);
+
+	return NULL;
+}
+
+static int
+lhp_has_class(lws_dll2_owner_t *atr, const char *name, size_t name_len)
+{
+	const char *c = lhp_atr_get(atr, "class", 5, 1);
 	struct lws_tokenize ts;
 
 	if (!c)
@@ -1229,33 +1295,16 @@ lhp_element_has_class(lhp_pstack_t *ps, const char *name, size_t name_len)
 	return 0;
 }
 
-/* html attribute lookup with case-insensitive name, for [attr] selectors */
-
-static const char *
-lhp_get_atr_ci(lhp_pstack_t *ps, const char *aname, size_t aname_len)
-{
-	lws_start_foreach_dll(struct lws_dll2 *, p,
-			      lws_dll2_get_head(&ps->atr)) {
-		const lhp_atr_t *at = lws_container_of(p, lhp_atr_t, list);
-		const char *ats = (const char *)&at[1];
-
-		if (p != lws_dll2_get_head(&ps->atr) &&
-		    at->name_len == aname_len &&
-		    !strncasecmp(ats, aname, aname_len))
-			return ats + aname_len + 1;
-
-	} lws_end_foreach_dll(p);
-
-	return NULL;
-}
-
 /*
  * CSS selectors
  *
  * Selector text is kept as written, normalized so that a single space is the
  * descendant combinator, there are no spaces around '>', '+', '~', and none
- * inside [...].  Matching walks it right-to-left over the compound selectors,
- * consulting the parse stack for ancestors.
+ * inside [...].  Matching walks it right-to-left over the compound selectors.
+ *
+ * A subject is an element's attribute list (its tag is the first entry) with
+ * the parse-stack level of its parent: that gives the ancestors, and the
+ * parent's remembered closed children give the earlier siblings.
  */
 
 static int
@@ -1266,20 +1315,125 @@ lhp_ident_char(char c)
 	       (unsigned char)c >= 0x80;
 }
 
-/* does element ps match the compound selector [p, end) ? */
+static int
+lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
+	      const char *end);
+
+/* the parent element of a level: the nearest level above it with a tag */
+
+static lhp_pstack_t *
+lhp_parent_elem(lhp_pstack_t *ps)
+{
+	lws_dll2_t *d = ps ? lws_dll2_get_prev(&ps->list) : NULL;
+
+	while (d) {
+		lhp_pstack_t *p = lws_container_of(d, lhp_pstack_t, list);
+
+		if (!lws_dll2_is_empty(&p->atr) || !lws_dll2_get_prev(d))
+			return p;
+		d = lws_dll2_get_prev(d);
+	}
+
+	return NULL;
+}
+
+/* [p, end) is a comma-separated selector list: does any match? */
 
 static int
-lhp_sel_match_compound(lhp_pstack_t *ps, const char *p, const char *end)
+lhp_sel_list_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
+		   const char *p, const char *end)
+{
+	while (p < end) {
+		const char *s = p, *e;
+		int depth = 0;
+
+		while (p < end && (*p != ',' || depth)) {
+			if (*p == '(' || *p == '[')
+				depth++;
+			else if (*p == ')' || *p == ']')
+				depth--;
+			p++;
+		}
+		e = p;
+		if (p < end)
+			p++;
+		while (s < e && *s == ' ')
+			s++;
+		while (e > s && e[-1] == ' ')
+			e--;
+		if (s < e && lhp_sel_match(atr, parent, s, e))
+			return 1;
+	}
+
+	return 0;
+}
+
+/*
+ * :pseudo-class evaluation.  We have no hover / focus / visited state and
+ * don't generate ::before / ::after, so those never match.  [arg, aend) is
+ * the parenthesized argument if any.
+ */
+
+static int
+lhp_sel_pseudo(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *n,
+	       size_t nl, const char *arg, const char *aend)
+{
+	const lhp_atr_t *ta = lws_container_of(lws_dll2_get_head(atr),
+					       lhp_atr_t, list);
+	const char *tag = (const char *)&ta[1];
+
+	if (nl == 3 && !strncasecmp(n, "not", 3))
+		return arg && !lhp_sel_list_match(atr, parent, arg, aend);
+
+	if ((nl == 2 && !strncasecmp(n, "is", 2)) ||
+	    (nl == 5 && !strncasecmp(n, "where", 5)))
+		return arg && lhp_sel_list_match(atr, parent, arg, aend);
+
+	if (nl == 7 && !strncasecmp(n, "checked", 7))
+		return lhp_atr_get(atr, "checked", 7, 1) != NULL ||
+		       lhp_atr_get(atr, "selected", 8, 1) != NULL;
+
+	if (nl == 8 && !strncasecmp(n, "disabled", 8))
+		return lhp_atr_get(atr, "disabled", 8, 1) != NULL;
+
+	if (nl == 7 && !strncasecmp(n, "enabled", 7))
+		return lhp_atr_get(atr, "disabled", 8, 1) == NULL;
+
+	if (nl == 11 && !strncasecmp(n, "first-child", 11))
+		/* text between elements doesn't count in CSS either */
+		return parent && lws_dll2_is_empty(&parent->sibs);
+
+	if (nl == 4 && !strncasecmp(n, "root", 4))
+		return ta->name_len == 4 && !strncasecmp(tag, "html", 4);
+
+	if ((nl == 4 && !strncasecmp(n, "link", 4)) ||
+	    (nl == 9 && !strncasecmp(n, "any-link", 8)))
+		return ta->name_len == 1 && (*tag == 'a' || *tag == 'A') &&
+		       lhp_atr_get(atr, "href", 4, 1) != NULL;
+
+	if (nl == 5 && !strncasecmp(n, "empty", 5))
+		return 0;
+
+	/* hover, focus, active, visited, nth-*, last-child, has, before... */
+
+	return 0;
+}
+
+/* does the subject match the compound selector [p, end) ? */
+
+static int
+lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
+		       const char *p, const char *end)
 {
 	const lhp_atr_t *ta;
 	const char *tag, *s, *v;
 	size_t tag_len;
 
-	if (lws_dll2_is_empty(&ps->atr))
+	if (lws_dll2_is_empty(atr))
 		/* the document level: no element here */
 		return 0;
 
-	ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
+	ta = lws_container_of(lws_dll2_get_head(atr), lhp_atr_t, list);
 	tag = (const char *)&ta[1];
 	tag_len = ta->name_len;
 
@@ -1296,8 +1450,7 @@ lhp_sel_match_compound(lhp_pstack_t *ps, const char *p, const char *end)
 			s = ++p;
 			while (p < end && lhp_ident_char(*p))
 				p++;
-			if (p == s ||
-			    !lhp_element_has_class(ps, s, (size_t)(p - s)))
+			if (p == s || !lhp_has_class(atr, s, (size_t)(p - s)))
 				return 0;
 			break;
 
@@ -1305,7 +1458,7 @@ lhp_sel_match_compound(lhp_pstack_t *ps, const char *p, const char *end)
 			s = ++p;
 			while (p < end && lhp_ident_char(*p))
 				p++;
-			v = lws_html_get_atr(ps, "id", 2);
+			v = lhp_atr_get(atr, "id", 2, 1);
 			if (p == s || !v || strlen(v) != (size_t)(p - s) ||
 			    memcmp(v, s, (size_t)(p - s)))
 				return 0;
@@ -1349,7 +1502,7 @@ lhp_sel_match_compound(lhp_pstack_t *ps, const char *p, const char *end)
 				return 0;
 			p++;
 
-			v = lhp_get_atr_ci(ps, an, anl);
+			v = lhp_atr_get(atr, an, anl, 1);
 			if (!v)
 				return 0;
 			if (!op)
@@ -1412,12 +1565,39 @@ lhp_sel_match_compound(lhp_pstack_t *ps, const char *p, const char *end)
 		}
 
 		case ':':
-			/*
-			 * Pseudo-classes and pseudo-elements: we have no
-			 * link, hover or focus state and don't generate
-			 * ::before / ::after boxes, so these never match.
-			 */
-			return 0;
+		{
+			const char *n, *arg = NULL, *aend = NULL;
+			size_t nl;
+
+			p++;
+			if (p < end && *p == ':')
+				/* ::before, ::after: no generated boxes */
+				return 0;
+			n = p;
+			while (p < end && lhp_ident_char(*p))
+				p++;
+			nl = (size_t)(p - n);
+			if (!nl)
+				return 0;
+			if (p < end && *p == '(') {
+				int depth = 1;
+
+				arg = ++p;
+				while (p < end && depth) {
+					if (*p == '(')
+						depth++;
+					else if (*p == ')')
+						depth--;
+					p++;
+				}
+				if (depth)
+					return 0;
+				aend = p - 1;
+			}
+			if (!lhp_sel_pseudo(atr, parent, n, nl, arg, aend))
+				return 0;
+			break;
+		}
 
 		default:
 			if (!lhp_ident_char(*p))
@@ -1436,34 +1616,35 @@ lhp_sel_match_compound(lhp_pstack_t *ps, const char *p, const char *end)
 }
 
 /*
- * Match the selector [sel, end) against element ps.  '+' and '~' need
- * sibling information we don't keep, so selectors using them never match.
+ * Match the selector [sel, end) against the subject.  ' ' and '>' walk the
+ * ancestors, '~' and '+' the parent's remembered closed children.
  */
 
 static int
-lhp_sel_match(lhp_pstack_t *ps, const char *sel, const char *end)
+lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
+	      const char *end)
 {
 	const char *p = end;
 	char comb = 0;
-	int inb = 0;
+	int depth = 0;
 
 	/* find the start of the rightmost compound selector */
 
 	while (p > sel) {
 		char c = p[-1];
 
-		if (c == ']')
-			inb = 1;
-		else if (c == '[')
-			inb = 0;
-		else if (!inb && (c == ' ' || c == '>' || c == '+' || c == '~')) {
+		if (c == ']' || c == ')')
+			depth++;
+		else if (c == '[' || c == '(')
+			depth--;
+		else if (!depth && (c == ' ' || c == '>' || c == '+' || c == '~')) {
 			comb = c;
 			break;
 		}
 		p--;
 	}
 
-	if (!lhp_sel_match_compound(ps, p, end))
+	if (!lhp_sel_match_compound(atr, parent, p, end))
 		return 0;
 
 	if (!comb)
@@ -1475,22 +1656,38 @@ lhp_sel_match(lhp_pstack_t *ps, const char *sel, const char *end)
 
 	switch (comb) {
 	case ' ': /* any ancestor */
-		lws_start_foreach_dll_back(lws_dll2_t *, d,
-					   lws_dll2_get_prev(&ps->list)) {
-			lhp_pstack_t *a = lws_container_of(d, lhp_pstack_t,
-							   list);
+		while (parent) {
+			if (lhp_sel_match(&parent->atr, lhp_parent_elem(parent),
+					  sel, end))
+				return 1;
+			parent = lhp_parent_elem(parent);
+		}
+		return 0;
 
-			if (lhp_sel_match(a, sel, end))
+	case '>': /* the parent */
+		if (!parent)
+			return 0;
+		return lhp_sel_match(&parent->atr, lhp_parent_elem(parent),
+				     sel, end);
+
+	case '~': /* any earlier sibling we still remember */
+		if (!parent)
+			return 0;
+		lws_start_foreach_dll_back(lws_dll2_t *, d,
+					   lws_dll2_get_tail(&parent->sibs)) {
+			lhp_sib_t *sib = lws_container_of(d, lhp_sib_t, list);
+
+			if (lhp_sel_match(&sib->atr, parent, sel, end))
 				return 1;
 		} lws_end_foreach_dll_back(d);
 		return 0;
 
-	case '>': /* the parent */
-		if (!lws_dll2_get_prev(&ps->list))
+	case '+': /* the immediately preceding sibling */
+		if (!parent || !lws_dll2_get_tail(&parent->sibs))
 			return 0;
-		return lhp_sel_match(lws_container_of(
-					lws_dll2_get_prev(&ps->list),
-					lhp_pstack_t, list), sel, end);
+		return lhp_sel_match(&lws_container_of(
+				lws_dll2_get_tail(&parent->sibs),
+				lhp_sib_t, list)->atr, parent, sel, end);
 
 	default:
 		return 0;
@@ -1597,10 +1794,10 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 		while (s < e && n < sizeof(norm) - 1) {
 			char c = *s++;
 
-			if (c == '[')
-				inb = 1;
-			else if (c == ']')
-				inb = 0;
+			if (c == '[' || c == '(')
+				inb++;
+			else if ((c == ']' || c == ')') && inb)
+				inb--;
 
 			if (c == ' ') {
 				if (inb)
@@ -2191,19 +2388,7 @@ done:
 const char *
 lws_html_get_atr(lhp_pstack_t *ps, const char *aname, size_t aname_len)
 {
-	/* look for src= attribute */
-	lws_start_foreach_dll(struct lws_dll2 *, p,
-			      lws_dll2_get_head(&ps->atr)) {
-		const lhp_atr_t *at = lws_container_of(p,
-						lhp_atr_t, list);
-		const char *ats = (const char *)&at[1];
-
-		if (at->name_len == aname_len && !strcmp(ats, aname))
-			return ats + aname_len + 1;
-
-	} lws_end_foreach_dll(p);
-
-	return NULL;
+	return lhp_atr_get(&ps->atr, aname, aname_len, 0);
 }
 
 const lcsp_atr_t *
@@ -2314,7 +2499,8 @@ lws_css_cascade(lhp_ctx_t *ctx)
 							lcsp_names_t, list);
 				const char *n = (const char *)&nm[1];
 
-				if (lhp_sel_match(ps, n, n + nm->name_len)) {
+				if (lhp_sel_match(&ps->atr, lhp_parent_elem(ps),
+						  n, n + nm->name_len)) {
 					if (!hit || nm->specificity > best)
 						best = nm->specificity;
 					hit = 1;
@@ -2353,6 +2539,45 @@ lws_css_cascade(lhp_ctx_t *ctx)
 		     (ps->css_display &&
 		      ps->css_display->unit == LCSP_UNIT_NONE &&
 		      ps->css_display->propval == LCSP_PROPVAL_NONE);
+
+	/*
+	 * The "visually hidden" idiom for screen-reader text: a box of 1px
+	 * or less with overflow: hidden shows nothing in a browser
+	 */
+	if (!ps->hidden) {
+		const lcsp_atr_t *ov = lws_css_cascade_get_prop_atr(ctx,
+							LCSP_PROP_OVERFLOW);
+
+		if (ov && ov->unit == LCSP_UNIT_NONE &&
+		    ov->propval == LCSP_PROPVAL_HIDDEN &&
+		    ((ps->css_width &&
+		      ps->css_width->unit == LCSP_UNIT_LENGTH_PX &&
+		      ps->css_width->u.i.whole <= 1) ||
+		     (ps->css_height &&
+		      ps->css_height->unit == LCSP_UNIT_LENGTH_PX &&
+		      ps->css_height->u.i.whole <= 1)))
+			ps->hidden = 1;
+	}
+	if (!ps->hidden) {
+		/* clip: rect(0, 0, 0, 0) or rect(0 0 0 0): nothing visible */
+		const lcsp_atr_t *cl = lws_css_cascade_get_prop_atr(ctx,
+							LCSP_PROP_CLIP);
+
+		if (cl && cl->unit == LCSP_UNIT_STRING && cl->value_len > 5 &&
+		    !strncmp((const char *)&cl[1], "rect(", 5)) {
+			const char *p = (const char *)&cl[1] + 5;
+			int zero = 1;
+
+			while (*p && *p != ')') {
+				if (*p != '0' && *p != ' ' && *p != ',' &&
+				    *p != 'p' && *p != 'x')
+					zero = 0;
+				p++;
+			}
+			if (zero)
+				ps->hidden = 1;
+		}
+	}
 
 	ps->css_border_radius[0] = lhp_side_atr(ps, LCSP_PROP_BORDER_TOP_LEFT_RADIUS, LCSP_PROP_BORDER_RADIUS, 0, 1);
 	ps->css_border_radius[1] = lhp_side_atr(ps, LCSP_PROP_BORDER_TOP_RIGHT_RADIUS, LCSP_PROP_BORDER_RADIUS, 1, 1);
@@ -3121,10 +3346,21 @@ check_closing:
 
 		case LHPS_ATTRIB_VAL:
 
-			if (/*ctx->u.f.doctype && */c == '\"') {
-				ctx->u.f.inq = ctx->u.f.inq ^ 1u;
-				if (ctx->u.f.inq)
-					break;
+			/*
+			 * An opening quote of either kind starts the value; the
+			 * matching closing quote ends it immediately, so that
+			 * a "/>" following it is seen as self-closing
+			 */
+			if (!ctx->u.f.inq && ctx->npos == ctx->nl_temp + 1 &&
+			    (c == '\"' || c == '\'')) {
+				/* nothing after the '=' yet: opening quote */
+				ctx->u.f.inq = 1;
+				ctx->u.f.sq = c == '\'';
+				break;
+			}
+			if (ctx->u.f.inq && c == (ctx->u.f.sq ? '\'' : '\"')) {
+				ctx->u.f.inq = 0;
+				goto attrib_val_done;
 			}
 
 			if (c == '&') {
@@ -3135,8 +3371,8 @@ check_closing:
 				break;
 			}
 
-			if ((ctx->u.f.inq || !hspace(c)) &&
-			    c != '>' && c != '\'' && c != '\"') {
+			if (ctx->u.f.inq ||
+			    (!hspace(c) && c != '>' && c != '\'' && c != '\"')) {
 				/*
 				 * sanity: check before the write, and with
 				 * >=, since npos can have been advanced by
@@ -3156,12 +3392,10 @@ check_closing:
 				break;
 			}
 
-			if (c == '\'' || c == '\"')
-				break;
-
 			if (ctx->u.f.inq)
 				break;
 
+attrib_val_done:
 			if (ctx->npos) {
 				/*
 				 * nl_temp is where the '=' sits in buf, so

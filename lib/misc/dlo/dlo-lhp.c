@@ -325,8 +325,15 @@ lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
 	const lcsp_atr_t *a;
 	lws_dll2_t *d;
 
-	if (!c->has_line)
+	if (!c->has_line) {
+		/*
+		 * Nothing was placed, but inline padding / margins may have
+		 * moved the cursor: start the next line from the left anyway,
+		 * or a cursor already past the width would never come back
+		 */
+		lhp_line_reset(c);
 		return;
+	}
 
 	lws_fx_set(ah, c->line_asc + c->line_desc, 0);
 	lh = lhp_fx_max(&ah, &c->line_h);
