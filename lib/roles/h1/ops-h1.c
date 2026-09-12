@@ -1062,14 +1062,22 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 {
 	size_t olen = len;
 	int n;
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	/*
+	 * The compressed (and maybe chunked) output is built in here, and
+	 * buf / len are pointed into it for the lws_issue_raw() below, so it
+	 * has to be at function scope: block-scoped inside the if, the send
+	 * read a dead stack object (stack-use-after-scope under ASan, seen
+	 * serving any static file to a browser that offers gzip / br).
+	 */
+	unsigned char mtubuf[1500 + LWS_PRE + LWS_HTTP_CHUNK_HDR_MAX_SIZE +
+			     LWS_HTTP_CHUNK_TRL_MAX_SIZE];
+#endif
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	if (wsi->http.lcs && (((*wp) & 0x1f) == LWS_WRITE_HTTP_FINAL ||
 			      ((*wp) & 0x1f) == LWS_WRITE_HTTP)) {
-		unsigned char mtubuf[1500 + LWS_PRE +
-				     LWS_HTTP_CHUNK_HDR_MAX_SIZE +
-				     LWS_HTTP_CHUNK_TRL_MAX_SIZE],
-			      *out = mtubuf + LWS_PRE +
+		unsigned char *out = mtubuf + LWS_PRE +
 				     LWS_HTTP_CHUNK_HDR_MAX_SIZE;
 		size_t o = sizeof(mtubuf) - LWS_PRE -
 			   LWS_HTTP_CHUNK_HDR_MAX_SIZE -
