@@ -414,7 +414,6 @@ dht_sa_same_peer(const struct sockaddr *a, const struct sockaddr *b)
 int dht_tx_check(size_t size, size_t offset, size_t delta);
 int dht_tx_skip(size_t *offset, size_t size, size_t delta);
 int dht_tx_id_len(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id);
-void * dht_memmem(const void *haystack, size_t haystacklen, const void *needle, size_t needlelen);
 int dht_tx_copy__advance_offset(char *buf, size_t *offset, size_t size, const void *src, size_t delta);
 int dht_tx_add_v(char *buf, size_t *offset, size_t size, struct lws_dht_ctx *ctx);
 int dht_tx_add_ip(char *buf, size_t *offset, size_t size, const struct sockaddr *sa);

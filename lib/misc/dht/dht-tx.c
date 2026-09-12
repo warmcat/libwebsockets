@@ -52,24 +52,6 @@ dht_tx_id_len(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id)
 	return (int)(ctx->legacy ? LWS_DHT_SHA1_HASH_LEN : (2 + id->len));
 }
 
-void *
-dht_memmem(const void *haystack, size_t haystacklen,
-	   const void *needle, size_t needlelen)
-{
-	const uint8_t *h = (const uint8_t *)haystack;
-	const uint8_t *n = (const uint8_t *)needle;
-	size_t i;
-
-	if (needlelen > haystacklen)
-		return NULL;
-
-	for (i = 0; i <= haystacklen - needlelen; i++)
-		if (!memcmp(h + i, n, needlelen))
-			return (void *)(h + i);
-
-	return NULL;
-}
-
 int
 dht_tx_copy__advance_offset(char *buf, size_t *offset, size_t size, const void *src, size_t delta)
 {

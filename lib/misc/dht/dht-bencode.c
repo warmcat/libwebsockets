@@ -311,25 +311,6 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 		return -1;
 	}
 
-	p = dht_memmem(buf, buflen, "5:token", 7);
-	if (p) {
-		size_t l;
-		char *q;
-
-		l = dht_strtoull((char*)p + 7,
-			buflen - lws_ptr_diff_size_t(p + 7, buf), &q);
-		if (q && (uint8_t *)q < buf + buflen && *q == ':' && l > 0 && l < mp->token_len) {
-			if (l > lws_ptr_diff_size_t(end, (const uint8_t *)(q + 1))) {
-				lwsl_notice("%s: Token length invalid", __func__);
-				lwsl_hexdump_notice(buf, buflen);
-				goto fail;
-			}
-			memcpy(mp->token, q + 1, l);
-			mp->token_len = l;
-		} else
-			mp->token_len = 0;
-	}
-
 	if (!meta || *meta != 'd') {
 		lwsl_notice("%s: Missing or invalid 'a' or 'r' dict", __func__);
 		lwsl_hexdump_notice(buf, buflen);
@@ -460,54 +441,15 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 	} else
 		mp->sender_ip_len = 0;
 
-	if (dht_memmem(buf, buflen, "1:y1:r", 6) || dht_memmem(buf, buflen, "1:y1:re", 7))
-		return DHT_REPLY;
-	if (dht_memmem(buf, buflen, "1:y1:e", 6))
-		return DHT_ERROR;
-	if (!dht_memmem(buf, buflen, "1:y1:q", 6))
-		return -1;
-	/* Parse query type robustly */
-	{
-		uint8_t *p = dht_memmem(buf, buflen, "1:q", 3);
-		if (p) {
-			char *endptr;
-			long qlen;
-			/* Value should be string: "N:value" */
-			qlen = (long)dht_strtoull((char*)p + 3,
-				buflen - lws_ptr_diff_size_t(p + 3, buf), &endptr);
-
-			if (endptr && (uint8_t *)endptr < buf + buflen && *endptr == ':') {
-				p = (uint8_t *)endptr + 1;
-				/*
-				 * Check bounds? buflen unknown relative to p here easily without math.
-				 * Assuming dht_memmem ensures it's within buf.
-				 */
-				if (qlen == 4 && memcmp(p, "ping", 4) == 0)
-					return DHT_PING;
-				if (qlen == 9 && memcmp(p, "find_node", 9) == 0)
-					return DHT_FIND_NODE;
-				if (qlen == 9 && memcmp(p, "get_peers", 9) == 0)
-					return DHT_GET_PEERS;
-				if (qlen == 13 && memcmp(p, "announce_peer", 13) == 0)
-					return DHT_ANNOUNCE_PEER;
-				if (qlen == 4 && memcmp(p, "data", 4) == 0)
-					return DHT_DATA;
-				if (qlen == 9 && memcmp(p, "subscribe", 9) == 0)
-					return DHT_SUBSCRIBE;
-				if (qlen == 17 && memcmp(p, "subscribe_confirm", 17) == 0)
-					return DHT_SUBSCRIBE_CONFIRM;
-				if (qlen == 6 && memcmp(p, "notify", 6) == 0)
-					return DHT_NOTIFY;
-
-				lwsl_dht_rx_warn("%s: Unknown q: %.*s\n", __func__, (int)qlen, p);
-			}
-		}
-	}
+	/*
+	 * The message type was determined structurally from the y / q fields
+	 * at the top of this function.  An earlier version re-classified the
+	 * datagram here by searching the raw bytes for fragments like "1:y1:r",
+	 * which match inside attacker-chosen string values as easily as in the
+	 * real fields and so could misroute a query as a reply (or vice versa).
+	 */
 
 	return message;
-
-fail:
-	return -1;
 }
 
 static void
