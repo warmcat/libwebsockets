@@ -429,7 +429,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         const rel = lwsAuthSafeRelative(redirectUri);
                         if (!rel)
                             console.error("Unusable redirect target");
-                        window.location.href = rel || '/';
+                        /* anchored to our own origin: it can only be a path here */
+                        window.location.href = window.location.origin + (rel || '/');
                     }
                 } else {
                     window.location.href = '/';
