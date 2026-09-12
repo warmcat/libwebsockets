@@ -304,6 +304,9 @@ font_mcufont_uniglyph_lookup(lws_dlo_text_t *text, uint32_t unicode)
 		return 0;
 
 	do {
+		/* each pass walks the range table from its start */
+		r = bf + lws_ser_ru32be(&bf[MCUFO_FOFS_CHAR_RANGE_TABLES]);
+
 		for (n = 0; n < entries; n++) {
 			uint32_t cs = lws_ser_ru32be(r + 0), ce = lws_ser_ru32be(r + 4);
 
