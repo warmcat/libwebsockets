@@ -277,6 +277,71 @@ struct hls_segment_info {
 	int seek_any;		/* seek with AVSEEK_FLAG_ANY, see above */
 };
 
+/* --- alternate renditions: which streams an A/V body contains --- */
+
+/*
+ * The A/V media playlist, init segment and media segment builders take a
+ * selector naming what their output carries, so one file can be served as
+ * a muxed A/V stream (the original behaviour, used when the container has
+ * at most one audio track), or as a video-only variant plus one audio-only
+ * rendition per audio track for the client to pick between:
+ *
+ *   ""    video plus the default audio, muxed
+ *   "v"   video only
+ *   "aN"  audio only, taken from input stream index N
+ *
+ * The selector appears as an extra URL path element after the filename
+ * (/avstream/<file>/aN, /init/<file>/aN, /segment/<file>/aN/<idx>) and is
+ * carried in hls_task.trackid.  Audio-only segments are cut on the same
+ * keyframe timeline as the video ones, so segment N of every rendition
+ * covers the same span.
+ */
+enum hls_sel_kind {
+	HLS_SEL_MUXED,
+	HLS_SEL_VIDEO,
+	HLS_SEL_AUDIO,
+};
+
+/* Parse a selector; *audio_stream gets N for "aN".  Returns -1 if the
+ * string is not one of the forms above (the URL router 404s on that). */
+static inline int
+hls_parse_sel(const char *sel, enum hls_sel_kind *kind, int *audio_stream)
+{
+	const char *p;
+	int n = 0;
+
+	*audio_stream = -1;
+	if (!sel || !*sel) {
+		*kind = HLS_SEL_MUXED;
+		return 0;
+	}
+	if (!strcmp(sel, "v")) {
+		*kind = HLS_SEL_VIDEO;
+		return 0;
+	}
+	if (*sel != 'a' || !sel[1] || strlen(sel) > 4)
+		return -1;
+	for (p = sel + 1; *p; p++) {
+		if (*p < '0' || *p > '9')
+			return -1;
+		n = n * 10 + (*p - '0');
+	}
+	*kind = HLS_SEL_AUDIO;
+	*audio_stream = n;
+
+	return 0;
+}
+
+/* Description of one audio track in a media file, id "aN" for input
+ * stream index N. */
+struct hls_audio_track {
+	char id[16];
+	char lang[16];       /* BCP47-ish: "en", "pt-BR", or "und" */
+	char name[64];       /* human-readable, e.g. "English" */
+	int  stream_index;   /* AVStream index */
+	int  is_default;     /* container's AV_DISPOSITION_DEFAULT */
+};
+
 /* --- WebVTT subtitle support (hls-sub.c) --- */
 
 enum hls_sub_kind {
@@ -384,23 +449,35 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir);
  * fill r->status, and for HTTP_STATUS_OK, r->body / r->len / r->content_type.
  * cancel may be NULL.
  */
+/*
+ * sel is the rendition selector described above ("" / "v" / "aN"); an
+ * "aN" naming a stream that is not an audio stream gives 404.
+ */
 void
 lws_hls_build_init(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
-		   const char *filename, volatile int *cancel,
+		   const char *filename, const char *sel, volatile int *cancel,
 		   struct hls_result *r);
 
 /* A/V media playlist (referenced as a variant from the master playlist
- * when subtitles exist, or served directly otherwise). */
+ * when subtitles or alternate audio exist, or served directly otherwise). */
 void
 lws_hls_build_manifest(struct per_vhost_data__lws_hls *vhd,
 		       const char *media_dir, const char *filename,
-		       volatile int *cancel, struct hls_result *r);
+		       const char *sel, volatile int *cancel,
+		       struct hls_result *r);
 
 void
 lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 		      const char *media_dir, const char *filename,
-		      int segment_idx, volatile int *cancel,
+		      const char *sel, int segment_idx, volatile int *cancel,
 		      struct hls_result *r);
+
+/* List the audio streams of a media file, in stream index order.  Returns
+ * a malloc'd array and count in *out_count; caller free()s it.  NULL / 0
+ * if none. */
+struct hls_audio_track *
+lws_hls_discover_audio(const char *media_dir, const char *filename,
+		       int *out_count);
 
 /* Compute segment [start_pts, end_pts] / duration for the target segment
  * index of a media file, plus the total segment count. Used by both the
@@ -434,9 +511,11 @@ lws_hls_find_track(struct hls_sub_track *tracks, int count, const char *trackid)
  * Body builders, worker thread only, same contract as the hls-av.c ones.
  */
 
-/* Master playlist dispatcher: if the file has subtitle tracks, emit a
- * master playlist (one #EXT-X-STREAM-INF + per-track #EXT-X-MEDIA
- * TYPE=SUBTITLES); otherwise delegate to the plain A/V media playlist. */
+/* Master playlist dispatcher: if the file has subtitle tracks or more than
+ * one audio track, emit a master playlist (one #EXT-X-STREAM-INF, per-track
+ * #EXT-X-MEDIA TYPE=SUBTITLES, and with several audio tracks a video-only
+ * variant plus per-track #EXT-X-MEDIA TYPE=AUDIO renditions); otherwise
+ * delegate to the plain muxed A/V media playlist. */
 void
 lws_hls_build_stream(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
 		     const char *filename, volatile int *cancel,

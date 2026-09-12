@@ -160,16 +160,17 @@ run_body_task(struct per_vhost_data__lws_hls *vhd, struct hls_task *t)
 {
 	switch (t->type) {
 	case HLS_TASK_INIT:
-		lws_hls_build_init(vhd, vhd->media_dir, t->filename, &t->cancel,
-				   &t->r);
+		lws_hls_build_init(vhd, vhd->media_dir, t->filename,
+				   t->trackid, &t->cancel, &t->r);
 		break;
 	case HLS_TASK_MANIFEST:
 		lws_hls_build_manifest(vhd, vhd->media_dir, t->filename,
-				       &t->cancel, &t->r);
+				       t->trackid, &t->cancel, &t->r);
 		break;
 	case HLS_TASK_SEGMENT:
 		lws_hls_build_segment(vhd, vhd->media_dir, t->filename,
-				      t->segment_idx, &t->cancel, &t->r);
+				      t->trackid, t->segment_idx, &t->cancel,
+				      &t->r);
 		break;
 	case HLS_TASK_STREAM:
 		lws_hls_build_stream(vhd, vhd->media_dir, t->filename,
@@ -940,9 +941,67 @@ flush_audio_transcoder(AVFormatContext *out_ctx, struct hls_audio_transcoder *au
         av_packet_free(&enc_pkt);
 }
 
+/*
+ * Choose the input streams an output body is built from, per the rendition
+ * selector (see enum hls_sel_kind).
+ *
+ * The muxed default takes the first video stream and, of the audio streams,
+ * the first AAC one if any (no transcode needed), else the first.  "v" drops
+ * the audio; "aN" takes audio stream N and, for the segment builder, keeps
+ * the video stream as the timeline clock without writing it (*write_video
+ * = 0), so audio-only segments cut at the same keyframes as the video ones.
+ *
+ * Returns -1 if sel is malformed or names a stream that is not audio.
+ */
+static int
+hls_select_streams(AVFormatContext *in_ctx, const char *sel, int *video_idx,
+		   int *audio_idx, int *write_video)
+{
+	enum hls_sel_kind kind;
+	int want_audio;
+	unsigned int i;
+
+	*video_idx = -1;
+	*audio_idx = -1;
+	*write_video = 1;
+
+	if (hls_parse_sel(sel, &kind, &want_audio))
+		return -1;
+
+	for (i = 0; i < in_ctx->nb_streams; i++) {
+		const AVCodecParameters *cp = in_ctx->streams[i]->codecpar;
+
+		if (cp->codec_type == AVMEDIA_TYPE_VIDEO) {
+			if (*video_idx < 0)
+				*video_idx = (int)i;
+		} else if (cp->codec_type == AVMEDIA_TYPE_AUDIO) {
+			if (*audio_idx < 0 || cp->codec_id == AV_CODEC_ID_AAC)
+				*audio_idx = (int)i;
+		}
+	}
+
+	switch (kind) {
+	case HLS_SEL_MUXED:
+		break;
+	case HLS_SEL_VIDEO:
+		*audio_idx = -1;
+		break;
+	case HLS_SEL_AUDIO:
+		if (want_audio < 0 || (unsigned int)want_audio >= in_ctx->nb_streams ||
+		    in_ctx->streams[want_audio]->codecpar->codec_type !=
+							AVMEDIA_TYPE_AUDIO)
+			return -1;
+		*audio_idx = want_audio;
+		*write_video = 0;
+		break;
+	}
+
+	return 0;
+}
+
 void
 lws_hls_build_init(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
-		   const char *filename, volatile int *cancel,
+		   const char *filename, const char *sel, volatile int *cancel,
 		   struct hls_result *r)
 {
         char filepath[1024];
@@ -971,17 +1030,18 @@ lws_hls_build_init(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
                 return;
         }
 
-        int video_idx = -1;
-        int audio_idx = -1;
-        for (unsigned int i = 0; i < in_ctx->nb_streams; i++) {
-                if (in_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-                        if (video_idx < 0) video_idx = (int)i;
-                } else if (in_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
-                        if (audio_idx < 0 || in_ctx->streams[i]->codecpar->codec_id == AV_CODEC_ID_AAC) {
-                                audio_idx = (int)i;
-                        }
-                }
+        int video_idx, audio_idx, write_video;
+
+        if (hls_select_streams(in_ctx, sel, &video_idx, &audio_idx,
+			       &write_video)) {
+                avformat_free_context(out_ctx);
+                avformat_close_input(&in_ctx);
+                r->status = HTTP_STATUS_NOT_FOUND;
+                return;
         }
+        /* an audio-only init segment carries no video track at all */
+        if (!write_video)
+                video_idx = -1;
 
         if (video_idx >= 0) {
                 AVStream *in_stream = in_ctx->streams[video_idx];
@@ -1667,12 +1727,34 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 void
 lws_hls_build_manifest(struct per_vhost_data__lws_hls *vhd,
 		       const char *media_dir, const char *filename,
-		       volatile int *cancel, struct hls_result *r)
+		       const char *sel, volatile int *cancel, struct hls_result *r)
 {
 	char filepath[1024];
+	enum hls_sel_kind kind;
+	int sel_audio;
+	/*
+	 * The muxed playlist lives at /avstream/<file> and references
+	 * ../init/<file>; a rendition playlist lives one level deeper at
+	 * /avstream/<file>/<sel> and references ../../init/<file>/<sel>
+	 */
+	const char *up;
+	char selsuffix[24];
+
 	snprintf(filepath, sizeof(filepath), "%s/%s", media_dir, filename);
 
 	r->status = HTTP_STATUS_INTERNAL_SERVER_ERROR;
+
+	if (hls_parse_sel(sel, &kind, &sel_audio)) {
+		r->status = HTTP_STATUS_NOT_FOUND;
+		return;
+	}
+	if (kind == HLS_SEL_MUXED) {
+		up = "../";
+		selsuffix[0] = '\0';
+	} else {
+		up = "../../";
+		lws_snprintf(selsuffix, sizeof(selsuffix), "/%s", sel);
+	}
 
 	AVFormatContext *fmt_ctx = NULL;
 	if (avformat_open_input(&fmt_ctx, filepath, NULL, NULL) < 0) {
@@ -1765,7 +1847,7 @@ lws_hls_build_manifest(struct per_vhost_data__lws_hls *vhd,
 	 * Composition itself uses the clamped hls_append_fmt() cursor, so even
 	 * if this estimate were wrong the playlist can only truncate (F-059).
 	 */
-	size_t fnlen = strlen(filename);
+	size_t fnlen = strlen(filename) + sizeof(selsuffix);
 	size_t m3u8_max = 256 + fnlen + (size_t)total_segments * (64 + fnlen);
 	char *m3u8 = malloc(LWS_PRE + m3u8_max);
 	if (!m3u8) {
@@ -1782,8 +1864,9 @@ lws_hls_build_manifest(struct per_vhost_data__lws_hls *vhd,
 		"#EXT-X-VERSION:7\n"
 		"#EXT-X-TARGETDURATION:%d\n"
 		"#EXT-X-MEDIA-SEQUENCE:0\n"
-		"#EXT-X-MAP:URI=\"../init/%s\"\n"
-		"#EXT-X-PLAYLIST-TYPE:VOD\n", target_duration, filename);
+		"#EXT-X-MAP:URI=\"%sinit/%s%s\"\n"
+		"#EXT-X-PLAYLIST-TYPE:VOD\n", target_duration, up, filename,
+		selsuffix);
 
 	for (int i = 0; i < total_segments; i++) {
 		double dur = (double)HLS_SEGMENT_DUR;
@@ -1807,8 +1890,8 @@ lws_hls_build_manifest(struct per_vhost_data__lws_hls *vhd,
 			dur = HLS_MAX_SEG_DUR;
 		p_m3u8 = hls_append_fmt(p_m3u8, body, m3u8_max,
 			"#EXTINF:%f,\n"
-			"../segment/%s/%d\n",
-			dur, filename, i);
+			"%ssegment/%s%s/%d\n",
+			dur, up, filename, selsuffix, i);
 	}
 
 	avformat_close_input(&fmt_ctx);
@@ -1826,7 +1909,7 @@ lws_hls_build_manifest(struct per_vhost_data__lws_hls *vhd,
 void
 lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 		      const char *media_dir, const char *filename,
-		      int segment_idx, volatile int *cancel,
+		      const char *sel, int segment_idx, volatile int *cancel,
 		      struct hls_result *r)
 {
 	char filepath[1024];
@@ -1867,21 +1950,26 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 	}
 	int stream_index = 0;
 	int has_video = 0;
-	int video_idx = -1;
-	int audio_idx = -1;
-	
-	for (unsigned int i = 0; i < in_ctx->nb_streams; i++) {
-		if (in_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-			if (video_idx < 0) video_idx = (int)i;
-		} else if (in_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
-			if (audio_idx < 0 || in_ctx->streams[i]->codecpar->codec_id == AV_CODEC_ID_AAC) {
-				audio_idx = (int)i;
-			}
-		}
+	int video_idx, audio_idx, write_video;
+
+	if (hls_select_streams(in_ctx, sel, &video_idx, &audio_idx,
+			       &write_video)) {
+		free(stream_mapping);
+		avformat_free_context(out_ctx);
+		avformat_close_input(&in_ctx);
+		r->status = HTTP_STATUS_NOT_FOUND;
+		return;
 	}
 
-	if (video_idx >= 0) {
+	/*
+	 * Audio-only rendition: the video stream still drives the segment
+	 * boundaries below (has_video, the keyframe wait, the audio buffer
+	 * drain keyed on video packets), it just never gets an output stream
+	 * or written.
+	 */
+	if (video_idx >= 0)
 		has_video = 1;
+	if (video_idx >= 0 && write_video) {
 		stream_mapping[video_idx] = stream_index++;
 		AVStream *in_stream = in_ctx->streams[video_idx];
 		AVStream *out_stream = avformat_new_stream(out_ctx, NULL);
@@ -2119,7 +2207,10 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 			break;
 		}
 
-		if (stream_mapping[pkt.stream_index] < 0) {
+		/* the unwritten video clock of an audio-only rendition
+		 * still goes through the boundary logic below */
+		if (stream_mapping[pkt.stream_index] < 0 &&
+		    !(has_video && pkt.stream_index == video_idx)) {
 			av_packet_unref(&pkt);
 			continue;
 		}
@@ -2411,6 +2502,12 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 		}
 
 		int out_stream_idx = stream_mapping[pkt.stream_index];
+		if (out_stream_idx < 0) {
+			/* video clock packet of an audio-only rendition: it
+			 * has done its job driving the boundaries above */
+			av_packet_unref(&pkt);
+			continue;
+		}
 		bytes_fed += (size_t)pkt.size;
 		if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO && transcode_audio && audio_tx) {
 			if (transcode_audio_packet(in_ctx, out_ctx, audio_tx, &pkt,

@@ -55,9 +55,9 @@ document.addEventListener('DOMContentLoaded', function() {
     var videoSrc = urlParams.get('v');
     var rawSrc = urlParams.get('raw');
 
-    // Preferred subtitle languages (most-preferred first). Used to pick a
-    // sensible default in the CC dropdown; subtitles stay OFF until the
-    // user clicks CC.
+    // Preferred languages (most-preferred first). Used to pick a sensible
+    // default in the audio and CC dropdowns; subtitles stay OFF until the
+    // user clicks CC, whereas the matching audio track is selected outright.
     var prefLangs = (navigator.languages && navigator.languages.length)
             ? navigator.languages
             : [navigator.language || 'en'];
@@ -156,15 +156,16 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         /* Persistent player state shared across the resume-position writer
-         * (timeupdate) and the subtitle selection UI. ccOn/subId are restored
-         * from localStorage and re-applied once hls.js reports the available
-         * subtitle tracks. subId is the track NAME (e.g. "Subtitles [e9,
-         * subrip]"), which is stable for a given file regardless of hls.js's
-         * array ordering. */
+         * (timeupdate) and the audio / subtitle selection UI. ccOn/subId/
+         * audId are restored from localStorage and re-applied once hls.js
+         * reports the available tracks. subId and audId are the track NAME
+         * (e.g. "Subtitles [e9, subrip]"), which is stable for a given file
+         * regardless of hls.js's array ordering. */
         var resumeState = {
             ccOn: !!(parsed && parsed.ccOn),
             subId: (parsed && parsed.subId) || '',
-            lastPos: -1, lastCcOn: null, lastSubId: null
+            audId: (parsed && parsed.audId) || '',
+            lastPos: -1, lastCcOn: null, lastSubId: null, lastAudId: null
         };
 
         video.addEventListener('timeupdate', function() {
@@ -178,17 +179,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 var posR = Math.floor(video.currentTime);
                 if (posR === resumeState.lastPos &&
                     resumeState.ccOn === resumeState.lastCcOn &&
-                    resumeState.subId === resumeState.lastSubId)
+                    resumeState.subId === resumeState.lastSubId &&
+                    resumeState.audId === resumeState.lastAudId)
                     return;
                 resumeState.lastPos = posR;
                 resumeState.lastCcOn = resumeState.ccOn;
                 resumeState.lastSubId = resumeState.subId;
+                resumeState.lastAudId = resumeState.audId;
                 localStorage.setItem(hashKey, JSON.stringify({
                     pos: video.currentTime,
                     dur: video.duration,
                     ts: Date.now(),
                     ccOn: resumeState.ccOn,
-                    subId: resumeState.subId
+                    subId: resumeState.subId,
+                    audId: resumeState.audId
                 }));
             }
         });
@@ -231,12 +235,13 @@ document.addEventListener('DOMContentLoaded', function() {
             return (a.length - i) - (b.length - j);
         }
 
-        // Pick the best-matching subtitle track ARRAY INDEX from a list of
+        // Pick the best-matching track ARRAY INDEX from a list of
         // {id, name, lang, ...} using the browser's preferred languages.
-        // Returns -1 if none match. hls.subtitleTrack takes an index into
-        // hls.subtitleTracks (which equals the track's id when ids are 0..N-1,
-        // but using the index directly is unambiguous).
-        function pickDefaultSub(tracks) {
+        // Returns -1 if none match. hls.subtitleTrack / hls.audioTrack take
+        // an index into hls.subtitleTracks / hls.audioTracks (which equals
+        // the track's id when ids are 0..N-1, but using the index directly
+        // is unambiguous).
+        function pickDefaultTrack(tracks) {
             for (var pi = 0; pi < prefLangs.length; pi++) {
                 var pl = langPrefix(prefLangs[pi]);
                 if (!pl) continue;
@@ -290,6 +295,71 @@ document.addEventListener('DOMContentLoaded', function() {
         // subOnOff() is bound per-branch below (hls.js sets hls.subtitleTrack;
         // native HLS toggles textTracks[i].mode).
         var subOnOff = function() {};
+
+        // ---- audio track UI ----
+        // Only shown when the server advertised more than one audio
+        // rendition (the master playlist then carries a video-only variant
+        // plus one audio-only playlist per track). The initial pick is the
+        // saved choice for this file, else the first track matching
+        // navigator.languages, else the playlist's DEFAULT / first track.
+        // audSelect() is bound per-branch below (hls.js sets hls.audioTrack;
+        // native HLS toggles audioTracks[i].enabled).
+        var audSel = document.getElementById('aud-lang');
+        var audSelect = function() {};
+
+        function currentAudName() {
+            var o = audSel.options[audSel.selectedIndex];
+            return o ? o.textContent : '';
+        }
+
+        // Fill the dropdown from a list of {name, lang} and return the index
+        // to select (into that list), applying the saved / preferred order
+        // above. Shared by both branches.
+        function populateAudioSel(tracks) {
+            var def = -1;
+            audSel.innerHTML = '';
+            tracks.forEach(function(t, i) {
+                var o = document.createElement('option');
+                o.value = String(i);
+                o.textContent = t.name || t.lang || ('track ' + i);
+                audSel.appendChild(o);
+            });
+            if (resumeState.audId) {
+                for (var oi = 0; oi < audSel.options.length; oi++) {
+                    if (audSel.options[oi].textContent === resumeState.audId) {
+                        def = oi;
+                        break;
+                    }
+                }
+                if (def === -1)
+                    logMsg('audio: saved selection "' + resumeState.audId +
+                           '" no longer exists, using default');
+                else
+                    logMsg('audio: restoring saved selection "' +
+                           resumeState.audId + '" (idx=' + def + ')');
+            }
+            if (def === -1) {
+                def = pickDefaultTrack(tracks);
+                logMsg('audio: preferred language "' + prefLangs.join(',') +
+                       '" -> default idx=' + def + ' "' +
+                       (tracks[def] || {}).name + '"');
+            }
+            audSel.value = String(def);
+            audSel.classList.remove('hidden');
+            return def;
+        }
+
+        if (audSel) {
+            audSel.addEventListener('change', function() {
+                var idx = Number.parseInt(audSel.value, 10);
+                if (Number.isNaN(idx))
+                    return;
+                resumeState.audId = currentAudName();
+                audSelect(idx);
+                logMsg('audio: user selected idx=' + idx + ' "' +
+                       currentAudName() + '"');
+            });
+        }
 
         if (Hls.isSupported()) {
             logMsg('hls.js supported');
@@ -429,7 +499,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                '" no longer exists, using default');
                 }
                 if (def === -1) {
-                    def = pickDefaultSub(subs);
+                    def = pickDefaultTrack(subs);
                     if (def !== -1)
                         logMsg('subs: preferred language "' + prefLangs.join(',') +
                                '" -> default idx=' + def + ' "' +
@@ -454,6 +524,41 @@ document.addEventListener('DOMContentLoaded', function() {
                            subSel.options[subSel.selectedIndex].text + ')');
                 }
             });
+
+            // ---- audio renditions ----
+            // Fires once the master playlist is parsed; for a plain media
+            // playlist (single audio, muxed) it reports no tracks and the
+            // dropdown stays hidden.
+            hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, function(event, data) {
+                var auds = (data && data.audioTracks) ? data.audioTracks : [];
+                logMsg('audio: AUDIO_TRACKS_UPDATED -> ' + auds.length + ' track(s)');
+                auds.forEach(function(t, i) {
+                    logMsg('  audio track idx=' + i +
+                           ' id="' + (t.id !== undefined ? t.id : '') + '"' +
+                           ' name="' + (t.name || '') + '"' +
+                           ' lang="' + (t.lang || '') + '"' +
+                           ' default=' + !!t.default +
+                           ' url=' + (t.url || '(muxed)'));
+                });
+                if (auds.length < 2 || !audSel)
+                    return;
+                var def = populateAudioSel(auds);
+                if (def !== -1 && hls.audioTrack !== def) {
+                    audSelect(def);
+                    logMsg('audio: hls.audioTrack = ' + def +
+                           ' (readback=' + hls.audioTrack + ')');
+                }
+            });
+            hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, function(event, data) {
+                logMsg('audio: switched to id=' + (data && data.id !== undefined ? data.id : '?'));
+            });
+            hls.on(Hls.Events.AUDIO_TRACK_LOADED, function(event, data) {
+                logMsg('audio: track ' + (data && data.id !== undefined ? data.id : '?') +
+                       ' playlist loaded');
+            });
+            audSelect = function(idx) {
+                hls.audioTrack = idx;
+            };
 
             hls.on(Hls.Events.SUBTITLE_TRACK_LOADED, function(event, data) {
                 logMsg('subs: track ' + (data && data.id !== undefined ? data.id : '?') +
@@ -676,7 +781,36 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // native HLS exposes subtitle variants as <video>.textTracks
                 populateNativeSubs();
+                // ...and audio renditions as <video>.audioTracks
+                populateNativeAudio();
             });
+
+            function populateNativeAudio() {
+                var ats = video.audioTracks;
+                var i, tracks = [];
+                if (!ats || ats.length < 2 || !audSel) {
+                    logMsg('audio: ' + (ats ? ats.length : 0) + ' native track(s)');
+                    return;
+                }
+                for (i = 0; i < ats.length; i++)
+                    tracks.push({
+                        name: ats[i].label || ats[i].language || ('track ' + i),
+                        lang: ats[i].language || ''
+                    });
+                logMsg('audio: ' + tracks.length + ' native track(s)');
+                var def = populateAudioSel(tracks);
+                if (def !== -1)
+                    audSelect(def);
+            }
+
+            // native HLS: exactly one AudioTrack enabled at a time
+            audSelect = function(idx) {
+                var ats = video.audioTracks;
+                var i;
+                if (!ats) return;
+                for (i = 0; i < ats.length; i++)
+                    ats[i].enabled = (i === idx);
+            };
 
             function populateNativeSubs() {
                 var tts = video.textTracks;
@@ -707,7 +841,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     subSel.appendChild(o);
                 });
 
-                var def = pickDefaultSub(subTracks);
+                var def = pickDefaultTrack(subTracks);
                 subSel.value = (def !== -1) ? def : '-1';
                 ccBtn.classList.remove('hidden');
                 subSel.classList.remove('hidden');

@@ -505,6 +505,101 @@ done_embedded:
 /* cue loading                                                         */
 /* ------------------------------------------------------------------ */
 
+/*
+ * Audio track discovery, for the master playlist's alternate renditions.
+ * Every audio stream is listed (the segment builder transcodes what the
+ * mp4 muxer / browsers will not take, as it does for the muxed default), in
+ * stream index order, which is also the order the container's authors
+ * chose to present them in.
+ */
+struct hls_audio_track *
+lws_hls_discover_audio(const char *media_dir, const char *filename,
+		       int *out_count)
+{
+	struct hls_audio_track *tracks = NULL;
+	AVFormatContext *ic = NULL;
+	char path[512];
+	unsigned int i;
+	int count = 0, naudio = 0;
+
+	*out_count = 0;
+
+	snprintf(path, sizeof(path), "%s/%s", media_dir, filename);
+	if (avformat_open_input(&ic, path, NULL, NULL)) {
+		lwsl_notice("HLS-AUD: %s: could not open for audio "
+			    "discovery\n", filename);
+		return NULL;
+	}
+	if (avformat_find_stream_info(ic, NULL))
+		goto bail;
+
+	for (i = 0; i < ic->nb_streams; i++)
+		if (ic->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO)
+			naudio++;
+	if (!naudio)
+		goto bail;
+
+	tracks = calloc((size_t)naudio, sizeof(*tracks));
+	if (!tracks)
+		goto bail;
+
+	for (i = 0; i < ic->nb_streams; i++) {
+		AVStream *st = ic->streams[i];
+		struct hls_audio_track *t = &tracks[count];
+		AVDictionaryEntry *lg, *tg;
+		const char *codec_name;
+
+		if (st->codecpar->codec_type != AVMEDIA_TYPE_AUDIO)
+			continue;
+
+		codec_name = avcodec_get_name(st->codecpar->codec_id);
+		lg = av_dict_get(st->metadata, "language", NULL, 0);
+		tg = av_dict_get(st->metadata, "title", NULL, 0);
+
+		lws_snprintf(t->id, sizeof(t->id), "a%u", i);
+		t->stream_index = (int)i;
+		t->is_default = !!(st->disposition & AV_DISPOSITION_DEFAULT);
+		if (lg && lg->value && *lg->value)
+			lws_strncpy(t->lang, lg->value, sizeof(t->lang));
+		else
+			strcpy(t->lang, "und");
+
+		/* display name, same priority as the subtitle tracks: the
+		 * container's title tag, else the language name, else a
+		 * placeholder carrying the stream id so several untagged
+		 * tracks stay distinguishable */
+		if (tg && tg->value && *tg->value)
+			lws_strncpy(t->name, tg->value, sizeof(t->name));
+		else if (strcmp(t->lang, "und"))
+			lws_snprintf(t->name, sizeof(t->name), "%s",
+				     lang_name(t->lang));
+		else
+			lws_snprintf(t->name, sizeof(t->name), "Audio [a%u, %s]",
+				     i, codec_name ? codec_name : "audio");
+
+		/* these two go into quoted playlist attributes */
+		sub_attr_sanitize(t->name);
+		sub_attr_sanitize(t->lang);
+
+		lwsl_notice("HLS-AUD: %s: stream %u codec '%s' lang '%s' "
+			    "title '%s'%s -> a%u\n", filename, i,
+			    codec_name ? codec_name : "?", t->lang,
+			    (tg && tg->value) ? tg->value : "(none)",
+			    t->is_default ? " (default)" : "", i);
+		count++;
+	}
+
+bail:
+	avformat_close_input(&ic);
+	if (!count) {
+		free(tracks);
+		tracks = NULL;
+	}
+	*out_count = count;
+
+	return tracks;
+}
+
 static void
 free_cues(struct hls_webvtt_cue *cues, int n)
 {
@@ -1126,15 +1221,21 @@ lws_hls_build_stream(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
 		     struct hls_result *r)
 {
 	struct hls_sub_track *tracks;
-	int ntracks;
+	struct hls_audio_track *audio;
+	int ntracks, naudio, i, have_default;
+	char *buf, *q;
+	size_t fnlen, cap;
 
 	r->status = HTTP_STATUS_INTERNAL_SERVER_ERROR;
 
 	tracks = lws_hls_discover_tracks(media_dir, filename, &ntracks);
-	if (ntracks == 0 || !tracks) {
-		/* no subtitles: behave exactly like the old media playlist */
+	audio = lws_hls_discover_audio(media_dir, filename, &naudio);
+	if ((ntracks == 0 || !tracks) && naudio <= 1) {
+		/* no subtitles and at most one audio track: behave exactly
+		 * like the old muxed media playlist */
 		lws_hls_free_tracks(tracks, ntracks);
-		lws_hls_build_manifest(vhd, media_dir, filename, cancel, r);
+		free(audio);
+		lws_hls_build_manifest(vhd, media_dir, filename, "", cancel, r);
 		return;
 	}
 
@@ -1143,47 +1244,83 @@ lws_hls_build_stream(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
 	 * hls.js / Safari resolve relative URIs per RFC 3986 against the
 	 * playlist URL (/hls/hls/stream/<file>), so "../avstream/<file>"
 	 * -> /hls/hls/avstream/<file> and "../subsm/<file>/<id>" likewise.
+	 *
+	 * With more than one audio track, the variant is video-only and each
+	 * audio track is an alternate rendition with its own audio-only
+	 * playlist, so the client can switch between them; with at most one,
+	 * the variant stays the muxed A/V playlist.
 	 */
-	{
-		char *buf, *q;
-		/* Each MEDIA line repeats the filename twice (NAME may also be
-		 * long for untagged tracks) and the STREAM-INF repeats it; size
-		 * generously from the actual string lengths rather than a guess. */
-		size_t fnlen = strlen(filename);
-		size_t cap = 256 + (size_t)ntracks * (320 + fnlen * 2) + fnlen * 2;
-		int i;
 
-		buf = malloc(cap);
-		if (!buf) {
-			lws_hls_free_tracks(tracks, ntracks);
-			return;
-		}
-		q = buf;
+	/* Each MEDIA line repeats the filename twice (NAME may also be
+	 * long for untagged tracks) and the STREAM-INF repeats it; size
+	 * generously from the actual string lengths rather than a guess. */
+	fnlen = strlen(filename);
+	cap = 256 + (size_t)(ntracks + naudio) * (320 + fnlen * 2) + fnlen * 2;
+
+	buf = malloc(cap);
+	if (!buf) {
+		lws_hls_free_tracks(tracks, ntracks);
+		free(audio);
+		return;
+	}
+	q = buf;
+	q = hls_append_fmt(q, buf, cap,
+		       "#EXTM3U\n"
+		       "#EXT-X-VERSION:7\n\n");
+
+	for (i = 0; i < ntracks; i++) {
 		q = hls_append_fmt(q, buf, cap,
-			       "#EXTM3U\n"
-			       "#EXT-X-VERSION:7\n\n");
+			"#EXT-X-MEDIA:TYPE=SUBTITLES,"
+			"GROUP-ID=\"subs\",NAME=\"%s\","
+			"DEFAULT=NO,AUTOSELECT=NO,FORCED=NO,"
+			"LANGUAGE=\"%s\",URI=\"../subsm/%s/%s\"\n",
+			tracks[i].name, tracks[i].lang, filename,
+			tracks[i].id);
+	}
 
-		for (i = 0; i < ntracks; i++) {
+	if (naudio > 1) {
+		/*
+		 * Exactly one rendition is DEFAULT=YES: the container's
+		 * default-flagged track if it has one, else the first.  That
+		 * is only what the client starts with before it applies the
+		 * viewer's own language preference (player.js does that from
+		 * navigator.languages once the track list arrives).
+		 */
+		have_default = 0;
+		for (i = 0; i < naudio; i++)
+			if (audio[i].is_default) {
+				have_default = 1;
+				break;
+			}
+		for (i = 0; i < naudio; i++) {
+			int def = have_default ? audio[i].is_default : !i;
+
 			q = hls_append_fmt(q, buf, cap,
-				"#EXT-X-MEDIA:TYPE=SUBTITLES,"
-				"GROUP-ID=\"subs\",NAME=\"%s\","
-				"DEFAULT=NO,AUTOSELECT=NO,FORCED=NO,"
-				"LANGUAGE=\"%s\",URI=\"../subsm/%s/%s\"\n",
-				tracks[i].name, tracks[i].lang, filename,
-				tracks[i].id);
+				"#EXT-X-MEDIA:TYPE=AUDIO,"
+				"GROUP-ID=\"audio\",NAME=\"%s\","
+				"DEFAULT=%s,AUTOSELECT=YES,"
+				"LANGUAGE=\"%s\",URI=\"../avstream/%s/%s\"\n",
+				audio[i].name, def ? "YES" : "NO",
+				audio[i].lang, filename, audio[i].id);
 		}
 
+		q = hls_append_fmt(q, buf, cap,
+			"\n#EXT-X-STREAM-INF:BANDWIDTH=1,AVERAGE-BANDWIDTH=1,"
+			"AUDIO=\"audio\"%s\n"
+			"../avstream/%s/v\n",
+			ntracks ? ",SUBTITLES=\"subs\"" : "", filename);
+	} else
 		q = hls_append_fmt(q, buf, cap,
 			"\n#EXT-X-STREAM-INF:BANDWIDTH=1,AVERAGE-BANDWIDTH=1,"
 			"SUBTITLES=\"subs\"\n"
 			"../avstream/%s\n",
 			filename);
 
-		set_body(r, "application/vnd.apple.mpegurl",
-			 (uint8_t *)buf, (size_t)(q - buf));
-		free(buf);
-		lws_hls_free_tracks(tracks, ntracks);
-	}
+	set_body(r, "application/vnd.apple.mpegurl",
+		 (uint8_t *)buf, (size_t)(q - buf));
+	free(buf);
+	lws_hls_free_tracks(tracks, ntracks);
+	free(audio);
 }
 
 void

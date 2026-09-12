@@ -101,6 +101,79 @@ static int
 callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		 void *user, void *in, size_t len);
 
+/*
+ * Split "<filename>[/<sel>][/<idx>]" from an A/V route into its parts.
+ * filename is purified and may not contain '/'.  sel is the rendition
+ * selector ("" when absent, see hls_parse_sel()) and is validated here so
+ * only well-formed selectors reach the worker.  When pidx is non-NULL a
+ * trailing all-digits element is required and returned there; without
+ * pidx nothing may follow the selector.
+ *
+ * Returns -1 if the path does not fit the shape.
+ */
+static int
+hls_split_sel(const char *p, char *filename, size_t fn_sz, char *sel,
+	      size_t sel_sz, const char **pidx)
+{
+	const char *sep = strchr(p, '/'), *e;
+	enum hls_sel_kind kind;
+	size_t n;
+	int dummy;
+
+	n = sep ? (size_t)(sep - p) : strlen(p);
+	if (!n || n >= fn_sz)
+		return -1;
+	memcpy(filename, p, n);
+	filename[n] = '\0';
+	lws_filename_purify_inplace(filename);
+	if (strchr(filename, '/'))
+		return -1;
+
+	sel[0] = '\0';
+	if (pidx)
+		*pidx = NULL;
+	if (!sep)
+		return pidx ? -1 : 0;
+
+	/* the next element: the index if it is all digits and we want one,
+	 * else the selector */
+	p = sep + 1;
+	sep = strchr(p, '/');
+	n = sep ? (size_t)(sep - p) : strlen(p);
+	if (!n)
+		return -1;
+	for (e = p; e < p + n && *e >= '0' && *e <= '9'; e++)
+		;
+	if (pidx && e == p + n) {
+		if (sep)
+			return -1; /* "<file>/<idx>/more" */
+		*pidx = p;
+		return 0;
+	}
+
+	if (n >= sel_sz)
+		return -1;
+	memcpy(sel, p, n);
+	sel[n] = '\0';
+	if (hls_parse_sel(sel, &kind, &dummy))
+		return -1;
+
+	if (!sep)
+		return pidx ? -1 : 0; /* a segment needs its index */
+	if (!pidx)
+		return -1; /* nothing may follow the selector */
+
+	p = sep + 1;
+	if (!*p || strchr(p, '/'))
+		return -1;
+	for (e = p; *e; e++)
+		if (*e < '0' || *e > '9')
+			return -1;
+	*pidx = p;
+
+	return 0;
+}
+
 static const struct lws_protocols stub_prots[] = {
 	LWS_PLUGIN_PROTOCOL_LWS_HLS,
 	LWS_PROTOCOL_LIST_TERM
@@ -385,13 +458,14 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 						  filename, NULL, 0);
 		}
 		else if (!strncmp(url, "/avstream/", 10)) {
-			char filename[256];
-			lws_strncpy(filename, url + 10, sizeof(filename));
-			lws_filename_purify_inplace(filename);
-			if (strchr(filename, '/'))
+			/* /avstream/<filename>[/<sel>] */
+			char filename[256], sel[16];
+
+			if (hls_split_sel(url + 10, filename, sizeof(filename),
+					  sel, sizeof(sel), NULL))
 				goto err_404;
 			return lws_hls_queue_task(wsi, vhd, HLS_TASK_MANIFEST,
-						  filename, NULL, 0);
+						  filename, sel, 0);
 		}
 		else if (!strncmp(url, "/subsm/", 7)) {
 			/* /subsm/<filename>/<trackid> */
@@ -448,34 +522,25 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 						  atoi(sep2 + 1));
 		}
 		else if (!strncmp(url, "/init/", 6)) {
-			char filename[256];
-			lws_strncpy(filename, url + 6, sizeof(filename));
-			lws_filename_purify_inplace(filename);
-			if (strchr(filename, '/'))
+			/* /init/<filename>[/<sel>] */
+			char filename[256], sel[16];
+
+			if (hls_split_sel(url + 6, filename, sizeof(filename),
+					  sel, sizeof(sel), NULL))
 				goto err_404;
 			return lws_hls_queue_task(wsi, vhd, HLS_TASK_INIT,
-						  filename, NULL, 0);
+						  filename, sel, 0);
 		}
 		else if (!strncmp(url, "/segment/", 9)) {
-			const char *p = url + 9;
-			const char *sep = strchr(p, '/');
-			if (!sep)
-				goto err_404;
+			/* /segment/<filename>[/<sel>]/<idx> */
+			char filename[256], sel[16];
+			const char *idx;
 
-			char filename[256];
-			size_t fn_len = (size_t)(sep - p);
-			if (fn_len >= sizeof(filename))
+			if (hls_split_sel(url + 9, filename, sizeof(filename),
+					  sel, sizeof(sel), &idx) || !idx)
 				goto err_404;
-			
-			strncpy(filename, p, fn_len);
-			filename[fn_len] = '\0';
-			lws_filename_purify_inplace(filename);
-			if (strchr(filename, '/'))
-				goto err_404;
-			
-			int segment_idx = atoi(sep + 1);
 			return lws_hls_queue_task(wsi, vhd, HLS_TASK_SEGMENT,
-						  filename, NULL, segment_idx);
+						  filename, sel, atoi(idx));
 		} else if (!strncmp(url, "/delete/", 8)) {
 			if (!pss->has_star_grant) {
 				lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, "Forbidden");
