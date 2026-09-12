@@ -23,4 +23,31 @@ if (requirements)
 	else()
 		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
+
+	#
+	# Layout regression tests: each cases/NN-name.html is laid out and the
+	# DLO tree dump compared with cases/NN-name.dlo (see lhp-dlo-case.cmake)
+	#
+
+	if (LWS_WITH_FILE_OPS AND NOT WIN32)
+		file(GLOB LHP_CASES ${CMAKE_CURRENT_SOURCE_DIR}/cases/*.html)
+		foreach(C ${LHP_CASES})
+			get_filename_component(CN ${C} NAME_WE)
+			add_test(NAME api-test-lhp-dlo-${CN}
+				 COMMAND ${CMAKE_COMMAND}
+					-DTOOL=$<TARGET_FILE:${SAMP}>
+					-DHTML=${C}
+					-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/cases/${CN}.dlo
+					-DOUT=${CMAKE_CURRENT_BINARY_DIR}/${CN}.dlo
+					-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+		endforeach()
+		add_test(NAME api-test-lhp-dlo-test-html
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/test.html
+				-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/test.dlo
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/test.dlo
+				-DW=1600 -DH=2000
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+	endif()
 endif()

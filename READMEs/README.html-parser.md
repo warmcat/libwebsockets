@@ -95,6 +95,22 @@ Connecting to an external tls source costs around 50KB.  So for very constrained
 targets like ESP32, the only practical way is a single h2 connection that
 provides the assets as streams multiplexed inside a single tls tunnel.
 
+### Layout regression tests
+
+`minimal-examples-lowlevel/api-tests/api-test-lhp-dlo` can lay out a local
+html file and dump the resulting DLO tree as text instead of rendering it:
+
+```
+lws-api-test-lhp-dlo file:///path/to/page.html --w 400 --h 300 --dump out.dlo
+```
+
+`cases/*.html` in that directory are small pages each exercising one layout
+feature, with the expected dump alongside as `cases/*.dlo`.  ctest lays each
+one out and diffs it against the golden (`ctest -R api-test-lhp-dlo-`).  After
+an intentional layout change, regenerate a golden with
+`cmake -DUPDATE=1 ... -P lhp-dlo-case.cmake` (see the comment in that file)
+and review the diff of the `.dlo` before committing it.
+
 ### JIT_TRUST
 
 Integrates CA trust bundle dynamic querying into lws, with openssl and mbedtls.

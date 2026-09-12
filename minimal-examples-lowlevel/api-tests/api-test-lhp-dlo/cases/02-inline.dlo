@@ -1,0 +1,15 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (2.0,0.0) [396.0 x 38.0] rgba=00000000
+  text (4.0,3.0) [25.0 x 14.0] rgba=FF000000 f=12/400 "Plain, "
+  text (31.0,3.0) [18.0 x 15.0] rgba=FF000000 f=12/700 "bold"
+  text (53.0,3.0) [4.0 x 14.0] rgba=FF000000 f=12/400 ", "
+  text (61.0,3.0) [21.0 x 14.0] rgba=FF000000 f=12/400 "italic"
+  text (86.0,3.0) [4.0 x 14.0] rgba=FF000000 f=12/400 ", "
+  rect (92.0,2.0) [76.0 x 20.0] rgba=FF00FFFF
+   rect (2.0,0.0) [72.0 x 18.0] rgba=FF00FFFF
+   text (4.0,2.0) [68.0 x 14.0] rgba=FF0000FF f=12/400 "highlighted span"
+  text (166.0,3.0) [4.0 x 14.0] rgba=FF000000 f=12/400 ", "
+  rect (172.0,4.0) [29.0 x 18.0] rgba=00000000
+   text (4.0,2.0) [23.0 x 14.0] rgba=FF000000 f=12/400 "a link"
+  text (201.0,3.0) [196.0 x 14.0] rgba=FF000000 f=12/400 " and more plain text that wraps onto the next line "
+  text (0.0,22.0) [139.0 x 14.0] rgba=FF000000 f=12/400 "when it gets too long for the width."

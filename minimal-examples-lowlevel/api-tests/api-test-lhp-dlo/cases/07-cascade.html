@@ -1,0 +1,20 @@
+<!doctype html>
+<html><head><style>
+body { font-size: 12px; margin: 0; padding: 0 }
+div { color: #111111 }
+.red { color: #ff0000 }
+#special { color: #0000ff }
+div.red { background-color: #ffeeee }
+.outer .child { color: #00aa00 }
+p b { color: #aa00aa }
+.pad { padding: 20px; width: 200px; background-color: #dddddd }
+</style></head>
+<body>
+<div class="red">class colour</div>
+<div class="red" id="special">id beats class</div>
+<div class="outer"><span class="child">descendant match</span></div>
+<div class="child">no descendant match</div>
+<p>para <b>bold in para</b></p>
+<div class="pad"><b>inline in padded block</b></div>
+<div style="color: #123456; padding: 2px">style attribute</div>
+</body></html>

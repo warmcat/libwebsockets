@@ -1,0 +1,23 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (2.0,0.0) [123.0 x 83.0] rgba=00000000
+  rect (2.0,2.0) [55.0 x 19.0] rgba=00000000
+   rect (2.0,0.0) [28.0 x 19.0] rgba=FFCCCCCC
+   text (4.0,2.0) [24.0 x 15.0] rgba=FF000000 f=12/700 "Name"
+   rect (36.0,0.0) [19.0 x 19.0] rgba=FFCCCCCC
+   text (38.0,2.0) [15.0 x 15.0] rgba=FF000000 f=12/700 "Qty"
+  rect (2.0,23.0) [117.0 x 26.0] rgba=00000000
+   rect (4.0,2.0) [91.0 x 24.0] rgba=FFEEEEEE
+    rect (2.0,0.0) [31.0 x 18.0] rgba=FFEEEEEE
+    text (4.0,2.0) [27.0 x 14.0] rgba=FF000000 f=12/400 "Apples"
+   rect (101.0,2.0) [16.0 x 24.0] rgba=FFEEEEEE
+    rect (2.0,0.0) [9.0 x 18.0] rgba=FFEEEEEE
+    text (4.0,2.0) [5.0 x 14.0] rgba=FF000000 f=12/400 "3"
+  rect (2.0,53.0) [119.0 x 28.0] rgba=00000000
+   rect (4.0,2.0) [91.0 x 24.0] rgba=FFEEEEEE
+    rect (2.0,0.0) [87.0 x 18.0] rgba=FFEEEEEE
+    text (4.0,2.0) [83.0 x 14.0] rgba=FF000000 f=12/400 "Long fruit name here"
+   rect (101.0,2.0) [16.0 x 24.0] rgba=FFEEEEEE
+    rect (2.0,0.0) [12.0 x 18.0] rgba=FFEEEEEE
+    text (4.0,2.0) [8.0 x 14.0] rgba=FF000000 f=12/400 "12"
+ rect (2.0,85.0) [396.0 x 18.0] rgba=00000000
+  text (4.0,2.0) [42.0 x 14.0] rgba=FF000000 f=12/400 "After table"

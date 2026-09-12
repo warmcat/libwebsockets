@@ -1,0 +1,17 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (2.0,0.0) [396.0 x 19.0] rgba=00000000
+  text (4.0,2.0) [51.0 x 15.0] rgba=FF000000 f=12/700 "Heading one"
+ rect (2.0,21.0) [396.0 x 19.0] rgba=00000000
+  text (4.0,2.0) [52.0 x 15.0] rgba=FF000000 f=12/700 "Heading two"
+ rect (2.0,42.0) [396.0 x 23.0] rgba=00000000
+  text (4.0,2.0) [174.0 x 19.0] rgba=FF000000 f=17/400 "Paragraph text at default size."
+ rect (40.0,67.0) [358.0 x 52.0] rgba=00000000
+  rect (42.0,2.0) [98.0 x 23.0] rgba=00000000
+   text (42.0,2.0) [54.0 x 19.0] rgba=FF000000 f=17/400 "first item"
+  rect (40.0,27.0) [115.0 x 23.0] rgba=00000000
+   text (42.0,2.0) [71.0 x 19.0] rgba=FF000000 f=17/400 "second item"
+ rect (40.0,121.0) [358.0 x 52.0] rgba=00000000
+  rect (42.0,2.0) [103.0 x 23.0] rgba=00000000
+   text (42.0,2.0) [59.0 x 19.0] rgba=FF000000 f=17/400 "numbered"
+  rect (40.0,27.0) [130.0 x 23.0] rgba=00000000
+   text (42.0,2.0) [86.0 x 19.0] rgba=FF000000 f=17/400 "also numbered"

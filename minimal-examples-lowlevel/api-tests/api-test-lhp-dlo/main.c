@@ -11,11 +11,17 @@
 
 enum {
 	LWS_SW_BMP,
+	LWS_SW_DUMP,
+	LWS_SW_W,
+	LWS_SW_H,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_BMP]	= { "--bmp",           "Enable --bmp feature" },
+	[LWS_SW_BMP]	= { "--bmp",           "Render to the given .bmp file" },
+	[LWS_SW_DUMP]	= { "--dump",          "Write layout DLO tree as text to the given file (no render)" },
+	[LWS_SW_W]	= { "--w",             "Surface width in px (default 1600)" },
+	[LWS_SW_H]	= { "--h",             "Surface height in px (default 2000)" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
@@ -88,7 +94,7 @@ static const lws_display_colour_t palette[] = {
 };
 #endif
 
-static const lws_surface_info_t ic = {
+static lws_surface_info_t ic = {
 	.wh_px = { { 1600,0 },       { 2000,0 } },
 	.wh_mm = { { 114,5000000 }, {  82,5000000 } },
 #if defined(SEVENCOL)
@@ -101,7 +107,102 @@ static const lws_surface_info_t ic = {
 	.greyscale		= 0
 };
 
-int fdin = 0, fdout = 1;
+int fdin = 0, fdout = 1, result = 0;
+static const char *dump_path;
+
+/*
+ * Write the DLO tree as deterministic text (no pointers), so the layout
+ * result for a given html can be compared against a golden file by ctest.
+ */
+
+static void
+dump_dlo(FILE *f, lws_dlo_t *dlo, int depth)
+{
+	char b[4][22];
+
+	while (dlo) {
+		lws_fx_string(&dlo->box.x, b[0], sizeof(b[0]));
+		lws_fx_string(&dlo->box.y, b[1], sizeof(b[1]));
+		lws_fx_string(&dlo->box.w, b[2], sizeof(b[2]));
+		lws_fx_string(&dlo->box.h, b[3], sizeof(b[3]));
+
+		fprintf(f, "%*s", depth, "");
+
+		if (dlo->_destroy == lws_display_dlo_text_destroy) {
+			lws_dlo_text_t *t = lws_container_of(dlo,
+							lws_dlo_text_t, dlo);
+
+			fprintf(f, "text (%s,%s) [%s x %s] rgba=%08X f=%u/%u \"%.*s\"\n",
+				b[0], b[1], b[2], b[3], (unsigned int)dlo->dc,
+				(unsigned int)t->font->choice.fixed_height,
+				(unsigned int)t->font->choice.weight,
+				(int)t->text_len, t->text ? t->text : "");
+		} else
+#if defined(LWS_WITH_UPNG)
+		if (dlo->_destroy == lws_display_dlo_png_destroy)
+			fprintf(f, "png (%s,%s) [%s x %s]\n",
+				b[0], b[1], b[2], b[3]);
+		else
+#endif
+#if defined(LWS_WITH_JPEG)
+		if (dlo->_destroy == lws_display_dlo_jpeg_destroy)
+			fprintf(f, "jpeg (%s,%s) [%s x %s]\n",
+				b[0], b[1], b[2], b[3]);
+		else
+#endif
+		{
+			lws_dlo_rect_t *r = lws_container_of(dlo,
+							lws_dlo_rect_t, dlo);
+			int n, rad = 0;
+
+			for (n = 0; n < 4; n++)
+				rad |= r->c[n].r.whole || r->c[n].r.frac;
+
+			fprintf(f, "rect (%s,%s) [%s x %s] rgba=%08X",
+				b[0], b[1], b[2], b[3], (unsigned int)dlo->dc);
+			if (rad) {
+				fprintf(f, " radii=");
+				for (n = 0; n < 4; n++) {
+					lws_fx_string(&r->c[n].r, b[0],
+						      sizeof(b[0]));
+					fprintf(f, "%s%s", n ? "," : "", b[0]);
+				}
+			}
+			fprintf(f, "\n");
+		}
+
+		if (lws_dll2_get_head(&dlo->children))
+			dump_dlo(f, lws_container_of(
+					lws_dll2_get_head(&dlo->children),
+					lws_dlo_t, list), depth + 1);
+
+		if (!lws_dll2_get_next(&dlo->list))
+			break;
+
+		dlo = lws_container_of(lws_dll2_get_next(&dlo->list),
+				       lws_dlo_t, list);
+	}
+}
+
+static int
+dump_displaylist(const char *path, lws_displaylist_t *dl)
+{
+	FILE *f = fopen(path, "w");
+	lws_dll2_t *d;
+
+	if (!f) {
+		lwsl_err("%s: unable to open %s\n", __func__, path);
+		return 1;
+	}
+
+	d = lws_dll2_get_head(&dl->dl);
+	if (d)
+		dump_dlo(f, lws_container_of(d, lws_dlo_t, list), 0);
+
+	fclose(f);
+
+	return 0;
+}
 
 static void
 write_bmp_header(int fd, int w, int h)
@@ -162,6 +263,14 @@ render(lws_sorted_usec_list_t *sul)
 
 	if (rs->html == 1)
 		return;
+
+	if (dump_path) {
+		if (dump_displaylist(dump_path, &rs->displaylist))
+			result = 1;
+		lws_display_list_destroy(cx, &rs->displaylist);
+		lws_default_loop_exit(cx);
+		return;
+	}
 
 	if (!rs->line) {
 
@@ -253,7 +362,6 @@ int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	int result = 0;
 	const char *p;
 	(void)switches;
 
@@ -268,6 +376,13 @@ main(int argc, const char **argv)
 	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	lwsl_user("LWS LHP DLO test tool - %s https://site.com [--bmp file.bmp]\n", argv[0]);
+
+	dump_path = lws_cmdline_option(argc, argv, switches[LWS_SW_DUMP].sw);
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_W].sw)))
+		ic.wh_px[0].whole = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_H].sw)))
+		ic.wh_px[1].whole = atoi(p);
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_BMP].sw))) {
 		fdout = open(p, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0600);
