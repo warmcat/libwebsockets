@@ -1009,6 +1009,11 @@ lws_cmdline_option_cx_argv0(const struct lws_context *cx);
  * to be (unevenly) copied into the minimal examples.
  *
  * Applies default log levels that can be overriden by -d
+ *
+ * Also takes the event loop switches --uv, --event, --ev, --glib, --sd and
+ * --uloop (the same ones the eventlib-foreign example takes), or the
+ * LWS_EVLIB environment variable with the switch name without the dashes,
+ * so any example, and so any ctest, can be run on a built-in event library.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_cmdline_option_handle_builtin(int argc, const char **argv,

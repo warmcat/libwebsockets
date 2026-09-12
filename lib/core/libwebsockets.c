@@ -1852,8 +1852,33 @@ static const struct lws_switches builtins[] = {
 	{ "--0rtt", "Allow QUIC 0-RTT early data" },
 	{ "--quic-initial-cwnd", "Initial QUIC congestion window (cwnd) in bytes" },
 	{ "--0rtt-max-size", "Max QUIC 0-RTT early data size in bytes" },
+	{ "--uv", "Run on a libuv event loop (if built in)" },
+	{ "--event", "Run on a libevent event loop (if built in)" },
+	{ "--ev", "Run on a libev event loop (if built in)" },
+	{ "--glib", "Run on a glib event loop (if built in)" },
+	{ "--sd", "Run on an sd-event event loop (if built in)" },
+	{ "--uloop", "Run on a uloop event loop (if built in)" },
 	{ "-h", "Print this help" },
 	{ "--help", "Print this help" },
+};
+
+/*
+ * The same event loop switches the eventlib-foreign example takes (the
+ * LWS_EVLIB environment variable, handled in lws_create_context() because
+ * most examples assign info.options after calling this, does the same for a
+ * whole ctest run: LWS_EVLIB=uv ctest ...)
+ */
+
+static const struct {
+	const char	*name;
+	uint64_t	option;
+} evlib_names[] = {
+	{ "uv",		LWS_SERVER_OPTION_LIBUV },
+	{ "event",	LWS_SERVER_OPTION_LIBEVENT },
+	{ "ev",		LWS_SERVER_OPTION_LIBEV },
+	{ "glib",	LWS_SERVER_OPTION_GLIB },
+	{ "sd",		LWS_SERVER_OPTION_SDEVENT },
+	{ "uloop",	LWS_SERVER_OPTION_ULOOP },
 };
 
 enum opts {
@@ -1875,6 +1900,12 @@ enum opts {
 	OPT_0RTT,
 	OPT_QUIC_INITIAL_CWND,
 	OPT_0RTT_MAX_SIZE,
+	OPT_EVLIB_UV,
+	OPT_EVLIB_EVENT,
+	OPT_EVLIB_EV,
+	OPT_EVLIB_GLIB,
+	OPT_EVLIB_SD,
+	OPT_EVLIB_ULOOP,
 	OPT_HELP1,
 	OPT_HELP2,
 };
@@ -2168,6 +2199,15 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 			info->quic_0rtt_max_size = (uint32_t)atoll(p);
 			break;
 
+		case OPT_EVLIB_UV:
+		case OPT_EVLIB_EVENT:
+		case OPT_EVLIB_EV:
+		case OPT_EVLIB_GLIB:
+		case OPT_EVLIB_SD:
+		case OPT_EVLIB_ULOOP:
+			info->options |= evlib_names[n - OPT_EVLIB_UV].option;
+			break;
+
 		case OPT_HELP1:
 		case OPT_HELP2:
 			lws_set_log_level(logs, NULL);
@@ -2175,6 +2215,7 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 			exit(0);
 		}
 	}
+
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	lws_xos_init(&info->fic.xos, seed);

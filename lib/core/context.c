@@ -451,6 +451,54 @@ static const char * const dlist[] = {
 };
 #endif
 
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_EVENT_LIBS)
+#define LWS_EVLIB_OPTION_MASK (LWS_SERVER_OPTION_LIBUV | \
+			       LWS_SERVER_OPTION_LIBEVENT | \
+			       LWS_SERVER_OPTION_GLIB | \
+			       LWS_SERVER_OPTION_LIBEV | \
+			       LWS_SERVER_OPTION_SDEVENT | \
+			       LWS_SERVER_OPTION_ULOOP)
+
+/*
+ * If the app did not pick an event library, let the LWS_EVLIB environment
+ * variable pick one ("uv", "event", "ev", "glib", "sd" or "uloop", the same
+ * names as the --xxx switches the examples take).  This is applied here, in
+ * context creation, rather than in the cmdline helper, because most examples
+ * assign info.options wholesale after calling that helper.  It lets an entire
+ * ctest run be pointed at a built-in event library without editing any test:
+ * LWS_EVLIB=uv ctest ...
+ */
+
+static uint64_t
+lws_evlib_options_from_env(uint64_t options)
+{
+	static const struct {
+		const char	*name;
+		uint64_t	option;
+	} names[] = {
+		{ "uv",		LWS_SERVER_OPTION_LIBUV },
+		{ "event",	LWS_SERVER_OPTION_LIBEVENT },
+		{ "ev",		LWS_SERVER_OPTION_LIBEV },
+		{ "glib",	LWS_SERVER_OPTION_GLIB },
+		{ "sd",		LWS_SERVER_OPTION_SDEVENT },
+		{ "uloop",	LWS_SERVER_OPTION_ULOOP },
+	};
+	const char *e = getenv("LWS_EVLIB");
+	size_t n;
+
+	if (!e || !*e || (options & LWS_EVLIB_OPTION_MASK))
+		return options;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(names); n++)
+		if (!strcmp(e, names[n].name))
+			return options | names[n].option;
+
+	lwsl_err("%s: unknown LWS_EVLIB '%s'\n", __func__, e);
+
+	return options;
+}
+#endif
+
 struct lws_context *
 lws_create_context(const struct lws_context_creation_info *info)
 {
@@ -467,6 +515,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 #if defined(LWS_WITH_NETWORK)
 	const lws_plugin_evlib_t *plev = NULL;
+#if defined(LWS_WITH_EVENT_LIBS)
+	uint64_t ev_options = lws_evlib_options_from_env(info->options);
+#endif
 	unsigned short count_threads = 1;
 	uint8_t *u;
 	uint16_t us_wait_resolution = 0;
@@ -618,7 +669,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(map); n++) {
 		char ok = 0;
 
-		if (!lws_check_opt(info->options, map[n].flag))
+		if (!lws_check_opt(ev_options, map[n].flag))
 			continue;
 
 		if (!lws_plugins_init(&evlib_plugin_list,
@@ -663,79 +714,79 @@ lws_create_context(const struct lws_context_creation_info *info)
 	 */
 
 #if defined(LWS_WITH_LIBUV)
-	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBUV)) {
+	if (lws_check_opt(ev_options, LWS_SERVER_OPTION_LIBUV)) {
 		extern const lws_plugin_evlib_t evlib_uv;
 		plev = &evlib_uv;
 		fatal_exit_defer = !!info->foreign_loops;
 		us_wait_resolution = 0;
 	}
 #else
-	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBUV)) {
+	if (lws_check_opt(ev_options, LWS_SERVER_OPTION_LIBUV)) {
 		lwsl_cx_err(context, "Application wants libuv, but lws not built with it");
 		goto bail;
 	}
 #endif
 
 #if defined(LWS_WITH_LIBEVENT)
-	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBEVENT)) {
+	if (lws_check_opt(ev_options, LWS_SERVER_OPTION_LIBEVENT)) {
 		extern const lws_plugin_evlib_t evlib_event;
 		plev = &evlib_event;
 		us_wait_resolution = 0;
 	}
 #else
-	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBEVENT)) {
+	if (lws_check_opt(ev_options, LWS_SERVER_OPTION_LIBEVENT)) {
 		lwsl_cx_err(context, "Application wants libevent, but lws not built with it");
 		goto bail;
 	}
 #endif
 
 #if defined(LWS_WITH_GLIB)
-	if (lws_check_opt(info->options, LWS_SERVER_OPTION_GLIB)) {
+	if (lws_check_opt(ev_options, LWS_SERVER_OPTION_GLIB)) {
 		extern const lws_plugin_evlib_t evlib_glib;
 		plev = &evlib_glib;
 		us_wait_resolution = 0;
 	}
 #else
-	if (lws_check_opt(info->options, LWS_SERVER_OPTION_GLIB)) {
+	if (lws_check_opt(ev_options, LWS_SERVER_OPTION_GLIB)) {
 		lwsl_cx_err(context, "Application wants glib, but lws not built with it");
 		goto bail;
 	}
 #endif
 
 #if defined(LWS_WITH_LIBEV)
-	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBEV)) {
+	if (lws_check_opt(ev_options, LWS_SERVER_OPTION_LIBEV)) {
 		extern const lws_plugin_evlib_t evlib_ev;
 		plev = &evlib_ev;
 		us_wait_resolution = 0;
 	}
 #else
-	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBEV)) {
+	if (lws_check_opt(ev_options, LWS_SERVER_OPTION_LIBEV)) {
 		lwsl_cx_err(context, "Application wants libev, but lws not built with it");
 		goto bail;
 	}
 #endif
 
 #if defined(LWS_WITH_SDEVENT)
-    if (lws_check_opt(info->options, LWS_SERVER_OPTION_SDEVENT)) {
+    if (lws_check_opt(ev_options, LWS_SERVER_OPTION_SDEVENT)) {
         extern const lws_plugin_evlib_t evlib_sd;
         plev = &evlib_sd;
         us_wait_resolution = 0;
     }
 #else
-	if (lws_check_opt(info->options, LWS_SERVER_OPTION_SDEVENT)) {
+	if (lws_check_opt(ev_options, LWS_SERVER_OPTION_SDEVENT)) {
 		lwsl_cx_err(context, "Application wants sdevent, but lws not built with it");
 		goto bail;
 	}
 #endif
 
 #if defined(LWS_WITH_ULOOP)
-    if (lws_check_opt(info->options, LWS_SERVER_OPTION_ULOOP)) {
+    if (lws_check_opt(ev_options, LWS_SERVER_OPTION_ULOOP)) {
         extern const lws_plugin_evlib_t evlib_uloop;
         plev = &evlib_uloop;
         us_wait_resolution = 0;
     }
 #else
-	if (lws_check_opt(info->options, LWS_SERVER_OPTION_ULOOP)) {
+	if (lws_check_opt(ev_options, LWS_SERVER_OPTION_ULOOP)) {
 		lwsl_cx_err(context, "Application wants uloop, but lws not built with it");
 		goto bail;
 	}
@@ -1179,6 +1230,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 	context->options = info->options;
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_EVENT_LIBS)
+	/* carry an LWS_EVLIB-chosen event library into the context options */
+	context->options |= ev_options & LWS_EVLIB_OPTION_MASK;
+#endif
 
 #if defined(LWS_HAVE_SYS_RESOURCE_H) && !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE) && !defined(WIN32) && !defined(LWS_PLAT_BAREMETAL)
 	/*
