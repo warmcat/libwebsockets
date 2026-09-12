@@ -492,14 +492,6 @@ struct lws_dht_dnssec_domain {
 	uint64_t				last_notify_soa;
 };
 
-typedef struct lws_dht_ts {
-	lws_dll2_t			list;
-	struct lws_transport_sequencer	*ts;
-	struct sockaddr_storage		sa;
-	size_t				salen;
-	struct lws_dht_ctx		*ctx;
-} lws_dht_ts_t;
-
 /* --- Helpers --- */
 
 typedef enum {
