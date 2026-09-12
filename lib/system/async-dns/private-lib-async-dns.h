@@ -111,6 +111,7 @@ typedef struct lws_adns_cache {
 	uint32_t		refcount;
 	uint8_t			flags;	/* b0 = has ipv4, b1 = has ipv6 */
 	uint8_t			incomplete;
+	uint8_t			nxdomain; /* authoritative: name does not exist */
 	/* addrinfo, lws_sa46, then name overallocated here */
 } lws_adns_cache_t;
 

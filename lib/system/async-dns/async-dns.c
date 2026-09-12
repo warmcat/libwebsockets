@@ -139,6 +139,7 @@ lws_async_dns_drop_server(lws_async_dns_server_t *dsrv)
 lws_async_dns_retcode_t
 lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 {
+	int rc;
 	lws_async_dns_retcode_t ret = LADNS_RET_FOUND;
 	struct lws_dll2 *d;
 
@@ -156,6 +157,23 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 	 * always an unserviced, still-interested wsi, and wsis freed by other
 	 * callbacks were unlinked from q by their own cancel path.
 	 */
+	/*
+	 * NXDOMAIN is an authoritative statement that the name does not exist,
+	 * tell the requester so distinctly from the resolver having failed to
+	 * answer (LADNS_RET_FAILED), which is what its dns retry budget is for
+	 */
+
+	if (!c)
+		rc = LADNS_RET_FAILED;
+	else if (!c->results && !c->rr_results && c->nxdomain)
+		rc = LADNS_RET_NXDOMAIN;
+	else
+		rc = LADNS_RET_FOUND;
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	if (rc >= 0 && q->dnssec_valid)
+		rc |= LWS_ADNS_DNSSEC_VALID;
+#endif
+
 	q->completing = 1;
 
 	while ((d = lws_dll2_get_head(&q->wsi_adns))) {
@@ -171,12 +189,7 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 		}
 		lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
 		if (w->adns_cb(w, (const char *)&q[1], c ? c->results : NULL,
-#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
-				(c ? 0 : LADNS_RET_FAILED) | (q->dnssec_valid ? LWS_ADNS_DNSSEC_VALID : 0),
-#else
-				(c ? 0 : LADNS_RET_FAILED),
-#endif
-				q->opaque) == NULL) {
+			       rc, q->opaque) == NULL) {
 			lwsl_info("%s: failed\n", __func__);
 			ret = LADNS_RET_FAILED_WSI_CLOSED;
 		}
@@ -196,13 +209,7 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 			c->refcount++;
 
 		if (q->standalone_cb(NULL, (const char *)&q[1],
-				 c ? c->results : NULL,
-#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
-				 (c ? 0 : LADNS_RET_FAILED) | (q->dnssec_valid ? LWS_ADNS_DNSSEC_VALID : 0),
-#else
-				 (c ? 0 : LADNS_RET_FAILED),
-#endif
-				 q->opaque) == NULL)
+				 c ? c->results : NULL, rc, q->opaque) == NULL)
 			ret = LADNS_RET_FAILED_WSI_CLOSED;
 	}
 
@@ -1871,7 +1878,8 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	if (c) {
 		lwsl_cx_info(context, "%s: using cached, c->results %p, c->rr_results %p",
 			  name, c->results, c->rr_results);
-		m = (c->results || c->rr_results) ? LADNS_RET_FOUND : LADNS_RET_FAILED;
+		m = (c->results || c->rr_results) ? LADNS_RET_FOUND :
+		    (c->nxdomain ? LADNS_RET_NXDOMAIN : LADNS_RET_FAILED);
 		if (c->results)
 			c->refcount++;
 		/* Note: c->rr_results relies on the same cache refcount, but to be

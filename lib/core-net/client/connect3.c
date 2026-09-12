@@ -528,6 +528,26 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	    !lws_dll2_count(&wsi->dns_sorted_list) && /* there's no results */
 	    !lws_socket_is_valid(wsi->desc.sockfd) && /* no attempt ongoing */
 	    !lws_dll2_count(&wsi->speculative_connect_owner) /* no spec attempt */ ) {
+
+		if (n == LADNS_RET_NXDOMAIN) {
+			/*
+			 * The name authoritatively does not exist: there is no
+			 * point spending the dns retry budget asking again, any
+			 * policy-level backoff decides if and when to retry.
+			 * Report it the way the blocking resolver path does,
+			 * with dns_reachability clear so the SS UNREACHABLE ack
+			 * says it was the name, not the resolver, that failed.
+			 */
+			lwsl_wsi_notice(wsi, "DNS NXDOMAIN");
+			wsi->dns_reachability = 0;
+			wsi->client_suppress_CONNECTION_ERROR = 0;
+			cce = "DNS NXDOMAIN";
+			goto oom4;
+		}
+
+		/* the resolver, not the name, failed */
+		wsi->dns_reachability = 1;
+
 		lwsl_wsi_notice(wsi, "dns lookup failed %d", n);
 
 		/*

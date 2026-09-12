@@ -778,7 +778,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	lws_adns_est_t est;
 	lws_adns_q_t *q;
 	size_t alloc;
-	int n, rn;
+	int n, rn, nxdomain = 0;
 
 	// lwsl_hexdump_notice(pkt, len);
 
@@ -858,6 +858,30 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		return;
 	}
 
+	/*
+	 * Only NOERROR and NXDOMAIN are statements about the name that we can
+	 * cache.  SERVFAIL, REFUSED, FORMERR, NOTIMP etc are the server
+	 * declining to answer at all... caching those as an empty result for
+	 * the default ttl turned a transient resolver problem into an hour
+	 * of "no such name", and hid from the requester that it was the
+	 * resolver, not the name, that failed.  Fail the query instead, so
+	 * the requester gets LADNS_RET_FAILED and applies its retry budget.
+	 */
+
+	switch (lws_ser_ru16be(pkt + DHO_FLAGS) & 0x0f) {
+	case 0: /* NOERROR */
+		break;
+	case 3: /* NXDOMAIN */
+		nxdomain = 1;
+		break;
+	default:
+		lwsl_info("%s: %s: rcode %d, failing query\n", __func__,
+			    ((const char *)&q[1]) + DNS_MAX,
+			    lws_ser_ru16be(pkt + DHO_FLAGS) & 0x0f);
+		q->go_nogo = METRES_NOGO;
+		goto fail_out;
+	}
+
 	/* we want to confirm the results against what we last requested... */
 
 	nmcname = ((const char *)&q[1]);
@@ -904,6 +928,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		goto fail_out;
 	}
 	memset(c, 0, sizeof(*c));
+	c->nxdomain = (uint8_t)nxdomain;
 
 	/* place it at end, no need to care about alignment padding */
 	c->name = adst.name = ((const char *)c) + alloc - n;
