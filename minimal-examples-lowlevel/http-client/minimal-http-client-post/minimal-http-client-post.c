@@ -346,6 +346,7 @@ int main(int argc, const char **argv)
 
 	if (lws_system_adopt_stdin(context, LWS_SAS_FLAG__APPEND_COMMANDLINE)) {
 		lwsl_err("%s: failed to adopt stdin\n", __func__);
+		bad = 1;
 		goto bail;
 	}
 
