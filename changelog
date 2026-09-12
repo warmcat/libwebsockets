@@ -4,6 +4,13 @@ Changelog
 Development
 ===========
 
+ - LWS_WITH_SVG: stateful SVG renderer for the fill-only subset, sibling to
+   the upng and lws jpeg decoders.  The document is parsed streaming into a
+   retained vector scene in a single lwsac (curves flattened adaptively), and
+   individual raster lines are produced on demand by scanline intersection,
+   so lines can be rendered in any order; wired in to dlo / lhp as
+   LWSDLOSS_TYPE_SVG.  Includes lws-api-test-svg with a generated corpus of
+   ~200 documents covering each supported feature
  - lws_fx: fixed-point sin, cos, tan and atan2 operators in pure integer
    arithmetic, usable on targets with no FPU and deterministic across
    platforms; validated by lws-api-test-fx

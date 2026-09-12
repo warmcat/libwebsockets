@@ -74,6 +74,10 @@ if (LWS_WITH_JPEG)
 	list(APPEND SOURCES
 		misc/jpeg.c)
 endif()
+if (LWS_WITH_SVG)
+	list(APPEND SOURCES
+		misc/svg.c)
+endif()
 if (LWS_WITH_DHT)
 	list(APPEND SOURCES
 		misc/dht/dht.c
@@ -112,6 +116,11 @@ if (LWS_WITH_DLO)
 	if (LWS_WITH_JPEG)
 		list(APPEND SOURCES
 			misc/dlo/dlo-jpeg.c)
+	endif()
+
+	if (LWS_WITH_SVG)
+		list(APPEND SOURCES
+			misc/dlo/dlo-svg.c)
 	endif()
 
 	if (LWS_WITH_LHP)
