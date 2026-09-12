@@ -30,6 +30,10 @@ set(has_h3 1)
 require_lws_config(LWS_WITH_HTTP3 1 has_h3)
 require_lws_config(LWS_ROLE_QUIC 1 has_h3)
 
+# the proxy cases need the http proxy support in the library
+set(has_proxy 1)
+require_lws_config(LWS_WITH_HTTP_PROXY 1 has_proxy)
+
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
@@ -145,7 +149,8 @@ if (requirements)
 				     FIXTURES_CLEANUP lwsws_uv)
 
 		set(ARGS_COMMON --server ${LWS_CTEST_SERVER_RESOLVE}
-				-p ${PORT_LWSWS} --plain-port ${PORT_LWSWS_PLAIN})
+				-p ${PORT_LWSWS} --plain-port ${PORT_LWSWS_PLAIN}
+				--plugin-dir ${LWSWS_UV_PLUGIN_DIR})
 
 		set(mytests "")
 
@@ -183,14 +188,18 @@ if (requirements)
 			 COMMAND ${SAMP} -t pipeline --evlib uv ${ARGS_COMMON})
 		list(APPEND mytests lwsws-uv-pipeline-uv)
 
-		# the proxy mount, which forwards back into the same lwsws
-		add_test(NAME lwsws-uv-proxy
-			 COMMAND ${SAMP} -t proxy ${ARGS_COMMON})
-		list(APPEND mytests lwsws-uv-proxy)
+		# the proxy mount, which forwards back into the same lwsws:
+		# an http:// mount origin has no dispatch at all without the
+		# proxy support, so these cases need it in the build
+		if (has_proxy)
+			add_test(NAME lwsws-uv-proxy
+				 COMMAND ${SAMP} -t proxy ${ARGS_COMMON})
+			list(APPEND mytests lwsws-uv-proxy)
 
-		add_test(NAME lwsws-uv-proxy-uv
-			 COMMAND ${SAMP} -t proxy --evlib uv ${ARGS_COMMON})
-		list(APPEND mytests lwsws-uv-proxy-uv)
+			add_test(NAME lwsws-uv-proxy-uv
+				 COMMAND ${SAMP} -t proxy --evlib uv ${ARGS_COMMON})
+			list(APPEND mytests lwsws-uv-proxy-uv)
+		endif()
 
 		if (has_h3)
 			# (c) C-473: h3 wins the race, the TCP racer is parked

@@ -132,6 +132,7 @@ struct job {
 
 static char		cookie_visit[1024], cookie_pass[1024];
 static const char	*g_alpn = "http/1.1";
+static const char	*g_plugin_dirs[2]; /* --plugin-dir, NULL-terminated */
 
 static const struct job	*jobs;
 static int		njobs, jidx, jdone, job_delay_done = -1;
@@ -1065,6 +1066,8 @@ make_context(void)
 	 */
 	if (g_uv)
 		info.options |= LWS_SERVER_OPTION_LIBUV;
+	if (g_plugin_dirs[0])
+		info.plugin_dirs = g_plugin_dirs;
 
 #if defined(LWS_WITH_IPV4)
 	if (g_pin_family)
@@ -1301,6 +1304,14 @@ main(int argc, const char **argv)
 		g_port_plain = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--evlib")))
 		g_uv = !strcmp(p, "uv");
+	/*
+	 * Where the build put its event library plugins: with
+	 * LWS_WITH_EVLIB_PLUGINS (the default) libuv support is a .so that
+	 * lws_create_context() looks for only in info.plugin_dirs and the
+	 * install libdir, and we run out of the build tree.
+	 */
+	if ((p = lws_cmdline_option(argc, argv, "--plugin-dir")))
+		g_plugin_dirs[0] = p;
 
 	p = lws_cmdline_option(argc, argv, "-t");
 	if (!p || !g_port_tls || !g_port_plain) {
