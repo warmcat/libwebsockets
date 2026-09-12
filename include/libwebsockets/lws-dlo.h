@@ -263,9 +263,17 @@ typedef struct lws_dlo_jpeg {
 	lws_jpeg_t			*j;
 } lws_dlo_jpeg_t;
 
+typedef struct lws_dlo_svg {
+	lws_dlo_t			dlo;  /* ordering: first */
+	lws_flow_t			flow; /* ordering: second */
+	char				name[25];
+	lws_svg_t			*svg;
+} lws_dlo_svg_t;
+
 typedef enum {
 	LWSDLOSS_TYPE_JPEG,
 	LWSDLOSS_TYPE_PNG,
+	LWSDLOSS_TYPE_SVG,
 	LWSDLOSS_TYPE_CSS,
 } lws_dlo_image_type_t;
 
@@ -273,6 +281,7 @@ typedef struct {
 	union {
 		lws_dlo_jpeg_t		*dlo_jpeg;
 		lws_dlo_png_t		*dlo_png;
+		lws_dlo_svg_t		*dlo_svg;
 	} u;
 	lws_dlo_image_type_t		type;
 	char				failed;
@@ -465,6 +474,23 @@ LWS_VISIBLE LWS_EXTERN void
 lws_display_dlo_jpeg_destroy(struct lws_dlo *dlo);
 
 /*
+ * SVG
+ */
+
+LWS_VISIBLE LWS_EXTERN lws_dlo_svg_t *
+lws_display_dlo_svg_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
+			lws_box_t *box, const char *name, size_t len);
+
+LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
+lws_display_render_svg(struct lws_display_render_state *rs);
+
+LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
+lws_display_dlo_svg_metadata_scan(lws_dlo_svg_t *ds);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_display_dlo_svg_destroy(struct lws_dlo *dlo);
+
+/*
  * SS / dlo images
  */
 
@@ -494,19 +520,51 @@ lws_dlo_ss_find(struct lws_context *cx, const char *url, lws_dlo_image_t *u);
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lhp_displaylist_layout(struct lhp_ctx *ctx, char reason);
 
+/*
+ * These image accessor macros adapt to the image types that were built in.
+ * Because they are macros, the svg arms have to be selected at compile time
+ * or they would reference svg apis that were not built.
+ */
+
+#if defined(LWS_WITH_SVG)
+
 #define lws_dlo_image_width(_u) ((_u)->failed ? -1 : \
-		((_u)->type == LWSDLOSS_TYPE_JPEG ? \
-				(int)lws_jpeg_get_width((_u)->u.dlo_jpeg->j) : \
-				(int)lws_upng_get_width((_u)->u.dlo_png->png)))
+	((_u)->type == LWSDLOSS_TYPE_JPEG ? \
+			(int)lws_jpeg_get_width((_u)->u.dlo_jpeg->j) : \
+	 (_u)->type == LWSDLOSS_TYPE_SVG ? \
+			(int)lws_svg_get_width((_u)->u.dlo_svg->svg) : \
+			(int)lws_upng_get_width((_u)->u.dlo_png->png)))
 #define lws_dlo_image_height(_u) ((_u)->failed ? -1 : \
-		((_u)->type == LWSDLOSS_TYPE_JPEG ? \
-				(int)lws_jpeg_get_height((_u)->u.dlo_jpeg->j) : \
-				(int)lws_upng_get_height((_u)->u.dlo_png->png)))
+	((_u)->type == LWSDLOSS_TYPE_JPEG ? \
+			(int)lws_jpeg_get_height((_u)->u.dlo_jpeg->j) : \
+	 (_u)->type == LWSDLOSS_TYPE_SVG ? \
+			(int)lws_svg_get_height((_u)->u.dlo_svg->svg) : \
+			(int)lws_upng_get_height((_u)->u.dlo_png->png)))
+
+#define lws_dlo_image_metadata_scan(_u) ((_u)->failed ? LWS_SRET_FATAL : \
+	((_u)->type == LWSDLOSS_TYPE_JPEG ? \
+		lws_display_dlo_jpeg_metadata_scan((_u)->u.dlo_jpeg) : \
+	 (_u)->type == LWSDLOSS_TYPE_SVG ? \
+		lws_display_dlo_svg_metadata_scan((_u)->u.dlo_svg) : \
+		lws_display_dlo_png_metadata_scan((_u)->u.dlo_png)))
+
+#else
+
+#define lws_dlo_image_width(_u) ((_u)->failed ? -1 : \
+	((_u)->type == LWSDLOSS_TYPE_JPEG ? \
+			(int)lws_jpeg_get_width((_u)->u.dlo_jpeg->j) : \
+			(int)lws_upng_get_width((_u)->u.dlo_png->png)))
+#define lws_dlo_image_height(_u) ((_u)->failed ? -1 : \
+	((_u)->type == LWSDLOSS_TYPE_JPEG ? \
+			(int)lws_jpeg_get_height((_u)->u.dlo_jpeg->j) : \
+			(int)lws_upng_get_height((_u)->u.dlo_png->png)))
 
 #define lws_dlo_image_metadata_scan(_u) ((_u)->failed ? LWS_SRET_FATAL : \
 	((_u)->type == LWSDLOSS_TYPE_JPEG ? \
 		lws_display_dlo_jpeg_metadata_scan((_u)->u.dlo_jpeg) : \
 		lws_display_dlo_png_metadata_scan((_u)->u.dlo_png)))
+
+#endif
 
 /*
  * Font registry

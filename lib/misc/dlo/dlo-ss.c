@@ -296,6 +296,9 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 #if defined(LWS_WITH_SECURE_STREAMS)
 	lws_dlo_jpeg_t *dlo_jpeg = NULL;
 	lws_dlo_png_t *dlo_png = NULL;
+#if defined(LWS_WITH_SVG)
+	lws_dlo_svg_t *dlo_svg = NULL;
+#endif
 	char rebased_url[LHP_URL_LEN];
 	size_t ul = strlen(i->url), el;
 	struct lws_ss_handle *h;
@@ -347,12 +350,17 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 		    (el >= 5 && !strncmp(p - 5, ".jpeg", 5)))
 			type = LWSDLOSS_TYPE_JPEG;
 		else
-			if (el >= 4 && !strncmp(p - 4, ".css", 4))
-				type = LWSDLOSS_TYPE_CSS;
-			else {
-				lwsl_warn("%s: unknown file type %s\n", __func__, i->url);
-				return 1;
-			}
+#if defined(LWS_WITH_SVG)
+			if (el >= 4 && !strncmp(p - 4, ".svg", 4))
+				type = LWSDLOSS_TYPE_SVG;
+			else
+#endif
+				if (el >= 4 && !strncmp(p - 4, ".css", 4))
+					type = LWSDLOSS_TYPE_CSS;
+				else {
+					lwsl_warn("%s: unknown file type %s\n", __func__, i->url);
+					return 1;
+				}
 
 	/*
 	 * Only a stylesheet <link> can consume css... if the document asked for
@@ -411,6 +419,25 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 
 		dlo = &dlo_jpeg->dlo;
 		break;
+
+#if defined(LWS_WITH_SVG)
+	case LWSDLOSS_TYPE_SVG:
+		dlo_svg = lws_display_dlo_svg_new(i->dl, i->dlo_parent, i->box, q, lws_ptr_diff_size_t(p, q));
+		if (!dlo_svg)
+			return 1;
+
+		i->u->u.dlo_svg = dlo_svg;
+
+		dlo_svg->dlo.box.w.whole = (int32_t)
+			lws_svg_get_width(dlo_svg->svg);
+		dlo_svg->dlo.box.w.frac = 0;
+		dlo_svg->dlo.box.h.whole = (int32_t)
+			lws_svg_get_height(dlo_svg->svg);
+		dlo_svg->dlo.box.h.frac = 0;
+
+		dlo = &dlo_svg->dlo;
+		break;
+#endif
 	}
 
 	/* we adapt the initial tx credit also to the requested window */
@@ -443,6 +470,13 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 		dlo_jpeg->flow.h = h;
 		dlo_jpeg->flow.window = i->window;
 		break;
+#if defined(LWS_WITH_SVG)
+	case LWSDLOSS_TYPE_SVG:
+		dloss->u.u.dlo_svg = dlo_svg;
+		dlo_svg->flow.h = h;
+		dlo_svg->flow.window = i->window;
+		break;
+#endif
 	}
 
 	if (lws_ss_alloc_set_metadata(h, "endpoint", rebased_url, strlen(rebased_url))) {
@@ -480,6 +514,13 @@ fail:
 		lws_display_dlo_destroy(&dlo);
 		*pdlo = NULL;
 		break;
+#if defined(LWS_WITH_SVG)
+	case LWSDLOSS_TYPE_SVG:
+		dlo_svg->flow.h = NULL;
+		lws_display_dlo_destroy(&dlo);
+		*pdlo = NULL;
+		break;
+#endif
 	}
 #endif
 	return 1;
