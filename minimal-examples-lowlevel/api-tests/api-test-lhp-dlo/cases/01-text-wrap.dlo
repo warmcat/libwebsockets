@@ -1,6 +1,6 @@
 rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
- rect (2.0,0.0) [396.0 x 32.0] rgba=00000000
-  text (4.0,2.0) [383.0 x 14.0] rgba=FF000000 f=12/400 "The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog again, "
-  text (0.0,16.0) [153.0 x 14.0] rgba=FF000000 f=12/400 "and then once more for good measure."
- rect (2.0,34.0) [396.0 x 18.0] rgba=00000000
-  text (4.0,2.0) [98.0 x 14.0] rgba=FF000000 f=12/400 "Second paragraph, short."
+ rect (0.0,0.0) [404.0 x 46.0] rgba=00000000
+  text (2.0,2.0) [383.0 x 14.0] rgba=FF000000 f=12/400 "The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog again, "
+  text (2.0,30.0) [153.0 x 14.0] rgba=FF000000 f=12/400 "and then once more for good measure."
+ rect (0.0,59.44) [404.0 x 18.0] rgba=00000000
+  text (2.0,2.0) [98.0 x 14.0] rgba=FF000000 f=12/400 "Second paragraph, short."

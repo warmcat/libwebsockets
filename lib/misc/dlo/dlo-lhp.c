@@ -631,9 +631,9 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 	};
 
 	if (!ps->font) {
-		a = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_FONT_SIZE);
-		if (a)
-			fc.fixed_height = (uint16_t)a->u.i.whole;
+		if (ps->font_size.whole > 0)
+			fc.fixed_height = (uint16_t)(ps->font_size.whole +
+					(ps->font_size.frac >= LWS_FX_FRACTION_MSD / 2));
 
 		a = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_FONT_FAMILY);
 		if (a)
@@ -691,8 +691,7 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 
 	case LHPCB_ELEMENT_START:
 
-		if (ps->css_display &&
-		    ps->css_display->propval == LCSP_PROPVAL_NONE)
+		if (ps->hidden)
 			return 0;
 
 		switch (elem_match) {
@@ -1121,8 +1120,7 @@ do_rect_l:
 
 	case LHPCB_ELEMENT_END:
 
-		if (ps->css_display &&
-		    ps->css_display->propval == LCSP_PROPVAL_NONE)
+		if (ps->hidden)
 			return 0;
 
 /*
@@ -1248,16 +1246,15 @@ do_end_rect_l:
 		{
 			lhp_pstack_t *ps_con = ps->dlo ? ps : psb;
 
-		if (!ps->css_display ||
-		    ps->css_display->propval == LCSP_PROPVAL_NONE)
+		if (!ps->css_display || ps->hidden)
 			break;
 
 		if (ps->css_color)
 			col = ps->css_color->u.rgba;
 
-		a = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_FONT_SIZE);
-		if (a)
-			fc.fixed_height = (uint16_t)a->u.i.whole;
+		if (ps->font_size.whole > 0)
+			fc.fixed_height = (uint16_t)(ps->font_size.whole +
+					(ps->font_size.frac >= LWS_FX_FRACTION_MSD / 2));
 
 		a = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_FONT_FAMILY);
 		if (a)
@@ -1281,7 +1278,8 @@ do_end_rect_l:
 		if (!ps_con)
 			return 0;
 
-		f = lws_font_choose(cx, &fc);
+		/* the element's font was resolved at its start */
+		f = ps->font ? ps->font : lws_font_choose(cx, &fc);
 
 		n = s;
 		while (n < ctx->npos) {

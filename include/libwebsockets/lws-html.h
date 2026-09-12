@@ -358,6 +358,7 @@ typedef struct {
 } lhp_table_col_t;
 
 struct lcsp_atr;
+struct lcsp_match;
 
 #define CCPAS_TOP 0
 #define CCPAS_RIGHT 1
@@ -399,12 +400,26 @@ typedef struct lhp_pstack {
 	const struct lcsp_atr		*css_margin[4];
 	const struct lcsp_atr		*css_padding[4];
 
+	/*
+	 * css resolution for this element: the stanzas whose selectors matched
+	 * it, lowest precedence first, plus the parsed style="" attribute (in
+	 * styleac) as the highest.  Properties absent here are looked up on
+	 * the parent if the property inherits, else take their initial value.
+	 */
+	struct lcsp_match		*matched;
+	struct lwsac			*styleac;
+	lws_fx_t			font_size; /* computed font-size, px */
+	uint16_t			nmatched;
+
 	uint16_t			tr_idx; /* in table */
 	uint16_t			td_idx; /* in current tr */
 
 	uint8_t				is_block:1; /* children use space in our drt */
 	uint8_t				is_table:1;
 	uint8_t				forced_inline:1;
+	uint8_t				css_resolved:1;
+	uint8_t				in_body:1;
+	uint8_t				hidden:1; /* display: none on us or an ancestor */
 
 	/* user layout owns these after initial values set */
 
@@ -473,11 +488,19 @@ typedef struct lcsp_defs {
 	lws_dll2_t		list;
 	lws_dll2_owner_t	atrs;		/* lcsp_atr_t */
 	lcsp_props_t		prop;		/* lcsp_props_t, LCSP_PROP_* */
+	uint8_t			important;	/* declared !important */
 } lcsp_defs_t;
+
+/*
+ * One selector of a stanza's selector list, eg, "div.x > p" from
+ * "div.x > p, .y { ... }".  Stored normalized: a single space is the
+ * descendant combinator, no spaces around '>', '+', '~' or inside [...].
+ */
 
 typedef struct lcsp_names {
 	lws_dll2_t		list;
 	size_t			name_len;
+	uint32_t		specificity;	/* (ids << 16) | (classes << 8) | tags */
 
 	/* name + NUL follow */
 } lcsp_names_t;
@@ -510,6 +533,17 @@ typedef struct lcsp_atr_ptr {
 
 	lcsp_atr_t		*atr;
 } lcsp_atr_ptr_t;
+
+/*
+ * A stanza that matched an element, with the specificity of the best selector
+ * that matched.  Each open element keeps a sorted array of these; the last
+ * entry has the highest precedence.
+ */
+
+typedef struct lcsp_match {
+	lcsp_stanza_t		*stz;
+	uint32_t		specificity;
+} lcsp_match_t;
 
 typedef struct lhp_css_var {
 	lws_dll2_t list;
@@ -596,6 +630,9 @@ typedef struct lhp_ctx {
 	uint8_t			is_css:1;
 	uint8_t			await_css_done:1;
 
+	uint8_t			css_block_depth; /* inside applicable @media */
+	uint8_t			css_skip_depth;  /* skipping unusable @-rule */
+
 	/* at end so we can memset members above it in one go */
 
 	char			buf[LHP_STRING_CHUNK + 1];
@@ -672,16 +709,23 @@ LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len);
 
 /**
- * lws_css_cascade_get_prop_atr() - create active css atr list for property
+ * lws_css_cascade_get_prop_atr() - find the css declaration in effect for a property
  *
  * \p ctx: the parsing context
- * \p prop: the LCSP_PROP_ property to generate the attribute list for
+ * \p prop: the LCSP_PROP_ property to look up
  *
- * Returns NULL if no atr or OOM.
+ * Looks up \p prop for the element currently at the top of the parse stack.
+ * The winning declaration is the one from the highest-precedence stanza that
+ * matched the element (style="" attribute, then !important, then selector
+ * specificity, then source order).  If no matched stanza declares it, an
+ * inherited property (color, font-*, text-align, white-space...) is looked up
+ * on the ancestors in turn; a non-inherited one returns NULL, meaning "use
+ * the initial value".  A declared value of "inherit" also defers to the
+ * parent.
  *
- * Otherwise produces a list of active CSS property attributes walkable via
- * ctx->active_atr, and returns the tail one.  For simple attributes where the
- * last definition is the active one, this points to the last definition.
+ * Returns NULL if nothing applies or OOM.  Otherwise the values of the
+ * winning declaration are listed in ctx->active_atr (so shorthands like
+ * margin: 1px 2px can be walked) and the last value is returned.
  */
 LWS_VISIBLE LWS_EXTERN const lcsp_atr_t *
 lws_css_cascade_get_prop_atr(lhp_ctx_t *ctx, lcsp_props_t prop);

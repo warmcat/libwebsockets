@@ -549,10 +549,18 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 	return LWS_SRET_OK;
 }
 
+/*
+ * Cell dlos still on the row / column list must be unlinked before the owner
+ * is freed, or destroying them later walks freed memory
+ */
+
 static int
 dlo_clean_table_rows(lws_dll2_t *d, void *user)
 {
 	lhp_table_row_t *r = lws_container_of(d, lhp_table_row_t, list);
+
+	while (lws_dll2_get_head(&r->row_dlos))
+		lws_dll2_remove(lws_dll2_get_head(&r->row_dlos));
 
 	lws_dll2_remove(d);
 	lws_free(r);
@@ -564,6 +572,9 @@ static int
 dlo_clean_table_cols(lws_dll2_t *d, void *user)
 {
 	lhp_table_col_t *c = lws_container_of(d, lhp_table_col_t, list);
+
+	while (lws_dll2_get_head(&c->col_dlos))
+		lws_dll2_remove(lws_dll2_get_head(&c->col_dlos));
 
 	lws_dll2_remove(d);
 	lws_free(c);

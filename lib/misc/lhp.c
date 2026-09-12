@@ -90,11 +90,13 @@ enum {
 	LCSPS_ECOMMENT2,
 
 	LCSPS_CSS_STANZA,
+	LCSPS_CSS_SKIP_BLOCK,	/* @-rule block we can't use */
 
 	/* script */
 
 	LHPS_SCRIPT,
 	LHPS_SCRIPT_TAG1,
+	LHPS_SCRIPT_TAG2,
 };
 
 /*
@@ -133,10 +135,11 @@ static struct cols {
  */
 static const char * const void_elems[] = {
 	"area", "base", "br", "col", "command", "embed", "hr", "img",
-	"input", "keygen", "link", "meta", "param", "source", "track", "wbr"
+	"input", "keygen", "link", "meta", "param", "source", "track", "wbr",
+	"!doctype"
 };
 static const uint8_t void_elems_lens[] = /* lengths for the table above */
-	{ 4, 4, 2, 3, 7, 5, 2, 3, 5, 6, 4, 4, 5, 6, 5, 3 };
+	{ 4, 4, 2, 3, 7, 5, 2, 3, 5, 6, 4, 4, 5, 6, 5, 3, 8 };
 
 static const struct {
 	const char *name;
@@ -255,6 +258,10 @@ static const char *const default_css =
 			    "}\n"
 	"div             { display: block; width: auto; }\n"
 	"body		 { display: block}\n"
+	"html, address, blockquote, dd, dl, dt, fieldset, form, h1, h2, h3, h4, "
+	"h5, h6, ol, p, ul, center, dir, hr, menu, pre, header, footer, main, "
+	"section, article, nav, aside, figure, figcaption, details, summary, "
+	"legend, optgroup, option { display: block }\n"
 	"li              { display: list-item }\n"
 	"head, script, style { display: none }\n"
 	"table           { display: table;  }\n"
@@ -334,6 +341,10 @@ lhp_clean_level(lhp_pstack_t *ps)
 	lws_dll2_foreach_safe(&ps->atr, NULL, lhp_clean_atr);
 	lws_dll2_remove(&ps->list);
 
+	if (ps->matched)
+		lws_free(ps->matched);
+	lwsac_free(&ps->styleac);
+
 	lws_free(ps);
 }
 
@@ -357,6 +368,9 @@ lws_lhp_construct(lhp_ctx_t *ctx, lhp_callback cb, void *user,
 	 */
 
 	ps->cb			= cb;
+	/* the document level: nothing to match, default font size */
+	ps->css_resolved	= 1;
+	lws_fx_set(ps->font_size, 16, 0);
 	lws_dll2_add_tail(&ps->list, &ctx->stack);
 
 	return 0;
@@ -372,7 +386,11 @@ lhp_clean_stack(lws_dll2_t *d, void *user)
 }
 
 static const lws_fx_t c_254= { 2,54000000 }, c_10 = { 10,0 }, c_0 = { 0, 0 },
-			     c_72 = { 72,0 }, c_6 = { 6,0 }, c_100 = { 100,0 };
+			     c_72 = { 72,0 }, c_6 = { 6,0 }, c_100 = { 100,0 },
+			     lws_fx_2 = { 2, 0 }, lws_fx_3 = { 3, 0 },
+			     lws_fx_4 = { 4, 0 }, lws_fx_96 = { 96, 0 },
+			     lws_fx_254 = { 25, 40000000 },
+			     lws_fx_83 = { 83, 0 }, lws_fx_120 = { 120, 0 };
 
 /*
  * We need to go backward until we reach an absolute length for the reference
@@ -470,7 +488,7 @@ lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
 {
 	lhp_ctx_t *ctx;
 	const lws_display_font_t *f;
-	lws_fx_t t1, t2, t3;
+	lws_fx_t t1, t2, t3, em, ex;
 	int ref;
 
 	assert(ps);
@@ -486,25 +504,40 @@ lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
 	ctx = lws_dll2_owner_container(&ps->list, lhp_ctx_t, stack);
 	f = ps->font;
 
-       /*
-        * We rely on f being non-null, but if it happens to be
-        * NULL, let's return a constant 0
-        */
+	/*
+	 * em is the element's computed font size; the font actually chosen
+	 * may be a different size if no exact match was registered
+	 */
 
-       if (!f) {
-               *(lws_fx_t *)&a->r = c_0;
-               return &a->r;
-       }
+	if (ps->font_size.whole || ps->font_size.frac) {
+		em = ps->font_size;
+		lws_fx_div(&ex, &em, &lws_fx_2);
+	} else if (f) {
+		em = f->em;
+		ex = f->ex;
+	} else {
+		*(lws_fx_t *)&a->r = c_0;
+		return &a->r;
+	}
 
 	ref = lhp_prop_axis(a);
 
 	switch (a->unit) {
 	case LCSP_UNIT_LENGTH_REM:
-		if(lws_dll2_is_empty(&ctx->stack))
+	{
+		/* relative to the root element's font size */
+		lws_dll2_t *d = lws_dll2_get_head(&ctx->stack);
+		lhp_pstack_t *root;
+
+		if (!d)
 			break;
-		return lws_fx_mul((lws_fx_t *)&a->r, &a->u.i,
-			&((lhp_pstack_t *)lws_container_of(lws_dll2_get_head(
-				&ctx->stack), lhp_pstack_t, list))->font->em);
+		if (lws_dll2_get_next(d))
+			d = lws_dll2_get_next(d);
+		root = lws_container_of(d, lhp_pstack_t, list);
+		if (!root->font_size.whole && !root->font_size.frac)
+			break;
+		return lws_fx_mul((lws_fx_t *)&a->r, &a->u.i, &root->font_size);
+	}
 
 	case LCSP_UNIT_CALC:
 		{
@@ -584,10 +617,10 @@ lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
 		}
 
 	case LCSP_UNIT_LENGTH_EM:
-		return lws_fx_mul((lws_fx_t *)&a->r, &a->u.i, &f->em);
+		return lws_fx_mul((lws_fx_t *)&a->r, &a->u.i, &em);
 
 	case LCSP_UNIT_LENGTH_EX:
-		return lws_fx_mul((lws_fx_t *)&a->r, &a->u.i, &f->ex);
+		return lws_fx_mul((lws_fx_t *)&a->r, &a->u.i, &ex);
 
 	case LCSP_UNIT_LENGTH_IN:	/* (inches * 2.54 * hwmm) / hwpx */
 		if (ref == LWS_LHPREF_NONE)
@@ -686,7 +719,7 @@ lhp_atr_new(lhp_ctx_t *ctx, size_t name_len, size_t value_len)
 
 		for (n = 0; n < LWS_ARRAY_SIZE(void_elems); n++)
 			if (ctx->npos == void_elems_lens[n] &&
-			    !strncmp(void_elems[n], ctx->buf, (size_t)ctx->npos))
+			    !strncasecmp(void_elems[n], ctx->buf, (size_t)ctx->npos))
 				ctx->u.f.void_element = 1;
 	}
 
@@ -759,7 +792,8 @@ lcsp_append_cssval_int(lhp_ctx_t *ctx)
 
 	//lwsl_err("%s: tf %d.%u\n", __func__, ctx->tf.whole, ctx->tf.frac);
 	atr->u.i = ctx->tf;
-	atr->unit = ctx->unit;
+	/* a bare number: keep it distinct from keyword atrs (unit NONE) */
+	atr->unit = ctx->unit ? ctx->unit : LCSP_UNIT_NUM;
 
 	lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
 
@@ -821,6 +855,43 @@ lcsp_append_cssval_color(lhp_ctx_t *ctx)
 	return 0;
 }
 
+static int lcsp_append_cssval_string(lhp_ctx_t *ctx);
+
+/*
+ * A delimiter arrived while a keyword value was being matched: the token
+ * may be a complete keyword that is also the prefix of a longer one (eg,
+ * "table" vs "table-row"), which the minilex only reports when asked with a
+ * NUL.  Otherwise keep it as a string value.
+ */
+
+static int
+lcsp_finish_cssval_keyword(lhp_ctx_t *ctx)
+{
+	int r;
+
+	if (!ctx->cssval_state || !ctx->def)
+		return 0;
+
+	r = 0;
+	if (ctx->cssval_state > 0 &&
+	    lws_minilex_parse(css_propconst_lextable, &ctx->cssval_state, 0,
+			      &ctx->propval) == LWS_MINILEX_MATCH) {
+		lcsp_atr_t *atr = lwsac_use_zero(&ctx->cssac, sizeof(*atr),
+						 LHP_AC_GRANULE);
+		if (!atr)
+			return 1;
+
+		atr->propval = ctx->propval;
+		lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
+	} else if (ctx->npos)
+		r = lcsp_append_cssval_string(ctx);
+
+	ctx->npos = 0;
+	ctx->cssval_state = 0;
+
+	return r;
+}
+
 static int
 lcsp_append_cssval_string(lhp_ctx_t *ctx)
 {
@@ -833,6 +904,13 @@ lcsp_append_cssval_string(lhp_ctx_t *ctx)
 	}
 	if (ctx->npos && (c[ctx->npos - 1] == '\"' || c[ctx->npos - 1] == '\''))
 		ctx->npos--;
+
+	if (ctx->npos == 10 && !strncasecmp(c, "!important", 10)) {
+		/* not a value: raise the precedence of the declaration */
+		if (ctx->def)
+			ctx->def->important = 1;
+		return 0;
+	}
 
 	atr = lwsac_use_zero(&ctx->cssac, sizeof(*atr) + (size_t)ctx->npos + 1u,
 			     LHP_AC_GRANULE);
@@ -881,84 +959,961 @@ lhp_element_has_class(lhp_pstack_t *ps, const char *name, size_t name_len)
 	return 0;
 }
 
-static int
-lws_css_cascade_atr_match(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *tag,
-			  size_t tag_len)
+/* html attribute lookup with case-insensitive name, for [attr] selectors */
+
+static const char *
+lhp_get_atr_ci(lhp_pstack_t *ps, const char *aname, size_t aname_len)
 {
-	lws_start_foreach_dll(struct lws_dll2 *, q, lws_dll2_get_head(&ctx->css)) {
-		lcsp_stanza_t *stz = lws_container_of(q, lcsp_stanza_t, list);
+	lws_start_foreach_dll(struct lws_dll2 *, p,
+			      lws_dll2_get_head(&ps->atr)) {
+		const lhp_atr_t *at = lws_container_of(p, lhp_atr_t, list);
+		const char *ats = (const char *)&at[1];
 
-		/* ... does this stanza mention our name? */
+		if (p != lws_dll2_get_head(&ps->atr) &&
+		    at->name_len == aname_len &&
+		    !strncasecmp(ats, aname, aname_len))
+			return ats + aname_len + 1;
 
-		lws_start_foreach_dll(struct lws_dll2 *, z, lws_dll2_get_head(&stz->names)) {
-			lcsp_names_t *nm = lws_container_of(z, lcsp_names_t,
-							    list);
-			const char *p = (const char *)&nm[1];
-			size_t nl = nm->name_len;
-			char is_class_selector = 0;
+	} lws_end_foreach_dll(p);
 
-			if (nl && *p == '.') { /* match .mycss as mycss */
+	return NULL;
+}
+
+/*
+ * CSS selectors
+ *
+ * Selector text is kept as written, normalized so that a single space is the
+ * descendant combinator, there are no spaces around '>', '+', '~', and none
+ * inside [...].  Matching walks it right-to-left over the compound selectors,
+ * consulting the parse stack for ancestors.
+ */
+
+static int
+lhp_ident_char(char c)
+{
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+	       (c >= '0' && c <= '9') || c == '-' || c == '_' ||
+	       (unsigned char)c >= 0x80;
+}
+
+/* does element ps match the compound selector [p, end) ? */
+
+static int
+lhp_sel_match_compound(lhp_pstack_t *ps, const char *p, const char *end)
+{
+	const lhp_atr_t *ta;
+	const char *tag, *s, *v;
+	size_t tag_len;
+
+	if (lws_dll2_is_empty(&ps->atr))
+		/* the document level: no element here */
+		return 0;
+
+	ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
+	tag = (const char *)&ta[1];
+	tag_len = ta->name_len;
+
+	if (p >= end)
+		return 0;
+
+	while (p < end) {
+		switch (*p) {
+		case '*':
+			p++;
+			break;
+
+		case '.':
+			s = ++p;
+			while (p < end && lhp_ident_char(*p))
 				p++;
-				nl--;
-				is_class_selector = 1;
-			}
+			if (p == s ||
+			    !lhp_element_has_class(ps, s, (size_t)(p - s)))
+				return 0;
+			break;
 
-			if (nl == tag_len && !memcmp(p, tag, tag_len)) {
-				goto matched;
-			} else {
-				/* check for tag.class or .class.class */
-				const char *dot = memchr(p, '.', nl);
-				if (dot) {
-					size_t p1_len = (size_t)(dot - p);
-					size_t p2_len = nl - p1_len - 1;
-					const char *p2 = dot + 1;
+		case '#':
+			s = ++p;
+			while (p < end && lhp_ident_char(*p))
+				p++;
+			v = lws_html_get_atr(ps, "id", 2);
+			if (p == s || !v || strlen(v) != (size_t)(p - s) ||
+			    memcmp(v, s, (size_t)(p - s)))
+				return 0;
+			break;
 
-					/* p1 is tag (or class1), p2 is class (or class2) */
-					/* check if 'tag' argument matches p1 */
-					if (p1_len && tag_len == p1_len && !memcmp(tag, p, p1_len)) {
-						/* we matched p1, now check if element has p2 as class */
-						if (lhp_element_has_class(ps, p2, p2_len))
-							goto matched;
-					}
+		case '[':
+		{
+			const char *an, *av = NULL;
+			size_t anl, avl = 0, vl;
+			char op = 0;
 
-					/* check if 'tag' argument matches p2 */
-					if (p2_len && tag_len == p2_len && !memcmp(tag, p2, p2_len)) {
-						/* we matched p2. */
-						if (is_class_selector) {
-							/* .class1.class2: check if element has p1 as class */
-							if (lhp_element_has_class(ps, p, p1_len))
-								goto matched;
-						} else {
-							/* tag.class: check if element has p1 as tag */
-							if(!lws_dll2_is_empty(&ps->atr)) {
-								lhp_atr_t *ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
-								if (ta->name_len == p1_len && !memcmp(&ta[1], p, p1_len))
-									goto matched;
-							}
-						}
-					}
+			an = ++p;
+			while (p < end && *p != ']' && *p != '=' && *p != '~' &&
+			       *p != '|' && *p != '^' && *p != '$' && *p != '*')
+				p++;
+			anl = (size_t)(p - an);
+			if (p < end && *p != ']') {
+				op = *p++;
+				if (op != '=') {
+					if (p >= end || *p != '=')
+						return 0;
+					p++;
+				}
+				if (p < end && (*p == '"' || *p == '\'')) {
+					char q = *p++;
+
+					av = p;
+					while (p < end && *p != q)
+						p++;
+					avl = (size_t)(p - av);
+					if (p < end)
+						p++;
+				} else {
+					av = p;
+					while (p < end && *p != ']')
+						p++;
+					avl = (size_t)(p - av);
 				}
 			}
-			continue;
+			if (p >= end || *p != ']' || !anl)
+				return 0;
+			p++;
 
-matched:
+			v = lhp_get_atr_ci(ps, an, anl);
+			if (!v)
+				return 0;
+			if (!op)
+				break;
+
+			vl = strlen(v);
+			switch (op) {
+			case '=':
+				if (vl != avl || memcmp(v, av, avl))
+					return 0;
+				break;
+			case '^':
+				if (!avl || vl < avl || memcmp(v, av, avl))
+					return 0;
+				break;
+			case '$':
+				if (!avl || vl < avl ||
+				    memcmp(v + vl - avl, av, avl))
+					return 0;
+				break;
+			case '|':
+				if (vl < avl || memcmp(v, av, avl) ||
+				    (v[avl] && v[avl] != '-'))
+					return 0;
+				break;
+			case '~':
 			{
-				lcsp_stanza_ptr_t *sp = lwsac_use_zero(
-						&ctx->cascadeac,
-						sizeof(*sp), LHP_AC_GRANULE);
-				if (!sp)
-					return 1;
+				struct lws_tokenize ts;
+				int hit = 0;
 
-				sp->stz = stz;
-				lws_dll2_add_tail(&sp->list,
-						  &ctx->active_stanzas);
+				memset(&ts, 0, sizeof(ts));
+				ts.start = v;
+				ts.len = vl;
+				ts.flags = LWS_TOKENIZE_F_MINUS_NONTERM |
+					   LWS_TOKENIZE_F_DOT_NONTERM;
+				do {
+					ts.e = (int8_t)lws_tokenize(&ts);
+					if (ts.e == LWS_TOKZE_TOKEN &&
+					    ts.token_len == avl &&
+					    !memcmp(ts.token, av, avl))
+						hit = 1;
+				} while (ts.e > 0 && !hit);
+				if (!hit)
+					return 0;
 				break;
 			}
-		} lws_end_foreach_dll(z);
+			case '*':
+				if (!avl || vl < avl)
+					return 0;
+				for (s = v; s + avl <= v + vl; s++)
+					if (!memcmp(s, av, avl))
+						break;
+				if (s + avl > v + vl)
+					return 0;
+				break;
+			default:
+				return 0;
+			}
+			break;
+		}
 
-	} lws_end_foreach_dll(q);
+		case ':':
+			/*
+			 * Pseudo-classes and pseudo-elements: we have no
+			 * link, hover or focus state and don't generate
+			 * ::before / ::after boxes, so these never match.
+			 */
+			return 0;
+
+		default:
+			if (!lhp_ident_char(*p))
+				return 0;
+			s = p;
+			while (p < end && lhp_ident_char(*p))
+				p++;
+			if ((size_t)(p - s) != tag_len ||
+			    strncasecmp(s, tag, tag_len))
+				return 0;
+			break;
+		}
+	}
+
+	return 1;
+}
+
+/*
+ * Match the selector [sel, end) against element ps.  '+' and '~' need
+ * sibling information we don't keep, so selectors using them never match.
+ */
+
+static int
+lhp_sel_match(lhp_pstack_t *ps, const char *sel, const char *end)
+{
+	const char *p = end;
+	char comb = 0;
+	int inb = 0;
+
+	/* find the start of the rightmost compound selector */
+
+	while (p > sel) {
+		char c = p[-1];
+
+		if (c == ']')
+			inb = 1;
+		else if (c == '[')
+			inb = 0;
+		else if (!inb && (c == ' ' || c == '>' || c == '+' || c == '~')) {
+			comb = c;
+			break;
+		}
+		p--;
+	}
+
+	if (!lhp_sel_match_compound(ps, p, end))
+		return 0;
+
+	if (!comb)
+		return 1;
+
+	end = p - 1; /* the selector text left of the combinator */
+	if (end <= sel)
+		return 0;
+
+	switch (comb) {
+	case ' ': /* any ancestor */
+		lws_start_foreach_dll_back(lws_dll2_t *, d,
+					   lws_dll2_get_prev(&ps->list)) {
+			lhp_pstack_t *a = lws_container_of(d, lhp_pstack_t,
+							   list);
+
+			if (lhp_sel_match(a, sel, end))
+				return 1;
+		} lws_end_foreach_dll_back(d);
+		return 0;
+
+	case '>': /* the parent */
+		if (!lws_dll2_get_prev(&ps->list))
+			return 0;
+		return lhp_sel_match(lws_container_of(
+					lws_dll2_get_prev(&ps->list),
+					lhp_pstack_t, list), sel, end);
+
+	default:
+		return 0;
+	}
+}
+
+static uint32_t
+lhp_sel_specificity(const char *p, const char *end)
+{
+	unsigned int a = 0, b = 0, c = 0;
+	int inb = 0;
+
+	while (p < end) {
+		char ch = *p++;
+
+		if (inb) {
+			if (ch == ']')
+				inb = 0;
+			continue;
+		}
+
+		switch (ch) {
+		case '#':
+			a++;
+			break;
+		case '.':
+			b++;
+			break;
+		case '[':
+			b++;
+			inb = 1;
+			continue;
+		case ':':
+			if (p < end && *p == ':') {
+				p++;
+				c++;
+			} else
+				b++;
+			break;
+		case '*':
+		case ' ':
+		case '>':
+		case '+':
+		case '~':
+			continue;
+		default:
+			if (!lhp_ident_char(ch))
+				continue;
+			c++;
+			break;
+		}
+
+		/* skip the rest of the identifier (and any (...) argument) */
+		while (p < end && lhp_ident_char(*p))
+			p++;
+		if (p < end && *p == '(') {
+			while (p < end && *p != ')')
+				p++;
+			if (p < end)
+				p++;
+		}
+	}
+
+	if (a > 255)
+		a = 255;
+	if (b > 255)
+		b = 255;
+	if (c > 255)
+		c = 255;
+
+	return (a << 16) | (b << 8) | c;
+}
+
+/*
+ * Split the comma-separated selector list in [buf, buf + len) into
+ * normalized lcsp_names_t on the current stanza
+ */
+
+static int
+lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
+{
+	const char *p = buf, *end = buf + len;
+
+	while (p < end) {
+		const char *s = p, *e;
+		char norm[128];
+		lcsp_names_t *na;
+		size_t n = 0;
+		int inb = 0;
+
+		while (p < end && *p != ',')
+			p++;
+		e = p;
+		if (p < end)
+			p++;
+
+		while (s < e && *s == ' ')
+			s++;
+		while (e > s && e[-1] == ' ')
+			e--;
+		if (s == e)
+			continue;
+
+		while (s < e && n < sizeof(norm) - 1) {
+			char c = *s++;
+
+			if (c == '[')
+				inb = 1;
+			else if (c == ']')
+				inb = 0;
+
+			if (c == ' ') {
+				if (inb)
+					continue;
+				if (n && (norm[n - 1] == '>' ||
+					  norm[n - 1] == '+' ||
+					  norm[n - 1] == '~'))
+					continue;
+				if (s < e && (*s == '>' || *s == '+' ||
+					      *s == '~'))
+					continue;
+			}
+			norm[n++] = c;
+		}
+
+		na = lwsac_use_zero(&ctx->cssac, sizeof(*na) + n + 1,
+				    LHP_AC_GRANULE);
+		if (!na)
+			return 1;
+
+		na->name_len = n;
+		na->specificity = lhp_sel_specificity(norm, norm + n);
+		memcpy(&na[1], norm, n);
+		((char *)(&na[1]))[n] = '\0';
+		lws_dll2_add_tail(&na->list, &ctx->stz->names);
+	}
 
 	return 0;
+}
+
+/*
+ * Crude @media evaluation: enough to keep print / max-width blocks from
+ * leaking into the layout.  Unknown features are treated as not matching.
+ */
+
+static int
+lhp_media_feature(lhp_ctx_t *ctx, const char *p, const char *end)
+{
+	const char *n = p, *v;
+	size_t nl;
+	lws_fx_t val;
+	int px, ref;
+
+	while (p < end && *p != ':' && *p != ')')
+		p++;
+	nl = (size_t)(p - n);
+	while (nl && n[nl - 1] == ' ')
+		nl--;
+
+	if (p >= end || *p != ':') {
+		/* (color), (hover) etc: only "(color)" is something we are */
+		return nl == 5 && !strncmp(n, "color", 5) &&
+		       !ctx->ic.greyscale;
+	}
+
+	p++;
+	while (p < end && *p == ' ')
+		p++;
+	v = p;
+
+	if (nl == 11 && !strncmp(n, "orientation", 11))
+		return (ctx->ic.wh_px[0].whole >= ctx->ic.wh_px[1].whole) ==
+		       (end - v >= 9 && !strncmp(v, "landscape", 9));
+
+	if ((nl == 9 && !strncmp(n, "max-width", 9)) ||
+	    (nl == 9 && !strncmp(n, "min-width", 9)) ||
+	    (nl == 10 && !strncmp(n, "max-height", 10)) ||
+	    (nl == 10 && !strncmp(n, "min-height", 10))) {
+		ref = n[4] == 'w' ? 0 : 1;
+		lhp_fx_parse(&val, v, (size_t)(end - v));
+		while (v < end && ((*v >= '0' && *v <= '9') || *v == '.'))
+			v++;
+		if (end - v >= 2 && (!strncmp(v, "em", 2) ||
+				     !strncmp(v, "rem", 3)))
+			val.whole *= 16;
+		px = ctx->ic.wh_px[ref].whole;
+		if (n[1] == 'a') /* max- */
+			return px <= val.whole;
+		return px >= val.whole;
+	}
+
+	return 0;
+}
+
+static int
+lhp_media_query_true(lhp_ctx_t *ctx, const char *q, const char *end)
+{
+	/* comma-separated list: any true */
+	while (q < end) {
+		const char *s = q, *e;
+		int all = 1, neg = 0;
+
+		while (q < end && *q != ',')
+			q++;
+		e = q;
+		if (q < end)
+			q++;
+
+		while (s < e && *s == ' ')
+			s++;
+		while (e > s && e[-1] == ' ')
+			e--;
+
+		if (e - s >= 4 && !strncmp(s, "not ", 4)) {
+			neg = 1;
+			s += 4;
+		}
+		if (e - s >= 5 && !strncmp(s, "only ", 5))
+			s += 5;
+
+		/* " and "-separated terms: all true */
+		while (s < e && all) {
+			const char *t = s, *te;
+
+			while (s < e && strncmp(s, " and ", 5))
+				s++;
+			te = s;
+			if (s < e)
+				s += 5;
+
+			if (*t == '(') {
+				t++;
+				if (te > t && te[-1] == ')')
+					te--;
+				all = lhp_media_feature(ctx, t, te);
+			} else if ((te - t == 3 && !strncmp(t, "all", 3)) ||
+				   (te - t == 6 && !strncmp(t, "screen", 6)))
+				all = 1;
+			else
+				all = 0; /* print, speech, unknown */
+		}
+
+		if (all != neg)
+			return 1;
+	}
+
+	return 0;
+}
+
+/*
+ * Properties whose computed value passes from parent to child when the child
+ * doesn't declare them (CSS 2.1 "Inherited: yes")
+ */
+
+static int
+lhp_prop_inherited(int prop)
+{
+	switch (prop) {
+	case LCSP_PROP_AZIMUTH:
+	case LCSP_PROP_BORDER_COLLAPSE:
+	case LCSP_PROP_BORDER_SPACING:
+	case LCSP_PROP_CAPTION_SIDE:
+	case LCSP_PROP_COLOR:
+	case LCSP_PROP_CURSOR:
+	case LCSP_PROP_DIRECTION:
+	case LCSP_PROP_ELEVATION:
+	case LCSP_PROP_EMPTY_CELLS:
+	case LCSP_PROP_FONT_FAMILY:
+	case LCSP_PROP_FONT_SIZE:
+	case LCSP_PROP_FONT_STYLE:
+	case LCSP_PROP_FONT_VARAIANT:
+	case LCSP_PROP_FONT_WEIGHT:
+	case LCSP_PROP_FONT:
+	case LCSP_PROP_LETTER_SPACING:
+	case LCSP_PROP_LINE_HEIGHT:
+	case LCSP_PROP_LIST_STYLE_IMAGE:
+	case LCSP_PROP_LIST_STYLE_POSITION:
+	case LCSP_PROP_LIST_STYLE_TYPE:
+	case LCSP_PROP_LIST_STYLE:
+	case LCSP_PROP_ORPHANS:
+	case LCSP_PROP_PITCH_RANGE:
+	case LCSP_PROP_PITCH:
+	case LCSP_PROP_QUOTES:
+	case LCSP_PROP_RICHNESS:
+	case LCSP_PROP_SPEAK_HEADER:
+	case LCSP_PROP_SPEAK_NUMERAL:
+	case LCSP_PROP_SPEAK_PUNCTUATION:
+	case LCSP_PROP_SPEAK:
+	case LCSP_PROP_SPEECH_RATE:
+	case LCSP_PROP_STRESS:
+	case LCSP_PROP_TEXT_ALIGN:
+	case LCSP_PROP_TEXT_INDENT:
+	case LCSP_PROP_TEXT_TRANSFORM:
+	case LCSP_PROP_VISIBILITY:
+	case LCSP_PROP_VOICE_FAMILY:
+	case LCSP_PROP_VOLUME:
+	case LCSP_PROP_WHITE_SPACE:
+	case LCSP_PROP_WIDOWS:
+	case LCSP_PROP_WORD_SPACING:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+/*
+ * The winning declaration of prop among the stanzas matched by ps, or NULL
+ */
+
+static const lcsp_defs_t *
+lhp_find_def2(lhp_pstack_t *ps, int prop, int prop_alt)
+{
+	int n, pass;
+
+	/* pass 0: !important declarations, pass 1: the rest */
+
+	for (pass = 0; pass < 2; pass++)
+		for (n = (int)ps->nmatched - 1; n >= 0; n--) {
+			lws_start_foreach_dll_back(lws_dll2_t *, d,
+				lws_dll2_get_tail(&ps->matched[n].stz->defs)) {
+				lcsp_defs_t *def = lws_container_of(d,
+							lcsp_defs_t, list);
+
+				if (((int)def->prop == prop ||
+				     (int)def->prop == prop_alt) &&
+				    !!def->important == !pass)
+					return def;
+			} lws_end_foreach_dll_back(d);
+		}
+
+	return NULL;
+}
+
+static const lcsp_defs_t *
+lhp_find_def(lhp_pstack_t *ps, int prop)
+{
+	return lhp_find_def2(ps, prop, -1);
+}
+
+/*
+ * The value in effect for one side of a box property that has both longhand
+ * (eg, margin-top) and shorthand (eg, margin: 1px 2px) forms: whichever was
+ * declared with the higher precedence wins, and a shorthand is expanded by
+ * the position of its values.  These properties don't inherit, so only the
+ * element's own declarations count.
+ *
+ * TRBL: 1 value: all; 2: top/bottom, left/right; 3: top, left/right, bottom;
+ *       4: top, right, bottom, left.  idx: 0 top, 1 right, 2 bottom, 3 left
+ *
+ * radii: 1: all; 2: TL/BR, TR/BL; 3: TL, TR/BL, BR; 4: TL, TR, BR, BL.
+ *        idx: 0 TL, 1 TR, 2 BL, 3 BR
+ */
+
+static const lcsp_atr_t *
+lhp_side_atr(lhp_pstack_t *ps, int longhand, int shorthand, int idx,
+	     int radii)
+{
+	const lcsp_defs_t *def = lhp_find_def2(ps, longhand, shorthand);
+	int c, use = 0;
+
+	if (!def || !lws_dll2_get_head(&def->atrs))
+		return NULL;
+
+	if ((int)def->prop == longhand)
+		return lws_container_of(lws_dll2_get_tail(&def->atrs),
+					lcsp_atr_t, list);
+
+	c = (int)lws_dll2_count(&def->atrs);
+
+	if (!radii) {
+		switch (c) {
+		case 2:
+			use = (idx == 0 || idx == 2) ? 0 : 1;
+			break;
+		case 3:
+			use = idx == 0 ? 0 : ((idx == 1 || idx == 3) ? 1 : 2);
+			break;
+		case 4:
+			use = idx;
+			break;
+		default:
+			use = 0;
+			break;
+		}
+	} else {
+		switch (c) {
+		case 2:
+			use = (idx == 0 || idx == 3) ? 0 : 1;
+			break;
+		case 3:
+			use = idx == 0 ? 0 : ((idx == 1 || idx == 2) ? 1 : 2);
+			break;
+		case 4:
+			use = idx == 0 ? 0 : (idx == 1 ? 1 : (idx == 3 ? 2 : 3));
+			break;
+		default:
+			use = 0;
+			break;
+		}
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&def->atrs)) {
+		if (!use--)
+			return lws_container_of(d, lcsp_atr_t, list);
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+/*
+ * Find the declaration in effect for prop on element ps, listing its values
+ * in ctx->active_atr and returning the last one
+ */
+
+static const lcsp_atr_t *
+lhp_prop_atr_ps(lhp_ctx_t *ctx, lhp_pstack_t *ps, lcsp_props_t prop)
+{
+	int inh = lhp_prop_inherited(prop);
+	lcsp_atr_ptr_t *ap;
+
+	lws_dll2_owner_clear(&ctx->active_atr);
+	lwsac_free(&ctx->propatrac);
+
+	while (ps) {
+		const lcsp_defs_t *def = lhp_find_def(ps, prop);
+		const lcsp_atr_t *a;
+
+		if (!def) {
+			if (!inh)
+				return NULL;
+			goto parent;
+		}
+
+		if (!lws_dll2_get_head(&def->atrs))
+			return NULL;
+
+		a = lws_container_of(lws_dll2_get_head(&def->atrs),
+				     lcsp_atr_t, list);
+		if (a->unit == LCSP_UNIT_NONE &&
+		    a->propval == LCSP_PROPVAL_INHERIT)
+			goto parent;
+
+		lws_start_foreach_dll(struct lws_dll2 *, z,
+				      lws_dll2_get_head(&def->atrs)) {
+			lcsp_atr_ptr_t *patr = lwsac_use_zero(&ctx->propatrac,
+						sizeof(*patr), LHP_AC_GRANULE);
+			if (!patr)
+				return NULL;
+
+			patr->atr = lws_container_of(z, lcsp_atr_t, list);
+			lws_dll2_add_tail(&patr->list, &ctx->active_atr);
+		} lws_end_foreach_dll(z);
+
+		ap = lws_container_of(lws_dll2_get_tail(&ctx->active_atr),
+				      lcsp_atr_ptr_t, list);
+
+		return ap->atr;
+
+parent:
+		if (!lws_dll2_get_prev(&ps->list))
+			return NULL;
+		ps = lws_container_of(lws_dll2_get_prev(&ps->list),
+				      lhp_pstack_t, list);
+	}
+
+	return NULL;
+}
+
+static int
+lhp_add_match(lhp_pstack_t *ps, lcsp_stanza_t *stz, uint32_t spec)
+{
+	lcsp_match_t *m;
+	unsigned int n;
+
+	if (ps->nmatched == 0xffff)
+		return 0;
+
+	m = lws_realloc(ps->matched, sizeof(*m) * (ps->nmatched + 1u),
+			__func__);
+	if (!m)
+		return 1;
+	ps->matched = m;
+
+	/* stable insertion: after every entry with specificity <= ours */
+
+	n = ps->nmatched;
+	while (n && m[n - 1].specificity > spec) {
+		m[n] = m[n - 1];
+		n--;
+	}
+	m[n].stz = stz;
+	m[n].specificity = spec;
+	ps->nmatched++;
+
+	return 0;
+}
+
+/*
+ * Parse a style="..." attribute as a stanza that only this element matches,
+ * reusing the declaration parser by nesting lws_lhp_parse() on the string.
+ * The allocations go in ps->styleac so they die with the element.
+ */
+
+static int
+lhp_parse_style_attr(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *val)
+{
+	static const uint8_t term[] = ";}";
+	const uint8_t *p = (const uint8_t *)val, *pt = term;
+	size_t len = strlen(val), lt = sizeof(term) - 1;
+	struct lwsac *oac = ctx->cssac;
+	lcsp_stanza_t *stz, *sstz = ctx->stz;
+	lcsp_defs_t *sdef = ctx->def;
+	int sstate = ctx->state, snpos = ctx->npos,
+	    scomm = ctx->state_css_comm, stc = ctx->temp_count,
+	    sprop = ctx->prop, spropval = ctx->propval, r = 0;
+	int16_t scss = ctx->css_state, scssval = ctx->cssval_state;
+	lcsp_css_units_t sunit = ctx->unit;
+	uint32_t su = ctx->u.s, stemp = ctx->temp;
+	lws_dll2_t *svars = lws_dll2_get_tail(&ctx->css_vars);
+	lws_fx_t stf = ctx->tf;
+	char sbuf[64];
+
+	if (snpos < 0 || snpos > (int)sizeof(sbuf))
+		return 0;
+	memcpy(sbuf, ctx->buf, (size_t)snpos);
+
+	ctx->cssac = ps->styleac;
+	stz = lwsac_use_zero(&ctx->cssac, sizeof(*stz), LHP_AC_GRANULE);
+	if (!stz) {
+		r = 1;
+		goto restore;
+	}
+
+	ctx->stz = stz;
+	ctx->def = NULL;
+	ctx->state = LCSPS_CSS_STANZA;
+	ctx->state_css_comm = LCSPS_CSS_STANZA;
+	ctx->u.s = 0;
+	ctx->u.f.default_css = 1; /* no document-end processing in here */
+	ctx->css_state = 0;
+	ctx->cssval_state = 0;
+	ctx->npos = 0;
+	ctx->temp = 0;
+	ctx->temp_count = 0;
+	ctx->unit = LCSP_UNIT_NONE;
+
+	if ((lws_lhp_parse(ctx, &p, &len) & LWS_SRET_FATAL) ||
+	    (lws_lhp_parse(ctx, &pt, &lt) & LWS_SRET_FATAL))
+		r = 1;
+	else if (lws_dll2_get_head(&stz->defs) &&
+		 lhp_add_match(ps, stz, 1u << 24))
+		r = 1;
+
+restore:
+	/*
+	 * --custom: values declared in the attribute were registered on the
+	 * document-wide variable list but live in styleac, which dies with
+	 * the element: unregister them
+	 */
+	while (lws_dll2_get_tail(&ctx->css_vars) != svars)
+		lws_dll2_remove(lws_dll2_get_tail(&ctx->css_vars));
+
+	ps->styleac = ctx->cssac;
+	ctx->cssac = oac;
+	ctx->stz = sstz;
+	ctx->def = sdef;
+	ctx->state = sstate;
+	ctx->state_css_comm = scomm;
+	ctx->temp_count = stc;
+	ctx->prop = sprop;
+	ctx->propval = spropval;
+	ctx->css_state = scss;
+	ctx->cssval_state = scssval;
+	ctx->unit = sunit;
+	ctx->u.s = su;
+	ctx->temp = stemp;
+	ctx->tf = stf;
+	memcpy(ctx->buf, sbuf, (size_t)snpos);
+	ctx->npos = snpos;
+
+	return r;
+}
+
+/*
+ * font-size is inherited as a computed px value, since relative units in the
+ * declaration are relative to the parent's size
+ */
+
+static void
+lhp_compute_font_size(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *parent)
+{
+	static const lws_fx_t c16 = { 16, 0 };
+	const lws_fx_t *pfs = parent && (parent->font_size.whole ||
+					 parent->font_size.frac) ?
+					 &parent->font_size : &c16;
+	const lcsp_defs_t *def = lhp_find_def(ps, LCSP_PROP_FONT_SIZE);
+	const lcsp_atr_t *a;
+	lws_fx_t t, r;
+
+	ps->font_size = *pfs;
+
+	if (!def || !lws_dll2_get_head(&def->atrs))
+		return;
+
+	a = lws_container_of(lws_dll2_get_head(&def->atrs), lcsp_atr_t, list);
+
+	switch (a->unit) {
+	case LCSP_UNIT_NUM:
+	case LCSP_UNIT_LENGTH_PX:
+		r = a->u.i;
+		break;
+	case LCSP_UNIT_LENGTH_EM:
+		lws_fx_mul(&r, &a->u.i, pfs);
+		break;
+	case LCSP_UNIT_LENGTH_EX:
+		lws_fx_mul(&t, &a->u.i, pfs);
+		lws_fx_div(&r, &t, &lws_fx_2);
+		break;
+	case LCSP_UNIT_LENGTH_PERCENT:
+		lws_fx_mul(&t, &a->u.i, pfs);
+		lws_fx_div(&r, &t, &c_100);
+		break;
+	case LCSP_UNIT_LENGTH_REM:
+	{
+		/* the root element's size is that of the level after the
+		 * document level, if it has been resolved */
+		const lws_fx_t *rfs = &c16;
+		lws_dll2_t *d = lws_dll2_get_head(&ctx->stack);
+
+		if (d && lws_dll2_get_next(d)) {
+			lhp_pstack_t *root = lws_container_of(
+					lws_dll2_get_next(d), lhp_pstack_t, list);
+			if (root->font_size.whole)
+				rfs = &root->font_size;
+		}
+		lws_fx_mul(&r, &a->u.i, rfs);
+		break;
+	}
+	case LCSP_UNIT_LENGTH_PT: /* css px are 1/96in, pt 1/72in */
+		lws_fx_mul(&t, &a->u.i, &lws_fx_4);
+		lws_fx_div(&r, &t, &lws_fx_3);
+		break;
+	case LCSP_UNIT_LENGTH_PC:
+		lws_fx_mul(&r, &a->u.i, &c16);
+		break;
+	case LCSP_UNIT_LENGTH_IN:
+		lws_fx_mul(&r, &a->u.i, &lws_fx_96);
+		break;
+	case LCSP_UNIT_LENGTH_CM:
+		lws_fx_mul(&t, &a->u.i, &lws_fx_96);
+		lws_fx_div(&r, &t, &c_254);
+		break;
+	case LCSP_UNIT_LENGTH_MM:
+		lws_fx_mul(&t, &a->u.i, &lws_fx_96);
+		lws_fx_div(&r, &t, &lws_fx_254);
+		break;
+	case LCSP_UNIT_STRING:
+	{
+		/* absolute-size keywords, CSS2.1 table for a 16px medium */
+		static const struct { const char *n; uint8_t px; } ks[] = {
+			{ "xx-small", 9 }, { "x-small", 10 }, { "small", 13 },
+			{ "medium", 16 }, { "large", 18 }, { "x-large", 24 },
+			{ "xx-large", 32 },
+		};
+		const char *v = (const char *)&a[1];
+		size_t n;
+
+		if (a->value_len == 7 && !strncmp(v, "smaller", 7)) {
+			lws_fx_mul(&t, pfs, &lws_fx_83);
+			lws_fx_div(&r, &t, &c_100);
+			break;
+		}
+		if (a->value_len == 6 && !strncmp(v, "larger", 6)) {
+			lws_fx_mul(&t, pfs, &lws_fx_120);
+			lws_fx_div(&r, &t, &c_100);
+			break;
+		}
+		for (n = 0; n < LWS_ARRAY_SIZE(ks); n++)
+			if (a->value_len == strlen(ks[n].n) &&
+			    !strncmp(v, ks[n].n, a->value_len)) {
+				lws_fx_set(r, ks[n].px, 0);
+				goto done;
+			}
+		return;
+	}
+	default:
+		return;
+	}
+
+done:
+	if (r.whole > 0 || (r.whole == 0 && r.frac > 0))
+		ps->font_size = r;
 }
 
 const char *
@@ -1019,252 +1974,135 @@ lhp_resolve_var_color(lhp_ctx_t *ctx, const lcsp_atr_t *a)
 	return a;
 }
 
-static const lcsp_atr_t *
-lhp_shorthand_TRBL(lhp_ctx_t *ctx, lcsp_props_t prop, int idx)
-{
-	const lcsp_atr_t *a;
-	int c;
-
-	a = lws_css_cascade_get_prop_atr(ctx, prop);
-	if (!a)
-		return NULL;
-
-	/*
-	 * Shorthand expansion:
-	 * 1 value: all
-	 * 2 values: top/bottom, left/right
-	 * 3 values: top, left/right, bottom
-	 * 4 values: top, right, bottom, left
-	 */
-
-	c = (int)lws_dll2_count(&ctx->active_atr);
-	if (!c)
-		return NULL;
-
-	if (c == 1) /* apply to all */
-		return a; // Head is same as tail if count 1
-
-	/* navigate to the correct index in active_atr based on count and requested idx */
-	/* requested idx: 0=TOP, 1=RIGHT, 2=BOTTOM, 3=LEFT */
-
-	int use_idx = 0;
-	switch (c) {
-	case 2:
-		if (idx == 0 || idx == 2) use_idx = 0;
-		else use_idx = 1;
-		break;
-	case 3:
-		if (idx == 0) use_idx = 0;
-		else if (idx == 1 || idx == 3) use_idx = 1;
-		else use_idx = 2;
-		break;
-	case 4:
-		use_idx = idx;
-		break;
-	default:
-		return a;
-	}
-
-	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->active_atr)) {
-		lcsp_atr_ptr_t *ap = lws_container_of(d, lcsp_atr_ptr_t, list);
-		if (!use_idx--)
-			return ap->atr;
-	} lws_end_foreach_dll(d);
-
-	return a;
-}
-
-static const lcsp_atr_t *
-lhp_shorthand_radii(lhp_ctx_t *ctx, lcsp_props_t prop, int idx)
-{
-	const lcsp_atr_t *a;
-	int c;
-
-	a = lws_css_cascade_get_prop_atr(ctx, prop);
-	if (!a)
-		return NULL;
-
-	/*
-	 * Shorthand expansion for border-radius:
-	 * 1 value: all
-	 * 2 values: top-left/bottom-right, top-right/bottom-left
-	 * 3 values: top-left, top-right/bottom-left, bottom-right
-	 * 4 values: top-left, top-right, bottom-right, bottom-left
-	 */
-
-	c = (int)lws_dll2_count(&ctx->active_atr);
-	if (!c) return NULL;
-
-	if (c == 1) /* apply to all */
-		return a; // Head is same as tail if count 1
-
-	/* navigate to the correct index in active_atr based on count and requested idx */
-	/* requested idx: 0=TL, 1=TR, 2=BL, 3=BR */
-
-	int use_idx = 0;
-	switch (c) {
-	case 2:
-		/*
-		 * [0] is TL/BR
-		 * [1] is TR/BL
-		 */
-		if (idx == 0 || idx == 3) use_idx = 0;
-		else use_idx = 1;
-		break;
-	case 3:
-		/*
-		 * [0] is TL
-		 * [1] is TR/BL
-		 * [2] is BR
-		 */
-		if (idx == 0) use_idx = 0;
-		else if (idx == 1 || idx == 2) use_idx = 1;
-		else use_idx = 2;
-		break;
-	case 4:
-		/*
-		 * [0] is TL
-		 * [1] is TR
-		 * [2] is BR
-		 * [3] is BL
-		 */
-		if (idx == 0) use_idx = 0;
-		else if (idx == 1) use_idx = 1;
-		else if (idx == 3) use_idx = 2;
-		else use_idx = 3;
-		break;
-	default:
-		return a;
-	}
-
-	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->active_atr)) {
-		lcsp_atr_ptr_t *ap = lws_container_of(d, lcsp_atr_ptr_t, list);
-		if (!use_idx--)
-			return ap->atr;
-	} lws_end_foreach_dll(d);
-
-	return a;
-}
-
 /*
- * Produce an ordered list of css stanzas that apply to the current html
- * parsing context, accounting for class="xxx" at each level
+ * Resolve the css for the element at the top of the parse stack: collect the
+ * stanzas whose selectors match it (sorted by specificity, source order
+ * breaking ties), parse its style="" attribute, compute its font size and
+ * fill in the layout-related property lookups.  Ancestors were resolved when
+ * they were on top, and keep their results until they close.
  */
 
 static int
 lws_css_cascade(lhp_ctx_t *ctx)
 {
-	lws_dll2_owner_clear(&ctx->active_stanzas);
-	lwsac_free(&ctx->cascadeac);
-	lws_dll2_owner_clear(&ctx->active_atr);
-	lwsac_free(&ctx->propatrac);
-	ctx->in_body = 0;
+	lhp_pstack_t *parent = NULL, *ps = lws_container_of(
+			lws_dll2_get_tail(&ctx->stack), lhp_pstack_t, list);
+	const char *st;
 
-	/* let's proceed through the html element stack that applies */
+	if (lws_dll2_get_prev(&ps->list))
+		parent = lws_container_of(lws_dll2_get_prev(&ps->list),
+					  lhp_pstack_t, list);
 
-	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&ctx->stack)) {
-		lhp_pstack_t *ps = lws_container_of(p, lhp_pstack_t, list);
+	if (ps->css_resolved) {
+		ctx->in_body = ps->in_body;
+		return 0;
+	}
 
+	ps->in_body = parent ? parent->in_body : 0;
+
+	if (lws_dll2_is_empty(&ps->atr)) {
 		/*
-		 * if there is a css definition for the html entity at this
-		 * stack level, add its stanza to the results
+		 * A level pushed for a tag we haven't parsed yet: nothing to
+		 * match, and it must not be marked resolved or the real
+		 * element gets no css when the tag and attributes arrive
 		 */
+		ctx->in_body = ps->in_body;
+		ps->font_size = parent ? parent->font_size : ps->font_size;
+		ps->hidden = parent ? parent->hidden : 0;
 
-		lws_start_foreach_dll(struct lws_dll2 *, ha, lws_dll2_get_head(&ps->atr)) {
-			lhp_atr_t *a = lws_container_of(ha, lhp_atr_t, list);
-			struct lws_tokenize ts;
+		return 0;
+	}
 
-			memset(&ts, 0, sizeof(ts));
+	{
+		lhp_atr_t *ta = lws_container_of(lws_dll2_get_head(&ps->atr),
+						 lhp_atr_t, list);
 
-			if (ha == lws_dll2_get_head(&ps->atr)) {
-				ts.start = (const char *)&a[1];
-				ts.len = a->name_len;
-			}
+		if (ta->name_len == 4 &&
+		    !strncasecmp((const char *)&ta[1], "body", 4))
+			ps->in_body = 1;
 
+		/* which stanzas have a selector matching this element? */
 
-			if (a->name_len == 5 &&
-			     !strcmp((const char *)&a[1], "class")) {
-				ts.start = ((const char *)&a[1]) + 5 + 1;
-				ts.len = a->value_len;
-				ts.flags |= LWS_TOKENIZE_F_MINUS_NONTERM;
-			}
+		lws_start_foreach_dll(struct lws_dll2 *, q,
+				      lws_dll2_get_head(&ctx->css)) {
+			lcsp_stanza_t *stz = lws_container_of(q, lcsp_stanza_t,
+							      list);
+			uint32_t best = 0;
+			int hit = 0;
 
-			do {
-				ts.e = (int8_t)lws_tokenize(&ts);
-				if (ts.e == LWS_TOKZE_TOKEN) {
+			lws_start_foreach_dll(struct lws_dll2 *, z,
+					      lws_dll2_get_head(&stz->names)) {
+				lcsp_names_t *nm = lws_container_of(z,
+							lcsp_names_t, list);
+				const char *n = (const char *)&nm[1];
 
-					if (ha == lws_dll2_get_head(&ps->atr) &&
-					    ts.token_len == 4 &&
-					    !memcmp(ts.token, "body", 4))
-						ctx->in_body = 1;
-
-					/*
-					 * let's look through the css stanzas
-					 * for a tag match
-					 */
-
-					if (lws_css_cascade_atr_match(ctx, ps,
-							ts.token, ts.token_len))
-						return 1;
+				if (lhp_sel_match(ps, n, n + nm->name_len)) {
+					if (!hit || nm->specificity > best)
+						best = nm->specificity;
+					hit = 1;
 				}
+			} lws_end_foreach_dll(z);
 
-			} while (ts.e > 0);
+			if (hit && lhp_add_match(ps, stz, best))
+				return 1;
+		} lws_end_foreach_dll(q);
 
-		} lws_end_foreach_dll(ha);
+		st = lws_html_get_atr(ps, "style", 5);
+		if (st && *st && !ctx->await_css_done &&
+		    lhp_parse_style_attr(ctx, ps, st))
+			return 1;
+	}
 
-		/*
-		 * ... fill layout-related CSS lookups into the element
-		 * stack item... these are all pointers to the attribute
-		 * not necessarily computed scalars.  Eg lws_csp_px() can be
-		 * used later to resolve atr like 50% to pixel values.
-		 */
+	ps->css_resolved = 1;
+	ctx->in_body = ps->in_body;
 
-		ps->css_position = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_POSITION);
-		ps->css_width = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_WIDTH);
-		ps->css_height = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_HEIGHT);
-		ps->css_display = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_DISPLAY);
+	lhp_compute_font_size(ctx, ps, parent);
 
-		ps->css_border_radius[0] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_BORDER_TOP_LEFT_RADIUS);
-		if (!ps->css_border_radius[0]) ps->css_border_radius[0] = lhp_shorthand_radii(ctx, LCSP_PROP_BORDER_RADIUS, 0);
-		ps->css_border_radius[1] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_BORDER_TOP_RIGHT_RADIUS);
-		if (!ps->css_border_radius[1]) ps->css_border_radius[1] = lhp_shorthand_radii(ctx, LCSP_PROP_BORDER_RADIUS, 1);
-		ps->css_border_radius[2] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_BORDER_BOTTOM_LEFT_RADIUS);
-		if (!ps->css_border_radius[2]) ps->css_border_radius[2] = lhp_shorthand_radii(ctx, LCSP_PROP_BORDER_RADIUS, 2);
-		ps->css_border_radius[3] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_BORDER_BOTTOM_RIGHT_RADIUS);
-		if (!ps->css_border_radius[3]) ps->css_border_radius[3] = lhp_shorthand_radii(ctx, LCSP_PROP_BORDER_RADIUS, 3);
+	/*
+	 * ... fill layout-related CSS lookups into the element
+	 * stack item... these are all pointers to the attribute
+	 * not necessarily computed scalars.  Eg lws_csp_px() can be
+	 * used later to resolve atr like 50% to pixel values.
+	 */
 
-		ps->css_background_color = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_BACKGROUND_COLOR);
-		if (ps->css_background_color)
-			ps->css_background_color = lhp_resolve_var_color(ctx, ps->css_background_color);
+	ps->css_position = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_POSITION);
+	ps->css_width = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_WIDTH);
+	ps->css_height = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_HEIGHT);
+	ps->css_display = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_DISPLAY);
 
-		ps->css_color = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_COLOR);
-		if (ps->css_color)
-			ps->css_color = lhp_resolve_var_color(ctx, ps->css_color);
+	/* display: none takes the whole subtree out of the layout */
+	ps->hidden = (parent && parent->hidden) ||
+		     (ps->css_display &&
+		      ps->css_display->unit == LCSP_UNIT_NONE &&
+		      ps->css_display->propval == LCSP_PROPVAL_NONE);
 
-		ps->css_pos[CCPAS_TOP] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_TOP);
-		ps->css_pos[CCPAS_RIGHT] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_RIGHT);
-		ps->css_pos[CCPAS_BOTTOM] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_BOTTOM);
-		ps->css_pos[CCPAS_LEFT] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_LEFT);
+	ps->css_border_radius[0] = lhp_side_atr(ps, LCSP_PROP_BORDER_TOP_LEFT_RADIUS, LCSP_PROP_BORDER_RADIUS, 0, 1);
+	ps->css_border_radius[1] = lhp_side_atr(ps, LCSP_PROP_BORDER_TOP_RIGHT_RADIUS, LCSP_PROP_BORDER_RADIUS, 1, 1);
+	ps->css_border_radius[2] = lhp_side_atr(ps, LCSP_PROP_BORDER_BOTTOM_LEFT_RADIUS, LCSP_PROP_BORDER_RADIUS, 2, 1);
+	ps->css_border_radius[3] = lhp_side_atr(ps, LCSP_PROP_BORDER_BOTTOM_RIGHT_RADIUS, LCSP_PROP_BORDER_RADIUS, 3, 1);
 
-		ps->css_margin[CCPAS_TOP] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_MARGIN_TOP);
-		if (!ps->css_margin[CCPAS_TOP]) ps->css_margin[CCPAS_TOP] = lhp_shorthand_TRBL(ctx, LCSP_PROP_MARGIN, CCPAS_TOP);
-		ps->css_margin[CCPAS_RIGHT] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_MARGIN_RIGHT);
-		if (!ps->css_margin[CCPAS_RIGHT]) ps->css_margin[CCPAS_RIGHT] = lhp_shorthand_TRBL(ctx, LCSP_PROP_MARGIN, CCPAS_RIGHT);
-		ps->css_margin[CCPAS_BOTTOM] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_MARGIN_BOTTOM);
-		if (!ps->css_margin[CCPAS_BOTTOM]) ps->css_margin[CCPAS_BOTTOM] = lhp_shorthand_TRBL(ctx, LCSP_PROP_MARGIN, CCPAS_BOTTOM);
-		ps->css_margin[CCPAS_LEFT] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_MARGIN_LEFT);
-		if (!ps->css_margin[CCPAS_LEFT]) ps->css_margin[CCPAS_LEFT] = lhp_shorthand_TRBL(ctx, LCSP_PROP_MARGIN, CCPAS_LEFT);
+	ps->css_background_color = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_BACKGROUND_COLOR);
+	if (ps->css_background_color)
+		ps->css_background_color = lhp_resolve_var_color(ctx, ps->css_background_color);
 
-		ps->css_padding[CCPAS_TOP] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_PADDING_TOP);
-		if (!ps->css_padding[CCPAS_TOP]) ps->css_padding[CCPAS_TOP] = lhp_shorthand_TRBL(ctx, LCSP_PROP_PADDING, CCPAS_TOP);
-		ps->css_padding[CCPAS_RIGHT] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_PADDING_RIGHT);
-		if (!ps->css_padding[CCPAS_RIGHT]) ps->css_padding[CCPAS_RIGHT] = lhp_shorthand_TRBL(ctx, LCSP_PROP_PADDING, CCPAS_RIGHT);
-		ps->css_padding[CCPAS_BOTTOM] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_PADDING_BOTTOM);
-		if (!ps->css_padding[CCPAS_BOTTOM]) ps->css_padding[CCPAS_BOTTOM] = lhp_shorthand_TRBL(ctx, LCSP_PROP_PADDING, CCPAS_BOTTOM);
-		ps->css_padding[CCPAS_LEFT] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_PADDING_LEFT);
-		if (!ps->css_padding[CCPAS_LEFT]) ps->css_padding[CCPAS_LEFT] = lhp_shorthand_TRBL(ctx, LCSP_PROP_PADDING, CCPAS_LEFT);
+	ps->css_color = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_COLOR);
+	if (ps->css_color)
+		ps->css_color = lhp_resolve_var_color(ctx, ps->css_color);
 
-	} lws_end_foreach_dll(p);
+	ps->css_pos[CCPAS_TOP] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_TOP);
+	ps->css_pos[CCPAS_RIGHT] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_RIGHT);
+	ps->css_pos[CCPAS_BOTTOM] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_BOTTOM);
+	ps->css_pos[CCPAS_LEFT] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_LEFT);
+
+	ps->css_margin[CCPAS_TOP] = lhp_side_atr(ps, LCSP_PROP_MARGIN_TOP, LCSP_PROP_MARGIN, CCPAS_TOP, 0);
+	ps->css_margin[CCPAS_RIGHT] = lhp_side_atr(ps, LCSP_PROP_MARGIN_RIGHT, LCSP_PROP_MARGIN, CCPAS_RIGHT, 0);
+	ps->css_margin[CCPAS_BOTTOM] = lhp_side_atr(ps, LCSP_PROP_MARGIN_BOTTOM, LCSP_PROP_MARGIN, CCPAS_BOTTOM, 0);
+	ps->css_margin[CCPAS_LEFT] = lhp_side_atr(ps, LCSP_PROP_MARGIN_LEFT, LCSP_PROP_MARGIN, CCPAS_LEFT, 0);
+
+	ps->css_padding[CCPAS_TOP] = lhp_side_atr(ps, LCSP_PROP_PADDING_TOP, LCSP_PROP_PADDING, CCPAS_TOP, 0);
+	ps->css_padding[CCPAS_RIGHT] = lhp_side_atr(ps, LCSP_PROP_PADDING_RIGHT, LCSP_PROP_PADDING, CCPAS_RIGHT, 0);
+	ps->css_padding[CCPAS_BOTTOM] = lhp_side_atr(ps, LCSP_PROP_PADDING_BOTTOM, LCSP_PROP_PADDING, CCPAS_BOTTOM, 0);
+	ps->css_padding[CCPAS_LEFT] = lhp_side_atr(ps, LCSP_PROP_PADDING_LEFT, LCSP_PROP_PADDING, CCPAS_LEFT, 0);
 
 	return 0;
 }
@@ -1309,6 +2147,41 @@ lws_lhp_tag_dlo_id(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dlo_t *dlo)
 	} lws_end_foreach_dll(d);
 }
 
+/*
+ * The external stylesheet referenced by a <link> has been fully parsed: the
+ * link is a void element, so close it now and carry on with the html after
+ * it.  Otherwise its stack level is never popped and everything after it,
+ * body included, is parsed as a descendant of <head>.
+ */
+
+static void
+lhp_link_css_done(lhp_ctx_t *ctx)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+
+	ctx->u.s = 0;
+	ctx->tag = NULL;
+	ctx->tag_len = 0;
+	ctx->await_css_done = 0;
+	ctx->finish_css = 0;
+	ctx->npos = 0;
+
+	if (lws_dll2_count(&ctx->stack) > 1 && !lws_dll2_is_empty(&ps->atr)) {
+		lhp_atr_t *a = lws_container_of(lws_dll2_get_head(&ps->atr),
+						lhp_atr_t, list);
+
+		memcpy(ctx->buf, &a[1], a->name_len);
+		ctx->npos = (int)a->name_len;
+		ps->cb(ctx, LHPCB_ELEMENT_END);
+		ctx->npos = 0;
+		lhp_clean_level(ps);
+		lws_css_cascade(ctx);
+	}
+
+	ctx->state = LHPS_OUTER;
+}
+
 lws_stateful_ret_t
 lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 {
@@ -1327,17 +2200,8 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 	assert(drt);
 
 	if (!*len && ctx->is_css && ctx->await_css_done && ctx->finish_css) {
-		r = ctx->await_css_done;
-		ctx->u.s = 0;
-		ctx->tag = NULL;
-		ctx->tag_len = 0;
-		ctx->npos = 0;
-		ctx->state = LHPS_TAG;
-		ctx->await_css_done = 0;
-		ctx->finish_css = 0;
-		if (r)
-			return LWS_SRET_AWAIT_RETRY;
-		ctx->u.f.closing = 1;
+		lhp_link_css_done(ctx);
+		return LWS_SRET_AWAIT_RETRY;
 	}
 
 	while (*len) {
@@ -1383,6 +2247,20 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 		case LHPS_OUTER:
 			switch (c) {
 			case '<':
+				/*
+				 * Flush pending text while the element it
+				 * belongs to is still at the top of the stack,
+				 * before we push the level for the next tag
+				 */
+				if (ctx->npos) {
+					if (ctx->in_body &&
+					    (ctx->npos != 1 || ctx->buf[0] != ' ')) {
+						lws_css_cascade(ctx);
+						ps->cb(ctx, LHPCB_CONTENT);
+					}
+					ctx->npos = 0;
+				}
+
 				ctx->u.s = 0;
 				ctx->u.f.first = 1;
 
@@ -1876,6 +2754,26 @@ check_closing:
 			}
 			ctx->npos = 0;
 			ctx->state = LHPS_OUTER;
+
+			/*
+			 * <script ...> and <style ...> with attributes came
+			 * through here rather than the bare-tag trapdoors:
+			 * their content is not html either
+			 */
+			if (!ctx->u.f.closing && !ctx->u.f.void_element &&
+			    !lws_dll2_is_empty(&ps->atr)) {
+				lhp_atr_t *ta = lws_container_of(
+						lws_dll2_get_head(&ps->atr),
+						lhp_atr_t, list);
+				const char *tn = (const char *)&ta[1];
+
+				if (ta->name_len == 6 &&
+				    !strncasecmp(tn, "script", 6))
+					ctx->state = LHPS_SCRIPT;
+				else if (ta->name_len == 5 &&
+					 !strncasecmp(tn, "style", 5))
+					ctx->state = LCSPS_CSS_OUTER;
+			}
 			break;
 
 		case LHPS_ATTRIB:
@@ -2245,7 +3143,33 @@ done_amp:
 			}
 
 			if (c == '{') { /* open stanza */
-				struct lws_tokenize ts;
+
+				while (ctx->npos && ctx->buf[ctx->npos - 1] == ' ')
+					ctx->npos--;
+				ctx->buf[ctx->npos] = '\0';
+
+				if (ctx->npos && ctx->buf[0] == '@') {
+					/*
+					 * @media we can evaluate: parse the
+					 * rules inside as if toplevel.  Any
+					 * other @-rule block (@font-face,
+					 * @keyframes, print media...) must
+					 * not leak its rules into the page.
+					 */
+					if (ctx->npos > 6 &&
+					    !strncmp(ctx->buf, "@media", 6) &&
+					    lhp_media_query_true(ctx,
+							ctx->buf + 6,
+							ctx->buf + ctx->npos)) {
+						if (ctx->css_block_depth < 255)
+							ctx->css_block_depth++;
+					} else {
+						ctx->css_skip_depth = 1;
+						ctx->state = LCSPS_CSS_SKIP_BLOCK;
+					}
+					ctx->npos = 0;
+					break;
+				}
 
 				/* create the stanza object */
 
@@ -2255,44 +3179,15 @@ done_amp:
 				if (!ctx->stz)
 					goto oom;
 
-				/* attach names to it */
+				/* attach the selectors to it */
 
-				memset(&ts, 0, sizeof(ts));
-				ts.start = ctx->buf;
-				ts.len = (size_t)ctx->npos;
-				ts.flags = LWS_TOKENIZE_F_COMMA_SEP_LIST |
-						LWS_TOKENIZE_F_DOT_NONTERM |
-						LWS_TOKENIZE_F_MINUS_NONTERM;
-
-				do {
-					ts.e = (int8_t)lws_tokenize(&ts);
-					if (ts.e == LWS_TOKZE_TOKEN) {
-						lcsp_names_t *na = lwsac_use_zero(
-							&ctx->cssac,
-							sizeof(*na) +
-							ts.token_len + 1,
-							LHP_AC_GRANULE);
-						if (!na)
-							goto oom;
-
-						//lwsl_notice("%s: CSS name %.*s\n",
-						//	__func__,
-						//	(int)ts.token_len, ts.token);
-
-						na->name_len = ts.token_len;
-						memcpy(&na[1], ts.token, ts.token_len);
-						((char *)(&na[1]))[ts.token_len] = '\0';
-						lws_dll2_add_tail(&na->list, &ctx->stz->names);
-					}
-
-				} while (ts.e > 0);
-
+				if (lhp_css_add_names(ctx, ctx->buf,
+						      (size_t)ctx->npos))
+					goto oom;
 
 				/* list this stanza in our lhp context CSS */
 
 				lws_dll2_add_tail(&ctx->stz->list, &ctx->css);
-
-				ctx->buf[ctx->npos] = '\0';
 
 				ctx->npos = 0;
 				ctx->state = LCSPS_CSS_STANZA;
@@ -2304,16 +3199,43 @@ done_amp:
 				break;
 			}
 
-			/* otherwise let's collect the name pieces */
+			if (c == '}') {
+				/* closing an @media block we parsed inline */
+				if (ctx->css_block_depth)
+					ctx->css_block_depth--;
+				ctx->npos = 0;
+				break;
+			}
+
+			if (c == ';') {
+				/* blockless @-rule, eg @import, @charset */
+				ctx->npos = 0;
+				break;
+			}
+
+			/* otherwise let's collect the selector text, with
+			 * whitespace collapsed to single spaces */
 
 			if (ctx->npos >= LHP_STRING_CHUNK) {
 				lwsl_err("%s: css lhs too long\n", __func__);
 				return LWS_SRET_FATAL;
 			}
 
-			if (!hspace(c))
-				ctx->buf[ctx->npos++] = (char)c;
+			if (hspace(c)) {
+				if (ctx->npos && ctx->buf[ctx->npos - 1] != ' ')
+					ctx->buf[ctx->npos++] = ' ';
+				break;
+			}
 
+			ctx->buf[ctx->npos++] = (char)c;
+			break;
+
+		case LCSPS_CSS_SKIP_BLOCK:
+			/* balance braces until the @-rule block ends */
+			if (c == '{' && ctx->css_skip_depth < 255)
+				ctx->css_skip_depth++;
+			if (c == '}' && !--ctx->css_skip_depth)
+				ctx->state = LCSPS_CSS_OUTER;
 			break;
 
 		case LCSPS_CSS_STANZA:
@@ -2321,11 +3243,10 @@ done_amp:
 			if (c == '}') {
 				ctx->state = LCSPS_CSS_OUTER;
 
-				ctx->u.f.arg = 0;
-
 				if (ctx->u.f.color) {
 					lcsp_append_cssval_color(ctx);
 					ctx->npos = 0;
+					ctx->u.f.arg = 0;
 					break;
 				}
 				if (ctx->u.f.integer) {/* x: 123} */
@@ -2334,15 +3255,17 @@ done_amp:
 
 					ctx->u.f.integer = 0;
 					ctx->npos = 0;
+					ctx->u.f.arg = 0;
 					break;
 				}
-				//lwsl_notice("close curly cssval_state %d\n", ctx->cssval_state);
-				if (ctx->cssval_state || ctx->npos) {
-					is_term = 1;
-				} else {
-					ctx->npos = 0;
-					break;
-				}
+				if (ctx->u.f.arg && lcsp_finish_cssval_keyword(ctx))
+					goto oom;
+
+				ctx->u.f.arg = 0;
+				ctx->css_state = 0;
+				ctx->cssval_state = 0;
+				ctx->npos = 0;
+				break;
 			}
 			if (c == '/') {
 				ctx->state = LCSPS_CCOM_S1;
@@ -2353,7 +3276,7 @@ done_amp:
 				/* we're on the value side of prop: value */
 
 				if (c == ';') {
-					/* resync after unknown prop: restart with
+					/* end of this declaration: restart with
 					 * whatever is after the ';' */
 					ctx->css_state = 0;
 					ctx->u.f.arg = 0;
@@ -2369,14 +3292,13 @@ done_amp:
 							goto oom;
 						ctx->u.f.integer = 0;
 						ctx->npos = 0;
-					}
-
-					if (ctx->cssval_state) {
-						is_term = 1;
-					} else {
-						ctx->npos = 0;
 						break;
 					}
+
+					if (lcsp_finish_cssval_keyword(ctx))
+						goto oom;
+					ctx->npos = 0;
+					break;
 				}
 
 				if (ctx->cssval_state == (int16_t)-1 &&
@@ -2408,8 +3330,13 @@ done_amp:
 					break;
 				}
 
-				if (!ctx->u.f.integer && hspace(c))
+				if (!ctx->u.f.integer && hspace(c)) {
+					/* space between values: complete any
+					 * keyword we were matching */
+					if (lcsp_finish_cssval_keyword(ctx))
+						goto oom;
 					break;
+				}
 
 				if (!ctx->cssval_state && !ctx->u.f.integer &&
 				    ((c >= '0' && c <= '9') || c == '.')) {
@@ -2451,7 +3378,15 @@ done_amp:
 						break;
 					}
 					if (hspace(c)) {
+						/* a unitless number followed
+						 * by more values, eg,
+						 * "margin: 1em 0 2em" */
+						if (ctx->u.f.integer !=
+						    LHP_CSS_PROPVAL_INT_UNIT &&
+						    lcsp_append_cssval_int(ctx))
+							goto oom;
 						ctx->u.f.integer = 0;
+						ctx->npos = 0;
 						break;
 					}
 
@@ -2692,7 +3627,18 @@ issue_post:
 				 */
 				break;
 			case LWS_MINILEX_CONTINUE:
-				break;
+				/*
+				 * ':' ends every property name; if it is
+				 * still ambiguous (eg, "margin:" vs
+				 * "margin-top:") ask the minilex to settle it
+				 */
+				if (c != ':' ||
+				    lws_minilex_parse(css_lextable,
+						      &ctx->css_state, 0,
+						      &ctx->prop) !=
+							LWS_MINILEX_MATCH)
+					break;
+				/* fallthru */
 			case LWS_MINILEX_MATCH:
 				/* we have an unambiguous match, now we are
 				 * doing the property args */
@@ -2847,37 +3793,41 @@ issue_post:
 			break;
 
 		case LHPS_SCRIPT_TAG1:
-			if (c == '/' && ctx->u.f.first) {
-				ctx->u.s = 0;
+			if (c == '/') {
+				ctx->npos = 0;
+				ctx->state = LHPS_SCRIPT_TAG2;
+				break;
+			}
+			ctx->state = c == '<' ? LHPS_SCRIPT_TAG1 : LHPS_SCRIPT;
+			break;
 
+		case LHPS_SCRIPT_TAG2:
+			/*
+			 * Only </script> ends the script; "</div>" inside a
+			 * string literal or a comparison like i < n/2 does not
+			 */
+			if (lhp_ident_char((char)c) && ctx->npos < 6) {
+				ctx->buf[ctx->npos++] = (char)c;
+				break;
+			}
+			if (c == '>' && ctx->npos == 6 &&
+			    !strncasecmp(ctx->buf, "script", 6)) {
+				ctx->u.s = 0;
+				ctx->u.f.closing = 1;
 				ctx->tag = NULL;
 				ctx->tag_len = 0;
 				ctx->npos = 0;
-				ctx->state = LHPS_TAG;
 				ctx->await_css_done = 0;
 				ctx->finish_css = 0;
-				ctx->u.f.closing = 1;
-				break;
+				goto elem_start;
 			}
-			if (hspace(c))
-				break;
-
-			ctx->state = LHPS_SCRIPT;
+			ctx->state = c == '<' ? LHPS_SCRIPT_TAG1 : LHPS_SCRIPT;
 			break;
 
 		}
 		if (!*len && ctx->is_css && ctx->await_css_done && ctx->finish_css) {
-			r = ctx->await_css_done;
-			ctx->u.s = 0;
-			ctx->tag = NULL;
-			ctx->tag_len = 0;
-			ctx->npos = 0;
-			ctx->state = LHPS_TAG;
-			ctx->await_css_done = 0;
-			ctx->finish_css = 0;
-			if (r)
-				return LWS_SRET_AWAIT_RETRY;
-			ctx->u.f.closing = 1;
+			lhp_link_css_done(ctx);
+			return LWS_SRET_AWAIT_RETRY;
 		}
 	}
 
@@ -2906,62 +3856,19 @@ oom:
 }
 
 /*
- * Query the css cascade active at this html parsing point for a list of active
- * css attributes belonging to a particular property, accounting for cascading
- * overriding inside the list.
+ * Query the css in effect for a property on the element currently being
+ * parsed, see the description in lws-html.h
  */
 
 const lcsp_atr_t *
 lws_css_cascade_get_prop_atr(lhp_ctx_t *ctx, lcsp_props_t prop)
 {
-	lcsp_atr_ptr_t *ap;
-
-	lws_dll2_owner_clear(&ctx->active_atr);
-	lwsac_free(&ctx->propatrac);
-
-	/*
-	 * Let's go through the active stanzas looking for defs that relate to
-	 * the property we care about
-	 */
-
-	lws_start_foreach_dll(struct lws_dll2 *, q, lws_dll2_get_head(&ctx->active_stanzas)) {
-		lcsp_stanza_ptr_t *pstz = lws_container_of(q, lcsp_stanza_ptr_t,
-							   list);
-
-		/* each def entry in the stanza in turn */
-
-		lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&pstz->stz->defs)) {
-			lcsp_defs_t *def = lws_container_of(p, lcsp_defs_t, list);
-
-			if (def->prop == prop) {
-
-				lws_start_foreach_dll(struct lws_dll2 *, z,
-						      lws_dll2_get_head(&def->atrs)) {
-					lcsp_atr_ptr_t *patr = lwsac_use_zero(
-							&ctx->propatrac,
-							sizeof(*patr),
-							LHP_AC_GRANULE);
-					if (!patr)
-						return NULL;
-
-					patr->atr = lws_container_of(z,
-							lcsp_atr_t, list);
-
-					lws_dll2_add_tail(&patr->list,
-							  &ctx->active_atr);
-				} lws_end_foreach_dll(z);
-			}
-
-		} lws_end_foreach_dll(p);
-
-	} lws_end_foreach_dll(q);
-
-	if (!lws_dll2_count(&ctx->active_atr))
+	if (lws_dll2_is_empty(&ctx->stack))
 		return NULL;
 
-	ap = lws_container_of(lws_dll2_get_tail(&ctx->active_atr), lcsp_atr_ptr_t, list);
-
-	return ap->atr;
+	return lhp_prop_atr_ps(ctx, lws_container_of(
+				lws_dll2_get_tail(&ctx->stack),
+				lhp_pstack_t, list), prop);
 }
 
 lhp_pstack_t *
