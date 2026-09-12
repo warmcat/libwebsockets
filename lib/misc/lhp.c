@@ -1909,14 +1909,14 @@ lhp_side_atr(lhp_pstack_t *ps, int longhand, int shorthand, int idx,
 static const lcsp_atr_t *
 lhp_prop_atr_ps(lhp_ctx_t *ctx, lhp_pstack_t *ps, lcsp_props_t prop)
 {
-	int inh = lhp_prop_inherited(prop);
+	int inh = lhp_prop_inherited((int)prop);
 	lcsp_atr_ptr_t *ap;
 
 	lws_dll2_owner_clear(&ctx->active_atr);
 	lwsac_free(&ctx->propatrac);
 
 	while (ps) {
-		const lcsp_defs_t *def = lhp_find_def(ps, prop);
+		const lcsp_defs_t *def = lhp_find_def(ps, (int)prop);
 		const lcsp_atr_t *a;
 
 		if (!def) {
