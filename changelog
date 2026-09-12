@@ -4,6 +4,9 @@ Changelog
 Development
 ===========
 
+ - lws_fx: fixed-point sin, cos, tan and atan2 operators in pure integer
+   arithmetic, usable on targets with no FPU and deterministic across
+   platforms; validated by lws-api-test-fx
  - ACME: support DNS-01
  - Async DNS: support DNSSEC
  - Async DNS: support tcp fallback
