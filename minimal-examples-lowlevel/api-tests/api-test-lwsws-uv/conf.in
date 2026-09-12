@@ -1,0 +1,21 @@
+# lwsws globals for the api-test-lwsws-uv ctest fixture
+#
+# Generated from conf.in by CMake at build time: do not edit the copy in the
+# build tree.
+#
+# No "uid" / "gid" are given: lws only calls setuid() / setgid() when they are
+# set, so lwsws runs as whoever started it, which for ctest is the build user.
+#
+# The only plugin dir is this build tree's lib/ ... lwsws is started with -n so
+# its compiled-in install-time plugin dir is not scanned as well, otherwise an
+# older installed copy of a plugin could be the one that gets loaded.
+{
+  "global": {
+    "count-threads": "1",
+    "server-string": "lwsws-apitest",
+    "init-ssl": "yes",
+    "timeout-secs": "10",
+    "cpd-bypass": "1",
+    "plugin-dir": "@LWSWS_UV_PLUGIN_DIR@"
+  }
+}

@@ -1,0 +1,108 @@
+# lwsws vhosts for the api-test-lwsws-uv ctest fixture
+#
+# Generated from conf.d/apitest.json.in by CMake at build time: do not edit the
+# copy in the build tree.
+#
+# Two vhosts sharing one name, as a production lwsws has:
+#
+#  - the tls one on @LWSWS_UV_PORT_TLS@ serves h1 and h2 over TCP, and because
+#    its "alpn" names h3, lws also binds a QUIC UDP listener on the same port
+#    number (lib/roles/http/server/server.c, "check_quic:"), so h3 and h1/h2
+#    are reachable at the same host:port exactly like warmcat.com;
+#
+#  - the cleartext one on @LWSWS_UV_PORT_PLAIN@ is both the h1 pipelining
+#    target and the origin the tls vhost's /proxy mount proxies back to, so
+#    the proxy path carries real onward headers between two lws vhosts.
+#
+# "keepalive_timeout" is deliberately short so the h1 idle-close path is
+# reached inside a 60s ctest.
+{
+ "vhosts": [{
+     "name": "@LWSWS_UV_VHOST_NAME@",
+     "port": "@LWSWS_UV_PORT_TLS@",
+     "host-ssl-cert": "@LWSWS_UV_CERT@",
+     "host-ssl-key": "@LWSWS_UV_KEY@",
+     "alpn": "h3,h2,http/1.1",
+     "keepalive_timeout": "@LWSWS_UV_KEEPALIVE@",
+     "enable-client-ssl": "1",
+     "sni-fallback": "1",
+     "mounts": [{
+        "mountpoint": "/captcha",
+        "origin": "callback://lws_captcha_ratelimit"
+       }, {
+        "mountpoint": "/gated",
+        "origin": "file://@LWSWS_UV_GATED_DIR@",
+        "default": "index.html",
+        "interceptor-path": "/captcha",
+        "cache-no": "1"
+       }, {
+        "mountpoint": "/deaddrop/upload",
+        "origin": "callback://lws-deaddrop"
+       }, {
+        "mountpoint": "/deaddrop/get",
+        "origin": "file://@LWSWS_UV_DEADDROP_UPLOAD_DIR@",
+        "extra-mimetypes": {
+                "*": ""
+        }
+       }, {
+        "mountpoint": "/deaddrop",
+        "origin": "file://@LWSWS_UV_DEADDROP_ASSETS_DIR@",
+        "default": "index.html"
+       }, {
+        "mountpoint": "/proxy",
+        "origin": "http://127.0.0.1:@LWSWS_UV_PORT_PLAIN@/"
+       }, {
+        "mountpoint": "/ws",
+        "origin": "callback://lws-status"
+       }, {
+        "mountpoint": "/files",
+        "origin": "file://@LWSWS_UV_FILES_DIR@",
+        "default": "small.txt",
+        "cache-no": "1",
+        "extra-mimetypes": {
+                ".bin": "application/octet-stream"
+        }
+       }],
+     "ws-protocols": [{
+       "lws_captcha_ratelimit": {
+         "status": "ok",
+         "jwt-jwk": "@LWSWS_UV_JWK@",
+         "jwt-issuer": "lwsws-apitest",
+         "jwt-audience": "lwsws-apitest",
+         "jwt-alg": "HS256",
+         "jwt-expiry": "600",
+         "cookie-name": "lws_apitest_captcha",
+         "asset-dir": "file://@LWSWS_UV_CAPTCHA_ASSETS_DIR@",
+         "pre-delay-ms": "@LWSWS_UV_PRE_DELAY_MS@",
+         "post-delay-ms": "@LWSWS_UV_POST_DELAY_MS@"
+       },
+       "lws-status": {
+         "status": "ok"
+       },
+       "lws-mirror-protocol": {
+         "status": "ok"
+       },
+       "lws-deaddrop": {
+         "status": "ok",
+         "upload-dir": "@LWSWS_UV_DEADDROP_UPLOAD_DIR@",
+         "max-size": "1048576",
+         "allow-anonymous": "1",
+         "jwt-jwk": "@LWSWS_UV_JWK@"
+       }
+     }]
+    }, {
+     "name": "@LWSWS_UV_VHOST_NAME@",
+     "port": "@LWSWS_UV_PORT_PLAIN@",
+     "keepalive_timeout": "@LWSWS_UV_KEEPALIVE@",
+     "mounts": [{
+        "mountpoint": "/files",
+        "origin": "file://@LWSWS_UV_FILES_DIR@",
+        "default": "small.txt",
+        "cache-no": "1",
+        "extra-mimetypes": {
+                ".bin": "application/octet-stream"
+        }
+       }]
+    }
+  ]
+}
