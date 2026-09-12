@@ -85,6 +85,15 @@ struct lws_event_loop_ops {
 	uint16_t	evlib_size_pt;
 	uint16_t	evlib_size_vh;
 	uint16_t	evlib_size_wsi;
+
+	/*
+	 * Move the evlib's per-wsi state from one wsi to another (the QUIC
+	 * ALPN migration hands a connection's fd to a new wsi): the evlib
+	 * re-homes whatever its watchers or callback arguments hold that
+	 * refers to the old block or the old wsi.  NULL means a raw copy of
+	 * the block is enough.
+	 */
+	int (*migrate_wsi)(struct lws *from, struct lws *to);
 };
 
 LWS_VISIBLE LWS_EXTERN void *

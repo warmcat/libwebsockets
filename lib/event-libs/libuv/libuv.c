@@ -1187,6 +1187,33 @@ elops_promote_parallel_uv(struct lws *wsi, int pidx)
 }
 #endif
 
+/*
+ * QUIC ALPN migration: the poll handles carry the wsi as their data pointer,
+ * so after the block moves they must point at the new wsi.
+ */
+static int
+elops_migrate_wsi_uv(struct lws *from, struct lws *to)
+{
+	struct lws_wsi_eventlibs_libuv *f = wsi_to_priv_uv(from),
+				       *t = wsi_to_priv_uv(to);
+	size_t n;
+
+	memcpy(t, f, sizeof(*t));
+	memset(f, 0, sizeof(*f));
+
+	if (t->w_read.pwatcher)
+		((uv_handle_t *)t->w_read.pwatcher)->data = to;
+#if defined(LWS_WITH_CLIENT)
+	for (n = 0; n < LWS_ARRAY_SIZE(t->racing); n++)
+		if (t->racing[n].pwatcher)
+			((uv_handle_t *)t->racing[n].pwatcher)->data = to;
+#else
+	(void)n;
+#endif
+
+	return 0;
+}
+
 static const struct lws_event_loop_ops event_loop_ops_uv = {
 	/* name */			"libuv",
 	/* init_context */		elops_init_context_uv,
@@ -1220,6 +1247,7 @@ static const struct lws_event_loop_ops event_loop_ops_uv = {
 	/* evlib_size_pt */	sizeof(struct lws_pt_eventlibs_libuv),
 	/* evlib_size_vh */	0,
 	/* evlib_size_wsi */	sizeof(struct lws_wsi_eventlibs_libuv),
+	/* migrate_wsi */	elops_migrate_wsi_uv,
 };
 
 #if defined(LWS_WITH_EVLIB_PLUGINS)

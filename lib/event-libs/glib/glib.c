@@ -593,6 +593,32 @@ elops_promote_parallel_glib(struct lws *wsi, int pidx)
 static const struct lws_event_loop_ops event_loop_ops_glib = {
 	/* name */			"glib",
 	/* init_context */		elops_init_context_glib,
+/*
+ * QUIC ALPN migration: the sources are separate allocations that carry the
+ * wsi, so the block copies and the sources are pointed at the new wsi.
+ */
+static int
+elops_migrate_wsi_glib(struct lws *from, struct lws *to)
+{
+	struct lws_wsi_eventlibs_glib *f = wsi_to_priv_glib(from),
+				      *t = wsi_to_priv_glib(to);
+	size_t n;
+
+	memcpy(t, f, sizeof(*t));
+	memset(f, 0, sizeof(*f));
+
+	if (t->w_read.source)
+		t->w_read.source->wsi = to;
+#if defined(LWS_WITH_CLIENT)
+	for (n = 0; n < LWS_ARRAY_SIZE(t->racing); n++)
+		if (t->racing[n].source)
+			t->racing[n].source->wsi = to;
+#endif
+	(void)n;
+
+	return 0;
+}
+
 	/* destroy_context1 */		NULL,
 	/* destroy_context2 */		elops_destroy_context2_glib,
 	/* init_vhost_listen_wsi */	elops_accept_glib,
@@ -626,6 +652,7 @@ static const struct lws_event_loop_ops event_loop_ops_glib = {
 };
 
 #if defined(LWS_WITH_EVLIB_PLUGINS)
+	/* migrate_wsi */	elops_migrate_wsi_glib,
 LWS_VISIBLE
 #endif
 const lws_plugin_evlib_t evlib_glib = {

@@ -534,6 +534,54 @@ elops_promote_parallel_ev(struct lws *wsi, int pidx)
 #endif
 
 static const struct lws_event_loop_ops event_loop_ops_ev = {
+/*
+ * QUIC ALPN migration: the ev_io watchers live inside the per-wsi block and
+ * the loop keeps their addresses, so they cannot simply be copied: stop the
+ * old ones, set up new ones in the new block on the same fd, restart what was
+ * running.  Racers are torn down before the migration; stop any left anyway.
+ */
+static int
+elops_migrate_wsi_ev(struct lws *from, struct lws *to)
+{
+	struct lws_context_per_thread *pt = &to->a.context->pt[(int)to->tsi];
+	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
+	struct lws_wsi_eventlibs_libev *f = wsi_to_priv_ev(from),
+				       *t = wsi_to_priv_ev(to);
+	int fd = f->w_read.watcher.fd, ra = 0, wa = 0;
+	size_t n;
+
+	if (ptpr->io_loop) {
+		ra = ev_is_active(&f->w_read.watcher);
+		wa = ev_is_active(&f->w_write.watcher);
+		ev_io_stop(ptpr->io_loop, &f->w_read.watcher);
+		ev_io_stop(ptpr->io_loop, &f->w_write.watcher);
+#if defined(LWS_WITH_CLIENT)
+		for (n = 0; n < LWS_ARRAY_SIZE(f->racing); n++) {
+			ev_io_stop(ptpr->io_loop, &f->racing[n].w_read.watcher);
+			ev_io_stop(ptpr->io_loop, &f->racing[n].w_write.watcher);
+		}
+#endif
+	}
+	(void)n;
+
+	memset(f, 0, sizeof(*f));
+	memset(t, 0, sizeof(*t));
+
+	t->w_read.context = to->a.context;
+	t->w_write.context = to->a.context;
+	ev_io_init(&t->w_read.watcher, lws_accept_cb, fd, EV_READ);
+	ev_io_init(&t->w_write.watcher, lws_accept_cb, fd, EV_WRITE);
+
+	if (ptpr->io_loop) {
+		if (ra)
+			ev_io_start(ptpr->io_loop, &t->w_read.watcher);
+		if (wa)
+			ev_io_start(ptpr->io_loop, &t->w_write.watcher);
+	}
+
+	return 0;
+}
+
 	/* name */			"libev",
 	/* init_context */		elops_init_context_ev,
 	/* destroy_context1 */		NULL,
@@ -567,6 +615,7 @@ static const struct lws_event_loop_ops event_loop_ops_ev = {
 	/* evlib_size_vh */	sizeof(struct lws_vh_eventlibs_libev),
 	/* evlib_size_wsi */	sizeof(struct lws_wsi_eventlibs_libev),
 };
+	/* migrate_wsi */	elops_migrate_wsi_ev,
 
 #if defined(LWS_WITH_EVLIB_PLUGINS)
 LWS_VISIBLE

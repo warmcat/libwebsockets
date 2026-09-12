@@ -521,6 +521,32 @@ promote_parallel_sd(struct lws *wsi, int pidx)
 }
 #endif
 
+/*
+ * QUIC ALPN migration: the sources carry the wsi as their userdata, so the
+ * block copies and the sources are pointed at the new wsi.
+ */
+static int
+migrate_wsi_sd(struct lws *from, struct lws *to)
+{
+	struct lws_wsi_watcher_sdevent *f = wsi_to_priv_sd(from),
+				       *t = wsi_to_priv_sd(to);
+	size_t n;
+
+	memcpy(t, f, sizeof(*t));
+	memset(f, 0, sizeof(*f));
+
+	if (t->source)
+		sd_event_source_set_userdata(t->source, to);
+#if defined(LWS_WITH_CLIENT)
+	for (n = 0; n < LWS_ARRAY_SIZE(t->racing); n++)
+		if (t->racing[n].source)
+			sd_event_source_set_userdata(t->racing[n].source, to);
+#endif
+	(void)n;
+
+	return 0;
+}
+
 const struct lws_event_loop_ops event_loop_ops_sdevent = {
 		.name				= "sdevent",
 		.init_context			= NULL,
@@ -549,6 +575,7 @@ const struct lws_event_loop_ops event_loop_ops_sdevent = {
 		.evlib_size_pt			= sizeof(struct lws_pt_eventlibs_sdevent),
 		.evlib_size_vh			= 0,
 		.evlib_size_wsi			= sizeof(struct lws_wsi_watcher_sdevent),
+		.migrate_wsi			= migrate_wsi_sd,
 };
 
 #if defined(LWS_WITH_EVLIB_PLUGINS)

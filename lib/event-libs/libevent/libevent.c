@@ -625,6 +625,71 @@ LWS_VISIBLE
 const lws_plugin_evlib_t evlib_event = {
 	.hdr = {
 		.name = "libevent event loop",
+/*
+ * QUIC ALPN migration: each event's callback arg is the address of its
+ * lws_io_watcher_libevent inside the per-wsi block, so the events have to be
+ * recreated against the new block, keeping what was enabled.
+ */
+static int
+elops_migrate_wsi_event(struct lws *from, struct lws *to)
+{
+	struct lws_context_per_thread *pt = &to->a.context->pt[(int)to->tsi];
+	struct lws_pt_eventlibs_libevent *ptpr = pt_to_priv_event(pt);
+	struct lws_wsi_eventlibs_libevent *f = wsi_to_priv_event(from),
+					  *t = wsi_to_priv_event(to);
+	evutil_socket_t fd = to->desc.sockfd;
+	int rs = f->w_read.set, ws = f->w_write.set;
+	size_t n;
+
+	if (f->w_read.watcher) {
+		event_del(f->w_read.watcher);
+		event_free(f->w_read.watcher);
+	}
+	if (f->w_write.watcher) {
+		event_del(f->w_write.watcher);
+		event_free(f->w_write.watcher);
+	}
+#if defined(LWS_WITH_CLIENT)
+	for (n = 0; n < LWS_ARRAY_SIZE(f->racing); n++) {
+		if (f->racing[n].w_read.watcher) {
+			event_del(f->racing[n].w_read.watcher);
+			event_free(f->racing[n].w_read.watcher);
+		}
+		if (f->racing[n].w_write.watcher) {
+			event_del(f->racing[n].w_write.watcher);
+			event_free(f->racing[n].w_write.watcher);
+		}
+	}
+#endif
+	(void)n;
+
+	memset(f, 0, sizeof(*f));
+	memset(t, 0, sizeof(*t));
+
+	t->w_read.context = to->a.context;
+	t->w_write.context = to->a.context;
+
+	if (!ptpr->io_loop || fd == LWS_SOCK_INVALID)
+		return 0;
+
+	t->w_read.watcher = event_new(ptpr->io_loop, fd,
+				      (EV_READ | EV_PERSIST),
+				      lws_event_cb, &t->w_read);
+	t->w_write.watcher = event_new(ptpr->io_loop, fd,
+				       (EV_WRITE | EV_PERSIST),
+				       lws_event_cb, &t->w_write);
+	if (rs && t->w_read.watcher) {
+		event_add(t->w_read.watcher, NULL);
+		t->w_read.set = 1;
+	}
+	if (ws && t->w_write.watcher) {
+		event_add(t->w_write.watcher, NULL);
+		t->w_write.set = 1;
+	}
+
+	return 0;
+}
+
 		._class = "lws_evlib_plugin",
 		.lws_build_hash = LWS_BUILD_HASH,
 		.api_magic = LWS_PLUGIN_API_MAGIC
@@ -632,3 +697,4 @@ const lws_plugin_evlib_t evlib_event = {
 
 	.ops	= &event_loop_ops_event
 };
+	/* migrate_wsi */	elops_migrate_wsi_event,

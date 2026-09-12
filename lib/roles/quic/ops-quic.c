@@ -4640,14 +4640,18 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 		wsi->desc.sockfd = LWS_SOCK_INVALID;
 #if defined(LWS_WITH_EVENT_LIBS)
 		if (wsi->a.context->event_loop_ops->evlib_size_wsi) {
-			memcpy(nwsi->evlib_wsi, wsi->evlib_wsi, wsi->a.context->event_loop_ops->evlib_size_wsi);
-			memset(wsi->evlib_wsi, 0, wsi->a.context->event_loop_ops->evlib_size_wsi);
-
-			if (!strcmp(wsi->a.context->event_loop_ops->name, "libuv")) {
-				void **ppwatcher = (void **)nwsi->evlib_wsi;
-				if (ppwatcher && *ppwatcher) {
-					*(void **)(*ppwatcher) = nwsi;
-				}
+			/*
+			 * The evlib's watchers may hold the old block's
+			 * addresses (libev's embedded ev_io, libevent's
+			 * callback arg) or the old wsi (libuv handle data,
+			 * glib source, sd-event userdata): let it re-home
+			 * them, a raw copy only suits an evlib that says so.
+			 */
+			if (wsi->a.context->event_loop_ops->migrate_wsi)
+				wsi->a.context->event_loop_ops->migrate_wsi(wsi, nwsi);
+			else {
+				memcpy(nwsi->evlib_wsi, wsi->evlib_wsi, wsi->a.context->event_loop_ops->evlib_size_wsi);
+				memset(wsi->evlib_wsi, 0, wsi->a.context->event_loop_ops->evlib_size_wsi);
 			}
 		}
 #endif
