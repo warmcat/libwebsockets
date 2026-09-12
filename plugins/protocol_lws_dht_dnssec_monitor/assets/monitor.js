@@ -43,7 +43,6 @@ function processCertQueue() {
         certCheckTimers[task.fqdn] = setTimeout(() => {
             console.log('[INSTRUMENT] TIMER FIRED for:', task.fqdn, 'port:', task.port);
             let cacheKey = task.fqdn + ':' + task.port;
-            let prev = window.certStatusCache[cacheKey];
             window.certStatusCache[cacheKey] = {
                 status: 'error',
                 msg: 'Connection Timeout',

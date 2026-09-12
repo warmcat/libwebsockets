@@ -458,8 +458,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const formData = new FormData(registerForm);
         formData.append("csrf_token", window.csrf_token || "");
-        const payload = Object.fromEntries(formData.entries());
-
         try {
             const response = await fetch('/api/register', {
                 method: 'POST',

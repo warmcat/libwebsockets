@@ -1311,9 +1311,6 @@ async function setupPreview() {
     }
 
     if (localStream) {
-        const vTrack = localStream.getVideoTracks()[0];
-        const aTrack = localStream.getAudioTracks()[0];
-
         updateView();
 
         // Populate labels and discover capabilities
@@ -1433,8 +1430,6 @@ document.getElementById('partDeviceBtn').onclick = () => {
     if (!activeParticipant) return;
 
     // Check if we are actually joined
-    const local = participantList.querySelector('.participant-item:not(.unjoined) .name');
-    // ^ crude check. Better:
     if (!inConference) {
         log("You must join the conference to access remote devices.", true);
         partMenu.classList.remove('show');
