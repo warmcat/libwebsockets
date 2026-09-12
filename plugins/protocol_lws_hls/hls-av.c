@@ -1697,11 +1697,39 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 		last_pts = entry_dts;
 	}
 
-	int64_t stream_dur = st->duration > 0 ? st->duration : 
+	int64_t stream_dur = st->duration > 0 ? st->duration :
 		(in_ctx->duration > 0 ? av_rescale_q(in_ctx->duration, AV_TIME_BASE_Q, st->time_base) : last_pts - current_start_pts);
 	double final_dur = (double)(stream_dur - current_start_pts) * av_q2d(st->time_base);
 
+	/*
+	 * Sanity: the keyframe grouping above should give roughly
+	 * duration / HLS_SEGMENT_DUR segments.  Some real files defeat it - the
+	 * whole film collapses into one "final" segment (seen on a 2h20 x265
+	 * rip: 1418 keyframes scanned, yet current_seg stays 0), which makes
+	 * the playlist a single giant segment and every segment open-ended.
+	 * If the grouping produced far fewer segments than the file's declared
+	 * duration implies, treat the index as usable for seeking but not for
+	 * segmentation: fail here so the caller falls back to uniform
+	 * duration-based segments.  Those still seek accurately, because the
+	 * keyframe index we populated on the context above stays in place.
+	 */
+	{
+		double total_dur_s = 0.0;
 
+		if (st->duration > 0)
+			total_dur_s = (double)st->duration * av_q2d(st->time_base);
+		else if (in_ctx->duration > 0)
+			total_dur_s = (double)in_ctx->duration / AV_TIME_BASE;
+
+		if (total_dur_s > 2.0 * HLS_SEGMENT_DUR &&
+		    total_dur_s / (double)(current_seg + 1) > 2.0 * HLS_SEGMENT_DUR) {
+			lwsl_warn("HLS-INDEX: %s: keyframe grouping degenerate "
+				  "(%d segment(s) for %.0fs); using duration-based "
+				  "segments\n", filename, current_seg + 1,
+				  total_dur_s);
+			return -1;
+		}
+	}
 
 	if (target_seg_idx >= 0 && target_seg_idx > current_seg) {
 		lwsl_info("HLS-INDEX-DEBUG: target_seg_idx %d > current_seg %d, ret -1\n", target_seg_idx, current_seg);
@@ -2162,13 +2190,21 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 		avformat_seek_file(in_ctx, video_idx, target_ts - 500, target_ts, max_ts, seek_flags);
 #endif
 	} else {
+		/*
+		 * Duration-based segment (no per-segment index boundaries).
+		 * get_segment_info() still populated the context's keyframe
+		 * index and reported seek_any, so seek by time against that
+		 * index, and on a file with unflagged keyframes seek with
+		 * AVSEEK_FLAG_ANY for the same reason as the indexed path.
+		 */
+		int gflags = sinfo.seek_any ? AVSEEK_FLAG_ANY : 0;
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
-		int ret = avformat_seek_file(in_ctx, -1, INT64_MIN, start_time, start_time, 0);
+		int ret = avformat_seek_file(in_ctx, -1, INT64_MIN, start_time, start_time, gflags);
 
-		lwsl_info("HLS: Segment %d generic seek requested to %.3fs -> ret=%d\n",
-			  segment_idx, (double)start_time / AV_TIME_BASE, ret);
+		lwsl_info("HLS: Segment %d generic seek requested to %.3fs (flags %d) -> ret=%d\n",
+			  segment_idx, (double)start_time / AV_TIME_BASE, gflags, ret);
 #else
-		avformat_seek_file(in_ctx, -1, INT64_MIN, start_time, start_time, 0);
+		avformat_seek_file(in_ctx, -1, INT64_MIN, start_time, start_time, gflags);
 #endif
 	}
 
