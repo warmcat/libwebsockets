@@ -73,6 +73,23 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 #endif
 
+	/*
+	 * lws_default_loop_exit() sets context->interrupted and cancels
+	 * service, which is all the default poll loop needs.  On an event
+	 * library's internal loop lws_service() IS the loop and never returns
+	 * to look at the flag, so begin the context destroy from here, inside
+	 * the service: it defers, the evlib winds the loop down, lws_service()
+	 * returns -1 and lws_context_default_loop_run_destroy() finalizes.
+	 * A foreign loop is the app's, it watches the flag itself.
+	 */
+	if (pt->context->interrupted && !pt->context->being_destroyed &&
+	    pt->context->event_loop_ops->run_pt && !pt->event_loop_foreign) {
+		lwsl_cx_notice(pt->context, "%s: loop exit requested on an "
+					    "internal evlib loop, destroying",
+					    __func__);
+		lws_context_destroy(pt->context);
+	}
+
 #if defined(LWS_WITH_THREADPOOL) && defined(LWS_HAVE_PTHREAD_H)
 	/*
 	 * threadpools that need to call for on_writable callbacks do it by

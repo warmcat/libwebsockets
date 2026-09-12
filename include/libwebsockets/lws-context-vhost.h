@@ -1577,6 +1577,18 @@ LWS_VISIBLE LWS_EXTERN void
 _lws_context_info_defaults(struct lws_context_creation_info *info,
 			   const char *sspol);
 
+/**
+ * lws_default_loop_exit() - ask lws_context_default_loop_run_destroy() to end
+ *
+ * \param cx: the lws context
+ *
+ * Safe to call from a signal handler or from any lws callback.  On the
+ * default poll loop it makes lws_context_default_loop_run_destroy() leave its
+ * loop and destroy the context.  On an event library's internal loop (eg,
+ * LWS_SERVER_OPTION_LIBUV without a foreign loop) it starts the context
+ * destroy from inside the service, which winds the loop down so that
+ * lws_service() returns -1 and the same helper finalizes the destroy.
+ */
 LWS_VISIBLE LWS_EXTERN void
 lws_default_loop_exit(struct lws_context *cx);
 
