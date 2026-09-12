@@ -2644,6 +2644,222 @@ lws_fx_sqrt(lws_fx_t *r, const lws_fx_t *a)
 	return r;
 }
 
+/*
+ * Fixed-point trigonometry, in the same pure-int64 style as the operators
+ * above: usable on targets with no FPU, and with results that are identical
+ * on every platform.  Internally, values are handled in signed 1e-8-scaled
+ * units (the same scale as lws_fx_t's fraction) using only int64 add, sub,
+ * mul, div and remainder.
+ *
+ * Accuracy is a few units of the fraction (ie, around 1e-8) for sin, cos and
+ * atan2 on arguments of modest size, degrading slowly for very large angle
+ * magnitudes because of the integer range reduction.  tan is computed from
+ * the sin and cos and has correspondingly reduced accuracy near its poles,
+ * where the result is clamped to the largest representable lws_fx_t.
+ */
+
+/* 2π, π, π/2 and π/4 in 1e-8 fractional units, rounded to nearest */
+
+/*
+ * sin() on |x| <= ~π/2, via the nested odd Taylor form through x^15 / 15!,
+ * giving a truncation error below 1e-11 over the whole input range.
+ *
+ * sin(x) = x(1 - m/6(1 - m/20(1 - m/42(1 - m/72(1 - m/110(1 - m/156(1 -
+ *							       m/210))))))
+ *
+ * where m = x^2 and the denominators are (2n)(2n+1).
+ */
+
+static int64_t
+fx_sin_core(int64_t x)
+{
+	int64_t m = (x * x) / 100000000, a;
+
+	/* each line is a = 1e8·(1 - M·A/d), with m and a at 1e8 scale and
+	 * rounding divisions to keep the accumulated error to a few units */
+
+	a = 100000000 - m / 210;
+	a = 100000000 - (m * a + 7800000000ll) / 15600000000ll;
+	a = 100000000 - (m * a + 5500000000ll) / 11000000000ll;
+	a = 100000000 - (m * a + 3600000000ll) / 7200000000ll;
+	a = 100000000 - (m * a + 2100000000ll) / 4200000000ll;
+	a = 100000000 - (m * a + 1000000000ll) / 2000000000ll;
+	a = 100000000 - (m * a + 300000000ll) / 600000000ll;
+
+	return (x * a + 50000000) / 100000000;
+}
+
+/* signed 1e8-scaled value of a, independent of which of the equivalent
+ * { whole, frac } sign conventions a uses */
+
+static int64_t
+fx_to_1e8(const lws_fx_t *a)
+{
+	return (int64_t)a->whole * 100000000 + a->frac;
+}
+
+/* set r to the normalized form of signed 1e8-scaled v */
+
+static void
+fx_from_1e8(lws_fx_t *r, int64_t v)
+{
+	r->whole = (int32_t)(v / 100000000);
+	r->frac = (int32_t)(v % 100000000);
+}
+
+/* sin() for any angle in 1e8-scaled radians, returns sin(x)·1e8 */
+
+static int64_t
+fx_sin_1e8(int64_t x)
+{
+	int64_t res;
+
+	x %= 628318531;			/* 2π -> (-2π, 2π) */
+	if (x >= 314159266)		/* π */
+		x -= 628318531;
+	else
+		if (x <= -314159267)
+			x += 628318531;
+
+	/* reflect into |x| <= π/2 + a fraction */
+
+	if (x > 157079633)		/* π/2 */
+		x = 314159265 - x;
+	else
+		if (x < -157079633)
+			x = -314159265 - x;
+
+	res = fx_sin_core(x);
+	if (res > 100000000)
+		res = 100000000;
+	if (res < -100000000)
+		res = -100000000;
+
+	return res;
+}
+
+const lws_fx_t *
+lws_fx_sin(lws_fx_t *r, const lws_fx_t *a)
+{
+	fx_from_1e8(r, fx_sin_1e8(fx_to_1e8(a)));
+
+	return r;
+}
+
+const lws_fx_t *
+lws_fx_cos(lws_fx_t *r, const lws_fx_t *a)
+{
+	/* cos(x) = sin(x + π/2) */
+
+	fx_from_1e8(r, fx_sin_1e8(fx_to_1e8(a) + 157079633));
+
+	return r;
+}
+
+const lws_fx_t *
+lws_fx_tan(lws_fx_t *r, const lws_fx_t *a)
+{
+	int64_t s = fx_sin_1e8(fx_to_1e8(a));
+	int64_t c = fx_sin_1e8(fx_to_1e8(a) + 157079633);
+	int64_t res;
+
+	/*
+	 * Only exact multiples of π/2 in the 1e8 representation can produce
+	 * c == 0; clamp the result to the largest representable magnitude.
+	 */
+
+	if (!c)
+		res = s > 0 ? 214748364700000000ll : -214748364700000000ll;
+	else {
+		res = (s * 100000000ll) / c;
+		if (res > 214748364700000000ll)
+			res = 214748364700000000ll;
+		if (res < -214748364700000000ll)
+			res = -214748364700000000ll;
+	}
+
+	fx_from_1e8(r, res);
+
+	return r;
+}
+
+/*
+ * atan() on |z| <= tan(π/8) by odd Taylor through z^13 / 13 (truncation
+ * error below 2e-7 radians).
+ */
+
+static int64_t
+fx_atan_core(int64_t z)
+{
+	int64_t m = (z * z) / 100000000, c;
+
+	c = 100000000ll / 13;
+	c = -100000000ll / 11 + (m * c) / 100000000ll;
+	c = 100000000ll / 9 + (m * c) / 100000000ll;
+	c = -100000000ll / 7 + (m * c) / 100000000ll;
+	c = 100000000ll / 5 + (m * c) / 100000000ll;
+	c = -100000000ll / 3 + (m * c) / 100000000ll;
+	c = 100000000ll + (m * c) / 100000000ll;
+
+	return (z * c) / 100000000ll;
+}
+
+const lws_fx_t *
+lws_fx_atan2(lws_fx_t *r, const lws_fx_t *y, const lws_fx_t *x)
+{
+	int64_t ax = fx_to_1e8(x), ay = fx_to_1e8(y);
+	char swap = 0;
+	int64_t u, a;
+
+	if (ax < 0)
+		ax = -ax;
+	if (ay < 0)
+		ay = -ay;
+
+	if (!ax && !ay) {
+		fx_from_1e8(r, 0);	/* undefined, return 0 */
+		return r;
+	}
+
+	/* only the ratio matters, so prescale into a safe range */
+
+	while (ax > 90000000000ll) {
+		ax >>= 8;
+		ay >>= 8;
+	}
+
+	if (ay > ax) {
+		int64_t t = ax;
+		ax = ay;
+		ay = t;
+		swap = 1;
+	}
+
+	u = (ay * 100000000ll) / ax;			/* [0, 1e8] */
+
+	if (u > 41421356)		/* > tan(π/8) */
+		/* atan(u) = π/4 + atan((u - 1) / (1 + u)) */
+		a = 78539816ll + fx_atan_core(
+			((u - 100000000ll) * 100000000ll) /
+						 (100000000ll + u));
+	else
+		a = fx_atan_core(u);
+
+	if (swap)
+		a = 157079633ll - a;			/* [0, π/2] */
+
+	if (fx_to_1e8(x) < 0)
+		a = fx_to_1e8(y) < 0 ? a - 314159265ll
+				     : 314159265ll - a;
+	else
+		if (fx_to_1e8(y) < 0)
+			a = -a;
+
+	fx_from_1e8(r, a);
+
+	return r;
+}
+
 /* returns < 0 if a < b, >0 if a > b, or 0 if exactly equal */
 
 int

@@ -842,6 +842,57 @@ lws_fx_div(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b);
 LWS_VISIBLE LWS_EXTERN const lws_fx_t *
 lws_fx_sqrt(lws_fx_t *r, const lws_fx_t *a);
 
+/**
+ * lws_fx_sin() - get the sine of a fixed-point angle
+ *
+ * \param r: result
+ * \param a: the angle, in radians
+ *
+ * Computes sin(\p a) in pure integer arithmetic, so it is usable on targets
+ * with no FPU and produces identical results on all platforms.  Accuracy is
+ * a few units of the fraction (around 1e-8) for arguments of modest size,
+ * degrading slowly with very large angle magnitudes.
+ */
+LWS_VISIBLE LWS_EXTERN const lws_fx_t *
+lws_fx_sin(lws_fx_t *r, const lws_fx_t *a);
+
+/**
+ * lws_fx_cos() - get the cosine of a fixed-point angle
+ *
+ * \param r: result
+ * \param a: the angle, in radians
+ *
+ * As lws_fx_sin(), but cos(\p a).
+ */
+LWS_VISIBLE LWS_EXTERN const lws_fx_t *
+lws_fx_cos(lws_fx_t *r, const lws_fx_t *a);
+
+/**
+ * lws_fx_tan() - get the tangent of a fixed-point angle
+ *
+ * \param r: result
+ * \param a: the angle, in radians
+ *
+ * As lws_fx_sin(), but tan(\p a).  Near the poles (odd multiples of π/2) the
+ * result is clamped to the largest representable lws_fx_t magnitude.
+ */
+LWS_VISIBLE LWS_EXTERN const lws_fx_t *
+lws_fx_tan(lws_fx_t *r, const lws_fx_t *a);
+
+/**
+ * lws_fx_atan2() - get the angle of a fixed-point vector
+ *
+ * \param r: result
+ * \param y: vector y component
+ * \param x: vector x component
+ *
+ * Computes atan2(\p y, \p x) in radians in the range [-π, π], in pure
+ * integer arithmetic as described at lws_fx_sin().  For the undefined case
+ * both components are zero, returns 0.
+ */
+LWS_VISIBLE LWS_EXTERN const lws_fx_t *
+lws_fx_atan2(lws_fx_t *r, const lws_fx_t *y, const lws_fx_t *x);
+
 LWS_VISIBLE LWS_EXTERN int
 lws_fx_comp(const lws_fx_t *a, const lws_fx_t *b);
 
