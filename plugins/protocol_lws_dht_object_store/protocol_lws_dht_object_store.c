@@ -868,17 +868,47 @@ dht_obj_store_sul_put_cb(void *v)
 		return;
 	}
 	vhd->bulk_total = (uint64_t)st.st_size;
+
+	/*
+	 * The advertised key has to cover the whole object, not just the
+	 * first chunk, so hash the file in a first pass before chunking it
+	 * out; each pass then sends the bytes that belong at bulk_sent.
+	 */
+	{
+		char hb[1024];
+		int hm;
+
+		if (lws_genhash_init(&ctx, LWS_DHT_STORE_GENHASH)) {
+			lwsl_err("Hash calculation failed\n");
+			close(fd);
+			return;
+		}
+
+		while ((hm = (int)read(fd, hb, (size_t)sizeof(hb))) > 0)
+			if (lws_genhash_update(&ctx, hb, (size_t)hm)) {
+				lwsl_err("Hash calculation failed\n");
+				lws_genhash_destroy(&ctx, NULL);
+				close(fd);
+				return;
+			}
+
+		if (hm < 0 || lws_genhash_destroy(&ctx, hash)) {
+			lwsl_err("Hash calculation failed\n");
+			close(fd);
+			return;
+		}
+	}
+
+	if (lseek(fd, (off_t)vhd->bulk_sent, SEEK_SET) < 0) {
+		close(fd);
+		return;
+	}
+
 	n = (int)read(fd, buf + 256, 1024);
 	close(fd);
 
 	if (n < 0) return;
 
-	if (lws_genhash_init(&ctx, LWS_DHT_STORE_GENHASH) ||
-	    lws_genhash_update(&ctx, buf + 256, (size_t)n) ||
-	    lws_genhash_destroy(&ctx, hash)) {
-		lwsl_err("Hash calculation failed\n");
-		return;
-	}
 	lws_hex_from_byte_array(hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH), hash_hex, sizeof(hash_hex));
 
 	hlen = lws_dht_msg_gen((char *)header, sizeof(header), "PUT",
