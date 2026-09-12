@@ -1726,7 +1726,10 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 	char *buf;
 	int fd;
 	ssize_t n;
-	int fails = 0, passes = 0;
+	int fails = 0;
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+	int passes = 0;
+#endif
 
 	if (!info->input_filepath || !info->zsk_jwk_filepath || !info->cx)
 		return 1;
@@ -2024,9 +2027,11 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 						if (lws_genecdsa_hash_sig_verify_jws(active_genec, hash, hash_type, ver_keybits, sig, (size_t)sig_l) < 0) {
 							lwsl_err("Failed DNSSEC RRSIG verification for RRset %s (type %d)\n", rs->name, tc);
 							fails++;
-						} else {
-							passes++;
 						}
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+						else
+							passes++;
+#endif
 					}
 				}
 			} lws_end_foreach_dll(d2);
@@ -2041,7 +2046,9 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 	lws_genec_destroy(&genec_ksk);
 	lws_jwk_destroy(&ksk);
 
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 	lwsl_info("Verified %d inner RRSIGs natively, %d failed\n", passes, fails);
+#endif
 
 	return fails ? 1 : 0;
 }
