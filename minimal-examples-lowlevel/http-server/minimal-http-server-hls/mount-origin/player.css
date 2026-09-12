@@ -70,6 +70,9 @@ video::cue {
     box-sizing: border-box;
 }
 
+/* the controls start out with class "hidden" and player.js removes it once
+ * it knows the corresponding tracks / permission exist */
+.toggle-btn.hidden,
 .debug-panel.hidden {
     display: none;
 }
@@ -121,7 +124,8 @@ video::cue {
     border-color: #3a9a3a;
 }
 
-#sub-lang {
+#sub-lang,
+#aud-lang {
     padding: 5px 8px;
     cursor: pointer;
 }
