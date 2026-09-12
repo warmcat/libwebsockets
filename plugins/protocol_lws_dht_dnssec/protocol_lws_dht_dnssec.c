@@ -2160,12 +2160,18 @@ verb_ack_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 	 * spraying "ACK <anything> 0 <huge>" at the DHT port makes any publish
 	 * in its first chunk report "PUT complete" and move on, silently
 	 * suppressing zone publication.
+	 *
+	 * An ACK for some other object is not ours to consume though: the
+	 * object-store plugin runs its own PUT task alongside this one and
+	 * its ACKs arrive here first.  Pass them on or its transfer can
+	 * never complete.
 	 */
 	if (!vhd->current_fragment_hash[0] ||
 	    strcmp(msg->hash, vhd->current_fragment_hash)) {
-		lwsl_notice("Ignoring ACK for %s, we are uploading %s\n",
+		lwsl_notice("Passing on ACK for %s, we are uploading %s\n",
 			    msg->hash, vhd->current_fragment_hash[0] ?
 					vhd->current_fragment_hash : "nothing");
+		args->out_precedence = LWS_DHT_VERB_RESULT_PASS;
 		return 0;
 	}
 
@@ -3336,6 +3342,23 @@ dht_dnssec_sul_put_cb(struct lws_sorted_usec_list *sul)
 	close(fd);
 
 	if (n <= 0) return;
+
+	/*
+	 * The domain-derived key is only meaningful to the peer's dnssec PUT
+	 * handler, which intercepts transfers by sniffing the first payload
+	 * byte for a JWS.  Anything else falls through to the content-
+	 * addressed object store there, which must refuse it: the key we
+	 * would advertise is not the hash of the bytes we would send.  A
+	 * raw file belongs to the object-store plugin's own PUT task, so
+	 * leave it to that rather than start a transfer that can only die
+	 * at the peer's content check.
+	 */
+	if (!vhd->bulk_sent && buf[256] != 'e' && buf[256] != '{') {
+		lwsl_notice("%s: %s is not a JWS zonefile, leaving it to the "
+			    "object store PUT\n", __func__, vhd->cli_put_file);
+		vhd->put_started = 1;
+		return;
+	}
 
 	{
 		char domain_str[256];
