@@ -771,7 +771,17 @@ elops_run_pt_uv(struct lws_context *context, int tsi)
 	if (pt_to_priv_uv(&context->pt[tsi])->io_loop) {
 		uv_loop_t *io_loop = pt_to_priv_uv(&context->pt[tsi])->io_loop;
 
-		uv_run(io_loop, 0);
+		/*
+		 * One turn of the loop per lws_service() call, as libev does
+		 * with EVRUN_ONCE and the default poll loop does by nature:
+		 * lws_service() then means the same thing on every loop, the
+		 * app's loop condition is checked between turns, and code
+		 * that calls lws_service() once to run a turn (the api-tests
+		 * do) is not swallowed by a loop that only returns when it
+		 * has been stopped.  UV_RUN_ONCE blocks for i/o like
+		 * UV_RUN_DEFAULT, it just returns after handling it.
+		 */
+		uv_run(io_loop, UV_RUN_ONCE);
 
 		/*
 		 * This is the point the whole app falls out of its event

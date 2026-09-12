@@ -1582,12 +1582,20 @@ _lws_context_info_defaults(struct lws_context_creation_info *info,
  *
  * \param cx: the lws context
  *
- * Safe to call from a signal handler or from any lws callback.  On the
- * default poll loop it makes lws_context_default_loop_run_destroy() leave its
- * loop and destroy the context.  On an event library's internal loop (eg,
- * LWS_SERVER_OPTION_LIBUV without a foreign loop) it starts the context
- * destroy from inside the service, which winds the loop down so that
- * lws_service() returns -1 and the same helper finalizes the destroy.
+ * Safe to call from a signal handler or from any lws callback, and the
+ * recommended way for an app that owns its service loop to stop: lws_service()
+ * returns -1 afterwards, so the app leaves its loop and calls
+ * lws_context_destroy().  On the default poll loop nothing else happens until
+ * then.  On an event library's internal loop (eg, LWS_SERVER_OPTION_LIBUV
+ * without a foreign loop) it starts the context destroy from inside the
+ * service, which winds the loop down so that lws_service() returns -1, and
+ * the app's lws_context_destroy() finalizes it.  lws_context_default_loop_run_destroy()
+ * is that loop and final call in one helper.
+ *
+ * When lws is a guest on a foreign loop there is no lws loop to leave: the
+ * off-ramp there is lws_context_destroy(), which detaches from the loop
+ * asynchronously and clears info.pcontext when lws has gone, while the loop
+ * itself carries on.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_default_loop_exit(struct lws_context *cx);

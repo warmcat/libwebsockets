@@ -1071,10 +1071,42 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 static int
 lws_service_evlib_result(struct lws_context *context)
 {
-	if (context->being_destroyed)
+	/* lws_default_loop_exit(): leave now, the app's destroy does the rest */
+	if (context->interrupted)
 		return -1;
 
-	return 1;
+	/*
+	 * A destroy started inside the loop (lws' signal watcher, or deferred
+	 * from a callback) closes the loop's handles asynchronously and is
+	 * resumed by the evlib from the last handle's close callback, which
+	 * needs the loop to keep turning.  Only once it has got as far as it
+	 * can from inside the loop (LWSCD_FINALIZATION, "waiting for internal
+	 * loop exit") is it the app's lws_context_destroy() that finishes it,
+	 * so only then send the app out of its loop.
+	 */
+	if (context->being_destroyed &&
+	    context->destroy_state >= LWSCD_FINALIZATION)
+		return -1;
+
+	/* a normal turn of the loop, the same 0 the poll loop returns */
+
+	return 0;
+}
+
+/*
+ * The default poll loop returned normally: if lws_default_loop_exit() was
+ * called meanwhile (from a signal handler or a callback), tell the app to
+ * leave its service loop and destroy the context, so it needs no flag of its
+ * own.  n == -1 means the context may already be gone, don't touch it.
+ */
+
+static int
+lws_service_poll_result(struct lws_context *context, int n)
+{
+	if (n >= 0 && context->interrupted)
+		return -1;
+
+	return n;
 }
 
 int
@@ -1102,7 +1134,7 @@ lws_service(struct lws_context *context, int timeout_ms)
 	if (n != -1)
 		pt->inside_service = 0;
 
-	return n;
+	return lws_service_poll_result(context, n);
 }
 
 int
@@ -1139,5 +1171,5 @@ lws_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	if (n != -1)
 		pt->inside_service = 0;
 
-	return n;
+	return lws_service_poll_result(context, n);
 }

@@ -48,14 +48,19 @@
  *  Since v3.2 internally the timeout wait is ignored, the lws scheduler is
  *  smart enough to stay asleep until an event is queued.
  *
- *  Returns >= 0 normally, and -1 when the service loop has ended because the
- *  context is being destroyed: the app should leave its service loop and call
- *  lws_context_destroy().  On the default poll loop, -1 means a destroy that
- *  was deferred from inside a callback has already completed and the context
- *  pointer is invalid (set info.pcontext to have it NULLed).  On an event
- *  library's internal loop (eg, LWS_SERVER_OPTION_LIBUV), the loop has exited
- *  because a destroy was started, by lws' own signal handler on the loop or
- *  by lws_context_destroy() from a callback, and the app's call to
+ *  Returns >= 0 normally, and -1 when the app should leave its service loop
+ *  and call lws_context_destroy(): either lws_default_loop_exit() was called
+ *  (from a signal handler or any callback; that is the recommended way for an
+ *  app that owns its loop to stop, on the poll loop and on an event library's
+ *  internal loop alike), or the context is being destroyed.  On the default
+ *  poll loop, -1 after a destroy that was deferred from inside a callback
+ *  means it has already completed and the context pointer is invalid (set
+ *  info.pcontext to have it NULLed), which is why calling
+ *  lws_context_destroy() from a callback is not the recommended way to stop.
+ *  On an event library's internal loop (eg, LWS_SERVER_OPTION_LIBUV), -1
+ *  means the loop has exited because a destroy was started, by
+ *  lws_default_loop_exit(), by lws' own signal handler on the loop or by
+ *  lws_context_destroy() from a callback, and the app's call to
  *  lws_context_destroy() is what completes it.
  */
 LWS_VISIBLE LWS_EXTERN int
