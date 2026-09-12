@@ -409,8 +409,8 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 
-		lwsl_info("HLS plugin received HTTP request for '%s'\n", url ? url : "NULL");
-		
+		lwsl_notice("HLS-TRACE: request '%s'\n", url ? url : "NULL");
+
 		lwsl_info("HLS HTTP REQ: url='%s', waiting=%d\n", url ? url : "NULL", pss->waiting_for_thumbnail);
 
 		if (!strcmp(url, "")) {
@@ -616,6 +616,10 @@ err_404:
 
 			pss->resp_ready = 0;
 
+			lwsl_notice("HLS-TRACE: sending response status=%d len=%zu ct=%s\n",
+				    pss->resp_status, pss->segment_len,
+				    pss->resp_content_type ? pss->resp_content_type : "?");
+
 			if (pss->resp_status != HTTP_STATUS_OK) {
 				free(pss->segment_buf);
 				pss->segment_buf = NULL;
@@ -765,6 +769,9 @@ err_404:
 	case LWS_CALLBACK_CLOSED_HTTP:
 		if (pss) {
 			if (vhd) {
+				if (pss->task)
+					lwsl_notice("HLS-TRACE: connection closed with task in flight (type=%d seg=%d)\n",
+						    pss->task->type, pss->task->segment_idx);
 				lws_dll2_remove(&pss->pss_list);
 				/* a task in flight must not deliver to us */
 				lws_hls_task_detach(vhd, pss);

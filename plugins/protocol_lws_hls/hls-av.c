@@ -239,7 +239,14 @@ lws_hls_worker(void *d)
 			continue;
 		}
 
+		lwsl_notice("HLS-TRACE: worker running task type=%d '%s' seg=%d\n",
+			    t->type, t->filename, t->segment_idx);
+
 		run_body_task(vhd, t);
+
+		lwsl_notice("HLS-TRACE: worker done task type=%d '%s' seg=%d -> status=%d len=%zu\n",
+			    t->type, t->filename, t->segment_idx, t->r.status,
+			    t->r.len);
 
 		/*
 		 * Hand it to the event loop.  Whether anyone is still waiting
@@ -300,6 +307,9 @@ lws_hls_queue_task(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 	lws_dll2_add_tail(&t->list, &vhd->tasks);
 	pthread_cond_signal(&vhd->cond);
 	pthread_mutex_unlock(&vhd->lock);
+
+	lwsl_notice("HLS-TRACE: queued task type=%d '%s' seg=%d\n",
+		    type, filename, segment_idx);
 
 	/*
 	 * lws put the context's default content timeout on the transaction
@@ -378,8 +388,13 @@ lws_hls_collect_done(struct per_vhost_data__lws_hls *vhd)
 			pss->resp_status = t->r.status;
 			pss->resp_content_type = t->r.content_type;
 			pss->resp_ready = 1;
+			lwsl_notice("HLS-TRACE: collect type=%d '%s' seg=%d -> deliver status=%d len=%zu\n",
+				    t->type, t->filename, t->segment_idx,
+				    t->r.status, t->r.len);
 			lws_callback_on_writable(pss->wsi);
-		}
+		} else
+			lwsl_notice("HLS-TRACE: collect type=%d '%s' seg=%d -> DROPPED (client gone)\n",
+				    t->type, t->filename, t->segment_idx);
 
 		lws_hls_task_free(t);
 	}
@@ -1721,6 +1736,28 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 		else if (in_ctx->duration > 0)
 			total_dur_s = (double)in_ctx->duration / AV_TIME_BASE;
 
+		/* only the diagnostic calls (manifest's -1 probe, and seg 0),
+		 * so a long file's per-segment manifest loop does not flood */
+		if (target_seg_idx <= 0) {
+			lwsl_notice("HLS-TRACE: get_seg_info '%s' target=%d: index count=%d grouped=%d seg(s) "
+				    "dur=%.0fs tb=%d/%d start_pts=%lld end_pts=%lld seek_any=%d\n",
+				    filename, target_seg_idx, count, current_seg + 1,
+				    total_dur_s, st->time_base.num, st->time_base.den,
+				    out_info ? (long long)out_info->start_pts : -1,
+				    out_info ? (long long)out_info->end_pts : -1,
+				    out_info ? out_info->seek_any : -1);
+			if (count > 0) {
+				const AVIndexEntry *e0 = get_index_entry(st, 0);
+				const AVIndexEntry *e1 = count > 1 ? get_index_entry(st, 1) : NULL;
+				const AVIndexEntry *e2 = count > 2 ? get_index_entry(st, 2) : NULL;
+				lwsl_notice("HLS-TRACE:   entry ts[0]=%lld idxdts[0]=%lld ts[1]=%lld ts[2]=%lld\n",
+					    e0 ? (long long)e0->timestamp : -1,
+					    (idx && idx->count > 0) ? (long long)idx->entries[0].dts : -1,
+					    e1 ? (long long)e1->timestamp : -1,
+					    e2 ? (long long)e2->timestamp : -1);
+			}
+		}
+
 		if (total_dur_s > 2.0 * HLS_SEGMENT_DUR &&
 		    total_dur_s / (double)(current_seg + 1) > 2.0 * HLS_SEGMENT_DUR) {
 			lwsl_warn("HLS-INDEX: %s: keyframe grouping degenerate "
@@ -2084,6 +2121,7 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 	int started = 0;
 	int64_t actual_start_pts = AV_NOPTS_VALUE;
 	int video_finished = 0;
+	int video_kf_seen = 0;	/* HLS-TRACE: video keyframes the loop saw */
 	AVPacket audio_buffer[512];
 	int audio_buffer_count = 0;
 	memset(audio_buffer, 0, sizeof(audio_buffer));
@@ -2308,6 +2346,16 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 #else
 		(void)is_key;
 #endif
+
+		/* HLS-TRACE: every video keyframe the loop sees, and how the
+		 * end test would judge it, so a stuck segment is legible */
+		if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && is_key) {
+			video_kf_seen++;
+			lwsl_notice("HLS-TRACE: seg %d kf#%d pts=%lld dts=%lld started=%d vfin=%d end_pts=%lld\n",
+				    segment_idx, video_kf_seen, (long long)pkt.pts,
+				    (long long)pkt.dts, started, video_finished,
+				    (long long)sinfo.end_pts);
+		}
 
 		if (pkt_ts != AV_NOPTS_VALUE) {
 			int64_t pkt_time = av_rescale_q(pkt_ts, in_stream->time_base, AV_TIME_BASE_Q);
@@ -2727,6 +2775,12 @@ done:
 		start_av_delta_sec = first_a_sec - first_v_sec;
 		end_av_delta_sec = last_a_sec - last_v_sec;
 	}
+
+	lwsl_notice("HLS-TRACE: seg %d end: has_index=%d start_time=%.3fs end_time=%.3fs "
+		    "video_kf_seen=%d started=%d video_finished=%d hb.err=%d\n",
+		    segment_idx, has_index, (double)start_time / AV_TIME_BASE,
+		    end_time == INT64_MAX ? -1.0 : (double)end_time / AV_TIME_BASE,
+		    video_kf_seen, started, video_finished, hb.err);
 
 	lwsl_notice("HLS: Segment %d summary:\n"
 		  "  Discarded: video=%d, audio=%d\n"
