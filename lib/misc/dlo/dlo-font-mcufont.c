@@ -174,7 +174,7 @@ fillentry_bitcount(uint8_t index)
 void
 draw_px(lws_dlo_text_t *t, mcu_glyph_t *g)
 {
-	lws_display_colour_t c = (lws_display_colour_t)((lws_display_colour_t)(g->alpha << 24) |
+	lws_display_colour_t c = (lws_display_colour_t)(((lws_display_colour_t)g->alpha << 24) |
 					(lws_display_colour_t)((lws_display_colour_t)t->dlo.dc & 0xffffffu));
 	lws_fx_t t1, x;
 	int ex;
