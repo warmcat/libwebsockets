@@ -829,9 +829,10 @@ sul_sc_cb(lws_sorted_usec_list_t *s)
 
 	case 2: /* the nameserver we actually asked answers */
 		sc_answer_all(sc_fd, sc_ads_good, 1);
-		if (sc_resolved)
+		if (sc_resolved) {
 			sc_done = 1;
 			lws_default_loop_exit(sc_cx);
+		}
 		break;
 	}
 
