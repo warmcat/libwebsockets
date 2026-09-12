@@ -85,3 +85,63 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size
 div and sqrt operations are iterative, up to 64 loops.  Multiply is relatively cheap
 since it devolves to four integer multiply-adds.  Add and Sub are trivially cheap.
 
+## Trigonometric operations
+
+Angles and results are radians, represented as `lws_fx_t` using the same
+API style.
+
+```
+const lws_fx_t *
+lws_fx_sin(lws_fx_t *r, const lws_fx_t *a);
+
+const lws_fx_t *
+lws_fx_cos(lws_fx_t *r, const lws_fx_t *a);
+
+const lws_fx_t *
+lws_fx_tan(lws_fx_t *r, const lws_fx_t *a);
+
+const lws_fx_t * /* atan2(y, x), result in [-pi, pi] */
+lws_fx_atan2(lws_fx_t *r, const lws_fx_t *y, const lws_fx_t *x);
+```
+
+These are implemented in pure int64 arithmetic like the rest of the
+operators, so there is no libm dependency, they are usable on targets with
+no FPU, and the results are identical on every platform.
+
+sin and cos use an odd polynomial in x^2 evaluated by nested Horner after
+integer range reduction and quadrant reflection; accuracy is a few
+fractional units (around 1e-8) for arguments of modest size, degrading
+slowly for very large angle magnitudes because the range reduction is
+integer.  atan2 normalizes its argument ratio into the first octant, then
+applies the pi/4 addition identity above tan(pi/8) or an odd Taylor
+otherwise; it is accurate to around 2e-7 radians over its whole output
+range, copes with extreme magnitude differences between the components,
+and maps the undefined (0, 0) case to 0.  tan is formed from sin and cos;
+near its poles at odd multiples of pi/2 the result is clamped to the
+largest representable `lws_fx_t` magnitude rather than overflowing.
+
+The trigonometric operations cost a few dozen integer operations each,
+with no loops.
+
+Some useful angle constants:
+
+|Angle|`lws_fx_t`|
+|---|---|
+|pi / 4|`{ 0, 78539816 }`|
+|pi / 2|`{ 1, 57079633 }`|
+|pi|`{ 3, 14159265 }`|
+|2 pi|`{ 6, 28318531 }`|
+
+Eg to get the unit vector components of a 37.5 degree angle
+
+```
+	lws_fx_t ang = { 0, 65449847 }, s, c;
+
+	lws_fx_sin(&s, &ang);
+	lws_fx_cos(&c, &ang);
+```
+
+The operators are validated against host libm references (quadrants,
+antisymmetry, extreme magnitude ratios and a sin^2 + cos^2 sweep) by
+`lws-api-test-fx`.
+
