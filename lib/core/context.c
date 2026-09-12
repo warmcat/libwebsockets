@@ -2496,8 +2496,18 @@ next_l:
 			lwsl_cx_info(context, "do evlib destroy_context1 and wait");
 			context->event_loop_ops->destroy_context1(context);
 
-			goto bail;
-		}
+			/*
+			 * That may have run the loop (libuv: uv_run NOWAIT
+			 * until the pending closes drained) and so completed
+			 * the pt teardown right here, in which case the evlib
+			 * tried to resume us from its last-handle callback and
+			 * was refused as re-entrant.  So don't leave
+			 * unconditionally: let the PT_WAIT_ALL_DESTROYED
+			 * check below decide.  If pts are still closing
+			 * asynchronously it breaks out as before and the
+			 * evlib resumes us when the last handle is gone.
+			 */
+		} else {
 
 		/*
 		 * ...if the more typical sync close, we can clean up the pts
@@ -2510,6 +2520,7 @@ next_l:
 		for (n = 0; n < context->count_threads; n++, pt++) {
 			pt->event_loop_pt_unused = 1;
 			lws_pt_destroy(pt);
+		}
 		}
 #endif
 		/* fallthru */
@@ -2651,11 +2662,34 @@ next_l:
 			goto bail;
 		}
 
-		if (context->event_loop_ops->destroy_context1 &&
-		    !context->pt[0].event_loop_foreign) {
-			lwsl_cx_notice(context, "waiting for internal loop exit");
+		/*
+		 * An event library's internal loop: if we got here from inside
+		 * it (a signal watcher, or a destroy deferred from a callback
+		 * and resumed by the evlib), the finalization below cannot run
+		 * yet, it destroys the loop and dlcloses the evlib plugin
+		 * whose callback we are in.  destroy_context2() above already
+		 * stopped the loop, so lws_service() is about to return -1 to
+		 * the app, whose final lws_context_destroy() finishes the job
+		 * from outside the loop.  Only wait while the loop is really
+		 * being run: this is also the path of that final call, and of
+		 * a failed lws_create_context(), where nothing would ever
+		 * come back for us.
+		 */
 
-			goto bail;
+		if (!context->pt[0].event_loop_foreign &&
+		    context->event_loop_ops->run_pt) {
+			int inside = 0;
+
+			for (n = 0; n < context->count_threads; n++)
+				if (context->pt[n].inside_service)
+					inside = 1;
+
+			if (inside) {
+				lwsl_cx_notice(context,
+					       "waiting for internal loop exit");
+
+				goto bail;
+			}
 		}
 #endif
 		/* fallthru */

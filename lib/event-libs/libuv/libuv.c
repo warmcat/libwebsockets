@@ -253,6 +253,34 @@ lws_uv_finalize_pt(struct lws_context_per_thread *pt)
 	return 0;
 }
 
+/*
+ * The last lws handle on this pt's loop is gone (its wsi handles and its
+ * static assets, in whichever order they finished closing).
+ *
+ * Mark the pt done with its loop first: lws_context_destroy() counts a pt
+ * that is neither destroyed nor marked unused as still alive and leaves the
+ * rest for a later call, and on an internal loop there is no later call
+ * from us, no lws handle remains to bring us back here.  For a foreign loop
+ * lws_uv_finalize_pt() resumes the context destroy itself when the last pt
+ * is down; for an internal loop we resume it here, and it stops the loop, so
+ * the app's lws_service() returns and its final lws_context_destroy() can
+ * finalize.
+ */
+
+static void
+lws_uv_pt_handles_gone(struct lws_context_per_thread *pt)
+{
+	struct lws_context *context = pt->context;
+
+	if (lws_uv_finalize_pt(pt) || pt->event_loop_foreign)
+		return;
+
+	lwsl_cx_notice(context, "%s: thr %d: all lws handles gone from "
+				"internal loop, resuming context destroy",
+				__func__, (int)(pt - context->pt));
+	lws_context_destroy(context);
+}
+
 // static void lws_uv_walk_cb(uv_handle_t *handle, void *arg)
 // {
 //      if (!uv_is_closing(handle))
@@ -302,16 +330,9 @@ lws_uv_close_cb_sa(uv_handle_t *handle)
 	 */
 
 	lwsl_cx_info(context, "thr %d: seen final static handle gone", tsi);
+	(void)tsi;
 
-	if (!pt->event_loop_foreign) {
-		lwsl_cx_notice(context,
-			       "%s: thr %d: all lws handles gone from "
-			       "internal loop, destroying context",
-			       __func__, tsi);
-		lws_context_destroy(context);
-	}
-
-	lws_uv_finalize_pt(pt);
+	lws_uv_pt_handles_gone(pt);
 
 	lwsl_cx_info(context, "all done");
 }
@@ -974,7 +995,7 @@ lws_libuv_closewsi(uv_handle_t* handle)
 		 */
 
 		lws_context_unlock(context);
-		lws_uv_finalize_pt(pt);
+		lws_uv_pt_handles_gone(pt);
 
 		return;
 	}

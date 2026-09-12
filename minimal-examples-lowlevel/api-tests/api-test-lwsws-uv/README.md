@@ -171,13 +171,16 @@ binary name.
 
 `stop_loop()` in `main.c` leaves the loop with `uv_stop()` and destroys the
 context afterwards, from outside the service, rather than calling
-`lws_context_destroy()` from the callback that decided to stop.  That is not
-style: `lws_context_destroy()` from inside a callback only sets
-`pt->destroy_self` and defers (`lib/core/context.c`, "if
-(pt->inside_lws_service) ... deferred_pt = 1"), and under libuv the only place
-that flag is ever acted on is `lws_io_cb()`
-(`lib/event-libs/libuv/libuv.c:153`) -- the next time an fd in the loop has an
-event.  When the last connection has just gone away there is no such event, and
-`uv_run()` never returns: the process hangs forever.  Poking
-`lws_cancel_service()` afterwards does not rescue it (the resulting `lws_io_cb`
-is itself inside the service, so the re-entered destroy defers again).
+`lws_context_destroy()` from the callback that decided to stop.  When this
+test was written that looked necessary: under `--uv` a destroy started from a
+callback seemed to wedge in `uv_run()`.  What was actually happening was
+C-476: the loop did wind down and exit, but `lws_service()` returned 1 and the
+app re-entered the empty loop forever.  Since `fa332e627` `lws_service()`
+returns -1 once the loop has exited for a destroy, and since C-477 the
+finalization is completed by the app's own `lws_context_destroy()` after
+that, on every event library.  So the supported pattern on an internal evlib
+loop is the same as on poll: destroy from wherever you like (it defers if you
+are inside a callback), loop while `lws_service()` returns >= 0, then call
+`lws_context_destroy()` once more; `info.pcontext` is cleared when it has
+really gone.  `stop_loop()` keeps its `uv_stop()` because it is also what the
+quic-abort case uses to yank a context away mid-handshake.
