@@ -64,7 +64,6 @@ static const struct lws_switches switches[] = {
 
 static lws_state_notify_link_t nl;
 int retcode = 1;
-int interrupted;
 int use_stdin;
 char port_buf[16];
 char stats_port_buf[16];
@@ -79,9 +78,7 @@ extern const struct lws_protocols lws_dht_dnssec_protocols[];
 static void
 dht_completion_cb(void *closure, int result)
 {
-	int *p_interrupted = (int *)closure;
-
-	*p_interrupted = 1;
+	lws_default_loop_exit(*(struct lws_context **)closure);
 
 	// lwsl_user("dht_completion_cb called! result: %d\n", result);
 
@@ -120,7 +117,7 @@ struct lws_protocol_vhost_options pvos[] = {
 		.options	= NULL,
 		.next		= &pvos[5],
 		.name		= "completion-cb-arg",
-		.value		= (const char *)&interrupted
+		.value		= (const char *)&cx
 	},
 	{
 		.options	= NULL,
@@ -289,7 +286,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(cx);
 }
 
 int main(int argc, const char **argv)
@@ -406,7 +403,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(cx, 0);
 
 	lws_context_destroy(cx);

@@ -13,7 +13,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted, bad = 1;
+static int bad = 1;
 static lws_state_notify_link_t nl;
 static struct lws_context *context;
 
@@ -275,13 +275,13 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		break;
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		lwsl_notice("%s: Connection failed\n", __func__);
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		break;
 	case LWSSSCS_QOS_NACK_REMOTE:
 		if (m->expect_nack)
 			goto happy;
 		lwsl_notice("%s: remote NACK, not expecting it\n", __func__);
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		break;
 	case LWSSSCS_QOS_ACK_REMOTE:
 		/*
@@ -293,7 +293,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		if (!m->seen_eom || m->payload < 100) {
 			lwsl_warn("%s: ACK_REMOTE but eom %d, payload %d (req >= %d)\n",
 				  __func__, m->seen_eom, (int)m->payload, (int)(100 + m->sent));
-			interrupted = 1;
+			lws_default_loop_exit(context);
 			return -1;
 		}
 
@@ -304,7 +304,7 @@ happy:
 		if (!(++next_test)->ssi) {
 			lwsl_notice("%s: completed all tests\n", __func__);
 			bad = 0;
-			interrupted = 1;
+			lws_default_loop_exit(context);
 			return LWSSSSRET_DESTROY_ME;
 		}
 		if (lws_ss_create(context, 0, next_test->ssi,
@@ -319,7 +319,7 @@ happy:
 		if (!m->ended_well) {
 			lwsl_warn("%s: DISCONNECTED without good end\n",
 				  __func__);
-			interrupted = 1;
+			lws_default_loop_exit(context);
 		}
 		break;
 	default:
@@ -401,7 +401,7 @@ static lws_state_notify_link_t * const app_notifier_list[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
@@ -458,7 +458,7 @@ int main(int argc, const char **argv)
 
 	/* the event loop */
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

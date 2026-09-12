@@ -53,7 +53,6 @@ static const struct lws_switches switches[] = {
 #define COUNT_THREADS 8
 
 static struct lws_context *context;
-static volatile int interrupted;
 
 static const struct lws_http_mount mount = {
 	.mountpoint		= "/",			/* mountpoint URL */
@@ -66,8 +65,7 @@ static const struct lws_http_mount mount = {
 void *thread_service(void *threadid)
 {
 	while (lws_service_tsi(context, 10000,
-			       (int)(lws_intptr_t)threadid) >= 0 &&
-	       !interrupted)
+			       (int)(lws_intptr_t)threadid) >= 0)
 		;
 
 	pthread_exit(NULL);
@@ -77,7 +75,7 @@ void *thread_service(void *threadid)
 
 void signal_cb(void *handle, int signum)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 
 	switch (signum) {
 	case SIGTERM:

@@ -120,7 +120,6 @@ static int conn_state[COUNT];
 
 static void
 lws_try_client_connection(struct lws_client_connect_info *ii, int m);
-static char intr;
 static struct lws_context *context;
 
 /* we only need this for tracking POST emit state */
@@ -452,7 +451,7 @@ finished:
 			lwsl_user("Done: all OK\n");
 		else
 			lwsl_err("Done: failed: %d\n", failed);
-		intr = 1;
+		lws_default_loop_exit(context);
 		/*
 		 * Exit the loop by cancelling service so we can save TLS
 		 * sessions in main() before actually destroying the context.
@@ -516,7 +515,7 @@ lws_try_client_connection(struct lws_client_connect_info *ii, int m)
 			lwsl_user("%s: failed: conn idx %d\n", __func__, m);
 			if (++completed == count) {
 				lwsl_user("Done: failed: %d\n", failed);
-				intr = 1;
+				lws_default_loop_exit(context);
 				lws_cancel_service(context);
 			}
 		}
@@ -571,7 +570,7 @@ signal_cb(void *handle, int signum)
 		lwsl_err("%s: signal %d\n", __func__, signum);
 		break;
 	}
-	intr = 1;
+	lws_default_loop_exit(context);
 	lws_cancel_service(context);
 }
 
@@ -990,7 +989,7 @@ int main(int argc, const char **argv)
 #endif
 
 	start = us();
-	while (!intr && !lws_service(context, 0))
+	while (lws_service(context, 0) >= 0)
 		;
 
 #if defined(LWS_WITH_TLS_SESSIONS)

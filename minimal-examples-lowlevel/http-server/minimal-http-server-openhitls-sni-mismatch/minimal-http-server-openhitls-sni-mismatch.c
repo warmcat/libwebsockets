@@ -18,7 +18,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted, bad, completed;
+static int bad, completed;
 static struct lws_context *context;
 static struct lws *client_wsi;
 
@@ -137,7 +137,7 @@ static const struct lws_protocols protocols[] = {
 static void
 sigint_handler(int sig)
 {
-    interrupted = 1;
+    lws_default_loop_exit(context);
 }
 
 static struct lws_vhost *
@@ -293,7 +293,7 @@ int main(int argc, const char **argv)
     lwsl_user("LWS SNI Test - 4 Scenarios (base port %d)\n\n", base_port);
 
     /* Test all 4 stages */
-    for (stage = 0; stage < 4 && !bad && !interrupted; stage++) {
+    for (stage = 0; stage < 4 && !bad && n >= 0; stage++) {
         test_stage = stage;
         completed = 0;
         client_wsi = NULL;
@@ -319,7 +319,7 @@ int main(int argc, const char **argv)
         }
         
         /* Service the connection */
-        while (n >= 0 && !completed && !interrupted) {
+        while (n >= 0 && !completed) {
             n = lws_service(context, 0);
         }
         

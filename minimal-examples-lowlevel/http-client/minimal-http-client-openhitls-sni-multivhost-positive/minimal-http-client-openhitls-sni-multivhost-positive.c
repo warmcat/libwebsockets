@@ -57,7 +57,7 @@ static struct lws_context *context;
 static struct lws_vhost *client_vhosts[LWS_ARRAY_SIZE(sni_cases)];
 static struct lws *client_wsi;
 static lws_sorted_usec_list_t sul_next;
-static int interrupted, bad, completed, response_status;
+static int bad, completed, response_status;
 static int test_port = DEFAULT_TEST_PORT;
 static unsigned int current_case;
 static unsigned int peer_verified;
@@ -301,7 +301,7 @@ sigint_handler(int sig)
 {
 	(void)sig;
 
-	interrupted = 1;
+	lws_default_loop_exit(context);
 	if (context) {
 		lws_cancel_service(context);
 	}
@@ -412,11 +412,11 @@ int main(int argc, const char **argv)
 	lws_sul_schedule(context, 0, &sul_next, start_client_cb,
 			 10 * LWS_US_PER_MS);
 
-	while (n >= 0 && !interrupted && !completed) {
+	while (n >= 0 && !completed) {
 		n = lws_service(context, 0);
 	}
 
-	if (interrupted && !completed) {
+	if (n < 0 && !completed) {
 		goto done;
 	}
 

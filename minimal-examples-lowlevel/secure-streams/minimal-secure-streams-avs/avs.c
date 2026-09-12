@@ -23,7 +23,7 @@
 #include <assert.h>
 #include <fcntl.h>
 
-extern int interrupted, tests_bad;
+extern int tests_bad;
 static struct lws_ss_handle *hss_avs_event, *hss_avs_sync;
 static uint8_t *wav;
 static size_t wav_len;
@@ -246,7 +246,7 @@ ss_avs_metadata_state(void *userobj, void *sh,
 	case LWSSSCS_DISCONNECTED:
 		/* for this demo app, we want to exit after complete flow */
 		lws_sul_cancel(&m->sul);
-		interrupted = 1;
+		lws_default_loop_exit(lws_ss_cx_from_user(m));
 		break;
 	case LWSSSCS_DESTROYING:
 		lws_sul_cancel(&m->sul);
@@ -344,7 +344,7 @@ ss_avs_event_state(void *userobj, void *sh,
 		break;
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* for this demo app, we want to exit on fail to connect */
-		interrupted = 1;
+		lws_default_loop_exit(lws_ss_cx_from_user(m));
 		break;
 	case LWSSSCS_DISCONNECTED:
 		break;

@@ -30,7 +30,8 @@
 #define dup2 _dup2
 #endif
 
-static int interrupted;
+static struct lws_context *cx;
+static int done;
 int is_stub = 0;
 
 /*
@@ -319,8 +320,8 @@ static int run_stub(struct lws_context *cx, const char *stub_name)
 
 	lwsl_user("Stub process successfully initialized (secret: %s, extra: %s)\n", secret, extra);
 
-	while (!interrupted)
-		lws_service(cx, 0);
+	while (lws_service(cx, 0) >= 0)
+		;
 
 	return 0;
 }
@@ -351,7 +352,8 @@ parent_rx_cb(struct lejp_ctx *ctx, char reason)
 
 	if (reason == LEJPCB_OBJECT_END) {
 		lwsl_user("Success: Parent finished communicating with stub.\n");
-		interrupted = 1; /* Terminate the event loop safely */
+		done = 1;
+		lws_default_loop_exit(cx); /* end the event loop safely */
 	}
 
 	return 0;
@@ -400,7 +402,7 @@ parent_cancelled_rx_cb(struct lejp_ctx *ctx, char reason)
 
 static void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(cx);
 }
 
 /*
@@ -856,7 +858,6 @@ bail:
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *cx;
 	const char *p;
 	int result = 0;
 
@@ -989,9 +990,9 @@ int main(int argc, const char **argv)
 			goto done;
 		}
 
-		service_until(cx, 5 * LWS_US_PER_SEC, &interrupted);
+		service_until(cx, 5 * LWS_US_PER_SEC, &done);
 
-		if (!interrupted) {
+		if (!done) {
 			lwsl_err("Timeout waiting for stub!\n");
 			result = 1;
 		} else if (!ps.raw_retired ||

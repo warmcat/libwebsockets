@@ -58,7 +58,8 @@ static const struct lws_switches switches[] = {
  */
 // #define VIA_LOCALHOST_SOCKS
 
-static int interrupted, bad = 1, force_cpd_fail_portal,
+static struct lws_context *context;
+static int bad = 1, force_cpd_fail_portal,
 	   force_cpd_fail_no_internet;
 static lws_state_notify_link_t nl;
 static const char *server_name_or_url = "warmcat.com";
@@ -201,7 +202,7 @@ myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	 */
 	if (flags & LWSSS_FLAG_EOM) {
 		bad = 0;
-		interrupted = 1;
+		lws_default_loop_exit(context);
 	}
 
 	return 0;
@@ -236,7 +237,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		break;
 	case LWSSSCS_QOS_ACK_REMOTE:
 		lwsl_notice("%s: LWSSSCS_QOS_ACK_REMOTE\n", __func__);
@@ -297,13 +298,12 @@ static lws_state_notify_link_t * const app_notifier_list[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	const char *p;
 	int n = 0;
 	(void)switches;
@@ -381,7 +381,7 @@ int main(int argc, const char **argv)
 
 	/* the event loop */
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

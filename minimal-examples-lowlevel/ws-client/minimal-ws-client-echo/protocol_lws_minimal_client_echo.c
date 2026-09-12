@@ -45,7 +45,7 @@ struct vhd_minimal_client_echo {
 
 	lws_sorted_usec_list_t sul;
 
-	int *interrupted;
+	int *result;
 	int *options;
 	const char **url;
 	const char **ads;
@@ -130,10 +130,10 @@ callback_minimal_client_echo(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!in)
 			break;
 
-		/* get the pointer to "interrupted" we were passed in pvo */
-		vhd->interrupted = (int *)lws_pvo_search(
+		/* get the pointer to "result" we were passed in pvo */
+		vhd->result = (int *)lws_pvo_search(
 			(const struct lws_protocol_vhost_options *)in,
-			"interrupted")->value;
+			"result")->value;
 		vhd->port = (int *)lws_pvo_search(
 			(const struct lws_protocol_vhost_options *)in,
 			"port")->value;
@@ -261,18 +261,18 @@ callback_minimal_client_echo(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
 		vhd->client_wsi = NULL;
-		if (!*vhd->interrupted)
-			*vhd->interrupted = 3;
-		lws_cancel_service(lws_get_context(wsi));
+		if (!*vhd->result)
+			*vhd->result = 3;
+		lws_default_loop_exit(lws_get_context(wsi));
 		break;
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		lwsl_user("LWS_CALLBACK_CLIENT_CLOSED\n");
 		lws_ring_destroy(pss->ring);
 		vhd->client_wsi = NULL;
-		if (!*vhd->interrupted)
-			*vhd->interrupted = 1 + pss->completed;
-		lws_cancel_service(lws_get_context(wsi));
+		if (!*vhd->result)
+			*vhd->result = 1 + pss->completed;
+		lws_default_loop_exit(lws_get_context(wsi));
 		break;
 
 	default:

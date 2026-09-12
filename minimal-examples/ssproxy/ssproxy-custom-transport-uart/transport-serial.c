@@ -34,7 +34,6 @@
 
 #include "private.h"
 
-extern int interrupted;
 
 static const char *filepath = "/dev/ttyUSB0";
 
@@ -155,7 +154,7 @@ cb_proxy_serial_transport(struct lws *wsi, enum lws_callback_reasons reason,
 		n = (int)read(pss->filefd, buf, sizeof(buf));
 		if (n <= 0) {
 			lwsl_err("Reading from %s failed\n", filepath);
-			interrupted = 1;
+			lws_default_loop_exit(lws_get_context(wsi));
 			return 1;
 		}
 		lwsl_hexdump_notice(buf, (size_t)n);

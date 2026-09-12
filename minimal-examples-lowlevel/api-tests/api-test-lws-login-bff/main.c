@@ -215,7 +215,6 @@ static const struct scenario scenarios[] = {
 /* -------------------------------------------------------------- globals */
 
 static struct lws_context *context;
-static volatile sig_atomic_t interrupted;
 
 static int	g_port_app, g_port_auth, g_port_app2;
 static struct lws_vhost *g_vh_cli;
@@ -831,13 +830,6 @@ step_advance(void)
 	if (sequence_done || step >= N_SCENARIOS)
 		return;
 
-	if (interrupted) {
-		result = 1;
-		sequence_done = 1;
-		lws_cancel_service(context);
-		return;
-	}
-
 	if (step_done <= 0) {
 		if (step_done < 0) {
 			lwsl_err("%s: scenario '%s' failed\n", __func__,
@@ -1059,7 +1051,8 @@ static void
 sigint_handler(int sig)
 {
 	(void)sig;
-	interrupted = 1;
+	result = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
@@ -1266,7 +1259,7 @@ int main(int argc, const char **argv)
 	step = 0;
 	lws_sul_schedule(context, 0, &sul_next, start_step, 1);
 
-	while (n >= 0 && !interrupted && !sequence_done)
+	while (n >= 0 && !sequence_done)
 		n = lws_service(context, 0);
 
 bail:

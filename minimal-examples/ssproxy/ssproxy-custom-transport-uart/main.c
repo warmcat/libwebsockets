@@ -34,7 +34,6 @@ static int test_result = 1, port = 0 /* unix domain socket */;
 static const char *ibind = "/dev/ttyUSB0";
 static lws_state_notify_link_t nl;
 static struct lws_context *cx;
-int interrupted;
 
 /*
  * We just define enough policy so it can fetch the latest one securely

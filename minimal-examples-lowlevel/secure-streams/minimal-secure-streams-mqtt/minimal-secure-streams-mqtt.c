@@ -32,7 +32,8 @@ static const struct lws_switches switches[] = {
 
 #define TEST_CLIENT_ID "SN12345678"
 
-static int interrupted, bad = 1, test_nontls;
+static struct lws_context *context;
+static int bad = 1, test_nontls;
 static lws_state_notify_link_t nl;
 
 #if !defined(LWS_SS_USE_SSPC)
@@ -327,7 +328,7 @@ static void sul_cb(lws_sorted_usec_list_t* sul) {
 	lws_ss_state_return_t ret;
 
 	ret = lws_ss_request_tx(m->ss);
-        if (ret != LWSSSSRET_OK || interrupted) {
+        if (ret != LWSSSSRET_OK) {
             return;
         }
 
@@ -344,7 +345,7 @@ myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags) {
 
 	if (flags & LWSSS_FLAG_EOM) {
 		bad = 0;
-		interrupted = 1;
+		lws_default_loop_exit(lws_ss_cx_from_user((myss_t *)userobj));
 	}
 
 	return LWSSSSRET_OK;
@@ -396,7 +397,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
-		interrupted = 1;
+		lws_default_loop_exit(lws_ss_cx_from_user(m));
 		break;
 	default:
 		break;
@@ -454,8 +455,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 					  NULL, NULL)) {
 				lwsl_err("%s: failed to create secure stream\n",
 					 __func__);
-				interrupted = 1;
-				lws_cancel_service(context);
+				lws_default_loop_exit(context);
 				return -1;
 			}
 		}
@@ -472,13 +472,12 @@ static lws_state_notify_link_t * const app_notifier_list[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	int n = 0, expected = 0;
 	const char *p;
 	(void)switches;
@@ -543,7 +542,7 @@ int main(int argc, const char **argv)
 			client_key, sizeof(client_key));
 
 	/* the event loop */
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

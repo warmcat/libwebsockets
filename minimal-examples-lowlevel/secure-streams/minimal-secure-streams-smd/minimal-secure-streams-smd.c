@@ -40,7 +40,8 @@ static const struct lws_switches switches[] = {
 #include <string.h>
 #include <signal.h>
 
-static int interrupted, bad = 1, count_p1, count_p2, count_tx, expected = 0;
+static int bad = 1, count_p1, count_p2, count_tx, expected = 0;
+static struct lws_context *context;
 static unsigned int how_many_msg = 100, usec_interval = 1000;
 static lws_sorted_usec_list_t sul_timeout;
 
@@ -250,7 +251,7 @@ direct_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 		if (lws_ss_create(*pctx, 0, &ssi_lws_smd, NULL, NULL, NULL, NULL)) {
 			lwsl_err("%s: failed to create secure stream\n",
 				 __func__);
-			interrupted = 1;
+			lws_default_loop_exit(context);
 			lws_cancel_service(*pctx);
 			return -1;
 		}
@@ -264,14 +265,14 @@ static void
 sul_timeout_cb(lws_sorted_usec_list_t *sul)
 {
 	lwsl_notice("%s: test finishing\n", __func__);
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 extern int smd_ss_multi_test(int argc, const char **argv);
@@ -279,7 +280,6 @@ extern int smd_ss_multi_test(int argc, const char **argv);
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	const char *p;
 	(void)switches;
 
@@ -375,7 +375,7 @@ int main(int argc, const char **argv)
 
 	/* the event loop */
 
-	while (lws_service(context, 0) >= 0 && !interrupted)
+	while (lws_service(context, 0) >= 0)
 		;
 
 	/* compare what happened with what we expect */

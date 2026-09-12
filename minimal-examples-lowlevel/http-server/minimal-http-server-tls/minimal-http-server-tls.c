@@ -34,7 +34,7 @@ static const struct lws_switches switches[] = {
 #include <signal.h>
 #include <errno.h>
 
-static int interrupted;
+static struct lws_context *context;
 
 #if defined(LWS_WITH_PLUGINS)
 static const char * const plugin_dirs[] = {
@@ -71,19 +71,18 @@ void sigint_handler(int sig, siginfo_t *siginfo, void *context)
 {
 	pid_t sender_pid = siginfo->si_pid;
 	lwsl_err("%s: sig %d from pid %lu\n", __func__, sig, (unsigned long)sender_pid);
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 #else
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 #endif
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 #if !defined(WIN32)
 	struct sigaction siga;
 #endif
@@ -151,7 +150,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

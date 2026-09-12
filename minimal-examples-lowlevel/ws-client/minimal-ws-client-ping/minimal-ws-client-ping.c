@@ -41,7 +41,7 @@ static const struct lws_switches switches[] = {
 
 static struct lws_context *context;
 static struct lws *client_wsi;
-static int interrupted, port = 443, ssl_connection = LCCSCF_USE_SSL;
+static int port = 443, ssl_connection = LCCSCF_USE_SSL;
 static const char *server_address = "libwebsockets.org", *pro = "lws-mirror-protocol";
 static lws_sorted_usec_list_t sul;
 
@@ -112,7 +112,7 @@ static const struct lws_protocols protocols[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
@@ -175,7 +175,7 @@ int main(int argc, const char **argv)
 
 	lws_sul_schedule(context, 0, &sul, connect_cb, 100);
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

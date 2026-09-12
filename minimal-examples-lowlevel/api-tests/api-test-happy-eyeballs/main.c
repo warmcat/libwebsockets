@@ -11,7 +11,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted;
+static int finished;
 static int result = 1;
 static struct lws_context *context;
 static struct lws_vhost *vh_quic_server;
@@ -156,7 +156,7 @@ step_cb(lws_sorted_usec_list_t *sul)
 {
 	(void)sul;
 
-	if (interrupted) {
+	if (finished) {
 		/* the test is finished one way or the other... destroy the
 		 * context ourselves so a blocking internal event loop (eg,
 		 * libuv) unwinds via the loop stop in the destroy flow
@@ -181,7 +181,7 @@ step_cb(lws_sorted_usec_list_t *sul)
 			lwsl_notice("--- %d connections completed. Test passed. ---\n",
 				    midrace_conns);
 			result = 0;
-			interrupted = 1;
+			finished = 1;
 			lws_context_destroy(context);
 			context = NULL;
 		}
@@ -201,7 +201,7 @@ step_cb(lws_sorted_usec_list_t *sul)
 	} else if (client_step == 3) {
 		lwsl_notice("--- Step 3 complete. Test passed. ---\n");
 		result = 0;
-		interrupted = 1;
+		finished = 1;
 		lws_context_destroy(context);
 		context = NULL;
 	}
@@ -231,7 +231,7 @@ deadline_cb(lws_sorted_usec_list_t *sul)
 	lwsl_err("--- deadline: no result after %ds, step %d, client %s ---\n",
 		 TEST_DEADLINE_S, client_step, client_wsi ? "live" : "none");
 	result = 1;
-	interrupted = 1;
+	finished = 1;
 
 	/* as step_cb: unwind a blocking internal event lib loop via destroy */
 
@@ -270,7 +270,7 @@ start_client_connection(void)
 	if (!client_wsi && !established_success) {
 		lwsl_err("Client connection failed for step %d\n", client_step);
 		result = 1;
-		interrupted = 1;
+		finished = 1;
 		schedule_next_step();
 	} else if (!client_wsi && established_success) {
 		established_success = 0;
@@ -331,7 +331,7 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 					   have_v4 ? "IPv4" :
 					   have_v6 ? "IPv6" : "no addresses");
 				result = 0;
-				interrupted = 1;
+				finished = 1;
 				client_wsi = NULL;
 				schedule_next_step();
 				break;
@@ -353,7 +353,7 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 					 via[0] ? via : "(none)",
 					 expect);
 				result = 1;
-				interrupted = 1;
+				finished = 1;
 				schedule_next_step();
 				break;
 			}
@@ -363,7 +363,7 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 		} else {
 			lwsl_err("--- Failed to establish connection in step %d ---\n", client_step);
 			result = 1;
-			interrupted = 1;
+			finished = 1;
 			schedule_next_step();
 		}
 		break;
@@ -473,7 +473,7 @@ static struct lws_protocols protocols_tcp[] = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
@@ -632,7 +632,7 @@ int main(int argc, const char **argv)
 	start_client_connection();
 
 	int n = 0;
-	while (n >= 0 && !interrupted && context)
+	while (n >= 0 && !finished && context)
 		n = lws_service(context, 0);
 
 bail:

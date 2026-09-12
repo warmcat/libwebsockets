@@ -47,7 +47,7 @@ struct pss {
 	int content_lines;
 };
 
-static int interrupted;
+static struct lws_context *context;
 
 static int
 callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
@@ -256,13 +256,12 @@ static const struct lws_http_mount mount = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	int n = 0;
 	(void)switches;
 
@@ -320,7 +319,7 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 bail:

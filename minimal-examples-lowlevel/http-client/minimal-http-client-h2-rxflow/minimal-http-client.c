@@ -16,7 +16,8 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted, bad = 1, status, each = 1024;
+static int bad = 1, status, each = 1024;
+static struct lws_context *context;
 static struct lws *client_wsi;
 
 static const lws_retry_bo_t retry = {
@@ -58,7 +59,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
@@ -107,13 +108,13 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP\n");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		bad = status != 200;
 		lws_sul_cancel(&pss->sul);
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
@@ -139,7 +140,7 @@ static const struct lws_protocols protocols[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 struct args {
@@ -244,7 +245,6 @@ int main(int argc, const char **argv)
 						system_notify_cb, "app" };
 	lws_state_notify_link_t *na[] = { &notifier, NULL };
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	struct args args;
 	int n = 0;
 	// uint8_t memcert[4096];
@@ -298,7 +298,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

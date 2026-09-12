@@ -44,7 +44,8 @@ static const struct lws_switches switches[] = {
 #include <string.h>
 #include <signal.h>
 
-static int bad = 1, interrupted;
+static int bad = 1;
+static struct lws_context *context;
 
 /* number of forks */
 #define FORKS 4
@@ -206,7 +207,7 @@ multi_myss_state(void *userobj, void *h_src, lws_ss_constate_t state,
 	switch (state) {
 	case LWSSSCS_DESTROYING:
 		lws_sul_cancel(&m->sul);
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		return 0;
 
 	case LWSSSCS_CONNECTED:
@@ -281,7 +282,7 @@ multi_myss_rx_monitor(void *userobj, const uint8_t *buf, size_t len, int flags)
 	/* the test has succeeded */
 
 	bad = 0;
-	interrupted = 1;
+	lws_default_loop_exit(context);
 
 	return LWSSSSRET_OK;
 }
@@ -339,7 +340,7 @@ direct_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 static void
 sul_timeout_cb(lws_sorted_usec_list_t *sul)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int
@@ -347,7 +348,6 @@ smd_ss_multi_test(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	lws_sorted_usec_list_t sul_timeout;
-	struct lws_context *context;
 	pid_t pid;
 	int n;
 
@@ -427,7 +427,7 @@ smd_ss_multi_test(int argc, const char **argv)
 
 	/* the event loop */
 
-	while (lws_service(context, 0) >= 0 && !interrupted)
+	while (lws_service(context, 0) >= 0)
 		;
 
 bail:

@@ -24,13 +24,14 @@ static const struct lws_switches switches[] = {
 
 #include <signal.h>
 
-static int interrupted, result = 1;
+static int result = 1;
+static struct lws_context *context;
 static const char *recip;
 
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 static int
@@ -49,7 +50,7 @@ done_cb(struct lws_smtp_email *email, void *buf, size_t len)
 	free((char *)email->payload);
 
 	result = 0;
-	interrupted = 1;
+	lws_default_loop_exit(context);
 
 	return 0;
 }
@@ -59,7 +60,6 @@ int main(int argc, const char **argv)
 	int n = 1;
 	struct lws_context_creation_info info;
 	lws_smtp_sequencer_args_t ss_args;
-	struct lws_context *context;
 	lws_smtp_sequencer_t *sseq;
 	lws_smtp_email_t *email;
 	struct lws_vhost *vh;
@@ -132,7 +132,7 @@ int main(int argc, const char **argv)
 
 	/* the usual lws event loop */
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 bail1:

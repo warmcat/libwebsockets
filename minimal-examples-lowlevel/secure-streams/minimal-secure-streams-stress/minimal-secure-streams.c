@@ -77,7 +77,7 @@ enum {
  */
 // #define VIA_LOCALHOST_SOCKS
 
-static int interrupted, bad = 1, force_cpd_fail_portal,
+static int bad = 1, force_cpd_fail_portal,
 	   force_cpd_fail_no_internet, test_respmap, test_ots,
 	   budget = 1, predicted_good = 1, good, orig_budget;
 static unsigned int timeout_ms = 8000;
@@ -296,7 +296,7 @@ process_timeout(lws_sorted_usec_list_t *sul)
 {
 	lwsl_err("%s: process timed out\n", __func__);
 
-	interrupted = 1;
+	lws_default_loop_exit(context);
 	bad = 1;
 }
 
@@ -398,7 +398,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		bad = 2;
 		break;
 
@@ -428,7 +428,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		if (budget)
 			lws_sul_schedule(context, 0, &sul_create, sul_create_cb, 1);
 		else
-			interrupted = 1;
+			lws_default_loop_exit(context);
 		return LWSSSSRET_DESTROY_ME;
 
 	case LWSSSCS_TIMEOUT:
@@ -437,7 +437,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		if (budget)
 			lws_sul_schedule(context, 0, &sul_create, sul_create_cb, 1);
 		else
-			interrupted = 1;
+			lws_default_loop_exit(context);
 		return LWSSSSRET_DESTROY_ME;
 
 	case LWSSSCS_USER_BASE:
@@ -606,7 +606,7 @@ static const lws_system_ops_t system_ops = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 static lws_log_cx_t my_log_cx = {
@@ -815,7 +815,7 @@ int main(int argc, const char **argv)
 	/* the event loop */
 
 	n = 0;
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_sul_cancel(&sul_timeout);

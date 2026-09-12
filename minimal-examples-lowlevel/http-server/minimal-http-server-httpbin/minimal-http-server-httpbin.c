@@ -46,7 +46,7 @@ struct pss {
 	int is_post;
 };
 
-static int interrupted;
+static struct lws_context *context;
 
 static void
 delay_cb(lws_sorted_usec_list_t *sul)
@@ -234,13 +234,12 @@ static const struct lws_http_mount mount_dyn = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	int n = 0;
 	const char *p;
 	(void)switches;
@@ -309,7 +308,7 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 bail:

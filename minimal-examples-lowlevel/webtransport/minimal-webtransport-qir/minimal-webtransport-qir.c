@@ -31,7 +31,6 @@ static void usleep(unsigned long l) { Sleep(l / 1000); }
 
 
 
-static int interrupted;
 static int is_server;
 static char testcase[64] = "";
 static struct lws_context *context;
@@ -436,7 +435,7 @@ static void print_custom_header_cb(const char *name, int nlen, void *custom)
 
 static void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 static void trim_trailing_whitespace(char *str)
 {
@@ -620,10 +619,8 @@ dghardcap_sul_cb(struct lws_sorted_usec_list *sul)
 {
 	(void)sul;
 
-	if (!interrupted) {
-		lwsl_user("Datagram exchange hard cap reached, giving up\n");
-		interrupted = 1;
-	}
+	lwsl_user("Datagram exchange hard cap reached, giving up\n");
+	lws_default_loop_exit(context);
 }
 
 /*
@@ -718,7 +715,7 @@ dgretry_sul_cb(struct lws_sorted_usec_list *sul)
 			return;
 		}
 		lwsl_user("All datagram transfers confirmed complete\n");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		return;
 	}
 
@@ -1877,7 +1874,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 							for (i = 0; i < client_requests_count; i++)
 								client_requests[i].completed = 1;
 						}
-						interrupted = 1;
+						lws_default_loop_exit(context);
 					}
 				} else if (!strncmp(hdr, "GET ", 4)) {
 					/* GET <name>: peer wants the file */
@@ -2300,13 +2297,13 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 						}
 					}
 					if (all_done) {
-						lwsl_user("All server requests completed. Setting interrupted = 1 to exit.\n");
-						interrupted = 1;
+						lwsl_user("All server requests completed. exiting.\n");
+						lws_default_loop_exit(context);
 					}
 				}
 			}
 		} else {
-			lwsl_user("%s session closed. Setting interrupted = 1 to exit.\n", is_server ? "Server" : "Client");
+			lwsl_user("%s session closed. exiting.\n", is_server ? "Server" : "Client");
 			if (wsi == dg_session_wsi) {
 				dg_session_wsi = NULL;
 				lws_sul_cancel(&sul_dgretry);
@@ -2315,7 +2312,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				dg_pace_armed = 0;
 				dgr_teardown();
 			}
-			interrupted = 1;
+			lws_default_loop_exit(context);
 		}
 		lwsl_user("WSI closed\n");
 		break;
@@ -2589,7 +2586,7 @@ int main(int argc, const char **argv)
 		}
 	}
 
-	while (n >= 0 && !interrupted) {
+	while (n >= 0) {
 		n = lws_service(context, 0);
 
 		/* Check if all client requests are done and exit */

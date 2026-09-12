@@ -37,7 +37,7 @@ static const struct lws_switches switches[] = {
 static struct lws_context *context;
 static pthread_t lws_thread;
 static pthread_mutex_t lock;
-static int interrupted, bad = 1, status;
+static int bad = 1, status;
 
 static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason,
@@ -49,7 +49,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
@@ -95,13 +95,13 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP\n");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
@@ -124,7 +124,7 @@ static const struct lws_protocols protocols[] = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 static void
@@ -208,9 +208,8 @@ lws_create(void *d)
 
 	/* start the event loop */
 
-	while (!interrupted)
-		if (lws_service(context, 0))
-			interrupted = 1;
+	while (lws_service(context, 0) >= 0)
+		;
 
 	lws_context_destroy(context);
 

@@ -160,7 +160,7 @@ static const struct scenario_desc scenarios[] = {
 static struct lws_context *context;
 static struct lws *client_wsi;
 static lws_sorted_usec_list_t sul_next_attempt;
-static int interrupted, bad, completed, server_only;
+static int bad, completed, server_only;
 static int single_attempt_mode;
 static int single_attempt_expect_success;
 static int test_port;
@@ -561,7 +561,7 @@ sigint_handler(int sig)
 {
 	(void)sig;
 
-	interrupted = 1;
+	lws_default_loop_exit(context);
 	cancel_service();
 }
 
@@ -726,9 +726,8 @@ int main(int argc, const char **argv)
 			return 1;
 		}
 
-		while (!interrupted) {
-			(void)lws_service(context, 0);
-		}
+		while (lws_service(context, 0) >= 0)
+			;
 
 		return 0;
 	}
@@ -738,17 +737,17 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	while (n >= 0 && !interrupted && !completed) {
+	while (n >= 0 && !completed) {
 		n = lws_service(context, 0);
 	}
 
-	if (!interrupted) {
+	if (n >= 0) {
 		ret = bad ? 1 : 0;
 	}
 
 	lws_context_destroy(context);
 
-	if (!bad && !interrupted) {
+	if (!bad && n >= 0) {
 		lwsl_user("Completed: %s OK\n", scenario->name);
 	}
 

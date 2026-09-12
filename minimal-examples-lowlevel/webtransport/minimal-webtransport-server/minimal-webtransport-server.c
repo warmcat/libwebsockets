@@ -15,7 +15,7 @@
 #include <signal.h>
 #include <stdio.h>
 
-static int interrupted;
+static struct lws_context *context;
 
 static int
 callback_webtransport(struct lws *wsi, enum lws_callback_reasons reason,
@@ -105,13 +105,12 @@ static struct lws_protocols protocols[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 
 	signal(SIGINT, sigint_handler);
@@ -137,7 +136,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

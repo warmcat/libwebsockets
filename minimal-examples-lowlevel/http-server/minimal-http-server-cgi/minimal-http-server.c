@@ -30,7 +30,7 @@ static const struct lws_switches switches[] = {
 #include <string.h>
 #include <signal.h>
 
-static int interrupted;
+static struct lws_context *context;
 static char cgi_script_fullpath[256];
 
 static const struct lws_http_mount mount = {
@@ -43,13 +43,12 @@ static const struct lws_http_mount mount = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	int n = 0;
 	(void)switches;
 
@@ -95,7 +94,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 1000);
 
 	lws_context_destroy(context);

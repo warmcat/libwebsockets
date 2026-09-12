@@ -10,7 +10,7 @@
 #include <libwebsockets.h>
 #include <assert.h>
 
-extern int interrupted, tests_bad, multipart;
+extern int tests_bad, multipart;
 
 static const char *html =
 		/* normally we serve this... */
@@ -74,7 +74,7 @@ myss_srv_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	 */
 	if (flags & LWSSS_FLAG_EOM) {
 		tests_bad = 0;
-		interrupted = 1;
+		lws_default_loop_exit(lws_ss_cx_from_user((myss_srv_t *)userobj));
 	}
 
 	return 0;
@@ -121,7 +121,7 @@ myss_ws_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	 */
 	if (flags & LWSSS_FLAG_EOM) {
 		tests_bad = 0;
-		interrupted = 1;
+		lws_default_loop_exit(lws_ss_cx_from_user((myss_srv_t *)userobj));
 	}
 
 	return 0;
@@ -173,7 +173,7 @@ myss_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
-		interrupted = 1;
+		lws_default_loop_exit(lws_ss_cx_from_user(m));
 		break;
 
 	case LWSSSCS_SERVER_TXN:

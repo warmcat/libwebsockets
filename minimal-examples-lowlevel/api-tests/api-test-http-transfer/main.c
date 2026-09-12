@@ -258,7 +258,7 @@ static struct lws_context *context;
 static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_next, sul_watchdog;
 static struct conn *conn_list, *conns[2];
-static int interrupted, result, cur = -1, failures, port_h1 = 7681,
+static int result, cur = -1, failures, port_h1 = 7681,
 	   port_h2 = 7682, only_case = -1, case_done;
 
 static const char *server_addr = "127.0.0.1";
@@ -1053,7 +1053,7 @@ next_case(lws_sorted_usec_list_t *sul)
 	case_done = 0;
 	if (cur == (int)LWS_ARRAY_SIZE(cases)) {
 		result = failures ? 1 : 0;
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		return;
 	}
 
@@ -1133,7 +1133,7 @@ static const struct lws_http_mount mount_gated = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
@@ -1223,7 +1223,7 @@ int main(int argc, const char **argv)
 	if (!lws_cmdline_option(argc, argv, "--serve-only"))
 		lws_sul_schedule(context, 0, &sul_next, next_case, 1);
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 bail:

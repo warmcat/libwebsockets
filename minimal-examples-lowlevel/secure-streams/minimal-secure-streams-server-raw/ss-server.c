@@ -10,7 +10,7 @@
 #include <libwebsockets.h>
 #include <assert.h>
 
-extern int interrupted, tests_bad;
+extern int tests_bad;
 
 typedef struct myss {
 	struct lws_ss_handle 		*ss;
@@ -41,7 +41,7 @@ myss_raw_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	 */
 	if (flags & LWSSS_FLAG_EOM) {
 		tests_bad = 0;
-		interrupted = 1;
+		lws_default_loop_exit(lws_ss_cx_from_user((myss_srv_t *)userobj));
 	}
 
 	return 0;

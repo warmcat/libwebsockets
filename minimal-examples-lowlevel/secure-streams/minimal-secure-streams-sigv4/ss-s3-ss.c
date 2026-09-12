@@ -13,7 +13,7 @@
 #include <assert.h>
 #include "ss-s3-put.h"
 
-extern int interrupted, bad;
+extern int bad;
 
 static lws_ss_state_return_t
 ss_s3_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
@@ -22,7 +22,7 @@ ss_s3_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 	if (flags & LWSSS_FLAG_EOM) {
 		bad = 0;
-		interrupted = 1; /* this example wants to exit after rx */
+		lws_default_loop_exit(lws_ss_cx_from_user((ss_s3_put_t *)userobj)); /* this example wants to exit after rx */
 		return LWSSSSRET_DESTROY_ME;
 	}
 
@@ -195,7 +195,7 @@ ss_s3_state(void *userobj, void *sh, lws_ss_constate_t state,
 		break;
 
 	case LWSSSCS_DESTROYING:
-		interrupted = 1;
+		lws_default_loop_exit(lws_ss_cx_from_user(m));
 		break;
 
 	default:

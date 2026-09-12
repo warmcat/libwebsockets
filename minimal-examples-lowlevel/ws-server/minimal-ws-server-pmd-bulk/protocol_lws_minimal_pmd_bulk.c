@@ -61,7 +61,6 @@ struct per_session_data__minimal_pmd_bulk {
 };
 
 struct vhd_minimal_pmd_bulk {
-        int *interrupted;
         /*
          * b0 = 1: test compressible text, = 0: test uncompressible binary
          * b1 = 1: send as a single blob, = 0: send as fragments
@@ -109,10 +108,6 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
                 if (!in)
                         break;
 
-                /* get the pointer to "interrupted" we were passed in pvo */
-                vhd->interrupted = (int *)lws_pvo_search(
-                        (const struct lws_protocol_vhost_options *)in,
-                        "interrupted")->value;
                 vhd->options = (int *)lws_pvo_search(
                         (const struct lws_protocol_vhost_options *)in,
                         "options")->value;

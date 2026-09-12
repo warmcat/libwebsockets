@@ -53,7 +53,6 @@ static struct lws_context *context;
 static struct lws *cli_wsi;
 static lws_sorted_usec_list_t sul_timeout;
 static lws_sorted_usec_list_t sul_connect;
-static volatile char interrupted;
 static int result = 1;
 static int tests, fail;
 
@@ -172,7 +171,7 @@ sul_timeout_cb(lws_sorted_usec_list_t *sul)
 {
 	(void)sul;
 	lwsl_err("%s: timed out\n", __func__);
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 static void
@@ -197,7 +196,7 @@ sul_connect_cb(lws_sorted_usec_list_t *sul)
 
 	if (!lws_client_connect_via_info(&i)) {
 		lwsl_err("%s: connect failed\n", __func__);
-		interrupted = 1;
+		lws_default_loop_exit(context);
 	}
 }
 
@@ -352,7 +351,7 @@ check_body(void)
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int
@@ -417,7 +416,7 @@ main(int argc, const char **argv)
 			 20 * LWS_US_PER_SEC);
 	lws_sul_schedule(context, 0, &sul_connect, sul_connect_cb, 1);
 
-	while (n >= 0 && !interrupted && !done)
+	while (n >= 0 && !done)
 		n = lws_service(context, 0);
 
 	lws_sul_cancel(&sul_timeout);

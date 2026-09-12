@@ -40,7 +40,6 @@ static struct my_conn {
 } mco;
 
 static struct lws_context *context;
-static int interrupted;
 
 #if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL) || defined(LWS_WITH_OPENHITLS)
 /*
@@ -148,7 +147,7 @@ connect_client(lws_sorted_usec_list_t *sul)
 		if (lws_retry_sul_schedule(context, 0, sul, &retry,
 					   connect_client, &mco->retry_count)) {
 			lwsl_err("%s: connection attempts exhausted\n", __func__);
-			interrupted = 1;
+			lws_default_loop_exit(context);
 		}
 }
 
@@ -319,7 +318,7 @@ do_retry:
 	if (lws_retry_sul_schedule_retry_wsi(wsi, &mco->sul, connect_client,
 					     &mco->retry_count)) {
 		lwsl_err("%s: connection attempts exhausted\n", __func__);
-		interrupted = 1;
+		lws_default_loop_exit(context);
 	}
 
 	return 0;
@@ -333,7 +332,7 @@ static const struct lws_protocols protocols[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
@@ -370,7 +369,7 @@ int main(int argc, const char **argv)
 	/* schedule the first client connection attempt to happen immediately */
 	lws_sul_schedule(context, 0, &mco.sul, connect_client, 1);
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

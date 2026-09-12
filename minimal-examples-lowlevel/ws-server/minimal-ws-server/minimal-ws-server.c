@@ -49,7 +49,7 @@ static const lws_retry_bo_t retry = {
 	.secs_since_valid_hangup = 10,
 };
 
-static int interrupted;
+static struct lws_context *context;
 
 static const struct lws_http_mount mount = {
 	.mountpoint		= "/",			/* mountpoint URL */
@@ -66,13 +66,12 @@ static struct lws_protocol_vhost_options pvo = { NULL, NULL, "lws-minimal", "" }
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	int n = 0;
 	(void)switches;
 
@@ -120,7 +119,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

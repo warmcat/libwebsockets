@@ -63,7 +63,7 @@ struct lws_dbus_ctx_wsproxy_client {
 
 static struct lws_dbus_ctx_wsproxy_client *dbus_ctx;
 static struct lws_context *context;
-static int interrupted, autoexit_budget = -1, count_rx, count_tx;
+static int autoexit_budget = -1, count_rx, count_tx;
 
 #define THIS_INTERFACE	 "org.libwebsockets.wsclientproxy"
 #define THIS_OBJECT	 "/org/libwebsockets/wsclientproxy"
@@ -158,7 +158,7 @@ cb_closing(struct lws_dbus_ctx *ctx)
 
 	destroy_dbus_client_conn(&dcwc);
 
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 static struct lws_dbus_ctx_wsproxy_client *
@@ -234,7 +234,7 @@ fail:
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 /*
@@ -338,7 +338,7 @@ sul_timer(struct lws_sorted_usec_list *sul)
 	if (autoexit_budget > 0) {
 		if (!--autoexit_budget) {
 			lwsl_notice("reached autoexit budget\n");
-			interrupted = 1;
+			lws_default_loop_exit(context);
 			return;
 		}
 	}
@@ -428,7 +428,7 @@ int main(int argc, const char **argv)
 
 	/* lws event loop (default poll one) */
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 bail2:

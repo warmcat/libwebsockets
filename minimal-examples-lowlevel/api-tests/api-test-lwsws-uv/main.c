@@ -93,7 +93,7 @@ static int		g_uv;			/* run our loop on libuv */
 static int		g_pin_family;
 
 static struct lws_context *cx;
-static int		interrupted, result = 1;
+static int		result = 1;
 
 /* ------------------------------------------------------------- http jobs */
 
@@ -171,7 +171,7 @@ static void run_next_job(lws_sorted_usec_list_t *sul);
 static void
 stop_loop(void)
 {
-	interrupted = 1;
+	lws_default_loop_exit(cx);
 
 #if defined(LWS_WITH_LIBUV)
 	if (g_uv && cx) {
@@ -184,8 +184,6 @@ stop_loop(void)
 		}
 	}
 #endif
-
-	lws_cancel_service(cx);
 }
 
 static void
@@ -1086,9 +1084,8 @@ make_context(void)
 static int
 service_until_done(void)
 {
-	while (!interrupted && cx)
-		if (lws_service(cx, 0) < 0)
-			break;
+	while (cx && lws_service(cx, 0) >= 0)
+		;
 
 	return 0;
 }
@@ -1125,7 +1122,6 @@ run_jobs(const struct job *j, int n, const char *alpn, int fresh)
 	jdone		= 0;
 	job_delay_done	= -1;
 	jobs_active	= 1;
-	interrupted	= 0;
 	result		= 1;
 
 	lws_sul_schedule(cx, 0, &sul_watchdog, watchdog_cb,
@@ -1177,8 +1173,7 @@ run_quicabort(void)
 		jidx		= 0;
 		jdone		= 0;
 		jobs_active	= 0;
-		interrupted	= 0;
-
+	
 		memset(&i, 0, sizeof(i));
 		i.context		= cx;
 		i.address		= g_server;
@@ -1234,7 +1229,6 @@ run_pipeline(void)
 	if (make_context())
 		return 1;
 
-	interrupted	= 0;
 	result		= 1;
 
 	lws_snprintf(req_big, sizeof(req_big),
@@ -1283,7 +1277,7 @@ static void
 sigint_handler(int sig)
 {
 	(void)sig;
-	interrupted = 1;
+	lws_default_loop_exit(cx);
 }
 
 int

@@ -67,7 +67,7 @@ struct vhd_minimal_pmd_bulk {
 
 	lws_sorted_usec_list_t sul;
 
-	int *interrupted;
+	int *result;
 	int *options;
 	int port;
 };
@@ -142,10 +142,10 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->context = lws_get_context(wsi);
 		vhd->vhost = lws_get_vhost(wsi);
 
-		/* get the pointer to "interrupted" we were passed in pvo */
-		vhd->interrupted = (int *)lws_pvo_search(
+		/* get the pointer to "result" we were passed in pvo */
+		vhd->result = (int *)lws_pvo_search(
 			(const struct lws_protocol_vhost_options *)in,
-			"interrupted")->value;
+			"result")->value;
 		vhd->options = (int *)lws_pvo_search(
 			(const struct lws_protocol_vhost_options *)in,
 			"options")->value;
@@ -230,8 +230,10 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_callback_on_writable(wsi);
 		else
 			/* if we sent and received everything */
-			if (pss->position_rx == MESSAGE_SIZE)
-				*vhd->interrupted = 2;
+			if (pss->position_rx == MESSAGE_SIZE) {
+				*vhd->result = 2;
+				lws_default_loop_exit(lws_get_context(wsi));
+			}
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
@@ -288,8 +290,10 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 		/* if we sent and received everything */
 
 		if (pss->position_rx == MESSAGE_SIZE &&
-		    pss->position_tx == MESSAGE_SIZE)
-			*vhd->interrupted = 2;
+		    pss->position_tx == MESSAGE_SIZE) {
+			*vhd->result = 2;
+			lws_default_loop_exit(lws_get_context(wsi));
+		}
 
 		break;
 

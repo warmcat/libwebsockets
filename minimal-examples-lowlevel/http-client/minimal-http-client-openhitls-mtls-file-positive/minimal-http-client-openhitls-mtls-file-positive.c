@@ -39,7 +39,7 @@ struct pss_http {
 
 static struct lws_context *context;
 static struct lws *client_wsi;
-static int interrupted, bad, completed, response_status;
+static int bad, completed, response_status;
 static int test_port = DEFAULT_TEST_PORT;
 static char response_body[128];
 static size_t response_body_len;
@@ -269,7 +269,7 @@ sigint_handler(int sig)
 {
 	(void)sig;
 
-	interrupted = 1;
+	lws_default_loop_exit(context);
 	if (context) {
 		lws_cancel_service(context);
 	}
@@ -349,11 +349,11 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	while (n >= 0 && !interrupted && !completed) {
+	while (n >= 0 && !completed) {
 		n = lws_service(context, 0);
 	}
 
-	if (interrupted && !completed) {
+	if (n < 0 && !completed) {
 		return 1;
 	}
 

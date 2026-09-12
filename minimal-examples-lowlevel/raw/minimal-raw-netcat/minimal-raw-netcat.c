@@ -50,7 +50,7 @@ static const struct lws_switches switches[] = {
 
 static struct lws *raw_wsi, *stdin_wsi;
 static uint8_t buf[LWS_PRE + 4096];
-static int waiting, interrupted;
+static int waiting;
 static struct lws_context *context;
 static int us_wait_after_input_close = LWS_USEC_PER_SEC / 10;
 
@@ -75,7 +75,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 		if (raw_wsi)
 			lws_set_timer_usecs(raw_wsi, us_wait_after_input_close);
 		else {
-			interrupted = 1;
+			lws_default_loop_exit(context);
 			lws_cancel_service(context);
 		}
 		break;
@@ -106,7 +106,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 		 * If the socket to the remote server closed, we must close
 		 * and drop any remaining stdin
 		 */
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		lws_cancel_service(context);
 		/* our pointer to this wsi is invalid now we close */
 		raw_wsi = NULL;
@@ -133,7 +133,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_TIMER:
 		lwsl_user("LWS_CALLBACK_TIMER\n");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		lws_cancel_service(context);
 		return -1;
 
@@ -151,7 +151,7 @@ static struct lws_protocols protocols[] = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
@@ -266,7 +266,7 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 bail:

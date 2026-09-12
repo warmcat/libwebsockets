@@ -27,7 +27,7 @@ static const struct lws_switches switches[] = {
 extern int
 avs_example_start(struct lws_context *context);
 
-static int interrupted;
+static struct lws_context *context;
 static lws_state_notify_link_t nl;
 
 #if !defined(LWS_SS_USE_SSPC)
@@ -348,7 +348,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 static lws_state_notify_link_t * const app_notifier_list[] = {
@@ -367,7 +367,6 @@ static const struct lws_protocols *protocols[] = {
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	int n = 0;
 	(void)switches;
 
@@ -438,7 +437,7 @@ int main(int argc, const char **argv)
 
 	/* the event loop */
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 bail:

@@ -34,7 +34,8 @@ static const struct lws_switches switches[] = {
 #include <signal.h>
 
 static unsigned int timeout_ms = 6000;
-static int interrupted, bad = 1;
+static int bad = 1;
+static struct lws_context *context;
 static lws_state_notify_link_t nl;
 static size_t hugeurl_size = 4000;
 
@@ -211,7 +212,7 @@ myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 	if (flags & LWSSS_FLAG_EOM) {
 
-		interrupted = 1;
+		lws_default_loop_exit(context);
 
 		/* confirm that what we collected is the expected size */
 
@@ -283,7 +284,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		lws_cancel_service(lws_ss_get_context(m->ss));
 		break;
 
@@ -297,7 +298,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	case LWSSSCS_TIMEOUT:
 		lwsl_notice("%s: LWSSSCS_TIMEOUT\n", __func__);
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		lws_cancel_service(lws_ss_get_context(m->ss));
 		break;
 
@@ -361,13 +362,12 @@ static lws_state_notify_link_t * const app_notifier_list[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	const char *p;
 	int n = 0;
 	(void)switches;
@@ -455,7 +455,7 @@ int main(int argc, const char **argv)
 
 	/* the event loop */
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

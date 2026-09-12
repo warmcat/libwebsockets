@@ -32,7 +32,7 @@ static const struct lws_switches switches[] = {
 #include <string.h>
 #include <signal.h>
 
-static int interrupted;
+static struct lws_context *context;
 
 static const struct lws_http_mount mount_localhost1 = {
 	.mountpoint		= "/",			/* mountpoint URL */
@@ -56,7 +56,7 @@ static const struct lws_http_mount mount_localhost1 = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 void vh_destruction_notification(struct lws_vhost *vh, void *arg)
@@ -67,7 +67,6 @@ void vh_destruction_notification(struct lws_vhost *vh, void *arg)
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	struct lws_vhost *new_vhost;
 	int n = 0;
 	(void)switches;
@@ -154,7 +153,7 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 bail:

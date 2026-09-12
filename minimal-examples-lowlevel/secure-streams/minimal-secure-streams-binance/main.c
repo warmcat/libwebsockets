@@ -27,7 +27,7 @@
 #include <signal.h>
 #include <ctype.h>
 
-static int interrupted;
+static struct lws_context *cx;
 extern const struct lws_protocols lws_sspc_protocols[2];
 
 typedef struct range {
@@ -222,13 +222,12 @@ static const struct lws_extension extensions[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(cx);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *cx;
 	int n = 0;
 
 	signal(SIGINT, sigint_handler);
@@ -255,10 +254,10 @@ int main(int argc, const char **argv)
 
 	if (lws_ss_create(cx, 0, &ssi_binance, NULL, NULL, NULL, NULL)) {
 		lwsl_cx_err(cx, "failed to create secure stream");
-		interrupted = 1;
+		lws_default_loop_exit(cx);
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(cx, 0);
 
 	lws_context_destroy(cx);

@@ -15,7 +15,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted;
+static struct lws_context *context;
 static int result = 1; /* 1 means failed/timeout, 0 means success */
 static int server_only = 0;
 
@@ -145,7 +145,7 @@ simple_hash(uint32_t hash, const uint8_t *data, size_t len)
 static void
 teardown_cb(lws_sorted_usec_list_t *sul)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 static lws_sorted_usec_list_t sul_teardown;
@@ -282,7 +282,7 @@ static struct lws_protocols protocols[] = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 enum {
@@ -324,7 +324,6 @@ int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
-	struct lws_context *context;
 	struct lws *client_wsi;
 	struct lws_vhost *vh;
 	lws_usec_t start_us;
@@ -458,7 +457,7 @@ int main(int argc, const char **argv)
 	start_us = lws_now_usecs();
 	last_rx_us = start_us;
 
-        while (lws_service(context, 0) >= 0 && !interrupted) {
+        while (lws_service(context, 0) >= 0) {
 		if (!server_only) {
 			if (lws_now_usecs() - start_us > 60000000) {
 				lwsl_err("Timeout waiting for QUIC transfer (60s absolute)\n");

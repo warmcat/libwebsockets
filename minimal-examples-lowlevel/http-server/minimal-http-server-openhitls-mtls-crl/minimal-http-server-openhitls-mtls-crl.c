@@ -13,7 +13,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted, bad, completed;
+static int bad, completed;
 static struct lws_context *context;
 static struct lws *client_wsi;
 
@@ -154,7 +154,7 @@ static struct lws_context* create_context_for_stage(int stage)
 
 static void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
@@ -209,7 +209,7 @@ int main(int argc, const char **argv)
 		goto cleanup;
 	}
 
-	while (n >= 0 && !completed && !interrupted) {
+	while (n >= 0 && !completed) {
 		for (idx = 0; idx < num_contexts; idx++) {
 			if (all_contexts[idx])
 				lws_service(all_contexts[idx], 0);

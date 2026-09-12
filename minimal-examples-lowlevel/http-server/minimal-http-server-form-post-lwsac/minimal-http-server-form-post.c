@@ -38,7 +38,7 @@ struct pss {
 	struct lwsac *ac;
 };
 
-static int interrupted;
+static struct lws_context *context;
 
 /* get 2 parameters at predefined pos and up to 3 unknown parameters */
 static const char * param_names[] = {
@@ -169,13 +169,12 @@ static const struct lws_http_mount mount = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	int n = 0;
 	(void)switches;
 
@@ -212,7 +211,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

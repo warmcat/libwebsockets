@@ -47,7 +47,8 @@
 #define CHUNK		(SERV_BUF_SIZE - LWS_PRE)
 #define CHUNKS		4
 
-static int interrupted;
+static struct lws_context *context;
+static int done;
 static int chunked;
 static int result = 1;
 static int status;
@@ -76,9 +77,10 @@ struct pss {
 static void
 sul_timeout_cb(lws_sorted_usec_list_t *sul)
 {
-	if (!interrupted)
+	if (!done)
 		lwsl_err("--- watchdog: cgi stdin roundtrip did not complete ---\n");
-	interrupted = 1;
+	done = 1;
+	lws_default_loop_exit(context);
 }
 
 static void
@@ -109,13 +111,15 @@ evaluate_response(void)
 	lwsl_user("--- cgi stdin received all %lu bytes.  Test passed. ---\n",
 		  seen);
 	result = 0;
-	interrupted = 1;
+	done = 1;
+	lws_default_loop_exit(context);
 
 	return;
 
 fail:
 	result = 1;
-	interrupted = 1;
+	done = 1;
+	lws_default_loop_exit(context);
 }
 
 static int
@@ -132,7 +136,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("--- client: connection error: %s ---\n",
 			 in ? (const char *)in : "(null)");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
@@ -243,9 +247,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
-		if (!interrupted)
+		if (!done)
 			lwsl_err("--- client: closed before completion ---\n");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		break;
 
 	default:
@@ -267,14 +271,13 @@ static const struct lws_protocols protocols_cli[] = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
-	struct lws_context *context;
 	struct lws_vhost *vh;
 	const char *p;
 	size_t n;
@@ -361,7 +364,7 @@ int main(int argc, const char **argv)
 	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
 			 20 * LWS_US_PER_SEC);
 
-	while (n_int >= 0 && !interrupted)
+	while (n_int >= 0)
 		n_int = lws_service(context, 0);
 
 bail:

@@ -58,7 +58,6 @@ static struct lws_context *context;
 static struct lws *cli_wsi;
 static lws_sorted_usec_list_t sul_timeout;
 static enum cli_state cli_state = ST_CLI_VERSION;
-static volatile char interrupted;
 static int result = 1;
 static uint16_t port_tcp = 21046;
 
@@ -317,7 +316,7 @@ static int
 test_fail(const char *why)
 {
 	lwsl_err("%s: %s (state %d)\n", __func__, why, cli_state);
-	interrupted = 1;
+	lws_default_loop_exit(context);
 	lws_cancel_service(context);
 
 	return 1;
@@ -512,7 +511,7 @@ handle_msg(uint8_t msg, const uint8_t *pl, uint32_t pl_len)
 
 		result = 0;
 		cli_state = ST_CLI_DONE;
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		lws_cancel_service(context);
 		lwsl_user("Completed: ALL OK\n");
 		return 0;
@@ -753,7 +752,7 @@ bail:
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int
@@ -840,7 +839,7 @@ main(int argc, const char **argv)
 	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
 			 30 * LWS_US_PER_SEC);
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 bail:

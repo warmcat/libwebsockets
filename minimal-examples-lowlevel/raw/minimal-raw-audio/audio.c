@@ -186,17 +186,16 @@ static struct lws_protocols protocols[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
-static int interrupted;
+static struct lws_context *context;
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	int n = 0;
 
 	signal(SIGINT, sigint_handler);
@@ -213,7 +212,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

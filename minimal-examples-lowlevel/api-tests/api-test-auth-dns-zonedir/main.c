@@ -53,7 +53,6 @@
 extern const struct lws_protocols lws_auth_dns_protocols[];
 
 static struct lws_context *context;
-static volatile int interrupted;
 
 static int ports[2];
 static int cli_fd = -1;
@@ -524,7 +523,7 @@ sigint_handler(int sig)
 {
 	(void)sig;
 
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 static int
@@ -588,8 +587,11 @@ run_phase(struct phase *p, int idx)
 
 	lws_sul_schedule(context, 0, &sul_drive, drive_cb, TICK_US);
 
-	while (n >= 0 && !phase_done && !interrupted)
+	while (n >= 0 && !phase_done)
 		n = lws_service(context, 0);
+
+	if (n < 0) /* loop exit requested */
+		phase_failed = 1;
 
 	lws_context_destroy(context);
 	context = NULL;
@@ -715,7 +717,7 @@ main(int argc, const char **argv)
 
 	lwsl_user("LWS API selftest: auth dns zone dir trust (F-055)\n");
 
-	for (i = 0; i < nph && !interrupted; i++) {
+	for (i = 0; i < nph; i++) {
 		lwsl_user("--- phase %d: %s\n", i + 1, tbl[i].name);
 
 		memset(&auth_sa, 0, sizeof(auth_sa));
@@ -729,7 +731,7 @@ main(int argc, const char **argv)
 		}
 	}
 
-	ret = i != nph || interrupted;
+	ret = i != nph;
 
 	lwsl_user("Completed: %s\n", test_ok && !ret ? "PASS" : "FAIL");
 

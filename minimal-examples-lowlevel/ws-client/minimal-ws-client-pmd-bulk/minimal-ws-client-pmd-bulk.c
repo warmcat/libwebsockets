@@ -49,7 +49,8 @@ static struct lws_protocols protocols[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
-static int interrupted, options, port = 7681;
+static struct lws_context *context;
+static int result, options, port = 7681;
 
 /* pass pointers to shared vars to the protocol */
 
@@ -67,16 +68,16 @@ static const struct lws_protocol_vhost_options pvo_port = {
 	(void *)&port		/* pvo value */
 };
 
-static const struct lws_protocol_vhost_options pvo_interrupted = {
+static const struct lws_protocol_vhost_options pvo_result = {
 	&pvo_port,
 	NULL,
-	"interrupted",		/* pvo name */
-	(void *)&interrupted	/* pvo value */
+	"result",		/* pvo name */
+	(void *)&result		/* pvo value */
 };
 
 static const struct lws_protocol_vhost_options pvo = {
 	NULL,		/* "next" pvo linked-list */
-	&pvo_interrupted,	/* "child" pvo linked-list */
+	&pvo_result,		/* "child" pvo linked-list */
 	"lws-minimal-pmd-bulk",	/* protocol name we belong to on this vhost */
 	""		/* ignored */
 };
@@ -93,13 +94,12 @@ static const struct lws_extension extensions[] = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	int n = 0;
 
 	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
@@ -158,12 +158,12 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);
 
-	lwsl_user("Completed %s\n", interrupted == 2 ? "OK" : "failed");
+	lwsl_user("Completed %s\n", result == 2 ? "OK" : "failed");
 
-	return interrupted != 2;
+	return result != 2;
 }

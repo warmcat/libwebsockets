@@ -51,7 +51,7 @@ static const struct lws_switches switches[] = {
  */
 // #define DO_ILLEGAL_API_THREAD
 
-static int interrupted, bad = 1, finished;
+static int bad = 1, finished;
 static lws_sorted_usec_list_t sul_timeout;
 static struct lws_context *context;
 static pthread_t pthread_spam;
@@ -187,14 +187,14 @@ static void
 sul_timeout_cb(lws_sorted_usec_list_t *sul)
 {
 	lwsl_notice("%s: test finishing\n", __func__);
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 static int
@@ -306,7 +306,7 @@ int main(int argc, const char **argv)
 
 	/* the event loop */
 
-	while (lws_service(context, 0) >= 0 && !interrupted)
+	while (lws_service(context, 0) >= 0)
 		;
 
 	/* compare what happened with what we expect */

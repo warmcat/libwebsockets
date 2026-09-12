@@ -41,7 +41,7 @@ static const struct lws_switches switches[] = {
 
 #include <signal.h>
 
-static int interrupted, dtest, ok, fail, _exp = 22;
+static int dtest, ok, fail, _exp = 22;
 static uint32_t fail_mask;
 struct lws_context *context;
 
@@ -367,7 +367,7 @@ pass:
 
 static struct lws_context *gate_cx;
 static lws_sorted_usec_list_t sul_gate;
-static int gate_interrupted, gate_dns_seen, gate_op_before, gate_op_after;
+static int gate_dns_seen, gate_op_before, gate_op_after;
 static int gate_leg_ticks, gate_do_write;
 
 static int
@@ -417,7 +417,7 @@ smd_gate_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 		 */
 
 		if (!gate_do_write && gate_op_before)
-			gate_interrupted = 1;
+			lws_default_loop_exit(gate_cx);
 	}
 
 	return 0;
@@ -443,7 +443,7 @@ sul_gate_cb(lws_sorted_usec_list_t *s)
 	}
 
 	if (++gate_leg_ticks > 14) /* ~3s: give up waiting */
-		gate_interrupted = 1;
+		lws_default_loop_exit(gate_cx);
 	else
 		lws_sul_schedule(gate_cx, 0, &sul_gate, sul_gate_cb,
 				 200 * LWS_US_PER_MS);
@@ -454,7 +454,7 @@ gate_reset(void)
 {
 	int fd = open(RESOLV_TEST_CONF, O_WRONLY | O_TRUNC, 0600);
 
-	gate_interrupted = gate_dns_seen = gate_op_before = gate_op_after = 0;
+	gate_dns_seen = gate_op_before = gate_op_after = 0;
 	gate_leg_ticks = 0;
 
 	if (fd < 0) {
@@ -485,9 +485,8 @@ gate_run(void)
 	lws_sul_schedule(gate_cx, 0, &sul_gate, sul_gate_cb,
 			 200 * LWS_US_PER_MS);
 
-	while (!gate_interrupted)
-		if (lws_service(gate_cx, 0) < 0)
-			break;
+	while (lws_service(gate_cx, 0) >= 0)
+		;
 
 	lws_context_destroy(gate_cx);
 	gate_cx = NULL;
@@ -605,7 +604,7 @@ static struct sc_query sc_q[SC_MAX_QUERIES];
 static struct lws_context *sc_cx;
 static lws_sorted_usec_list_t sul_sc;
 static int sc_fd = -1, sc_foreign_fd = -1;
-static int sc_fail, sc_foreign_mode, sc_interrupted;
+static int sc_fail, sc_foreign_mode, sc_done;
 static int sc_qs, sc_ticks, sc_quiet, sc_phase, sc_phase_ticks;
 static int sc_resolved, sc_bad_ads, sc_redirected;
 
@@ -819,7 +818,8 @@ sul_sc_cb(lws_sorted_usec_list_t *s)
 			lwsl_err("%s: took an answer from a foreign source\n",
 					__func__);
 			sc_fail++;
-			sc_interrupted = 1;
+			sc_done = 1;
+			lws_default_loop_exit(sc_cx);
 			break;
 		}
 
@@ -830,7 +830,8 @@ sul_sc_cb(lws_sorted_usec_list_t *s)
 	case 2: /* the nameserver we actually asked answers */
 		sc_answer_all(sc_fd, sc_ads_good, 1);
 		if (sc_resolved)
-			sc_interrupted = 1;
+			sc_done = 1;
+			lws_default_loop_exit(sc_cx);
 		break;
 	}
 
@@ -838,10 +839,11 @@ sul_sc_cb(lws_sorted_usec_list_t *s)
 		lwsl_err("%s: timed out in phase %d (%d queries seen)\n",
 				__func__, sc_phase, sc_qs);
 		sc_fail++;
-		sc_interrupted = 1;
+		sc_done = 1;
+		lws_default_loop_exit(sc_cx);
 	}
 
-	if (!sc_interrupted)
+	if (!sc_done)
 		lws_sul_schedule(sc_cx, 0, &sul_sc, sul_sc_cb, SC_TICK_US);
 }
 
@@ -857,7 +859,7 @@ sc_run(int foreign)
 
 	memset(sc_q, 0, sizeof(sc_q));
 	sc_qs = sc_ticks = sc_quiet = sc_phase = sc_phase_ticks = 0;
-	sc_resolved = sc_bad_ads = sc_redirected = sc_interrupted = 0;
+	sc_resolved = sc_bad_ads = sc_redirected = sc_done = 0;
 	sc_foreign_mode = foreign;
 
 	lwsl_user("*** resolver source-check leg (%s)\n",
@@ -916,9 +918,8 @@ sc_run(int foreign)
 
 	lws_sul_schedule(sc_cx, 0, &sul_sc, sul_sc_cb, SC_TICK_US);
 
-	while (!sc_interrupted)
-		if (lws_service(sc_cx, 0) < 0)
-			break;
+	while (lws_service(sc_cx, 0) >= 0)
+		;
 
 destroy:
 	lws_sul_cancel(&sul_sc);
@@ -971,8 +972,7 @@ static int first = 1;
 static void
 timeout_cb(lws_sorted_usec_list_t *sul)
 {
-	interrupted = 1;
-	lws_cancel_service(context);
+	lws_default_loop_exit(context);
 }
 
 static void
@@ -990,7 +990,7 @@ next_test_cb(lws_sorted_usec_list_t *sul)
 				context, &q);
 	if (m != LADNS_RET_CONTINUING && m != LADNS_RET_FOUND && m != LADNS_RET_FAILED_WSI_CLOSED) {
 		lwsl_err("%s: adns 1: %s failed: %d\n", __func__, adt[dtest].dns_name, m);
-		interrupted = 1;
+		lws_default_loop_exit(context);
 	}
 
 	if (adt[dtest].recordtype & LWS_ADNS_SYNTHETIC) {
@@ -1149,8 +1149,7 @@ fail:
 next:
 	lws_async_dns_freeaddrinfo(&a);
 	if (dtest == (int)LWS_ARRAY_SIZE(adt)) {
-		interrupted = 1;
-		lws_cancel_service(context);
+		lws_default_loop_exit(context);
 	} else
 		lws_sul_schedule(context, 0, &sul, next_test_cb, 1);
 
@@ -1212,7 +1211,7 @@ sul_retry_l(struct lws_sorted_usec_list *sul)
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int
@@ -1465,7 +1464,7 @@ evloop:
 	/* the usual lws event loop */
 
 	n = 1;
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

@@ -135,7 +135,7 @@ v4l2_reinit(struct per_vhost_data *vhd)
 	}
 }
 
-static int interrupted;
+static struct lws_context *cx;
 static lws_state_notify_link_t nl, *const app_notifier_list[] = {&nl, NULL};
 
 static int
@@ -390,7 +390,7 @@ callback_webrtc_webcam(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 #else
-static int interrupted;
+static struct lws_context *cx;
 static lws_state_notify_link_t nl, *const app_notifier_list[] = {&nl, NULL};
 
 static int
@@ -420,7 +420,7 @@ static struct lws_http_mount mount = {
 	.protocol = "app-http", .origin_protocol = LWSMPRO_FILE, .mountpoint_len = 1,
 };
 
-void sigint_handler(int sig) { interrupted = 1; }
+void sigint_handler(int sig) { lws_default_loop_exit(cx); }
 
 static struct lws_protocol_vhost_options pvos[] = {
         { &pvos[1], &pvos[3], "lws-webrtc", "ok" },
@@ -469,7 +469,6 @@ int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *cx;
 	const char *opt;
 
         lws_context_info_defaults(&info, NULL);
@@ -520,9 +519,8 @@ main(int argc, const char **argv)
 		return 1;
 	}
 
-        while (!interrupted)
-                if (lws_service(cx, 0) < 0)
-                        break;
+        while (lws_service(cx, 0) >= 0)
+                ;
 
 	lws_context_destroy(cx);
 

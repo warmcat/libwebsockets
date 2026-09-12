@@ -34,7 +34,7 @@ static const struct lws_switches switches[] = {
 #define LWS_PLUGIN_STATIC
 #include "protocol_lws_minimal_dbus_ws_proxy.c"
 
-static int interrupted;
+static struct lws_context *context;
 static struct lws_protocols protocols[] = {
 	LWS_PLUGIN_PROTOCOL_MINIMAL_DBUS_WSPROXY,
 	LWS_PROTOCOL_LIST_TERM
@@ -62,12 +62,11 @@ static const struct lws_protocol_vhost_options pvo = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
-	static struct lws_context *context;
 	struct lws_context_creation_info info;
 	int n = 0;
 	(void)switches;
@@ -99,7 +98,7 @@ int main(int argc, const char **argv)
 
 	/* lws event loop (default poll one) */
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

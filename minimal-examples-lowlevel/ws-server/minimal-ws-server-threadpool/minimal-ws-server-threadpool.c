@@ -49,7 +49,7 @@ static struct lws_protocols protocols[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
-static int interrupted;
+static struct lws_context *context;
 
 static const struct lws_http_mount mount = {
 	.mountpoint		= "/",			/* mountpoint URL */
@@ -84,13 +84,12 @@ static const struct lws_protocol_vhost_options pvo = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	
 	(void)switches;
 
@@ -122,9 +121,8 @@ int main(int argc, const char **argv)
 
 	/* start the threads that create content */
 
-	while (!interrupted)
-		if (lws_service(context, 0))
-			interrupted = 1;
+	while (lws_service(context, 0) >= 0)
+		;
 
 	lws_context_destroy(context);
 

@@ -25,7 +25,7 @@ static const struct lws_switches switches[] = {
 extern const lws_ss_info_t ssi_client, ssi_server;
 
 static struct lws_context *context;
-int interrupted, tests_bad = 1, multipart;
+int tests_bad = 1, multipart;
 static const char * const default_ss_policy =
 	"{"
 	  "\"release\":"			"\"01234567\","
@@ -264,7 +264,7 @@ smd_cb(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t len)
 			lwsl_err("%s: failed to create secure stream\n",
 				 __func__);
 			tests_bad = 1;
-			interrupted = 1;
+			lws_default_loop_exit(context);
 			lws_cancel_service(context);
 			return -1;
 		}
@@ -286,7 +286,7 @@ smd_cb(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t len)
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
@@ -326,7 +326,7 @@ int main(int argc, const char **argv)
 
 	/* the event loop */
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	tests_bad = 0;

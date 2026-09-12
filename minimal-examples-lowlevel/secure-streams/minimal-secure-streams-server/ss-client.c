@@ -9,7 +9,7 @@
 
 #include <libwebsockets.h>
 
-extern int interrupted, tests_bad;
+extern int tests_bad;
 
 typedef struct myss {
 	struct lws_ss_handle 	*ss;
@@ -36,7 +36,7 @@ myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	 */
 	if (flags & LWSSS_FLAG_EOM) {
 		tests_bad = 0;
-		interrupted = 1;
+		lws_default_loop_exit(lws_ss_cx_from_user((myss_t *)userobj));
 	}
 
 	return 0;
@@ -66,7 +66,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		break;
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
-		interrupted = 1;
+		lws_default_loop_exit(lws_ss_cx_from_user(m));
 		break;
 	default:
 		break;

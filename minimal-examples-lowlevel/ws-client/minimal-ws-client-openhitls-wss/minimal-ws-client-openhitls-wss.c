@@ -15,7 +15,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted, bad, completed;
+static int bad, completed;
 static struct lws_context *context;
 
 static const char *test_msg = "hello";
@@ -273,7 +273,7 @@ static lws_state_notify_link_t * const app_notifier_list[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
@@ -310,7 +310,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	while (n >= 0 && !completed && !interrupted)
+	while (n >= 0 && !completed)
 		n = lws_service(context, 0);
 
 	/*

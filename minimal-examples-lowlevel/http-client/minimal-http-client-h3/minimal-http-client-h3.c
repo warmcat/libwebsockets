@@ -15,7 +15,8 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted, bad = 1, status;
+static int bad = 1, status;
+static struct lws_context *context;
 static struct lws *client_wsi;
 static int _argc;
 static const char **_argv;
@@ -34,7 +35,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		bad = 3; /* connection failed before we could make connection */
 		lws_cancel_service(lws_get_context(wsi));
 		break;
@@ -68,14 +69,14 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP\n");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_CLOSED_CLIENT_HTTP\n");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		if (bad == 1)
 			bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
@@ -100,7 +101,7 @@ static const struct lws_protocols protocols[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 static int
@@ -153,7 +154,7 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 	if (!lws_client_connect_via_info(&i)) {
 		lwsl_err("Client creation failed\n");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		if (bad != 3)
 			bad = 3; /* synchronous connection/creation failure */
 		lws_cancel_service(context);
@@ -170,7 +171,6 @@ int main(int argc, const char **argv)
 					     system_notify_cb, "app" };
 	lws_state_notify_link_t *na[] = { &notifier, NULL };
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	int n = 0;
 
 	_argc = argc;
@@ -197,7 +197,7 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

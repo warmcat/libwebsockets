@@ -31,7 +31,8 @@ static const struct lws_switches switches[] = {
 #include <string.h>
 #include <signal.h>
 
-static int interrupted, bad = 1, status;
+static int bad = 1, status;
+static struct lws_context *context;
 static struct lws *client_wsi;
 
 static int
@@ -151,14 +152,13 @@ static const struct lws_protocols protocols[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
-	struct lws_context *context;
 	int n = 0;
 	(void)switches;
 
@@ -228,7 +228,7 @@ int main(int argc, const char **argv)
 	i.pwsi = &client_wsi;
 	lws_client_connect_via_info(&i);
 
-	while (n >= 0 && client_wsi && !interrupted)
+	while (n >= 0 && client_wsi)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

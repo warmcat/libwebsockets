@@ -33,7 +33,7 @@ static const struct lws_switches switches[] = {
 #include <string.h>
 #include <signal.h>
 
-static int interrupted;
+static struct lws_context *context;
 
 static const struct lws_http_mount mount = {
 	.mountpoint		= "/",			/* mountpoint URL */
@@ -391,13 +391,12 @@ static const uint8_t cert_der[] = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	int n, ret = 0;
 	n = 0;
 	(void)switches;
@@ -456,7 +455,7 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	ret = 0;

@@ -38,7 +38,7 @@ static int message_delay = 500000; // microseconds
 static int connection_delay = 100000; // microseconds
 static struct lws_context *context;
 static const char *server_address = "localhost", *pro = "lws-minimal";
-static int interrupted = 0, port = 7681, ssl_connection = 0;
+static int port = 7681, ssl_connection = 0;
 
 static int connect_client()
 {
@@ -85,7 +85,7 @@ callback(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n", in ? (char *)in :
 				"(null)");
-		if(--nclients == 0) interrupted = 1;
+		if(--nclients == 0) lws_default_loop_exit(context);
 		break;
 
 		/* --- client callbacks --- */
@@ -98,7 +98,7 @@ callback(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		lwsl_user("%s: CLOSED\n", __func__);
-		if(--nclients == 0) interrupted = 1;
+		if(--nclients == 0) lws_default_loop_exit(context);
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
@@ -158,7 +158,7 @@ static const struct lws_protocols protocols[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
@@ -249,11 +249,10 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
-	lwsl_notice("%s: exiting service loop. n = %d, interrupted = %d\n",
-			__func__, n, interrupted);
+	lwsl_notice("%s: exiting service loop. n = %d\n", __func__, n);
 
 	lws_context_destroy(context);
 

@@ -28,7 +28,6 @@
 #include <signal.h>
 
 static struct lws_context *cx;
-static int interrupted;
 int test_result = 1;
 
 extern const lws_ss_info_t ssi_binance_t;
@@ -68,7 +67,7 @@ int main(int argc, const char **argv)
 
 	if (lws_ss_create(cx, 0, &ssi_binance_t, NULL, NULL, NULL, NULL)) {
 		lwsl_cx_err(cx, "failed to create secure stream");
-		interrupted = 1;
+		lws_default_loop_exit(cx);
 	}
 
 	lws_context_default_loop_run_destroy(cx);

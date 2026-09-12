@@ -34,7 +34,8 @@ static const struct lws_switches switches[] = {
 #include "static_policy.h"
 #endif
 
-int interrupted, bad = 1;
+int bad = 1;
+static struct lws_context *context;
 static lws_state_notify_link_t nl;
 extern const lws_ss_info_t s3_ssi;
 
@@ -225,14 +226,13 @@ static lws_state_notify_link_t * const app_notifier_list[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	int n = 0;
 	(void)switches;
 
@@ -309,7 +309,7 @@ int main(int argc, const char **argv)
 
 	/* the event loop */
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

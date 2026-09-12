@@ -23,7 +23,7 @@
 #include <signal.h>
 
 static int port = 7681;
-static int interrupted, fails, completed;
+static int fails, completed;
 static unsigned int guard_hits;
 static struct lws_context *cx;
 
@@ -321,7 +321,7 @@ callback_mqtt(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_err("%s: CLIENT_CONNECTION_ERROR: %s\n", __func__,
 			 in ? (const char *)in : "(null)");
 		fails++;
-		interrupted = 1;
+		lws_default_loop_exit(cx);
 		break;
 
 	case LWS_CALLBACK_MQTT_CLIENT_CLOSED:
@@ -330,7 +330,7 @@ callback_mqtt(struct lws *wsi, enum lws_callback_reasons reason,
 				 __func__);
 			fails++;
 		}
-		interrupted = 1;
+		lws_default_loop_exit(cx);
 		break;
 
 	case LWS_CALLBACK_MQTT_CLIENT_ESTABLISHED:
@@ -349,7 +349,7 @@ callback_mqtt(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("%s: MQTT_UNSUBSCRIBED\n", __func__);
 		pss->state = MQST_DONE;
 		completed = 1;
-		interrupted = 1;
+		lws_default_loop_exit(cx);
 		lws_cancel_service(lws_get_context(wsi));
 		break;
 
@@ -440,14 +440,14 @@ watchdog_cb(lws_sorted_usec_list_t *sul)
 {
 	lwsl_err("%s: timed out before completing\n", __func__);
 	fails++;
-	interrupted = 1;
+	lws_default_loop_exit(cx);
 	lws_cancel_service(cx);
 }
 
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(cx);
 }
 
 int main(int argc, const char **argv)
@@ -522,7 +522,7 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
-	while (n2 >= 0 && !interrupted)
+	while (n2 >= 0)
 		n2 = lws_service(cx, 0);
 
 bail:

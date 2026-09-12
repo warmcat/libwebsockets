@@ -25,7 +25,8 @@ static const struct lws_switches switches[] = {
 #include <string.h>
 #include <signal.h>
 
-static int interrupted, bad = 0, status, completed;
+static int bad = 0, status, completed;
+static struct lws_context *context;
 static lws_state_notify_link_t nl;
 static struct lws *client_wsi;
 
@@ -364,13 +365,12 @@ static lws_state_notify_link_t * const app_notifier_list[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	int n = 0;
 	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
 		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
@@ -421,7 +421,7 @@ int main(int argc, const char **argv)
 	 * state OPERATIONAL
 	 */
 
-	while (n >= 0 && completed != 1 && !interrupted)
+	while (n >= 0 && completed != 1)
 		n = lws_service(context, 0);
 
 bail:

@@ -27,7 +27,7 @@
 #define LWS_TEST_SERVER_KEY_PEM "libwebsockets-test-server.key.pem"
 #endif
 
-static int interrupted, bad, completed, server_only;
+static int bad, completed, server_only;
 static lws_state_notify_link_t nl;
 static struct lws_context *context;
 static struct lws *client_wsi;
@@ -182,7 +182,7 @@ sigint_handler(int sig)
 {
 	(void)sig;
 
-	interrupted = 1;
+	lws_default_loop_exit(context);
 
 	if (context) {
 		lws_cancel_service(context);
@@ -289,19 +289,18 @@ int main(int argc, const char **argv)
 	}
 
 	if (server_only) {
-		while (!interrupted) {
+		while (lws_service(context, 0) >= 0) {
 			/*
 			 * Server-only fixture mode is a disposable helper
 			 * process.  Keep servicing until SIGTERM from the
 			 * cleanup fixture and then let process exit reclaim
 			 * resources instead of exercising normal teardown.
 			 */
-			(void)lws_service(context, 0);
 		}
 		return 0;
 	}
 
-	while (n >= 0 && !interrupted && !completed)
+	while (n >= 0 && !completed)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

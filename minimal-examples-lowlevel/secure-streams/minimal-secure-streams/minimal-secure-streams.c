@@ -70,7 +70,8 @@ static const struct lws_switches switches[] = {
  */
 // #define VIA_LOCALHOST_SOCKS
 
-static int interrupted, bad = 1, force_cpd_fail_portal,
+static struct lws_context *context;
+static int bad = 1, force_cpd_fail_portal,
 	   force_cpd_fail_no_internet, test_respmap, test_ots, test_local;
 static unsigned int timeout_ms = 3000;
 static lws_state_notify_link_t nl;
@@ -309,7 +310,7 @@ myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	 */
 	if (flags & LWSSS_FLAG_EOM) {
 		bad = 0;
-		interrupted = 1;
+		lws_default_loop_exit(context);
 	}
 
 	return LWSSSSRET_OK;
@@ -388,7 +389,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		bad = 2;
 		break;
 	case LWSSSCS_CONNECTED:
@@ -409,7 +410,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	case LWSSSCS_TIMEOUT:
 		lwsl_notice("%s: LWSSSCS_TIMEOUT\n", __func__);
 		/* if we're out of time */
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		bad = 3;
 		break;
 
@@ -529,7 +530,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 					  NULL, NULL)) {
 				lwsl_err("%s: failed to create secure stream\n",
 					 __func__);
-				interrupted = 1;
+				lws_default_loop_exit(context);
 				lws_cancel_service(context);
 				return -1;
 			}
@@ -571,13 +572,12 @@ static const lws_system_ops_t system_ops = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	int n = 0, expected = 0;
 	const char *p;
 	(void)switches;
@@ -729,7 +729,7 @@ int main(int argc, const char **argv)
 
 	/* the event loop */
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

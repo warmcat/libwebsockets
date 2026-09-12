@@ -42,7 +42,8 @@ static const struct lws_switches switches[] = {
 #define PKT_SIZE 80
 #define RATE_US 50000
 
-static int interrupted, bad = 1, reads = 100;
+static int bad = 1, reads = 100;
+static struct lws_context *context;
 
 typedef struct myss {
 	struct lws_ss_handle 	*ss;
@@ -74,7 +75,7 @@ txcb(struct lws_sorted_usec_list *sul)
 	 */
 
 	if (m->count == reads) {
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		bad = 0;
 	} else {
 		m->due = 1;
@@ -132,7 +133,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		break;
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		break;
 	default:
 		break;
@@ -144,7 +145,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 static const lws_ss_info_t ssi = {
@@ -161,7 +162,6 @@ int main(int argc, const char **argv)
 {
 	int n = 0;
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	const char *p;
 	(void)switches;
 
@@ -224,7 +224,7 @@ int main(int argc, const char **argv)
 
 	/* the event loop */
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 bail:

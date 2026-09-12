@@ -41,7 +41,8 @@ enum {
 	STATE_TEST_FINISH
 };
 
-static int interrupted, bad = 1, do_ssl;
+static int bad = 1, do_ssl;
+static struct lws_context *context;
 
 static const lws_retry_bo_t retry = {
 	.secs_since_valid_ping		= 20, /* if idle, PINGREQ after secs */
@@ -111,7 +112,7 @@ struct pss {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 static int
@@ -163,7 +164,7 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	*/
 
 	if (connect_client(context))
-		interrupted = 1;
+		lws_default_loop_exit(context);
 
 	return 0;
  }
@@ -181,12 +182,12 @@ callback_mqtt(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("%s: CLIENT_CONNECTION_ERROR: %s\n", __func__,
 			 in ? (char *)in : "(null)");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		break;
 
 	case LWS_CALLBACK_MQTT_CLIENT_CLOSED:
 		lwsl_user("%s: CLIENT_CLOSED\n", __func__);
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		break;
 
 	case LWS_CALLBACK_MQTT_CLIENT_ESTABLISHED:
@@ -272,7 +273,7 @@ callback_mqtt(struct lws *wsi, enum lws_callback_reasons reason,
 		/* Oh we are done then */
 
 		bad = 0;
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		lws_cancel_service(lws_get_context(wsi));
 		break;
 
@@ -282,7 +283,7 @@ callback_mqtt(struct lws *wsi, enum lws_callback_reasons reason,
 		 * We must resend the packet ID mentioned in len
 		 */
 		if (++pss->retries == 3) {
-			interrupted = 1;
+			lws_default_loop_exit(context);
 			break;
 		}
 		pss->state--;
@@ -322,7 +323,6 @@ int main(int argc, const char **argv)
 					     system_notify_cb, "app" };
 	lws_state_notify_link_t *na[] = { &notifier, NULL };
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	int n = 0;
 
 	signal(SIGINT, sigint_handler);
@@ -356,7 +356,7 @@ int main(int argc, const char **argv)
 	}
 
 	/* Event loop */
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lwsl_user("Completed: %s\n", bad ? "failed" : "OK");

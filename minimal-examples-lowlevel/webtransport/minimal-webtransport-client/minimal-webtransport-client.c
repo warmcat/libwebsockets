@@ -15,7 +15,6 @@
 #include <signal.h>
 
 static struct lws_context *context;
-static int interrupted;
 
 static int
 callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
@@ -26,7 +25,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		break;
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
@@ -65,7 +64,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		lwsl_user("LWS_CALLBACK_CLIENT_CLOSED\n");
 		if (lws_wt_is_session(wsi)) {
-			interrupted = 1;
+			lws_default_loop_exit(context);
 		}
 		break;
 
@@ -84,7 +83,7 @@ static const struct lws_protocols protocols[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
@@ -122,10 +121,10 @@ int main(int argc, const char **argv)
 
 	if (!lws_client_connect_via_info(&i)) {
 		lwsl_err("Client connect failed\n");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

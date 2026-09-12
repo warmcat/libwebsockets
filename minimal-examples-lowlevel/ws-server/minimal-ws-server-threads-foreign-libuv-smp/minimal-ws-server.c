@@ -53,7 +53,7 @@ static struct lws_protocols protocols[] = {
 };
 
 static struct lws_context *context;
-static int interrupted;
+static int destroy_started;
 static uv_loop_t loop[COUNT_THREADS];
 static uv_signal_t *s, signal_outer[COUNT_THREADS];
 
@@ -102,8 +102,7 @@ void *thread_service(void *threadid)
 	 * The call to lws_service_tsi just starts the related event loop
 	 */
 	while (lws_service_tsi(context, 0,
-			       (int)(lws_intptr_t)threadid) >= 0 &&
-	       !interrupted)
+			       (int)(lws_intptr_t)threadid) >= 0)
 		lwsl_notice("%s\n", __func__);
 
 	lwsl_info("%s: thr %d: exiting\n", __func__, (int)(lws_intptr_t)threadid);
@@ -125,8 +124,14 @@ signal_cb(uv_signal_t *watcher, int signum)
 
 	uv_signal_stop(watcher);
 	uv_close((uv_handle_t *)&signal_outer[n], NULL);
-	if (!interrupted) {
-		interrupted = 1;
+	/*
+	 * lws is a guest on our loops: its off-ramp is lws_context_destroy(),
+	 * once, from whichever thread's watcher saw the signal first.  It
+	 * detaches from the loops asynchronously; lws_service_tsi() returns
+	 * -1 in each thread as its loop empties.
+	 */
+	if (!destroy_started) {
+		destroy_started = 1;
 		lws_context_destroy(context);
 	}
 }

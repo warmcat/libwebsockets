@@ -23,13 +23,13 @@
 #include <stdio.h>
 #include <assert.h>
 
-static int interrupted, bad = 1;
+static int bad = 1;
 
 
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	(void)sig;
 }
 
 struct aggstr {

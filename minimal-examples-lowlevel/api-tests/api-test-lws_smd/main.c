@@ -32,7 +32,7 @@ static const struct lws_switches switches[] = {
 #define THRESHOLD_PC 55
 
 static unsigned int how_many_msg = 5000, ok, fail, usec_interval = 200, _exp;
-static char interrupted, completed[2] = { 0, 0 };
+static char completed[2] = { 0, 0 };
 
 static lws_sorted_usec_list_t sul_timeout, sul_initial_drain;
 struct lws_context *context;
@@ -43,7 +43,7 @@ timeout_cb(lws_sorted_usec_list_t *sul)
 {
 	/* We should have completed the test before this fires */
 	lwsl_notice("%s: test period finished\n", __func__);
-	interrupted = 1;
+	lws_default_loop_exit(context);
 	lws_cancel_service(context);
 }
 
@@ -103,7 +103,7 @@ _thread_spam(void *d)
 #endif
 	unsigned int n = 0, m = (unsigned int)(intptr_t)d;
 
-	while (!interrupted && n < how_many_msg) {
+	while (n < how_many_msg) {
 		if (lws_smd_msg_printf(context, LWSSMDCL_SYSTEM_STATE,
 					       "{\"s\":\"state\","
 						"\"pid\":%u,"
@@ -131,7 +131,7 @@ _thread_spam(void *d)
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 static void
@@ -175,7 +175,7 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	lwsl_notice("%s: overflow test added %u messages\n", __func__, n);
 	if (n == how_many_msg) {
 		lwsl_err("%s: didn't overflow\n", __func__);
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		return 1;
 	}
 
@@ -311,7 +311,7 @@ main(int argc, const char **argv)
 
 	/* the usual lws event loop */
 
-	while (!interrupted && (!completed[0] || !completed[1]) &&
+	while ((!completed[0] || !completed[1]) &&
 			lws_service(context, 0) >= 0)
 		;
 

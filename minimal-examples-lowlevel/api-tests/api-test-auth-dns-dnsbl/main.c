@@ -63,7 +63,6 @@
 extern const struct lws_protocols lws_auth_dns_protocols[];
 
 static struct lws_context *context;
-static volatile int interrupted;
 
 static int auth_port, bh_port;
 static int stub_fd = -1, cli_udp_fd = -1, cli_tcp_fd = -1;
@@ -363,7 +362,7 @@ sched:
 				__func__, got_answer, stub_saw_queries,
 				tcp_query_sent, tcp_closed);
 		test_ok = 0;
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		lws_cancel_service(context);
 
 		return;
@@ -371,7 +370,7 @@ sched:
 
 	if (got_answer && tcp_closed && stub_saw_queries &&
 	    now - t0 >= END_US) {
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		lws_cancel_service(context);
 
 		return;
@@ -385,7 +384,7 @@ sigint_handler(int sig)
 {
 	(void)sig;
 
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int
@@ -589,7 +588,7 @@ main(int argc, const char **argv)
 	t0 = lws_now_usecs();
 	lws_sul_schedule(context, 0, &sul_drive, drive_cb, TICK_US);
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	/*

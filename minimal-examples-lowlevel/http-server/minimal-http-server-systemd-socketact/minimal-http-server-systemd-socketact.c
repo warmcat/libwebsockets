@@ -17,7 +17,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted;
+static struct lws_context *cx;
 
 static const struct lws_http_mount mount = {
 	.mountpoint			= "/",		    /* mountpoint URL */
@@ -29,13 +29,12 @@ static const struct lws_http_mount mount = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(cx);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *cx;
 	int n = 0;
 
 	lws_context_info_defaults(&info, NULL);
@@ -65,7 +64,7 @@ int main(int argc, const char **argv)
 	}
 
 	n = 0;
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(cx, 0);
 
 	lws_context_destroy(cx);

@@ -24,7 +24,8 @@ static const struct lws_switches switches[] = {
 
 #include <signal.h>
 
-static int interrupted, results[10], count_tests, count_passes;
+static int results[10], count_tests, count_passes;
+static struct lws_context *context;
 
 static int
 email_sent_or_failed(struct lws_smtp_email *email, void *buf, size_t len)
@@ -167,7 +168,7 @@ static lws_unit_test_t tests[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 /*
@@ -185,7 +186,7 @@ static const lws_token_map_t smtp_ap_tokens[] = {
 void
 tests_completion_cb(const void *cb_user)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
@@ -193,7 +194,6 @@ int main(int argc, const char **argv)
 	int n = 1;
 	struct lws_context_creation_info info;
 	lws_test_sequencer_args_t args;
-	struct lws_context *context;
 	lws_abs_t *abs = NULL;
 	struct lws_vhost *vh;
 
@@ -253,7 +253,7 @@ int main(int argc, const char **argv)
 
 	/* the usual lws event loop */
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	/* describe the overall test results */

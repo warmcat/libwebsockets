@@ -40,7 +40,6 @@ static const struct lws_switches switches[] = {
 
 static struct lws_context *context;
 static const char *version = "0.1";
-static int interrupted;
 static struct lws_dbus_ctx dbus_ctx, ctx_listener;
 static char session;
 
@@ -203,7 +202,7 @@ dmh_emit_signal(DBusConnection *c, DBusMessage *m, DBusMessage **reply, void *d)
 static DBusHandlerResult
 dmh_emit_quit(DBusConnection *c, DBusMessage *m, DBusMessage **reply, void *d)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 
 	return DBUS_HANDLER_RESULT_HANDLED;
 }
@@ -464,7 +463,7 @@ spam_connected_clients(struct lws_dbus_ctx *ctx)
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
@@ -518,7 +517,7 @@ int main(int argc, const char **argv)
 
 	/* lws event loop (default poll one) */
 
-	while (n >= 0 && !interrupted) {
+	while (n >= 0) {
 		if (!session)
 			spam_connected_clients(&ctx_listener);
 		n = lws_service(context, 0);

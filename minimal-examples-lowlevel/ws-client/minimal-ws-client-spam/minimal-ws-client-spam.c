@@ -56,7 +56,7 @@ struct client {
 
 static struct lws_context *context;
 static struct client clients[200];
-static int interrupted, port = 443, ssl_connection = LCCSCF_USE_SSL;
+static int port = 443, ssl_connection = LCCSCF_USE_SSL;
 static const char *server_address = "libwebsockets.org",
 		  *pro = "lws-mirror-protocol";
 static int concurrent = 3, conn, tries, est, errors, closed, sent, limit = 15;
@@ -125,7 +125,7 @@ callback_minimal_spam(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 		if (tries == closed + errors) {
-			interrupted = 1;
+			lws_default_loop_exit(context);
 			lws_cancel_service(lws_get_context(wsi));
 		}
 		break;
@@ -143,7 +143,7 @@ callback_minimal_spam(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		closed++;
 		if (tries == closed + errors) {
-			interrupted = 1;
+			lws_default_loop_exit(context);
 			lws_cancel_service(lws_get_context(wsi));
 		}
 		if (tries == limit) {
@@ -204,7 +204,7 @@ static struct lws_protocol_vhost_options pvo = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
@@ -293,7 +293,7 @@ int main(int argc, const char **argv)
 		connect_client(n);
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lwsl_notice("%s: exiting service loop\n", __func__);

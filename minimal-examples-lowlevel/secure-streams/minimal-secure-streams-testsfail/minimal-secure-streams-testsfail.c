@@ -44,7 +44,7 @@ static const struct lws_switches switches[] = {
 #include <string.h>
 #include <signal.h>
 
-static int interrupted, tests, tests_pass, tests_fail, doing_a_retry;
+static int tests, tests_pass, tests_fail, doing_a_retry;
 static lws_sorted_usec_list_t sul_next_test;
 static lws_state_notify_link_t nl;
 struct lws_context *context;
@@ -894,7 +894,7 @@ tests_start_next(lws_sorted_usec_list_t *sul)
 
 	if ((unsigned int)tests >= LWS_ARRAY_SIZE(tests_seq)) {
 		lwsl_notice("Completed all tests\n");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		/* don't sit in poll() until some unrelated sul fires */
 		lws_cancel_service(context);
 		return;
@@ -919,7 +919,7 @@ tests_start_next(lws_sorted_usec_list_t *sul)
 		lwsl_err("%s: failed to create secure stream\n",
 			 __func__);
 		tests_fail++;
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		return;
 	}
 }
@@ -970,7 +970,7 @@ static const lws_system_ops_t system_ops = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int
@@ -1069,7 +1069,7 @@ main(int argc, const char **argv)
 
 	/* the event loop */
 
-	do { } while(lws_service(context, 0) >= 0 && !interrupted);
+	do { } while(lws_service(context, 0) >= 0);
 
 	lws_context_destroy(context);
 

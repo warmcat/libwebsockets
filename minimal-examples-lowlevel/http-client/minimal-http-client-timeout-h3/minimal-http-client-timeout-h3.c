@@ -27,7 +27,8 @@
 /* A short, deterministic reply timeout for the client. */
 #define CLIENT_TIMEOUT_SECS	4
 
-static int interrupted, bad = 1;
+static struct lws_context *g_context;
+static int bad = 1;
 static struct lws *client_wsi;
 static int _argc;
 static const char **_argv;
@@ -173,7 +174,7 @@ callback_client_http(struct lws *wsi, enum lws_callback_reasons reason,
 		 * This is the expected outcome: the reply timeout fired while
 		 * we were in LRS_WAITING_SERVER_REPLY.
 		 */
-		interrupted = 1;
+		lws_default_loop_exit(g_context);
 		bad = 0;
 		lws_cancel_service(lws_get_context(wsi));
 		break;
@@ -183,14 +184,14 @@ callback_client_http(struct lws *wsi, enum lws_callback_reasons reason,
 		 * response would be cleared and we'd come here.  That's not what
 		 * this test wants, so treat it as a failure. */
 		lwsl_err("Unexpected response from blackhole server\n");
-		interrupted = 1;
+		lws_default_loop_exit(g_context);
 		bad = 2;
 		lws_cancel_service(lws_get_context(wsi));
 		break;
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_err("Unexpected COMPLETED from blackhole server\n");
-		interrupted = 1;
+		lws_default_loop_exit(g_context);
 		bad = 2;
 		lws_cancel_service(lws_get_context(wsi));
 		break;
@@ -201,7 +202,7 @@ callback_client_http(struct lws *wsi, enum lws_callback_reasons reason,
 		 * normal completion. */
 		if (bad == 1) {
 			lwsl_notice("CLOSED_CLIENT_HTTP (timed out via close path)\n");
-			interrupted = 1;
+			lws_default_loop_exit(g_context);
 			bad = 0;
 			lws_cancel_service(lws_get_context(wsi));
 		}
@@ -222,7 +223,7 @@ static const struct lws_protocols client_protocols[] = {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(g_context);
 }
 
 static int
@@ -267,7 +268,6 @@ connect_client(struct lws_context *context, struct lws_vhost *vh,
  * the sul fires the context + TLS global init are ready.
  */
 static lws_sorted_usec_list_t connect_sul;
-static struct lws_context *g_context;
 static struct lws_vhost *g_client_vh;
 
 static void
@@ -283,7 +283,7 @@ connect_sul_cb(lws_sorted_usec_list_t *sul)
 		port = (uint16_t)atoi(p);
 	if (!port) {
 		lwsl_err("client mode needs -p <server port>\n");
-		interrupted = 1;
+		lws_default_loop_exit(g_context);
 		bad = 5;
 		return;
 	}
@@ -293,7 +293,7 @@ connect_sul_cb(lws_sorted_usec_list_t *sul)
 #else
 	if (connect_client(g_context, g_client_vh, "::1", port))
 #endif
-		interrupted = 1;
+		lws_default_loop_exit(g_context);
 }
 
 int
@@ -413,7 +413,7 @@ main(int argc, const char **argv)
 				 1 * LWS_US_PER_SEC);
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

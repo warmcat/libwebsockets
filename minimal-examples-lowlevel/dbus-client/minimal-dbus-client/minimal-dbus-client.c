@@ -33,7 +33,6 @@ static const struct lws_switches switches[] = {
 
 static struct lws_dbus_ctx *dbus_ctx;
 static struct lws_context *context;
-static int interrupted;
 
 #define THIS_INTERFACE	 "org.libwebsockets.test"
 #define THIS_OBJECT	 "/org/libwebsockets/test"
@@ -152,7 +151,7 @@ fail:
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 /*
@@ -267,7 +266,7 @@ int main(int argc, const char **argv)
 
 	/* lws event loop (default poll one) */
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 bail2:

@@ -42,7 +42,6 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted;
 static int result = 1;
 static struct lws_context *context;
 
@@ -183,7 +182,7 @@ sul_timeout_cb(lws_sorted_usec_list_t *sul)
 {
 	lwsl_err("--- timeout: rx %d / %d, sent %d ---\n",
 		 (int)cli_rx, TEST_TOTAL, (int)srv_sent);
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 static int
@@ -210,7 +209,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("%s: server: established\n", __func__);
 		if (!saw_pmd_offer) {
 			lwsl_err("--- no permessage-deflate offer seen ---\n");
-			interrupted = 1;
+			lws_default_loop_exit(context);
 			return -1;
 		}
 		srv_sent = 0;
@@ -241,7 +240,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_err("--- short write: accepted %d of %d "
 					 "(post-compression size leaked?) ---\n",
 					 wr, (int)n);
-				interrupted = 1;
+				lws_default_loop_exit(context);
 				return -1;
 			}
 			srv_sent += n;
@@ -267,7 +266,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("%s: client: established\n", __func__);
 		if (lws_get_network_wsi(wsi) == wsi) {
 			lwsl_err("--- not encapsulated in h2 ---\n");
-			interrupted = 1;
+			lws_default_loop_exit(context);
 			return -1;
 		}
 		client_wsi = wsi;
@@ -278,7 +277,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			if (((uint8_t *)in)[i] != pattern_byte(cli_rx + i)) {
 				lwsl_err("--- pattern corrupt at ofs %d ---\n",
 					 (int)(cli_rx + i));
-				interrupted = 1;
+				lws_default_loop_exit(context);
 				return -1;
 			}
 		cli_rx += len;
@@ -287,7 +286,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_user("--- transfer complete and intact. "
 				  "Test passed. ---\n");
 			result = 0;
-			interrupted = 1;
+			lws_default_loop_exit(context);
 			return -1;
 		}
 		break;
@@ -295,7 +294,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("--- client connection error: %s ---\n",
 			 in ? (char *)in : "(null)");
-		interrupted = 1;
+		lws_default_loop_exit(context);
 		break;
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
@@ -303,7 +302,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			  (int)cli_rx, (int)srv_sent);
 		client_wsi = NULL;
 		if (result)
-			interrupted = 1;
+			lws_default_loop_exit(context);
 		break;
 
 	default:
@@ -326,7 +325,7 @@ static const struct lws_protocols protocols_cli[] = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
@@ -414,7 +413,7 @@ int main(int argc, const char **argv)
 	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
 			 20 * LWS_US_PER_SEC);
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 bail:

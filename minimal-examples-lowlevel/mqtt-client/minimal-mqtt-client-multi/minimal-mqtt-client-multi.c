@@ -58,7 +58,8 @@ enum {
 	STATE_TEST_FINISH
 };
 
-static int interrupted, do_ssl, pipeline, stagger_us = 5000, okay,
+static struct lws_context *context;
+static int do_ssl, pipeline, stagger_us = 5000, okay,
 	   done, count = COUNT;
 
 static const lws_retry_bo_t retry = {
@@ -128,7 +129,7 @@ struct pss {
 static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 static int
@@ -175,7 +176,7 @@ start_conn(struct lws_sorted_usec_list *sul)
 	lwsl_notice("%s: item %d\n", __func__, (int)(item - &items[0]));
 
 	if (connect_client(item->context, item))
-		interrupted = 1;
+		lws_default_loop_exit(context);
 }
 
 
@@ -382,7 +383,7 @@ callback_mqtt(struct lws *wsi, enum lws_callback_reasons reason,
 	return 0;
 
 finish_test:
-	interrupted = 1;
+	lws_default_loop_exit(context);
 	lws_cancel_service(lws_get_context(wsi));
 
 	return 0;
@@ -403,7 +404,6 @@ int main(int argc, const char **argv)
 					     system_notify_cb, "app" };
 	lws_state_notify_link_t *na[] = { &notifier, NULL };
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	const char *p;
 	int n = 0;
 
@@ -452,7 +452,7 @@ int main(int argc, const char **argv)
 	}
 
 	/* Event loop */
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lwsl_user("%s: Completed: %d/%d ok, %s\n", __func__, okay, count,

@@ -28,7 +28,7 @@ static const struct lws_switches switches[] = {
 #include "../../../plugins/protocol_fulltext_demo/protocol_fulltext_demo.c"
 
 const char *index_filepath = "./lws-fts.index";
-static int interrupted;
+static struct lws_context *context;
 
 static struct lws_protocols protocols[] = {
 	LWS_PLUGIN_PROTOCOL_FULLTEXT_DEMO,
@@ -69,14 +69,13 @@ static const struct lws_http_mount mount = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	int n = 0;
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	(void)switches;
 
 	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
@@ -108,7 +107,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

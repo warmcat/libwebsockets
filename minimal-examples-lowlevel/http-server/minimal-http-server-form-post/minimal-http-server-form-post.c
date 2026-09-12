@@ -41,7 +41,8 @@ struct pss {
 	struct lws_spa *spa;
 };
 
-static int interrupted, use303;
+static int use303;
+static struct lws_context *context;
 
 static const char * const param_names[] = {
 	"text1",
@@ -167,13 +168,12 @@ static const struct lws_http_mount mount = {
 
 void sigint_handler(int sig)
 {
-	interrupted = 1;
+	lws_default_loop_exit(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	const char *p;
 	int n = 0;
 	(void)switches;
@@ -225,7 +225,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	while (n >= 0 && !interrupted)
+	while (n >= 0)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);

@@ -50,7 +50,7 @@ static const struct lws_switches switches[] = {
 
 #define TEST_CLIENT_ID "SN12345678"
 
-static int interrupted, bad = 1, port = 0 /* unix domain socket */;
+static int bad = 1, port = 0 /* unix domain socket */;
 static const char *ibind = NULL; /* default to unix domain skt "proxy.ss.lws" */
 static lws_state_notify_link_t nl;
 static struct lws_context *context;
@@ -482,7 +482,7 @@ static void
 sigint_handler(int sig)
 {
 	lwsl_notice("%s\n", __func__);
-	interrupted = 1;
+	lws_default_loop_exit(context);
 	lws_cancel_service(context);
 }
 
@@ -566,7 +566,7 @@ int main(int argc, const char **argv)
 
 	do {
 		n = lws_service(context, 0);
-	} while (n >= 0 && !interrupted);
+	} while (n >= 0);
 
 	bad = 0;
 
