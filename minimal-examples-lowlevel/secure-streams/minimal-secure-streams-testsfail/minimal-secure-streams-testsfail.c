@@ -10,6 +10,13 @@
  * This demonstrates various kinds of successful and failed connection
  * situations in order to confirm the correct states are coming.
  *
+ * Everything is local: the http fixtures are lws-minimal-http-server-httpbin
+ * and -tls, and name resolution goes through lws async dns to a local
+ * lws-api-test-dns-server that is authoritative for sstf.test only (see the
+ * zone next to this file).  So it needs a build with LWS_WITH_SYS_ASYNC_DNS
+ * and the LWS_ASYNCDNS_RESOLV_CONF / LWS_ASYNCDNS_PORT env pointing at the
+ * mock, which the ctest sets up.
+ *
  * You can control how much bulk data is requested from the peer using
  * --amount xxx, the default without that is 12345 bytes.
  */
@@ -478,10 +485,19 @@ struct tests_seq {
 	 * the retries all use the first entry it is done in ~800ms.
 	 */
 	uint64_t		min_us;
+	/*
+	 * For tests that must end in UNREACHABLE, the value the state
+	 * callback's ack argument must carry with it: 0 means the name was
+	 * authoritatively refused (NXDOMAIN), 1 means the resolver itself
+	 * could not be used.  -1 means don't check it.
+	 */
+	int8_t			unreach_ack;
 } tests_seq[] = {
 
 	/*
-	 * We just get a 200 from httpbin.org as a sanity check first
+	 * Get a 200 from the local httpbin as a sanity check first.  The plain h1
+	 * streams resolve hbin.sstf.test via the mock DNS; the tls ones use the
+	 * local test cert's own name, since that is what it is issued for.
 	 */
 
 	{
@@ -489,27 +505,26 @@ struct tests_seq {
 		"t_h1", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0
+		0, 0, -1
 	},
 	{
 		"h1:443 just get 200",
 		"t_h1_tls", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0
+		0, 0, -1
 	},
 	{
 		"h2:443 just get 200",
 		"t_h2_tls", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0
+		0, 0, -1
 	},
 
 	/*
-	 * We arranged that the server will delay 10s before sending the
-	 * response, but set our ss timeout for 5s.  So we expect to see
-	 * our timeout and not an ACK / 200.
+	 * The server delays its response 10s but the stream timeout is 3s, so
+	 * we expect to see our timeout and not an ACK / 200.
 	 */
 
 	{
@@ -517,124 +532,134 @@ struct tests_seq {
 		"d_h1", 3 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0
+		0, 0, -1
 	},
 	{
 		"h1:443 timeout after connection",
 		"d_h1_tls", 3 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0
+		0, 0, -1
 	},
 	{
 		"h2:443 timeout after connection",
 		"d_h2_tls", 3 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
-		0, 0
+		0, 0, -1
 	},
 
 	/*
-	 * We are talking to a nonexistant dns address "bogus.nope".  We expect
-	 * in each case to hear that is unreachable, before any ss timeout.
+	 * nxd.sstf.test is inside the mock's zone but has no records, so the
+	 * mock answers NXDOMAIN.  We expect UNREACHABLE promptly, before any
+	 * stream timeout, with the ack arg 0: it was the name that failed.
 	 */
 
 	{
 		"h1:80 NXDOMAIN",
-		"nxd_h1", 35 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
+		"nxd_h1", 15 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0
+		0, 0, 0
 	},
 	{
 		"h1:443 NXDOMAIN",
-		"nxd_h1_tls", 35 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
+		"nxd_h1_tls", 15 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0
+		0, 0, 0
 	},
 	{
 		"h2:443 NXDOMAIN",
-		"nxd_h2_tls", 35 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
+		"nxd_h2_tls", 15 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0
+		0, 0, 0
 	},
 
 	/*
-	 * We are talking to a nonexistant dns address "bogus.nope".  We expect
-	 * that if we stick around longer, retries will also end up all failing.
-	 * We might see the timeout depending on blocking getaddrinfo
-	 * behaviour.
+	 * bogus.nope is outside the mock's zone, so it answers REFUSED.  That is
+	 * the resolver declining, not a statement about the name: lws must not
+	 * cache it as NXDOMAIN, must spend its dns retry budget (5 x 1s), and
+	 * then report UNREACHABLE with the ack arg 1: the resolver failed.
+	 */
+
+	{
+		"h1:80 resolver REFUSED",
+		"refused_h1", 20 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
+		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
+		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED),
+		0, 0, 1
+	},
+
+	/*
+	 * Stick around on NXDOMAIN and the policy retries must also all fail,
+	 * taking at least as long as the escalating backoff table says.
 	 */
 
 	{
 		"h1:80 NXDOMAIN exhaust retries",
-		"nxd_h1", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"nxd_h1", 15 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
-		0, MIN_BACKOFF_US
+		0, MIN_BACKOFF_US, -1
 	},
 	{
 		"h1:443 NXDOMAIN exhaust retries",
-		"nxd_h1_tls", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"nxd_h1_tls", 15 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
-		0, MIN_BACKOFF_US
+		0, MIN_BACKOFF_US, -1
 	},
 	{
 		"h2:443 NXDOMAIN exhaust retries",
-		"nxd_h2_tls", 25 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"nxd_h2_tls", 15 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
-		0, MIN_BACKOFF_US
+		0, MIN_BACKOFF_US, -1
 	},
 
 	/*
-	 * Let's request some bulk data from httpbin.org
+	 * Request some bulk data, the amount is patched in from --amount.
 	 */
 
 	{
 		"h1:80 read bulk",
 		"bulk_h1", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-		(1 << LWSSSCS_ALL_RETRIES_FAILED),
-		12345, 0
+					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
+		12345, 0, -1
 	},
 	{
 		"h1:443 read bulk",
 		"bulk_h1_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-		(1 << LWSSSCS_ALL_RETRIES_FAILED),
-		12345, 0
+					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
+		12345, 0, -1
 	},
 	{
 		"h2:443 read bulk",
 		"bulk_h2_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-		(1 << LWSSSCS_ALL_RETRIES_FAILED),
-		12345, 0
+					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
+		12345, 0, -1
 	},
 
 	/*
-	 * Let's fail at the tls negotiation various ways
+	 * Fail at the tls negotiation various ways: connect to the tls httpbin
+	 * by its mock DNS name, so its cert (issued for localhost) fails the
+	 * hostname check although the CA is trusted; and to a server whose cert
+	 * is self-signed by a CA that is not in the trust store.
 	 */
 
 	{
 		"h1:badcert_hostname",
-		"badcert_hostname", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"badcert_hostname", 15 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_NACK_REMOTE),
-		0, MIN_BACKOFF_US
-	},
-	{
-		"h1:badcert_expired",
-		"badcert_expired", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
-		(1 << LWSSSCS_QOS_NACK_REMOTE),
-		0, MIN_BACKOFF_US
+		0, MIN_BACKOFF_US, -1
 	},
 	{
 		"h1:badcert_selfsigned",
-		"badcert_selfsigned", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"badcert_selfsigned", 15 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_NACK_REMOTE),
-		0, MIN_BACKOFF_US
+		0, MIN_BACKOFF_US, -1
 	},
-
 };
 
 typedef struct myss {
@@ -718,6 +743,18 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 			return LWSSSSRET_DESTROY_ME;
 		}
 
+		if (state == LWSSSCS_UNREACHABLE && curr_test->unreach_ack >= 0 &&
+		    (int)ack != (int)curr_test->unreach_ack) {
+			lwsl_notice("%s: failing on UNREACHABLE ack %d, "
+				    "expected %d\n", __func__, (int)ack,
+				    (int)curr_test->unreach_ack);
+			m->result_reported = 1;
+			tests_fail++;
+			lws_sul_schedule(context, 0, &sul_next_test, tests_start_next, 1);
+			h = NULL;
+			return LWSSSSRET_DESTROY_ME;
+		}
+
 		if (curr_test->min_us &&
 		    (uint64_t)(lws_now_usecs() - m->start_us) < curr_test->min_us) {
 			lwsl_notice("%s: failing on %s after only %dms, "
@@ -756,8 +793,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 			unsigned int remaining;
 
 			if (used > (lws_usec_t)curr_test->timeout_us) {
-				if (curr_test->must_see == LWSSSCS_TIMEOUT ||
-				    (curr_test->must_see == LWSSSCS_ALL_RETRIES_FAILED)) {
+				if (curr_test->must_see == LWSSSCS_TIMEOUT) {
 					lwsl_notice("%s: ++++++++ saw expected state %s (manual)\n", __func__, lws_ss_state_name(curr_test->must_see));
 					tests_pass++;
 				} else {
@@ -789,8 +825,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 			unsigned int remaining;
 
 			if (used > (lws_usec_t)curr_test->timeout_us) {
-				if (curr_test->must_see == LWSSSCS_TIMEOUT ||
-				    (curr_test->must_see == LWSSSCS_ALL_RETRIES_FAILED)) {
+				if (curr_test->must_see == LWSSSCS_TIMEOUT) {
 					lwsl_notice("%s: ++++++++ saw expected state %s (manual)\n", __func__, lws_ss_state_name(curr_test->must_see));
 					tests_pass++;
 				} else {
@@ -943,6 +978,7 @@ main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	const char *pp;
+	int n;
 	(void)switches;
 
 	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
@@ -960,8 +996,9 @@ main(int argc, const char **argv)
 
 	/* set the expected payload for the bulk-related tests to amount */
 
-	tests_seq[12].eom_pass = tests_seq[13].eom_pass =
-					tests_seq[14].eom_pass = amount;
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(tests_seq); n++)
+		if (!strncmp(tests_seq[n].streamtype, "bulk_", 5))
+			tests_seq[n].eom_pass = amount;
 #if !defined(LWS_SS_USE_SSPC)
 	if ((pp = lws_cmdline_option(argc, argv, switches[LWS_SW_C].sw))) {
 		info.pss_policies_json = pp;

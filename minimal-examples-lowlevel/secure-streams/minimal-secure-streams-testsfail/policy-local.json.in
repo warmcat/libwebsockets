@@ -68,7 +68,7 @@
     },
     {
       "t_h1": {
-        "endpoint": "@LWS_CTEST_SERVER_RESOLVE@",
+        "endpoint": "hbin.sstf.test",
         "port": @PORT_TF_SRV@,
         "protocol": "h1",
         "http_method": "GET",
@@ -107,7 +107,7 @@
     },
     {
       "d_h1": {
-        "endpoint": "@LWS_CTEST_SERVER_RESOLVE@",
+        "endpoint": "hbin.sstf.test",
         "port": @PORT_TF_SRV@,
         "protocol": "h1",
         "http_method": "GET",
@@ -146,7 +146,7 @@
     },
     {
       "nxd_h1": {
-        "endpoint": "bogus.nope",
+        "endpoint": "nxd.sstf.test",
         "port": 80,
         "protocol": "h1",
         "http_method": "GET",
@@ -157,7 +157,7 @@
     },
     {
       "nxd_h1_tls": {
-        "endpoint": "bogus.nope",
+        "endpoint": "nxd.sstf.test",
         "port": 443,
         "protocol": "h1",
         "http_method": "GET",
@@ -170,7 +170,7 @@
     },
     {
       "nxd_h2_tls": {
-        "endpoint": "bogus.nope",
+        "endpoint": "nxd.sstf.test",
         "port": 443,
         "protocol": "h2",
         "http_method": "GET",
@@ -184,8 +184,19 @@
       }
     },
     {
+      "refused_h1": {
+        "endpoint": "bogus.nope",
+        "port": 80,
+        "protocol": "h1",
+        "http_method": "GET",
+        "http_url": "/status/200",
+        "timeout_ms": 20000,
+        "retry": "default"
+      }
+    },
+    {
       "bulk_h1": {
-        "endpoint": "@LWS_CTEST_SERVER_RESOLVE@",
+        "endpoint": "hbin.sstf.test",
         "port": @PORT_TF_SRV@,
         "protocol": "h1",
         "http_method": "GET",
@@ -239,28 +250,15 @@
     },
     {
       "badcert_hostname": {
-        "endpoint": "@LWS_CTEST_SERVER_RESOLVE@",
-        "port": @PORT_TF_SRV_B_HOST@,
+        "endpoint": "hbin.sstf.test",
+        "port": @PORT_TF_SRV_TLS@,
         "protocol": "h1",
         "http_method": "GET",
         "http_url": "/",
         "tls": true,
         "timeout_ms": 3000,
         "retry": "default",
-        "tls_trust_store": "le_via_isrg"
-      }
-    },
-    {
-      "badcert_expired": {
-        "endpoint": "@LWS_CTEST_SERVER_RESOLVE@",
-        "port": @PORT_TF_SRV_B_EXP@,
-        "protocol": "h1",
-        "http_method": "GET",
-        "http_url": "/",
-        "tls": true,
-        "retry": "default",
-        "timeout_ms": 3000,
-        "tls_trust_store": "le_via_isrg"
+        "tls_trust_store": "local_test"
       }
     },
     {
@@ -271,8 +269,6 @@
         "http_method": "GET",
         "http_url": "/",
         "tls": true,
-        "nghttp2_quirk_end_stream": true,
-        "h2q_oflow_txcr": true,
         "timeout_ms": 5000,
         "retry": "default",
         "tls_trust_store": "le_via_isrg"

@@ -1,0 +1,17 @@
+$ORIGIN sstf.test.
+$TTL 60
+@	IN	SOA	ns1.sstf.test. hostmaster.sstf.test. (
+			2026091201 ; serial
+			3600       ; refresh
+			1800       ; retry
+			604800     ; expire
+			30         ; minimum TTL, also the negative cache ttl
+			)
+@	IN	NS	ns1.sstf.test.
+ns1	IN	A	127.0.0.1
+
+; the local http fixtures, both families so ipv4-only and ipv6-only builds
+; each find something to connect to.  Nothing in this zone is called nxd,
+; and nothing outside this zone is answered at all.
+hbin	IN	A	127.0.0.1
+hbin	IN	AAAA	::1
