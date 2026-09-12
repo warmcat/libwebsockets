@@ -90,7 +90,7 @@ void
 mark_as_pinged(struct lws_dht_ctx *ctx, struct node *n, struct bucket *b)
 {
 	n->pinged++;
-	n->pinged_time = ctx->now.tv_sec;
+	n->pinged_time = ctx->now;
 	if (n->pinged >= LWS_DHT_MAX_PING_FAILURES)
 		send_cached_ping(ctx, b ? b : find_bucket(ctx, n->id, n->ss.ss_family));
 }
@@ -119,7 +119,7 @@ rotate_secrets(struct lws_dht_ctx *ctx)
 	 * invalidating tokens we handed out seconds earlier.
 	 */
 	lws_get_random(ctx->vhost->context, &r, sizeof(r));
-	ctx->rotate_secrets_time = ctx->now.tv_sec + 900 + (time_t)(r % 1800);
+	ctx->rotate_secrets_time = ctx->now + 900 + (time_t)(r % 1800);
 
 	memcpy(ctx->oldsecret, ctx->secret, sizeof(ctx->secret));
 
@@ -448,21 +448,21 @@ int
 token_bucket(struct lws_dht_ctx *ctx)
 {
 	/*
-	 * ->now.tv_sec is wall clock, so a backwards step (NTP, snapshot
+	 * ->now is wall clock, so a backwards step (NTP, snapshot
 	 * restore) can make the elapsed time negative.  Test <= 0 and clamp the
 	 * refill at 0: with the old "== 0" test a single negative refill left
 	 * the counter negative forever, so the limiter silently never fired
 	 * again for the life of the context.
 	 */
 	if (ctx->token_bucket_tokens <= 0) {
-		long elapsed = (long)(ctx->now.tv_sec - ctx->token_bucket_time);
+		long elapsed = (long)(ctx->now - ctx->token_bucket_time);
 
 		if (elapsed < 0)
 			elapsed = 0;
 
 		ctx->token_bucket_tokens = (int)MIN(
 				(long)MAX_TOKEN_BUCKET_TOKENS, 100 * elapsed);
-		ctx->token_bucket_time = ctx->now.tv_sec;
+		ctx->token_bucket_time = ctx->now;
 	}
 
 	if (ctx->token_bucket_tokens <= 0)

@@ -263,7 +263,7 @@ struct lws_dht_ctx {
 	lws_sorted_usec_list_t	sul_ip_monitor;
 	uint16_t		ip_monitor_seqno;
 
-	struct timeval		now;
+	time_t			now;
 
 	uint8_t			secret[16]; /* token key, rotated */
 	uint8_t			oldsecret[16];

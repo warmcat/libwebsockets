@@ -107,7 +107,7 @@ storage_store(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 
 	if (i < st->numpeers) {
 		/* Already there, only need to refresh */
-		st->peers[i].time = ctx->now.tv_sec;
+		st->peers[i].time = ctx->now;
 
 		return 0;
 	}
@@ -129,7 +129,7 @@ storage_store(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 	}
 
 	p		= &st->peers[st->numpeers++];
-	p->time		= ctx->now.tv_sec;
+	p->time		= ctx->now;
 	p->len		= (unsigned short)len;
 	memcpy(p->ip, ip, (size_t)len);
 	p->port		= port;
@@ -146,7 +146,7 @@ expire_storage(struct lws_dht_ctx *ctx)
 		int i = 0;
 
 		while (i < st->numpeers) {
-			if (st->peers[i].time < ctx->now.tv_sec - 32 * 60) {
+			if (st->peers[i].time < ctx->now - 32 * 60) {
 				if (i != st->numpeers - 1)
 					st->peers[i] = st->peers[st->numpeers - 1];
 				st->numpeers--;
@@ -165,7 +165,7 @@ expire_storage(struct lws_dht_ctx *ctx)
 			struct subscriber *sub = lws_container_of(ds,
 						struct subscriber, list);
 
-			if (sub->expire <= ctx->now.tv_sec) {
+			if (sub->expire <= ctx->now) {
 				lws_dll2_remove(ds);
 				lws_free(sub);
 			}

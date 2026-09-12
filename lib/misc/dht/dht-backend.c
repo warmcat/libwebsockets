@@ -76,7 +76,7 @@ check_pending_notifications(struct lws_dht_ctx *ctx)
 			struct subscriber *sub = lws_container_of(dsb, struct subscriber, list);
 
 			if (sub->pending_notify) {
-				if (ctx->now.tv_sec >= sub->last_notify + 3) {
+				if (ctx->now >= sub->last_notify + 3) {
 					if (sub->notify_retries >= 5) {
 						/* give up on this subscriber */
 						lws_dll2_remove(dsb);
@@ -85,7 +85,7 @@ check_pending_notifications(struct lws_dht_ctx *ctx)
 					}
 
 					lws_dht_send_notify(ctx, (struct sockaddr *)&sub->ss, sub->sslen, sub->tid, sub->tid_len, st->id, sub->pending_sha256, NULL, 0);
-					sub->last_notify = ctx->now.tv_sec;
+					sub->last_notify = ctx->now;
 					sub->notify_retries++;
 				}
 				soon = 1;
@@ -103,12 +103,12 @@ lws_dht_periodic_cb(lws_sorted_usec_list_t *sul)
 	time_t tosleep = 10;
 	uint32_t r;
 
-	ctx->now.tv_sec = (time_t)lws_now_secs();
+	ctx->now = (time_t)lws_now_secs();
 
-	if (ctx->now.tv_sec >= ctx->rotate_secrets_time)
+	if (ctx->now >= ctx->rotate_secrets_time)
 		rotate_secrets(ctx);
 
-	if (ctx->now.tv_sec >= ctx->expire_stuff_time) {
+	if (ctx->now >= ctx->expire_stuff_time) {
 		int soon = 0;
 
 		expire_buckets(ctx, &ctx->buckets);
@@ -118,15 +118,15 @@ lws_dht_periodic_cb(lws_sorted_usec_list_t *sul)
 
 		soon |= bucket_maintenance(ctx, AF_INET);
 		soon |= bucket_maintenance(ctx, AF_INET6);
-		ctx->expire_stuff_time = ctx->now.tv_sec + LWS_DHT_IDLE_EXPIRE_SECS;
+		ctx->expire_stuff_time = ctx->now + LWS_DHT_IDLE_EXPIRE_SECS;
 		if (soon) {
 			if (ctx->confirm_nodes_time == 0 ||
-			    ctx->confirm_nodes_time > ctx->now.tv_sec + 2)
-				ctx->confirm_nodes_time = ctx->now.tv_sec + 2;
+			    ctx->confirm_nodes_time > ctx->now + 2)
+				ctx->confirm_nodes_time = ctx->now + 2;
 		}
 	}
 
-	if (ctx->search_time > 0 && ctx->now.tv_sec >= ctx->search_time) {
+	if (ctx->search_time > 0 && ctx->now >= ctx->search_time) {
 		/*
 		 * search_step() dispatches the app's SEARCH_DONE callback, and
 		 * an app that starts a search from there can retire a done
@@ -136,7 +136,7 @@ lws_dht_periodic_cb(lws_sorted_usec_list_t *sul)
 					   lws_dll2_get_head(&ctx->searches)) {
 			struct search *sr = lws_container_of(d, struct search, list);
 
-			if (!sr->done && sr->step_time + 5 <= ctx->now.tv_sec)
+			if (!sr->done && sr->step_time + 5 <= ctx->now)
 				search_step(ctx, sr, ctx->cb, ctx->closure);
 		} lws_end_foreach_dll_safe(d, d1);
 
@@ -158,14 +158,14 @@ lws_dht_periodic_cb(lws_sorted_usec_list_t *sul)
 		} lws_end_foreach_dll(d2);
 	}
 
-	if (ctx->confirm_nodes_time > 0 && ctx->now.tv_sec >= ctx->confirm_nodes_time) {
+	if (ctx->confirm_nodes_time > 0 && ctx->now >= ctx->confirm_nodes_time) {
 		int soon = neighbourhood_maintenance(ctx, AF_INET) |
 			   neighbourhood_maintenance(ctx, AF_INET6);
 
 		if (!soon) {
-			if (ctx->mybucket_grow_time >= ctx->now.tv_sec - 150)
+			if (ctx->mybucket_grow_time >= ctx->now - 150)
 				soon |= neighbourhood_maintenance(ctx, AF_INET);
-			if (ctx->mybucket6_grow_time >= ctx->now.tv_sec - 150)
+			if (ctx->mybucket6_grow_time >= ctx->now - 150)
 				soon |= neighbourhood_maintenance(ctx, AF_INET6);
 		}
 
@@ -177,13 +177,13 @@ lws_dht_periodic_cb(lws_sorted_usec_list_t *sul)
 		lws_get_random(ctx->vhost->context, &r, sizeof(r));
 
 		if (soon)
-			ctx->confirm_nodes_time = ctx->now.tv_sec + 5 + (time_t)(r % 20);
+			ctx->confirm_nodes_time = ctx->now + 5 + (time_t)(r % 20);
 		else
-			ctx->confirm_nodes_time = ctx->now.tv_sec + 60 + (time_t)(r % 120);
+			ctx->confirm_nodes_time = ctx->now + 60 + (time_t)(r % 120);
 	}
 
-	if (ctx->confirm_nodes_time > ctx->now.tv_sec)
-		tosleep = ctx->confirm_nodes_time - ctx->now.tv_sec;
+	if (ctx->confirm_nodes_time > ctx->now)
+		tosleep = ctx->confirm_nodes_time - ctx->now;
 	else
 		tosleep = 0;
 
@@ -193,10 +193,10 @@ lws_dht_periodic_cb(lws_sorted_usec_list_t *sul)
 	}
 
 	if (ctx->search_time > 0) {
-		if (ctx->search_time <= ctx->now.tv_sec)
+		if (ctx->search_time <= ctx->now)
 			tosleep = 0;
-		else if (tosleep > ctx->search_time - ctx->now.tv_sec)
-			tosleep = ctx->search_time - ctx->now.tv_sec;
+		else if (tosleep > ctx->search_time - ctx->now)
+			tosleep = ctx->search_time - ctx->now;
 	}
 
 	lws_sul_schedule(ctx->vhost->context, 0, &ctx->sul,

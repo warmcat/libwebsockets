@@ -714,17 +714,17 @@ lws_dht_create(const lws_dht_info_t *info)
 		ctx->have_v = 1;
 	}
 
-	ctx->now.tv_sec			= (time_t)lws_now_secs();
+	ctx->now			= (time_t)lws_now_secs();
 
 #if defined(LWS_WITH_DHT_BACKEND)
-	ctx->mybucket_grow_time		= ctx->now.tv_sec;
-	ctx->mybucket6_grow_time	= ctx->now.tv_sec;
+	ctx->mybucket_grow_time		= ctx->now;
+	ctx->mybucket6_grow_time	= ctx->now;
 	/*
 	 * Jitter must be drawn into an unsigned type: C99 % on a negative
 	 * signed random gives a negative remainder, which would schedule the
 	 * first maintenance pass in the past.
 	 */
-	ctx->confirm_nodes_time		= ctx->now.tv_sec + (time_t)((lws_get_random(ctx->vhost->context, &r, sizeof(r)), r) % 3);
+	ctx->confirm_nodes_time		= ctx->now + (time_t)((lws_get_random(ctx->vhost->context, &r, sizeof(r)), r) % 3);
 
 	ctx->search_id			= (unsigned short)((lws_get_random(ctx->vhost->context, &r, sizeof(r)), r) & 0xFFFF);
 	ctx->search_time		= 0;
@@ -733,7 +733,7 @@ lws_dht_create(const lws_dht_info_t *info)
 	ctx->next_blacklisted		= 0;
 
 #if defined(LWS_WITH_DHT_BACKEND)
-	ctx->token_bucket_time		= ctx->now.tv_sec;
+	ctx->token_bucket_time		= ctx->now;
 	ctx->token_bucket_tokens	= MAX_TOKEN_BUCKET_TOKENS;
 #endif
 
@@ -1163,7 +1163,7 @@ lws_dht_notify_subscribers(struct lws_dht_ctx *ctx, const lws_dht_hash_t *hash, 
 		struct subscriber *sub = lws_container_of(d, struct subscriber, list);
 
 		/* Don't notify if the TTL expired */
-		if (ctx->now.tv_sec <= sub->expire) {
+		if (ctx->now <= sub->expire) {
 			/* Only notify if the content actually changed from what they have */
 			if (memcmp(sub->current_sha256, sha256, 32)) {
 				lws_dht_send_notify(ctx, (struct sockaddr *)&sub->ss, sub->sslen, sub->tid, sub->tid_len, hash, sha256, payload, payload_len);
@@ -1171,7 +1171,7 @@ lws_dht_notify_subscribers(struct lws_dht_ctx *ctx, const lws_dht_hash_t *hash, 
 				/* Queue up reliable delivery retry state */
 				sub->pending_notify = 1;
 				sub->notify_retries = 0;
-				sub->last_notify = ctx->now.tv_sec;
+				sub->last_notify = ctx->now;
 				memcpy(sub->pending_sha256, sha256, 32);
 
 				count++;

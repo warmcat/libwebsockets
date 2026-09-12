@@ -765,7 +765,7 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 	memset(&mp, 0, sizeof(mp));
 	mp.offset = (uint64_t)-1;
 
-	ctx->now.tv_sec = (time_t)lws_now_secs();
+	ctx->now = (time_t)lws_now_secs();
 
 	if (is_martian(from))
 		return 0;
@@ -1140,7 +1140,7 @@ skip_ip_tracking:
 				lws_dll2_add_head(&sub->list, &st->subscribers);
 			}
 
-			sub->expire = ctx->now.tv_sec + 3600; /* 1 hour TTL */
+			sub->expire = ctx->now + 3600; /* 1 hour TTL */
 			memcpy(sub->current_sha256, mp.sha256, 32);
 
 			/* Acknowledge */
