@@ -571,6 +571,22 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 	}
 #endif
 
+#if defined(LWS_WITH_CLIENT)
+	/*
+	 * Once we FIN'd a client request stream nothing more can be sent on
+	 * it, so it has no use for a writeable callback: the stream is only
+	 * re-armed by, eg, MAX_STREAM_DATA now.  A user offered
+	 * LWS_CALLBACK_CLIENT_HTTP_WRITEABLE again after his final body write
+	 * would write it again, and a second FIN at a larger final size is a
+	 * connection-level FINAL_SIZE_ERROR from the peer.
+	 */
+	if (lwsi_role_client(wsi) && wsi->quic.qs && wsi->quic.qs->sent_fin) {
+		lwsl_wsi_debug(wsi, "no writeable cb after FIN");
+
+		return 0;
+	}
+#endif
+
 	if (lwsi_state(wsi) == LRS_ESTABLISHED) {
 		int m = lws_callback_as_writeable(wsi);
 		lwsl_wsi_info(wsi, "rops_perform_user_POLLOUT_h3: LRS_ESTABLISHED lws_callback_as_writeable returned %d", m);

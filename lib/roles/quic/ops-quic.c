@@ -3635,6 +3635,20 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 		return 0;
 	}
 
+	/*
+	 * Nothing can follow the FIN on a stream: data past the final size
+	 * (or a second FIN at a different size) is a connection-level
+	 * FINAL_SIZE_ERROR from the peer, taking every stream with it.  A
+	 * repeated FIN-only write is pointless but harmless, drop it quietly.
+	 */
+	if (wsi->quic.qs && wsi->quic.qs->sent_fin) {
+		if (len)
+			lwsl_wsi_notice(wsi, "binning %d byte write after FIN",
+					(int)len);
+
+		return 0;
+	}
+
 	/* Enforce stream and connection flow control limits */
 	if (len > 0) {
 		int did_enqueue = 0;
