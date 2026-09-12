@@ -59,7 +59,6 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 	dloss_t *m = lws_container_of(sul, dloss_t, sul);
 	lws_display_render_state_t *rs = lws_container_of(m->ssevsul,
 				lws_display_render_state_t, sul);
-	lws_dlo_dim_t dim;
 	lws_dlo_t *dlo = &m->u.u.dlo_png->dlo;
 
 	if (m->u.failed) {
@@ -73,23 +72,12 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 
 		lwsl_info("%s: setting dlo box %d x %d\n", __func__,
 			(int)dlo->box.w.whole, (int)dlo->box.h.whole);
-#if 1
-		lws_dlo_contents(dlo, &dim);
-		lws_display_dlo_adjust_dims(dlo, &dim);
 
 		/*
-		 * The toplevel dlo is owned by the lws_displaylist_t itself,
-		 * its owner is not some dlo's children owner, so only walk up
-		 * if we really do have a parent dlo
+		 * The html parse is stalled on these dimensions; when it
+		 * resumes, the layout places the image with them.  Nothing
+		 * else in the display list needs adjusting here.
 		 */
-
-		if (!dlo->flag_toplevel && lws_dll2_owner(&dlo->list)) {
-			dlo = lws_dll2_owner_container(&dlo->list, lws_dlo_t, children);
-
-			lws_dlo_contents(dlo, &dim);
-			lws_display_dlo_adjust_dims(dlo, &dim);
-		}
-#endif
 	}
 
 	if (rs->html != 1) {
@@ -218,6 +206,43 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	case LWSSSCS_DESTROYING:
 		lws_sul_cancel(&m->sul);
 		lws_dll2_remove(&m->active_asset_list);
+		break;
+
+	case LWSSSCS_UNREACHABLE:
+	case LWSSSCS_ALL_RETRIES_FAILED:
+	case LWSSSCS_QOS_NACK_REMOTE:
+	case LWSSSCS_DISCONNECTED:
+		/*
+		 * The asset isn't coming (or stopped early).  The html parse
+		 * may be waiting on it: a stylesheet that never finishes must
+		 * still count as finished so the page after the <link> gets
+		 * laid out, and an image that never arrives has no dims.
+		 */
+		if (m->type == LWSDLOSS_TYPE_CSS) {
+			if (m->lhp && m->lhp->await_css_done) {
+				const uint8_t *b = NULL;
+				size_t l = 0;
+
+				lwsl_warn("%s: css %s failed, resuming html\n",
+					  __func__, m->url);
+				lws_dll2_remove(&m->active_asset_list);
+				m->lhp->finish_css = 1;
+				m->lhp->is_css = 1;
+				lws_lhp_parse(m->lhp, &b, &l);
+				m->lhp->is_css = 0;
+				lws_sul_schedule(lws_ss_get_context(m->ss), 0,
+						 m->lhp->sshtmlevsul,
+						 m->lhp->sshtmlevcb, 1);
+			}
+			break;
+		}
+
+		if (state != LWSSSCS_DISCONNECTED && !m->u.failed &&
+		    m->u.u.dlo_png && !lws_dlo_image_width(&m->u)) {
+			m->u.failed = 1;
+			lws_sul_schedule(lws_ss_get_context(m->ss), 0,
+					 &m->sul, lws_lhp_image_dimensions_cb, 1);
+		}
 		break;
 
 	default:

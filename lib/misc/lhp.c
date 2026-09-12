@@ -709,14 +709,6 @@ lhp_atr_new(lhp_ctx_t *ctx, size_t name_len, size_t value_len)
 		/* only check the tag string, not the attributes */
 		ctx->u.f.void_element = 0;
 
-		/*
-		 * mark ps that are elements that contain others for layout as
-		 * being the parent block
-		 */
-		if ((name_len == 4 && !strncmp(ctx->buf, "body", 4)) ||
-		    (name_len == 3 && !strncmp(ctx->buf, "div", 3)))
-			ps->is_block = 1;
-
 		for (n = 0; n < LWS_ARRAY_SIZE(void_elems); n++)
 			if (ctx->npos == void_elems_lens[n] &&
 			    !strncasecmp(void_elems[n], ctx->buf, (size_t)ctx->npos))
@@ -1988,10 +1980,16 @@ lws_css_cascade(lhp_ctx_t *ctx)
 	lhp_pstack_t *parent = NULL, *ps = lws_container_of(
 			lws_dll2_get_tail(&ctx->stack), lhp_pstack_t, list);
 	const char *st;
+	lws_dll2_t *d;
 
-	if (lws_dll2_get_prev(&ps->list))
-		parent = lws_container_of(lws_dll2_get_prev(&ps->list),
-					  lhp_pstack_t, list);
+	/* the parent element is the nearest level above us with a tag */
+	d = lws_dll2_get_prev(&ps->list);
+	while (d) {
+		parent = lws_container_of(d, lhp_pstack_t, list);
+		if (!lws_dll2_is_empty(&parent->atr) || !lws_dll2_get_prev(d))
+			break;
+		d = lws_dll2_get_prev(d);
+	}
 
 	if (ps->css_resolved) {
 		ctx->in_body = ps->in_body;
@@ -3115,6 +3113,20 @@ done_amp:
 					ps->cb(ctx, LHPCB_COMMENT);
 					ctx->npos = 0;
 				}
+				/*
+				 * The level pushed at the '<' was for an
+				 * element; a comment isn't one, so it must
+				 * not stay on the stack as an empty ancestor
+				 * of everything after it
+				 */
+				if (lws_dll2_count(&ctx->stack) > 1 &&
+				    lws_dll2_is_empty(&ps->atr)) {
+					lhp_clean_level(ps);
+					ps = lws_container_of(
+						lws_dll2_get_tail(&ctx->stack),
+						lhp_pstack_t, list);
+					lws_css_cascade(ctx);
+				}
 				ctx->state = LHPS_OUTER;
 				break;
 			}
@@ -3869,6 +3881,12 @@ lws_css_cascade_get_prop_atr(lhp_ctx_t *ctx, lcsp_props_t prop)
 	return lhp_prop_atr_ps(ctx, lws_container_of(
 				lws_dll2_get_tail(&ctx->stack),
 				lhp_pstack_t, list), prop);
+}
+
+const lcsp_atr_t *
+lws_css_get_prop_atr_ps(lhp_ctx_t *ctx, lhp_pstack_t *ps, lcsp_props_t prop)
+{
+	return lhp_prop_atr_ps(ctx, ps, prop);
 }
 
 lhp_pstack_t *

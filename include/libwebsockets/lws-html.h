@@ -354,7 +354,9 @@ typedef struct {
 
 	lws_dll2_owner_t		col_dlos; /* lws_dlo_t in column */
 
-	lws_fx_t			width; /* currently computed column width */
+	lws_fx_t			width; /* computed column width */
+	lws_fx_t			min_w; /* widest min-content cell */
+	lws_fx_t			max_w; /* widest max-content cell */
 } lhp_table_col_t;
 
 struct lcsp_atr;
@@ -373,14 +375,30 @@ typedef struct lhp_pstack {
 	/* static: x,y: offset from parent, w,h: surface size of this object */
 	lws_box_t			drt;
 
-	/* dynamic cursor inside drt for progressive child placement */
+	/*
+	 * Layout state for an element that is a block container (has a dlo
+	 * and lays its children out inside it).  Coordinates are relative to
+	 * our dlo box: the content area starts at (ox, oy) and is cw wide;
+	 * (curx, cury) is the inline cursor inside it, cury being the top of
+	 * the line being built.
+	 */
+	lws_fx_t			ox;
+	lws_fx_t			oy;
+	lws_fx_t			cw;
 	lws_fx_t			curx;
 	lws_fx_t			cury;
-	lws_fx_t			widest;
-	lws_fx_t			deepest;
 
-	lws_dlo_t			*dlo_set_curx;
-	lws_dlo_t			*dlo_set_cury;
+	lws_fx_t			line_h;	 /* tallest non-text item on line */
+	lws_dlo_t			*line_first; /* first dlo of the open line */
+	int16_t				line_asc; /* max text ascent on line */
+	int16_t				line_desc; /* max text descent on line */
+
+	lws_fx_t			maxc;	 /* max-content width so far */
+	lws_fx_t			minc;	 /* min-content width so far */
+	lws_fx_t			nowrap;	 /* width of current line if unwrapped */
+	lws_fx_t			pend_mb; /* last block child's bottom margin */
+	int32_t				abs_y;	 /* approx surface y of our box top */
+	uint16_t			idx;	 /* list item / table cell counter */
 
 	lws_dll2_owner_t		atr; /* lhp_atr_t */
 
@@ -411,12 +429,18 @@ typedef struct lhp_pstack {
 	lws_fx_t			font_size; /* computed font-size, px */
 	uint16_t			nmatched;
 
-	uint16_t			tr_idx; /* in table */
-	uint16_t			td_idx; /* in current tr */
-
-	uint8_t				is_block:1; /* children use space in our drt */
+	uint8_t				is_block:1; /* we are a block container */
 	uint8_t				is_table:1;
-	uint8_t				forced_inline:1;
+	uint8_t				is_row:1;
+	uint8_t				is_cell:1;
+	uint8_t				is_inline:1; /* style scope only, no box */
+	uint8_t				is_ilevel:1; /* inline-level box (inline-block) */
+	uint8_t				is_abs:1;    /* absolutely positioned */
+	uint8_t				shrink:1;    /* width decided by content at close */
+	uint8_t				has_line:1;  /* a line is being built */
+	uint8_t				last_space:1; /* line so far ends with a space */
+	uint8_t				explicit_w:1;
+	uint8_t				explicit_h:1;
 	uint8_t				css_resolved:1;
 	uint8_t				in_body:1;
 	uint8_t				hidden:1; /* display: none on us or an ancestor */
@@ -425,10 +449,6 @@ typedef struct lhp_pstack {
 
 	lws_dlo_t			*dlo;
 	const lws_display_font_t	*font;
-	int				oi[4];
-	int				positioned[4];
-	int				rel_layout_cursor[4];
-	uint8_t				runon; /* continues same line */
 
 } lhp_pstack_t;
 
@@ -729,6 +749,16 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len);
  */
 LWS_VISIBLE LWS_EXTERN const lcsp_atr_t *
 lws_css_cascade_get_prop_atr(lhp_ctx_t *ctx, lcsp_props_t prop);
+
+/**
+ * lws_css_get_prop_atr_ps() - as lws_css_cascade_get_prop_atr() for any open element
+ *
+ * \p ctx: the parsing context
+ * \p ps: the open element (any level of the parse stack)
+ * \p prop: the LCSP_PROP_ property to look up
+ */
+LWS_VISIBLE LWS_EXTERN const lcsp_atr_t *
+lws_css_get_prop_atr_ps(lhp_ctx_t *ctx, lhp_pstack_t *ps, lcsp_props_t prop);
 
 /**
  * lws_http_rel_to_url() - make absolute url from base and relative

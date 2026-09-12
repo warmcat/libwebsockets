@@ -179,6 +179,46 @@ lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
 	return r;
 }
 
+void
+lws_display_dlo_text_measure(lws_dlo_text_t *text, const char *utf8,
+			     size_t text_len, lws_fx_t *total,
+			     lws_fx_t *longest_word)
+{
+	lws_fx_t word = { 0, 0 }, t2;
+	size_t tlen = text_len;
+	uint32_t unicode;
+
+	lws_fx_set((*total), 0, 0);
+	lws_fx_set((*longest_word), 0, 0);
+
+	while (tlen) {
+		size_t ot = tlen;
+		char uc = *utf8;
+
+		if (utf8_unicode(utf8, &tlen, &unicode)) {
+			lwsl_err("%s: bad utf8\n", __func__);
+			break;
+		}
+		utf8 += (ot - tlen);
+
+		text->font->image_glyph(text, unicode, 0);
+		if (lws_display_font_mcufont_getcwidth(text, unicode, &t2))
+			continue;
+
+		lws_fx_add(total, total, &t2);
+
+		if (uc == ' ') {
+			if (lws_fx_comp(&word, longest_word) > 0)
+				*longest_word = word;
+			lws_fx_set(word, 0, 0);
+		} else
+			lws_fx_add(&word, &word, &t2);
+	}
+
+	if (lws_fx_comp(&word, longest_word) > 0)
+		*longest_word = word;
+}
+
 int
 lws_display_dlo_text_attach_glyphs(lws_dlo_text_t *text)
 {

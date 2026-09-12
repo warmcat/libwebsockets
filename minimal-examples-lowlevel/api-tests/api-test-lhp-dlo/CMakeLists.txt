@@ -49,5 +49,19 @@ if (requirements)
 				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/test.dlo
 				-DW=1600 -DH=2000
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+
+		# captured real-world pages, with their network assets made
+		# unreachable so the layout is the same every run
+		foreach(VEC lobsters-1/lobsters slashdot-1/slashdot-1)
+			get_filename_component(VN ${VEC} NAME)
+			add_test(NAME api-test-lhp-dlo-vector-${VN}
+				 COMMAND ${CMAKE_COMMAND}
+					-DTOOL=$<TARGET_FILE:${SAMP}>
+					-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/vectors/${VEC}.html
+					-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/vectors/${VEC}.dlo
+					-DOUT=${CMAKE_CURRENT_BINARY_DIR}/${VN}.dlo
+					-DW=800 -DH=1200 -DLOCALIZE=1
+					-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+		endforeach()
 	endif()
 endif()

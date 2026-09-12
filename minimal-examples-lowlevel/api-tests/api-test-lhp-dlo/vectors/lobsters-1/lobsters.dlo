@@ -1,0 +1,46 @@
+rect (0.0,0.0) [800.0 x 1200.0] rgba=FFFFFFFF
+ rect (8.0,8.0) [784.0 x 46.0] rgba=00000000
+  rect (2.0,2.0) [780.0 x 23.0] rgba=00000000
+   rect (2.0,2.0) [776.0 x 19.0] rgba=00000000
+    text (0.0,0.0) [35.0 x 19.0] rgba=FF000000 f=17/400 "Active"
+    text (35.0,0.0) [40.0 x 19.0] rgba=FF000000 f=17/400 "Recent"
+    text (75.0,0.0) [61.0 x 19.0] rgba=FF000000 f=17/400 "Comments"
+    text (136.0,0.0) [39.0 x 19.0] rgba=FF000000 f=17/400 "Search"
+    text (175.0,0.0) [31.0 x 19.0] rgba=FF000000 f=17/400 "Login"
+  rect (0.0,27.0) [784.0 x 19.0] rgba=00000000
+   text (0.0,0.0) [31.0 x 19.0] rgba=FF000000 f=17/400 "Login"
+ rect (10.0,56.0) [780.0 x 201.84] rgba=00000000
+  rect (42.0,19.92) [736.0 x 137.0] rgba=00000000
+   rect (2.0,2.0) [732.0 x 131.0] rgba=00000000
+    text (-14.0,0.0) [8.0 x 19.0] rgba=FF000000 f=17/400 "1."
+    rect (2.0,2.0) [728.0 x 129.0] rgba=00000000
+     rect (4.0,4.0) [720.0 x 23.0] rgba=00000000
+      text (2.0,2.0) [12.0 x 19.0] rgba=FF000000 f=17/400 "72"
+     rect (4.0,29.0) [720.0 x 96.0] rgba=00000000
+      text (2.0,2.0) [291.0 x 19.0] rgba=FF000000 f=17/400 "Your job is to deliver code you have proven to work"
+      text (293.0,2.0) [78.0 x 19.0] rgba=FF000000 f=17/400 "programming"
+      text (371.0,2.0) [63.0 x 19.0] rgba=FF000000 f=17/400 "vibecoding"
+      text (434.0,2.0) [102.0 x 19.0] rgba=FF000000 f=17/400 "simonwillison.net"
+      rect (4.0,23.0) [712.0 x 69.0] rgba=00000000
+       text (2.0,2.0) [72.0 x 19.0] rgba=FF000000 f=17/400 "authored by "
+       text (74.0,2.0) [44.0 x 19.0] rgba=FF000000 f=17/400 "simonw"
+       text (118.0,2.0) [72.0 x 19.0] rgba=FF000000 f=17/400 "20 hours ago"
+       text (190.0,2.0) [11.0 x 19.0] rgba=FF000000 f=17/400 " | "
+       rect (201.0,21.0) [0.0 x 0.0] rgba=00000000
+       text (201.0,2.0) [39.0 x 19.0] rgba=FF000000 f=17/400 "caches"
+       rect (4.0,23.0) [704.0 x 23.0] rgba=00000000
+        text (2.0,2.0) [64.0 x 19.0] rgba=FF000000 f=17/400 "Archive.org"
+        text (66.0,2.0) [78.0 x 19.0] rgba=FF000000 f=17/400 "Archive.today"
+        text (144.0,2.0) [75.0 x 19.0] rgba=FF000000 f=17/400 "Ghostarchive"
+       text (2.0,46.0) [8.0 x 19.0] rgba=FF000000 f=17/400 "| "
+       text (10.0,46.0) [78.0 x 19.0] rgba=FF000000 f=17/400 "25 comments "
+  rect (4.0,174.84) [772.0 x 23.0] rgba=00000000
+   text (2.0,2.0) [40.0 x 19.0] rgba=FF000000 f=17/400 "Page 2 "
+   text (42.0,2.0) [6.0 x 19.0] rgba=FF000000 f=17/400 ">"
+   text (48.0,2.0) [6.0 x 19.0] rgba=FF000000 f=17/400 ">"
+ rect (8.0,259.84) [784.0 x 19.0] rgba=00000000
+  rect (0.0,0.0) [784.0 x 19.0] rgba=00000000
+   text (0.0,0.0) [33.0 x 19.0] rgba=FF000000 f=17/400 "About"
+   text (33.0,0.0) [26.0 x 19.0] rgba=FF000000 f=17/400 "Tags"
+   text (59.0,0.0) [31.0 x 19.0] rgba=FF000000 f=17/400 "Filter"
+   text (90.0,0.0) [90.0 x 19.0] rgba=FF000000 f=17/400 "Moderation Log"

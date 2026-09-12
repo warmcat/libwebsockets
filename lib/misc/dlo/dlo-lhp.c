@@ -1,7 +1,7 @@
 /*
  * lws abstract display
  *
- * Copyright (C) 2019 - 2022 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2019 - 2026 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -23,287 +23,69 @@
  *
  * Display List LHP layout
  *
- * The basic flow is logical elements exist in a stack as they are parsed, the
- * job of lhp_displaylist_layout() is to translate these into a tree of DLOs,
- * having parent-child relationships with (x,y) of the DLO box being an offset
- * into a local origin formed from the DLO parent box (which in turn may be
- * a child with its origin defined by its parent, etc).
+ * The html parser calls lhp_displaylist_layout() as elements start and end
+ * and as text arrives, with the element stack describing everything that is
+ * still open.  This turns that into a tree of DLOs whose (x, y) are offsets
+ * inside the parent DLO's box.
  *
- * The element stack only exists while it and its parent elements are being
- * parsed, it goes out of scope as the element ends.  So we must create related
- * DLOs by stream-parsing, while we have everything relevant to hand.
+ * The approach follows CSS block / inline formatting, streamed:
  *
- * This gets us out of having to run around fixing up DLO (x,y) as we do the
- * layout, since the DLO parent-child relationships are static even if their
- * content size isn't.
+ *  - a block-level element gets its width from its containing block when it
+ *    opens, so everything inside it can be placed as it arrives, and only its
+ *    height has to wait until it closes.  Nothing already placed is moved
+ *    afterwards (except the small x / y fix-ups of a line when it ends).
  *
+ *  - inline elements (span, b, a...) are style scopes only; their text goes
+ *    into line boxes of the nearest block container.  Text is wrapped as it
+ *    arrives against the remaining width of the line, a line ends when it is
+ *    full, on <br>, or when a block starts or ends.
  *
+ *  - boxes whose width depends on their content (inline-block, absolute with
+ *    auto width, table cells) are laid out against the width available to
+ *    them while tracking the width they would take unwrapped (max-content).
+ *    At close the box shrinks to min(max-content, available): if it shrinks,
+ *    nothing inside it had wrapped, so nothing needs re-laying out.
+ *
+ *  - table columns are sized when the table closes, from the min- and
+ *    max-content widths of the cells, and the cells moved into place.  Cells
+ *    were laid out at the full table width, so a cell whose column ends up
+ *    narrower than its max-content width keeps its wider lines (a later
+ *    refinement would re-wrap those).
+ *
+ * Memory stays proportional to what is displayed: text past the bottom of
+ * the surface is dropped as it arrives, and nothing is buffered beyond the
+ * DLOs themselves.
  */
 
 #include <private-lib-core.h>
 #include "private-lib-drivers-display-dlo.h"
 
-/*
- * HTML Elements we can deal with for layout
- */
-
 enum {
-	/* 0 is no match */
-	LHP_ELEM_BR = 1,
-	LHP_ELEM_DIV,
-	LHP_ELEM_TABLE,
-	LHP_ELEM_TR,
-	LHP_ELEM_TD,
-	LHP_ELEM_IMG,
-	/* ... */
-	LHP_ELEM_A = 32,
-	LHP_ELEM_SPAN,
+	LHP_BOX_NONE,		/* no box at all (html, thead, unknown) */
+	LHP_BOX_INLINE,		/* style scope in the parent's lines */
+	LHP_BOX_BLOCK,
+	LHP_BOX_LIST_ITEM,
+	LHP_BOX_INLINE_BLOCK,
+	LHP_BOX_TABLE,
+	LHP_BOX_ROW,
+	LHP_BOX_CELL,
+	LHP_BOX_BR,
+	LHP_BOX_IMG,
+	LHP_BOX_BODY,
 };
 
-static const struct {
-	const char	*elem;
-	uint8_t		elem_len;
-} elems[] = {
-	{ "br",		2 },
-	{ "div",	3 },
-	{ "table",	5 },
-	{ "tr",		2 },
-	{ "td",		2 },
-	{ "img",	3 },
-	{ "main",	4 },
-	{ "header",	6 },
-	{ "footer",	6 },
-	{ "article",	7 },
-	{ "section",	7 },
-	{ "nav",	3 },
-	{ "aside",	5 },
-	{ "address",	7 },
-	{ "h1",		2 },
-	{ "h2",		2 },
-	{ "h3",		2 },
-	{ "h4",		2 },
-	{ "h5",		2 },
-	{ "h6",		2 },
-	{ "p",		1 },
-	{ "ul",		2 },
-	{ "ol",		2 },
-	{ "li",		2 },
-	{ "dl",		2 },
-	{ "dt",		2 },
-	{ "dd",		2 },
-	{ "blockquote",	10 },
-	{ "form",	4 },
-	{ "fieldset",	8 },
-	{ "pre",	3 },
-	{ "a",		1 },
-	{ "span",	4 },
-};
+static const lws_fx_t fx_0 = { 0, 0 }, fx_2 = { 2, 0 }, fx_100 = { 100, 0 };
 
 /*
  * The cascade only fills in a css_* attribute pointer if some stanza that is
  * active for the element actually sets that property.  An absent attribute is
- * completely normal (eg, nothing in the default css sets "position" on a
- * <span>) and means "use the CSS initial value for the property"... so we must
- * never dereference these blind.
+ * completely normal and means "use the CSS initial value for the property"
  */
 
 static int
 lhp_propval(const lcsp_atr_t *a, int initial)
 {
-	return a ? a->propval : initial;
-}
-
-/* the element's "position", defaulting to the initial value "static" */
-#define lhp_position(_ps) lhp_propval((_ps)->css_position, LCSP_PROPVAL_STATIC)
-/* the element's "display", defaulting to the initial value "inline" */
-#define lhp_display(_ps) lhp_propval((_ps)->css_display, LCSP_PROPVAL_INLINE)
-
-static int
-lhp_tag_cmp(const char *buf, const char *name, size_t len)
-{
-	while (len--) {
-		char c1 = *buf++, c2 = *name++;
-
-		if (c1 >= 'A' && c1 <= 'Z')
-			c1 = (char)(c1 + 'a' - 'A');
-		if (c2 >= 'A' && c2 <= 'Z')
-			c2 = (char)(c2 + 'a' - 'A');
-
-		if (c1 != c2)
-			return 1;
-	}
-	return 0;
-}
-
-static int
-lhp_is_inline(lhp_pstack_t *ps)
-{
-	const struct lcsp_atr *a = ps->css_display;
-
-	if (ps->forced_inline) return 1;
-	if (!a) return 0;
-	if (a->propval == LCSP_PROPVAL_INLINE ||
-	    a->propval == LCSP_PROPVAL_INLINE_BLOCK) return 1;
-	if (a->unit == LCSP_UNIT_STRING) {
-		const char *s = (const char *)&a[1];
-		if (a->value_len == 6 && !strncmp(s, "inline", 6)) return 1;
-		if (a->value_len == 12 && !strncmp(s, "inline-block", 12)) return 1;
-	}
-	return 0;
-}
-
-/*
- * Newline moves the psb->cury to cover text that was already placed using the
- * old psb->cury as to top of it.  So a final newline on the last line of text
- * does not create an extra blank line.
- */
-
-static const lws_fx_t two = { 2,0 };
-
-static void
-newline(lhp_ctx_t *ctx, lhp_pstack_t *psb, lhp_pstack_t *ps,
-	lws_displaylist_t *dl)
-{
-	int16_t group_baseline = 9999, group_height = 0;
-	lws_fx_t line_height = { 0, 0 }, w, add, ew, t1;
-	const struct lcsp_atr *a;
-	lws_dlo_t *dlo, *d, *d1;
-	int t = 0;
-
-	if (!psb || !ps) {
-		lwsl_err("%s: psb/ps NULL!\n", __func__);
-		return;
-	}
-
-	dlo = (lws_dlo_t *)psb->dlo;
-
-	lws_fx_add(&w, lws_csp_px(ps->css_padding[CCPAS_LEFT], ps),
-		       lws_csp_px(ps->css_padding[CCPAS_RIGHT], ps));
-
-	if (lws_fx_comp(&w, &psb->widest) > 0)
-		psb->widest = w;
-
-	if (!dlo || !lws_dll2_get_tail(&dlo->children))
-		return;
-
-	d = lws_container_of(lws_dll2_get_tail(&dlo->children), lws_dlo_t, list);
-
-	/*
-	 * We may be at the end of a line of text
-	 *
-	 * Figure out the biggest height on the line, and the total width
-	 */
-
-	while (d) {
-		t |= d->_destroy == lws_display_dlo_text_destroy;
-		/* find the "worst" height on the line */
-		if (lws_fx_comp(&d->box.h, &line_height) > 0)
-			line_height = d->box.h;
-
-		if (d->_destroy == lws_display_dlo_text_destroy) {
-			lws_dlo_text_t *text = lws_container_of(d,
-						lws_dlo_text_t, dlo);
-
-			if (text->font_y_baseline < group_baseline)
-				group_baseline = text->font_y_baseline;
-			if (text->font_height > group_height)
-				group_height = text->font_height;
-		}
-
-		if (!d->flag_runon)
-			break;
-
-		if (!lws_dll2_get_prev(&d->list))
-			break;
-
-		d = lws_container_of(lws_dll2_get_prev(&d->list), lws_dlo_t, list);
-	};
-
-	/* mark the related text dlos with information about group bl and h,
-	 * offset box y to align to group baseline if necessary */
-
-	d1 = d;
-	while (d1) {
-		if (d1->_destroy == lws_display_dlo_text_destroy) {
-			lws_dlo_text_t *t1 = lws_container_of(d1,
-						lws_dlo_text_t, dlo);
-			lws_fx_t ft;
-
-			t1->group_height = group_height;
-			t1->group_y_baseline = group_baseline;
-
-			ft.whole = (t1->font_height - t1->font_y_baseline) -
-					(group_height - group_baseline);
-			ft.frac = 0;
-
-			lws_fx_sub(&t1->dlo.box.y,  &t1->dlo.box.y, &ft);
-		} else {
-			lws_fx_t ft;
-
-			/* bottom align others to the line height */
-			lws_fx_sub(&ft, &line_height, &d1->box.h);
-			lws_fx_add(&d1->box.y, &d1->box.y, &ft);
-		}
-
-		if (!lws_dll2_get_next(&d1->list))
-			break;
-		d1 = lws_container_of(lws_dll2_get_next(&d1->list), lws_dlo_t, list);
-	};
-
-	w = psb->curx;
-	ew = ctx->ic.wh_px[0];
-	if (psb->css_width && psb->css_width->unit != LCSP_UNIT_NONE)
-		ew = *lws_csp_px(psb->css_width, psb);
-	lws_fx_sub(&ew, &ew, lws_csp_px(ps->css_margin[CCPAS_RIGHT], ps));
-	lws_fx_sub(&ew, &ew, lws_csp_px(ps->css_padding[CCPAS_RIGHT], ps));
-
-	if (lws_fx_comp(&w, &psb->widest) > 0)
-		psb->widest = w;
-
-	if (!t && !line_height.whole && !line_height.frac) /* no textual children to newline (eg, <div></div>) */
-		return;
-
-	 /*
-	  * now is our chance to fix up dlos that are part of the line for
-	  * text-align rule of the container.
-	  */
-
-	a = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_TEXT_ALIGN);
-	if (a) {
-		switch (a->propval) {
-		case LCSP_PROPVAL_CENTER:
-			add = *lws_csp_px(ps->css_padding[CCPAS_LEFT], ps);
-			lws_fx_sub(&t1, &ew, &w);
-			lws_fx_div(&t1, &t1, &two);
-			lws_fx_add(&add, &add, &t1);
-			goto fixup_l;
-		case LCSP_PROPVAL_RIGHT:
-			lws_fx_sub(&add, &ew, &w);
-			lws_fx_sub(&add, &add, &d->box.x);
-
-fixup_l:
-			lws_fx_add(&t1, &add, &w);
-			if (lws_fx_comp(&t1, &psb->widest) > 0)
-				psb->widest = t1;
-
-			do {
-				lws_fx_add(&d->box.x, &d->box.x, &add);
-				if (!lws_dll2_get_next(&d->list))
-					break;
-				d = lws_container_of(lws_dll2_get_next(&d->list), lws_dlo_t,
-							list);
-			} while (1);
-			break;
-		default:
-			break;
-		}
-	}
-
-	lws_fx_add(&psb->cury, &psb->cury, &line_height);
-	lws_fx_set(psb->curx, 0, 0);
-	psb->dlo_set_curx = NULL;
-	psb->dlo_set_cury = NULL;
-	psb->runon = 0;
+	return a && a->unit == LCSP_UNIT_NONE ? a->propval : initial;
 }
 
 void
@@ -323,274 +105,1225 @@ lhp_set_dlo_padding_margin(lhp_pstack_t *ps, lws_dlo_t *dlo)
 	}
 }
 
-void
-lhp_set_dlo_adjust_to_contents(lhp_pstack_t *ps)
+static int
+lhp_tag_is(lhp_pstack_t *ps, const char *name, size_t len)
 {
-	lhp_pstack_t *psb = lws_container_of(lws_dll2_get_prev(&ps->list), lhp_pstack_t, list);
-	lws_dlo_dim_t dim;
+	const lhp_atr_t *a;
 
-	if (!ps->dlo)
-		/* nothing to adjust */
-		return;
+	if (lws_dll2_is_empty(&ps->atr))
+		return 0;
 
-	lws_dlo_contents(ps->dlo, &dim);
+	a = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
 
-	/*
-	 * we want to adjust the dlo size to the size of the contents,
-	 * plus the padding of the parent that the contents sits inside
-	 */
-
-	lws_fx_add(&dim.w, &dim.w, lws_csp_px(ps->css_padding[CCPAS_RIGHT], ps));
-	lws_fx_add(&dim.h, &dim.h, lws_csp_px(ps->css_padding[CCPAS_BOTTOM], ps));
-
-	/*
-	 * ... but if the dlo size was explicitly set by css, we should keep it
-	 */
-
-	if (ps->css_width && ps->css_width->unit != LCSP_UNIT_NONE &&
-	    (!ps->css_height ||
-	     ps->css_height->unit != LCSP_UNIT_LENGTH_PERCENT) &&
-	    ps->css_width->propval != LCSP_PROPVAL_AUTO)
-		dim.w = *lws_csp_px(ps->css_width, ps);
-	else if (lhp_display(ps) == LCSP_PROPVAL_BLOCK &&
-		 !lhp_is_inline(ps))
-		dim.w = ps->dlo->box.w;
-
-	if (ps->css_height && ps->css_height->unit != LCSP_UNIT_NONE &&
-	    ps->css_height->unit != LCSP_UNIT_LENGTH_PERCENT &&
-	    ps->css_height->propval != LCSP_PROPVAL_AUTO) {
-		const lws_fx_t *px = lws_csp_px(ps->css_height, ps);
-
-		if (lws_fx_comp(px, &dim.h) > 0)
-			dim.h = *px;
-	}
-
-	lws_display_dlo_adjust_dims(ps->dlo, &dim);
-
-	if (!psb)
-		/* we are the outermost element, there is nothing above us */
-		return;
-
-	if (lws_fx_comp(&dim.w, &psb->widest) > 0)
-		psb->widest = dim.w;
-
-	if (lws_fx_comp(&dim.h, &psb->deepest) > 0)
-		psb->deepest = dim.h;
-}
-
-static void
-runon(lhp_pstack_t *ps, lws_dlo_t *dlo)
-{
-	dlo->flag_runon = (uint8_t)(ps->runon & 1);
-	ps->runon = 1;
+	return a->name_len == len && !strncasecmp((const char *)&a[1], name, len);
 }
 
 /*
- * Handle end-of-div, table, tr, td retrospective dlo dimension adjustment
+ * Resolve a css length to px; percentages are of base (the containing
+ * block's content width), absent attributes and keywords are 0
  */
 
-int
-lws_lhp_dlo_adjust_div_type_element(lhp_ctx_t *ctx, lhp_pstack_t *psb,
-				    lhp_pstack_t *pst, lhp_pstack_t *ps,
-				    int elem_match)
+static lws_fx_t
+lhp_len(lhp_pstack_t *ps, const lcsp_atr_t *a, const lws_fx_t *base)
 {
-	lws_dlo_rect_t *rect = (lws_dlo_rect_t *)ps->dlo;
-	lws_fx_t t1, w, wd;
-	char rd = 0;
+	lws_fx_t t;
 
-	/* need this to get bottom clearance for next block */
+	if (!a || a->unit == LCSP_UNIT_NONE)
+		return fx_0;
 
-	lws_fx_add(&ps->cury, &ps->cury,
-		lws_csp_px(ps->css_padding[CCPAS_BOTTOM], ps));
+	if (a->unit == LCSP_UNIT_LENGTH_PERCENT) {
+		lws_fx_mul(&t, &a->u.i, base);
+		lws_fx_div(&t, &t, &fx_100);
 
-	if (psb && ps->dlo &&
-	    lhp_propval(ps->css_margin[CCPAS_LEFT], LCSP_PROPVAL_NONE) ==
-						LCSP_PROPVAL_AUTO &&
-	    lhp_propval(ps->css_margin[CCPAS_RIGHT], LCSP_PROPVAL_NONE) ==
-						LCSP_PROPVAL_AUTO) {
-		lws_dlo_rect_t *re = (lws_dlo_rect_t *)ps->dlo;
-
-		/* h-center a div... find the available h space first */
-		w = psb->drt.w;
-		lws_fx_sub(&w, &w, lws_csp_px(psb->css_padding[CCPAS_LEFT], psb));
-		lws_fx_sub(&w, &w, lws_csp_px(psb->css_padding[CCPAS_RIGHT], psb));
-
-		/*
-		if (psb->css_width &&
-			    psb->css_width->propval != LCSP_PROPVAL_AUTO)
-				w = *lws_csp_px(psb->css_width, psb);
-		*/
-
-		lws_fx_sub(&t1, &w, &re->dlo.box.w);
-		if (t1.whole < 0)
-			lws_fx_set(t1, 0, 0);
-
-		lws_fx_div(&t1, &t1, &two);
-		lws_fx_sub(&wd, &t1, &re->dlo.box.x);
-
-		lws_fx_add(&re->dlo.box.x, &re->dlo.box.x, &wd);
+		return t;
 	}
 
-	/* fix up the dimensions of div rectangle */
-	if (!rect) {
-		lwsl_notice("%s: elem %d: NO RECT\n", __func__, elem_match);
-		return 1;
+	return *lws_csp_px(a, ps);
+}
+
+static int
+lhp_is_auto(const lcsp_atr_t *a)
+{
+	return a && a->unit == LCSP_UNIT_NONE && a->propval == LCSP_PROPVAL_AUTO;
+}
+
+static lws_fx_t
+lhp_fx_max(const lws_fx_t *a, const lws_fx_t *b)
+{
+	return lws_fx_comp(a, b) > 0 ? *a : *b;
+}
+
+static lws_fx_t
+lhp_fx_min(const lws_fx_t *a, const lws_fx_t *b)
+{
+	return lws_fx_comp(a, b) < 0 ? *a : *b;
+}
+
+static lhp_pstack_t *
+lhp_parent(lhp_pstack_t *ps)
+{
+	if (!lws_dll2_get_prev(&ps->list))
+		return NULL;
+
+	return lws_container_of(lws_dll2_get_prev(&ps->list), lhp_pstack_t,
+				list);
+}
+
+/* the nearest block container at or above ps */
+
+static lhp_pstack_t *
+lhp_container(lhp_pstack_t *ps)
+{
+	while (ps) {
+		if (ps->is_block && ps->dlo)
+			return ps;
+		ps = lhp_parent(ps);
 	}
 
-	lhp_set_dlo_adjust_to_contents(ps);
+	return NULL;
+}
 
-	/* if a td, deal with columnar changes in width */
+static int
+lhp_box_type(lhp_pstack_t *ps)
+{
+	const lcsp_atr_t *a = ps->css_display;
 
-	if (lws_dll2_owner(&ps->dlo->col_list)) {
-		lhp_table_col_t *tc = lws_dll2_owner_container(&ps->dlo->col_list,
-				lhp_table_col_t, col_dlos);
-		lws_fx_t wdelta, ow;
+	if (lhp_tag_is(ps, "br", 2))
+		return LHP_BOX_BR;
+	if (lhp_tag_is(ps, "img", 3))
+		return LHP_BOX_IMG;
+	if (lhp_tag_is(ps, "body", 4))
+		return LHP_BOX_BODY;
+	if (lhp_tag_is(ps, "html", 4))
+		return LHP_BOX_NONE;
 
-		ow = tc->width;
-		lws_fx_set(tc->width, 0, 0);
+	if (!a)
+		return LHP_BOX_INLINE;
 
-		/* discover the new width of column */
+	if (a->unit == LCSP_UNIT_STRING) {
+		const char *s = (const char *)&a[1];
 
-		lws_start_foreach_dll(struct lws_dll2 *, c1,
-				      lws_dll2_get_head(&tc->col_dlos)) {
-			lws_dlo_t *dloc = lws_container_of(c1,
-					lws_dlo_t, col_list);
+		/* css3 display values the value lextable doesn't know */
+		if (a->value_len >= 6 && !strncmp(s, "inline", 6))
+			return LHP_BOX_INLINE_BLOCK; /* inline-flex etc */
+		if (a->value_len >= 8 && !strncmp(s, "contents", 8))
+			return LHP_BOX_NONE;
 
-			if (lws_fx_comp(&dloc->box.w, &tc->width) > 0)
-				tc->width = dloc->box.w;
-		} lws_end_foreach_dll(c1);
+		return LHP_BOX_BLOCK; /* flex, grid, flow-root... */
+	}
 
-		/* new width - old column width */
-		lws_fx_sub(&wdelta, &tc->width, &ow);
+	switch (a->propval) {
+	case LCSP_PROPVAL_BLOCK:
+	case LCSP_PROPVAL_TABLE_CAPTION:
+		return LHP_BOX_BLOCK;
+	case LCSP_PROPVAL_LIST_ITEM:
+		return LHP_BOX_LIST_ITEM;
+	case LCSP_PROPVAL_INLINE_BLOCK:
+	case LCSP_PROPVAL_INLINE_TABLE:
+		return LHP_BOX_INLINE_BLOCK;
+	case LCSP_PROPVAL_TABLE:
+		return LHP_BOX_TABLE;
+	case LCSP_PROPVAL_TABLE_ROW:
+		return LHP_BOX_ROW;
+	case LCSP_PROPVAL_TABLE_CELL:
+		return LHP_BOX_CELL;
+	case LCSP_PROPVAL_TABLE_HEADER_GROUP:
+	case LCSP_PROPVAL_TABLE_ROW_GROUP:
+	case LCSP_PROPVAL_TABLE_FOOTER_GROUP:
+	case LCSP_PROPVAL_TABLE_COLUMN:
+	case LCSP_PROPVAL_TABLE_COLUMN_GROUP:
+		return LHP_BOX_NONE;
+	default:
+		return LHP_BOX_INLINE;
+	}
+}
 
-		/*
-		 * Update all dlos in our column (except
-		 * ourselves) with the increased column width
-		 */
+static lws_display_colour_t
+lhp_colour(const lcsp_atr_t *a, lws_display_colour_t def)
+{
+	if (a && a->unit == LCSP_UNIT_RGBA)
+		return a->u.rgba;
 
-		lws_start_foreach_dll(struct lws_dll2 *, cold,
-				      lws_dll2_get_head(&tc->col_dlos)) {
-			lws_dlo_t *dloc = lws_container_of(cold,
-					lws_dlo_t, col_list);
+	return def;
+}
 
-			if (dloc != &rect->dlo)
-				/* we already did this for the
-				 * affected dlo */
-				lws_fx_add(&dloc->box.w,
-					   &dloc->box.w, &wdelta);
+static void
+lhp_choose_font(struct lws_context *cx, lhp_ctx_t *ctx, lhp_pstack_t *ps)
+{
+	lws_font_choice_t fc = {
+		.family_name		= "term, serif",
+		.fixed_height		= 16,
+		.weight			= 400,
+	};
+	const lcsp_atr_t *a;
 
-			rd = 1;
+	if (ps->font)
+		return;
 
-			/* ... and then all of their row-mates
-			 * to the right also need their
-			 * x adjusting then */
+	if (ps->font_size.whole > 0)
+		fc.fixed_height = (uint16_t)(ps->font_size.whole +
+			(ps->font_size.frac >= LWS_FX_FRACTION_MSD / 2));
 
-			while (lws_dll2_get_next(&dloc->row_list)) {
-				dloc = lws_container_of(
-					lws_dll2_get_next(&dloc->row_list),
-					lws_dlo_t, row_list);
+	a = lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_FONT_FAMILY);
+	if (a && a->unit == LCSP_UNIT_STRING)
+		fc.family_name = (const char *)&a[1];
 
-				lws_fx_add(&dloc->box.x,
-					   &dloc->box.x, &wdelta);
+	a = lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_FONT_WEIGHT);
+	if (a) {
+		if (a->unit == LCSP_UNIT_NONE) {
+			switch (a->propval) {
+			case LCSP_PROPVAL_BOLD:
+			case LCSP_PROPVAL_BOLDER:
+				fc.weight = 700;
+				break;
+			case LCSP_PROPVAL_LIGHTER:
+				fc.weight = 300;
+				break;
+			default:
+				break;
 			}
-		} lws_end_foreach_dll(cold);
+		} else if (a->u.i.whole)
+			fc.weight = (uint16_t)a->u.i.whole;
 	}
 
-	/* if a td, deal with row changes in height */
+	a = lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_FONT_STYLE);
+	if (a && a->unit == LCSP_UNIT_NONE &&
+	    (a->propval == LCSP_PROPVAL_ITALIC ||
+	     a->propval == LCSP_PROPVAL_OBLIQUE))
+		fc.style = 1;
 
-	if (lws_dll2_owner(&ps->dlo->row_list)) {
-		lhp_table_row_t *tr = lws_dll2_owner_container(&ps->dlo->row_list,
-				lhp_table_row_t, row_dlos);
-		lws_fx_t hdelta, oh;
+	ps->font = lws_font_choose(cx, &fc);
+}
 
-		oh = tr->height;
-		lws_fx_set(tr->height, 0, 0);
+/*
+ * Line boxes
+ */
 
-		/* discover the new width of column */
+static void
+lhp_line_reset(lhp_pstack_t *c)
+{
+	lws_fx_set(c->curx, 0, 0);
+	lws_fx_set(c->line_h, 0, 0);
+	lws_fx_set(c->nowrap, 0, 0);
+	c->line_first = NULL;
+	c->line_asc = 0;
+	c->line_desc = 0;
+	c->has_line = 0;
+	c->last_space = 1;
+}
 
-		lws_start_foreach_dll(struct lws_dll2 *, r1,
-				      lws_dll2_get_head(&tr->row_dlos)) {
-			lws_dlo_t *dlor = lws_container_of(r1,
-					lws_dlo_t, row_list);
+/*
+ * The line being built in container c is complete: work out its height and
+ * baseline, align the items on it vertically, apply text-align, and move
+ * the cursor below it
+ */
 
-			if (lws_fx_comp(&dlor->box.h, &tr->height) > 0)
-				tr->height = dlor->box.h;
-		} lws_end_foreach_dll(r1);
+static void
+lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
+{
+	lws_fx_t lh, shift, t, ah;
+	const lcsp_atr_t *a;
+	lws_dll2_t *d;
 
-		/* new height - old row height */
-		lws_fx_sub(&hdelta, &tr->height, &oh);
+	if (!c->has_line)
+		return;
 
-		/*
-		 * Update all dlos in our row (except
-		 * ourselves) with the increased row height
-		 */
+	lws_fx_set(ah, c->line_asc + c->line_desc, 0);
+	lh = lhp_fx_max(&ah, &c->line_h);
 
-		lws_start_foreach_dll(struct lws_dll2 *, rold,
-				      lws_dll2_get_head(&tr->row_dlos)) {
-			lws_dlo_t *dlor = lws_container_of(rold,
-					lws_dlo_t, row_list);
-
-			if (dlor != &rect->dlo)
-				/* we already did this for the
-				 * affected dlo */
-				lws_fx_add(&dlor->box.h,
-					   &dlor->box.h, &hdelta);
-
-			/* ... so all of their col-mates below
-			 * also need their y adjusting then */
-
-			while (lws_dll2_get_next(&dlor->col_list)) {
-				dlor = lws_container_of(
-					lws_dll2_get_next(&dlor->col_list),
-					lws_dlo_t, col_list);
-
-				lws_fx_add(&dlor->box.y,
-					   &dlor->box.y, &hdelta);
+	lws_fx_set(shift, 0, 0);
+	if (!c->shrink) {
+		a = lws_css_get_prop_atr_ps(ctx, c, LCSP_PROP_TEXT_ALIGN);
+		if (a && a->unit == LCSP_UNIT_NONE) {
+			lws_fx_sub(&t, &c->cw, &c->curx);
+			if (t.whole > 0) {
+				if (a->propval == LCSP_PROPVAL_CENTER)
+					lws_fx_div(&shift, &t, &fx_2);
+				else if (a->propval == LCSP_PROPVAL_RIGHT)
+					shift = t;
 			}
-
-			rd = 1;
-
-		} lws_end_foreach_dll(rold);
+		}
 	}
 
-	/*
-	 * Row dimensions have to be reassessed?
-	 */
+	d = c->line_first ? &c->line_first->list : NULL;
+	while (d) {
+		lws_dlo_t *dlo = lws_container_of(d, lws_dlo_t, list);
 
-	if (rd) {
-		lws_start_foreach_dll(struct lws_dll2 *, ro,
-		       lws_dll2_get_head(&pst->dlo->children)) {
-			lws_dlo_t *dlo = lws_container_of(ro, lws_dlo_t, list);
-			lws_dlo_dim_t dim;
+		if (dlo->_destroy == lws_display_dlo_text_destroy) {
+			lws_dlo_text_t *txt = lws_container_of(dlo,
+							lws_dlo_text_t, dlo);
 
-			lws_dlo_contents(dlo, &dim);
-			lws_display_dlo_adjust_dims(dlo, &dim);
-		} lws_end_foreach_dll(ro);
+			/* text sits on the line's baseline */
+			lws_fx_set(t, c->line_asc - txt->font_y_baseline, 0);
+		} else
+			/* boxes and images sit on the bottom of the line */
+			lws_fx_sub(&t, &lh, &dlo->box.h);
+
+		lws_fx_add(&dlo->box.y, &c->oy, &c->cury);
+		lws_fx_add(&dlo->box.y, &dlo->box.y, &t);
+		lws_fx_add(&dlo->box.x, &dlo->box.x, &shift);
+
+		d = lws_dll2_get_next(d);
 	}
 
-	if (psb && lhp_position(ps) != LCSP_PROPVAL_ABSOLUTE) {
-		/* parent should account for our margin */
-		if (elem_match == LHP_ELEM_DIV) {
-			lws_fx_add(&psb->curx, &psb->curx, &ps->widest);
-			/* now we applied ps->widest, reset it */
-			lws_fx_set(ps->widest, 0, 0);
-			psb->dlo_set_curx = ps->dlo;
-		} else {
-			/* needed for margin between table cells */
-			lws_fx_add(&psb->curx, &psb->curx, lws_csp_px(ps->css_margin[CCPAS_LEFT], ps));
-			lws_fx_add(&psb->curx, &psb->curx, lws_csp_px(ps->css_margin[CCPAS_RIGHT], ps));
+	lws_fx_add(&c->cury, &c->cury, &lh);
+	lhp_line_reset(c);
+}
+
+/* an item was placed on the line at the cursor: account for it */
+
+static void
+lhp_line_item(lhp_pstack_t *c, lws_dlo_t *dlo, const lws_fx_t *w,
+	      const lws_fx_t *h)
+{
+	if (!c->has_line) {
+		c->has_line = 1;
+		c->line_first = dlo;
+	}
+
+	lws_fx_add(&c->curx, &c->curx, w);
+	lws_fx_add(&c->nowrap, &c->nowrap, w);
+	c->maxc = lhp_fx_max(&c->maxc, &c->nowrap);
+
+	if (h)
+		c->line_h = lhp_fx_max(&c->line_h, h);
+}
+
+static void
+lhp_line_text_metrics(lhp_pstack_t *c, lws_dlo_text_t *txt)
+{
+	if (txt->font_y_baseline > c->line_asc)
+		c->line_asc = txt->font_y_baseline;
+	if (txt->font_height - txt->font_y_baseline > c->line_desc)
+		c->line_desc = (int16_t)(txt->font_height -
+					 txt->font_y_baseline);
+}
+
+/*
+ * Text content
+ */
+
+static lws_stateful_ret_t
+lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
+{
+	const char *text = ctx->buf;
+	size_t len = (size_t)ctx->npos;
+	lhp_pstack_t *c = lhp_container(ps);
+	lws_display_colour_t col;
+	const lcsp_atr_t *bg = NULL;
+	lws_fx_t pl, pr, pt, pb, avail, total, word;
+	lws_box_t box;
+
+	if (!c || !ps->font)
+		return 0;
+
+	/* text that lands below the surface can never be seen */
+	if (c->abs_y + c->cury.whole > ctx->ic.wh_px[LWS_LHPREF_HEIGHT].whole)
+		return 0;
+
+	col = lhp_colour(ps->css_color, LWSDC_RGBA(0, 0, 0, 255));
+
+	if (ps->is_inline && ps->css_background_color &&
+	    ps->css_background_color->unit == LCSP_UNIT_RGBA)
+		bg = ps->css_background_color;
+
+	pl = lhp_len(ps, ps->css_padding[CCPAS_LEFT], &c->cw);
+	pr = lhp_len(ps, ps->css_padding[CCPAS_RIGHT], &c->cw);
+	pt = lhp_len(ps, ps->css_padding[CCPAS_TOP], &c->cw);
+	pb = lhp_len(ps, ps->css_padding[CCPAS_BOTTOM], &c->cw);
+
+	while (len) {
+		lws_dlo_rect_t *rect = NULL;
+		lws_dlo_text_t *txt;
+		int r;
+
+		/* collapse whitespace at the start of a line / after a space */
+
+		while (len && *text == ' ' && c->last_space) {
+			text++;
+			len--;
+		}
+		if (!len)
+			break;
+
+		lws_fx_sub(&avail, &c->cw, &c->curx);
+		if (avail.whole <= 0 && c->curx.whole > 0) {
+			lhp_line_end(ctx, c);
+			continue;
 		}
 
-		if (elem_match != LHP_ELEM_TD) {
-			if (lhp_display(ps) != LCSP_PROPVAL_INLINE_BLOCK &&
-			    !lhp_is_inline(ps)) {
-				lws_fx_add(&psb->cury, &psb->cury, &ps->dlo->box.h);
-				psb->dlo_set_cury = ps->dlo;
+		if (bg) {
+			lws_fx_t radii[4];
+			int n;
+
+			for (n = 0; n < 4; n++)
+				radii[n] = ps->css_border_radius[n] ?
+					*lws_csp_px(ps->css_border_radius[n], ps) :
+					fx_0;
+
+			lws_fx_set(box.x, 0, 0);
+			lws_fx_set(box.y, 0, 0);
+			lws_fx_set(box.w, 0, 0);
+			lws_fx_set(box.h, 0, 0);
+			rect = lws_display_dlo_rect_new(drt->dl, c->dlo, &box,
+							radii, bg->u.rgba);
+		}
+
+		lws_fx_add(&box.x, &c->ox, &c->curx);
+		lws_fx_add(&box.y, &c->oy, &c->cury);
+		box.w = avail.whole > 0 ? avail : ctx->ic.wh_px[LWS_LHPREF_WIDTH];
+		lws_fx_set(box.h, 0, 0);
+
+		txt = lws_display_dlo_text_new(drt->dl, c->dlo, &box, ps->font);
+		if (!txt) {
+			if (rect)
+				lws_display_dlo_destroy((lws_dlo_t **)&rect);
+			return LWS_SRET_FATAL;
+		}
+
+		r = lws_display_dlo_text_update(txt, col, fx_0, text, len);
+
+		if (r < 0) {
+			lws_display_dlo_destroy((lws_dlo_t **)&txt);
+			if (rect)
+				lws_display_dlo_destroy((lws_dlo_t **)&rect);
+			return LWS_SRET_FATAL;
+		}
+
+		if (r == 2) {
+			/* nothing fits in what's left of the line */
+			if (c->curx.whole > 0) {
+				lws_display_dlo_destroy((lws_dlo_t **)&txt);
+				if (rect)
+					lws_display_dlo_destroy((lws_dlo_t **)&rect);
+				lhp_line_end(ctx, c);
+				continue;
 			}
-		//	lws_fx_add(&psb->cury, &psb->cury, &ps->dlo->margin[CCPAS_BOTTOM]);
-		} else
-			ps->widest = ps->dlo->box.w;
+
+			/*
+			 * A word wider than the whole line: it has to go on
+			 * a line by itself and overflow
+			 */
+			lws_display_dlo_text_measure(txt, text, len, &total,
+						     &word);
+			lws_fx_add(&txt->dlo.box.w, &word, &fx_2);
+			r = lws_display_dlo_text_update(txt, col, fx_0, text,
+							len);
+			if (r < 0 || r == 2 || !txt->text_len) {
+				lws_display_dlo_destroy((lws_dlo_t **)&txt);
+				if (rect)
+					lws_display_dlo_destroy((lws_dlo_t **)&rect);
+				return 0;
+			}
+		}
+
+		txt->dlo.box.w = txt->bounding_box.w;
+		txt->dlo.box.h = txt->bounding_box.h;
+		lhp_line_text_metrics(c, txt);
+
+		if (rect) {
+			/* the inline element's background, behind the text */
+			lws_fx_sub(&rect->dlo.box.x, &txt->dlo.box.x, &pl);
+			lws_fx_sub(&rect->dlo.box.y, &txt->dlo.box.y, &pt);
+			lws_fx_add(&rect->dlo.box.w, &txt->dlo.box.w, &pl);
+			lws_fx_add(&rect->dlo.box.w, &rect->dlo.box.w, &pr);
+			lws_fx_add(&rect->dlo.box.h, &txt->dlo.box.h, &pt);
+			lws_fx_add(&rect->dlo.box.h, &rect->dlo.box.h, &pb);
+			lhp_line_item(c, &rect->dlo, &fx_0, &rect->dlo.box.h);
+		}
+
+		lws_display_dlo_text_measure(txt, txt->text, txt->text_len,
+					     &total, &word);
+		c->minc = lhp_fx_max(&c->minc, &word);
+
+		lhp_line_item(c, &txt->dlo, &txt->dlo.box.w, NULL);
+		c->last_space = txt->text[txt->text_len - 1] == ' ';
+
+		text += txt->text_len;
+		len -= txt->text_len;
+
+		if (r == 1)
+			/* wrapped: the rest goes on the next line */
+			lhp_line_end(ctx, c);
 	}
+
+	return 0;
+}
+
+/*
+ * Replaced inline element: <img>
+ */
+
+static void
+lhp_place_image(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c)
+{
+	lws_dlo_t *dlo = ps->dlo;
+	lws_fx_t w, h, ml, mr, t;
+	const char *p;
+
+	if (!dlo || !c)
+		return;
+
+	/* a shared dlo for an asset used twice belongs to its first user */
+	if (lws_dll2_owner(&dlo->list) != &c->dlo->children)
+		return;
+
+	w = lhp_len(ps, ps->css_width, &c->cw);
+	h = lhp_len(ps, ps->css_height, &c->cw);
+
+	p = lws_html_get_atr(ps, "width", 5);
+	if (p && !w.whole)
+		lws_fx_set(w, atoi(p), 0);
+	p = lws_html_get_atr(ps, "height", 6);
+	if (p && !h.whole)
+		lws_fx_set(h, atoi(p), 0);
+
+	if (dlo->box.w.whole < 0 || dlo->box.h.whole < 0) {
+		/* asset failed: take no space */
+		lws_fx_set(dlo->box.w, 0, 0);
+		lws_fx_set(dlo->box.h, 0, 0);
+		return;
+	}
+
+	if (!w.whole && !h.whole) {
+		w = dlo->box.w;
+		h = dlo->box.h;
+	} else if (!w.whole && dlo->box.h.whole) {
+		/* scale to keep the aspect ratio */
+		lws_fx_mul(&t, &h, &dlo->box.w);
+		lws_fx_div(&w, &t, &dlo->box.h);
+	} else if (!h.whole && dlo->box.w.whole) {
+		lws_fx_mul(&t, &w, &dlo->box.h);
+		lws_fx_div(&h, &t, &dlo->box.w);
+	}
+
+	ml = lhp_len(ps, ps->css_margin[CCPAS_LEFT], &c->cw);
+	mr = lhp_len(ps, ps->css_margin[CCPAS_RIGHT], &c->cw);
+
+	lws_fx_add(&t, &c->curx, &ml);
+	lws_fx_add(&t, &t, &w);
+	lws_fx_add(&t, &t, &mr);
+	if (c->curx.whole > 0 && lws_fx_comp(&t, &c->cw) > 0)
+		lhp_line_end(ctx, c);
+
+	lws_fx_add(&dlo->box.x, &c->ox, &c->curx);
+	lws_fx_add(&dlo->box.x, &dlo->box.x, &ml);
+	lws_fx_add(&dlo->box.y, &c->oy, &c->cury);
+	dlo->box.w = w;
+	dlo->box.h = h;
+
+	lws_fx_add(&t, &ml, &w);
+	lws_fx_add(&t, &t, &mr);
+	lhp_line_item(c, dlo, &t, &h);
+	c->minc = lhp_fx_max(&c->minc, &t);
+	c->last_space = 0;
+}
+
+/*
+ * Tables
+ */
+
+static lhp_pstack_t *
+lhp_table_of(lhp_pstack_t *ps)
+{
+	ps = lhp_parent(ps);
+	while (ps && !ps->is_table)
+		ps = lhp_parent(ps);
+
+	return ps;
+}
+
+static lhp_table_col_t *
+lhp_table_col(lws_dlo_t *tdlo, unsigned int idx)
+{
+	lws_dll2_t *d = lws_dll2_get_head(&tdlo->table_cols);
+
+	while (d && idx--)
+		d = lws_dll2_get_next(d);
+
+	if (d)
+		return lws_container_of(d, lhp_table_col_t, list);
+
+	return NULL;
+}
+
+/* border-spacing, or the 2px default */
+
+static lws_fx_t
+lhp_table_spacing(lhp_ctx_t *ctx, lhp_pstack_t *t)
+{
+	const lcsp_atr_t *a = lws_css_get_prop_atr_ps(ctx, t,
+						LCSP_PROP_BORDER_SPACING);
+	const lcsp_atr_t *bc = lws_css_get_prop_atr_ps(ctx, t,
+						LCSP_PROP_BORDER_COLLAPSE);
+
+	if (bc && bc->unit == LCSP_UNIT_NONE &&
+	    bc->propval == LCSP_PROPVAL_COLLAPSE)
+		return fx_0;
+
+	if (a && a->unit != LCSP_UNIT_NONE)
+		return lhp_len(t, a, &t->cw);
+
+	return fx_2;
+}
+
+/*
+ * All the cells are known: size the columns (CSS automatic table layout,
+ * simplified) and move the cells into their final places
+ */
+
+static void
+lhp_table_close(lhp_ctx_t *ctx, lhp_pstack_t *t)
+{
+	lws_fx_t sp = lhp_table_spacing(ctx, t), avail, smin, smax, t1, t2,
+		 sdiff, x, tw;
+	unsigned int n = lws_dll2_count(&t->dlo->table_cols);
+
+	if (!n)
+		return;
+
+	/* width for columns after the spacing between and around them */
+
+	lws_fx_set(t1, (int32_t)(n + 1), 0);
+	lws_fx_mul(&t1, &t1, &sp);
+	lws_fx_sub(&avail, &t->cw, &t1);
+
+	lws_fx_set(smin, 0, 0);
+	lws_fx_set(smax, 0, 0);
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&t->dlo->table_cols)) {
+		lhp_table_col_t *col = lws_container_of(d, lhp_table_col_t,
+							list);
+
+		lws_fx_add(&smin, &smin, &col->min_w);
+		lws_fx_add(&smax, &smax, &col->max_w);
+	} lws_end_foreach_dll(d);
+
+	lws_fx_sub(&sdiff, &smax, &smin);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&t->dlo->table_cols)) {
+		lhp_table_col_t *col = lws_container_of(d, lhp_table_col_t,
+							list);
+
+		if (lws_fx_comp(&smax, &avail) <= 0) {
+			col->width = col->max_w;
+			if (t->explicit_w && smax.whole > 0) {
+				/* stretch to the given table width */
+				lws_fx_mul(&t1, &col->max_w, &avail);
+				lws_fx_div(&col->width, &t1, &smax);
+			}
+		} else if (lws_fx_comp(&smin, &avail) >= 0 ||
+			   sdiff.whole <= 0)
+			col->width = col->min_w;
+		else {
+			/* min + share of the slack in proportion to max - min */
+			lws_fx_sub(&t1, &avail, &smin);
+			lws_fx_sub(&t2, &col->max_w, &col->min_w);
+			lws_fx_mul(&t1, &t1, &t2);
+			lws_fx_div(&t1, &t1, &sdiff);
+			lws_fx_add(&col->width, &col->min_w, &t1);
+		}
+	} lws_end_foreach_dll(d);
+
+	tw = sp;
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&t->dlo->table_cols)) {
+		lhp_table_col_t *col = lws_container_of(d, lhp_table_col_t,
+							list);
+
+		lws_fx_add(&tw, &tw, &col->width);
+		lws_fx_add(&tw, &tw, &sp);
+	} lws_end_foreach_dll(d);
+
+	/* place the cells of every row */
+
+	lws_start_foreach_dll(struct lws_dll2 *, rd,
+			      lws_dll2_get_head(&t->dlo->children)) {
+		lws_dlo_t *row = lws_container_of(rd, lws_dlo_t, list);
+		unsigned int idx = 0;
+
+		if (!row->flag_row)
+			continue;
+
+		row->box.w = tw;
+		x = sp;
+
+		lws_start_foreach_dll(struct lws_dll2 *, cd,
+				      lws_dll2_get_head(&row->children)) {
+			lws_dlo_t *cell = lws_container_of(cd, lws_dlo_t, list);
+			lhp_table_col_t *col;
+
+			if (!cell->flag_cell)
+				continue;
+
+			col = lhp_table_col(t->dlo, idx++);
+			if (!col)
+				break;
+
+			cell->box.x = x;
+			cell->box.w = col->width;
+			lws_fx_add(&x, &x, &col->width);
+			lws_fx_add(&x, &x, &sp);
+		} lws_end_foreach_dll(cd);
+	} lws_end_foreach_dll(rd);
+
+	if (!t->explicit_w) {
+		t->cw = tw;
+		lws_fx_add(&t->dlo->box.w, &tw, lws_csp_px(
+					t->css_padding[CCPAS_LEFT], t));
+		lws_fx_add(&t->dlo->box.w, &t->dlo->box.w, lws_csp_px(
+					t->css_padding[CCPAS_RIGHT], t));
+	}
+}
+
+/*
+ * Blocks
+ */
+
+static void
+lhp_list_marker(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
+{
+	lhp_pstack_t *list = lhp_parent(ps);
+	lws_dlo_text_t *txt;
+	const lcsp_atr_t *a;
+	char m[16] = "-"; /* the embedded fonts rarely carry U+2022 */
+	lws_box_t box;
+	size_t ml;
+
+	while (list && !lhp_tag_is(list, "ol", 2) && !lhp_tag_is(list, "ul", 2))
+		list = lhp_parent(list);
+
+	a = lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_LIST_STYLE_TYPE);
+	if (a && a->unit == LCSP_UNIT_NONE && a->propval == LCSP_PROPVAL_NONE)
+		return;
+
+	if ((list && lhp_tag_is(list, "ol", 2)) ||
+	    (a && a->unit == LCSP_UNIT_NONE &&
+	     a->propval == LCSP_PROPVAL_DECIMAL)) {
+		if (list)
+			list->idx++;
+		lws_snprintf(m, sizeof(m), "%u.", list ? list->idx : 1u);
+	}
+	ml = strlen(m);
+
+	lws_fx_set(box.x, 0, 0);
+	box.y = ps->oy;
+	lws_fx_set(box.w, 40, 0);
+	lws_fx_set(box.h, 0, 0);
+	txt = lws_display_dlo_text_new(drt->dl, ps->dlo, &box, ps->font);
+	if (!txt)
+		return;
+
+	if (lws_display_dlo_text_update(txt, lhp_colour(ps->css_color,
+				LWSDC_RGBA(0, 0, 0, 255)), fx_0, m, ml) < 0 ||
+	    !txt->text_len) {
+		lws_display_dlo_destroy((lws_dlo_t **)&txt);
+		return;
+	}
+
+	txt->dlo.box.w = txt->bounding_box.w;
+	txt->dlo.box.h = txt->bounding_box.h;
+
+	/* right-aligned, just left of the content */
+	lws_fx_set(box.x, -6, 0);
+	lws_fx_sub(&txt->dlo.box.x, &box.x, &txt->dlo.box.w);
+	lws_fx_add(&txt->dlo.box.x, &txt->dlo.box.x, &ps->ox);
+}
+
+static lws_stateful_ret_t
+lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
+	       lws_dl_rend_t *drt)
+{
+	lws_fx_t ml, mr, mt, pl, pr, pt, w, x, y, t, radii[4], base;
+	lws_dlo_t *parent = c ? c->dlo : NULL;
+	lhp_pstack_t *tbl = NULL;
+	lws_box_t box;
+	int n, pos;
+
+	base = c ? c->cw : ctx->ic.wh_px[LWS_LHPREF_WIDTH];
+
+	ml = lhp_len(ps, ps->css_margin[CCPAS_LEFT], &base);
+	mr = lhp_len(ps, ps->css_margin[CCPAS_RIGHT], &base);
+	mt = lhp_len(ps, ps->css_margin[CCPAS_TOP], &base);
+	pl = lhp_len(ps, ps->css_padding[CCPAS_LEFT], &base);
+	pr = lhp_len(ps, ps->css_padding[CCPAS_RIGHT], &base);
+	pt = lhp_len(ps, ps->css_padding[CCPAS_TOP], &base);
+
+	pos = lhp_propval(ps->css_position, LCSP_PROPVAL_STATIC);
+	ps->is_abs = pos == LCSP_PROPVAL_ABSOLUTE || pos == LCSP_PROPVAL_FIXED;
+	ps->is_ilevel = type == LHP_BOX_INLINE_BLOCK;
+
+	if (type != LHP_BOX_ROW && type != LHP_BOX_CELL && !ps->is_abs) {
+		const lcsp_atr_t *fl = lws_css_get_prop_atr_ps(ctx, ps,
+							LCSP_PROP_FLOAT);
+
+		/* floats: on the line, no wrap-around (yet) */
+		if (fl && fl->unit == LCSP_UNIT_NONE &&
+		    (fl->propval == LCSP_PROPVAL_LEFT ||
+		     fl->propval == LCSP_PROPVAL_RIGHT))
+			ps->is_ilevel = 1;
+	}
+
+	/* an explicit width is the content width */
+
+	ps->explicit_w = ps->css_width && !lhp_is_auto(ps->css_width) &&
+			 ps->css_width->unit != LCSP_UNIT_NONE;
+	ps->explicit_h = ps->css_height && !lhp_is_auto(ps->css_height) &&
+			 ps->css_height->unit != LCSP_UNIT_NONE &&
+			 ps->css_height->unit != LCSP_UNIT_LENGTH_PERCENT;
+
+	lws_fx_set(w, 0, 0);
+	if (ps->explicit_w) {
+		w = lhp_len(ps, ps->css_width, &base);
+		lws_fx_add(&w, &w, &pl);
+		lws_fx_add(&w, &w, &pr);
+	}
+
+	lws_fx_set(x, 0, 0);
+	lws_fx_set(y, 0, 0);
+
+	switch (type) {
+	case LHP_BOX_ROW:
+		tbl = lhp_table_of(ps);
+		if (!tbl || !c)
+			return 0;
+		/* rows stack in the table; cells are placed in them */
+		if (c->has_line)
+			lhp_line_end(ctx, c);
+		y = c->cury;
+		w = c->cw;
+		lws_fx_set(ml, 0, 0);
+		lws_fx_set(pl, 0, 0);
+		lws_fx_set(pr, 0, 0);
+		lws_fx_set(pt, 0, 0);
+		ps->is_row = 1;
+		break;
+
+	case LHP_BOX_CELL:
+		tbl = lhp_table_of(ps);
+		if (!tbl || !c || !c->is_row)
+			return 0;
+		/* provisional: laid out at the full table width, placed
+		 * properly when the table closes */
+		x = c->curx;
+		if (!ps->explicit_w) {
+			w = tbl->cw;
+			ps->shrink = 1;
+		}
+		lws_fx_set(ml, 0, 0);
+		ps->is_cell = 1;
+		ps->idx = c->idx++;
+		if (!lhp_table_col(tbl->dlo, ps->idx)) {
+			lhp_table_col_t *col = lws_zalloc(sizeof(*col),
+							  __func__);
+			if (!col)
+				return LWS_SRET_FATAL;
+			lws_dll2_add_tail(&col->list, &tbl->dlo->table_cols);
+		}
+		break;
+
+	default:
+		if (ps->is_abs) {
+			/* from the surface origin; auto width shrinks */
+			parent = NULL;
+			x = lhp_len(ps, ps->css_pos[CCPAS_LEFT], &base);
+			y = lhp_len(ps, ps->css_pos[CCPAS_TOP], &base);
+			lws_fx_add(&x, &x, &ml);
+			lws_fx_add(&y, &y, &mt);
+			if (!ps->explicit_w) {
+				lws_fx_sub(&w, &ctx->ic.wh_px[LWS_LHPREF_WIDTH],
+					   &x);
+				lws_fx_sub(&w, &w, &mr);
+				ps->shrink = 1;
+			}
+			break;
+		}
+
+		if (!c)
+			return 0;
+
+		if (ps->is_ilevel) {
+			/* on the current line; placed at close */
+			lws_fx_add(&x, &c->curx, &ml);
+			y = c->cury;
+			if (!ps->explicit_w) {
+				lws_fx_sub(&w, &c->cw, &ml);
+				lws_fx_sub(&w, &w, &mr);
+				ps->shrink = 1;
+			}
+			break;
+		}
+
+		/* block-level: below whatever is in the container so far */
+
+		if (c->has_line)
+			lhp_line_end(ctx, c);
+
+		/* adjacent vertical margins collapse to the larger */
+		t = lhp_fx_max(&c->pend_mb, &mt);
+		lws_fx_add(&y, &c->cury, &t);
+		lws_fx_set(c->pend_mb, 0, 0);
+
+		if (ps->explicit_w) {
+			if (lhp_is_auto(ps->css_margin[CCPAS_LEFT]) &&
+			    lhp_is_auto(ps->css_margin[CCPAS_RIGHT])) {
+				/* centred */
+				lws_fx_sub(&t, &c->cw, &w);
+				lws_fx_div(&x, &t, &fx_2);
+				if (x.whole < 0)
+					lws_fx_set(x, 0, 0);
+			} else
+				x = ml;
+		} else {
+			x = ml;
+			lws_fx_sub(&w, &c->cw, &ml);
+			lws_fx_sub(&w, &w, &mr);
+		}
+		break;
+	}
+
+	if (w.whole < 0)
+		lws_fx_set(w, 0, 0);
+
+	memset(radii, 0, sizeof(radii));
+	for (n = 0; n < 4; n++)
+		if (ps->css_border_radius[n])
+			radii[n] = *lws_csp_px(ps->css_border_radius[n], ps);
+
+	if (c && !ps->is_abs) {
+		lws_fx_add(&box.x, &c->ox, &x);
+		lws_fx_add(&box.y, &c->oy, &y);
+	} else {
+		box.x = x;
+		box.y = y;
+	}
+	box.w = w;
+	lws_fx_set(box.h, 0, 0);
+
+	ps->dlo = (lws_dlo_t *)lws_display_dlo_rect_new(drt->dl, parent, &box,
+				radii, lhp_colour(ps->css_background_color, 0));
+	if (!ps->dlo)
+		return LWS_SRET_FATAL;
+
+	if (ps->is_abs)
+		ps->dlo->flag_toplevel = 1;
+	ps->dlo->flag_row = ps->is_row;
+	ps->dlo->flag_cell = ps->is_cell;
+	ps->dlo->flag_block = !ps->is_ilevel && !ps->is_abs && !ps->is_row &&
+			      !ps->is_cell;
+
+	lws_lhp_tag_dlo_id(ctx, ps, ps->dlo);
+	lhp_set_dlo_padding_margin(ps, ps->dlo);
+
+	ps->is_block = 1;
+	ps->is_table = type == LHP_BOX_TABLE;
+	ps->ox = pl;
+	ps->oy = pt;
+	lws_fx_sub(&ps->cw, &w, &pl);
+	lws_fx_sub(&ps->cw, &ps->cw, &pr);
+	if (ps->cw.whole < 0)
+		lws_fx_set(ps->cw, 0, 0);
+	lws_fx_set(ps->cury, 0, 0);
+	lws_fx_set(ps->maxc, 0, 0);
+	lws_fx_set(ps->minc, 0, 0);
+	lws_fx_set(ps->pend_mb, 0, 0);
+	if (!ps->is_row)
+		ps->idx = ps->is_cell ? ps->idx : 0;
+	lhp_line_reset(ps);
+	ps->abs_y = (c && !ps->is_abs ? c->abs_y : 0) + box.y.whole;
+
+	if (type == LHP_BOX_LIST_ITEM)
+		lhp_list_marker(ctx, ps, drt);
+
+	return 0;
+}
+
+/* the box for element ps is complete: give it a height and place it */
+
+static void
+lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
+{
+	lhp_pstack_t *c = lhp_container(lhp_parent(ps)), *tbl;
+	lws_fx_t pl, pr, pt, pb, ml, mr, mb, h, w, t, t1, base;
+
+	base = c ? c->cw : ctx->ic.wh_px[LWS_LHPREF_WIDTH];
+
+	if (ps->has_line)
+		lhp_line_end(ctx, ps);
+
+	pl = lhp_len(ps, ps->css_padding[CCPAS_LEFT], &base);
+	pr = lhp_len(ps, ps->css_padding[CCPAS_RIGHT], &base);
+	pt = lhp_len(ps, ps->css_padding[CCPAS_TOP], &base);
+	pb = lhp_len(ps, ps->css_padding[CCPAS_BOTTOM], &base);
+	ml = lhp_len(ps, ps->css_margin[CCPAS_LEFT], &base);
+	mr = lhp_len(ps, ps->css_margin[CCPAS_RIGHT], &base);
+	mb = lhp_len(ps, ps->css_margin[CCPAS_BOTTOM], &base);
+
+	if (ps->is_row) {
+		lws_fx_set(pt, 0, 0);
+		lws_fx_set(pb, 0, 0);
+		lws_fx_set(pl, 0, 0);
+		lws_fx_set(pr, 0, 0);
+	}
+	if (ps->is_row || ps->is_cell) {
+		lws_fx_set(ml, 0, 0);
+		lws_fx_set(mr, 0, 0);
+		lws_fx_set(mb, 0, 0);
+	}
+
+	if (ps->is_table)
+		lhp_table_close(ctx, ps);
+
+	/* height */
+
+	if (ps->explicit_h)
+		h = lhp_len(ps, ps->css_height, &base);
+	else {
+		h = ps->cury;
+		if (pb.whole > 0 || ps->is_cell || ps->is_ilevel || ps->is_abs)
+			/* the last child's bottom margin stays inside */
+			lws_fx_add(&h, &h, &ps->pend_mb);
+		else
+			/* ... or collapses through us to our own */
+			mb = lhp_fx_max(&mb, &ps->pend_mb);
+	}
+
+	if (ps->is_row) {
+		/* as tall as the tallest cell, and so are the cells */
+		h = ps->line_h;
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&ps->dlo->children)) {
+			lws_dlo_t *cell = lws_container_of(d, lws_dlo_t, list);
+
+			if (cell->flag_cell)
+				cell->box.h = h;
+		} lws_end_foreach_dll(d);
+	}
+
+	lws_fx_add(&ps->dlo->box.h, &h, &pt);
+	lws_fx_add(&ps->dlo->box.h, &ps->dlo->box.h, &pb);
+
+	/* width, if it was waiting for the content */
+
+	if (ps->shrink && !ps->is_table) {
+		w = lhp_fx_min(&ps->maxc, &ps->cw);
+		if (lws_fx_comp(&w, &ps->minc) < 0)
+			w = ps->minc;
+		lws_fx_add(&ps->dlo->box.w, &w, &pl);
+		lws_fx_add(&ps->dlo->box.w, &ps->dlo->box.w, &pr);
+
+		/* block children were given the provisional width */
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&ps->dlo->children)) {
+			lws_dlo_t *ch = lws_container_of(d, lws_dlo_t, list);
+
+			if (ch->flag_block &&
+			    lws_fx_comp(&ch->box.w, &w) > 0)
+				ch->box.w = w;
+		} lws_end_foreach_dll(d);
+		ps->cw = w;
+	}
+
+	w = ps->dlo->box.w;
+
+	if (ps->is_abs || !c)
+		return;
+
+	if (ps->is_cell) {
+		/* what the column needs, and a provisional place in the row */
+		tbl = lhp_table_of(ps);
+		if (tbl) {
+			lhp_table_col_t *col = lhp_table_col(tbl->dlo, ps->idx);
+
+			if (col) {
+				lws_fx_add(&t, &ps->minc, &pl);
+				lws_fx_add(&t, &t, &pr);
+				col->min_w = lhp_fx_max(&col->min_w, &t);
+				lws_fx_add(&t, &ps->maxc, &pl);
+				lws_fx_add(&t, &t, &pr);
+				if (ps->explicit_w)
+					t = w;
+				col->max_w = lhp_fx_max(&col->max_w, &t);
+			}
+		}
+		lws_fx_add(&c->curx, &c->curx, &w);
+		c->line_h = lhp_fx_max(&c->line_h, &ps->dlo->box.h);
+		return;
+	}
+
+	if (ps->is_row) {
+		lws_fx_t sp = lhp_table_spacing(ctx, c);
+
+		lws_fx_add(&c->cury, &c->cury, &ps->dlo->box.h);
+		lws_fx_add(&c->cury, &c->cury, &sp);
+		return;
+	}
+
+	if (ps->is_ilevel) {
+		/* an item on the container's line */
+		lws_fx_add(&t, &ml, &w);
+		lws_fx_add(&t, &t, &mr);
+
+		lws_fx_add(&t1, &c->curx, &t);
+		if (c->curx.whole > 0 && lws_fx_comp(&t1, &c->cw) > 0)
+			lhp_line_end(ctx, c);
+
+		lws_fx_add(&ps->dlo->box.x, &c->ox, &c->curx);
+		lws_fx_add(&ps->dlo->box.x, &ps->dlo->box.x, &ml);
+		lws_fx_add(&ps->dlo->box.y, &c->oy, &c->cury);
+
+		lhp_line_item(c, ps->dlo, &t, &ps->dlo->box.h);
+		c->minc = lhp_fx_max(&c->minc, &t);
+		c->last_space = 0;
+		return;
+	}
+
+	/* block-level: the container continues below us */
+
+	lws_fx_sub(&t, &ps->dlo->box.y, &c->oy);
+	lws_fx_add(&c->cury, &t, &ps->dlo->box.h);
+	c->pend_mb = mb;
+	lhp_line_reset(c);
+
+	/* our unwrapped width counts for the container's shrink-to-fit */
+	if (ps->explicit_w || ps->is_table)
+		t = w;
+	else {
+		lws_fx_add(&t, &ps->maxc, &pl);
+		lws_fx_add(&t, &t, &pr);
+	}
+	lws_fx_add(&t, &t, &ml);
+	lws_fx_add(&t, &t, &mr);
+	c->maxc = lhp_fx_max(&c->maxc, &t);
+	lws_fx_add(&t, &ps->minc, &pl);
+	lws_fx_add(&t, &t, &pr);
+	c->minc = lhp_fx_max(&c->minc, &t);
+}
+
+/*
+ * Element start / end
+ */
+
+static void
+lhp_body_open(lhp_pstack_t *ps)
+{
+	lws_fx_t ml, mr, mt, pl, pr, pt;
+	const lws_fx_t *base = &ps->dlo->box.w;
+
+	/* the parser made the body dlo cover the surface: inset the content */
+
+	ml = lhp_len(ps, ps->css_margin[CCPAS_LEFT], base);
+	mr = lhp_len(ps, ps->css_margin[CCPAS_RIGHT], base);
+	mt = lhp_len(ps, ps->css_margin[CCPAS_TOP], base);
+	pl = lhp_len(ps, ps->css_padding[CCPAS_LEFT], base);
+	pr = lhp_len(ps, ps->css_padding[CCPAS_RIGHT], base);
+	pt = lhp_len(ps, ps->css_padding[CCPAS_TOP], base);
+
+	lws_fx_add(&ps->ox, &ml, &pl);
+	lws_fx_add(&ps->oy, &mt, &pt);
+	lws_fx_sub(&ps->cw, base, &ps->ox);
+	lws_fx_sub(&ps->cw, &ps->cw, &mr);
+	lws_fx_sub(&ps->cw, &ps->cw, &pr);
+	lws_fx_set(ps->cury, 0, 0);
+	lws_fx_set(ps->pend_mb, 0, 0);
+	lws_fx_set(ps->maxc, 0, 0);
+	lws_fx_set(ps->minc, 0, 0);
+	ps->is_block = 1;
+	ps->abs_y = 0;
+	lhp_line_reset(ps);
+}
+
+static lws_stateful_ret_t
+lhp_elem_start(lhp_ctx_t *ctx, lhp_pstack_t *ps, struct lws_context *cx,
+	       lws_dl_rend_t *drt)
+{
+	lhp_pstack_t *c;
+	lws_fx_t t;
+	int type;
+
+	lhp_choose_font(cx, ctx, ps);
+
+	type = lhp_box_type(ps);
+
+	if (type == LHP_BOX_BODY) {
+		if (ps->dlo)
+			lhp_body_open(ps);
+		return 0;
+	}
+
+	if (!ps->in_body || type == LHP_BOX_NONE)
+		return 0;
+
+	c = lhp_container(lhp_parent(ps));
+
+	switch (type) {
+	case LHP_BOX_INLINE:
+		ps->is_inline = 1;
+		if (c) {
+			/* horizontal margin / padding take space on the line */
+			t = lhp_len(ps, ps->css_margin[CCPAS_LEFT], &c->cw);
+			lws_fx_add(&c->curx, &c->curx, &t);
+			t = lhp_len(ps, ps->css_padding[CCPAS_LEFT], &c->cw);
+			lws_fx_add(&c->curx, &c->curx, &t);
+		}
+		return 0;
+
+	case LHP_BOX_BR:
+		if (!c)
+			return 0;
+		if (!c->has_line) {
+			/* an empty line still takes a line's height */
+			lws_dlo_text_t *txt;
+			lws_box_t box;
+
+			lws_fx_add(&box.x, &c->ox, &c->curx);
+			lws_fx_add(&box.y, &c->oy, &c->cury);
+			box.w = c->cw;
+			lws_fx_set(box.h, 0, 0);
+			txt = lws_display_dlo_text_new(drt->dl, c->dlo, &box,
+						       ps->font);
+			if (txt) {
+				lws_display_dlo_text_update(txt, 0, fx_0, " ", 1);
+				txt->dlo.box.w = txt->bounding_box.w;
+				txt->dlo.box.h = txt->bounding_box.h;
+				lhp_line_text_metrics(c, txt);
+				lhp_line_item(c, &txt->dlo, &fx_0, NULL);
+			}
+		}
+		lhp_line_end(ctx, c);
+		return 0;
+
+	case LHP_BOX_IMG:
+		lhp_place_image(ctx, ps, c);
+		return 0;
+
+	default:
+		return lhp_block_open(ctx, ps, c, type, drt);
+	}
+}
+
+static lws_stateful_ret_t
+lhp_elem_end(lhp_ctx_t *ctx, lhp_pstack_t *ps)
+{
+	lhp_pstack_t *c;
+	lws_fx_t t;
+
+	if (ps->is_inline) {
+		c = lhp_container(lhp_parent(ps));
+		if (c) {
+			t = lhp_len(ps, ps->css_padding[CCPAS_RIGHT], &c->cw);
+			lws_fx_add(&c->curx, &c->curx, &t);
+			t = lhp_len(ps, ps->css_margin[CCPAS_RIGHT], &c->cw);
+			lws_fx_add(&c->curx, &c->curx, &t);
+		}
+		return 0;
+	}
+
+	if (!ps->is_block || !ps->dlo || lhp_tag_is(ps, "body", 4))
+		return 0;
+
+	lhp_block_close(ctx, ps);
 
 	return 0;
 }
@@ -603,846 +1336,49 @@ lws_lhp_dlo_adjust_div_type_element(lhp_ctx_t *ctx, lhp_pstack_t *psb,
 lws_stateful_ret_t
 lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 {
-	lhp_pstack_t *psb = NULL, *pst = NULL, *psp = NULL,
-		     *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack), lhp_pstack_t, list);
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
 	struct lws_context *cx = (struct lws_context *)ctx->user1;
 	lws_dl_rend_t *drt = (lws_dl_rend_t *)ctx->user;
-	lws_fx_t br[4], t1, indent, ox, w, h;
-	const lws_display_font_t *f = NULL;
-	lhp_table_col_t *tcol = NULL;
-	lhp_table_row_t *trow = NULL;
-	lws_dlo_t *abut_x, *abut_y;
-	uint32_t col = 0xff000000;
-	lws_dlo_text_t *txt;
-	const lcsp_atr_t *a;
-	lws_dlo_image_t u;
-	const char *pname;
-	char lastm = 0;
-	int elem_match;
-	lws_box_t box;
-	char url[LHP_URL_LEN], url1[LHP_URL_LEN];
-	int n, s = 0;
-
-	/* default font choice */
-	lws_font_choice_t fc = {
-		.family_name		= "term, serif",
-		.fixed_height		= 16,
-		.weight			= 400,
-	};
-
-	if (!ps->font) {
-		if (ps->font_size.whole > 0)
-			fc.fixed_height = (uint16_t)(ps->font_size.whole +
-					(ps->font_size.frac >= LWS_FX_FRACTION_MSD / 2));
-
-		a = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_FONT_FAMILY);
-		if (a)
-			fc.family_name = (const char *)&a[1];
-
-		a = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_FONT_WEIGHT);
-		if (a) {
-			switch (a->propval) {
-			case LCSP_PROPVAL_BOLD:
-				fc.weight = 700;
-				break;
-			case LCSP_PROPVAL_BOLDER:
-				fc.weight = 800;
-				break;
-			default:
-				if (a->u.i.whole)
-					fc.weight = (uint16_t)a->u.i.whole;
-				break;
-			}
-		}
-
-		ps->font = lws_font_choose(cx, &fc);
-	}
-	f = ps->font;
-
-	psb = lws_css_get_parent_block(ctx, ps);
-
-	elem_match = 0;
-	for (n = 0; n < (int)LWS_ARRAY_SIZE(elems); n++)
-		if (ctx->npos == elems[n].elem_len &&
-		    !lhp_tag_cmp(ctx->buf, elems[n].elem, elems[n].elem_len))
-			elem_match = n + 1;
-
 
 	switch (reason) {
-	case LHPCB_CONSTRUCTED:
-	case LHPCB_DESTRUCTED:
-	case LHPCB_FAILED:
-		break;
-
-	case LHPCB_COMPLETE:
-		{
-			lws_start_foreach_dll_back(lws_dll2_t *, d,
-					lws_dll2_get_tail(&ctx->stack)) {
-				lhp_pstack_t *ps = lws_container_of(d, lhp_pstack_t, list);
-
-				if (ps->dlo && lws_dll2_get_prev(&ps->list)) {
-					lwsl_info("%s: finalizing stranded dlo %p\n", __func__, ps->dlo);
-					lhp_set_dlo_adjust_to_contents(ps);
-				}
-			} lws_end_foreach_dll_back(d);
-		}
-
-		break;
-
 	case LHPCB_ELEMENT_START:
-
 		if (ps->hidden)
 			return 0;
-
-		switch (elem_match) {
-		case LHP_ELEM_BR:
-			newline(ctx, psb, ps, drt->dl);
-			break;
-
-		case LHP_ELEM_TR:
-			if (!psb)
-				break;
-
-			pst = ps;
-			while (pst && !pst->is_table)
-				pst = lws_css_get_parent_block(ctx, pst);
-			if (!pst) {
-				lwsl_err("%s: td: no table found\n", __func__);
-				break;
-			}
-
-			pst->curx.whole = 0;
-			pst->curx.frac = 0;
-			psb->dlo_set_curx = NULL;
-
-			trow = lws_zalloc(sizeof(*trow), __func__);
-			if (!trow) {
-				lwsl_err("%s: OOM\n", __func__);
-				return LWS_SRET_FATAL;
-			}
-			lws_dll2_add_tail(&trow->list, &pst->dlo->table_rows);
-			trow = NULL;
-			pst->td_idx = 0;
-
-			goto do_rect_l;
-
-		case LHP_ELEM_TD:
-			if (!psb) {
-				lwsl_err("%s: td: no psb found\n", __func__);
-				break;
-			}
-
-			pst = ps;
-			while (pst && !pst->is_table)
-				pst = lws_css_get_parent_block(ctx, pst);
-			if (!pst) {
-				lwsl_err("%s: td: no table found\n", __func__);
-				break;
-			}
-
-			if (pst->td_idx >= (int)lws_dll2_count(&pst->dlo->table_cols)) {
-				tcol = lws_zalloc(sizeof(*tcol), __func__);
-				if (!tcol) {
-					lwsl_err("%s: OOM\n", __func__);
-					return LWS_SRET_FATAL;
-				}
-				lws_dll2_add_tail(&tcol->list, &pst->dlo->table_cols);
-			} else {
-				tcol = lws_container_of(lws_dll2_get_head(&pst->dlo->table_cols), lhp_table_col_t, list);
-				n = pst->td_idx;
-				while (n--)
-					tcol = lws_container_of(lws_dll2_get_next(&tcol->list), lhp_table_col_t, list);
-			}
-
-			if (lws_dll2_get_tail(&pst->dlo->table_rows))
-				trow = lws_container_of(lws_dll2_get_tail(&pst->dlo->table_rows), lhp_table_row_t, list);
-
-			goto do_rect_l;
-
-		case LHP_ELEM_TABLE:
-			ps->is_table = 1;
-			/* fallthru */
-		case LHP_ELEM_DIV:
-			if (psb && ((psb->runon & 1) || psb->curx.whole > 0))
-				newline(ctx, psb, psb, drt->dl);
-			goto do_rect_l;
-
-		default: /* treat unknown elements as generic blocks (divs) if they match our list */
-			if (!elem_match && psb && !ps->dlo && ps->css_display &&
-			    ps->css_display->propval != LCSP_PROPVAL_NONE) {
-				lws_fx_add(&psb->curx, &psb->curx,
-				   lws_csp_px(ps->css_margin[CCPAS_LEFT], ps));
-				lws_fx_add(&psb->curx, &psb->curx,
-				   lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
-			}
-
-			if (elem_match > LHP_ELEM_IMG) {
-				if (elem_match == LHP_ELEM_A ||
-				    elem_match == LHP_ELEM_SPAN)
-					ps->forced_inline = 1;
-
-				if (psb && (psb->runon & 1) &&
-				    !lhp_is_inline(ps))
-					newline(ctx, psb, psb, drt->dl);
-				goto do_rect_l;
-			}
-			break;
-
-do_rect_l:
-			lws_fx_set(box.x, 0, 0);
-			lws_fx_set(box.y, 0, 0);
-			lws_fx_set(box.h, 0, 0);
-			lws_fx_set(box.w, 0, 0);
-			abut_x = NULL;
-			abut_y = NULL;
-
-			if (lhp_position(ps) == LCSP_PROPVAL_ABSOLUTE) {
-				box.x = *lws_csp_px(ps->css_pos[CCPAS_LEFT], ps);
-				box.y = *lws_csp_px(ps->css_pos[CCPAS_TOP], ps);
-			} else {
-				if (psb) {
-
-						/* margin adjusts our child box origin */
-					lws_fx_add(&box.x, &psb->curx,
-							lws_csp_px(ps->css_margin[CCPAS_LEFT], ps));
-					box.y = psb->cury;
-					abut_x = psb->dlo_set_curx;
-					abut_y = psb->dlo_set_cury;
-					//lws_fx_add(&box.y, &psb->cury,
-					//	   lws_csp_px(ps->css_margin[CCPAS_TOP], ps));
-				}
-			}
-
-			/* If there's an explicit width, try to go with that */
-
-			if (ps->css_width &&
-			    ps->css_width->unit != LCSP_UNIT_NONE &&
-			    ps->css_width->propval != LCSP_PROPVAL_AUTO) {
-			    if (lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) < 0)
-				box.w = *lws_csp_px(ps->css_width, ps);
-			} else if (ps->css_display &&
-				   (ps->css_display->propval == LCSP_PROPVAL_BLOCK ||
-				    ps->css_display->unit == LCSP_UNIT_STRING) &&
-				   !lhp_is_inline(ps)) {
-				if (psb && psb->dlo) {
-					box.w = psb->drt.w;
-					lws_fx_sub(&box.w, &box.w, lws_csp_px(psb->css_padding[CCPAS_LEFT], psb));
-					lws_fx_sub(&box.w, &box.w, lws_csp_px(psb->css_padding[CCPAS_RIGHT], psb));
-				} else {
-					box.w = ctx->ic.wh_px[LWS_LHPREF_WIDTH];
-				}
-				lws_fx_sub(&box.w, &box.w, lws_csp_px(ps->css_margin[CCPAS_LEFT], ps));
-				lws_fx_sub(&box.w, &box.w, lws_csp_px(ps->css_margin[CCPAS_RIGHT], ps));
-			}
-
-			/* !!! we rely on this being nonzero to not infinite loop at text layout */
-
-			lws_fx_add(&box.w, &box.w,
-			   lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
-			lws_fx_add(&box.w, &box.w,
-			   lws_csp_px(ps->css_padding[CCPAS_RIGHT], ps));
-
-			ps->drt.w = box.w;
-			ps->curx = *lws_csp_px(ps->css_padding[CCPAS_LEFT], ps);
-			ps->cury = *lws_csp_px(ps->css_padding[CCPAS_TOP], ps);
-
-			memset(br, 0, sizeof(br));
-
-			if (ps->css_border_radius[0])
-				br[0] = *lws_csp_px(ps->css_border_radius[0], ps);
-			if (ps->css_border_radius[1])
-				br[1] = *lws_csp_px(ps->css_border_radius[1], ps);
-			if (ps->css_border_radius[2])
-				br[2] = *lws_csp_px(ps->css_border_radius[2], ps);
-			if (ps->css_border_radius[3])
-				br[3] = *lws_csp_px(ps->css_border_radius[3], ps);
-
-			psp = lws_container_of(lws_dll2_get_prev(&ps->list), lhp_pstack_t, list);
-
-			ps->dlo = (lws_dlo_t *)lws_display_dlo_rect_new(drt->dl,
-					lhp_position(ps) == LCSP_PROPVAL_ABSOLUTE ||
-							!psp ? NULL : psp->dlo,
-					&box, br, ps->css_background_color ?
-					  ps->css_background_color->u.rgba : 0);
-			if (!ps->dlo) {
-				lwsl_err("%s: FAILED to create rect\n", __func__);
-				return LWS_SRET_FATAL;
-			}
-
-			ps->dlo->abut_x = abut_x;
-			ps->dlo->abut_y = abut_y;
-
-			if (psb)
-				lws_fx_add(&psb->curx, &psb->curx,
-					   lws_csp_px(ps->css_margin[CCPAS_RIGHT], ps));
-
-			if (tcol)
-				lws_dll2_add_tail(&ps->dlo->col_list, &tcol->col_dlos);
-			if (trow)
-				lws_dll2_add_tail(&ps->dlo->row_list, &trow->row_dlos);
-
-			lws_lhp_tag_dlo_id(ctx, ps, ps->dlo);
-			lhp_set_dlo_padding_margin(ps, ps->dlo);
-
-			if (psb && lhp_is_inline(ps))
-				runon(psb, ps->dlo);
-			break;
-
-		case LHP_ELEM_IMG:
-			pname = lws_html_get_atr(ps, "src", 3);
-
-			if (!psb || !pname)
-				break;
-
-			lws_fx_set(box.x, 0, 0);
-			lws_fx_set(box.y, 0, 0);
-			lws_fx_set(box.w, 0, 0);
-			lws_fx_set(box.h, 0, 0);
-
-			if (lhp_position(ps) == LCSP_PROPVAL_ABSOLUTE) {
-				box.x = *lws_csp_px(ps->css_pos[CCPAS_LEFT], ps);
-				box.y = *lws_csp_px(ps->css_pos[CCPAS_TOP], ps);
-			} else {
-				box.x = psb->curx;
-				box.y = psb->cury;
-			}
-
-			lws_fx_set(box.x, 0, 0);
-			lws_fx_set(box.y, 0, 0);
-
-			if (psb) {
-				lws_fx_add(&box.x, &box.x,
-					lws_csp_px(ps->css_margin[CCPAS_LEFT], ps));
-				/*
-				 * If we respect the top margin, we can't align with
-				 * text on the same line that is top-aligned to the
-				 * line.  Just ignore it for now.
-				 *
-				 * lws_fx_add(&box.y, &box.y,
-				 * 	lws_csp_px(ps->css_margin[CCPAS_TOP], ps));
-				 */
-			}
-
-			if (ps->css_width &&
-			    lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) > 0)
-				box.w = *lws_csp_px(ps->css_width, ps);
-
-			if (lws_http_rel_to_url(url1, sizeof(url1),
-						ctx->base_url, pname))
-				break;
-
-			if (lws_urldecode(url, url1, sizeof(url))) {
-				/*
-				 * On failure the output is left truncated and
-				 * unterminated... we can't look it up
-				 */
-				lwsl_err("%s: bad urlencoding in img src\n",
-					 __func__);
-				break;
-			}
-
-			if (lws_dlo_ss_find(cx, url, &u)) {
-				lwsl_err("%s: no ss for %s\n", __func__, url);
-				break;
-			}
-
-			lws_lhp_tag_dlo_id(ctx, ps, (lws_dlo_t *)(u.u.dlo_jpeg));
-
-			lws_fx_set(w, 0, 0);
-			lws_fx_set(h, 0, 0);
-
-			{
-				const char *p = lws_html_get_atr(ps, "width", 5);
-				if (p)
-					w.whole = atoi(p);
-
-				p = lws_html_get_atr(ps, "height", 6);
-				if (p)
-					h.whole = atoi(p);
-			}
-
-			if (!w.whole) {
-				const lcsp_atr_t *wa = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_WIDTH);
-				if (wa && wa->propval != LCSP_PROPVAL_AUTO)
-					w = *lws_csp_px(wa, ps);
-			}
-
-			if (!h.whole) {
-				const lcsp_atr_t *ha = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_HEIGHT);
-				if (ha && ha->propval != LCSP_PROPVAL_AUTO)
-					h = *lws_csp_px(ha, ps);
-			}
-
-			if ((!w.whole || !h.whole) && u.u.dlo_jpeg) {
-				w = ((lws_dlo_t *)(u.u.dlo_jpeg))->box.w;
-				h = ((lws_dlo_t *)(u.u.dlo_jpeg))->box.h;
-			}
-
-			if (psb) {
-				lws_fx_t av;
-
-				/* wrapping? */
-
-				lws_fx_add(&t1, &psb->curx,
-					   lws_csp_px(ps->css_margin[CCPAS_LEFT], ps));
-				lws_fx_add(&t1, &t1, &w);
-				lws_fx_add(&t1, &t1,
-					   lws_csp_px(ps->css_margin[CCPAS_RIGHT], ps));
-
-				/* work out the available width */
-
-				av = psb->drt.w;
-				lws_fx_sub(&av, &av,
-					lws_csp_px(psb->css_padding[CCPAS_LEFT], psb));
-				lws_fx_sub(&av, &av,
-					lws_csp_px(psb->css_padding[CCPAS_RIGHT], psb));
-
-				if (lws_fx_comp(&t1, &av) > 0) {
-					if (ps->dlo)
-						lws_dll2_remove(&ps->dlo->list);
-
-					newline(ctx, psb, psb, drt->dl);
-
-					if (ps->dlo) {
-						lws_dll2_add_tail(&ps->dlo->list, &psb->dlo->children);
-						ps->dlo->box.y = psb->cury;
-						runon(psb, ps->dlo);
-					}
-
-					lws_fx_set(ps->curx, 0, 0);
-					lws_fx_set(psb->curx, 0, 0);
-					psb->dlo_set_curx = NULL;
-				}
-
-				lws_fx_add(&psb->curx, &psb->curx,
-					   lws_csp_px(ps->css_margin[CCPAS_LEFT], ps));
-
-				if (ps->dlo) {
-					ps->dlo->box.x = psb->curx;
-					ps->dlo->box.y = psb->cury;
-				}
-
-				lws_fx_add(&psb->curx, &psb->curx, &w);
-				lws_fx_add(&psb->curx, &psb->curx,
-					   lws_csp_px(ps->css_margin[CCPAS_RIGHT], ps));
-
-				psb->dlo_set_curx = ps->dlo;
-				psb->dlo_set_cury = ps->dlo;
-				if (lws_fx_comp(&psb->curx, &psb->widest) > 0)
-					psb->widest = psb->curx;
-			}
-
-			if (ps->dlo)
-				runon(psb, ps->dlo);
-			break;
-		}
-
-		if (ps->css_display &&
-		    ps->css_display->propval != LCSP_PROPVAL_NONE) {
-			const lcsp_atr_t *ac = lws_css_cascade_get_prop_atr(ctx,
-					LCSP_PROP_CONTENT);
-
-			if (ac && ac->unit == LCSP_UNIT_STRING &&
-			    ac->value_len) {
-				char buf[32], *p = (char *)&ac[1];
-				const char *end = p + ac->value_len;
-				int n = 0;
-
-				while (p < end && (size_t)n < sizeof(buf) - 5) {
-					if (*p == '\\') {
-						p++;
-						if (p >= end) break;
-						unsigned int v = 0;
-						int d = 0;
-						while (p < end && d < 6 && ((*p >= '0' && *p <= '9') ||
-						       (*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F'))) {
-							d++;
-							int c = *p++;
-							if (c >= '0' && c <= '9') v = (v << 4) | (unsigned int)(c - '0');
-							else if (c >= 'a' && c <= 'f') v = (v << 4) | (unsigned int)(c - 'a' + 10);
-							else v = (v << 4) | (unsigned int)(c - 'A' + 10);
-						}
-						if (p < end && *p == ' ') p++;
-
-						if (v < 0x80) buf[n++] = (char)v;
-						else if (v < 0x800) {
-							buf[n++] = (char)(0xc0 | (v >> 6));
-							buf[n++] = (char)(0x80 | (v & 0x3f));
-						} else {
-							buf[n++] = (char)(0xe0 | (v >> 12));
-							buf[n++] = (char)(0x80 | ((v >> 6) & 0x3f));
-							buf[n++] = (char)(0x80 | (v & 0x3f));
-						}
-						continue;
-					}
-					buf[n++] = *p++;
-				}
-				buf[n] = '\0';
-
-				if (n) {
-					lws_dlo_text_t *txt;
-					lws_box_t b;
-
-					lws_fx_set(b.x, 0, 0);
-					lws_fx_set(b.y, 0, 0);
-					lws_fx_set(b.w, 0, 0);
-					lws_fx_set(b.h, 0, 0);
-
-					/* if we are a rect, we want to be inside it */
-					if (ps->dlo) {
-						b.x = ps->curx;
-						b.y = ps->cury;
-
-						/* if we just created ps->dlo, curx/y are at padding start */
-					} else if (psb) {
-						b.x = psb->curx;
-						b.y = psb->cury;
-					}
-
-					txt = lws_display_dlo_text_new(drt->dl, (lws_dlo_t *)(ps->dlo ? ps->dlo : (psb ? psb->dlo : NULL)), &b, ps->font);
-					if (txt) {
-						lws_display_dlo_text_update(txt, ps->css_color ? ps->css_color->u.rgba : 0xff000000, b.x, buf, (size_t)n);
-
-						if (ps->dlo) {
-							lws_fx_add(&ps->curx, &ps->curx, &txt->bounding_box.w);
-							ps->dlo_set_curx = &txt->dlo;
-							runon(ps, &txt->dlo);
-						} else if (psb) {
-							lws_fx_add(&psb->curx, &psb->curx, &txt->bounding_box.w);
-							psb->dlo_set_curx = &txt->dlo;
-							runon(psb, &txt->dlo);
-						}
-					}
-				}
-			}
-		}
-		break;
+		return lhp_elem_start(ctx, ps, cx, drt);
 
 	case LHPCB_ELEMENT_END:
-
 		if (ps->hidden)
 			return 0;
-
-/*
-		if (ctx->npos == 2 && ctx->buf[0] == 'h' &&
-		    ctx->buf[1] > '0' && ctx->buf[1] <= '6') {
-
-			if (!psb)
-				break;
-
-			newline(ctx, psb, ps, drt->dl);
-			lws_fx_add(&psb->cury, &psb->cury,
-				lws_csp_px(ps->css_padding[CCPAS_BOTTOM], ps));
-			lws_fx_add(&psb->cury, &psb->cury,
-				lws_csp_px(ps->css_margin[CCPAS_BOTTOM], ps));
-			break;
-		}
-*/
-		switch (elem_match) {
-
-		case LHP_ELEM_TR:
-			pst = ps;
-			while (pst && !pst->is_table)
-				pst = lws_css_get_parent_block(ctx, pst);
-			if (!pst) {
-				lwsl_err("%s:  /td: no table\n", __func__);
-				break;
-			}
-
-			pst->tr_idx++;
-			pst->td_idx = 0;
-			goto do_end_rect_l;
-
-		case LHP_ELEM_TD:
-			pst = ps;
-			while (pst && !pst->is_table)
-				pst = lws_css_get_parent_block(ctx, pst);
-			if (!pst) {
-				lwsl_err("%s:  /td: no table\n", __func__);
-				break;
-			}
-			pst->td_idx++;
-			goto do_end_rect_l;
-
-
-			/* fallthru */
-
-		case LHP_ELEM_TABLE:
-		case LHP_ELEM_DIV:
-			goto do_end_rect_l;
-
-		default:
-			if (!elem_match && psb && ps && ps->css_display && !ps->dlo &&
-			    ps->css_display->propval != LCSP_PROPVAL_NONE) {
-				lws_fx_add(&psb->curx, &psb->curx,
-				   lws_csp_px(ps->css_padding[CCPAS_RIGHT], ps));
-				lws_fx_add(&psb->curx, &psb->curx,
-				   lws_csp_px(ps->css_margin[CCPAS_RIGHT], ps));
-			}
-
-			if (elem_match > LHP_ELEM_IMG)
-				goto do_end_rect_l;
-			break;
-
-do_end_rect_l:
-			ox = ps->curx;
-
-			if (lws_fx_comp(&ox, &ps->widest) > 0)
-				ps->widest = ox;
-
-			if (!lhp_is_inline(ps))
-				newline(ctx, ps, ps, drt->dl);
-
-			if (lws_lhp_dlo_adjust_div_type_element(ctx, psb, pst, ps, elem_match))
-				break;
-
-			if (lws_fx_comp(&ps->curx, &ps->widest) > 0)
-				ps->widest = ps->curx;
-
-			/* move parent on according to used area plus bottom margin */
-
-			if (psb && lhp_position(ps) != LCSP_PROPVAL_ABSOLUTE) {
-
-				switch (lhp_is_inline(ps) ?
-						LCSP_PROPVAL_INLINE :
-						lhp_display(ps)) {
-				case LCSP_PROPVAL_BLOCK:
-				case LCSP_PROPVAL_LIST_ITEM:
-				case LCSP_PROPVAL_TABLE:
-				case LCSP_PROPVAL_TABLE_ROW:
-					lws_fx_set(psb->curx, 0, 0);
-					psb->dlo_set_curx = NULL;
-
-					if (lhp_display(ps) == LCSP_PROPVAL_TABLE_ROW)
-						break;
-					lws_fx_add(&psb->cury, &psb->cury, lws_csp_px(ps->css_margin[CCPAS_BOTTOM], ps));
-					break;
-
-				case LCSP_PROPVAL_INLINE_BLOCK:
-					//lws_fx_add(&psb->cury, &psb->cury, lws_csp_px(ps->css_margin[CCPAS_BOTTOM], ps));
-					lws_fx_add(&psb->curx, &psb->curx, &ps->widest);
-					lws_fx_add(&psb->curx, &psb->curx, lws_csp_px(ps->css_margin[CCPAS_RIGHT], ps));
-					lws_fx_set(ps->widest, 0, 0);
-					psb->dlo_set_curx = ps->dlo;
-					psb->dlo_set_cury = ps->dlo;
-					break;
-
-				default:
-					lws_fx_add(&psb->curx, &psb->curx, &ps->widest);
-					psb->dlo_set_curx = ps->dlo;
-					break;
-				}
-
-				if (lws_fx_comp(&psb->curx, &psb->widest) > 0)
-					psb->widest = psb->curx;
-			}
-
-			ps->dlo = NULL;
-			break;
-		}
-		break;
+		return lhp_elem_end(ctx, ps);
 
 	case LHPCB_CONTENT:
-		{
-			lhp_pstack_t *ps_con = ps->dlo ? ps : psb;
-
-		if (!ps->css_display || ps->hidden)
-			break;
-
-		if (ps->css_color)
-			col = ps->css_color->u.rgba;
-
-		if (ps->font_size.whole > 0)
-			fc.fixed_height = (uint16_t)(ps->font_size.whole +
-					(ps->font_size.frac >= LWS_FX_FRACTION_MSD / 2));
-
-		a = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_FONT_FAMILY);
-		if (a)
-			fc.family_name = (const char *)&a[1];
-
-		for (n = 0; n < ctx->npos; n++)
-			if (ctx->buf[n] == '\n')
-				s++;
-
-		if (s == ctx->npos)
+		if (ps->hidden || !ps->in_body)
 			return 0;
+		return lhp_content(ctx, ps, drt);
 
+	case LHPCB_COMPLETE:
 		/*
-		 * Let's not deal with things off the bottom of the display
-		 * surface.
+		 * Elements still open at the end of the document (no closing
+		 * tags) are closed innermost first, so their heights get
+		 * accounted for
 		 */
+		lws_start_foreach_dll_back(lws_dll2_t *, d,
+					   lws_dll2_get_tail(&ctx->stack)) {
+			lhp_pstack_t *p = lws_container_of(d, lhp_pstack_t,
+							   list);
 
-		if (ps_con && ps_con->cury.whole > ctx->ic.wh_px[LWS_LHPREF_HEIGHT].whole)
-			return 0;
+			if (!p->is_block || !p->dlo || p->hidden)
+				continue;
 
-		if (!ps_con)
-			return 0;
-
-		/* the element's font was resolved at its start */
-		f = ps->font ? ps->font : lws_font_choose(cx, &fc);
-
-		n = s;
-		while (n < ctx->npos) {
-			int m;
-
-			lws_fx_set(box.x, 0, 0);
-			lws_fx_set(box.y, 0, 0);
-			lws_fx_set(box.w, 0, 0);
-
-			if (n == s && !(ps_con->runon & 1)) {
-				lws_fx_set(indent, 0, 0);
-				if (ps != ps_con) {
-					lws_fx_add(&box.x, &indent,
-					    lws_csp_px(ps->css_margin[CCPAS_LEFT], ps));
-					lws_fx_add(&box.x, &box.x,
-					    lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
-				} else
-					lws_fx_add(&box.x, &indent,
-					    lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
-
-			} else {
-				indent = ps_con->curx;
-				if (ps != ps_con) {
-					/* margin / padding already in ps_con->curx */
-					box.x = indent;
-				} else {
-					lws_fx_add(&box.x, &indent,
-					    lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
-				}
-			}
-			lws_fx_add(&box.y, &box.y, &ps_con->cury);
-
-			box.h.whole = (int32_t)f->choice.fixed_height;
-			box.h.frac = 0;
-
-			if (ps_con->css_width &&
-				(ps_con->css_width->propval == LCSP_PROPVAL_AUTO ||
-				 lhp_propval(ps->css_width, LCSP_PROPVAL_NONE) ==
-							LCSP_PROPVAL_AUTO) &&
-				 !lhp_is_inline(ps)) {
-				//lws_fx_sub(&box.w, &ctx->ic.wh_px[0], &box.x);
-				box.w = ctx->ic.wh_px[0];
-			} else {
-				lws_fx_sub(&t1, &ps_con->drt.w,
-					   lws_csp_px(ps_con->css_padding[CCPAS_LEFT], ps_con));
-				lws_fx_sub(&box.w, &t1,
-					   lws_csp_px(ps_con->css_padding[CCPAS_RIGHT], ps_con));
-			}
-
-			if (!box.w.whole)
-			//if (!box.w.whole && (!lhp_is_inline(ps) || ps->forced_inline))
-				lws_fx_sub(&box.w, &ctx->ic.wh_px[0], &box.x);
-			assert(ps_con);
-
-			txt = lws_display_dlo_text_new(drt->dl,
-					(lws_dlo_t *)ps_con->dlo, &box, f);
-			if (!txt) {
-				lwsl_err("%s: failed to alloc text\n", __func__);
-				return 1;
-			}
-			runon(ps_con, &txt->dlo);
-			txt->flags |= LWSDLO_TEXT_FLAG_WRAP;
-
-			lhp_set_dlo_padding_margin(ps, &txt->dlo);
-
-//			a = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_TEXT_ALIGN);
-
-			//lwsl_hexdump_notice(ctx->buf + n, (size_t)(ctx->npos - n));
-			m = lws_display_dlo_text_update(txt, col, indent,
-							ctx->buf + n,
-							(size_t)(ctx->npos - n));
-			if (m < 0) {
-				lwsl_err("text_update ret %d\n", m);
-				break;
-			}
-
-			if (m == 2 && lastm)
-				return 0;
-
-			lastm = m == 2;
-
-			n = (int)((size_t)n + txt->text_len);
-			txt->dlo.box.w = txt->bounding_box.w;
-			txt->dlo.box.h = txt->bounding_box.h;
-
-			if (!ps->dlo) {
-				const lcsp_atr_t *bg = ps->css_background_color;
-
-				if (!bg) {
-					bg = lws_css_cascade_get_prop_atr(ctx,
-							LCSP_PROP_BACKGROUND);
-					if (bg)
-						bg = lhp_resolve_var_color(ctx, bg);
-				}
-
-				if (bg && bg->unit == LCSP_UNIT_RGBA) {
-					lws_fx_t radii[4];
-					lws_box_t b = txt->dlo.box;
-					int i;
-
-					/*
-					 * expand the box to match the padding of
-					 * the element
-					 */
-			// lwsl_notice("creating background rect for text '%.*s', rgba %08X\n", (int)txt->text_len, txt->text, bg->u.rgba);
-					lws_fx_sub(&b.x, &b.x,
-					   lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
-					lws_fx_add(&b.w, &b.w,
-					   lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
-					lws_fx_add(&b.w, &b.w,
-					   lws_csp_px(ps->css_padding[CCPAS_RIGHT], ps));
-
-					lws_fx_sub(&b.y, &b.y,
-					   lws_csp_px(ps->css_padding[CCPAS_TOP], ps));
-					lws_fx_add(&b.h, &b.h,
-					   lws_csp_px(ps->css_padding[CCPAS_TOP], ps));
-					lws_fx_add(&b.h, &b.h,
-					   lws_csp_px(ps->css_padding[CCPAS_BOTTOM], ps));
-
-					memset(radii, 0, sizeof(radii));
-					for (i = 0; i < 4; i++)
-						if (ps->css_border_radius[i])
-							radii[i] = *lws_csp_px(
-							  ps->css_border_radius[i], ps);
-
-					lws_dlo_rect_t *dr = lws_display_dlo_rect_new(drt->dl,
-							(lws_dlo_t *)ps_con->dlo, &b,
-							radii,
-							bg->u.rgba);
-
-					if (dr)
-						runon(ps_con, &dr->dlo);
-
-					/*
-					 * reorder so the background rect is behind the
-					 * text
-					 */
-
-					lws_dll2_remove(&txt->dlo.list);
-					lws_dll2_add_tail(&txt->dlo.list,
-							  &ps_con->dlo->children);
-				}
-			}
-
-			lws_fx_add(&ps_con->curx, &ps_con->curx, &txt->bounding_box.w);
-			ps_con->dlo_set_curx = &txt->dlo;
-
-			//lwsl_user("%s: bounding width %d, m: %d, text %.*s\n",
-			//	  __func__, txt->bounding_box.w.whole, m,
-			//	  ctx->npos, ctx->buf);
-
-			if (m > 0) { /* wrapping */
-				newline(ctx, ps_con, ps, drt->dl);
-				lws_fx_set(ps->curx, 0, 0);
-				lws_fx_set(ps_con->curx, 0, 0);
-				ps_con->dlo_set_curx = NULL;
-				lws_fx_add(&ps->cury, &ps->cury, &txt->bounding_box.h);
-				ps_con->dlo_set_cury = &txt->dlo;
-			}
-		}
-		}
+			if (lhp_tag_is(p, "body", 4))
+				lhp_line_end(ctx, p);
+			else
+				lhp_block_close(ctx, p);
+		} lws_end_foreach_dll_back(d);
 		break;
-	case LHPCB_COMMENT:
+
+	default:
 		break;
 	}
 

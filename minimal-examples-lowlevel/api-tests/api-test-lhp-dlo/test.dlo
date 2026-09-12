@@ -1,36 +1,39 @@
 rect (0.0,0.0) [1600.0 x 2000.0] rgba=FFFFFFFF
- rect (0.0,0.0) [1604.0 x 33.0] rgba=00000000
-  text (1419.0,2.0) [177.0 x 29.0] rgba=FF000000 f=29/400 "libwebsockets.org"
- rect (18.0,45.0) [1580.0 x 47.0] rgba=FFFF0000 radii=16.0,16.0,16.0,16.0
+ rect (8.0,29.44) [1584.0 x 33.0] rgba=00000000
+  text (1405.0,2.0) [177.0 x 29.0] rgba=FF000000 f=29/400 "libwebsockets.org"
+ rect (26.0,74.44) [1548.0 x 47.0] rgba=FFFF0000 radii=16.0,16.0,16.0,16.0
   text (8.0,4.0) [309.0 x 19.0] rgba=FFFFFFFF f=17/400 "This is some text flowing in an auto width div on body."
-  text (8.0,24.0) [151.0 x 19.0] rgba=FFFFFFFF f=17/400 " Mixed CSS types in a line: "
-  text (151.0,23.0) [27.0 x 19.0] rgba=FFFFFFFF f=17/700 "bold"
-  text (186.0,24.0) [47.0 x 19.0] rgba=FFFFFFFF f=17/400 ", normal"
- rect (18.0,101.0) [1580.0 x 27.0] rgba=FFFF0000 radii=16.0,16.0,16.0,16.0
+  text (8.0,23.0) [148.0 x 19.0] rgba=FFFFFFFF f=17/400 "Mixed CSS types in a line: "
+  text (156.0,24.0) [27.0 x 19.0] rgba=FFFFFFFF f=17/700 "bold"
+  text (183.0,23.0) [47.0 x 19.0] rgba=FFFFFFFF f=17/400 ", normal"
+ rect (26.0,130.44) [1548.0 x 27.0] rgba=FFFF0000 radii=16.0,16.0,16.0,16.0
   text (8.0,4.0) [180.0 x 19.0] rgba=FFFFFFFF f=17/400 "Another div like the one before."
- rect (2.0,137.0) [1600.0 x 52.0] rgba=00000000
-  rect (1572.0,2.0) [0.0 x 24.0] rgba=A00000CC
-   text (2.0,4.0) [21.0 x 16.0] rgba=FF00FFFF f=14/400 "First"
-  rect (796.0,26.0) [0.0 x 24.0] rgba=A00000CC
-   text (2.0,4.0) [35.0 x 16.0] rgba=FF00FFFF f=14/400 "Second"
- rect (500.0,340.0) [1600.0 x 2.0] rgba=00000000
- rect (1295.0,250.0) [1600.0 x 2.0] rgba=00000000
- rect (16.0,360.0) [200.0 x 24.0] rgba=FF00FFFF radii=8.0,8.0,8.0,8.0
-  text (-103.5,5.0) [142.0 x 14.0] rgba=FF000000 f=12/400 "Well, some text in an abs div that is "
-  text (-39.5,5.0) [34.0 x 15.0] rgba=FF000000 f=12/700 "too long"
-  text (-75.5,5.0) [233.0 x 14.0] rgba=FF000000 f=12/400 " to comfortably fit on one line, even with the smallest font."
+ rect (10.0,166.44) [1580.0 x 28.0] rgba=00000000
+  rect (2.0,2.0) [25.0 x 24.0] rgba=A00000CC
+  text (4.0,2.0) [21.0 x 16.0] rgba=FF00FFFF f=14/400 "First"
+  rect (27.0,2.0) [39.0 x 24.0] rgba=A00000CC
+  text (29.0,2.0) [35.0 x 16.0] rgba=FF00FFFF f=14/400 "Second"
+ rect (502.0,342.0) [4.0 x 4.0] rgba=00000000
+ rect (502.0,252.0) [4.0 x 4.0] rgba=00000000
+ rect (18.0,368.0) [204.0 x 51.0] rgba=FF00FFFF radii=8.0,8.0,8.0,8.0
+  text (9.0,5.0) [142.0 x 14.0] rgba=FF000000 f=12/400 "Well, some text in an abs div that is "
+  text (151.0,4.0) [34.0 x 15.0] rgba=FF000000 f=12/700 "too long"
+  text (185.0,5.0) [10.0 x 14.0] rgba=FF000000 f=12/400 " to "
+  text (20.0,19.0) [164.0 x 14.0] rgba=FF000000 f=12/400 "comfortably fit on one line, even with the "
+  text (74.5,33.0) [55.0 x 14.0] rgba=FF000000 f=12/400 "smallest font."
  rect (500.0,60.0) [48.0 x 48.0] rgba=FF004040 radii=24.0,24.0,24.0,24.0
  rect (500.0,130.0) [48.0 x 48.0] rgba=FF004040 radii=0.0,12.0,24.0,6.0
- text (0.0,219.0) [96.0 x 14.0] rgba=FF000000 f=12/400 " Something after the div"
- rect (12.0,233.0) [1590.0 x 102.0] rgba=00000000
-  rect (4.0,2.0) [1594.0 x 98.0] rgba=FF0000FF
-   rect (8.0,6.0) [1590.0 x 86.0] rgba=FF00A5FF
-    rect (8.0,6.0) [1586.0 x 74.0] rgba=FF00FFFF
-     rect (8.0,6.0) [1582.0 x 62.0] rgba=FF008000
-      rect (8.0,6.0) [1578.0 x 50.0] rgba=FFFF0000
-       rect (8.0,6.0) [1574.0 x 38.0] rgba=FF00FF00
-        rect (8.0,6.0) [1570.0 x 26.0] rgba=FFFF00FF
-         text (6.0,6.0) [25.0 x 14.0] rgba=FF000000 f=12/400 " hello "
- rect (798.0,337.0) [0.0 x 40.0] rgba=A00000CC
-  text (-34.5,4.0) [71.0 x 16.0] rgba=FF00FFFF f=14/400 "cdiv 33% width"
-  text (2.0,20.0) [45.0 x 16.0] rgba=FF00FFFF f=14/400 "blah blah"
+ text (8.0,194.44) [94.0 x 14.0] rgba=FF000000 f=12/400 "Something after the div"
+ rect (20.0,210.44) [1570.0 x 130.0] rgba=00000000
+  rect (4.0,4.0) [1562.0 x 122.0] rgba=FF0000FF
+   rect (8.0,8.0) [1546.0 x 106.0] rgba=FF00A5FF
+    rect (8.0,8.0) [1530.0 x 90.0] rgba=FF00FFFF
+     rect (8.0,8.0) [1514.0 x 74.0] rgba=FF008000
+      rect (8.0,8.0) [1498.0 x 58.0] rgba=FFFF0000
+       rect (8.0,8.0) [1482.0 x 42.0] rgba=FF00FF00
+        rect (8.0,8.0) [1466.0 x 26.0] rgba=FFFF00FF
+         text (6.0,6.0) [23.0 x 14.0] rgba=FF000000 f=12/400 "hello "
+ rect (8.0,340.44) [75.0 x 24.0] rgba=A00000CC
+ text (10.0,340.44) [71.0 x 16.0] rgba=FF00FFFF f=14/400 "cdiv 33% width"
+ rect (6.0,360.44) [49.0 x 24.0] rgba=A00000CC
+ text (8.0,364.44) [45.0 x 16.0] rgba=FF00FFFF f=14/400 "blah blah"

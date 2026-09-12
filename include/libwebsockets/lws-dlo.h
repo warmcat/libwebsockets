@@ -136,9 +136,10 @@ typedef struct lws_dlo {
 
 	uint8_t				budget; /* limit spinning */
 
-	uint8_t				flag_runon:1; /* continues same line */
-	uint8_t				flag_done_align:1;
 	uint8_t				flag_toplevel:1; /* don't scan up with me (different owner) */
+	uint8_t				flag_block:1; /* block-level box (layout) */
+	uint8_t				flag_row:1;   /* table row box (layout) */
+	uint8_t				flag_cell:1;  /* table cell box (layout) */
 
 	/* render-specific members ... */
 } lws_dlo_t;
@@ -408,6 +409,20 @@ lws_display_dlo_text_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 LWS_VISIBLE LWS_EXTERN int
 lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
 		lws_fx_t indent, const char *utf8, size_t text_len);
+
+/**
+ * lws_display_dlo_text_measure() - width of a string in a text dlo's font
+ *
+ * \p text: a text dlo, used for its font
+ * \p utf8: the string
+ * \p text_len: its length in bytes
+ * \p total: set to the width if laid out on one line
+ * \p longest_word: set to the width of the widest space-delimited word
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_display_dlo_text_measure(lws_dlo_text_t *text, const char *utf8,
+			     size_t text_len, lws_fx_t *total,
+			     lws_fx_t *longest_word);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_display_dlo_text_destroy(struct lws_dlo *dlo);

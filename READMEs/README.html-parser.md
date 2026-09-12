@@ -40,8 +40,12 @@ JPEG and PNG images and express all UI in html/css.
  - Image data is fetched from local or remote as needed during composition,
    image buffering just 2 lines (PNG) or 8 or 16 lines (JPEG) plus decompressor
    overhead (see below for more details)
- - Layout supports DIVs, text wrapping, margin and padding, font colour,
-   selection and weight supported via CSS; implementation still early on others
+ - Layout follows CSS block and inline formatting: block flow with margin
+   collapsing, line boxes with wrapping, baseline alignment and text-align,
+   inline elements with backgrounds, inline-block and absolutely positioned
+   boxes with shrink-to-fit widths, lists with markers, images inline, and
+   tables with automatic column widths.  Floats are placed inline without
+   wrap-around, position: relative offsets and borders are not yet drawn.
  - HTML element ID names that the user code cares about can be given, these are
    found during parse and layout information for the elements kept
  - Rendering is very flexible and lightweight, supports Y (8-) or RGB (24-) bit
@@ -109,7 +113,10 @@ lws-api-test-lhp-dlo file:///path/to/page.html --w 400 --h 300 --dump out.dlo
 
 `cases/*.html` in that directory are small pages each exercising one layout
 feature, with the expected dump alongside as `cases/*.dlo`.  ctest lays each
-one out and diffs it against the golden (`ctest -R api-test-lhp-dlo-`).  After
+one out and diffs it against the golden (`ctest -R api-test-lhp-dlo-`).  The
+captured real pages under `vectors/` are laid out the same way, with their
+network asset references rewritten to unreachable local paths first so the
+result does not depend on the network.  After
 an intentional layout change, regenerate a golden with
 `cmake -DUPDATE=1 ... -P lhp-dlo-case.cmake` (see the comment in that file)
 and review the diff of the `.dlo` before committing it.

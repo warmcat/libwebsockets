@@ -2,7 +2,8 @@
 # ctest driver for one lhp layout case
 #
 # cmake -DTOOL=<lws-api-test-lhp-dlo> -DHTML=<case.html> -DGOLDEN=<case.dlo>
-#       -DOUT=<scratch.dlo> [-DW=400 -DH=300] [-DUPDATE=1] -P lhp-dlo-case.cmake
+#       -DOUT=<scratch.dlo> [-DW=400 -DH=300] [-DUPDATE=1] [-DLOCALIZE=1]
+#       -P lhp-dlo-case.cmake
 #
 # Lays out HTML with the tool, dumps the resulting DLO tree as text and
 # compares it with GOLDEN.  With UPDATE=1 the golden is overwritten instead,
@@ -17,6 +18,20 @@ if (NOT W)
 endif()
 if (NOT H)
 	set(H 300)
+endif()
+
+if (LOCALIZE)
+	#
+	# A captured page refers to assets on the real network.  Rewrite those
+	# references to a local path that does not exist, so the test never
+	# touches the network and the (unavailable) assets fail the same way
+	# every time.
+	#
+	file(READ ${HTML} html)
+	string(REGEX REPLACE "(href|src)=([\"'])(https?:)?//" "\\1=\\2missing/" html "${html}")
+	get_filename_component(HN ${HTML} NAME)
+	file(WRITE ${OUT}-${HN} "${html}")
+	set(HTML ${OUT}-${HN})
 endif()
 
 execute_process(COMMAND ${TOOL} file://${HTML} --w ${W} --h ${H}
