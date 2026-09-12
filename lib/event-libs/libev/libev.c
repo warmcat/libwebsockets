@@ -323,9 +323,10 @@ elops_io_ev(struct lws *wsi, unsigned int flags)
 	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
 	struct lws_wsi_eventlibs_libev *w = wsi_to_priv_ev(wsi);
 
-	lwsl_wsi_debug(wsi, "%s flags 0x%x %p %d", wsi->role_ops->name, flags,
-						   ptpr->io_loop,
-						   pt->is_destroyed);
+	/* a wsi being migrated has its fd inserted before it has a role */
+	lwsl_wsi_debug(wsi, "%s flags 0x%x %p %d",
+		       wsi->role_ops ? wsi->role_ops->name : "(no role)", flags,
+		       ptpr->io_loop, pt->is_destroyed);
 
 	if (!ptpr->io_loop || pt->is_destroyed)
 		return;
@@ -533,7 +534,6 @@ elops_promote_parallel_ev(struct lws *wsi, int pidx)
 }
 #endif
 
-static const struct lws_event_loop_ops event_loop_ops_ev = {
 /*
  * QUIC ALPN migration: the ev_io watchers live inside the per-wsi block and
  * the loop keeps their addresses, so they cannot simply be copied: stop the
@@ -582,6 +582,7 @@ elops_migrate_wsi_ev(struct lws *from, struct lws *to)
 	return 0;
 }
 
+static const struct lws_event_loop_ops event_loop_ops_ev = {
 	/* name */			"libev",
 	/* init_context */		elops_init_context_ev,
 	/* destroy_context1 */		NULL,
@@ -614,8 +615,8 @@ elops_migrate_wsi_ev(struct lws *from, struct lws *to)
 	/* evlib_size_pt */	sizeof(struct lws_pt_eventlibs_libev),
 	/* evlib_size_vh */	sizeof(struct lws_vh_eventlibs_libev),
 	/* evlib_size_wsi */	sizeof(struct lws_wsi_eventlibs_libev),
-};
 	/* migrate_wsi */	elops_migrate_wsi_ev,
+};
 
 #if defined(LWS_WITH_EVLIB_PLUGINS)
 LWS_VISIBLE

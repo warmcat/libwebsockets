@@ -130,7 +130,7 @@ lws_glib_dispatch(GSource *src, GSourceFunc x, gpointer userData)
 		eventfd.revents |= LWS_POLLHUP;
 
 	eventfd.events = eventfd.revents;
-	eventfd.fd = sub->wsi->desc.sockfd;
+	eventfd.fd = sub->fd;
 
 	lwsl_wsi_debug(sub->wsi, "fd %d, events %d",
 				 eventfd.fd, eventfd.revents);
@@ -282,6 +282,7 @@ elops_accept_glib(struct lws *wsi)
 	else
 		fd = wsi->desc.sockfd;
 
+	wsi_to_subclass(wsi)->fd = wsi->desc.sockfd;
 	wsi_to_subclass(wsi)->tag = g_source_add_unix_fd(wsi_to_gsource(wsi),
 						fd, (GIOCondition)LWS_POLLIN);
 	wsipr->w_read.actual_events = LWS_POLLIN;
@@ -390,12 +391,12 @@ elops_run_pt_glib(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 
-	if (pt_to_loop(pt))
 	/*
 	 * One turn of the loop per lws_service() call, like the poll loop
 	 * and the other evlib plugins: block for the next event and handle
 	 * it, then return so the app's loop condition is seen between turns.
 	 */
+	if (pt_to_loop(pt))
 		g_main_context_iteration(
 			g_main_loop_get_context(pt_to_loop(pt)), TRUE);
 }
@@ -466,7 +467,8 @@ elops_destroy_context2_glib(struct lws_context *context)
 	int n;
 
 	for (n = 0; n < (int)context->count_threads; n++) {
-		if (!pt->event_loop_foreign)
+		/* the final call comes after destroy_pt took the loop away */
+		if (!pt->event_loop_foreign && pt_to_loop(pt))
 			g_main_loop_quit(pt_to_loop(pt));
 		pt++;
 	}
@@ -500,6 +502,7 @@ elops_sock_accept_parallel_glib(struct lws *wsi, lws_sockfd_type fd, int pidx)
 
 	wsipr->racing[pidx].context = wsi->a.context;
 	wsipr->racing[pidx].source->wsi = wsi;
+	wsipr->racing[pidx].source->fd = fd;
 
 	wsipr->racing[pidx].source->tag = g_source_add_unix_fd((GSource *)wsipr->racing[pidx].source,
 						fd, (GIOCondition)LWS_POLLIN);
@@ -590,9 +593,6 @@ elops_promote_parallel_glib(struct lws *wsi, int pidx)
 }
 #endif
 
-static const struct lws_event_loop_ops event_loop_ops_glib = {
-	/* name */			"glib",
-	/* init_context */		elops_init_context_glib,
 /*
  * QUIC ALPN migration: the sources are separate allocations that carry the
  * wsi, so the block copies and the sources are pointed at the new wsi.
@@ -619,6 +619,9 @@ elops_migrate_wsi_glib(struct lws *from, struct lws *to)
 	return 0;
 }
 
+static const struct lws_event_loop_ops event_loop_ops_glib = {
+	/* name */			"glib",
+	/* init_context */		elops_init_context_glib,
 	/* destroy_context1 */		NULL,
 	/* destroy_context2 */		elops_destroy_context2_glib,
 	/* init_vhost_listen_wsi */	elops_accept_glib,
@@ -649,10 +652,10 @@ elops_migrate_wsi_glib(struct lws *from, struct lws *to)
 	/* evlib_size_pt */	sizeof(struct lws_pt_eventlibs_glib),
 	/* evlib_size_vh */	0,
 	/* evlib_size_wsi */	sizeof(struct lws_wsi_eventlibs_glib),
+	/* migrate_wsi */	elops_migrate_wsi_glib,
 };
 
 #if defined(LWS_WITH_EVLIB_PLUGINS)
-	/* migrate_wsi */	elops_migrate_wsi_glib,
 LWS_VISIBLE
 #endif
 const lws_plugin_evlib_t evlib_glib = {
