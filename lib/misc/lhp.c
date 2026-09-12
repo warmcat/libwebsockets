@@ -2172,7 +2172,9 @@ lhp_compute_font_size(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *parent)
 		for (n = 0; n < LWS_ARRAY_SIZE(ks); n++)
 			if (a->value_len == strlen(ks[n].n) &&
 			    !strncmp(v, ks[n].n, a->value_len)) {
-				lws_fx_set(r, ks[n].px, 0);
+				/* lws_fx_set() tests x < 0, pointless on a uint8 */
+				r.whole = ks[n].px;
+				r.frac = 0;
 				goto done;
 			}
 		return;
