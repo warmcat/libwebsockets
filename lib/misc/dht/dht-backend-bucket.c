@@ -330,7 +330,7 @@ maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 		   (nb == NULL || id_cmp(ctx->myid, nb->first) < 0);
 
 	if (confirm == 2)
-		b->time = (int)ctx->now;
+		b->time = ctx->now;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&b->nodes)) {
 		n = lws_container_of(d, struct node, list);

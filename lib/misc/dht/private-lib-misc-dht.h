@@ -136,7 +136,7 @@ struct node {
 struct bucket {
 	int                     af;
 	lws_dht_hash_t          *first;
-	int                     time;                   /* time of last reply in this bucket */
+	time_t                  time;                   /* time of last reply in this bucket */
 	lws_dll2_owner_t        nodes;                   /* node list, nodes.count is node count */
 	struct sockaddr_storage cached;			/* the address of a likely candidate */
 	size_t                  cachedlen;
