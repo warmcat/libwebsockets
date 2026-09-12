@@ -391,7 +391,13 @@ elops_run_pt_glib(struct lws_context *context, int tsi)
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 
 	if (pt_to_loop(pt))
-		g_main_loop_run(pt_to_loop(pt));
+	/*
+	 * One turn of the loop per lws_service() call, like the poll loop
+	 * and the other evlib plugins: block for the next event and handle
+	 * it, then return so the app's loop condition is seen between turns.
+	 */
+		g_main_context_iteration(
+			g_main_loop_get_context(pt_to_loop(pt)), TRUE);
 }
 
 static void

@@ -327,10 +327,16 @@ elops_io_event(struct lws *wsi, unsigned int flags)
 static void
 elops_run_pt_event(struct lws_context *context, int tsi)
 {
-	/* Run / Dispatch the event_base loop */
+	/*
+	 * One turn of the loop per lws_service() call, like the poll loop
+	 * and the libev / libuv plugins, so lws_service() means the same
+	 * on every loop and the app's loop condition is seen between turns.
+	 * EVLOOP_ONCE blocks for events like event_base_dispatch(), it just
+	 * returns after handling them.
+	 */
 	if (pt_to_priv_event(&context->pt[tsi])->io_loop)
-		event_base_dispatch(
-			pt_to_priv_event(&context->pt[tsi])->io_loop);
+		event_base_loop(pt_to_priv_event(&context->pt[tsi])->io_loop,
+				EVLOOP_ONCE);
 }
 
 static int
