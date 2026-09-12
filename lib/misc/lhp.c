@@ -1859,6 +1859,22 @@ lhp_media_feature(lhp_ctx_t *ctx, const char *p, const char *end)
 		p++;
 	v = p;
 
+	/* we are a 1:1 device; the -webkit- forms are common Chrome hacks */
+	if ((nl >= 22 && !strncmp(n + nl - 22, "min-device-pixel-ratio", 22)) ||
+	    (nl == 14 && !strncmp(n, "min-resolution", 14))) {
+		lhp_fx_parse(&val, v, (size_t)(end - v));
+		if (nl == 14 && strstr(v, "dpi"))
+			return val.whole <= 96;
+		return val.whole <= 1;
+	}
+	if ((nl >= 22 && !strncmp(n + nl - 22, "max-device-pixel-ratio", 22)) ||
+	    (nl == 14 && !strncmp(n, "max-resolution", 14))) {
+		lhp_fx_parse(&val, v, (size_t)(end - v));
+		if (nl == 14 && strstr(v, "dpi"))
+			return val.whole >= 96;
+		return val.whole >= 1;
+	}
+
 	if (nl == 11 && !strncmp(n, "orientation", 11))
 		return (ctx->ic.wh_px[0].whole >= ctx->ic.wh_px[1].whole) ==
 		       (end - v >= 9 && !strncmp(v, "landscape", 9));

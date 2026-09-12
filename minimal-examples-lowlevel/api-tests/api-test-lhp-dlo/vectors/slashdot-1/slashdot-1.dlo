@@ -140,9 +140,8 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
            text (93.0,5.0) [39.0 x 17.0] rgba=FF333333 f=14/700 "BeauHD"
            text (132.0,6.0) [192.0 x 16.0] rgba=FF4D4D4D f=14/400 "on Friday December 19, 2025 @10:30PM"
            text (324.0,6.0) [48.0 x 16.0] rgba=FF4D4D4D f=14/400 " from the "
-           text (372.0,6.0) [21.0 x 16.0] rgba=FF4D4D4D f=14/400 "serp"
-           text (20.0,22.0) [57.0 x 16.0] rgba=FF4D4D4D f=14/400 "ing-up-data"
-           text (77.0,22.0) [31.0 x 16.0] rgba=FF4D4D4D f=14/400 " dept. "
+           text (20.0,22.0) [78.0 x 16.0] rgba=FF4D4D4D f=14/400 "serping-up-data"
+           text (98.0,22.0) [31.0 x 16.0] rgba=FF4D4D4D f=14/400 " dept. "
          rect (0.0,89.0) [407.18399999 x 560.0] rgba=00000000
           rect (20.0,20.0) [367.18399999 x 540.0] rgba=00000000
            text (0.0,0.0) [367.0 x 19.0] rgba=FF000000 f=17/400 "An anonymous reader quotes a report from Search Engine Land: "
