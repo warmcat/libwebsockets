@@ -20,8 +20,8 @@ enum {
 static const struct lws_switches switches[] = {
 	[LWS_SW_BMP]	= { "--bmp",           "Render to the given .bmp file" },
 	[LWS_SW_DUMP]	= { "--dump",          "Write layout DLO tree as text to the given file (no render)" },
-	[LWS_SW_W]	= { "--w",             "Surface width in px (default 1600)" },
-	[LWS_SW_H]	= { "--h",             "Surface height in px (default 2000)" },
+	[LWS_SW_W]	= { "--w",             "Surface width in px (default 600)" },
+	[LWS_SW_H]	= { "--h",             "Surface height in px (default 448)" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
@@ -94,8 +94,9 @@ static const lws_display_colour_t palette[] = {
 };
 #endif
 
+/* the 5.65" 600x448 ACEP epd the test page was written for */
 static lws_surface_info_t ic = {
-	.wh_px = { { 1600,0 },       { 2000,0 } },
+	.wh_px = { { 600,0 },        { 448,0 } },
 	.wh_mm = { { 114,5000000 }, {  82,5000000 } },
 #if defined(SEVENCOL)
         .palette                = palette,

@@ -47,7 +47,7 @@ if (requirements)
 				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/test.html
 				-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/test.dlo
 				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/test.dlo
-				-DW=1600 -DH=2000
+				-DW=600 -DH=448
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
 
 		# captured real-world pages, with their network assets made
