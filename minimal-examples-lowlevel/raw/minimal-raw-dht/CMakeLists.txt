@@ -3,7 +3,6 @@ cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
 include_directories(BEFORE ../../../../include)
-include_directories(BEFORE ../../../../build-dht/include)
 include(CheckCSourceCompiles)
 include(LwsCheckRequirements)
 
@@ -12,8 +11,28 @@ set(SRCS minimal-raw-dht.c)
 
 set(requirements 1)
 require_lws_config(LWS_WITH_DHT 1 requirements)
-require_lws_config(LWS_WITH_JOSE 1 requirements)
 require_lws_config(LWS_WITH_DHT_BACKEND 1 requirements)
+require_lws_config(LWS_WITH_JOSE 1 requirements)
+
+#
+# The example instantiates the lws-dht-object-store, lws-dht-stats and
+# lws-dht-dnssec protocol plugins on its vhosts at runtime: unless every
+# one of those plugins is going to exist, the vhost checks fail, no UDP
+# socket is ever bound and the ctest server fixture can only time out.
+# Mirror the plugin requirements here so the example and its tests are
+# skipped in configs where they cannot pass.
+#
+
+require_lws_config(LWS_ROLE_WS 1 requirements)		# lws-dht-stats
+require_lws_config(LWS_WITH_GENCRYPTO 1 requirements)	# lws-dht-dnssec
+require_lws_config(LWS_WITH_SYS_ASYNC_DNS_DNSSEC 1 requirements)
+require_lws_config(LWS_WITH_AUTHORITATIVE_DNS 1 requirements)
+
+if (NOT LWS_WITH_PLUGINS_BUILTIN)
+	if (NOT LWS_WITH_PLUGINS OR NOT LWS_WITH_SHARED)
+		set(requirements 0)
+	endif()
+endif()
 
 include_directories(${CMAKE_SOURCE_DIR}/plugins)
 
