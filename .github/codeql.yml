@@ -41,3 +41,15 @@ query-filters:
   # which is how http proxies work
   - exclude:
       id: cpp/cleartext-transmission
+  # All the javascript in the tree runs in browsers, where console.log()
+  # of a peer-supplied value is not a log forging vector
+  - exclude:
+      id: js/log-injection
+  # Same reasoning as the cpp variant above: the login page's flow is
+  # necessarily steered by the redirect_uri the server validates
+  - exclude:
+      id: js/user-controlled-bypass
+
+paths-ignore:
+  # captured third-party pages used as parser test vectors, not our code
+  - minimal-examples-lowlevel/api-tests/api-test-lhp-dlo/vectors
