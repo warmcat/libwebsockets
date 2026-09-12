@@ -1028,37 +1028,67 @@ lws_dht_valid_domain_name(const char *domain)
 	return label || domain[len - 1] == '.';
 }
 
+/*
+ * The RPC-over-data wire format is four fields separated by exactly one
+ * space each, optionally followed by one more space and the payload:
+ *
+ *   <verb> <hash> <offset> <len>[ <payload>]
+ *
+ * `in` points into the received datagram and is not NUL-terminated, so
+ * everything here is bounded by `len` alone; lws_tokenize() is given the
+ * explicit length and never reads past it.  It extracts the fields with
+ * its own integer validation, while the gap checks below insist the
+ * fields were separated by exactly one space, the only shape the
+ * generator emits: without them a datagram with a missing or empty field
+ * would have its remaining fields silently shift left rather than be
+ * rejected.
+ */
+
 int
 lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out)
 {
-	int step = 0;
+	char tmp[32];
+	lws_tokenize_t ts;
+	const char *cur = in, *end = in + len;
+	size_t i;
 
 	if (!in || !out || len < 10)
 		return -1;
 
 	memset(out, 0, sizeof(*out));
 
-	/*
-	 * (a dead debug block that lws_strncpy()d from `in` used to live here;
-	 * `in` points into the received datagram and is not NUL-terminated, so
-	 * that read was bounded only by the first NUL in adjacent memory, not
-	 * by `len`)
-	 */
+	lws_tokenize_init(&ts, in, 0);
+	ts.len = len;
 
-	const char *p = in;
-	const char *end = in + len;
+	for (i = 0; i < 4; i++) {
+		size_t tl;
+		lws_tokenize_elem e = lws_tokenize(&ts);
 
-	/* Parse 4 space-delimited tokens */
-	while (p < end && step < 4) {
-		const char *token_start = p;
-		while (p < end && *p != ' ') p++;
-		size_t tlen = (size_t)(p - token_start);
+		/*
+		 * The token content lives in the tokenizer's collect buffer;
+		 * anchor it to the expected position in the datagram so a
+		 * leading space, a double space or a non-space delimiter in
+		 * place of the single separating space cannot pass.
+		 */
 
-		if (step == 0) {
-			if (tlen >= sizeof(out->verb)) tlen = sizeof(out->verb) - 1;
-			lws_strncpy(out->verb, token_start, tlen + 1);
-		} else if (step == 1) {
-			size_t i;
+		if ((i < 2 ? (e != LWS_TOKZE_TOKEN && e != LWS_TOKZE_INTEGER)
+			   : e != LWS_TOKZE_INTEGER) ||
+		    ts.token_len > (size_t)(end - cur) ||
+		    memcmp(cur, ts.token, ts.token_len))
+			return -1;
+
+		tl = ts.token_len;
+
+		switch (i) {
+		case 0:
+			if (tl >= sizeof(out->verb))
+				return -1;
+			memcpy(out->verb, cur, tl);
+			out->verb[tl] = '\0';
+			break;
+
+		case 1: {
+			size_t j;
 
 			/*
 			 * F-051: the hash token is composed into
@@ -1068,46 +1098,65 @@ lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out)
 			 * something like "../x" or an absolute path.
 			 * Reject the whole datagram otherwise.
 			 */
-			if (tlen < 2 || tlen >= sizeof(out->hash))
+			if (tl < 2 || tl >= sizeof(out->hash))
 				return -1;
 
-			for (i = 0; i < tlen; i++) {
-				char c = token_start[i];
+			for (j = 0; j < tl; j++) {
+				char c = cur[j];
 				if (!((c >= '0' && c <= '9') ||
 				      (c >= 'a' && c <= 'f')))
 					return -1;
 			}
 
-			lws_strncpy(out->hash, token_start, tlen + 1);
-		} else if (step == 2) {
-			char tmp[32];
-			if (tlen >= sizeof(tmp)) tlen = sizeof(tmp) - 1;
-			lws_strncpy(tmp, token_start, tlen + 1);
+			memcpy(out->hash, cur, tl);
+			out->hash[tl] = '\0';
+			break;
+		}
+
+		case 2:
+			if (tl >= sizeof(tmp))
+				return -1;
+			memcpy(tmp, cur, tl);
+			tmp[tl] = '\0';
 			out->offset = (unsigned long long)strtoull(tmp, NULL, 10);
-		} else if (step == 3) {
-			char tmp[32];
-			if (tlen >= sizeof(tmp)) tlen = sizeof(tmp) - 1;
-			lws_strncpy(tmp, token_start, tlen + 1);
+			break;
+
+		default:
+			if (tl >= sizeof(tmp))
+				return -1;
+			memcpy(tmp, cur, tl);
+			tmp[tl] = '\0';
 			out->len = (unsigned long long)strtoull(tmp, NULL, 10);
+			break;
 		}
 
-		/* skip space */
-		if (p < end && *p == ' ') p++;
-		step++;
-	}
+		cur += tl;
 
-	if (step == 4) {
-		if (p < end) {
-			out->payload = p;
-			out->payload_len = (size_t)(end - p);
-		} else {
-			out->payload = NULL;
-			out->payload_len = 0;
+		/* the next field (or the payload) follows exactly one ' ' */
+
+		if (i < 3) {
+			if (cur >= end || *cur != ' ')
+				return -1;
+			cur++;
 		}
-		return 0;
 	}
 
-	return -1;
+	/*
+	 * Anything after exactly one further space is the payload; it is not
+	 * validated at all here.
+	 */
+
+	if (cur < end) {
+		if (*cur != ' ')
+			return -1;
+
+		if (cur + 1 < end) {
+			out->payload = cur + 1;
+			out->payload_len = (size_t)(end - (cur + 1));
+		}
+	}
+
+	return 0;
 }
 
 int

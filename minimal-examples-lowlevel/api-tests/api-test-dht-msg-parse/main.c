@@ -50,6 +50,14 @@ static const char *bad[] = {
 	"GET a 0 1000 x",				/* too short */
 	"GET  0 1000 x",				/* empty token */
 	"GET a1b2c3d4x 0 1000 x",			/* non-hex 'x' */
+	/* field-shape strictness: the generator only ever emits one ' ' */
+	" GET a1b2c3d4 0 1000 x",			/* leading space */
+	"GET\ta1b2c3d4 0 1000 x",			/* tab as field separator */
+	"GET a1b2c3d4\t0 1000 x",
+	"GET a1b2c3d4 0 1024:9 x",			/* non-space payload separator */
+	"GET a1b2c3d4 0x10 1000 x",			/* non-decimal offset */
+	"GET a1b2c3d4 -5 1000 x",			/* signed offset */
+	"WAYTOOLONGVERBXX a1b2c3d4 0 1000 x",		/* verb over the field */
 };
 
 /* domain names that must pass the NOTIFY intake gate (F-052) */
@@ -145,6 +153,26 @@ int main(int argc, const char **argv)
 	lws_snprintf(overlong, sizeof(overlong), "GET %s 0 10 x", big);
 	if (!lws_dht_msg_parse(overlong, strlen(overlong), &m)) {
 		lwsl_err("%s: 129-hex token accepted\n", __func__);
+		fails++;
+	}
+
+	/* a NUL inside the datagram terminates any field it reaches */
+
+	memcpy(overlong, "GET a1b2c3d4 0 1000 x", 20);
+	overlong[11] = '\0';
+	if (!lws_dht_msg_parse(overlong, 20, &m)) {
+		lwsl_err("%s: embedded NUL in hash accepted\n", __func__);
+		fails++;
+	}
+
+	/* the payload itself is unvalidated and may contain anything */
+
+	n = lws_dht_msg_parse("PUT a1b2c3d4 0 1000 has\ttab \"quotes\"",
+			      36, &m);
+	if (n || strcmp(m.verb, "PUT") || strcmp(m.hash, "a1b2c3d4") ||
+	    m.offset || m.len != 1000 ||
+	    m.payload_len != 16 || memcmp(m.payload, "has\ttab \"quotes\"", 16)) {
+		lwsl_err("%s: unvalidated payload mishandled\n", __func__);
 		fails++;
 	}
 
