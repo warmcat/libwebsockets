@@ -510,8 +510,15 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 			return LWS_SRET_FATAL;
 		}
 
-		if (r == 2) {
-			/* nothing fits in what's left of the line */
+		/*
+		 * r == 2: nothing fitted.  r == 0 with text left over: the
+		 * width ran out inside a word (there was no break point).
+		 * Words don't break: try again on a fresh line, or if this
+		 * is a fresh line, place the whole word and let it overflow
+		 */
+		if (r == 2 || (r == 0 && txt->text_len < len)) {
+			size_t fw = 0;
+
 			if (c->curx.whole > 0) {
 				lws_display_dlo_destroy((lws_dlo_t **)&txt);
 				if (rect)
@@ -520,13 +527,11 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 				continue;
 			}
 
-			/*
-			 * A word wider than the whole line: it has to go on
-			 * a line by itself and overflow
-			 */
-			lws_display_dlo_text_measure(txt, text, len, &total,
+			while (fw < len && text[fw] != ' ')
+				fw++;
+			lws_display_dlo_text_measure(txt, text, fw, &total,
 						     &word);
-			lws_fx_add(&txt->dlo.box.w, &word, &fx_2);
+			lws_fx_add(&txt->dlo.box.w, &total, &fx_2);
 			r = lws_display_dlo_text_update(txt, col, fx_0, text,
 							len);
 			if (r < 0 || r == 2 || !txt->text_len) {
@@ -535,6 +540,8 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 					lws_display_dlo_destroy((lws_dlo_t **)&rect);
 				return 0;
 			}
+			if (txt->text_len < len)
+				r = 1; /* the rest goes on the next line */
 		}
 
 		txt->dlo.box.w = txt->bounding_box.w;
