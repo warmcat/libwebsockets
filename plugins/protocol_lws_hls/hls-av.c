@@ -2122,6 +2122,13 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 	int64_t actual_start_pts = AV_NOPTS_VALUE;
 	int video_finished = 0;
 	int video_kf_seen = 0;	/* HLS-TRACE: video keyframes the loop saw */
+	/*
+	 * segment window; also read from the done: path (summary + HLS-TRACE),
+	 * so initialised here before any goto done rather than below
+	 */
+	int64_t start_time = (int64_t)segment_idx * HLS_SEGMENT_DUR * AV_TIME_BASE;
+	int64_t end_time = (int64_t)(segment_idx + 1) * HLS_SEGMENT_DUR * AV_TIME_BASE;
+	int has_index = 0;
 	AVPacket audio_buffer[512];
 	int audio_buffer_count = 0;
 	memset(audio_buffer, 0, sizeof(audio_buffer));
@@ -2165,9 +2172,6 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 		shift_offset_out_audio = av_rescale_q(shift_offset, in_ctx->streams[video_idx]->time_base, out_ctx->streams[stream_mapping[audio_idx]]->time_base);
 	}
 
-	int64_t start_time = (int64_t)segment_idx * HLS_SEGMENT_DUR * AV_TIME_BASE;
-	int64_t end_time = (int64_t)(segment_idx + 1) * HLS_SEGMENT_DUR * AV_TIME_BASE;
-	int has_index = 0;
 	struct hls_segment_info sinfo;
 	memset(&sinfo, 0, sizeof(sinfo));
 	sinfo.end_pts = AV_NOPTS_VALUE;
