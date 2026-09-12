@@ -411,13 +411,28 @@ dht_sa_same_peer(const struct sockaddr *a, const struct sockaddr *b)
 
 	return x->sa4.sin_port == y->sa4.sin_port;
 }
-int dht_tx_check(size_t size, size_t offset, size_t delta);
-int dht_tx_skip(size_t *offset, size_t size, size_t delta);
+/*
+ * Bencode emission cursor.  All TX builders compose into a fixed buffer
+ * through these bounds-checked appends; a failed append refuses the whole
+ * datagram.
+ */
+
+typedef struct dht_txbuf {
+	char	*buf;	/**< packet buffer being composed into */
+	size_t	 len;	/**< bytes composed so far */
+	size_t	 size;	/**< bytes available at buf */
+} dht_txbuf_t;
+
+int dht_tx_raw(dht_txbuf_t *t, const void *v, size_t vl);
+int dht_tx_lit(dht_txbuf_t *t, const char *lit);
+int dht_tx_str(dht_txbuf_t *t, const void *v, size_t vl);
+int dht_tx_int(dht_txbuf_t *t, uint64_t n);
 int dht_tx_id_len(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id);
-int dht_tx_copy__advance_offset(char *buf, size_t *offset, size_t size, const void *src, size_t delta);
-int dht_tx_add_v(char *buf, size_t *offset, size_t size, struct lws_dht_ctx *ctx);
-int dht_tx_add_ip(char *buf, size_t *offset, size_t size, const struct sockaddr *sa);
-int dht_put_id__advance_offset(struct lws_dht_ctx *ctx, char *buf, size_t *offset, size_t size, const lws_dht_hash_t *id);
+int dht_tx_id_raw(struct lws_dht_ctx *ctx, dht_txbuf_t *t, const lws_dht_hash_t *id);
+int dht_tx_id(struct lws_dht_ctx *ctx, dht_txbuf_t *t, const lws_dht_hash_t *id);
+int dht_tx_v(struct lws_dht_ctx *ctx, dht_txbuf_t *t);
+int dht_tx_ip(dht_txbuf_t *t, const struct sockaddr *sa);
+int dht_tx_want(dht_txbuf_t *t, int want);
 void make_tid(uint8_t *tid_return, const char *prefix, unsigned short seqno);
 int tid_match(const uint8_t *tid, const char *prefix, unsigned short *seqno_return);
 int node_blacklisted(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen);

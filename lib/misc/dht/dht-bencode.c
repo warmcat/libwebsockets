@@ -1002,7 +1002,15 @@ skip_ip_tracking:
 		{
 			struct storage *st = find_storage(ctx, mp.info_hash);
 
+			/*
+			 * The freshly derived token must actually go out in
+			 * the reply: send_closest_nodes() only includes the
+			 * token member when token_len is set, and without it
+			 * peers can never announce on this hash, since a
+			 * valid token is what authorize announce_peer.
+			 */
 			make_token(ctx, from, 0, mp.token);
+			mp.token_len = TOKEN_SIZE;
 
 			/* Has it? */
 			if (st && st->numpeers > 0) {

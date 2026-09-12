@@ -26,39 +26,28 @@
 
 #include "private-lib-misc-dht.h"
 
+/* reply: id, ip */
+
 int
 send_pong(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 		const uint8_t *tid, size_t tid_len)
 {
 	char buf[512];
-	size_t i = 0;
-	int rc;
+	dht_txbuf_t t = { .buf = buf, .size = sizeof(buf) };
 
-	rc = lws_snprintf(buf + i, sizeof(buf) - i, "d1:rd2:id%d:", dht_tx_id_len(ctx, ctx->myid));
-	if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
+	if (dht_tx_lit(&t, "d1:rd2:id") ||
+	    dht_tx_id(ctx, &t, ctx->myid) ||
+	    dht_tx_lit(&t, "e1:t") ||
+	    dht_tx_str(&t, tid, tid_len) ||
+	    dht_tx_ip(&t, sa) ||
+	    dht_tx_v(ctx, &t) ||
+	    dht_tx_lit(&t, "1:y1:re"))
+		goto fail;
 
-	if (dht_put_id__advance_offset(ctx, buf, &i, sizeof(buf), ctx->myid)) goto fail;
-
-	rc = lws_snprintf(buf + i, sizeof(buf) - i, "e1:t%d:", (int)tid_len);
-
-	if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
-	if (dht_tx_copy__advance_offset(buf, &i, sizeof(buf), tid, tid_len)) goto fail;
-	if (dht_tx_add_ip(buf, &i, sizeof(buf), sa)) goto fail;
-	if (dht_tx_add_v(buf, &i, sizeof(buf), ctx)) goto fail;
-
-	rc = lws_snprintf(buf + i, sizeof(buf) - i, "1:y1:re");
-	if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
-
-	// lwsl_warn("%s: generated pong of length %zu\n", __func__, i);
-	// lwsl_hexdump_warn(buf, i);
-
-	rc = dht_send(ctx, buf, i, sa, salen);
-	// lwsl_warn("%s: dht_send returned %d\n", __func__, rc);
-
-	return rc;
+	return dht_send(ctx, buf, t.len, sa, salen);
 
 fail:
-	lwsl_warn("%s: failed to generate pong, i=%zu\n", __func__, i);
+	lwsl_warn("%s: failed to generate pong\n", __func__);
 	errno = ENOSPC;
 	return -1;
 }
@@ -219,6 +208,8 @@ buffer_closest_nodes(struct lws_dht_ctx *ctx, struct node **nodes, int numnodes,
 	return numnodes;
 }
 
+/* reply: id, [nodes], [nodes6], [token], [values], ip */
+
 static int
 send_nodes_peers(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 		 struct lws_dht_mparams *mp,
@@ -227,102 +218,114 @@ send_nodes_peers(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t sale
 		 int af, struct storage *st)
 {
 	char buf[2048];
-	size_t i = 0;
+	dht_txbuf_t t = { .buf = buf, .size = sizeof(buf) };
 	int rc, j0, j, k, len, n_idx;
 
-	rc = lws_snprintf(buf + i, sizeof(buf) - i, "d1:rd2:id%d:", dht_tx_id_len(ctx, ctx->myid));
-	if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
-
-	if (dht_put_id__advance_offset(ctx, buf, &i, sizeof(buf), ctx->myid)) goto fail;
+	if (dht_tx_lit(&t, "d1:rd2:id") ||
+	    dht_tx_id(ctx, &t, ctx->myid))
+		goto fail;
 
 	if (numnodes > 0) {
-		/* Calculate total length */
+		/* bencode needs the whole blob length up front */
+		char pre[12];
 		size_t nodes_len = 0;
-		for (n_idx = 0; n_idx < numnodes; n_idx++) {
-			if (ctx->legacy) nodes_len += LWS_DHT_NODE_INFO_LEGACY_IP4_VLEN;
-			else nodes_len += (size_t)(LWS_DHT_NODE_INFO_HASH_HDR_VLEN + nodes[n_idx]->id->len + LWS_DHT_NODE_INFO_IP4_VLEN);
-		}
 
-		if (dht_tx_check(sizeof(buf), i, 1)) goto fail;
-		rc = lws_snprintf(buf + i, sizeof(buf) - i, "5:nodes%d:", (int)nodes_len);
-		if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
+		for (n_idx = 0; n_idx < numnodes; n_idx++)
+			nodes_len += ctx->legacy ?
+				(size_t)LWS_DHT_NODE_INFO_LEGACY_IP4_VLEN :
+				(size_t)(LWS_DHT_NODE_INFO_HASH_HDR_VLEN +
+					 nodes[n_idx]->id->len +
+					 LWS_DHT_NODE_INFO_IP4_VLEN);
+
+		rc = lws_snprintf(pre, sizeof(pre), "%zu:", nodes_len);
+		if (rc < 0 ||
+		    dht_tx_lit(&t, "5:nodes") ||
+		    dht_tx_raw(&t, pre, (size_t)rc))
+			goto fail;
 
 		for (n_idx = 0; n_idx < numnodes; n_idx++) {
 			struct node *n = nodes[n_idx];
-			struct sockaddr_in *sin = (struct sockaddr_in*)&n->ss;
+			struct sockaddr_in *sin = (struct sockaddr_in *)&n->ss;
 
-			if (dht_put_id__advance_offset(ctx, buf, &i, sizeof(buf), n->id)) goto fail;
-			memcpy(buf + i, &sin->sin_addr, LWS_DHT_IPV4_VLEN);
-			i += LWS_DHT_IPV4_VLEN;
-			memcpy(buf + i, &sin->sin_port, LWS_DHT_PORT_VLEN);
-			i += LWS_DHT_PORT_VLEN;
+			if (dht_tx_id_raw(ctx, &t, n->id) ||
+			    dht_tx_raw(&t, &sin->sin_addr, LWS_DHT_IPV4_VLEN) ||
+			    dht_tx_raw(&t, &sin->sin_port, LWS_DHT_PORT_VLEN))
+				goto fail;
 		}
 	}
 
 	if (numnodes6 > 0) {
+		char pre[12];
 		size_t nodes6_len = 0;
 
-		for (n_idx = 0; n_idx < numnodes6; n_idx++) {
-			if (ctx->legacy)
-				nodes6_len += LWS_DHT_NODE_INFO_LEGACY_IP6_VLEN;
-			else
-				nodes6_len += (size_t)(LWS_DHT_NODE_INFO_HASH_HDR_VLEN + nodes6[n_idx]->id->len + LWS_DHT_NODE_INFO_IP6_VLEN);
-		}
+		for (n_idx = 0; n_idx < numnodes6; n_idx++)
+			nodes6_len += ctx->legacy ?
+				(size_t)LWS_DHT_NODE_INFO_LEGACY_IP6_VLEN :
+				(size_t)(LWS_DHT_NODE_INFO_HASH_HDR_VLEN +
+					 nodes6[n_idx]->id->len +
+					 LWS_DHT_NODE_INFO_IP6_VLEN);
 
-		if (dht_tx_check(sizeof(buf), i, 1)) goto fail;
-		rc = lws_snprintf(buf + i, sizeof(buf) - i, "6:nodes6%d:", (int)nodes6_len);
-		if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
+		rc = lws_snprintf(pre, sizeof(pre), "%zu:", nodes6_len);
+		if (rc < 0 ||
+		    dht_tx_lit(&t, "6:nodes6") ||
+		    dht_tx_raw(&t, pre, (size_t)rc))
+			goto fail;
 
 		for (n_idx = 0; n_idx < numnodes6; n_idx++) {
 			struct node *n = nodes6[n_idx];
-			struct sockaddr_in6 *sin6 = (struct sockaddr_in6*)&n->ss;
-			if (dht_put_id__advance_offset(ctx, buf, &i, sizeof(buf), n->id)) goto fail;
-			memcpy(buf + i, &sin6->sin6_addr, LWS_DHT_IPV6_VLEN);
-			i += LWS_DHT_IPV6_VLEN;
-			memcpy(buf + i, &sin6->sin6_port, LWS_DHT_PORT_VLEN);
-			i += LWS_DHT_PORT_VLEN;
+			struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&n->ss;
+
+			if (dht_tx_id_raw(ctx, &t, n->id) ||
+			    dht_tx_raw(&t, &sin6->sin6_addr, LWS_DHT_IPV6_VLEN) ||
+			    dht_tx_raw(&t, &sin6->sin6_port, LWS_DHT_PORT_VLEN))
+				goto fail;
 		}
 	}
 
-	/* ... rest of function ... */
 	if (mp->token_len > 0) {
-		rc = lws_snprintf(buf + i, sizeof(buf) - i, "5:token%d:", (int)mp->token_len);
-		if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
-		if (dht_tx_copy__advance_offset(buf, &i, sizeof(buf), mp->token, mp->token_len)) goto fail;
+		if (dht_tx_lit(&t, "5:token") ||
+		    dht_tx_str(&t, mp->token, mp->token_len))
+			goto fail;
 	}
 
 	if (st && st->numpeers > 0) {
 		unsigned int r;
-		/* ... existing implementation ... */
+
 		len = af == AF_INET ? 4 : 16;
 		lws_get_random(ctx->vhost->context, &r, sizeof(r));
 		j0 = (int)(r % (unsigned int)st->numpeers);
 		j = j0;
 		k = 0;
 
-		rc = lws_snprintf(buf + i, sizeof(buf) - i, "6:valuesl"); if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
+		if (dht_tx_lit(&t, "6:valuesl"))
+			goto fail;
 		do {
 			if (st->peers[j].len == len) {
-				unsigned short swapped;
-				swapped = htons(st->peers[j].port);
-				rc = lws_snprintf(buf + i, sizeof(buf) - i, "%d:", len + 2);
-				if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
-				if (dht_tx_copy__advance_offset(buf, &i, sizeof(buf), st->peers[j].ip, (size_t)len)) goto fail;
-				if (dht_tx_copy__advance_offset(buf, &i, sizeof(buf), &swapped, 2)) goto fail;
+				unsigned short swapped = htons(st->peers[j].port);
+				char pre[8];
+
+				rc = lws_snprintf(pre, sizeof(pre), "%d:", len + 2);
+				if (rc < 0 ||
+				    dht_tx_raw(&t, pre, (size_t)rc) ||
+				    dht_tx_raw(&t, st->peers[j].ip, (size_t)len) ||
+				    dht_tx_raw(&t, &swapped, 2))
+					goto fail;
 				k++;
 			}
 			j = (int)(((unsigned int)j + 1) % (unsigned int)st->numpeers);
 		} while (j != j0 && k < 50);
-		rc = lws_snprintf(buf + i, sizeof(buf) - i, "e"); if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
+		if (dht_tx_lit(&t, "e"))
+			goto fail;
 	}
 
-	rc = lws_snprintf(buf + i, sizeof(buf) - i, "e1:t%d:", (int)mp->tid_len); if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
-	if (dht_tx_copy__advance_offset(buf, &i, sizeof(buf), mp->tid, mp->tid_len)) goto fail;
-	if (dht_tx_add_ip(buf, &i, sizeof(buf), sa)) goto fail;
-	if (dht_tx_add_v(buf, &i, sizeof(buf), ctx)) goto fail;
-	rc = lws_snprintf(buf + i, sizeof(buf) - i, "1:y1:re"); if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
+	if (dht_tx_lit(&t, "e1:t") ||
+	    dht_tx_str(&t, mp->tid, mp->tid_len) ||
+	    dht_tx_ip(&t, sa) ||
+	    dht_tx_v(ctx, &t) ||
+	    dht_tx_lit(&t, "1:y1:re"))
+		goto fail;
 
-	return dht_send(ctx, buf, i, sa, salen);
+	return dht_send(ctx, buf, t.len, sa, salen);
 
 fail:
 	errno = ENOSPC;
@@ -395,23 +398,25 @@ send_error(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 		int code, const char *message)
 {
 	char buf[512];
-	size_t i = 0, msg_len;
-	int rc;
+	dht_txbuf_t t = { .buf = buf, .size = sizeof(buf) };
+	size_t msg_len = strlen(message);
 
-	msg_len = strlen(message);
-	/* make sure we don't overrun buf */
-	if (i + 20u + msg_len > sizeof(buf)) /* roughly account for the rest of the pkt */
-		msg_len = sizeof(buf) - i - 20u;
+	/* leave rough room for the fixed parts around the message */
+	if (t.size - t.len <= 20u)
+		return -1;
+	msg_len = MIN(msg_len, t.size - t.len - 20u);
 
-	rc = lws_snprintf(buf + i, sizeof(buf) - i, "d1:eli%de%u:",
-			code, (unsigned int)msg_len);
-	if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
-	if (dht_tx_copy__advance_offset(buf, &i, sizeof(buf), message, msg_len)) goto fail;
-	rc = lws_snprintf(buf + i, sizeof(buf) - i, "e1:t%d:", (int)tid_len); if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
-	if (dht_tx_copy__advance_offset(buf, &i, sizeof(buf), tid, tid_len)) goto fail;
-	if (dht_tx_add_v(buf, &i, sizeof(buf), ctx)) goto fail;
-	rc = lws_snprintf(buf + i, sizeof(buf) - i, "1:y1:ee"); if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
-	return dht_send(ctx, buf, i, sa, salen);
+	if (dht_tx_lit(&t, "d1:eli") ||
+	    dht_tx_int(&t, (uint64_t)(unsigned int)code) ||
+	    dht_tx_lit(&t, "e") ||
+	    dht_tx_str(&t, message, msg_len) ||
+	    dht_tx_lit(&t, "e1:t") ||
+	    dht_tx_str(&t, tid, tid_len) ||
+	    dht_tx_v(ctx, &t) ||
+	    dht_tx_lit(&t, "1:y1:ee"))
+		goto fail;
+
+	return dht_send(ctx, buf, t.len, sa, salen);
 
 fail:
 	errno = ENOSPC;
@@ -423,21 +428,18 @@ lws_dht_send_ack(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t sale
 		const uint8_t *tid, size_t tid_len)
 {
 	char buf[512];
-	size_t i = 0;
-	int rc;
+	dht_txbuf_t t = { .buf = buf, .size = sizeof(buf) };
 
-	rc = lws_snprintf(buf + i, sizeof(buf) - i, "d1:rd2:id%d:", dht_tx_id_len(ctx, ctx->myid));
-	if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
+	if (dht_tx_lit(&t, "d1:rd2:id") ||
+	    dht_tx_id(ctx, &t, ctx->myid) ||
+	    dht_tx_lit(&t, "e1:t") ||
+	    dht_tx_str(&t, tid, tid_len) ||
+	    dht_tx_ip(&t, sa) ||
+	    dht_tx_v(ctx, &t) ||
+	    dht_tx_lit(&t, "1:y1:re"))
+		goto fail;
 
-	if (dht_put_id__advance_offset(ctx, buf, &i, sizeof(buf), ctx->myid)) goto fail;
-
-	rc = lws_snprintf(buf + i, sizeof(buf) - i, "e1:t%d:", (int)tid_len);
-	if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
-	if (dht_tx_copy__advance_offset(buf, &i, sizeof(buf), tid, tid_len)) goto fail;
-	if (dht_tx_add_ip(buf, &i, sizeof(buf), sa)) goto fail;
-	if (dht_tx_add_v(buf, &i, sizeof(buf), ctx)) goto fail;
-	rc = lws_snprintf(buf + i, sizeof(buf) - i, "1:y1:re"); if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
-	return dht_send(ctx, buf, i, sa, salen);
+	return dht_send(ctx, buf, t.len, sa, salen);
 
 fail:
 	errno = ENOSPC;

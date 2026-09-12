@@ -73,55 +73,34 @@ is_martian(const struct sockaddr *sa)
 
 
 
+/* args: data, id, len, offset (alphabetical) */
+
 int
 dht_tx_chunk(struct lws_transport_sequencer *ts, uint64_t offset,
 	     const uint8_t *buf, size_t len)
 {
 	lws_dht_ts_t *dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
 	char pkt[2048];
-	size_t i = 0;
-	int rc;
+	dht_txbuf_t t = { .buf = pkt, .size = sizeof(pkt) };
 
-	/* d1:ad4:data%d:<payload>6:offseti%llue3:leni%llue2:id%d:<id>e1:q4:data1:t2:da1:y1:qe */
+	if (dht_tx_lit(&t, "d1:ad4:data") ||
+	    dht_tx_str(&t, buf, len) ||
+	    dht_tx_lit(&t, "2:id") ||
+	    dht_tx_id(dts->ctx, &t, dts->ctx->myid) ||
+	    dht_tx_lit(&t, "3:len") ||
+	    dht_tx_int(&t, len) ||
+	    dht_tx_lit(&t, "6:offset") ||
+	    dht_tx_int(&t, offset) ||
+	    dht_tx_lit(&t, "e1:q4:data1:t4:sqnc1:y1:qe"))
+		goto fail;
 
-	rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "d1:ad4:data%d:", (int)len);
-	if (dht_tx_skip(&i, sizeof(pkt), (size_t)(rc))) goto fail;
-	if (dht_tx_copy__advance_offset(pkt, &i, sizeof(pkt), buf, len)) goto fail;
-
-	/* Correct alphabetical order: data (done), id, len, offset */
-	rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "2:id%d:", dht_tx_id_len(dts->ctx, dts->ctx->myid));
-	if (dht_tx_skip(&i, sizeof(pkt), (size_t)(rc))) goto fail;
-
-	if (dts->ctx->legacy) {
-		if (dts->ctx->myid->len >= 20) {
-			if (dht_tx_copy__advance_offset(pkt, &i, sizeof(pkt), dts->ctx->myid->id, 20)) goto fail;
-		} else {
-			if (dht_tx_check(sizeof(pkt), i, 20)) goto fail;
-			memset(pkt + i, 0, 20);
-			memcpy(pkt + i, dts->ctx->myid->id, dts->ctx->myid->len);
-			i += 20;
-		}
-	} else {
-		if (dht_tx_check(sizeof(pkt), i, (size_t)(2 + dts->ctx->myid->len))) goto fail;
-		pkt[i++] = (char)dts->ctx->myid->type;
-		pkt[i++] = (char)dts->ctx->myid->len;
-		memcpy(pkt + i, dts->ctx->myid->id, dts->ctx->myid->len);
-		i += dts->ctx->myid->len;
-	}
-
-	if (dht_tx_check(sizeof(pkt), i, 1)) goto fail;
-	rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "3:leni%llue6:offseti%llue",
-			 (unsigned long long)len, (unsigned long long)offset);
-	if (dht_tx_skip(&i, sizeof(pkt), (size_t)(rc))) goto fail;
-
-	rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "e1:q4:data1:t4:sqnc1:y1:qe");
-	if (dht_tx_skip(&i, sizeof(pkt), (size_t)(rc))) goto fail;
-
-	return dht_send(dts->ctx, pkt, i, (struct sockaddr *)&dts->sa, dts->salen);
+	return dht_send(dts->ctx, pkt, t.len, (struct sockaddr *)&dts->sa, dts->salen);
 
 fail:
 	return -1;
 }
+
+/* reply: id, len, offset, sack (alphabetical) */
 
 int
 dht_tx_ack(struct lws_transport_sequencer *ts, uint64_t offset, size_t len)
@@ -129,20 +108,15 @@ dht_tx_ack(struct lws_transport_sequencer *ts, uint64_t offset, size_t len)
 	lws_dht_ts_t *dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
 	const lws_transport_sequencer_stats_t *stats = lws_transport_sequencer_get_stats(ts);
 	char pkt[512];
-	size_t i = 0;
-	int rc;
+	dht_txbuf_t t = { .buf = pkt, .size = sizeof(pkt) };
 
-	/* d1:rd2:id%d:<id>3:leni%llue6:offseti%lluee1:t4:sqnc1:y1:re */
-
-	rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "d1:rd2:id%d:", dht_tx_id_len(dts->ctx, dts->ctx->myid));
-	if (dht_tx_skip(&i, sizeof(pkt), (size_t)(rc))) goto fail;
-
-	if (dht_put_id__advance_offset(dts->ctx, pkt, &i, sizeof(pkt), dts->ctx->myid)) goto fail;
-
-	/* Correct alphabetical order: id, len, offset, sack.  Need an extra 'e' to close rd dict. */
-	rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "3:leni0e6:offseti%llue",
-			 (unsigned long long)stats->ack_offset);
-	if (dht_tx_skip(&i, sizeof(pkt), (size_t)(rc))) goto fail;
+	if (dht_tx_lit(&t, "d1:rd2:id") ||
+	    dht_tx_id(dts->ctx, &t, dts->ctx->myid) ||
+	    dht_tx_lit(&t, "3:len") ||
+	    dht_tx_int(&t, 0) ||
+	    dht_tx_lit(&t, "6:offset") ||
+	    dht_tx_int(&t, stats->ack_offset))
+		goto fail;
 
 	{
 		lws_transport_sequencer_sack_block_t blocks[4];
@@ -150,24 +124,26 @@ dht_tx_ack(struct lws_transport_sequencer *ts, uint64_t offset, size_t len)
 
 		num_blocks = lws_transport_sequencer_get_sack_blocks(ts, blocks, 4);
 		if (num_blocks) {
-			rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "4:sackl");
-			if (dht_tx_skip(&i, sizeof(pkt), (size_t)(rc))) goto fail;
+			if (dht_tx_lit(&t, "4:sackl"))
+				goto fail;
 			for (j = 0; j < num_blocks; j++) {
-				/* d1:li...e1:oi...ee */
-				rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "d1:li%llue1:oi%lluee",
-						  (unsigned long long)blocks[j].len,
-						  (unsigned long long)blocks[j].start);
-				if (dht_tx_skip(&i, sizeof(pkt), (size_t)(rc))) goto fail;
+				/* d1:li<len>e1:o<start>ee */
+				if (dht_tx_lit(&t, "d1:l") ||
+				    dht_tx_int(&t, blocks[j].len) ||
+				    dht_tx_lit(&t, "1:o") ||
+				    dht_tx_int(&t, blocks[j].start) ||
+				    dht_tx_lit(&t, "ee"))
+					goto fail;
 			}
-			rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "e");
-			if (dht_tx_skip(&i, sizeof(pkt), (size_t)(rc))) goto fail;
+			if (dht_tx_lit(&t, "e"))
+				goto fail;
 		}
 	}
 
-	rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "e1:t4:sqnc1:y1:re");
-	if (dht_tx_skip(&i, sizeof(pkt), (size_t)(rc))) goto fail;
+	if (dht_tx_lit(&t, "e1:t4:sqnc1:y1:re"))
+		goto fail;
 
-	return dht_send(dts->ctx, pkt, i, (struct sockaddr *)&dts->sa, dts->salen);
+	return dht_send(dts->ctx, pkt, t.len, (struct sockaddr *)&dts->sa, dts->salen);
 
 fail:
 	return -1;
