@@ -569,62 +569,62 @@ elops_close_handle_manually_parallel_event(struct lws *wsi, int pidx)
 static int
 elops_promote_parallel_event(struct lws *wsi, int pidx)
 {
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_pt_eventlibs_libevent *ptpr = pt_to_priv_event(pt);
 	struct lws_wsi_eventlibs_libevent *w = wsi_to_priv_event(wsi);
+	struct lws_io_watcher_libevent *rr = &w->racing[pidx].w_read,
+				       *rw = &w->racing[pidx].w_write;
+	lws_sockfd_type fd = LWS_SOCK_INVALID;
 
 	if (w->w_read.watcher)
 		event_free(w->w_read.watcher);
 	if (w->w_write.watcher)
 		event_free(w->w_write.watcher);
 
-	w->w_read = w->racing[pidx].w_read;
-	w->w_write = w->racing[pidx].w_write;
+	/*
+	 * The racer's events were created with their callback arg pointing
+	 * at the racing slot, which we are about to zero: lws_event_cb()
+	 * would then run with a NULL context.  Recreate them on the wsi's own
+	 * watchers, keeping what was enabled.
+	 */
+	if (rr->watcher) {
+		fd = event_get_fd(rr->watcher);
+		event_del(rr->watcher);
+		event_free(rr->watcher);
+	}
+	if (rw->watcher) {
+		if (fd == LWS_SOCK_INVALID)
+			fd = event_get_fd(rw->watcher);
+		event_del(rw->watcher);
+		event_free(rw->watcher);
+	}
+
+	memset(&w->w_read, 0, sizeof(w->w_read));
+	memset(&w->w_write, 0, sizeof(w->w_write));
+	w->w_read.context = w->w_write.context = wsi->a.context;
+
+	if (fd != LWS_SOCK_INVALID) {
+		w->w_read.watcher = event_new(ptpr->io_loop, fd,
+					      (EV_READ | EV_PERSIST),
+					      lws_event_cb, &w->w_read);
+		w->w_write.watcher = event_new(ptpr->io_loop, fd,
+					       (EV_WRITE | EV_PERSIST),
+					       lws_event_cb, &w->w_write);
+		if (rr->set && w->w_read.watcher) {
+			event_add(w->w_read.watcher, NULL);
+			w->w_read.set = 1;
+		}
+		if (rw->set && w->w_write.watcher) {
+			event_add(w->w_write.watcher, NULL);
+			w->w_write.set = 1;
+		}
+	}
 
 	memset(&w->racing[pidx], 0, sizeof(w->racing[pidx]));
 	return 0;
 }
 #endif
 
-static const struct lws_event_loop_ops event_loop_ops_event = {
-	/* name */			"libevent",
-	/* init_context */		elops_init_context_event,
-	/* destroy_context1 */		NULL,
-	/* destroy_context2 */		elops_destroy_context2_event,
-	/* init_vhost_listen_wsi */	elops_init_vhost_listen_wsi_event,
-	/* init_pt */			elops_init_pt_event,
-	/* wsi_logical_close */		elops_wsi_logical_close_event,
-	/* check_client_connect_ok */	NULL,
-	/* close_handle_manually */	NULL,
-	/* accept */			elops_accept_event,
-	/* io */			elops_io_event,
-	/* run_pt */			elops_run_pt_event,
-	/* destroy_pt */		elops_destroy_pt_event,
-	/* destroy wsi */		elops_destroy_wsi_event,
-	/* foreign_thread */		NULL,
-	/* fake_POLLIN */		NULL,
-
-#if defined(LWS_WITH_CLIENT)
-	/* sock_accept_parallel */	elops_sock_accept_parallel_event,
-	/* io_parallel */		elops_io_parallel_event,
-	/* close_handle_manually_parallel */ elops_close_handle_manually_parallel_event,
-	/* promote_parallel */		elops_promote_parallel_event,
-#else
-	NULL, NULL, NULL, NULL,
-#endif
-
-	/* flags */			0,
-
-	/* evlib_size_ctx */	0,
-	/* evlib_size_pt */	sizeof(struct lws_pt_eventlibs_libevent),
-	/* evlib_size_vh */	0,
-	/* evlib_size_wsi */	sizeof(struct lws_wsi_eventlibs_libevent),
-};
-
-#if defined(LWS_WITH_EVLIB_PLUGINS)
-LWS_VISIBLE
-#endif
-const lws_plugin_evlib_t evlib_event = {
-	.hdr = {
-		.name = "libevent event loop",
 /*
  * QUIC ALPN migration: each event's callback arg is the address of its
  * lws_io_watcher_libevent inside the per-wsi block, so the events have to be
@@ -690,6 +690,48 @@ elops_migrate_wsi_event(struct lws *from, struct lws *to)
 	return 0;
 }
 
+static const struct lws_event_loop_ops event_loop_ops_event = {
+	/* name */			"libevent",
+	/* init_context */		elops_init_context_event,
+	/* destroy_context1 */		NULL,
+	/* destroy_context2 */		elops_destroy_context2_event,
+	/* init_vhost_listen_wsi */	elops_init_vhost_listen_wsi_event,
+	/* init_pt */			elops_init_pt_event,
+	/* wsi_logical_close */		elops_wsi_logical_close_event,
+	/* check_client_connect_ok */	NULL,
+	/* close_handle_manually */	NULL,
+	/* accept */			elops_accept_event,
+	/* io */			elops_io_event,
+	/* run_pt */			elops_run_pt_event,
+	/* destroy_pt */		elops_destroy_pt_event,
+	/* destroy wsi */		elops_destroy_wsi_event,
+	/* foreign_thread */		NULL,
+	/* fake_POLLIN */		NULL,
+
+#if defined(LWS_WITH_CLIENT)
+	/* sock_accept_parallel */	elops_sock_accept_parallel_event,
+	/* io_parallel */		elops_io_parallel_event,
+	/* close_handle_manually_parallel */ elops_close_handle_manually_parallel_event,
+	/* promote_parallel */		elops_promote_parallel_event,
+#else
+	NULL, NULL, NULL, NULL,
+#endif
+
+	/* flags */			0,
+
+	/* evlib_size_ctx */	0,
+	/* evlib_size_pt */	sizeof(struct lws_pt_eventlibs_libevent),
+	/* evlib_size_vh */	0,
+	/* evlib_size_wsi */	sizeof(struct lws_wsi_eventlibs_libevent),
+	/* migrate_wsi */	elops_migrate_wsi_event,
+};
+
+#if defined(LWS_WITH_EVLIB_PLUGINS)
+LWS_VISIBLE
+#endif
+const lws_plugin_evlib_t evlib_event = {
+	.hdr = {
+		.name = "libevent event loop",
 		._class = "lws_evlib_plugin",
 		.lws_build_hash = LWS_BUILD_HASH,
 		.api_magic = LWS_PLUGIN_API_MAGIC
@@ -697,4 +739,3 @@ elops_migrate_wsi_event(struct lws *from, struct lws *to)
 
 	.ops	= &event_loop_ops_event
 };
-	/* migrate_wsi */	elops_migrate_wsi_event,
