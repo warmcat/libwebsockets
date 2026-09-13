@@ -1277,6 +1277,10 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 	wsi->ipv6 = 1;
 #else
 	wsi->ipv6 = !!LWS_IPV6_ENABLED(vhost);
+	wsi->ipv4 = !!LWS_IPV4_ENABLED(vhost);
+	if (lws_wsi_is_async_dns(wsi))
+		/* resolver's own socket: either family may reach the NS */
+		wsi->ipv6 = wsi->ipv4 = 1;
 #endif
 
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)

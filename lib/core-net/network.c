@@ -25,6 +25,31 @@
 #include "private-lib-core.h"
 #include <errno.h>
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+extern struct lws_protocols lws_async_dns_protocol;
+#endif
+
+/*
+ * The async resolver's own server and TCP-fallback wsis must be able to
+ * reach the configured nameservers over either family, regardless of any
+ * forced-family context / vhost policy (LWS_SERVER_OPTION_DISABLE_IPV[46],
+ * eg, from the -4 / -6 commandline switches) that is meant to apply to user
+ * connections.  They are identified by their bound protocol.
+ */
+
+int
+lws_wsi_is_async_dns(const struct lws *wsi)
+{
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	return wsi->a.protocol && wsi->a.protocol->name &&
+	       !strcmp(wsi->a.protocol->name, lws_async_dns_protocol.name);
+#else
+	(void)wsi;
+
+	return 0;
+#endif
+}
+
 const char *
 lws_errno_describe(int en, char *result, size_t len)
 {

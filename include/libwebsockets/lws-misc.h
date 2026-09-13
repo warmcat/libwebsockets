@@ -1010,6 +1010,10 @@ lws_cmdline_option_cx_argv0(const struct lws_context *cx);
  *
  * Applies default log levels that can be overriden by -d
  *
+ * -4 forces IPv4-only and -6 IPv6-only operation, by disabling the other
+ * address family at context level, so DNS results for it are filtered out
+ * and no listeners are created for it.  If both are given, -6 wins.
+ *
  * Also takes the event loop switches --uv, --event, --ev, --glib, --sd and
  * --uloop (the same ones the eventlib-foreign example takes), or the
  * LWS_EVLIB environment variable with the switch name without the dashes,

@@ -1845,6 +1845,8 @@ static const struct lws_switches builtins[] = {
 	{ "--h1", "Force HTTP/1.1 (client)" },
 	{ "--h2", "Force HTTP/2 (client)" },
 	{ "--h3", "Force HTTP/3 (client)" },
+	{ "-4", "Force IPv4-only (disables IPv6)" },
+	{ "-6", "Force IPv6-only (disables IPv4)" },
 	{ "--cpd-bypass", "Bypass captive portal detect" },
 	{ "--quic-pad-crypto", "Pad QUIC Handshake Crypto for tests" },
 	{ "--quic-only-latest", "Force QUIC to use the latest supported version (e.g. v2)" },
@@ -1893,6 +1895,8 @@ enum opts {
 	OPT_H1,
 	OPT_H2,
 	OPT_H3,
+	OPT_IP4,
+	OPT_IP6,
 	OPT_CPD_BYPASS,
 	OPT_QUIC_PAD_CRYPTO,
 	OPT_QUIC_ONLY_LATEST,
@@ -2176,6 +2180,14 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 			break;
 		case OPT_H3:
 			info->options |= LWS_SERVER_OPTION_CMDLINE_FORCE_H3;
+			break;
+		case OPT_IP4:
+			info->options |= LWS_SERVER_OPTION_DISABLE_IPV6;
+			info->options &= ~(uint64_t)LWS_SERVER_OPTION_DISABLE_IPV4;
+			break;
+		case OPT_IP6:
+			info->options |= LWS_SERVER_OPTION_DISABLE_IPV4;
+			info->options &= ~(uint64_t)LWS_SERVER_OPTION_DISABLE_IPV6;
 			break;
 		case OPT_CPD_BYPASS:
 			info->options |= LWS_SERVER_OPTION_CPD_BYPASS;
