@@ -284,24 +284,15 @@ bm_vflip_sym(const bm_t *bm)
 	return 1;
 }
 
-/* integer ceil, matching the renderer */
-
-static int
-iceil(double v)
-{
-	int iv = (int)v;
-
-	if ((double)iv == v || v < 0)
-		return iv;
-
-	return iv + 1;
-}
-
 /* ------------------------------------------------------------------ */
 /* independent oracles                                                  */
 /* ------------------------------------------------------------------ */
 
-/* exact triangle fill: same centre-sampling model as the renderer */
+/*
+ * Exact triangle fill: same centre-sampling and half-open model as the
+ * renderer, in exact integer arithmetic (a double oracle lands on the
+ * wrong side of exact half-pixel boundaries by fp luck).
+ */
 
 static void
 oracle_tri(bm_t *bm, const int tx[3], const int ty[3])
@@ -311,18 +302,21 @@ oracle_tri(bm_t *bm, const int tx[3], const int ty[3])
 	memset(bm->cov, 0, (size_t)bm->w * (size_t)bm->h);
 
 	for (y = 0; y < bm->h; y++) {
-		double xs[3], ys = (double)y + 0.5;
+		/* crossing x in Q16.16: x0 + (ys - y0)(x1 - x0) / (y1 - y0),
+		 * with ys = y + 1/2 computed as (2y + 1) / 2 */
+		int64_t xs[3];
 		int n = 0, j, k;
 
 		for (i = 0; i < 3; i++) {
 			int i2 = (i + 1) % 3;
-			double y0 = (double)ty[i], y1 = (double)ty[i2];
+			int64_t num = (int64_t)(2 * (y - ty[i]) + 1) *
+							(tx[i2] - tx[i]);
+			int64_t den = 2 * (int64_t)(ty[i2] - ty[i]);
 
-			if ((y0 > ys) != (y1 > ys)) {
-				double t = (ys - y0) / (y1 - y0);
-
-				xs[n++] = (double)tx[i] +
-						t * (double)(tx[i2] - tx[i]);
+			if ((ty[i] > y) != (ty[i2] > y)) {
+				/* y + 0.5 strictly between ty[i], ty[i2] */
+				xs[n++] = ((int64_t)tx[i] << 16) +
+						(num << 16) / den;
 			}
 		}
 		if (n < 2)
@@ -331,13 +325,16 @@ oracle_tri(bm_t *bm, const int tx[3], const int ty[3])
 		for (j = 0; j < n; j++)
 			for (k = j + 1; k < n; k++)
 				if (xs[k] < xs[j]) {
-					double tt = xs[j];
+					int64_t tt = xs[j];
 					xs[j] = xs[k];
 					xs[k] = tt;
 				}
 
 		for (j = 0; j + 1 < n; j += 2) {
-			int x0 = iceil(xs[j] - 0.5), x1 = iceil(xs[j + 1] - 0.5);
+			/* pixel p covered iff xa <= p + 0.5 < xb */
+
+			int x0 = (int)((xs[j] - 32768 + 65535) >> 16);
+			int x1 = (int)((xs[j + 1] - 32768 + 65535) >> 16);
 
 			if (x0 < 0) x0 = 0;
 			if (x1 > bm->w) x1 = bm->w;
@@ -841,7 +838,9 @@ build_corpus_paths(void)
 	cc->family = FAM_ORACLE_ELLIPSE;
 	cc->pa = 32; cc->pb = 40; cc->pc = 30; cc->pd = 12;
 	cc->pe = 30;	/* degrees */
-	cc->pf = 40;	/* mismatch budget */
+	cc->pf = 90;	/* mismatch budget: the integer F.6.5 arc path
+			 * (atan2 / sqrt quantization) trails the analytic
+			 * ellipse by a couple of boundary columns */
 	cc->exp_w = cc->exp_h = 64;
 
 	/* Q/T paths must be geometrically identical to the equivalent
