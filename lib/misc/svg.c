@@ -1967,16 +1967,26 @@ element_open(lws_svg_t *ctx, char selfclose)
 			level_compose(&ctx->stk[0], pd, &ctx->stk[0]);
 
 			if (ctx->has_vb && ctx->vb[2] > 0 && ctx->vb[3] > 0) {
-				double mx = ctx->vb[2] > ctx->vb[3] ?
+				double mn = ctx->vb[2] < ctx->vb[3] ?
 						ctx->vb[2] : ctx->vb[3];
 
-				/* tolerance ~ viewBox diagonal / 1024 */
+				/*
+				 * Flattening tolerance ~ the smaller viewBox
+				 * dimension / 1024, clamped to a sub-pixel
+				 * band in user units.  Basing it on the
+				 * smaller dimension matters for wide, short
+				 * logo viewBoxes, where a tolerance derived
+				 * from the width is coarser than the glyph
+				 * features and sands the curve extrema down
+				 * (visible as notches where path segments
+				 * join at horizontal tangents).
+				 */
 
-				ctx->tol = mx / 724.0;
-				if (ctx->tol < 1.0 / 64.0)
-					ctx->tol = 1.0 / 64.0;
-				if (ctx->tol > 2.0)
-					ctx->tol = 2.0;
+				ctx->tol = mn / 1024.0;
+				if (ctx->tol < 1.0 / 4096.0)
+					ctx->tol = 1.0 / 4096.0;
+				if (ctx->tol > 0.125)
+					ctx->tol = 0.125;
 			}
 
 			if (selfclose)
