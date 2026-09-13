@@ -673,6 +673,7 @@ typedef struct lhp_ctx {
 	uint8_t			finish_css:1;
 	uint8_t			is_css:1;
 	uint8_t			await_css_done:1;
+	uint8_t			await_assets:1; /* doc end deferred for dlo assets */
 
 	uint8_t			css_block_depth; /* inside applicable @media */
 	uint8_t			css_skip_depth;  /* skipping unusable @-rule */

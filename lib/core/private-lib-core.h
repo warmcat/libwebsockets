@@ -511,6 +511,7 @@ struct lws_context {
 	lws_dll2_owner_t			dlo_file;
 #if defined(LWS_WITH_SECURE_STREAMS)
 	lws_dll2_owner_t			active_assets; /* dloss_t */
+	lws_dll2_owner_t			pending_assets; /* dloss_t, queued for a slot */
 #endif
 #endif
 

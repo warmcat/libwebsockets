@@ -32,10 +32,13 @@
 /*
  * Upper bound on how many assets (images, stylesheets) one document may have
  * being fetched at the same time... each one costs a connection and a rx
- * window, so an unbounded number of them is fatal on the small targets
+ * window, so an unbounded number of them is fatal on the small targets.
+ * Further assets up to LWS_DLO_MAX_TRACKED_ASSETS are queued and started as
+ * in-flight assets complete; beyond that, they are dropped.
  */
 
 #define LWS_DLO_MAX_CONCURRENT_ASSETS	16
+#define LWS_DLO_MAX_TRACKED_ASSETS	128
 
 LWS_SS_USER_TYPEDEF
 	sul_cb_t			on_rx;
@@ -45,6 +48,7 @@ LWS_SS_USER_TYPEDEF
 	lws_dlo_image_t			u; /* we use the lws_flow_t in here */
 	lws_dll2_t			active_asset_list; /*cx->active_assets*/
 	uint8_t				type; /* LWSDLOSS_TYPE_ */
+	uint8_t				inflight:1; /* holds a fetch slot */
 	char				url[LHP_URL_LEN];
 } dloss_t;
 
@@ -67,8 +71,18 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 		lwsl_notice("%s: Failing %s\n", __func__, m->url);
 	} else {
 
-		dlo->box.w.whole = (int32_t)lws_dlo_image_width(&m->u);
-		dlo->box.h.whole = (int32_t)lws_dlo_image_height(&m->u);
+		/*
+		 * Fill in missing dimensions only.  Css or element
+		 * attributes may have sized the dlo already: they take
+		 * priority over the intrinsic size.  This can run after the
+		 * last layout pass, when a document deferred completion for
+		 * its assets, so there would be nothing later to restore
+		 * the css size with
+		 */
+		if (!dlo->box.w.whole)
+			dlo->box.w.whole = (int32_t)lws_dlo_image_width(&m->u);
+		if (!dlo->box.h.whole)
+			dlo->box.h.whole = (int32_t)lws_dlo_image_height(&m->u);
 
 		lwsl_info("%s: setting dlo box %d x %d\n", __func__,
 			(int)dlo->box.w.whole, (int)dlo->box.h.whole);
@@ -91,6 +105,112 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 
+/*
+ * The html document's own stream may be over while assets it refers to are
+ * still fetching or queued: a document defers deciding it is complete until
+ * this says none are left.  Assets that finished (but are still tracked for
+ * url dedup) do not hold the document up.
+ */
+
+static int
+dlo_assets_outstanding(struct lws_context *cx)
+{
+	if (cx->pending_assets.head)
+		return 1;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&cx->active_assets)) {
+		dloss_t *ds = lws_container_of(d, dloss_t, active_asset_list);
+
+		if (ds->inflight)
+			return 1;
+	} lws_end_foreach_dll(d);
+
+	return 0;
+}
+
+/*
+ * The last outstanding asset finished: resume a document that deferred
+ * deciding it was complete until its assets were done
+ */
+static void
+dlo_assets_maybe_drained(struct lws_context *cx, lhp_ctx_t *lhp)
+{
+	if (lhp && lhp->await_assets && !dlo_assets_outstanding(cx)) {
+		lhp->await_assets = 0;
+		lws_lhp_ss_html_parse_from_lhp(lhp);
+	}
+}
+
+/*
+ * How many assets may be actually fetching at once.  Each one holds a
+ * connection, an fd, for its lifetime, so the ceiling adapts to the fd budget
+ * of the context, leaving room for the document connection and the event
+ * loop's own fds.  Targets with tiny fd tables end up serializing their
+ * fetches instead of failing them.
+ */
+
+static unsigned int
+dlo_asset_inflight_max(struct lws_context *cx)
+{
+	int n = ((int)cx->fd_limit_per_thread - 4) / 2;
+
+	if (n < 1)
+		n = 1;
+	if (n > LWS_DLO_MAX_CONCURRENT_ASSETS)
+		n = LWS_DLO_MAX_CONCURRENT_ASSETS;
+
+	return (unsigned int)n;
+}
+
+/* how many tracked assets currently hold a fetch slot */
+
+static int
+dlo_asset_inflight_count(struct lws_context *cx)
+{
+	int n = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&cx->active_assets)) {
+		dloss_t *ds = lws_container_of(d, dloss_t, active_asset_list);
+
+		n += ds->inflight;
+	} lws_end_foreach_dll(d);
+
+	return n;
+}
+
+/*
+ * An in-flight asset completed (or was destroyed): bring the queue head
+ * into the freed slot, if the queue has anyone on it.  Called from the ss
+ * state / rx callbacks, so a nested kick from destroying a connect-failed
+ * asset is safe: it just drains more of the same queue.
+ */
+
+static void
+dlo_assets_kick(struct lws_context *cx)
+{
+	while (cx->pending_assets.head &&
+	       dlo_asset_inflight_count(cx) < (int)dlo_asset_inflight_max(cx)) {
+		dloss_t *ds = lws_container_of(cx->pending_assets.head,
+					       dloss_t, active_asset_list);
+
+		lws_dll2_remove(&ds->active_asset_list);
+		lws_dll2_add_tail(&ds->active_asset_list,
+				  &cx->active_assets);
+		ds->inflight = 1;
+
+		lwsl_notice("%s: kick %s\n", __func__, ds->url);
+
+		if (!lws_ss_client_connect(ds->ss))
+			continue;
+
+		/* destroying it passes through DESTROYING, which re-kicks */
+		lws_dll2_remove(&ds->active_asset_list);
+		lws_ss_destroy(&ds->ss);
+	}
+}
+
 /* secure streams payload interface */
 
 static lws_ss_state_return_t
@@ -107,8 +227,12 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		r = lws_lhp_parse(m->lhp, &buf, &len);
 		m->lhp->is_css = 0;
 
-		if (flags & LWSSS_FLAG_EOM)
+		if (flags & LWSSS_FLAG_EOM) {
 			lws_dll2_remove(&m->active_asset_list);
+			/* the slot is free before the ss winds down */
+			dlo_assets_kick(lws_ss_get_context(m->ss));
+			dlo_assets_maybe_drained(lws_ss_get_context(m->ss), m->lhp);
+		}
 
 		if (r & LWS_SRET_FATAL)
 			return LWSSSSRET_DISCONNECT_ME;
@@ -136,8 +260,17 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	// lwsl_notice("%s: buflen size %d\n", __func__,
 	//		(int)lws_buflist_total_len(&m->u.u.dlo_jpeg->flow.bl));
 
-	if (flags & LWSSS_FLAG_EOM)
+	if (flags & LWSSS_FLAG_EOM) {
 		m->u.u.dlo_jpeg->flow.state = LWSDLOFLOW_STATE_READ_COMPLETED;
+		/*
+		 * The asset's slot is free from the moment its payload has
+		 * all arrived, even though the ss handle stays around on the
+		 * active list for url dedup until its dlo goes away
+		 */
+		m->inflight = 0;
+		dlo_assets_kick(lws_ss_get_context(m->ss));
+		dlo_assets_maybe_drained(lws_ss_get_context(m->ss), m->lhp);
+	}
 
 	if (!lws_dlo_image_width(&m->u)) {
 		uint8_t *p;
@@ -203,9 +336,18 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	case LWSSSCS_CREATING:
 		break;
 
+	case LWSSSCS_CONNECTING:
+		/* it holds a fetch slot again, eg, after a retry */
+		m->inflight = 1;
+		break;
+
 	case LWSSSCS_DESTROYING:
 		lws_sul_cancel(&m->sul);
+		/* it may be on either the active or the queued list */
 		lws_dll2_remove(&m->active_asset_list);
+		m->inflight = 0;
+		dlo_assets_kick(lws_ss_get_context(m->ss));
+		dlo_assets_maybe_drained(lws_ss_get_context(m->ss), m->lhp);
 		break;
 
 	case LWSSSCS_UNREACHABLE:
@@ -243,6 +385,15 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 			lws_sul_schedule(lws_ss_get_context(m->ss), 0,
 					 &m->sul, lws_lhp_image_dimensions_cb, 1);
 		}
+
+		/*
+		 * The connection is gone: the fetch slot is free whether
+		 * that was after delivering everything or not.  A retry
+		 * that reconnects marks itself in-flight again at CONNECTING
+		 */
+		m->inflight = 0;
+		dlo_assets_kick(lws_ss_get_context(m->ss));
+		dlo_assets_maybe_drained(lws_ss_get_context(m->ss), m->lhp);
 		break;
 
 	default:
@@ -259,6 +410,26 @@ static LWS_SS_INFO("__default", dloss_t)
 #endif
 
 /*
+ * The html document's own stream may be over while assets it refers to are
+ * still being fetched (or queued for a fetch slot): the document defers
+ * deciding it is complete until this says there are none left.
+ *
+ * The last asset out of the lists resumes the document parse from its lhp
+ * backref, which is how the deferred completion is woken.
+ */
+
+int
+lws_dlo_ss_assets_active(struct lws_context *cx)
+{
+#if defined(LWS_WITH_SECURE_STREAMS)
+	return dlo_assets_outstanding(cx);
+#else
+	(void)cx;
+	return 0;
+#endif
+}
+
+/*
  * If we have an active image asset from this URL, return a pointer to its
  * dlo image (ie, dlo_jpeg or dlo_png)
  */
@@ -272,12 +443,28 @@ lws_dlo_ss_find(struct lws_context *cx, const char *url, lws_dlo_image_t *u)
 
 		return 1; /* not found */
 
-	// lwsl_notice("searching '%s'\n", url);
-
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&cx->active_assets)) {
 		dloss_t *ds = lws_container_of(d, dloss_t, active_asset_list);
 		// lwsl_notice("  '%s'\n", ds->url);
+
+		if (!strcmp(url, ds->url)) {
+			*u = ds->u;
+
+			return 0; /* found */
+		}
+
+	} lws_end_foreach_dll(d);
+
+	/*
+	 * ... and one that is queued waiting for an in-flight slot is just
+	 * as taken: matching only in-flight assets made each retry of an
+	 * element waiting on its dimensions create a duplicate fetch
+	 */
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&cx->pending_assets)) {
+		dloss_t *ds = lws_container_of(d, dloss_t, active_asset_list);
 
 		if (!strcmp(url, ds->url)) {
 			*u = ds->u;
@@ -315,13 +502,16 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 
 	/*
 	 * Assets are only ever fetched on behalf of a document, so cap how many
-	 * of them one document can have in flight at once... on the small
-	 * targets this code exists for, each one is a connection plus a window
+	 * of them one document can have tracked at once, fetching or queued
+	 * for a fetch slot... on the small targets this code exists for, each
+	 * one is a connection plus a window when it does start.  Over the cap,
+	 * the asset is dropped and the document shows what it has.
 	 */
 
-	if (i->cx && lws_dll2_count(&i->cx->active_assets) >=
-					LWS_DLO_MAX_CONCURRENT_ASSETS) {
-		lwsl_warn("%s: too many assets in flight, dropping %s\n",
+	if (i->cx && lws_dll2_count(&i->cx->active_assets) +
+		     lws_dll2_count(&i->cx->pending_assets) >=
+						 LWS_DLO_MAX_TRACKED_ASSETS) {
+		lwsl_warn("%s: too many assets, dropping %s\n",
 			  __func__, i->url);
 		return 1;
 	}
@@ -484,14 +674,36 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 		goto fail;
 	}
 
-	if (lws_ss_client_connect(dloss->ss)) {
-		lwsl_err("%s: unable to do client conn '%s'\n", __func__, rebased_url);
-		goto fail;
+	/*
+	 * Start it now if there's an in-flight slot.  Without a slot, the ss
+	 * exists but stays unconnected until one frees up; no fd is used
+	 * while it waits
+	 */
+
+	if (dlo_asset_inflight_count(i->cx) >=
+						(int)dlo_asset_inflight_max(i->cx)) {
+		lws_dll2_add_tail(&dloss->active_asset_list,
+				  &i->cx->pending_assets);
+		lwsl_notice("%s: queued %s (dlo %p)\n", __func__, rebased_url, dlo);
+	} else {
+		/*
+		 * Mark it in-flight before connecting: a file asset can
+		 * complete inside lws_ss_client_connect() and release its
+		 * slot again before control comes back here
+		 */
+
+		lws_dll2_add_tail(&dloss->active_asset_list,
+				  &i->cx->active_assets);
+		dloss->inflight = 1;
+		lwsl_notice("%s: starting %s (dlo %p)\n", __func__, rebased_url, dlo);
+
+		if (lws_ss_client_connect(dloss->ss)) {
+			lws_dll2_remove(&dloss->active_asset_list);
+			lwsl_err("%s: unable to do client conn '%s'\n",
+				 __func__, rebased_url);
+			goto fail;
+		}
 	}
-
-	lws_dll2_add_tail(&dloss->active_asset_list, &i->cx->active_assets);
-
-	lwsl_notice("%s: starting %s (dlo %p)\n", __func__, rebased_url, dlo);
 
 	*pdlo = dlo;
 
@@ -532,6 +744,32 @@ int
 lws_dlo_ss_stop_any_active(struct lws_context *cx)
 {
 #if defined(LWS_WITH_SECURE_STREAMS)
+	/*
+	 * Detach the whole queue before destroying any of it... destroying an
+	 * active asset kicks the queue, which would connect queued assets
+	 * straight back as we are trying to tear everything down
+	 */
+	{
+		lws_dll2_owner_t parked;
+
+		memset(&parked, 0, sizeof(parked));
+
+		while (cx->pending_assets.head) {
+			struct lws_dll2 *d = cx->pending_assets.head;
+
+			lws_dll2_remove(d);
+			lws_dll2_add_tail(d, &parked);
+		}
+
+		while (parked.head) {
+			dloss_t *ds = lws_container_of(parked.head,
+						       dloss_t, active_asset_list);
+
+			lws_dll2_remove(&ds->active_asset_list);
+			lws_ss_destroy(&ds->ss);
+		}
+	}
+
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 			      lws_dll2_get_head(&cx->active_assets)) {
 		dloss_t *ds = lws_container_of(d, dloss_t, active_asset_list);

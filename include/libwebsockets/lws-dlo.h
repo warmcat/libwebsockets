@@ -517,6 +517,18 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo);
 LWS_VISIBLE LWS_EXTERN int
 lws_dlo_ss_find(struct lws_context *cx, const char *url, lws_dlo_image_t *u);
 
+/**
+ * lws_dlo_ss_assets_active() - are any document assets fetching or queued?
+ *
+ * \param cx: the lws_context
+ *
+ * Returns nonzero if any image or stylesheet asset is being fetched, or is
+ * queued waiting for an in-flight slot.  A document whose own stream has
+ * ended should defer considering itself complete until this returns 0.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dlo_ss_assets_active(struct lws_context *cx);
+
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lhp_displaylist_layout(struct lhp_ctx *ctx, char reason);
 

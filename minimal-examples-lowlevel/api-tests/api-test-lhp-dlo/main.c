@@ -12,9 +12,10 @@
 enum {
 	LWS_SW_BMP,
 	LWS_SW_DUMP,
-	LWS_SW_W,
-	LWS_SW_H,
-	LWS_SW_HELP,
+		LWS_SW_W,
+		LWS_SW_H,
+		LWS_SW_FDLIMIT,
+		LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
@@ -22,6 +23,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_DUMP]	= { "--dump",          "Write layout DLO tree as text to the given file (no render)" },
 	[LWS_SW_W]	= { "--w",             "Surface width in px (default 600)" },
 	[LWS_SW_H]	= { "--h",             "Surface height in px (default 448)" },
+	[LWS_SW_FDLIMIT]= { "--fd-limit",     "Context fd limit, to try layouts against small targets" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
@@ -390,6 +392,9 @@ main(int argc, const char **argv)
 		ic.wh_px[0].whole = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_H].sw)))
 		ic.wh_px[1].whole = atoi(p);
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_FDLIMIT].sw)))
+		info.fd_limit_per_thread = (unsigned int)atoi(p);
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_BMP].sw))) {
 		fdout = open(p, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0600);

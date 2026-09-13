@@ -1,0 +1,17 @@
+<html>
+<head>
+	<title>asset fetch queue</title>
+</head>
+<body>
+	<p>Five attributed images so the parse does not stall on them and they
+	queue, then one unattributed image that stalls the parse until it has
+	actually come through the queue: its size can only come from the
+	fetched svg</p>
+	<img src="swatch-red.svg" width="16" height="16" alt="red">
+	<img src="swatch-green.svg" width="16" height="16" alt="green">
+	<img src="swatch-blue.svg" width="16" height="16" alt="blue">
+	<img src="swatch-cyan.svg" width="16" height="16" alt="cyan">
+	<img src="swatch-magenta.svg" width="16" height="16" alt="magenta">
+	<img src="swatch-yellow.svg" alt="yellow">
+</body>
+</html>
