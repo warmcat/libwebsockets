@@ -148,14 +148,21 @@ lws_svg_get_doc_complete(const lws_svg_t *svg);
  * Span callback for rendered lines.  Filled spans are delivered in ascending
  * x with \p x0 the first covered pixel and \p x1 one past the last covered
  * pixel (so the span is half-open [x0, x1)).  \p rgba is the span fill colour
- * with premultiplied-opacity alpha in the top byte.  Returning nonzero stops
- * the line rendering, which then returns LWS_SRET_OK.
+ * with composed-opacity alpha in the top byte.
+ *
+ * With ri->aa clear (the default), coverage is binary at pixel centres, and
+ * each shape produces spans of the same alpha.  With ri->aa set, coverage is
+ * the exact covered fraction of each pixel (area antialiasing), spans are
+ * additionally split where the fraction changes, and the alpha byte is the
+ * fill alpha scaled by the pixel's coverage.  Returning nonzero stops the
+ * line rendering, which then returns LWS_SRET_OK.
  */
 typedef int (*lws_svg_span_cb_t)(void *user, int x0, int x1, uint32_t rgba);
 
 typedef struct lws_svg_render {
 	int w;			/* output raster width in px */
 	int h;			/* output raster height in px */
+	char aa;		/* nonzero: area-antialiased coverage */
 } lws_svg_render_t;
 
 /**
@@ -170,10 +177,15 @@ typedef struct lws_svg_render {
  * Maps the retained user-space geometry into a ri->w x ri->h px raster
  * according to the document's viewBox and preserveAspectRatio policy, and
  * renders output line \p y of it by scanline intersection of the flattened
- * geometry, delivering the filled spans via \p cb in document order.  Sample
- * points are at pixel centres, so coverage is binary; antialiased rendering
- * can be layered on top of this later by aggregating additional subsampled
- * lines.
+ * geometry, delivering the filled spans via \p cb in document order.
+ *
+ * Sample points are at pixel centres, so with the default binary coverage a
+ * pixel is either covered or not.  With ri->aa set, coverage is the exact
+ * covered fraction of the pixel square, computed as the area integral of
+ * the winding function over the pixel (each band-clipped boundary edge
+ * contributes clipped-linear ramp areas, with no supersampling): corners,
+ * thin features and slivers between scanlines are handled exactly, and the
+ * span alpha carries the fractional coverage for compositing.
  *
  * Lines can be rendered in any order and repeatedly; the scene is not
  * modified except for internal scratch reallocation.  Calls on the same

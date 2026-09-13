@@ -175,6 +175,7 @@ render_doc(const char *doc, size_t len, bm_t *bm, int chunkmode)
 
 	ri.w = bm->w;
 	ri.h = bm->h;
+	ri.aa = 0;	/* corpus expectations are for binary coverage */
 
 	bm_clear(bm);
 	for (y = 0; y < bm->h; y++) {
@@ -1922,6 +1923,7 @@ eyeball(const char *inpath, const char *outpath, int scale, uint32_t bg)
 
 	ri.w = w;
 	ri.h = h;
+	ri.aa = 1;	/* eyeball output is area-antialiased */
 
 	for (y = 0; y < h; y++) {
 		eyeball_t e;
@@ -1976,6 +1978,202 @@ bail1:
 		close(fd);
 
 	return ret;
+}
+
+/* ------------------------------------------------------------------ */
+/* antialiasing: exact-area checks with ri->aa set                      */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+	int	w, h, y;
+	uint16_t acc[64 * 64];
+} aa_bm_t;
+
+static int
+aa_cb(void *user, int x0, int x1, uint32_t rgba)
+{
+	aa_bm_t *b = (aa_bm_t *)user;
+
+	while (x0 < x1)
+		b->acc[x0++ + b->y * b->w] +=
+				(uint16_t)LWS_SVG_ALPHA(rgba);
+
+	return 0;
+}
+
+static int
+aa_render(const char *inner, aa_bm_t *b)
+{
+	char doc[512];
+	lws_svg_t *s = lws_svg_new();
+	const uint8_t *p;
+	size_t l;
+	lws_svg_render_t ri = { .w = 64, .h = 64, .aa = 1 };
+	int y, fatal;
+
+	lws_snprintf(doc, sizeof(doc),
+			"<svg xmlns=\"http://www.w3.org/2000/svg\" "
+			"width=\"64\" height=\"64\">%s</svg>", inner);
+
+	memset(b->acc, 0, sizeof(b->acc));
+	b->w = 64;
+	b->h = 64;
+
+	p = (const uint8_t *)doc;
+	l = strlen(doc);
+	fatal = !!(lws_svg_parse(s, &p, &l, 0) & LWS_SRET_FATAL);
+	if (!fatal)
+		for (y = 0; y < 64; y++) {
+			b->y = y;
+			lws_svg_render_line(s, &ri, y, aa_cb, b);
+		}
+
+	lws_svg_free(&s);
+
+	return fatal;
+}
+
+static long
+aa_total(const aa_bm_t *b)
+{
+	long t = 0;
+	int i;
+
+	for (i = 0; i < b->w * b->h; i++)
+		t += b->acc[i];
+
+	return t;
+}
+
+/* exact expected alpha for a coverage of v/16 */
+
+static int
+aa_a16(int v)
+{
+	return (v * 255 + 8) / 16;
+}
+
+static void
+aa_checks(void)
+{
+	static aa_bm_t b;
+
+	lwsl_user("AA checks\n");
+
+	/* horizontal half-pixel edges: 0.75 columns each side */
+
+	if (aa_render("<rect x=\"2.25\" y=\"2\" width=\"10.5\" "
+		      "height=\"10\"/>", &b)) {
+		CHK(0, "aa halfrect parse");
+		return;
+	}
+	CHK(b.acc[2 + 5 * 64]  == aa_a16(12), "aa halfrect col2 %d",
+						b.acc[2 + 5 * 64]);
+	CHK(b.acc[3 + 5 * 64]  == 255, "aa halfrect col3");
+	CHK(b.acc[11 + 5 * 64] == 255, "aa halfrect col11");
+	CHK(b.acc[12 + 5 * 64] == aa_a16(12), "aa halfrect col12 %d",
+						b.acc[12 + 5 * 64]);
+	CHK(b.acc[13 + 5 * 64] == 0, "aa halfrect col13");
+	CHK(aa_total(&b) == 10L * (2L * aa_a16(12) + 9L * 255),
+						"aa halfrect total %ld",
+						aa_total(&b));
+
+	/* quarter-pixel-wide rect: two 0.25 columns */
+
+	if (aa_render("<rect x=\"2.75\" y=\"2\" width=\"0.5\" "
+		      "height=\"10\"/>", &b)) {
+		CHK(0, "aa quarter parse");
+		return;
+	}
+	CHK(b.acc[2 + 5 * 64] == aa_a16(4), "aa quarter col2");
+	CHK(b.acc[3 + 5 * 64] == aa_a16(4), "aa quarter col3");
+	CHK(b.acc[4 + 5 * 64] == 0, "aa quarter col4");
+	CHK(aa_total(&b) == 10L * 2L * aa_a16(4), "aa quarter total");
+
+	/* vertical half-pixel band: rows at 0.75 top and bottom */
+
+	if (aa_render("<rect x=\"2\" y=\"2.25\" width=\"10\" "
+		      "height=\"10.5\"/>", &b)) {
+		CHK(0, "aa vband parse");
+		return;
+	}
+	CHK(b.acc[5 + 2 * 64]  == aa_a16(12), "aa vband row2");
+	CHK(b.acc[5 + 3 * 64]  == 255, "aa vband row3");
+	CHK(b.acc[5 + 11 * 64] == 255, "aa vband row11");
+	CHK(b.acc[5 + 12 * 64] == aa_a16(12), "aa vband row12");
+	CHK(b.acc[5 + 13 * 64] == 0, "aa vband row13");
+
+	/* 45-degree hypotenuse: the boundary pixel is exactly half */
+
+	if (aa_render("<polygon points=\"4,4 60,4 4,60\"/>", &b)) {
+		CHK(0, "aa diag parse");
+		return;
+	}
+	CHK(b.acc[30 + 32 * 64] == 255, "aa diag inside");
+	CHK(b.acc[31 + 32 * 64] == aa_a16(8), "aa diag boundary %d",
+						b.acc[31 + 32 * 64]);
+	CHK(b.acc[32 + 32 * 64] == 0, "aa diag outside");
+	CHK(b.acc[31 + 32 * 64] == b.acc[32 + 31 * 64], "aa diag sym");
+
+	/* circle: exact area within flattening tolerance, symmetric */
+
+	if (aa_render("<circle cx=\"32\" cy=\"32\" r=\"24\"/>", &b)) {
+		CHK(0, "aa circle parse");
+		return;
+	}
+	{
+		double area = (double)aa_total(&b) / 255.0;
+
+		CHK(area > 3.14159265358979 * 24 * 24 - 8.0 &&
+		    area < 3.14159265358979 * 24 * 24 + 8.0,
+		    "aa circle area %.2f", area);
+	}
+	{
+		int x, bad = 0;
+
+		for (x = 0; x < 64; x++) {
+			long c0 = 0, c1 = 0;
+			int y;
+
+			for (y = 0; y < 64; y++) {
+				c0 += b.acc[x + y * 64];
+				c1 += b.acc[63 - x + y * 64];
+			}
+			if (c0 != c1)
+				bad++;
+		}
+		CHK(!bad, "aa circle mirror asymmetry %d cols", bad);
+	}
+
+	/* overlapping same-direction contours clamp, not double */
+
+	if (aa_render("<path d=\"M 10 10 H 50 V 50 H 10 Z "
+		      "M 20 10 H 40 V 50 H 20 Z\"/>", &b)) {
+		CHK(0, "aa wind parse");
+		return;
+	}
+	CHK(b.acc[30 + 30 * 64] == 255, "aa wind clamp %d",
+						b.acc[30 + 30 * 64]);
+	CHK(aa_total(&b) == 40L * 40L * 255, "aa wind total %ld",
+						aa_total(&b));
+
+	/* hostile documents must not crash the AA path either */
+
+	{
+		static const char *bad[] = {
+			"<path d=\"M nan inf L 1e999 -1e999\"/>",
+			"<g transform=\"scale(1e9)\"><g transform="
+			"\"scale(1e9)\"><rect x=\"1\" y=\"1\" width=\"9\" "
+			"height=\"9\"/></g></g>",
+			"<path d=\"M 0 0 a 1e9 1e9 0 0 1 60 60\"/>",
+		};
+		unsigned int n;
+
+		for (n = 0; n < LWS_ARRAY_SIZE(bad); n++) {
+			aa_render(bad[n], &b);
+			checks++;
+		}
+	}
 }
 
 /* ------------------------------------------------------------------ */
@@ -2332,6 +2530,7 @@ memset(&pair_bm, 0, sizeof(pair_bm));
 	}
 
 	robustness();
+	aa_checks();
 
 	bm_free(&bm);
 	bm_free(&chunk_bm);
