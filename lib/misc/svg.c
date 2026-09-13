@@ -83,6 +83,31 @@ typedef struct {
 	char			suppress; /* inside defs, text, unknown... */
 } svg_lvl_t;
 
+/*
+ * Minimal CSS support for <style> blocks: rules with a single simple
+ * selector (element name, .class or #id) and the same presentation
+ * property set the style="" attribute already understands.  Selectors
+ * with anything else (pseudo-classes, combinators, attributes) and
+ * at-rules are skipped leniently.
+ */
+
+enum {
+	LWS_SVG_MAX_CSSRULES	= 128,
+	LWS_SVG_MAX_SEL		= 48,
+	LWS_SVG_MAX_CLASS	= 48,
+	LWS_SVG_MAX_ID		= 24,
+};
+
+typedef struct {
+	char		sel[LWS_SVG_MAX_SEL]; /* "rect", ".cls", "#id" */
+	uint8_t		tier;		     /* 0 elem, 1 class, 2 id */
+	uint32_t	fill;
+	char		fill_set;
+	double		fillop, op;
+	char		fillop_set, op_set;
+	char		rule, rule_set;
+} svg_cssrule_t;
+
 /* pending per-tag state, accumulated from attributes as they stream in */
 
 typedef struct {
@@ -97,6 +122,21 @@ typedef struct {
 	char			gok[6];
 	char			has_d;		/* path data in working arrays */
 	char			has_points;
+	char			cls[LWS_SVG_MAX_CLASS]; /* class attr names */
+	char			id[LWS_SVG_MAX_ID];
+
+	/*
+	 * style="" attribute declarations are kept separate from the
+	 * presentation attributes, so the css cascade can be applied in
+	 * the correct priority: presentation attrs < <style> rules <
+	 * style="" content
+	 */
+
+	uint32_t	sa_fill;
+	char		sa_fill_present;
+	double		sa_fillop, sa_op;
+	char		sa_fillop_present, sa_op_present;
+	char		sa_rule, sa_rule_present;
 } svg_pend_t;
 
 typedef struct lws_svg_dpt {
@@ -132,6 +172,7 @@ typedef enum {
 	SVEK_ROOT,		/* svg at document root */
 	SVEK_GROUP,		/* g, a, nested svg, switch */
 	SVEK_SUPPRESS,		/* known non-rendering container */
+	SVEK_STYLE,		/* css stylesheet container */
 	SVEK_RECT,
 	SVEK_CIRCLE,
 	SVEK_ELLIPSE,
@@ -155,6 +196,12 @@ struct lws_svg {
 	lws_dll2_owner_t	shapes;
 	uint32_t		nshapes;
 	uint32_t		npts;	/* scene-wide flattened point count */
+
+	/* css rules parsed out of <style> blocks */
+
+	svg_cssrule_t		*css;
+	uint16_t		css_count;
+	char			in_style;
 
 	/* root sizing and mapping policy */
 
@@ -1598,18 +1645,20 @@ classify(const char *name, char at_root)
 
 	if (!strcmp(name, "defs") || !strcmp(name, "title") ||
 	    !strcmp(name, "desc") || !strcmp(name, "metadata") ||
-	    !strcmp(name, "style") || !strcmp(name, "text") ||
-	    !strcmp(name, "tspan") || !strcmp(name, "textPath") ||
-	    !strcmp(name, "symbol") || !strcmp(name, "clipPath") ||
-	    !strcmp(name, "mask") || !strcmp(name, "filter") ||
-	    !strcmp(name, "marker") || !strcmp(name, "pattern") ||
-	    !strcmp(name, "linearGradient") ||
+	    !strcmp(name, "text") || !strcmp(name, "tspan") ||
+	    !strcmp(name, "textPath") || !strcmp(name, "symbol") ||
+	    !strcmp(name, "clipPath") || !strcmp(name, "mask") ||
+	    !strcmp(name, "filter") || !strcmp(name, "marker") ||
+	    !strcmp(name, "pattern") || !strcmp(name, "linearGradient") ||
 	    !strcmp(name, "radialGradient") ||
 	    !strcmp(name, "image") || !strcmp(name, "foreignObject") ||
 	    !strcmp(name, "use") || !strcmp(name, "animate") ||
 	    !strcmp(name, "set") || !strcmp(name, "animateMotion") ||
 	    !strcmp(name, "animateTransform") || !strcmp(name, "script"))
 		return SVEK_SUPPRESS;
+
+	if (!strcmp(name, "style"))
+		return SVEK_STYLE;
 
 	if (!strcmp(name, "rect"))
 		return SVEK_RECT;
@@ -1629,15 +1678,44 @@ classify(const char *name, char at_root)
 	return SVEK_OTHER;
 }
 
+/* does the whitespace-delimited class list contain lit? */
+
+static int
+class_matches(const char *list, const char *lit)
+{
+	size_t ll = strlen(lit);
+	const char *p = list;
+
+	while (*p) {
+		while (*p == ' ' || *p == '\t')
+			p++;
+		{
+			const char *tok = p;
+
+			while (*p && *p != ' ' && *p != '\t')
+				p++;
+			if ((size_t)(p - tok) == ll && !strncmp(tok, lit, ll))
+				return 1;
+		}
+	}
+
+	return 0;
+}
+
 /*
- * Compose the pending attribute deltas on to an inherited level state
+ * Compose the pending per-tag state on to an inherited level state,
+ * applying the css cascade in priority order: presentation attributes,
+ * then <style> rules (element selectors, then class, then id; later
+ * rules of the same tier win), then the style="" attribute content.
  */
 
 static void
-level_compose(svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l)
+level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
+	      const char *elem)
 {
 	uint32_t rgba = parent->rgba;
 	double alpha = (double)LWS_SVG_ALPHA(rgba);
+	int tier, i;
 
 	*l = *parent;
 
@@ -1658,13 +1736,68 @@ level_compose(svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l)
 	if (pd->op_present && pd->op > 0)
 		alpha *= pd->op < 1 ? pd->op : 1.0;
 
+	if (pd->rule_present)
+		l->rule = pd->rule;
+
+	/* <style> rules, lowest tier first, document order inside a tier */
+
+	for (tier = 0; tier < 3; tier++)
+		for (i = 0; i < (int)ctx->css_count; i++) {
+			svg_cssrule_t *r = &ctx->css[i];
+
+			if (r->tier != tier)
+				continue;
+
+			if (tier == 0) {
+				if (strcmp(r->sel, elem))
+					continue;
+			} else
+				if (tier == 1) {
+					if (!pd->cls[0] ||
+					    !class_matches(pd->cls, r->sel + 1))
+						continue;
+				} else
+					if (strcmp(r->sel + 1, pd->id))
+						continue;
+
+			if (r->fill_set) {
+				if (!LWS_SVG_ALPHA(r->fill))
+					alpha = 0;
+				else {
+					rgba = r->fill & 0x00ffffff;
+					alpha = (double)LWS_SVG_ALPHA(r->fill);
+				}
+			}
+			if (r->fillop_set && r->fillop > 0)
+				alpha *= r->fillop < 1 ? r->fillop : 1.0;
+			if (r->op_set && r->op > 0)
+				alpha *= r->op < 1 ? r->op : 1.0;
+			if (r->rule_set)
+				l->rule = r->rule;
+		}
+
+	/* style="" attribute content wins over everything above */
+
+	if (pd->sa_fill_present) {
+		if (!LWS_SVG_ALPHA(pd->sa_fill))
+			alpha = 0;
+		else {
+			rgba = pd->sa_fill & 0x00ffffff;
+			alpha = (double)LWS_SVG_ALPHA(pd->sa_fill);
+		}
+	}
+	if (pd->sa_fillop_present && pd->sa_fillop > 0)
+		alpha *= pd->sa_fillop < 1 ? pd->sa_fillop : 1.0;
+	if (pd->sa_op_present && pd->sa_op > 0)
+		alpha *= pd->sa_op < 1 ? pd->sa_op : 1.0;
+
 	if (alpha > 255.0)
 		alpha = 255.0;
 
 	l->rgba = (rgba & 0x00ffffff) | ((uint32_t)(alpha + 0.5) << 24);
 
-	if (pd->rule_present)
-		l->rule = pd->rule;
+	if (pd->sa_rule_present)
+		l->rule = pd->sa_rule;
 }
 
 /* numeric attribute helper: match attr name to a slot for the element kind */
@@ -1705,44 +1838,289 @@ geom_slot(svg_ekind_t k, const char *aname)
 	return -1;
 }
 
-/* apply one presentation property, from an attribute or style= content */
+/*
+ * Presentation property handling.  The same property set is understood
+ * from three sources with different cascade priority: presentation
+ * attributes, <style> css rules, and the style="" attribute.
+ */
+
+/* target-agnostic property parse: returns bits of what it understood */
+
+#define SVG_PP_FILL	1
+#define SVG_PP_FILLOP	2
+#define SVG_PP_OP	4
+#define SVG_PP_RULE	8
+
+struct svg_pp {
+	uint32_t	fill;
+	double		fillop, op;
+	char		rule;
+};
+
+static int
+pp_parse(const char *name, size_t nl, const char *val, size_t vl,
+	 struct svg_pp *out)
+{
+	int bits = 0;
+
+	memset(out, 0, sizeof(*out));
+
+	if (nl == 4 && !strncmp(name, "fill", 4)) {
+		if (!svg_colour(val, vl, &out->fill))
+			bits = SVG_PP_FILL;
+	} else
+		if (nl == 12 && !strncmp(name, "fill-opacity", 12)) {
+			if (svg_num(val, val + vl, &out->fillop))
+				bits = SVG_PP_FILLOP;
+		} else
+			if (nl == 7 && !strncmp(name, "opacity", 7)) {
+				if (svg_num(val, val + vl, &out->op))
+					bits = SVG_PP_OP;
+			} else
+				if (nl == 9 && !strncmp(name, "fill-rule", 9)) {
+					out->rule = !!(vl == 7 &&
+						       !strncmp(val, "evenodd", 7));
+					bits = SVG_PP_RULE;
+				}
+
+	return bits;
+}
+
+/* apply one property item to the style="" layer of the pending state */
 
 static void
 style_prop(lws_svg_t *ctx, const char *name, size_t nl,
 	   const char *val, size_t vl)
 {
 	svg_pend_t *pd = &ctx->pend;
+	struct svg_pp pp;
 
-	if (nl == 4 && !strncmp(name, "fill", 4)) {
-		uint32_t rgba;
-
-		if (!svg_colour(val, vl, &rgba)) {
-			pd->fill_present = 1;
-			pd->fill = rgba;
-		}
-	} else
-		if (nl == 12 && !strncmp(name, "fill-opacity", 12)) {
-			double d;
-
-			if (svg_num(val, val + vl, &d)) {
-				pd->fillop_present = 1;
-				pd->fillop = d;
-			}
-		} else
-			if (nl == 7 && !strncmp(name, "opacity", 7)) {
-				double d;
-
-				if (svg_num(val, val + vl, &d)) {
-					pd->op_present = 1;
-					pd->op = d;
-				}
-			} else
-				if (nl == 9 && !strncmp(name, "fill-rule", 9)) {
-					ctx->pend.rule_present = 1;
-					ctx->pend.rule = !!(vl == 7 &&
-							  !strncmp(val, "evenodd", 7));
-				}
+	switch (pp_parse(name, nl, val, vl, &pp)) {
+	case SVG_PP_FILL:
+		pd->sa_fill_present = 1;
+		pd->sa_fill = pp.fill;
+		break;
+	case SVG_PP_FILLOP:
+		pd->sa_fillop_present = 1;
+		pd->sa_fillop = pp.fillop;
+		break;
+	case SVG_PP_OP:
+		pd->sa_op_present = 1;
+		pd->sa_op = pp.op;
+		break;
+	case SVG_PP_RULE:
+		pd->sa_rule_present = 1;
+		pd->sa_rule = pp.rule;
+		break;
+	default:
+		break;
+	}
 }
+
+/*
+ * <style> css parsing.  The stylesheet text has been accumulated in
+ * ctx->vbuf; rules with one simple selector (element name, .class or
+ * #id) and known properties are kept, later rules overriding earlier
+ * ones of the same tier when applied.  Anything else is skipped
+ * leniently: comments, at-rules (with their braces), and unusable
+ * selectors.
+ */
+
+static int
+css_sel_parse(const char *s, size_t len, svg_cssrule_t *r)
+{
+	memset(r, 0, sizeof(*r));
+
+	if (!len || len >= sizeof(r->sel))
+		return 1;
+
+	memcpy(r->sel, s, len);
+	r->sel[len] = '\0';
+
+	if (r->sel[0] == '.') {
+		r->tier = 1;
+		if (len < 2)
+			return 1;
+	} else
+		if (r->sel[0] == '#') {
+			r->tier = 2;
+			if (len < 2)
+				return 1;
+		} else {
+			size_t i;
+
+			r->tier = 0;
+			for (i = 0; i < len; i++)
+				if (!((r->sel[i] >= 'a' && r->sel[i] <= 'z') ||
+				      (r->sel[i] >= 'A' && r->sel[i] <= 'Z') ||
+				      (r->sel[i] >= '0' && r->sel[i] <= '9') ||
+				      r->sel[i] == '-' || r->sel[i] == '_'))
+					return 1;  /* pseudo-class, etc */
+		}
+
+	return 0;
+}
+
+static void
+parse_css(lws_svg_t *ctx)
+{
+	const char *p = ctx->vbuf, *end = ctx->vbuf + ctx->vlen;
+
+	/* a CDATA-wrapped stylesheet keeps its closing delimiter */
+
+	if (ctx->vlen > 3 && !strncmp(end - 3, "]]>", 3)) {
+		end -= 3;
+		ctx->vlen -= 3;
+	}
+
+	while (p < end) {
+		const char *ds, *de;
+		struct svg_pp pp[8];
+		int bits[8], np = 0, i;
+		svg_cssrule_t r;
+
+		/* skip whitespace and comments */
+
+		while (p < end) {
+			if (isxmlws(*p)) {
+				p++;
+				continue;
+			}
+			if ((size_t)(end - p) >= 2 && *p == '/' && p[1] == '*') {
+				p += 2;
+				while (p + 1 < end && !(p[0] == '*' && p[1] == '/'))
+					p++;
+				p = p + 2 < end ? p + 2 : end;
+				continue;
+			}
+			break;
+		}
+		if (p >= end)
+			break;
+
+		if (*p == '@') {
+			/* skip the at-rule and its declaration block */
+
+			int depth = 0;
+
+			while (p < end) {
+				if (*p == '{')
+					depth++;
+				if (*p == '}') {
+					if (!--depth) {
+						p++;
+						break;
+					}
+				}
+				if (*p == ';' && !depth) {
+					p++;
+					break;
+				}
+				p++;
+			}
+			continue;
+		}
+
+		/* selector list up to '{' */
+
+		ds = p;
+		while (p < end && *p != '{' && *p != ';' && *p != '}')
+			p++;
+		if (p >= end || *p != '{')
+			continue;	/* junk between rules */
+		de = p++;
+
+		/* declarations up to '}' */
+
+		while (p < end && *p != '}') {
+			const char *n = p, *v;
+
+			while (p < end && *p != ':' && *p != ';' && *p != '}')
+				p++;
+			if (p >= end || *p != ':') {
+				if (p < end && *p != '}')
+					p++;
+				continue;
+			}
+			v = ++p;
+			while (p < end && *p != ';' && *p != '}')
+				p++;
+
+			{
+				size_t nl = (size_t)(v - 1 - n);
+
+				while (nl && isxmlws(n[nl - 1]))
+					nl--;
+				while (v < p && isxmlws(*v))
+					v++;
+
+				if (nl && p > v && np < 8) {
+					bits[np] = pp_parse(n, nl, v,
+							    (size_t)(p - v),
+							    &pp[np]);
+					np++;
+				}
+			}
+
+			if (p < end && *p == ';')
+				p++;
+		}
+		if (p < end)
+			p++;		/* consume '}' */
+
+		/* the selector list may be comma-separated */
+
+		{
+			const char *s = ds;
+
+			while (s < de) {
+				const char *c = s;
+
+				while (c < de && *c != ',')
+					c++;
+				while (s < c && isxmlws(*s))
+					s++;
+				while (c > s && isxmlws(c[-1]))
+					c--;
+
+				if (!css_sel_parse(s, (size_t)(c - s), &r)) {
+					for (i = 0; i < np; i++) {
+						if (bits[i] & SVG_PP_FILL) {
+							r.fill_set = 1;
+							r.fill = pp[i].fill;
+						}
+						if (bits[i] & SVG_PP_FILLOP) {
+							r.fillop_set = 1;
+							r.fillop = pp[i].fillop;
+						}
+						if (bits[i] & SVG_PP_OP) {
+							r.op_set = 1;
+							r.op = pp[i].op;
+						}
+						if (bits[i] & SVG_PP_RULE) {
+							r.rule_set = 1;
+							r.rule = pp[i].rule;
+						}
+					}
+
+					if (ctx->css_count < LWS_SVG_MAX_CSSRULES) {
+						if (!ctx->css_count) {
+							ctx->css = lws_zalloc(
+								sizeof(*ctx->css) *
+								LWS_SVG_MAX_CSSRULES,
+								__func__);
+						}
+						if (ctx->css)
+							ctx->css[ctx->css_count++] = r;
+					}
+				}
+
+				s = c < de ? c + 1 : de;
+			}
+		}
+	}
+}
+
 
 /*
  * Attribute completion.  The element kind is known, and the value is
@@ -1869,6 +2247,36 @@ attr_complete(lws_svg_t *ctx)
 		return 0;
 	}
 
+	if (!strcmp(n, "class")) {
+		/* css class names, whitespace separated */
+
+		size_t o = 0, i;
+
+		for (i = 0; i < ctx->vlen && o < sizeof(pd->cls) - 1; i++) {
+			char cc = isxmlws(ctx->vbuf[i]) ? ' ' : ctx->vbuf[i];
+
+			if (cc == ' ' && (!o || pd->cls[o - 1] == ' '))
+				continue;
+			pd->cls[o++] = cc;
+		}
+		while (o && pd->cls[o - 1] == ' ')
+			o--;
+		pd->cls[o] = '\0';
+
+		return 0;
+	}
+
+	if (!strcmp(n, "id")) {
+		size_t o, i;
+
+		for (i = o = 0; i < ctx->vlen && o < sizeof(pd->id) - 1; i++)
+			if (!isxmlws(ctx->vbuf[i]))
+				pd->id[o++] = ctx->vbuf[i];
+		pd->id[o] = '\0';
+
+		return 0;
+	}
+
 	if (!strcmp(n, "style")) {
 		const char *p = ctx->vbuf, *end = ctx->vbuf + ctx->vlen;
 
@@ -1969,7 +2377,8 @@ element_open(lws_svg_t *ctx, char selfclose)
 
 			/* the root is also a styling container */
 
-			level_compose(&ctx->stk[0], pd, &ctx->stk[0]);
+			level_compose(ctx, &ctx->stk[0], pd, &ctx->stk[0],
+				     "svg");
 
 			if (ctx->has_vb && ctx->vb[2] > 0 && ctx->vb[3] > 0) {
 				double mn = ctx->vb[2] < ctx->vb[3] ?
@@ -2007,9 +2416,28 @@ element_open(lws_svg_t *ctx, char selfclose)
 			if (ctx->depth + 1 >= LWS_SVG_MAX_DEPTH)
 				return 1;
 
-			level_compose(&ctx->stk[ctx->depth], pd,
-				      &ctx->stk[ctx->depth + 1]);
+			level_compose(ctx, &ctx->stk[ctx->depth], pd,
+				      &ctx->stk[ctx->depth + 1], ctx->name);
 			ctx->depth++;
+		}
+		break;
+
+	case SVEK_STYLE:
+		/*
+		 * The stylesheet text is accumulated from character data
+		 * and CDATA into the value buffer, and parsed into rules
+		 * when the element closes.  Any children are suppressed.
+		 */
+
+		if (!selfclose) {
+			if (ctx->depth + 1 >= LWS_SVG_MAX_DEPTH)
+				return 1;
+
+			ctx->stk[ctx->depth + 1] = ctx->stk[ctx->depth];
+			ctx->stk[ctx->depth + 1].suppress = 1;
+			ctx->depth++;
+			ctx->in_style = 1;
+			ctx->vlen = 0;
 		}
 		break;
 
@@ -2084,7 +2512,8 @@ element_open(lws_svg_t *ctx, char selfclose)
 			/* compose the shape's own presentation deltas on to
 			 * the inherited level state, and commit with that */
 
-			level_compose(&ctx->stk[ctx->depth], pd, &eff);
+			level_compose(ctx, &ctx->stk[ctx->depth], pd, &eff,
+				      ctx->name);
 
 			if (shape_commit(ctx, eff.m, eff.rgba, eff.rule))
 				return 1;
@@ -2103,8 +2532,14 @@ element_open(lws_svg_t *ctx, char selfclose)
 }
 
 static void
-element_close(lws_svg_t *ctx)
+element_close(lws_svg_t *ctx, const char *name)
 {
+	if (name && !strcmp(name, "style") && ctx->in_style) {
+		ctx->vbuf[ctx->vlen] = '\0';
+		parse_css(ctx);
+		ctx->in_style = 0;
+	}
+
 	if (!ctx->depth) {
 		/* closing at root level completes the document */
 
@@ -2438,12 +2873,21 @@ tok_step(lws_svg_t *ctx, const uint8_t c, char hold)
 		if (c == '<') {
 			ctx->name[0] = '\0';
 			ctx->ts = SXS_TAGNAME;
+			break;
+		}
+		if (ctx->in_style == 1) {
+			/* accumulate stylesheet character data */
+
+			char cc = (char)c;
+
+			if (vappend(ctx, &cc, 1))
+				ctx->in_style = 2;  /* too large: stop collecting */
 		}
 		break;
 
 	case SXS_CLOSENAME:
 		if (c == '>') {
-			element_close(ctx);
+			element_close(ctx, ctx->name);
 			ctx->ts = ctx->doc_complete ? SXS_DONE : SXS_TEXT;
 			break;
 		}
@@ -2468,8 +2912,9 @@ tok_step(lws_svg_t *ctx, const uint8_t c, char hold)
 				break;
 			}
 			if (c == '[') {
+				/* seen "<![", the rest of "[CDATA[" */
 				ctx->bang_step = 2;
-				ctx->sub_step = 0;
+				ctx->sub_step = 1;
 				break;
 			}
 			ctx->ts = SXS_DOCTYPE;
@@ -2527,7 +2972,16 @@ tok_step(lws_svg_t *ctx, const uint8_t c, char hold)
 		break;
 
 	case SXS_CDATA:
-		/* end on "]]>", with correct suffix recovery */
+		/* end on "]]>", with correct suffix recovery.  Inside a
+		 * <style>, the content including the closing delimiter is
+		 * accumulated; parse_css() strips a trailing "]]>". */
+
+		if (ctx->in_style == 1) {
+			char cc = (char)c;
+
+			if (vappend(ctx, &cc, 1))
+				ctx->in_style = 2;
+		}
 
 		if (c == (uint8_t)cdata_end[ctx->sub_step]) {
 			if (++ctx->sub_step >= (uint8_t)(sizeof(cdata_end) - 1))
@@ -2589,6 +3043,7 @@ lws_svg_free(lws_svg_t **svg)
 	lws_free(ctx->wsubs);
 	lws_free(ctx->xings);
 	lws_free(ctx->vbuf);
+	lws_free(ctx->css);
 	lws_free(ctx);
 
 	*svg = NULL;

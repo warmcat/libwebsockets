@@ -4,6 +4,14 @@ Changelog
 Development
 ===========
 
+ - svg: minimal CSS support from <style> blocks, bringing the render colours
+   in line with browsers for real exported artwork: simple element / class /
+   id selectors (or comma-separated lists) over the fill property set, with
+   the cascade priority presentation attribute < stylesheet < style=""
+   and element < class < id specificity; cdata-wrapped stylesheets,
+   comments and at-rule skipping, and bounded rule counts for hostile
+   input.  Also fixes CDATA sections, whose opener matching was off by
+   one and silently degraded to a doctype skip
  - LWS_WITH_SVG: stateful SVG renderer for the fill-only subset, sibling to
    the upng and lws jpeg decoders.  The document is parsed streaming into a
    retained vector scene in a single lwsac (curves flattened adaptively), and
