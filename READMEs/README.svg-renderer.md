@@ -43,7 +43,16 @@ and reused for the rest of the document, and the attribute value buffer
 grows to accommodate the largest attribute (typically a path `d` string),
 capped at 64KB.
 
-The retained scene lives in a single lwsac allocated in 4KB chunks:
+The whole object — context, working buffers, stylesheets and retained
+scene — lives in a single lwsac allocated in 4KB chunks, freed with one
+call.  The growable working buffers (points, subpaths, crossings, aa
+columns, attribute values) grow by chained doubling generations inside
+the lwsac, so superseded generations remain until the object is
+destroyed; the caps below bound the worst case.  The peak simultaneous
+footprint (as the lwsac total, including chunk overheads and superseded
+generations) is tracked and logged at destroy time at info level.
+
+The retained scene items are:
 
 |Retained item|Size|
 |---|---|

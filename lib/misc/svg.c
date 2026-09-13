@@ -36,122 +36,23 @@
  */
 
 #include <private-lib-core.h>
+#include "private-lib-misc-svg.h"
 
 /*
  * Retained scene limits.  A document trying to exceed these produces a
  * FATAL parse result rather than exhausting memory on the target.
  */
 
-enum {
-	LWS_SVG_MAX_DEPTH	= 24,	/* open element stack */
-	LWS_SVG_MAX_SHAPES	= 2048,
-	LWS_SVG_MAX_PTS		= 262144, /* scene-wide flattened points */
-	LWS_SVG_MAX_SUBS	= 1024,	/* subpaths per shape */
-	LWS_SVG_MAX_ATTRVAL	= 65536,
-	LWS_SVG_MAX_NAME	= 31,
-};
 
 /* kappa: cubic bezier approximation of a quarter circle control factor */
 
+
+
 /*
- * All geometry is computed in pure integer arithmetic on two
- * representations, both sharing lws_fx_t's 1e-8 fractional basis:
- *
- *  - e8: int64 count of 1e-8 units, ie, the lws_fx_t (whole, frac)
- *    decomposition joined.  Values from number parsing, angles and
- *    opacity live here; trig goes through the lws_fx operators.
- *
- *  - svg_c_t: int32 Q16.16, range +/-32768 with 1/65536 resolution.
- *    All coordinates, transform matrices and raster math.  Products
- *    are computed in int64 and saturate rather than overflow, so
- *    hostile transforms clip instead of producing inf / NaN.
+ * Trig via the lws_fx fixed-point operators: pure integer, no FPU or
+ * libm dependency, deterministic across platforms.  Angles are e8
+ * radians in and out; sin / cos / tan results are Q16.16.
  */
-
-#define SVG_E8_1		100000000ll	/* 1.0 in e8 */
-#define SVG_E8_PI		314159262ll	/* pi in e8 */
-#define SVG_Q16_1		65536
-#define SVG_C_MAX		0x7fffffff	/* saturated Q16.16 magnitude */
-#define SVG_KAPPA_Q		36204		/* 0.55228474983079356 in Q16.16 */
-#define SVG_Q4_3		87381		/* 4/3 in Q16.16 */
-
-typedef int32_t		svg_c_t;
-
-typedef struct lws_svg_pt {
-	svg_c_t			x, y;	/* user space, post-CTM, Q16.16 */
-} lws_svg_pt_t;
-
-/* e8 <-> lws_fx_t (pure integer joins of the decomposition) */
-
-static int64_t
-svg_fx_to_e8(const lws_fx_t *f)
-{
-	return (int64_t)f->whole * SVG_E8_1 + f->frac;
-}
-
-static void
-svg_e8_to_fx(lws_fx_t *f, int64_t v)
-{
-	f->whole = (int32_t)(v / SVG_E8_1);
-	f->frac = (int32_t)(v % SVG_E8_1);
-}
-
-/* e8 -> Q16.16 with saturation */
-
-static svg_c_t
-svg_e8_to_c(int64_t v)
-{
-	int64_t q = (v * SVG_Q16_1) / SVG_E8_1;
-
-	if (q > SVG_C_MAX)
-		return (svg_c_t)SVG_C_MAX;
-	if (q < -SVG_C_MAX)
-		return (svg_c_t)-SVG_C_MAX;
-
-	return (svg_c_t)q;
-}
-
-/* saturating Q16.16 helpers */
-
-static svg_c_t
-svg_qadd(int32_t a, int32_t b)
-{
-	int64_t r = (int64_t)a + b;
-
-	if (r > SVG_C_MAX)
-		return (svg_c_t)SVG_C_MAX;
-	if (r < -SVG_C_MAX)
-		return (svg_c_t)-SVG_C_MAX;
-
-	return (svg_c_t)r;
-}
-
-static svg_c_t
-svg_qsub(int32_t a, int32_t b)
-{
-	int64_t r = (int64_t)a - b;
-
-	if (r > SVG_C_MAX)
-		return (svg_c_t)SVG_C_MAX;
-	if (r < -SVG_C_MAX)
-		return (svg_c_t)-SVG_C_MAX;
-
-	return (svg_c_t)r;
-}
-
-static svg_c_t
-svg_qmul(int32_t a, int32_t b)
-{
-	int64_t r = ((int64_t)a * b) / SVG_Q16_1;
-
-	if (r > SVG_C_MAX)
-		return (svg_c_t)SVG_C_MAX;
-	if (r < -SVG_C_MAX)
-		return (svg_c_t)-SVG_C_MAX;
-
-	return (svg_c_t)r;
-}
-
-/* integer sqrt of a non-negative int64, digit-by-digit */
 
 static int64_t
 svg_isqrt64(int64_t v)
@@ -173,11 +74,7 @@ svg_isqrt64(int64_t v)
 	return (int64_t)res;
 }
 
-/*
- * Trig via the lws_fx fixed-point operators: pure integer, no FPU or
- * libm dependency, deterministic across platforms.  Angles are e8
- * radians in and out; sin / cos / tan results are Q16.16.
- */
+
 
 static svg_c_t
 svg_sin(int64_t r_e8)
@@ -190,6 +87,8 @@ svg_sin(int64_t r_e8)
 	return svg_e8_to_c(svg_fx_to_e8(&res));
 }
 
+
+
 static svg_c_t
 svg_cos(int64_t r_e8)
 {
@@ -201,6 +100,8 @@ svg_cos(int64_t r_e8)
 	return svg_e8_to_c(svg_fx_to_e8(&res));
 }
 
+
+
 static svg_c_t
 svg_tan(int64_t r_e8)
 {
@@ -211,6 +112,8 @@ svg_tan(int64_t r_e8)
 
 	return svg_e8_to_c(svg_fx_to_e8(&res));
 }
+
+
 
 static int64_t
 svg_atan2(int64_t y_e8, int64_t x_e8)
@@ -224,216 +127,6 @@ svg_atan2(int64_t y_e8, int64_t x_e8)
 	return svg_fx_to_e8(&res);
 }
 
-/* integer ceil(v / 65536), valid for the whole int64 range */
-
-static int
-svg_ceil_q16(int64_t v)
-{
-	return (int)((v + SVG_Q16_1 - 1) / SVG_Q16_1);
-}
-
-
-typedef struct lws_svg_sub {
-	lws_dll2_t		list;
-	lws_svg_pt_t		*pts;	/* from scene lwsac */
-	uint32_t		npts;
-	char			closed;
-} lws_svg_sub_t;
-
-typedef struct lws_svg_shape {
-	lws_dll2_t		list;	/* document order */
-	lws_dll2_owner_t	subs;
-	uint32_t		rgba;	/* fill colour with composed alpha */
-	char			rule;	/* 0 = nonzero, 1 = evenodd */
-} lws_svg_shape_t;
-
-/* per-open-element inherited state */
-
-typedef struct {
-	svg_c_t			m[6];	/* CTM: x' = m[0]x + m[2]y + m[4] */
-	uint32_t		rgba;	/* composed fill colour */
-	char			rule;
-	char			suppress; /* inside defs, text, unknown... */
-} svg_lvl_t;
-
-/*
- * Minimal CSS support for <style> blocks: rules with a single simple
- * selector (element name, .class or #id) and the same presentation
- * property set the style="" attribute already understands.  Selectors
- * with anything else (pseudo-classes, combinators, attributes) and
- * at-rules are skipped leniently.
- */
-
-enum {
-	LWS_SVG_MAX_CSSRULES	= 128,
-	LWS_SVG_MAX_SEL		= 48,
-	LWS_SVG_MAX_CLASS	= 48,
-	LWS_SVG_MAX_ID		= 24,
-};
-
-typedef struct {
-	char		sel[LWS_SVG_MAX_SEL]; /* "rect", ".cls", "#id" */
-	uint8_t		tier;		     /* 0 elem, 1 class, 2 id */
-	uint32_t	fill;
-	char		fill_set;
-	int64_t		fillop, op;	/* e8 */
-	char		fillop_set, op_set;
-	char		rule, rule_set;
-} svg_cssrule_t;
-
-/* pending per-tag state, accumulated from attributes as they stream in */
-
-typedef struct {
-	uint32_t		fill;	/* valid when fill_present */
-	char			fill_present; /* fill attr seen (incl none) */
-	int64_t			fillop, op;	/* e8 */
-	char			fillop_present, op_present;
-	char			rule, rule_present;
-	char			has_transform;
-	svg_c_t			tm[6];	/* own transform list composition */
-	svg_c_t			g[6];	/* shape geometry attrs */
-	char			gok[6];
-	char			has_d;		/* path data in working arrays */
-	char			has_points;
-	char			cls[LWS_SVG_MAX_CLASS]; /* class attr names */
-	char			id[LWS_SVG_MAX_ID];
-
-	/*
-	 * style="" attribute declarations are kept separate from the
-	 * presentation attributes, so the css cascade can be applied in
-	 * the correct priority: presentation attrs < <style> rules <
-	 * style="" content
-	 */
-
-	uint32_t	sa_fill;
-	char		sa_fill_present;
-	int64_t		sa_fillop, sa_op;	/* e8 */
-	char		sa_fillop_present, sa_op_present;
-	char		sa_rule, sa_rule_present;
-} svg_pend_t;
-
-typedef struct lws_svg_dpt {
-	svg_c_t			x, y;	/* user space, Q16.16 */
-} lws_svg_dpt_t;
-
-typedef struct {
-	uint32_t		start;	/* first index into working pts */
-	char			closed;
-} svg_wsub_t;
-
-typedef enum {
-	SXS_PROLOG,		/* skipping until first '<' */
-	SXS_TAGNAME,
-	SXS_ATTRS,
-	SXS_ATTRNAME,
-	SXS_ATTREQ,		/* attr name done, waiting for '=' */
-	SXS_ATTRVALQ,		/* waiting for opening quote */
-	SXS_ATTRVAL,		/* inside value */
-	SXS_ATTRVAL_ENT,	/* inside &...; in a value */
-	SXS_TEXT,		/* character data until next '<' */
-	SXS_CLOSENAME,		/* after '</' */
-	SXS_BANG,		/* after '<!', working out which */
-	SXS_COMMENT,		/* inside <!-- ... --> */
-	SXS_PI,			/* inside <? ... ?> */
-	SXS_DOCTYPE,		/* inside <!...> */
-	SXS_CDATA,		/* inside <![CDATA[ ... ]]> */
-	SXS_DONE,		/* root element closed */
-} sxs_t;
-
-typedef enum {
-	SVEK_OTHER,		/* unknown element: suppress subtree */
-	SVEK_ROOT,		/* svg at document root */
-	SVEK_GROUP,		/* g, a, nested svg, switch */
-	SVEK_SUPPRESS,		/* known non-rendering container */
-	SVEK_STYLE,		/* css stylesheet container */
-	SVEK_RECT,
-	SVEK_CIRCLE,
-	SVEK_ELLIPSE,
-	SVEK_LINE,
-	SVEK_POLYLINE,
-	SVEK_POLYGON,
-	SVEK_PATH,
-} svg_ekind_t;
-
-/* rasterization scratch */
-
-typedef struct {
-	svg_c_t			x;	/* device-space crossing x, Q16.16 */
-	int8_t			dir;	/* +1 downwards edge, -1 upwards */
-} lws_svg_cross_t;
-
-struct lws_svg {
-	/* retained scene */
-
-	struct lwsac		*ac;
-	lws_dll2_owner_t	shapes;
-	uint32_t		nshapes;
-	uint32_t		npts;	/* scene-wide flattened point count */
-
-	/* css rules parsed out of <style> blocks */
-
-	svg_cssrule_t		*css;
-	uint16_t		css_count;
-	char			in_style;
-
-	/* root sizing and mapping policy */
-
-	svg_c_t			width, height;
-	char			unit_w, unit_h;	/* 0 = px, 1 = percent */
-	char			has_w, has_h;
-	svg_c_t			vb[4];			/* minx miny w h */
-	char			has_vb;
-	char			par_none, par_slice;
-	uint8_t			par_ax, par_ay;	/* 0 min, 1 mid, 2 max */
-
-	svg_c_t			tol;	/* flatten tolerance, Q16.16 */
-
-	char			root_seen;
-	char			doc_complete;
-	char			fatal;
-
-	/* xml tokenizer state */
-
-	uint8_t			ts;
-	uint8_t			quote;
-	uint8_t			bang_step;	/* '<!' prefix matcher */
-	uint8_t			sub_step;	/* comment/cdata/pi matchers */
-	uint8_t			elen;		/* entity accumulation */
-	char			saw_slash;
-	char			name[LWS_SVG_MAX_NAME + 1];
-	char			aname[LWS_SVG_MAX_NAME + 1];
-	svg_ekind_t		ekind;
-	char			*vbuf;			/* attr value acc */
-	size_t			vlen, vsize;
-	char			ebuf[10];
-
-	/* element style stack */
-
-	svg_lvl_t		stk[LWS_SVG_MAX_DEPTH + 1];
-	int			depth;
-
-	svg_pend_t		pend;
-
-	/* working geometry (user space), copied into the scene at commit */
-
-	lws_svg_dpt_t		*wpts;
-	size_t			wpts_count, wpts_size;
-	svg_wsub_t		*wsubs;
-	size_t			wsubs_count, wsubs_size;
-
-	/* rasterization scratch */
-
-	lws_svg_cross_t		*xings;
-	size_t			xings_size;	/* allocated entries */
-	int64_t			*aa_d;		/* aa: per-column D terms */
-	size_t			aa_d_size;	/* allocated entries */
-};
-
-/*
- * Trig via the lws_fx fixed-point operators: pure integer, no FPU or
- * libm dependency, deterministic across platforms.  Angles are e8
- * radians in and out; sin / cos / tan results are Q16.16.
- */
 
 /*
  * Number parsing.  Accepts the SVG grammar for numbers with optional
@@ -1014,22 +707,24 @@ static int
 wpts_grow(lws_svg_t *ctx, size_t need)
 {
 	lws_svg_dpt_t *n;
+	size_t ns;
 
 	if (ctx->wpts_count + need <= ctx->wpts_size)
 		return 0;
 
-	{
-		size_t ns = ctx->wpts_size ? ctx->wpts_size * 2 : 128;
+	ns = ctx->wpts_size ? ctx->wpts_size * 2 : 128;
+	while (ns < ctx->wpts_count + need)
+		ns *= 2;
 
-		while (ns < ctx->wpts_count + need)
-			ns *= 2;
-		ctx->wpts_size = ns;
-	}
+	/* chained generation: the old block stays in the lwsac */
 
-	n = lws_realloc(ctx->wpts, ctx->wpts_size * sizeof(*ctx->wpts), __func__);
+	n = svg_ac_use(ctx, ns * sizeof(*ctx->wpts));
 	if (!n)
 		return 1;
+	if (ctx->wpts_size)
+		memcpy(n, ctx->wpts, ctx->wpts_size * sizeof(*ctx->wpts));
 	ctx->wpts = n;
+	ctx->wpts_size = ns;
 
 	return 0;
 }
@@ -1062,9 +757,12 @@ sub_start(lws_svg_t *ctx, svg_c_t x, svg_c_t y)
 		svg_wsub_t *n;
 		size_t ns = ctx->wsubs_size ? ctx->wsubs_size * 2 : 16;
 
-		n = lws_realloc(ctx->wsubs, ns * sizeof(*ctx->wsubs), __func__);
+		n = svg_ac_use(ctx, ns * sizeof(*ctx->wsubs));
 		if (!n)
 			return 1;
+		if (ctx->wsubs_size)
+			memcpy(n, ctx->wsubs,
+			       ctx->wsubs_size * sizeof(*ctx->wsubs));
 		ctx->wsubs = n;
 		ctx->wsubs_size = ns;
 	}
@@ -1213,17 +911,6 @@ static int64_t
 arc_e8_ratio(int64_t delta, svg_c_t r)
 {
 	return (((delta * 390625) / r) << 8);	/* 390625 = 1e8 / 256 */
-}
-
-static svg_c_t
-arc_sat(int64_t v)
-{
-	if (v > SVG_C_MAX)
-		return (svg_c_t)SVG_C_MAX;
-	if (v < -SVG_C_MAX)
-		return (svg_c_t)-SVG_C_MAX;
-
-	return (svg_c_t)v;
 }
 
 static int
@@ -1799,6 +1486,26 @@ parse_points(lws_svg_t *ctx, char closed)
  * next subpath's start (or the working point count).
  */
 
+/*
+ * The single allocation path: everything lives in the object's lwsac.
+ * Tracks the peak simultaneous footprint as the lwsac total (so it
+ * includes chunk overheads and superseded growth generations).
+ */
+
+void *
+svg_ac_use(lws_svg_t *ctx, size_t nec)
+{
+	void *p = lwsac_use(&ctx->ac, nec, 0);
+
+	if (p) {
+		ctx->heap_now = lwsac_total_alloc(ctx->ac);
+		if (ctx->heap_now > ctx->heap_peak)
+			ctx->heap_peak = ctx->heap_now;
+	}
+
+	return p;
+}
+
 static int
 shape_commit(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba, char rule)
 {
@@ -1811,7 +1518,7 @@ shape_commit(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba, char rule)
 	if (ctx->nshapes >= LWS_SVG_MAX_SHAPES)
 		return 1;
 
-	sh = lwsac_use(&ctx->ac, sizeof(*sh), 0);
+	sh = svg_ac_use(ctx, sizeof(*sh));
 	if (!sh)
 		return 1;
 
@@ -1831,15 +1538,15 @@ shape_commit(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba, char rule)
 			/* cannot bound any fill area */
 			continue;
 
-		sub = lwsac_use(&ctx->ac, sizeof(*sub), 0);
+		sub = svg_ac_use(ctx, sizeof(*sub));
 		if (!sub)
 			return 1;
 
 		memset(sub, 0, sizeof(*sub));
 		sub->closed = ctx->wsubs[i].closed;
 
-		sub->pts = lwsac_use(&ctx->ac,
-				     (size_t)count * sizeof(lws_svg_pt_t), 0);
+		sub->pts = svg_ac_use(ctx,
+				     (size_t)count * sizeof(lws_svg_pt_t));
 		if (!sub->pts)
 			return 1;
 		sub->npts = count;
@@ -2469,13 +2176,12 @@ parse_css(lws_svg_t *ctx)
 						}
 					}
 
-					if (ctx->css_count < LWS_SVG_MAX_CSSRULES) {
-						if (!ctx->css_count) {
-							ctx->css = lws_zalloc(
+					if (ctx->css_count <
+					    LWS_SVG_MAX_CSSRULES) {
+						if (!ctx->css_count)
+							ctx->css = svg_ac_use(ctx,
 								sizeof(*ctx->css) *
-								LWS_SVG_MAX_CSSRULES,
-								__func__);
-						}
+								LWS_SVG_MAX_CSSRULES);
 						if (ctx->css)
 							ctx->css[ctx->css_count++] = r;
 					}
@@ -2937,10 +2643,11 @@ vappend(lws_svg_t *ctx, const char *b, size_t len)
 
 		while (ctx->vlen + len + 2 >= ns)
 			ns *= 2;
-		n = lws_realloc(ctx->vbuf, ns, __func__);
+		n = svg_ac_use(ctx, ns);
 		if (!n)
 			return -1;
-		ctx->vbuf = n;
+		memcpy(n, ctx->vbuf, ctx->vsize);
+		ctx->vbuf = n;	/* old generation stays in the lwsac */
 		ctx->vsize = ns;
 	}
 
@@ -3377,18 +3084,23 @@ tok_step(lws_svg_t *ctx, const uint8_t c, char hold)
 lws_svg_t *
 lws_svg_new(void)
 {
-	lws_svg_t *ctx = lws_zalloc(sizeof(*ctx), __func__);
+	struct lwsac *ac = NULL;
+	lws_svg_t *ctx;
 
+	/* the context is the first block of the object's own lwsac */
+
+	ctx = lwsac_use_zero(&ac, sizeof(*ctx), 0);
 	if (!ctx)
 		return NULL;
+	ctx->ac = ac;
 
 	ctx->ts = SXS_PROLOG;
 	ctx->tol = 6554;	/* 0.1 in Q16.16 */
 	ctx->par_ax = ctx->par_ay = 1;	/* preserveAspectRatio default Mid */
 	ctx->vsize = 256;
-	ctx->vbuf = lws_malloc(ctx->vsize, __func__);
+	ctx->vbuf = svg_ac_use(ctx, ctx->vsize);
 	if (!ctx->vbuf) {
-		lws_free(ctx);
+		lwsac_free(&ctx->ac);
 		return NULL;
 	}
 
@@ -3407,14 +3119,21 @@ lws_svg_free(lws_svg_t **svg)
 	if (!ctx)
 		return;
 
+	/*
+	 * The whole object is one lwsac, so this single free covers the
+	 * context, working buffers, stylesheets and scene.  The peak is
+	 * the lwsac total at its largest, so it includes chunk overheads
+	 * and superseded working-buffer growth generations.
+	 */
+
+	lwsl_info("%s: peak heap %zuB (final %zuB; pts cap %zu x %zuB, "
+		  "subpaths %zu, crossings %zu, aa cols %zu, values %zuB)\n",
+		  __func__, ctx->heap_peak, lwsac_total_alloc(ctx->ac),
+		  ctx->wpts_size, sizeof(lws_svg_dpt_t),
+		  ctx->wsubs_size, ctx->xings_size, ctx->aa_d_size,
+		  ctx->vsize);
+
 	lwsac_free(&ctx->ac);
-	lws_free(ctx->wpts);
-	lws_free(ctx->wsubs);
-	lws_free(ctx->xings);
-	lws_free(ctx->aa_d);
-	lws_free(ctx->vbuf);
-	lws_free(ctx->css);
-	lws_free(ctx);
 
 	*svg = NULL;
 }
@@ -3485,505 +3204,4 @@ char
 lws_svg_get_doc_complete(const lws_svg_t *ctx)
 {
 	return ctx->doc_complete;
-}
-
-/*
- * Scanline rasterization
- */
-
-static int
-cross_cmp(const void *a, const void *b)
-{
-	const lws_svg_cross_t *ca = (const lws_svg_cross_t *)a;
-	const lws_svg_cross_t *cb = (const lws_svg_cross_t *)b;
-
-	return (ca->x > cb->x) - (ca->x < cb->x);
-}
-
-static int
-xings_grow(lws_svg_t *ctx, size_t need)
-{
-	if (need <= ctx->xings_size)
-		return 0;
-
-	{
-		size_t ns = ctx->xings_size ? ctx->xings_size * 2 : 64;
-		lws_svg_cross_t *n;
-
-		while (ns < need)
-			ns *= 2;
-
-		n = lws_realloc(ctx->xings, ns * sizeof(*ctx->xings), __func__);
-		if (!n)
-			return 1;
-		ctx->xings = n;
-		ctx->xings_size = ns;
-	}
-
-	return 0;
-}
-
-typedef struct {
-	lws_svg_span_cb_t	cb;
-	void			*user;
-	int			w;
-	uint32_t		rgba;
-} svg_emit_t;
-
-
-/*
- * Exact-area antialiasing.
- *
- * For the output row band [y, y + 1), every boundary edge is clipped to the
- * band; a straight piece from (xa, ya) to (xb, yb) with ya != yb contributes
- * to the covered fraction of each pixel column p through the winding
- * integral
- *
- *   raw(p) = sum_i s_i * integral of clamp(p + 1 - x_e,i, 0, 1) dyy
- *
- * over the band, where s is the edge direction and x_e the edge x at yy.
- * Since x_e is linear in yy, each term is the integral of a linear function
- * clamped to [0, 1] (a "ramp area"), and
- *
- *   raw(p + 1) - raw(p) = sum_i s_i * tent(p + 1, x_e,i) dyy
- *
- * with tent(c, x) a unit tent centred at c, so columns only receive
- * contributions from edges passing near them.  Sweeping raw(0) + sum(D)
- * left to right yields each column's exact covered fraction; clamping its
- * magnitude gives nonzero-rule coverage.  Corners inside a pixel, thin
- * features and slivers between scanlines are all handled exactly, since
- * there are no sample lines.
- */
-
-/*
- * Exact integral over t in [0, 1) of clamp(v(t), 0, 1), for v linear from
- * v0 to v1 (Q16.16 in and out).  Decomposes at the at-most-two clamp level
- * crossings and sums trapezoids of the clamped value.
- */
-
-static int32_t
-aa_ramp(int64_t v0, int64_t v1)
-{
-	int64_t t[4], sum = 0;
-	int n = 0, i, j;
-
-	t[n++] = 0;
-	if ((v0 < 0) != (v1 < 0))
-		t[n++] = (-v0) * SVG_Q16_1 / (v1 - v0);
-	if ((v0 < SVG_Q16_1) != (v1 < SVG_Q16_1))
-		t[n++] = (SVG_Q16_1 - v0) * SVG_Q16_1 / (v1 - v0);
-	t[n++] = SVG_Q16_1;
-
-	for (i = 1; i < n; i++) {
-		int64_t k = t[i];
-
-		for (j = i - 1; j >= 0 && t[j] > k; j--)
-			t[j + 1] = t[j];
-		t[j + 1] = k;
-	}
-
-	for (i = 0; i + 1 < n; i++) {
-		int64_t dt = t[i + 1] - t[i];
-		int64_t va = v0 + (v1 - v0) * t[i] / SVG_Q16_1;
-		int64_t vb = v0 + (v1 - v0) * t[i + 1] / SVG_Q16_1;
-
-		if (va < 0)
-			va = 0;
-		if (va > SVG_Q16_1)
-			va = SVG_Q16_1;
-		if (vb < 0)
-			vb = 0;
-		if (vb > SVG_Q16_1)
-			vb = SVG_Q16_1;
-
-		sum += (va + vb) * dt;
-	}
-
-	return (int32_t)((sum + (1 << 16)) >> 17);
-}
-
-/*
- * Accumulate one band-clipped edge into the column D terms and the raw(0)
- * base.  Device-space Q16.16; the interpolation pre-shifts by one bit to
- * keep the products inside int64.
- */
-
-static void
-aa_edge(int64_t *aa_d, int w, int64_t yt, int64_t yb,
-	int64_t x0, int64_t y0, int64_t x1, int64_t y1,
-	int64_t *raw0, int *alo, int *ahi)
-{
-	int64_t lo = yt, hi = yb, s, dy, xa, xb, den, dx;
-	int p, p_lo, p_hi;
-
-	if (y0 == y1)
-		return;			/* horizontal: no winding change */
-
-	if (y0 < y1) {
-		s = 1;
-	} else {
-		int64_t t;
-
-		s = -1;
-		t = x0; x0 = x1; x1 = t;
-		t = y0; y0 = y1; y1 = t;
-	}
-
-	if (y1 <= lo || y0 >= hi)
-		return;			/* outside the band */
-
-	if (y0 > lo)
-		lo = y0;
-	if (y1 < hi)
-		hi = y1;
-	dy = hi - lo;
-	if (dy <= 0)
-		return;
-
-	den = y1 - y0;			/* > 0 */
-	dx = x1 - x0;
-
-	/*
-	 * x at the clipped positions: both factors are pre-shifted one
-	 * bit to keep the product in int64, so the quotient needs <<2.
-	 * The quotient itself is bounded by dx, so the shift cannot
-	 * overflow.
-	 */
-
-	xa = x0 + ((((dx >> 1) * ((lo - y0) >> 1)) / den) << 2);
-	xb = x0 + ((((dx >> 1) * ((hi - y0) >> 1)) / den) << 2);
-
-
-	/* winding integral of column 0 */
-
-	*raw0 += s * (((int64_t)aa_ramp(SVG_Q16_1 - xa,
-					SVG_Q16_1 - xb) * dy) >> 16);
-
-	/* localized tent contributions to D(p) = raw(p + 1) - raw(p) */
-
-	p_lo = (int)((xa < xb ? xa : xb) >> 16) - 2;
-	p_hi = (int)((xa > xb ? xa : xb) >> 16) + 1;
-	if (p_lo < 0)
-		p_lo = 0;
-	if (p_hi > w - 1)
-		p_hi = w - 1;
-
-	for (p = p_lo; p <= p_hi; p++) {
-		int64_t c = (int64_t)(p + 1) << 16;
-		int64_t tent = aa_ramp(xa - c + SVG_Q16_1,
-				       xb - c + SVG_Q16_1) +
-			       aa_ramp(c + SVG_Q16_1 - xa,
-				       c + SVG_Q16_1 - xb) -
-			       SVG_Q16_1;
-
-		if (tent < 0)
-			tent = 0;
-		if (tent > SVG_Q16_1)
-			tent = SVG_Q16_1;
-
-		aa_d[p] += s * ((tent * dy) >> 16);
-	}
-
-	if (p_hi >= p_lo) {
-		if (p_lo < *alo)
-			*alo = p_lo;
-		if (p_hi > *ahi)
-			*ahi = p_hi;
-	}
-}
-
-/* map a user-space coordinate into the device raster */
-
-static int64_t
-aa_map(int64_t u, svg_c_t vb, svg_c_t sc, svg_c_t o)
-{
-	return arc_sat(((((u - vb) >> 1) * sc >> 16) << 1) + o);
-}
-
-/*
- * The antialiased band pass: accumulate raw(0) and the D terms over all
- * band-clipped edges of the shape, then sweep left to right emitting
- * constant-alpha runs.
- */
-
-static lws_stateful_ret_t
-aa_band(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
-	svg_c_t sx, svg_c_t sy, svg_c_t ox, svg_c_t oy,
-	svg_c_t vbx, svg_c_t vby, lws_svg_span_cb_t cb, void *user)
-{
-	const int w = ri->w;
-	const int64_t yt = (int64_t)y << 16, yb = yt + SVG_Q16_1;
-
-	if ((size_t)w > ctx->aa_d_size) {
-		size_t ns = ctx->aa_d_size ? ctx->aa_d_size * 2 : 256;
-		int64_t *n;
-
-		while (ns < (size_t)w)
-			ns *= 2;
-
-		n = lws_realloc(ctx->aa_d, ns * sizeof(*ctx->aa_d), __func__);
-		if (!n)
-			return LWS_SRET_FATAL;
-		/* the sweep reads every column, so keep the buffer zeroed */
-		memset(n + ctx->aa_d_size, 0,
-		       (ns - ctx->aa_d_size) * sizeof(*n));
-		ctx->aa_d = n;
-		ctx->aa_d_size = ns;
-	}
-
-	lws_start_foreach_dll(lws_dll2_t *, d, lws_dll2_get_head(&ctx->shapes)) {
-		lws_svg_shape_t *sh = lws_container_of(d, lws_svg_shape_t, list);
-		int64_t raw0 = 0;
-		int alo = w, ahi = -1;
-		uint32_t base = sh->rgba & 0x00ffffff;
-		int fill_a = (int)LWS_SVG_ALPHA(sh->rgba);
-
-		if (!fill_a)
-			continue;	/* nothing painted */
-
-		lws_start_foreach_dll(lws_dll2_t *, d2,
-					      lws_dll2_get_head(&sh->subs)) {
-			lws_svg_sub_t *sub = lws_container_of(d2,
-							lws_svg_sub_t, list);
-			int64_t px, py;
-			uint32_t i;
-
-			if (!sub->npts)
-				continue;
-
-			px = aa_map(sub->pts[0].x, vbx, sx, ox);
-			py = aa_map(sub->pts[0].y, vby, sy, oy);
-
-			/* fill closes open subpaths implicitly */
-
-			for (i = 0; i < sub->npts; i++) {
-				lws_svg_pt_t *Q = &sub->pts[
-					i + 1 == sub->npts ? 0 : i + 1];
-				int64_t qx = aa_map(Q->x, vbx, sx, ox);
-				int64_t qy = aa_map(Q->y, vby, sy, oy);
-
-				aa_edge(ctx->aa_d, w, yt, yb,
-					px, py, qx, qy, &raw0, &alo, &ahi);
-
-				px = qx;
-				py = qy;
-			}
-		} lws_end_foreach_dll(d2);
-
-		/* sweep: raw(p) = raw(0) + sum of D(q < p) */
-
-		{
-			int64_t raw = raw0;
-			int prev_a = -1, span0 = 0, p;
-
-			for (p = 0; p < w; p++) {
-				int64_t cov = raw < 0 ? -raw : raw;
-				int alpha;
-
-				if (cov > SVG_Q16_1)
-					cov = SVG_Q16_1;
-				alpha = (int)((cov * fill_a + 32768) >> 16);
-
-				if (alpha != prev_a) {
-					if (prev_a > 0)
-						cb(user, span0, p, base |
-						   ((uint32_t)prev_a << 24));
-					prev_a = alpha;
-					span0 = p;
-				}
-
-				raw += ctx->aa_d[p];
-			}
-
-			if (prev_a > 0)
-				cb(user, span0, w, base |
-						   ((uint32_t)prev_a << 24));
-		}
-
-		/* clear only the touched columns for the next shape */
-
-		if (ahi >= alo)
-			memset(&ctx->aa_d[alo], 0,
-			       (size_t)(ahi - alo + 1) * sizeof(ctx->aa_d[0]));
-	} lws_end_foreach_dll(d);
-
-	return LWS_SRET_OK;
-}
-
-static int
-emit_span(svg_emit_t *e, svg_c_t xa, svg_c_t xb)
-{
-	int x0, x1;
-
-	/* pixel p is covered when xa <= p + 0.5 < xb, in Q16.16 */
-
-	x0 = svg_ceil_q16((int64_t)xa - SVG_Q16_1 / 2);
-	x1 = svg_ceil_q16((int64_t)xb - SVG_Q16_1 / 2);
-
-	if (x0 < 0)
-		x0 = 0;
-	if (x1 > e->w)
-		x1 = e->w;
-
-	if (x1 <= x0)
-		return 0;
-
-	return e->cb(e->user, x0, x1, e->rgba);
-}
-
-lws_stateful_ret_t
-lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
-		    lws_svg_span_cb_t cb, void *user)
-{
-	svg_c_t sx = SVG_Q16_1, sy = SVG_Q16_1, ox = 0, oy = 0;
-	svg_c_t vbx = 0, vby = 0, ys;
-	svg_emit_t e;
-
-	if (y < 0 || y >= ri->h || ri->w <= 0)
-		return LWS_SRET_OK;
-
-	/*
-	 * Map user space into the raster according to the sizing policy.
-	 * Divisions are safe because the denominators are clamped
-	 * positive, and the resulting scales are floored at 1/65536.
-	 */
-
-	if (ctx->has_vb && ctx->vb[2] > 0 && ctx->vb[3] > 0) {
-		int64_t sxq = ((int64_t)ri->w * SVG_Q16_1 * SVG_Q16_1) /
-								ctx->vb[2];
-		int64_t syq = ((int64_t)ri->h * SVG_Q16_1 * SVG_Q16_1) /
-								ctx->vb[3];
-
-		sx = arc_sat(sxq);
-		sy = arc_sat(syq);
-		if (!sx)
-			sx = 1;
-		if (!sy)
-			sy = 1;
-
-		if (!ctx->par_none) {
-			svg_c_t s = ctx->par_slice ?
-					(sx > sy ? sx : sy) : (sx < sy ? sx : sy);
-
-			sx = sy = s;
-			ox = arc_sat(((int64_t)ri->w * SVG_Q16_1 -
-				(((int64_t)ctx->vb[2] * s) >> 16)) *
-				ctx->par_ax / 2);
-			oy = arc_sat(((int64_t)ri->h * SVG_Q16_1 -
-				(((int64_t)ctx->vb[3] * s) >> 16)) *
-				ctx->par_ay / 2);
-		}
-
-		vbx = ctx->vb[0];
-		vby = ctx->vb[1];
-	} else {
-		svg_c_t w0 = (ctx->has_w && !ctx->unit_w && ctx->width > 0) ?
-				ctx->width : 0;
-		svg_c_t h0 = (ctx->has_h && !ctx->unit_h && ctx->height > 0) ?
-				ctx->height : 0;
-
-		if (w0 > 0)
-			sx = arc_sat(((int64_t)ri->w * SVG_Q16_1 * SVG_Q16_1) /
-					w0);
-		if (h0 > 0)
-			sy = arc_sat(((int64_t)ri->h * SVG_Q16_1 * SVG_Q16_1) /
-					h0);
-	}
-
-	/* sample the line at the pixel centre, in user space */
-
-	ys = arc_sat((((int64_t)y * SVG_Q16_1 + SVG_Q16_1 / 2 - oy) << 16) /
-								sy + vby);
-
-	e.cb = cb;
-	e.user = user;
-	e.w = ri->w;
-
-	if (ri->aa)
-		return aa_band(ctx, ri, y, sx, sy, ox, oy, vbx, vby,
-			       cb, user);
-
-	lws_start_foreach_dll(lws_dll2_t *, d, lws_dll2_get_head(&ctx->shapes)) {
-		lws_svg_shape_t *sh = lws_container_of(d, lws_svg_shape_t, list);
-		size_t n = 0;
-
-		if (!LWS_SVG_ALPHA(sh->rgba))
-			continue;	/* nothing painted */
-
-		lws_start_foreach_dll(lws_dll2_t *, d2,
-					      lws_dll2_get_head(&sh->subs)) {
-			lws_svg_sub_t *sub = lws_container_of(d2,
-							lws_svg_sub_t, list);
-			uint32_t i;
-
-			if (xings_grow(ctx, n + sub->npts + 1))
-				return LWS_SRET_FATAL;
-
-			/* fill closes open subpaths implicitly, so every
-			 * subpath walks a closing edge too.  The crossing
-			 * interpolation keeps products inside int64 by
-			 * pre-shifting; since ys lies between the endpoint
-			 * ys, the quotient is bounded by the edge dx.
-			 */
-
-			for (i = 0; i < sub->npts; i++) {
-				lws_svg_pt_t *p = &sub->pts[i];
-				lws_svg_pt_t *q = &sub->pts[
-					i + 1 == sub->npts ? 0 : i + 1];
-
-				if ((p->y > ys) != (q->y > ys)) {
-					int64_t dy = (int64_t)q->y - p->y;
-					int64_t num = (((int64_t)ys - p->y) >> 1) *
-						      (((int64_t)q->x - p->x) >> 1);
-					int64_t xu = (int64_t)p->x +
-							((num / dy) << 2);
-
-					/* map the crossing into device space */
-
-					ctx->xings[n].x = arc_sat(
-						((((xu - (int64_t)vbx) >> 1) *
-						  sx >> 16) << 1) + ox);
-					ctx->xings[n].dir = q->y > p->y ? 1 : -1;
-					n++;
-				}
-			}
-		} lws_end_foreach_dll(d2);
-
-		if (n < 2)
-			continue;
-
-		qsort(ctx->xings, n, sizeof(ctx->xings[0]), cross_cmp);
-
-		e.rgba = sh->rgba;
-
-		if (!sh->rule) {
-			/* nonzero winding */
-
-			int wind = 0, i, start = -1;
-
-			for (i = 0; i < (int)n; i++) {
-				if (!wind)
-					start = i;
-				wind += ctx->xings[i].dir;
-				if (!wind && start >= 0) {
-					if (emit_span(&e,
-						      ctx->xings[start].x,
-						      ctx->xings[i].x))
-						return LWS_SRET_OK;
-					start = -1;
-				}
-			}
-		} else {
-			/* even-odd */
-
-			size_t i;
-
-			for (i = 0; i + 1 < n; i += 2)
-				if (emit_span(&e, ctx->xings[i].x,
-					      ctx->xings[i + 1].x))
-					return LWS_SRET_OK;
-		}
-	} lws_end_foreach_dll(d);
-
-	return LWS_SRET_OK;
 }
