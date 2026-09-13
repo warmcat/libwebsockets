@@ -1678,7 +1678,10 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 		current_start_pts = start_entry ? get_entry_dts(st, start_entry) : 0;
 	}
 	int64_t last_pts = current_start_pts;
-	
+	/* HLS-TRACE diagnostics for the degenerate-grouping case */
+	int kf_flagged = 0;
+	double max_dur_seen = 0.0;
+
 	if (out_info && target_seg_idx == 0) {
 		out_info->start_pts = current_start_pts;
 		out_info->seek_pts = start_entry ? start_entry->timestamp : 0;
@@ -1688,6 +1691,7 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 		const AVIndexEntry *entry = get_index_entry(st, i);
 		if (!entry) continue;
 		if (!(entry->flags & AVINDEX_KEYFRAME)) continue;
+		kf_flagged++;
 
 		int64_t entry_dts = AV_NOPTS_VALUE;
 		if (idx && i < idx->count && idx->entries[i].dts != AV_NOPTS_VALUE) {
@@ -1697,6 +1701,8 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 		}
 
 		double dur = (double)(entry_dts - current_start_pts) * av_q2d(st->time_base);
+		if (dur > max_dur_seen)
+			max_dur_seen = dur;
 		if (dur >= (double)HLS_SEGMENT_DUR) {
 			if (out_info && current_seg == target_seg_idx) {
 				out_info->end_pts = entry_dts;
@@ -1760,10 +1766,23 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 
 		if (total_dur_s > 2.0 * HLS_SEGMENT_DUR &&
 		    total_dur_s / (double)(current_seg + 1) > 2.0 * HLS_SEGMENT_DUR) {
+			const AVIndexEntry *el = count > 0 ? get_index_entry(st, count - 1) : NULL;
+
 			lwsl_warn("HLS-INDEX: %s: keyframe grouping degenerate "
 				  "(%d segment(s) for %.0fs); using duration-based "
 				  "segments\n", filename, current_seg + 1,
 				  total_dur_s);
+			/* one line with everything needed to see WHY it degenerated */
+			lwsl_warn("HLS-INDEX:   diag: count=%d kf_flagged=%d tb=%d/%d "
+				  "start_dts=%lld idxdts0=%lld ts[first]=%lld ts[last]=%lld "
+				  "idxdts[last]=%lld max_dur=%.3fs\n",
+				  count, kf_flagged, st->time_base.num, st->time_base.den,
+				  (long long)current_start_pts,
+				  (idx && idx->count > 0) ? (long long)idx->entries[0].dts : -1,
+				  start_entry ? (long long)start_entry->timestamp : -1,
+				  el ? (long long)el->timestamp : -1,
+				  (idx && idx->count > 0) ? (long long)idx->entries[idx->count - 1].dts : -1,
+				  max_dur_seen);
 			return -1;
 		}
 	}
