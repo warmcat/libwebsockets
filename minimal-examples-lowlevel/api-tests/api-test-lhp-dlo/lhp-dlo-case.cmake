@@ -28,21 +28,35 @@ if (LOCALIZE)
 	# every time.
 	#
 	file(READ ${HTML} html)
-	string(REGEX REPLACE "(href|src)=([\"'])(https?:)?//" "\\1=\\2missing/" html "${html}")
-	# the copy lives in the build dir: keep relative references (captured
-	# stylesheets, images) pointing at the source directory
 	get_filename_component(HD ${HTML} DIRECTORY)
-	string(REGEX REPLACE "(href|src)=\"([^\"/:#][^\":]*)\"" "\\1=\"file://${HD}/\\2\"" html "${html}")
-	string(REGEX REPLACE "(href|src)=\"/([^\"/][^\":]*)\"" "\\1=\"file://${HD}/\\2\"" html "${html}")
 	get_filename_component(HN ${HTML} NAME)
 	get_filename_component(OD ${OUT} DIRECTORY)
 
+	# An asset that the page pulls from the network can be made available
+	# offline by placing it in the capture at revived/<host>/<path>; refs
+	# to files that exist there are pointed at the local copy instead of
+	# being made to fail
+
+	file(GLOB_RECURSE REVIVED RELATIVE ${HD} "${HD}/revived/*")
+	foreach(RV ${REVIVED})
+		string(SUBSTRING ${RV} 8 -1 RP)		# peel off "revived/"
+		string(REPLACE "https://${RP}" "file://${HD}/revived/${RP}" html "${html}")
+		string(REPLACE "http://${RP}" "file://${HD}/revived/${RP}" html "${html}")
+		string(REPLACE "//${RP}" "file://${HD}/revived/${RP}" html "${html}")
+	endforeach()
+
+	string(REGEX REPLACE "(href|src)=([\"'])(https?:)?//" "\\1=\\2missing/" html "${html}")
+	# the copy lives in the build dir: keep relative references (captured
+	# stylesheets, images) pointing at the source directory
+	string(REGEX REPLACE "(href|src)=\"([^\"/:#][^\":]*)\"" "\\1=\"file://${HD}/\\2\"" html "${html}")
+	string(REGEX REPLACE "(href|src)=\"/([^\"/][^\":]*)\"" "\\1=\"file://${HD}/\\2\"" html "${html}")
+
 	#
 	# The same remote references appear as url(...) inside captured local
-	# stylesheets.  Copy each css into the build dir with those url()s
-	# pointed at a local path that does not exist, and repoint the html
-	# at the copies, so css-driven image fetches also fail the same way
-	# every run.
+	# stylesheets.  Copy each css into the build dir, pointing url()s of
+	# assets that exist under revived/ at the local copy and the rest at a
+	# local path that does not exist, and repoint the html at the copies,
+	# so css-driven image fetches are the same every run.
 	#
 
 	file(GLOB CSSFILES "${HD}/assets/*.css")
@@ -50,6 +64,12 @@ if (LOCALIZE)
 		file(MAKE_DIRECTORY "${OD}/${HN}-assets")
 		foreach(CS ${CSSFILES})
 			file(READ ${CS} css)
+			foreach(RV ${REVIVED})
+				string(SUBSTRING ${RV} 8 -1 RP)
+				string(REPLACE "https://${RP}" "file://${HD}/revived/${RP}" css "${css}")
+				string(REPLACE "http://${RP}" "file://${HD}/revived/${RP}" css "${css}")
+				string(REPLACE "//${RP}" "file://${HD}/revived/${RP}" css "${css}")
+			endforeach()
 			string(REGEX REPLACE "url\\(([\"']?)(https?:)?//" "url(\\1missing/" css "${css}")
 			get_filename_component(CN ${CS} NAME)
 			file(WRITE "${OD}/${HN}-assets/${CN}" "${css}")
