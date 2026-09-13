@@ -634,7 +634,7 @@ static const char *digest_toks[] = {
 enum lws_check_basic_auth_results
 lws_http_digest_auth(struct lws* wsi)
 {
-	uint8_t nonce[256], response[LWS_GENHASH_LARGEST], qop[32];
+	uint8_t nonce[256], response[LWS_GENHASH_LARGEST * 2 + 1], qop[32];
 	int seen = 0, n, pend = -1;
 	char *tmp_digest = NULL;
 	struct lws_tokenize ts;
