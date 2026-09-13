@@ -151,6 +151,12 @@ dump_dlo(FILE *f, lws_dlo_t *dlo, int depth)
 				b[0], b[1], b[2], b[3]);
 		else
 #endif
+#if defined(LWS_WITH_SVG)
+		if (dlo->_destroy == lws_display_dlo_svg_destroy)
+			fprintf(f, "svg (%s,%s) [%s x %s]\n",
+				b[0], b[1], b[2], b[3]);
+		else
+#endif
 		{
 			lws_dlo_rect_t *r = lws_container_of(dlo,
 							lws_dlo_rect_t, dlo);

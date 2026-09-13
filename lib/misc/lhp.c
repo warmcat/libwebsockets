@@ -3854,7 +3854,7 @@ done_amp:
 				ctx->npos = 0;
 				break;
 			}
-			if (c == '/') {
+			if (c == '/' && !ctx->u.f.infunc) {
 				ctx->state = LCSPS_CCOM_S1;
 				break;
 			}
@@ -4253,7 +4253,16 @@ issue_post:
 				ctx->state = LCSPS_CCOM;
 				break;
 			}
+
+			/*
+			 * It was not a comment start after all.  Restore the
+			 * state and reprocess this char in it; eating it
+			 * silently corrupted values like url(.../sd/...)
+			 */
+
 			ctx->state = ctx->state_css_comm;
+			(*buf)--;
+			(*len)++;
 			break;
 
 		case LCSPS_CSS_OUTER_TAG1:
