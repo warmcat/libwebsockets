@@ -59,10 +59,25 @@ points are arranged as minimal subpaths); exceeding any cap is a FATAL
 parse result, as is nesting deeper than 24 elements.
 
 At render time, one scratch buffer of 16B per scanline crossing of the
-largest shape is allocated on first use and reused for every line.  Spans
-are delivered to a caller callback, so the renderer itself holds no output
-buffer at all; the line buffer is the caller's (in the dlo integration, the
-existing display line composition buffer).
+largest shape is allocated on first use and reused for every line, plus (for
+antialiased rendering) one int64 per output column.  Spans are delivered to
+a caller callback, so the renderer itself holds no output buffer at all;
+the line buffer is the caller's (in the dlo integration, the existing
+display line composition buffer).
+
+## Antialiasing
+
+With `lws_svg_render_t.aa` set, coverage is the exact covered fraction of
+each pixel rather than a centre sample: for each output row, every boundary
+edge is clipped to the row band and contributes clipped-linear "ramp" areas
+to a per-column winding integral, swept left to right into per-pixel
+fractions (the cell/area approach used by FreeType-class rasterizers, in
+pure integer arithmetic — no supersampling anywhere).  Corners inside a
+pixel, thin features and slivers between scanlines are handled exactly.
+Spans are split where the fraction changes and the alpha byte carries
+`fill alpha x coverage`, so it composites through the existing alpha path.
+Binary coverage remains the default; the dlo integration renders
+antialiased.
 
 ## Supported subset
 
@@ -149,16 +164,14 @@ lws_svg_render_line(lws_svg_t *svg, const lws_svg_render_t *ri, int y,
 		    lws_svg_span_cb_t cb, void *user);
 ```
 
-`ri` gives the output raster size in px; the document's viewBox and
-preserveAspectRatio policy map the user-space geometry into it.  Line `y`
-is sampled at the pixel centres and the filled spans are delivered to `cb`
-in ascending x, in document order, as half-open `[x0, x1)` pixel ranges
-with the span's composed RGBA (alpha already includes opacity composition).
-
-Coverage is binary at pixel centres in this phase; antialiased rendering
-can be layered on top later by aggregating subsampled lines.  Lines may be
-requested in any order and repeatedly; the only mutation of the context is
-growth of the crossing scratch buffer.
+`ri` gives the output raster size in px (and whether to antialias, see
+above); the document's viewBox and preserveAspectRatio policy map the
+user-space geometry into it.  The filled spans are delivered to `cb` in
+ascending x, in document order, as half-open `[x0, x1)` pixel ranges with
+the span's composed RGBA (alpha already includes opacity composition, and
+with aa set, the per-pixel coverage).  Lines may be requested in any order
+and repeatedly; the only mutation of the context is growth of the scratch
+buffers.
 
 ## Integration with dlo and lhp
 

@@ -144,6 +144,7 @@ lws_display_render_svg(struct lws_display_render_state *rs)
 
 	ri.w = e - s;
 	ri.h = h;
+	ri.aa = 1;	/* area-antialiased coverage through the line alpha */
 
 	sc.rs = rs;
 	sc.x = s;

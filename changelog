@@ -4,6 +4,16 @@ Changelog
 Development
 ===========
 
+ - svg: exact-area antialiasing.  With lws_svg_render_t.aa set, coverage is the
+   exact covered fraction of each pixel, computed as the winding integral over
+   the pixel from band-clipped boundary edges contributing clipped-linear
+   ramp areas (the FreeType-class cell/area approach, in pure integer
+   arithmetic — no supersampling): corners inside a pixel, thin features and
+   slivers between scanlines are exact, spans split where the fraction
+   changes, and alpha carries fill alpha x coverage through the existing
+   compositing.  Binary centre-sampled coverage remains the default; the dlo
+   integration and the eyeball tool render antialiased.  Includes exact
+   half/quarter-pixel and 45-degree boundary checks in lws-api-test-svg
  - svg: the renderer is now pure integer arithmetic end-to-end, on the lws_fx
    fixed-point basis: Q16.16 saturating coordinates, transforms and raster
    math, and e8 (1e-8) parse values, angles and opacity via the lws_fx

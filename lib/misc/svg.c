@@ -425,6 +425,8 @@ struct lws_svg {
 
 	lws_svg_cross_t		*xings;
 	size_t			xings_size;	/* allocated entries */
+	int64_t			*aa_d;		/* aa: per-column D terms */
+	size_t			aa_d_size;	/* allocated entries */
 };
 
 /*
@@ -3409,6 +3411,7 @@ lws_svg_free(lws_svg_t **svg)
 	lws_free(ctx->wpts);
 	lws_free(ctx->wsubs);
 	lws_free(ctx->xings);
+	lws_free(ctx->aa_d);
 	lws_free(ctx->vbuf);
 	lws_free(ctx->css);
 	lws_free(ctx);
@@ -3528,6 +3531,285 @@ typedef struct {
 } svg_emit_t;
 
 
+/*
+ * Exact-area antialiasing.
+ *
+ * For the output row band [y, y + 1), every boundary edge is clipped to the
+ * band; a straight piece from (xa, ya) to (xb, yb) with ya != yb contributes
+ * to the covered fraction of each pixel column p through the winding
+ * integral
+ *
+ *   raw(p) = sum_i s_i * integral of clamp(p + 1 - x_e,i, 0, 1) dyy
+ *
+ * over the band, where s is the edge direction and x_e the edge x at yy.
+ * Since x_e is linear in yy, each term is the integral of a linear function
+ * clamped to [0, 1] (a "ramp area"), and
+ *
+ *   raw(p + 1) - raw(p) = sum_i s_i * tent(p + 1, x_e,i) dyy
+ *
+ * with tent(c, x) a unit tent centred at c, so columns only receive
+ * contributions from edges passing near them.  Sweeping raw(0) + sum(D)
+ * left to right yields each column's exact covered fraction; clamping its
+ * magnitude gives nonzero-rule coverage.  Corners inside a pixel, thin
+ * features and slivers between scanlines are all handled exactly, since
+ * there are no sample lines.
+ */
+
+/*
+ * Exact integral over t in [0, 1) of clamp(v(t), 0, 1), for v linear from
+ * v0 to v1 (Q16.16 in and out).  Decomposes at the at-most-two clamp level
+ * crossings and sums trapezoids of the clamped value.
+ */
+
+static int32_t
+aa_ramp(int64_t v0, int64_t v1)
+{
+	int64_t t[4], sum = 0;
+	int n = 0, i, j;
+
+	t[n++] = 0;
+	if ((v0 < 0) != (v1 < 0))
+		t[n++] = (-v0) * SVG_Q16_1 / (v1 - v0);
+	if ((v0 < SVG_Q16_1) != (v1 < SVG_Q16_1))
+		t[n++] = (SVG_Q16_1 - v0) * SVG_Q16_1 / (v1 - v0);
+	t[n++] = SVG_Q16_1;
+
+	for (i = 1; i < n; i++) {
+		int64_t k = t[i];
+
+		for (j = i - 1; j >= 0 && t[j] > k; j--)
+			t[j + 1] = t[j];
+		t[j + 1] = k;
+	}
+
+	for (i = 0; i + 1 < n; i++) {
+		int64_t dt = t[i + 1] - t[i];
+		int64_t va = v0 + (v1 - v0) * t[i] / SVG_Q16_1;
+		int64_t vb = v0 + (v1 - v0) * t[i + 1] / SVG_Q16_1;
+
+		if (va < 0)
+			va = 0;
+		if (va > SVG_Q16_1)
+			va = SVG_Q16_1;
+		if (vb < 0)
+			vb = 0;
+		if (vb > SVG_Q16_1)
+			vb = SVG_Q16_1;
+
+		sum += (va + vb) * dt;
+	}
+
+	return (int32_t)((sum + (1 << 16)) >> 17);
+}
+
+/*
+ * Accumulate one band-clipped edge into the column D terms and the raw(0)
+ * base.  Device-space Q16.16; the interpolation pre-shifts by one bit to
+ * keep the products inside int64.
+ */
+
+static void
+aa_edge(int64_t *aa_d, int w, int64_t yt, int64_t yb,
+	int64_t x0, int64_t y0, int64_t x1, int64_t y1,
+	int64_t *raw0, int *alo, int *ahi)
+{
+	int64_t lo = yt, hi = yb, s, dy, xa, xb, den, dx;
+	int p, p_lo, p_hi;
+
+	if (y0 == y1)
+		return;			/* horizontal: no winding change */
+
+	if (y0 < y1) {
+		s = 1;
+	} else {
+		int64_t t;
+
+		s = -1;
+		t = x0; x0 = x1; x1 = t;
+		t = y0; y0 = y1; y1 = t;
+	}
+
+	if (y1 <= lo || y0 >= hi)
+		return;			/* outside the band */
+
+	if (y0 > lo)
+		lo = y0;
+	if (y1 < hi)
+		hi = y1;
+	dy = hi - lo;
+	if (dy <= 0)
+		return;
+
+	den = y1 - y0;			/* > 0 */
+	dx = x1 - x0;
+
+	/*
+	 * x at the clipped positions: both factors are pre-shifted one
+	 * bit to keep the product in int64, so the quotient needs <<2.
+	 * The quotient itself is bounded by dx, so the shift cannot
+	 * overflow.
+	 */
+
+	xa = x0 + ((((dx >> 1) * ((lo - y0) >> 1)) / den) << 2);
+	xb = x0 + ((((dx >> 1) * ((hi - y0) >> 1)) / den) << 2);
+
+
+	/* winding integral of column 0 */
+
+	*raw0 += s * (((int64_t)aa_ramp(SVG_Q16_1 - xa,
+					SVG_Q16_1 - xb) * dy) >> 16);
+
+	/* localized tent contributions to D(p) = raw(p + 1) - raw(p) */
+
+	p_lo = (int)((xa < xb ? xa : xb) >> 16) - 2;
+	p_hi = (int)((xa > xb ? xa : xb) >> 16) + 1;
+	if (p_lo < 0)
+		p_lo = 0;
+	if (p_hi > w - 1)
+		p_hi = w - 1;
+
+	for (p = p_lo; p <= p_hi; p++) {
+		int64_t c = (int64_t)(p + 1) << 16;
+		int64_t tent = aa_ramp(xa - c + SVG_Q16_1,
+				       xb - c + SVG_Q16_1) +
+			       aa_ramp(c + SVG_Q16_1 - xa,
+				       c + SVG_Q16_1 - xb) -
+			       SVG_Q16_1;
+
+		if (tent < 0)
+			tent = 0;
+		if (tent > SVG_Q16_1)
+			tent = SVG_Q16_1;
+
+		aa_d[p] += s * ((tent * dy) >> 16);
+	}
+
+	if (p_hi >= p_lo) {
+		if (p_lo < *alo)
+			*alo = p_lo;
+		if (p_hi > *ahi)
+			*ahi = p_hi;
+	}
+}
+
+/* map a user-space coordinate into the device raster */
+
+static int64_t
+aa_map(int64_t u, svg_c_t vb, svg_c_t sc, svg_c_t o)
+{
+	return arc_sat(((((u - vb) >> 1) * sc >> 16) << 1) + o);
+}
+
+/*
+ * The antialiased band pass: accumulate raw(0) and the D terms over all
+ * band-clipped edges of the shape, then sweep left to right emitting
+ * constant-alpha runs.
+ */
+
+static lws_stateful_ret_t
+aa_band(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
+	svg_c_t sx, svg_c_t sy, svg_c_t ox, svg_c_t oy,
+	svg_c_t vbx, svg_c_t vby, lws_svg_span_cb_t cb, void *user)
+{
+	const int w = ri->w;
+	const int64_t yt = (int64_t)y << 16, yb = yt + SVG_Q16_1;
+
+	if ((size_t)w > ctx->aa_d_size) {
+		size_t ns = ctx->aa_d_size ? ctx->aa_d_size * 2 : 256;
+		int64_t *n;
+
+		while (ns < (size_t)w)
+			ns *= 2;
+
+		n = lws_realloc(ctx->aa_d, ns * sizeof(*ctx->aa_d), __func__);
+		if (!n)
+			return LWS_SRET_FATAL;
+		/* the sweep reads every column, so keep the buffer zeroed */
+		memset(n + ctx->aa_d_size, 0,
+		       (ns - ctx->aa_d_size) * sizeof(*n));
+		ctx->aa_d = n;
+		ctx->aa_d_size = ns;
+	}
+
+	lws_start_foreach_dll(lws_dll2_t *, d, lws_dll2_get_head(&ctx->shapes)) {
+		lws_svg_shape_t *sh = lws_container_of(d, lws_svg_shape_t, list);
+		int64_t raw0 = 0;
+		int alo = w, ahi = -1;
+		uint32_t base = sh->rgba & 0x00ffffff;
+		int fill_a = (int)LWS_SVG_ALPHA(sh->rgba);
+
+		if (!fill_a)
+			continue;	/* nothing painted */
+
+		lws_start_foreach_dll(lws_dll2_t *, d2,
+					      lws_dll2_get_head(&sh->subs)) {
+			lws_svg_sub_t *sub = lws_container_of(d2,
+							lws_svg_sub_t, list);
+			int64_t px, py;
+			uint32_t i;
+
+			if (!sub->npts)
+				continue;
+
+			px = aa_map(sub->pts[0].x, vbx, sx, ox);
+			py = aa_map(sub->pts[0].y, vby, sy, oy);
+
+			/* fill closes open subpaths implicitly */
+
+			for (i = 0; i < sub->npts; i++) {
+				lws_svg_pt_t *Q = &sub->pts[
+					i + 1 == sub->npts ? 0 : i + 1];
+				int64_t qx = aa_map(Q->x, vbx, sx, ox);
+				int64_t qy = aa_map(Q->y, vby, sy, oy);
+
+				aa_edge(ctx->aa_d, w, yt, yb,
+					px, py, qx, qy, &raw0, &alo, &ahi);
+
+				px = qx;
+				py = qy;
+			}
+		} lws_end_foreach_dll(d2);
+
+		/* sweep: raw(p) = raw(0) + sum of D(q < p) */
+
+		{
+			int64_t raw = raw0;
+			int prev_a = -1, span0 = 0, p;
+
+			for (p = 0; p < w; p++) {
+				int64_t cov = raw < 0 ? -raw : raw;
+				int alpha;
+
+				if (cov > SVG_Q16_1)
+					cov = SVG_Q16_1;
+				alpha = (int)((cov * fill_a + 32768) >> 16);
+
+				if (alpha != prev_a) {
+					if (prev_a > 0)
+						cb(user, span0, p, base |
+						   ((uint32_t)prev_a << 24));
+					prev_a = alpha;
+					span0 = p;
+				}
+
+				raw += ctx->aa_d[p];
+			}
+
+			if (prev_a > 0)
+				cb(user, span0, w, base |
+						   ((uint32_t)prev_a << 24));
+		}
+
+		/* clear only the touched columns for the next shape */
+
+		if (ahi >= alo)
+			memset(&ctx->aa_d[alo], 0,
+			       (size_t)(ahi - alo + 1) * sizeof(ctx->aa_d[0]));
+	} lws_end_foreach_dll(d);
+
+	return LWS_SRET_OK;
+}
+
 static int
 emit_span(svg_emit_t *e, svg_c_t xa, svg_c_t xb)
 {
@@ -3616,6 +3898,10 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 	e.cb = cb;
 	e.user = user;
 	e.w = ri->w;
+
+	if (ri->aa)
+		return aa_band(ctx, ri, y, sx, sy, ox, oy, vbx, vby,
+			       cb, user);
 
 	lws_start_foreach_dll(lws_dll2_t *, d, lws_dll2_get_head(&ctx->shapes)) {
 		lws_svg_shape_t *sh = lws_container_of(d, lws_svg_shape_t, list);
