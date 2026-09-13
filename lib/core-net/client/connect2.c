@@ -69,14 +69,24 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 #ifdef LWS_WITH_IPV6
 	if (wsi->ipv6) {
 
+		if (!wsi->ipv4)
+			/* ipv6 forced (eg, -6): only interested in AAAA */
+			hints.ai_family = AF_INET6;
 #if !defined(__ANDROID__)
-		hints.ai_family = AF_UNSPEC;
-		hints.ai_flags = AI_V4MAPPED;
+		else {
+			hints.ai_family = AF_UNSPEC;
+			hints.ai_flags = AI_V4MAPPED;
+		}
 #endif
 	} else
 #endif
 	{
 		hints.ai_family = PF_UNSPEC;
+#if defined(LWS_WITH_IPV4)
+		if (wsi->ipv4)
+			/* ipv4 forced (eg, -4): only interested in A */
+			hints.ai_family = AF_INET;
+#endif
 	}
 
 	/*
@@ -511,6 +521,7 @@ solo:
 	wsi->ipv6 = 1;
 #else
 	wsi->ipv6 = LWS_IPV6_ENABLED(wsi->a.vhost);
+	wsi->ipv4 = !!LWS_IPV4_ENABLED(wsi->a.vhost);
 #ifdef LWS_WITH_IPV6
 	if (wsi->stash)
 		iface = wsi->stash->cis[CIS_IFACE];
@@ -523,6 +534,9 @@ solo:
 		wsi->ipv6 = 0;
 	}
 #endif
+	if (lws_wsi_is_async_dns(wsi))
+		/* resolver's own socket: either family may reach the NS */
+		wsi->ipv6 = wsi->ipv4 = 1;
 #endif
 
 #if defined(LWS_CLIENT_HTTP_PROXYING) && \

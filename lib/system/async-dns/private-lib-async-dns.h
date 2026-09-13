@@ -165,6 +165,7 @@ typedef struct lws_adns_q {
 	uint8_t			has_tcp_len:1;
 	uint8_t			want_dnssec:1;
 	uint8_t			ipv4_only:1;
+	uint8_t			ipv6_only:1;
 	uint8_t			completing:1; /* in lws_async_dns_complete() */
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
 	/*

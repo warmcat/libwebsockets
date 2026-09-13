@@ -542,8 +542,15 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 		q = lws_parse_numeric_address(vhost->iface, buf, sizeof(buf));
 
 		if (q == 4) {
-			a.af = AF_INET;
-			goto single;
+#if defined(LWS_WITH_IPV4)
+			if (LWS_IPV4_ENABLED(vhost)) {
+				a.af = AF_INET;
+				goto single;
+			}
+#endif
+			lwsl_err("%s: ipv4 not supported on %s\n", __func__,
+					vhost->name);
+			return 1;
 		}
 
 		if (q == 16) {
@@ -570,10 +577,12 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 	      (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
 #endif
 #if defined(LWS_WITH_IPV4)
-		a.af = AF_INET;
-		n = _lws_vhost_init_server_af(&a);
-		if (n)
-			return n;
+		if (LWS_IPV4_ENABLED(vhost)) {
+			a.af = AF_INET;
+			n = _lws_vhost_init_server_af(&a);
+			if (n)
+				return n;
+		}
 #endif
 
 #if defined(LWS_WITH_IPV6)
@@ -614,17 +623,18 @@ check_quic:
 				}
 			}
 #endif
-			if (!vhost->iface || !LWS_IPV6_ENABLED(vhost) || 
-			    (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE)) {
 #if defined(LWS_WITH_IPV4)
+			if (LWS_IPV4_ENABLED(vhost) &&
+			    (!vhost->iface || !LWS_IPV6_ENABLED(vhost) ||
+			    (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
 				const char *ads4 = vhost->iface ? vhost->iface : "0.0.0.0";
 				if (!lws_create_adopt_udp(vhost, ads4, vhost->listen_port,
 							  LWS_CAUDP_BIND, "quic", vhost->iface, NULL,
 							  NULL, NULL, "quic_listen")) {
 					lwsl_vhost_err(vhost, "Failed to bind QUIC IPv4 UDP listener");
 				}
-#endif
 			}
+#endif
 		}
 	}
 #endif

@@ -311,6 +311,13 @@
 	 * that send no SNI at all are not affected either way, they stay on
 	 * the vhost that accepted them. */
 
+#define LWS_SERVER_OPTION_DISABLE_IPV4				 (1ll << 54)
+	/**< (VH) Disable IPV4 support, eg, to force ipv6-only operation
+	 * (the -6 commandline switch sets this at context level).  This is
+	 * the mirror of LWS_SERVER_OPTION_DISABLE_IPV6: DNS results for the
+	 * disabled family are filtered out and no listeners are created for
+	 * it */
+
         /****** add new things just above ---^ ******/
 
 

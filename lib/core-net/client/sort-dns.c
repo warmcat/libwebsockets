@@ -644,6 +644,15 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		if (ai->ai_family == AF_INET6)
 			goto next;
 #endif
+
+#if defined(LWS_WITH_IPV4)
+		/*
+		 * ...or it doesn't want ipv4 results (runtime
+		 * LWS_SERVER_OPTION_DISABLE_IPV4, eg, from -6)
+		 */
+		if (!wsi->ipv4 && ai->ai_family == AF_INET)
+			goto next;
+#endif
 		ds = lws_zalloc(sizeof(*ds), __func__);
 		if (!ds)
 			return 1;
@@ -723,11 +732,12 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 #endif
 
 		if (ds->dest.sa4.sin_family == AF_INET) {
-			if (!estr ||
+			if (!wsi->ipv6 || !estr ||
 			    estr->dest.sa4.sin_family == AF_INET ||
 			    estr->gateway.sa4.sin_family == AF_INET)
 				/*
 				 * No estimated route, or v4 estimated route,
+				 * or ipv6 not allowed on this wsi (eg, -4),
 				 * just add it to sorted list
 				 */
 				goto just_add;

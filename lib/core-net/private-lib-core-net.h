@@ -205,6 +205,22 @@ struct lws_peer {
 #define LWS_IPV6_ENABLED(context) (0)
 #endif
 
+#if defined(LWS_WITH_IPV4)
+#define LWS_IPV4_ENABLED(vh) \
+	(!lws_check_opt(vh->context->options, LWS_SERVER_OPTION_DISABLE_IPV4) && \
+	 !lws_check_opt(vh->options, LWS_SERVER_OPTION_DISABLE_IPV4))
+#else
+#define LWS_IPV4_ENABLED(context) (0)
+#endif
+
+/**
+ * lws_wsi_is_async_dns(): true if the wsi is one of the async resolver's
+ * own sockets, which are exempt from forced-family policy so they can
+ * reach the configured nameservers over either family
+ */
+int
+lws_wsi_is_async_dns(const struct lws *wsi);
+
 #if defined(LWS_WITH_IPV6)
 /*
  * lws_v6only_opt() - the IPV6_V6ONLY socketopt value for a v6 listener
@@ -1047,6 +1063,7 @@ struct lws {
 	unsigned int			waiting_to_send_close_frame:1;
 	unsigned int			close_needs_ack:1;
 	unsigned int			ipv6:1;
+	unsigned int			ipv4:1;
 	unsigned int			parent_pending_cb_on_writable:1;
 	unsigned int			cgi_stdout_zero_length:1;
 	unsigned int			seen_zero_length_recv:1;

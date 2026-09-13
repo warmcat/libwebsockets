@@ -330,6 +330,11 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 		q->sent[0]++;
 		q->sent[1]++; /* also mark ipv6 state sent to avoid AAAA query */
 		q->asked = 1;
+	} else if (q->ipv6_only && q->qtype == LWS_ADNS_RECORD_A) {
+		which = 1;
+		q->sent[0]++; /* also mark ipv4 state sent to avoid A query */
+		q->sent[1]++;
+		q->asked = 2; /* b1 = the AAAA response is the whole query */
 	} else if (!q->responded) {
 		/* must pick between ipv6 and ipv4 */
 		which = q->sent[0] > q->sent[1];
@@ -2094,8 +2099,23 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	q->qtype = (uint16_t)qtype;
 	q->want_dnssec = want_dnssec != 0;
-	if (wsi && wsi->a.vhost && lws_check_opt(wsi->a.vhost->options, LWS_SERVER_OPTION_DISABLE_IPV6))
-		q->ipv4_only = 1;
+	if (wsi && wsi->a.vhost) {
+		/*
+		 * Don't ask for address families the wsi's vhost / context
+		 * disallows (runtime LWS_SERVER_OPTION_DISABLE_IPV[46], eg,
+		 * from the -4 / -6 commandline switches).  In an IPv6-only
+		 * build A results are normalized to v4-mapped and remain
+		 * usable, so those always keep asking for both.
+		 */
+#if defined(LWS_WITH_IPV6)
+		if (!LWS_IPV6_ENABLED(wsi->a.vhost))
+			q->ipv4_only = 1;
+#endif
+#if defined(LWS_WITH_IPV4) && defined(LWS_WITH_IPV6)
+		if (!LWS_IPV4_ENABLED(wsi->a.vhost))
+			q->ipv6_only = 1;
+#endif
+	}
 	if (qtype & LWS_ADNS_SYNTHETIC)
 		q->is_synthetic = 1;
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)

@@ -964,6 +964,251 @@ bail:
 }
 #endif
 
+#if !defined(WIN32)
+
+/*
+ * Forced-family legs (-4 / -6)
+ *
+ * A client connection with one family disabled at context level, exactly
+ * what the -4 / -6 commandline switches produce, must only ask the
+ * resolver for the surviving family: the suppressed family's query is
+ * never issued.  Each leg stands a fake nameserver up on a loopback UDP
+ * socket of our own (never answered, so nothing but the queries
+ * themselves is exercised) and counts the qtypes that arrive at it.
+ *
+ * The control leg forces nothing and must see both A and AAAA, which is
+ * what proves the suppression legs are really testing suppression rather
+ * than the resolver just not asking for the other family.
+ *
+ * Only meaningful when both families are in the build.
+ */
+#if defined(LWS_WITH_IPV4) && defined(LWS_WITH_IPV6)
+
+static int ff_fail;
+
+#define FF_TICK_US		(50 * LWS_US_PER_MS)
+#define FF_QUIET_TICKS		3	/* no new query = lws asked all it will */
+#define FF_DEADLINE_TICKS	120	/* ~6s */
+
+static const char *ff_names[] = {
+	"famboth.invalid", "fam4.invalid", "fam6.invalid"
+};
+
+static int ff_http_cb(struct lws *wsi, enum lws_callback_reasons reason,
+		      void *user, void *in, size_t len)
+{
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
+static const struct lws_protocols ff_protocols[] = {
+	{ "http", ff_http_cb, 0, 0, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
+};
+
+static struct lws_context *ff_cx;
+static lws_sorted_usec_list_t sul_ff;
+static int ff_fd = -1;
+static int ff_ticks, ff_quiet, ff_a, ff_aaaa, ff_done;
+
+static void
+ff_harvest(void)
+{
+	for (;;) {
+		uint8_t pkt[512];
+		size_t qo;
+		ssize_t n;
+
+		n = recvfrom(ff_fd, (char *)pkt, sizeof(pkt), 0, NULL, NULL);
+		if (n < 12)
+			return;
+
+		ff_quiet = 0;
+
+		qo = sc_qtype_ofs(pkt, (size_t)n);
+		if (!qo)
+			continue;
+
+		switch ((pkt[qo] << 8) | pkt[qo + 1]) {
+		case LWS_ADNS_RECORD_A:		ff_a++;		break;
+		case LWS_ADNS_RECORD_AAAA:	ff_aaaa++;	break;
+		default:	break; /* not family-specific, ignore it */
+		}
+	}
+}
+
+static void
+sul_ff_cb(lws_sorted_usec_list_t *s)
+{
+	(void)s;
+
+	ff_harvest();
+
+	if (++ff_quiet >= FF_QUIET_TICKS || ++ff_ticks >= FF_DEADLINE_TICKS) {
+		ff_done = 1;
+		lws_default_loop_exit(ff_cx);
+	} else
+		lws_sul_schedule(ff_cx, 0, &sul_ff, sul_ff_cb, FF_TICK_US);
+}
+
+static void
+ff_run(int mode) /* 0 = control, 4 = -4, 6 = -6 */
+{
+	static const char *ff_servers[] = { "127.0.0.1", NULL };
+	struct lws_context_creation_info ci;
+	struct lws_client_connect_info i;
+	char saved[16], portstr[16];
+	const char *env;
+	uint16_t port = 0;
+	int had_saved, idx = mode == 4 ? 1 : mode == 6 ? 2 : 0;
+	int bad = 1;
+
+	ff_a = ff_aaaa = ff_ticks = ff_quiet = ff_done = 0;
+
+	lwsl_user("*** forced-family leg (%s)\n",
+		  mode == 4 ? "-4" : mode == 6 ? "-6" : "control");
+
+	ff_fd = sc_socket(&port);
+	if (ff_fd < 0) {
+		lwsl_err("%s: can't make the loopback socket\n", __func__);
+		ff_fail++;
+		return;
+	}
+
+	/* point the resolver's nameserver port at our fake nameserver */
+
+	env = getenv("LWS_ASYNCDNS_PORT");
+	had_saved = !!env;
+	if (env)
+		lws_strncpy(saved, env, sizeof(saved));
+	lws_snprintf(portstr, sizeof(portstr), "%u", port);
+	setenv("LWS_ASYNCDNS_PORT", portstr, 1);
+
+	lws_context_info_defaults(&ci, NULL);
+	ci.port			= CONTEXT_PORT_NO_LISTEN;
+	ci.options		= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	if (mode == 4)
+		ci.options |= LWS_SERVER_OPTION_DISABLE_IPV6;
+	if (mode == 6)
+		ci.options |= LWS_SERVER_OPTION_DISABLE_IPV4;
+	ci.protocols		= ff_protocols;
+	ci.async_dns_servers	= ff_servers;
+
+	ff_cx = lws_create_context(&ci);
+	if (!ff_cx) {
+		lwsl_err("%s: context create failed\n", __func__);
+		ff_fail++;
+		goto restore;
+	}
+
+	/* only the pinned nameserver, ie, only our own fake one */
+
+	{
+		lws_sockaddr46 sa46;
+		int index = 0;
+
+		while (!lws_plat_asyncdns_get_server(ff_cx, index++, &sa46))
+			lws_async_dns_server_remove(ff_cx, &sa46);
+	}
+
+	memset(&i, 0, sizeof(i));
+	i.context	= ff_cx;
+	i.address	= ff_names[idx];
+	i.host		= ff_names[idx];
+	i.origin	= ff_names[idx];
+	i.port		= 80;
+	i.protocol	= "http";
+	i.method	= "GET";
+	i.path		= "/";
+
+	if (!lws_client_connect_via_info(&i)) {
+		lwsl_err("%s: client connect did not start\n", __func__);
+		ff_fail++;
+		goto destroy;
+	}
+
+	lws_sul_schedule(ff_cx, 0, &sul_ff, sul_ff_cb, FF_TICK_US);
+
+	while (lws_service(ff_cx, 0) >= 0)
+		;
+
+destroy:
+	lws_sul_cancel(&sul_ff);
+	lws_context_destroy(ff_cx);
+	ff_cx = NULL;
+
+restore:
+	if (had_saved)
+		setenv("LWS_ASYNCDNS_PORT", saved, 1);
+	else
+		unsetenv("LWS_ASYNCDNS_PORT");
+
+	if (ff_fd >= 0)
+		close(ff_fd);
+	ff_fd = -1;
+
+	if (ff_fail)
+		return;
+
+	/* judge the query qtypes against the forced family */
+
+	if (mode == 4)
+		bad = !ff_a || ff_aaaa;
+	else if (mode == 6)
+		bad = !ff_aaaa || ff_a;
+	else
+		bad = !ff_a || !ff_aaaa;
+
+	if (bad) {
+		lwsl_err("%s: saw %d A and %d AAAA queries in mode %d\n",
+			 __func__, ff_a, ff_aaaa, mode);
+		ff_fail++;
+	} else
+		lwsl_user("Forced-family leg (%s): PASS\n",
+			  mode == 4 ? "-4" : mode == 6 ? "-6" : "control");
+}
+
+#endif /* dual family */
+
+/*
+ * The -4 / -6 commandline switches must disable the other family at
+ * context level, and giving both must leave -6 in force.  Called last so
+ * the log level side-effect of the builtin handler only meets user logs.
+ */
+static void
+ff_parse_check(void)
+{
+	struct lws_context_creation_info ti;
+	const char *a4[] =  { "test", "-4", NULL };
+	const char *a6[] =  { "test", "-6", NULL };
+	const char *a46[] = { "test", "-4", "-6", NULL };
+
+	lws_context_info_defaults(&ti, NULL);
+	lws_cmdline_option_handle_builtin(2, a4, &ti);
+	if (!(ti.options & LWS_SERVER_OPTION_DISABLE_IPV6) ||
+	     (ti.options & LWS_SERVER_OPTION_DISABLE_IPV4))
+		goto bad;
+
+	lws_context_info_defaults(&ti, NULL);
+	lws_cmdline_option_handle_builtin(2, a6, &ti);
+	if (!(ti.options & LWS_SERVER_OPTION_DISABLE_IPV4) ||
+	     (ti.options & LWS_SERVER_OPTION_DISABLE_IPV6))
+		goto bad;
+
+	lws_context_info_defaults(&ti, NULL);
+	lws_cmdline_option_handle_builtin(3, a46, &ti);
+	if (!(ti.options & LWS_SERVER_OPTION_DISABLE_IPV4) ||
+	     (ti.options & LWS_SERVER_OPTION_DISABLE_IPV6))
+		goto bad;
+
+	lwsl_user("Cmdline -4/-6 parse check: PASS\n");
+
+	return;
+bad:
+	lwsl_err("%s: -4/-6 switch handling wrong\n", __func__);
+	ff_fail++;
+}
+#endif
+
 struct lws *
 cb1(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
     void *opaque);
@@ -1300,6 +1545,16 @@ main(int argc, const char **argv)
 		sc_run(0);
 		sc_run(1);
 
+		/*
+		 * Client connects with one family disabled (what -4 / -6
+		 * produce) must only ask the resolver for the other family
+		 */
+#if defined(LWS_WITH_IPV4) && defined(LWS_WITH_IPV6)
+		ff_run(0);
+		ff_run(4);
+		ff_run(6);
+#endif
+
 		/* platform server set for the main context's watcher leg */
 
 		fd = open(RESOLV_TEST_CONF, O_WRONLY | O_TRUNC, 0600);
@@ -1476,6 +1731,10 @@ evloop:
 
 	_exp += (int)LWS_ARRAY_SIZE(adt);
 
+#if !defined(WIN32)
+	ff_parse_check();
+#endif
+
 	if (fail || ok != _exp) {
 		lwsl_user("Completed: PASS: %d / %d, FAIL: %d\n", ok, _exp,
 				fail);
@@ -1489,8 +1748,9 @@ evloop:
 	lwsl_user("Watcher leg: %s (%d publications)\n",
 		  watch_fail ? "FAIL" : "PASS", watch_msgs);
 	lwsl_user("Resolver source-check legs: %s\n", sc_fail ? "FAIL" : "PASS");
+	lwsl_user("Forced-family: %s\n", ff_fail ? "FAIL" : "PASS");
 
-	return !(ok == _exp && !fail && !watch_fail && !sc_fail);
+	return !(ok == _exp && !fail && !watch_fail && !sc_fail && !ff_fail);
 #else
 
 	return !(ok == _exp && !fail && !watch_fail);
