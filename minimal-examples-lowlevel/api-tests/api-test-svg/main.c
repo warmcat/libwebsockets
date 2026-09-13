@@ -732,6 +732,62 @@ build_corpus_paths(void)
 	cc->pa = base;
 	cc->exp_w = cc->exp_h = 64;
 
+	/*
+	 * s / t directly after line-type commands must use the current
+	 * point as first control, not reflect a stale control from an
+	 * earlier curve: this mis-shaped the top right of letters in the
+	 * slashdot wordmark (blobs where arches spring from stems).
+	 */
+
+	base = ncases;
+	(void)cc_add("s-after-lineto-base",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<path d=\"M 10 10 C 20 2 34 2 44 10 "
+		"L 44 34 "
+		"C 44 34 38 44 24 44 "
+		"C 10 44 14 44 8 30 Z\"/></svg>");
+	cc = cc_add("s-after-lineto",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<path d=\"M 10 10 C 20 2 34 2 44 10 "
+		"L 44 34 "
+		"s -6 10 -20 10 -10 0 -16 -14 Z\"/></svg>");
+	cc->family = FAM_PAIR;
+	cc->pa = base;
+	cc->exp_w = cc->exp_h = 64;
+
+	base = ncases;
+	(void)cc_add("s-after-moveto-base",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<path d=\"M 8 12 C 30 4 52 16 56 36 "
+		"M 40 44 "
+		"C 40 44 30 52 18 50 "
+		"C 6 48 10 49 6 34 Z\"/></svg>");
+	cc = cc_add("s-after-moveto",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<path d=\"M 8 12 C 30 4 52 16 56 36 "
+		"M 40 44 "
+		"s -10 8 -22 6 -8 -1 -12 -16 Z\"/></svg>");
+	cc->family = FAM_PAIR;
+	cc->pa = base;
+	cc->exp_w = cc->exp_h = 64;
+
+	base = ncases;
+	(void)cc_add("t-after-lineto-base",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<path d=\"M 6 20 Q 20 4 36 10 "
+		"L 52 18 "
+		"Q 52 18 30 38 "
+		"Q 8 58 6 20 Z\"/></svg>");
+	cc = cc_add("t-after-lineto",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<path d=\"M 6 20 Q 20 4 36 10 "
+		"L 52 18 "
+		"T 30 38 "
+		"T 6 20 Z\"/></svg>");
+	cc->family = FAM_PAIR;
+	cc->pa = base;
+	cc->exp_w = cc->exp_h = 64;
+
 	/* chained small arcs (laf 0, implicit repetition) forming a circle:
 	 * the 'h' arch construct from the logo */
 
