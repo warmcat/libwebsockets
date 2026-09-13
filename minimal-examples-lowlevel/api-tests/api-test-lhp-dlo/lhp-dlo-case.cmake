@@ -35,6 +35,28 @@ if (LOCALIZE)
 	string(REGEX REPLACE "(href|src)=\"([^\"/:#][^\":]*)\"" "\\1=\"file://${HD}/\\2\"" html "${html}")
 	string(REGEX REPLACE "(href|src)=\"/([^\"/][^\":]*)\"" "\\1=\"file://${HD}/\\2\"" html "${html}")
 	get_filename_component(HN ${HTML} NAME)
+	get_filename_component(OD ${OUT} DIRECTORY)
+
+	#
+	# The same remote references appear as url(...) inside captured local
+	# stylesheets.  Copy each css into the build dir with those url()s
+	# pointed at a local path that does not exist, and repoint the html
+	# at the copies, so css-driven image fetches also fail the same way
+	# every run.
+	#
+
+	file(GLOB CSSFILES "${HD}/assets/*.css")
+	if (CSSFILES)
+		file(MAKE_DIRECTORY "${OD}/${HN}-assets")
+		foreach(CS ${CSSFILES})
+			file(READ ${CS} css)
+			string(REGEX REPLACE "url\\(([\"']?)(https?:)?//" "url(\\1missing/" css "${css}")
+			get_filename_component(CN ${CS} NAME)
+			file(WRITE "${OD}/${HN}-assets/${CN}" "${css}")
+		endforeach()
+		string(REPLACE "file://${HD}/assets/" "file://${OD}/${HN}-assets/" html "${html}")
+	endif()
+
 	file(WRITE ${OUT}-${HN} "${html}")
 	set(HTML ${OUT}-${HN})
 endif()
