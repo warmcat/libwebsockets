@@ -4,6 +4,17 @@ Changelog
 Development
 ===========
 
+ - svg: the renderer is now pure integer arithmetic end-to-end, on the lws_fx
+   fixed-point basis: Q16.16 saturating coordinates, transforms and raster
+   math, and e8 (1e-8) parse values, angles and opacity via the lws_fx
+   operators.  No floating point, FPU or libm dependency remains; output is
+   bit-identical across platforms, and saturating products replace the
+   overflow-to-inf class of bugs (closes audit finding F-064, where hostile
+   nested scale() transforms could produce inf/NaN scene points reaching
+   qsort with an inconsistent comparator and (int) casts of non-finite
+   doubles).  The corpus triangle oracle is now exact integer arithmetic
+   (the previous double oracle landed on the wrong side of exact half-pixel
+   boundaries by fp luck)
  - svg: minimal CSS support from <style> blocks, bringing the render colours
    in line with browsers for real exported artwork: simple element / class /
    id selectors (or comma-separated lists) over the fill property set, with

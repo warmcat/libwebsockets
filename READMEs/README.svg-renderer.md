@@ -20,9 +20,13 @@ the raster decoders follow from the format:
  - Memory is proportional to the document's geometry, not to a fixed
    decode buffer or to the output size.
 
-All maths, including arc conversion and transform trigonometry, is integer
-via the `lws_fx` fixed-point operators; there is no libm dependency, no FPU
-requirement, and rendered output is bit-identical across platforms.
+All arithmetic is pure integer: coordinates, transforms and raster math in
+saturating Q16.16 (range +/-32768, resolution 1/65536), and parse values,
+angles and opacity in 1e-8 fixed point through the `lws_fx` operators.
+There is no floating point anywhere in the renderer, no libm dependency,
+no FPU requirement, and rendered output is bit-identical across platforms.
+Saturation replaces overflow, so hostile transform stacks clip the geometry
+instead of producing out-of-range values.
 
 ## Memory requirements
 
@@ -30,7 +34,7 @@ Fixed allocations at `lws_svg_new()`:
 
 |Allocation|Size|
 |---|---|
-|Parse context (includes the 24-deep element style stack)|1840B|
+|Parse context (includes the 24-deep element style stack)|1272B|
 |Attribute value accumulation buffer|256B, grows by doubling to the largest attribute|
 
 During parsing, a transient working array holds the current shape's

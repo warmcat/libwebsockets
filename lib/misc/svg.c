@@ -53,12 +53,185 @@ enum {
 
 /* kappa: cubic bezier approximation of a quarter circle control factor */
 
-#define SVG_KAPPA		0.55228474983079356
-#define SVG_PI			3.14159265358979323846
+/*
+ * All geometry is computed in pure integer arithmetic on two
+ * representations, both sharing lws_fx_t's 1e-8 fractional basis:
+ *
+ *  - e8: int64 count of 1e-8 units, ie, the lws_fx_t (whole, frac)
+ *    decomposition joined.  Values from number parsing, angles and
+ *    opacity live here; trig goes through the lws_fx operators.
+ *
+ *  - svg_c_t: int32 Q16.16, range +/-32768 with 1/65536 resolution.
+ *    All coordinates, transform matrices and raster math.  Products
+ *    are computed in int64 and saturate rather than overflow, so
+ *    hostile transforms clip instead of producing inf / NaN.
+ */
+
+#define SVG_E8_1		100000000ll	/* 1.0 in e8 */
+#define SVG_E8_PI		314159262ll	/* pi in e8 */
+#define SVG_Q16_1		65536
+#define SVG_C_MAX		0x7fffffff	/* saturated Q16.16 magnitude */
+#define SVG_KAPPA_Q		36204		/* 0.55228474983079356 in Q16.16 */
+#define SVG_Q4_3		87381		/* 4/3 in Q16.16 */
+
+typedef int32_t		svg_c_t;
 
 typedef struct lws_svg_pt {
-	float			x, y;	/* user space, post-CTM */
+	svg_c_t			x, y;	/* user space, post-CTM, Q16.16 */
 } lws_svg_pt_t;
+
+/* e8 <-> lws_fx_t (pure integer joins of the decomposition) */
+
+static int64_t
+svg_fx_to_e8(const lws_fx_t *f)
+{
+	return (int64_t)f->whole * SVG_E8_1 + f->frac;
+}
+
+static void
+svg_e8_to_fx(lws_fx_t *f, int64_t v)
+{
+	f->whole = (int32_t)(v / SVG_E8_1);
+	f->frac = (int32_t)(v % SVG_E8_1);
+}
+
+/* e8 -> Q16.16 with saturation */
+
+static svg_c_t
+svg_e8_to_c(int64_t v)
+{
+	int64_t q = (v * SVG_Q16_1) / SVG_E8_1;
+
+	if (q > SVG_C_MAX)
+		return (svg_c_t)SVG_C_MAX;
+	if (q < -SVG_C_MAX)
+		return (svg_c_t)-SVG_C_MAX;
+
+	return (svg_c_t)q;
+}
+
+/* saturating Q16.16 helpers */
+
+static svg_c_t
+svg_qadd(int32_t a, int32_t b)
+{
+	int64_t r = (int64_t)a + b;
+
+	if (r > SVG_C_MAX)
+		return (svg_c_t)SVG_C_MAX;
+	if (r < -SVG_C_MAX)
+		return (svg_c_t)-SVG_C_MAX;
+
+	return (svg_c_t)r;
+}
+
+static svg_c_t
+svg_qsub(int32_t a, int32_t b)
+{
+	int64_t r = (int64_t)a - b;
+
+	if (r > SVG_C_MAX)
+		return (svg_c_t)SVG_C_MAX;
+	if (r < -SVG_C_MAX)
+		return (svg_c_t)-SVG_C_MAX;
+
+	return (svg_c_t)r;
+}
+
+static svg_c_t
+svg_qmul(int32_t a, int32_t b)
+{
+	int64_t r = ((int64_t)a * b) / SVG_Q16_1;
+
+	if (r > SVG_C_MAX)
+		return (svg_c_t)SVG_C_MAX;
+	if (r < -SVG_C_MAX)
+		return (svg_c_t)-SVG_C_MAX;
+
+	return (svg_c_t)r;
+}
+
+/* integer sqrt of a non-negative int64, digit-by-digit */
+
+static int64_t
+svg_isqrt64(int64_t v)
+{
+	uint64_t op = (uint64_t)v, res = 0, one = 1ull << 62;
+
+	while (one > op)
+		one >>= 2;
+
+	while (one) {
+		if (op >= res + one) {
+			op -= res + one;
+			res = (res >> 1) + one;
+		} else
+			res >>= 1;
+		one >>= 2;
+	}
+
+	return (int64_t)res;
+}
+
+/*
+ * Trig via the lws_fx fixed-point operators: pure integer, no FPU or
+ * libm dependency, deterministic across platforms.  Angles are e8
+ * radians in and out; sin / cos / tan results are Q16.16.
+ */
+
+static svg_c_t
+svg_sin(int64_t r_e8)
+{
+	lws_fx_t a, res;
+
+	svg_e8_to_fx(&a, r_e8);
+	lws_fx_sin(&res, &a);
+
+	return svg_e8_to_c(svg_fx_to_e8(&res));
+}
+
+static svg_c_t
+svg_cos(int64_t r_e8)
+{
+	lws_fx_t a, res;
+
+	svg_e8_to_fx(&a, r_e8);
+	lws_fx_cos(&res, &a);
+
+	return svg_e8_to_c(svg_fx_to_e8(&res));
+}
+
+static svg_c_t
+svg_tan(int64_t r_e8)
+{
+	lws_fx_t a, res;
+
+	svg_e8_to_fx(&a, r_e8);
+	lws_fx_tan(&res, &a);
+
+	return svg_e8_to_c(svg_fx_to_e8(&res));
+}
+
+static int64_t
+svg_atan2(int64_t y_e8, int64_t x_e8)
+{
+	lws_fx_t fy, fx, res;
+
+	svg_e8_to_fx(&fy, y_e8);
+	svg_e8_to_fx(&fx, x_e8);
+	lws_fx_atan2(&res, &fy, &fx);
+
+	return svg_fx_to_e8(&res);
+}
+
+/* integer ceil(v / 65536), valid for the whole int64 range */
+
+static int
+svg_ceil_q16(int64_t v)
+{
+	return (int)((v + SVG_Q16_1 - 1) / SVG_Q16_1);
+}
+
 
 typedef struct lws_svg_sub {
 	lws_dll2_t		list;
@@ -77,7 +250,7 @@ typedef struct lws_svg_shape {
 /* per-open-element inherited state */
 
 typedef struct {
-	double			m[6];	/* CTM: x' = m[0]x + m[2]y + m[4] */
+	svg_c_t			m[6];	/* CTM: x' = m[0]x + m[2]y + m[4] */
 	uint32_t		rgba;	/* composed fill colour */
 	char			rule;
 	char			suppress; /* inside defs, text, unknown... */
@@ -103,7 +276,7 @@ typedef struct {
 	uint8_t		tier;		     /* 0 elem, 1 class, 2 id */
 	uint32_t	fill;
 	char		fill_set;
-	double		fillop, op;
+	int64_t		fillop, op;	/* e8 */
 	char		fillop_set, op_set;
 	char		rule, rule_set;
 } svg_cssrule_t;
@@ -113,12 +286,12 @@ typedef struct {
 typedef struct {
 	uint32_t		fill;	/* valid when fill_present */
 	char			fill_present; /* fill attr seen (incl none) */
-	double			fillop, op;
+	int64_t			fillop, op;	/* e8 */
 	char			fillop_present, op_present;
 	char			rule, rule_present;
 	char			has_transform;
-	double			tm[6];	/* own transform list composition */
-	double			g[6];	/* shape geometry attrs */
+	svg_c_t			tm[6];	/* own transform list composition */
+	svg_c_t			g[6];	/* shape geometry attrs */
 	char			gok[6];
 	char			has_d;		/* path data in working arrays */
 	char			has_points;
@@ -134,13 +307,13 @@ typedef struct {
 
 	uint32_t	sa_fill;
 	char		sa_fill_present;
-	double		sa_fillop, sa_op;
+	int64_t		sa_fillop, sa_op;	/* e8 */
 	char		sa_fillop_present, sa_op_present;
 	char		sa_rule, sa_rule_present;
 } svg_pend_t;
 
 typedef struct lws_svg_dpt {
-	double			x, y;	/* user space, pre-CTM */
+	svg_c_t			x, y;	/* user space, Q16.16 */
 } lws_svg_dpt_t;
 
 typedef struct {
@@ -185,7 +358,7 @@ typedef enum {
 /* rasterization scratch */
 
 typedef struct {
-	double			x;	/* device-space crossing x */
+	svg_c_t			x;	/* device-space crossing x, Q16.16 */
 	int8_t			dir;	/* +1 downwards edge, -1 upwards */
 } lws_svg_cross_t;
 
@@ -205,15 +378,15 @@ struct lws_svg {
 
 	/* root sizing and mapping policy */
 
-	double			width, height;
+	svg_c_t			width, height;
 	char			unit_w, unit_h;	/* 0 = px, 1 = percent */
 	char			has_w, has_h;
-	double			vb[4];			/* minx miny w h */
+	svg_c_t			vb[4];			/* minx miny w h */
 	char			has_vb;
 	char			par_none, par_slice;
 	uint8_t			par_ax, par_ay;	/* 0 min, 1 mid, 2 max */
 
-	double			tol;	/* flatten tolerance, user units */
+	svg_c_t			tol;	/* flatten tolerance, Q16.16 */
 
 	char			root_seen;
 	char			doc_complete;
@@ -255,79 +428,10 @@ struct lws_svg {
 };
 
 /*
- * Trig via the lws_fx fixed-point operators: these wrap the integer
- * implementations so all geometry is deterministic across platforms without
- * any FPU or libm dependency.
+ * Trig via the lws_fx fixed-point operators: pure integer, no FPU or
+ * libm dependency, deterministic across platforms.  Angles are e8
+ * radians in and out; sin / cos / tan results are Q16.16.
  */
-
-static double
-svg_fx2d(const lws_fx_t *f)
-{
-	return (double)f->whole + (double)f->frac / 100000000.0;
-}
-
-static void
-svg_d2fx(lws_fx_t *f, double r)
-{
-	f->whole = (int32_t)r;
-	f->frac = (int32_t)((r - (double)(int32_t)r) * 100000000.0);
-}
-
-static double
-svg_sin(double r)
-{
-	lws_fx_t a, res;
-
-	svg_d2fx(&a, r);
-	lws_fx_sin(&res, &a);
-
-	return svg_fx2d(&res);
-}
-
-static double
-svg_cos(double r)
-{
-	lws_fx_t a, res;
-
-	svg_d2fx(&a, r);
-	lws_fx_cos(&res, &a);
-
-	return svg_fx2d(&res);
-}
-
-static double
-svg_tan(double r)
-{
-	lws_fx_t a, res;
-
-	svg_d2fx(&a, r);
-	lws_fx_tan(&res, &a);
-
-	return svg_fx2d(&res);
-}
-
-static double
-svg_atan2(double y, double x)
-{
-	lws_fx_t fy, fx, res;
-
-	svg_d2fx(&fy, y);
-	svg_d2fx(&fx, x);
-	lws_fx_atan2(&res, &fy, &fx);
-
-	return svg_fx2d(&res);
-}
-
-static double
-svg_sqrt(double v)
-{
-	lws_fx_t a, res;
-
-	svg_d2fx(&a, v);
-	lws_fx_sqrt(&res, &a);
-
-	return svg_fx2d(&res);
-}
 
 /*
  * Number parsing.  Accepts the SVG grammar for numbers with optional
@@ -336,11 +440,32 @@ svg_sqrt(double v)
  * cursor) for a well-formed number.
  */
 
+/* skip whitespace and comma separators */
+
 static const char *
-svg_num(const char *p, const char *end, double *r)
+svg_ws(const char *p, const char *end)
 {
+	while (p < end && (*p == ' ' || *p == '\t' || *p == '\r' ||
+			   *p == '\n' || *p == ','))
+		p++;
+
+	return p;
+}
+
+static const char *
+svg_num(const char *p, const char *end, int64_t *r)
+{
+	/*
+	 * Builds the value in e8 units (1e-8, matching lws_fx_t's
+	 * fractional basis) with pure integer arithmetic.  Magnitudes are
+	 * clamped to +/-1e6 (e8 1e14) so later fixed-point conversions and
+	 * products cannot overflow: Q16.16 saturates far below that anyway.
+	 */
+
+	const int64_t cap = 1000000;		/* whole units */
+	const int64_t cap_e8 = cap * SVG_E8_1;	/* 1e14, fits int64 */
 	int any = 0, neg = 0;
-	double v = 0, fr = 0.1;
+	int64_t v = 0, fr = SVG_E8_1 / 10;
 
 	if (p < end && (*p == '+' || *p == '-')) {
 		neg = *p == '-';
@@ -348,17 +473,24 @@ svg_num(const char *p, const char *end, double *r)
 	}
 
 	while (p < end && *p >= '0' && *p <= '9') {
-		v = (v * 10.0) + (double)(*p - '0');
+		if (v < cap)
+			v = v * 10 + (*p - '0');
 		p++;
 		any = 1;
 	}
+
+	v *= SVG_E8_1;
+	if (v > cap_e8)
+		v = cap_e8;
 
 	if (p < end && *p == '.') {
 		const char *q = p + 1;
 
 		while (q < end && *q >= '0' && *q <= '9') {
-			v += (double)(*q - '0') * fr;
-			fr *= 0.1;
+			if (v < cap_e8 && fr) {
+				v += (*q - '0') * fr;
+				fr /= 10;
+			}
 			q++;
 			any = 1;
 		}
@@ -379,43 +511,37 @@ svg_num(const char *p, const char *end, double *r)
 			q++;
 		}
 		while (q < end && *q >= '0' && *q <= '9') {
-			if (ev < 320)
+			if (ev < 18)
 				ev = (ev * 10) + (*q - '0');
 			q++;
 			eany = 1;
 		}
 		if (eany) {
 			p = q;
-			if (ev > 300)
-				v = eneg ? 0.0 : 1e9;
-			else
+			if (ev > 6)
+				v = eneg ? 0 : cap_e8;
+			else {
 				while (ev--) {
-					if (eneg)
-						v /= 10.0;
-					else
-						v *= 10.0;
+					if (eneg) {
+						v /= 10;
+						if (!v)
+							break;
+					} else {
+						if (v > cap_e8 / 10) {
+							v = cap_e8;
+							break;
+						}
+						v *= 10;
+					}
 				}
+			}
 		}
 	}
 
-	if (v > 1e9)
-		v = 1e9;
-	if (v < -1e9)
-		v = -1e9;
+	if (v > cap_e8)
+		v = cap_e8;
 
 	*r = neg ? -v : v;
-
-	return p;
-}
-
-/* skip whitespace and comma separators */
-
-static const char *
-svg_ws(const char *p, const char *end)
-{
-	while (p < end && (*p == ' ' || *p == '\t' || *p == '\r' ||
-			   *p == '\n' || *p == ','))
-		p++;
 
 	return p;
 }
@@ -429,10 +555,17 @@ isxmlws(int c)
 /* a length with optional CSS unit; returns unit 0 = px (converted), 1 = % */
 
 static int
-svg_len(const char *s, size_t len, double *r, char *pct)
+svg_len(const char *s, size_t len, svg_c_t *r, char *pct)
 {
+	static const struct { const char *u; svg_c_t q; } units[] = {
+		{ "pt",		87381 },	/* 4/3 */
+		{ "pc",		1048576 },	/* 16 */
+		{ "mm",		247703 },	/* 96 / 25.4 */
+		{ "cm",		2477027 },	/* 96 / 2.54 */
+		{ "in",		6291456 },	/* 96 */
+	};
 	const char *p = s, *end = s + len;
-	double v;
+	int64_t v;
 
 	p = svg_ws(p, end);
 	p = svg_num(p, end, &v);
@@ -448,28 +581,19 @@ svg_len(const char *s, size_t len, double *r, char *pct)
 		if (*p == '%')
 			*pct = 1;
 		else {
-			size_t ul = (size_t)(end - p);
+			unsigned int i;
 
-			if (ul >= 2 && !strncmp(p, "pt", 2))
-				v = v * 4.0 / 3.0;
-			else
-				if (ul >= 2 && !strncmp(p, "pc", 2))
-					v = v * 16.0;
-				else
-					if (ul >= 2 && !strncmp(p, "mm", 2))
-						v = v * 96.0 / 25.4;
-					else
-						if (ul >= 2 && !strncmp(p, "cm", 2))
-							v = v * 96.0 / 2.54;
-						else
-							if (ul >= 2 &&
-							    !strncmp(p, "in", 2))
-								v = v * 96.0;
-			/* px and anything else: leave in px */
+			for (i = 0; i < LWS_ARRAY_SIZE(units); i++)
+				if ((size_t)(end - p) >= strlen(units[i].u) &&
+				    !strncmp(p, units[i].u, strlen(units[i].u))) {
+					*r = svg_qmul(svg_e8_to_c(v), units[i].q);
+					return 0;
+				}
 		}
+		/* px and anything else: leave in px */
 	}
 
-	*r = v;
+	*r = svg_e8_to_c(v);
 
 	return 0;
 }
@@ -637,13 +761,18 @@ svg_colour(const char *s, size_t len, uint32_t *rgba)
 	if ((size_t)(end - p) > 4 &&
 	    (!strncmp(p, "rgb(", 4) || !strncmp(p, "rgba(", 5))) {
 		char is_rgba = p[3] == 'a';
-		double comp[4];
-		int nc, apct = 0;
+		int32_t comp[4];
+		int nc;
 
 		p += is_rgba ? 5 : 4;
 
+		/*
+		 * Components are parsed as e8 and reduced to 0..255 with
+		 * rounding; percentages are v * 255 / 100.
+		 */
+
 		for (nc = 0; nc < 4; nc++) {
-			double v;
+			int64_t v;
 			int pct = 0;
 
 			p = svg_ws(p, end);
@@ -654,9 +783,18 @@ svg_colour(const char *s, size_t len, uint32_t *rgba)
 				pct = 1;
 				p++;
 			}
-			if (nc == 3)
-				apct = pct;
-			comp[nc] = pct ? v * 255.0 / 100.0 : v;
+			if (nc == 3) {
+				/* alpha is 0..1, or a percentage of 255 */
+				comp[nc] = pct ?
+					(int32_t)((v * 255 + 5ll * SVG_E8_1) /
+							100 / SVG_E8_1) :
+					(int32_t)((v * 255 +
+						SVG_E8_1 / 2) / SVG_E8_1);
+			} else
+				comp[nc] = pct ?
+					(int32_t)((v * 255 + 5ll * SVG_E8_1) /
+							100 / SVG_E8_1) :
+					(int32_t)((v + SVG_E8_1 / 2) / SVG_E8_1);
 			p = svg_ws(p, end);
 			if (p < end && *p == ',')
 				p++;
@@ -665,23 +803,17 @@ svg_colour(const char *s, size_t len, uint32_t *rgba)
 		if (nc < 3)
 			return 1;
 
-		/* alpha is 0..1 (or a percentage), the rest are 0..255 */
-
+		comp[0] = comp[0] < 0 ? 0 : comp[0] > 255 ? 255 : comp[0];
+		comp[1] = comp[1] < 0 ? 0 : comp[1] > 255 ? 255 : comp[1];
+		comp[2] = comp[2] < 0 ? 0 : comp[2] > 255 ? 255 : comp[2];
 		if (is_rgba) {
-			double av = apct ? comp[3] : comp[3] * 255.0;
-
-			if (av < 0)
-				av = 0;
-			if (av > 255)
-				av = 255;
-			a = (uint32_t)(av + 0.5);
+			comp[3] = comp[3] < 0 ? 0 : comp[3] > 255 ? 255 :
+								comp[3];
+			a = (uint32_t)comp[3];
 		}
 
-		*rgba = LWS_SVG_RGBA(
-			comp[0] < 0 ? 0 : comp[0] > 255 ? 255 : (uint32_t)comp[0],
-			comp[1] < 0 ? 0 : comp[1] > 255 ? 255 : (uint32_t)comp[1],
-			comp[2] < 0 ? 0 : comp[2] > 255 ? 255 : (uint32_t)comp[2],
-			a);
+		*rgba = LWS_SVG_RGBA((uint32_t)comp[0], (uint32_t)comp[1],
+				     (uint32_t)comp[2], a);
 
 		return 0;
 	}
@@ -730,22 +862,24 @@ svg_colour(const char *s, size_t len, uint32_t *rgba)
  */
 
 static void
-xf_ident(double m[6])
+xf_ident(svg_c_t m[6])
 {
-	m[0] = 1; m[1] = 0; m[2] = 0; m[3] = 1; m[4] = 0; m[5] = 0;
+	m[0] = SVG_Q16_1; m[1] = 0; m[2] = 0; m[3] = SVG_Q16_1; m[4] = 0; m[5] = 0;
 }
 
-/* r = m ∘ t (apply t first, then m); safe when r aliases m */
+/* r = m ∘ t (apply t first, then m); safe when r aliases m, saturating */
 
 static void
-xf_comp(double r[6], const double m[6], const double t[6])
+xf_comp(svg_c_t r[6], const svg_c_t m[6], const svg_c_t t[6])
 {
-	double a = m[0] * t[0] + m[2] * t[1];
-	double b = m[1] * t[0] + m[3] * t[1];
-	double c = m[0] * t[2] + m[2] * t[3];
-	double d = m[1] * t[2] + m[3] * t[3];
-	double e = m[0] * t[4] + m[2] * t[5] + m[4];
-	double f = m[1] * t[4] + m[3] * t[5] + m[5];
+	svg_c_t a = svg_qadd(svg_qmul(m[0], t[0]), svg_qmul(m[2], t[1]));
+	svg_c_t b = svg_qadd(svg_qmul(m[1], t[0]), svg_qmul(m[3], t[1]));
+	svg_c_t c = svg_qadd(svg_qmul(m[0], t[2]), svg_qmul(m[2], t[3]));
+	svg_c_t d = svg_qadd(svg_qmul(m[1], t[2]), svg_qmul(m[3], t[3]));
+	svg_c_t e = svg_qadd(svg_qadd(svg_qmul(m[0], t[4]),
+				      svg_qmul(m[2], t[5])), m[4]);
+	svg_c_t f = svg_qadd(svg_qadd(svg_qmul(m[1], t[4]),
+				      svg_qmul(m[3], t[5])), m[5]);
 
 	r[0] = a; r[1] = b; r[2] = c; r[3] = d; r[4] = e; r[5] = f;
 }
@@ -756,17 +890,17 @@ xf_comp(double r[6], const double m[6], const double t[6])
  */
 
 static int
-svg_transforms(const char *s, size_t len, double out[6])
+svg_transforms(const char *s, size_t len, svg_c_t out[6])
 {
 	const char *p = s, *end = s + len;
-	double t[6], arg[6];
+	svg_c_t t[6], arg[6];
+	int na, i;
 
 	p = svg_ws(p, end);
 
 	while (p < end) {
 		char fn[16];
 		size_t fl = 0;
-		int na = 0, i;
 
 		while (p < end && ((*p >= 'a' && *p <= 'z') ||
 				   (*p >= 'A' && *p <= 'Z')) &&
@@ -783,14 +917,16 @@ svg_transforms(const char *s, size_t len, double out[6])
 		}
 		p++;
 
+		na = 0;
 		p = svg_ws(p, end);
 		while (p < end && na < 6) {
-			const char *q = svg_num(p, end, &arg[na]);
+			int64_t v;
+			const char *q = svg_num(p, end, &v);
 
 			if (!q)
 				break;
 			p = q;
-			na++;
+			arg[na++] = svg_e8_to_c(v);
 			p = svg_ws(p, end);
 		}
 		while (p < end && *p != ')')
@@ -817,12 +953,13 @@ svg_transforms(const char *s, size_t len, double out[6])
 					}
 				} else
 					if (!strcmp(fn, "rotate")) {
-						double co, si, dx = 0, dy = 0;
+						/* radians from degrees, in e8 */
 
-						arg[0] = arg[0] * SVG_PI /
-									180.0;
-						co = svg_cos(arg[0]);
-						si = svg_sin(arg[0]);
+						int64_t rad = (int64_t)arg[0] *
+							(SVG_E8_PI / 180) / SVG_Q16_1;
+						svg_c_t co = svg_cos(rad);
+						svg_c_t si = svg_sin(rad);
+						svg_c_t dx = 0, dy = 0;
 
 						t[0] = co;
 						t[1] = si;
@@ -834,21 +971,26 @@ svg_transforms(const char *s, size_t len, double out[6])
 						if (na >= 3) {
 							dx = arg[1];
 							dy = arg[2];
-							t[4] = dx - co * dx + si * dy;
-							t[5] = dy - si * dx - co * dy;
+							t[4] = svg_qadd(svg_qsub(dx,
+								     svg_qmul(co, dx)),
+								     svg_qmul(si, dy));
+							t[5] = svg_qsub(svg_qsub(dy,
+								     svg_qmul(si, dx)),
+								     svg_qmul(co, dy));
 						}
 					} else
-						if (!strcmp(fn, "skewX") &&
-						    na >= 1)
+						if (!strcmp(fn, "skewX") && na >= 1)
 							t[2] = svg_tan(
-								arg[0] * SVG_PI /
-									180.0);
+								(int64_t)arg[0] *
+								(SVG_E8_PI / 180) /
+									SVG_Q16_1);
 						else
 							if (!strcmp(fn, "skewY") &&
 							    na >= 1)
 								t[1] = svg_tan(
-									arg[0] * SVG_PI /
-										180.0);
+									(int64_t)arg[0] *
+									(SVG_E8_PI / 180) /
+										SVG_Q16_1);
 							else
 								continue;  /* unknown fn */
 
@@ -891,7 +1033,7 @@ wpts_grow(lws_svg_t *ctx, size_t need)
 }
 
 static int
-pt_add(lws_svg_t *ctx, double x, double y)
+pt_add(lws_svg_t *ctx, svg_c_t x, svg_c_t y)
 {
 	if (ctx->npts >= LWS_SVG_MAX_PTS || wpts_grow(ctx, 1))
 		return 1;
@@ -906,8 +1048,10 @@ pt_add(lws_svg_t *ctx, double x, double y)
 
 /* start a new subpath beginning at x,y */
 
+/* start a new subpath beginning at x,y */
+
 static int
-sub_start(lws_svg_t *ctx, double x, double y)
+sub_start(lws_svg_t *ctx, svg_c_t x, svg_c_t y)
 {
 	if (ctx->wsubs_count >= LWS_SVG_MAX_SUBS)
 		return 1;
@@ -944,68 +1088,107 @@ work_reset(lws_svg_t *ctx)
  * control point arrangements cannot run away.
  */
 
-static int
-flat_enough(lws_svg_t *ctx, double x0, double y0, double x1, double y1,
-	    double x2, double y2, double x3, double y3)
-{
-	double dx = x3 - x0, dy = y3 - y0;
-	double d1 = (x1 - x0) * dy - (y1 - y0) * dx;
-	double d2 = (x2 - x0) * dy - (y2 - y0) * dx;
-	double dd = d1 + d2, tol2 = ctx->tol * ctx->tol;
 
-	if (dd < 0)
-		dd = -dd;
+/*
+ * Cubic flattening by adaptive subdivision.  The flatness test compares
+ * |d1 + d2|, the summed perpendicular distances of the control points
+ * from the chord, against tol * chord.  Deltas are pre-shifted 2 bits so
+ * corner-to-corner cross products stay inside int64; a couple of bits is
+ * immaterial to a tolerance test.  Subdivision depth is capped so hostile
+ * control point arrangements cannot run away.
+ */
+
+static int
+flat_enough(lws_svg_t *ctx, svg_c_t x0, svg_c_t y0, svg_c_t x1, svg_c_t y1,
+	    svg_c_t x2, svg_c_t y2, svg_c_t x3, svg_c_t y3)
+{
+	int64_t dx = (int64_t)x3 - x0, dy = (int64_t)y3 - y0;
+	int64_t d1, d2, dd, chord;
 
 	if (!dx && !dy) {
 		/* zero chord: only the control point spread matters */
 
-		return (x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) <=
-								tol2 * 16384 &&
-		       (x2 - x0) * (x2 - x0) + (y2 - y0) * (y2 - y0) <=
-								tol2 * 16384;
+		int64_t ax = (int64_t)x1 - x0, ay = (int64_t)y1 - y0;
+		int64_t bx = (int64_t)x2 - x0, by = (int64_t)y2 - y0;
+		int64_t tol2 = (int64_t)ctx->tol * ctx->tol;
+
+		return (ax >> 2) * (ax >> 2) + (ay >> 2) * (ay >> 2) <=
+							tol2 * 1024 &&
+		       (bx >> 2) * (bx >> 2) + (by >> 2) * (by >> 2) <=
+							tol2 * 1024;
 	}
 
-	/* flat when (d1 + d2)² <= tol²·|chord|², avoiding any sqrt */
+	d1 = (((int64_t)x1 - x0) >> 1) * (dy >> 1) -
+	     (((int64_t)y1 - y0) >> 1) * (dx >> 1);
+	d2 = (((int64_t)x2 - x0) >> 1) * (dy >> 1) -
+	     (((int64_t)y2 - y0) >> 1) * (dx >> 1);
 
-	return dd * dd <= tol2 * (dx * dx + dy * dy);
+	/*
+	 * True test: cross <= tol * chord, both sides as raw products of
+	 * Q16.16 values (units^2 * 2^32), so no rescaling of the product.
+	 * The 1-bit shifts put cross at 1/4 and chord at 1/2 scale:
+	 * (cross / 4) * 4 <= tol * (chord / 2) * 2.  A cross beyond 2^59
+	 * can never be flat for the clamped tolerance, so clamping it
+	 * keeps the shifted compare in range.
+	 */
+
+	dd = d1 + d2;
+	if (dd < 0)
+		dd = -dd;
+	if (dd > (1ll << 59))
+		return 0;	/* never flat */
+
+	chord = svg_isqrt64((dx >> 1) * (dx >> 1) + (dy >> 1) * (dy >> 1));
+
+	return (dd << 2) <= (int64_t)ctx->tol * chord * 2;
 }
 
 static int
-flatten_cubic(lws_svg_t *ctx, double x0, double y0, double x1, double y1,
-	      double x2, double y2, double x3, double y3, int depth)
+flatten_cubic(lws_svg_t *ctx, svg_c_t x0, svg_c_t y0, svg_c_t x1, svg_c_t y1,
+	      svg_c_t x2, svg_c_t y2, svg_c_t x3, svg_c_t y3, int depth)
 {
-	double x01, y01, x12, y12, x23, y23, x012, y012, x123, y123;
+	svg_c_t x01, y01, x12, y12, x23, y23, x012, y012, x123, y123, m;
 
 	if (depth >= 16 || flat_enough(ctx, x0, y0, x1, y1, x2, y2, x3, y3))
 		return pt_add(ctx, x3, y3);
 
-	x01  = (x0 + x1) / 2;     y01  = (y0 + y1) / 2;
-	x12  = (x1 + x2) / 2;     y12  = (y1 + y2) / 2;
-	x23  = (x2 + x3) / 2;     y23  = (y2 + y3) / 2;
-	x012 = (x01 + x12) / 2;   y012 = (y01 + y12) / 2;
-	x123 = (x12 + x23) / 2;   y123 = (y12 + y23) / 2;
+	/* de Casteljau midpoints; averages can exceed range by 1/2 ulp */
 
-	if (flatten_cubic(ctx, x0, y0, x01, y01, x012, y012,
-			  (x012 + x123) / 2, (y012 + y123) / 2, depth + 1))
+	m = (svg_c_t)(((int64_t)x0 + x1) / 2);	x01 = m;
+	m = (svg_c_t)(((int64_t)y0 + y1) / 2);	y01 = m;
+	m = (svg_c_t)(((int64_t)x1 + x2) / 2);	x12 = m;
+	m = (svg_c_t)(((int64_t)y1 + y2) / 2);	y12 = m;
+	m = (svg_c_t)(((int64_t)x2 + x3) / 2);	x23 = m;
+	m = (svg_c_t)(((int64_t)y2 + y3) / 2);	y23 = m;
+	m = (svg_c_t)(((int64_t)x01 + x12) / 2);	x012 = m;
+	m = (svg_c_t)(((int64_t)y01 + y12) / 2);	y012 = m;
+	m = (svg_c_t)(((int64_t)x12 + x23) / 2);	x123 = m;
+	m = (svg_c_t)(((int64_t)y12 + y23) / 2);	y123 = m;
+	m = (svg_c_t)(((int64_t)x012 + x123) / 2);
+
+	if (flatten_cubic(ctx, x0, y0, x01, y01, x012, y012, m,
+			  (svg_c_t)(((int64_t)y012 + y123) / 2), depth + 1))
 		return 1;
 
-	return flatten_cubic(ctx, (x012 + x123) / 2, (y012 + y123) / 2,
+	return flatten_cubic(ctx, m, (svg_c_t)(((int64_t)y012 + y123) / 2),
 			     x123, y123, x23, y23, x3, y3, depth + 1);
 }
 
 static int
-flatten_quad(lws_svg_t *ctx, double x0, double y0, double x1, double y1,
-	     double x2, double y2)
+flatten_quad(lws_svg_t *ctx, svg_c_t x0, svg_c_t y0, svg_c_t x1, svg_c_t y1,
+	     svg_c_t x2, svg_c_t y2)
 {
-	/* exact degree elevation to a cubic */
+	/* exact degree elevation to a cubic: c = p + (p1 - p) * 2/3 */
 
 	return flatten_cubic(ctx, x0, y0,
-			     x0 + 2.0 / 3.0 * (x1 - x0),
-			     y0 + 2.0 / 3.0 * (y1 - y0),
-			     x2 + 2.0 / 3.0 * (x1 - x2),
-			     y2 + 2.0 / 3.0 * (y1 - y2),
-			     x2, y2, 0);
+		svg_qadd(x0, (svg_c_t)(((int64_t)x1 - x0) * 2 / 3)),
+		svg_qadd(y0, (svg_c_t)(((int64_t)y1 - y0) * 2 / 3)),
+		svg_qadd(x2, (svg_c_t)(((int64_t)x1 - x2) * 2 / 3)),
+		svg_qadd(y2, (svg_c_t)(((int64_t)y1 - y2) * 2 / 3)),
+		x2, y2, 0);
 }
+
+
 
 /*
  * SVG "A" command: convert the endpoint-parameterized arc to a sequence of
@@ -1013,92 +1196,198 @@ flatten_quad(lws_svg_t *ctx, double x0, double y0, double x1, double y1,
  * conversion.
  */
 
-static int
-flatten_arc(lws_svg_t *ctx, double x1, double y1, double rx, double ry,
-	    double phi, int large, int sweep, double x2, double y2)
+
+/*
+ * SVG "A" command: convert the endpoint-parameterized arc to a sequence of
+ * at most 4 cubic pieces, following the SVG spec F.6.5 endpoint-to-center
+ * conversion.  Coordinates are Q16.16 and angles e8 radians.  Ratios are
+ * computed on reduced terms, and unit-vector products are formed before
+ * scaling by the radii, so hostile radii and endpoints cannot overflow.
+ */
+
+/* delta * 1e8 / r as e8, without overflow for |delta| < 2^33, r >= 256 */
+
+static int64_t
+arc_e8_ratio(int64_t delta, svg_c_t r)
 {
-	double co = svg_cos(phi), si = svg_sin(phi);
-	double dx2 = (x1 - x2) / 2, dy2 = (y1 - y2) / 2;
-	double x1p =  co * dx2 + si * dy2;
-	double y1p = -si * dx2 + co * dy2;
-	double lam, num, den, coef, cxp, cyp, cx, cy, t1, dt, th, hn;
+	return (((delta * 390625) / r) << 8);	/* 390625 = 1e8 / 256 */
+}
+
+static svg_c_t
+arc_sat(int64_t v)
+{
+	if (v > SVG_C_MAX)
+		return (svg_c_t)SVG_C_MAX;
+	if (v < -SVG_C_MAX)
+		return (svg_c_t)-SVG_C_MAX;
+
+	return (svg_c_t)v;
+}
+
+static int
+flatten_arc(lws_svg_t *ctx, svg_c_t x1, svg_c_t y1, svg_c_t rx, svg_c_t ry,
+	    int64_t phi, int large, int sweep, svg_c_t x2, svg_c_t y2)
+{
+	svg_c_t co = svg_cos(phi), si = svg_sin(phi);
+	svg_c_t crx = rx, cry = ry;
+	int64_t dx2, dy2, x1p, y1p, lam, coef = 0;
+	int64_t cxp, cyp, t1, dt, dtn, th, hn;
+	svg_c_t cx, cy;
 	int nseg, i;
 
 	if (x1 == x2 && y1 == y2)
 		return 0;	/* zero-length arc */
 
 	if (rx < 0)
-		rx = -rx;
+		rx = (svg_c_t)-rx;
 	if (ry < 0)
-		ry = -ry;
-	if (rx < 1e-9 || ry < 1e-9)
-		return pt_add(ctx, x2, y2);	/* degenerate: straight line */
+		ry = (svg_c_t)-ry;
+	if (rx < 256 || ry < 256)	/* < 1/256 unit: degenerate */
+		return pt_add(ctx, x2, y2);
 
-	/* correct out-of-range radii */
+	/* F.6.5.1-2: halved chord rotated into the ellipse frame */
 
-	lam = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry);
-	if (lam > 1.0) {
-		double s = svg_sqrt(lam);
-		rx *= s;
-		ry *= s;
+	dx2 = ((int64_t)x1 - x2) / 2;
+	dy2 = ((int64_t)y1 - y2) / 2;
+	x1p = ((int64_t)co * dx2 + (int64_t)si * dy2) / SVG_Q16_1;
+	y1p = ((int64_t)-si * dx2 + (int64_t)co * dy2) / SVG_Q16_1;
+
+	/* F.6.5.5-6: lambda = x1p^2/rx^2 + y1p^2/ry^2, reduced by 8 bits */
+
+	{
+		int64_t xr = x1p >> 8, yr = y1p >> 8;
+		int64_t rrx = (int64_t)rx >> 8, rry = (int64_t)ry >> 8;
+		int64_t a = xr * xr, b = yr * yr;
+
+		if (a > (1ll << 46))
+			a = 1ll << 46;
+		if (b > (1ll << 46))
+			b = 1ll << 46;
+		lam = (rrx ? (a * SVG_Q16_1) / (rrx * rrx) : (1ll << 46)) +
+		      (rry ? (b * SVG_Q16_1) / (rry * rry) : (1ll << 46));
+		if (lam > (1ll << 46))
+			lam = 1ll << 46;
 	}
 
-	num = rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p;
-	den = rx * rx * y1p * y1p + ry * ry * x1p * x1p;
-	if (num < 0)
-		num = 0;
-	if (den < 1e-12)
-		den = 1e-12;
-	coef = ((large != sweep) ? 1.0 : -1.0) * svg_sqrt(num / den);
+	/*
+	 * F.6.5.6-8: radii correction and the centre offset factor.  Since
+	 * num / den reduces to (1 - lambda) / lambda, the rx^2 ry^2 sized
+	 * products never need to be formed.
+	 */
 
-	cxp =  coef * rx * y1p / ry;
-	cyp = -coef * ry * x1p / rx;
+	if (lam > SVG_Q16_1) {
+		svg_c_t s = arc_sat(svg_isqrt64(lam << 16));
 
-	cx = co * cxp - si * cyp + (x1 + x2) / 2;
-	cy = si * cxp + co * cyp + (y1 + y2) / 2;
+		crx = svg_qmul(rx, s);
+		cry = svg_qmul(ry, s);
+		coef = 0;	/* num is 0 after correction */
+	} else
+		if (lam) {
+			int64_t rat = ((SVG_Q16_1 - lam) * SVG_Q16_1) / lam;
 
-	t1 = svg_atan2((y1p - cyp) / ry, (x1p - cxp) / rx);
-	dt = svg_atan2((-y1p - cyp) / ry, (-x1p - cxp) / rx) - t1;
+			if (rat > (1ll << 32))
+				rat = 1ll << 32;
+			coef = svg_isqrt64(rat << 16);
+			if (coef > (1ll << 22))
+				coef = 1ll << 22;
+			if (large == sweep)
+				coef = -coef;
+		} else
+			coef = 0;	/* centre is the chord midpoint */
+
+	/* F.6.5.10-11: ellipse frame centre offset, and absolute centre */
+
+	{
+		int64_t yr = y1p ? (y1p << 16) / cry : 0;
+		int64_t xr = x1p ? (x1p << 16) / crx : 0;
+
+		if (yr >  (1ll << 29)) yr =  1ll << 29;
+		if (yr < -(1ll << 29)) yr = -(1ll << 29);
+		if (xr >  (1ll << 29)) xr =  1ll << 29;
+		if (xr < -(1ll << 29)) xr = -(1ll << 29);
+
+		cxp = arc_sat(((int64_t)crx * ((coef * yr) >> 16)) >> 16);
+		cyp = arc_sat(-(((int64_t)cry * ((coef * xr) >> 16)) >> 16));
+
+		cx = arc_sat(((int64_t)x1 + x2) / 2 +
+			     ((int64_t)co * cxp - (int64_t)si * cyp) /
+								SVG_Q16_1);
+		cy = arc_sat(((int64_t)y1 + y2) / 2 +
+			     ((int64_t)si * cxp + (int64_t)co * cyp) /
+								SVG_Q16_1);
+	}
+
+	/* F.6.5.4-5: start angle and sweep */
+
+	t1 = svg_atan2(arc_e8_ratio(y1p - cyp, cry),
+		       arc_e8_ratio(x1p - cxp, crx));
+	dt = svg_atan2(arc_e8_ratio(-y1p - cyp, cry),
+		       arc_e8_ratio(-x1p - cxp, crx)) - t1;
 
 	if (!sweep && dt > 0)
-		dt -= 2 * SVG_PI;
+		dt -= 2 * SVG_E8_PI;
 	else
 		if (sweep && dt < 0)
-			dt += 2 * SVG_PI;
+			dt += 2 * SVG_E8_PI;
 
-	nseg = (int)(((dt < 0 ? -dt : dt) / (SVG_PI / 2)) + 0.999999);
+	/* at most 4 quarter-arc pieces */
+
+	{
+		int64_t adt = dt < 0 ? -dt : dt;
+
+		nseg = (int)((adt + 157079630) / 157079631);  /* ceil(|dt|/pi/2) */
+	}
 	if (nseg < 1)
 		nseg = 1;
 	if (nseg > 4)
 		nseg = 4;
 
-	hn = 4.0 / 3.0 * svg_tan(dt / (double)nseg / 4.0);
+	dtn = dt / nseg;
+	hn = (int64_t)svg_qmul(SVG_Q4_3, svg_tan(dtn / 4));
 	th = t1;
 
 	for (i = 0; i < nseg; i++) {
-		double th2 = th + dt / (double)nseg;
-		double c1 = svg_cos(th),  s1 = svg_sin(th);
-		double c2 = svg_cos(th2), s2 = svg_sin(th2);
-		/* points and derivatives on the rotated ellipse */
-		double px1 = cx + co * rx * c1 - si * ry * s1;
-		double py1 = cy + si * rx * c1 + co * ry * s1;
-		double dx1 = co * -rx * s1 - si * ry * c1;
-		double dy1 = si * -rx * s1 + co * ry * c1;
-		double px2 = cx + co * rx * c2 - si * ry * s2;
-		double py2 = cy + si * rx * c2 + co * ry * s2;
-		double dx2n = co * -rx * s2 - si * ry * c2;
-		double dy2n = si * -rx * s2 + co * ry * c2;
-		int r;
+		int64_t th2 = th + dtn;
+		svg_c_t c1 = svg_cos(th),  s1 = svg_sin(th);
+		svg_c_t c2 = svg_cos(th2), s2 = svg_sin(th2);
+		svg_c_t px1, py1, px2, py2, dx1, dy1, dx2n, dy2n;
 
-		/* the final piece lands exactly on the endpoint */
+		/* point and derivative on the rotated ellipse; unit
+		 * products first, then scaled by the radii */
 
-		r = flatten_cubic(ctx, px1, py1,
-				  px1 + hn * dx1, py1 + hn * dy1,
-				  px2 - hn * dx2n, py2 - hn * dy2n,
-				  i == nseg - 1 ? x2 : px2,
-				  i == nseg - 1 ? y2 : py2, 0);
-		if (r)
-			return 1;
+		px1 = svg_qsub(svg_qadd(cx, svg_qmul(svg_qmul(co, c1), crx)),
+			       svg_qmul(svg_qmul(si, s1), cry));
+		py1 = svg_qadd(svg_qadd(cy, svg_qmul(svg_qmul(si, c1), crx)),
+			       svg_qmul(svg_qmul(co, s1), cry));
+		px2 = svg_qsub(svg_qadd(cx, svg_qmul(svg_qmul(co, c2), crx)),
+			       svg_qmul(svg_qmul(si, s2), cry));
+		py2 = svg_qadd(svg_qadd(cy, svg_qmul(svg_qmul(si, c2), crx)),
+			       svg_qmul(svg_qmul(co, s2), cry));
+
+		dx1 = arc_sat(-(int64_t)svg_qmul(svg_qmul(co, s1), crx) -
+			       (int64_t)svg_qmul(svg_qmul(si, c1), cry));
+		dy1 = arc_sat(-(int64_t)svg_qmul(svg_qmul(si, s1), crx) +
+			       (int64_t)svg_qmul(svg_qmul(co, c1), cry));
+		dx2n = arc_sat(-(int64_t)svg_qmul(svg_qmul(co, s2), crx) -
+				(int64_t)svg_qmul(svg_qmul(si, s2), cry));
+		dy2n = arc_sat(-(int64_t)svg_qmul(svg_qmul(si, s2), crx) +
+				(int64_t)svg_qmul(svg_qmul(co, c2), cry));
+
+		{
+			svg_c_t c1x = arc_sat((int64_t)px1 +
+					((hn * dx1) >> 16));
+			svg_c_t c1y = arc_sat((int64_t)py1 +
+					((hn * dy1) >> 16));
+			svg_c_t c2x = arc_sat((int64_t)px2 -
+					((hn * dx2n) >> 16));
+			svg_c_t c2y = arc_sat((int64_t)py2 -
+					((hn * dy2n) >> 16));
+
+			if (flatten_cubic(ctx, px1, py1, c1x, c1y, c2x, c2y,
+					  i == nseg - 1 ? x2 : px2,
+					  i == nseg - 1 ? y2 : py2, 0))
+				return 1;
+		}
 
 		th = th2;
 	}
@@ -1117,12 +1406,13 @@ parse_path(lws_svg_t *ctx)
 {
 	const char *p = ctx->vbuf, *end = ctx->vbuf + ctx->vlen;
 	char cmd = 0, prev_c = 0, prev_q = 0;
-	double sx = 0, sy = 0, px = 0, py = 0, pcx = 0, pcy = 0;
+	svg_c_t sx = 0, sy = 0, px = 0, py = 0, pcx = 0, pcy = 0;
+	svg_c_t a[6];
 
 	work_reset(ctx);
 
 	while (p < end) {
-		double a[6];
+		int64_t v;
 
 		p = svg_ws(p, end);
 		if (p >= end)
@@ -1138,20 +1428,23 @@ parse_path(lws_svg_t *ctx)
 
 		switch (cmd) {
 		case 'M': case 'm': {
-			double x, y;
+			svg_c_t x, y;
 			char rel = cmd == 'm';
+			int64_t vx, vy;
 
-			p = svg_num(p, end, &x);
+			p = svg_num(p, end, &vx);
 			if (!p)
 				return 0;
 			p = svg_ws(p, end);
-			p = svg_num(p, end, &y);
+			p = svg_num(p, end, &vy);
 			if (!p)
 				return 0;
 
+			x = svg_e8_to_c(vx);
+			y = svg_e8_to_c(vy);
 			if (rel) {
-				x += px;
-				y += py;
+				x = svg_qadd(x, px);
+				y = svg_qadd(y, py);
 			}
 
 			/*
@@ -1164,26 +1457,29 @@ parse_path(lws_svg_t *ctx)
 
 			sx = px = x;
 			sy = py = y;
-			prev_c = prev_q = 0;	/* reflection chain broken */
+			prev_c = prev_q = 0;
 			if (sub_start(ctx, x, y))
 				return 1;
 			break;
 		}
 
 		case 'L': case 'l': {
-			double x, y;
+			svg_c_t x, y;
 			char rel = cmd == 'l';
+			int64_t vx, vy;
 
-			p = svg_num(p, end, &x);
+			p = svg_num(p, end, &vx);
 			if (!p)
 				return 0;
 			p = svg_ws(p, end);
-			p = svg_num(p, end, &y);
+			p = svg_num(p, end, &vy);
 			if (!p)
 				return 0;
+			x = svg_e8_to_c(vx);
+			y = svg_e8_to_c(vy);
 			if (rel) {
-				x += px;
-				y += py;
+				x = svg_qadd(x, px);
+				y = svg_qadd(y, py);
 			}
 			if (pt_add(ctx, x, y))
 				return 1;
@@ -1194,13 +1490,15 @@ parse_path(lws_svg_t *ctx)
 		}
 
 		case 'H': case 'h': {
-			double x;
+			svg_c_t x;
+			int64_t vx;
 
-			p = svg_num(p, end, &x);
+			p = svg_num(p, end, &vx);
 			if (!p)
 				return 0;
+			x = svg_e8_to_c(vx);
 			if (cmd == 'h')
-				x += px;
+				x = svg_qadd(x, px);
 			if (pt_add(ctx, x, py))
 				return 1;
 			px = x;
@@ -1209,13 +1507,15 @@ parse_path(lws_svg_t *ctx)
 		}
 
 		case 'V': case 'v': {
-			double y;
+			svg_c_t y;
+			int64_t vy;
 
-			p = svg_num(p, end, &y);
+			p = svg_num(p, end, &vy);
 			if (!p)
 				return 0;
+			y = svg_e8_to_c(vy);
 			if (cmd == 'v')
-				y += py;
+				y = svg_qadd(y, py);
 			if (pt_add(ctx, px, y))
 				return 1;
 			py = y;
@@ -1228,17 +1528,20 @@ parse_path(lws_svg_t *ctx)
 
 			for (i = 0; i < 3; i++) {
 				p = svg_ws(p, end);
-				p = svg_num(p, end, &a[i * 2]);
+				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
+				a[i * 2] = svg_e8_to_c(v);
 				p = svg_ws(p, end);
-				p = svg_num(p, end, &a[i * 2 + 1]);
+				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
+				a[i * 2 + 1] = svg_e8_to_c(v);
 			}
 			if (cmd == 'c')
 				for (i = 0; i < 6; i++)
-					a[i] += (i & 1) ? py : px;
+					a[i] = svg_qadd(a[i],
+							(i & 1) ? py : px);
 
 			pcx = a[2];
 			pcy = a[3];
@@ -1254,30 +1557,32 @@ parse_path(lws_svg_t *ctx)
 		}
 
 		case 'S': case 's': {
-			double x2, y2, x, y, x1, y1;
+			svg_c_t x2, y2, x, y, x1, y1;
 			int i;
 
 			for (i = 0; i < 2; i++) {
 				p = svg_ws(p, end);
-				p = svg_num(p, end, &a[i * 2]);
+				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
+				a[i * 2] = svg_e8_to_c(v);
 				p = svg_ws(p, end);
-				p = svg_num(p, end, &a[i * 2 + 1]);
+				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
+				a[i * 2 + 1] = svg_e8_to_c(v);
 			}
 			x2 = a[0]; y2 = a[1]; x = a[2]; y = a[3];
 			if (cmd == 's') {
-				x2 += px; y2 += py;
-				x += px;  y += py;
+				x2 = svg_qadd(x2, px); y2 = svg_qadd(y2, py);
+				x = svg_qadd(x, px);   y = svg_qadd(y, py);
 			}
 
 			/* reflected previous control point when the
 			 * previous command was cubic, else current point */
 
-			x1 = prev_c ? 2 * px - pcx : px;
-			y1 = prev_c ? 2 * py - pcy : py;
+			x1 = prev_c ? (svg_c_t)(2 * (int64_t)px - pcx) : px;
+			y1 = prev_c ? (svg_c_t)(2 * (int64_t)py - pcy) : py;
 
 			pcx = x2;
 			pcy = y2;
@@ -1292,23 +1597,25 @@ parse_path(lws_svg_t *ctx)
 		}
 
 		case 'Q': case 'q': {
-			double x1, y1, x, y;
+			svg_c_t x1, y1, x, y;
 			int i;
 
 			for (i = 0; i < 2; i++) {
 				p = svg_ws(p, end);
-				p = svg_num(p, end, &a[i * 2]);
+				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
+				a[i * 2] = svg_e8_to_c(v);
 				p = svg_ws(p, end);
-				p = svg_num(p, end, &a[i * 2 + 1]);
+				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
+				a[i * 2 + 1] = svg_e8_to_c(v);
 			}
 			x1 = a[0]; y1 = a[1]; x = a[2]; y = a[3];
 			if (cmd == 'q') {
-				x1 += px; y1 += py;
-				x += px;  y += py;
+				x1 = svg_qadd(x1, px); y1 = svg_qadd(y1, py);
+				x = svg_qadd(x, px);   y = svg_qadd(y, py);
 			}
 
 			pcx = x1;
@@ -1324,23 +1631,26 @@ parse_path(lws_svg_t *ctx)
 		}
 
 		case 'T': case 't': {
-			double x, y, x1, y1;
+			svg_c_t x, y, x1, y1;
+			int64_t vx, vy;
 
 			p = svg_ws(p, end);
-			p = svg_num(p, end, &x);
+			p = svg_num(p, end, &vx);
 			if (!p)
 				return 0;
 			p = svg_ws(p, end);
-			p = svg_num(p, end, &y);
+			p = svg_num(p, end, &vy);
 			if (!p)
 				return 0;
+			x = svg_e8_to_c(vx);
+			y = svg_e8_to_c(vy);
 			if (cmd == 't') {
-				x += px;
-				y += py;
+				x = svg_qadd(x, px);
+				y = svg_qadd(y, py);
 			}
 
-			x1 = prev_q ? 2 * px - pcx : px;
-			y1 = prev_q ? 2 * py - pcy : py;
+			x1 = prev_q ? (svg_c_t)(2 * (int64_t)px - pcx) : px;
+			y1 = prev_q ? (svg_c_t)(2 * (int64_t)py - pcy) : py;
 
 			pcx = x1;
 			pcy = y1;
@@ -1355,16 +1665,21 @@ parse_path(lws_svg_t *ctx)
 		}
 
 		case 'A': case 'a': {
-			double rx, ry, rot, x, y;
+			svg_c_t rx, ry, x, y;
+			int64_t rot = 0;
 			int laf, sf, i;
 
 			for (i = 0; i < 3; i++) {	/* rx ry x-axis-rot */
 				p = svg_ws(p, end);
-				p = svg_num(p, end, &a[i]);
+				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
+				if (i < 2)
+					a[i] = svg_e8_to_c(v);
+				else
+					rot = v;	/* degrees, e8 */
 			}
-			rx = a[0]; ry = a[1]; rot = a[2];
+			rx = a[0]; ry = a[1];
 
 			/* the flags are single digits, separators optional */
 
@@ -1379,19 +1694,23 @@ parse_path(lws_svg_t *ctx)
 
 			for (i = 0; i < 2; i++) {	/* x y */
 				p = svg_ws(p, end);
-				p = svg_num(p, end, &a[i]);
+				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
+				a[i] = svg_e8_to_c(v);
 			}
 			x = a[0];
 			y = a[1];
 			if (cmd == 'a') {
-				x += px;
-				y += py;
+				x = svg_qadd(x, px);
+				y = svg_qadd(y, py);
 			}
 
+			/* x-axis-rotation is degrees; the arc wants e8
+			 * radians (9150 / 2^19 = pi / 180) */
+
 			if (flatten_arc(ctx, px, py, rx, ry,
-					rot * SVG_PI / 180.0, laf, sf, x, y))
+					(rot * 9150) >> 19, laf, sf, x, y))
 				return 1;
 			px = x;
 			py = y;
@@ -1422,11 +1741,14 @@ parse_path(lws_svg_t *ctx)
 
 /* parse a points="x,y x,y ..." list into a single working subpath */
 
+/* parse a points="x,y x,y ..." list into a single working subpath */
+
 static int
 parse_points(lws_svg_t *ctx, char closed)
 {
 	const char *p = ctx->vbuf, *end = ctx->vbuf + ctx->vlen;
-	double x, y;
+	svg_c_t x, y;
+	int64_t v;
 	int n = 0;
 
 	work_reset(ctx);
@@ -1435,13 +1757,15 @@ parse_points(lws_svg_t *ctx, char closed)
 		p = svg_ws(p, end);
 		if (p >= end)
 			break;
-		p = svg_num(p, end, &x);
+		p = svg_num(p, end, &v);
 		if (!p)
 			break;
+		x = svg_e8_to_c(v);
 		p = svg_ws(p, end);
-		p = svg_num(p, end, &y);
+		p = svg_num(p, end, &v);
 		if (!p)
 			break;
+		y = svg_e8_to_c(v);
 
 		if (!n) {
 			if (sub_start(ctx, x, y))
@@ -1464,8 +1788,17 @@ parse_points(lws_svg_t *ctx, char closed)
  * subpath's start (or the working point count).
  */
 
+
+/*
+ * Commit the working geometry into the retained scene, applying the
+ * effective CTM as it is copied.  The CTM application saturates, so
+ * hostile transform stacks clip the geometry rather than producing
+ * out-of-range or non-finite points.  Subpath sizes are derived from the
+ * next subpath's start (or the working point count).
+ */
+
 static int
-shape_commit(lws_svg_t *ctx, const double m[6], uint32_t rgba, char rule)
+shape_commit(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba, char rule)
 {
 	lws_svg_shape_t *sh;
 	size_t i;
@@ -1512,8 +1845,12 @@ shape_commit(lws_svg_t *ctx, const double m[6], uint32_t rgba, char rule)
 		for (j = 0; j < count; j++) {
 			lws_svg_dpt_t *d = &ctx->wpts[start + j];
 
-			sub->pts[j].x = (float)(m[0] * d->x + m[2] * d->y + m[4]);
-			sub->pts[j].y = (float)(m[1] * d->x + m[3] * d->y + m[5]);
+			sub->pts[j].x = svg_qadd(svg_qadd(
+					svg_qmul(m[0], d->x),
+					svg_qmul(m[2], d->y)), m[4]);
+			sub->pts[j].y = svg_qadd(svg_qadd(
+					svg_qmul(m[1], d->x),
+					svg_qmul(m[3], d->y)), m[5]);
 		}
 
 		lws_dll2_add_tail(&sub->list, &sh->subs);
@@ -1538,9 +1875,9 @@ shape_commit(lws_svg_t *ctx, const double m[6], uint32_t rgba, char rule)
 static int
 build_rect(lws_svg_t *ctx, svg_pend_t *pd)
 {
-	double x = pd->gok[0] ? pd->g[0] : 0, y = pd->gok[1] ? pd->g[1] : 0;
-	double w = pd->gok[2] ? pd->g[2] : 0, h = pd->gok[3] ? pd->g[3] : 0;
-	double rx = pd->gok[4] ? pd->g[4] : 0, ry = pd->gok[5] ? pd->g[5] : 0;
+	svg_c_t x = pd->gok[0] ? pd->g[0] : 0, y = pd->gok[1] ? pd->g[1] : 0;
+	svg_c_t w = pd->gok[2] ? pd->g[2] : 0, h = pd->gok[3] ? pd->g[3] : 0;
+	svg_c_t rx = pd->gok[4] ? pd->g[4] : 0, ry = pd->gok[5] ? pd->g[5] : 0;
 
 	if (w <= 0 || h <= 0)
 		return 0;	/* nothing to fill */
@@ -1552,42 +1889,52 @@ build_rect(lws_svg_t *ctx, svg_pend_t *pd)
 	if (!ry && rx)
 		ry = rx;
 	if (rx < 0)
-		rx = 0;
+		rx = (svg_c_t)-rx;
 	if (ry < 0)
-		ry = 0;
+		ry = (svg_c_t)-ry;
 	if (rx > w / 2)
 		rx = w / 2;
 	if (ry > h / 2)
 		ry = h / 2;
 
 	work_reset(ctx);
-	if (sub_start(ctx, x + rx, y))
+	if (sub_start(ctx, svg_qadd(x, rx), y))
 		return 1;
 
 	if (rx > 0 && ry > 0) {
-		double kx = rx * SVG_KAPPA, ky = ry * SVG_KAPPA;
+		svg_c_t kx = (svg_c_t)(((int64_t)rx * SVG_KAPPA_Q) >> 16);
+		svg_c_t ky = (svg_c_t)(((int64_t)ry * SVG_KAPPA_Q) >> 16);
 
 		/* clockwise from the top edge, four quarter-arc corners */
 
-		if (pt_add(ctx, x + w - rx, y))
+		if (pt_add(ctx, svg_qsub(svg_qadd(x, w), rx), y))
 			return 1;
-		if (flatten_cubic(ctx, x + w - rx, y, x + w - rx + kx, y,
-				  x + w, y + ry - ky, x + w, y + ry, 0))
+		if (flatten_cubic(ctx, svg_qsub(svg_qadd(x, w), rx), y,
+				  svg_qadd(svg_qsub(svg_qadd(x, w), rx), kx), y,
+				  x + w, svg_qsub(svg_qadd(y, ry), ky),
+				  x + w, y + ry, 0))
 			return 1;
-		if (pt_add(ctx, x + w, y + h - ry))
+		if (pt_add(ctx, x + w, svg_qsub(svg_qadd(y, h), ry)))
 			return 1;
-		if (flatten_cubic(ctx, x + w, y + h - ry, x + w, y + h - ry + ky,
-				  x + w - rx + kx, y + h, x + w - rx, y + h, 0))
+		if (flatten_cubic(ctx, x + w, svg_qsub(svg_qadd(y, h), ry),
+				  x + w,
+				  svg_qadd(svg_qsub(svg_qadd(y, h), ry), ky),
+				  svg_qadd(svg_qsub(svg_qadd(x, w), rx), kx), y + h,
+				  svg_qsub(svg_qadd(x, w), rx), y + h, 0))
 			return 1;
-		if (pt_add(ctx, x + rx, y + h))
+		if (pt_add(ctx, svg_qadd(x, rx), y + h))
 			return 1;
-		if (flatten_cubic(ctx, x + rx, y + h, x + rx - kx, y + h,
-				  x, y + h - ry + ky, x, y + h - ry, 0))
+		if (flatten_cubic(ctx, svg_qadd(x, rx), y + h,
+				  svg_qsub(svg_qadd(x, rx), kx), y + h,
+				  x, svg_qadd(svg_qsub(svg_qadd(y, h), ry), ky),
+				  x, svg_qsub(svg_qadd(y, h), ry), 0))
 			return 1;
-		if (pt_add(ctx, x, y + ry))
+		if (pt_add(ctx, x, svg_qadd(y, ry)))
 			return 1;
-		if (flatten_cubic(ctx, x, y + ry, x, y + ry - ky,
-				  x + rx - kx, y, x + rx, y, 0))
+		if (flatten_cubic(ctx, x, svg_qadd(y, ry), x,
+				  svg_qsub(svg_qadd(y, ry), ky),
+				  svg_qsub(svg_qadd(x, rx), kx), y,
+				  svg_qadd(x, rx), y, 0))
 			return 1;
 	} else {
 		if (pt_add(ctx, x + w, y) || pt_add(ctx, x + w, y + h) ||
@@ -1601,34 +1948,40 @@ build_rect(lws_svg_t *ctx, svg_pend_t *pd)
 }
 
 static int
-build_ellipse(lws_svg_t *ctx, double cx, double cy, double rx, double ry)
+build_ellipse(lws_svg_t *ctx, svg_c_t cx, svg_c_t cy, svg_c_t rx, svg_c_t ry)
 {
-	double kx = rx * SVG_KAPPA, ky = ry * SVG_KAPPA;
+	svg_c_t kx = (svg_c_t)(((int64_t)rx * SVG_KAPPA_Q) >> 16);
+	svg_c_t ky = (svg_c_t)(((int64_t)ry * SVG_KAPPA_Q) >> 16);
 
 	if (rx <= 0 || ry <= 0)
 		return 0;
 
 	work_reset(ctx);
-	if (sub_start(ctx, cx + rx, cy))
+	if (sub_start(ctx, svg_qadd(cx, rx), cy))
 		return 1;
 
-	if (flatten_cubic(ctx, cx + rx, cy, cx + rx, cy + ky,
-			  cx + kx, cy + ry, cx, cy + ry, 0))
+	if (flatten_cubic(ctx, svg_qadd(cx, rx), cy, svg_qadd(cx, rx),
+			  svg_qadd(cy, ky), svg_qadd(cx, kx),
+			  svg_qadd(cy, ry), cx, svg_qadd(cy, ry), 0))
 		return 1;
-	if (flatten_cubic(ctx, cx, cy + ry, cx - kx, cy + ry,
-			  cx - rx, cy + ky, cx - rx, cy, 0))
+	if (flatten_cubic(ctx, cx, svg_qadd(cy, ry), svg_qsub(cx, kx),
+			  svg_qadd(cy, ry), svg_qsub(cx, rx),
+			  svg_qadd(cy, ky), svg_qsub(cx, rx), cy, 0))
 		return 1;
-	if (flatten_cubic(ctx, cx - rx, cy, cx - rx, cy - ky,
-			  cx - kx, cy - ry, cx, cy - ry, 0))
+	if (flatten_cubic(ctx, svg_qsub(cx, rx), cy, svg_qsub(cx, rx),
+			  svg_qsub(cy, ky), svg_qsub(cx, kx),
+			  svg_qsub(cy, ry), cx, svg_qsub(cy, ry), 0))
 		return 1;
-	if (flatten_cubic(ctx, cx, cy - ry, cx + kx, cy - ry,
-			  cx + rx, cy - ky, cx + rx, cy, 0))
+	if (flatten_cubic(ctx, cx, svg_qsub(cy, ry), svg_qadd(cx, kx),
+			  svg_qsub(cy, ry), svg_qadd(cx, rx),
+			  svg_qsub(cy, ky), svg_qadd(cx, rx), cy, 0))
 		return 1;
 
 	ctx->wsubs[0].closed = 1;
 
 	return 0;
 }
+
 
 /*
  * Element classification
@@ -1714,7 +2067,7 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 	      const char *elem)
 {
 	uint32_t rgba = parent->rgba;
-	double alpha = (double)LWS_SVG_ALPHA(rgba);
+	int64_t alpha = LWS_SVG_ALPHA(rgba);	/* 0..255 in e8 units */
 	int tier, i;
 
 	*l = *parent;
@@ -1727,14 +2080,16 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 			alpha = 0;
 		else {
 			rgba = pd->fill & 0x00ffffff;
-			alpha = (double)LWS_SVG_ALPHA(pd->fill);
+			alpha = LWS_SVG_ALPHA(pd->fill);
 		}
 	}
 
 	if (pd->fillop_present && pd->fillop > 0)
-		alpha *= pd->fillop < 1 ? pd->fillop : 1.0;
+		alpha = pd->fillop < SVG_E8_1 ?
+			(alpha * pd->fillop + SVG_E8_1 / 2) / SVG_E8_1 : alpha;
 	if (pd->op_present && pd->op > 0)
-		alpha *= pd->op < 1 ? pd->op : 1.0;
+		alpha = pd->op < SVG_E8_1 ?
+			(alpha * pd->op + SVG_E8_1 / 2) / SVG_E8_1 : alpha;
 
 	if (pd->rule_present)
 		l->rule = pd->rule;
@@ -1765,13 +2120,17 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 					alpha = 0;
 				else {
 					rgba = r->fill & 0x00ffffff;
-					alpha = (double)LWS_SVG_ALPHA(r->fill);
+					alpha = LWS_SVG_ALPHA(r->fill);
 				}
 			}
 			if (r->fillop_set && r->fillop > 0)
-				alpha *= r->fillop < 1 ? r->fillop : 1.0;
+				alpha = r->fillop < SVG_E8_1 ?
+					(alpha * r->fillop + SVG_E8_1 / 2) /
+							SVG_E8_1 : alpha;
 			if (r->op_set && r->op > 0)
-				alpha *= r->op < 1 ? r->op : 1.0;
+				alpha = r->op < SVG_E8_1 ?
+					(alpha * r->op + SVG_E8_1 / 2) /
+							SVG_E8_1 : alpha;
 			if (r->rule_set)
 				l->rule = r->rule;
 		}
@@ -1783,18 +2142,23 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 			alpha = 0;
 		else {
 			rgba = pd->sa_fill & 0x00ffffff;
-			alpha = (double)LWS_SVG_ALPHA(pd->sa_fill);
+			alpha = LWS_SVG_ALPHA(pd->sa_fill);
 		}
 	}
 	if (pd->sa_fillop_present && pd->sa_fillop > 0)
-		alpha *= pd->sa_fillop < 1 ? pd->sa_fillop : 1.0;
+		alpha = pd->sa_fillop < SVG_E8_1 ?
+			(alpha * pd->sa_fillop + SVG_E8_1 / 2) / SVG_E8_1 :
+								alpha;
 	if (pd->sa_op_present && pd->sa_op > 0)
-		alpha *= pd->sa_op < 1 ? pd->sa_op : 1.0;
+		alpha = pd->sa_op < SVG_E8_1 ?
+			(alpha * pd->sa_op + SVG_E8_1 / 2) / SVG_E8_1 :
+								alpha;
 
-	if (alpha > 255.0)
-		alpha = 255.0;
+	if (alpha > 255)
+		alpha = 255;
 
-	l->rgba = (rgba & 0x00ffffff) | ((uint32_t)(alpha + 0.5) << 24);
+	l->rgba = (rgba & 0x00ffffff) |
+			((uint32_t)((alpha * 2 + 1) / 2) << 24);
 
 	if (pd->sa_rule_present)
 		l->rule = pd->sa_rule;
@@ -1853,7 +2217,7 @@ geom_slot(svg_ekind_t k, const char *aname)
 
 struct svg_pp {
 	uint32_t	fill;
-	double		fillop, op;
+	int64_t		fillop, op;	/* e8 */
 	char		rule;
 };
 
@@ -2156,10 +2520,13 @@ attr_complete(lws_svg_t *ctx)
 			int i;
 
 			for (i = 0; i < 4; i++) {
+				int64_t v;
+
 				p = svg_ws(p, end);
-				p = svg_num(p, end, &ctx->vb[i]);
+				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
+				ctx->vb[i] = svg_e8_to_c(v);
 			}
 			ctx->has_vb = 1;
 
@@ -2216,15 +2583,15 @@ attr_complete(lws_svg_t *ctx)
 	}
 
 	if (!strcmp(n, "fill-opacity") || !strcmp(n, "opacity")) {
-		double d;
+		int64_t v;
 
-		if (svg_num(ctx->vbuf, ctx->vbuf + ctx->vlen, &d)) {
+		if (svg_num(ctx->vbuf, ctx->vbuf + ctx->vlen, &v)) {
 			if (n[4] == '-') {
 				pd->fillop_present = 1;
-				pd->fillop = d;
+				pd->fillop = v;
 			} else {
 				pd->op_present = 1;
-				pd->op = d;
+				pd->op = v;
 			}
 		}
 
@@ -2324,11 +2691,11 @@ attr_complete(lws_svg_t *ctx)
 		int slot = geom_slot(ctx->ekind, n);
 
 		if (slot >= 0) {
-			double d;
+			int64_t v;
 
-			if (svg_num(ctx->vbuf, ctx->vbuf + ctx->vlen, &d)) {
+			if (svg_num(ctx->vbuf, ctx->vbuf + ctx->vlen, &v)) {
 				pd->gok[slot] = 1;
-				pd->g[slot] = d;
+				pd->g[slot] = svg_e8_to_c(v);
 			}
 
 			return 0;
@@ -2381,7 +2748,7 @@ element_open(lws_svg_t *ctx, char selfclose)
 				     "svg");
 
 			if (ctx->has_vb && ctx->vb[2] > 0 && ctx->vb[3] > 0) {
-				double mn = ctx->vb[2] < ctx->vb[3] ?
+				svg_c_t mn = ctx->vb[2] < ctx->vb[3] ?
 						ctx->vb[2] : ctx->vb[3];
 
 				/*
@@ -2396,11 +2763,11 @@ element_open(lws_svg_t *ctx, char selfclose)
 				 * join at horizontal tangents).
 				 */
 
-				ctx->tol = mn / 1024.0;
-				if (ctx->tol < 1.0 / 4096.0)
-					ctx->tol = 1.0 / 4096.0;
-				if (ctx->tol > 0.125)
-					ctx->tol = 0.125;
+				ctx->tol = (svg_c_t)(mn >> 10);
+				if (ctx->tol < 16)	/* 1/4096 */
+					ctx->tol = 16;
+				if (ctx->tol > 8192)	/* 1/8 */
+					ctx->tol = 8192;
 			}
 
 			if (selfclose)
@@ -3014,7 +3381,7 @@ lws_svg_new(void)
 		return NULL;
 
 	ctx->ts = SXS_PROLOG;
-	ctx->tol = 0.1;
+	ctx->tol = 6554;	/* 0.1 in Q16.16 */
 	ctx->par_ax = ctx->par_ay = 1;	/* preserveAspectRatio default Mid */
 	ctx->vsize = 256;
 	ctx->vbuf = lws_malloc(ctx->vsize, __func__);
@@ -3084,10 +3451,12 @@ lws_svg_get_width(const lws_svg_t *ctx)
 		return 0;
 
 	if (ctx->has_w && !ctx->unit_w && ctx->width > 0)
-		return (unsigned int)(ctx->width + 0.5);
+		return (unsigned int)(((int64_t)ctx->width +
+					SVG_Q16_1 / 2) >> 16);
 
 	if (ctx->has_vb && ctx->vb[2] > 0)
-		return (unsigned int)(ctx->vb[2] + 0.5);
+		return (unsigned int)(((int64_t)ctx->vb[2] +
+					SVG_Q16_1 / 2) >> 16);
 
 	return 300;	/* CSS default replaced element size */
 }
@@ -3099,10 +3468,12 @@ lws_svg_get_height(const lws_svg_t *ctx)
 		return 0;
 
 	if (ctx->has_h && !ctx->unit_h && ctx->height > 0)
-		return (unsigned int)(ctx->height + 0.5);
+		return (unsigned int)(((int64_t)ctx->height +
+					SVG_Q16_1 / 2) >> 16);
 
 	if (ctx->has_vb && ctx->vb[3] > 0)
-		return (unsigned int)(ctx->vb[3] + 0.5);
+		return (unsigned int)(((int64_t)ctx->vb[3] +
+					SVG_Q16_1 / 2) >> 16);
 
 	return 150;
 }
@@ -3156,28 +3527,16 @@ typedef struct {
 	uint32_t		rgba;
 } svg_emit_t;
 
-/* integer ceil, avoiding libm */
 
 static int
-iceil(double v)
-{
-	int iv = (int)v;
-
-	if ((double)iv == v || v < 0)
-		return iv;
-
-	return iv + 1;
-}
-
-static int
-emit_span(svg_emit_t *e, double xa, double xb)
+emit_span(svg_emit_t *e, svg_c_t xa, svg_c_t xb)
 {
 	int x0, x1;
 
-	/* pixel p is covered when xa <= p + 0.5 < xb */
+	/* pixel p is covered when xa <= p + 0.5 < xb, in Q16.16 */
 
-	x0 = iceil(xa - 0.5);
-	x1 = iceil(xb - 0.5);
+	x0 = svg_ceil_q16((int64_t)xa - SVG_Q16_1 / 2);
+	x1 = svg_ceil_q16((int64_t)xb - SVG_Q16_1 / 2);
 
 	if (x0 < 0)
 		x0 = 0;
@@ -3194,48 +3553,65 @@ lws_stateful_ret_t
 lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 		    lws_svg_span_cb_t cb, void *user)
 {
-	double sx = 1.0, sy = 1.0, ox = 0.0, oy = 0.0, vbx = 0.0, vby = 0.0;
-	double ys;
+	svg_c_t sx = SVG_Q16_1, sy = SVG_Q16_1, ox = 0, oy = 0;
+	svg_c_t vbx = 0, vby = 0, ys;
 	svg_emit_t e;
 
 	if (y < 0 || y >= ri->h || ri->w <= 0)
 		return LWS_SRET_OK;
 
-	/* map user space into the raster according to the sizing policy */
+	/*
+	 * Map user space into the raster according to the sizing policy.
+	 * Divisions are safe because the denominators are clamped
+	 * positive, and the resulting scales are floored at 1/65536.
+	 */
 
 	if (ctx->has_vb && ctx->vb[2] > 0 && ctx->vb[3] > 0) {
-		sx = (double)ri->w / ctx->vb[2];
-		sy = (double)ri->h / ctx->vb[3];
+		int64_t sxq = ((int64_t)ri->w * SVG_Q16_1 * SVG_Q16_1) /
+								ctx->vb[2];
+		int64_t syq = ((int64_t)ri->h * SVG_Q16_1 * SVG_Q16_1) /
+								ctx->vb[3];
+
+		sx = arc_sat(sxq);
+		sy = arc_sat(syq);
+		if (!sx)
+			sx = 1;
+		if (!sy)
+			sy = 1;
 
 		if (!ctx->par_none) {
-			double s = ctx->par_slice ?
-					(sx > sy ? sx : sy) :
-					(sx < sy ? sx : sy);
+			svg_c_t s = ctx->par_slice ?
+					(sx > sy ? sx : sy) : (sx < sy ? sx : sy);
 
 			sx = sy = s;
-			ox = ((double)ri->w - ctx->vb[2] * s) *
-						(double)ctx->par_ax / 2.0;
-			oy = ((double)ri->h - ctx->vb[3] * s) *
-						(double)ctx->par_ay / 2.0;
+			ox = arc_sat(((int64_t)ri->w * SVG_Q16_1 -
+				(((int64_t)ctx->vb[2] * s) >> 16)) *
+				ctx->par_ax / 2);
+			oy = arc_sat(((int64_t)ri->h * SVG_Q16_1 -
+				(((int64_t)ctx->vb[3] * s) >> 16)) *
+				ctx->par_ay / 2);
 		}
 
 		vbx = ctx->vb[0];
 		vby = ctx->vb[1];
 	} else {
-		double w0 = (ctx->has_w && !ctx->unit_w && ctx->width > 0) ?
+		svg_c_t w0 = (ctx->has_w && !ctx->unit_w && ctx->width > 0) ?
 				ctx->width : 0;
-		double h0 = (ctx->has_h && !ctx->unit_h && ctx->height > 0) ?
+		svg_c_t h0 = (ctx->has_h && !ctx->unit_h && ctx->height > 0) ?
 				ctx->height : 0;
 
 		if (w0 > 0)
-			sx = (double)ri->w / w0;
+			sx = arc_sat(((int64_t)ri->w * SVG_Q16_1 * SVG_Q16_1) /
+					w0);
 		if (h0 > 0)
-			sy = (double)ri->h / h0;
+			sy = arc_sat(((int64_t)ri->h * SVG_Q16_1 * SVG_Q16_1) /
+					h0);
 	}
 
 	/* sample the line at the pixel centre, in user space */
 
-	ys = ((double)y + 0.5 - oy) / sy + vby;
+	ys = arc_sat((((int64_t)y * SVG_Q16_1 + SVG_Q16_1 / 2 - oy) << 16) /
+								sy + vby);
 
 	e.cb = cb;
 	e.user = user;
@@ -3258,7 +3634,11 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 				return LWS_SRET_FATAL;
 
 			/* fill closes open subpaths implicitly, so every
-			 * subpath walks a closing edge too */
+			 * subpath walks a closing edge too.  The crossing
+			 * interpolation keeps products inside int64 by
+			 * pre-shifting; since ys lies between the endpoint
+			 * ys, the quotient is bounded by the edge dx.
+			 */
 
 			for (i = 0; i < sub->npts; i++) {
 				lws_svg_pt_t *p = &sub->pts[i];
@@ -3266,10 +3646,17 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 					i + 1 == sub->npts ? 0 : i + 1];
 
 				if ((p->y > ys) != (q->y > ys)) {
-					double t = (ys - p->y) / (q->y - p->y);
-					double xu = p->x + t * (q->x - p->x);
+					int64_t dy = (int64_t)q->y - p->y;
+					int64_t num = (((int64_t)ys - p->y) >> 1) *
+						      (((int64_t)q->x - p->x) >> 1);
+					int64_t xu = (int64_t)p->x +
+							((num / dy) << 2);
 
-					ctx->xings[n].x = (xu - vbx) * sx + ox;
+					/* map the crossing into device space */
+
+					ctx->xings[n].x = arc_sat(
+						((((xu - (int64_t)vbx) >> 1) *
+						  sx >> 16) << 1) + ox);
 					ctx->xings[n].dir = q->y > p->y ? 1 : -1;
 					n++;
 				}
