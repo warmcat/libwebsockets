@@ -1117,6 +1117,7 @@ parse_path(lws_svg_t *ctx)
 
 			sx = px = x;
 			sy = py = y;
+			prev_c = prev_q = 0;	/* reflection chain broken */
 			if (sub_start(ctx, x, y))
 				return 1;
 			break;
@@ -1141,6 +1142,7 @@ parse_path(lws_svg_t *ctx)
 				return 1;
 			px = x;
 			py = y;
+			prev_c = prev_q = 0;
 			break;
 		}
 
@@ -1155,6 +1157,7 @@ parse_path(lws_svg_t *ctx)
 			if (pt_add(ctx, x, py))
 				return 1;
 			px = x;
+			prev_c = prev_q = 0;
 			break;
 		}
 
@@ -1169,6 +1172,7 @@ parse_path(lws_svg_t *ctx)
 			if (pt_add(ctx, px, y))
 				return 1;
 			py = y;
+			prev_c = prev_q = 0;
 			break;
 		}
 
@@ -1356,6 +1360,7 @@ parse_path(lws_svg_t *ctx)
 				px = sx;
 				py = sy;
 			}
+			prev_c = prev_q = 0;
 			/* numbers following Z are invalid: stop here */
 			cmd = 0;
 			break;
