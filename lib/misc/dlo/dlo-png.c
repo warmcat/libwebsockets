@@ -91,9 +91,19 @@ lws_display_render_png(struct lws_display_render_state *rs)
 		return LWS_SRET_OK; /* off to the left */
 
 	do {
-		if (lws_flow_feed(&dlo_png->flow))
+		if (lws_flow_feed(&dlo_png->flow)) {
+			/*
+			 * Nothing in the buflist... if the payload is over,
+			 * what we have is all there will be: render it, not
+			 * wait for more that is never coming
+			 */
+			if (dlo_png->flow.state ==
+					LWSDLOFLOW_STATE_READ_COMPLETED)
+				return LWS_SRET_OK;
+
 			/* if he says WANT_INPUT, we have nothing in the buflist */
 			return LWS_SRET_WANT_INPUT;
+		}
 
 		pix = NULL;
 		r = lws_upng_emit_next_line(dlo_png->png, &pix, &dlo_png->flow.data,
@@ -102,7 +112,20 @@ lws_display_render_png(struct lws_display_render_state *rs)
 		if (r & LWS_SRET_NO_FURTHER_IN)
 			dlo_png->flow.state = LWSDLOFLOW_STATE_READ_COMPLETED;
 
-		if (r & (LWS_SRET_FATAL | LWS_SRET_YIELD)  || r == LWS_SRET_OK)
+		if (r & LWS_SRET_FATAL) {
+			/*
+			 * The decode has failed, eg, the payload was cut
+			 * short... no line is ever coming from this image.
+			 * Give up on the rest of it rather than take the
+			 * whole render hostage
+			 */
+			dlo_png->flow.state = LWSDLOFLOW_STATE_READ_COMPLETED;
+			lwsl_notice("%s: %s: decode failed\n", __func__,
+				    dlo_png->name);
+			return LWS_SRET_OK;
+		}
+
+		if (r & LWS_SRET_YIELD  || r == LWS_SRET_OK)
 			return r;
 
 		r = lws_flow_req(&dlo_png->flow);

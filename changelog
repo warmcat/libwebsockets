@@ -7,7 +7,12 @@ Development
  - lhp: document asset fetches are now queued behind an fd-budgeted number of
    in-flight slots instead of all connecting at once.  The ceiling adapts to
    the context's fd limit (tiny fd tables end up serializing their fetches
-   instead of failing them, and fat boxes are still capped at 16).  Completed
+   instead of failing them, and fat boxes are still capped at 16), and at
+   most 4 assets may be in flight to the same scheme://host[:port] at once:
+   servers rate-limit parallel connections from one client, and blasting a
+   dozen TLS connections at one CDN gets the extra ones silently hung until
+   they time out.  Queued assets whose server is at its per-host ceiling are
+   passed over for later ones on other servers.  Completed
    image assets release their slot at end of message rather than squatting on
    it until teardown, an asset already fetching or queued is reused when the
    document repeats its url instead of fetching it again, and a document whose

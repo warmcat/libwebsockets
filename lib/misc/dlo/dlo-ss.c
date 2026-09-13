@@ -40,6 +40,15 @@
 #define LWS_DLO_MAX_CONCURRENT_ASSETS	16
 #define LWS_DLO_MAX_TRACKED_ASSETS	128
 
+/*
+ * ... and how many may be in flight to the same scheme://host[:port] at once.
+ * Servers rate-limit parallel connections from one client: blasting a dozen
+ * TLS connections at one CDN gets the extra ones silently hung until they
+ * time out.  Browsers keep this small for the same reason.
+ */
+
+#define LWS_DLO_MAX_CONCURRENT_PER_HOST	4
+
 LWS_SS_USER_TYPEDEF
 	sul_cb_t			on_rx;
 	lhp_ctx_t			*lhp;
@@ -49,6 +58,7 @@ LWS_SS_USER_TYPEDEF
 	lws_dll2_t			active_asset_list; /*cx->active_assets*/
 	uint8_t				type; /* LWSDLOSS_TYPE_ */
 	uint8_t				inflight:1; /* holds a fetch slot */
+	uint8_t				hl; /* chars of url that are scheme://host */
 	char				url[LHP_URL_LEN];
 } dloss_t;
 
@@ -180,6 +190,29 @@ dlo_asset_inflight_count(struct lws_context *cx)
 	return n;
 }
 
+/* how many in-flight assets are going to this asset's scheme://host[:port] */
+
+static int
+dlo_asset_host_inflight(struct lws_context *cx, const dloss_t *cand)
+{
+	int n = 0;
+
+	if (!cand->hl)
+		/* file:///... has no host, nothing to be polite to */
+		return 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&cx->active_assets)) {
+		dloss_t *ds = lws_container_of(d, dloss_t, active_asset_list);
+
+		if (ds->inflight && ds->hl == cand->hl &&
+		    !memcmp(ds->url, cand->url, cand->hl))
+			n++;
+	} lws_end_foreach_dll(d);
+
+	return n;
+}
+
 /*
  * An in-flight asset completed (or was destroyed): bring the queue head
  * into the freed slot, if the queue has anyone on it.  Called from the ss
@@ -192,8 +225,29 @@ dlo_assets_kick(struct lws_context *cx)
 {
 	while (cx->pending_assets.head &&
 	       dlo_asset_inflight_count(cx) < (int)dlo_asset_inflight_max(cx)) {
-		dloss_t *ds = lws_container_of(cx->pending_assets.head,
-					       dloss_t, active_asset_list);
+		dloss_t *ds = NULL;
+
+		/*
+		 * The queue head's server may already be at its per-host
+		 * ceiling: a later, different-host asset can start past it
+		 */
+
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&cx->pending_assets)) {
+			dloss_t *d1 = lws_container_of(d, dloss_t,
+						       active_asset_list);
+
+			if (dlo_asset_host_inflight(cx, d1) >=
+						LWS_DLO_MAX_CONCURRENT_PER_HOST)
+				continue;
+
+			ds = d1;
+			break;
+		} lws_end_foreach_dll(d);
+
+		if (!ds)
+			/* every queued asset's server is at its ceiling */
+			break;
 
 		lws_dll2_remove(&ds->active_asset_list);
 		lws_dll2_add_tail(&ds->active_asset_list,
@@ -379,9 +433,24 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 			break;
 		}
 
-		if (state != LWSSSCS_DISCONNECTED && !m->u.failed &&
-		    m->u.u.dlo_png && !lws_dlo_image_width(&m->u)) {
+		/*
+		 * Nothing more is coming on this handle unless the stream is
+		 * nailed up... these asset fetches are opportunistic, so if
+		 * the payload had not all arrived, the asset has failed.
+		 * Mark it, and complete the flow, so whatever waits on it
+		 * (layout for dimensions, the render for pixel data) is
+		 * released instead of waiting for something that will never
+		 * turn up
+		 */
+
+		if (!m->u.failed && m->u.u.dlo_png &&
+		    (state != LWSSSCS_DISCONNECTED ||
+		     !(m->ss->policy->flags & LWSSSPOLF_NAILED_UP)) &&
+		    m->u.u.dlo_jpeg->flow.state !=
+		    			LWSDLOFLOW_STATE_READ_COMPLETED) {
 			m->u.failed = 1;
+			m->u.u.dlo_jpeg->flow.state =
+					LWSDLOFLOW_STATE_READ_COMPLETED;
 			lws_sul_schedule(lws_ss_get_context(m->ss), 0,
 					 &m->sul, lws_lhp_image_dimensions_cb, 1);
 		}
@@ -649,6 +718,24 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 
 	lws_strncpy(dloss->url, rebased_url, sizeof(dloss->url));
 
+	/*
+	 * How many chars of the url are its scheme://host[:port], for the
+	 * per-server fetch ceiling.  file:///... has an empty host and is
+	 * exempt
+	 */
+
+	dloss->hl = 0;
+	q = strchr(rebased_url, '/');
+	if (q && q > rebased_url && q[-1] == ':' && q[1] == '/') {
+		const char *he = strchr(q + 2, '/');
+
+		if (!he)
+			he = rebased_url + strlen(rebased_url);
+
+		if (he > q + 2 && lws_ptr_diff(he, rebased_url) < 256)
+			dloss->hl = (uint8_t)lws_ptr_diff(he, rebased_url);
+	}
+
 	switch (type) {
 	case LWSDLOSS_TYPE_PNG:
 		dloss->u.u.dlo_png = dlo_png;
@@ -681,10 +768,14 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 	 */
 
 	if (dlo_asset_inflight_count(i->cx) >=
-						(int)dlo_asset_inflight_max(i->cx)) {
+					(int)dlo_asset_inflight_max(i->cx) ||
+	    dlo_asset_host_inflight(i->cx, dloss) >=
+						LWS_DLO_MAX_CONCURRENT_PER_HOST) {
 		lws_dll2_add_tail(&dloss->active_asset_list,
 				  &i->cx->pending_assets);
 		lwsl_notice("%s: queued %s (dlo %p)\n", __func__, rebased_url, dlo);
+		/* a different queued asset may be startable past us */
+		dlo_assets_kick(i->cx);
 	} else {
 		/*
 		 * Mark it in-flight before connecting: a file asset can
