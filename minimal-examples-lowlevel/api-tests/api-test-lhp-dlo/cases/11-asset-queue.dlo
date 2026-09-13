@@ -1,0 +1,12 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (8.0,25.92) [384.0 x 76.0] rgba=00000000
+  text (0.0,0.0) [361.0 x 19.0] rgba=FF000000 f=17/400 "Five attributed images so the parse does not stall on them and "
+  text (0.0,19.0) [355.0 x 19.0] rgba=FF000000 f=17/400 "they queue, then one unattributed image that stalls the parse "
+  text (0.0,38.0) [351.0 x 19.0] rgba=FF000000 f=17/400 "until it has actually come through the queue: its size can only "
+  text (0.0,57.0) [152.0 x 19.0] rgba=FF000000 f=17/400 "come from the fetched svg"
+ svg (8.0,101.92) [16.0 x 16.0]
+ svg (24.0,101.92) [16.0 x 16.0]
+ svg (40.0,101.92) [16.0 x 16.0]
+ svg (56.0,101.92) [16.0 x 16.0]
+ svg (72.0,101.92) [16.0 x 16.0]
+ svg (88.0,101.92) [16.0 x 16.0]

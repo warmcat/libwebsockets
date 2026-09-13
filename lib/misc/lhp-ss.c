@@ -61,13 +61,38 @@ lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul)
 				lwsl_warn("%s: returning to await more input\n", __func__);
 				return;
 			}
+
+			/*
+			 * The document stream is over, but its assets may still
+			 * be fetching or queued for a fetch slot: the page is
+			 * not complete until they have all arrived or failed.
+			 * The last one out resumes the parse from here.
+			 */
+
+			if (lws_dlo_ss_assets_active(m->cx)) {
+				m->lhp.await_assets = 1;
+				lwsl_notice("%s: deferring completion for "
+					    "outstanding assets\n", __func__);
+				return;
+			}
+
 			lwsl_notice("%s: inferring we are finished\n", __func__);
 			break;
 		}
 
 		if (r & LWS_SRET_AWAIT_RETRY) {
+			/*
+			 * Retries are normally woken by whatever we are
+			 * waiting on (image dimensions arriving, css done).
+			 * This self-retry is the fallback if that never
+			 * comes, so it wants to be slow: at 1us it spun the
+			 * retry budget dry before a queued fetch could even
+			 * start.
+			 */
 			if (!m->lhp.await_css_done)
-				lws_sul_schedule(m->cx, 0, &m->sul, lws_lhp_ss_html_parse, 1);
+				lws_sul_schedule(m->cx, 0, &m->sul,
+						 lws_lhp_ss_html_parse,
+						 100 * LWS_US_PER_MS);
 
 			return;
 		}
@@ -82,6 +107,7 @@ lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul)
 
 	lwsl_notice("%s: DESTROYING the lhp\n", __func__);
 
+	m->lhp.await_assets = 0;
 	m->lhp.flags = LHP_FLAG_DOCUMENT_END;
 	lws_lhp_parse(&m->lhp, (const uint8_t **)NULL, &zero);
 	m->rs->html = 2; /* html completed.. rs outlives the html ss and priv */

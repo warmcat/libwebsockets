@@ -31,6 +31,9 @@ if (requirements)
 
 	if (LWS_WITH_FILE_OPS AND NOT WIN32)
 		file(GLOB LHP_CASES ${CMAKE_CURRENT_SOURCE_DIR}/cases/*.html)
+		# 11-asset-queue gets its own entry below, with a small fd limit
+		list(REMOVE_ITEM LHP_CASES
+				${CMAKE_CURRENT_SOURCE_DIR}/cases/11-asset-queue.html)
 		foreach(C ${LHP_CASES})
 			get_filename_component(CN ${C} NAME_WE)
 			add_test(NAME api-test-lhp-dlo-${CN}
@@ -41,6 +44,18 @@ if (requirements)
 					-DOUT=${CMAKE_CURRENT_BINARY_DIR}/${CN}.dlo
 					-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
 		endforeach()
+
+		# six images on a context with a tiny fd table: the fetches must
+		# queue behind each other and still all arrive
+		add_test(NAME api-test-lhp-dlo-11-asset-queue
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/11-asset-queue.html
+				-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/cases/11-asset-queue.dlo
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/11-asset-queue.dlo
+				-DFLAGS=--fd-limit=6
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+
 		add_test(NAME api-test-lhp-dlo-test-html
 			 COMMAND ${CMAKE_COMMAND}
 				-DTOOL=$<TARGET_FILE:${SAMP}>

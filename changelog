@@ -4,6 +4,20 @@ Changelog
 Development
 ===========
 
+ - lhp: document asset fetches are now queued behind an fd-budgeted number of
+   in-flight slots instead of all connecting at once.  The ceiling adapts to
+   the context's fd limit (tiny fd tables end up serializing their fetches
+   instead of failing them, and fat boxes are still capped at 16).  Completed
+   image assets release their slot at end of message rather than squatting on
+   it until teardown, an asset already fetching or queued is reused when the
+   document repeats its url instead of fetching it again, and a document whose
+   own stream has ended defers deciding it is complete until its outstanding
+   assets have arrived or failed.  Image dimension callbacks only fill in
+   missing dlo box sizes, so css- or attribute-sized images keep their size.
+   The lhp-dlo test tool gained --fd-limit to try layouts against small
+   targets, and case 11-asset-queue covers six images arriving through a
+   serialized queue on a 6-fd context.
+
  - svg: the rasterization scratch (crossings and the aa per-column terms) is now
    a single refcounted pool shared by every live svg object — it carries no
    state between lines, so a page of n simultaneously-visible svgs costs one
