@@ -3126,7 +3126,7 @@ lws_svg_free(lws_svg_t **svg)
 	 * and superseded working-buffer growth generations.
 	 */
 
-	lwsl_info("%s: peak heap %zuB (final %zuB; pts cap %zu x %zuB, "
+	lwsl_notice("%s: peak heap %zuB (final %zuB; pts cap %zu x %zuB, "
 		  "subpaths %zu, crossings %zu, aa cols %zu, values %zuB)\n",
 		  __func__, ctx->heap_peak, lwsac_total_alloc(ctx->ac),
 		  ctx->wpts_size, sizeof(lws_svg_dpt_t),
