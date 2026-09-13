@@ -2406,7 +2406,7 @@ main(int argc, const char **argv)
 					LWS_ARRAY_SIZE(switches));
 		return 0;
 	}
-	lws_set_log_level(LLL_USER, NULL);
+	/* no forced level: the library default applies unless -d is given */
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		lws_set_log_level((int)atoi(p), NULL);

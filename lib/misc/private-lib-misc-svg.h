@@ -299,8 +299,8 @@ struct lws_svg {
 
 	/* css rules parsed out of <style> blocks */
 
-	svg_cssrule_t		*css;
-	uint16_t		css_count;
+	svg_cssrule_t		*css;	/* grown by doubling generations */
+	uint16_t		css_count, css_cap;
 	char			in_style;
 
 	/* root sizing and mapping policy */

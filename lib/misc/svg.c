@@ -2178,11 +2178,29 @@ parse_css(lws_svg_t *ctx)
 
 					if (ctx->css_count <
 					    LWS_SVG_MAX_CSSRULES) {
-						if (!ctx->css_count)
-							ctx->css = svg_ac_use(ctx,
-								sizeof(*ctx->css) *
-								LWS_SVG_MAX_CSSRULES);
-						if (ctx->css)
+						if (ctx->css_count ==
+						    ctx->css_cap) {
+							/* double the table,
+							 * chained generation */
+							uint16_t nc =
+								ctx->css_cap ?
+								 (uint16_t)(ctx->css_cap * 2) : 8;
+							svg_cssrule_t *n =
+								svg_ac_use(ctx,
+									(size_t)nc *
+									sizeof(*ctx->css));
+
+							if (n) {
+								if (ctx->css)
+									memcpy(n, ctx->css,
+									       (size_t)ctx->css_count *
+									       sizeof(*n));
+								ctx->css = n;
+								ctx->css_cap = nc;
+							}
+						}
+						if (ctx->css_count <
+						    ctx->css_cap)
 							ctx->css[ctx->css_count++] = r;
 					}
 				}
@@ -3126,9 +3144,11 @@ lws_svg_free(lws_svg_t **svg)
 	 * and superseded working-buffer growth generations.
 	 */
 
-	lwsl_notice("%s: peak heap %zuB (final %zuB; pts cap %zu x %zuB, "
-		  "subpaths %zu, crossings %zu, aa cols %zu, values %zuB)\n",
+	lwsl_notice("%s: peak heap %zuB (final %zuB; scene %u pts / %u shapes, "
+		  "css %u rules, pts cap %zu x %zuB, subpaths %zu, crossings %zu, "
+		  "aa cols %zu, values %zuB)\n",
 		  __func__, ctx->heap_peak, lwsac_total_alloc(ctx->ac),
+		  ctx->npts, ctx->nshapes, ctx->css_count,
 		  ctx->wpts_size, sizeof(lws_svg_dpt_t),
 		  ctx->wsubs_size, ctx->xings_size, ctx->aa_d_size,
 		  ctx->vsize);
