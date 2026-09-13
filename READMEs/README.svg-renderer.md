@@ -67,6 +67,12 @@ existing display line composition buffer).
  - Solid fills with `nonzero` and `evenodd` fill rules, `fill`,
    `fill-opacity`, `opacity` and `fill-rule`, inherited through `g`, also
    from `style=""` content
+ - Minimal CSS from `<style>` blocks (plain or CDATA-wrapped): rules with
+   one simple selector (element name, `.class`, `#id`, or a comma-separated
+   list of them) over the same fill property set, applied with the css
+   cascade priority presentation attribute < stylesheet < `style=""`, and
+   with element < class < id specificity.  Comments and at-rules are
+   skipped leniently; rules must appear before the elements they style
  - `transform` on groups and shapes: `matrix`, `translate`, `scale`,
    `rotate` (with optional centre), `skewX`, `skewY`, nested
  - `width`/`height` with CSS units, `viewBox`, and all
@@ -80,7 +86,9 @@ Not rendered in this phase of the work: strokes, gradients and other paint
 servers, text, masks, filters, patterns, `<use>`/`<symbol>` instancing.
 Subtrees that are only containers for these (`<defs>`, `<text>`, gradients,
 unknown elements) are parsed but suppressed; a fill referencing an
-unsupported paint server (`url(#...)`) paints nothing.
+unsupported paint server (`url(#...)`) paints nothing.  `<style>` blocks
+are parsed for the minimal css described above, but selectors beyond the
+simple forms given are ignored.
 
 ## Creating and destroying the render context
 

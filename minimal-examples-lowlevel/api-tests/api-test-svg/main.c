@@ -1227,6 +1227,139 @@ build_corpus_viewbox(void)
 }
 
 static void
+build_corpus_css(void)
+{
+	cc_t *cc;
+
+	/* class selector */
+
+	cc = cc_add("css-class",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<style type=\"text/css\">.r{fill:#ff0000}</style>"
+		"<rect class=\"r\" x=\"4\" y=\"4\" width=\"10\" height=\"10\"/></svg>");
+	cc->exp_rgba = LWS_SVG_RGBA(0xff, 0, 0, 255);
+	cc->exp_area = 100;
+	cc->area_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+
+	/* element selector */
+
+	cc = cc_add("css-elem",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<style>rect{fill:#00ff00}</style>"
+		"<rect x=\"4\" y=\"4\" width=\"10\" height=\"10\"/></svg>");
+	cc->exp_rgba = LWS_SVG_RGBA(0, 0xff, 0, 255);
+	cc->exp_area = 100;
+	cc->area_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+
+	/* id selector beats class, class beats element */
+
+	cc = cc_add("css-tier",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<style>rect{fill:#ff0000}.r{fill:#0000ff}#i{fill:#ffff00}</style>"
+		"<rect id=\"i\" class=\"r\" x=\"4\" y=\"4\" width=\"10\" "
+		"height=\"10\"/></svg>");
+	cc->exp_rgba = LWS_SVG_RGBA(0xff, 0xff, 0, 255);
+	cc->exp_area = 100;
+	cc->area_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+
+	/* css beats presentation attribute, style=\"\" beats css */
+
+	cc = cc_add("css-beats-pa",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<style>.r{fill:#ff0000}</style>"
+		"<rect class=\"r\" fill=\"#00ff00\" x=\"4\" y=\"4\" width=\"10\" "
+		"height=\"10\"/></svg>");
+	cc->exp_rgba = LWS_SVG_RGBA(0xff, 0, 0, 255);
+	cc->exp_area = 100;
+	cc->area_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+
+	cc = cc_add("style-beats-css",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<style>.r{fill:#ff0000}</style>"
+		"<rect class=\"r\" style=\"fill:#0000ff\" x=\"4\" y=\"4\" "
+		"width=\"10\" height=\"10\"/></svg>");
+	cc->exp_rgba = LWS_SVG_RGBA(0, 0, 0xff, 255);
+	cc->exp_area = 100;
+	cc->area_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+
+	/* later rule wins; multiple class names match */
+
+	cc = cc_add("css-later-wins",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<style>.a{fill:#ff0000}.b{fill:#00ff00}</style>"
+		"<rect class=\"a b\" x=\"4\" y=\"4\" width=\"10\" height=\"10\"/>"
+		"<rect class=\"b\" x=\"20\" y=\"4\" width=\"10\" height=\"10\"/>"
+		"</svg>");
+	cc->exp_rgba = LWS_SVG_RGBA(0, 0xff, 0, 255);
+	cc->exp_area = 200;
+	cc->area_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+
+	/* css fill-opacity and fill-rule (evenodd hollows the overlap) */
+
+	cc = cc_add("css-fillop",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<style>.h{fill:#ffffff;fill-opacity:0.5}</style>"
+		"<rect class=\"h\" x=\"4\" y=\"4\" width=\"10\" height=\"10\"/></svg>");
+	cc->exp_rgba = LWS_SVG_RGBA(255, 255, 255, 128);
+	cc->exp_area = 100;
+	cc->area_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+
+	cc = cc_add("css-fillrule",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<style>.e{fill-rule:evenodd}</style>"
+		"<path class=\"e\" d=\"M 4 4 H 30 V 30 H 4 Z "
+		"M 20 20 V 46 H 46 V 20 Z\"/></svg>");
+	cc->exp_area = 26.0 * 26.0 * 2.0 - 10.0 * 10.0 * 2.0;
+	cc->area_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+
+	/* cdata-wrapped stylesheet with comments and a skipped at-rule */
+
+	cc = cc_add("css-cdata",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<style><![CDATA[/* comment */\n"
+		"@media screen { .x{fill:#000000} }\n"
+		".r{fill:#ff00ff}\n]]></style>"
+		"<rect class=\"r\" x=\"4\" y=\"4\" width=\"10\" height=\"10\"/></svg>");
+	cc->exp_rgba = LWS_SVG_RGBA(0xff, 0, 0xff, 255);
+	cc->exp_area = 100;
+	cc->area_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+
+	/* rules apply to groups by inheritance, and unmatched class falls
+	 * back to presentation attr / default */
+
+	cc = cc_add("css-group-inherit",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<style>g{fill:#00ffff}</style>"
+		"<g><rect x=\"4\" y=\"4\" width=\"10\" height=\"10\"/>"
+		"<rect class=\"nomatch\" fill=\"#804020\" x=\"20\" y=\"4\" "
+		"width=\"10\" height=\"10\"/></g></svg>");
+	cc->exp_rgba = LWS_SVG_RGBA(0x80, 0x40, 0x20, 255);
+	cc->exp_area = 200;
+	cc->area_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+
+	/* comma-separated selector list */
+
+	cc = cc_add("css-sel-list",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<style>.a, rect, #z{fill:#f0f0f0}</style>"
+		"<rect id=\"z\" x=\"4\" y=\"4\" width=\"10\" height=\"10\"/></svg>");
+	cc->exp_rgba = LWS_SVG_RGBA(0xf0, 0xf0, 0xf0, 255);
+	cc->exp_area = 100;
+	cc->area_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+}
+
+static void
 build_corpus_structural(void)
 {
 	cc_t *cc;
@@ -1332,6 +1465,7 @@ build_corpus(void)
 	build_corpus_paths();
 	build_corpus_xforms();
 	build_corpus_colors();
+	build_corpus_css();
 	build_corpus_viewbox();
 	build_corpus_structural();
 }
@@ -2024,6 +2158,9 @@ robustness(void)
 			"<svg><!-- unclosed",
 			"<svg><?pi unclosed",
 			"<svg>&",
+			"<svg><style>.r{fill:#ff0000",	/* unterminated css */
+			"<svg><style>@media{ {{{ </style><rect/></svg>",
+			"<svg><style>.{fill}a{;b:}.</style></svg>",
 			"<svg xmlns=\"http://www.w3.org/2000/svg\" "
 				"viewBox=\"junk junk junk junk\">"
 				"<rect x=\"1\" y=\"1\" width=\"5\" height=\"5\"/>"
