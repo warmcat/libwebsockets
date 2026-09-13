@@ -425,6 +425,10 @@ enum {
 	FAM_SUPPRESS,		/* exact coverage of the one visible rect */
 	FAM_SYMX,		/* generic + mirror symmetry */
 	FAM_SYMXSY,		/* generic + mirror and vflip symmetry */
+	FAM_JOINBAND,		/* no notch at curve-join extrema: pa pb = the
+				 * device x window centre and the first row
+				 * that must be continuously inked in it,
+				 * pc = last such row */
 };
 
 #define CC_F_FULLCOVER	1	/* every pixel covered */
@@ -647,6 +651,101 @@ build_corpus_paths(void)
 {
 	cc_t *cc;
 	int base;
+
+	/*
+	 * A logo-style ring in a wide, short viewBox: an ellipse outer whose
+	 * path joins sit exactly at the 12 and 6 o'clock extrema, with a
+	 * narrow vertical slot counter.  Regression test for flattening
+	 * tolerance: if the tolerance is derived from the wide viewBox
+	 * dimension, the joins get sanded down a pixel and the ring renders
+	 * like a C and its mirror image, with gaps at top and bottom middle.
+	 */
+
+	/*
+	 * A logo-style ring in a wide, short viewBox: an ellipse outer whose
+	 * path joins sit exactly at the 12 and 6 o'clock extrema, with a
+	 * narrow vertical slot counter.  Rendered at 3x.
+	 *
+	 * Regression test for flattening tolerance: if the tolerance is
+	 * derived from the wide viewBox dimension, the shallow apex joins
+	 * get sanded into plateaus a couple of user units wide, so the
+	 * rows beside the apexes render far too wide and the ring looks
+	 * like a C and its mirror image, with gaps at top and bottom
+	 * middle where the halves should join.
+	 *
+	 * At 3x, row 25 samples 0.1 user units below the top apex (8.15)
+	 * and row 142 samples 0.1 above the bottom apex (47.35); the true
+	 * curve is only ~5 device px wide there, a sanded plateau is 16.
+	 */
+
+	cc = cc_add("ring-join-notch",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 374 53.5\">"
+		"<path d=\"M 100 8.15 "
+		"C 86.745 8.15 76 16.925 76 27.75 "
+		"C 76 38.575 86.745 47.35 100 47.35 "
+		"C 113.255 47.35 124 38.575 124 27.75 "
+		"C 124 16.925 113.255 8.15 100 8.15 Z "
+		"M 102.7 39.4 C 102.7 39.4 102.7 40.7 100 40.7 "
+		"C 97.3 40.7 97.3 39.4 97.3 39.4 L 97.3 14.1 "
+		"C 97.3 14.1 97.3 12.8 100 12.8 "
+		"C 102.7 12.8 102.7 14.1 102.7 14.1 L 102.7 39.4 Z\"/></svg>");
+	cc->w = 1122;		/* 3x */
+	cc->h = 162;
+	cc->exp_w = 374;
+	cc->exp_h = 54;		/* intrinsic rounds up from 53.5 */
+	cc->family = FAM_JOINBAND;
+	cc->pa = 300;		/* device x of the join column window centre */
+	cc->pb = 25;		/* samples 0.1 user units below the top apex */
+	cc->pc = 38;		/* through here (slot top is around row 39) */
+	cc->pd = 123;		/* from the slot bottom... */
+	cc->pe = 142;		/* ...through the row sampling 0.1 above the
+				 * bottom apex */
+	cc->pf = 16;		/* rows 25 and 142 analytic width ~14px; the
+				 * join continuity checks above are the
+				 * meaningful regression lock, this catches
+				 * gross plateaus */
+	cc->bbox[0] = 228; cc->bbox[1] = 24; cc->bbox[2] = 371; cc->bbox[3] = 142;
+	cc->bbox_tol = 2;
+	/* area: ellipse minus slot, with generous tolerance for the
+	 * rounded slot ends */
+	cc->exp_area = (3.14159265358979 * 24 * 19.6 - 5.4 * 26.6 +
+			0.858 * 1.3 * 1.3) * 9;
+	cc->area_tol = 400;
+
+	/* s with reflections vs the equivalent explicit C controls must be
+	 * geometrically identical */
+
+	base = ncases;
+	(void)cc_add("s-reflect-base",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<path d=\"M 8 40 C 8 18 24 8 36 8 "
+		"C 48 8 50 14 50 22 "
+		"C 50 30 50 30 37 35 "
+		"C 31 35 28 31.5 28 27 L 28 56 Z\"/></svg>");
+	cc = cc_add("s-reflect",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<path d=\"M 8 40 C 8 18 24 8 36 8 "
+		"s 14 6 14 14 "
+		"s 0 8 -13 13 "
+		"C 31 35 28 31.5 28 27 L 28 56 Z\"/></svg>");
+	cc->family = FAM_PAIR;
+	cc->pa = base;
+	cc->exp_w = cc->exp_h = 64;
+
+	/* chained small arcs (laf 0, implicit repetition) forming a circle:
+	 * the 'h' arch construct from the logo */
+
+	cc = cc_add("small-arcs-circle",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<path d=\"M 56 32 a 24 24 0 0 1 -24 24 24 24 0 0 1 -24 -24 "
+		"24 24 0 0 1 24 -24 24 24 0 0 1 24 24 Z\"/></svg>");
+	cc->family = FAM_ORACLE_CIRCLE;
+	cc->pa = cc->pb = 32;
+	cc->pc = 24;
+	cc->pd = 30;
+	cc->exp_area = 3.14159265358979 * 24 * 24;
+	cc->area_tol = 40;
+	cc->exp_w = cc->exp_h = 64;
 
 	/* circle via four explicit cubic C segments (kappa controls) */
 
@@ -1371,6 +1470,55 @@ check_case(int idx, bm_t *bm)
 		CHK(bm_mirror_sym(bm) && bm_vflip_sym(bm),
 				"%s: not symmetric", nm);
 		break;
+
+	case FAM_JOINBAND: {
+		/*
+		 * The middle window at the join column must be continuously
+		 * inked from the row after the apex through the band, and the
+		 * two rows immediately beside the apexes must be no wider
+		 * than pf pixels: a coarse flattening tolerance sands the
+		 * shallow apex into a plateau that is both gappy and far too
+		 * wide at exactly the join.
+		 */
+
+		int y, x, emptyrows = 0, ranges[2][2] = {
+			{ cc->pb, cc->pc }, { cc->pd, cc->pe } };
+		int ri, widthfail = 0;
+
+		for (ri = 0; ri < 2; ri++) {
+			if (ranges[ri][0] < 0)
+				continue;
+			for (y = ranges[ri][0]; y <= ranges[ri][1]; y++) {
+				int n = 0, wrow = 0, xl;
+
+				for (xl = 0; xl < bm->w; xl++)
+					wrow += bm->cov[xl + y * bm->w];
+
+				for (x = cc->pa - 3; x <= cc->pa + 3; x++)
+					n += bm->cov[x + y * bm->w];
+				if (!n) {
+					emptyrows++;
+					lwsl_user("  %s: notch row %d\n",
+								nm, y);
+				}
+
+				/* the rows beside the apexes: width check */
+
+				if ((y == cc->pb || y == cc->pe) &&
+				    (wrow < 1 || wrow > cc->pf)) {
+					widthfail++;
+					lwsl_user("  %s: join row %d width "
+						  "%d (max %d)\n", nm, y,
+						  wrow, cc->pf);
+				}
+			}
+		}
+		CHK(!emptyrows, "%s: %d notch rows at the join", nm,
+								emptyrows);
+		CHK(!widthfail, "%s: %d join rows with plateau width", nm,
+								widthfail);
+		break;
+	}
 
 	default:
 		break;
