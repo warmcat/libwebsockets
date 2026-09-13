@@ -4,6 +4,12 @@ Changelog
 Development
 ===========
 
+ - svg: the whole svg object (context, working buffers, stylesheets and scene)
+   now lives in a single lwsac freed with one call — the working buffers grow
+   by chained doubling generations inside it, bounded by the existing caps.
+   The peak simultaneous heap footprint is tracked (as the lwsac total) and
+   logged at destroy time.  svg.c is also split into the parse side (svg.c)
+   and the rasterization side (svg-raster.c), sharing a private header
  - svg: exact-area antialiasing.  With lws_svg_render_t.aa set, coverage is the
    exact covered fraction of each pixel, computed as the winding integral over
    the pixel from band-clipped boundary edges contributing clipped-linear

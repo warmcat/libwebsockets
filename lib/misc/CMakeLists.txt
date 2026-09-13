@@ -76,7 +76,8 @@ if (LWS_WITH_JPEG)
 endif()
 if (LWS_WITH_SVG)
 	list(APPEND SOURCES
-		misc/svg.c)
+		misc/svg.c
+		misc/svg-raster.c)
 endif()
 if (LWS_WITH_DHT)
 	list(APPEND SOURCES
