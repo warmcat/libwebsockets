@@ -447,15 +447,15 @@ typedef struct {
 	uint32_t exp_rgba;	/* expected last span rgba, 0 = don't check */
 	int	exp_w, exp_h;	/* expected intrinsic dims, 0 = don't check */
 	uint32_t	flags;
-} cc_t;
+} ccase_t;
 
-static cc_t corpus[MAX_CASES];
+static ccase_t corpus[MAX_CASES];
 static int ncases;
 
-static cc_t *
+static ccase_t *
 cc_add(const char *name, const char *fmt, ...)
 {
-	cc_t *cc = &corpus[ncases];
+	ccase_t *cc = &corpus[ncases];
 	va_list ap;
 
 	memset(cc, 0, sizeof(*cc));
@@ -478,10 +478,10 @@ cc_add(const char *name, const char *fmt, ...)
 
 /* a plain svg wrapper without width/height (falls back to viewBox) */
 
-static cc_t *
+static ccase_t *
 cc_add_vb(const char *name, const char *body, int vw, int vh, int w, int h)
 {
-	cc_t *cc = cc_add(name,
+	ccase_t *cc = cc_add(name,
 		"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 %d %d\">%s</svg>",
 		vw, vh, body);
 
@@ -502,7 +502,7 @@ build_corpus_rects(void)
 
 	for (i = 0; i < LWS_ARRAY_SIZE(ws); i++)
 		for (j = 0; j < LWS_ARRAY_SIZE(hs); j++) {
-			cc_t *cc = cc_add("rect",
+			ccase_t *cc = cc_add("rect",
 				"<svg xmlns=\"http://www.w3.org/2000/svg\" "
 				"width=\"64\" height=\"64\">"
 				"<rect x=\"3\" y=\"2\" width=\"%d\" height=\"%d\"/>"
@@ -536,7 +536,7 @@ build_corpus_rrects(void)
 			/* kappa-corner rounded rect area:
 			 * wh - (4 - pi) r² with rx=ry=r */
 			double area = (double)e * e - 0.8584073464102069 * r * r;
-			cc_t *cc = cc_add("rrect",
+			ccase_t *cc = cc_add("rrect",
 				"<svg xmlns=\"http://www.w3.org/2000/svg\" "
 				"width=\"64\" height=\"64\">"
 				"<rect x=\"2\" y=\"2\" width=\"%d\" height=\"%d\" rx=\"%d\"/>"
@@ -566,7 +566,7 @@ build_corpus_circles(void)
 
 		for (j = 0; j < (unsigned int)np; j++) {
 			int r = r0, cx = pos[j][0], cy = pos[j][1];
-			cc_t *cc = cc_add("circle",
+			ccase_t *cc = cc_add("circle",
 				"<svg xmlns=\"http://www.w3.org/2000/svg\" "
 				"width=\"64\" height=\"64\">"
 				"<circle cx=\"%d\" cy=\"%d\" r=\"%d\" fill=\"#080\"/>"
@@ -597,7 +597,7 @@ build_corpus_ellipses(void)
 
 	for (i = 0; i < LWS_ARRAY_SIZE(er); i++) {
 		int rx = er[i][0], ry = er[i][1];
-		cc_t *cc = cc_add("ellipse",
+		ccase_t *cc = cc_add("ellipse",
 			"<svg xmlns=\"http://www.w3.org/2000/svg\" "
 			"width=\"64\" height=\"64\">"
 			"<ellipse cx=\"32\" cy=\"32\" rx=\"%d\" ry=\"%d\" fill=\"blue\"/>"
@@ -630,7 +630,7 @@ build_corpus_polys(void)
 
 	for (i = 0; i < LWS_ARRAY_SIZE(ts); i++) {
 		const int *t = ts[i];
-		cc_t *cc = cc_add("poly-tri",
+		ccase_t *cc = cc_add("poly-tri",
 			"<svg xmlns=\"http://www.w3.org/2000/svg\" "
 			"width=\"64\" height=\"64\">"
 			"<polygon points=\"%d,%d %d,%d %d,%d\"/></svg>",
@@ -647,7 +647,7 @@ build_corpus_polys(void)
 static void
 build_corpus_paths(void)
 {
-	cc_t *cc;
+	ccase_t *cc;
 	int base;
 
 	/*
@@ -919,7 +919,7 @@ build_corpus_paths(void)
 static void
 build_corpus_xforms(void)
 {
-	cc_t *cc;
+	ccase_t *cc;
 	int base;
 
 	/* translate: exactly shifted bitmap */
@@ -1038,7 +1038,7 @@ build_corpus_colors(void)
 	unsigned int i;
 
 	for (i = 0; i < LWS_ARRAY_SIZE(cs); i++) {
-		cc_t *cc = cc_add("colour",
+		ccase_t *cc = cc_add("colour",
 			"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
 			"<rect x=\"10\" y=\"10\" width=\"20\" height=\"12\" fill=\"%s\"/>"
 			"</svg>", cs[i].fill);
@@ -1055,7 +1055,7 @@ build_corpus_colors(void)
 	/* opacity composition */
 
 	{
-		cc_t *cc = cc_add("fillop-half",
+		ccase_t *cc = cc_add("fillop-half",
 			"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
 			"<rect x=\"4\" y=\"4\" width=\"10\" height=\"10\" "
 			"fill=\"#ffffff\" fill-opacity=\"0.5\"/></svg>");
@@ -1078,7 +1078,7 @@ build_corpus_colors(void)
 	/* unpaintable fills */
 
 	{
-		cc_t *cc = cc_add("fill-none",
+		ccase_t *cc = cc_add("fill-none",
 			"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
 			"<rect x=\"4\" y=\"4\" width=\"10\" height=\"10\" fill=\"none\"/>"
 			"</svg>");
@@ -1096,7 +1096,7 @@ build_corpus_colors(void)
 	/* inheritance and override via presentation attrs and style= */
 
 	{
-		cc_t *cc = cc_add("inherit-fill",
+		ccase_t *cc = cc_add("inherit-fill",
 			"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
 			"<g fill=\"#00f\" fill-opacity=\"0.5\" style=\"fill-rule:evenodd\">"
 			"<rect x=\"4\" y=\"4\" width=\"10\" height=\"10\"/></g></svg>");
@@ -1120,7 +1120,7 @@ build_corpus_colors(void)
 static void
 build_corpus_viewbox(void)
 {
-	cc_t *cc;
+	ccase_t *cc;
 
 	/* uniform 2x scale: circle r=20 in vb becomes r=40 in device */
 
@@ -1229,7 +1229,7 @@ build_corpus_viewbox(void)
 static void
 build_corpus_css(void)
 {
-	cc_t *cc;
+	ccase_t *cc;
 
 	/* class selector */
 
@@ -1362,7 +1362,7 @@ build_corpus_css(void)
 static void
 build_corpus_structural(void)
 {
-	cc_t *cc;
+	ccase_t *cc;
 
 	/* defs content must not render */
 
@@ -1483,7 +1483,7 @@ static int pair_cov;
 static void
 check_case(int idx, bm_t *bm)
 {
-	cc_t *cc = &corpus[idx];
+	ccase_t *cc = &corpus[idx];
 	const char *nm = cc->name;
 	lws_svg_t *svg;
 	const uint8_t *b;
@@ -2467,7 +2467,7 @@ memset(&chunk_bm, 0, sizeof(chunk_bm));
 memset(&pair_bm, 0, sizeof(pair_bm));
 
 	for (i = 0; i < ncases; i++) {
-		cc_t *cc = &corpus[i];
+		ccase_t *cc = &corpus[i];
 
 		/* case-specific render size */
 
