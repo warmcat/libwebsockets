@@ -74,6 +74,11 @@ We consider using:
 
 We are very concerned about portability and all builds occur with -Werror -Wall -Wextra.
 
+Portability concerns extend to platforms without floating-point units.  When performing
+artithmetic that needs additional precision, double / float types and associated libs
+like libm are banned, use (and extend if necessary) the fixed-point `lws_fx_t` ecosystem
+instead. 
+
 ## Appropriate locality
 
 Sometimes we might work on things that are going to be more useful, or better suited for users,
