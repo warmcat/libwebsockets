@@ -4,6 +4,13 @@ Changelog
 Development
 ===========
 
+ - svg: the rasterization scratch (crossings and the aa per-column terms) is now
+   a single refcounted pool shared by every live svg object — it carries no
+   state between lines, so a page of n simultaneously-visible svgs costs one
+   4KB scratch rather than n.  It grows to the largest demand seen, shrinks by
+   doubling steps when the largest-demand object is destroyed, and frees with
+   the last object.  Interleaved rendering of two live objects on the shared
+   pool is regression-tested
  - svg: the whole svg object (context, working buffers, stylesheets and scene)
    now lives in a single lwsac freed with one call — the working buffers grow
    by chained doubling generations inside it, bounded by the existing caps.

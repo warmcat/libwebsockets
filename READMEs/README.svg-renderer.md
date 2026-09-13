@@ -67,12 +67,17 @@ absolute ceiling of around 6MB including per-subpath overhead when the
 points are arranged as minimal subpaths); exceeding any cap is a FATAL
 parse result, as is nesting deeper than 24 elements.
 
-At render time, one scratch buffer of 16B per scanline crossing of the
-largest shape is allocated on first use and reused for every line, plus (for
-antialiased rendering) one int64 per output column.  Spans are delivered to
-a caller callback, so the renderer itself holds no output buffer at all;
-the line buffer is the caller's (in the dlo integration, the existing
-display line composition buffer).
+The rasterization scratch (crossings, and one int64 per output column for
+antialiasing) is a single pool shared by every live svg object: it carries
+no state between lines, so one allocation serves any number of
+simultaneously-live documents (a page full of visible svgs costs one 4KB
+scratch, not one each).  The pool is refcounted on the live objects, grows
+to the largest demand seen, shrinks by doubling steps when the object that
+needed the larger size is destroyed, and is freed with the last object.
+Rendering is single-threaded, as the display list already requires.  Spans
+are delivered to a caller callback, so the renderer itself holds no output
+buffer at all; the line buffer is the caller's (in the dlo integration,
+the existing display line composition buffer).
 
 ## Antialiasing
 

@@ -293,6 +293,11 @@ struct lws_svg {
 	/* the whole object: context, working state and scene, one lwsac */
 
 	struct lwsac		*ac;
+
+	/* on svg_scratch.live; largest raster demands this object made */
+
+	lws_dll2_t		scratch_list;
+	size_t			aa_need, xings_need;
 	lws_dll2_owner_t	shapes;
 	uint32_t		nshapes;
 	uint32_t		npts;	/* scene-wide flattened point count */
@@ -350,11 +355,6 @@ struct lws_svg {
 
 	/* rasterization scratch */
 
-	lws_svg_cross_t		*xings;
-	size_t			xings_size;	/* allocated entries */
-	int64_t			*aa_d;		/* aa: per-column D terms */
-	size_t			aa_d_size;	/* allocated entries */
-
 	/* heap accounting, for the destroy-time peak log */
 
 	size_t			heap_now;
@@ -372,6 +372,28 @@ arc_sat(int64_t v)
 
 	return (svg_c_t)v;
 }
+
+/*
+ * Shared rasterization scratch: the crossing array and the aa per-column
+ * D terms are pure per-line workspace with no carried state, so a single
+ * pool is shared by every live svg object (refcounted; freed when the
+ * last svg is destroyed).  Rendering is single-threaded, as it already
+ * must be for the display list, so turns cannot conflict.
+ */
+
+struct svg_scratch {
+	lws_dll2_owner_t	live;		/* live svg objects */
+	lws_svg_cross_t		*xings;
+	size_t			xings_size;	/* allocated entries */
+	int64_t			*aa_d;		/* aa: per-column D terms */
+	size_t			aa_d_size;	/* allocated entries */
+	int			refs;		/* live svg objects */
+};
+
+extern struct svg_scratch svg_scratch;
+
+void svg_scratch_ref(void);
+void svg_scratch_unref(void);
 
 /*
  * Allocation and heap accounting: the whole svg object (context, working

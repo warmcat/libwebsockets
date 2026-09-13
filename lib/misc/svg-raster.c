@@ -31,6 +31,80 @@
 #include "private-lib-misc-svg.h"
 
 /*
+ * One rasterization scratch pool shared by every live svg object: the
+ * buffers have no carried state between lines (or objects), so the only
+ * thing that matters is capacity, and one allocation serves any number of
+ * simultaneously-live documents.  Refcounted; freed with the last svg.
+ */
+
+struct svg_scratch svg_scratch;
+
+void
+svg_scratch_ref(void)
+{
+	svg_scratch.refs++;
+}
+
+/*
+ * Called with the dying object already removed from the live list: work
+ * out the largest demand the remaining objects can make, and shrink the
+ * pool to the smallest doubling step that covers it (only when the pool
+ * is more than one step oversized, to avoid churn).  Shrinking is best-
+ * effort; on failure the larger buffer just stays.
+ */
+
+void
+svg_scratch_unref(void)
+{
+	size_t need_x = 0, need_aa = 0;
+
+	if (!svg_scratch.refs ||
+	    --svg_scratch.refs)
+		return;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&svg_scratch.live)) {
+		lws_svg_t *ctx = lws_container_of(d, lws_svg_t, scratch_list);
+
+		if (ctx->xings_need > need_x)
+			need_x = ctx->xings_need;
+		if (ctx->aa_need > need_aa)
+			need_aa = ctx->aa_need;
+	} lws_end_foreach_dll(d);
+
+	if (svg_scratch.xings_size / 2 >= need_x &&
+	    svg_scratch.xings_size / 2 >= 64) {
+		lws_svg_cross_t *n = lws_realloc(svg_scratch.xings,
+				(svg_scratch.xings_size / 2) *
+					sizeof(*svg_scratch.xings), __func__);
+		if (n) {
+			svg_scratch.xings = n;
+			svg_scratch.xings_size /= 2;
+		}
+	}
+
+	if (svg_scratch.aa_d_size / 2 >= need_aa &&
+	    svg_scratch.aa_d_size / 2 >= 256) {
+		int64_t *n = lws_realloc(svg_scratch.aa_d,
+				(svg_scratch.aa_d_size / 2) *
+					sizeof(*svg_scratch.aa_d), __func__);
+		if (n) {
+			svg_scratch.aa_d = n;
+			svg_scratch.aa_d_size /= 2;
+		}
+	}
+
+	if (!svg_scratch.refs && !svg_scratch.live.count) {
+
+		/* the last svg is gone: the pool itself can go */
+
+		lws_free(svg_scratch.xings);
+		lws_free(svg_scratch.aa_d);
+		memset(&svg_scratch, 0, sizeof(svg_scratch));
+	}
+}
+
+/*
  * Scanline rasterization
  */
 
@@ -44,26 +118,25 @@ cross_cmp(const void *a, const void *b)
 }
 
 static int
-xings_grow(lws_svg_t *ctx, size_t need)
+xings_grow(size_t need)
 {
-	if (need <= ctx->xings_size)
+	if (need <= svg_scratch.xings_size)
 		return 0;
 
 	{
-		size_t ns = ctx->xings_size ? ctx->xings_size * 2 : 64;
+		size_t ns = svg_scratch.xings_size ?
+				svg_scratch.xings_size * 2 : 64;
 		lws_svg_cross_t *n;
 
 		while (ns < need)
 			ns *= 2;
 
-		n = svg_ac_use(ctx, ns * sizeof(*ctx->xings));
+		n = lws_realloc(svg_scratch.xings,
+				ns * sizeof(*svg_scratch.xings), __func__);
 		if (!n)
 			return 1;
-		if (ctx->xings_size)
-			memcpy(n, ctx->xings,
-			       ctx->xings_size * sizeof(*ctx->xings));
-		ctx->xings = n;	/* old generation stays in the lwsac */
-		ctx->xings_size = ns;
+		svg_scratch.xings = n;
+		svg_scratch.xings_size = ns;
 	}
 
 	return 0;
@@ -260,20 +333,25 @@ aa_band(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 	const int w = ri->w;
 	const int64_t yt = (int64_t)y << 16, yb = yt + SVG_Q16_1;
 
-	if ((size_t)w > ctx->aa_d_size) {
-		size_t ns = ctx->aa_d_size ? ctx->aa_d_size * 2 : 256;
+	if ((size_t)w > ctx->aa_need)
+		ctx->aa_need = (size_t)w;
+
+	if ((size_t)w > svg_scratch.aa_d_size) {
+		size_t ns = svg_scratch.aa_d_size ?
+				svg_scratch.aa_d_size * 2 : 256;
 		int64_t *n;
 
 		while (ns < (size_t)w)
 			ns *= 2;
 
-		n = svg_ac_use(ctx, ns * sizeof(*ctx->aa_d));
+		n = lws_realloc(svg_scratch.aa_d,
+				ns * sizeof(*svg_scratch.aa_d), __func__);
 		if (!n)
 			return LWS_SRET_FATAL;
 		/* the sweep reads every column, so keep it fully zeroed */
 		memset(n, 0, ns * sizeof(*n));
-		ctx->aa_d = n;
-		ctx->aa_d_size = ns;
+		svg_scratch.aa_d = n;
+		svg_scratch.aa_d_size = ns;
 	}
 
 	lws_start_foreach_dll(lws_dll2_t *, d, lws_dll2_get_head(&ctx->shapes)) {
@@ -307,7 +385,7 @@ aa_band(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 				int64_t qx = aa_map(Q->x, vbx, sx, ox);
 				int64_t qy = aa_map(Q->y, vby, sy, oy);
 
-				aa_edge(ctx->aa_d, w, yt, yb,
+				aa_edge(svg_scratch.aa_d, w, yt, yb,
 					px, py, qx, qy, &raw0, &alo, &ahi);
 
 				px = qx;
@@ -337,7 +415,7 @@ aa_band(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 					span0 = p;
 				}
 
-				raw += ctx->aa_d[p];
+				raw += svg_scratch.aa_d[p];
 			}
 
 			if (prev_a > 0)
@@ -348,8 +426,9 @@ aa_band(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 		/* clear only the touched columns for the next shape */
 
 		if (ahi >= alo)
-			memset(&ctx->aa_d[alo], 0,
-			       (size_t)(ahi - alo + 1) * sizeof(ctx->aa_d[0]));
+			memset(&svg_scratch.aa_d[alo], 0,
+			       (size_t)(ahi - alo + 1) *
+					sizeof(svg_scratch.aa_d[0]));
 	} lws_end_foreach_dll(d);
 
 	return LWS_SRET_OK;
@@ -461,7 +540,10 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 							lws_svg_sub_t, list);
 			uint32_t i;
 
-			if (xings_grow(ctx, n + sub->npts + 1))
+			if ((size_t)(n + sub->npts + 1) > ctx->xings_need)
+				ctx->xings_need = n + sub->npts + 1;
+
+			if (xings_grow(n + sub->npts + 1))
 				return LWS_SRET_FATAL;
 
 			/* fill closes open subpaths implicitly, so every
@@ -485,10 +567,10 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 
 					/* map the crossing into device space */
 
-					ctx->xings[n].x = arc_sat(
+					svg_scratch.xings[n].x = arc_sat(
 						((((xu - (int64_t)vbx) >> 1) *
 						  sx >> 16) << 1) + ox);
-					ctx->xings[n].dir = q->y > p->y ? 1 : -1;
+					svg_scratch.xings[n].dir = q->y > p->y ? 1 : -1;
 					n++;
 				}
 			}
@@ -497,7 +579,8 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 		if (n < 2)
 			continue;
 
-		qsort(ctx->xings, n, sizeof(ctx->xings[0]), cross_cmp);
+		qsort(svg_scratch.xings, n,
+			       sizeof(svg_scratch.xings[0]), cross_cmp);
 
 		e.rgba = sh->rgba;
 
@@ -509,11 +592,11 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 			for (i = 0; i < (int)n; i++) {
 				if (!wind)
 					start = i;
-				wind += ctx->xings[i].dir;
+				wind += svg_scratch.xings[i].dir;
 				if (!wind && start >= 0) {
 					if (emit_span(&e,
-						      ctx->xings[start].x,
-						      ctx->xings[i].x))
+						      svg_scratch.xings[start].x,
+						      svg_scratch.xings[i].x))
 						return LWS_SRET_OK;
 					start = -1;
 				}
@@ -524,8 +607,8 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 			size_t i;
 
 			for (i = 0; i + 1 < n; i += 2)
-				if (emit_span(&e, ctx->xings[i].x,
-					      ctx->xings[i + 1].x))
+				if (emit_span(&e, svg_scratch.xings[i].x,
+					      svg_scratch.xings[i + 1].x))
 					return LWS_SRET_OK;
 		}
 	} lws_end_foreach_dll(d);

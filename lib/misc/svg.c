@@ -3112,12 +3112,17 @@ lws_svg_new(void)
 		return NULL;
 	ctx->ac = ac;
 
+	svg_scratch_ref();
+	lws_dll2_add_tail(&ctx->scratch_list, &svg_scratch.live);
+
 	ctx->ts = SXS_PROLOG;
 	ctx->tol = 6554;	/* 0.1 in Q16.16 */
 	ctx->par_ax = ctx->par_ay = 1;	/* preserveAspectRatio default Mid */
 	ctx->vsize = 256;
 	ctx->vbuf = svg_ac_use(ctx, ctx->vsize);
 	if (!ctx->vbuf) {
+		lws_dll2_remove(&ctx->scratch_list);
+		svg_scratch_unref();
 		lwsac_free(&ctx->ac);
 		return NULL;
 	}
@@ -3144,15 +3149,23 @@ lws_svg_free(lws_svg_t **svg)
 	 * and superseded working-buffer growth generations.
 	 */
 
+	/*
+	 * Peak of this object's own lwsac (scene + working buffers); the
+	 * rasterization scratch is a single pool shared with any other
+	 * live svg objects, and shrinks with the largest demand.
+	 */
+
 	lwsl_notice("%s: peak heap %zuB (final %zuB; scene %u pts / %u shapes, "
-		  "css %u rules, pts cap %zu x %zuB, subpaths %zu, crossings %zu, "
-		  "aa cols %zu, values %zuB)\n",
+		  "css %u rules, pts cap %zu x %zuB, subpaths %zu; shared "
+		  "scratch crossings %zu, aa cols %zu)\n",
 		  __func__, ctx->heap_peak, lwsac_total_alloc(ctx->ac),
 		  ctx->npts, ctx->nshapes, ctx->css_count,
 		  ctx->wpts_size, sizeof(lws_svg_dpt_t),
-		  ctx->wsubs_size, ctx->xings_size, ctx->aa_d_size,
-		  ctx->vsize);
+		  ctx->wsubs_size,
+		  svg_scratch.xings_size, svg_scratch.aa_d_size);
 
+	lws_dll2_remove(&ctx->scratch_list);
+	svg_scratch_unref();
 	lwsac_free(&ctx->ac);
 
 	*svg = NULL;

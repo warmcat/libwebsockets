@@ -2157,6 +2157,70 @@ aa_checks(void)
 	CHK(aa_total(&b) == 40L * 40L * 255, "aa wind total %ld",
 						aa_total(&b));
 
+	/*
+	 * Two simultaneously-live svg objects render through the one
+	 * shared rasterization scratch: alternate their lines and check
+	 * both come out right (a cross-object scratch conflict shows
+	 * immediately).
+	 */
+
+	{
+		static const char *pair[2] = {
+			"<circle cx=\"32\" cy=\"32\" r=\"24\"/>",
+			"<polygon points=\"4,4 60,4 4,60\"/>",
+		};
+		lws_svg_t *sv[2];
+		int x, y;
+
+		for (x = 0; x < 2; x++) {
+			char doc[256];
+			const uint8_t *p;
+			size_t l;
+
+			lws_snprintf(doc, sizeof(doc),
+				"<svg xmlns=\"http://www.w3.org/2000/svg\" "
+				"width=\"64\" height=\"64\">%s</svg>",
+				pair[x]);
+
+			sv[x] = lws_svg_new();
+			p = (const uint8_t *)doc;
+			l = strlen(doc);
+			if (lws_svg_parse(sv[x], &p, &l, 0) &
+							LWS_SRET_FATAL) {
+				CHK(0, "aa interleave parse");
+				return;
+			}
+		}
+
+		{
+			lws_svg_render_t ri = { .w = 64, .h = 64, .aa = 1 };
+			aa_bm_t lb[2];
+
+			memset(lb, 0, sizeof(lb));
+			lb[0].w = lb[1].w = 64;
+
+			for (y = 0; y < 64; y++)
+				for (x = 0; x < 2; x++) {
+					lb[x].y = y;
+					lws_svg_render_line(sv[x], &ri, y,
+							   aa_cb, &lb[x]);
+				}
+
+			CHK(lb[0].acc[32 + 32 * 64] > 240,
+			    "aa interleave circle centre %d",
+			    lb[0].acc[32 + 32 * 64]);
+			CHK(lb[0].acc[2 + 2 * 64] == 0,
+			    "aa interleave circle corner");
+			CHK(lb[1].acc[30 + 32 * 64] == 255,
+			    "aa interleave tri inside");
+			CHK(lb[1].acc[33 + 32 * 64] == 0,
+			    "aa interleave tri outside");
+		}
+
+		lws_svg_free(&sv[0]);
+		lws_svg_free(&sv[1]);
+	}
+
 	/* hostile documents must not crash the AA path either */
 
 	{
@@ -2406,7 +2470,13 @@ main(int argc, const char **argv)
 					LWS_ARRAY_SIZE(switches));
 		return 0;
 	}
-	/* no forced level: the library default applies unless -d is given */
+	/*
+	 * The context-less runtime default is ERR | WARN | NOTICE; bring
+	 * USER too so this tool's output (including FAIL lines) shows, and
+	 * keep NOTICE so the svg peak-heap line appears.  -d overrides.
+	 */
+
+	lws_set_log_level(LLL_USER | LLL_NOTICE, NULL);
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		lws_set_log_level((int)atoi(p), NULL);
