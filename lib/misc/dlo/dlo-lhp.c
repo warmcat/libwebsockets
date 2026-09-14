@@ -428,6 +428,21 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 	if (!c || !ps->font)
 		return 0;
 
+	/*
+	 * text-indent offsets the first line of the block's text.  A large
+	 * negative indent is the classic css idiom for hiding the text of an
+	 * element that shows an image instead (eg .logo { text-indent:
+	 * -9999px }): it moves the line off-canvas, where wrapping cannot
+	 * bring it back since the available width grows by the same amount.
+	 * Applied once per block, so only the first line is indented
+	 */
+
+	if (!c->ti_done && ps->css_text_indent) {
+		c->ti_done = 1;
+		lws_fx_add(&c->curx, &c->curx,
+			   lws_csp_px(ps->css_text_indent, ps));
+	}
+
 	/* white-space: nowrap / pre: the text stays on its line and
 	 * overflows rather than wrapping */
 	ws = lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_WHITE_SPACE);

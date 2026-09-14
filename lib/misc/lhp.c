@@ -832,6 +832,13 @@ lcsp_append_cssval_int(lhp_ctx_t *ctx)
 	/* add this prop value atr to the def */
 
 	//lwsl_err("%s: tf %d.%u\n", __func__, ctx->tf.whole, ctx->tf.frac);
+
+	if (ctx->u.f.negval) {
+		ctx->tf.whole = -ctx->tf.whole;
+		ctx->tf.frac = -ctx->tf.frac;
+		ctx->u.f.negval = 0;
+	}
+
 	atr->u.i = ctx->tf;
 	/* a bare number: keep it distinct from keyword atrs (unit NONE) */
 	atr->unit = ctx->unit ? ctx->unit : LCSP_UNIT_NUM;
@@ -2047,6 +2054,77 @@ lhp_find_def(lhp_pstack_t *ps, int prop)
 }
 
 /*
+ * Term n of a multi-term declaration value, eg the "10px" of
+ * "background-position: 20px 10px"; NULL if there is no nth term
+ */
+
+static const lcsp_atr_t *
+lhp_def_term(const lcsp_defs_t *def, int n)
+{
+	lws_dll2_t *d;
+
+	if (!def)
+		return NULL;
+
+	d = lws_dll2_get_head(&def->atrs);
+	while (d && n-- > 0)
+		d = lws_dll2_get_next(d);
+
+	return d ? lws_container_of(d, lcsp_atr_t, list) : NULL;
+}
+
+/*
+ * One background-size / background-position term against reference length
+ * ref (the element box side, or the element side minus the image side for
+ * position percentages).  Lengths in any unit resolve via the normal css
+ * machinery, percentages scale ref, and keywords resolve to 0 / half /
+ * all of ref.  *set is cleared if the term is auto or absent.
+ */
+
+static void
+lhp_bg_term(lws_fx_t *result, int *set, const lcsp_atr_t *a,
+	    const lws_fx_t *ref, lhp_pstack_t *ps)
+{
+	*set = 0;
+
+	if (!a)
+		return;
+
+	if (a->unit == LCSP_UNIT_LENGTH_PERCENT) {
+		lws_fx_mul(result, &a->u.i, ref);
+		lws_fx_div(result, result, &c_100);
+		*set = 1;
+		return;
+	}
+
+	if (a->unit == LCSP_UNIT_NONE) {
+		switch (a->propval) {
+		case LCSP_PROPVAL_CENTER:
+			lws_fx_div(result, ref, &lws_fx_2);
+			*set = 1;
+			return;
+		case LCSP_PROPVAL_BOTTOM:
+		case LCSP_PROPVAL_RIGHT:
+			*result = *ref;
+			*set = 1;
+			return;
+		case LCSP_PROPVAL_TOP:
+		case LCSP_PROPVAL_LEFT:
+			result->whole = 0;
+			result->frac = 0;
+			*set = 1;
+			return;
+		}
+		/* auto, cover, contain... leave unsized */
+
+		return;
+	}
+
+	*result = *lws_csp_px(a, ps);
+	*set = 1;
+}
+
+/*
  * The value in effect for one side of a box property that has both longhand
  * (eg, margin-top) and shorthand (eg, margin: 1px 2px) forms: whichever was
  * declared with the higher precedence wins, and a shorthand is expanded by
@@ -2552,6 +2630,8 @@ lws_css_cascade(lhp_ctx_t *ctx)
 	ps->css_width = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_WIDTH);
 	ps->css_height = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_HEIGHT);
 	ps->css_display = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_DISPLAY);
+	ps->css_text_indent = lws_css_cascade_get_prop_atr(ctx,
+						       LCSP_PROP_TEXT_INDENT);
 
 	/* display: none takes the whole subtree out of the layout */
 	ps->hidden = (parent && parent->hidden) ||
@@ -3127,12 +3207,64 @@ elem_start:
 						lws_csp_px(psb->css_margin[CCPAS_TOP], psb));
 				}
 
-				if (ps->css_width &&
-					lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) > 0)
-					box.w = *lws_csp_px(ps->css_width, ps);
-				if (ps->css_height &&
-					lws_fx_comp(lws_csp_px(ps->css_height, ps), &box.h) > 0)
-					box.h = *lws_csp_px(ps->css_height, ps);
+			if (ps->css_width &&
+				lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) > 0)
+				box.w = *lws_csp_px(ps->css_width, ps);
+			if (ps->css_height &&
+				lws_fx_comp(lws_csp_px(ps->css_height, ps), &box.h) > 0)
+				box.h = *lws_csp_px(ps->css_height, ps);
+
+			/*
+			 * A css background image (as opposed to an <img>) is
+			 * sized and positioned inside the element box by
+			 * background-size / background-position, eg the
+			 * slashdot logo draws 146px wide, 20px in from the
+			 * left of its 167px element.  An auto side stays 0 and
+			 * is filled from the intrinsic aspect ratio when the
+			 * image dimensions arrive
+			 */
+
+			if (aa) {
+				const lcsp_defs_t *d;
+				lws_fx_t ew = box.w, eh = box.h, ox, oy, t;
+				int set;
+
+				d = lhp_find_def(ps, LCSP_PROP_BACKGROUND_SIZE);
+				if (d) {
+					/* an auto side falls to the intrinsic
+					 * aspect ratio at the dims callback */
+					lhp_bg_term(&t, &set, lhp_def_term(d, 0),
+						    &ew, ps);
+					if (set)
+						box.w = t;
+					else
+						lws_fx_set(box.w, 0, 0);
+					lhp_bg_term(&t, &set, lhp_def_term(d, 1),
+						    &eh, ps);
+					if (set)
+						box.h = t;
+					else
+						lws_fx_set(box.h, 0, 0);
+				}
+
+				lws_fx_set(ox, 0, 0);
+				lws_fx_set(oy, 0, 0);
+
+				d = lhp_find_def(ps,
+						 LCSP_PROP_BACKGROUND_POSITION);
+				if (d) {
+					/* % is of the element less the image */
+					lws_fx_sub(&t, &ew, &box.w);
+					lhp_bg_term(&ox, &set, lhp_def_term(d, 0),
+						    &t, ps);
+					lws_fx_sub(&t, &eh, &box.h);
+					lhp_bg_term(&oy, &set, lhp_def_term(d, 1),
+						    &t, ps);
+				}
+
+				lws_fx_add(&box.x, &box.x, &ox);
+				lws_fx_add(&box.y, &box.y, &oy);
+			}
 
 				memset(&u, 0, sizeof(u));
 
@@ -3179,7 +3311,36 @@ elem_start:
 					if (u.u.dlo_png && ctx->npos == 3 &&
 					    !strncmp(ctx->buf, "img", 3))
 						ps->dlo = &u.u.dlo_png->dlo;
+
+					/*
+					 * A css background image is placed by
+					 * background-size / -position afresh
+					 * each time its element is laid out
+					 * again.  Auto sides (0) keep what the
+					 * image dimensions callback resolved
+					 */
+					if (aa && u.u.dlo_png) {
+						u.u.dlo_png->dlo.box.x = box.x;
+						u.u.dlo_png->dlo.box.y = box.y;
+						if (box.w.whole)
+							u.u.dlo_png->dlo.box.w = box.w;
+						if (box.h.whole)
+							u.u.dlo_png->dlo.box.h = box.h;
+					}
 				}
+
+				if (aa)
+					/*
+					 * For a css background image the
+					 * element's width / height size the
+					 * element, not the image: the image
+					 * geometry was decided above and any
+					 * auto side is resolved when the image
+					 * dimensions arrive.  Nothing to wait
+					 * for here either: a background image
+					 * never stalls the layout
+					 */
+					goto issue_elem_start;
 
 				if (ctx->npos == 4 && !strncmp(ctx->buf, "link", 4)) {
 					ps->cb(ctx, LHPCB_ELEMENT_START);
@@ -3954,12 +4115,29 @@ done_amp:
 				}
 
 				if (!ctx->cssval_state && !ctx->u.f.integer &&
+				    c == '-') {
+					/*
+					 * A leading minus can only start a
+					 * negative number here: value keywords
+					 * never begin with '-'.  The digits
+					 * start from the next character
+					 */
+					lws_fx_set(ctx->tf, 0, 0);
+					ctx->u.f.integer = LHP_CSS_PROPVAL_INT_WHOLE;
+					ctx->temp = LWS_FX_FRACTION_MSD / 10;
+					ctx->unit = LCSP_UNIT_NONE;
+					ctx->u.f.negval = 1;
+					break;
+				}
+
+				if (!ctx->cssval_state && !ctx->u.f.integer &&
 				    ((c >= '0' && c <= '9') || c == '.')) {
 					// lwsl_notice("integer...\n");
 					lws_fx_set(ctx->tf, 0, 0);
 					ctx->u.f.integer = LHP_CSS_PROPVAL_INT_WHOLE;
 					ctx->temp = LWS_FX_FRACTION_MSD / 10;
 					ctx->unit = LCSP_UNIT_NONE;
+					ctx->u.f.negval = 0;
 				}
 
 				if (ctx->u.f.integer) {

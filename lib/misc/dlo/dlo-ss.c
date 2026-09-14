@@ -64,6 +64,37 @@ LWS_SS_USER_TYPEDEF
 
 
 /*
+ * Complete any side of the image dlo box the css left unset: both sides unset
+ * take the intrinsic size, a single unset side follows the intrinsic aspect
+ * ratio (css replaced-element sizing, eg background-size: 146px).  Called as
+ * soon as the image dimensions exist, so geometry is settled before the
+ * layout dump or render can observe it
+ */
+
+static void
+dlo_image_fill_missing_dims(lws_dlo_image_t *u)
+{
+	lws_dlo_t *dlo = &u->u.dlo_png->dlo;
+	int iw = (int)lws_dlo_image_width(u);
+	int ih = (int)lws_dlo_image_height(u);
+
+	if (u->failed || iw <= 0 || ih <= 0)
+		return;
+
+	if (!dlo->box.w.whole && !dlo->box.h.whole) {
+		dlo->box.w.whole = iw;
+		dlo->box.h.whole = ih;
+	} else {
+		if (!dlo->box.h.whole)
+			dlo->box.h.whole = (int32_t)
+				(((int64_t)dlo->box.w.whole * ih) / iw);
+		if (!dlo->box.w.whole)
+			dlo->box.w.whole = (int32_t)
+				(((int64_t)dlo->box.h.whole * iw) / ih);
+	}
+}
+
+/*
  * dlo images call back here when they have their dimensions (or have failed)
  */
 
@@ -82,17 +113,15 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 	} else {
 
 		/*
-		 * Fill in missing dimensions only.  Css or element
-		 * attributes may have sized the dlo already: they take
+		 * Fill in missing dimensions only: css or element
+		 * attributes may have sized the dlo already, and they take
 		 * priority over the intrinsic size.  This can run after the
 		 * last layout pass, when a document deferred completion for
 		 * its assets, so there would be nothing later to restore
 		 * the css size with
 		 */
-		if (!dlo->box.w.whole)
-			dlo->box.w.whole = (int32_t)lws_dlo_image_width(&m->u);
-		if (!dlo->box.h.whole)
-			dlo->box.h.whole = (int32_t)lws_dlo_image_height(&m->u);
+
+		dlo_image_fill_missing_dims(&m->u);
 
 		lwsl_info("%s: setting dlo box %d x %d\n", __func__,
 			(int)dlo->box.w.whole, (int)dlo->box.h.whole);
@@ -367,6 +396,8 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 		if (r != LWS_SRET_WANT_INPUT) {
 			lwsl_info("%s: seen metadata\n", __func__);
+			/* settle the geometry before anyone can observe it */
+			dlo_image_fill_missing_dims(&m->u);
 			lws_sul_schedule(lws_ss_get_context(m->ss), 0,
 					&m->sul, lws_lhp_image_dimensions_cb, 1);
 		} //else
@@ -652,12 +683,20 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 
 		i->u->u.dlo_png = dlo_png;
 
-		dlo_png->dlo.box.w.whole = (int32_t)
-			lws_upng_get_width(dlo_png->png);
-		dlo_png->dlo.box.w.frac = 0;
-		dlo_png->dlo.box.h.whole = (int32_t)
-			lws_upng_get_height(dlo_png->png);
-		dlo_png->dlo.box.h.frac = 0;
+		/*
+		 * Fill any side the css left unset (auto) from the
+		 * intrinsic size... at create time the metadata may not
+		 * have arrived yet, in which case the dimensions callback
+		 * completes it later
+		 */
+		if (lws_upng_get_width(dlo_png->png) && !dlo_png->dlo.box.w.whole) {
+			dlo_png->dlo.box.w.whole = (int32_t)lws_upng_get_width(dlo_png->png);
+			dlo_png->dlo.box.w.frac = 0;
+		}
+		if (lws_upng_get_height(dlo_png->png) && !dlo_png->dlo.box.h.whole) {
+			dlo_png->dlo.box.h.whole = (int32_t)lws_upng_get_height(dlo_png->png);
+			dlo_png->dlo.box.h.frac = 0;
+		}
 
 		dlo = &dlo_png->dlo;
 		break;
@@ -669,12 +708,20 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 
 		i->u->u.dlo_jpeg = dlo_jpeg;
 
-		dlo_jpeg->dlo.box.w.whole = (int32_t)
-			lws_jpeg_get_width(dlo_jpeg->j);
-		dlo_jpeg->dlo.box.w.frac = 0;
-		dlo_jpeg->dlo.box.h.whole = (int32_t)
-			lws_jpeg_get_height(dlo_jpeg->j);
-		dlo_jpeg->dlo.box.h.frac = 0;
+		/*
+		 * Fill any side the css left unset (auto) from the
+		 * intrinsic size... at create time the metadata may not
+		 * have arrived yet, in which case the dimensions callback
+		 * completes it later
+		 */
+		if (lws_jpeg_get_width(dlo_jpeg->j) && !dlo_jpeg->dlo.box.w.whole) {
+			dlo_jpeg->dlo.box.w.whole = (int32_t)lws_jpeg_get_width(dlo_jpeg->j);
+			dlo_jpeg->dlo.box.w.frac = 0;
+		}
+		if (lws_jpeg_get_height(dlo_jpeg->j) && !dlo_jpeg->dlo.box.h.whole) {
+			dlo_jpeg->dlo.box.h.whole = (int32_t)lws_jpeg_get_height(dlo_jpeg->j);
+			dlo_jpeg->dlo.box.h.frac = 0;
+		}
 
 		dlo = &dlo_jpeg->dlo;
 		break;
@@ -687,12 +734,20 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 
 		i->u->u.dlo_svg = dlo_svg;
 
-		dlo_svg->dlo.box.w.whole = (int32_t)
-			lws_svg_get_width(dlo_svg->svg);
-		dlo_svg->dlo.box.w.frac = 0;
-		dlo_svg->dlo.box.h.whole = (int32_t)
-			lws_svg_get_height(dlo_svg->svg);
-		dlo_svg->dlo.box.h.frac = 0;
+		/*
+		 * Fill any side the css left unset (auto) from the
+		 * intrinsic size... at create time the metadata may not
+		 * have arrived yet, in which case the dimensions callback
+		 * completes it later
+		 */
+		if (lws_svg_get_width(dlo_svg->svg) && !dlo_svg->dlo.box.w.whole) {
+			dlo_svg->dlo.box.w.whole = (int32_t)lws_svg_get_width(dlo_svg->svg);
+			dlo_svg->dlo.box.w.frac = 0;
+		}
+		if (lws_svg_get_height(dlo_svg->svg) && !dlo_svg->dlo.box.h.whole) {
+			dlo_svg->dlo.box.h.whole = (int32_t)lws_svg_get_height(dlo_svg->svg);
+			dlo_svg->dlo.box.h.frac = 0;
+		}
 
 		dlo = &dlo_svg->dlo;
 		break;
