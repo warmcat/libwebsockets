@@ -2657,17 +2657,12 @@ lws_css_cascade(lhp_ctx_t *ctx)
 		      ps->css_height->u.i.whole <= 1)))
 			ps->hidden = 1;
 	}
-	if (!ps->hidden) {
-		/* text-indent: -9999px: text pushed off the surface, the
-		 * background sprite it makes room for isn't drawn either */
-		const lcsp_atr_t *ti = lws_css_cascade_get_prop_atr(ctx,
-							LCSP_PROP_TEXT_INDENT);
-
-		if (ti && (ti->unit == LCSP_UNIT_LENGTH_PX ||
-			   ti->unit == LCSP_UNIT_LENGTH_EM) &&
-		    ti->u.i.whole <= -999)
-			ps->hidden = 1;
-	}
+	/*
+	 * Note: text-indent: -9999px (the image-replacement and screen-reader
+	 * idioms) is NOT treated as hiding the element: the first-line indent
+	 * moves the text off-canvas in lhp_content, while the element box and
+	 * any background image it carries still lay out and draw
+	 */
 	if (!ps->hidden) {
 		/* clip: rect(0, 0, 0, 0) or rect(0 0 0 0): nothing visible */
 		const lcsp_atr_t *cl = lws_css_cascade_get_prop_atr(ctx,
