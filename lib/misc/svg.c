@@ -2347,9 +2347,15 @@ stroke_w_resolve(lws_svg_t *ctx, int64_t v_e8, char pct)
 
 		sw = svg_isqrt64(((sw * sw) >> 1) + ((sh * sh) >> 1));
 
-		/* vn is a percentage: width = vn / 100 * diag, all Q16 */
+		/*
+		 * vn is a percentage: width = vn / 100 * diag, all Q16.
+		 * The percent is split off before the multiply so every
+		 * product stays far inside int64: (vn/100 <= 2^24) *
+		 * (diag <= 2^31), and the sub-percent remainder separately
+		 */
 
-		return arc_sat((vn * sw) / (100 * SVG_Q16_1));
+		return arc_sat((((vn / 100) * sw) +
+				(((vn % 100) * sw) / 100)) >> 16);
 	}
 }
 
