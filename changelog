@@ -4,6 +4,26 @@ Changelog
 Development
 ===========
 
+ - lhp: css background-size and background-position are applied to css
+   background images, with lengths in any unit, percentages (of the element
+   box for size, of the element-less-image for position) and the
+   left/center/right/top/bottom keywords; an auto side follows the intrinsic
+   aspect ratio when the image dimensions arrive.  The slashdot capture's
+   logo now draws like the real thing: 146px wide (22px tall) 20px in from
+   the left of its 167x35 element, instead of stretched to the element.
+   text-indent is supported (inherited, first line of the block), which also
+   implements the classic "text-indent: -9999px" idiom for hiding the text
+   of an element that shows an image instead: the "Slashdot" anchor text no
+   longer renders over the logo.  Case 12-bg-position covers both.  A known
+   edge: an element whose only content is indent-hidden text can lose its
+   block box; follow-up work.
+
+ - lhp: negative css values never parsed: a leading '-' did not start a
+   number, so lengths like "margin-left: -32px" were silently kept as
+   strings and ignored.  The value lexer now accepts a leading minus, so
+   negative lengths and percentages work everywhere; the lobsters capture's
+   negative margins now apply and its golden was regenerated for that.
+
  - lhp: document asset fetches are now queued behind an fd-budgeted number of
    in-flight slots instead of all connecting at once.  The ceiling adapts to
    the context's fd limit (tiny fd tables end up serializing their fetches

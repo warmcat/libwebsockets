@@ -83,6 +83,7 @@ typedef enum lcsp_props {
 	LCSP_PROP_BACKGROUND_IMAGE,
 	LCSP_PROP_BACKGROUND_POSITION,
 	LCSP_PROP_BACKGROUND_REPEAT,
+	LCSP_PROP_BACKGROUND_SIZE,
 	LCSP_PROP_BACKGROUND,
 	LCSP_PROP_BORDER_COLLAPSE,
 	LCSP_PROP_BORDER_COLOR,
@@ -432,6 +433,7 @@ typedef struct lhp_pstack {
 	const struct lcsp_atr		*css_display;
 	const struct lcsp_atr		*css_width;
 	const struct lcsp_atr		*css_height;
+	const struct lcsp_atr		*css_text_indent;
 
 	const struct lcsp_atr		*css_border_radius[4];
 
@@ -466,6 +468,7 @@ typedef struct lhp_pstack {
 	uint8_t				css_resolved:1;
 	uint8_t				in_body:1;
 	uint8_t				hidden:1; /* display: none on us or an ancestor */
+	uint8_t				ti_done:1; /* applied our text-indent already */
 
 	/* user layout owns these after initial values set */
 
@@ -660,6 +663,7 @@ typedef struct lhp_ctx {
 			uint32_t	integer:2;
 			uint32_t	color:2;
 			uint32_t	infunc:1; /* inside name( ... ) value */
+			uint32_t	negval:1; /* '-' seen, number is negative */
 			uint32_t	sq:1; /* attribute value quoted with ' */
 		} f;
 	} u;
