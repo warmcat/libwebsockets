@@ -546,7 +546,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_PLUGINS)
 	const char			*dl[8];
 #endif
-#if defined(_DEBUG) && !defined(LWS_WITH_NO_LOGS)
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 	char		*ld_env;
 #endif
 #endif
@@ -643,7 +643,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	 * the context object, so we can overallocate it correctly
 	 */
 
-#if defined(_DEBUG) && !defined(LWS_WITH_NO_LOGS)
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 	ld_env = getenv("LD_LIBRARY_PATH");
 	lwsl_info("%s: ev lib path %s, '%s'\n", __func__,
 			LWS_INSTALL_LIBDIR, ld_env);
