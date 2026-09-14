@@ -1506,13 +1506,548 @@ svg_ac_use(lws_svg_t *ctx, size_t nec)
 	return p;
 }
 
+/*
+ * Stroke outline generation.
+ *
+ * The stroked region is emitted as a set of closed, consistently-wound
+ * polygons: one quad per centerline segment, plus join and cap geometry.
+ * Because every polygon has positive winding, overlapping pieces sum
+ * under the nonzero fill rule to exactly the union of the stroke: no
+ * cancellation artifacts at concave corners or self-crossing outlines.
+ *
+ * Geometry is generated in user space with the user-space stroke width
+ * and then committed through the CTM, so transforms scale strokes
+ * exactly like the geometry they outline.
+ */
+
+#define SVG_STROKE_MAX_POLY	100	/* points in one emitted polygon */
+
+static int commit_range(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba,
+			char rule, uint32_t first_sub);
+
+/*
+ * Append a closed polygon as a new working subpath, normalized to
+ * positive (counterclockwise) winding by the shoelace sign.  Coordinates
+ * are shifted for the area test only, so it cannot overflow
+ */
+
+static int
+poly_emit(lws_svg_t *ctx, const svg_c_t *x, const svg_c_t *y, int n)
+{
+	int64_t area = 0;
+	int i, j;
+
+	if (n < 3)
+		return 0;
+
+	for (i = 0; i < n; i++) {
+		j = (i + 1) % n;
+		area += (int64_t)(x[i] >> 8) * (y[j] >> 8) -
+			(int64_t)(x[j] >> 8) * (y[i] >> 8);
+	}
+
+	if (sub_start(ctx, x[0], y[0]))
+		return 1;
+
+	if (area >= 0)
+		for (i = 1; i < n; i++) {
+			if (pt_add(ctx, x[i], y[i]))
+				return 1;
+		}
+	else
+		for (i = n - 1; i >= 1; i--) {
+			if (pt_add(ctx, x[i], y[i]))
+				return 1;
+		}
+
+	return 0;
+}
+
+/*
+ * Append a convex "pie slice" polygon: the center, then the arc of
+ * radius r from unit vector u0 around to unit vector u1 the short way.
+ * Round joins and caps are built from these; sweep is at most a
+ * semicircle, and a zero-length subpath's round-cap dot a full circle.
+ */
+
+static int
+arc_emit(lws_svg_t *ctx, svg_c_t cx, svg_c_t cy,
+	 svg_c_t u0x, svg_c_t u0y, svg_c_t u1x, svg_c_t u1y,
+	 svg_c_t r, svg_c_t tol, int full_circle)
+{
+	svg_c_t x[SVG_STROKE_MAX_POLY], y[SVG_STROKE_MAX_POLY];
+	int64_t a0, a1, d, sweep;
+	int i, n, steps;
+
+	a0 = svg_atan2(u0y, u0x);
+	a1 = svg_atan2(u1y, u1x);
+
+	if (full_circle) {
+		d = 2 * 314159265LL;		/* 2pi in e8 */
+		sweep = d;
+	} else {
+		d = a1 - a0;
+		while (d > 314159265LL)
+			d -= 2 * 314159265LL;
+		while (d < -314159265LL)
+			d += 2 * 314159265LL;
+		sweep = d < 0 ? -d : d;
+	}
+
+	/*
+	 * Chord sag for a step angle t is r(1 - cos(t/2)) ~= r t^2 / 8;
+	 * steps from the same document tolerance the curve flattener uses
+	 */
+
+	if (r > 0 && tol > 0) {
+		int64_t t = svg_isqrt64(((int64_t)tol << 33) / r) / 2;
+
+		if (t < 1)
+			t = 1;
+		steps = (int)(sweep / t);
+	} else
+		steps = (int)(sweep / (30 * 1000 * 1000LL));
+
+	if (steps < 4)
+		steps = 4;
+	if (steps > SVG_STROKE_MAX_POLY - 2)
+		steps = SVG_STROKE_MAX_POLY - 2;
+
+	n = 0;
+	x[n] = cx;
+	y[n++] = cy;
+
+	for (i = 0; i <= steps; i++) {
+		int64_t a = a0 + (d * i) / steps;
+		svg_c_t co = svg_cos(a), si = svg_sin(a);
+
+		x[n] = arc_sat(cx + arc_sat(((int64_t)r * co) >> 16));
+		y[n++] = arc_sat(cy + arc_sat(((int64_t)r * si) >> 16));
+	}
+
+	return poly_emit(ctx, x, y, n);
+}
+
+/*
+ * One segment's quad: the centerline segment expanded by hw on each
+ * side along the unit normal
+ */
+
+static int
+seg_quad(lws_svg_t *ctx, svg_c_t x0, svg_c_t y0, svg_c_t x1, svg_c_t y1,
+	 svg_c_t nx, svg_c_t ny, svg_c_t hw)
+{
+	svg_c_t x[4], y[4];
+	svg_c_t ox = arc_sat(((int64_t)nx * hw) >> 16);
+	svg_c_t oy = arc_sat(((int64_t)ny * hw) >> 16);
+
+	x[0] = arc_sat(x0 + ox); y[0] = arc_sat(y0 + oy);
+	x[1] = arc_sat(x1 + ox); y[1] = arc_sat(y1 + oy);
+	x[2] = arc_sat(x1 - ox); y[2] = arc_sat(y1 - oy);
+	x[3] = arc_sat(x0 - ox); y[3] = arc_sat(y0 - oy);
+
+	return poly_emit(ctx, x, y, 4);
+}
+
+/*
+ * Join at centerline vertex V between a segment leaving along unit
+ * normal n1 and the next arriving with unit normal n2
+ */
+
+static int
+join_emit(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol,
+	  svg_c_t vx, svg_c_t vy,
+	  svg_c_t n1x, svg_c_t n1y, svg_c_t n2x, svg_c_t n2y, svg_c_t hw)
+{
+	int64_t cross = (((int64_t)n1x * n2y) >> 16) -
+			(((int64_t)n1y * n2x) >> 16);
+	int64_t dot;
+	svg_c_t s1x, s1y, s2x, s2y, ax, ay, bx, by;
+
+	if (!cross)
+		/* collinear: the segment quads already meet flush */
+		return 0;
+
+	/*
+	 * The join fills the notch on the outer side of the turn, the side
+	 * the turn rotates away from.  s1 and s2 are the two segment
+	 * normals, flipped together onto that outer side
+	 */
+
+	if (cross > 0) {
+		s1x = (svg_c_t)-n1x; s1y = (svg_c_t)-n1y;
+		s2x = (svg_c_t)-n2x; s2y = (svg_c_t)-n2y;
+	} else {
+		s1x = n1x; s1y = n1y;
+		s2x = n2x; s2y = n2y;
+	}
+
+	/* the two edge points the notch sits between */
+
+	ax = arc_sat(vx + arc_sat(((int64_t)s1x * hw) >> 16));
+	ay = arc_sat(vy + arc_sat(((int64_t)s1y * hw) >> 16));
+	bx = arc_sat(vx + arc_sat(((int64_t)s2x * hw) >> 16));
+	by = arc_sat(vy + arc_sat(((int64_t)s2y * hw) >> 16));
+
+	if (eff->linejoin == 1)
+		/* round */
+		return arc_emit(ctx, vx, vy, s1x, s1y, s2x, s2y, hw, tol, 0);
+
+	dot = (((int64_t)n1x * n2x) >> 16) + (((int64_t)n1y * n2y) >> 16);
+
+
+	if (eff->linejoin == 0 && dot > -(1 << 16) + 128) {
+		/*
+		 * Miter unless the miter length exceeds the miterlimit.
+		 * cos^2(theta/2) = (1 + cos theta) / 2, and the miter length
+		 * is hw / cos(theta/2), so it is within the limit exactly
+		 * when ml^2 * cos^2 >= 1
+		 */
+
+		int64_t cos2 = (((int64_t)1 << 16) + dot) >> 1;
+		int64_t mlq = (eff->miterlimit * SVG_Q16_1 + SVG_E8_1 / 2) /
+								SVG_E8_1;
+
+		/*
+		 * within limit <=> ratio^2 <= ml^2 <=> ml^2 * cos^2 >= 1,
+		 * in Q16 units: mlq^2 * cos2 >= 2^48
+		 */
+
+		if (cos2 > 0 && mlq * mlq * cos2 >= ((int64_t)1 << 48)) {
+			/*
+			 * apex = V + (s1 + s2) * hw / (1 + dot): the
+			 * intersection of the two outer offset lines
+			 */
+
+			svg_c_t f = (svg_c_t)arc_sat(
+				((int64_t)hw << 16) /
+					(((int64_t)1 << 16) + dot));
+			svg_c_t x[4], y[4];
+
+			x[0] = vx; y[0] = vy;
+			x[1] = ax; y[1] = ay;
+			x[2] = arc_sat(vx + arc_sat(
+				((int64_t)arc_sat(s1x + s2x) * f) >> 16));
+			y[2] = arc_sat(vy + arc_sat(
+				((int64_t)arc_sat(s1y + s2y) * f) >> 16));
+			x[3] = bx; y[3] = by;
+
+			return poly_emit(ctx, x, y, 4);
+		}
+	}
+
+	/* bevel */
+
+	{
+		svg_c_t x[3], y[3];
+
+		x[0] = vx; y[0] = vy;
+		x[1] = ax; y[1] = ay;
+		x[2] = bx; y[2] = by;
+
+		return poly_emit(ctx, x, y, 3);
+	}
+}
+
+/*
+ * Unit normal of the segment from (x0,y0) to (x1,y1), the left of the
+ * travel direction.  Returns 0 if the segment is too short to have one
+ */
+
+static int
+seg_normal(svg_c_t x0, svg_c_t y0, svg_c_t x1, svg_c_t y1,
+	   svg_c_t *nx, svg_c_t *ny)
+{
+	int64_t dx = (int64_t)x1 - x0, dy = (int64_t)y1 - y0;
+	/* halved before squaring so the sum cannot overflow, doubled after:
+	 * sqrt((dx^2 + dy^2) / 4) * 2 == sqrt(dx^2 + dy^2) */
+	int64_t len = svg_isqrt64((dx >> 1) * (dx >> 1) +
+				   (dy >> 1) * (dy >> 1)) << 1;
+
+	/*
+	 * Sub-unit lengths are unusable: the normal is quantized to Q16, so
+	 * below one user unit it degrades.  Segment quads for such slivers
+	 * are inside the stroke of their neighbours anyway
+	 */
+
+	if (len < (1 << 15))
+		return 0;
+
+	*nx = (svg_c_t)arc_sat((-dy << 16) / len);
+	*ny = (svg_c_t)arc_sat((dx << 16) / len);
+
+	return 1;
+}
+
+/*
+ * Stroke one subpath of dpts[0..n): emit the per-segment quads, the
+ * joins at interior vertices (and at the seam of closed subpaths), and
+ * the caps of open ones
+ */
+
+static int
+stroke_sub(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol, svg_c_t hw,
+	   const lws_svg_dpt_t *d, uint32_t n, char closed)
+{
+	uint32_t i;
+
+	if (n < 2 || (d[0].x == d[n - 1].x && d[0].y == d[n - 1].y && n == 2)) {
+		/*
+		 * A zero-length subpath draws its linecap shape at the
+		 * point, per the spec
+		 */
+
+		if (eff->linecap == 1)
+			return arc_emit(ctx, d[0].x, d[0].y,
+					SVG_Q16_1, 0, SVG_Q16_1, 0,
+					hw, tol, 1);
+		if (eff->linecap == 2) {
+			svg_c_t x[4], y[4];
+
+			x[0] = arc_sat(d[0].x - hw); y[0] = arc_sat(d[0].y - hw);
+			x[1] = arc_sat(d[0].x + hw); y[1] = arc_sat(d[0].y - hw);
+			x[2] = arc_sat(d[0].x + hw); y[2] = arc_sat(d[0].y + hw);
+			x[3] = arc_sat(d[0].x - hw); y[3] = arc_sat(d[0].y + hw);
+
+			return poly_emit(ctx, x, y, 4);
+		}
+
+		return 0;
+	}
+
+	/* per-segment quads */
+
+	for (i = 0; i + 1 < n; i++) {
+		svg_c_t nx, ny;
+
+		if (!seg_normal(d[i].x, d[i].y, d[i + 1].x, d[i + 1].y,
+				&nx, &ny))
+			continue;
+
+		if (seg_quad(ctx, d[i].x, d[i].y, d[i + 1].x, d[i + 1].y,
+			     nx, ny, hw))
+			return 1;
+	}
+
+	/* joins at vertices where two usable segments meet */
+
+	for (i = 1; i + 1 < n; i++) {
+		svg_c_t n1x, n1y, n2x, n2y;
+
+		if (!seg_normal(d[i - 1].x, d[i - 1].y, d[i].x, d[i].y,
+				&n1x, &n1y))
+			continue;
+		if (!seg_normal(d[i].x, d[i].y, d[i + 1].x, d[i + 1].y,
+				&n2x, &n2y))
+			continue;
+
+		if (join_emit(ctx, eff, tol, d[i].x, d[i].y,
+			      n1x, n1y, n2x, n2y, hw))
+			return 1;
+	}
+
+	if (closed && n > 2) {
+		/*
+		 * The seam join of a closed subpath, at its start point.
+		 * Subpaths may or may not repeat the start point at the
+		 * end: if they do not, the closing edge itself still needs
+		 * stroking
+		 */
+
+		svg_c_t n1x, n1y, n2x, n2y;
+
+		if (d[0].x == d[n - 1].x && d[0].y == d[n - 1].y) {
+			/* the closing edge is the explicit last segment */
+
+			if (seg_normal(d[n - 2].x, d[n - 2].y,
+				       d[n - 1].x, d[n - 1].y, &n1x, &n1y) &&
+			    seg_normal(d[0].x, d[0].y, d[1].x, d[1].y,
+				       &n2x, &n2y))
+				if (join_emit(ctx, eff, tol, d[0].x, d[0].y,
+					      n1x, n1y, n2x, n2y, hw))
+					return 1;
+		} else {
+			/*
+			 * Stroke the implicit closing edge, and join it at
+			 * both the start vertex and the last vertex
+			 */
+
+			if (seg_normal(d[n - 1].x, d[n - 1].y,
+				       d[0].x, d[0].y, &n1x, &n1y)) {
+				svg_c_t n0x, n0y;
+
+				if (seg_quad(ctx, d[n - 1].x, d[n - 1].y,
+					     d[0].x, d[0].y, n1x, n1y, hw))
+					return 1;
+
+				if (seg_normal(d[0].x, d[0].y,
+					       d[1].x, d[1].y, &n2x, &n2y))
+					if (join_emit(ctx, eff, tol,
+						      d[0].x, d[0].y,
+						      n1x, n1y, n2x, n2y, hw))
+						return 1;
+
+				if (seg_normal(d[n - 2].x, d[n - 2].y,
+					       d[n - 1].x, d[n - 1].y,
+					       &n0x, &n0y))
+					if (join_emit(ctx, eff, tol,
+						      d[n - 1].x, d[n - 1].y,
+						      n0x, n0y, n1x, n1y, hw))
+						return 1;
+			}
+		}
+	} else if (!closed && eff->linecap) {
+		/*
+		 * Caps at the two ends of an open subpath.  The semicircle
+		 * is emitted as two quarter pies through the outward
+		 * direction, so the sweep direction is deterministic
+		 */
+
+		svg_c_t fnx, fny, lnx, lny;
+
+		if (seg_normal(d[0].x, d[0].y, d[1].x, d[1].y, &fnx, &fny)) {
+			/*
+			 * The direction of travel is the normal rotated
+			 * -90deg; the start cap points the other way
+			 */
+
+			svg_c_t bx = (svg_c_t)-fny, by = fnx;
+
+			if (eff->linecap == 2) {
+				svg_c_t ox = arc_sat(((int64_t)fnx * hw) >> 16);
+				svg_c_t oy = arc_sat(((int64_t)fny * hw) >> 16);
+				svg_c_t ex = arc_sat(((int64_t)bx * hw) >> 16);
+				svg_c_t ey = arc_sat(((int64_t)by * hw) >> 16);
+				svg_c_t x[4], y[4];
+
+				x[0] = arc_sat(d[0].x + ox);
+				y[0] = arc_sat(d[0].y + oy);
+				x[1] = arc_sat(d[0].x + ex + ox);
+				y[1] = arc_sat(d[0].y + ey + oy);
+				x[2] = arc_sat(d[0].x + ex - ox);
+				y[2] = arc_sat(d[0].y + ey - oy);
+				x[3] = arc_sat(d[0].x - ox);
+				y[3] = arc_sat(d[0].y - oy);
+
+				if (poly_emit(ctx, x, y, 4))
+					return 1;
+			} else
+				if (arc_emit(ctx, d[0].x, d[0].y,
+					     fnx, fny, bx, by, hw, tol, 0) ||
+				    arc_emit(ctx, d[0].x, d[0].y,
+					     bx, by, (svg_c_t)-fnx, (svg_c_t)-fny,
+					     hw, tol, 0))
+					return 1;
+		}
+
+		if (seg_normal(d[n - 2].x, d[n - 2].y, d[n - 1].x, d[n - 1].y,
+			       &lnx, &lny)) {
+			/* forward direction is the normal rotated -90deg */
+
+			svg_c_t fx = lny, fy = (svg_c_t)-lnx;
+
+			if (eff->linecap == 2) {
+				svg_c_t ox = arc_sat(((int64_t)lnx * hw) >> 16);
+				svg_c_t oy = arc_sat(((int64_t)lny * hw) >> 16);
+				svg_c_t ex = arc_sat(((int64_t)fx * hw) >> 16);
+				svg_c_t ey = arc_sat(((int64_t)fy * hw) >> 16);
+				svg_c_t x[4], y[4];
+
+				x[0] = arc_sat(d[n - 1].x + ox);
+				y[0] = arc_sat(d[n - 1].y + oy);
+				x[1] = arc_sat(d[n - 1].x + ex + ox);
+				y[1] = arc_sat(d[n - 1].y + ey + oy);
+				x[2] = arc_sat(d[n - 1].x + ex - ox);
+				y[2] = arc_sat(d[n - 1].y + ey - oy);
+				x[3] = arc_sat(d[n - 1].x - ox);
+				y[3] = arc_sat(d[n - 1].y - oy);
+
+				if (poly_emit(ctx, x, y, 4))
+					return 1;
+			} else
+				if (arc_emit(ctx, d[n - 1].x, d[n - 1].y,
+					     lnx, lny, fx, fy, hw, tol, 0) ||
+				    arc_emit(ctx, d[n - 1].x, d[n - 1].y,
+					     fx, fy, (svg_c_t)-lnx, (svg_c_t)-lny,
+					     hw, tol, 0))
+					return 1;
+		}
+	}
+
+	return 0;
+}
+
+/*
+ * Commit the stroke geometry for the shape in the working arrays: the
+ * outline polygons are appended as extra working subpaths, committed as
+ * their own nonzero-filled shape in the stroke colour, and the working
+ * arrays truncated back to the shape itself
+ */
+
+static int
+stroke_commit(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba,
+	      svg_lvl_t *eff)
+{
+	uint32_t base_subs = (uint32_t)ctx->wsubs_count;
+	uint32_t base_pts = (uint32_t)ctx->wpts_count;
+	uint32_t i;
+	svg_c_t hw;
+	int ret = 1;
+
+	if (!ctx->wsubs_count || eff->stroke_w < 2)
+		return 0;
+
+	hw = (svg_c_t)(eff->stroke_w >> 1);
+
+	/*
+	 * Generating the outline appends working subpaths, so the loop has
+	 * to run over the shape's own extent captured here, not a moving
+	 * wsubs_count, and the last original subpath ends at base_pts
+	 */
+
+	for (i = 0; i < base_subs; i++) {
+		uint32_t start = ctx->wsubs[i].start;
+		uint32_t count = (i + 1 < base_subs ?
+					ctx->wsubs[i + 1].start : base_pts) - start;
+
+		if (stroke_sub(ctx, eff, ctx->tol, hw,
+			       &ctx->wpts[start], count, ctx->wsubs[i].closed))
+			goto bail;
+	}
+
+	if (commit_range(ctx, m, rgba, 0 /* stroke is nonzero */, base_subs))
+		goto bail;
+
+	ret = 0;
+
+bail:
+	/* the stroke geometry is transient: rewind the working arrays */
+
+	ctx->wsubs_count = base_subs;
+	ctx->wpts_count = base_pts;
+
+	return ret;
+}
+
 static int
 shape_commit(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba, char rule)
 {
-	lws_svg_shape_t *sh;
-	size_t i;
+	return commit_range(ctx, m, rgba, rule, 0);
+}
 
-	if (!ctx->wsubs_count)
+/*
+ * Commit working subpaths [first_sub..] as a scene shape: the geometry is
+ * transformed into place by the CTM and stored in the scene lwsac
+ */
+
+static int
+commit_range(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba, char rule,
+	     uint32_t first_sub)
+{
+	lws_svg_shape_t *sh;
+	uint32_t i;
+
+	if (!ctx->wsubs_count || first_sub >= ctx->wsubs_count)
 		return 0;
 
 	if (ctx->nshapes >= LWS_SVG_MAX_SHAPES)
@@ -1526,13 +2061,15 @@ shape_commit(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba, char rule)
 	sh->rgba = rgba;
 	sh->rule = rule;
 
-	for (i = 0; i < ctx->wsubs_count; i++) {
+	for (i = first_sub; i < ctx->wsubs_count; i++) {
 		uint32_t start = ctx->wsubs[i].start;
 		uint32_t count = (i + 1 < ctx->wsubs_count ?
 					ctx->wsubs[i + 1].start :
 					(uint32_t)ctx->wpts_count) - start;
+
 		lws_svg_sub_t *sub;
 		uint32_t j;
+
 
 		if (count < 3)
 			/* cannot bound any fill area */
@@ -1580,6 +2117,19 @@ shape_commit(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba, char rule)
  * Rounded rect corners and ellipses use the exact kappa control points, so
  * these need no trig.
  */
+
+static int
+build_line(lws_svg_t *ctx, svg_pend_t *pd)
+{
+	work_reset(ctx);
+
+	if (sub_start(ctx, pd->gok[0] ? pd->g[0] : 0,
+			   pd->gok[1] ? pd->g[1] : 0))
+		return 1;
+
+	return pt_add(ctx, pd->gok[2] ? pd->g[2] : 0,
+			   pd->gok[3] ? pd->g[3] : 0);
+}
 
 static int
 build_rect(lws_svg_t *ctx, svg_pend_t *pd)
@@ -1765,6 +2315,39 @@ class_matches(const char *list, const char *lit)
 }
 
 /*
+ * Resolve a stroke-width number to user units in Q16.16.  A percentage
+ * is of sqrt((vw^2 + vh^2) / 2), per SVG 1.1.  Both the number and the
+ * viewBox extents are clamped to the coordinate range first, so the
+ * fixed point products cannot overflow
+ */
+
+static svg_c_t
+stroke_w_resolve(lws_svg_t *ctx, int64_t v_e8, char pct)
+{
+	svg_c_t vn = svg_e8_to_c(v_e8);	/* saturates */
+
+	if (!pct || !ctx->has_vb)
+		return vn;
+
+	{
+		/* vb is already Q16.16 user units */
+
+		int64_t sw = ctx->vb[2], sh = ctx->vb[3];
+
+		/*
+		 * diag = sqrt((vw^2 + vh^2) / 2), halved before the sum so
+		 * the squares cannot overflow int64
+		 */
+
+		sw = svg_isqrt64(((sw * sw) >> 1) + ((sh * sh) >> 1));
+
+		/* vn is a percentage: width = vn / 100 * diag, all Q16 */
+
+		return arc_sat((vn * sw) / (100 * SVG_Q16_1));
+	}
+}
+
+/*
  * Compose the pending per-tag state on to an inherited level state,
  * applying the css cascade in priority order: presentation attributes,
  * then <style> rules (element selectors, then class, then id; later
@@ -1777,6 +2360,10 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 {
 	uint32_t rgba = parent->rgba;
 	int64_t alpha = LWS_SVG_ALPHA(rgba);	/* 0..255 in e8 units */
+	uint32_t srgba = parent->stroke;
+	int64_t salpha = LWS_SVG_ALPHA(srgba);
+	int64_t strokew_raw = 0;
+	char strokew_pct = 0, strokew_set = 0;
 	int tier, i;
 
 	*l = *parent;
@@ -1802,6 +2389,32 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 
 	if (pd->rule_present)
 		l->rule = pd->rule;
+
+	if (pd->stroke_present) {
+		if (!LWS_SVG_ALPHA(pd->stroke))
+			salpha = 0;
+		else {
+			srgba = pd->stroke & 0x00ffffff;
+			salpha = LWS_SVG_ALPHA(pd->stroke);
+		}
+	}
+	if (pd->strokeop_present && pd->strokeop > 0)
+		salpha = pd->strokeop < SVG_E8_1 ?
+			(salpha * pd->strokeop + SVG_E8_1 / 2) / SVG_E8_1 : salpha;
+	if (pd->op_present && pd->op > 0)
+		salpha = pd->op < SVG_E8_1 ?
+			(salpha * pd->op + SVG_E8_1 / 2) / SVG_E8_1 : salpha;
+	if (pd->strokew_present) {
+		strokew_raw = pd->strokew;
+		strokew_pct = pd->strokew_pct;
+		strokew_set = 1;
+	}
+	if (pd->linecap_present)
+		l->linecap = pd->linecap;
+	if (pd->linejoin_present)
+		l->linejoin = pd->linejoin;
+	if (pd->miterlimit_present)
+		l->miterlimit = pd->miterlimit;
 
 	/* <style> rules, lowest tier first, document order inside a tier */
 
@@ -1842,6 +2455,34 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 							SVG_E8_1 : alpha;
 			if (r->rule_set)
 				l->rule = r->rule;
+
+			if (r->stroke_set) {
+				if (!LWS_SVG_ALPHA(r->stroke))
+					salpha = 0;
+				else {
+					srgba = r->stroke & 0x00ffffff;
+					salpha = LWS_SVG_ALPHA(r->stroke);
+				}
+			}
+			if (r->strokeop_set && r->strokeop > 0)
+				salpha = r->strokeop < SVG_E8_1 ?
+					(salpha * r->strokeop + SVG_E8_1 / 2) /
+						SVG_E8_1 : salpha;
+			if (r->op_set && r->op > 0)
+				salpha = r->op < SVG_E8_1 ?
+					(salpha * r->op + SVG_E8_1 / 2) /
+						SVG_E8_1 : salpha;
+			if (r->strokew_set) {
+				strokew_raw = r->strokew;
+				strokew_pct = r->strokew_pct;
+				strokew_set = 1;
+			}
+			if (r->linecap_set)
+				l->linecap = r->linecap;
+			if (r->linejoin_set)
+				l->linejoin = r->linejoin;
+			if (r->ml_set)
+				l->miterlimit = r->ml;
 		}
 
 	/* style="" attribute content wins over everything above */
@@ -1861,13 +2502,49 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 	if (pd->sa_op_present && pd->sa_op > 0)
 		alpha = pd->sa_op < SVG_E8_1 ?
 			(alpha * pd->sa_op + SVG_E8_1 / 2) / SVG_E8_1 :
-								alpha;
+				alpha;
+
+	/* style="" stroke overrides */
+
+	if (pd->sa_stroke_present) {
+		if (!LWS_SVG_ALPHA(pd->sa_stroke))
+			salpha = 0;
+		else {
+			srgba = pd->sa_stroke & 0x00ffffff;
+			salpha = LWS_SVG_ALPHA(pd->sa_stroke);
+		}
+	}
+	if (pd->sa_strokeop_present && pd->sa_strokeop > 0)
+		salpha = pd->sa_strokeop < SVG_E8_1 ?
+			(salpha * pd->sa_strokeop + SVG_E8_1 / 2) / SVG_E8_1 :
+				salpha;
+	if (pd->sa_strokew_present) {
+		strokew_raw = pd->sa_strokew;
+		strokew_pct = pd->sa_strokew_pct;
+		strokew_set = 1;
+	}
+	if (pd->sa_linecap_present)
+		l->linecap = pd->sa_linecap;
+	if (pd->sa_linejoin_present)
+		l->linejoin = pd->sa_linejoin;
+	if (pd->sa_miterlimit_present)
+		l->miterlimit = pd->sa_miterlimit;
 
 	if (alpha > 255)
 		alpha = 255;
+	if (salpha > 255)
+		salpha = 255;
 
 	l->rgba = (rgba & 0x00ffffff) |
 			((uint32_t)((alpha * 2 + 1) / 2) << 24);
+	l->stroke = (srgba & 0x00ffffff) |
+			((uint32_t)((salpha * 2 + 1) / 2) << 24);
+
+	if (strokew_set)
+		l->stroke_w = stroke_w_resolve(ctx, strokew_raw, strokew_pct);
+
+	if (l->miterlimit < SVG_E8_1)
+		l->miterlimit = SVG_E8_1;	/* spec floor of 1 */
 
 	if (pd->sa_rule_present)
 		l->rule = pd->sa_rule;
@@ -1923,11 +2600,24 @@ geom_slot(svg_ekind_t k, const char *aname)
 #define SVG_PP_FILLOP	2
 #define SVG_PP_OP	4
 #define SVG_PP_RULE	8
+#define SVG_PP_STROKE	16
+#define SVG_PP_STROKEOP	32
+#define SVG_PP_STROKEW	64
+#define SVG_PP_LINECAP	128
+#define SVG_PP_LINEJOIN	256
+#define SVG_PP_ML	512
 
 struct svg_pp {
 	uint32_t	fill;
+	uint32_t	stroke;
 	int64_t		fillop, op;	/* e8 */
+	int64_t		strokeop;
+	int64_t		strokew;	/* raw number, e8 */
+	int64_t		ml;
 	char		rule;
+	char		strokew_pct;
+	uint8_t		linecap;
+	uint8_t		linejoin;
 };
 
 static int
@@ -1951,10 +2641,54 @@ pp_parse(const char *name, size_t nl, const char *val, size_t vl,
 					bits = SVG_PP_OP;
 			} else
 				if (nl == 9 && !strncmp(name, "fill-rule", 9)) {
-					out->rule = !!(vl == 7 &&
-						       !strncmp(val, "evenodd", 7));
-					bits = SVG_PP_RULE;
-				}
+				out->rule = !!(vl == 7 &&
+					       !strncmp(val, "evenodd", 7));
+				bits = SVG_PP_RULE;
+			} else
+
+		/*
+		 * Stroke properties
+		 */
+
+		if (nl == 6 && !strncmp(name, "stroke", 6)) {
+			if (!svg_colour(val, vl, &out->stroke))
+				bits = SVG_PP_STROKE;
+		} else
+		if (nl == 14 && !strncmp(name, "stroke-opacity", 14)) {
+			if (svg_num(val, val + vl, &out->strokeop))
+				bits = SVG_PP_STROKEOP;
+		} else
+		if (nl == 12 && !strncmp(name, "stroke-width", 12)) {
+			size_t ul = vl;
+
+			while (ul && isxmlws(val[ul - 1]))
+				ul--;
+			out->strokew_pct = ul && val[ul - 1] == '%';
+			if (svg_num(val, val + vl, &out->strokew))
+				bits = SVG_PP_STROKEW;
+		} else
+		if (nl == 14 && !strncmp(name, "stroke-linecap", 14)) {
+			if ((vl == 4 && !strncmp(val, "butt", 4)) ||
+			    (vl == 5 && !strncmp(val, "round", 5)) ||
+			    (vl == 6 && !strncmp(val, "square", 6))) {
+				out->linecap = (uint8_t)(vl == 4 ? 0 :
+						 vl == 5 ? 1 : 2);
+				bits = SVG_PP_LINECAP;
+			}
+		} else
+		if (nl == 15 && !strncmp(name, "stroke-linejoin", 15)) {
+			if ((vl == 5 && !strncmp(val, "miter", 5)) ||
+			    (vl == 5 && !strncmp(val, "round", 5)) ||
+			    (vl == 5 && !strncmp(val, "bevel", 5))) {
+				out->linejoin = (uint8_t)(val[1] == 'o' ? 1 :
+						 val[1] == 'e' ? 2 : 0);
+				bits = SVG_PP_LINEJOIN;
+			}
+		} else
+		if (nl == 17 && !strncmp(name, "stroke-miterlimit", 17)) {
+			if (svg_num(val, val + vl, &out->ml))
+				bits = SVG_PP_ML;
+		}
 
 	return bits;
 }
@@ -1985,6 +2719,33 @@ style_prop(lws_svg_t *ctx, const char *name, size_t nl,
 		pd->sa_rule_present = 1;
 		pd->sa_rule = pp.rule;
 		break;
+
+	case SVG_PP_STROKE:
+		pd->sa_stroke_present = 1;
+		pd->sa_stroke = pp.stroke;
+		break;
+	case SVG_PP_STROKEOP:
+		pd->sa_strokeop_present = 1;
+		pd->sa_strokeop = pp.strokeop;
+		break;
+	case SVG_PP_STROKEW:
+		pd->sa_strokew_present = 1;
+		pd->sa_strokew = pp.strokew;
+		pd->sa_strokew_pct = pp.strokew_pct;
+		break;
+	case SVG_PP_LINECAP:
+		pd->sa_linecap_present = 1;
+		pd->sa_linecap = pp.linecap;
+		break;
+	case SVG_PP_LINEJOIN:
+		pd->sa_linejoin_present = 1;
+		pd->sa_linejoin = pp.linejoin;
+		break;
+	case SVG_PP_ML:
+		pd->sa_miterlimit_present = 1;
+		pd->sa_miterlimit = pp.ml;
+		break;
+
 	default:
 		break;
 	}
@@ -2174,6 +2935,32 @@ parse_css(lws_svg_t *ctx)
 							r.rule_set = 1;
 							r.rule = pp[i].rule;
 						}
+
+						if (bits[i] & SVG_PP_STROKE) {
+							r.stroke_set = 1;
+							r.stroke = pp[i].stroke;
+						}
+						if (bits[i] & SVG_PP_STROKEOP) {
+							r.strokeop_set = 1;
+							r.strokeop = pp[i].strokeop;
+						}
+						if (bits[i] & SVG_PP_STROKEW) {
+							r.strokew_set = 1;
+							r.strokew = pp[i].strokew;
+							r.strokew_pct = pp[i].strokew_pct;
+						}
+						if (bits[i] & SVG_PP_LINECAP) {
+							r.linecap_set = 1;
+							r.linecap = pp[i].linecap;
+						}
+						if (bits[i] & SVG_PP_LINEJOIN) {
+							r.linejoin_set = 1;
+							r.linejoin = pp[i].linejoin;
+						}
+						if (bits[i] & SVG_PP_ML) {
+							r.ml_set = 1;
+							r.ml = pp[i].ml;
+						}
 					}
 
 					if (ctx->css_count <
@@ -2330,6 +3117,43 @@ attr_complete(lws_svg_t *ctx)
 			      !strncmp(ctx->vbuf, "evenodd", 7));
 
 		return 0;
+	}
+
+
+	/* stroke presentation attributes */
+
+	{
+		struct svg_pp pp;
+
+		switch (pp_parse(n, strlen(n), ctx->vbuf, ctx->vlen, &pp)) {
+		case SVG_PP_STROKE:
+			pd->stroke_present = 1;
+			pd->stroke = pp.stroke;
+			break;
+		case SVG_PP_STROKEOP:
+			pd->strokeop_present = 1;
+			pd->strokeop = pp.strokeop;
+			break;
+		case SVG_PP_STROKEW:
+			pd->strokew_present = 1;
+			pd->strokew = pp.strokew;
+			pd->strokew_pct = pp.strokew_pct;
+			break;
+		case SVG_PP_LINECAP:
+			pd->linecap_present = 1;
+			pd->linecap = pp.linecap;
+			break;
+		case SVG_PP_LINEJOIN:
+			pd->linejoin_present = 1;
+			pd->linejoin = pp.linejoin;
+			break;
+		case SVG_PP_ML:
+			pd->miterlimit_present = 1;
+			pd->miterlimit = pp.ml;
+			break;
+		default:
+			break;
+		}
 	}
 
 	if (!strcmp(n, "transform")) {
@@ -2580,6 +3404,9 @@ element_open(lws_svg_t *ctx, char selfclose)
 					pd->gok[2] ? pd->g[2] : 0,
 					pd->gok[3] ? pd->g[3] : 0);
 			break;
+		case SVEK_LINE:
+			ret = build_line(ctx, pd);
+			break;
 		case SVEK_POLYLINE:
 		case SVEK_POLYGON:
 			if (!pd->has_points)
@@ -2599,7 +3426,7 @@ element_open(lws_svg_t *ctx, char selfclose)
 
 		/* line is stroke-only: nothing to fill */
 
-		if (k != SVEK_LINE) {
+		{
 			svg_lvl_t eff;
 
 			/* compose the shape's own presentation deltas on to
@@ -2608,7 +3435,16 @@ element_open(lws_svg_t *ctx, char selfclose)
 			level_compose(ctx, &ctx->stk[ctx->depth], pd, &eff,
 				      ctx->name);
 
-			if (shape_commit(ctx, eff.m, eff.rgba, eff.rule))
+			/* a line has no fill of its own */
+
+			if (k != SVEK_LINE &&
+			    shape_commit(ctx, eff.m, eff.rgba, eff.rule))
+				return 1;
+
+			/* the stroke outline is its own nonzero shape */
+
+			if (LWS_SVG_ALPHA(eff.stroke) &&
+			    stroke_commit(ctx, eff.m, eff.stroke, &eff))
 				return 1;
 		}
 
@@ -3129,6 +3965,9 @@ lws_svg_new(void)
 
 	xf_ident(ctx->stk[0].m);
 	ctx->stk[0].rgba = LWS_SVG_RGBA(0, 0, 0, 0xff);
+	ctx->stk[0].stroke = 0;			/* none */
+	ctx->stk[0].stroke_w = SVG_Q16_1;	/* 1 user unit */
+	ctx->stk[0].miterlimit = 4 * SVG_E8_1;
 	xf_ident(ctx->pend.tm);
 
 	return ctx;

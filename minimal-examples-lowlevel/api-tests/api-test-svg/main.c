@@ -1226,6 +1226,275 @@ build_corpus_viewbox(void)
 	cc->exp_h = 40;
 }
 
+/*
+ * Strokes.  Exact-geometry cases use integer coordinates at scale 1 so
+ * the covered pixel counts are exact; joins and caps with curved parts
+ * use the analytic area with a small tolerance, since the exact-area
+ * antialiasing conserves total coverage
+ */
+
+static void
+build_corpus_strokes(void)
+{
+	ccase_t *cc;
+
+	/* a horizontal line stroked 4 wide covers an exact band */
+
+	cc = cc_add_vb("stroke-hline",
+		"<line x1=\"8\" y1=\"16\" x2=\"40\" y2=\"16\" "
+		"stroke=\"#00ff00\" stroke-width=\"4\"/>", 64, 32, 64, 32);
+	cc->exp_area = 32 * 4;		/* 128 */
+	cc->area_tol = 0;
+	cc->bbox[0] = 8; cc->bbox[1] = 14; cc->bbox[2] = 39; cc->bbox[3] = 17;
+	cc->bbox_tol = 0;
+	cc->exp_rgba = LWS_SVG_RGBA(0, 0xff, 0, 255);
+
+	/* the same, vertical */
+
+	cc = cc_add_vb("stroke-vline",
+		"<line x1=\"16\" y1=\"8\" x2=\"16\" y2=\"40\" "
+		"stroke=\"#ff0000\" stroke-width=\"4\"/>", 32, 64, 32, 64);
+	cc->exp_area = 32 * 4;
+	cc->area_tol = 0;
+	cc->bbox[0] = 14; cc->bbox[1] = 8; cc->bbox[2] = 17; cc->bbox[3] = 39;
+	cc->bbox_tol = 0;
+
+	/* no stroke attribute means no stroke: a line shows nothing */
+
+	cc = cc_add_vb("stroke-none",
+		"<line x1=\"8\" y1=\"16\" x2=\"40\" y2=\"16\"/>", 64, 32, 64, 32);
+	cc->flags = CC_F_EMPTY;
+
+	/* width 0 and negative widths are not strokes at all */
+
+	cc = cc_add_vb("stroke-w0",
+		"<line x1=\"8\" y1=\"16\" x2=\"40\" y2=\"16\" "
+		"stroke=\"#00ff00\" stroke-width=\"0\"/>", 64, 32, 64, 32);
+	cc->flags = CC_F_EMPTY;
+
+	cc = cc_add_vb("stroke-wneg",
+		"<line x1=\"8\" y1=\"16\" x2=\"40\" y2=\"16\" "
+		"stroke=\"#00ff00\" stroke-width=\"-3\"/>", 64, 32, 64, 32);
+	cc->flags = CC_F_EMPTY;
+
+	/*
+	 * A fill:none rect stroked 2 wide: a 20x20 rect at 4,4.  With the
+	 * default miter join, the outline is the exact square ring between
+	 * offsets 22x22 and 18x18 = 160 pixels
+	 */
+
+	cc = cc_add_vb("stroke-rect-miter",
+		"<rect x=\"4\" y=\"4\" width=\"20\" height=\"20\" fill=\"none\" "
+		"stroke=\"#0000ff\" stroke-width=\"2\"/>", 32, 32, 32, 32);
+	cc->exp_area = 22 * 22 - 18 * 18;	/* 160 */
+	cc->area_tol = 0;
+	cc->bbox[0] = 3; cc->bbox[1] = 3; cc->bbox[2] = 24; cc->bbox[3] = 24;
+	cc->bbox_tol = 0;
+	cc->exp_rgba = LWS_SVG_RGBA(0, 0, 0xff, 255);
+
+	/* bevel joins cut the four outer corners: -2 pixels each */
+
+	cc = cc_add_vb("stroke-rect-bevel",
+		"<rect x=\"4\" y=\"4\" width=\"20\" height=\"20\" fill=\"none\" "
+		"stroke=\"#0000ff\" stroke-width=\"2\" "
+		"stroke-linejoin=\"bevel\"/>", 32, 32, 32, 32);
+	cc->exp_area = 160 - 4 * 0.5;
+	cc->area_tol = 0;
+
+	/* round joins are quarter discs in the corners: +pi total */
+
+	cc = cc_add_vb("stroke-rect-round",
+		"<rect x=\"4\" y=\"4\" width=\"20\" height=\"20\" fill=\"none\" "
+		"stroke=\"#0000ff\" stroke-width=\"2\" "
+		"stroke-linejoin=\"round\"/>", 32, 32, 32, 32);
+	cc->exp_area = 156 + 3.14159265;
+	cc->area_tol = 1.5;
+
+	/*
+	 * Caps on an open 32-long line stroked 4: butt is the exact quad,
+	 * square adds hw at each end, round adds two semicircles
+	 */
+
+	cc = cc_add_vb("stroke-cap-butt",
+		"<line x1=\"16\" y1=\"8\" x2=\"16\" y2=\"40\" "
+		"stroke=\"#ff00ff\" stroke-width=\"4\"/>", 32, 48, 32, 48);
+	cc->exp_area = 32 * 4;
+	cc->area_tol = 0;
+	cc->bbox[1] = 8; cc->bbox[3] = 39; cc->bbox[0] = 14; cc->bbox[2] = 17;
+	cc->bbox_tol = 0;
+
+	cc = cc_add_vb("stroke-cap-square",
+		"<line x1=\"16\" y1=\"8\" x2=\"16\" y2=\"40\" "
+		"stroke=\"#ff00ff\" stroke-width=\"4\" "
+		"stroke-linecap=\"square\"/>", 32, 48, 32, 48);
+	cc->exp_area = 36 * 4;
+	cc->area_tol = 0;
+	cc->bbox[1] = 6; cc->bbox[3] = 41; cc->bbox[0] = 14; cc->bbox[2] = 17;
+	cc->bbox_tol = 0;
+
+	cc = cc_add_vb("stroke-cap-round",
+		"<line x1=\"16\" y1=\"8\" x2=\"16\" y2=\"40\" "
+		"stroke=\"#ff00ff\" stroke-width=\"4\" "
+		"stroke-linecap=\"round\"/>", 32, 48, 32, 48);
+	cc->exp_area = 128 + 2 * 3.14159265 * 2;	/* + 2 half-discs r2 */
+	cc->area_tol = 1.5;
+	cc->bbox[1] = 6; cc->bbox[3] = 41; cc->bbox[0] = 14; cc->bbox[2] = 17;
+	cc->bbox_tol = 0;
+
+	/*
+	 * A zero-length subpath draws only its cap shape: a disc with a
+	 * round cap, nothing with a butt cap
+	 */
+
+	cc = cc_add_vb("stroke-dot-round",
+		"<path d=\"M 16 16 l 0 0\" fill=\"none\" stroke=\"#00ffff\" "
+		"stroke-width=\"4\" stroke-linecap=\"round\"/>", 32, 32, 32, 32);
+	cc->exp_area = 3.14159265 * 4;
+	cc->area_tol = 1.5;
+
+	cc = cc_add_vb("stroke-dot-butt",
+		"<path d=\"M 16 16 l 0 0\" fill=\"none\" stroke=\"#00ffff\" "
+		"stroke-width=\"4\"/>", 32, 32, 32, 32);
+	cc->flags = CC_F_EMPTY;
+
+	/* stroke-opacity scales the composed alpha */
+
+	cc = cc_add_vb("stroke-opacity",
+		"<line x1=\"8\" y1=\"16\" x2=\"40\" y2=\"16\" "
+		"stroke=\"#00ff00\" stroke-width=\"4\" "
+		"stroke-opacity=\"0.5\"/>", 64, 32, 64, 32);
+	cc->exp_area = 128;
+	cc->area_tol = 0;
+	cc->exp_rgba = LWS_SVG_RGBA(0, 0xff, 0, 128);
+
+	/*
+	 * Percentage widths are of sqrt((vw^2 + vh^2) / 2): for a square
+	 * viewport exactly the side, so 6.25% of 64 is exactly 4
+	 */
+
+	cc = cc_add_vb("stroke-wpct",
+		"<line x1=\"8\" y1=\"32\" x2=\"56\" y2=\"32\" "
+		"stroke=\"#00ff00\" stroke-width=\"6.25%\"/>", 64, 64, 64, 64);
+	cc->exp_area = 48 * 4;
+	cc->area_tol = 0;
+	cc->bbox[0] = 8; cc->bbox[1] = 30; cc->bbox[2] = 55; cc->bbox[3] = 33;
+	cc->bbox_tol = 0;
+
+	/* the stroke width is in user units: a scale(2) group doubles it */
+
+	cc = cc_add_vb("stroke-scale",
+		"<g transform=\"scale(2)\"><line x1=\"8\" y1=\"16\" "
+		"x2=\"20\" y2=\"16\" stroke=\"#00ff00\" "
+		"stroke-width=\"2\"/></g>", 64, 64, 64, 64);
+	cc->exp_area = 24 * 4;		/* (20-8)*2 long, 4 wide */
+	cc->area_tol = 0;
+	cc->bbox[0] = 16; cc->bbox[1] = 30; cc->bbox[2] = 39; cc->bbox[3] = 33;
+	cc->bbox_tol = 0;
+
+	/* stroke properties inherit through groups */
+
+	cc = cc_add_vb("stroke-inherit",
+		"<g stroke=\"#ff0000\" stroke-width=\"4\">"
+		"<line x1=\"8\" y1=\"16\" x2=\"40\" y2=\"16\"/></g>",
+		64, 32, 64, 32);
+	cc->exp_area = 128;
+	cc->area_tol = 0;
+	cc->exp_rgba = LWS_SVG_RGBA(0xff, 0, 0, 255);
+
+	/* css class and style="" both style the stroke */
+
+	cc = cc_add_vb("stroke-css",
+		"<style>.s{stroke:#00ff00;stroke-width:4}</style>"
+		"<line class=\"s\" x1=\"8\" y1=\"16\" x2=\"40\" y2=\"16\"/>",
+		64, 32, 64, 32);
+	cc->exp_area = 128;
+	cc->area_tol = 0;
+	cc->exp_rgba = LWS_SVG_RGBA(0, 0xff, 0, 255);
+
+	cc = cc_add_vb("stroke-styleattr",
+		"<line x1=\"8\" y1=\"16\" x2=\"40\" y2=\"16\" "
+		"style=\"stroke:#00ff00;stroke-width:4\"/>", 64, 32, 64, 32);
+	cc->exp_area = 128;
+	cc->area_tol = 0;
+	cc->exp_rgba = LWS_SVG_RGBA(0, 0xff, 0, 255);
+
+	/*
+	 * miterlimit below the miter length of the 90 degree corners falls
+	 * back to bevel: the next two cases must render identically
+	 */
+
+	cc = cc_add_vb("stroke-ml-bevel",
+		"<path d=\"M 4 4 h 20 v 20 h -20 Z\" fill=\"none\" "
+		"stroke=\"#0000ff\" stroke-width=\"2\" "
+		"stroke-linejoin=\"bevel\"/>", 32, 32, 32, 32);
+	cc->exp_area = 158;
+	cc->area_tol = 0;
+
+	cc = cc_add_vb("stroke-ml-fallback",
+		"<path d=\"M 4 4 h 20 v 20 h -20 Z\" fill=\"none\" "
+		"stroke=\"#0000ff\" stroke-width=\"2\" "
+		"stroke-miterlimit=\"1.1\"/>", 32, 32, 32, 32);
+	cc->family = FAM_PAIR;
+	cc->pa = ncases - 2;
+	cc->exp_w = cc->exp_h = 32;
+
+	/* ... while the default limit of 4 keeps the miter corners */
+
+	cc = cc_add_vb("stroke-ml-miter",
+		"<path d=\"M 4 4 h 20 v 20 h -20 Z\" fill=\"none\" "
+		"stroke=\"#0000ff\" stroke-width=\"2\" "
+		"stroke-miterlimit=\"4\"/>", 32, 32, 32, 32);
+	cc->exp_area = 160;
+	cc->area_tol = 0;
+
+	/*
+	 * Fill and stroke together: a 20x20 filled rect with a 2 wide miter
+	 * stroke exactly tiles the 22x22 outer square, and the stroke paint
+	 * (committed after the fill) is what shows at the boundary
+	 */
+
+	cc = cc_add_vb("stroke-both",
+		"<rect x=\"4\" y=\"4\" width=\"20\" height=\"20\" "
+		"stroke=\"#00ff00\" stroke-width=\"2\"/>", 32, 32, 32, 32);
+	cc->exp_area = 22 * 22;
+	cc->area_tol = 0;
+	cc->bbox[0] = 3; cc->bbox[1] = 3; cc->bbox[2] = 24; cc->bbox[3] = 24;
+	cc->bbox_tol = 0;
+	cc->exp_rgba = LWS_SVG_RGBA(0, 0xff, 0, 255);
+
+	/*
+	 * Robustness: hostile widths are clamped and render without
+	 * ill effect, junk colour values are ignored (stroke stays none),
+	 * and unknown linejoin keywords leave the default
+	 */
+
+	/*
+	 * A hostile width is clamped and simply swamps the surface rows
+	 * the line touches, without any ill effect
+	 */
+
+	cc = cc_add_vb("stroke-huge-width",
+		"<line x1=\"8\" y1=\"16\" x2=\"40\" y2=\"16\" "
+		"stroke=\"#00ff00\" stroke-width=\"999999999\"/>",
+		64, 32, 64, 32);
+	cc->exp_area = 32 * 32;		/* every row, the line's x span */
+	cc->area_tol = 0;
+	cc->bbox[0] = 8; cc->bbox[1] = 0; cc->bbox[2] = 39; cc->bbox[3] = 31;
+	cc->bbox_tol = 0;
+
+	cc = cc_add_vb("stroke-junk-colour",
+		"<line x1=\"8\" y1=\"16\" x2=\"40\" y2=\"16\" "
+		"stroke=\"notacolour\" stroke-width=\"4\"/>", 64, 32, 64, 32);
+	cc->flags = CC_F_EMPTY;
+
+	cc = cc_add_vb("stroke-junk-join",
+		"<path d=\"M 4 4 h 20 v 20 h -20 Z\" fill=\"none\" "
+		"stroke=\"#0000ff\" stroke-width=\"2\" "
+		"stroke-linejoin=\"diagonal-fancy\"/>", 32, 32, 32, 32);
+	cc->exp_area = 160;	/* falls back to the default miter */
+	cc->area_tol = 0;
+}
+
 static void
 build_corpus_css(void)
 {
@@ -1466,6 +1735,7 @@ build_corpus(void)
 	build_corpus_xforms();
 	build_corpus_colors();
 	build_corpus_css();
+	build_corpus_strokes();
 	build_corpus_viewbox();
 	build_corpus_structural();
 }

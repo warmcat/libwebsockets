@@ -179,6 +179,12 @@ typedef struct lws_svg_shape {
 typedef struct {
 	svg_c_t			m[6];	/* CTM: x' = m[0]x + m[2]y + m[4] */
 	uint32_t		rgba;	/* composed fill colour */
+	uint32_t		stroke;	/* composed stroke colour, alpha 0 = none */
+	int64_t			strokeop;	/* e8 */
+	svg_c_t			stroke_w;	/* user units, Q16.16 */
+	int64_t			miterlimit;	/* e8, >= 1 */
+	uint8_t			linecap;	/* 0 butt, 1 round, 2 square */
+	uint8_t			linejoin;	/* 0 miter, 1 round, 2 bevel */
 	char			rule;
 	char			suppress; /* inside defs, text, unknown... */
 } svg_lvl_t;
@@ -206,6 +212,18 @@ typedef struct {
 	int64_t		fillop, op;	/* e8 */
 	char		fillop_set, op_set;
 	char		rule, rule_set;
+
+	uint32_t	stroke;
+	char		stroke_set;
+	int64_t		strokeop;
+	char		strokeop_set;
+	int64_t		strokew;	/* raw number, e8 */
+	char		strokew_pct;
+	char		strokew_set;
+	uint8_t		linecap, linejoin;
+	char		linecap_set, linejoin_set;
+	int64_t		ml;
+	char		ml_set;
 } svg_cssrule_t;
 
 /* pending per-tag state, accumulated from attributes as they stream in */
@@ -216,6 +234,19 @@ typedef struct {
 	int64_t			fillop, op;	/* e8 */
 	char			fillop_present, op_present;
 	char			rule, rule_present;
+
+	uint32_t		stroke;
+	char			stroke_present;
+	int64_t			strokeop;	/* e8 */
+	char			strokeop_present;
+	int64_t			strokew;	/* raw number, e8 */
+	char			strokew_pct;	/* it was a percentage */
+	char			strokew_present;
+	uint8_t			linecap, linejoin;
+	char			linecap_present, linejoin_present;
+	int64_t			miterlimit;	/* e8 */
+	char			miterlimit_present;
+
 	char			has_transform;
 	svg_c_t			tm[6];	/* own transform list composition */
 	svg_c_t			g[6];	/* shape geometry attrs */
@@ -237,6 +268,18 @@ typedef struct {
 	int64_t		sa_fillop, sa_op;	/* e8 */
 	char		sa_fillop_present, sa_op_present;
 	char		sa_rule, sa_rule_present;
+
+	uint32_t	sa_stroke;
+	char		sa_stroke_present;
+	int64_t		sa_strokeop;
+	char		sa_strokeop_present;
+	int64_t		sa_strokew;		/* raw number, e8 */
+	char		sa_strokew_pct;
+	char		sa_strokew_present;
+	uint8_t		sa_linecap, sa_linejoin;
+	char		sa_linecap_present, sa_linejoin_present;
+	int64_t		sa_miterlimit;
+	char		sa_miterlimit_present;
 } svg_pend_t;
 
 typedef struct lws_svg_dpt {
