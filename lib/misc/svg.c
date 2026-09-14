@@ -2329,6 +2329,9 @@ stroke_w_resolve(lws_svg_t *ctx, int64_t v_e8, char pct)
 {
 	svg_c_t vn = svg_e8_to_c(v_e8);	/* saturates */
 
+	if (vn < 0)
+		vn = 0;		/* a negative stroke-width is an error: no stroke */
+
 	if (!pct || !ctx->has_vb)
 		return vn;
 
