@@ -1,0 +1,40 @@
+<!doctype html>
+<html><head><style>
+body { font-size: 12px; margin: 0; padding: 0 }
+
+/* calc() with % terms resolve against the containing block */
+.calc-a { width: calc(100% - 50%); background-color: #00ff00 }
+.calc-b { width: calc(25% + 50px); background-color: #0000ff }
+
+/* box-sizing: border-box takes the padding out of the width */
+.bb  { box-sizing: border-box; width: 120px; padding: 0 20px;
+       background-color: #ff0000 }
+.cb  { box-sizing: content-box; width: 120px; padding: 0 20px;
+       background-color: #ff00ff }
+
+/* line-height is a minimum for the line box, the text centres in it */
+.lh { line-height: 40px; background-color: #00ffff }
+
+/* a floated inline element is blockified and takes its css width */
+.floated { float: left; width: 25%; background-color: #ffff00 }
+
+/* an absolutely positioned element is blockified; right anchors its
+ * right edge on the padding box of the nearest positioned ancestor */
+.wrap { position: relative; width: 300px; height: 80px;
+	background-color: #dddddd }
+.bubble { position: absolute; top: 12px; right: 12px; width: 45px;
+	  line-height: 2rem; text-align: center; background-color: #1e2329;
+	  border-radius: 3px }
+.bubble a { color: #ffffff }
+</style></head>
+<body>
+<div class="calc-a">calc 100% - 50%</div>
+<div class="calc-b">calc 25% + 50px</div>
+<div class="bb">border-box 120 incl padding</div>
+<div class="cb">content-box 120 plus padding</div>
+<div class="lh">line-height 40px centres this text</div>
+<span class="floated">floated span 25%</span>
+<div class="wrap">wrap
+	<span class="bubble"><a href="#">2</a></span>
+</div>
+</body></html>

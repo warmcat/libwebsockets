@@ -143,6 +143,7 @@ typedef struct lws_dlo {
 	uint8_t				flag_abs:1;   /* positioned box (layout) */
 	uint8_t				flag_float:1; /* floated box (layout) */
 	uint8_t				flag_zraise:1; /* positioned, z-index > 0 */
+	uint8_t				flag_online:1; /* item of the line being ended (layout) */
 
 	/* render-specific members ... */
 } lws_dlo_t;
