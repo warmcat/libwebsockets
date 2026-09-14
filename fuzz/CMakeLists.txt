@@ -75,6 +75,10 @@ if (LWS_WITH_JPEG)
 	lws_add_fuzz_target(jpeg)
 endif()
 
+if (LWS_WITH_SVG)
+	lws_add_fuzz_target(svg)
+endif()
+
 if (LWS_WITH_GIF)
 	lws_add_fuzz_target(gif)
 endif()
