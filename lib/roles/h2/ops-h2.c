@@ -1120,6 +1120,26 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 			return lws_http_transaction_completed(wsi) < 0 ? -1 : 2;
 		}
 #endif
+	} else {
+		/*
+		 * We are this POST's dispatch, and there was no mount hit.
+		 *
+		 * The stream wsi had protocols[0] assigned directly at creation
+		 * (in __lws_wsi_server_new()), so without this it would get its
+		 * LWS_CALLBACK_HTTP with the protocol never having been bound:
+		 * no LWS_CALLBACK_HTTP_BIND_PROTOCOL to initialize the
+		 * per-session allocation, no matching DROP_PROTOCOL at close,
+		 * and invisibility to apis that walk the vhost's bound protocol
+		 * list.  Do the same reset to protocols[0] lws_http_action()
+		 * does for the no-mount case, so all paths behave the same.
+		 *
+		 * This is the first callback the protocol has had on this wsi,
+		 * so the unbind step in the bind (freeing and re-making the
+		 * unused user_space) cannot lose anything.
+		 */
+		if (lws_bind_protocol(wsi, &wsi->a.vhost->protocols[0],
+				      "no mount hit"))
+			return -1;
 	}
 
 	if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP, wsi->user_space,
