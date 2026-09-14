@@ -67,6 +67,7 @@ struct vhd_dht_dnssec {
 	uint64_t			manifest_next_offset;
 
 	uint8_t				bulk_fragment_checking:1;
+	uint8_t				bootstrap_resolving:1;
 	lws_dll2_owner_t		owner_domains; /* tracking our lws_dht_dnssec_domain structures */
 	uint8_t				cli_bulk:1;
 	uint8_t				gen_manifest:1;
@@ -2481,6 +2482,86 @@ verb_sign_req_handler(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vhd, const
 /* --- Core Callback --- */
 
 static void
+dht_dnssec_sul_bootstrap_cb(struct lws_sorted_usec_list *sul);
+
+/*
+ * Async resolver completion for the bootstrap seed: ping one node per
+ * address family from the results, then go back to the 5s routing table
+ * check.  Standalone query, so we own a reference on result.
+ */
+
+static struct lws *
+dht_dnssec_bootstrap_dns_cb(struct lws *wsi, const char *ads,
+			    const struct addrinfo *result, int n, void *opaque)
+{
+	struct vhd_dht_dnssec *vhd = (struct vhd_dht_dnssec *)opaque;
+	int booted_v4 = 0, booted_v6 = 0;
+	const struct addrinfo *rp;
+
+	vhd->bootstrap_resolving = 0;
+
+	if (n < 0 || !result) {
+		lwsl_err("Failed to resolve target-ip: %s\n", vhd->target_ip);
+		goto again;
+	}
+
+	if (!vhd->dht)
+		goto again;
+
+	for (rp = result; rp; rp = rp->ai_next) {
+		lws_sockaddr46 sa46;
+		int is_self = 0;
+
+		if (!rp->ai_addr || rp->ai_addrlen > sizeof(sa46))
+			continue;
+
+		/* Skip if we already bootstrapped this family to avoid spamming the same node */
+		if (rp->ai_family == AF_INET && booted_v4) continue;
+		if (rp->ai_family == AF_INET6 && booted_v6) continue;
+		if (rp->ai_family != AF_INET && rp->ai_family != AF_INET6) continue;
+
+		if (vhd->target_port == vhd->dht_port) {
+			if (rp->ai_family == AF_INET) {
+				if (((struct sockaddr_in *)rp->ai_addr)->sin_addr.s_addr == htonl(INADDR_LOOPBACK))
+					is_self = 1;
+			} else {
+				if (lws_sa46_compare_sin6_addr(&((struct sockaddr_in6 *)rp->ai_addr)->sin6_addr, &in6addr_loopback) == 0)
+					is_self = 1;
+			}
+		}
+
+		if (is_self) {
+			lwsl_notice("%s: Skipping bootstrap to localhost on %s\n", __func__, rp->ai_family == AF_INET ? "IPv4" : "IPv6");
+			continue;
+		}
+
+		/* the resolver result carries no port, apply the seed's */
+		memset(&sa46, 0, sizeof(sa46));
+		memcpy(&sa46, rp->ai_addr, rp->ai_addrlen);
+		sa46_sockport(&sa46, htons((uint16_t)vhd->target_port));
+
+		lwsl_notice("%s: Bootstrapping DHT against target node %s:%d (AF_INET%s)\n", __func__, vhd->target_ip, vhd->target_port, rp->ai_family == AF_INET6 ? "6" : "");
+		lws_dht_ping_node(vhd->dht, (struct sockaddr *)&sa46, sa46_socklen(&sa46));
+
+		if (rp->ai_family == AF_INET) booted_v4 = 1;
+		if (rp->ai_family == AF_INET6) booted_v6 = 1;
+	}
+
+	if (!booted_v4 && !booted_v6)
+		/* Target is purely ourselves. Quietly passive until contacted. */
+		lwsl_notice("%s: no bootstrap peer in %s, waiting to be contacted\n", __func__, ads);
+
+again:
+	if (result)
+		lws_async_dns_freeaddrinfo(&result);
+
+	/* Schedule another check in 5 seconds if we still haven't found nodes */
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 5 * LWS_US_PER_SEC);
+
+	return wsi;
+}
+
+static void
 dht_dnssec_sul_bootstrap_cb(struct lws_sorted_usec_list *sul)
 {
 	struct vhd_dht_dnssec *vhd = lws_container_of(sul, struct vhd_dht_dnssec, sul_bulk);
@@ -2499,56 +2580,29 @@ dht_dnssec_sul_bootstrap_cb(struct lws_sorted_usec_list *sul)
 	if (good == 0 && dubious == 0) {
 		/* We don't have anyone in our routing table yet */
 		if (vhd->target_ip && vhd->target_ip[0] && vhd->target_port > 0) {
-			struct addrinfo hints, *res, *rp;
-			memset(&hints, 0, sizeof(hints));
-			hints.ai_family = AF_UNSPEC;
-			hints.ai_socktype = SOCK_DGRAM;
+			if (vhd->bootstrap_resolving)
+				/* a resolution is in flight, its cb reschedules us */
+				return;
 
-			char port_str[16];
-			lws_snprintf(port_str, sizeof(port_str), "%d", vhd->target_port);
-
-			if (getaddrinfo(vhd->target_ip, port_str, &hints, &res) == 0) {
-				int booted_v4 = 0, booted_v6 = 0;
-				for (rp = res; rp != NULL; rp = rp->ai_next) {
-					int is_self = 0;
-
-					/* Skip if we already bootstrapped this family to avoid spamming the same node */
-					if (rp->ai_family == AF_INET && booted_v4) continue;
-					if (rp->ai_family == AF_INET6 && booted_v6) continue;
-
-					if (vhd->target_port == vhd->dht_port) {
-						if (rp->ai_family == AF_INET) {
-							if (((struct sockaddr_in *)rp->ai_addr)->sin_addr.s_addr == htonl(INADDR_LOOPBACK))
-								is_self = 1;
-						} else if (rp->ai_family == AF_INET6) {
-							if (lws_sa46_compare_sin6_addr(&((struct sockaddr_in6 *)rp->ai_addr)->sin6_addr, &in6addr_loopback) == 0)
-								is_self = 1;
-						}
-					}
-
-					if (is_self) {
-						lwsl_notice("%s: Skipping bootstrap to localhost on %s\n", __func__, rp->ai_family == AF_INET ? "IPv4" : "IPv6");
-						continue;
-					}
-
-					lwsl_notice("%s: Bootstrapping DHT against target node %s:%d (AF_INET%s)\n", __func__, vhd->target_ip, vhd->target_port, rp->ai_family == AF_INET6 ? "6" : "");
-					lws_dht_ping_node(vhd->dht, rp->ai_addr, rp->ai_addrlen);
-
-					if (rp->ai_family == AF_INET) booted_v4 = 1;
-					if (rp->ai_family == AF_INET6) booted_v6 = 1;
-				}
-				freeaddrinfo(res);
-
-				if (!booted_v4 && !booted_v6) {
-					/* Target is purely ourselves. Quietly passive until contacted. */
-					lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 5 * LWS_US_PER_SEC);
-					return;
-				}
-			} else {
+			/*
+			 * This runs on the service thread: resolving the seed
+			 * synchronously here stalls every vhost in the context
+			 * for as long as the system resolver takes to give up,
+			 * which is over a minute when the seed's nameservers
+			 * are unreachable.  Go through the async resolver and
+			 * come back in dht_dnssec_bootstrap_dns_cb().
+			 */
+			vhd->bootstrap_resolving = 1;
+			if (lws_async_dns_query(vhd->context, 0, vhd->target_ip,
+						LWS_ADNS_RECORD_A,
+						dht_dnssec_bootstrap_dns_cb, NULL,
+						vhd, NULL) == LADNS_RET_FAILED) {
+				vhd->bootstrap_resolving = 0;
 				lwsl_err("Failed to resolve target-ip: %s\n", vhd->target_ip);
 				lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 5 * LWS_US_PER_SEC);
-				return;
 			}
+
+			return;
 		}
 
 		/* Schedule another check in 5 seconds if we still haven't found nodes */
@@ -3959,6 +4013,8 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		lws_sul_cancel(&vhd->sul_timeout);
 		lws_sul_cancel(&vhd->sul_dump);
 		lws_sul_cancel(&vhd->sul_notify_rotate);
+		/* a bootstrap seed resolution in flight would call back into freed vhd */
+		lws_async_dns_cancel_by_opaque(vhd->context, vhd);
 
 		/*
 		 * The per-request / per-peer objects below live in the heap
