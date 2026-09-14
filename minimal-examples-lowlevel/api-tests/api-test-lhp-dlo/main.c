@@ -305,7 +305,12 @@ render(lws_sorted_usec_list_t *sul)
 			return;
 		}
 
-		memset(rs->line, 0, lbuflen);
+		/*
+		 * Start from white paper: areas of the surface no DLO covers
+		 * show the page background, not stale buffer contents
+		 */
+
+		memset(rs->line, 0xff, lbuflen);
 		rs->curr = 0;
 
 		if (fdout != 1)
@@ -313,7 +318,13 @@ render(lws_sorted_usec_list_t *sul)
 					 rs->ic->wh_px[1].whole);
 	}
 
-	while (rs->curr != rs->lowest_id_y) {
+	/*
+	 * Render every line of the surface, not only down to the lowest DLO:
+	 * the bmp header promises --h rows, and the canvas below any content
+	 * is the page background
+	 */
+
+	while (rs->curr != rs->ic->wh_px[1].whole) {
 
 		r = lws_display_list_render_line(rs);
 
@@ -361,6 +372,10 @@ render(lws_sorted_usec_list_t *sul)
 		}
 
 		rs->curr++;
+
+		/* the next line starts from white paper again */
+
+		memset(rs->line, 0xff, lbuflen);
 	}
 
         free(rs->line);
@@ -461,6 +476,15 @@ main(int argc, const char **argv)
 	info.options |= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 			LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 			LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW;
+
+	/*
+	 * Real sites can return a large block of response headers in one go,
+	 * eg a burst of set-cookie on a login redirect; the lws default of
+	 * 4096 is too small to survive some sites that otherwise work
+	 */
+
+	if (!info.max_http_header_data)
+		info.max_http_header_data = 16384;
 
 	cx = lws_create_context(&info);
 	if (!cx)

@@ -250,10 +250,12 @@ static const char *const default_css =
 	"/* lws_lhp default css */"
 	"html, address,blockquote, dd, div,dl, dt, fieldset, form, frame, "
 	"frameset, h1, h2, h3, h4, h5, h6, noframes, ol, p, ul, center, "
-	"dir, hr, menu, pre { top: 0px; right: 0px; bottom: 0px; left: 0px;"
-		" unicode-bidi: embed; color: #000; margin: 0; padding: 0;"
-		"position: static; width: auto; height: auto;"
-			    "}\n"
+	"dir, hr, menu, pre { unicode-bidi: embed; color: #000; margin: 0;"
+	"padding: 0; position: static; width: auto; height: auto; }\n"
+
+	/* no top / right / bottom / left here: unlike the old positional-
+	 * attribute ua css, unset offsets on out-of-flow boxes have to stay
+	 * unset, so the boxes take their static position */
 	"div             { display: block; width: auto; }\n"
 	"body		 { display: block}\n"
 	"html, address, blockquote, dd, dl, dt, fieldset, form, h1, h2, h3, h4, "
@@ -814,6 +816,18 @@ lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base)
 					if (!strcmp(unit, "mm")) atr.unit = LCSP_UNIT_LENGTH_MM;
 					if (!strcmp(unit, "pt")) atr.unit = LCSP_UNIT_LENGTH_PT;
 					if (!strcmp(unit, "pc")) atr.unit = LCSP_UNIT_LENGTH_PC;
+					if (!strcmp(unit, "vw")) atr.unit = LCSP_UNIT_LENGTH_VW;
+					if (!strcmp(unit, "vh")) atr.unit = LCSP_UNIT_LENGTH_VH;
+					if (!strcmp(unit, "vmin")) atr.unit = LCSP_UNIT_LENGTH_VMIN;
+					if (!strcmp(unit, "vmax")) atr.unit = LCSP_UNIT_LENGTH_VMAX;
+					/* dynamic / small / large viewport units
+					 * are all the same for us */
+					if (!strcmp(unit, "dvw") ||
+					    !strcmp(unit, "svw") ||
+					    !strcmp(unit, "lvw")) atr.unit = LCSP_UNIT_LENGTH_VW;
+					if (!strcmp(unit, "dvh") ||
+					    !strcmp(unit, "svh") ||
+					    !strcmp(unit, "lvh")) atr.unit = LCSP_UNIT_LENGTH_VH;
 
 					v = *lws_csp_px_base(&atr, ps, NULL);
 				}
@@ -872,6 +886,33 @@ lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base)
 						  &ctx->ic.wh_px[ref]), &c_6);
 	case LCSP_UNIT_LENGTH_PX:	/* px */
 		return &a->u.i;
+
+	case LCSP_UNIT_LENGTH_VW:
+	case LCSP_UNIT_LENGTH_VH:
+	case LCSP_UNIT_LENGTH_VMIN:
+	case LCSP_UNIT_LENGTH_VMAX:
+	{
+		const lws_fx_t *v = &ctx->ic.wh_px[LWS_LHPREF_WIDTH];
+
+		/*
+		 * Viewport units are against the surface (viewport) size,
+		 * not the containing block, so no ancestor walk is involved
+		 */
+
+		if (a->unit == LCSP_UNIT_LENGTH_VH)
+			v = &ctx->ic.wh_px[LWS_LHPREF_HEIGHT];
+		else if (a->unit == LCSP_UNIT_LENGTH_VMIN &&
+			 lws_fx_comp(v, &ctx->ic.wh_px[LWS_LHPREF_HEIGHT]) > 0)
+			v = &ctx->ic.wh_px[LWS_LHPREF_HEIGHT];
+		else if (a->unit == LCSP_UNIT_LENGTH_VMAX &&
+			 lws_fx_comp(v, &ctx->ic.wh_px[LWS_LHPREF_HEIGHT]) < 0)
+			v = &ctx->ic.wh_px[LWS_LHPREF_HEIGHT];
+
+		/* the value is in 100ths of the viewport dimension */
+
+		return lws_fx_div((lws_fx_t *)&a->r,
+				  lws_fx_mul(&t2, &a->u.i, v), &c_100);
+	}
 
 	case LCSP_UNIT_LENGTH_PERCENT:	/* (percent * psb->w) / 100 */
 		if (ref == LWS_LHPREF_NONE)
@@ -1795,6 +1836,33 @@ lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 }
 
 /*
+ * If the selector ends with a :before / :after (or ::before / ::after)
+ * pseudo-element, the length of that suffix, else 0
+ */
+
+static size_t
+lhp_pseudo_elem_suffix(const char *sel, size_t len)
+{
+	static const char *const suf[] = { "::after", "::before",
+					   ":after",  ":before"  };
+	size_t n;
+
+	/* the selector text can trail with spaces before the '{' */
+	while (len && (sel[len - 1] == ' ' || sel[len - 1] == '\t' ||
+		       sel[len - 1] == '\n' || sel[len - 1] == '\r'))
+		len--;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(suf); n++) {
+		size_t sl = strlen(suf[n]);
+
+		if (len > sl && !strncmp(sel + len - sl, suf[n], sl))
+			return sl;
+	}
+
+	return 0;
+}
+
+/*
  * Match the selector [sel, end) against the subject.  ' ' and '>' walk the
  * ancestors, '~' and '+' the parent's remembered closed children.
  */
@@ -2371,6 +2439,13 @@ lhp_side_atr(lhp_pstack_t *ps, int longhand, int shorthand, int idx,
 	return NULL;
 }
 
+const lcsp_atr_t *
+lws_css_get_side_atr_ps(lhp_pstack_t *ps, int longhand, int shorthand,
+			int idx, int radii)
+{
+	return lhp_side_atr(ps, longhand, shorthand, idx, radii);
+}
+
 /*
  * Find the declaration in effect for prop on element ps, listing its values
  * in ctx->active_atr and returning the last one
@@ -2618,6 +2693,13 @@ lhp_compute_font_size(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *parent)
 		lws_fx_mul(&t, &a->u.i, &lws_fx_96);
 		lws_fx_div(&r, &t, &lws_fx_254);
 		break;
+	case LCSP_UNIT_LENGTH_VW:
+	case LCSP_UNIT_LENGTH_VH:
+	case LCSP_UNIT_LENGTH_VMIN:
+	case LCSP_UNIT_LENGTH_VMAX:
+		/* font-size: 2vw and friends resolve against the surface */
+		r = *lws_csp_px(a, ps);
+		break;
 	case LCSP_UNIT_STRING:
 	{
 		/* absolute-size keywords, CSS2.1 table for a 16px medium */
@@ -2771,6 +2853,31 @@ lws_css_cascade(lhp_ctx_t *ctx)
 				lcsp_names_t *nm = lws_container_of(z,
 							lcsp_names_t, list);
 				const char *n = (const char *)&nm[1];
+				size_t pl = lhp_pseudo_elem_suffix(n,
+							     nm->name_len);
+
+				if (pl) {
+					/*
+					 * A :before / :after pseudo-element
+					 * selector: the element matches the
+					 * subject part, and the stanza
+					 * generates a pseudo box instead of
+					 * styling the element itself
+					 */
+					if (nm->name_len > pl &&
+					    lhp_sel_match(&ps->atr,
+							  lhp_parent_elem(ps),
+							  n,
+							  n + nm->name_len - pl)) {
+						/* the name ends 'r' for after,
+						 * 'e' for before */
+						if (n[nm->name_len - 1] == 'r')
+							ps->pseudo_after = stz;
+						else
+							ps->pseudo_before = stz;
+					}
+					continue;
+				}
 
 				if (lhp_sel_match(&ps->atr, lhp_parent_elem(ps),
 						  n, n + nm->name_len)) {
@@ -3269,11 +3376,18 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 
 		case LHPS_DO_START_ELEM:
 elem_start:
-			/* present the tag in buf, if any */
-			if (ctx->tag_len)
-				memcpy(ctx->buf, ctx->tag, ctx->tag_len);
-			ctx->buf[ctx->tag_len] = '\0';
-			ctx->npos = (int)ctx->tag_len;
+			/*
+			 * Present the tag in buf, if any.  For a closing tag,
+			 * buf already holds the collected close tag name: keep
+			 * it, so close tags can be matched against the open
+			 * element stack by name
+			 */
+			if (!ctx->u.f.closing || ctx->u.f.void_element) {
+				if (ctx->tag_len)
+					memcpy(ctx->buf, ctx->tag, ctx->tag_len);
+				ctx->buf[ctx->tag_len] = '\0';
+				ctx->npos = (int)ctx->tag_len;
+			}
 
 			if (!ctx->u.f.closing || ctx->u.f.void_element) {
 				const char *pname = NULL, *rel = NULL;
@@ -3671,28 +3785,101 @@ issue_elem_start:
 
 check_closing:
 			if (ctx->u.f.closing || ctx->u.f.void_element){
+				lhp_pstack_t *match = ps;
+				char close_name[24];
+				int close_name_len = 0;
+
 				if (lws_dll2_count(&ctx->stack) == 1) {
 					lwsl_err("%s: element close mismatch\n", __func__);
 					ps->cb(ctx, LHPCB_FAILED);
 					return LWS_SRET_FATAL;
 				}
-			if(!lws_dll2_is_empty(&ps->atr)) {
-				a = lws_container_of(
-					lws_dll2_get_head(&ps->atr),
-					lhp_atr_t, list);
-				memcpy(ctx->buf, &a[1], a->name_len);
-				ctx->npos = (int)a->name_len;
-			}
-				ps->cb(ctx, LHPCB_ELEMENT_END);
-				ctx->npos = 0;
-				/* remove the start level */
-				lhp_clean_level(ps);
-				lws_css_cascade(ctx);
-				ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
-						      lhp_pstack_t, list);
+
+				/*
+				 * Real-world html often leaves inner elements
+				 * unclosed (a div inside a nav, an li inside a
+				 * ul...).  Browsers close them by implication
+				 * when an enclosing element closes, and ignore a
+				 * stray close tag with nothing open of that
+				 * name.  Match the close tag against the open
+				 * element stack by name the same way, so the
+				 * tree cannot skew level-by-level as unmatched
+				 * closes eat the wrong levels.
+				 */
+
+				if (ctx->u.f.closing && ctx->npos &&
+				    (size_t)ctx->npos < sizeof(close_name)) {
+					lhp_pstack_t *tp = ps;
+					unsigned int budget = 500; /* sanity */
+
+					memcpy(close_name, ctx->buf,
+					       (size_t)ctx->npos);
+					close_name_len = ctx->npos;
+
+					while (lws_dll2_get_prev(&tp->list) &&
+					       budget--) {
+						if (!lws_dll2_is_empty(&tp->atr)) {
+							lhp_atr_t *ta =
+								lws_container_of(
+								    lws_dll2_get_head(&tp->atr),
+								    lhp_atr_t, list);
+
+							if (ta->name_len ==
+							    (size_t)close_name_len &&
+							    !strncasecmp(
+							      (const char *)&ta[1],
+							      close_name,
+							      (size_t)close_name_len))
+								break;
+						}
+
+						tp = lws_container_of(
+							lws_dll2_get_prev(&tp->list),
+							lhp_pstack_t, list);
+					}
+
+					if (!lws_dll2_get_prev(&tp->list)) {
+						/*
+						 * Nothing open with this
+						 * name: ignore the stray
+						 * close completely
+						 */
+						ctx->u.f.closing = 0;
+						ctx->npos = 0;
+						ctx->state = LHPS_OUTER;
+						goto close_done;
+					}
+
+					match = tp;
+				}
+
+				for (;;) {
+					lhp_pstack_t *closing = ps;
+
+					if (!lws_dll2_is_empty(&ps->atr)) {
+						a = lws_container_of(
+							lws_dll2_get_head(&ps->atr),
+							lhp_atr_t, list);
+						memcpy(ctx->buf, &a[1], a->name_len);
+						ctx->npos = (int)a->name_len;
+					}
+					ps->cb(ctx, LHPCB_ELEMENT_END);
+					ctx->npos = 0;
+					/* remove the start level */
+					lhp_clean_level(ps);
+					lws_css_cascade(ctx);
+					ps = lws_container_of(
+						lws_dll2_get_tail(&ctx->stack),
+						lhp_pstack_t, list);
+
+					if (closing == match)
+						break;
+				}
 			}
 			ctx->npos = 0;
 			ctx->state = LHPS_OUTER;
+
+close_done:
 
 			/*
 			 * <script ...> and <style ...> with attributes came
@@ -3728,12 +3915,17 @@ check_closing:
 				/*
 				 * sanity: check before the write, and with
 				 * >=, since npos can have been advanced by
-				 * more than one by an entity expansion
+				 * more than one by an entity expansion.  Keep
+				 * the -4 slack for a possible entity expansion,
+				 * as in lhp_uni_emit().
+				 *
+				 * An oversize attribute name is junk: discard
+				 * the attribute and carry on with the document
+				 * rather than failing it
 				 */
-				if (ctx->npos >= LHP_STRING_CHUNK) {
-					lwsl_err("%s: string chunk\n", __func__);
-					ps->cb(ctx, LHPCB_FAILED);
-					return LWS_SRET_FATAL;
+				if (ctx->npos >= LHP_STRING_CHUNK - 4) {
+					ctx->u.f.atr_drop = 1;
+					break;
 				}
 				/* collect the attrib name */
 				ctx->buf[ctx->npos++] = (char)c;
@@ -3748,6 +3940,12 @@ check_closing:
 				break;
 			}
 
+			if (ctx->u.f.atr_drop) {
+				/* the attribute name overflowed: discard it */
+				ctx->u.f.atr_drop = 0;
+				ctx->npos = 0;
+				ctx->nl_temp = 0;
+			} else
 			if (ctx->npos &&
 			    !lhp_atr_new(ctx, (size_t)ctx->npos, 0))
 				goto oom;
@@ -3777,7 +3975,7 @@ check_closing:
 				goto attrib_val_done;
 			}
 
-			if (c == '&') {
+			if (c == '&' && !ctx->u.f.atr_drop) {
 				ctx->saved_state = LHPS_ATTRIB_VAL;
 				ctx->entity_start = ctx->npos;
 				ctx->temp_count = 0;
@@ -3790,12 +3988,21 @@ check_closing:
 				/*
 				 * sanity: check before the write, and with
 				 * >=, since npos can have been advanced by
-				 * more than one by an entity expansion
+				 * more than one by an entity expansion.  Keep
+				 * the -4 slack for a possible entity expansion,
+				 * as in lhp_uni_emit().
+				 *
+				 * Oversize attribute values are a real thing,
+				 * eg inline data: URIs: discard the attribute
+				 * and keep laying out the document rather than
+				 * failing it
 				 */
-				if (ctx->npos >= LHP_STRING_CHUNK) {
-					lwsl_err("%s: string chunk 2\n", __func__);
-					ps->cb(ctx, LHPCB_FAILED);
-					return LWS_SRET_FATAL;
+				if (ctx->npos >= LHP_STRING_CHUNK - 4) {
+					if (!ctx->u.f.atr_drop)
+						lwsl_info("%s: overlong attribute"
+						        " discarded\n", __func__);
+					ctx->u.f.atr_drop = 1;
+					break;
 				}
 				/* collect the attrib value */
 				ctx->buf[ctx->npos++] = (char)c;
@@ -3810,6 +4017,15 @@ check_closing:
 				break;
 
 attrib_val_done:
+			if (ctx->u.f.atr_drop) {
+				/* the attribute overflowed: discard it */
+				ctx->u.f.atr_drop = 0;
+				ctx->state = LHPS_ATTRIB;
+				ctx->npos = 0;
+				ctx->nl_temp = 0;
+				if (c != '>')
+					break;
+			} else
 			if (ctx->npos) {
 				/*
 				 * nl_temp is where the '=' sits in buf, so
@@ -3925,14 +4141,29 @@ done_amp:
 			}
 			if (c == ';') {
 				if (ctx->npos >= LHP_STRING_CHUNK - 5) {
-					if (ctx->saved_state == LHPS_OUTER && ctx->in_body) {
-						ps->cb(ctx, LHPCB_CONTENT);
+					if (ctx->saved_state == LHPS_OUTER) {
+						if (ctx->in_body) {
+							ps->cb(ctx, LHPCB_CONTENT);
+						} else {
+							/*
+							 * Not delivering this
+							 * text anyway: drop it
+							 */
+							ctx->entity_start = 0;
+						}
 						ctx->npos = 0;
 					} else {
-						if (ctx->saved_state != LHPS_OUTER)
-							lwsl_err("%s: string chunk\n", __func__);
-						ps->cb(ctx, LHPCB_FAILED);
-						return LWS_SRET_FATAL;
+						/*
+						 * The expansion doesn't fit
+						 * in the attribute value:
+						 * discard the attribute
+						 * rather than fail the
+						 * document
+						 */
+						ctx->u.f.atr_drop = 1;
+						ctx->npos = 0;
+						ctx->nl_temp = 0;
+						ctx->entity_start = 0;
 					}
 				}
 				ctx->npos = ctx->entity_start;
@@ -3960,14 +4191,29 @@ done_amp:
 		case LHPS_AMPHASH_HEX:
 			if (c == ';') {
 				if (ctx->npos >= LHP_STRING_CHUNK - 5) {
-					if (ctx->saved_state == LHPS_OUTER && ctx->in_body) {
-						ps->cb(ctx, LHPCB_CONTENT);
+					if (ctx->saved_state == LHPS_OUTER) {
+						if (ctx->in_body) {
+							ps->cb(ctx, LHPCB_CONTENT);
+						} else {
+							/*
+							 * Not delivering this
+							 * text anyway: drop it
+							 */
+							ctx->entity_start = 0;
+						}
 						ctx->npos = 0;
 					} else {
-						if (ctx->saved_state != LHPS_OUTER)
-							lwsl_err("%s: string chunk\n", __func__);
-						ps->cb(ctx, LHPCB_FAILED);
-						return LWS_SRET_FATAL;
+						/*
+						 * The expansion doesn't fit
+						 * in the attribute value:
+						 * discard the attribute
+						 * rather than fail the
+						 * document
+						 */
+						ctx->u.f.atr_drop = 1;
+						ctx->npos = 0;
+						ctx->nl_temp = 0;
+						ctx->entity_start = 0;
 					}
 				}
 				ctx->npos = ctx->entity_start;
@@ -4329,6 +4575,17 @@ done_amp:
 					break;
 				}
 
+				if (ctx->u.f.color) {
+					/*
+					 * The colour value just ended (eg the
+					 * space before the next value): commit
+					 * it now, and let this char be handled
+					 * by the ordinary value machinery
+					 */
+					if (lcsp_append_cssval_color(ctx))
+						goto oom;
+				}
+
 				if (!ctx->u.f.integer && hspace(c)) {
 					/* space between values: complete any
 					 * keyword we were matching */
@@ -4421,36 +4678,55 @@ done_amp:
 						ctx->buf[ctx->npos++] = (char)c;
 						ctx->buf[ctx->npos] = '\0';
 
-						if (ctx->npos == 2) {
-							if (!strcmp(ctx->buf, "em"))
-								ctx->unit = LCSP_UNIT_LENGTH_EM;
-							if (!strcmp(ctx->buf, "ex"))
-								ctx->unit = LCSP_UNIT_LENGTH_EX;
-							if (!strcmp(ctx->buf, "in"))
-								ctx->unit = LCSP_UNIT_LENGTH_IN;
-							if (!strcmp(ctx->buf, "cm"))
-								ctx->unit = LCSP_UNIT_LENGTH_CM;
-							if (!strcmp(ctx->buf, "mm"))
-								ctx->unit = LCSP_UNIT_LENGTH_MM;
-							if (!strcmp(ctx->buf, "pt"))
-								ctx->unit = LCSP_UNIT_LENGTH_PT;
-							if (!strcmp(ctx->buf, "pc"))
-								ctx->unit = LCSP_UNIT_LENGTH_PC;
-							if (!strcmp(ctx->buf, "px"))
-								ctx->unit = LCSP_UNIT_LENGTH_PX;
-						}
-						if (ctx->npos == 3) {
-							if (!strcmp(ctx->buf, "rem"))
-								ctx->unit = LCSP_UNIT_LENGTH_REM;
-							if (!strcmp(ctx->buf, "deg"))
-								ctx->unit = LCSP_UNIT_ANGLE_ABS_DEG;
-							if (!strcmp(ctx->buf, "rad"))
-								ctx->unit = LCSP_UNIT_ANGLE_ABS_DEG;
-						}
-						if (ctx->npos == 4) {
-							if (!strcmp(ctx->buf, "grad"))
-								ctx->unit = LCSP_UNIT_ANGLE_ABS_DEG;
-						}
+							if (ctx->npos == 2) {
+								if (!strcmp(ctx->buf, "em"))
+									ctx->unit = LCSP_UNIT_LENGTH_EM;
+								if (!strcmp(ctx->buf, "ex"))
+									ctx->unit = LCSP_UNIT_LENGTH_EX;
+								if (!strcmp(ctx->buf, "in"))
+									ctx->unit = LCSP_UNIT_LENGTH_IN;
+								if (!strcmp(ctx->buf, "cm"))
+									ctx->unit = LCSP_UNIT_LENGTH_CM;
+								if (!strcmp(ctx->buf, "mm"))
+									ctx->unit = LCSP_UNIT_LENGTH_MM;
+								if (!strcmp(ctx->buf, "pt"))
+									ctx->unit = LCSP_UNIT_LENGTH_PT;
+								if (!strcmp(ctx->buf, "pc"))
+									ctx->unit = LCSP_UNIT_LENGTH_PC;
+								if (!strcmp(ctx->buf, "px"))
+									ctx->unit = LCSP_UNIT_LENGTH_PX;
+								if (!strcmp(ctx->buf, "vw"))
+									ctx->unit = LCSP_UNIT_LENGTH_VW;
+								if (!strcmp(ctx->buf, "vh"))
+									ctx->unit = LCSP_UNIT_LENGTH_VH;
+							}
+							if (ctx->npos == 3) {
+								if (!strcmp(ctx->buf, "rem"))
+									ctx->unit = LCSP_UNIT_LENGTH_REM;
+								if (!strcmp(ctx->buf, "deg"))
+									ctx->unit = LCSP_UNIT_ANGLE_ABS_DEG;
+								if (!strcmp(ctx->buf, "rad"))
+									ctx->unit = LCSP_UNIT_ANGLE_ABS_DEG;
+								/* dynamic / small / large
+								 * viewport units are all
+								 * the same for us */
+								if (!strcmp(ctx->buf, "dvw") ||
+								    !strcmp(ctx->buf, "svw") ||
+								    !strcmp(ctx->buf, "lvw"))
+									ctx->unit = LCSP_UNIT_LENGTH_VW;
+								if (!strcmp(ctx->buf, "dvh") ||
+								    !strcmp(ctx->buf, "svh") ||
+								    !strcmp(ctx->buf, "lvh"))
+									ctx->unit = LCSP_UNIT_LENGTH_VH;
+							}
+							if (ctx->npos == 4) {
+								if (!strcmp(ctx->buf, "grad"))
+									ctx->unit = LCSP_UNIT_ANGLE_ABS_DEG;
+								if (!strcmp(ctx->buf, "vmin"))
+									ctx->unit = LCSP_UNIT_LENGTH_VMIN;
+								if (!strcmp(ctx->buf, "vmax"))
+									ctx->unit = LCSP_UNIT_LENGTH_VMAX;
+							}
 
 issue_post:
 						if (ctx->unit) {

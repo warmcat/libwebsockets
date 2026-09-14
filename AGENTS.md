@@ -64,6 +64,8 @@ We are very concerned about security, architecturally and in the code.  We avoid
  - We NEVER INSTALL OR USE known attack vectors like node.js or any other
    platform with uncontrolled remote finegrained dependencies, even on a VM
 
+ - Please don't populate changelog.  It's for the highest level changes only.
+
 We consider using:
 
  - lwsac instead of discrete allocations, if the pattern of allocations will benefit from it.
