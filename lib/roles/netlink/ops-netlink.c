@@ -197,7 +197,7 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 		struct ifaddrmsg *ifam;
 		struct rtattr *ra;
 		struct rtmsg *rm;
-#if !defined(LWS_WITH_NO_LOGS) && defined(_DEBUG)
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 		struct ndmsg *nd;
 #endif
 		unsigned int ra_len;
@@ -401,7 +401,7 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 				lwsl_cx_notice(cx, "NEWNEIGH too short");
 				continue;
 			}
-#if !defined(LWS_WITH_NO_LOGS) && defined(_DEBUG)
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 			nd = (struct ndmsg *)rm;
 			lwsl_cx_netlink(cx, "fam %u, ifidx %u, flags 0x%x",
 				    nd->ndm_family, nd->ndm_ifindex,
