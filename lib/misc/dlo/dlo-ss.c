@@ -296,6 +296,28 @@ dlo_assets_kick(struct lws_context *cx)
 
 /* secure streams payload interface */
 
+/*
+ * Stash rx payload for the asset type.  Raster images take it on the flow
+ * buflist; gifs keep the whole payload retained separately, since an
+ * interlaced gif must be re-decodeable from the start.  Returns nonzero on
+ * failure.
+ */
+
+static int
+dloss_rx_stash(dloss_t *m, const uint8_t *buf, size_t len)
+{
+	if (!len)
+		return 0;
+
+#if defined(LWS_WITH_GIF)
+	if (m->type == LWSDLOSS_TYPE_GIF)
+		return lws_display_dlo_gif_rx(m->u.u.dlo_gif, buf, len);
+#endif
+
+	return lws_buflist_append_segment(&m->u.u.dlo_jpeg->flow.bl,
+					  buf, len) < 0;
+}
+
 static lws_ss_state_return_t
 dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
@@ -332,8 +354,7 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 	/* .flow is at the same offset in both dlo_jpeg and dlo_png */
 
-	if (len &&
-	    lws_buflist_append_segment(&m->u.u.dlo_jpeg->flow.bl, buf, len) < 0) {
+	if (dloss_rx_stash(m, buf, len)) {
 		m->u.failed = 1;
 		lws_sul_schedule(lws_ss_get_context(m->ss), 0,
 				&m->sul, lws_lhp_image_dimensions_cb, 1);
@@ -586,6 +607,9 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 #if defined(LWS_WITH_SVG)
 	lws_dlo_svg_t *dlo_svg = NULL;
 #endif
+#if defined(LWS_WITH_GIF)
+	lws_dlo_gif_t *dlo_gif = NULL;
+#endif
 	char rebased_url[LHP_URL_LEN];
 	size_t ul = strlen(i->url), el;
 	struct lws_ss_handle *h;
@@ -645,7 +669,12 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 				type = LWSDLOSS_TYPE_SVG;
 			else
 #endif
-				if (el >= 4 && !strncmp(p - 4, ".css", 4))
+#if defined(LWS_WITH_GIF)
+				if (el >= 4 && !strncmp(p - 4, ".gif", 4))
+					type = LWSDLOSS_TYPE_GIF;
+				else
+#endif
+					if (el >= 4 && !strncmp(p - 4, ".css", 4))
 					type = LWSDLOSS_TYPE_CSS;
 				else {
 					lwsl_warn("%s: unknown file type %s\n", __func__, i->url);
@@ -752,6 +781,25 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 		dlo = &dlo_svg->dlo;
 		break;
 #endif
+
+#if defined(LWS_WITH_GIF)
+	case LWSDLOSS_TYPE_GIF:
+		dlo_gif = lws_display_dlo_gif_new(i->dl, i->dlo_parent, i->box, q, lws_ptr_diff_size_t(p, q));
+		if (!dlo_gif)
+			return 1;
+
+		i->u->u.dlo_gif = dlo_gif;
+
+		dlo_gif->dlo.box.w.whole = (int32_t)
+			lws_gif_get_width(dlo_gif->gif);
+		dlo_gif->dlo.box.w.frac = 0;
+		dlo_gif->dlo.box.h.whole = (int32_t)
+			lws_gif_get_height(dlo_gif->gif);
+		dlo_gif->dlo.box.h.frac = 0;
+
+		dlo = &dlo_gif->dlo;
+		break;
+#endif
 	}
 
 	/* we adapt the initial tx credit also to the requested window */
@@ -807,6 +855,14 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 		dloss->u.u.dlo_svg = dlo_svg;
 		dlo_svg->flow.h = h;
 		dlo_svg->flow.window = i->window;
+		break;
+#endif
+
+#if defined(LWS_WITH_GIF)
+	case LWSDLOSS_TYPE_GIF:
+		dloss->u.u.dlo_gif = dlo_gif;
+		dlo_gif->flow.h = h;
+		dlo_gif->flow.window = i->window;
 		break;
 #endif
 	}
@@ -907,13 +963,15 @@ lws_dlo_ss_stop_any_active(struct lws_context *cx)
 			lws_dll2_add_tail(d, &parked);
 		}
 
-		while (parked.head) {
-			dloss_t *ds = lws_container_of(parked.head,
-						       dloss_t, active_asset_list);
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					   lws_dll2_get_head(&parked)) {
+			dloss_t *ds = lws_container_of(d, dloss_t,
+						       active_asset_list);
 
 			lws_dll2_remove(&ds->active_asset_list);
 			lws_ss_destroy(&ds->ss);
-		}
+
+		} lws_end_foreach_dll_safe(d, d1);
 	}
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
