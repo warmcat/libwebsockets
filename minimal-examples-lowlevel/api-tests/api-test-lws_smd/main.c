@@ -31,6 +31,15 @@ static const struct lws_switches switches[] = {
 
 #define THRESHOLD_PC 55
 
+/*
+ * If the service loop is gone (test timeout, SIGINT...), nothing drains the
+ * smd queue any more and every send is refused.  Spam threads that make no
+ * progress for this long bail out without setting completed[], so main's
+ * joins return and the test reports FAIL instead of hanging until ctest
+ * kills it.
+ */
+#define NO_PROGRESS_BAIL_US (5 * LWS_US_PER_SEC)
+
 static unsigned int how_many_msg = 5000, ok, fail, usec_interval = 200, _exp;
 static char completed[2] = { 0, 0 };
 
@@ -93,27 +102,69 @@ smd_cb3int(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 	return 0;
 }
 
+#if defined(WIN32)
+
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x2
+#endif
+
+/*
+ * Sleep() waits are quantized to the default ~15.6ms system timer tick, so
+ * pacing the spam threads with Sleep(3) actually takes ~78s for 5000
+ * messages and overruns the test's 50s window.  Wait on a per-thread high
+ * resolution waitable timer (Windows 10 1803+) instead: us-accurate waits
+ * without touching process-wide timer resolution.  With htimer NULL (older
+ * Windows), fall back to Sleep() and its tick quantization.
+ */
+static void
+win_wait_us(HANDLE htimer, unsigned int us)
+{
+	LARGE_INTEGER due;
+
+	due.QuadPart = -10 * (LONGLONG)us;
+	if (htimer && SetWaitableTimer(htimer, &due, 0, NULL, NULL, 0) &&
+	    WaitForSingleObject(htimer, INFINITE) == WAIT_OBJECT_0)
+		return;
+
+	Sleep(us / 1000 + 1);
+}
+#endif
+
 static void *
 _thread_spam(void *d)
 {
 #if defined(WIN32)
 	unsigned int mypid = 0;
+	HANDLE htimer = CreateWaitableTimerExW(NULL, NULL,
+			CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+			TIMER_ALL_ACCESS);
 #else
 	unsigned int mypid = (unsigned int)getpid();
 #endif
 	unsigned int n = 0, m = (unsigned int)(intptr_t)d;
+	lws_usec_t last_progress = lws_now_usecs();
 
 	while (n < how_many_msg) {
 		if (lws_smd_msg_printf(context, LWSSMDCL_SYSTEM_STATE,
 					       "{\"s\":\"state\","
 						"\"pid\":%u,"
 						"\"msg\":%d}",
-					       mypid, (unsigned int)n))
+					       mypid, (unsigned int)n)) {
 			fail++;
-		else
+
+			if (lws_now_usecs() - last_progress > NO_PROGRESS_BAIL_US) {
+				lwsl_err("%s: t%u: no message accepted for %ds, "
+					 "giving up\n", __func__, m,
+					 (int)(NO_PROGRESS_BAIL_US / LWS_US_PER_SEC));
+				goto bail;
+			}
+		} else {
 			n++;
+			last_progress = lws_now_usecs();
+		}
 #if defined(WIN32)
-		Sleep(3);
+		if (usec_interval)
+			win_wait_us(htimer, usec_interval);
 #else
 		if (usec_interval)
 			usleep(usec_interval);
@@ -121,6 +172,12 @@ _thread_spam(void *d)
 	}
 
 	completed[m] = 1;
+
+bail:
+#if defined(WIN32)
+	if (htimer)
+		CloseHandle(htimer);
+#endif
 
 #if !defined(WIN32)
 	pthread_exit(NULL);
