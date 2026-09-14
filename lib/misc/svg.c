@@ -647,7 +647,7 @@ svg_transforms(const char *s, size_t len, svg_c_t out[6])
 						t[3] = na >= 2 ? arg[1] : arg[0];
 					}
 				} else
-					if (!strcmp(fn, "rotate")) {
+					if (!strcmp(fn, "rotate") && na >= 1) {
 						/* radians from degrees, in e8 */
 
 						int64_t rad = (int64_t)arg[0] *
