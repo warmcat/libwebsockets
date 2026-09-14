@@ -935,6 +935,14 @@ fail:
 		*pdlo = NULL;
 		break;
 #endif
+
+#if defined(LWS_WITH_GIF)
+	case LWSDLOSS_TYPE_GIF:
+		dlo_gif->flow.h = NULL;
+		lws_display_dlo_destroy(&dlo);
+		*pdlo = NULL;
+		break;
+#endif
 	}
 #endif
 	return 1;

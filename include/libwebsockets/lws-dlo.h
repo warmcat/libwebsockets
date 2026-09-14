@@ -270,10 +270,31 @@ typedef struct lws_dlo_svg {
 	lws_svg_t			*svg;
 } lws_dlo_svg_t;
 
+/*
+ * Unlike the png and jpeg dlos, the gif dlo keeps the whole asset payload
+ * retained in one buffer: interlaced gifs must be re-decoded to reach rows
+ * out of stream order, and a linewise renderer without a framebuffer can
+ * only get interlaced rows that way.  Progressive gifs free it again once
+ * the frame has decoded.
+ */
+
+typedef struct lws_dlo_gif {
+	lws_dlo_t			dlo;  /* ordering: first */
+	lws_flow_t			flow; /* ordering: second */
+	char				name[25];
+	lws_gif_t			*gif;
+	uint8_t				*whole;	/* retained asset payload */
+	size_t				whole_len;
+	size_t				whole_size;
+	size_t				pos;	/* decode feed cursor in whole */
+	char				whole_done; /* whole fully decoded */
+} lws_dlo_gif_t;
+
 typedef enum {
 	LWSDLOSS_TYPE_JPEG,
 	LWSDLOSS_TYPE_PNG,
 	LWSDLOSS_TYPE_SVG,
+	LWSDLOSS_TYPE_GIF,
 	LWSDLOSS_TYPE_CSS,
 } lws_dlo_image_type_t;
 
@@ -282,6 +303,7 @@ typedef struct {
 		lws_dlo_jpeg_t		*dlo_jpeg;
 		lws_dlo_png_t		*dlo_png;
 		lws_dlo_svg_t		*dlo_svg;
+		lws_dlo_gif_t		*dlo_gif;
 	} u;
 	lws_dlo_image_type_t		type;
 	char				failed;
@@ -491,6 +513,32 @@ LWS_VISIBLE LWS_EXTERN void
 lws_display_dlo_svg_destroy(struct lws_dlo *dlo);
 
 /*
+ * GIF
+ */
+
+LWS_VISIBLE LWS_EXTERN lws_dlo_gif_t *
+lws_display_dlo_gif_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
+			lws_box_t *box, const char *name, size_t len);
+
+LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
+lws_display_render_gif(struct lws_display_render_state *rs);
+
+LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
+lws_display_dlo_gif_metadata_scan(lws_dlo_gif_t *dg);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_display_dlo_gif_destroy(struct lws_dlo *dlo);
+
+/*
+ * Take rx payload for a gif dlo into its retained buffer; the gif flow
+ * keeps the payload rather than consuming it from the flow buflist.
+ * Returns 0, or nonzero on allocation failure or over the retention cap.
+ */
+
+LWS_VISIBLE LWS_EXTERN int
+lws_display_dlo_gif_rx(lws_dlo_gif_t *dlo_gif, const uint8_t *buf, size_t len);
+
+/*
  * SS / dlo images
  */
 
@@ -538,26 +586,76 @@ lhp_displaylist_layout(struct lhp_ctx *ctx, char reason);
  * or they would reference svg apis that were not built.
  */
 
-#if defined(LWS_WITH_SVG)
+#if defined(LWS_WITH_SVG) && defined(LWS_WITH_GIF)
 
 #define lws_dlo_image_width(_u) ((_u)->failed ? -1 : \
 	((_u)->type == LWSDLOSS_TYPE_JPEG ? \
-			(int)lws_jpeg_get_width((_u)->u.dlo_jpeg->j) : \
+		(int)lws_jpeg_get_width((_u)->u.dlo_jpeg->j) : \
 	 (_u)->type == LWSDLOSS_TYPE_SVG ? \
-			(int)lws_svg_get_width((_u)->u.dlo_svg->svg) : \
-			(int)lws_upng_get_width((_u)->u.dlo_png->png)))
+		(int)lws_svg_get_width((_u)->u.dlo_svg->svg) : \
+	 (_u)->type == LWSDLOSS_TYPE_GIF ? \
+		(int)lws_gif_get_width((_u)->u.dlo_gif->gif) : \
+		(int)lws_upng_get_width((_u)->u.dlo_png->png)))
 #define lws_dlo_image_height(_u) ((_u)->failed ? -1 : \
 	((_u)->type == LWSDLOSS_TYPE_JPEG ? \
-			(int)lws_jpeg_get_height((_u)->u.dlo_jpeg->j) : \
+		(int)lws_jpeg_get_height((_u)->u.dlo_jpeg->j) : \
 	 (_u)->type == LWSDLOSS_TYPE_SVG ? \
-			(int)lws_svg_get_height((_u)->u.dlo_svg->svg) : \
-			(int)lws_upng_get_height((_u)->u.dlo_png->png)))
+		(int)lws_svg_get_height((_u)->u.dlo_svg->svg) : \
+	 (_u)->type == LWSDLOSS_TYPE_GIF ? \
+		(int)lws_gif_get_height((_u)->u.dlo_gif->gif) : \
+		(int)lws_upng_get_height((_u)->u.dlo_png->png)))
 
 #define lws_dlo_image_metadata_scan(_u) ((_u)->failed ? LWS_SRET_FATAL : \
 	((_u)->type == LWSDLOSS_TYPE_JPEG ? \
 		lws_display_dlo_jpeg_metadata_scan((_u)->u.dlo_jpeg) : \
 	 (_u)->type == LWSDLOSS_TYPE_SVG ? \
 		lws_display_dlo_svg_metadata_scan((_u)->u.dlo_svg) : \
+	 (_u)->type == LWSDLOSS_TYPE_GIF ? \
+		lws_display_dlo_gif_metadata_scan((_u)->u.dlo_gif) : \
+		lws_display_dlo_png_metadata_scan((_u)->u.dlo_png)))
+
+#elif defined(LWS_WITH_SVG)
+
+#define lws_dlo_image_width(_u) ((_u)->failed ? -1 : \
+	((_u)->type == LWSDLOSS_TYPE_JPEG ? \
+		(int)lws_jpeg_get_width((_u)->u.dlo_jpeg->j) : \
+	 (_u)->type == LWSDLOSS_TYPE_SVG ? \
+		(int)lws_svg_get_width((_u)->u.dlo_svg->svg) : \
+		(int)lws_upng_get_width((_u)->u.dlo_png->png)))
+#define lws_dlo_image_height(_u) ((_u)->failed ? -1 : \
+	((_u)->type == LWSDLOSS_TYPE_JPEG ? \
+		(int)lws_jpeg_get_height((_u)->u.dlo_jpeg->j) : \
+	 (_u)->type == LWSDLOSS_TYPE_SVG ? \
+		(int)lws_svg_get_height((_u)->u.dlo_svg->svg) : \
+		(int)lws_upng_get_height((_u)->u.dlo_png->png)))
+
+#define lws_dlo_image_metadata_scan(_u) ((_u)->failed ? LWS_SRET_FATAL : \
+	((_u)->type == LWSDLOSS_TYPE_JPEG ? \
+		lws_display_dlo_jpeg_metadata_scan((_u)->u.dlo_jpeg) : \
+	 (_u)->type == LWSDLOSS_TYPE_SVG ? \
+		lws_display_dlo_svg_metadata_scan((_u)->u.dlo_svg) : \
+		lws_display_dlo_png_metadata_scan((_u)->u.dlo_png)))
+
+#elif defined(LWS_WITH_GIF)
+
+#define lws_dlo_image_width(_u) ((_u)->failed ? -1 : \
+	((_u)->type == LWSDLOSS_TYPE_JPEG ? \
+		(int)lws_jpeg_get_width((_u)->u.dlo_jpeg->j) : \
+	 (_u)->type == LWSDLOSS_TYPE_GIF ? \
+		(int)lws_gif_get_width((_u)->u.dlo_gif->gif) : \
+		(int)lws_upng_get_width((_u)->u.dlo_png->png)))
+#define lws_dlo_image_height(_u) ((_u)->failed ? -1 : \
+	((_u)->type == LWSDLOSS_TYPE_JPEG ? \
+		(int)lws_jpeg_get_height((_u)->u.dlo_jpeg->j) : \
+	 (_u)->type == LWSDLOSS_TYPE_GIF ? \
+		(int)lws_gif_get_height((_u)->u.dlo_gif->gif) : \
+		(int)lws_upng_get_height((_u)->u.dlo_png->png)))
+
+#define lws_dlo_image_metadata_scan(_u) ((_u)->failed ? LWS_SRET_FATAL : \
+	((_u)->type == LWSDLOSS_TYPE_JPEG ? \
+		lws_display_dlo_jpeg_metadata_scan((_u)->u.dlo_jpeg) : \
+	 (_u)->type == LWSDLOSS_TYPE_GIF ? \
+		lws_display_dlo_gif_metadata_scan((_u)->u.dlo_gif) : \
 		lws_display_dlo_png_metadata_scan((_u)->u.dlo_png)))
 
 #else

@@ -247,6 +247,7 @@
 #cmakedefine LWS_WITH_PEER_LIMITS
 #cmakedefine LWS_WITH_JPEG
 #cmakedefine LWS_WITH_SVG
+#cmakedefine LWS_WITH_GIF
 #cmakedefine LWS_WITH_PLUGINS
 #cmakedefine LWS_WITH_PLUGINS_BUILTIN
 #cmakedefine LWS_WITH_POLARSSL
@@ -298,6 +299,7 @@
 #cmakedefine LWS_WITH_UNIX_SOCK
 #cmakedefine LWS_WITH_UPNG
 #cmakedefine LWS_WITH_SVG
+#cmakedefine LWS_WITH_GIF
 #cmakedefine LWS_WITH_ZIP_FOPS
 #cmakedefine USE_OLD_CYASSL
 #cmakedefine USE_WOLFSSL

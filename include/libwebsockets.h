@@ -1059,6 +1059,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <libwebsockets/lws-upng.h>
 #include <libwebsockets/lws-jpeg.h>
 #include <libwebsockets/lws-svg.h>
+#include <libwebsockets/lws-gif.h>
 #include <libwebsockets/lws-display.h>
 #include <libwebsockets/lws-dlo.h>
 #include <libwebsockets/lws-ssd1306-i2c.h>
