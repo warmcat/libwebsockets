@@ -75,6 +75,10 @@ if (LWS_WITH_JPEG)
 	lws_add_fuzz_target(jpeg)
 endif()
 
+if (LWS_WITH_GIF)
+	lws_add_fuzz_target(gif)
+endif()
+
 # lws_tokenize and the core string helpers are always built
 lws_add_fuzz_target(tokenize)
 

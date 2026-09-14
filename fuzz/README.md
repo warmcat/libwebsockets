@@ -85,6 +85,7 @@ a target whose option is off is skipped, not an error.
 | `fuzz-ws` | ws server frame parser (`lib/roles/ws/`) | evil-peer: the fuzz input is client frames after a canned upgrade handshake |
 | `fuzz-ws-pmd` | ws rx through permessage-deflate (`lib/roles/ws/ext/`) | evil-peer: as `fuzz-ws` but the canned handshake negotiates the extension, so RSV1 frames reach the inflater; needs zlib (`LWS_WITHOUT_EXTENSIONS=OFF`) |
 | `fuzz-jpeg` | stateful JPEG decoder (`lib/misc/jpeg.c`) | same shape as `fuzz-upng`; needs `LWS_WITH_JPEG` |
+| `fuzz-gif` | stateful GIF decoder (`lib/misc/gif.c`) | same shape as `fuzz-jpeg`, then a second pass after `lws_gif_restart()` like the dlo interlace flow; needs `LWS_WITH_GIF` |
 | `fuzz-tokenize` | `lws_tokenize` + core string helpers (`lib/core/libwebsockets.c`, `lib/misc/base64-decode.c`) | first byte selects the helper (tokenize / b64 / b32 / hex / urldecode / dumb-json / strexp / wildcard / iso8601 / uri / humanize / purify), next two are the tokenize flags; small output buffers so bounding bugs overflow |
 | `fuzz-jose` | JWK / JWS / JWE layer above lejp (`lib/jose/`) | first byte selects import / compact / flattened / JOSE-header / JWE decrypt, second selects the fixed oct / RSA / EC key; needs `LWS_WITH_JOSE` |
 | `fuzz-cose` | cose_key import + signature validator (`lib/cose/`) | first byte selects import vs validate against a fixed key set, second the sigtype; needs `LWS_WITH_COSE` |
