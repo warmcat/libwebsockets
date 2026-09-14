@@ -1703,6 +1703,47 @@ build_corpus_structural(void)
 	cc->bbox_tol = 0;
 	cc->exp_w = cc->exp_h = 64;
 
+	/*
+	 * Junk between css rules (stray '}' / ';') must be skipped with
+	 * progress: found by fuzz-svg hanging the parser forever on these
+	 * (the rule loop continued without stepping over the stop char).
+	 * The rules after the junk still apply
+	 */
+
+	cc = cc_add("css-junk-between-rules",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" "
+		"height=\"64\"><style>}.r{fill:#ff0000};;.s{fill:#00ff00}"
+		"</style><rect class=\"r\" x=\"4\" y=\"4\" width=\"8\" "
+		"height=\"8\"/><rect class=\"s\" x=\"16\" y=\"4\" "
+		"width=\"8\" height=\"8\"/></svg>");
+	cc->exp_area = 128;
+	cc->area_tol = 0;
+	cc->bbox[0] = 4; cc->bbox[1] = 4; cc->bbox[2] = 23; cc->bbox[3] = 11;
+	cc->bbox_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+
+	/*
+	 * CDATA closers at opener boundaries: empty CDATA, a lone ]], and
+	 * ]] ]]> sequences.  These walk the closer matcher through the
+	 * states around its reset (found by fuzz-svg reading past the
+	 * cdata_end matcher table when the opener left a stale sub_step)
+	 */
+
+	cc = cc_add("cdata-boundary",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" "
+		"height=\"64\">"
+		"<![CDATA[]]>"
+		"<![CDATA[]]]]>"
+		"<![CDATA[>]]>"
+		"<![CDATA[a]]b]]>"
+		"<rect x=\"10\" y=\"10\" width=\"10\" height=\"10\"/>"
+		"</svg>");
+	cc->exp_area = 100;
+	cc->area_tol = 0;
+	cc->bbox[0] = 10; cc->bbox[1] = 10; cc->bbox[2] = 19; cc->bbox[3] = 19;
+	cc->bbox_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+
 	/* numeric and named entities inside attributes */
 
 	cc = cc_add("entities",

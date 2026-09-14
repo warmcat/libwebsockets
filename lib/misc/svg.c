@@ -2872,8 +2872,16 @@ parse_css(lws_svg_t *ctx)
 		ds = p;
 		while (p < end && *p != '{' && *p != ';' && *p != '}')
 			p++;
-		if (p >= end || *p != '{')
-			continue;	/* junk between rules */
+		if (p >= end || *p != '{') {
+			/*
+			 * Junk between rules: step over whatever stopped the
+			 * scan, or the loop cannot make progress.  Found by
+			 * fuzz-svg hanging on a stray '}'
+			 */
+			if (p < end)
+				p++;
+			continue;
+		}
 		de = p++;
 
 		/* declarations up to '}' */
@@ -3873,8 +3881,11 @@ tok_step(lws_svg_t *ctx, const uint8_t c, char hold)
 		/* bang_step 2: matching [CDATA[ */
 
 		if (c == (uint8_t)bang_cdata[ctx->sub_step]) {
-			if (++ctx->sub_step >= (uint8_t)(sizeof(bang_cdata) - 1))
+			if (++ctx->sub_step >= (uint8_t)(sizeof(bang_cdata) - 1)) {
 				ctx->ts = SXS_CDATA;
+				/* start the "]]>" closer match from scratch */
+				ctx->sub_step = 0;
+			}
 			break;
 		}
 		ctx->ts = SXS_DOCTYPE;

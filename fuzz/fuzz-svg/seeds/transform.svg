@@ -1,0 +1,1 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50" preserveAspectRatio="xMidYMid slice"><g transform="translate(10,5) scale(1.5,.75) rotate(15 20 10)"><g transform="matrix(1,0,0,-1,0,20) skewX(10)"><path d="M0 0 h20 v10 h-20 z" fill="#336"/></g></g><use href="#x"/><switch><rect x="1" y="1" width="5" height="5"/></switch></svg>
