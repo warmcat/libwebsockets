@@ -3,7 +3,8 @@
 #
 # cmake -DTOOL=<lws-api-test-lhp-dlo> -DHTML=<case.html> -DGOLDEN=<case.dlo>
 #       -DOUT=<scratch.dlo> [-DW=400 -DH=300] [-DUPDATE=1] [-DLOCALIZE=1]
-#       [-DFLAGS=<extra tool switches>] -P lhp-dlo-case.cmake
+#       [-DFLAGS=<extra tool switches>] [-DCSS_FILTER=<filter.css>]
+#       [-DBLOCK_LIST=<filter.list>] -P lhp-dlo-case.cmake
 #
 # Lays out HTML with the tool, dumps the resulting DLO tree as text and
 # compares it with GOLDEN.  With UPDATE=1 the golden is overwritten instead,
@@ -81,7 +82,18 @@ if (LOCALIZE)
 	set(HTML ${OUT}-${HN})
 endif()
 
-execute_process(COMMAND ${TOOL} file://${HTML} --w ${W} --h ${H} ${FLAGS}
+set(tool_flags "")
+if (FLAGS)
+	list(APPEND tool_flags ${FLAGS})
+endif()
+if (CSS_FILTER)
+	list(APPEND tool_flags --css-filter=${CSS_FILTER})
+endif()
+if (BLOCK_LIST)
+	list(APPEND tool_flags --block-list=${BLOCK_LIST})
+endif()
+
+execute_process(COMMAND ${TOOL} file://${HTML} --w ${W} --h ${H} ${tool_flags}
 			--dump ${OUT} -d 3
 			RESULT_VARIABLE r OUTPUT_QUIET ERROR_QUIET TIMEOUT 30)
 if (NOT r EQUAL 0)

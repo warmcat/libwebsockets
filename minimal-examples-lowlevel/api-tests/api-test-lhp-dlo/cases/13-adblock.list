@@ -1,0 +1,7 @@
+# URL block rules for the 13-adblock case
+
+# host-anchored: any subdomain of ads.example.com
+||ads.example.com
+
+# substring: ad assets gathered under an ads/ path
+/ads/

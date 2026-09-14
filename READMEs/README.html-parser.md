@@ -328,3 +328,56 @@ example, you can render to 24-bit RGB on stdout by giving it a URL, eg
 ```
 
 The raw RGB can be opened in GIMP.
+
+## Ad and junk filtering
+
+Pages can carry a lot of ad and tracking baggage, which costs two things on a
+small target: reserved layout space for ad slots, and the bandwidth and memory
+to fetch the ad assets themselves.  lhp has an optional filter layer that
+addresses both, using the css engine it already has rather than a separate
+matching engine.
+
+Filtering is described by a `lws_lhp_filter_t` struct passed to
+`lws_lhp_ss_browse_filter()`, or installed on a manually-driven context with
+`lws_lhp_set_filter()` between `lws_lhp_construct()` and the first
+`lws_lhp_parse()`:
+
+```c
+	lws_lhp_filter_t filt = {
+		/* elements to remove from the layout completely */
+		.cosmetic_css = ".adwrap, .railad, [id^=\"div-gpt-ad\"]"
+				" { display: none !important; }",
+		/* asset urls to never fetch */
+		.block_rules = "||doubleclick.net\n||googlesyndication.com\n"
+	};
+
+	lws_lhp_ss_browse_filter(cx, &rs, url, render_cb, &filt);
+```
+
+The `cosmetic_css` is parsed as css with top precedence over any document css
+(including inline `style=""`), so plain `display: none` filter rules are
+already authoritative; `!important` is recommended so the filter also beats
+document rules that use it.  Any selector the css engine understands can be
+used.  Matched elements are removed from the layout together with their whole
+subtree and any space they would have reserved, exactly as `display: none`.
+
+The `block_rules` are newline-separated, `#` starts a comment, and each rule
+either matches at the host, like `||ads.example.com` (also matching any
+subdomain), or is a plain substring matched anywhere in the resolved asset
+URL, like `/ads/`.  Matching is case-insensitive.  A blocked asset is simply
+never fetched: the element is laid out without it.  Image and background-image
+assets of elements hidden by the filter are not fetched either.  Document
+stylesheets are unaffected, since those live in `<head>`, which is itself
+`display: none`.
+
+The api test tool applies filter files from the commandline, eg
+
+```
+ $ ./bin/lws-api-test-lhp-dlo https://slashdot.org/ \
+	--css-filter my-filter.css --block-list my-blocklist.txt
+```
+
+The regression tests `api-test-lhp-dlo-13-adblock` and
+`api-test-lhp-dlo-vector-slashdot-1-adblock` show the layer working on a
+synthetic page and on the captured slashdot page, where the banner leaderboard
+below the menu header and the rail ads disappear from the layout.
