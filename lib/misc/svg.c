@@ -3994,14 +3994,17 @@ lws_svg_free(lws_svg_t **svg)
 	 * live svg objects, and shrinks with the largest demand.
 	 */
 
-	lwsl_notice("%s: peak heap %zuB (final %zuB; scene %u pts / %u shapes, "
-		  "css %u rules, pts cap %zu x %zuB, subpaths %zu; shared "
-		  "scratch crossings %zu, aa cols %zu)\n",
-		  __func__, ctx->heap_peak, lwsac_total_alloc(ctx->ac),
+	lwsl_notice("%s: peak heap %luB (final %luB; scene %u pts / %u shapes, "
+		  "css %u rules, pts cap %lu x %luB, subpaths %lu; shared "
+		  "scratch crossings %lu, aa cols %lu)\n",
+		  __func__, (unsigned long)ctx->heap_peak,
+		  (unsigned long)lwsac_total_alloc(ctx->ac),
 		  ctx->npts, ctx->nshapes, ctx->css_count,
-		  ctx->wpts_size, sizeof(lws_svg_dpt_t),
-		  ctx->wsubs_size,
-		  svg_scratch.xings_size, svg_scratch.aa_d_size);
+		  (unsigned long)ctx->wpts_size,
+		  (unsigned long)sizeof(lws_svg_dpt_t),
+		  (unsigned long)ctx->wsubs_size,
+		  (unsigned long)svg_scratch.xings_size,
+		  (unsigned long)svg_scratch.aa_d_size);
 
 	lws_dll2_remove(&ctx->scratch_list);
 	svg_scratch_unref();
