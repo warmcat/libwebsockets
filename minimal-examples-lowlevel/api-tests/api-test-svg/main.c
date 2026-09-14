@@ -467,6 +467,16 @@ static ccase_t corpus[MAX_CASES];
 static int ncases;
 static const char *cur_group = "?";
 
+/*
+ * The document is a printf format, so a literal '%' in it must be written
+ * as "%%": glibc prints an invalid conversion like "%\"" literally, but
+ * Apple libc and MSVC drop it, which silently changes the document on
+ * those platforms.  LWS_FORMAT makes the compiler catch it.
+ */
+
+static ccase_t *
+cc_add(const char *name, const char *fmt, ...) LWS_FORMAT(2);
+
 static ccase_t *
 cc_add(const char *name, const char *fmt, ...)
 {
@@ -1210,7 +1220,7 @@ build_corpus_viewbox(void)
 	/* percent dims resolve via the viewBox for intrinsic size */
 
 	cc = cc_add("percent-dims",
-		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" "
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%%\" height=\"100%%\" "
 		"viewBox=\"0 0 80 40\">"
 		"<rect x=\"0\" y=\"0\" width=\"80\" height=\"40\"/></svg>");
 	cc->w = 80;
