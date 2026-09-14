@@ -3976,21 +3976,16 @@ lws_svg_free(lws_svg_t **svg)
 	if (!ctx)
 		return;
 
-	/*
-	 * The whole object is one lwsac, so this single free covers the
-	 * context, working buffers, stylesheets and scene.  The peak is
-	 * the lwsac total at its largest, so it includes chunk overheads
-	 * and superseded working-buffer growth generations.
-	 */
-
-	lwsl_notice("%s: peak heap %zuB (final %zuB; scene %u pts / %u shapes, "
-		  "css %u rules, pts cap %zu x %zuB, subpaths %zu, crossings %zu, "
-		  "aa cols %zu, values %zuB)\n",
-		  __func__, ctx->heap_peak, lwsac_total_alloc(ctx->ac),
-		  ctx->npts, ctx->nshapes, ctx->css_count,
-		  ctx->wpts_size, sizeof(lws_svg_dpt_t),
-		  ctx->wsubs_size, ctx->xings_size, ctx->aa_d_size,
-		  ctx->vsize);
+	lwsl_notice("%s: peak heap %luB (final %luB; scene %u pts / %u shapes, "
+		  "css %u rules, pts cap %lu x %luB, subpaths %lu, crossings %lu, "
+		  "aa cols %lu, values %luB)\n",
+		  __func__, (unsigned long)ctx->heap_peak,
+		  (unsigned long)lwsac_total_alloc(ctx->ac),
+		  ctx->npts, ctx->nshapes,
+		  ctx->css_count,
+		  (unsigned long)ctx->wpts_size, (unsigned long)sizeof(lws_svg_dpt_t),
+		  (unsigned long)ctx->wsubs_size, (unsigned long)ctx->xings_size, (unsigned long)ctx->aa_d_size,
+		  (unsigned long)ctx->vsize);
 
 	lwsac_free(&ctx->ac);
 
