@@ -88,6 +88,30 @@ Spans are split where the fraction changes and the alpha byte carries
 Binary coverage remains the default; the dlo integration renders
 antialiased.
 
+## Strokes
+
+Stroked geometry is converted to fill geometry at parse time, so the
+rasterizer and antialiasing need no stroke-specific code.  For each
+flattened centerline segment a quad of the segment expanded by half the
+stroke width is emitted; at vertices the join fills the outer notch with
+a bevel triangle, a miter wedge (clipped by `stroke-miterlimit`, falling
+back to a bevel), or an arc fan; open subpath ends get butt, round
+(semicircle fan) or square caps.  Every polygon is emitted with
+consistent winding, so under the nonzero fill rule overlapping pieces sum
+to exactly the union of the stroke: no cancellation artifacts at concave
+corners or self-crossing outlines.
+
+The stroke of a shape is committed as its own scene shape in the stroke
+colour (after the fill, when both are painted), and a background image
+never delays the layout for it.  Outline generation is in user space
+with the user-space width, then transformed by the CTM, so a `scale()`
+group thickens strokes exactly as it scales the geometry they outline.
+
+Costs: a stroked N-segment path becomes about 4N + join and cap polygons
+in the scene, sharing the same scene lwsac and the same caps.  A wide
+stroke on a path that doubles back on itself paints correctly, since the
+overlap adds rather than cancels.
+
 ## Supported subset
 
  - Shapes: `path` (all commands including endpoint arcs), `rect` (with
@@ -95,6 +119,14 @@ antialiased.
  - Solid fills with `nonzero` and `evenodd` fill rules, `fill`,
    `fill-opacity`, `opacity` and `fill-rule`, inherited through `g`, also
    from `style=""` content
+ - Strokes, converted to fill geometry at parse time: `stroke`,
+   `stroke-width` (user units or a percentage of the viewport diagonal
+   scaled by 1/sqrt(2)), `stroke-opacity`, `stroke-linecap` (`butt`,
+   `round`, `square`), `stroke-linejoin` (`miter`, `round`, `bevel`) and
+   `stroke-miterlimit`, with the same inheritance and css cascade as the
+   fill properties.  The outline is generated in user space before the
+   CTM is applied, so transforms scale strokes exactly.  Zero-length
+   subpaths draw their cap shape, per the spec
  - Minimal CSS from `<style>` blocks (plain or CDATA-wrapped): rules with
    one simple selector (element name, `.class`, `#id`, or a comma-separated
    list of them) over the same fill property set, applied with the css
@@ -110,8 +142,9 @@ antialiased.
  - xml comments, processing instructions, doctype, CDATA and entities in
    attribute values
 
-Not rendered in this phase of the work: strokes, gradients and other paint
-servers, text, masks, filters, patterns, `<use>`/`<symbol>` instancing.
+Not rendered in this phase of the work: gradients and other paint
+servers, text, masks, filters, patterns, `<use>`/`<symbol>` instancing,
+`stroke-dasharray` / `stroke-dashoffset` (strokes render continuous).
 Subtrees that are only containers for these (`<defs>`, `<text>`, gradients,
 unknown elements) are parsed but suppressed; a fill referencing an
 unsupported paint server (`url(#...)`) paints nothing.  `<style>` blocks
