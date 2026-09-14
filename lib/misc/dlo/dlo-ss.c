@@ -327,7 +327,16 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	lwsl_info("%s: %u\n", __func__, (unsigned int)len);
 
 	if (m->type == LWSDLOSS_TYPE_CSS) {
-		m->lhp->finish_css = !!(flags & LWSSS_FLAG_EOM);
+		/*
+		 * Streams for stylesheets complete out of order: only the
+		 * stylesheet the html parse is waiting on may complete the
+		 * await, a different one finishing early must not
+		 */
+		int awaited = m->lhp->await_css_done &&
+			      !strcmp(m->url, m->lhp->await_css_url);
+
+		if (awaited)
+			m->lhp->finish_css = !!(flags & LWSSS_FLAG_EOM);
 		m->lhp->is_css = 1;
 		r = lws_lhp_parse(m->lhp, &buf, &len);
 		m->lhp->is_css = 0;
@@ -343,6 +352,12 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 			return LWSSSSRET_DISCONNECT_ME;
 
 		if (r & LWS_SRET_AWAIT_RETRY) {
+			/*
+			 * If the parse just finished the awaited css, the
+			 * await flag has been cleared by the parse: resume
+			 * the html.  Otherwise, still waiting on some css,
+			 * there is nothing to resume yet
+			 */
 			lwsl_warn("%s: returning to await retry\n", __func__);
 			if (!m->lhp->await_css_done)
 				lws_sul_schedule(lws_ss_get_context(m->ss), 0,
@@ -467,7 +482,8 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		 * laid out, and an image that never arrives has no dims.
 		 */
 		if (m->type == LWSDLOSS_TYPE_CSS) {
-			if (m->lhp && m->lhp->await_css_done) {
+			if (m->lhp && m->lhp->await_css_done &&
+			    !strcmp(m->url, m->lhp->await_css_url)) {
 				const uint8_t *b = NULL;
 				size_t l = 0;
 

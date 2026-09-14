@@ -1,0 +1,20 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (0.0,0.0) [400.0 x 112.0] rgba=FF00FF00
+  text (0.0,0.0) [16.0 x 14.0] rgba=FF000000 f=12/400 "first"
+  rect (0.0,14.0) [400.0 x 14.0] rgba=00000000
+   text (0.0,0.0) [71.0 x 14.0] rgba=FF000000 f=12/400 "stray div left open"
+  rect (0.0,28.0) [400.0 x 14.0] rgba=FFFF0000
+   text (0.0,0.0) [120.0 x 14.0] rgba=FF000000 f=12/400 "second is back at the top level"
+  rect (0.0,42.0) [400.0 x 14.0] rgba=00000000
+   text (0.0,0.0) [98.0 x 14.0] rgba=FF000000 f=12/400 "stray closes are ignored: "
+  rect (40.0,60.0) [400.0 x 14.0] rgba=FFFFFF00
+   text (0.0,0.0) [70.0 x 14.0] rgba=FF000000 f=12/400 "shifted 40px right"
+  rect (0.0,74.0) [300.0 x 14.0] rgba=FFDDDDDD
+   text (0.0,0.0) [36.0 x 14.0] rgba=FF000000 f=12/400 "host text "
+   text (36.0,0.0) [126.0 x 14.0] rgba=FF000000 f=12/400 "more host text on the same line"
+  rect (0.0,88.0) [400.0 x 24.0] rgba=00000000
+   rect (0.0,0.0) [60.0 x 24.0] rgba=FF29231E
+    text (28.0,5.0) [4.0 x 14.0] rgba=FFFFFFFF f=12/400 "2"
+    rect (8.0,24.0) [8.0 x 8.0] rgba=FF29231E
+ rect (36.0,74.0) [25.0 x 16.0] rgba=FFFF00FF
+  text (0.0,0.0) [25.0 x 14.0] rgba=FF000000 f=12/400 "byline"
