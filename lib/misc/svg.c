@@ -941,7 +941,10 @@ flatten_arc(lws_svg_t *ctx, svg_c_t x1, svg_c_t y1, svg_c_t rx, svg_c_t ry,
 	x1p = ((int64_t)co * dx2 + (int64_t)si * dy2) / SVG_Q16_1;
 	y1p = ((int64_t)-si * dx2 + (int64_t)co * dy2) / SVG_Q16_1;
 
-	/* F.6.5.5-6: lambda = x1p^2/rx^2 + y1p^2/ry^2, reduced by 8 bits */
+	/*
+	 * F.6.5.5-6: lambda = x1p^2/rx^2 + y1p^2/ry^2, reduced by 8 bits.
+	 * rx and ry are at least 256 here, so the reduced radii are nonzero.
+	 */
 
 	{
 		int64_t xr = x1p >> 8, yr = y1p >> 8;
@@ -952,8 +955,8 @@ flatten_arc(lws_svg_t *ctx, svg_c_t x1, svg_c_t y1, svg_c_t rx, svg_c_t ry,
 			a = 1ll << 46;
 		if (b > (1ll << 46))
 			b = 1ll << 46;
-		lam = (rrx ? (a * SVG_Q16_1) / (rrx * rrx) : (1ll << 46)) +
-		      (rry ? (b * SVG_Q16_1) / (rry * rry) : (1ll << 46));
+		lam = (a * SVG_Q16_1) / (rrx * rrx) +
+		      (b * SVG_Q16_1) / (rry * rry);
 		if (lam > (1ll << 46))
 			lam = 1ll << 46;
 	}
