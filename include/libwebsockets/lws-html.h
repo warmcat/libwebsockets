@@ -439,6 +439,14 @@ typedef struct lhp_pstack {
 	const struct lcsp_atr		*css_text_indent;
 	const struct lcsp_atr		*css_box_sizing;
 
+	/*
+	 * Stanzas whose selector matched this element with a :before / :after
+	 * pseudo-element suffix: a generated box for each is added when the
+	 * element closes
+	 */
+	struct lcsp_stanza		*pseudo_before;
+	struct lcsp_stanza		*pseudo_after;
+
 	const struct lcsp_atr		*css_border_radius[4];
 
 	const struct lcsp_atr		*css_pos[4];
@@ -496,6 +504,10 @@ typedef enum lcsp_css_units {
 	LCSP_UNIT_LENGTH_PX,		/* u.i */
 	LCSP_UNIT_LENGTH_PERCENT,	/* u.i */
 	LCSP_UNIT_LENGTH_REM,		/* u.i */
+	LCSP_UNIT_LENGTH_VW,		/* u.i, 1vw is 1% of surface width */
+	LCSP_UNIT_LENGTH_VH,		/* u.i, 1vh is 1% of surface height */
+	LCSP_UNIT_LENGTH_VMIN,		/* u.i, smaller of vw / vh */
+	LCSP_UNIT_LENGTH_VMAX,		/* u.i, larger of vw / vh */
 
 	LCSP_UNIT_CALC,			/* u.i is index in string chunk */
 
@@ -689,6 +701,8 @@ typedef struct lhp_ctx {
 			uint32_t	infunc:1; /* inside name( ... ) value */
 			uint32_t	negval:1; /* '-' seen, number is negative */
 			uint32_t	sq:1; /* attribute value quoted with ' */
+			uint32_t	atr_drop:1; /* current attribute overflowed
+						* the chunk and is discarded */
 		} f;
 	} u;
 
@@ -895,6 +909,14 @@ lws_html_get_atr(lhp_pstack_t *ps, const char *aname, size_t aname_len);
 
 LWS_VISIBLE LWS_EXTERN const lws_fx_t *
 lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps);
+
+/*
+ * The winning declaration's value for one side (idx 0..3 = T R B L) of a
+ * shorthand-or-longhand property like border-width / border-color
+ */
+LWS_VISIBLE LWS_EXTERN const lcsp_atr_t *
+lws_css_get_side_atr_ps(lhp_pstack_t *ps, int longhand, int shorthand,
+			int idx, int radii);
 
 /*
  * As lws_csp_px(), but lengths in calc() resolve their % terms against base

@@ -26,6 +26,15 @@ body { font-size: 12px; margin: 0; padding: 0 }
 	  line-height: 2rem; text-align: center; background-color: #1e2329;
 	  border-radius: 3px }
 .bubble a { color: #ffffff }
+
+/* viewport units are against the surface (400x300 here) */
+.vw    { width: 50vw; background-color: #101010 }
+.vhh   { height: 10vh; background-color: #202020 }
+.vmin  { width: 20vmin; background-color: #303030 }
+.vmax  { width: 10vmax; background-color: #404040 }
+.vwfont{ font-size: 5vw; background-color: #505050 }
+.vcalc { width: calc(10vw + 40px); background-color: #606060 }
+.vdvh  { height: 10dvh; background-color: #707070 }
 </style></head>
 <body>
 <div class="calc-a">calc 100% - 50%</div>
@@ -37,4 +46,11 @@ body { font-size: 12px; margin: 0; padding: 0 }
 <div class="wrap">wrap
 	<span class="bubble"><a href="#">2</a></span>
 </div>
+<div class="vw">50vw</div>
+<div class="vhh">10vh tall</div>
+<div class="vmin">20vmin</div>
+<div class="vmax">10vmax</div>
+<div class="vwfont">5vw text</div>
+<div class="vcalc">calc 10vw + 40px</div>
+<div class="vdvh">10dvh tall</div>
 </body></html>

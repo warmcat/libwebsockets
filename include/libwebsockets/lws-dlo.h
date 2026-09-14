@@ -172,6 +172,10 @@ typedef struct lws_dlo_rect {
 
 	uint8_t				init;
 	uint8_t				alt;
+	/* 0 = full box, else fill the triangle at the named corner: the css
+	 * border-triangle idiom (transparent adjacent borders on an empty
+	 * box) */
+	uint8_t				tri;  /* 1 t-l, 2 t-r, 3 b-l, 4 b-r */
 } lws_dlo_rect_t;
 
 typedef struct lws_dlo_circle {

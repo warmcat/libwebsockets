@@ -1393,8 +1393,11 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 					}
 					if (lws_frag_append(wsi, c1)) {
 						lwsl_notice(
-							"%s: frag app fail\n",
-							    __func__);
+							"%s: header data overflowed ah "
+							"(max_http_header_data %u)\n",
+								__func__,
+							(unsigned int)wsi->a.context->
+								max_http_header_data);
 						return 1;
 					}
 				}

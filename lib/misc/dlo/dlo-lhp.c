@@ -198,9 +198,38 @@ lhp_container(lhp_pstack_t *ps)
 }
 
 /*
- * The nearest ancestor element with a position other than static, with a box
- * of its own: an out-of-flow box is placed against its padding box.  Without
- * one, out-of-flow boxes are placed against the surface
+ * The static position of an out-of-flow box: where a hypothetical box would
+ * have gone in the flow, expressed in the coordinate space of psa's dlo (the
+ * nearest positioned ancestor, or the body).  Used when none of the css
+ * offsets are set, so the box stays where its content had got to.
+ */
+
+static void
+lhp_static_pos(lhp_pstack_t *psa, lhp_pstack_t *c, lws_fx_t *sx, lws_fx_t *sy)
+{
+	lhp_pstack_t *p = c;
+	lws_fx_t dx, dy;
+
+	lws_fx_set(dx, 0, 0);
+	lws_fx_set(dy, 0, 0);
+
+	while (p && p != psa) {
+		if (p->dlo) {
+			lws_fx_add(&dx, &dx, &p->dlo->box.x);
+			lws_fx_add(&dy, &dy, &p->dlo->box.y);
+		}
+		p = lhp_parent(p);
+	}
+
+	lws_fx_add(sx, &dx, &c->ox);
+	lws_fx_add(sx, sx, &c->curx);
+	lws_fx_add(sy, &dy, &c->oy);
+	lws_fx_add(sy, sy, &c->cury);
+}
+
+/*
+ * Out-of-flow boxes are placed against the padding box of the nearest
+ * positioned ancestor, or the surface if there is none
  */
 
 static lhp_pstack_t *
@@ -385,6 +414,10 @@ lhp_line_height_min(lhp_ctx_t *ctx, lhp_pstack_t *c, lws_fx_t *oh)
 	case LCSP_UNIT_LENGTH_PC:
 	case LCSP_UNIT_LENGTH_PX:
 	case LCSP_UNIT_LENGTH_REM:
+	case LCSP_UNIT_LENGTH_VW:
+	case LCSP_UNIT_LENGTH_VH:
+	case LCSP_UNIT_LENGTH_VMIN:
+	case LCSP_UNIT_LENGTH_VMAX:
 		*oh = *lws_csp_px(a, c);
 		return 1;
 
@@ -1102,13 +1135,23 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 			/*
 			 * Out of flow: the box is placed against the padding
 			 * box of the nearest positioned ancestor, or against
-			 * the surface if there is none.  left or right place
-			 * it horizontally, and auto width shrinks to the
-			 * content.  With no positioned ancestor the dlo
-			 * becomes a child of the body dlo, to be moved above
-			 * the normal flow when the document is complete
+			 * the surface if there is none.  left / right / top
+			 * place it, and auto width shrinks to the content;
+			 * with no offsets set it takes its static position,
+			 * where the flow had got to.  With no positioned
+			 * ancestor the dlo becomes a child of the body dlo,
+			 * to be moved above the normal flow when the document
+			 * is complete
 			 */
-			lws_fx_t ox, oy, cbw, cbi, r, t1;
+			lws_fx_t ox, oy, cbw, cbi, r, t1, sx, sy;
+			int lset, rset, tset;
+
+			lset = ps->css_pos[CCPAS_LEFT] &&
+			       ps->css_pos[CCPAS_LEFT]->unit != LCSP_UNIT_NONE;
+			rset = ps->css_pos[CCPAS_RIGHT] &&
+			       ps->css_pos[CCPAS_RIGHT]->unit != LCSP_UNIT_NONE;
+			tset = ps->css_pos[CCPAS_TOP] &&
+			       ps->css_pos[CCPAS_TOP]->unit != LCSP_UNIT_NONE;
 
 			psa = lhp_positioned_ancestor(lhp_parent(ps));
 			if (psa) {
@@ -1128,11 +1171,22 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 				cbi = cbw;
 			}
 
-			if (ps->css_pos[CCPAS_LEFT] &&
-			    ps->css_pos[CCPAS_LEFT]->unit != LCSP_UNIT_NONE) {
+			/*
+			 * The static position stands in for whichever of
+			 * left / right / top are unset or auto
+			 */
+
+			if ((!lset && !rset) || !tset) {
+				lhp_static_pos(psa, c, &sx, &sy);
+				if (!lset && !rset)
+					x = sx;
+				if (!tset)
+					y = sy;
+			}
+
+			if (lset) {
 				x = lhp_len(ps, ps->css_pos[CCPAS_LEFT], &cbw);
 				lws_fx_add(&x, &x, &ox);
-				lws_fx_add(&x, &x, &ml);
 				if (!ps->explicit_w) {
 					lws_fx_add(&w, &ox, &cbi);
 					lws_fx_sub(&w, &w, &x);
@@ -1145,21 +1199,21 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 					lws_fx_set(w, 0, 0);
 					ps->shrink = 1;
 				}
-				x = ox;
-				if (ps->css_pos[CCPAS_RIGHT] &&
-				    ps->css_pos[CCPAS_RIGHT]->unit !=
-							LCSP_UNIT_NONE) {
+				if (rset) {
 					r = lhp_len(ps,
 						ps->css_pos[CCPAS_RIGHT], &cbw);
+					lws_fx_set(x, 0, 0);
 					lws_fx_add(&x, &ox, &cbi);
 					lws_fx_sub(&x, &x, &r);
 					lws_fx_sub(&x, &x, &w);
 				}
-				lws_fx_add(&x, &x, &ml);
 			}
+			lws_fx_add(&x, &x, &ml);
 
-			y = lhp_len(ps, ps->css_pos[CCPAS_TOP], &cbw);
-			lws_fx_add(&y, &y, &oy);
+			if (tset) {
+				y = lhp_len(ps, ps->css_pos[CCPAS_TOP], &cbw);
+				lws_fx_add(&y, &y, &oy);
+			}
 			lws_fx_add(&y, &y, &mt);
 			break;
 		}
@@ -1308,6 +1362,33 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 		lhp_list_marker(ctx, ps, drt);
 
 	return 0;
+}
+
+/*
+ * position: relative keeps the box's place in the flow, but moves where it
+ * (and its children, whose coordinates are relative to it) paint by the
+ * given offsets.  Called after the box has its final placement.
+ */
+
+static void
+lhp_relative_offset(lhp_pstack_t *ps, const lws_fx_t *base)
+{
+	lws_fx_t t;
+
+	if (!ps->css_position || ps->css_position->unit != LCSP_UNIT_NONE ||
+	    ps->css_position->propval != LCSP_PROPVAL_RELATIVE)
+		return;
+
+	if (ps->css_pos[CCPAS_LEFT] &&
+	    ps->css_pos[CCPAS_LEFT]->unit != LCSP_UNIT_NONE) {
+		t = lhp_len(ps, ps->css_pos[CCPAS_LEFT], base);
+		lws_fx_add(&ps->dlo->box.x, &ps->dlo->box.x, &t);
+	}
+	if (ps->css_pos[CCPAS_TOP] &&
+	    ps->css_pos[CCPAS_TOP]->unit != LCSP_UNIT_NONE) {
+		t = lhp_len(ps, ps->css_pos[CCPAS_TOP], base);
+		lws_fx_add(&ps->dlo->box.y, &ps->dlo->box.y, &t);
+	}
 }
 
 /* the box for element ps is complete: give it a height and place it */
@@ -1464,6 +1545,14 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 		lws_fx_add(&ps->dlo->box.x, &ps->dlo->box.x, &ml);
 	}
 
+	/*
+	 * position: relative offsets apply after the final placement of
+	 * the box
+	 */
+
+	if (!ps->is_abs)
+		lhp_relative_offset(ps, &base);
+
 	if (ps->is_abs || !c)
 		return;
 
@@ -1509,6 +1598,8 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 		lws_fx_add(&ps->dlo->box.x, &c->ox, &c->curx);
 		lws_fx_add(&ps->dlo->box.x, &ps->dlo->box.x, &ml);
 		lws_fx_add(&ps->dlo->box.y, &c->oy, &c->cury);
+
+		lhp_relative_offset(ps, &base);
 
 		lhp_line_item(c, ps->dlo, &t, &ps->dlo->box.h);
 		c->minc = lhp_fx_max(&c->minc, &t);
@@ -1687,8 +1778,186 @@ lhp_elem_start(lhp_ctx_t *ctx, lhp_pstack_t *ps, struct lws_context *cx,
 	}
 }
 
+/*
+ * The winning declaration's value for prop, scoped to one stanza only
+ */
+
+static const lcsp_atr_t *
+lhp_stanza_atr(lcsp_stanza_t *stz, int prop)
+{
+	const lcsp_defs_t *def;
+
+	lws_start_foreach_dll_back(struct lws_dll2 *, d,
+				   lws_dll2_get_tail(&stz->defs)) {
+		def = lws_container_of(d, lcsp_defs_t, list);
+
+		if ((int)def->prop == prop && !lws_dll2_is_empty(&def->atrs))
+			return lws_container_of(
+				lws_dll2_get_tail(&def->atrs), lcsp_atr_t, list);
+	} lws_end_foreach_dll_back(d);
+
+	return NULL;
+}
+
+/*
+ * As lhp_side_atr(), but scoped to one stanza: the value for side idx of a
+ * shorthand-or-longhand property
+ */
+
+static const lcsp_atr_t *
+lhp_stanza_side_atr(lcsp_stanza_t *stz, int longhand, int shorthand, int idx)
+{
+	const lcsp_defs_t *def = NULL;
+	int c, use = 0;
+
+	lws_start_foreach_dll_back(struct lws_dll2 *, d,
+				   lws_dll2_get_tail(&stz->defs)) {
+		const lcsp_defs_t *d2 = lws_container_of(d, lcsp_defs_t, list);
+
+		if ((int)d2->prop == longhand || (int)d2->prop == shorthand) {
+			def = d2;
+			break;
+		}
+	} lws_end_foreach_dll_back(d);
+
+	if (!def || lws_dll2_is_empty(&def->atrs))
+		return NULL;
+
+	if ((int)def->prop == longhand)
+		return lws_container_of(lws_dll2_get_tail(&def->atrs),
+					lcsp_atr_t, list);
+
+	c = (int)lws_dll2_count(&def->atrs);
+
+	switch (c) {
+	case 2:
+		use = (idx == 0 || idx == 2) ? 0 : 1;
+		break;
+	case 3:
+		use = idx == 0 ? 0 : ((idx == 1 || idx == 3) ? 1 : 2);
+		break;
+	case 4:
+		use = idx;
+		break;
+	default:
+		use = 0;
+		break;
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&def->atrs)) {
+		if (!use--)
+			return lws_container_of(d, lcsp_atr_t, list);
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+/*
+ * The :before / :after pseudo box for ps, from the stashed matching stanza:
+ * the css border-triangle idiom ("speech bubble tail" arrows and dropdown
+ * carets) drawn as a filled triangle at a corner of an empty border box,
+ * positioned against the element's padding box
+ */
+
+static void
+lhp_pseudo_box(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt,
+	       lcsp_stanza_t *stz)
+{
+	lws_fx_t bw[4], w, h, t, radii[4];
+	lws_display_colour_t bc[4];
+	lws_dlo_rect_t *rect;
+	lws_box_t box;
+	const lcsp_atr_t *a;
+	int n, vis[4], nvis = 0, side = -1, tri = 0;
+
+	for (n = 0; n < 4; n++) {
+		a = lhp_stanza_side_atr(stz, LCSP_PROP_BORDER_TOP_WIDTH + n,
+					LCSP_PROP_BORDER_WIDTH, n);
+		bw[n] = lhp_len(ps, a, &ps->cw);
+		a = lhp_stanza_side_atr(stz, LCSP_PROP_BORDER_TOP_COLOR + n,
+					LCSP_PROP_BORDER_COLOR, n);
+		bc[n] = lhp_colour(a, 0);
+		vis[n] = (bw[n].whole || bw[n].frac) && LWSDC_ALPHA(bc[n]);
+		if (vis[n]) {
+			nvis++;
+			side = n;
+		}
+	}
+
+	if (nvis != 1)
+		/* not the single-coloured-border triangle idiom */
+		return;
+
+	/* the border box of the empty content box */
+
+	lws_fx_set(w, 0, 0);
+	lws_fx_add(&w, &w, &bw[CCPAS_LEFT]);
+	lws_fx_add(&w, &w, &bw[CCPAS_RIGHT]);
+	lws_fx_set(h, 0, 0);
+	lws_fx_add(&h, &h, &bw[CCPAS_TOP]);
+	lws_fx_add(&h, &h, &bw[CCPAS_BOTTOM]);
+
+	/*
+	 * With the perpendicular transparent borders squaring the box off,
+	 * the coloured border is a triangle at a corner; which corner follows
+	 * from the coloured side and which perpendicular border is nonzero
+	 */
+
+	switch (side) {
+	case CCPAS_TOP:
+		if (bw[CCPAS_RIGHT].whole || bw[CCPAS_RIGHT].frac)
+			tri = 1; /* top-left */
+		else if (bw[CCPAS_LEFT].whole || bw[CCPAS_LEFT].frac)
+			tri = 2; /* top-right */
+		break;
+	case CCPAS_BOTTOM:
+		if (bw[CCPAS_LEFT].whole || bw[CCPAS_LEFT].frac)
+			tri = 4; /* bottom-right */
+		else if (bw[CCPAS_RIGHT].whole || bw[CCPAS_RIGHT].frac)
+			tri = 3; /* bottom-left */
+		break;
+	default:
+		/* a plain coloured strip on the left or right side */
+		break;
+	}
+
+	/* position: absolute against our padding box */
+
+	t = lhp_len(ps, lhp_stanza_atr(stz, LCSP_PROP_LEFT), &ps->cw);
+	lws_fx_set(box.x, 0, 0);
+	lws_fx_add(&box.x, &ps->ox, &t);
+
+	a = lhp_stanza_atr(stz, LCSP_PROP_TOP);
+	if (a && a->unit != LCSP_UNIT_NONE) {
+		t = lhp_len(ps, a, &ps->cw);
+		lws_fx_set(box.y, 0, 0);
+		lws_fx_add(&box.y, &ps->oy, &t);
+	} else {
+		/*
+		 * bottom anchors the bottom edge, often past it (negative):
+		 * our bottom edge is the padding-box bottom, minus the
+		 * offset, and the box hangs down from it by its height
+		 */
+		t = lhp_len(ps, lhp_stanza_atr(stz, LCSP_PROP_BOTTOM), &ps->cw);
+		lws_fx_set(box.y, 0, 0);
+		lws_fx_sub(&box.y, &ps->dlo->box.h, &t);
+		lws_fx_sub(&box.y, &box.y, &ps->dlo->padding[CCPAS_BOTTOM]);
+		lws_fx_sub(&box.y, &box.y, &h);
+	}
+
+	box.w = w;
+	box.h = h;
+
+	memset(radii, 0, sizeof(radii));
+	rect = lws_display_dlo_rect_new(drt->dl, ps->dlo, &box, radii,
+					bc[side]);
+	if (rect)
+		rect->tri = (uint8_t)tri;
+}
+
 static lws_stateful_ret_t
-lhp_elem_end(lhp_ctx_t *ctx, lhp_pstack_t *ps)
+lhp_elem_end(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 {
 	lhp_pstack_t *c;
 	lws_fx_t t;
@@ -1708,6 +1977,13 @@ lhp_elem_end(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 		return 0;
 
 	lhp_block_close(ctx, ps);
+
+	/* generated boxes for matched :before / :after pseudo-elements */
+
+	if (ps->pseudo_before)
+		lhp_pseudo_box(ctx, ps, drt, ps->pseudo_before);
+	if (ps->pseudo_after)
+		lhp_pseudo_box(ctx, ps, drt, ps->pseudo_after);
 
 	return 0;
 }
@@ -1734,7 +2010,7 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 	case LHPCB_ELEMENT_END:
 		if (ps->hidden)
 			return 0;
-		return lhp_elem_end(ctx, ps);
+		return lhp_elem_end(ctx, ps, drt);
 
 	case LHPCB_CONTENT:
 		if (ps->hidden || !ps->in_body)
