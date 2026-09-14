@@ -2552,7 +2552,7 @@ robustness(void)
 		svg = lws_svg_new();
 		CHK(svg, "OOM");
 		if (!svg)
-			return;
+			goto bail;
 		b = (const uint8_t *)tri;
 		l = (size_t)cut;
 		r = lws_svg_parse(svg, &b, &l, 0);
@@ -2590,8 +2590,9 @@ robustness(void)
 					(char)(seed >> 16);
 
 			svg = lws_svg_new();
+			CHK(svg, "OOM");
 			if (!svg)
-				return;
+				goto bail;
 			b = (const uint8_t *)mutant;
 			l = sizeof(tri) - 1;
 			r = lws_svg_parse(svg, &b, &l, 0);
@@ -2721,8 +2722,9 @@ robustness(void)
 			int y;
 
 			svg = lws_svg_new();
+			CHK(svg, "OOM");
 			if (!svg)
-				return;
+				goto bail;
 			b = (const uint8_t *)bad[n];
 			l = strlen(bad[n]);
 			r = lws_svg_parse(svg, &b, &l, 0);
@@ -2739,6 +2741,7 @@ robustness(void)
 		checks++;
 	}
 
+bail:
 	bm_free(&bm);
 }
 
