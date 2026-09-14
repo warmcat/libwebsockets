@@ -2507,17 +2507,20 @@ aa_checks(void)
 	/* hostile documents must not crash the AA path either */
 
 	{
-		static const char *bad[] = {
-			"<path d=\"M nan inf L 1e999 -1e999\"/>",
+		static const char nested_scale[] =
 			"<g transform=\"scale(1e9)\"><g transform="
 			"\"scale(1e9)\"><rect x=\"1\" y=\"1\" width=\"9\" "
-			"height=\"9\"/></g></g>",
+			"height=\"9\"/></g></g>";
+		static const char *bad[] = {
+			"<path d=\"M nan inf L 1e999 -1e999\"/>",
+			nested_scale,
 			"<path d=\"M 0 0 a 1e9 1e9 0 0 1 60 60\"/>",
 		};
 		unsigned int n;
 
 		for (n = 0; n < LWS_ARRAY_SIZE(bad); n++) {
-			aa_render(bad[n], &b);
+			/* any return is fine; the point is no crash */
+			(void)aa_render(bad[n], &b);
 			checks++;
 		}
 	}
