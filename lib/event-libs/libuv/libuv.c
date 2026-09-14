@@ -784,19 +784,19 @@ elops_run_pt_uv(struct lws_context *context, int tsi)
 		uv_run(io_loop, UV_RUN_ONCE);
 
 		/*
-		 * This is the point the whole app falls out of its event
-		 * loop.  If we get here unexpectedly, either something called
-		 * uv_stop() on the loop (loop still "alive"), or every handle
-		 * on the loop became inactive/closed.  The initiation logs in
-		 * the destroy paths show who started that.
+		 * With UV_RUN_ONCE, uv_run() returning is the normal end of a
+		 * turn, not the app falling out of its event loop.  The only
+		 * thing worth a notice here is the loop having no live
+		 * handles left while nobody asked for a destroy: the app
+		 * would spin on lws_service() with nothing to wait for.
+		 * A loop that dies during destroy is expected, and the
+		 * initiation logs in the destroy paths show who started it.
 		 */
-		lwsl_cx_notice(context,
-			       "%s: tsi %d: uv_run exited: loop alive %d, "
-			       "ctx being_destroyed %d, deprecated %d",
-			       __func__, tsi,
-			       uv_loop_alive(io_loop),
-			       context->being_destroyed,
-			       lws_context_is_deprecated(context));
+		if (!uv_loop_alive(io_loop) && !context->being_destroyed &&
+		    !lws_context_is_deprecated(context))
+			lwsl_cx_notice(context,
+				       "%s: tsi %d: uv loop has no live handles",
+				       __func__, tsi);
 	}
 }
 
