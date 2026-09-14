@@ -3981,8 +3981,8 @@ lws_svg_free(lws_svg_t **svg)
 		  "aa cols %lu, values %luB)\n",
 		  __func__, (unsigned long)ctx->heap_peak,
 		  (unsigned long)lwsac_total_alloc(ctx->ac),
-		  ctx->npts, ctx->nshapes,
-		  ctx->css_count,
+		  (unsigned int)ctx->npts, (unsigned int)ctx->nshapes,
+		  (unsigned int)ctx->css_count,
 		  (unsigned long)ctx->wpts_size, (unsigned long)sizeof(lws_svg_dpt_t),
 		  (unsigned long)ctx->wsubs_size, (unsigned long)ctx->xings_size, (unsigned long)ctx->aa_d_size,
 		  (unsigned long)ctx->vsize);
