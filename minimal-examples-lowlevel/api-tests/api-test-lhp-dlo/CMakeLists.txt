@@ -32,8 +32,10 @@ if (requirements)
 	if (LWS_WITH_FILE_OPS AND NOT WIN32)
 		file(GLOB LHP_CASES ${CMAKE_CURRENT_SOURCE_DIR}/cases/*.html)
 		# 11-asset-queue gets its own entry below, with a small fd limit
+		# 13-adblock gets its own entry below, with the ad filter files
 		list(REMOVE_ITEM LHP_CASES
-				${CMAKE_CURRENT_SOURCE_DIR}/cases/11-asset-queue.html)
+				${CMAKE_CURRENT_SOURCE_DIR}/cases/11-asset-queue.html
+				${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.html)
 		foreach(C ${LHP_CASES})
 			get_filename_component(CN ${C} NAME_WE)
 			add_test(NAME api-test-lhp-dlo-${CN}
@@ -54,6 +56,19 @@ if (requirements)
 				-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/cases/11-asset-queue.dlo
 				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/11-asset-queue.dlo
 				-DFLAGS=--fd-limit=6
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+
+		# the ad-block case: with the cosmetic filter css and the url block
+		# list applied, the junk elements and their fixed-height boxes are
+		# gone from the layout and the blocked assets are never fetched
+		add_test(NAME api-test-lhp-dlo-13-adblock
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.html
+				-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.dlo
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/13-adblock.dlo
+				-DCSS_FILTER=${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.css
+				-DBLOCK_LIST=${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.list
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
 
 		add_test(NAME api-test-lhp-dlo-test-html
@@ -78,5 +93,20 @@ if (requirements)
 					-DW=800 -DH=1200 -DLOCALIZE=1
 					-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
 		endforeach()
+
+		# the captured slashdot page again, with an ad / tracker filter
+		# applied: the banner leaderboard below the menu header and the
+		# rail ads are removed from the layout by the filter css, and the
+		# blocked ad hosts are never fetched
+		add_test(NAME api-test-lhp-dlo-vector-slashdot-1-adblock
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/vectors/slashdot-1/slashdot-1.html
+				-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/vectors/slashdot-1/slashdot-1-adblock.dlo
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/slashdot-1-adblock.dlo
+				-DW=800 -DH=1200 -DLOCALIZE=1
+				-DCSS_FILTER=${CMAKE_CURRENT_SOURCE_DIR}/vectors/slashdot-1/filter.css
+				-DBLOCK_LIST=${CMAKE_CURRENT_SOURCE_DIR}/vectors/slashdot-1/filter.list
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
 	endif()
 endif()

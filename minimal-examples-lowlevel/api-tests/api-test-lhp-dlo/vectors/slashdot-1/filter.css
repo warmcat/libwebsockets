@@ -1,0 +1,7 @@
+/* cosmetic filter for the captured slashdot.org page: the ad slots and their
+ * wrappers.  The banner leaderboard below the menu header (a .banner-wrapper
+ * > .adwrap box, min-height 90px) and the right rail ads disappear from the
+ * layout completely, along with the fixed-height boxes they reserve */
+
+.adwrap, .banner-wrapper, .banner-contain, .advertisement, .railad,
+#top-banner-placeholder, [id^="div-gpt-ad"] { display: none !important; }

@@ -1,0 +1,17 @@
+<!doctype html>
+<html><head><style>
+body { font-size: 12px; margin: 0; padding: 0 }
+.ad-slot { background-color: #ff0000; height: 90px }
+/* the page tries to keep its ad slots visible against user filters */
+body div.ad-slot { display: block !important }
+</style></head>
+<body>
+<p>Text before the ad slots.</p>
+<div class="ad-slot advertisement">Buy things! <img src="swatch-red.svg" width="16" height="16" alt="ad art"></div>
+<div id="div-gpt-ad-300x250_a" class="ad-slot">Advertisement</div>
+<img src="ads/banner.svg" alt="ad banner">
+<img src="https://ads.example.com/banner.svg" width="16" height="16" alt="tracker">
+<p>Text between the ad slots and the content image.</p>
+<img src="swatch-green.svg" width="16" height="16" alt="content">
+<p>Text after.</p>
+</body></html>

@@ -113,6 +113,7 @@ typedef enum lcsp_props {
 	LCSP_PROP_BORDER_RADIUS,
 	LCSP_PROP_BORDER,
 	LCSP_PROP_BOTTOM,
+	LCSP_PROP_BOX_SIZING,
 	LCSP_PROP_CAPTION_SIDE,
 	LCSP_PROP_CLEAR,
 	LCSP_PROP_CLIP,
@@ -221,6 +222,7 @@ typedef enum {
 	LCSP_PROPVAL_BLOCK,
 	LCSP_PROPVAL_BOLD,
 	LCSP_PROPVAL_BOLDER,
+	LCSP_PROPVAL_BORDER_BOX,
 	LCSP_PROPVAL_BOTH,
 	LCSP_PROPVAL_BOTTOM,
 	LCSP_PROPVAL_CAPITALIZE,
@@ -230,6 +232,7 @@ typedef enum {
 	LCSP_PROPVAL_CLOSE_QUOTE,
 	LCSP_PROPVAL_CODE,
 	LCSP_PROPVAL_COLLAPSE,
+	LCSP_PROPVAL_CONTENT_BOX,
 	LCSP_PROPVAL_CONTINUOUS,
 	LCSP_PROPVAL_CROSSHAIR,
 	LCSP_PROPVAL_DECIMAL_LEADING_ZERO,
@@ -434,6 +437,7 @@ typedef struct lhp_pstack {
 	const struct lcsp_atr		*css_width;
 	const struct lcsp_atr		*css_height;
 	const struct lcsp_atr		*css_text_indent;
+	const struct lcsp_atr		*css_box_sizing;
 
 	const struct lcsp_atr		*css_border_radius[4];
 
@@ -599,6 +603,19 @@ typedef struct lhp_css_var {
 
 #define LHP_FLAG_DOCUMENT_END					(1 << 0)
 
+/*
+ * One URL block rule prepared by lws_lhp_set_filter(): a lowercased copy of
+ * the rule text, with host_anchor set if it was "||host..." form.  Allocated
+ * in ctx->blockac, on ctx->block_rules.
+ */
+typedef struct lhp_block_rule {
+	lws_dll2_t		list;
+	size_t			len;
+	uint8_t			host_anchor:1;
+
+	/* lowercased rule text + NUL follows */
+} lhp_block_rule_t;
+
 typedef struct lhp_ctx {
 	lws_dll2_owner_t	stack; /* lhp_pstack_t */
 
@@ -620,6 +637,12 @@ typedef struct lhp_ctx {
 					     * propatrac */
 
 	lws_dll2_owner_t	css_vars; /* lhp_css_var_t allocated in cssac */
+
+	/* ad / junk filtering, see lws_lhp_set_filter() */
+
+	char			*filter_css; /* strdup of cosmetic filter css */
+	lws_dll2_owner_t	block_rules; /* lhp_block_rule_t in blockac */
+	struct lwsac		*blockac;
 
 	lws_surface_info_t	ic;
 
@@ -657,6 +680,7 @@ typedef struct lhp_ctx {
 			uint32_t	tag_used:1;
 			uint32_t	arg:1;
 			uint32_t	default_css:1;
+			uint32_t	filter_css:1; /* parsing injected filter css */
 #define LHP_CSS_PROPVAL_INT_WHOLE	1
 #define LHP_CSS_PROPVAL_INT_FRAC	2
 #define LHP_CSS_PROPVAL_INT_UNIT	3
@@ -716,6 +740,40 @@ LWS_VISIBLE LWS_EXTERN void
 lws_lhp_destruct(lhp_ctx_t *ctx);
 
 /**
+ * struct lws_lhp_filter - ad / junk filtering policy for lws_lhp_set_filter()
+ *
+ * \p cosmetic_css: css text hiding junk elements, or NULL for none.  It is
+ * applied with higher precedence than any document css, so plain
+ * ".junk { display: none; }" rules are already authoritative; "!important" is
+ * also available for grouping with other declarations.  Any selector the css
+ * engine understands can be used (classes, ids, [attr^=...] and so on).
+ *
+ * \p block_rules: newline-separated URL block rules, or NULL for none.
+ * Lines starting with '#' and empty lines are ignored; other lines are either
+ * "||host.tld" (matches any subdomain of host.tld) or a plain substring that
+ * matches anywhere in the resolved asset URL.  Matching is case-insensitive.
+ * A blocked asset is never fetched; the element is laid out without it.
+ */
+typedef struct lws_lhp_filter {
+	const char		*cosmetic_css;
+	const char		*block_rules;
+} lws_lhp_filter_t;
+
+/**
+ * lws_lhp_set_filter() - install an ad / junk filter on a prepared context
+ *
+ * \param ctx: the lhp context
+ * \param filter: the filtering policy, or NULL to remove any existing one
+ *
+ * Installs the filter described in \p filter.  The strings are copied, so the
+ * caller's storage only needs to stay valid for the call.  Must be called
+ * after lws_lhp_construct() and before the first lws_lhp_parse() on \p ctx;
+ * returns nonzero if called too late or on OOM, else 0.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_lhp_set_filter(lhp_ctx_t *ctx, const lws_lhp_filter_t *filter);
+
+/**
  * lws_lhp_ss_browse() - browse url using SS and parse via lhp to DLOs
  *
  * \param cx: the lws_context
@@ -737,6 +795,23 @@ lws_lhp_destruct(lhp_ctx_t *ctx);
 LWS_VISIBLE LWS_EXTERN int
 lws_lhp_ss_browse(struct lws_context *cx, lws_display_render_state_t *rs,
 		  const char *url, sul_cb_t render);
+
+/**
+ * lws_lhp_ss_browse_filter() - as lws_lhp_ss_browse(), with content filtering
+ *
+ * \param cx: the lws_context
+ * \param rs: the user's render state object
+ * \param url: the https://x.com/y.xyz URL to browse
+ * \param render: the user's linewise render callback (called from \p rs.sul)
+ * \param filter: ad / junk filter to apply, see lws_lhp_set_filter()
+ *
+ * Identical to lws_lhp_ss_browse() but applies \p filter (which may be NULL,
+ * giving the same result as lws_lhp_ss_browse()).
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_lhp_ss_browse_filter(struct lws_context *cx,
+			 lws_display_render_state_t *rs, const char *url,
+			 sul_cb_t render, const lws_lhp_filter_t *filter);
 
 /**
  * lws_lhp_parse() - parses a chunk of input HTML
@@ -820,6 +895,13 @@ lws_html_get_atr(lhp_pstack_t *ps, const char *aname, size_t aname_len);
 
 LWS_VISIBLE LWS_EXTERN const lws_fx_t *
 lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps);
+
+/*
+ * As lws_csp_px(), but lengths in calc() resolve their % terms against base
+ * (the containing block content width) when it is non-NULL
+ */
+LWS_VISIBLE LWS_EXTERN const lws_fx_t *
+lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_lhp_tag_dlo_id(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dlo_t *dlo);

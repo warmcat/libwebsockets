@@ -200,8 +200,9 @@ static LWS_SS_INFO("__default", htmlss_t)
 /* prep rs->displaylist, rs->ic */
 
 int
-lws_lhp_ss_browse(struct lws_context *cx, lws_display_render_state_t *rs,
-		  const char *url, sul_cb_t render)
+lws_lhp_ss_browse_filter(struct lws_context *cx,
+			 lws_display_render_state_t *rs, const char *url,
+			 sul_cb_t render, const lws_lhp_filter_t *filter)
 {
 	struct lws_ss_handle *h = NULL;
 	lws_ss_info_t ssi;
@@ -236,6 +237,11 @@ lws_lhp_ss_browse(struct lws_context *cx, lws_display_render_state_t *rs,
 	if (lws_lhp_construct(&m->lhp, lhp_displaylist_layout, &m->drt, rs->ic)) {
 		lwsl_err("%s: lhp create %s failed\n", __func__, url);
 		goto bail1;
+	}
+
+	if (filter && lws_lhp_set_filter(&m->lhp, filter)) {
+		lwsl_err("%s: filter set failed\n", __func__);
+		goto bail2;
 	}
 
 	m->lhp.user1 = cx;
@@ -273,4 +279,11 @@ bail1:
 	lws_ss_destroy(&h);
 
 	return 1;
+}
+
+int
+lws_lhp_ss_browse(struct lws_context *cx, lws_display_render_state_t *rs,
+		  const char *url, sul_cb_t render)
+{
+	return lws_lhp_ss_browse_filter(cx, rs, url, render, NULL);
 }

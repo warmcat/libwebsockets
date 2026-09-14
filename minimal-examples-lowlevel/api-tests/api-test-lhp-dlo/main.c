@@ -15,6 +15,8 @@ enum {
 		LWS_SW_W,
 		LWS_SW_H,
 		LWS_SW_FDLIMIT,
+		LWS_SW_CSS_FILTER,
+		LWS_SW_BLOCK_LIST,
 		LWS_SW_HELP,
 };
 
@@ -24,6 +26,8 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_W]	= { "--w",             "Surface width in px (default 600)" },
 	[LWS_SW_H]	= { "--h",             "Surface height in px (default 448)" },
 	[LWS_SW_FDLIMIT]= { "--fd-limit",     "Context fd limit, to try layouts against small targets" },
+	[LWS_SW_CSS_FILTER]= { "--css-filter", "Filter css from file hides junk elements, eg .ad { display: none !important; }" },
+	[LWS_SW_BLOCK_LIST]= { "--block-list", "URL block rules from file: ||host.tld or substring per line" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
@@ -373,6 +377,48 @@ sigint_handler(int sig)
 	lws_default_loop_exit(cx);
 }
 
+/*
+ * Read a whole file into a NUL-terminated heap buffer, or return NULL.  The
+ * caller frees it with free().
+ */
+static char *
+read_file(const char *path)
+{
+	char *buf = NULL, *t;
+	size_t len = 0;
+	ssize_t n;
+	int fd;
+
+	fd = open(path, LWS_O_RDONLY);
+	if (fd < 0)
+		return NULL;
+
+	for (;;) {
+		t = realloc(buf, len + 1025);
+		if (!t)
+			goto bail;
+		buf = t;
+
+		n = read(fd, buf + len, 1024);
+		if (n < 0)
+			goto bail;
+		if (!n)
+			break;
+		len += (size_t)n;
+	}
+
+	buf[len] = '\0';
+	close(fd);
+
+	return buf;
+
+bail:
+	free(buf);
+	close(fd);
+
+	return NULL;
+}
+
 int
 main(int argc, const char **argv)
 {
@@ -445,9 +491,45 @@ main(int argc, const char **argv)
 		goto bail;
 	}
 
-	if (lws_lhp_ss_browse(cx, &drs, argv[1], render)) {
-		lws_context_destroy(cx);
-		goto bail;
+	{
+		const char *cssf = lws_cmdline_option(argc, argv,
+					switches[LWS_SW_CSS_FILTER].sw);
+		const char *bl = lws_cmdline_option(argc, argv,
+					switches[LWS_SW_BLOCK_LIST].sw);
+		lws_lhp_filter_t lf;
+		int r;
+
+		memset(&lf, 0, sizeof(lf));
+
+		if (cssf) {
+			lf.cosmetic_css = read_file(cssf);
+			if (!lf.cosmetic_css) {
+				lwsl_err("%s: unable to read %s\n", __func__, cssf);
+				result = 1;
+				goto bail;
+			}
+		}
+		if (bl) {
+			lf.block_rules = read_file(bl);
+			if (!lf.block_rules) {
+				lwsl_err("%s: unable to read %s\n", __func__, bl);
+				result = 1;
+				goto bail;
+			}
+		}
+
+		r = lws_lhp_ss_browse_filter(cx, &drs, argv[1], render,
+					      (cssf || bl) ? &lf : NULL);
+
+		/* the filter contents were copied by the browse call */
+
+		free((void *)lf.cosmetic_css);
+		free((void *)lf.block_rules);
+
+		if (r) {
+			lws_context_destroy(cx);
+			goto bail;
+		}
 	}
 
 	lws_context_default_loop_run_destroy(cx);

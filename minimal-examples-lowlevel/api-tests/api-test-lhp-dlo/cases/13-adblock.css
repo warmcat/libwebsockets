@@ -1,0 +1,6 @@
+/* cosmetic filter for the 13-adblock case: the junk elements, and so their
+ * fixed-height boxes, are removed from the layout completely.  The page css
+ * fights back with "body div.ad-slot { display: block !important }", the
+ * filter css still wins since injected filter rules have top precedence */
+
+.advertisement, .ad-slot, [id^="div-gpt-ad"] { display: none !important; }

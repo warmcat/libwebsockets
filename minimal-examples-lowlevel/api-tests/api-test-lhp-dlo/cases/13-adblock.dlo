@@ -1,0 +1,8 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (0.0,13.44) [400.0 x 14.0] rgba=00000000
+  text (0.0,0.0) [95.0 x 14.0] rgba=FF000000 f=12/400 "Text before the ad slots."
+ rect (0.0,40.88) [400.0 x 14.0] rgba=00000000
+  text (0.0,0.0) [196.0 x 14.0] rgba=FF000000 f=12/400 "Text between the ad slots and the content image."
+ svg (0.0,54.88) [16.0 x 16.0]
+ rect (0.0,84.32) [400.0 x 14.0] rgba=00000000
+  text (0.0,0.0) [40.0 x 14.0] rgba=FF000000 f=12/400 "Text after."

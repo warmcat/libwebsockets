@@ -434,6 +434,142 @@ lhp_clean_stack(lws_dll2_t *d, void *user)
 	return 0;
 }
 
+int
+lws_lhp_set_filter(lhp_ctx_t *ctx, const lws_lhp_filter_t *filter)
+{
+	if (ctx->state != LHPS_INIT)
+		/* the filter css can only be injected before any parsing */
+		return 1;
+
+	lws_free(ctx->filter_css);
+	ctx->filter_css = NULL;
+	lws_dll2_owner_clear(&ctx->block_rules);
+	lwsac_free(&ctx->blockac);
+
+	if (!filter)
+		return 0;
+
+	if (filter->cosmetic_css && *filter->cosmetic_css) {
+		size_t sl = strlen(filter->cosmetic_css) + 1;
+
+		ctx->filter_css = lws_malloc(sl, __func__);
+		if (!ctx->filter_css)
+			return 1;
+		memcpy(ctx->filter_css, filter->cosmetic_css, sl);
+	}
+
+	if (filter->block_rules && *filter->block_rules) {
+		const char *p = filter->block_rules;
+
+		while (*p) {
+			const char *line = p, *e = p;
+			lhp_block_rule_t *r;
+			size_t len, n;
+			uint8_t ha = 0;
+
+			/* isolate the next line */
+			while (*e && *e != '\n')
+				e++;
+			p = *e ? e + 1 : e;
+
+			/* skip comments and blank lines, trim whitespace */
+			while (line < e && (*line == ' ' || *line == '\t' ||
+					   *line == '\r'))
+				line++;
+			while (e > line && (e[-1] == ' ' || e[-1] == '\t' ||
+					    e[-1] == '\r'))
+				e--;
+			if (line == e || *line == '#')
+				continue;
+
+			len = (size_t)(e - line);
+			if (len > 2 && line[0] == '|' && line[1] == '|') {
+				/* host-anchored rule, like ||ads.example.com */
+				line += 2;
+				len -= 2;
+				ha = 1;
+			}
+
+			r = lwsac_use_zero(&ctx->blockac,
+					   sizeof(*r) + len + 1,
+					   LHP_AC_GRANULE);
+			if (!r) {
+				lws_dll2_owner_clear(&ctx->block_rules);
+				lwsac_free(&ctx->blockac);
+
+				return 1;
+			}
+
+			r->len		= len;
+			r->host_anchor	= !!ha;
+			for (n = 0; n < len; n++)
+				((char *)&r[1])[n] =
+					(char)tolower((int)line[n]);
+			lws_dll2_add_tail(&r->list, &ctx->block_rules);
+		}
+	}
+
+	return 0;
+}
+
+/*
+ * Returns 1 if the asset url is covered by an installed block rule.  The rules
+ * are stored lowercased, so the url is lowercased into scratch storage: it
+ * must not be modified in place, it is still used for the fetch after this.
+ */
+static int
+lhp_url_blocked(lhp_ctx_t *ctx, const char *url)
+{
+	char lbuf[LHP_URL_LEN];
+	const char *host = NULL;
+	size_t n, hostlen = 0, m;
+
+	n = strlen(url);
+	if (n >= sizeof(lbuf))
+		n = sizeof(lbuf) - 1;
+	for (m = 0; m < n; m++)
+		lbuf[m] = (char)tolower((int)url[m]);
+	lbuf[n] = '\0';
+
+	/* isolate the host part of the absolute url for host-anchor rules */
+
+	host = strstr(lbuf, "://");
+	if (host) {
+		const char *e = host += 3;
+
+		while (*e && *e != '/' && *e != '?' && *e != ':' && *e != '#')
+			e++;
+		hostlen = (size_t)(e - host);
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ctx->block_rules)) {
+		const lhp_block_rule_t *r = lws_container_of(d,
+						lhp_block_rule_t, list);
+		const char *rule = (const char *)&r[1];
+
+		if (!r->len || r->len > n)
+			continue;
+
+		if (r->host_anchor) {
+			if (host && ((hostlen == r->len &&
+				      !memcmp(host, rule, r->len)) ||
+				     (hostlen > r->len + 1 &&
+				      host[hostlen - r->len - 1] == '.' &&
+				      !memcmp(host + hostlen - r->len,
+					      rule, r->len))))
+				return 1;
+			continue;
+		}
+
+		if (strstr(lbuf, rule))
+			return 1;
+
+	} lws_end_foreach_dll(d);
+
+	return 0;
+}
+
 static const lws_fx_t c_254= { 2,54000000 }, c_10 = { 10,0 }, c_0 = { 0, 0 },
 			     c_72 = { 72,0 }, c_6 = { 6,0 }, c_100 = { 100,0 },
 			     lws_fx_2 = { 2, 0 }, lws_fx_3 = { 3, 0 },
@@ -533,7 +669,7 @@ lhp_fx_parse(lws_fx_t *fx, const char *str, size_t len)
 }
 
 const lws_fx_t *
-lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
+lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base)
 {
 	lhp_ctx_t *ctx;
 	const lws_display_font_t *f;
@@ -595,9 +731,17 @@ lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
 			size_t len = a->value_len;
 			lws_fx_t sum = { 0, 0 }, v;
 			lcsp_atr_t atr;
-			int op = 1;
+			int op = 1, aref;
 
 			memset(&atr, 0, sizeof(atr));
+
+			/*
+			 * The tokens inside the calc() all belong to the same
+			 * property as the calc atr itself, so % inside it
+			 * resolves against the same axis
+			 */
+
+			aref = ref;
 
 			/* simplistic calc parser: A + B + C... */
 
@@ -642,18 +786,37 @@ lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
 					len--;
 				}
 
-				atr.unit = LCSP_UNIT_LENGTH_PX;
-				if (!strcmp(unit, "em")) atr.unit = LCSP_UNIT_LENGTH_EM;
-				if (!strcmp(unit, "ex")) atr.unit = LCSP_UNIT_LENGTH_EX;
-				if (!strcmp(unit, "rem")) atr.unit = LCSP_UNIT_LENGTH_REM;
-				if (!strcmp(unit, "in")) atr.unit = LCSP_UNIT_LENGTH_IN;
-				if (!strcmp(unit, "cm")) atr.unit = LCSP_UNIT_LENGTH_CM;
-				if (!strcmp(unit, "mm")) atr.unit = LCSP_UNIT_LENGTH_MM;
-				if (!strcmp(unit, "pt")) atr.unit = LCSP_UNIT_LENGTH_PT;
-				if (!strcmp(unit, "pc")) atr.unit = LCSP_UNIT_LENGTH_PC;
-				if (!strcmp(unit, "%")) atr.unit = LCSP_UNIT_LENGTH_PERCENT;
+				if (unit[0] == '%' && !unit[1]) {
+					/*
+					 * A % term: against the caller's
+					 * base (the containing block)
+					 * when it has one, else the same
+					 * ancestor walk as a bare %
+					 */
+					lws_fx_t b = { 0, 0 };
 
-				v = *lws_csp_px(&atr, ps);
+					if (base)
+						b = *base;
+					else
+						if (aref != LWS_LHPREF_NONE)
+							lws_css_compute_cascaded_length(
+								ctx, aref, ps, &b);
+
+					lws_fx_mul(&v, &atr.u.i, &b);
+					lws_fx_div(&v, &v, &c_100);
+				} else {
+					atr.unit = LCSP_UNIT_LENGTH_PX;
+					if (!strcmp(unit, "em")) atr.unit = LCSP_UNIT_LENGTH_EM;
+					if (!strcmp(unit, "ex")) atr.unit = LCSP_UNIT_LENGTH_EX;
+					if (!strcmp(unit, "rem")) atr.unit = LCSP_UNIT_LENGTH_REM;
+					if (!strcmp(unit, "in")) atr.unit = LCSP_UNIT_LENGTH_IN;
+					if (!strcmp(unit, "cm")) atr.unit = LCSP_UNIT_LENGTH_CM;
+					if (!strcmp(unit, "mm")) atr.unit = LCSP_UNIT_LENGTH_MM;
+					if (!strcmp(unit, "pt")) atr.unit = LCSP_UNIT_LENGTH_PT;
+					if (!strcmp(unit, "pc")) atr.unit = LCSP_UNIT_LENGTH_PC;
+
+					v = *lws_csp_px_base(&atr, ps, NULL);
+				}
 
 				if (op)
 					lws_fx_add(&sum, &sum, &v);
@@ -727,6 +890,12 @@ lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
 	}
 
 	return &a->u.i;
+}
+
+const lws_fx_t *
+lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
+{
+	return lws_csp_px_base(a, ps, NULL);
 }
 
 static lhp_atr_t *
@@ -1830,6 +1999,13 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 
 		na->name_len = n;
 		na->specificity = lhp_sel_specificity(norm, norm + n);
+		if (ctx->u.f.filter_css)
+			/*
+			 * Filter css is a user-agent level overlay: it is
+			 * authoritative over any document css, including
+			 * the style="" attribute's 1u << 24
+			 */
+			na->specificity |= 1u << 25;
 		memcpy(&na[1], norm, n);
 		((char *)(&na[1]))[n] = '\0';
 		lws_dll2_add_tail(&na->list, &ctx->stz->names);
@@ -2632,6 +2808,8 @@ lws_css_cascade(lhp_ctx_t *ctx)
 	ps->css_display = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_DISPLAY);
 	ps->css_text_indent = lws_css_cascade_get_prop_atr(ctx,
 						       LCSP_PROP_TEXT_INDENT);
+	ps->css_box_sizing = lws_css_cascade_get_prop_atr(ctx,
+							  LCSP_PROP_BOX_SIZING);
 
 	/* display: none takes the whole subtree out of the layout */
 	ps->hidden = (parent && parent->hidden) ||
@@ -2736,6 +2914,10 @@ lws_lhp_destruct(lhp_ctx_t *ctx)
 		free((void *)ctx->base_url);
 		ctx->base_url = NULL;
 	}
+	lws_free(ctx->filter_css);
+	ctx->filter_css = NULL;
+	lws_dll2_owner_clear(&ctx->block_rules);
+	lwsac_free(&ctx->blockac);
 	lws_dll2_foreach_safe(&ctx->stack, NULL, lhp_clean_stack);
 	lws_dll2_owner_clear(&ctx->active_stanzas);
 	lws_dll2_owner_clear(&ctx->active_atr);
@@ -2861,6 +3043,30 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 				return r;
 			}
 			ctx->u.f.default_css = 0;
+
+			if (ctx->filter_css) {
+				/*
+				 * Same trick for any user filter css: its
+				 * selectors are marked with filter precedence
+				 * as they are parsed.  Malformed filter css
+				 * degrades to whatever complete rules it
+				 * contained, same as a browser.
+				 */
+				ctx->state = LCSPS_CSS_OUTER;
+				ctx->u.f.default_css = 1;
+				ctx->u.f.filter_css = 1;
+				rbuf = (const uint8_t *)ctx->filter_css;
+				rsize = strlen(ctx->filter_css);
+				r = lws_lhp_parse(ctx, &rbuf, &rsize);
+				if (r & LWS_SRET_FATAL) {
+					lwsl_err("%s: filter css parse fail\n",
+						 __func__);
+					return r;
+				}
+				ctx->u.f.filter_css = 0;
+				ctx->u.f.default_css = 0;
+			}
+
 			ctx->npos = 0;
 			ctx->state = LHPS_OUTER;
 
@@ -3078,6 +3284,7 @@ elem_start:
 				lws_dlo_t *dlo;
 				lws_box_t box;
 				char url[LHP_URL_LEN];
+				int is_css_link = 0;
 
 				memset(&i, 0, sizeof(i));
 				lws_css_cascade(ctx);
@@ -3137,6 +3344,7 @@ elem_start:
 
 					if (!rel || strncmp(rel, "stylesheet", 10))
 						goto issue_elem_start;
+					is_css_link = 1;
 				}
 
 				/* it's an img? */
@@ -3162,6 +3370,16 @@ elem_start:
 				}
 
 				/*
+				 * Image assets inside a hidden (display:none)
+				 * subtree are never shown, so don't fetch
+				 * them.  Stylesheets are exempt: they live in
+				 * <head>, which is itself display:none.
+				 */
+
+				if (ps->hidden && !is_css_link)
+					goto issue_elem_start;
+
+				/*
 				 * Without a base url we can't resolve the
 				 * asset URL at all; it's not a parse error,
 				 * and the element still exists for layout
@@ -3183,6 +3401,16 @@ elem_start:
 					lws_strncpy(temp, url, sizeof(temp));
 					lws_urldecode(url, temp, sizeof(url) - 1);
 				}
+
+				/*
+				 * the filter's url block rules: a blocked
+				 * asset is never fetched at all, the element
+				 * is laid out without it
+				 */
+
+				if (!lws_dll2_is_empty(&ctx->block_rules) &&
+				    lhp_url_blocked(ctx, url))
+					goto issue_elem_start;
 
 				psb = lws_css_get_parent_block(ctx, ps);
 				//if (!psb)
