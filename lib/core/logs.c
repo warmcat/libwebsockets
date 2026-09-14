@@ -38,7 +38,14 @@ lws_log_cx_t log_cx = {
 #else
 	.u.emit				= lwsl_emit_optee,
 #endif
-	.lll_flags			= LLL_ERR | LLL_WARN | LLL_NOTICE,
+	/*
+	 * Default for code that logs before or without any lws_context,
+	 * or that never calls lws_set_log_level(): USER is included so
+	 * a tool's own output (eg, a test's FAIL lines) is not silently
+	 * filtered
+	 */
+	.lll_flags			= LLL_ERR | LLL_WARN | LLL_NOTICE |
+					  LLL_USER,
 };
 
 #if !defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NO_LOGS)

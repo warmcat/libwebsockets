@@ -54,6 +54,16 @@ static const struct lws_switches switches[] = {
 static int checks, fails;
 static const char *dumpdir;
 
+/*
+ * The first failures are kept so they can be replayed together at the end
+ * of the run, where they are not lost among the per-case logging when the
+ * corpus is large.
+ */
+
+#define MAX_FAILLOG 48
+
+static char faillog[MAX_FAILLOG][160];
+
 static int
 hexdigit(int c)
 {
@@ -70,6 +80,9 @@ hexdigit(int c)
 #define CHK(_cond, _fmt, ...) do { \
 	checks++; \
 	if (!(_cond)) { \
+		if (fails < MAX_FAILLOG) \
+			lws_snprintf(faillog[fails], sizeof(faillog[0]), \
+				     "L%d: " _fmt, __LINE__, ##__VA_ARGS__); \
 		fails++; \
 		lwsl_user("FAIL L%d: " _fmt "\n", __LINE__, ##__VA_ARGS__); \
 	} \
@@ -447,10 +460,12 @@ typedef struct {
 	uint32_t exp_rgba;	/* expected last span rgba, 0 = don't check */
 	int	exp_w, exp_h;	/* expected intrinsic dims, 0 = don't check */
 	uint32_t	flags;
+	const char	*group;		/* which build_corpus_*() added it */
 } ccase_t;
 
 static ccase_t corpus[MAX_CASES];
 static int ncases;
+static const char *cur_group = "?";
 
 static ccase_t *
 cc_add(const char *name, const char *fmt, ...)
@@ -464,6 +479,7 @@ cc_add(const char *name, const char *fmt, ...)
 	cc->exp_area = -1;
 	cc->w = cc->h = 64;
 	cc->exp_w = cc->exp_h = -1;
+	cc->group = cur_group;
 
 	lws_strncpy(cc->name, name, sizeof(cc->name));
 
@@ -1723,21 +1739,33 @@ build_corpus_structural(void)
 	cc->exp_w = cc->exp_h = 64;
 }
 
+static const struct {
+	const char	*name;
+	void		(*build)(void);
+} families[] = {
+	{ "rects",	build_corpus_rects },
+	{ "rrects",	build_corpus_rrects },
+	{ "circles",	build_corpus_circles },
+	{ "ellipses",	build_corpus_ellipses },
+	{ "polys",	build_corpus_polys },
+	{ "paths",	build_corpus_paths },
+	{ "xforms",	build_corpus_xforms },
+	{ "colors",	build_corpus_colors },
+	{ "css",	build_corpus_css },
+	{ "strokes",	build_corpus_strokes },
+	{ "viewbox",	build_corpus_viewbox },
+	{ "structural",	build_corpus_structural },
+};
+
 static void
 build_corpus(void)
 {
-	build_corpus_rects();
-	build_corpus_rrects();
-	build_corpus_circles();
-	build_corpus_ellipses();
-	build_corpus_polys();
-	build_corpus_paths();
-	build_corpus_xforms();
-	build_corpus_colors();
-	build_corpus_css();
-	build_corpus_strokes();
-	build_corpus_viewbox();
-	build_corpus_structural();
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(families); n++) {
+		cur_group = families[n].name;
+		families[n].build();
+	}
 }
 
 /* ------------------------------------------------------------------ */
@@ -2767,11 +2795,35 @@ robustness(void)
 
 /* ------------------------------------------------------------------ */
 
+/* per-family scoreboard, plus one row each for the non-corpus phases */
+
+typedef struct {
+	const char	*name;
+	int		cases;
+	int		checks;
+	int		fails;
+} score_t;
+
+static void
+score_case(score_t *sc, const char *group, int checks0, int fails0)
+{
+	if (sc->name && strcmp(sc->name, group)) {
+		lwsl_user("  %-12s %4d cases %6d checks %4d failures\n",
+			  sc->name, sc->cases, sc->checks, sc->fails);
+		sc->cases = sc->checks = sc->fails = 0;
+	}
+	sc->name = group;
+	sc->cases++;
+	sc->checks += checks - checks0;
+	sc->fails += fails - fails0;
+}
+
 int
 main(int argc, const char **argv)
 {
 	static bm_t bm, chunk_bm;
-	int i, result = 0;
+	score_t sc;
+	int i, result = 0, checks0, fails0;
 	const char *p, *p2;
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
@@ -2780,12 +2832,13 @@ main(int argc, const char **argv)
 		return 0;
 	}
 	/*
-	 * The context-less runtime default is ERR | WARN | NOTICE; bring
-	 * USER too so this tool's output (including FAIL lines) shows, and
-	 * keep NOTICE so the svg peak-heap line appears.  -d overrides.
+	 * Drop NOTICE from the context-less default: the library logs a
+	 * peak-heap line at NOTICE for every svg object freed, which is
+	 * ~1000 lines per corpus run and buries any failures.  -d 7 or
+	 * higher brings them back.
 	 */
 
-	lws_set_log_level(LLL_USER | LLL_NOTICE, NULL);
+	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN, NULL);
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		lws_set_log_level((int)atoi(p), NULL);
@@ -2838,15 +2891,20 @@ main(int argc, const char **argv)
 
 	lwsl_user("LWS SVG corpus test tool\n");
 
-build_corpus();
-lwsl_user("corpus: %d documents\n", ncases);
+	build_corpus();
+	lwsl_user("corpus: %d documents in %d families\n", ncases,
+		  (int)LWS_ARRAY_SIZE(families));
 
-memset(&bm, 0, sizeof(bm));
-memset(&chunk_bm, 0, sizeof(chunk_bm));
-memset(&pair_bm, 0, sizeof(pair_bm));
+	memset(&bm, 0, sizeof(bm));
+	memset(&chunk_bm, 0, sizeof(chunk_bm));
+	memset(&pair_bm, 0, sizeof(pair_bm));
+	memset(&sc, 0, sizeof(sc));
 
 	for (i = 0; i < ncases; i++) {
 		ccase_t *cc = &corpus[i];
+
+		checks0 = checks;
+		fails0 = fails;
 
 		/* case-specific render size */
 
@@ -2906,14 +2964,40 @@ memset(&pair_bm, 0, sizeof(pair_bm));
 			bm_clear(&pair_bm);
 		memcpy(pair_bm.cov, bm.cov, (size_t)bm.w * (size_t)bm.h);
 		pair_cov = bm_count(&bm);
+
+		score_case(&sc, cc->group, checks0, fails0);
 	}
 
+	checks0 = checks;
+	fails0 = fails;
 	robustness();
+	score_case(&sc, "robustness", checks0, fails0);
+
+	checks0 = checks;
+	fails0 = fails;
 	aa_checks();
+	score_case(&sc, "aa", checks0, fails0);
+	score_case(&sc, "", 0, 0); /* flush the last row */
 
 	bm_free(&bm);
 	bm_free(&chunk_bm);
 	bm_free(&pair_bm);
+
+	/*
+	 * Replay the failures together at the end, so the tail of the log
+	 * says what went wrong without needing to find the FAIL lines in
+	 * the body of the run.
+	 */
+
+	if (fails) {
+		if (fails > MAX_FAILLOG)
+			lwsl_user("Failures (first %d of %d):\n", MAX_FAILLOG,
+				  fails);
+		else
+			lwsl_user("Failures:\n");
+		for (i = 0; i < fails && i < MAX_FAILLOG; i++)
+			lwsl_user("  %s\n", faillog[i]);
+	}
 
 	lwsl_user("Completed: %s (%d checks, %d failures)\n",
 		  fails ? "FAIL" : "PASS", checks, fails);
