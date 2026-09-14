@@ -603,7 +603,9 @@ struct per_session_data__auth_dns {
 static void
 extract_base_domain(const char *qname, char *base, size_t max)
 {
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 	char pn[512];
+#endif
 	int dots = 0;
 	const char *p = qname + strlen(qname) - 1;
 
@@ -628,8 +630,10 @@ extract_base_domain(const char *qname, char *base, size_t max)
 	if (bl > 0 && base[bl - 1] == '.')
 		base[bl - 1] = '\0';
 
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 	lwsl_info("%s: Extracted base domain '%s'\n", __func__,
 		  lws_json_purify(pn, base, (int)sizeof(pn), NULL));
+#endif
 }
 
 static void
@@ -1617,7 +1621,9 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		char qname[256];
 		int qname_len = 0;
 		char peer_ip[64] = "unknown";
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 		char pn[512]; /* purified copy of a wire name, for logging */
+#endif
 		struct pending_dns_query *delayed_q = NULL;
 
 		if (reason == LWS_CALLBACK_USER) {
@@ -1708,9 +1714,11 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		qclass = (q[2] << 8) | q[3];
 		q += 4;
 
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 		lwsl_info("DNS qname '%s' type %d class %d\n",
 			  lws_json_purify(pn, qname, (int)sizeof(pn), NULL),
 			  qtype, qclass);
+#endif
 
 		int do_bit = 0;
 		uint16_t udp_payload_size = 512;
@@ -1785,10 +1793,12 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			/* MRU Promotion */
 			lws_dll2_remove(&matched_ce->list);
 			lws_dll2_add_head(&matched_ce->list, &vhd->zones);
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 			lwsl_info("'%s' %d from %s, %s serial %llu\n",
 				lws_json_purify(pn, qname, (int)sizeof(pn), NULL),
 				qtype, peer_ip, matched_ce->zone.origin,
 				(unsigned long long)matched_ce->serial);
+#endif
 		}
 
 		lwsl_info("found_rs? %p\n", found_rs);
@@ -1870,8 +1880,10 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					goto send_refused;
 				}
 
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 				lwsl_info("Initiating DHT fetch for missing zone %s\n",
 					  lws_json_purify(pn, base, (int)sizeof(pn), NULL));
+#endif
 
 				struct pending_dns_query *pq = malloc(sizeof(*pq));
 				if (!pq) goto send_refused;
@@ -2255,8 +2267,10 @@ after_refused:
 							for (b = 0; b < vhd->dnsbl_count; b++) {
 								char lookup[512];
 								lws_snprintf(lookup, sizeof(lookup), "%s.%s", targets[i], vhd->dnsbl[b]);
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 								lwsl_info("%s: Issuing DNSBL lookup for %s\n", __func__,
 									  lws_json_purify(pn, lookup, (int)sizeof(pn), NULL));
+#endif
 								q->pending_lookups++;
 
 								/*
