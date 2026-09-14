@@ -1989,56 +1989,92 @@ check_case(int idx, bm_t *bm)
 /* dump support                                                         */
 /* ------------------------------------------------------------------ */
 
-static void
+/*
+ * Write the whole of len bytes to fd, retrying on short writes; returns 0
+ * on success or -1 if the fd would not take it all.
+ */
+
+static int
+write_all(int fd, const void *buf, size_t len)
+{
+	const uint8_t *p = (const uint8_t *)buf;
+
+	while (len) {
+		ssize_t n = write(fd, p, LWS_POSIX_LENGTH_CAST(len));
+
+		if (n <= 0)
+			return -1;
+
+		p += n;
+		len -= (size_t)n;
+	}
+
+	return 0;
+}
+
+/* returns 0 on success, -1 if any dump file could not be fully written */
+
+static int
 dump_case(int idx, const bm_t *bm)
 {
 	char path[384];
 	uint8_t buf[4096];
-	int n, fd, y, x, o;
+	int n, fd, y, x, o, ret = -1;
 
 	if (!dumpdir)
-		return;
+		return 0;
 
 	lws_snprintf(path, sizeof(path), "%s/%03d-%s.svg", dumpdir, idx,
 							corpus[idx].name);
 	fd = lws_open(path, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0644);
 	if (fd < 0)
-		return;
-	(void)write(fd, corpus[idx].doc, strlen(corpus[idx].doc));
+		return -1;
+	n = write_all(fd, corpus[idx].doc, strlen(corpus[idx].doc));
 	close(fd);
+	if (n)
+		return -1;
 
 	/* portable bitmap P1 */
 
-	n = lws_snprintf(path, sizeof(path), "%s/%03d-%s.pbm", dumpdir, idx,
+	lws_snprintf(path, sizeof(path), "%s/%03d-%s.pbm", dumpdir, idx,
 							corpus[idx].name);
 	fd = lws_open(path, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0644);
 	if (fd < 0)
-		return;
+		return -1;
 
 	n = lws_snprintf((char *)buf, sizeof(buf), "P1\n%d %d\n",
 							bm->w, bm->h);
-	(void)write(fd, buf, (size_t)n);
+	if (write_all(fd, buf, (size_t)n))
+		goto bail;
 
 	for (y = 0; y < bm->h; y++) {
 		o = 0;
 		for (x = 0; x < bm->w; x++) {
 			buf[o++] = bm->cov[x + y * bm->w] ? '1' : '0';
 			if (o >= (int)sizeof(buf) - 4) {
-				(void)write(fd, buf, (size_t)o);
+				if (write_all(fd, buf, (size_t)o))
+					goto bail;
 				o = 0;
 			}
 		}
 		buf[o++] = '\n';
-		(void)write(fd, buf, (size_t)o);
+		if (write_all(fd, buf, (size_t)o))
+			goto bail;
 	}
+
+	ret = 0;
+
+bail:
 	close(fd);
+
+	return ret;
 }
 
 /* ------------------------------------------------------------------ */
 /* eyeball mode: render one svg file to a .bmp, like api-test-lhp-dlo   */
 /* ------------------------------------------------------------------ */
 
-static void
+static int
 write_bmp_header(int fd, int w, int h)
 {
 	uint8_t head[54];
@@ -2069,8 +2105,7 @@ write_bmp_header(int fd, int w, int h)
 	head[26] = 1;
 	head[28] = 24;
 
-	if (write(fd, head, 54) < 54)
-		lwsl_err("%s: write failed\n", __func__);
+	return write_all(fd, head, sizeof(head));
 }
 
 typedef struct {
@@ -2128,7 +2163,8 @@ eyeball(const char *inpath, const char *outpath, int scale, uint32_t bg)
 		goto bail1;
 
 	while (len < EYEBALL_MAXDOC) {
-		n = read(fd, doc + len, EYEBALL_MAXDOC - len);
+		n = read(fd, doc + len,
+			 LWS_POSIX_LENGTH_CAST(EYEBALL_MAXDOC - len));
 		if (n < 0) {
 			lwsl_user("%s: read failed\n", __func__);
 			goto bail2;
@@ -2183,7 +2219,10 @@ eyeball(const char *inpath, const char *outpath, int scale, uint32_t bg)
 		goto bail3;
 	}
 
-	write_bmp_header(outfd, w, h);
+	if (write_bmp_header(outfd, w, h)) {
+		lwsl_user("%s: header write failed\n", __func__);
+		goto bail4;
+	}
 
 	row = malloc((size_t)w * 3);
 	if (!row)
@@ -2223,8 +2262,8 @@ eyeball(const char *inpath, const char *outpath, int scale, uint32_t bg)
 			row[k + 2] = t;
 		}
 
-		if (write(outfd, row, (size_t)w * 3) < (ssize_t)((size_t)w * 3) ||
-		    (padlen && write(outfd, pad, (size_t)padlen) < padlen)) {
+		if (write_all(outfd, row, (size_t)w * 3) ||
+		    (padlen && write_all(outfd, pad, (size_t)padlen))) {
 			lwsl_user("%s: write failed\n", __func__);
 			goto bail5;
 		}
@@ -2853,7 +2892,7 @@ memset(&pair_bm, 0, sizeof(pair_bm));
 				cc->name);
 
 		check_case(i, &bm);
-		dump_case(i, &bm);
+		CHK(!dump_case(i, &bm), "%s: dump write failed", cc->name);
 
 		/* keep this case's bitmap for pair families */
 
