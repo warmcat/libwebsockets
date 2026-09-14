@@ -79,6 +79,10 @@ if (LWS_WITH_SVG)
 		misc/svg.c
 		misc/svg-raster.c)
 endif()
+if (LWS_WITH_GIF)
+	list(APPEND SOURCES
+		misc/gif.c)
+endif()
 if (LWS_WITH_DHT)
 	list(APPEND SOURCES
 		misc/dht/dht.c
@@ -122,6 +126,11 @@ if (LWS_WITH_DLO)
 	if (LWS_WITH_SVG)
 		list(APPEND SOURCES
 			misc/dlo/dlo-svg.c)
+	endif()
+
+	if (LWS_WITH_GIF)
+		list(APPEND SOURCES
+			misc/dlo/dlo-gif.c)
 	endif()
 
 	if (LWS_WITH_LHP)
