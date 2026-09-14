@@ -14,9 +14,13 @@ Development
    text-indent is supported (inherited, first line of the block), which also
    implements the classic "text-indent: -9999px" idiom for hiding the text
    of an element that shows an image instead: the "Slashdot" anchor text no
-   longer renders over the logo.  Case 12-bg-position covers both.  A known
-   edge: an element whose only content is indent-hidden text can lose its
-   block box; follow-up work.
+   longer renders over the logo, and the element keeps its box so following
+   content flows around the graphic rather than over it.  An older heuristic
+   that marked text-indent <= -999px elements wholly hidden (it had never
+   fired, because negative values did not parse) is removed: it hid the
+   element box while the background image still drew, leaving the graphic
+   colliding with the following menu.  Case 12-bg-position covers the
+   sizing, positioning and indent hide.
 
  - lhp: negative css values never parsed: a leading '-' did not start a
    number, so lengths like "margin-left: -32px" were silently kept as

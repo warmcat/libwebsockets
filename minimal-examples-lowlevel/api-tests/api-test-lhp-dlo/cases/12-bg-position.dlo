@@ -3,5 +3,7 @@ rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
   text (0.0,0.0) [364.0 x 19.0] rgba=FF000000 f=17/400 "The text below is hidden by the indent, and the swatch is drawn "
   text (0.0,19.0) [265.0 x 19.0] rgba=FF000000 f=17/400 "small and offset, not stretched to the element"
  svg (28.0,73.92) [146.0 x 36.0]
- rect (8.0,81.84) [384.0 x 19.0] rgba=00000000
+ rect (8.0,81.84) [167.0 x 35.0] rgba=00000000
+  text (-9999.0,0.0) [111.0 x 19.0] rgba=FF000000 f=17/400 "Hidden Words Here"
+ rect (8.0,134.76) [384.0 x 19.0] rgba=00000000
   text (0.0,0.0) [40.0 x 19.0] rgba=FF000000 f=17/400 "after it"
