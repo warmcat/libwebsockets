@@ -490,16 +490,27 @@ rops_handle_POLLOUT_h2(struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 			|| wsi->client_h2_alpn
 #endif
-			) && lws_dll2_get_head(&wsi->h2.h2n->pps_owner)) {
+		) && lws_dll2_get_head(&wsi->h2.h2n->pps_owner)) {
+		int budget = 64;
+
 		lwsl_info("servicing pps\n");
 		/*
 		 * this is called on the network connection, but may close
 		 * substreams... that may affect callers
+		 *
+		 * Drain as many as we can per pass: the frames are small, and
+		 * leaving the bulk of them queued risks the pps ceiling
+		 * goaway-ing the connection, and everything in flight on it,
+		 * when rx arrives in bursts
 		 */
-		if (lws_h2_do_pps_send(wsi)) {
-			wsi->socket_is_permanently_unusable = 1;
-			return LWS_HP_RET_BAIL_DIE;
+		while (budget-- &&
+		       lws_dll2_get_head(&wsi->h2.h2n->pps_owner)) {
+			if (lws_h2_do_pps_send(wsi)) {
+				wsi->socket_is_permanently_unusable = 1;
+				return LWS_HP_RET_BAIL_DIE;
+			}
 		}
+
 		if(!lws_dll2_is_empty(&wsi->h2.h2n->pps_owner))
 			return LWS_HP_RET_BAIL_OK;
 

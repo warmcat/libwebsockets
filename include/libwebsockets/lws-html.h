@@ -711,6 +711,13 @@ typedef struct lhp_ctx {
 	int16_t			css_state; /* private */
 	int16_t			cssval_state; /* private */
 
+	/*
+	 * The url of the stylesheet <link> the parse is waiting on, so
+	 * streams for stylesheets that are not the awaited one cannot
+	 * complete it early
+	 */
+	char			await_css_url[240]; /* LHP_URL_LEN */
+
 	uint8_t			in_body:1;
 	uint8_t			finish_css:1;
 	uint8_t			is_css:1;

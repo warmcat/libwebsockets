@@ -1,0 +1,41 @@
+<!doctype html>
+<html><head><style>
+body { font-size: 12px; margin: 0; padding: 0 }
+
+/* real-world html leaves inner elements unclosed: the </div> closes them
+ * by name and the tree keeps its shape */
+.a { background-color: #00ff00 }
+.b { background-color: #0000ff }
+
+/* position: relative keeps the flow space but offsets the paint */
+.shift { position: relative; left: 40px; top: 4px; background-color: #00ffff }
+
+/* an out-of-flow box with no offsets takes its static position: where
+ * the flow had got to when it opened */
+.host { position: relative; width: 300px; background-color: #dddddd }
+.byline { position: absolute; height: 16px; background-color: #ff00ff }
+
+/* :after with one coloured border draws the border-triangle idiom */
+.tail { position: relative; display: inline-block; width: 60px;
+	line-height: 24px; background-color: #1e2329; color: #ffffff;
+	text-align: center }
+span.tail:after {
+  content: "";
+  position: absolute;
+  bottom: -8px;
+  left: 8px;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 8px 8px 0 0;
+  border-color: #1e2329 transparent transparent transparent; }
+</style></head>
+<body>
+<div class="a">first<div class="stray">stray div left open</div>
+<div class="b">second is back at the top level</div>
+<div>stray closes are ignored: </span></div>
+<div class="shift">shifted 40px right</div>
+<div class="host">host text <span class="byline">byline</span> more host
+text on the same line</div>
+<div><span class="tail">2</span></div>
+</body></html>

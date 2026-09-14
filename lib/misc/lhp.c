@@ -3075,6 +3075,7 @@ lhp_link_css_done(lhp_ctx_t *ctx)
 	ctx->tag = NULL;
 	ctx->tag_len = 0;
 	ctx->await_css_done = 0;
+	ctx->await_css_url[0] = '\0';
 	ctx->finish_css = 0;
 	ctx->npos = 0;
 
@@ -3684,6 +3685,8 @@ elem_start:
 					ctx->npos = 0;
 					ctx->state = LCSPS_CSS_OUTER;
 					ctx->await_css_done = 1;
+					lws_strncpy(ctx->await_css_url, url,
+						    sizeof(ctx->await_css_url));
 
 					return LWS_SRET_AWAIT_RETRY;
 				}
