@@ -34,6 +34,7 @@ border-bottom-right-radius:
 border-radius:
 border:
 bottom:
+box-sizing:
 caption-side:
 clear:
 clip:

@@ -119,8 +119,9 @@ lhp_tag_is(lhp_pstack_t *ps, const char *name, size_t len)
 }
 
 /*
- * Resolve a css length to px; percentages are of base (the containing
- * block's content width), absent attributes and keywords are 0
+ * Resolve a css length to px; percentages (including % terms inside calc())
+ * are of base (the containing block's content width), absent attributes and
+ * keywords are 0
  */
 
 static lws_fx_t
@@ -138,13 +139,26 @@ lhp_len(lhp_pstack_t *ps, const lcsp_atr_t *a, const lws_fx_t *base)
 		return t;
 	}
 
-	return *lws_csp_px(a, ps);
+	return *lws_csp_px_base(a, ps, base);
 }
 
 static int
 lhp_is_auto(const lcsp_atr_t *a)
 {
 	return a && a->unit == LCSP_UNIT_NONE && a->propval == LCSP_PROPVAL_AUTO;
+}
+
+/*
+ * box-sizing: border-box makes the css width / height cover the padding (and
+ * border) too, instead of only the content box
+ */
+
+static int
+lhp_border_box(lhp_pstack_t *ps)
+{
+	return ps->css_box_sizing &&
+	       ps->css_box_sizing->unit == LCSP_UNIT_NONE &&
+	       ps->css_box_sizing->propval == LCSP_PROPVAL_BORDER_BOX;
 }
 
 static lws_fx_t
@@ -183,10 +197,33 @@ lhp_container(lhp_pstack_t *ps)
 	return NULL;
 }
 
+/*
+ * The nearest ancestor element with a position other than static, with a box
+ * of its own: an out-of-flow box is placed against its padding box.  Without
+ * one, out-of-flow boxes are placed against the surface
+ */
+
+static lhp_pstack_t *
+lhp_positioned_ancestor(lhp_pstack_t *ps)
+{
+	while (ps) {
+		const lcsp_atr_t *a = ps->css_position;
+
+		if (ps->is_block && ps->dlo && a && a->unit == LCSP_UNIT_NONE &&
+		    a->propval != LCSP_PROPVAL_STATIC)
+			return ps;
+		ps = lhp_parent(ps);
+	}
+
+	return NULL;
+}
+
 static int
-lhp_box_type(lhp_pstack_t *ps)
+lhp_box_type(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 {
 	const lcsp_atr_t *a = ps->css_display;
+	const lcsp_atr_t *pos = ps->css_position;
+	const lcsp_atr_t *fl;
 
 	if (lhp_tag_is(ps, "br", 2))
 		return LHP_BOX_BR;
@@ -196,6 +233,23 @@ lhp_box_type(lhp_pstack_t *ps)
 		return LHP_BOX_BODY;
 	if (lhp_tag_is(ps, "html", 4))
 		return LHP_BOX_NONE;
+
+	fl = lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_FLOAT);
+
+	if ((pos && pos->unit == LCSP_UNIT_NONE &&
+	     (pos->propval == LCSP_PROPVAL_ABSOLUTE ||
+	      pos->propval == LCSP_PROPVAL_FIXED)) ||
+	    (fl && fl->unit == LCSP_UNIT_NONE &&
+	     (fl->propval == LCSP_PROPVAL_LEFT ||
+	      fl->propval == LCSP_PROPVAL_RIGHT))) {
+		/*
+		 * However it was displayed, an out-of-flow element (position:
+		 * absolute, or floated) is blockified: it gets a box of its
+		 * own, laid out against its containing block or on the line
+		 * instead of in the flow
+		 */
+		return LHP_BOX_BLOCK;
+	}
 
 	if (!a)
 		return LHP_BOX_INLINE;
@@ -299,6 +353,46 @@ lhp_choose_font(struct lws_context *cx, lhp_ctx_t *ctx, lhp_pstack_t *ps)
  * Line boxes
  */
 
+/*
+ * The css line-height on block container c, if set to something usable: a
+ * length, or a bare number / % of the font size.  Returns 0 if unset, or
+ * "normal".  Percentages of the font size are quite common for line-height,
+ * unlike for most properties.
+ */
+
+static int
+lhp_line_height_min(lhp_ctx_t *ctx, lhp_pstack_t *c, lws_fx_t *oh)
+{
+	const lcsp_atr_t *a = lws_css_get_prop_atr_ps(ctx, c,
+						      LCSP_PROP_LINE_HEIGHT);
+	if (!a)
+		return 0;
+
+	switch (a->unit) {
+	case LCSP_UNIT_NUM:
+	case LCSP_UNIT_LENGTH_PERCENT:
+		if (!c->font_size.whole && !c->font_size.frac)
+			return 0;
+		lws_fx_mul(oh, &a->u.i, &c->font_size);
+		return 1;
+
+	case LCSP_UNIT_LENGTH_EM:
+	case LCSP_UNIT_LENGTH_EX:
+	case LCSP_UNIT_LENGTH_IN:
+	case LCSP_UNIT_LENGTH_CM:
+	case LCSP_UNIT_LENGTH_MM:
+	case LCSP_UNIT_LENGTH_PT:
+	case LCSP_UNIT_LENGTH_PC:
+	case LCSP_UNIT_LENGTH_PX:
+	case LCSP_UNIT_LENGTH_REM:
+		*oh = *lws_csp_px(a, c);
+		return 1;
+
+	default:
+		return 0;
+	}
+}
+
 static void
 lhp_line_reset(lhp_pstack_t *c)
 {
@@ -321,7 +415,7 @@ lhp_line_reset(lhp_pstack_t *c)
 static void
 lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
 {
-	lws_fx_t lh, shift, t, ah;
+	lws_fx_t lh, shift, t, ah, lead, t2;
 	const lcsp_atr_t *a;
 	lws_dll2_t *d;
 
@@ -337,6 +431,21 @@ lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
 
 	lws_fx_set(ah, c->line_asc + c->line_desc, 0);
 	lh = lhp_fx_max(&ah, &c->line_h);
+	lws_fx_set(lead, 0, 0);
+	{
+		lws_fx_t lhmin;
+
+		/*
+		 * line-height is a minimum for the line box height; the extra
+		 * space it adds is the "leading", shared half above and half
+		 * below the text
+		 */
+		if (lhp_line_height_min(ctx, c, &lhmin) &&
+		    lws_fx_comp(&lhmin, &lh) > 0) {
+			lws_fx_sub(&lead, &lhmin, &lh);
+			lh = lhmin;
+		}
+	}
 
 	lws_fx_set(shift, 0, 0);
 	if (!c->shrink) {
@@ -356,12 +465,29 @@ lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
 	while (d) {
 		lws_dlo_t *dlo = lws_container_of(d, lws_dlo_t, list);
 
+		/*
+		 * The line's items are consecutive in the children list, but
+		 * out-of-flow boxes (eg a position: absolute child) can have
+		 * been appended in between: they are marked as line items
+		 * when they join the line, anything else keeps its place
+		 */
+
+		if (!dlo->flag_online) {
+			d = lws_dll2_get_next(d);
+			continue;
+		}
+
+		dlo->flag_online = 0;
+
 		if (dlo->_destroy == lws_display_dlo_text_destroy) {
 			lws_dlo_text_t *txt = lws_container_of(dlo,
 							lws_dlo_text_t, dlo);
 
-			/* text sits on the line's baseline */
+			/* text sits on the line's baseline, plus half the
+			 * leading from line-height */
 			lws_fx_set(t, c->line_asc - txt->font_y_baseline, 0);
+			lws_fx_div(&t2, &lead, &fx_2);
+			lws_fx_add(&t, &t, &t2);
 		} else if (dlo->flag_float) {
 			/* floats hang from the top of the line */
 			lws_fx_set(t, 0, 0);
@@ -390,6 +516,8 @@ lhp_line_item(lhp_pstack_t *c, lws_dlo_t *dlo, const lws_fx_t *w,
 		c->has_line = 1;
 		c->line_first = dlo;
 	}
+
+	dlo->flag_online = 1;
 
 	lws_fx_add(&c->curx, &c->curx, w);
 	lws_fx_add(&c->nowrap, &c->nowrap, w);
@@ -879,7 +1007,7 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 {
 	lws_fx_t ml, mr, mt, pl, pr, pt, w, x, y, t, radii[4], base;
 	lws_dlo_t *parent = c ? c->dlo : NULL;
-	lhp_pstack_t *tbl = NULL;
+	lhp_pstack_t *tbl = NULL, *psa = NULL;
 	lws_box_t box;
 	int n, pos;
 
@@ -920,8 +1048,10 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 	lws_fx_set(w, 0, 0);
 	if (ps->explicit_w) {
 		w = lhp_len(ps, ps->css_width, &base);
-		lws_fx_add(&w, &w, &pl);
-		lws_fx_add(&w, &w, &pr);
+		if (!lhp_border_box(ps)) {
+			lws_fx_add(&w, &w, &pl);
+			lws_fx_add(&w, &w, &pr);
+		}
 	}
 
 	lws_fx_set(x, 0, 0);
@@ -970,22 +1100,67 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 	default:
 		if (ps->is_abs) {
 			/*
-			 * From the surface origin; auto width shrinks.  With
-			 * no parent the dlo becomes a child of the body dlo,
-			 * to be moved above the normal flow when the document
-			 * is complete
+			 * Out of flow: the box is placed against the padding
+			 * box of the nearest positioned ancestor, or against
+			 * the surface if there is none.  left or right place
+			 * it horizontally, and auto width shrinks to the
+			 * content.  With no positioned ancestor the dlo
+			 * becomes a child of the body dlo, to be moved above
+			 * the normal flow when the document is complete
 			 */
-			parent = NULL;
-			x = lhp_len(ps, ps->css_pos[CCPAS_LEFT], &base);
-			y = lhp_len(ps, ps->css_pos[CCPAS_TOP], &base);
-			lws_fx_add(&x, &x, &ml);
-			lws_fx_add(&y, &y, &mt);
-			if (!ps->explicit_w) {
-				lws_fx_sub(&w, &ctx->ic.wh_px[LWS_LHPREF_WIDTH],
-					   &x);
-				lws_fx_sub(&w, &w, &mr);
-				ps->shrink = 1;
+			lws_fx_t ox, oy, cbw, cbi, r, t1;
+
+			psa = lhp_positioned_ancestor(lhp_parent(ps));
+			if (psa) {
+				/* dlo children start at our border box */
+				parent = psa->dlo;
+				ox = psa->ox;
+				oy = psa->oy;
+				/* padding box, from where children place */
+				t1 = lhp_len(psa, psa->css_padding[CCPAS_RIGHT],
+					     &psa->cw);
+				lws_fx_add(&cbi, &psa->cw, &t1);
+				lws_fx_add(&cbw, &ox, &cbi);
+			} else {
+				lws_fx_set(ox, 0, 0);
+				lws_fx_set(oy, 0, 0);
+				cbw = ctx->ic.wh_px[LWS_LHPREF_WIDTH];
+				cbi = cbw;
 			}
+
+			if (ps->css_pos[CCPAS_LEFT] &&
+			    ps->css_pos[CCPAS_LEFT]->unit != LCSP_UNIT_NONE) {
+				x = lhp_len(ps, ps->css_pos[CCPAS_LEFT], &cbw);
+				lws_fx_add(&x, &x, &ox);
+				lws_fx_add(&x, &x, &ml);
+				if (!ps->explicit_w) {
+					lws_fx_add(&w, &ox, &cbi);
+					lws_fx_sub(&w, &w, &x);
+					lws_fx_sub(&w, &w, &mr);
+					ps->shrink = 1;
+				}
+			} else {
+				/* left is unset or auto: anchor on the right */
+				if (!ps->explicit_w) {
+					lws_fx_set(w, 0, 0);
+					ps->shrink = 1;
+				}
+				x = ox;
+				if (ps->css_pos[CCPAS_RIGHT] &&
+				    ps->css_pos[CCPAS_RIGHT]->unit !=
+							LCSP_UNIT_NONE) {
+					r = lhp_len(ps,
+						ps->css_pos[CCPAS_RIGHT], &cbw);
+					lws_fx_add(&x, &ox, &cbi);
+					lws_fx_sub(&x, &x, &r);
+					lws_fx_sub(&x, &x, &w);
+				}
+				lws_fx_add(&x, &x, &ml);
+			}
+
+			y = lhp_len(ps, ps->css_pos[CCPAS_TOP], &cbw);
+			lws_fx_add(&y, &y, &oy);
+			lws_fx_add(&y, &y, &mt);
 			break;
 		}
 
@@ -1045,8 +1220,10 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 
 		if (mx && mx->unit != LCSP_UNIT_NONE) {
 			lim = lhp_len(ps, mx, &base);
-			lws_fx_add(&lim, &lim, &pl);
-			lws_fx_add(&lim, &lim, &pr);
+			if (!lhp_border_box(ps)) {
+				lws_fx_add(&lim, &lim, &pl);
+				lws_fx_add(&lim, &lim, &pr);
+			}
 			if (lim.whole > 0 && lws_fx_comp(&w, &lim) > 0) {
 				w = lim;
 				if (!ps->is_ilevel && !ps->is_abs && c &&
@@ -1059,8 +1236,10 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 		}
 		if (mn && mn->unit != LCSP_UNIT_NONE) {
 			lim = lhp_len(ps, mn, &base);
-			lws_fx_add(&lim, &lim, &pl);
-			lws_fx_add(&lim, &lim, &pr);
+			if (!lhp_border_box(ps)) {
+				lws_fx_add(&lim, &lim, &pl);
+				lws_fx_add(&lim, &lim, &pr);
+			}
 			if (lws_fx_comp(&w, &lim) < 0)
 				w = lim;
 		}
@@ -1119,7 +1298,11 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 	if (!ps->is_row)
 		ps->idx = ps->is_cell ? ps->idx : 0;
 	lhp_line_reset(ps);
-	ps->abs_y = (c && !ps->is_abs ? c->abs_y : 0) + box.y.whole;
+	if (ps->is_abs)
+		/* the y we were given is relative to the positioned ancestor */
+		ps->abs_y = (psa ? psa->abs_y : 0) + box.y.whole;
+	else
+		ps->abs_y = (c ? c->abs_y : 0) + box.y.whole;
 
 	if (type == LHP_BOX_LIST_ITEM)
 		lhp_list_marker(ctx, ps, drt);
@@ -1165,9 +1348,16 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 
 	/* height */
 
-	if (ps->explicit_h)
+	if (ps->explicit_h) {
 		h = lhp_len(ps, ps->css_height, &base);
-	else {
+		if (lhp_border_box(ps)) {
+			/* the css height covers the padding too */
+			lws_fx_sub(&h, &h, &pt);
+			lws_fx_sub(&h, &h, &pb);
+			if (h.whole < 0)
+				lws_fx_set(h, 0, 0);
+		}
+	} else {
 		h = ps->cury;
 		if (pb.whole > 0 || ps->is_cell || ps->is_ilevel || ps->is_abs)
 			/* the last child's bottom margin stays inside */
@@ -1177,6 +1367,16 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 			mb = lhp_fx_max(&mb, &ps->pend_mb);
 	}
 
+	/*
+	 * A form control (an editbox) with no explicit height still has a
+	 * line of text in it: its content is at least the font height tall
+	 */
+
+	if (!ps->explicit_h && !h.whole && !h.frac &&
+	    (lhp_tag_is(ps, "input", 5) || lhp_tag_is(ps, "button", 6) ||
+	     lhp_tag_is(ps, "select", 6) || lhp_tag_is(ps, "textarea", 8)))
+		h = ps->font_size;
+
 	{
 		const lcsp_atr_t *mn = lws_css_get_prop_atr_ps(ctx, ps,
 							LCSP_PROP_MIN_HEIGHT);
@@ -1184,6 +1384,12 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 		if (mn && mn->unit != LCSP_UNIT_NONE &&
 		    mn->unit != LCSP_UNIT_LENGTH_PERCENT) {
 			t = lhp_len(ps, mn, &base);
+			if (lhp_border_box(ps)) {
+				lws_fx_sub(&t, &t, &pt);
+				lws_fx_sub(&t, &t, &pb);
+				if (t.whole < 0)
+					lws_fx_set(t, 0, 0);
+			}
 			if (lws_fx_comp(&h, &t) < 0)
 				h = t;
 		}
@@ -1226,6 +1432,37 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 	}
 
 	w = ps->dlo->box.w;
+
+	if (ps->is_abs && ps->shrink &&
+	    (!ps->css_pos[CCPAS_LEFT] ||
+	     ps->css_pos[CCPAS_LEFT]->unit == LCSP_UNIT_NONE) &&
+	    ps->css_pos[CCPAS_RIGHT] &&
+	    ps->css_pos[CCPAS_RIGHT]->unit != LCSP_UNIT_NONE) {
+		/*
+		 * Anchored on the right with a content-settled width: keep
+		 * the right edge where it belongs against the settled width
+		 */
+		lhp_pstack_t *psa = lhp_positioned_ancestor(lhp_parent(ps));
+		lws_fx_t ox, cbi, cbw, r, t1;
+
+		if (psa) {
+			ox = psa->ox;
+			t1 = lhp_len(psa, psa->css_padding[CCPAS_RIGHT],
+				     &psa->cw);
+			lws_fx_add(&cbi, &psa->cw, &t1);
+			lws_fx_add(&cbw, &ox, &cbi);
+		} else {
+			lws_fx_set(ox, 0, 0);
+			cbi = ctx->ic.wh_px[LWS_LHPREF_WIDTH];
+			cbw = cbi;
+		}
+
+		r = lhp_len(ps, ps->css_pos[CCPAS_RIGHT], &cbw);
+		lws_fx_add(&ps->dlo->box.x, &ox, &cbi);
+		lws_fx_sub(&ps->dlo->box.x, &ps->dlo->box.x, &r);
+		lws_fx_sub(&ps->dlo->box.x, &ps->dlo->box.x, &w);
+		lws_fx_add(&ps->dlo->box.x, &ps->dlo->box.x, &ml);
+	}
 
 	if (ps->is_abs || !c)
 		return;
@@ -1391,7 +1628,7 @@ lhp_elem_start(lhp_ctx_t *ctx, lhp_pstack_t *ps, struct lws_context *cx,
 
 	lhp_choose_font(cx, ctx, ps);
 
-	type = lhp_box_type(ps);
+	type = lhp_box_type(ctx, ps);
 
 	if (type == LHP_BOX_BODY) {
 		if (ps->dlo)
