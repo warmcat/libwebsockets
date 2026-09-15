@@ -1631,10 +1631,8 @@ lhp_sel_pseudo(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *n,
 		return ta->name_len == 1 && (*tag == 'a' || *tag == 'A') &&
 		       lhp_atr_get(atr, "href", 4, 1) != NULL;
 
-	if (nl == 5 && !strncasecmp(n, "empty", 5))
-		return 0;
-
-	/* hover, focus, active, visited, nth-*, last-child, has, before... */
+	/* hover, focus, active, visited, empty, nth-*, last-child, has,
+	 * before... none of these are matched */
 
 	return 0;
 }

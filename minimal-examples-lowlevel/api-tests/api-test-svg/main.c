@@ -80,7 +80,7 @@ hexdigit(int c)
 #define CHK(_cond, _fmt, ...) do { \
 	checks++; \
 	if (!(_cond)) { \
-		if (fails < MAX_FAILLOG) \
+		if (fails >= 0 && fails < MAX_FAILLOG) \
 			lws_snprintf(faillog[fails], sizeof(faillog[0]), \
 				     "L%d: " _fmt, __LINE__, ##__VA_ARGS__); \
 		fails++; \
