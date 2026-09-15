@@ -1474,6 +1474,42 @@ build_corpus_strokes(void)
 	cc->area_tol = 0;
 
 	/*
+	 * A miterlimit at the number parser's 1e6 cap used to overflow
+	 * the miter test product unconditionally (F-065): it must render
+	 * identically to any limit past the cutoff, like the default 4
+	 * above for these 90 degree corners
+	 */
+
+	cc = cc_add_vb("stroke-ml-huge",
+		"<path d=\"M 4 4 h 20 v 20 h -20 Z\" fill=\"none\" "
+		"stroke=\"#0000ff\" stroke-width=\"2\" "
+		"stroke-miterlimit=\"1000000\"/>", 32, 32, 32, 32);
+	cc->family = FAM_PAIR;
+	cc->pa = ncases - 2;
+	cc->exp_w = cc->exp_h = 32;
+
+	/*
+	 * A near-straight join is the worst case for the miter product:
+	 * with miterlimit 200 it passed int64 max for this slope change.
+	 * Past the cutoff the limit stops mattering, so it must render
+	 * exactly like the default 4 above
+	 */
+
+	cc = cc_add_vb("stroke-ml-straight",
+		"<path d=\"M 4 20 L 20 19 L 36 20\" fill=\"none\" "
+		"stroke=\"#0000ff\" stroke-width=\"2\"/>", 40, 40, 40, 40);
+	cc->exp_area = 2 * 2 * 16.03;	/* two width-2 segments of len sqrt(257) */
+	cc->area_tol = 8;
+
+	cc = cc_add_vb("stroke-ml-straight-200",
+		"<path d=\"M 4 20 L 20 19 L 36 20\" fill=\"none\" "
+		"stroke=\"#0000ff\" stroke-width=\"2\" "
+		"stroke-miterlimit=\"200\"/>", 40, 40, 40, 40);
+	cc->family = FAM_PAIR;
+	cc->pa = ncases - 2;
+	cc->exp_w = cc->exp_h = 40;
+
+	/*
 	 * Fill and stroke together: a 20x20 filled rect with a 2 wide miter
 	 * stroke exactly tiles the 22x22 outer square, and the stroke paint
 	 * (committed after the fill) is what shows at the boundary
