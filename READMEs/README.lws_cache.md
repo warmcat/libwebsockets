@@ -19,6 +19,33 @@ heap cache to minimize the cost of repeated access.
 You can find examples of how to create, use and destroy single and multilevel
 caches in `minimal-examples/api-tests/api-test-lws_cache`
 
+## File-backed blob level
+
+If lws was built with `LWS_WITH_CACHE_BLOB` (posix), an additional backing
+store ops `lws_cache_ops_blob` is available that keeps arbitrary binary blobs
+in a hashed directory tree you choose, one file per item, with each item's
+expiry kept in a small file header.  There is no in-memory index of the
+directory: item keys are hashed (sha1) to their filename, so gets need no
+index and the memory cost does not depend on how many items are cached.
+
+The blob level maintains itself using a sul on the event loop: maintenance
+passes each do a small, bounded amount of directory scanning (this is the
+trimmed hashed-dir scheme from `lws_diskcache` under the hood), and when a
+full scan finds the store over its `max_footprint`, the oldest files are
+deleted a batch at a time until it is under the limit again.  There is never
+a mass-deletion pass that could block the event loop.  Expired items are
+dropped from the store when they are encountered.
+
+Because keys exist on disk only as hashes, wildcard lookups cannot be
+enumerated at this level: `lookup()` always returns an empty result set and
+`invalidate()` only acts on wildcard-free keys.  `write()` requires the
+payload to be provided in `source` at write time.
+
+Lws itself uses this level for the document asset cache: see the
+`dlo_asset_cache_dir` member of `lws_context_creation_info`.  When set,
+image assets fetched for html documents are written through to the cache, and
+still-valid cached copies are used instead of fetching again.
+
 ## Cache size restriction, LRU and TTL
 
 The max heap footprint of its items and max number of items can be capped.  LRU

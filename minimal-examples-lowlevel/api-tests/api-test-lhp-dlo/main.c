@@ -17,6 +17,8 @@ enum {
 		LWS_SW_FDLIMIT,
 		LWS_SW_CSS_FILTER,
 		LWS_SW_BLOCK_LIST,
+		LWS_SW_ASSET_CACHE,
+		LWS_SW_PRESEED,
 		LWS_SW_HELP,
 };
 
@@ -28,12 +30,15 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_FDLIMIT]= { "--fd-limit",     "Context fd limit, to try layouts against small targets" },
 	[LWS_SW_CSS_FILTER]= { "--css-filter", "Filter css from file hides junk elements, eg .ad { display: none !important; }" },
 	[LWS_SW_BLOCK_LIST]= { "--block-list", "URL block rules from file: ||host.tld or substring per line" },
-	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+	[LWS_SW_ASSET_CACHE]= { "--asset-cache", "Directory for the document asset cache, enables it" },
+	[LWS_SW_PRESEED]	= { "--preseed",    "Preseed the asset cache with url=file" },
+	[LWS_SW_HELP]	= { "--help",          "Show this help information" },
 };
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <signal.h>
 
 //#define SEVENCOL
@@ -396,6 +401,47 @@ sigint_handler(int sig)
  * Read a whole file into a NUL-terminated heap buffer, or return NULL.  The
  * caller frees it with free().
  */
+#if defined(LWS_WITH_CACHE_BLOB)
+static uint8_t *
+read_raw_file(const char *path, size_t *len)
+{
+	uint8_t *buf = NULL;
+	struct stat s;
+	size_t done = 0;
+	ssize_t n;
+	int fd;
+
+	fd = open(path, LWS_O_RDONLY);
+	if (fd < 0 || fstat(fd, &s))
+		return NULL;
+
+	buf = malloc((size_t)s.st_size);
+	if (!buf) {
+		close(fd);
+
+		return NULL;
+	}
+
+	while (done < (size_t)s.st_size) {
+		n = read(fd, buf + done, (size_t)s.st_size - done);
+		if (n <= 0)
+			break;
+		done += (size_t)n;
+	}
+	close(fd);
+
+	if (done != (size_t)s.st_size) {
+		free(buf);
+
+		return NULL;
+	}
+
+	*len = done;
+
+	return buf;
+}
+#endif
+
 static char *
 read_file(const char *path)
 {
@@ -463,6 +509,12 @@ main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_FDLIMIT].sw)))
 		info.fd_limit_per_thread = (unsigned int)atoi(p);
 
+#if defined(LWS_WITH_CACHE_BLOB)
+	if ((p = lws_cmdline_option(argc, argv,
+				     switches[LWS_SW_ASSET_CACHE].sw)))
+		info.dlo_asset_cache_dir = p;
+#endif
+
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_BMP].sw))) {
 		fdout = open(p, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0600);
 		if (fdout < 0) {
@@ -506,6 +558,49 @@ main(int argc, const char **argv)
 	lws_font_register(cx, fira_c_b_20, sizeof(fira_c_b_20));
 
 	drs.ic = &ic;
+
+#if defined(LWS_WITH_CACHE_BLOB)
+	/*
+	 * Optionally preseed the asset cache with a file payload under an
+	 * arbitrary url (--preseed url=file), so cache hits can be tested
+	 * without any network
+	 */
+
+	if (info.dlo_asset_cache_dir) {
+		struct lws_cache_ttl_lru *cache = lws_dlo_asset_cache(cx);
+		const char *ps = lws_cmdline_option(argc, argv,
+						switches[LWS_SW_PRESEED].sw);
+
+		if (ps && cache) {
+			char url[300], *file;
+			uint8_t *buf;
+			size_t len;
+
+			lws_strncpy(url, ps, sizeof(url));
+			file = strchr(url, '=');
+			if (file)
+				*file++ = '\0';
+
+			buf = file ? read_raw_file(file, &len) : NULL;
+			if (buf) {
+				if (lws_cache_write_through(cache, url, buf,
+						len,
+						lws_now_usecs() +
+							3600 * LWS_US_PER_SEC,
+						NULL))
+					lwsl_err("%s: preseed failed\n",
+						 __func__);
+				else
+					lwsl_notice("%s: preseeded %u bytes "
+						    "as %s\n", __func__,
+						    (unsigned int)len, url);
+				free(buf);
+			} else
+				lwsl_err("%s: unable to preseed from %s\n",
+					 __func__, ps);
+		}
+	}
+#endif
 
 	/* create the SS to the html using the URL on argv[1] */
 

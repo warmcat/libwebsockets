@@ -92,6 +92,14 @@ endif()
 if (BLOCK_LIST)
 	list(APPEND tool_flags --block-list=${BLOCK_LIST})
 endif()
+if (ASSET_CACHE_DIR)
+	# start each run from an empty asset cache
+	file(REMOVE_RECURSE ${ASSET_CACHE_DIR})
+	list(APPEND tool_flags --asset-cache=${ASSET_CACHE_DIR})
+endif()
+if (PRESEED)
+	list(APPEND tool_flags --preseed=${PRESEED})
+endif()
 
 execute_process(COMMAND ${TOOL} file://${HTML} --w ${W} --h ${H} ${tool_flags}
 			--dump ${OUT} -d 3

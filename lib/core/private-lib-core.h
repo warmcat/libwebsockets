@@ -633,6 +633,10 @@ struct lws_context {
 	struct lws_cache_ttl_lru *l1, *nsc;
 #endif
 
+#if defined(LWS_WITH_CACHE_BLOB)
+	struct lws_cache_ttl_lru *dlo_asset_cache_blob, *dlo_asset_l1;
+#endif
+
 #if defined(LWS_WITH_CLIENT)
 	struct lws_cache_ttl_lru *alpn_cache;
 	struct lws_cache_ttl_lru *h3_cap_cache;

@@ -235,6 +235,10 @@ struct lws_cache_creation_info {
 			const char 	*filepath;
 			/**< the filepath to store items in */
 		} nscookiejar;
+		struct {
+			const char 	*dir;
+			/**< the directory to store the hashed blob files in */
+		} blob;
 	} u;
 	/**< these are extra configuration for specific cache types */
 
@@ -343,6 +347,29 @@ lws_cache_expunge(struct lws_cache_ttl_lru *cache);
 
 LWS_VISIBLE LWS_EXTERN_FOR_DATA const struct lws_cache_ops lws_cache_ops_heap;
 LWS_VISIBLE LWS_EXTERN_FOR_DATA const struct lws_cache_ops lws_cache_ops_nscookiejar;
+LWS_VISIBLE LWS_EXTERN_FOR_DATA const struct lws_cache_ops lws_cache_ops_blob;
+
+/**
+ * lws_cache_ops_blob - file-backed level for binary blobs
+ *
+ * This cache level stores each item as one file in the hashed directory
+ * layout walked by the lws_diskcache trimmer, at
+ * "<dir>/<h0>/<h1>/<sha1(key) hex>".  The file is a small header carrying the
+ * item expiry, followed by the payload bytes.  Items are looked up by hashing
+ * the key, so gets do not need any in-memory index of the directory.
+ *
+ * The level maintains itself with a sul on the event loop: each maintenance
+ * pass does a bounded amount of dir scanning, and when a full scan finds the
+ * cache over max_footprint, the oldest files are deleted a batch at a time
+ * until it is back under.  There is never a mass-deletion pass that could
+ * block the event loop.  Expired items are dropped from the store when
+ * encountered.
+ *
+ * Because item keys exist on disk only as hashes, it is not possible to
+ * enumerate keys matching a wildcard: lookup() always produces an empty
+ * result set and invalidate() can only remove specific keys given without
+ * wildcards.  write() requires the payload to be passed in \p source.
+ */
 
 ///@}
 

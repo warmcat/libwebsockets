@@ -1806,6 +1806,41 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 #endif
 
+#if defined(LWS_WITH_CACHE_BLOB)
+	if (info->dlo_asset_cache_dir) {
+		memset(&ci, 0, sizeof(ci));
+
+		/* the file-backed outer level keeps itself under the limit */
+
+		ci.cx			   = context;
+		ci.ops			   = &lws_cache_ops_blob;
+		ci.name			   = "ASSET_BLOB";
+		ci.u.blob.dir		   = info->dlo_asset_cache_dir;
+		ci.max_footprint	   = info->dlo_asset_cache_max_footprint ?
+					   info->dlo_asset_cache_max_footprint :
+					   LWS_DLO_ASSET_BLOB_DEFAULT_MAX_FOOTPRINT;
+		ci.max_payload		   = LWS_DLO_ASSET_BLOB_MAX_PAYLOAD;
+
+		context->dlo_asset_cache_blob = lws_cache_create(&ci);
+		if (!context->dlo_asset_cache_blob) {
+			lwsl_cx_err(context, "Failed to init asset cache");
+			goto bail;
+		}
+
+		ci.ops			  = &lws_cache_ops_heap;
+		ci.name			  = "ASSET_L1";
+		ci.parent		  = context->dlo_asset_cache_blob;
+		ci.max_footprint	  = LWS_DLO_ASSET_L1_MAX_FOOTPRINT;
+		ci.max_items		  = LWS_DLO_ASSET_L1_MAX_ITEMS;
+
+		context->dlo_asset_l1 = lws_cache_create(&ci);
+		if (!context->dlo_asset_l1) {
+			lwsl_cx_err(context, "Failed to init asset L1");
+			goto bail;
+		}
+	}
+#endif
+
 #if defined(LWS_WITH_CLIENT)
 	{
 		struct lws_cache_creation_info cci;
@@ -2758,6 +2793,11 @@ next_l:
 #if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
 		lws_cache_destroy(&context->nsc);
 		lws_cache_destroy(&context->l1);
+#endif
+
+#if defined(LWS_WITH_CACHE_BLOB)
+		lws_cache_destroy(&context->dlo_asset_l1);
+		lws_cache_destroy(&context->dlo_asset_cache_blob);
 #endif
 
 #if defined(LWS_WITH_CLIENT)
