@@ -826,8 +826,15 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
-		assert(lws_get_parent(wsi));
-		if (!lws_get_parent(wsi))
+		/*
+		 * Only the reverse-proxy's own onward streams forward these
+		 * reasons through the parent.  They also reach here for
+		 * ordinary clients whose callback ignores the response body,
+		 * and any h2 / h3 substream has a parent: its network wsi.
+		 * So the parent's existence neither asserts nor identifies a
+		 * proxy onward stream; proxy_clientside does.
+		 */
+		if (!wsi->http.proxy_clientside || !lws_get_parent(wsi))
 			break;
 		lws_get_parent(wsi)->reason_bf |= LWS_CB_REASON_AUX_BF__PROXY;
 		lws_callback_on_writable(lws_get_parent(wsi));
@@ -836,8 +843,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ: {
 		char *out = buf + LWS_PRE;
 
-		assert(lws_get_parent(wsi));
-		if (!lws_get_parent(wsi))
+		if (!wsi->http.proxy_clientside || !lws_get_parent(wsi))
 			break;
 
 #if defined(LWS_WITH_LATENCY)
