@@ -1710,13 +1710,19 @@ join_emit(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol,
 		int64_t cos2 = (((int64_t)1 << 16) + dot) >> 1;
 		int64_t mlq = (eff->miterlimit * SVG_Q16_1 + SVG_E8_1 / 2) /
 								SVG_E8_1;
+		int64_t thr = (((int64_t)1 << 48) + mlq - 1) / mlq;
 
 		/*
-		 * within limit <=> ratio^2 <= ml^2 <=> ml^2 * cos^2 >= 1,
-		 * in Q16 units: mlq^2 * cos2 >= 2^48
+		 * within limit <=> ratio^2 <= ml^2 <=> ml^2 * cos^2 >= 1, in
+		 * Q16 units: mlq^2 * cos2 >= 2^48.  The threshold is formed
+		 * by two exact ceil-divisions rather than squaring mlq, since
+		 * mlq^2 passes int64 max for miterlimit values the number
+		 * parser accepts: ceil(a / b / c) == ceil(a / (b * c)), so
+		 * this is the same decision with no product (F-065).  mlq >= 1
+		 * because miterlimit is floored at 1 whole unit at apply time
 		 */
 
-		if (cos2 > 0 && mlq * mlq * cos2 >= ((int64_t)1 << 48)) {
+		if (cos2 > 0 && cos2 >= (thr + mlq - 1) / mlq) {
 			/*
 			 * apex = V + (s1 + s2) * hw / (1 + dot): the
 			 * intersection of the two outer offset lines
@@ -2557,6 +2563,16 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 
 	if (l->miterlimit < SVG_E8_1)
 		l->miterlimit = SVG_E8_1;	/* spec floor of 1 */
+	if (l->miterlimit > 128 * SVG_E8_1)
+		/*
+		 * Every join that reaches the miter test already mitters
+		 * once the limit is 32 (cos^2(theta/2) is at least 64 there,
+		 * and (32 << 16)^2 * 64 == 2^48), so values beyond 128 whole
+		 * units change no rendering decision, they can only feed
+		 * oversized products: ceiling it keeps the whole miter test
+		 * far inside int64 (F-065)
+		 */
+		l->miterlimit = 128 * SVG_E8_1;
 
 	if (pd->sa_rule_present)
 		l->rule = pd->sa_rule;
