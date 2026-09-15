@@ -77,8 +77,9 @@ if (requirements)
 			# with the asset cache enabled and bluecat.jpg preseeded
 			# into it under an unreachable url, the layout shows the
 			# image with its real dimensions from the cache with no
-			# network; the second image is not in the cache and fails
-			# as usual
+			# network; the second image is not in the cache and is a
+			# local path that does not exist, so it fails the same way
+			# on every platform without touching dns or tls
 			add_test(NAME api-test-lhp-dlo-14-asset-cache
 				 COMMAND ${CMAKE_COMMAND}
 					-DTOOL=$<TARGET_FILE:${SAMP}>
