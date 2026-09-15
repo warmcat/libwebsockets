@@ -484,11 +484,15 @@ lws_cache_blob_lookup(struct lws_cache_ttl_lru *_c, const char *wildcard_key,
 static void
 lws_cache_blob_debug_dump(struct lws_cache_ttl_lru *_c)
 {
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
 	lws_cache_blob_t *bc = (lws_cache_blob_t *)_c;
 
 	lwsl_cache("%s: %s at %s, approx %llu bytes\n", __func__,
 		   bc->cache.info.name, bc->cache.info.u.blob.dir,
 		   (unsigned long long)bc->cache.current_footprint);
+#else
+	(void)_c;
+#endif
 }
 #endif
 
