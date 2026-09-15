@@ -314,3 +314,15 @@ Regression fence: api-test-qpack section 7 shrink test, 14 encoders, every
 length 0..n-1 on exact-size heap buffers under ASan.  New cross-cutting
 `serializers` unit in units.txt; not yet given a full pass on jose/cose/dht
 (only grep-swept for memcpy, raw *p++ writers not yet read).
+
+### 2026-09-15 serializers unit, pass 1 complete
+
+Raw-cursor writers read in jose (jose_key.c escaper + base64 export, jws.c
+encode_section, jwe.c be32 + snprintf/jwk_export chain), cose (no raw
+writes; lecp writer is the stall/scratch design), dht-bencode (decode-side
+skips only): all bounded, 0 findings.  hpack read-verified (total check up
+front).  H1 writers fenced by api-test-http-cookie s8 shrink test; note the
+H1 writers deliberately refuse with a few bytes of headroom, so shrink
+tests for them assert "never claims more than given", not exact fit.
+h2 writers are not exported, so hpack has no api-test shrink fence; a
+future fuzz/api harness needs a wsi.  Unit status: done, pass 1.
