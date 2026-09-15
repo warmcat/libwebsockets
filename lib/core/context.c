@@ -521,7 +521,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 	unsigned short count_threads = 1;
 	uint8_t *u;
 	uint16_t us_wait_resolution = 0;
-#if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
+#if (defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)) || \
+    defined(LWS_WITH_CACHE_BLOB)
 	struct lws_cache_creation_info ci;
 #endif
 
