@@ -328,7 +328,14 @@ lws_qpack_encode_literal_with_literal_name(unsigned char *buf, size_t buf_len, c
 	lwsl_debug("%s: name_len=%d, output byte: 0x%02X\n", __func__, (int)name_len, buf[0]);
 	if (n < 0) return -1;
 	pos += (size_t)n;
-	
+
+	/*
+	 * The name must fit in what is left of the caller's buffer, otherwise
+	 * the memcpy overruns it and buf_len - pos wraps for the value below
+	 */
+	if (buf_len - pos < name_len)
+		return -1;
+
 	if (name_len)
 		memcpy(buf + pos, name, name_len);
 	pos += name_len;
