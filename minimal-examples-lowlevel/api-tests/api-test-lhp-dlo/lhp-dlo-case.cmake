@@ -93,7 +93,10 @@ if (BLOCK_LIST)
 	list(APPEND tool_flags --block-list=${BLOCK_LIST})
 endif()
 if (ASSET_CACHE_DIR)
-	# start each run from an empty asset cache
+	# each run gets its own empty asset cache, so concurrent runs in the
+	# same build tree cannot see each other's files
+	string(RANDOM LENGTH 8 rnd)
+	set(ASSET_CACHE_DIR "${ASSET_CACHE_DIR}-${rnd}")
 	file(REMOVE_RECURSE ${ASSET_CACHE_DIR})
 	list(APPEND tool_flags --asset-cache=${ASSET_CACHE_DIR})
 endif()
@@ -104,6 +107,9 @@ endif()
 execute_process(COMMAND ${TOOL} file://${HTML} --w ${W} --h ${H} ${tool_flags}
 			--dump ${OUT} -d 3
 			RESULT_VARIABLE r OUTPUT_QUIET ERROR_QUIET TIMEOUT 30)
+if (ASSET_CACHE_DIR)
+	file(REMOVE_RECURSE ${ASSET_CACHE_DIR})
+endif()
 if (NOT r EQUAL 0)
 	message(FATAL_ERROR "${TOOL} failed (${r}) on ${HTML}")
 endif()
