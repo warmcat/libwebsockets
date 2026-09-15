@@ -180,7 +180,10 @@ dlo_assets_outstanding(struct lws_context *cx)
 static void
 dlo_assets_maybe_drained(struct lws_context *cx, lhp_ctx_t *lhp)
 {
-	if (lhp && lhp->await_assets && !dlo_assets_outstanding(cx)) {
+	/* a cancelled document must not be resumed by its assets draining */
+
+	if (lhp && !lhp->cancelled && lhp->await_assets &&
+	    !dlo_assets_outstanding(cx)) {
 		lhp->await_assets = 0;
 		lws_lhp_ss_html_parse_from_lhp(lhp);
 	}
@@ -645,7 +648,8 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		 * laid out, and an image that never arrives has no dims.
 		 */
 		if (m->type == LWSDLOSS_TYPE_CSS) {
-			if (m->lhp && m->lhp->await_css_done &&
+			if (m->lhp && !m->lhp->cancelled &&
+			    m->lhp->await_css_done &&
 			    !strcmp(m->url, m->lhp->await_css_url)) {
 				const uint8_t *b = NULL;
 				size_t l = 0;
@@ -1171,7 +1175,7 @@ fail:
 #endif
 
 
-int
+LWS_VISIBLE int
 lws_dlo_ss_stop_any_active(struct lws_context *cx)
 {
 #if defined(LWS_WITH_SECURE_STREAMS)
@@ -1196,9 +1200,26 @@ lws_dlo_ss_stop_any_active(struct lws_context *cx)
 					   lws_dll2_get_head(&parked)) {
 			dloss_t *ds = lws_container_of(d, dloss_t,
 						       active_asset_list);
+			struct lws_ss_handle *h = ds->ss;
 
 			lws_dll2_remove(&ds->active_asset_list);
-			lws_ss_destroy(&ds->ss);
+
+			/*
+			 * The dlo destroy paths destroy the asset ss from
+			 * the dlo's flow.h backref: clear it, or they
+			 * destroy freed handles when the display list goes
+			 */
+			if (ds->u.u.dlo_jpeg)
+				ds->u.u.dlo_jpeg->flow.h = NULL;
+
+			/*
+			 * lws_ss_destroy() clears the pointer it is given
+			 * before the DESTROYING callbacks run: destroy a
+			 * copy so the user object's own ss backref stays
+			 * coherent for them
+			 */
+
+			lws_ss_destroy(&h);
 
 		} lws_end_foreach_dll_safe(d, d1);
 	}
@@ -1206,9 +1227,17 @@ lws_dlo_ss_stop_any_active(struct lws_context *cx)
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 			      lws_dll2_get_head(&cx->active_assets)) {
 		dloss_t *ds = lws_container_of(d, dloss_t, active_asset_list);
+		struct lws_ss_handle *h = ds->ss;
 
 		lws_dll2_remove(&ds->active_asset_list);
-		lws_ss_destroy(&ds->ss);
+
+		if (ds->u.u.dlo_jpeg)
+			ds->u.u.dlo_jpeg->flow.h = NULL;
+
+		/* as above: destroy a copy, keep the user object's ss
+		 * backref coherent through the DESTROYING callbacks */
+
+		lws_ss_destroy(&h);
 
 	} lws_end_foreach_dll_safe(d, d1);
 #endif

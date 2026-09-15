@@ -500,6 +500,19 @@ endif()
 if (LWS_WITH_LHP)
 	set(LWS_WITH_CLIENT 1)
 	set(LWS_WITH_SECURE_STREAMS 1)
+
+	# lhp's document asset cache comes along where the file-backed blob
+	# cache level can build
+	if (UNIX AND LWS_WITH_DIR AND LWS_WITH_NETWORK)
+		set(LWS_WITH_CACHE_BLOB 1)
+	endif()
+endif()
+
+# the file-backed blob cache level is built on the diskcache dir machinery
+# and posix apis, and the lws-cache-ttl core only builds with network
+
+if (LWS_WITH_CACHE_BLOB AND NOT (UNIX AND LWS_WITH_DIR AND LWS_WITH_NETWORK))
+	set(LWS_WITH_CACHE_BLOB 0)
 endif()
 
 if (LWS_WITH_AUTHORITATIVE_DNS)

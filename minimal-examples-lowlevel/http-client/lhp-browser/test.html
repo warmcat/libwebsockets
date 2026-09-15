@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>lhp-browser smoke</title>
+<style>
+div.band { background-color: #204080; color: #ffffff; padding: 6px; }
+</style>
+</head>
+<body>
+<div class="band" id="top">lhp-browser window smoke test</div>
+<p>This document is rendered twice: once straight to a bmp, and once into
+the native window framebuffer that is then dumped with --shot.  The two
+outputs must be identical.</p>
+<div class="band" id="bottom">the bottom band</div>
+</body>
+</html>

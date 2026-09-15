@@ -21,12 +21,23 @@ your own ./build-agy or whatever.
 Use cmake .. --fresh in order to force the build dir to align with your options no matter what
 was in there before.
 
-While the idea is you should modify and test sources towards some goal, please do NOT modify the
-git history or commit unless directly asked.
-
 Often although we are working on the same sources, they are being tested on devices you don't have
 access to.  So you must ask for access to data state on those remote machines; looking at the local
 machine you are running on for config or data state directly is of zero use in those circumstances.
+
+## Churn management
+
+When you produced fixes, if possible (main branch, target is within 8 patches back,
+no intervening non-sai- tag) it's preferable to --amend apply the fixes directly to
+the patch that originated the problem, essentially editing the history, even if
+it means just doing that and not adding any fix patch or explanation.  Similarly, unless
+asked to produce a new patch or the goal is an explicit phased series, if it's on the
+main branch and we are iterating on the same work, and HEAD patch is yours from the
+last iteration, it's preferable to directly use --amend on it to commit.
+
+If the changes are for mixed purposes, if you initiate new core library changes or fixes,
+these should be broken out into their own patch, even if the rest relates to recent
+changes and is squashed in with those.
 
 ## Completeness
 

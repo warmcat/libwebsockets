@@ -349,6 +349,11 @@ typedef struct lws_display_render_state {
 
 	lws_displaylist_t		displaylist;
 
+	/* the html document ss currently bound to this render state, when
+	 * browsed with lws_lhp_ss_browse(); used by lws_lhp_ss_cancel() */
+
+	struct lws_ss_handle		*hss_html;
+
 	lws_display_scalar		curr;
 	lws_display_scalar		lowest_id_y;
 
@@ -581,6 +586,17 @@ lws_dlo_ss_find(struct lws_context *cx, const char *url, lws_dlo_image_t *u);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dlo_ss_assets_active(struct lws_context *cx);
+
+/**
+ * lws_dlo_ss_stop_any_active() - destroy all tracked document assets
+ *
+ * \param cx: the lws_context
+ *
+ * Destroys every document asset that is fetching or queued for a fetch
+ * slot, if any.  Used to tear a document down; see lws_lhp_ss_cancel().
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dlo_ss_stop_any_active(struct lws_context *cx);
 
 /*
  * The context dlo asset cache (see the dlo_asset_cache_dir member of

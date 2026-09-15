@@ -42,6 +42,10 @@ lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul)
 	lws_stateful_ret_t r;
 	size_t zero = 0;
 
+	if (m->lhp.cancelled)
+		/* the document was torn down under us */
+		return;
+
 	do {
 		if (lws_flow_feed(&m->flow)) {
 			lwsl_notice("%s: returning from flow_feed\n", __func__);
@@ -176,6 +180,8 @@ htmlss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		 * context's sul owner list pointing into freed memory
 		 */
 		lws_sul_cancel(&m->sul);
+		if (m->rs)
+			m->rs->hss_html = NULL;
 		m->lhp.sshtmlevsul = NULL;
 		m->lhp.sshtmlevcb = NULL;
 
@@ -233,6 +239,7 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 
 	m->rs = rs;
 	m->rs->html = 1; /* render must wait for html to complete */
+	rs->hss_html = h; /* for lws_lhp_ss_cancel() */
 
 	if (lws_lhp_construct(&m->lhp, lhp_displaylist_layout, &m->drt, rs->ic)) {
 		lwsl_err("%s: lhp create %s failed\n", __func__, url);
@@ -286,4 +293,35 @@ lws_lhp_ss_browse(struct lws_context *cx, lws_display_render_state_t *rs,
 		  const char *url, sul_cb_t render)
 {
 	return lws_lhp_ss_browse_filter(cx, rs, url, render, NULL);
+}
+
+void
+lws_lhp_ss_cancel(lws_display_render_state_t *rs)
+{
+	htmlss_t *m;
+	struct lws_ss_handle *h = rs->hss_html;
+
+	if (!h)
+		return;
+
+	m = (htmlss_t *)lws_ss_to_user_object(h);
+
+	/*
+	 * Mark the parse dead first, so destroying the document's assets
+	 * cannot resume it against render state that is about to go away
+	 * (the drain paths check ->cancelled).
+	 *
+	 * Then the assets are stopped while the html ss and its lhp are
+	 * still coherent for their teardown callbacks, the html ss is
+	 * destroyed (destructing the lhp), and finally any render that the
+	 * teardown had scheduled for the old document is cancelled.
+	 */
+
+	m->lhp.cancelled = 1;
+
+	lws_dlo_ss_stop_any_active(m->cx);
+
+	lws_ss_destroy(&h); /* rs->hss_html is cleared at DESTROYING */
+
+	lws_sul_cancel(&rs->sul);
 }

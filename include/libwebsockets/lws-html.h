@@ -723,6 +723,8 @@ typedef struct lhp_ctx {
 	uint8_t			is_css:1;
 	uint8_t			await_css_done:1;
 	uint8_t			await_assets:1; /* doc end deferred for dlo assets */
+	uint8_t			cancelled:1; /* document torn down: assets must
+					     * not resume the parse for it */
 
 	uint8_t			css_block_depth; /* inside applicable @media */
 	uint8_t			css_skip_depth;  /* skipping unusable @-rule */
@@ -831,8 +833,25 @@ lws_lhp_ss_browse(struct lws_context *cx, lws_display_render_state_t *rs,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_lhp_ss_browse_filter(struct lws_context *cx,
-			 lws_display_render_state_t *rs, const char *url,
-			 sul_cb_t render, const lws_lhp_filter_t *filter);
+				 lws_display_render_state_t *rs, const char *url,
+				 sul_cb_t render, const lws_lhp_filter_t *filter);
+
+/**
+ * lws_lhp_ss_cancel() - cancel and tear down the browse on a render state
+ *
+ * \param rs: the render state the document was browsed onto
+ *
+ * Stops the document bound to \p rs completely: destroys its html stream
+ * (including its lhp parse state), and stops any of its assets that are
+ * still fetching or queued.  Nothing further runs on \p rs for the old
+ * document; \p rs can be browsed again immediately afterwards.  It is
+ * meant for navigating away, or laying a document out again at a new size.
+ *
+ * Note it stops any assets active on the lws_context, so it suits the
+ * single-document-at-a-time render state usage.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_lhp_ss_cancel(lws_display_render_state_t *rs);
 
 /**
  * lws_lhp_parse() - parses a chunk of input HTML
