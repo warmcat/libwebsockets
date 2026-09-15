@@ -290,10 +290,12 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 {
 	size_t cache_size_limit = (size_t)lds->cache_size_limit;
 	char dirpath[132], filepath[132 + LWS_DISKCACHE_NAME_MAX];
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	int files_trimmed = 0;
+	size_t trimmed = 0;
+#endif
 	struct file_entry *p;
 	int fd, n, ret = -1;
-	size_t trimmed = 0;
 	struct dirent *de;
 	struct stat s;
 	DIR *dir;
@@ -453,20 +455,24 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 
 			if (!unlink(filepath)) {
 				lds->agg_size -= p->size;
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 				trimmed += p->size;
 				files_trimmed++;
+#endif
 			} else
 				lwsl_notice("%s: Failed to unlink %s\n",
 					    __func__, filepath);
 
 		} lws_end_foreach_dll_back(tail);
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 		if (files_trimmed)
 			lwsl_notice("%s: %s: trimmed %d files totalling "
 				    "%lldKib, leaving %lldMiB\n", __func__,
 				    lds->cache_dir_base, files_trimmed,
 				    ((unsigned long long)trimmed) / KIB,
 				    ((unsigned long long)lds->agg_size) / MIB);
+#endif
 	}
 
 	if (lds->agg_size && lds->agg_file_count)
