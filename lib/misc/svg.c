@@ -588,7 +588,6 @@ static int
 svg_transforms(const char *s, size_t len, svg_c_t out[6])
 {
 	const char *p = s, *end = s + len;
-	svg_c_t t[6], arg[6];
 	int na, i;
 
 	p = svg_ws(p, end);
@@ -596,6 +595,7 @@ svg_transforms(const char *s, size_t len, svg_c_t out[6])
 	while (p < end) {
 		char fn[16];
 		size_t fl = 0;
+		svg_c_t t[6], arg[6] = { 0 };
 
 		while (p < end && ((*p >= 'a' && *p <= 'z') ||
 				   (*p >= 'A' && *p <= 'Z')) &&

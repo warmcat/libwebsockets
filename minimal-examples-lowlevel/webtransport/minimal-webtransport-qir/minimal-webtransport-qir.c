@@ -889,7 +889,7 @@ dgr_rx_create(const char *name, size_t len, const char *endpoint, int req_index)
 
 	lws_snprintf(dirpath, sizeof(dirpath), "/downloads%s",
 		     endpoint[0] ? endpoint : "");
-	if (mkdir(dirpath, 0777) < 0 && errno != EEXIST) { // NOSONAR
+	if (mkdir(dirpath, 0755) < 0 && errno != EEXIST) {
 		lwsl_err("Failed to create directory %s: %d\n", dirpath, errno);
 		return NULL;
 	}
@@ -1597,7 +1597,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 
 				if (negotiated[0]) {
-					if (mkdir("/downloads", 0777) < 0 && errno != EEXIST) { // NOSONAR
+					if (mkdir("/downloads", 0755) < 0 && errno != EEXIST) {
 						lwsl_err("Failed to create /downloads: %d\n", errno);
 					}
 					int nfd = open("/downloads/negotiated_protocol.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -1680,7 +1680,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					ne[-1] = '\0';
 					ne--;
 				}
-				if (mkdir("/downloads", 0777) < 0 && errno != EEXIST) { // NOSONAR
+				if (mkdir("/downloads", 0755) < 0 && errno != EEXIST) {
 					lwsl_err("Failed to create /downloads: %d\n", errno);
 				}
 				int nfd = open("/downloads/negotiated_protocol.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -2103,7 +2103,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 								char dirpath[512];
 								const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
 								lws_snprintf(dirpath, sizeof(dirpath), "/downloads%s", endpoint);
-								if (mkdir(dirpath, 0777) < 0 && errno != EEXIST) { // NOSONAR
+								if (mkdir(dirpath, 0755) < 0 && errno != EEXIST) {
 									lwsl_err("Failed to create directory %s: %d\n", dirpath, errno);
 								}
 								lws_snprintf(pss->out_final, sizeof(pss->out_final),
@@ -2140,7 +2140,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 						char dirpath[512];
 						const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
 						lws_snprintf(dirpath, sizeof(dirpath), "/downloads%s", endpoint);
-						if (mkdir(dirpath, 0777) < 0 && errno != EEXIST) { // NOSONAR
+						if (mkdir(dirpath, 0755) < 0 && errno != EEXIST) {
 							lwsl_err("Failed to create directory %s: %d\n", dirpath, errno);
 						}
 						lws_snprintf(pss->out_final, sizeof(pss->out_final),

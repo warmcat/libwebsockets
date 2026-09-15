@@ -529,6 +529,9 @@ encode_case(const ccase_t *cc, const uint8_t *px, uint8_t **pdoc,
 
 	memset(&g, 0, sizeof(g));
 
+	if (!lct_pal || !gct_pal)
+		return 1;
+
 	/*
 	 * The colour table has 2^(bits+1) entries where bits is the packed
 	 * size field; with a power-of-two palette that is just ncolors.
@@ -544,10 +547,8 @@ encode_case(const ccase_t *cc, const uint8_t *px, uint8_t **pdoc,
 		mcs = 2;	/* spec floor; the table size stays as it is */
 
 	fill_palette(pal, cc->ncolors, 0);
-	if (gct_pal)
-		memcpy(gct_pal, pal, cc->ncolors * 3u);
-	if (lct_pal)
-		fill_palette(lct_pal, cc->ncolors, 90);
+	memcpy(gct_pal, pal, cc->ncolors * 3u);
+	fill_palette(lct_pal, cc->ncolors, 90);
 
 	/* header + logical screen descriptor */
 
@@ -812,6 +813,12 @@ run_case(const ccase_t *cc)
 	collect_t c;
 	int neord, ci;
 
+	if (!cc->sw || !cc->sh || !cc->iw || !cc->ih) {
+		CHK(0, "%s: degenerate geometry %ux%u / %ux%u", cc->name,
+		    cc->sw, cc->sh, cc->iw, cc->ih);
+		goto bail;
+	}
+
 	px = (uint8_t *)malloc((size_t)cc->iw * cc->ih);
 	exp = (uint8_t *)malloc((size_t)cc->sw * cc->sh);
 	eord = (uint8_t *)malloc(sizeof(int) * (cc->sh + cc->ih + 1));
@@ -839,6 +846,7 @@ run_case(const ccase_t *cc)
 		if (decode_all(doc, len, ch, &c)) {
 			CHK(0, "%s: decode harness (chunk %zu)",
 			    cc->name, ch);
+			collect_free(&c);
 			continue;
 		}
 
@@ -1762,7 +1770,7 @@ eyeball(const char *inpath, const char *outpath, uint32_t bg)
 
 	if (decode_all(doc, len, 4096, &c)) {
 		lwsl_user("%s: decode failed\n", __func__);
-		goto bail2;
+		goto bail3;
 	}
 
 	lwsl_user("%s: %zu bytes, %ux%u, %u rows, interlaced %d, "
