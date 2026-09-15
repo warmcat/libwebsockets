@@ -269,6 +269,8 @@ lws_qpack_encode_prefix(unsigned char *buf, size_t buf_len, uint64_t ric, uint64
 	uint8_t s_bit = 0;
 	
 	if (ric == 0) {
+		if (buf_len < 2)
+			return -1;
 		buf[0] = 0;
 		buf[1] = 0;
 		return 2;
@@ -410,6 +412,13 @@ lws_add_http3_header_status(struct lws *wsi, unsigned int code,
 	/* Prefix is required at the start of the header block! */
 	if (wsi) {
 		struct lws_qpack_tx_encoder *enc = wsi->h3.qpack_tx_encoder;
+
+		/*
+		 * Reserving the prefix must not push *p past end, or the
+		 * end - *p the header encoders get afterwards wraps
+		 */
+		if (lws_ptr_diff(end, *p) < 2)
+			return 1;
 		wsi->http.h3_prefix_ptr = *p;
 		*p += 2; /* Reserve space for exactly 2-byte prefix */
 		wsi->http.h3_req_ric = 0; /* Reset RIC for this block */
