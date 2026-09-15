@@ -1637,7 +1637,7 @@ write_ppm(const char *path, const collect_t *c)
 
 	n = lws_snprintf((char *)hdr, sizeof(hdr), "P6\n%u %u\n255\n",
 			 c->w, c->h);
-	if (write(fd, hdr, (size_t)n) < 0)
+	if (write(fd, hdr, LWS_POSIX_LENGTH_CAST(n)) < 0)
 		lwsl_err("%s: write failed\n", __func__);
 
 	for (y = 0; y < c->h; y++) {
@@ -1656,7 +1656,7 @@ write_ppm(const char *path, const collect_t *c)
 			}
 		}
 
-		if (write(fd, row, (size_t)c->w * 3) < 0)
+		if (write(fd, row, LWS_POSIX_LENGTH_CAST(c->w * 3)) < 0)
 			lwsl_err("%s: write failed\n", __func__);
 	}
 
@@ -1673,7 +1673,7 @@ dump_case(const ccase_t *cc, const uint8_t *doc, size_t len)
 	lws_snprintf(path, sizeof(path), "%s/%s.gif", dumpdir, cc->name);
 	fd = lws_open(path, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0644);
 	if (fd >= 0) {
-		if (write(fd, doc, len) < (ssize_t)len)
+		if (write(fd, doc, LWS_POSIX_LENGTH_CAST(len)) < (ssize_t)len)
 			lwsl_err("%s: write failed\n", __func__);
 		close(fd);
 	}
@@ -1744,7 +1744,7 @@ eyeball(const char *inpath, const char *outpath, uint32_t bg)
 		goto bail1;
 
 	while (len < EYEBALL_MAXDOC) {
-		n = read(fd, doc + len, EYEBALL_MAXDOC - len);
+		n = read(fd, doc + len, LWS_POSIX_LENGTH_CAST(EYEBALL_MAXDOC - len));
 		if (n < 0) {
 			lwsl_user("%s: read failed\n", __func__);
 			goto bail2;
@@ -1810,8 +1810,8 @@ eyeball(const char *inpath, const char *outpath, uint32_t bg)
 			}
 		}
 
-		if (write(outfd, row, (size_t)c.w * 3) < 0 ||
-		    (padlen && write(outfd, pad, (size_t)padlen) < 0))
+		if (write(outfd, row, LWS_POSIX_LENGTH_CAST(c.w * 3)) < 0 ||
+		    (padlen && write(outfd, pad, LWS_POSIX_LENGTH_CAST(padlen)) < 0))
 			lwsl_err("%s: write failed\n", __func__);
 
 		free(row);
