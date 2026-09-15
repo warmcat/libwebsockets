@@ -73,7 +73,12 @@ lws_cache_write_through(struct lws_cache_ttl_lru *cache,
 
 	while (n) {
 		n--;
-		r = levels[n]->info.ops->write(levels[n], specific_key,
+		/*
+		 * Aggregate the results from all levels, so a level that
+		 * refused the item (eg, a backing store payload size cap) is
+		 * not hidden by an inner level that accepted it
+		 */
+		r |= levels[n]->info.ops->write(levels[n], specific_key,
 						source, size, expiry, ppay);
 	}
 

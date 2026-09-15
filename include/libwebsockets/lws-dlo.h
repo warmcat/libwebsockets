@@ -582,6 +582,52 @@ lws_dlo_ss_find(struct lws_context *cx, const char *url, lws_dlo_image_t *u);
 LWS_VISIBLE LWS_EXTERN int
 lws_dlo_ss_assets_active(struct lws_context *cx);
 
+/*
+ * The context dlo asset cache (see the dlo_asset_cache_dir member of
+ * lws_context_creation_info) stores fetched image assets in a self-maintaining
+ * file-backed cache, so still-valid assets are reused instead of refetched.
+ */
+
+#if !defined(LWS_DLO_ASSET_BLOB_DEFAULT_MAX_FOOTPRINT)
+#define LWS_DLO_ASSET_BLOB_DEFAULT_MAX_FOOTPRINT	(64 * 1024 * 1024)
+/**< default max bytes on disk for the asset cache, when the context creation
+ * info gives 0 for dlo_asset_cache_max_footprint */
+#endif
+
+#if !defined(LWS_DLO_ASSET_BLOB_MAX_PAYLOAD)
+#define LWS_DLO_ASSET_BLOB_MAX_PAYLOAD		(16 * 1024 * 1024)
+/**< individual assets larger than this are not cached */
+#endif
+
+#if !defined(LWS_DLO_ASSET_L1_MAX_FOOTPRINT)
+#define LWS_DLO_ASSET_L1_MAX_FOOTPRINT		(8 * 1024 * 1024)
+/**< max heap bytes for the in-memory level of the asset cache */
+#endif
+
+#if !defined(LWS_DLO_ASSET_L1_MAX_ITEMS)
+#define LWS_DLO_ASSET_L1_MAX_ITEMS		256
+/**< max items in the in-memory level of the asset cache */
+#endif
+
+#if !defined(LWS_DLO_ASSET_CACHE_EXPIRY_S)
+#define LWS_DLO_ASSET_CACHE_EXPIRY_S		(24 * 60 * 60)
+/**< how long fetched assets stay valid in the cache, in seconds.  Set to 0
+ * to keep them until the cache needs the space (LRU eviction) */
+#endif
+
+/**
+ * lws_dlo_asset_cache() - get the context's document asset cache, if any
+ *
+ * \param cx: the lws_context
+ *
+ * Returns NULL if the context was created without dlo_asset_cache_dir, else
+ * the L1 cache handle of the context asset cache, for inspection or manual
+ * invalidation using the lws_cache_ttl apis.  The cache belongs to the
+ * context and is destroyed with it.
+ */
+LWS_VISIBLE LWS_EXTERN struct lws_cache_ttl_lru *
+lws_dlo_asset_cache(struct lws_context *cx);
+
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lhp_displaylist_layout(struct lhp_ctx *ctx, char reason);
 

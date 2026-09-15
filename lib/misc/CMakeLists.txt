@@ -48,6 +48,11 @@ if (LWS_WITH_NETWORK)
 			misc/cache-ttl/file.c)
 	endif()
 
+	if (LWS_WITH_CACHE_BLOB)
+		list(APPEND SOURCES
+			misc/cache-ttl/blob.c)
+	endif()
+
 endif()
 
 if (LWS_WITH_COMPRESSED_BACKTRACES)
@@ -142,8 +147,9 @@ if (LWS_WITH_DLO)
 endif()  #dlo
 
 # this is an older, standalone hashed disk cache
-# implementation unrelated to lws-cache-ttl
-if (LWS_WITH_DISKCACHE)
+# implementation unrelated to lws-cache-ttl... except the blob cache
+# level is a thin lws-cache-ttl wrapper on top of it
+if (LWS_WITH_DISKCACHE OR LWS_WITH_CACHE_BLOB)
 	list(APPEND SOURCES
 		misc/diskcache.c)
 endif()

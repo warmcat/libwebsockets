@@ -29,13 +29,15 @@ if (requirements)
 	# DLO tree dump compared with cases/NN-name.dlo (see lhp-dlo-case.cmake)
 	#
 
-	if (LWS_WITH_FILE_OPS AND NOT WIN32)
-		file(GLOB LHP_CASES ${CMAKE_CURRENT_SOURCE_DIR}/cases/*.html)
-		# 11-asset-queue gets its own entry below, with a small fd limit
-		# 13-adblock gets its own entry below, with the ad filter files
-		list(REMOVE_ITEM LHP_CASES
-				${CMAKE_CURRENT_SOURCE_DIR}/cases/11-asset-queue.html
-				${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.html)
+		if (LWS_WITH_FILE_OPS AND NOT WIN32)
+			file(GLOB LHP_CASES ${CMAKE_CURRENT_SOURCE_DIR}/cases/*.html)
+			# 11-asset-queue gets its own entry below, with a small fd limit
+			# 13-adblock gets its own entry below, with the ad filter files
+			# 14-asset-cache gets its own entry below, with the asset cache
+			list(REMOVE_ITEM LHP_CASES
+					${CMAKE_CURRENT_SOURCE_DIR}/cases/11-asset-queue.html
+					${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.html
+					${CMAKE_CURRENT_SOURCE_DIR}/cases/14-asset-cache.html)
 		foreach(C ${LHP_CASES})
 			get_filename_component(CN ${C} NAME_WE)
 			add_test(NAME api-test-lhp-dlo-${CN}
@@ -70,6 +72,23 @@ if (requirements)
 				-DCSS_FILTER=${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.css
 				-DBLOCK_LIST=${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.list
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+
+		if (LWS_WITH_CACHE_BLOB)
+			# with the asset cache enabled and bluecat.jpg preseeded
+			# into it under an unreachable url, the layout shows the
+			# image with its real dimensions from the cache with no
+			# network; the second image is not in the cache and fails
+			# as usual
+			add_test(NAME api-test-lhp-dlo-14-asset-cache
+				 COMMAND ${CMAKE_COMMAND}
+					-DTOOL=$<TARGET_FILE:${SAMP}>
+					-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/14-asset-cache.html
+					-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/cases/14-asset-cache.dlo
+					-DOUT=${CMAKE_CURRENT_BINARY_DIR}/14-asset-cache.dlo
+					-DASSET_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/14-asset-cache-scratch
+					-DPRESEED=https://missing.invalid/bluecat.jpg=${CMAKE_CURRENT_SOURCE_DIR}/bluecat.jpg
+					-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+		endif()
 
 		add_test(NAME api-test-lhp-dlo-test-html
 			 COMMAND ${CMAKE_COMMAND}

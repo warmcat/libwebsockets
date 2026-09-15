@@ -56,8 +56,13 @@ LWS_SS_USER_TYPEDEF
 	lws_sorted_usec_list_t		sul; /* used for initial metadata cb */
 	lws_dlo_image_t			u; /* we use the lws_flow_t in here */
 	lws_dll2_t			active_asset_list; /*cx->active_assets*/
+#if defined(LWS_WITH_CACHE_BLOB)
+	struct lws_buflist		*cache_bl; /* whole-payload mirror for
+						 * the asset cache */
+#endif
 	uint8_t				type; /* LWSDLOSS_TYPE_ */
 	uint8_t				inflight:1; /* holds a fetch slot */
+	uint8_t				no_cache:1; /* don't cache this asset */
 	uint8_t				hl; /* chars of url that are scheme://host */
 	char				url[LHP_URL_LEN];
 } dloss_t;
@@ -301,6 +306,11 @@ dlo_assets_kick(struct lws_context *cx)
  * buflist; gifs keep the whole payload retained separately, since an
  * interlaced gif must be re-decodeable from the start.  Returns nonzero on
  * failure.
+ *
+ * When the asset cache is active, also mirror the payload chunks as they
+ * arrive: the decoders consume the flow buflist incrementally, so by the time
+ * the payload has all arrived it can no longer be recovered from there for
+ * the cache write-through.
  */
 
 static int
@@ -308,6 +318,18 @@ dloss_rx_stash(dloss_t *m, const uint8_t *buf, size_t len)
 {
 	if (!len)
 		return 0;
+
+#if defined(LWS_WITH_CACHE_BLOB)
+	if (!m->no_cache && m->type != LWSDLOSS_TYPE_GIF &&
+	    lws_ss_get_context(m->ss)->dlo_asset_l1 && m->hl) {
+		if (lws_buflist_append_segment(&m->cache_bl, buf, len) < 0) {
+			/* we can't make a complete copy: don't cache a
+			 * partial payload */
+			lws_buflist_destroy_all_segments(&m->cache_bl);
+			m->no_cache = 1;
+		}
+	}
+#endif
 
 #if defined(LWS_WITH_GIF)
 	if (m->type == LWSDLOSS_TYPE_GIF)
@@ -317,6 +339,162 @@ dloss_rx_stash(dloss_t *m, const uint8_t *buf, size_t len)
 	return lws_buflist_append_segment(&m->u.u.dlo_jpeg->flow.bl,
 					  buf, len) < 0;
 }
+
+/*
+ * If the payload's magic doesn't match the decoder implied by the url, the
+ * server is lying about what it is sending: switch to the decoder the payload
+ * says it is.  The .flow is at the same offset in the dlo image subclasses.
+ * Returns nonzero if the switch could not be completed.
+ */
+
+static int
+dloss_magic_fixup(dloss_t *m)
+{
+	uint8_t *p;
+	size_t avail = lws_buflist_next_segment_len(&m->u.u.dlo_png->flow.bl, &p);
+
+	if (m->type == LWSDLOSS_TYPE_PNG && avail >= 2 &&
+	    p[0] == 0xff && p[1] == 0xd8) {
+		 lwsl_warn("%s: fixing up PNG -> JPG\n", __func__);
+		 lws_upng_free(&m->u.u.dlo_png->png);
+		 m->u.u.dlo_jpeg->j = lws_jpeg_new();
+		 if (!m->u.u.dlo_jpeg->j)
+			 return 1;
+
+		 m->u.u.dlo_jpeg->dlo.render = lws_display_render_jpeg;
+		 m->u.u.dlo_jpeg->dlo._destroy = lws_display_dlo_jpeg_destroy;
+		 m->type = LWSDLOSS_TYPE_JPEG;
+		 m->u.type = LWSDLOSS_TYPE_JPEG;
+	} else if (m->type == LWSDLOSS_TYPE_JPEG && avail >= 8 &&
+		   p[0] == 0x89 && p[1] == 0x50 && p[2] == 0x4e && p[3] == 0x47 &&
+		   p[4] == 0x0d && p[5] == 0x0a && p[6] == 0x1a && p[7] == 0x0a) {
+		 lwsl_warn("%s: fixing up JPG -> PNG\n", __func__);
+		 lws_jpeg_free(&m->u.u.dlo_jpeg->j);
+		 m->u.u.dlo_png->png = lws_upng_new();
+		 if (!m->u.u.dlo_png->png)
+			 return 1;
+
+		 m->u.u.dlo_png->dlo.render = lws_display_render_png;
+		 m->u.u.dlo_png->dlo._destroy = lws_display_dlo_png_destroy;
+		 m->type = LWSDLOSS_TYPE_PNG;
+		 m->u.type = LWSDLOSS_TYPE_PNG;
+	}
+
+	return 0;
+}
+
+#if defined(LWS_WITH_CACHE_BLOB)
+
+/*
+ * The asset payload has all arrived: write it through to the context asset
+ * cache, so it need not be fetched again while it is still valid
+ */
+
+static void
+dloss_cache_write(dloss_t *m, struct lws_context *cx)
+{
+	lws_usec_t expiry = lws_now_usecs() +
+			    (lws_usec_t)LWS_DLO_ASSET_CACHE_EXPIRY_S *
+					    LWS_US_PER_SEC;
+	size_t total, done = 0;
+	uint8_t *buf;
+
+	if (!cx->dlo_asset_l1 || m->no_cache || m->u.failed ||
+	    m->type == LWSDLOSS_TYPE_CSS || !m->hl)
+		return;
+
+#if defined(LWS_WITH_GIF)
+	if (m->type == LWSDLOSS_TYPE_GIF) {
+		/* the gif dlo retains its whole payload until it renders */
+
+		lws_dlo_gif_t *dg = m->u.u.dlo_gif;
+
+		if (dg->whole_len)
+			if (lws_cache_write_through(cx->dlo_asset_l1, m->url,
+						    dg->whole, dg->whole_len,
+						    expiry, NULL))
+				lwsl_cx_info(cx, "cache write failed: %s",
+					     m->url);
+
+		return;
+	}
+#endif
+
+	/* other image types were mirrored to cache_bl as they arrived */
+
+	total = lws_buflist_total_len(&m->cache_bl);
+	if (!total)
+		return;
+
+	buf = lws_malloc(total, __func__);
+	if (!buf)
+		return;
+
+	while (lws_buflist_next_segment_len(&m->cache_bl, NULL)) {
+		uint8_t *p;
+		size_t len = lws_buflist_next_segment_len(&m->cache_bl, &p);
+
+		memcpy(buf + done, p, len);
+		done += len;
+
+		lws_buflist_use_segment(&m->cache_bl, len);
+	}
+
+	if (lws_cache_write_through(cx->dlo_asset_l1, m->url, buf, total,
+				    expiry, NULL))
+		lwsl_cx_info(cx, "cache write failed: %s", m->url);
+
+	lws_free(buf);
+}
+
+/*
+ * A still-valid copy of the whole asset payload came from the cache.  Stash
+ * it and take the same steps as a fetch that just delivered its whole
+ * payload, so layout and render proceed identically with no network at all.
+ * Returns nonzero if the payload could not be used.
+ */
+
+static int
+dloss_cache_feed(dloss_t *m, const uint8_t *data, size_t size)
+{
+	struct lws_context *cx = lws_ss_get_context(m->ss);
+	lws_stateful_ret_t r;
+
+	if (dloss_rx_stash(m, data, size))
+		return 1;
+
+	/* nothing more is coming on this asset */
+
+	m->u.u.dlo_jpeg->flow.state = LWSDLOFLOW_STATE_READ_COMPLETED;
+
+	if (!lws_dlo_image_width(&m->u)) {
+		if (dloss_magic_fixup(m))
+			return 1;
+
+		lws_flow_feed(&m->u.u.dlo_jpeg->flow);
+		r = lws_dlo_image_metadata_scan(&m->u);
+		lws_flow_req(&m->u.u.dlo_jpeg->flow);
+
+		if (r & LWS_SRET_FATAL)
+			m->u.failed = 1;
+		else
+			if (r != LWS_SRET_WANT_INPUT)
+				/* settle the geometry before anyone can
+				 * observe it */
+				dlo_image_fill_missing_dims(&m->u);
+	}
+
+	/*
+	 * The html parse is stalled on these dimensions: the callback sets
+	 * them (or marks the asset failed) and resumes it
+	 */
+
+	lws_sul_schedule(cx, 0, &m->sul, lws_lhp_image_dimensions_cb, 1);
+
+	return 0;
+}
+
+#endif
 
 static lws_ss_state_return_t
 dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
@@ -377,7 +555,7 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	}
 
 	// lwsl_notice("%s: buflen size %d\n", __func__,
-	//		(int)lws_buflist_total_len(&m->u.u.dlo_jpeg->flow.bl));
+	//	(int)lws_buflist_total_len(&m->u.u.dlo_jpeg->flow.bl));
 
 	if (flags & LWSSS_FLAG_EOM) {
 		m->u.u.dlo_jpeg->flow.state = LWSDLOFLOW_STATE_READ_COMPLETED;
@@ -389,35 +567,17 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		m->inflight = 0;
 		dlo_assets_kick(lws_ss_get_context(m->ss));
 		dlo_assets_maybe_drained(lws_ss_get_context(m->ss), m->lhp);
+
+#if defined(LWS_WITH_CACHE_BLOB)
+		/* the payload is all here: it can go into the asset cache */
+
+		dloss_cache_write(m, lws_ss_get_context(m->ss));
+#endif
 	}
 
 	if (!lws_dlo_image_width(&m->u)) {
-		uint8_t *p;
-		size_t avail = lws_buflist_next_segment_len(&m->u.u.dlo_png->flow.bl, &p);
-
-		if (m->type == LWSDLOSS_TYPE_PNG && avail >= 2 && p[0] == 0xff && p[1] == 0xd8) {
-			 lwsl_warn("%s: fixing up PNG -> JPG\n", __func__);
-			 lws_upng_free(&m->u.u.dlo_png->png);
-			 m->u.u.dlo_jpeg->j = lws_jpeg_new();
-			 if (!m->u.u.dlo_jpeg->j) return LWSSSSRET_DISCONNECT_ME;
-
-			 m->u.u.dlo_jpeg->dlo.render = lws_display_render_jpeg;
-			 m->u.u.dlo_jpeg->dlo._destroy = lws_display_dlo_jpeg_destroy;
-			 m->type = LWSDLOSS_TYPE_JPEG;
-			 m->u.type = LWSDLOSS_TYPE_JPEG;
-		} else if (m->type == LWSDLOSS_TYPE_JPEG && avail >= 8 &&
-			   p[0] == 0x89 && p[1] == 0x50 && p[2] == 0x4e && p[3] == 0x47 &&
-			   p[4] == 0x0d && p[5] == 0x0a && p[6] == 0x1a && p[7] == 0x0a) {
-			 lwsl_warn("%s: fixing up JPG -> PNG\n", __func__);
-			 lws_jpeg_free(&m->u.u.dlo_jpeg->j);
-			 m->u.u.dlo_png->png = lws_upng_new();
-			 if (!m->u.u.dlo_png->png) return LWSSSSRET_DISCONNECT_ME;
-
-			 m->u.u.dlo_png->dlo.render = lws_display_render_png;
-			 m->u.u.dlo_png->dlo._destroy = lws_display_dlo_png_destroy;
-			 m->type = LWSDLOSS_TYPE_PNG;
-			 m->u.type = LWSDLOSS_TYPE_PNG;
-		}
+		if (dloss_magic_fixup(m))
+			return LWSSSSRET_DISCONNECT_ME;
 
 		lws_flow_feed(&m->u.u.dlo_jpeg->flow);
 		r = lws_dlo_image_metadata_scan(&m->u);
@@ -464,6 +624,9 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	case LWSSSCS_DESTROYING:
 		lws_sul_cancel(&m->sul);
+#if defined(LWS_WITH_CACHE_BLOB)
+		lws_buflist_destroy_all_segments(&m->cache_bl);
+#endif
 		/* it may be on either the active or the queued list */
 		lws_dll2_remove(&m->active_asset_list);
 		m->inflight = 0;
@@ -887,6 +1050,48 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 		lwsl_err("%s: unable to set endpoint\n", __func__);
 		goto fail;
 	}
+
+#if defined(LWS_WITH_CACHE_BLOB)
+	/*
+	 * If the cache has a still-valid copy of this asset, there is no need
+	 * for the network at all: feed the payload to the dlo the same way a
+	 * fetch that delivered everything would have, and complete the asset
+	 * out of the cache.  The ss handle was never connected, but it stays
+	 * on the active list like a completed fetch until its dlo goes away,
+	 * for url dedup.
+	 */
+
+	if (type != LWSDLOSS_TYPE_CSS && dloss->hl &&
+	    i->cx->dlo_asset_l1) {
+		const void *data;
+		size_t size;
+
+		if (!lws_cache_item_get(i->cx->dlo_asset_l1, rebased_url,
+					&data, &size)) {
+
+			/* it came from the cache: don't mirror it back */
+
+			dloss->no_cache = 1;
+
+			lws_dll2_add_tail(&dloss->active_asset_list,
+					  &i->cx->active_assets);
+
+			if (dloss_cache_feed(dloss, data, size)) {
+				lwsl_cx_warn(i->cx, "cache payload unusable: %s",
+					     rebased_url);
+				lws_dll2_remove(&dloss->active_asset_list);
+				goto fail;
+			}
+
+			lwsl_cx_notice(i->cx, "asset cache hit: %s (%u bytes)",
+				       rebased_url, (unsigned int)size);
+
+			*pdlo = dlo;
+
+			return 0;
+		}
+	}
+#endif
 
 	/*
 	 * Start it now if there's an in-flight slot.  Without a slot, the ss
