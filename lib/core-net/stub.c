@@ -759,7 +759,14 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 }
 
 #if defined(LWS_WITH_CLIENT)
-static const uint32_t backoff_ms[] = { 100, 250, 500, 1000, 5000 };
+/*
+ * Connect attempts to the stub's UDS listener while the child is still
+ * starting up.  Keep the cap modest: a slow TLS init in the child (~2s seen
+ * with GnuTLS loading the system CA bundle on a small aarch64 box) must not
+ * push the next attempt out beyond what a caller waiting a few seconds for
+ * the stub can tolerate.
+ */
+static const uint32_t backoff_ms[] = { 100, 250, 500, 1000, 1000 };
 
 static const lws_retry_bo_t stub_retry = {
 	.retry_ms_table			= backoff_ms,
