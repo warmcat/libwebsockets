@@ -3,4 +3,3 @@ rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
   text (0.0,0.0) [117.0 x 19.0] rgba=FF000000 f=17/400 "cached image below"
  jpeg (8.0,44.92) [600.0 x 448.0]
  rect (8.0,510.84) [384.0 x 0.0] rgba=00000000
- png (8.0,510.84) [0.0 x 0.0]
