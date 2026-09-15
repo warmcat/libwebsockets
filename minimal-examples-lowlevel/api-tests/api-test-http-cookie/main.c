@@ -16,6 +16,125 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+/*
+ * H1 header writer shrink test: each writer is reference-encoded to learn
+ * the length it needs, then handed every shorter length on an exact-size
+ * heap buffer (must never claim more than it was given, ASan fences any
+ * write past it), then the needed length plus headroom (must succeed
+ * with identical bytes).  wsi is NULL so only
+ * the wsi-independent writers can be covered here; the h2/h3 writers have
+ * their own coverage (hpack checks its total up front, api-test-qpack s7).
+ */
+static int sk_by_name(unsigned char *b, size_t l)
+{
+	unsigned char *p = b;
+
+	if (lws_add_http_header_by_name(NULL, (const unsigned char *)"x-trigger:",
+					(const unsigned char *)"value", 5, &p, b + l))
+		return -1;
+	return (int)(p - b);
+}
+static int sk_by_name_nocolon(unsigned char *b, size_t l)
+{
+	unsigned char *p = b;
+
+	if (lws_add_http_header_by_name(NULL, (const unsigned char *)"x-trigger",
+					(const unsigned char *)"value", 5, &p, b + l))
+		return -1;
+	return (int)(p - b);
+}
+static int sk_nameless(unsigned char *b, size_t l)
+{
+	unsigned char *p = b;
+
+	if (lws_add_http_header_by_name(NULL, NULL,
+					(const unsigned char *)"HTTP/1.1 200 OK", 15,
+					&p, b + l))
+		return -1;
+	return (int)(p - b);
+}
+static int sk_by_token(unsigned char *b, size_t l)
+{
+	unsigned char *p = b;
+
+	if (lws_add_http_header_by_token(NULL, WSI_TOKEN_HTTP_CONTENT_TYPE,
+					 (const unsigned char *)"text/html", 9,
+					 &p, b + l))
+		return -1;
+	return (int)(p - b);
+}
+static int sk_finalize(unsigned char *b, size_t l)
+{
+	unsigned char *p = b;
+
+	if (lws_finalize_http_header(NULL, &p, b + l))
+		return -1;
+	return (int)(p - b);
+}
+
+static const struct {
+	const char *name;
+	int (*enc)(unsigned char *b, size_t l);
+} shrink_cases[] = {
+	{ "by_name", sk_by_name }, { "by_name_nocolon", sk_by_name_nocolon },
+	{ "nameless", sk_nameless }, { "by_token", sk_by_token },
+	{ "finalize", sk_finalize },
+};
+
+static int
+shrink_test(void)
+{
+	int fails = 0;
+	size_t i, l;
+
+	for (i = 0; i < LWS_ARRAY_SIZE(shrink_cases); i++) {
+		unsigned char ref[256], *b;
+		int n, m;
+
+		memset(ref, 0, sizeof(ref));
+		n = shrink_cases[i].enc(ref, sizeof(ref));
+		if (n <= 0 || n > 200) {
+			lwsl_err("shrink %s: reference encode %d\n",
+				 shrink_cases[i].name, n);
+			fails++;
+			continue;
+		}
+
+		for (l = 0; l < (size_t)n; l++) {
+			b = malloc(l ? l : 1);
+			if (!b) { fails++; break; }
+			memset(b, 0x5a, l ? l : 1);
+			m = shrink_cases[i].enc(b, l);
+			/*
+			 * The H1 writers keep a few bytes of headroom for the
+			 * trailing CRLF / NUL, so refusing early is fine: the
+			 * class we fence is claiming more than was available
+			 * (and ASan catches any write past the allocation)
+			 */
+			if (m > (int)l) {
+				lwsl_err("shrink %s: len %u claimed %d, needs %d\n",
+					 shrink_cases[i].name, (unsigned int)l, m, n);
+				fails++;
+			}
+			free(b);
+		}
+
+		/* with the headroom available it must succeed identically */
+		b = malloc((size_t)n + 8);
+		if (!b) { fails++; continue; }
+		m = shrink_cases[i].enc(b, (size_t)n + 8);
+		if (m != n || memcmp(b, ref, (size_t)n)) {
+			lwsl_err("shrink %s: len %d+8 gave %d\n",
+				 shrink_cases[i].name, n, m);
+			fails++;
+		}
+		free(b);
+	}
+
+	return fails;
+}
 
 #define TAIL "; HttpOnly; SameSite=Lax; Secure"
 
@@ -142,12 +261,15 @@ int main(void)
 		fails++;
 	}
 
+	/* 8. H1 header writer shrink test */
+	fails += shrink_test();
+
 	if (fails) {
 		lwsl_err("Failed %d http-cookie tests\n", fails);
 		return 1;
 	}
 
-	lwsl_user("Completed: ALL OK, 7 tests\n");
+	lwsl_user("Completed: ALL OK, 8 tests\n");
 
 	return 0;
 }
