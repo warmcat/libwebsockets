@@ -8,6 +8,119 @@
  */
 
 #include <libwebsockets.h>
+#include <stdlib.h>
+
+/*
+ * Encoder shrink test wrappers: each encodes a fixed case into (buf, len),
+ * so the harness can hand every encoder every buffer length from 0 up to
+ * the length it needs and confirm it refuses without writing.
+ */
+static int sk_int(unsigned char *b, size_t l)
+{ return lws_qpack_encode_int(b, l, 300, 3, 0x20); }
+static int sk_string(unsigned char *b, size_t l)
+{ return lws_qpack_encode_string(b, l, "the quick brown fox", 19); }
+static int sk_prefix0(unsigned char *b, size_t l)
+{ return lws_qpack_encode_prefix(b, l, 0, 0, 0); }
+static int sk_prefix(unsigned char *b, size_t l)
+{ return lws_qpack_encode_prefix(b, l, 300, 5, 200); }
+static int sk_static(unsigned char *b, size_t l)
+{ return lws_qpack_encode_static(b, l, 98); }
+static int sk_nameref(unsigned char *b, size_t l)
+{ return lws_qpack_encode_literal_with_name_ref(b, l, 15, "OTHER", 5); }
+static int sk_litlit(unsigned char *b, size_t l)
+{ return lws_qpack_encode_literal_with_literal_name(b, l, "x-trigger", 9, "v", 1); }
+static int sk_ins_nameref(unsigned char *b, size_t l)
+{ return lws_qpack_tx_encode_insert_name_ref(b, l, 1, 70, "value", 5); }
+static int sk_ins_lit(unsigned char *b, size_t l)
+{ return lws_qpack_tx_encode_insert_literal(b, l, "x-custom-header-name-long", 25, "v", 1); }
+static int sk_cap(unsigned char *b, size_t l)
+{ return lws_qpack_tx_encode_set_capacity(b, l, 4096); }
+static int sk_dynidx(unsigned char *b, size_t l)
+{ return lws_qpack_tx_encode_dynamic_index(b, l, 200, 10); }
+static int sk_dynref(unsigned char *b, size_t l)
+{ return lws_qpack_tx_encode_dynamic_name_ref(b, l, 200, 10, "value", 5); }
+static int sk_status(unsigned char *b, size_t l)
+{
+	unsigned char *p = b;
+
+	/* wsi NULL = stateless prefix + :status via the **p / end API */
+	if (lws_add_http3_header_status(NULL, 404, &p, b + l))
+		return -1;
+	return (int)(p - b);
+}
+static int sk_by_name(unsigned char *b, size_t l)
+{
+	unsigned char *p = b;
+
+	if (lws_add_http3_header_by_name(NULL, (const unsigned char *)"x-trigger:",
+					 (const unsigned char *)"v", 1, &p, b + l))
+		return -1;
+	return (int)(p - b);
+}
+
+static const struct {
+	const char *name;
+	int (*enc)(unsigned char *b, size_t l);
+} shrink_cases[] = {
+	{ "int", sk_int }, { "string", sk_string },
+	{ "prefix0", sk_prefix0 }, { "prefix", sk_prefix },
+	{ "static", sk_static }, { "nameref", sk_nameref },
+	{ "litlit", sk_litlit }, { "ins_nameref", sk_ins_nameref },
+	{ "ins_lit", sk_ins_lit }, { "cap", sk_cap },
+	{ "dynidx", sk_dynidx }, { "dynref", sk_dynref },
+	{ "status", sk_status }, { "by_name", sk_by_name },
+};
+
+static int
+shrink_test(void)
+{
+	int fails = 0;
+	size_t i, l;
+
+	for (i = 0; i < LWS_ARRAY_SIZE(shrink_cases); i++) {
+		unsigned char ref[256], *b;
+		int n, m;
+
+		memset(ref, 0, sizeof(ref));
+		n = shrink_cases[i].enc(ref, sizeof(ref));
+		if (n <= 0 || n > 200) {
+			lwsl_err("shrink %s: reference encode %d\n",
+				 shrink_cases[i].name, n);
+			fails++;
+			continue;
+		}
+
+		/*
+		 * Every shorter exact-size heap buffer must be refused without
+		 * a write... ASan fences the allocation so any overrun aborts
+		 */
+		for (l = 0; l < (size_t)n; l++) {
+			b = malloc(l ? l : 1);
+			if (!b) { fails++; break; }
+			memset(b, 0x5a, l ? l : 1);
+			m = shrink_cases[i].enc(b, l);
+			if (m >= 0) {
+				lwsl_err("shrink %s: len %u accepted (%d), needs %d\n",
+					 shrink_cases[i].name, (unsigned int)l, m, n);
+				fails++;
+			}
+			free(b);
+		}
+
+		/* ...and the exact length must succeed with the same bytes */
+		b = malloc((size_t)n);
+		if (!b) { fails++; continue; }
+		m = shrink_cases[i].enc(b, (size_t)n);
+		if (m != n || memcmp(b, ref, (size_t)n)) {
+			lwsl_err("shrink %s: exact len %d gave %d\n",
+				 shrink_cases[i].name, n, m);
+			fails++;
+		}
+		free(b);
+	}
+
+	return fails;
+}
 #include <string.h>
 #include <fcntl.h>
 #if defined(WIN32) || defined(_WIN32)
@@ -885,6 +998,9 @@ int main(int argc, const char **argv)
 		memset(&state, 0, sizeof(state));
 		lws_qpack_decode_header_block(&state, NULL, test_block, sizeof(test_block), test_qpack_cb, &fails);
 	}
+
+	/* 7. Encoder shrink test */
+	fails += shrink_test();
 
 #if defined(LWS_WITH_LS_QPACK)
 	/* 6. ls-qpack Differential Round-Trip Test */
