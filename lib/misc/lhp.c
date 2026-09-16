@@ -2181,8 +2181,19 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 		size_t n = 0;
 		int inb = 0;
 
-		while (p < end && *p != ',')
-			p++;
+		/* a comma inside :where(...) / :is(...) / :not(...) is part
+		 * of that selector, not a list separator */
+		{
+			int depth = 0;
+
+			while (p < end && (*p != ',' || depth)) {
+				if (*p == '(')
+					depth++;
+				if (*p == ')' && depth)
+					depth--;
+				p++;
+			}
+		}
 		e = p;
 		if (p < end)
 			p++;
