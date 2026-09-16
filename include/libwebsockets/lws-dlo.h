@@ -358,6 +358,10 @@ typedef struct lws_display_render_state {
 	lws_display_scalar		lowest_id_y;
 
 	char				html;
+	char				retained; /* nonzero: keep DLOs when the
+						* render cursor passes them, so
+						* the display list can be re-
+						* scanned at other offsets */
 
 } lws_display_render_state_t;
 
@@ -597,6 +601,21 @@ lws_dlo_ss_assets_active(struct lws_context *cx);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dlo_ss_stop_any_active(struct lws_context *cx);
+
+/**
+ * lws_dlo_ss_renew_images() - reset tracked images for a re-scan
+ *
+ * \param cx: the lws_context
+ *
+ * Image decode state only moves forwards, but a retained display list can
+ * be re-scanned at a different vertical offset (eg, an interactive
+ * viewport scrolling).  This re-stashes each tracked image's payload from
+ * the document asset cache and gives it a fresh decoder, so the next scan
+ * can decode the rows the viewport wants.  Images not in the cache are
+ * left as they are.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_dlo_ss_renew_images(struct lws_context *cx);
 
 /*
  * The context dlo asset cache (see the dlo_asset_cache_dir member of

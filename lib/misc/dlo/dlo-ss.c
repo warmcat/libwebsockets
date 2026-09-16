@@ -1249,7 +1249,81 @@ fail:
 #endif
 
 
-LWS_VISIBLE int
+#if defined(LWS_WITH_CACHE_BLOB)
+/*
+ * Renew the tracked images from the asset cache: a retained display list
+ * can be re-scanned at a different vertical offset, but image decode
+ * state only moves forwards.  Re-stashing the cached payload and giving
+ * the dlo a fresh decoder lets the next scan decode the rows the viewport
+ * wants, from the top, without any relayout.
+ */
+
+LWS_VISIBLE void
+lws_dlo_ss_renew_images(struct lws_context *cx)
+{
+	if (!cx->dlo_asset_l1)
+		return;
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&cx->active_assets)) {
+		dloss_t *ds = lws_container_of(d, dloss_t, active_asset_list);
+		const void *data;
+		size_t size;
+
+		if (!ds->u.u.dlo_png || !ds->hl)
+			continue;
+
+		if (lws_cache_item_get(cx->dlo_asset_l1, ds->url, &data, &size))
+			/* not in the cache: it will render as far as its
+			 * decode state allows */
+			continue;
+
+		switch (ds->type) {
+		case LWSDLOSS_TYPE_JPEG:
+			lws_buflist_destroy_all_segments(
+					&ds->u.u.dlo_jpeg->flow.bl);
+			if (!lws_buflist_append_segment(
+					&ds->u.u.dlo_jpeg->flow.bl,
+					data, size)) {
+				lws_jpeg_free(&ds->u.u.dlo_jpeg->j);
+				ds->u.u.dlo_jpeg->j = lws_jpeg_new();
+				ds->u.u.dlo_jpeg->flow.state =
+						LWSDLOFLOW_STATE_READ_COMPLETED;
+			}
+			break;
+
+		case LWSDLOSS_TYPE_PNG:
+			lws_buflist_destroy_all_segments(
+					&ds->u.u.dlo_png->flow.bl);
+			if (!lws_buflist_append_segment(
+					&ds->u.u.dlo_png->flow.bl,
+					data, size)) {
+				lws_upng_free(&ds->u.u.dlo_png->png);
+				ds->u.u.dlo_png->png = lws_upng_new();
+				ds->u.u.dlo_png->flow.state =
+						LWSDLOFLOW_STATE_READ_COMPLETED;
+			}
+			break;
+
+#if defined(LWS_WITH_GIF)
+		case LWSDLOSS_TYPE_GIF:
+			/* the retained payload was freed at frame end: take
+			 * it back from the cache and retarget to the top */
+
+			ds->u.u.dlo_gif->pos = 0;
+			ds->u.u.dlo_gif->whole_done = 0;
+			lws_display_dlo_gif_rx(ds->u.u.dlo_gif, data, size);
+			break;
+#endif
+
+		default:
+			break;
+		}
+	} lws_end_foreach_dll_safe(d, d1);
+}
+#endif
+
+int
 lws_dlo_ss_stop_any_active(struct lws_context *cx)
 {
 #if defined(LWS_WITH_SECURE_STREAMS)

@@ -484,12 +484,21 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 
 		lws_fx_add(&t2, &co.y, &dlo->box.h);
 
+		/*
+		 * A streaming render destroys DLOs once the cursor has
+		 * passed below them, to bound memory on small targets.  A
+		 * retained render (eg, an interactive viewport that will be
+		 * re-scanned at other vertical offsets) must keep them, but
+		 * either way there is no need to descend into them
+		 */
+
 		if (rs->curr > lws_fx_roundup(&t2) && dlo->box.h.whole > 3) {
 			d = lws_dll2_get_next(&dlo->list);
 			rs->st[rs->sp].dlo = d ? lws_container_of(d, lws_dlo_t,
 								list) : NULL;
 
-			lws_display_dlo_destroy(&dlo);
+			if (!rs->retained)
+				lws_display_dlo_destroy(&dlo);
 			continue;
 		}
 
