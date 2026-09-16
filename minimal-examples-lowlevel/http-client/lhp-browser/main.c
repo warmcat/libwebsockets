@@ -77,6 +77,7 @@ static void render(lws_sorted_usec_list_t *sul);
 
 static const char *shot_path;
 static const char *browse_url;
+static char nav_url[256]; /* browse_url when a link was followed */
 
 /*
  * While the window edge is dragged, relayouts run adaptively: a short
@@ -113,6 +114,7 @@ static const char *browse_url;
 static void win_scan_start(void);
 static void win_scan_cb(lws_sorted_usec_list_t *sul);
 static void win_shot_cb(lws_sorted_usec_list_t *sul);
+static void win_relayout(void);
 
 /*
  * The height offered to the layout: --doc-h pins it, else a few viewports
@@ -517,6 +519,36 @@ lhp_browser_click(int x, int y)
 {
 	int dy = y + win.scroll_y;
 	lws_display_id_t *hit = NULL;
+	lws_dlo_hit_t *h;
+	lws_box_t hb;
+
+	/*
+	 * The layout leaves a non-printing hit region on every link's text
+	 * runs, images and boxes: find the topmost one under the click,
+	 * resolve its href against the document url and go there
+	 */
+
+	h = lws_display_dl_hit_test(&drs.displaylist, x, dy, &hb);
+	if (h) {
+		char url[256];
+
+		if (lws_http_rel_to_url(url, sizeof(url), browse_url, h->url))
+			lws_strncpy(url, h->url, sizeof(url));
+
+		lwsl_user("click at %d,%d: link '%s' -> %s (doc box %d,%d "
+			  "%dx%d)\n", x, y, h->url, url, (int)hb.x.whole,
+			  (int)hb.y.whole, (int)hb.w.whole, (int)hb.h.whole);
+
+		if (win.active && strcmp(url, browse_url)) {
+			lws_strncpy(nav_url, url, sizeof(nav_url));
+			browse_url = nav_url;
+			/* a fresh document: lay it out from the top */
+			win.scan_done = 0;
+			win_relayout();
+		}
+
+		return;
+	}
 
 	lws_start_foreach_dll(lws_dll2_t *, d, lws_dll2_get_head(&drs.ids)) {
 		lws_display_id_t *id = lws_container_of(d, lws_display_id_t, list);
