@@ -29,8 +29,92 @@
 #include <malloc.h>
 
 /* the heap is processwide */
-static size_t allocated;
+static size_t allocated, heap_limit;
 #endif
+
+/*
+ * Reclaimable heap occupants, processwide like the heap.  LRU order: the
+ * head is the least recently used.
+ */
+
+static lws_dll2_owner_t reclaimables;
+static char in_reclaim;
+
+void
+lws_reclaimable_add(lws_reclaimable_t *r)
+{
+	lws_dll2_add_tail(&r->list, &reclaimables);
+}
+
+void
+lws_reclaimable_remove(lws_reclaimable_t *r)
+{
+	lws_dll2_remove(&r->list);
+}
+
+void
+lws_reclaimable_touch(lws_reclaimable_t *r)
+{
+	if (!lws_dll2_is_detached(&r->list)) {
+		lws_dll2_remove(&r->list);
+		lws_dll2_add_tail(&r->list, &reclaimables);
+	}
+}
+
+void
+lws_reclaimable_pin(lws_reclaimable_t *r)
+{
+	r->pins++;
+}
+
+void
+lws_reclaimable_unpin(lws_reclaimable_t *r)
+{
+	if (r->pins)
+		r->pins--;
+}
+
+size_t
+lws_reclaim(size_t want)
+{
+	size_t freed = 0;
+
+	/*
+	 * A tenant's evict() must not allocate; if one does and that fails,
+	 * it gets a plain NULL rather than a nested reclaim
+	 */
+	if (in_reclaim)
+		return 0;
+	in_reclaim = 1;
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&reclaimables)) {
+		lws_reclaimable_t *r = lws_container_of(d, lws_reclaimable_t,
+							list);
+
+		if (freed >= want)
+			break;
+
+		if (r->pins || !r->resident || !r->evict)
+			continue;
+
+		freed += r->evict(r);
+	} lws_end_foreach_dll_safe(d, d1);
+
+	in_reclaim = 0;
+
+	return freed;
+}
+
+void
+lws_heap_limit_set(size_t bytes)
+{
+#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
+	heap_limit = bytes;
+#else
+	(void)bytes;
+#endif
+}
 
 #if defined(LWS_WITH_ALLOC_METADATA_LWS)
 static lws_dll2_owner_t active;
@@ -151,14 +235,36 @@ _realloc(void *ptr, size_t size, const char *reason)
 			allocated -= malloc_usable_size(ptr);
 #endif
 
-#if defined(LWS_PLAT_OPTEE)
-		v = (void *)TEE_Realloc(ptr, size);
-#else
-		v = (void *)realloc(ptr, size);
-#endif
+		/*
+		 * If the platform can't give us the memory, ask the
+		 * reclaimable heap occupants to give some back and try
+		 * again, until it works or nothing more can be reclaimed.
+		 * The caller then sees only a successful allocation.
+		 */
 
-		if (!v)
-			return v;
+		for (;;) {
+#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
+			if (heap_limit && allocated + size > heap_limit)
+				v = NULL;
+			else
+#endif
+#if defined(LWS_PLAT_OPTEE)
+			v = (void *)TEE_Realloc(ptr, size);
+#else
+			v = (void *)realloc(ptr, size);
+#endif
+			if (v)
+				break;
+
+			if (!lws_reclaim(size)) {
+#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
+				/* the old block is still ours */
+				if (ptr)
+					allocated += malloc_usable_size(ptr);
+#endif
+				return NULL;
+			}
+		}
 
 #if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
 		allocated += malloc_usable_size(v);

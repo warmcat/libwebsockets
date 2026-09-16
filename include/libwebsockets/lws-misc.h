@@ -1200,6 +1200,89 @@ struct lws *lws_get_network_wsi(struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN void
 lws_set_allocator(void *(*realloc)(void *ptr, size_t size, const char *reason));
 
+/*
+ * Reclaimable heap occupants
+ *
+ * Something that keeps bytes on the heap it could recreate from storage
+ * later (a font's dictionary, an image's payload and decoder state) can
+ * register as reclaimable.  When an allocation fails, the allocator asks the
+ * least recently used unpinned occupants to evict what they hold, and then
+ * retries: the code that wanted the memory, however deep in the stack, sees
+ * only a successful allocation.  The occupant notices it is no longer
+ * resident the next time it is touched and reloads then.
+ *
+ * evict() is called from inside the failed allocation, so it may only free
+ * things, unlink list nodes and set flags: it must not allocate, and must
+ * not destroy anything another part of the stack holds a pointer to.  An
+ * occupant that is in use right now (a decoder mid-row, glyphs attached to
+ * text being rendered) pins itself for the duration so it is skipped.
+ */
+
+typedef struct lws_reclaimable {
+	lws_dll2_t		list;	/* LRU: oldest at the head */
+
+	/**
+	 * evict() - free what can be recreated later; returns bytes freed
+	 */
+	size_t			(*evict)(struct lws_reclaimable *r);
+
+	size_t			resident; /* bytes evict() could free now */
+	uint16_t		pins;	  /* nonzero: in use, not evictable */
+} lws_reclaimable_t;
+
+/**
+ * lws_reclaimable_add() - register a heap occupant (as the most recently used)
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_reclaimable_add(lws_reclaimable_t *r);
+
+/**
+ * lws_reclaimable_remove() - unregister; the occupant is being destroyed
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_reclaimable_remove(lws_reclaimable_t *r);
+
+/**
+ * lws_reclaimable_touch() - the occupant was used: it is the most recently used now
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_reclaimable_touch(lws_reclaimable_t *r);
+
+/**
+ * lws_reclaimable_pin() - the occupant is in use: not evictable until unpinned
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_reclaimable_pin(lws_reclaimable_t *r);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_reclaimable_unpin(lws_reclaimable_t *r);
+
+/**
+ * lws_reclaim() - ask unpinned occupants, least recently used first, to evict
+ *
+ * \param want: bytes to try to free
+ *
+ * Returns the bytes freed, which may be short of want.  The allocator calls
+ * this itself when an allocation fails; it can also be called ahead of
+ * something known to need a lot of heap at once.
+ */
+LWS_VISIBLE LWS_EXTERN size_t
+lws_reclaim(size_t want);
+
+/**
+ * lws_heap_limit_set() - simulate a small heap
+ *
+ * \param bytes: the most lws allocations may hold at once, 0 for no limit
+ *
+ * On platforms where lws accounts its allocations (glibc), an allocation
+ * that would take the total past the limit fails as if the platform had run
+ * out, triggering reclaim and, if that can't help, returning NULL.  For
+ * driving the out-of-memory paths on a development box with the heap a
+ * constrained target has.  No effect elsewhere.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_heap_limit_set(size_t bytes);
+
 enum {
 	/*
 	 * Flags for enable and disable rxflow with reason bitmap and with
@@ -1442,7 +1525,8 @@ lws_dir_glob_cb(const char *dirpath, void *user, struct lws_dir_entry *lde);
  *
  * On other platforms, it always returns 0.
  */
-size_t lws_get_allocated_heap(void);
+LWS_VISIBLE LWS_EXTERN size_t
+lws_get_allocated_heap(void);
 
 /**
  * lws_get_tsi() - Get thread service index wsi belong to
