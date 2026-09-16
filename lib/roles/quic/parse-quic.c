@@ -246,6 +246,36 @@ lws_quic_rx_deliver_protocol(struct lws *nwsi, struct lws *wsi_child,
 	return 0;
 }
 
+#if defined(LWS_ROLE_H3)
+/*
+ * Deliver in-order stream data to h3.  Nonzero from lws_h3_rx_stream_data()
+ * means either the h3 layer closed the stream (or whole connection) itself,
+ * or the http-level callback refused the data and wants the stream closed,
+ * the same as the raw-protocol case above: it must be honoured via
+ * close_after_rx, not just dropped, or an SS returning DISCONNECT_ME from
+ * its rx on an h3 stream never sees DISCONNECTED.
+ */
+static int
+lws_quic_rx_deliver_h3(struct lws *nwsi, struct lws *wsi_child,
+		       struct lws_quic_stream *qs, const uint8_t *buf,
+		       size_t len)
+{
+	uint64_t sid = qs ? qs->stream_id : 0;
+
+	if (!lws_h3_rx_stream_data(wsi_child, buf, len))
+		return 0;
+
+	if (!qs || lws_quic_stream_find(nwsi, sid) != wsi_child)
+		/* already gone */
+		return 1;
+
+	lwsl_wsi_info(wsi_child, "QUIC RX: h3 asked to close stream");
+	qs->close_after_rx = 1;
+
+	return 1;
+}
+#endif
+
 /*
  * QUIC RX Reassembly Engine
  *
@@ -311,9 +341,9 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 			lwsl_wsi_info(wsi_child, "QUIC RX: rx_reassemble for stream ID, role_ops=%p, role_ops_h3=%p, len=%d", wsi_child ? wsi_child->role_ops : NULL, &role_ops_h3, (int)len);
 			if (wsi_child && wsi_child->role_ops == &role_ops_h3) {
 				lwsl_wsi_info(wsi_child, "QUIC RX: Delivering %d bytes to H3!", (int)len);
-				if (lws_h3_rx_stream_data(wsi_child, buf, len)) {
+				if (lws_quic_rx_deliver_h3(nwsi, wsi_child, qs,
+							   buf, len))
 					wsi_child = NULL;
-				}
 			} else
 #endif
 			if (wsi_child && wsi_child->a.protocol && wsi_child->a.protocol->callback) {
@@ -415,9 +445,9 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 #if defined(LWS_ROLE_H3)
 						if (wsi_child->role_ops == &role_ops_h3) {
 							lwsl_wsi_info(wsi_child, "QUIC RX: Delivering chunk %d bytes to H3!", (int)c->len);
-							if (lws_h3_rx_stream_data(wsi_child, c->data, c->len)) {
+							if (lws_quic_rx_deliver_h3(nwsi, wsi_child, qs,
+										   c->data, c->len))
 								wsi_child = NULL;
-							}
 						} else
 #endif
 						if (wsi_child->a.protocol && wsi_child->a.protocol->callback) {

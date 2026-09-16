@@ -15,7 +15,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int bad = 1, status;
+static int bad = 1, status, refuse_body;
 static struct lws_context *context;
 static struct lws *client_wsi;
 static int _argc;
@@ -54,6 +54,17 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		lwsl_user("RECEIVE_CLIENT_HTTP_READ: read %d\n", (int)len);
+		if (refuse_body) {
+			/*
+			 * --refuse-body: reject the first body chunk the way
+			 * an SS returning DISCONNECT_ME does.  The h3 stream
+			 * must then actually close, so we see CLOSED and not
+			 * COMPLETED, without waiting for any timeout
+			 */
+			lwsl_user("refusing body: expecting CLOSED\n");
+			refuse_body = 2;
+			return -1;
+		}
 		return 0; /* don't passthru */
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
@@ -71,6 +82,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP\n");
 		lws_default_loop_exit(context);
 		bad = status != 200;
+		if (refuse_body) {
+			lwsl_err("refused body but transaction completed\n");
+			bad = 4;
+		}
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
 
@@ -79,6 +94,9 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_default_loop_exit(context);
 		if (bad == 1)
 			bad = status != 200;
+		if (refuse_body == 2)
+			/* closed after we refused the body: that's the pass */
+			bad = 0;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
 
@@ -182,6 +200,8 @@ int main(int argc, const char **argv)
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	lwsl_user("LWS minimal http client h3\n");
+
+	refuse_body = !!lws_cmdline_option(argc, argv, "--refuse-body");
 
 	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */

@@ -50,6 +50,15 @@ if (requirements)
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-h3
 				     FIXTURES_REQUIRED "hc_h3_srv"
 				     TIMEOUT 30)
+
+		# the callback refusing body data must close the h3 stream
+		# promptly (CLOSED, not COMPLETED, and not the idle timeout)
+		add_test(NAME minimal-http-client-h3-refuse COMMAND lws-minimal-http-client-h3 -l --refuse-body --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_H3_SRV})
+		set_tests_properties(minimal-http-client-h3-refuse
+				     PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-h3
+				     FIXTURES_REQUIRED "hc_h3_srv"
+				     TIMEOUT 8)
 	endif()
 	target_include_directories(lws-minimal-http-client-h3 PRIVATE /lib)
 endif()
