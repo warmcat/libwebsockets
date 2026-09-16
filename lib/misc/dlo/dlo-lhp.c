@@ -492,7 +492,7 @@ lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
 	}
 
 	lws_fx_set(shift, 0, 0);
-	if (!c->shrink) {
+	if (!c->shrink && !c->in_shrink) {
 		a = lws_css_get_prop_atr_ps(ctx, c, LCSP_PROP_TEXT_ALIGN);
 		if (a && a->unit == LCSP_UNIT_NONE) {
 			lws_fx_sub(&t, &c->cw, &c->curx);
@@ -1336,6 +1336,12 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 			x = ml;
 			lws_fx_sub(&w, &c->cw, &ml);
 			lws_fx_sub(&w, &w, &mr);
+			/*
+			 * Our width is provisional too if the container's
+			 * is: it is corrected when the container closes, so
+			 * text-align can't be applied against it meanwhile
+			 */
+			ps->in_shrink = c->shrink || c->in_shrink;
 		}
 		break;
 	}
