@@ -1251,6 +1251,23 @@ fail:
 
 #if defined(LWS_WITH_CACHE_BLOB)
 /*
+ * Drop a flow's stashed payload and forget where the decoder had got to
+ * in it.  The cursor (data / len / blseglen) refers to the segment being
+ * consumed: left as it was, lws_flow_feed() would either hand the new
+ * decoder a pointer into the freed segment, or use up that many bytes of
+ * the replacement payload before it saw any of it
+ */
+
+static void
+dloss_flow_restart(lws_flow_t *flow)
+{
+	lws_buflist_destroy_all_segments(&flow->bl);
+	flow->data = NULL;
+	//flow->len = 0;
+	//flow->blseglen = 0;
+}
+
+/*
  * Renew the tracked images from the asset cache: a retained display list
  * can be re-scanned at a different vertical offset, but image decode
  * state only moves forwards.  Re-stashing the cached payload and giving
@@ -1280,8 +1297,7 @@ lws_dlo_ss_renew_images(struct lws_context *cx)
 
 		switch (ds->type) {
 		case LWSDLOSS_TYPE_JPEG:
-			lws_buflist_destroy_all_segments(
-					&ds->u.u.dlo_jpeg->flow.bl);
+			dloss_flow_restart(&ds->u.u.dlo_jpeg->flow);
 			if (lws_buflist_append_segment(
 					&ds->u.u.dlo_jpeg->flow.bl,
 					data, size) < 0)
@@ -1306,8 +1322,7 @@ lws_dlo_ss_renew_images(struct lws_context *cx)
 			break;
 
 		case LWSDLOSS_TYPE_PNG:
-			lws_buflist_destroy_all_segments(
-					&ds->u.u.dlo_png->flow.bl);
+			dloss_flow_restart(&ds->u.u.dlo_png->flow);
 			if (lws_buflist_append_segment(
 					&ds->u.u.dlo_png->flow.bl,
 					data, size) < 0)
