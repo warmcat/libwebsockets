@@ -33,6 +33,13 @@ LWS_SS_USER_TYPEDEF
 	lws_dl_rend_t			drt;
 	lws_display_render_state_t	*rs;
 	struct lws_context		*cx;
+#if defined(LWS_WITH_CACHE_BLOB)
+	struct lws_buflist		*cache_bl; /* whole-doc mirror for the
+						 * asset cache */
+	char				url[LHP_URL_LEN]; /* cache key */
+#endif
+	uint8_t				no_cache:1; /* don't cache this doc */
+	uint8_t				from_cache:1; /* fed from the cache */
 } htmlss_t;
 
 static void
@@ -107,6 +114,49 @@ lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul)
 		}
 	} while (1);
 
+#if defined(LWS_WITH_CACHE_BLOB)
+	/*
+	 * The document payload is all here: it can go into the asset cache,
+	 * so the next browse of the same url does not need the network
+	 */
+
+	if (m->cache_bl && !m->no_cache && *m->url) {
+		size_t total = lws_buflist_total_len(&m->cache_bl), done = 0;
+		uint8_t *buf = lws_malloc(total, __func__);
+
+		if (!buf)
+			goto cache_done;
+
+		while (lws_buflist_next_segment_len(&m->cache_bl, NULL)) {
+			uint8_t *p;
+			size_t cl = lws_buflist_next_segment_len(&m->cache_bl, &p);
+
+			memcpy(buf + done, p, cl);
+			done += cl;
+
+			lws_buflist_use_segment(&m->cache_bl, cl);
+		}
+
+		if (lws_cache_write_through(
+				lws_ss_get_context(m->ss)->dlo_asset_l1,
+				m->url, buf, total,
+				lws_now_usecs() +
+					(lws_usec_t)LWS_DLO_ASSET_CACHE_EXPIRY_S *
+							LWS_US_PER_SEC,
+				NULL))
+			lwsl_cx_info(lws_ss_get_context(m->ss),
+				     "doc cache write failed: %s", m->url);
+		else
+			lwsl_cx_notice(lws_ss_get_context(m->ss),
+				       "doc cached: %s (%u bytes)", m->url,
+				       (unsigned int)total);
+
+		lws_free(buf);
+	}
+cache_done:
+	lws_buflist_destroy_all_segments(&m->cache_bl);
+#endif
+
 	/* Finalize the html parse and clean up */
 
 	lwsl_notice("%s: DESTROYING the lhp\n", __func__);
@@ -144,6 +194,25 @@ htmlss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	    lws_buflist_append_segment(&m->flow.bl, buf, len) < 0)
 		return LWSSSSRET_DISCONNECT_ME;
 
+#if defined(LWS_WITH_CACHE_BLOB)
+	/*
+	 * When the document asset cache is active, keep a copy of the
+	 * document payload for the write-through at document end: the parse
+	 * consumes the flow buflist as it goes
+	 */
+
+	if (len && !m->no_cache && !m->from_cache &&
+	    lws_ss_get_context(m->ss)->dlo_asset_l1 && *m->url &&
+	    strncmp(m->url, "file://", 7)) {
+		if (lws_buflist_append_segment(&m->cache_bl, buf, len) < 0) {
+			/* we can't make a complete copy: don't cache a
+			 * partial document */
+			lws_buflist_destroy_all_segments(&m->cache_bl);
+			m->no_cache = 1;
+		}
+	}
+#endif
+
 	lwsl_notice("%s: buflen size %d\n", __func__,
 			(int)lws_buflist_total_len(&m->flow.bl));
 
@@ -180,6 +249,9 @@ htmlss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		 * context's sul owner list pointing into freed memory
 		 */
 		lws_sul_cancel(&m->sul);
+#if defined(LWS_WITH_CACHE_BLOB)
+		lws_buflist_destroy_all_segments(&m->cache_bl);
+#endif
 		if (m->rs)
 			m->rs->hss_html = NULL;
 		m->lhp.sshtmlevsul = NULL;
@@ -268,6 +340,39 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 		lwsl_err("%s: failed to use metadata ua\n", __func__);
 		goto bail2;
 	}
+
+#if defined(LWS_WITH_CACHE_BLOB)
+	/*
+	 * If the cache still has a copy of this document, it can be fed to
+	 * the parser through the same path the network rx uses, and the
+	 * network is not needed at all.  The handle is never connected, and
+	 * completes by itself when the parse reaches the document end.
+	 */
+
+	lws_strncpy(m->url, url, sizeof(m->url));
+
+	if (cx->dlo_asset_l1 && strncmp(url, "file://", 7)) {
+		const void *d;
+		size_t l;
+
+		if (!lws_cache_item_get(cx->dlo_asset_l1, url, &d, &l)) {
+			m->from_cache = 1;
+
+			if (lws_buflist_append_segment(&m->flow.bl, d, l) < 0)
+				goto bail2;
+
+			m->flow.state = LWSDLOFLOW_STATE_READ_COMPLETED;
+
+			lwsl_cx_notice(cx, "doc cache hit: %s (%u bytes)",
+				       url, (unsigned int)l);
+
+			lws_sul_schedule(cx, 0, &m->sul,
+					 lws_lhp_ss_html_parse, 1);
+
+			return 0;
+		}
+	}
+#endif
 
 	if (lws_ss_set_metadata(m->ss, "acc", "text/html,image/jpeg,image/png,", 30)) {
 		lwsl_err("%s: failed to use metadata ua\n", __func__);

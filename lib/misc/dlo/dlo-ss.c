@@ -59,6 +59,8 @@ LWS_SS_USER_TYPEDEF
 #if defined(LWS_WITH_CACHE_BLOB)
 	struct lws_buflist		*cache_bl; /* whole-payload mirror for
 						 * the asset cache */
+	uint8_t				*cache_hit; /* deferred css feed */
+	size_t				cache_hit_len;
 #endif
 	uint8_t				type; /* LWSDLOSS_TYPE_ */
 	uint8_t				inflight:1; /* holds a fetch slot */
@@ -402,8 +404,7 @@ dloss_cache_write(dloss_t *m, struct lws_context *cx)
 	size_t total, done = 0;
 	uint8_t *buf;
 
-	if (!cx->dlo_asset_l1 || m->no_cache || m->u.failed ||
-	    m->type == LWSDLOSS_TYPE_CSS || !m->hl)
+	if (!cx->dlo_asset_l1 || m->no_cache || m->u.failed || !m->hl)
 		return;
 
 #if defined(LWS_WITH_GIF)
@@ -499,6 +500,34 @@ dloss_cache_feed(dloss_t *m, const uint8_t *data, size_t size)
 
 #endif
 
+#if defined(LWS_WITH_CACHE_BLOB)
+/*
+ * A cached stylesheet's payload is fed through the css rx path from the
+ * event loop, not from inside lws_dlo_ss_create: create happens in the
+ * middle of the html parse, and parsing the css synchronously would
+ * reenter lws_lhp_parse on shared state
+ */
+
+static lws_ss_state_return_t
+dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags);
+
+static void
+dloss_css_cache_feed_cb(lws_sorted_usec_list_t *sul)
+{
+	dloss_t *m = lws_container_of(sul, dloss_t, sul);
+	struct lws_ss_handle *h = m->ss;
+
+	dloss_rx(m, m->cache_hit, m->cache_hit_len, LWSSS_FLAG_EOM);
+
+	lws_free_set_NULL(m->cache_hit);
+
+	/* the css rx removed us from the active list at EOM; the handle
+	 * has no dlo and no further purpose */
+
+	lws_ss_destroy(&h);
+}
+#endif
+
 static lws_ss_state_return_t
 dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
@@ -516,6 +545,19 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		int awaited = m->lhp->await_css_done &&
 			      !strcmp(m->url, m->lhp->await_css_url);
 
+#if defined(LWS_WITH_CACHE_BLOB)
+		/* mirror the stylesheet payload for the cache write-through
+		 * at EOM, like image rx chunks are */
+
+		if (len && !m->no_cache &&
+		    lws_ss_get_context(m->ss)->dlo_asset_l1 && m->hl) {
+			if (lws_buflist_append_segment(&m->cache_bl, buf, len) < 0) {
+				lws_buflist_destroy_all_segments(&m->cache_bl);
+				m->no_cache = 1;
+			}
+		}
+#endif
+
 		if (awaited)
 			m->lhp->finish_css = !!(flags & LWSSS_FLAG_EOM);
 		m->lhp->is_css = 1;
@@ -527,6 +569,12 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 			/* the slot is free before the ss winds down */
 			dlo_assets_kick(lws_ss_get_context(m->ss));
 			dlo_assets_maybe_drained(lws_ss_get_context(m->ss), m->lhp);
+
+#if defined(LWS_WITH_CACHE_BLOB)
+			/* the stylesheet payload is all here: cache it */
+
+			dloss_cache_write(m, lws_ss_get_context(m->ss));
+#endif
 		}
 
 		if (r & LWS_SRET_FATAL)
@@ -1058,24 +1106,50 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 #if defined(LWS_WITH_CACHE_BLOB)
 	/*
 	 * If the cache has a still-valid copy of this asset, there is no need
-	 * for the network at all: feed the payload to the dlo the same way a
-	 * fetch that delivered everything would have, and complete the asset
-	 * out of the cache.  The ss handle was never connected, but it stays
+	 * for the network at all.  Images are fed to the dlo the same way a
+	 * fetch that delivered everything would have, completing the asset
+	 * out of the cache; the ss handle was never connected, but it stays
 	 * on the active list like a completed fetch until its dlo goes away,
-	 * for url dedup.
+	 * for url dedup.  Stylesheets are pushed through the css rx path
+	 * with EOM, so the parse and the await machinery behave exactly as
+	 * they do for a fetched stylesheet, and the handle is destroyed
+	 * when that completes.
 	 */
 
-	if (type != LWSDLOSS_TYPE_CSS && dloss->hl &&
-	    i->cx->dlo_asset_l1) {
+	if (dloss->hl && i->cx->dlo_asset_l1) {
 		const void *data;
 		size_t size;
 
 		if (!lws_cache_item_get(i->cx->dlo_asset_l1, rebased_url,
 					&data, &size)) {
 
-			/* it came from the cache: don't mirror it back */
-
 			dloss->no_cache = 1;
+
+			if (type == LWSDLOSS_TYPE_CSS) {
+				/* the payload is only valid until we return
+				 * to the event loop: take a copy */
+
+				dloss->cache_hit = lws_malloc(size, __func__);
+				if (!dloss->cache_hit)
+					goto fail;
+				memcpy(dloss->cache_hit, data, size);
+				dloss->cache_hit_len = size;
+
+				lws_dll2_add_tail(&dloss->active_asset_list,
+						  &i->cx->active_assets);
+
+				lws_sul_schedule(i->cx, 0, &dloss->sul,
+						 dloss_css_cache_feed_cb, 1);
+
+				lwsl_cx_notice(i->cx,
+					       "asset cache hit (css): %s "
+					       "(%u bytes)",
+					       rebased_url, (unsigned int)size);
+
+				*pdlo = NULL;
+
+				return 0;
+			}
 
 			lws_dll2_add_tail(&dloss->active_asset_list,
 					  &i->cx->active_assets);
