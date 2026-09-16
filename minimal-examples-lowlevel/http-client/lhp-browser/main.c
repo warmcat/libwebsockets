@@ -324,6 +324,12 @@ static const uint8_t fira_c_b_16[] = {
 static const uint8_t fira_c_b_20[] = {
 #include "../../contrib/mcufont/fonts/FiraSansCondensed-Bold20.mcufont.h"
 };
+static const uint8_t fira_c_b_24[] = {
+#include "../../contrib/mcufont/fonts/FiraSansCondensed-Bold24.mcufont.h"
+};
+static const uint8_t fira_c_b_32[] = {
+#include "../../contrib/mcufont/fonts/FiraSansCondensed-Bold32.mcufont.h"
+};
 
 static void
 write_bmp_header(int fd, int w, int h)
@@ -1204,6 +1210,8 @@ main(int argc, const char **argv)
 	lws_font_register(cx, fira_c_b_14, sizeof(fira_c_b_14));
 	lws_font_register(cx, fira_c_b_16, sizeof(fira_c_b_16));
 	lws_font_register(cx, fira_c_b_20, sizeof(fira_c_b_20));
+	lws_font_register(cx, fira_c_b_24, sizeof(fira_c_b_24));
+	lws_font_register(cx, fira_c_b_32, sizeof(fira_c_b_32));
 
 	drs.ic = &ic;
 
