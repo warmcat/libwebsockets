@@ -207,7 +207,15 @@ lhp_container(lhp_pstack_t *ps)
 static void
 lhp_static_pos(lhp_pstack_t *psa, lhp_pstack_t *c, lws_fx_t *sx, lws_fx_t *sy)
 {
-	lhp_pstack_t *p = c;
+	/*
+	 * With a positioned ancestor the box is parented on it, so the
+	 * static position is the flow position summed up the containers
+	 * between.  Without one it stays parented on its container until
+	 * the document completes, when lhp_raise_positioned() moves it to
+	 * the body adding the containers' offsets itself: summing them here
+	 * as well placed it twice as far down
+	 */
+	lhp_pstack_t *p = psa ? c : NULL;
 	lws_fx_t dx, dy;
 
 	lws_fx_set(dx, 0, 0);
