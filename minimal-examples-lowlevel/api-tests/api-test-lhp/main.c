@@ -118,8 +118,8 @@ static const char * const html_tests[] = {
 	/* named entities from the HTML 4.01 Latin-1, symbol and special
 	 * sets in body text, mixed with numeric ones */
 
-	"<html><body>Dr Alp&ouml;ge &euro;5 &ldquo;x&rdquo; &Omega;&amp;&#233;"
-	"&nbsp;&iexcl;&yuml;&bogus;</body></html>"
+	("<html><body>Dr Alp&ouml;ge &euro;5 &ldquo;x&rdquo; &Omega;&amp;&#233;"
+	 "&nbsp;&iexcl;&yuml;&bogus;</body></html>")
 };
 
 /* the last test's body text, once the entities are expanded to utf-8 */
