@@ -1337,6 +1337,24 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 	lws_lhp_tag_dlo_id(ctx, ps, ps->dlo);
 	lhp_set_dlo_padding_margin(ps, ps->dlo);
 
+	/*
+	 * Our css background image was created when we were parsed, before
+	 * this dlo existed, and parked on the parent block at the cursor.
+	 * Now we have a box of our own, draw it inside that at its
+	 * background-position offset, so it goes wherever the line layout
+	 * puts us: parked, an icon in an inline-block sat at the block's
+	 * top-left instead of on the line with its text.  A dlo shared
+	 * between two elements using the same image stays with the first.
+	 */
+
+	if (ps->bg_dlo && !ps->bg_dlo->flag_bg_homed) {
+		lws_dll2_remove(&ps->bg_dlo->list);
+		lws_dll2_add_head(&ps->bg_dlo->list, &ps->dlo->children);
+		ps->bg_dlo->box.x = ps->bg_ox;
+		ps->bg_dlo->box.y = ps->bg_oy;
+		ps->bg_dlo->flag_bg_homed = 1;
+	}
+
 	ps->is_block = 1;
 	ps->is_table = type == LHP_BOX_TABLE;
 	ps->ox = pl;

@@ -3758,6 +3758,8 @@ elem_start:
 
 				lws_fx_add(&box.x, &box.x, &ox);
 				lws_fx_add(&box.y, &box.y, &oy);
+				ps->bg_ox = ox;
+				ps->bg_oy = oy;
 			}
 
 				memset(&u, 0, sizeof(u));
@@ -3797,6 +3799,10 @@ elem_start:
 						lwsl_cx_info(cx, "Created SS for %s\n", url);
 						if (ctx->npos == 3 && !strncmp(ctx->buf, "img", 3))
 							ps->dlo = dlo;
+						else if (aa)
+							/* homed into our own dlo
+							 * by the layout */
+							ps->bg_dlo = dlo;
 					}
 				} else {
 					// lwsl_cx_warn(cx, "Found in-progress %s\n", url);
@@ -3813,13 +3819,15 @@ elem_start:
 					 * again.  Auto sides (0) keep what the
 					 * image dimensions callback resolved
 					 */
-					if (aa && u.u.dlo_png) {
+					if (aa && u.u.dlo_png &&
+					    !u.u.dlo_png->dlo.flag_bg_homed) {
 						u.u.dlo_png->dlo.box.x = box.x;
 						u.u.dlo_png->dlo.box.y = box.y;
 						if (box.w.whole)
 							u.u.dlo_png->dlo.box.w = box.w;
 						if (box.h.whole)
 							u.u.dlo_png->dlo.box.h = box.h;
+						ps->bg_dlo = &u.u.dlo_png->dlo;
 					}
 				}
 

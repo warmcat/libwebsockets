@@ -487,6 +487,16 @@ typedef struct lhp_pstack {
 	lws_dlo_t			*dlo;
 	const lws_display_font_t	*font;
 
+	/*
+	 * A css background-image on this element: its dlo is created when
+	 * the element is parsed, before the layout has made the element's
+	 * own dlo, so it is parked on the parent block and then moved into
+	 * the element's dlo at (bg_ox, bg_oy) when that exists
+	 */
+	lws_dlo_t			*bg_dlo;
+	lws_fx_t			bg_ox;
+	lws_fx_t			bg_oy;
+
 } lhp_pstack_t;
 
 typedef enum lcsp_css_units {
