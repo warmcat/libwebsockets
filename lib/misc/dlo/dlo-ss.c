@@ -50,6 +50,8 @@
 #define LWS_DLO_MAX_CONCURRENT_PER_HOST	4
 
 LWS_SS_USER_TYPEDEF
+	struct lws_context		*cx; /* m->ss is already NULL by
+					      * the time DESTROYING arrives */
 	sul_cb_t			on_rx;
 	lhp_ctx_t			*lhp;
 	lws_sorted_usec_list_t		*ssevsul; /* sul to use to resume rz */
@@ -718,8 +720,8 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		/* it may be on either the active or the queued list */
 		lws_dll2_remove(&m->active_asset_list);
 		m->inflight = 0;
-		dlo_assets_kick(lws_ss_get_context(m->ss));
-		dlo_assets_maybe_drained(lws_ss_get_context(m->ss), m->lhp);
+		dlo_assets_kick(m->cx);
+		dlo_assets_maybe_drained(m->cx, m->lhp);
 		break;
 
 	case LWSSSCS_UNREACHABLE:
@@ -1081,6 +1083,7 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 	}
 
 	dloss = (dloss_t *)lws_ss_to_user_object(h);
+	dloss->cx = i->cx;
 	dloss->u.type = (lws_dlo_image_type_t)type;
 	dloss->on_rx = i->on_rx;
 	dloss->ssevsul = i->on_rx_sul;
