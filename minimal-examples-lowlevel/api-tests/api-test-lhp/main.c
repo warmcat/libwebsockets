@@ -113,8 +113,26 @@ static const char * const html_tests[] = {
 	 * url: must leave the element empty rather than deref the (absent)
 	 * context or assert on the (empty) base url */
 
-	"<html><head></head><body><img src=\"file://x\"></body></html>"
+	"<html><head></head><body><img src=\"file://x\"></body></html>",
+
+	/* named entities from the HTML 4.01 Latin-1, symbol and special
+	 * sets in body text, mixed with numeric ones */
+
+	"<html><body>Dr Alp&ouml;ge &euro;5 &ldquo;x&rdquo; &Omega;&amp;&#233;"
+	"&nbsp;&iexcl;&yuml;&bogus;</body></html>"
 };
+
+/* the last test's body text, once the entities are expanded to utf-8 */
+
+#define ENTITY_TEST_IDX (LWS_ARRAY_SIZE(html_tests) - 1)
+static const char * const entity_expect =
+	"Dr Alp\xc3\xb6ge \xe2\x82\xac" "5 \xe2\x80\x9cx\xe2\x80\x9d "
+	"\xce\xa9&\xc3\xa9\xc2\xa0\xc2\xa1\xc3\xbf&bogus;";
+
+/* the content arrives in pieces, one per entity: collect it */
+
+static char content_acc[128];
+static size_t content_len;
 
 static unsigned int m, step;
 
@@ -154,6 +172,12 @@ test_cb(lhp_ctx_t *ctx, char reason)
 
 	printf("{ %s, %u, \"%.*s\", %u, { ", cb_reasons[(unsigned int)reason], ctx->npos, ctx->npos, ctx->buf, lws_dll2_count(
 		&ps->atr));
+
+	if (m == ENTITY_TEST_IDX && reason == LHPCB_CONTENT &&
+	    content_len + (size_t)ctx->npos < sizeof(content_acc)) {
+		memcpy(content_acc + content_len, ctx->buf, (size_t)ctx->npos);
+		content_len += (size_t)ctx->npos;
+	}
 
 	if (reason == LHPCB_ELEMENT_START || reason == LHPCB_ELEMENT_END) {
 		lws_dll2_foreach_safe(&ps->atr, NULL, dump_atr);
@@ -332,6 +356,14 @@ main(int argc, const char **argv)
 
 	if (e)
 		goto bail;
+
+	if (content_len != strlen(entity_expect) ||
+	    memcmp(content_acc, entity_expect, content_len)) {
+		lwsl_err("%s: entity expansion mismatch\n", __func__);
+		lwsl_hexdump_err(content_acc, content_len);
+		lwsl_hexdump_err(entity_expect, strlen(entity_expect));
+		goto bail;
+	}
 
 	lwsl_user("Completed: PASS\n");
 
