@@ -798,6 +798,11 @@ typedef struct lhp_ctx {
 						  * 1-based @layer index */
 	uint8_t			css_layer_depth; /* css_block_depth of the
 						  * open @layer block */
+	uint8_t			css_lhs_partial:1; /* stanza already created
+						    * for an overlong selector
+						    * list */
+	uint8_t			css_lhs_skip:1;	 /* selector too long: skip
+						  * its block */
 
 	/* at end so we can memset members above it in one go */
 

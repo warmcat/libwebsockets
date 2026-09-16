@@ -5117,6 +5117,26 @@ done_amp:
 					ctx->npos--;
 				ctx->buf[ctx->npos] = '\0';
 
+				if (ctx->css_lhs_skip) {
+					/* one selector didn't fit: lose
+					 * this stanza, not the sheet */
+					ctx->css_lhs_skip = 0;
+					ctx->css_skip_depth = 1;
+					ctx->state = LCSPS_CSS_SKIP_BLOCK;
+					ctx->npos = 0;
+					break;
+				}
+
+				if (ctx->css_lhs_partial) {
+					/* the stanza exists already with the
+					 * selectors that were flushed */
+					ctx->css_lhs_partial = 0;
+					if (lhp_css_add_names(ctx, ctx->buf,
+							(size_t)ctx->npos))
+						goto oom;
+					goto stanza_body;
+				}
+
 				if (ctx->npos && ctx->buf[0] == '@') {
 					/*
 					 * @media we can evaluate, @supports
@@ -5185,6 +5205,7 @@ done_amp:
 
 				lws_dll2_add_tail(&ctx->stz->list, &ctx->css);
 
+stanza_body:
 				ctx->npos = 0;
 				ctx->state = LCSPS_CSS_STANZA;
 				ctx->cssval_state = 0;
@@ -5222,9 +5243,51 @@ done_amp:
 			/* otherwise let's collect the selector text, with
 			 * whitespace collapsed to single spaces */
 
+			if (ctx->css_lhs_skip)
+				/* discarding an unusable selector */
+				break;
+
 			if (ctx->npos >= LHP_STRING_CHUNK) {
-				lwsl_err("%s: css lhs too long\n", __func__);
-				return LWS_SRET_FATAL;
+				/*
+				 * Minified resets can have selector lists
+				 * far longer than the buffer.  Flush the
+				 * complete selectors before the last comma
+				 * on to the stanza now and carry on
+				 * collecting; a single selector that can't
+				 * fit loses its stanza only.
+				 */
+				int k = ctx->npos;
+
+				while (k && ctx->buf[k - 1] != ',')
+					k--;
+
+				if (!k) {
+					lwsl_warn("%s: css selector too long\n",
+						  __func__);
+					ctx->css_lhs_skip = 1;
+					ctx->css_lhs_partial = 0;
+					ctx->npos = 0;
+					break;
+				}
+
+				if (!ctx->css_lhs_partial) {
+					ctx->stz = lwsac_use_zero(&ctx->cssac,
+							  sizeof(*ctx->stz),
+							  LHP_AC_GRANULE);
+					if (!ctx->stz)
+						goto oom;
+					lws_dll2_add_tail(&ctx->stz->list,
+							  &ctx->css);
+					ctx->css_lhs_partial = 1;
+				}
+
+				if (lhp_css_add_names(ctx, ctx->buf,
+						      (size_t)k - 1))
+					goto oom;
+
+				memmove(ctx->buf, ctx->buf + k,
+					(size_t)(ctx->npos - k));
+				ctx->npos -= k;
 			}
 
 			if (hspace(c)) {
