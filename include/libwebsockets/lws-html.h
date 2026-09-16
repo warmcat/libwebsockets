@@ -422,6 +422,7 @@ typedef struct lhp_pstack {
 	lws_fx_t			maxc;	 /* max-content width so far */
 	lws_fx_t			minc;	 /* min-content width so far */
 	lws_fx_t			nowrap;	 /* width of current line if unwrapped */
+	lws_fx_t			rfloat_w; /* width taken by right floats on line */
 	lws_fx_t			pend_mb; /* last block child's bottom margin */
 	int32_t				abs_y;	 /* approx surface y of our box top */
 	uint16_t			idx;	 /* list item / table cell counter */
@@ -474,6 +475,7 @@ typedef struct lhp_pstack {
 	uint8_t				is_ilevel:1; /* inline-level box (inline-block) */
 	uint8_t				is_abs:1;    /* absolutely positioned */
 	uint8_t				is_float:1;
+	uint8_t				is_float_right:1;
 	uint8_t				shrink:1;    /* width decided by content at close */
 	uint8_t				in_shrink:1; /* auto width inside a shrinking container */
 	uint8_t				has_line:1;  /* a line is being built */

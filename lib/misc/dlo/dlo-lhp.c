@@ -432,6 +432,7 @@ lhp_line_reset(lhp_pstack_t *c)
 	lws_fx_set(c->curx, 0, 0);
 	lws_fx_set(c->line_h, 0, 0);
 	lws_fx_set(c->nowrap, 0, 0);
+	lws_fx_set(c->rfloat_w, 0, 0);
 	c->line_first = NULL;
 	c->line_asc = 0;
 	c->line_desc = 0;
@@ -1146,6 +1147,7 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 		     fl->propval == LCSP_PROPVAL_RIGHT)) {
 			ps->is_ilevel = 1;
 			ps->is_float = 1;
+			ps->is_float_right = fl->propval == LCSP_PROPVAL_RIGHT;
 		}
 	}
 
@@ -1702,6 +1704,32 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 		/* an item on the container's line */
 		lws_fx_add(&t, &ml, &w);
 		lws_fx_add(&t, &t, &mr);
+
+		if (ps->is_float_right && !c->shrink && !c->in_shrink) {
+			/*
+			 * A right float goes against the container's right
+			 * edge, or the left of any right float already on
+			 * the line, and doesn't move the inline cursor.  The
+			 * line's other content doesn't (yet) shorten to make
+			 * room for it.  In a shrink-to-fit container the
+			 * right edge isn't known yet, but that container
+			 * ends up just as wide as its line, so the float is
+			 * against its right edge as an ordinary last item
+			 */
+			lws_fx_add(&ps->dlo->box.x, &c->ox, &c->cw);
+			lws_fx_sub(&ps->dlo->box.x, &ps->dlo->box.x,
+				   &c->rfloat_w);
+			lws_fx_sub(&ps->dlo->box.x, &ps->dlo->box.x, &mr);
+			lws_fx_sub(&ps->dlo->box.x, &ps->dlo->box.x, &w);
+			lws_fx_add(&ps->dlo->box.y, &c->oy, &c->cury);
+			lws_fx_add(&c->rfloat_w, &c->rfloat_w, &t);
+
+			lhp_relative_offset(ps, &base);
+
+			lhp_line_item(c, ps->dlo, &fx_0, &ps->dlo->box.h);
+			c->minc = lhp_fx_max(&c->minc, &t);
+			return;
+		}
 
 		lws_fx_add(&t1, &c->curx, &t);
 		if (c->curx.whole > 0 && lws_fx_comp(&t1, &c->cw) > 0)
