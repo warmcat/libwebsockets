@@ -253,6 +253,9 @@ struct lws_quic_stream {
 	uint64_t		advertised_rx_max_data;
 	uint64_t		rx_window_size;
 	uint64_t		highest_rx_offset;
+	uint64_t		rx_credited; /* bytes of ours the app consumed
+					      * and we credited back to the
+					      * connection window */
 	lws_usec_t		last_rx_update_us;
 	
 	uint64_t		rx_final_size;

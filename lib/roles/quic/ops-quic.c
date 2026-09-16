@@ -4019,6 +4019,50 @@ lws_quic_stream_cleanup(struct lws *wsi)
 	}
 	wsi->quic.qs->rx_buffered = 0;
 
+	/*
+	 * Give the connection-level flow control window back whatever this
+	 * stream took from it that the application never consumed (the
+	 * credit-back in rops_tx_credit_quic() only happens on delivery):
+	 * data still buffered here, data dropped because the app refused it
+	 * (close_after_rx), and, for a stream we abandon with STOP_SENDING,
+	 * whatever the peer may still legitimately send or claim as the
+	 * final size in its RESET_STREAM, which is bounded by the stream's
+	 * advertised limit.  Without this each abandoned stream permanently
+	 * eats its unread bytes out of the 1MB connection window, and after
+	 * a few of them the peer is flow-control blocked on every later
+	 * stream of the connection, which then look like silent hangs.
+	 */
+	if (nwsi && nwsi != wsi && qn) {
+		uint64_t bound = wsi->quic.qs->fin_received ?
+					wsi->quic.qs->highest_rx_offset :
+					wsi->quic.qs->rx_max_data;
+
+		/*
+		 * If we are abandoning the stream before its FIN, the peer
+		 * will still count everything it had in flight for it, and
+		 * the final size in its RESET_STREAM, against the connection
+		 * window: but those arrive for a stream we no longer know and
+		 * are dropped.  Pre-account the most it can legally claim now,
+		 * so our view of what the peer has used doesn't fall behind
+		 * the peer's own and leave us thinking it has plenty of window
+		 * left while it sits DATA_BLOCKED and never gets a MAX_DATA.
+		 * The credit-back below covers the same amount, so this can't
+		 * push highest_rx_offset over rx_max_data.
+		 */
+		if (bound > wsi->quic.qs->highest_rx_offset)
+			qn->highest_rx_offset += bound -
+						 wsi->quic.qs->highest_rx_offset;
+
+		if (bound > wsi->quic.qs->rx_credited) {
+			uint64_t back = bound - wsi->quic.qs->rx_credited;
+
+			if (back > (uint64_t)INT32_MAX)
+				back = INT32_MAX;
+			wsi->quic.qs->rx_credited = bound;
+			lws_wsi_tx_credit(nwsi, LWSTXCR_PEER_TO_US, (int)back);
+		}
+	}
+
 	/* 2. Purge pending and in-flight TX frames for this stream from parent network connection */
 	if (qn) {
 		uint64_t sid = wsi->quic.qs->stream_id;
@@ -4389,6 +4433,7 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 			lws_usec_t now = lws_now_usecs();
 
 			if (wsi->quic.qs) {
+				wsi->quic.qs->rx_credited += (uint64_t)(add > 0 ? add : 0);
 				wsi->quic.qs->rx_max_data += (uint64_t)(add > 0 ? add : 0);
 				uint64_t ungranted = 0;
 				if (wsi->quic.qs->advertised_rx_max_data > wsi->quic.qs->highest_rx_offset)

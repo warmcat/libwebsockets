@@ -269,6 +269,14 @@ lws_quic_rx_deliver_h3(struct lws *nwsi, struct lws *wsi_child,
 		/* already gone */
 		return 1;
 
+	if (nwsi->quic.qn && nwsi->quic.qn->is_closing)
+		/*
+		 * h3 took the whole connection down (eg, H3_MESSAGE_ERROR):
+		 * a stream-level RESET / STOP_SENDING queued now would go
+		 * out ahead of the CONNECTION_CLOSE and hide its error code
+		 */
+		return 1;
+
 	lwsl_wsi_info(wsi_child, "QUIC RX: h3 asked to close stream");
 	qs->close_after_rx = 1;
 

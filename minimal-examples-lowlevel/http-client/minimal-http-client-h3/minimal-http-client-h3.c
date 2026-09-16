@@ -15,7 +15,12 @@
 #include <string.h>
 #include <signal.h>
 
-static int bad = 1, status, refuse_body;
+static int bad = 1, status, refuse_body, refused;
+static const char *refuse_path = "/leaf.jpg";
+static struct lws_client_connect_info ci;
+
+static int
+do_connect(const char *path);
 static struct lws_context *context;
 static struct lws *client_wsi;
 static int _argc;
@@ -54,15 +59,20 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		lwsl_user("RECEIVE_CLIENT_HTTP_READ: read %d\n", (int)len);
-		if (refuse_body) {
+		if (refuse_body && refused < refuse_body) {
 			/*
-			 * --refuse-body: reject the first body chunk the way
-			 * an SS returning DISCONNECT_ME does.  The h3 stream
-			 * must then actually close, so we see CLOSED and not
-			 * COMPLETED, without waiting for any timeout
+			 * --refuse-body N: reject the first body chunk of the
+			 * first N transactions, the way an SS returning
+			 * DISCONNECT_ME does.  Each h3 stream must then
+			 * actually close (CLOSED, not COMPLETED, and not after
+			 * a timeout), and a final /index.html on the same QUIC
+			 * connection must still complete: the abandoned
+			 * streams' unread bytes must not have eaten the
+			 * connection flow control window
 			 */
-			lwsl_user("refusing body: expecting CLOSED\n");
-			refuse_body = 2;
+			refused++;
+			lwsl_user("refusing body %d of %d: expecting CLOSED\n",
+				  refused, refuse_body);
 			return -1;
 		}
 		return 0; /* don't passthru */
@@ -82,7 +92,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP\n");
 		lws_default_loop_exit(context);
 		bad = status != 200;
-		if (refuse_body) {
+		if (refuse_body && refused <= refuse_body) {
 			lwsl_err("refused body but transaction completed\n");
 			bad = 4;
 		}
@@ -91,12 +101,24 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_CLOSED_CLIENT_HTTP\n");
+		if (refuse_body && refused <= refuse_body &&
+		    wsi == client_wsi) {
+			/*
+			 * closed after we refused the body: next transaction
+			 * on the same connection (it joins the existing QUIC
+			 * connection via the active conns list)
+			 */
+			client_wsi = NULL;
+			if (do_connect(refused < refuse_body ? refuse_path :
+							     "/index.html"))
+				bad = 3;
+			else
+				refused += refused == refuse_body;
+			break;
+		}
 		lws_default_loop_exit(context);
 		if (bad == 1)
 			bad = status != 200;
-		if (refuse_body == 2)
-			/* closed after we refused the body: that's the pass */
-			bad = 0;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
 
@@ -127,7 +149,6 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		   int current, int target)
 {
 	struct lws_context *context = mgr->parent;
-	struct lws_client_connect_info i;
 
 	const char *p;
 
@@ -136,14 +157,12 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 	lwsl_info("%s: operational\n", __func__);
 
-	memset(&i, 0, sizeof i);
-	i.context = context;
-	i.port = 443;
-	i.address = "libwebsockets.org";
-
+	memset(&ci, 0, sizeof ci);
+	ci.context = context;
+	ci.port = 443;
+	ci.address = "libwebsockets.org";
 	if ((p = lws_cmdline_option(_argc, _argv, "--server")))
-		i.address = p;
-
+		ci.address = p;
 	if ((p = lws_cmdline_option(_argc, _argv, "-p")))
 		{
 			int __pt = atoi(p);
@@ -151,24 +170,35 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 				lwsl_err("Port %d is outside valid 16-bit range\n", __pt);
 				return 1;
 			}
-			i.port = (uint16_t)__pt;
+			ci.port = (uint16_t)__pt;
 		}
-
-	i.path = "/index.html";
-	i.host = i.address;
-	i.origin = i.address;
-	i.method = "GET";
+	ci.host = ci.address;
+	ci.origin = ci.address;
+	ci.method = "GET";
 
 	/* Force ALPN to h3 and use QUIC */
-	i.alpn = "h3";
-	i.ssl_connection = LCCSCF_USE_SSL;
-
+	ci.alpn = "h3";
+	ci.ssl_connection = LCCSCF_USE_SSL | LCCSCF_PIPELINE;
 	if (lws_cmdline_option(_argc, _argv, "-l"))
-		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+		ci.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	
-	i.protocol = protocols[0].name;
-	i.pwsi = &client_wsi;
-	i.retry_and_idle_policy = &retry;
+	ci.protocol = protocols[0].name;
+	ci.pwsi = &client_wsi;
+	ci.retry_and_idle_policy = &retry;
+
+	if (do_connect(refuse_body ? refuse_path : "/index.html"))
+		return 1;
+
+	return 0;
+}
+
+static int
+do_connect(const char *path)
+{
+	struct lws_client_connect_info i = ci;
+
+	i.path = path;
+	lwsl_user("%s: GET %s\n", __func__, path);
 
 	if (!lws_client_connect_via_info(&i)) {
 		lwsl_err("Client creation failed\n");
@@ -189,6 +219,7 @@ int main(int argc, const char **argv)
 					     system_notify_cb, "app" };
 	lws_state_notify_link_t *na[] = { &notifier, NULL };
 	struct lws_context_creation_info info;
+	const char *p;
 	int n = 0;
 
 	_argc = argc;
@@ -201,7 +232,10 @@ int main(int argc, const char **argv)
 
 	lwsl_user("LWS minimal http client h3\n");
 
-	refuse_body = !!lws_cmdline_option(argc, argv, "--refuse-body");
+	if ((p = lws_cmdline_option(argc, argv, "--refuse-body")))
+		refuse_body = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--refuse-path")))
+		refuse_path = p;
 
 	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
