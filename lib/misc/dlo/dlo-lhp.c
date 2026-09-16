@@ -656,6 +656,33 @@ lhp_line_text_metrics(lhp_pstack_t *c, lws_dlo_text_t *txt)
 }
 
 /*
+ * Put an invisible, zero-width piece of text on the line, so that a line
+ * with nothing else visible on it still has a line box the height of the
+ * font, as the css "strut" does
+ */
+
+static void
+lhp_line_strut(lhp_pstack_t *c, lhp_pstack_t *ps, lws_dl_rend_t *drt)
+{
+	lws_dlo_text_t *txt;
+	lws_box_t box;
+
+	lws_fx_add(&box.x, &c->ox, &c->curx);
+	lws_fx_add(&box.y, &c->oy, &c->cury);
+	box.w = c->cw;
+	lws_fx_set(box.h, 0, 0);
+	txt = lws_display_dlo_text_new(drt->dl, c->dlo, &box, ps->font);
+	if (!txt)
+		return;
+
+	lws_display_dlo_text_update(txt, 0, fx_0, " ", 1);
+	txt->dlo.box.w = txt->bounding_box.w;
+	txt->dlo.box.h = txt->bounding_box.h;
+	lhp_line_text_metrics(c, txt);
+	lhp_line_item(c, &txt->dlo, &fx_0, NULL);
+}
+
+/*
  * Text content
  */
 
@@ -1295,6 +1322,17 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 					lws_fx_add(&x, &ox, &cbi);
 					lws_fx_sub(&x, &x, &r);
 					lws_fx_sub(&x, &x, &w);
+				} else if (!ps->explicit_w) {
+					/*
+					 * Neither side set: it sits at its
+					 * static position and can shrink-to-
+					 * fit up to the containing block's
+					 * right edge from there, not to zero
+					 * (which wrapped it one word per line)
+					 */
+					lws_fx_add(&w, &ox, &cbi);
+					lws_fx_sub(&w, &w, &x);
+					lws_fx_sub(&w, &w, &mr);
 				}
 			}
 			lws_fx_add(&x, &x, &ml);
@@ -1908,25 +1946,9 @@ lhp_elem_start(lhp_ctx_t *ctx, lhp_pstack_t *ps, struct lws_context *cx,
 	case LHP_BOX_BR:
 		if (!c)
 			return 0;
-		if (!c->has_line) {
+		if (!c->has_line)
 			/* an empty line still takes a line's height */
-			lws_dlo_text_t *txt;
-			lws_box_t box;
-
-			lws_fx_add(&box.x, &c->ox, &c->curx);
-			lws_fx_add(&box.y, &c->oy, &c->cury);
-			box.w = c->cw;
-			lws_fx_set(box.h, 0, 0);
-			txt = lws_display_dlo_text_new(drt->dl, c->dlo, &box,
-						       ps->font);
-			if (txt) {
-				lws_display_dlo_text_update(txt, 0, fx_0, " ", 1);
-				txt->dlo.box.w = txt->bounding_box.w;
-				txt->dlo.box.h = txt->bounding_box.h;
-				lhp_line_text_metrics(c, txt);
-				lhp_line_item(c, &txt->dlo, &fx_0, NULL);
-			}
-		}
+			lhp_line_strut(c, ps, drt);
 		lhp_line_end(ctx, c);
 		return 0;
 
@@ -2126,10 +2148,28 @@ lhp_elem_end(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 	if (ps->is_inline) {
 		c = lhp_container(lhp_parent(ps));
 		if (c) {
+			int n, sized = 0;
+
 			t = lhp_len(ps, ps->css_padding[CCPAS_RIGHT], &c->cw);
 			lws_fx_add(&c->curx, &c->curx, &t);
 			t = lhp_len(ps, ps->css_margin[CCPAS_RIGHT], &c->cw);
 			lws_fx_add(&c->curx, &c->curx, &t);
+
+			/*
+			 * An inline element with any margin or padding makes
+			 * the line box it is on non-empty, even with nothing
+			 * visible in it: it still gets a line's height, eg
+			 * slashdot's story details bar is a padded span of
+			 * hidden icons beside an absolutely-positioned byline
+			 */
+			for (n = 0; n < 4 && !sized; n++)
+				sized = lhp_len(ps, ps->css_padding[n],
+						&c->cw).whole ||
+					lhp_len(ps, ps->css_margin[n],
+						&c->cw).whole;
+
+			if (sized && !c->has_line && ps->font)
+				lhp_line_strut(c, ps, drt);
 		}
 		return 0;
 	}
