@@ -1,0 +1,45 @@
+{
+  "release": "1",
+  "product": "minimal-secure-streams",
+  "schema-version": 1,
+  "retry": [
+    {
+      "default": {
+        "backoff": [ 1000, 2000, 3000, 5000, 10000 ],
+        "conceal": 5,
+        "jitterpc": 20,
+        "svalidping": 30,
+        "svalidhup": 35
+      }
+    }
+  ],
+  "certs": [
+    {
+      "localhost_100y": "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"
+    }
+  ],
+  "trust_stores": [
+    {
+      "name": "local_test",
+      "stack": [ "localhost_100y" ]
+    }
+  ],
+  "s": [
+    {
+      "mintest": {
+        "endpoint": "localhost",
+        "port": 19781,
+        "protocol": "h1",
+        "http_method": "GET",
+        "http_url": "/httpbin/bytes/2000",
+        "metadata": [ { "uptag": "X-Upload-Tag:" },
+                      { "ctype": "Content-Type:" } ],
+        "tls": true,
+        "opportunistic": true,
+        "retry": "default",
+        "direct_proto_str": true,
+        "tls_trust_store": "local_test"
+      }
+    }
+  ]
+}

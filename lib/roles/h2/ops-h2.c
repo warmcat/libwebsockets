@@ -286,6 +286,19 @@ post_pollout:
 		scr_ret = lws_ssl_capable_read(wsi,
 					ebuf.token,
 					wsi->a.context->pt_serv_buf_size);
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION) && defined(LWS_WITH_CLIENT)
+		/*
+		 * Simulate the peer dropping a client h2 connection right
+		 * after ALPN, before we created our first stream on it: the
+		 * network wsi dies in a state that is neither "unestablished"
+		 * (no CCE) nor with a child to report CLOSED for
+		 */
+		if (lwsi_role_client(wsi) && wsi->client_h2_alpn &&
+		    !wsi->client_mux_migrated &&
+		    lws_fi(&wsi->fic, "h2cli_nwsi_early_rx_err"))
+			scr_ret = LWS_SSL_CAPABLE_ERROR;
+#endif
 #if defined(LWS_WITH_LATENCY)
 		{
 			unsigned int ms = (unsigned int)((lws_now_usecs() - _h2_cap_read_start) / 1000);

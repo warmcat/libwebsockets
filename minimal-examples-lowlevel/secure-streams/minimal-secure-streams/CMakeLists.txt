@@ -117,6 +117,34 @@ if (requirements)
 			 FIXTURES_REQUIRED "ms_hbin"
 			 TIMEOUT 40)
 
+		if (LWS_WITH_HTTP2)
+			configure_file(policy-local-h2.json.in policy-local-h2.json @ONLY)
+
+			add_test(NAME ss-warmcat-local-h2 COMMAND lws-minimal-secure-streams
+				 -c ${CMAKE_CURRENT_BINARY_DIR}/policy-local-h2.json)
+			set_tests_properties(ss-warmcat-local-h2 PROPERTIES
+				 FIXTURES_REQUIRED "ms_hbin"
+				 TIMEOUT 40)
+
+			if (has_fault_injection)
+				#
+				# The h2 network wsi dies right after ALPN, before
+				# the stream child exists: the ss must still be told
+				# (UNREACHABLE, then retries until ALL_RETRIES_FAILED
+				# = exit 2), not sit in CONNECTING forever
+				#
+				add_test(NAME ss-warmcat-local-h2-fi-early-rx-err
+					 COMMAND lws-minimal-secure-streams
+					 -c ${CMAKE_CURRENT_BINARY_DIR}/policy-local-h2.json
+					 --expected-exit 2
+					 --fault-injection "ss=mintest/wsi/h2cli_nwsi_early_rx_err")
+				set_tests_properties(ss-warmcat-local-h2-fi-early-rx-err
+					 PROPERTIES
+					 FIXTURES_REQUIRED "ms_hbin"
+					 TIMEOUT 20)
+			endif()
+		endif()
+
 					endif()
 
 	if (websockets_shared)

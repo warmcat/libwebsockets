@@ -526,6 +526,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	const struct lws_protocols *pro;
 #if defined(LWS_WITH_SECURE_STREAMS)
 	lws_ss_handle_t *hh = NULL;
+	char hh_unannounced = 0;
 #endif
 	struct lws_context *context;
 	struct lws *wsi2;
@@ -1092,6 +1093,23 @@ async_close:
 				 * that is about to restart
 				 */
 				if (!wsi->close_is_redirect) {
+					/*
+					 * Did the ss hear nothing about this
+					 * wsi dying?  Everything above only
+					 * informs it on the CCE and CLOSED
+					 * paths, but a client h2 network wsi
+					 * lost right after ALPN, before its
+					 * stream child exists, is in a state
+					 * flagged established (so no CCE) and
+					 * as the mux parent gets no CLOSED
+					 * either: the ss would stay in
+					 * CONNECTING forever
+					 */
+					if (hh->wsi == wsi &&
+					    !hh->ss_dangling_connected &&
+					    hh->prev_ss_state ==
+							LWSSSCS_CONNECTING)
+						hh_unannounced = 1;
 					hh->wsi = NULL;
 					wsi->a.opaque_user_data = NULL;
 				}
@@ -1114,6 +1132,13 @@ async_close:
 	if (hh && hh->ss_dangling_connected &&
 	    lws_ss_event_helper(hh, LWSSSCS_DISCONNECTED) == LWSSSSRET_DESTROY_ME)
 		lws_ss_destroy(&hh);
+	else if (hh && hh_unannounced) {
+		/* treat it as the connection attempt failing */
+		if (lws_ss_event_helper(hh, LWSSSCS_UNREACHABLE) ==
+							LWSSSSRET_DESTROY_ME ||
+		    lws_ss_backoff(hh) == LWSSSSRET_DESTROY_ME)
+			lws_ss_destroy(&hh);
+	}
 #endif
 }
 
