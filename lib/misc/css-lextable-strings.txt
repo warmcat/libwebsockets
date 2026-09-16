@@ -120,3 +120,16 @@ widows:
 width:
 word-spacing:
 z-index:
+opacity:
+flex:
+flex-direction:
+flex-grow:
+flex-shrink:
+flex-basis:
+flex-wrap:
+align-items:
+align-self:
+justify-content:
+gap:
+column-gap:
+row-gap:

@@ -344,11 +344,13 @@ lhp_box_type(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 	switch (a->propval) {
 	case LCSP_PROPVAL_BLOCK:
 	case LCSP_PROPVAL_TABLE_CAPTION:
+	case LCSP_PROPVAL_FLEX:
 		return LHP_BOX_BLOCK;
 	case LCSP_PROPVAL_LIST_ITEM:
 		return LHP_BOX_LIST_ITEM;
 	case LCSP_PROPVAL_INLINE_BLOCK:
 	case LCSP_PROPVAL_INLINE_TABLE:
+	case LCSP_PROPVAL_INLINE_FLEX:
 		return LHP_BOX_INLINE_BLOCK;
 	case LCSP_PROPVAL_TABLE:
 		return LHP_BOX_TABLE;
@@ -1194,6 +1196,11 @@ lhp_list_marker(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 		list = lhp_parent(list);
 
 	a = lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_LIST_STYLE_TYPE);
+	if (a && a->unit == LCSP_UNIT_NONE && a->propval == LCSP_PROPVAL_NONE)
+		return;
+
+	/* the shorthand: list-style: none */
+	a = lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_LIST_STYLE);
 	if (a && a->unit == LCSP_UNIT_NONE && a->propval == LCSP_PROPVAL_NONE)
 		return;
 

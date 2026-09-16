@@ -436,31 +436,26 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
    rect (0.0,19.0) [298.0 x 280.0] rgba=00000000
     rect (22.0,20.0) [254.0 x 240.0] rgba=00000000
      rect (0.0,0.0) [254.0 x 48.0] rgba=00000000
-      text (-11.0,5.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "-"
       hit (28.0,5.0) [224.0 x 19.0] "vector:/missing/news.slashdot.org/story/25/12/19/2336215/trump-dismantling-national-center-for-atmospheric-research-in-colorado?sbsrc=md"
       text (28.0,5.0) [224.0 x 19.0] rgba=FF666600 f=17/400 "Trump Dismantling National Center For "
       hit (0.0,24.0) [197.0 x 19.0] "vector:/missing/news.slashdot.org/story/25/12/19/2336215/trump-dismantling-national-center-for-atmospheric-research-in-colorado?sbsrc=md"
       text (0.0,24.0) [197.0 x 19.0] rgba=FF666600 f=17/400 "Atmospheric Research In Colorado"
      rect (0.0,48.0) [254.0 x 48.0] rgba=00000000
-      text (-11.0,5.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "-"
       hit (28.0,5.0) [221.0 x 19.0] "vector:/missing/developers.slashdot.org/story/25/12/19/236259/stanford-computer-science-grads-find-their-degrees-no-longer-guarantee-jobs?sbsrc=md"
       text (28.0,5.0) [221.0 x 19.0] rgba=FF666600 f=17/400 "Stanford Computer Science Grads Find "
       hit (0.0,24.0) [230.0 x 19.0] "vector:/missing/developers.slashdot.org/story/25/12/19/236259/stanford-computer-science-grads-find-their-degrees-no-longer-guarantee-jobs?sbsrc=md"
       text (0.0,24.0) [230.0 x 19.0] rgba=FF666600 f=17/400 "Their Degrees No Longer Guarantee Jobs"
      rect (0.0,96.0) [254.0 x 48.0] rgba=00000000
-      text (-11.0,5.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "-"
       hit (28.0,5.0) [213.0 x 19.0] "vector:/missing/tech.slashdot.org/story/25/12/18/2152215/google-ai-summaries-are-ruining-the-livelihoods-of-recipe-writers?sbsrc=md"
       text (28.0,5.0) [213.0 x 19.0] rgba=FF666600 f=17/400 "Google AI Summaries Are Ruining the "
       hit (0.0,24.0) [167.0 x 19.0] "vector:/missing/tech.slashdot.org/story/25/12/18/2152215/google-ai-summaries-are-ruining-the-livelihoods-of-recipe-writers?sbsrc=md"
       text (0.0,24.0) [167.0 x 19.0] rgba=FF666600 f=17/400 "Livelihoods of Recipe Writers"
      rect (0.0,144.0) [254.0 x 48.0] rgba=00000000
-      text (-11.0,5.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "-"
       hit (28.0,5.0) [222.0 x 19.0] "vector:/missing/science.slashdot.org/story/25/12/19/1533240/food-becoming-more-calorific-but-less-nutritious-due-to-rising-carbon-dioxide?sbsrc=md"
       text (28.0,5.0) [222.0 x 19.0] rgba=FF666600 f=17/400 "Food Becoming More Calorific But Less "
       hit (0.0,24.0) [229.0 x 19.0] "vector:/missing/science.slashdot.org/story/25/12/19/1533240/food-becoming-more-calorific-but-less-nutritious-due-to-rising-carbon-dioxide?sbsrc=md"
       text (0.0,24.0) [229.0 x 19.0] rgba=FF666600 f=17/400 "Nutritious Due To Rising Carbon Dioxide"
      rect (0.0,192.0) [254.0 x 48.0] rgba=00000000
-      text (-11.0,5.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "-"
       hit (28.0,5.0) [200.0 x 19.0] "vector:/missing/slashdot.org/story/25/12/19/1925205/all-that-cheap-chinese-stuff-is-now-europes-problem?sbsrc=md"
       text (28.0,5.0) [200.0 x 19.0] rgba=FF666600 f=17/400 "All That Cheap Chinese Stuff Is Now "
       hit (0.0,24.0) [100.0 x 19.0] "vector:/missing/slashdot.org/story/25/12/19/1925205/all-that-cheap-chinese-stuff-is-now-europes-problem?sbsrc=md"
@@ -473,23 +468,18 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
    rect (0.0,19.0) [298.0 x 166.0] rgba=00000000
     rect (22.0,20.0) [254.0 x 126.0] rgba=00000000
      rect (0.0,0.0) [254.0 x 48.0] rgba=00000000
-      text (-11.0,5.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "-"
       hit (0.0,5.0) [230.0 x 19.0] "vector:/missing/yro.slashdot.org/story/25/12/09/2235240/ask-slashdot-what-are-the-best-locally-hosted-wireless-security-cameras?utm_source=rss0.9mainlinkanon&utm_medium=feed&sbsrc=askslashdot"
       text (0.0,5.0) [230.0 x 19.0] rgba=FF666600 f=17/400 "Ask Slashdot: What Are the Best Locally-"
       hit (0.0,24.0) [205.0 x 19.0] "vector:/missing/yro.slashdot.org/story/25/12/09/2235240/ask-slashdot-what-are-the-best-locally-hosted-wireless-security-cameras?utm_source=rss0.9mainlinkanon&utm_medium=feed&sbsrc=askslashdot"
       text (0.0,24.0) [205.0 x 19.0] rgba=FF666600 f=17/400 "Hosted Wireless Security Cameras? "
      rect (0.0,48.0) [254.0 x 48.0] rgba=00000000
-      text (-11.0,5.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "-"
       hit (0.0,5.0) [239.0 x 19.0] "vector:/missing/ask.slashdot.org/story/25/11/12/2213205/ask-slashdot-are-there-any-good-android-tablets-out-there?utm_source=rss0.9mainlinkanon&utm_medium=feed&sbsrc=askslashdot"
       text (0.0,5.0) [239.0 x 19.0] rgba=FF666600 f=17/400 "Ask Slashdot: Are There Any Good Android "
       hit (0.0,24.0) [110.0 x 19.0] "vector:/missing/ask.slashdot.org/story/25/11/12/2213205/ask-slashdot-are-there-any-good-android-tablets-out-there?utm_source=rss0.9mainlinkanon&utm_medium=feed&sbsrc=askslashdot"
       text (0.0,24.0) [110.0 x 19.0] rgba=FF666600 f=17/400 "Tablets Out There? "
      rect (0.0,96.0) [254.0 x 10.0] rgba=00000000
-      text (-11.0,5.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "-"
      rect (0.0,106.0) [254.0 x 10.0] rgba=00000000
-      text (-11.0,5.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "-"
      rect (0.0,116.0) [254.0 x 10.0] rgba=00000000
-      text (-11.0,5.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "-"
   rect (10.0,1176.92) [298.0 x 40.0] rgba=FFE6E6E6 radii=0.0,10.0,10.0,0.0
    rect (-1.0,0.0) [300.0 x 0.0] rgba=FF4C4C4C radii=0.0,10.0,0.0,0.0
     rect (0.0,0.0) [300.0 x 0.0] rgba=00000000
@@ -521,19 +511,14 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
    rect (0.0,0.0) [298.0 x 135.0] rgba=00000000
     rect (22.0,20.0) [254.0 x 50.0] rgba=00000000
      rect (0.0,0.0) [254.0 x 10.0] rgba=00000000
-      text (-11.0,5.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "-"
       rect (254.0,5.0) [0.0 x 0.0] rgba=00000000
      rect (0.0,10.0) [254.0 x 10.0] rgba=00000000
-      text (-11.0,5.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "-"
       rect (254.0,5.0) [0.0 x 0.0] rgba=00000000
      rect (0.0,20.0) [254.0 x 10.0] rgba=00000000
-      text (-11.0,5.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "-"
       rect (254.0,5.0) [0.0 x 0.0] rgba=00000000
      rect (0.0,30.0) [254.0 x 10.0] rgba=00000000
-      text (-11.0,5.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "-"
       rect (254.0,5.0) [0.0 x 0.0] rgba=00000000
      rect (0.0,40.0) [254.0 x 10.0] rgba=00000000
-      text (-11.0,5.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "-"
       rect (254.0,5.0) [0.0 x 0.0] rgba=00000000
     rect (22.0,80.0) [254.0 x 45.0] rgba=00000000
      rect (-15.0,0.0) [0.0 x 10.0] rgba=00000000

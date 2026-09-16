@@ -200,6 +200,21 @@ typedef enum lcsp_props {
 	LCSP_PROP_WORD_SPACING,
 	LCSP_PROP_Z_INDEX,
 
+	/* appended: the lextable index is the enum value */
+	LCSP_PROP_OPACITY,
+	LCSP_PROP_FLEX,
+	LCSP_PROP_FLEX_DIRECTION,
+	LCSP_PROP_FLEX_GROW,
+	LCSP_PROP_FLEX_SHRINK,
+	LCSP_PROP_FLEX_BASIS,
+	LCSP_PROP_FLEX_WRAP,
+	LCSP_PROP_ALIGN_ITEMS,
+	LCSP_PROP_ALIGN_SELF,
+	LCSP_PROP_JUSTIFY_CONTENT,
+	LCSP_PROP_GAP,
+	LCSP_PROP_COLUMN_GAP,
+	LCSP_PROP_ROW_GAP,
+
 	LCSP_PROP__COUNT /* always last */
 } lcsp_props_t;
 
@@ -335,6 +350,21 @@ typedef enum {
 	LCSP_PROPVAL_VISIBLE,
 	LCSP_PROPVAL_WAIT,
 	LCSP_PROPVAL_W_RESIZE,
+
+	/* appended: the lextable index is the enum value */
+	LCSP_PROPVAL_FLEX,
+	LCSP_PROPVAL_INLINE_FLEX,
+	LCSP_PROPVAL_ROW,
+	LCSP_PROPVAL_COLUMN,
+	LCSP_PROPVAL_SPACE_BETWEEN,
+	LCSP_PROPVAL_SPACE_AROUND,
+	LCSP_PROPVAL_SPACE_EVENLY,
+	LCSP_PROPVAL_FLEX_START,
+	LCSP_PROPVAL_FLEX_END,
+	LCSP_PROPVAL_STRETCH,
+	LCSP_PROPVAL_WRAP,
+	LCSP_PROPVAL_START,
+	LCSP_PROPVAL_END,
 
 	LCSP_PROPVAL__COUNT /* always last */
 } lcsp_propvals_t;
@@ -982,3 +1012,6 @@ lhp_prop_axis(const lcsp_atr_t *a);
 
 LWS_VISIBLE LWS_EXTERN const lcsp_atr_t *
 lhp_resolve_var_color(lhp_ctx_t *ctx, const lcsp_atr_t *a);
+
+LWS_VISIBLE LWS_EXTERN const lcsp_atr_t *
+lhp_resolve_var(lhp_ctx_t *ctx, const lcsp_atr_t *a);

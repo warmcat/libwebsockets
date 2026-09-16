@@ -2423,6 +2423,9 @@ lhp_prop_inherited(int prop)
  * The winning declaration of prop among the stanzas matched by ps, or NULL
  */
 
+static const lcsp_atr_t *
+lhp_resolve_var_ps(lhp_ctx_t *ctx, lhp_pstack_t *ps, const lcsp_atr_t *a);
+
 static const lcsp_defs_t *
 lhp_find_def2(lhp_pstack_t *ps, int prop, int prop_alt)
 {
@@ -2649,7 +2652,7 @@ lhp_prop_atr_ps(lhp_ctx_t *ctx, lhp_pstack_t *ps, lcsp_props_t prop)
 		ap = lws_container_of(lws_dll2_get_tail(&ctx->active_atr),
 				      lcsp_atr_ptr_t, list);
 
-		return ap->atr;
+		return lhp_resolve_var_ps(ctx, ps, ap->atr);
 
 parent:
 		if (!lws_dll2_get_prev(&ps->list))
@@ -2902,44 +2905,113 @@ lws_html_get_atr(lhp_pstack_t *ps, const char *aname, size_t aname_len)
 	return lhp_atr_get(&ps->atr, aname, aname_len, 0);
 }
 
-const lcsp_atr_t *
-lhp_resolve_var_color(lhp_ctx_t *ctx, const lcsp_atr_t *a)
+/*
+ * The value of custom property --name (len chars, without the --) as seen
+ * from element ps: custom properties inherit, so the nearest of ps and its
+ * ancestors with a matching stanza declaring it wins, highest precedence
+ * stanza first as for any property.  A site's dark theme declares the
+ * same names again under a selector that doesn't match, which must not
+ * override the light ones.
+ */
+
+static const lcsp_atr_t *
+lhp_find_var(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *name, size_t len)
+{
+	while (ps) {
+		int n;
+
+		for (n = (int)ps->nmatched - 1; n >= 0; n--) {
+			lws_start_foreach_dll_back(lws_dll2_t *, d,
+				lws_dll2_get_tail(&ps->matched[n].stz->defs)) {
+				lcsp_defs_t *def = lws_container_of(d,
+							lcsp_defs_t, list);
+
+				if (def->prop != LCSP_PROP__COUNT ||
+				    !lws_dll2_get_tail(&def->atrs))
+					continue;
+
+				/* a var definition: which name? */
+				lws_start_foreach_dll(struct lws_dll2 *, e,
+					lws_dll2_get_head(&ctx->css_vars)) {
+					lhp_css_var_t *v = lws_container_of(e,
+							lhp_css_var_t, list);
+
+					if (v->def == def &&
+					    v->name_len == len &&
+					    !strncmp((const char *)&v[1],
+						     name, len))
+						return lws_container_of(
+							lws_dll2_get_tail(
+								&def->atrs),
+							lcsp_atr_t, list);
+				} lws_end_foreach_dll(e);
+			} lws_end_foreach_dll_back(d);
+		}
+
+		if (!lws_dll2_get_prev(&ps->list))
+			break;
+		ps = lws_container_of(lws_dll2_get_prev(&ps->list),
+				      lhp_pstack_t, list);
+	}
+
+	return NULL;
+}
+
+/*
+ * If a is the string value var(--name[, fallback]), the value of --name as
+ * seen from ps, itself resolved if it is another var(); else a itself
+ */
+
+static const lcsp_atr_t *
+lhp_resolve_var_ps(lhp_ctx_t *ctx, lhp_pstack_t *ps, const lcsp_atr_t *a)
 {
 	const char *n;
 	size_t len;
+	int depth = 0;
 
-	if (a->unit != LCSP_UNIT_STRING && a->unit != LCSP_UNIT_URL)
-		return a;
+	while (a && depth++ < 8) {
+		const lcsp_atr_t *ra;
 
-	/* check if it is var(--name) */
-	n = (const char *)&a[1];
-	if (strncmp(n, "var(--", 6))
-		return a;
+		if (a->unit != LCSP_UNIT_STRING && a->unit != LCSP_UNIT_URL)
+			return a;
 
-	n += 4; /* skip var( */
-	len = 0;
-	while (n[len] && n[len] != ')')
-		len++;
+		n = (const char *)&a[1];
+		if (strncmp(n, "var(--", 6))
+			return a;
 
-	/* lwsl_err("RESOLVE: '%.*s'\n", (int)len, n); */
+		n += 4; /* skip var( */
+		len = 0;
+		while (n[len] && n[len] != ')' && n[len] != ',' &&
+		       n[len] != ' ')
+			len++;
 
-	/* look it up in css_vars */
-	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->css_vars)) {
-		lhp_css_var_t *v = lws_container_of(d, lhp_css_var_t, list);
-		const char *vn = (const char *)&v[1];
+		ra = lhp_find_var(ctx, ps, n, len);
+		if (!ra)
+			return a;
 
-		if (v->name_len == len && !strncmp(vn, n, len)) {
-			/* found it */
-			if (v->def && lws_dll2_get_head(&v->def->atrs)) {
-				lcsp_atr_t *ra = lws_container_of(lws_dll2_get_head(&v->def->atrs), lcsp_atr_t, list);
-				if (ra->unit == LCSP_UNIT_RGBA)
-					return ra;
-			}
-			break;
-		}
-	} lws_end_foreach_dll(d);
+		a = ra;
+	}
 
 	return a;
+}
+
+const lcsp_atr_t *
+lhp_resolve_var(lhp_ctx_t *ctx, const lcsp_atr_t *a)
+{
+	if (lws_dll2_is_empty(&ctx->stack))
+		return a;
+
+	return lhp_resolve_var_ps(ctx, lws_container_of(
+				lws_dll2_get_tail(&ctx->stack),
+				lhp_pstack_t, list), a);
+}
+
+const lcsp_atr_t *
+lhp_resolve_var_color(lhp_ctx_t *ctx, const lcsp_atr_t *a)
+{
+	const lcsp_atr_t *ra = lhp_resolve_var(ctx, a);
+
+	return ra && ra->unit == LCSP_UNIT_RGBA ? ra : a;
 }
 
 /*
@@ -3079,6 +3151,25 @@ lws_css_cascade(lhp_ctx_t *ctx)
 		     (ps->css_display &&
 		      ps->css_display->unit == LCSP_UNIT_NONE &&
 		      ps->css_display->propval == LCSP_PROPVAL_NONE);
+
+	/*
+	 * opacity: 0 and visibility: hidden show nothing either.  In css
+	 * the box still takes its space; here the subtree is left out, which
+	 * is the same thing for the usual case, an out-of-flow menu or
+	 * overlay parked invisible until a script shows it
+	 */
+	if (!ps->hidden) {
+		const lcsp_atr_t *op = lws_css_cascade_get_prop_atr(ctx,
+							LCSP_PROP_OPACITY);
+		const lcsp_atr_t *vi = lws_css_cascade_get_prop_atr(ctx,
+							LCSP_PROP_VISIBILITY);
+
+		if ((op && op->unit == LCSP_UNIT_NUM && !op->u.i.whole &&
+		     !op->u.i.frac) ||
+		    (vi && vi->unit == LCSP_UNIT_NONE &&
+		     vi->propval == LCSP_PROPVAL_HIDDEN))
+			ps->hidden = 1;
+	}
 
 	/*
 	 * The "visually hidden" idiom for screen-reader text: a box of 1px
@@ -3667,6 +3758,30 @@ elem_start:
 						       ctx->tag_len);
 						ctx->buf[ctx->tag_len] = '\0';
 						ctx->npos = (int)ctx->tag_len;
+					}
+				}
+
+				/*
+				 * <html> was resolved against the css before
+				 * any stylesheet had been seen, so nothing
+				 * matched it.  Now the head is done and the
+				 * body starts, resolve it again: :root / html
+				 * rules carry the custom properties the rest
+				 * of the document uses, and inherited props
+				 */
+				if (ctx->tag_len == 4 &&
+				    !strncasecmp(ctx->tag, "body", 4)) {
+					lhp_pstack_t *ph = lhp_parent_tag(ps,
+								"html", 4);
+
+					if (ph && lws_dll2_get_prev(&ps->list) ==
+							&ph->list) {
+						lws_dll2_remove(&ps->list);
+						ph->css_resolved = 0;
+						ph->nmatched = 0;
+						lws_css_cascade(ctx);
+						lws_dll2_add_tail(&ps->list,
+								  &ctx->stack);
 					}
 				}
 
