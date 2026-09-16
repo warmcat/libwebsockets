@@ -1263,8 +1263,8 @@ dloss_flow_restart(lws_flow_t *flow)
 {
 	lws_buflist_destroy_all_segments(&flow->bl);
 	flow->data = NULL;
-	//flow->len = 0;
-	//flow->blseglen = 0;
+	flow->len = 0;
+	flow->blseglen = 0;
 }
 
 /*
