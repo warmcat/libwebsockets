@@ -153,6 +153,8 @@ typedef struct lws_dlo {
 						   * run that follows it (layout) */
 	uint8_t				flag_flex_item:1; /* item of a row flex container
 						   * (layout) */
+	uint8_t				flag_fixed_h:1; /* has a css height: not
+						 * stretched (layout) */
 	uint8_t				flex_grow; /* flex-grow, for flag_flex_item */
 	uint8_t				align_self; /* LCSP_PROPVAL_* or 0 = auto */
 

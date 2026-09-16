@@ -220,6 +220,41 @@ lhp_is_flex_row(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 		 d->propval == LCSP_PROPVAL_COLUMN);
 }
 
+/*
+ * A flex item's flex-basis, if it is a length or percentage: from
+ * flex-basis, or the length term of the flex shorthand (flex: 0 0 25%).
+ * It stands in for the width the item starts from on the line.
+ */
+
+static const lcsp_atr_t *
+lhp_flex_basis(lhp_ctx_t *ctx, lhp_pstack_t *ps)
+{
+	const lcsp_atr_t *a = lws_css_get_prop_atr_ps(ctx, ps,
+						      LCSP_PROP_FLEX_BASIS);
+
+	if (a && a->unit != LCSP_UNIT_NONE && a->unit != LCSP_UNIT_NUM &&
+	    a->unit != LCSP_UNIT_STRING)
+		return a;
+
+	if (!lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_FLEX))
+		return NULL;
+
+	/* the terms of the shorthand are in active_atr: the last term
+	 * that is a length is the basis */
+	a = NULL;
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ctx->active_atr)) {
+		lcsp_atr_ptr_t *ap = lws_container_of(d, lcsp_atr_ptr_t, list);
+
+		if (ap->atr->unit != LCSP_UNIT_NONE &&
+		    ap->atr->unit != LCSP_UNIT_NUM &&
+		    ap->atr->unit != LCSP_UNIT_STRING)
+			a = ap->atr;
+	} lws_end_foreach_dll(d);
+
+	return a;
+}
+
 static int
 lhp_flex_grow(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 {
@@ -373,9 +408,13 @@ lhp_flex_close(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_fx_t *h)
 		} lws_end_foreach_dll(d);
 	}
 
-	/* cross axis */
+	/*
+	 * Cross axis: an auto-height container is as tall as its tallest
+	 * item (the line it was laid out on may have been taller, from
+	 * aligning the items by their baselines before we got here)
+	 */
 
-	if (!ps->explicit_h && lws_fx_comp(h, &tallest) < 0)
+	if (!ps->explicit_h && tallest.whole > 0)
 		*h = tallest;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
@@ -403,7 +442,7 @@ lhp_flex_close(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_fx_t *h)
 		case LCSP_PROPVAL_STRETCH:
 		case LCSP_PROPVAL_NORMAL:
 			it->box.y = ps->oy;
-			if (t.whole > 0)
+			if (t.whole > 0 && !it->flag_fixed_h)
 				it->box.h = *h;
 			break;
 		default:
@@ -1515,6 +1554,16 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 
 	ps->explicit_w = ps->css_width && !lhp_is_auto(ps->css_width) &&
 			 ps->css_width->unit != LCSP_UNIT_NONE;
+
+	/* a flex item with a flex-basis length starts from that width */
+	if (ps->is_flex_item && !ps->explicit_w) {
+		const lcsp_atr_t *fb = lhp_flex_basis(ctx, ps);
+
+		if (fb) {
+			ps->css_width = fb;
+			ps->explicit_w = 1;
+		}
+	}
 	ps->explicit_h = ps->css_height && !lhp_is_auto(ps->css_height) &&
 			 ps->css_height->unit != LCSP_UNIT_NONE &&
 			 ps->css_height->unit != LCSP_UNIT_LENGTH_PERCENT;
@@ -1680,6 +1729,17 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 			if (!ps->explicit_w) {
 				lws_fx_sub(&w, &c->cw, &ml);
 				lws_fx_sub(&w, &w, &mr);
+				/*
+				 * A flex item shrinks to what is left of the
+				 * line after the items before it (flex-shrink
+				 * on a single line), so its text wraps to the
+				 * space it will get, eg the title beside a
+				 * fixed-width thumbnail
+				 */
+				if (ps->is_flex_item && !c->flex_wrap &&
+				    c->curx.whole > 0 &&
+				    lws_fx_comp(&c->curx, &w) < 0)
+					lws_fx_sub(&w, &w, &c->curx);
 				ps->shrink = 1;
 			}
 			break;
@@ -1784,6 +1844,7 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 							LCSP_PROP_ALIGN_SELF);
 
 		ps->dlo->flag_flex_item = 1;
+		ps->dlo->flag_fixed_h = ps->explicit_h;
 		ps->dlo->flex_grow = (uint8_t)lhp_flex_grow(ctx, ps);
 		if (as && as->unit == LCSP_UNIT_NONE)
 			ps->dlo->align_self = (uint8_t)as->propval;

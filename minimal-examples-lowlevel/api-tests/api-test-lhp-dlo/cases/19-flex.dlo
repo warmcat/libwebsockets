@@ -23,3 +23,14 @@ rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
   rect (0.0,0.0) [400.0 x 30.0] rgba=FFFF0000
   rect (0.0,30.0) [400.0 x 14.0] rgba=00000000
    text (0.0,0.0) [73.0 x 14.0] rgba=FF000000 f=12/400 "below the tall one"
+ rect (0.0,98.0) [400.0 x 28.0] rgba=00000000
+  rect (0.0,0.0) [100.0 x 28.0] rgba=00000000
+  rect (100.0,0.0) [200.0 x 28.0] rgba=00000000
+   text (0.0,0.0) [181.0 x 14.0] rgba=FF000000 f=12/400 "the middle column starts a quarter of the way "
+   text (0.0,14.0) [162.0 x 14.0] rgba=FF000000 f=12/400 "across even though the first one is empty"
+  rect (300.0,0.0) [100.0 x 28.0] rgba=00000000
+   text (0.0,0.0) [17.0 x 14.0] rgba=FF000000 f=12/400 "side"
+ rect (0.0,126.0) [400.0 x 40.0] rgba=00000000
+  rect (0.0,0.0) [64.0 x 40.0] rgba=FFFF00FF
+  rect (64.0,0.0) [325.0 x 40.0] rgba=00000000
+   text (0.0,0.0) [325.0 x 14.0] rgba=FF000000 f=12/400 "a title beside a fixed thumbnail that has to wrap in the space that is left over for it"

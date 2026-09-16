@@ -9,9 +9,15 @@ body { font-size: 12px; margin: 0; padding: 0 }
 .between { display: flex; justify-content: space-between }
 .col { display: flex; flex-direction: column }
 .tall { height: 30px; background-color: #0000ff }
+.row { display: flex }
+.c3 { flex-basis: 25%; max-width: 25% }
+.c6 { flex: 0 0 50%; max-width: 50% }
+.thumb { width: 64px; height: 40px; background-color: #ff00ff }
 </style></head>
 <body>
 <div class="hdr"><div class="logo"></div><ul class="nav"><li>One</li><li>Two</li><li>Three</li></ul><div class="spacer"></div><a class="btn" href="#">Log in</a></div>
 <div class="between"><span>left</span><span>middle</span><span>right</span></div>
 <div class="col"><div class="tall"></div><div>below the tall one</div></div>
+<div class="row"><div class="c3"></div><div class="c6">the middle column starts a quarter of the way across even though the first one is empty</div><div class="c3">side</div></div>
+<div class="row"><div class="thumb"></div><div>a title beside a fixed thumbnail that has to wrap in the space that is left over for it</div></div>
 </body></html>
