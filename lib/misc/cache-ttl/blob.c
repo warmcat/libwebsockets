@@ -361,7 +361,13 @@ lws_cache_blob_get(struct lws_cache_ttl_lru *_c, const char *specific_key,
 	if (blob_hash_key(specific_key, hex))
 		return 1;
 
-	if (lws_diskcache_query(bc->lds, 0, hex, &fd, path, sizeof(path),
+	/*
+	 * is_bot asks diskcache for a pure read: without it, a miss makes it
+	 * create a temp file and hand us the fd to it, which would leak an
+	 * fd and litter the cache with empty temp files on every miss
+	 */
+
+	if (lws_diskcache_query(bc->lds, 1, hex, &fd, path, sizeof(path),
 				&extant) != LWS_DISKCACHE_QUERY_EXISTS)
 		return 1;
 
