@@ -414,8 +414,10 @@ typedef struct lhp_pstack {
 
 	lws_fx_t			line_h;	 /* tallest non-text item on line */
 	lws_dlo_t			*line_first; /* first dlo of the open line */
-	int16_t				line_asc; /* max text ascent on line */
-	int16_t				line_desc; /* max text descent on line */
+	int16_t				line_asc; /* max ascent above baseline on line */
+	int16_t				line_desc; /* max descent below baseline on line */
+	int16_t				last_base; /* baseline of our last line, from
+						    * our box top (valid if has_base) */
 
 	lws_fx_t			maxc;	 /* max-content width so far */
 	lws_fx_t			minc;	 /* min-content width so far */
@@ -474,6 +476,7 @@ typedef struct lhp_pstack {
 	uint8_t				is_float:1;
 	uint8_t				shrink:1;    /* width decided by content at close */
 	uint8_t				has_line:1;  /* a line is being built */
+	uint8_t				has_base:1;  /* last_base is valid */
 	uint8_t				last_space:1; /* line so far ends with a space */
 	uint8_t				explicit_w:1;
 	uint8_t				explicit_h:1;

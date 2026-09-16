@@ -135,6 +135,9 @@ typedef struct lws_dlo {
 	lws_display_colour_t		dc;
 
 	uint8_t				budget; /* limit spinning */
+	int16_t				base_up; /* baseline: distance up from the
+						  * box bottom, 0 = bottom edge
+						  * (layout) */
 
 	uint8_t				flag_toplevel:1; /* don't scan up with me (different owner) */
 	uint8_t				flag_block:1; /* block-level box (layout) */
@@ -146,6 +149,8 @@ typedef struct lws_dlo {
 	uint8_t				flag_online:1; /* item of the line being ended (layout) */
 	uint8_t				flag_bg_homed:1; /* css background image moved into
 						  * its element's own dlo (layout) */
+	uint8_t				flag_inline_bg:1; /* background rect of the text
+						   * run that follows it (layout) */
 
 	/* render-specific members ... */
 } lws_dlo_t;

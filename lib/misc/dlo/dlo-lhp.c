@@ -448,7 +448,7 @@ lhp_line_reset(lhp_pstack_t *c)
 static void
 lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
 {
-	lws_fx_t lh, shift, t, ah, lead, t2;
+	lws_fx_t lh, shift, t, ah, lead, t2, above;
 	const lcsp_atr_t *a;
 	lws_dll2_t *d;
 
@@ -462,6 +462,17 @@ lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
 		return;
 	}
 
+	/*
+	 * Everything on the line is aligned on its baseline: text by its
+	 * font metrics, inline boxes (inline-blocks, images) by their own
+	 * baseline, which for a box with text lines is that of its last
+	 * line and otherwise its bottom edge.  line_asc / line_desc are the
+	 * most any item reaches above and below the baseline, so a tall
+	 * image pushes the baseline down and the text's descent then adds
+	 * to the line below it.  Floats hang from the top of the line and
+	 * only set its minimum height
+	 */
+	lws_fx_set(above, c->line_asc, 0);
 	lws_fx_set(ah, c->line_asc + c->line_desc, 0);
 	lh = lhp_fx_max(&ah, &c->line_h);
 	lws_fx_set(lead, 0, 0);
@@ -512,21 +523,60 @@ lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
 
 		dlo->flag_online = 0;
 
+		if (dlo->flag_inline_bg) {
+			/*
+			 * An inline element's background rect: it was set up
+			 * around its text run, which is the next item on the
+			 * line, so it moves with that text's baseline
+			 * alignment rather than being aligned as a box
+			 */
+			lws_dll2_t *nd = lws_dll2_get_next(d);
+
+			lws_fx_set(t, 0, 0);
+			if (nd) {
+				lws_dlo_t *ndlo = lws_container_of(nd,
+							lws_dlo_t, list);
+
+				if (ndlo->_destroy ==
+						lws_display_dlo_text_destroy) {
+					lws_dlo_text_t *txt = lws_container_of(
+						ndlo, lws_dlo_text_t, dlo);
+
+					lws_fx_set(t, txt->font_y_baseline -
+						      txt->font_height, 0);
+					lws_fx_add(&t, &t, &above);
+					lws_fx_div(&t2, &lead, &fx_2);
+					lws_fx_add(&t, &t, &t2);
+				}
+			}
+			lws_fx_add(&dlo->box.y, &dlo->box.y, &t);
+			lws_fx_add(&dlo->box.x, &dlo->box.x, &shift);
+
+			d = lws_dll2_get_next(d);
+			continue;
+		}
+
 		if (dlo->_destroy == lws_display_dlo_text_destroy) {
 			lws_dlo_text_t *txt = lws_container_of(dlo,
 							lws_dlo_text_t, dlo);
 
 			/* text sits on the line's baseline, plus half the
 			 * leading from line-height */
-			lws_fx_set(t, c->line_asc - txt->font_y_baseline, 0);
+			lws_fx_set(t, txt->font_y_baseline - txt->font_height, 0);
+			lws_fx_add(&t, &t, &above);
 			lws_fx_div(&t2, &lead, &fx_2);
 			lws_fx_add(&t, &t, &t2);
 		} else if (dlo->flag_float) {
 			/* floats hang from the top of the line */
 			lws_fx_set(t, 0, 0);
-		} else
-			/* boxes and images sit on the bottom of the line */
-			lws_fx_sub(&t, &lh, &dlo->box.h);
+		} else {
+			/* boxes and images sit on the baseline by theirs */
+			lws_fx_set(t, dlo->base_up, 0);
+			lws_fx_add(&t, &t, &above);
+			lws_fx_sub(&t, &t, &dlo->box.h);
+			lws_fx_div(&t2, &lead, &fx_2);
+			lws_fx_add(&t, &t, &t2);
+		}
 
 		lws_fx_add(&dlo->box.y, &c->oy, &c->cury);
 		lws_fx_add(&dlo->box.y, &dlo->box.y, &t);
@@ -534,6 +584,14 @@ lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
 
 		d = lws_dll2_get_next(d);
 	}
+
+	/* where this line's baseline ended up, for our own baseline */
+	lws_fx_div(&t2, &lead, &fx_2);
+	lws_fx_add(&t, &c->oy, &c->cury);
+	lws_fx_add(&t, &t, &above);
+	lws_fx_add(&t, &t, &t2);
+	c->last_base = (int16_t)t.whole;
+	c->has_base = 1;
 
 	lws_fx_add(&c->cury, &c->cury, &lh);
 	lhp_line_reset(c);
@@ -556,18 +614,36 @@ lhp_line_item(lhp_pstack_t *c, lws_dlo_t *dlo, const lws_fx_t *w,
 	lws_fx_add(&c->nowrap, &c->nowrap, w);
 	c->maxc = lhp_fx_max(&c->maxc, &c->nowrap);
 
-	if (h)
-		c->line_h = lhp_fx_max(&c->line_h, h);
+	if (!h)
+		return;
+
+	c->line_h = lhp_fx_max(&c->line_h, h);
+
+	if (dlo->flag_float)
+		return;
+
+	/* a box on the line: how far it reaches above and below the
+	 * baseline it will be aligned by */
+	if (h->whole - dlo->base_up > c->line_asc)
+		c->line_asc = (int16_t)(h->whole - dlo->base_up);
+	if (dlo->base_up > c->line_desc)
+		c->line_desc = dlo->base_up;
 }
+
+/*
+ * font_y_baseline is the distance from the baseline down to the bottom of
+ * the glyph box (the descent), so the ascent is the rest of the height
+ */
 
 static void
 lhp_line_text_metrics(lhp_pstack_t *c, lws_dlo_text_t *txt)
 {
-	if (txt->font_y_baseline > c->line_asc)
-		c->line_asc = txt->font_y_baseline;
-	if (txt->font_height - txt->font_y_baseline > c->line_desc)
-		c->line_desc = (int16_t)(txt->font_height -
-					 txt->font_y_baseline);
+	int16_t asc = (int16_t)(txt->font_height - txt->font_y_baseline);
+
+	if (asc > c->line_asc)
+		c->line_asc = asc;
+	if (txt->font_y_baseline > c->line_desc)
+		c->line_desc = txt->font_y_baseline;
 }
 
 /*
@@ -732,7 +808,10 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 			lws_fx_add(&rect->dlo.box.w, &rect->dlo.box.w, &pr);
 			lws_fx_add(&rect->dlo.box.h, &txt->dlo.box.h, &pt);
 			lws_fx_add(&rect->dlo.box.h, &rect->dlo.box.h, &pb);
-			lhp_line_item(c, &rect->dlo, &fx_0, &rect->dlo.box.h);
+			rect->dlo.flag_inline_bg = 1;
+			/* inline padding doesn't grow the line: the text's
+			 * own ascent and descent set the line height */
+			lhp_line_item(c, &rect->dlo, &fx_0, NULL);
 		}
 
 		lws_display_dlo_text_measure(txt, txt->text, txt->text_len,
@@ -1509,6 +1588,15 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 	lws_fx_add(&ps->dlo->box.h, &h, &pt);
 	lws_fx_add(&ps->dlo->box.h, &ps->dlo->box.h, &pb);
 
+	/*
+	 * Our baseline, for when we are an item on a line: that of our last
+	 * line of text if we have one, else our bottom edge
+	 */
+	ps->dlo->base_up = 0;
+	if (ps->has_base && ps->last_base < ps->dlo->box.h.whole)
+		ps->dlo->base_up = (int16_t)(ps->dlo->box.h.whole -
+					     ps->last_base);
+
 	/* width, if it was waiting for the content */
 
 	if (ps->shrink && !ps->is_table) {
@@ -1631,6 +1719,19 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 	lws_fx_add(&c->cury, &t, &ps->dlo->box.h);
 	c->pend_mb = mb;
 	lhp_line_reset(c);
+
+	/*
+	 * A block's baseline is that of its last line box, which may be
+	 * inside a child block: carry ours up, so a container of blocks
+	 * (an <li> holding a display: block <a>) still aligns by its text
+	 * when it is itself an item on a line
+	 */
+	if (ps->has_base) {
+		c->last_base = (int16_t)(ps->dlo->box.y.whole +
+					 ps->dlo->box.h.whole -
+					 ps->dlo->base_up);
+		c->has_base = 1;
+	}
 
 	/* our unwrapped width counts for the container's shrink-to-fit */
 	if (ps->explicit_w || ps->is_table)

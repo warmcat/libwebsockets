@@ -1,13 +1,13 @@
 rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
  rect (0.0,0.0) [400.0 x 29.0] rgba=00000000
-  text (0.0,1.0) [25.0 x 14.0] rgba=FF000000 f=12/400 "Plain, "
+  text (0.0,0.0) [25.0 x 14.0] rgba=FF000000 f=12/400 "Plain, "
   text (25.0,0.0) [18.0 x 15.0] rgba=FF000000 f=12/700 "bold"
-  text (43.0,1.0) [4.0 x 14.0] rgba=FF000000 f=12/400 ", "
-  text (47.0,1.0) [21.0 x 14.0] rgba=FF000000 f=12/400 "italic"
-  text (68.0,1.0) [4.0 x 14.0] rgba=FF000000 f=12/400 ", "
-  rect (72.0,1.0) [68.0 x 14.0] rgba=FF00FFFF
-  text (72.0,1.0) [68.0 x 14.0] rgba=FF0000FF f=12/400 "highlighted span"
-  text (140.0,1.0) [4.0 x 14.0] rgba=FF000000 f=12/400 ", "
-  text (144.0,1.0) [23.0 x 14.0] rgba=FF000000 f=12/400 "a link"
-  text (167.0,1.0) [228.0 x 14.0] rgba=FF000000 f=12/400 " and more plain text that wraps onto the next line when it "
+  text (43.0,0.0) [4.0 x 14.0] rgba=FF000000 f=12/400 ", "
+  text (47.0,0.0) [21.0 x 14.0] rgba=FF000000 f=12/400 "italic"
+  text (68.0,0.0) [4.0 x 14.0] rgba=FF000000 f=12/400 ", "
+  rect (72.0,0.0) [68.0 x 14.0] rgba=FF00FFFF
+  text (72.0,0.0) [68.0 x 14.0] rgba=FF0000FF f=12/400 "highlighted span"
+  text (140.0,0.0) [4.0 x 14.0] rgba=FF000000 f=12/400 ", "
+  text (144.0,0.0) [23.0 x 14.0] rgba=FF000000 f=12/400 "a link"
+  text (167.0,0.0) [228.0 x 14.0] rgba=FF000000 f=12/400 " and more plain text that wraps onto the next line when it "
   text (0.0,15.0) [107.0 x 14.0] rgba=FF000000 f=12/400 "gets too long for the width."

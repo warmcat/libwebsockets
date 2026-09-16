@@ -1,10 +1,10 @@
 rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
  rect (0.0,0.0) [400.0 x 20.0] rgba=00000000
-  text (0.0,0.0) [28.0 x 14.0] rgba=FF000000 f=12/400 "Before "
+  text (0.0,3.0) [28.0 x 14.0] rgba=FF000000 f=12/400 "Before "
   rect (30.0,0.0) [21.0 x 20.0] rgba=FFCCCCCC
    text (3.0,3.0) [15.0 x 14.0] rgba=FF000000 f=12/400 "one"
   rect (55.0,0.0) [47.0 x 20.0] rgba=FFCCCCCC
    text (3.0,3.0) [41.0 x 14.0] rgba=FF000000 f=12/400 "two words"
-  rect (104.0,6.0) [120.0 x 14.0] rgba=FF00CCFF
+  rect (104.0,3.0) [120.0 x 14.0] rgba=FF00CCFF
    text (0.0,0.0) [45.0 x 14.0] rgba=FF000000 f=12/400 "fixed width"
-  text (224.0,0.0) [21.0 x 14.0] rgba=FF000000 f=12/400 " after"
+  text (224.0,3.0) [21.0 x 14.0] rgba=FF000000 f=12/400 " after"
