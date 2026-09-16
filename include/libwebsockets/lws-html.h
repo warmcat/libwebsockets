@@ -997,6 +997,18 @@ lws_css_get_side_atr_ps(lhp_pstack_t *ps, int longhand, int shorthand,
  * As lws_csp_px(), but lengths in calc() resolve their % terms against base
  * (the containing block content width) when it is non-NULL
  */
+/**
+ * lws_csp_calc() - evaluate a calc() attribute value
+ *
+ * \param a: the LCSP_UNIT_CALC atr
+ * \param ps: the element it is for
+ * \param base: the containing block length for %, or NULL
+ * \param unitless: NULL, or set nonzero if the result is a bare number
+ */
+LWS_VISIBLE LWS_EXTERN lws_fx_t
+lws_csp_calc(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base,
+	     int *unitless);
+
 LWS_VISIBLE LWS_EXTERN const lws_fx_t *
 lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base);
 

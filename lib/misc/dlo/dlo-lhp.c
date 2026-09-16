@@ -724,6 +724,21 @@ lhp_line_height_min(lhp_ctx_t *ctx, lhp_pstack_t *c, lws_fx_t *oh)
 		*oh = *lws_csp_px(a, c);
 		return 1;
 
+	case LCSP_UNIT_CALC:
+	{
+		/* calc(.1 + var(--line-height-base)): a bare multiplier */
+		int unitless;
+		lws_fx_t v = lws_csp_calc(a, c, NULL, &unitless);
+
+		if (unitless) {
+			if (!c->font_size.whole && !c->font_size.frac)
+				return 0;
+			lws_fx_mul(oh, &v, &c->font_size);
+		} else
+			*oh = v;
+		return 1;
+	}
+
 	default:
 		return 0;
 	}

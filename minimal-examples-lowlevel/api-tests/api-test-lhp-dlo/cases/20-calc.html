@@ -7,5 +7,7 @@ body { margin: 0; padding: 0; font-size: 16px }
 .c { width: min(50%, 100px); height: clamp(10px, 30px, 20px); background-color: #00ff00 }
 .d { width: calc((100% - 40px) / 2); background-color: #0000ff }
 .e { width: calc(var(--missing, 50px) * 2); background-color: #ffff00 }
+:root { --lh: 1.6; --gap-lg: calc(var(--gap) * 2) }
+p { line-height: calc(.1 + var(--lh)); margin: 0 0 var(--gap-lg) }
 </style></head>
-<body><div class="a">big</div><div class="b">b</div><div class="c"></div><div class="d">d</div><div class="e">e</div></body></html>
+<body><div class="a">big</div><div class="b">b</div><div class="c"></div><div class="d">d</div><div class="e">e</div><p>one</p><p>two</p></body></html>

@@ -851,6 +851,7 @@ struct lhp_calc {
 	const char		*end;
 	int			ref;
 	int			depth;
+	int			unitless; /* no length or % term was used */
 };
 
 static const lcsp_atr_t *
@@ -891,9 +892,13 @@ lhp_calc_atr(struct lhp_calc *cs, const lcsp_atr_t *a)
 		cs1.end = cs1.p + a->value_len;
 		cs1.depth++;
 
-		return lhp_calc_expr(&cs1);
+		v = lhp_calc_expr(&cs1);
+		cs->unitless = cs1.unitless;
+
+		return v;
 	}
 	case LCSP_UNIT_LENGTH_PERCENT:
+		cs->unitless = 0;
 		if (cs->base) {
 			lws_fx_mul(&v, &a->u.i, cs->base);
 			lws_fx_div(&v, &v, &c_100);
@@ -901,6 +906,7 @@ lhp_calc_atr(struct lhp_calc *cs, const lcsp_atr_t *a)
 		}
 		/* fallthru */
 	default:
+		cs->unitless = 0;
 		return *lws_csp_px_base(a, cs->ps, cs->base);
 	}
 }
@@ -1054,6 +1060,7 @@ lhp_calc_factor(struct lhp_calc *cs)
 		if (unit[0] == '%' && !unit[1]) {
 			lws_fx_t b = { 0, 0 };
 
+			cs->unitless = 0;
 			if (cs->base)
 				b = *cs->base;
 			else if (cs->ref != LWS_LHPREF_NONE)
@@ -1070,6 +1077,7 @@ lhp_calc_factor(struct lhp_calc *cs)
 			goto done;
 		}
 
+		cs->unitless = 0;
 		atr.unit = LCSP_UNIT_LENGTH_PX;
 		if (!strcmp(unit, "em")) atr.unit = LCSP_UNIT_LENGTH_EM;
 		if (!strcmp(unit, "ex")) atr.unit = LCSP_UNIT_LENGTH_EX;
@@ -1142,6 +1150,35 @@ lhp_calc_expr(struct lhp_calc *cs)
 	}
 }
 
+/*
+ * Evaluate a LCSP_UNIT_CALC atr for ps.  *unitless is set if no length or
+ * percentage term took part, ie, the result is a bare number (a line-height
+ * multiplier, say) rather than px
+ */
+
+lws_fx_t
+lws_csp_calc(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base,
+	     int *unitless)
+{
+	struct lhp_calc cs;
+	lws_fx_t v;
+
+	cs.ctx = lws_dll2_owner_container(&ps->list, lhp_ctx_t, stack);
+	cs.ps = ps;
+	cs.base = base;
+	cs.ref = lhp_prop_axis(a);
+	cs.p = (const char *)&a[1];
+	cs.end = cs.p + a->value_len;
+	cs.depth = 0;
+	cs.unitless = 1;
+
+	v = lhp_calc_expr(&cs);
+	if (unitless)
+		*unitless = cs.unitless;
+
+	return v;
+}
+
 const lws_fx_t *
 lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base)
 {
@@ -1199,20 +1236,8 @@ lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base)
 	}
 
 	case LCSP_UNIT_CALC:
-		{
-			struct lhp_calc cs;
-
-			cs.ctx = ctx;
-			cs.ps = ps;
-			cs.base = base;
-			cs.ref = ref;
-			cs.p = (const char *)&a[1];
-			cs.end = cs.p + a->value_len;
-			cs.depth = 0;
-
-			*(lws_fx_t *)&a->r = lhp_calc_expr(&cs);
-			return &a->r;
-		}
+		*(lws_fx_t *)&a->r = lws_csp_calc(a, ps, base, NULL);
+		return &a->r;
 
 	case LCSP_UNIT_LENGTH_EM:
 		return lws_fx_mul((lws_fx_t *)&a->r, &a->u.i, &em);
@@ -2793,14 +2818,18 @@ lhp_side_atr(lhp_pstack_t *ps, int longhand, int shorthand, int idx,
 	     int radii)
 {
 	const lcsp_defs_t *def = lhp_find_def2(ps, longhand, shorthand);
+	lhp_ctx_t *ctx;
 	int c, use = 0;
 
 	if (!def || !lws_dll2_get_head(&def->atrs))
 		return NULL;
 
+	ctx = lws_dll2_owner_container(&ps->list, lhp_ctx_t, stack);
+
 	if ((int)def->prop == longhand)
-		return lws_container_of(lws_dll2_get_tail(&def->atrs),
-					lcsp_atr_t, list);
+		return lhp_resolve_var_ps(ctx, ps, lws_container_of(
+					lws_dll2_get_tail(&def->atrs),
+					lcsp_atr_t, list));
 
 	c = (int)lws_dll2_count(&def->atrs);
 
@@ -2839,7 +2868,9 @@ lhp_side_atr(lhp_pstack_t *ps, int longhand, int shorthand, int idx,
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&def->atrs)) {
 		if (!use--)
-			return lws_container_of(d, lcsp_atr_t, list);
+			/* a term of the shorthand may be a var() too */
+			return lhp_resolve_var_ps(ctx, ps,
+				lws_container_of(d, lcsp_atr_t, list));
 	} lws_end_foreach_dll(d);
 
 	return NULL;
