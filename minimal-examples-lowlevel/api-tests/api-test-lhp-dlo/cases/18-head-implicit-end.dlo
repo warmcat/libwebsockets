@@ -1,0 +1,3 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (0.0,13.44) [400.0 x 14.0] rgba=00000000
+  text (0.0,0.0) [277.0 x 14.0] rgba=FF000000 f=12/400 "The body starts here even though the head was never explicitly closed"

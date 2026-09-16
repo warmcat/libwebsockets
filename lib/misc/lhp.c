@@ -3250,6 +3250,86 @@ lhp_link_css_done(lhp_ctx_t *ctx)
 	ctx->state = LHPS_OUTER;
 }
 
+/* elements that belong in <head>: anything else implies the head ended */
+
+static int
+lhp_head_content(const char *tag, size_t len)
+{
+	static const char * const hc[] = {
+		"base", "head", "html", "link", "meta", "noscript", "script",
+		"style", "template", "title", "!doctype"
+	};
+	size_t n;
+
+	if (!tag)
+		return 1;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(hc); n++)
+		if (strlen(hc[n]) == len && !strncasecmp(tag, hc[n], len))
+			return 1;
+
+	return 0;
+}
+
+/* the nearest open level above ps (exclusive) for the named tag */
+
+static lhp_pstack_t *
+lhp_parent_tag(lhp_pstack_t *ps, const char *name, size_t len)
+{
+	while (lws_dll2_get_prev(&ps->list)) {
+		lhp_atr_t *a;
+
+		ps = lws_container_of(lws_dll2_get_prev(&ps->list),
+				      lhp_pstack_t, list);
+		if (lws_dll2_is_empty(&ps->atr))
+			continue;
+		a = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t,
+				     list);
+		if (a->name_len == len &&
+		    !strncasecmp((const char *)&a[1], name, len))
+			return ps;
+	}
+
+	return NULL;
+}
+
+/*
+ * Close the open levels from the top of the stack down to and including
+ * th, as their closing tags would, issuing ELEMENT_END for each
+ */
+
+static void
+lhp_close_through(lhp_ctx_t *ctx, lhp_pstack_t *th)
+{
+	for (;;) {
+		lhp_pstack_t *ps = lws_container_of(
+				lws_dll2_get_tail(&ctx->stack),
+				lhp_pstack_t, list);
+		int last = ps == th;
+
+		if (lws_dll2_count(&ctx->stack) < 2)
+			return;
+
+		if (!lws_dll2_is_empty(&ps->atr)) {
+			lhp_atr_t *a = lws_container_of(
+					lws_dll2_get_head(&ps->atr),
+					lhp_atr_t, list);
+
+			memcpy(ctx->buf, &a[1], a->name_len);
+			ctx->npos = (int)a->name_len;
+		} else
+			ctx->npos = 0;
+
+		ps->cb(ctx, LHPCB_ELEMENT_END);
+		ctx->npos = 0;
+		lhp_clean_level(ps);
+		lws_css_cascade(ctx);
+
+		if (last)
+			return;
+	}
+}
+
 lws_stateful_ret_t
 lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 {
@@ -3558,6 +3638,38 @@ elem_start:
 				int is_css_link = 0;
 
 				memset(&i, 0, sizeof(i));
+
+				/*
+				 * A start tag that can't live in <head> ends
+				 * the head implicitly, whether the </head> was
+				 * omitted or eaten by a malformed tag before it
+				 * (itsfoss.com: <meta ... /  then </head>, the
+				 * meta's missing > swallows the </head>).  The
+				 * head is display: none, so without this the
+				 * whole body is laid out hidden.  Our level is
+				 * already on the stack: lift it off, close down
+				 * through the head, put it back under what's
+				 * left, and cascade against that
+				 */
+				if (!ctx->u.f.closing &&
+				    !lhp_head_content(ctx->tag, ctx->tag_len)) {
+					lhp_pstack_t *th = lhp_parent_tag(ps,
+								"head", 4);
+
+					if (th) {
+						lws_dll2_remove(&ps->list);
+						lhp_close_through(ctx, th);
+						lws_dll2_add_tail(&ps->list,
+								  &ctx->stack);
+						/* the closes used buf: put
+						 * our tag back in it */
+						memcpy(ctx->buf, ctx->tag,
+						       ctx->tag_len);
+						ctx->buf[ctx->tag_len] = '\0';
+						ctx->npos = (int)ctx->tag_len;
+					}
+				}
+
 				lws_css_cascade(ctx);
 
 				/*
