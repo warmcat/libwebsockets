@@ -36,6 +36,7 @@ lws_display_dlo_jpeg_destroy(struct lws_dlo *dlo)
 	lws_ss_destroy(&dlo_jpeg->flow.h);
 #endif
 	lws_buflist_destroy_all_segments(&dlo_jpeg->flow.bl);
+	lws_free_set_NULL(dlo_jpeg->row);
 
 	if (dlo_jpeg->j)
 		lws_jpeg_free(&dlo_jpeg->j);
@@ -51,7 +52,8 @@ lws_display_render_jpeg(struct lws_display_render_state *rs)
 	lws_stateful_ret_t r;
 	const uint8_t *pix;
 	uint32_t wanted;
-	int s, e;
+	unsigned int bypp;
+	int s, e, iw, ih, bw, bh, wl;
 
 	lws_fx_add(&ax, &rs->st[rs->sp].co.x, &dlo->box.x);
 	lws_fx_add(&t, &ax, &dlo->box.w);
@@ -75,8 +77,16 @@ lws_display_render_jpeg(struct lws_display_render_state *rs)
 	if (rs->curr > lws_fx_roundup(&t1))
 		return LWS_SRET_OK;
 
-	if (rs->curr - lws_fx_roundup(&ay) >
-			(int)lws_jpeg_get_height(dlo_jpeg->j))
+	/* drawn scaled to its box (nearest neighbour), as the png is */
+
+	iw = (int)lws_jpeg_get_width(dlo_jpeg->j);
+	ih = (int)lws_jpeg_get_height(dlo_jpeg->j);
+	bw = dlo->box.w.whole > 0 ? dlo->box.w.whole : iw;
+	bh = dlo->box.h.whole > 0 ? dlo->box.h.whole : ih;
+	bypp = lws_jpeg_get_pixelsize(dlo_jpeg->j) / 8;
+
+	wl = rs->curr - lws_fx_roundup(&ay);
+	if (wl >= bh)
 		return LWS_SRET_OK;
 
 	if (s < 0)
@@ -89,21 +99,21 @@ lws_display_render_jpeg(struct lws_display_render_state *rs)
 		return LWS_SRET_OK; /* off to the left */
 
 	/*
-	 * The image row this sweep line wants: a re-scanned viewport can
-	 * start partway down an image, so discard decoded rows until we
-	 * reach it, exactly as the gif renderer retargets
+	 * The image row this sweep line wants, through the vertical scale:
+	 * a re-scanned viewport can start partway down an image, so discard
+	 * decoded rows until we reach it, exactly as the gif renderer
+	 * retargets.  The walk enters renderers from a line above a
+	 * fractional dlo top: a negative wl means "not reached the top row
+	 * yet", and must clamp to 0 rather than wrap
 	 */
 
-	{
-		int wl = rs->curr - lws_fx_roundup(&ay);
+	wanted = wl > 0 ? (uint32_t)(((int64_t)wl * ih) / bh) : 0;
+	if (wanted >= (uint32_t)ih)
+		wanted = (uint32_t)ih - 1;
 
-		/*
-		 * The walk enters renderers from a line above a fractional
-		 * dlo top: a negative wanted means "not reached the top
-		 * row yet", and must clamp to 0 rather than wrap
-		 */
-
-		wanted = wl > 0 ? (uint32_t)wl : 0;
+	if (dlo_jpeg->emitted && wanted < dlo_jpeg->emitted && dlo_jpeg->row) {
+		pix = dlo_jpeg->row;
+		goto draw;
 	}
 
 	do {
@@ -187,26 +197,37 @@ lws_display_render_jpeg(struct lws_display_render_state *rs)
 
 	} while (1);
 
+	/* keep the row, in case the next line wants it again */
+
+	if (!dlo_jpeg->row || dlo_jpeg->row_len != (uint32_t)iw * bypp) {
+		lws_free(dlo_jpeg->row);
+		dlo_jpeg->row_len = (uint32_t)iw * bypp;
+		dlo_jpeg->row = lws_malloc(dlo_jpeg->row_len, __func__);
+	}
+	if (dlo_jpeg->row)
+		memcpy(dlo_jpeg->row, pix, dlo_jpeg->row_len);
+
+draw:
 	/*
 	 * What's in pix is either 24-bit RGB 3 bytes/px, or 8-bit grayscale
 	 * 1 byte/px, we have to map it on to either 32-bit RGBA or 16-bit YA
 	 * composition buf
 	 */
 
-	pix = pix + (( (unsigned int)(s - ax.whole) *
-			(lws_jpeg_get_pixelsize(dlo_jpeg->j) / 8)));
+	if (s < ax.whole)
+		s = ax.whole;
 
-	while (s < e && s >= ax.whole && s < lws_fx_roundup(&t) &&
-	       (s - ax.whole) < (int)lws_jpeg_get_width(dlo_jpeg->j)) {
+	while (s < e && s < ax.whole + bw) {
+		const uint8_t *px = pix + ((uint32_t)(((int64_t)(s - ax.whole) *
+						      iw) / bw)) * bypp;
 
-		if (lws_jpeg_get_pixelsize(dlo_jpeg->j) == 8)
-			pc = LWSDC_RGBA(pix[0], pix[0], pix[0], 255);
+		if (bypp == 1)
+			pc = LWSDC_RGBA(px[0], px[0], px[0], 255);
 		else
-			pc = LWSDC_RGBA(pix[0], pix[1], pix[2], 255);
+			pc = LWSDC_RGBA(px[0], px[1], px[2], 255);
 
 		lws_surface_set_px(rs->ic, rs->line, s, &pc);
 		s++;
-		pix += lws_jpeg_get_pixelsize(dlo_jpeg->j) / 8;
 	}
 
 	return LWS_SRET_OK;

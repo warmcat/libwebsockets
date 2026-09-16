@@ -37,6 +37,7 @@ lws_display_dlo_png_destroy(struct lws_dlo *dlo)
 		lws_ss_destroy(&dlo_png->flow.h);
 #endif
 	lws_buflist_destroy_all_segments(&dlo_png->flow.bl);
+	lws_free_set_NULL(dlo_png->row);
 
 	if (dlo_png->png)
 		lws_upng_free(&dlo_png->png);
@@ -54,7 +55,7 @@ lws_display_render_png(struct lws_display_render_state *rs)
 	const uint8_t *pix;
 	uint32_t wanted;
 	unsigned int bypp;
-	int s, e;
+	int s, e, iw, ih, bw, bh, wl;
 
 	if (!lws_upng_get_height(dlo_png->png)) {
 		if (dlo_png->flow.state == LWSDLOFLOW_STATE_READ_COMPLETED)
@@ -78,8 +79,19 @@ lws_display_render_png(struct lws_display_render_state *rs)
 	if (rs->curr > lws_fx_roundup(&t1))
 		return LWS_SRET_OK;
 
-	if (rs->curr - lws_fx_roundup(&ay) >
-			(int)lws_upng_get_height(dlo_png->png))
+	/*
+	 * The image is drawn scaled to its box (nearest neighbour): a css
+	 * height on an <img> or an intrinsic size that isn't the box's.  A
+	 * box side of 0 means the intrinsic size
+	 */
+
+	iw = (int)lws_upng_get_width(dlo_png->png);
+	ih = (int)lws_upng_get_height(dlo_png->png);
+	bw = dlo->box.w.whole > 0 ? dlo->box.w.whole : iw;
+	bh = dlo->box.h.whole > 0 ? dlo->box.h.whole : ih;
+
+	wl = rs->curr - lws_fx_roundup(&ay);
+	if (wl >= bh)
 		return LWS_SRET_OK;
 
 	if (s < 0)
@@ -92,21 +104,30 @@ lws_display_render_png(struct lws_display_render_state *rs)
 		return LWS_SRET_OK; /* off to the left */
 
 	/*
-	 * The image row this sweep line wants: a re-scanned viewport can
-	 * start partway down an image, so discard decoded rows until we
-	 * reach it, exactly as the gif renderer retargets
+	 * The image row this sweep line wants, through the vertical scale:
+	 * a re-scanned viewport can start partway down an image, so discard
+	 * decoded rows until we reach it, exactly as the gif renderer
+	 * retargets.  The walk enters renderers from a line above a
+	 * fractional dlo top: a negative wl means "not reached the top row
+	 * yet", and must clamp to 0 rather than wrap
 	 */
 
-	{
-		int wl = rs->curr - lws_fx_roundup(&ay);
+	wanted = wl > 0 ? (uint32_t)(((int64_t)wl * ih) / bh) : 0;
+	if (wanted >= (uint32_t)ih)
+		wanted = (uint32_t)ih - 1;
 
-		/*
-		 * The walk enters renderers from a line above a fractional
-		 * dlo top: a negative wanted means "not reached the top
-		 * row yet", and must clamp to 0 rather than wrap
-		 */
+	fmt = lws_upng_get_format(dlo_png->png);
+	bypp = lws_upng_get_pixelsize(dlo_png->png) / 8;
 
-		wanted = wl > 0 ? (uint32_t)wl : 0;
+	/*
+	 * Scaled up, the same image row serves several lines: the decoder
+	 * can only go forwards, so it is the copy of the last row issued
+	 * that is drawn again
+	 */
+
+	if (dlo_png->emitted && wanted < dlo_png->emitted && dlo_png->row) {
+		pix = dlo_png->row;
+		goto draw;
 	}
 
 	do {
@@ -190,48 +211,57 @@ lws_display_render_png(struct lws_display_render_state *rs)
 
 	} while (1);
 
-	fmt = lws_upng_get_format(dlo_png->png);
-	bypp = lws_upng_get_pixelsize(dlo_png->png) / 8;
+	/* keep the row, in case the next line wants it again */
 
-	pix = pix + ((unsigned int)(s - ax.whole) * bypp);
+	if (!dlo_png->row || dlo_png->row_len != (uint32_t)iw * bypp) {
+		lws_free(dlo_png->row);
+		dlo_png->row_len = (uint32_t)iw * bypp;
+		dlo_png->row = lws_malloc(dlo_png->row_len, __func__);
+	}
+	if (dlo_png->row)
+		memcpy(dlo_png->row, pix, dlo_png->row_len);
 
-	while (s < e && s >= ax.whole && s < lws_fx_roundup(&t) &&
-	       (s - ax.whole) < (int)lws_upng_get_width(dlo_png->png)) {
+draw:
+	if (s < ax.whole)
+		s = ax.whole;
+
+	while (s < e && s < ax.whole + bw) {
+		const uint8_t *px = pix + ((uint32_t)(((int64_t)(s - ax.whole) *
+						      iw) / bw)) * bypp;
 
 		/*
 		 * The decoder emits bypp bytes per pixel according to the PNG
 		 * colour type, and the line pair buffer is only width * bypp
 		 * long.  So we must decompose according to the actual format;
-		 * blindly taking pix[0..3] overran the allocation by up to 3
+		 * blindly taking px[0..3] overran the allocation by up to 3
 		 * bytes on the last pixel of every odd scanline.
 		 */
 
 		switch (fmt) {
 		case LWS_UPNG_RGBA8:
-			pc = LWSDC_RGBA(pix[0], pix[1], pix[2], pix[3]);
+			pc = LWSDC_RGBA(px[0], px[1], px[2], px[3]);
 			break;
 		case LWS_UPNG_RGBA16:
-			pc = LWSDC_RGBA(pix[0], pix[2], pix[4], pix[6]);
+			pc = LWSDC_RGBA(px[0], px[2], px[4], px[6]);
 			break;
 		case LWS_UPNG_RGB8:
-			pc = LWSDC_RGBA(pix[0], pix[1], pix[2], 0xff);
+			pc = LWSDC_RGBA(px[0], px[1], px[2], 0xff);
 			break;
 		case LWS_UPNG_RGB16:
-			pc = LWSDC_RGBA(pix[0], pix[2], pix[4], 0xff);
+			pc = LWSDC_RGBA(px[0], px[2], px[4], 0xff);
 			break;
 		case LWS_UPNG_LUMINANCE_ALPHA8:
-			pc = LWSDC_RGBA(pix[0], pix[0], pix[0], pix[1]);
+			pc = LWSDC_RGBA(px[0], px[0], px[0], px[1]);
 			break;
 		default:
 			/* the rest are all 1 byte per pixel of luminance */
-			pc = LWSDC_RGBA(pix[0], pix[0], pix[0], 0xff);
+			pc = LWSDC_RGBA(px[0], px[0], px[0], 0xff);
 			break;
 		}
 
 		lws_surface_set_px(rs->ic, rs->line, s, &pc);
 
 		s++;
-		pix += bypp;
 	}
 
 	return LWS_SRET_OK;

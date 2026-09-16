@@ -289,6 +289,9 @@ typedef struct lws_dlo_png {
 	lws_upng_t			*png;
 	uint32_t			emitted; /* decoded rows issued so far,
 						* for viewport re-scans */
+	uint8_t				*row; /* copy of the last row issued, for
+					       * repeating it when scaled up */
+	uint32_t			row_len;
 } lws_dlo_png_t;
 
 typedef struct lws_dlo_jpeg {
@@ -298,6 +301,9 @@ typedef struct lws_dlo_jpeg {
 	lws_jpeg_t			*j;
 	uint32_t			emitted; /* decoded rows issued so far,
 						* for viewport re-scans */
+	uint8_t				*row; /* copy of the last row issued, for
+					       * repeating it when scaled up */
+	uint32_t			row_len;
 } lws_dlo_jpeg_t;
 
 typedef struct lws_dlo_svg {
