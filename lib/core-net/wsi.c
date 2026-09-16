@@ -2094,6 +2094,15 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 				lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS) {
 			lwsl_wsi_info(w, "cli pipeq to be h2");
 
+			/*
+			 * The peer's concurrent stream limit applies: the
+			 * rest stay queued until another stream closes and
+			 * we are called again
+			 */
+			if (lws_wsi_mux_child_count(wsi) + 1 >
+			    wsi->h2.h2n->peer_set.s[H2SET_MAX_CONCURRENT_STREAMS])
+				break;
+
 			lwsi_set_state(w, LRS_H1C_ISSUE_HANDSHAKE2);
 
 			/* remove ourselves from client queue */

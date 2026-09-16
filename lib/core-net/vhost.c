@@ -2278,13 +2278,20 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 				}
 
 				wsi->client_h2_alpn = 1;
-				lws_wsi_h2_adopt(w, wsi);
-				lws_vhost_unlock(wsi->a.vhost); /* } ---------- */
-				lws_context_unlock(wsi->a.context); /* -------------- cx { */
+				if (lws_wsi_h2_adopt(w, wsi)) {
+					lws_vhost_unlock(wsi->a.vhost); /* } ---------- */
+					lws_context_unlock(wsi->a.context); /* -------------- cx { */
 
-				*nwsi = w;
+					*nwsi = w;
 
-				return ACTIVE_CONNS_MUXED;
+					return ACTIVE_CONNS_MUXED;
+				}
+
+				/*
+				 * The peer's concurrent stream limit is
+				 * reached: queue on the connection below and
+				 * get adopted when a stream closes
+				 */
 			}
 #endif
 

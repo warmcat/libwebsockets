@@ -148,7 +148,13 @@ endif()
 	add_test(NAME http-client-multi-restrict-h1-nopipe-fail COMMAND lws-minimal-http-client-multi --limit 1 --h1 -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
 	set_property(TEST http-client-multi-restrict-h1-nopipe-fail PROPERTY WILL_FAIL TRUE)
 
-	set_tests_properties(http-client-multi-restrict-pipe
+	# 40 transactions pipelined on one h2 connection: the server advertises
+	# SETTINGS_MAX_CONCURRENT_STREAMS 24, so the rest must queue on the
+	# connection and go as streams complete, not be refused or stall
+	add_test(NAME http-client-multi-pipe-over-max-streams COMMAND lws-minimal-http-client-multi -d1151 --limit 1 -p -c 40 -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV})
+
+	set_tests_properties(http-client-multi-pipe-over-max-streams
+			     http-client-multi-restrict-pipe
 			     http-client-multi-restrict-h1-pipe
 			     http-client-multi-restrict-stag-pipe
 			     http-client-multi-restrict-stag-h1-pipe

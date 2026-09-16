@@ -908,7 +908,25 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 			} lws_end_foreach_dll(d);
 		}
 
-		lws_wsi_mux_sibling_disconnect(wsi);
+		{
+			struct lws *nwsi = wsi->mux.parent_wsi;
+
+			lws_wsi_mux_sibling_disconnect(wsi);
+
+#if defined(LWS_WITH_CLIENT)
+			/*
+			 * A stream slot on the connection is free: if client
+			 * transactions were queued waiting for the peer's
+			 * concurrent stream limit, the next can go
+			 */
+			if (nwsi && lwsi_role_client(nwsi) &&
+			    !lws_dll2_is_empty(&nwsi->dll2_cli_txn_queue_owner) &&
+			    !nwsi->a.context->being_destroyed)
+				lws_wsi_mux_apply_queue(nwsi);
+#else
+			(void)nwsi;
+#endif
+		}
 		if (wsi->h2.pending_status_body)
 			lws_free_set_NULL(wsi->h2.pending_status_body);
 	}

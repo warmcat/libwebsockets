@@ -450,11 +450,25 @@ struct lws *
 lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 {
 	struct lws *nwsi = lws_get_network_wsi(parent_wsi);
+	uint32_t lim;
 
-	/* no more children allowed by parent */
-	if (lws_wsi_mux_child_count(parent_wsi) + 1 >
-	    parent_wsi->h2.h2n->our_set.s[H2SET_MAX_CONCURRENT_STREAMS]) {
-		lwsl_notice("reached concurrent stream limit\n");
+	/*
+	 * No more children allowed by parent.  As a client we are opening
+	 * the stream, so the applicable limit is the peer's advertised
+	 * SETTINGS_MAX_CONCURRENT_STREAMS (some CDNs give 2): exceeding it
+	 * just gets the stream RST_STREAM REFUSED_STREAM.  The caller must
+	 * queue the transaction until a stream closes.
+	 */
+#if defined(LWS_WITH_CLIENT)
+	if (lwsi_role_client(parent_wsi))
+		lim = parent_wsi->h2.h2n->peer_set.s[H2SET_MAX_CONCURRENT_STREAMS];
+	else
+#endif
+		lim = parent_wsi->h2.h2n->our_set.s[H2SET_MAX_CONCURRENT_STREAMS];
+
+	if ((uint32_t)lws_wsi_mux_child_count(parent_wsi) + 1 > lim) {
+		lwsl_wsi_info(parent_wsi, "reached concurrent stream limit %u",
+			      (unsigned int)lim);
 		return NULL;
 	}
 
