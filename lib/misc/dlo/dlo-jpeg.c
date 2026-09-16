@@ -50,6 +50,7 @@ lws_display_render_jpeg(struct lws_display_render_state *rs)
 	lws_fx_t ax, ay, t, t1;
 	lws_stateful_ret_t r;
 	const uint8_t *pix;
+	uint32_t wanted;
 	int s, e;
 
 	lws_fx_add(&ax, &rs->st[rs->sp].co.x, &dlo->box.x);
@@ -87,20 +88,32 @@ lws_display_render_jpeg(struct lws_display_render_state *rs)
 	if (e <= 0)
 		return LWS_SRET_OK; /* off to the left */
 
-	do {
-		if (lws_flow_feed(&dlo_jpeg->flow)) {
-			/*
-			 * Nothing in the buflist... if the payload is over,
-			 * what we have is all there will be: render it, not
-			 * wait for more that is never coming
-			 */
-			if (dlo_jpeg->flow.state ==
-					LWSDLOFLOW_STATE_READ_COMPLETED)
-				return LWS_SRET_OK;
+	/*
+	 * The image row this sweep line wants: a re-scanned viewport can
+	 * start partway down an image, so discard decoded rows until we
+	 * reach it, exactly as the gif renderer retargets
+	 */
 
-			/* if he says WANT_INPUT, we have nothing in the buflist */
-			return LWS_SRET_WANT_INPUT;
-		}
+	{
+		int wl = rs->curr - lws_fx_roundup(&ay);
+
+		/*
+		 * The walk enters renderers from a line above a fractional
+		 * dlo top: a negative wanted means "not reached the top
+		 * row yet", and must clamp to 0 rather than wrap
+		 */
+
+		wanted = wl > 0 ? (uint32_t)wl : 0;
+	}
+
+	do {
+		/*
+		 * Move on to the next buflist segment if the decoder used up
+		 * the current one.  We still call the decoder with no input:
+		 * it may have rows already decoded in its output ring
+		 */
+
+		lws_flow_feed(&dlo_jpeg->flow);
 
 		pix = NULL;
 		r = lws_jpeg_emit_next_line(dlo_jpeg->j, &pix, &dlo_jpeg->flow.data,
@@ -122,14 +135,57 @@ lws_display_render_jpeg(struct lws_display_render_state *rs)
 			return LWS_SRET_OK;
 		}
 
-		if (r & LWS_SRET_YIELD || r == LWS_SRET_OK)
+		if (r & LWS_SRET_YIELD)
 			return r;
 
-		r = lws_flow_req(&dlo_jpeg->flow);
-		if (r & LWS_SRET_WANT_INPUT)
-			return r;
+		if (pix) {
+			/* a row was issued: count it */
+			dlo_jpeg->emitted++;
 
-	} while (!pix);
+			if (dlo_jpeg->emitted > wanted)
+				break;
+
+			/*
+			 * Not the row this sweep line wants yet: discard it.
+			 * Keep the flow control credit topped up while we
+			 * churn through the rows above the viewport
+			 */
+
+			lws_flow_req(&dlo_jpeg->flow);
+			continue;
+		}
+
+		if (r & LWS_SRET_WANT_INPUT) {
+			/*
+			 * The decoder drained this segment without completing
+			 * a row.  Advance to the next segment if there is one
+			 * (and ask the peer for more), else we have to wait...
+			 * unless the payload is over, in which case what we
+			 * have is all there will be: don't wait for more that
+			 * is never coming
+			 */
+
+			lws_flow_req(&dlo_jpeg->flow);
+			if (dlo_jpeg->flow.len)
+				continue;
+
+			if (dlo_jpeg->flow.state == LWSDLOFLOW_STATE_READ_COMPLETED)
+				return LWS_SRET_OK;
+
+			return LWS_SRET_WANT_INPUT;
+		}
+
+		if (r == LWS_SRET_OK)
+			/*
+			 * No row and nothing pending: the decoder is past the
+			 * last row.  Nothing more is coming from this image
+			 */
+			return LWS_SRET_OK;
+
+		/* the decoder made progress (eg, WANT_OUTPUT) but has no
+		 * complete row yet: go around */
+
+	} while (1);
 
 	/*
 	 * What's in pix is either 24-bit RGB 3 bytes/px, or 8-bit grayscale

@@ -1282,27 +1282,46 @@ lws_dlo_ss_renew_images(struct lws_context *cx)
 		case LWSDLOSS_TYPE_JPEG:
 			lws_buflist_destroy_all_segments(
 					&ds->u.u.dlo_jpeg->flow.bl);
-			if (!lws_buflist_append_segment(
+			if (lws_buflist_append_segment(
 					&ds->u.u.dlo_jpeg->flow.bl,
-					data, size)) {
-				lws_jpeg_free(&ds->u.u.dlo_jpeg->j);
-				ds->u.u.dlo_jpeg->j = lws_jpeg_new();
-				ds->u.u.dlo_jpeg->flow.state =
-						LWSDLOFLOW_STATE_READ_COMPLETED;
-			}
+					data, size) < 0)
+				break;
+
+			/*
+			 * A fresh decoder starts with no dimensions, which
+			 * the renderers treat as an empty image: parse the
+			 * header so it is usable, and zero the row counter
+			 * the renderer fast-forwards with
+			 */
+
+			lws_jpeg_free(&ds->u.u.dlo_jpeg->j);
+			ds->u.u.dlo_jpeg->j = lws_jpeg_new();
+			if (!ds->u.u.dlo_jpeg->j)
+				break;
+			ds->u.u.dlo_jpeg->emitted = 0;
+			ds->u.u.dlo_jpeg->flow.state =
+					LWSDLOFLOW_STATE_READ_COMPLETED;
+			lws_flow_feed(&ds->u.u.dlo_jpeg->flow);
+			lws_display_dlo_jpeg_metadata_scan(ds->u.u.dlo_jpeg);
 			break;
 
 		case LWSDLOSS_TYPE_PNG:
 			lws_buflist_destroy_all_segments(
 					&ds->u.u.dlo_png->flow.bl);
-			if (!lws_buflist_append_segment(
+			if (lws_buflist_append_segment(
 					&ds->u.u.dlo_png->flow.bl,
-					data, size)) {
-				lws_upng_free(&ds->u.u.dlo_png->png);
-				ds->u.u.dlo_png->png = lws_upng_new();
-				ds->u.u.dlo_png->flow.state =
-						LWSDLOFLOW_STATE_READ_COMPLETED;
-			}
+					data, size) < 0)
+				break;
+
+			lws_upng_free(&ds->u.u.dlo_png->png);
+			ds->u.u.dlo_png->png = lws_upng_new();
+			if (!ds->u.u.dlo_png->png)
+				break;
+			ds->u.u.dlo_png->emitted = 0;
+			ds->u.u.dlo_png->flow.state =
+					LWSDLOFLOW_STATE_READ_COMPLETED;
+			lws_flow_feed(&ds->u.u.dlo_png->flow);
+			lws_display_dlo_png_metadata_scan(ds->u.u.dlo_png);
 			break;
 
 #if defined(LWS_WITH_GIF)
