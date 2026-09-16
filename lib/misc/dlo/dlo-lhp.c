@@ -198,6 +198,225 @@ lhp_container(lhp_pstack_t *ps)
 }
 
 /*
+ * Flex: a display: flex / inline-flex container with row direction lays its
+ * children out as items on one line (or wrapped lines), then distributes any
+ * free space on the line by flex-grow or justify-content, and aligns the
+ * items vertically by align-items.  Column direction is ordinary block flow.
+ */
+
+static int
+lhp_is_flex_row(lhp_ctx_t *ctx, lhp_pstack_t *ps)
+{
+	const lcsp_atr_t *a = ps->css_display, *d;
+
+	if (!a || a->unit != LCSP_UNIT_NONE ||
+	    (a->propval != LCSP_PROPVAL_FLEX &&
+	     a->propval != LCSP_PROPVAL_INLINE_FLEX))
+		return 0;
+
+	d = lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_FLEX_DIRECTION);
+
+	return !(d && d->unit == LCSP_UNIT_NONE &&
+		 d->propval == LCSP_PROPVAL_COLUMN);
+}
+
+static int
+lhp_flex_grow(lhp_ctx_t *ctx, lhp_pstack_t *ps)
+{
+	const lcsp_atr_t *a = lws_css_get_prop_atr_ps(ctx, ps,
+						      LCSP_PROP_FLEX_GROW);
+
+	if (a && a->unit == LCSP_UNIT_NUM)
+		return a->u.i.whole > 0 ? a->u.i.whole : 0;
+
+	/* flex: <grow> [...] / auto / none */
+	a = lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_FLEX);
+	if (!a)
+		return 0;
+	if (!lws_dll2_is_empty(&ctx->active_atr)) {
+		lcsp_atr_ptr_t *ap = lws_container_of(
+				lws_dll2_get_head(&ctx->active_atr),
+				lcsp_atr_ptr_t, list);
+
+		a = ap->atr;
+	}
+	if (a->unit == LCSP_UNIT_NUM)
+		return a->u.i.whole > 0 ? a->u.i.whole : 0;
+	if (a->unit == LCSP_UNIT_NONE && a->propval == LCSP_PROPVAL_AUTO)
+		return 1;
+
+	return 0;
+}
+
+/*
+ * The row flex container is closing with its items laid out on its line at
+ * their content widths: hand out the free space on the line, by flex-grow
+ * if any item grows, else by justify-content, then align the items on the
+ * cross axis by align-items / align-self against the container height (h,
+ * content height, which grows to the tallest item if it was auto)
+ */
+
+static void
+lhp_flex_close(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_fx_t *h)
+{
+	lws_fx_t used, free, gap, t, shift, unit, tallest;
+	const lcsp_atr_t *a;
+	int n = 0, grow = 0, jc = LCSP_PROPVAL_FLEX_START,
+	    ai = LCSP_PROPVAL_STRETCH;
+
+	lws_fx_set(used, 0, 0);
+	lws_fx_set(tallest, 0, 0);
+
+	a = lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_COLUMN_GAP);
+	if (!a)
+		a = lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_GAP);
+	gap = lhp_len(ps, a, &ps->cw);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ps->dlo->children)) {
+		lws_dlo_t *it = lws_container_of(d, lws_dlo_t, list);
+
+		if (!it->flag_flex_item)
+			continue;
+
+		/* a gap between each pair: move the later ones along */
+		if (n) {
+			lws_fx_mul(&t, &gap, &(lws_fx_t){ n, 0 });
+			lws_fx_add(&it->box.x, &it->box.x, &t);
+		}
+		lws_fx_add(&t, &it->box.x, &it->box.w);
+		lws_fx_add(&t, &t, &it->margin[CCPAS_RIGHT]);
+		lws_fx_sub(&t, &t, &ps->ox);
+		used = lhp_fx_max(&used, &t);
+		tallest = lhp_fx_max(&tallest, &it->box.h);
+		grow += it->flex_grow;
+		n++;
+	} lws_end_foreach_dll(d);
+
+	if (!n)
+		return;
+
+	/* the gaps widen a shrink-to-fit container's content */
+	if (n > 1) {
+		lws_fx_mul(&t, &gap, &(lws_fx_t){ n - 1, 0 });
+		lws_fx_add(&ps->maxc, &ps->maxc, &t);
+	}
+
+	/*
+	 * A shrink-to-fit container ends up just as wide as its items, so
+	 * there is no free space to hand out; its width isn't known yet
+	 */
+	if (ps->shrink) {
+		lws_fx_set(free, 0, 0);
+	} else
+		lws_fx_sub(&free, &ps->cw, &used);
+
+	a = lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_JUSTIFY_CONTENT);
+	if (a && a->unit == LCSP_UNIT_NONE)
+		jc = a->propval;
+	a = lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_ALIGN_ITEMS);
+	if (a && a->unit == LCSP_UNIT_NONE)
+		ai = a->propval;
+
+	if (free.whole > 0) {
+		int i = 0;
+
+		lws_fx_set(shift, 0, 0);
+		lws_fx_set(unit, 0, 0);
+
+		if (grow)
+			lws_fx_div(&unit, &free, &(lws_fx_t){ grow, 0 });
+		else
+			switch (jc) {
+			case LCSP_PROPVAL_CENTER:
+				lws_fx_div(&shift, &free, &fx_2);
+				break;
+			case LCSP_PROPVAL_FLEX_END:
+			case LCSP_PROPVAL_END:
+			case LCSP_PROPVAL_RIGHT:
+				shift = free;
+				break;
+			case LCSP_PROPVAL_SPACE_BETWEEN:
+				if (n > 1)
+					lws_fx_div(&unit, &free,
+						   &(lws_fx_t){ n - 1, 0 });
+				break;
+			case LCSP_PROPVAL_SPACE_AROUND:
+				lws_fx_div(&unit, &free, &(lws_fx_t){ n, 0 });
+				lws_fx_div(&shift, &unit, &fx_2);
+				break;
+			case LCSP_PROPVAL_SPACE_EVENLY:
+				lws_fx_div(&unit, &free, &(lws_fx_t){ n + 1, 0 });
+				shift = unit;
+				break;
+			default:
+				break;
+			}
+
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&ps->dlo->children)) {
+			lws_dlo_t *it = lws_container_of(d, lws_dlo_t, list);
+
+			if (!it->flag_flex_item)
+				continue;
+
+			lws_fx_add(&it->box.x, &it->box.x, &shift);
+			if (grow) {
+				if (it->flex_grow) {
+					lws_fx_mul(&t, &unit,
+						   &(lws_fx_t){ it->flex_grow, 0 });
+					lws_fx_add(&it->box.w, &it->box.w, &t);
+					lws_fx_add(&shift, &shift, &t);
+				}
+			} else if (jc == LCSP_PROPVAL_SPACE_BETWEEN ||
+				   jc == LCSP_PROPVAL_SPACE_AROUND ||
+				   jc == LCSP_PROPVAL_SPACE_EVENLY)
+				lws_fx_add(&shift, &shift, &unit);
+			i++;
+		} lws_end_foreach_dll(d);
+	}
+
+	/* cross axis */
+
+	if (!ps->explicit_h && lws_fx_comp(h, &tallest) < 0)
+		*h = tallest;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ps->dlo->children)) {
+		lws_dlo_t *it = lws_container_of(d, lws_dlo_t, list);
+		int al = ai;
+
+		if (!it->flag_flex_item)
+			continue;
+
+		if (it->align_self && it->align_self != LCSP_PROPVAL_AUTO)
+			al = it->align_self;
+
+		lws_fx_sub(&t, h, &it->box.h);
+
+		switch (al) {
+		case LCSP_PROPVAL_CENTER:
+			lws_fx_div(&t, &t, &fx_2);
+			lws_fx_add(&it->box.y, &ps->oy, &t);
+			break;
+		case LCSP_PROPVAL_FLEX_END:
+		case LCSP_PROPVAL_END:
+			lws_fx_add(&it->box.y, &ps->oy, &t);
+			break;
+		case LCSP_PROPVAL_STRETCH:
+		case LCSP_PROPVAL_NORMAL:
+			it->box.y = ps->oy;
+			if (t.whole > 0)
+				it->box.h = *h;
+			break;
+		default:
+			it->box.y = ps->oy;
+			break;
+		}
+	} lws_end_foreach_dll(d);
+}
+
+/*
  * Hit regions: an <a href> gets a non-printing dlo marking its area with
  * its url, so a point can be mapped back to the link.  An <a> with a box of
  * its own (display: block / inline-block) gets one region filling that box
@@ -1260,6 +1479,27 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 	ps->is_abs = pos == LCSP_PROPVAL_ABSOLUTE || pos == LCSP_PROPVAL_FIXED;
 	ps->is_ilevel = type == LHP_BOX_INLINE_BLOCK;
 
+	ps->is_flex = !!lhp_is_flex_row(ctx, ps);
+	if (ps->is_flex) {
+		const lcsp_atr_t *fw = lws_css_get_prop_atr_ps(ctx, ps,
+							LCSP_PROP_FLEX_WRAP);
+
+		ps->flex_wrap = !!(fw && fw->unit == LCSP_UNIT_NONE &&
+				   fw->propval == LCSP_PROPVAL_WRAP);
+	}
+
+	/*
+	 * A direct child of a row flex container is a flex item: blockified,
+	 * placed on the container's line like an inline-block, sized to its
+	 * content unless it has a width or grows into the free space
+	 */
+	if (c && c->is_flex && lhp_parent(ps) == c && !ps->is_abs &&
+	    type != LHP_BOX_ROW && type != LHP_BOX_CELL) {
+		ps->is_flex_item = 1;
+		ps->is_ilevel = 1;
+		type = LHP_BOX_INLINE_BLOCK;
+	}
+
 	if (type != LHP_BOX_ROW && type != LHP_BOX_CELL && !ps->is_abs) {
 		const lcsp_atr_t *fl = lws_css_get_prop_atr_ps(ctx, ps,
 							LCSP_PROP_FLOAT);
@@ -1542,6 +1782,15 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 
 	ps->dlo->flag_abs = ps->is_abs;
 	ps->dlo->flag_float = ps->is_float;
+	if (ps->is_flex_item) {
+		const lcsp_atr_t *as = lws_css_get_prop_atr_ps(ctx, ps,
+							LCSP_PROP_ALIGN_SELF);
+
+		ps->dlo->flag_flex_item = 1;
+		ps->dlo->flex_grow = (uint8_t)lhp_flex_grow(ctx, ps);
+		if (as && as->unit == LCSP_UNIT_NONE)
+			ps->dlo->align_self = (uint8_t)as->propval;
+	}
 	if (pos != LCSP_PROPVAL_STATIC) {
 		/* a positive z-index paints it above later siblings */
 		const lcsp_atr_t *zi = lws_css_get_prop_atr_ps(ctx, ps,
@@ -1715,6 +1964,9 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 		}
 	}
 
+	if (ps->is_flex)
+		lhp_flex_close(ctx, ps, &h);
+
 	if (ps->is_row) {
 		/* as tall as the tallest cell, and so are the cells */
 		h = ps->line_h;
@@ -1876,7 +2128,8 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 		}
 
 		lws_fx_add(&t1, &c->curx, &t);
-		if (c->curx.whole > 0 && lws_fx_comp(&t1, &c->cw) > 0)
+		if (c->curx.whole > 0 && lws_fx_comp(&t1, &c->cw) > 0 &&
+		    !(ps->is_flex_item && !c->flex_wrap))
 			lhp_line_end(ctx, c);
 
 		lws_fx_add(&ps->dlo->box.x, &c->ox, &c->curx);
@@ -2029,15 +2282,23 @@ lhp_elem_start(lhp_ctx_t *ctx, lhp_pstack_t *ps, struct lws_context *cx,
 
 	c = lhp_container(lhp_parent(ps));
 
+	/* an inline child of a row flex container is blockified into an item */
+	if (type == LHP_BOX_INLINE && c && c->is_flex && lhp_parent(ps) == c)
+		type = LHP_BOX_INLINE_BLOCK;
+
 	switch (type) {
 	case LHP_BOX_INLINE:
 		ps->is_inline = 1;
 		if (c) {
-			/* horizontal margin / padding take space on the line */
+			/* horizontal margin / padding take space on the line,
+			 * and count in the container's unwrapped width */
 			t = lhp_len(ps, ps->css_margin[CCPAS_LEFT], &c->cw);
 			lws_fx_add(&c->curx, &c->curx, &t);
+			lws_fx_add(&c->nowrap, &c->nowrap, &t);
 			t = lhp_len(ps, ps->css_padding[CCPAS_LEFT], &c->cw);
 			lws_fx_add(&c->curx, &c->curx, &t);
+			lws_fx_add(&c->nowrap, &c->nowrap, &t);
+			c->maxc = lhp_fx_max(&c->maxc, &c->nowrap);
 		}
 		return 0;
 
@@ -2250,8 +2511,11 @@ lhp_elem_end(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 
 			t = lhp_len(ps, ps->css_padding[CCPAS_RIGHT], &c->cw);
 			lws_fx_add(&c->curx, &c->curx, &t);
+			lws_fx_add(&c->nowrap, &c->nowrap, &t);
 			t = lhp_len(ps, ps->css_margin[CCPAS_RIGHT], &c->cw);
 			lws_fx_add(&c->curx, &c->curx, &t);
+			lws_fx_add(&c->nowrap, &c->nowrap, &t);
+			c->maxc = lhp_fx_max(&c->maxc, &c->nowrap);
 
 			/*
 			 * An inline element with any margin or padding makes

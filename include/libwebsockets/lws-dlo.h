@@ -151,6 +151,10 @@ typedef struct lws_dlo {
 						  * its element's own dlo (layout) */
 	uint8_t				flag_inline_bg:1; /* background rect of the text
 						   * run that follows it (layout) */
+	uint8_t				flag_flex_item:1; /* item of a row flex container
+						   * (layout) */
+	uint8_t				flex_grow; /* flex-grow, for flag_flex_item */
+	uint8_t				align_self; /* LCSP_PROPVAL_* or 0 = auto */
 
 	/* render-specific members ... */
 } lws_dlo_t;
