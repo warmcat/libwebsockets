@@ -235,6 +235,37 @@ lws_h2_peer_ended_stream(struct lws *swsi)
 	swsi->h2.END_STREAM = 1;
 }
 
+/*
+ * Give the peer back connection-level (sid 0) flow control credit only:
+ * for DATA on streams that are already gone, a stream-level update would
+ * itself be a protocol error, but the frame still consumed connection
+ * window that must be returned or the peer eventually cannot send on any
+ * stream.
+ */
+
+static int
+lws_h2_update_conn_txcredit(struct lws *nwsi, int bump)
+{
+	struct lws_h2_protocol_send *pps;
+
+	if (!bump)
+		return 0;
+
+	pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
+	if (!pps)
+		return 1;
+
+	pps->u.update_window.sid = 0;
+	pps->u.update_window.credit = (unsigned int)bump;
+	nwsi->txc.peer_tx_cr_est += bump;
+
+	lws_wsi_txc_describe(&nwsi->txc, __func__, nwsi->mux.my_sid);
+
+	lws_pps_schedule(nwsi, pps);
+
+	return 0;
+}
+
 int
 lws_h2_update_peer_txcredit(struct lws *wsi, unsigned int sid, int bump)
 {
@@ -1325,6 +1356,25 @@ lws_h2_parse_frame_header(struct lws *wsi)
 					&& wsi->client_h2_alpn
 #endif
 			) {
+				/*
+				 * The stream went away, but the peer had DATA
+				 * for it already queued or in flight.  The
+				 * frame content is consumed and ignored, but
+				 * it still consumed connection-level flow
+				 * control window: unless the credit is given
+				 * back, enough stragglers can wedge the whole
+				 * connection for streams that are still
+				 * alive.  A stream-level WINDOW_UPDATE for a
+				 * closed sid would be a protocol error, so
+				 * only the connection window is repaired.
+				 */
+
+				wsi->txc.peer_tx_cr_est -= (int)h2n->length;
+				if (wsi->txc.peer_tx_cr_est <= 0 &&
+				    lws_h2_update_conn_txcredit(wsi,
+					65536 + (int)h2n->length))
+					return 1;
+
 				if (h2n->flags & LWS_H2_FLAG_END_STREAM)
 					lwsl_notice("%s: stragging EOS\n", __func__);
 				else {
