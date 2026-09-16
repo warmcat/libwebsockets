@@ -66,6 +66,9 @@ LWS_SS_USER_TYPEDEF
 #endif
 	uint8_t				type; /* LWSDLOSS_TYPE_ */
 	uint8_t				inflight:1; /* holds a fetch slot */
+	uint8_t				retrying:1; /* never connected, the ss
+						     * is in its backoff wait */
+	uint8_t				connected:1; /* got as far as CONNECTED */
 	uint8_t				no_cache:1; /* don't cache this asset */
 	uint8_t				in_cache:1; /* the whole payload is in the
 						     * asset cache: renewable */
@@ -182,7 +185,7 @@ dlo_assets_outstanding(struct lws_context *cx)
 			      lws_dll2_get_head(&cx->active_assets)) {
 		dloss_t *ds = lws_container_of(d, dloss_t, active_asset_list);
 
-		if (ds->inflight)
+		if (ds->inflight || ds->retrying)
 			return 1;
 	} lws_end_foreach_dll(d);
 
@@ -274,11 +277,52 @@ dlo_asset_host_inflight(struct lws_context *cx, const dloss_t *cand)
  */
 
 static void
+dlo_assets_kick(struct lws_context *cx);
+
+static void
+dlo_assets_kick_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_context *cx = lws_container_of(sul, struct lws_context,
+						  sul_assets_kick);
+
+	dlo_assets_kick(cx);
+}
+
+/*
+ * Is the fd table full?  A client connect needs at least one fd (up to
+ * LWS_MAX_PARALLEL_CONNS while its happy-eyeballs candidates race), and
+ * failing at __insert_wsi_socket_into_fds() costs the asset one of its
+ * retries, so don't start one that certainly can't get an fd.  Idle
+ * keepalive connections to the CDNs hold fds too, so this can't demand
+ * much headroom or a small table never starts anything.
+ */
+
+static int
+dlo_assets_fds_short(struct lws_context *cx)
+{
+	struct lws_context_per_thread *pt = &cx->pt[0];
+
+	return (unsigned int)pt->fds_count + 1 >= cx->fd_limit_per_thread;
+}
+
+static void
 dlo_assets_kick(struct lws_context *cx)
 {
 	while (cx->pending_assets.head &&
 	       dlo_asset_inflight_count(cx) < (int)dlo_asset_inflight_max(cx)) {
 		dloss_t *ds = NULL;
+
+		if (dlo_assets_fds_short(cx)) {
+			/*
+			 * Something else is using the fds right now (eg,
+			 * the document connection's own parallel connects):
+			 * come back for the queue shortly
+			 */
+			lws_sul_schedule(cx, 0, &cx->sul_assets_kick,
+					 dlo_assets_kick_cb,
+					 100 * LWS_US_PER_MS);
+			break;
+		}
 
 		/*
 		 * The queue head's server may already be at its per-host
@@ -310,6 +354,11 @@ dlo_assets_kick(struct lws_context *cx)
 		lwsl_notice("%s: kick %s\n", __func__, ds->url);
 
 		if (!lws_ss_client_connect(ds->ss))
+			continue;
+
+		if (ds->retrying)
+			/* it failed synchronously but is in its backoff
+			 * wait: it comes back by itself at CONNECTING */
 			continue;
 
 		/* destroying it passes through DESTROYING, which re-kicks */
@@ -710,6 +759,11 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	case LWSSSCS_CONNECTING:
 		/* it holds a fetch slot again, eg, after a retry */
 		m->inflight = 1;
+		m->retrying = 0;
+		break;
+
+	case LWSSSCS_CONNECTED:
+		m->connected = 1;
 		break;
 
 	case LWSSSCS_DESTROYING:
@@ -720,6 +774,7 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		/* it may be on either the active or the queued list */
 		lws_dll2_remove(&m->active_asset_list);
 		m->inflight = 0;
+		m->retrying = 0;
 
 		/*
 		 * The dlo destroys the asset ss from its flow.h backref: if
@@ -736,9 +791,28 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		break;
 
 	case LWSSSCS_UNREACHABLE:
+		if (!m->connected && !m->u.failed &&
+		    dlo_assets_fds_short(m->cx)) {
+			/*
+			 * The connect failed before it got anywhere with the
+			 * fd table full: that is our own congestion, not
+			 * anything wrong with the asset.  The ss is going
+			 * into its backoff wait and will try again by
+			 * itself; the asset is still outstanding for the
+			 * document, but its fetch slot is free meanwhile.
+			 * Only ALL_RETRIES_FAILED gives up on it.
+			 */
+			m->inflight = 0;
+			m->retrying = 1;
+			dlo_assets_kick(m->cx);
+			break;
+		}
+		/* fallthru */
+
 	case LWSSSCS_ALL_RETRIES_FAILED:
 	case LWSSSCS_QOS_NACK_REMOTE:
 	case LWSSSCS_DISCONNECTED:
+		m->retrying = 0;
 		/*
 		 * The asset isn't coming (or stopped early).  The html parse
 		 * may be waiting on it: a stylesheet that never finishes must

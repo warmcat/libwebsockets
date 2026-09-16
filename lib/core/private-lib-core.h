@@ -512,6 +512,8 @@ struct lws_context {
 #if defined(LWS_WITH_SECURE_STREAMS)
 	lws_dll2_owner_t			active_assets; /* dloss_t */
 	lws_dll2_owner_t			pending_assets; /* dloss_t, queued for a slot */
+	lws_sorted_usec_list_t			sul_assets_kick; /* retry starting
+						* queued assets when fds are short */
 #endif
 #endif
 
