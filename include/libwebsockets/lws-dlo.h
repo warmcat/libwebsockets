@@ -189,6 +189,21 @@ typedef struct lws_dlo_circle {
 	lws_dlo_t			dlo;
 } lws_dlo_circle_t;
 
+/*
+ * Non-printing hit region: renders nothing, but marks the area of its box
+ * as belonging to something, eg, the link whose url it carries.  Being a
+ * dlo it is placed and moved by the layout with the things around it, and
+ * its position in the paint order decides which of several overlapping
+ * regions a point belongs to (the last, as a viewer sees it on top).
+ */
+
+typedef struct lws_dlo_hit {
+	lws_dlo_t			dlo;
+	const char			*url; /* as written in the document, in
+					       * the same allocation */
+	uint8_t				fill; /* takes its parent's size */
+} lws_dlo_hit_t;
+
 typedef struct lws_font_choice {
 	const char			*family_name;
 	const char			*generic_name;
@@ -464,6 +479,47 @@ lws_display_dlo_rect_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lws_display_render_rect(struct lws_display_render_state *rs);
+
+/*
+ * hit region
+ */
+
+/**
+ * lws_display_dlo_hit_new() - add a non-printing hit region to the display list
+ *
+ * \param dl: the display list
+ * \param dlo_parent: the dlo whose child it becomes, or NULL for the list head
+ * \param box: its box relative to the parent, or NULL for all zeros
+ * \param url: the url (or other metadata string) the region carries
+ * \param url_len: the length of url
+ *
+ * The url is copied into the region's own allocation.  Set .fill on the
+ * result for a region that always has its parent's size.
+ */
+LWS_VISIBLE LWS_EXTERN lws_dlo_hit_t *
+lws_display_dlo_hit_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
+			const lws_box_t *box, const char *url, size_t url_len);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_display_dlo_hit_destroy(struct lws_dlo *dlo);
+
+LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
+lws_display_render_hit(struct lws_display_render_state *rs);
+
+/**
+ * lws_display_dl_hit_test() - find the hit region at a point
+ *
+ * \param dl: the display list
+ * \param x: x in the display list's coordinates
+ * \param y: y in the display list's coordinates
+ * \param abox: NULL, or filled with the region's absolute box if one is hit
+ *
+ * Returns the topmost hit region containing the point, or NULL if none.
+ * For a laid-out html document the coordinates are those of the document,
+ * so a viewport offset must be added to a window position first.
+ */
+LWS_VISIBLE LWS_EXTERN lws_dlo_hit_t *
+lws_display_dl_hit_test(lws_displaylist_t *dl, int x, int y, lws_box_t *abox);
 
 /*
  * dlo text

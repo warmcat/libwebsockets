@@ -110,6 +110,7 @@ if (LWS_WITH_DLO)
 	list(APPEND SOURCES
 		misc/dlo/dlo.c
 		misc/dlo/dlo-rect.c
+		misc/dlo/dlo-hit.c
 		misc/dlo/dlo-font-mcufont.c
 		misc/dlo/dlo-text.c)
 

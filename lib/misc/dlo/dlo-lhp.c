@@ -198,6 +198,44 @@ lhp_container(lhp_pstack_t *ps)
 }
 
 /*
+ * Hit regions: an <a href> gets a non-printing dlo marking its area with
+ * its url, so a point can be mapped back to the link.  An <a> with a box of
+ * its own (display: block / inline-block) gets one region filling that box
+ * when it closes; an inline <a> has no box, so each text run or image laid
+ * out inside it gets one the size of that run
+ */
+
+static lhp_pstack_t *
+lhp_link_of(lhp_pstack_t *ps)
+{
+	/* the nearest inline <a href> at or above ps, below its container */
+
+	while (ps && !(ps->is_block && ps->dlo)) {
+		if (lhp_tag_is(ps, "a", 1) && lws_html_get_atr(ps, "href", 4))
+			return ps;
+		ps = lhp_parent(ps);
+	}
+
+	return NULL;
+}
+
+static lws_dlo_hit_t *
+lhp_hit_new(lhp_ctx_t *ctx, lhp_pstack_t *a, lws_dl_rend_t *drt,
+	    lws_dlo_t *parent, const lws_box_t *box)
+{
+	const char *href = lws_html_get_atr(a, "href", 4);
+
+	if (!href || !drt)
+		return NULL;
+
+	/* the href as written: the user resolves it against the document
+	 * url when it is followed, as lws_http_rel_to_url() does */
+
+	return lws_display_dlo_hit_new(drt->dl, parent, box, href,
+				       strlen(href));
+}
+
+/*
  * The static position of an out-of-flow box: where a hypothetical box would
  * have gone in the flow, expressed in the coordinate space of psa's dlo (the
  * nearest positioned ancestor, or the body).  Used when none of the css
@@ -541,6 +579,12 @@ lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
 			 */
 			lws_dll2_t *nd = lws_dll2_get_next(d);
 
+			/* past any other such items (a hit region and a
+			 * background rect can both precede the run) */
+			while (nd && lws_container_of(nd, lws_dlo_t,
+						      list)->flag_inline_bg)
+				nd = lws_dll2_get_next(nd);
+
 			lws_fx_set(t, 0, 0);
 			if (nd) {
 				lws_dlo_t *ndlo = lws_container_of(nd,
@@ -691,7 +735,7 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 {
 	const char *text = ctx->buf;
 	size_t len = (size_t)ctx->npos;
-	lhp_pstack_t *c = lhp_container(ps);
+	lhp_pstack_t *c = lhp_container(ps), *link = lhp_link_of(ps);
 	lws_display_colour_t col;
 	const lcsp_atr_t *bg = NULL, *ws;
 	lws_fx_t pl, pr, pt, pb, avail, total, word;
@@ -742,6 +786,7 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 
 	while (len) {
 		lws_dlo_rect_t *rect = NULL;
+		lws_dlo_hit_t *hit = NULL;
 		lws_dlo_text_t *txt;
 		int r;
 
@@ -779,6 +824,10 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 							radii, bg->u.rgba);
 		}
 
+		if (link)
+			/* the run's hit region, sized to it below */
+			hit = lhp_hit_new(ctx, link, drt, c->dlo, NULL);
+
 		lws_fx_add(&box.x, &c->ox, &c->curx);
 		lws_fx_add(&box.y, &c->oy, &c->cury);
 		box.w = avail.whole > 0 ? avail : ctx->ic.wh_px[LWS_LHPREF_WIDTH];
@@ -788,6 +837,8 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 		if (!txt) {
 			if (rect)
 				lws_display_dlo_destroy((lws_dlo_t **)&rect);
+			if (hit)
+				lws_display_dlo_destroy((lws_dlo_t **)&hit);
 			return LWS_SRET_FATAL;
 		}
 
@@ -797,6 +848,8 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 			lws_display_dlo_destroy((lws_dlo_t **)&txt);
 			if (rect)
 				lws_display_dlo_destroy((lws_dlo_t **)&rect);
+			if (hit)
+				lws_display_dlo_destroy((lws_dlo_t **)&hit);
 			return LWS_SRET_FATAL;
 		}
 
@@ -813,6 +866,8 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 				lws_display_dlo_destroy((lws_dlo_t **)&txt);
 				if (rect)
 					lws_display_dlo_destroy((lws_dlo_t **)&rect);
+				if (hit)
+					lws_display_dlo_destroy((lws_dlo_t **)&hit);
 				lhp_line_end(ctx, c);
 				continue;
 			}
@@ -828,6 +883,8 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 				lws_display_dlo_destroy((lws_dlo_t **)&txt);
 				if (rect)
 					lws_display_dlo_destroy((lws_dlo_t **)&rect);
+				if (hit)
+					lws_display_dlo_destroy((lws_dlo_t **)&hit);
 				return 0;
 			}
 			if (txt->text_len < len)
@@ -850,6 +907,13 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 			/* inline padding doesn't grow the line: the text's
 			 * own ascent and descent set the line height */
 			lhp_line_item(c, &rect->dlo, &fx_0, NULL);
+		}
+
+		if (hit) {
+			/* the link's hit region, exactly the text run */
+			hit->dlo.box = txt->dlo.box;
+			hit->dlo.flag_inline_bg = 1;
+			lhp_line_item(c, &hit->dlo, &fx_0, NULL);
 		}
 
 		lws_display_dlo_text_measure(txt, txt->text, txt->text_len,
@@ -937,6 +1001,21 @@ lhp_place_image(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c)
 	lhp_line_item(c, dlo, &t, &h);
 	c->minc = lhp_fx_max(&c->minc, &t);
 	c->last_space = 0;
+
+	/* an image that is a link: a region filling it, whatever its
+	 * dimensions turn out to be */
+	{
+		lhp_pstack_t *link = lhp_link_of(ps);
+
+		if (link) {
+			lws_dlo_hit_t *hit = lhp_hit_new(ctx, link,
+						(lws_dl_rend_t *)ctx->user,
+						dlo, NULL);
+
+			if (hit)
+				hit->fill = 1;
+		}
+	}
 }
 
 /*
@@ -1643,6 +1722,16 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 
 	lws_fx_add(&ps->dlo->box.h, &h, &pt);
 	lws_fx_add(&ps->dlo->box.h, &ps->dlo->box.h, &pb);
+
+	/* an <a> with a box of its own: a region filling it */
+	if (lhp_tag_is(ps, "a", 1) && lws_html_get_atr(ps, "href", 4)) {
+		lws_dlo_hit_t *hit = lhp_hit_new(ctx, ps,
+						 (lws_dl_rend_t *)ctx->user,
+						 ps->dlo, NULL);
+
+		if (hit)
+			hit->fill = 1;
+	}
 
 	/*
 	 * Our baseline, for when we are an item on a line: that of our last

@@ -8,6 +8,7 @@ rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
   rect (72.0,0.0) [68.0 x 14.0] rgba=FF00FFFF
   text (72.0,0.0) [68.0 x 14.0] rgba=FF0000FF f=12/400 "highlighted span"
   text (140.0,0.0) [4.0 x 14.0] rgba=FF000000 f=12/400 ", "
+  hit (144.0,0.0) [23.0 x 14.0] "#"
   text (144.0,0.0) [23.0 x 14.0] rgba=FF000000 f=12/400 "a link"
   text (167.0,0.0) [228.0 x 14.0] rgba=FF000000 f=12/400 " and more plain text that wraps onto the next line when it "
   text (0.0,15.0) [107.0 x 14.0] rgba=FF000000 f=12/400 "gets too long for the width."

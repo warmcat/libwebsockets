@@ -150,6 +150,14 @@ dump_dlo(FILE *f, lws_dlo_t *dlo, int depth)
 				(unsigned int)t->font->choice.weight,
 				(int)t->text_len, t->text ? t->text : "");
 		} else
+		if (dlo->render == lws_display_render_hit) {
+			lws_dlo_hit_t *h = lws_container_of(dlo,
+							lws_dlo_hit_t, dlo);
+
+			fprintf(f, "hit (%s,%s) [%s x %s]%s \"%s\"\n",
+				b[0], b[1], b[2], b[3], h->fill ? " fill" : "",
+				h->url);
+		} else
 #if defined(LWS_WITH_UPNG)
 		if (dlo->_destroy == lws_display_dlo_png_destroy)
 			fprintf(f, "png (%s,%s) [%s x %s]\n",

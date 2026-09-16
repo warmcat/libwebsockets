@@ -302,6 +302,11 @@ lws_display_dl_dump(lws_displaylist_t *dl)
 					(unsigned int)dlo->dc, (unsigned int)text->text_len,
 					(int)text->text_len, text->text ? text->text : "(empty)");
 		}
+		else if (dlo->render == lws_display_render_hit)
+			lws_snprintf(dt, sizeof(dt), "hit: %s%s",
+				lws_container_of(dlo, lws_dlo_hit_t, dlo)->fill ?
+					"fill " : "",
+				lws_container_of(dlo, lws_dlo_hit_t, dlo)->url);
 #if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_UPNG) && defined(LWS_WITH_CLIENT)
 		else if (dlo->_destroy == lws_display_dlo_png_destroy)
 			lws_snprintf(dt, sizeof(dt), "png");

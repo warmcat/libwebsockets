@@ -114,6 +114,18 @@ if (NOT r EQUAL 0)
 	message(FATAL_ERROR "${TOOL} failed (${r}) on ${HTML}")
 endif()
 
+#
+# Link hit regions in the dump carry hrefs as written, and LOCALIZE rewrote
+# those to file:// paths into this tree: put placeholders back so the dump
+# is the same wherever the tree lives
+#
+if (LOCALIZE)
+	file(READ ${OUT} dump)
+	string(REPLACE "file://${OD}/" "build:/" dump "${dump}")
+	string(REPLACE "file://${HD}/" "vector:/" dump "${dump}")
+	file(WRITE ${OUT} "${dump}")
+endif()
+
 if (UPDATE)
 	configure_file(${OUT} ${GOLDEN} COPYONLY)
 	message("updated ${GOLDEN}")
