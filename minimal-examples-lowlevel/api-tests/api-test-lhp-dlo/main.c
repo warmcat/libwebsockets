@@ -352,8 +352,15 @@ render(lws_sorted_usec_list_t *sul)
 		r = lws_display_list_render_line(rs);
 
 		if (r) {
-			/* eg, waiting for more jpg or whatever */
+			/*
+			 * eg, waiting for more jpg or whatever.  A yield
+			 * (a decoder couldn't get memory this time round)
+			 * has nothing else to wake us: come back shortly
+			 */
 			lwsl_notice("%s: leaving 0x%x\n", __func__, (unsigned int)r);
+			if (r & LWS_SRET_YIELD)
+				lws_sul_schedule(cx, 0, &rs->sul, render,
+						 20 * LWS_US_PER_MS);
 			return;
 		}
 

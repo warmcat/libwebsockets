@@ -36,6 +36,7 @@ lws_display_dlo_png_destroy(struct lws_dlo *dlo)
 	if (dlo_png->flow.h)
 		lws_ss_destroy(&dlo_png->flow.h);
 #endif
+	lws_reclaimable_remove(&dlo_png->rc);
 	lws_buflist_destroy_all_segments(&dlo_png->flow.bl);
 	lws_free_set_NULL(dlo_png->row);
 
@@ -43,8 +44,77 @@ lws_display_dlo_png_destroy(struct lws_dlo *dlo)
 		lws_upng_free(&dlo_png->png);
 }
 
+/*
+ * Memory is short: drop the payload and the decoder (its inflate window
+ * is the big one), which the asset cache can give back before the next
+ * render.  The box and dimensions stay, the layout isn't affected.
+ */
+
+static size_t
+lws_display_dlo_png_evict(lws_reclaimable_t *r)
+{
+	lws_dlo_png_t *dlo_png = lws_container_of(r, lws_dlo_png_t, rc);
+	size_t freed = r->resident;
+
+	lwsl_info("%s: %s: %u\n", __func__, dlo_png->name, (unsigned int)freed);
+	lws_buflist_destroy_all_segments(&dlo_png->flow.bl);
+	dlo_png->flow.data = NULL;
+	dlo_png->flow.len = 0;
+	dlo_png->flow.blseglen = 0;
+	lws_free_set_NULL(dlo_png->row);
+	if (dlo_png->png)
+		lws_upng_free(&dlo_png->png);
+	dlo_png->evicted = 1;
+	r->resident = 0;
+
+	return freed;
+}
+
+void
+lws_display_dlo_png_reclaimable(lws_dlo_png_t *dlo_png)
+{
+	if (!lws_dll2_is_detached(&dlo_png->rc.list))
+		return;
+
+	dlo_png->rc.evict = lws_display_dlo_png_evict;
+	/* the payload, and the decoder's window and line buffers */
+	dlo_png->rc.resident = lws_buflist_total_len(&dlo_png->flow.bl) +
+			       (32 * 1024);
+	lws_reclaimable_add(&dlo_png->rc);
+}
+
+static lws_stateful_ret_t
+lws_display_render_png_pinned(struct lws_display_render_state *rs);
+
 lws_stateful_ret_t
 lws_display_render_png(struct lws_display_render_state *rs)
+{
+	lws_dlo_t *dlo = rs->st[rs->sp].dlo;
+	lws_dlo_png_t *dlo_png = lws_container_of(dlo, lws_dlo_png_t, dlo);
+	lws_stateful_ret_t r;
+
+	/* evicted since we last rendered: bring it back first */
+	if (dlo_png->evicted) {
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS)
+		if (!dlo_png->flow.h ||
+		    lws_dlo_ss_renew_image(lws_ss_get_context(dlo_png->flow.h),
+					   dlo))
+#endif
+			return LWS_SRET_OK; /* not this time */
+		dlo_png->evicted = 0;
+	}
+
+	/* the decoder keeps pointers into the payload across the call */
+	lws_reclaimable_pin(&dlo_png->rc);
+	lws_reclaimable_touch(&dlo_png->rc);
+	r = lws_display_render_png_pinned(rs);
+	lws_reclaimable_unpin(&dlo_png->rc);
+
+	return r;
+}
+
+static lws_stateful_ret_t
+lws_display_render_png_pinned(struct lws_display_render_state *rs)
 {
 	lws_dlo_t *dlo = rs->st[rs->sp].dlo;
 	lws_dlo_png_t *dlo_png = lws_container_of(dlo, lws_dlo_png_t, dlo);
@@ -159,8 +229,23 @@ lws_display_render_png(struct lws_display_render_state *rs)
 			return LWS_SRET_OK;
 		}
 
-		if (r & LWS_SRET_YIELD)
+		if (r & LWS_SRET_YIELD) {
+			/*
+			 * The decoder couldn't get its buffers.  Yielding lets
+			 * the caller come back once something has been given
+			 * up, but if that keeps happening there is nothing
+			 * left to give: draw nothing rather than spin
+			 */
+			if (++dlo_png->yields > 4) {
+				dlo_png->flow.state =
+					LWSDLOFLOW_STATE_READ_COMPLETED;
+				lwsl_notice("%s: %s: no memory to decode\n",
+					    __func__, dlo_png->name);
+				return LWS_SRET_OK;
+			}
 			return r;
+		}
+		dlo_png->yields = 0;
 
 		if (pix) {
 			/* a row was issued: count it */

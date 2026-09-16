@@ -703,6 +703,9 @@ lws_upng_new(void)
 void
 lws_upng_free(lws_upng_t** upng)
 {
+	if (!*upng)
+		return;
+
 	if ((*upng)->inf.out)
 		lws_free_set_NULL((*upng)->inf.out);
 

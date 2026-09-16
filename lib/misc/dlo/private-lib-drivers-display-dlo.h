@@ -85,6 +85,12 @@ void
 lws_display_font_mcufont_release_glyphs(lws_dlo_text_t *text);
 
 void
+lws_display_dlo_png_reclaimable(lws_dlo_png_t *dlo_png);
+
+void
+lws_display_dlo_jpeg_reclaimable(lws_dlo_jpeg_t *dlo_jpeg);
+
+void
 dist_err_floyd_steinberg_grey(int n, int width, lws_greyscale_error_t *gedl_this,
 			      lws_greyscale_error_t *gedl_next);
 

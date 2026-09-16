@@ -65,6 +65,8 @@ LWS_SS_USER_TYPEDEF
 	uint8_t				type; /* LWSDLOSS_TYPE_ */
 	uint8_t				inflight:1; /* holds a fetch slot */
 	uint8_t				no_cache:1; /* don't cache this asset */
+	uint8_t				in_cache:1; /* the whole payload is in the
+						     * asset cache: renewable */
 	uint8_t				hl; /* chars of url that are scheme://host */
 	char				url[LHP_URL_LEN];
 } dloss_t;
@@ -101,6 +103,9 @@ dlo_image_fill_missing_dims(lws_dlo_image_t *u)
 	}
 }
 
+static void
+dloss_arm_reclaim(dloss_t *m);
+
 /*
  * dlo images call back here when they have their dimensions (or have failed)
  */
@@ -132,6 +137,13 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 
 		lwsl_info("%s: setting dlo box %d x %d\n", __func__,
 			(int)dlo->box.w.whole, (int)dlo->box.h.whole);
+
+		/*
+		 * The dimensions are captured in the dlo box now: from here
+		 * the payload and decoder can be given back when memory is
+		 * short, if the asset cache can renew them
+		 */
+		dloss_arm_reclaim(m);
 
 		/*
 		 * The html parse is stalled on these dimensions; when it
@@ -447,6 +459,8 @@ dloss_cache_write(dloss_t *m, struct lws_context *cx)
 	if (lws_cache_write_through(cx->dlo_asset_l1, m->url, buf, total,
 				    expiry, NULL))
 		lwsl_cx_info(cx, "cache write failed: %s", m->url);
+	else
+		m->in_cache = 1;
 
 	lws_free(buf);
 }
@@ -457,6 +471,28 @@ dloss_cache_write(dloss_t *m, struct lws_context *cx)
  * payload, so layout and render proceed identically with no network at all.
  * Returns nonzero if the payload could not be used.
  */
+
+/*
+ * The whole payload of an image has arrived: from now the copy the dlo holds
+ * (and its decoder) can be given back when memory is short, and renewed
+ * from the asset cache before the next render.  Called after any magic
+ * fixup has decided what kind of image it really is.
+ */
+
+static void
+dloss_arm_reclaim(dloss_t *m)
+{
+	if (!m->in_cache || !m->u.u.dlo_png || m->u.failed ||
+	    m->u.u.dlo_png->flow.state != LWSDLOFLOW_STATE_READ_COMPLETED)
+		return;
+
+	if (m->u.u.dlo_png->dlo.render == lws_display_render_png)
+		lws_display_dlo_png_reclaimable(m->u.u.dlo_png);
+#if defined(LWS_WITH_JPEG)
+	else if (m->u.u.dlo_jpeg->dlo.render == lws_display_render_jpeg)
+		lws_display_dlo_jpeg_reclaimable(m->u.u.dlo_jpeg);
+#endif
+}
 
 static int
 dloss_cache_feed(dloss_t *m, const uint8_t *data, size_t size)
@@ -470,6 +506,7 @@ dloss_cache_feed(dloss_t *m, const uint8_t *data, size_t size)
 	/* nothing more is coming on this asset */
 
 	m->u.u.dlo_jpeg->flow.state = LWSDLOFLOW_STATE_READ_COMPLETED;
+	m->in_cache = 1;
 
 	if (!lws_dlo_image_width(&m->u)) {
 		if (dloss_magic_fixup(m))
@@ -1268,6 +1305,103 @@ dloss_flow_restart(lws_flow_t *flow)
 }
 
 /*
+ * Re-stash one tracked image's payload from the asset cache and give it a
+ * fresh decoder, so its next render decodes from the top
+ */
+
+static int
+dloss_renew(dloss_t *ds, const void *data, size_t size)
+{
+	switch (ds->type) {
+	case LWSDLOSS_TYPE_JPEG:
+		dloss_flow_restart(&ds->u.u.dlo_jpeg->flow);
+		if (lws_buflist_append_segment(&ds->u.u.dlo_jpeg->flow.bl,
+					       data, size) < 0)
+			return 1;
+
+		/*
+		 * A fresh decoder starts with no dimensions, which the
+		 * renderers treat as an empty image: parse the header so it
+		 * is usable, and zero the row counter the renderer
+		 * fast-forwards with
+		 */
+
+		lws_jpeg_free(&ds->u.u.dlo_jpeg->j);
+		ds->u.u.dlo_jpeg->j = lws_jpeg_new();
+		if (!ds->u.u.dlo_jpeg->j)
+			return 1;
+		ds->u.u.dlo_jpeg->emitted = 0;
+		ds->u.u.dlo_jpeg->flow.state = LWSDLOFLOW_STATE_READ_COMPLETED;
+		lws_flow_feed(&ds->u.u.dlo_jpeg->flow);
+		lws_display_dlo_jpeg_metadata_scan(ds->u.u.dlo_jpeg);
+		ds->u.u.dlo_jpeg->rc.resident = size + (16 * 1024);
+		return 0;
+
+	case LWSDLOSS_TYPE_PNG:
+		dloss_flow_restart(&ds->u.u.dlo_png->flow);
+		if (lws_buflist_append_segment(&ds->u.u.dlo_png->flow.bl,
+					       data, size) < 0)
+			return 1;
+
+		lws_upng_free(&ds->u.u.dlo_png->png);
+		ds->u.u.dlo_png->png = lws_upng_new();
+		if (!ds->u.u.dlo_png->png)
+			return 1;
+		ds->u.u.dlo_png->emitted = 0;
+		ds->u.u.dlo_png->flow.state = LWSDLOFLOW_STATE_READ_COMPLETED;
+		lws_flow_feed(&ds->u.u.dlo_png->flow);
+		lws_display_dlo_png_metadata_scan(ds->u.u.dlo_png);
+		ds->u.u.dlo_png->rc.resident = size + (32 * 1024);
+		return 0;
+
+#if defined(LWS_WITH_GIF)
+	case LWSDLOSS_TYPE_GIF:
+		/* the retained payload was freed at frame end: take it back
+		 * from the cache and retarget to the top */
+
+		ds->u.u.dlo_gif->pos = 0;
+		ds->u.u.dlo_gif->whole_done = 0;
+		lws_display_dlo_gif_rx(ds->u.u.dlo_gif, data, size);
+		return 0;
+#endif
+
+	default:
+		return 1;
+	}
+}
+
+/*
+ * One image, evicted to make room, is about to be rendered: its payload
+ * back from the asset cache and a fresh decoder
+ */
+
+LWS_VISIBLE int
+lws_dlo_ss_renew_image(struct lws_context *cx, lws_dlo_t *dlo)
+{
+	if (!cx->dlo_asset_l1)
+		return 1;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&cx->active_assets)) {
+		dloss_t *ds = lws_container_of(d, dloss_t, active_asset_list);
+		const void *data;
+		size_t size;
+
+		if (!ds->u.u.dlo_png || &ds->u.u.dlo_png->dlo != dlo)
+			continue;
+
+		if (lws_cache_item_get(cx->dlo_asset_l1, ds->url, &data,
+				       &size))
+			return 1; /* it's gone from the cache too */
+
+		return dloss_renew(ds, data, size);
+	} lws_end_foreach_dll(d);
+
+	return 1;
+}
+
+
+/*
  * Renew the tracked images from the asset cache: a retained display list
  * can be re-scanned at a different vertical offset, but image decode
  * state only moves forwards.  Re-stashing the cached payload and giving
@@ -1295,64 +1429,8 @@ lws_dlo_ss_renew_images(struct lws_context *cx)
 			 * decode state allows */
 			continue;
 
-		switch (ds->type) {
-		case LWSDLOSS_TYPE_JPEG:
-			dloss_flow_restart(&ds->u.u.dlo_jpeg->flow);
-			if (lws_buflist_append_segment(
-					&ds->u.u.dlo_jpeg->flow.bl,
-					data, size) < 0)
-				break;
-
-			/*
-			 * A fresh decoder starts with no dimensions, which
-			 * the renderers treat as an empty image: parse the
-			 * header so it is usable, and zero the row counter
-			 * the renderer fast-forwards with
-			 */
-
-			lws_jpeg_free(&ds->u.u.dlo_jpeg->j);
-			ds->u.u.dlo_jpeg->j = lws_jpeg_new();
-			if (!ds->u.u.dlo_jpeg->j)
-				break;
-			ds->u.u.dlo_jpeg->emitted = 0;
-			ds->u.u.dlo_jpeg->flow.state =
-					LWSDLOFLOW_STATE_READ_COMPLETED;
-			lws_flow_feed(&ds->u.u.dlo_jpeg->flow);
-			lws_display_dlo_jpeg_metadata_scan(ds->u.u.dlo_jpeg);
-			break;
-
-		case LWSDLOSS_TYPE_PNG:
-			dloss_flow_restart(&ds->u.u.dlo_png->flow);
-			if (lws_buflist_append_segment(
-					&ds->u.u.dlo_png->flow.bl,
-					data, size) < 0)
-				break;
-
-			lws_upng_free(&ds->u.u.dlo_png->png);
-			ds->u.u.dlo_png->png = lws_upng_new();
-			if (!ds->u.u.dlo_png->png)
-				break;
-			ds->u.u.dlo_png->emitted = 0;
-			ds->u.u.dlo_png->flow.state =
-					LWSDLOFLOW_STATE_READ_COMPLETED;
-			lws_flow_feed(&ds->u.u.dlo_png->flow);
-			lws_display_dlo_png_metadata_scan(ds->u.u.dlo_png);
-			break;
-
-#if defined(LWS_WITH_GIF)
-		case LWSDLOSS_TYPE_GIF:
-			/* the retained payload was freed at frame end: take
-			 * it back from the cache and retarget to the top */
-
-			ds->u.u.dlo_gif->pos = 0;
-			ds->u.u.dlo_gif->whole_done = 0;
-			lws_display_dlo_gif_rx(ds->u.u.dlo_gif, data, size);
-			break;
-#endif
-
-		default:
-			break;
-		}
+		if (dloss_renew(ds, data, size))
+			continue;
 	} lws_end_foreach_dll_safe(d, d1);
 }
 #endif

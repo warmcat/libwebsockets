@@ -295,6 +295,10 @@ typedef struct lws_dlo_png {
 	uint8_t				*row; /* copy of the last row issued, for
 					       * repeating it when scaled up */
 	uint32_t			row_len;
+	lws_reclaimable_t		rc; /* payload + decoder, once complete */
+	uint8_t				evicted; /* renew from the asset cache
+						  * before the next render */
+	uint8_t				yields; /* consecutive OOM yields */
 } lws_dlo_png_t;
 
 typedef struct lws_dlo_jpeg {
@@ -307,6 +311,9 @@ typedef struct lws_dlo_jpeg {
 	uint8_t				*row; /* copy of the last row issued, for
 					       * repeating it when scaled up */
 	uint32_t			row_len;
+	lws_reclaimable_t		rc; /* payload + decoder, once complete */
+	uint8_t				evicted; /* renew from the asset cache
+						  * before the next render */
 } lws_dlo_jpeg_t;
 
 typedef struct lws_dlo_svg {
@@ -704,6 +711,19 @@ lws_dlo_ss_stop_any_active(struct lws_context *cx);
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_dlo_ss_renew_images(struct lws_context *cx);
+
+/**
+ * lws_dlo_ss_renew_image() - re-stash one image's payload from the asset cache
+ *
+ * \param cx: the lws context
+ * \param dlo: the png or jpeg dlo
+ *
+ * As lws_dlo_ss_renew_images() for one image whose payload and decoder
+ * were evicted to make room: returns 0 if it is decodable again.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dlo_ss_renew_image(struct lws_context *cx, lws_dlo_t *dlo);
+
 
 /*
  * The context dlo asset cache (see the dlo_asset_cache_dir member of

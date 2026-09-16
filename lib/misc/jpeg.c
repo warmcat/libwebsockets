@@ -2709,6 +2709,9 @@ lws_jpeg_new(void)
 void
 lws_jpeg_free(lws_jpeg_t **j)
 {
+	if (!*j)
+		return;
+
 	lws_free_set_NULL((*j)->lines);
 	lws_free_set_NULL(*j);
 }

@@ -35,6 +35,7 @@ lws_display_dlo_jpeg_destroy(struct lws_dlo *dlo)
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS)
 	lws_ss_destroy(&dlo_jpeg->flow.h);
 #endif
+	lws_reclaimable_remove(&dlo_jpeg->rc);
 	lws_buflist_destroy_all_segments(&dlo_jpeg->flow.bl);
 	lws_free_set_NULL(dlo_jpeg->row);
 
@@ -42,8 +43,71 @@ lws_display_dlo_jpeg_destroy(struct lws_dlo *dlo)
 		lws_jpeg_free(&dlo_jpeg->j);
 }
 
+/* as the png: give the payload and decoder back, renew before rendering */
+
+static size_t
+lws_display_dlo_jpeg_evict(lws_reclaimable_t *r)
+{
+	lws_dlo_jpeg_t *dlo_jpeg = lws_container_of(r, lws_dlo_jpeg_t, rc);
+	size_t freed = r->resident;
+
+	lwsl_info("%s: %s: %u\n", __func__, dlo_jpeg->name, (unsigned int)freed);
+	lws_buflist_destroy_all_segments(&dlo_jpeg->flow.bl);
+	dlo_jpeg->flow.data = NULL;
+	dlo_jpeg->flow.len = 0;
+	dlo_jpeg->flow.blseglen = 0;
+	lws_free_set_NULL(dlo_jpeg->row);
+	if (dlo_jpeg->j)
+		lws_jpeg_free(&dlo_jpeg->j);
+	dlo_jpeg->evicted = 1;
+	r->resident = 0;
+
+	return freed;
+}
+
+void
+lws_display_dlo_jpeg_reclaimable(lws_dlo_jpeg_t *dlo_jpeg)
+{
+	if (!lws_dll2_is_detached(&dlo_jpeg->rc.list))
+		return;
+
+	dlo_jpeg->rc.evict = lws_display_dlo_jpeg_evict;
+	/* the payload, and the decoder's MCU band buffer */
+	dlo_jpeg->rc.resident = lws_buflist_total_len(&dlo_jpeg->flow.bl) +
+				(16 * 1024);
+	lws_reclaimable_add(&dlo_jpeg->rc);
+}
+
+static lws_stateful_ret_t
+lws_display_render_jpeg_pinned(struct lws_display_render_state *rs);
+
 lws_stateful_ret_t
 lws_display_render_jpeg(struct lws_display_render_state *rs)
+{
+	lws_dlo_t *dlo = rs->st[rs->sp].dlo;
+	lws_dlo_jpeg_t *dlo_jpeg = lws_container_of(dlo, lws_dlo_jpeg_t, dlo);
+	lws_stateful_ret_t r;
+
+	if (dlo_jpeg->evicted) {
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS)
+		if (!dlo_jpeg->flow.h ||
+		    lws_dlo_ss_renew_image(lws_ss_get_context(dlo_jpeg->flow.h),
+					   dlo))
+#endif
+			return LWS_SRET_OK;
+		dlo_jpeg->evicted = 0;
+	}
+
+	lws_reclaimable_pin(&dlo_jpeg->rc);
+	lws_reclaimable_touch(&dlo_jpeg->rc);
+	r = lws_display_render_jpeg_pinned(rs);
+	lws_reclaimable_unpin(&dlo_jpeg->rc);
+
+	return r;
+}
+
+static lws_stateful_ret_t
+lws_display_render_jpeg_pinned(struct lws_display_render_state *rs)
 {
 	lws_dlo_t *dlo = rs->st[rs->sp].dlo;
 	lws_dlo_jpeg_t *dlo_jpeg = lws_container_of(dlo, lws_dlo_jpeg_t, dlo);

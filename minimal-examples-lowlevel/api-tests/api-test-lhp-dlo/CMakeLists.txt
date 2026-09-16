@@ -34,10 +34,12 @@ if (requirements)
 			# 11-asset-queue gets its own entry below, with a small fd limit
 			# 13-adblock gets its own entry below, with the ad filter files
 			# 14-asset-cache gets its own entry below, with the asset cache
+			# 21-image-reclaim is a render comparison below
 			list(REMOVE_ITEM LHP_CASES
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/11-asset-queue.html
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.html
-					${CMAKE_CURRENT_SOURCE_DIR}/cases/14-asset-cache.html)
+					${CMAKE_CURRENT_SOURCE_DIR}/cases/14-asset-cache.html
+					${CMAKE_CURRENT_SOURCE_DIR}/cases/21-image-reclaim.html)
 		foreach(C ${LHP_CASES})
 			get_filename_component(CN ${C} NAME_WE)
 			add_test(NAME api-test-lhp-dlo-${CN}
@@ -114,6 +116,21 @@ if (requirements)
 				-DW=600 -DH=448
 				"-DFLAGS=--fonts;${CMAKE_CURRENT_SOURCE_DIR}/../../../contrib/mcufont/fonts;--heap-limit;90000"
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+
+		# a page with a (preseeded) cached image, rendered with the
+		# faces from files under a heap limit that evicts the fonts
+		# and the image's payload and decoder during the layout and
+		# render, against the same render with no limit: the pixels
+		# must be identical
+		add_test(NAME api-test-lhp-dlo-render-reclaim
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/21-image-reclaim.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/21-image-reclaim
+				-DW=600 -DH=448
+				"-DCOMMON=--preseed;https://missing.invalid/exclaim.png=${CMAKE_CURRENT_SOURCE_DIR}/exclaim.png"
+				"-DFLAGS_B=--fonts;${CMAKE_CURRENT_SOURCE_DIR}/../../../contrib/mcufont/fonts;--heap-limit;50000"
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 
 		# captured real-world pages, with their network assets made
 		# unreachable so the layout is the same every run
