@@ -319,8 +319,6 @@ lhp_flex_close(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_fx_t *h)
 		ai = a->propval;
 
 	if (free.whole > 0) {
-		int i = 0;
-
 		lws_fx_set(shift, 0, 0);
 		lws_fx_set(unit, 0, 0);
 
@@ -372,7 +370,6 @@ lhp_flex_close(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_fx_t *h)
 				   jc == LCSP_PROPVAL_SPACE_AROUND ||
 				   jc == LCSP_PROPVAL_SPACE_EVENLY)
 				lws_fx_add(&shift, &shift, &unit);
-			i++;
 		} lws_end_foreach_dll(d);
 	}
 
