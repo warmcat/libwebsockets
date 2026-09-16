@@ -164,6 +164,7 @@ cache_done:
 	m->lhp.await_assets = 0;
 	m->lhp.flags = LHP_FLAG_DOCUMENT_END;
 	lws_lhp_parse(&m->lhp, (const uint8_t **)NULL, &zero);
+	m->rs->layout_clipped = m->drt.clipped;
 	m->rs->html = 2; /* html completed.. rs outlives the html ss and priv */
 
 	lws_display_dl_dump(m->drt.dl);
@@ -308,9 +309,11 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 	m->drt.dl = &rs->displaylist;
 	m->drt.w = rs->ic->wh_px[0].whole;
 	m->drt.h = rs->ic->wh_px[1].whole;
+	m->drt.clipped = 0;
 
 	m->rs = rs;
 	m->rs->html = 1; /* render must wait for html to complete */
+	m->rs->layout_clipped = 0;
 	rs->hss_html = h; /* for lws_lhp_ss_cancel() */
 
 	if (lws_lhp_construct(&m->lhp, lhp_displaylist_layout, &m->drt, rs->ic)) {

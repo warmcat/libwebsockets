@@ -724,8 +724,10 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 		  ws->propval == LCSP_PROPVAL_PRE);
 
 	/* text that lands below the surface can never be seen */
-	if (c->abs_y + c->cury.whole > ctx->ic.wh_px[LWS_LHPREF_HEIGHT].whole)
+	if (c->abs_y + c->cury.whole > ctx->ic.wh_px[LWS_LHPREF_HEIGHT].whole) {
+		drt->clipped = 1;
 		return 0;
+	}
 
 	col = lhp_colour(ps->css_color, LWSDC_RGBA(0, 0, 0, 255));
 

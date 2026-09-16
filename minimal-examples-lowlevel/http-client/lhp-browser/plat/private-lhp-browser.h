@@ -25,6 +25,8 @@ struct lhp_browser {
 	int			doc_h;   /* laid-out document height */
 	int			vw, vh;  /* window (viewport) size */
 	int			pin_h;   /* 0, or --doc-h layout height cap */
+	int			layout_h; /* height offered to the layout, grows
+				   * when the document is taller */
 	int			scroll_y;
 	int			scan_epoch; /* bumped to restart the viewport scan */
 	int			scan_done;  /* the current viewport scan completed */

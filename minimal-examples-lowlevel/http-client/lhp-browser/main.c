@@ -114,6 +114,29 @@ static void win_scan_start(void);
 static void win_scan_cb(lws_sorted_usec_list_t *sul);
 static void win_shot_cb(lws_sorted_usec_list_t *sul);
 
+/*
+ * The height offered to the layout: --doc-h pins it, else a few viewports
+ * to start with, grown when a document turns out to be taller than that
+ * (the layout drops content below the surface it is given)
+ */
+
+static int
+win_layout_h(void)
+{
+	int h;
+
+	if (win.pin_h)
+		return win.pin_h;
+
+	h = win.vh * WIN_LAYOUT_H_MULT;
+	if (h < win.layout_h)
+		h = win.layout_h;
+	if (h > WIN_LAYOUT_H_MAX)
+		h = WIN_LAYOUT_H_MAX;
+
+	return h;
+}
+
 static int relayout_scheduled;
 
 /*
@@ -633,9 +656,7 @@ win_relayout(void)
 	/* lay out at the window width, to the document's natural height */
 
 	ic.wh_px[0].whole = w;
-	ic.wh_px[1].whole = win.pin_h ? win.pin_h :
-			(win.vh * WIN_LAYOUT_H_MULT > WIN_LAYOUT_H_MAX ?
-			 WIN_LAYOUT_H_MAX : win.vh * WIN_LAYOUT_H_MULT);
+	ic.wh_px[1].whole = win_layout_h();
 
 	win.scroll_y = 0;
 	win.doc_h = 0;
@@ -929,6 +950,31 @@ render(lws_sorted_usec_list_t *sul)
 			nd = win.vh;
 		if (nd > rs->ic->wh_px[1].whole)
 			nd = rs->ic->wh_px[1].whole;
+
+		/*
+		 * The layout drops content that lands below the surface it
+		 * was offered.  If the completed document was cut short
+		 * that way, lay it out again with more room, up to the
+		 * ceiling, so the whole page can be scrolled to
+		 */
+
+		if (rs->html == 2 && rs->layout_clipped && !win.pin_h &&
+		    rs->ic->wh_px[1].whole < WIN_LAYOUT_H_MAX) {
+			win.layout_h = rs->ic->wh_px[1].whole * 2;
+			if (win.layout_h > WIN_LAYOUT_H_MAX)
+				win.layout_h = WIN_LAYOUT_H_MAX;
+
+			lwsl_notice("%s: document clipped at %d: relayout "
+				    "at %d tall\n", __func__,
+				    rs->ic->wh_px[1].whole, win.layout_h);
+
+			win.scan_done = 0;
+			relayout_scheduled = 1;
+			lws_sul_schedule(cx, 0, &win.sul_relayout,
+					 win_relayout_cb, 1);
+
+			return;
+		}
 
 		if (nd == win.doc_h && win.scan_done)
 			return;
@@ -1227,9 +1273,7 @@ main(int argc, const char **argv)
 		/* with the window size known, offer the layout room for the
 		 * document's natural height */
 
-		ic.wh_px[1].whole = win.pin_h ? win.pin_h :
-			(win.vh * WIN_LAYOUT_H_MULT > WIN_LAYOUT_H_MAX ?
-			 WIN_LAYOUT_H_MAX : win.vh * WIN_LAYOUT_H_MULT);
+		ic.wh_px[1].whole = win_layout_h();
 
 		drs.retained = 1;
 

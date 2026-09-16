@@ -336,6 +336,8 @@ typedef struct lws_dl_rend {
 	lws_displaylist_t		*dl;
 	int				w;
 	int				h;
+	char				clipped; /* the layout dropped content that
+					  * landed below h */
 } lws_dl_rend_t;
 
 typedef struct lws_display_render_stack {
@@ -375,6 +377,10 @@ typedef struct lws_display_render_state {
 						* render cursor passes them, so
 						* the display list can be re-
 						* scanned at other offsets */
+	char				layout_clipped; /* set when the html
+						* completes if the layout dropped
+						* content below the surface: a
+						* taller surface would show more */
 
 } lws_display_render_state_t;
 
