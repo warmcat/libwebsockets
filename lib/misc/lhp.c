@@ -2415,14 +2415,94 @@ lhp_sel_specificity(const char *p, const char *end)
 		}
 	}
 
-	if (a > 255)
-		a = 255;
-	if (b > 255)
-		b = 255;
-	if (c > 255)
-		c = 255;
+	if (a > 63)
+		a = 63;
+	if (b > 63)
+		b = 63;
+	if (c > 63)
+		c = 63;
 
-	return (a << 16) | (b << 8) | c;
+	return (a << 12) | (b << 6) | c;
+}
+
+/*
+ * The cascade layer bits sit above the specificity, so a rule in a layer
+ * loses to any unlayered rule and to any rule in a later-declared layer,
+ * whatever their selectors.  The style="" (1u << 24) and filter (1u << 25)
+ * bits stay above the layer.
+ */
+
+static uint32_t
+lhp_css_layer_bits(lhp_ctx_t *ctx)
+{
+	/* the UA sheet is its own origin, below every author layer */
+	if (ctx->u.f.default_css)
+		return 0;
+
+	return (uint32_t)(ctx->css_layer ? ctx->css_layer :
+					    LHP_CSS_LAYER_NONE) << 18;
+}
+
+/*
+ * Find or register the cascade layer [name, name + len) (a dotted nested
+ * name is treated as one layer), returning its 1-based order.  Anonymous
+ * layers are always new.  Returns 0 if it can't be tracked.
+ */
+
+static uint8_t
+lhp_css_layer(lhp_ctx_t *ctx, const char *name, size_t len)
+{
+	lhp_css_layer_t *l;
+	unsigned int n = 0;
+
+	while (len && *name == ' ') {
+		name++;
+		len--;
+	}
+	while (len && name[len - 1] == ' ')
+		len--;
+
+	if (len)
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&ctx->css_layers)) {
+			l = lws_container_of(d, lhp_css_layer_t, list);
+			n++;
+			if (!strncmp((const char *)&l[1], name, len) &&
+			    !((const char *)&l[1])[len])
+				return (uint8_t)n;
+		} lws_end_foreach_dll(d);
+
+	if (ctx->css_layers.count >= LHP_CSS_LAYER_NONE - 1)
+		return 0;
+
+	l = lwsac_use_zero(&ctx->cssac, sizeof(*l) + len + 1,
+			   LHP_AC_GRANULE);
+	if (!l)
+		return 0;
+
+	memcpy(&l[1], name, len);
+	((char *)&l[1])[len] = '\0';
+	lws_dll2_add_tail(&l->list, &ctx->css_layers);
+
+	return (uint8_t)ctx->css_layers.count;
+}
+
+/*
+ * @layer a, b, c; establishes the layer order without any rules
+ */
+
+static void
+lhp_css_layer_statement(lhp_ctx_t *ctx, const char *p, const char *end)
+{
+	while (p < end) {
+		const char *s = p;
+
+		while (p < end && *p != ',')
+			p++;
+		lhp_css_layer(ctx, s, (size_t)(p - s));
+		if (p < end)
+			p++;
+	}
 }
 
 /*
@@ -2494,7 +2574,8 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 			return 1;
 
 		na->name_len = n;
-		na->specificity = lhp_sel_specificity(norm, norm + n);
+		na->specificity = lhp_sel_specificity(norm, norm + n) |
+				  lhp_css_layer_bits(ctx);
 		if (ctx->u.f.filter_css)
 			/*
 			 * Filter css is a user-agent level overlay: it is
@@ -5038,17 +5119,44 @@ done_amp:
 
 				if (ctx->npos && ctx->buf[0] == '@') {
 					/*
-					 * @media we can evaluate: parse the
+					 * @media we can evaluate, @supports
+					 * (we claim to support anything not
+					 * negated) and @layer: parse the
 					 * rules inside as if toplevel.  Any
 					 * other @-rule block (@font-face,
 					 * @keyframes, print media...) must
 					 * not leak its rules into the page.
 					 */
+					int ok = 0;
+
 					if (ctx->npos > 6 &&
-					    !strncmp(ctx->buf, "@media", 6) &&
-					    lhp_media_query_true(ctx,
+					    !strncmp(ctx->buf, "@media", 6))
+						ok = lhp_media_query_true(ctx,
 							ctx->buf + 6,
-							ctx->buf + ctx->npos)) {
+							ctx->buf + ctx->npos);
+					else if (ctx->npos >= 9 &&
+						 !strncmp(ctx->buf,
+							  "@supports", 9))
+						ok = strncmp(ctx->buf + 9,
+							     " not", 4) != 0;
+					else if (ctx->npos >= 6 &&
+						 !strncmp(ctx->buf,
+							  "@layer", 6) &&
+						 !ctx->css_layer) {
+						ctx->css_layer = lhp_css_layer(
+							ctx, ctx->buf + 6,
+							(size_t)ctx->npos - 6);
+						ctx->css_layer_depth =
+						   (uint8_t)(ctx->css_block_depth + 1);
+						ok = 1;
+					} else if (ctx->npos >= 6 &&
+						   !strncmp(ctx->buf,
+							    "@layer", 6))
+						/* nested @layer: stays in
+						 * the outer layer */
+						ok = 1;
+
+					if (ok) {
 						if (ctx->css_block_depth < 255)
 							ctx->css_block_depth++;
 					} else {
@@ -5088,15 +5196,25 @@ done_amp:
 			}
 
 			if (c == '}') {
-				/* closing an @media block we parsed inline */
+				/* closing an @media / @layer block we
+				 * parsed inline */
 				if (ctx->css_block_depth)
 					ctx->css_block_depth--;
+				if (ctx->css_layer &&
+				    ctx->css_block_depth < ctx->css_layer_depth)
+					ctx->css_layer = 0;
 				ctx->npos = 0;
 				break;
 			}
 
 			if (c == ';') {
-				/* blockless @-rule, eg @import, @charset */
+				/* blockless @-rule, eg @import, @charset,
+				 * or @layer a, b; fixing the layer order */
+				if (ctx->npos > 6 &&
+				    !strncmp(ctx->buf, "@layer", 6))
+					lhp_css_layer_statement(ctx,
+							ctx->buf + 6,
+							ctx->buf + ctx->npos);
 				ctx->npos = 0;
 				break;
 			}

@@ -610,7 +610,8 @@ typedef struct lcsp_defs {
 typedef struct lcsp_names {
 	lws_dll2_t		list;
 	size_t			name_len;
-	uint32_t		specificity;	/* (ids << 16) | (classes << 8) | tags */
+	uint32_t		specificity;	/* (layer << 18) | (ids << 12) |
+						 * (classes << 6) | tags */
 
 	/* name + NUL follow */
 } lcsp_names_t;
@@ -662,6 +663,20 @@ typedef struct lhp_css_var {
 	/* name+NUL follows */
 } lhp_css_var_t;
 
+/*
+ * A cascade layer (@layer): its position in css_layers is its order in the
+ * cascade, with the first-declared layer the weakest.  Unlayered rules beat
+ * every layer.
+ */
+
+typedef struct lhp_css_layer {
+	lws_dll2_t list;
+	/* name+NUL follows (empty for an anonymous layer) */
+} lhp_css_layer_t;
+
+/* layer indexes are 1-based, this is the unlayered ("strongest") value */
+#define LHP_CSS_LAYER_NONE	63
+
 #define LHP_FLAG_DOCUMENT_END					(1 << 0)
 
 /*
@@ -698,6 +713,8 @@ typedef struct lhp_ctx {
 					     * propatrac */
 
 	lws_dll2_owner_t	css_vars; /* lhp_css_var_t allocated in cssac */
+	lws_dll2_owner_t	css_layers; /* lhp_css_layer_t allocated in
+					     * cssac, in cascade order */
 
 	/* ad / junk filtering, see lws_lhp_set_filter() */
 
@@ -777,6 +794,10 @@ typedef struct lhp_ctx {
 
 	uint8_t			css_block_depth; /* inside applicable @media */
 	uint8_t			css_skip_depth;  /* skipping unusable @-rule */
+	uint8_t			css_layer;	 /* 0: unlayered, else the
+						  * 1-based @layer index */
+	uint8_t			css_layer_depth; /* css_block_depth of the
+						  * open @layer block */
 
 	/* at end so we can memset members above it in one go */
 

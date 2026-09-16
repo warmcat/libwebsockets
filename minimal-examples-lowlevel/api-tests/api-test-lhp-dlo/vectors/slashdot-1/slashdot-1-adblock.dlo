@@ -39,17 +39,17 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
        rect (0.0,0.0) [26.0 x 40.0] rgba=00000000
         rect (5.0,20.0) [16.0 x 0.0] rgba=00000000
         hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/slashdot.org/my/newuser"
- rect (16.0,82.0) [768.0 x 2571.96] rgba=FFFFFFFF
+ rect (16.0,82.0) [768.0 x 2428.6] rgba=FFFFFFFF
   rect (0.0,0.0) [768.0 x 29.0] rgba=FFE5E5E5
    text (15.0,5.0) [165.0 x 19.0] rgba=FF000000 f=17/400 "Become a fan of Slashdot on "
    hit (180.0,5.0) [54.0 x 19.0] "vector:/missing/www.facebook.com/pages/Slashdotorg/267995220856"
    text (180.0,5.0) [54.0 x 19.0] rgba=FF666600 f=17/400 "Facebook"
-  rect (0.0,29.0) [768.0 x 2542.96] rgba=00000000
-   rect (0.0,0.0) [768.0 x 2542.96] rgba=00000000
-    rect (0.0,0.0) [448.0 x 2532.96] rgba=00000000
-     rect (0.0,0.0) [448.0 x 2532.96] rgba=00000000
-      rect (20.0,0.0) [408.0 x 2452.96] rgba=00000000
-       rect (0.40799999,0.0) [407.18399999 x 1213.24] rgba=00000000
+  rect (0.0,29.0) [768.0 x 2399.6] rgba=00000000
+   rect (0.0,0.0) [768.0 x 2399.6] rgba=00000000
+    rect (0.0,0.0) [448.0 x 2389.6] rgba=00000000
+     rect (0.0,0.0) [448.0 x 2389.6] rgba=00000000
+      rect (20.0,0.0) [408.0 x 2309.6] rgba=00000000
+       rect (0.40799999,0.0) [407.18399999 x 1177.4] rgba=00000000
         rect (0.0,0.0) [407.18399999 x 112.4] rgba=00000000
          rect (0.0,0.0) [407.18399999 x 80.0] rgba=FF656701
           hit (10.0,6.5) [143.0 x 19.0] "vector:/missing/developers.slashdot.org/story/25/12/21/0341243/rusts-vision-doc-makes-recommendations-to-help-keep-rust-growing"
@@ -129,12 +129,12 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
            text (16.0,646.0) [318.0 x 19.0] rgba=FF000000 f=17/400 "go for advice on a good "starter set" crates... Part of the "
            text (16.0,665.0) [304.0 x 19.0] rgba=FF000000 f=17/400 "solution is enabling better interop between libraries."
           text (0.0,996.0) [3.0 x 19.0] rgba=00000000 f=17/400 " "
-        rect (0.0,1167.4) [407.18399999 x 35.84] rgba=00000000
+        rect (0.0,1167.4) [407.18399999 x 0.0] rgba=00000000
          rect (0.0,0.0) [0.0 x 0.0] rgba=00000000
-         rect (367.18399999,0.0) [40.0 x 35.84] rgba=00000000
-          rect (0.0,0.0) [40.0 x 35.84] rgba=00000000
-           rect (40.0,17.92) [40.0 x 0.0] rgba=00000000
-       rect (0.40799999,1213.24) [407.18399999 x 733.24] rgba=00000000
+         rect (407.18399999,0.0) [0.0 x 0.0] rgba=00000000
+          rect (0.0,0.0) [0.0 x 0.0] rgba=00000000
+           rect (0.0,0.0) [0.0 x 0.0] rgba=00000000
+       rect (0.40799999,1177.4) [407.18399999 x 697.4] rgba=00000000
         rect (0.0,0.0) [407.18399999 x 88.4] rgba=00000000
          rect (0.0,0.0) [407.18399999 x 56.0] rgba=FF656701
           hit (10.0,6.5) [230.0 x 19.0] "vector:/missing/yro.slashdot.org/story/25/12/19/2317247/google-sues-serpapi-over-scraping-and-reselling-search-data"
@@ -185,13 +185,13 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
            text (16.0,456.0) [328.0 x 19.0] rgba=FF000000 f=17/400 "how Search works, how they appear in results, and how to "
            text (16.0,475.0) [100.0 x 19.0] rgba=FF000000 f=17/400 "measure success."
           text (0.0,521.0) [3.0 x 19.0] rgba=00000000 f=17/400 " "
-        rect (0.0,668.4) [407.18399999 x 54.84] rgba=00000000
+        rect (0.0,668.4) [407.18399999 x 19.0] rgba=00000000
          rect (0.0,0.0) [0.0 x 0.0] rgba=00000000
-         rect (360.78399999,0.0) [46.4 x 54.84] rgba=00000000
-          rect (0.0,0.0) [46.4 x 54.84] rgba=00000000
-           rect (40.0,17.92) [46.4 x 19.0] rgba=00000000
+         rect (400.78399999,0.0) [6.4 x 19.0] rgba=00000000
+          rect (0.0,0.0) [6.4 x 19.0] rgba=00000000
+           rect (0.0,0.0) [6.4 x 19.0] rgba=00000000
             text (6.4,0.0) [3.0 x 19.0] rgba=00000000 f=17/400 " "
-       rect (0.40799999,1946.48) [407.18399999 x 234.24] rgba=00000000
+       rect (0.40799999,1874.8) [407.18399999 x 198.4] rgba=00000000
         rect (0.0,0.0) [407.18399999 x 64.4] rgba=00000000
          rect (0.0,0.0) [407.18399999 x 32.0] rgba=FF656701
           rect (10.0,9.0) [14.0 x 14.0] rgba=00000000
@@ -204,13 +204,13 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
            text (16.0,0.0) [3.0 x 19.0] rgba=00000000 f=17/400 " "
            text (16.0,19.0) [3.0 x 19.0] rgba=00000000 f=17/400 " "
           text (0.0,46.0) [3.0 x 19.0] rgba=00000000 f=17/400 " "
-        rect (0.0,169.4) [407.18399999 x 54.84] rgba=00000000
+        rect (0.0,169.4) [407.18399999 x 19.0] rgba=00000000
          rect (0.0,0.0) [0.0 x 0.0] rgba=00000000
-         rect (360.78399999,0.0) [46.4 x 54.84] rgba=00000000
-          rect (0.0,0.0) [46.4 x 54.84] rgba=00000000
-           rect (40.0,17.92) [46.4 x 19.0] rgba=00000000
+         rect (400.78399999,0.0) [6.4 x 19.0] rgba=00000000
+          rect (0.0,0.0) [6.4 x 19.0] rgba=00000000
+           rect (0.0,0.0) [6.4 x 19.0] rgba=00000000
             text (6.4,0.0) [3.0 x 19.0] rgba=00000000 f=17/400 " "
-       rect (0.40799999,2180.72) [407.18399999 x 272.24] rgba=00000000
+       rect (0.40799999,2073.2) [407.18399999 x 236.4] rgba=00000000
         rect (0.0,0.0) [407.18399999 x 64.4] rgba=00000000
          rect (0.0,0.0) [407.18399999 x 32.0] rgba=FF656701
           rect (10.0,9.0) [14.0 x 14.0] rgba=00000000
@@ -225,26 +225,26 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
            text (16.0,38.0) [3.0 x 19.0] rgba=00000000 f=17/400 " "
            text (16.0,57.0) [3.0 x 19.0] rgba=00000000 f=17/400 " "
           text (0.0,84.0) [3.0 x 19.0] rgba=00000000 f=17/400 " "
-        rect (0.0,207.4) [407.18399999 x 54.84] rgba=00000000
+        rect (0.0,207.4) [407.18399999 x 19.0] rgba=00000000
          rect (0.0,0.0) [0.0 x 0.0] rgba=00000000
-         rect (360.78399999,0.0) [46.4 x 54.84] rgba=00000000
-          rect (0.0,0.0) [46.4 x 54.84] rgba=00000000
-           rect (40.0,17.92) [46.4 x 19.0] rgba=00000000
+         rect (400.78399999,0.0) [6.4 x 19.0] rgba=00000000
+          rect (0.0,0.0) [6.4 x 19.0] rgba=00000000
+           rect (0.0,0.0) [6.4 x 19.0] rgba=00000000
             text (6.4,0.0) [3.0 x 19.0] rgba=00000000 f=17/400 " "
-      rect (20.0,2452.96) [408.0 x 41.0] rgba=00000000
+      rect (20.0,2309.6) [408.0 x 41.0] rgba=00000000
        rect (0.0,15.0) [408.0 x 26.0] rgba=00000000
         rect (0.0,0.0) [95.0 x 10.0] rgba=FFFFFFFF radii=5.0,5.0,5.0,5.0
          hit (0.0,0.0) [0.0 x 0.0] fill "#"
         rect (95.0,0.0) [95.0 x 10.0] rgba=FF4E4D00 radii=5.0,5.0,5.0,5.0
          hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/slashdot.org/?page=1"
         rect (24.0,26.0) [384.0 x 0.0] rgba=00000000
-      rect (20.0,2508.96) [408.0 x 0.0] rgba=00000000
-      rect (20.0,2508.96) [408.0 x 0.0] rgba=00000000
-      rect (20.0,2508.96) [408.0 x 24.0] rgba=00000000
+      rect (20.0,2365.6) [408.0 x 0.0] rgba=00000000
+      rect (20.0,2365.6) [408.0 x 0.0] rgba=00000000
+      rect (20.0,2365.6) [408.0 x 24.0] rgba=00000000
        rect (0.0,10.0) [14.0 x 14.0] rgba=00000000
         rect (2.0,2.0) [10.0 x 10.0] rgba=00000000
          rect (0.0,0.0) [10.0 x 10.0] rgba=00000000
- rect (16.0,2653.96) [933.0 x 44.0] rgba=FF424200 radii=0.0,0.0,10.0,0.0
+ rect (16.0,2510.6) [933.0 x 44.0] rgba=FF424200 radii=0.0,0.0,10.0,0.0
   rect (0.0,0.0) [158.0 x 20.0] rgba=00000000
    rect (10.0,0.0) [138.0 x 20.0] rgba=00000000
     hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/slashdot.org"
@@ -258,14 +258,14 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
   rect (238.0,0.0) [0.0 x 16.0] rgba=00000000
   rect (901.0,0.0) [10.0 x 16.0] rgba=00000000
    rect (10.0,0.0) [0.0 x 16.0] rgba=00000000
- rect (136.0,2697.36) [478.0 x 35.6] rgba=00000000
+ rect (136.0,2554.0) [478.0 x 35.6] rgba=00000000
   rect (0.0,0.0) [478.0 x 35.6] rgba=00000000
- rect (16.76799999,2733.56) [933.0 x 19.0] rgba=00000000
+ rect (16.76799999,2590.2) [933.0 x 19.0] rgba=00000000
   rect (0.93299999,0.0) [386.10649782 x 19.0] rgba=00000000
    rect (0.0,0.0) [386.10649782 x 19.0] rgba=00000000
     text (10.0,0.0) [3.0 x 19.0] rgba=00000000 f=17/400 " "
   rect (0.93299999,19.0) [541.29549657 x 0.0] rgba=00000000
- rect (16.0,2752.56) [768.0 x 40.0] rgba=00000000
+ rect (16.0,2609.2) [768.0 x 40.0] rgba=00000000
   rect (0.0,0.0) [460.79999999 x 40.0] rgba=FFFEFEFE
   rect (0.0,40.0) [768.0 x 0.0] rgba=00000000
  rect (648.63999999,17.0) [24.0 x 26.0] rgba=00000000 radii=4.0,4.0,4.0,4.0
@@ -318,12 +318,12 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
   text (10.0,25.59999999) [19.0 x 16.0] rgba=FF4D4D4D f=14/400 "the "
   text (29.0,25.59999999) [88.0 x 16.0] rgba=FF4D4D4D f=14/400 "Rust-never-sleeps"
   text (117.0,25.59999999) [31.0 x 16.0] rgba=FF4D4D4D f=14/400 " dept. "
- rect (373.59199998,1336.24) [0.0 x 40.0] rgba=00000000
- rect (386.59199998,1336.24) [45.0 x 32.0] rgba=FF29231E radii=3.0,3.0,3.0,3.0
+ rect (373.59199998,1300.4) [0.0 x 40.0] rgba=00000000
+ rect (386.59199998,1300.4) [45.0 x 32.0] rgba=FF29231E radii=3.0,3.0,3.0,3.0
   hit (15.5,6.5) [14.0 x 19.0] "vector:/missing/yro.slashdot.org/story/25/12/19/2317247/google-sues-serpapi-over-scraping-and-reselling-search-data#comments"
   text (15.5,6.5) [14.0 x 19.0] rgba=FFFFFFFF f=17/700 "35"
   rect (13.0,32.0) [8.0 x 8.0] rgba=FF29231E
- rect (69.40799999,1385.24) [339.0 x 20.0] rgba=00000000
+ rect (69.40799999,1349.4) [339.0 x 20.0] rgba=00000000
   text (10.0,2.69999999) [50.0 x 16.0] rgba=FF4D4D4D f=14/400 "Posted by "
   hit (60.0,2.69999999) [39.0 x 17.0] "vector:/missing/www.linkedin.com/in/beauhd/"
   text (60.0,2.69999999) [39.0 x 17.0] rgba=FF333333 f=14/700 "BeauHD"
@@ -331,46 +331,46 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
   text (291.0,2.69999999) [48.0 x 16.0] rgba=FF4D4D4D f=14/400 " from the "
   text (10.0,25.59999999) [78.0 x 16.0] rgba=FF4D4D4D f=14/400 "serping-up-data"
   text (88.0,25.59999999) [31.0 x 16.0] rgba=FF4D4D4D f=14/400 " dept. "
- rect (373.59199998,2069.48) [0.0 x 40.0] rgba=00000000
- rect (386.59199998,2069.48) [45.0 x 0.0] rgba=FF29231E radii=3.0,3.0,3.0,3.0
+ rect (373.59199998,1997.8) [0.0 x 40.0] rgba=00000000
+ rect (386.59199998,1997.8) [45.0 x 0.0] rgba=FF29231E radii=3.0,3.0,3.0,3.0
   rect (13.0,0.0) [8.0 x 8.0] rgba=FF29231E
- rect (69.40799999,2094.48) [10.0 x 20.0] rgba=00000000
- rect (373.59199998,2303.72) [0.0 x 40.0] rgba=00000000
- rect (386.59199998,2303.72) [45.0 x 0.0] rgba=FF29231E radii=3.0,3.0,3.0,3.0
+ rect (69.40799999,2022.8) [10.0 x 20.0] rgba=00000000
+ rect (373.59199998,2196.2) [0.0 x 40.0] rgba=00000000
+ rect (386.59199998,2196.2) [45.0 x 0.0] rgba=FF29231E radii=3.0,3.0,3.0,3.0
   rect (13.0,0.0) [8.0 x 8.0] rgba=FF29231E
- rect (69.40799999,2328.72) [10.0 x 20.0] rgba=00000000
+ rect (69.40799999,2221.2) [10.0 x 20.0] rgba=00000000
  rect (550.0,239.0) [0.0 x 16.0] rgba=00000000
  rect (550.0,342.4) [0.0 x 16.0] rgba=00000000
  rect (550.0,408.0) [0.0 x 16.0] rgba=00000000
  rect (550.0,473.6) [0.0 x 16.0] rgba=00000000
  rect (550.0,539.2) [0.0 x 16.0] rgba=00000000
  rect (550.0,605.2) [0.0 x 16.0] rgba=00000000
- rect (496.0,808.92) [28.0 x 17.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
+ rect (496.0,791.0) [28.0 x 17.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
   text (5.0,0.0) [18.0 x 17.0] rgba=FFFFFFFF f=14/700 "226"
- rect (496.0,856.92) [28.0 x 17.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
+ rect (496.0,839.0) [28.0 x 17.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
   text (5.0,0.0) [18.0 x 17.0] rgba=FFFFFFFF f=14/700 "108"
- rect (496.0,904.92) [28.0 x 17.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
+ rect (496.0,887.0) [28.0 x 17.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
   text (8.0,0.0) [12.0 x 17.0] rgba=FFFFFFFF f=14/700 "99"
- rect (496.0,952.92) [28.0 x 17.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
+ rect (496.0,935.0) [28.0 x 17.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
   text (8.0,0.0) [12.0 x 17.0] rgba=FFFFFFFF f=14/700 "83"
- rect (496.0,1000.92) [28.0 x 17.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
+ rect (496.0,983.0) [28.0 x 17.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
   text (8.5,0.0) [11.0 x 17.0] rgba=FFFFFFFF f=14/700 "78"
- rect (485.0,807.92) [6.0 x 6.0] rgba=FF333333
- rect (485.0,855.92) [6.0 x 6.0] rgba=FF333333
- rect (485.0,903.92) [6.0 x 6.0] rgba=FF333333
- rect (485.0,951.92) [6.0 x 6.0] rgba=FF333333
- rect (485.0,999.92) [6.0 x 6.0] rgba=FF333333
- rect (579.69230768,1307.92) [28.0 x 0.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
- rect (579.69230768,1307.92) [28.0 x 0.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
- rect (579.69230768,1307.92) [28.0 x 0.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
- rect (579.69230768,1307.92) [28.0 x 0.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
- rect (579.69230768,1307.92) [28.0 x 0.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
- rect (485.0,1307.92) [6.0 x 6.0] rgba=FF333333
- rect (485.0,1307.92) [6.0 x 6.0] rgba=FF333333
- rect (485.0,1307.92) [6.0 x 6.0] rgba=FF333333
- rect (485.0,1307.92) [6.0 x 6.0] rgba=FF333333
- rect (485.0,1307.92) [6.0 x 6.0] rgba=FF333333
- rect (464.0,111.0) [320.0 x 1391.92] rgba=00000000
+ rect (485.0,790.0) [6.0 x 6.0] rgba=FF333333
+ rect (485.0,838.0) [6.0 x 6.0] rgba=FF333333
+ rect (485.0,886.0) [6.0 x 6.0] rgba=FF333333
+ rect (485.0,934.0) [6.0 x 6.0] rgba=FF333333
+ rect (485.0,982.0) [6.0 x 6.0] rgba=FF333333
+ rect (579.69230768,1328.0) [28.0 x 0.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
+ rect (579.69230768,1328.0) [28.0 x 0.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
+ rect (579.69230768,1328.0) [28.0 x 0.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
+ rect (579.69230768,1328.0) [28.0 x 0.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
+ rect (579.69230768,1328.0) [28.0 x 0.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
+ rect (485.0,1328.0) [6.0 x 6.0] rgba=FF333333
+ rect (485.0,1328.0) [6.0 x 6.0] rgba=FF333333
+ rect (485.0,1328.0) [6.0 x 6.0] rgba=FF333333
+ rect (485.0,1328.0) [6.0 x 6.0] rgba=FF333333
+ rect (485.0,1328.0) [6.0 x 6.0] rgba=FF333333
+ rect (464.0,111.0) [320.0 x 1412.0] rgba=00000000
   rect (10.0,0.0) [300.0 x 0.0] rgba=00000000
   rect (10.0,0.0) [298.0 x 19.0] rgba=FFE6E6E6 radii=0.0,10.0,10.0,0.0
    rect (-1.0,0.0) [300.0 x 19.0] rgba=FF4C4C4C radii=0.0,10.0,0.0,0.0
@@ -378,12 +378,12 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
      hit (0.0,0.0) [86.0 x 19.0] "vector:/missing/deals.slashdot.org/"
      text (0.0,0.0) [86.0 x 19.0] rgba=FFFFFFFF f=17/700 "Slashdot Deals"
    rect (0.0,19.0) [298.0 x 0.0] rgba=00000000
-  rect (10.0,39.0) [298.0 x 593.92] rgba=FFE6E6E6 radii=0.0,10.0,10.0,0.0
+  rect (10.0,39.0) [298.0 x 576.0] rgba=FFE6E6E6 radii=0.0,10.0,10.0,0.0
    rect (-1.0,0.0) [300.0 x 19.0] rgba=FF4C4C4C radii=0.0,10.0,0.0,0.0
     rect (0.0,0.0) [300.0 x 19.0] rgba=00000000
      text (0.0,0.0) [77.0 x 19.0] rgba=FF000000 f=17/700 "Slashdot Poll"
-   rect (0.0,19.0) [298.0 x 574.92] rgba=00000000
-    rect (22.0,10.0) [127.0 x 554.92] rgba=00000000
+   rect (0.0,19.0) [298.0 x 557.0] rgba=00000000
+    rect (22.0,10.0) [127.0 x 537.0] rgba=00000000
      rect (26.0,10.0) [81.0 x 19.0] rgba=00000000
       text (0.0,0.0) [155.0 x 19.0] rgba=FF7D7D7D f=17/400 "When will AGI be achieved?"
      rect (26.0,39.0) [81.0 x 0.0] rgba=00000000
@@ -429,7 +429,7 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
        text (63.0,20.0) [8.0 x 19.0] rgba=FF000000 f=17/400 "| "
        text (0.0,39.0) [35.0 x 19.0] rgba=FF000000 f=17/700 "45760"
        text (35.0,40.0) [37.0 x 19.0] rgba=FF000000 f=17/400 " votes "
-  rect (10.0,652.92) [298.0 x 299.0] rgba=FFE6E6E6 radii=0.0,10.0,10.0,0.0
+  rect (10.0,635.0) [298.0 x 299.0] rgba=FFE6E6E6 radii=0.0,10.0,10.0,0.0
    rect (-1.0,0.0) [300.0 x 19.0] rgba=FF4C4C4C radii=0.0,10.0,0.0,0.0
     rect (0.0,0.0) [300.0 x 19.0] rgba=00000000
      text (0.0,0.0) [89.0 x 19.0] rgba=FF000000 f=17/700 "Most Discussed"
@@ -460,13 +460,13 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
       text (28.0,5.0) [200.0 x 19.0] rgba=FF666600 f=17/400 "All That Cheap Chinese Stuff Is Now "
       hit (0.0,24.0) [100.0 x 19.0] "vector:/missing/slashdot.org/story/25/12/19/1925205/all-that-cheap-chinese-stuff-is-now-europes-problem?sbsrc=md"
       text (0.0,24.0) [100.0 x 19.0] rgba=FF666600 f=17/400 "Europe's Problem"
-  rect (10.0,971.92) [298.0 x 185.0] rgba=FFE6E6E6 radii=0.0,10.0,10.0,0.0
+  rect (10.0,954.0) [298.0 x 223.0] rgba=FFE6E6E6 radii=0.0,10.0,10.0,0.0
    rect (-1.0,0.0) [300.0 x 19.0] rgba=FF4C4C4C radii=0.0,10.0,0.0,0.0
     rect (0.0,0.0) [300.0 x 19.0] rgba=00000000
      hit (0.0,0.0) [75.0 x 19.0] "vector:/missing/ask.slashdot.org"
      text (0.0,0.0) [75.0 x 19.0] rgba=FFFFFFFF f=17/700 "Ask Slashdot"
-   rect (0.0,19.0) [298.0 x 166.0] rgba=00000000
-    rect (22.0,20.0) [254.0 x 126.0] rgba=00000000
+   rect (0.0,19.0) [298.0 x 204.0] rgba=00000000
+    rect (22.0,20.0) [254.0 x 164.0] rgba=00000000
      rect (0.0,0.0) [254.0 x 48.0] rgba=00000000
       hit (0.0,5.0) [230.0 x 19.0] "vector:/missing/yro.slashdot.org/story/25/12/09/2235240/ask-slashdot-what-are-the-best-locally-hosted-wireless-security-cameras?utm_source=rss0.9mainlinkanon&utm_medium=feed&sbsrc=askslashdot"
       text (0.0,5.0) [230.0 x 19.0] rgba=FF666600 f=17/400 "Ask Slashdot: What Are the Best Locally-"
@@ -477,10 +477,14 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
       text (0.0,5.0) [239.0 x 19.0] rgba=FF666600 f=17/400 "Ask Slashdot: Are There Any Good Android "
       hit (0.0,24.0) [110.0 x 19.0] "vector:/missing/ask.slashdot.org/story/25/11/12/2213205/ask-slashdot-are-there-any-good-android-tablets-out-there?utm_source=rss0.9mainlinkanon&utm_medium=feed&sbsrc=askslashdot"
       text (0.0,24.0) [110.0 x 19.0] rgba=FF666600 f=17/400 "Tablets Out There? "
-     rect (0.0,96.0) [254.0 x 10.0] rgba=00000000
-     rect (0.0,106.0) [254.0 x 10.0] rgba=00000000
-     rect (0.0,116.0) [254.0 x 10.0] rgba=00000000
-  rect (10.0,1176.92) [298.0 x 40.0] rgba=FFE6E6E6 radii=0.0,10.0,10.0,0.0
+     rect (0.0,96.0) [254.0 x 48.0] rgba=00000000
+      hit (0.0,5.0) [222.0 x 19.0] "vector:/missing/ask.slashdot.org/story/25/09/05/1515244/slashdot-asks-can-panasonic-reinvent-itself?utm_source=rss0.9mainlinkanon&utm_medium=feed&sbsrc=askslashdot"
+      text (0.0,5.0) [222.0 x 19.0] rgba=FF666600 f=17/400 "Slashdot Asks: Can Panasonic Reinvent "
+      hit (0.0,24.0) [39.0 x 19.0] "vector:/missing/ask.slashdot.org/story/25/09/05/1515244/slashdot-asks-can-panasonic-reinvent-itself?utm_source=rss0.9mainlinkanon&utm_medium=feed&sbsrc=askslashdot"
+      text (0.0,24.0) [39.0 x 19.0] rgba=FF666600 f=17/400 "Itself? "
+     rect (0.0,144.0) [254.0 x 10.0] rgba=00000000
+     rect (0.0,154.0) [254.0 x 10.0] rgba=00000000
+  rect (10.0,1197.0) [298.0 x 40.0] rgba=FFE6E6E6 radii=0.0,10.0,10.0,0.0
    rect (-1.0,0.0) [300.0 x 0.0] rgba=FF4C4C4C radii=0.0,10.0,0.0,0.0
     rect (0.0,0.0) [300.0 x 0.0] rgba=00000000
    rect (0.0,0.0) [298.0 x 40.0] rgba=00000000
@@ -505,7 +509,7 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
       rect (0.0,0.0) [37.84615384 x 0.0] rgba=FF666600
       rect (37.84615384,0.0) [37.84615384 x 0.0] rgba=FFE6E6E6
       rect (75.69230768,0.0) [170.3076923 x 0.0] rgba=FFE6E6E6
-  rect (10.0,1236.92) [298.0 x 135.0] rgba=FFE6E6E6 radii=0.0,10.0,10.0,0.0
+  rect (10.0,1257.0) [298.0 x 135.0] rgba=FFE6E6E6 radii=0.0,10.0,10.0,0.0
    rect (-1.0,0.0) [300.0 x 0.0] rgba=FF4C4C4C radii=0.0,10.0,0.0,0.0
     rect (0.0,0.0) [300.0 x 0.0] rgba=00000000
    rect (0.0,0.0) [298.0 x 135.0] rgba=00000000
@@ -524,5 +528,5 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
      rect (-15.0,0.0) [0.0 x 10.0] rgba=00000000
      rect (65.0,10.0) [200.0 x 35.0] rgba=00000000
       hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/sourceforge.net/?source=sd_slashbox"
- rect (136.0,2707.36) [477.0 x 25.6] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
- rect (140.0,2697.36) [0.0 x 0.0] rgba=00000000
+ rect (136.0,2564.0) [477.0 x 25.6] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
+ rect (140.0,2554.0) [0.0 x 0.0] rgba=00000000
