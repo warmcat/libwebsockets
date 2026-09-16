@@ -720,6 +720,17 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		/* it may be on either the active or the queued list */
 		lws_dll2_remove(&m->active_asset_list);
 		m->inflight = 0;
+
+		/*
+		 * The dlo destroys the asset ss from its flow.h backref: if
+		 * the ss is going first (eg, its connect failed and the
+		 * kick destroyed it through m->ss, which lws_ss_destroy()
+		 * has already NULLed), the backref must not outlive it
+		 */
+		if (m->u.u.dlo_jpeg &&
+		    (!m->ss || m->u.u.dlo_jpeg->flow.h == m->ss))
+			m->u.u.dlo_jpeg->flow.h = NULL;
+
 		dlo_assets_kick(m->cx);
 		dlo_assets_maybe_drained(m->cx, m->lhp);
 		break;
