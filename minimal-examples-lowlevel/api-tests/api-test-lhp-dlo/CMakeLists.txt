@@ -100,6 +100,21 @@ if (requirements)
 				-DW=600 -DH=448
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
 
+		# the same page with the faces coming from the .mcufont files
+		# in the repository instead of the built-in blobs, under a
+		# heap limit tight enough that their dictionaries and glyphs
+		# are evicted and reloaded many times during the layout: the
+		# result must be the same
+		add_test(NAME api-test-lhp-dlo-test-html-file-fonts-reclaim
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/test.html
+				-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/test.dlo
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/test-file-fonts.dlo
+				-DW=600 -DH=448
+				"-DFLAGS=--fonts;${CMAKE_CURRENT_SOURCE_DIR}/../../../contrib/mcufont/fonts;--heap-limit;90000"
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+
 		# captured real-world pages, with their network assets made
 		# unreachable so the layout is the same every run
 		foreach(VEC lobsters-1/lobsters slashdot-1/slashdot-1)

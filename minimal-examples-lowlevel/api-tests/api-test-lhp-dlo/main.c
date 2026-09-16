@@ -19,6 +19,8 @@ enum {
 		LWS_SW_BLOCK_LIST,
 		LWS_SW_ASSET_CACHE,
 		LWS_SW_PRESEED,
+		LWS_SW_FONTS,
+		LWS_SW_HEAP_LIMIT,
 		LWS_SW_HELP,
 };
 
@@ -32,6 +34,8 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_BLOCK_LIST]= { "--block-list", "URL block rules from file: ||host.tld or substring per line" },
 	[LWS_SW_ASSET_CACHE]= { "--asset-cache", "Directory for the document asset cache, enables it" },
 	[LWS_SW_PRESEED]	= { "--preseed",    "Preseed the asset cache with url=file" },
+	[LWS_SW_FONTS]	= { "--fonts",         "Register the .mcufont files in this directory as file-backed faces, instead of the built-in ones" },
+	[LWS_SW_HEAP_LIMIT] = { "--heap-limit", "Simulate a heap of this many bytes above what is in use at the start, so fonts and images get reclaimed" },
 	[LWS_SW_HELP]	= { "--help",          "Show this help information" },
 };
 
@@ -558,6 +562,21 @@ main(int argc, const char **argv)
 
 	/* register the available fonts */
 
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_FONTS].sw))) {
+		/*
+		 * The same faces from files: the layout must come out
+		 * identical, with the dictionaries and glyphs coming and
+		 * going from the heap as the reclaim registry asks
+		 */
+		int n = lws_fonts_register_dir(cx, p);
+
+		if (n <= 0) {
+			lwsl_err("%s: no fonts found in %s\n", __func__, p);
+			goto bail;
+		}
+		lwsl_notice("%s: %d file-backed fonts from %s\n", __func__,
+			    n, p);
+	} else {
 	lws_font_register(cx, fira_c_r_10, sizeof(fira_c_r_10));
 	lws_font_register(cx, fira_c_r_12, sizeof(fira_c_r_12));
 	lws_font_register(cx, fira_c_r_14, sizeof(fira_c_r_14));
@@ -572,6 +591,11 @@ main(int argc, const char **argv)
 	lws_font_register(cx, fira_c_b_20, sizeof(fira_c_b_20));
 	lws_font_register(cx, fira_c_b_24, sizeof(fira_c_b_24));
 	lws_font_register(cx, fira_c_b_32, sizeof(fira_c_b_32));
+	}
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_HEAP_LIMIT].sw)))
+		lws_heap_limit_set(lws_get_allocated_heap() +
+				   (size_t)atoi(p));
 
 	drs.ic = &ic;
 

@@ -715,6 +715,7 @@ set(LWS_INSTALL_BIN_DIR       ${CMAKE_INSTALL_BINDIR} CACHE PATH "Installation d
 set(LWS_INSTALL_INCLUDE_DIR   ${CMAKE_INSTALL_INCLUDEDIR} CACHE PATH "Installation directory for header files")
 set(LWS_INSTALL_EXAMPLES_DIR  ${CMAKE_INSTALL_BINDIR} CACHE PATH "Installation directory for example files")
 set(LWS_INSTALL_PLUGIN_DIR    "${CMAKE_INSTALL_PREFIX}/share/libwebsockets-test-server/plugins" CACHE PATH "Installation directory for plugins")
+set(LWS_INSTALL_FONTS_DIR     "${CMAKE_INSTALL_PREFIX}/share/libwebsockets/fonts" CACHE PATH "Installation directory for the mcufont repository")
 
 if(IS_ABSOLUTE "${LWS_INSTALL_LIB_DIR}")
 	set(LWS_ABSOLUTE_INSTALL_LIBDIR "${LWS_INSTALL_LIB_DIR}")
@@ -1537,6 +1538,14 @@ export(PACKAGE libwebsockets)
 
 install(DIRECTORY include/libwebsockets
 	DESTINATION "${LWS_INSTALL_INCLUDE_DIR}" COMPONENT dev)
+
+# the mcufont repository: faces an app can register from storage at runtime
+# with lws_fonts_register_dir(cx, LWS_FONTS_DIR)
+if (LWS_WITH_DLO)
+	install(DIRECTORY contrib/mcufont/fonts/
+		DESTINATION "${LWS_INSTALL_FONTS_DIR}" COMPONENT examples
+		FILES_MATCHING PATTERN "*.mcufont")
+endif()
 install(FILES ${PROJECT_BINARY_DIR}/include/libwebsockets.h ${PROJECT_BINARY_DIR}/include/lws_config.h
 	DESTINATION "${LWS_INSTALL_INCLUDE_DIR}" COMPONENT dev)
 install(CODE "

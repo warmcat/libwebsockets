@@ -73,6 +73,7 @@ typedef struct lws_font_glyph {
 
 	int8_t			x;	/* x offset inside the glyph */
 
+	void			*pin;	/* font-private: what to unpin on free */
 } lws_font_glyph_t;
 
 typedef lws_stateful_ret_t (*lws_dlo_renderer_t)(struct lws_display_render_state *rs);
@@ -858,6 +859,32 @@ lhp_displaylist_layout(struct lhp_ctx *ctx, char reason);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_font_register(struct lws_context *cx, const uint8_t *data, size_t data_len);
+
+/**
+ * lws_font_register_file() - register an mcufont kept in a file
+ *
+ * \param cx: the lws context
+ * \param path: the file, opened through the context's fops
+ *
+ * Only the face's name and metrics stay in memory.  Its dictionary and the
+ * glyph strings text needs are read in when text is set in it, and are
+ * reclaimable heap occupants: they are given back when memory runs short
+ * and read again when next needed.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_font_register_file(struct lws_context *cx, const char *path);
+
+/**
+ * lws_fonts_register_dir() - register every .mcufont in a directory
+ *
+ * \param cx: the lws context
+ * \param dirpath: the directory to scan
+ *
+ * Returns the number of faces registered (0 if the directory can't be read
+ * or holds none).
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_fonts_register_dir(struct lws_context *cx, const char *dirpath);
 
 LWS_VISIBLE LWS_EXTERN const lws_display_font_t *
 lws_font_choose(struct lws_context *cx, const lws_font_choice_t *hints);

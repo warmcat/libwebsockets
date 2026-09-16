@@ -206,6 +206,337 @@ draw_px(lws_dlo_text_t *t, mcu_glyph_t *g)
 	lws_surface_set_px(t->ic, t->line, t1.whole, &c);
 }
 
+/*
+ * File-backed fonts: the decoder works from absolute offsets into the font
+ * blob, so a file-backed font keeps the blob's prefix (header, names,
+ * dictionary, dictionary offsets) resident as .data while it is in use, and
+ * serves the range tables, glyph offset tables and glyph strings from
+ * copies and a cache.  Flash-resident fonts have no priv and everything is
+ * simply in .data.
+ */
+
+static void
+mcuf_file_core_free(lws_mcufont_file_t *ff)
+{
+	int n;
+
+	lws_vfs_file_close(&ff->fd);
+	lws_free_set_NULL(ff->prefix);
+	lws_free_set_NULL(ff->ranges);
+	for (n = 0; n < MCUFO_MAX_RANGES; n++)
+		lws_free_set_NULL(ff->gofs[n]);
+	ff->rc_core.resident = 0;
+}
+
+size_t
+mcuf_file_core_evict_cb(lws_reclaimable_t *r)
+{
+	lws_mcufont_file_t *ff = lws_container_of(r, lws_mcufont_file_t, rc_core);
+	size_t freed = r->resident;
+
+	lwsl_info("%s: %s: %u\n", __func__, ff->path, (unsigned int)freed);
+	mcuf_file_core_free(ff);
+	ff->f->data = NULL;
+
+	return freed;
+}
+
+size_t
+mcuf_file_glyphs_evict_cb(lws_reclaimable_t *r)
+{
+	lws_mcufont_file_t *ff = lws_container_of(r, lws_mcufont_file_t,
+						  rc_glyphs);
+	size_t freed = 0;
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&ff->glyphs)) {
+		mcuf_gent_t *ge = lws_container_of(d, mcuf_gent_t, list);
+
+		if (ge->pins)
+			continue;
+
+		lws_dll2_remove(&ge->list);
+		freed += sizeof(*ge) + ge->len;
+		ff->glyph_bytes -= sizeof(*ge) + ge->len;
+		lws_free(ge);
+	} lws_end_foreach_dll_safe(d, d1);
+
+	r->resident = ff->glyph_bytes;
+	lwsl_info("%s: %s: %u\n", __func__, ff->path, (unsigned int)freed);
+
+	return freed;
+}
+
+static int
+mcuf_file_read(lws_mcufont_file_t *ff, uint32_t ofs, uint8_t *buf, uint32_t len)
+{
+	lws_filepos_t amount = len;
+
+	if (!ff->fd)
+		return 1;
+
+	if (lws_vfs_file_seek_set(ff->fd, (lws_fileofs_t)ofs) < 0 ||
+	    lws_vfs_file_read(ff->fd, &amount, buf, len) < 0 || amount != len)
+		return 1;
+
+	return 0;
+}
+
+/*
+ * Bring the core of a file-backed font into memory if it isn't, and make it
+ * the font's .data.  Returns nonzero if it can't (no memory, no file).
+ */
+
+int
+lws_display_font_mcufont_file_core(lws_display_font_t *f)
+{
+	lws_mcufont_file_t *ff = (lws_mcufont_file_t *)f->priv;
+	lws_fop_flags_t fl = LWS_O_RDONLY;
+	uint8_t hdr[MCUFO_HDR_LEN];
+	uint32_t o, n, rt, nr, cnt, plen;
+	unsigned int m;
+
+	if (!ff)
+		return 0; /* flash-resident */
+
+	if (ff->prefix) {
+		lws_reclaimable_touch(&ff->rc_core);
+		return 0;
+	}
+
+	ff->fd = lws_vfs_file_open(lws_get_fops(ff->cx), ff->path, &fl);
+	if (!ff->fd)
+		return 1;
+
+	ff->file_len = (uint32_t)lws_vfs_get_length(ff->fd);
+
+	if (mcuf_file_read(ff, 0, hdr, sizeof(hdr)))
+		goto bail;
+
+	if (lws_ser_ru32be(hdr) != LWS_FOURCC('M', 'C', 'U', 'F'))
+		goto bail;
+
+	/* the prefix: up to the end of the dictionary offsets table */
+
+	o = lws_ser_ru32be(hdr + MCUFO_FOFS_DICT_OFS);
+	n = lws_ser_ru32be(hdr + MCUFO_COUNT_REF_RLE_DICT);
+	if (n > 512 || o > ff->file_len)
+		goto bail;
+	plen = o + ((n + 1) * 2);
+	rt = lws_ser_ru32be(hdr + MCUFO_FOFS_CHAR_RANGE_TABLES);
+	nr = lws_ser_ru32be(hdr + MCUFO_COUNT_CHAR_RANGE_TABLES);
+	if (plen > ff->file_len || nr > MCUFO_MAX_RANGES ||
+	    rt > ff->file_len || (ff->file_len - rt) / 16 < nr)
+		goto bail;
+
+	ff->prefix = lws_malloc(plen, __func__);
+	ff->ranges = lws_malloc(nr * 16, __func__);
+	if (!ff->prefix || !ff->ranges)
+		goto bail;
+	if (mcuf_file_read(ff, 0, ff->prefix, plen) ||
+	    mcuf_file_read(ff, rt, ff->ranges, nr * 16))
+		goto bail;
+	ff->prefix_len = plen;
+	ff->nranges = (uint16_t)nr;
+	ff->rc_core.resident = plen + nr * 16;
+
+	/* each range's glyph offset table, and where its data ends */
+
+	for (m = 0; m < nr; m++) {
+		const uint8_t *r = ff->ranges + (m * 16);
+		uint32_t ot = lws_ser_ru32be(r + 8), db = lws_ser_ru32be(r + 0xc),
+			 end = rt;
+		unsigned int k;
+
+		cnt = lws_ser_ru32be(r + 4);
+		if (!cnt || cnt > 0x10000 || ot > ff->file_len ||
+		    (ff->file_len - ot) / 2 < cnt || db > ff->file_len)
+			goto bail;
+
+		ff->gofs[m] = lws_malloc(cnt * 2, __func__);
+		if (!ff->gofs[m] ||
+		    mcuf_file_read(ff, ot, (uint8_t *)ff->gofs[m], cnt * 2))
+			goto bail;
+		ff->rc_core.resident += cnt * 2;
+
+		/* the data runs to the next thing in the file after it */
+		for (k = 0; k < nr; k++) {
+			uint32_t kt = lws_ser_ru32be(ff->ranges + (k * 16) + 8);
+
+			if (kt > db && kt < end)
+				end = kt;
+		}
+		ff->gend[m] = end;
+	}
+
+	f->data = ff->prefix;
+	f->data_len = ff->file_len;
+	lws_reclaimable_touch(&ff->rc_core);
+
+	return 0;
+
+bail:
+	mcuf_file_core_free(ff);
+
+	return 1;
+}
+
+void
+lws_display_font_mcufont_file_destroy(lws_display_font_t *f)
+{
+	lws_mcufont_file_t *ff = (lws_mcufont_file_t *)f->priv;
+
+	if (!ff)
+		return;
+
+	lws_reclaimable_remove(&ff->rc_core);
+	lws_reclaimable_remove(&ff->rc_glyphs);
+	mcuf_file_core_free(ff);
+	while (lws_dll2_get_head(&ff->glyphs)) {
+		mcuf_gent_t *ge = lws_container_of(lws_dll2_get_head(&ff->glyphs),
+						   mcuf_gent_t, list);
+
+		lws_dll2_remove(&ge->list);
+		lws_free(ge);
+	}
+	lws_free(ff->path);
+	lws_free(ff);
+	f->priv = NULL;
+}
+
+/* the font blob (prefix) or NULL if it can't be made resident */
+
+static const uint8_t *
+mcuf_bf(lws_dlo_text_t *text)
+{
+	lws_display_font_t *f = (lws_display_font_t *)text->font;
+
+	if (f->priv && lws_display_font_mcufont_file_core(f))
+		return NULL;
+
+	return f->data;
+}
+
+/* the char range tables */
+
+static const uint8_t *
+mcuf_ranges(const lws_display_font_t *f, const uint8_t *bf)
+{
+	lws_mcufont_file_t *ff = (lws_mcufont_file_t *)f->priv;
+
+	if (ff)
+		return ff->ranges;
+
+	return bf + lws_ser_ru32be(bf + MCUFO_FOFS_CHAR_RANGE_TABLES);
+}
+
+/* glyph idx of range n: its offset from the range's data base */
+
+static uint32_t
+mcuf_glyph_ofs(const lws_display_font_t *f, const uint8_t *bf,
+	       const uint8_t *r, unsigned int n, uint32_t idx)
+{
+	lws_mcufont_file_t *ff = (lws_mcufont_file_t *)f->priv;
+
+	if (ff)
+		return lws_ser_ru16be((const uint8_t *)&ff->gofs[n][idx]);
+
+	return lws_ser_ru16be(bf + lws_ser_ru32be(r + 8) + (idx * 2));
+}
+
+/*
+ * The compressed string of the glyph at file offset fofs, len bytes: from
+ * the blob directly for a flash font, else from the cache, read from the
+ * file on a miss.  With pin set the string stays resident until
+ * lws_display_font_mcufont_release_glyphs() lets it go, and *ppin says
+ * what to release.
+ */
+
+static const uint8_t *
+mcuf_glyph(lws_dlo_text_t *text, const uint8_t *bf, uint32_t fofs,
+	   uint32_t len, int pin, void **ppin)
+{
+	lws_display_font_t *f = (lws_display_font_t *)text->font;
+	lws_mcufont_file_t *ff = (lws_mcufont_file_t *)f->priv;
+	mcuf_gent_t *ge;
+
+	if (ppin)
+		*ppin = NULL;
+
+	if (!ff)
+		return bf + fofs;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ff->glyphs)) {
+		ge = lws_container_of(d, mcuf_gent_t, list);
+
+		if (ge->fofs == fofs)
+			goto hit;
+	} lws_end_foreach_dll(d);
+
+	if (!len || len > 0xffff || fofs + len > ff->file_len)
+		return NULL;
+
+	ge = lws_malloc(sizeof(*ge) + len, __func__);
+	if (!ge)
+		return NULL;
+
+	memset(ge, 0, sizeof(*ge));
+	ge->fofs = fofs;
+	ge->len = (uint16_t)len;
+	if (mcuf_file_read(ff, fofs, (uint8_t *)&ge[1], len)) {
+		lws_free(ge);
+		return NULL;
+	}
+	lws_dll2_add_tail(&ge->list, &ff->glyphs);
+	ff->glyph_bytes += sizeof(*ge) + len;
+	ff->rc_glyphs.resident = ff->glyph_bytes;
+
+hit:
+	/* most recently used */
+	lws_dll2_remove(&ge->list);
+	lws_dll2_add_tail(&ge->list, &ff->glyphs);
+	lws_reclaimable_touch(&ff->rc_glyphs);
+
+	if (pin) {
+		ge->pins++;
+		ff->core_pins++;
+		ff->rc_core.pins = ff->core_pins;
+		if (ppin)
+			*ppin = ge;
+	}
+
+	return (const uint8_t *)&ge[1];
+}
+
+/* the glyphs attached to text are being freed: let their strings go */
+
+void
+lws_display_font_mcufont_release_glyphs(lws_dlo_text_t *text)
+{
+	lws_display_font_t *f = (lws_display_font_t *)text->font;
+	lws_mcufont_file_t *ff = f ? (lws_mcufont_file_t *)f->priv : NULL;
+
+	if (!ff)
+		return;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&text->glyphs)) {
+		lws_font_glyph_t *fg = lws_container_of(d, lws_font_glyph_t,
+							list);
+		mcuf_gent_t *ge = (mcuf_gent_t *)fg->pin;
+
+		if (ge && ge->pins) {
+			ge->pins--;
+			if (ff->core_pins)
+				ff->core_pins--;
+		}
+		fg->pin = NULL;
+	} lws_end_foreach_dll(d);
+
+	ff->rc_core.pins = ff->core_pins;
+}
+
 static void
 write_ref_codeword(mcu_glyph_t *g, const uint8_t *bf, uint8_t c)
 {
@@ -292,20 +623,27 @@ mcufont_next_code(mcu_glyph_t *g)
 
 /* lookup and append a glyph for specific unicode to the text glyph list */
 
+/*
+ * The file offset of the glyph's compressed string, and its length; 0 if
+ * the font has no glyph for it (or its fallback)
+ */
+
 static uint32_t
-font_mcufont_uniglyph_lookup(lws_dlo_text_t *text, uint32_t unicode)
+font_mcufont_uniglyph_lookup(lws_dlo_text_t *text, const uint8_t *bf,
+			     uint32_t unicode, uint32_t *plen)
 {
-	const uint8_t *bf = (const uint8_t *)text->font->data,
-		       *r = bf + lws_ser_ru32be(&bf[MCUFO_FOFS_CHAR_RANGE_TABLES]);
+	const lws_display_font_t *f = text->font;
+	lws_mcufont_file_t *ff = (lws_mcufont_file_t *)f->priv;
 	uint32_t entries = lws_ser_ru32be(&bf[MCUFO_COUNT_CHAR_RANGE_TABLES]);
+	const uint8_t *r;
 	unsigned int n;
 
-	if (entries > 8) /* coverity sanity */
+	if (entries > MCUFO_MAX_RANGES) /* coverity sanity */
 		return 0;
 
 	do {
 		/* each pass walks the range table from its start */
-		r = bf + lws_ser_ru32be(&bf[MCUFO_FOFS_CHAR_RANGE_TABLES]);
+		r = mcuf_ranges(f, bf);
 
 		for (n = 0; n < entries; n++) {
 			uint32_t cs = lws_ser_ru32be(r + 0), ce = lws_ser_ru32be(r + 4);
@@ -314,18 +652,39 @@ font_mcufont_uniglyph_lookup(lws_dlo_text_t *text, uint32_t unicode)
 				return 0;
 
 			if (unicode >= cs && unicode < cs + ce) {
-				uint32_t cbo = lws_ser_ru32be(r + 0xc);
+				uint32_t db = lws_ser_ru32be(r + 0xc), cbo, next,
+					 idx = unicode - cs;
 
+				if (db >= text->font->data_len)
+					return 0;
+
+				cbo = db + mcuf_glyph_ofs(f, bf, r, n, idx);
 				if (cbo >= text->font->data_len)
 					return 0;
 
-				cbo += lws_ser_ru16be(bf +
-						lws_ser_ru32be(r + 8) + ((unicode - cs) * 2));
+				/*
+				 * The length, for a file-backed font: to the
+				 * nearest glyph start after ours, or the end
+				 * of the range's data.  Identical glyphs share
+				 * a string, so the table isn't in order and
+				 * the next entry isn't necessarily ours
+				 */
+				if (plen && ff) {
+					uint32_t k, oo = cbo - db;
 
-                                 if (cbo >= text->font->data_len)
-                                        return 0;
+					next = ff->gend[n];
+					for (k = 0; k < ce; k++) {
+						uint32_t o1 = mcuf_glyph_ofs(f,
+							bf, r, n, k);
 
-				 return cbo;
+						if (o1 > oo && db + o1 < next)
+							next = db + o1;
+					}
+					*plen = next > cbo ? next - cbo : 0;
+				} else if (plen)
+					*plen = 0;
+
+				return cbo;
 			}
 
 			r += 16;
@@ -341,13 +700,22 @@ font_mcufont_uniglyph_lookup(lws_dlo_text_t *text, uint32_t unicode)
 static mcu_glyph_t *
 font_mcufont_uniglyph(lws_dlo_text_t *text, uint32_t unicode)
 {
-	const uint8_t *bf = (const uint8_t *)text->font->data;
-	uint32_t ofs;
+	const uint8_t *bf = mcuf_bf(text), *comp;
+	uint32_t ofs, len = 0;
 	mcu_glyph_t *g;
+	void *pin;
 	size_t n;
 
-	ofs = font_mcufont_uniglyph_lookup(text, unicode);
+	if (!bf)
+		return NULL;
+
+	ofs = font_mcufont_uniglyph_lookup(text, bf, unicode, &len);
 	if (!ofs)
+		return NULL;
+
+	/* pinned from now until the glyphs are released */
+	comp = mcuf_glyph(text, bf, ofs, len, 1, &pin);
+	if (!comp)
 		return NULL;
 
 //	lwsl_warn("%s: text->text_len %u: %c\n", __func__, text->text_len, (char)unicode);
@@ -364,10 +732,21 @@ font_mcufont_uniglyph(lws_dlo_text_t *text, uint32_t unicode)
 		n = LWS_DLO_GLYPH_AC_GRANULE;
 
 	g = lwsac_use_zero(&text->ac_glyphs, sizeof(*g), n * sizeof(*g));
-	if (!g)
-		return NULL;
+	if (!g) {
+		lws_font_glyph_t fg;
 
-	g->comp = bf + ofs;
+		/* let the string go again */
+		memset(&fg, 0, sizeof(fg));
+		fg.pin = pin;
+		lws_dll2_add_tail(&fg.list, &text->glyphs);
+		lws_display_font_mcufont_release_glyphs(text);
+		lws_dll2_remove(&fg.list);
+
+		return NULL;
+	}
+
+	g->fg.pin = pin;
+	g->comp = comp;
 	g->fg.cwidth.whole = *g->comp++;
 	g->fg.cwidth.frac = 0;
 
@@ -380,13 +759,22 @@ int
 lws_display_font_mcufont_getcwidth(lws_dlo_text_t *text, uint32_t unicode,
 				   lws_fx_t *fx)
 {
-	const uint8_t *bf = (const uint8_t *)text->font->data;
-	uint32_t ofs = font_mcufont_uniglyph_lookup(text, unicode);
+	const uint8_t *bf = mcuf_bf(text), *comp;
+	uint32_t ofs, len = 0;
 
+	if (!bf)
+		return 1;
+
+	ofs = font_mcufont_uniglyph_lookup(text, bf, unicode, &len);
 	if (!ofs)
 		return 1;
 
-	fx->whole = bf[ofs];
+	/* the width is the first byte of the string: touched, not pinned */
+	comp = mcuf_glyph(text, bf, ofs, len, 0, NULL);
+	if (!comp)
+		return 1;
+
+	fx->whole = comp[0];
 	fx->frac = 0;
 
 	return 0;
@@ -396,8 +784,11 @@ lws_font_glyph_t *
 lws_display_font_mcufont_image_glyph(lws_dlo_text_t *text, uint32_t unicode,
 				     char attach)
 {
-	const uint8_t *bf = (const uint8_t *)text->font->data;
+	const uint8_t *bf = mcuf_bf(text);
 	mcu_glyph_t *g;
+
+	if (!bf)
+		return NULL;
 
 	/* one text dlo has glyphs from all the same fonts and attributes */
 	if (!text->font_height) {
@@ -581,9 +972,13 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 {
 	lws_dlo_t *dlo = rs->st[rs->sp].dlo;
 	lws_dlo_text_t *text = lws_container_of(dlo, lws_dlo_text_t, dlo);
-	const uint8_t *bf = (const uint8_t *)text->font->data;
+	const uint8_t *bf = mcuf_bf(text);
 	lws_fx_t ax, ay, t, t1, t2, t3;
 	int s, e, yo;
+
+	if (!bf)
+		/* can't be made resident right now: try again next line */
+		return LWS_SRET_OK;
 
 	lws_fx_add(&ax, &rs->st[rs->sp].co.x, &dlo->box.x);
 	lws_fx_add(&t, &ax, &dlo->box.w);
@@ -625,6 +1020,7 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 	 */
 
 	if (!text->glyphs.count || yo < (int)text->glyph_row) {
+		lws_display_font_mcufont_release_glyphs(text);
 		lwsac_free(&text->ac_glyphs);
 		memset(&text->glyphs, 0, sizeof(text->glyphs));
 		text->glyph_row = 0;

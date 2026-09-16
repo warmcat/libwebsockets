@@ -22,7 +22,67 @@ enum {
 	MCUFO16_BASELINE_X		= 0x38,
 	MCUFO16_BASELINE_Y		= 0x3a,
 	MCUFO16_LINE_HEIGHT		= 0x3c,
+
+	MCUFO_HDR_LEN			= 0x40,
+	MCUFO_MAX_RANGES		= 8,
 };
+
+/*
+ * A glyph's compressed string, cached from a file-backed font.  Pinned while
+ * a text dlo has it attached (its decoder keeps a pointer into data)
+ */
+typedef struct mcuf_gent {
+	lws_dll2_t		list;	/* lws_mcufont_file_t.glyphs, MRU at tail */
+	uint32_t		fofs;	/* file offset: the cache key */
+	uint16_t		len;
+	uint16_t		pins;
+	/* len bytes follow */
+} mcuf_gent_t;
+
+/*
+ * The resident state of a file-backed mcufont, hung off lws_display_font_t
+ * .priv.  The "core" is the part every glyph decode needs: the file's
+ * prefix (header, names, dictionary and its offsets, so the decoder's
+ * absolute offsets into the blob stay valid), plus copies of the char range
+ * tables and each range's glyph offset table.  The glyph strings come and
+ * go through the cache.  Both are reclaimable heap occupants.
+ */
+typedef struct lws_mcufont_file {
+	lws_reclaimable_t	rc_core;
+	lws_reclaimable_t	rc_glyphs;
+	struct lws_context	*cx;
+	lws_display_font_t	*f;
+	char			*path;
+
+	uint8_t			*prefix;
+	uint8_t			*ranges;	/* 16 * nranges */
+	uint16_t		*gofs[MCUFO_MAX_RANGES];
+	uint32_t		gend[MCUFO_MAX_RANGES]; /* end of each range's data */
+	lws_fop_fd_t		fd;		/* open while the core is */
+
+	lws_dll2_owner_t	glyphs;		/* mcuf_gent_t */
+	size_t			glyph_bytes;
+
+	uint32_t		file_len;
+	uint32_t		prefix_len;
+	uint16_t		nranges;
+	uint16_t		core_pins;
+} lws_mcufont_file_t;
+
+int
+lws_display_font_mcufont_file_core(lws_display_font_t *f);
+
+size_t
+mcuf_file_core_evict_cb(lws_reclaimable_t *r);
+
+size_t
+mcuf_file_glyphs_evict_cb(lws_reclaimable_t *r);
+
+void
+lws_display_font_mcufont_file_destroy(lws_display_font_t *f);
+
+void
+lws_display_font_mcufont_release_glyphs(lws_dlo_text_t *text);
 
 void
 dist_err_floyd_steinberg_grey(int n, int width, lws_greyscale_error_t *gedl_this,

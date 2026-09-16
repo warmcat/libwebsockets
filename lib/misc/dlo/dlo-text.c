@@ -27,6 +27,12 @@
 #include <private-lib-core.h>
 #include "private-lib-drivers-display-dlo.h"
 
+static void
+lws_font_choice_from_name(lws_display_font_t *a);
+static int
+lws_font_register_common(struct lws_context *cx, lws_display_font_t *a);
+
+
 size_t
 utf8_bytes(uint8_t u)
 {
@@ -77,6 +83,7 @@ lws_display_dlo_text_destroy(struct lws_dlo *dlo)
 	lws_free_set_NULL(text->kern);
 	lws_free_set_NULL(text->text);
 
+	lws_display_font_mcufont_release_glyphs(text);
 	lwsac_free(&text->ac_glyphs);
 }
 
@@ -96,6 +103,7 @@ lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
 	if (text->text)
 		lws_free_set_NULL(text->text);
 
+	lws_display_font_mcufont_release_glyphs(text);
 	lws_dll2_owner_clear(&text->glyphs);
 	lwsac_free(&text->ac_glyphs);
 
@@ -362,6 +370,20 @@ lws_font_register(struct lws_context *cx, const uint8_t *data, size_t data_len)
 
 	a->choice.family_name = name;
 
+	lws_font_choice_from_name(a);
+	a->choice.fixed_height = lws_ser_ru16be(data + MCUFO16_LINE_HEIGHT);
+
+	a->data = data;
+	a->data_len = data_len;
+
+	return lws_font_register_common(cx, a);
+}
+
+/* what the chooser can know about a face from its name */
+
+static void
+lws_font_choice_from_name(lws_display_font_t *a)
+{
 	if (castrstr(a->choice.family_name, "serif") ||
 	    castrstr(a->choice.family_name, "roman"))
 		a->choice.generic_name = "serif";
@@ -387,11 +409,13 @@ lws_font_register(struct lws_context *cx, const uint8_t *data, size_t data_len)
 					a->choice.weight = 300;
 				else
 					a->choice.weight = 400;
+}
 
-	a->choice.fixed_height = lws_ser_ru16be(data + MCUFO16_LINE_HEIGHT);
+/* the rest of registering a face whose choice and data are filled in */
 
-	a->data = data;
-	a->data_len = data_len;
+static int
+lws_font_register_common(struct lws_context *cx, lws_display_font_t *a)
+{
 	a->renderer = lws_display_font_mcufont_render;
 	a->image_glyph = lws_display_font_mcufont_image_glyph;
 
@@ -412,9 +436,117 @@ lws_font_register(struct lws_context *cx, const uint8_t *data, size_t data_len)
 	return 0;
 }
 
+/*
+ * Register a font kept in a file (on the SD card, say).  Only its name and
+ * metrics stay in memory: the dictionary and the glyphs it uses are brought
+ * in when text is set in it, and given back when memory is short.
+ */
+
+int
+lws_font_register_file(struct lws_context *cx, const char *path)
+{
+	lws_display_font_t *a = lws_zalloc(sizeof(*a), __func__);
+	lws_mcufont_file_t *ff;
+	const uint8_t *bf;
+	uint32_t o;
+	char *name;
+
+	if (!a)
+		return 1;
+
+	ff = lws_zalloc(sizeof(*ff), __func__);
+	if (!ff)
+		goto bail;
+	a->priv = (uint8_t *)ff;
+	ff->cx = cx;
+	ff->f = a;
+	ff->path = lws_strdup(path);
+	if (!ff->path)
+		goto bail;
+	ff->rc_core.evict = mcuf_file_core_evict_cb;
+	ff->rc_glyphs.evict = mcuf_file_glyphs_evict_cb;
+
+	/* bring the core in to read the name and metrics from */
+
+	if (lws_display_font_mcufont_file_core(a)) {
+		lwsl_warn("%s: %s: not a usable mcufont\n", __func__, path);
+		goto bail;
+	}
+
+	bf = a->data;
+	o = lws_ser_ru32be(bf + MCUFO_FOFS_FULLNAME);
+	if (o >= ff->prefix_len ||
+	    !memchr(bf + o, '\0', ff->prefix_len - o) ||
+	    lws_ser_ru16be(bf + MCUFO16_WIDTH) > 127) {
+		lwsl_warn("%s: %s: bad font header\n", __func__, path);
+		goto bail;
+	}
+
+	/* the name has to outlive the core: a copy of our own */
+	name = lws_strdup((const char *)bf + o);
+	if (!name)
+		goto bail;
+	a->choice.family_name = name;
+	lws_font_choice_from_name(a);
+	a->choice.fixed_height = lws_ser_ru16be(bf + MCUFO16_LINE_HEIGHT);
+
+	lws_reclaimable_add(&ff->rc_core);
+	lws_reclaimable_add(&ff->rc_glyphs);
+
+	lwsl_info("%s: %s: %s %u\n", __func__, path, name,
+		  a->choice.fixed_height);
+
+	return lws_font_register_common(cx, a);
+
+bail:
+	if (ff) {
+		lws_display_font_mcufont_file_destroy(a);
+	}
+	lws_free(a);
+
+	return 1;
+}
+
+static int
+lws_font_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	struct lws_context *cx = (struct lws_context *)user;
+	size_t nl = strlen(lde->name);
+	char path[256];
+
+	if (lde->type != LDOT_FILE || nl < 9 ||
+	    strcmp(lde->name + nl - 8, ".mcufont"))
+		return 0;
+
+	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
+	if (lws_font_register_file(cx, path))
+		lwsl_notice("%s: %s: not registered\n", __func__, path);
+
+	return 0;
+}
+
+int
+lws_fonts_register_dir(struct lws_context *cx, const char *dirpath)
+{
+	int n = (int)lws_dll2_count(&cx->fonts);
+
+	/* lws_dir() returns 1 whether or not it could open the directory:
+	 * what registered is the measure */
+	lws_dir(dirpath, cx, lws_font_dir_cb);
+
+	return (int)lws_dll2_count(&cx->fonts) - n;
+}
+
 static int
 lws_font_destroy(struct lws_dll2 *d, void *user)
 {
+	lws_display_font_t *a = lws_container_of(d, lws_display_font_t, list);
+
+	if (a->priv) {
+		/* a file-backed face: the name was our copy */
+		lws_free((void *)a->choice.family_name);
+		lws_display_font_mcufont_file_destroy(a);
+	}
 	lws_free(d);
 	return 0;
 }
