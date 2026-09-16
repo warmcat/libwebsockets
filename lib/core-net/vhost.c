@@ -2188,9 +2188,20 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 		     *
 		     * But an idle h1 connection cannot be used by a connection
 		     * request that doesn't have http/1.1 in its alpn list...
+		     *
+		     * An established h3 connection is represented here by
+		     * its quic network wsi, whose role is quic, not http:
+		     * a new http connection to the same origin can ride it
+		     * as another h3 stream (the "just join h3" below).
 		     */
 		    (w->role_ops == wsi->role_ops ||
-		     (lwsi_role_http(w) && lwsi_role_http(wsi))) &&
+		     (lwsi_role_http(w) && lwsi_role_http(wsi))
+#if defined(LWS_ROLE_H3)
+		     || (lwsi_role_http(wsi) && w->role_ops &&
+			 !strcmp(w->role_ops->name, "quic") &&
+			 w->client_mux_migrated)
+#endif
+		    ) &&
 		     /* ... same role, or at least both some kind of http */
 		    w->cli_hostname_copy && !strcmp(adsin, w->cli_hostname_copy) &&
 		    /* same endpoint hostname */
