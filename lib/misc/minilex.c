@@ -13,6 +13,7 @@
  *
  * Usage: gcc minilex.c -o minilex && \
  * 	cat css-lextable-strings.txt | ./minilex > css-lextable.h
+ *	cat css-propconst-lextable-strings.txt | ./minilex > css-propconst-lextable.h
  *
  */
 
@@ -34,7 +35,7 @@
 #define PARALLEL 30
 
 struct s {
-	char c[PARALLEL];
+	int c[PARALLEL]; /* a character, or a terminal index */
 	int s[PARALLEL];
 	int count;
 	int bytepos;
@@ -42,7 +43,7 @@ struct s {
 	int real_pos;
 };
 
-struct s s[1000];
+struct s s[4000];
 int next = 1;
 
 #define FAIL_CHAR 0x08
@@ -80,10 +81,14 @@ main(void)
 
 	free(line);
 
-	/* the terminal index is stored in s[].c[], which is a char */
+	/*
+	 * The terminal index is emitted as two bytes, the first of which
+	 * must stay below LWS_MINILEX_FAIL_CODING for the parser to know it
+	 * is a terminal marker
+	 */
 
-	if (setmembers > 127) {
-		fprintf(stderr, "%s: more than 127 terminals\n", __func__);
+	if (setmembers > 0x7ff) {
+		fprintf(stderr, "%s: more than 2047 terminals\n", __func__);
 
 		goto bail;
 	}
@@ -268,7 +273,7 @@ main(void)
 				fprintf(stdout, "   0x%02X, 0x%02X           "
 					"       "
 					"/* - terminal marker %2d - */,\n",
-						    y >> 8, y & 0xff, y & 0x7f);
+						    y >> 8, y & 0xff, y);
 				pos += 2;
 				walk += 2;
 				continue;
