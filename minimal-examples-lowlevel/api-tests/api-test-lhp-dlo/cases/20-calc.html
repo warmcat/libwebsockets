@@ -1,0 +1,11 @@
+<!doctype html>
+<html><head><style>
+:root { --fs: 16px; --gap: 1em; --w: 200px }
+body { margin: 0; padding: 0; font-size: 16px }
+.a { font-size: calc(var(--fs) * 1.6 + .3vw) }
+.b { margin: 0 0 calc(var(--gap) * .6); width: calc(var(--w) - 20px); background-color: #ff0000 }
+.c { width: min(50%, 100px); height: clamp(10px, 30px, 20px); background-color: #00ff00 }
+.d { width: calc((100% - 40px) / 2); background-color: #0000ff }
+.e { width: calc(var(--missing, 50px) * 2); background-color: #ffff00 }
+</style></head>
+<body><div class="a">big</div><div class="b">b</div><div class="c"></div><div class="d">d</div><div class="e">e</div></body></html>

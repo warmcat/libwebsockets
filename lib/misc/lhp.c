@@ -828,6 +828,320 @@ lhp_fx_parse(lws_fx_t *fx, const char *str, size_t len)
 	}
 }
 
+/*
+ * calc() evaluation: a small recursive-descent evaluator over the text
+ * inside the parens.
+ *
+ *   expr   := term (('+' | '-') term)*
+ *   term   := factor (('*' | '/') factor)*
+ *   factor := '(' expr ')' | calc '(' expr ')' | var '(' --name ')' |
+ *             min / max / clamp '(' expr, ... ')' | number [ unit | % ]
+ *
+ * Lengths become px as they are read, so the result is px; a bare number
+ * is a scalar, for the * and / that css allows.  var() takes the custom
+ * property's value: a length, a number, or another calc() evaluated in
+ * turn, with the fallback after the comma if it is not defined.
+ */
+
+struct lhp_calc {
+	lhp_ctx_t		*ctx;
+	lhp_pstack_t		*ps;
+	const lws_fx_t		*base;
+	const char		*p;
+	const char		*end;
+	int			ref;
+	int			depth;
+};
+
+static const lcsp_atr_t *
+lhp_find_var(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *name, size_t len);
+
+static lws_fx_t
+lhp_calc_expr(struct lhp_calc *cs);
+
+static void
+lhp_calc_ws(struct lhp_calc *cs)
+{
+	while (cs->p < cs->end && (*cs->p == ' ' || *cs->p == '\t' ||
+				   *cs->p == '\n'))
+		cs->p++;
+}
+
+static lws_fx_t
+lhp_calc_atr(struct lhp_calc *cs, const lcsp_atr_t *a)
+{
+	lws_fx_t v = { 0, 0 };
+
+	if (!a || cs->depth > 6)
+		return v;
+
+	switch (a->unit) {
+	case LCSP_UNIT_NUM:
+		return a->u.i;
+	case LCSP_UNIT_NONE:
+	case LCSP_UNIT_STRING:
+	case LCSP_UNIT_URL:
+	case LCSP_UNIT_RGBA:
+		return v;
+	case LCSP_UNIT_CALC:
+	{
+		struct lhp_calc cs1 = *cs;
+
+		cs1.p = (const char *)&a[1];
+		cs1.end = cs1.p + a->value_len;
+		cs1.depth++;
+
+		return lhp_calc_expr(&cs1);
+	}
+	case LCSP_UNIT_LENGTH_PERCENT:
+		if (cs->base) {
+			lws_fx_mul(&v, &a->u.i, cs->base);
+			lws_fx_div(&v, &v, &c_100);
+			return v;
+		}
+		/* fallthru */
+	default:
+		return *lws_csp_px_base(a, cs->ps, cs->base);
+	}
+}
+
+static lws_fx_t
+lhp_calc_factor(struct lhp_calc *cs)
+{
+	lws_fx_t v = { 0, 0 }, v2;
+	const char *n;
+	size_t nl;
+	int neg = 0;
+
+	lhp_calc_ws(cs);
+
+	if (cs->p < cs->end && *cs->p == '-') {
+		neg = 1;
+		cs->p++;
+	}
+
+	if (cs->p < cs->end && *cs->p == '(') {
+		cs->p++;
+		v = lhp_calc_expr(cs);
+		lhp_calc_ws(cs);
+		if (cs->p < cs->end && *cs->p == ')')
+			cs->p++;
+		goto done;
+	}
+
+	/* a function name? */
+	n = cs->p;
+	while (cs->p < cs->end && ((*cs->p >= 'a' && *cs->p <= 'z') ||
+				   (*cs->p >= 'A' && *cs->p <= 'Z')))
+		cs->p++;
+	nl = (size_t)(cs->p - n);
+
+	if (nl && cs->p < cs->end && *cs->p == '(') {
+		cs->p++;
+
+		if (nl == 3 && !strncasecmp(n, "var", 3)) {
+			const char *vn;
+			size_t vl;
+			const lcsp_atr_t *a;
+
+			lhp_calc_ws(cs);
+			vn = cs->p;
+			while (cs->p < cs->end && *cs->p != ')' &&
+			       *cs->p != ',' && *cs->p != ' ')
+				cs->p++;
+			vl = (size_t)(cs->p - vn);
+			/* names are kept with their leading -- */
+			a = vl > 2 ? lhp_find_var(cs->ctx, cs->ps, vn, vl) :
+				     NULL;
+			lhp_calc_ws(cs);
+			if (cs->p < cs->end && *cs->p == ',') {
+				/* the fallback: used if the var is unset */
+				cs->p++;
+				if (a) {
+					int d = 1;
+
+					while (cs->p < cs->end && d) {
+						if (*cs->p == '(')
+							d++;
+						if (*cs->p == ')')
+							d--;
+						if (d)
+							cs->p++;
+					}
+				} else
+					v = lhp_calc_expr(cs);
+			}
+			if (a) {
+				cs->depth++;
+				v = lhp_calc_atr(cs, a);
+				cs->depth--;
+			}
+		} else if ((nl == 3 && !strncasecmp(n, "min", 3)) ||
+			   (nl == 3 && !strncasecmp(n, "max", 3)) ||
+			   (nl == 5 && !strncasecmp(n, "clamp", 5))) {
+			lws_fx_t args[3];
+			int na = 0;
+
+			do {
+				args[na] = lhp_calc_expr(cs);
+				na++;
+				lhp_calc_ws(cs);
+			} while (na < 3 && cs->p < cs->end && *cs->p == ',' &&
+				 cs->p++);
+
+			v = args[0];
+			if (nl == 3 && n[1] == 'i' && na > 1 &&
+			    lws_fx_comp(&args[1], &v) < 0)
+				v = args[1];
+			if (nl == 3 && n[1] == 'a' && na > 1 &&
+			    lws_fx_comp(&args[1], &v) > 0)
+				v = args[1];
+			if (nl == 5 && na == 3) {
+				v = args[1];
+				if (lws_fx_comp(&v, &args[0]) < 0)
+					v = args[0];
+				if (lws_fx_comp(&v, &args[2]) > 0)
+					v = args[2];
+			}
+		} else
+			/* calc(), or something we don't know: its value */
+			v = lhp_calc_expr(cs);
+
+		/* past the closing paren, skipping any unparsed remainder */
+		{
+			int d = 1;
+
+			while (cs->p < cs->end && d) {
+				if (*cs->p == '(')
+					d++;
+				if (*cs->p == ')')
+					d--;
+				cs->p++;
+			}
+		}
+		goto done;
+	}
+
+	cs->p = n;
+
+	/* a number, with a unit or % */
+	{
+		char buf[32], unit[8];
+		size_t bn = 0, un = 0;
+		lcsp_atr_t atr;
+
+		while (cs->p < cs->end && bn < sizeof(buf) - 1 &&
+		       ((*cs->p >= '0' && *cs->p <= '9') || *cs->p == '.')) {
+			buf[bn++] = *cs->p++;
+		}
+		buf[bn] = '\0';
+		if (!bn)
+			goto done;
+
+		memset(&atr, 0, sizeof(atr));
+		lhp_fx_parse(&atr.u.i, buf, bn);
+
+		while (cs->p < cs->end && un < sizeof(unit) - 1 &&
+		       *cs->p >= 'a' && *cs->p <= 'z')
+			unit[un++] = *cs->p++;
+		unit[un] = '\0';
+		if (cs->p < cs->end && *cs->p == '%') {
+			unit[0] = '%';
+			unit[1] = '\0';
+			cs->p++;
+		}
+
+		if (unit[0] == '%' && !unit[1]) {
+			lws_fx_t b = { 0, 0 };
+
+			if (cs->base)
+				b = *cs->base;
+			else if (cs->ref != LWS_LHPREF_NONE)
+				lws_css_compute_cascaded_length(cs->ctx,
+						cs->ref, cs->ps, &b);
+			lws_fx_mul(&v2, &atr.u.i, &b);
+			lws_fx_div(&v, &v2, &c_100);
+			goto done;
+		}
+
+		if (!unit[0]) {
+			/* a bare number: a scalar */
+			v = atr.u.i;
+			goto done;
+		}
+
+		atr.unit = LCSP_UNIT_LENGTH_PX;
+		if (!strcmp(unit, "em")) atr.unit = LCSP_UNIT_LENGTH_EM;
+		if (!strcmp(unit, "ex")) atr.unit = LCSP_UNIT_LENGTH_EX;
+		if (!strcmp(unit, "rem")) atr.unit = LCSP_UNIT_LENGTH_REM;
+		if (!strcmp(unit, "in")) atr.unit = LCSP_UNIT_LENGTH_IN;
+		if (!strcmp(unit, "cm")) atr.unit = LCSP_UNIT_LENGTH_CM;
+		if (!strcmp(unit, "mm")) atr.unit = LCSP_UNIT_LENGTH_MM;
+		if (!strcmp(unit, "pt")) atr.unit = LCSP_UNIT_LENGTH_PT;
+		if (!strcmp(unit, "pc")) atr.unit = LCSP_UNIT_LENGTH_PC;
+		if (!strcmp(unit, "vw") || !strcmp(unit, "dvw") ||
+		    !strcmp(unit, "svw") || !strcmp(unit, "lvw"))
+			atr.unit = LCSP_UNIT_LENGTH_VW;
+		if (!strcmp(unit, "vh") || !strcmp(unit, "dvh") ||
+		    !strcmp(unit, "svh") || !strcmp(unit, "lvh"))
+			atr.unit = LCSP_UNIT_LENGTH_VH;
+		if (!strcmp(unit, "vmin")) atr.unit = LCSP_UNIT_LENGTH_VMIN;
+		if (!strcmp(unit, "vmax")) atr.unit = LCSP_UNIT_LENGTH_VMAX;
+
+		v = *lws_csp_px_base(&atr, cs->ps, NULL);
+	}
+
+done:
+	if (neg) {
+		lws_fx_t z = { 0, 0 };
+
+		lws_fx_sub(&v, &z, &v);
+	}
+
+	return v;
+}
+
+static lws_fx_t
+lhp_calc_term(struct lhp_calc *cs)
+{
+	lws_fx_t v = lhp_calc_factor(cs), f;
+
+	for (;;) {
+		lhp_calc_ws(cs);
+		if (cs->p >= cs->end || (*cs->p != '*' && *cs->p != '/'))
+			return v;
+
+		if (*cs->p++ == '*') {
+			f = lhp_calc_factor(cs);
+			lws_fx_mul(&v, &v, &f);
+		} else {
+			f = lhp_calc_factor(cs);
+			if (f.whole || f.frac)
+				lws_fx_div(&v, &v, &f);
+		}
+	}
+}
+
+static lws_fx_t
+lhp_calc_expr(struct lhp_calc *cs)
+{
+	lws_fx_t v = lhp_calc_term(cs), t;
+
+	for (;;) {
+		lhp_calc_ws(cs);
+		if (cs->p >= cs->end || (*cs->p != '+' && *cs->p != '-'))
+			return v;
+
+		if (*cs->p++ == '+') {
+			t = lhp_calc_term(cs);
+			lws_fx_add(&v, &v, &t);
+		} else {
+			t = lhp_calc_term(cs);
+			lws_fx_sub(&v, &v, &t);
+		}
+	}
+}
+
 const lws_fx_t *
 lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base)
 {
@@ -886,117 +1200,17 @@ lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base)
 
 	case LCSP_UNIT_CALC:
 		{
-			char buf[128], unit[8];
-			const char *p = (const char *)&a[1];
-			size_t len = a->value_len;
-			lws_fx_t sum = { 0, 0 }, v;
-			lcsp_atr_t atr;
-			int op = 1, aref;
+			struct lhp_calc cs;
 
-			memset(&atr, 0, sizeof(atr));
+			cs.ctx = ctx;
+			cs.ps = ps;
+			cs.base = base;
+			cs.ref = ref;
+			cs.p = (const char *)&a[1];
+			cs.end = cs.p + a->value_len;
+			cs.depth = 0;
 
-			/*
-			 * The tokens inside the calc() all belong to the same
-			 * property as the calc atr itself, so % inside it
-			 * resolves against the same axis
-			 */
-
-			aref = ref;
-
-			/* simplistic calc parser: A + B + C... */
-
-			while (len) {
-				size_t n = 0, m = 0;
-
-				while (len && (*p == ' ' || *p == '\t' || *p == '\n')) {
-					p++;
-					len--;
-				}
-
-				if (len && (*p == '+' || *p == '-')) {
-					op = *p++ == '+';
-					len--;
-					continue;
-				}
-
-				while (len && n < sizeof(buf) - 1 &&
-				       ((*p >= '0' && *p <= '9') || *p == '.')) {
-					buf[n++] = *p++;
-					len--;
-				}
-				buf[n] = '\0';
-
-				if (!n)
-					break;
-
-				lws_fx_set(atr.u.i, 0, 0);
-				lhp_fx_parse(&atr.u.i, buf, n);
-
-				while (len && m < sizeof(unit) - 1 &&
-				       (*p >= 'a' && *p <= 'z')) {
-					unit[m++] = *p++;
-					len--;
-				}
-				unit[m] = '\0';
-
-				if (len && *p == '%') {
-					unit[0] = '%';
-					unit[1] = '\0';
-					p++;
-					len--;
-				}
-
-				if (unit[0] == '%' && !unit[1]) {
-					/*
-					 * A % term: against the caller's
-					 * base (the containing block)
-					 * when it has one, else the same
-					 * ancestor walk as a bare %
-					 */
-					lws_fx_t b = { 0, 0 };
-
-					if (base)
-						b = *base;
-					else
-						if (aref != LWS_LHPREF_NONE)
-							lws_css_compute_cascaded_length(
-								ctx, aref, ps, &b);
-
-					lws_fx_mul(&v, &atr.u.i, &b);
-					lws_fx_div(&v, &v, &c_100);
-				} else {
-					atr.unit = LCSP_UNIT_LENGTH_PX;
-					if (!strcmp(unit, "em")) atr.unit = LCSP_UNIT_LENGTH_EM;
-					if (!strcmp(unit, "ex")) atr.unit = LCSP_UNIT_LENGTH_EX;
-					if (!strcmp(unit, "rem")) atr.unit = LCSP_UNIT_LENGTH_REM;
-					if (!strcmp(unit, "in")) atr.unit = LCSP_UNIT_LENGTH_IN;
-					if (!strcmp(unit, "cm")) atr.unit = LCSP_UNIT_LENGTH_CM;
-					if (!strcmp(unit, "mm")) atr.unit = LCSP_UNIT_LENGTH_MM;
-					if (!strcmp(unit, "pt")) atr.unit = LCSP_UNIT_LENGTH_PT;
-					if (!strcmp(unit, "pc")) atr.unit = LCSP_UNIT_LENGTH_PC;
-					if (!strcmp(unit, "vw")) atr.unit = LCSP_UNIT_LENGTH_VW;
-					if (!strcmp(unit, "vh")) atr.unit = LCSP_UNIT_LENGTH_VH;
-					if (!strcmp(unit, "vmin")) atr.unit = LCSP_UNIT_LENGTH_VMIN;
-					if (!strcmp(unit, "vmax")) atr.unit = LCSP_UNIT_LENGTH_VMAX;
-					/* dynamic / small / large viewport units
-					 * are all the same for us */
-					if (!strcmp(unit, "dvw") ||
-					    !strcmp(unit, "svw") ||
-					    !strcmp(unit, "lvw")) atr.unit = LCSP_UNIT_LENGTH_VW;
-					if (!strcmp(unit, "dvh") ||
-					    !strcmp(unit, "svh") ||
-					    !strcmp(unit, "lvh")) atr.unit = LCSP_UNIT_LENGTH_VH;
-
-					v = *lws_csp_px_base(&atr, ps, NULL);
-				}
-
-				if (op)
-					lws_fx_add(&sum, &sum, &v);
-				else
-					lws_fx_sub(&sum, &sum, &v);
-			}
-
-			*(lws_fx_t *)&a->r = sum;
+			*(lws_fx_t *)&a->r = lhp_calc_expr(&cs);
 			return &a->r;
 		}
 
@@ -1453,6 +1667,28 @@ lcsp_func_value(lhp_ctx_t *ctx)
 		atr->value_len = (size_t)(end - p);
 		memcpy(&atr[1], p, atr->value_len);
 		((char *)&atr[1])[atr->value_len] = '\0';
+		lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
+
+		return 0;
+	}
+
+	/*
+	 * min(), max() and clamp() as a value are calc() expressions too:
+	 * keep the whole function text, the calc evaluator knows them
+	 */
+	if ((nl == 3 && !strncasecmp(b, "min", 3)) ||
+	    (nl == 3 && !strncasecmp(b, "max", 3)) ||
+	    (nl == 5 && !strncasecmp(b, "clamp", 5))) {
+		size_t fl = (size_t)(end - b) + 1;
+		lcsp_atr_t *atr = lwsac_use_zero(&ctx->cssac, sizeof(*atr) +
+						 fl + 1, LHP_AC_GRANULE);
+		if (!atr)
+			return 1;
+
+		atr->unit = LCSP_UNIT_CALC;
+		atr->value_len = fl;
+		memcpy(&atr[1], b, fl);
+		((char *)&atr[1])[fl] = '\0';
 		lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
 
 		return 0;
@@ -2813,10 +3049,18 @@ lhp_compute_font_size(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *parent)
 
 	a = lws_container_of(lws_dll2_get_head(&def->atrs), lcsp_atr_t, list);
 
+	/* font-size: var(--x): what the custom property says */
+	a = lhp_resolve_var_ps(ctx, ps, a);
+
 	switch (a->unit) {
 	case LCSP_UNIT_NUM:
 	case LCSP_UNIT_LENGTH_PX:
 		r = a->u.i;
+		break;
+	case LCSP_UNIT_CALC:
+		/* em / % inside it are of the parent's size, which is what
+		 * ps->font_size holds at this point */
+		r = *lws_csp_px(a, ps);
 		break;
 	case LCSP_UNIT_LENGTH_EM:
 		lws_fx_mul(&r, &a->u.i, pfs);
