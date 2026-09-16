@@ -228,6 +228,8 @@ typedef struct lws_dlo_text {
 	struct lwsac			*ac_glyphs;
 	uint8_t				*line;
 	uint16_t			curr;
+	uint16_t			glyph_row; /* rows the glyph run decoders
+						    * have produced since attach */
 
 	char				*text;
 	uint8_t				*kern;

@@ -422,66 +422,18 @@ lws_display_font_mcufont_image_glyph(lws_dlo_text_t *text, uint32_t unicode,
 	return &g->fg;
 }
 
-lws_stateful_ret_t
-lws_display_font_mcufont_render(struct lws_display_render_state *rs)
+/*
+ * Run every glyph's run decoder across one row of the text, at row yo of the
+ * glyph bounding box.  The decoders are forward-only state: each call
+ * produces the row after the one before.  With draw clear the row is
+ * decoded and thrown away, to fast-forward to a row a re-scan wants
+ */
+
+static void
+mcufont_row(lws_dlo_text_t *text, const uint8_t *bf, int yo, char draw)
 {
-	lws_dlo_t *dlo = rs->st[rs->sp].dlo;
-	lws_dlo_text_t *text = lws_container_of(dlo, lws_dlo_text_t, dlo);
-	const uint8_t *bf = (const uint8_t *)text->font->data;
-	lws_fx_t ax, ay, t, t1, t2, t3;
 	mcu_glyph_t *g;
-	int s, e, yo;
 	uint8_t c, el;
-
-	lws_fx_add(&ax, &rs->st[rs->sp].co.x, &dlo->box.x);
-	lws_fx_add(&t, &ax, &dlo->box.w);
-	lws_fx_add(&ay, &rs->st[rs->sp].co.y, &dlo->box.y);
-	lws_fx_add(&t1, &ay, &dlo->box.h);
-
-	lws_fx_add(&t2, &ax, &text->bounding_box.w);
-
-	text->curr = rs->curr;
-	text->ic = rs->ic;
-	text->line = rs->line;
-
-	s = ax.whole;
-	e = lws_fx_roundup(&t2);
-
-	if (e <= 0)
-		return LWS_SRET_OK; /* wholly off to the left */
-	if (s >= rs->ic->wh_px[0].whole)
-		return LWS_SRET_OK; /* wholly off to the right */
-
-	if (e >= rs->ic->wh_px[0].whole)
-		e = rs->ic->wh_px[0].whole;
-
-	/* figure out our y position inside the glyph bounding box */
-	yo = rs->curr - ay.whole;
-
-	if (!yo) {
-		lws_display_dlo_text_attach_glyphs(text);
-
-		t3.whole = lws_ser_ru16be(bf + MCUFO16_BASELINE_X);
-		t3.frac = 0;
-		lws_start_foreach_dll(struct lws_dll2 *, d,
-				      lws_dll2_get_head(&text->glyphs)) {
-			lws_font_glyph_t *fg = lws_container_of(d, lws_font_glyph_t, list);
-			lws_fx_sub(&fg->xpx, &fg->xpx, &t3);
-			fg->xorg = rs->st[rs->sp].co.x;
-		} lws_end_foreach_dll(d);
-	}
-
-#if 0
-	{
-		uint32_t dc = 0xff0000ff;
-		int s1 = s;
-		/* from origin.x + dlo->box.x */
-		for (s1 = ax.whole; s1 < t2.whole; s1++)
-			lws_surface_set_px(ic, line, s1, &dc);
-
-		memset(&ce, 0, sizeof(ce));
-	}
-#endif
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&text->glyphs)) {
@@ -603,7 +555,7 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 				break;
 
 			case RS_WRITE_PX:
-				if (g->alpha)
+				if (g->alpha && draw)
 					draw_px(text, g);
 				g->fg.x++;
 				if (--g->runlen)
@@ -621,6 +573,95 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 		}
 
 	} lws_end_foreach_dll(d);
+
+}
+
+lws_stateful_ret_t
+lws_display_font_mcufont_render(struct lws_display_render_state *rs)
+{
+	lws_dlo_t *dlo = rs->st[rs->sp].dlo;
+	lws_dlo_text_t *text = lws_container_of(dlo, lws_dlo_text_t, dlo);
+	const uint8_t *bf = (const uint8_t *)text->font->data;
+	lws_fx_t ax, ay, t, t1, t2, t3;
+	int s, e, yo;
+
+	lws_fx_add(&ax, &rs->st[rs->sp].co.x, &dlo->box.x);
+	lws_fx_add(&t, &ax, &dlo->box.w);
+	lws_fx_add(&ay, &rs->st[rs->sp].co.y, &dlo->box.y);
+	lws_fx_add(&t1, &ay, &dlo->box.h);
+
+	lws_fx_add(&t2, &ax, &text->bounding_box.w);
+
+	text->curr = rs->curr;
+	text->ic = rs->ic;
+	text->line = rs->line;
+
+	s = ax.whole;
+	e = lws_fx_roundup(&t2);
+
+	if (e <= 0)
+		return LWS_SRET_OK; /* wholly off to the left */
+	if (s >= rs->ic->wh_px[0].whole)
+		return LWS_SRET_OK; /* wholly off to the right */
+
+	if (e >= rs->ic->wh_px[0].whole)
+		e = rs->ic->wh_px[0].whole;
+
+	/* figure out our y position inside the glyph bounding box */
+	yo = rs->curr - ay.whole;
+
+	if (yo < 0)
+		/* the walk enters us from the line above our box */
+		return LWS_SRET_OK;
+
+	/*
+	 * The glyph run decoders only go forwards.  A retained display list
+	 * is scanned more than once (a viewport re-scan, or a scan restarted
+	 * by a late asset), so if this row is at or above where they have
+	 * got to, start again from fresh glyphs: the ones left from the
+	 * previous pass would carry on from wherever that pass stopped and
+	 * emit their lower rows over the top of this line.  Appending fresh
+	 * glyphs to the stale ones did exactly that.
+	 */
+
+	if (!text->glyphs.count || yo < (int)text->glyph_row) {
+		lwsac_free(&text->ac_glyphs);
+		memset(&text->glyphs, 0, sizeof(text->glyphs));
+		text->glyph_row = 0;
+
+		lws_display_dlo_text_attach_glyphs(text);
+
+		t3.whole = lws_ser_ru16be(bf + MCUFO16_BASELINE_X);
+		t3.frac = 0;
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&text->glyphs)) {
+			lws_font_glyph_t *fg = lws_container_of(d, lws_font_glyph_t, list);
+			lws_fx_sub(&fg->xpx, &fg->xpx, &t3);
+			fg->xorg = rs->st[rs->sp].co.x;
+		} lws_end_foreach_dll(d);
+	}
+
+#if 0
+	{
+		uint32_t dc = 0xff0000ff;
+		int s1 = s;
+		/* from origin.x + dlo->box.x */
+		for (s1 = ax.whole; s1 < t2.whole; s1++)
+			lws_surface_set_px(ic, line, s1, &dc);
+
+		memset(&ce, 0, sizeof(ce));
+	}
+#endif
+
+	/* a re-scan can enter partway down: discard rows up to this one */
+
+	while ((int)text->glyph_row < yo) {
+		mcufont_row(text, bf, text->glyph_row, 0);
+		text->glyph_row++;
+	}
+
+	mcufont_row(text, bf, yo, 1);
+	text->glyph_row++;
 
 	return LWS_SRET_OK;
 }
