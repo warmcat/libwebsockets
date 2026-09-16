@@ -1636,11 +1636,17 @@ oom4:
 		struct lws_vhost *vhost = wsi->a.vhost;
 		lws_sockfd_type sfd = wsi->desc.sockfd;
 
+		/*
+		 * The trace check reads the wsi's sockfd and parallel
+		 * connection state, so it has to run while the wsi still
+		 * exists; nothing in the free touches the fd tables
+		 */
+		sanity_assert_no_wsi_traces(vhost->context, wsi);
+
 		//lws_vhost_lock(vhost);
 		__lws_free_wsi(wsi); /* acquires vhost lock in wsi reset */
 		//lws_vhost_unlock(vhost);
 
-		sanity_assert_no_wsi_traces(vhost->context, wsi);
 		sanity_assert_no_sockfd_traces(vhost->context, sfd);
 	}
 
