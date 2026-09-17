@@ -1,0 +1,17 @@
+<!doctype html>
+<html><head><style>
+body { margin: 0 }
+.w-full{width:100%}.h-full{height:100%}.absolute{position:absolute}.relative{position:relative}.block{display:block}
+.top-0{top:0}.left-0{left:0}
+.pt-\(--aspect-padding\){padding-top:var(--aspect-padding)}
+.md\:flex{display:flex}.w-\[220px\]{width:220px}
+.col { width: 300px }
+.pad { position: relative; padding: 20px 10px; width: 200px; height: 60px; background-color: #eeeeee }
+.pin { position: absolute; top: 5px; left: 15px; width: 30px; height: 10px; background-color: #ff0000 }
+</style></head><body>
+<div class="col"><figure style="margin:0"><picture class="block w-full pt-(--aspect-padding) relative" style="--aspect-padding: 56.25%;">
+<img src="https://missing.invalid/exclaim.png" width="200" height="150" class="absolute top-0 left-0 w-full h-full">
+</picture></figure><p>after the picture</p></div>
+<div class="pad"><div class="pin"></div>padded</div>
+<div class="md:flex w-[220px]" style="background-color:#00ff00;height:10px"></div>
+</body></html>

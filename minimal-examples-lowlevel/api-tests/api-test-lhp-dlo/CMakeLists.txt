@@ -39,7 +39,8 @@ if (requirements)
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/11-asset-queue.html
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.html
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/14-asset-cache.html
-					${CMAKE_CURRENT_SOURCE_DIR}/cases/21-image-reclaim.html)
+					${CMAKE_CURRENT_SOURCE_DIR}/cases/21-image-reclaim.html
+					${CMAKE_CURRENT_SOURCE_DIR}/cases/23-abs-image.html)
 		foreach(C ${LHP_CASES})
 			get_filename_component(CN ${C} NAME_WE)
 			add_test(NAME api-test-lhp-dlo-${CN}
@@ -90,6 +91,20 @@ if (requirements)
 					-DOUT=${CMAKE_CURRENT_BINARY_DIR}/14-asset-cache.dlo
 					-DASSET_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/14-asset-cache-scratch
 					-DPRESEED=https://missing.invalid/bluecat.jpg=${CMAKE_CURRENT_SOURCE_DIR}/bluecat.jpg
+					-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+
+			# the aspect-ratio box idiom (absolutely positioned image
+			# filling a padding-top: 56.25% picture), escaped
+			# tailwind class selectors, and abs offsets from the
+			# padding box; the image comes from the (preseeded) cache
+			add_test(NAME api-test-lhp-dlo-23-abs-image
+				 COMMAND ${CMAKE_COMMAND}
+					-DTOOL=$<TARGET_FILE:${SAMP}>
+					-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/23-abs-image.html
+					-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/cases/23-abs-image.dlo
+					-DOUT=${CMAKE_CURRENT_BINARY_DIR}/23-abs-image.dlo
+					-DASSET_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/23-abs-image-scratch
+					-DPRESEED=https://missing.invalid/exclaim.png=${CMAKE_CURRENT_SOURCE_DIR}/exclaim.png
 					-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
 		endif()
 

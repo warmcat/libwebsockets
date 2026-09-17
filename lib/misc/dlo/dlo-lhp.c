@@ -1224,6 +1224,124 @@ lhp_place_image(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c)
 	if (lws_dll2_owner(&dlo->list) != &c->dlo->children)
 		return;
 
+	/*
+	 * An absolutely positioned image (the aspect-ratio box idiom:
+	 * <picture style="padding-top: 56.25%; position: relative"> with
+	 * <img style="position: absolute; top: 0; left: 0; width: 100%;
+	 * height: 100%"> inside it, which is how every article hero image
+	 * is done now) is sized and placed against the padding box of its
+	 * positioned ancestor, is not on the line, and takes no space in
+	 * the flow.  The ancestor is still open, so its padding box height
+	 * is its padding plus its explicit height or the flow so far: for
+	 * the idiom that is exactly the padding.
+	 */
+
+	{
+		const lcsp_atr_t *pos = ps->css_position;
+		lhp_pstack_t *psa;
+
+		if (pos && pos->unit == LCSP_UNIT_NONE &&
+		    (pos->propval == LCSP_PROPVAL_ABSOLUTE ||
+		     pos->propval == LCSP_PROPVAL_FIXED) &&
+		    (psa = lhp_positioned_ancestor(lhp_parent(ps))) != NULL) {
+			lws_fx_t cbw, cbh, pr, pb, x, y;
+
+			pr = lhp_len(psa, psa->css_padding[CCPAS_RIGHT],
+				     &psa->cw);
+			pb = lhp_len(psa, psa->css_padding[CCPAS_BOTTOM],
+				     &psa->cw);
+			lws_fx_add(&cbw, &psa->ox, &psa->cw);
+			lws_fx_add(&cbw, &cbw, &pr);
+
+			if (psa->explicit_h)
+				cbh = lhp_len(psa, psa->css_height, &cbw);
+			else
+				cbh = psa->cury;
+			lws_fx_add(&cbh, &cbh, &psa->oy);
+			lws_fx_add(&cbh, &cbh, &pb);
+
+			w = lhp_len(ps, ps->css_width, &cbw);
+			h = lhp_len(ps, ps->css_height, &cbh);
+
+			p = lws_html_get_atr(ps, "width", 5);
+			if (p && !w.whole)
+				lws_fx_set(w, atoi(p), 0);
+			p = lws_html_get_atr(ps, "height", 6);
+			if (p && !h.whole)
+				lws_fx_set(h, atoi(p), 0);
+
+			if (dlo->box.w.whole < 0 || dlo->box.h.whole < 0) {
+				lws_fx_set(dlo->box.w, 0, 0);
+				lws_fx_set(dlo->box.h, 0, 0);
+				return;
+			}
+
+			if (!w.whole && !h.whole) {
+				w = dlo->box.w;
+				h = dlo->box.h;
+			} else if (!w.whole && dlo->box.h.whole) {
+				lws_fx_mul(&t, &h, &dlo->box.w);
+				lws_fx_div(&w, &t, &dlo->box.h);
+			} else if (!h.whole && dlo->box.w.whole) {
+				lws_fx_mul(&t, &w, &dlo->box.h);
+				lws_fx_div(&h, &t, &dlo->box.w);
+			}
+
+			/* offsets from the padding box edges, else the
+			 * flow position in the ancestor */
+
+			x = psa->curx;
+			if (ps->css_pos[CCPAS_LEFT] &&
+			    ps->css_pos[CCPAS_LEFT]->unit != LCSP_UNIT_NONE)
+				x = lhp_len(ps, ps->css_pos[CCPAS_LEFT], &cbw);
+			else if (ps->css_pos[CCPAS_RIGHT] &&
+				 ps->css_pos[CCPAS_RIGHT]->unit != LCSP_UNIT_NONE) {
+				x = lhp_len(ps, ps->css_pos[CCPAS_RIGHT], &cbw);
+				lws_fx_sub(&x, &cbw, &x);
+				lws_fx_sub(&x, &x, &w);
+			}
+			y = psa->cury;
+			if (ps->css_pos[CCPAS_TOP] &&
+			    ps->css_pos[CCPAS_TOP]->unit != LCSP_UNIT_NONE)
+				y = lhp_len(ps, ps->css_pos[CCPAS_TOP], &cbh);
+			else if (ps->css_pos[CCPAS_BOTTOM] &&
+				 ps->css_pos[CCPAS_BOTTOM]->unit != LCSP_UNIT_NONE) {
+				y = lhp_len(ps, ps->css_pos[CCPAS_BOTTOM], &cbh);
+				lws_fx_sub(&y, &cbh, &y);
+				lws_fx_sub(&y, &y, &h);
+			}
+
+			/* the dlo hangs from the positioned ancestor's */
+
+			if (dlo->list.owner != &psa->dlo->children) {
+				lws_dll2_remove(&dlo->list);
+				lws_dll2_add_tail(&dlo->list,
+						  &psa->dlo->children);
+			}
+
+			dlo->box.x = x;
+			dlo->box.y = y;
+			dlo->box.w = w;
+			dlo->box.h = h;
+			dlo->flag_abs = 1;
+
+			{
+				lhp_pstack_t *link = lhp_link_of(ps);
+
+				if (link) {
+					lws_dlo_hit_t *hit = lhp_hit_new(ctx,
+						link, (lws_dl_rend_t *)ctx->user,
+						dlo, NULL);
+
+					if (hit)
+						hit->fill = 1;
+				}
+			}
+
+			return;
+		}
+	}
+
 	w = lhp_len(ps, ps->css_width, &c->cw);
 	h = lhp_len(ps, ps->css_height, &c->cw);
 
@@ -1648,7 +1766,7 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 			 * to be moved above the normal flow when the document
 			 * is complete
 			 */
-			lws_fx_t ox, oy, cbw, cbi, r, t1, sx, sy;
+			lws_fx_t ox, cbw, cbi, r, t1, sx, sy;
 			int lset, rset, tset;
 
 			lset = ps->css_pos[CCPAS_LEFT] &&
@@ -1663,7 +1781,6 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 				/* dlo children start at our border box */
 				parent = psa->dlo;
 				ox = psa->ox;
-				oy = psa->oy;
 				/* padding box, from where children place */
 				t1 = lhp_len(psa, psa->css_padding[CCPAS_RIGHT],
 					     &psa->cw);
@@ -1671,7 +1788,6 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 				lws_fx_add(&cbw, &ox, &cbi);
 			} else {
 				lws_fx_set(ox, 0, 0);
-				lws_fx_set(oy, 0, 0);
 				cbw = ctx->ic.wh_px[LWS_LHPREF_WIDTH];
 				cbi = cbw;
 			}
@@ -1690,8 +1806,10 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 			}
 
 			if (lset) {
+				/* from the padding box edge, which is the
+				 * ancestor dlo's own origin (borders aren't
+				 * drawn), not its content box */
 				x = lhp_len(ps, ps->css_pos[CCPAS_LEFT], &cbw);
-				lws_fx_add(&x, &x, &ox);
 				if (!ps->explicit_w) {
 					lws_fx_add(&w, &ox, &cbi);
 					lws_fx_sub(&w, &w, &x);
@@ -1726,10 +1844,8 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 			}
 			lws_fx_add(&x, &x, &ml);
 
-			if (tset) {
+			if (tset)
 				y = lhp_len(ps, ps->css_pos[CCPAS_TOP], &cbw);
-				lws_fx_add(&y, &y, &oy);
-			}
 			lws_fx_add(&y, &y, &mt);
 			break;
 		}
