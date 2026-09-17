@@ -122,9 +122,12 @@ document.addEventListener('DOMContentLoaded', function() {
     if (rawSrc && rawSrc.indexOf('hls/') === 0) {
         // Play directly via HTTP Range requests natively supported by lws
         video.src = rawSrc;
+        /* once: a browser that tears down and rebuilds the media pipeline
+         * after a long pause fires loadedmetadata again, and this must not
+         * restart what the user paused */
         video.addEventListener('loadedmetadata', function() {
             video.play();
-        });
+        }, { once: true });
         return;
     }
 
@@ -174,6 +177,36 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    /* how we got here: a reload or history traversal that restarts a video
+     * the user had paused is the kind of thing to be able to see afterwards */
+    try {
+        var navs = performance.getEntriesByType('navigation');
+        logMsg('page load: ' + (navs.length ? navs[0].type : 'unknown'));
+    } catch (e) { /* ignore */ }
+
+    /*
+     * Playback is only ever started by us ONCE, at load, and not even then
+     * if the saved state says the user left this paused.  Every other
+     * play() the page could make (a manifest re-parse after an hls.js
+     * recovery, a repeated loadedmetadata from a rebuilt pipeline, a
+     * reload) would be undoing a pause the user made, so none of them
+     * happen: after the first start, only the user starts playback.
+     */
+    var autoplay = true, autoplayDone = false;
+    function autoplayOnce(why) {
+        if (autoplayDone) {
+            logMsg(why + ': not restarting playback');
+            return;
+        }
+        autoplayDone = true;
+        if (!autoplay) {
+            logMsg(why + ': left paused, as you left it');
+            return;
+        }
+        logMsg(why + ', playing');
+        video.play();
+    }
+
     var tsSrc = urlParams.get('t') || '0';
     getHash(videoSrc + '_' + tsSrc).then(function(hk) {
         var hashKey = 'lws_hls_' + hk;
@@ -186,6 +219,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (Date.now() - parsed.ts < 604800000) { // 1 week
                     startPos = parsed.pos;
                     logMsg('resuming from ' + startPos.toFixed(1) + 's');
+                    if (parsed.paused) {
+                        autoplay = false;
+                        logMsg('it was paused there: not autoplaying');
+                    }
                 } else {
                     localStorage.removeItem(hashKey);
                     parsed = null;
@@ -209,6 +246,18 @@ document.addEventListener('DOMContentLoaded', function() {
             lastPos: -1, lastCcOn: null, lastSubId: null, lastAudId: null
         };
 
+        function saveResume() {
+            localStorage.setItem(hashKey, JSON.stringify({
+                pos: video.currentTime,
+                dur: video.duration,
+                ts: Date.now(),
+                paused: video.paused,
+                ccOn: resumeState.ccOn,
+                subId: resumeState.subId,
+                audId: resumeState.audId
+            }));
+        }
+
         video.addEventListener('timeupdate', function() {
             if (!video.duration || Number.isNaN(video.duration)) return;
             var pct = video.currentTime / video.duration;
@@ -227,15 +276,25 @@ document.addEventListener('DOMContentLoaded', function() {
                 resumeState.lastCcOn = resumeState.ccOn;
                 resumeState.lastSubId = resumeState.subId;
                 resumeState.lastAudId = resumeState.audId;
-                localStorage.setItem(hashKey, JSON.stringify({
-                    pos: video.currentTime,
-                    dur: video.duration,
-                    ts: Date.now(),
-                    ccOn: resumeState.ccOn,
-                    subId: resumeState.subId,
-                    audId: resumeState.audId
-                }));
+                saveResume();
             }
+        });
+
+        /*
+         * A pause / play is saved at once, not on the throttled timer: if
+         * the page is reloaded out from under a paused video (the tab was
+         * discarded, a login round trip came back here), the reload must
+         * know to come back paused.  Not for the pause the element fires
+         * at the end of the media: that state was just removed above.
+         */
+        video.addEventListener('pause', function() {
+            if (!video.ended && video.duration && video.currentTime > 0 &&
+                video.currentTime / video.duration < 0.95)
+                saveResume();
+        });
+        video.addEventListener('play', function() {
+            if (video.duration && video.currentTime > 0)
+                saveResume();
         });
 
         // ---- subtitle (CC) UI ----
@@ -420,8 +479,7 @@ document.addEventListener('DOMContentLoaded', function() {
             hls.attachMedia(video);
             
             hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                logMsg('hls: manifest parsed, playing');
-                video.play();
+                autoplayOnce('hls: manifest parsed');
             });
 
             hls.on(Hls.Events.ERROR, function(event, data) {
@@ -814,11 +872,10 @@ document.addEventListener('DOMContentLoaded', function() {
             logMsg('native HLS supported');
             video.src = videoSrc;
             video.addEventListener('loadedmetadata', function() {
-                logMsg('native HLS metadata loaded, playing');
-                if (startPos > 0) {
+                if (startPos > 0 && !autoplayDone) {
                     video.currentTime = startPos;
                 }
-                video.play();
+                autoplayOnce('native HLS metadata loaded');
 
                 // native HLS exposes subtitle variants as <video>.textTracks
                 populateNativeSubs();
