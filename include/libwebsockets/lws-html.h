@@ -597,6 +597,8 @@ typedef struct lcsp_atr {
 typedef struct lcsp_defs {
 	lws_dll2_t		list;
 	lws_dll2_owner_t	atrs;		/* lcsp_atr_t */
+	struct lhp_css_var	*var;		/* if prop == LCSP_PROP__COUNT:
+						 * the --name this declares */
 	lcsp_props_t		prop;		/* lcsp_props_t, LCSP_PROP_* */
 	uint8_t			important;	/* declared !important */
 } lcsp_defs_t;

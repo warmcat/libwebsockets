@@ -3293,25 +3293,23 @@ lhp_find_var(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *name, size_t len)
 				lcsp_defs_t *def = lws_container_of(d,
 							lcsp_defs_t, list);
 
+				/*
+				 * A var definition carries its name: this is
+				 * hit for every var() in every matched stanza
+				 * of every element, so it must not go looking
+				 * through the document-wide variable list
+				 * (space.com declares 1855 of them)
+				 */
 				if (def->prop != LCSP_PROP__COUNT ||
-				    !lws_dll2_get_tail(&def->atrs))
+				    !lws_dll2_get_tail(&def->atrs) ||
+				    !def->var || def->var->name_len != len ||
+				    strncmp((const char *)&def->var[1], name,
+					    len))
 					continue;
 
-				/* a var definition: which name? */
-				lws_start_foreach_dll(struct lws_dll2 *, e,
-					lws_dll2_get_head(&ctx->css_vars)) {
-					lhp_css_var_t *v = lws_container_of(e,
-							lhp_css_var_t, list);
-
-					if (v->def == def &&
-					    v->name_len == len &&
-					    !strncmp((const char *)&v[1],
-						     name, len))
-						return lws_container_of(
-							lws_dll2_get_tail(
-								&def->atrs),
-							lcsp_atr_t, list);
-				} lws_end_foreach_dll(e);
+				return lws_container_of(
+						lws_dll2_get_tail(&def->atrs),
+						lcsp_atr_t, list);
 			} lws_end_foreach_dll_back(d);
 		}
 
@@ -5733,6 +5731,7 @@ issue_post:
 
 					v->name_len = (size_t)ctx->npos;
 					v->def = ctx->def;
+					ctx->def->var = v;
 					memcpy(&v[1], ctx->buf, v->name_len);
 					*((uint8_t *)&v[1] + v->name_len) = '\0';
 					lws_dll2_add_tail(&v->list, &ctx->css_vars);
