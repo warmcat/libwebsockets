@@ -67,3 +67,6 @@ doc
 /bb3/
 /bin/
 /scratch
+
+# local security audit working files, never in the tree
+security-audit/
