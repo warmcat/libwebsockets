@@ -1652,7 +1652,20 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	}
 
 	wsi->http.content_length_given = 0;
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
+	if (wsi->http.rx_chunked &&
+	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
+		/*
+		 * RFC 9112 6.3: with both, Transfer-Encoding overrides
+		 * Content-Length.  Taking the Content-Length as well left
+		 * rx_content_remain clamping every body slice, and chunked
+		 * delivery never decrements it, so a "Content-Length: 1"
+		 * made us deliver (and a proxy forward) the body a byte at
+		 * a time.
+		 */
+		lwsl_wsi_notice(wsi, "ignoring Content-Length with chunked");
+		wsi->http.rx_content_length = 0;
+		wsi->http.rx_content_remain = 0;
+	} else if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
 		simp = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH);
 
 		/* cannot be NULL, since it has nonzero length... coverity */
