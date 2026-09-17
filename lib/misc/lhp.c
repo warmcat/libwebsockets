@@ -3287,6 +3287,9 @@ lhp_prop_inherited(int prop)
 	case LCSP_PROP_TEXT_ALIGN:
 	case LCSP_PROP_TEXT_INDENT:
 	case LCSP_PROP_TEXT_TRANSFORM:
+	/* not inherited in css, but it propagates to every in-flow
+	 * descendant's text, which comes to the same thing here */
+	case LCSP_PROP_TEXT_DECORATION:
 	case LCSP_PROP_VISIBILITY:
 	case LCSP_PROP_VOICE_FAMILY:
 	case LCSP_PROP_VOLUME:

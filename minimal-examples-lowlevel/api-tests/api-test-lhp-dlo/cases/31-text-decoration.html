@@ -1,0 +1,14 @@
+<!--
+ text-decoration lines: a rect child of each text run, so they follow the
+ run through baseline alignment.  Links are underlined by the UA sheet
+ (:link), <u> and <s> by theirs, text-decoration: none turns it off, and
+ the decoration reaches text in descendants (the span inside the link).
+-->
+<html><head><style>
+body{margin:0}
+.nou{text-decoration:none}
+.ov{text-decoration:overline}
+</style></head><body>
+<p>Some <a href="/x">linked text</a> and <u>underlined</u> and <s>struck</s> text, <a class="nou" href="/y">no underline</a>.</p>
+<p><a href="/z"><span>span in link</span></a> <span class="ov">over</span> <big><u>bigger</u></big></p>
+</body></html>

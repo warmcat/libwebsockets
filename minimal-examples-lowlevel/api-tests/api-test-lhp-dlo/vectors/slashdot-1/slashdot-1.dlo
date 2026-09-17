@@ -75,8 +75,10 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
           text (0.0,38.0) [81.0 x 19.0] rgba=FF363636 f=17/400 "and have now "
           hit (81.0,38.0) [257.0 x 19.0] "vector:/missing/blog.rust-lang.org/2025/12/19/what-do-people-love-about-rust/"
           text (81.0,38.0) [257.0 x 19.0] rgba=FF666600 f=17/400 "issued three recommendations "to help Rust "
+           rect (0.0,15.0) [257.0 x 1.0] rgba=FF666600
           hit (0.0,57.0) [98.0 x 19.0] "vector:/missing/blog.rust-lang.org/2025/12/19/what-do-people-love-about-rust/"
           text (0.0,57.0) [98.0 x 19.0] rgba=FF666600 f=17/400 "continue to scale"
+           rect (0.0,15.0) [98.0 x 1.0] rgba=FF666600
           text (98.0,57.0) [200.0 x 19.0] rgba=FF363636 f=17/400 " across domains and usage levels.""
           text (0.0,76.0) [3.0 x 19.0] rgba=00000000 f=17/400 " "
           text (0.0,95.0) [350.0 x 19.0] rgba=FF363636 f=17/400 "— Enumerate and describe Rust's design goals and integrate "
@@ -148,14 +150,18 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
            text (16.0,0.0) [43.0 x 19.0] rgba=FF363636 f=17/400 "Google "
            hit (59.0,0.0) [25.0 x 19.0] "vector:/missing/blog.google/technology/safety-security/serpapi-lawsuit/"
            text (59.0,0.0) [25.0 x 19.0] rgba=FF666600 f=17/400 "said"
+            rect (0.0,15.0) [25.0 x 1.0] rgba=FF666600
            text (84.0,0.0) [247.0 x 19.0] rgba=FF363636 f=17/400 " today that it is suing SerpApi, accusing the "
            text (16.0,19.0) [68.0 x 19.0] rgba=FF363636 f=17/400 "company of "
            hit (84.0,19.0) [234.0 x 19.0] "vector:/missing/searchengineland.com/google-sues-serpapi-466541"
            text (84.0,19.0) [234.0 x 19.0] rgba=FF666600 f=17/400 "bypassing security protections to scrape, "
+            rect (0.0,15.0) [234.0 x 1.0] rgba=FF666600
            hit (16.0,38.0) [299.0 x 19.0] "vector:/missing/searchengineland.com/google-sues-serpapi-466541"
            text (16.0,38.0) [299.0 x 19.0] rgba=FF666600 f=17/400 "harvest, and resell copyrighted content from Google "
+            rect (0.0,15.0) [299.0 x 1.0] rgba=FF666600
            hit (16.0,57.0) [82.0 x 19.0] "vector:/missing/searchengineland.com/google-sues-serpapi-466541"
            text (16.0,57.0) [82.0 x 19.0] rgba=FF666600 f=17/400 "Search results"
+            rect (0.0,15.0) [82.0 x 1.0] rgba=FF666600
            text (98.0,57.0) [221.0 x 19.0] rgba=FF363636 f=17/400 ". The allegations: Google said SerpApi: "
            text (16.0,76.0) [3.0 x 19.0] rgba=00000000 f=17/400 " "
            text (16.0,95.0) [326.0 x 19.0] rgba=FF363636 f=17/400 "-Circumvented Google's security measures and industry-"

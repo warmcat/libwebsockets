@@ -491,6 +491,88 @@ lhp_hit_new(lhp_ctx_t *ctx, lhp_pstack_t *a, lws_dl_rend_t *drt,
 }
 
 /*
+ * text-decoration: which of underline / line-through / overline are on.
+ * The shorthand can carry several terms (underline dotted red), so the
+ * active list is scanned for the line keywords
+ */
+
+#define LHP_DECO_UNDERLINE	1
+#define LHP_DECO_LINE_THROUGH	2
+#define LHP_DECO_OVERLINE	4
+
+static int
+lhp_text_decoration(lhp_ctx_t *ctx, lhp_pstack_t *ps)
+{
+	int deco = 0;
+
+	if (!lws_css_get_prop_atr_ps(ctx, ps, LCSP_PROP_TEXT_DECORATION))
+		return 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ctx->active_atr)) {
+		lcsp_atr_ptr_t *ap = lws_container_of(d, lcsp_atr_ptr_t, list);
+
+		if (ap->atr->unit != LCSP_UNIT_NONE)
+			continue;
+		switch (ap->atr->propval) {
+		case LCSP_PROPVAL_UNDERLINE:
+			deco |= LHP_DECO_UNDERLINE;
+			break;
+		case LCSP_PROPVAL_LINE_THROUGH:
+			deco |= LHP_DECO_LINE_THROUGH;
+			break;
+		case LCSP_PROPVAL_OVERLINE:
+			deco |= LHP_DECO_OVERLINE;
+			break;
+		case LCSP_PROPVAL_NONE:
+			deco = 0;
+			break;
+		default:
+			break;
+		}
+	} lws_end_foreach_dll(d);
+
+	return deco;
+}
+
+/*
+ * A decoration line is a rect child of the text run, so it moves with the
+ * run through baseline alignment and raising: the underline just under
+ * the baseline, the line-through midway up the ascent, the overline at the
+ * top.  Its thickness follows the font size, one px per 14
+ */
+
+static void
+lhp_text_deco_line(lws_dl_rend_t *drt, lws_dlo_text_t *txt, int y, int th,
+		   lws_display_colour_t col)
+{
+	lws_fx_t radii[4] = { fx_0, fx_0, fx_0, fx_0 };
+	lws_box_t box;
+
+	lws_fx_set(box.x, 0, 0);
+	lws_fx_set(box.y, y, 0);
+	box.w = txt->dlo.box.w;
+	lws_fx_set(box.h, th, 0);
+
+	lws_display_dlo_rect_new(drt->dl, &txt->dlo, &box, radii, col);
+}
+
+static void
+lhp_text_decorate(lws_dl_rend_t *drt, lws_dlo_text_t *txt, int deco,
+		  lws_display_colour_t col)
+{
+	int th = txt->font_height / 14 ? txt->font_height / 14 : 1;
+	int base = txt->font_height - txt->font_y_baseline;
+
+	if (deco & LHP_DECO_UNDERLINE)
+		lhp_text_deco_line(drt, txt, base + 1, th, col);
+	if (deco & LHP_DECO_LINE_THROUGH)
+		lhp_text_deco_line(drt, txt, (base * 2) / 3 - th / 2, th, col);
+	if (deco & LHP_DECO_OVERLINE)
+		lhp_text_deco_line(drt, txt, 0, th, col);
+}
+
+/*
  * The static position of an out-of-flow box: where a hypothetical box would
  * have gone in the flow, expressed in the coordinate space of psa's dlo (the
  * nearest positioned ancestor, or the body).  Used when none of the css
@@ -1043,10 +1125,12 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 	const lcsp_atr_t *bg = NULL, *ws;
 	lws_fx_t pl, pr, pt, pb, avail, total, word;
 	lws_box_t box;
-	int nowrap;
+	int nowrap, deco;
 
 	if (!c || !ps->font)
 		return 0;
+
+	deco = lhp_text_decoration(ctx, ps);
 
 	/*
 	 * text-indent offsets the first line of the block's text.  A large
@@ -1218,6 +1302,9 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 			hit->dlo.flag_inline_bg = 1;
 			lhp_line_item(c, &hit->dlo, &fx_0, NULL);
 		}
+
+		if (deco)
+			lhp_text_decorate(drt, txt, deco, col);
 
 		lws_display_dlo_text_measure(txt, txt->text, txt->text_len,
 					     &total, &word);
