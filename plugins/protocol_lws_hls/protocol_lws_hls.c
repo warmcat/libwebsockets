@@ -135,15 +135,53 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 
 	if (pss->stub_delete[0]) {
 		char filename[256];
+		int en;
 
 		lws_strncpy(filename, pss->stub_delete, sizeof(filename));
 		/* one request per object; don't replay it on the next one */
 		pss->stub_delete[0] = '\0';
-		hls_delete_media(vhd, filename);
+		en = hls_delete_media(vhd, filename);
+
+		/* tell the requester how it went, from our writeable cb */
+		pss->stub_reply_len = (size_t)lws_snprintf(pss->stub_reply + LWS_PRE,
+				sizeof(pss->stub_reply) - LWS_PRE,
+				"{\"result\":%d}", en);
+		lws_callback_on_writable(pss->wsi);
 	}
 
 	return 0;
 }
+
+#if defined(LWS_WITH_STUB)
+/*
+ * http side: the stub's reply to our delete request.  The request ends
+ * exactly once, with LEJPCB_DESTRUCTED, whether the reply completed, the
+ * UDS dropped, or we cancelled it because the http connection went away;
+ * only in the first two cases is there still a browser to answer, and it
+ * is answered from its own HTTP_WRITEABLE.
+ */
+static const char * const stub_reply_paths[] = { "result" };
+
+static signed char
+stub_reply_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct per_session_data__lws_hls *pss =
+			(struct per_session_data__lws_hls *)ctx->user;
+
+	if (reason == LEJPCB_VAL_NUM_INT && ctx->path_match == 1) {
+		pss->stub_del_result = atoi(ctx->buf);
+		return 0;
+	}
+
+	if (reason != LEJPCB_DESTRUCTED || !pss->stub_req)
+		return 0;
+
+	pss->stub_req = 0;
+	lws_callback_on_writable(pss->wsi);
+
+	return 0;
+}
+#endif
 
 #if defined(LWS_PLUGIN_STATIC)
 int
@@ -768,7 +806,28 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_snprintf(json, sizeof(json),
 					     "{\"secret\":\"%s\",\"delete\":\"%s\"}",
 					     sec, filename);
-				lws_stub_request(vhd->stub_mgr, json, NULL, 0, NULL, NULL, NULL);
+				pss->stub_del_result = -1;
+				pss->stub_del_pending = 1;
+				pss->stub_req = lws_stub_request_h(vhd->stub_mgr,
+						json, stub_reply_paths,
+						LWS_ARRAY_SIZE(stub_reply_paths),
+						stub_reply_cb, NULL, pss);
+				if (!pss->stub_req) {
+					pss->stub_del_pending = 0;
+					lws_return_http_status(wsi,
+						HTTP_STATUS_INTERNAL_SERVER_ERROR,
+						"could not ask the stub");
+					return -1;
+				}
+
+				/*
+				 * The answer comes on HTTP_WRITEABLE when the
+				 * stub replies; if it never does, don't leave
+				 * the browser hanging
+				 */
+				lws_set_timeout(wsi, PENDING_TIMEOUT_USER_OK, 10);
+
+				return 0;
 			} else
 #endif
 			{
@@ -820,6 +879,34 @@ err_404:
 		break;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
+#if defined(LWS_WITH_STUB)
+		if (pss && pss->stub_del_pending) {
+			int en = pss->stub_del_result;
+
+			if (pss->stub_req)
+				/* not the stub's reply that woke us */
+				return 0;
+
+			pss->stub_del_pending = 0;
+
+			if (en < 0) {
+				lwsl_wsi_warn(wsi, "delete: no reply from stub");
+				lws_return_http_status(wsi, HTTP_STATUS_BAD_GATEWAY,
+						       "stub did not answer");
+				return -1;
+			}
+			if (en) {
+				lws_return_http_status(wsi, en == ENOENT ?
+						HTTP_STATUS_NOT_FOUND :
+						HTTP_STATUS_INTERNAL_SERVER_ERROR,
+					strerror(en));
+				return -1;
+			}
+
+			lws_return_http_status(wsi, HTTP_STATUS_OK, "OK");
+			return -1;
+		}
+#endif
 		if (pss && pss->resp_ready) {
 			/* a task result arrived: start the response */
 			uint8_t buf[LWS_PRE + 2048];
@@ -988,6 +1075,17 @@ err_404:
 				lws_dll2_remove(&pss->pss_list);
 				/* a task in flight must not deliver to us */
 				lws_hls_task_detach(vhd, pss);
+#if defined(LWS_WITH_STUB)
+				if (pss->stub_req) {
+					/* nor a stub reply: the cb sees the
+					 * handle already zeroed and stays
+					 * off this pss */
+					lws_stub_req_h h = pss->stub_req;
+
+					pss->stub_req = 0;
+					lws_stub_request_cancel(vhd->stub_mgr, h);
+				}
+#endif
 			}
 			pss->resp_ready = 0;
 			if (pss->segment_buf) {
@@ -1028,6 +1126,16 @@ err_404:
 		}
 		break;
 	}
+
+	case LWS_CALLBACK_RAW_WRITEABLE:
+		/* stub side: the reply to the last request on this UDS conn */
+		if (!pss || !pss->stub_reply_len)
+			break;
+		if (lws_write(wsi, (unsigned char *)pss->stub_reply + LWS_PRE,
+			      pss->stub_reply_len, LWS_WRITE_RAW) < 0)
+			return -1;
+		pss->stub_reply_len = 0;
+		break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
 		if (pss && pss->parser_valid) {

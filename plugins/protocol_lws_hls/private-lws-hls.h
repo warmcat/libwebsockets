@@ -414,6 +414,16 @@ struct per_session_data__lws_hls {
 	int parser_valid;
 	char stub_secret[129];
 	char stub_delete[256];
+	/* stub side: the reply to the request we just acted on */
+	char stub_reply[LWS_PRE + 32];
+	size_t stub_reply_len;
+#if defined(LWS_WITH_STUB)
+	/* http side: our delete request in flight at the stub, and how it
+	 * ended (-1: no reply, else the errno the stub's unlink() gave) */
+	lws_stub_req_h stub_req;
+	int stub_del_result;
+	int stub_del_pending;
+#endif
 };
 
 /* hls-av.c */
