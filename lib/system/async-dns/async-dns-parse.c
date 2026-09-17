@@ -1007,9 +1007,9 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		c->flags = adst.flags;
 		lws_dll2_add_head(&c->list, &dns->cached);
 		lwsl_info("%s: added %s to cache, rr_results = %p, ttl = %u\n", __func__, c->name, c->rr_results, (unsigned int)adst.smallest_ttl);
+		/* lws_sul_schedule() takes a delay, it adds now itself */
 		lws_sul_schedule(q->context, 0, &c->sul, sul_cb_expire,
-				 lws_now_usecs() +
-				 (adst.smallest_ttl * LWS_US_PER_SEC));
+				 (lws_usec_t)adst.smallest_ttl * LWS_US_PER_SEC);
 	}
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
