@@ -3,32 +3,23 @@ document.addEventListener('DOMContentLoaded', function() {
         window.renderLwsLoginStatus('auth-status');
     }
 
-    var canDelete = false;
-    var cookies = document.cookie.split(';');
-    for (var i = 0; i < cookies.length; i++) {
-        var c = cookies[i].trim();
-        if (c.indexOf('auth_session=') === 0) {
-            var token = c.substring(13);
-            var parts = token.split('.');
-            if (parts.length === 3) {
-                try {
-                    var payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-                    if (payload && payload.grant) {
-                        var grants = payload.grant.split(',');
-                        if (grants.indexOf('*') !== -1 || grants.indexOf('hls:2') !== -1) {
-                            canDelete = true;
-                        }
-                    }
-                } catch (e) {
-                    /* ignore */
-                }
-            }
-        }
-    }
-    
+    /*
+     * Whether to offer the delete button: ask the lws-login bouncer gating
+     * this mount for our login state (the session cookie is HttpOnly, so it
+     * cannot be read from here; and it is the bouncer's opinion that counts).
+     * login_state 3 is admin of this app, 4 the global admin.  Without a
+     * bouncer the fetch fails and the button stays hidden; the server
+     * enforces the same rule on the POST whatever we show.
+     */
     var delBtn = document.getElementById('delete-btn');
-    if (canDelete && delBtn) {
-        delBtn.classList.remove('hidden');
+    if (delBtn) {
+        fetch('.lws-login-status', { credentials: 'same-origin' }).then(function(r) {
+            return r.ok ? r.json() : null;
+        }).then(function(st) {
+            if (st && st.logged_in && st.login_state >= 3)
+                delBtn.classList.remove('hidden');
+        }).catch(function() { /* no bouncer: no delete */ });
+
         delBtn.addEventListener('click', function(event) {
             event.preventDefault();
             if (!confirm("Are you sure you want to delete this file?")) return;
@@ -44,7 +35,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     filename.indexOf('\\') !== -1)
                     return;
                 fetch('hls/delete/' + encodeURIComponent(filename), {
-                    method: 'POST'
+                    method: 'POST',
+                    credentials: 'same-origin'
                 }).then(function(res) {
                     if (res.ok) {
                         window.location.href = 'hls/';

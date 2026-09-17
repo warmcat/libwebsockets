@@ -243,6 +243,15 @@ struct per_vhost_data__lws_hls {
 	 * every request arriving on the UDS must prove knowledge of */
 	char stub_secret[129];
 #endif
+	/*
+	 * Who may delete media (see hls_can_delete()): the login state an
+	 * lws-login bouncer stamped on the request, read from this wsi when
+	 * the bouncer is in-process, or from the request headers when it is
+	 * on a box in front of us and the operator set trust-login-headers;
+	 * or, with jwt-jwk, the session cookie's grant for service-name
+	 */
+	int trust_login_headers;
+	const char *service_name;
 	int has_jwk;
 	struct lws_jwk jwk;
 };
@@ -396,7 +405,7 @@ struct per_session_data__lws_hls {
 	int waiting_for_thumbnail;
 	char thumb_filename[256];
 	
-	int has_star_grant;
+	int can_delete;		/* this request may delete media */
 
 	/* stub lejp parsing.  The request members are collected and only acted
 	 * on once the whole object has parsed, so the secret can be checked

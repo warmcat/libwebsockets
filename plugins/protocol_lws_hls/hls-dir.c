@@ -189,7 +189,7 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 
 	body = html + LWS_PRE;
 	pss = (struct per_session_data__lws_hls *)lws_wsi_user(wsi);
-	can_delete = pss ? pss->has_star_grant : 0;
+	can_delete = pss ? pss->can_delete : 0;
 
 	q = hls_append_fmt(body, body, need,
 		"<html><head><title>LWS HLS Media</title>"
@@ -208,7 +208,9 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 			"<img class='thumb' src='preview/%s' alt='Thumbnail'>"
 			"<br>%s</a>%s%s%s</div>",
 			esc, (unsigned long long)ds.entries[i].mtime, esc, esc,
-			can_delete ? "<button class='del-btn' onclick='delFile(this, event)' data-file='" : "",
+			/* no inline handler: the page's CSP has no
+			 * 'unsafe-inline'; dir.js binds the click */
+			can_delete ? "<button class='del-btn' title='Delete' data-file='" : "",
 			can_delete ? esc : "",
 			can_delete ? "'>&#x1F5D1;</button>" : "");
 	}

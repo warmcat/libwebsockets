@@ -53,7 +53,34 @@ Example JSON snippet (e.g. inside `/etc/lwsws/conf.d/myvhost.json`):
 }
 ```
 
-This attaches the `lws-hls` protocol to the vhost, maps the `/media` URL path to a standard file mount pointing to your player HTML assets, and creates a `/media/hls` callback mount bound to the `lws-hls` protocol callback. This ensures player files (like `player.html` and `dir.css`) are served statically, while dynamic playlist generator, thumbnail generator, and streaming requests are properly routed to the plugin.
+This attaches the `lws-hls` protocol to the vhost, maps the `/media` URL path to a standard file mount pointing to your player HTML assets, and creates a `/media/hls` callback mount bound to the `lws-hls` protocol callback. This ensures player files (like `player.html`, `dir.js` and `dir.css`) are served statically, while dynamic playlist generator, thumbnail generator, and streaming requests are properly routed to the plugin.
+
+## Deleting media
+
+The directory listing shows a bin button on each item, and the player a
+delete button, for a request the plugin decides is an app admin; the same
+decision gates the `hls/delete/<name>` POST that does the deletion.  The
+plugin takes it from, in order:
+
+ - the `x-lws-login-state` an in-process `lws-login` bouncer gating the mount
+   stamped on the request (nothing to configure: only an interceptor can stamp
+   it)
+
+ - `"trust-login-headers": "1"`: the same header as forwarded by an lws reverse
+   proxy whose mount is gated by `lws-login` on the box in front of this one.
+   The bouncer strips the browser's own copy, so it is trustworthy from that
+   path; setting this asserts the vhost is not reachable any other way.  Off by
+   default
+
+ - `"jwt-jwk"`: the auth server's public JWK, to validate the `auth_session`
+   cookie directly; the `"*"` wildcard grant or a `"service-name"` (default
+   `hls`) grant at level 2 or more qualifies.  For a vhost with the bouncer
+   neither in-process nor in front of it
+
+The client side asks the bouncer at `.lws-login-status` whether to show the
+buttons (the cookie is `HttpOnly`); the server enforces regardless.  When the
+plugin runs with the `lws-hls-stub` privilege-separated child, the child does
+the unlink; otherwise the plugin does it itself.
 
 ## Threading model
 
