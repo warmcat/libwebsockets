@@ -883,7 +883,7 @@ parse_av:
 int
 lws_cookie_send_cookies(struct lws *wsi, char **pp, char *end)
 {
-	char *p;
+	char *p, *start;
 	int size;
 
 	if (!wsi || !pp || !(*pp) || !end)
@@ -904,6 +904,7 @@ lws_cookie_send_cookies(struct lws *wsi, char **pp, char *end)
 		char *p_dbg = *pp;
 #endif
 
+	start = *pp;
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_COOKIE, NULL, size,
 								(unsigned char **)pp, (unsigned char *)end))
 		return -1;
@@ -935,6 +936,8 @@ lws_cookie_send_cookies(struct lws *wsi, char **pp, char *end)
 	 */
 	if (lws_cookie_attach_cookies(wsi, p, p + size) != size) {
 		lwsl_err("%s:failed to attach cookies\n", __func__);
+		/* take the half-filled reservation back out of the head */
+		*pp = start;
 		return -1;
 	}
 

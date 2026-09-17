@@ -2304,8 +2304,13 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 	/* give userland a chance to append, eg, cookies */
 
 #if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
-	if (wsi->flags & LCCSCF_CACHE_COOKIES)
-		lws_cookie_send_cookies(wsi, &p, end);
+	if ((wsi->flags & LCCSCF_CACHE_COOKIES) &&
+	    lws_cookie_send_cookies(wsi, &p, end)) {
+		/* better no request than one carrying scratch as cookies */
+		lwsl_wsi_err(wsi, "cookie jar attach failed");
+
+		return NULL;
+	}
 #endif
 
 	/*
