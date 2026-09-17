@@ -650,6 +650,21 @@ lws_ss_add_peer_tx_credit(struct lws_ss_handle *h, int32_t add);
 LWS_VISIBLE LWS_EXTERN int
 lws_ss_get_est_peer_tx_credit(struct lws_ss_handle *h);
 
+/**
+ * lws_ss_http_rx_content_length() - the response body length, if the peer said
+ *
+ * \param h: secure streams handle
+ * \param len: filled with the content-length from the response headers
+ *
+ * For http protocols, from LWSSSCS_CONNECTED onwards, returns 0 and sets
+ * \p len if the response carried a content-length header, else returns
+ * nonzero (chunked or unknown length, or not http).  Lets a consumer that
+ * can only hold so much decide not to receive a body at all rather than
+ * find out when it has already streamed most of it.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_ss_http_rx_content_length(struct lws_ss_handle *h, uint64_t *len);
+
 LWS_VISIBLE LWS_EXTERN const char *
 lws_ss_tag(struct lws_ss_handle *h);
 

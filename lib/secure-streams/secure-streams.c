@@ -2219,6 +2219,26 @@ lws_ss_add_peer_tx_credit(struct lws_ss_handle *h, int32_t bump)
 }
 
 int
+lws_ss_http_rx_content_length(struct lws_ss_handle *h, uint64_t *len)
+{
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+	lws_service_assert_loop_thread(h->context, h->tsi);
+
+	if (!h->wsi || !lwsi_role_http(h->wsi) ||
+	    !h->wsi->http.content_length_given)
+		return 1;
+
+	*len = (uint64_t)h->wsi->http.rx_content_length;
+
+	return 0;
+#else
+	(void)h;
+	(void)len;
+	return 1;
+#endif
+}
+
+int
 lws_ss_get_est_peer_tx_credit(struct lws_ss_handle *h)
 {
 	const struct ss_pcols *ssp;

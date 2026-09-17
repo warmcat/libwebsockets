@@ -69,6 +69,7 @@ LWS_SS_USER_TYPEDEF
 	uint8_t				retrying:1; /* never connected, the ss
 						     * is in its backoff wait */
 	uint8_t				connected:1; /* got as far as CONNECTED */
+	uint8_t				cl_checked:1; /* response length looked at */
 	uint8_t				no_cache:1; /* don't cache this asset */
 	uint8_t				in_cache:1; /* the whole payload is in the
 						     * asset cache: renewable */
@@ -686,6 +687,34 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 	/* .flow is at the same offset in both dlo_jpeg and dlo_png */
 
+	/*
+	 * A raster image payload is held whole on the flow buflist until the
+	 * render consumes it, and the buflist won't take more than
+	 * LWS_BUFLIST_OOM_LIMIT: if the response headers already say it can't
+	 * fit, give it up at the first byte rather than after streaming 2MB
+	 * of it just to fail at the end (real pages have 2 - 4MB hero images,
+	 * and every one of them was fetched whole before being dropped).
+	 * Checked here rather than at CONNECTED, which for a stream joining
+	 * an existing h2 connection arrives before the response headers.
+	 */
+
+	if (!m->cl_checked && m->ss) {
+		uint64_t cl;
+
+		m->cl_checked = 1;
+		if (!lws_ss_http_rx_content_length(m->ss, &cl) &&
+		    cl > LWS_BUFLIST_OOM_LIMIT) {
+			lwsl_notice("%s: %s: %llu bytes, too large\n", __func__,
+				    m->url, (unsigned long long)cl);
+			m->u.failed = 1;
+			m->u.u.dlo_jpeg->flow.state =
+						LWSDLOFLOW_STATE_READ_COMPLETED;
+			lws_sul_schedule(m->cx, 0, &m->sul,
+					 lws_lhp_image_dimensions_cb, 1);
+			return LWSSSSRET_DISCONNECT_ME;
+		}
+	}
+
 	if (dloss_rx_stash(m, buf, len)) {
 		m->u.failed = 1;
 		lws_sul_schedule(lws_ss_get_context(m->ss), 0,
@@ -764,6 +793,7 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	case LWSSSCS_CONNECTED:
 		m->connected = 1;
+
 		break;
 
 	case LWSSSCS_DESTROYING:
