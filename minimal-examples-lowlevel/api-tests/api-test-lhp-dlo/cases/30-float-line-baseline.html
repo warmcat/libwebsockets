@@ -1,0 +1,17 @@
+<!--
+ An inline-block whose only line holds floats (a breadcrumb list of
+ float: left items) has no baseline of its own and aligns on the line by
+ its bottom edge, level with the text beside it, not hanging down from
+ the baseline by its full height (apple.com footer breadcrumbs).
+-->
+<html><head><style>
+body{margin:0;font-size:12px}
+.bc{padding:17px 0;position:relative}
+.home{font-size:14px;line-height:1.14;position:static;display:inline-block;vertical-align:middle}
+.path{position:relative;z-index:1;display:inline-block;vertical-align:middle}
+.list{display:block;padding-left:7px;margin:0;list-style:none}
+.item{margin-right:7px;float:left;padding:3px 4px 3px 0;white-space:nowrap}
+</style></head><body>
+<div class="bc"><a class="home">Apple Security Research</a><div class="path"><ol class="list"><li class="item">Blog</li><li class="item">Title here</li></ol></div></div>
+<p>after</p>
+</body></html>
