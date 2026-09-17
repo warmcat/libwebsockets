@@ -2487,6 +2487,20 @@ lws_http_action(struct lws *wsi)
 			return 1;
 		}
 
+		/*
+		 * RFC 9112 3.2: more than one Host is a 400.  Vhost selection,
+		 * the proxy and cgi read the first fragment and the redirect
+		 * path the joined value, so two of them would let a request
+		 * be routed by one name and act under another.
+		 */
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_HOST) &&
+		    wsi->http.ah->frags[wsi->http.ah->frag_index[
+					WSI_TOKEN_HOST]].nfrag) {
+			lwsl_wsi_notice(wsi, "more than one Host header");
+			lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, NULL);
+			return 1;
+		}
+
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_EXPECT) &&
 		    !lws_http_expect_is_continue(wsi)) {
 			lwsl_wsi_notice(wsi, "unsupported Expect");
