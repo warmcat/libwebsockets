@@ -716,6 +716,8 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 					sl = &cps->st[cps->sp];
 					sl->alg = 0;
 					sl->alg_prot = 0;
+					/* nor may a previous map key linger */
+					cps->map_key = 0;
 					if (sl->kid.buf) {
 						lws_free(sl->kid.buf);
 						sl->kid.buf = NULL;
@@ -751,7 +753,18 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 			 * it anyway since it is part of the signing plaintext
 			 * in bstr form, let's get it and then parse it at the
 			 * END of the bstr.
+			 *
+			 * For the protected bucket the capture was switched
+			 * on at ARRAY_START, before this item's first byte;
+			 * a long-form outer array (98 nn...) put its count
+			 * byte(s) in the capture ahead of that byte, and they
+			 * were hashed as bucket content and re-parsed as its
+			 * first item.  Only this item's opcode byte belongs.
 			 */
+			if (cps->tli == ST_OUTER_PROTECTED && ctx->cbor_pos > 1) {
+				ctx->cbor[0] = ctx->cbor[ctx->cbor_pos - 1];
+				ctx->cbor_pos = 1;
+			}
 			lecp_parse_report_raw(ctx, 1);
 			break;
 
