@@ -3660,6 +3660,7 @@ lhp_parse_style_attr(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *val)
 	ctx->state_css_comm = LCSPS_CSS_STANZA;
 	ctx->u.s = 0;
 	ctx->u.f.default_css = 1; /* no document-end processing in here */
+	ctx->u.f.style_attr = 1; /* and only declarations may be parsed */
 	ctx->css_state = 0;
 	ctx->cssval_state = 0;
 	ctx->npos = 0;
@@ -4395,9 +4396,27 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 	}
 
 	while (*len) {
-		uint8_t c = *(*buf)++;
+		uint8_t c;
 		int is_term = 0;
 
+		/*
+		 * A style="" value is parsed by nesting ourselves with the
+		 * state set to the declarations of a stanza.  A '}' in the
+		 * value legitimately ends those declarations, but the value
+		 * must not carry on into the selector or html states: the
+		 * outer parse holds the element level whose cascade is
+		 * running, and a nested "</div>" would free it under it.
+		 */
+		if (ctx->u.f.style_attr &&
+		    ctx->state != LCSPS_CSS_STANZA &&
+		    ctx->state != LCSPS_CSS_DEF_NAME &&
+		    ctx->state != LCSPS_CSS_DEF_VALUE &&
+		    ctx->state != LCSPS_CCOM_S1 &&
+		    ctx->state != LCSPS_CCOM_E1 &&
+		    ctx->state != LCSPS_CCOM)
+			return LWS_SRET_OK;
+
+		c = *(*buf)++;
 		(*len)--;
 
 		if (ctx->state == LHPS_DO_START_ELEM) {

@@ -841,6 +841,7 @@ typedef struct lhp_ctx {
 			uint32_t	tag_used:1;
 			uint32_t	arg:1;
 			uint32_t	default_css:1;
+			uint32_t	style_attr:1; /* nested parse of a style="" value: declarations only */
 			uint32_t	filter_css:1; /* parsing injected filter css */
 #define LHP_CSS_PROPVAL_INT_WHOLE	1
 #define LHP_CSS_PROPVAL_INT_FRAC	2
