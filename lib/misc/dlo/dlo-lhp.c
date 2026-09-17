@@ -1786,6 +1786,59 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 					     &psa->cw);
 				lws_fx_add(&cbi, &psa->cw, &t1);
 				lws_fx_add(&cbw, &ox, &cbi);
+
+				/*
+				 * A percentage height resolves against the
+				 * ancestor's padding box height: its padding
+				 * plus its explicit height, or the flow so
+				 * far (it is still open).  height: 100% on a
+				 * background box filling a fixed-height nav
+				 * is the common case
+				 */
+				{
+					const lcsp_atr_t *mn =
+						lws_css_get_prop_atr_ps(ctx, ps,
+							LCSP_PROP_MIN_HEIGHT);
+					int hp = ps->css_height &&
+						 ps->css_height->unit ==
+						LCSP_UNIT_LENGTH_PERCENT;
+					int mp = mn && mn->unit ==
+						LCSP_UNIT_LENGTH_PERCENT;
+
+					if (hp || mp) {
+						lws_fx_t cbh, pb;
+
+						pb = lhp_len(psa,
+						  psa->css_padding[CCPAS_BOTTOM],
+						  &psa->cw);
+						if (psa->explicit_h)
+							cbh = lhp_len(psa,
+							    psa->css_height,
+							    &cbw);
+						else if (psa->abs_minh_set)
+							/* eg, an abs wrapper
+							 * with min-height:
+							 * 100% of its own
+							 * ancestor */
+							cbh = psa->abs_h;
+						else
+							cbh = psa->cury;
+						lws_fx_add(&cbh, &cbh, &psa->oy);
+						lws_fx_add(&cbh, &cbh, &pb);
+
+						if (hp) {
+							ps->abs_h = lhp_len(ps,
+							    ps->css_height,
+							    &cbh);
+							ps->abs_h_set = 1;
+							ps->explicit_h = 1;
+						} else {
+							ps->abs_h = lhp_len(ps,
+							    mn, &cbh);
+							ps->abs_minh_set = 1;
+						}
+					}
+				}
 			} else {
 				lws_fx_set(ox, 0, 0);
 				cbw = ctx->ic.wh_px[LWS_LHPREF_WIDTH];
@@ -2107,7 +2160,10 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 	/* height */
 
 	if (ps->explicit_h) {
-		h = lhp_len(ps, ps->css_height, &base);
+		if (ps->abs_h_set)
+			h = ps->abs_h;
+		else
+			h = lhp_len(ps, ps->css_height, &base);
 		if (lhp_border_box(ps)) {
 			/* the css height covers the padding too */
 			lws_fx_sub(&h, &h, &pt);
@@ -2148,6 +2204,16 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 				if (t.whole < 0)
 					lws_fx_set(t, 0, 0);
 			}
+			if (lws_fx_comp(&h, &t) < 0)
+				h = t;
+		}
+
+		/* a percentage min-height on an absolute box, resolved at
+		 * open against its positioned ancestor */
+		if (ps->abs_minh_set) {
+			t = ps->abs_h;
+			lws_fx_sub(&t, &t, &pt);
+			lws_fx_sub(&t, &t, &pb);
 			if (lws_fx_comp(&h, &t) < 0)
 				h = t;
 		}

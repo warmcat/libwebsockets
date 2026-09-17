@@ -4695,9 +4695,9 @@ elem_start:
 
 					ps->drt.h = *lhp_viewport_h(ctx);
 					if (ps->css_height &&
-					    ps->css_height->propval != LCSP_PROPVAL_AUTO) //&&
-					    //lws_fx_comp(lws_csp_px(ps->css_height, ps),
-						//		   &ps->drt.h) < 0)
+					    ps->css_height->propval != LCSP_PROPVAL_AUTO &&
+					    /* body { height: 100% } is the viewport */
+					    ps->css_height->unit != LCSP_UNIT_LENGTH_PERCENT)
 						ps->drt.h = *lws_csp_px(ps->css_height, ps);
 
 					/*
@@ -4719,7 +4719,9 @@ elem_start:
 					box.h = ps->drt.h;
 					if (!ps->css_height ||
 					    ps->css_height->propval ==
-							LCSP_PROPVAL_AUTO)
+							LCSP_PROPVAL_AUTO ||
+					    ps->css_height->unit ==
+						    LCSP_UNIT_LENGTH_PERCENT)
 						box.h = ctx->ic.wh_px[LWS_LHPREF_HEIGHT];
 
 					ps->dlo = (lws_dlo_t *)lws_display_dlo_rect_new(
