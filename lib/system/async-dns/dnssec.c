@@ -690,8 +690,7 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 
 fail:
 	q->dnssec_verify_rrsig = (uint8_t)(q->dnssec_verify_rrsig & ~rb);
-	if ((q->dns->dnssec_mode == LWS_ADNS_DNSSEC_REQUIRE) &&
-	    !q->lacks_dnssec) {
+	if (lws_adns_q_validates(q)) {
 		q->go_nogo = METRES_NOGO;
 		if (is_async) lws_async_dns_complete(q, NULL);
 		if (q->firstcache) {
@@ -730,7 +729,13 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 	 * Returning < 0 means validation failed.
 	 */
 
-	if (q->dns->dnssec_mode == LWS_ADNS_DNSSEC_OFF)
+	/*
+	 * A query that must validate (REQUIRE, or asked with WANT_DNSSEC)
+	 * goes through the whole process whatever the context mode: under
+	 * OFF this used to return 0 at once, which the caller took as
+	 * "validated" and reported as LWS_ADNS_DNSSEC_VALID.
+	 */
+	if (!lws_adns_q_validates(q))
 		return 0;
 
 	/* Find RRSIGs in the packet relating to the question */
@@ -748,11 +753,9 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 		/* No RRSIG found. If we REQUIRE DNSSEC, this is a failure if the zone should be signed.
 		 * For now, tolerate it or reject based on mode.
 		 */
-		if (q->dns->dnssec_mode == LWS_ADNS_DNSSEC_REQUIRE) {
-			lwsl_notice("%s: missing RRSIG\n", __func__);
-			return -1;
-		}
-		return 0;
+		lwsl_notice("%s: missing RRSIG\n", __func__);
+
+		return -1;
 	}
 
 	/* Parse the signer name from the previously found payload. */
@@ -948,9 +951,8 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 		}
 
 		/* Synchronous result from cache. The callback was already executed! */
-		if ((q->dns->dnssec_mode == LWS_ADNS_DNSSEC_REQUIRE) && !q->lacks_dnssec) {
+		if (lws_adns_q_validates(q))
 			return (q->dnssec_valid_mask & resp) ? 0 : -1;
-		}
 
 		return 0;
 	}

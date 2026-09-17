@@ -1013,7 +1013,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	}
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
-	if ((q->dns->dnssec_mode == LWS_ADNS_DNSSEC_REQUIRE) && !q->lacks_dnssec) {
+	if (lws_adns_q_validates(q)) {
 		/*
 		 * Each response of an A / AAAA pair carries its own RRSIG over
 		 * its own RRset and contributes its own records to the result,
@@ -1037,9 +1037,8 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 						(q->dnssec_valid_mask | rn);
 			}
 		}
-	} else {
-		q->dnssec_valid = 1;
 	}
+	/* else: not validating, so not claiming LWS_ADNS_DNSSEC_VALID either */
 #endif
 
 	if ((q->qtype == LWS_ADNS_RECORD_A || q->qtype == LWS_ADNS_RECORD_AAAA) &&
@@ -1051,7 +1050,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		/* the results are held until every validation has finished */
 		return;
 
-	if ((q->dns->dnssec_mode == LWS_ADNS_DNSSEC_REQUIRE) && !q->lacks_dnssec) {
+	if (lws_adns_q_validates(q)) {
 		if (!q->dnssec_need_mask ||
 		    (q->dnssec_valid_mask & q->dnssec_need_mask) !=
 						q->dnssec_need_mask) {

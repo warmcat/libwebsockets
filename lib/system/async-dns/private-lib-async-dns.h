@@ -333,4 +333,22 @@ lws_adns_dump(lws_async_dns_t *dns);
 
 #endif
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+/*
+ * Does this query's result have to DNSSEC-validate?  Under REQUIRE every
+ * query does; a query that asked with LWS_ADNS_WANT_DNSSEC does whatever the
+ * context mode is (the DHT DNSSEC plugin's trust anchor lookups); a query
+ * marked INDICATE_LACKS_DNSSEC never does.  Only a query that validates and
+ * passes reports LWS_ADNS_DNSSEC_VALID: the bit used to be set for every
+ * non-REQUIRE query without validating anything, so a consumer failing
+ * closed on it was only actually protected under REQUIRE.
+ */
+static inline int
+lws_adns_q_validates(const lws_adns_q_t *q)
+{
+	return (q->dns->dnssec_mode == LWS_ADNS_DNSSEC_REQUIRE ||
+		q->want_dnssec) && !q->lacks_dnssec;
+}
+#endif
+
 #endif /* __LWS_PRIVATE_LIB_ASYNC_DNS_H__ */
