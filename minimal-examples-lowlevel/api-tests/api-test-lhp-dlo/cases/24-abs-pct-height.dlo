@@ -1,0 +1,19 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (0.0,0.0) [400.0 x 52.0] rgba=00000000
+ rect (0.0,69.92) [400.0 x 19.0] rgba=00000000
+  text (0.0,0.0) [28.0 x 19.0] rgba=FF000000 f=17/400 "after"
+ rect (0.0,0.0) [400.0 x 52.0] rgba=FF1F1D1D
+ rect (0.0,0.0) [400.0 x 52.0] rgba=00000000
+ rect (0.0,0.0) [500.0 x 52.0] rgba=00000000
+  rect (0.0,0.0) [26.0 x 52.0] rgba=00000000
+   text (0.0,0.0) [26.0 x 19.0] rgba=FFFFFFFF f=17/400 "Title"
+  rect (298.0,0.0) [202.0 x 52.0] rgba=00000000
+   rect (0.0,0.0) [202.0 x 52.0] rgba=00000000
+    rect (0.0,0.0) [202.0 x 27.0] rgba=00000000
+     rect (20.0,0.0) [53.0 x 27.0] rgba=00000000
+      text (0.0,0.0) [53.0 x 19.0] rgba=FFFFFFFF f=17/400 "Overview"
+     rect (93.0,0.0) [26.0 x 27.0] rgba=00000000
+      text (0.0,0.0) [26.0 x 19.0] rgba=FFFFFFFF f=17/400 "Blog"
+     rect (139.0,0.0) [63.0 x 27.0] rgba=00000000
+      rect (0.0,0.0) [63.0 x 27.0] rgba=FFFFFFFF
+       text (11.0,4.0) [41.0 x 19.0] rgba=FF000000 f=17/400 "Submit"

@@ -1683,10 +1683,19 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 		}
 	}
 
-	/* an explicit width is the content width */
+	/*
+	 * An explicit width is the content width.  A percentage of a
+	 * container whose own width is still being settled from its content
+	 * (a shrink-to-fit float, inline-block or flex item) has nothing to
+	 * resolve against and is treated as auto, as css does: width: 100%
+	 * on the link inside a shrink-wrapped nav button must not take the
+	 * rest of the line
+	 */
 
 	ps->explicit_w = ps->css_width && !lhp_is_auto(ps->css_width) &&
-			 ps->css_width->unit != LCSP_UNIT_NONE;
+			 ps->css_width->unit != LCSP_UNIT_NONE &&
+			 !(ps->css_width->unit == LCSP_UNIT_LENGTH_PERCENT &&
+			   c && (c->shrink || c->in_shrink) && !ps->is_abs);
 
 	/* a flex item with a flex-basis length starts from that width */
 	if (ps->is_flex_item && !ps->explicit_w) {

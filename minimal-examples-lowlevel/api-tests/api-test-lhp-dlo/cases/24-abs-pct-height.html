@@ -1,0 +1,31 @@
+<!--
+ Percentage heights on absolutely positioned boxes resolve against the
+ positioned ancestor's padding box, and percentage widths inside
+ shrink-to-fit containers are auto.  The apple.com local nav idiom:
+
+  .nav      relative, fixed 52px high
+  .wrapper  absolute, height auto, min-height 100%   -> 52px
+  .bg       absolute inside the wrapper, height 100% -> 52px dark rect
+  .m        float: right; display: flex             -> shrink-wraps its
+                                                       buttons at the right
+  .btn a    width: 100% inside the shrink-wrapped item -> content width,
+                                                       not the rest of the line
+  body      height: 100% is the viewport, not 0
+-->
+<html><head><style>
+html,body{height:100%;margin:0}
+.nav{position:relative;width:100%;height:52px}
+.wrapper{position:absolute;top:0;left:0;width:100%;height:auto;min-height:100%}
+.bg{position:absolute;left:0;top:0;width:100%;height:100%;background-color:#1d1d1f}
+.c{position:relative;z-index:2;width:500px}
+.t{float:left;height:52px;display:block;color:#fff}
+.m{float:right;height:52px;display:flex}
+.tray{float:left;height:100%;display:flex}
+.items{display:flex;margin:0;padding:0}
+.item{float:left;margin-left:20px;list-style:none;color:#fff}
+.btn{display:flex}
+.btn a{width:100%;background-color:#ffffff;color:#000;padding:4px 11px}
+</style></head><body>
+<div class="nav"><div class="wrapper"><div class="bg"></div></div>
+<div class="c"><div class="t">Title</div><div class="m"><div class="tray"><ul class="items"><li class="item"><a>Overview</a></li><li class="item"><a>Blog</a></li><li class="item btn"><a>Submit</a></li></ul></div></div></div></div>
+<p>after</p></body></html>
