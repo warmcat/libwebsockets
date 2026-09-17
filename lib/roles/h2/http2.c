@@ -1763,6 +1763,15 @@ update_end_headers:
 		}
 
 		/*
+		 * RFC 9113 8.1: a trailer block must not carry pseudo-header
+		 * fields.  hpack refuses a pseudo-header after a normal one;
+		 * a first block made only of pseudo-headers (legal) left that
+		 * gate open, so close it explicitly for the trailers.
+		 */
+		if (h2n->swsi->h2.hdrs_done)
+			h2n->swsi->seen_nonpseudoheader = 1;
+
+		/*
 		 * RFC 7540 6.10: the only flag defined on CONTINUATION is
 		 * END_HEADERS, all the other bits are undefined and must be
 		 * ignored.  h2n->flags is the flags byte of the frame we are
@@ -2136,6 +2145,19 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			if (lws_hdr_extant(h2n->swsi, WSI_TOKEN_CONNECTION)) {
 				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 					      "Connection hdr in trailers");
+				break;
+			}
+
+			/*
+			 * ...nor Transfer-Encoding, refused in the first block
+			 * for the same downgrade-smuggling reason: it can only
+			 * be here because the trailers brought it (RFC 9110
+			 * 6.5.1 forbids framing fields in trailers anyway)
+			 */
+			if (lws_hdr_extant(h2n->swsi,
+					   WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
+				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+					      "Transfer-Encoding in trailers");
 				break;
 			}
 
