@@ -949,7 +949,13 @@ lws_gif_emit_next_line(lws_gif_t *g, const uint8_t **ppix, int *py,
 			int y;
 
 			g->prerows--;
-			y = (int)g->itop - (int)g->prerows - 1;
+			/*
+			 * counted from the clipped total, so an image whose
+			 * top lies below the screen still issues rows 0..sh-1
+			 * rather than rows beyond it
+			 */
+			y = (int)(g->itop < g->sh ? g->itop : g->sh) -
+			    (int)g->prerows - 1;
 
 			gif_solid_row(g, y);
 			*ppix = gif_scratch.row;
