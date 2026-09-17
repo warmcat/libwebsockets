@@ -40,8 +40,13 @@ dht_strtoull(const char *p, size_t max_len, char **endptr)
 		i++;
 	}
 
+	/*
+	 * Every caller looks at the byte after the digits (for ':' or 'e'):
+	 * if the digits ran to the end of the buffer there is no such byte,
+	 * say so rather than hand back a pointer one past the datagram.
+	 */
 	if (endptr)
-		*endptr = (char *)p + i;
+		*endptr = i < max_len ? (char *)p + i : NULL;
 
 	return n;
 }
@@ -980,11 +985,6 @@ skip_ip_tracking:
 		ctx->stats_current.rx_find_node++;
 		lwsl_dht_rx("%s: Find node!\n", __func__);
 #if defined(LWS_WITH_DHT_BACKEND)
-		maybe_new_node(ctx, mp.id, from, fromlen, 1);
-#endif
-		lwsl_dht_rx("%s: Sending closest nodes (%d)\n", __func__, mp.want);
-#if defined(LWS_WITH_DHT_BACKEND)
-		send_closest_nodes(ctx, from, fromlen, &mp, mp.target, from->sa_family, NULL);
 		/*
 		 * A find_node without a target, or with one the validator
 		 * refused, leaves mp.target NULL; the closest-nodes walk
@@ -995,6 +995,11 @@ skip_ip_tracking:
 				   203, "find_node with no target");
 			goto fail;
 		}
+		maybe_new_node(ctx, mp.id, from, fromlen, 1);
+#endif
+		lwsl_dht_rx("%s: Sending closest nodes (%d)\n", __func__, mp.want);
+#if defined(LWS_WITH_DHT_BACKEND)
+		send_closest_nodes(ctx, from, fromlen, &mp, mp.target, from->sa_family, NULL);
 #endif
 		break;
 
