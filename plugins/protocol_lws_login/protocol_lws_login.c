@@ -2095,7 +2095,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK:
 	{
-		int level = -1;
+		int level = -1, unauth_proto = 0;
 		struct lws_jwt_auth *ja;
 		/* see the LWS_CALLBACK_USER + 1 note on this size */
 		char uri[LWS_LOGIN_MAX_URI];
@@ -2135,12 +2135,21 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			return 1;
 		}
 
+		/*
+		 * A ws upgrade for an unauth-protocols subprotocol is let
+		 * through whatever we find below, exempt from the whitelist as
+		 * it always was.  But it is not waved past the JWT evaluation
+		 * any more: the peer may well be a logged-in admin joining the
+		 * waiting room, and the backend deserves the same stamped
+		 * x-lws-login-* state it gets on any other request, ANON when
+		 * there is no live session, rather than nothing at all.
+		 */
 		if (vhd->unauth_protocols) {
 			char ws_prot[256];
 			if (lws_hdr_copy(wsi, ws_prot, sizeof(ws_prot), WSI_TOKEN_PROTOCOL) > 0 &&
 			    lws_login_name_in_list(vhd->unauth_protocols, ws_prot)) {
-				lwsl_notice("%s: bypassing interceptor for unauth protocol '%s'\n", __func__, ws_prot);
-				return 0;
+				lwsl_notice("%s: unauth protocol '%s': JWT not required\n", __func__, ws_prot);
+				unauth_proto = 1;
 			}
 		}
 
@@ -2186,7 +2195,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 
-		if (lws_dll2_count(&vhd->wl)) {
+		if (!unauth_proto && lws_dll2_count(&vhd->wl)) {
 			char ip[64];
 			lws_sockaddr46 sa46;
 			int match = 0;
@@ -2228,6 +2237,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				if (!found_device) {
 					lwsl_notice("%s: Device %s rejected (not found in DB %s), rejecting JWT\n", __func__, did, vhd->db_path);
 					lws_jwt_auth_destroy(&ja);
+					if (unauth_proto)
+						goto anon;
 					return 1; /* Request to intercept */
 				}
 			}
@@ -2275,6 +2286,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 						if (mismatch) {
 							lws_jwt_auth_destroy(&ja);
 							lwsl_info("%s: Need dynamic JWT rewrite\n", __func__);
+							if (unauth_proto)
+								goto anon;
 							return 1; /* Request to intercept */
 					}
 				}
@@ -2315,14 +2328,16 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 	lwsl_info("%s: INTERCEPTING (NO VALID COOKIE FOUND)\n", __func__);
 
-	if (unauth_allow) {
-		/* anonymous: explicit ANON state for the backend */
-		lws_login_inject_state(wsi, NULL, -1, LWS_LOGIN_STATE_ANON);
-		lwsl_info("%s: ALLOWING UNAUTH (unauth-allow enabled)\n", __func__);
-		return 0;
-	}
+	if (!unauth_allow && !unauth_proto)
+		return 1; /* Unauthorized, intercept */
 
-	return 1; /* Unauthorized, intercept */
+anon:
+	/* anonymous: explicit ANON state for the backend */
+	lws_login_inject_state(wsi, NULL, -1, LWS_LOGIN_STATE_ANON);
+	lwsl_info("%s: ALLOWING UNAUTH (%s)\n", __func__,
+		  unauth_proto ? "unauth-protocols" : "unauth-allow");
+
+	return 0;
 }
 
 	case LWS_CALLBACK_HTTP:
