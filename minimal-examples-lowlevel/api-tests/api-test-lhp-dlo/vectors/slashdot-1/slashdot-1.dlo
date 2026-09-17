@@ -387,7 +387,7 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
       rect (0.0,366.2) [87.0 x 27.2] rgba=FFEEEEEE
        text (28.0,4.09999999) [37.0 x 19.0] rgba=FF363636 f=17/700 "Never "
       rect (0.0,398.6) [87.0 x 30.4] rgba=00000000
-       rect (0.0,-1.6) [52.0 x 30.4] rgba=FF00A5FF radii=4.0,4.0,4.0,4.0
+       rect (0.0,-0.4) [52.0 x 30.4] rgba=FF00A5FF radii=4.0,4.0,4.0,4.0
         text (8.0,8.19999999) [36.0 x 14.0] rgba=FFFFFFFF f=12/400 "vote now"
       rect (0.0,429.0) [87.0 x 59.0] rgba=00000000
        hit (0.0,1.0) [55.0 x 19.0] "vector:/poll/3281/when-will-agi-be-achieved"

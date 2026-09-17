@@ -2517,24 +2517,43 @@ lws_fx_sat(int64_t w)
 	return (int32_t)w;
 }
 
+/*
+ * lws_fx_t is sign-magnitude: the value is |whole| + |frac| / 1e8, negated
+ * if either is negative, and both carry the sign in the canonical form
+ * (-0.08 is whole 0, frac -8000000).  Add and subtract go through the
+ * signed int64 count of 1e-8 units and back, so results in (-1, 0) and
+ * mixed-sign operands come out right; the earlier per-field carry logic
+ * gave 10 - 10.5 = -1.5 and -0.5 + -0.5 = -0.10.
+ */
+
+static int64_t
+lws_fx_to_i64(const lws_fx_t *a)
+{
+	int64_t m = (int64_t)(a->whole < 0 ? -(int64_t)a->whole : a->whole) *
+		    LWS_FX_FRACTION_MSD +
+		    (a->frac < 0 ? -(int64_t)a->frac : a->frac);
+
+	return lws_neg(a) ? -m : m;
+}
+
+static void
+lws_fx_from_i64(lws_fx_t *r, int64_t v)
+{
+	int64_t m = v < 0 ? -v : v, w = m / LWS_FX_FRACTION_MSD;
+	int32_t f = (int32_t)(m % LWS_FX_FRACTION_MSD);
+
+	r->whole = lws_fx_sat(w);
+	r->frac = f;
+	if (v < 0) {
+		r->whole = -r->whole;
+		r->frac = -f;
+	}
+}
+
 const lws_fx_t *
 lws_fx_add(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b)
 {
-	int64_t w;
-	int32_t sf;
-
-	w = (int64_t)a->whole + b->whole;
-	sf = a->frac + b->frac;
-	if (sf >= 100000000) {
-		w++;
-		r->frac = sf - 100000000;
-	} else if (sf < -100000000) {
-		w--;
-		r->frac = sf + 100000000;
-	} else
-		r->frac = sf;
-
-	r->whole = lws_fx_sat(w);
+	lws_fx_from_i64(r, lws_fx_to_i64(a) + lws_fx_to_i64(b));
 
 	return r;
 }
@@ -2542,26 +2561,7 @@ lws_fx_add(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b)
 const lws_fx_t *
 lws_fx_sub(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b)
 {
-	int64_t w;
-
-	if (a->whole >= b->whole) {
-		w = (int64_t)a->whole - b->whole;
-		if (a->frac >= b->frac)
-			r->frac = a->frac - b->frac;
-		else {
-			w--;
-			r->frac = (100000000 + a->frac) - b->frac;
-		}
-	} else {
-		w = -((int64_t)b->whole - a->whole);
-		if (b->frac >= a->frac)
-			r->frac = b->frac - a->frac;
-		else {
-			w++;
-			r->frac = (100000000 + b->frac) - a->frac;
-		}
-	}
-	r->whole = lws_fx_sat(w);
+	lws_fx_from_i64(r, lws_fx_to_i64(a) - lws_fx_to_i64(b));
 
 	return r;
 }

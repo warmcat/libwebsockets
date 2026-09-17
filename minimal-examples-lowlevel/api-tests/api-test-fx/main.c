@@ -170,6 +170,53 @@ main(int argc, const char **argv)
 	lws_fx_add(&r, &a, &b);
 	CHK(r.whole == INT32_MAX - 1, "add INT32_MAX - 1 = %d", r.whole);
 
+	/*
+	 * Sign-magnitude results in (-1, 0) and mixed-sign operands: the
+	 * old per-field carry gave 10 - 10.5 = -1.5 and -0.5 + -0.5 = -0.10
+	 */
+
+	lws_fx_set(a, 10, 0);
+	lws_fx_set(b, 10, 50000000);
+	lws_fx_sub(&r, &a, &b);
+	CHK(r.whole == 0 && r.frac == -50000000, "sub 10 - 10.5 = %f",
+	    fx2d(&r));
+
+	lws_fx_set(a, 33, 92000000);
+	lws_fx_set(b, 34, 0);
+	lws_fx_sub(&r, &a, &b);
+	CHK(r.whole == 0 && r.frac == -8000000, "sub 33.92 - 34 = %f",
+	    fx2d(&r));
+
+	lws_fx_set(a, 0, 25000000);
+	lws_fx_set(b, 0, 75000000);
+	lws_fx_sub(&r, &a, &b);
+	CHK(fx2d(&r) == -0.5, "sub 0.25 - 0.75 = %f", fx2d(&r));
+
+	lws_fx_set(a, -1, 50000000);	/* -1.5 */
+	lws_fx_set(b, 0, 75000000);
+	lws_fx_add(&r, &a, &b);
+	CHK(fx2d(&r) == -0.75, "add -1.5 + 0.75 = %f", fx2d(&r));
+
+	lws_fx_set(a, 1, 50000000);
+	lws_fx_set(b, -2, 25000000);	/* -2.25 */
+	lws_fx_add(&r, &a, &b);
+	CHK(fx2d(&r) == -0.75, "add 1.5 + -2.25 = %f", fx2d(&r));
+
+	lws_fx_set(a, 0, -50000000);	/* -0.5 */
+	lws_fx_set(b, 0, -50000000);
+	lws_fx_add(&r, &a, &b);
+	CHK(r.whole == -1 && r.frac == 0, "add -0.5 + -0.5 = %f", fx2d(&r));
+
+	lws_fx_set(a, -1, 50000000);	/* -1.5 */
+	lws_fx_set(b, -2, 25000000);	/* -2.25 */
+	lws_fx_sub(&r, &a, &b);
+	CHK(fx2d(&r) == 0.75, "sub -1.5 - -2.25 = %f", fx2d(&r));
+
+	lws_fx_set(a, 0, -25000000);	/* -0.25 */
+	lws_fx_set(b, 0, 50000000);
+	lws_fx_sub(&r, &a, &b);
+	CHK(fx2d(&r) == -0.75, "sub -0.25 - 0.5 = %f", fx2d(&r));
+
 	lws_fx_set(a, 2, 25000000);	/* 2.25 */
 	lws_fx_sqrt(&r, &a);
 	CHK(fx2d(&r) == 1.5, "sqrt 2.25 = %f", fx2d(&r));
