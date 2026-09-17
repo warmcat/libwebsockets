@@ -678,6 +678,33 @@ LWS_VISIBLE LWS_EXTERN int
 lws_http_add_onward_header(struct lws *wsi, const char *name,
 			   const char *value);
 
+/**
+ * lws_http_get_onward_header() - read a header an interceptor stamped on
+ *				  this request
+ *
+ * \param wsi: the connection, during the request (LWS_CALLBACK_HTTP etc)
+ * \param name: the header name, eg LWS_LOGIN_HDR_STATE
+ * \param buf: receives the value, NUL terminated
+ * \param len: size of buf
+ *
+ * The counterpart of lws_http_add_onward_header() for an app served
+ * IN-PROCESS behind a gated mount, rather than through the reverse proxy.
+ * The proxy forwards the stamped headers to a remote backend as request
+ * headers; an in-process protocol handling the same request gets them from
+ * here instead.  Only an interceptor can put something in this list (the
+ * peer's own copy of the name is removed from the request when it is
+ * stamped), so unlike a header read from the request, the value is
+ * trustworthy without any "is there a proxy in front of me" configuration.
+ *
+ * Returns the value length, -1 if nothing of that name was stamped, or -2
+ * if the value does not fit in buf.  Reads the transaction's state, so it
+ * must be called while the request is being handled, not from a later
+ * timer.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_get_onward_header(struct lws *wsi, const char *name, char *buf,
+			   size_t len);
+
 ///@}
 
 /*! \defgroup lws-login-state Login state injection (lws-login)

@@ -1207,6 +1207,48 @@ lws_http_onward_header_append(struct lws *wsi, const char *name,
 }
 
 int
+lws_http_get_onward_header(struct lws *wsi, const char *name, char *buf,
+			   size_t len)
+{
+	const char *p = wsi->http.extra_onward_headers, *nl, *v;
+	size_t nlen = name ? strlen(name) : 0, vlen;
+	int ret = -1;
+
+	if (!p || !nlen || !len)
+		return -1;
+
+	/*
+	 * Lines are "name: value\r\n", as written by the appender.  Take the
+	 * LAST match: a header stamped twice on one request (two interceptors
+	 * in a mount's chain, say) has the later one as the current opinion
+	 */
+	while (*p) {
+		nl = strstr(p, "\r\n");
+		if (!nl)
+			break;
+
+		if ((size_t)(nl - p) > nlen + 1 && p[nlen] == ':' &&
+		    !strncasecmp(p, name, nlen)) {
+			v = p + nlen + 1;
+			while (v < nl && (*v == ' ' || *v == '\t'))
+				v++;
+			vlen = (size_t)(nl - v);
+			if (vlen >= len)
+				ret = -2;
+			else {
+				memcpy(buf, v, vlen);
+				buf[vlen] = '\0';
+				ret = (int)vlen;
+			}
+		}
+
+		p = nl + 2;
+	}
+
+	return ret;
+}
+
+int
 lws_http_add_onward_header(struct lws *wsi, const char *name, const char *value)
 {
 	if (!name)
