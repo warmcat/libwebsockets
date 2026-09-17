@@ -1175,7 +1175,22 @@ skip_ip_tracking:
 			struct lws_transport_sequencer *ts;
 			lwsl_dht_rx("%s: Received reliable data payload (%d bytes, offset %llu)\n",
 				    __func__, (int)mp.data_len, (unsigned long long)mp.offset);
-			ts = lws_dht_get_ts(ctx, from, fromlen, 1);
+			ts = lws_dht_get_ts(ctx, from, fromlen, 0);
+#if defined(LWS_WITH_DHT_BACKEND)
+			/*
+			 * Chunks for a transfer already in progress stay
+			 * outside the limiter, but making a sequencer for a
+			 * source we have never heard from costs ~160KB of
+			 * allocation and an ACK to an unverified address per
+			 * datagram: that creation is a request like any other
+			 */
+			if (!ts && !token_bucket(ctx)) {
+				ctx->stats_current.rx_drops++;
+				goto done;
+			}
+#endif
+			if (!ts)
+				ts = lws_dht_get_ts(ctx, from, fromlen, 1);
 			if (ts)
 				lws_transport_sequencer_rx(ts, mp.offset, mp.data, mp.data_len);
 		}
