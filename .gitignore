@@ -70,3 +70,6 @@ doc
 
 # local security audit working files, never in the tree
 security-audit/
+
+# in-source cmake leftovers
+CTestTestfile.cmake
