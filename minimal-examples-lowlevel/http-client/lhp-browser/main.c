@@ -34,6 +34,7 @@ enum {
 		LWS_SW_DOC_H,
 		LWS_SW_GUI,
 		LWS_SW_SHOT,
+		LWS_SW_SCROLL,
 		LWS_SW_CSS_FILTER,
 		LWS_SW_BLOCK_LIST,
 		LWS_SW_ASSET_CACHE,
@@ -50,6 +51,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_DOC_H]	= { "--doc-h",         "Lay out the document this tall in px (default --h); with --gui, taller docs scroll" },
 	[LWS_SW_GUI]	= { "--gui",           "Show the render in a native window: scroll with wheel / keys, click reports the element under the pointer, resizing re-layouts" },
 	[LWS_SW_SHOT]	= { "--shot",          "With --gui: after the first render, dump the window framebuffer to this .bmp and exit" },
+	[LWS_SW_SCROLL]	= { "--scroll",        "With --gui: scroll the viewport to this y after the first render (before any --shot); with --bmp and --doc-h: write only the --h rows of the document from this y" },
 	[LWS_SW_CSS_FILTER]= { "--css-filter", "Filter css from file hides junk elements, eg .ad { display: none !important; }" },
 	[LWS_SW_BLOCK_LIST]= { "--block-list", "URL block rules from file: ||host.tld or substring per line" },
 	[LWS_SW_ASSET_CACHE]= { "--asset-cache", "Directory for the document asset cache, enables it" },
@@ -80,6 +82,7 @@ lws_surface_info_t ic = {
 static void render(lws_sorted_usec_list_t *sul);
 
 static const char *shot_path;
+static int scroll_opt, scroll_applied, bmp_h;
 static const char *browse_url;
 static char nav_url[256]; /* browse_url when a link was followed */
 
@@ -808,6 +811,21 @@ win_scan_cb(lws_sorted_usec_list_t *sul)
 
 	lhp_browser_plat_present();
 
+	/*
+	 * --scroll: a scripted scroll once the first viewport is up, so a
+	 * --shot captures the re-scan of the retained DLOs from that offset
+	 */
+
+	if (scroll_opt && !scroll_applied) {
+		int y = win.scroll_y;
+
+		scroll_applied = 1;
+		win_scroll_set(scroll_opt);
+		if (win.scroll_y != y)
+			/* the re-scan it started completes back here */
+			return;
+	}
+
 	if (shot_path) {
 		static int shot_delay_us = -1;
 
@@ -1040,8 +1058,7 @@ render(lws_sorted_usec_list_t *sul)
 		rs->curr = 0;
 
 		if (fdout != 1)
-			write_bmp_header(fdout, rs->ic->wh_px[0].whole,
-					 rs->ic->wh_px[1].whole);
+			write_bmp_header(fdout, rs->ic->wh_px[0].whole, bmp_h);
 	}
 
 	/*
@@ -1050,7 +1067,8 @@ render(lws_sorted_usec_list_t *sul)
 	 * is the page background
 	 */
 
-	while (rs->curr != rs->ic->wh_px[1].whole) {
+	while (rs->curr != rs->ic->wh_px[1].whole &&
+	       (int)rs->curr < scroll_opt + bmp_h) {
 
 		r = lws_display_list_render_line(rs);
 
@@ -1058,6 +1076,13 @@ render(lws_sorted_usec_list_t *sul)
 			/* eg, waiting for more jpg or whatever */
 			lwsl_notice("%s: leaving 0x%x\n", __func__, (unsigned int)r);
 			return;
+		}
+
+		if ((int)rs->curr < scroll_opt) {
+			/* --scroll: rendered but not part of the bmp */
+			rs->curr++;
+			memset(rs->line, 0xff, lbuflen);
+			continue;
 		}
 
 		{
@@ -1126,6 +1151,10 @@ main(int argc, const char **argv)
 		ic.wh_px[1].whole = atoi(p);
 		had_h = 1;
 	}
+	bmp_h = ic.wh_px[1].whole;
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_SCROLL].sw)))
+		scroll_opt = atoi(p);
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_GUI].sw))
 		win.active = 1;

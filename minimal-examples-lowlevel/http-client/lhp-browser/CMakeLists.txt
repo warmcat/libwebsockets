@@ -65,6 +65,16 @@ if (requirements AND LHP_BROWSER_PLAT_OK)
 				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/test.html
 				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/window-shot.bmp
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/shot-test.cmake)
+
+		# a 1500px page in a 240px window scrolled to y=500: the
+		# re-scan of the retained DLOs must match the straight render
+		add_test(NAME lhp-browser-window-shot-scrolled
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/test-tall.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/window-shot-scrolled.bmp
+				-DSCROLL=500 -DVH=240
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/shot-test.cmake)
 	endif()
 else()
 	if (requirements)

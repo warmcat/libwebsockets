@@ -4639,12 +4639,27 @@ elem_start:
 						//		   &ps->drt.h) < 0)
 						ps->drt.h = *lws_csp_px(ps->css_height, ps);
 
-					/* put a default white body background behind everything */
+					/*
+					 * Put a default white body background
+					 * behind everything.  The body's
+					 * containing block height for its
+					 * children is the css viewport, but
+					 * the background itself spans the
+					 * whole layout surface: a scrolling
+					 * viewport re-scans the retained DLOs
+					 * below the first window, and the
+					 * render skips everything under a
+					 * root it has passed the bottom of
+					 */
 
 					lws_fx_set(box.x, 0, 0);
 					lws_fx_set(box.y, 0, 0);
 					box.w = ps->drt.w;
 					box.h = ps->drt.h;
+					if (!ps->css_height ||
+					    ps->css_height->propval ==
+							LCSP_PROPVAL_AUTO)
+						box.h = ctx->ic.wh_px[LWS_LHPREF_HEIGHT];
 
 					ps->dlo = (lws_dlo_t *)lws_display_dlo_rect_new(
 							drt->dl, NULL, &box, 0,
