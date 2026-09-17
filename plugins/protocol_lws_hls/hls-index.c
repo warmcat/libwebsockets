@@ -748,3 +748,74 @@ lws_hls_indexer_destroy(struct per_vhost_data__lws_hls *vhd)
 		lws_hls_task_free(t);
 	}
 }
+
+/*
+ * Event loop: is filename's index available, and if not, is it being built?
+ * Asking is what starts the build, so the player can ask before it hands the
+ * playlists to hls.js and wait here instead of timing out there.
+ */
+int
+lws_hls_index_status(struct per_vhost_data__lws_hls *vhd, const char *filename,
+		     char *json, size_t len)
+{
+	int ready = 0, running = 0, failed = 0, pct = 0, found = 0;
+	struct hls_index_job *j;
+
+	pthread_mutex_lock(&vhd->lock);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->index_list)) {
+		struct hls_file_index *idx = lws_container_of(d,
+					struct hls_file_index, list);
+
+		if (!strcmp(idx->filename, filename)) {
+			ready = found = 1;
+			break;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (!found) {
+		j = hls_index_job_find(vhd, filename);
+		if (j) {
+			found = 1;
+			running = j == vhd->index_running;
+			pct = j->pct;
+		}
+	}
+
+	if (!found) {
+		j = hls_index_recent_find(vhd, filename);
+		if (j) {
+			/* it was tried and there is nothing cached to show for
+			 * it: the player should go ahead and let the worker do
+			 * what it can inline */
+			found = failed = 1;
+		}
+	}
+
+	pthread_mutex_unlock(&vhd->lock);
+
+	if (!found) {
+		struct hls_index_hdr hdr;
+		char path[1024];
+
+		hls_index_path(vhd->media_dir, filename, path, sizeof(path));
+		memset(&hdr, 0, sizeof(hdr));
+		if (!hls_index_read_hdr(vhd->media_dir, path, &hdr) &&
+		    !strcmp(hdr.filename, filename))
+			/* on disk from an earlier run: the first task loads it */
+			ready = found = 1;
+	}
+
+	if (!found) {
+		pthread_mutex_lock(&vhd->lock);
+		if (!hls_index_job_ensure(vhd, filename))
+			failed = 1;
+		pthread_mutex_unlock(&vhd->lock);
+	}
+
+	return lws_snprintf(json, len, "{\"ready\":%s,\"running\":%s,"
+				       "\"failed\":%s,\"progress\":%d}",
+			    ready ? "true" : "false", running ? "true" : "false",
+			    failed ? "true" : "false", pct);
+}

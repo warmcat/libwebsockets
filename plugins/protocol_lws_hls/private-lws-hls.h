@@ -595,6 +595,11 @@ lws_hls_indexer_destroy(struct per_vhost_data__lws_hls *vhd);
 volatile int *
 lws_hls_index_progress(struct per_vhost_data__lws_hls *vhd);
 
+/* event loop: JSON for /index/<file>, queueing the build if there is none */
+int
+lws_hls_index_status(struct per_vhost_data__lws_hls *vhd, const char *filename,
+		     char *json, size_t len);
+
 /* remove indexes whose media is gone or changed: once at init, then hourly */
 void
 lws_hls_index_sweep_start(struct per_vhost_data__lws_hls *vhd);

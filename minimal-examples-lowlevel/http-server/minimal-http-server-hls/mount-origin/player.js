@@ -207,8 +207,80 @@ document.addEventListener('DOMContentLoaded', function() {
         video.play();
     }
 
+    /*
+     * The first touch of a large file builds its keyframe index, which
+     * means reading the whole file: minutes for a 30GB MKV.  hls.js gives
+     * a playlist load 10-20s and then abandons that rendition, which left
+     * the audio track written off by the time the index existed.  So
+     * before hls.js sees the playlists, ask hls/index/<file> whether the
+     * index exists (which also queues the build if not) and wait, showing
+     * progress over the video area, until it does.  An old server without
+     * the endpoint, or a build that failed, just proceeds as before.
+     */
+    function waitForIndex() {
+        var pfx = 'hls/stream/';
+        var overlay = null;
+
+        if (videoSrc.indexOf(pfx) !== 0)
+            return Promise.resolve();
+
+        var name = videoSrc.slice(pfx.length);
+        var url = 'hls/index/' + encodeURIComponent(name);
+
+        function show(text) {
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.className = 'index-overlay';
+                var pc = document.querySelector('.player-container');
+                if (pc)
+                    pc.appendChild(overlay);
+            }
+            overlay.textContent = text;
+        }
+        function hide() {
+            if (overlay && overlay.parentNode)
+                overlay.parentNode.removeChild(overlay);
+            overlay = null;
+        }
+
+        return new Promise(function(resolve) {
+            var polls = 0;
+
+            function poll() {
+                fetch(url, { credentials: 'same-origin' }).then(function(res) {
+                    if (!res.ok)
+                        throw new Error('HTTP ' + res.status);
+                    return res.json();
+                }).then(function(st) {
+                    if (st.ready || st.failed) {
+                        if (polls)
+                            logMsg('index: ' + (st.ready ? 'ready' : 'build failed, trying anyway'));
+                        hide();
+                        resolve();
+                        return;
+                    }
+                    polls++;
+                    var pct = (typeof st.progress === 'number') ? st.progress : 0;
+                    var msg = 'Indexing ' + name + (st.running ? ' \u2014 ' + pct + '%' : ' \u2014 waiting for indexer');
+                    show(msg);
+                    if (polls === 1 || polls % 15 === 0)
+                        logMsg('index: not ready, ' + msg);
+                    setTimeout(poll, 2000);
+                }).catch(function(e) {
+                    /* no such endpoint, or unreachable: let hls.js try */
+                    logMsg('index: status unavailable (' + e.message + '), proceeding');
+                    hide();
+                    resolve();
+                });
+            }
+            poll();
+        });
+    }
+
     var tsSrc = urlParams.get('t') || '0';
-    getHash(videoSrc + '_' + tsSrc).then(function(hk) {
+    waitForIndex().then(function() {
+        return getHash(videoSrc + '_' + tsSrc);
+    }).then(function(hk) {
         var hashKey = 'lws_hls_' + hk;
         var startPos = 0;
         

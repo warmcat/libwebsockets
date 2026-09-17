@@ -24,6 +24,21 @@ video {
     display: block;
 }
 
+/* shown over the video while the server builds the file's keyframe index */
+.index-overlay {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    text-align: center;
+    padding: 12px 20px;
+    background: rgba(0, 0, 0, 0.7);
+    color: #ddd;
+    font-size: 1.1em;
+    pointer-events: none;
+}
+
 /* Subtitle cue rendering. Cues arrive via the native <track> element that
  * hls.js creates (renderTextTracksNatively). This is only a fallback style:
  * player.js injects a dynamic <style> rule that sizes the cue font in real px

@@ -690,6 +690,37 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 				goto err_404;
 			return lws_hls_serve_thumbnail(wsi, vhd->media_dir, filename);
 		}
+		else if (!strncmp(url, "/index/", 7)) {
+			/* is the keyframe index built?  asking starts it */
+			char filename[256], jb[LWS_PRE + 128],
+			     *json = jb + LWS_PRE;
+			uint8_t buf[LWS_PRE + 1024], *start = buf + LWS_PRE,
+				*p = start, *end = buf + sizeof(buf) - 1;
+			int n;
+
+			lws_strncpy(filename, url + 7, sizeof(filename));
+			lws_filename_purify_inplace(filename);
+			if (!filename[0] || strchr(filename, '/'))
+				goto err_404;
+
+			n = lws_hls_index_status(vhd, filename, json,
+						 sizeof(jb) - LWS_PRE);
+
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+					"application/json", (lws_filepos_t)n,
+					&p, end) ||
+			    lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_CACHE_CONTROL,
+					(const uint8_t *)"no-store", 8, &p, end) ||
+			    lws_finalize_write_http_header(wsi, start, &p, end))
+				return -1;
+
+			if (lws_write(wsi, (uint8_t *)json, (size_t)n,
+				      LWS_WRITE_HTTP_FINAL) != n)
+				return -1;
+
+			return lws_http_transaction_completed(wsi) ? -1 : 0;
+		}
 		else if (!strncmp(url, "/stream/", 8)) {
 			char filename[256];
 			lws_strncpy(filename, url + 8, sizeof(filename));

@@ -125,6 +125,14 @@ nothing accumulates in `.index`.  If `.index` cannot be created (media dir
 not writable by the server), that is logged once per attempt and the index
 stays in memory only.
 
+`hls/index/<file>` reports whether the index exists as JSON
+(`{"ready":..,"running":..,"failed":..,"progress":<percent of file read>}`)
+and queues the build on the indexer thread if it does not.  The player asks
+this before it gives hls.js the playlists and waits, showing the progress
+over the video area, since hls.js gives a playlist load 10-20 seconds and
+then abandons that rendition; on a large file that was the first attempt
+"troubled" and the audio track missing on the second.
+
 The scan does not trust the container's keyframe flags alone: for
 HEVC and H.264 it also looks at the NAL unit types, because libavformat only
 recovers missing flags from the bitstream for H.264, and a release MKV whose
