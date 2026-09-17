@@ -824,7 +824,7 @@ lhp_fx_parse(lws_fx_t *fx, const char *str, size_t len)
 	dot++;
 	len -= (size_t)(dot - str);
 	i = 10000000;
-	while (len-- && *dot) {
+	while (len-- && *dot >= '0' && *dot <= '9' && i) {
 		fx->frac += ((*dot++) - '0') * i;
 		i /= 10;
 	}
@@ -853,6 +853,7 @@ struct lhp_calc {
 	const char		*end;
 	int			ref;
 	int			depth;
+	int			paren; /* nesting of ( ) inside one calc() */
 	int			unitless; /* no length or % term was used */
 };
 
@@ -933,7 +934,14 @@ lhp_calc_factor(struct lhp_calc *cs)
 
 	if (cs->p < cs->end && *cs->p == '(') {
 		cs->p++;
+		/* the text is remote: bound the recursion it can drive */
+		if (cs->paren >= 16) {
+			cs->p = cs->end;
+			goto done;
+		}
+		cs->paren++;
 		v = lhp_calc_expr(cs);
+		cs->paren--;
 		lhp_calc_ws(cs);
 		if (cs->p < cs->end && *cs->p == ')')
 			cs->p++;
