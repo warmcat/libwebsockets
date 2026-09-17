@@ -4889,6 +4889,22 @@ skip:
 				n = (int)strlen(pc);
 				s->swallow[s->pos] = '\0';
 				if (n != s->pos) {
+					/*
+					 * The guard at the top of the loop
+					 * bounds the output cursor, not the
+					 * content, which every expanding
+					 * substitution grows in place by
+					 * (n - pos) + 1: bound the content too,
+					 * keeping the 7 bytes the chunk trailer
+					 * needs, or the memmove walks past the
+					 * buffer
+					 */
+					if (n > s->pos &&
+					    old_len + (n - s->pos) + 1 + 7 >=
+							    args->max_len) {
+						lwsl_err("Used up interpret padding\n");
+						return -1;
+					}
 					memmove(s->start + n, s->start + s->pos,
 						(unsigned int)(old_len - (sp - args->p) - 1));
 					old_len += (n - s->pos) + 1;
