@@ -310,7 +310,16 @@ lws_display_dlo_jpeg_metadata_scan(lws_dlo_jpeg_t *dlo_jpeg)
 	 * we can't produce any decoded pixels too early.
 	 */
 
-	while (!lws_jpeg_get_height(dlo_jpeg->j) && dlo_jpeg->flow.len) {
+	/*
+	 * SOF carries the height before the width: a 128 byte chunk ending
+	 * between them left the height known and the width still unread,
+	 * which looked like "have the metadata" here, and nothing came back
+	 * to read the width on the asset cache path (a single feed of the
+	 * whole payload): the image was laid out 0 wide forever
+	 */
+
+	while ((!lws_jpeg_get_height(dlo_jpeg->j) ||
+		!lws_jpeg_get_width(dlo_jpeg->j)) && dlo_jpeg->flow.len) {
 		l1 = l = dlo_jpeg->flow.len > 128 ? 128 : dlo_jpeg->flow.len;
 
 		r = lws_jpeg_emit_next_line(dlo_jpeg->j, &pix, &dlo_jpeg->flow.data, &l, 1);
@@ -322,7 +331,8 @@ lws_display_dlo_jpeg_metadata_scan(lws_dlo_jpeg_t *dlo_jpeg)
 
 		dlo_jpeg->flow.len -= l1 - l;
 
-		if (lws_jpeg_get_height(dlo_jpeg->j)) {
+		if (lws_jpeg_get_height(dlo_jpeg->j) &&
+		    lws_jpeg_get_width(dlo_jpeg->j)) {
 			lwsl_info("jpeg: w %d, h %d\n",
 					lws_jpeg_get_width(dlo_jpeg->j),
 					lws_jpeg_get_height(dlo_jpeg->j));
