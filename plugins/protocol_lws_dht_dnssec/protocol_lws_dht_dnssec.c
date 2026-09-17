@@ -1134,53 +1134,6 @@ ds_test_done:
 	lwsl_user("%s: DS record successfully validated simulated JWS for %s\n", __func__, frag->domain);
 
 	{
-		char ack[128];
-		lws_dht_msg_gen(ack, sizeof(ack), "ACK", frag->safe_hash, frag->last_offset, frag->last_len);
-		lws_dht_send_data(frag->dht_ctx, (struct sockaddr *)&frag->from_sa, ack, strlen(ack));
-	}
-
-	/* Store it officially / replace older version */
-	lwsl_user("%s: Successfully validated %s\n", __func__, frag->safe_hash);
-
-	if (frag->fd >= 0) {
-		close(frag->fd);
-		frag->fd = -1;
-	}
-
-	/* Also, as a client, we should now send a native DHT SUBSCRIBE to the target node
-	   so we get notified if this zonefile ever changes! */
-	if (frag->dht_ctx) {
-		uint8_t tid[4];
-		lws_get_random(vhd->context, tid, sizeof(tid));
-
-		uint8_t raw_hash[32];
-		/* returns the count of bytes decoded, or -1; 0 never means OK */
-		if (lws_hex_to_byte_array(frag->safe_hash, raw_hash,
-					  sizeof(raw_hash)) == (int)sizeof(raw_hash)) {
-			lws_dht_hash_t *id = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA256, 32, raw_hash);
-			if (id) {
-				lwsl_user("%s: Sending native DHT SUBSCRIBE to establish long-poll\n", __func__);
-				lws_dht_send_subscribe(frag->dht_ctx, (struct sockaddr *)&frag->from_sa, frag->from_salen, tid, sizeof(tid), id, 0, 0);
-				lws_dht_hash_destroy(&id);
-			}
-		}
-	}
-
-	/* Notify anyone tracking this hash BEFORE we rename the tmp payload, just in case */
-	{
-		uint8_t raw_hash[32];
-		/* returns the count of bytes decoded, or -1; 0 never means OK */
-		if (lws_hex_to_byte_array(frag->safe_hash, raw_hash,
-					  sizeof(raw_hash)) == (int)sizeof(raw_hash)) {
-			lws_dht_hash_t *id = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA256, 32, raw_hash);
-			if (id) {
-				lws_dht_notify_subscribers(frag->dht_ctx, id, frag->payload_hash, NULL, 0);
-				lws_dht_hash_destroy(&id);
-			}
-		}
-	}
-
-	{
 		char tmp_path[256], dir1[256], dir2[256], final_path[256];
 		char tmp_ppath[256], final_ppath[256];
 		lws_snprintf(tmp_path, sizeof(tmp_path), "%s/tmp/%s.%08X", vhd->storage_path, frag->safe_hash, frag->temp_token);
@@ -1246,6 +1199,16 @@ ds_test_done:
 				close(fpin);
 			}
 		}
+		/*
+		 * The serial is what the replay check and the cached
+		 * filename are built on: a signed zone without one is
+		 * refused, as the unauthenticated pre-check used to do
+		 */
+		if (!serial) {
+			lwsl_err("%s: %s: missing or invalid SOA serial\n",
+				 __func__, frag->domain);
+			goto drop;
+		}
 #endif
 		time_t ttl_expiry = time(NULL) + default_ttl;
 		if (sig_expiry == 0) sig_expiry = ttl_expiry + 86400 * 30; /* Fake if no RRSIG */
@@ -1276,6 +1239,61 @@ ds_test_done:
 			}
 			goto drop;
 		}
+
+		/*
+		 * Only now, with the signature confirmed and the serial known
+		 * not to be a replay, does the sender get its ACK, do we
+		 * subscribe to the object, and do our own subscribers hear of
+		 * it: before, a replayed object was acknowledged and announced
+		 * to them before being dropped.
+		 */
+		{
+			char ack[128];
+			lws_dht_msg_gen(ack, sizeof(ack), "ACK", frag->safe_hash, frag->last_offset, frag->last_len);
+			lws_dht_send_data(frag->dht_ctx, (struct sockaddr *)&frag->from_sa, ack, strlen(ack));
+		}
+
+		/* Store it officially / replace older version */
+		lwsl_user("%s: Successfully validated %s\n", __func__, frag->safe_hash);
+
+		if (frag->fd >= 0) {
+			close(frag->fd);
+			frag->fd = -1;
+		}
+
+		/* Also, as a client, we should now send a native DHT SUBSCRIBE to the target node
+		   so we get notified if this zonefile ever changes! */
+		if (frag->dht_ctx) {
+			uint8_t tid[4];
+			lws_get_random(vhd->context, tid, sizeof(tid));
+
+			uint8_t raw_hash[32];
+			/* returns the count of bytes decoded, or -1; 0 never means OK */
+			if (lws_hex_to_byte_array(frag->safe_hash, raw_hash,
+						  sizeof(raw_hash)) == (int)sizeof(raw_hash)) {
+				lws_dht_hash_t *id = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA256, 32, raw_hash);
+				if (id) {
+					lwsl_user("%s: Sending native DHT SUBSCRIBE to establish long-poll\n", __func__);
+					lws_dht_send_subscribe(frag->dht_ctx, (struct sockaddr *)&frag->from_sa, frag->from_salen, tid, sizeof(tid), id, 0, 0);
+					lws_dht_hash_destroy(&id);
+				}
+			}
+		}
+
+		/* Notify anyone tracking this hash BEFORE we rename the tmp payload, just in case */
+		{
+			uint8_t raw_hash[32];
+			/* returns the count of bytes decoded, or -1; 0 never means OK */
+			if (lws_hex_to_byte_array(frag->safe_hash, raw_hash,
+						  sizeof(raw_hash)) == (int)sizeof(raw_hash)) {
+				lws_dht_hash_t *id = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA256, 32, raw_hash);
+				if (id) {
+					lws_dht_notify_subscribers(frag->dht_ctx, id, frag->payload_hash, NULL, 0);
+					lws_dht_hash_destroy(&id);
+				}
+			}
+		}
+
 
 		if (rename(tmp_path, final_path) < 0) {
 			lwsl_err("%s: Failed to rename %s to %s (errno %d)\n", __func__, tmp_path, final_path, errno);
@@ -1382,6 +1400,96 @@ drop:
 
 	dht_dnssec_fragment_free(frag);
 	return wsi;
+}
+
+/*
+ * Find the zone's name in an as-yet unauthenticated zone file: the argument
+ * of its $ORIGIN line, or failing that the owner name of its SOA line.  A
+ * bounded scan over lines, nothing is parsed; the caller checks the result
+ * with lws_dht_valid_domain_name().  Returns 0 and the name (without the
+ * trailing dot) or nonzero if there is none.
+ */
+static int
+dht_dnssec_scan_origin(const char *p, size_t len, char *out, size_t olen)
+{
+	const char *end = p + len, *soa_owner = NULL;
+	size_t soa_owner_len = 0;
+
+	out[0] = '\0';
+
+	while (p < end) {
+		const char *ls = p, *le, *t, *te;
+
+		while (p < end && *p != '\n')
+			p++;
+		le = p;
+		if (p < end)
+			p++;
+
+		/* the first token on the line */
+		t = ls;
+		while (t < le && (*t == ' ' || *t == '\t'))
+			t++;
+		te = t;
+		while (te < le && *te != ' ' && *te != '\t' && *te != '\r')
+			te++;
+		if (te == t || *t == ';')
+			continue;
+
+		if (te - t == 7 && !strncmp(t, "$ORIGIN", 7)) {
+			const char *v = te, *ve;
+
+			while (v < le && (*v == ' ' || *v == '\t'))
+				v++;
+			ve = v;
+			while (ve < le && *ve != ' ' && *ve != '\t' &&
+			       *ve != '\r' && *ve != ';')
+				ve++;
+			if (ve > v && ve[-1] == '.')
+				ve--;
+			if (ve == v || (size_t)(ve - v) >= olen)
+				return 1;
+			memcpy(out, v, (size_t)(ve - v));
+			out[ve - v] = '\0';
+
+			return 0;
+		}
+
+		/* an SOA line: owner [ttl] [class] SOA ...: remember the first */
+		/* an owner starts the line: blank-owner lines and $directives don't */
+		if (!soa_owner && t == ls && *t != '$') {
+			const char *q = te;
+			int n = 0;
+
+			while (q < le && n < 3) {
+				const char *qs;
+
+				while (q < le && (*q == ' ' || *q == '\t'))
+					q++;
+				qs = q;
+				while (q < le && *q != ' ' && *q != '\t' &&
+				       *q != '\r')
+					q++;
+				if (q - qs == 3 && !strncmp(qs, "SOA", 3)) {
+					soa_owner = t;
+					soa_owner_len = (size_t)(te - t);
+					break;
+				}
+				n++;
+			}
+		}
+	}
+
+	if (!soa_owner || soa_owner[0] == '@')
+		return 1;
+	if (soa_owner[soa_owner_len - 1] == '.')
+		soa_owner_len--;
+	if (!soa_owner_len || soa_owner_len >= olen)
+		return 1;
+	memcpy(out, soa_owner, soa_owner_len);
+	out[soa_owner_len] = '\0';
+
+	return 0;
 }
 
 static struct lws *
@@ -1634,56 +1742,21 @@ dht_dnssec_trigger_validation(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vh
 		lwsl_notice("%s: JWS Decoded: header_len=%u, payload_len=%u, sig_len=%u\n",
 			    __func__, map.len[LJWS_JOSE], map.len[LJWS_PYLD], map.len[LJWS_SIG]);
 
-		/* Extract domain dynamically and strictly validate the syntax of the decoded zone file payload! */
-		struct auth_dns_zone parsed_zone;
-		memset(&parsed_zone, 0, sizeof(parsed_zone));
-
-		if (lws_auth_dns_parse_zone_buf((const char *)map.buf[LJWS_PYLD], map.len[LJWS_PYLD], &parsed_zone, NULL, NULL)) {
-			lwsl_err("%s: Failed to syntax validate zonefile (payload_len=%u)!\n", __func__, map.len[LJWS_PYLD]);
-			free(temp);
-			free(buf);
-			return -1;
-		}
-
-		/* Find SOA record to extract domain and serial */
+		/*
+		 * Nothing in this payload is trusted yet: the signature can only
+		 * be confirmed once the zone's DS and DNSKEY have been looked
+		 * up, and that needs the zone's name.  So the only thing taken
+		 * from the unauthenticated bytes is that name, by a bounded
+		 * scan for its $ORIGIN line (or the owner of its SOA line),
+		 * checked as a DNS name below.  The full zone parser, the SOA
+		 * serial and the replay checks run on the payload only after
+		 * lws_jws_sig_confirm() has passed (dht_dnssec_dnskey_cb).
+		 */
 		frag->domain[0] = '\0';
 		frag->soa_serial = 0;
-		if (parsed_zone.origin[0]) {
-			lws_strncpy(frag->domain, parsed_zone.origin, sizeof(frag->domain));
-			int dlen_i = (int)strlen(frag->domain);
-			if (dlen_i > 0 && frag->domain[dlen_i - 1] == '.')
-				frag->domain[dlen_i - 1] = '\0';
-		}
-
-		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&parsed_zone.rrset_list)) {
-			struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
-			if (rs->type == 6 /* SOA */) {
-				if (!frag->domain[0]) {
-					lws_strncpy(frag->domain, rs->name, sizeof(frag->domain));
-				}
-				struct auth_dns_rr *rr = lws_container_of(lws_dll2_get_head(&rs->rr_list), struct auth_dns_rr, list);
-				if (rr && rr->rdata) {
-					/* Parse SOA rdata: MNAME RNAME SERIAL ... */
-					lws_tokenize_t ts;
-					lws_tokenize_elem e;
-					int toks = 0;
-
-					lws_tokenize_init(&ts, rr->rdata, LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM | LWS_TOKENIZE_F_DOT_NONTERM);
-					do {
-						e = lws_tokenize(&ts);
-						if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_INTEGER) {
-							toks++;
-							if (toks == 3) { /* SERIAL */
-								frag->soa_serial = (uint32_t)atoll(ts.token);
-								break;
-							}
-						}
-					} while (e > 0);
-				}
-			}
-		} lws_end_foreach_dll(d);
-
-		lws_auth_dns_free_zone(&parsed_zone);
+		dht_dnssec_scan_origin((const char *)map.buf[LJWS_PYLD],
+				       map.len[LJWS_PYLD], frag->domain,
+				       sizeof(frag->domain));
 
 		if (!frag->domain[0]) {
 			if (vhd->cli_get_domain) {
@@ -1694,13 +1767,6 @@ dht_dnssec_trigger_validation(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vh
 				free(buf);
 				return -1;
 			}
-		}
-
-		if (!frag->soa_serial) {
-			lwsl_err("%s: Missing or invalid SOA serial in zonefile\n", __func__);
-			free(temp);
-			free(buf);
-			return -1;
 		}
 
 		/*
@@ -1733,82 +1799,8 @@ dht_dnssec_trigger_validation(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vh
 			return -1;
 		}
 
-		/* Check for existing zonefile and compare SOA serials to prevent replay attacks */
-		char ex_path[256];
-		lws_snprintf(ex_path, sizeof(ex_path), "%s/%.2s/%.2s/%s.payload", vhd->storage_path, frag->safe_hash, frag->safe_hash + 2, frag->safe_hash);
-
-		int ex_fd = open(ex_path, O_RDONLY);
-		if (ex_fd >= 0) {
-			struct stat ex_st;
-			if (fstat(ex_fd, &ex_st) == 0 && ex_st.st_size > 0 && ex_st.st_size <= 131072) {
-				char *ex_buf = malloc((size_t)ex_st.st_size + 1);
-				if (ex_buf) {
-					if (read(ex_fd, ex_buf, (size_t)ex_st.st_size) == ex_st.st_size) {
-						ex_buf[ex_st.st_size] = '\0';
-
-						struct auth_dns_zone ex_zone;
-						memset(&ex_zone, 0, sizeof(ex_zone));
-						if (!lws_auth_dns_parse_zone_buf(ex_buf, (size_t)ex_st.st_size, &ex_zone, NULL, NULL)) {
-							uint32_t ex_serial = 0;
-							lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ex_zone.rrset_list)) {
-								struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
-								if (rs->type == 6 /* SOA */) {
-									struct auth_dns_rr *rr = lws_container_of(lws_dll2_get_head(&rs->rr_list), struct auth_dns_rr, list);
-									if (rr && rr->rdata) {
-										lws_tokenize_t ts;
-										lws_tokenize_elem e;
-										int toks = 0;
-										lws_tokenize_init(&ts, rr->rdata, LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM | LWS_TOKENIZE_F_DOT_NONTERM);
-										do {
-											e = lws_tokenize(&ts);
-											if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_INTEGER) {
-												if (++toks == 3) {
-													ex_serial = (uint32_t)atoll(ts.token);
-													break;
-												}
-											}
-										} while (e > 0);
-									}
-								}
-							} lws_end_foreach_dll(d);
-							lws_auth_dns_free_zone(&ex_zone);
-
-							if (ex_serial && frag->soa_serial <= ex_serial) {
-								if (frag->soa_serial < ex_serial) {
-									lws_sockaddr46 sa;
-									memset(&sa, 0, sizeof(sa));
-									if (frag->from_sa.ss_family == AF_INET) {
-										sa.sa4.sin_family = AF_INET;
-										sa.sa4.sin_addr = ((struct sockaddr_in *)&frag->from_sa)->sin_addr;
-										sa.sa4.sin_port = ((struct sockaddr_in *)&frag->from_sa)->sin_port;
-										do_notify_peer_outdated(vhd->vhost, frag->domain, &sa, ex_serial);
-									}
-#if defined(LWS_WITH_IPV6)
-									else if (frag->from_sa.ss_family == AF_INET6) {
-										sa.sa6.sin6_family = AF_INET6;
-										sa.sa6.sin6_addr = ((struct sockaddr_in6 *)&frag->from_sa)->sin6_addr;
-										sa.sa6.sin6_port = ((struct sockaddr_in6 *)&frag->from_sa)->sin6_port;
-										do_notify_peer_outdated(vhd->vhost, frag->domain, &sa, ex_serial);
-									}
-#endif
-								}
-								lwsl_err("%s: Rejecting replay! New serial %u <= existing serial %u\n", __func__, frag->soa_serial, ex_serial);
-								free(ex_buf);
-								close(ex_fd);
-								free(temp);
-								free(buf);
-								return -1;
-							}
-						}
-					}
-					free(ex_buf);
-				}
-			}
-			close(ex_fd);
-		}
-
-		lwsl_user("%s: Syntactically checked zonefile! Extracted domain %s, serial %u. Starting DS query.\n",
-			__func__, frag->domain, frag->soa_serial);
+		lwsl_user("%s: origin %s from unauthenticated payload, starting DS query\n",
+			  __func__, frag->domain);
 
 		/* Keep a reference to the vhost context and sender address in frag for the async callback */
 		frag->dht_ctx = ctx;
