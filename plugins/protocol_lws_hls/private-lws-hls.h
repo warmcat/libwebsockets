@@ -230,6 +230,7 @@ struct per_vhost_data__lws_hls {
 	int cache_count;
 
 	lws_dll2_owner_t index_list;	/* per-file keyframe index cache */
+	lws_sorted_usec_list_t sul_sweep; /* hourly stale-index sweep */
 	lws_dll2_owner_t pss_list; /* active sessions */
 
 	/* WebVTT subtitle cue cache (per media file + track id) */
@@ -508,6 +509,37 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 			 AVFormatContext *in_ctx, int video_idx, int target_seg_idx,
 			 struct hls_segment_info *out_info, int *out_total_segments,
 			 volatile int *cancel);
+
+/* hls-index.c: the on-disk copy of vhd->index_list, see the file comment */
+
+/* cap on keyframes indexed per file, from the scan and from disk */
+#define HLS_SCAN_MAX_KF 200000
+
+/* persist a freshly built index; failure is logged and non-fatal */
+int
+lws_hls_index_save(struct per_vhost_data__lws_hls *vhd,
+		   const struct hls_file_index *idx);
+
+/* malloc'd index for (filename, video_idx) from disk if one exists and
+ * still matches the media file's size and mtime, else NULL; caller owns
+ * it (adds it to vhd->index_list) */
+struct hls_file_index *
+lws_hls_index_load(struct per_vhost_data__lws_hls *vhd, const char *filename,
+		   int video_idx);
+
+/* the media file is going: drop its index from memory and disk */
+void
+lws_hls_index_forget(struct per_vhost_data__lws_hls *vhd, const char *filename);
+
+/* disk part of the above only, for the stub child which has no cache */
+void
+lws_hls_index_unlink(const char *media_dir, const char *filename);
+
+/* remove indexes whose media is gone or changed: once at init, then hourly */
+void
+lws_hls_index_sweep_start(struct per_vhost_data__lws_hls *vhd);
+void
+lws_hls_index_sweep_stop(struct per_vhost_data__lws_hls *vhd);
 
 /* hls-sub.c */
 

@@ -12,4 +12,5 @@
 #include "../protocol_lws_hls.c"
 #include "../hls-av.c"
 #include "../hls-dir.c"
+#include "../hls-index.c"
 #include "../hls-sub.c"

@@ -42,6 +42,9 @@ hls_delete_media(struct per_vhost_data__lws_hls *vhd, char *filename)
 
 	lws_snprintf(path, sizeof(path), "%s/%s", vhd->media_dir, filename);
 
+	/* whatever happens to the media, its index is no use any more */
+	lws_hls_index_unlink(vhd->media_dir, filename);
+
 	lwsl_notice("%s: deleting media %s\n", __func__, path);
 	if (unlink(path)) {
 		en = errno;
@@ -524,6 +527,8 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			return 1;
 		}
 
+		lws_hls_index_sweep_start(vhd);
+
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
@@ -536,6 +541,8 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		}
 #endif
+		lws_hls_index_sweep_stop(vhd);
+
 		pthread_mutex_lock(&vhd->lock);
 		vhd->thread_exit = 1;
 		/* don't wait for a long build to finish for nobody */
@@ -790,6 +797,10 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, "Not Found");
 				return -1;
 			}
+
+			/* our cached index of it goes regardless of who does
+			 * the unlink; the stub child has no cache */
+			lws_hls_index_forget(vhd, filename);
 #if defined(LWS_WITH_STUB)
 			if (vhd->stub_mgr) {
 				const char *sec = lws_stub_get_secret(vhd->stub_mgr);

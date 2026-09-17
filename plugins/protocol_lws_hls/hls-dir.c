@@ -47,6 +47,9 @@ hls_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
 
 	if (lde->type == LDOT_DIR) {
+		/* .index holds our keyframe indexes, not media */
+		if (lde->name[0] == '.')
+			return 0;
 		if (ds->depth >= HLS_DIR_MAX_DEPTH) {
 			lwsl_notice("%s: depth limit at %s\n", __func__, path);
 			return 0;

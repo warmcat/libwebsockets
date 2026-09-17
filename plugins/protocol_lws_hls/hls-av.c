@@ -1297,7 +1297,6 @@ struct scan_kf {
 };
 
 /* well past anything legitimate: 55h at one keyframe a second */
-#define HLS_SCAN_MAX_KF 200000
 
 /*
  * For matroska, is there a Cluster header in the bytes just before the block
@@ -1529,6 +1528,18 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 			}
 		} lws_end_foreach_dll(d);
 		pthread_mutex_unlock(&vhd->lock);
+
+		if (!idx) {
+			/* not seen since we started: maybe an earlier run did
+			 * the scan and left the index on disk */
+			idx = lws_hls_index_load(vhd, filename, video_idx);
+			if (idx) {
+				pthread_mutex_lock(&vhd->lock);
+				lws_dll2_clear(&idx->list);
+				lws_dll2_add_head(&idx->list, &vhd->index_list);
+				pthread_mutex_unlock(&vhd->lock);
+			}
+		}
 	}
 
 	if (idx) {
@@ -1641,6 +1652,11 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 							  &vhd->index_list);
 					idx = new_idx;
 					pthread_mutex_unlock(&vhd->lock);
+
+					/* so the next restart does not scan
+					 * the whole file again; entries are
+					 * immutable once on the list */
+					lws_hls_index_save(vhd, new_idx);
 				} else {
 					free(new_idx);
 				}

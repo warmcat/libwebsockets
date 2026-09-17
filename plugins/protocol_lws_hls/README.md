@@ -104,8 +104,18 @@ finishing work nobody will collect.
 ## Keyframe index
 
 Segment boundaries come from the video track's keyframe index: the container's
-cues when it has them, otherwise a one-off scan of the whole file (cached per
-vhost).  The scan does not trust the container's keyframe flags alone: for
+cues when it has them, otherwise a one-off scan of the whole file.  Either way
+the file is read end to end once, which for a large MKV is minutes, so the
+result is kept in memory per vhost and also written to
+`<media-dir>/.index/<sha1 of the filename>.idx`, and loaded from there after
+a restart.  The index records the media file's size and mtime; one that no
+longer matches, or whose media is gone, is removed when seen, when the media
+is deleted through the plugin, at protocol init, and by an hourly sweep, so
+nothing accumulates in `.index`.  If `.index` cannot be created (media dir
+not writable by the server), that is logged once per attempt and the index
+stays in memory only.
+
+The scan does not trust the container's keyframe flags alone: for
 HEVC and H.264 it also looks at the NAL unit types, because libavformat only
 recovers missing flags from the bitstream for H.264, and a release MKV whose
 muxer did not understand HEVC typically flags nothing but the first frame.
