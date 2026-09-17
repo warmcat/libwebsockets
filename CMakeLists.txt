@@ -715,7 +715,17 @@ set(LWS_INSTALL_BIN_DIR       ${CMAKE_INSTALL_BINDIR} CACHE PATH "Installation d
 set(LWS_INSTALL_INCLUDE_DIR   ${CMAKE_INSTALL_INCLUDEDIR} CACHE PATH "Installation directory for header files")
 set(LWS_INSTALL_EXAMPLES_DIR  ${CMAKE_INSTALL_BINDIR} CACHE PATH "Installation directory for example files")
 set(LWS_INSTALL_PLUGIN_DIR    "${CMAKE_INSTALL_PREFIX}/share/libwebsockets-test-server/plugins" CACHE PATH "Installation directory for plugins")
-set(LWS_INSTALL_FONTS_DIR     "${CMAKE_INSTALL_PREFIX}/share/libwebsockets/fonts" CACHE PATH "Installation directory for the mcufont repository")
+set(LWS_INSTALL_FONTS_DIR     "share/libwebsockets/fonts" CACHE PATH "Installation directory for the mcufont repository")
+
+# The install destination must stay prefix-relative so cpack can stage it
+# (an absolute one is installed to the live filesystem instead of the
+# package tree); the runtime LWS_FONTS_DIR in lws_config.h wants the
+# absolute path the fonts will be found at
+if(IS_ABSOLUTE "${LWS_INSTALL_FONTS_DIR}")
+	set(LWS_ABSOLUTE_INSTALL_FONTS_DIR "${LWS_INSTALL_FONTS_DIR}")
+else()
+	set(LWS_ABSOLUTE_INSTALL_FONTS_DIR "${CMAKE_INSTALL_PREFIX}/${LWS_INSTALL_FONTS_DIR}")
+endif()
 
 if(IS_ABSOLUTE "${LWS_INSTALL_LIB_DIR}")
 	set(LWS_ABSOLUTE_INSTALL_LIBDIR "${LWS_INSTALL_LIB_DIR}")
