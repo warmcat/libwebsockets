@@ -988,7 +988,16 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 
 		q->firstcache = c;
 		c->refcount++;
-		c->incomplete = !q->responded;// != q->asked;
+		/*
+		 * Until this query has completed, and for a query that
+		 * validates, until validation has passed, nobody else may
+		 * find this entry: it was visible as soon as it was listed,
+		 * so another requester for the name was served the
+		 * unvalidated addresses from the cache while the DNSKEY
+		 * lookup was still out (a bypass of REQUIRE).  Cleared
+		 * where the query completes.
+		 */
+		c->incomplete = 1;
 
 		/*
 		 * Only register the first one into the cache...
@@ -1068,6 +1077,8 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 
 	lwsl_info("%s: Calling lws_async_dns_complete for %s\n", __func__, q->firstcache ? q->firstcache->name : "NULL");
 	c->incomplete = 0;
+	if (q->firstcache)
+		q->firstcache->incomplete = 0;
 	lws_async_dns_complete(q, q->firstcache);
 
 	q->go_nogo = METRES_GO;

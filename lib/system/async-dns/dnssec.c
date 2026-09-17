@@ -671,6 +671,9 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 						q->dnssec_need_mask &&
 		    q->dnssec_need_mask) {
 			q->dnssec_valid = 1;
+			/* validated: the cache entry may be found now */
+			if (q->firstcache)
+				q->firstcache->incomplete = 0;
 			lws_async_dns_complete(q, q->firstcache);
 		} else {
 			lwsl_notice("%s: not all responses validated\n",
