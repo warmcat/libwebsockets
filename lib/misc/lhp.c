@@ -1183,6 +1183,7 @@ lws_csp_calc(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base,
 	cs.p = (const char *)&a[1];
 	cs.end = cs.p + a->value_len;
 	cs.depth = 0;
+	cs.paren = 0;
 	cs.unitless = 1;
 
 	v = lhp_calc_expr(&cs);
