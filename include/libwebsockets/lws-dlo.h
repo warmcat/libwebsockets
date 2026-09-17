@@ -416,6 +416,13 @@ typedef struct lws_display_render_state {
 						* completes if the layout dropped
 						* content below the surface: a
 						* taller surface would show more */
+	int32_t				viewport_h; /* 0, or the height css
+						* viewport units and the root
+						* element's height resolve
+						* against, when the layout
+						* surface is taller than what is
+						* shown at once (a scrolling
+						* window) */
 
 } lws_display_render_state_t;
 

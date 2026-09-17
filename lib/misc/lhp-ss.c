@@ -327,6 +327,7 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 	}
 
 	m->lhp.user1 = cx;
+	m->lhp.viewport_h = rs->viewport_h;
 	m->lhp.base_url = strdup(url);
 	m->lhp.ssevcb = render;
 	m->lhp.ssevsul = &rs->sul;

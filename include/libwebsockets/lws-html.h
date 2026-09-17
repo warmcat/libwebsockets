@@ -752,6 +752,7 @@ typedef struct lhp_ctx {
 	lhp_selidx_t		*selidx_nokey; /* selectors without a key */
 	lcsp_stanza_t		**hits; /* stanzas hit in the current pass */
 	uint32_t		hits_alloc;
+	uint32_t		hits_count;
 	uint32_t		selidx_count; /* stanzas indexed */
 	uint32_t		cascade_serial;
 	uint32_t		stz_seq;
@@ -786,6 +787,9 @@ typedef struct lhp_ctx {
 	uint32_t		flags;
 	uint32_t		temp;
 	int32_t			window; /* 0, or ss item flow control limit */
+	int32_t			viewport_h; /* 0, or the css viewport height
+					     * when the surface is taller */
+	lws_fx_t		viewport_h_fx;
 
 	union {
 		uint32_t	s;

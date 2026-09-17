@@ -857,6 +857,9 @@ struct lhp_calc {
 static const lcsp_atr_t *
 lhp_find_var(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *name, size_t len);
 
+static const lws_fx_t *
+lhp_viewport_h(lhp_ctx_t *ctx);
+
 static lws_fx_t
 lhp_calc_expr(struct lhp_calc *cs);
 
@@ -1297,13 +1300,13 @@ lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base)
 		 */
 
 		if (a->unit == LCSP_UNIT_LENGTH_VH)
-			v = &ctx->ic.wh_px[LWS_LHPREF_HEIGHT];
+			v = lhp_viewport_h(ctx);
 		else if (a->unit == LCSP_UNIT_LENGTH_VMIN &&
-			 lws_fx_comp(v, &ctx->ic.wh_px[LWS_LHPREF_HEIGHT]) > 0)
-			v = &ctx->ic.wh_px[LWS_LHPREF_HEIGHT];
+			 lws_fx_comp(v, lhp_viewport_h(ctx)) > 0)
+			v = lhp_viewport_h(ctx);
 		else if (a->unit == LCSP_UNIT_LENGTH_VMAX &&
-			 lws_fx_comp(v, &ctx->ic.wh_px[LWS_LHPREF_HEIGHT]) < 0)
-			v = &ctx->ic.wh_px[LWS_LHPREF_HEIGHT];
+			 lws_fx_comp(v, lhp_viewport_h(ctx)) < 0)
+			v = lhp_viewport_h(ctx);
 
 		/* the value is in 100ths of the viewport dimension */
 
@@ -2749,9 +2752,7 @@ lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
 
 		/* first hit on this stanza this pass */
 
-		if (ctx->hits_alloc == 0 ||
-		    ctx->hits[ctx->hits_alloc - 1]) {
-			/* full: the last slot is the terminator */
+		if (ctx->hits_count == ctx->hits_alloc) {
 			uint32_t na = ctx->hits_alloc ? ctx->hits_alloc * 2 : 16;
 			lcsp_stanza_t **h = lws_realloc(ctx->hits,
 							na * sizeof(*h),
@@ -2759,19 +2760,11 @@ lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
 
 			if (!h)
 				return 1;
-			memset(h + ctx->hits_alloc, 0,
-			       (na - ctx->hits_alloc) * sizeof(*h));
 			ctx->hits = h;
 			ctx->hits_alloc = na;
 		}
 
-		{
-			uint32_t i = 0;
-
-			while (ctx->hits[i])
-				i++;
-			ctx->hits[i] = stz;
-		}
+		ctx->hits[ctx->hits_count++] = stz;
 
 		stz->hit_serial = ctx->cascade_serial;
 		stz->hit_best = nm->specificity;
@@ -2878,6 +2871,27 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 }
 
 /*
+ * The css viewport height: the window the page is seen through.  A
+ * scrolling browser lays out on a surface much taller than its window so
+ * the whole page is reachable, but vh units, the root element's height and
+ * height media queries must still resolve against the window, or 100vh
+ * heroes fill the entire layout surface.
+ */
+
+static const lws_fx_t *
+lhp_viewport_h(lhp_ctx_t *ctx)
+{
+	if (ctx->viewport_h) {
+		ctx->viewport_h_fx.whole = ctx->viewport_h;
+		ctx->viewport_h_fx.frac = 0;
+
+		return &ctx->viewport_h_fx;
+	}
+
+	return &ctx->ic.wh_px[LWS_LHPREF_HEIGHT];
+}
+
+/*
  * Crude @media evaluation: enough to keep print / max-width blocks from
  * leaking into the layout.  Unknown features are treated as not matching.
  */
@@ -2924,7 +2938,7 @@ lhp_media_feature(lhp_ctx_t *ctx, const char *p, const char *end)
 	}
 
 	if (nl == 11 && !strncmp(n, "orientation", 11))
-		return (ctx->ic.wh_px[0].whole >= ctx->ic.wh_px[1].whole) ==
+		return (ctx->ic.wh_px[0].whole >= lhp_viewport_h(ctx)->whole) ==
 		       (end - v >= 9 && !strncmp(v, "landscape", 9));
 
 	if ((nl == 9 && !strncmp(n, "max-width", 9)) ||
@@ -2938,7 +2952,8 @@ lhp_media_feature(lhp_ctx_t *ctx, const char *p, const char *end)
 		if (end - v >= 2 && (!strncmp(v, "em", 2) ||
 				     !strncmp(v, "rem", 3)))
 			val.whole *= 16;
-		px = ctx->ic.wh_px[ref].whole;
+		px = ref ? lhp_viewport_h(ctx)->whole :
+			   ctx->ic.wh_px[ref].whole;
 		if (n[1] == 'a') /* max- */
 			return px <= val.whole;
 		return px >= val.whole;
@@ -3869,9 +3884,7 @@ lws_css_cascade(lhp_ctx_t *ctx)
 			return 1;
 
 		ctx->cascade_serial++;
-		if (ctx->hits)
-			memset(ctx->hits, 0,
-			       ctx->hits_alloc * sizeof(*ctx->hits));
+		ctx->hits_count = 0;
 
 		if (lhp_selidx_try(ctx, ps, ctx->selidx_nokey, LHP_SELKEY_NONE,
 				   NULL, 0) ||
@@ -3912,14 +3925,13 @@ lws_css_cascade(lhp_ctx_t *ctx)
 
 		/* the matched stanzas, in source order for cascade ties */
 
-		if (ctx->hits && ctx->hits[0]) {
-			uint32_t n = 0;
+		if (ctx->hits_count) {
+			uint32_t n;
 
-			while (ctx->hits[n])
-				n++;
-			qsort(ctx->hits, n, sizeof(*ctx->hits), lhp_hits_cmp);
+			qsort(ctx->hits, ctx->hits_count, sizeof(*ctx->hits),
+			      lhp_hits_cmp);
 
-			for (n = 0; ctx->hits[n]; n++)
+			for (n = 0; n < ctx->hits_count; n++)
 				if (lhp_add_match(ps, ctx->hits[n],
 						  ctx->hits[n]->hit_best))
 					return 1;
@@ -4088,6 +4100,7 @@ lws_lhp_destruct(lhp_ctx_t *ctx)
 	lwsac_free(&ctx->idxac);
 	lws_free_set_NULL(ctx->hits);
 	ctx->hits_alloc = 0;
+	ctx->hits_count = 0;
 	ctx->selidx_count = 0;
 }
 
@@ -4619,7 +4632,7 @@ elem_start:
 					    )
 						ps->drt.w = *lws_csp_px(ps->css_width, ps);
 
-					ps->drt.h = ctx->ic.wh_px[LWS_LHPREF_HEIGHT];
+					ps->drt.h = *lhp_viewport_h(ctx);
 					if (ps->css_height &&
 					    ps->css_height->propval != LCSP_PROPVAL_AUTO) //&&
 					    //lws_fx_comp(lws_csp_px(ps->css_height, ps),
