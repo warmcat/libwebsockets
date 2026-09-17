@@ -177,6 +177,7 @@ typedef struct lws_svg_sub {
 	lws_dll2_t		list;
 	lws_svg_pt_t		*pts;	/* from scene lwsac */
 	uint32_t		npts;
+	svg_c_t			ymin, ymax; /* of pts, so bands can skip it */
 	char			closed;
 } lws_svg_sub_t;
 

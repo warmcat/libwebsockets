@@ -230,10 +230,13 @@ aa_ramp(int64_t v0, int64_t v1)
 static void
 aa_edge(int64_t *aa_d, int w, int64_t yt, int64_t yb,
 	int64_t x0, int64_t y0, int64_t x1, int64_t y1,
-	int64_t *raw0, int *alo, int *ahi)
+	int64_t *raw0, int *alo, int *ahi, int64_t *budget)
 {
 	int64_t lo = yt, hi = yb, s, dy, xa, xb, den, dx;
 	int p, p_lo, p_hi;
+
+	if (*budget <= 0)
+		return;			/* this band has had its share */
 
 	if (y0 == y1)
 		return;			/* horizontal: no winding change */
@@ -287,6 +290,13 @@ aa_edge(int64_t *aa_d, int w, int64_t yt, int64_t yb,
 	if (p_hi > w - 1)
 		p_hi = w - 1;
 
+	/*
+	 * Each column costs two tents; an edge crossing the whole raster
+	 * inside one band costs w of them, and a scene may hold 262144
+	 * edges: bound what one band spends, from any document.
+	 */
+	*budget -= p_hi - p_lo + 1;
+
 	for (p = p_lo; p <= p_hi; p++) {
 		int64_t c = (int64_t)(p + 1) << 16;
 		int64_t tent = aa_ramp(xa - c + SVG_Q16_1,
@@ -332,6 +342,8 @@ aa_band(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 {
 	const int w = ri->w;
 	const int64_t yt = (int64_t)y << 16, yb = yt + SVG_Q16_1;
+	/* tent evaluations this band may spend, see aa_edge() */
+	int64_t budget = (int64_t)w * 4096;
 
 	if ((size_t)w > ctx->aa_need)
 		ctx->aa_need = (size_t)w;
@@ -374,6 +386,22 @@ aa_band(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 			if (!sub->npts)
 				continue;
 
+			/*
+			 * A subpath entirely above or below this band has no
+			 * edge crossing it: skip walking its points, which for
+			 * a scene at the point cap is the whole cost
+			 */
+			{
+				int64_t d0 = aa_map(sub->ymin, vby, sy, oy),
+					d1 = aa_map(sub->ymax, vby, sy, oy);
+
+				if (d0 > d1) {
+					int64_t t = d0; d0 = d1; d1 = t;
+				}
+				if (d1 <= yt || d0 >= yb)
+					continue;
+			}
+
 			px = aa_map(sub->pts[0].x, vbx, sx, ox);
 			py = aa_map(sub->pts[0].y, vby, sy, oy);
 
@@ -386,7 +414,8 @@ aa_band(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 				int64_t qy = aa_map(Q->y, vby, sy, oy);
 
 				aa_edge(svg_scratch.aa_d, w, yt, yb,
-					px, py, qx, qy, &raw0, &alo, &ahi);
+					px, py, qx, qy, &raw0, &alo, &ahi,
+					&budget);
 
 				px = qx;
 				py = qy;

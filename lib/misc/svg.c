@@ -2106,6 +2106,12 @@ commit_range(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba, char rule,
 			sub->pts[j].y = svg_qadd(svg_qadd(
 					svg_qmul(m[1], d->x),
 					svg_qmul(m[3], d->y)), m[5]);
+
+			/* the raster skips bands this subpath never reaches */
+			if (!j || sub->pts[j].y < sub->ymin)
+				sub->ymin = sub->pts[j].y;
+			if (!j || sub->pts[j].y > sub->ymax)
+				sub->ymax = sub->pts[j].y;
 		}
 
 		lws_dll2_add_tail(&sub->list, &sh->subs);
