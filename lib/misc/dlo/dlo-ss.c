@@ -1417,8 +1417,6 @@ fail:
 #endif
 	return 1;
 }
-#endif
-
 
 #if defined(LWS_WITH_CACHE_BLOB)
 /*
@@ -1504,14 +1502,19 @@ dloss_renew(dloss_t *ds, const void *data, size_t size)
 	}
 }
 
+#endif /* LWS_WITH_CACHE_BLOB */
+
 /*
  * One image, evicted to make room, is about to be rendered: its payload
- * back from the asset cache and a fresh decoder
+ * back from the asset cache and a fresh decoder.  Without the asset cache
+ * there is nowhere to renew from (and nothing is ever evicted), so the
+ * public entry points exist for every build but can only say so.
  */
 
 LWS_VISIBLE int
 lws_dlo_ss_renew_image(struct lws_context *cx, lws_dlo_t *dlo)
 {
+#if defined(LWS_WITH_CACHE_BLOB)
 	if (!cx->dlo_asset_l1)
 		return 1;
 
@@ -1530,6 +1533,10 @@ lws_dlo_ss_renew_image(struct lws_context *cx, lws_dlo_t *dlo)
 
 		return dloss_renew(ds, data, size);
 	} lws_end_foreach_dll(d);
+#else
+	(void)cx;
+	(void)dlo;
+#endif
 
 	return 1;
 }
@@ -1546,6 +1553,7 @@ lws_dlo_ss_renew_image(struct lws_context *cx, lws_dlo_t *dlo)
 LWS_VISIBLE void
 lws_dlo_ss_renew_images(struct lws_context *cx)
 {
+#if defined(LWS_WITH_CACHE_BLOB)
 	if (!cx->dlo_asset_l1)
 		return;
 
@@ -1566,8 +1574,10 @@ lws_dlo_ss_renew_images(struct lws_context *cx)
 		if (dloss_renew(ds, data, size))
 			continue;
 	} lws_end_foreach_dll_safe(d, d1);
-}
+#else
+	(void)cx;
 #endif
+}
 
 void
 lws_dlo_ss_detach_lhp(struct lws_context *cx, lhp_ctx_t *lhp)
@@ -1661,3 +1671,4 @@ lws_dlo_ss_stop_any_active(struct lws_context *cx)
 	return 0;
 }
 
+#endif /* LWS_WITH_LHP */

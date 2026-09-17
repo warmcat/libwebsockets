@@ -89,7 +89,9 @@ lws_display_render_jpeg(struct lws_display_render_state *rs)
 	lws_stateful_ret_t r;
 
 	if (dlo_jpeg->evicted) {
-#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS)
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS) && \
+    defined(LWS_WITH_LHP)
+		/* the asset machinery that can renew it is lhp's */
 		if (!dlo_jpeg->flow.h ||
 		    lws_dlo_ss_renew_image(lws_ss_get_context(dlo_jpeg->flow.h),
 					   dlo))

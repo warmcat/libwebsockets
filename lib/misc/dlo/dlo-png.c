@@ -95,7 +95,9 @@ lws_display_render_png(struct lws_display_render_state *rs)
 
 	/* evicted since we last rendered: bring it back first */
 	if (dlo_png->evicted) {
-#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS)
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS) && \
+    defined(LWS_WITH_LHP)
+		/* the asset machinery that can renew it is lhp's */
 		if (!dlo_png->flow.h ||
 		    lws_dlo_ss_renew_image(lws_ss_get_context(dlo_png->flow.h),
 					   dlo))
