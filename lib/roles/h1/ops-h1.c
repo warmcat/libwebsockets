@@ -1035,6 +1035,8 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 			wsi->http.ah->unk_pos = 0;
 #endif
+			/* a 1xx interim rewinds to here */
+			lws_header_table_rx_snapshot(wsi);
 #endif
 			lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,

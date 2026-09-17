@@ -1082,6 +1082,29 @@ lws_http_is_redirected_to_get(struct lws *wsi)
 	return wsi->redirected_to_get;
 }
 
+/*
+ * Is the response head in the ah a 1xx interim (not 101 Switching Protocols,
+ * which is the final response to an Upgrade)?  Only h1 has them: an h2 / h3
+ * stream gets :status in its own HEADERS.
+ */
+static int
+lws_http_client_response_is_interim(struct lws *wsi)
+{
+	const char *st;
+	int n;
+
+	if (wsi->client_mux_substream)
+		return 0;
+
+	st = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
+	if (!st)
+		return 0;
+
+	n = atoi(st);
+
+	return n >= 100 && n < 200 && n != 101;
+}
+
 int
 lws_client_interpret_server_handshake(struct lws *wsi)
 {
@@ -1114,10 +1137,13 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		/*
 		 * Learn any h3 alternative the server advertises on this
 		 * authenticated response, so later connections to this origin
-		 * can race QUIC to the right endpoint
+		 * can race QUIC to the right endpoint... but not from a 1xx
+		 * interim, which is swallowed further down and would otherwise
+		 * buy the server a cache write per interim
 		 */
 
-		lws_client_alt_svc_learn(wsi);
+		if (!lws_http_client_response_is_interim(wsi))
+			lws_client_alt_svc_learn(wsi);
 
 #if defined(LWS_ROLE_WT)
 		if (wsi->a.protocol && !strcmp(wsi->a.protocol->name, "webtransport")) {
@@ -1179,6 +1205,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 #if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
 
 	if ((wsi->flags & LCCSCF_CACHE_COOKIES) &&
+	    !lws_http_client_response_is_interim(wsi) &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_SET_COOKIE))
 		lws_parse_set_cookie(wsi);
 
@@ -1319,7 +1346,16 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * request tokens survive, and go back to waiting for the real
 		 * one.  It is the server talking to us, so the connection
 		 * validity and the response timeout start again from here.
+		 *
+		 * But not for ever: each interim re-arms the response timeout,
+		 * so a server sending one every few seconds would hold this
+		 * wsi, its fd and its ah indefinitely for a few bytes each.
 		 */
+		if (!ah || ++ah->rx_interims > LWS_HTTP_INTERIM_RESPONSE_LIMIT) {
+			cce = "HS: too many interim responses";
+			goto bail3_l;
+		}
+
 		lwsl_wsi_info(wsi, "%d interim response, awaiting the final one",
 			      n);
 		lws_header_table_rx_rewind(wsi);

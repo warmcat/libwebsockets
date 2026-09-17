@@ -169,6 +169,7 @@ struct allocated_headers {
 	uint8_t in_use;
 	uint8_t nfrag;
 	uint8_t rx_snap_nfrag;
+	uint8_t rx_interims; /* 1xx seen since the snapshot */
 	char /*enum uri_path_states */ ups;
 	char /*enum uri_esc_states */ ues;
 
@@ -220,6 +221,9 @@ lws_pt_next_ah(struct allocated_headers *ah)
 
 	return d ? lws_container_of(d, struct allocated_headers, list) : NULL;
 }
+
+/* how many 1xx interim responses a client swallows before giving up */
+#define LWS_HTTP_INTERIM_RESPONSE_LIMIT 8
 
 struct lws_pt_role_http {
 	lws_dll2_owner_t ah_owner; /* allocated but not necessarily in use */

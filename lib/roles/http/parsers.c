@@ -86,6 +86,9 @@ _lws_header_table_reset(struct allocated_headers *ah)
 	memset(ah->frag_index, 0, sizeof(ah->frag_index));
 	memset(ah->frags, 0, sizeof(ah->frags));
 	ah->nfrag = 0;
+	ah->rx_snap_pos = 0;
+	ah->rx_snap_nfrag = 0;
+	ah->rx_interims = 0;
 	ah->pos = 0;
 	ah->http_response = 0;
 	ah->parser_state = WSI_TOKEN_NAME_PART;
@@ -95,6 +98,8 @@ _lws_header_table_reset(struct allocated_headers *ah)
 	ah->unk_value_pos = 0;
 	ah->unk_ll_head = 0;
 	ah->unk_ll_tail = 0;
+	ah->rx_snap_unk_ll_head = 0;
+	ah->rx_snap_unk_ll_tail = 0;
 #endif
 }
 
@@ -2178,6 +2183,7 @@ lws_header_table_rx_snapshot(struct lws *wsi)
 
 	ah->rx_snap_pos = ah->pos;
 	ah->rx_snap_nfrag = ah->nfrag;
+	ah->rx_interims = 0;
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 	ah->rx_snap_unk_ll_head = ah->unk_ll_head;
 	ah->rx_snap_unk_ll_tail = ah->unk_ll_tail;
@@ -2225,6 +2231,9 @@ lws_header_table_rx_rewind(struct lws *wsi)
 	ah->unk_value_pos = 0;
 	ah->unk_ll_head = ah->rx_snap_unk_ll_head;
 	ah->unk_ll_tail = ah->rx_snap_unk_ll_tail;
+	/* the restored tail's forward link still names a discarded entry */
+	if (ah->unk_ll_tail)
+		lws_ser_wu32be((uint8_t *)&ah->data[ah->unk_ll_tail + UHO_LL], 0);
 #endif
 	ah->parser_state = WSI_TOKEN_NAME_PART;
 	ah->lextable_pos = 0;
