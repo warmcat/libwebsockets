@@ -36,6 +36,8 @@
 #define HLS_INDEX_MAGIC		"LWSHLSIX"
 #define HLS_INDEX_VERSION	1
 #define HLS_INDEX_SWEEP_US	(3600 * LWS_US_PER_SEC)
+/* how long a failed build keeps the worker from parking behind another */
+#define HLS_INDEX_RETRY_US	(600 * LWS_US_PER_SEC)
 
 struct hls_index_hdr {
 	char		magic[8];
@@ -403,4 +405,346 @@ void
 lws_hls_index_sweep_stop(struct per_vhost_data__lws_hls *vhd)
 {
 	lws_sul_cancel(&vhd->sul_sweep);
+}
+
+/*
+ * Indexer thread
+ *
+ * The worker serves everything in FIFO order, so a task that needed an
+ * index of a large file used to sit on the worker scanning it for minutes
+ * while every other file's playlist and segment requests queued behind it.
+ * Now the worker parks such tasks and the scan runs here; when it is done
+ * the parked tasks go back to the head of the worker's queue, so they are
+ * answered first, from the cache.
+ */
+
+/* vhd->lock held */
+static struct hls_index_job *
+hls_index_job_find(struct per_vhost_data__lws_hls *vhd, const char *filename)
+{
+	if (vhd->index_running &&
+	    !strcmp(vhd->index_running->filename, filename))
+		return vhd->index_running;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->index_jobs)) {
+		struct hls_index_job *j = lws_container_of(d,
+					struct hls_index_job, list);
+
+		if (!strcmp(j->filename, filename))
+			return j;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+/* vhd->lock held: drop recent results old enough to be worth retrying */
+static void
+hls_index_recent_expire(struct per_vhost_data__lws_hls *vhd)
+{
+	lws_usec_t now = lws_now_usecs();
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&vhd->index_recent)) {
+		struct hls_index_job *j = lws_container_of(d,
+					struct hls_index_job, list);
+
+		if (now - j->finished < HLS_INDEX_RETRY_US)
+			continue;
+		lws_dll2_remove(&j->list);
+		free(j);
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
+/* vhd->lock held */
+static struct hls_index_job *
+hls_index_recent_find(struct per_vhost_data__lws_hls *vhd,
+		      const char *filename)
+{
+	hls_index_recent_expire(vhd);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->index_recent)) {
+		struct hls_index_job *j = lws_container_of(d,
+					struct hls_index_job, list);
+
+		if (!strcmp(j->filename, filename))
+			return j;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+/* vhd->lock held: make sure a build of filename is queued or running */
+static struct hls_index_job *
+hls_index_job_ensure(struct per_vhost_data__lws_hls *vhd, const char *filename)
+{
+	struct hls_index_job *j = hls_index_job_find(vhd, filename);
+
+	if (j)
+		return j;
+
+	j = calloc(1, sizeof(*j));
+	if (!j)
+		return NULL;
+	lws_strncpy(j->filename, filename, sizeof(j->filename));
+	lws_dll2_add_tail(&j->list, &vhd->index_jobs);
+	pthread_cond_signal(&vhd->index_cond);
+
+	lwsl_notice("HLS-INDEX: %s: build queued on indexer\n", filename);
+
+	return j;
+}
+
+int
+lws_hls_index_defer(struct per_vhost_data__lws_hls *vhd, const char *filename,
+		    volatile int *cancel)
+{
+	struct hls_task *t;
+
+	if (!vhd || pthread_equal(pthread_self(), vhd->indexer_thread))
+		/* the indexer itself: build inline, that is the job */
+		return 0;
+
+	pthread_mutex_lock(&vhd->lock);
+
+	t = vhd->running;
+	if (!t || hls_index_recent_find(vhd, filename)) {
+		/*
+		 * No task to park (shouldn't happen), or the indexer already
+		 * tried this file lately and got nothing cacheable: parking
+		 * again would just cycle, do what we did before there was an
+		 * indexer
+		 */
+		pthread_mutex_unlock(&vhd->lock);
+		return 0;
+	}
+
+	if (!hls_index_job_ensure(vhd, filename)) {
+		pthread_mutex_unlock(&vhd->lock);
+		return 0;
+	}
+
+	t->parked = 1;
+	pthread_mutex_unlock(&vhd->lock);
+
+	/*
+	 * Make the body builder unwind as if the client had gone: it checks
+	 * this in its loops.  The worker sorts out which it really was, under
+	 * the lock, from t->pss.
+	 */
+	if (cancel)
+		*cancel = 1;
+
+	return 1;
+}
+
+void
+lws_hls_task_park(struct per_vhost_data__lws_hls *vhd, struct hls_task *t)
+{
+	free(t->r.body);
+	t->r.body = NULL;
+	t->r.len = 0;
+	t->r.status = HTTP_STATUS_INTERNAL_SERVER_ERROR;
+	t->parked = 0;
+
+	pthread_mutex_lock(&vhd->lock);
+	vhd->running = NULL;
+
+	if (!t->pss) {
+		/* the client went while we were at it: nothing to park for */
+		pthread_mutex_unlock(&vhd->lock);
+		lwsl_notice("HLS-TRACE: task type=%d '%s' seg=%d needs index, "
+			    "client gone\n", t->type, t->filename,
+			    t->segment_idx);
+		lws_hls_task_free(t);
+		return;
+	}
+
+	t->cancel = 0;
+	t->state = HLS_TASK_PARKED;
+	lws_dll2_add_tail(&t->list, &vhd->parked);
+	pthread_mutex_unlock(&vhd->lock);
+
+	lwsl_notice("HLS-TRACE: task type=%d '%s' seg=%d parked for index\n",
+		    t->type, t->filename, t->segment_idx);
+}
+
+/*
+ * vhd->lock held: everything parked for filename goes back to the head of
+ * the worker's queue, in the order it arrived, ahead of newer work
+ */
+static void
+hls_index_unpark(struct per_vhost_data__lws_hls *vhd, const char *filename)
+{
+	lws_dll2_owner_t mine;
+	int n = 0;
+
+	memset(&mine, 0, sizeof(mine));
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&vhd->parked)) {
+		struct hls_task *t = lws_container_of(d, struct hls_task, list);
+
+		if (strcmp(t->filename, filename))
+			continue;
+		lws_dll2_remove(&t->list);
+		if (!t->pss) {
+			/* detached while parked: nobody wants it */
+			lws_hls_task_free(t);
+			continue;
+		}
+		t->state = HLS_TASK_PENDING;
+		lws_dll2_add_tail(&t->list, &mine);
+		n++;
+	} lws_end_foreach_dll_safe(d, d1);
+
+	if (!n)
+		return;
+
+	while (lws_dll2_get_head(&vhd->tasks)) {
+		struct hls_task *t = lws_container_of(
+				lws_dll2_get_head(&vhd->tasks),
+				struct hls_task, list);
+
+		lws_dll2_remove(&t->list);
+		lws_dll2_add_tail(&t->list, &mine);
+	}
+	while (lws_dll2_get_head(&mine)) {
+		struct hls_task *t = lws_container_of(lws_dll2_get_head(&mine),
+						      struct hls_task, list);
+
+		lws_dll2_remove(&t->list);
+		lws_dll2_add_tail(&t->list, &vhd->tasks);
+	}
+
+	lwsl_notice("HLS-INDEX: %s: %d parked task(s) requeued\n", filename, n);
+	pthread_cond_signal(&vhd->cond);
+}
+
+static int
+hls_index_build(struct per_vhost_data__lws_hls *vhd, const char *filename)
+{
+	AVFormatContext *ic = NULL;
+	struct hls_segment_info info;
+	char path[1024];
+	int video_idx = -1, total = 0, ret = -1;
+	unsigned int ui;
+
+	lws_snprintf(path, sizeof(path), "%s/%s", vhd->media_dir, filename);
+	if (avformat_open_input(&ic, path, NULL, NULL) < 0)
+		return -1;
+	if (avformat_find_stream_info(ic, NULL) < 0)
+		goto out;
+
+	for (ui = 0; ui < ic->nb_streams; ui++)
+		if (ic->streams[ui]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+			video_idx = (int)ui;
+			break;
+		}
+	if (video_idx < 0)
+		goto out;
+
+	memset(&info, 0, sizeof(info));
+	info.end_pts = AV_NOPTS_VALUE;
+	/* on this thread, this builds and caches rather than deferring */
+	if (lws_hls_get_segment_info(vhd, filename, ic, video_idx, 0, &info,
+				     &total, &vhd->thread_exit) < 0)
+		goto out;
+
+	ret = 0;
+
+out:
+	avformat_close_input(&ic);
+
+	return ret;
+}
+
+void *
+lws_hls_indexer(void *d)
+{
+	struct per_vhost_data__lws_hls *vhd =
+			(struct per_vhost_data__lws_hls *)d;
+
+	while (1) {
+		struct hls_index_job *j;
+		int failed;
+
+		pthread_mutex_lock(&vhd->lock);
+		while (!vhd->thread_exit && !lws_dll2_get_head(&vhd->index_jobs))
+			pthread_cond_wait(&vhd->index_cond, &vhd->lock);
+		if (vhd->thread_exit) {
+			pthread_mutex_unlock(&vhd->lock);
+			break;
+		}
+		j = lws_container_of(lws_dll2_get_head(&vhd->index_jobs),
+				     struct hls_index_job, list);
+		lws_dll2_remove(&j->list);
+		vhd->index_running = j;
+		pthread_mutex_unlock(&vhd->lock);
+
+		lwsl_notice("HLS-INDEX: %s: indexer starting\n", j->filename);
+		failed = hls_index_build(vhd, j->filename) < 0;
+		lwsl_notice("HLS-INDEX: %s: indexer %s\n", j->filename,
+			    failed ? "FAILED" : "done");
+
+		pthread_mutex_lock(&vhd->lock);
+		vhd->index_running = NULL;
+		j->failed = failed;
+		j->finished = lws_now_usecs();
+		j->pct = 100;
+		/*
+		 * Kept on recent whether it worked or not: a success is in the
+		 * cache and never consults this, a failure or a file that gave
+		 * nothing cacheable must not have tasks parked behind it again
+		 */
+		lws_dll2_add_tail(&j->list, &vhd->index_recent);
+		hls_index_unpark(vhd, j->filename);
+		pthread_mutex_unlock(&vhd->lock);
+
+		/* the status endpoint may have someone polling */
+		lws_cancel_service(vhd->context);
+	}
+
+	return NULL;
+}
+
+volatile int *
+lws_hls_index_progress(struct per_vhost_data__lws_hls *vhd)
+{
+	if (!vhd || !vhd->index_running ||
+	    !pthread_equal(pthread_self(), vhd->indexer_thread))
+		return NULL;
+
+	return &vhd->index_running->pct;
+}
+
+void
+lws_hls_indexer_destroy(struct per_vhost_data__lws_hls *vhd)
+{
+	/* thread_exit is set and the thread joined by the caller */
+	while (lws_dll2_get_head(&vhd->index_jobs)) {
+		struct hls_index_job *j = lws_container_of(
+				lws_dll2_get_head(&vhd->index_jobs),
+				struct hls_index_job, list);
+
+		lws_dll2_remove(&j->list);
+		free(j);
+	}
+	while (lws_dll2_get_head(&vhd->index_recent)) {
+		struct hls_index_job *j = lws_container_of(
+				lws_dll2_get_head(&vhd->index_recent),
+				struct hls_index_job, list);
+
+		lws_dll2_remove(&j->list);
+		free(j);
+	}
+	while (lws_dll2_get_head(&vhd->parked)) {
+		struct hls_task *t = lws_container_of(
+				lws_dll2_get_head(&vhd->parked),
+				struct hls_task, list);
+
+		lws_dll2_remove(&t->list);
+		lws_hls_task_free(t);
+	}
 }

@@ -156,6 +156,7 @@ enum hls_task_type {
 enum hls_task_state {
 	HLS_TASK_PENDING,	/* on vhd->tasks, not started */
 	HLS_TASK_RUNNING,	/* the worker has it */
+	HLS_TASK_PARKED,	/* on vhd->parked, waiting for an index */
 	HLS_TASK_DONE,		/* on vhd->done, awaiting collection */
 };
 
@@ -186,8 +187,28 @@ struct hls_task {
 	 * stops early rather than finishing work nobody will collect.
 	 */
 	volatile int cancel;
+	/*
+	 * Set by lws_hls_index_defer() on the worker when the task needs an
+	 * index that is not built yet: the worker discards whatever the body
+	 * builder produced and parks the task until the indexer is done.
+	 */
+	int parked;
 
 	struct hls_result r;
+};
+
+/*
+ * One keyframe index build on the indexer thread.  Lives on vhd->index_jobs
+ * until it runs, then on vhd->index_recent for a while so the worker knows
+ * not to park tasks behind a build that just failed (or produced nothing
+ * cacheable) and would only fail again.
+ */
+struct hls_index_job {
+	lws_dll2_t list;
+	char filename[256];
+	volatile int pct;	/* scan progress, for the status endpoint */
+	int failed;
+	lws_usec_t finished;
 };
 
 #define HLS_CANCELLED(c) ((c) && *(c))
@@ -224,6 +245,18 @@ struct per_vhost_data__lws_hls {
 	lws_dll2_owner_t tasks;		/* pending work, FIFO */
 	lws_dll2_owner_t done;		/* finished, awaiting collection */
 	struct hls_task *running;	/* what the worker has, under lock */
+	lws_dll2_owner_t parked;	/* tasks waiting on an index build */
+
+	/*
+	 * indexer thread: builds keyframe indexes, so a multi-minute scan of
+	 * one file does not stop the worker serving every other file.  All
+	 * lists under vhd->lock, index_cond signalled with it held.
+	 */
+	pthread_t indexer_thread;
+	pthread_cond_t index_cond;
+	lws_dll2_owner_t index_jobs;	/* pending builds, FIFO */
+	struct hls_index_job *index_running;
+	lws_dll2_owner_t index_recent;	/* finished builds, see the struct */
 	char current_task_filename[256]; /* thumbnail being extracted */
 
 	lws_dll2_owner_t thumb_cache;	/* finished thumbnails, MRU first */
@@ -534,6 +567,33 @@ lws_hls_index_forget(struct per_vhost_data__lws_hls *vhd, const char *filename);
 /* disk part of the above only, for the stub child which has no cache */
 void
 lws_hls_index_unlink(const char *media_dir, const char *filename);
+
+/*
+ * Worker only, from lws_hls_get_segment_info() when neither memory nor disk
+ * has the index: hand the build to the indexer thread and park the current
+ * task behind it.  Returns 1 if that was done (the caller returns -1 and
+ * unwinds; the worker requeues the task when the index exists), 0 if the
+ * caller should build inline after all (a recent build of this file failed).
+ */
+int
+lws_hls_index_defer(struct per_vhost_data__lws_hls *vhd, const char *filename,
+		    volatile int *cancel);
+
+/* worker: what to do with a task whose builder returned with t->parked set */
+void
+lws_hls_task_park(struct per_vhost_data__lws_hls *vhd, struct hls_task *t);
+
+/* the indexer thread; started and joined beside the worker */
+void *
+lws_hls_indexer(void *d);
+
+/* after the join: free jobs, results and parked tasks */
+void
+lws_hls_indexer_destroy(struct per_vhost_data__lws_hls *vhd);
+
+/* progress pointer for scan_keyframes(), if this is the indexer thread */
+volatile int *
+lws_hls_index_progress(struct per_vhost_data__lws_hls *vhd);
 
 /* remove indexes whose media is gone or changed: once at init, then hourly */
 void

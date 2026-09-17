@@ -244,6 +244,12 @@ lws_hls_worker(void *d)
 
 		run_body_task(vhd, t);
 
+		if (t->parked) {
+			/* it needs an index the indexer is now building */
+			lws_hls_task_park(vhd, t);
+			continue;
+		}
+
 		lwsl_notice("HLS-TRACE: worker done task type=%d '%s' seg=%d -> status=%d len=%zu\n",
 			    t->type, t->filename, t->segment_idx, t->r.status,
 			    t->r.len);
@@ -1378,12 +1384,12 @@ mkv_cluster_start_before(int fd, int64_t pos)
  */
 static int
 scan_keyframes(const char *url, int video_idx, volatile int *cancel,
-	       struct scan_kf **out, int *out_n)
+	       volatile int *pct, struct scan_kf **out, int *out_n)
 {
 	AVFormatContext *sc = NULL;
 	struct scan_kf *arr = NULL;
 	int n = 0, cap = 0, ret = -1, fd = -1;
-	int64_t cluster_pos = -1;
+	int64_t cluster_pos = -1, fsize = 0;
 	lws_usec_t t0 = lws_now_usecs();
 	AVStream *st;
 	AVPacket pkt;
@@ -1407,12 +1413,18 @@ scan_keyframes(const char *url, int video_idx, volatile int *cancel,
 		goto bail;
 	st = sc->streams[video_idx];
 
+	if (pct && sc->pb)
+		fsize = avio_size(sc->pb);
+
 	/* matroska: we need Cluster positions, see mkv_cluster_start_before() */
 	if (sc->iformat && sc->iformat->name &&
 	    !strncmp(sc->iformat->name, "matroska", 8))
 		fd = open(url, O_RDONLY);
 
 	while (av_read_frame(sc, &pkt) >= 0) {
+		if (pct && fsize > 0 && pkt.pos > 0)
+			*pct = (int)(pkt.pos * 100 / fsize);
+
 		if (fd >= 0) {
 			/* any stream's block may be the first in a cluster */
 			int64_t c = mkv_cluster_start_before(fd, pkt.pos);
@@ -1553,6 +1565,15 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 			count = get_index_count(st);
 		}
 	} else {
+		/*
+		 * Not cached anywhere: building it means reading the whole
+		 * file.  On the worker that would stall every other request
+		 * for minutes on a large file, so the worker parks this task
+		 * and the indexer thread does the build instead
+		 */
+		if (lws_hls_index_defer(vhd, filename, cancel))
+			return -1;
+
 		/* Cues load and scan fallback as before */
 		if (count <= 1) {
 			/* Try to seek to the end once to force Matroska cues loading */
@@ -1571,6 +1592,7 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 			lwsl_user("HLS-INDEX: %s: no usable cues (%d), scanning file to build index...\n",
 				  filename, count);
 			if (scan_keyframes(in_ctx->url, video_idx, bc,
+					   lws_hls_index_progress(vhd),
 					   &scanned, &n_scanned) < 0)
 				return -1;
 			for (int i = 0; i < n_scanned; i++)
@@ -1597,6 +1619,7 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 					 * walk the file for the true dts of each entry */
 					if (!scanned &&
 					    scan_keyframes(in_ctx->url, video_idx, bc,
+							   lws_hls_index_progress(vhd),
 							   &scanned, &n_scanned) < 0) {
 						free(new_idx->entries);
 						free(new_idx);

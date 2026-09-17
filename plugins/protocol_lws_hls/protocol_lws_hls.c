@@ -526,6 +526,17 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_err("Failed to create worker thread\n");
 			return 1;
 		}
+		pthread_cond_init(&vhd->index_cond, NULL);
+		if (pthread_create(&vhd->indexer_thread, NULL, lws_hls_indexer,
+				   vhd)) {
+			lwsl_err("Failed to create indexer thread\n");
+			pthread_mutex_lock(&vhd->lock);
+			vhd->thread_exit = 1;
+			pthread_cond_signal(&vhd->cond);
+			pthread_mutex_unlock(&vhd->lock);
+			pthread_join(vhd->worker_thread, NULL);
+			return 1;
+		}
 
 		lws_hls_index_sweep_start(vhd);
 
@@ -549,10 +560,14 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		if (vhd->running)
 			vhd->running->cancel = 1;
 		pthread_cond_signal(&vhd->cond);
+		pthread_cond_signal(&vhd->index_cond);
 		pthread_mutex_unlock(&vhd->lock);
 		pthread_join(vhd->worker_thread, NULL);
+		pthread_join(vhd->indexer_thread, NULL);
 		pthread_mutex_destroy(&vhd->lock);
 		pthread_cond_destroy(&vhd->cond);
+		pthread_cond_destroy(&vhd->index_cond);
+		lws_hls_indexer_destroy(vhd);
 		
 		/* free cache */
 		while (lws_dll2_get_head(&vhd->thumb_cache)) {

@@ -101,6 +101,16 @@ queued drops it; one that closes while its task is running sets a cancel flag
 the demux and index scan loops poll, so the worker stops early rather than
 finishing work nobody will collect.
 
+Building a keyframe index is the one job that does not run on the worker.
+The worker is FIFO, so a multi-minute scan of one large file there would
+hold up every other file's playlist and segment requests behind it.  When a
+task needs an index that is in neither memory nor `.index`, the worker parks
+the task, queues the build on a second, indexer thread, and carries on with
+the queue; when the build lands the parked tasks go back to the head of the
+worker's queue and are answered from the cache.  A build that fails, or
+finds nothing worth caching, is remembered for ten minutes so tasks for that
+file are not parked behind it again but built inline as before.
+
 ## Keyframe index
 
 Segment boundaries come from the video track's keyframe index: the container's
