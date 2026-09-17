@@ -1365,20 +1365,23 @@ lws_cose_key_export(lws_cose_key_t *ck, lws_lec_pctx_t *ctx, int flags)
 
 		for (n = 0; n < (int)LWS_ARRAY_SIZE(ck->e); n++)
 			if ((ctx->opaque[2] & (1 << n)) && ck->e[n].buf &&
-			    ck->e[n].len)
+			    ck->e[n].len &&
+			    /* the curve pair is counted below, whatever its len */
+			    (n || (ck->gencrypto_kty != LWS_GENCRYPTO_KTY_EC &&
+				   ck->gencrypto_kty != LWS_GENCRYPTO_KTY_OKP)))
 				ctx->opaque[0]++;
 
 		/*
 		 * We emit the curve pair unconditionally for EC / OKP below,
-		 * so it must be in the pair count even when it is not in the
-		 * public element mask (CRV is element index 0 for both, which
-		 * the public masks do not include)... otherwise a public
-		 * export declares map(3) and then writes 4 pairs
+		 * so it must be in the pair count whether or not it is in
+		 * the element mask (CRV is element index 0 for both, which
+		 * the public masks do not include) and whatever its length
+		 * (an imported empty curve tstr is emitted as such)...
+		 * otherwise the export declares map(3) and then writes 4 pairs
 		 */
 
-		if ((ck->gencrypto_kty == LWS_GENCRYPTO_KTY_EC ||
-		     ck->gencrypto_kty == LWS_GENCRYPTO_KTY_OKP) &&
-		    !(ctx->opaque[2] & 1))
+		if (ck->gencrypto_kty == LWS_GENCRYPTO_KTY_EC ||
+		    ck->gencrypto_kty == LWS_GENCRYPTO_KTY_OKP)
 			ctx->opaque[0]++;
 
 		/*
