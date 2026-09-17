@@ -576,6 +576,9 @@ gif_state_lzw(lws_gif_t *g, const uint8_t **buf, size_t *len)
 	}
 }
 
+/* the same ceiling upng applies to its dimensions */
+#define LWS_GIF_MAX_DIM 16384
+
 static lws_stateful_ret_t
 gif_got_lsd(lws_gif_t *g, char hold)
 {
@@ -585,6 +588,16 @@ gif_got_lsd(lws_gif_t *g, char hold)
 
 	if (!g->sw || !g->sh)
 		return LWS_SRET_FATAL + 20;
+
+	/*
+	 * The logical screen sets how many background rows we synthesize
+	 * for the area outside the image rectangle, each a memset of a
+	 * screen width, from no input at all: a 24-byte file describing a
+	 * 65535 x 65535 screen costs 4GB of writes, times the sweep height
+	 * when interlaced.  Bound it as upng bounds its dimensions.
+	 */
+	if (g->sw > LWS_GIF_MAX_DIM || g->sh > LWS_GIF_MAX_DIM)
+		return LWS_SRET_FATAL + 21;
 
 	g->gct_entries = (uint16_t)(2u << (g->buf[4] & 7));
 	g->has_gct = !!(g->buf[4] & 0x80);
