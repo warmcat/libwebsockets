@@ -1209,7 +1209,7 @@ lws_parse_fail_diag(struct lws *wsi, const unsigned char *buf, int consumed,
 	/* a real token index names the header we were collecting */
 	if (wsi->http.ah) {
 		state = wsi->http.ah->parser_state;
-		tok = (const char *)lws_token_to_string(state);
+		tok = (const char *)lws_token_to_string((enum lws_token_indexes)state);
 	}
 
 	lwsl_wsi(wsi, level, "peer %s: parser state %d (%s), failed at byte "
