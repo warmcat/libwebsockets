@@ -1920,6 +1920,12 @@ lhp_ident_char(char c)
 }
 
 static int
+lhp_ws(char c)
+{
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f';
+}
+
+static int
 lhp_has_class(lws_dll2_owner_t *atr, const char *name, size_t name_len)
 {
 	const char *c = lhp_atr_get(atr, "class", 5, 1), *start = c;
@@ -1928,19 +1934,60 @@ lhp_has_class(lws_dll2_owner_t *atr, const char *name, size_t name_len)
 		return 0;
 
 	/*
-	 * A class token is bounded by non-identifier chars.  This is the
-	 * hottest comparison in the cascade (every class selector that
-	 * survives the key prefilter, for every element), so no tokenizer
+	 * A class token is bounded by whitespace (a tailwind class like
+	 * md:flex or w-[1312px] is one token, matched by an escaped selector
+	 * .md\:flex).  This is the hottest comparison in the cascade (every
+	 * class selector that survives the key prefilter, for every element),
+	 * so no tokenizer
 	 */
 
 	while (*c) {
-		if ((c == start || !lhp_ident_char(c[-1])) &&
-		    !strncmp(c, name, name_len) && !lhp_ident_char(c[name_len]))
+		if ((c == start || lhp_ws(c[-1])) &&
+		    !strncmp(c, name, name_len) &&
+		    (!c[name_len] || lhp_ws(c[name_len])))
 			return 1;
 		c++;
 	}
 
 	return 0;
+}
+
+/*
+ * Read an identifier from selector text into buf, resolving backslash
+ * escapes (tailwind: .md\:flex, .w-\[1312px\], .pt-\(--aspect-padding\)),
+ * returning the number of selector chars consumed and the decoded length
+ * in *len (0 if it doesn't fit)
+ */
+
+static size_t
+lhp_sel_ident(const char *p, const char *end, char *buf, size_t bl,
+	      size_t *len)
+{
+	const char *s = p;
+	size_t n = 0;
+
+	while (p < end) {
+		char c = *p;
+
+		if (c == '\\' && p + 1 < end) {
+			c = p[1];
+			p += 2;
+		} else if (lhp_ident_char(c))
+			p++;
+		else
+			break;
+
+		if (n + 1 >= bl) {
+			*len = 0;
+			return (size_t)(p - s);
+		}
+		buf[n++] = c;
+	}
+
+	buf[n] = '\0';
+	*len = n;
+
+	return (size_t)(p - s);
 }
 
 /*
@@ -2085,22 +2132,27 @@ lhp_sel_match_compound(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 			break;
 
 		case '.':
-			s = ++p;
-			while (p < end && lhp_ident_char(*p))
-				p++;
-			if (p == s || !lhp_has_class(atr, s, (size_t)(p - s)))
+		{
+			char nm[128];
+			size_t nl;
+
+			p += 1 + lhp_sel_ident(p + 1, end, nm, sizeof(nm), &nl);
+			if (!nl || !lhp_has_class(atr, nm, nl))
 				return 0;
 			break;
+		}
 
 		case '#':
-			s = ++p;
-			while (p < end && lhp_ident_char(*p))
-				p++;
+		{
+			char nm[128];
+			size_t nl;
+
+			p += 1 + lhp_sel_ident(p + 1, end, nm, sizeof(nm), &nl);
 			v = lhp_atr_get(atr, "id", 2, 1);
-			if (p == s || !v || strlen(v) != (size_t)(p - s) ||
-			    memcmp(v, s, (size_t)(p - s)))
+			if (!nl || !v || strlen(v) != nl || memcmp(v, nm, nl))
 				return 0;
 			break;
+		}
 
 		case '[':
 		{
@@ -2406,8 +2458,11 @@ lhp_sel_specificity(const char *p, const char *end)
 		}
 
 		/* skip the rest of the identifier (and any (...) argument) */
-		while (p < end && lhp_ident_char(*p))
+		while (p < end && (lhp_ident_char(*p) || *p == '\\')) {
+			if (*p == '\\' && p + 1 < end)
+				p++;
 			p++;
+		}
 		if (p < end && *p == '(') {
 			while (p < end && *p != ')')
 				p++;
@@ -2549,6 +2604,10 @@ lhp_sel_key(const char *sel, const char *end, lcsp_names_t *na)
 			s = ++p;
 			while (p < end && lhp_ident_char(*p))
 				p++;
+			if (p < end && *p == '\\')
+				/* an escaped name: the index key is raw text,
+				 * so this selector can't be keyed */
+				return;
 			if (!cls && p > s) {
 				cls = s;
 				cls_len = (size_t)(p - s);
@@ -2558,6 +2617,8 @@ lhp_sel_key(const char *sel, const char *end, lcsp_names_t *na)
 			s = ++p;
 			while (p < end && lhp_ident_char(*p))
 				p++;
+			if (p < end && *p == '\\')
+				return;
 			if (!id && p > s) {
 				id = s;
 				id_len = (size_t)(p - s);
@@ -3904,14 +3965,14 @@ lws_css_cascade(lhp_ctx_t *ctx)
 		if (ecls) {
 			const char *c = ecls;
 
-			/* each class token, bounded by non-ident chars */
+			/* each class token, bounded by whitespace */
 			while (*c) {
 				const char *cs;
 
-				while (*c && !lhp_ident_char(*c))
+				while (*c && lhp_ws(*c))
 					c++;
 				cs = c;
-				while (*c && lhp_ident_char(*c))
+				while (*c && !lhp_ws(*c))
 					c++;
 				if (c > cs &&
 				    lhp_selidx_try(ctx, ps, ctx->selidx[
