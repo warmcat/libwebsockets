@@ -614,6 +614,11 @@ typedef struct lcsp_names {
 	size_t			name_len;
 	uint32_t		specificity;	/* (layer << 18) | (ids << 12) |
 						 * (classes << 6) | tags */
+	uint16_t		key_ofs;	/* rightmost compound's most
+						 * selective simple selector,
+						 * for the cascade prefilter */
+	uint16_t		key_len;
+	uint8_t			key_kind;	/* LHP_SELKEY_ */
 
 	/* name + NUL follow */
 } lcsp_names_t;
@@ -624,7 +629,24 @@ typedef struct lcsp_stanza { /* css stanza, with names and defs */
 	lws_dll2_owner_t	names; /* lcsp_names_t */
 	lws_dll2_owner_t	defs; /* lcsp_defs_t */
 
+	uint32_t		seq;	/* source order, for cascade ties */
+	uint32_t		hit_serial; /* cascade pass that last hit it */
+	uint32_t		hit_best; /* best specificity in that pass */
 } lcsp_stanza_t;
+
+/*
+ * The selector index: every selector of every stanza, bucketed by its key
+ * (see lhp_sel_key()), so the cascade for an element only visits the
+ * selectors whose key it can satisfy plus the keyless ones
+ */
+
+typedef struct lhp_selidx {
+	struct lhp_selidx	*next;
+	lcsp_names_t		*nm;
+	lcsp_stanza_t		*stz;
+} lhp_selidx_t;
+
+#define LHP_SELIDX_BUCKETS	64
 
 /*
  * A list of stanza references can easily have to bring in the same stanza
@@ -676,6 +698,13 @@ typedef struct lhp_css_layer {
 	/* name+NUL follows (empty for an anonymous layer) */
 } lhp_css_layer_t;
 
+enum {
+	LHP_SELKEY_NONE,
+	LHP_SELKEY_TAG,
+	LHP_SELKEY_CLASS,
+	LHP_SELKEY_ID
+};
+
 /* layer indexes are 1-based, this is the unlayered ("strongest") value */
 #define LHP_CSS_LAYER_NONE	63
 
@@ -716,7 +745,16 @@ typedef struct lhp_ctx {
 
 	lws_dll2_owner_t	css_vars; /* lhp_css_var_t allocated in cssac */
 	lws_dll2_owner_t	css_layers; /* lhp_css_layer_t allocated in
-					     * cssac, in cascade order */
+					     * cascade order */
+
+	struct lwsac		*idxac; /* selector index allocations */
+	lhp_selidx_t		*selidx[LHP_SELIDX_BUCKETS];
+	lhp_selidx_t		*selidx_nokey; /* selectors without a key */
+	lcsp_stanza_t		**hits; /* stanzas hit in the current pass */
+	uint32_t		hits_alloc;
+	uint32_t		selidx_count; /* stanzas indexed */
+	uint32_t		cascade_serial;
+	uint32_t		stz_seq;
 
 	/* ad / junk filtering, see lws_lhp_set_filter() */
 

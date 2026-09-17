@@ -1909,27 +1909,33 @@ lhp_atr_get(lws_dll2_owner_t *atr, const char *aname, size_t aname_len,
 }
 
 static int
+lhp_ident_char(char c)
+{
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+	       (c >= '0' && c <= '9') || c == '-' || c == '_' ||
+	       (unsigned char)c >= 0x80;
+}
+
+static int
 lhp_has_class(lws_dll2_owner_t *atr, const char *name, size_t name_len)
 {
-	const char *c = lhp_atr_get(atr, "class", 5, 1);
-	struct lws_tokenize ts;
+	const char *c = lhp_atr_get(atr, "class", 5, 1), *start = c;
 
 	if (!c)
 		return 0;
 
-	memset(&ts, 0, sizeof(ts));
-	ts.start = c;
-	ts.len = strlen(c);
-	ts.flags = LWS_TOKENIZE_F_MINUS_NONTERM;
+	/*
+	 * A class token is bounded by non-identifier chars.  This is the
+	 * hottest comparison in the cascade (every class selector that
+	 * survives the key prefilter, for every element), so no tokenizer
+	 */
 
-	do {
-		ts.e = (int8_t)lws_tokenize(&ts);
-		if (ts.e == LWS_TOKZE_TOKEN) {
-			if (ts.token_len == name_len &&
-			    !memcmp(ts.token, name, name_len))
-				return 1;
-		}
-	} while (ts.e > 0);
+	while (*c) {
+		if ((c == start || !lhp_ident_char(c[-1])) &&
+		    !strncmp(c, name, name_len) && !lhp_ident_char(c[name_len]))
+			return 1;
+		c++;
+	}
 
 	return 0;
 }
@@ -1945,14 +1951,6 @@ lhp_has_class(lws_dll2_owner_t *atr, const char *name, size_t name_len)
  * the parse-stack level of its parent: that gives the ancestors, and the
  * parent's remembered closed children give the earlier siblings.
  */
-
-static int
-lhp_ident_char(char c)
-{
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-	       (c >= '0' && c <= '9') || c == '-' || c == '_' ||
-	       (unsigned char)c >= 0x80;
-}
 
 static int
 lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
@@ -2506,6 +2504,292 @@ lhp_css_layer_statement(lhp_ctx_t *ctx, const char *p, const char *end)
 }
 
 /*
+ * Pick the most selective simple selector (id, else class, else tag) of the
+ * rightmost compound of the normalized selector [sel, end), so the cascade
+ * can reject the selector for most elements without running the matcher.
+ * A large site has thousands of selectors and thousands of elements: the
+ * full match of every selector against every element is where all the
+ * time went.  The key is only a prefilter, it must never reject a selector
+ * the matcher would accept; anything it doesn't understand gets no key.
+ */
+
+static void
+lhp_sel_key(const char *sel, const char *end, lcsp_names_t *na)
+{
+	const char *p = end, *tag = NULL, *cls = NULL, *id = NULL, *s;
+	size_t tag_len = 0, cls_len = 0, id_len = 0;
+	int depth = 0;
+
+	na->key_kind = LHP_SELKEY_NONE;
+
+	/* find the start of the rightmost compound selector */
+
+	while (p > sel) {
+		char c = p[-1];
+
+		if (c == ']' || c == ')')
+			depth++;
+		else if (c == '[' || c == '(')
+			depth--;
+		else if (!depth && (c == ' ' || c == '>' || c == '+' ||
+				    c == '~'))
+			break;
+		p--;
+	}
+
+	while (p < end) {
+		switch (*p) {
+		case '*':
+			p++;
+			break;
+		case '.':
+			s = ++p;
+			while (p < end && lhp_ident_char(*p))
+				p++;
+			if (!cls && p > s) {
+				cls = s;
+				cls_len = (size_t)(p - s);
+			}
+			break;
+		case '#':
+			s = ++p;
+			while (p < end && lhp_ident_char(*p))
+				p++;
+			if (!id && p > s) {
+				id = s;
+				id_len = (size_t)(p - s);
+			}
+			break;
+		case '[':
+			/* attribute selectors: skip to the matching ']' */
+			while (p < end && *p != ']')
+				p++;
+			if (p < end)
+				p++;
+			break;
+		case ':':
+			/* pseudo-classes: skip the name and any (...) */
+			p++;
+			while (p < end && (lhp_ident_char(*p) || *p == ':'))
+				p++;
+			if (p < end && *p == '(') {
+				depth = 0;
+				while (p < end) {
+					if (*p == '(')
+						depth++;
+					else if (*p == ')' && !--depth) {
+						p++;
+						break;
+					}
+					p++;
+				}
+			}
+			break;
+		default:
+			if (!lhp_ident_char(*p))
+				return; /* not understood: no key */
+			s = p;
+			while (p < end && lhp_ident_char(*p))
+				p++;
+			if (!tag) {
+				tag = s;
+				tag_len = (size_t)(p - s);
+			}
+			break;
+		}
+	}
+
+	if (id) {
+		na->key_kind = LHP_SELKEY_ID;
+		s = id;
+		na->key_len = (uint16_t)id_len;
+	} else if (cls) {
+		na->key_kind = LHP_SELKEY_CLASS;
+		s = cls;
+		na->key_len = (uint16_t)cls_len;
+	} else if (tag) {
+		na->key_kind = LHP_SELKEY_TAG;
+		s = tag;
+		na->key_len = (uint16_t)tag_len;
+	} else
+		return;
+
+	na->key_ofs = (uint16_t)(s - sel);
+}
+
+static uint32_t
+lhp_selidx_hash(uint8_t kind, const char *k, size_t len)
+{
+	uint32_t h = 2166136261u ^ kind;
+
+	while (len--) {
+		char c = *k++;
+
+		/* tags match case-insensitively */
+		if (kind == LHP_SELKEY_TAG && c >= 'A' && c <= 'Z')
+			c = (char)(c + 32);
+		h = (h ^ (uint8_t)c) * 16777619u;
+	}
+
+	return h;
+}
+
+/*
+ * (Re)build the selector index over every stanza in ctx->css.  Stylesheets
+ * and <style> blocks keep arriving during the parse, so it is rebuilt
+ * whenever the cascade finds the stanza count has changed
+ */
+
+static int
+lhp_selidx_build(lhp_ctx_t *ctx)
+{
+	lwsac_free(&ctx->idxac);
+	memset(ctx->selidx, 0, sizeof(ctx->selidx));
+	ctx->selidx_nokey = NULL;
+
+	lws_start_foreach_dll(struct lws_dll2 *, q,
+			      lws_dll2_get_head(&ctx->css)) {
+		lcsp_stanza_t *stz = lws_container_of(q, lcsp_stanza_t, list);
+
+		lws_start_foreach_dll(struct lws_dll2 *, z,
+				      lws_dll2_get_head(&stz->names)) {
+			lcsp_names_t *nm = lws_container_of(z, lcsp_names_t,
+							    list);
+			lhp_selidx_t *e = lwsac_use_zero(&ctx->idxac,
+							 sizeof(*e),
+							 LHP_AC_GRANULE);
+			lhp_selidx_t **head;
+
+			if (!e)
+				return 1;
+
+			e->nm = nm;
+			e->stz = stz;
+
+			if (nm->key_kind == LHP_SELKEY_NONE)
+				head = &ctx->selidx_nokey;
+			else
+				head = &ctx->selidx[lhp_selidx_hash(
+					nm->key_kind,
+					(const char *)&nm[1] + nm->key_ofs,
+					nm->key_len) % LHP_SELIDX_BUCKETS];
+
+			/*
+			 * Prepend, walking the list later gives reverse
+			 * source order: the hits are sorted by stanza seq
+			 * before use, so order here doesn't matter
+			 */
+			e->next = *head;
+			*head = e;
+		} lws_end_foreach_dll(z);
+	} lws_end_foreach_dll(q);
+
+	ctx->selidx_count = ctx->css.count;
+
+	return 0;
+}
+
+/*
+ * Run the matcher for every indexed selector in the bucket list e whose
+ * key is exactly k (or all of them for the keyless list), recording stanza
+ * hits for this cascade pass
+ */
+
+static int
+lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
+	       uint8_t kind, const char *k, size_t klen)
+{
+	for (; e; e = e->next) {
+		lcsp_names_t *nm = e->nm;
+		const char *n = (const char *)&nm[1];
+		lcsp_stanza_t *stz = e->stz;
+		size_t pl;
+
+		if (kind != LHP_SELKEY_NONE &&
+		    (nm->key_kind != kind || nm->key_len != klen ||
+		     (kind == LHP_SELKEY_TAG ?
+			     strncasecmp(n + nm->key_ofs, k, klen) :
+			     strncmp(n + nm->key_ofs, k, klen))))
+			continue;
+
+		pl = lhp_pseudo_elem_suffix(n, nm->name_len);
+
+		if (pl) {
+			/*
+			 * A :before / :after pseudo-element selector: the
+			 * element matches the subject part, and the stanza
+			 * generates a pseudo box instead of styling the
+			 * element itself.  The last one in source order wins
+			 */
+			if (nm->name_len > pl &&
+			    lhp_sel_match(&ps->atr, lhp_parent_elem(ps), n,
+					  n + nm->name_len - pl)) {
+				/* the name ends 'r' for after, 'e' for before */
+				if (n[nm->name_len - 1] == 'r') {
+					if (!ps->pseudo_after ||
+					    ps->pseudo_after->seq < stz->seq)
+						ps->pseudo_after = stz;
+				} else
+					if (!ps->pseudo_before ||
+					    ps->pseudo_before->seq < stz->seq)
+						ps->pseudo_before = stz;
+			}
+			continue;
+		}
+
+		if (!lhp_sel_match(&ps->atr, lhp_parent_elem(ps), n,
+				   n + nm->name_len))
+			continue;
+
+		if (stz->hit_serial == ctx->cascade_serial) {
+			if (nm->specificity > stz->hit_best)
+				stz->hit_best = nm->specificity;
+			continue;
+		}
+
+		/* first hit on this stanza this pass */
+
+		if (ctx->hits_alloc == 0 ||
+		    ctx->hits[ctx->hits_alloc - 1]) {
+			/* full: the last slot is the terminator */
+			uint32_t na = ctx->hits_alloc ? ctx->hits_alloc * 2 : 16;
+			lcsp_stanza_t **h = lws_realloc(ctx->hits,
+							na * sizeof(*h),
+							__func__);
+
+			if (!h)
+				return 1;
+			memset(h + ctx->hits_alloc, 0,
+			       (na - ctx->hits_alloc) * sizeof(*h));
+			ctx->hits = h;
+			ctx->hits_alloc = na;
+		}
+
+		{
+			uint32_t i = 0;
+
+			while (ctx->hits[i])
+				i++;
+			ctx->hits[i] = stz;
+		}
+
+		stz->hit_serial = ctx->cascade_serial;
+		stz->hit_best = nm->specificity;
+	}
+
+	return 0;
+}
+
+static int
+lhp_hits_cmp(const void *a, const void *b)
+{
+	const lcsp_stanza_t *sa = *(lcsp_stanza_t * const *)a,
+			    *sb = *(lcsp_stanza_t * const *)b;
+
+	return sa->seq < sb->seq ? -1 : sa->seq > sb->seq;
+}
+
+/*
  * Split the comma-separated selector list in [buf, buf + len) into
  * normalized lcsp_names_t on the current stanza
  */
@@ -2576,6 +2860,8 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 		na->name_len = n;
 		na->specificity = lhp_sel_specificity(norm, norm + n) |
 				  lhp_css_layer_bits(ctx);
+		lhp_sel_key(norm, norm + n - lhp_pseudo_elem_suffix(norm, n),
+			    na);
 		if (ctx->u.f.filter_css)
 			/*
 			 * Filter css is a user-agent level overlay: it is
@@ -3428,61 +3714,79 @@ lws_css_cascade(lhp_ctx_t *ctx)
 		lhp_atr_t *ta = lws_container_of(lws_dll2_get_head(&ps->atr),
 						 lhp_atr_t, list);
 
-		if (ta->name_len == 4 &&
-		    !strncasecmp((const char *)&ta[1], "body", 4))
+		const char *etag = (const char *)&ta[1],
+			   *eid = lhp_atr_get(&ps->atr, "id", 2, 1),
+			   *ecls = lhp_atr_get(&ps->atr, "class", 5, 1);
+
+		if (ta->name_len == 4 && !strncasecmp(etag, "body", 4))
 			ps->in_body = 1;
 
-		/* which stanzas have a selector matching this element? */
+		/*
+		 * Which stanzas have a selector matching this element?  Only
+		 * the indexed selectors keyed by this element's tag, id and
+		 * classes can, plus the keyless ones
+		 */
 
-		lws_start_foreach_dll(struct lws_dll2 *, q,
-				      lws_dll2_get_head(&ctx->css)) {
-			lcsp_stanza_t *stz = lws_container_of(q, lcsp_stanza_t,
-							      list);
-			uint32_t best = 0;
-			int hit = 0;
+		if (ctx->selidx_count != ctx->css.count &&
+		    lhp_selidx_build(ctx))
+			return 1;
 
-			lws_start_foreach_dll(struct lws_dll2 *, z,
-					      lws_dll2_get_head(&stz->names)) {
-				lcsp_names_t *nm = lws_container_of(z,
-							lcsp_names_t, list);
-				const char *n = (const char *)&nm[1];
-				size_t pl = lhp_pseudo_elem_suffix(n,
-							     nm->name_len);
+		ctx->cascade_serial++;
+		if (ctx->hits)
+			memset(ctx->hits, 0,
+			       ctx->hits_alloc * sizeof(*ctx->hits));
 
-				if (pl) {
-					/*
-					 * A :before / :after pseudo-element
-					 * selector: the element matches the
-					 * subject part, and the stanza
-					 * generates a pseudo box instead of
-					 * styling the element itself
-					 */
-					if (nm->name_len > pl &&
-					    lhp_sel_match(&ps->atr,
-							  lhp_parent_elem(ps),
-							  n,
-							  n + nm->name_len - pl)) {
-						/* the name ends 'r' for after,
-						 * 'e' for before */
-						if (n[nm->name_len - 1] == 'r')
-							ps->pseudo_after = stz;
-						else
-							ps->pseudo_before = stz;
-					}
-					continue;
-				}
+		if (lhp_selidx_try(ctx, ps, ctx->selidx_nokey, LHP_SELKEY_NONE,
+				   NULL, 0) ||
+		    lhp_selidx_try(ctx, ps, ctx->selidx[lhp_selidx_hash(
+					LHP_SELKEY_TAG, etag, ta->name_len) %
+						LHP_SELIDX_BUCKETS],
+				   LHP_SELKEY_TAG, etag, ta->name_len))
+			return 1;
 
-				if (lhp_sel_match(&ps->atr, lhp_parent_elem(ps),
-						  n, n + nm->name_len)) {
-					if (!hit || nm->specificity > best)
-						best = nm->specificity;
-					hit = 1;
-				}
-			} lws_end_foreach_dll(z);
+		if (eid && *eid &&
+		    lhp_selidx_try(ctx, ps, ctx->selidx[lhp_selidx_hash(
+					LHP_SELKEY_ID, eid, strlen(eid)) %
+						LHP_SELIDX_BUCKETS],
+				   LHP_SELKEY_ID, eid, strlen(eid)))
+			return 1;
 
-			if (hit && lhp_add_match(ps, stz, best))
-				return 1;
-		} lws_end_foreach_dll(q);
+		if (ecls) {
+			const char *c = ecls;
+
+			/* each class token, bounded by non-ident chars */
+			while (*c) {
+				const char *cs;
+
+				while (*c && !lhp_ident_char(*c))
+					c++;
+				cs = c;
+				while (*c && lhp_ident_char(*c))
+					c++;
+				if (c > cs &&
+				    lhp_selidx_try(ctx, ps, ctx->selidx[
+					lhp_selidx_hash(LHP_SELKEY_CLASS, cs,
+						(size_t)(c - cs)) %
+						LHP_SELIDX_BUCKETS],
+					LHP_SELKEY_CLASS, cs, (size_t)(c - cs)))
+					return 1;
+			}
+		}
+
+		/* the matched stanzas, in source order for cascade ties */
+
+		if (ctx->hits && ctx->hits[0]) {
+			uint32_t n = 0;
+
+			while (ctx->hits[n])
+				n++;
+			qsort(ctx->hits, n, sizeof(*ctx->hits), lhp_hits_cmp);
+
+			for (n = 0; ctx->hits[n]; n++)
+				if (lhp_add_match(ps, ctx->hits[n],
+						  ctx->hits[n]->hit_best))
+					return 1;
+		}
 
 		st = lws_html_get_atr(ps, "style", 5);
 		if (st && *st && !ctx->await_css_done &&
@@ -3644,6 +3948,10 @@ lws_lhp_destruct(lhp_ctx_t *ctx)
 	lwsac_free(&ctx->propatrac);
 	lwsac_free(&ctx->cascadeac);
 	lwsac_free(&ctx->cssac);
+	lwsac_free(&ctx->idxac);
+	lws_free_set_NULL(ctx->hits);
+	ctx->hits_alloc = 0;
+	ctx->selidx_count = 0;
 }
 
 void
@@ -5192,6 +5500,7 @@ done_amp:
 							  LHP_AC_GRANULE);
 				if (!ctx->stz)
 					goto oom;
+				ctx->stz->seq = ctx->stz_seq++;
 
 				/* attach the selectors to it */
 
@@ -5274,6 +5583,7 @@ stanza_body:
 							  LHP_AC_GRANULE);
 					if (!ctx->stz)
 						goto oom;
+					ctx->stz->seq = ctx->stz_seq++;
 					lws_dll2_add_tail(&ctx->stz->list,
 							  &ctx->css);
 					ctx->css_lhs_partial = 1;
