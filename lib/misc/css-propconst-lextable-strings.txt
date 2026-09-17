@@ -138,3 +138,5 @@ stretch
 wrap
 start
 end
+cover
+contain

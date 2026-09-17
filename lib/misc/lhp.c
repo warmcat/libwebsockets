@@ -4833,6 +4833,29 @@ elem_start:
 					    (aa->unit == LCSP_UNIT_STRING ||
 					     aa->unit == LCSP_UNIT_URL))
 						pname = (const char *)(aa + 1);
+					else if (!aa &&
+						 lws_css_cascade_get_prop_atr(ctx,
+							LCSP_PROP_BACKGROUND)) {
+						/* the url() term of the
+						 * background shorthand */
+						lws_start_foreach_dll(
+						    struct lws_dll2 *, d,
+						    lws_dll2_get_head(
+							    &ctx->active_atr)) {
+							lcsp_atr_ptr_t *ap =
+							  lws_container_of(d,
+							     lcsp_atr_ptr_t,
+							     list);
+
+							if (ap->atr->unit ==
+							     LCSP_UNIT_URL &&
+							    ap->atr->value_len)
+								aa = ap->atr;
+						} lws_end_foreach_dll(d);
+						if (aa)
+							pname = (const char *)
+								    (aa + 1);
+					}
 				}
 
 				/*

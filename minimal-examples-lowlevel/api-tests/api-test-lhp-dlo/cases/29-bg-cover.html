@@ -1,0 +1,19 @@
+<!doctype html>
+<!--
+ A background image given by the background shorthand's url() term, sized
+ by background-size: cover to the element's box, which is only known when
+ the element closes (an article header as tall as its text: apple.com's
+ .article_article-header { background: url(header-bg.jpg) 50% no-repeat;
+ background-size: cover }).  The other boxes reuse the image, which stays
+ with the first element (one dlo per asset).  The image comes from the
+ (preseeded) cache.
+-->
+<html><head><style>
+body { margin: 0 }
+.hdr { background: url(https://missing.invalid/bluecat.jpg) 50% no-repeat; background-size: cover; color: #ffffff; padding: 10px }
+.ico { background-image: url(https://missing.invalid/bluecat.jpg); background-size: 40px; width: 100px; height: 50px }
+.ico2 { background: url(https://missing.invalid/bluecat.jpg) no-repeat; width: 100px; height: 50px }
+</style></head><body>
+<div class="hdr"><h1>Title over the image</h1><p>and a line of text</p></div>
+<div class="ico"></div><div class="ico2"></div>
+</body></html>

@@ -40,7 +40,8 @@ if (requirements)
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.html
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/14-asset-cache.html
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/21-image-reclaim.html
-					${CMAKE_CURRENT_SOURCE_DIR}/cases/23-abs-image.html)
+					${CMAKE_CURRENT_SOURCE_DIR}/cases/23-abs-image.html
+					${CMAKE_CURRENT_SOURCE_DIR}/cases/29-bg-cover.html)
 		foreach(C ${LHP_CASES})
 			get_filename_component(CN ${C} NAME_WE)
 			add_test(NAME api-test-lhp-dlo-${CN}
@@ -105,6 +106,19 @@ if (requirements)
 					-DOUT=${CMAKE_CURRENT_BINARY_DIR}/23-abs-image.dlo
 					-DASSET_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/23-abs-image-scratch
 					-DPRESEED=https://missing.invalid/exclaim.png=${CMAKE_CURRENT_SOURCE_DIR}/exclaim.png
+					-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+
+			# background shorthand url() term + background-size:
+			# cover sized to the element box at close; the image
+			# comes from the (preseeded) cache
+			add_test(NAME api-test-lhp-dlo-29-bg-cover
+				 COMMAND ${CMAKE_COMMAND}
+					-DTOOL=$<TARGET_FILE:${SAMP}>
+					-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/29-bg-cover.html
+					-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/cases/29-bg-cover.dlo
+					-DOUT=${CMAKE_CURRENT_BINARY_DIR}/29-bg-cover.dlo
+					-DASSET_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/29-bg-cover-scratch
+					-DPRESEED=https://missing.invalid/bluecat.jpg=${CMAKE_CURRENT_SOURCE_DIR}/bluecat.jpg
 					-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
 		endif()
 

@@ -2392,6 +2392,27 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 	lws_fx_add(&ps->dlo->box.h, &h, &pt);
 	lws_fx_add(&ps->dlo->box.h, &ps->dlo->box.h, &pb);
 
+	/*
+	 * background-size: cover / contain size the background image to
+	 * our box, which is only known now (the header of an article with a
+	 * full-bleed background image is as tall as its text).  The image is
+	 * scaled to the box rather than cropped to keep its aspect ratio
+	 */
+	if (ps->bg_dlo && ps->bg_dlo->flag_bg_homed) {
+		const lcsp_atr_t *bs = lws_css_get_prop_atr_ps(ctx, ps,
+						LCSP_PROP_BACKGROUND_SIZE);
+
+		if (bs && bs->unit == LCSP_UNIT_NONE &&
+		    (bs->propval == LCSP_PROPVAL_COVER ||
+		     bs->propval == LCSP_PROPVAL_CONTAIN)) {
+			lws_fx_set(ps->bg_dlo->box.x, 0, 0);
+			lws_fx_set(ps->bg_dlo->box.y, 0, 0);
+			ps->bg_dlo->box.w = ps->dlo->box.w;
+			ps->bg_dlo->box.h = ps->dlo->box.h;
+			ps->bg_dlo->flag_fixed_h = 1;
+		}
+	}
+
 	/* an <a> with a box of its own: a region filling it */
 	if (lhp_tag_is(ps, "a", 1) && lws_html_get_atr(ps, "href", 4)) {
 		lws_dlo_hit_t *hit = lhp_hit_new(ctx, ps,

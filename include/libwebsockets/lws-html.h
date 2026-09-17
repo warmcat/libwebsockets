@@ -386,6 +386,8 @@ typedef enum {
 	LCSP_PROPVAL_WRAP,
 	LCSP_PROPVAL_START,
 	LCSP_PROPVAL_END,
+	LCSP_PROPVAL_COVER,
+	LCSP_PROPVAL_CONTAIN,
 
 	LCSP_PROPVAL__COUNT /* always last */
 } lcsp_propvals_t;

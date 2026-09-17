@@ -1,0 +1,9 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (0.0,0.0) [400.0 x 129.8] rgba=00000000
+  jpeg (0.0,0.0) [400.0 x 129.8]
+  rect (10.0,31.44) [380.0 x 30.0] rgba=00000000
+   text (0.0,0.0) [198.0 x 30.0] rgba=FFFFFFFF f=29/700 "Title over the image"
+  rect (10.0,82.88) [380.0 x 19.0] rgba=00000000
+   text (0.0,0.0) [97.0 x 19.0] rgba=FFFFFFFF f=17/400 "and a line of text"
+ rect (0.0,129.8) [100.0 x 50.0] rgba=00000000
+ rect (0.0,179.8) [100.0 x 50.0] rgba=00000000
