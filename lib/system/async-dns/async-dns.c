@@ -1885,11 +1885,14 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 			  name, c->results, c->rr_results);
 		m = (c->results || c->rr_results) ? LADNS_RET_FOUND :
 		    (c->nxdomain ? LADNS_RET_NXDOMAIN : LADNS_RET_FAILED);
+		/*
+		 * The callback gets c->results and releases it with
+		 * lws_async_dns_freeaddrinfo(); with only rr_results it gets
+		 * NULL and has nothing to release, so taking a reference for
+		 * that case pinned the entry for ever and, once it reached the
+		 * LRU tail, stopped the cache trim freeing anything at all.
+		 */
 		if (c->results)
-			c->refcount++;
-		/* Note: c->rr_results relies on the same cache refcount, but to be
-		   consistent, we'll bump the refcount if rr_results exists too! */
-		else if (c->rr_results)
 			c->refcount++;
 
 #if defined(LWS_WITH_SYS_METRICS)
