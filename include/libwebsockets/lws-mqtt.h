@@ -339,7 +339,8 @@ lws_mqtt_str_free(lws_mqtt_str_t **s);
  *
  * \param wsi: the mqtt child wsi
  * \param pub: additional information on what we're publishing
- * \param buf: payload to send
+ * \param buf: payload to send, with LWS_PRE bytes valid before it as for
+ *		lws_write()
  * \param len: length of data in buf
  * \param final: flag indicating this is the last part
  *

@@ -620,7 +620,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 {
 	int n, m, cmd;
 	unsigned char buf[LWS_PRE + 4096], *start = &buf[LWS_PRE], *p = start,
-			*end = &buf[sizeof(buf) - 1 - LWS_PRE], *name,
+			*end = &buf[sizeof(buf) - 1], *name,
 			*value = NULL;
 	char c, hrs;
 

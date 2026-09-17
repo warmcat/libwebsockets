@@ -95,7 +95,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 			(struct per_vhost_data__lws_status *)
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 					lws_get_protocol(wsi));
-	char buf[LWS_PRE + 384], ip[24], *start = buf + LWS_PRE - 1, *p = start,
+	char buf[LWS_PRE + 384], ip[24], *start = buf + LWS_PRE, *p = start,
 	     *end = buf + sizeof(buf) - 1;
 	int n, m;
 

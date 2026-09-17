@@ -4405,7 +4405,7 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 			goto all_sent;
 
 		n = 0;
-		p = pstart = pt->serv_buf + LWS_H2_FRAME_HEADER_LENGTH;
+		p = pstart = pt->serv_buf + LWS_PRE;
 		bufend = pt->serv_buf + context->pt_serv_buf_size;
 
 #if defined(LWS_WITH_RANGES)

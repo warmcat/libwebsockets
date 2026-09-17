@@ -421,7 +421,7 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 		*p++ = 0; /* Name: root */
 		lws_ser_wu16be(p, 41); /* Type: OPT (41) */
 		p += 2;
-		lws_ser_wu16be(p, LWS_PRE + DNS_PACKET_LEN); /* UDP payload size */
+		lws_ser_wu16be(p, DNS_PACKET_LEN); /* UDP payload size */
 		p += 2;
 		*p++ = 0; /* Extended RCODE */
 		*p++ = 0; /* Version */
