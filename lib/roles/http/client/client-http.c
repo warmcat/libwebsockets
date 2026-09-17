@@ -1307,12 +1307,14 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	if (ah)
 		ah->http_response = (unsigned int)n;
 
-	if (n >= 100 && n < 200 && !wsi->client_mux_substream) {
+	if (n >= 100 && n < 200 && n != 101 && !wsi->client_mux_substream) {
 		/*
 		 * A 1xx interim response (100 Continue, 103 Early Hints...).
 		 * RFC 9110 15.2: a client MUST be able to parse one or more of
 		 * these before the final response, whether or not it asked for
-		 * one with Expect.  It carries nothing for the user: rewind the
+		 * one with Expect.  101 Switching Protocols is not one of them:
+		 * it is the final response to our Upgrade (ws, h2c), handled
+		 * below.  An interim carries nothing for the user: rewind the
 		 * header table to where the response section began, so our own
 		 * request tokens survive, and go back to waiting for the real
 		 * one.  It is the server talking to us, so the connection
