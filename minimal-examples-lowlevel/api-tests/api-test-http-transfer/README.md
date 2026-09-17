@@ -10,7 +10,9 @@ and trailer fields; chunked on a GET followed by a pipelined request on the same
 connection; and the refusals (an unsupported
 Transfer-Encoding gets 501, Transfer-Encoding with Content-Length gets 400, a
 chunked body over the mount limit drops the connection, a Content-Length over it
-gets 413).
+gets 413); and `Expect: 100-continue` on Content-Length and chunked bodies, with
+an over-limit body refused instead of continued and an unknown expectation
+answered 417.
 
 Request bodies on h2 (cleartext, prior knowledge): Content-Length, no
 Content-Length (END_STREAM delimited), and no body.
