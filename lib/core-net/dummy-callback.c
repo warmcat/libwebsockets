@@ -631,6 +631,18 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 #if defined(LWS_WITH_HTTP_PROXY)
 	case LWS_CALLBACK_HTTP_BODY:
 		if (lws_get_child(wsi)) {
+			/*
+			 * A POST with "Content-Length: 0" (fetch() with no
+			 * body) is delivered as one empty HTTP_BODY so user
+			 * code sees the body phase happen; there is nothing to
+			 * stash for the onward leg, whose body-pending flag was
+			 * decided from the same content length when it was
+			 * created.  Stashing a NULL segment failed and closed
+			 * the browser side without the request ever going on.
+			 */
+			if (!len)
+				break;
+
 			lwsl_wsi_info(wsi, "HTTP_BODY: stashing %d", (int)len);
 			if (lws_buflist_append_segment(
 				     &wsi->http.buflist_post_body, in, len) < 0)

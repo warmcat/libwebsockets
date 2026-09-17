@@ -39,6 +39,13 @@
  *    and echoes it back over the established ws (the production failure
  *    path through the lws-ws-proxy stack temp)
  *
+ *  - "http-post0": a POST with "Content-Length: 0" and no body (what a
+ *    browser's fetch(url, {method: 'POST'}) sends) through the proxying
+ *    mount must reach the backend as a POST and get its 200 back.  The
+ *    proxy used to try to stash the empty body notification on the onward
+ *    connection's buflist, which refuses a NULL buffer, and so closed the
+ *    browser side without ever sending the request on.
+ *
  *  - "http-path": the http request's path and query carry percent-encoded
  *    spaces, a '&' and a '=' inside a value, and a '+'.  The proxy holds
  *    the DECODED uri, and used to splice it into the onward request line
@@ -74,6 +81,7 @@
 enum test_state {
 	ST_HTTP_CONN,		/* http transaction through the proxy */
 	ST_WS_CONN,		/* ws upgrade through the proxy */
+	ST_POST0,		/* empty-body POST through the proxy */
 	ST_DONE,
 };
 
@@ -105,6 +113,9 @@ static int ws_stage_started;
 
 static int
 start_ws_connection(void);
+
+static int
+start_post0_connection(void);
 
 static void
 sul_watchdog_cb(lws_sorted_usec_list_t *sul)
@@ -246,11 +257,77 @@ callback_hdr_proxy_client(struct lws *wsi, enum lws_callback_reasons reason,
 			test_failures++;
 		}
 
-		state = ST_DONE;
+		/* on to the empty-body POST */
+
+		if (start_post0_connection()) {
+			test_failures++;
+			state = ST_DONE;
+		}
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("%s: client connection error: %s\n", __func__,
+			 in ? (const char *)in : "(none)");
+		test_failures++;
+		state = ST_DONE;
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+/*
+ * "http-post0": the browser side of an empty POST, as fetch() sends it:
+ * "Content-Length: 0" and nothing after the headers.
+ */
+
+static int post0_status;
+
+static int
+callback_hdr_proxy_post0(struct lws *wsi, enum lws_callback_reasons reason,
+			 void *user, void *in, size_t len)
+{
+	switch (reason) {
+
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
+		unsigned char **p = (unsigned char **)in, *end = (*p) + len;
+
+		if (lws_add_http_header_content_length(wsi, 0, p, end))
+			return -1;
+		break;
+	}
+
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		post0_status = (int)lws_http_client_http_response(wsi);
+		break;
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP: {
+		static char buffer[1024 + LWS_PRE];
+		char *px = buffer + LWS_PRE;
+		int lenx = (int)sizeof(buffer) - LWS_PRE;
+
+		if (lws_http_client_read(wsi, &px, &lenx) < 0)
+			return -1;
+		break;
+	}
+
+	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if (state != ST_POST0)
+			break;
+		if (post0_status != HTTP_STATUS_OK) {
+			lwsl_err("%s: http-post0: response status %d\n",
+				 __func__, post0_status);
+			test_failures++;
+		}
+		state = ST_DONE;
+		break;
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		lwsl_err("%s: http-post0: connection error: %s\n", __func__,
 			 in ? (const char *)in : "(none)");
 		test_failures++;
 		state = ST_DONE;
@@ -284,6 +361,19 @@ callback_hdr_echo_backend(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 
 	case LWS_CALLBACK_HTTP:
+
+		if (in && !strcmp((const char *)in, "post0")) {
+			/* http-post0: it must have arrived as a POST */
+			if (!lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
+				lwsl_err("%s: backend: post0 not a POST\n",
+					 __func__);
+				test_failures++;
+			}
+			if (lws_return_http_status(wsi, HTTP_STATUS_OK, NULL))
+				return 1;
+			/* the body callbacks for the empty body follow */
+			return 0;
+		}
 
 		/*
 		 * http-path: the proxy must have re-encoded the decoded path
@@ -362,6 +452,11 @@ callback_hdr_echo_backend(struct lws *wsi, enum lws_callback_reasons reason,
 
 		return 0;
 
+	case LWS_CALLBACK_HTTP_BODY:
+	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
+		/* http-post0: already answered at LWS_CALLBACK_HTTP */
+		return 0;
+
 	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
 
 		/* the upgrade request headers are in the ah right now */
@@ -424,8 +519,29 @@ static const struct lws_protocols protocols[] = {
 	{ "hdr-proxy-pass", callback_hdr_proxy_pass, 0, 0, 0, NULL, 0 },
 	{ "hdr-echo", callback_hdr_echo_backend, sizeof(struct pss), 0, 0, NULL, 0 },
 	{ "hdr-proxy-client", callback_hdr_proxy_client, 0, 0, 0, NULL, 0 },
+	{ "hdr-proxy-post0", callback_hdr_proxy_post0, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
+
+static int
+start_post0_connection(void)
+{
+	struct lws_client_connect_info i;
+
+	memset(&i, 0, sizeof(i));
+	i.context		= context;
+	i.vhost			= vh_proxy;
+	i.address		= "127.0.0.1";
+	i.port			= port_proxy;
+	i.path			= "/post0";
+	i.host			= "127.0.0.1";
+	i.method		= "POST";
+	i.local_protocol_name	= "hdr-proxy-post0";
+
+	state = ST_POST0;
+
+	return lws_client_connect_via_info(&i) ? 0 : -1;
+}
 
 static int
 start_ws_connection(void)
