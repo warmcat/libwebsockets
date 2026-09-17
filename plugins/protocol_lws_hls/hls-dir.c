@@ -192,7 +192,8 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 	can_delete = pss ? pss->can_delete : 0;
 
 	q = hls_append_fmt(body, body, need,
-		"<html><head><title>LWS HLS Media</title>"
+		"<html><head><meta charset=\"utf-8\">"
+		"<title>LWS HLS Media</title>"
 		"<link rel=\"stylesheet\" href=\"../dir.css\">"
 		"<script src=\"/lws-login-media/lws-login.js\"></script>"
 		"<script src=\"../dir.js\" defer></script>"
@@ -230,7 +231,13 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 	p = start;
 	end = p + 2048;
 
-	if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "text/html",
+	/*
+	 * The charset matters beyond this page: dir.js has no charset of its
+	 * own, so the browser decodes it as the document it was loaded from,
+	 * and without this the badge glyph came out as windows-1252 mojibake
+	 */
+	if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+					"text/html; charset=utf-8",
 					(lws_filepos_t)len, &p, end)) {
 		free(buf);
 		free(html);

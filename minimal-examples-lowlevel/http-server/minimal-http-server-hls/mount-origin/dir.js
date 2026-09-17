@@ -106,7 +106,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
             var badge = document.createElement('span');
             badge.className = 'resume-badge';
-            badge.textContent = '▶ ' + fmtTime(parsed.pos) +
+            /* escaped, so it survives whatever charset we are decoded as */
+            badge.textContent = '\u25B6 ' + fmtTime(parsed.pos) +
                 (parsed.dur ? ' / ' + fmtTime(parsed.dur) : '');
             a.appendChild(badge);
         });

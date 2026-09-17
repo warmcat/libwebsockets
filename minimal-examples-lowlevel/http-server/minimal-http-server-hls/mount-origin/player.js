@@ -34,15 +34,28 @@ document.addEventListener('DOMContentLoaded', function() {
                     filename === '..' || filename.indexOf('/') !== -1 ||
                     filename.indexOf('\\') !== -1)
                     return;
+
+                /*
+                 * Stop playing before the file goes: hls.js would otherwise
+                 * keep asking for segments of it until we leave.  The
+                 * listing is where we go afterwards; there is nothing left
+                 * to show here.
+                 */
+                var v = document.getElementById('video');
+                if (v)
+                    v.pause();
+                delBtn.disabled = true;
+
                 fetch('hls/delete/' + encodeURIComponent(filename), {
                     method: 'POST',
                     credentials: 'same-origin'
                 }).then(function(res) {
-                    if (res.ok) {
-                        window.location.href = 'hls/';
-                    } else {
-                        alert('Failed to delete file');
-                    }
+                    if (!res.ok)
+                        throw new Error('HTTP ' + res.status);
+                    window.location.replace('hls/');
+                }).catch(function(e) {
+                    delBtn.disabled = false;
+                    alert('Failed to delete file: ' + e.message);
                 });
             }
         });

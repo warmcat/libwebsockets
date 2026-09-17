@@ -5,12 +5,14 @@ body { font-family: sans-serif; background: #1a1a1a; color: #eee; }
 a { color: #4db8ff; text-decoration: none; }
 #auth-status { float: right; margin-top: 10px; margin-right: 20px; }
 
-/* Resume-position badge over a thumbnail, injected by dir.js for items we
- * have a localStorage resume entry for. */
+/* Resume-position badge over a thumbnail's top right corner, injected by
+ * dir.js for items we have a localStorage resume entry for.  Top, not
+ * bottom: the filename sits under the thumbnail and must stay readable. */
 .resume-badge {
     position: absolute;
-    left: 4px;
-    bottom: 4px;
+    right: 4px;
+    top: 4px;
+    text-align: right;
     background: rgba(0, 0, 0, 0.72);
     color: #fff;
     font-size: 12px;
