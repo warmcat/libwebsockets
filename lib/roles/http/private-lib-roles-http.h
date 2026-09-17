@@ -417,6 +417,15 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file, unsigne
 int
 lws_unauthorised_basic_auth(struct lws *wsi);
 
+/*
+ * Append a "name: value" line to wsi->http.extra_onward_headers without
+ * touching the ah: the proxy snapshot's appender for the peer's own headers.
+ * The public lws_http_add_onward_header() zaps the peer's copy first.
+ */
+int
+lws_http_onward_header_append(struct lws *wsi, const char *name,
+			      const char *value);
+
 #if defined(LWS_WITH_SERVER)
 /*
  * The one place mount interceptors are evaluated, shared by every role that

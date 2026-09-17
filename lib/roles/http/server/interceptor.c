@@ -338,6 +338,16 @@ lws_interceptor_check(struct lws *wsi, const struct lws_protocols *prot)
 		return 1;
 	}
 
+	/*
+	 * The peer's copy of the header we stamp onward is snipped up front,
+	 * whatever we decide below: the inject paths zap it again before they
+	 * stamp, but a request we refuse or let through without stamping
+	 * must not carry the peer's version to anything reading the ah
+	 * either.
+	 */
+	if (vhd->auth_header_name)
+		lws_http_zap_header(wsi, vhd->auth_header_name);
+
 	lws_interceptor_init_jwt_cookie(&ck, vhd, NULL, vhd->cookie_name);
 
 	s = sizeof(buf);

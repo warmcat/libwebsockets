@@ -1641,7 +1641,13 @@ lws_http_proxy_snapshot_onward(struct lws *wsi, char ws)
 			return 1;
 		}
 
-		r = lws_http_add_onward_header(wsi, name, val);
+		/*
+		 * The raw appender: the public lws_http_add_onward_header()
+		 * zaps the name from the ah first, which is right for a
+		 * trusted header an interceptor stamps, and wrong for the
+		 * peer's own Content-Length or Cookie we are merely copying
+		 */
+		r = lws_http_onward_header_append(wsi, name, val);
 		lws_free(val);
 		if (r)
 			return 1;

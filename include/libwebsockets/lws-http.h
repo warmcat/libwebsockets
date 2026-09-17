@@ -664,9 +664,13 @@ lws_http_zap_header(struct lws *wsi, const char *name);
  * appends "name: value\r\n" to the wsi's "extra onward headers" blob, which
  * the HTTP and WS proxy paths forward to the backend.
  *
- * To prevent spoofing, an interceptor should call lws_http_zap_header() for
- * the same name first (so a client-supplied copy can't reach the backend),
- * exactly as the built-in lws interceptor does.
+ * To prevent spoofing, any client-supplied copy of the same header is
+ * removed from the request headers (as by lws_http_zap_header()) before the
+ * trusted one is appended, so it cannot reach the backend or be read from
+ * the ah by anything downstream.  An interceptor that decides NOT to stamp
+ * a header it normally would (eg, it refused the request, or waved it
+ * through on some bypass) should still lws_http_zap_header() it, so the
+ * peer's copy is gone on every path.
  *
  * Returns 0 on success or nonzero on OOM.
  */
@@ -684,8 +688,9 @@ lws_http_add_onward_header(struct lws *wsi, const char *name,
  * When a mount is guarded by the `lws-login` bouncer plugin, the bouncer
  * authenticates the request, decides the requestor's role from the verified
  * JWT grants, and stamps the cooked, trusted result onto the browser-side wsi
- * as "extra onward headers" (set with lws_http_add_onward_header() after
- * lws_http_zap_header() anti-spoofs any client-supplied copy).  The HTTP/WS
+ * as "extra onward headers" (set with lws_http_add_onward_header(), which
+ * first anti-spoofs any client-supplied copy; the bouncer also snips them on
+ * every path through its check, stamped or not).  The HTTP/WS
  * proxy paths then forward these to the backend app behind the mount, so the
  * app does no JWT/grant work of its own -- it just reads the headers.
  *

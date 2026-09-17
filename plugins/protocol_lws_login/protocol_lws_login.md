@@ -94,7 +94,7 @@ The central Auth Server portal will parse these parameters. If the user is unaut
 
 ## Injected Backend Headers
 
-When a request is allowed through to the backend app mounted behind the bouncer, `lws-login` stamps the cooked, trusted authentication result onto the request as `x-lws-login-*` headers (anti-spoofed via `lws_http_zap_header()` first, so a browser cannot elevate itself). The backend reads these with no JWT or grant logic of its own. They are only trustworthy when the request actually transited the bouncer's proxy path; a backend reachable directly must not rely on them.
+When a request is allowed through to the backend app mounted behind the bouncer, `lws-login` stamps the cooked, trusted authentication result onto the request as `x-lws-login-*` headers (any client-supplied copy of these names is removed from the request on every path through the bouncer, stamped or not, so a browser cannot elevate itself). The backend reads these with no JWT or grant logic of its own. They are only trustworthy when the request actually transited the bouncer's proxy path; a backend reachable directly must not rely on them.
 
 Two details of the anti-spoof are worth knowing, since both are worked around
 here rather than in the library: the ah stores a custom header's name

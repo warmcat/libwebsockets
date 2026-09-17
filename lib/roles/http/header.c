@@ -1140,8 +1140,16 @@ lws_http_zap_header(struct lws *wsi, const char *name)
 	return 0;
 }
 
+/*
+ * Append "name: value\r\n" to the wsi's extra onward headers, nothing more.
+ * This is the proxy snapshot's appender: it is copying the peer's own
+ * request headers (Cookie, Content-Length...) onward, which must stay in the
+ * ah for the rest of the transaction.
+ */
+
 int
-lws_http_add_onward_header(struct lws *wsi, const char *name, const char *value)
+lws_http_onward_header_append(struct lws *wsi, const char *name,
+			      const char *value)
 {
 	size_t nl, vl;
 	int cur_len = 0;
@@ -1196,4 +1204,23 @@ lws_http_add_onward_header(struct lws *wsi, const char *name, const char *value)
 	*p = '\0';
 
 	return 0;
+}
+
+int
+lws_http_add_onward_header(struct lws *wsi, const char *name, const char *value)
+{
+	if (!name)
+		return 1;
+
+	/*
+	 * Whatever an interceptor stamps onward is by definition a header the
+	 * backend is going to trust, so the peer's own copy of it must never
+	 * survive in the ah for anything downstream (an in-process protocol
+	 * reading the ah, the CGI env, the proxy snapshot) to mistake for
+	 * ours.  Snip it here, unconditionally, rather than rely on every
+	 * caller remembering to.
+	 */
+	lws_http_zap_header(wsi, name);
+
+	return lws_http_onward_header_append(wsi, name, value);
 }

@@ -1783,42 +1783,21 @@ lws_login_state_from_grants(struct lws_jwt_auth *ja, int level)
 }
 
 /*
- * Remove EVERY client-supplied copy of one x-lws-login-* header.
- *
- * Two things make a bare lws_http_zap_header() call insufficient here:
- *
- *  - the ah stores an unknown header's name WITH its ':' (parsers.c lays the
- *    colon down before it computes the name length, and the known-header
- *    table entries carry it too), which is why lws_hdr_custom_length() is
- *    documented as taking the name "including terminating :".  So a name
- *    passed without the colon matches nothing and the anti-spoof silently
- *    does nothing at all.
- *
- *  - zap unlinks only the FIRST matching record and returns, so a header the
- *    client sent twice leaves its second copy in the ah, still visible to
- *    lws_hdr_custom_copy().
- *
- * Both belong in the library eventually (lws_http_zap_header() should loop,
- * and should accept the colon-less name its own docs advertise); until then
- * spell the colon out and loop while the header is still present.
+ * Remove every client-supplied copy of the x-lws-login-* headers from the
+ * request.  These names mean "the bouncer vouches for this" to whatever is
+ * behind the mount, so the peer's own versions must be gone on every path
+ * through the interceptor check, not only the ones that go on to stamp
+ * trusted values (lws_http_add_onward_header() zaps the name it stamps
+ * itself; this covers the refusals and bypasses that stamp nothing).
+ * lws_http_zap_header() takes the bare name and removes all duplicates.
  */
 static void
-lws_login_zap_header(struct lws *wsi, const char *name)
+lws_login_snip_headers(struct lws *wsi)
 {
-#if defined(LWS_WITH_CUSTOM_HEADERS)
-	char nc[64];
-	int nl, budget = 16; /* a request cannot usefully repeat it forever */
-
-	nl = lws_snprintf(nc, sizeof(nc), "%s:", name);
-
-	while (budget-- && nl < (int)sizeof(nc) - 1 &&
-	       lws_hdr_custom_length(wsi, nc, nl) >= 0 &&
-	       !lws_http_zap_header(wsi, nc))
-		;
-#endif
-	/* and by the colon-less name, for a build with no custom headers and
-	 * in case it ever becomes a known token */
-	lws_http_zap_header(wsi, name);
+	lws_http_zap_header(wsi, LWS_LOGIN_HDR_STATE);
+	lws_http_zap_header(wsi, LWS_LOGIN_HDR_ADMIN);
+	lws_http_zap_header(wsi, LWS_LOGIN_HDR_GRANT_LEVEL);
+	lws_http_zap_header(wsi, LWS_LOGIN_HDR_SUB);
 }
 
 /*
@@ -1838,10 +1817,12 @@ lws_login_zap_header(struct lws *wsi, const char *name)
  * x-lws-login-grant-level.
  *
  * Mirrors lib/roles/http/server/interceptor.c lws_interceptor_inject_header:
- * anti-spoof any client-supplied copy first (lws_login_zap_header), then append
- * "Name: value\r\n" lines to wsi->http.extra_onward_headers.  The backend
- * trusts these because only the interceptor (which holds the JWK) can set
- * them -- a browser cannot elevate itself, its x-lws-login-* is zapped here.
+ * append "Name: value\r\n" lines to wsi->http.extra_onward_headers, each
+ * zapping the client-supplied copy of its name first (done inside
+ * lws_http_add_onward_header(), and again for every path by
+ * lws_login_snip_headers() at the top of the check).  The backend trusts
+ * these because only the interceptor (which holds the JWK) can set them --
+ * a browser cannot elevate itself.
  *
  * sub/level may be NULL/-1 for the anonymous (unauth-allow) case; we still
  * inject the headers (with x-lws-login-state:0 / x-lws-login-admin:0) so the
@@ -1852,12 +1833,6 @@ lws_login_inject_state(struct lws *wsi, const char *sub, int level,
 		       enum lws_login_state state)
 {
 	char buf[32];
-
-	/* anti-spoof any client-supplied copy first, then stamp trusted value */
-	lws_login_zap_header(wsi, LWS_LOGIN_HDR_STATE);
-	lws_login_zap_header(wsi, LWS_LOGIN_HDR_ADMIN);
-	lws_login_zap_header(wsi, LWS_LOGIN_HDR_GRANT_LEVEL);
-	lws_login_zap_header(wsi, LWS_LOGIN_HDR_SUB);
 
 	lws_snprintf(buf, sizeof(buf), "%d", (int)state);
 	lws_http_add_onward_header(wsi, LWS_LOGIN_HDR_STATE, buf);
@@ -2126,6 +2101,16 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		char uri[LWS_LOGIN_MAX_URI];
 		const char *service_name;
 		const struct lws_http_mount *mount;
+
+		/*
+		 * The peer's own copies of the headers we stamp onward go
+		 * first, before any decision: lws_http_add_onward_header()
+		 * zaps them again when we stamp, but the paths that refuse the
+		 * request, or let it through without stamping, must not leave
+		 * a client-supplied x-lws-login-* in the ah for anything
+		 * downstream to read either.
+		 */
+		lws_login_snip_headers(wsi);
 
 		/* fail closed: continuing with an empty uri[] would apply the
 		 * vhost-wide policy instead of this mount's PMO overrides
