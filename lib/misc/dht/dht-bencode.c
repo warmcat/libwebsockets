@@ -457,13 +457,35 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 	return message;
 }
 
+#if defined(LWS_WITH_DHT_BACKEND)
+/*
+ * Did we send this node something it could be replying to?  A known node
+ * with a ping outstanding qualifies; an address we never spoke to does not.
+ */
+static int
+lws_dht_reply_solicited(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
+			const struct sockaddr *from)
+{
+	struct node *n = id ? find_node(ctx, id, from->sa_family) : NULL;
+
+	return n && n->pinged;
+}
+#endif
+
 static void
 lws_dht_reply_pong(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 		   const struct sockaddr *from, size_t fromlen)
 {
 	lwsl_dht_rx("%s: Pong!\n", __func__);
 #if defined(LWS_WITH_DHT_BACKEND)
-	maybe_new_node(ctx, mp->id, from, fromlen, 2);
+	/*
+	 * A pong only confirms a node we pinged; nothing stops anyone
+	 * sending y=r from any address, and confirming those would let a
+	 * blind sender promote itself to a good node.  Unsolicited replies
+	 * may introduce a candidate, which we ping before trusting.
+	 */
+	maybe_new_node(ctx, mp->id, from, fromlen,
+		       lws_dht_reply_solicited(ctx, mp->id, from) ? 2 : 1);
 #endif
 }
 
@@ -503,8 +525,13 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 			gp ? " for get_peers" : "");
 
 #if defined(LWS_WITH_DHT_BACKEND)
-	/* Credit the sender for replying so their pinged count resets to 0 */
-	maybe_new_node(ctx, mp->id, from, fromlen, 2);
+	/*
+	 * Credit the sender for replying so their pinged count resets to 0,
+	 * but only if we actually asked them (a search of ours had this tid
+	 * outstanding to this address, or we pinged the node): see the pong
+	 */
+	maybe_new_node(ctx, mp->id, from, fromlen,
+		       (sr || lws_dht_reply_solicited(ctx, mp->id, from)) ? 2 : 1);
 #endif
 
 	if (ctx->legacy && (mp->nodes_len % LWS_DHT_NODE_INFO_LEGACY_IP4_VLEN != 0 ||
@@ -908,10 +935,12 @@ skip_ip_tracking:
 	switch(message) {
 	case DHT_REPLY:
 		if (mp.tid_len != 4 && mp.tid_len != 16) {
+			/*
+			 * Not blacklisted: a reply's source is unverified, so a
+			 * malformed one with a spoofed source would blacklist
+			 * whoever the attacker names for us
+			 */
 			lwsl_dht_rx_warn("%s: Broken node truncates transaction ids\n", __func__);
-#if defined(LWS_WITH_DHT_BACKEND)
-			blacklist_node(ctx, mp.id, from, fromlen);
-#endif
 			break;
 		}
 		if (mp.tid_len == 16) {
@@ -969,7 +998,7 @@ skip_ip_tracking:
 		lwsl_dht_rx_warn("%s: Unexpected reply (tid '%.*s' len %d)\n", __func__, (int)mp.tid_len, mp.tid, (int)mp.tid_len);
 		lwsl_hexdump_dht(buf, buflen);
 #if defined(LWS_WITH_DHT_BACKEND)
-		blacklist_node(ctx, mp.id, from, fromlen);
+		(void)0; /* not blacklisted: unverified source, see above */
 #endif
 		break;
 
