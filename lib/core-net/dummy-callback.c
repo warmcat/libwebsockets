@@ -825,8 +825,13 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 #endif
 		if (wsi->http.deferred_transaction_completed) {
-			uint8_t zero = 0;
-			lws_write(wsi, &zero, 0, LWS_WRITE_HTTP_FINAL);
+			/*
+			 * a zero-length FINAL still has the role write its
+			 * framing before the pointer (the h2 DATA frame header
+			 * on a substream), so it needs LWS_PRE like any other
+			 */
+			lws_write(wsi, (unsigned char *)buf + LWS_PRE, 0,
+				  LWS_WRITE_HTTP_FINAL);
 #if defined(LWS_WITH_SERVER)
 			if (lws_http_transaction_completed(wsi))
 #endif
