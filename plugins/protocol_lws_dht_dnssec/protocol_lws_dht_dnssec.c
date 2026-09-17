@@ -114,6 +114,13 @@ struct vhd_dht_dnssec {
 	lws_dll2_owner_t		upload_queue;
 	lws_dll2_owner_t		subscribed_domains;
 	uint8_t				notify_secret[16];
+	/*
+	 * set while a NOTIFY that passed the NOTC cookie exchange is being
+	 * handled: only such a source may create a subscription or be
+	 * struck for a fetch that then times out; the bencode NOTIFY verb
+	 * arrives with an unverified source
+	 */
+	uint8_t				notify_verified;
 	uint8_t				notify_secret_prev[16];
 	lws_sorted_usec_list_t		sul_notify_rotate;
 	lws_dll2_owner_t		notify_strikes;
@@ -2834,7 +2841,17 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			da.prefix = hex_hash;
 			lws_dir(dir_path, &da, dht_dnssec_find_highest_serial_cb);
 
-			if (da.is_outdated || (vhd->auth_cb && newer_domain[0])) {
+			/*
+			 * A domain we only learn of from this datagram is
+			 * subscribed to, on an authoritative node, only when
+			 * the sender passed the NOTC cookie exchange: the
+			 * bencode NOTIFY verb's source is unverified, and a
+			 * forged one would subscribe us to anything and fan
+			 * out a fetch for it.  A hash we already hold in the
+			 * cache is honoured either way, rate-limited below.
+			 */
+			if (da.is_outdated ||
+			    (vhd->auth_cb && newer_domain[0] && vhd->notify_verified)) {
 				if (newer_domain[0]) {
 					lws_strncpy(target_domain, newer_domain, sizeof(target_domain));
 					if (da.is_outdated)
@@ -2918,7 +2935,9 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			if (found_sub) {
 				time_t now = time(NULL);
 				if (now - found_sub->last_notify_fetch < 60) {
-					if (newer_soa && newer_soa > found_sub->last_notify_soa) {
+					/* a newer serial may jump the 60s limit, but not more than every 5s */
+					if (newer_soa && newer_soa > found_sub->last_notify_soa &&
+					    now - found_sub->last_notify_fetch >= 5) {
 						lwsl_notice("%s: Bypassing NOTIFY rate limit for %s due to progressively newer SOA %llu!\n", __func__, target_domain, (unsigned long long)newer_soa);
 					} else {
 						lwsl_notice("%s: Rate-limiting NOTIFY fetch for %s\n", __func__, target_domain);
@@ -2930,7 +2949,8 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			} else if (found_owner) {
 				time_t now = time(NULL);
 				if (now - found_owner->last_notify_fetch < 60) {
-					if (newer_soa && newer_soa > found_owner->last_notify_soa) {
+					if (newer_soa && newer_soa > found_owner->last_notify_soa &&
+					    now - found_owner->last_notify_fetch >= 5) {
 						lwsl_notice("%s: Bypassing NOTIFY rate limit for %s due to progressively newer SOA %llu!\n", __func__, target_domain, (unsigned long long)newer_soa);
 					} else {
 						lwsl_notice("%s: Rate-limiting NOTIFY fetch for %s\n", __func__, target_domain);
@@ -2968,7 +2988,15 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			args.opaque = NULL;
 
 			{
-				struct notify_strike_tracking *trk = malloc(sizeof(*trk));
+				/*
+				 * A fetch that times out strikes the notifier, and
+				 * five strikes blacklist its address in the DHT
+				 * core: only a source that proved it can receive
+				 * at that address may be struck, or a forged
+				 * NOTIFY gets any honest peer evicted for an hour
+				 */
+				struct notify_strike_tracking *trk =
+					vhd->notify_verified ? malloc(sizeof(*trk)) : NULL;
 				if (trk) {
 					memset(trk, 0, sizeof(*trk));
 					trk->vhd = vhd;
@@ -3183,7 +3211,9 @@ verb_notify_handler(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vhd, const s
 
 		lws_dht_hash_t *idhash = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA256, 32, bin_hash);
 		if (idhash) {
+			vhd->notify_verified = 1;
 			cb_dht(vhd, LWS_DHT_EVENT_NOTIFY, idhash, p, 8, from, fromlen);
+			vhd->notify_verified = 0;
 			lws_dht_hash_destroy(&idhash);
 		}
 	}
