@@ -2006,7 +2006,15 @@ lhp_sel_ident(const char *p, const char *end, char *buf, size_t bl,
 
 static int
 lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
-	      const char *end);
+	      const char *end, int *budget);
+
+/*
+ * The descendant combinator makes selector matching backtrack over every
+ * ancestor at every level: a selector of 63 " a" against 127 nested <a> is
+ * exponential.  Each top-level match gets this many lhp_sel_match() steps;
+ * a selector that runs out simply does not match.
+ */
+#define LHP_SEL_MATCH_BUDGET 4096
 
 /* the parent element of a level: the nearest level above it with a tag */
 
@@ -2050,8 +2058,12 @@ lhp_sel_list_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent,
 			s++;
 		while (e > s && e[-1] == ' ')
 			e--;
-		if (s < e && lhp_sel_match(atr, parent, s, e))
-			return 1;
+		if (s < e) {
+			int budget = LHP_SEL_MATCH_BUDGET;
+
+			if (lhp_sel_match(atr, parent, s, e, &budget))
+				return 1;
+		}
 	}
 
 	return 0;
@@ -2341,11 +2353,14 @@ lhp_pseudo_elem_suffix(const char *sel, size_t len)
 
 static int
 lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
-	      const char *end)
+	      const char *end, int *budget)
 {
 	const char *p = end;
 	char comb = 0;
 	int depth = 0;
+
+	if (--(*budget) < 0)
+		return 0;
 
 	/* find the start of the rightmost compound selector */
 
@@ -2377,7 +2392,7 @@ lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
 	case ' ': /* any ancestor */
 		while (parent) {
 			if (lhp_sel_match(&parent->atr, lhp_parent_elem(parent),
-					  sel, end))
+					  sel, end, budget))
 				return 1;
 			parent = lhp_parent_elem(parent);
 		}
@@ -2387,7 +2402,7 @@ lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
 		if (!parent)
 			return 0;
 		return lhp_sel_match(&parent->atr, lhp_parent_elem(parent),
-				     sel, end);
+				     sel, end, budget);
 
 	case '~': /* any earlier sibling we still remember */
 		if (!parent)
@@ -2396,7 +2411,7 @@ lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
 					   lws_dll2_get_tail(&parent->sibs)) {
 			lhp_sib_t *sib = lws_container_of(d, lhp_sib_t, list);
 
-			if (lhp_sel_match(&sib->atr, parent, sel, end))
+			if (lhp_sel_match(&sib->atr, parent, sel, end, budget))
 				return 1;
 		} lws_end_foreach_dll_back(d);
 		return 0;
@@ -2406,7 +2421,7 @@ lhp_sel_match(lws_dll2_owner_t *atr, lhp_pstack_t *parent, const char *sel,
 			return 0;
 		return lhp_sel_match(&lws_container_of(
 				lws_dll2_get_tail(&parent->sibs),
-				lhp_sib_t, list)->atr, parent, sel, end);
+				lhp_sib_t, list)->atr, parent, sel, end, budget);
 
 	default:
 		return 0;
@@ -2770,6 +2785,7 @@ lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
 		const char *n = (const char *)&nm[1];
 		lcsp_stanza_t *stz = e->stz;
 		size_t pl;
+		int budget;
 
 		if (kind != LHP_SELKEY_NONE &&
 		    (nm->key_kind != kind || nm->key_len != klen ||
@@ -2787,9 +2803,10 @@ lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
 			 * generates a pseudo box instead of styling the
 			 * element itself.  The last one in source order wins
 			 */
+			budget = LHP_SEL_MATCH_BUDGET;
 			if (nm->name_len > pl &&
 			    lhp_sel_match(&ps->atr, lhp_parent_elem(ps), n,
-					  n + nm->name_len - pl)) {
+					  n + nm->name_len - pl, &budget)) {
 				/* the name ends 'r' for after, 'e' for before */
 				if (n[nm->name_len - 1] == 'r') {
 					if (!ps->pseudo_after ||
@@ -2803,8 +2820,9 @@ lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
 			continue;
 		}
 
+		budget = LHP_SEL_MATCH_BUDGET;
 		if (!lhp_sel_match(&ps->atr, lhp_parent_elem(ps), n,
-				   n + nm->name_len))
+				   n + nm->name_len, &budget))
 			continue;
 
 		if (stz->hit_serial == ctx->cascade_serial) {
