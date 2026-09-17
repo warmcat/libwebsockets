@@ -40,6 +40,10 @@ LWS_SS_USER_TYPEDEF
 #endif
 	uint8_t				no_cache:1; /* don't cache this doc */
 	uint8_t				from_cache:1; /* fed from the cache */
+	uint8_t				awaiting_retry:1; /* the parse is
+						* stalled on something (image
+						* dims, css): more document
+						* data can't move it on */
 } htmlss_t;
 
 static void
@@ -52,6 +56,8 @@ lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul)
 	if (m->lhp.cancelled)
 		/* the document was torn down under us */
 		return;
+
+	m->awaiting_retry = 0;
 
 	do {
 		if (lws_flow_feed(&m->flow)) {
@@ -100,6 +106,7 @@ lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul)
 			 * retry budget dry before a queued fetch could even
 			 * start.
 			 */
+			m->awaiting_retry = 1;
 			if (!m->lhp.await_css_done)
 				lws_sul_schedule(m->cx, 0, &m->sul,
 						 lws_lhp_ss_html_parse,
@@ -222,7 +229,18 @@ htmlss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		r = LWSSSSRET_OK;
 	}
 
-	lws_sul_schedule(m->cx, 0, &m->sul, lws_lhp_ss_html_parse, 1);
+	/*
+	 * If the parse is stalled waiting for an image's dimensions, more
+	 * document data can't move it on: it is buffered, and the parse
+	 * resumes when the dimensions arrive (or its own slow retry fires).
+	 * Re-entering it on every rx chunk burned its retry budget in
+	 * microseconds, before a cached asset's dimensions callback could
+	 * even run, so every image on the page was laid out without
+	 * dimensions
+	 */
+
+	if (!m->awaiting_retry)
+		lws_sul_schedule(m->cx, 0, &m->sul, lws_lhp_ss_html_parse, 1);
 
 	return r;
 }

@@ -4969,7 +4969,7 @@ elem_start:
 					 * keep the retry budget, so don't
 					 * spin waiting for the dimensions
 					 */
-					if (ps->dlo && ++ps->dlo->budget < 8) {
+					if (ps->dlo && ++ps->dlo->budget < 30) {
 						lwsl_warn("%s: exiting with AWAIT_RETRY due to no dims\n", __func__);
 						return LWS_SRET_AWAIT_RETRY;
 					}
