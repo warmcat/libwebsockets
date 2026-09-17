@@ -3280,10 +3280,15 @@ lhp_prop_inherited(int prop)
 static const lcsp_atr_t *
 lhp_resolve_var_ps(lhp_ctx_t *ctx, lhp_pstack_t *ps, const lcsp_atr_t *a);
 
+/*
+ * The declaration in effect on ps for any of the props[] (a longhand and
+ * the shorthands that can set it), by specificity then source order
+ */
+
 static const lcsp_defs_t *
-lhp_find_def2(lhp_pstack_t *ps, int prop, int prop_alt)
+lhp_find_defn(lhp_pstack_t *ps, const int *props, int nprops)
 {
-	int n, pass;
+	int n, pass, i;
 
 	/* pass 0: !important declarations, pass 1: the rest */
 
@@ -3294,10 +3299,12 @@ lhp_find_def2(lhp_pstack_t *ps, int prop, int prop_alt)
 				lcsp_defs_t *def = lws_container_of(d,
 							lcsp_defs_t, list);
 
-				if (((int)def->prop == prop ||
-				     (int)def->prop == prop_alt) &&
-				    !!def->important == !pass)
-					return def;
+				if (!!def->important != !pass)
+					continue;
+
+				for (i = 0; i < nprops; i++)
+					if ((int)def->prop == props[i])
+						return def;
 			} lws_end_foreach_dll_back(d);
 		}
 
@@ -3307,7 +3314,7 @@ lhp_find_def2(lhp_pstack_t *ps, int prop, int prop_alt)
 static const lcsp_defs_t *
 lhp_find_def(lhp_pstack_t *ps, int prop)
 {
-	return lhp_find_def2(ps, prop, -1);
+	return lhp_find_defn(ps, &prop, 1);
 }
 
 /*
@@ -3399,23 +3406,81 @@ static const lcsp_atr_t *
 lhp_side_atr(lhp_pstack_t *ps, int longhand, int shorthand, int idx,
 	     int radii)
 {
-	const lcsp_defs_t *def = lhp_find_def2(ps, longhand, shorthand);
+	const lcsp_defs_t *def;
+	int props[4], np = 0, logi = -1, axis = -1;
 	lhp_ctx_t *ctx;
 	int c, use = 0;
+
+	props[np++] = longhand;
+	props[np++] = shorthand;
+
+	/*
+	 * The logical properties, taken as horizontal-tb ltr: the inline
+	 * axis is left / right (start / end), the block axis top / bottom.
+	 * inset is the shorthand for the four offsets, which have no
+	 * physical shorthand of their own
+	 */
+	if (!radii) {
+		int base = -1;
+
+		switch (shorthand) {
+		case LCSP_PROP_MARGIN:
+			base = LCSP_PROP_MARGIN_INLINE;
+			break;
+		case LCSP_PROP_PADDING:
+			base = LCSP_PROP_PADDING_INLINE;
+			break;
+		case LCSP_PROP_INSET:
+			base = LCSP_PROP_INSET_INLINE;
+			break;
+		default:
+			break;
+		}
+
+		if (base != -1) {
+			/* base + 0: -inline, 1: -inline-start, 2: -inline-end,
+			 *        3: -block, 4: -block-start, 5: -block-end */
+			switch (idx) {
+			case CCPAS_TOP:
+				logi = base + 4;
+				axis = base + 3;
+				break;
+			case CCPAS_RIGHT:
+				logi = base + 2;
+				axis = base;
+				break;
+			case CCPAS_BOTTOM:
+				logi = base + 5;
+				axis = base + 3;
+				break;
+			default:
+				logi = base + 1;
+				axis = base;
+				break;
+			}
+			props[np++] = logi;
+			props[np++] = axis;
+		}
+	}
+
+	def = lhp_find_defn(ps, props, np);
 
 	if (!def || !lws_dll2_get_head(&def->atrs))
 		return NULL;
 
 	ctx = lws_dll2_owner_container(&ps->list, lhp_ctx_t, stack);
 
-	if ((int)def->prop == longhand)
+	if ((int)def->prop == longhand || (int)def->prop == logi)
 		return lhp_resolve_var_ps(ctx, ps, lws_container_of(
 					lws_dll2_get_tail(&def->atrs),
 					lcsp_atr_t, list));
 
 	c = (int)lws_dll2_count(&def->atrs);
 
-	if (!radii) {
+	if ((int)def->prop == axis)
+		/* start end, or one value for both */
+		use = c >= 2 && (idx == CCPAS_RIGHT || idx == CCPAS_BOTTOM);
+	else if (!radii) {
 		switch (c) {
 		case 2:
 			use = (idx == 0 || idx == 2) ? 0 : 1;
@@ -4124,10 +4189,10 @@ lws_css_cascade(lhp_ctx_t *ctx)
 	if (ps->css_color)
 		ps->css_color = lhp_resolve_var_color(ctx, ps->css_color);
 
-	ps->css_pos[CCPAS_TOP] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_TOP);
-	ps->css_pos[CCPAS_RIGHT] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_RIGHT);
-	ps->css_pos[CCPAS_BOTTOM] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_BOTTOM);
-	ps->css_pos[CCPAS_LEFT] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_LEFT);
+	ps->css_pos[CCPAS_TOP] = lhp_side_atr(ps, LCSP_PROP_TOP, LCSP_PROP_INSET, CCPAS_TOP, 0);
+	ps->css_pos[CCPAS_RIGHT] = lhp_side_atr(ps, LCSP_PROP_RIGHT, LCSP_PROP_INSET, CCPAS_RIGHT, 0);
+	ps->css_pos[CCPAS_BOTTOM] = lhp_side_atr(ps, LCSP_PROP_BOTTOM, LCSP_PROP_INSET, CCPAS_BOTTOM, 0);
+	ps->css_pos[CCPAS_LEFT] = lhp_side_atr(ps, LCSP_PROP_LEFT, LCSP_PROP_INSET, CCPAS_LEFT, 0);
 
 	ps->css_margin[CCPAS_TOP] = lhp_side_atr(ps, LCSP_PROP_MARGIN_TOP, LCSP_PROP_MARGIN, CCPAS_TOP, 0);
 	ps->css_margin[CCPAS_RIGHT] = lhp_side_atr(ps, LCSP_PROP_MARGIN_RIGHT, LCSP_PROP_MARGIN, CCPAS_RIGHT, 0);

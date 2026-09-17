@@ -1,0 +1,19 @@
+<!--
+ Logical margin / padding / inset properties, taken as horizontal-tb ltr:
+ -inline is left / right (start / end), -block is top / bottom, inset is
+ the shorthand for top / right / bottom / left.  apple.com's article
+ column is margin-inline: auto; max-width: 650px.
+-->
+<html><head><style>
+body{margin:0}
+.a{margin-inline:auto;max-width:300px;background-color:#ccc}
+.b{padding-inline:10px 20px;padding-block:5px;background-color:#eee}
+.c{margin-inline-start:30px;margin-block-end:12px}
+.d{position:relative;height:40px}
+.e{position:absolute;inset:0 10px 0 5px;width:100px;height:20px;background-color:#f00}
+.f{position:absolute;inset-inline:20px;inset-block-start:5px;width:50px;height:10px;background-color:#0f0}
+.g{position:absolute;inset-inline-end:8px;inset-block-end:2px;width:30px;height:10px;background-color:#00f}
+</style></head><body>
+<div class="a"><div class="b">b</div><div class="c">c</div></div>
+<div class="d"><div class="e"></div><div class="f"></div><div class="g"></div></div>
+</body></html>
