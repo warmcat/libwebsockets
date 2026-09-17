@@ -522,6 +522,7 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		pthread_cond_init(&vhd->cond, NULL);
 		pthread_mutex_init(&vhd->sub_lock, NULL);
 		vhd->thread_exit = 0;
+		vhd->current_task_t = HLS_THUMB_DEFAULT_T;
 		if (pthread_create(&vhd->worker_thread, NULL, lws_hls_worker, vhd)) {
 			lwsl_err("Failed to create worker thread\n");
 			return 1;
@@ -683,12 +684,25 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			return lws_hls_serve_dir(wsi, vhd->media_dir);
 		}
 		else if (!strncmp(url, "/preview/", 9)) {
+			/* /preview/<filename>[/<secs>]: the default frame,
+			 * or one at the viewer's resume position */
 			char filename[256];
+			const char *sl;
+			int t = HLS_THUMB_DEFAULT_T;
+
 			lws_strncpy(filename, url + 9, sizeof(filename));
+			sl = strchr(filename, '/');
+			if (sl) {
+				filename[sl - filename] = '\0';
+				t = atoi(sl + 1);
+				if (t < 0)
+					t = HLS_THUMB_DEFAULT_T;
+			}
 			lws_filename_purify_inplace(filename);
-			if (strchr(filename, '/'))
+			if (!filename[0] || strchr(filename, '/'))
 				goto err_404;
-			return lws_hls_serve_thumbnail(wsi, vhd->media_dir, filename);
+			return lws_hls_serve_thumbnail(wsi, vhd->media_dir,
+						       filename, t);
 		}
 		else if (!strncmp(url, "/index/", 7)) {
 			/* is the keyframe index built?  asking starts it */
@@ -1005,7 +1019,8 @@ err_404:
 				struct thumb_cache *cc = lws_container_of(d,
 							struct thumb_cache, list);
 
-				if (!strcmp(cc->filename, pss->thumb_filename)) {
+				if (!strcmp(cc->filename, pss->thumb_filename) &&
+				    cc->t == pss->thumb_t) {
 					c = cc;
 					break;
 				}
@@ -1065,6 +1080,7 @@ err_404:
 							struct hls_task, list);
 
 				if (t->type == HLS_TASK_THUMB &&
+				    t->segment_idx == pss->thumb_t &&
 				    !strcmp(t->filename, pss->thumb_filename)) {
 					is_pending = 1;
 					break;
@@ -1072,6 +1088,7 @@ err_404:
 			} lws_end_foreach_dll(d2);
 
 			if (!is_pending && vhd->current_task_filename[0] &&
+			    vhd->current_task_t == pss->thumb_t &&
 			    !strcmp(vhd->current_task_filename, pss->thumb_filename)) {
 				is_pending = 1;
 			}

@@ -222,9 +222,21 @@ struct hls_index_job {
  */
 #define HLS_TASK_TIMEOUT_SECS 300
 
+/*
+ * Thumbnails are keyed by file and time: the listing shows the default
+ * one (HLS_THUMB_DEFAULT_T, -1 here) for a file the viewer has not started,
+ * and one at their resume position for a file they have, so several
+ * viewers can each be looking at a different frame of the same file.
+ * Times are bucketed by the client (HLS_THUMB_T_BUCKET) to bound this.
+ */
+#define HLS_THUMB_DEFAULT_T	-1
+#define HLS_THUMB_DEFAULT_SECS	10
+#define HLS_THUMB_CACHE_CAP	64
+
 struct thumb_cache {
 	lws_dll2_t list;	/* vhd->thumb_cache membership, MRU first */
 	char filename[256];
+	int t;			/* seconds, or HLS_THUMB_DEFAULT_T */
 	uint8_t *data;
 	size_t len;
 };
@@ -258,6 +270,7 @@ struct per_vhost_data__lws_hls {
 	struct hls_index_job *index_running;
 	lws_dll2_owner_t index_recent;	/* finished builds, see the struct */
 	char current_task_filename[256]; /* thumbnail being extracted */
+	int current_task_t;		/* ...and at what time, see thumb_cache */
 
 	lws_dll2_owner_t thumb_cache;	/* finished thumbnails, MRU first */
 	int cache_count;
@@ -438,6 +451,7 @@ struct per_session_data__lws_hls {
 	/* Thumbnail async state */
 	int waiting_for_thumbnail;
 	char thumb_filename[256];
+	int thumb_t;
 	
 	int can_delete;		/* this request may delete media */
 
@@ -492,7 +506,8 @@ void
 lws_hls_task_free(struct hls_task *t);
 
 int
-lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir, const char *filename);
+lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir,
+			const char *filename, int t);
 
 int
 lws_hls_serve_dir(struct lws *wsi, const char *media_dir);

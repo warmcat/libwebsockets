@@ -13,7 +13,15 @@
  *
  *  - a resume badge over the thumbnail of anything the player left a
  *    resume position for in localStorage, keyed the same way player.js
- *    keys it (sha-256 of "<?v=>_<?t=>" under "lws_hls_")
+ *    keys it (sha-256 of "<?v=>_<?t=>" under "lws_hls_"); the thumbnail
+ *    itself is then re-requested at that position (preview/<name>/<secs>,
+ *    bucketed so the server's cache is not asked for every second), so
+ *    the viewer sees the frame they will resume at
+ *
+ *  - the order: the server lists newest file first; here each item's date
+ *    becomes the later of the file's date and when this viewer last
+ *    watched it, so what they were watching recently sits at the top
+ *    alongside what was recently added
  */
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -82,31 +90,63 @@ document.addEventListener('DOMContentLoaded', function() {
         return h ? h + ':' + mm : mm;
     }
 
-    var links = document.querySelectorAll('.item a[href]');
-    for (var j = 0; j < links.length; j++) (function(a) {
-        var q;
+    /* preview/<name>/<secs> is cached per (name, secs) on the server:
+     * ask in buckets so a resume point drifting by a few seconds between
+     * visits does not mean a fresh decode each time */
+    var THUMB_T_BUCKET = 5;
+
+    var items = document.querySelectorAll('.item');
+    var order = [];     /* { el, date } for the sort once all are known */
+    var pending = items.length;
+
+    function placed(el, date) {
+        order.push({ el: el, date: date });
+        if (--pending)
+            return;
+
+        /* stable: equal dates keep the server's (newest file first) order */
+        order.forEach(function(o, i) { o.i = i; });
+        order.sort(function(x, y) {
+            return (y.date - x.date) || (x.i - y.i);
+        });
+        var parent = order[0].el.parentNode;
+        order.forEach(function(o) { parent.appendChild(o.el); });
+    }
+
+    for (var j = 0; j < items.length; j++) (function(item) {
+        var a = item.querySelector('a[href]');
+        var img = item.querySelector('img.thumb');
+        var q, fileDate = 0;
+
         try {
             q = new URL(a.getAttribute('href'), window.location.href).searchParams;
         } catch (e) {
+            placed(item, 0);
             return;
         }
         var v = q.get('v'), t = q.get('t') || '0';
-        if (!v)
+        if (!v) {
+            placed(item, 0);
             return;
+        }
+        /* ?t= is the file's mtime in seconds, from the listing */
+        fileDate = (parseInt(t, 10) || 0) * 1000;
 
         getHash(v + '_' + t).then(function(hk) {
             var saved, parsed;
             try {
                 saved = localStorage.getItem('lws_hls_' + hk);
-                if (!saved)
-                    return;
-                parsed = JSON.parse(saved);
+                if (saved)
+                    parsed = JSON.parse(saved);
             } catch (e) {
-                return;
+                parsed = null;
             }
             if (!parsed || typeof parsed.pos !== 'number' || !parsed.pos ||
-                Date.now() - parsed.ts >= 604800000 /* 1 week, as the player */)
+                typeof parsed.ts !== 'number' ||
+                Date.now() - parsed.ts >= 604800000 /* 1 week, as the player */) {
+                placed(item, fileDate);
                 return;
+            }
 
             var badge = document.createElement('span');
             badge.className = 'resume-badge';
@@ -114,6 +154,16 @@ document.addEventListener('DOMContentLoaded', function() {
             badge.textContent = '\u25B6 ' + fmtTime(parsed.pos) +
                 (parsed.dur ? ' / ' + fmtTime(parsed.dur) : '');
             a.appendChild(badge);
+
+            /* the frame at the resume point, for this viewer only */
+            if (img) {
+                var secs = Math.floor(parsed.pos / THUMB_T_BUCKET) * THUMB_T_BUCKET;
+                img.setAttribute('src', img.getAttribute('src') + '/' + secs);
+            }
+
+            placed(item, Math.max(fileDate, parsed.ts));
+        }).catch(function() {
+            placed(item, fileDate);
         });
-    })(links[j]);
+    })(items[j]);
 });

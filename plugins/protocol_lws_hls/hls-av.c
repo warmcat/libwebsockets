@@ -5,113 +5,273 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#if LIBAVFORMAT_VERSION_MAJOR >= 58
+#define get_index_count(st) avformat_index_get_entries_count(st)
+#define get_index_entry(st, idx) avformat_index_get_entry(st, idx)
+#else
+#define get_index_count(st) ((st)->nb_index_entries)
+#define get_index_entry(st, idx) (&((st)->index_entries[idx]))
+#endif
+
+
+/*
+ * The cached keyframe index for (filename, video_idx), from memory or, on a
+ * miss, from .index on disk; never scans.  NULL if there is none yet.
+ */
+static struct hls_file_index *
+hls_index_lookup(struct per_vhost_data__lws_hls *vhd, const char *filename,
+		 int video_idx)
+{
+	struct hls_file_index *idx = NULL;
+
+	if (!vhd)
+		return NULL;
+
+	pthread_mutex_lock(&vhd->lock);
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->index_list)) {
+		struct hls_file_index *curr = lws_container_of(d,
+					struct hls_file_index, list);
+
+		if (!strcmp(curr->filename, filename) &&
+		    curr->video_idx == video_idx) {
+			idx = curr;
+			break;
+		}
+	} lws_end_foreach_dll(d);
+	pthread_mutex_unlock(&vhd->lock);
+
+	if (idx)
+		return idx;
+
+	/* not seen since we started: maybe an earlier run did the scan and
+	 * left the index on disk */
+	idx = lws_hls_index_load(vhd, filename, video_idx);
+	if (!idx)
+		return NULL;
+
+	pthread_mutex_lock(&vhd->lock);
+	lws_dll2_clear(&idx->list);
+	lws_dll2_add_head(&idx->list, &vhd->index_list);
+	pthread_mutex_unlock(&vhd->lock);
+
+	return idx;
+}
+
+/* give the demuxer our keyframe positions, so its seeks land on them */
+static void
+hls_index_apply(AVStream *st, const struct hls_file_index *idx)
+{
+	int i;
+
+	if (get_index_count(st) > 1)
+		return;
+
+	for (i = 0; i < idx->count; i++)
+		av_add_index_entry(st, idx->entries[i].pos,
+				   idx->entries[i].timestamp,
+				   idx->entries[i].size,
+				   idx->entries[i].min_distance,
+				   idx->entries[i].flags);
+}
+
+/* encode one decoded frame as JPEG: malloc'd, or NULL */
+static uint8_t *
+hls_frame_to_jpeg(const AVFrame *frame, enum AVPixelFormat src_fmt,
+		  int *jpeg_size_out)
+{
+	const AVCodec *encoder = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
+	AVCodecContext *enc_ctx = NULL;
+	struct SwsContext *sws_ctx = NULL;
+	AVFrame *yuv = NULL;
+	AVPacket *enc_pkt = NULL;
+	uint8_t *jpeg = NULL;
+
+	if (!encoder)
+		return NULL;
+
+	enc_ctx = avcodec_alloc_context3(encoder);
+	if (!enc_ctx)
+		return NULL;
+	enc_ctx->width = frame->width;
+	enc_ctx->height = frame->height;
+	enc_ctx->time_base = (AVRational){1, 25};
+	enc_ctx->pix_fmt = AV_PIX_FMT_YUVJ420P;
+
+	if (avcodec_open2(enc_ctx, encoder, NULL))
+		goto out;
+
+	sws_ctx = sws_getContext(frame->width, frame->height, src_fmt,
+				 enc_ctx->width, enc_ctx->height,
+				 enc_ctx->pix_fmt, SWS_BILINEAR, NULL, NULL,
+				 NULL);
+	if (!sws_ctx)
+		goto out;
+
+	yuv = av_frame_alloc();
+	if (!yuv)
+		goto out;
+	yuv->format = enc_ctx->pix_fmt;
+	yuv->width = enc_ctx->width;
+	yuv->height = enc_ctx->height;
+	if (av_frame_get_buffer(yuv, 32))
+		goto out;
+
+	sws_scale(sws_ctx, (const uint8_t * const *)frame->data,
+		  frame->linesize, 0, frame->height, yuv->data, yuv->linesize);
+
+	enc_pkt = av_packet_alloc();
+	if (!enc_pkt)
+		goto out;
+	if (!avcodec_send_frame(enc_ctx, yuv) &&
+	    !avcodec_receive_packet(enc_ctx, enc_pkt)) {
+		jpeg = malloc((size_t)enc_pkt->size);
+		if (jpeg) {
+			memcpy(jpeg, enc_pkt->data, (size_t)enc_pkt->size);
+			*jpeg_size_out = enc_pkt->size;
+		}
+	}
+
+out:
+	av_packet_free(&enc_pkt);
+	av_frame_free(&yuv);
+	if (sws_ctx)
+		sws_freeContext(sws_ctx);
+	avcodec_free_context(&enc_ctx);
+
+	return jpeg;
+}
+
+/*
+ * How far past the seek point we are prepared to decode to reach the
+ * requested frame: the seek lands on the keyframe before it, which can be
+ * a whole GOP earlier
+ */
+#define HLS_THUMB_MAX_DECODE 600
 
 /* thumbnail extraction: returns a malloc'd JPEG, or NULL */
 static uint8_t *
 run_thumb_task(struct per_vhost_data__lws_hls *vhd, struct hls_task *t,
 	       int *jpeg_size_out)
 {
-        {
-                char filepath[512];
-                snprintf(filepath, sizeof(filepath), "%s/%s", vhd->media_dir, t->filename);
-                
-                AVFormatContext *fmt_ctx = NULL;
-                AVCodecContext *dec_ctx = NULL;
-                AVCodecContext *enc_ctx = NULL;
-                struct SwsContext *sws_ctx = NULL;
-                AVFrame *frame = NULL;
-                AVFrame *rgb_frame = NULL;
-                AVPacket *pkt = NULL;
-                AVPacket *enc_pkt = NULL;
-                uint8_t *jpeg_data = NULL;
-                int jpeg_size = 0;
-                
-                if (avformat_open_input(&fmt_ctx, filepath, NULL, NULL) == 0) {
-                        if (avformat_find_stream_info(fmt_ctx, NULL) >= 0) {
-                                int video_idx = -1;
-                                for (unsigned int i = 0; i < fmt_ctx->nb_streams; i++) {
-                                        if (fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-                                                video_idx = (int)i;
-                                                break;
-                                        }
-                                }
-                                
-                                if (video_idx >= 0) {
-                                        const AVCodec *decoder = avcodec_find_decoder(fmt_ctx->streams[video_idx]->codecpar->codec_id);
-                                        if (decoder) {
-                                                dec_ctx = avcodec_alloc_context3(decoder);
-                                                avcodec_parameters_to_context(dec_ctx, fmt_ctx->streams[video_idx]->codecpar);
-                                                
-                                                if (avcodec_open2(dec_ctx, decoder, NULL) == 0) {
-                                                        frame = av_frame_alloc();
-                                                        pkt = av_packet_alloc();
-                                                        
-                                                        int64_t target_ts = av_rescale_q(10 * AV_TIME_BASE, AV_TIME_BASE_Q, fmt_ctx->streams[video_idx]->time_base);
-                                                        av_seek_frame(fmt_ctx, video_idx, target_ts, AVSEEK_FLAG_BACKWARD);
-                                                        
-                                                        while (av_read_frame(fmt_ctx, pkt) >= 0) {
-                                                                if (pkt->stream_index == video_idx) {
-                                                                        if (avcodec_send_packet(dec_ctx, pkt) == 0) {
-                                                                                if (avcodec_receive_frame(dec_ctx, frame) == 0) {
-                                                                                        const AVCodec *encoder = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
-                                                                                        if (encoder) {
-                                                                                                enc_ctx = avcodec_alloc_context3(encoder);
-                                                                                                enc_ctx->width = frame->width;
-                                                                                                enc_ctx->height = frame->height;
-                                                                                                enc_ctx->time_base = (AVRational){1, 25};
-                                                                                                enc_ctx->pix_fmt = AV_PIX_FMT_YUVJ420P; 
-                                                                                                
-                                                                                                if (avcodec_open2(enc_ctx, encoder, NULL) == 0) {
-                                                                                                        sws_ctx = sws_getContext(frame->width, frame->height, dec_ctx->pix_fmt,
-                                                                                                                                 enc_ctx->width, enc_ctx->height, enc_ctx->pix_fmt,
-                                                                                                                                 SWS_BILINEAR, NULL, NULL, NULL);
-                                                                                                        
-                                                                                                        if (sws_ctx) {
-                                                                                                                rgb_frame = av_frame_alloc();
-                                                                                                                rgb_frame->format = enc_ctx->pix_fmt;
-                                                                                                                rgb_frame->width = enc_ctx->width;
-                                                                                                                rgb_frame->height = enc_ctx->height;
-                                                                                                                av_frame_get_buffer(rgb_frame, 32);
-                                                                                                                
-                                                                                                                sws_scale(sws_ctx, (const uint8_t * const*)frame->data, frame->linesize,
-                                                                                                                          0, frame->height, rgb_frame->data, rgb_frame->linesize);
-                                                                                                                          
-                                                                                                                enc_pkt = av_packet_alloc();
-                                                                                                                if (avcodec_send_frame(enc_ctx, rgb_frame) == 0) {
-                                                                                                                        if (avcodec_receive_packet(enc_ctx, enc_pkt) == 0) {
-                                                                                                                                jpeg_data = malloc((size_t)enc_pkt->size);
-                                                                                                                                memcpy(jpeg_data, enc_pkt->data, (size_t)enc_pkt->size);
-                                                                                                                                jpeg_size = enc_pkt->size;
-                                                                                                                        }
-                                                                                                                }
-                                                                                                                av_packet_free(&enc_pkt);
-                                                                                                                av_frame_free(&rgb_frame);
-                                                                                                                sws_freeContext(sws_ctx);
-                                                                                                        }
-                                                                                                }
-                                                                                                avcodec_free_context(&enc_ctx);
-                                                                                        }
-                                                                                        av_packet_unref(pkt);
-                                                                                        break;
-                                                                                }
-                                                                        }
-                                                                }
-                                                                av_packet_unref(pkt);
-                                                        }
-                                                        av_packet_free(&pkt);
-                                                        av_frame_free(&frame);
-                                                }
-                                                avcodec_free_context(&dec_ctx);
-                                        }
-                                }
-                        }
-                        avformat_close_input(&fmt_ctx);
-                }
+	AVFormatContext *fmt_ctx = NULL;
+	AVCodecContext *dec_ctx = NULL;
+	const AVCodec *decoder;
+	AVFrame *frame = NULL;
+	AVPacket *pkt = NULL;
+	AVStream *st;
+	uint8_t *jpeg = NULL;
+	char filepath[512];
+	int video_idx = -1, secs = t->segment_idx, seek_flags, decoded = 0;
+	int64_t target_ts;
+	unsigned int i;
 
-                *jpeg_size_out = jpeg_size;
+	*jpeg_size_out = 0;
 
-                return jpeg_data;
-        }
+	lws_snprintf(filepath, sizeof(filepath), "%s/%s", vhd->media_dir,
+		     t->filename);
+
+	if (avformat_open_input(&fmt_ctx, filepath, NULL, NULL))
+		return NULL;
+	if (avformat_find_stream_info(fmt_ctx, NULL) < 0)
+		goto out;
+
+	for (i = 0; i < fmt_ctx->nb_streams; i++)
+		if (fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+			video_idx = (int)i;
+			break;
+		}
+	if (video_idx < 0)
+		goto out;
+	st = fmt_ctx->streams[video_idx];
+
+	seek_flags = AVSEEK_FLAG_BACKWARD;
+
+	if (secs >= 0) {
+		/*
+		 * A frame at the viewer's resume position: only through our
+		 * own keyframe index, since the demuxer seeking there by
+		 * itself on a large file without cues would mean reading
+		 * everything before it, on the worker.  The player builds the
+		 * index before it plays anything, so a file with a resume
+		 * position normally has one; if not, the default frame will do
+		 */
+		const struct hls_file_index *idx =
+			hls_index_lookup(vhd, t->filename, video_idx);
+
+		if (idx) {
+			hls_index_apply(st, idx);
+			if (idx->unflagged_keyframes)
+				seek_flags |= AVSEEK_FLAG_ANY;
+		} else {
+			lwsl_info("%s: %s: no index yet, default thumbnail\n",
+				  __func__, t->filename);
+			secs = HLS_THUMB_DEFAULT_T;
+		}
+	}
+	if (secs < 0)
+		secs = HLS_THUMB_DEFAULT_SECS;
+
+	decoder = avcodec_find_decoder(st->codecpar->codec_id);
+	if (!decoder)
+		goto out;
+	dec_ctx = avcodec_alloc_context3(decoder);
+	if (!dec_ctx)
+		goto out;
+	avcodec_parameters_to_context(dec_ctx, st->codecpar);
+	if (avcodec_open2(dec_ctx, decoder, NULL))
+		goto out;
+
+	frame = av_frame_alloc();
+	pkt = av_packet_alloc();
+	if (!frame || !pkt)
+		goto out;
+
+	target_ts = av_rescale_q((int64_t)secs * AV_TIME_BASE, AV_TIME_BASE_Q,
+				 st->time_base);
+	av_seek_frame(fmt_ctx, video_idx, target_ts, seek_flags);
+
+	/*
+	 * Decode forward from the keyframe the seek landed on until we reach
+	 * the requested time, so a resume thumbnail shows the frame the
+	 * viewer will actually see, not one from up to a GOP earlier
+	 */
+	while (!jpeg && av_read_frame(fmt_ctx, pkt) >= 0) {
+		if (pkt->stream_index != video_idx) {
+			av_packet_unref(pkt);
+			continue;
+		}
+		if (!avcodec_send_packet(dec_ctx, pkt))
+			while (!avcodec_receive_frame(dec_ctx, frame)) {
+				int64_t ts = frame->best_effort_timestamp;
+
+				decoded++;
+				if ((ts == AV_NOPTS_VALUE || ts >= target_ts ||
+				     decoded >= HLS_THUMB_MAX_DECODE)) {
+					jpeg = hls_frame_to_jpeg(frame,
+							dec_ctx->pix_fmt,
+							jpeg_size_out);
+					if (!jpeg)
+						decoded = HLS_THUMB_MAX_DECODE;
+					av_frame_unref(frame);
+					break;
+				}
+				av_frame_unref(frame);
+			}
+		av_packet_unref(pkt);
+		if (decoded >= HLS_THUMB_MAX_DECODE)
+			break;
+		if (vhd->thread_exit)
+			break;
+	}
+
+out:
+	av_packet_free(&pkt);
+	av_frame_free(&frame);
+	avcodec_free_context(&dec_ctx);
+	avformat_close_input(&fmt_ctx);
+
+	return jpeg;
 }
 
 /* worker thread: file the thumbnail in the shared cache */
@@ -125,6 +285,7 @@ finish_thumb_task(struct per_vhost_data__lws_hls *vhd, struct hls_task *t,
 
 	if (c) {
 		lws_strncpy(c->filename, t->filename, sizeof(c->filename));
+		c->t = t->segment_idx;
 		c->data = jpeg_data;
 		c->len = (size_t)jpeg_size;
 
@@ -132,7 +293,7 @@ finish_thumb_task(struct per_vhost_data__lws_hls *vhd, struct hls_task *t,
 		lws_dll2_add_head(&c->list, &vhd->thumb_cache);
 		vhd->cache_count++;
 
-		if (vhd->cache_count > 20) {
+		if (vhd->cache_count > HLS_THUMB_CACHE_CAP) {
 			/* drop the least-recently-used guy at the tail */
 			struct thumb_cache *curr = lws_container_of(
 					lws_dll2_get_tail(&vhd->thumb_cache),
@@ -148,6 +309,7 @@ finish_thumb_task(struct per_vhost_data__lws_hls *vhd, struct hls_task *t,
 		free(jpeg_data);
 
 	vhd->current_task_filename[0] = '\0';
+	vhd->current_task_t = HLS_THUMB_DEFAULT_T;
 	vhd->running = NULL;
 
 	pthread_mutex_unlock(&vhd->lock);
@@ -224,9 +386,11 @@ lws_hls_worker(void *d)
 		t->state = HLS_TASK_RUNNING;
 		vhd->running = t;
 
-		if (t->type == HLS_TASK_THUMB)
+		if (t->type == HLS_TASK_THUMB) {
 			lws_strncpy(vhd->current_task_filename, t->filename,
 				    sizeof(vhd->current_task_filename));
+			vhd->current_task_t = t->segment_idx;
+		}
 
                 pthread_mutex_unlock(&vhd->lock);
 
@@ -407,7 +571,8 @@ lws_hls_collect_done(struct per_vhost_data__lws_hls *vhd)
 }
 
 int
-lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir, const char *filename)
+lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir,
+			const char *filename, int t)
 {
         struct per_vhost_data__lws_hls *vhd = (struct per_vhost_data__lws_hls *)
                 lws_protocol_vh_priv_get(lws_get_vhost(wsi), lws_get_protocol(wsi));
@@ -424,7 +589,7 @@ lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir, const char *file
                 struct thumb_cache *cc = lws_container_of(d,
                                                 struct thumb_cache, list);
 
-                if (!strcmp(cc->filename, filename)) {
+                if (!strcmp(cc->filename, filename) && cc->t == t) {
                         c = cc;
                         break;
                 }
@@ -434,6 +599,7 @@ lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir, const char *file
                 pthread_mutex_unlock(&vhd->lock);
                 lws_strncpy(pss->thumb_filename, filename,
                             sizeof(pss->thumb_filename));
+                pss->thumb_t = t;
                 pss->waiting_for_thumbnail = 1;
                 lws_callback_on_writable(wsi);
                 return 0;
@@ -441,18 +607,18 @@ lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir, const char *file
 
         int already_queued = 0;
         lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&vhd->tasks)) {
-                struct hls_task *t = lws_container_of(d2,
+                struct hls_task *tk = lws_container_of(d2,
                                                 struct hls_task, list);
 
-                if (t->type == HLS_TASK_THUMB &&
-		    !strcmp(t->filename, filename)) {
+                if (tk->type == HLS_TASK_THUMB && tk->segment_idx == t &&
+		    !strcmp(tk->filename, filename)) {
                         already_queued = 1;
                         break;
                 }
         } lws_end_foreach_dll(d2);
 
 	/* ...or being extracted right now */
-	if (vhd->current_task_filename[0] &&
+	if (vhd->current_task_filename[0] && vhd->current_task_t == t &&
 	    !strcmp(vhd->current_task_filename, filename))
 		already_queued = 1;
 
@@ -464,6 +630,7 @@ lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir, const char *file
                 }
 		nt->type = HLS_TASK_THUMB;
 		nt->state = HLS_TASK_PENDING;
+		nt->segment_idx = t;	/* the time wanted, for a thumb */
                 lws_strncpy(nt->filename, filename, sizeof(nt->filename));
 
                 lws_dll2_add_tail(&nt->list, &vhd->tasks);
@@ -475,6 +642,7 @@ lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir, const char *file
         
         lws_strncpy(pss->thumb_filename, filename,
                     sizeof(pss->thumb_filename));
+        pss->thumb_t = t;
         pss->waiting_for_thumbnail = 1;
         lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
         
@@ -1186,13 +1354,6 @@ lws_hls_build_init(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
 	r->status = HTTP_STATUS_OK;
         free(hb.ptr);
 }
-#if LIBAVFORMAT_VERSION_MAJOR >= 58
-#define get_index_count(st) avformat_index_get_entries_count(st)
-#define get_index_entry(st, idx) avformat_index_get_entry(st, idx)
-#else
-#define get_index_count(st) ((st)->nb_index_entries)
-#define get_index_entry(st, idx) (&((st)->index_entries[idx]))
-#endif
 
 /*
  * Is this video packet a keyframe?
@@ -1524,46 +1685,12 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 	 */
 	volatile int *bc = vhd ? (volatile int *)&vhd->thread_exit : cancel;
 
-	/* Check index cache first */
-	struct hls_file_index *idx = NULL;
-	if (vhd) {
-		pthread_mutex_lock(&vhd->lock);
-		lws_start_foreach_dll(struct lws_dll2 *, d,
-				      lws_dll2_get_head(&vhd->index_list)) {
-			struct hls_file_index *curr = lws_container_of(d,
-						struct hls_file_index, list);
-
-			if (!strcmp(curr->filename, filename) &&
-			    curr->video_idx == video_idx) {
-				idx = curr;
-				break;
-			}
-		} lws_end_foreach_dll(d);
-		pthread_mutex_unlock(&vhd->lock);
-
-		if (!idx) {
-			/* not seen since we started: maybe an earlier run did
-			 * the scan and left the index on disk */
-			idx = lws_hls_index_load(vhd, filename, video_idx);
-			if (idx) {
-				pthread_mutex_lock(&vhd->lock);
-				lws_dll2_clear(&idx->list);
-				lws_dll2_add_head(&idx->list, &vhd->index_list);
-				pthread_mutex_unlock(&vhd->lock);
-			}
-		}
-	}
+	/* memory, then .index on disk */
+	struct hls_file_index *idx = hls_index_lookup(vhd, filename, video_idx);
 
 	if (idx) {
-		/* Populate index entries from cache if context's index is empty */
-		if (count <= 1) {
-			for (int i = 0; i < idx->count; i++) {
-				av_add_index_entry(st, idx->entries[i].pos, idx->entries[i].timestamp,
-						   idx->entries[i].size, idx->entries[i].min_distance,
-						   idx->entries[i].flags);
-			}
-			count = get_index_count(st);
-		}
+		hls_index_apply(st, idx);
+		count = get_index_count(st);
 	} else {
 		/*
 		 * Not cached anywhere: building it means reading the whole

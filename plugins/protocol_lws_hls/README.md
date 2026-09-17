@@ -55,6 +55,24 @@ Example JSON snippet (e.g. inside `/etc/lwsws/conf.d/myvhost.json`):
 
 This attaches the `lws-hls` protocol to the vhost, maps the `/media` URL path to a standard file mount pointing to your player HTML assets, and creates a `/media/hls` callback mount bound to the `lws-hls` protocol callback. This ensures player files (like `player.html`, `dir.js` and `dir.css`) are served statically, while dynamic playlist generator, thumbnail generator, and streaming requests are properly routed to the plugin.
 
+## The listing
+
+`hls/` lists the media files newest first, each with a thumbnail from
+`hls/preview/<file>` (the frame at 10s) and a link into the player.  What
+`dir.js` then does with it is per viewer, from the resume state `player.js`
+keeps in the browser's localStorage: a file the viewer has started gets a
+resume badge, its thumbnail is re-requested as `hls/preview/<file>/<secs>`
+so it shows the frame they will resume at, and the items are reordered by
+the later of the file's date and when the viewer last watched it, so what
+they were watching recently sits at the top alongside what was recently
+added.  Nothing about the viewer is stored on the server: the timed
+thumbnails are cached per (file, seconds) like the default ones, the seconds
+bucketed by the client to 5s so the cache is not asked for every second.
+
+A timed thumbnail is only cut through the file's keyframe index (see below),
+never by asking the demuxer to seek a large file without cues; a file that
+has no index yet gets the default frame instead.
+
 ## Deleting media
 
 The directory listing shows a bin button on each item, and the player a
