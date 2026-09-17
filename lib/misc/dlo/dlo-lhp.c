@@ -2449,7 +2449,15 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
  * of the body dlo) and any with a positive z-index are moved, in order, to
  * the end of the body's children once the document is complete, their
  * offsets converted to body-relative on the way.
+ *
+ * A raised box is a stacking context for its own positioned descendants:
+ * those are raised to the end of its children, not the body's, so a
+ * z-index: 1 footer paints under its z-index: 1 breadcrumbs rather than
+ * over them.
  */
+
+static void
+lhp_raise_positioned(lws_dlo_t *root);
 
 static void
 lhp_collect_positioned(lws_dlo_t *parent, const lws_fx_t *ox,
@@ -2463,30 +2471,30 @@ lhp_collect_positioned(lws_dlo_t *parent, const lws_fx_t *ox,
 		lws_fx_add(&cx, ox, &dlo->box.x);
 		lws_fx_add(&cy, oy, &dlo->box.y);
 
-		lhp_collect_positioned(dlo, &cx, &cy, raised);
-
 		if (dlo->flag_abs || dlo->flag_zraise) {
+			lhp_raise_positioned(dlo);
 			lws_dll2_remove(d);
 			dlo->box.x = cx;
 			dlo->box.y = cy;
 			lws_dll2_add_tail(d, raised);
-		}
+		} else
+			lhp_collect_positioned(dlo, &cx, &cy, raised);
 	} lws_end_foreach_dll_safe(d, d1);
 }
 
 static void
-lhp_raise_positioned(lws_dlo_t *body)
+lhp_raise_positioned(lws_dlo_t *root)
 {
 	lws_dll2_owner_t raised;
 
 	memset(&raised, 0, sizeof(raised));
-	lhp_collect_positioned(body, &fx_0, &fx_0, &raised);
+	lhp_collect_positioned(root, &fx_0, &fx_0, &raised);
 
 	while (lws_dll2_get_head(&raised)) {
 		lws_dll2_t *d = lws_dll2_get_head(&raised);
 
 		lws_dll2_remove(d);
-		lws_dll2_add_tail(d, &body->children);
+		lws_dll2_add_tail(d, &root->children);
 	}
 }
 

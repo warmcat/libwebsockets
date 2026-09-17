@@ -1,0 +1,10 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (0.0,17.92) [400.0 x 19.0] rgba=00000000
+  text (0.0,0.0) [24.0 x 19.0] rgba=FF000000 f=17/400 "flow"
+ rect (0.0,54.84) [400.0 x 55.0] rgba=FFF7F5F5
+  rect (10.0,10.0) [380.0 x 19.0] rgba=00000000
+   text (0.0,0.0) [26.0 x 19.0] rgba=FF000000 f=17/400 "Blog"
+  rect (10.0,26.0) [380.0 x 19.0] rgba=00000000
+   text (0.0,0.0) [55.0 x 19.0] rgba=FF000000 f=17/400 "Copyright"
+ rect (20.0,100.0) [200.0 x 60.0] rgba=FFCCCCCC
+  text (0.0,0.0) [36.0 x 19.0] rgba=FF000000 f=17/400 "badge"

@@ -2,8 +2,8 @@ rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
  rect (0.0,0.0) [400.0 x 52.0] rgba=00000000
  rect (0.0,69.92) [400.0 x 19.0] rgba=00000000
   text (0.0,0.0) [28.0 x 19.0] rgba=FF000000 f=17/400 "after"
- rect (0.0,0.0) [400.0 x 52.0] rgba=FF1F1D1D
  rect (0.0,0.0) [400.0 x 52.0] rgba=00000000
+  rect (0.0,0.0) [400.0 x 52.0] rgba=FF1F1D1D
  rect (0.0,0.0) [500.0 x 52.0] rgba=00000000
   rect (0.0,0.0) [26.0 x 52.0] rgba=00000000
    text (0.0,0.0) [26.0 x 19.0] rgba=FFFFFFFF f=17/400 "Title"
