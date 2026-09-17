@@ -3106,12 +3106,18 @@ attr_complete(lws_svg_t *ctx)
 					/* p[4] == 'Y'; p[5..7] = Min/Mid/Max */
 					ctx->par_ay = p[5] != 'M' ? 0 :
 							p[6] == 'a' ? 2 : 1;
-				}
 
-				p = svg_ws(p + 8, end);
-				if ((size_t)(end - p) >= 5 &&
-				    !strncmp(p, "slice", 5))
-					ctx->par_slice = 1;
+					/*
+					 * only after a full 8-byte align
+					 * keyword: p + 8 past end made the
+					 * length below wrap and strncmp read
+					 * beyond the attribute buffer
+					 */
+					p = svg_ws(p + 8, end);
+					if ((size_t)(end - p) >= 5 &&
+					    !strncmp(p, "slice", 5))
+						ctx->par_slice = 1;
+				}
 			}
 
 			return 0;
