@@ -21,6 +21,7 @@ enum {
 		LWS_SW_PRESEED,
 		LWS_SW_FONTS,
 		LWS_SW_HEAP_LIMIT,
+		LWS_SW_RECLAIM_LINES,
 		LWS_SW_HELP,
 };
 
@@ -36,6 +37,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_PRESEED]	= { "--preseed",    "Preseed the asset cache with url=file" },
 	[LWS_SW_FONTS]	= { "--fonts",         "Register the .mcufont files in this directory as file-backed faces, instead of the built-in ones" },
 	[LWS_SW_HEAP_LIMIT] = { "--heap-limit", "Simulate a heap of this many bytes above what is in use at the start, so fonts and images get reclaimed" },
+	[LWS_SW_RECLAIM_LINES] = { "--reclaim-lines", "Evict every reclaimable heap occupant after each N rendered lines, so they all get renewed mid-render on any allocator" },
 	[LWS_SW_HELP]	= { "--help",          "Show this help information" },
 };
 
@@ -131,6 +133,7 @@ static lws_surface_info_t ic = {
 
 int fdin = 0, fdout = 1, result = 0;
 static const char *dump_path;
+static int reclaim_lines;
 
 /*
  * Write the DLO tree as deterministic text (no pointers), so the layout
@@ -348,6 +351,14 @@ render(lws_sorted_usec_list_t *sul)
 	 */
 
 	while (rs->curr != rs->ic->wh_px[1].whole) {
+
+		/*
+		 * --reclaim-lines: sound the bat signal ourselves every few
+		 * lines, so every tenant (fonts, images) is evicted and has
+		 * to renew itself mid-render, independent of the allocator
+		 */
+		if (reclaim_lines && !(rs->curr % reclaim_lines))
+			lws_reclaim((size_t)-1);
 
 		r = lws_display_list_render_line(rs);
 
@@ -603,6 +614,10 @@ main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_HEAP_LIMIT].sw)))
 		lws_heap_limit_set(lws_get_allocated_heap() +
 				   (size_t)atoi(p));
+
+	if ((p = lws_cmdline_option(argc, argv,
+				    switches[LWS_SW_RECLAIM_LINES].sw)))
+		reclaim_lines = atoi(p);
 
 	drs.ic = &ic;
 

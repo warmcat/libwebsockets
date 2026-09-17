@@ -118,10 +118,13 @@ if (requirements)
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
 
 		# a page with a (preseeded) cached image, rendered with the
-		# faces from files under a heap limit that evicts the fonts
-		# and the image's payload and decoder during the layout and
-		# render, against the same render with no limit: the pixels
-		# must be identical
+		# faces from files while every reclaimable occupant (the font
+		# tables and glyphs, the image's payload and decoder) is
+		# evicted every few lines and has to renew itself mid-render,
+		# against the same render left alone: the pixels must be
+		# identical.  (A heap limit did this before, but where the
+		# limit bites depends on the allocator: it evicted the image
+		# under glibc and nothing decodable under ASan)
 		add_test(NAME api-test-lhp-dlo-render-reclaim
 			 COMMAND ${CMAKE_COMMAND}
 				-DTOOL=$<TARGET_FILE:${SAMP}>
@@ -129,7 +132,7 @@ if (requirements)
 				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/21-image-reclaim
 				-DW=600 -DH=448
 				"-DCOMMON=--preseed;https://missing.invalid/exclaim.png=${CMAKE_CURRENT_SOURCE_DIR}/exclaim.png"
-				"-DFLAGS_B=--fonts;${CMAKE_CURRENT_SOURCE_DIR}/../../../contrib/mcufont/fonts;--heap-limit;50000"
+				"-DFLAGS_B=--fonts;${CMAKE_CURRENT_SOURCE_DIR}/../../../contrib/mcufont/fonts;--reclaim-lines;7"
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 
 		# captured real-world pages, with their network assets made
