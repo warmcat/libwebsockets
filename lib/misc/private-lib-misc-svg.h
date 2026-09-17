@@ -92,7 +92,20 @@ svg_e8_to_fx(lws_fx_t *f, int64_t v)
 static LWS_INLINE svg_c_t
 svg_e8_to_c(int64_t v)
 {
-	int64_t q = (v * SVG_Q16_1) / SVG_E8_1;
+	int64_t q;
+
+	/*
+	 * Saturate before the multiply as well: parser output is clamped
+	 * small enough, but lws_fx_tan() can hand skewX/skewY 2e17, and
+	 * 2e17 * 65536 does not fit.  Anything at or beyond this maps to
+	 * the clamp below anyway.
+	 */
+	if (v >= INT64_MAX / SVG_Q16_1)
+		return (svg_c_t)SVG_C_MAX;
+	if (v <= -(INT64_MAX / SVG_Q16_1))
+		return (svg_c_t)-SVG_C_MAX;
+
+	q = (v * SVG_Q16_1) / SVG_E8_1;
 
 	if (q > SVG_C_MAX)
 		return (svg_c_t)SVG_C_MAX;
