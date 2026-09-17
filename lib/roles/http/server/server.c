@@ -2306,6 +2306,33 @@ lws_http_te_is_chunked(struct lws *wsi)
 	return e - p == 7 && !strncasecmp(p, "chunked", 7);
 }
 
+/*
+ * Is the request's Expect exactly "100-continue" (case-insensitive, surrounding
+ * whitespace ignored)?  That is the only expectation defined; any other
+ * value is 417 Expectation Failed (RFC 9110 10.1.1).
+ */
+
+static int
+lws_http_expect_is_continue(struct lws *wsi)
+{
+	char ex[32], *p = ex, *e;
+
+	if (lws_hdr_copy_fragment(wsi, ex, sizeof(ex) - 1,
+				  WSI_TOKEN_HTTP_EXPECT, 1) != -1)
+		return 0;
+
+	if (lws_hdr_copy(wsi, ex, sizeof(ex) - 1, WSI_TOKEN_HTTP_EXPECT) <= 0)
+		return 0;
+
+	while (*p == ' ' || *p == '\t')
+		p++;
+	e = p + strlen(p);
+	while (e > p && (e[-1] == ' ' || e[-1] == '\t'))
+		e--;
+
+	return e - p == 12 && !strncasecmp(p, "100-continue", 12);
+}
+
 int
 lws_http_action(struct lws *wsi)
 {
@@ -2439,6 +2466,8 @@ lws_http_action(struct lws *wsi)
 		 * lws_http_transaction_completed().
 		 */
 		wsi->http.content_length_given = 0;
+		/* no status line has been built for this transaction yet */
+		wsi->http.response_code = 0;
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 				||
@@ -2455,6 +2484,14 @@ lws_http_action(struct lws *wsi)
 		    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
 			lwsl_warn("%s: Both Content-Length and Transfer-Encoding present\n", __func__);
 			lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, NULL);
+			return 1;
+		}
+
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_EXPECT) &&
+		    !lws_http_expect_is_continue(wsi)) {
+			lwsl_wsi_notice(wsi, "unsupported Expect");
+			lws_return_http_status(wsi,
+				HTTP_STATUS_EXPECTATION_FAILED, NULL);
 			return 1;
 		}
 
@@ -2989,6 +3026,34 @@ deal_body:
 		lwsi_set_state(wsi, LRS_BODY);
 		lwsl_info("%s: %s: LRS_BODY state set (0x%x)\n", __func__,
 			  lws_wsi_tag(wsi), (int)wsi->wsistate);
+
+		/*
+		 * Expect: 100-continue (validated above): the client is
+		 * holding its body back until we say we will read it.  We are
+		 * about to, and nothing has answered the request yet, so tell
+		 * it.  If the request had already been refused (413 over the
+		 * body limit, 501 for the transfer-coding, the app's own 401
+		 * from LWS_CALLBACK_HTTP...), the refusal went out instead and
+		 * the client is spared sending the body, which is the point
+		 * of the exchange.  h1.1 only: h2 and h3 do not use it and a
+		 * 1.0 client cannot parse an interim response.
+		 */
+		if (!wsi->mux_substream &&
+		    wsi->http.request_version == HTTP_VERSION_1_1 &&
+		    !wsi->http.response_code &&
+		    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_EXPECT)) {
+			uint8_t ib[LWS_PRE + 32];
+			static const char cont[] =
+				"HTTP/1.1 100 Continue\x0d\x0a\x0d\x0a";
+
+			memcpy(&ib[LWS_PRE], cont, sizeof(cont) - 1);
+			lwsl_wsi_info(wsi, "sending 100 Continue");
+			if (lws_write(wsi, &ib[LWS_PRE], sizeof(cont) - 1,
+				      LWS_WRITE_HTTP) != (int)(sizeof(cont) - 1))
+				return 1;
+			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+					(int)wsi->a.context->timeout_secs);
+		}
 	}
 	wsi->http.rx_content_remain = wsi->http.rx_content_length;
 
