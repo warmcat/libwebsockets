@@ -535,7 +535,8 @@ int main(int argc, const char **argv)
 
 		lws_fx_add(&r, &a, &b);
 
-		if (r.whole != -2 || r.frac != 50000000) {
+		/* -1 + -1.5 = -2.5, canonical sign-magnitude: both fields negative */
+		if (r.whole != -2 || r.frac != -50000000) {
 			lwsl_err("%s: fixed3232: test4 fail\n", __func__);
 			return 1;
 		}
@@ -792,7 +793,7 @@ int main(int argc, const char **argv)
 
 		lws_fx_sub(&r, &a, &b);
 
-		if (r.whole != -15 || r.frac != 20000000) {
+		if (r.whole != -15 || r.frac != -20000000) {
 			lwsl_err("%s: fixed3232: test22 fail: %d.%08u\n", __func__, r.whole, r.frac);
 			return 1;
 		}
