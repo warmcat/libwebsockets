@@ -151,10 +151,24 @@ struct allocated_headers {
 	ah_data_idx_t unk_ll_tail;
 #endif
 
+	/*
+	 * Where the response section of a client ah begins, taken when the
+	 * client starts waiting for the server's reply: a 1xx interim
+	 * response is rewound to here, so the request tokens created before
+	 * it (the client's own uri, method, peer address...) survive for the
+	 * final response to use.
+	 */
+	ah_data_idx_t rx_snap_pos;
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	ah_data_idx_t rx_snap_unk_ll_head;
+	ah_data_idx_t rx_snap_unk_ll_tail;
+#endif
+
 	int16_t lextable_pos;
 
 	uint8_t in_use;
 	uint8_t nfrag;
+	uint8_t rx_snap_nfrag;
 	char /*enum uri_path_states */ ups;
 	char /*enum uri_esc_states */ ues;
 
@@ -396,6 +410,11 @@ enum lws_chunk_parser {
 
 int
 lws_http_dechunk_framing(struct lws *wsi, unsigned char **buf, size_t *len);
+
+void
+lws_header_table_rx_snapshot(struct lws *wsi);
+void
+lws_header_table_rx_rewind(struct lws *wsi);
 
 enum lws_parse_urldecode_results {
 	LPUR_CONTINUE,

@@ -351,6 +351,7 @@ hs2:
 			wsi->http.ah->unk_pos = 0;
 			/* If we're (re)starting on hdr, need other implied init */
 			wsi->http.ah->ues = URIES_IDLE;
+			lws_header_table_rx_snapshot(wsi);
 #endif
 		}
 
@@ -380,6 +381,7 @@ client_http_body_sent:
 		wsi->http.ah->parser_state = WSI_TOKEN_NAME_PART;
 		wsi->http.ah->lextable_pos = 0;
 		wsi->http.ah->unk_pos = 0;
+		lws_header_table_rx_snapshot(wsi);
 #endif
 		lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
@@ -586,6 +588,7 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	wsi->http.ah->parser_state = WSI_TOKEN_NAME_PART;
 	wsi->http.ah->lextable_pos = 0;
 	wsi->http.ah->unk_pos = 0;
+	lws_header_table_rx_snapshot(wsi);
 
 	lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 			(int)wsi->a.context->timeout_secs);
@@ -1299,6 +1302,30 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 #endif
 	if (ah)
 		ah->http_response = (unsigned int)n;
+
+	if (n >= 100 && n < 200 && !wsi->client_mux_substream) {
+		/*
+		 * A 1xx interim response (100 Continue, 103 Early Hints...).
+		 * RFC 9110 15.2: a client MUST be able to parse one or more of
+		 * these before the final response, whether or not it asked for
+		 * one with Expect.  It carries nothing for the user: rewind the
+		 * header table to where the response section began, so our own
+		 * request tokens survive, and go back to waiting for the real
+		 * one.  It is the server talking to us, so the connection
+		 * validity and the response timeout start again from here.
+		 */
+		lwsl_wsi_info(wsi, "%d interim response, awaiting the final one",
+			      n);
+		lws_header_table_rx_rewind(wsi);
+		wsi->hdr_parsing_completed = 0;
+		/* the role transition above already moved us to ESTABLISHED */
+		lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
+		lws_validity_confirmed(wsi);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
+				(int)wsi->a.context->timeout_secs);
+
+		return 0;
+	}
 
 	if (!wsi->client_no_follow_redirect &&
 #if defined(LWS_WITH_HTTP_PROXY)

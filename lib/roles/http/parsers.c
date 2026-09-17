@@ -2090,6 +2090,78 @@ lws_http_remove_urlarg(struct lws *wsi, const char *name)
 }
 
 /*
+ * lws_header_table_rx_snapshot() - mark where a client ah's response begins
+ *
+ * Called when the client is about to start parsing the server's reply into
+ * an ah that already holds its own request tokens.  Everything the parser
+ * adds after this (fragments, data, unknown headers) belongs to the response
+ * and can be discarded again with lws_header_table_rx_rewind().
+ */
+
+void
+lws_header_table_rx_snapshot(struct lws *wsi)
+{
+	struct allocated_headers *ah = wsi->http.ah;
+
+	if (!ah)
+		return;
+
+	ah->rx_snap_pos = ah->pos;
+	ah->rx_snap_nfrag = ah->nfrag;
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	ah->rx_snap_unk_ll_head = ah->unk_ll_head;
+	ah->rx_snap_unk_ll_tail = ah->unk_ll_tail;
+#endif
+}
+
+/*
+ * lws_header_table_rx_rewind() - discard a parsed response from a client ah
+ *
+ * Drops every fragment and byte the parser added since the last
+ * lws_header_table_rx_snapshot(), leaving the request tokens intact, and
+ * readies the parser for another response.  Used to swallow a 1xx interim
+ * response and go on waiting for the final one.
+ */
+
+void
+lws_header_table_rx_rewind(struct lws *wsi)
+{
+	struct allocated_headers *ah = wsi->http.ah;
+	int n;
+
+	if (!ah)
+		return;
+
+	/* fragments are numbered from 1 up: anything above the mark is ours */
+
+	for (n = 0; n < WSI_TOKEN_COUNT; n++)
+		if (ah->frag_index[n] > ah->rx_snap_nfrag)
+			ah->frag_index[n] = 0;
+
+	for (n = 1; n <= (int)ah->rx_snap_nfrag; n++)
+		if (ah->frags[n].nfrag > ah->rx_snap_nfrag)
+			ah->frags[n].nfrag = 0;
+
+	if (ah->rx_snap_nfrag < LWS_ARRAY_SIZE(ah->frags) - 1)
+		memset(&ah->frags[ah->rx_snap_nfrag + 1], 0,
+		       sizeof(ah->frags[0]) * (LWS_ARRAY_SIZE(ah->frags) -
+					       ah->rx_snap_nfrag - 1));
+
+	ah->nfrag = ah->rx_snap_nfrag;
+	ah->pos = ah->rx_snap_pos;
+	ah->http_response = 0;
+	ah->unk_pos = 0;
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	ah->unk_value_pos = 0;
+	ah->unk_ll_head = ah->rx_snap_unk_ll_head;
+	ah->unk_ll_tail = ah->rx_snap_unk_ll_tail;
+#endif
+	ah->parser_state = WSI_TOKEN_NAME_PART;
+	ah->lextable_pos = 0;
+	ah->ues = URIES_IDLE;
+}
+
+/*
  * lws_http_dechunk_framing() - consume Transfer-Encoding: chunked framing
  *
  * Runs the chunk framing state machine over *buf / *len, consuming only the
