@@ -138,8 +138,6 @@ shrink_test(void)
 
 #include <sys/types.h>
 
-void lws_free(void *p);
-
 static int test_qpack_cb(void *user, int name_idx, const char *name, size_t name_len, const char *value, size_t value_len)
 {
 	/* lwsl_user("Decode CB: idx %d, name '%s', val '%s'\n", name_idx, name ? name : "", value ? value : ""); */

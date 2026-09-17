@@ -11,15 +11,35 @@
  * allocator ask the least recently used unpinned occupants to evict, then
  * retries; pinned occupants are left alone; when nothing more can be
  * reclaimed the allocation fails cleanly and the registry keeps working.
+ *
+ * The allocations are made through lws_buflist, a public core api whose
+ * segments come from the lws allocator and so count against the simulated
+ * heap: the allocator itself is not part of the public api.
  */
 
 #include <libwebsockets.h>
 
 #define BLOCK	4096
 
+static uint8_t payload[BLOCK];
+
+/* one accounted allocation of a BLOCK: a buflist holding one segment */
+
+static int
+block_alloc(struct lws_buflist **bl)
+{
+	return lws_buflist_append_segment(bl, payload, BLOCK) < 0;
+}
+
+static void
+block_free(struct lws_buflist **bl)
+{
+	lws_buflist_destroy_all_segments(bl);
+}
+
 typedef struct tenant {
 	lws_reclaimable_t	r;
-	void			*block;
+	struct lws_buflist	*block;
 	const char		*name;
 	int			evictions;
 } tenant_t;
@@ -33,8 +53,7 @@ tenant_evict(lws_reclaimable_t *r)
 	lwsl_notice("%s: evicting %s\n", __func__, t->name);
 
 	/* free only what can be recreated; never allocate here */
-	lws_realloc(t->block, 0, __func__);
-	t->block = NULL;
+	block_free(&t->block);
 	r->resident = 0;
 	t->evictions++;
 
@@ -44,14 +63,17 @@ tenant_evict(lws_reclaimable_t *r)
 static int
 tenant_load(tenant_t *t)
 {
+	size_t before = lws_get_allocated_heap();
+
 	if (t->block)
 		return 0;
 
-	t->block = lws_realloc(NULL, BLOCK, __func__);
-	if (!t->block)
+	if (block_alloc(&t->block))
 		return 1;
 
-	t->r.resident = BLOCK;
+	/* what the heap actually charged for it, segment header included:
+	 * that is what evicting it gives back */
+	t->r.resident = lws_get_allocated_heap() - before;
 	lws_reclaimable_touch(&t->r);
 
 	return 0;
@@ -61,7 +83,8 @@ int
 main(int argc, const char **argv)
 {
 	tenant_t a = { .name = "a" }, b = { .name = "b" }, c = { .name = "c" };
-	void *p1, *p2, *p3, *p4;
+	struct lws_buflist *p1 = NULL, *p2 = NULL, *p3 = NULL, *p4 = NULL,
+			   *p5 = NULL;
 	size_t base;
 	int e = 0;
 
@@ -69,13 +92,13 @@ main(int argc, const char **argv)
 	lwsl_user("LWS API selftest: reclaimable heap occupants\n");
 
 	if (!lws_get_allocated_heap()) {
-		lws_realloc(NULL, 16, "probe");
-		if (!lws_get_allocated_heap()) {
+		if (block_alloc(&p1) || !lws_get_allocated_heap()) {
 			lwsl_user("no allocation accounting on this platform, "
 				  "nothing to test\n");
 			lwsl_user("Completed: PASS\n");
 			return 0;
 		}
+		block_free(&p1);
 	}
 
 	a.r.evict = b.r.evict = c.r.evict = tenant_evict;
@@ -95,19 +118,17 @@ main(int argc, const char **argv)
 	base = lws_get_allocated_heap();
 	lws_heap_limit_set(base + BLOCK + BLOCK / 2);
 
-	p1 = lws_realloc(NULL, BLOCK, "p1");
-	if (!p1 || a.evictions || b.evictions || c.evictions) {
-		lwsl_err("%s: 1: p1 %p a %d b %d c %d\n", __func__, p1,
-			 a.evictions, b.evictions, c.evictions);
+	if (block_alloc(&p1) || a.evictions || b.evictions || c.evictions) {
+		lwsl_err("%s: 1: p1 %p a %d b %d c %d\n", __func__,
+			 (void *)p1, a.evictions, b.evictions, c.evictions);
 		e++;
 	}
 
 	/* over the limit: the LRU tenant, a, must be evicted to make room */
 
-	p2 = lws_realloc(NULL, BLOCK, "p2");
-	if (!p2 || a.evictions != 1 || b.evictions || c.evictions) {
-		lwsl_err("%s: 2: p2 %p a %d b %d c %d\n", __func__, p2,
-			 a.evictions, b.evictions, c.evictions);
+	if (block_alloc(&p2) || a.evictions != 1 || b.evictions || c.evictions) {
+		lwsl_err("%s: 2: p2 %p a %d b %d c %d\n", __func__,
+			 (void *)p2, a.evictions, b.evictions, c.evictions);
 		e++;
 	}
 
@@ -116,9 +137,8 @@ main(int argc, const char **argv)
 	lws_reclaimable_touch(&b.r);
 	lws_reclaimable_pin(&c.r);
 
-	p3 = lws_realloc(NULL, BLOCK, "p3");
-	if (!p3 || b.evictions != 1 || c.evictions) {
-		lwsl_err("%s: 3: p3 %p b %d c %d\n", __func__, p3,
+	if (block_alloc(&p3) || b.evictions != 1 || c.evictions) {
+		lwsl_err("%s: 3: p3 %p b %d c %d\n", __func__, (void *)p3,
 			 b.evictions, c.evictions);
 		e++;
 	}
@@ -126,44 +146,46 @@ main(int argc, const char **argv)
 	/* still pinned and the only thing left: the allocation must fail
 	 * cleanly, not take c's block */
 
-	p4 = lws_realloc(NULL, BLOCK, "p4");
-	if (p4 || c.evictions || !c.block) {
-		lwsl_err("%s: 4: p4 %p c %d\n", __func__, p4, c.evictions);
+	if (!block_alloc(&p4) || c.evictions || !c.block) {
+		lwsl_err("%s: 4: p4 %p c %d\n", __func__, (void *)p4,
+			 c.evictions);
 		e++;
 	}
 
 	/* unpinned, it is fair game */
 
 	lws_reclaimable_unpin(&c.r);
-	p4 = lws_realloc(NULL, BLOCK, "p4");
-	if (!p4 || c.evictions != 1 || c.block) {
-		lwsl_err("%s: 5: p4 %p c %d\n", __func__, p4, c.evictions);
+	block_free(&p4);
+	if (block_alloc(&p4) || c.evictions != 1 || c.block) {
+		lwsl_err("%s: 5: p4 %p c %d\n", __func__, (void *)p4,
+			 c.evictions);
 		e++;
 	}
 
 	/* nothing left to reclaim: a clean failure, and the registry is
 	 * still usable afterwards (a reload with the limit lifted) */
 
-	if (lws_realloc(NULL, BLOCK, "p5")) {
+	if (!block_alloc(&p5)) {
 		lwsl_err("%s: 6: allocation succeeded past the limit\n",
 			 __func__);
 		e++;
 	}
+	block_free(&p5);
 
 	lws_heap_limit_set(0);
 	if (tenant_load(&a) || !a.block) {
 		lwsl_err("%s: 7: reload failed\n", __func__);
 		e++;
 	}
-	if (lws_reclaim(1) != BLOCK || a.evictions != 2) {
+	if (lws_reclaim(1) < BLOCK || a.evictions != 2) {
 		lwsl_err("%s: 8: explicit reclaim %d\n", __func__, a.evictions);
 		e++;
 	}
 
-	lws_realloc(p1, 0, "p1");
-	lws_realloc(p2, 0, "p2");
-	lws_realloc(p3, 0, "p3");
-	lws_realloc(p4, 0, "p4");
+	block_free(&p1);
+	block_free(&p2);
+	block_free(&p3);
+	block_free(&p4);
 	lws_reclaimable_remove(&a.r);
 	lws_reclaimable_remove(&b.r);
 	lws_reclaimable_remove(&c.r);
