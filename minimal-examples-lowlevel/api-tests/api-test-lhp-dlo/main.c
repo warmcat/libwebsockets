@@ -167,9 +167,16 @@ dump_dlo(FILE *f, lws_dlo_t *dlo, int depth)
 			lws_dlo_hit_t *h = lws_container_of(dlo,
 							lws_dlo_hit_t, dlo);
 
-			fprintf(f, "hit (%s,%s) [%s x %s]%s \"%s\"\n",
+			static const char * const cur[] = {
+				"default", "pointer", "text", "crosshair",
+				"move", "wait", "help", "not-allowed", "none"
+			};
+
+			fprintf(f, "hit (%s,%s) [%s x %s]%s %s \"%s\"\n",
 				b[0], b[1], b[2], b[3], h->fill ? " fill" : "",
-				h->url);
+				h->cursor < LWS_ARRAY_SIZE(cur) ?
+					cur[h->cursor] : "?",
+				h->url ? h->url : "");
 		} else
 #if defined(LWS_WITH_UPNG)
 		if (dlo->_destroy == lws_display_dlo_png_destroy)

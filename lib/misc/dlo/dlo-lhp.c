@@ -479,6 +479,7 @@ lhp_hit_new(lhp_ctx_t *ctx, lhp_pstack_t *a, lws_dl_rend_t *drt,
 	    lws_dlo_t *parent, const lws_box_t *box)
 {
 	const char *href = lws_html_get_atr(a, "href", 4);
+	lws_dlo_hit_t *hit;
 
 	if (!href || !drt)
 		return NULL;
@@ -486,8 +487,80 @@ lhp_hit_new(lhp_ctx_t *ctx, lhp_pstack_t *a, lws_dl_rend_t *drt,
 	/* the href as written: the user resolves it against the document
 	 * url when it is followed, as lws_http_rel_to_url() does */
 
-	return lws_display_dlo_hit_new(drt->dl, parent, box, href,
-				       strlen(href));
+	hit = lws_display_dlo_hit_new(drt->dl, parent, box, href,
+				      strlen(href));
+	if (hit)
+		hit->cursor = LWS_DLO_CURSOR_POINTER;
+
+	return hit;
+}
+
+/*
+ * The pointer shape an element asks for: its css cursor property if it
+ * has one (inherited, so a span inside a cursor: pointer div gets it too),
+ * else what it is: links and buttons take the hand, text fields the
+ * I-beam, anything else nothing in particular
+ */
+
+static lws_dlo_cursor_t
+lhp_cursor_of(lhp_ctx_t *ctx, lhp_pstack_t *ps)
+{
+	const lcsp_atr_t *a = lws_css_get_prop_atr_ps(ctx, ps,
+						      LCSP_PROP_CURSOR);
+	const char *t;
+
+	if (a && a->unit == LCSP_UNIT_NONE)
+		switch (a->propval) {
+		case LCSP_PROPVAL_POINTER:
+			return LWS_DLO_CURSOR_POINTER;
+		case LCSP_PROPVAL_TEXT:
+			return LWS_DLO_CURSOR_TEXT;
+		case LCSP_PROPVAL_CROSSHAIR:
+			return LWS_DLO_CURSOR_CROSSHAIR;
+		case LCSP_PROPVAL_MOVE:
+			return LWS_DLO_CURSOR_MOVE;
+		case LCSP_PROPVAL_WAIT:
+		case LCSP_PROPVAL_PROGRESS:
+			return LWS_DLO_CURSOR_WAIT;
+		case LCSP_PROPVAL_HELP:
+			return LWS_DLO_CURSOR_HELP;
+		case LCSP_PROPVAL_NOT_ALLOWED:
+			return LWS_DLO_CURSOR_NOT_ALLOWED;
+		case LCSP_PROPVAL_NONE:
+			return LWS_DLO_CURSOR_NONE;
+		case LCSP_PROPVAL_DEFAULT:
+			return LWS_DLO_CURSOR_DEFAULT;
+		default: /* auto */
+			break;
+		}
+
+	if (lhp_tag_is(ps, "a", 1))
+		return lws_html_get_atr(ps, "href", 4) ?
+			LWS_DLO_CURSOR_POINTER : LWS_DLO_CURSOR_DEFAULT;
+
+	if (lhp_tag_is(ps, "textarea", 8))
+		return LWS_DLO_CURSOR_TEXT;
+
+	if (lhp_tag_is(ps, "button", 6) || lhp_tag_is(ps, "select", 6) ||
+	    lhp_tag_is(ps, "label", 5))
+		return LWS_DLO_CURSOR_POINTER;
+
+	if (!lhp_tag_is(ps, "input", 5))
+		return LWS_DLO_CURSOR_DEFAULT;
+
+	/* an input is a text field unless its type says otherwise */
+	t = lws_html_get_atr(ps, "type", 4);
+	if (!t || !strcasecmp(t, "text") || !strcasecmp(t, "password") ||
+	    !strcasecmp(t, "search") || !strcasecmp(t, "email") ||
+	    !strcasecmp(t, "url") || !strcasecmp(t, "tel") ||
+	    !strcasecmp(t, "number"))
+		return LWS_DLO_CURSOR_TEXT;
+
+	if (!strcasecmp(t, "hidden"))
+		return LWS_DLO_CURSOR_DEFAULT;
+
+	/* submit, button, reset, checkbox, radio, file, image, range... */
+	return LWS_DLO_CURSOR_POINTER;
 }
 
 /*
@@ -1124,6 +1197,7 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 	lws_display_colour_t col;
 	const lcsp_atr_t *bg = NULL, *ws;
 	lws_fx_t pl, pr, pt, pb, avail, total, word;
+	lws_dlo_cursor_t cursor;
 	lws_box_t box;
 	int nowrap, deco;
 
@@ -1131,6 +1205,8 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 		return 0;
 
 	deco = lhp_text_decoration(ctx, ps);
+	/* a link's runs take the hand; other runs whatever css cursor says */
+	cursor = lhp_cursor_of(ctx, ps);
 
 	/*
 	 * text-indent offsets the first line of the block's text.  A large
@@ -1214,6 +1290,13 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 		if (link)
 			/* the run's hit region, sized to it below */
 			hit = lhp_hit_new(ctx, link, drt, c->dlo, NULL);
+		else if (cursor != LWS_DLO_CURSOR_DEFAULT && drt) {
+			/* no link, but the pointer changes over the run */
+			hit = lws_display_dlo_hit_new(drt->dl, c->dlo, NULL,
+						      NULL, 0);
+			if (hit)
+				hit->cursor = (uint8_t)cursor;
+		}
 
 		lws_fx_add(&box.x, &c->ox, &c->curx);
 		lws_fx_add(&box.y, &c->oy, &c->cury);
@@ -1301,6 +1384,9 @@ lhp_content(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 			hit->dlo.box = txt->dlo.box;
 			hit->dlo.flag_inline_bg = 1;
 			lhp_line_item(c, &hit->dlo, &fx_0, NULL);
+			if (link && cursor != LWS_DLO_CURSOR_DEFAULT)
+				/* css cursor on the link overrides the hand */
+				hit->cursor = (uint8_t)cursor;
 		}
 
 		if (deco)
@@ -2507,14 +2593,34 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 		}
 	}
 
-	/* an <a> with a box of its own: a region filling it */
+	/*
+	 * An <a> with a box of its own: a region filling it, carrying the
+	 * url.  Form controls and anything with a css cursor of its own get
+	 * one too, so the pointer changes over the whole box
+	 */
 	if (lhp_tag_is(ps, "a", 1) && lws_html_get_atr(ps, "href", 4)) {
 		lws_dlo_hit_t *hit = lhp_hit_new(ctx, ps,
 						 (lws_dl_rend_t *)ctx->user,
 						 ps->dlo, NULL);
+		lws_dlo_cursor_t cur = lhp_cursor_of(ctx, ps);
 
-		if (hit)
+		if (hit) {
 			hit->fill = 1;
+			hit->cursor = (uint8_t)cur;
+		}
+	} else if (ctx->user) {
+		lws_dlo_cursor_t cur = lhp_cursor_of(ctx, ps);
+
+		if (cur != LWS_DLO_CURSOR_DEFAULT) {
+			lws_dlo_hit_t *hit = lws_display_dlo_hit_new(
+					((lws_dl_rend_t *)ctx->user)->dl,
+					ps->dlo, NULL, NULL, 0);
+
+			if (hit) {
+				hit->fill = 1;
+				hit->cursor = (uint8_t)cur;
+			}
+		}
 	}
 
 	/*

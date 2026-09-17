@@ -22,6 +22,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
+#include <X11/cursorfont.h>
 #include <X11/extensions/XInput2.h>
 
 static struct {
@@ -31,6 +32,7 @@ static struct {
 	XImage		*ximg;
 	uint32_t	*xdata;
 	Atom		wm_delete;
+	Cursor		cursor;    /* the font cursor shown, 0 = default */
 	int		img_w, img_h;
 } x11;
 
@@ -101,6 +103,9 @@ win_x11_stage_size(void)
 	if (x11.ximg && x11.img_w == win.vw && x11.img_h == win.vh)
 		return;
 
+	if (x11.cursor)
+		XFreeCursor(x11.dpy, x11.cursor);
+
 	if (x11.ximg) {
 		x11.ximg->data = NULL;
 		XDestroyImage(x11.ximg);
@@ -146,6 +151,46 @@ lhp_browser_plat_line(int wy, const uint8_t *rgb, int w)
 }
 
 /* stage window rows wy..wy+wh-1 as blank paper */
+
+/*
+ * The core's platform-neutral cursor shapes map on to the X11 cursor font
+ */
+
+void
+lhp_browser_plat_cursor(lws_dlo_cursor_t cursor)
+{
+	unsigned int shape;
+
+	if (!x11.dpy)
+		return;
+
+	switch (cursor) {
+	case LWS_DLO_CURSOR_POINTER:	shape = XC_hand2;		break;
+	case LWS_DLO_CURSOR_TEXT:	shape = XC_xterm;		break;
+	case LWS_DLO_CURSOR_CROSSHAIR:	shape = XC_crosshair;		break;
+	case LWS_DLO_CURSOR_MOVE:	shape = XC_fleur;		break;
+	case LWS_DLO_CURSOR_WAIT:	shape = XC_watch;		break;
+	case LWS_DLO_CURSOR_HELP:	shape = XC_question_arrow;	break;
+	case LWS_DLO_CURSOR_NOT_ALLOWED: shape = XC_X_cursor;		break;
+	default:			shape = 0;			break;
+	}
+
+	if (x11.cursor) {
+		XFreeCursor(x11.dpy, x11.cursor);
+		x11.cursor = 0;
+	}
+
+	if (!shape) {
+		/* back to the parent's (the default arrow) */
+		XUndefineCursor(x11.dpy, x11.xw);
+		XFlush(x11.dpy);
+		return;
+	}
+
+	x11.cursor = XCreateFontCursor(x11.dpy, shape);
+	XDefineCursor(x11.dpy, x11.xw, x11.cursor);
+	XFlush(x11.dpy);
+}
 
 void
 lhp_browser_plat_clear(int wy, int wh)
@@ -401,6 +446,10 @@ win_xi2_event(XGenericEventCookie *cookie)
 		XIDeviceEvent *xde = (XIDeviceEvent *)cookie->data;
 		int a, k = 0, matched = 0;
 
+		/* pointer position for the cursor shape, whatever the
+		 * valuators say (scroll events carry it too) */
+		lhp_browser_motion((int)xde->event_x, (int)xde->event_y);
+
 		for (a = 0; a < xde->valuators.mask_len * 8; a++)
 			if (XIMaskIsSet(xde->valuators.mask, a))
 				matched += win_xi2_valuator(xde, a,
@@ -456,6 +505,12 @@ lhp_browser_plat_pump(void)
 		case ConfigureNotify:
 			lhp_browser_resize(e.xconfigure.width,
 					   e.xconfigure.height);
+			break;
+
+		case MotionNotify:
+			/* core X motion, when XI2 isn't delivering it */
+			if (!xi.opcode)
+				lhp_browser_motion(e.xmotion.x, e.xmotion.y);
 			break;
 
 		case ButtonPress:
@@ -549,7 +604,8 @@ lhp_browser_plat_init(int w, int h)
 	x11.gc = XCreateGC(x11.dpy, x11.xw, 0, NULL);
 
 	XSelectInput(x11.dpy, x11.xw, StructureNotifyMask | ExposureMask |
-				    ButtonPressMask | KeyPressMask);
+				    ButtonPressMask | KeyPressMask |
+				    PointerMotionMask);
 
 	x11.wm_delete = XInternAtom(x11.dpy, "WM_DELETE_WINDOW", False);
 	XSetWMProtocols(x11.dpy, x11.xw, &x11.wm_delete, 1);

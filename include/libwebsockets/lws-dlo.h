@@ -211,11 +211,32 @@ typedef struct lws_dlo_circle {
  * regions a point belongs to (the last, as a viewer sees it on top).
  */
 
+/*
+ * The pointer shape a hit region asks for while the pointer is over it, in
+ * platform-neutral terms: a windowing backend maps these to whatever it
+ * has (X11 font cursors, NSCursor, LoadCursor...).  A link asks for the
+ * pointing hand, editable text for the I-beam, css cursor: for the rest.
+ */
+typedef enum {
+	LWS_DLO_CURSOR_DEFAULT,		/* the platform arrow */
+	LWS_DLO_CURSOR_POINTER,		/* pointing hand: links, buttons */
+	LWS_DLO_CURSOR_TEXT,		/* I-beam: editable / selectable text */
+	LWS_DLO_CURSOR_CROSSHAIR,
+	LWS_DLO_CURSOR_MOVE,
+	LWS_DLO_CURSOR_WAIT,
+	LWS_DLO_CURSOR_HELP,
+	LWS_DLO_CURSOR_NOT_ALLOWED,
+	LWS_DLO_CURSOR_NONE,		/* hidden */
+} lws_dlo_cursor_t;
+
 typedef struct lws_dlo_hit {
 	lws_dlo_t			dlo;
 	const char			*url; /* as written in the document, in
-					       * the same allocation */
+					       * the same allocation; NULL for a
+					       * region that only sets the
+					       * cursor */
 	uint8_t				fill; /* takes its parent's size */
+	uint8_t				cursor; /* lws_dlo_cursor_t */
 } lws_dlo_hit_t;
 
 typedef struct lws_font_choice {
@@ -524,11 +545,12 @@ lws_display_render_rect(struct lws_display_render_state *rs);
  * \param dl: the display list
  * \param dlo_parent: the dlo whose child it becomes, or NULL for the list head
  * \param box: its box relative to the parent, or NULL for all zeros
- * \param url: the url (or other metadata string) the region carries
+ * \param url: the url (or other metadata string) the region carries, or NULL
  * \param url_len: the length of url
  *
  * The url is copied into the region's own allocation.  Set .fill on the
- * result for a region that always has its parent's size.
+ * result for a region that always has its parent's size, and .cursor to
+ * the lws_dlo_cursor_t the pointer should take over it.
  */
 LWS_VISIBLE LWS_EXTERN lws_dlo_hit_t *
 lws_display_dlo_hit_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
@@ -554,6 +576,20 @@ lws_display_render_hit(struct lws_display_render_state *rs);
  */
 LWS_VISIBLE LWS_EXTERN lws_dlo_hit_t *
 lws_display_dl_hit_test(lws_displaylist_t *dl, int x, int y, lws_box_t *abox);
+
+/**
+ * lws_display_dl_cursor_at() - the pointer shape for a point
+ *
+ * \param dl: the display list
+ * \param x: x in the display list's coordinates
+ * \param y: y in the display list's coordinates
+ *
+ * Returns the cursor the topmost hit region containing the point asks for,
+ * or LWS_DLO_CURSOR_DEFAULT if there is none.  A windowing app calls this
+ * on pointer motion and sets the platform cursor to match.
+ */
+LWS_VISIBLE LWS_EXTERN lws_dlo_cursor_t
+lws_display_dl_cursor_at(lws_displaylist_t *dl, int x, int y);
 
 /*
  * dlo text

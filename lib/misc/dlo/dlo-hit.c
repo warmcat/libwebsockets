@@ -28,7 +28,7 @@
  * to and moves with them, and its place in the paint order decides which of
  * several overlapping regions a point belongs to: the one painted last, the
  * one the viewer sees on top.  What it carries is metadata about the area
- * of its box, for now the url of a link.
+ * of its box: the url of a link, and the pointer shape to show over it.
  */
 
 #include <private-lib-core.h>
@@ -53,7 +53,8 @@ lws_dlo_hit_t *
 lws_display_dlo_hit_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 			const lws_box_t *box, const char *url, size_t url_len)
 {
-	lws_dlo_hit_t *h = lws_zalloc(sizeof(*h) + url_len + 1, __func__);
+	lws_dlo_hit_t *h = lws_zalloc(sizeof(*h) + (url ? url_len + 1 : 0),
+				      __func__);
 	char *p;
 
 	if (!h)
@@ -64,10 +65,12 @@ lws_display_dlo_hit_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 	if (box)
 		h->dlo.box = *box;
 
-	p = (char *)&h[1];
-	memcpy(p, url, url_len);
-	p[url_len] = '\0';
-	h->url = p;
+	if (url) {
+		p = (char *)&h[1];
+		memcpy(p, url, url_len);
+		p[url_len] = '\0';
+		h->url = p;
+	}
 
 	lws_display_dlo_add(dl, dlo_parent, &h->dlo);
 
@@ -142,4 +145,12 @@ lws_display_dl_hit_test(lws_displaylist_t *dl, int x, int y, lws_box_t *abox)
 	}
 
 	return hit;
+}
+
+lws_dlo_cursor_t
+lws_display_dl_cursor_at(lws_displaylist_t *dl, int x, int y)
+{
+	lws_dlo_hit_t *h = lws_display_dl_hit_test(dl, x, y, NULL);
+
+	return h ? (lws_dlo_cursor_t)h->cursor : LWS_DLO_CURSOR_DEFAULT;
 }

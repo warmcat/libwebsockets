@@ -10,9 +10,10 @@ rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
     text (0.0,0.0) [23.0 x 14.0] rgba=FF000000 f=12/400 "Three"
   rect (106.0,20.0) [262.0 x 0.0] rgba=00000000
   rect (368.0,9.0) [32.0 x 22.0] rgba=FF00FF00
+   hit (4.0,4.0) [24.0 x 14.0] pointer ""
    text (4.0,4.0) [24.0 x 14.0] rgba=FF000000 f=12/400 "Log in"
     rect (0.0,12.0) [24.0 x 1.0] rgba=FF000000
-   hit (0.0,0.0) [0.0 x 0.0] fill "#"
+   hit (0.0,0.0) [0.0 x 0.0] fill pointer "#"
  rect (0.0,40.0) [400.0 x 14.0] rgba=00000000
   rect (0.0,0.0) [14.0 x 14.0] rgba=00000000
    text (0.0,0.0) [14.0 x 14.0] rgba=FF000000 f=12/400 "left"

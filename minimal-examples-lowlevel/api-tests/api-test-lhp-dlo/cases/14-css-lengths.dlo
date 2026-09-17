@@ -28,6 +28,6 @@ rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
   text (0.0,0.0) [66.0 x 14.0] rgba=FF000000 f=12/400 "calc 10vw + 40px"
  rect (0.0,313.0) [400.0 x 30.0] rgba=FF707070
  rect (243.0,136.0) [45.0 x 32.0] rgba=FF29231E radii=3.0,3.0,3.0,3.0
-  hit (20.5,9.0) [4.0 x 14.0] "#"
+  hit (20.5,9.0) [4.0 x 14.0] pointer "#"
   text (20.5,9.0) [4.0 x 14.0] rgba=FFFFFFFF f=12/400 "2"
    rect (0.0,12.0) [4.0 x 1.0] rgba=FFFFFFFF

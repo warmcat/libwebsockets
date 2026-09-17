@@ -6,43 +6,50 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
     rect (0.0,1.0) [167.0 x 35.0] rgba=00000000
      svg (20.0,10.0) [146.0 x 22.0]
      rect (0.0,0.0) [167.0 x 35.0] rgba=00000000
+      hit (-9999.0,12.0) [42.0 x 16.0] pointer ""
       text (-9999.0,12.0) [42.0 x 16.0] rgba=FFFFFFFF f=14/400 "Slashdot"
-      hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/slashdot.org"
+      hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/slashdot.org"
     rect (177.0,0.0) [112.0 x 40.0] rgba=00000000
      rect (-4.0,26.0) [36.0 x 0.0] rgba=00000000
       rect (0.0,0.0) [36.0 x 0.0] rgba=00000000
        rect (12.0,0.0) [556.0 x 0.0] rgba=00000000
-       hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/slashdot.org"
+        hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
+       hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/slashdot.org"
      rect (28.0,26.0) [0.0 x 0.0] rgba=00000000
      rect (24.0,26.0) [36.0 x 0.0] rgba=00000000
       rect (0.0,0.0) [36.0 x 0.0] rgba=00000000
        rect (12.0,0.0) [556.0 x 0.0] rgba=00000000
-       hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/slashdot.org/polls"
+        hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
+       hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/slashdot.org/polls"
      rect (56.0,0.0) [36.0 x 40.0] rgba=00000000
       rect (0.0,0.0) [36.0 x 40.0] rgba=00000000
        rect (12.0,14.0) [12.0 x 12.0] rgba=00000000
-       hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/slashdot.org/software/"
+        hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
+       hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/slashdot.org/software/"
      rect (88.0,26.0) [24.0 x 0.0] rgba=00000000
       rect (0.0,0.0) [24.0 x 0.0] rgba=00000000
-       hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/slashdot.org/content/"
+       hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/slashdot.org/content/"
     rect (299.0,7.0) [58.0 x 28.0] rgba=FF5CB85C radii=4.0,4.0,4.0,4.0
+     hit (12.0,6.0) [34.0 x 16.0] pointer ""
      text (12.0,6.0) [34.0 x 16.0] rgba=FFFFFFFF f=14/400 "Submit"
-     hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/slashdot.org/submission"
+     hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/slashdot.org/submission"
    rect (576.0,0.0) [192.0 x 40.0] rgba=00000000
     rect (0.0,0.0) [192.0 x 50.0] rgba=00000000
      rect (92.0,0.0) [100.0 x 40.0] rgba=00000000
       rect (24.0,0.0) [26.0 x 40.0] rgba=00000000
        rect (0.0,0.0) [26.0 x 40.0] rgba=00000000
         rect (5.0,20.0) [16.0 x 0.0] rgba=00000000
-        hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/slashdot.org/my/login"
+         hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
+        hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/slashdot.org/my/login"
       rect (50.0,0.0) [26.0 x 40.0] rgba=00000000
        rect (0.0,0.0) [26.0 x 40.0] rgba=00000000
         rect (5.0,20.0) [16.0 x 0.0] rgba=00000000
-        hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/slashdot.org/my/newuser"
+         hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
+        hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/slashdot.org/my/newuser"
  rect (16.0,82.0) [768.0 x 2405.6] rgba=FFFFFFFF
   rect (0.0,0.0) [768.0 x 29.0] rgba=FFE5E5E5
    text (15.0,5.0) [165.0 x 19.0] rgba=FF7D7D7D f=17/400 "Become a fan of Slashdot on "
-   hit (180.0,5.0) [54.0 x 19.0] "vector:/missing/www.facebook.com/pages/Slashdotorg/267995220856"
+   hit (180.0,5.0) [54.0 x 19.0] pointer "vector:/missing/www.facebook.com/pages/Slashdotorg/267995220856"
    text (180.0,5.0) [54.0 x 19.0] rgba=FF666600 f=17/400 "Facebook"
   rect (0.0,29.0) [768.0 x 100.0] rgba=00000000
    rect (0.0,10.0) [768.0 x 90.0] rgba=00000000
@@ -54,14 +61,14 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
        rect (0.40799999,0.0) [407.18399999 x 1044.4] rgba=00000000
         rect (0.0,0.0) [407.18399999 x 112.4] rgba=00000000
          rect (0.0,0.0) [407.18399999 x 80.0] rgba=FF656701
-          hit (10.0,6.5) [143.0 x 19.0] "vector:/missing/developers.slashdot.org/story/25/12/21/0341243/rusts-vision-doc-makes-recommendations-to-help-keep-rust-growing"
+          hit (10.0,6.5) [143.0 x 19.0] pointer "vector:/missing/developers.slashdot.org/story/25/12/21/0341243/rusts-vision-doc-makes-recommendations-to-help-keep-rust-growing"
           text (10.0,6.5) [143.0 x 19.0] rgba=FFFFFFFF f=17/700 "Rust's 'Vision Doc' Makes "
-          hit (10.0,30.5) [215.0 x 19.0] "vector:/missing/developers.slashdot.org/story/25/12/21/0341243/rusts-vision-doc-makes-recommendations-to-help-keep-rust-growing"
+          hit (10.0,30.5) [215.0 x 19.0] pointer "vector:/missing/developers.slashdot.org/story/25/12/21/0341243/rusts-vision-doc-makes-recommendations-to-help-keep-rust-growing"
           text (10.0,30.5) [215.0 x 19.0] rgba=FFFFFFFF f=17/700 "Recommendations to Help Keep Rust "
-          hit (10.0,54.5) [48.0 x 19.0] "vector:/missing/developers.slashdot.org/story/25/12/21/0341243/rusts-vision-doc-makes-recommendations-to-help-keep-rust-growing"
+          hit (10.0,54.5) [48.0 x 19.0] pointer "vector:/missing/developers.slashdot.org/story/25/12/21/0341243/rusts-vision-doc-makes-recommendations-to-help-keep-rust-growing"
           text (10.0,54.5) [48.0 x 19.0] rgba=FFFFFFFF f=17/700 "Growing"
           rect (58.0,55.5) [14.0 x 14.0] rgba=00000000
-           hit (15.0,5.0) [60.0 x 14.0] "vector:/missing/blog.rust-lang.org/2025/12/19/what-do-people-love-about-rust/"
+           hit (15.0,5.0) [60.0 x 14.0] pointer "vector:/missing/blog.rust-lang.org/2025/12/19/what-do-people-love-about-rust/"
            text (15.0,5.0) [60.0 x 14.0] rgba=FFCCCC93 f=12/400 "(rust-lang.org) "
          rect (0.0,80.0) [407.18399999 x 32.4] rgba=FFF2F2F2
           text (30.0,8.19999999) [3.0 x 16.0] rgba=00000000 f=14/400 " "
@@ -73,10 +80,10 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
           text (0.0,19.0) [336.0 x 19.0] rgba=FF363636 f=17/400 "developers to find out what they liked about the language "
           text (336.0,19.0) [10.0 x 19.0] rgba=FF363636 f=17/400 "— "
           text (0.0,38.0) [81.0 x 19.0] rgba=FF363636 f=17/400 "and have now "
-          hit (81.0,38.0) [257.0 x 19.0] "vector:/missing/blog.rust-lang.org/2025/12/19/what-do-people-love-about-rust/"
+          hit (81.0,38.0) [257.0 x 19.0] pointer "vector:/missing/blog.rust-lang.org/2025/12/19/what-do-people-love-about-rust/"
           text (81.0,38.0) [257.0 x 19.0] rgba=FF666600 f=17/400 "issued three recommendations "to help Rust "
            rect (0.0,15.0) [257.0 x 1.0] rgba=FF666600
-          hit (0.0,57.0) [98.0 x 19.0] "vector:/missing/blog.rust-lang.org/2025/12/19/what-do-people-love-about-rust/"
+          hit (0.0,57.0) [98.0 x 19.0] pointer "vector:/missing/blog.rust-lang.org/2025/12/19/what-do-people-love-about-rust/"
           text (0.0,57.0) [98.0 x 19.0] rgba=FF666600 f=17/400 "continue to scale"
            rect (0.0,15.0) [98.0 x 1.0] rgba=FF666600
           text (98.0,57.0) [200.0 x 19.0] rgba=FF363636 f=17/400 " across domains and usage levels.""
@@ -134,12 +141,12 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
        rect (0.40799999,1044.4) [407.18399999 x 697.4] rgba=00000000
         rect (0.0,0.0) [407.18399999 x 88.4] rgba=00000000
          rect (0.0,0.0) [407.18399999 x 56.0] rgba=FF656701
-          hit (10.0,6.5) [230.0 x 19.0] "vector:/missing/yro.slashdot.org/story/25/12/19/2317247/google-sues-serpapi-over-scraping-and-reselling-search-data"
+          hit (10.0,6.5) [230.0 x 19.0] pointer "vector:/missing/yro.slashdot.org/story/25/12/19/2317247/google-sues-serpapi-over-scraping-and-reselling-search-data"
           text (10.0,6.5) [230.0 x 19.0] rgba=FFFFFFFF f=17/700 "Google Sues SerpApi Over Scraping and "
-          hit (10.0,30.5) [126.0 x 19.0] "vector:/missing/yro.slashdot.org/story/25/12/19/2317247/google-sues-serpapi-over-scraping-and-reselling-search-data"
+          hit (10.0,30.5) [126.0 x 19.0] pointer "vector:/missing/yro.slashdot.org/story/25/12/19/2317247/google-sues-serpapi-over-scraping-and-reselling-search-data"
           text (10.0,30.5) [126.0 x 19.0] rgba=FFFFFFFF f=17/700 "Reselling Search Data"
           rect (136.0,31.5) [14.0 x 14.0] rgba=00000000
-           hit (15.0,5.0) [99.0 x 14.0] "vector:/missing/searchengineland.com/google-sues-serpapi-466541"
+           hit (15.0,5.0) [99.0 x 14.0] pointer "vector:/missing/searchengineland.com/google-sues-serpapi-466541"
            text (15.0,5.0) [99.0 x 14.0] rgba=FFCCCC93 f=12/400 "(searchengineland.com) "
          rect (0.0,56.0) [407.18399999 x 32.4] rgba=FFF2F2F2
           text (30.0,8.19999999) [3.0 x 16.0] rgba=00000000 f=14/400 " "
@@ -148,18 +155,18 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
           text (0.0,0.0) [367.0 x 19.0] rgba=FF363636 f=17/400 "An anonymous reader quotes a report from Search Engine Land: "
           rect (8.0,27.0) [351.18399999 x 494.0] rgba=00000000
            text (16.0,0.0) [43.0 x 19.0] rgba=FF363636 f=17/400 "Google "
-           hit (59.0,0.0) [25.0 x 19.0] "vector:/missing/blog.google/technology/safety-security/serpapi-lawsuit/"
+           hit (59.0,0.0) [25.0 x 19.0] pointer "vector:/missing/blog.google/technology/safety-security/serpapi-lawsuit/"
            text (59.0,0.0) [25.0 x 19.0] rgba=FF666600 f=17/400 "said"
             rect (0.0,15.0) [25.0 x 1.0] rgba=FF666600
            text (84.0,0.0) [247.0 x 19.0] rgba=FF363636 f=17/400 " today that it is suing SerpApi, accusing the "
            text (16.0,19.0) [68.0 x 19.0] rgba=FF363636 f=17/400 "company of "
-           hit (84.0,19.0) [234.0 x 19.0] "vector:/missing/searchengineland.com/google-sues-serpapi-466541"
+           hit (84.0,19.0) [234.0 x 19.0] pointer "vector:/missing/searchengineland.com/google-sues-serpapi-466541"
            text (84.0,19.0) [234.0 x 19.0] rgba=FF666600 f=17/400 "bypassing security protections to scrape, "
             rect (0.0,15.0) [234.0 x 1.0] rgba=FF666600
-           hit (16.0,38.0) [299.0 x 19.0] "vector:/missing/searchengineland.com/google-sues-serpapi-466541"
+           hit (16.0,38.0) [299.0 x 19.0] pointer "vector:/missing/searchengineland.com/google-sues-serpapi-466541"
            text (16.0,38.0) [299.0 x 19.0] rgba=FF666600 f=17/400 "harvest, and resell copyrighted content from Google "
             rect (0.0,15.0) [299.0 x 1.0] rgba=FF666600
-           hit (16.0,57.0) [82.0 x 19.0] "vector:/missing/searchengineland.com/google-sues-serpapi-466541"
+           hit (16.0,57.0) [82.0 x 19.0] pointer "vector:/missing/searchengineland.com/google-sues-serpapi-466541"
            text (16.0,57.0) [82.0 x 19.0] rgba=FF666600 f=17/400 "Search results"
             rect (0.0,15.0) [82.0 x 1.0] rgba=FF666600
            text (98.0,57.0) [221.0 x 19.0] rgba=FF363636 f=17/400 ". The allegations: Google said SerpApi: "
@@ -235,9 +242,9 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
       rect (20.0,2176.6) [408.0 x 41.0] rgba=00000000
        rect (0.0,15.0) [408.0 x 26.0] rgba=00000000
         rect (0.0,0.0) [95.0 x 10.0] rgba=FFFFFFFF radii=5.0,5.0,5.0,5.0
-         hit (0.0,0.0) [0.0 x 0.0] fill "#"
+         hit (0.0,0.0) [0.0 x 0.0] fill pointer "#"
         rect (95.0,0.0) [95.0 x 10.0] rgba=FF4E4D00 radii=5.0,5.0,5.0,5.0
-         hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/slashdot.org/?page=1"
+         hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/slashdot.org/?page=1"
         rect (24.0,26.0) [384.0 x 0.0] rgba=00000000
       rect (20.0,2232.6) [408.0 x 0.0] rgba=00000000
       rect (20.0,2232.6) [408.0 x 0.0] rgba=00000000
@@ -249,7 +256,7 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
  rect (16.0,2487.6) [933.0 x 44.0] rgba=FF424200 radii=0.0,0.0,10.0,0.0
   rect (0.0,0.0) [158.0 x 20.0] rgba=00000000
    rect (10.0,0.0) [138.0 x 20.0] rgba=00000000
-    hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/slashdot.org"
+    hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/slashdot.org"
   rect (168.0,0.0) [0.0 x 16.0] rgba=00000000
   rect (178.0,0.0) [0.0 x 16.0] rgba=00000000
   rect (188.0,0.0) [0.0 x 16.0] rgba=00000000
@@ -275,7 +282,9 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
   rect (0.0,0.0) [80.63999999 x 40.0] rgba=00000000
    rect (0.0,0.0) [80.63999999 x 40.0] rgba=00000000
     rect (0.0,8.0) [80.63999998 x 24.0] rgba=FF575700 radii=5.0,5.0,5.0,5.0
+     hit (0.0,0.0) [0.0 x 0.0] fill text ""
   rect (56.63999999,5.0) [24.0 x 26.0] rgba=00000000 radii=4.0,4.0,4.0,4.0
+   hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
  rect (16.0,52.0) [768.0 x 30.0] rgba=FF4D4D00
   rect (180.0,0.0) [353.0 x 28.0] rgba=00000000
    rect (0.0,0.0) [353.0 x 28.0] rgba=00000000
@@ -283,36 +292,43 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
      text (0.0,7.0) [30.0 x 14.0] rgba=FFC2C200 f=12/400 "Topics: "
     rect (30.0,4.0) [41.0 x 20.0] rgba=00000000
      rect (0.0,0.0) [41.0 x 20.0] rgba=00000000 radii=4.0,4.0,4.0,4.0
+      hit (5.0,3.0) [31.0 x 14.0] pointer ""
       text (5.0,3.0) [31.0 x 14.0] rgba=FFFFFFFF f=12/400 "Devices"
-      hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/devices.slashdot.org"
+      hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/devices.slashdot.org"
     rect (71.0,4.0) [31.0 x 20.0] rgba=00000000
      rect (0.0,0.0) [31.0 x 20.0] rgba=00000000 radii=4.0,4.0,4.0,4.0
+      hit (5.0,3.0) [21.0 x 14.0] pointer ""
       text (5.0,3.0) [21.0 x 14.0] rgba=FFFFFFFF f=12/400 "Build"
-      hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/build.slashdot.org"
+      hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/build.slashdot.org"
     rect (102.0,4.0) [68.0 x 20.0] rgba=00000000
      rect (0.0,0.0) [68.0 x 20.0] rgba=00000000 radii=4.0,4.0,4.0,4.0
+      hit (5.0,3.0) [58.0 x 14.0] pointer ""
       text (5.0,3.0) [58.0 x 14.0] rgba=FFFFFFFF f=12/400 "Entertainment"
-      hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/entertainment.slashdot.org"
+      hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/entertainment.slashdot.org"
     rect (170.0,4.0) [56.0 x 20.0] rgba=00000000
      rect (0.0,0.0) [56.0 x 20.0] rgba=00000000 radii=4.0,4.0,4.0,4.0
+      hit (5.0,3.0) [46.0 x 14.0] pointer ""
       text (5.0,3.0) [46.0 x 14.0] rgba=FFFFFFFF f=12/400 "Technology"
-      hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/technology.slashdot.org"
+      hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/technology.slashdot.org"
     rect (226.0,4.0) [60.0 x 20.0] rgba=00000000
      rect (0.0,0.0) [60.0 x 20.0] rgba=00000000 radii=4.0,4.0,4.0,4.0
+      hit (5.0,3.0) [50.0 x 14.0] pointer ""
       text (5.0,3.0) [50.0 x 14.0] rgba=FFFFFFFF f=12/400 "Open Source"
-      hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/slashdot.org/?fhfilter=opensource"
+      hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/slashdot.org/?fhfilter=opensource"
     rect (286.0,4.0) [41.0 x 20.0] rgba=00000000
      rect (0.0,0.0) [41.0 x 20.0] rgba=00000000 radii=4.0,4.0,4.0,4.0
+      hit (5.0,3.0) [31.0 x 14.0] pointer ""
       text (5.0,3.0) [31.0 x 14.0] rgba=FFFFFFFF f=12/400 "Science"
-      hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/science.slashdot.org"
+      hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/science.slashdot.org"
     rect (327.0,4.0) [26.0 x 20.0] rgba=00000000
      rect (0.0,0.0) [26.0 x 20.0] rgba=00000000 radii=4.0,4.0,4.0,4.0
+      hit (5.0,3.0) [16.0 x 14.0] pointer ""
       text (5.0,3.0) [16.0 x 14.0] rgba=FFFFFFFF f=12/400 "YRO"
-      hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/yro.slashdot.org"
+      hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/yro.slashdot.org"
  rect (16.0,131.0) [0.0 x 0.0] rgba=00000000
  rect (373.59199998,233.0) [0.0 x 40.0] rgba=00000000
  rect (386.59199998,233.0) [45.0 x 32.0] rgba=FF29231E radii=3.0,3.0,3.0,3.0
-  hit (19.5,6.5) [6.0 x 19.0] "vector:/missing/developers.slashdot.org/story/25/12/21/0341243/rusts-vision-doc-makes-recommendations-to-help-keep-rust-growing#comments"
+  hit (19.5,6.5) [6.0 x 19.0] pointer "vector:/missing/developers.slashdot.org/story/25/12/21/0341243/rusts-vision-doc-makes-recommendations-to-help-keep-rust-growing#comments"
   text (19.5,6.5) [6.0 x 19.0] rgba=FFFFFFFF f=17/700 "2"
   rect (13.0,32.0) [8.0 x 8.0] rgba=FF29231E
  rect (69.40799999,306.0) [341.0 x 20.0] rgba=00000000
@@ -324,12 +340,12 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
   text (117.0,25.59999999) [31.0 x 16.0] rgba=FF4D4D4D f=14/400 " dept. "
  rect (373.59199998,1277.4) [0.0 x 40.0] rgba=00000000
  rect (386.59199998,1277.4) [45.0 x 32.0] rgba=FF29231E radii=3.0,3.0,3.0,3.0
-  hit (15.5,6.5) [14.0 x 19.0] "vector:/missing/yro.slashdot.org/story/25/12/19/2317247/google-sues-serpapi-over-scraping-and-reselling-search-data#comments"
+  hit (15.5,6.5) [14.0 x 19.0] pointer "vector:/missing/yro.slashdot.org/story/25/12/19/2317247/google-sues-serpapi-over-scraping-and-reselling-search-data#comments"
   text (15.5,6.5) [14.0 x 19.0] rgba=FFFFFFFF f=17/700 "35"
   rect (13.0,32.0) [8.0 x 8.0] rgba=FF29231E
  rect (69.40799999,1326.4) [339.0 x 20.0] rgba=00000000
   text (10.0,2.69999999) [50.0 x 16.0] rgba=FF4D4D4D f=14/400 "Posted by "
-  hit (60.0,2.69999999) [39.0 x 17.0] "vector:/missing/www.linkedin.com/in/beauhd/"
+  hit (60.0,2.69999999) [39.0 x 17.0] pointer "vector:/missing/www.linkedin.com/in/beauhd/"
   text (60.0,2.69999999) [39.0 x 17.0] rgba=FF333333 f=14/700 "BeauHD"
   text (99.0,2.69999999) [192.0 x 16.0] rgba=FF4D4D4D f=14/400 "on Friday December 19, 2025 @10:30PM"
   text (291.0,2.69999999) [48.0 x 16.0] rgba=FF4D4D4D f=14/400 " from the "
@@ -350,7 +366,7 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
   rect (10.0,40.0) [298.0 x 269.0] rgba=FFE6E6E6 radii=0.0,10.0,10.0,0.0
    rect (-1.0,0.0) [300.0 x 19.0] rgba=FF4C4C4C radii=0.0,10.0,0.0,0.0
     rect (0.0,0.0) [300.0 x 19.0] rgba=00000000
-     hit (0.0,0.0) [86.0 x 19.0] "vector:/missing/deals.slashdot.org/"
+     hit (0.0,0.0) [86.0 x 19.0] pointer "vector:/missing/deals.slashdot.org/"
      text (0.0,0.0) [86.0 x 19.0] rgba=FFFFFFFF f=17/700 "Slashdot Deals"
    rect (0.0,19.0) [298.0 x 250.0] rgba=00000000
     rect (0.0,0.0) [300.0 x 250.0] rgba=00000000
@@ -369,40 +385,66 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
       rect (0.0,79.0) [0.0 x 16.0] rgba=00000000
       rect (0.0,79.0) [0.0 x 16.0] rgba=00000000
       rect (0.0,0.0) [87.0 x 104.0] rgba=FFEEEEEE
+       hit (28.0,4.09999999) [15.0 x 19.0] pointer ""
        text (28.0,4.09999999) [15.0 x 19.0] rgba=FF363636 f=17/700 "By "
+       hit (28.0,23.29999999) [19.0 x 19.0] pointer ""
        text (28.0,23.29999999) [19.0 x 19.0] rgba=FF363636 f=17/700 "the "
+       hit (28.0,42.49999999) [22.0 x 19.0] pointer ""
        text (28.0,42.49999999) [22.0 x 19.0] rgba=FF363636 f=17/700 "end "
+       hit (28.0,61.69999999) [12.0 x 19.0] pointer ""
        text (28.0,61.69999999) [12.0 x 19.0] rgba=FF363636 f=17/700 "of "
+       hit (28.0,80.89999999) [30.0 x 19.0] pointer ""
        text (28.0,80.89999999) [30.0 x 19.0] rgba=FF363636 f=17/700 "2026 "
+       hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
       rect (0.0,103.4) [87.0 x 65.6] rgba=FFEEEEEE
+       hit (28.0,4.09999999) [26.0 x 19.0] pointer ""
        text (28.0,4.09999999) [26.0 x 19.0] rgba=FF363636 f=17/700 "2027 "
+       hit (28.0,23.29999999) [12.0 x 19.0] pointer ""
        text (28.0,23.29999999) [12.0 x 19.0] rgba=FF363636 f=17/700 "to "
+       hit (28.0,42.49999999) [32.0 x 19.0] pointer ""
        text (28.0,42.49999999) [32.0 x 19.0] rgba=FF363636 f=17/700 "2030 "
+       hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
       rect (0.0,169.0) [87.0 x 65.6] rgba=FFEEEEEE
+       hit (28.0,4.09999999) [27.0 x 19.0] pointer ""
        text (28.0,4.09999999) [27.0 x 19.0] rgba=FF363636 f=17/700 "2031 "
+       hit (28.0,23.29999999) [12.0 x 19.0] pointer ""
        text (28.0,23.29999999) [12.0 x 19.0] rgba=FF363636 f=17/700 "to "
+       hit (28.0,42.49999999) [31.0 x 19.0] pointer ""
        text (28.0,42.49999999) [31.0 x 19.0] rgba=FF363636 f=17/700 "2035 "
+       hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
       rect (0.0,234.6) [87.0 x 65.6] rgba=FFEEEEEE
+       hit (28.0,4.09999999) [28.0 x 19.0] pointer ""
        text (28.0,4.09999999) [28.0 x 19.0] rgba=FF363636 f=17/700 "2035 "
+       hit (28.0,23.29999999) [12.0 x 19.0] pointer ""
        text (28.0,23.29999999) [12.0 x 19.0] rgba=FF363636 f=17/700 "to "
+       hit (28.0,42.49999999) [32.0 x 19.0] pointer ""
        text (28.0,42.49999999) [32.0 x 19.0] rgba=FF363636 f=17/700 "2040 "
+       hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
       rect (0.0,300.2) [87.0 x 65.6] rgba=FFEEEEEE
+       hit (28.0,4.09999999) [29.0 x 19.0] pointer ""
        text (28.0,4.09999999) [29.0 x 19.0] rgba=FF363636 f=17/700 "2040 "
+       hit (28.0,23.29999999) [12.0 x 19.0] pointer ""
        text (28.0,23.29999999) [12.0 x 19.0] rgba=FF363636 f=17/700 "to "
+       hit (28.0,42.49999999) [32.0 x 19.0] pointer ""
        text (28.0,42.49999999) [32.0 x 19.0] rgba=FF363636 f=17/700 "2050 "
+       hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
       rect (0.0,366.2) [87.0 x 27.2] rgba=FFEEEEEE
+       hit (28.0,4.09999999) [37.0 x 19.0] pointer ""
        text (28.0,4.09999999) [37.0 x 19.0] rgba=FF363636 f=17/700 "Never "
+       hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
       rect (0.0,398.6) [87.0 x 30.4] rgba=00000000
        rect (0.0,-0.4) [52.0 x 30.4] rgba=FF00A5FF radii=4.0,4.0,4.0,4.0
+        hit (8.0,8.19999999) [36.0 x 14.0] pointer ""
         text (8.0,8.19999999) [36.0 x 14.0] rgba=FFFFFFFF f=12/400 "vote now"
+        hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
       rect (0.0,429.0) [87.0 x 59.0] rgba=00000000
-       hit (0.0,1.0) [55.0 x 19.0] "vector:/poll/3281/when-will-agi-be-achieved"
+       hit (0.0,1.0) [55.0 x 19.0] pointer "vector:/poll/3281/when-will-agi-be-achieved"
        text (0.0,1.0) [55.0 x 19.0] rgba=FF666600 f=17/400 "Read the "
-       hit (55.0,0.0) [14.0 x 19.0] "vector:/poll/3281/when-will-agi-be-achieved"
+       hit (55.0,0.0) [14.0 x 19.0] pointer "vector:/poll/3281/when-will-agi-be-achieved"
        text (55.0,0.0) [14.0 x 19.0] rgba=FF666600 f=17/700 "49"
-       hit (69.0,1.0) [0.0 x 19.0] "vector:/poll/3281/when-will-agi-be-achieved"
+       hit (69.0,1.0) [0.0 x 19.0] pointer "vector:/poll/3281/when-will-agi-be-achieved"
        text (69.0,1.0) [0.0 x 19.0] rgba=FF666600 f=17/400 " "
-       hit (0.0,20.0) [63.0 x 19.0] "vector:/poll/3281/when-will-agi-be-achieved"
+       hit (0.0,20.0) [63.0 x 19.0] pointer "vector:/poll/3281/when-will-agi-be-achieved"
        text (0.0,20.0) [63.0 x 19.0] rgba=FF666600 f=17/400 "comments "
        text (63.0,20.0) [8.0 x 19.0] rgba=FF363636 f=17/400 "| "
        text (0.0,39.0) [35.0 x 19.0] rgba=FF363636 f=17/700 "45760"
@@ -461,26 +503,37 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
     rect (22.0,20.0) [254.0 x 50.0] rgba=00000000
      rect (0.0,0.0) [254.0 x 10.0] rgba=00000000
       rect (254.0,5.0) [0.0 x 0.0] rgba=00000000
+       hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
      rect (0.0,10.0) [254.0 x 10.0] rgba=00000000
       rect (254.0,5.0) [0.0 x 0.0] rgba=00000000
+       hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
      rect (0.0,20.0) [254.0 x 10.0] rgba=00000000
       rect (254.0,5.0) [0.0 x 0.0] rgba=00000000
+       hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
      rect (0.0,30.0) [254.0 x 10.0] rgba=00000000
       rect (254.0,5.0) [0.0 x 0.0] rgba=00000000
+       hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
      rect (0.0,40.0) [254.0 x 10.0] rgba=00000000
       rect (254.0,5.0) [0.0 x 0.0] rgba=00000000
+       hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
     rect (22.0,80.0) [254.0 x 45.0] rgba=00000000
      rect (-15.0,0.0) [0.0 x 10.0] rgba=00000000
      rect (65.0,10.0) [200.0 x 35.0] rgba=00000000
-      hit (0.0,0.0) [0.0 x 0.0] fill "vector:/missing/sourceforge.net/?source=sd_slashbox"
+      hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/sourceforge.net/?source=sd_slashbox"
   rect (10.0,1440.0) [300.0 x 20.0] rgba=00000000
    rect (0.0,0.0) [300.0 x 0.0] rgba=00000000
   rect (58.0,454.0) [0.0 x 16.0] rgba=00000000
+   hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
   rect (58.0,557.4) [0.0 x 16.0] rgba=00000000
+   hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
   rect (58.0,623.0) [0.0 x 16.0] rgba=00000000
+   hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
   rect (58.0,688.6) [0.0 x 16.0] rgba=00000000
+   hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
   rect (58.0,754.2) [0.0 x 16.0] rgba=00000000
+   hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
   rect (58.0,820.2) [0.0 x 16.0] rgba=00000000
+   hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
   rect (32.0,1030.0) [28.0 x 0.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
   rect (32.0,1040.0) [28.0 x 0.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
   rect (32.0,1050.0) [28.0 x 0.0] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0

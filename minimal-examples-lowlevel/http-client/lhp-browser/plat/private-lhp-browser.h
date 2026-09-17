@@ -32,6 +32,7 @@ struct lhp_browser {
 	int			scan_done;  /* the current viewport scan completed */
 	int			quitting;
 	int			active;
+	int			cursor;  /* lws_dlo_cursor_t shown now */
 
 	lws_sorted_usec_list_t	sul_relayout;
 	lws_sorted_usec_list_t	sul_scan;
@@ -68,6 +69,11 @@ lhp_browser_scroll(int delta);
 extern void
 lhp_browser_click(int x, int y);
 
+/* the pointer moved to window coords x,y: the core resolves the hit
+ * region under it and asks the backend for the matching cursor */
+extern void
+lhp_browser_motion(int x, int y);
+
 /* a logical key press */
 extern void
 lhp_browser_key(lhp_browser_key_t k);
@@ -99,6 +105,11 @@ lhp_browser_plat_line(int wy, const uint8_t *rgb, int w);
 /* present window rows wy..wy+wh-1 as blank paper */
 extern void
 lhp_browser_plat_clear(int wy, int wh);
+
+/* show the platform's cursor for the lws_dlo_cursor_t shape: the core
+ * only calls this when the shape changes */
+extern void
+lhp_browser_plat_cursor(lws_dlo_cursor_t cursor);
 
 /*
  * Present the staged viewport to the window atomically: lines are staged

@@ -1,0 +1,18 @@
+<!--
+ Hit regions carry the pointer shape to show over them: a link's runs and
+ box the hand, text fields the I-beam, buttons and submit inputs the hand,
+ css cursor: on any element (inherited, so the span in the cursor:
+ pointer div and the div's own box get a region without a url).  A
+ windowing app asks lws_display_dl_cursor_at() on pointer motion.
+-->
+<html><head><style>
+body{margin:0}
+.cp{cursor:pointer}
+.cx{cursor:crosshair}
+.wt{cursor:wait}
+</style></head><body>
+<p><a href="/x">link</a> <span class="cp">pointer span</span> <a class="cx" href="/y">crosshair link</a></p>
+<form><input type="text" value="edit"> <input type="submit" value="Go"> <input type="checkbox"> <button>Btn</button> <textarea>ta</textarea></form>
+<div class="cp" style="width:50px;height:10px;background-color:#eee"></div>
+<div class="wt" style="width:50px;height:10px"><span>busy</span></div>
+</body></html>

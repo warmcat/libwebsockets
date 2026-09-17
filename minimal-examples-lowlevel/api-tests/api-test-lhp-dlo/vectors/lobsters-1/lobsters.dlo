@@ -1,70 +1,77 @@
 rect (0.0,0.0) [800.0 x 1200.0] rgba=FFFFFFFF
  rect (0.0,13.33333333) [800.0 x 28.0] rgba=00000000
   rect (10.0,5.0) [18.0 x 18.0] rgba=FF000050
-   hit (0.0,0.0) [0.0 x 0.0] fill "/"
+   hit (0.0,0.0) [0.0 x 0.0] fill pointer "/"
   rect (32.0,5.0) [780.0 x 18.0] rgba=00000000
    rect (0.0,0.0) [780.0 x 18.0] rgba=00000000
     rect (4.0,0.0) [26.0 x 18.0] rgba=00000000
+     hit (0.0,1.5) [26.0 x 15.0] pointer ""
      text (0.0,1.5) [26.0 x 15.0] rgba=FF000000 f=12/700 "Active"
-     hit (0.0,0.0) [0.0 x 0.0] fill "vector:/active"
+     hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/active"
     rect (38.0,0.0) [29.0 x 18.0] rgba=00000000
+     hit (0.0,1.5) [29.0 x 15.0] pointer ""
      text (0.0,1.5) [29.0 x 15.0] rgba=FF000000 f=12/700 "Recent"
-     hit (0.0,0.0) [0.0 x 0.0] fill "vector:/recent"
+     hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/recent"
     rect (75.0,0.0) [44.0 x 18.0] rgba=00000000
+     hit (0.0,1.5) [44.0 x 15.0] pointer ""
      text (0.0,1.5) [44.0 x 15.0] rgba=FF000000 f=12/700 "Comments"
-     hit (0.0,0.0) [0.0 x 0.0] fill "vector:/comments"
+     hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/comments"
     rect (127.0,0.0) [28.0 x 18.0] rgba=00000000
+     hit (0.0,1.5) [28.0 x 15.0] pointer ""
      text (0.0,1.5) [28.0 x 15.0] rgba=FF000000 f=12/700 "Search"
-     hit (0.0,0.0) [0.0 x 0.0] fill "vector:/search"
+     hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/search"
     rect (159.0,0.0) [23.0 x 18.0] rgba=00000000
+     hit (0.0,1.5) [23.0 x 15.0] pointer ""
      text (0.0,1.5) [23.0 x 15.0] rgba=FF000000 f=12/700 "Login"
-     hit (0.0,0.0) [0.0 x 0.0] fill "vector:/login"
+     hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/login"
  rect (10.0,49.33333333) [780.0 x 89.33333328] rgba=00000000
   rect (-32.0,0.0) [812.0 x 69.99999996] rgba=00000000
    rect (0.0,0.0) [812.0 x 69.99999996] rgba=00000000
     rect (0.0,0.0) [812.0 x 69.99999996] rgba=00000000
      rect (0.0,6.66666666) [30.0 x 18.36666665] rgba=00000000
       rect (0.0,0.0) [30.0 x 18.36666665] rgba=00000000
+       hit (11.0,2.18333332) [8.0 x 14.0] pointer ""
        text (11.0,2.18333332) [8.0 x 14.0] rgba=FF000000 f=12/400 "72"
-       hit (0.0,0.0) [0.0 x 0.0] fill "vector:/login"
+       hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/login"
      rect (32.0,25.99999998) [780.0 x 40.66666665] rgba=00000000
-      hit (0.0,2.49999998) [257.0 x 17.0] "vector:/missing/simonwillison.net/2025/Dec/18/code-proven-to-work/"
+      hit (0.0,2.49999998) [257.0 x 17.0] pointer "vector:/missing/simonwillison.net/2025/Dec/18/code-proven-to-work/"
       text (0.0,2.49999998) [257.0 x 17.0] rgba=FF000000 f=14/700 "Your job is to deliver code you have proven to work"
       rect (259.66666666,4.49999998) [63.53333332 x 15.0] rgba=FFECECEC radii=5.0,5.0,5.0,5.0
-      hit (263.93333332,4.49999998) [55.0 x 14.0] "vector:/t/programming"
+      hit (263.93333332,4.49999998) [55.0 x 14.0] pointer "vector:/t/programming"
       text (263.93333332,4.49999998) [55.0 x 14.0] rgba=FF000000 f=12/400 "programming"
       rect (325.86666664,4.49999998) [52.53333332 x 15.0] rgba=FFECECEC radii=5.0,5.0,5.0,5.0
-      hit (330.1333333,4.49999998) [44.0 x 14.0] "vector:/t/vibecoding"
+      hit (330.1333333,4.49999998) [44.0 x 14.0] pointer "vector:/t/vibecoding"
       text (330.1333333,4.49999998) [44.0 x 14.0] rgba=FF000000 f=12/400 "vibecoding"
-      hit (381.73333329,4.49999998) [73.0 x 14.0] "vector:/domains/simonwillison.net"
+      hit (381.73333329,4.49999998) [73.0 x 14.0] pointer "vector:/domains/simonwillison.net"
       text (381.73333329,4.49999998) [73.0 x 14.0] rgba=FF000000 f=12/400 "simonwillison.net"
       rect (0.0,21.66666665) [780.0 x 19.0] rgba=00000000
        png (0.0,0.0) [16.0 x 16.0]
-        hit (0.0,0.0) [0.0 x 0.0] fill "vector:/~simonw"
+        hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/~simonw"
        text (18.0,5.0) [51.0 x 14.0] rgba=FF000000 f=12/400 " authored by "
-       hit (69.0,5.0) [32.0 x 14.0] "vector:/~simonw"
+       hit (69.0,5.0) [32.0 x 14.0] pointer "vector:/~simonw"
        text (69.0,5.0) [32.0 x 14.0] rgba=FF000000 f=12/400 "simonw"
        text (101.0,5.0) [50.0 x 14.0] rgba=FF000000 f=12/400 "20 hours ago"
        text (151.0,5.0) [8.0 x 14.0] rgba=FF000000 f=12/400 " | "
+       hit (159.0,5.0) [27.0 x 14.0] pointer ""
        text (159.0,5.0) [27.0 x 14.0] rgba=FF000000 f=12/400 "caches"
        text (186.0,5.0) [8.0 x 14.0] rgba=FF000000 f=12/400 " | "
-       hit (194.0,5.0) [55.0 x 14.0] "vector:/s/t7dmam/your_job_is_deliver_code_you_have_proven"
+       hit (194.0,5.0) [55.0 x 14.0] pointer "vector:/s/t7dmam/your_job_is_deliver_code_you_have_proven"
        text (194.0,5.0) [55.0 x 14.0] rgba=FF000000 f=12/400 "25 comments "
   rect (0.0,69.99999996) [39.0 x 19.33333332] rgba=00000000
-   hit (0.0,2.16666665) [29.0 x 15.0] "vector:/page/2"
+   hit (0.0,2.16666665) [29.0 x 15.0] pointer "vector:/page/2"
    text (0.0,2.16666665) [29.0 x 15.0] rgba=FF000000 f=12/700 "Page 2 "
-   hit (29.0,2.16666665) [5.0 x 15.0] "vector:/page/2"
+   hit (29.0,2.16666665) [5.0 x 15.0] pointer "vector:/page/2"
    text (29.0,2.16666665) [5.0 x 15.0] rgba=FF000000 f=12/700 ">"
-   hit (34.0,2.16666665) [5.0 x 15.0] "vector:/page/2"
+   hit (34.0,2.16666665) [5.0 x 15.0] pointer "vector:/page/2"
    text (34.0,2.16666665) [5.0 x 15.0] rgba=FF000000 f=12/700 ">"
  rect (0.0,146.66666661) [800.0 x 72.66666664] rgba=00000000
   rect (6.66666666,26.66666666) [0.0 x 19.33333332] rgba=00000000
   rect (628.33333337,26.66666666) [164.99999996 x 19.33333332] rgba=00000000
-   hit (9.99999999,2.66666665) [23.0 x 14.0] "vector:/about"
+   hit (9.99999999,2.66666665) [23.0 x 14.0] pointer "vector:/about"
    text (9.99999999,2.66666665) [23.0 x 14.0] rgba=FF000000 f=12/400 "About"
-   hit (42.99999998,2.66666665) [19.0 x 14.0] "vector:/tags"
+   hit (42.99999998,2.66666665) [19.0 x 14.0] pointer "vector:/tags"
    text (42.99999998,2.66666665) [19.0 x 14.0] rgba=FF000000 f=12/400 "Tags"
-   hit (71.99999997,2.66666665) [21.0 x 14.0] "vector:/filters"
+   hit (71.99999997,2.66666665) [21.0 x 14.0] pointer "vector:/filters"
    text (71.99999997,2.66666665) [21.0 x 14.0] rgba=FF000000 f=12/400 "Filter"
-   hit (102.99999996,2.66666665) [62.0 x 14.0] "vector:/moderations"
+   hit (102.99999996,2.66666665) [62.0 x 14.0] pointer "vector:/moderations"
    text (102.99999996,2.66666665) [62.0 x 14.0] rgba=FF000000 f=12/400 "Moderation Log"

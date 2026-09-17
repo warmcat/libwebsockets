@@ -544,7 +544,7 @@ lhp_browser_click(int x, int y)
 	 */
 
 	h = lws_display_dl_hit_test(&drs.displaylist, x, dy, &hb);
-	if (h) {
+	if (h && h->url) {
 		char url[256];
 
 		if (lws_http_rel_to_url(url, sizeof(url), browse_url, h->url))
@@ -584,6 +584,28 @@ lhp_browser_click(int x, int y)
 			  (int)hit->box.w.whole, (int)hit->box.h.whole);
 	else
 		lwsl_user("click at %d,%d: no id'd element there\n", x, y);
+}
+
+/*
+ * The pointer moved: the hit region under it says what shape the cursor
+ * should have (a link's hand, a text field's I-beam, whatever css cursor:
+ * asked for), and the backend is told when that changes
+ */
+
+void
+lhp_browser_motion(int x, int y)
+{
+	lws_dlo_cursor_t c = LWS_DLO_CURSOR_DEFAULT;
+
+	if (win.active)
+		c = lws_display_dl_cursor_at(&drs.displaylist, x,
+					     y + win.scroll_y);
+
+	if ((int)c == win.cursor)
+		return;
+
+	win.cursor = (int)c;
+	lhp_browser_plat_cursor(c);
 }
 
 void

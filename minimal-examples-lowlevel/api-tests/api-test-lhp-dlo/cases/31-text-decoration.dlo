@@ -1,7 +1,7 @@
 rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
  rect (0.0,17.92) [400.0 x 19.0] rgba=00000000
   text (0.0,0.0) [35.0 x 19.0] rgba=FF000000 f=17/400 "Some "
-  hit (35.0,0.0) [63.0 x 19.0] "/x"
+  hit (35.0,0.0) [63.0 x 19.0] pointer "/x"
   text (35.0,0.0) [63.0 x 19.0] rgba=FF000000 f=17/400 "linked text"
    rect (0.0,15.0) [63.0 x 1.0] rgba=FF000000
   text (98.0,0.0) [28.0 x 19.0] rgba=FF000000 f=17/400 " and "
@@ -11,11 +11,11 @@ rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
   text (218.0,0.0) [36.0 x 19.0] rgba=FF000000 f=17/400 "struck"
    rect (0.0,9.0) [36.0 x 1.0] rgba=FF000000
   text (254.0,0.0) [32.0 x 19.0] rgba=FF000000 f=17/400 " text, "
-  hit (286.0,0.0) [73.0 x 19.0] "/y"
+  hit (286.0,0.0) [73.0 x 19.0] pointer "/y"
   text (286.0,0.0) [73.0 x 19.0] rgba=FF000000 f=17/400 "no underline"
   text (359.0,0.0) [3.0 x 19.0] rgba=FF000000 f=17/400 "."
  rect (0.0,54.84) [400.0 x 23.0] rgba=00000000
-  hit (0.0,3.0) [66.0 x 19.0] "/z"
+  hit (0.0,3.0) [66.0 x 19.0] pointer "/z"
   text (0.0,3.0) [66.0 x 19.0] rgba=FF000000 f=17/400 "span in link"
    rect (0.0,15.0) [66.0 x 1.0] rgba=FF000000
   text (66.0,3.0) [25.0 x 19.0] rgba=FF000000 f=17/400 "over"

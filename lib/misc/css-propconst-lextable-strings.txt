@@ -140,3 +140,5 @@ start
 end
 cover
 contain
+not-allowed
+default
