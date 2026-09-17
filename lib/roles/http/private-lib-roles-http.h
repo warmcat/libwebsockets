@@ -234,6 +234,8 @@ struct lws_pt_role_http {
 	int ah_wait_list_length;
 
 	int ah_count_in_use;
+	/* nonzero while an ah recipient is being serviced from a detach */
+	int ah_autoservice_depth;
 };
 
 struct lws_peer_role_http {

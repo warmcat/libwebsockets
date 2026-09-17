@@ -139,9 +139,29 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 		 * (or the first part of them anyway)
 		 */
 		pfd = &pt->fds[wsi->position_in_fds_table];
+
+		/*
+		 * We are usually here from the previous owner's detach.  If
+		 * the recipient's pipelined request is served synchronously,
+		 * its completion detaches and hands the ah to the next
+		 * waiter, and we would recurse from here once per waiter,
+		 * with the pt lock held and as deep as the wait list: past
+		 * the first level, leave him to the forced-service pass that
+		 * runs at the top of the next event loop turn for any wsi
+		 * holding buffered rx, and make sure that turn comes.
+		 */
+		if (pt->http.ah_autoservice_depth) {
+			lwsl_info("%s: deferring nested service\n", __func__);
+			lws_cancel_service_pt(wsi);
+
+			return;
+		}
+
 		pfd->revents |= LWS_POLLIN;
 		lwsl_info("%s: calling service\n", __func__);
+		pt->http.ah_autoservice_depth++;
 		lws_service_fd_tsi(wsi->a.context, pfd, wsi->tsi);
+		pt->http.ah_autoservice_depth--;
 	}
 }
 
