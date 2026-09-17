@@ -1204,6 +1204,18 @@ lws_cose_validate_chunk(struct lws_cose_validate_context *cps,
 
 	lecp_destruct(&cps->ctx);
 
+	/*
+	 * A document that completed without producing a single result (a
+	 * bare simple value, an empty signatures array, a countersigned
+	 * object...) has verified nothing: a caller folding the results
+	 * list into a verdict would read an empty one as success.
+	 */
+	if (!n && !cps->results.count) {
+		lwsl_notice("%s: no signature to validate\n", __func__);
+
+		return LECP_REJECT_CALLBACK;
+	}
+
 	return n;
 }
 
