@@ -1970,6 +1970,16 @@ rops_close_kill_connection_h3(struct lws *wsi, enum lws_close_status reason)
 	return 0;
 }
 
+/*
+ * The h3 DATA / HEADERS frame header (1 type byte + up to 8 bytes of varint
+ * length) is written in place before the caller's buffer, and for
+ * webtransport up to 8 more bytes of session id go before that
+ * (rops_write_role_protocol_wt): it all has to fit in LWS_PRE.
+ */
+#if LWS_PRE < (1 + 8 + 8)
+#error "LWS_PRE is too small for the h3 frame header and webtransport session id"
+#endif
+
 static int
 rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 			    enum lws_write_protocol *wp)

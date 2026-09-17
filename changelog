@@ -4,6 +4,19 @@ Changelog
 Development
 ===========
 
+ - ABI: LWS_PRE, the headroom that has to be valid before any buffer passed
+   to lws_write(), grew from 16 to 32 bytes on 64-bit builds (28 with 4-byte
+   pointers): the largest ws frame header (10) plus the client-side mask (4)
+   plus the 9-byte h2 DATA frame header that is prepended in place when ws is
+   carried over h2 (RFC 8441) did not fit in 16, so a ws-over-h2 frame of
+   126+ bytes (client) or 64KB+ (server) wrote up to 7 bytes before the
+   caller's buffer.  Code compiled against an older libwebsockets.h leaves
+   too little headroom for this library: rebuild everything that uses
+   LWS_PRE (or the legacy LWS_SEND_BUFFER_PRE_PADDING) against the new
+   headers, and always spell the headroom LWS_PRE rather than a literal.
+   The library now fails to build if LWS_PRE is ever made smaller than the
+   in-place prepends it performs (ws + h2, h3 + webtransport).
+
  - lhp: css background-size and background-position are applied to css
    background images, with lengths in any unit, percentages (of the element
    box for size, of the element-less-image for position) and the

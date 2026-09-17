@@ -1786,6 +1786,16 @@ rops_close_role_ws(struct lws_context_per_thread *pt, struct lws *wsi)
 	return 0;
 }
 
+/*
+ * The ws frame header (2 + 8 for a 64-bit length) plus the client mask (4)
+ * is written in place before the caller's buffer, and for ws-over-h2 the
+ * 9-byte h2 DATA frame header goes before that (rops_write_role_protocol_h2
+ * -> lws_h2_frame_write).  Both have to fit in the headroom LWS_PRE promises.
+ */
+#if LWS_PRE < (10 + 4 + 9)
+#error "LWS_PRE is too small for the ws frame header, mask and h2 DATA header"
+#endif
+
 static int
 rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 			    enum lws_write_protocol *wp)
