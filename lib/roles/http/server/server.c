@@ -2244,6 +2244,42 @@ lws_http_action(struct lws *wsi)
 	lwsl_debug("Method: '%s' (%d), request for '%s' (vhost '%s')\n", method_names[meth],
 		  meth, uri_ptr, wsi->a.vhost->name);
 
+#if defined(LWS_WITH_JOSE) && defined(LWS_ROLE_WS) && \
+    (defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
+	/*
+	 * A ws upgrade carried as an h2 / h3 extended CONNECT (RFC 8441) is
+	 * taken by check_upgrades below, before the mount lookup and the
+	 * interceptor chain further down ever run: it went straight to the ws
+	 * protocol, or for a proxied mount straight to lws_http_proxy_start(),
+	 * so a mount gated by an interceptor like lws-login was open to any
+	 * ws-over-h2 / h3 peer, and the backend got no injected auth state.
+	 * The h1 upgrade path in lws_handshake_server() already gates it, and
+	 * refuses with 401 rather than diverting, since a login page is no
+	 * answer to an upgrade; do the same here.  Only for the upgrades
+	 * check_upgrades will actually take, so a request that falls through
+	 * to the http path below is not evaluated (and injected into) twice.
+	 */
+	{
+		const char *cp;
+
+		if (wsi->mux_substream &&
+		    wsi->a.vhost->h2.set.s[H2SET_ENABLE_CONNECT_PROTOCOL] &&
+		    (cp = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD)) &&
+		    !strcmp(cp, "CONNECT") &&
+		    (cp = lws_hdr_simple_ptr(wsi, WSI_TOKEN_COLON_PROTOCOL)) &&
+		    !strcmp(cp, "websocket")) {
+			hit = lws_find_mount(wsi, uri_ptr, uri_len);
+			if (hit && lws_http_evaluate_interceptors(wsi, hit,
+						&uri_ptr, &uri_len) != hit) {
+				lws_return_http_status(wsi,
+						HTTP_STATUS_UNAUTHORIZED, NULL);
+				goto bail_nuke_ah;
+			}
+			hit = NULL;
+		}
+	}
+#endif
+
 	if (wsi->role_ops &&
 	    lws_rops_fidx(wsi->role_ops, LWS_ROPS_check_upgrades))
 		switch (lws_rops_func_fidx(wsi->role_ops,
