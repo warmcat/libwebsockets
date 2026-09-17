@@ -59,6 +59,35 @@ hls_delete_media(struct per_vhost_data__lws_hls *vhd, char *filename)
 	return 0;
 }
 
+/*
+ * The stub child's stderr arrives in pipe-sized chunks holding several log
+ * lines; the log emitter only shows up to the first newline, so split them
+ * or everything after the first line of each chunk silently disappears.
+ */
+static void
+hls_relay_stub_log(const char *in, size_t len)
+{
+	while (len) {
+		const char *nl = memchr(in, '\n', len);
+		size_t ll = nl ? (size_t)(nl - in) : len;
+
+		if (ll)
+			lwsl_notice("[HLS-STUB] %.*s\n", (int)ll, in);
+
+		if (!nl)
+			break;
+		in += ll + 1;
+		len -= ll + 1;
+	}
+}
+
+/*
+ * Stub child only: the one vhd that consumed the secret and owns the UDS
+ * listener.  Requests arrive on the listener vhost, which has no vhd of
+ * its own (see PROTOCOL_INIT), so they find their config through this.
+ */
+static struct per_vhost_data__lws_hls *stub_vhd;
+
 static const char * const stub_req_paths[] = { "secret", "delete" };
 
 static signed char
@@ -86,11 +115,7 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 	if (reason != LEJPCB_COMPLETE)
 		return 0;
 
-	/* lejp_construct() already called us with LEJPCB_CONSTRUCTED before
-	 * pss->wsi was set, so only look the vhd up once we need it */
-	vhd = (struct per_vhost_data__lws_hls *)
-			lws_protocol_vh_priv_get(lws_get_vhost(pss->wsi),
-					lws_get_protocol(pss->wsi));
+	vhd = stub_vhd;
 	if (!vhd)
 		return -1;
 
@@ -110,6 +135,7 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 
 	if (pss->stub_delete[0]) {
 		char filename[256];
+
 		lws_strncpy(filename, pss->stub_delete, sizeof(filename));
 		/* one request per object; don't replay it on the next one */
 		pss->stub_delete[0] = '\0';
@@ -355,6 +381,19 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		   )
 			return 0;
 
+#if defined(LWS_WITH_STUB)
+		/*
+		 * In the stub child we are instantiated on every vhost,
+		 * including the UDS listener vhost lws_stub_server_init()
+		 * itself creates, but the secret can only be consumed from
+		 * stdin once: a second lws_stub_server_init() blocks forever
+		 * on the pipe, leaving the listener bound but never serviced.
+		 * The first instantiation does it, the rest stay inert.
+		 */
+		if (stub && stub_vhd)
+			return 0;
+#endif
+
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi), sizeof(struct per_vhost_data__lws_hls));
 		if (!vhd)
@@ -364,6 +403,8 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		if (stub) {
 			struct lws_stub_config sc;
 			char extra[512];
+
+			stub_vhd = vhd;
 			memset(&sc, 0, sizeof(sc));
 			memset(extra, 0, sizeof(extra));
 			sc.cx = lws_get_context(wsi);
@@ -450,6 +491,13 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (!vhd)
 			break;
+#if defined(LWS_WITH_STUB)
+		if (vhd == stub_vhd) {
+			/* the stub child never started the worker or caches */
+			stub_vhd = NULL;
+			break;
+		}
+#endif
 		pthread_mutex_lock(&vhd->lock);
 		vhd->thread_exit = 1;
 		/* don't wait for a long build to finish for nobody */
@@ -949,7 +997,9 @@ err_404:
 		}
 		break;
 
-	case LWS_CALLBACK_RAW_RX:
+	case LWS_CALLBACK_RAW_RX: {
+		int n;
+
 		if (!pss)
 			break;
 		if (!pss->parser_valid) {
@@ -960,11 +1010,24 @@ err_404:
 				       (unsigned char)LWS_ARRAY_SIZE(stub_req_paths));
 			pss->parser_valid = 1;
 		}
-		if (lejp_parse(&pss->jctx, (uint8_t *)in, (int)len) < 0) {
-			lwsl_err("Stub lejp parse failed\n");
+		n = lejp_parse(&pss->jctx, (uint8_t *)in, (int)len);
+		if (n < 0 && n != LEJP_CONTINUE) {
+			lwsl_err("Stub lejp parse failed: %d\n", n);
 			return -1;
 		}
+		if (!n) {
+			/*
+			 * That object is done, and a completed parser takes
+			 * no more input: rebuild it for the next request on
+			 * this connection
+			 */
+			lejp_destruct(&pss->jctx);
+			lejp_construct(&pss->jctx, stub_req_cb, pss,
+				       stub_req_paths,
+				       (unsigned char)LWS_ARRAY_SIZE(stub_req_paths));
+		}
 		break;
+	}
 
 	case LWS_CALLBACK_RAW_CLOSE:
 		if (pss && pss->parser_valid) {
@@ -997,8 +1060,7 @@ err_404:
 			 * itself in `in` / `len`, since the stdwsi pipe has a
 			 * HANDLE rather than a POSIX fd we could read
 			 */
-			lwsl_notice("[HLS-STUB] %.*s", (int)len,
-				    (const char *)in);
+			hls_relay_stub_log((const char *)in, len);
 			break;
 		}
 
@@ -1016,8 +1078,7 @@ err_404:
 		if (n == 0)
 			return -1;
 
-		buf[n] = '\0';
-		lwsl_notice("[HLS-STUB] %s", buf);
+		hls_relay_stub_log(buf, (size_t)n);
 		break;
 	}
 
