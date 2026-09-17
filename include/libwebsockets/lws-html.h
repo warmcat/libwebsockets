@@ -464,6 +464,9 @@ typedef struct lhp_pstack {
 						* height, resolved against its
 						* positioned ancestor's padding
 						* box at open */
+	lws_fx_t			abs_bot; /* an absolute box anchored by
+						  * bottom: the y of its bottom
+						  * margin edge */
 	lws_fx_t			curx;
 	lws_fx_t			cury;
 
@@ -544,6 +547,12 @@ typedef struct lhp_pstack {
 	uint8_t				abs_h_set:1; /* abs_h is the resolved
 						      * percentage height */
 	uint8_t				abs_minh_set:1; /* ... or min-height */
+	uint8_t				abs_bot_set:1; /* abs_bot places us at
+							* close */
+	uint8_t				abs_stretch_set:1; /* top + bottom stretch,
+							    * abs_bot the bottom
+							    * offset, sized when
+							    * the ancestor closes */
 	uint8_t				css_resolved:1;
 	uint8_t				in_body:1;
 	uint8_t				hidden:1; /* display: none on us or an ancestor */

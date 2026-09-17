@@ -548,6 +548,30 @@ lhp_positioned_ancestor(lhp_pstack_t *ps)
 	return NULL;
 }
 
+/*
+ * A positioned inline (span { position: relative }) between ps and its
+ * block positioned ancestor psa is the real containing block, and has no
+ * box of its own here: offsets against it are best taken as the static
+ * position on the line
+ */
+
+static int
+lhp_positioned_inline_between(lhp_pstack_t *ps, lhp_pstack_t *psa)
+{
+	ps = lhp_parent(ps);
+
+	while (ps && ps != psa) {
+		const lcsp_atr_t *a = ps->css_position;
+
+		if (!ps->dlo && a && a->unit == LCSP_UNIT_NONE &&
+		    a->propval != LCSP_PROPVAL_STATIC)
+			return 1;
+		ps = lhp_parent(ps);
+	}
+
+	return 0;
+}
+
 static int
 lhp_box_type(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 {
@@ -1775,8 +1799,13 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 			 * to be moved above the normal flow when the document
 			 * is complete
 			 */
-			lws_fx_t ox, cbw, cbi, r, t1, sx, sy;
-			int lset, rset, tset;
+			lws_fx_t ox, cbw, cbi, cbh, r, t1, sx, sy, mb, pb;
+			const lcsp_atr_t *mn = lws_css_get_prop_atr_ps(ctx, ps,
+							LCSP_PROP_MIN_HEIGHT);
+			int lset, rset, tset, bset, hp, mp, inl;
+
+			mb = lhp_len(ps, ps->css_margin[CCPAS_BOTTOM], &base);
+			pb = lhp_len(ps, ps->css_padding[CCPAS_BOTTOM], &base);
 
 			lset = ps->css_pos[CCPAS_LEFT] &&
 			       ps->css_pos[CCPAS_LEFT]->unit != LCSP_UNIT_NONE;
@@ -1784,8 +1813,21 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 			       ps->css_pos[CCPAS_RIGHT]->unit != LCSP_UNIT_NONE;
 			tset = ps->css_pos[CCPAS_TOP] &&
 			       ps->css_pos[CCPAS_TOP]->unit != LCSP_UNIT_NONE;
+			bset = ps->css_pos[CCPAS_BOTTOM] &&
+			       ps->css_pos[CCPAS_BOTTOM]->unit != LCSP_UNIT_NONE;
+			hp = ps->css_height &&
+			     ps->css_height->unit == LCSP_UNIT_LENGTH_PERCENT;
+			mp = mn && mn->unit == LCSP_UNIT_LENGTH_PERCENT;
 
 			psa = lhp_positioned_ancestor(lhp_parent(ps));
+			inl = lhp_positioned_inline_between(ps, psa);
+			if (inl) {
+				/* the containing block is a line: left and
+				 * top offset from the static position, the
+				 * rest can't be resolved */
+				rset = bset = 0;
+				hp = mp = 0;
+			}
 			if (psa) {
 				/* dlo children start at our border box */
 				parent = psa->dlo;
@@ -1797,61 +1839,98 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 				lws_fx_add(&cbw, &ox, &cbi);
 
 				/*
-				 * A percentage height resolves against the
-				 * ancestor's padding box height: its padding
-				 * plus its explicit height, or the flow so
-				 * far (it is still open).  height: 100% on a
-				 * background box filling a fixed-height nav
-				 * is the common case
+				 * The ancestor's padding box height: its
+				 * padding plus its explicit height, or the
+				 * flow so far (it is still open)
 				 */
-				{
-					const lcsp_atr_t *mn =
-						lws_css_get_prop_atr_ps(ctx, ps,
-							LCSP_PROP_MIN_HEIGHT);
-					int hp = ps->css_height &&
-						 ps->css_height->unit ==
-						LCSP_UNIT_LENGTH_PERCENT;
-					int mp = mn && mn->unit ==
-						LCSP_UNIT_LENGTH_PERCENT;
-
-					if (hp || mp) {
-						lws_fx_t cbh, pb;
-
-						pb = lhp_len(psa,
-						  psa->css_padding[CCPAS_BOTTOM],
-						  &psa->cw);
-						if (psa->explicit_h)
-							cbh = lhp_len(psa,
-							    psa->css_height,
-							    &cbw);
-						else if (psa->abs_minh_set)
-							/* eg, an abs wrapper
-							 * with min-height:
-							 * 100% of its own
-							 * ancestor */
-							cbh = psa->abs_h;
-						else
-							cbh = psa->cury;
-						lws_fx_add(&cbh, &cbh, &psa->oy);
-						lws_fx_add(&cbh, &cbh, &pb);
-
-						if (hp) {
-							ps->abs_h = lhp_len(ps,
-							    ps->css_height,
-							    &cbh);
-							ps->abs_h_set = 1;
-							ps->explicit_h = 1;
-						} else {
-							ps->abs_h = lhp_len(ps,
-							    mn, &cbh);
-							ps->abs_minh_set = 1;
-						}
-					}
-				}
+				t1 = lhp_len(psa, psa->css_padding[CCPAS_BOTTOM],
+					     &psa->cw);
+				if (psa->explicit_h)
+					cbh = lhp_len(psa, psa->css_height,
+						      &cbw);
+				else if (psa->abs_minh_set)
+					/* eg, an abs wrapper with min-height:
+					 * 100% of its own ancestor */
+					cbh = psa->abs_h;
+				else
+					cbh = psa->cury;
+				lws_fx_add(&cbh, &cbh, &psa->oy);
+				lws_fx_add(&cbh, &cbh, &t1);
 			} else {
 				lws_fx_set(ox, 0, 0);
 				cbw = ctx->ic.wh_px[LWS_LHPREF_WIDTH];
 				cbi = cbw;
+				cbh = ctx->ic.wh_px[LWS_LHPREF_HEIGHT];
+			}
+
+			/*
+			 * A percentage height resolves against the padding
+			 * box height: height: 100% on a background box
+			 * filling a fixed-height nav is the common case
+			 */
+			if (hp) {
+				ps->abs_h = lhp_len(ps, ps->css_height, &cbh);
+				ps->abs_h_set = 1;
+				ps->explicit_h = 1;
+			} else if (mp) {
+				ps->abs_h = lhp_len(ps, mn, &cbh);
+				ps->abs_minh_set = 1;
+			}
+
+			/*
+			 * top and bottom both set with no height: the box
+			 * stretches between them (inset: 0 fills the
+			 * ancestor)
+			 */
+			if (tset && bset && !ps->explicit_h) {
+				lws_fx_t b = lhp_len(ps,
+						ps->css_pos[CCPAS_BOTTOM], &cbh);
+
+				ps->abs_h = lhp_len(ps, ps->css_pos[CCPAS_TOP],
+						    &cbh);
+				lws_fx_sub(&ps->abs_h, &cbh, &ps->abs_h);
+				lws_fx_sub(&ps->abs_h, &ps->abs_h, &b);
+				lws_fx_sub(&ps->abs_h, &ps->abs_h, &mt);
+				lws_fx_sub(&ps->abs_h, &ps->abs_h, &mb);
+				if (!lhp_border_box(ps)) {
+					/* abs_h is taken as the css height */
+					lws_fx_sub(&ps->abs_h, &ps->abs_h, &pt);
+					lws_fx_sub(&ps->abs_h, &ps->abs_h, &pb);
+				}
+				if (ps->abs_h.whole < 0)
+					lws_fx_set(ps->abs_h, 0, 0);
+				ps->abs_h_set = 1;
+				ps->explicit_h = 1;
+
+				if (psa && !psa->explicit_h &&
+				    !psa->abs_h_set) {
+					/*
+					 * The ancestor's height is still
+					 * growing: that was provisional, the
+					 * ancestor sizes us when it closes
+					 */
+					lws_fx_add(&ps->abs_bot, &b, &mb);
+					ps->abs_stretch_set = 1;
+				}
+			}
+
+			/*
+			 * bottom alone anchors our bottom margin edge.  Our
+			 * height is known at our close; the ancestor's
+			 * padding box height only at its own close, when it
+			 * places us (lhp_place_bottom_anchored()), so
+			 * against an ancestor abs_bot is the offset from its
+			 * bottom edge, else the edge itself against the
+			 * surface
+			 */
+			if (!tset && bset) {
+				ps->abs_bot = lhp_len(ps,
+						ps->css_pos[CCPAS_BOTTOM], &cbh);
+				lws_fx_add(&ps->abs_bot, &ps->abs_bot, &mb);
+				if (!psa)
+					lws_fx_sub(&ps->abs_bot, &cbh,
+						   &ps->abs_bot);
+				ps->abs_bot_set = 1;
 			}
 
 			/*
@@ -1859,12 +1938,36 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 			 * left / right / top are unset or auto
 			 */
 
-			if ((!lset && !rset) || !tset) {
+			if ((!lset && !rset) || !tset || inl) {
 				lhp_static_pos(psa, c, &sx, &sy);
 				if (!lset && !rset)
 					x = sx;
 				if (!tset)
 					y = sy;
+			}
+
+			if (inl) {
+				if (lset) {
+					x = lhp_len(ps, ps->css_pos[CCPAS_LEFT],
+						    &cbw);
+					lws_fx_add(&x, &x, &sx);
+				}
+				if (tset) {
+					y = lhp_len(ps, ps->css_pos[CCPAS_TOP],
+						    &cbw);
+					lws_fx_add(&y, &y, &sy);
+				}
+				lset = tset = 0;
+				if (!ps->explicit_w) {
+					/* shrink-to-fit from there */
+					lws_fx_add(&w, &ox, &cbi);
+					lws_fx_sub(&w, &w, &x);
+					lws_fx_sub(&w, &w, &mr);
+					ps->shrink = 1;
+				}
+				lws_fx_add(&x, &x, &ml);
+				lws_fx_add(&y, &y, &mt);
+				break;
 			}
 
 			if (lset) {
@@ -1876,7 +1979,16 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 					lws_fx_add(&w, &ox, &cbi);
 					lws_fx_sub(&w, &w, &x);
 					lws_fx_sub(&w, &w, &mr);
-					ps->shrink = 1;
+					if (rset) {
+						/* left and right with no
+						 * width: stretched between */
+						r = lhp_len(ps,
+						    ps->css_pos[CCPAS_RIGHT],
+						    &cbw);
+						lws_fx_sub(&w, &w, &r);
+						ps->explicit_w = 1;
+					} else
+						ps->shrink = 1;
 				}
 			} else {
 				/* left is unset or auto: anchor on the right */
@@ -2132,6 +2244,40 @@ lhp_relative_offset(lhp_pstack_t *ps, const lws_fx_t *base)
 
 /* the box for element ps is complete: give it a height and place it */
 
+/*
+ * Children anchored by bottom against us (abut_y) were waiting for our
+ * padding box height: their box.y holds the offset of their bottom margin
+ * edge up from our bottom edge, or for a top + bottom stretch box.h does
+ * and box.y is already the top
+ */
+
+static void
+lhp_place_bottom_anchored(lws_dlo_t *dlo)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&dlo->children)) {
+		lws_dlo_t *ch = lws_container_of(d, lws_dlo_t, list);
+
+		if (ch->abut_y != dlo)
+			continue;
+
+		if (ch->flag_abs_stretch) {
+			lws_fx_t t;
+
+			/* box.y is top, box.h the bottom offset */
+			lws_fx_sub(&t, &dlo->box.h, &ch->box.y);
+			lws_fx_sub(&ch->box.h, &t, &ch->box.h);
+			if (ch->box.h.whole < 0)
+				lws_fx_set(ch->box.h, 0, 0);
+			ch->flag_abs_stretch = 0;
+		} else {
+			lws_fx_sub(&ch->box.y, &dlo->box.h, &ch->box.y);
+			lws_fx_sub(&ch->box.y, &ch->box.y, &ch->box.h);
+		}
+		ch->abut_y = NULL;
+	} lws_end_foreach_dll(d);
+}
+
 static void
 lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 {
@@ -2318,6 +2464,31 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 		lws_fx_sub(&ps->dlo->box.x, &ps->dlo->box.x, &w);
 		lws_fx_add(&ps->dlo->box.x, &ps->dlo->box.x, &ml);
 	}
+
+	if (ps->abs_stretch_set) {
+		lhp_pstack_t *psa = lhp_positioned_ancestor(lhp_parent(ps));
+
+		if (psa) {
+			ps->dlo->abut_y = psa->dlo;
+			ps->dlo->flag_abs_stretch = 1;
+			ps->dlo->box.h = ps->abs_bot;
+		}
+	}
+
+	/* anchored by bottom: hang up from it by our final height */
+	if (ps->abs_bot_set) {
+		lhp_pstack_t *psa = lhp_positioned_ancestor(lhp_parent(ps));
+
+		if (psa) {
+			/* the ancestor places us when its height is known */
+			ps->dlo->abut_y = psa->dlo;
+			ps->dlo->box.y = ps->abs_bot;
+		} else
+			lws_fx_sub(&ps->dlo->box.y, &ps->abs_bot,
+				   &ps->dlo->box.h);
+	}
+
+	lhp_place_bottom_anchored(ps->dlo);
 
 	/*
 	 * position: relative offsets apply after the final placement of

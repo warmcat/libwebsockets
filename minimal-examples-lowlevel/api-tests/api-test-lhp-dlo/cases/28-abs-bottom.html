@@ -1,0 +1,23 @@
+<!--
+ Absolute boxes anchored by bottom hang up from the positioned ancestor's
+ bottom edge, which is only known when the ancestor closes (.note, .note2
+ with a bottom margin), or from the surface with no ancestor (.fix);
+ left + right without a width, and top + bottom without a height, stretch
+ between the offsets (.stretch, inset: 0 fills the ancestor).  A
+ positioned inline (span { position: relative }) is a containing block
+ with no box here: left / top offset from the static position on the
+ line and bottom is ignored (.slant, slashdot's comment-count marker).
+-->
+<html><head><style>
+body{margin:0}
+.card{position:relative;padding:10px;background-color:#eee}
+.note{position:absolute;bottom:4px;right:6px;background-color:#f00;height:8px;width:20px}
+.note2{position:absolute;bottom:0;left:0;background-color:#0f0;margin-bottom:3px}
+.stretch{position:absolute;inset:2px 30px 5px 40px;background-color:#ccf}
+.fix{position:absolute;bottom:10px;left:10px;width:30px;height:10px;background-color:#00f}
+.cnt{position:relative}
+.slant{position:absolute;left:11px;bottom:-3px;top:auto;width:6px;height:6px;background-color:#333}
+</style></head><body>
+<div class="card"><div class="stretch"></div><p>one</p><p>two <span class="cnt"><span class="slant"></span><span>226</span></span></p><div class="note"></div><div class="note2">n2</div></div>
+<div class="fix"></div>
+</body></html>

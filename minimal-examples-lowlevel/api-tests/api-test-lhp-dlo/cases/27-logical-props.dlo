@@ -7,4 +7,4 @@ rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
  rect (0.0,60.0) [400.0 x 40.0] rgba=00000000
  rect (5.0,60.0) [100.0 x 20.0] rgba=FF0000FF
  rect (20.0,65.0) [50.0 x 10.0] rgba=FF00FF00
- rect (362.0,60.0) [30.0 x 10.0] rgba=FFFF0000
+ rect (362.0,88.0) [30.0 x 10.0] rgba=FFFF0000

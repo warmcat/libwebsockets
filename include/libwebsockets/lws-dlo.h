@@ -119,7 +119,10 @@ typedef struct lws_dlo {
 	lws_dll2_owner_t		table_cols; /* lhp_table_col_t */
 	lws_dll2_owner_t		table_rows; /* lhp_table_row_t */
 
-	/* may point to dlo whose width or height decides our x or y */
+	/* may point to dlo whose width or height decides our x or y:
+	 * abut_y is the positioned ancestor a bottom-anchored absolute
+	 * box waits on, box.y meanwhile holding the offset up from its
+	 * bottom edge (layout) */
 
 	struct lws_dlo			*abut_x;
 	struct lws_dlo			*abut_y;
@@ -156,6 +159,10 @@ typedef struct lws_dlo {
 						   * (layout) */
 	uint8_t				flag_fixed_h:1; /* has a css height: not
 						 * stretched (layout) */
+	uint8_t				flag_abs_stretch:1; /* waiting on abut_y
+						 * to stretch between top and
+						 * bottom, box.h meanwhile the
+						 * bottom offset (layout) */
 	uint8_t				flex_grow; /* flex-grow, for flag_flex_item */
 	uint8_t				align_self; /* LCSP_PROPVAL_* or 0 = auto */
 
