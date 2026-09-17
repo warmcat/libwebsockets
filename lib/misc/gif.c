@@ -624,6 +624,22 @@ gif_got_lsd(lws_gif_t *g, char hold)
 static lws_stateful_ret_t
 gif_got_id(lws_gif_t *g)
 {
+	if (g->image1_done) {
+		/*
+		 * A later image: its colour table and data are skipped, and
+		 * its descriptor must not touch the first frame's geometry,
+		 * interlace flag or palette size, which the consumer is still
+		 * reading through lws_gif_get_*() while we skip
+		 */
+		if (g->buf[8] & 0x80) {
+			g->count = (uint16_t)((2u << (g->buf[8] & 7)) * 3u);
+			g->state = GIFS_LCT;
+		} else
+			g->state = GIFS_MCS2;
+
+		return LWS_SRET_WANT_INPUT;
+	}
+
 	g->ileft = (uint16_t)(g->buf[0] | (g->buf[1] << 8));
 	g->itop  = (uint16_t)(g->buf[2] | (g->buf[3] << 8));
 	g->iw    = (uint16_t)(g->buf[4] | (g->buf[5] << 8));
@@ -637,27 +653,14 @@ gif_got_id(lws_gif_t *g)
 	g->ypass = 0;
 	g->ystep = gif_ipass[0][1];
 
-	if (!g->image1_done) {
-		g->image1_started = 1;
-		g->has_lct = !!(g->buf[8] & 0x80);
-		if (g->has_lct) {
-			g->lct_entries = (uint16_t)(2u << (g->buf[8] & 7));
-			g->count = (uint16_t)(g->lct_entries * 3u);
-			g->state = GIFS_LCT;
-		} else
-			g->state = GIFS_MCS;
-
-		return LWS_SRET_WANT_INPUT;
-	}
-
-	/* a later image: its colour table and data are skipped */
-
-	if (g->buf[8] & 0x80) {
+	g->image1_started = 1;
+	g->has_lct = !!(g->buf[8] & 0x80);
+	if (g->has_lct) {
 		g->lct_entries = (uint16_t)(2u << (g->buf[8] & 7));
 		g->count = (uint16_t)(g->lct_entries * 3u);
 		g->state = GIFS_LCT;
 	} else
-		g->state = GIFS_MCS2;
+		g->state = GIFS_MCS;
 
 	return LWS_SRET_WANT_INPUT;
 }
