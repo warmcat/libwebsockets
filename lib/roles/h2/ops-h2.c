@@ -249,6 +249,15 @@ post_pollout:
 
 	// lws_buflist_describe(&wsi->buflist, wsi, __func__);
 
+	/*
+	 * Per pass: an earlier pass around this loop may have drained the
+	 * buflist and left buffered set, and if tls still had decrypted
+	 * data pending we come round and read the socket directly; the
+	 * remainder of that read must go on the (now empty) buflist, not
+	 * be "used" from it (assert in lws_buflist_use_segment)
+	 */
+	buffered = 0;
+
 	ebuf.len = (int)lws_buflist_next_segment_len(&wsi->buflist,
 						&ebuf.token);
 	if (ebuf.len) {
