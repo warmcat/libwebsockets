@@ -1976,9 +1976,7 @@ rops_close_kill_connection_h3(struct lws *wsi, enum lws_close_status reason)
  * webtransport up to 8 more bytes of session id go before that
  * (rops_write_role_protocol_wt): it all has to fit in LWS_PRE.
  */
-#if LWS_PRE < (1 + 8 + 8)
-#error "LWS_PRE is too small for the h3 frame header and webtransport session id"
-#endif
+typedef char lws_pre_covers_h3_and_wt_headers[(LWS_PRE >= 1 + 8 + 8) ? 1 : -1];
 
 static int
 rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
