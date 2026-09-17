@@ -748,6 +748,23 @@ LWS_VISIBLE LWS_EXTERN int
 lws_dlo_ss_stop_any_active(struct lws_context *cx);
 
 /**
+ * lws_dlo_ss_detach_lhp() - forget a document parser in its asset streams
+ *
+ * \param cx: the lws context
+ * \param lhp: the html parser context that is about to be destroyed
+ *
+ * Asset streams (images, stylesheets) created for a document keep pointers
+ * to its parser context and to the sul and callback of the stream that
+ * owns it, to resume the parse when they have something.  If that stream is
+ * destroyed while assets are still in flight (a failure of the html stream,
+ * a context destroy), call this from its DESTROYING so the assets stop
+ * referring to memory that is going away; they then finish or fail on their
+ * own and are destroyed with their dlos or by lws_dlo_ss_stop_any_active().
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_dlo_ss_detach_lhp(struct lws_context *cx, struct lhp_ctx *lhp);
+
+/**
  * lws_dlo_ss_renew_images() - reset tracked images for a re-scan
  *
  * \param cx: the lws_context

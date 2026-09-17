@@ -276,6 +276,14 @@ htmlss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		m->lhp.sshtmlevsul = NULL;
 		m->lhp.sshtmlevcb = NULL;
 
+		/*
+		 * Assets still in flight for this document hold &m->lhp and
+		 * our sul / callback, all of which die with this ss: the
+		 * orderly page teardown stops them first, but a destroy
+		 * from a failure of this stream or of the context does not
+		 */
+		lws_dlo_ss_detach_lhp(m->cx, &m->lhp);
+
 		lws_lhp_destruct(&m->lhp);
 		lws_buflist_destroy_all_segments(&m->flow.bl);
 		m->drt.dl = NULL;

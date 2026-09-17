@@ -120,8 +120,7 @@ void
 lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 {
 	dloss_t *m = lws_container_of(sul, dloss_t, sul);
-	lws_display_render_state_t *rs = lws_container_of(m->ssevsul,
-				lws_display_render_state_t, sul);
+	lws_display_render_state_t *rs;
 	lws_dlo_t *dlo = &m->u.u.dlo_png->dlo;
 
 	if (m->u.failed) {
@@ -158,6 +157,15 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 		 */
 	}
 
+	/*
+	 * The document these dimensions were for may already be gone
+	 * (lws_dlo_ss_detach_lhp() from its stream's DESTROYING): then
+	 * there is no parse to resume and no sul of its to schedule
+	 */
+	if (!m->ssevsul || !m->lhp)
+		return;
+
+	rs = lws_container_of(m->ssevsul, lws_display_render_state_t, sul);
 	if (rs->html != 1) {
 		lws_sul_schedule(lws_ss_get_context(m->ss), 0, m->ssevsul, m->on_rx, 1);
 		return;
@@ -626,13 +634,23 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	lwsl_info("%s: %u\n", __func__, (unsigned int)len);
 
 	if (m->type == LWSDLOSS_TYPE_CSS) {
+		int awaited;
+
+		if (!m->lhp) {
+			/* the document this stylesheet was for is gone */
+			lws_dll2_remove(&m->active_asset_list);
+			dlo_assets_kick(lws_ss_get_context(m->ss));
+
+			return LWSSSSRET_DISCONNECT_ME;
+		}
+
 		/*
 		 * Streams for stylesheets complete out of order: only the
 		 * stylesheet the html parse is waiting on may complete the
 		 * await, a different one finishing early must not
 		 */
-		int awaited = m->lhp->await_css_done &&
-			      !strcmp(m->url, m->lhp->await_css_url);
+		awaited = m->lhp->await_css_done &&
+			  !strcmp(m->url, m->lhp->await_css_url);
 
 #if defined(LWS_WITH_CACHE_BLOB)
 		/* mirror the stylesheet payload for the cache write-through
@@ -1552,6 +1570,29 @@ lws_dlo_ss_renew_images(struct lws_context *cx)
 	} lws_end_foreach_dll_safe(d, d1);
 }
 #endif
+
+void
+lws_dlo_ss_detach_lhp(struct lws_context *cx, lhp_ctx_t *lhp)
+{
+#if defined(LWS_WITH_SECURE_STREAMS)
+	lws_dll2_owner_t *owners[2] = { &cx->active_assets,
+					&cx->pending_assets };
+	int n;
+
+	for (n = 0; n < 2; n++)
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(owners[n])) {
+			dloss_t *ds = lws_container_of(d, dloss_t,
+						       active_asset_list);
+
+			if (ds->lhp == lhp) {
+				ds->lhp = NULL;
+				ds->ssevsul = NULL;
+				ds->on_rx = NULL;
+			}
+		} lws_end_foreach_dll(d);
+#endif
+}
 
 int
 lws_dlo_ss_stop_any_active(struct lws_context *cx)
