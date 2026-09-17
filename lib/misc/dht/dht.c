@@ -502,7 +502,14 @@ lws_dht_sul_ip_monitor_cb(lws_sorted_usec_list_t *sul)
 	int sent = 0;
 	uint8_t tid[4];
 
-	ctx->ip_monitor_seqno++;
+	/*
+	 * A fresh random nonce per round, and a note of who we asked: the
+	 * old incrementing counter was predictable and unbound to any peer,
+	 * so one forged reply set what we believed our public address was.
+	 */
+	lws_get_random(ctx->vhost->context, &ctx->ip_monitor_seqno,
+		       sizeof(ctx->ip_monitor_seqno));
+	ctx->ip_probe_count = 0;
 	tid[0] = 'i';
 	tid[1] = 'p';
 	memcpy(tid + 2, &ctx->ip_monitor_seqno, 2);
@@ -518,6 +525,13 @@ lws_dht_sul_ip_monitor_cb(lws_sorted_usec_list_t *sul)
 
 			if (node_good(ctx, n)) {
 				send_ping(ctx, (struct sockaddr *)&n->ss, n->sslen, tid, 4);
+				if (ctx->ip_probe_count <
+				    (int)LWS_ARRAY_SIZE(ctx->ip_probes)) {
+					ctx->ip_probes[ctx->ip_probe_count].ss = n->ss;
+					ctx->ip_probes[ctx->ip_probe_count].sslen = n->sslen;
+					ctx->ip_probes[ctx->ip_probe_count].answered = 0;
+					ctx->ip_probe_count++;
+				}
 				sent++;
 			}
 		} lws_end_foreach_dll(d);
@@ -536,6 +550,13 @@ lws_dht_sul_ip_monitor_cb(lws_sorted_usec_list_t *sul)
 
 			if (node_good(ctx, n)) {
 				send_ping(ctx, (struct sockaddr *)&n->ss, n->sslen, tid, 4);
+				if (ctx->ip_probe_count <
+				    (int)LWS_ARRAY_SIZE(ctx->ip_probes)) {
+					ctx->ip_probes[ctx->ip_probe_count].ss = n->ss;
+					ctx->ip_probes[ctx->ip_probe_count].sslen = n->sslen;
+					ctx->ip_probes[ctx->ip_probe_count].answered = 0;
+					ctx->ip_probe_count++;
+				}
 				sent++;
 			}
 		} lws_end_foreach_dll(d);

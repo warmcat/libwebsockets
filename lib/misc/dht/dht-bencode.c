@@ -771,11 +771,43 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 		}
 #endif
 	} else if (message == DHT_REPLY && mp.sender_ip_len) {
-		/* Track reported external address */
+		/*
+		 * A reply to our external-address probe, telling us what our
+		 * address looks like from outside.  It counts only if it
+		 * carries this round's random nonce and comes from a node the
+		 * round was actually sent to, once per node; and nothing is
+		 * believed until three distinct nodes agree.  The old code
+		 * accepted a predictable counter from anyone and acted on the
+		 * first report, so one forged datagram set, and a second one
+		 * flipped, what we announced as our public address.
+		 */
 		struct sockaddr_storage ss;
 		size_t sslen;
-		int found = 0, j;
-		int is_nonce_validated = 0;
+		int found = -1, j, k, flag, probe = -1;
+		uint16_t decoded_seq;
+
+		if (!tid_match(mp.tid, "ip", NULL))
+			goto skip_ip_tracking;
+
+		memcpy(&decoded_seq, mp.tid + 2, 2);
+		if (decoded_seq != ctx->ip_monitor_seqno) {
+			lwsl_dht_warn("%s: Spurious IP tracking reply dropped!\n", __func__);
+			goto skip_ip_tracking;
+		}
+
+		for (j = 0; j < ctx->ip_probe_count; j++)
+			if (!ctx->ip_probes[j].answered &&
+			    ctx->ip_probes[j].sslen == fromlen &&
+			    !memcmp(&ctx->ip_probes[j].ss, from, fromlen)) {
+				probe = j;
+				break;
+			}
+
+		if (probe < 0) {
+			lwsl_dht_warn("%s: IP tracking reply from a node we did not probe, dropped\n", __func__);
+			goto skip_ip_tracking;
+		}
+		ctx->ip_probes[probe].answered = 1;
 
 		memset(&ss, 0, sizeof(ss));
 		if (mp.sender_ip_len == 4) {
@@ -791,113 +823,83 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 			sin6->sin6_port = htons(mp.sender_port);
 			sslen = sizeof(*sin6);
 		}
+		flag = (ss.ss_family == AF_INET) ? 1 : 2;
 
-		if (tid_match(mp.tid, "ip", NULL)) {
-			uint16_t decoded_seq;
-			memcpy(&decoded_seq, mp.tid + 2, 2);
-			if (decoded_seq == ctx->ip_monitor_seqno) {
-				is_nonce_validated = 1;
-				lwsl_info("%s: IP Challenge matched sequence %u from %s!\n", __func__, decoded_seq, (ss.ss_family == AF_INET ? "IPv4" : "IPv6"));
-			} else
-				lwsl_dht_warn("%s: Spurious IP tracking reply dropped!\n", __func__);
-		}
-
-		if (!is_nonce_validated)
-			goto skip_ip_tracking;
-
-		for (j = 0; j < ctx->num_reported_ads; j++) {
+		for (j = 0; j < ctx->num_reported_ads; j++)
 			if (ctx->reported_ads[j].sslen == sslen &&
 			    !memcmp(&ctx->reported_ads[j].ss, &ss, sslen)) {
-				int k, peer_found = 0;
-				for (k = 0; k < ctx->reported_ads[j].num_peers; k++) {
-					if (!memcmp(&ctx->reported_ads[j].peer_ss[k], from, fromlen)) {
-						peer_found = 1;
-						break;
-					}
-				}
-				if (!peer_found && ctx->reported_ads[j].num_peers < 8) {
-					memcpy(&ctx->reported_ads[j].peer_ss[ctx->reported_ads[j].num_peers++], from, fromlen);
-				}
-
-				if (!peer_found)
-					ctx->reported_ads[j].count++;
-				found = 1;
-				int flag = (ss.ss_family == AF_INET) ? 1 : 2;
-				if (!peer_found && (!(ctx->external_ads_set & flag) || ctx->reported_ads[j].count <= 8)) {
-					struct lws_dht_consensus_info ci;
-					memset(&ci, 0, sizeof(ci));
-					memcpy(&ci.ss, &ss, sslen);
-					ci.sslen = sslen;
-					ci.num_peers = ctx->reported_ads[j].num_peers;
-					for (k = 0; k < ci.num_peers; k++)
-						memcpy(&ci.peer_ss[k], &ctx->reported_ads[j].peer_ss[k], sizeof(struct sockaddr_storage));
-
-					if (!(ctx->external_ads_set & flag)) {
-						lwsl_notice("%s: reached initial consensus on external address (%s)\n", __func__, ss.ss_family == AF_INET ? "IPv4" : "IPv6");
-						ctx->external_ads_set |= flag;
-					}
-
-					if (ctx->cb)
-						ctx->cb(ctx->closure,
-							ss.ss_family == AF_INET ?
-								LWS_DHT_EVENT_EXTERNAL_ADDR :
-								LWS_DHT_EVENT_EXTERNAL_ADDR6,
-							NULL, &ci, sizeof(ci), from, fromlen);
-				}
+				found = j;
 				break;
 			}
+
+		if (found < 0) {
+			if (ctx->num_reported_ads >= (int)LWS_ARRAY_SIZE(ctx->reported_ads))
+				goto skip_ip_tracking;
+			found = ctx->num_reported_ads++;
+			memset(&ctx->reported_ads[found], 0, sizeof(ctx->reported_ads[found]));
+			ctx->reported_ads[found].ss = ss;
+			ctx->reported_ads[found].sslen = sslen;
 		}
 
-		/* If the verified return address shifts away from ANY tracked consensus, we accept it as a confirmed network shift */
-		int flag = (ss.ss_family == AF_INET) ? 1 : 2;
-		if ((ctx->external_ads_set & flag) && !found) {
+		{
+			int peer_found = 0;
+
+			for (k = 0; k < ctx->reported_ads[found].num_peers; k++)
+				if (!memcmp(&ctx->reported_ads[found].peer_ss[k], from, fromlen)) {
+					peer_found = 1;
+					break;
+				}
+			if (peer_found)
+				goto skip_ip_tracking;
+			if (ctx->reported_ads[found].num_peers <
+			    (int)LWS_ARRAY_SIZE(ctx->reported_ads[found].peer_ss))
+				memcpy(&ctx->reported_ads[found].peer_ss[ctx->reported_ads[found].num_peers++],
+				       from, fromlen);
+			ctx->reported_ads[found].count++;
+		}
+
+		if (ctx->reported_ads[found].count < 3)
+			goto skip_ip_tracking; /* no quorum yet */
+
+		{
 			struct lws_dht_consensus_info ci;
+			const void *marker = NULL;
+
 			memset(&ci, 0, sizeof(ci));
 			memcpy(&ci.ss, &ss, sslen);
 			ci.sslen = sslen;
-			ci.num_peers = 1;
-			memcpy(&ci.peer_ss[0], from, fromlen);
+			ci.num_peers = ctx->reported_ads[found].num_peers;
+			for (k = 0; k < ci.num_peers; k++)
+				memcpy(&ci.peer_ss[k], &ctx->reported_ads[found].peer_ss[k],
+				       sizeof(struct sockaddr_storage));
 
-			lwsl_notice("%s: actively validated new external address shift!\n", __func__);
-			if (ctx->cb) {
-			/* High level plugins will differentiate via lws_extip_report(cx, LWS_EXTIP_SRC_DHT, sa46, af, 1) */
-				ctx->cb(ctx->closure,
-						ss.ss_family == AF_INET ?
-							LWS_DHT_EVENT_EXTERNAL_ADDR :
-							LWS_DHT_EVENT_EXTERNAL_ADDR6,
-						(const void*)"SHIFT", &ci, sizeof(ci), from, fromlen);
-			}
+			if (!ctx->reported_ads[found].confirmed) {
+				ctx->reported_ads[found].confirmed = 1;
+				if (!(ctx->external_ads_set & flag)) {
+					lwsl_notice("%s: reached consensus on external address (%s)\n", __func__, ss.ss_family == AF_INET ? "IPv4" : "IPv6");
+					ctx->external_ads_set |= flag;
+				} else {
+					/*
+					 * Three probed nodes agree on a different
+					 * address than the one confirmed before:
+					 * the network shifted.  Forget the old one.
+					 */
+					lwsl_notice("%s: consensus on new external address, shift!\n", __func__);
+					marker = "SHIFT";
+					for (j = 0; j < ctx->num_reported_ads; j++)
+						if (j != found &&
+						    ctx->reported_ads[j].ss.ss_family == ss.ss_family)
+							ctx->reported_ads[j].confirmed = 0;
+				}
+			} else if (ctx->reported_ads[found].count > 8)
+				goto skip_ip_tracking; /* enough said */
 
-			/* Clear our old tallies so we start tracking the new one natively */
-			ctx->num_reported_ads = 0;
-		}
-
-		if (!found && ctx->num_reported_ads < (int)LWS_ARRAY_SIZE(ctx->reported_ads)) {
-			ctx->reported_ads[ctx->num_reported_ads].ss = ss;
-			ctx->reported_ads[ctx->num_reported_ads].sslen = sslen;
-			ctx->reported_ads[ctx->num_reported_ads].count = 1;
-			ctx->reported_ads[ctx->num_reported_ads].num_peers = 1;
-			memcpy(&ctx->reported_ads[ctx->num_reported_ads].peer_ss[0], from, fromlen);
-
-			struct lws_dht_consensus_info ci;
-			memset(&ci, 0, sizeof(ci));
-			memcpy(&ci.ss, &ss, sslen);
-			ci.sslen = sslen;
-			ci.num_peers = 1;
-			memcpy(&ci.peer_ss[0], from, fromlen);
-
-			if (!(ctx->external_ads_set & flag)) {
-				lwsl_notice("%s: reached initial consensus on external address (%s)\n", __func__, ss.ss_family == AF_INET ? "IPv4" : "IPv6");
-				ctx->external_ads_set |= flag;
-			}
 			if (ctx->cb)
 				ctx->cb(ctx->closure,
 					ss.ss_family == AF_INET ?
 						LWS_DHT_EVENT_EXTERNAL_ADDR :
 						LWS_DHT_EVENT_EXTERNAL_ADDR6,
-					NULL, &ci, sizeof(ci), from, fromlen);
-
-			ctx->num_reported_ads++;
+					marker, &ci, sizeof(ci), from, fromlen);
 		}
 skip_ip_tracking:
 		;

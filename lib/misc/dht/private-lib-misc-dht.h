@@ -239,10 +239,23 @@ struct lws_dht_ctx {
 		int			count;
 		int			num_peers;
 		struct sockaddr_storage peer_ss[8];
+		uint8_t			confirmed; /* reached the 3-peer quorum */
 	} reported_ads[8];
 
 	int			num_reported_ads;
 	int			external_ads_set;
+
+	/*
+	 * The nodes the current external-address probe round was sent to: a
+	 * reply about our address counts only from one of these, once each,
+	 * and only with this round's random nonce in its tid.
+	 */
+	struct {
+		struct sockaddr_storage ss;
+		size_t			sslen;
+		uint8_t			answered;
+	} ip_probes[16];
+	int			ip_probe_count;
 
 #if defined(LWS_WITH_DHT_BACKEND)
 	time_t			search_time;
