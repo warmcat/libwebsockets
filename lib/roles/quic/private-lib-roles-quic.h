@@ -266,6 +266,9 @@ struct lws_quic_stream {
 	uint8_t			is_server_initiated:1;
 	uint8_t			opted_into_early_data:1;
 	uint8_t			close_after_rx:1;
+	uint8_t			abandon:1; /* the app refused the stream: close
+					    * it without waiting for our own
+					    * in-flight frames to be acked */
 	uint8_t			sent_fin:1;
 };
 

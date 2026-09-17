@@ -2288,7 +2288,26 @@ tp_ok:
 							struct lws, mux.sibling_list);
 
 					if (w->quic.qs && w->quic.qs->close_after_rx) {
-						lwsl_wsi_notice(w, "QUIC RX Post-Processing: Closing stream WSI");
+						lwsl_wsi_info(w, "QUIC RX Post-Processing: Closing stream WSI");
+						/*
+						 * Once: a close that defers
+						 * (flushing) must not be
+						 * started again on every
+						 * packet, its own timeout or
+						 * drain completes it.  And a
+						 * stream the app refused
+						 * doesn't wait for its own
+						 * in-flight frames to be acked
+						 * (its request HEADERS, which
+						 * kept it flushing for seconds
+						 * and re-closing 200 times a
+						 * second meanwhile): it is
+						 * abandoned, RESET / STOP_SENDING
+						 * do the rest
+						 */
+						w->quic.qs->close_after_rx = 0;
+						if (w->quic.qs->abandon)
+							w->socket_is_permanently_unusable = 1;
 						lws_close_free_wsi(w,
 							LWS_CLOSE_STATUS_NOSTATUS,
 							"quic post rx stream close");
@@ -3586,10 +3605,14 @@ end_children:
 				struct lws *w = lws_container_of(d,
 						struct lws, mux.sibling_list);
 
-				if (w->quic.qs && w->quic.qs->close_after_rx)
+				if (w->quic.qs && w->quic.qs->close_after_rx) {
+					w->quic.qs->close_after_rx = 0;
+					if (w->quic.qs->abandon)
+						w->socket_is_permanently_unusable = 1;
 					lws_close_free_wsi(w,
 						LWS_CLOSE_STATUS_NOSTATUS,
 						"quic post tx stream close");
+				}
 			} lws_end_foreach_dll_safe(d, d1);
 		}
 

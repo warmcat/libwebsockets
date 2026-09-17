@@ -237,6 +237,7 @@ lws_quic_rx_deliver_protocol(struct lws *nwsi, struct lws *wsi_child,
 	if (n) {
 		lwsl_wsi_info(wsi_child, "QUIC RX: protocol asked to close stream");
 		qs->close_after_rx = 1;
+		qs->abandon = 1;
 		return 1;
 	}
 
@@ -279,6 +280,7 @@ lws_quic_rx_deliver_h3(struct lws *nwsi, struct lws *wsi_child,
 
 	lwsl_wsi_info(wsi_child, "QUIC RX: h3 asked to close stream");
 	qs->close_after_rx = 1;
+	qs->abandon = 1;
 
 	return 1;
 }
