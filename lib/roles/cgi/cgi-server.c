@@ -430,6 +430,46 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 						WSI_TOKEN_HTTP_CONTENT_LENGTH));
 	}
 
+	/*
+	 * Headers a mount interceptor stamped on the request (eg, lws-login's
+	 * x-lws-login-*) go to the script the way the reverse proxy forwards
+	 * them to a remote backend: as request headers, so HTTP_X_LWS_LOGIN_
+	 * STATE and friends, RFC 3875 style.  The peer's own copy of each
+	 * name was removed from the ah when it was stamped, and the env above
+	 * only ever exports a fixed set of known headers anyway, so a script
+	 * sees exactly one, trusted, value.
+	 */
+	if (cgiinfo->script_uri_path_len >= 0 &&
+	    cgiinfo->wsi->http.extra_onward_headers) {
+		const char *line = cgiinfo->wsi->http.extra_onward_headers,
+			   *nl, *colon, *v;
+
+		while (*line && (nl = strstr(line, "\r\n"))) {
+			colon = memchr(line, ':', (size_t)(nl - line));
+			if (colon) {
+				char name[64];
+				size_t nlen = (size_t)(colon - line), k;
+
+				v = colon + 1;
+				while (v < nl && (*v == ' ' || *v == '\t'))
+					v++;
+
+				if (nlen && nlen < sizeof(name)) {
+					for (k = 0; k < nlen; k++)
+						name[k] = line[k] == '-' ? '_' :
+						  (char)toupper((unsigned char)line[k]);
+					name[nlen] = '\0';
+
+					if (lws_cgi_env_add(env_array, &n,
+						    (int)LWS_ARRAY_SIZE(env_array),
+						    &p, end, "HTTP_%s=%.*s", name,
+						    (int)(nl - v), v))
+						goto bail;
+				}
+			}
+			line = nl + 2;
+		}
+	}
 
 	if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
 			  "PATH=/bin:/usr/bin:/usr/local/bin:/var/www/cgi-bin"))

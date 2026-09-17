@@ -27,10 +27,19 @@
  * decode it, hand the CGI only the payload, and close the CGI's stdin at the
  * last-chunk so the script's read sees EOF.
  *
+ * With JOSE in the build, the CGI mount is also gated by a tiny mount
+ * interceptor that lets every request through but stamps an onward header
+ * on it, the way lws-login stamps its login state; the client sends its
+ * own copy of the same header.  The script reports the header as it
+ * reached its env, and it must be the interceptor's value: stamped headers
+ * go to CGI scripts as they go to a reverse-proxied backend, and the
+ * peer's copy never does.
+ *
  * The test fails if
  *  - the client connection or transaction errors out,
  *  - the response status is not 200,
  *  - the CGI does not report receiving every byte of the POST body,
+ *  - (JOSE) the CGI did not see the interceptor's stamped header value,
  *  - no completion is seen inside the watchdog period.
  */
 
@@ -62,7 +71,23 @@ static uint8_t body[LWS_PRE + CHUNK];
 
 static const char cgi_script_path[] = CGI_SCRIPT_PATH;
 
+#define STAMP_HDR	"x-test-stamp"
+#define STAMP_VAL	"42"
+
+#if defined(LWS_WITH_JOSE)
+static const struct lws_http_mount mount_stamp = {
+	.mountpoint		= "/stamp",
+	.protocol		= "stamp",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 6,
+};
+#endif
+
 static const struct lws_http_mount mount = {
+#if defined(LWS_WITH_JOSE)
+	.mount_next		= &mount_stamp,
+	.interceptor_path	= "/stamp",
+#endif
 	.mountpoint		= "/",			/* mountpoint URL */
 	.origin			= cgi_script_path,	/* cgi script */
 	.def			= "/",
@@ -108,6 +133,15 @@ evaluate_response(void)
 		goto fail;
 	}
 
+#if defined(LWS_WITH_JOSE)
+	p = strstr(rx, "stamp=");
+	if (!p || strncmp(p + 6, STAMP_VAL "\n", strlen(STAMP_VAL) + 1)) {
+		lwsl_err("--- cgi env lacks the stamped header, rx '%s' ---\n",
+			 rx);
+		goto fail;
+	}
+#endif
+
 	lwsl_user("--- cgi stdin received all %lu bytes.  Test passed. ---\n",
 		  seen);
 	result = 0;
@@ -150,6 +184,15 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
 		pp = (uint8_t **)in;
 		end = (*pp) + len;
+
+		/*
+		 * our own copy of the header the interceptor stamps: it must
+		 * not be what the script sees
+		 */
+		if (lws_add_http_header_by_name(wsi,
+				(const uint8_t *)STAMP_HDR ":",
+				(const uint8_t *)"evil", 4, pp, end))
+			return -1;
 
 		if (chunked) {
 			if (lws_add_http_header_by_token(wsi,
@@ -259,8 +302,31 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+#if defined(LWS_WITH_JOSE)
+/*
+ * The interceptor on the CGI mount: passes everything, stamping the
+ * header the script reports
+ */
+static int
+callback_stamp(struct lws *wsi, enum lws_callback_reasons reason,
+	       void *user, void *in, size_t len)
+{
+	if (reason == LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK) {
+		if (lws_http_add_onward_header(wsi, STAMP_HDR, STAMP_VAL))
+			return 1;
+
+		return 0;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+#endif
+
 static const struct lws_protocols protocols_srv[] = {
 	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
+#if defined(LWS_WITH_JOSE)
+	{ "stamp", callback_stamp, 0, 0, 0, NULL, 0 },
+#endif
 	LWS_PROTOCOL_LIST_TERM
 };
 
