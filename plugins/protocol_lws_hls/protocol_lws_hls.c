@@ -24,27 +24,39 @@
  * name may have been in if that is now empty.  Purified here regardless of
  * who asks, so neither the http endpoint nor the stub UDS can point it
  * outside media-dir.
+ *
+ * Returns 0 on success, else the errno from unlink() (EINVAL if the name
+ * did not survive purification).
  */
-static void
+static int
 hls_delete_media(struct per_vhost_data__lws_hls *vhd, char *filename)
 {
 	char path[512], *dir_path;
+	int en;
 
 	lws_filename_purify_inplace(filename);
-	if (!filename[0] || strchr(filename, '/'))
-		return;
+	if (!filename[0] || strchr(filename, '/')) {
+		lwsl_warn("%s: refusing to delete '%s'\n", __func__, filename);
+		return EINVAL;
+	}
 
 	lws_snprintf(path, sizeof(path), "%s/%s", vhd->media_dir, filename);
 
 	lwsl_notice("%s: deleting media %s\n", __func__, path);
-	if (unlink(path))
-		lwsl_warn("%s: unlink %s failed: %d\n", __func__, path, errno);
+	if (unlink(path)) {
+		en = errno;
+		lwsl_warn("%s: unlink %s failed: %d (%s)\n", __func__, path, en,
+			  strerror(en));
+		return en;
+	}
 
 	/* if there was a container subdir, and it is now empty, remove it */
 	dir_path = dirname(path);
 	if (dir_path && !strncmp(dir_path, vhd->media_dir, strlen(vhd->media_dir)) &&
 	    strcmp(dir_path, vhd->media_dir))
 		rmdir(dir_path); /* rmdir only succeeds if directory is empty */
+
+	return 0;
 }
 
 static const char * const stub_req_paths[] = { "secret", "delete" };
@@ -218,20 +230,45 @@ static const struct lws_protocols stub_prots[] = {
  * which includes the global admin.
  */
 
+/*
+ * why / wl: a short description of how the decision was reached, so a
+ * refusal can be logged and reported with what was actually looked at
+ * rather than a bare 403.
+ */
+
 static int
-hls_can_delete(struct lws *wsi, struct per_vhost_data__lws_hls *vhd)
+hls_can_delete(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
+	       char *why, size_t wl)
 {
 	char st[16];
+	int n;
 
 	if (lws_http_get_onward_header(wsi, LWS_LOGIN_HDR_STATE, st,
-				       sizeof(st)) > 0)
-		return atoi(st) >= LWS_LOGIN_STATE_APP_ADMIN;
+				       sizeof(st)) > 0) {
+		n = atoi(st);
+		lws_snprintf(why, wl, "in-process login state %d (need >= %d)",
+			     n, LWS_LOGIN_STATE_APP_ADMIN);
+		return n >= LWS_LOGIN_STATE_APP_ADMIN;
+	}
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
-	if (vhd->trust_login_headers &&
-	    lws_hdr_custom_copy(wsi, st, sizeof(st), LWS_LOGIN_HDR_STATE ":",
-				(int)strlen(LWS_LOGIN_HDR_STATE ":")) > 0)
-		return atoi(st) >= LWS_LOGIN_STATE_APP_ADMIN;
+	if (vhd->trust_login_headers) {
+		if (lws_hdr_custom_copy(wsi, st, sizeof(st),
+					LWS_LOGIN_HDR_STATE ":",
+					(int)strlen(LWS_LOGIN_HDR_STATE ":")) > 0) {
+			n = atoi(st);
+			lws_snprintf(why, wl,
+				     "forwarded login state %d (need >= %d)",
+				     n, LWS_LOGIN_STATE_APP_ADMIN);
+			return n >= LWS_LOGIN_STATE_APP_ADMIN;
+		}
+		lwsl_wsi_info(wsi, "trust-login-headers set but no %s header",
+			      LWS_LOGIN_HDR_STATE);
+	}
+#else
+	if (vhd->trust_login_headers)
+		lwsl_wsi_warn(wsi, "trust-login-headers needs "
+				   "LWS_WITH_CUSTOM_HEADERS");
 #endif
 
 	if (vhd->has_jwk) {
@@ -239,7 +276,12 @@ hls_can_delete(struct lws *wsi, struct per_vhost_data__lws_hls *vhd)
 					"auth_session", NULL, wsi, NULL);
 		int ok = 0;
 
-		if (ja) {
+		if (!ja) {
+			lws_snprintf(why, wl, "no valid auth_session jwt");
+			return 0;
+		}
+
+		{
 			uint64_t exp = lws_jwt_auth_get_exp(ja);
 
 			/*
@@ -247,16 +289,27 @@ hls_can_delete(struct lws *wsi, struct per_vhost_data__lws_hls *vhd)
 			 * but has already expired, leaving the expiry decision
 			 * to us: an expired session cookie grants nothing
 			 */
-			if (exp && exp > (uint64_t)lws_now_secs() &&
-			    (lws_jwt_auth_query_grant(ja, "*") >= 1 ||
-			     lws_jwt_auth_query_grant(ja, vhd->service_name) >= 2))
+			if (!exp || exp <= (uint64_t)lws_now_secs())
+				lws_snprintf(why, wl, "auth_session jwt expired");
+			else if (lws_jwt_auth_query_grant(ja, "*") >= 1 ||
+				 lws_jwt_auth_query_grant(ja, vhd->service_name) >= 2) {
+				lws_snprintf(why, wl, "jwt grant for '%s'",
+					     vhd->service_name);
 				ok = 1;
+			} else
+				lws_snprintf(why, wl,
+					     "jwt has no admin grant for '%s'",
+					     vhd->service_name);
 
 			lws_jwt_auth_destroy(&ja);
 		}
 
 		return ok;
 	}
+
+	lws_snprintf(why, wl, "no login state: not stamped in-process, "
+			      "trust-login-headers=%d, jwt-jwk=%d",
+		     vhd->trust_login_headers, vhd->has_jwk);
 
 	return 0;
 }
@@ -485,11 +538,12 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_HTTP:
 	{
 		const char *url = (const char *)in;
+		char why[96];
 
 		if (!vhd)
 			return lws_callback_http_dummy(wsi, reason, user, in, len);
 
-		pss->can_delete = hls_can_delete(wsi, vhd);
+		pss->can_delete = hls_can_delete(wsi, vhd, why, sizeof(why));
 
 		lwsl_notice("HLS-TRACE: request '%s'\n", url ? url : "NULL");
 
@@ -627,7 +681,10 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			char filename[256];
 
 			if (!pss->can_delete) {
-				lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, "Forbidden");
+				lwsl_wsi_notice(wsi, "delete '%s' refused: %s",
+						url + 8, why);
+				lws_return_http_status(wsi,
+						       HTTP_STATUS_FORBIDDEN, why);
 				return -1;
 			}
 
@@ -666,8 +723,19 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_stub_request(vhd->stub_mgr, json, NULL, 0, NULL, NULL, NULL);
 			} else
 #endif
+			{
 				/* no stub child to do it: do it ourselves */
-				hls_delete_media(vhd, filename);
+				int en = hls_delete_media(vhd, filename);
+
+				if (en) {
+					lws_return_http_status(wsi,
+						en == ENOENT ?
+						    HTTP_STATUS_NOT_FOUND :
+						    HTTP_STATUS_INTERNAL_SERVER_ERROR,
+						strerror(en));
+					return -1;
+				}
+			}
 
 			lws_return_http_status(wsi, HTTP_STATUS_OK, "OK");
 			return -1;

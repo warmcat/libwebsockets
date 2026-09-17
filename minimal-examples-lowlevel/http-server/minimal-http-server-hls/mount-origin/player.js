@@ -51,7 +51,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     credentials: 'same-origin'
                 }).then(function(res) {
                     if (!res.ok)
-                        throw new Error('HTTP ' + res.status);
+                        /* the status page body carries the reason */
+                        return res.text().then(function(t) {
+                            t = t.replace(/<h1>.*?<\/h1>/, '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                            throw new Error('HTTP ' + res.status + (t ? ': ' + t : ''));
+                        });
                     window.location.replace('hls/');
                 }).catch(function(e) {
                     delBtn.disabled = false;
