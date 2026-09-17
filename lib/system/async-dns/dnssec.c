@@ -52,6 +52,7 @@ struct lws_dnssec_val_ctx {
 
 struct rrsig_search {
 	lws_adns_q_t *q;
+	uint16_t want_type; /* the RRset type this response was asked for */
 	const uint8_t *rrsig_payload;
 	uint16_t rrsig_paylen;
 	uint16_t type_covered;
@@ -204,6 +205,14 @@ lws_dnssec_rrsig_cb(const char *name, void *opaque, uint32_t ttl,
 	if (rrpaylen < 18)
 		return 0;
 
+	/*
+	 * Only an RRSIG over the type we asked for, and so over the records
+	 * we stored from this response, can vouch for them.  Taking whatever
+	 * RRSIG came last let a signature over some other RRset (or the
+	 * authority section's) stand for unsigned answer records.
+	 */
+	if (lws_ser_ru16be(&payload[0]) != s->want_type)
+		return 0;
 	/* Parse RRSIG RDATA payload... */
 	s->type_covered = lws_ser_ru16be(&payload[0]);
 	s->algorithm = payload[2];
@@ -751,6 +760,12 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 	/* Find RRSIGs in the packet relating to the question */
 	memset(&s, 0, sizeof(s));
 	s.q = q;
+	if (q->qtype == LWS_ADNS_RECORD_A || q->qtype == LWS_ADNS_RECORD_AAAA)
+		/* response bit 1 is the A half of the pair, bit 2 the AAAA */
+		s.want_type = (resp & 2) ? LWS_ADNS_RECORD_AAAA :
+					   LWS_ADNS_RECORD_A;
+	else
+		s.want_type = (uint16_t)q->qtype;
 
 	/* The query name is at &q[1] (with CNAME overwrites possible, but original
 	 * query name is what we asked for).

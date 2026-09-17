@@ -1030,7 +1030,14 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		 * own account... validating just the first of the pair let the
 		 * other half in unsigned.
 		 */
-		if (lws_ser_ru16be(pkt + DHO_NANSWERS) > 0) {
+		/*
+		 * Anything this response contributed to the result has to be
+		 * covered: records of the asked type are taken from the
+		 * authority section as well as the answers, so gating on the
+		 * answer count alone let an authority-only response store
+		 * unsigned records and report them validated
+		 */
+		if (adst.ctr || adst.rr_first) {
 			q->dnssec_need_mask = (uint8_t)(q->dnssec_need_mask | rn);
 
 			if (!(q->dnssec_valid_mask & rn) &&
