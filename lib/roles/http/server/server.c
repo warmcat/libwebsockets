@@ -1588,6 +1588,60 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
 
 #if defined(LWS_WITH_HTTP_PROXY)
 /*
+ * Percent-encode one decoded uri component for the onward request line.
+ *
+ * The request URI we hold is the DECODED one: the parser turned every %XX
+ * (and '+') into the byte it stood for as it went into the ah.  Spliced
+ * into the onward "GET <path> HTTP/1.1" as it is, a space ends the path
+ * early ("/stream/The Something" reaches the backend as "/stream/The"), a
+ * '?' that was %3F starts a query, a '#' truncates, a decoded '&' splits a
+ * query value in two, and a non-ascii byte is simply not a valid request
+ * target.  So the path and each query name / value are re-encoded here.
+ *
+ * Keeps RFC 3986 unreserved bytes and the given extra set literally and
+ * encodes everything else, '%' and '+' included ('+' would be decoded to a
+ * space again by an lws peer; over-encoding is always safe, the far side
+ * decodes).  Returns the encoded length, or -1 if it does not fit; dst is
+ * NUL terminated on success.
+ */
+
+static int
+lws_proxy_pct_encode(char *dst, size_t dlen, const char *src, size_t slen,
+		     const char *keep)
+{
+	static const char hex[] = "0123456789ABCDEF";
+	size_t o = 0;
+
+	while (slen--) {
+		unsigned char c = (unsigned char)*src++;
+
+		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+		    (c >= '0' && c <= '9') || c == '-' || c == '.' ||
+		    c == '_' || c == '~' ||
+		    (c && c < 0x80 && strchr(keep, (int)c))) {
+			if (o + 1 >= dlen)
+				return -1;
+			dst[o++] = (char)c;
+			continue;
+		}
+
+		if (o + 3 >= dlen)
+			return -1;
+		dst[o++] = '%';
+		dst[o++] = hex[c >> 4];
+		dst[o++] = hex[c & 15];
+	}
+	dst[o] = '\0';
+
+	return (int)o;
+}
+
+/* pchar minus '+', '&' and ';' (see above) */
+#define LWS_PROXY_KEEP_PATH	"/:@!$'()*,="
+/* a query name or value on its own: no '=' or '&' either */
+#define LWS_PROXY_KEEP_QUERY	"/:@!$'()*,"
+
+/*
  * Set up an onward http proxy connection according to the mount this
  * uri falls under.  Notice this can also be starting the proxying of what was
  * originally an incoming h1 upgrade, or an h2 ws "upgrade".
@@ -1667,7 +1721,7 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	int n, na;
 	unsigned int max_http_header_data = wsi->a.context->max_http_header_data > 256 ?
 					    wsi->a.context->max_http_header_data : 256;
-	char *rpath = NULL;
+	char *rpath = NULL, *enc = NULL;
 
 #if defined(LWS_ROLE_WS)
 	if (ws)
@@ -1738,10 +1792,35 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	if (!rpath)
 		return -1;
 
+	/* scratch for the encoded path remainder, then each query fragment */
+	enc = lws_malloc(max_http_header_data, __func__);
+	if (!enc) {
+		lws_free(rpath);
+
+		return -1;
+	}
+
+	/*
+	 * Only the part of the path that came from the request is re-encoded
+	 * (see lws_proxy_pct_encode()); the origin's own path prefix is the
+	 * operator's literal config and goes on as written.  The encoding
+	 * keeps '/' and '.', so cleaning the composed url afterwards works
+	 * the same as it did on the decoded one.
+	 */
+
+	if (lws_proxy_pct_encode(enc, max_http_header_data,
+				 uri_ptr + hit->mountpoint_len,
+				 strlen(uri_ptr + hit->mountpoint_len),
+				 LWS_PROXY_KEEP_PATH) < 0) {
+		lwsl_info("%s: encoded path longer than we can handle\n",
+			  __func__);
+		goto bail_len;
+	}
+
 	/* rpath needs cleaning after this... ---> */
 
 	n = lws_snprintf(rpath, max_http_header_data - 1, "/%s/%s",
-			 pslash + 1, uri_ptr + hit->mountpoint_len) - 1;
+			 pslash + 1, enc) - 1;
 	lws_clean_url(rpath);
 	n = (int)strlen(rpath);
 	{
@@ -1755,31 +1834,67 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 
 	na = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS);
 	if (na) {
-		char *p;
-		int budg;
+		char *p, *end = &rpath[max_http_header_data - 1];
+		int frag = 0, fl, el;
 
 		if (!n) /* don't start with the ?... use the first / if so */
 			n++;
 
 		p = rpath + n;
 
-		if (na >= (int)max_http_header_data - n - 2) {
-			lwsl_info("%s: query string %d longer "
-				  "than we can handle\n", __func__,
-				  na);
-			lws_free(rpath);
-			return -1;
-		}
+		if (p + 1 >= end)
+			goto bail_query_len;
 
 		*p++ = '?';
-		budg = lws_hdr_copy(wsi, p,
-			     (int)(&rpath[max_http_header_data - 1] - p),
-			     WSI_TOKEN_HTTP_URI_ARGS);
-	       if (budg > 0)
-		       p += budg;
+
+		/*
+		 * The parser split the query at every '&' / ';' and decoded
+		 * each piece; put it back together one "name=value" at a time,
+		 * name and value encoded separately so a decoded '=' or '&'
+		 * inside either cannot change the split the backend sees
+		 */
+
+		while ((fl = lws_hdr_copy_fragment(wsi, enc,
+						   (int)max_http_header_data,
+						   WSI_TOKEN_HTTP_URI_ARGS,
+						   frag)) >= 0) {
+			char *eq = strchr(enc, '=');
+			size_t nl = eq ? (size_t)(eq - enc) : (size_t)fl;
+
+			if (frag++) {
+				if (p + 1 >= end)
+					goto bail_query_len;
+				*p++ = '&';
+			}
+
+			el = lws_proxy_pct_encode(p, (size_t)(end - p), enc,
+						  nl, LWS_PROXY_KEEP_QUERY);
+			if (el < 0)
+				goto bail_query_len;
+			p += el;
+
+			if (!eq)
+				continue;
+
+			if (p + 1 >= end)
+				goto bail_query_len;
+			*p++ = '=';
+
+			el = lws_proxy_pct_encode(p, (size_t)(end - p), eq + 1,
+						  (size_t)fl - nl - 1,
+						  LWS_PROXY_KEEP_QUERY);
+			if (el < 0)
+				goto bail_query_len;
+			p += el;
+		}
+
+		if (fl == -2) /* a fragment did not fit the scratch */
+			goto bail_query_len;
 
 		*p = '\0';
 	}
+
+	lws_free_set_NULL(enc);
 
 	i.path = rpath;
 	lwsl_wsi_info(wsi, "proxied path '%s'", i.path);
@@ -1941,6 +2056,14 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	}
 
 	return 0;
+
+bail_query_len:
+	lwsl_info("%s: query string longer than we can handle\n", __func__);
+bail_len:
+	lws_free(enc);
+	lws_free(rpath);
+
+	return -1;
 }
 #endif
 
