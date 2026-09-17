@@ -2927,8 +2927,14 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			if (found_sub) {
 				time_t now = time(NULL);
 				if (now - found_sub->last_notify_fetch < 60) {
-					/* a newer serial may jump the 60s limit, but not more than every 5s */
-					if (newer_soa && newer_soa > found_sub->last_notify_soa &&
+					/*
+					 * a newer serial may jump the 60s limit, but
+					 * only from a cookie-verified notifier (a forged
+					 * one would cost us a fetch fan-out per
+					 * datagram) and not more than every 5s
+					 */
+					if (vhd->notify_verified &&
+					    newer_soa && newer_soa > found_sub->last_notify_soa &&
 					    now - found_sub->last_notify_fetch >= 5) {
 						lwsl_notice("%s: Bypassing NOTIFY rate limit for %s due to progressively newer SOA %llu!\n", __func__, target_domain, (unsigned long long)newer_soa);
 					} else {
@@ -2941,7 +2947,8 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			} else if (found_owner) {
 				time_t now = time(NULL);
 				if (now - found_owner->last_notify_fetch < 60) {
-					if (newer_soa && newer_soa > found_owner->last_notify_soa &&
+					if (vhd->notify_verified &&
+					    newer_soa && newer_soa > found_owner->last_notify_soa &&
 					    now - found_owner->last_notify_fetch >= 5) {
 						lwsl_notice("%s: Bypassing NOTIFY rate limit for %s due to progressively newer SOA %llu!\n", __func__, target_domain, (unsigned long long)newer_soa);
 					} else {
