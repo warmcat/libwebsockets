@@ -985,6 +985,16 @@ skip_ip_tracking:
 		lwsl_dht_rx("%s: Sending closest nodes (%d)\n", __func__, mp.want);
 #if defined(LWS_WITH_DHT_BACKEND)
 		send_closest_nodes(ctx, from, fromlen, &mp, mp.target, from->sa_family, NULL);
+		/*
+		 * A find_node without a target, or with one the validator
+		 * refused, leaves mp.target NULL; the closest-nodes walk
+		 * compares against it.  Refuse it like the sibling verbs do.
+		 */
+		if (!mp.target) {
+			send_error(ctx, from, fromlen, mp.tid, mp.tid_len,
+				   203, "find_node with no target");
+			goto fail;
+		}
 #endif
 		break;
 
