@@ -33,6 +33,7 @@ for the connection, and you will be served content from ./mount-origin-localhost
 Commandline option|Meaning
 ---|---
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
+--port <port>|Port to listen on (default 7681)
 --die-after-vhost | For testing failure handling
 
 ```

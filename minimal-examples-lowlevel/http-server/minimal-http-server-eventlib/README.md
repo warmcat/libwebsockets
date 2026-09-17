@@ -5,6 +5,7 @@ This demonstrates a minimal http server that can use any of the event libraries
 Commandline option|Meaning
 ---|---
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
+--port <port>|Port to listen on (default 7681)
 --uv|Use the libuv event library (lws must have been configured with `-DLWS_WITH_LIBUV=1`)
 --event|Use the libevent library (lws must have been configured with `-DLWS_WITH_LIBEVENT=1`)
 --ev|Use the libev event library (lws must have been configured with `-DLWS_WITH_LIBEV=1`)

@@ -20,12 +20,14 @@
 enum {
 	LWS_SW_AH1,
 	LWS_SW_D,
+	LWS_SW_PORT,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
 	[LWS_SW_AH1]	= { "--ah1",           "Enable --ah1 feature" },
 	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_PORT]	= { "--port",          "Port to listen on (default 7681)" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
@@ -262,6 +264,7 @@ void sigint_handler(int sig)
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
+	const char *p;
 	int n = 0;
 	(void)switches;
 
@@ -295,6 +298,15 @@ int main(int argc, const char **argv)
 	/* http on 7681 */
 
 	info.port = 7681;
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw))) {
+		int pt = atoi(p);
+
+		if (pt <= 0 || pt > 65535) {
+			lwsl_err("Port %d is outside valid 16-bit range\n", pt);
+			return 1;
+		}
+		info.port = pt;
+	}
 	info.pprotocols = pprotocols;
 	info.mounts = &mount;
 	info.vhost_name = "http";

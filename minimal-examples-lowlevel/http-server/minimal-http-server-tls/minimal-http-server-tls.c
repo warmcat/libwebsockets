@@ -20,12 +20,14 @@
 
 enum {
 	LWS_SW_PORT,
+	LWS_SW_PORT_LONG,
 	LWS_SW_H,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_PORT]	= { "-p",          "Port to connect or listen on" },
+	[LWS_SW_PORT]	= { "-p",          "Port to listen on (default 7681)" },
+	[LWS_SW_PORT_LONG] = { "--port",     "Same as -p" },
 	[LWS_SW_H]	= { "-h",              "Strict Host Check / Help" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
@@ -120,7 +122,8 @@ int main(int argc, const char **argv)
 	 */
 	if (info.port <= 0)
 		info.port = 7681;
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)) ||
+	    (p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT_LONG].sw)))
 		{
 			int __pt = atoi(p);
 			if (__pt < 0 || __pt > 65535) {

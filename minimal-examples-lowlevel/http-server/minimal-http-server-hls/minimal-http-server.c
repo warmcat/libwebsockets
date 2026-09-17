@@ -14,6 +14,7 @@ enum {
 	LWS_SW_MEDIA_DIR,
 	LWS_SW_JWK,
 	LWS_SW_TRUST_LOGIN_HEADERS,
+	LWS_SW_PORT,
 	LWS_SW_HELP,
 };
 
@@ -23,6 +24,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_MEDIA_DIR]		= { "--media-dir", "Directory containing media files (default: ./media)" },
 	[LWS_SW_JWK]			= { "-j", "JWK for JWT auth" },
 	[LWS_SW_TRUST_LOGIN_HEADERS]	= { "--trust-login-headers", "Trust x-lws-login-* headers from an lws proxy in front (see plugin README)" },
+	[LWS_SW_PORT]			= { "--port",          "Port to listen on (default 7681)" },
 	[LWS_SW_HELP]			= { "--help", "Show this help information" },
 };
 
@@ -158,6 +160,15 @@ int main(int argc, const char **argv)
 		lwsl_user("Binding to interface: %s\n", info.iface);
 
 	info.port = 7681;
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw))) {
+		int pt = atoi(p);
+
+		if (pt <= 0 || pt > 65535) {
+			lwsl_err("Port %d is outside valid 16-bit range\n", pt);
+			return 1;
+		}
+		info.port = pt;
+	}
 	
 	info.headers = &pvo_csp;
 	info.pvo = &pvo;

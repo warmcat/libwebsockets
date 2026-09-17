@@ -21,6 +21,8 @@ Visit http://localhost:7681 to view the generated media library.
 ## Commandline Options
 
 - `--media-dir <path>`: Override the default directory containing media files (default: installed `media/` path).
+- `--port <port>`: Port to listen on (default 7681).
+- `--trust-login-headers`: Trust `x-lws-login-*` headers forwarded by an lws proxy in front (see the plugin README).
 - `--help`: Show built-in LWS options (e.g. `-d <log level>`).
 
 ## Subtitle and audio tracks
