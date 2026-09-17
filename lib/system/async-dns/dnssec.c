@@ -477,6 +477,13 @@ lws_adns_dnssec_q_destroy(lws_adns_q_t *q)
 static struct lws *
 lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *data, int m, void *opaque)
 {
+	/*
+	 * A NULL return tells lws_async_dns_query() the wsi was closed; on
+	 * the synchronous-from-cache path there is no wsi at all, and
+	 * returning its NULL made every cached DNSKEY answer look like a
+	 * failed query, so under REQUIRE nothing could ever validate once the
+	 * root DNSKEY was cached.  LADNS_NO_WSI_BUT_OK is the "no wsi" ok.
+	 */
 	struct lws_dnssec_val_ctx *vctx = (struct lws_dnssec_val_ctx *)opaque;
 	lws_adns_q_t *q = vctx->original_q;
 	uint8_t rb = vctx->resp_bit;
@@ -486,7 +493,7 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 	if (!q) {
 		/* the requester was destroyed while we were in flight */
 		lws_dnssec_vctx_free(vctx);
-		return wsi;
+		return wsi ? wsi : LADNS_NO_WSI_BUT_OK;
 	}
 
 	/*
@@ -689,7 +696,7 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 	}
 
 	lws_dnssec_vctx_free(vctx);
-	return wsi;
+	return wsi ? wsi : LADNS_NO_WSI_BUT_OK;
 
 fail:
 	q->dnssec_verify_rrsig = (uint8_t)(q->dnssec_verify_rrsig & ~rb);
@@ -705,15 +712,15 @@ fail:
 			lws_async_dns_complete(q, q->firstcache);
 		} else if (!is_async && q->responded != q->asked) {
 			lws_dnssec_vctx_free(vctx);
-			return wsi;
+			return wsi ? wsi : LADNS_NO_WSI_BUT_OK;
 		} else if (is_async && q->responded != q->asked) {
 			lws_dnssec_vctx_free(vctx);
-			return wsi;
+			return wsi ? wsi : LADNS_NO_WSI_BUT_OK;
 		}
 	}
 	if (is_async) lws_adns_q_destroy(q);
 	lws_dnssec_vctx_free(vctx);
-	return wsi;
+	return wsi ? wsi : LADNS_NO_WSI_BUT_OK;
 }
 
 int
@@ -944,14 +951,13 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 			return 1;
 		}
 
-		if (ret == LADNS_RET_FAILED) {
-			/* Query failed to allocate/initiate synchronously (no callback fired) */
-			lws_dnssec_vctx_free(vctx);
+		/*
+		 * Every synchronous return of lws_async_dns_query() has run
+		 * the callback (the failed: path calls it too), and the
+		 * callback owns vctx: nothing to free here.
+		 */
+		if (ret < 0)
 			return -1;
-		} else if (ret < 0) {
-			/* Callback WAS called synchronously and already freed vctx */
-			return -1;
-		}
 
 		/* Synchronous result from cache. The callback was already executed! */
 		if (lws_adns_q_validates(q))
