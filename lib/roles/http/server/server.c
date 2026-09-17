@@ -1341,8 +1341,8 @@ int
 lws_unauthorised_basic_auth(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	unsigned char *start = pt->serv_buf + LWS_PRE,
-		      *p = start, *end = p + 2048;
+	unsigned char *start = pt->serv_buf + LWS_PRE, *p = start,
+		      *end = pt->serv_buf + wsi->a.context->pt_serv_buf_size;
 	char buf[64];
 	int n;
 
@@ -4437,8 +4437,7 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 
 			if (wsi->http.range.count_ranges > 1) {
 				n =  lws_snprintf((char *)p,
-						context->pt_serv_buf_size -
-						LWS_H2_FRAME_HEADER_LENGTH,
+						lws_ptr_diff_size_t(bufend, p),
 					"_lws\x0d\x0a"
 					"Content-Type: %s\x0d\x0a"
 					"Content-Range: bytes "
