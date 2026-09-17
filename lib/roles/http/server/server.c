@@ -3275,6 +3275,8 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 		i = (int)len;
 		m = lws_parse(wsi, *buf, &i);
 		lwsl_info("%s: parsed count %d\n", __func__, (int)len - i);
+		if (m == LPR_FAIL)
+			lws_parse_fail_diag(wsi, *buf, (int)len - i, (int)len);
 		(*buf) += (int)len - i;
 		len = (unsigned int)i;
 

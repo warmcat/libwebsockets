@@ -451,8 +451,12 @@ client_http_body_sent:
 				return 0;
 
 			n = eb.len;
-			if (lws_parse(wsi, eb.token, &n)) {
-				lwsl_warn("problems parsing header\n");
+			m = lws_parse(wsi, eb.token, &n);
+			if (m) {
+				lwsl_wsi_warn(wsi, "problems parsing header");
+				if (m == LPR_FAIL)
+					lws_parse_fail_diag(wsi, eb.token,
+							    eb.len - n, eb.len);
 				cce = "problems parsing header";
 				goto bail3_l;
 			}

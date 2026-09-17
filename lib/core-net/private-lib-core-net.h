@@ -1528,6 +1528,9 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len);
 
 int LWS_WARN_UNUSED_RESULT
 lws_parse_urldecode(struct lws *wsi, uint8_t *_c);
+void
+lws_parse_fail_diag(struct lws *wsi, const unsigned char *buf, int consumed,
+		    int len);
 
 void
 lws_sa46_copy_address(lws_sockaddr46 *sa46a, const void *in, int af);

@@ -850,6 +850,18 @@ lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s)
 	return 0;
 }
 
+/*
+ * Why header parsing failed.  On our own client connections the peer is one
+ * we chose, so that's worth a notice; on the server side the internet sends
+ * garbage all day, so keep those at info as they always were.
+ */
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+#define lwsl_parse_fail(_w, ...) \
+	lwsl_wsi(_w, lwsi_role_client(_w) ? LLL_NOTICE : LLL_INFO, __VA_ARGS__)
+#else
+#define lwsl_parse_fail(_w, ...) do {} while (0)
+#endif
+
 static int LWS_WARN_UNUSED_RESULT
 issue_char(struct lws *wsi, unsigned char c)
 {
@@ -876,9 +888,9 @@ issue_char(struct lws *wsi, unsigned char c)
 			return -1;
 
 		wsi->http.ah->data[wsi->http.ah->pos++] = '\0';
-		lwsl_warn("header %li exceeds limit %ld\n",
-			  (long)wsi->http.ah->parser_state,
-			  (long)wsi->http.ah->current_token_limit);
+		lwsl_parse_fail(wsi, "header %li exceeds limit %ld",
+				(long)wsi->http.ah->parser_state,
+				(long)wsi->http.ah->current_token_limit);
 	}
 
 	return 1;
@@ -951,8 +963,7 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 	 * Spaces (from %20 or '+') and bytes >= 0x80 (UTF-8) are unaffected.
 	 */
 	if (c < 0x20 || c == 0x7f) {
-		lwsl_warn("%s: refusing control byte 0x%02X in uri\n",
-			  __func__, c);
+		lwsl_parse_fail(wsi, "refusing control byte 0x%02X in uri", c);
 		return LPUR_FORBID;
 	}
 
@@ -1133,6 +1144,56 @@ excessive:
 	return LPUR_EXCESSIVE;
 }
 
+/*
+ * Log what the parser choked on: the peer, where the parser was, and the
+ * bytes around the failure.  consumed is how many bytes of buf lws_parse()
+ * ate before failing, so buf[consumed - 1] is the byte it refused.  Same
+ * role-keyed level as lwsl_parse_fail().
+ *
+ * Callers do this for LPR_FAIL; the LPR_FORBIDDEN path does it itself
+ * before the 403 it issues on the server side overwrites the request in
+ * pt->serv_buf.
+ */
+void
+lws_parse_fail_diag(struct lws *wsi, const unsigned char *buf, int consumed,
+		    int len)
+{
+	int level = lwsi_role_client(wsi) ? LLL_NOTICE : LLL_INFO;
+	const char *tok = NULL;
+	char peer[72];
+	int s, e, state = -1;
+
+	peer[0] = '\0';
+#if !defined(LWS_PLAT_OPTEE)
+	lws_get_peer_simple(wsi, peer, sizeof(peer));
+#endif
+
+	if (consumed < 1)
+		consumed = 1;
+	if (consumed > len)
+		consumed = len;
+
+	/* up to 48 bytes leading up to the bad byte, and 16 after it */
+	s = consumed - 48;
+	if (s < 0)
+		s = 0;
+	e = consumed + 16;
+	if (e > len)
+		e = len;
+
+	/* a real token index names the header we were collecting */
+	if (wsi->http.ah) {
+		state = wsi->http.ah->parser_state;
+		tok = (const char *)lws_token_to_string(state);
+	}
+
+	lwsl_wsi(wsi, level, "peer %s: parser state %d (%s), failed at byte "
+			     "%d of %d (0x%02X), ah->pos %d", peer, state,
+		 tok ? tok : "-", consumed - 1, len, buf[consumed - 1],
+		 wsi->http.ah ? (int)wsi->http.ah->pos : -1);
+	lwsl_hexdump_wsi(wsi, level, buf + s, (size_t)(e - s));
+}
+
 static const unsigned char methods[] = {
 	WSI_TOKEN_GET_URI,
 	WSI_TOKEN_POST_URI,
@@ -1155,9 +1216,10 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 {
 	struct allocated_headers *ah = wsi->http.ah;
 	struct lws_context *context = wsi->a.context;
+	const unsigned char *start = buf;
+	int r, pos, total = *len;
 	unsigned int n, m;
 	unsigned char c;
-	int r, pos;
 
 	assert(wsi->http.ah);
 
@@ -1166,7 +1228,8 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 		c = *buf++;
 
 		if (c == '\0') {
-			lwsl_info("%s: rejecting NUL in header\n", __func__);
+			lwsl_parse_fail(wsi, "rejecting NUL in header (state %d)",
+					ah->parser_state);
 			return LPR_FAIL;
 		}
 
@@ -1260,6 +1323,8 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 			case LPUR_EXCESSIVE:
 				goto excessive;
 			default:
+				lwsl_parse_fail(wsi, "urldecode failed (state %d)",
+						ah->parser_state);
 				return LPR_FAIL;
 			}
 check_eol:
@@ -1510,7 +1575,7 @@ nope:
 					return LPR_DO_FALLBACK;
 				}
 
-				lwsl_info("Unknown method - dropping\n");
+				lwsl_parse_fail(wsi, "unknown method - dropping");
 				goto forbid;
 			}
 			if (ah->lextable_pos < 0) {
@@ -1539,7 +1604,7 @@ nope:
 				for (m = 0; m < LWS_ARRAY_SIZE(methods); m++)
 					if (n == methods[m] &&
 					    ah->frag_index[methods[m]]) {
-						lwsl_warn("Duplicated method\n");
+						lwsl_parse_fail(wsi, "duplicated method");
 						return LPR_FAIL;
 					}
 
@@ -1593,7 +1658,9 @@ start_fragment:
 			ah->nfrag++;
 excessive:
 			if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frags)) {
-				lwsl_warn("More hdr frags than we can deal with\n");
+				lwsl_parse_fail(wsi, "more hdr frags than we can "
+						     "deal with (state %d)",
+						     ah->parser_state);
 				return LPR_FAIL;
 			}
 
@@ -1673,7 +1740,10 @@ set_parsing_complete:
 	return LPR_OK;
 
 forbid:
-	lwsl_info(" forbidding on uri sanitation\n");
+	lwsl_parse_fail(wsi, "forbidding on uri sanitation (state %d, "
+			     "ues %d, ups %d)", ah->parser_state, ah->ues,
+			     ah->ups);
+	lws_parse_fail_diag(wsi, start, lws_ptr_diff(buf, start), total);
 #if defined(LWS_WITH_SERVER)
 	lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 #endif
