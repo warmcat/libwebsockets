@@ -2499,12 +2499,31 @@ lws_sigbits(uintptr_t u)
 	return n;
 }
 
+/*
+ * The whole parts are staged in int64 and the result saturated at the
+ * int32 limits: operands the callers already bounded (css lengths are
+ * capped at 1e6 whole) still multiply past 2^31, and sums of many such
+ * values reach it too, and signed overflow is UB rather than a wrap
+ */
+
+static int32_t
+lws_fx_sat(int64_t w)
+{
+	if (w > INT32_MAX)
+		return INT32_MAX;
+	if (w < -INT32_MAX)
+		return -INT32_MAX;
+
+	return (int32_t)w;
+}
+
 const lws_fx_t *
 lws_fx_add(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b)
 {
-	int32_t w, sf;
+	int64_t w;
+	int32_t sf;
 
-	w = a->whole + b->whole;
+	w = (int64_t)a->whole + b->whole;
 	sf = a->frac + b->frac;
 	if (sf >= 100000000) {
 		w++;
@@ -2515,7 +2534,7 @@ lws_fx_add(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b)
 	} else
 		r->frac = sf;
 
-	r->whole = w;
+	r->whole = lws_fx_sat(w);
 
 	return r;
 }
@@ -2523,10 +2542,10 @@ lws_fx_add(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b)
 const lws_fx_t *
 lws_fx_sub(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b)
 {
-	int32_t w;
+	int64_t w;
 
 	if (a->whole >= b->whole) {
-		w = a->whole - b->whole;
+		w = (int64_t)a->whole - b->whole;
 		if (a->frac >= b->frac)
 			r->frac = a->frac - b->frac;
 		else {
@@ -2534,7 +2553,7 @@ lws_fx_sub(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b)
 			r->frac = (100000000 + a->frac) - b->frac;
 		}
 	} else {
-		w = -(b->whole - a->whole);
+		w = -((int64_t)b->whole - a->whole);
 		if (b->frac >= a->frac)
 			r->frac = b->frac - a->frac;
 		else {
@@ -2542,7 +2561,7 @@ lws_fx_sub(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b)
 			r->frac = (100000000 + b->frac) - a->frac;
 		}
 	}
-	r->whole = w;
+	r->whole = lws_fx_sat(w);
 
 	return r;
 }
@@ -2550,8 +2569,8 @@ lws_fx_sub(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b)
 const lws_fx_t *
 lws_fx_mul(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b)
 {
-	int64_t _c1, _c2;
-	int32_t w, t;
+	int64_t _c1, _c2, w;
+	int32_t t;
 	char neg = 0;
 
 	assert(a->frac < LWS_FX_FRACTION_MSD);
@@ -2559,21 +2578,21 @@ lws_fx_mul(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b)
 
 	/* we can't use r as a temp, because it may alias on to a, b */
 
-	w = a->whole * b->whole;
+	w = (int64_t)a->whole * b->whole;
 
 	if (!lws_neg(a) && !lws_neg(b)) {
 		_c2 = (((int64_t)((int64_t)a->frac) * (int64_t)b->frac) /
 							LWS_FX_FRACTION_MSD);
 		_c1 = ((int64_t)a->frac * ((int64_t)b->whole)) +
 		        (((int64_t)a->whole) * (int64_t)b->frac) + _c2;
-		w += (int32_t)(_c1 / LWS_FX_FRACTION_MSD);
+		w += _c1 / LWS_FX_FRACTION_MSD;
 	} else
 		if (lws_neg(a) && !lws_neg(b)) {
 			_c2 = (((int64_t)((int64_t)-a->frac) * (int64_t)b->frac) /
 								LWS_FX_FRACTION_MSD);
 			_c1 = ((int64_t)-a->frac * (-(int64_t)b->whole)) +
 			       (((int64_t)a->whole) * (int64_t)b->frac) - _c2;
-			w += (int32_t)(_c1 / LWS_FX_FRACTION_MSD);
+			w += _c1 / LWS_FX_FRACTION_MSD;
 			neg = 1;
 		} else
 			if (!lws_neg(a) && lws_neg(b)) {
@@ -2581,18 +2600,19 @@ lws_fx_mul(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b)
 									LWS_FX_FRACTION_MSD);
 				_c1 = ((int64_t)a->frac * ((int64_t)b->whole)) -
 				       (((int64_t)a->whole) * (int64_t)-b->frac) - _c2;
-				w += (int32_t)(_c1 / LWS_FX_FRACTION_MSD);
+				w += _c1 / LWS_FX_FRACTION_MSD;
 				neg = 1;
 			} else {
 				_c2 = (((int64_t)((int64_t)-a->frac) * (int64_t)-b->frac) /
 									LWS_FX_FRACTION_MSD);
 				_c1 = ((int64_t)-a->frac * ((int64_t)b->whole)) +
 				       (((int64_t)a->whole) * (int64_t)-b->frac) - _c2;
-				w -= (int32_t)(_c1 / LWS_FX_FRACTION_MSD);
+				w -= _c1 / LWS_FX_FRACTION_MSD;
 			}
 
 	t = (int32_t)(_c1 % LWS_FX_FRACTION_MSD);
-	r->whole = w; /* don't need a,b any further... now we can write to r */
+	/* don't need a,b any further... now we can write to r */
+	r->whole = lws_fx_sat(w);
 	if (neg ^ !!(t < 0))
 		r->frac = -t;
 	else

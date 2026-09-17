@@ -134,6 +134,42 @@ main(int argc, const char **argv)
 	lws_fx_div(&r, &a, &b);
 	CHK(fx2d(&r) == 2.5, "div 10 / 4 = %f", fx2d(&r));
 
+	/*
+	 * Whole parts past int32 saturate rather than overflow: operands
+	 * inside the css intake cap (1e6) multiply past 2^31, and long
+	 * sums of large values reach it too
+	 */
+
+	lws_fx_set(a, 1000000, 0);
+	lws_fx_set(b, 1000000, 0);
+	lws_fx_mul(&r, &a, &b);
+	CHK(r.whole == INT32_MAX, "mul 1e6 * 1e6 saturates: %d", r.whole);
+
+	lws_fx_set(b, -1000000, 0);
+	lws_fx_mul(&r, &a, &b);
+	CHK(r.whole == -INT32_MAX, "mul 1e6 * -1e6 saturates: %d", r.whole);
+
+	lws_fx_set(a, 46342, 50000000);	/* 46342.5 */
+	lws_fx_set(b, 46342, 50000000);
+	lws_fx_mul(&r, &a, &b);
+	CHK(r.whole == INT32_MAX, "mul 46342.5^2 saturates: %d", r.whole);
+
+	lws_fx_set(a, INT32_MAX, 0);
+	lws_fx_set(b, 1, 0);
+	lws_fx_add(&r, &a, &b);
+	CHK(r.whole == INT32_MAX, "add INT32_MAX + 1 saturates: %d", r.whole);
+
+	lws_fx_set(a, -INT32_MAX, 0);
+	lws_fx_set(b, 5, 50000000);
+	lws_fx_sub(&r, &a, &b);
+	CHK(r.whole == -INT32_MAX, "sub -INT32_MAX - 5.5 saturates: %d",
+	    r.whole);
+
+	lws_fx_set(a, INT32_MAX, 0);
+	lws_fx_set(b, -1, 0);
+	lws_fx_add(&r, &a, &b);
+	CHK(r.whole == INT32_MAX - 1, "add INT32_MAX - 1 = %d", r.whole);
+
 	lws_fx_set(a, 2, 25000000);	/* 2.25 */
 	lws_fx_sqrt(&r, &a);
 	CHK(fx2d(&r) == 1.5, "sqrt 2.25 = %f", fx2d(&r));
