@@ -2947,6 +2947,143 @@ lhp_media_feature(lhp_ctx_t *ctx, const char *p, const char *end)
 	return 0;
 }
 
+/*
+ * @supports evaluation.  Claiming support for everything is wrong in the
+ * way that matters: tailwind v4 wraps its lab() / oklch() / color-mix()
+ * colour theme in @supports (color: lab(0% 0 0)) with hex fallbacks
+ * outside it, so taking the block replaced every colour on the page with
+ * values we can't parse (digg.com rendered white text on white).
+ *
+ * A declaration (prop: value) is supported if its value uses no function
+ * we don't implement; selector(), font-tech() etc are not.  not / and / or
+ * combine as in the spec, at one level of parentheses.
+ */
+
+static int
+lhp_supports_decl(const char *p, const char *end)
+{
+	static const char * const fns[] = {
+		"rgb", "rgba", "hsl", "hsla", "var", "calc", "min", "max",
+		"clamp", "url", "linear-gradient", "attr", "counter"
+	};
+	const char *v = p;
+
+	while (v < end && *v != ':')
+		v++;
+	if (v >= end)
+		return 0; /* not a declaration */
+
+	/* display: grid we don't do */
+	if (v - p >= 7 && !strncmp(p, "display", 7)) {
+		const char *w = v + 1;
+
+		while (w < end && *w == ' ')
+			w++;
+		if (end - w >= 4 && !strncmp(w, "grid", 4))
+			return 0;
+	}
+
+	/* every function in the value must be one we know */
+	while (v < end) {
+		if (*v == '(') {
+			const char *n = v;
+			size_t k;
+
+			while (n > p && lhp_ident_char(n[-1]))
+				n--;
+			for (k = 0; k < LWS_ARRAY_SIZE(fns); k++)
+				if ((size_t)(v - n) == strlen(fns[k]) &&
+				    !strncmp(n, fns[k], (size_t)(v - n)))
+					break;
+			if (k == LWS_ARRAY_SIZE(fns))
+				return 0;
+		}
+		v++;
+	}
+
+	return 1;
+}
+
+static int
+lhp_supports_true(const char *q, const char *end)
+{
+	int result = -1, op = 0 /* 0: none, 1: and, 2: or */, neg = 0;
+
+	while (q < end) {
+		while (q < end && *q == ' ')
+			q++;
+		if (q >= end)
+			break;
+
+		if (end - q >= 3 && !strncmp(q, "not", 3) &&
+		    (q + 3 == end || q[3] == ' ' || q[3] == '(')) {
+			neg = !neg;
+			q += 3;
+			continue;
+		}
+		if (end - q >= 3 && !strncmp(q, "and", 3) &&
+		    (q + 3 == end || q[3] == ' ' || q[3] == '(')) {
+			op = 1;
+			q += 3;
+			continue;
+		}
+		if (end - q >= 2 && !strncmp(q, "or", 2) &&
+		    (q + 2 == end || q[2] == ' ' || q[2] == '(')) {
+			op = 2;
+			q += 2;
+			continue;
+		}
+
+		if (*q == '(') {
+			/* find the matching ')' */
+			const char *s = q + 1;
+			int depth = 1, r;
+
+			q++;
+			while (q < end && depth) {
+				if (*q == '(')
+					depth++;
+				else if (*q == ')')
+					depth--;
+				if (depth)
+					q++;
+			}
+
+			/* general enclosure of a nested condition, or a decl */
+			while (s < q && *s == ' ')
+				s++;
+			if (s < q && (*s == '(' ||
+				      (q - s >= 3 && !strncmp(s, "not", 3) &&
+				       (s[3] == ' ' || s[3] == '('))))
+				r = lhp_supports_true(s, q);
+			else
+				r = lhp_supports_decl(s, q);
+
+			if (neg)
+				r = !r;
+			neg = 0;
+
+			if (result < 0)
+				result = r;
+			else if (op == 1)
+				result = result && r;
+			else if (op == 2)
+				result = result || r;
+			else
+				result = r;
+
+			if (q < end)
+				q++;
+			continue;
+		}
+
+		/* selector(...), font-tech(...), anything else: unsupported */
+		return 0;
+	}
+
+	return result > 0;
+}
+
 static int
 lhp_media_query_true(lhp_ctx_t *ctx, const char *q, const char *end)
 {
@@ -5463,8 +5600,9 @@ done_amp:
 					else if (ctx->npos >= 9 &&
 						 !strncmp(ctx->buf,
 							  "@supports", 9))
-						ok = strncmp(ctx->buf + 9,
-							     " not", 4) != 0;
+						ok = lhp_supports_true(
+							ctx->buf + 9,
+							ctx->buf + ctx->npos);
 					else if (ctx->npos >= 6 &&
 						 !strncmp(ctx->buf,
 							  "@layer", 6) &&

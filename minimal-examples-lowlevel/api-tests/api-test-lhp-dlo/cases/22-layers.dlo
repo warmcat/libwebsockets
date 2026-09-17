@@ -5,11 +5,11 @@ rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
   text (0.0,0.0) [7.0 x 19.0] rgba=FF000000 f=17/400 "b"
  rect (0.0,20.0) [30.0 x 10.0] rgba=FFFF00FF
   text (0.0,0.0) [6.0 x 19.0] rgba=FF000000 f=17/400 "c"
- rect (0.0,30.0) [60.0 x 10.0] rgba=FFFFFF00
+ rect (0.0,30.0) [60.0 x 12.0] rgba=FFFFFF00
   text (0.0,0.0) [8.0 x 19.0] rgba=FF000000 f=17/400 "d"
- rect (0.0,40.0) [70.0 x 10.0] rgba=FF00FFFF
+ rect (0.0,42.0) [70.0 x 10.0] rgba=FF00FFFF
   text (0.0,0.0) [7.0 x 19.0] rgba=FF000000 f=17/400 "e"
- rect (0.0,50.0) [400.0 x 19.0] rgba=FF888888
+ rect (0.0,52.0) [400.0 x 19.0] rgba=FF888888
   rect (0.0,0.0) [400.0 x 19.0] rgba=00000000
    text (-11.0,0.0) [5.0 x 19.0] rgba=FF000000 f=17/400 "-"
    text (0.0,0.0) [11.0 x 19.0] rgba=FF000000 f=17/400 "m"
