@@ -109,8 +109,28 @@ dlo_image_fill_missing_dims(lws_dlo_image_t *u)
 	}
 }
 
+/*
+ * The whole payload of an image has arrived: from now the copy the dlo holds
+ * (and its decoder) can be given back when memory is short, and renewed
+ * from the asset cache before the next render.  Called after any magic
+ * fixup has decided what kind of image it really is.  Without the asset
+ * cache nothing is ever in_cache and this is a no-op.
+ */
+
 static void
-dloss_arm_reclaim(dloss_t *m);
+dloss_arm_reclaim(dloss_t *m)
+{
+	if (!m->in_cache || !m->u.u.dlo_png || m->u.failed ||
+	    m->u.u.dlo_png->flow.state != LWSDLOFLOW_STATE_READ_COMPLETED)
+		return;
+
+	if (m->u.u.dlo_png->dlo.render == lws_display_render_png)
+		lws_display_dlo_png_reclaimable(m->u.u.dlo_png);
+#if defined(LWS_WITH_JPEG)
+	else if (m->u.u.dlo_jpeg->dlo.render == lws_display_render_jpeg)
+		lws_display_dlo_jpeg_reclaimable(m->u.u.dlo_jpeg);
+#endif
+}
 
 /*
  * dlo images call back here when they have their dimensions (or have failed)
@@ -531,28 +551,6 @@ dloss_cache_write(dloss_t *m, struct lws_context *cx)
  * payload, so layout and render proceed identically with no network at all.
  * Returns nonzero if the payload could not be used.
  */
-
-/*
- * The whole payload of an image has arrived: from now the copy the dlo holds
- * (and its decoder) can be given back when memory is short, and renewed
- * from the asset cache before the next render.  Called after any magic
- * fixup has decided what kind of image it really is.
- */
-
-static void
-dloss_arm_reclaim(dloss_t *m)
-{
-	if (!m->in_cache || !m->u.u.dlo_png || m->u.failed ||
-	    m->u.u.dlo_png->flow.state != LWSDLOFLOW_STATE_READ_COMPLETED)
-		return;
-
-	if (m->u.u.dlo_png->dlo.render == lws_display_render_png)
-		lws_display_dlo_png_reclaimable(m->u.u.dlo_png);
-#if defined(LWS_WITH_JPEG)
-	else if (m->u.u.dlo_jpeg->dlo.render == lws_display_render_jpeg)
-		lws_display_dlo_jpeg_reclaimable(m->u.u.dlo_jpeg);
-#endif
-}
 
 static int
 dloss_cache_feed(dloss_t *m, const uint8_t *data, size_t size)
