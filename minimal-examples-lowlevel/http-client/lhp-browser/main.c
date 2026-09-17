@@ -105,11 +105,15 @@ static char nav_url[256]; /* browse_url when a link was followed */
 
 #define WIN_LAYOUT_H_MAX		16384
 
-/* how many viewport heights to offer the layout, so percentage-height
- * elements have something to resolve against without filling the whole
- * 16k ceiling with blank filler */
-
-#define WIN_LAYOUT_H_MULT		8
+/*
+ * The layout surface is the ceiling from the start: vh units, the root
+ * element's height and height media queries resolve against the window
+ * height (rs->viewport_h), not the surface, so a tall surface doesn't fill
+ * itself with 100vh filler, and a long page is laid out once instead of
+ * being clipped and laid out again at double the height until it fits
+ * (three full passes, with every asset fetched again, on a 15k-tall
+ * article)
+ */
 
 /* viewport lines rendered per scan pass, to stay responsive */
 
@@ -134,11 +138,9 @@ win_layout_h(void)
 	if (win.pin_h)
 		return win.pin_h;
 
-	h = win.vh * WIN_LAYOUT_H_MULT;
-	if (h < win.layout_h)
-		h = win.layout_h;
-	if (h > WIN_LAYOUT_H_MAX)
-		h = WIN_LAYOUT_H_MAX;
+	h = WIN_LAYOUT_H_MAX;
+	if (h < win.vh)
+		h = win.vh;
 
 	return h;
 }
@@ -699,6 +701,7 @@ win_relayout(void)
 
 	ic.wh_px[0].whole = w;
 	ic.wh_px[1].whole = win_layout_h();
+	drs.viewport_h = win.vh;
 
 	win.scroll_y = 0;
 	win.doc_h = 0;
@@ -995,28 +998,13 @@ render(lws_sorted_usec_list_t *sul)
 
 		/*
 		 * The layout drops content that lands below the surface it
-		 * was offered.  If the completed document was cut short
-		 * that way, lay it out again with more room, up to the
-		 * ceiling, so the whole page can be scrolled to
+		 * was offered, which is the ceiling: a page longer than that
+		 * is simply cut there
 		 */
 
-		if (rs->html == 2 && rs->layout_clipped && !win.pin_h &&
-		    rs->ic->wh_px[1].whole < WIN_LAYOUT_H_MAX) {
-			win.layout_h = rs->ic->wh_px[1].whole * 2;
-			if (win.layout_h > WIN_LAYOUT_H_MAX)
-				win.layout_h = WIN_LAYOUT_H_MAX;
-
-			lwsl_notice("%s: document clipped at %d: relayout "
-				    "at %d tall\n", __func__,
-				    rs->ic->wh_px[1].whole, win.layout_h);
-
-			win.scan_done = 0;
-			relayout_scheduled = 1;
-			lws_sul_schedule(cx, 0, &win.sul_relayout,
-					 win_relayout_cb, 1);
-
-			return;
-		}
+		if (rs->html == 2 && rs->layout_clipped)
+			lwsl_notice("%s: document clipped at %d tall\n",
+				    __func__, rs->ic->wh_px[1].whole);
 
 		if (nd == win.doc_h && win.scan_done)
 			return;
@@ -1341,6 +1329,7 @@ main(int argc, const char **argv)
 		 * document's natural height */
 
 		ic.wh_px[1].whole = win_layout_h();
+		drs.viewport_h = win.vh;
 
 		drs.retained = 1;
 
