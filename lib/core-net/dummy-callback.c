@@ -867,31 +867,58 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_usec_t _proxy_wr_start = lws_now_usecs();
 #endif
 
-		if (wsi->http.proxy_parent_chunked) {
+		/*
+		 * The onward client's rx pointer is only guaranteed LWS_PRE of
+		 * headroom for an h1 onward connection (it is in the pt
+		 * serv_buf or a buflist segment); on an h2 or h3 onward stream
+		 * it points into the middle of the parsed frame.  A parent that
+		 * is itself an h2 / h3 stream prepends its frame header in place
+		 * before the pointer, so what goes to such a parent, and what
+		 * has to be chunk-encoded for an h1 parent, is copied into our
+		 * own buffer with LWS_PRE in front, in pieces that fit it.
+		 */
+		n = 0;
+		while (len) {
+			size_t chunk = len, o;
 
-			if (len > sizeof(buf) - LWS_PRE - 16) {
-				lwsl_wsi_err(wsi, "oversize buf %d %d", (int)len,
-						(int)sizeof(buf) - LWS_PRE - 16);
-				return -1;
+			if (chunk > sizeof(buf) - LWS_PRE - 16)
+				chunk = sizeof(buf) - LWS_PRE - 16;
+
+			if (wsi->http.proxy_parent_chunked) {
+				/*
+				 * this only needs dealing with on http/1.1 to
+				 * allow pipelining
+				 */
+				out = buf + LWS_PRE;
+				o = (size_t)lws_snprintf(out, 14, "%X\x0d\x0a",
+							 (int)chunk);
+				memcpy(out + o, in, chunk);
+				o += chunk;
+				out[o++] = '\x0d';
+				out[o++] = '\x0a';
+				n = lws_write(lws_get_parent(wsi),
+					      (unsigned char *)out, o,
+					      LWS_WRITE_HTTP);
+			} else if (lws_get_parent(wsi)->mux_substream) {
+				out = buf + LWS_PRE;
+				memcpy(out, in, chunk);
+				n = lws_write(lws_get_parent(wsi),
+					      (unsigned char *)out, chunk,
+					      LWS_WRITE_HTTP);
+			} else {
+				/* h1 parent, nothing is written before in */
+				chunk = len;
+				n = lws_write(lws_get_parent(wsi),
+					      (unsigned char *)in, chunk,
+					      LWS_WRITE_HTTP);
 			}
 
-			/*
-			 * this only needs dealing with on http/1.1 to allow
-			 * pipelining
-			 */
-			n = lws_snprintf(out, 14, "%X\x0d\x0a", (int)len);
-			out += n;
-			memcpy(out, in, len);
-			out += len;
-			*out++ = '\x0d';
-			*out++ = '\x0a';
+			if (n < 0)
+				break;
 
-			n = lws_write(lws_get_parent(wsi),
-				      (unsigned char *)buf + LWS_PRE,
-				      (size_t)(unsigned int)(len + (unsigned int)n + 2), LWS_WRITE_HTTP);
-		} else
-			n = lws_write(lws_get_parent(wsi), (unsigned char *)in,
-				      len, LWS_WRITE_HTTP);
+			in = (char *)in + chunk;
+			len -= chunk;
+		}
 
 #if defined(LWS_WITH_LATENCY)
 		{
