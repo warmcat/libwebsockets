@@ -298,6 +298,17 @@ post_pollout:
 		    !wsi->client_mux_migrated &&
 		    lws_fi(&wsi->fic, "h2cli_nwsi_early_rx_err"))
 			scr_ret = LWS_SSL_CAPABLE_ERROR;
+
+		/*
+		 * ... and the peer dropping an established client h2
+		 * connection at any point, eg, with streams open and more
+		 * queued on it waiting for a stream slot
+		 */
+		if (lwsi_role_client(wsi) && wsi->client_mux_migrated &&
+		    wsi->h2.h2n && wsi->h2.h2n->swsi &&
+		    /* the faults migrated to sid 1 with the original ask */
+		    lws_fi(&wsi->h2.h2n->swsi->fic, "h2cli_nwsi_rx_err"))
+			scr_ret = LWS_SSL_CAPABLE_ERROR;
 #endif
 #if defined(LWS_WITH_LATENCY)
 		{
@@ -917,9 +928,17 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 			/*
 			 * A stream slot on the connection is free: if client
 			 * transactions were queued waiting for the peer's
-			 * concurrent stream limit, the next can go
+			 * concurrent stream limit, the next can go.  Not if
+			 * the connection itself is what's closing (this is
+			 * one of its children being closed by that): adopting
+			 * the queue on to a dying parent leaves the adoptees
+			 * with a dangling parent pointer after it is freed,
+			 * and no longer on the txn queue that the parent's
+			 * reset would have closed them from
 			 */
 			if (nwsi && lwsi_role_client(nwsi) &&
+			    !nwsi->wsistate_pre_close &&
+			    !nwsi->socket_is_permanently_unusable &&
 			    !lws_dll2_is_empty(&nwsi->dll2_cli_txn_queue_owner) &&
 			    !nwsi->a.context->being_destroyed)
 				lws_wsi_mux_apply_queue(nwsi);

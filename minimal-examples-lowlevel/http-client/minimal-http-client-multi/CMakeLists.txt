@@ -21,6 +21,8 @@ require_lws_config(LWS_WITHOUT_TESTAPPS 0 requirements)
 require_lws_config(LWS_WITH_FILE_OPS 1 requirements)
 
 require_lws_config(LWS_WITH_MBEDTLS 1 MBEDTLS)
+set(has_fault_injection 1)
+require_lws_config(LWS_WITH_SYS_FAULT_INJECTION 1 has_fault_injection)
 
 
 if (requirements)
@@ -152,6 +154,23 @@ endif()
 	# SETTINGS_MAX_CONCURRENT_STREAMS 24, so the rest must queue on the
 	# connection and go as streams complete, not be refused or stall
 	add_test(NAME http-client-multi-pipe-over-max-streams COMMAND lws-minimal-http-client-multi -d1151 --limit 1 -p -c 40 -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV})
+
+	if (has_fault_injection)
+		# ... and the peer dropping that connection on its second read,
+		# with streams open and the rest still queued on it: the
+		# queued ones must be failed with the connection, not adopted
+		# on to it as it dies (which left them with a freed parent and
+		# the client waiting on them forever).  The transactions fail,
+		# so the exit code is nonzero and prompt: without the fix the
+		# test times out
+		add_test(NAME http-client-multi-pipe-over-max-streams-conn-lost COMMAND lws-minimal-http-client-multi -d1151 --limit 1 -p -c 40 -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} --fault-injection "wsi/h2cli_nwsi_rx_err(.X)")
+		set_tests_properties(http-client-multi-pipe-over-max-streams-conn-lost
+				     PROPERTIES
+				     FIXTURES_REQUIRED "hcm_srv"
+				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-multi
+				     WILL_FAIL TRUE
+				     TIMEOUT 50)
+	endif()
 
 	set_tests_properties(http-client-multi-pipe-over-max-streams
 			     http-client-multi-restrict-pipe
