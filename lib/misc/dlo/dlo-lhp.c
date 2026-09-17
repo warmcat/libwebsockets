@@ -934,13 +934,20 @@ lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
 		d = lws_dll2_get_next(d);
 	}
 
-	/* where this line's baseline ended up, for our own baseline */
-	lws_fx_div(&t2, &lead, &fx_2);
-	lws_fx_add(&t, &c->oy, &c->cury);
-	lws_fx_add(&t, &t, &above);
-	lws_fx_add(&t, &t, &t2);
-	c->last_base = (int16_t)t.whole;
-	c->has_base = 1;
+	/*
+	 * Where this line's baseline ended up, for our own baseline.  A
+	 * line holding only floats (a breadcrumb list of float: left items)
+	 * has nothing on a baseline and gives us none: as an inline-block
+	 * we then align by our bottom edge, not by our top
+	 */
+	if (c->line_asc || c->line_desc) {
+		lws_fx_div(&t2, &lead, &fx_2);
+		lws_fx_add(&t, &c->oy, &c->cury);
+		lws_fx_add(&t, &t, &above);
+		lws_fx_add(&t, &t, &t2);
+		c->last_base = (int16_t)t.whole;
+		c->has_base = 1;
+	}
 
 	lws_fx_add(&c->cury, &c->cury, &lh);
 	lhp_line_reset(c);
