@@ -1,0 +1,17 @@
+<!--
+ color inherits into block elements: a p or h1 inside a coloured div takes
+ the div's colour unless something between sets its own, and color: inherit
+ on a heading overrides the site's h1 { color } with the ancestor's.  The
+ UA sheet must not set color on blocks (apple.com's article header is
+ color: #f5f5f7 on a dark background image, the h1 is color: inherit).
+-->
+<html><head><style>
+h1,h2{font-weight:600;color:#1d1d1f}
+.hdr{color:#f5f5f7;background-color:#000}
+.t{color:inherit}
+.own{color:#ff0000}
+</style></head><body style="margin:0">
+<div class="hdr"><h1 class="t">One</h1><h2>Two</h2><p>Three</p><span>Four</span><p class="own">Five</p></div>
+<div style="color:#00ff00"><p>Six</p></div>
+<p>Seven</p>
+</body></html>

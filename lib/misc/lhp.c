@@ -408,8 +408,10 @@ static const char *const default_css =
 	"/* lws_lhp default css */"
 	"html, address,blockquote, dd, div,dl, dt, fieldset, form, frame, "
 	"frameset, h1, h2, h3, h4, h5, h6, noframes, ol, p, ul, center, "
-	"dir, hr, menu, pre { unicode-bidi: embed; color: #000; margin: 0;"
+	"dir, hr, menu, pre { unicode-bidi: embed; margin: 0;"
 	"padding: 0; position: static; width: auto; height: auto; }\n"
+	/* no color here: it inherits, a div's text takes its ancestor's colour
+	 * unless something between sets it; unset all the way up is black */
 
 	/* no top / right / bottom / left here: unlike the old positional-
 	 * attribute ua css, unset offsets on out-of-flow boxes have to stay
