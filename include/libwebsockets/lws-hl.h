@@ -207,6 +207,20 @@ LWS_VISIBLE LWS_EXTERN const lws_hl_ops_t *
 lws_hl_lang_c(void);
 #endif
 
+#if defined(LWS_WITH_HL_LANG_DIFF)
+/**
+ * lws_hl_lang_diff() - get the language ops for unified diff / git diff
+ *
+ * Returns a pointer to a diff tokenizer that only colours diff markup:
+ * whole lines (including their newline) classified as added, removed,
+ * hunk header or file metadata by their prefix, with everything else
+ * plain.  It does not attempt to syntax-highlight the source inside the
+ * diff.  Pass the result to lws_hl_construct().
+ */
+LWS_VISIBLE LWS_EXTERN const lws_hl_ops_t *
+lws_hl_lang_diff(void);
+#endif
+
 #if !defined(LHL_HTML_BUF)
 #define LHL_HTML_BUF			  832
 #endif

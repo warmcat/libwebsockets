@@ -238,6 +238,11 @@ if (LWS_WITH_HL)
 		list(APPEND SOURCES
 			misc/hl-c.c)
 	endif()
+
+	if (LWS_WITH_HL_LANG_DIFF)
+		list(APPEND SOURCES
+			misc/hl-diff.c)
+	endif()
 endif()
 
 if (LWS_WITH_MNEMONIC)

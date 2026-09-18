@@ -45,6 +45,10 @@ static char cls_char(lws_hl_class_t cls)
 	case LHL_CLS_CHARLIT:	return 'C';
 	case LHL_CLS_COMMENT:	return 'M';
 	case LHL_CLS_PREPROC:	return 'X';
+	case LHL_CLS_DIFF_ADD:	return 'a';
+	case LHL_CLS_DIFF_REM:	return 'r';
+	case LHL_CLS_DIFF_HUNK:	return 'h';
+	case LHL_CLS_DIFF_META:	return 'm';
 	default:		return '?';
 	}
 }
@@ -86,13 +90,14 @@ capture_reset(struct capture *cap)
 }
 
 static int
-run_whole(const uint8_t *in, size_t in_len, struct capture *cap)
+run_whole(const lws_hl_ops_t *ops, const uint8_t *in, size_t in_len,
+	  struct capture *cap)
 {
 	lws_hl_ctx_t ctx;
 
 	capture_reset(cap);
 
-	if (lws_hl_construct(&ctx, lws_hl_lang_c(), capture_cb, cap))
+	if (lws_hl_construct(&ctx, ops, capture_cb, cap))
 		return 1;
 
 	while (in_len) {
@@ -126,15 +131,15 @@ xs32(uint32_t *seed)
  */
 
 static int
-run_fragmented(const uint8_t *in, size_t in_len, uint32_t seed,
-	       struct capture *cap)
+run_fragmented(const lws_hl_ops_t *ops, const uint8_t *in, size_t in_len,
+	       uint32_t seed, struct capture *cap)
 {
 	lws_hl_ctx_t ctx;
 	size_t done = 0, minl = 1;
 
 	capture_reset(cap);
 
-	if (lws_hl_construct(&ctx, lws_hl_lang_c(), capture_cb, cap))
+	if (lws_hl_construct(&ctx, ops, capture_cb, cap))
 		return 1;
 
 	while (done < in_len) {
@@ -188,8 +193,8 @@ run_fragmented(const uint8_t *in, size_t in_len, uint32_t seed,
  */
 
 static int
-run_deferred(const uint8_t *in, size_t in_len, size_t budget,
-	     struct capture *cap)
+run_deferred(const lws_hl_ops_t *ops, const uint8_t *in, size_t in_len,
+	     size_t budget, struct capture *cap)
 {
 	lws_hl_ctx_t ctx;
 	const uint8_t *p = in;
@@ -200,7 +205,7 @@ run_deferred(const uint8_t *in, size_t in_len, size_t budget,
 	cap->defer_enabled = 1;
 	cap->budget = budget;
 
-	if (lws_hl_construct(&ctx, lws_hl_lang_c(), capture_cb, cap))
+	if (lws_hl_construct(&ctx, ops, capture_cb, cap))
 		return 1;
 
 	while (l) {
@@ -360,18 +365,99 @@ static const struct golden goldens[] = {
 	  "S:\"it's\"P: C:'x\"y'" },
 };
 
+#if defined(LWS_WITH_HL_LANG_DIFF)
+
+/* diff goldens... same merged capture format, with a/r/h/m classes */
+
+static const struct golden diff_goldens[] = {
+
+	{ "diff-basic",
+	  "diff --git a/x.c b/x.c\n"
+	  "index 1234567..89abcde 100644\n"
+	  "--- a/x.c\n"
+	  "+++ b/x.c\n"
+	  "@@ -10,7 +10,8 @@ fn(void)\n"
+	  " context line\n"
+	  "-removed line\n"
+	  "+added line\n"
+	  "+another added\n"
+	  " more context\n",
+	  "m:diff --git a/x.c b/x.c\n"
+	  "index 1234567..89abcde 100644\n"
+	  "--- a/x.c\n"
+	  "+++ b/x.c\n"
+	  "h:@@ -10,7 +10,8 @@ fn(void)\n"
+	  "P: context line\n"
+	  "r:-removed line\n"
+	  "a:+added line\n+another added\n"
+	  "P: more context\n" },
+
+	{ "diff-marker-prefixes",
+	  "++plus-start\n---minus-start\n+++ b/f\n",
+	  "a:++plus-start\nr:---minus-start\nm:+++ b/f\n" },
+
+	{ "diff-bound-eos",
+	  "+++",
+	  "m:+++" },
+
+	{ "diff-at-holds",
+	  "@x\n@",
+	  "P:@x\n@" },
+
+	{ "diff-hunk-eos",
+	  "@@",
+	  "h:@@" },
+
+	{ "diff-no-newline",
+	  "\\ No newline at end of file\n",
+	  "m:\\ No newline at end of file\n" },
+
+	{ "diff-word-nomatch",
+	  "hello world\ndifferential\n",
+	  "P:hello world\ndifferential\n" },
+
+	{ "diff-word-eos",
+	  "diff",
+	  "m:diff" },
+
+	{ "diff-word-overflow",
+	  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+	  "P:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" },
+
+	{ "diff-empty-lines",
+	  "\n\n",
+	  "P:\n\n" },
+
+	{ "diff-garbage-plain",
+	  "1234\n!bang\n",
+	  "P:1234\n!bang\n" },
+
+	{ "diff-long-add",
+	  "+" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+	  "a:+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" },
+};
+
+#endif
+
 static int
-test_goldens(struct capture *cap)
+run_goldens(const struct golden *gtab, size_t gcount,
+	    const lws_hl_ops_t *ops, const char *lang, struct capture *cap)
 {
 	size_t n;
 	int bad = 0;
 
-	for (n = 0; n < LWS_ARRAY_SIZE(goldens); n++) {
-		const struct golden *g = &goldens[n];
+	for (n = 0; n < gcount; n++) {
+		const struct golden *g = &gtab[n];
 		uint32_t seed = 0x12345678u + (uint32_t)n;
 		int ret, m;
 
-		ret = run_whole((const uint8_t *)g->in, strlen(g->in), cap);
+		ret = run_whole(ops, (const uint8_t *)g->in, strlen(g->in), cap);
 		if (ret) {
 			fprintf(stderr, "FAIL(%s): run_whole %d\n", g->name, ret);
 			bad++;
@@ -391,7 +477,7 @@ test_goldens(struct capture *cap)
 		 */
 
 		for (m = 0; m < 40; m++) {
-			ret = run_fragmented((const uint8_t *)g->in,
+			ret = run_fragmented(ops, (const uint8_t *)g->in,
 					     strlen(g->in),
 					     seed + (uint32_t)m * 17u, cap);
 			if (ret) {
@@ -420,7 +506,7 @@ test_goldens(struct capture *cap)
 		for (m = 0; m < 8; m++) {
 			size_t budget = 1u << m;
 
-			ret = run_deferred((const uint8_t *)g->in,
+			ret = run_deferred(ops, (const uint8_t *)g->in,
 					   strlen(g->in), budget, cap);
 			if (ret) {
 				fprintf(stderr, "FAIL(%s): deferred %d\n",
@@ -440,8 +526,21 @@ test_goldens(struct capture *cap)
 	}
 
 	if (!bad)
-		fprintf(stderr, "test-hl: %zu goldens + fragmentation + "
-			"flow control: PASS\n", LWS_ARRAY_SIZE(goldens));
+		fprintf(stderr, "test-hl: %zu %s goldens + fragmentation + "
+			"flow control: PASS\n", gcount, lang);
+
+	return bad;
+}
+
+static int
+test_goldens(struct capture *cap)
+{
+	int bad = run_goldens(goldens, LWS_ARRAY_SIZE(goldens),
+			      lws_hl_lang_c(), "c", cap);
+#if defined(LWS_WITH_HL_LANG_DIFF)
+	bad += run_goldens(diff_goldens, LWS_ARRAY_SIZE(diff_goldens),
+			   lws_hl_lang_diff(), "diff", cap);
+#endif
 
 	return bad;
 }
@@ -651,14 +750,21 @@ test_html(void)
 	static const uint8_t in1[] = "#include <stdio.h>\nint x = a & b;\n";
 	static const uint8_t in2[] = "/* a < b && c > d */\n";
 	static const uint8_t in3[] = "\"unterminated\x00 \x01str\" x";
-	static const struct {
-		const uint8_t	*data;
-		size_t		len;
+#if defined(LWS_WITH_HL_LANG_DIFF)
+	static const uint8_t in4[] = "@@ -1 +1 @@\n-old & <x>\n+new & <y>\n";
+#endif
+	const struct {
+		const uint8_t			*data;
+		size_t				len;
+		const lws_hl_ops_t		*(*ops)(void);
 	} inputs[] = {
-		{ in0, sizeof(in0) - 1 },
-		{ in1, sizeof(in1) - 1 },
-		{ in2, sizeof(in2) - 1 },
-		{ in3, sizeof(in3) - 1 },
+		{ in0, sizeof(in0) - 1, lws_hl_lang_c },
+		{ in1, sizeof(in1) - 1, lws_hl_lang_c },
+		{ in2, sizeof(in2) - 1, lws_hl_lang_c },
+		{ in3, sizeof(in3) - 1, lws_hl_lang_c },
+#if defined(LWS_WITH_HL_LANG_DIFF)
+		{ in4, sizeof(in4) - 1, lws_hl_lang_diff },
+#endif
 	};
 	struct htmlcap h;
 	size_t n;
@@ -674,7 +780,7 @@ test_html(void)
 		h.buf[0] = '\0';
 
 		if (lws_hl_html_construct(&html, html_write, &h, NULL) ||
-		    lws_hl_construct(&ctx, lws_hl_lang_c(),
+		    lws_hl_construct(&ctx, inputs[n].ops(),
 				     lws_hl_html_token, &html)) {
 			bad++;
 			continue;
@@ -699,6 +805,16 @@ test_html(void)
 			saw_replacement = 1;
 		if (html_check("input", h.buf))
 			bad++;
+#if defined(LWS_WITH_HL_LANG_DIFF)
+		if (inputs[n].ops == lws_hl_lang_diff &&
+		    (!strstr(h.buf, "hl-dh") || !strstr(h.buf, "hl-dr") ||
+		     !strstr(h.buf, "hl-da") ||
+		     strstr(h.buf, "<x>"))) {
+			fprintf(stderr, "FAIL(html): diff spans missing\n"
+					"  %s\n", h.buf);
+			bad++;
+		}
+#endif
 	}
 
 	if (!saw_replacement) {
@@ -752,11 +868,20 @@ test_hostile(struct capture *cap)
 {
 	static const uint8_t syntax[] = "\"'\\/?#<>._+-eEpP0189abcxyzZ_\n\t\r ";
 	static uint8_t buf[3072];
-	uint32_t seed = 0xcafebabeu;
-	char whole[MAX_STREAM];
-	size_t round, bad = 0;
+	const lws_hl_ops_t *langs[] = {
+		lws_hl_lang_c(),
+#if defined(LWS_WITH_HL_LANG_DIFF)
+		lws_hl_lang_diff(),
+#endif
+	};
+	size_t nl, bad = 0;
 
-	for (round = 0; round < 24; round++) {
+	for (nl = 0; nl < LWS_ARRAY_SIZE(langs); nl++) {
+	  uint32_t seed = 0xcafebabeu;
+	  char whole[MAX_STREAM];
+	  size_t round;
+
+	  for (round = 0; round < 24; round++) {
 		size_t n, len = 512 + xs32(&seed) % (sizeof(buf) - 512);
 		lws_hl_ctx_t ctx;
 		struct counter ct = { 0, 0 };
@@ -770,7 +895,7 @@ test_hostile(struct capture *cap)
 
 		/* byte conservation on the whole input */
 
-		if (lws_hl_construct(&ctx, lws_hl_lang_c(), count_cb, &ct)) {
+		if (lws_hl_construct(&ctx, langs[nl], count_cb, &ct)) {
 			bad++;
 			break;
 		}
@@ -795,8 +920,9 @@ test_hostile(struct capture *cap)
 		if (!bad && lws_hl_finish(&ctx))
 			bad++;
 		if (!bad && ct.bytes != len) {
-			fprintf(stderr, "test-hl: hostile round %zu: %zu of "
-				"%zu bytes classified\n", round, ct.bytes, len);
+			fprintf(stderr, "test-hl: hostile %s round %zu: %zu "
+				"of %zu bytes classified\n",
+				langs[nl]->name, round, ct.bytes, len);
 			bad++;
 		}
 		if (bad)
@@ -804,34 +930,41 @@ test_hostile(struct capture *cap)
 
 		/* identical stream under any feeding pattern */
 
-		ret = run_whole(buf, len, cap);
+		ret = run_whole(langs[nl], buf, len, cap);
 		if (ret) {
-			fprintf(stderr, "FAIL(hostile %zu): whole %d\n",
-				round, ret);
+			fprintf(stderr, "FAIL(hostile %s %zu): whole %d\n",
+				langs[nl]->name, round, ret);
 			bad++;
 			break;
 		}
 		lws_strncpy(whole, cap->buf, sizeof(whole));
 
 		for (m = 0; m < 8 && !bad; m++) {
-			ret = run_fragmented(buf, len, seed + (uint32_t)m * 31u,
-					     cap);
+			ret = run_fragmented(langs[nl], buf, len,
+					      seed + (uint32_t)m * 31u,
+					      cap);
 			if (ret || strcmp(cap->buf, whole)) {
-				fprintf(stderr, "FAIL(hostile %zu): fragmented "
-					"differs (%d)\n", round, ret);
+				fprintf(stderr, "FAIL(hostile %s %zu): "
+					"fragmented differs (%d)\n",
+					langs[nl]->name, round, ret);
 				bad++;
 			}
 		}
 		for (m = 0; m < 3 && !bad; m++) {
-			ret = run_deferred(buf, len, (size_t)1 << m, cap);
+			ret = run_deferred(langs[nl], buf, len,
+					   (size_t)1 << m, cap);
 			if (ret || strcmp(cap->buf, whole)) {
-				fprintf(stderr, "FAIL(hostile %zu): deferred "
-					"differs (%d)\n", round, ret);
+				fprintf(stderr, "FAIL(hostile %s %zu): "
+					"deferred differs (%d)\n",
+					langs[nl]->name, round, ret);
 				bad++;
 			}
 		}
 		if (bad)
 			break;
+	  }
+	  if (bad)
+		  break;
 	}
 
 	if (!bad)

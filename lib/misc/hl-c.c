@@ -43,6 +43,7 @@
  */
 
 #include "private-lib-core.h"
+#include "misc/private-lib-misc-hl.h"
 #include <string.h>
 
 /* driver states */
@@ -199,58 +200,6 @@ pp_is_include(const uint8_t *name, size_t len)
 	       (len == 13 && !memcmp(name, "include_next", len));
 }
 
-/* emit [epos..pos) as cls, in bounded pieces; epos advances only over
- * pieces the sink accepted, so a deferred piece is retried, not lost or
- * duplicated */
-
-static lws_stateful_ret_t
-emit_span(lws_hl_ctx_t *c, lws_hl_class_t cls)
-{
-	while (c->epos < c->pos) {
-		size_t take = c->pos - c->epos;
-		lws_stateful_ret_t r;
-
-		if (take > LHL_PIECE_MAX)
-			take = LHL_PIECE_MAX;
-
-		r = c->cb(c->user, cls, c->chunk + c->epos, take);
-		if (r)
-			return r;
-
-		c->epos += take;
-	}
-
-	c->tok = c->epos;
-
-	return LWS_SRET_OK;
-}
-
-/* emit stashed bytes (opening quote of a string literal, # directive name,
- * straddling identifier piece) as cls... single piece, atomic */
-
-static lws_stateful_ret_t
-emit_scratch(lws_hl_ctx_t *c, lws_hl_class_t cls)
-{
-	return c->cb(c->user, cls, c->scratch, c->scratch_pos);
-}
-
-static lws_stateful_ret_t
-emit_prefix(lws_hl_ctx_t *c, lws_hl_class_t cls)
-{
-	lws_stateful_ret_t r;
-
-	if (!c->scratch_pos)
-		return LWS_SRET_OK;
-
-	r = emit_scratch(c, cls);
-	if (r)
-		return r;
-
-	c->scratch_pos = 0;
-
-	return LWS_SRET_OK;
-}
-
 /*
  * Emit block comment pieces.  If the sink defers, retain the state matching
  * the byte before epos (the emitted watermark), rather than the byte before
@@ -261,7 +210,7 @@ emit_prefix(lws_hl_ctx_t *c, lws_hl_class_t cls)
 static lws_stateful_ret_t
 emit_comment(lws_hl_ctx_t *c)
 {
-	lws_stateful_ret_t r = emit_span(c, LHL_CLS_COMMENT);
+	lws_stateful_ret_t r = hl_emit_span(c, LHL_CLS_COMMENT);
 
 	if (r && c->epos)
 		c->state = (c->chunk[c->epos - 1] == '*') ?
@@ -306,7 +255,7 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 			}
 			if (b == '#' && (c->flags & LHF_BOL)) {
 				if (c->pos > c->tok) {
-					r = emit_span(c, LHL_CLS_PLAIN);
+					r = hl_emit_span(c, LHL_CLS_PLAIN);
 					if (r)
 						goto bail;
 				}
@@ -323,7 +272,7 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 			if (b == '<' && (c->flags & LHF_PPLINE) &&
 			    (c->flags & LHF_PPINC)) {
 				if (c->pos > c->tok) {
-					r = emit_span(c, LHL_CLS_PLAIN);
+					r = hl_emit_span(c, LHL_CLS_PLAIN);
 					if (r)
 						goto bail;
 				}
@@ -344,7 +293,7 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 
 			if (b == '"' || b == '\'') {
 				if (c->pos > c->tok) {
-					r = emit_span(c, LHL_CLS_PLAIN);
+					r = hl_emit_span(c, LHL_CLS_PLAIN);
 					if (r)
 						goto bail;
 				}
@@ -361,7 +310,7 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 
 			if (c_is_dig(b) || c_is_id(b)) {
 				if (c->pos > c->tok) {
-					r = emit_span(c, LHL_CLS_PLAIN);
+					r = hl_emit_span(c, LHL_CLS_PLAIN);
 					if (r)
 						goto bail;
 				}
@@ -374,7 +323,7 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 
 			if (b == '.') {
 				if (c->pos > c->tok) {
-					r = emit_span(c, LHL_CLS_PLAIN);
+					r = hl_emit_span(c, LHL_CLS_PLAIN);
 					if (r)
 						goto bail;
 				}
@@ -384,7 +333,7 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 
 			if (b == '/') {
 				if (c->pos > c->tok) {
-					r = emit_span(c, LHL_CLS_PLAIN);
+					r = hl_emit_span(c, LHL_CLS_PLAIN);
 					if (r)
 						goto bail;
 				}
@@ -446,10 +395,10 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 			if (b == '"' || b == '\'') {
 				if ((b == '"') == (c->state == LCS_STR)) {
 					c->pos++;
-					r = emit_prefix(c, lc);
+					r = hl_emit_prefix(c, lc);
 					if (r)
 						goto bail;
-					r = emit_span(c, lc);
+					r = hl_emit_span(c, lc);
 					if (r)
 						goto bail;
 					c->state = LCS_PLAIN;
@@ -470,10 +419,10 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 			}
 			if (b == '\n') {
 				/* unterminated literal... best guess ends it */
-				r = emit_prefix(c, lc);
+				r = hl_emit_prefix(c, lc);
 				if (r)
 					goto bail;
-				r = emit_span(c, lc);
+				r = hl_emit_span(c, lc);
 				if (r)
 					goto bail;
 				c->state = LCS_PLAIN;
@@ -496,7 +445,7 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 
 		case LCS_LINE_COM:
 			if (b == '\n') {
-				r = emit_span(c, LHL_CLS_COMMENT);
+				r = hl_emit_span(c, LHL_CLS_COMMENT);
 				if (r)
 					goto bail;
 				c->state = LCS_PLAIN;
@@ -563,7 +512,7 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 				c->state = LCS_NUM;
 				continue;
 			}
-			r = emit_span(c, LHL_CLS_NUMBER);
+			r = hl_emit_span(c, LHL_CLS_NUMBER);
 			if (r)
 				goto bail;
 			c->state = LCS_PLAIN;
@@ -580,7 +529,7 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 					/* stupidly long directive lead-in:
 					 * stop treating the line specially
 					 * beyond marking it a pp line */
-					r = emit_scratch(c, LHL_CLS_PREPROC);
+					r = hl_emit_scratch(c, LHL_CLS_PREPROC);
 					if (r)
 						goto bail;
 					c->scratch_pos = 0;
@@ -610,7 +559,7 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 				nl = c->scratch_pos - ns;
 				inc = pp_is_include(c->scratch + ns, nl);
 
-				r = emit_scratch(c, LHL_CLS_PREPROC);
+				r = hl_emit_scratch(c, LHL_CLS_PREPROC);
 				if (r)
 					goto bail;
 				c->scratch_pos = 0;
@@ -629,7 +578,7 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 			if (b == '>' || b == '\n') {
 				if (b == '>')
 					c->pos++;
-				r = emit_span(c, LHL_CLS_PREPROC);
+				r = hl_emit_span(c, LHL_CLS_PREPROC);
 				if (r)
 					goto bail;
 				c->state = LCS_PLAIN;
@@ -663,7 +612,7 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 							c->scratch,
 							c->scratch_pos);
 
-					r = emit_scratch(c, c->tokcls);
+					r = hl_emit_scratch(c, c->tokcls);
 					if (r)
 						goto bail;
 					c->scratch_pos = 0;
@@ -675,7 +624,7 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 				/* too long for a keyword... emit the stashed
 				 * part, then the chunk part below */
 
-				r = emit_scratch(c, LHL_CLS_IDENT);
+				r = hl_emit_scratch(c, LHL_CLS_IDENT);
 				if (r)
 					goto bail;
 				c->scratch_pos = 0;
@@ -692,7 +641,7 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 					 * without reclassifying a fragment */
 					c->flags |= LHF_IDKNOW;
 			}
-			r = emit_span(c, c->tokcls);
+			r = hl_emit_span(c, c->tokcls);
 			if (r)
 				goto bail;
 			c->state = LCS_PLAIN;
@@ -713,7 +662,7 @@ chunk_end:
 	case LCS_PLAIN:
 		/* emit any pending plain run... it continues next chunk if
 		 * more input comes */
-		r = emit_span(c, LHL_CLS_PLAIN);
+		r = hl_emit_span(c, LHL_CLS_PLAIN);
 		if (r)
 			goto bail;
 		break;
@@ -727,7 +676,7 @@ chunk_end:
 			size_t room = LHL_SCRATCH_SIZE - c->scratch_pos;
 
 			if (!room) {
-				r = emit_scratch(c, LHL_CLS_IDENT);
+				r = hl_emit_scratch(c, LHL_CLS_IDENT);
 				if (r)
 					goto bail;
 				c->scratch_pos = 0;
@@ -750,32 +699,32 @@ chunk_end:
 
 	case LCS_STR:
 	case LCS_STR_ESC:
-		r = emit_prefix(c, LHL_CLS_STRING);
+		r = hl_emit_prefix(c, LHL_CLS_STRING);
 		if (!r)
-			r = emit_span(c, LHL_CLS_STRING);
+			r = hl_emit_span(c, LHL_CLS_STRING);
 		if (r)
 			goto bail;
 		break;
 
 	case LCS_CHR:
 	case LCS_CHR_ESC:
-		r = emit_prefix(c, LHL_CLS_CHARLIT);
+		r = hl_emit_prefix(c, LHL_CLS_CHARLIT);
 		if (!r)
-			r = emit_span(c, LHL_CLS_CHARLIT);
+			r = hl_emit_span(c, LHL_CLS_CHARLIT);
 		if (r)
 			goto bail;
 		break;
 
 	case LCS_NUM:
 	case LCS_NUM_SIGN:
-		r = emit_span(c, LHL_CLS_NUMBER);
+		r = hl_emit_span(c, LHL_CLS_NUMBER);
 		if (r)
 			goto bail;
 		break;
 
 	case LCS_LINE_COM:
 	case LCS_LINE_COM_BS:
-		r = emit_span(c, LHL_CLS_COMMENT);
+		r = hl_emit_span(c, LHL_CLS_COMMENT);
 		if (r)
 			goto bail;
 		break;
@@ -788,7 +737,7 @@ chunk_end:
 		break;
 
 	case LCS_HEADER:
-		r = emit_span(c, LHL_CLS_PREPROC);
+		r = hl_emit_span(c, LHL_CLS_PREPROC);
 		if (r)
 			goto bail;
 		break;
@@ -843,7 +792,7 @@ hl_c_finish(lws_hl_ctx_t *c)
 
 	case LCS_STR:
 	case LCS_STR_ESC:
-		r = emit_prefix(c, LHL_CLS_STRING);
+		r = hl_emit_prefix(c, LHL_CLS_STRING);
 		if (r)
 			return r;
 		if (c->state == LCS_STR_ESC) {
@@ -856,7 +805,7 @@ hl_c_finish(lws_hl_ctx_t *c)
 
 	case LCS_CHR:
 	case LCS_CHR_ESC:
-		r = emit_prefix(c, LHL_CLS_CHARLIT);
+		r = hl_emit_prefix(c, LHL_CLS_CHARLIT);
 		if (r)
 			return r;
 		if (c->state == LCS_CHR_ESC) {
