@@ -339,10 +339,13 @@
 		# $HOME across jobs so coverage keeps advancing; run.sh exits
 		# nonzero and lists the absolute paths of any findings, which
 		# are also offered as artifacts.  Needs clang + libclang-rt-*-dev
-		# on the builder (gnutls / zlib optional, see fuzz/README.md).
+		# on the builder, plus gnutls + zlib dev packages: run.sh would
+		# normally autodetect those via pkg-config and silently drop the
+		# qpack / jose / cose / ws-pmd targets if it can't see them, so
+		# the CI job forces the full build dimension explicitly instead.
 
 		"fuzz": {
-			"cmake":	"CORPUS=$HOME/lws-fuzz-corpus FUZZ_OPTS=-verbosity=0 ./fuzz/run.sh 60",
+			"cmake":	"CORPUS=$HOME/lws-fuzz-corpus FUZZ_OPTS=-verbosity=0 FUZZ_CMAKE_OPTS=\"-DLWS_WITH_SSL=ON -DLWS_WITH_GNUTLS=ON -DLWS_WITH_GENCRYPTO=ON -DLWS_WITH_JOSE=ON -DLWS_WITH_COSE=ON -DLWS_WITH_SYS_ASYNC_DNS_DNSSEC=ON -DLWS_WITHOUT_EXTENSIONS=OFF -DLWS_WITH_ZLIB=ON\" ./fuzz/run.sh 60",
 			"platforms":	"none, fuzz-linux-debian13/x86_64-amd/gcc",
 			"artifacts":	"build-fuzz/fuzz/crash-*, build-fuzz/fuzz/leak-*, build-fuzz/fuzz/timeout-*, build-fuzz/fuzz/oom-*"
 		}
