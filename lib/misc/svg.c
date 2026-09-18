@@ -2351,23 +2351,27 @@ stroke_w_resolve(lws_svg_t *ctx, int64_t v_e8, char pct)
 		/* vb is already Q16.16 user units */
 
 		int64_t sw = ctx->vb[2], sh = ctx->vb[3];
+		uint64_t diag, pc = (uint64_t)vn;
 
 		/*
 		 * diag = sqrt((vw^2 + vh^2) / 2), halved before the sum so
-		 * the squares cannot overflow int64
+		 * the squares cannot overflow int64; the root of an int64 is
+		 * below 2^32, clamp it so the bound is visible below
 		 */
 
-		sw = svg_isqrt64(((sw * sw) >> 1) + ((sh * sh) >> 1));
+		diag = (uint64_t)svg_isqrt64(((sw * sw) >> 1) + ((sh * sh) >> 1));
+		if (diag > SVG_C_MAX)
+			diag = SVG_C_MAX;
 
 		/*
 		 * vn is a percentage: width = vn / 100 * diag, all Q16.
 		 * The percent is split off before the multiply so every
-		 * product stays far inside int64: (vn/100 <= 2^24) *
-		 * (diag <= 2^31), and the sub-percent remainder separately
+		 * product stays far inside uint64: (vn/100 < 2^25) *
+		 * (diag < 2^31), and the sub-percent remainder separately
 		 */
 
-		return arc_sat((((vn / 100) * sw) +
-				(((vn % 100) * sw) / 100)) >> 16);
+		return arc_sat((int64_t)((((pc / 100) * diag) +
+					  (((pc % 100) * diag) / 100)) >> 16));
 	}
 }
 
