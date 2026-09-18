@@ -191,6 +191,18 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 			target_compile_definitions(test-lejp PRIVATE LWS_BUILDING_STATIC)
 		endif()
 
+		if (LWS_WITH_HL AND LWS_WITH_HL_LANG_C)
+			create_test_app(
+				test-hl
+				"test-hl.c"
+				""
+				""
+				""
+				""
+				"")
+			target_compile_definitions(test-hl PRIVATE LWS_BUILDING_STATIC)
+		endif()
+
 		if (LWS_WITH_CBOR)
 			create_test_app(
 				test-lecp
