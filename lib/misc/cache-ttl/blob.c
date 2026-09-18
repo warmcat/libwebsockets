@@ -442,6 +442,7 @@ lws_cache_blob_invalidate(struct lws_cache_ttl_lru *_c, const char *wc_key)
 	lws_cache_blob_t *bc = (lws_cache_blob_t *)_c;
 	char path[256], hex[41];
 	struct stat s;
+	int fd;
 
 	/* keys are hashed to filenames, so wildcards cannot be enumerated */
 
@@ -454,9 +455,15 @@ lws_cache_blob_invalidate(struct lws_cache_ttl_lru *_c, const char *wc_key)
 	lws_snprintf(path, sizeof(path), "%s/%c/%c/%s",
 		     bc->cache.info.u.blob.dir, hex[0], hex[1], hex);
 
-	if (!stat(path, &s) && S_ISREG(s.st_mode) &&
-	    bc->cache.current_footprint >= (uint64_t)s.st_size)
-		bc->cache.current_footprint -= (uint64_t)s.st_size;
+	/* size it through the fd, so what we account for is what we unlink */
+
+	fd = lws_open(path, LWS_O_RDONLY);
+	if (fd >= 0) {
+		if (!fstat(fd, &s) && S_ISREG(s.st_mode) &&
+		    bc->cache.current_footprint >= (uint64_t)s.st_size)
+			bc->cache.current_footprint -= (uint64_t)s.st_size;
+		close(fd);
+	}
 
 	unlink(path);
 
