@@ -714,7 +714,7 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	 * an existing h2 connection arrives before the response headers.
 	 */
 
-	if (!m->cl_checked && m->ss) {
+	if (!m->cl_checked) {
 		uint64_t cl;
 
 		m->cl_checked = 1;
