@@ -30,15 +30,19 @@
 /* stock css class names... NULL entries are emitted unwrapped */
 
 static const char * const stock_cls[LHL_CLS_COUNT] = {
-	/* LHL_CLS_PLAIN   */	NULL,
-	/* LHL_CLS_IDENT   */	NULL,
-	/* LHL_CLS_KEYWORD */	"hl-k",
-	/* LHL_CLS_TYPE    */	"hl-t",
-	/* LHL_CLS_NUMBER  */	"hl-n",
-	/* LHL_CLS_STRING  */	"hl-s",
-	/* LHL_CLS_CHARLIT */	"hl-ch",
-	/* LHL_CLS_COMMENT */	"hl-cm",
-	/* LHL_CLS_PREPROC */	"hl-pp",
+	/* LHL_CLS_PLAIN     */	NULL,
+	/* LHL_CLS_IDENT     */	NULL,
+	/* LHL_CLS_KEYWORD   */	"hl-k",
+	/* LHL_CLS_TYPE      */	"hl-t",
+	/* LHL_CLS_NUMBER    */	"hl-n",
+	/* LHL_CLS_STRING    */	"hl-s",
+	/* LHL_CLS_CHARLIT   */	"hl-ch",
+	/* LHL_CLS_COMMENT   */	"hl-cm",
+	/* LHL_CLS_PREPROC   */	"hl-pp",
+	/* LHL_CLS_DIFF_ADD  */	"hl-da",
+	/* LHL_CLS_DIFF_REM  */	"hl-dr",
+	/* LHL_CLS_DIFF_HUNK */	"hl-dh",
+	/* LHL_CLS_DIFF_META */	"hl-dm",
 };
 
 /* worst-case escaped size of one byte (NUL -> "&#65533;") */

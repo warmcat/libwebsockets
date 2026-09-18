@@ -54,6 +54,13 @@ typedef enum {
 	LHL_CLS_COMMENT,	/**< comment */
 	LHL_CLS_PREPROC,	/**< preprocessor directive / header name */
 
+	/* diff presentation (lines, including their newline) */
+
+	LHL_CLS_DIFF_ADD,	/**< diff: added line */
+	LHL_CLS_DIFF_REM,	/**< diff: removed line */
+	LHL_CLS_DIFF_HUNK,	/**< diff: hunk header line */
+	LHL_CLS_DIFF_META,	/**< diff: file header / metadata line */
+
 	LHL_CLS_COUNT		/**< count of valid classes */
 } lws_hl_class_t;
 
