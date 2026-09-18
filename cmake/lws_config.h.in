@@ -220,6 +220,7 @@
 #cmakedefine LWS_WITH_STUB
 #cmakedefine LWS_WITH_LEJP
 #cmakedefine LWS_WITH_LHP
+#cmakedefine LWS_WITH_HL
 #cmakedefine LWS_WITH_LIBEV
 #cmakedefine LWS_WITH_LIBEVENT
 #cmakedefine LWS_WITH_LIBUV
