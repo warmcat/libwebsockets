@@ -102,10 +102,12 @@ lws_display_render_rect(struct lws_display_render_state *rs)
 	 * 1px underline at y = 32.9 is one row over two, not four solid
 	 * rows, and a zero-height rect draws nothing
 	 */
-	lws_fx_set(top, rs->curr, 0);
+	top.whole = rs->curr;
+	top.frac = 0;
 	if (lws_fx_comp(&top, &r->db.y) < 0)
 		top = r->db.y;
-	lws_fx_set(bot, rs->curr + 1, 0);
+	bot.whole = rs->curr + 1;
+	bot.frac = 0;
 	if (lws_fx_comp(&bot, &r->btm) > 0)
 		bot = r->btm;
 	lws_fx_sub(&cov, &bot, &top);
