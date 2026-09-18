@@ -1686,8 +1686,11 @@ dump_case(const ccase_t *cc, const uint8_t *doc, size_t len)
 		close(fd);
 	}
 
-	if (decode_all(doc, len, 1, &c))
+	if (decode_all(doc, len, 1, &c)) {
+		collect_free(&c);
+
 		return;
+	}
 
 	lws_snprintf(path, sizeof(path), "%s/%s.ppm", dumpdir, cc->name);
 	write_ppm(path, &c);
