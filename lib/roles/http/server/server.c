@@ -2416,6 +2416,7 @@ lws_http_action(struct lws *wsi)
 	 * to the http path below is not evaluated (and injected into) twice.
 	 */
 	{
+		const struct lws_http_mount *uh;
 		const char *cp;
 
 		if (wsi->mux_substream &&
@@ -2424,14 +2425,13 @@ lws_http_action(struct lws *wsi)
 		    !strcmp(cp, "CONNECT") &&
 		    (cp = lws_hdr_simple_ptr(wsi, WSI_TOKEN_COLON_PROTOCOL)) &&
 		    !strcmp(cp, "websocket")) {
-			hit = lws_find_mount(wsi, uri_ptr, uri_len);
-			if (hit && lws_http_evaluate_interceptors(wsi, hit,
-						&uri_ptr, &uri_len) != hit) {
+			uh = lws_find_mount(wsi, uri_ptr, uri_len);
+			if (uh && lws_http_evaluate_interceptors(wsi, uh,
+						&uri_ptr, &uri_len) != uh) {
 				lws_return_http_status(wsi,
 						HTTP_STATUS_UNAUTHORIZED, NULL);
 				goto bail_nuke_ah;
 			}
-			hit = NULL;
 		}
 	}
 #endif
