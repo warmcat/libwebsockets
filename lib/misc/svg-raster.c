@@ -267,13 +267,13 @@ aa_edge(int64_t *aa_d, int w, int64_t yt, int64_t yb,
 
 	/*
 	 * x at the clipped positions: both factors are pre-shifted one
-	 * bit to keep the product in int64, so the quotient needs <<2.
-	 * The quotient itself is bounded by dx, so the shift cannot
-	 * overflow.
+	 * bit to keep the product in int64, so the quotient needs * 4
+	 * (a multiply, since a left shift of a negative quotient is UB).
+	 * The quotient itself is bounded by dx, so it cannot overflow.
 	 */
 
-	xa = x0 + ((((dx >> 1) * ((lo - y0) >> 1)) / den) << 2);
-	xb = x0 + ((((dx >> 1) * ((hi - y0) >> 1)) / den) << 2);
+	xa = x0 + ((((dx >> 1) * ((lo - y0) >> 1)) / den) * 4);
+	xb = x0 + ((((dx >> 1) * ((hi - y0) >> 1)) / den) * 4);
 
 
 	/* winding integral of column 0 */
@@ -326,7 +326,7 @@ aa_edge(int64_t *aa_d, int w, int64_t yt, int64_t yb,
 static int64_t
 aa_map(int64_t u, svg_c_t vb, svg_c_t sc, svg_c_t o)
 {
-	return arc_sat(((((u - vb) >> 1) * sc >> 16) << 1) + o);
+	return arc_sat(((((u - vb) >> 1) * sc >> 16) * 2) + o);
 }
 
 /*
@@ -545,7 +545,8 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 
 	/* sample the line at the pixel centre, in user space */
 
-	ys = arc_sat((((int64_t)y * SVG_Q16_1 + SVG_Q16_1 / 2 - oy) << 16) /
+	ys = arc_sat((((int64_t)y * SVG_Q16_1 + SVG_Q16_1 / 2 - oy) *
+							SVG_Q16_1) /
 								sy + vby);
 
 	e.cb = cb;
@@ -592,13 +593,13 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 					int64_t num = (((int64_t)ys - p->y) >> 1) *
 						      (((int64_t)q->x - p->x) >> 1);
 					int64_t xu = (int64_t)p->x +
-							((num / dy) << 2);
+							((num / dy) * 4);
 
 					/* map the crossing into device space */
 
 					svg_scratch.xings[n].x = arc_sat(
 						((((xu - (int64_t)vbx) >> 1) *
-						  sx >> 16) << 1) + ox);
+						  sx >> 16) * 2) + ox);
 					svg_scratch.xings[n].dir = q->y > p->y ? 1 : -1;
 					n++;
 				}

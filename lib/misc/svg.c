@@ -910,7 +910,7 @@ flatten_quad(lws_svg_t *ctx, svg_c_t x0, svg_c_t y0, svg_c_t x1, svg_c_t y1,
 static int64_t
 arc_e8_ratio(int64_t delta, svg_c_t r)
 {
-	return (((delta * 390625) / r) << 8);	/* 390625 = 1e8 / 256 */
+	return (((delta * 390625) / r) * 256);	/* 390625 = 1e8 / 256 */
 }
 
 static int
@@ -990,8 +990,8 @@ flatten_arc(lws_svg_t *ctx, svg_c_t x1, svg_c_t y1, svg_c_t rx, svg_c_t ry,
 	/* F.6.5.10-11: ellipse frame centre offset, and absolute centre */
 
 	{
-		int64_t yr = y1p ? (y1p << 16) / cry : 0;
-		int64_t xr = x1p ? (x1p << 16) / crx : 0;
+		int64_t yr = y1p ? (y1p * SVG_Q16_1) / cry : 0;
+		int64_t xr = x1p ? (x1p * SVG_Q16_1) / crx : 0;
 
 		if (yr >  (1ll << 29)) yr =  1ll << 29;
 		if (yr < -(1ll << 29)) yr = -(1ll << 29);
@@ -1782,8 +1782,8 @@ seg_normal(svg_c_t x0, svg_c_t y0, svg_c_t x1, svg_c_t y1,
 	if (len < (1 << 15))
 		return 0;
 
-	*nx = (svg_c_t)arc_sat((-dy << 16) / len);
-	*ny = (svg_c_t)arc_sat((dx << 16) / len);
+	*nx = (svg_c_t)arc_sat((-dy * SVG_Q16_1) / len);
+	*ny = (svg_c_t)arc_sat((dx * SVG_Q16_1) / len);
 
 	return 1;
 }
