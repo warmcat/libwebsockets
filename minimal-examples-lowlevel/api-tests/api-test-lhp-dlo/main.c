@@ -455,8 +455,14 @@ read_raw_file(const char *path, size_t *len)
 	int fd;
 
 	fd = open(path, LWS_O_RDONLY);
-	if (fd < 0 || fstat(fd, &s))
+	if (fd < 0)
 		return NULL;
+
+	if (fstat(fd, &s)) {
+		close(fd);
+
+		return NULL;
+	}
 
 	buf = malloc((size_t)s.st_size);
 	if (!buf) {
