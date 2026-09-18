@@ -223,6 +223,7 @@
 #cmakedefine LWS_WITH_HL
 #cmakedefine LWS_WITH_HL_LANG_C
 #cmakedefine LWS_WITH_HL_LANG_DIFF
+#cmakedefine LWS_WITH_MD
 #cmakedefine LWS_WITH_LIBEV
 #cmakedefine LWS_WITH_LIBEVENT
 #cmakedefine LWS_WITH_LIBUV

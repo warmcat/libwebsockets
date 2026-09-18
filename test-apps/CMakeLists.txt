@@ -203,6 +203,18 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 			target_compile_definitions(test-hl PRIVATE LWS_BUILDING_STATIC)
 		endif()
 
+		if (LWS_WITH_MD)
+			create_test_app(
+				test-md
+				"test-md.c"
+				""
+				""
+				""
+				""
+				"")
+			target_compile_definitions(test-md PRIVATE LWS_BUILDING_STATIC)
+		endif()
+
 		if (LWS_WITH_CBOR)
 			create_test_app(
 				test-lecp

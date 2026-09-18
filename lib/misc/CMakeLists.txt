@@ -245,6 +245,12 @@ if (LWS_WITH_HL)
 	endif()
 endif()
 
+if (LWS_WITH_MD)
+	list(APPEND SOURCES
+		misc/md.c
+		misc/md-html.c)
+endif()
+
 if (LWS_WITH_MNEMONIC)
 	list(APPEND SOURCES
 		misc/mnemonic.c)

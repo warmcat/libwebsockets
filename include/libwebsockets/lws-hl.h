@@ -35,6 +35,9 @@
  * closed out with a best-guess classification.
  */
 
+#if !defined(__LWS_HL_H__)
+#define __LWS_HL_H__
+
 #if !defined(LHL_SCRATCH_SIZE)
 #define LHL_SCRATCH_SIZE		  40
 #endif
@@ -319,3 +322,4 @@ lws_hl_html_close(lws_hl_html_t *h);
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lws_html_escape(lws_hl_write_cb wc, void *user, const uint8_t *src,
 		size_t len);
+#endif

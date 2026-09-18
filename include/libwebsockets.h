@@ -1094,6 +1094,9 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #if defined(LWS_WITH_HL)
 #include <libwebsockets/lws-hl.h>
 #endif
+#if defined(LWS_WITH_MD)
+#include <libwebsockets/lws-md.h>
+#endif
 #include <libwebsockets/qrcodegen.h>
 #include <libwebsockets/lws-smtp-client.h>
 
