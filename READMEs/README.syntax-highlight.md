@@ -73,8 +73,9 @@ reused for new input.
 ### Token classes
 
 Pieces are classified into `LHL_CLS_PLAIN`, `_IDENT`, `_KEYWORD`, `_TYPE`,
-`_NUMBER`, `_STRING`, `_CHARLIT`, `_COMMENT` and `_PREPROC`.  Long constructs
-are emitted as consecutive same-class pieces.
+`_NUMBER`, `_STRING`, `_CHARLIT`, `_COMMENT`, `_PREPROC`, and, for diff
+input, `_DIFF_ADD`, `_DIFF_REM`, `_DIFF_HUNK` and `_DIFF_META`.  Long
+constructs are emitted as consecutive same-class pieces.
 
 ## The stock html sink
 
@@ -99,9 +100,11 @@ other than TAB/LF/CR become `&#65533;`; bytes >= 0x80 pass through, so serve
 the result with a utf-8 charset declaration) and wrapped in
 `<span class="...">` elements that span consecutive same-class pieces.  The
 default names are `hl-k` (keyword), `hl-t` (type), `hl-n` (number),
-`hl-s` (string), `hl-ch` (charlit), `hl-cm` (comment) and `hl-pp`
-(preprocessor); plain and identifier classes are emitted unwrapped.  Pass
-your own table of `LHL_CLS_COUNT` strings (NULL entries unwrapped) to
+`hl-s` (string), `hl-ch` (charlit), `hl-cm` (comment), `hl-pp`
+(preprocessor) and, for diff input, `hl-da` (added line), `hl-dr`
+(removed line), `hl-dh` (hunk header) and `hl-dm` (file metadata); plain
+and identifier classes are emitted unwrapped.  Pass your own table of
+`LHL_CLS_COUNT` strings (NULL entries unwrapped) to
 `lws_hl_html_construct()` to change them.
 
 Each piece produces a single write callback call, so a deferred piece is
@@ -114,22 +117,37 @@ arbitrary bytes into html text.
 
 Language tokenizers are `lws_hl_ops_t` structs with `construct`, `parse` and
 `finish` callbacks; `LWS_WITH_HL` builds the framework and stock html sink,
-and drivers are individually selectable.  `LWS_WITH_HL_LANG_C` (default on)
-builds the C driver, which understands keywords and common types, `pp-number`
-numerics, string and character literals with escapes, line and block
-comments with line splices, `#` directives (including `#include <...>` header
-names) and line-start rules for `#`, without attempting to track macros or
-types.  Additional drivers are expected as separate `LWS_WITH_HL_LANG_x`.
+and drivers are individually selectable.
+
+`LWS_WITH_HL_LANG_C` (default on) builds the C driver, which understands
+keywords and common types, `pp-number` numerics, string and character
+literals with escapes, line and block comments with line splices, `#`
+directives (including `#include <...>` header names) and line-start rules
+for `#`, without attempting to track macros or types.
+
+`LWS_WITH_HL_LANG_DIFF` (default on) builds the unified diff / git diff
+driver, which only colours diff markup: whole lines, including their
+newline, are classified by prefix as added (`+`), removed (`-`), hunk
+header (`@@`) or file metadata (`diff`, `index`, `+++`/`---`, and the
+rename/mode/similarity words; also `\ No newline at end of file`), with
+everything else, including context lines, plain.  `+++` and `---` file
+headers are distinguished from added or removed lines whose content itself
+starts with those markers.  It does not attempt to syntax-highlight the
+source inside the diff; because the newline belongs to the line's token,
+consecutive same-side lines share one element in the html output.
+
+Additional drivers are expected as separate `LWS_WITH_HL_LANG_x`.
 
 ## Testing
 
 `test-apps/test-hl.c` builds as `libwebsockets-test-hl` and checks
 
- - golden token streams for tricky C constructs
+ - golden token streams for tricky C and diff constructs
  - fragmentation invariance: identical token streams for the same input
    fragmented at random boundaries, including zero- and one-byte fragments
  - token sink flow control: deferring pieces at arbitrary points then
    resuming produces the same stream
  - byte conservation: every input byte is classified into exactly one token
-   piece, including for pseudo-random hostile garbage
+   piece, including for pseudo-random hostile garbage, for every built
+   language driver
  - html emitter escaping and span balance
