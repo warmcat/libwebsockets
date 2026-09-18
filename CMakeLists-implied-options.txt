@@ -88,6 +88,8 @@ if (LWS_FOR_GITOHASHI)
 	set(LWS_WITH_FSMOUNT 1)
 	set(LWS_WITH_STRUCT_JSON 1)
 	set(LWS_WITH_STRUCT_SQLITE3 1)
+	set(LWS_WITH_HL 1)
+	set(LWS_WITH_HL_LANG_C 1)
 endif()
 
 if(LWS_WITH_DISTRO_RECOMMENDED)
@@ -489,6 +491,12 @@ endif()
 
 if (LWS_WITH_UPNG)
 	set(LWS_WITH_GZINFLATE 1)
+endif()
+
+# the language drivers are meaningless without the highlighter core
+
+if (NOT LWS_WITH_HL)
+	set(LWS_WITH_HL_LANG_C 0)
 endif()
 
 if (LWS_WITH_OTA)
