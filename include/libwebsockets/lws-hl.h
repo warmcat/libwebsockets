@@ -188,6 +188,18 @@ lws_hl_parse(lws_hl_ctx_t *ctx, const uint8_t **buf, size_t *len);
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lws_hl_finish(lws_hl_ctx_t *ctx);
 
+#if defined(LWS_WITH_HL_LANG_C)
+/**
+ * lws_hl_lang_c() - get the language ops for C
+ *
+ * Returns a pointer to a hostile-input-hardened C tokenizer that does not
+ * attempt to track types or macros, and classifies unexpected input by
+ * best guess.  Pass the result to lws_hl_construct().
+ */
+LWS_VISIBLE LWS_EXTERN const lws_hl_ops_t *
+lws_hl_lang_c(void);
+#endif
+
 #if !defined(LHL_HTML_BUF)
 #define LHL_HTML_BUF			  832
 #endif

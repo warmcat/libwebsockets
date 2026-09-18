@@ -233,6 +233,11 @@ if (LWS_WITH_HL)
 	list(APPEND SOURCES
 		misc/hl.c
 		misc/hl-html.c)
+
+	if (LWS_WITH_HL_LANG_C)
+		list(APPEND SOURCES
+			misc/hl-c.c)
+	endif()
 endif()
 
 if (LWS_WITH_MNEMONIC)
