@@ -1459,8 +1459,8 @@ test_malformed(void)
 		size_t cut;
 
 		for (cut = 0; cut < len; cut++) {
-			decode_all(doc, cut, cut, &c);
 			/* any defined result is fine */
+			(void)decode_all(doc, cut, cut, &c);
 			collect_free(&c);
 		}
 		checks++;	/* the sweep as a whole is one check */
