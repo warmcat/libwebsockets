@@ -329,8 +329,8 @@ oracle_tri(bm_t *bm, const int tx[3], const int ty[3])
 
 			if ((ty[i] > y) != (ty[i2] > y)) {
 				/* y + 0.5 strictly between ty[i], ty[i2] */
-				xs[n++] = ((int64_t)tx[i] << 16) +
-						(num << 16) / den;
+				xs[n++] = ((int64_t)tx[i] * 65536) +
+						(num * 65536) / den;
 			}
 		}
 		if (n < 2)
