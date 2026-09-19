@@ -120,9 +120,7 @@ lws_hl_html_token(void *user, lws_hl_class_t cls, const uint8_t *tok,
 							sizeof(h->buf)) {
 				h->buflen += (size_t)lws_snprintf(
 						h->buf + h->buflen,
-						lws_ptr_diff_size_t(
-							sizeof(h->buf) -
-							h->buflen, 0),
+						sizeof(h->buf) - h->buflen,
 						"<span class=\"%s\">", name);
 				now_open = 1;
 			}
