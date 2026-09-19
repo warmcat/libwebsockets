@@ -132,6 +132,32 @@ document.addEventListener('DOMContentLoaded', function() {
         filenameContainer.textContent = friendlyName(videoSrc || rawSrc);
     }
 
+    // Fullscreen on the container (not the bare video): the subtitle cue
+    // overlay lives in the container, so it must be in the fullscreen layer
+    var fsBtn = document.getElementById('fullscreen-btn');
+    if (fsBtn) {
+        fsBtn.addEventListener('click', function() {
+            var pc = document.querySelector('.player-container');
+            if (!pc) return;
+            if (document.fullscreenElement)
+                document.exitFullscreen().catch(function() {});
+            else
+                (pc.requestFullscreen || function() {}).call(pc)
+                        .catch && pc.requestFullscreen().catch(function() {});
+        });
+        document.addEventListener('fullscreenchange', function() {
+            fsBtn.classList.toggle('active',
+                                   !!document.fullscreenElement);
+            applyCueMetricsWhenReady();
+        });
+    }
+    function applyCueMetricsWhenReady() {
+        setTimeout(function() {
+            if (typeof applyCueMetrics === 'function')
+                applyCueMetrics();
+        }, 120);
+    }
+
     // Toggle debug logs panel visibility
     var toggleBtn = document.getElementById('toggle-logs-btn');
     var debugPanel = document.getElementById('debug-panel');
@@ -579,10 +605,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 // playing exists, which can take a while for a far seek
                 // while the transcode is still catching up
                 fragLoadingTimeOut: 120000,
-                // Hand subtitle tracks to the <video>'s native TextTracks so
-                // the browser renders cues with its default styling. (This is
-                // hls.js's default in 1.5.8; set explicitly for clarity.)
+                // Subtitle cues are rendered by our own overlay: the native
+                // ::cue route sizes cues with the UA default in browsers
+                // that ignore ::cue font-size (Firefox) or misplace it in
+                // fullscreen, and offers no control over the frame-relative
+                // sizing we want. hls.js still maintains the track and its
+                // cues; subtitleDisplay:false keeps the native track hidden
+                // so only our overlay shows anything.
                 renderTextTracksNatively: true,
+                subtitleDisplay: false,
             });
             hls.loadSource(videoSrc);
             hls.attachMedia(video);
@@ -808,19 +839,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (ncues > MAXDUMP)
                     logMsg('  ...(' + (ncues - MAXDUMP) + ' more cue(s) not shown)');
 
-                // Position cues: snapToLines=false makes .line a percentage
-                // (0=top, 100=bottom). cueLineForView() is geometry-driven
-                // (lifts ~1 line when the video is near-fullscreen) so cues
-                // clear tablet bottom-bezel camera cutouts and aren't clipped.
-                var line = cueLineForView();
-                for (var k = 0; k < ncues; k++) {
-                    try {
-                        cues[k].snapToLines = false;
-                        cues[k].line = line;
-                    } catch (e) { /* VTTCue props may be read-only in some impls */ }
-                }
-                // make sure the font size custom property is current too
-                applyCueMetrics();
+                // the overlay sizes itself from the video geometry on
+                // resize/fullscreen; nothing to apply per cue batch
             });
 
             // A subtitle fragment was processed. Useful to confirm the VTT
@@ -877,26 +897,22 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             };
 
-            // ---- cue sizing + positioning, driven by video geometry ----
+            // ---- cue rendering: our own overlay over the video ----
             //
-            // We deliberately do NOT rely on the :fullscreen pseudo-class or
-            // the fullscreenchange event: both are flaky on mobile (Android
-            // especially), which produced random results — large font in the
-            // small window, small font in fullscreen, etc. Instead we watch
-            // the video's actual rendered size (ResizeObserver + window
-            // resize/orientationchange) and compute everything from that.
-            //
-            // Font size: written into a dedicated <style> element as a concrete
-            // px rule for video::cue. We use a live stylesheet (rather than a
-            // CSS custom property) because some browsers don't resolve var()
-            // inside ::cue's UA shadow tree. Sized to ~4.5% of the video
-            // height (readable in the small frame, proportional in fullscreen).
-            var cueStyle = document.createElement('style');
-            document.head.appendChild(cueStyle);
+            // Native ::cue rendering is not stylable in every browser
+            // (Firefox ignores ::cue font-size) and mis-sizes in fullscreen;
+            // instead a div overlay carries the current cue(s) and is sized
+            // from the video's actual rendered box (ResizeObserver + window
+            // resize/orientationchange): ~4.5% of the video height, lifted
+            // further from the bottom on tall frames to clear tablet
+            // front-camera cutouts in the bottom bezel.
+            var cueOverlay = document.createElement('div');
+            cueOverlay.className = 'cue-overlay';
+            cueOverlay.setAttribute('aria-live', 'polite');
+            (document.querySelector('.player-container') || document.body)
+                    .appendChild(cueOverlay);
             function setCueFontSize(px) {
-                cueStyle.textContent =
-                    'video::cue{font-size:' + px + 'px;line-height:1.25;' +
-                    'background:rgba(0,0,0,0.72);color:#fff;white-space:pre-wrap;}';
+                cueOverlay.style.fontSize = px + 'px';
             }
             setCueFontSize(18); /* sensible default until first metrics pass */
             function applyCueMetrics() {
@@ -905,33 +921,33 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (vhgt <= 0) return;
                 var fs = Math.max(12, Math.round(vhgt * 0.045));
                 setCueFontSize(fs);
-                reapplyCueLines();
+                var box = cueOverlay.parentElement.getBoundingClientRect();
+                /* cue strip height ~2.5 lines; keep clear of the bottom */
+                cueOverlay.style.bottom =
+                    Math.max(8, Math.round((box.height - rect.bottom +
+                                            rect.height * 0.10))) + 'px';
             }
-            function cueLineForView() {
-                // Lift cues further from the bottom when the video is large,
-                // to clear tablet front-camera cutouts that sit in the bottom
-                // bezel. "Large" = fills most of the screen height.
-                var rect = video.getBoundingClientRect();
-                var vhgt = rect.height || 0;
-                var sh = window.innerHeight || screen.height || 0;
-                if (sh > 0 && vhgt / sh > 0.80) return 80; /* ~fullscreen */
-                return 86;
+            /* the cue text comes from whichever sub track hls.js has put
+             * the cues in (subtitleDisplay keeps it hidden natively) */
+            function watchCueTrack(tt) {
+                tt.addEventListener('cuechange', function() {
+                    var out = '';
+                    if (tt.activeCues)
+                        for (var i = 0; i < tt.activeCues.length; i++)
+                            out += (out ? '\n' : '') +
+                                   (tt.activeCues[i].text || '');
+                    cueOverlay.textContent = out;
+                });
             }
-            function reapplyCueLines() {
-                var tts = video.textTracks;
-                if (!tts) return;
-                var line = cueLineForView();
-                for (var i = 0; i < tts.length; i++) {
-                    var cs = tts[i].cues;
-                    if (!cs) continue;
-                    for (var j = 0; j < cs.length; j++) {
-                        try {
-                            cs[j].snapToLines = false;
-                            cs[j].line = line;
-                        } catch (e) { /* ignore */ }
-                    }
-                }
-            }
+            for (var wi = 0; wi < video.textTracks.length; wi++)
+                watchCueTrack(video.textTracks[wi]);
+            /* tracks appear once hls.js knows them */
+            if (window.TextTrackList)
+                video.textTracks.addEventListener &&
+                    video.textTracks.addEventListener('addtrack', function(e) {
+                        if (e.track)
+                            watchCueTrack(e.track);
+                    });
             if (window.ResizeObserver) {
                 var ro = new ResizeObserver(function () { applyCueMetrics(); });
                 ro.observe(video);

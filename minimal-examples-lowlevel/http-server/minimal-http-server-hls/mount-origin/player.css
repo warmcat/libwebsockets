@@ -173,3 +173,34 @@ video::cue {
     line-height: 1.5;
 }
 
+
+/*
+ * Subtitle cue overlay: covers the video area inside .player-container,
+ * so it resizes with the frame (and enters fullscreen with the container
+ * via the fullscreen button, which requests fullscreen on the container
+ * rather than the bare <video> exactly so this overlay comes along).
+ */
+.cue-overlay {
+    position: absolute;
+    left: 8%;
+    right: 8%;
+    text-align: center;
+    line-height: 1.25;
+    background: rgba(0, 0, 0, 0.72);
+    color: #fff;
+    white-space: pre-wrap;
+    pointer-events: none;
+    z-index: 3;
+}
+
+.player-container:fullscreen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+}
+
+.player-container:fullscreen video {
+    max-width: 100%;
+    max-height: 100%;
+}
