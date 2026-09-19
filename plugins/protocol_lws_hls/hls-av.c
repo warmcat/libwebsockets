@@ -743,20 +743,14 @@ static size_t find_moof_offset(uint8_t *buf, size_t size) {
     return 0;
 }
 
-struct hls_audio_transcoder {
-        AVCodecContext *dec_ctx;
-        AVCodecContext *enc_ctx;
-        SwrContext *swr_ctx;
-        AVAudioFifo *fifo;
-        int64_t next_pts;
-};
-
-static int needs_audio_transcode(enum AVCodecID codec_id) {
+int
+lws_hls_needs_audio_transcode(enum AVCodecID codec_id)
+{
         return codec_id == AV_CODEC_ID_AC3 || codec_id == AV_CODEC_ID_EAC3;
 }
 
-static void
-free_audio_transcoder(struct hls_audio_transcoder *tx)
+void
+lws_hls_audio_tx_free(struct hls_audio_transcoder *tx)
 {
         if (!tx)
                 return;
@@ -772,8 +766,8 @@ free_audio_transcoder(struct hls_audio_transcoder *tx)
         free(tx);
 }
 
-static struct hls_audio_transcoder *
-init_audio_transcoder(AVFormatContext *in_ctx, int audio_idx)
+struct hls_audio_transcoder *
+lws_hls_audio_tx_create(AVFormatContext *in_ctx, int audio_idx)
 {
         AVStream *in_stream = in_ctx->streams[audio_idx];
         const AVCodec *decoder = NULL;
@@ -797,27 +791,27 @@ init_audio_transcoder(AVFormatContext *in_ctx, int audio_idx)
         }
 
         if (avcodec_parameters_to_context(tx->dec_ctx, in_stream->codecpar) < 0) {
-                free_audio_transcoder(tx);
+                lws_hls_audio_tx_free(tx);
                 return NULL;
         }
 
         tx->dec_ctx->thread_count = 1;
 
         if (avcodec_open2(tx->dec_ctx, decoder, NULL) < 0) {
-                free_audio_transcoder(tx);
+                lws_hls_audio_tx_free(tx);
                 return NULL;
         }
 
         encoder = avcodec_find_encoder(AV_CODEC_ID_AAC);
         if (!encoder) {
                 lwsl_err("HLS-TRANS: AAC encoder not found\n");
-                free_audio_transcoder(tx);
+                lws_hls_audio_tx_free(tx);
                 return NULL;
         }
 
         tx->enc_ctx = avcodec_alloc_context3(encoder);
         if (!tx->enc_ctx) {
-                free_audio_transcoder(tx);
+                lws_hls_audio_tx_free(tx);
                 return NULL;
         }
 
@@ -839,7 +833,7 @@ init_audio_transcoder(AVFormatContext *in_ctx, int audio_idx)
 
         if (avcodec_open2(tx->enc_ctx, encoder, NULL) < 0) {
                 lwsl_err("HLS-TRANS: Failed to open AAC encoder\n");
-                free_audio_transcoder(tx);
+                lws_hls_audio_tx_free(tx);
                 return NULL;
         }
 
@@ -856,7 +850,7 @@ init_audio_transcoder(AVFormatContext *in_ctx, int audio_idx)
 #endif
         if (!tx->swr_ctx || swr_init(tx->swr_ctx) < 0) {
                 lwsl_err("HLS-TRANS: SwrContext init failed\n");
-                free_audio_transcoder(tx);
+                lws_hls_audio_tx_free(tx);
                 return NULL;
         }
 
@@ -868,7 +862,7 @@ init_audio_transcoder(AVFormatContext *in_ctx, int audio_idx)
         tx->fifo = av_audio_fifo_alloc(tx->enc_ctx->sample_fmt, channels, 10240);
         if (!tx->fifo) {
                 lwsl_err("HLS-TRANS: FIFO allocation failed\n");
-                free_audio_transcoder(tx);
+                lws_hls_audio_tx_free(tx);
                 return NULL;
         }
 
@@ -882,8 +876,8 @@ init_audio_transcoder(AVFormatContext *in_ctx, int audio_idx)
  * cap tripped, or the avio is otherwise in error): there is no point decoding
  * and encoding anything further for this segment once that has happened.
  */
-static int
-transcode_audio_packet(AVFormatContext *in_ctx, AVFormatContext *out_ctx,
+int
+lws_hls_audio_tx_packet(AVFormatContext *in_ctx, AVFormatContext *out_ctx,
                        struct hls_audio_transcoder *audio_tx, AVPacket *pkt,
                        int out_stream_idx, int64_t shift_offset_out_audio,
                        int64_t *first_audio_pts, int64_t *first_audio_dts,
@@ -977,15 +971,18 @@ transcode_audio_packet(AVFormatContext *in_ctx, AVFormatContext *out_ctx,
                         enc_pkt->stream_index = out_stream_idx;
                         av_packet_rescale_ts(enc_pkt, audio_tx->enc_ctx->time_base, out_ctx->streams[out_stream_idx]->time_base);
 
-                        if (*first_audio_pts == AV_NOPTS_VALUE) {
+                        if (first_audio_pts && *first_audio_pts == AV_NOPTS_VALUE) {
                                 *first_audio_pts = enc_pkt->pts;
                                 *first_audio_dts = enc_pkt->dts;
                         }
-                        *last_audio_pts = enc_pkt->pts;
-                        *last_audio_dts = enc_pkt->dts;
-                        (*audio_packets_written)++;
+                        if (last_audio_pts) {
+                                *last_audio_pts = enc_pkt->pts;
+                                *last_audio_dts = enc_pkt->dts;
+                        }
+                        if (audio_packets_written)
+                                (*audio_packets_written)++;
 
-                        if (enc_pkt->dts != AV_NOPTS_VALUE) {
+                        if (enc_pkt->dts != AV_NOPTS_VALUE && last_dts) {
                                 if (*last_dts != AV_NOPTS_VALUE && enc_pkt->dts <= *last_dts) {
                                         enc_pkt->dts = *last_dts + 1;
                                 }
@@ -995,7 +992,8 @@ transcode_audio_packet(AVFormatContext *in_ctx, AVFormatContext *out_ctx,
                                 enc_pkt->pts = enc_pkt->dts;
                         }
 
-                        if (*audio_packets_written <= 15) {
+                        if (!audio_packets_written ||
+                            *audio_packets_written <= 15) {
                                 lwsl_info("HLS-PKT-DEBUG: Seg %d Transcoded AAC pts=%lld dts=%lld\n",
                                           segment_idx, (long long)enc_pkt->pts, (long long)enc_pkt->dts);
                         }
@@ -1013,8 +1011,8 @@ transcode_audio_packet(AVFormatContext *in_ctx, AVFormatContext *out_ctx,
         return 0;
 }
 
-static void
-flush_audio_transcoder(AVFormatContext *out_ctx, struct hls_audio_transcoder *audio_tx,
+void
+lws_hls_audio_tx_flush(AVFormatContext *out_ctx, struct hls_audio_transcoder *audio_tx,
                        int out_stream_idx, int64_t *first_audio_pts, int64_t *first_audio_dts,
                        int64_t *last_audio_pts, int64_t *last_audio_dts,
                        int *audio_packets_written, int64_t *last_dts,
@@ -1103,15 +1101,18 @@ flush_audio_transcoder(AVFormatContext *out_ctx, struct hls_audio_transcoder *au
                 enc_pkt->stream_index = out_stream_idx;
                 av_packet_rescale_ts(enc_pkt, audio_tx->enc_ctx->time_base, out_ctx->streams[out_stream_idx]->time_base);
 
-                if (*first_audio_pts == AV_NOPTS_VALUE) {
+                if (first_audio_pts && *first_audio_pts == AV_NOPTS_VALUE) {
                         *first_audio_pts = enc_pkt->pts;
                         *first_audio_dts = enc_pkt->dts;
                 }
-                *last_audio_pts = enc_pkt->pts;
-                *last_audio_dts = enc_pkt->dts;
-                (*audio_packets_written)++;
+                if (last_audio_pts) {
+                        *last_audio_pts = enc_pkt->pts;
+                        *last_audio_dts = enc_pkt->dts;
+                }
+                if (audio_packets_written)
+                        (*audio_packets_written)++;
 
-                if (enc_pkt->dts != AV_NOPTS_VALUE) {
+                if (enc_pkt->dts != AV_NOPTS_VALUE && last_dts) {
                         if (*last_dts != AV_NOPTS_VALUE && enc_pkt->dts <= *last_dts) {
                                 enc_pkt->dts = *last_dts + 1;
                         }
@@ -1253,18 +1254,62 @@ lws_hls_build_init(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
         if (audio_idx >= 0) {
                 AVStream *in_stream = in_ctx->streams[audio_idx];
                 AVStream *out_stream = avformat_new_stream(out_ctx, NULL);
-                if (needs_audio_transcode(in_stream->codecpar->codec_id)) {
-                        struct hls_audio_transcoder *tx = init_audio_transcoder(in_ctx, audio_idx);
-                        if (tx) {
-                                avcodec_parameters_from_context(out_stream->codecpar, tx->enc_ctx);
-                                lwsl_notice("HLS-AV: serve_init audio extradata_size=%d\n", out_stream->codecpar->extradata_size);
+                if (lws_hls_needs_audio_transcode(in_stream->codecpar->codec_id)) {
+                        /*
+                         * The audio the segments carry is the shadow's
+                         * AAC when one exists (asking also queues its
+                         * build), so take the codec parameters from it;
+                         * they are identical to what a fresh transcoder
+                         * would produce, but why guess.  Otherwise a
+                         * throwaway transcoder provides them, and the
+                         * segment builder parks behind the shadow build.
+                         */
+                        int64_t covered;
+                        char shadow_path[1024];
+                        AVFormatContext *ash = NULL;
+                        int from_shadow = 0;
+
+                        if (lws_hls_atrans_lookup(vhd, filename, audio_idx,
+                                                  &covered) == HLS_ATRANS_READY) {
+                                lws_hls_atrans_path(vhd, filename, audio_idx,
+                                                    shadow_path,
+                                                    sizeof(shadow_path));
+                                if (!avformat_open_input(&ash, shadow_path,
+                                                        NULL, NULL) &&
+                                    !avformat_find_stream_info(ash, NULL)) {
+                                        unsigned int ui2;
+
+                                        for (ui2 = 0; ui2 < ash->nb_streams; ui2++)
+                                                if (ash->streams[ui2]->codecpar->codec_type ==
+                                                                AVMEDIA_TYPE_AUDIO) {
+                                                        avcodec_parameters_copy(
+                                                                out_stream->codecpar,
+                                                                ash->streams[ui2]->codecpar);
+                                                        out_stream->time_base =
+                                                                ash->streams[ui2]->time_base;
+                                                        from_shadow = 1;
+                                                        break;
+                                                }
+                                }
+                                if (ash)
+                                        avformat_close_input(&ash);
+                        }
+
+                        if (from_shadow) {
                                 out_stream->codecpar->codec_tag = 0;
-                                out_stream->time_base = (AVRational){1, tx->enc_ctx->sample_rate};
-                                free_audio_transcoder(tx);
                         } else {
-                                avcodec_parameters_copy(out_stream->codecpar, in_stream->codecpar);
-                                out_stream->codecpar->codec_tag = 0;
-                                out_stream->time_base = in_stream->time_base;
+                                struct hls_audio_transcoder *tx = lws_hls_audio_tx_create(in_ctx, audio_idx);
+                                if (tx) {
+                                        avcodec_parameters_from_context(out_stream->codecpar, tx->enc_ctx);
+                                        lwsl_notice("HLS-AV: serve_init audio extradata_size=%d\n", out_stream->codecpar->extradata_size);
+                                        out_stream->codecpar->codec_tag = 0;
+                                        out_stream->time_base = (AVRational){1, tx->enc_ctx->sample_rate};
+                                        lws_hls_audio_tx_free(tx);
+                                } else {
+                                        avcodec_parameters_copy(out_stream->codecpar, in_stream->codecpar);
+                                        out_stream->codecpar->codec_tag = 0;
+                                        out_stream->time_base = in_stream->time_base;
+                                }
                         }
                 } else {
                         avcodec_parameters_copy(out_stream->codecpar, in_stream->codecpar);
@@ -2155,6 +2200,177 @@ lws_hls_build_manifest(struct per_vhost_data__lws_hls *vhd,
 	r->status = HTTP_STATUS_OK;
 }
 
+/*
+ * Reader for one segment's worth of audio from a pre-transcoded shadow
+ * (see hls-atrans.c).  The shadow's audio timeline is the source audio's,
+ * so cutting it at the segment keyframe dts boundaries lines it up with
+ * the passthrough path exactly: no encoder restarts, no priming, and
+ * frame-adjacent segment boundaries.
+ */
+struct hls_ashadow {
+	AVFormatContext *ctx;
+	AVPacket pkt;		/* the next packet, when has is set */
+	int has;
+	int stream_idx;		/* the shadow's (only) audio stream */
+	int short_read;		/* hit the shadow's end before the cut */
+};
+
+static void
+hls_ashadow_close(struct hls_ashadow *as)
+{
+	if (!as->ctx)
+		return;
+	if (as->has)
+		av_packet_unref(&as->pkt);
+	avformat_close_input(&as->ctx);
+}
+
+/*
+ * Open the shadow and position it around start_us (a little early: the
+ * exact segment start is only known once the loop has seen the keyframe,
+ * and packets before the cut are dropped as they are read anyway).
+ */
+static int
+hls_ashadow_open(struct hls_ashadow *as, const char *path, int64_t start_us)
+{
+	int64_t seek_us;
+	unsigned int i;
+
+	memset(as, 0, sizeof(*as));
+	if (avformat_open_input(&as->ctx, path, NULL, NULL) < 0)
+		return -1;
+	if (avformat_find_stream_info(as->ctx, NULL) < 0)
+		goto bail;
+
+	as->stream_idx = -1;
+	for (i = 0; i < as->ctx->nb_streams; i++)
+		if (as->ctx->streams[i]->codecpar->codec_type ==
+							AVMEDIA_TYPE_AUDIO) {
+			as->stream_idx = (int)i;
+			break;
+		}
+	if (as->stream_idx < 0)
+		goto bail;
+
+	seek_us = start_us - LWS_US_PER_SEC;
+	if (seek_us < 0)
+		seek_us = 0;
+	av_seek_frame(as->ctx, as->stream_idx,
+		      av_rescale_q(seek_us, AV_TIME_BASE_Q,
+				   as->ctx->streams[as->stream_idx]->time_base),
+		      AVSEEK_FLAG_BACKWARD);
+
+	return 0;
+
+bail:
+	hls_ashadow_close(as);
+
+	return -1;
+}
+
+/* the next shadow packet, or NULL: below the cut (consumed), at/above the
+ * cut (kept for a later call), or the shadow ran out (short_read) */
+static AVPacket *
+hls_ashadow_peek(struct hls_ashadow *as, int64_t cut_us)
+{
+	AVStream *st = as->ctx->streams[as->stream_idx];
+
+	while (!as->has) {
+		int64_t pts_us;
+
+		if (av_read_frame(as->ctx, &as->pkt) < 0) {
+			/* a still-growing shadow can simply end early here */
+			as->short_read = 1;
+			return NULL;
+		}
+		if (as->pkt.stream_index != as->stream_idx) {
+			av_packet_unref(&as->pkt);
+			continue;
+		}
+		as->has = 1;
+
+		pts_us = av_rescale_q(as->pkt.pts != AV_NOPTS_VALUE ?
+				      as->pkt.pts : as->pkt.dts, st->time_base,
+				      AV_TIME_BASE_Q);
+		if (pts_us < cut_us) {
+			/* before the segment starts on the audio timeline */
+			av_packet_unref(&as->pkt);
+			as->has = 0;
+		}
+	}
+
+	return &as->pkt;
+}
+
+/*
+ * Write every shadow packet from (and including) head_us whose time is
+ * below min(target_us, end_us) into out_ctx's audio stream, mirroring the
+ * rescale / shift / monotonic-dts treatment the passthrough path gives
+ * audio.  Called with the video decode cursor (target_us) as each video
+ * packet is written, and with INT64_MAX once the loop is done.
+ */
+static void
+hls_ashadow_feed(struct hls_ashadow *as, AVFormatContext *out_ctx,
+		 int out_stream_idx, int64_t target_us, int64_t head_us,
+		 int64_t end_us, int64_t shift_offset_out_audio,
+		 int64_t *last_dts_col, int *audio_packets_written,
+		 int segment_idx)
+{
+	AVStream *out_stream = out_ctx->streams[out_stream_idx];
+
+	if (target_us > end_us)
+		target_us = end_us;
+
+	while (1) {
+		AVPacket *p = hls_ashadow_peek(as, head_us);
+		AVStream *in_stream;
+		int64_t pts_us;
+
+		if (!p)
+			return;
+		in_stream = as->ctx->streams[as->stream_idx];
+		pts_us = av_rescale_q(p->pts != AV_NOPTS_VALUE ? p->pts :
+				      p->dts, in_stream->time_base,
+				      AV_TIME_BASE_Q);
+		if (pts_us >= target_us)
+			return;
+
+		p->stream_index = out_stream_idx;
+		p->pts = av_rescale_q_rnd(p->pts, in_stream->time_base,
+					  out_stream->time_base,
+					  AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX);
+		p->dts = av_rescale_q_rnd(p->dts, in_stream->time_base,
+					  out_stream->time_base,
+					  AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX);
+		if (p->pts != AV_NOPTS_VALUE)
+			p->pts += shift_offset_out_audio;
+		if (p->dts != AV_NOPTS_VALUE)
+			p->dts += shift_offset_out_audio;
+		p->duration = av_rescale_q(p->duration, in_stream->time_base,
+					   out_stream->time_base);
+		p->pos = -1;
+
+		if (p->dts != AV_NOPTS_VALUE) {
+			if (last_dts_col && *last_dts_col != AV_NOPTS_VALUE &&
+			    p->dts <= *last_dts_col)
+				p->dts = *last_dts_col + 1;
+			if (last_dts_col)
+				*last_dts_col = p->dts;
+		}
+		if (p->pts != AV_NOPTS_VALUE && p->pts < p->dts)
+			p->pts = p->dts;
+
+		(*audio_packets_written)++;
+		if (*audio_packets_written <= 15)
+			lwsl_info("HLS-PKT-DEBUG: Seg %d Write AUDIO (shadow) pts=%lld dts=%lld\n",
+				  segment_idx, (long long)p->pts,
+				  (long long)p->dts);
+
+		av_interleaved_write_frame(out_ctx, p);
+		av_packet_unref(p);
+		as->has = 0;
+	}
+}
 
 void
 lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
@@ -2188,6 +2404,9 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 
 	struct hls_audio_transcoder *audio_tx = NULL;
 	int transcode_audio = 0;
+	struct hls_ashadow ash;	/* audio from the shadow, when there is one */
+	int use_shadow = 0;
+	memset(&ash, 0, sizeof(ash));
 
 	int *stream_mapping = malloc((size_t)in_ctx->nb_streams * sizeof(int));
 	if (!stream_mapping) {
@@ -2240,9 +2459,9 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 		stream_mapping[audio_idx] = stream_index++;
 		AVStream *in_stream = in_ctx->streams[audio_idx];
 		AVStream *out_stream = avformat_new_stream(out_ctx, NULL);
-		if (needs_audio_transcode(in_stream->codecpar->codec_id)) {
+		if (lws_hls_needs_audio_transcode(in_stream->codecpar->codec_id)) {
 			transcode_audio = 1;
-			audio_tx = init_audio_transcoder(in_ctx, audio_idx);
+			audio_tx = lws_hls_audio_tx_create(in_ctx, audio_idx);
 			if (audio_tx) {
 				avcodec_parameters_from_context(out_stream->codecpar, audio_tx->enc_ctx);
 				out_stream->codecpar->codec_tag = 0;
@@ -2267,7 +2486,7 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 	if (!hb.ptr) {
 		/* write_packet() would otherwise memcpy() into NULL */
 		if (audio_tx)
-			free_audio_transcoder(audio_tx);
+			lws_hls_audio_tx_free(audio_tx);
 		avformat_free_context(out_ctx);
 		avformat_close_input(&in_ctx);
 		free(stream_mapping);
@@ -2384,7 +2603,49 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 		r->status = HTTP_STATUS_NOT_FOUND;
 		goto done;
 	}
-	
+
+	/*
+	 * Audio the browser cannot play comes from the pre-transcoded shadow,
+	 * cut at the same keyframe boundaries as passthrough audio (see
+	 * hls-atrans.c): the per-segment encoder restart this replaces wrote
+	 * a sliver of duplicated audio into both sides of every segment
+	 * boundary.  Wait for the shadow to cover this segment rather than
+	 * transcoding it inline; only a build that failed recently falls back
+	 * to the inline path below.
+	 */
+	if (transcode_audio && audio_tx) {
+		int64_t covered = 0;
+		enum hls_atrans_state st = lws_hls_atrans_lookup(vhd, filename,
+								 audio_idx,
+								 &covered);
+		/* the open-ended final segment can only be served complete */
+		int64_t need = end_time;
+
+		if (st == HLS_ATRANS_READY ||
+		    (st == HLS_ATRANS_RUNNING && covered >= need)) {
+			char shadow_path[1024];
+
+			lws_hls_atrans_path(vhd, filename, audio_idx,
+					    shadow_path, sizeof(shadow_path));
+			if (!hls_ashadow_open(&ash, shadow_path, start_time)) {
+				use_shadow = 1;
+				transcode_audio = 0;
+				lws_hls_audio_tx_free(audio_tx);
+				audio_tx = NULL;
+				lwsl_notice("HLS: Segment %d: %s: audio from "
+					    "transcode shadow\n", segment_idx,
+					    filename);
+			}
+			/* a shadow that will not open: inline, below */
+		} else if (st == HLS_ATRANS_RUNNING || st == HLS_ATRANS_NONE) {
+			if (lws_hls_atrans_defer(vhd, filename, audio_idx, need,
+						 cancel))
+				/* parked until the shadow covers the segment */
+				goto done;
+			/* the build failed recently: inline, below */
+		}
+	}
+
 	lwsl_info("HLS: Segment %d requested. start_time=%lld (%.3fs), end_time=%lld (%.3fs) [Index: %s]\n",
 		  segment_idx, (long long)start_time, (double)start_time / AV_TIME_BASE,
 		  (long long)end_time, (double)end_time / AV_TIME_BASE, has_index ? "YES" : "NO");
@@ -2474,6 +2735,12 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 		 * still goes through the boundary logic below */
 		if (stream_mapping[pkt.stream_index] < 0 &&
 		    !(has_video && pkt.stream_index == video_idx)) {
+			av_packet_unref(&pkt);
+			continue;
+		}
+		/* the audio comes from the shadow instead: the original's
+		 * audio packets only duplicate it */
+		if (use_shadow && pkt.stream_index == audio_idx) {
 			av_packet_unref(&pkt);
 			continue;
 		}
@@ -2663,7 +2930,8 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 				if (pkt.flags & AV_PKT_FLAG_KEY) {
 					/* If has_index and we know end_pts, stop EXACTLY at end_pts.
 					 * Otherwise fallback to math. */
-					if ((has_index && sinfo.end_pts != AV_NOPTS_VALUE && pkt.pts >= sinfo.end_pts) || (!has_index && pkt_time >= end_time - 500000)) {
+					if (!video_finished &&
+				    ((has_index && sinfo.end_pts != AV_NOPTS_VALUE && pkt.pts >= sinfo.end_pts) || (!has_index && pkt_time >= end_time - 500000))) {
 						lwsl_info("HLS: Segment %d reached next video keyframe at pkt_time=%.3fs (pts=%lld, dts=%lld). Video finished.\n",
 							  segment_idx, (double)pkt_time / AV_TIME_BASE, (long long)pkt.pts, (long long)pkt.dts);
 						video_finished = 1;
@@ -2701,6 +2969,22 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 			}
 
 			if (video_finished && in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+				if (use_shadow) {
+					/*
+					 * The segment's audio comes from the
+					 * shadow, so no trailing passthrough
+					 * audio packet will ever stop this
+					 * loop: stop it here at the boundary,
+					 * the way the audio stop below does
+					 */
+					int64_t dts_time = av_rescale_q(
+							pkt.dts, in_stream->time_base,
+							AV_TIME_BASE_Q);
+					if (dts_time >= end_time) {
+						av_packet_unref(&pkt);
+						break;
+					}
+				}
 				video_packets_discarded++;
 				lwsl_info("HLS-PKT-DEBUG: Seg %d Discard %s pts=%lld dts=%lld key=%d: video_finished\n",
 					  segment_idx, type, (long long)pkt.pts, (long long)pkt.dts, is_key);
@@ -2731,7 +3015,7 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 					int out_stream_idx = stream_mapping[audio_idx];
 					bytes_fed += (size_t)abuf_pkt->size;
 					if (transcode_audio && audio_tx) {
-						if (transcode_audio_packet(in_ctx, out_ctx, audio_tx, abuf_pkt,
+						if (lws_hls_audio_tx_packet(in_ctx, out_ctx, audio_tx, abuf_pkt,
 									out_stream_idx, shift_offset_out_audio,
 									&first_audio_pts, &first_audio_dts,
 									&last_audio_pts, &last_audio_dts,
@@ -2789,6 +3073,26 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 			}
 		}
 
+		/*
+		 * Shadow audio follows the video decode cursor, the same way
+		 * the buffered passthrough audio above does.  The head cut is
+		 * the starting keyframe's dts once it has been seen (matching
+		 * the passthrough head filter exactly); before that, nothing.
+		 */
+		if (use_shadow && started && pkt.stream_index == video_idx)
+			hls_ashadow_feed(&ash, out_ctx, stream_mapping[audio_idx],
+					 av_rescale_q(pkt.dts,
+						      in_ctx->streams[video_idx]->time_base,
+						      AV_TIME_BASE_Q),
+					 has_video ?
+						av_rescale_q(actual_start_pts,
+							     in_ctx->streams[video_idx]->time_base,
+							     AV_TIME_BASE_Q)
+						: start_time,
+					 end_time, shift_offset_out_audio,
+					 &last_dts[stream_mapping[audio_idx]],
+					 &audio_packets_written, segment_idx);
+
 		int out_stream_idx = stream_mapping[pkt.stream_index];
 		if (out_stream_idx < 0) {
 			/* video clock packet of an audio-only rendition: it
@@ -2798,7 +3102,7 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 		}
 		bytes_fed += (size_t)pkt.size;
 		if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO && transcode_audio && audio_tx) {
-			if (transcode_audio_packet(in_ctx, out_ctx, audio_tx, &pkt,
+			if (lws_hls_audio_tx_packet(in_ctx, out_ctx, audio_tx, &pkt,
 						out_stream_idx, shift_offset_out_audio,
 						&first_audio_pts, &first_audio_dts,
 						&last_audio_pts, &last_audio_dts,
@@ -2868,7 +3172,7 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 	if (audio_idx >= 0 && stream_mapping[audio_idx] >= 0) {
 		if (transcode_audio && audio_tx) {
 			if (!hb.err)
-				flush_audio_transcoder(out_ctx, audio_tx,
+				lws_hls_audio_tx_flush(out_ctx, audio_tx,
 					stream_mapping[audio_idx],
 					&first_audio_pts, &first_audio_dts,
 					&last_audio_pts, &last_audio_dts,
@@ -2917,7 +3221,34 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 		}
 		audio_buffer_count = 0;
 	}
-	
+
+	/*
+	 * The rest of the shadow's audio for this segment, bounded by the
+	 * final end_time; and if the shadow ran out before the segment end
+	 * while its build is still running, the coverage estimate raced the
+	 * muxer's flush: park and come back rather than ship a short segment.
+	 */
+	if (use_shadow) {
+		hls_ashadow_feed(&ash, out_ctx, stream_mapping[audio_idx],
+				 INT64_MAX,
+				 has_video ?
+					av_rescale_q(actual_start_pts,
+						     in_ctx->streams[video_idx]->time_base,
+						     AV_TIME_BASE_Q)
+					: start_time,
+				 end_time, shift_offset_out_audio,
+				 &last_dts[stream_mapping[audio_idx]],
+				 &audio_packets_written, segment_idx);
+
+		if (ash.short_read && end_time != INT64_MAX &&
+		    lws_hls_atrans_defer(vhd, filename, audio_idx, end_time,
+					 cancel)) {
+			lwsl_notice("HLS: Segment %d: shadow ran short, "
+				    "waiting for the transcode\n", segment_idx);
+			goto done;
+		}
+	}
+
 	av_write_trailer(out_ctx);
 
 	if (video_idx >= 0 && stream_mapping[video_idx] >= 0) {
@@ -2934,8 +3265,9 @@ done:
 	av_dict_free(&opts);
 
 	if (audio_tx) {
-		free_audio_transcoder(audio_tx);
+		lws_hls_audio_tx_free(audio_tx);
 	}
+	hls_ashadow_close(&ash);
 	for (int j = 0; j < audio_buffer_count; j++) {
 		av_packet_unref(&audio_buffer[j]);
 	}

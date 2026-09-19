@@ -389,6 +389,8 @@ hls_index_sweep_sul(lws_sorted_usec_list_t *sul)
 				struct per_vhost_data__lws_hls, sul_sweep);
 
 	lws_hls_index_sweep(vhd);
+	/* the audio shadows hang off the same sul: see hls-atrans.c */
+	lws_hls_atrans_sweep(vhd);
 	lws_sul_schedule(vhd->context, 0, &vhd->sul_sweep, hls_index_sweep_sul,
 			 HLS_INDEX_SWEEP_US);
 }
@@ -397,6 +399,7 @@ void
 lws_hls_index_sweep_start(struct per_vhost_data__lws_hls *vhd)
 {
 	lws_hls_index_sweep(vhd);
+	lws_hls_atrans_sweep(vhd);
 	lws_sul_schedule(vhd->context, 0, &vhd->sul_sweep, hls_index_sweep_sul,
 			 HLS_INDEX_SWEEP_US);
 }
@@ -758,7 +761,7 @@ int
 lws_hls_index_status(struct per_vhost_data__lws_hls *vhd, const char *filename,
 		     char *json, size_t len)
 {
-	int ready = 0, running = 0, failed = 0, pct = 0, found = 0;
+	int ready = 0, running = 0, failed = 0, pct = 0, found = 0, n;
 	struct hls_index_job *j;
 
 	pthread_mutex_lock(&vhd->lock);
@@ -814,8 +817,23 @@ lws_hls_index_status(struct per_vhost_data__lws_hls *vhd, const char *filename,
 		pthread_mutex_unlock(&vhd->lock);
 	}
 
-	return lws_snprintf(json, len, "{\"ready\":%s,\"running\":%s,"
-				       "\"failed\":%s,\"progress\":%d}",
-			    ready ? "true" : "false", running ? "true" : "false",
-			    failed ? "true" : "false", pct);
+	n = lws_snprintf(json, len, "{\"ready\":%s,\"running\":%s,"
+				     "\"failed\":%s,\"progress\":%d",
+			 ready ? "true" : "false", running ? "true" : "false",
+			 failed ? "true" : "false", pct);
+	if (n < 0 || (size_t)n >= len)
+		return n < 0 ? n : (int)len - 1;
+
+	/* the shadow transcode half, when this file's audio needs it */
+	{
+		int m = lws_hls_atrans_status_json(vhd, filename, json + n,
+						   len - (size_t)n);
+
+		if (m > 0)
+			n += m;
+	}
+	if ((size_t)n < len)
+		n += lws_snprintf(json + n, len - (size_t)n, "}");
+
+	return n;
 }

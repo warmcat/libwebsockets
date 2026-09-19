@@ -32,6 +32,7 @@ if (requirements)
 		set(PLUGIN_NAME "protocol_lws_hls")
 		set(PLUGIN_SRCS
 			protocol_lws_hls.c
+			hls-atrans.c
 			hls-av.c
 			hls-dir.c
 			hls-index.c

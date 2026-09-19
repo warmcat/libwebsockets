@@ -42,8 +42,10 @@ hls_delete_media(struct per_vhost_data__lws_hls *vhd, char *filename)
 
 	lws_snprintf(path, sizeof(path), "%s/%s", vhd->media_dir, filename);
 
-	/* whatever happens to the media, its index is no use any more */
+	/* whatever happens to the media, its index and audio shadows are
+	 * no use any more */
 	lws_hls_index_unlink(vhd->media_dir, filename);
+	lws_hls_atrans_unlink(vhd->media_dir, filename);
 
 	lwsl_notice("%s: deleting media %s\n", __func__, path);
 	if (unlink(path)) {
@@ -538,6 +540,19 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			pthread_join(vhd->worker_thread, NULL);
 			return 1;
 		}
+		pthread_cond_init(&vhd->atrans_cond, NULL);
+		if (pthread_create(&vhd->atrans_thread, NULL,
+				   lws_hls_atrans_thread, vhd)) {
+			lwsl_err("Failed to create atrans thread\n");
+			pthread_mutex_lock(&vhd->lock);
+			vhd->thread_exit = 1;
+			pthread_cond_signal(&vhd->cond);
+			pthread_cond_signal(&vhd->index_cond);
+			pthread_mutex_unlock(&vhd->lock);
+			pthread_join(vhd->worker_thread, NULL);
+			pthread_join(vhd->indexer_thread, NULL);
+			return 1;
+		}
 
 		lws_hls_index_sweep_start(vhd);
 
@@ -562,13 +577,17 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			vhd->running->cancel = 1;
 		pthread_cond_signal(&vhd->cond);
 		pthread_cond_signal(&vhd->index_cond);
+		pthread_cond_signal(&vhd->atrans_cond);
 		pthread_mutex_unlock(&vhd->lock);
 		pthread_join(vhd->worker_thread, NULL);
 		pthread_join(vhd->indexer_thread, NULL);
+		pthread_join(vhd->atrans_thread, NULL);
 		pthread_mutex_destroy(&vhd->lock);
 		pthread_cond_destroy(&vhd->cond);
 		pthread_cond_destroy(&vhd->index_cond);
+		pthread_cond_destroy(&vhd->atrans_cond);
 		lws_hls_indexer_destroy(vhd);
+		lws_hls_atrans_destroy(vhd);
 		
 		/* free cache */
 		while (lws_dll2_get_head(&vhd->thumb_cache)) {
@@ -861,6 +880,7 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			/* our cached index of it goes regardless of who does
 			 * the unlink; the stub child has no cache */
 			lws_hls_index_forget(vhd, filename);
+			lws_hls_atrans_forget(vhd, filename);
 #if defined(LWS_WITH_STUB)
 			if (vhd->stub_mgr) {
 				const char *sec = lws_stub_get_secret(vhd->stub_mgr);

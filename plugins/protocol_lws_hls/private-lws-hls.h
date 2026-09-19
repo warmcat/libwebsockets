@@ -193,6 +193,14 @@ struct hls_task {
 	 * builder produced and parks the task until the indexer is done.
 	 */
 	int parked;
+	/*
+	 * Set by lws_hls_atrans_defer() when the task is parked waiting for
+	 * the shadow transcode of stream atrans_audio_idx to cover
+	 * atrans_need_us of the timeline.  -1 when the task is not parked
+	 * behind an audio transcode.
+	 */
+	int atrans_audio_idx;
+	int64_t atrans_need_us;
 
 	struct hls_result r;
 };
@@ -207,6 +215,25 @@ struct hls_index_job {
 	lws_dll2_t list;
 	char filename[256];
 	volatile int pct;	/* scan progress, for the status endpoint */
+	int failed;
+	lws_usec_t finished;
+};
+
+/*
+ * One shadow transcode of (media file, audio stream) on the atrans thread.
+ * Lives on vhd->atrans_jobs until it runs, then on vhd->atrans_recent for
+ * a while so the worker knows not to park tasks behind a build that just
+ * failed.  covered_us is how far into the timeline the muxer has flushed:
+ * readers may cut segments from the shadow below it (it trails the muxer's
+ * internal buffering by a safety margin on purpose), INT64_MAX when the
+ * shadow is complete.
+ */
+struct hls_atrans_job {
+	lws_dll2_t list;
+	char filename[256];
+	int audio_idx;
+	volatile int pct;
+	int64_t covered_us;	/* under vhd->lock */
 	int failed;
 	lws_usec_t finished;
 };
@@ -276,8 +303,24 @@ struct per_vhost_data__lws_hls {
 	int cache_count;
 
 	lws_dll2_owner_t index_list;	/* per-file keyframe index cache */
-	lws_sorted_usec_list_t sul_sweep; /* hourly stale-index sweep */
+	lws_sorted_usec_list_t sul_sweep; /* hourly stale-cache sweep */
 	lws_dll2_owner_t pss_list; /* active sessions */
+
+	/*
+	 * audio shadow transcode thread: browsers cannot play every audio
+	 * codec, and transcoding it per-segment restarted the encoder at
+	 * every segment boundary, which duplicated a sliver of audio there
+	 * each time.  Instead the whole audio stream is transcoded once,
+	 * ahead of time, into a "shadow" file under <media-dir>/.atrans, and
+	 * segments are cut from that exactly as they are for passthrough
+	 * audio.  Same shape as the indexer above: lists under vhd->lock,
+	 * atrans_cond signalled with it held.
+	 */
+	pthread_t atrans_thread;
+	pthread_cond_t atrans_cond;
+	lws_dll2_owner_t atrans_jobs;	/* pending builds, FIFO */
+	struct hls_atrans_job *atrans_running;
+	lws_dll2_owner_t atrans_recent;	/* finished builds, see the struct */
 
 	/* WebVTT subtitle cue cache (per media file + track id) */
 	lws_dll2_owner_t sub_cache;	/* decoded cue lists, MRU first */
@@ -620,6 +663,114 @@ void
 lws_hls_index_sweep_start(struct per_vhost_data__lws_hls *vhd);
 void
 lws_hls_index_sweep_stop(struct per_vhost_data__lws_hls *vhd);
+
+/* hls-atrans.c: the pre-transcoded audio shadow cache, see the file comment */
+
+/*
+ * Decoder + AAC encoder + resampler + sample fifo for one audio stream
+ * (defined here: both hls-av.c and hls-atrans.c drive one).
+ */
+struct hls_audio_transcoder {
+	AVCodecContext *dec_ctx;
+	AVCodecContext *enc_ctx;
+	SwrContext *swr_ctx;
+	AVAudioFifo *fifo;
+	int64_t next_pts;
+};
+
+enum hls_atrans_state {
+	HLS_ATRANS_NONE,	/* no shadow: a build has been queued */
+	HLS_ATRANS_RUNNING,	/* build in progress, *covered_us so far */
+	HLS_ATRANS_READY,	/* complete shadow on disk */
+	HLS_ATRANS_FAILED,	/* tried recently and failed: use the inline path */
+};
+
+/*
+ * Worker: is there a usable shadow for (filename, audio_idx)?  Asking is
+ * what queues the build.  *covered_us gets the covered timeline (us from
+ * the media start; INT64_MAX when complete) for RUNNING, untouched
+ * otherwise.
+ */
+enum hls_atrans_state
+lws_hls_atrans_lookup(struct per_vhost_data__lws_hls *vhd, const char *filename,
+		      int audio_idx, int64_t *covered_us);
+
+/* the shadow media path for (filename, audio_idx), for the worker to open */
+void
+lws_hls_atrans_path(struct per_vhost_data__lws_hls *vhd, const char *filename,
+		     int audio_idx, char *buf, size_t len);
+
+/*
+ * Worker, from the segment builder when the shadow does not cover what the
+ * segment needs: park vhd->running until it does.  Returns 1 if the task
+ * was parked (the caller unwinds as if cancelled, like the index defer),
+ * 0 if it should not wait behind this build (it failed recently).
+ */
+int
+lws_hls_atrans_defer(struct per_vhost_data__lws_hls *vhd, const char *filename,
+		     int audio_idx, int64_t need_us, volatile int *cancel);
+
+/* the atrans thread; started and joined beside the worker and indexer */
+void *
+lws_hls_atrans_thread(void *d);
+
+/* after the join: free jobs and recent results */
+void
+lws_hls_atrans_destroy(struct per_vhost_data__lws_hls *vhd);
+
+/* the media file is going: drop its shadow jobs, and its shadow files */
+void
+lws_hls_atrans_forget(struct per_vhost_data__lws_hls *vhd, const char *filename);
+void
+lws_hls_atrans_unlink(const char *media_dir, const char *filename);
+
+/* remove shadows whose media is gone or changed, and enforce the size cap:
+ * called beside the index sweep */
+void
+lws_hls_atrans_sweep(struct per_vhost_data__lws_hls *vhd);
+
+/* event loop: the atrans fields for the /index/<file> status JSON */
+int
+lws_hls_atrans_status_json(struct per_vhost_data__lws_hls *vhd,
+			   const char *filename, char *buf, size_t len);
+
+/*
+ * hls-av.c: the audio transcoder the shadow builder and the (fallback)
+ * per-segment path share.  Creates decoder + AAC encoder + resampler +
+ * sample fifo for input stream audio_idx of in_ctx.
+ */
+struct hls_audio_transcoder *
+lws_hls_audio_tx_create(AVFormatContext *in_ctx, int audio_idx);
+void
+lws_hls_audio_tx_free(struct hls_audio_transcoder *tx);
+
+/* does this codec need transcoding for browser playback? */
+int
+lws_hls_needs_audio_transcode(enum AVCodecID codec_id);
+
+/*
+ * Feed one input packet; encoded AAC packets (in the out stream's
+ * timebase, starting from the input packet's pts) go to out_ctx.  The
+ * tracking out-params may be NULL when the caller has no use for them.
+ * Returns 0, or -1 if the muxer refused an encoded packet.
+ */
+int
+lws_hls_audio_tx_packet(AVFormatContext *in_ctx, AVFormatContext *out_ctx,
+			struct hls_audio_transcoder *tx, AVPacket *pkt,
+			int out_stream_idx, int64_t shift_offset_out_audio,
+			int64_t *first_audio_pts, int64_t *first_audio_dts,
+			int64_t *last_audio_pts, int64_t *last_audio_dts,
+			int *audio_packets_written, int64_t *last_dts,
+			int segment_idx);
+
+/* drain decoder, encoder and fifo (padding the last frame with silence) */
+void
+lws_hls_audio_tx_flush(AVFormatContext *out_ctx,
+		       struct hls_audio_transcoder *tx, int out_stream_idx,
+		       int64_t *first_audio_pts, int64_t *first_audio_dts,
+		       int64_t *last_audio_pts, int64_t *last_audio_dts,
+		       int *audio_packets_written, int64_t *last_dts,
+		       int segment_idx);
 
 /* hls-sub.c */
 

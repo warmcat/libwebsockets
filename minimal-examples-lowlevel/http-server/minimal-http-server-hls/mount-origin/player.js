@@ -556,6 +556,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 maxBufferHole: 0.5,
                 startPosition: startPos,
                 nudgeMaxRetry: 5,
+                // A first play of audio the browser cannot play waits for
+                // the server to pre-transcode it into its shadow file; the
+                // server parks our segment request until the part we are
+                // playing exists, which can take a while for a far seek
+                // while the transcode is still catching up
+                fragLoadingTimeOut: 120000,
                 // Hand subtitle tracks to the <video>'s native TextTracks so
                 // the browser renders cues with its default styling. (This is
                 // hls.js's default in 1.5.8; set explicitly for clarity.)

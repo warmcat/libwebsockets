@@ -10,6 +10,7 @@
 #define LWS_PLUGIN_STATIC
 
 #include "../protocol_lws_hls.c"
+#include "../hls-atrans.c"
 #include "../hls-av.c"
 #include "../hls-dir.c"
 #include "../hls-index.c"
