@@ -130,7 +130,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         /* ?t= is the file's mtime in seconds, from the listing */
-        fileDate = (parseInt(t, 10) || 0) * 1000;
+        fileDate = (Number.parseInt(t, 10) || 0) * 1000;
 
         getHash(v + '_' + t).then(function(hk) {
             var saved, parsed;
