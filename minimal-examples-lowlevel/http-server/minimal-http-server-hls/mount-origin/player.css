@@ -39,19 +39,78 @@ video {
     pointer-events: none;
 }
 
-/* Subtitle cue rendering. Cues arrive via the native <track> element that
- * hls.js creates (renderTextTracksNatively). This is only a fallback style:
- * player.js injects a dynamic <style> rule that sizes the cue font in real px
- * computed from the video's rendered height (so it tracks the actual video
- * size — small in the inline frame, proportional in fullscreen — instead of
- * the unreliable :fullscreen / vh approaches). The cue vertical position
- * (VTTCue.line) is likewise geometry-driven in player.js. */
-video::cue {
-    font-size: 18px;
+/* Subtitle cue overlay. hls.js parses the WebVTT segments into native
+ * TextTracks which are held at mode "hidden" (hls.subtitleDisplay = false);
+ * player.js renders the active cues here. The browser's own cue rendering
+ * is not used because Chromium and Firefox resolve ::cue styling once, at
+ * the first displayed cue over MSE video, and never re-resolve it, so a
+ * ::cue font can't track the video geometry (small window vs fullscreen).
+ * --cue-fs is set by player.js from the video's rendered height. */
+.cue-display {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 7%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25em;
+    pointer-events: none;
+    font-size: var(--cue-fs, 18px);
     line-height: 1.25;
-    background: rgba(0, 0, 0, 0.72);
     color: #ffffff;
+}
+/* one box per cue: the dark background is only as wide as the cue text,
+ * not the frame */
+.cue-box {
+    max-width: 80%;
+    background: rgba(0, 0, 0, 0.72);
+    border-radius: 0.2em;
+    padding: 0.1em 0.35em;
     white-space: pre-wrap;
+    text-align: center;
+}
+
+/* Fullscreen is taken on the stage (video + cue overlay together) so the
+ * rendered cues ride along at frame-relative size. */
+.player-container:fullscreen {
+    max-width: none;
+    width: 100%;
+    height: 100%;
+    margin-top: 0;
+    border-radius: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.player-container:-webkit-full-screen {
+    max-width: none;
+    width: 100%;
+    height: 100%;
+    margin-top: 0;
+    border-radius: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.player-container:fullscreen video,
+.player-container:-webkit-full-screen video {
+    width: auto;
+    height: 100%;
+    max-width: 100%;
+}
+
+/* The native controls' fullscreen button fullscreens the bare <video> and
+ * would leave the cue overlay behind the fullscreen top layer; hide it
+ * where the pseudo-element exists (Chromium, Safari). Firefox exposes no
+ * such pseudo, so there player.js retargets fullscreen at the stage when
+ * the video alone went fullscreen. */
+video::-webkit-media-controls-fullscreen-button {
+    display: none !important;
+}
+
+.danger-btn {
+    background: #cc0000;
 }
 .header {
     width: 100%;
@@ -173,34 +232,3 @@ video::cue {
     line-height: 1.5;
 }
 
-
-/*
- * Subtitle cue overlay: covers the video area inside .player-container,
- * so it resizes with the frame (and enters fullscreen with the container
- * via the fullscreen button, which requests fullscreen on the container
- * rather than the bare <video> exactly so this overlay comes along).
- */
-.cue-overlay {
-    position: absolute;
-    left: 8%;
-    right: 8%;
-    text-align: center;
-    line-height: 1.25;
-    background: rgba(0, 0, 0, 0.72);
-    color: #fff;
-    white-space: pre-wrap;
-    pointer-events: none;
-    z-index: 3;
-}
-
-.player-container:fullscreen {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #000;
-}
-
-.player-container:fullscreen video {
-    max-width: 100%;
-    max-height: 100%;
-}

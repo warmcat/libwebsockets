@@ -132,32 +132,6 @@ document.addEventListener('DOMContentLoaded', function() {
         filenameContainer.textContent = friendlyName(videoSrc || rawSrc);
     }
 
-    // Fullscreen on the container (not the bare video): the subtitle cue
-    // overlay lives in the container, so it must be in the fullscreen layer
-    var fsBtn = document.getElementById('fullscreen-btn');
-    if (fsBtn) {
-        fsBtn.addEventListener('click', function() {
-            var pc = document.querySelector('.player-container');
-            if (!pc) return;
-            if (document.fullscreenElement)
-                document.exitFullscreen().catch(function() {});
-            else
-                (pc.requestFullscreen || function() {}).call(pc)
-                        .catch && pc.requestFullscreen().catch(function() {});
-        });
-        document.addEventListener('fullscreenchange', function() {
-            fsBtn.classList.toggle('active',
-                                   !!document.fullscreenElement);
-            applyCueMetricsWhenReady();
-        });
-    }
-    function applyCueMetricsWhenReady() {
-        setTimeout(function() {
-            if (typeof applyCueMetrics === 'function')
-                applyCueMetrics();
-        }, 120);
-    }
-
     // Toggle debug logs panel visibility
     var toggleBtn = document.getElementById('toggle-logs-btn');
     var debugPanel = document.getElementById('debug-panel');
@@ -525,6 +499,161 @@ document.addEventListener('DOMContentLoaded', function() {
         // native HLS toggles textTracks[i].mode).
         var subOnOff = function() {};
 
+        // ---- subtitle cue overlay + fullscreen ----
+        //
+        // Why render cues ourselves at all? Both Chromium and Firefox, once
+        // a cue has been displayed on an MSE-backed <video>, never
+        // re-resolve ::cue styling: no stylesheet / CSSOM / track / cue
+        // manipulation afterwards makes the rendered cue font change. A
+        // ::cue-sized font therefore bakes at whatever geometry held when
+        // the first cue appeared and stays that size in fullscreen. So
+        // hls.js still parses cues into native TextTracks (held "hidden"
+        // via subtitleDisplay:false above), and the active cues are
+        // rendered into this overlay, whose font-size tracks the video's
+        // rendered height live.
+        var cueDisplay = document.getElementById('cue-display');
+        var stage = document.querySelector('.player-container');
+        var lastCueKey = null;
+
+        function renderCueOverlay() {
+            if (!cueDisplay) return;
+            var texts = [];
+            var tts = video.textTracks;
+            for (var i = 0; i < tts.length; i++) {
+                var t = tts[i];
+                /* only "hidden" tracks: that's the mode we hold the
+                 * selected track at. "showing" means the engine is doing
+                 * the rendering itself (the Safari branch, or the native
+                 * fullscreen fallback below) and must not be doubled */
+                if (t.mode !== 'hidden' || !t.activeCues) continue;
+                for (var j = 0; j < t.activeCues.length; j++) {
+                    var txt = t.activeCues[j].text;
+                    if (txt) texts.push(txt);
+                }
+            }
+            var key = texts.join('\u0001');
+            if (key === lastCueKey) return;
+            lastCueKey = key;
+            while (cueDisplay.firstChild)
+                cueDisplay.removeChild(cueDisplay.firstChild);
+            for (var k = 0; k < texts.length; k++) {
+                var box = document.createElement('div');
+                box.className = 'cue-box';
+                /* textContent, never innerHTML: cue text is untrusted
+                 * media-derived data that may contain markup-looking
+                 * content, and inline event handlers would violate the
+                 * CSP anyway */
+                box.textContent = texts[k];
+                cueDisplay.appendChild(box);
+            }
+        }
+
+        /* cuechange covers transitions while playing; timeupdate + the
+         * others cover mode flips (which fire no event of their own),
+         * seeks and pause */
+        video.addEventListener('timeupdate', renderCueOverlay);
+        video.addEventListener('seeked', renderCueOverlay);
+        video.addEventListener('play', renderCueOverlay);
+        video.addEventListener('pause', renderCueOverlay);
+        (function () {
+            var tts = video.textTracks;
+            if (!tts) return;
+            tts.addEventListener('addtrack', function (e) {
+                if (e.track)
+                    e.track.addEventListener('cuechange', renderCueOverlay);
+                renderCueOverlay();
+            });
+            /* mode flips ("hidden" once a subtitle track is selected) fire
+             * "change" on the list and no event on the track itself */
+            tts.addEventListener('change', renderCueOverlay);
+            for (var i = 0; i < tts.length; i++)
+                tts[i].addEventListener('cuechange', renderCueOverlay);
+        })();
+
+        function applyCueMetrics() {
+            if (!cueDisplay) return;
+            var rect = video.getBoundingClientRect();
+            var vhgt = rect.height || 0;
+            if (vhgt <= 0) return;
+            var fs = Math.max(12, Math.round(vhgt * 0.045));
+            cueDisplay.style.setProperty('--cue-fs', fs + 'px');
+        }
+        /* layout settles late (fullscreen esp.): several passes */
+        function applyCueMetricsSettling(passes) {
+            var n = passes || 6;
+            var step = function () {
+                applyCueMetrics();
+                if (--n > 0)
+                    requestAnimationFrame(step);
+            };
+            requestAnimationFrame(step);
+        }
+        if (window.ResizeObserver) {
+            var ro = new ResizeObserver(function () { applyCueMetrics(); });
+            ro.observe(video);
+        }
+        window.addEventListener('resize', applyCueMetrics);
+        window.addEventListener('orientationchange', applyCueMetrics);
+        video.addEventListener('loadedmetadata', applyCueMetrics);
+        setTimeout(applyCueMetrics, 500);
+        setTimeout(applyCueMetrics, 2000);
+
+        var fsBtn = document.getElementById('fs-btn');
+        function stageFullscreen(on) {
+            if (on) {
+                if (stage.requestFullscreen)
+                    stage.requestFullscreen().catch(function () {});
+                else if (stage.webkitRequestFullscreen)
+                    stage.webkitRequestFullscreen();
+            } else {
+                if (document.exitFullscreen)
+                    document.exitFullscreen().catch(function () {});
+                else if (document.webkitExitFullscreen)
+                    document.webkitExitFullscreen();
+            }
+        }
+        if (fsBtn)
+            fsBtn.addEventListener('click', function () {
+                var el = document.fullscreenElement ||
+                         document.webkitFullscreenElement;
+                stageFullscreen(!el);
+            });
+
+        var nativeFsFallback = false;
+        function setNativeFsFallback(on) {
+            /* give the cues back to the engine's native rendering for a
+             * fullscreen session we can't retarget: flip the hidden track
+             * to "showing" (it renders at whatever size the engine baked
+             * in, but at least it is visible), then back after */
+            nativeFsFallback = on;
+            var tts = video.textTracks;
+            for (var i = 0; i < tts.length; i++)
+                if (tts[i].cues)
+                    tts[i].mode = on ? 'showing' : 'hidden';
+        }
+        function fullscreenChanged() {
+            applyCueMetricsSettling();
+            var fsEl = document.fullscreenElement;
+            if (fsEl === video) {
+                /* the native controls' fullscreen button fullscreens the
+                 * bare <video>, which leaves this overlay (a stage child)
+                 * behind the fullscreen top layer. While the click's
+                 * transient activation is still live, retarget fullscreen
+                 * at the stage so the cues come along; if that is refused,
+                 * fall back to native cue rendering for this session */
+                Promise.resolve()
+                    .then(function () { return document.exitFullscreen(); })
+                    .then(function () { return stage.requestFullscreen(); })
+                    .catch(function () { setNativeFsFallback(true); });
+            } else if (!fsEl && nativeFsFallback) {
+                setNativeFsFallback(false);
+            }
+        }
+        document.addEventListener('fullscreenchange', fullscreenChanged);
+        document.addEventListener('webkitfullscreenchange', function () {
+            applyCueMetricsSettling();
+        });
+
         // ---- audio track UI ----
         // Only shown when the server advertised more than one audio
         // rendition (the master playlist then carries a video-only variant
@@ -605,16 +734,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 // playing exists, which can take a while for a far seek
                 // while the transcode is still catching up
                 fragLoadingTimeOut: 120000,
-                // Subtitle cues are rendered by our own overlay: the native
-                // ::cue route sizes cues with the UA default in browsers
-                // that ignore ::cue font-size (Firefox) or misplace it in
-                // fullscreen, and offers no control over the frame-relative
-                // sizing we want. hls.js still maintains the track and its
-                // cues; subtitleDisplay:false keeps the native track hidden
-                // so only our overlay shows anything.
+                // Hand subtitle tracks to the <video>'s native TextTracks
+                // (hls.js's default in 1.5.8; set explicitly for clarity),
+                // but keep the selected track at mode "hidden": the browser
+                // never displays cues itself, our cue overlay does (see the
+                // cue-display machinery below for why). NB: this build only
+                // honors subtitleDisplay as a live property, not as a
+                // constructor config key.
                 renderTextTracksNatively: true,
-                subtitleDisplay: false,
             });
+            hls.subtitleDisplay = false;
             hls.loadSource(videoSrc);
             hls.attachMedia(video);
             
@@ -839,8 +968,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (ncues > MAXDUMP)
                     logMsg('  ...(' + (ncues - MAXDUMP) + ' more cue(s) not shown)');
 
-                // the overlay sizes itself from the video geometry on
-                // resize/fullscreen; nothing to apply per cue batch
+                // Position cues: snapToLines=false makes .line a percentage
+                // (0=top, 100=bottom). cueLineForView() is geometry-driven
+                // (lifts ~1 line when the video is near-fullscreen) so cues
+                // clear tablet bottom-bezel camera cutouts and aren't clipped.
+                var line = cueLineForView();
+                for (var k = 0; k < ncues; k++) {
+                    try {
+                        cues[k].snapToLines = false;
+                        cues[k].line = line;
+                    } catch (e) { /* VTTCue props may be read-only in some impls */ }
+                }
+                // make sure the font size custom property is current too
+                applyCueMetrics();
             });
 
             // A subtitle fragment was processed. Useful to confirm the VTT
@@ -887,85 +1027,70 @@ document.addEventListener('DOMContentLoaded', function() {
                                idx + ' (readback ' + rb + '): it may have ' +
                                'deduped the playlist; check SUBTITLE_TRACKS_' +
                                'UPDATED count above vs number of tracks');
+                    ensureSubTrackHiddenRetry();
                     // After giving hls.js a moment to create the native
                     // TextTrack + load the first fragment, dump its state so
                     // we can see whether cues actually made it to the element
-                    // that the browser renders from.
+                    // that the overlay renders from.
                     [250, 1500, 4000].forEach(function(ms) {
                         setTimeout(dumpNativeTextTracks, ms);
                     });
                 }
             };
 
-            // ---- cue rendering: our own overlay over the video ----
-            //
-            // Native ::cue rendering is not stylable in every browser
-            // (Firefox ignores ::cue font-size) and mis-sizes in fullscreen;
-            // instead a div overlay carries the current cue(s) and is sized
-            // from the video's actual rendered box (ResizeObserver + window
-            // resize/orientationchange): ~4.5% of the video height, lifted
-            // further from the bottom on tall frames to clear tablet
-            // front-camera cutouts in the bottom bezel.
-            var cueOverlay = document.createElement('div');
-            cueOverlay.className = 'cue-overlay';
-            cueOverlay.setAttribute('aria-live', 'polite');
-            (document.querySelector('.player-container') || document.body)
-                    .appendChild(cueOverlay);
-            function setCueFontSize(px) {
-                cueOverlay.style.fontSize = px + 'px';
+            /* hls.js 1.5.8 applies the "hidden" mode (subtitleDisplay:false)
+             * in toggleTrackModes(), but that runs before the native
+             * TextTrack for the rendition exists — the track is only created
+             * when the subtitle playlist loads — so the flip is lost and the
+             * track stays "disabled", where its cues are not even exposed.
+             * Complete the flip ourselves once the track is there. Only the
+             * track matching the selected rendition (label + language) is
+             * touched, so same-language selections stay unambiguous. */
+            function ensureSubTrackHidden() {
+                var idx = hls.subtitleTrack;
+                if (idx < 0 || !hls.subtitleTracks || !hls.subtitleTracks.length)
+                    return false;
+                var want = hls.subtitleTracks[idx] || {};
+                var wl = (want.lang || '').toLowerCase().split('-')[0];
+                var tts = video.textTracks;
+                for (var i = 0; i < tts.length; i++) {
+                    var t = tts[i];
+                    if (t.kind !== 'subtitles' && t.kind !== 'captions')
+                        continue;
+                    var tl = (t.language || '').toLowerCase().split('-')[0];
+                    if (want.name ? (t.label === want.name && tl === wl)
+                                   : (tl === wl)) {
+                        if (t.mode === 'disabled')
+                            t.mode = 'hidden';
+                        return true;
+                    }
+                }
+                return false;
             }
-            setCueFontSize(18); /* sensible default until first metrics pass */
-            function applyCueMetrics() {
-                var rect = video.getBoundingClientRect();
-                var vhgt = rect.height || 0;
-                if (vhgt <= 0) return;
-                var fs = Math.max(12, Math.round(vhgt * 0.045));
-                setCueFontSize(fs);
-                var box = cueOverlay.parentElement.getBoundingClientRect();
-                /* cue strip height ~2.5 lines; keep clear of the bottom */
-                cueOverlay.style.bottom =
-                    Math.max(8, Math.round((box.height - rect.bottom +
-                                            rect.height * 0.10))) + 'px';
-            }
-            /* the cue text comes from whichever sub track hls.js has put
-             * the cues in (subtitleDisplay keeps it hidden natively) */
-            function watchCueTrack(tt) {
-                tt.addEventListener('cuechange', function() {
-                    var out = '';
-                    if (tt.activeCues)
-                        for (var i = 0; i < tt.activeCues.length; i++)
-                            out += (out ? '\n' : '') +
-                                   (tt.activeCues[i].text || '');
-                    cueOverlay.textContent = out;
+            function ensureSubTrackHiddenRetry() {
+                [0, 250, 1000, 2500].forEach(function(ms) {
+                    setTimeout(function () {
+                        if (hls.subtitleTrack >= 0)
+                            ensureSubTrackHidden();
+                    }, ms);
                 });
             }
-            for (var wi = 0; wi < video.textTracks.length; wi++)
-                watchCueTrack(video.textTracks[wi]);
-            /* tracks appear once hls.js knows them */
-            if (window.TextTrackList)
-                video.textTracks.addEventListener &&
-                    video.textTracks.addEventListener('addtrack', function(e) {
-                        if (e.track)
-                            watchCueTrack(e.track);
-                    });
-            if (window.ResizeObserver) {
-                var ro = new ResizeObserver(function () { applyCueMetrics(); });
-                ro.observe(video);
-            }
-            window.addEventListener('resize', applyCueMetrics);
-            window.addEventListener('orientationchange', applyCueMetrics);
-            video.addEventListener('loadedmetadata', applyCueMetrics);
-            // re-run shortly after load too, once layout has settled
-            setTimeout(applyCueMetrics, 500);
-            setTimeout(applyCueMetrics, 2000);
+
+            // ---- cue sizing + positioning ----
+            //
+            // handled by the shared cue-overlay machinery above the
+            // branch code: applyCueMetrics() there sizes the overlay font
+            // from this video's rendered box and the fullscreen logic
+            // keeps the overlay with the video.
 
             // Pure diagnostic: log each native video.textTracks entry (the
-            // rendering surface when renderTextTracksNatively is true) — its
-            // mode, cue count, first/last cue times, and first cue text. We do
-            // NOT mutate track modes here: with renderTextTracksNatively true,
-            // hls.js owns the native track modes, and forcing them ourselves
-            // (a previous version did) breaks selection when multiple tracks
-            // share the same language (it would activate all of them).
+            // cue source the overlay renders from) — its mode, cue count,
+            // first/last cue times, and first cue text. We do NOT mutate
+            // track modes here: hls.js owns the native track modes (the
+            // selected one is held "hidden" for the overlay), and forcing
+            // them ourselves (a previous version did) breaks selection
+            // when multiple tracks share the same language (it would
+            // activate all of them).
             function dumpNativeTextTracks() {
                 var tts = video.textTracks;
                 if (!tts || !tts.length) {

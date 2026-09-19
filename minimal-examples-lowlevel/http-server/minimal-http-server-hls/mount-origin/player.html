@@ -21,17 +21,18 @@
 
     <div class="player-container">
         <video id="video" controls></video>
+        <div id="cue-display" class="cue-display"></div>
     </div>
 
     <div class="button-container">
         <div class="button-group">
-            <button id="fullscreen-btn" class="toggle-btn" title="Toggle fullscreen">&#x26F6; fullscreen</button>
             <button id="toggle-logs-btn" class="toggle-btn">logs</button>
+            <button id="fs-btn" class="toggle-btn" title="Fullscreen">&#x26F6;</button>
             <select id="aud-lang" class="toggle-btn hidden" title="Audio language"></select>
             <select id="sub-lang" class="toggle-btn hidden" title="Subtitle language"></select>
             <button id="cc-btn" class="toggle-btn hidden" title="Toggle subtitles">CC</button>
         </div>
-        <button id="delete-btn" class="toggle-btn hidden" style="background: #cc0000;">&#x1F5D1; delete</button>
+        <button id="delete-btn" class="toggle-btn danger-btn hidden">&#x1F5D1; delete</button>
     </div>
 
     <div id="debug-panel" class="debug-panel hidden">
