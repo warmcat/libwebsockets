@@ -2667,7 +2667,22 @@ lws_hls_build_segment(struct per_vhost_data__lws_hls *vhd,
 						lwsl_info("HLS: Segment %d reached next video keyframe at pkt_time=%.3fs (pts=%lld, dts=%lld). Video finished.\n",
 							  segment_idx, (double)pkt_time / AV_TIME_BASE, (long long)pkt.pts, (long long)pkt.dts);
 						video_finished = 1;
-						end_time = av_rescale_q(pkt.pts, in_stream->time_base, AV_TIME_BASE_Q); /* Extend or shrink end_time to match ACTUAL video end (PTS) */
+						/*
+						 * The next segment seeks onto this same
+						 * keyframe and takes audio from its DTS
+						 * (actual_start_pts, below).  This segment
+						 * must stop audio at that same DTS: with
+						 * B-frame reordering the keyframe's PTS is
+						 * a couple of frames later than its DTS,
+						 * and cutting the tail at the PTS wrote
+						 * those frames of audio into both
+						 * segments.  The player then hears a short
+						 * repeated sliver of audio at every
+						 * segment boundary, and the duplicate
+						 * content makes the audio track drift
+						 * later and later against the video.
+						 */
+						end_time = av_rescale_q(pkt.dts, in_stream->time_base, AV_TIME_BASE_Q);
 						av_packet_unref(&pkt);
 						continue;
 					}
