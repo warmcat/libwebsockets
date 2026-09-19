@@ -289,7 +289,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                     polls++;
                     var pct = (typeof st.progress === 'number') ? st.progress : 0;
-                    var msg = 'Indexing ' + name + (st.running ? ' \u2014 ' + pct + '%' : ' \u2014 waiting for indexer');
+                    /* the overlay talks to the viewer: friendly name */
+                    var msg = 'Indexing ' + friendlyName(name) +
+                              (st.running ? ' \u2014 ' + pct + '%' : ' \u2014 waiting for indexer');
                     show(msg);
                     if (polls === 1 || polls % 15 === 0)
                         logMsg('index: not ready, ' + msg);
