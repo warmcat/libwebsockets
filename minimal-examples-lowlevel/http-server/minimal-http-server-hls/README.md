@@ -95,22 +95,23 @@ part of it.  Each removal is logged.
 ## Delete permission
 
 The delete buttons (listing and player page) and the delete endpoint need
-the logged-in user to hold the `grant` pvo's grant (default: service-name,
-"hls"), or the `"*"` wildcard grant, at **level 2 or more** — `media:2` or
-`*:2` may delete, `media:1` or `*:1` may browse and play but see no delete
-buttons, and the backend refuses their deletes the same way.  With an
-in-process or forwarded lws-login bouncer instead, the app-admin login
-state applies.  The player page asks the server's own decision in its
-index-status poll, so what it shows always matches what the backend will
-honour.  Example:
-
-```json
-          "lws-hls": {
-            "status": "ok",
-            "media-dir": "/path/to/your/media",
-            "grant": "media"
-          }
-```
+a login grant level of **2 or more**.  The grant name, login validation
+and grant matching are entirely the lws-login bouncer's business: gate the
+mount with an lws-login interceptor carrying its `service-name` (eg
+`/lws-login-media` with `service-name: media`), and the bouncer stamps the
+cooked level on the request as `x-lws-login-grant-level` — the named
+grant's level, or the `"*"` wildcard's when there is none, so `media:2`
+and `*:2` arrive as 2 while `*:1` arrives as 1.  The app knows no grant
+names, only the threshold; `media:2` and `*:2` may delete, `media:1`,
+`*:1` and anonymous users browse and play but see no delete buttons, and
+the backend refuses their deletes the same way.  On a vhost behind the
+bouncer's proxy, set `trust-login-headers` so the forwarded header is
+honoured (the bouncer snips the browser's own copy, so it is trusted from
+that path); with the bouncer in-process no configuration is needed.  The
+jwt-jwk fallback only applies on a vhost with no bouncer at all, and asks
+the same threshold of the service-name grant.  The player page asks the
+server's own decision in its index-status poll, so what it shows always
+matches what the backend will honour.
 
 ## Reverse proxying
 

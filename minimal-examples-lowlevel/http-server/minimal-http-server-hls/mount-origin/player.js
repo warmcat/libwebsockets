@@ -5,11 +5,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     /*
      * The delete button: shown only when the server says this session may
-     * delete media.  It tells us in the index-status poll below ("grant"
-     * pvo or '*' at level >= 2, or the bouncer's admin state -- the
-     * server's own decision, whatever scheme is configured), and it
-     * enforces the same rule on the POST whatever we show.  Until that
-     * answer arrives the button stays hidden.
+     * delete media.  It tells us in the index-status poll below (the
+     * login bouncer's grant level for this app, >= 2: the server's own
+     * decision), and it enforces the same rule on the POST whatever we
+     * show.  Until that answer arrives the button stays hidden.
      */
     var delBtn = document.getElementById('delete-btn');
     var deleteAllowed = false;

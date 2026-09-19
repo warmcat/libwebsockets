@@ -441,27 +441,32 @@ hls_serve_asset(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 
 /*
  * Decide whether the request may delete media (the listing's bin buttons
- * and the /delete/ endpoint).  It is the app-admin decision, and it is
- * taken from, in order:
+ * and the /delete/ endpoint): the logged-in user needs a grant level of 2
+ * or more.
  *
- *  1. the x-lws-login-state an in-process lws-login bouncer stamped on this
- *     wsi.  Only an interceptor can stamp it, so it needs no configuration
- *     to be trusted
+ * The grant name, the login validation and the grant matching are entirely
+ * the bouncer's business: an lws-login mount (eg the /lws-login-media
+ * interceptor with service-name media) has already matched its grant and
+ * stamped the cooked result on the request as x-lws-login-grant-level --
+ * the named grant's level, or the "*" wildcard's when there is no named
+ * one, so media:2 and *:2 arrive as 2 and *:1 as 1.  We know no grant
+ * names, only the threshold:
+ *
+ *  1. the x-lws-login-grant-level an in-process lws-login bouncer stamped
+ *     on this wsi.  Only an interceptor can stamp it, so it needs no
+ *     configuration to be trusted
  *
  *  2. with trust-login-headers=1: the same header as it arrives in the
  *     request, forwarded by an lws reverse proxy whose mount is gated by
- *     lws-login on the box in front of us.  The bouncer removes the
+ *     lws-login on the box in front of us.  The bouncer snips the
  *     browser's own copy before stamping its own, so it is trustworthy
  *     from that path; the operator asserts with the pvo that this vhost
  *     is not reachable any other way (an internal box).  Off by default
  *
  *  3. with jwt-jwk (the auth server's public jwk): the auth_session cookie
- *     itself, needing the "grant" pvo's grant (default: service-name) or
- *     the "*" wildcard grant, at level >= 2.  For a vhost that has the
- *     bouncer neither in-process nor in front of it
- *
- * The state threshold is LWS_LOGIN_STATE_APP_ADMIN: admin of this app,
- * which includes the global admin.
+ *     itself, for the service-name grant at level >= 2.  Only for a vhost
+ *     that has the bouncer neither in-process nor in front of it; a
+ *     deployment with a bouncer never reaches this
  */
 
 /*
@@ -477,27 +482,27 @@ hls_can_delete(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 	char st[16];
 	int n;
 
-	if (lws_http_get_onward_header(wsi, LWS_LOGIN_HDR_STATE, st,
+	if (lws_http_get_onward_header(wsi, LWS_LOGIN_HDR_GRANT_LEVEL, st,
 				       sizeof(st)) > 0) {
 		n = atoi(st);
-		lws_snprintf(why, wl, "in-process login state %d (need >= %d)",
-			     n, LWS_LOGIN_STATE_APP_ADMIN);
-		return n >= LWS_LOGIN_STATE_APP_ADMIN;
+		lws_snprintf(why, wl, "in-process login grant level %d "
+				      "(need >= 2)", n);
+		return n >= 2;
 	}
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 	if (vhd->trust_login_headers) {
 		if (lws_hdr_custom_copy(wsi, st, sizeof(st),
-					LWS_LOGIN_HDR_STATE ":",
-					(int)strlen(LWS_LOGIN_HDR_STATE ":")) > 0) {
+					LWS_LOGIN_HDR_GRANT_LEVEL ":",
+					(int)strlen(LWS_LOGIN_HDR_GRANT_LEVEL ":")) > 0) {
 			n = atoi(st);
 			lws_snprintf(why, wl,
-				     "forwarded login state %d (need >= %d)",
-				     n, LWS_LOGIN_STATE_APP_ADMIN);
-			return n >= LWS_LOGIN_STATE_APP_ADMIN;
+				     "forwarded login grant level %d "
+				     "(need >= 2)", n);
+			return n >= 2;
 		}
 		lwsl_wsi_info(wsi, "trust-login-headers set but no %s header",
-			      LWS_LOGIN_HDR_STATE);
+			      LWS_LOGIN_HDR_GRANT_LEVEL);
 	}
 #else
 	if (vhd->trust_login_headers)
@@ -523,26 +528,20 @@ hls_can_delete(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 			 * but has already expired, leaving the expiry decision
 			 * to us: an expired session cookie grants nothing
 			 */
+			n = lws_jwt_auth_query_grant(ja, vhd->service_name);
 			if (!exp || exp <= (uint64_t)lws_now_secs())
 				lws_snprintf(why, wl, "auth_session jwt expired");
-			else if (lws_jwt_auth_query_grant(ja, "*") >= 2 ||
-				 lws_jwt_auth_query_grant(ja,
-						vhd->grant_name) >= 2) {
-				lws_snprintf(why, wl, "jwt grant '%s' or '*' "
-						   "at level 2",
-					     vhd->grant_name);
+			else if (n >= 2) {
+				/* the named grant, or "*" when there is none */
+				lws_snprintf(why, wl, "jwt grant level %d for "
+						      "'%s'", n,
+					     vhd->service_name);
 				ok = 1;
 			} else
 				lws_snprintf(why, wl,
-					     "jwt needs '%s' (or '*') at level "
-					     "2: has '%s'=%d, '*'=%d",
-					     vhd->grant_name,
-					     vhd->grant_name,
-					     lws_jwt_auth_query_grant(
-							     ja,
-							     vhd->grant_name),
-					     lws_jwt_auth_query_grant(ja,
-								      "*"));
+					     "jwt grant level %d for '%s' "
+					     "(need >= 2)", n,
+					     vhd->service_name);
 
 			lws_jwt_auth_destroy(&ja);
 		}
@@ -550,7 +549,7 @@ hls_can_delete(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 		return ok;
 	}
 
-	lws_snprintf(why, wl, "no login state: not stamped in-process, "
+	lws_snprintf(why, wl, "no login grant level: not stamped in-process, "
 			      "trust-login-headers=%d, jwt-jwk=%d",
 		     vhd->trust_login_headers, vhd->has_jwk);
 
@@ -694,11 +693,6 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->service_name = "hls";
 		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "service-name")))
 			vhd->service_name = pvo->value;
-
-		/* the grant allowing media deletion, "*" or this at level >= 2 */
-		vhd->grant_name = vhd->service_name;
-		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "grant")))
-			vhd->grant_name = pvo->value;
 
 		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "trust-login-headers")))
 			vhd->trust_login_headers = atoi(pvo->value);

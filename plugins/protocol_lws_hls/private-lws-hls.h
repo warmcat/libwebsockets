@@ -375,14 +375,6 @@ struct per_vhost_data__lws_hls {
 	struct hls_atrans_job *atrans_running;
 	lws_dll2_owner_t atrans_recent;	/* finished builds, see the struct */
 
-	/*
-	 * Name of the grant that allows deleting media, as a pvo: the
-	 * logged-in user needs this grant (or "*") at level >= 2 for the
-	 * delete buttons and for the backend to honour a delete.  Defaults
-	 * to service-name.
-	 */
-	const char *grant_name;
-
 	/* WebVTT subtitle cue cache (per media file + track id) */
 	lws_dll2_owner_t sub_cache;	/* decoded cue lists, MRU first */
 	int sub_cache_count;
