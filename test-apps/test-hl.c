@@ -504,7 +504,7 @@ run_goldens(const struct golden *gtab, size_t gcount,
 		 */
 
 		for (m = 0; m < 8; m++) {
-			size_t budget = 1u << m;
+			size_t budget = (size_t)1 << m;
 
 			ret = run_deferred(ops, (const uint8_t *)g->in,
 					   strlen(g->in), budget, cap);
