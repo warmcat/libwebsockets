@@ -25,8 +25,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!confirm("Are you sure you want to delete this file?")) return;
             var urlParams = new URLSearchParams(window.location.search);
             var videoSrc = urlParams.get('v');
-            /* only a plain filename under hls/stream/ can be deleted */
-            var pfx = 'hls/stream/';
+            /* only a plain filename under stream/ can be deleted */
+            var pfx = 'stream/';
             if (videoSrc && videoSrc.indexOf(pfx) === 0) {
                 var filename = videoSrc.slice(pfx.length);
 
@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     v.pause();
                 delBtn.disabled = true;
 
-                fetch('hls/delete/' + encodeURIComponent(filename), {
+                fetch('delete/' + encodeURIComponent(filename), {
                     method: 'POST',
                     credentials: 'same-origin'
                 }).then(function(res) {
@@ -56,7 +56,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             t = t.replace(/<h1>.*?<\/h1>/, '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
                             throw new Error('HTTP ' + res.status + (t ? ': ' + t : ''));
                         });
-                    window.location.replace('hls/');
+                    window.location.replace('..');
                 }).catch(function(e) {
                     delBtn.disabled = false;
                     alert('Failed to delete file: ' + e.message);
@@ -132,8 +132,8 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    /* whichever we play, it has to live under the hls/ mount beside this page */
-    if (rawSrc && rawSrc.indexOf('hls/') === 0) {
+    /* whichever we play, it has to live under the stream/ endpoints beside this page */
+    if (rawSrc && rawSrc.indexOf('media/') === 0) {
         // Play directly via HTTP Range requests natively supported by lws
         video.src = rawSrc;
         /* once: a browser that tears down and rebuilds the media pipeline
@@ -149,8 +149,8 @@ document.addEventListener('DOMContentLoaded', function() {
         alert("No video source provided.");
         return;
     }
-    if (videoSrc.indexOf('hls/') !== 0) {
-        alert("Video source must be under hls/.");
+    if (videoSrc.indexOf('stream/') !== 0) {
+        alert("Video source must be under stream/.");
         return;
     }
 
@@ -226,20 +226,20 @@ document.addEventListener('DOMContentLoaded', function() {
      * means reading the whole file: minutes for a 30GB MKV.  hls.js gives
      * a playlist load 10-20s and then abandons that rendition, which left
      * the audio track written off by the time the index existed.  So
-     * before hls.js sees the playlists, ask hls/index/<file> whether the
+     * before hls.js sees the playlists, ask index/<file> whether the
      * index exists (which also queues the build if not) and wait, showing
      * progress over the video area, until it does.  An old server without
      * the endpoint, or a build that failed, just proceeds as before.
      */
     function waitForIndex() {
-        var pfx = 'hls/stream/';
+        var pfx = 'stream/';
         var overlay = null;
 
         if (videoSrc.indexOf(pfx) !== 0)
             return Promise.resolve();
 
         var name = videoSrc.slice(pfx.length);
-        var url = 'hls/index/' + encodeURIComponent(name);
+        var url = 'index/' + encodeURIComponent(name);
 
         function show(text) {
             if (!overlay) {

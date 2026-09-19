@@ -2028,7 +2028,7 @@ lws_hls_build_manifest(struct per_vhost_data__lws_hls *vhd,
 	enum hls_sel_kind kind;
 	int sel_audio;
 	/*
-	 * The muxed playlist lives at /avstream/<file> and references
+	 * The muxed playlist lives at /stream/<file> and references
 	 * ../init/<file>; a rendition playlist lives one level deeper at
 	 * /avstream/<file>/<sel> and references ../../init/<file>/<sel>
 	 */

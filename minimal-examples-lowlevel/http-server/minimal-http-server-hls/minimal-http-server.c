@@ -36,16 +36,6 @@ static struct lws_protocol_vhost_options pvo_media = {
 	NULL, NULL, "media-dir", INSTALL_DATADIR "/libwebsockets-test-server/hls"
 };
 
-/*
- * The plugin is mounted at / and composes the library listing there, while
- * the player page and its assets live under /hls: tell the plugin the
- * relative hop from the listing to them, so every link it composes stays
- * relative (the app must work behind a reverse proxy that mounts it at an
- * unknown point of a public URL space).
- */
-static struct lws_protocol_vhost_options pvo_asset_prefix = {
-	&pvo_media, NULL, "asset-prefix", "hls"
-};
 
 static const struct lws_protocol_vhost_options pvo_csp = {
         NULL, NULL, "content-security-policy:",
@@ -64,25 +54,19 @@ static struct lws_protocol_vhost_options pvo_trust = {
 	NULL, NULL, "trust-login-headers", "1"
 };
 
+/*
+ * The plugin serves the player page and its assets itself from this
+ * directory (its own flat URL space); the default <media-dir>/mount-origin
+ * is right when the installed media dir is used, but an explicit path keeps
+ * it correct across --media-dir overrides.
+ */
+static struct lws_protocol_vhost_options pvo_www = {
+	&pvo_media, NULL, "www-dir",
+	INSTALL_DATADIR "/libwebsockets-test-server/hls/mount-origin"
+};
+
 static struct lws_protocol_vhost_options pvo = {
-	NULL, &pvo_asset_prefix, "lws-hls", ""
-};
-
-static const struct lws_http_mount mount_hls = {
-	.mount_next		= NULL,
-	.mountpoint		= "/hls",		/* mountpoint URL */
-	.origin			= INSTALL_DATADIR "/libwebsockets-test-server/hls/mount-origin",
-	.def			= "index.html",
-	.origin_protocol	= LWSMPRO_FILE,	/* serve from dir */
-	.mountpoint_len		= 4,			/* char count */
-};
-
-static const struct lws_http_mount mount_hls_live = {
-	.mount_next		= &mount_hls,
-	.mountpoint		= "/hls/hls",		/* mountpoint URL */
-	.protocol		= "lws-hls",		/* protocol name */
-	.origin_protocol	= LWSMPRO_CALLBACK,	/* callback */
-	.mountpoint_len		= 8,			/* char count */
+	NULL, &pvo_www, "lws-hls", ""
 };
 
 static const struct lws_protocol_vhost_options pvo_mime_mkv = {
@@ -94,7 +78,7 @@ static const struct lws_protocol_vhost_options pvo_mime_mp4 = {
 };
 
 static struct lws_http_mount mount_raw_media = {
-        .mount_next             = &mount_hls_live,
+        .mount_next             = NULL,
         .mountpoint             = "/media",             /* mountpoint URL */
         .origin                 = NULL,                 /* set at runtime */
         .def                    = "index.html",
@@ -104,10 +88,11 @@ static struct lws_http_mount mount_raw_media = {
 };
 
 /*
- * The toplevel IS the media library: the plugin composes the directory
- * page for "/" (and 404s anything else it does not own).  lws picks the
- * longest matching mountpoint, so /hls (the player and its assets), /hls/hls
- * (the media endpoints) and /media keep working unchanged.
+ * One flat callback mount: the plugin composes the directory page for "/",
+ * serves the player page and its assets beside it (www-dir pvo), and owns
+ * the stream/init/segment/... endpoints -- no separate /hls level, so the
+ * app works unchanged behind a reverse proxy at an arbitrary URL point.
+ * Only /media (the raw media files) is a mount of its own.
  */
 static const struct lws_http_mount mount_root = {
 	.mount_next		= &mount_raw_media,

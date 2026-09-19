@@ -285,6 +285,15 @@ struct per_vhost_data__lws_hls {
 	 */
 	char asset_prefix[64];
 
+	/*
+	 * Directory the player page and its assets are served from, on this
+	 * protocol's own URL space (see hls_serve_asset()): the app is one
+	 * flat mount this way, with the listing, the endpoints and the assets
+	 * all beside each other.  Configured via pvo, defaulting to
+	 * <media-dir>/mount-origin.
+	 */
+	char www_dir[1024];
+
 	/* worker thread: see enum hls_task_type */
 	pthread_t worker_thread;
 	pthread_mutex_t lock;

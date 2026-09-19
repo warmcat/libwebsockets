@@ -1242,8 +1242,8 @@ lws_hls_build_stream(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
 	/* Build a master playlist.
 	 *
 	 * hls.js / Safari resolve relative URIs per RFC 3986 against the
-	 * playlist URL (/hls/hls/stream/<file>), so "../avstream/<file>"
-	 * -> /hls/hls/avstream/<file> and "../subsm/<file>/<id>" likewise.
+	 * playlist URL (/stream/<file>), so "../avstream/<file>"
+	 * -> /avstream/<file> and "../subsm/<file>/<id>" likewise.
 	 *
 	 * With more than one audio track, the variant is video-only and each
 	 * audio track is an alternate rendition with its own audio-only

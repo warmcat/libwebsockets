@@ -16,10 +16,13 @@ This example demonstrates how to use the `protocol_lws_hls` plugin to dynamicall
 [2026/07/08 12:00:00:0000] USER: Media dir: /usr/local/share/libwebsockets-test-server/hls
 ```
 
-Visit http://localhost:7681 for the media library listing: the toplevel is
-the plugin's directory page (the listing can also be reached at /hls/hls/).
-The player page and its assets live under /hls/, the HLS endpoints under
-/hls/hls/, and the raw media files are also served directly under /media/.
+Visit http://localhost:7681 for the media library listing.  The URL space is
+flat and owned by the plugin at /: the listing, the player page and its
+assets (player.html, player.js, hls.min.js, dir.js/css, favicon.ico) all sit
+beside the HLS endpoints (/stream/, /init/, /segment/, /avstream/, /subsm/,
+/subseg/, /preview/, /index/), with the raw media files under /media/ the
+only separate mount.  The plugin serves the player assets itself from
+www-dir, so the whole app is a single mount and every link is relative.
 
 ## Commandline Options
 
@@ -30,7 +33,7 @@ The player page and its assets live under /hls/, the HLS endpoints under
 
 ## Subtitle and audio tracks
 
-`/hls/stream/<file>` is the playlist the player loads.  When the container has
+`/stream/<file>` is the playlist the player loads.  When the container has
 text subtitle streams (or `.srt` / `.vtt` sidecar files named after it), or
 more than one audio stream, it is a master playlist advertising them as
 `#EXT-X-MEDIA` renditions; otherwise it is the plain muxed A/V media playlist.
@@ -58,18 +61,14 @@ If you want to use the HLS plugin with `lwsws` (the LWS JSON-configured web serv
         {
           "lws-hls": {
             "status": "ok",
-            "media-dir": "/path/to/your/media"
+            "media-dir": "/path/to/your/media",
+            "www-dir": "/usr/local/share/libwebsockets-test-server/hls/mount-origin"
           }
         }
       ],
       "mounts": [
         {
-          "mountpoint": "/media",
-          "origin": "file:///usr/local/share/libwebsockets-test-server/hls/mount-origin",
-          "default": "index.html"
-        },
-        {
-          "mountpoint": "/media/hls",
+          "mountpoint": "/",
           "origin": "callback://lws-hls"
         }
       ]
@@ -77,6 +76,10 @@ If you want to use the HLS plugin with `lwsws` (the LWS JSON-configured web serv
   ]
 }
 ```
+
+`www-dir` (default `<media-dir>/mount-origin`) is where the plugin serves
+player.html and its assets from; mounting it at / like this makes the whole
+app one flat mount, with everything referenced by relative paths only.
 
 ## Reverse proxying
 
@@ -86,24 +89,20 @@ so every link the pages and playlists compose is relative to the page it
 appears in: the private server never knows the public URL base, and must
 never emit absolute paths.
 
-`asset-prefix` tells the plugin where the player page and its assets sit
-relative to wherever the plugin's listing is served from, as a relative
-fragment that is prefixed onto the listing's links.  The default `..` is
-right when the static mount is the parent of the callback mount, as in the
-lwsws layout above (`/media` files, `/media/hls` plugin) and in this
-example's own `/hls` + `/hls/hls` shape.  This example instead mounts the
-plugin at `/` with the assets under `hls/`, so it passes:
+With the plugin serving the assets itself, everything the pages reference
+is a same-directory relative path, which is the default and needs no
+configuration.  The `asset-prefix` pvo still exists for deployments that
+serve the player page from their own static mount somewhere else: it is a
+relative fragment prefixed onto the listing's links, and an absolute value
+is refused at init.
 
-```json
-          "lws-hls": {
-            "status": "ok",
-            "media-dir": "/path/to/your/media",
-            "asset-prefix": "hls"
-          }
-```
+Two things to know when proxying at a point of a public URL space:
 
-An absolute `asset-prefix` is refused at init.  Note the login helper
-script reference (`/lws-login-media/lws-login.js`) predates this and is
-still absolute: it is optional and silently skipped when it does not load,
-but if you need it behind a proxy, mount the lws-login media endpoint at
-the public side accordingly.
+ - link to the mount with a trailing slash (https://host/abcde/), since
+   relative paths only stay inside the mount from the "directory" the
+   browser believes the page is in;
+
+ - the login helper script reference (`/lws-login-media/lws-login.js`)
+   predates this and is still absolute: it is optional and silently
+   skipped when it does not load, but if you need it behind a proxy, mount
+   the lws-login media endpoint at the public side accordingly.

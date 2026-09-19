@@ -18,6 +18,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <libgen.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 /*
  * Remove one media file by its plain name, and the container subdir the
@@ -275,6 +277,92 @@ static const struct lws_protocols stub_prots[] = {
 };
 
 /*
+ * The fixed set of player assets this protocol serves itself from www_dir,
+ * beside the listing and the endpoints: with these on board the whole app
+ * is one flat callback mount, which is what keeps it working unchanged
+ * behind a reverse proxy at an arbitrary point of a public URL space.
+ * Names are matched exactly against the whole (relative) url, so nothing
+ * from www_dir is reachable that is not listed here.
+ */
+static const struct hls_asset {
+	const char	*name;
+	const char	*ctype;
+} hls_assets[] = {
+	{ "player.html",	"text/html; charset=utf-8"		},
+	{ "player.js",		"text/javascript; charset=utf-8"	},
+	{ "player.css",		"text/css; charset=utf-8"		},
+	{ "dir.js",		"text/javascript; charset=utf-8"	},
+	{ "dir.css",		"text/css; charset=utf-8"		},
+	{ "hls.min.js",		"text/javascript; charset=utf-8"	},
+	{ "favicon.ico",	"image/x-icon"				},
+};
+
+/*
+ * Serve one of hls_assets[] from vhd->www_dir, through the same response
+ * pump the worker's task bodies use.  Returns 0 if it was handed to the
+ * pump, 1 when the url is not one of ours (or nothing to serve it).
+ */
+static int
+hls_serve_asset(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
+		struct per_session_data__lws_hls *pss, const char *url)
+{
+	char path[sizeof(vhd->www_dir) + 256];
+	struct stat st;
+	uint8_t *buf;
+	size_t len;
+	int fd, i;
+
+	if (url[0] != '/')
+		return 1;
+	url++;		/* the router's urls are mountpoint-relative */
+
+	for (i = 0; i < (int)LWS_ARRAY_SIZE(hls_assets); i++)
+		if (!strcmp(url, hls_assets[i].name))
+			break;
+	if (i == (int)LWS_ARRAY_SIZE(hls_assets))
+		return 1;
+
+	lws_snprintf(path, sizeof(path), "%s/%s", vhd->www_dir,
+		     hls_assets[i].name);
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0)
+		/* not installed there: leave it to whatever follows */
+		return 1;
+	if (fstat(fd, &st) || st.st_size < 0 ||
+	    (size_t)st.st_size > 8 * 1024 * 1024) {
+		close(fd);
+		return 1;
+	}
+	len = (size_t)st.st_size;
+
+	/* the existing body pump delivers from segment_buf + LWS_PRE */
+	buf = malloc(LWS_PRE + len);
+	if (!buf) {
+		close(fd);
+		return 1;
+	}
+	if (read(fd, buf + LWS_PRE, len) != (ssize_t)len) {
+		free(buf);
+		close(fd);
+		return 1;
+	}
+	close(fd);
+
+	free(pss->segment_buf);
+	pss->segment_buf	= buf;
+	pss->segment_len	= len;
+	pss->segment_pos	= 0;
+	pss->resp_status	= HTTP_STATUS_OK;
+	pss->resp_content_type	= hls_assets[i].ctype;
+	pss->resp_ready		= 1;
+
+	lws_callback_on_writable(wsi);
+
+	return 0;
+}
+
+/*
  * Decide whether the request may delete media (the listing's bin buttons
  * and the /delete/ endpoint).  It is the app-admin decision, and it is
  * taken from, in order:
@@ -491,7 +579,13 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		 * whole point is that the app works behind a reverse proxy
 		 * that mounts it at an unknown point of a public URL space.
 		 */
-		lws_strncpy(vhd->asset_prefix, "..", sizeof(vhd->asset_prefix));
+		/*
+		 * The default asset prefix is the same directory: this
+		 * protocol serves the player page and its assets itself from
+		 * www_dir, beside the listing.  A different relative fragment
+		 * suits deployments serving the assets from their own mount.
+		 */
+		lws_strncpy(vhd->asset_prefix, ".", sizeof(vhd->asset_prefix));
 		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "asset-prefix"))) {
 			if (pvo->value[0] == '/' || strchr(pvo->value, ':')) {
 				lwsl_vhost_err(lws_get_vhost(wsi),
@@ -502,6 +596,12 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_strncpy(vhd->asset_prefix, pvo->value,
 					    sizeof(vhd->asset_prefix));
 		}
+
+		lws_snprintf(vhd->www_dir, sizeof(vhd->www_dir), "%s/mount-origin",
+			     vhd->media_dir);
+		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "www-dir")))
+			lws_strncpy(vhd->www_dir, pvo->value,
+				    sizeof(vhd->www_dir));
 
 		/* see hls_can_delete() for what these three do */
 
@@ -689,8 +789,24 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP:
 	{
+		/*
+		 * The url is relative to whatever mountpoint this protocol
+		 * was served from: a mount at /hls/hls hands us
+		 * "/stream/<file>" with its leading slash, a mount at the
+		 * toplevel hands us "stream/<file>" without.  Normalize so
+		 * the routes (and the asset whitelist) always see the slash,
+		 * whatever depth we are mounted at.
+		 */
+		char urlnorm[600];
 		const char *url = (const char *)in;
 		char why[96];
+
+		if (url && url[0] && url[0] != '/' &&
+		    strlen(url) < sizeof(urlnorm) - 2) {
+			urlnorm[0] = '/';
+			memcpy(urlnorm + 1, url, strlen(url) + 1);
+			url = urlnorm;
+		}
 
 		if (!vhd)
 			return lws_callback_http_dummy(wsi, reason, user, in, len);
@@ -971,7 +1087,14 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_return_http_status(wsi, HTTP_STATUS_OK, "OK");
 			return -1;
 		} else {
-			/* Let LWS standard file serving handle static files from the mount origin */
+			/*
+			 * The player page and its assets, served from www_dir
+			 * so the app is one flat mount; anything else is not
+			 * ours
+			 */
+			if (!hls_serve_asset(wsi, vhd, pss, url))
+				return 0;
+
 			return lws_callback_http_dummy(wsi, reason, user, in, len);
 		}
 

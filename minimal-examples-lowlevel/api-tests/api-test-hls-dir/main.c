@@ -356,7 +356,7 @@ check_body(void)
 	       body_len > 20 &&
 	       !strcmp(body + body_len - 20, "</div></body></html>"));
 	expect("every entry listed",
-	       count_str(body, "player.html?v=hls/stream/") ==
+	       count_str(body, "player.html?v=stream/") ==
 						2 + N_FRIENDLY + N_LONG_ENTRIES);
 
 	/* F-059 leg 2: names only reach markup as entities */
@@ -385,7 +385,7 @@ check_body(void)
 	 * where an absolute path would escape the mount.
 	 */
 	expect("listing links are relative",
-	       !!strstr(body, "href='../player.html?v="));
+	       !!strstr(body, "href='player.html?v="));
 	expect("no absolute hrefs in the listing",
 	       !strstr(body, "href='/"));
 }

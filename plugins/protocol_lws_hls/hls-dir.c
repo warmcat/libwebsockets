@@ -292,7 +292,7 @@ lws_hls_serve_dir(struct lws *wsi, struct per_vhost_data__lws_hls *vhd)
 		hls_dir_esc(fesc, sizeof(fesc), display);
 		q = hls_append_fmt(q, body, need,
 			"<div class='item'>"
-			"<a href='%splayer.html?v=hls/stream/%s&t=%llu'>"
+			"<a href='%splayer.html?v=stream/%s&t=%llu'>"
 			"<img class='thumb' src='preview/%s' alt='Thumbnail'>"
 			"<br>%s</a>%s%s%s</div>",
 			apref, esc, (unsigned long long)ds.entries[i].mtime, esc, fesc,
