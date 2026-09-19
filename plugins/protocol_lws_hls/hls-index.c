@@ -389,8 +389,10 @@ hls_index_sweep_sul(lws_sorted_usec_list_t *sul)
 				struct per_vhost_data__lws_hls, sul_sweep);
 
 	lws_hls_index_sweep(vhd);
-	/* the audio shadows hang off the same sul: see hls-atrans.c */
+	/* the audio shadows and empty media subdirs hang off the same sul:
+	 * see hls-atrans.c and hls-dir.c */
 	lws_hls_atrans_sweep(vhd);
+	lws_hls_purge_empty_dirs(vhd);
 	lws_sul_schedule(vhd->context, 0, &vhd->sul_sweep, hls_index_sweep_sul,
 			 HLS_INDEX_SWEEP_US);
 }

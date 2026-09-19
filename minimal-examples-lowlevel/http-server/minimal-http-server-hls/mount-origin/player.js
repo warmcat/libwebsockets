@@ -25,14 +25,16 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!confirm("Are you sure you want to delete this file?")) return;
             var urlParams = new URLSearchParams(window.location.search);
             var videoSrc = urlParams.get('v');
-            /* only a plain filename under stream/ can be deleted */
+            /* media under stream/, subdirectories included; the
+             * server validates the path again before anything moves */
             var pfx = 'stream/';
             if (videoSrc && videoSrc.indexOf(pfx) === 0) {
                 var filename = videoSrc.slice(pfx.length);
 
-                if (!filename.length || filename === '.' ||
-                    filename === '..' || filename.indexOf('/') !== -1 ||
-                    filename.indexOf('\\') !== -1)
+                if (!filename.length ||
+                    filename.split('/').indexOf('..') !== -1 ||
+                    filename.split('\\').indexOf('..') !== -1 ||
+                    filename[0] === '/')
                     return;
 
                 /*

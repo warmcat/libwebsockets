@@ -609,6 +609,18 @@ int
 lws_hls_serve_dir(struct lws *wsi, struct per_vhost_data__lws_hls *vhd);
 
 /*
+ * Remove subdirectories of media-dir that no longer hold anything the
+ * user could play anywhere beneath them, contents and all: media dirs
+ * outlive their last file for no reason, whether it went through our
+ * delete or outside us.  The toplevel media dir itself is never touched,
+ * and dot-dirs (the .index / .atrans caches) are not playable but also
+ * not purged from the toplevel.  Runs at init, after any deletion, and
+ * on the hourly sweep.
+ */
+void
+lws_hls_purge_empty_dirs(struct per_vhost_data__lws_hls *vhd);
+
+/*
  * Body builders, run on the worker thread.  They never touch a wsi; they
  * fill r->status, and for HTTP_STATUS_OK, r->body / r->len / r->content_type.
  * cancel may be NULL.

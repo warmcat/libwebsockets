@@ -81,6 +81,17 @@ If you want to use the HLS plugin with `lwsws` (the LWS JSON-configured web serv
 player.html and its assets from; mounting it at / like this makes the whole
 app one flat mount, with everything referenced by relative paths only.
 
+## Subdirectory lifecycle
+
+Media that arrives in its own subdirectory is listed and playable with the
+subdirectory in its name, and the delete button accepts it.  A
+subdirectory whose last playable media is gone -- deleted through us or
+removed outside us -- is itself removed, any remaining non-media contents
+included, since there is nothing the viewer could play from it any more.
+The check runs at startup, hourly, and after every deletion; the toplevel
+media dir is never touched, and the `.index` / `.atrans` cache dirs are not
+part of it.  Each removal is logged.
+
 ## Reverse proxying
 
 The whole app is expected to work behind an lws reverse proxy (or any

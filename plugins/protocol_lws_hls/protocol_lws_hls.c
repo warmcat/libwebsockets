@@ -756,6 +756,7 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		lws_hls_index_sweep_start(vhd);
+		lws_hls_purge_empty_dirs(vhd);
 
 		break;
 

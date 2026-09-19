@@ -39,9 +39,12 @@ document.addEventListener('DOMContentLoaded', function() {
         event.preventDefault();
         event.stopPropagation();
 
-        /* the listing only ever names plain files in media-dir */
-        if (!name || !name.length || name === '.' || name === '..' ||
-            name.indexOf('/') !== -1 || name.indexOf('\\') !== -1)
+        /* the listing names media under media-dir, subdirectories
+         * included; traversal is refused, the server validates again */
+        if (!name || !name.length ||
+            name.split('/').indexOf('..') !== -1 ||
+            name.split('\\').indexOf('..') !== -1 ||
+            name[0] === '/')
             return;
 
         if (!confirm('Delete "' + name + '"?'))

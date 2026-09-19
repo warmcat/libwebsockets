@@ -286,6 +286,18 @@ build_fixture_dir(void)
 			return 1;
 	}
 
+	/* a subdirectory with nothing playable in it: it and its stray
+	 * contents are removed once the server starts */
+	{
+		char sub[384];
+
+		lws_snprintf(sub, sizeof(sub), "%s/Dead.2020", fixture_dir);
+		if (mkdir(sub, 0700))
+			return 1;
+		if (touch(sub, "note.nfo"))
+			return 1;
+	}
+
 	/* enough 254-char names to blow the old 512-per-entry budget:
 	 * each interpolates ~1.2 KB against it */
 	for (i = 0; i < N_LONG_ENTRIES; i++) {
@@ -334,6 +346,13 @@ remove_fixture_dir(void)
 	{
 		char sub[384];
 
+		/* Dead.2020/note.nfo is the purge's business now; it should
+		 * already be gone, tidy up defensively if it is not */
+		lws_snprintf(sub, sizeof(sub), "%s/Dead.2020/note.nfo",
+			     fixture_dir);
+		unlink(sub);
+		lws_snprintf(sub, sizeof(sub), "%s/Dead.2020", fixture_dir);
+		rmdir(sub);
 		lws_snprintf(sub, sizeof(sub), "%s/Movies.2020", fixture_dir);
 		rmdir(sub);
 	}
@@ -427,6 +446,27 @@ check_body(void)
 			"player.html?v=stream/Movies.2020/Nested.Bunny.1080p.WEB-DL.mkv"));
 	expect("nested media friendly name from the basename",
 	       !!strstr(body, "<br>Nested Bunny</a>"));
+
+	/*
+	 * Subdirectory lifecycle: the purge pass at init removed the
+	 * subdirectory with nothing playable in it, contents and all, and
+	 * left the one that still has media (it is in the listing above).
+	 */
+	{
+		struct stat st;
+		char sub[384];
+
+		lws_snprintf(sub, sizeof(sub), "%s/Dead.2020/note.nfo",
+			     fixture_dir);
+		expect("media-less subdirectory purged, contents and all",
+		       stat(sub, &st) != 0);
+		lws_snprintf(sub, sizeof(sub), "%s/Dead.2020", fixture_dir);
+		expect("media-less subdirectory purged, dir gone",
+		       stat(sub, &st) != 0);
+		lws_snprintf(sub, sizeof(sub), "%s/Movies.2020", fixture_dir);
+		expect("subdirectory with media survives the purge",
+		       !stat(sub, &st) && S_ISDIR(st.st_mode));
+	}
 
 	/*
 	 * Links are relative only: the app is expected behind a reverse

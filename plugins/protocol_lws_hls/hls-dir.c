@@ -103,6 +103,92 @@ cmp_mtime(const void *a, const void *b)
 	return 0;
 }
 
+/* state for the purge walk: has playable media been seen below here? */
+struct hls_purge_state {
+	int has_media;
+	int depth;
+};
+
+/*
+ * Purge probe: does this subtree still hold anything the user could play?
+ * The playable test is the listing's (hls_dir_cb): a non-dot file whose
+ * name says .mp4 / .mkv.  Dot-dirs are our caches or hidden state: not
+ * playable, and the toplevel ones are not ours to purge.
+ */
+static int
+hls_purge_probe_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	struct hls_purge_state *ps = (struct hls_purge_state *)user;
+	char path[1024];
+
+	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
+		return 0;
+
+	if (lde->type == LDOT_DIR) {
+		if (lde->name[0] == '.')
+			return 0;
+		/* the depth cap also bounds symlink loops, as in hls_dir_cb */
+		if (ps->depth >= HLS_DIR_MAX_DEPTH)
+			return 0;
+		lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
+		ps->depth++;
+		lws_dir(path, ps, hls_purge_probe_cb);
+		ps->depth--;
+
+		return ps->has_media; /* stop the parents' walks too */
+	}
+
+	if (strstr(lde->name, ".mp4") || strstr(lde->name, ".mkv")) {
+		ps->has_media = 1;
+		return 1;
+	}
+
+	return 0;
+}
+
+/* the toplevel walk: only whole subdirectories are purge candidates */
+static int
+hls_purge_top_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	struct per_vhost_data__lws_hls *vhd =
+			(struct per_vhost_data__lws_hls *)user;
+	struct hls_purge_state st;
+	char path[1024];
+
+	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
+		return 0;
+
+	/* toplevel files, and the .index / .atrans cache dirs, stay */
+	if (lde->type != LDOT_DIR || lde->name[0] == '.')
+		return 0;
+
+	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
+
+	memset(&st, 0, sizeof(st));
+	lws_dir(path, &st, hls_purge_probe_cb);
+	if (st.has_media)
+		return 0;
+
+	lwsl_notice("HLS-DIR: %s: nothing playable left in %s, removing it\n",
+		    vhd->media_dir, path);
+
+	lws_dir(path, NULL, lws_dir_rm_rf_cb);
+	if (rmdir(path))
+		lwsl_warn("%s: rmdir %s failed %d\n", __func__, path, errno);
+
+	return 0;
+}
+
+void
+lws_hls_purge_empty_dirs(struct per_vhost_data__lws_hls *vhd)
+{
+	/* nothing there yet is the usual case */
+	if (access(vhd->media_dir, F_OK))
+		return;
+
+	lws_dir(vhd->media_dir, vhd, hls_purge_top_cb);
+}
+
 /*
  * HTML-escape a media filename before it reaches any markup context
  * (element text, and the single-quoted href / src / data-file
