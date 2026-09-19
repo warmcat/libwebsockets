@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -39,10 +40,43 @@ hls_index_lookup(struct per_vhost_data__lws_hls *vhd, const char *filename,
 			break;
 		}
 	} lws_end_foreach_dll(d);
-	pthread_mutex_unlock(&vhd->lock);
 
-	if (idx)
+	if (idx) {
+		/*
+		 * The media may have been replaced under the same name: a
+		 * cached timeline for a file that no longer exists produced
+		 * playlists with segments past EOF and unparseable
+		 * fragments.  Revalidate against the file's current size and
+		 * mtime, the same test the on-disk copy gets.
+		 */
+		int64_t size, mtime;
+		char path[1024];
+		struct stat st;
+
+		lws_snprintf(path, sizeof(path), "%s/%s", vhd->media_dir,
+			     filename);
+		if (!stat(path, &st)) {
+			size = (int64_t)st.st_size;
+			mtime = (int64_t)st.st_mtime;
+		} else
+			size = -1;
+
+		if (size == -1 || size != idx->media_size ||
+		    mtime != idx->media_mtime) {
+			lwsl_notice("HLS-INDEX: %s: media changed, dropping "
+				    "cached index\n", filename);
+			lws_dll2_remove(&idx->list);
+			pthread_mutex_unlock(&vhd->lock);
+			free(idx->entries);
+			free(idx);
+			return NULL;
+		}
+
+		pthread_mutex_unlock(&vhd->lock);
+
 		return idx;
+	}
+	pthread_mutex_unlock(&vhd->lock);
 
 	/* not seen since we started: maybe an earlier run did the scan and
 	 * left the index on disk */
@@ -440,6 +474,13 @@ lws_hls_queue_task(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 		   enum hls_task_type type, const char *filename,
 		   const char *trackid, int segment_idx)
 {
+	/*
+	 * Subtitle work is tiny but latency-critical: cues that reach the
+	 * player after their start time has passed are never shown, so they
+	 * jump the queue ahead of pending media segment builds
+	 */
+	int head = type == HLS_TASK_SUB_SEGMENT ||
+		   type == HLS_TASK_SUB_PLAYLIST;
 	struct per_session_data__lws_hls *pss =
 		(struct per_session_data__lws_hls *)lws_wsi_user(wsi);
 	struct hls_task *t;
@@ -477,12 +518,15 @@ lws_hls_queue_task(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 	pss->resp_ready = 0;
 
 	pthread_mutex_lock(&vhd->lock);
-	lws_dll2_add_tail(&t->list, &vhd->tasks);
+	if (head)
+		lws_dll2_add_head(&t->list, &vhd->tasks);
+	else
+		lws_dll2_add_tail(&t->list, &vhd->tasks);
 	pthread_cond_signal(&vhd->cond);
 	pthread_mutex_unlock(&vhd->lock);
 
-	lwsl_notice("HLS-TRACE: queued task type=%d '%s' seg=%d\n",
-		    type, filename, segment_idx);
+	lwsl_notice("HLS-TRACE: queued task type=%d '%s' seg=%d%s\n",
+		    type, filename, segment_idx, head ? " (priority)" : "");
 
 	/*
 	 * lws put the context's default content timeout on the transaction
@@ -1843,6 +1887,24 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 					if (new_idx->unflagged_keyframes)
 						lwsl_notice("HLS-INDEX: %s: keyframes not flagged by the container\n",
 							    filename);
+
+					/* for revalidation, see hls_index_lookup */
+					{
+						char mpath[1024];
+						struct stat st;
+
+						lws_snprintf(mpath,
+							     sizeof(mpath),
+							     "%s/%s",
+							     vhd->media_dir,
+							     filename);
+						if (!stat(mpath, &st)) {
+							new_idx->media_size =
+							     (int64_t)st.st_size;
+							new_idx->media_mtime =
+							     (int64_t)st.st_mtime;
+						}
+					}
 
 					pthread_mutex_lock(&vhd->lock);
 					lws_dll2_clear(&new_idx->list);

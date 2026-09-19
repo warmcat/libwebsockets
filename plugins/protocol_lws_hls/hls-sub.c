@@ -1008,6 +1008,125 @@ load_track_cues(struct hls_sub_track *tk, const char *media_dir,
 	return load_sidecar_cues(media_dir, tk->path, tk->is_vtt, out, out_n);
 }
 
+/* free one cue cache entry: the decoded cues and the rendered segments */
+static void
+sub_cache_free(struct hls_sub_cache *c)
+{
+	int i;
+
+	if (c->seg_body) {
+		for (i = 0; i < c->seg_slots; i++)
+			free(c->seg_body[i]);
+		free(c->seg_body);
+		free(c->seg_body_len);
+	}
+	free_cues(c->cues, c->n_cues);
+	free(c);
+}
+
+/*
+ * Worker, sub_lock held: remember a rendered segment body so the event
+ * loop can serve it without a worker round trip.  c must be the cache
+ * entry for this (filename, trackid); seg_idx is the segment number the
+ * body was rendered for.  Returns 1 when the cache took ownership of
+ * body, 0 when it did not (caller keeps it).
+ */
+static int
+sub_cache_store_seg(struct hls_sub_cache *c, int seg_idx, char *body,
+		    size_t len)
+{
+	if (seg_idx < 0 || seg_idx >= HLS_MAX_SEGMENTS)
+		return 0;
+
+	if (!c->seg_body) {
+		int slots = seg_idx + 1;
+
+		if (slots < 16)
+			slots = 16;
+		c->seg_body = calloc((size_t)slots, sizeof(char *));
+		c->seg_body_len = calloc((size_t)slots, sizeof(size_t));
+		if (!c->seg_body || !c->seg_body_len) {
+			free(c->seg_body);
+			free(c->seg_body_len);
+			c->seg_body = NULL;
+			c->seg_body_len = NULL;
+			return 0;
+		}
+		c->seg_slots = slots;
+	}
+	if (seg_idx >= c->seg_slots) {
+		/* grow, bounded: pathological segment counts just stop caching */
+		int ns = c->seg_slots * 2;
+		char **nb;
+		size_t *nl;
+
+		if (ns > HLS_MAX_SEGMENTS)
+			ns = HLS_MAX_SEGMENTS;
+		if (seg_idx >= ns)
+			return 0;
+		nb = realloc(c->seg_body, (size_t)ns * sizeof(char *));
+		nl = realloc(c->seg_body_len, (size_t)ns * sizeof(size_t));
+		if (!nb || !nl) {
+			free(nb);
+			free(nl);
+			return 0;
+		}
+		memset(nb + c->seg_slots, 0,
+		       (size_t)(ns - c->seg_slots) * sizeof(char *));
+		c->seg_body = nb;
+		c->seg_body_len = nl;
+		c->seg_slots = ns;
+	}
+
+	if (c->seg_bytes_cached + len > HLS_SUBSEG_CACHE_MAX)
+		return 0;	/* over the cap: this one is not cached */
+
+	if (!c->seg_body[seg_idx]) {
+		c->seg_body[seg_idx] = body;
+		c->seg_body_len[seg_idx] = len;
+		c->seg_bytes_cached += len;
+		return 1;
+	}
+
+	return 0;	/* already had one */
+}
+
+/*
+ * Event loop: the rendered body of subtitle segment seg_idx of
+ * (filename, trackid), if it is cached from an earlier render.  Returns
+ * a malloc'd copy the caller owns, or NULL.
+ */
+char *
+lws_hls_sub_segment_cached(struct per_vhost_data__lws_hls *vhd,
+			   const char *filename, const char *trackid,
+			   int seg_idx, size_t *len)
+{
+	struct hls_sub_cache *c;
+	char key[sizeof(c->key)], *body = NULL;
+
+	snprintf(key, sizeof(key), "%s|%s", filename, trackid);
+
+	pthread_mutex_lock(&vhd->sub_lock);
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->sub_cache)) {
+		c = lws_container_of(d, struct hls_sub_cache, list);
+		if (!strcmp(c->key, key) && c->seg_body &&
+		    seg_idx >= 0 && seg_idx < c->seg_slots &&
+		    c->seg_body[seg_idx]) {
+			body = malloc(c->seg_body_len[seg_idx] + LWS_PRE);
+			if (body) {
+				memcpy(body + LWS_PRE, c->seg_body[seg_idx],
+				       c->seg_body_len[seg_idx]);
+				*len = c->seg_body_len[seg_idx];
+			}
+			break;
+		}
+	} lws_end_foreach_dll(d);
+	pthread_mutex_unlock(&vhd->sub_lock);
+
+	return body;
+}
+
 /* Returns a borrowed pointer to the cached cue list for (filename, trackid),
  * decoding on first access. Caller must hold vhd->sub_lock. */
 static struct hls_sub_cache *
@@ -1063,8 +1182,7 @@ cache_get(struct per_vhost_data__lws_hls *vhd, const char *filename,
 				struct hls_sub_cache, list);
 
 		lws_dll2_remove(&t->list);
-		free_cues(t->cues, t->n_cues);
-		free(t);
+		sub_cache_free(t);
 		vhd->sub_cache_count--;
 	}
 
@@ -1562,9 +1680,17 @@ lws_hls_build_sub_segment(struct per_vhost_data__lws_hls *vhd,
 			    cache->n_cues, emitted, out.len);
 	}
 
+	/* set_body copies; the cache keeps our copy for repeats */
+	set_body(r, "text/vtt; charset=\"utf-8\"", (uint8_t *)out.p, out.len);
+
+	/*
+	 * Remember it so repeats (seeks, other viewers) skip the worker
+	 * entirely; when the cache takes it, seg_done must not free it too
+	 */
+	if (sub_cache_store_seg(cache, seg_idx, out.p, out.len))
+		out.p = NULL;
 	pthread_mutex_unlock(&vhd->sub_lock);
 
-	set_body(r, "text/vtt; charset=\"utf-8\"", (uint8_t *)out.p, out.len);
 	goto seg_done;
 
 seg_done_locked:

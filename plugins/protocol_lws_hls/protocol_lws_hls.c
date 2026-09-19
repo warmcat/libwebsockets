@@ -1081,6 +1081,33 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 						(size_t)(sep1 - p)))
 				goto err_404;
 
+			/*
+			 * Already rendered once?  Serve it here and now:
+			 * subtitle segments are tiny but latency-critical,
+			 * and a worker round trip behind media segment builds
+			 * dropped runs of cues on a busy box.
+			 */
+			{
+				size_t blen;
+				uint8_t *body = (uint8_t *)
+					lws_hls_sub_segment_cached(
+						vhd, filename, trackid,
+						atoi(sep2 + 1), &blen);
+
+				if (body) {
+					free(pss->segment_buf);
+					pss->segment_buf	= body;
+					pss->segment_len	= blen;
+					pss->segment_pos	= 0;
+					pss->resp_status	= HTTP_STATUS_OK;
+					pss->resp_content_type	=
+							"text/vtt; charset=\"utf-8\"";
+					pss->resp_ready		= 1;
+					lws_callback_on_writable(wsi);
+					return 0;
+				}
+			}
+
 			return lws_hls_queue_task(wsi, vhd, HLS_TASK_SUB_SEGMENT,
 						  filename, trackid,
 						  atoi(sep2 + 1));

@@ -414,6 +414,13 @@ struct hls_file_index {
 	int video_idx;
 	int count;
 	struct hls_index_entry *entries;
+	/*
+	 * The media file's size and mtime when it was indexed: a cached
+	 * index for a replaced file cuts segments from a timeline that no
+	 * longer exists (playlists advertising segments past EOF, fragments
+	 * that fail to parse), so lookups revalidate against them.
+	 */
+	int64_t media_size, media_mtime;
 	/* some keyframes were found in the bitstream but not flagged by the
 	 * container: seeks must not rely on the demuxer's keyframe skipping */
 	int unflagged_keyframes;
@@ -527,7 +534,24 @@ struct hls_sub_cache {
 	char key[280];               /* "<filename>|<trackid>" */
 	struct hls_webvtt_cue *cues;
 	int n_cues;
+
+	/*
+	 * Rendered VTT segment bodies, indexed by segment number.  Subtitle
+	 * segments are latency-critical and tiny, but they were served from
+	 * the worker FIFO behind multi-hundred-ms media segment builds: cues
+	 * that reach the player's native text track after their start time
+	 * has passed are never shown, which dropped runs of subtitles on a
+	 * busy box.  The worker renders each segment once and keeps it here
+	 * (up to a byte cap); the event loop then serves repeats itself.
+	 */
+	char **seg_body;
+	size_t *seg_body_len;
+	int seg_slots;
+	size_t seg_bytes_cached;
 };
+
+/* per-track cap on cached rendered subtitle segment bodies */
+#define HLS_SUBSEG_CACHE_MAX (2 * 1024 * 1024)
 
 struct per_session_data__lws_hls {
 	lws_dll2_t pss_list; /* vhd pss_list membership */
@@ -848,6 +872,17 @@ lws_hls_audio_tx_flush(AVFormatContext *out_ctx,
 		       int segment_idx);
 
 /* hls-sub.c */
+
+/*
+ * Event loop: the rendered body of subtitle segment seg_idx of
+ * (filename, trackid) if the worker cached it from an earlier render.
+ * Returns a malloc'd buffer with the payload at +LWS_PRE the caller
+ * owns (NULL on miss).
+ */
+char *
+lws_hls_sub_segment_cached(struct per_vhost_data__lws_hls *vhd,
+			   const char *filename, const char *trackid,
+			   int seg_idx, size_t *len);
 
 /* Discover every usable subtitle track for a media file: embedded text
  * streams first (ordered by stream index), then sibling .srt/.vtt sidecars
