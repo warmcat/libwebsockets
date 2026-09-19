@@ -150,6 +150,56 @@ hls_dir_esc(char *o, size_t cap, const char *in)
 	return n;
 }
 
+/*
+ * Friendly display name for a media file: the movie title rather than the
+ * release filename.  From the basename, drop the extension, snip [..] and
+ * (..) groups and turn '.' separators between words into spaces, collapsing
+ * runs and trimming.  It only ever drops characters or replaces them
+ * one-for-one, so the result cannot be longer than the input basename; if
+ * nothing at all survives, the caller wants the filename shown as it is.
+ */
+static void
+hls_dir_friendly(char *o, size_t cap, const char *in)
+{
+	char tmp[sizeof(((struct file_entry *)0)->name)];
+	const char *base = strrchr(in, '/'), *p;
+	size_t n = 0;
+	int ingroup = 0, sp = 0;
+
+	base = base ? base + 1 : in;
+	lws_strncpy(tmp, base, sizeof(tmp));
+
+	/* the extension is not part of the title */
+	{
+		char *ext = strrchr(tmp, '.');
+
+		if (ext > tmp)
+			*ext = '\0';
+	}
+
+	for (p = tmp; *p; p++) {
+		if (*p == '[' || *p == '(') {
+			ingroup = 1;
+			sp = 1;
+		} else if (*p == ']' || *p == ')') {
+			ingroup = 0;
+			sp = 1;
+		} else if (ingroup) {
+			continue;
+		} else if (*p == '.' || *p == ' ' || *p == '\t') {
+			sp = 1;
+		} else {
+			if (n && sp && n + 1 < cap)
+				o[n++] = ' ';
+			if (n + 1 < cap)
+				o[n++] = *p;
+			sp = 0;
+		}
+	}
+
+	o[n < cap ? n : cap - 1] = '\0';
+}
+
 int
 lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 {
@@ -159,6 +209,7 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 	char *html, *body, *q;
 	uint8_t *buf, *start, *p, *end;
 	struct per_session_data__lws_hls *pss;
+	char friendly[256], fesc[HLS_DIR_ESC_MAX];
 	int can_delete;
 
 	memset(&ds, 0, sizeof(ds));
@@ -171,17 +222,26 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 
 	/*
 	 * Size the composition buffer exactly: the fixed page chrome, plus
-	 * per entry the fixed markup and four interpolations of the escaped
-	 * name (href, img src, text, and the delete button's data-file).
-	 * Composition still goes through the clamped hls_append_fmt(), so
-	 * any accounting error can only truncate, never overshoot (F-059:
-	 * the old fixed 512-per-entry estimate vs ~1.2 KB reality made the
-	 * raw-snprintf cursor pass the allocation and underflow rem).
+	 * per entry the fixed markup, three interpolations of the escaped
+	 * name (href, img src, and the delete button's data-file) and the
+	 * escaped friendly name shown as the link text (which is never
+	 * longer than the name).  Composition still goes through the
+	 * clamped hls_append_fmt(), so any accounting error can only
+	 * truncate, never overshoot (F-059: the old fixed 512-per-entry
+	 * estimate vs ~1.2 KB reality made the raw-snprintf cursor pass the
+	 * allocation and underflow rem).
 	 */
 	need = 1024; /* page chrome + tail + slack */
-	for (i = 0; i < ds.count; i++)
-		need += hls_dir_esc(NULL, 0, ds.entries[i].name) * 4 +
-			HLS_DIR_ENTRY_FIXED;
+	for (i = 0; i < ds.count; i++) {
+		const char *display = ds.entries[i].name;
+
+		hls_dir_friendly(friendly, sizeof(friendly), ds.entries[i].name);
+		if (friendly[0])
+			display = friendly;
+
+		need += hls_dir_esc(NULL, 0, ds.entries[i].name) * 3 +
+			hls_dir_esc(NULL, 0, display) + HLS_DIR_ENTRY_FIXED;
+	}
 
 	html = malloc(LWS_PRE + need);
 	if (!html) {
@@ -205,13 +265,20 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 		"<h1>Media Directory</h1><div>");
 
 	for (i = 0; i < ds.count; i++) {
+		const char *display = ds.entries[i].name;
+
+		hls_dir_friendly(friendly, sizeof(friendly), ds.entries[i].name);
+		if (friendly[0])
+			display = friendly;
+
 		hls_dir_esc(esc, sizeof(esc), ds.entries[i].name);
+		hls_dir_esc(fesc, sizeof(fesc), display);
 		q = hls_append_fmt(q, body, need,
 			"<div class='item'>"
 			"<a href='../player.html?v=hls/stream/%s&t=%llu'>"
 			"<img class='thumb' src='preview/%s' alt='Thumbnail'>"
 			"<br>%s</a>%s%s%s</div>",
-			esc, (unsigned long long)ds.entries[i].mtime, esc, esc,
+			esc, (unsigned long long)ds.entries[i].mtime, esc, fesc,
 			/* no inline handler: the page's CSP has no
 			 * 'unsafe-inline'; dir.js binds the click */
 			can_delete ? "<button class='del-btn' title='Delete' data-file='" : "",

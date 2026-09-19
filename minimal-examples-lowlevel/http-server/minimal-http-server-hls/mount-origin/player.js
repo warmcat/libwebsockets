@@ -95,18 +95,32 @@ document.addEventListener('DOMContentLoaded', function() {
             ? navigator.languages
             : [navigator.language || 'en'];
 
-    // Display sanitized filename above the playback window
+    /*
+     * Friendly display name for a media path: the movie title rather than
+     * the release filename (the same massage hls-dir.c gives the listing):
+     * take the final path component (or the one before a trailing
+     * index.m3u8), drop the extension, snip [..] and (..) groups, and turn
+     * '.' separators between words into spaces.  If nothing survives that,
+     * show the filename component as it is.
+     */
+    function friendlyName(path) {
+        var parts = String(path).split('/');
+        var last = parts[parts.length - 1];
+        var comp = (last === 'index.m3u8' && parts.length > 1)
+                ? parts[parts.length - 2] : last;
+        var dot = comp.lastIndexOf('.');
+        var name = dot > 0 ? comp.slice(0, dot) : comp;
+        name = name.replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
+                   .replace(/\./g, ' ')
+                   .replace(/\s+/g, ' ')
+                   .trim();
+        return name || comp;
+    }
+
+    // Display friendly name above the playback window
     var filenameContainer = document.getElementById('video-filename');
     if (filenameContainer && (videoSrc || rawSrc)) {
-        var filepath = videoSrc || rawSrc;
-        var parts = filepath.split('/');
-        var filename = '';
-        if (parts[parts.length - 1] === 'index.m3u8' && parts.length > 1) {
-            filename = parts[parts.length - 2];
-        } else {
-            filename = parts[parts.length - 1];
-        }
-        filenameContainer.textContent = filename;
+        filenameContainer.textContent = friendlyName(videoSrc || rawSrc);
     }
 
     // Toggle debug logs panel visibility

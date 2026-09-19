@@ -27,7 +27,10 @@
  *    old 512-per-entry budget by ~7 KB);
  *  - HTML-significant characters in filenames appear only as entities
  *    (&#39; &quot; &lt; &gt; &amp;), never raw, in both text and
- *    attribute contexts.
+ *    attribute contexts;
+ *  - the link text is the friendly name (bracket groups snipped, '.'
+ *    separators spaced) while href / src / data-file keep the raw name,
+ *    and a name that snips down to nothing falls back to the filename.
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -48,6 +51,7 @@
 #define N_LONG_ENTRIES	48	/* 254-char names: ~18 KB over the old
 				 * fixed 512-per-entry estimate */
 #define LONG_NAME_LEN	254	/* chars including the ".mp4" suffix */
+#define N_FRIENDLY	3	/* friendly-name massage fixtures */
 
 static struct lws_context *context;
 static struct lws *cli_wsi;
@@ -251,6 +255,15 @@ build_fixture_dir(void)
 	if (touch(fixture_dir, "<svg onload=alert(1)>.mp4"))
 		return 1;
 
+	/* friendly-name massage: bracket groups snipped, '.' separators
+	 * become spaces; a name that snips to nothing shows as-is */
+	if (touch(fixture_dir, "The.Matrix.(1999).[1080p].x265.mkv"))
+		return 1;
+	if (touch(fixture_dir, "Friendly.Name.Test.2020.mp4"))
+		return 1;
+	if (touch(fixture_dir, "[only.groups].mkv"))
+		return 1;
+
 	/* enough 254-char names to blow the old 512-per-entry budget:
 	 * each interpolates ~1.2 KB against it */
 	for (i = 0; i < N_LONG_ENTRIES; i++) {
@@ -276,6 +289,16 @@ remove_fixture_dir(void)
 	unlink(path);
 	(void)snprintf(path, sizeof(path),
 		       "%s/<svg onload=alert(1)>.mp4", fixture_dir);
+	unlink(path);
+
+	(void)snprintf(path, sizeof(path), "%s/%s", fixture_dir,
+		       "The.Matrix.(1999).[1080p].x265.mkv");
+	unlink(path);
+	(void)snprintf(path, sizeof(path), "%s/%s", fixture_dir,
+		       "Friendly.Name.Test.2020.mp4");
+	unlink(path);
+	(void)snprintf(path, sizeof(path), "%s/%s", fixture_dir,
+		       "[only.groups].mkv");
 	unlink(path);
 
 	for (i = 0; i < N_LONG_ENTRIES; i++) {
@@ -333,7 +356,8 @@ check_body(void)
 	       body_len > 20 &&
 	       !strcmp(body + body_len - 20, "</div></body></html>"));
 	expect("every entry listed",
-	       count_str(body, "player.html?v=hls/stream/") == 2 + N_LONG_ENTRIES);
+	       count_str(body, "player.html?v=hls/stream/") ==
+						2 + N_FRIENDLY + N_LONG_ENTRIES);
 
 	/* F-059 leg 2: names only reach markup as entities */
 	expect("script payload escaped",
@@ -346,6 +370,14 @@ check_body(void)
 	       !strstr(body, "<svg"));
 	expect("no raw single-quote breakout in hrefs",
 	       !strstr(body, "stream/x'"));
+
+	/* friendly names as link text, raw names kept for href/src/data-file */
+	expect("friendly name: groups snipped, dots spaced",
+	       !!strstr(body, "<br>The Matrix x265</a>"));
+	expect("friendly name: dots spaced",
+	       !!strstr(body, "<br>Friendly Name Test 2020</a>"));
+	expect("friendly name: snipped to nothing shows the filename",
+	       !!strstr(body, "<br>[only.groups].mkv</a>"));
 }
 
 static void
