@@ -378,6 +378,16 @@ check_body(void)
 	       !!strstr(body, "<br>Friendly Name Test 2020</a>"));
 	expect("friendly name: snipped to nothing shows the filename",
 	       !!strstr(body, "<br>[only.groups].mkv</a>"));
+
+	/*
+	 * Links are relative only: the app is expected behind a reverse
+	 * proxy that mounts it at an unknown point of a public URL space,
+	 * where an absolute path would escape the mount.
+	 */
+	expect("listing links are relative",
+	       !!strstr(body, "href='../player.html?v="));
+	expect("no absolute hrefs in the listing",
+	       !strstr(body, "href='/"));
 }
 
 static void

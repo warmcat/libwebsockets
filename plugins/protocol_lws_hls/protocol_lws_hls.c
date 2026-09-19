@@ -479,6 +479,30 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			return 1;
 		}
 
+		/*
+		 * Where the player page and its assets sit, relative to
+		 * wherever this protocol's listing is served from: composed
+		 * into the listing's relative links only.  The default is one
+		 * level up, ie the static mount is the parent of the callback
+		 * mount (the minimal example's /hls + /hls/hls shape, and the
+		 * lwsws layout in the plugin README).  The minimal example
+		 * instead mounts this protocol at / with the assets under
+		 * hls/, so it passes "hls".  An absolute path is refused: the
+		 * whole point is that the app works behind a reverse proxy
+		 * that mounts it at an unknown point of a public URL space.
+		 */
+		lws_strncpy(vhd->asset_prefix, "..", sizeof(vhd->asset_prefix));
+		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "asset-prefix"))) {
+			if (pvo->value[0] == '/' || strchr(pvo->value, ':')) {
+				lwsl_vhost_err(lws_get_vhost(wsi),
+					       "%s: asset-prefix must be relative, "
+					       "ignoring '%s'", __func__,
+					       pvo->value);
+			} else
+				lws_strncpy(vhd->asset_prefix, pvo->value,
+					    sizeof(vhd->asset_prefix));
+		}
+
 		/* see hls_can_delete() for what these three do */
 
 		vhd->service_name = "hls";
@@ -692,8 +716,7 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 				 * another slash to
 				 */
 				if (uri[ulen - 1] == '/')
-					return lws_hls_serve_dir(wsi,
-							vhd->media_dir);
+					return lws_hls_serve_dir(wsi, vhd);
 
 				/* Redirect to add trailing slash */
 				uri[ulen] = '/';
@@ -710,7 +733,7 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/* Simple routing based on URL prefix */
 		if (!strcmp(url, "/") || !strcmp(url, "/index.html")) {
-			return lws_hls_serve_dir(wsi, vhd->media_dir);
+			return lws_hls_serve_dir(wsi, vhd);
 		}
 		else if (!strncmp(url, "/preview/", 9)) {
 			/* /preview/<filename>[/<secs>]: the default frame,

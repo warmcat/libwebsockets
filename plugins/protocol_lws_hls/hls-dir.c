@@ -201,7 +201,7 @@ hls_dir_friendly(char *o, size_t cap, const char *in)
 }
 
 int
-lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
+lws_hls_serve_dir(struct lws *wsi, struct per_vhost_data__lws_hls *vhd)
 {
 	struct dir_state ds;
 	char esc[HLS_DIR_ESC_MAX];
@@ -212,8 +212,24 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 	char friendly[256], fesc[HLS_DIR_ESC_MAX];
 	int can_delete;
 
+	const char *media_dir = vhd->media_dir;
+	char apref[80];	/* asset_prefix as a URL fragment, "" for same-dir */
+
 	memset(&ds, 0, sizeof(ds));
 	ds.base_dir = media_dir;
+
+	/*
+	 * The listing's links are relative to the page itself, prefixed by
+	 * asset_prefix when the assets are not in the same "directory": this
+	 * app has to work behind a reverse proxy that mounts it at an
+	 * unknown point of a public server's URL space, so absolute paths
+	 * are never an option.  "." or "" means the same directory.
+	 */
+	if (!strcmp(vhd->asset_prefix, "."))
+		apref[0] = '\0';
+	else
+		lws_snprintf(apref, sizeof(apref), "%s/",
+			     vhd->asset_prefix);
 
 	lws_dir(media_dir, &ds, hls_dir_cb);
 
@@ -231,7 +247,7 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 	 * estimate vs ~1.2 KB reality made the raw-snprintf cursor pass the
 	 * allocation and underflow rem).
 	 */
-	need = 1024; /* page chrome + tail + slack */
+	need = 1024 + strlen(apref) * 4; /* page chrome + tail + slack */
 	for (i = 0; i < ds.count; i++) {
 		const char *display = ds.entries[i].name;
 
@@ -254,21 +270,16 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 	pss = (struct per_session_data__lws_hls *)lws_wsi_user(wsi);
 	can_delete = pss ? pss->can_delete : 0;
 
-	/*
-	 * The assets live under /hls (the static mount); the listing can be
-	 * served from the toplevel mount or from the plugin's own /hls/hls,
-	 * so reference them absolutely.
-	 */
 	q = hls_append_fmt(body, body, need,
 		"<html><head><meta charset=\"utf-8\">"
 		"<title>LWS HLS Media</title>"
-		"<link rel=\"icon\" href=\"/hls/favicon.ico\">"
-		"<link rel=\"stylesheet\" href=\"/hls/dir.css\">"
+		"<link rel=\"icon\" href=\"%sfavicon.ico\">"
+		"<link rel=\"stylesheet\" href=\"%sdir.css\">"
 		"<script src=\"/lws-login-media/lws-login.js\"></script>"
-		"<script src=\"/hls/dir.js\" defer></script>"
+		"<script src=\"%sdir.js\" defer></script>"
 		"</head><body>"
 		"<div id=\"auth-status\"></div>"
-		"<h1>Media Directory</h1><div>");
+		"<h1>Media Directory</h1><div>", apref, apref, apref);
 
 	for (i = 0; i < ds.count; i++) {
 		const char *display = ds.entries[i].name;
@@ -281,10 +292,10 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 		hls_dir_esc(fesc, sizeof(fesc), display);
 		q = hls_append_fmt(q, body, need,
 			"<div class='item'>"
-			"<a href='/hls/player.html?v=hls/stream/%s&t=%llu'>"
+			"<a href='%splayer.html?v=hls/stream/%s&t=%llu'>"
 			"<img class='thumb' src='preview/%s' alt='Thumbnail'>"
 			"<br>%s</a>%s%s%s</div>",
-			esc, (unsigned long long)ds.entries[i].mtime, esc, fesc,
+			apref, esc, (unsigned long long)ds.entries[i].mtime, esc, fesc,
 			/* no inline handler: the page's CSP has no
 			 * 'unsafe-inline'; dir.js binds the click */
 			can_delete ? "<button class='del-btn' title='Delete' data-file='" : "",

@@ -275,6 +275,16 @@ struct per_vhost_data__lws_hls {
 	
 	const char *media_dir; /* configured via pvo */
 
+	/*
+	 * Where the player page and its assets live, relative to wherever
+	 * this protocol's listing is served from, as a pvo-supplied URL
+	 * fragment ("..", "hls", "." ...).  It is only ever composed into the
+	 * listing's relative links, so it must never be absolute: the whole
+	 * app is expected to be reachable behind a reverse proxy that mounts
+	 * it at an unknown point of someone else's URL space.
+	 */
+	char asset_prefix[64];
+
 	/* worker thread: see enum hls_task_type */
 	pthread_t worker_thread;
 	pthread_mutex_t lock;
@@ -553,7 +563,7 @@ lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir,
 			const char *filename, int t);
 
 int
-lws_hls_serve_dir(struct lws *wsi, const char *media_dir);
+lws_hls_serve_dir(struct lws *wsi, struct per_vhost_data__lws_hls *vhd);
 
 /*
  * Body builders, run on the worker thread.  They never touch a wsi; they

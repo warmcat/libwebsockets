@@ -36,6 +36,17 @@ static struct lws_protocol_vhost_options pvo_media = {
 	NULL, NULL, "media-dir", INSTALL_DATADIR "/libwebsockets-test-server/hls"
 };
 
+/*
+ * The plugin is mounted at / and composes the library listing there, while
+ * the player page and its assets live under /hls: tell the plugin the
+ * relative hop from the listing to them, so every link it composes stays
+ * relative (the app must work behind a reverse proxy that mounts it at an
+ * unknown point of a public URL space).
+ */
+static struct lws_protocol_vhost_options pvo_asset_prefix = {
+	&pvo_media, NULL, "asset-prefix", "hls"
+};
+
 static const struct lws_protocol_vhost_options pvo_csp = {
         NULL, NULL, "content-security-policy:",
         "default-src 'self'; img-src 'self' data: ; "
@@ -54,7 +65,7 @@ static struct lws_protocol_vhost_options pvo_trust = {
 };
 
 static struct lws_protocol_vhost_options pvo = {
-	NULL, &pvo_media, "lws-hls", ""
+	NULL, &pvo_asset_prefix, "lws-hls", ""
 };
 
 static const struct lws_http_mount mount_hls = {

@@ -77,3 +77,33 @@ If you want to use the HLS plugin with `lwsws` (the LWS JSON-configured web serv
   ]
 }
 ```
+
+## Reverse proxying
+
+The whole app is expected to work behind an lws reverse proxy (or any
+proxy) that mounts it at an arbitrary point of a public server's URL space,
+so every link the pages and playlists compose is relative to the page it
+appears in: the private server never knows the public URL base, and must
+never emit absolute paths.
+
+`asset-prefix` tells the plugin where the player page and its assets sit
+relative to wherever the plugin's listing is served from, as a relative
+fragment that is prefixed onto the listing's links.  The default `..` is
+right when the static mount is the parent of the callback mount, as in the
+lwsws layout above (`/media` files, `/media/hls` plugin) and in this
+example's own `/hls` + `/hls/hls` shape.  This example instead mounts the
+plugin at `/` with the assets under `hls/`, so it passes:
+
+```json
+          "lws-hls": {
+            "status": "ok",
+            "media-dir": "/path/to/your/media",
+            "asset-prefix": "hls"
+          }
+```
+
+An absolute `asset-prefix` is refused at init.  Note the login helper
+script reference (`/lws-login-media/lws-login.js`) predates this and is
+still absolute: it is optional and silently skipped when it does not load,
+but if you need it behind a proxy, mount the lws-login media endpoint at
+the public side accordingly.
