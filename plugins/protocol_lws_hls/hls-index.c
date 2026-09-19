@@ -542,6 +542,22 @@ lws_hls_index_defer(struct per_vhost_data__lws_hls *vhd, const char *filename,
 	return 1;
 }
 
+/* vhd->lock held: is the index this task waits for in the cache already? */
+static int
+hls_index_parked_done(struct per_vhost_data__lws_hls *vhd, const char *filename)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->index_list)) {
+		struct hls_file_index *idx = lws_container_of(d,
+					struct hls_file_index, list);
+
+		if (!strcmp(idx->filename, filename))
+			return 1;
+	} lws_end_foreach_dll(d);
+
+	return 0;
+}
+
 void
 lws_hls_task_park(struct per_vhost_data__lws_hls *vhd, struct hls_task *t)
 {
@@ -564,13 +580,39 @@ lws_hls_task_park(struct per_vhost_data__lws_hls *vhd, struct hls_task *t)
 		return;
 	}
 
+	/*
+	 * The build this task waits for can have completed while the worker
+	 * was unwinding: the defer only flags the task, the indexer or the
+	 * atrans thread runs its whole build and unparks a still-empty list
+	 * in that window, and the wakeup is lost.  If the wait is already
+	 * satisfied, go straight back on the queue instead of parking
+	 * through it.
+	 */
+	if (t->atrans_audio_idx >= 0
+			? lws_hls_atrans_wait_done(vhd, t->filename,
+						   t->atrans_audio_idx,
+						   t->atrans_need_us)
+			: !!hls_index_parked_done(vhd, t->filename)) {
+		t->cancel = 0;
+		t->state = HLS_TASK_PENDING;
+		lws_dll2_add_head(&t->list, &vhd->tasks);
+		pthread_cond_signal(&vhd->cond);
+		pthread_mutex_unlock(&vhd->lock);
+
+		lwsl_notice("HLS-TRACE: task type=%d '%s' seg=%d park skipped, "
+			    "wait already done\n", t->type, t->filename,
+			    t->segment_idx);
+		return;
+	}
+
 	t->cancel = 0;
 	t->state = HLS_TASK_PARKED;
 	lws_dll2_add_tail(&t->list, &vhd->parked);
 	pthread_mutex_unlock(&vhd->lock);
 
-	lwsl_notice("HLS-TRACE: task type=%d '%s' seg=%d parked for index\n",
-		    t->type, t->filename, t->segment_idx);
+	lwsl_notice("HLS-TRACE: task type=%d '%s' seg=%d parked for %s\n",
+		    t->type, t->filename, t->segment_idx,
+		    t->atrans_audio_idx >= 0 ? "atrans" : "index");
 }
 
 /*

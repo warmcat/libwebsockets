@@ -91,6 +91,40 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		 void *user, void *in, size_t len);
 #endif
 
+/*
+ * "../" repeated depth times, for URIs composed into a playlist that lives
+ * at /<root>/<media-name-with-any-subdirs>: each '/' in the media name
+ * deepens the playlist's own URL by one, so the climb out to the root of
+ * the URL space grows with it.  depth >= 1.
+ */
+static inline void
+hls_up_prefix(char *buf, size_t len, int depth)
+{
+	size_t o = 0;
+
+	while (depth-- > 0 && o + 3 < len) {
+		buf[o++] = '.';
+		buf[o++] = '.';
+		buf[o++] = '/';
+	}
+	buf[o] = '\0';
+}
+
+/* how many '/' a media name carries, ie its subdirectory depth */
+static inline int
+hls_media_depth(const char *filename)
+{
+	int n = 0;
+	const char *p = filename;
+
+	while ((p = strchr(p, '/'))) {
+		n++;
+		p++;
+	}
+
+	return n;
+}
+
 #define LWS_PLUGIN_PROTOCOL_LWS_HLS \
 	{ \
 		"lws-hls", \
@@ -659,6 +693,12 @@ lws_hls_index_defer(struct per_vhost_data__lws_hls *vhd, const char *filename,
 /* worker: what to do with a task whose builder returned with t->parked set */
 void
 lws_hls_task_park(struct per_vhost_data__lws_hls *vhd, struct hls_task *t);
+
+/* vhd->lock held: is this recorded shadow wait already satisfied?  See
+ * lws_hls_task_park() for why parking re-checks */
+int
+lws_hls_atrans_wait_done(struct per_vhost_data__lws_hls *vhd,
+			 const char *filename, int audio_idx, int64_t need_us);
 
 /* the indexer thread; started and joined beside the worker */
 void *

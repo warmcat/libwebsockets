@@ -463,6 +463,9 @@ lws_hls_queue_task(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 
 	t->type = type;
 	t->state = HLS_TASK_PENDING;
+	/* calloc leaves this 0: -1 means "not parked behind an atrans" */
+	t->atrans_audio_idx = -1;
+	t->atrans_need_us = 0;
 	lws_strncpy(t->filename, filename, sizeof(t->filename));
 	if (trackid)
 		lws_strncpy(t->trackid, trackid, sizeof(t->trackid));
@@ -2028,11 +2031,13 @@ lws_hls_build_manifest(struct per_vhost_data__lws_hls *vhd,
 	enum hls_sel_kind kind;
 	int sel_audio;
 	/*
-	 * The muxed playlist lives at /stream/<file> and references
-	 * ../init/<file>; a rendition playlist lives one level deeper at
-	 * /avstream/<file>/<sel> and references ../../init/<file>/<sel>
+	 * The muxed playlist lives at /stream/<file> and the renditions one
+	 * level deeper at /avstream/<file>/<sel>; the init and segment URIs
+	 * they reference climb back to the toplevel.  A media name in its own
+	 * subdirectory deepens the playlist's URL by one per '/', so the
+	 * climb grows with it (see hls_up_prefix()).
 	 */
-	const char *up;
+	char up[64];
 	char selsuffix[24];
 
 	snprintf(filepath, sizeof(filepath), "%s/%s", media_dir, filename);
@@ -2044,10 +2049,10 @@ lws_hls_build_manifest(struct per_vhost_data__lws_hls *vhd,
 		return;
 	}
 	if (kind == HLS_SEL_MUXED) {
-		up = "../";
+		hls_up_prefix(up, sizeof(up), 1 + hls_media_depth(filename));
 		selsuffix[0] = '\0';
 	} else {
-		up = "../../";
+		hls_up_prefix(up, sizeof(up), 2 + hls_media_depth(filename));
 		lws_snprintf(selsuffix, sizeof(selsuffix), "/%s", sel);
 	}
 

@@ -52,6 +52,7 @@
 				 * fixed 512-per-entry estimate */
 #define LONG_NAME_LEN	254	/* chars including the ".mp4" suffix */
 #define N_FRIENDLY	5	/* friendly-name massage fixtures */
+#define N_NESTED	1	/* media in its own subdirectory */
 
 static struct lws_context *context;
 static struct lws *cli_wsi;
@@ -273,6 +274,18 @@ build_fixture_dir(void)
 	if (touch(fixture_dir, "2015.Some.Movie.720p.WEB-DL.aac.mkv"))
 		return 1;
 
+	/* a movie that arrived in its own subdirectory: the listing walks
+	 * it, and every route has to take the subdir in the name */
+	{
+		char sub[384];
+
+		lws_snprintf(sub, sizeof(sub), "%s/Movies.2020", fixture_dir);
+		if (mkdir(sub, 0700))
+			return 1;
+		if (touch(sub, "Nested.Bunny.1080p.WEB-DL.mkv"))
+			return 1;
+	}
+
 	/* enough 254-char names to blow the old 512-per-entry budget:
 	 * each interpolates ~1.2 KB against it */
 	for (i = 0; i < N_LONG_ENTRIES; i++) {
@@ -315,6 +328,15 @@ remove_fixture_dir(void)
 	(void)snprintf(path, sizeof(path), "%s/%s", fixture_dir,
 		       "2015.Some.Movie.720p.WEB-DL.aac.mkv");
 	unlink(path);
+	(void)snprintf(path, sizeof(path), "%s/%s", fixture_dir,
+		       "Movies.2020/Nested.Bunny.1080p.WEB-DL.mkv");
+	unlink(path);
+	{
+		char sub[384];
+
+		lws_snprintf(sub, sizeof(sub), "%s/Movies.2020", fixture_dir);
+		rmdir(sub);
+	}
 
 	for (i = 0; i < N_LONG_ENTRIES; i++) {
 		char name[LONG_NAME_LEN + 1];
@@ -372,7 +394,7 @@ check_body(void)
 	       !strcmp(body + body_len - 20, "</div></body></html>"));
 	expect("every entry listed",
 	       count_str(body, "player.html?v=stream/") ==
-						2 + N_FRIENDLY + N_LONG_ENTRIES);
+					2 + N_FRIENDLY + N_NESTED + N_LONG_ENTRIES);
 
 	/* F-059 leg 2: names only reach markup as entities */
 	expect("script payload escaped",
@@ -397,6 +419,14 @@ check_body(void)
 	       !!strstr(body, "<br>Word word word</a>"));
 	expect("friendly name: leading year kept, tail cut",
 	       !!strstr(body, "<br>2015 Some Movie</a>"));
+
+	/* media in its own subdirectory: listed with its path, friendly
+	 * named from the basename */
+	expect("nested media listed by path",
+	       !!strstr(body,
+			"player.html?v=stream/Movies.2020/Nested.Bunny.1080p.WEB-DL.mkv"));
+	expect("nested media friendly name from the basename",
+	       !!strstr(body, "<br>Nested Bunny</a>"));
 
 	/*
 	 * Links are relative only: the app is expected behind a reverse

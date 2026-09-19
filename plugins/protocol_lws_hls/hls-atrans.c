@@ -337,6 +337,28 @@ hls_atrans_unpark(struct per_vhost_data__lws_hls *vhd, const char *filename,
 		    filename, audio_idx, n);
 }
 
+/*
+ * vhd->lock held: is the shadow wait recorded on this task already
+ * satisfied?  The atrans thread can complete a whole build in the window
+ * between the task being flagged for parking and actually reaching
+ * vhd->parked, so lws_hls_task_park() re-checks rather than sleep through
+ * a wakeup that already came and went.
+ */
+int
+lws_hls_atrans_wait_done(struct per_vhost_data__lws_hls *vhd,
+			 const char *filename, int audio_idx, int64_t need_us)
+{
+	struct hls_atrans_job *j = hls_atrans_job_find(vhd, filename, audio_idx);
+
+	if (j)
+		return j->covered_us >= need_us;
+
+	j = hls_atrans_recent_find(vhd, filename, audio_idx);
+
+	/* a success is on disk (covered INT64_MAX when it finished) */
+	return j && !j->failed;
+}
+
 enum hls_atrans_state
 lws_hls_atrans_lookup(struct per_vhost_data__lws_hls *vhd, const char *filename,
 		      int audio_idx, int64_t *covered_us)

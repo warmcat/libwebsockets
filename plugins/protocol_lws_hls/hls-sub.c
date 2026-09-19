@@ -1253,7 +1253,14 @@ lws_hls_build_stream(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
 
 	/* Each MEDIA line repeats the filename twice (NAME may also be
 	 * long for untagged tracks) and the STREAM-INF repeats it; size
-	 * generously from the actual string lengths rather than a guess. */
+	 * generously from the actual string lengths rather than a guess.
+	 * The rendition URIs climb to the toplevel of the URL space: one
+	 * level for the /stream/ playlist itself, plus one per '/' in a
+	 * media name that sits in its own subdirectory. */
+	char up[64];
+
+	hls_up_prefix(up, sizeof(up), 1 + hls_media_depth(filename));
+
 	fnlen = strlen(filename);
 	cap = 256 + (size_t)(ntracks + naudio) * (320 + fnlen * 2) + fnlen * 2;
 
@@ -1273,8 +1280,8 @@ lws_hls_build_stream(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
 			"#EXT-X-MEDIA:TYPE=SUBTITLES,"
 			"GROUP-ID=\"subs\",NAME=\"%s\","
 			"DEFAULT=NO,AUTOSELECT=NO,FORCED=NO,"
-			"LANGUAGE=\"%s\",URI=\"../subsm/%s/%s\"\n",
-			tracks[i].name, tracks[i].lang, filename,
+			"LANGUAGE=\"%s\",URI=\"%ssubsm/%s/%s\"\n",
+			tracks[i].name, tracks[i].lang, up, filename,
 			tracks[i].id);
 	}
 
@@ -1299,22 +1306,22 @@ lws_hls_build_stream(struct per_vhost_data__lws_hls *vhd, const char *media_dir,
 				"#EXT-X-MEDIA:TYPE=AUDIO,"
 				"GROUP-ID=\"audio\",NAME=\"%s\","
 				"DEFAULT=%s,AUTOSELECT=YES,"
-				"LANGUAGE=\"%s\",URI=\"../avstream/%s/%s\"\n",
+				"LANGUAGE=\"%s\",URI=\"%savstream/%s/%s\"\n",
 				audio[i].name, def ? "YES" : "NO",
-				audio[i].lang, filename, audio[i].id);
+				audio[i].lang, up, filename, audio[i].id);
 		}
 
 		q = hls_append_fmt(q, buf, cap,
 			"\n#EXT-X-STREAM-INF:BANDWIDTH=1,AVERAGE-BANDWIDTH=1,"
 			"AUDIO=\"audio\"%s\n"
-			"../avstream/%s/v\n",
-			ntracks ? ",SUBTITLES=\"subs\"" : "", filename);
+			"%savstream/%s/v\n",
+			ntracks ? ",SUBTITLES=\"subs\"" : "", up, filename);
 	} else
 		q = hls_append_fmt(q, buf, cap,
 			"\n#EXT-X-STREAM-INF:BANDWIDTH=1,AVERAGE-BANDWIDTH=1,"
 			"SUBTITLES=\"subs\"\n"
-			"../avstream/%s\n",
-			filename);
+			"%savstream/%s\n",
+			up, filename);
 
 	set_body(r, "application/vnd.apple.mpegurl",
 		 (uint8_t *)buf, (size_t)(q - buf));
@@ -1376,13 +1383,22 @@ lws_hls_build_sub_playlist(struct per_vhost_data__lws_hls *vhd,
 		"#EXT-X-PLAYLIST-TYPE:VOD\n",
 		tl.target_duration);
 
-	/* The sub playlist is at /subsm/<file>/<id>, so segment URIs are
-	 * two levels up: ../../subseg/<file>/<id>/<idx>. */
-	for (i = 0; i < tl.count; i++) {
-		q = hls_append_fmt(q, buf, cap,
-			"#EXTINF:%f,\n"
-			"../../subseg/%s/%s/%d\n",
-			tl.durations[i], filename, trackid, i);
+	/*
+	 * The sub playlist is at /subsm/<file>/<id>, so segment URIs climb
+	 * two levels to the toplevel, plus one per '/' in a media name that
+	 * sits in its own subdirectory.
+	 */
+	{
+		char up[64];
+
+		hls_up_prefix(up, sizeof(up), 2 + hls_media_depth(filename));
+
+		for (i = 0; i < tl.count; i++) {
+			q = hls_append_fmt(q, buf, cap,
+				"#EXTINF:%f,\n"
+				"%ssubseg/%s/%s/%d\n",
+				tl.durations[i], up, filename, trackid, i);
+		}
 	}
 	q = hls_append_fmt(q, buf, cap, "#EXT-X-ENDLIST\n");
 

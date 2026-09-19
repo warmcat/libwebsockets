@@ -199,76 +199,146 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		 void *user, void *in, size_t len);
 
 /*
- * Split "<filename>[/<sel>][/<idx>]" from an A/V route into its parts.
- * filename is purified and may not contain '/'.  sel is the rendition
- * selector ("" when absent, see hls_parse_sel()) and is validated here so
- * only well-formed selectors reach the worker.  When pidx is non-NULL a
- * trailing all-digits element is required and returned there; without
- * pidx nothing may follow the selector.
+ * A route's media name may span subdirectories under media-dir (the
+ * listing walks them), so it is a relative path rather than a single
+ * component.  Validate it as such and copy it: every '/'-separated
+ * component non-empty and neither "." nor "..", and no control characters
+ * anywhere (a leading or trailing '/' is an empty component, so those
+ * fail too).  Returns 0, else -1.
+ */
+static int
+hls_media_name_copy(char *filename, size_t fn_sz, const char *p, size_t len)
+{
+	size_t i, cs = 0;
+
+	if (!len || len >= fn_sz)
+		return -1;
+
+	for (i = 0; i <= len; i++) {
+		char c = (i < len) ? p[i] : '/';
+
+		if (c == '/') {
+			size_t cl = i - cs;
+
+			if (!cl || (cl == 1 && p[cs] == '.') ||
+			    (cl == 2 && p[cs] == '.' && p[cs + 1] == '.'))
+				return -1;
+			cs = i + 1;
+		} else if ((unsigned char)c < 0x20 || (unsigned char)c == 0x7f)
+			return -1;
+	}
+
+	memcpy(filename, p, len);
+	filename[len] = '\0';
+
+	return 0;
+}
+
+/* is [s, s+l) a rendition selector, "v" or "aN" ? */
+static int
+hls_sel_valid(const char *s, size_t l)
+{
+	size_t i;
+
+	if (l == 1 && s[0] == 'v')
+		return 1;
+	if (l < 2 || l > 4 || s[0] != 'a')
+		return 0;
+	for (i = 1; i < l; i++)
+		if (s[i] < '0' || s[i] > '9')
+			return 0;
+
+	return 1;
+}
+
+/* is [s, s+l) a subtitle track id, "eN" or "sN" ? */
+static int
+hls_trackid_valid(const char *s, size_t l)
+{
+	size_t i;
+
+	if (l < 2 || l > 8 || (s[0] != 'e' && s[0] != 's'))
+		return 0;
+	for (i = 1; i < l; i++)
+		if (s[i] < '0' || s[i] > '9')
+			return 0;
+
+	return 1;
+}
+
+/* is [s, s+l) all digits, ie an index or a thumbnail time? */
+static int
+hls_digits(const char *s, size_t l)
+{
+	size_t i;
+
+	if (!l || l > 7)
+		return 0;
+	for (i = 0; i < l; i++)
+		if (s[i] < '0' || s[i] > '9')
+			return 0;
+
+	return 1;
+}
+
+/*
+ * Split "<media-name>[/<sel>][/<idx>]" from an A/V route into its parts,
+ * parsing from the right: media names always end in a media-file
+ * extension, so the trailing route elements are unambiguous however deep
+ * the media sits under media-dir.  sel is the rendition selector (""
+ * when absent, see hls_parse_sel()).  When want_idx is set, a trailing
+ * all-digits element is required and returned in *idx.
  *
  * Returns -1 if the path does not fit the shape.
  */
 static int
 hls_split_sel(const char *p, char *filename, size_t fn_sz, char *sel,
-	      size_t sel_sz, const char **pidx)
+	      size_t sel_sz, int want_idx, int *idx)
 {
-	const char *sep = strchr(p, '/'), *e;
+	char work[512];
+	char *ls;
+	size_t wl;
 	enum hls_sel_kind kind;
-	size_t n;
 	int dummy;
 
-	n = sep ? (size_t)(sep - p) : strlen(p);
-	if (!n || n >= fn_sz)
-		return -1;
-	memcpy(filename, p, n);
-	filename[n] = '\0';
-	lws_filename_purify_inplace(filename);
-	if (strchr(filename, '/'))
-		return -1;
-
 	sel[0] = '\0';
-	if (pidx)
-		*pidx = NULL;
-	if (!sep)
-		return pidx ? -1 : 0;
+	if (idx)
+		*idx = -1;
 
-	/* the next element: the index if it is all digits and we want one,
-	 * else the selector */
-	p = sep + 1;
-	sep = strchr(p, '/');
-	n = sep ? (size_t)(sep - p) : strlen(p);
-	if (!n)
+	wl = strlen(p);
+	if (!wl || wl >= sizeof(work))
 		return -1;
-	for (e = p; e < p + n && *e >= '0' && *e <= '9'; e++)
-		;
-	if (pidx && e == p + n) {
-		if (sep)
-			return -1; /* "<file>/<idx>/more" */
-		*pidx = p;
-		return 0;
+	memcpy(work, p, wl + 1);
+
+	/* a trailing all-digits element: the segment index */
+	if (want_idx) {
+		ls = strrchr(work, '/');
+		{
+			const char *tail = ls ? ls + 1 : work;
+
+			if (!hls_digits(tail, strlen(tail)))
+				return -1;
+			*idx = atoi(tail);
+			if (!ls)
+				return -1;	/* no room for a name */
+			*ls = '\0';
+		}
 	}
 
-	if (n >= sel_sz)
-		return -1;
-	memcpy(sel, p, n);
-	sel[n] = '\0';
-	if (hls_parse_sel(sel, &kind, &dummy))
-		return -1;
+	/* an optional selector element before that */
+	ls = strrchr(work, '/');
+	if (ls && hls_sel_valid(ls + 1, strlen(ls + 1))) {
+		size_t sl = strlen(ls + 1);
 
-	if (!sep)
-		return pidx ? -1 : 0; /* a segment needs its index */
-	if (!pidx)
-		return -1; /* nothing may follow the selector */
-
-	p = sep + 1;
-	if (!*p || strchr(p, '/'))
-		return -1;
-	for (e = p; *e; e++)
-		if (*e < '0' || *e > '9')
+		if (sl >= sel_sz)
 			return -1;
-	*pidx = p;
+		memcpy(sel, ls + 1, sl + 1);
+		if (hls_parse_sel(sel, &kind, &dummy))
+			return -1;
+		*ls = '\0';
+	}
 
-	return 0;
+	return hls_media_name_copy(filename, fn_sz, work, strlen(work));
 }
 
 static const struct lws_protocols stub_prots[] = {
@@ -859,22 +929,30 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			return lws_hls_serve_dir(wsi, vhd);
 		}
 		else if (!strncmp(url, "/preview/", 9)) {
-			/* /preview/<filename>[/<secs>]: the default frame,
-			 * or one at the viewer's resume position */
+			/*
+			 * /preview/<filename>[/<secs>]: the default frame, or
+			 * one at the viewer's resume position.  The name may
+			 * span subdirectories, so the time is a trailing
+			 * all-digits element (media names end in an extension,
+			 * which keeps that unambiguous)
+			 */
 			char filename[256];
-			const char *sl;
+			const char *ls;
 			int t = HLS_THUMB_DEFAULT_T;
 
-			lws_strncpy(filename, url + 9, sizeof(filename));
-			sl = strchr(filename, '/');
-			if (sl) {
-				filename[sl - filename] = '\0';
-				t = atoi(sl + 1);
+			ls = strrchr(url + 9, '/');
+			if (ls && hls_digits(ls + 1, strlen(ls + 1))) {
+				t = atoi(ls + 1);
 				if (t < 0)
 					t = HLS_THUMB_DEFAULT_T;
-			}
-			lws_filename_purify_inplace(filename);
-			if (!filename[0] || strchr(filename, '/'))
+				if (ls == url + 9)
+					goto err_404;
+			} else
+				ls = url + 9 + strlen(url + 9);
+
+			if (hls_media_name_copy(filename, sizeof(filename),
+						url + 9,
+						(size_t)(ls - (url + 9))))
 				goto err_404;
 			return lws_hls_serve_thumbnail(wsi, vhd->media_dir,
 						       filename, t);
@@ -887,9 +965,8 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 				*p = start, *end = buf + sizeof(buf) - 1;
 			int n;
 
-			lws_strncpy(filename, url + 7, sizeof(filename));
-			lws_filename_purify_inplace(filename);
-			if (!filename[0] || strchr(filename, '/'))
+			if (hls_media_name_copy(filename, sizeof(filename),
+						url + 7, strlen(url + 7)))
 				goto err_404;
 
 			n = lws_hls_index_status(vhd, filename, json,
@@ -912,9 +989,9 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		else if (!strncmp(url, "/stream/", 8)) {
 			char filename[256];
-			lws_strncpy(filename, url + 8, sizeof(filename));
-			lws_filename_purify_inplace(filename);
-			if (strchr(filename, '/'))
+
+			if (hls_media_name_copy(filename, sizeof(filename),
+						url + 8, strlen(url + 8)))
 				goto err_404;
 			/* master playlist if subtitles exist, else the A/V
 			 * media playlist unchanged */
@@ -926,60 +1003,73 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			char filename[256], sel[16];
 
 			if (hls_split_sel(url + 10, filename, sizeof(filename),
-					  sel, sizeof(sel), NULL))
+					  sel, sizeof(sel), 0, NULL))
 				goto err_404;
 			return lws_hls_queue_task(wsi, vhd, HLS_TASK_MANIFEST,
 						  filename, sel, 0);
 		}
 		else if (!strncmp(url, "/subsm/", 7)) {
-			/* /subsm/<filename>/<trackid> */
+			/*
+			 * /subsm/<filename>/<trackid>: the name may span
+			 * subdirectories, so the track id is the trailing
+			 * element
+			 */
 			const char *p = url + 7;
-			const char *sep = strchr(p, '/');
+			const char *sep = strrchr(p, '/');
 			char filename[256], trackid[16];
-			size_t fn_len, tid_len;
+			size_t tid_len;
 
 			if (!sep)
 				goto err_404;
-			fn_len = (size_t)(sep - p);
-			if (fn_len >= sizeof(filename))
-				goto err_404;
-			memcpy(filename, p, fn_len);
-			filename[fn_len] = '\0';
-			lws_filename_purify_inplace(filename);
-			if (strchr(filename, '/'))
-				goto err_404;
-
 			tid_len = strlen(sep + 1);
-			if (tid_len == 0 || tid_len >= sizeof(trackid))
+			if (!hls_trackid_valid(sep + 1, tid_len) ||
+			    tid_len >= sizeof(trackid))
 				goto err_404;
 			lws_strncpy(trackid, sep + 1, sizeof(trackid));
+
+			if (hls_media_name_copy(filename, sizeof(filename), p,
+						(size_t)(sep - p)))
+				goto err_404;
+
 			return lws_hls_queue_task(wsi, vhd, HLS_TASK_SUB_PLAYLIST,
 						  filename, trackid, 0);
 		}
 		else if (!strncmp(url, "/subseg/", 8)) {
-			/* /subseg/<filename>/<trackid>/<idx> */
+			/*
+			 * /subseg/<filename>/<trackid>/<idx>: trailing
+			 * elements from the right, however deep the name
+			 */
 			const char *p = url + 8;
-			const char *sep1 = strchr(p, '/');
-			const char *sep2;
+			const char *sep2 = strrchr(p, '/');
+			const char *sep1;
 			char filename[256], trackid[16];
-			size_t fn_len, tid_len;
+			size_t tid_len;
 
-			if (!sep1 || !(sep2 = strchr(sep1 + 1, '/')))
-				goto err_404;
-			fn_len = (size_t)(sep1 - p);
-			if (fn_len >= sizeof(filename))
-				goto err_404;
-			memcpy(filename, p, fn_len);
-			filename[fn_len] = '\0';
-			lws_filename_purify_inplace(filename);
-			if (strchr(filename, '/'))
+			if (!sep2 || !hls_digits(sep2 + 1, strlen(sep2 + 1)))
 				goto err_404;
 
+			sep1 = NULL;
+			{
+				const char *q;
+
+				for (q = sep2; q > p; q--)
+					if (q[-1] == '/') {
+						sep1 = q - 1;
+						break;
+					}
+			}
+			if (!sep1)
+				goto err_404;
 			tid_len = (size_t)(sep2 - (sep1 + 1));
-			if (tid_len == 0 || tid_len >= sizeof(trackid))
+			if (!hls_trackid_valid(sep1 + 1, tid_len) ||
+			    tid_len >= sizeof(trackid))
 				goto err_404;
 			memcpy(trackid, sep1 + 1, tid_len);
 			trackid[tid_len] = '\0';
+
+			if (hls_media_name_copy(filename, sizeof(filename), p,
+						(size_t)(sep1 - p)))
+				goto err_404;
 
 			return lws_hls_queue_task(wsi, vhd, HLS_TASK_SUB_SEGMENT,
 						  filename, trackid,
@@ -990,7 +1080,7 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			char filename[256], sel[16];
 
 			if (hls_split_sel(url + 6, filename, sizeof(filename),
-					  sel, sizeof(sel), NULL))
+					  sel, sizeof(sel), 0, NULL))
 				goto err_404;
 			return lws_hls_queue_task(wsi, vhd, HLS_TASK_INIT,
 						  filename, sel, 0);
@@ -998,13 +1088,13 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		else if (!strncmp(url, "/segment/", 9)) {
 			/* /segment/<filename>[/<sel>]/<idx> */
 			char filename[256], sel[16];
-			const char *idx;
+			int idx;
 
 			if (hls_split_sel(url + 9, filename, sizeof(filename),
-					  sel, sizeof(sel), &idx) || !idx)
+					  sel, sizeof(sel), 1, &idx))
 				goto err_404;
 			return lws_hls_queue_task(wsi, vhd, HLS_TASK_SEGMENT,
-						  filename, sel, atoi(idx));
+						  filename, sel, idx);
 		} else if (!strncmp(url, "/delete/", 8)) {
 			char filename[256];
 
