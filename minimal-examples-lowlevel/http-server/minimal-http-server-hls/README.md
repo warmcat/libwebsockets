@@ -105,4 +105,13 @@ Two things to know when proxying at a point of a public URL space:
  - the login helper script reference (`/lws-login-media/lws-login.js`)
    predates this and is still absolute: it is optional and silently
    skipped when it does not load, but if you need it behind a proxy, mount
-   the lws-login media endpoint at the public side accordingly.
+   the lws-login media endpoint at the public side accordingly;
+
+ - the PUBLIC vhost's CSP is what the browser ends up enforcing on the
+   proxied pages, not the private one: hls.js plays through MSE, so the
+   public side must allow `media-src 'self' blob:` (and connect-src 'self'
+   for the fetches).  A public vhost enforcing lws's best-practice headers
+   without that (its default CSP is `default-src 'none'`) blocks the
+   video element's blob: source, which Firefox reports as "Media load
+   rejected by URL safety check".  The CSP this example uses on its own
+   vhost is a suitable one to set on the public side.

@@ -326,9 +326,16 @@ hls_serve_asset(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 		     hls_assets[i].name);
 
 	fd = open(path, O_RDONLY);
-	if (fd < 0)
-		/* not installed there: leave it to whatever follows */
+	if (fd < 0) {
+		/*
+		 * A whitelisted name that is missing from www-dir is an
+		 * installation problem worth naming in the log, not just a
+		 * mystery 404
+		 */
+		lwsl_wsi_warn(wsi, "asset %s not in www-dir %s",
+			      hls_assets[i].name, vhd->www_dir);
 		return 1;
+	}
 	if (fstat(fd, &st) || st.st_size < 0 ||
 	    (size_t)st.st_size > 8 * 1024 * 1024) {
 		close(fd);
@@ -1089,13 +1096,16 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		} else {
 			/*
 			 * The player page and its assets, served from www_dir
-			 * so the app is one flat mount; anything else is not
-			 * ours
+			 * so the app is one flat mount.  Anything else is not
+			 * ours: a clean 404, never the hung transaction the
+			 * dummy callback leaves behind (behind a proxy that
+			 * shows up at the browser as a corrupted response)
 			 */
 			if (!hls_serve_asset(wsi, vhd, pss, url))
 				return 0;
 
-			return lws_callback_http_dummy(wsi, reason, user, in, len);
+			lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
+			return -1;
 		}
 
 		return 0;
