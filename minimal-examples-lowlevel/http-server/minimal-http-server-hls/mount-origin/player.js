@@ -56,7 +56,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             t = t.replace(/<h1>.*?<\/h1>/, '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
                             throw new Error('HTTP ' + res.status + (t ? ': ' + t : ''));
                         });
-                    window.location.replace('..');
+                    window.location.replace('.');
                 }).catch(function(e) {
                     delBtn.disabled = false;
                     alert('Failed to delete file: ' + e.message);
