@@ -803,7 +803,7 @@ lws_hls_indexer_destroy(struct per_vhost_data__lws_hls *vhd)
  */
 int
 lws_hls_index_status(struct per_vhost_data__lws_hls *vhd, const char *filename,
-		     char *json, size_t len)
+		     char *json, size_t len, int can_delete)
 {
 	int ready = 0, running = 0, failed = 0, pct = 0, found = 0, n;
 	struct hls_index_job *j;
@@ -862,9 +862,11 @@ lws_hls_index_status(struct per_vhost_data__lws_hls *vhd, const char *filename,
 	}
 
 	n = lws_snprintf(json, len, "{\"ready\":%s,\"running\":%s,"
-				     "\"failed\":%s,\"progress\":%d",
+				     "\"failed\":%s,\"progress\":%d,"
+				     "\"can_delete\":%s",
 			 ready ? "true" : "false", running ? "true" : "false",
-			 failed ? "true" : "false", pct);
+			 failed ? "true" : "false", pct,
+			 can_delete ? "true" : "false");
 	if (n < 0 || (size_t)n >= len)
 		return n < 0 ? n : (int)len - 1;
 

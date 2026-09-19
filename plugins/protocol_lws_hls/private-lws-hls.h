@@ -375,6 +375,14 @@ struct per_vhost_data__lws_hls {
 	struct hls_atrans_job *atrans_running;
 	lws_dll2_owner_t atrans_recent;	/* finished builds, see the struct */
 
+	/*
+	 * Name of the grant that allows deleting media, as a pvo: the
+	 * logged-in user needs this grant (or "*") at level >= 2 for the
+	 * delete buttons and for the backend to honour a delete.  Defaults
+	 * to service-name.
+	 */
+	const char *grant_name;
+
 	/* WebVTT subtitle cue cache (per media file + track id) */
 	lws_dll2_owner_t sub_cache;	/* decoded cue lists, MRU first */
 	int sub_cache_count;
@@ -724,10 +732,14 @@ lws_hls_indexer_destroy(struct per_vhost_data__lws_hls *vhd);
 volatile int *
 lws_hls_index_progress(struct per_vhost_data__lws_hls *vhd);
 
-/* event loop: JSON for /index/<file>, queueing the build if there is none */
+/*
+ * Event loop: JSON for /index/<file>, queueing the build if there is none.
+ * can_delete is the request's delete decision (hls_can_delete()), so the
+ * player page shows its delete button from the server's own answer.
+ */
 int
 lws_hls_index_status(struct per_vhost_data__lws_hls *vhd, const char *filename,
-		     char *json, size_t len);
+		     char *json, size_t len, int can_delete);
 
 /* remove indexes whose media is gone or changed: once at init, then hourly */
 void

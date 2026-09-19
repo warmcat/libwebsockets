@@ -477,6 +477,10 @@ check_body(void)
 	       !!strstr(body, "href='player.html?v="));
 	expect("no absolute hrefs in the listing",
 	       !strstr(body, "href='/"));
+
+	/* no auth scheme configured: no delete buttons at all */
+	expect("no delete buttons without a grant",
+	       !strstr(body, "del-btn"));
 }
 
 static void

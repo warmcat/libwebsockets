@@ -456,8 +456,8 @@ hls_serve_asset(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
  *     is not reachable any other way (an internal box).  Off by default
  *
  *  3. with jwt-jwk (the auth server's public jwk): the auth_session cookie
- *     itself, for the "*" wildcard grant or a service-name (default "hls")
- *     grant at admin level.  The original scheme, for a vhost that has the
+ *     itself, needing the "grant" pvo's grant (default: service-name) or
+ *     the "*" wildcard grant, at level >= 2.  For a vhost that has the
  *     bouncer neither in-process nor in front of it
  *
  * The state threshold is LWS_LOGIN_STATE_APP_ADMIN: admin of this app,
@@ -525,15 +525,24 @@ hls_can_delete(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 			 */
 			if (!exp || exp <= (uint64_t)lws_now_secs())
 				lws_snprintf(why, wl, "auth_session jwt expired");
-			else if (lws_jwt_auth_query_grant(ja, "*") >= 1 ||
-				 lws_jwt_auth_query_grant(ja, vhd->service_name) >= 2) {
-				lws_snprintf(why, wl, "jwt grant for '%s'",
-					     vhd->service_name);
+			else if (lws_jwt_auth_query_grant(ja, "*") >= 2 ||
+				 lws_jwt_auth_query_grant(ja,
+						vhd->grant_name) >= 2) {
+				lws_snprintf(why, wl, "jwt grant '%s' or '*' "
+						   "at level 2",
+					     vhd->grant_name);
 				ok = 1;
 			} else
 				lws_snprintf(why, wl,
-					     "jwt has no admin grant for '%s'",
-					     vhd->service_name);
+					     "jwt needs '%s' (or '*') at level "
+					     "2: has '%s'=%d, '*'=%d",
+					     vhd->grant_name,
+					     vhd->grant_name,
+					     lws_jwt_auth_query_grant(
+							     ja,
+							     vhd->grant_name),
+					     lws_jwt_auth_query_grant(ja,
+								      "*"));
 
 			lws_jwt_auth_destroy(&ja);
 		}
@@ -685,6 +694,11 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->service_name = "hls";
 		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "service-name")))
 			vhd->service_name = pvo->value;
+
+		/* the grant allowing media deletion, "*" or this at level >= 2 */
+		vhd->grant_name = vhd->service_name;
+		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "grant")))
+			vhd->grant_name = pvo->value;
 
 		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "trust-login-headers")))
 			vhd->trust_login_headers = atoi(pvo->value);
@@ -960,7 +974,7 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		else if (!strncmp(url, "/index/", 7)) {
 			/* is the keyframe index built?  asking starts it */
-			char filename[256], jb[LWS_PRE + 128],
+			char filename[256], jb[LWS_PRE + 160],
 			     *json = jb + LWS_PRE;
 			uint8_t buf[LWS_PRE + 1024], *start = buf + LWS_PRE,
 				*p = start, *end = buf + sizeof(buf) - 1;
@@ -971,7 +985,8 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 				goto err_404;
 
 			n = lws_hls_index_status(vhd, filename, json,
-						 sizeof(jb) - LWS_PRE);
+						 sizeof(jb) - LWS_PRE,
+						 pss->can_delete);
 
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
 					"application/json", (lws_filepos_t)n,

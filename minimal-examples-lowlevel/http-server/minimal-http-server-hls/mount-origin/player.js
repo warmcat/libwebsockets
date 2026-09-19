@@ -4,22 +4,16 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     /*
-     * Whether to offer the delete button: ask the lws-login bouncer gating
-     * this mount for our login state (the session cookie is HttpOnly, so it
-     * cannot be read from here; and it is the bouncer's opinion that counts).
-     * login_state 3 is admin of this app, 4 the global admin.  Without a
-     * bouncer the fetch fails and the button stays hidden; the server
-     * enforces the same rule on the POST whatever we show.
+     * The delete button: shown only when the server says this session may
+     * delete media.  It tells us in the index-status poll below ("grant"
+     * pvo or '*' at level >= 2, or the bouncer's admin state -- the
+     * server's own decision, whatever scheme is configured), and it
+     * enforces the same rule on the POST whatever we show.  Until that
+     * answer arrives the button stays hidden.
      */
     var delBtn = document.getElementById('delete-btn');
+    var deleteAllowed = false;
     if (delBtn) {
-        fetch('.lws-login-status', { credentials: 'same-origin' }).then(function(r) {
-            return r.ok ? r.json() : null;
-        }).then(function(st) {
-            if (st && st.logged_in && st.login_state >= 3)
-                delBtn.classList.remove('hidden');
-        }).catch(function() { /* no bouncer: no delete */ });
-
         delBtn.addEventListener('click', function(event) {
             event.preventDefault();
             if (!confirm("Are you sure you want to delete this file?")) return;
@@ -282,6 +276,12 @@ document.addEventListener('DOMContentLoaded', function() {
                         throw new Error('HTTP ' + res.status);
                     return res.json();
                 }).then(function(st) {
+                    if (st.can_delete && !deleteAllowed) {
+                        deleteAllowed = true;
+                        if (delBtn)
+                            delBtn.classList.remove('hidden');
+                        logMsg('delete: permitted for this session');
+                    }
                     if (st.ready || st.failed) {
                         if (polls)
                             logMsg('index: ' + (st.ready ? 'ready' : 'build failed, trying anyway'));
