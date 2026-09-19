@@ -16,7 +16,10 @@ This example demonstrates how to use the `protocol_lws_hls` plugin to dynamicall
 [2026/07/08 12:00:00:0000] USER: Media dir: /usr/local/share/libwebsockets-test-server/hls
 ```
 
-Visit http://localhost:7681 to view the generated media library.
+Visit http://localhost:7681 for the media library listing: the toplevel is
+the plugin's directory page (the listing can also be reached at /hls/hls/).
+The player page and its assets live under /hls/, the HLS endpoints under
+/hls/hls/, and the raw media files are also served directly under /media/.
 
 ## Commandline Options
 

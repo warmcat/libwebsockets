@@ -678,7 +678,6 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_info("HLS HTTP REQ: url='%s', waiting=%d\n", url ? url : "NULL", pss->waiting_for_thumbnail);
 
 		if (!strcmp(url, "")) {
-			/* Redirect to add trailing slash */
 			char uri[512];
 			int ulen = lws_hdr_copy(wsi, uri, sizeof(uri) - 2, WSI_TOKEN_GET_URI);
 			if (ulen > 0) {
@@ -686,6 +685,17 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 				unsigned char *p_red = redirect_buf + LWS_PRE;
 				unsigned char *end_red = redirect_buf + sizeof(redirect_buf) - 1;
 
+				/*
+				 * The uri is already slash-terminated when we
+				 * are the toplevel mount ("/"): that is the
+				 * media listing itself, not something to add
+				 * another slash to
+				 */
+				if (uri[ulen - 1] == '/')
+					return lws_hls_serve_dir(wsi,
+							vhd->media_dir);
+
+				/* Redirect to add trailing slash */
 				uri[ulen] = '/';
 				uri[ulen + 1] = '\0';
 				ulen++;

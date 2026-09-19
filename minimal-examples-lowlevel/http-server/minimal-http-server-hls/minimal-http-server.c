@@ -87,18 +87,23 @@ static struct lws_http_mount mount_raw_media = {
         .mountpoint             = "/media",             /* mountpoint URL */
         .origin                 = NULL,                 /* set at runtime */
         .def                    = "index.html",
-        .origin_protocol        = LWSMPRO_FILE,         /* serve from dir */
-        .mountpoint_len         = 6,                    /* char count */
+        .origin_protocol        = LWSMPRO_FILE, /* serve from dir */
+        .mountpoint_len         = 6,
         .extra_mimetypes        = &pvo_mime_mp4,
 };
 
-static const struct lws_http_mount mount = {
-        .mount_next             = &mount_raw_media,
-        .mountpoint             = "/",                  /* mountpoint URL */
-        .origin                 = INSTALL_DATADIR "/libwebsockets-test-server/hls/mount-origin",
-        .def                    = "index.html",
-        .origin_protocol        = LWSMPRO_FILE,         /* serve from dir */
-        .mountpoint_len         = 1,                    /* char count */
+/*
+ * The toplevel IS the media library: the plugin composes the directory
+ * page for "/" (and 404s anything else it does not own).  lws picks the
+ * longest matching mountpoint, so /hls (the player and its assets), /hls/hls
+ * (the media endpoints) and /media keep working unchanged.
+ */
+static const struct lws_http_mount mount_root = {
+	.mount_next		= &mount_raw_media,
+	.mountpoint		= "/",
+	.protocol		= "lws-hls",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 1,
 };
 
 void sigint_handler(int sig)
@@ -173,7 +178,7 @@ int main(int argc, const char **argv)
 	info.headers = &pvo_csp;
 	info.pvo = &pvo;
 	mount_raw_media.origin = pvo_media.value;
-	info.mounts = &mount;
+	info.mounts = &mount_root;
 #if defined(LWS_WITH_PLUGINS)
 	info.plugin_dirs = plugin_dirs;
 #endif

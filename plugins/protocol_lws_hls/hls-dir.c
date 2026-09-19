@@ -254,12 +254,18 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 	pss = (struct per_session_data__lws_hls *)lws_wsi_user(wsi);
 	can_delete = pss ? pss->can_delete : 0;
 
+	/*
+	 * The assets live under /hls (the static mount); the listing can be
+	 * served from the toplevel mount or from the plugin's own /hls/hls,
+	 * so reference them absolutely.
+	 */
 	q = hls_append_fmt(body, body, need,
 		"<html><head><meta charset=\"utf-8\">"
 		"<title>LWS HLS Media</title>"
-		"<link rel=\"stylesheet\" href=\"../dir.css\">"
+		"<link rel=\"icon\" href=\"/hls/favicon.ico\">"
+		"<link rel=\"stylesheet\" href=\"/hls/dir.css\">"
 		"<script src=\"/lws-login-media/lws-login.js\"></script>"
-		"<script src=\"../dir.js\" defer></script>"
+		"<script src=\"/hls/dir.js\" defer></script>"
 		"</head><body>"
 		"<div id=\"auth-status\"></div>"
 		"<h1>Media Directory</h1><div>");
@@ -275,7 +281,7 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 		hls_dir_esc(fesc, sizeof(fesc), display);
 		q = hls_append_fmt(q, body, need,
 			"<div class='item'>"
-			"<a href='../player.html?v=hls/stream/%s&t=%llu'>"
+			"<a href='/hls/player.html?v=hls/stream/%s&t=%llu'>"
 			"<img class='thumb' src='preview/%s' alt='Thumbnail'>"
 			"<br>%s</a>%s%s%s</div>",
 			esc, (unsigned long long)ds.entries[i].mtime, esc, fesc,
