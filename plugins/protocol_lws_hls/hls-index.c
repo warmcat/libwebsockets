@@ -261,6 +261,8 @@ lws_hls_index_load(struct per_vhost_data__lws_hls *vhd, const char *filename,
 	idx->video_idx = video_idx;
 	idx->count = (int)hdr.count;
 	idx->unflagged_keyframes = !!hdr.unflagged_keyframes;
+	idx->media_size = hdr.size;
+	idx->media_mtime = hdr.mtime;
 
 	lwsl_notice("HLS-INDEX: %s: %d keyframes loaded from %s\n", filename,
 		    idx->count, path);
