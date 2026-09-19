@@ -1,5 +1,6 @@
 #include "private-lws-hls.h"
 #include <sys/stat.h>
+#include <ctype.h>
 #include <stdlib.h>
 
 struct file_entry {
@@ -151,20 +152,82 @@ hls_dir_esc(char *o, size_t cap, const char *in)
 }
 
 /*
+ * Is this already-separated token part of the release furniture rather
+ * than the title?  Release names put the year, the resolution and the
+ * codec / source tags after the title, so the first of these ends it:
+ *
+ *   Word.word.word.2026.1080p.word.word.2.0.H.264-grp  ->  "Word word word"
+ *
+ * The caller never asks about the first token: a title can itself be
+ * "1917", "300" or start with "2001".
+ */
+static int
+hls_dir_junk_token(const char *tok, size_t tl)
+{
+	static const char * const junk[] = {
+		"web", "webrip", "web-dl", "bluray", "blu-ray", "brrip",
+		"bdrip", "dvdrip", "hdrip", "hdtv", "x264", "x265", "h264",
+		"h265", "hevc", "xvid", "divx", "avc", "aac", "ac3", "eac3",
+		"dts", "dts-hd", "truehd", "10bit", "8bit", "hdr", "sdr",
+		"multi", "remux", "repack", "proper", NULL
+	};
+	char lc[16];
+	size_t i;
+	int j;
+
+	if (!tl || tl >= sizeof(lc))
+		return 0;
+	for (i = 0; i < tl; i++)
+		lc[i] = (char)tolower((unsigned char)tok[i]);
+	lc[tl] = '\0';
+
+	/* a year: 19xx / 20xx */
+	if (tl == 4 && ((lc[0] == '1' && lc[1] == '9') ||
+			(lc[0] == '2' && lc[1] == '0')) &&
+	    lc[2] >= '0' && lc[2] <= '9' && lc[3] >= '0' && lc[3] <= '9')
+		return 1;
+
+	/* a resolution: 480..2160, with an optional p / i */
+	if (tl >= 3 && tl <= 5) {
+		size_t dl = (lc[tl - 1] == 'p' || lc[tl - 1] == 'i') ?
+								tl - 1 : tl;
+
+		if (dl == 3 || dl == 4) {
+			int dig = 1;
+
+			for (i = 0; i < dl; i++)
+				if (lc[i] < '0' || lc[i] > '9')
+					dig = 0;
+			if (dig)
+				return 1;
+		}
+	}
+
+	for (j = 0; junk[j]; j++)
+		if (!strcmp(lc, junk[j]))
+			return 1;
+
+	return 0;
+}
+
+/*
  * Friendly display name for a media file: the movie title rather than the
  * release filename.  From the basename, drop the extension, snip [..] and
- * (..) groups and turn '.' separators between words into spaces, collapsing
- * runs and trimming.  It only ever drops characters or replaces them
- * one-for-one, so the result cannot be longer than the input basename; if
- * nothing at all survives, the caller wants the filename shown as it is.
+ * (..) groups, turn '.' separators between words into spaces, collapse
+ * runs and trim, and stop at the first release-furniture token that
+ * follows the title (see hls_dir_junk_token()).  It only ever drops
+ * characters or replaces them one-for-one, so the result cannot be longer
+ * than the input basename; if nothing at all survives, the caller wants
+ * the filename shown as it is.
  */
 static void
 hls_dir_friendly(char *o, size_t cap, const char *in)
 {
 	char tmp[sizeof(((struct file_entry *)0)->name)];
-	const char *base = strrchr(in, '/'), *p;
+	const char *base = strrchr(in, '/');
 	size_t n = 0;
 	int ingroup = 0, sp = 0;
+	char *p;
 
 	base = base ? base + 1 : in;
 	lws_strncpy(tmp, base, sizeof(tmp));
@@ -177,6 +240,7 @@ hls_dir_friendly(char *o, size_t cap, const char *in)
 			*ext = '\0';
 	}
 
+	/* pass 1: strip bracket groups, '.' becomes ' ' */
 	for (p = tmp; *p; p++) {
 		if (*p == '[' || *p == '(') {
 			ingroup = 1;
@@ -196,8 +260,34 @@ hls_dir_friendly(char *o, size_t cap, const char *in)
 			sp = 0;
 		}
 	}
-
 	o[n < cap ? n : cap - 1] = '\0';
+
+	/* pass 2: the title ends at the first release-furniture token */
+	{
+		char *q = o;
+		int ti = 0;
+
+		while (*q) {
+			char *s = q, *e;
+
+			while (*s == ' ')
+				s++;
+			if (!*s)
+				break;
+			e = s;
+			while (*e && *e != ' ')
+				e++;
+
+			if (ti++ && hls_dir_junk_token(s, (size_t)(e - s))) {
+				/* trim any separator before it */
+				while (q < s && s[-1] == ' ')
+					s--;
+				*s = '\0';
+				break;
+			}
+			q = e;
+		}
+	}
 }
 
 int

@@ -99,10 +99,16 @@ document.addEventListener('DOMContentLoaded', function() {
      * Friendly display name for a media path: the movie title rather than
      * the release filename (the same massage hls-dir.c gives the listing):
      * take the final path component (or the one before a trailing
-     * index.m3u8), drop the extension, snip [..] and (..) groups, and turn
-     * '.' separators between words into spaces.  If nothing survives that,
-     * show the filename component as it is.
+     * index.m3u8), drop the extension, snip [..] and (..) groups, turn '.'
+     * separators between words into spaces, and stop at the first
+     * release-furniture token after the title: a year, a resolution
+     * (480..2160, optional p/i) or a codec / source tag.  The first token
+     * is never furniture, so titles like "1917" or "2001 A Space Odyssey"
+     * survive.  If nothing survives that, show the filename component as
+     * it is.
      */
+    var JUNK_TOKEN = /^(19|20)\d\d$|^\d{3,4}[pi]?$|^(web|webrip|web-dl|bluray|blu-ray|brrip|bdrip|dvdrip|hdrip|hdtv|x264|x265|h264|h265|hevc|xvid|divx|avc|aac|ac3|eac3|dts|dts-hd|truehd|10bit|8bit|hdr|sdr|multi|remux|repack|proper)$/i;
+
     function friendlyName(path) {
         var parts = String(path).split('/');
         var last = parts[parts.length - 1];
@@ -114,6 +120,14 @@ document.addEventListener('DOMContentLoaded', function() {
                    .replace(/\./g, ' ')
                    .replace(/\s+/g, ' ')
                    .trim();
+        var words = name.split(' ');
+        for (var i = 1; i < words.length; i++) {
+            if (JUNK_TOKEN.test(words[i])) {
+                words = words.slice(0, i);
+                break;
+            }
+        }
+        name = words.join(' ');
         return name || comp;
     }
 

@@ -51,7 +51,7 @@
 #define N_LONG_ENTRIES	48	/* 254-char names: ~18 KB over the old
 				 * fixed 512-per-entry estimate */
 #define LONG_NAME_LEN	254	/* chars including the ".mp4" suffix */
-#define N_FRIENDLY	3	/* friendly-name massage fixtures */
+#define N_FRIENDLY	5	/* friendly-name massage fixtures */
 
 static struct lws_context *context;
 static struct lws *cli_wsi;
@@ -255,13 +255,22 @@ build_fixture_dir(void)
 	if (touch(fixture_dir, "<svg onload=alert(1)>.mp4"))
 		return 1;
 
-	/* friendly-name massage: bracket groups snipped, '.' separators
-	 * become spaces; a name that snips to nothing shows as-is */
+	/*
+	 * friendly-name massage: bracket groups snipped, '.' separators
+	 * become spaces, and the title ends at the first release-furniture
+	 * token (year / resolution / codec-source tag); a name that snips
+	 * to nothing shows as-is
+	 */
 	if (touch(fixture_dir, "The.Matrix.(1999).[1080p].x265.mkv"))
 		return 1;
 	if (touch(fixture_dir, "Friendly.Name.Test.2020.mp4"))
 		return 1;
 	if (touch(fixture_dir, "[only.groups].mkv"))
+		return 1;
+	if (touch(fixture_dir,
+		   "Word.word.word.2026.1080p.word.word.word.2.0.H.264-word.word.mkv"))
+		return 1;
+	if (touch(fixture_dir, "2015.Some.Movie.720p.WEB-DL.aac.mkv"))
 		return 1;
 
 	/* enough 254-char names to blow the old 512-per-entry budget:
@@ -299,6 +308,12 @@ remove_fixture_dir(void)
 	unlink(path);
 	(void)snprintf(path, sizeof(path), "%s/%s", fixture_dir,
 		       "[only.groups].mkv");
+	unlink(path);
+	(void)snprintf(path, sizeof(path), "%s/%s", fixture_dir,
+		       "Word.word.word.2026.1080p.word.word.word.2.0.H.264-word.word.mkv");
+	unlink(path);
+	(void)snprintf(path, sizeof(path), "%s/%s", fixture_dir,
+		       "2015.Some.Movie.720p.WEB-DL.aac.mkv");
 	unlink(path);
 
 	for (i = 0; i < N_LONG_ENTRIES; i++) {
@@ -372,12 +387,16 @@ check_body(void)
 	       !strstr(body, "stream/x'"));
 
 	/* friendly names as link text, raw names kept for href/src/data-file */
-	expect("friendly name: groups snipped, dots spaced",
-	       !!strstr(body, "<br>The Matrix x265</a>"));
-	expect("friendly name: dots spaced",
-	       !!strstr(body, "<br>Friendly Name Test 2020</a>"));
+	expect("friendly name: furniture cut after the title",
+	       !!strstr(body, "<br>The Matrix</a>"));
+	expect("friendly name: year ends the title",
+	       !!strstr(body, "<br>Friendly Name Test</a>"));
 	expect("friendly name: snipped to nothing shows the filename",
 	       !!strstr(body, "<br>[only.groups].mkv</a>"));
+	expect("friendly name: release tail dropped",
+	       !!strstr(body, "<br>Word word word</a>"));
+	expect("friendly name: leading year kept, tail cut",
+	       !!strstr(body, "<br>2015 Some Movie</a>"));
 
 	/*
 	 * Links are relative only: the app is expected behind a reverse
