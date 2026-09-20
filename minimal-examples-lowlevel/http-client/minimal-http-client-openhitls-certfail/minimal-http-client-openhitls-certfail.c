@@ -231,8 +231,9 @@ int main(int argc, const char **argv)
 		 * Server listens on the specified port.
 		 */
 		info.port = 7750;
-		if (p)
+		if (p) {
 			info.port = atoi(p);
+		}
 		info.ssl_cert_filepath =
 			"wronghost.example.com.cert";
 		info.ssl_private_key_filepath =
@@ -245,8 +246,9 @@ int main(int argc, const char **argv)
 		 * R8: Embed a TLS server requiring client certs (mTLS).
 		 */
 		info.port = 7760;
-		if (p)
+		if (p) {
 			info.port = atoi(p);
+		}
 		info.ssl_cert_filepath =
 			LWS_TEST_SERVER_CERT_PEM;
 		info.ssl_private_key_filepath =

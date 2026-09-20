@@ -249,9 +249,9 @@ _realloc(void *ptr, size_t size, const char *reason)
 			else
 #endif
 #if defined(LWS_PLAT_OPTEE)
-			v = (void *)TEE_Realloc(ptr, size);
+				v = (void *)TEE_Realloc(ptr, size);
 #else
-			v = (void *)realloc(ptr, size);
+				v = (void *)realloc(ptr, size);
 #endif
 			if (v)
 				break;

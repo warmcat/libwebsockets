@@ -1094,14 +1094,15 @@ payload_ff:
 			if (par->ctr == LWSSSCS_CREATING) {
 				h = lws_container_of(par, lws_sspc_handle_t,
 						     parser);
-				if (h->creating_cb_done)
+				if (h->creating_cb_done) {
 					/*
 					 * We have told him he's CREATING when
 					 * we heard we had linked up to the
 					 * proxy, so suppress the remote
 					 * CREATING so that he only sees it once
 					 */
-				break;
+					break;
+				}
 
 				h->creating_cb_done = 1;
 			}

@@ -483,7 +483,7 @@ int main(void)
 				 "%c(defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)))\n", n & 1 ? ' ' : '!',
 				     n & 2 ? ' ' : '!', n & 4 ? ' ' : '!');
 		else
-		printf("#if !defined(LWS_HTTP_HEADERS_ALL) && %cdefined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && "
+			printf("#if !defined(LWS_HTTP_HEADERS_ALL) && %cdefined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && "
 			 "%cdefined(LWS_ROLE_WS) && "
 			 "%c(defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))\n", n & 1 ? ' ' : '!',
 			     n & 2 ? ' ' : '!', n & 4 ? ' ' : '!');

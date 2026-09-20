@@ -325,7 +325,7 @@ lws_apply_instant_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 					(const unsigned char *)imd->name,
 					(const unsigned char *)imd->value__may_own_heap,
 					(int)imd->length, pp, end))
-			return -1;
+				return -1;
 
 			/* it's possible user set content-length directly */
 			if (!strncmp(imd->name,

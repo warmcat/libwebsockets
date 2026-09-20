@@ -1014,7 +1014,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_add_http_header_by_token(parent,
 				WSI_TOKEN_CONNECTION, (unsigned char *)"close",
 				5, &p, end))
-			return -1;
+				return -1;
 
 		/*
 		 * We proxy using h1 only atm, and strip any chunking so it

@@ -129,8 +129,8 @@ __lws_sul_service_ripe(lws_dll2_owner_t *own, int own_len, lws_usec_t usnow)
 			lws_sorted_usec_list_t *sul;
 			if (!own[n].count)
 				continue;
-			 sul = (lws_sorted_usec_list_t *)
-						     lws_dll2_get_head(&own[n]);
+			sul = (lws_sorted_usec_list_t *)
+					lws_dll2_get_head(&own[n]);
 
 			if (!hit || sul->us <= lowest) {
 				hit = sul;

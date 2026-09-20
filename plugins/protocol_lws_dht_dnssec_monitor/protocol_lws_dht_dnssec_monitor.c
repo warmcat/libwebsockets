@@ -1118,8 +1118,9 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 		int first = 1;
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_domains\",\"status\":\"ok\",\"domains\":[");
 		while ((de = readdir(d))) {
-			if (de->d_name[0] == '.') continue;
-				if (de->d_type == DT_DIR || de->d_type == DT_UNKNOWN) {
+			if (de->d_name[0] == '.')
+				continue;
+			if (de->d_type == DT_DIR || de->d_type == DT_UNKNOWN) {
 				char whois_path[1024], whois_buf[LWS_WHOIS_CANON_MAX];
 				char whois_canon[LWS_WHOIS_CANON_MAX + 1] = "{}";
 				char dns_path[1024], dns_buf[1024] = "{}";
@@ -2372,6 +2373,31 @@ done:
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
+/*
+ * Copy pem src into the json string being built at *pp, escaping \n as
+ * \\n and dropping \r, keeping two bytes of headroom at tx_end
+ */
+
+static void
+json_escape_into(char **pp, char *tx_end, const char *src)
+{
+	char *tx = *pp;
+
+	while (src && *src) {
+		if (tx >= tx_end - 2)
+			break;
+		if (*src == '\n') {
+			*tx++ = '\\';
+			*tx++ = 'n';
+		} else
+			if (*src != '\r')
+				*tx++ = *src;
+		src++;
+	}
+
+	*pp = tx;
+}
+
 static void
 handle_req_provisioning_bundle(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
@@ -2427,11 +2453,11 @@ handle_req_provisioning_bundle(struct vhd *vhd, struct pss *root_pss, struct mon
 	}
 
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"subdomain\":\"%s\",\"ca\":\"", a->req, a->subdomain);
-	char *p = ca; while (p && *p) { if (tx >= tx_end - 2) break; if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	json_escape_into(&tx, tx_end, ca);
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"cert\":\"");
-	p = crt; while (p && *p) { if (tx >= tx_end - 2) break; if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	json_escape_into(&tx, tx_end, crt);
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"key\":\"");
-	p = key; while (p && *p) { if (tx >= tx_end - 2) break; if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	json_escape_into(&tx, tx_end, key);
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"}\n");
 
 bail:
@@ -2468,7 +2494,7 @@ handle_req_download_dist_ca(struct vhd *vhd, struct pss *root_pss, struct monito
 	}
 
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"ca\":\"", a->req);
-	char *p = ca; while (p && *p) { if (tx >= tx_end - 2) break; if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	json_escape_into(&tx, tx_end, ca);
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"}\n");
 
 	free(ca);
@@ -2531,11 +2557,11 @@ handle_req_download_dist_server(struct vhd *vhd, struct pss *root_pss, struct mo
 	}
 
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"ca\":\"", a->req);
-	char *p = ca; while (p && *p) { if (tx >= tx_end - 2) break; if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	json_escape_into(&tx, tx_end, ca);
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"cert\":\"");
-	p = crt; while (p && *p) { if (tx >= tx_end - 2) break; if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	json_escape_into(&tx, tx_end, crt);
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"key\":\"");
-	p = key; while (p && *p) { if (tx >= tx_end - 2) break; if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	json_escape_into(&tx, tx_end, key);
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"domain\":\"%s\"}\n", a->domain);
 
 bail:

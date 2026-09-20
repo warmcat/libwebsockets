@@ -1379,11 +1379,11 @@ int lws_clean_url(char *p)
 	if (p[0] == 'h' && p[1] == 't' && p[2] == 't' && p[3] == 'p') {
 		p += 4;
 		if (*p == 's')
-		p++;
+			p++;
 		if (*p == ':') {
 			p++;
 			if (*p == '/')
-			p++;
+				p++;
 		}
 	}
 
@@ -3824,7 +3824,7 @@ lws_http_transaction_completed(struct lws *wsi)
 			|| wsi->http.mount_specific_keepalive_timeout_secs
 #endif
    	   )
-		ept = PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE;
+			ept = PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE;
 		lws_set_timeout(wsi, ept, lws_wsi_keepalive_timeout_eff(wsi));
 	}
 

@@ -337,7 +337,7 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 		     jwk->kty == LWS_GENCRYPTO_KTY_EC ||
 		     jwk->kty == LWS_GENCRYPTO_KTY_OKP) &&
 		    jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf)
-		jwk->private_key = 1;
+			jwk->private_key = 1;
 	}
 
 	if (reason == LEJPCB_OBJECT_END && ctx->path_match == 0 + 1) {

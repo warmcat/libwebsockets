@@ -848,14 +848,30 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 				char *p = pss->uds_tx + LWS_PRE + pss->uds_tx_len;
 				char *src = pss->cert;
-				while (*src) { if (*src == '\n') { *p++ = '\\'; *p++ = 'n'; } else if (*src != '\r') { *p++ = *src; } src++; }
+				while (*src) {
+					if (*src == '\n') {
+						*p++ = '\\';
+						*p++ = 'n';
+					} else
+						if (*src != '\r')
+							*p++ = *src;
+					src++;
+				}
 
 				pss->uds_tx_len = (int)(p - (pss->uds_tx + LWS_PRE));
 				pss->uds_tx_len += lws_snprintf(pss->uds_tx + LWS_PRE + pss->uds_tx_len, est_len - (size_t)pss->uds_tx_len, "\",\"privkey\":\"");
 
 				p = pss->uds_tx + LWS_PRE + pss->uds_tx_len;
 				src = pss->key;
-				while (*src) { if (*src == '\n') { *p++ = '\\'; *p++ = 'n'; } else if (*src != '\r') { *p++ = *src; } src++; }
+				while (*src) {
+					if (*src == '\n') {
+						*p++ = '\\';
+						*p++ = 'n';
+					} else
+						if (*src != '\r')
+							*p++ = *src;
+					src++;
+				}
 
 				pss->uds_tx_len = (int)(p - (pss->uds_tx + LWS_PRE));
 				pss->uds_tx_len += lws_snprintf(pss->uds_tx + LWS_PRE + pss->uds_tx_len, est_len - (size_t)pss->uds_tx_len, "\"}\n");

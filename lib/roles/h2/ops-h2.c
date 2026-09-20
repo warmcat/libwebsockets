@@ -1878,7 +1878,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "h2 pollout handle");
 		} else {
-			 if (w->h2.send_END_STREAM)
+			if (w->h2.send_END_STREAM)
 				lws_h2_state(w, LWS_H2_STATE_HALF_CLOSED_LOCAL);
 
 #if defined(LWS_WITH_CLIENT)

@@ -3652,7 +3652,7 @@ lws_h2_ws_handshake(struct lws *wsi)
 				(int)strlen(lws_hdr_simple_ptr(wsi,
 							   WSI_TOKEN_PROTOCOL)),
 						 &p, end))
-			return -1;
+				return -1;
 		}
 	} else {
 

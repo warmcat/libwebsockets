@@ -365,7 +365,7 @@ postbody_completion:
 					lws_cgi_stdin_body_end(wsi);
 			} else
 #endif
-			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+				lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 #ifdef LWS_WITH_CGI
 			if (!wsi->http.cgi)
 #endif

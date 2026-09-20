@@ -245,7 +245,7 @@ build_sign_string(struct lws *wsi, char *buf, size_t bufsz,
 		if (hash_update_str(&hash_ctx, s->headers[i].name) ||
 		    hash_update_str(&hash_ctx, s->headers[i].value) ||
 		    hash_update_str(&hash_ctx, "\n"))
-		return -1;
+			return -1;
 
 	}
 	if (hash_update_str(&hash_ctx, "\n"))

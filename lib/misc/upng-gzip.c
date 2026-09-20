@@ -867,14 +867,11 @@ fill_l:
 
 			if (inf->gz_flags & 4)
 				inf->state = UPNS_ID_BL_GB_GZIP_SKIP_EXTRA_C1;
-			else
-			if (inf->gz_flags & 8)
+			else if (inf->gz_flags & 8)
 				inf->state = UPNS_ID_BL_GB_GZIP_SKIP_FILENAME;
-			else
-			if (inf->gz_flags & 16)
+			else if (inf->gz_flags & 16)
 				inf->state = UPNS_ID_BL_GB_GZIP_SKIP_COMMENT;
-			else
-			if (inf->gz_flags & 2) {
+			else if (inf->gz_flags & 2) {
 				inf->state = UPNS_ID_BL_GB_GZIP_SKIP_CRC;
 				inf->ctr = 2;
 			} else
@@ -915,11 +912,9 @@ fill_l:
 
 			if (inf->gz_flags & 8)
 				inf->state = UPNS_ID_BL_GB_GZIP_SKIP_FILENAME;
-			else
-			if (inf->gz_flags & 16)
+			else if (inf->gz_flags & 16)
 				inf->state = UPNS_ID_BL_GB_GZIP_SKIP_COMMENT;
-			else
-			if (inf->gz_flags & 2) {
+			else if (inf->gz_flags & 2) {
 				inf->state = UPNS_ID_BL_GB_GZIP_SKIP_CRC;
 				inf->ctr = 2;
 			} else
@@ -937,8 +932,7 @@ fill_l:
 
 			if (inf->gz_flags & 16)
 				inf->state = UPNS_ID_BL_GB_GZIP_SKIP_COMMENT;
-			else
-			if (inf->gz_flags & 2) {
+			else if (inf->gz_flags & 2) {
 				inf->state = UPNS_ID_BL_GB_GZIP_SKIP_CRC;
 				inf->ctr = 2;
 			} else
