@@ -1596,7 +1596,12 @@ endif()
 
 set(STRIPPED_LIB_LIST_AT_END "")
 foreach(lib_path IN LISTS LIB_LIST_AT_END)
-    if(IS_ABSOLUTE "${lib_path}" AND NOT "${lib_path}" MATCHES "^-")
+    if(IS_ABSOLUTE "${lib_path}" AND "${lib_path}" MATCHES "\\.framework$")
+        # a mac framework found by find_library: it is linked by name
+        # with -framework, not as a library
+        get_filename_component(lib_name "${lib_path}" NAME_WE)
+        list(APPEND STRIPPED_LIB_LIST_AT_END "-framework ${lib_name}")
+    elseif(IS_ABSOLUTE "${lib_path}" AND NOT "${lib_path}" MATCHES "^-")
         get_filename_component(lib_name "${lib_path}" NAME_WE)
         string(REGEX REPLACE "^lib" "" lib_name "${lib_name}")
         list(APPEND STRIPPED_LIB_LIST_AT_END "-l${lib_name}")
