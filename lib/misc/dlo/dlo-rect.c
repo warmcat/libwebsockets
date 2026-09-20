@@ -171,7 +171,7 @@ lws_display_render_rect(struct lws_display_render_state *rs)
 	if (r->tri && dlo->box.w.whole > 0 && dlo->box.h.whole > 0) {
 		lws_fx_t t, k;
 
-		lws_fx_set(k, rs->curr, 0);
+		lws_fx_set(k, (int32_t)rs->curr, 0);
 		lws_fx_sub(&k, &k, &r->db.y);        /* row in the box */
 		lws_fx_mul(&t, &k, &dlo->box.w);
 		lws_fx_div(&t, &t, &dlo->box.h);     /* diagonal x at this row */
