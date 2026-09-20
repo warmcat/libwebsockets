@@ -88,10 +88,11 @@ hls_relay_stub_log(const char *in, size_t len)
 	}
 }
 
+#if defined(LWS_WITH_STUB)
 /*
  * Stub child only: the one vhd that consumed the secret and owns the UDS
- * listener.  Requests arrive on the listener vhost, which has no vhd of
- * its own (see PROTOCOL_INIT), so they find their config through this.
+ * listener.  Requests arrive on the listener vhost, which has no vhd of its
+ * own (see PROTOCOL_INIT), so they find their config through this.
  */
 static struct per_vhost_data__lws_hls *stub_vhd;
 
@@ -158,6 +159,7 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 
 	return 0;
 }
+#endif
 
 #if defined(LWS_WITH_STUB)
 /*
@@ -341,10 +343,12 @@ hls_split_sel(const char *p, char *filename, size_t fn_sz, char *sel,
 	return hls_media_name_copy(filename, fn_sz, work, strlen(work));
 }
 
+#if defined(LWS_WITH_STUB)
 static const struct lws_protocols stub_prots[] = {
 	LWS_PLUGIN_PROTOCOL_LWS_HLS,
 	LWS_PROTOCOL_LIST_TERM
 };
+#endif
 
 /*
  * The fixed set of player assets this protocol serves itself from www_dir,
@@ -1482,6 +1486,7 @@ err_404:
 		}
 		break;
 
+#if defined(LWS_WITH_STUB)
 	case LWS_CALLBACK_RAW_RX: {
 		int n;
 
@@ -1518,11 +1523,13 @@ err_404:
 		/* stub side: the reply to the last request on this UDS conn */
 		if (!pss || !pss->stub_reply_len)
 			break;
-		if (lws_write(wsi, (unsigned char *)pss->stub_reply + LWS_PRE,
+		if (lws_write(wsi, (uint8_t *)pss->stub_reply + LWS_PRE,
 			      pss->stub_reply_len, LWS_WRITE_RAW) < 0)
 			return -1;
 		pss->stub_reply_len = 0;
 		break;
+#endif
+
 
 	case LWS_CALLBACK_RAW_CLOSE:
 		if (pss && pss->parser_valid) {
