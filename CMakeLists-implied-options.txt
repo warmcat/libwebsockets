@@ -494,6 +494,10 @@ if (LWS_WITH_UPNG)
 	set(LWS_WITH_GZINFLATE 1)
 endif()
 
+# lwsac is used unconditionally by the context, lejp, secure streams and the
+# server config parser, so it cannot actually be turned off
+set(LWS_WITH_LWSAC 1)
+
 # the language drivers are meaningless without the highlighter core
 
 if (NOT LWS_WITH_HL)
