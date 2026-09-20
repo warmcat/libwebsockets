@@ -83,6 +83,14 @@ if (LWS_WITH_GIF)
 	lws_add_fuzz_target(gif)
 endif()
 
+if (LWS_WITH_HL)
+	lws_add_fuzz_target(hl)
+endif()
+
+if (LWS_WITH_MD)
+	lws_add_fuzz_target(md)
+endif()
+
 # lws_tokenize and the core string helpers are always built
 lws_add_fuzz_target(tokenize)
 

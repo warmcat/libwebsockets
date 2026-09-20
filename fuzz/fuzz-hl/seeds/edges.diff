@@ -1,0 +1,19 @@
+diff --git a/x.c b/x.c
+index 1234567..89abcde 100644
+--- a/x.c
++++ b/x.c
+@@ -1,4 +1,5 @@ int main(void)
+ context line
+-removed line
++added line
+++not a header
+--not a header either
++++
+---
+\ No newline at end of file
+similarity index 90%
+rename from old.c
+rename to new.c
+Binary files a/b.png and b/b.png differ
+@ lone at
+@@ unterminated hunk

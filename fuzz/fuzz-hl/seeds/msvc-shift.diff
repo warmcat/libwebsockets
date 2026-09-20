@@ -1,0 +1,13 @@
+diff --git a/test-apps/test-hl.c b/test-apps/test-hl.c
+index 335b89aab..ec676c59d 100644
+--- a/test-apps/test-hl.c
++++ b/test-apps/test-hl.c
+@@ -504,7 +504,7 @@ run_goldens(const struct golden *gtab, size_t gcount,
+ 		 */
+ 
+ 		for (m = 0; m < 8; m++) {
+-			size_t budget = 1u << m;
++			size_t budget = (size_t)1 << m;
+ 
+ 			ret = run_deferred(ops, (const uint8_t *)g->in,
+ 					   strlen(g->in), budget, cap);
