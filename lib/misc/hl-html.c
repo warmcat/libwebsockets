@@ -97,7 +97,8 @@ lws_hl_html_token(void *user, lws_hl_class_t cls, const uint8_t *tok,
 	uint8_t now_open = 0;
 	int hdr;
 
-	if (!h || !h->wc || cls >= LHL_CLS_COUNT || (!tok && len))
+	if (!h || !h->wc || cls >= LHL_CLS_COUNT || (!tok && len) ||
+	    len > LHL_PIECE_MAX)
 		return LWS_SRET_FATAL;
 
 	hdr = (cls != h->last);
@@ -128,13 +129,15 @@ lws_hl_html_token(void *user, lws_hl_class_t cls, const uint8_t *tok,
 	}
 
 	/* token pieces are capped at LHL_PIECE_MAX, and we only added the
-	 * header if the worst case fit, so this cannot overflow */
+	 * header if the worst case fit, so the room check never fails */
 
 	room = sizeof(h->buf) - h->buflen;
 	for (n = 0; n < len; n++) {
-		size_t m = hl_esc_byte(h->buf + h->buflen, tok[n]);
-		if (m > room)
+		size_t m;
+
+		if (room < ESCAPE_MAX)
 			return LWS_SRET_FATAL;
+		m = hl_esc_byte(h->buf + h->buflen, tok[n]);
 		h->buflen += m;
 		room -= m;
 	}
