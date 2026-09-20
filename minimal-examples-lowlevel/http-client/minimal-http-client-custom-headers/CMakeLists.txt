@@ -11,6 +11,7 @@ set(SRCS minimal-http-client-custom-headers.c)
 set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
+require_lws_config(LWS_WITH_CUSTOM_HEADERS 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})

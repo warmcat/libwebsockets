@@ -10,6 +10,7 @@ set(SRCS minimal-webtransport-qir.c)
 
 set(requirements 1)
 require_lws_config(LWS_WITH_NETWORK 1 requirements)
+require_lws_config(LWS_WITH_CUSTOM_HEADERS 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
 require_lws_config(LWS_ROLE_WT 1 requirements)
