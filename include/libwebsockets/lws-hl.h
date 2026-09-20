@@ -229,8 +229,15 @@ LWS_VISIBLE LWS_EXTERN const lws_hl_ops_t *
 lws_hl_lang_diff(void);
 #endif
 
+/*
+ * One piece's markup is composed whole before it is written: a closing
+ * </span>, the opening <span class="..."> and the worst-case escape of
+ * LHL_PIECE_MAX bytes (8 each).  Class names longer than about
+ * LHL_HTML_BUF - 800 bytes do not fit, and pieces of those classes are
+ * emitted escaped but unwrapped rather than refused.
+ */
 #if !defined(LHL_HTML_BUF)
-#define LHL_HTML_BUF			  832
+#define LHL_HTML_BUF			  1024
 #endif
 
 typedef lws_stateful_ret_t (*lws_hl_write_cb)(void *user, const uint8_t *buf,
@@ -267,7 +274,10 @@ typedef struct lws_hl_html {
  * class name strings; NULL entries in the array are emitted unwrapped
  *
  * The class name table is not copied and must remain allocated until the
- * context is no longer used.
+ * context is no longer used.  The names are emitted as given, inside
+ * double quotes, so they must be valid attribute values (and are
+ * expected to be the application's own constants, not input).  See
+ * LHL_HTML_BUF for the length that still wraps.
  *
  * Returns 0 for OK or nonzero on bad arguments.
  */
