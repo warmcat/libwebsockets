@@ -498,6 +498,12 @@ endif()
 # server config parser, so it cannot actually be turned off
 set(LWS_WITH_LWSAC 1)
 
+# the display list needs the vfs (filesystem fops, font files), and lhp
+# renders into it
+if (NOT LWS_WITH_FILE_OPS)
+	set(LWS_WITH_DLO 0)
+	set(LWS_WITH_LHP 0)
+endif()
 # the language drivers are meaningless without the highlighter core
 
 if (NOT LWS_WITH_HL)
