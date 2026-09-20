@@ -539,6 +539,10 @@ lws_md_html_event(void *user, lws_md_ev_t ev, lws_md_el_t el,
 		case LMD_EL_CODE:
 			if (!h->code_open)
 				return LWS_SRET_OK;
+			/* an empty fence issues its prologue here, which may
+			 * bring the tokenizer up: end it after, not before */
+			if ((r = md_code_prologue(h)))
+				return r;
 #if defined(LWS_WITH_HL)
 			if (h->hl_on) {
 				r = md_hl_end(h);
@@ -546,8 +550,6 @@ lws_md_html_event(void *user, lws_md_ev_t ev, lws_md_el_t el,
 					return r;
 			}
 #endif
-			if ((r = md_code_prologue(h)))	/* empty fence */
-				return r;
 			if ((r = mdw(h, "</code></pre>")))
 				return r;
 			h->code_open = 0;
@@ -666,6 +668,8 @@ lws_md_html_close(lws_md_html_t *h)
 	}
 
 	if (h->code_open) {
+		if ((r = md_code_prologue(h)))
+			return r;
 #if defined(LWS_WITH_HL)
 		if (h->hl_on) {
 			r = md_hl_end(h);
@@ -673,8 +677,6 @@ lws_md_html_close(lws_md_html_t *h)
 				return r;
 		}
 #endif
-		if ((r = md_code_prologue(h)))
-			return r;
 		if ((r = mdw(h, "</code></pre>")))
 			return r;
 		h->code_open = 0;
