@@ -327,10 +327,13 @@
 		},
 
 		# default-off system pieces that no other dimension enables:
-		# brings api-test-gendtls / -mnemonic / -backtrace into ctest
+		# brings api-test-gendtls / -mnemonic / -backtrace into ctest.
+		# Not the dhcp client: it holds the system state below
+		# OPERATIONAL until an interface gets a lease, so every client
+		# test would wait forever on a builder
 
 		"sys-extras": {
-			"cmake":	"-DLWS_WITH_SYS_DHCP_CLIENT=1 -DLWS_WITH_DTLS=1 -DLWS_WITH_MNEMONIC=1 -DLWS_WITH_ASYNC_QUEUE=1 -DLWS_WITH_COMPRESSED_BACKTRACES=1 -DLWS_WITH_EXTERNAL_POLL=1 -DLWS_WITH_GENCRYPTO=1 -DLWS_HTTP_HEADERS_ALL=1 -DLWS_WITH_MINIMAL_EXAMPLES=1"
+			"cmake":	"-DLWS_WITH_DTLS=1 -DLWS_WITH_MNEMONIC=1 -DLWS_WITH_ASYNC_QUEUE=1 -DLWS_WITH_COMPRESSED_BACKTRACES=1 -DLWS_WITH_EXTERNAL_POLL=1 -DLWS_WITH_GENCRYPTO=1 -DLWS_HTTP_HEADERS_ALL=1 -DLWS_WITH_MINIMAL_EXAMPLES=1"
 		},
 
 		# secure streams build variants never otherwise built; with the
