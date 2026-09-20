@@ -303,9 +303,12 @@ hls_split_sel(const char *p, char *filename, size_t fn_sz, char *sel,
 	enum hls_sel_kind kind;
 	int dummy;
 
+	if (!idx)
+		/* caller doesn't want the index; keep the writes uniform */
+		idx = &dummy;
+
 	sel[0] = '\0';
-	if (idx)
-		*idx = -1;
+	*idx = -1;
 
 	wl = strlen(p);
 	if (!wl || wl >= sizeof(work))

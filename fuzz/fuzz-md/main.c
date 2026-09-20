@@ -75,6 +75,10 @@ struct gb {
 static void
 gb_put(struct gb *g, const void *d, size_t l)
 {
+	if (!l)
+		/* also spares memcpy(dst, NULL, 0) from !buf && !len callers */
+		return;
+
 	if (g->len + l > g->cap)
 		abort();
 
