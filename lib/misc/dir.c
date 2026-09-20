@@ -496,6 +496,25 @@ lws_plugins_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	if (pa->filter && strcmp(base, pa->filter))
 		return 0; /* keep going */
 
+	/*
+	 * The class is visible in the filename too: don't dlopen() files
+	 * that cannot be the class we are scanning for.  Loading a protocol
+	 * plugin just to find it is not an event lib brings in its whole
+	 * dependency chain (codecs, OpenMP...), some of which cannot be
+	 * cleanly unloaded again.
+	 */
+
+	if (!strcmp(pa->_class, "lws_evlib_plugin")) {
+		if (strncmp(base, "evlib_", 6))
+			return 0;
+	} else if (!strcmp(pa->_class, "lws_protocol_plugin")) {
+		p = lde->name;
+		if (!strncmp(p, "lib", 3))
+			p += 3;
+		if (strncmp(p, "protocol_", 9))
+			return 0;
+	}
+
 	lws_snprintf(path, sizeof(path) - 1, "%s/%s", dirpath, lde->name);
 
 	pl = lws_plat_dlopen(pa->pplugin, path, base, pa->_class,
