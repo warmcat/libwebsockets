@@ -582,7 +582,7 @@ test_overlong(void)
 	in[len++] = '\n';
 
 	e += (size_t)lws_snprintf(expect + e, sizeof(expect) - e, "<p>");
-	for (n = 0; n < LMD_LINE_MAX + 1024; n++)
+	for (n = 0; n < LMD_LINE_MAX + 1024 && e < sizeof(expect) - 16; n++)
 		expect[e++] = 'a';
 	e += (size_t)lws_snprintf(expect + e, sizeof(expect) - e,
 				  "\nafter</p>");
