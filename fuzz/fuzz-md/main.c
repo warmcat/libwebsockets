@@ -137,8 +137,13 @@ ev_cb(void *user, lws_md_ev_t ev, lws_md_el_t el, unsigned int aux,
 		r->stack[r->depth++] = (uint8_t)el;
 		break;
 	case LMD_EV_END:
-		if (!r->depth || r->stack[r->depth - 1] != (uint8_t)el)
+		if (!r->depth || r->stack[r->depth - 1] != (uint8_t)el) {
+			if (getenv("LWS_FUZZ_VERBOSE"))
+				fprintf(stderr, "END el %d but open top is %d "
+					"(depth %zu)\n", el, r->depth ?
+					r->stack[r->depth - 1] : -1, r->depth);
 			abort();	/* mismatched nesting */
+		}
 		r->depth--;
 		break;
 	default:
