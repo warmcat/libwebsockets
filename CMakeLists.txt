@@ -1443,10 +1443,25 @@ configure_file(${PROJECT_SOURCE_DIR}/cmake/libwebsockets-config-version.cmake.in
                 ${PROJECT_BINARY_DIR}/libwebsockets-config-version.cmake 
                 @ONLY)
 
+#
+# The public headers include those of the TLS provider and, for a builtin
+# libuv build, libuv's: consumers (and their require_lws_config() probes)
+# need those directories on their include path too, not only lws's own,
+# since eg homebrew keeps them outside the compiler's default search.
+# The lib subdir collected them into LWS_PUBLIC_INCLUDES.
+#
+set(LWS_DEP_INCLUDE_DIRS ${LWS_PUBLIC_INCLUDES})
+if (LWS_DEP_INCLUDE_DIRS)
+	list(REMOVE_DUPLICATES LWS_DEP_INCLUDE_DIRS)
+endif()
+
 # Generate the config file for the build-tree.
 set(LWS__INCLUDE_DIRS 
+    "${PROJECT_SOURCE_DIR}/include"
+    "${PROJECT_BINARY_DIR}/include"
     "${PROJECT_SOURCE_DIR}/lib"
-    "${PROJECT_BINARY_DIR}")
+    "${PROJECT_BINARY_DIR}"
+    ${LWS_DEP_INCLUDE_DIRS})
 set(LIBWEBSOCKETS_INCLUDE_DIRS ${LWS__INCLUDE_DIRS} CACHE PATH "Libwebsockets include directories")
 message(STATUS "LWS_BUILTIN_PLUGIN_NAMES: ${LWS_BUILTIN_PLUGIN_NAMES}")
 message(STATUS "CONFIG_SCOPE: ${LWS_BUILTIN_PLUGIN_NAMES}")
@@ -1576,7 +1591,7 @@ file(RELATIVE_PATH
     "${LWS_ABSOLUTE_INSTALL_INCLUDE_DIR}") # Calculate the relative directory from the cmake dir.
 
 if (DEFINED REL_INCLUDE_DIR)
-    set(LWS__INCLUDE_DIRS "\${LWS_CMAKE_DIR}/${REL_INCLUDE_DIR}")
+    set(LWS__INCLUDE_DIRS "\${LWS_CMAKE_DIR}/${REL_INCLUDE_DIR}" ${LWS_DEP_INCLUDE_DIRS})
 endif()
 
 set(STRIPPED_LIB_LIST_AT_END "")
