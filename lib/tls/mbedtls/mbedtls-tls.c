@@ -29,6 +29,8 @@
 void
 lws_tls_err_describe_clear(void)
 {
+	/* mbedtls errors are logged where they happen via lwsl;
+	 * there is no error stack to clear */
 }
 
 int
@@ -46,7 +48,7 @@ lws_context_init_ssl_library(struct lws_context *cx,
 void
 lws_context_deinit_ssl_library(struct lws_context *context)
 {
-
+	/* mbedtls needs no global library teardown */
 }
 
 /*

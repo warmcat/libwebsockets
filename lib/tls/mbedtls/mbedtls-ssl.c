@@ -304,6 +304,8 @@ lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost)
 void
 lws_ssl_context_destroy(struct lws_context *context)
 {
+	/* per-vhost mbedtls contexts are freed in lws_tls_context_destroy;
+	 * nothing per-context global */
 }
 
 lws_tls_ctx *

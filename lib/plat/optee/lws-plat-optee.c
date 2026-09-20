@@ -193,6 +193,7 @@ lws_plat_context_early_init(void)
 void
 lws_plat_context_early_destroy(struct lws_context *context)
 {
+	/* no optee-specific teardown before generic context destroy */
 }
 
 void
@@ -303,6 +304,7 @@ lws_plat_ntpclient_config(struct lws_context *context)
 void
 lws_msleep(unsigned int ms)
 {
+	/* no wired-up sleep primitive on this platform target */
 }
 
 

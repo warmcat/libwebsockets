@@ -383,6 +383,8 @@ static struct option options[] = {
 static void
 sigterm_catch(int sig)
 {
+	/* installed to swallow SIGTERM: shutdown is driven from the
+	 * service loop, not the signal */
 }
 
 int main(int argc, char **argv)

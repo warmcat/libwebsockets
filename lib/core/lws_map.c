@@ -58,6 +58,7 @@ lws_map_alloc_lwsac(struct lws_map *map, size_t x)
 void
 lws_map_free_lwsac(void *v)
 {
+	/* items live in the lwsac and are freed wholesale with it */
 }
 
 /*

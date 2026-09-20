@@ -199,7 +199,7 @@ lws_plat_init(struct lws_context *context,
 void
 lws_plat_context_early_destroy(struct lws_context *context)
 {
-
+	/* windows handles are closed in late_destroy */
 }
 
 void

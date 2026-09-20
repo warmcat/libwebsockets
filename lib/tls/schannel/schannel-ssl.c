@@ -1624,6 +1624,8 @@ lws_ssl_close(struct lws *wsi)
 lws_ssl_bind_passphrase(lws_tls_ctx *ssl_ctx, int is_client,
 		const struct lws_context_creation_info *info)
 {
+	/* schannel acquires private keys into named containers at
+	 * credential time; there is no passphrase-at-bind step */
 }
 
 	enum lws_ssl_capable_status

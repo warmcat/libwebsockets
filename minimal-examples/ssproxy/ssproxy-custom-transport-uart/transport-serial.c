@@ -219,6 +219,7 @@ struct lws_protocols protocol_sspc_serial_transport =
 static void
 txp_serial_onward_bind(lws_transport_priv_t priv, struct lws_ss_handle *h)
 {
+	/* the serial transport needs no onward bind step */
 }
 
 static void

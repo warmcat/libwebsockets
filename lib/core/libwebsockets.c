@@ -2035,6 +2035,8 @@ lws_cmdline_option(int argc, const char **argv, const char *val)
 static void
 lws_sigterm_catch(int sig)
 {
+	/* installed to swallow SIGTERM: teardown comes from the
+	 * caller's own service loop logic, not the signal */
 }
 #endif
 

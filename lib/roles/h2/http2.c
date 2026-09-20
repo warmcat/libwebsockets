@@ -117,6 +117,7 @@ lws_h2_dump_settings(struct http2_settings *set)
 void
 lws_h2_dump_settings(struct http2_settings *set)
 {
+	/* dump compiled out of this build */
 }
 #endif
 

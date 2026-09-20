@@ -257,6 +257,7 @@ lws_plat_context_early_init(void)
 void
 lws_plat_context_early_destroy(struct lws_context *context)
 {
+	/* unix fds and pipes are closed in late_destroy */
 }
 
 void

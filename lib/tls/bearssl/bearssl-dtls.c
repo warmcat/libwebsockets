@@ -25,6 +25,11 @@
 #include "private-lib-core.h"
 #include "private-lib-tls-bearssl.h"
 
+/*
+ * The bearssl backend has no DTLS support: this stub set only exists to
+ * satisfy the gendtls ops template so the build links.
+ */
+
 int lws_gendtls_create(struct lws_gendtls_ctx *ctx, const struct lws_gendtls_creation_info *info) { return -1; }
 void lws_gendtls_destroy(struct lws_gendtls_ctx *ctx) {}
 int lws_gendtls_set_cert_mem(struct lws_gendtls_ctx *ctx, const uint8_t *cert, size_t len) { return -1; }

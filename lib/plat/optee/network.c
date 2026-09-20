@@ -47,6 +47,7 @@ lws_plat_pipe_signal(struct lws *wsi)
 void
 lws_plat_pipe_close(struct lws *wsi)
 {
+	/* optee has no socketpair pipe implementation */
 }
 
 int

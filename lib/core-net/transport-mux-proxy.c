@@ -308,7 +308,7 @@ lws_transport_mux_proxy_event_proxy_can_write(
 static void
 lws_transport_mux_onward_bind(lws_transport_priv_t priv, struct lws_ss_handle *h)
 {
-
+	/* the onward proxy side needs no per-ss bind step */
 }
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 static const lws_fi_ctx_t *
@@ -320,7 +320,7 @@ lws_transport_mux_fault_context(lws_transport_priv_t priv)
 static void
 lws_transport_mux_client_up(lws_transport_priv_t priv)
 {
-
+	/* client-side mux bring-up is handled at connect time */
 }
 
 static void

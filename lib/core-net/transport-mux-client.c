@@ -226,7 +226,8 @@ lws_transport_mux_close(lws_transport_priv_t priv)
 static void
 lws_transport_mux_stream_up(lws_transport_priv_t priv)
 {
-
+	/* nothing to do when a mux channel comes up: the tx path is
+	 * driven from the mux-level request_tx */
 }
 
 /* incoming parsed channel cbs */

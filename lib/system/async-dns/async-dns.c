@@ -1535,12 +1535,6 @@ lws_async_dns_deinit(lws_async_dns_t *dns)
 	lws_dll2_foreach_safe(&dns->cached, NULL, cache_clean);
 }
 
-void
-lws_async_dns_detach_query_wsi(struct lws *wsi)
-{
-
-}
-
 static int
 cancel(struct lws_dll2 *d, void *user)
 {

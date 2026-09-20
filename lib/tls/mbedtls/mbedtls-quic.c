@@ -310,6 +310,7 @@ static void
 mbedtls_quic_ext_free_cb(mbedtls_ssl_context *ssl, unsigned int ext_type,
 			 unsigned int context, void *custom_ctx)
 {
+	/* the custom ext context is not allocated: nothing to free */
 }
 
 static mbedtls_ssl_custom_ext_t quic_ext = {

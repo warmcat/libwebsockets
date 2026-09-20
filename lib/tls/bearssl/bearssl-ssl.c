@@ -320,6 +320,7 @@ int lws_ssl_pending(struct lws *wsi)
 
 void lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret)
 {
+	/* bearssl has no openssl-style info callback hook */
 }
 
 int lws_ssl_close(struct lws *wsi)
