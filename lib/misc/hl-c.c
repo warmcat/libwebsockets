@@ -687,6 +687,10 @@ chunk_end:
 				if (r)
 					goto bail;
 				c->scratch_pos = 0;
+				/* longer than any keyword: the tail that
+				 * lands in scratch must not be matched */
+				c->flags |= LHF_IDKNOW;
+				c->tokcls = LHL_CLS_IDENT;
 				continue;
 			}
 			if (take > room)
@@ -695,8 +699,10 @@ chunk_end:
 			       c->chunk + c->tok, take);
 			c->scratch_pos = (uint8_t)(c->scratch_pos + take);
 			c->tok += take;
+			/* stashed bytes are consumed: a deferred flush of
+			 * the full scratch must not stash them again */
+			c->epos = c->tok;
 		}
-		c->epos = c->pos;
 		if (c->scratch_pos > KW_MAXLEN) {
 			/* can't be a keyword any more */
 			c->flags |= LHF_IDKNOW;
