@@ -1474,6 +1474,8 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
 
+#if defined(LWS_WITH_FILE_OPS)
+/* only the file-backed check below uses it */
 static int
 lws_authorization_rewrite(struct lws *wsi, const char *name, size_t len)
 {
@@ -1491,6 +1493,8 @@ lws_authorization_rewrite(struct lws *wsi, const char *name, size_t len)
 
 	return 0;
 }
+
+#endif
 
 enum lws_check_basic_auth_results
 lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
