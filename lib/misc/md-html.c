@@ -297,8 +297,10 @@ md_hl_feed(lws_md_html_t *h, const uint8_t *data, size_t len)
 	if (h->hl_hold)
 		h->buf[staged++] = (char)h->hl_holdb;
 
-	memcpy(h->buf + staged, data + h->hl_off, len - h->hl_off);
-	staged += len - h->hl_off;
+	if (len > h->hl_off) {	/* a zero-length event has no data */
+		memcpy(h->buf + staged, data + h->hl_off, len - h->hl_off);
+		staged += len - h->hl_off;
+	}
 
 	p = (const uint8_t *)h->buf;
 	l = staged;
