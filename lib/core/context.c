@@ -2002,6 +2002,28 @@ lws_create_context(const struct lws_context_creation_info *info)
 			lwsl_cx_err(context, "policy set failed");
 			goto bail_libuv_aware;
 		}
+	} else if (lws_check_opt(info->options,
+				 LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
+		/*
+		 * lws_context_info_defaults() sets EXPLICIT_VHOSTS and, in
+		 * a JSON policy build, the built-in default policy above then
+		 * provides the vhost such an application's clients bind to.
+		 * With static policies only and none given, provide the same
+		 * no-trust-store vhost the policy code would, else the
+		 * application has no vhost at all and its clients fail
+		 */
+		struct lws_context_creation_info ii;
+
+		memset(&ii, 0, sizeof(ii));
+		ii.options	= context->options;
+		ii.vhost_name	= "_ss_default";
+		ii.port		= CONTEXT_PORT_NO_LISTEN;
+
+		if (!lws_create_vhost(context, &ii) ||
+		    lws_fi(&context->fic, "ctx_createfail_def_vh")) {
+			lwsl_cx_err(context, "failed to create default vhost");
+			goto bail_libuv_aware;
+		}
 	}
 #endif
 #endif
