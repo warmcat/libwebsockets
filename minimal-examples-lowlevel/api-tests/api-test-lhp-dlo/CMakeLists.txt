@@ -44,6 +44,17 @@ if (requirements)
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/29-bg-cover.html)
 		foreach(C ${LHP_CASES})
 			get_filename_component(CN ${C} NAME_WE)
+			# a case whose assets need a decoder this build lacks
+			# lays out differently from its golden: skip it
+			file(READ ${C} CASE_HTML)
+			string(FIND "${CASE_HTML}" ".svg" HAS_SVG)
+			string(FIND "${CASE_HTML}" ".gif" HAS_GIF)
+			if (NOT LWS_WITH_SVG AND NOT HAS_SVG EQUAL -1)
+				continue()
+			endif()
+			if (NOT LWS_WITH_GIF AND NOT HAS_GIF EQUAL -1)
+				continue()
+			endif()
 			add_test(NAME api-test-lhp-dlo-${CN}
 				 COMMAND ${CMAKE_COMMAND}
 					-DTOOL=$<TARGET_FILE:${SAMP}>
@@ -54,7 +65,8 @@ if (requirements)
 		endforeach()
 
 		# six images on a context with a tiny fd table: the fetches must
-		# queue behind each other and still all arrive
+		# queue behind each other and still all arrive (svg images)
+		if (LWS_WITH_SVG)
 		add_test(NAME api-test-lhp-dlo-11-asset-queue
 			 COMMAND ${CMAKE_COMMAND}
 				-DTOOL=$<TARGET_FILE:${SAMP}>
@@ -63,10 +75,13 @@ if (requirements)
 				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/11-asset-queue.dlo
 				-DFLAGS=--fd-limit=6
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+		endif()
 
 		# the ad-block case: with the cosmetic filter css and the url block
 		# list applied, the junk elements and their fixed-height boxes are
 		# gone from the layout and the blocked assets are never fetched
+		# (svg images)
+		if (LWS_WITH_SVG)
 		add_test(NAME api-test-lhp-dlo-13-adblock
 			 COMMAND ${CMAKE_COMMAND}
 				-DTOOL=$<TARGET_FILE:${SAMP}>
@@ -76,6 +91,7 @@ if (requirements)
 				-DCSS_FILTER=${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.css
 				-DBLOCK_LIST=${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.list
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+		endif()
 
 		if (LWS_WITH_CACHE_BLOB)
 			# with the asset cache enabled and bluecat.jpg preseeded
@@ -165,8 +181,13 @@ if (requirements)
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 
 		# captured real-world pages, with their network assets made
-		# unreachable so the layout is the same every run
-		foreach(VEC lobsters-1/lobsters slashdot-1/slashdot-1)
+		# unreachable so the layout is the same every run; slashdot's
+		# golden includes its svg and gif assets
+		set(LHP_VECTORS lobsters-1/lobsters)
+		if (LWS_WITH_SVG AND LWS_WITH_GIF)
+			list(APPEND LHP_VECTORS slashdot-1/slashdot-1)
+		endif()
+		foreach(VEC ${LHP_VECTORS})
 			get_filename_component(VN ${VEC} NAME)
 			add_test(NAME api-test-lhp-dlo-vector-${VN}
 				 COMMAND ${CMAKE_COMMAND}
@@ -182,6 +203,7 @@ if (requirements)
 		# applied: the banner leaderboard below the menu header and the
 		# rail ads are removed from the layout by the filter css, and the
 		# blocked ad hosts are never fetched
+		if (LWS_WITH_SVG AND LWS_WITH_GIF)
 		add_test(NAME api-test-lhp-dlo-vector-slashdot-1-adblock
 			 COMMAND ${CMAKE_COMMAND}
 				-DTOOL=$<TARGET_FILE:${SAMP}>
@@ -192,5 +214,6 @@ if (requirements)
 				-DCSS_FILTER=${CMAKE_CURRENT_SOURCE_DIR}/vectors/slashdot-1/filter.css
 				-DBLOCK_LIST=${CMAKE_CURRENT_SOURCE_DIR}/vectors/slashdot-1/filter.list
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+		endif()
 	endif()
 endif()
