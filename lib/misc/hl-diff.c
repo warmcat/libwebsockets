@@ -356,9 +356,23 @@ hl_diff_finish(lws_hl_ctx_t *c)
 			return r;
 		break;
 
+	case LDS_PLAIN:
+	case LDS_ADD:
+	case LDS_REM:
+	case LDS_HUNK:
+	case LDS_META:
+		/*
+		 * Classified lines emitted their content at chunk end, but the
+		 * stashed line prefix may still be waiting if the sink deferred
+		 * it with no input left to retry with: an unterminated add or
+		 * remove line just ends as itself.
+		 */
+		r = hl_emit_prefix(c, line_cls(c));
+		if (r)
+			return r;
+		break;
+
 	default:
-		/* classified lines already emitted everything they had;
-		 * an unterminated add or remove line just ends as itself */
 		break;
 	}
 
