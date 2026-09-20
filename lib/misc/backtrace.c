@@ -235,8 +235,8 @@ lws_alloc_metadata_gen(size_t size, uint8_t *comp, size_t comp_len,
 		}
 
 		ql = q + 2;
-		c.comp[q++] = (uint8_t)((ql >> 8) & 0xff);
-		c.comp[q++] = (uint8_t)(ql & 0xff);
+		lws_ser_wu16be(&c.comp[q], (uint16_t)ql);
+		q += 2;
 
 		/*
 		 * So we have it compressed along with our additional data.
@@ -285,7 +285,7 @@ void
 _lws_alloc_metadata_trim(void **ptr, uint8_t **comp, uint16_t *complen)
 {
 	const uint8_t *p = ((const uint8_t *)*ptr) - sizeof(lws_dll2_t);
-	uint16_t cofs = p[-1] | (p[-2] << 8);
+	uint16_t cofs = lws_ser_ru16be(p - 2);
 	size_t adj = ((sizeof(lws_dll2_t) + cofs + sizeof(void *) - 1) /
 					    sizeof(void *)) * sizeof(void *);
 
@@ -307,7 +307,7 @@ lws_alloc_metadata_parse(lws_backtrace_info_t *si, const uint8_t *past_len)
 {
 	const uint8_t *p = (const uint8_t *)past_len;
 	uintptr_t n, entries, ri, sign, field;
-	uint16_t cofs = p[-1] | (p[-2] << 8);
+	uint16_t cofs = lws_ser_ru16be(p - 2);
 	lws_backtrace_comp_t c;
 
 	c.comp = (uint8_t *)p - cofs;
@@ -386,7 +386,7 @@ lws_alloc_metadata_dump_stdout(struct lws_dll2 *d, void *user)
 	char ab[192];
 
 	const uint8_t *p = (const uint8_t *)d;
-	uint16_t cofs = p[-1] | (p[-2] << 8);
+	uint16_t cofs = lws_ser_ru16be(p - 2);
 
 	p = (uint8_t *)p - cofs;
 
