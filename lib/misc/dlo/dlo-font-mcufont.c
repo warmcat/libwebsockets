@@ -999,9 +999,6 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 	if (s >= rs->ic->wh_px[0].whole)
 		return LWS_SRET_OK; /* wholly off to the right */
 
-	if (e >= rs->ic->wh_px[0].whole)
-		e = rs->ic->wh_px[0].whole;
-
 	/* figure out our y position inside the glyph bounding box */
 	yo = rs->curr - ay.whole;
 

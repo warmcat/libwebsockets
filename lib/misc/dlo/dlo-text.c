@@ -91,7 +91,7 @@ int
 lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
 			    lws_fx_t indent, const char *utf8, size_t text_len)
 {
-	const char *last_utf8 = utf8, *outf8 = utf8;
+	const char *outf8 = utf8;
 	size_t last_bp_n = 0, tlen = text_len;
 	lws_fx_t t1, eff, last_bp_eff, t2;
 	uint8_t r = 0;
@@ -140,7 +140,6 @@ lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
 			utf8 += (ot - tlen);
 
 			if (uc == ' ') { /* act to snip it if used */
-				last_utf8 = utf8;
 				last_bp_n = tlen;
 				last_bp_eff = eff;
 			}
@@ -150,7 +149,6 @@ lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
 
 			if (uc == '-' || uc == ',' || uc == ';' || uc == ':') {
 				/* act to leave it in */
-				last_utf8 = utf8;
 				last_bp_n = tlen;
 				last_bp_eff = eff;
 			}
@@ -161,7 +159,6 @@ lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
 	if (last_bp_n &&
 	    lws_fx_comp(lws_fx_add(&t1, &eff, &indent), &text->dlo.box.w) >= 0) {
 		eff = last_bp_eff;
-		utf8 = last_utf8;
 		tlen = last_bp_n;
 		r = 1;
 	}

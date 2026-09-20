@@ -346,7 +346,6 @@ lws_cache_heap_write(struct lws_cache_ttl_lru *_c, const char *specific_key,
 		     void **ppvoid)
 {
 	lws_cache_ttl_lru_t_heap_t *cache = (lws_cache_ttl_lru_t_heap_t *)_c;
-	struct lws_cache_ttl_lru *backing = _c;
 	lws_cache_ttl_item_heap_t *item, *ei;
 	size_t kl = strlen(specific_key);
 	char *p;
@@ -358,9 +357,6 @@ lws_cache_heap_write(struct lws_cache_ttl_lru *_c, const char *specific_key,
 	 *
 	 * If so, let's destroy any of those first to recover the heap
 	 */
-
-	if (backing->info.parent)
-		backing = backing->info.parent;
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&cache->items_lru)) {

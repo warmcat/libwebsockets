@@ -301,8 +301,6 @@ lws_display_palettize_grey(const lws_surface_info_t *ic,
 
 	for (n = 0; n < pdepth; n++) {
 
-		y = LWSDC_ALPHA(palette[n]);
-
 		ea.rgb[0] = (int16_t)((int)da.rgb[0] - (int)(LWSDC_R(palette[n])));
 
 		sum = ea.rgb[0] < 0 ? -ea.rgb[0] : ea.rgb[0];
@@ -370,7 +368,6 @@ lws_display_palettize_col(const lws_surface_info_t *ic,
 		da.rgb[0] = 0;
 	if (da.rgb[0] > 255)
 		da.rgb[0] = 255;
-	yd = da.rgb[0];
 	d.rgb[1] = (int)gamma2_2[LWSDC_G(c)];
 	d.rgb[2] = (int)gamma2_2[LWSDC_B(c)];
 	da.rgb[1] = d.rgb[1] + ectx->rgb[1];

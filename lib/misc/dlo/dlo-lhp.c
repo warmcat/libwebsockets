@@ -2137,7 +2137,6 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 						    &cbw);
 					lws_fx_add(&y, &y, &sy);
 				}
-				lset = tset = 0;
 				if (!ps->explicit_w) {
 					/* shrink-to-fit from there */
 					lws_fx_add(&w, &ox, &cbi);
