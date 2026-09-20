@@ -144,7 +144,7 @@ md_scheme_state(const char *u, size_t len)
 		return -1;		/* degenerate or overlong scheme */
 
 	for (m = 0; m < n; m++)
-		sch[m] = (char)tolower((int)u[m]);
+		sch[m] = (char)tolower((unsigned char)u[m]);
 	sch[n] = '\0';
 
 	for (m = 0; m < LWS_ARRAY_SIZE(ok); m++)
@@ -250,7 +250,7 @@ md_tag_eq(const char *tag, size_t len, const char *want, size_t wlen)
 		return 0;
 
 	for (n = 0; n < len; n++)
-		if (tolower((int)tag[n]) != want[n])
+		if (tolower((unsigned char)tag[n]) != want[n])
 			return 0;
 
 	return 1;
