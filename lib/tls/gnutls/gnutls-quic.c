@@ -474,7 +474,12 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 				    GNUTLS_EXT_FLAG_CLIENT_HELLO | GNUTLS_EXT_FLAG_EE);
 
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_TLS_SESSIONS)
-	if (lwsi_role_client(wsi))
+	/*
+	 * The client bio creation already offered the cached session to this
+	 * gnutls session; setting the data a second time leaks gnutls's
+	 * first unpack of it
+	 */
+	if (lwsi_role_client(wsi) && !wsi->tls_session_reused)
 		lws_tls_reuse_session(wsi);
 #endif
 
