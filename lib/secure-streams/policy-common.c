@@ -182,10 +182,11 @@ lws_ss_get_metadata(struct lws_ss_handle *h, const char *name,
 
 	n = lws_http_string_to_known_header(name, strlen(name));
 	if (n != LWS_HTTP_NO_KNOWN_HEADER) {
-		*len = (size_t)lws_hdr_total_length(h->wsi, n);
+		*len = (size_t)lws_hdr_total_length(h->wsi,
+						    (enum lws_token_indexes)n);
 		if (!*len)
 			goto bail;
-		*value = lws_hdr_simple_ptr(h->wsi, n);
+		*value = lws_hdr_simple_ptr(h->wsi, (enum lws_token_indexes)n);
 		if (!*value)
 			goto bail;
 
