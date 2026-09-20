@@ -162,10 +162,10 @@ md_ev(lws_md_ctx_t *c, lws_md_ev_t ev, lws_md_el_t el, unsigned int aux,
 	return LWS_SRET_OK;
 }
 
-/* text data in bounded, atomic pieces */
+/* data (text, url, alt) in bounded, atomic pieces */
 
 static lws_stateful_ret_t
-md_text(lws_md_ctx_t *c, const void *_s, size_t len)
+md_data(lws_md_ctx_t *c, lws_md_ev_t ev, const void *_s, size_t len)
 {
 	const uint8_t *s = (const uint8_t *)_s;
 	lws_stateful_ret_t r;
@@ -177,7 +177,7 @@ md_text(lws_md_ctx_t *c, const void *_s, size_t len)
 		if (l > LMD_TEXT_PIECE)
 			l = LMD_TEXT_PIECE;
 
-		r = md_ev(c, LMD_EV_TEXT, LMD_EL_NONE, 0, s + o, l);
+		r = md_ev(c, ev, LMD_EL_NONE, 0, s + o, l);
 		if (r)
 			return r;
 
@@ -185,6 +185,12 @@ md_text(lws_md_ctx_t *c, const void *_s, size_t len)
 	}
 
 	return LWS_SRET_OK;
+}
+
+static lws_stateful_ret_t
+md_text(lws_md_ctx_t *c, const void *s, size_t len)
+{
+	return md_data(c, LMD_EV_TEXT, s, len);
 }
 
 static lws_stateful_ret_t
@@ -330,10 +336,8 @@ md_try_linkish(lws_md_ctx_t *c, const char *s, size_t len, int is_image,
 
 	if (is_image) {
 		if ((r = md_el(c, 1, LMD_EL_IMG, 0)) ||
-		    (r = md_ev(c, LMD_EV_URL, LMD_EL_NONE, 0,
-			       (const uint8_t *)u, ulen)) ||
-		    (r = md_ev(c, LMD_EV_ALT, LMD_EL_NONE, 0,
-			       (const uint8_t *)s, text_len)) ||
+		    (r = md_data(c, LMD_EV_URL, u, ulen)) ||
+		    (r = md_data(c, LMD_EV_ALT, s, text_len)) ||
 		    (r = md_el(c, 0, LMD_EL_IMG, 0)))
 			return r;
 	} else {
@@ -346,8 +350,7 @@ md_try_linkish(lws_md_ctx_t *c, const char *s, size_t len, int is_image,
 			return LWS_SRET_OK;
 
 		if ((r = md_el(c, 1, LMD_EL_A, 0)) ||
-		    (r = md_ev(c, LMD_EV_URL, LMD_EL_NONE, 0,
-			       (const uint8_t *)u, ulen)))
+		    (r = md_data(c, LMD_EV_URL, u, ulen)))
 			return r;
 
 		c->in_link++;
@@ -422,8 +425,7 @@ md_inline(lws_md_ctx_t *c, const char *s, size_t len, int depth)
 		k = (size_t)md_autolink_len(s + n, len - n);
 		if (k) {
 			if ((r = md_el(c, 1, LMD_EL_A, 0)) ||
-			    (r = md_ev(c, LMD_EV_URL, LMD_EL_NONE, 0,
-				       (const uint8_t *)(s + n), k)) ||
+			    (r = md_data(c, LMD_EV_URL, s + n, k)) ||
 			    (r = md_text(c, s + n, k)) ||
 			    (r = md_el(c, 0, LMD_EL_A, 0)))
 				return r;
