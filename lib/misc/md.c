@@ -518,6 +518,12 @@ md_close_flow(lws_md_ctx_t *c)
 {
 	lws_stateful_ret_t r;
 
+	if (c->code_ind) {
+		if ((r = md_el(c, 0, LMD_EL_CODE, 0)))
+			return r;
+		c->code_ind = 0;
+	}
+
 	if (c->table) {
 		if ((r = md_el(c, 0, LMD_EL_TABLE, 0)))
 			return r;
@@ -791,6 +797,8 @@ md_classify(lws_md_ctx_t *c, const char *s, size_t len)
 		c->flen		= (uint8_t)(fl > 255 ? 255 : fl);
 		c->fbol		= 1;
 		c->fmatch	= 0;
+		c->fq		= 0;
+		c->fqsp		= 0;
 
 		return LWS_SRET_OK;
 	}
@@ -862,66 +870,26 @@ md_classify(lws_md_ctx_t *c, const char *s, size_t len)
 	return md_para_line(c, s, len);
 }
 
-/* process a raw (unstripped) line: blockquote markers then classification */
+/*
+ * Count a line's leading blockquote markers ('>' with an optional space
+ * after each), returning the offset of the content after them.
+ */
 
-static lws_stateful_ret_t
-md_process_line(lws_md_ctx_t *c, const char *s, size_t len)
+static size_t
+md_bq_strip(const char *s, size_t len, unsigned *depth)
 {
-	lws_stateful_ret_t r;
+	size_t o = 0;
 
-	if (len && s[0] == '>') {
-		size_t o = 0;
-		unsigned depth = 0;
+	*depth = 0;
 
-		while (o < len && s[o] == '>' && depth < LMD_NEST_MAX) {
+	while (o < len && s[o] == '>' && *depth < LMD_NEST_MAX) {
+		o++;
+		(*depth)++;
+		if (o < len && s[o] == ' ')
 			o++;
-			depth++;
-			if (o < len && s[o] == ' ')
-				o++;
-		}
-
-		if (depth > c->bq) {
-			unsigned m;
-
-			if ((r = md_close_flow(c)))
-				return r;
-
-			for (m = c->bq; m < depth; m++) {
-				if ((r = md_el(c, 1, LMD_EL_BQ, 0)))
-					return r;
-				c->bq++;
-			}
-		} else if (depth < c->bq) {
-			if ((r = md_close_flow(c)))
-				return r;
-			while (c->bq > depth) {
-				if ((r = md_el(c, 0, LMD_EL_BQ, 0)))
-					return r;
-				c->bq--;
-			}
-		}
-
-		/* a blank rest just closes the inner flow, keeping the quote */
-
-		if (md_is_blank(s + o, len - o))
-			return md_close_flow(c);
-
-		return md_classify(c, s + o, len - o);
 	}
 
-	/* a line with no markers closes any open quote */
-
-	if (c->bq) {
-		if ((r = md_close_flow(c)))
-			return r;
-		while (c->bq) {
-			if ((r = md_el(c, 0, LMD_EL_BQ, 0)))
-				return r;
-			c->bq--;
-		}
-	}
-
-	return md_classify(c, s, len);
+	return o;
 }
 
 /* tail classification for a held line whose follower was not a separator */
@@ -949,15 +917,43 @@ md_tail(lws_md_ctx_t *c, const char *s, size_t len)
 	return md_para_line(c, s, len);
 }
 
-/* the staged line completed: run list / table / code state, then classify */
+/*
+ * The staged line completed.  Its blockquote markers come off first: at the
+ * same quote depth as the open flow, the list / table / indented code state
+ * continues (or not) on the content after them, then it classifies; at a
+ * different depth the flow ends, the quote opens or closes to the new depth,
+ * and the content classifies fresh.
+ */
 
 static lws_stateful_ret_t
 md_line_txn(lws_md_ctx_t *c)
 {
 	const char *s = c->line;
-	size_t len = c->llen;
+	size_t len = c->llen, o;
 	lws_stateful_ret_t r;
+	unsigned depth;
 	int ci;
+
+	o = md_bq_strip(s, len, &depth);
+
+	if (depth != c->bq) {
+		if ((r = md_close_flow(c)))
+			return r;
+
+		while (c->bq < depth) {
+			if ((r = md_el(c, 1, LMD_EL_BQ, 0)))
+				return r;
+			c->bq++;
+		}
+		while (c->bq > depth) {
+			if ((r = md_el(c, 0, LMD_EL_BQ, 0)))
+				return r;
+			c->bq--;
+		}
+	}
+
+	s += o;
+	len -= o;
 
 	if (c->table) {
 		if (!md_is_blank(s, len) && memchr(s, '|', len))
@@ -1029,7 +1025,24 @@ md_line_txn(lws_md_ctx_t *c)
 		/* the interrupting line classifies fresh below */
 	}
 
-	return md_process_line(c, s, len);
+	/* a blank rest inside a quote closes the inner flow, keeping it */
+
+	if (c->bq && md_is_blank(s, len))
+		return md_close_flow(c);
+
+	return md_classify(c, s, len);
+}
+
+/* is the staged line the table separator row for the held header? */
+
+static int
+md_staged_is_sep(lws_md_ctx_t *c)
+{
+	unsigned depth;
+	size_t o = md_bq_strip(c->line, c->llen, &depth);
+
+	return depth == c->bq &&
+	       md_is_table_sep(c->line + o, c->llen - o);
 }
 
 /* transaction plumbing */
@@ -1204,6 +1217,55 @@ md_fence_body(lws_md_ctx_t *c, const uint8_t **buf, size_t *len)
 	while (p < end) {
 		uint8_t b = *p;
 
+		if (c->fbol && !c->fclose && c->fq < c->bq) {
+			/*
+			 * Inside a blockquote, each body line first carries the
+			 * quote's markers, which are not body.  A line with
+			 * fewer ends the quote, and the fence with it: the
+			 * markers it did have are re-staged so the line then
+			 * classifies as any other.
+			 */
+
+			if (c->fqsp) {
+				c->fqsp = 0;
+				if (b == ' ') {
+					p++;
+					continue;
+				}
+			}
+			if (b == '>') {
+				c->fq++;
+				c->fqsp = 1;
+				p++;
+				continue;
+			}
+
+			if ((r = md_el(c, 0, LMD_EL_CODE, 0)))
+				goto bail;
+
+			c->llen = 0;
+			while (c->fq--) {
+				c->line[c->llen++] = '>';
+				c->line[c->llen++] = ' ';
+			}
+			c->fq = 0;
+			c->fence = 0;
+			c->fclose = 0;
+			c->fbol = 1;
+			c->fmatch = 0;
+			goto out;
+		}
+
+		if (c->fbol && !c->fclose && c->fqsp) {
+			/* the optional space after the last marker */
+
+			c->fqsp = 0;
+			if (b == ' ') {
+				p++;
+				continue;
+			}
+		}
+
 		if (c->fbol && !c->fclose) {
 			if (b == c->fchr) {
 				/* stage the run: it may be a closing fence */
@@ -1241,6 +1303,7 @@ md_fence_body(lws_md_ctx_t *c, const uint8_t **buf, size_t *len)
 				c->fclose = 0;
 				c->fbol = 1;
 				c->fmatch = 0;
+				c->fq = 0;
 				goto out;
 			}
 			if (b == '\r' && p + 1 == end)
@@ -1259,6 +1322,7 @@ md_fence_body(lws_md_ctx_t *c, const uint8_t **buf, size_t *len)
 				p += 2;
 				c->fbol = 1;
 				c->fmatch = 0;
+				c->fq = 0;
 				continue;
 			}
 
@@ -1274,6 +1338,7 @@ md_fence_body(lws_md_ctx_t *c, const uint8_t **buf, size_t *len)
 			p++;
 			c->fbol = 1;
 			c->fmatch = 0;
+			c->fq = 0;
 			continue;
 		}
 
@@ -1381,7 +1446,7 @@ md_stage(lws_md_ctx_t *c, const uint8_t **buf, size_t *len)
 			*len = (size_t)(end - p);
 
 			if (c->hold) {
-				if (md_is_table_sep(c->line, c->llen)) {
+				if (md_staged_is_sep(c)) {
 					/* the held line is a table header */
 					md_set_txn(c, 4);
 					return LWS_SRET_OK;
@@ -1443,6 +1508,7 @@ lws_md_parse(lws_md_ctx_t *c, const uint8_t **buf, size_t *len)
 
 	while (1) {
 		size_t was;
+		uint8_t fence;
 
 		while (c->txn) {
 			r = md_run_txn(c);
@@ -1454,6 +1520,7 @@ lws_md_parse(lws_md_ctx_t *c, const uint8_t **buf, size_t *len)
 			return LWS_SRET_OK;
 
 		was = *len;
+		fence = c->fence;
 
 		if (c->fence)
 			r = md_fence_body(c, buf, len);
@@ -1466,9 +1533,11 @@ lws_md_parse(lws_md_ctx_t *c, const uint8_t **buf, size_t *len)
 			return r;
 
 		/* keep going while input is consumed (eg, after a fence
-		 * closed); only a held CR legitimately stops progress */
+		 * closed) or the mode changed (a fence ended at a line it
+		 * did not consume); only a held CR legitimately stops
+		 * progress */
 
-		if (!c->txn && *len == was)
+		if (!c->txn && *len == was && fence == c->fence)
 			return LWS_SRET_OK;
 	}
 }
@@ -1522,6 +1591,7 @@ lws_md_finish(lws_md_ctx_t *c)
 			c->fclose = 0;
 			c->fbol = 1;
 			c->fmatch = 0;
+			c->fq = 0;
 			continue;
 		}
 
@@ -1539,7 +1609,7 @@ lws_md_finish(lws_md_ctx_t *c)
 				c->llen--;
 
 			if (c->hold) {
-				if (md_is_table_sep(c->line, c->llen)) {
+				if (md_staged_is_sep(c)) {
 					/* the held line is a table header */
 					md_set_txn(c, 4);
 				} else

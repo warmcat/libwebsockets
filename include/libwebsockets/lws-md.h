@@ -150,6 +150,8 @@ typedef struct lws_md_ctx {
 	uint8_t			fmatch;	/* fence chars matched at line start */
 	uint8_t			fbol;	/* at start of a fence body line */
 	uint8_t			fclose;	/* swallowing a closing fence line */
+	uint8_t			fq;	/* quote markers seen on this body line */
+	uint8_t			fqsp;	/* after a marker: optional space next */
 
 	uint8_t			over;	/* past the cap, streaming a line */
 

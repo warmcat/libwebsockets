@@ -390,6 +390,40 @@ static const struct golden goldens[] = {
 	  "<blockquote><p>a</p><blockquote><p>b</p></blockquote>"
 	  "</blockquote><p>&lt; c</p>" },
 
+	{ "blockquote-list",
+	  "> - a\n> - b\n>   cont\n> - c\n>\n> after\n",
+	  "<blockquote><ul><li>a</li><li>b\ncont</li><li>c</li></ul>"
+	  "<p>after</p></blockquote>" },
+
+	{ "blockquote-indented-code",
+	  ">     x\n>     y\n> p\n",
+	  "<blockquote><pre><code>x\ny\n</code></pre><p>p</p>"
+	  "</blockquote>" },
+
+	{ "blockquote-indented-code-then-unquoted",
+	  ">     code\ntext\n",
+	  "<blockquote><pre><code>code\n</code></pre></blockquote>"
+	  "<p>text</p>" },
+
+	{ "blockquote-table",
+	  "> a | b\n> ---|---\n> 1 | 2\n> p\n",
+	  "<blockquote><table><tr><th>a</th><th>b</th></tr>"
+	  "<tr><td>1</td><td>2</td></tr></table><p>p</p></blockquote>" },
+
+	{ "blockquote-fence",
+	  "> ```\n> x < y\n>> z\n>\n> ```\n> p\n",
+	  "<blockquote><pre><code>x &lt; y\n&gt; z\n\n</code></pre>"
+	  "<p>p</p></blockquote>" },
+
+	{ "blockquote-fence-unquoted-line-ends-it",
+	  "> ```\n> x\ny\n",
+	  "<blockquote><pre><code>x\n</code></pre></blockquote><p>y</p>" },
+
+	{ "blockquote-fence-shallower-line-ends-it",
+	  "> > ```\n> > x\n> y\n",
+	  "<blockquote><blockquote><pre><code>x\n</code></pre>"
+	  "</blockquote><p>y</p></blockquote>" },
+
 	{ "list-basics",
 	  "- a\n  cont\n- b\n\n1. x\n",
 	  "<ul><li>a\ncont</li><li>b</li></ul><ol><li>x</li></ol>" },
