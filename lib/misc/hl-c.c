@@ -807,11 +807,6 @@ chunk_end:
 
 	case LCS_LINE_COM:
 	case LCS_LINE_COM_BS:
-		r = hl_emit_span(c, LHL_CLS_COMMENT);
-		if (r)
-			goto bail;
-		break;
-
 	case LCS_BLOCK_COM:
 	case LCS_BLOCK_COM_STAR:
 		r = hl_emit_span(c, LHL_CLS_COMMENT);
