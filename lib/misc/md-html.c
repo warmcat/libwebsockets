@@ -170,7 +170,9 @@ md_url_policy(lws_md_html_t *h, int is_image, size_t off)
 	size_t emit_len = h->url_len, o = off, n;
 	char c;
 
-	if (!emit_len) {
+	if (!emit_len || h->url_over) {
+		/* empty, or too long to have been kept whole */
+
 		emit	= "#";
 		emit_len = 1;
 		goto emit_url;
@@ -215,12 +217,13 @@ md_url_policy(lws_md_html_t *h, int is_image, size_t off)
 	}
 
 emit_url:
-	/* belt and braces: percent-encode anything url-unsafe */
+	/*
+	 * belt and braces: percent-encode anything url-unsafe.  Each byte
+	 * grows to at most 5 ("&amp;") and the caller appends up to 9 more
+	 * for the attribute close, so stop while both still fit.
+	 */
 
-	if (emit_len > sizeof(h->buf) - off - 64)
-		emit_len = sizeof(h->buf) - off - 64;
-
-	for (n = 0; n < emit_len && o + 8 < sizeof(h->buf); n++) {
+	for (n = 0; n < emit_len && o + 16 <= sizeof(h->buf); n++) {
 		c = emit[n];
 
 		if (md_is_url_safe(c)) {
@@ -498,6 +501,7 @@ lws_md_html_event(void *user, lws_md_ev_t ev, lws_md_el_t el,
 			h->pending	= 1;
 			h->a_open	= 0;
 			h->url_len	= 0;
+			h->url_over	= 0;
 			return LWS_SRET_OK;
 		case LMD_EL_IMG:
 			/*
@@ -511,6 +515,7 @@ lws_md_html_event(void *user, lws_md_ev_t ev, lws_md_el_t el,
 			h->pending	= 2;
 			h->alt_open	= 0;
 			h->url_len	= 0;
+			h->url_over	= 0;
 			return LWS_SRET_OK;
 		default:
 			return LWS_SRET_OK;
@@ -604,10 +609,16 @@ lws_md_html_event(void *user, lws_md_ev_t ev, lws_md_el_t el,
 		return md_code_prologue(h);
 
 	case LMD_EV_URL:
-		if (h->pending && h->url_len + len < LMD_URL_MAX - 1) {
-			memcpy(h->url + h->url_len, data, len);
-			h->url_len += len;
+		if (!h->pending)
+			return LWS_SRET_OK;
+		if (h->url_len + len >= LMD_URL_MAX - 1) {
+			/* a truncated url is a different url: refuse it
+			 * rather than link to a prefix of it */
+			h->url_over = 1;
+			return LWS_SRET_OK;
 		}
+		memcpy(h->url + h->url_len, data, len);
+		h->url_len += len;
 		return LWS_SRET_OK;
 
 	case LMD_EV_ALT:

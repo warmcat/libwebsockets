@@ -287,6 +287,7 @@ typedef struct lws_md_html {
 
 	char			url[LMD_URL_MAX];
 	size_t			url_len;
+	uint8_t			url_over;	/* url too long: emitted as # */
 	uint8_t			pending;	/* 0 none, 1 A, 2 IMG */
 	uint8_t			a_open;		/* the <a...> tag flushed */
 	uint8_t			alt_open;	/* inside the img alt attr */
