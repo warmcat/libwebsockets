@@ -829,7 +829,9 @@ md_classify(lws_md_ctx_t *c, const char *s, size_t len)
 	/* horizontal rule */
 
 	if (md_is_hr(s, len)) {
-		if ((r = md_el(c, 1, LMD_EL_HR, 0)))
+		/* empty element, but BEGIN / END always pair for sinks */
+		if ((r = md_el(c, 1, LMD_EL_HR, 0)) ||
+		    (r = md_el(c, 0, LMD_EL_HR, 0)))
 			return r;
 		return LWS_SRET_OK;
 	}
