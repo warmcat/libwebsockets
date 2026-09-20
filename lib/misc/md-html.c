@@ -595,7 +595,9 @@ lws_md_html_event(void *user, lws_md_ev_t ev, lws_md_el_t el,
 			return LWS_SRET_OK;
 		if (len > LMD_INFO_MAX - 1)
 			len = LMD_INFO_MAX - 1;
-		memcpy(h->info, data, len);
+		/* an indented code block has no info string: NULL, 0 */
+		if (len)
+			memcpy(h->info, data, len);
 		h->info[len] = '\0';
 		h->infolen = (uint8_t)len;
 
