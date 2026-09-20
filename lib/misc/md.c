@@ -983,10 +983,12 @@ md_line_txn(lws_md_ctx_t *c)
 			   (c->list == LMD_EL_OL && md_is_ordered(s, len, &ci))) {
 			int skip = 1;	/* the bullet or digits + '.' */
 
-			if (c->list == LMD_EL_OL)
+			if (c->list == LMD_EL_OL) {
 				while (s[ci + skip] >= '0' &&
 				       s[ci + skip] <= '9')
 					skip++;
+				skip++;		/* the '.' */
+			}
 
 			if (c->li) {
 				if ((r = md_el(c, 0, LMD_EL_LI, 0)))
