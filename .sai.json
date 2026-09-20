@@ -339,6 +339,15 @@
 
 		"ss-variants": {
 			"cmake":	"-DLWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY=1 -DLWS_WITH_SECURE_STREAMS_AUTH_SIGV4=1 -DLWS_WITH_SS_DIRECT_PROTOCOL_STR=1 -DLWS_WITH_SECURE_STREAMS_CPP=1 -DLWS_WITH_SECURE_STREAMS_BUFFER_DUMP=1 -DLWS_WITH_MINIMAL_EXAMPLES=1"
+		},
+
+		# the default build under ASan + LSan + UBSan, examples and
+		# their ctest suite included, on one Linux gcc builder (needs
+		# libasan / libubsan there)
+
+		"asan": {
+			"cmake":	"-DLWS_WITH_ASAN=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"platforms":	"none, linux-fedora44/x86_64-amd/gcc"
 		}
 		,
 
