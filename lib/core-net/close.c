@@ -183,7 +183,8 @@ __lws_reset_wsi(struct lws *wsi)
 #endif
 	__lws_wsi_remove_from_sul(wsi);
 
-	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_destroy_role))
+	/* a client wsi that bailed before its role was chosen has none */
+	if (wsi->role_ops && lws_rops_fidx(wsi->role_ops, LWS_ROPS_destroy_role))
 		lws_rops_func_fidx(wsi->role_ops,
 				   LWS_ROPS_destroy_role).destroy_role(wsi);
 
