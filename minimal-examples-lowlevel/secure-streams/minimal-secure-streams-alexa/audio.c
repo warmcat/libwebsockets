@@ -417,7 +417,7 @@ callback_audio(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 * We must send an extra one at the end so we can finish
 			 * the tx.
 			 */
-			lws_ss_request_tx(hss_avs_sync);
+			(void)lws_ss_request_tx(hss_avs_sync); /* best effort */
 		}
 
 		/*

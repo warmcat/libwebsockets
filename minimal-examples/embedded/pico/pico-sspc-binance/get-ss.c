@@ -21,7 +21,7 @@ sul_start_get(lws_sorted_usec_list_t *sul)
 {
 	get_t *g = lws_container_of(sul, get_t, sul5);
 
-	lws_ss_request_tx(lws_ss_from_user(g));
+	(void)lws_ss_request_tx(lws_ss_from_user(g)); /* best effort */
 	lws_sul_schedule(lws_ss_cx_from_user(g), 0, sul, sul_start_get,
 			 5 * LWS_US_PER_SEC);
 }

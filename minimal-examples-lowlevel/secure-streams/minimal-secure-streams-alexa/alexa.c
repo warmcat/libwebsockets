@@ -531,7 +531,6 @@ ss_avs_metadata_state(void *userobj, void *sh,
 		      lws_ss_constate_t state, lws_ss_tx_ordinal_t ack)
 {
 	ss_avs_metadata_t *m = (ss_avs_metadata_t *)userobj;
-	struct lws_context *context = (struct lws_context *)m->opaque_data;
 
 	lwsl_notice("%s: %p: %s, ord 0x%x\n", __func__, m->ss,
 		    lws_ss_state_name(state), (unsigned int)ack);

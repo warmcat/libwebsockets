@@ -688,10 +688,6 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 		search_send_get_peers(ctx, sr, NULL);
 #endif
 
-#if defined(LWS_WITH_DHT_BACKEND)
-	if (0) {
-	}
-#endif
 }
 
 #if defined(LWS_WITH_DHT_BACKEND)
