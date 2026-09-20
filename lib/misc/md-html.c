@@ -279,7 +279,7 @@ md_hl_for_tag(lws_md_html_t *h)
  * Feed an event's code content through the bridged tokenizer.  lws-hl may
  * hold its last input byte for a decision that needs the next byte, so the
  * sink keeps it back and prepends it to the next event; at end of the block
- * it is emitted escaped rather than lost.
+ * lws_hl_finish() resolves it.
  */
 
 static lws_stateful_ret_t
@@ -336,14 +336,13 @@ md_hl_end(lws_md_html_t *h)
 {
 	lws_stateful_ret_t r;
 
-	if (h->hl_hold) {
-		/* the held byte cannot be classified alone: emit it plain */
+	/*
+	 * A held byte is still the tokenizer's: it kept the decision byte
+	 * unconsumed in its own state and lws_hl_finish() emits it with its
+	 * best-guess class, so emitting it here too would duplicate it.
+	 */
 
-		r = md_esc_emit(h, &h->hl_holdb, 1, 0);
-		if (r)
-			return r;
-		h->hl_hold = 0;
-	}
+	h->hl_hold = 0;
 
 	if (!h->hl_fin) {
 		r = lws_hl_finish(&h->hlctx);
