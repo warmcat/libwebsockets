@@ -1159,6 +1159,34 @@ md_txn_body(lws_md_ctx_t *c)
 	return LWS_SRET_OK;
 }
 
+/*
+ * Stream an unstaged run as text pieces, advancing the caller's cursor over
+ * each accepted piece: a deferral then resumes at the deferred piece, not at
+ * the start of the run (which would re-issue the accepted pieces, since no
+ * transaction watermark applies outside a transaction).
+ */
+
+static lws_stateful_ret_t
+md_stream(lws_md_ctx_t *c, const uint8_t **p, const uint8_t *q)
+{
+	lws_stateful_ret_t r;
+
+	while (*p < q) {
+		size_t l = (size_t)(q - *p);
+
+		if (l > LMD_TEXT_PIECE)
+			l = LMD_TEXT_PIECE;
+
+		r = md_ev(c, LMD_EV_TEXT, LMD_EL_NONE, 0, *p, l);
+		if (r)
+			return r;
+
+		*p += l;
+	}
+
+	return LWS_SRET_OK;
+}
+
 /* fence body: streamed straight through, not staged */
 
 static lws_stateful_ret_t
@@ -1251,10 +1279,9 @@ md_fence_body(lws_md_ctx_t *c, const uint8_t **buf, size_t *len)
 			while (q < end && *q != '\n' && *q != '\r')
 				q++;
 
-			r = md_text(c, p, (size_t)(q - p));
+			r = md_stream(c, &p, q);
 			if (r)
 				goto bail;
-			p = q;
 		}
 	}
 
@@ -1287,10 +1314,9 @@ md_over_body(lws_md_ctx_t *c, const uint8_t **buf, size_t *len)
 			q++;
 
 		if (q > p) {
-			r = md_text(c, p, (size_t)(q - p));
+			r = md_stream(c, &p, q);
 			if (r)
 				goto bail;
-			p = q;
 		}
 
 		if (p == end)
