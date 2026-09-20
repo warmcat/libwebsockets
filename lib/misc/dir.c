@@ -374,6 +374,7 @@ lws_plugin_alloc(struct lws_plugin **pplugin)
 		return NULL;
 
 	pin->list = *pplugin;
+	pin->basename[0] = '\0';
 	*pplugin = pin;
 
 	return pin;
@@ -513,6 +514,21 @@ lws_plugins_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			p += 3;
 		if (strncmp(p, "protocol_", 9))
 			return 0;
+	}
+
+	/*
+	 * Directory precedence: a plugin already loaded from an earlier
+	 * directory is not opened again just to be found duplicate
+	 */
+
+	{
+		struct lws_plugin *pin = *pa->pplugin;
+
+		while (pin) {
+			if (!strcmp(pin->basename, base))
+				return 0; /* keep going */
+			pin = pin->list;
+		}
 	}
 
 	lws_snprintf(path, sizeof(path) - 1, "%s/%s", dirpath, lde->name);

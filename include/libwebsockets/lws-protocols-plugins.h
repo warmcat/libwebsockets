@@ -309,6 +309,10 @@ struct lws_plugin {
 
 	const lws_plugin_header_t *hdr;
 
+	char basename[64]; /**< filename-derived name, eg "lws_hls", or ""
+			    * for builtin plugins: a later directory's copy
+			    * of the same plugin is not opened */
+
 	union {
 #if defined(LWS_WITH_LIBUV) && defined(UV_ERRNO_MAP)
 #if (UV_VERSION_MAJOR > 0)

@@ -110,6 +110,7 @@ lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
 
 	pin->u.l = l;
 	pin->hdr = hdr;
+	lws_strncpy(pin->basename, sofilename, sizeof(pin->basename));
 
 	if (each)
 		each(pin, each_user);
