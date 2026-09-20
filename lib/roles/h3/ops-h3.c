@@ -2448,10 +2448,12 @@ lws_wsi_h3_adopt(struct lws *parent_wsi, struct lws *wsi)
 	wsi->client_mux_substream = 1;
 #endif
 
-	if (wsi->quic.qn) {
-		lws_free(wsi->quic.qn);
-		wsi->quic.qn = NULL;
-	}
+	/*
+	 * A client wsi arrives here bound as a fresh QUIC connection, with
+	 * its own netconn, initial keys and congestion control state; as a
+	 * stream on the existing connection it needs none of that
+	 */
+	lws_quic_netconn_destroy(&wsi->quic.qn);
 
 	wsi->quic.qs = lws_zalloc(sizeof(*wsi->quic.qs), "quic stream");
 	if (!wsi->quic.qs)

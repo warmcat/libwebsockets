@@ -4338,11 +4338,68 @@ lws_quic_server_idle_check(struct lws *nwsi)
 				nwsi->a.vhost->keepalive_timeout : 5);
 }
 
+/*
+ * Free a netconn and everything it owns: the per-level keys, queued and
+ * in-flight tx frames, rx crypto chunks and buffers, and the congestion
+ * control state.  Used at network wsi close, and when a client wsi that
+ * was bound as a fresh QUIC connection is instead adopted as a stream on
+ * an existing one and its unused netconn is dropped.
+ */
+
+void
+lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
+{
+	struct lws_quic_netconn *qn = *pqn;
+	int i;
+
+	if (!qn)
+		return;
+
+	for (i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
+		/* Free keys */
+		if (qn->keys[i]) {
+			lws_quic_keys_destroy(qn->keys[i]);
+			qn->keys[i] = NULL;
+		}
+
+		/* Free pending tx */
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->pending_tx[i].head) {
+			struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
+			lws_dll2_remove(&f->list);
+			lws_free(f);
+		} lws_end_foreach_dll_safe(d, d1);
+
+		/* Free in flight */
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->in_flight[i].head) {
+			struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
+			lws_dll2_remove(&f->list);
+			lws_free(f);
+		} lws_end_foreach_dll_safe(d, d1);
+
+		/* Free RX Crypto chunks */
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->rx_crypto_chunks[i].head) {
+			struct lws_quic_rx_chunk *c = lws_container_of(d, struct lws_quic_rx_chunk, list);
+			lws_dll2_remove(&c->list);
+			lws_free(c);
+		} lws_end_foreach_dll_safe(d, d1);
+	}
+
+	if (qn->cc_state)
+		lws_free_set_NULL(qn->cc_state);
+
+	for (i = 0; i < 4; i++)
+		if (qn->crypto_rx_buf[i]) {
+			lws_free(qn->crypto_rx_buf[i]);
+			qn->crypto_rx_buf[i] = NULL;
+		}
+
+	lws_free_set_NULL(*pqn);
+}
+
 static int
 rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 {
 	struct lws_quic_netconn *qn = wsi->quic.qn;
-	int i;
 
 	if(!lws_dll2_is_empty(&wsi->mux.child_list_owner))
 		lws_wsi_mux_close_children(wsi, (int)reason);
@@ -4386,46 +4443,7 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 		}
 #endif
 
-		for (i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
-			/* Free keys */
-			if (qn->keys[i]) {
-				lws_quic_keys_destroy(qn->keys[i]);
-				qn->keys[i] = NULL;
-			}
-
-			/* Free pending tx */
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->pending_tx[i].head) {
-				struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
-				lws_dll2_remove(&f->list);
-				lws_free(f);
-			} lws_end_foreach_dll_safe(d, d1);
-
-			/* Free in flight */
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->in_flight[i].head) {
-				struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
-				lws_dll2_remove(&f->list);
-				lws_free(f);
-			} lws_end_foreach_dll_safe(d, d1);
-
-			/* Free RX Crypto chunks */
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->rx_crypto_chunks[i].head) {
-				struct lws_quic_rx_chunk *c = lws_container_of(d, struct lws_quic_rx_chunk, list);
-				lws_dll2_remove(&c->list);
-				lws_free(c);
-			} lws_end_foreach_dll_safe(d, d1);
-		}
-
-		if (qn->cc_state)
-			lws_free_set_NULL(qn->cc_state);
-
-		for (int _i = 0; _i < 4; _i++) {
-			if (qn->crypto_rx_buf[_i]) {
-				lws_free(qn->crypto_rx_buf[_i]);
-				qn->crypto_rx_buf[_i] = NULL;
-			}
-		}
-
-		lws_free_set_NULL(wsi->quic.qn);
+		lws_quic_netconn_destroy(&wsi->quic.qn);
 	}
 
 #if defined(LWS_WITH_UDP)

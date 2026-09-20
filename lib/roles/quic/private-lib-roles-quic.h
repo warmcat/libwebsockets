@@ -525,6 +525,9 @@ void
 lws_quic_keys_destroy(struct lws_quic_keys *keys);
 
 void
+lws_quic_netconn_destroy(struct lws_quic_netconn **pqn);
+
+void
 lws_quic_queue_path_challenge(struct lws *nwsi);
 
 /*
