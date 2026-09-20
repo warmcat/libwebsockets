@@ -2362,6 +2362,9 @@ stroke_w_resolve(lws_svg_t *ctx, int64_t v_e8, char pct)
 		diag = (uint64_t)svg_isqrt64(((sw * sw) >> 1) + ((sh * sh) >> 1));
 		if (diag > SVG_C_MAX)
 			diag = SVG_C_MAX;
+		if (pc > SVG_C_MAX)	/* already saturated: makes the bound
+					 * visible to the reader and to tools */
+			pc = SVG_C_MAX;
 
 		/*
 		 * vn is a percentage: width = vn / 100 * diag, all Q16.
