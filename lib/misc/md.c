@@ -1457,9 +1457,14 @@ lws_md_finish(lws_md_ctx_t *c)
 				return r;
 		}
 
-		/* events issued directly below restart cleanly on re-entry */
+		/*
+		 * Events issued directly below are made restartable by the
+		 * state they change once accepted, not by the transaction
+		 * watermark: start both counters fresh, else a watermark left
+		 * by accepted fence body events skips them.
+		 */
 
-		c->evseq = 0;
+		c->evseq = c->evdone = 0;
 
 		if (c->fence) {
 			/* an unterminated run at end of input is body */
