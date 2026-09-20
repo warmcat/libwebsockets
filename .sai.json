@@ -317,6 +317,28 @@
 		},
 		"threadpool": {
 			"cmake":	"-DLWS_WITH_THREADPOOL=1 -DLWS_WITH_MINIMAL_EXAMPLES=1"
+		},
+
+		# default-on features turned off together, so their #if guards
+		# and the implied-options chain get built without them
+
+		"slim": {
+			"cmake":	"-DLWS_WITH_HL=0 -DLWS_WITH_MD=0 -DLWS_WITH_SVG=0 -DLWS_WITH_GIF=0 -DLWS_WITH_JSONRPC=0 -DLWS_WITH_SYS_ASYNC_DNS=0 -DLWS_WITH_CUSTOM_HEADERS=0 -DLWS_WITH_CONMON=0 -DLWS_WITH_WOL=0 -DLWS_WITH_LIBCAP=0 -DLWS_WITH_BINDTODEVICE=0 -DLWS_WITH_HTTP_DIGEST_AUTH=0 -DLWS_WITH_CBOR_FLOAT=0 -DLWS_WITH_SHARED=0 -DLWS_WITH_CACHE_BLOB=0 -DLWS_WITH_SSL=OFF"
+		},
+
+		# default-off system pieces that no other dimension enables:
+		# brings api-test-gendtls / -mnemonic / -backtrace into ctest
+
+		"sys-extras": {
+			"cmake":	"-DLWS_WITH_SYS_DHCP_CLIENT=1 -DLWS_WITH_DTLS=1 -DLWS_WITH_MNEMONIC=1 -DLWS_WITH_ASYNC_QUEUE=1 -DLWS_WITH_COMPRESSED_BACKTRACES=1 -DLWS_WITH_EXTERNAL_POLL=1 -DLWS_WITH_GENCRYPTO=1 -DLWS_HTTP_HEADERS_ALL=1 -DLWS_WITH_MINIMAL_EXAMPLES=1"
+		},
+
+		# secure streams build variants never otherwise built; with the
+		# static-policy-only flag most SS examples are excluded, so this
+		# is mainly a compile dimension
+
+		"ss-variants": {
+			"cmake":	"-DLWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY=1 -DLWS_WITH_SECURE_STREAMS_AUTH_SIGV4=1 -DLWS_WITH_SS_DIRECT_PROTOCOL_STR=1 -DLWS_WITH_SECURE_STREAMS_CPP=1 -DLWS_WITH_SECURE_STREAMS_BUFFER_DUMP=1 -DLWS_WITH_MINIMAL_EXAMPLES=1"
 		}
 		,
 
