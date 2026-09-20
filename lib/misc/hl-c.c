@@ -287,6 +287,13 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 					c->pos += (c->chunk[c->pos + 1] == '\n') ? 2 : 1;
 					continue;
 				}
+				/* hold only the backslash: emit the run before
+				 * it, so at most one byte is left unconsumed */
+				if (c->pos > c->tok) {
+					r = hl_emit_span(c, LHL_CLS_PLAIN);
+					if (r)
+						goto bail;
+				}
 				c->state = LCS_BS;
 				goto chunk_end;
 			}
