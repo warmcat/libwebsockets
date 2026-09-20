@@ -45,6 +45,11 @@
 #define LHL_PIECE_MAX			  96
 #endif
 
+/* the scratch cursor is a byte, and pieces are bounded two units in */
+#if LHL_SCRATCH_SIZE > 255 || LHL_PIECE_MAX < 8
+#error "LHL_SCRATCH_SIZE must be <= 255 and LHL_PIECE_MAX >= 8"
+#endif
+
 /*! how the token piece is to be presented */
 typedef enum {
 	LHL_CLS_PLAIN,		/**< ws, operators, punctuation... unstyled */
