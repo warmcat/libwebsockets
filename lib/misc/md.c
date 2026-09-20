@@ -1436,6 +1436,8 @@ lws_md_parse(lws_md_ctx_t *c, const uint8_t **buf, size_t *len)
 		return LWS_SRET_FATAL;
 
 	while (1) {
+		size_t was;
+
 		while (c->txn) {
 			r = md_run_txn(c);
 			if (r)
@@ -1444,6 +1446,8 @@ lws_md_parse(lws_md_ctx_t *c, const uint8_t **buf, size_t *len)
 
 		if (!*len)
 			return LWS_SRET_OK;
+
+		was = *len;
 
 		if (c->fence)
 			r = md_fence_body(c, buf, len);
@@ -1455,7 +1459,10 @@ lws_md_parse(lws_md_ctx_t *c, const uint8_t **buf, size_t *len)
 		if (r)
 			return r;
 
-		if (!c->txn)
+		/* keep going while input is consumed (eg, after a fence
+		 * closed); only a held CR legitimately stops progress */
+
+		if (!c->txn && *len == was)
 			return LWS_SRET_OK;
 	}
 }
