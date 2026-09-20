@@ -191,6 +191,12 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 			target_compile_definitions(test-lejp PRIVATE LWS_BUILDING_STATIC)
 		endif()
 
+		#
+		# The parser test apps are self-contained (no network, no
+		# files, no arguments) so they also run under ctest, on every
+		# platform that builds the test apps
+		#
+
 		if (LWS_WITH_HL AND LWS_WITH_HL_LANG_C)
 			create_test_app(
 				test-hl
@@ -201,6 +207,8 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 				""
 				"")
 			target_compile_definitions(test-hl PRIVATE LWS_BUILDING_STATIC)
+			add_test(NAME test-hl COMMAND test-hl)
+			set_tests_properties(test-hl PROPERTIES TIMEOUT 120)
 		endif()
 
 		if (LWS_WITH_MD)
@@ -213,6 +221,8 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 				""
 				"")
 			target_compile_definitions(test-md PRIVATE LWS_BUILDING_STATIC)
+			add_test(NAME test-md COMMAND test-md)
+			set_tests_properties(test-md PROPERTIES TIMEOUT 120)
 		endif()
 
 		if (LWS_WITH_CBOR)
