@@ -201,23 +201,22 @@ pp_is_include(const uint8_t *name, size_t len)
 }
 
 /*
- * Emit block comment pieces.  If the sink defers, retain the state matching
- * the byte before epos (the emitted watermark), rather than the byte before
- * the scan cursor: re-delivered input re-derives the identical
- * classification either way, since '*' is byte-local context.
+ * Restartability.  The scan runs ahead of the sink: state and flags at the
+ * cursor describe the byte at pos, but a deferred piece is retried from epos,
+ * the emitted watermark.  Two rules keep the retry identical to the first
+ * scan:
+ *
+ *  - every content run is emitted before it can exceed one piece, and only
+ *    between units (an escape pair, a "\\\n" splice), so an emission either
+ *    moves epos up to pos or leaves it where it was... never part way
+ *
+ *  - whenever epos catches up to pos, the state and flags at that point are
+ *    snapshotted; a deferral restores the snapshot, so the retry starts at
+ *    epos exactly as the first scan did (eg, a '#' is not made a directive
+ *    by the newline after it that the failed scan already saw)
  */
 
-static lws_stateful_ret_t
-emit_comment(lws_hl_ctx_t *c)
-{
-	lws_stateful_ret_t r = hl_emit_span(c, LHL_CLS_COMMENT);
-
-	if (r && c->epos)
-		c->state = (c->chunk[c->epos - 1] == '*') ?
-				LCS_BLOCK_COM_STAR : LCS_BLOCK_COM;
-
-	return r;
-}
+#define HL_BOUND			  (LHL_PIECE_MAX - 2)
 
 static int
 hl_c_construct(lws_hl_ctx_t *c)
@@ -233,6 +232,7 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 {
 	size_t olen = *len;
 	lws_stateful_ret_t r = LWS_SRET_OK;
+	uint8_t estate = c->state, eflags = c->flags;
 
 	c->chunk = *buf;
 	c->pos = c->tok = c->epos = 0;
@@ -240,9 +240,22 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 	while (c->pos < olen) {
 		uint8_t b = c->chunk[c->pos];
 
+		if (c->epos == c->pos) {
+			/* everything before this byte was accepted: a
+			 * deferred piece resumes here, in this state */
+			estate = c->state;
+			eflags = c->flags;
+		}
+
 		switch (c->state) {
 
 		case LCS_PLAIN:
+			if (c->pos - c->epos >= HL_BOUND) {
+				r = hl_emit_span(c, LHL_CLS_PLAIN);
+				if (r)
+					goto bail;
+				continue;
+			}
 			if (b == '\n') {
 				c->flags |= LHF_BOL;
 				c->flags &= (uint8_t)~(LHF_PPLINE | LHF_PPINC);
@@ -253,12 +266,28 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 				c->pos++;
 				continue;
 			}
+
+			/*
+			 * Anything that starts a token or holds a decision
+			 * byte first emits the plain run before it and ends
+			 * the iteration: the next one then starts with epos at
+			 * this byte and snapshots the state it is seen in.
+			 */
+			if (c->pos > c->tok &&
+			    ((b == '#' && (c->flags & LHF_BOL)) ||
+			     (b == '<' && (c->flags & LHF_PPLINE) &&
+					  (c->flags & LHF_PPINC)) ||
+			     (b == '\\' && (c->flags & LHF_PPLINE) &&
+					   c->pos + 1 >= olen) ||
+			     b == '"' || b == '\'' || c_is_idc(b) ||
+			     b == '.' || b == '/')) {
+				r = hl_emit_span(c, LHL_CLS_PLAIN);
+				if (r)
+					goto bail;
+				continue;
+			}
+
 			if (b == '#' && (c->flags & LHF_BOL)) {
-				if (c->pos > c->tok) {
-					r = hl_emit_span(c, LHL_CLS_PLAIN);
-					if (r)
-						goto bail;
-				}
 				c->scratch[0] = '#';
 				c->scratch_pos = 1;
 				c->state = LCS_PPHASH;
@@ -271,11 +300,6 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 
 			if (b == '<' && (c->flags & LHF_PPLINE) &&
 			    (c->flags & LHF_PPINC)) {
-				if (c->pos > c->tok) {
-					r = hl_emit_span(c, LHL_CLS_PLAIN);
-					if (r)
-						goto bail;
-				}
 				c->state = LCS_HEADER;
 				c->pos++;
 				continue;
@@ -287,23 +311,14 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 					c->pos += (c->chunk[c->pos + 1] == '\n') ? 2 : 1;
 					continue;
 				}
-				/* hold only the backslash: emit the run before
-				 * it, so at most one byte is left unconsumed */
-				if (c->pos > c->tok) {
-					r = hl_emit_span(c, LHL_CLS_PLAIN);
-					if (r)
-						goto bail;
-				}
+				/* hold only the backslash (the run before it
+				 * was emitted above), so at most one byte is
+				 * left unconsumed */
 				c->state = LCS_BS;
 				goto chunk_end;
 			}
 
 			if (b == '"' || b == '\'') {
-				if (c->pos > c->tok) {
-					r = hl_emit_span(c, LHL_CLS_PLAIN);
-					if (r)
-						goto bail;
-				}
 				/* hold the opening quote in scratch, so a
 				 * deferred first piece replays without the
 				 * quote looking like a terminator */
@@ -316,11 +331,6 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 			}
 
 			if (c_is_dig(b) || c_is_id(b)) {
-				if (c->pos > c->tok) {
-					r = hl_emit_span(c, LHL_CLS_PLAIN);
-					if (r)
-						goto bail;
-				}
 				c->scratch_pos = 0;
 				c->flags &= (uint8_t)~LHF_IDKNOW;
 				c->state = c_is_dig(b) ? LCS_NUM : LCS_IDENT;
@@ -329,21 +339,11 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 			}
 
 			if (b == '.') {
-				if (c->pos > c->tok) {
-					r = hl_emit_span(c, LHL_CLS_PLAIN);
-					if (r)
-						goto bail;
-				}
 				c->state = LCS_DOT;
 				continue;	/* leave '.' unconsumed */
 			}
 
 			if (b == '/') {
-				if (c->pos > c->tok) {
-					r = hl_emit_span(c, LHL_CLS_PLAIN);
-					if (r)
-						goto bail;
-				}
 				c->state = LCS_SLASH;
 				continue;	/* leave '/' unconsumed */
 			}
@@ -399,6 +399,16 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 			lws_hl_class_t lc = (c->state == LCS_STR) ?
 					LHL_CLS_STRING : LHL_CLS_CHARLIT;
 
+			if (c->pos - c->epos >= HL_BOUND) {
+				r = hl_emit_prefix(c, lc);
+				if (r)
+					goto bail;
+				r = hl_emit_span(c, lc);
+				if (r)
+					goto bail;
+				continue;
+			}
+
 			if (b == '"' || b == '\'') {
 				if ((b == '"') == (c->state == LCS_STR)) {
 					c->pos++;
@@ -451,6 +461,12 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 			goto chunk_end;
 
 		case LCS_LINE_COM:
+			if (c->pos - c->epos >= HL_BOUND) {
+				r = hl_emit_span(c, LHL_CLS_COMMENT);
+				if (r)
+					goto bail;
+				continue;
+			}
 			if (b == '\n') {
 				r = hl_emit_span(c, LHL_CLS_COMMENT);
 				if (r)
@@ -481,6 +497,27 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 			goto chunk_end;
 
 		case LCS_BLOCK_COM:
+		case LCS_BLOCK_COM_STAR:
+			if (c->pos - c->epos >= HL_BOUND) {
+				r = hl_emit_span(c, LHL_CLS_COMMENT);
+				if (r)
+					goto bail;
+				continue;
+			}
+			if (c->state == LCS_BLOCK_COM_STAR) {
+				if (b == '/') {
+					c->pos++;
+					r = hl_emit_span(c, LHL_CLS_COMMENT);
+					if (r)
+						goto bail;
+					c->state = LCS_PLAIN;
+					continue;
+				}
+				if (b != '*')
+					c->state = LCS_BLOCK_COM; /* handles *** / */
+				c->pos++;
+				continue;
+			}
 			if (b == '*') {
 				c->state = LCS_BLOCK_COM_STAR;
 				c->pos++;
@@ -491,22 +528,14 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 			c->pos++;
 			continue;
 
-		case LCS_BLOCK_COM_STAR:
-			if (b == '/') {
-				c->pos++;
-				r = emit_comment(c);
-				if (r)
-					goto bail;
-				c->state = LCS_PLAIN;
-				continue;
-			}
-			if (b != '*')
-				c->state = LCS_BLOCK_COM; /* handles *** / */
-			c->pos++;
-			continue;
-
 		case LCS_NUM:
 		case LCS_NUM_SIGN:
+			if (c->pos - c->epos >= HL_BOUND) {
+				r = hl_emit_span(c, LHL_CLS_NUMBER);
+				if (r)
+					goto bail;
+				continue;
+			}
 			/* pp-number maximal munch */
 			if (c_is_numc(b)) {
 				c->pos++;
@@ -582,6 +611,12 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 			}
 
 		case LCS_HEADER:
+			if (c->pos - c->epos >= HL_BOUND) {
+				r = hl_emit_span(c, LHL_CLS_PREPROC);
+				if (r)
+					goto bail;
+				continue;
+			}
 			if (b == '>' || b == '\n') {
 				if (b == '>')
 					c->pos++;
@@ -595,6 +630,25 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 			continue;
 
 		case LCS_IDENT:
+			if (c->pos - c->epos >= HL_BOUND) {
+				/* longer than any keyword: flush as identifier
+				 * pieces, the stashed prefix first */
+				c->flags |= LHF_IDKNOW;
+				c->tokcls = LHL_CLS_IDENT;
+				if (c->scratch_pos) {
+					r = hl_emit_scratch(c, LHL_CLS_IDENT);
+					if (r)
+						goto bail;
+					c->scratch_pos = 0;
+					/* accepted: the tail resumes as known */
+					estate = c->state;
+					eflags = c->flags;
+				}
+				r = hl_emit_span(c, LHL_CLS_IDENT);
+				if (r)
+					goto bail;
+				continue;
+			}
 			if (c_is_idc(b)) {
 				c->pos++;
 				continue;
@@ -613,6 +667,10 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 							(c->scratch_pos +
 							 (c->pos - c->tok));
 					c->epos = c->tok = c->pos;
+					/* the whole identifier is in scratch
+					 * now: a retry resumes at b with it */
+					estate = c->state;
+					eflags = c->flags;
 
 					if (!(c->flags & LHF_IDKNOW))
 						c->tokcls = kw_match(
@@ -637,6 +695,9 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 				c->scratch_pos = 0;
 				c->flags |= LHF_IDKNOW;
 				c->tokcls = LHL_CLS_IDENT;
+				/* accepted: the tail resumes as known */
+				estate = c->state;
+				eflags = c->flags;
 			}
 
 			if (!(c->flags & LHF_IDKNOW)) {
@@ -664,6 +725,13 @@ hl_c_parse(lws_hl_ctx_t *c, const uint8_t **buf, size_t *len)
 chunk_end:
 	/* input exhausted (or a held decision byte at the end of it)...
 	 * stash or emit what we have and keep the state for next time */
+
+	if (c->epos == c->pos) {
+		/* as at the loop top: the loop may not have run again
+		 * since epos caught up */
+		estate = c->state;
+		eflags = c->flags;
+	}
 
 	switch (c->state) {
 	case LCS_PLAIN:
@@ -702,6 +770,8 @@ chunk_end:
 			/* stashed bytes are consumed: a deferred flush of
 			 * the full scratch must not stash them again */
 			c->epos = c->tok;
+			estate = c->state;
+			eflags = c->flags;
 		}
 		if (c->scratch_pos > KW_MAXLEN) {
 			/* can't be a keyword any more */
@@ -744,7 +814,7 @@ chunk_end:
 
 	case LCS_BLOCK_COM:
 	case LCS_BLOCK_COM_STAR:
-		r = emit_comment(c);
+		r = hl_emit_span(c, LHL_CLS_COMMENT);
 		if (r)
 			goto bail;
 		break;
@@ -762,6 +832,12 @@ chunk_end:
 	}
 
 bail:
+	if (r) {
+		/* resume at epos as the first scan did */
+		c->state = estate;
+		c->flags = eflags;
+	}
+
 	*buf = c->chunk + c->epos;
 	*len = olen - c->epos;
 
