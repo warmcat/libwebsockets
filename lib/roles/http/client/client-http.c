@@ -464,7 +464,14 @@ client_http_body_sent:
 			m = eb.len - n;
 #if defined(LWS_WITH_SECURE_STREAMS_BUFFER_DUMP)
 			do {
-				lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
+				lws_ss_handle_t *h;
+
+				/* the opaque user data is only an ss handle on
+				 * a wsi that belongs to a secure stream */
+				if (!wsi->for_ss)
+					break;
+
+				h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 				if (!h)
 					break;
 
