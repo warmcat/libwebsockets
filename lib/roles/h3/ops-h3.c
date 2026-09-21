@@ -961,10 +961,18 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 	if (!cwsi)
 		return NULL;
 
-	lws_role_transition(cwsi, LWSIFR_CLIENT, LRS_ESTABLISHED, &role_ops_h3);
+	/*
+	 * These are our own unidirectional streams, so they belong to
+	 * whichever side we are: a server's control streams are not client
+	 * streams, and must not pick the client-side callbacks
+	 */
+	lws_role_transition(cwsi, lwsi_role_server(nwsi) ? LWSIFR_SERVER :
+							  LWSIFR_CLIENT,
+			    LRS_ESTABLISHED, &role_ops_h3);
 	cwsi->mux_substream = 1;
 #if defined(LWS_WITH_CLIENT)
-	cwsi->client_mux_substream = 1;
+	if (!lwsi_role_server(nwsi))
+		cwsi->client_mux_substream = 1;
 #endif
 
 	cwsi->quic.qs = lws_zalloc(sizeof(*cwsi->quic.qs), "quic stream");
