@@ -84,9 +84,9 @@ _lws_ws_client_rx_payload_passthrough(struct lws *wsi, const uint8_t *buf,
 			}
 		}
 
-		if (lwsi_state(wsi) == LRS_RETURNED_CLOSE ||
-		    lwsi_state(wsi) == LRS_WAITING_TO_SEND_CLOSE ||
-		    lwsi_state(wsi) == LRS_AWAITING_CLOSE_ACK)
+		if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
+		    lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE ||
+		    lwsi_close(wsi) == LCS_AWAITING_CLOSE_ACK)
 			return LWS_HPI_RET_HANDLED;
 
 		if (n == PMDR_DID_NOTHING
@@ -639,7 +639,7 @@ spill:
 				goto utf8_fail;
 
 			/* is this an acknowledgment of our close? */
-			if (lwsi_state(wsi) == LRS_AWAITING_CLOSE_ACK) {
+			if (lwsi_close(wsi) == LCS_AWAITING_CLOSE_ACK) {
 				/*
 				 * fine he has told us he is closing too, let's
 				 * finish our close
@@ -883,9 +883,9 @@ utf8_fail:
 				lws_remove_wsi_from_draining_ext_list(wsi);
 #endif
 
-			if (lwsi_state(wsi) == LRS_RETURNED_CLOSE ||
-			    lwsi_state(wsi) == LRS_WAITING_TO_SEND_CLOSE ||
-			    lwsi_state(wsi) == LRS_AWAITING_CLOSE_ACK)
+			if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
+			    lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE ||
+			    lwsi_close(wsi) == LCS_AWAITING_CLOSE_ACK)
 				goto already_done;
 
 			/* if pmd not enabled, in == out */

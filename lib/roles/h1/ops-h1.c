@@ -607,7 +607,7 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 					(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
 
 		/* just ignore incoming if waiting for close */
-		if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE) {
+		if (lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE) {
 			lwsl_notice("%s: just ignoring\n", __func__);
 			goto try_pollout;
 		}

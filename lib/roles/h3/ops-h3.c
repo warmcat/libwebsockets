@@ -302,7 +302,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 	}
 #endif
 
-	if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE) {
+	if (lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE) {
 		if (!lws_has_buffered_out(wsi)) {
 			wsi->socket_is_permanently_unusable = 1;
 			return -1;

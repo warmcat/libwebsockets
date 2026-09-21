@@ -45,7 +45,7 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	 */
 
 	/* just ignore sends after we cleared the truncation buffer */
-	if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE &&
+	if (lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE &&
 	    !lws_has_buffered_out(wsi)
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	    && !wsi->http.comp_ctx.may_have_more
@@ -144,7 +144,7 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 			lwsl_wsi_info(wsi, "buflist_out flushed");
 
 			m = (unsigned int)real_len;
-			if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE) {
+			if (lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE) {
 				lwsl_wsi_info(wsi, "*signalling to close now");
 				return -1; /* retry closing now */
 			}

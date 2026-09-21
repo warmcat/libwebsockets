@@ -515,7 +515,7 @@ spill:
 			}
 
 			/* is this an acknowledgment of our close? */
-			if (lwsi_state(wsi) == LRS_AWAITING_CLOSE_ACK) {
+			if (lwsi_close(wsi) == LCS_AWAITING_CLOSE_ACK) {
 				/*
 				 * fine he has told us he is closing too, let's
 				 * finish our close
@@ -523,7 +523,7 @@ spill:
 				lwsl_parser("seen client close ack\n");
 				goto ret_asking_close;
 			}
-			if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
+			if (lwsi_close(wsi) == LCS_RETURNED_CLOSE)
 				/* if he sends us 2 CLOSE, kill him */
 				goto ret_asking_close;
 
@@ -659,8 +659,8 @@ drain_extension:
 //			lwsl_notice("%s: pmdrx.eb_in.len: %d\n", __func__,
 //					(int)pmdrx.eb_in.len);
 
-			if (lwsi_state(wsi) == LRS_RETURNED_CLOSE ||
-			    lwsi_state(wsi) == LRS_AWAITING_CLOSE_ACK)
+			if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
+			    lwsi_close(wsi) == LCS_AWAITING_CLOSE_ACK)
 				goto already_done;
 
 			n = PMDR_DID_NOTHING;
@@ -1121,7 +1121,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
 		if (hr) {
-			if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
+			if (lwsi_close(wsi) == LCS_RETURNED_CLOSE)
 				lwsi_set_close(wsi, LCS_FLUSHING_BEFORE_CLOSE);
 
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
@@ -1129,8 +1129,8 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 post_pollout:
 
-	if (lwsi_state(wsi) == LRS_RETURNED_CLOSE ||
-	    lwsi_state(wsi) == LRS_WAITING_TO_SEND_CLOSE) {
+	if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
+	    lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE) {
 		/*
 		 * we stopped caring about anything except control
 		 * packets.  Force flow control off, defeat tx
@@ -1238,7 +1238,7 @@ post_pollout:
 
 	if (!(lwsi_role_client(wsi) &&
 	      (lwsi_state(wsi) != LRS_ESTABLISHED &&
-	       lwsi_state(wsi) != LRS_AWAITING_CLOSE_ACK &&
+	       lwsi_close(wsi) != LCS_AWAITING_CLOSE_ACK &&
 	       lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS))) {
 		/*
 		 * In case we are going to react to this rx by scheduling
@@ -1477,7 +1477,7 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 	 * 3a: close notification packet requested from close api
 	 */
 
-	if (lwsi_state(wsi) == LRS_WAITING_TO_SEND_CLOSE) {
+	if (lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE) {
 		lwsl_debug("sending close packet\n");
 		lwsl_hexdump_debug(&wsi->ws->ping_payload_buf[LWS_PRE],
 				   wsi->ws->close_in_ping_buffer_len);
@@ -1503,7 +1503,7 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 	/* else, the send failed and we should just hang up */
 
 	if ((lwsi_role_ws(wsi) && wsi->ws->pong_pending_flag) ||
-	    (lwsi_state(wsi) == LRS_RETURNED_CLOSE &&
+	    (lwsi_close(wsi) == LCS_RETURNED_CLOSE &&
 	     wsi->ws->payload_is_close)) {
 
 		if (wsi->ws->payload_is_close)
@@ -1555,7 +1555,7 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 	/* Priority 4: if we are closing, not allowed to send more data frags
 	 *	       which means user callback or tx ext flush banned now
 	 */
-	if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
+	if (lwsi_close(wsi) == LCS_RETURNED_CLOSE)
 		return LWS_HP_RET_USER_SERVICE;
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)

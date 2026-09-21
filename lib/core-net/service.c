@@ -210,7 +210,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		/* leave POLLOUT active either way */
 		goto bail_ok;
 	} else
-		if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE) {
+		if (lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE) {
 			wsi->socket_is_permanently_unusable = 1;
 			goto bail_die; /* retry closing now */
 		}
@@ -506,7 +506,7 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 		     lwsi_state(wsi) != LRS_AWAITING_FILE_READ &&
 		     lwsi_state(wsi) != LRS_ISSUING_FILE &&
 		     lwsi_state(wsi) != LRS_DOING_TRANSACTION &&
-		     lwsi_state(wsi) != LRS_FLUSHING_BEFORE_CLOSE) {
+		     lwsi_close(wsi) != LCS_FLUSHING_BEFORE_CLOSE) {
 			return 0;
 		}
 
@@ -889,7 +889,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 #endif
 
 #if defined(LWS_WITH_TLS)
-	if (lwsi_state(wsi) == LRS_SHUTDOWN &&
+	if (lwsi_close(wsi) == LCS_SHUTDOWN &&
 	    lws_is_ssl(wsi) && wsi->tls.ssl) {
 
 #if defined(LWS_WITH_LATENCY)

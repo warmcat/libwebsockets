@@ -187,7 +187,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
 		if (hr) {
-			if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
+			if (lwsi_close(wsi) == LCS_RETURNED_CLOSE)
 				lwsi_set_close(wsi, LCS_FLUSHING_BEFORE_CLOSE);
 			/* the write failed... it's had it */
 			wsi->socket_is_permanently_unusable = 1;
@@ -197,9 +197,9 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 post_pollout:
 
-	if (lwsi_state(wsi) == LRS_RETURNED_CLOSE ||
-	    lwsi_state(wsi) == LRS_WAITING_TO_SEND_CLOSE ||
-	    lwsi_state(wsi) == LRS_AWAITING_CLOSE_ACK) {
+	if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
+	    lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE ||
+	    lwsi_close(wsi) == LCS_AWAITING_CLOSE_ACK) {
 		/*
 		 * we stopped caring about anything except control
 		 * packets.  Force flow control off, defeat tx
@@ -557,7 +557,7 @@ rops_handle_POLLOUT_h2(struct lws *wsi)
 	/* Priority 2: if we are closing, not allowed to send more data frags
 	 *	       which means user callback or tx ext flush banned now
 	 */
-	if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
+	if (lwsi_close(wsi) == LCS_RETURNED_CLOSE)
 		return LWS_HP_RET_USER_SERVICE;
 
 	return LWS_HP_RET_USER_SERVICE;
@@ -581,10 +581,10 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 	    base != LWS_WRITE_HTTP_FINAL &&
 	    base != LWS_WRITE_HTTP_HEADERS_CONTINUATION &&
 	    base != LWS_WRITE_HTTP_HEADERS && lwsi_state(wsi) != LRS_BODY &&
-	    ((lwsi_state(wsi) != LRS_RETURNED_CLOSE &&
-	      lwsi_state(wsi) != LRS_WAITING_TO_SEND_CLOSE &&
+	    ((lwsi_close(wsi) != LCS_RETURNED_CLOSE &&
+	      lwsi_close(wsi) != LCS_WAITING_TO_SEND_CLOSE &&
 	      lwsi_state(wsi) != LRS_ESTABLISHED &&
-	      lwsi_state(wsi) != LRS_AWAITING_CLOSE_ACK)
+	      lwsi_close(wsi) != LCS_AWAITING_CLOSE_ACK)
 #if defined(LWS_ROLE_WS)
 	   || base != LWS_WRITE_CLOSE
 #endif
@@ -1573,7 +1573,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 		/* priority 3: if no buffered out and waiting for that... */
 
-		if (lwsi_state(w) == LRS_FLUSHING_BEFORE_CLOSE) {
+		if (lwsi_close(w) == LCS_FLUSHING_BEFORE_CLOSE) {
 			w->socket_is_permanently_unusable = 1;
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "h2 end stream 1");
@@ -1741,7 +1741,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		/* Notify peer that we decided to close */
 
 		if (lwsi_role_ws(w) &&
-		    lwsi_state(w) == LRS_WAITING_TO_SEND_CLOSE) {
+		    lwsi_close(w) == LCS_WAITING_TO_SEND_CLOSE) {
 			lwsl_debug("sending close packet\n");
 			write_type = LWS_WRITE_CLOSE;
 			if (!w->close_needs_ack)
@@ -1796,7 +1796,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		}
 
 		if ((lwsi_role_ws(w) && w->ws->pong_pending_flag) ||
-		    (lwsi_state(w) == LRS_RETURNED_CLOSE &&
+		    (lwsi_close(w) == LCS_RETURNED_CLOSE &&
 		     w->ws->payload_is_close)) {
 
 			if (w->ws->payload_is_close)

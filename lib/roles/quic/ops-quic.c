@@ -768,7 +768,7 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t pn_lo,
 				lws_free(f);
 
 				struct lws *child = lws_quic_stream_find(nwsi, sid);
-				if (child && (lwsi_state(child) == LRS_FLUSHING_BEFORE_CLOSE
+				if (child && (lwsi_close(child) == LCS_FLUSHING_BEFORE_CLOSE
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 				    || child->http.deferred_transaction_completed
 #endif
@@ -3518,14 +3518,14 @@ send_frames:
 					w->quic.tx_blocked_sent = 1;
 					lws_callback_on_writable(wsi);
 				}
-				if (lwsi_state(w) != LRS_FLUSHING_BEFORE_CLOSE) {
+				if (lwsi_close(w) != LCS_FLUSHING_BEFORE_CLOSE) {
 					w->mux.requested_POLLOUT = 0;
 					continue;
 				}
 			}
 
 			/* Check for local throttling (e.g., pending_tx queue full) */
-			if (usable_credit <= 0 && lwsi_state(w) != LRS_FLUSHING_BEFORE_CLOSE) {
+			if (usable_credit <= 0 && lwsi_close(w) != LCS_FLUSHING_BEFORE_CLOSE) {
 				w->mux.requested_POLLOUT = 1;
 				break;
 			}

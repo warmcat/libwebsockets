@@ -548,7 +548,7 @@ lws_callback_on_writable(struct lws *wsi)
 {
 	struct lws *w = wsi;
 
-	if (lwsi_state(wsi) == LRS_SHUTDOWN)
+	if (lwsi_close(wsi) == LCS_SHUTDOWN)
 		return 0;
 
 	if (wsi->socket_is_permanently_unusable)
