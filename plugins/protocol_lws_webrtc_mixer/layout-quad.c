@@ -119,7 +119,7 @@ lm_quad_get_json(void *vctx)
 			x_pct, y_pct, w_pct, h_pct, reg->w, reg->h, name_esc, stats_esc);
 	}
 
-	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");
+	(void)lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");
 
 	return strdup(buf + LWS_PRE);
 }

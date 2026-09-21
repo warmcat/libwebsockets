@@ -562,7 +562,7 @@ lws_auth_generate_device_token(struct per_vhost_data__auth_server *vhd,
 		sqlite3_finalize(stmt);
 	}
 
-	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "}");
+	(void)lws_snprintf(p, lws_ptr_diff_size_t(end, p), "}");
 
 	if (vhd->auth_log_limit > 0 && peer_ip && peer_ip[0]) {
 		if (sqlite3_prepare_v2(vhd->db, "INSERT INTO auth_log (uid, issue_time, ip_address) VALUES (?, ?, ?)", -1, &stmt, NULL) == SQLITE_OK) {

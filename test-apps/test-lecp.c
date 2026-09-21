@@ -110,7 +110,7 @@ cb(struct lecp_ctx *ctx, char reason)
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "(array indexes: ");
 			for (n = 0; n < ctx->ipos; n++)
 				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%d ", ctx->i[n]);
-			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ") ");
+			(void)lws_snprintf(p, lws_ptr_diff_size_t(end, p), ") ");
 		}
 
 		lwsl_notice("%s \r\n", buf);

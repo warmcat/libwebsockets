@@ -289,7 +289,7 @@ broadcast_client_list(struct mixer_room *r, struct participant *exclude)
 				id_esc, name_esc, part->joined ? "true" : "false", stats_esc);
 	} lws_end_foreach_dll(d);
 
-	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");
+	(void)lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");
 
 	bctx.room = r;
 	bctx.text = buf + LWS_PRE;
