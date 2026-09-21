@@ -81,7 +81,7 @@ function start() {
 		}
 	};
 
-	ws.onerror = (e) => log("WebSocket error: " + e);
+	ws.onerror = () => log("WebSocket error");
 	ws.onclose = () => {
 		log("WebSocket closed");
 		remoteVideo.classList.add('disconnected');

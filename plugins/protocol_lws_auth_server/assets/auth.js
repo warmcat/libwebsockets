@@ -47,7 +47,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const subtitle = document.getElementById('subtitle');
 
     let isRegistrationMode = false;
-    let totpRequired = false;
 
     const urlParams = new URLSearchParams(window.location.search);
     const clientId = urlParams.get('client_id');
@@ -140,8 +139,8 @@ document.addEventListener('DOMContentLoaded', () => {
             <button type="button" id="btn-destroy-session" class="btn primary-btn">${isDenied ? 'Logout / Switch User' : 'Logout'}</button>
         </div>`;
 
-        document.getElementById('btn-destroy-session').addEventListener('click', async function() {
-            const btn = this;
+        document.getElementById('btn-destroy-session').addEventListener('click', async function(ev) {
+            const btn = ev.currentTarget;
             btn.innerText = "Logging out...";
             btn.disabled = true;
             /*
@@ -372,7 +371,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.status === 401) {
                 const reqTotp = response.headers.get('X-Requires-TOTP');
                 if (reqTotp) {
-                    totpRequired = true;
                     totpGroup.classList.remove('hidden');
                     showNotif('error', 'Authenticator code required.');
                     setTimeout(() => {
@@ -586,7 +584,7 @@ document.addEventListener('DOMContentLoaded', () => {
         totpBoxes.forEach((box, index) => {
             box.addEventListener('input', (e) => {
                 // Ensure only digits
-                e.target.value = e.target.value.replace(/[^0-9]/g, '');
+                e.target.value = e.target.value.replace(/\D/g, '');
 
                 if (e.target.value.length === 1) {
                     if (index < totpBoxes.length - 1) {
@@ -611,7 +609,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             box.addEventListener('paste', (e) => {
                 e.preventDefault();
-                const pasted = (e.clipboardData || window.clipboardData).getData('text').trim().replace(/[^0-9]/g, '').slice(0, 6);
+                const pasted = (e.clipboardData || window.clipboardData).getData('text').trim().replace(/\D/g, '').slice(0, 6);
                 if (pasted) {
                     for (let i = 0; i < pasted.length; i++) {
                         if (totpBoxes[i]) totpBoxes[i].value = pasted[i];

@@ -102,7 +102,18 @@ document.addEventListener('DOMContentLoaded', function() {
      * survive.  If nothing survives that, show the filename component as
      * it is.
      */
-    var JUNK_TOKEN = /^(19|20)\d\d$|^\d{3,4}[pi]?$|^(web|webrip|web-dl|bluray|blu-ray|brrip|bdrip|dvdrip|hdrip|hdtv|x264|x265|h264|h265|hevc|xvid|divx|avc|aac|ac3|eac3|dts|dts-hd|truehd|10bit|8bit|hdr|sdr|multi|remux|repack|proper)$/i;
+    /* a year (1917, 2001) or a resolution (480, 1080p, 576i) */
+    var JUNK_NUMERIC = /^\d{3,4}[pi]?$/;
+    var JUNK_WORDS = ['web', 'webrip', 'web-dl', 'bluray', 'blu-ray', 'brrip',
+                      'bdrip', 'dvdrip', 'hdrip', 'hdtv', 'x264', 'x265',
+                      'h264', 'h265', 'hevc', 'xvid', 'divx', 'avc', 'aac',
+                      'ac3', 'eac3', 'dts', 'dts-hd', 'truehd', '10bit',
+                      '8bit', 'hdr', 'sdr', 'multi', 'remux', 'repack',
+                      'proper'];
+
+    function isJunkToken(w) {
+        return JUNK_NUMERIC.test(w) || JUNK_WORDS.includes(w.toLowerCase());
+    }
 
     function friendlyName(path) {
         var parts = String(path).split('/');
@@ -117,7 +128,7 @@ document.addEventListener('DOMContentLoaded', function() {
                    .trim();
         var words = name.split(' ');
         for (var i = 1; i < words.length; i++) {
-            if (JUNK_TOKEN.test(words[i])) {
+            if (isJunkToken(words[i])) {
                 words = words.slice(0, i);
                 break;
             }
@@ -497,7 +508,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // subOnOff() is bound per-branch below (hls.js sets hls.subtitleTrack;
         // native HLS toggles textTracks[i].mode).
-        var subOnOff = function() {};
+        var subOnOff = function() { /* rebound per-branch below */ };
 
         // ---- subtitle cue overlay + fullscreen ----
         //
@@ -579,8 +590,8 @@ document.addEventListener('DOMContentLoaded', function() {
             cueDisplay.style.setProperty('--cue-fs', fs + 'px');
         }
         /* layout settles late (fullscreen esp.): several passes */
-        function applyCueMetricsSettling(passes) {
-            var n = passes || 6;
+        function applyCueMetricsSettling() {
+            var n = 6;
             var step = function () {
                 applyCueMetrics();
                 if (--n > 0)
@@ -663,7 +674,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // audSelect() is bound per-branch below (hls.js sets hls.audioTrack;
         // native HLS toggles audioTracks[i].enabled).
         var audSel = document.getElementById('aud-lang');
-        var audSelect = function() {};
+        var audSelect = function() { /* rebound per-branch below */ };
 
         function currentAudName() {
             var o = audSel.options[audSel.selectedIndex];

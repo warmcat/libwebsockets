@@ -33,12 +33,11 @@ function new_ws(urlpath, protocol)
 
 document.addEventListener("DOMContentLoaded", function() {
 
-	var n, wsa = new Array, alive = 0;
+	var n, alive = 0;
 	
 	for (n = 0; n < 8; n++) {
 	
 		var ws = new_ws(get_appropriate_ws_url(""), "lws-minimal");
-		wsa.push(ws);
 		try {
 			ws.onopen = function() {
 				document.getElementById("r").disabled = 0;

@@ -152,7 +152,7 @@ function fbm(x, y, octaves, seed) {
 
 function getTerrainHeight(px, pz, seed) {
     let n = fbm(px * 0.005, pz * 0.005, 4, seed);
-    const distFromCenter = Math.sqrt(px * px + pz * pz);
+    const distFromCenter = Math.hypot(px, pz);
     const centerFlattening = Math.min(1.0, distFromCenter / 100.0);
     n = (n + 1.0) * 0.5;
     n = Math.pow(n, 2.0);

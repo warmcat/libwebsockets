@@ -24,11 +24,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (error) {
         const errorMsg = document.getElementById('error-msg');
         /*
-         * hasOwnProperty, not a bare lookup: 'constructor' and friends
+         * Object.hasOwn(), not a bare lookup: 'constructor' and friends
          * are inherited properties and would otherwise be rendered.
          */
-        const known = Object.prototype.hasOwnProperty.call(lwsLoginErrors,
-                                                           error);
+        const known = Object.hasOwn(lwsLoginErrors, error);
         if (errorMsg)
             errorMsg.textContent = known ? lwsLoginErrors[error] :
                                            'Login failed.';

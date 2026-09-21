@@ -298,7 +298,7 @@ function reset() {
 
 
 function junk() {
-	for(var word = ""; word.length < 9000; word += "a"){}
+	var word = "a".repeat(9000);
 	socket_di.send(word);
 }
 

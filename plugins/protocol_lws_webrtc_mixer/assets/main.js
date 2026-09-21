@@ -1103,14 +1103,12 @@ function startAdaptationLoop() {
         try {
             const stats = await pc.getStats();
             let packetsLost = 0;
-            let totalPackets = 0;
             let rtt = 0;
             let currentFramesEncoded = 0;
 
             stats.forEach(report => {
                 if (report.type === 'remote-inbound-rtp' && report.kind === 'video') {
                     packetsLost = report.packetsLost;
-                    totalPackets = report.packetsReceived + report.packetsLost; // Approximation
                     rtt = report.roundTripTime;
                 }
                 if (report.type === 'outbound-rtp' && report.kind === 'video') {

@@ -350,7 +350,8 @@
 					tr.innerHTML = newHtml;
 					tr.setAttribute("data-content", newHtml);
 					tr.classList.remove("fade-in");
-					void tr.offsetWidth; // trigger reflow
+					/* force a reflow so re-adding the class restarts the animation */
+					tr.getBoundingClientRect();
 					tr.classList.add("fade-in");
 				}
 			}
@@ -369,14 +370,14 @@
 
 		for (var id in existingRows) {
 			if (!newRows[id]) {
-				var tr = existingRows[id];
-				if (!tr.classList.contains("fade-out")) {
-					tr.classList.add("fade-out");
+				var gone = existingRows[id];
+				if (!gone.classList.contains("fade-out")) {
+					gone.classList.add("fade-out");
 					setTimeout((function(el) { 
 						return function() { 
 							if (el.parentNode) el.parentNode.removeChild(el); 
 						}; 
-					})(tr), 500);
+					})(gone), 500);
 				}
 			}
 		}
