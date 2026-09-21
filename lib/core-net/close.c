@@ -877,6 +877,9 @@ just_kill_connection:
 	 * the actual close.
 	 */
 	if (wsi->role_ops != &role_ops_raw_skt && !lwsi_role_client(wsi) &&
+#if defined(LWS_WITH_UDP)
+	    !wsi->udp && /* nothing to stage on a datagram socket */
+#endif
 	    lwsi_state(wsi) != LRS_SHUTDOWN &&
 	    lwsi_state(wsi) != LRS_UNCONNECTED &&
 	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
@@ -902,11 +905,13 @@ just_kill_connection:
 			lwsl_info("%s: shutdown conn: %s (sk %d, state 0x%x)\n",
 				  __func__, lws_wsi_tag(wsi), (int)(lws_intptr_t)wsi->desc.sockfd,
 				  lwsi_state(wsi));
-			if (!wsi->socket_is_permanently_unusable &&
-			    lws_socket_is_valid(wsi->desc.sockfd)) {
-				wsi->socket_is_permanently_unusable = 1;
+			/*
+			 * Don't mark the socket unusable here: the LRS_SHUTDOWN
+			 * staging below is gated on it, and we want to wait
+			 * for his FIN before closing the same as the tls path
+			 */
+			if (lws_socket_is_valid(wsi->desc.sockfd))
 				n = shutdown(wsi->desc.sockfd, SHUT_WR);
-			}
 		}
 		if (n)
 			lwsl_wsi_debug(wsi, "closing: shutdown (state 0x%x) ret %d",
