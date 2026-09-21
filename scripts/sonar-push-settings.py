@@ -7,9 +7,10 @@
 # that file is only the versioned record of what we want; this script makes
 # it take effect.  See the comment at the top of sonar-project.properties.
 #
-#   scripts/sonar-push-settings.py <token-file> [--dry-run]
+#   SONAR_TOKEN=... scripts/sonar-push-settings.py [--dry-run]
 #
-# The token needs "Administer" on the project.
+# or with the token in scratch/.sonar_token at the top of the tree.  The
+# token needs "Administer" on the project.
 
 import sys, os, json, requests
 
@@ -28,12 +29,11 @@ def parse(path):
     return props
 
 def main():
-    if len(sys.argv) < 2:
-        print("usage: sonar-push-settings.py <token-file> [--dry-run]")
-        return 2
-    token = open(sys.argv[1]).read().strip()
     dry = "--dry-run" in sys.argv
     here = os.path.dirname(os.path.abspath(__file__))
+    token = os.environ.get("SONAR_TOKEN")
+    if not token:
+        token = open(os.path.join(here, "..", "scratch", ".sonar_token")).read().strip()
     props = parse(os.path.join(here, "..", "sonar-project.properties"))
 
     excl = [e for e in props["sonar.exclusions"].split(",") if e]
