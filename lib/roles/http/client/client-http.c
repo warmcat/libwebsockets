@@ -581,7 +581,6 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	 */
 
 	/* otherwise set ourselves up ready to go again */
-	lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
 
 	wsi->http.ah->parser_state = WSI_TOKEN_NAME_PART;
 	wsi->http.ah->lextable_pos = 0;
