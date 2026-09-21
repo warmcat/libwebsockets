@@ -82,10 +82,10 @@ lss::lss(lws_ctx_t _ctx, std::string _uri, lsscomp_t _comp, bool _psh,
 	 * deconstruct it into its policy implications
 	 */
 
-	uri = strdup(_uri.c_str());
+	uri = _uri;
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(pcols); n++)
-		if (!strncmp(uri, pcols[n], pcols_len[n]))
+		if (!strncmp(uri.c_str(), pcols[n], pcols_len[n]))
 			break;
 
 	if (n == (int)LWS_ARRAY_SIZE(pcols))
@@ -97,7 +97,7 @@ lss::lss(lws_ctx_t _ctx, std::string _uri, lsscomp_t _comp, bool _psh,
 
 	n = pcols_port[n];
 
-	puri = lws_parse_uri_create(uri);
+	puri = lws_parse_uri_create(uri.c_str());
 	if (!puri)
 		throw lssException("unable to parse uri://");
 
@@ -122,7 +122,7 @@ lss::lss(lws_ctx_t _ctx, std::string _uri, lsscomp_t _comp, bool _psh,
 	us_start = lws_now_usecs();
 
 	if (lws_ss_create(ctx, 0, &ssi, (void *)this, &m_ss, NULL, NULL))
-		goto blow;
+		throw lssException("ss creation failed");
 
 	if (pol.protocol <= LWSSSP_WS) {
 		lws_ss_state_return_t r = lws_ss_client_connect(m_ss);
@@ -135,19 +135,10 @@ lss::lss(lws_ctx_t _ctx, std::string _uri, lsscomp_t _comp, bool _psh,
 		if (r)
 			lwsl_ss_warn(m_ss, "connect returned %d", (int)r);
 	}
-
-	return;
-
-blow:
-	if (uri)
-		free(uri);
-	throw lssException("ss creation failed");
 }
 
 lss::~lss()
 {
-	if (uri)
-		free(uri);
 	if (puri)
 		lws_parse_uri_destroy(&puri);
 	if (m_ss)

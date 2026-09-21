@@ -44,15 +44,15 @@ class LWS_VISIBLE lssException : public std::exception
 private:
 	std::string details;
 public:
-	lssException(std::string _details) { details = _details; }
-	~lssException() throw() { }
-	virtual const char *what() const throw() { return details.c_str(); }
+	explicit lssException(const std::string &_details) : details(_details) { }
+	const char *what() const noexcept override { return details.c_str(); }
 };
 
-typedef struct lssbuf {
+struct lssbuf {
 	uint8_t				*buf;
 	size_t				len;
-} lssbuf_t;
+};
+using lssbuf_t = lssbuf;
 
 class LWS_VISIBLE lssAc
 {
@@ -91,7 +91,7 @@ public:
  * LWSSSCS_QOS_NACK_REMOTE:     "
  */
 
-typedef int (*lsscomp_t)(lss *lss, lws_ss_constate_t state, void *arg);
+using lsscomp_t = int (*)(lss *lss, lws_ss_constate_t state, void *arg);
 
 /*
  * Base class for Secure Stream objects
@@ -103,6 +103,9 @@ public:
 	lss(lws_ctx_t _ctx, std::string _uri, lsscomp_t _comp, bool _psh,
 	    lws_sscb_rx rx, lws_sscb_tx tx, lws_sscb_state state);
 	virtual ~lss();
+	/* owns a C ss handle: not copyable, subclasses inherit that */
+	lss(const lss &) = delete;
+	lss &operator=(const lss &) = delete;
 	int call_completion(lws_ss_constate_t state);
 
 	lsscomp_t			comp;
@@ -113,7 +116,7 @@ public:
 
 private:
 	lws_ctx_t			ctx;
-	char				*uri;
+	std::string			uri;
 	lws_ss_policy_t			pol;
 	bool				comp_done;
 };
