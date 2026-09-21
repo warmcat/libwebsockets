@@ -40,6 +40,7 @@ get_descendants() {
                 done
         fi
         echo $pids
+        return 0
 }
 
 CPIDS=`get_descendants $PI`

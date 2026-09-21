@@ -29,7 +29,7 @@ openssl x509 -req -days 365 -in nosni.csr -CA ca.pem -CAkey ca.key -CAcreateseri
     -out nosni.pem 2>/dev/null
 
 echo "Cleaning up CSR files..."
-rm -f *.csr
+rm -f ./*.csr
 
 echo "Certificates generated successfully!"
 echo "  - Default: default.pem (CN=localhost)"
