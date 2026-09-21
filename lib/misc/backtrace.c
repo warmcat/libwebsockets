@@ -128,9 +128,9 @@ lws_backtrace_compress_backtrace(lws_backtrace_info_t *si,
 
 	for (n = 0; n < si->sp; n++) { /* go through each in turn */
 		uintptr_t delta = (uintptr_t)~0ll, d1;
-		char hit = -1, sign = 0, _sign;
+		char sign = 0, _sign;
 		unsigned int q, ql;
-		int m;
+		int m, hit = -1;
 
 		if (n > 8)
 			m = n - 8;
@@ -148,7 +148,7 @@ lws_backtrace_compress_backtrace(lws_backtrace_info_t *si,
 			}
 			if (d1 < delta) {
 				delta = d1;
-				hit = (char)m;
+				hit = m;
 				sign = _sign;
 			}
 		}
@@ -166,7 +166,7 @@ lws_backtrace_compress_backtrace(lws_backtrace_info_t *si,
 		 *   			        zzzzzz delta bits follow
 		 */
 
-		if (n && hit && q + 11 < ql + 7) {
+		if (n && hit >= 0 && q + 11 < ql + 7) {
 			/* shorter to issue a delta froma previous address */
 			if (lws_backtrace_compression_stream(c, 1, 1) ||
 			    lws_backtrace_compression_stream(c,
