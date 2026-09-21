@@ -39,7 +39,7 @@ class lss;
  * Exception subclass for lss-specific issues
  */
 
-class lssException : public std::exception
+class LWS_VISIBLE lssException : public std::exception
 {
 private:
 	std::string details;
@@ -54,7 +54,7 @@ typedef struct lssbuf {
 	size_t				len;
 } lssbuf_t;
 
-class lssAc
+class LWS_VISIBLE lssAc
 {
 private:
 	struct lwsac			*ac;
@@ -73,7 +73,7 @@ public:
  * subclasses' members
  */
 
-class lssPriv
+class LWS_VISIBLE lssPriv
 {
 public:
 	struct lws_ss_handle		*m_ss;
@@ -97,7 +97,7 @@ typedef int (*lsscomp_t)(lss *lss, lws_ss_constate_t state, void *arg);
  * Base class for Secure Stream objects
  */
 
-class lss
+class LWS_VISIBLE lss
 {
 public:
 	lss(lws_ctx_t _ctx, std::string _uri, lsscomp_t _comp, bool _psh,
@@ -122,7 +122,7 @@ private:
  * Subclass of lss for atomic messages on heap
  */
 
-class lssMsg : public lss
+class LWS_VISIBLE lssMsg : public lss
 {
 public:
 	lssMsg(lws_ctx_t _ctx, lsscomp_t _comp, const std::string &_uri);
@@ -133,7 +133,7 @@ public:
  * Subclass of lss for file transactions
  */
 
-class lssFile : public lss
+class LWS_VISIBLE lssFile : public lss
 {
 public:
 	lssFile(lws_ctx_t _ctx, std::string _uri, std::string _path,

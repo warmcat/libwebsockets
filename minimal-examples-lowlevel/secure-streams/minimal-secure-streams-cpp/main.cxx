@@ -87,11 +87,11 @@ int main(int argc, const char **argv)
 
 			url = url_base;
 			url += "/test-";
-			url += ('a' + n);
+			url += (char)('a' + n);
 			url += ".bin";
 
 			filepath = "/tmp/test-"; // NOSONAR
-			filepath += ('a' + n);
+			filepath += (char)('a' + n);
 			filepath += ".bin";
 
 			new lssFile(context, url, filepath, lss_completion, 0);
