@@ -1481,7 +1481,6 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 		lwsl_debug("sending close packet\n");
 		lwsl_hexdump_debug(&wsi->ws->ping_payload_buf[LWS_PRE],
 				   wsi->ws->close_in_ping_buffer_len);
-		wsi->waiting_to_send_close_frame = 0;
 		n = lws_write(wsi, &wsi->ws->ping_payload_buf[LWS_PRE],
 			      wsi->ws->close_in_ping_buffer_len,
 			      LWS_WRITE_CLOSE);
@@ -1725,7 +1724,6 @@ rops_close_via_role_protocol_ws(struct lws *wsi, enum lws_close_status reason)
 		wsi->ws->ping_payload_buf[LWS_PRE + 1] = reason & 0xff;
 	}
 
-	wsi->waiting_to_send_close_frame = 1;
 	wsi->close_needs_ack = 1;
 	lwsi_set_state(wsi, LRS_WAITING_TO_SEND_CLOSE);
 	__lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 5);

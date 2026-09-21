@@ -677,7 +677,6 @@ spill:
 			lwsl_wsi_info(wsi, "scheduling return close as ack");
 			__lws_change_pollfd(wsi, LWS_POLLIN, 0);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 3);
-			wsi->waiting_to_send_close_frame = 1;
 			wsi->close_needs_ack = 0;
 			lwsi_set_state(wsi, LRS_WAITING_TO_SEND_CLOSE);
 			lws_callback_on_writable(wsi);

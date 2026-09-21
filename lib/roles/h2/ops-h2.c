@@ -1743,7 +1743,6 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		if (lwsi_role_ws(w) &&
 		    lwsi_state(w) == LRS_WAITING_TO_SEND_CLOSE) {
 			lwsl_debug("sending close packet\n");
-			w->waiting_to_send_close_frame = 0;
 			n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
 				      w->ws->close_in_ping_buffer_len,
 				      LWS_WRITE_CLOSE);
