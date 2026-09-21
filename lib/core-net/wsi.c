@@ -30,9 +30,22 @@ const char *lws_wsi_tag(struct lws *wsi) {
 	return lws_lc_tag(&wsi->lc);
 }
 
-#if defined(_DEBUG)
+
+#if defined(LWS_WITH_STATE_TRACE) || defined(LWS_WITH_STATE_CHECK)
+#define lws_state_hook(wsi, fo, f, to, t, how) \
+		lws_wsi_state_changed(wsi, fo, f, to, t, how)
+#else
+#define lws_state_hook(wsi, fo, f, to, t, how)
+#endif
+
+#if defined(_DEBUG) || defined(LWS_WITH_STATE_TRACE) || \
+    defined(LWS_WITH_STATE_CHECK)
 void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role) {
-	wsi->wsistate = (wsi->wsistate & (~LWSI_ROLE_MASK)) | role;
+	lws_wsi_state_t old = wsi->wsistate;
+
+	wsi->wsistate = (old & (~LWSI_ROLE_MASK)) | role;
+	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
+			"set_role");
 
 	lwsl_wsi_debug(wsi, "state 0x%lx", (unsigned long)wsi->wsistate);
 }
@@ -41,6 +54,8 @@ void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs) {
 	lws_wsi_state_t old = wsi->wsistate;
 
 	wsi->wsistate = (old & (unsigned int)(~LRS_MASK)) | lrs;
+	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
+			"set_state");
 
 	lwsl_wsi_debug(wsi, "lwsi_set_state 0x%lx -> 0x%lx", (unsigned long)old,
 			(unsigned long)wsi->wsistate);
@@ -952,9 +967,15 @@ void lws_role_transition(struct lws *wsi, enum lwsi_role role,
 #if (_LWS_ENABLED_LOGS & LLL_DEBUG)
 	const char *name = "(unset)";
 #endif
+#if defined(LWS_WITH_STATE_TRACE) || defined(LWS_WITH_STATE_CHECK)
+	const struct lws_role_ops *old_ops = wsi->role_ops;
+	lws_wsi_state_t old = wsi->wsistate;
+#endif
 	wsi->wsistate = (unsigned int)role | (unsigned int)state;
 	if (ops)
 		wsi->role_ops = ops;
+	lws_state_hook(wsi, old_ops, old, wsi->role_ops, wsi->wsistate,
+			"role_transition");
 #if (_LWS_ENABLED_LOGS & LLL_DEBUG)
 	if (wsi->role_ops)
 		name = wsi->role_ops->name;

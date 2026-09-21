@@ -65,7 +65,8 @@ enum lwsi_role {
 };
 
 #define lwsi_role(wsi) (wsi->wsistate & (unsigned int)LWSI_ROLE_MASK)
-#if !defined (_DEBUG)
+#if !defined (_DEBUG) && !defined(LWS_WITH_STATE_TRACE) && \
+    !defined(LWS_WITH_STATE_CHECK)
 #define lwsi_set_role(wsi, role) wsi->wsistate = \
 				(wsi->wsistate & (~LWSI_ROLE_MASK)) | role
 #else
@@ -166,7 +167,8 @@ enum lwsi_state {
 #define lwsi_state_est_PRE_CLOSE(wsi) \
 		(!(wsi->wsistate_pre_close & LWSIFS_NOT_EST))
 #define lwsi_state_can_handle_POLLOUT(wsi) (wsi->wsistate & LWSIFS_POCB)
-#if !defined (_DEBUG)
+#if !defined (_DEBUG) && !defined(LWS_WITH_STATE_TRACE) && \
+    !defined(LWS_WITH_STATE_CHECK)
 #define lwsi_set_state(wsi, lrs) wsi->wsistate = \
 			  (wsi->wsistate & (lws_wsi_state_t)(~LRS_MASK)) | lrs
 #else

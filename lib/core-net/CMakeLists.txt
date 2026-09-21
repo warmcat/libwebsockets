@@ -40,6 +40,11 @@ list(APPEND SOURCES
 	roles/pipe/ops-pipe.c
 )
 
+if (LWS_WITH_STATE_TRACE OR LWS_WITH_STATE_CHECK)
+	list(APPEND SOURCES
+		core-net/wsi-state.c)
+endif()
+
 if (LWS_WITH_LATENCY)
 	list(APPEND SOURCES
 		core-net/latency.c

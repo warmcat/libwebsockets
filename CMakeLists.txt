@@ -459,6 +459,8 @@ option(LWS_WITH_FSMOUNT "Overlayfs and fallback mounting apis" OFF)
 option(LWS_WITH_FANALYZER "Enable gcc -fanalyzer if compiler supports" OFF)
 option(LWS_HTTP_HEADERS_ALL "Override header reduction optimization and include all like older lws versions" OFF)
 option(LWS_WITH_SUL_DEBUGGING "Enable zombie lws_sul checking on object deletion" OFF)
+option(LWS_WITH_STATE_TRACE "Diagnostic only: append every distinct wsi role/state transition seen by the process to $LWS_STATE_TRACE_FILE (stderr if unset), to derive the transition tables. Off by default." OFF)
+option(LWS_WITH_STATE_CHECK "Debug only: check every wsi role/state transition against the per-machine transition tables in lib/core-net/wsi-state.c and abort on one that is not listed. Off by default." OFF)
 option(LWS_WITH_PLUGINS_API "Build generic lws_plugins apis (see LWS_WITH_PLUGINS to also build protocol plugins)" OFF)
 
 # both dlopened and builtin protocol plugins need the generic plugin apis at
