@@ -50,9 +50,8 @@ static const uint16_t pcols_port[] = {
 lss::lss(lws_ctx_t _ctx, std::string _uri, lsscomp_t _comp, bool _psh,
 	 lws_sscb_rx rx, lws_sscb_tx tx, lws_sscb_state state)
 {
-	const char *p, *urlpath;
 	lws_ss_info_t ssi;
-	int n, port;
+	int n;
 
 	memset(&ssi, 0, sizeof(ssi));
 	memset(&pol, 0, sizeof(pol));
@@ -69,8 +68,8 @@ lss::lss(lws_ctx_t _ctx, std::string _uri, lsscomp_t _comp, bool _psh,
 	 * lss itself.
 	 */
 
-	ssi.handle_offset	    = offsetof(lssPriv, lssPriv::m_ss);
-	ssi.opaque_user_data_offset = offsetof(lssPriv, lssPriv::m_plss);
+	ssi.handle_offset	    = offsetof(lssPriv, m_ss);
+	ssi.opaque_user_data_offset = offsetof(lssPriv, m_plss);
 
 	ssi.user_alloc	= sizeof(lssPriv);
 	ssi.rx		= rx;
@@ -85,14 +84,14 @@ lss::lss(lws_ctx_t _ctx, std::string _uri, lsscomp_t _comp, bool _psh,
 
 	uri = strdup(_uri.c_str());
 
-	for (n = 0; n < LWS_ARRAY_SIZE(pcols); n++)
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(pcols); n++)
 		if (!strncmp(uri, pcols[n], pcols_len[n]))
 			break;
 
-	if (n == LWS_ARRAY_SIZE(pcols))
+	if (n == (int)LWS_ARRAY_SIZE(pcols))
 		throw lssException("unknown uri protocol://");
 
-	pol.protocol = n >> 1;
+	pol.protocol = (uint8_t)(n >> 1);
 	if (n & 1)
 		pol.flags |= LWSSSPOLF_TLS;
 
@@ -125,8 +124,17 @@ lss::lss(lws_ctx_t _ctx, std::string _uri, lsscomp_t _comp, bool _psh,
 	if (lws_ss_create(ctx, 0, &ssi, (void *)this, &m_ss, NULL, NULL))
 		goto blow;
 
-	if (pol.protocol <= LWSSSP_WS)
-		lws_ss_client_connect(m_ss);
+	if (pol.protocol <= LWSSSP_WS) {
+		lws_ss_state_return_t r = lws_ss_client_connect(m_ss);
+
+		/*
+		 * A failed connect attempt reports itself asynchronously via
+		 * the state callback (ALL_RETRIES_FAILED / DESTROYING), and
+		 * the handle is released by ~lss(), so just note it here.
+		 */
+		if (r)
+			lwsl_ss_warn(m_ss, "connect returned %d", (int)r);
+	}
 
 	return;
 
