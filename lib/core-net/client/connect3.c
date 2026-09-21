@@ -1048,7 +1048,7 @@ ads_known:
 #endif
 
 		lwsl_wsi_debug(wsi, "WAITING_CONNECT");
-		lwsi_set_state(wsi, LRS_WAITING_CONNECT);
+		lwsi_set_transport(wsi, LTS_WAITING_CONNECT);
 
 		if (is_parallel) {
 			wsi->parallel_conns[pidx].desc.sockfd = new_fd;

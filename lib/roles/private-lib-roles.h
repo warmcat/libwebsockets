@@ -32,15 +32,18 @@ typedef uint32_t lws_wsi_state_t;
  * role is a client or server side, if it has that concept.  And the connection
  * fulfilling the role, has a separate dynamic state.
  *
- *   31           16 15 14  12 11 10   9    8   7      0
- *   [  role flags ] [cs][close][ - ][nest][pocb][ state ]
+ *   31        20 19    16 15 14  12 11 10   9    8   7      0
+ *   [ role flags ][transp] [cs][close][ - ][nest][pocb][ state ]
  *
- * bits 0-9 are the live state: the transport / carrier / transaction
- * machines' LRS_ value with its LWSIFS_ flags.  bits 12-14 are the close
- * machine (enum lws_close_phase), which runs on top of the live state
- * without disturbing it, so what the connection was doing when it started
- * to close remains visible (lwsi_state_live()).  bit 15 records that
- * __lws_close_free_wsi() has been entered.
+ * bits 0-9 are the live state: the carrier / transaction machines' LRS_
+ * value with its LWSIFS_ flags.  bits 16-19 are the transport machine (enum
+ * lws_transport_phase): dns, connect, proxy / socks, tls handshake; while
+ * it is set the connection is not yet usable and lwsi_state() reports it in
+ * preference to the live state.  bits 12-14 are the close machine (enum
+ * lws_close_phase), which runs on top of both without disturbing them, so
+ * what the connection was doing when it started to close remains visible
+ * (lwsi_state_live()).  bit 15 records that __lws_close_free_wsi() has
+ * been entered.
  *
  * The role flags part is generally invariant for the lifetime of the wsi,
  * although it can change if the connection role itself does, eg, if the
@@ -67,7 +70,7 @@ typedef uint32_t lws_wsi_state_t;
 #define LWSIFR_P_ENCAP_H2	(0x0100 << _RS) /* we are encapsulated by h2 */
 
 enum lwsi_role {
-	LWSI_ROLE_MASK		=			     (0xffff << _RS),
+	LWSI_ROLE_MASK		=			     (0xfff0 << _RS),
 	LWSI_ROLE_ENCAP_MASK	=			     (0x0f00 << _RS),
 };
 
@@ -92,22 +95,27 @@ void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role);
 
 enum lwsi_state {
 
-	/* Phase 1: pre-transport */
+	/* Phase 1: no transport yet, the live state of a new wsi */
 
 	LRS_UNCONNECTED				= LWSIFS_NOT_EST | 0,
+
+	/*
+	 * Phases 1 to 3: the transport machine.
+	 *
+	 * Like the close states below, these are never stored in the live
+	 * state bits: they are what lwsi_state() reports while
+	 * lwsi_transport() is set, and are set with lwsi_set_transport().
+	 * Setting any live state with lwsi_set_state() completes the
+	 * transport phase.
+	 */
+
 	LRS_WAITING_DNS				= LWSIFS_NOT_EST | 1,
 	LRS_WAITING_CONNECT			= LWSIFS_NOT_EST | 2,
-
-	/* Phase 2: establishing intermediaries on top of transport */
-
 	LRS_WAITING_PROXY_REPLY			= LWSIFS_NOT_EST | 3,
 	LRS_WAITING_SSL				= LWSIFS_NOT_EST | 4,
 	LRS_WAITING_SOCKS_GREETING_REPLY	= LWSIFS_NOT_EST | 5,
 	LRS_WAITING_SOCKS_CONNECT_REPLY		= LWSIFS_NOT_EST | 6,
 	LRS_WAITING_SOCKS_AUTH_REPLY		= LWSIFS_NOT_EST | 7,
-
-	/* Phase 3: establishing tls tunnel */
-
 	LRS_SSL_INIT				= LWSIFS_NOT_EST | 8,
 	LRS_SSL_ACK_PENDING			= LWSIFS_NOT_EST | 9,
 
@@ -172,6 +180,40 @@ enum lwsi_state {
 };
 
 /*
+ * The transport machine: getting a usable socket to the peer.  Runs before
+ * the carrier handshake on a client (dns, connect, proxy or socks, then the
+ * tls handshake, which the h1 client starts from its handshake state) and
+ * covers the tls accept on a server.  Any lwsi_set_state() of a live state
+ * ends it; lws_role_transition() ends it too unless it is handed one of
+ * these states.
+ */
+
+enum lws_transport_phase {
+	LTS_NONE,			/* not in transport setup */
+	LTS_WAITING_DNS,
+	LTS_WAITING_CONNECT,
+	LTS_WAITING_PROXY_REPLY,
+	LTS_WAITING_SSL,		/* client tls handshake */
+	LTS_WAITING_SOCKS_GREETING_REPLY,
+	LTS_WAITING_SOCKS_CONNECT_REPLY,
+	LTS_WAITING_SOCKS_AUTH_REPLY,
+	LTS_SSL_INIT,			/* server: tls accept not started */
+	LTS_SSL_ACK_PENDING,		/* server: tls accept in progress */
+	LTS_AWAITING_SSL_ACCEPT		/* server: tls accept on a worker */
+};
+
+#define LWSI_TRANSPORT_SHIFT	16
+#define LWSI_TRANSPORT_MASK	(0xfu << LWSI_TRANSPORT_SHIFT)
+
+extern const enum lwsi_state lws_lrs_of_transport[16];
+
+#define lwsi_transport(wsi) ((enum lws_transport_phase) \
+	((wsi->wsistate & LWSI_TRANSPORT_MASK) >> LWSI_TRANSPORT_SHIFT))
+
+void
+lwsi_set_transport(struct lws *wsi, enum lws_transport_phase phase);
+
+/*
  * The close machine.  Entered from any live state; once set, the live state
  * is retained underneath but lwsi_state() reports the close state.  Cleared
  * only by lws_role_transition(), ie, the redirect / fallback restart.
@@ -201,19 +243,34 @@ extern const enum lwsi_state lws_lrs_of_close[8];
 void
 lwsi_set_close(struct lws *wsi, enum lws_close_phase phase);
 
-/* the state as readers have always seen it: closing overrides the rest */
-#define lwsi_state(wsi) (lwsi_close(wsi) ? lws_lrs_of_close[lwsi_close(wsi)] : \
-			 (enum lwsi_state)(wsi->wsistate & LRS_MASK))
+/*
+ * The state as readers have always seen it: a close in progress overrides
+ * everything, transport setup in progress overrides the live state
+ */
+static inline enum lwsi_state
+lwsi_state_of_word(lws_wsi_state_t w)
+{
+	if (w & LWSI_CLOSE_MASK)
+		return lws_lrs_of_close[(w & LWSI_CLOSE_MASK) >> LWSI_CLOSE_SHIFT];
+	if (w & LWSI_TRANSPORT_MASK)
+		return lws_lrs_of_transport[(w & LWSI_TRANSPORT_MASK) >>
+						LWSI_TRANSPORT_SHIFT];
+
+	return (enum lwsi_state)(w & LRS_MASK);
+}
+
+#define lwsi_state(wsi) lwsi_state_of_word(wsi->wsistate)
 /* the live machines' state, whether or not a close is in progress */
 #define lwsi_state_live(wsi) ((enum lwsi_state)(wsi->wsistate & LRS_MASK))
 #define lwsi_state_est(wsi) \
-		(lwsi_close(wsi) || !(wsi->wsistate & LWSIFS_NOT_EST))
+		(lwsi_close(wsi) || (!lwsi_transport(wsi) && \
+				     !(wsi->wsistate & LWSIFS_NOT_EST)))
 #define lwsi_state_live_est(wsi) (!(wsi->wsistate & LWSIFS_NOT_EST))
 #define lwsi_state_can_handle_POLLOUT(wsi) (lwsi_state(wsi) & LWSIFS_POCB)
 #if !defined (_DEBUG) && !defined(LWS_WITH_STATE_TRACE) && \
     !defined(LWS_WITH_STATE_CHECK)
 #define lwsi_set_state(wsi, lrs) wsi->wsistate = \
-			  (wsi->wsistate & (lws_wsi_state_t)(~LRS_MASK)) | lrs
+	(wsi->wsistate & (lws_wsi_state_t)~(LRS_MASK | LWSI_TRANSPORT_MASK)) | lrs
 #else
 void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs);
 #endif

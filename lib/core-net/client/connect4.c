@@ -138,7 +138,7 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 				(int)wsi->a.context->timeout_secs);
 
 		wsi->conn_port = wsi->c_port;
-		lwsi_set_state(wsi, LRS_WAITING_PROXY_REPLY);
+		lwsi_set_transport(wsi, LTS_WAITING_PROXY_REPLY);
 
 		return wsi;
 	}
@@ -225,7 +225,7 @@ send_hs:
 			    (wsi->tls.use_ssl & LCCSCF_USE_SSL)) {
 				int result;
 
-				//lwsi_set_state(wsi, LRS_WAITING_SSL);
+				//lwsi_set_transport(wsi, LTS_WAITING_SSL);
 
 				/*
 				 * We can retry this... just cook the SSL BIO
@@ -278,7 +278,7 @@ send_hs:
 #if defined(LWS_ROLE_QUIC)
 			if ((meth && !strcmp(meth, "QUIC")) ||
 			    !strcmp(wsi->role_ops->name, "quic")) {
-				lwsi_set_state(wsi, LRS_WAITING_SSL);
+				lwsi_set_transport(wsi, LTS_WAITING_SSL);
 				wsi->hdr_parsing_completed = 1;
 				lws_callback_on_writable(wsi);
 				return wsi;
@@ -306,7 +306,7 @@ send_hs:
 			if (meth && !strcmp(meth, "MQTT")) {
 #if defined(LWS_WITH_TLS)
 				if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-					lwsi_set_state(wsi, LRS_WAITING_SSL);
+					lwsi_set_transport(wsi, LTS_WAITING_SSL);
 					return wsi;
 				}
 #endif

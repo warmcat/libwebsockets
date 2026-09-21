@@ -98,10 +98,8 @@ const char * const lws_lrs_names[] = {
 static lws_wsi_state_t
 lws_wsi_state_of(lws_wsi_state_t w)
 {
-	unsigned int c = (w & LWSI_CLOSE_MASK) >> LWSI_CLOSE_SHIFT;
-
 	return (w & (unsigned int)LWSI_ROLE_MASK) |
-	       (c ? (lws_wsi_state_t)lws_lrs_of_close[c] : (w & LRS_MASK));
+	       (lws_wsi_state_t)lwsi_state_of_word(w);
 }
 
 /* format a (role, wsistate) pair as role/side[e]:STATE */
@@ -601,7 +599,8 @@ lws_wsi_state_check(struct lws *wsi, const struct lws_role_ops *from_ops,
 	 * and lwsi_set_role() edges in the role table, even when the ops or
 	 * side turn out unchanged, since the tables were derived that way
 	 */
-	if (!strcmp(how, "set_state") || !strcmp(how, "set_close"))
+	if (!strcmp(how, "set_state") || !strcmp(how, "set_close") ||
+	    !strcmp(how, "set_transport"))
 		ok = lws_state_edge_allowed(to_ops, from, to);
 	else
 		ok = lws_role_edge_allowed(from_ops, from, to_ops, to);

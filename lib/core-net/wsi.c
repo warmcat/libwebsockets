@@ -48,6 +48,48 @@ const enum lwsi_state lws_lrs_of_close[8] = {
 	[LCS_DEAD_SOCKET]		= LRS_DEAD_SOCKET,
 };
 
+const enum lwsi_state lws_lrs_of_transport[16] = {
+	[LTS_NONE]				= LRS_UNCONNECTED, /* not used */
+	[LTS_WAITING_DNS]			= LRS_WAITING_DNS,
+	[LTS_WAITING_CONNECT]			= LRS_WAITING_CONNECT,
+	[LTS_WAITING_PROXY_REPLY]		= LRS_WAITING_PROXY_REPLY,
+	[LTS_WAITING_SSL]			= LRS_WAITING_SSL,
+	[LTS_WAITING_SOCKS_GREETING_REPLY]	= LRS_WAITING_SOCKS_GREETING_REPLY,
+	[LTS_WAITING_SOCKS_CONNECT_REPLY]	= LRS_WAITING_SOCKS_CONNECT_REPLY,
+	[LTS_WAITING_SOCKS_AUTH_REPLY]		= LRS_WAITING_SOCKS_AUTH_REPLY,
+	[LTS_SSL_INIT]				= LRS_SSL_INIT,
+	[LTS_SSL_ACK_PENDING]			= LRS_SSL_ACK_PENDING,
+	[LTS_AWAITING_SSL_ACCEPT]		= LRS_AWAITING_SSL_ACCEPT,
+};
+
+/* the transport phase an LRS_ constant stands for, or LTS_NONE */
+
+static enum lws_transport_phase
+lws_lts_of_lrs(lws_wsi_state_t lrs)
+{
+	unsigned int n;
+
+	for (n = LTS_WAITING_DNS; n <= LTS_AWAITING_SSL_ACCEPT; n++)
+		if ((lws_wsi_state_t)lws_lrs_of_transport[n] == (lrs & LRS_MASK))
+			return (enum lws_transport_phase)n;
+
+	return LTS_NONE;
+}
+
+void
+lwsi_set_transport(struct lws *wsi, enum lws_transport_phase phase)
+{
+	lws_wsi_state_t old = wsi->wsistate;
+
+	wsi->wsistate = (old & ~LWSI_TRANSPORT_MASK) |
+			((lws_wsi_state_t)phase << LWSI_TRANSPORT_SHIFT);
+	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
+		       "set_transport");
+
+	lwsl_wsi_debug(wsi, "lwsi_set_transport 0x%lx -> 0x%lx",
+			(unsigned long)old, (unsigned long)wsi->wsistate);
+}
+
 void
 lwsi_set_close(struct lws *wsi, enum lws_close_phase phase)
 {
@@ -77,11 +119,13 @@ void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role) {
 void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs) {
 	lws_wsi_state_t old = wsi->wsistate;
 
-	/* the close machine has its own setter and its own bits */
+	/* the close and transport machines have their own setters and bits */
 	assert((lrs & 0xff) < (LRS_WAITING_TO_SEND_CLOSE & 0xff) ||
 	       (lrs & 0xff) > (LRS_DEAD_SOCKET & 0xff));
+	assert(lws_lts_of_lrs(lrs) == LTS_NONE);
 
-	wsi->wsistate = (old & (unsigned int)(~LRS_MASK)) | lrs;
+	/* setting a live state completes any transport phase */
+	wsi->wsistate = (old & ~(LRS_MASK | LWSI_TRANSPORT_MASK)) | lrs;
 	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
 			"set_state");
 
@@ -999,7 +1043,18 @@ void lws_role_transition(struct lws *wsi, enum lwsi_role role,
 	const struct lws_role_ops *old_ops = wsi->role_ops;
 	lws_wsi_state_t old = wsi->wsistate;
 #endif
-	wsi->wsistate = (unsigned int)role | (unsigned int)state;
+	enum lws_transport_phase lts = lws_lts_of_lrs((lws_wsi_state_t)state);
+
+	/*
+	 * A transport state goes in the transport bits over an unconnected
+	 * live state; anything else is a live state and ends any transport
+	 * phase, the redirect / fallback restart included
+	 */
+	if (lts != LTS_NONE)
+		wsi->wsistate = (unsigned int)role | LRS_UNCONNECTED |
+				((lws_wsi_state_t)lts << LWSI_TRANSPORT_SHIFT);
+	else
+		wsi->wsistate = (unsigned int)role | (unsigned int)state;
 	if (ops)
 		wsi->role_ops = ops;
 	lws_state_hook(wsi, old_ops, old, wsi->role_ops, wsi->wsistate,
