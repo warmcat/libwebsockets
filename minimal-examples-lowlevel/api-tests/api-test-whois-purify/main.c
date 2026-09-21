@@ -165,7 +165,7 @@ int main(int argc, const char **argv)
 			o += (size_t)lws_snprintf(in + o, sizeof(in) - o,
 						  "%s\"ns%d.example.com\"",
 						  i ? "," : "", i);
-		o += (size_t)lws_snprintf(in + o, sizeof(in) - o, "]}");
+		(void)lws_snprintf(in + o, sizeof(in) - o, "]}");
 
 		o = 0;
 		o += (size_t)lws_snprintf(want + o, sizeof(want) - o,

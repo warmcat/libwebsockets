@@ -180,7 +180,6 @@ render_doc(const char *doc, size_t len, bm_t *bm, int chunkmode)
 			pos += n - l;
 			if (l) {
 				/* parser stopped early: doc complete */
-				pos = len;
 				break;
 			}
 		}
@@ -911,7 +910,6 @@ build_corpus_paths(void)
 	/* same two rects, one wound backwards: nonzero hollows the
 	 * intersection, even-odd xors it... both analytically exact */
 
-	base = ncases;
 	cc = cc_add("path-rev-nonzero",
 		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
 		"<path d=\"M 4 4 H 30 V 30 H 4 Z M 20 20 V 46 H 46 V 20 Z\"/></svg>");

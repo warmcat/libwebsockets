@@ -907,7 +907,7 @@ int main(int argc, const char **argv)
 		}
 		cs = lws_json_simple_find("{\"blah\":123,\"auth_user\":\"andy@warmcat.com\",\"thing\":\"yeah\"}", 57,
 					    "\"auth_user\":", &cslen);
-		if (cslen != 16) {
+		if (!cs || cslen != 16) {
 			lwsl_err("%s: wrong string len %d isolated\n", __func__, (int)cslen);
 			e++;
 		}

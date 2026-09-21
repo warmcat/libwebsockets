@@ -27,7 +27,7 @@ print_hex(const char *label, const uint8_t *data, int len)
 	}
 	if (len > 32) {
 		offset = (size_t)(p - buf);
-		p += lws_snprintf(p, sizeof(buf) - offset, "...");
+		(void)lws_snprintf(p, sizeof(buf) - offset, "...");
 	}
 	lwsl_user("%s", buf);
 }
