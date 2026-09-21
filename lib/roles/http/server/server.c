@@ -3450,7 +3450,7 @@ raw_transition:
 			goto raw_transition;
 		}
 
-		lwsi_set_state(wsi, LRS_PRE_WS_SERVING_ACCEPT);
+		lwsi_set_state(wsi, LRS_H1_UPGRADE);
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {

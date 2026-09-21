@@ -1077,7 +1077,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 	 * something went wrong with parsing the handshake, and
 	 * we ended up back in the event loop without completing it
 	 */
-	if (lwsi_state(wsi) == LRS_PRE_WS_SERVING_ACCEPT) {
+	if (lwsi_state(wsi) == LRS_H1_UPGRADE) {
 		wsi->socket_is_permanently_unusable = 1;
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}

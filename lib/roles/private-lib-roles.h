@@ -102,11 +102,16 @@ enum lwsi_state {
 
 	LRS_SSL_INIT				= LWSIFS_NOT_EST | 8,
 	LRS_SSL_ACK_PENDING			= LWSIFS_NOT_EST | 9,
-	LRS_PRE_WS_SERVING_ACCEPT		= LWSIFS_NOT_EST | 10,
 
 	/* Phase 4: connected */
 
 	LRS_WAITING_SERVER_REPLY		= LWSIFS_NOT_EST | 11,
+	/*
+	 * h1 server: request headers complete, deciding whether this is a
+	 * ws or h2c upgrade or a plain http transaction.  Transient: nothing
+	 * may return to the event loop still in this state.
+	 */
+	LRS_H1_UPGRADE				= LWSIFS_NOT_EST | 10,
 	LRS_H2_AWAIT_PREFACE			= LWSIFS_NOT_EST | 12,
 	LRS_H2_AWAIT_SETTINGS			= LWSIFS_NOT_EST |
 						  LWSIFS_POCB | 13,
