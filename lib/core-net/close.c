@@ -247,7 +247,7 @@ __lws_reset_wsi(struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 	wsi->do_ws = wsi->client_rx_avail =
 	wsi->client_http_body_pending = wsi->transaction_from_pipeline_queue =
-	wsi->keepalive_active = wsi->keepalive_rejected =
+	wsi->keepalive_rejected =
 	wsi->redirected_to_get = wsi->client_pipeline = wsi->client_h2_alpn =
 	wsi->client_mux_substream = wsi->client_mux_migrated =
 	wsi->tls_session_reused = wsi->perf_done =

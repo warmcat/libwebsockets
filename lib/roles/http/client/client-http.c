@@ -1573,9 +1573,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 	if (!wsi->client_h2_alpn && !wsi->client_mux_substream) {
 		/* ie, coming to this for the first time */
-		if (wsi->http.conn_type == HTTP_CONNECTION_KEEP_ALIVE)
-			wsi->keepalive_active = 1;
-		else {
+		if (wsi->http.conn_type != HTTP_CONNECTION_KEEP_ALIVE) {
 			/*
 			 * Ugh... now the main http connection has seen
 			 * both sides, we learn the server doesn't

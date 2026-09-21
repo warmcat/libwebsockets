@@ -1152,18 +1152,6 @@ static int
 rops_alpn_negotiated_h1(struct lws *wsi, const char *alpn)
 {
 	lwsl_debug("%s: client %d\n", __func__, lwsi_role_client(wsi));
-#if defined(LWS_WITH_CLIENT)
-	if (lwsi_role_client(wsi)) {
-		/*
-		 * If alpn asserts it is http/1.1, server support for KA is
-		 * mandatory.
-		 *
-		 * Knowing this lets us proceed with sending pipelined headers
-		 * before we received the first response headers.
-		 */
-		wsi->keepalive_active = 1;
-	}
-#endif
 
 	return 0;
 }

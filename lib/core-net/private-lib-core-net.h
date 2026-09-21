@@ -1104,7 +1104,6 @@ struct lws {
 	unsigned int			client_rx_avail:1;
 	unsigned int			client_http_body_pending:1;
 	unsigned int			transaction_from_pipeline_queue:1;
-	unsigned int			keepalive_active:1;
 	unsigned int			keepalive_rejected:1;
 	unsigned int			redirected_to_get:1;
 	unsigned int			client_pipeline:1;
