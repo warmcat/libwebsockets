@@ -32,16 +32,21 @@ struct leg {
 	const char	*alpn;
 	uint8_t		h2;
 	uint8_t		server_initiates;
+	uint8_t		default_reason;	/* close without lws_close_reason() */
 };
 
 static const struct leg legs[] = {
-	{ "h1, client-initiated",		"cli",	   "http/1.1", 0, 0 },
-	{ "h1, server-initiated",		"cli",	   "http/1.1", 0, 1 },
-	{ "h2, client-initiated",		"cli",	   "h2",       1, 0 },
-	{ "h2, server-initiated",		"cli",	   "h2",       1, 1 },
-	{ "h1 via http CONNECT proxy",		"cli-hp",  "http/1.1", 0, 0 },
-	{ "h1 via socks5, no auth",		"cli-s5",  "http/1.1", 0, 0 },
-	{ "h1 via socks5, username/password",	"cli-s5a", "http/1.1", 0, 0 },
+	{ "h1, client-initiated",		"cli",	   "http/1.1", 0, 0, 0 },
+	{ "h1, server-initiated",		"cli",	   "http/1.1", 0, 1, 0 },
+	{ "h2, client-initiated",		"cli",	   "h2",       1, 0, 0 },
+	{ "h2, server-initiated",		"cli",	   "h2",       1, 1, 0 },
+	{ "h1, client-initiated, default reason", "cli",  "http/1.1", 0, 0, 1 },
+	{ "h1, server-initiated, default reason", "cli",  "http/1.1", 0, 1, 1 },
+	{ "h2, client-initiated, default reason", "cli",  "h2",       1, 0, 1 },
+	{ "h2, server-initiated, default reason", "cli",  "h2",       1, 1, 1 },
+	{ "h1 via http CONNECT proxy",		"cli-hp",  "http/1.1", 0, 0, 0 },
+	{ "h1 via socks5, no auth",		"cli-s5",  "http/1.1", 0, 0, 0 },
+	{ "h1 via socks5, username/password",	"cli-s5a", "http/1.1", 0, 0, 0 },
 };
 
 #define CLI_CODE	LWS_CLOSE_STATUS_GOINGAWAY	/* 1001 */
@@ -161,8 +166,14 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		sent_close = 1;
 		lwsl_user("%s: server: initiating close\n", __func__);
-		lws_close_reason(wsi, SRV_CODE, (unsigned char *)SRV_REASON,
-				 strlen(SRV_REASON));
+		/*
+		 * with no prepared reason, lws must still send a Close frame
+		 * and the peer must see 1000 with no reason text
+		 */
+		if (!legs[cur].default_reason)
+			lws_close_reason(wsi, SRV_CODE,
+					 (unsigned char *)SRV_REASON,
+					 strlen(SRV_REASON));
 		return -1;
 
 	case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
@@ -172,7 +183,10 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			fail_leg("server saw a peer close it initiated");
 			return -1;
 		}
-		check_peer_close(in, len, CLI_CODE, CLI_REASON);
+		if (legs[cur].default_reason)
+			check_peer_close(in, len, LWS_CLOSE_STATUS_NORMAL, "");
+		else
+			check_peer_close(in, len, CLI_CODE, CLI_REASON);
 		break;
 
 	case LWS_CALLBACK_CLOSED:
@@ -206,8 +220,10 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		sent_close = 1;
 		lwsl_user("%s: client: initiating close\n", __func__);
-		lws_close_reason(wsi, CLI_CODE, (unsigned char *)CLI_REASON,
-				 strlen(CLI_REASON));
+		if (!legs[cur].default_reason)
+			lws_close_reason(wsi, CLI_CODE,
+					 (unsigned char *)CLI_REASON,
+					 strlen(CLI_REASON));
 		return -1;
 
 	case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
@@ -217,7 +233,10 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			fail_leg("client saw a peer close it initiated");
 			return -1;
 		}
-		check_peer_close(in, len, SRV_CODE, SRV_REASON);
+		if (legs[cur].default_reason)
+			check_peer_close(in, len, LWS_CLOSE_STATUS_NORMAL, "");
+		else
+			check_peer_close(in, len, SRV_CODE, SRV_REASON);
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:

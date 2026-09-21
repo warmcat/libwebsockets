@@ -1709,9 +1709,14 @@ rops_close_via_role_protocol_ws(struct lws *wsi, enum lws_close_status reason)
 	if (!wsi->ws)
 		return 0;
 
+	/*
+	 * Context destroy is the one case we drop the socket without a
+	 * Close frame.  Otherwise, even if nobody prepared a close reason,
+	 * RFC 6455 7.1.1 wants us to send one before closing, so the peer
+	 * sees a 1000 rather than an abnormal 1006.
+	 */
 	if (!wsi->ws->close_in_ping_buffer_len && /* already a reason */
-	     (reason == LWS_CLOSE_STATUS_NOSTATUS ||
-	      reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY))
+	    reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY)
 		return 0;
 
 	lwsl_debug("%s: sending close indication...\n", __func__);
@@ -1719,6 +1724,8 @@ rops_close_via_role_protocol_ws(struct lws *wsi, enum lws_close_status reason)
 	/* if no prepared close reason, use 1000 and no aux data */
 
 	if (!wsi->ws->close_in_ping_buffer_len) {
+		if (reason == LWS_CLOSE_STATUS_NOSTATUS)
+			reason = LWS_CLOSE_STATUS_NORMAL;
 		wsi->ws->close_in_ping_buffer_len = 2;
 		wsi->ws->ping_payload_buf[LWS_PRE] = (reason >> 8) & 0xff;
 		wsi->ws->ping_payload_buf[LWS_PRE + 1] = reason & 0xff;
