@@ -235,8 +235,8 @@ lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 	int n, port = 0;
 	struct lws *w;
 
-	if (lwsi_state(wsi) == LRS_WAITING_DNS ||
-	    lwsi_state(wsi) == LRS_WAITING_CONNECT) {
+	if (lwsi_transport(wsi) == LTS_WAITING_DNS ||
+	    lwsi_transport(wsi) == LTS_WAITING_CONNECT) {
 		lwsl_wsi_info(wsi, "LRS_WAITING_DNS / CONNECT");
 
 		return wsi;

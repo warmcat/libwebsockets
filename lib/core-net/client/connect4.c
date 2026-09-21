@@ -218,7 +218,7 @@ send_hs:
 
 			/* we have connected if we got here */
 
-			if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
+			if (lwsi_transport(wsi) == LTS_WAITING_CONNECT &&
 #if defined(LWS_ROLE_QUIC)
 			    strcmp(wsi->role_ops->name, "quic") != 0 &&
 #endif

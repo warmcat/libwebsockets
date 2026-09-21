@@ -141,7 +141,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 
 				if (lws_tls_server_accept_completed(job->wsi, job->u.ssl.status)) {
 					lws_close_free_wsi(job->wsi, LWS_CLOSE_STATUS_NOSTATUS, "ssl accept failed");
-				} else if (lwsi_state(job->wsi) != LRS_SSL_ACK_PENDING) {
+				} else if (lwsi_transport(job->wsi) != LTS_SSL_ACK_PENDING) {
 
 					/* restore POLLIN which was stripped before entering async worker queue */
 					if (lws_change_pollfd(job->wsi, 0, LWS_POLLIN)) {

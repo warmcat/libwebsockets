@@ -524,7 +524,7 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	 * defer reading
 	 */
 
-	if (lwsi_state(wsi) == LRS_SSL_ACK_PENDING)
+	if (lwsi_transport(wsi) == LTS_SSL_ACK_PENDING)
 		return LWS_HPI_RET_HANDLED;
 
 	/* these states imply we MUST have an ah attached */
@@ -865,7 +865,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		if (hr != LWS_HPI_RET_HANDLED)
 			return hr;
-		if (lwsi_state(wsi) != LRS_SSL_INIT)
+		if (lwsi_transport(wsi) != LTS_SSL_INIT)
 			if (lws_server_socket_service_ssl(wsi,
 							  LWS_SOCK_INVALID,
 					!!(pollfd->revents & LWS_POLLIN)))
@@ -933,7 +933,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 #endif
 
 #if defined(LWS_WITH_CLIENT)
-	if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
+	if (lwsi_transport(wsi) == LTS_WAITING_CONNECT &&
 	    (pollfd->revents & LWS_POLLHUP)) {
 		/*
 		 * This fd's connect attempt failed.  But if we are racing

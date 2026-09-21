@@ -752,8 +752,8 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		break;
 	}
 
-	if (lwsi_state(wsi) == LRS_WAITING_CONNECT ||
-	    lwsi_state(wsi) == LRS_WAITING_DNS ||
+	if (lwsi_transport(wsi) == LTS_WAITING_CONNECT ||
+	    lwsi_transport(wsi) == LTS_WAITING_DNS ||
 	    lwsi_state(wsi) == LRS_H1C_ISSUE_HANDSHAKE)
 		goto just_kill_connection;
 
@@ -856,8 +856,8 @@ just_kill_connection:
 		(lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY &&
 		 wsi->role_ops == &role_ops_ws) ||
 #endif
-	     lwsi_state(wsi) == LRS_WAITING_DNS ||
-	     lwsi_state(wsi) == LRS_WAITING_CONNECT ||
+	     lwsi_transport(wsi) == LTS_WAITING_DNS ||
+	     lwsi_transport(wsi) == LTS_WAITING_CONNECT ||
 	     (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED)) &&
 	     !wsi->already_did_cce && wsi->a.protocol &&
 	     !wsi->close_is_redirect) {

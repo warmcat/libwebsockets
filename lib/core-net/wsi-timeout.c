@@ -146,7 +146,7 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 		 */
 		wsi->socket_is_permanently_unusable = 1;
 #if defined(LWS_WITH_CLIENT)
-	if (lwsi_state(wsi) == LRS_WAITING_SSL)
+	if (lwsi_transport(wsi) == LTS_WAITING_SSL)
 		lws_inform_client_conn_fail(wsi,
 			(void *)"Timed out waiting SSL", 21);
 	if (lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY)

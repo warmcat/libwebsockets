@@ -55,7 +55,7 @@ rops_handle_POLLIN_mqtt(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (lwsi_state(wsi) != LRS_ESTABLISHED) {
 #if defined(LWS_WITH_CLIENT)
 
-		if (lwsi_state(wsi) == LRS_WAITING_SSL &&
+		if (lwsi_transport(wsi) == LTS_WAITING_SSL &&
 		    ((pollfd->revents & LWS_POLLOUT)) &&
 		    lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 			lwsl_info("failed at set pollfd\n");

@@ -113,7 +113,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		lwsl_wsi_debug(wsi, "wsistate 0x%x\n", (int)wsi->wsistate);
 
-		if (lwsi_state(wsi) != LRS_SSL_INIT)
+		if (lwsi_transport(wsi) != LTS_SSL_INIT)
 			if (lws_server_socket_service_ssl(wsi,
 							  LWS_SOCK_INVALID,
 				!!(pollfd->revents & pollfd->events & LWS_POLLIN)))
@@ -253,7 +253,7 @@ try_pollout:
 		return LWS_HPI_RET_HANDLED;
 
 #if defined(LWS_WITH_CLIENT)
-	if (lwsi_state(wsi) == LRS_WAITING_CONNECT) {
+	if (lwsi_transport(wsi) == LTS_WAITING_CONNECT) {
 	    if (!lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd))
 		return LWS_HPI_RET_WSI_ALREADY_DIED;
 
@@ -262,7 +262,7 @@ try_pollout:
 	}
 #endif
 
-	if (lwsi_state(wsi) == LRS_WAITING_SSL)
+	if (lwsi_transport(wsi) == LTS_WAITING_SSL)
 		return LWS_HPI_RET_HANDLED;
 
 	/* one shot */

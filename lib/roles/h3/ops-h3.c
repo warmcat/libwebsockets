@@ -1946,7 +1946,7 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 			child->h3.h3n = nwsi->h3.h3n;
 			child->h3.qpack_tx_encoder = nwsi->h3.qpack_tx_encoder;
 
-			if (lwsi_state(child) == LRS_UNCONNECTED || lwsi_state(child) == LRS_WAITING_CONNECT) {
+			if (lwsi_state(child) == LRS_UNCONNECTED || lwsi_transport(child) == LTS_WAITING_CONNECT) {
 				lwsl_wsi_info(child, "H3 ALPN Negotiated, transitioning child");
 				lws_role_transition(child, lwsi_role_client(nwsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_H2_WAITING_TO_SEND_HEADERS, &role_ops_h3);
 				lws_callback_on_writable(child);

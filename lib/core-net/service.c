@@ -745,7 +745,7 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 		    lwsi_state(wsi) != LRS_DEFERRING_ACTION &&
 		    lwsi_state(wsi) != LRS_AWAITING_FILE_READ &&
 		    lwsi_state(wsi) != LRS_DOING_TRANSACTION &&
-		    lwsi_state(wsi) != LRS_AWAITING_SSL_ACCEPT) {
+		    lwsi_transport(wsi) != LTS_AWAITING_SSL_ACCEPT) {
 			forced = 1;
 			break;
 		}
@@ -848,7 +848,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 	if ((pollfd->revents & LWS_POLLHUP) == LWS_POLLHUP) {
 #if defined(LWS_WITH_CLIENT)
-		if (lwsi_state(wsi) == LRS_WAITING_CONNECT) {
+		if (lwsi_transport(wsi) == LTS_WAITING_CONNECT) {
 			if (lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd))
 				return 0;
 			else

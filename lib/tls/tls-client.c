@@ -125,7 +125,7 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 {
 	int n;
 
-	if (lwsi_state(wsi) == LRS_WAITING_SSL) {
+	if (lwsi_transport(wsi) == LTS_WAITING_SSL) {
 		n = lws_tls_client_connect(wsi, errbuf, len);
 		lwsl_debug("%s: SSL_connect says %d\n", __func__, n);
 

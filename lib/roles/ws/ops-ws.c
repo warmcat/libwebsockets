@@ -1085,7 +1085,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 	ebuf.token = NULL;
 	ebuf.len = 0;
 
-	if (lwsi_state(wsi) == LRS_WAITING_CONNECT) {
+	if (lwsi_transport(wsi) == LTS_WAITING_CONNECT) {
 #if defined(LWS_WITH_CLIENT)
 		if (pollfd->revents & LWS_POLLOUT) {
 			int hr = lws_handle_POLLOUT_event(wsi, pollfd);

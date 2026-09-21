@@ -82,7 +82,7 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	const uint8_t **cbuf = (const uint8_t **)buf;
 
-	if ((lwsi_state(wsi) != LRS_WAITING_PROXY_REPLY) &&
+	if ((lwsi_transport(wsi) != LTS_WAITING_PROXY_REPLY) &&
 	    (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE) &&
 	    (lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY) &&
 	    !lwsi_role_client(wsi))

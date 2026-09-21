@@ -592,10 +592,10 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 	int is_quic_race = (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") && lws_dll2_owner(
 		&wsi->sul_h3_grace.list));
-	if ((lwsi_state(wsi) == LRS_WAITING_CONNECT || (is_quic_race && pollfd != NULL)) &&
+	if ((lwsi_transport(wsi) == LTS_WAITING_CONNECT || (is_quic_race && pollfd != NULL)) &&
 	    (lws_socket_is_valid(wsi->desc.sockfd) || wsi->parallel_count > 0)) {
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-		if (lwsi_state(wsi) == LRS_WAITING_CONNECT && wsi->parallel_count > 0) {
+		if (lwsi_transport(wsi) == LTS_WAITING_CONNECT && wsi->parallel_count > 0) {
 			int any_parallel = 0;
 
 			for (m = 0; m < wsi->parallel_count; m++)
@@ -614,7 +614,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 				goto connect_to;
 		}
 #endif
-		if (lwsi_state(wsi) == LRS_WAITING_CONNECT && !lws_dll2_owner(&wsi->sul_connect_timeout.list))
+		if (lwsi_transport(wsi) == LTS_WAITING_CONNECT && !lws_dll2_owner(&wsi->sul_connect_timeout.list))
 			/* no ongoing timeout for one */
 			goto connect_to;
 

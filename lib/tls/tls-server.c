@@ -859,7 +859,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 		/* normal SSL connection processing path */
 
 #if defined(LWS_WITH_ASYNC_QUEUE)
-		if (lwsi_state(wsi) != LRS_AWAITING_SSL_ACCEPT && context->count_async_threads) {
+		if (lwsi_transport(wsi) != LTS_AWAITING_SSL_ACCEPT && context->count_async_threads) {
 			struct lws_async_job *job;
 
 			if (lws_change_pollfd(wsi, LWS_POLLIN | LWS_POLLOUT, 0)) {
