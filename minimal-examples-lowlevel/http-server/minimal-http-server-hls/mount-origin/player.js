@@ -104,15 +104,15 @@ document.addEventListener('DOMContentLoaded', function() {
      */
     /* a year (1917, 2001) or a resolution (480, 1080p, 576i) */
     var JUNK_NUMERIC = /^\d{3,4}[pi]?$/;
-    var JUNK_WORDS = ['web', 'webrip', 'web-dl', 'bluray', 'blu-ray', 'brrip',
-                      'bdrip', 'dvdrip', 'hdrip', 'hdtv', 'x264', 'x265',
-                      'h264', 'h265', 'hevc', 'xvid', 'divx', 'avc', 'aac',
-                      'ac3', 'eac3', 'dts', 'dts-hd', 'truehd', '10bit',
-                      '8bit', 'hdr', 'sdr', 'multi', 'remux', 'repack',
-                      'proper'];
+    var JUNK_WORDS = new Set(['web', 'webrip', 'web-dl', 'bluray', 'blu-ray',
+                              'brrip', 'bdrip', 'dvdrip', 'hdrip', 'hdtv',
+                              'x264', 'x265', 'h264', 'h265', 'hevc', 'xvid',
+                              'divx', 'avc', 'aac', 'ac3', 'eac3', 'dts',
+                              'dts-hd', 'truehd', '10bit', '8bit', 'hdr',
+                              'sdr', 'multi', 'remux', 'repack', 'proper']);
 
     function isJunkToken(w) {
-        return JUNK_NUMERIC.test(w) || JUNK_WORDS.includes(w.toLowerCase());
+        return JUNK_NUMERIC.test(w) || JUNK_WORDS.has(w.toLowerCase());
     }
 
     function friendlyName(path) {
