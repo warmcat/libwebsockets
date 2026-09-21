@@ -95,12 +95,8 @@ rops_handle_POLLIN_mqtt(struct lws_context_per_thread *pt, struct lws *wsi,
 			/* connect racing already closed and freed the wsi */
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
-		if (hr) {
-			if (lwsi_close(wsi) == LCS_RETURNED_CLOSE)
-				lwsi_set_close(wsi, LCS_FLUSHING_BEFORE_CLOSE);
-
+		if (hr)
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		}
 	}
 post_pollout:
 
