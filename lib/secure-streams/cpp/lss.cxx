@@ -85,7 +85,7 @@ lss::lss(lws_ctx_t _ctx, std::string _uri, lsscomp_t _comp, bool _psh,
 	uri = _uri;
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(pcols); n++)
-		if (!strncmp(uri.c_str(), pcols[n], pcols_len[n]))
+		if (!uri.compare(0, pcols_len[n], pcols[n]))
 			break;
 
 	if (n == (int)LWS_ARRAY_SIZE(pcols))
