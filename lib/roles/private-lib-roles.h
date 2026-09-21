@@ -115,7 +115,6 @@ enum lwsi_state {
 
 	/* Phase 5: protocol logically established */
 
-	LRS_H2_CLIENT_SEND_SETTINGS		= LWSIFS_POCB | 14,
 	LRS_H2_WAITING_TO_SEND_HEADERS		= LWSIFS_POCB | 15,
 	LRS_DEFERRING_ACTION			= LWSIFS_POCB | 16,
 	LRS_IDLING				= 17,
