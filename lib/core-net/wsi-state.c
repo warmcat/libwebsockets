@@ -90,13 +90,30 @@ const char * const lws_lrs_names[] = {
 	[36] = "AWAITING_SSL_ACCEPT",
 };
 
+/*
+ * The state as lwsi_state() reports it, from a raw wsistate word: the close
+ * machine's state if one is set, else the live state, with the role flags
+ */
+
+static lws_wsi_state_t
+lws_wsi_state_of(lws_wsi_state_t w)
+{
+	unsigned int c = (w & LWSI_CLOSE_MASK) >> LWSI_CLOSE_SHIFT;
+
+	return (w & (unsigned int)LWSI_ROLE_MASK) |
+	       (c ? (lws_wsi_state_t)lws_lrs_of_close[c] : (w & LRS_MASK));
+}
+
 /* format a (role, wsistate) pair as role/side[e]:STATE */
 
 void
 lws_wsi_state_fmt(const struct lws_role_ops *ops, lws_wsi_state_t s,
 		  char *buf, size_t len)
 {
-	unsigned int i = s & 0xff;
+	unsigned int i;
+
+	s = lws_wsi_state_of(s);
+	i = s & 0xff;
 	const char *name = "?";
 	char tmp[16];
 
@@ -232,7 +249,7 @@ static const char * const lws_state_machine_names[] = {
 static const char *
 lws_state_machine_name(lws_wsi_state_t s)
 {
-	unsigned int i = s & 0xff;
+	unsigned int i = lws_wsi_state_of(s) & 0xff;
 
 	if (!s || i >= LWS_ARRAY_SIZE(lws_lrs_machine) || !lws_lrs_names[i])
 		return "?";
@@ -497,6 +514,8 @@ lws_state_edge_allowed(const struct lws_role_ops *ops, lws_wsi_state_t from,
 	char side[3];
 	unsigned int n;
 
+	from = lws_wsi_state_of(from);
+	to = lws_wsi_state_of(to);
 	lws_state_side(to, side);
 
 	for (n = 0; n < LWS_ARRAY_SIZE(lws_state_edges); n++, e++)
@@ -519,6 +538,8 @@ lws_role_edge_allowed(const struct lws_role_ops *from_ops, lws_wsi_state_t from,
 	char fside[3], tside[3];
 	unsigned int n;
 
+	from = lws_wsi_state_of(from);
+	to = lws_wsi_state_of(to);
 	lws_state_side(from, fside);
 	lws_state_side(to, tside);
 
@@ -542,7 +563,7 @@ lws_role_edge_allowed(const struct lws_role_ops *from_ops, lws_wsi_state_t from,
 static const char *
 lws_state_invariant(struct lws *wsi, lws_wsi_state_t to)
 {
-	switch (to & LRS_MASK) {
+	switch (lws_wsi_state_of(to) & LRS_MASK) {
 	case LRS_RETURNED_CLOSE:
 		if (!lwsi_role_ws(wsi))
 			return "RETURNED_CLOSE on a non-ws role";
@@ -580,7 +601,7 @@ lws_wsi_state_check(struct lws *wsi, const struct lws_role_ops *from_ops,
 	 * and lwsi_set_role() edges in the role table, even when the ops or
 	 * side turn out unchanged, since the tables were derived that way
 	 */
-	if (!strcmp(how, "set_state"))
+	if (!strcmp(how, "set_state") || !strcmp(how, "set_close"))
 		ok = lws_state_edge_allowed(to_ops, from, to);
 	else
 		ok = lws_role_edge_allowed(from_ops, from, to_ops, to);
@@ -612,7 +633,8 @@ lws_wsi_state_changed(struct lws *wsi, const struct lws_role_ops *from_ops,
 		      lws_wsi_state_t from, const struct lws_role_ops *to_ops,
 		      lws_wsi_state_t to, const char *how)
 {
-	if (from == to && from_ops == to_ops)
+	if (lws_wsi_state_of(from) == lws_wsi_state_of(to) &&
+	    from_ops == to_ops)
 		return;
 
 #if defined(LWS_WITH_STATE_TRACE)

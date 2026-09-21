@@ -565,7 +565,7 @@ spill:
 				goto ret_asking_close;
 
 			lwsl_parser("server sees client close packet\n");
-			lwsi_set_state(wsi, LRS_RETURNED_CLOSE);
+			lwsi_set_close(wsi, LCS_RETURNED_CLOSE);
 			/* deal with the close packet contents as a PONG */
 			wsi->ws->payload_is_close = 1;
 			goto process_as_ping;
@@ -773,7 +773,7 @@ drain_extension:
 			    )
 				pmdrx.eb_in.len -= pmdrx.eb_out.len;
 
-	if (!wsi->wsistate_pre_close &&
+	if (!lwsi_close_started(wsi) &&
 			    (pmdrx.eb_out.len >= 0 ||
 			     callback_action == LWS_CALLBACK_RECEIVE_PONG ||
 						       n == PMDR_EMPTY_FINAL)) {
@@ -1122,7 +1122,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 		}
 		if (hr) {
 			if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
-				lwsi_set_state(wsi, LRS_FLUSHING_BEFORE_CLOSE);
+				lwsi_set_close(wsi, LCS_FLUSHING_BEFORE_CLOSE);
 
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
@@ -1486,7 +1486,7 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 			      LWS_WRITE_CLOSE);
 		if (n >= 0) {
 			if (wsi->close_needs_ack) {
-				lwsi_set_state(wsi, LRS_AWAITING_CLOSE_ACK);
+				lwsi_set_close(wsi, LCS_AWAITING_CLOSE_ACK);
 				lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK,
 						5);
 				lwsl_debug("sent close, await ack\n");
@@ -1494,7 +1494,7 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 				return LWS_HP_RET_BAIL_OK;
 			}
 			wsi->close_needs_ack = 0;
-			lwsi_set_state(wsi, LRS_RETURNED_CLOSE);
+			lwsi_set_close(wsi, LCS_RETURNED_CLOSE);
 		}
 
 		return LWS_HP_RET_BAIL_DIE;
@@ -1509,7 +1509,7 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 		if (wsi->ws->payload_is_close)
 			write_type = LWS_WRITE_CLOSE;
 		else {
-			if (wsi->wsistate_pre_close) {
+			if (lwsi_close_started(wsi)) {
 				/* we started close flow, forget pong */
 				wsi->ws->pong_pending_flag = 0;
 				return LWS_HP_RET_BAIL_OK;
@@ -1732,7 +1732,7 @@ rops_close_via_role_protocol_ws(struct lws *wsi, enum lws_close_status reason)
 	}
 
 	wsi->close_needs_ack = 1;
-	lwsi_set_state(wsi, LRS_WAITING_TO_SEND_CLOSE);
+	lwsi_set_close(wsi, LCS_WAITING_TO_SEND_CLOSE);
 	__lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 5);
 
 	lws_callback_on_writable(wsi);

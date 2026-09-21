@@ -38,6 +38,30 @@ const char *lws_wsi_tag(struct lws *wsi) {
 #define lws_state_hook(wsi, fo, f, to, t, how)
 #endif
 
+const enum lwsi_state lws_lrs_of_close[8] = {
+	[LCS_NONE]			= LRS_UNCONNECTED, /* not used */
+	[LCS_WAITING_TO_SEND_CLOSE]	= LRS_WAITING_TO_SEND_CLOSE,
+	[LCS_RETURNED_CLOSE]		= LRS_RETURNED_CLOSE,
+	[LCS_AWAITING_CLOSE_ACK]	= LRS_AWAITING_CLOSE_ACK,
+	[LCS_FLUSHING_BEFORE_CLOSE]	= LRS_FLUSHING_BEFORE_CLOSE,
+	[LCS_SHUTDOWN]			= LRS_SHUTDOWN,
+	[LCS_DEAD_SOCKET]		= LRS_DEAD_SOCKET,
+};
+
+void
+lwsi_set_close(struct lws *wsi, enum lws_close_phase phase)
+{
+	lws_wsi_state_t old = wsi->wsistate;
+
+	wsi->wsistate = (old & ~LWSI_CLOSE_MASK) |
+			((lws_wsi_state_t)phase << LWSI_CLOSE_SHIFT);
+	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
+		       "set_close");
+
+	lwsl_wsi_debug(wsi, "lwsi_set_close 0x%lx -> 0x%lx", (unsigned long)old,
+			(unsigned long)wsi->wsistate);
+}
+
 #if defined(_DEBUG) || defined(LWS_WITH_STATE_TRACE) || \
     defined(LWS_WITH_STATE_CHECK)
 void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role) {
@@ -52,6 +76,10 @@ void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role) {
 
 void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs) {
 	lws_wsi_state_t old = wsi->wsistate;
+
+	/* the close machine has its own setter and its own bits */
+	assert((lrs & 0xff) < (LRS_WAITING_TO_SEND_CLOSE & 0xff) ||
+	       (lrs & 0xff) > (LRS_DEAD_SOCKET & 0xff));
 
 	wsi->wsistate = (old & (unsigned int)(~LRS_MASK)) | lrs;
 	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,

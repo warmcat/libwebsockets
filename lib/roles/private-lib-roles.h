@@ -32,8 +32,15 @@ typedef uint32_t lws_wsi_state_t;
  * role is a client or server side, if it has that concept.  And the connection
  * fulfilling the role, has a separate dynamic state.
  *
- *   31           16 15      0
- *   [  role flags ] [ state ]
+ *   31           16 15 14  12 11 10   9    8   7      0
+ *   [  role flags ] [cs][close][ - ][nest][pocb][ state ]
+ *
+ * bits 0-9 are the live state: the transport / carrier / transaction
+ * machines' LRS_ value with its LWSIFS_ flags.  bits 12-14 are the close
+ * machine (enum lws_close_phase), which runs on top of the live state
+ * without disturbing it, so what the connection was doing when it started
+ * to close remains visible (lwsi_state_live()).  bit 15 records that
+ * __lws_close_free_wsi() has been entered.
  *
  * The role flags part is generally invariant for the lifetime of the wsi,
  * although it can change if the connection role itself does, eg, if the
@@ -145,28 +152,64 @@ enum lwsi_state {
 	 */
 	LRS_DOING_TRANSACTION			= LWSIFS_POCB | 26,
 
-	/* Phase 6: finishing */
+	/*
+	 * Phase 6 and 7: the close machine.
+	 *
+	 * These are never stored in the live state bits.  They are what
+	 * lwsi_state() reports while lwsi_close() is set, so that existing
+	 * readers see a closing connection as they always did; they are set
+	 * with lwsi_set_close(), not lwsi_set_state().
+	 */
 
 	LRS_WAITING_TO_SEND_CLOSE		= LWSIFS_POCB | 27,
 	LRS_RETURNED_CLOSE			= LWSIFS_POCB | 28,
 	LRS_AWAITING_CLOSE_ACK			= LWSIFS_POCB | 29,
 	LRS_FLUSHING_BEFORE_CLOSE		= LWSIFS_POCB | 30,
 	LRS_SHUTDOWN				= 31,
-
-	/* Phase 7: dead */
-
 	LRS_DEAD_SOCKET				= 32,
 
-	LRS_MASK				= 0xffff
+	LRS_MASK				= 0x03ff
 };
 
-#define lwsi_state(wsi) ((enum lwsi_state)(wsi->wsistate & LRS_MASK))
-#define lwsi_state_PRE_CLOSE(wsi) \
-		((enum lwsi_state)(wsi->wsistate_pre_close & LRS_MASK))
-#define lwsi_state_est(wsi) (!(wsi->wsistate & LWSIFS_NOT_EST))
-#define lwsi_state_est_PRE_CLOSE(wsi) \
-		(!(wsi->wsistate_pre_close & LWSIFS_NOT_EST))
-#define lwsi_state_can_handle_POLLOUT(wsi) (wsi->wsistate & LWSIFS_POCB)
+/*
+ * The close machine.  Entered from any live state; once set, the live state
+ * is retained underneath but lwsi_state() reports the close state.  Cleared
+ * only by lws_role_transition(), ie, the redirect / fallback restart.
+ */
+
+enum lws_close_phase {
+	LCS_NONE,
+	LCS_WAITING_TO_SEND_CLOSE,	/* ws: we have a CLOSE frame to send */
+	LCS_RETURNED_CLOSE,		/* ws: peer's CLOSE seen, we answered */
+	LCS_AWAITING_CLOSE_ACK,		/* ws: we sent CLOSE, waiting for his */
+	LCS_FLUSHING_BEFORE_CLOSE,	/* draining buffered tx, then close */
+	LCS_SHUTDOWN,			/* half-closed, waiting for his FIN */
+	LCS_DEAD_SOCKET			/* out of the fd table, being freed */
+};
+
+#define LWSI_CLOSE_SHIFT	12
+#define LWSI_CLOSE_MASK		(0x7u << LWSI_CLOSE_SHIFT)
+#define LWSIFS_CLOSE_STARTED	0x8000u	/* __lws_close_free_wsi() entered */
+
+extern const enum lwsi_state lws_lrs_of_close[8];
+
+#define lwsi_close(wsi) ((enum lws_close_phase) \
+		((wsi->wsistate & LWSI_CLOSE_MASK) >> LWSI_CLOSE_SHIFT))
+#define lwsi_close_started(wsi) (!!(wsi->wsistate & LWSIFS_CLOSE_STARTED))
+#define lwsi_set_close_started(wsi) wsi->wsistate |= LWSIFS_CLOSE_STARTED
+
+void
+lwsi_set_close(struct lws *wsi, enum lws_close_phase phase);
+
+/* the state as readers have always seen it: closing overrides the rest */
+#define lwsi_state(wsi) (lwsi_close(wsi) ? lws_lrs_of_close[lwsi_close(wsi)] : \
+			 (enum lwsi_state)(wsi->wsistate & LRS_MASK))
+/* the live machines' state, whether or not a close is in progress */
+#define lwsi_state_live(wsi) ((enum lwsi_state)(wsi->wsistate & LRS_MASK))
+#define lwsi_state_est(wsi) \
+		(lwsi_close(wsi) || !(wsi->wsistate & LWSIFS_NOT_EST))
+#define lwsi_state_live_est(wsi) (!(wsi->wsistate & LWSIFS_NOT_EST))
+#define lwsi_state_can_handle_POLLOUT(wsi) (lwsi_state(wsi) & LWSIFS_POCB)
 #if !defined (_DEBUG) && !defined(LWS_WITH_STATE_TRACE) && \
     !defined(LWS_WITH_STATE_CHECK)
 #define lwsi_set_state(wsi, lrs) wsi->wsistate = \

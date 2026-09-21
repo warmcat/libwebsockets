@@ -940,7 +940,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 	    !wsi->ws->rx_packet_length &&   /* raw ws packet payload all gone */
 	    wsi->ws->final &&		    /* the raw ws packet is a FIN guy */
 	    wsi->a.protocol->callback &&
-	    !wsi->wsistate_pre_close) {
+	    !lwsi_close_started(wsi)) {
 
 		lwsl_ext("%s: issuing zero length FIN pkt\n", __func__);
 
@@ -1005,7 +1005,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 		}
 	}
 
-	if (wsi->a.protocol->callback && !wsi->wsistate_pre_close)
+	if (wsi->a.protocol->callback && !lwsi_close_started(wsi))
 		if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 						LWS_CALLBACK_RECEIVE,
 						wsi->user_space,

@@ -1022,7 +1022,6 @@ struct lws {
 	lws_sock_file_fd_type		desc; /* .filefd / .sockfd */
 
 	lws_wsi_state_t			wsistate;
-	lws_wsi_state_t			wsistate_pre_close;
 
 	/* ints */
 #define LWS_NO_FDS_POS (-1)

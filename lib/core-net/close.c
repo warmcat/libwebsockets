@@ -523,6 +523,7 @@ void
 __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		     const char *caller)
 {
+	int est_at_entry;
 	struct lws_context_per_thread *pt;
 	const struct lws_protocols *pro;
 #if defined(LWS_WITH_SECURE_STREAMS)
@@ -538,7 +539,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 
 	lwsl_wsi_info(wsi, "caller: %s", caller);
 
-	if (lwsi_state(wsi) == LRS_DEAD_SOCKET)
+	if (lwsi_close(wsi) == LCS_DEAD_SOCKET)
 		/*
 		 * We are already in the middle of closing him in an outer
 		 * stack frame (eg, we were re-entered from one of his own
@@ -652,7 +653,15 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	}
 #endif
 
-	wsi->wsistate_pre_close = wsi->wsistate;
+	/*
+	 * Whether he counts as established for the CLOSED callback decision
+	 * below is judged as we come in here, the same as the pre-close
+	 * snapshot used to do: a staged close re-entering from SHUTDOWN or
+	 * FLUSHING counts, a connection that never got past its transport
+	 * setup does not
+	 */
+	est_at_entry = lwsi_state_est(wsi);
+	lwsi_set_close_started(wsi);
 
 #ifdef LWS_WITH_CGI
 	if (wsi->role_ops == &role_ops_cgi) {
@@ -700,25 +709,22 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		lws_vfs_file_close(&wsi->http.fop_fd);
 #endif
 
-	if (lwsi_state(wsi) == LRS_DEAD_SOCKET)
+	if (lwsi_close(wsi) == LCS_DEAD_SOCKET)
 		return;
 
 	if (wsi->socket_is_permanently_unusable ||
 	    reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY ||
-	    lwsi_state(wsi) == LRS_SHUTDOWN)
+	    lwsi_close(wsi) == LCS_SHUTDOWN)
 		goto just_kill_connection;
 
-	switch (lwsi_state_PRE_CLOSE(wsi)) {
-	case LRS_DEAD_SOCKET:
-		return;
-
+	switch (lwsi_close(wsi)) {
 	/* we tried the polite way... */
-	case LRS_WAITING_TO_SEND_CLOSE:
-	case LRS_AWAITING_CLOSE_ACK:
-	case LRS_RETURNED_CLOSE:
+	case LCS_WAITING_TO_SEND_CLOSE:
+	case LCS_AWAITING_CLOSE_ACK:
+	case LCS_RETURNED_CLOSE:
 		goto just_kill_connection;
 
-	case LRS_FLUSHING_BEFORE_CLOSE:
+	case LCS_FLUSHING_BEFORE_CLOSE:
 		if (lws_has_buffered_out(wsi)
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 		    || wsi->http.comp_ctx.buflist_comp ||
@@ -738,7 +744,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #endif
 		) {
 			lwsl_wsi_info(wsi, "LRS_FLUSHING_BEFORE_CLOSE");
-			lwsi_set_state(wsi, LRS_FLUSHING_BEFORE_CLOSE);
+			lwsi_set_close(wsi, LCS_FLUSHING_BEFORE_CLOSE);
 			__lws_set_timeout(wsi,
 				PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE, 5);
 			return;
@@ -880,7 +886,7 @@ just_kill_connection:
 #if defined(LWS_WITH_UDP)
 	    !wsi->udp && /* nothing to stage on a datagram socket */
 #endif
-	    lwsi_state(wsi) != LRS_SHUTDOWN &&
+	    lwsi_close(wsi) != LCS_SHUTDOWN &&
 	    lwsi_state(wsi) != LRS_UNCONNECTED &&
 	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
 	    !wsi->socket_is_permanently_unusable) {
@@ -895,7 +901,7 @@ just_kill_connection:
 			case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
 				if (wsi->lsp_channel++ == 8) {
 					lwsl_wsi_info(wsi, "avoiding shutdown spin");
-					lwsi_set_state(wsi, LRS_SHUTDOWN);
+					lwsi_set_close(wsi, LCS_SHUTDOWN);
 				}
 				break;
 			}
@@ -928,10 +934,10 @@ just_kill_connection:
 		    !wsi->close_is_redirect &&
 #endif
 		    lws_socket_is_valid(wsi->desc.sockfd) &&
-		    lwsi_state(wsi) != LRS_SHUTDOWN &&
+		    lwsi_close(wsi) != LCS_SHUTDOWN &&
 		    (context->event_loop_ops->flags & LELOF_ISPOLL)) {
 			__lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
-			lwsi_set_state(wsi, LRS_SHUTDOWN);
+			lwsi_set_close(wsi, LCS_SHUTDOWN);
 			__lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
 					  (int)context->timeout_secs);
 
@@ -968,7 +974,7 @@ just_kill_connection:
 	/* checking return redundant since we anyway close */
 	__remove_wsi_socket_from_fds(wsi);
 
-	lwsi_set_state(wsi, LRS_DEAD_SOCKET);
+	lwsi_set_close(wsi, LCS_DEAD_SOCKET);
 	lws_buflist_destroy_all_segments(&wsi->buflist);
 	lws_dll2_remove(&wsi->dll_buflist);
 
@@ -979,10 +985,10 @@ just_kill_connection:
 	/* tell the user it's all over for this guy */
 
 	ccb = 0;
-	if ((lwsi_state_est_PRE_CLOSE(wsi) ||
+	if ((est_at_entry ||
 	    /* raw skt adopted but didn't complete tls hs should CLOSE */
 	    (wsi->role_ops == &role_ops_raw_skt && !lwsi_role_client(wsi)) ||
-	     lwsi_state_PRE_CLOSE(wsi) == LRS_WAITING_SERVER_REPLY) &&
+	     lwsi_state_live(wsi) == LRS_WAITING_SERVER_REPLY) &&
 	    !wsi->told_user_closed &&
 	    wsi->role_ops->close_cb[lwsi_role_server(wsi)]) {
 		if (!wsi->upgraded_to_http2 || !lwsi_role_client(wsi))
@@ -1017,8 +1023,7 @@ just_kill_connection:
 		ccb = 0;
 
 #if defined(LWS_WITH_CLIENT)
-	if (!wsi->close_is_redirect && !ccb &&
-	    (lwsi_state_PRE_CLOSE(wsi) & LWSIFS_NOT_EST) &&
+	if (!wsi->close_is_redirect && !ccb && !est_at_entry &&
 			lwsi_role_client(wsi)) {
 		lws_inform_client_conn_fail(wsi, "Closed before conn", 18);
 	}
@@ -1231,7 +1236,6 @@ __lws_close_free_wsi_final(struct lws *wsi)
 		wsi->socket_is_permanently_unusable = 1;
 #endif
 
-		wsi->wsistate_pre_close = 0;
 
 #if defined(LWS_WITH_HTTP2)
 		if (wsi->client_mux_substream_was)

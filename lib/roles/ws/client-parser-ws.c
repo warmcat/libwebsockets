@@ -678,7 +678,7 @@ spill:
 			__lws_change_pollfd(wsi, LWS_POLLIN, 0);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 3);
 			wsi->close_needs_ack = 0;
-			lwsi_set_state(wsi, LRS_WAITING_TO_SEND_CLOSE);
+			lwsi_set_close(wsi, LCS_WAITING_TO_SEND_CLOSE);
 			lws_callback_on_writable(wsi);
 			handled = 1;
 			break;

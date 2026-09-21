@@ -97,7 +97,7 @@ rops_handle_POLLIN_mqtt(struct lws_context_per_thread *pt, struct lws *wsi,
 		}
 		if (hr) {
 			if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
-				lwsi_set_state(wsi, LRS_FLUSHING_BEFORE_CLOSE);
+				lwsi_set_close(wsi, LCS_FLUSHING_BEFORE_CLOSE);
 
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}

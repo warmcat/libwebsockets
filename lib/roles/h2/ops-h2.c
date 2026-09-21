@@ -188,7 +188,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 		}
 		if (hr) {
 			if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
-				lwsi_set_state(wsi, LRS_FLUSHING_BEFORE_CLOSE);
+				lwsi_set_close(wsi, LCS_FLUSHING_BEFORE_CLOSE);
 			/* the write failed... it's had it */
 			wsi->socket_is_permanently_unusable = 1;
 
@@ -946,7 +946,7 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 			 * reset would have closed them from
 			 */
 			if (nwsi && lwsi_role_client(nwsi) &&
-			    !nwsi->wsistate_pre_close &&
+			    !lwsi_close_started(nwsi) &&
 			    !nwsi->socket_is_permanently_unusable &&
 			    !lws_dll2_is_empty(&nwsi->dll2_cli_txn_queue_owner) &&
 			    !nwsi->a.context->being_destroyed)
@@ -1753,7 +1753,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			if (n >= 0) {
 				if (w->close_needs_ack) {
 					/* we initiated it, wait for his ack */
-					lwsi_set_state(w, LRS_AWAITING_CLOSE_ACK);
+					lwsi_set_close(w, LCS_AWAITING_CLOSE_ACK);
 					lws_set_timeout(w, PENDING_TIMEOUT_CLOSE_ACK,
 							5);
 					lwsl_debug("sent close frame, awaiting ack\n");
@@ -1765,7 +1765,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				 * the ack and we are done, the same as the
 				 * plain-socket path in rops_handle_POLLOUT_ws()
 				 */
-				lwsi_set_state(w, LRS_RETURNED_CLOSE);
+				lwsi_set_close(w, LCS_RETURNED_CLOSE);
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "returned close packet");
 			}
@@ -1814,7 +1814,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				/* oh... a close frame... then we are done */
 				lwsl_debug("Ack'd peer's close packet\n");
 				w->ws->payload_is_close = 0;
-				lwsi_set_state(w, LRS_RETURNED_CLOSE);
+				lwsi_set_close(w, LCS_RETURNED_CLOSE);
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "returned close packet");
 				continue;
