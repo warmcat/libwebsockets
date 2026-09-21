@@ -1856,7 +1856,9 @@ void lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi,
 	wsi->mux.my_sid = sid;
 	wsi->mux.parent_wsi = parent_wsi;
 	if (!wsi->role_ops)
-		wsi->role_ops = parent_wsi->role_ops;
+		lws_role_transition(wsi, (enum lwsi_role)lwsi_role(wsi),
+				    lwsi_state(wsi),
+				    parent_wsi->role_ops);
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	if (parent_wsi->peer && !wsi->peer) {
