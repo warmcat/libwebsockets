@@ -83,7 +83,6 @@ open_serial_port(const char *filepath)
 	memset(&tio, 0, sizeof tio);
 	if (tcgetattr(fd, &tio)) {
 		close(fd);
-		fd = -1;
 		return -1;
 	}
 
