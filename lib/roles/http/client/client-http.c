@@ -342,19 +342,6 @@ hs2:
 		lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
 		wsi->hdr_parsing_completed = 0;
 
-		if (lwsi_state(wsi) == LRS_IDLING) {
-			lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
-			wsi->hdr_parsing_completed = 0;
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
-			wsi->http.ah->parser_state = WSI_TOKEN_NAME_PART;
-			wsi->http.ah->lextable_pos = 0;
-			wsi->http.ah->unk_pos = 0;
-			/* If we're (re)starting on hdr, need other implied init */
-			wsi->http.ah->ues = URIES_IDLE;
-			lws_header_table_rx_snapshot(wsi);
-#endif
-		}
-
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 				(int)wsi->a.context->timeout_secs);
 
