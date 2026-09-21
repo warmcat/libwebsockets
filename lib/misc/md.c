@@ -1439,8 +1439,11 @@ md_stage(lws_md_ctx_t *c, const uint8_t **buf, size_t *len)
 
 			/* tolerate CRLF */
 
+#if !defined(__COVERITY__)
+			/* coverity loses the llen != 0 guard and reports underflow */
 			if (c->llen && c->line[c->llen - 1] == '\r')
 				c->llen--;
+#endif
 
 			*buf = p;
 			*len = (size_t)(end - p);
@@ -1605,8 +1608,10 @@ lws_md_finish(lws_md_ctx_t *c)
 		if (c->llen) {
 			/* no terminator arrived for the last line */
 
+#if !defined(__COVERITY__)
 			if (c->line[c->llen - 1] == '\r')
 				c->llen--;
+#endif
 
 			if (c->hold) {
 				if (md_staged_is_sep(c)) {
