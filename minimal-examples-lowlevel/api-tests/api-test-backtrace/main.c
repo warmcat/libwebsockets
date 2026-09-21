@@ -32,7 +32,7 @@ int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *context;
+	struct lws_context *context = NULL;
 	const char *p;
 	int result = 1, n;
 	uint8_t ib[2048], ob[1536], *eib = ib;
@@ -134,7 +134,7 @@ main(int argc, const char **argv)
 
 	lwsl_hexdump_notice(ob, (size_t)n);
 
-	san = (ob[n - 2] << 8) | ob[n - 1];
+	san = (uint16_t)((ob[n - 2] << 8) | ob[n - 1]);
 	if (san != (unsigned int)n) {
 		lwsl_err("%s: compressed length wrong\n", __func__);
 		goto bail;
