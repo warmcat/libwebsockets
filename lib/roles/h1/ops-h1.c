@@ -497,8 +497,7 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	struct lws_tokens ebuf;
 	int n, buffered;
 
-	if (lwsi_state(wsi) == LRS_TXN_COMPLETED ||
-	    wsi->http.deferred_transaction_completed)
+	if (lwsi_state(wsi) == LRS_TXN_COMPLETED || lwsi_txn_completing(wsi))
 		goto try_pollout;
 
 	/* any incoming data ready? */
@@ -823,8 +822,8 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		if (!wsi->http.comp_ctx.buflist_comp &&
 		    !wsi->http.comp_ctx.may_have_more &&
-		    wsi->http.deferred_transaction_completed) {
-			wsi->http.deferred_transaction_completed = 0;
+		    lwsi_txn_completing(wsi)) {
+			lwsi_set_txn_completing(wsi, 0);
 			if (lws_http_transaction_completed(wsi))
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}

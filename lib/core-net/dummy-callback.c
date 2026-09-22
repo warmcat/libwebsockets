@@ -824,7 +824,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				return -1;
 		}
 #endif
-		if (wsi->http.deferred_transaction_completed) {
+		if (lwsi_txn_completing(wsi)) {
 			unsigned char fin[LWS_PRE + 1];
 
 			/*

@@ -109,6 +109,7 @@ void
 lws_wsi_state_fmt(const struct lws_role_ops *ops, lws_wsi_state_t s,
 		  char *buf, size_t len)
 {
+	lws_wsi_state_t w = s;
 	unsigned int i;
 
 	s = lws_wsi_state_of(s);
@@ -125,9 +126,10 @@ lws_wsi_state_fmt(const struct lws_role_ops *ops, lws_wsi_state_t s,
 		name = tmp;
 	}
 
-	lws_snprintf(buf, len, "%s/%c%s:%s", ops ? ops->name : "(none)",
+	lws_snprintf(buf, len, "%s/%c%s:%s%s", ops ? ops->name : "(none)",
 		     (s & LWSIFR_CLIENT) ? 'C' : ((s & LWSIFR_SERVER) ? 'S' : '-'),
-		     (s & LWSI_ROLE_ENCAP_MASK) ? "e" : "", name);
+		     (s & LWSI_ROLE_ENCAP_MASK) ? "e" : "", name,
+		     (w & LWSIFS_TXN_COMPLETING) ? "+completing" : "");
 }
 
 #if defined(LWS_WITH_STATE_TRACE)
@@ -634,14 +636,19 @@ lws_wsi_state_changed(struct lws *wsi, const struct lws_role_ops *from_ops,
 		      lws_wsi_state_t from, const struct lws_role_ops *to_ops,
 		      lws_wsi_state_t to, const char *how)
 {
-	if (lws_wsi_state_of(from) == lws_wsi_state_of(to) &&
-	    from_ops == to_ops)
+	int attr_only = lws_wsi_state_of(from) == lws_wsi_state_of(to) &&
+			from_ops == to_ops;
+
+	if (attr_only && (from & LWSIFS_TXN_COMPLETING) ==
+			 (to & LWSIFS_TXN_COMPLETING))
 		return;
 
 #if defined(LWS_WITH_STATE_TRACE)
 	lws_wsi_state_trace(wsi, from_ops, from, to_ops, to, how);
 #endif
 #if defined(LWS_WITH_STATE_CHECK)
-	lws_wsi_state_check(wsi, from_ops, from, to_ops, to, how);
+	/* only the completing attribute changed: no edge to check */
+	if (!attr_only)
+		lws_wsi_state_check(wsi, from_ops, from, to_ops, to, how);
 #endif
 }

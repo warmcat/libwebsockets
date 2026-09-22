@@ -3693,7 +3693,7 @@ lws_http_transaction_completed(struct lws *wsi)
 		 */
 		lwsl_debug("%s: %s: deferring due to partial\n", __func__,
 				lws_wsi_tag(wsi));
-		wsi->http.deferred_transaction_completed = 1;
+		lwsi_set_txn_completing(wsi, 1);
 		lws_callback_on_writable(wsi);
 
 		return 0;

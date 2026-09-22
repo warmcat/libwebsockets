@@ -98,6 +98,18 @@ void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role);
 #define LWSIFS_POCB		(0x100)
 /* Before any protocol connection was established */
 #define LWSIFS_NOT_EST		(0x200)
+/*
+ * Attribute of the live transaction state, not a state of its own: the user
+ * completed the transaction while a partial of the response was still
+ * queued, so the completion is deferred until the tx drains (bit 10, outside
+ * LRS_MASK)
+ */
+#define LWSIFS_TXN_COMPLETING	(0x400u)
+
+#define lwsi_txn_completing(wsi) (!!(wsi->wsistate & LWSIFS_TXN_COMPLETING))
+
+void
+lwsi_set_txn_completing(struct lws *wsi, int on);
 
 enum lwsi_state {
 

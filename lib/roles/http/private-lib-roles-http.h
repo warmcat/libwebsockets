@@ -358,7 +358,6 @@ struct _lws_http_mode_related {
 	uint32_t h3_base;
 	uint32_t h3_req_ric;
 #endif
-	unsigned int deferred_transaction_completed:1;
 	unsigned int method_head:1;
 	/**< the request being served is a HEAD, ie, its response must consist
 	 * of the headers alone.  Snapshotted from the method token at dispatch

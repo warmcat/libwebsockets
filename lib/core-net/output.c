@@ -156,10 +156,10 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 #if defined(LWS_WITH_SERVER)
-			if (wsi->http.deferred_transaction_completed) {
+			if (lwsi_txn_completing(wsi)) {
 				lwsl_wsi_notice(wsi, "partial completed, doing "
 					    "deferred transaction completed");
-				wsi->http.deferred_transaction_completed = 0;
+				lwsi_set_txn_completing(wsi, 0);
 				return lws_http_transaction_completed(wsi) ?
 							-1 : (int)real_len;
 			}

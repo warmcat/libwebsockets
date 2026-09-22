@@ -287,9 +287,9 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 	}
 
 #if defined(LWS_WITH_SERVER)
-	if (wsi->http.deferred_transaction_completed) {
+	if (lwsi_txn_completing(wsi)) {
 		if (!lws_has_buffered_out(wsi)) {
-			wsi->http.deferred_transaction_completed = 0;
+			lwsi_set_txn_completing(wsi, 0);
 			if (lws_http_transaction_completed(wsi)) {
 				wsi->socket_is_permanently_unusable = 1;
 				return -1;
