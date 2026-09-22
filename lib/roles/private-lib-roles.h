@@ -498,6 +498,7 @@ extern const char * const lws_wsi_event_names[LWS_WSIEV_COUNT];
  * changes them), or -1 leaving it (a bug here).  ops is the role a row with
  * to_role "?" takes; like is the wsi a row with to_side "L" takes the side of.
  */
+struct lws_role_ops;
 int
 lws_wsi_event_x(struct lws *wsi, enum lws_wsi_event ev,
 		const struct lws_role_ops *ops, struct lws *like);
