@@ -1448,8 +1448,7 @@ cmd_completion:
 
 				w->mux_substream = 1;
 				w->client_mux_substream = 1;
-				wsi->client_mux_migrated = 1;
-				wsi->told_user_closed = 1; /* don't tell nwsi closed */
+				wsi->client_mux_migrated = 1; /* and no CLOSED for the nwsi */
 
 				/*
 				 * He came from lws_create_new_server_wsi(), so

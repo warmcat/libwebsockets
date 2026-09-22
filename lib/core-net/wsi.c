@@ -48,6 +48,7 @@ const enum lwsi_state lws_lrs_of_close[8] = {
 	[LCS_FLUSHING_BEFORE_CLOSE]	= LRS_FLUSHING_BEFORE_CLOSE,
 	[LCS_SHUTDOWN]			= LRS_SHUTDOWN,
 	[LCS_DEAD_SOCKET]		= LRS_DEAD_SOCKET,
+	[LCS_USER_TOLD]			= LRS_DEAD_SOCKET,
 };
 
 const enum lwsi_state lws_lrs_of_transport[16] = {
@@ -62,6 +63,7 @@ const enum lwsi_state lws_lrs_of_transport[16] = {
 	[LTS_SSL_INIT]				= LRS_SSL_INIT,
 	[LTS_SSL_ACK_PENDING]			= LRS_SSL_ACK_PENDING,
 	[LTS_AWAITING_SSL_ACCEPT]		= LRS_AWAITING_SSL_ACCEPT,
+	[LTS_FAILED]				= LRS_UNCONNECTED,
 };
 
 /* the transport phase an LRS_ constant stands for, or LTS_NONE */
@@ -1816,7 +1818,8 @@ idle:
 	 * him, so have him die next time around the event loop, not now.
 	 */
 
-	wsi->already_did_cce = 1; /* so the close doesn't trigger a CCE */
+	/* waive the connection error report, so the close doesn't make one */
+	lwsi_set_transport(wsi, LTS_FAILED);
 	lws_set_timeout(wsi, 1, LWS_TO_KILL_ASYNC);
 
 	/* after the first one, they can only be coming from the queue */

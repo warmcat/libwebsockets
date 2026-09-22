@@ -126,9 +126,13 @@ lws_wsi_state_fmt(const struct lws_role_ops *ops, lws_wsi_state_t s,
 		name = tmp;
 	}
 
-	lws_snprintf(buf, len, "%s/%c%s:%s%s%s", ops ? ops->name : "(none)",
+	lws_snprintf(buf, len, "%s/%c%s:%s%s%s%s%s", ops ? ops->name : "(none)",
 		     (s & LWSIFR_CLIENT) ? 'C' : ((s & LWSIFR_SERVER) ? 'S' : '-'),
 		     (s & LWSI_ROLE_ENCAP_MASK) ? "e" : "", name,
+		     ((w & LWSI_TRANSPORT_MASK) >> LWSI_TRANSPORT_SHIFT) ==
+						LTS_FAILED ? "+failed" : "",
+		     ((w & LWSI_CLOSE_MASK) >> LWSI_CLOSE_SHIFT) ==
+						LCS_USER_TOLD ? "+told" : "",
 		     (w & LWSIFS_TXN_COMPLETING) ? "+completing" : "",
 		     (w & LWSIFS_SKT_UNUSABLE) ? "+unusable" : "");
 }
@@ -617,8 +621,12 @@ lws_wsi_state_check(struct lws *wsi, const struct lws_role_ops *from_ops,
 	 * and lwsi_set_role() edges in the role table, even when the ops or
 	 * side turn out unchanged, since the tables were derived that way
 	 */
-	if (!strcmp(how, "set_state") || !strcmp(how, "set_close") ||
-	    !strcmp(how, "set_transport"))
+	if (!strcmp(how, "set_transport") &&
+	    ((to & LWSI_TRANSPORT_MASK) >> LWSI_TRANSPORT_SHIFT) == LTS_FAILED)
+		/* a connect can be reported failed from any phase */
+		ok = 1;
+	else if (!strcmp(how, "set_state") || !strcmp(how, "set_close") ||
+		 !strcmp(how, "set_transport"))
 		ok = lws_state_edge_allowed(to_ops, from, to);
 	else
 		ok = lws_role_edge_allowed(from_ops, from, to_ops, to);
@@ -653,7 +661,12 @@ lws_wsi_state_changed(struct lws *wsi, const struct lws_role_ops *from_ops,
 	int attr_only = lws_wsi_state_of(from) == lws_wsi_state_of(to) &&
 			from_ops == to_ops;
 
-	if (attr_only && !((from ^ to) & LWSIFS_ATTR_MASK))
+	/*
+	 * the terminal sub-phases FAILED and USER_TOLD report the same state
+	 * as what they follow, so they show in the trace as attributes
+	 */
+	if (attr_only && !((from ^ to) & (LWSIFS_ATTR_MASK | LWSI_CLOSE_MASK |
+					   LWSI_TRANSPORT_MASK)))
 		return;
 
 #if defined(LWS_WITH_STATE_TRACE)

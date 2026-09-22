@@ -23,6 +23,25 @@
  */
 
 #include "private-lib-core.h"
+
+/*
+ * The user has already had the last word on this connection, or waived it:
+ * CLOSED was delivered, or this is the network wsi of a migrated mqtt client
+ * mux, whose sessions belong to its child streams (h2 says the same with
+ * upgraded_to_http2 further down).
+ */
+static int
+lws_wsi_close_cb_waived(struct lws *wsi)
+{
+	if (lwsi_close(wsi) == LCS_USER_TOLD)
+		return 1;
+#if defined(LWS_ROLE_MQTT)
+	if (lwsi_role_mqtt(wsi) && wsi->client_mux_migrated &&
+	    lwsi_role_client(wsi))
+		return 1;
+#endif
+	return 0;
+}
 #include "private-lib-async-dns.h"
 
 #if defined(LWS_WITH_CLIENT)
@@ -230,7 +249,6 @@ __lws_reset_wsi(struct lws *wsi)
 	wsi->upgraded_to_http2 = wsi->mux_stream_immortal =
 	wsi->h2_acked_settings = wsi->seen_nonpseudoheader =
 	wsi->favoured_pollin =
-	wsi->already_did_cce = wsi->told_user_closed =
 	wsi->parent_pending_cb_on_writable = wsi->seen_zero_length_recv =
 	wsi->close_when_buffered_out_drained = wsi->could_have_pending = 0;
 #endif
@@ -362,7 +380,7 @@ lws_remove_child_from_any_parent(struct lws *wsi)
 void
 lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 {
-	if (wsi->already_did_cce)
+	if (lwsi_transport(wsi) == LTS_FAILED)
 		return;
 
 #if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
@@ -456,7 +474,7 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 
 	lws_addrinfo_clean(wsi);
 
-	wsi->already_did_cce = 1;
+	lwsi_set_transport(wsi, LTS_FAILED);
 
 	if (!wsi->a.protocol || (wsi->a.context && wsi->a.context->being_destroyed))
 		return;
@@ -540,7 +558,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 
 	lwsl_wsi_info(wsi, "caller: %s", caller);
 
-	if (lwsi_close(wsi) == LCS_DEAD_SOCKET)
+	if (lwsi_close(wsi) >= LCS_DEAD_SOCKET)
 		/*
 		 * We are already in the middle of closing him in an outer
 		 * stack frame (eg, we were re-entered from one of his own
@@ -710,7 +728,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		lws_vfs_file_close(&wsi->http.fop_fd);
 #endif
 
-	if (lwsi_close(wsi) == LCS_DEAD_SOCKET)
+	if (lwsi_close(wsi) >= LCS_DEAD_SOCKET)
 		return;
 
 	if (lwsi_skt_unusable(wsi) ||
@@ -758,7 +776,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	    lwsi_state(wsi) == LRS_H1C_ISSUE_HANDSHAKE)
 		goto just_kill_connection;
 
-	if (!wsi->told_user_closed && wsi->user_space && wsi->a.protocol &&
+	if (!lws_wsi_close_cb_waived(wsi) && wsi->user_space && wsi->a.protocol &&
 	    wsi->protocol_bind_balance) {
 		wsi->a.protocol->callback(wsi,
 				wsi->role_ops->protocol_unbind_cb[
@@ -836,7 +854,7 @@ just_kill_connection:
 
 	n = 0;
 
-	if (!wsi->told_user_closed && wsi->user_space &&
+	if (!lws_wsi_close_cb_waived(wsi) && wsi->user_space &&
 	    wsi->protocol_bind_balance && wsi->a.protocol) {
 		lwsl_debug("%s: %s: DROP_PROTOCOL %s\n", __func__, lws_wsi_tag(wsi),
 			   wsi->a.protocol ? wsi->a.protocol->name: "NULL");
@@ -861,7 +879,7 @@ just_kill_connection:
 	     lwsi_transport(wsi) == LTS_WAITING_DNS ||
 	     lwsi_transport(wsi) == LTS_WAITING_CONNECT ||
 	     (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED)) &&
-	     !wsi->already_did_cce && wsi->a.protocol &&
+	     lwsi_transport(wsi) != LTS_FAILED && wsi->a.protocol &&
 	     !wsi->close_is_redirect) {
 		static const char _reason[] = "closed before established";
 
@@ -991,7 +1009,7 @@ just_kill_connection:
 	    /* raw skt adopted but didn't complete tls hs should CLOSE */
 	    (wsi->role_ops == &role_ops_raw_skt && !lwsi_role_client(wsi)) ||
 	     lwsi_state_live(wsi) == LRS_WAITING_SERVER_REPLY) &&
-	    !wsi->told_user_closed &&
+	    !lws_wsi_close_cb_waived(wsi) &&
 	    wsi->role_ops->close_cb[lwsi_role_server(wsi)]) {
 		if (!wsi->upgraded_to_http2 || !lwsi_role_client(wsi))
 			ccb = 1;
@@ -1004,7 +1022,7 @@ just_kill_connection:
 			 */
 	}
 
-	if (!wsi->told_user_closed &&
+	if (!lws_wsi_close_cb_waived(wsi) &&
 	    !lws_dll2_is_detached(&wsi->vh_awaiting_socket))
 		/*
 		 * He's a guy who go started with dns, but failed or is
@@ -1017,7 +1035,7 @@ just_kill_connection:
 
 	pro = wsi->a.protocol;
 
-	if (wsi->already_did_cce)
+	if (lwsi_transport(wsi) == LTS_FAILED)
 		/*
 		 * If we handled this by CLIENT_CONNECTION_ERROR, it's
 		 * mutually exclusive with CLOSE
@@ -1043,7 +1061,7 @@ just_kill_connection:
 			pro->callback(wsi,
 				wsi->role_ops->close_cb[lwsi_role_server(wsi)],
 				wsi->user_space, NULL, 0);
-		wsi->told_user_closed = 1;
+		lwsi_set_close(wsi, LCS_USER_TOLD);
 	}
 
 #if defined(LWS_ROLE_RAW_FILE)

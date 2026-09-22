@@ -878,7 +878,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 
 #if defined(LWS_WITH_CLIENT)
 	if ((pollfd->revents & LWS_POLLIN) &&
-	     !lwsi_hdrs_pending(wsi) && !wsi->told_user_closed) {
+	     !lwsi_hdrs_pending(wsi) && lwsi_close(wsi) != LCS_USER_TOLD) {
 
 		/*
 		 * In SSL mode we get POLLIN notification about

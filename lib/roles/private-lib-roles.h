@@ -246,7 +246,15 @@ enum lws_transport_phase {
 	LTS_WAITING_SOCKS_AUTH_REPLY,
 	LTS_SSL_INIT,			/* server: tls accept not started */
 	LTS_SSL_ACK_PENDING,		/* server: tls accept in progress */
-	LTS_AWAITING_SSL_ACCEPT		/* server: tls accept on a worker */
+	LTS_AWAITING_SSL_ACCEPT,	/* server: tls accept on a worker */
+	/*
+	 * client: the connect failed and the user has been told so with
+	 * CLIENT_CONNECTION_ERROR (or that report was deliberately waived);
+	 * the close that follows must not report it again, and it is not
+	 * CLOSED either.  Terminal until the redirect / fallback restart
+	 * clears it with the rest of the transport bits.
+	 */
+	LTS_FAILED
 };
 
 #define LWSI_TRANSPORT_SHIFT	16
@@ -309,7 +317,8 @@ enum lws_close_phase {
 	LCS_AWAITING_CLOSE_ACK,		/* ws: we sent CLOSE, waiting for his */
 	LCS_FLUSHING_BEFORE_CLOSE,	/* draining buffered tx, then close */
 	LCS_SHUTDOWN,			/* half-closed, waiting for his FIN */
-	LCS_DEAD_SOCKET			/* out of the fd table, being freed */
+	LCS_DEAD_SOCKET,		/* out of the fd table, being freed */
+	LCS_USER_TOLD			/* dead, and the user has had CLOSED */
 };
 
 #define LWSI_CLOSE_SHIFT	12
