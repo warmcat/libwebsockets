@@ -1040,7 +1040,7 @@ str_val:
 		 *
 		 * We must not return LCBA_CONTINUE here: the caller takes that
 		 * to mean we went through lws_client_reset(), ie, that the wsi
-		 * is marked close_is_redirect and so survives the
+		 * is in LTS_RESTARTING and so survives the
 		 * lws_close_free_wsi() it does next.  Without the reset the
 		 * wsi is really freed there and touching it afterwards is a
 		 * use-after-free.
@@ -1053,7 +1053,7 @@ str_val:
 
 	/*
 	 * We only get here having successfully done lws_client_reset(), so
-	 * wsi->close_is_redirect is set and the caller's close leaves the wsi
+	 * the wsi is in LTS_RESTARTING and the caller's close leaves it
 	 * extant for the retry
 	 */
 
@@ -1538,7 +1538,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * We are redirecting, let's close in order to extricate
 		 * ourselves from the current wsi usage, eg, h2 mux cleanly.
 		 *
-		 * We will notice close_is_redirect and switch to redirect
+		 * We will notice LTS_RESTARTING and switch to redirect
 		 * flow late in the close action.
 		 */
 
@@ -2738,10 +2738,11 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		wsi->redirected_to_get = 1;
 
 	/*
-	 * Will complete at close flow
+	 * Will complete at close flow: the close sees the restarting phase and
+	 * hands the wsi back to the connect path instead of freeing it
 	 */
 
-	wsi->close_is_redirect = 1;
+	lwsi_set_transport(wsi, LTS_RESTARTING);
 
 	return *pwsi;
 }

@@ -1114,7 +1114,6 @@ struct lws {
 	 * this activity, and will report the failure */
 	unsigned int			tls_session_reused:1;
 	unsigned int			perf_done:1;
-	unsigned int			close_is_redirect:1;
 	unsigned int			client_mux_substream_was:1;
 #endif
 

@@ -64,6 +64,7 @@ const enum lwsi_state lws_lrs_of_transport[16] = {
 	[LTS_SSL_ACK_PENDING]			= LRS_SSL_ACK_PENDING,
 	[LTS_AWAITING_SSL_ACCEPT]		= LRS_AWAITING_SSL_ACCEPT,
 	[LTS_FAILED]				= LRS_UNCONNECTED,
+	[LTS_RESTARTING]			= LRS_UNCONNECTED,
 };
 
 /* the transport phase an LRS_ constant stands for, or LTS_NONE */
@@ -185,6 +186,8 @@ void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs) {
 	assert((lrs & 0xff) < (LRS_WAITING_TO_SEND_CLOSE & 0xff) ||
 	       (lrs & 0xff) > (LRS_DEAD_SOCKET & 0xff));
 	assert(lws_lts_of_lrs(lrs) == LTS_NONE);
+	/* a wsi being retargeted has no live state until its restart */
+	assert(lwsi_transport(wsi) != LTS_RESTARTING);
 
 	/* setting any live state completes any transport phase */
 	w = old & ~LWSI_TRANSPORT_MASK;

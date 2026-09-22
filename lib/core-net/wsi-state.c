@@ -126,11 +126,13 @@ lws_wsi_state_fmt(const struct lws_role_ops *ops, lws_wsi_state_t s,
 		name = tmp;
 	}
 
-	lws_snprintf(buf, len, "%s/%c%s:%s%s%s%s%s", ops ? ops->name : "(none)",
+	lws_snprintf(buf, len, "%s/%c%s:%s%s%s%s%s%s", ops ? ops->name : "(none)",
 		     (s & LWSIFR_CLIENT) ? 'C' : ((s & LWSIFR_SERVER) ? 'S' : '-'),
 		     (s & LWSI_ROLE_ENCAP_MASK) ? "e" : "", name,
 		     ((w & LWSI_TRANSPORT_MASK) >> LWSI_TRANSPORT_SHIFT) ==
 						LTS_FAILED ? "+failed" : "",
+		     ((w & LWSI_TRANSPORT_MASK) >> LWSI_TRANSPORT_SHIFT) ==
+						LTS_RESTARTING ? "+restarting" : "",
 		     ((w & LWSI_CLOSE_MASK) >> LWSI_CLOSE_SHIFT) ==
 						LCS_USER_TOLD ? "+told" : "",
 		     (w & LWSIFS_TXN_COMPLETING) ? "+completing" : "",
@@ -588,6 +590,11 @@ lws_state_invariant(struct lws *wsi, lws_wsi_state_t to)
 			break;
 		}
 
+	if (((to & LWSI_TRANSPORT_MASK) >> LWSI_TRANSPORT_SHIFT) ==
+							LTS_RESTARTING &&
+	    !(to & LWSIFR_CLIENT))
+		return "RESTARTING on a non-client wsi";
+
 	switch (lws_wsi_state_of(to) & LRS_MASK) {
 	case LRS_RETURNED_CLOSE:
 		if (!lwsi_role_ws(wsi))
@@ -623,8 +630,12 @@ lws_wsi_state_check(struct lws *wsi, const struct lws_role_ops *from_ops,
 	 * side turn out unchanged, since the tables were derived that way
 	 */
 	if (!strcmp(how, "set_transport") &&
-	    ((to & LWSI_TRANSPORT_MASK) >> LWSI_TRANSPORT_SHIFT) == LTS_FAILED)
-		/* a connect can be reported failed from any phase */
+	    (((to & LWSI_TRANSPORT_MASK) >> LWSI_TRANSPORT_SHIFT) == LTS_FAILED ||
+	     ((to & LWSI_TRANSPORT_MASK) >> LWSI_TRANSPORT_SHIFT) == LTS_RESTARTING))
+		/*
+		 * a connect can be reported failed from any phase, and a client
+		 * can be retargeted (redirect, auth retry, fallback) from any
+		 */
 		ok = 1;
 	else if (!strcmp(how, "set_state") || !strcmp(how, "set_close") ||
 		 !strcmp(how, "set_transport"))

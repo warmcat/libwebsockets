@@ -254,7 +254,15 @@ enum lws_transport_phase {
 	 * CLOSED either.  Terminal until the redirect / fallback restart
 	 * clears it with the rest of the transport bits.
 	 */
-	LTS_FAILED
+	LTS_FAILED,
+	/*
+	 * client: lws_client_reset() has retargeted the wsi.  The close that
+	 * follows tears the connection down without telling the user
+	 * anything, keeps the stash, and instead of freeing the wsi restarts
+	 * it from UNCONNECTED on a new connection; that restart ends this
+	 * phase with the rest of the transport bits.
+	 */
+	LTS_RESTARTING
 };
 
 #define LWSI_TRANSPORT_SHIFT	16
@@ -264,6 +272,8 @@ extern const enum lwsi_state lws_lrs_of_transport[16];
 
 #define lwsi_transport(wsi) ((enum lws_transport_phase) \
 	((wsi->wsistate & LWSI_TRANSPORT_MASK) >> LWSI_TRANSPORT_SHIFT))
+/* the close flow hands the wsi back to the connect path instead of freeing it */
+#define lwsi_restarting(wsi) (lwsi_transport(wsi) == LTS_RESTARTING)
 
 void
 lwsi_set_transport(struct lws *wsi, enum lws_transport_phase phase);

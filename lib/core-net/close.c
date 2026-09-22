@@ -380,7 +380,8 @@ lws_remove_child_from_any_parent(struct lws *wsi)
 void
 lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 {
-	if (lwsi_transport(wsi) == LTS_FAILED)
+	/* already reported, or being retargeted: nothing to say */
+	if (lwsi_transport(wsi) >= LTS_FAILED)
 		return;
 
 #if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
@@ -710,7 +711,8 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #endif
 
 #if defined(LWS_WITH_CLIENT)
-	if (!wsi->close_is_redirect)
+	/* a restart needs the stash to reconnect from */
+	if (!lwsi_restarting(wsi))
 		lws_free_set_NULL(wsi->stash);
 #endif
 
@@ -879,15 +881,13 @@ just_kill_connection:
 	     lwsi_transport(wsi) == LTS_WAITING_DNS ||
 	     lwsi_transport(wsi) == LTS_WAITING_CONNECT ||
 	     (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED)) &&
-	     lwsi_transport(wsi) != LTS_FAILED && wsi->a.protocol &&
-	     !wsi->close_is_redirect) {
+	     lwsi_transport(wsi) < LTS_FAILED && wsi->a.protocol) {
 		static const char _reason[] = "closed before established";
 
 		lwsl_wsi_debug(wsi, "closing in unestablished state 0x%x "
-				"(fd %d, parallels %d, redirect %d)",
+				"(fd %d, parallels %d)",
 				lwsi_state(wsi),
-				(int)wsi->desc.sockfd, wsi->parallel_count,
-				wsi->close_is_redirect);
+				(int)wsi->desc.sockfd, wsi->parallel_count);
 		lwsi_set_skt_unusable(wsi, 1);
 
 		lws_inform_client_conn_fail(wsi,
@@ -949,10 +949,7 @@ just_kill_connection:
 		 */
 #if !defined(_WIN32_WCE) && !defined(LWS_PLAT_FREERTOS)
 		/* libuv: no event available to guarantee completion */
-		if (!lwsi_skt_unusable(wsi) &&
-#if defined(LWS_WITH_CLIENT)
-		    !wsi->close_is_redirect &&
-#endif
+		if (!lwsi_skt_unusable(wsi) && !lwsi_restarting(wsi) &&
 		    lws_socket_is_valid(wsi->desc.sockfd) &&
 		    lwsi_close(wsi) != LCS_SHUTDOWN &&
 		    (context->event_loop_ops->flags & LELOF_ISPOLL)) {
@@ -1043,16 +1040,11 @@ just_kill_connection:
 		ccb = 0;
 
 #if defined(LWS_WITH_CLIENT)
-	if (!wsi->close_is_redirect && !ccb && !est_at_entry &&
-			lwsi_role_client(wsi)) {
+	if (!ccb && !est_at_entry && lwsi_role_client(wsi))
+		/* it declines to say anything on a restart */
 		lws_inform_client_conn_fail(wsi, "Closed before conn", 18);
-	}
 #endif
-	if (ccb
-#if defined(LWS_WITH_CLIENT)
-			&& !wsi->close_is_redirect
-#endif
-	) {
+	if (ccb && !lwsi_restarting(wsi)) {
 
 		if (!wsi->a.protocol && wsi->a.vhost && wsi->a.vhost->protocols)
 			pro = &wsi->a.vhost->protocols[0];
@@ -1123,7 +1115,7 @@ async_close:
 				 * binding between the ss handle and the wsi
 				 * that is about to restart
 				 */
-				if (!wsi->close_is_redirect) {
+				if (!lwsi_restarting(wsi)) {
 					/*
 					 * Did the ss hear nothing about this
 					 * wsi dying?  Everything above only
@@ -1237,12 +1229,11 @@ __lws_close_free_wsi_final(struct lws *wsi)
 
 #if defined(LWS_WITH_CLIENT)
 	lws_free_set_NULL(wsi->cli_hostname_copy);
-	if (wsi->close_is_redirect) {
-
-		wsi->close_is_redirect = 0;
+	if (lwsi_restarting(wsi)) {
 
 		lwsl_wsi_info(wsi, "picking up redirection");
 
+		/* the restart ends the transport phase, with everything else */
 #if defined(LWS_ROLE_H1)
 		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
 				    &role_ops_h1);
