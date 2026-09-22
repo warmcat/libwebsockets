@@ -274,22 +274,17 @@ The events the sites reduce to, with the states they lead to today:
 |transaction completed|`TXN_COMPLETED`|(stream closes)|`IDLING`, or `H1C_ISSUE_HANDSHAKE2` with a pipelined next||
 |writable after completion, tx drained|`HEADERS`||||
 |request headers sent, body pending|||`ISSUE_HTTP_BODY`|`ISSUE_HTTP_BODY`|
-|request headers sent, no body|||`WAITING_SERVER_REPLY`|`WAITING_SERVER_REPLY` (h1-style) or `ESTABLISHED`|
+|request headers sent, no body|||`WAITING_SERVER_REPLY`|`WAITING_SERVER_REPLY`|
 |request body sent|||`WAITING_SERVER_REPLY`|`WAITING_SERVER_REPLY`|
 |response headers complete|||`ESTABLISHED` (role may change to ws)|`ESTABLISHED` (or ws encapsulated)|
 |1xx interim response|||`WAITING_SERVER_REPLY`||
 |auth challenge, retrying|||`H1C_ISSUE_HANDSHAKE2`||
 |stream born||`HEADERS`||`ESTABLISHED` then `H2_WAITING_TO_SEND_HEADERS`|
 
-Two irregularities stand out in that table and are the candidates to fix
-before the sites are converted:
-
-1. A client mux stream is born `ESTABLISHED` and an idle mux connection is
-   revived to `ESTABLISHED`, while on the h1 client `ESTABLISHED` means a
-   response is in flight and "nothing in flight" is `IDLING`.  The server
-   side had the same ambiguity until `HEADERS` was made the server's idle
-   state; the client needs the same split so that `ESTABLISHED` means one
-   thing on both sides.
-2. "request headers sent, no body" leaves an h2 client stream in
-   `ESTABLISHED` where h1 and h3 go to `WAITING_SERVER_REPLY`; the response
-   headers then arrive on a stream that already reads as established.
+One irregularity stands out in that table and is the candidate to fix
+before the sites are converted: a client mux stream is born `ESTABLISHED`
+and an idle mux connection is revived to `ESTABLISHED`, while on the h1
+client `ESTABLISHED` means a response is in flight and "nothing in flight"
+is `IDLING`.  The server side had the same ambiguity until `HEADERS` was
+made the server's idle state; the client needs the same split so that
+`ESTABLISHED` means one thing on both sides.

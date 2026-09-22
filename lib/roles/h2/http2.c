@@ -3580,7 +3580,6 @@ lws_h2_client_handshake(struct lws *wsi)
 		return 1;
 
 	lws_h2_state(wsi, LWS_H2_STATE_OPEN);
-	lwsi_set_state(wsi, LRS_ESTABLISHED);
 
 	if (wsi->mux.my_sid == 1) {
 		lws_start_foreach_dll(struct lws_dll2 *, d,
@@ -3618,7 +3617,21 @@ lws_h2_client_handshake(struct lws *wsi)
 		lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
 				(int)wsi->a.context->timeout_secs);
 		lws_callback_on_writable(wsi);
+
+		return 0;
 	}
+
+	/*
+	 * Bodyless request: the headers went with END_STREAM and the response
+	 * is pending, which is LRS_WAITING_SERVER_REPLY on the h1 and h3
+	 * clients too.  Staying in LRS_ESTABLISHED here read as "response in
+	 * flight" before there was one, and a stream whose reply never came
+	 * had no timeout at all.  lws_client_interpret_server_handshake()
+	 * clears the timeout and moves to LRS_ESTABLISHED on the response.
+	 */
+	lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
+	lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
+			(int)wsi->a.context->timeout_secs);
 
 	return 0;
 
