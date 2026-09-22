@@ -1264,6 +1264,12 @@ __lws_close_free_wsi_final(struct lws *wsi)
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_H3)
 		if (wsi->mux.parent_wsi)
 			lws_wsi_mux_sibling_disconnect(wsi);
+		/*
+		 * The stream id belonged to the connection we just left.  If
+		 * the restart rejoins an existing h2 connection it must open
+		 * a new stream there, not reuse the one the server has closed
+		 */
+		wsi->mux.my_sid = 0;
 #endif
 
 #if defined(LWS_WITH_TLS)
