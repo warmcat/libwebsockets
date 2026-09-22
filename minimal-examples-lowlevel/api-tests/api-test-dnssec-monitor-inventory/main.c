@@ -266,10 +266,14 @@ t_cb(struct lejp_ctx *ctx, char reason)
 	return 0;
 }
 
-/* fetch every page of the inventory into ti; returns 0 if it worked */
+/* fetch every page of the inventory into ti; returns 0 if it worked.
+ * The detected-address hints model what the UI passes when the external
+ * IP determination has produced addresses; NULL hints model it not having
+ * (yet), where dynamic records must still group on the macro text itself.
+ */
 
 static int
-t_fetch(struct vhd *vhd)
+t_fetch_hints(struct vhd *vhd, const char *ip4, const char *ip6)
 {
 	struct monitor_req_args a;
 	int cursor = 0, pages = 0;
@@ -285,13 +289,10 @@ t_fetch(struct vhd *vhd)
 		memset(&a, 0, sizeof(a));
 		lws_strncpy(a.req, "get_ip_inventory", sizeof(a.req));
 		a.cursor = cursor;
-
-		/*
-		 * the DHT-detected addresses for the dynamic-address
-		 * records, as the UI passes them
-		 */
-		lws_strncpy(a.ip4, "203.0.113.7", sizeof(a.ip4));
-		lws_strncpy(a.ip6, "2001:db8:ffff::1", sizeof(a.ip6));
+		if (ip4)
+			lws_strncpy(a.ip4, ip4, sizeof(a.ip4));
+		if (ip6)
+			lws_strncpy(a.ip6, ip6, sizeof(a.ip6));
 
 		handle_req_get_ip_inventory(vhd, &pss, &a);
 
@@ -327,6 +328,16 @@ t_fetch(struct vhd *vhd)
 	} while (ti.more && pages < 500);
 
 	return ti.more ? 1 : 0;
+}
+
+static int
+t_fetch(struct vhd *vhd)
+{
+	/*
+	 * the DHT-detected addresses for the dynamic-address
+	 * records, as the UI passes them
+	 */
+	return t_fetch_hints(vhd, "203.0.113.7", "2001:db8:ffff::1");
 }
 
 /* find the interface carrying the given address */
@@ -416,10 +427,9 @@ static const char *z_example =
 	"www IN AAAA 2001:db8::1\n"
 	"mail IN A 192.0.2.9\n"
 	"@ IN A ${MHWC_DYNAMIC}\n"
-	"@ IN AAAA ${MHWC6_DYNAMIC}\n"
+	"@ 600 IN AAAA ${MHWC6_DYNAMIC}\n"
 	"dyn IN A ${MHWC_DYNAMIC}\n"
-	"dyn IN AAAA ${MHWC6_DYNAMIC}\n"
-	"dyn2 IN A ${MHWC_DYNAMIC}\n"
+	"dyn2	300	IN	A	${MHWC_DYNAMIC}\n"
 	"lonely IN LOC 1 2 3 N 4 5 6 E 10m\n"
 	"@ IN TXT \"v=spf1 -all\"\n";
 
@@ -560,6 +570,33 @@ int main(void)
 	fails += t_expect(f && f->geo.set && !strcmp(f->geo.src, "est") &&
 			  !strcmp(f->geo.cc, "CH"),
 			  "dynamic interface estimated via its v6 address");
+
+	/*
+	 * Without detected addresses (the external IP determination has not
+	 * produced any yet), the dynamic records must still group the same
+	 * names into an interface, standing in on the macro text itself
+	 */
+
+	if (t_fetch_hints(&vhd, NULL, NULL)) {
+		lwsl_err("%s: hintless fetch failed\n", __func__);
+
+		return 1;
+	}
+
+	fails += t_expect(ti.nif == 4, "four interfaces without hints");
+
+	f = t_find_ip(&ti, "${MHWC_DYNAMIC}");
+	fails += t_expect(!!f, "dynamic v4 groups on the macro text");
+	if (f) {
+		fails += t_expect(f->nips == 2 &&
+				  t_find_ip(&ti, "${MHWC6_DYNAMIC}") == f,
+				  "both macro families are one interface");
+		fails += t_expect(f->nnames == 3 &&
+				  !!t_find_name(f, "dyn.example.com.") &&
+				  !!t_find_name(f, "dyn2.example.com.") &&
+				  !!t_find_name(f, "example.com."),
+				  "apex and dynamic names still listed");
+	}
 
 	/* no interface for the addressless NS target or the LOC-only name */
 	for (n = 0; n < ti.nif; n++) {
