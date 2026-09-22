@@ -60,7 +60,12 @@ lws_raw_skt_connect(struct lws *wsi)
 	}
 #endif
 
-	if (!wsi->hdr_parsing_completed) {
+	/*
+	 * The POLLOUT path runs the generic connect completion first, which
+	 * already delivered the adoption callback and set ESTABLISHED, so the
+	 * carrier being established is "the user has already been told"
+	 */
+	if (lwsi_carrier(wsi) != LCR_ESTABLISHED) {
 		n = user_callback_handle_rxflow(wsi->a.protocol->callback,
 				wsi, wsi->role_ops->adoption_cb[lwsi_role_server(wsi)],
 				wsi->user_space, NULL, 0);
