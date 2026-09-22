@@ -1141,7 +1141,6 @@ struct lws {
 	char protocol_interpret_idx;
 	char redirects;
 #if defined(LWS_WITH_CLIENT)
-	char			conn_race_log[32];
 #endif
 	uint8_t rxflow_bitmap;
 	uint8_t bound_vhost_index;
