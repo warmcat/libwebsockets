@@ -1027,9 +1027,24 @@ body.is-disconnected .app-container {
   margin-left: auto;
 }
 
-.inv-name-cell {
-  max-width: 320px;
+.inv-names-cell {
+  max-width: 380px;
+}
+
+.inv-name-entry {
+  margin-bottom: 4px;
   overflow-wrap: anywhere;
+}
+
+.inv-name-entry:last-child {
+  margin-bottom: 0;
+}
+
+.inv-loc {
+  font-size: 0.75em;
+  color: var(--text-secondary);
+  font-family: monospace;
+  margin-top: 1px;
 }
 
 .inv-zone-links {

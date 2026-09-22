@@ -22,12 +22,16 @@
  *
  * Every zonefile under <base-dir>/domains is parsed into a row-per-record
  * sqlite3 cache, so the corpus is only re-read when a zonefile's mtime or
- * size changed since it was last scanned.  The IP view shown in the UI is
- * rolled up from those rows at read time: address records for the same
- * owner name are one "server" (its v4 and v6 addresses are the same
- * machine), and each address tracks the kinds of records that mention it,
- * so an address that only exists as NS glue can be told apart from one
- * that is also used by host records.
+ * size changed since it was last scanned.  The interface view shown in the
+ * UI is rolled up from those rows at read time: a name binding both a v4
+ * and a v6 address is evidence they are addresses of the same network
+ * interface on one server, so addresses are equivalence classes joined by
+ * the names that bind them, and every name pointing at any of them is
+ * listed as further evidence about that interface.  Each address also
+ * tracks the kinds of names that point at it, so an address that only
+ * exists as NS glue can be told apart from one that is also used by host
+ * records.  Dynamic-address records (${MHWC_DYNAMIC} / ${MHWC6_DYNAMIC})
+ * resolve to the DHT-detected addresses the UI passes with the request.
  */
 
 #if !defined(LWS_PLUGIN_STATIC)
@@ -75,14 +79,16 @@
  * much room is left in the IPC tx buffer; the rest is sent by the next page
  * instead.  Comfortably larger than the largest single entry composed below
  */
-#define INV_EMIT_ROOM		16384
+#define INV_EMIT_ROOM		24576
 
-/* one composed server entry never exceeds this */
-#define INV_ENTRY_MAX		8192
+/* one composed interface entry never exceeds this */
+#define INV_ENTRY_MAX		12288
 
-/* per-entry caps so one pathological server cannot outgrow INV_ENTRY_MAX */
-#define INV_MAX_IPS		32
-#define INV_MAX_ZONES		16
+/* per-entry caps so one pathological interface cannot outgrow INV_ENTRY_MAX */
+#define INV_MAX_IPS		16
+#define INV_MAX_NAMES		96
+#define INV_MAX_ZONES		4
+#define INV_MAX_NS_ZONES	8
 
 struct inv_stmts {
 	sqlite3_stmt		*seen;		/* INSERT OR REPLACE INTO seen */
@@ -93,40 +99,83 @@ struct inv_stmts {
 	sqlite3_stmt		*ins_rec;	/* INSERT INTO recs */
 };
 
-/* one address bound to a server name, eg the A sibling of an AAAA */
+/*
+ * The inventory lists network interfaces, not DNS names: a name binding
+ * both a v4 and a v6 address is evidence those are addresses of the same
+ * interface, and every name that points at any of those addresses is more
+ * evidence about the same interface.  So addresses are equivalence classes
+ * joined by the names that bind them together, and each row shows the
+ * addresses with the names that point at them.
+ */
 
-struct inv_ip {
-	lws_dll2_t		list;		/* inv_srv.ips */
+/* one unique address (or unresolved dynamic macro, see inv_rollup()) */
+
+struct inv_addr {
+	lws_dll2_t		list;		/* inv_ctx.addrs */
 	char			ip[46];		/* canonical text form */
 	int			is_v6;
-	/* set once every binding is known, see inv_ip_finalise() */
+	int			idx;		/* position in the fold arrays */
+	/* set once every name is attached, see inv_fold() */
+	int			bindings;	/* names pointing at it */
+	int			ns_bindings;	/* ...that are NS targets */
 	int			ns;		/* some name binding it is an NS target */
 	int			ns_only;	/* ...and no name binding it is not */
 };
 
-/* one zonefile the server name was seen mentioned by */
+/* one zonefile the name was seen mentioned by */
 
 struct inv_zmention {
-	lws_dll2_t		list;		/* inv_srv.zones / ns_zones */
+	lws_dll2_t		list;		/* inv_name.zones / iface.ns_zones */
 	char			*zone;
 };
 
-/* one server: all address records sharing one fully-qualified owner name */
+/* one edge of the bipartite name <-> address graph */
 
-struct inv_srv {
-	lws_dll2_t		list;		/* inv_ctx.servers */
+struct inv_naddr {
+	lws_dll2_t		list;		/* inv_name.addrs */
+	char			ip[46];		/* resolved address text */
+	int			is_v6;
+	struct inv_addr		*a;		/* set by inv_fold() */
+};
+
+/* one fully-qualified name pointing at one or more addresses */
+
+struct inv_name {
+	lws_dll2_t		list;		/* inv_ctx.names, in name order */
 	char			*name;
 	char			*loc;		/* first LOC rdata seen for the name */
-	lws_dll2_owner_t	ips;
+	lws_dll2_owner_t	addrs;
 	lws_dll2_owner_t	zones;		/* zones with records for the name */
-	lws_dll2_owner_t	ns_zones;	/* zones with NS records targeting it */
 	int			ns;		/* some zone delegates to this name */
+	struct inv_iface	*iface;		/* set by inv_fold() */
+};
+
+struct inv_iaddr {
+	lws_dll2_t		list;		/* inv_iface.addrs */
+	struct inv_addr		*a;
+};
+
+struct inv_iname {
+	lws_dll2_t		list;		/* inv_iface.names */
+	struct inv_name		*n;
+};
+
+/* one network interface: a connected set of addresses and their names */
+
+struct inv_iface {
+	lws_dll2_t		list;		/* inv_ctx.ifaces, sorted */
+	lws_dll2_owner_t	addrs;
+	lws_dll2_owner_t	names;		/* in name order */
+	lws_dll2_owner_t	ns_zones;	/* zones delegating to any name here */
+	char			*sort_key;	/* smallest address text */
 	int			has_v4, has_v6;
 };
 
 struct inv_ctx {
 	struct lwsac		*lwsac;
-	lws_dll2_owner_t	servers;	/* in name order */
+	lws_dll2_owner_t	addrs;		/* every unique address */
+	lws_dll2_owner_t	names;		/* every name, in name order */
+	lws_dll2_owner_t	ifaces;		/* emitted order */
 };
 
 static int
@@ -691,20 +740,20 @@ inv_db_ensure(struct vhd *vhd)
 	return NULL;
 }
 
-static struct inv_srv *
-inv_srv_new(struct inv_ctx *ic, const char *name)
+static struct inv_name *
+inv_name_new(struct inv_ctx *ic, const char *name)
 {
-	struct inv_srv *srv = lwsac_use_zero(&ic->lwsac, sizeof(*srv) +
-					     strlen(name) + 1, 0);
+	struct inv_name *nm = lwsac_use_zero(&ic->lwsac, sizeof(*nm) +
+					      strlen(name) + 1, 0);
 
-	if (!srv)
+	if (!nm)
 		return NULL;
 
-	srv->name = (char *)&srv[1];
-	memcpy(srv->name, name, strlen(name) + 1);
-	lws_dll2_add_tail(&srv->list, &ic->servers);
+	nm->name = (char *)&nm[1];
+	memcpy(nm->name, name, strlen(name) + 1);
+	lws_dll2_add_tail(&nm->list, &ic->names);
 
-	return srv;
+	return nm;
 }
 
 static struct inv_zmention *
@@ -730,49 +779,13 @@ inv_zm_add(struct inv_ctx *ic, lws_dll2_owner_t *owner, const char *zone)
 	return zm;
 }
 
-static struct inv_ip *
-inv_ip_add(struct inv_ctx *ic, struct inv_srv *srv, const char *ip, int is_v6)
-{
-	struct inv_ip *ipn;
-
-	lws_start_foreach_dll(struct lws_dll2 *, p,
-			      lws_dll2_get_head(&srv->ips)) {
-		ipn = lws_container_of(p, struct inv_ip, list);
-		if (!strcmp(ipn->ip, ip))
-			return ipn;
-	} lws_end_foreach_dll(p);
-
-	ipn = lwsac_use_zero(&ic->lwsac, sizeof(*ipn), 0);
-	if (!ipn)
-		return NULL;
-
-	lws_strncpy(ipn->ip, ip, sizeof(ipn->ip));
-	ipn->is_v6 = is_v6;
-
-	/*
-	 * Seed the binding's NS-ness from the name it is bound to here;
-	 * inv_ip_finalise() later reconciles it against every other name
-	 * the same address is bound to
-	 */
-	ipn->ns = srv->ns;
-
-	lws_dll2_add_tail(&ipn->list, &srv->ips);
-
-	if (is_v6)
-		srv->has_v6 = 1;
-	else
-		srv->has_v4 = 1;
-
-	return ipn;
-}
-
 static int
-inv_cmp_ip(const void *a, const void *b)
+inv_cmp_edgeip(const void *a, const void *b)
 {
-	const struct inv_ip *ia = *(const struct inv_ip * const *)a;
-	const struct inv_ip *ib = *(const struct inv_ip * const *)b;
+	const struct inv_naddr *ea = *(const struct inv_naddr * const *)a;
+	const struct inv_naddr *eb = *(const struct inv_naddr * const *)b;
 
-	return strcmp(ia->ip, ib->ip);
+	return strcmp(ea->ip, eb->ip);
 }
 
 static int
@@ -781,81 +794,295 @@ inv_cmp_namep(const void *a, const void *b)
 	return strcmp(*(const char * const *)a, *(const char * const *)b);
 }
 
+static int
+inv_cmp_iface(const void *a, const void *b)
+{
+	const struct inv_iface *fa = *(const struct inv_iface * const *)a;
+	const struct inv_iface *fb = *(const struct inv_iface * const *)b;
+
+	return strcmp(fa->sort_key, fb->sort_key);
+}
+
+/* union-find over the address array, joined by the names binding them */
+
+static int
+inv_find(int *parent, int i)
+{
+	while (parent[i] != i) {
+		parent[i] = parent[parent[i]];
+		i = parent[i];
+	}
+
+	return i;
+}
+
 /*
- * An address can be bound to several names.  Mark each address with what
- * kinds of names use it: ns if any name binding it is an NS target, and
- * ns_only if all of them are (so, possibly not our infrastructure).
+ * Canonicalise one rdata value into \p out as a real address, honouring
+ * the dynamic-address macros the signer substitutes at sign time.  Without
+ * a detected address for the family, the macro itself becomes the address
+ * text, so the names using it still group together.  Returns 0 if the
+ * value is not any address we can use.
  */
 
 static int
-inv_ip_finalise(struct inv_ctx *ic)
+inv_resolve_rdata(const char *rdata, int is_v6, const char *ip4,
+		  const char *ip6, char *out, size_t outlen)
 {
-	struct inv_ip **arr;
-	size_t n = 0, i, j, alloc = 0;
-	struct inv_srv *srv;
+	const char *subst = is_v6 ? ip6 : ip4;
+	unsigned char ad[16];
+	int fam = is_v6 ? AF_INET6 : AF_INET;
 
-	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      lws_dll2_get_head(&ic->servers)) {
-		srv = lws_container_of(d, struct inv_srv, list);
-		lws_start_foreach_dll(struct lws_dll2 *, p,
-				      lws_dll2_get_head(&srv->ips)) {
-			alloc++;
-		} lws_end_foreach_dll(p);
-	} lws_end_foreach_dll(d);
+	if (!strcmp(rdata, is_v6 ? "MHWC6_DYNAMIC" : "MHWC_DYNAMIC")) {
+		/*
+		 * subst is either empty or already canonical, see
+		 * handle_req_get_ip_inventory()
+		 */
+		if (subst && subst[0]) {
+			lws_strncpy(out, subst, outlen);
 
-	if (!alloc)
+			return 1;
+		}
+
+		lws_strncpy(out, rdata, outlen);
+
+		return 1;
+	}
+
+	if (inet_pton(fam, rdata, ad) != 1)
 		return 0;
 
-	arr = lwsac_use(&ic->lwsac, alloc * sizeof(*arr), 0);
-	if (!arr)
+	if (!inet_ntop(fam, ad, out, (socklen_t)outlen))
+		return 0;
+
+	return 1;
+}
+
+/*
+ * Fold the collected name -> address edges into interfaces:
+ *
+ *  - the edges are sorted by address text and deduplicated into the set of
+ *    unique addresses
+ *  - each name joins all the addresses it binds into one equivalence
+ *    class (union-find), so a name with both a v4 and a v6 address merges
+ *    them as one interface, and an address shared between names merges
+ *    their classes
+ *  - every address learns what kinds of names point at it
+ *  - interfaces come out sorted by their smallest address text
+ */
+
+static int
+inv_fold(struct inv_ctx *ic, size_t nedges)
+{
+	struct inv_naddr **sorted, *edge;
+	struct inv_addr **addrs;
+	struct inv_iaddr *ia;
+	struct inv_iname *in;
+	struct inv_iface **ifaces, **byroot;
+	struct inv_name *nm;
+	int *parent;
+	size_t n = 0, naddrs = 0, nifaces = 0, i;
+
+	sorted = lwsac_use(&ic->lwsac, nedges * sizeof(*sorted), 0);
+	addrs  = lwsac_use(&ic->lwsac, nedges * sizeof(*addrs), 0);
+	parent = lwsac_use(&ic->lwsac, nedges * sizeof(*parent), 0);
+	byroot = lwsac_use_zero(&ic->lwsac, nedges * sizeof(*byroot), 0);
+	ifaces = lwsac_use(&ic->lwsac, nedges * sizeof(*ifaces), 0);
+	if (!sorted || !addrs || !parent || !byroot || !ifaces)
 		return 1;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      lws_dll2_get_head(&ic->servers)) {
-		srv = lws_container_of(d, struct inv_srv, list);
-		lws_start_foreach_dll(struct lws_dll2 *, p,
-				      lws_dll2_get_head(&srv->ips)) {
-			arr[n++] = lws_container_of(p, struct inv_ip, list);
-		} lws_end_foreach_dll(p);
+			      lws_dll2_get_head(&ic->names)) {
+		nm = lws_container_of(d, struct inv_name, list);
+		lws_start_foreach_dll(struct lws_dll2 *, e,
+				      lws_dll2_get_head(&nm->addrs)) {
+			sorted[n++] = lws_container_of(e, struct inv_naddr,
+						       list);
+		} lws_end_foreach_dll(e);
 	} lws_end_foreach_dll(d);
 
-	qsort(arr, n, sizeof(*arr), inv_cmp_ip);
+	qsort(sorted, nedges, sizeof(*sorted), inv_cmp_edgeip);
 
-	for (i = 0; i < n; ) {
-		size_t ns_names = 0;
+	/* deduplicate the address texts into the unique address set */
 
-		for (j = i; j < n && !strcmp(arr[i]->ip, arr[j]->ip); j++)
-			;
-		for (size_t k = i; k < j; k++)
-			if (arr[k]->ns)
-				ns_names++;
+	for (i = 0; i < nedges; i++) {
+		struct inv_addr *a;
 
-		for (size_t k = i; k < j; k++) {
-			arr[k]->ns = ns_names > 0;
-			arr[k]->ns_only = ns_names == j - i;
+		if (i && !strcmp(sorted[i - 1]->ip, sorted[i]->ip)) {
+			sorted[i]->a = addrs[naddrs - 1];
+
+			continue;
 		}
 
-		i = j;
+		a = lwsac_use_zero(&ic->lwsac, sizeof(*a), 0);
+		if (!a)
+			return 1;
+
+		lws_strncpy(a->ip, sorted[i]->ip, sizeof(a->ip));
+		a->is_v6 = sorted[i]->is_v6;
+		a->idx = (int)naddrs;
+		parent[naddrs] = (int)naddrs;
+		lws_dll2_add_tail(&a->list, &ic->addrs);
+
+		addrs[naddrs++] = a;
+		sorted[i]->a = a;
+	}
+
+	/*
+	 * Join every name's addresses into one class: the first address is
+	 * the anchor, the rest union onto it, so a v4 / v6 pair used by one
+	 * name becomes one interface however many names also point at either
+	 */
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ic->names)) {
+		struct inv_naddr *first = NULL;
+
+		nm = lws_container_of(d, struct inv_name, list);
+		lws_start_foreach_dll(struct lws_dll2 *, e,
+				      lws_dll2_get_head(&nm->addrs)) {
+			edge = lws_container_of(e, struct inv_naddr, list);
+			if (!first) {
+				first = edge;
+
+				continue;
+			}
+
+			{
+				int r1 = inv_find(parent, first->a->idx);
+				int r2 = inv_find(parent, edge->a->idx);
+
+				if (r1 != r2)
+					parent[r2] = r1;
+			}
+		} lws_end_foreach_dll(e);
+	} lws_end_foreach_dll(d);
+
+	/*
+	 * Bucket the addresses on their class root, and each name onto the
+	 * bucket of any of its addresses; names arrive in name order, so the
+	 * per-interface name lists keep that order
+	 */
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ic->addrs)) {
+		struct inv_addr *a = lws_container_of(d, struct inv_addr,
+						      list);
+		int root = inv_find(parent, a->idx);
+
+		if (!byroot[root]) {
+			struct inv_iface *f = lwsac_use_zero(&ic->lwsac,
+							     sizeof(*f), 0);
+
+			if (!f)
+				return 1;
+
+			byroot[root] = f;
+			ifaces[nifaces++] = f;
+		}
+
+		ia = lwsac_use_zero(&ic->lwsac, sizeof(*ia), 0);
+		if (!ia)
+			return 1;
+		ia->a = a;
+		lws_dll2_add_tail(&ia->list, &byroot[root]->addrs);
+
+		if (a->is_v6)
+			byroot[root]->has_v6 = 1;
+		else
+			byroot[root]->has_v4 = 1;
+	} lws_end_foreach_dll(d);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ic->names)) {
+		nm = lws_container_of(d, struct inv_name, list);
+
+		lws_start_foreach_dll(struct lws_dll2 *, e,
+				      lws_dll2_get_head(&nm->addrs)) {
+			edge = lws_container_of(e, struct inv_naddr, list);
+			nm->iface = byroot[inv_find(parent, edge->a->idx)];
+
+			break;
+		} lws_end_foreach_dll(e);
+
+		if (!nm->iface)
+			continue; /* no addresses: no interface evidence */
+
+		in = lwsac_use_zero(&ic->lwsac, sizeof(*in), 0);
+		if (!in)
+			return 1;
+		in->n = nm;
+		lws_dll2_add_tail(&in->list, &nm->iface->names);
+
+		/* count what kinds of names point at each address */
+		lws_start_foreach_dll(struct lws_dll2 *, e,
+				      lws_dll2_get_head(&nm->addrs)) {
+			edge = lws_container_of(e, struct inv_naddr, list);
+			edge->a->bindings++;
+			if (nm->ns)
+				edge->a->ns_bindings++;
+		} lws_end_foreach_dll(e);
+	} lws_end_foreach_dll(d);
+
+	/*
+	 * An address bound to several names is ns_only when every one of
+	 * them is an NS target: absent anything more specific, it may not be
+	 * our infrastructure
+	 */
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&ic->addrs)) {
+		struct inv_addr *a = lws_container_of(d, struct inv_addr,
+						      list);
+
+		if (a->bindings) {
+			a->ns = a->ns_bindings > 0;
+			a->ns_only = a->ns_bindings == a->bindings;
+		}
+	} lws_end_foreach_dll(d);
+
+	/* deterministic emission order: smallest address text first */
+
+	for (i = 0; i < nifaces; i++) {
+		lws_start_foreach_dll(struct lws_dll2 *, ad,
+				      lws_dll2_get_head(&ifaces[i]->addrs)) {
+			ia = lws_container_of(ad, struct inv_iaddr, list);
+
+			if (!ifaces[i]->sort_key ||
+			    strcmp(ia->a->ip, ifaces[i]->sort_key) < 0)
+				ifaces[i]->sort_key = ia->a->ip;
+		} lws_end_foreach_dll(ad);
+	}
+
+	qsort(ifaces, nifaces, sizeof(*ifaces), inv_cmp_iface);
+
+	for (i = 0; i < nifaces; i++) {
+		lws_dll2_remove(&ifaces[i]->list);
+		lws_dll2_add_tail(&ifaces[i]->list, &ic->ifaces);
 	}
 
 	return 0;
 }
 
 /*
- * Build the server list from the cached rows.  Address and LOC rows are
- * grouped by their (already parser-qualified) owner name, and the sorted
- * set of NS targets from all zonefiles classifies each name.  The server
- * list comes out in name order, which is what makes cursor pagination
- * over it deterministic.
+ * Build the interface list from the cached rows.
+ *
+ * Address and LOC rows are collected per fully-qualified owner name (the
+ * parser already qualified them), and the sorted set of NS targets from
+ * all zonefiles classifies each name.  Then the names are folded away:
+ * every name that binds several addresses joins those addresses into one
+ * network interface, all names land on the interface of their addresses,
+ * and each address learns what kinds of names point at it.  The interface
+ * list comes out sorted by its smallest address, which is what makes
+ * cursor pagination over it deterministic.
  */
 
 static int
-inv_rollup(sqlite3 *db, struct inv_ctx *ic)
+inv_rollup(sqlite3 *db, struct inv_ctx *ic, const char *ip4, const char *ip6)
 {
 	sqlite3_stmt *nst = NULL, *rows = NULL, *nsz = NULL;
-	struct inv_srv *cur = NULL;
+	struct inv_name *cur = NULL;
 	char **targets = NULL;
-	size_t talloc = 0, tcount = 0;
+	size_t talloc = 0, tcount = 0, nedges = 0;
 	int ret = 1;
 
 	memset(ic, 0, sizeof(*ic));
@@ -905,7 +1132,6 @@ inv_rollup(sqlite3 *db, struct inv_ctx *ic)
 		const char *rdata = (const char *)
 					sqlite3_column_text(rows, 3);
 		int rtype = sqlite3_column_int(rows, 2);
-		char ip[46];
 
 		if (!domain || !name || !rdata)
 			continue;
@@ -913,7 +1139,7 @@ inv_rollup(sqlite3 *db, struct inv_ctx *ic)
 		if (!cur || strcmp(cur->name, name)) {
 			char *key = (char *)name;
 
-			cur = inv_srv_new(ic, name);
+			cur = inv_name_new(ic, name);
 			if (!cur)
 				goto bail;
 
@@ -945,25 +1171,49 @@ inv_rollup(sqlite3 *db, struct inv_ctx *ic)
 		/* rtype 1 or 28: an address binding for this name */
 
 		{
-			unsigned char ad[16];
-			int fam = rtype == 1 ? AF_INET : AF_INET6;
+			struct inv_naddr *edge;
+			char ip[64];
+			int is_v6 = rtype == 28;
 
-			/* malformed rows (kept as-written) cannot group */
-			if (inet_pton(fam, rdata, ad) != 1 ||
-			    !inet_ntop(fam, ad, ip, sizeof(ip)))
+			/*
+			 * Unresolvable rdata (kept as-written in the cache)
+			 * cannot group, and names it leaves with no address
+			 * at all simply produce no interface
+			 */
+			if (!inv_resolve_rdata(rdata, is_v6, ip4, ip6,
+					       ip, sizeof(ip)))
 				continue;
 
-			if (!inv_ip_add(ic, cur, ip, rtype == 28))
+			/* one binding per address is enough per name */
+			lws_start_foreach_dll(struct lws_dll2 *, e,
+					lws_dll2_get_head(&cur->addrs)) {
+				edge = lws_container_of(e,
+						struct inv_naddr, list);
+				if (!strcmp(edge->ip, ip))
+					goto next_row;
+			} lws_end_foreach_dll(e);
+
+			edge = lwsac_use_zero(&ic->lwsac, sizeof(*edge), 0);
+			if (!edge)
 				goto bail;
+			lws_strncpy(edge->ip, ip, sizeof(edge->ip));
+			edge->is_v6 = is_v6;
+			lws_dll2_add_tail(&edge->list, &cur->addrs);
+			nedges++;
+
 			if (!inv_zm_add(ic, &cur->zones, domain))
 				goto bail;
 		}
+next_row:
+		;
 	}
 
-	if (inv_ip_finalise(ic))
+	/* pass 3: fold the names away into interfaces */
+
+	if (nedges && inv_fold(ic, nedges))
 		goto bail;
 
-	/* pass 3: which zones delegate to each nameserver-ish name */
+	/* pass 4: which zones delegate to each nameserver-ish name */
 
 	if (sqlite3_prepare_v2(db, "SELECT DISTINCT domain FROM recs"
 				  " WHERE rtype=2 AND rdata=?", -1,
@@ -971,19 +1221,19 @@ inv_rollup(sqlite3 *db, struct inv_ctx *ic)
 		goto bail;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      lws_dll2_get_head(&ic->servers)) {
-		struct inv_srv *srv = lws_container_of(d, struct inv_srv,
+			      lws_dll2_get_head(&ic->names)) {
+		struct inv_name *nm = lws_container_of(d, struct inv_name,
 						       list);
 
-		if (!srv->ns)
+		if (!nm->ns || !nm->iface)
 			continue;
 
-		inv_bind_text(nsz, 1, srv->name);
+		inv_bind_text(nsz, 1, nm->name);
 		while (sqlite3_step(nsz) == SQLITE_ROW) {
 			const char *dom = (const char *)
 						sqlite3_column_text(nsz, 0);
 
-			if (dom && !inv_zm_add(ic, &srv->ns_zones, dom))
+			if (dom && !inv_zm_add(ic, &nm->iface->ns_zones, dom))
 				goto bail;
 		}
 		sqlite3_reset(nsz);
@@ -1053,10 +1303,26 @@ inv_emit(struct inv_emit *e, const char *fmt, ...)
 	e->len += (size_t)n;
 }
 
+/* canonicalise the request's detected-address hints, or drop them */
+
+static void
+inv_canon_hint(char *out, size_t outlen, const char *in, int is_v6)
+{
+	unsigned char ad[16];
+
+	out[0] = '\0';
+
+	if (!in[0] || inet_pton(is_v6 ? AF_INET6 : AF_INET, in, ad) != 1 ||
+	    !inet_ntop(is_v6 ? AF_INET6 : AF_INET, ad, out,
+		       (socklen_t)outlen))
+		out[0] = '\0';
+}
+
 /*
- * One page of the rolled-up server list, newline-framed like every monitor
- * response.  \p cursor says how many servers were already sent by earlier
- * pages; "next" hands the client the cursor for the following page.
+ * One page of the rolled-up interface list, newline-framed like every
+ * monitor response.  \p cursor says how many interfaces were already sent
+ * by earlier pages; "next" hands the client the cursor for the following
+ * page.
  */
 
 void
@@ -1065,9 +1331,10 @@ handle_req_get_ip_inventory(struct vhd *vhd, struct pss *root_pss,
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
+	char ip4[64], ip6[64];
 	sqlite3 *db;
 	struct inv_ctx ic;
-	unsigned long total = 0, pos = 0, emitted = 0;
+	unsigned long total, pos = 0, emitted = 0;
 	long cursor = a->cursor > 0 ? a->cursor : 0;
 	int more;
 
@@ -1083,7 +1350,10 @@ handle_req_get_ip_inventory(struct vhd *vhd, struct pss *root_pss,
 		return;
 	}
 
-	if (inv_rollup(db, &ic)) {
+	inv_canon_hint(ip4, sizeof(ip4), a->ip4, 0);
+	inv_canon_hint(ip6, sizeof(ip6), a->ip6, 1);
+
+	if (inv_rollup(db, &ic, ip4, ip6)) {
 		sqlite3_close(db);
 		tx += lws_snprintf(tx, inv_rem(tx, tx_end),
 				"{\"req\":\"%s\",\"status\":\"error\","
@@ -1095,23 +1365,16 @@ handle_req_get_ip_inventory(struct vhd *vhd, struct pss *root_pss,
 		return;
 	}
 
-	/* names with no address record are not listable servers */
-	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      lws_dll2_get_head(&ic.servers)) {
-		struct inv_srv *srv = lws_container_of(d, struct inv_srv,
-						       list);
-		if (lws_dll2_get_head(&srv->ips))
-			total++;
-	} lws_end_foreach_dll(d);
+	total = lws_dll2_count(&ic.ifaces);
 
 	tx += lws_snprintf(tx, inv_rem(tx, tx_end),
 			"{\"req\":\"%s\",\"status\":\"ok\",\"total\":%lu,"
-			"\"cursor\":%ld,\"servers\":[",
+			"\"cursor\":%ld,\"ifaces\":[",
 			a->req, total, cursor);
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      lws_dll2_get_head(&ic.servers)) {
-		struct inv_srv *srv = lws_container_of(d, struct inv_srv,
+			      lws_dll2_get_head(&ic.ifaces)) {
+		struct inv_iface *f = lws_container_of(d, struct inv_iface,
 						       list);
 		struct inv_emit e;
 		char esc_name[MON_ESC_DOMAIN_SZ];
@@ -1119,82 +1382,100 @@ handle_req_get_ip_inventory(struct vhd *vhd, struct pss *root_pss,
 		char esc_zone[MON_ESC_DOMAIN_SZ];
 		int n;
 
-		if (!lws_dll2_get_head(&srv->ips))
-			continue;
-
 		if (pos++ < (unsigned long)cursor ||
 		    inv_rem(tx, tx_end) < INV_EMIT_ROOM)
 			continue;
 
 		memset(&e, 0, sizeof(e));
 
-		inv_emit(&e, "{\"name\":\"%s\",\"ns\":%d,\"v4\":%d,\"v6\":%d",
-				json_escape(esc_name, sizeof(esc_name),
-					    srv->name),
-				srv->ns ? 1 : 0,
-				srv->has_v4 ? 1 : 0,
-				srv->has_v6 ? 1 : 0);
-
-		if (srv->loc)
-			inv_emit(&e, ",\"loc\":\"%s\"",
-				 json_escape(esc_loc, sizeof(esc_loc),
-					     srv->loc));
-
-		/* the zonefiles the name was mentioned by */
-		inv_emit(&e, ",\"zones\":[");
-		n = 0;
-		lws_start_foreach_dll(struct lws_dll2 *, z,
-				      lws_dll2_get_head(&srv->zones)) {
-			struct inv_zmention *zm = lws_container_of(z,
-					struct inv_zmention, list);
-
-			if (n == INV_MAX_ZONES)
-				break;
-
-			inv_emit(&e, "%s\"%s\"", n ? "," : "",
-				 json_escape(esc_zone, sizeof(esc_zone),
-					     zm->zone));
-			n++;
-		} lws_end_foreach_dll(z);
-		inv_emit(&e, "]");
-
-		/* the zonefiles delegating to it with NS records */
-		inv_emit(&e, ",\"ns_zones\":[");
-		n = 0;
-		lws_start_foreach_dll(struct lws_dll2 *, z,
-				      lws_dll2_get_head(&srv->ns_zones)) {
-			struct inv_zmention *zm = lws_container_of(z,
-					struct inv_zmention, list);
-
-			if (n == INV_MAX_ZONES)
-				break;
-
-			inv_emit(&e, "%s\"%s\"", n ? "," : "",
-				 json_escape(esc_zone, sizeof(esc_zone),
-					     zm->zone));
-			n++;
-		} lws_end_foreach_dll(z);
-		inv_emit(&e, "]");
-
-		/* the addresses, with what kinds of records use them */
-		inv_emit(&e, ",\"ips\":[");
+		/* the addresses, with what kinds of names point at them */
+		inv_emit(&e, "{\"ips\":[");
 		n = 0;
 		lws_start_foreach_dll(struct lws_dll2 *, p,
-				      lws_dll2_get_head(&srv->ips)) {
-			struct inv_ip *ipn = lws_container_of(p,
-					struct inv_ip, list);
+				      lws_dll2_get_head(&f->addrs)) {
+			struct inv_iaddr *ia = lws_container_of(p,
+					struct inv_iaddr, list);
 
 			if (n == INV_MAX_IPS)
 				break;
 
 			inv_emit(&e, "%s{\"ip\":\"%s\",\"v6\":%d,"
 					"\"ns\":%d,\"ns_only\":%d}",
-					n ? "," : "", ipn->ip, ipn->is_v6,
-					ipn->ns ? 1 : 0,
-					ipn->ns_only ? 1 : 0);
+					n ? "," : "", ia->a->ip, ia->a->is_v6,
+					ia->a->ns ? 1 : 0,
+					ia->a->ns_only ? 1 : 0);
 			n++;
 		} lws_end_foreach_dll(p);
-		inv_emit(&e, "]}");
+		inv_emit(&e, "]");
+
+		/* the names pointing at this interface, in name order */
+		inv_emit(&e, ",\"names\":[");
+		n = 0;
+		lws_start_foreach_dll(struct lws_dll2 *, m,
+				      lws_dll2_get_head(&f->names)) {
+			struct inv_iname *inm = lws_container_of(m,
+					struct inv_iname, list);
+			struct inv_name *nm = inm->n;
+
+			if (n == INV_MAX_NAMES)
+				break;
+
+			inv_emit(&e, "%s{\"name\":\"%s\",\"ns\":%d",
+					n ? "," : "",
+					json_escape(esc_name, sizeof(esc_name),
+						    nm->name),
+					nm->ns ? 1 : 0);
+
+			if (nm->loc)
+				inv_emit(&e, ",\"loc\":\"%s\"",
+					 json_escape(esc_loc,
+						     sizeof(esc_loc), nm->loc));
+
+			inv_emit(&e, ",\"zones\":[");
+			{
+				int zn = 0;
+
+				lws_start_foreach_dll(struct lws_dll2 *, z,
+						lws_dll2_get_head(&nm->zones)) {
+					struct inv_zmention *zm =
+						lws_container_of(z,
+							struct inv_zmention,
+							list);
+
+					if (zn == INV_MAX_ZONES)
+						break;
+
+					inv_emit(&e, "%s{\"z\":\"%s\"}",
+						 zn ? "," : "",
+						 json_escape(esc_zone,
+							     sizeof(esc_zone),
+							     zm->zone));
+					zn++;
+				} lws_end_foreach_dll(z);
+			}
+			inv_emit(&e, "]}");
+			n++;
+		} lws_end_foreach_dll(m);
+		inv_emit(&e, "]");
+
+		/* the zonefiles delegating to any name on this interface */
+		inv_emit(&e, ",\"ns_zones\":[");
+		n = 0;
+		lws_start_foreach_dll(struct lws_dll2 *, z,
+				      lws_dll2_get_head(&f->ns_zones)) {
+			struct inv_zmention *zm = lws_container_of(z,
+					struct inv_zmention, list);
+
+			if (n == INV_MAX_NS_ZONES)
+				break;
+
+			inv_emit(&e, "%s{\"z\":\"%s\"}", n ? "," : "",
+				 json_escape(esc_zone, sizeof(esc_zone),
+					     zm->zone));
+			n++;
+		} lws_end_foreach_dll(z);
+		inv_emit(&e, "],\"v4\":%d,\"v6\":%d}",
+			 f->has_v4 ? 1 : 0, f->has_v6 ? 1 : 0);
 
 		if (e.saturated) {
 			/*
@@ -1202,23 +1483,29 @@ handle_req_get_ip_inventory(struct vhd *vhd, struct pss *root_pss,
 			 * cannot outgrow the scratch buffer, so pagination
 			 * can always make progress past it
 			 */
-			struct inv_ip *first = lws_container_of(
-					lws_dll2_get_head(&srv->ips),
-					struct inv_ip, list);
+			struct inv_iaddr *first = lws_container_of(
+					lws_dll2_get_head(&f->addrs),
+					struct inv_iaddr, list);
+			struct inv_iname *fname = lws_container_of(
+					lws_dll2_get_head(&f->names),
+					struct inv_iname, list);
 
 			memset(&e, 0, sizeof(e));
-			inv_emit(&e, "{\"name\":\"%s\",\"ns\":%d,\"v4\":%d,"
-					"\"v6\":%d,\"ips\":[{\"ip\":\"%s\","
-					"\"v6\":%d,\"ns\":%d,\"ns_only\":%d}],"
-					"\"trunc\":1}",
+			inv_emit(&e, "{\"ips\":[{\"ip\":\"%s\","
+					"\"v6\":%d,\"ns\":%d,"
+					"\"ns_only\":%d}],"
+					"\"names\":[{\"name\":\"%s\","
+					"\"ns\":%d,\"zones\":[]}],"
+					"\"ns_zones\":[],\"v4\":%d,"
+					"\"v6\":%d,\"trunc\":1}",
+					first->a->ip, first->a->is_v6,
+					first->a->ns ? 1 : 0,
+					first->a->ns_only ? 1 : 0,
 					json_escape(esc_name, sizeof(esc_name),
-						    srv->name),
-					srv->ns ? 1 : 0,
-					srv->has_v4 ? 1 : 0,
-					srv->has_v6 ? 1 : 0,
-					first->ip, first->is_v6,
-					first->ns ? 1 : 0,
-					first->ns_only ? 1 : 0);
+						    fname->n->name),
+					fname->n->ns ? 1 : 0,
+					f->has_v4 ? 1 : 0,
+					f->has_v6 ? 1 : 0);
 		}
 
 		if (!e.saturated) {

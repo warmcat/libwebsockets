@@ -133,6 +133,15 @@ struct monitor_req_args {
 	char key_type[32];
 	int sign_validity_days;
 	int cursor;
+
+	/*
+	 * Currently DHT-detected external addresses, as IPv4 / IPv6 literal
+	 * hints from the UI.  They resolve ${MHWC_DYNAMIC} /
+	 * ${MHWC6_DYNAMIC} records in zonefiles to real addresses for the
+	 * inventory; empty strings when the client does not know them yet
+	 */
+	char ip4[64];
+	char ip6[64];
 };
 
 typedef void (*monitor_req_handler_t)(struct vhd *vhd, struct pss *root_pss,

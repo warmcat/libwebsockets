@@ -590,7 +590,9 @@ static const char * const monitor_req_paths[] = {
 	"profile",
 	"key_type",
 	"sign_validity_days",
-	"cursor"
+	"cursor",
+	"ip4",
+	"ip6"
 };
 
 enum enum_req_paths {
@@ -612,7 +614,9 @@ enum enum_req_paths {
 	LRP_PROFILE,
 	LRP_KEY_TYPE,
 	LRP_SIGN_VALIDITY_DAYS,
-	LRP_CURSOR
+	LRP_CURSOR,
+	LRP_IP4,
+	LRP_IP6
 };
 
 static signed char
@@ -716,6 +720,12 @@ monitor_req_cb(struct lejp_ctx *ctx, char reason)
 			break;
 		case LRP_KEY_TYPE:
 			lws_strncpy(a->key_type, ctx->buf, sizeof(a->key_type));
+			break;
+		case LRP_IP4:
+			lws_strncpy(a->ip4, ctx->buf, sizeof(a->ip4));
+			break;
+		case LRP_IP6:
+			lws_strncpy(a->ip6, ctx->buf, sizeof(a->ip6));
 			break;
 		}
 	}

@@ -383,7 +383,7 @@ function handleResponse(data) {
          * table stuck at "Loading..." behind a transient toast */
         if (data.req === 'get_ip_inventory') {
             const tb = document.querySelector('#table-ip-inventory tbody');
-            if (tb) tb.innerHTML = `<tr><td colspan="5" class="loading">${escapeHtml(data.msg || 'Inventory unavailable')}</td></tr>`;
+            if (tb) tb.innerHTML = `<tr><td colspan="4" class="loading">${escapeHtml(data.msg || 'Inventory unavailable')}</td></tr>`;
             const cnt = document.getElementById('ip-inventory-count');
             if (cnt) cnt.textContent = '';
             window.ipInventory = [];
@@ -429,6 +429,14 @@ function handleResponse(data) {
                 if (typeof window.updateRawEditorSubstitutions === 'function') {
                     window.updateRawEditorSubstitutions();
                 }
+
+                /*
+                 * Dynamic-address zonefile records resolve against the
+                 * detected addresses; refresh the inventory grouping now
+                 * they are known (or changed)
+                 */
+                if (window.ipInventory !== undefined)
+                    fetchIpInventory(0);
             }
             break;
         case 'get_domains':
@@ -446,9 +454,7 @@ function handleResponse(data) {
 
             /* the IP inventory is derived from the same zonefiles; fetch it
              * once the other bootstrap requests have been sequenced out */
-            setTimeout(() => {
-                sendReq({ req: 'get_ip_inventory', cursor: 0 });
-            }, 200);
+            setTimeout(() => fetchIpInventory(0), 200);
 
             let didSelect = false;
             // Restore saved domain state if possible
@@ -481,15 +487,16 @@ function handleResponse(data) {
             break;
         case 'get_ip_inventory':
             /*
-             * The server pages the rolled-up server list; accumulate the
-             * pages in order and keep asking until it says there are no
-             * more.  A page always arrives as one newline-framed response.
+             * The server pages the rolled-up interface list; accumulate
+             * the pages in order and keep asking until it says there are
+             * no more.  A page always arrives as one newline-framed
+             * response.
              */
             if (data.status === 'ok') {
                 if (!data.cursor)
                     window.ipInventory = [];
                 window.ipInventoryMore = !!data.more;
-                (data.servers || []).forEach(s => window.ipInventory.push(s));
+                (data.ifaces || []).forEach(f => window.ipInventory.push(f));
                 renderIpInventory();
                 if (data.more && typeof data.next === 'number') {
                     /*
@@ -498,8 +505,8 @@ function handleResponse(data) {
                      * a "next" that actually advances, so a stalled
                      * sequence cannot spin
                      */
-                    if (data.next > (data.cursor || 0) || (data.servers || []).length)
-                        sendReq({ req: 'get_ip_inventory', cursor: data.next });
+                    if (data.next > (data.cursor || 0) || (data.ifaces || []).length)
+                        fetchIpInventory(data.next);
                     else
                         window.ipInventoryMore = false;
                 }
@@ -540,7 +547,7 @@ function handleResponse(data) {
             document.getElementById('btn-save-zonefile').disabled = true;
             /* the inventory is rolled up from the zonefiles, so refresh it
              * now this zone's contents have changed */
-            setTimeout(() => sendReq({ req: 'get_ip_inventory', cursor: 0 }), 150);
+            setTimeout(() => fetchIpInventory(0), 150);
             break;
         case 'get_acme_config':
             if (data.config) {
@@ -825,10 +832,42 @@ function renderDomains(domains) {
 }
 
 /*
+ * The DHT-detected external addresses, as first-seen v4 / v6 literals.
+ * They resolve the zonefiles' dynamic-address records
+ * (${MHWC_DYNAMIC} / ${MHWC6_DYNAMIC}) to real addresses for the
+ * inventory grouping, exactly as the signer substitutes them at sign
+ * time.
+ */
+function currentExtIps() {
+    const out = { ip4: '', ip6: '' };
+
+    if (!window.last_extip_data || !window.last_extip_data['ext-ips'])
+        return out;
+
+    const ips = Array.isArray(window.last_extip_data['ext-ips'])
+        ? window.last_extip_data['ext-ips']
+        : (window.last_extip_data['ext-ips'] + '').split(',');
+    ips.forEach(ip => {
+        if (ip.includes(':')) { if (!out.ip6) out.ip6 = ip; }
+        else { if (!out.ip4) out.ip4 = ip; }
+    });
+
+    return out;
+}
+
+function fetchIpInventory(cursor) {
+    const ext = currentExtIps();
+    sendReq({ req: 'get_ip_inventory', cursor: cursor || 0,
+              ip4: ext.ip4, ip6: ext.ip6 });
+}
+
+/*
  * Render the accumulated get_ip_inventory pages.  Each entry is one
- * "server": every address record in the zonefiles that shared one
- * fully-qualified owner name, with its v4 and v6 addresses, any LOC record
- * for that name, and what kinds of records mention each address.
+ * network interface: a set of addresses proven to belong to the same
+ * interface because some name binds them together, with every name that
+ * points at any of them as evidence.  A name binding a v4 and a v6
+ * address is the usual proof; an address shared between names chains
+ * them onto the same interface.
  *
  * Everything shown here came out of a zonefile some admin last saved, so
  * it all goes through textContent rather than innerHTML.
@@ -843,53 +882,79 @@ function renderIpInventory() {
     const cnt = document.getElementById('ip-inventory-count');
     if (cnt) {
         cnt.textContent = inv.length
-            ? `${inv.length} server${inv.length > 1 ? 's' : ''}${window.ipInventoryMore ? '+' : ''}`
+            ? `${inv.length} interface${inv.length > 1 ? 's' : ''}${window.ipInventoryMore ? '+' : ''}`
             : '';
     }
 
     if (!inv.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="loading">No IP records found in any zonefile.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="loading">No IP records found in any zonefile.</td></tr>';
         return;
     }
 
-    inv.forEach(srv => {
+    inv.forEach(ifc => {
         const tr = document.createElement('tr');
 
-        /* server cell: the name opens the zonefile editor it came from */
-        const tdSrv = document.createElement('td');
-        tdSrv.className = 'ext-mono inv-name-cell';
-        const zones = srv.zones || [];
-        const a = document.createElement('a');
-        a.href = '#';
-        a.textContent = srv.name || '';
-        a.onclick = (e) => {
-            e.preventDefault();
-            if (zones.length) selectDomain(zones[0]);
-        };
-        tdSrv.appendChild(a);
-        if (zones.length > 1) {
-            const div = document.createElement('div');
-            div.className = 'inv-zone-links';
-            div.appendChild(document.createTextNode('in '));
-            zones.forEach((z, i) => {
-                if (i) div.appendChild(document.createTextNode(', '));
-                const za = document.createElement('a');
-                za.href = '#';
-                za.className = 'ext-link';
-                za.textContent = z;
-                za.onclick = (e) => {
-                    e.preventDefault();
-                    selectDomain(z);
-                };
-                div.appendChild(za);
-            });
-            tdSrv.appendChild(div);
-        }
-        tr.appendChild(tdSrv);
+        /* names cell: each name links to the zonefile editor it came from */
+        const tdNames = document.createElement('td');
+        tdNames.className = 'inv-names-cell';
+        (ifc.names || []).forEach(nm => {
+            const entry = document.createElement('div');
+            entry.className = 'inv-name-entry';
 
-        /* address columns, with what kind of records use each address */
+            const line = document.createElement('div');
+            const a = document.createElement('a');
+            a.href = '#';
+            a.textContent = nm.name || '';
+            const zones = (nm.zones || []).map(z => z.z || z);
+            a.onclick = (e) => {
+                e.preventDefault();
+                if (zones.length) selectDomain(zones[0]);
+            };
+            line.appendChild(a);
+
+            if (nm.ns) {
+                line.appendChild(document.createTextNode(' '));
+                const nb = document.createElement('span');
+                nb.className = 'inv-badge inv-badge-ok';
+                nb.textContent = 'NS';
+                nb.title = 'Targeted by NS records in the zonefiles';
+                line.appendChild(nb);
+            }
+            entry.appendChild(line);
+
+            if (zones.length > 1) {
+                const zl = document.createElement('div');
+                zl.className = 'inv-zone-links';
+                zl.appendChild(document.createTextNode('in '));
+                zones.forEach((z, i) => {
+                    if (i) zl.appendChild(document.createTextNode(', '));
+                    const za = document.createElement('a');
+                    za.href = '#';
+                    za.className = 'ext-link';
+                    za.textContent = z;
+                    za.onclick = (e) => {
+                        e.preventDefault();
+                        selectDomain(z);
+                    };
+                    zl.appendChild(za);
+                });
+                entry.appendChild(zl);
+            }
+
+            if (nm.loc) {
+                const ll = document.createElement('div');
+                ll.className = 'inv-loc';
+                ll.textContent = nm.loc;
+                entry.appendChild(ll);
+            }
+
+            tdNames.appendChild(entry);
+        });
+        tr.appendChild(tdNames);
+
+        /* address columns, with what kinds of names point at each */
         const cols = [[], []];
-        (srv.ips || []).forEach(ip => cols[ip.v6 ? 1 : 0].push(ip));
+        (ifc.ips || []).forEach(ip => cols[ip.v6 ? 1 : 0].push(ip));
 
         cols.forEach(list => {
             const td = document.createElement('td');
@@ -915,18 +980,15 @@ function renderIpInventory() {
             tr.appendChild(td);
         });
 
-        const tdLoc = document.createElement('td');
-        tdLoc.className = 'ext-mono inv-loc-cell';
-        tdLoc.textContent = srv.loc || '—';
-        tr.appendChild(tdLoc);
-
         /* usage: the record kinds seen, and the NS classification */
         const tdUse = document.createElement('td');
         tdUse.className = 'inv-use-cell';
+        const ips = ifc.ips || [];
         const kinds = [];
-        if (srv.v4) kinds.push('A');
-        if (srv.v6) kinds.push('AAAA');
-        if (srv.ns) kinds.push('NS');
+        if (ips.some(ip => !ip.v6)) kinds.push('A');
+        if (ips.some(ip => ip.v6)) kinds.push('AAAA');
+        if ((ifc.names || []).some(nm => nm.ns) || ips.some(ip => ip.ns))
+            kinds.push('NS');
 
         kinds.forEach(k => {
             const b = document.createElement('span');
@@ -936,8 +998,8 @@ function renderIpInventory() {
             tdUse.appendChild(document.createTextNode(' '));
         });
 
-        if (srv.ns) {
-            const ips = srv.ips || [];
+        const nsIps = ips.filter(ip => ip.ns);
+        if (nsIps.length) {
             const allNsOnly = ips.length && ips.every(ip => ip.ns_only);
             const n = document.createElement('div');
             n.className = allNsOnly ? 'dns-fg-gray' : 'dns-fg-green';
@@ -946,7 +1008,7 @@ function renderIpInventory() {
                 : 'NS with host records: our infrastructure';
             tdUse.appendChild(n);
 
-            const nz = srv.ns_zones || [];
+            const nz = (ifc.ns_zones || []).map(z => z.z || z);
             if (nz.length) {
                 const d = document.createElement('div');
                 d.className = 'inv-zone-links';
