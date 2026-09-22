@@ -967,27 +967,39 @@ function geoApplyVB() {
 }
 
 /*
- * Keep the visible window inside the [-1000, 2000] strip.  A window
- * narrower than one world can never show a longitude twice, but at the
- * full zoom-out floor the window is exactly one world wide, so it is
- * locked to x = 0 and the seam copies stay out of view: you cannot
- * zoom out past the whole map fitting the panel, and zooming in can
- * go down to a small patch of a world much larger than the screen
+ * The view is always clamped to exactly one world: you cannot zoom out
+ * past the whole map fitting the panel, nor pan past its edge, so the
+ * seam copies are only ever visible as the wrapped sliver at the
+ * antimeridian and nothing repeats.  Zooming in reaches a small patch
+ * of a world much larger than the screen.
  */
 
 function geoClampVB() {
-    if (geoMap.vb.w >= GEO_W) {
+    if (geoMap.vb.w > GEO_W)
         geoMap.vb.w = GEO_W;
+    if (geoMap.vb.h > GEO_W)
         geoMap.vb.h = GEO_W;
-        geoMap.vb.x = 0;
-        geoMap.vb.y = 0;
 
-        return;
-    }
-
-    geoMap.vb.x = Math.max(-GEO_W,
-                  Math.min(2 * GEO_W - geoMap.vb.w, geoMap.vb.x));
+    geoMap.vb.x = Math.max(0, Math.min(GEO_W - geoMap.vb.w, geoMap.vb.x));
     geoMap.vb.y = Math.max(0, Math.min(GEO_W - geoMap.vb.h, geoMap.vb.y));
+}
+
+/* zoom by factor > 1 in, keeping the point under (clientX, clientY) */
+
+function geoZoomAt(clientX, clientY, factor) {
+    const rect = geoMap.svg.getBoundingClientRect();
+    const mx = geoMap.vb.x + (clientX - rect.left) / rect.width * geoMap.vb.w;
+    const my = geoMap.vb.y + (clientY - rect.top) / rect.height * geoMap.vb.h;
+    const nw = Math.max(16, Math.min(GEO_W, geoMap.vb.w / factor));
+    const nh = nw;
+
+    geoMap.vb = {
+        x: mx - (mx - geoMap.vb.x) * (nw / geoMap.vb.w),
+        y: my - (my - geoMap.vb.y) * (nh / geoMap.vb.h),
+        w: nw, h: nh
+    };
+    geoClampVB();
+    geoApplyVB();
 }
 
 function geoInitMap() {
@@ -997,24 +1009,27 @@ function geoInitMap() {
         return;
 
     geoMap = { svg, vb: { x: 0, y: 0, w: GEO_W, h: GEO_W },
-               lands: [], markerGroups: [] };
+               lands: [], markers: null };
 
-    /* land and markers are drawn at x, x - 1000 and x + 1000, so
+    /*
+     * The land outline is drawn at x, x - 1000 and x + 1000, so
      * antimeridian-wrapped outlines stay whole and the seam is
-     * seamless when panning */
+     * seamless; the view is clamped to one world, so at most one
+     * wrapped sliver is ever in view and nothing repeats.  Markers
+     * never unwrap, so they need only the one copy.
+     */
     [-GEO_W, 0, GEO_W].forEach(off => {
         const land = document.createElementNS(GEO_SVG_NS, 'path');
         land.setAttribute('class', 'geo-land');
         land.setAttribute('transform', `translate(${off} 0)`);
         svg.appendChild(land);
         geoMap.lands.push(land);
-
-        const markers = document.createElementNS(GEO_SVG_NS, 'g');
-        markers.setAttribute('class', 'geo-markers');
-        markers.setAttribute('transform', `translate(${off} 0)`);
-        svg.appendChild(markers);
-        geoMap.markerGroups.push(markers);
     });
+
+    const markers = document.createElementNS(GEO_SVG_NS, 'g');
+    markers.setAttribute('class', 'geo-markers');
+    svg.appendChild(markers);
+    geoMap.markers = markers;
 
     geoApplyVB();
 
@@ -1033,43 +1048,113 @@ function geoInitMap() {
             console.warn('geo map: no land outline:', e);
         });
 
-    /* zoom on the point under the cursor */
+    /*
+     * Input model: scrolling pans in x and y exactly like dragging
+     * does; zooming is a pinch gesture (delivered as ctrl+wheel on
+     * trackpads), a two-finger touch pinch, ctrl + wheel, or the +/-
+     * buttons for devices with none of those
+     */
     svg.addEventListener('wheel', e => {
-        e.preventDefault();
-        const rect = svg.getBoundingClientRect();
-        const mx = geoMap.vb.x + (e.clientX - rect.left) / rect.width * geoMap.vb.w;
-        const my = geoMap.vb.y + (e.clientY - rect.top) / rect.height * geoMap.vb.h;
-        const k = e.deltaY < 0 ? 0.8 : 1.25;
-        const nw = Math.min(GEO_W, Math.max(16, geoMap.vb.w * k));
-        const nh = nw;
+        const mult = e.deltaMode === 1 ? 16 : 1;
 
-        geoMap.vb = {
-            x: mx - (mx - geoMap.vb.x) * (nw / geoMap.vb.w),
-            y: my - (my - geoMap.vb.y) * (nh / geoMap.vb.h),
-            w: nw, h: nh
-        };
+        e.preventDefault();
+
+        if (e.ctrlKey) {
+            const k = Math.max(0.5, Math.min(2,
+                    Math.exp(-e.deltaY * mult * 0.01)));
+
+            geoZoomAt(e.clientX, e.clientY, k);
+
+            return;
+        }
+
+        const rect = svg.getBoundingClientRect();
+
+        geoMap.vb.x += e.deltaX * mult * (geoMap.vb.w / rect.width);
+        geoMap.vb.y += e.deltaY * mult * (geoMap.vb.h / rect.height);
         geoClampVB();
         geoApplyVB();
     }, { passive: false });
 
-    /* drag to pan */
-    let pan = null;
-    svg.addEventListener('pointerdown', e => {
-        pan = { x: e.clientX, y: e.clientY, vb: { ...geoMap.vb } };
-        svg.setPointerCapture(e.pointerId);
-    });
-    svg.addEventListener('pointermove', e => {
-        if (!pan) return;
-        const rect = svg.getBoundingClientRect();
+    /* one pointer drags; two pointers pinch */
+    const pointers = new Map();
+    let drag = null, pinchDist = 0;
 
-        geoMap.vb.x = pan.vb.x - (e.clientX - pan.x) / rect.width * pan.vb.w;
-        geoMap.vb.y = pan.vb.y - (e.clientY - pan.y) / rect.height * pan.vb.h;
-        geoClampVB();
-        geoApplyVB();
+    svg.addEventListener('pointerdown', e => {
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        svg.setPointerCapture(e.pointerId);
+
+        if (pointers.size === 1) {
+            drag = { x: e.clientX, y: e.clientY, vb: { ...geoMap.vb } };
+            pinchDist = 0;
+        } else if (pointers.size === 2) {
+            const [p1, p2] = [...pointers.values()];
+
+            drag = null;
+            pinchDist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        }
     });
-    const endPan = () => { pan = null; };
-    svg.addEventListener('pointerup', endPan);
-    svg.addEventListener('pointercancel', endPan);
+
+    svg.addEventListener('pointermove', e => {
+        if (!pointers.has(e.pointerId))
+            return;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+        if (pointers.size === 2 && pinchDist > 0) {
+            const [p1, p2] = [...pointers.values()];
+            const d = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+
+            if (d > 0)
+                geoZoomAt((p1.x + p2.x) / 2, (p1.y + p2.y) / 2,
+                          d / pinchDist);
+            pinchDist = d;
+
+            return;
+        }
+
+        if (drag) {
+            const rect = svg.getBoundingClientRect();
+
+            geoMap.vb.x = drag.vb.x -
+                    (e.clientX - drag.x) / rect.width * drag.vb.w;
+            geoMap.vb.y = drag.vb.y -
+                    (e.clientY - drag.y) / rect.height * drag.vb.h;
+            geoClampVB();
+            geoApplyVB();
+        }
+    });
+
+    const endPointer = e => {
+        pointers.delete(e.pointerId);
+
+        if (pointers.size < 2)
+            pinchDist = 0;
+        if (!pointers.size) {
+            drag = null;
+
+            return;
+        }
+
+        const p = [...pointers.values()][0];
+
+        drag = { x: p.x, y: p.y, vb: { ...geoMap.vb } };
+    };
+    svg.addEventListener('pointerup', endPointer);
+    svg.addEventListener('pointercancel', endPointer);
+
+    /* fallback zoom buttons for pointers that cannot pinch */
+    const wrap = document.getElementById('geo-map-wrap');
+    const zoomCenter = () => {
+        const r = wrap.getBoundingClientRect();
+
+        return [r.left + r.width / 2, r.top + r.height / 2];
+    };
+    const zin = document.getElementById('geo-zoom-in');
+    const zout = document.getElementById('geo-zoom-out');
+    if (zin)
+        zin.onclick = () => geoZoomAt(...zoomCenter(), 1.5);
+    if (zout)
+        zout.onclick = () => geoZoomAt(...zoomCenter(), 1 / 1.5);
 }
 
 /*
@@ -1130,15 +1215,14 @@ function renderGeoMap() {
     if (!geoMap)
         return;
 
-    geoMap.markerGroups.forEach(g => { g.innerHTML = ''; });
+    geoMap.markers.innerHTML = '';
 
     const inv = window.ipInventory || [];
     let placed = 0;
 
     inv.forEach(ifc => {
         if (!ifc || !ifc.geo) return;
-        geoMap.markerGroups.forEach(g =>
-            g.appendChild(geoMarker(ifc)));
+        geoMap.markers.appendChild(geoMarker(ifc));
         placed++;
     });
 

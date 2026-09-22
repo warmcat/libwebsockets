@@ -1097,6 +1097,7 @@ body.is-disconnected .app-container {
 }
 
 .geo-map-wrap {
+  position: relative;
   width: 100%;
   height: 380px;
   border: 1px solid var(--panel-border);
@@ -1105,6 +1106,32 @@ body.is-disconnected .app-container {
   background: rgba(0, 0, 0, 0.25);
   touch-action: none;
   cursor: grab;
+}
+
+.geo-zoom {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.geo-zbtn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text-primary, #eee);
+  font-size: 1.1em;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.geo-zbtn:hover {
+  background: rgba(80, 80, 80, 0.75);
 }
 
 .geo-map-wrap:active {

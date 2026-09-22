@@ -69,8 +69,12 @@
                 </div>
                 <div class="geo-map-wrap" id="geo-map-wrap">
                     <svg id="geo-map" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet" aria-label="World map of monitored servers"></svg>
+                    <div class="geo-zoom">
+                        <button id="geo-zoom-in" class="geo-zbtn" aria-label="Zoom in" title="Zoom in">+</button>
+                        <button id="geo-zoom-out" class="geo-zbtn" aria-label="Zoom out" title="Zoom out">&minus;</button>
+                    </div>
                 </div>
-                <div class="geo-help">Scroll to zoom, drag to pan. Solid markers are placed by LOC records; outlined markers are estimated from address country data.</div>
+                <div class="geo-help">Scroll or drag to pan, pinch or ctrl+scroll to zoom (+/&minus; buttons if you have neither). Solid markers are placed by LOC records; outlined markers are estimated from address country data.</div>
             </section>
             <section class="panel ip-inventory-panel" id="ip-inventory-panel">
                 <div class="panel-header">
@@ -333,6 +337,6 @@
     <!-- Notification Toast -->
     <div id="toast" class="toast"></div>
 
-    <script src="monitor.js?v=22"></script>
+    <script src="monitor.js?v=23"></script>
 </body>
 </html>
