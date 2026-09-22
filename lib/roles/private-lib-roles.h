@@ -428,6 +428,18 @@ enum lws_wsi_event {
 	LWS_WSIEV_FILE_READ_DONE,	/* the worker returned it */
 	LWS_WSIEV_FILE_COMPLETE,	/* the whole file went out */
 
+	/* client transaction */
+	LWS_WSIEV_SOCKET_CONNECTED,	/* tcp up, tls (if any) not yet */
+	LWS_WSIEV_QUEUED,		/* waiting on an existing connection */
+	LWS_WSIEV_REQ_ISSUE,		/* this connection sends a request now */
+	LWS_WSIEV_REQ_HDRS_SENT,	/* request headers out, nothing follows */
+	LWS_WSIEV_REQ_HDRS_SENT_BODY,	/* request headers out, body to follow */
+	LWS_WSIEV_REQ_BODY_SENT,	/* the request body all went out */
+	LWS_WSIEV_RESP_INTERIM,		/* a 1xx, the real response is pending */
+	LWS_WSIEV_CONN_REUSED,		/* an idle connection gets a new stream */
+	LWS_WSIEV_MQTT_CONNECT_SENT,
+	LWS_WSIEV_MQTT_CONNACK,
+
 	LWS_WSIEV_COUNT
 };
 

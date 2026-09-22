@@ -76,7 +76,7 @@ lws_raw_skt_connect(struct lws *wsi)
 	}
 
 	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-	lwsi_set_state(wsi, LRS_ESTABLISHED);
+	lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 
 	return 1; /* success */
 }
@@ -165,7 +165,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 				lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
 				goto fail;
 			case LW5CHS_RET_STARTHS:
-				lwsi_set_state(wsi, LRS_ESTABLISHED);
+				lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 				lws_client_connect_4_established(wsi, NULL, 0);
 
 				/*

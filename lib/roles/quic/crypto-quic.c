@@ -1162,7 +1162,7 @@ error_handling:
 			lws_quic_server_idle_check(wsi->quic.qn->nwsi);
 		}
 
-		lwsi_set_state(wsi, LRS_ESTABLISHED);
+		lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 
 #if defined(LWS_WITH_TLS)
 		{

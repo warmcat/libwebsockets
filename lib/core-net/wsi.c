@@ -1695,7 +1695,7 @@ int _lws_generic_transaction_completed_active_conn(struct lws **_wsi,
 		 */
 idle:
 		lwsl_wsi_info(wsi, "nothing pipelined waiting");
-		lwsi_set_state(wsi, LRS_IDLING);
+		lws_wsi_event(wsi, LWS_WSIEV_TXN_COMPLETED);
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_CONN_IDLE, wsi->keep_warm_secs);
 
@@ -2319,7 +2319,7 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 			    wsi->h2.h2n->peer_set.s[H2SET_MAX_CONCURRENT_STREAMS])
 				break;
 
-			lwsi_set_state(w, LRS_H1C_ISSUE_HANDSHAKE2);
+			lws_wsi_event(w, LWS_WSIEV_REQ_ISSUE);
 
 			/* remove ourselves from client queue */
 			lws_dll2_remove(&w->dll2_cli_txn_queue);
@@ -2342,7 +2342,7 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 
 			lwsl_wsi_notice(w, "cli pipeq to be h3");
 
-			lwsi_set_state(w, LRS_H1C_ISSUE_HANDSHAKE2);
+			lws_wsi_event(w, LWS_WSIEV_REQ_ISSUE);
 
 			/* remove ourselves from client queue */
 			lws_dll2_remove(&w->dll2_cli_txn_queue);

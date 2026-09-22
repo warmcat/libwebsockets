@@ -307,7 +307,7 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 #if defined(LWS_WITH_SOCKS5)
 start_ws_handshake:
 #endif
-		lwsi_set_state(wsi, LRS_MQTTC_IDLE);
+		lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
 				(int)context->timeout_secs);
 
@@ -328,7 +328,7 @@ start_ws_handshake:
 		if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
 			return -1;
 
-		lwsi_set_state(wsi, LRS_MQTTC_AWAIT_CONNACK);
+		lws_wsi_event(wsi, LWS_WSIEV_MQTT_CONNECT_SENT);
 		return 0;
 
 	case LRS_ESTABLISHED:

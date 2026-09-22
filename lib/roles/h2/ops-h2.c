@@ -1896,7 +1896,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			 */
 			if (lwsi_state(w) == LRS_ISSUE_HTTP_BODY &&
 			    !w->client_http_body_pending) {
-				lwsi_set_state(w, LRS_WAITING_SERVER_REPLY);
+				lws_wsi_event(w, LWS_WSIEV_REQ_BODY_SENT);
 				lws_set_timeout(w,
 					PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 					(int)w->a.context->timeout_secs);

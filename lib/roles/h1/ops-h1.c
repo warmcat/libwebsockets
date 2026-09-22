@@ -1037,7 +1037,7 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 			/* a 1xx interim rewinds to here */
 			lws_header_table_rx_snapshot(wsi);
 #endif
-			lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
+			lws_wsi_event(wsi, LWS_WSIEV_REQ_BODY_SENT);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 					(int)wsi->a.context->timeout_secs);
 

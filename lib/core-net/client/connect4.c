@@ -174,7 +174,7 @@ send_hs:
 		 * send their headers until we decide later.
 		 */
 
-		lwsi_set_state(wsi, LRS_H2_WAITING_TO_SEND_HEADERS);
+		lws_wsi_event(wsi, LWS_WSIEV_QUEUED);
 
 		/*
 		 * we can't send our headers directly, because they have to
@@ -207,8 +207,7 @@ send_hs:
 		    ) {
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-			if (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE2)
-				lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE);
+			lws_wsi_event(wsi, LWS_WSIEV_SOCKET_CONNECTED);
 #endif
 		} else {
 			/* for a method = "RAW" connection, this makes us
@@ -256,10 +255,7 @@ send_hs:
 					    wsi->client_h2_alpn);
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-				if (lwsi_state(wsi) !=
-						LRS_H2_WAITING_TO_SEND_HEADERS)
-					lwsi_set_state(wsi,
-						LRS_H1C_ISSUE_HANDSHAKE2);
+				lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 #endif
 				lws_set_timeout(wsi,
 					PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
@@ -307,8 +303,7 @@ send_hs:
 					return wsi;
 				}
 #endif
-				lwsl_wsi_info(wsi, "settings LRS_MQTTC_IDLE");
-				lwsi_set_state(wsi, LRS_MQTTC_IDLE);
+				lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 
 				/*
 				 * provoke service to issue the CONNECT
@@ -336,8 +331,7 @@ send_hs:
 				return wsi;
 			}
 #endif
-			lwsl_wsi_info(wsi, "setting ESTABLISHED");
-			lwsi_set_state(wsi, LRS_ESTABLISHED);
+			lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 
 			return wsi;
 		}

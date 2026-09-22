@@ -3620,7 +3620,7 @@ lws_h2_client_handshake(struct lws *wsi)
 	 * stream has tx credit / POLLOUT, before the event loop ticks.
 	 */
 	if (wsi->client_http_body_pending) {
-		lwsi_set_state(wsi, LRS_ISSUE_HTTP_BODY);
+		lws_wsi_event(wsi, LWS_WSIEV_REQ_HDRS_SENT_BODY);
 		lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
 				(int)wsi->a.context->timeout_secs);
 		lws_callback_on_writable(wsi);
@@ -3636,7 +3636,7 @@ lws_h2_client_handshake(struct lws *wsi)
 	 * had no timeout at all.  lws_client_interpret_server_handshake()
 	 * clears the timeout and moves to LRS_ESTABLISHED on the response.
 	 */
-	lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
+	lws_wsi_event(wsi, LWS_WSIEV_REQ_HDRS_SENT);
 	lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 			(int)wsi->a.context->timeout_secs);
 

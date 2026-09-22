@@ -30,7 +30,7 @@ lws_ws_proxy_est_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws *wsi = lws_container_of(sul, struct lws, sul_ws_proxy_est);
 
-	lwsi_set_state(wsi, LRS_ESTABLISHED);
+	/* ws established since the upgrade; only the callback was held back */
 
 	if (wsi->a.protocol->callback)
 		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
@@ -918,11 +918,6 @@ int
 lws_server_init_wsi_for_ws(struct lws *wsi)
 {
 	int n;
-
-#if defined(LWS_WITH_HTTP_PROXY)
-	if (!wsi->proxied_ws_parent) 
-		lwsi_set_state(wsi, LRS_ESTABLISHED);
-#endif
 
 	/*
 	 * create the frame buffer for this connection according to the

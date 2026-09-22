@@ -574,7 +574,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			goto oom4;
 		}
 
-		lwsi_set_state(wsi, LRS_UNCONNECTED);
+		lwsi_set_transport(wsi, LTS_NONE);
 		lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_connect_timeout,
 				 lws_client_dns_retry_timeout,
 						 LWS_USEC_PER_SEC);

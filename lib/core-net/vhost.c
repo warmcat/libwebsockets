@@ -2273,7 +2273,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 					 * muxing, and drop the keep-warm idle timeout
 					 * since it is no longer idle.
 					 */
-					lwsi_set_state(w, LRS_ESTABLISHED);
+					lws_wsi_event(w, LWS_WSIEV_CONN_REUSED);
 					lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
 				}
 
@@ -2316,7 +2316,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 					 * mux connection must leave LRS_IDLING so its
 					 * POLLOUT is serviced and the new stream's
 					 * headers get sent. */
-					lwsi_set_state(w, LRS_ESTABLISHED);
+					lws_wsi_event(w, LWS_WSIEV_CONN_REUSED);
 					lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
 				}
 
@@ -2370,8 +2370,18 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			lws_dll2_add_tail(&wsi->dll2_cli_txn_queue,
 					  &w->dll2_cli_txn_queue_owner);
 
-			if (lwsi_state(w) == LRS_IDLING)
+			if (lwsi_state(w) == LRS_IDLING) {
 				_lws_generic_transaction_completed_active_conn(&w, 0);
+
+				/*
+				 * An idle h1 leader with us as its only queued
+				 * transaction hands us its connection right away
+				 * and dies: we are off the queue holding a live
+				 * socket, ready to send our request
+				 */
+				if (lws_dll2_is_detached(&wsi->dll2_cli_txn_queue))
+					lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
+			}
 
 			/*
 			 * For eg, h1 next we'd pipeline our headers out on him,

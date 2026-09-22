@@ -1458,9 +1458,10 @@ cmd_completion:
 				 */
 				lws_dll2_remove(&w->pre_natal);
 
-				lwsi_set_state(w, LRS_ESTABLISHED);
-				lwsi_set_state(wsi, LRS_ESTABLISHED);
-				lwsi_set_role(w, lwsi_role(wsi));
+				/* the child takes our side and role in one write */
+				lws_role_transition(w, LWSIFR_CLIENT, LRS_ESTABLISHED,
+						    wsi->role_ops);
+				lws_wsi_event(wsi, LWS_WSIEV_MQTT_CONNACK);
 
 #if defined(LWS_WITH_CLIENT)
 				w->flags = wsi->flags;

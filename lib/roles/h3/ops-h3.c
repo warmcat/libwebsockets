@@ -241,8 +241,7 @@ lws_h3_client_handshake(struct lws *wsi)
 	if (n != lws_ptr_diff(p, start))
 		return -1;
 
-	/* Update WSI state */
-	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_ESTABLISHED, &role_ops_h3);
+	/* the caller says what follows: a body, or the response */
 
 	return 0;
 }
@@ -404,12 +403,6 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 #endif
 #endif
 
-	if (lwsi_state(wsi) == LRS_H2_AWAIT_PREFACE) {
-		lwsi_set_state(wsi, LRS_H2_WAITING_TO_SEND_HEADERS);
-		lwsl_wsi_info(wsi, "rops_perform_user_POLLOUT_h3: advanced to LRS_H2_WAITING_TO_SEND_HEADERS");
-		/* fall through to let it send headers now */
-	}
-
 	if (lwsi_state(wsi) == LRS_H2_WAITING_TO_SEND_HEADERS) {
 #if defined(LWS_WITH_CLIENT)
 		struct lws *nwsi = lws_get_quic_network_wsi(wsi);
@@ -452,7 +445,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 		 * framed/flushed (the peer saw an empty body).
 		 */
 		if (wsi->client_http_body_pending) {
-			lwsi_set_state(wsi, LRS_ISSUE_HTTP_BODY);
+			lws_wsi_event(wsi, LWS_WSIEV_REQ_HDRS_SENT_BODY);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
 					(int)wsi->a.context->timeout_secs);
 			lws_callback_on_writable(wsi);
@@ -467,16 +460,14 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 		 * desync fails cleanly here instead of hanging on an otherwise-
 		 * live QUIC connection forever.
 		 *
-		 * LRS_WAITING_SERVER_REPLY is chosen (rather than staying in
-		 * LRS_ESTABLISHED, which lws_h3_client_handshake() just set) so
-		 * that, if the timeout fires, lws_sul_wsitimeout_cb() delivers the
+		 * If the timeout fires, lws_sul_wsitimeout_cb() delivers the
 		 * informative LWS_CALLBACK_CLIENT_CONNECTION_ERROR "Timed out
 		 * waiting server reply" that H1 clients get.  On the first response
 		 * bytes the timeout is cleared and the state advanced to
 		 * LRS_ESTABLISHED by lws_client_interpret_server_handshake()
 		 * (client-http.c).
 		 */
-		lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
+		lws_wsi_event(wsi, LWS_WSIEV_REQ_HDRS_SENT);
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 				(int)wsi->a.context->timeout_secs);
 #endif
@@ -561,7 +552,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 			return m;
 
 		if (!wsi->client_http_body_pending) {
-			lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
+			lws_wsi_event(wsi, LWS_WSIEV_REQ_BODY_SENT);
 			lws_set_timeout(wsi,
 					PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 					(int)wsi->a.context->timeout_secs);

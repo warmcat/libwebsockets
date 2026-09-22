@@ -269,7 +269,6 @@ start_ws_handshake_l:
 					goto bail3_l;
 				}
 
-		//	lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
 					(int)context->timeout_secs);
 
@@ -323,7 +322,7 @@ hs2:
 
 		if (wsi->client_http_body_pending || lws_has_buffered_out(wsi)) {
 			lwsl_debug("body pending\n");
-			lwsi_set_state(wsi, LRS_ISSUE_HTTP_BODY);
+			lws_wsi_event(wsi, LWS_WSIEV_REQ_HDRS_SENT_BODY);
 			lws_set_timeout(wsi,
 					PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
 					(int)context->timeout_secs);
@@ -339,7 +338,7 @@ hs2:
 			break;
 		}
 
-		lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
+		lws_wsi_event(wsi, LWS_WSIEV_REQ_HDRS_SENT);
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 				(int)wsi->a.context->timeout_secs);
@@ -369,7 +368,8 @@ client_http_body_sent:
 		wsi->stream.ah->unk_pos = 0;
 		lws_header_table_rx_snapshot(wsi);
 #endif
-		lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
+		if (lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY)
+			lws_wsi_event(wsi, LWS_WSIEV_REQ_BODY_SENT);
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 				(int)context->timeout_secs);
 		break;
@@ -591,7 +591,7 @@ lws_http_transaction_completed_client(struct lws *wsi)
 
 	/* If we're (re)starting on headers, need other implied init */
 	wsi->stream.ah->ues = URIES_IDLE;
-	lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
+	lws_wsi_event(wsi, LWS_WSIEV_REQ_ISSUE);
 
 	lwsl_info("%s: %s: new queued transaction\n", __func__, lws_wsi_tag(wsi));
 	lws_callback_on_writable(wsi);
@@ -1305,7 +1305,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 						goto bail3_l;
 
 			wsi->stream.ah->ues = URIES_IDLE;
-			lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
+			lws_wsi_event(wsi, LWS_WSIEV_REQ_ISSUE);
 			lws_callback_on_writable(wsi);
 			return 0;
 		}
@@ -1351,7 +1351,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			      n);
 		lws_header_table_rx_rewind(wsi);
 		/* the role transition above already moved us to ESTABLISHED */
-		lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
+		lws_wsi_event(wsi, LWS_WSIEV_RESP_INTERIM);
 		lws_validity_confirmed(wsi);
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 				(int)wsi->a.context->timeout_secs);

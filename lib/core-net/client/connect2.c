@@ -326,8 +326,6 @@ lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 					wsi->user_space, NULL, 0))
 				goto failed1;
 
-			//lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
-			//lwsi_set_state(w, LRS_ESTABLISHED);
 			lws_callback_on_writable(wsi);
 		}
 
@@ -336,13 +334,7 @@ lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 		lwsl_wsi_debug(wsi, "ACTIVE_CONNS_QUEUED st 0x%x: ",
 							lwsi_state(wsi));
 
-		if (lwsi_state(wsi) == LRS_UNCONNECTED) {
-			if (lwsi_role_h2(w) || (w->role_ops && !strcmp(w->role_ops->name, "quic")))
-				lwsi_set_state(wsi,
-					       LRS_H2_WAITING_TO_SEND_HEADERS);
-			else
-				lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
-		}
+		/* lws_client_connect_4_established() queues us on it */
 
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
