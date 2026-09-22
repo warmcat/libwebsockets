@@ -103,13 +103,6 @@ if (LWS_PLAT_FREERTOS)
 
 		    list(APPEND CMAKE_REQUIRED_INCLUDES ${LWS_ESP_IDF_DIRS})
 
-		# Inherit the include dirs and config-file defines
-		# (MBEDTLS_CONFIG_FILE, TF_PSA_CRYPTO_CONFIG_FILE) IDF gives
-		# its own mbedtls consumers, so lws sees the same mbedtls
-		# configuration the rest of the firmware was built with.
-		if (TARGET idf::mbedtls)
-			list(APPEND LIB_LIST idf::mbedtls)
-		endif()
 	endif()
 
 	
@@ -423,6 +416,16 @@ foreach (lib ${LWS_LIBRARIES})
 	#	target_link_libraries(${lib} PRIVATE ${LIB_LIST})
 	target_link_libraries(${lib} ${STRIPPED_LIB_LIST})
 
+	# On ESP-IDF, inherit the include dirs and config-file defines
+	# (MBEDTLS_CONFIG_FILE, TF_PSA_CRYPTO_CONFIG_FILE) IDF gives its
+	# own mbedtls consumers, so lws sees the same mbedtls configuration
+	# the rest of the firmware was built with.  Linked here directly
+	# rather than via LIB_LIST, since LIB_LIST also feeds
+	# CMAKE_REQUIRED_LIBRARIES and the try_compile scratch projects
+	# cannot see IDF's targets.
+	if (LWS_PLAT_FREERTOS AND ESP_PLATFORM AND TARGET idf::mbedtls)
+		target_link_libraries(${lib} idf::mbedtls)
+	endif()
 endforeach()
 
 #
