@@ -338,6 +338,7 @@ static const struct lws_state_edge lws_state_edges[] = {
 	{ "h1", "S", LRS_TXN_COMPLETED, LRS_HEADERS },
 	{ "h1", "S", LRS_DISCARD_BODY, LRS_TXN_COMPLETED },
 	{ "h1", "S", LRS_DOING_TRANSACTION, LRS_BODY },
+	{ "h1", "S", LRS_DOING_TRANSACTION, LRS_TXN_COMPLETED },	/* keep-alive GET answered inside the HTTP callback */
 	{ "h1", "S", LRS_ESTABLISHED, LRS_BODY },
 	{ "h1", "S", LRS_ESTABLISHED, LRS_TXN_COMPLETED },
 	{ "h1", "S", LRS_ESTABLISHED, LRS_DOING_TRANSACTION },

@@ -40,6 +40,11 @@
  * is discarded) rather than desynced.  The gated legs check both outcomes,
  * for GET and for POST, over h1 and h2.
  *
+ * A 302 from the server must be followed by the client on the same wsi:
+ * the wsi is retargeted, its connection torn down without the user hearing
+ * about it, and the request reissued on a fresh connection.  Checked over
+ * h1 and from an h2 stream.
+ *
  * The server echoes what it decoded: a summary line "len=<n> sum=<x>\n"
  * followed by n bytes of the same deterministic pattern the client sent,
  * so the client can confirm the server saw exactly the payload it sent, and
@@ -132,6 +137,13 @@ static const struct xcase cases[] = {
 	 */
 	{ "h1 GET, no body",
 	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0 },
+	/*
+	 * The server answers /redir-cl with a 302 to /echo-cl: the client must
+	 * follow it on the same wsi (a new connection underneath) and complete
+	 * the second request normally
+	 */
+	{ "h1 GET 302, redirect followed on the same wsi",
+	  "GET", "/redir-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0 },
 	{ "h1 POST Transfer-Encoding: gzip is refused with 501",
 	  "POST", "/echo-cl", XR_TE_BAD, 0, 0, 8192, 0, 0, 501, -1, XG_NONE, 0 },
 	{ "h1 POST Transfer-Encoding with Content-Length is refused with 400",
@@ -199,6 +211,8 @@ static const struct xcase cases[] = {
 	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 1, 0, 200, 20000, XG_NONE, 0 },
 	{ "h2 GET, no body",
 	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0 },
+	{ "h2 GET 302, redirect followed on the same wsi",
+	  "GET", "/redir-cl", XR_NONE, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0 },
 	{ "h2 POST with neither header: zero-length body",
 	  "POST", "/echo-cl", XR_NOLEN, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0 },
 	/*
@@ -525,6 +539,8 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct pss_srv *pss = (struct pss_srv *)user;
 	const char *path = (const char *)in;
+	uint8_t hbuf[LWS_PRE + 256], *hp = &hbuf[LWS_PRE],
+		*hend = &hbuf[sizeof(hbuf) - 1];
 	char *uri;
 	int n;
 
@@ -560,6 +576,16 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			pss->mode = RM_ONESHOT;
 
 		lwsl_user("%s: server: HTTP %s\n", __func__, path ? path : "");
+
+		if (path && strstr(path, "redir-cl")) {
+			/* send him to the echo path, no body */
+			if (lws_http_redirect(wsi, HTTP_STATUS_FOUND,
+					      (const unsigned char *)"/echo-cl",
+					      8, &hp, hend) < 0 ||
+			    lws_http_transaction_completed(wsi))
+				return -1;
+			return 0;
+		}
 
 		if (lws_http_get_uri_and_method(wsi, &uri, &n) == LWSHUMETH_POST)
 			/* the body decides the response, wait for it */
