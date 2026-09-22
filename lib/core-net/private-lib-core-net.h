@@ -1067,7 +1067,6 @@ struct lws {
 	unsigned int			handling_404:1;
 	unsigned int			protocol_bind_balance:1;
 	unsigned int			unix_skt:1;
-	unsigned int			close_when_buffered_out_drained:1;
 	unsigned int			h1_ws_proxied:1;
 	unsigned int			proxied_ws_parent:1;
 	unsigned int			do_bind:1;

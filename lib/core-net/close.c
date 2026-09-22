@@ -250,7 +250,7 @@ __lws_reset_wsi(struct lws *wsi)
 	wsi->h2_acked_settings = wsi->seen_nonpseudoheader =
 	wsi->favoured_pollin =
 	wsi->parent_pending_cb_on_writable = wsi->seen_zero_length_recv =
-	wsi->close_when_buffered_out_drained = wsi->could_have_pending = 0;
+	wsi->could_have_pending = 0;
 #endif
 
 #if defined(LWS_ROLE_QUIC)

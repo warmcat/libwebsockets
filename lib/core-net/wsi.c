@@ -1865,7 +1865,8 @@ int LWS_WARN_UNUSED_RESULT lws_raw_transaction_completed(struct lws *wsi) {
 		 */
 
 		lwsl_wsi_debug(wsi, "deferring due to partial");
-		wsi->close_when_buffered_out_drained = 1;
+		lwsi_set_close(wsi, LCS_FLUSHING_BEFORE_CLOSE);
+		lws_set_timeout(wsi, PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE, 5);
 		lws_callback_on_writable(wsi);
 
 		return 0;
