@@ -419,7 +419,8 @@ drain:
 		    lwsi_state(wsi) != LRS_DISCARD_BODY) {
 			n = lws_read_h2(wsi, ebuf.token, (unsigned int)ebuf.len);
 		} else
-			n = lws_read_h1(wsi, ebuf.token, (unsigned int)ebuf.len);
+			n = lws_read_h1(wsi, ebuf.token, (unsigned int)ebuf.len,
+					0);
 #if defined(LWS_WITH_LATENCY)
 		{
 			unsigned int ms = (unsigned int)((lws_now_usecs() - _h2_read_start) / 1000);

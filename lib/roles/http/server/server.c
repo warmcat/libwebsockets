@@ -3107,7 +3107,7 @@ deal_body:
 			break;
 
 		lwsl_debug("%s: consuming %d\n", __func__, (int)ebuf.len);
-		m = lws_read_h1(wsi, ebuf.token, (lws_filepos_t)ebuf.len);
+		m = lws_read_h1(wsi, ebuf.token, (lws_filepos_t)ebuf.len, 0);
 		if (m < 0)
 			return -1;
 

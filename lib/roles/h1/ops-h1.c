@@ -38,8 +38,17 @@
  * Returns <0 for error or length of chars consumed from buf (up to len)
  */
 
+/*
+ * caller_closes: the h2 / h3 frame parsers call us with the framing
+ * stripped, for the stream the frame belongs to.  When that read fails, it
+ * is the whole connection that comes down, and the outer parser does that
+ * close itself: we must not close the stream out from under it.  Every
+ * other caller expects us to have closed the wsi when we return -1.
+ */
+
 int
-lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
+lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len,
+	    int caller_closes)
 {
 	unsigned char *last_char, *oldbuf = buf;
 	lws_filepos_t body_chunk_len;
@@ -470,19 +479,7 @@ ws_mode:
 	return lws_ptr_diff(buf, oldbuf);
 
 bail:
-	/*
-	 * h2 / h2-ws calls us recursively in
-	 *
-	 * lws_read_h1()->
-	 *   lws_h2_parser()->
-	 *     lws_read_h1()
-	 *
-	 * pattern, having stripped the h2 framing in the middle.
-	 *
-	 * When taking down the whole connection, make sure that only the
-	 * outer lws_read() does the wsi close.
-	 */
-	if (!wsi->outer_will_close)
+	if (!caller_closes)
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 				   "lws_read_h1 bail");
 
@@ -632,7 +629,8 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 			n = lws_read_h2(wsi, ebuf.token, (unsigned int)ebuf.len);
 		else
 #endif
-			n = lws_read_h1(wsi, ebuf.token, (unsigned int)ebuf.len);
+			n = lws_read_h1(wsi, ebuf.token, (unsigned int)ebuf.len,
+					0);
 
 #if defined(LWS_WITH_LATENCY)
 		{

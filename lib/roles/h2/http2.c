@@ -3050,16 +3050,17 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 					goto do_windows;
 				}
 
-				h2n->swsi->outer_will_close = 1;
 				/*
 				 * choose the length for this go so that we end at
 				 * the frame boundary, in the case there is already
-				 * more waiting leave it for next time around
+				 * more waiting leave it for next time around.
+				 *
+				 * If the read fails, we close the connection below
+				 * ourselves: it must not close the stream
 				 */
 
-				n = lws_read_h1(h2n->swsi, in - 1, (unsigned int)n);
-				// lwsl_notice("%s: lws_read_h1 %d\n", __func__, n);
-				h2n->swsi->outer_will_close = 0;
+				n = lws_read_h1(h2n->swsi, in - 1, (unsigned int)n,
+						1);
 				/*
 				 * can return 0 in POST body with
 				 * content len exhausted somehow.

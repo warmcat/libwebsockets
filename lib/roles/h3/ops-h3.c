@@ -1592,9 +1592,8 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 								}
 							}
 
-							wsi->outer_will_close = 1;
-							n = lws_read_h1(wsi, (unsigned char *)buf, chunk);
-							wsi->outer_will_close = 0;
+							/* on failure we close, not the read */
+							n = lws_read_h1(wsi, (unsigned char *)buf, chunk, 1);
 							
 							if (n < 0) {
 								lwsl_wsi_info(wsi, "server side read failed");

@@ -473,9 +473,10 @@ lws_http_evaluate_interceptors(struct lws *wsi, const struct lws_http_mount *hit
 
 #if defined(LWS_ROLE_H1)
 int
-lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
+lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len,
+	    int caller_closes);
 #else
-#define lws_read_h1(_a, _b, _c) (0)
+#define lws_read_h1(_a, _b, _c, _d) (0)
 #endif
 
 /*
