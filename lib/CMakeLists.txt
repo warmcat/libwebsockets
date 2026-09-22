@@ -73,8 +73,21 @@ if (LWS_PLAT_FREERTOS)
 		    $ENV{IDF_PATH}/components/mdns/include
 		    $ENV{IDF_PATH}/components/lwip/lwip/src/include/lwip
 		    $ENV{IDF_PATH}/components/lwip/lwip/src/include
-		    $ENV{IDF_PATH}/components/lwip/lwip/src/include/lwip
-		    $ENV{IDF_PATH}/components/newlib/platform_include )
+		    $ENV{IDF_PATH}/components/lwip/lwip/src/include/lwip)
+
+		# IDF v6 renamed the newlib component to esp_libc; its
+		# platform_include carries esp_newlib.h / esp_libc.h and the
+		# libc override headers.  Pointing at the old dir on v6 loses
+		# those, so esp_newlib.h is not found and the toolchain's newlib
+		# sysroot headers get mixed in with picolibc's.
+		if (EXISTS $ENV{IDF_PATH}/components/esp_libc)
+			list(APPEND LWS_ESP_IDF_DIRS
+			    $ENV{IDF_PATH}/components/esp_libc/platform_include
+			    $ENV{IDF_PATH}/components/esp_libc/include)
+		else()
+			list(APPEND LWS_ESP_IDF_DIRS
+			    $ENV{IDF_PATH}/components/newlib/platform_include)
+		endif()
 
 		    include_directories(${LWS_ESP_IDF_DIRS})
 
