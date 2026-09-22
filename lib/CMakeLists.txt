@@ -416,22 +416,34 @@ foreach (lib ${LWS_LIBRARIES})
 	#	target_link_libraries(${lib} PRIVATE ${LIB_LIST})
 	target_link_libraries(${lib} ${STRIPPED_LIB_LIST})
 
-	# On ESP-IDF, inherit the include dirs and config-file defines
-	# (MBEDTLS_CONFIG_FILE, TF_PSA_CRYPTO_CONFIG_FILE) IDF gives its
-	# own mbedtls consumers, so lws sees the same mbedtls configuration
-	# the rest of the firmware was built with.  Copied across as
-	# PRIVATE usage requirements rather than linked: a link dependency
-	# would drag IDF's target into the install / build-tree exports
-	# below, which cannot describe it, and LIB_LIST is off limits since
-	# it also feeds the try_compile probes.  IDF links the mbedtls
-	# libraries into the firmware itself.
-	if (LWS_PLAT_FREERTOS AND ESP_PLATFORM AND TARGET idf::mbedtls)
-		target_include_directories(${lib} PRIVATE
-			$<TARGET_PROPERTY:idf::mbedtls,INTERFACE_INCLUDE_DIRECTORIES>)
-		target_compile_definitions(${lib} PRIVATE
-			$<TARGET_PROPERTY:idf::mbedtls,INTERFACE_COMPILE_DEFINITIONS>)
-		target_compile_options(${lib} PRIVATE
-			$<TARGET_PROPERTY:idf::mbedtls,INTERFACE_COMPILE_OPTIONS>)
+	# On ESP-IDF, inherit the include dirs and defines IDF gives its own
+	# consumers of the components lws uses, transitive requirements
+	# included, so lws stops depending on where each IDF release keeps
+	# its headers and sees the same mbedtls configuration
+	# (MBEDTLS_CONFIG_FILE, TF_PSA_CRYPTO_CONFIG_FILE) as the rest of
+	# the firmware.  Copied across as PRIVATE usage requirements rather
+	# than linked: a link dependency would drag IDF's targets into the
+	# install / build-tree exports below, which cannot describe them,
+	# and LIB_LIST is off limits since it also feeds the try_compile
+	# probes.  IDF links the component libraries into the firmware
+	# itself.  Components absent from this IDF are skipped.
+	if (LWS_PLAT_FREERTOS AND ESP_PLATFORM)
+		foreach(_c freertos esp_libc newlib lwip mbedtls spi_flash
+			   esp_hw_support hal soc esp_rom esp_system esp_common
+			   esp_timer heap log esp_wifi esp_event esp_netif
+			   esp_eth driver esp_driver_gpio esp_driver_spi
+			   esp_driver_ledc esp_partition app_update
+			   bootloader_support nvs_flash esp_app_format
+			   esp_bootloader_format esp_mm xtensa riscv)
+			if (TARGET idf::${_c})
+				target_include_directories(${lib} PRIVATE
+					$<TARGET_PROPERTY:idf::${_c},INTERFACE_INCLUDE_DIRECTORIES>)
+				target_compile_definitions(${lib} PRIVATE
+					$<TARGET_PROPERTY:idf::${_c},INTERFACE_COMPILE_DEFINITIONS>)
+				target_compile_options(${lib} PRIVATE
+					$<TARGET_PROPERTY:idf::${_c},INTERFACE_COMPILE_OPTIONS>)
+			endif()
+		endforeach()
 	endif()
 endforeach()
 
