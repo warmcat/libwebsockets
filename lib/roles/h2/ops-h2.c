@@ -1750,7 +1750,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				      LWS_WRITE_CLOSE);
 			if (n >= 0) {
 				/* we initiated it: wait for his ack */
-				lwsi_set_close(w, LCS_AWAITING_CLOSE_ACK);
+				lws_wsi_event(w, LWS_WSIEV_WS_CLOSE_SENT);
 				lws_set_timeout(w, PENDING_TIMEOUT_CLOSE_ACK, 5);
 				lwsl_debug("sent close frame, awaiting ack\n");
 			}
@@ -1796,10 +1796,12 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			/* well he is sent, mark him done */
 			w->ws->pong_pending_flag = 0;
 			if (w->ws->payload_is_close) {
-				/* oh... a close frame... then we are done */
+				/*
+				 * our answer to his CLOSE went (we have been in
+				 * RETURNED_CLOSE since it was parsed): done
+				 */
 				lwsl_debug("Ack'd peer's close packet\n");
 				w->ws->payload_is_close = 0;
-				lwsi_set_close(w, LCS_RETURNED_CLOSE);
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "returned close packet");
 				continue;

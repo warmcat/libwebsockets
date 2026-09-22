@@ -574,7 +574,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			goto oom4;
 		}
 
-		lwsi_set_transport(wsi, LTS_NONE);
+		lws_wsi_event(wsi, LWS_WSIEV_DNS_RETRY);
 		lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_connect_timeout,
 				 lws_client_dns_retry_timeout,
 						 LWS_USEC_PER_SEC);
@@ -1058,8 +1058,7 @@ ads_known:
                 }
 #endif
 
-		lwsl_wsi_debug(wsi, "WAITING_CONNECT");
-		lwsi_set_transport(wsi, LTS_WAITING_CONNECT);
+		lws_wsi_event(wsi, LWS_WSIEV_CONNECT_START);
 
 		if (is_parallel) {
 			wsi->parallel_conns[pidx].desc.sockfd = new_fd;

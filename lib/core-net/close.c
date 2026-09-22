@@ -475,7 +475,7 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 
 	lws_addrinfo_clean(wsi);
 
-	lwsi_set_transport(wsi, LTS_FAILED);
+	lws_wsi_event(wsi, LWS_WSIEV_CONN_FAILED);
 
 	if (!wsi->a.protocol || (wsi->a.context && wsi->a.context->being_destroyed))
 		return;
@@ -765,7 +765,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #endif
 		) {
 			lwsl_wsi_info(wsi, "LRS_FLUSHING_BEFORE_CLOSE");
-			lwsi_set_close(wsi, LCS_FLUSHING_BEFORE_CLOSE);
+			lws_wsi_event(wsi, LWS_WSIEV_CLOSE_FLUSH);
 			__lws_set_timeout(wsi,
 				PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE, 5);
 			return;
@@ -921,7 +921,7 @@ just_kill_connection:
 			case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
 				if (wsi->lsp_channel++ == 8) {
 					lwsl_wsi_info(wsi, "avoiding shutdown spin");
-					lwsi_set_close(wsi, LCS_SHUTDOWN);
+					lws_wsi_event(wsi, LWS_WSIEV_CLOSE_STAGED);
 				}
 				break;
 			}
@@ -954,7 +954,7 @@ just_kill_connection:
 		    lwsi_close(wsi) != LCS_SHUTDOWN &&
 		    (context->event_loop_ops->flags & LELOF_ISPOLL)) {
 			__lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
-			lwsi_set_close(wsi, LCS_SHUTDOWN);
+			lws_wsi_event(wsi, LWS_WSIEV_CLOSE_STAGED);
 			__lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
 					  (int)context->timeout_secs);
 
@@ -988,7 +988,7 @@ just_kill_connection:
 	/* checking return redundant since we anyway close */
 	__remove_wsi_socket_from_fds(wsi);
 
-	lwsi_set_close(wsi, LCS_DEAD_SOCKET);
+	lws_wsi_event(wsi, LWS_WSIEV_SOCKET_GONE);
 	lws_buflist_destroy_all_segments(&wsi->buflist);
 	lws_dll2_remove(&wsi->dll_buflist);
 
@@ -1050,7 +1050,7 @@ just_kill_connection:
 			pro->callback(wsi,
 				wsi->role_ops->close_cb[lwsi_role_server(wsi)],
 				wsi->user_space, NULL, 0);
-		lwsi_set_close(wsi, LCS_USER_TOLD);
+		lws_wsi_event(wsi, LWS_WSIEV_USER_TOLD);
 	}
 
 #if defined(LWS_ROLE_RAW_FILE)

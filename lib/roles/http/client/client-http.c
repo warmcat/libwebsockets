@@ -2736,7 +2736,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	 * hands the wsi back to the connect path instead of freeing it
 	 */
 
-	lwsi_set_transport(wsi, LTS_RESTARTING);
+	lws_wsi_event(wsi, LWS_WSIEV_RETARGET);
 
 	return *pwsi;
 }

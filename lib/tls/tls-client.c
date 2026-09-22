@@ -113,7 +113,7 @@ lws_ssl_client_connect1(struct lws *wsi, char *errbuf, size_t len)
 		lws_callback_on_writable(wsi);
 		/* fallthru */
 	case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-		lwsi_set_transport(wsi, LTS_WAITING_SSL);
+		lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
 		break;
 	}
 
@@ -146,7 +146,7 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 			lws_callback_on_writable(wsi);
 			/* fallthru */
 		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-			lwsi_set_transport(wsi, LTS_WAITING_SSL);
+			lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
 			/* fallthru */
 			return 0; /* retry */
 		}

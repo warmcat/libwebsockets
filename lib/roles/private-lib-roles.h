@@ -273,7 +273,8 @@ extern const enum lwsi_state lws_lrs_of_transport[16];
 #define lwsi_restarting(wsi) (lwsi_transport(wsi) == LTS_RESTARTING)
 
 void
-lwsi_set_transport(struct lws *wsi, enum lws_transport_phase phase);
+lws_wsi_set_transport_ev(struct lws *wsi, enum lws_transport_phase phase,
+			 const char *ev);
 
 /*
  * The carrier machine: the protocol handshake between transport and the
@@ -340,7 +341,8 @@ extern const enum lwsi_state lws_lrs_of_close[8];
 #define lwsi_set_close_started(wsi) wsi->wsistate |= LWSIFS_CLOSE_STARTED
 
 void
-lwsi_set_close(struct lws *wsi, enum lws_close_phase phase);
+lws_wsi_set_close_ev(struct lws *wsi, enum lws_close_phase phase,
+		     const char *ev);
 
 /*
  * The state as readers have always seen it: a close in progress overrides
@@ -459,6 +461,29 @@ enum lws_wsi_event {
 	LWS_WSIEV_WT_SESSION,		/* a webtransport session was agreed */
 	LWS_WSIEV_WT_STREAM,		/* a stream belongs to a webtransport session */
 	LWS_WSIEV_RAW_UPGRADED,		/* the http connection became raw */
+
+	/* transport machine */
+	LWS_WSIEV_DNS_START,
+	LWS_WSIEV_DNS_RETRY,		/* the lookup failed, try again later */
+	LWS_WSIEV_CONNECT_START,	/* a connect() is out */
+	LWS_WSIEV_PROXY_CONNECT_SENT,	/* http CONNECT sent to the proxy */
+	LWS_WSIEV_SOCKS_GREETING_SENT,
+	LWS_WSIEV_SOCKS_AUTH_SENT,
+	LWS_WSIEV_SOCKS_CONNECT_SENT,
+	LWS_WSIEV_TLS_START,		/* client tls handshake in progress */
+	LWS_WSIEV_TLS_ACCEPT_PENDING,	/* server tls accept in progress */
+	LWS_WSIEV_TLS_ACCEPT_QUEUED,	/* ... on a worker thread */
+	LWS_WSIEV_CONN_FAILED,		/* the user was told the connect failed */
+	LWS_WSIEV_RETARGET,		/* redirect / auth retry / fallback */
+
+	/* close machine */
+	LWS_WSIEV_WS_CLOSE_INITIATED,	/* we have a CLOSE frame to send */
+	LWS_WSIEV_WS_CLOSE_SENT,	/* ... it went, await the peer's */
+	LWS_WSIEV_WS_PEER_CLOSE,	/* the peer's CLOSE came first */
+	LWS_WSIEV_CLOSE_FLUSH,		/* drain buffered tx, then close */
+	LWS_WSIEV_CLOSE_STAGED,		/* half-closed, waiting for the FIN */
+	LWS_WSIEV_SOCKET_GONE,		/* out of the fd table */
+	LWS_WSIEV_USER_TOLD,		/* the CLOSED callback ran */
 
 	LWS_WSIEV_COUNT
 };

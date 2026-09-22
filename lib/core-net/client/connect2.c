@@ -566,7 +566,7 @@ solo:
 	 * prepare the actual connection
 	 * to whatever we decided to connect to
 	 */
-	lwsi_set_transport(wsi, LTS_WAITING_DNS);
+	lws_wsi_event(wsi, LWS_WSIEV_DNS_START);
 
 	lwsl_wsi_info(wsi, "lookup %s:%u", adsin, port);
 	wsi->conn_port = (uint16_t)port;

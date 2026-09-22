@@ -41,9 +41,9 @@ describes what they mean.
 |---|---|---|---|
 |0-9|the live state: the transaction machine's `LRS_` value with its `LWSIFS_POCB` / `LWSIFS_NOT_EST` qualifiers|`lwsi_state_live()`|`lws_wsi_event()`|
 |10|`LWSIFS_TXN_COMPLETING`: the transaction was completed while a partial write was outstanding|`lwsi_txn_completing()`|`lwsi_set_txn_completing()`|
-|12-14|close machine, `enum lws_close_phase` `LCS_*`|`lwsi_close()`|`lwsi_set_close()`|
+|12-14|close machine, `enum lws_close_phase` `LCS_*`|`lwsi_close()`|`lws_wsi_event()`, a row to a close phase|
 |15|`LWSIFS_CLOSE_STARTED`: `__lws_close_free_wsi()` has been entered|||
-|16-19|transport machine, `enum lws_transport_phase` `LTS_*`|`lwsi_transport()`|`lwsi_set_transport()`|
+|16-19|transport machine, `enum lws_transport_phase` `LTS_*`|`lwsi_transport()`|`lws_wsi_event()`, a row to a transport phase|
 |20-23|carrier machine, `enum lws_carrier_phase` `LCR_*`|`lwsi_carrier()`|`lws_wsi_event()` routes handshake states here|
 |24-29|role flags: client / server side, h2 encapsulation|`lwsi_role_*()`|`lws_wsi_event()`, a row that names a side|
 |30|`LWSIFS_SKT_UNUSABLE`: the socket is known dead, take the abortive close path|`lwsi_skt_unusable()`|`lwsi_set_skt_unusable()`|
@@ -241,7 +241,7 @@ live state, or a live state with the carrier marked established.
 |option|effect|
 |---|---|
 |`LWS_WITH_STATE_TRACE`|append each distinct `(role, state) -> (role, state)` edge the process performs, once, to `$LWS_STATE_TRACE_FILE` (stderr if unset), as `LRS h1/S:HEADERS -> h1/S:ESTABLISHED set_state <wsi tag>`.  Attributes show as `+completing`, `+unusable`, `+failed`, `+restarting`, `+told`.|
-|`LWS_WITH_STATE_CHECK`|look every edge up: a live-state edge in the event table, a transport or close edge in the phase table, a role change must carry an event or be a birth; `abort()` on one that is not listed or that breaks an invariant, logging `unlisted wsi state edge ...` or `invariant broken on wsi state edge ...`; an event with no row aborts too|
+|`LWS_WITH_STATE_CHECK`|look every edge up: a live-state edge must be one the event table produces, a phase or role change must carry an event's name (the engine made it from a row) or be a birth; `abort()` on one that is not, or that breaks an invariant, logging `unlisted wsi state edge ...` or `invariant broken on wsi state edge ...`; an event with no row aborts too|
 
 Both are off by default and change nothing about what any transition does.
 To regenerate the observed edge set, build with the trace on and run
@@ -250,11 +250,11 @@ To regenerate the observed edge set, build with the trace on and run
 LWS_STATE_TRACE_FILE=/tmp/edges.txt ctest
 ```
 
-then `sort -u` the file; the phase table in `wsi-state.c` is the union of
-that over the ctest suite and the fuzz seed corpus, plus the statically
-present edges nothing reaches (marked as such, each citing its site), and
-the event table is the transition function itself.  A new edge is either
-an omission in a table or a bug at the site.
+then `sort -u` the file.  The event table in `wsi-state.c` is the
+transition function itself; its rows were derived from the observed edge
+set over the ctest suite and the fuzz seed corpus plus the statically
+present edges nothing reaches.  A new edge is either an omission in the
+table or a bug at the site.
 
 ## Events
 
@@ -269,13 +269,17 @@ upgrade asked for) are distinct events instead, so the information is in
 the word rather than in a bool beside it.  An event with no row is a bug
 at the site: the state is left alone, an error is logged, and
 `LWS_WITH_STATE_CHECK` aborts.  The trace shows the event on each edge as
-`ev=NAME`.  Nothing else writes a live state, a role or a side: there is
-no setter for them outside `wsi-state.c`, only the events, and a wsi's
-birth.
+`ev=NAME`.  Nothing else writes any of the four machines, a role or a
+side: there is no setter for them outside `wsi-state.c`, only the events,
+and a wsi's birth.
 
-For the transport and close machines every site corresponds to exactly one
-phase, so the phase name is the event name and they keep their phase
-setters.
+The transport and close machines are driven the same way: a row whose
+target is a transport or close phase (`XT()` / `XC()` in the table) sets
+that machine's bits, over whatever the others were doing.  Their events
+read as what happened on the wire or in the close flow: `DNS_START`,
+`CONNECT_START`, `TLS_START`, `TLS_ACCEPT_PENDING`, `CONN_FAILED`,
+`RETARGET`; `WS_CLOSE_INITIATED`, `WS_CLOSE_SENT`, `WS_PEER_CLOSE`,
+`CLOSE_FLUSH`, `CLOSE_STAGED`, `SOCKET_GONE`, `USER_TOLD`.
 
 The events, with the states they lead to:
 

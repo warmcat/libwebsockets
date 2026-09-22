@@ -271,7 +271,7 @@ lws_socks5c_greet(struct lws *wsi, const char **pcce)
 	lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SOCKS_GREETING_REPLY,
 			(int)wsi->a.context->timeout_secs);
 
-	lwsi_set_transport(wsi, LTS_WAITING_SOCKS_GREETING_REPLY);
+	lws_wsi_event(wsi, LWS_WSIEV_SOCKS_GREETING_SENT);
 
 	return 1;
 }
@@ -281,7 +281,7 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 			 const char **pcce)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	enum lws_transport_phase conn_mode = LTS_NONE;
+	enum lws_wsi_event sent = LWS_WSIEV_COUNT;
 	int pending_timeout = 0;
 	ssize_t len;
 	int n;
@@ -336,7 +336,7 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 				lwsl_wsi_err(wsi, "generate connect msg fail");
 				goto socks_send_msg_fail_l;
 			}
-			conn_mode = LTS_WAITING_SOCKS_CONNECT_REPLY;
+			sent = LWS_WSIEV_SOCKS_CONNECT_SENT;
 			pending_timeout =
 			   PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY;
 			goto socks_send_l;
@@ -348,7 +348,7 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 					   SOCKS_MSG_USERNAME_PASSWORD,
 					   &len))
 				goto socks_send_msg_fail_l;
-			conn_mode = LTS_WAITING_SOCKS_AUTH_REPLY;
+			sent = LWS_WSIEV_SOCKS_AUTH_SENT;
 			pending_timeout =
 			      PENDING_TIMEOUT_AWAITING_SOCKS_AUTH_REPLY;
 			goto socks_send_l;
@@ -365,7 +365,7 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 		if (lws_socks5c_generate_msg(wsi, SOCKS_MSG_CONNECT, &len)) {
 			goto socks_send_msg_fail_l;
 		}
-		conn_mode = LTS_WAITING_SOCKS_CONNECT_REPLY;
+		sent = LWS_WSIEV_SOCKS_CONNECT_SENT;
 		pending_timeout =
 			   PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY;
 		goto socks_send_l;
@@ -409,7 +409,7 @@ socks_send_l:
 
 	lws_set_timeout(wsi, (enum pending_timeout)pending_timeout,
 			(int)wsi->a.context->timeout_secs);
-	lwsi_set_transport(wsi, conn_mode);
+	lws_wsi_event(wsi, sent);
 	return LW5CHS_RET_NOTHING;
 
 socks_send_msg_fail_l:

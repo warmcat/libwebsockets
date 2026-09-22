@@ -677,7 +677,7 @@ spill:
 			lwsl_wsi_info(wsi, "scheduling return close as ack");
 			__lws_change_pollfd(wsi, LWS_POLLIN, 0);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 3);
-			lwsi_set_close(wsi, LCS_RETURNED_CLOSE);
+			lws_wsi_event(wsi, LWS_WSIEV_WS_PEER_CLOSE);
 			wsi->ws->payload_is_close = 1;
 			memcpy(wsi->ws->pong_payload_buf + LWS_PRE, pp,
 			       wsi->ws->rx_ubuf_head);

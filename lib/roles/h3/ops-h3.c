@@ -492,7 +492,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 #endif
 		) {
 			lwsl_wsi_notice(wsi, "closing stream after h3 action completed (%d)", n);
-			lwsi_set_close(wsi, LCS_FLUSHING_BEFORE_CLOSE);
+			lws_wsi_event(wsi, LWS_WSIEV_CLOSE_FLUSH);
 			return 0;
 		}
 		lwsl_debug("H3_TRACE: wsi %p lws_http_action returned 0 (success)\n", wsi);

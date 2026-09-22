@@ -540,7 +540,7 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 				return 1;
 		}
-		lwsi_set_transport(wsi, LTS_SSL_ACK_PENDING);
+		lws_wsi_event(wsi, LWS_WSIEV_TLS_ACCEPT_PENDING);
 		return 0;
 	}
 
@@ -671,7 +671,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 		 * as a live connection.  That way we can retry when more
 		 * pieces come if we're not sorted yet
 		 */
-		lwsi_set_transport(wsi, LTS_SSL_ACK_PENDING);
+		lws_wsi_event(wsi, LWS_WSIEV_TLS_ACCEPT_PENDING);
 
 		lws_pt_lock(pt, __func__);
 		if (__insert_wsi_socket_into_fds(context, wsi)) {
@@ -912,7 +912,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 
 				pthread_mutex_unlock(&context->async_worker_mutex);
 
-				lwsi_set_transport(wsi, LTS_AWAITING_SSL_ACCEPT);
+				lws_wsi_event(wsi, LWS_WSIEV_TLS_ACCEPT_QUEUED);
 				return 0;
 			}
 		}

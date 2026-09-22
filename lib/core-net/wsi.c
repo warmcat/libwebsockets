@@ -112,14 +112,15 @@ lws_lcr_of_lrs(lws_wsi_state_t lrs)
 #define lws_carrier_bits(lcr) ((lws_wsi_state_t)(lcr) << LWSI_CARRIER_SHIFT)
 
 void
-lwsi_set_transport(struct lws *wsi, enum lws_transport_phase phase)
+lws_wsi_set_transport_ev(struct lws *wsi, enum lws_transport_phase phase,
+			 const char *ev)
 {
 	lws_wsi_state_t old = wsi->wsistate;
 
 	wsi->wsistate = (old & ~LWSI_TRANSPORT_MASK) |
 			((lws_wsi_state_t)phase << LWSI_TRANSPORT_SHIFT);
 	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
-		       "set_transport", NULL);
+		       "set_transport", ev);
 
 	lwsl_wsi_debug(wsi, "lwsi_set_transport 0x%lx -> 0x%lx",
 			(unsigned long)old, (unsigned long)wsi->wsistate);
@@ -152,14 +153,15 @@ lwsi_set_skt_unusable(struct lws *wsi, int on)
 }
 
 void
-lwsi_set_close(struct lws *wsi, enum lws_close_phase phase)
+lws_wsi_set_close_ev(struct lws *wsi, enum lws_close_phase phase,
+		     const char *ev)
 {
 	lws_wsi_state_t old = wsi->wsistate;
 
 	wsi->wsistate = (old & ~LWSI_CLOSE_MASK) |
 			((lws_wsi_state_t)phase << LWSI_CLOSE_SHIFT);
 	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
-		       "set_close", NULL);
+		       "set_close", ev);
 
 	lwsl_wsi_debug(wsi, "lwsi_set_close 0x%lx -> 0x%lx", (unsigned long)old,
 			(unsigned long)wsi->wsistate);
@@ -1829,7 +1831,7 @@ idle:
 	 */
 
 	/* waive the connection error report, so the close doesn't make one */
-	lwsi_set_transport(wsi, LTS_FAILED);
+	lws_wsi_event(wsi, LWS_WSIEV_CONN_FAILED);
 	lws_set_timeout(wsi, 1, LWS_TO_KILL_ASYNC);
 
 	/* after the first one, they can only be coming from the queue */
@@ -1862,7 +1864,7 @@ int LWS_WARN_UNUSED_RESULT lws_raw_transaction_completed(struct lws *wsi) {
 		 */
 
 		lwsl_wsi_debug(wsi, "deferring due to partial");
-		lwsi_set_close(wsi, LCS_FLUSHING_BEFORE_CLOSE);
+		lws_wsi_event(wsi, LWS_WSIEV_CLOSE_FLUSH);
 		lws_set_timeout(wsi, PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE, 5);
 		lws_callback_on_writable(wsi);
 

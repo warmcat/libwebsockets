@@ -565,7 +565,7 @@ spill:
 				goto ret_asking_close;
 
 			lwsl_parser("server sees client close packet\n");
-			lwsi_set_close(wsi, LCS_RETURNED_CLOSE);
+			lws_wsi_event(wsi, LWS_WSIEV_WS_PEER_CLOSE);
 			/* deal with the close packet contents as a PONG */
 			wsi->ws->payload_is_close = 1;
 			goto process_as_ping;
@@ -1117,7 +1117,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 		}
 		if (hr) {
 			if (lwsi_close(wsi) == LCS_RETURNED_CLOSE)
-				lwsi_set_close(wsi, LCS_FLUSHING_BEFORE_CLOSE);
+				lws_wsi_event(wsi, LWS_WSIEV_CLOSE_FLUSH);
 
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
@@ -1481,7 +1481,7 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 			      LWS_WRITE_CLOSE);
 		if (n >= 0) {
 			/* we initiated it: wait for his ack */
-			lwsi_set_close(wsi, LCS_AWAITING_CLOSE_ACK);
+			lws_wsi_event(wsi, LWS_WSIEV_WS_CLOSE_SENT);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK, 5);
 			lwsl_debug("sent close, await ack\n");
 
@@ -1722,7 +1722,7 @@ rops_close_via_role_protocol_ws(struct lws *wsi, enum lws_close_status reason)
 		wsi->ws->ping_payload_buf[LWS_PRE + 1] = reason & 0xff;
 	}
 
-	lwsi_set_close(wsi, LCS_WAITING_TO_SEND_CLOSE);
+	lws_wsi_event(wsi, LWS_WSIEV_WS_CLOSE_INITIATED);
 	__lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 5);
 
 	lws_callback_on_writable(wsi);

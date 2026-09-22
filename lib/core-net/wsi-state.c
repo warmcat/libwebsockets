@@ -181,6 +181,25 @@ const char * const lws_wsi_event_names[LWS_WSIEV_COUNT] = {
 	[LWS_WSIEV_WT_SESSION]		= "WT_SESSION",
 	[LWS_WSIEV_WT_STREAM]		= "WT_STREAM",
 	[LWS_WSIEV_RAW_UPGRADED]	= "RAW_UPGRADED",
+	[LWS_WSIEV_DNS_START]		= "DNS_START",
+	[LWS_WSIEV_DNS_RETRY]		= "DNS_RETRY",
+	[LWS_WSIEV_CONNECT_START]	= "CONNECT_START",
+	[LWS_WSIEV_PROXY_CONNECT_SENT]	= "PROXY_CONNECT_SENT",
+	[LWS_WSIEV_SOCKS_GREETING_SENT]	= "SOCKS_GREETING_SENT",
+	[LWS_WSIEV_SOCKS_AUTH_SENT]	= "SOCKS_AUTH_SENT",
+	[LWS_WSIEV_SOCKS_CONNECT_SENT]	= "SOCKS_CONNECT_SENT",
+	[LWS_WSIEV_TLS_START]		= "TLS_START",
+	[LWS_WSIEV_TLS_ACCEPT_PENDING]	= "TLS_ACCEPT_PENDING",
+	[LWS_WSIEV_TLS_ACCEPT_QUEUED]	= "TLS_ACCEPT_QUEUED",
+	[LWS_WSIEV_CONN_FAILED]		= "CONN_FAILED",
+	[LWS_WSIEV_RETARGET]		= "RETARGET",
+	[LWS_WSIEV_WS_CLOSE_INITIATED]	= "WS_CLOSE_INITIATED",
+	[LWS_WSIEV_WS_CLOSE_SENT]	= "WS_CLOSE_SENT",
+	[LWS_WSIEV_WS_PEER_CLOSE]	= "WS_PEER_CLOSE",
+	[LWS_WSIEV_CLOSE_FLUSH]		= "CLOSE_FLUSH",
+	[LWS_WSIEV_CLOSE_STAGED]	= "CLOSE_STAGED",
+	[LWS_WSIEV_SOCKET_GONE]		= "SOCKET_GONE",
+	[LWS_WSIEV_USER_TOLD]		= "USER_TOLD",
 };
 
 #define ANY 0xffff
@@ -210,7 +229,9 @@ lws_state_match(const char *want, const char *have)
  * mux parent's, "L" for that of the wsi the site passed as like, else
  * C / S / - / Ce / Se.  A site that passes ops only matches rows that take
  * them ("?" or their name).  The first matching row wins, so a role's own
- * row goes before a "*" one.
+ * row goes before a "*" one.  A to of XT(phase) or XC(phase) sets the
+ * transport or close machine's phase instead of the live state: those two
+ * machines run in their own bits, over whatever the others were doing.
  *
  * A (role, side, state, event) with no row is a bug at the site that
  * raised it: lws_wsi_event() leaves the state alone and returns -1, and
@@ -226,6 +247,9 @@ struct lws_wsi_event_edge {
 	const char		*to_side;
 	uint16_t		to;
 };
+
+#define XT(lts) (0x8000 | (lts))	/* to: a transport phase */
+#define XC(lcs) (0x4000 | (lcs))	/* to: a close phase */
 
 static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	/*
@@ -410,6 +434,42 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	{ "h1", "S", LRS_H1_UPGRADE,		LWS_WSIEV_RAW_UPGRADED, "?", NULL, LRS_ESTABLISHED },
 	{ "h1", "C", LRS_ESTABLISHED,		LWS_WSIEV_RAW_UPGRADED, "raw-skt", NULL, LRS_ESTABLISHED },
 	{ "h1", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_RAW_UPGRADED, "raw-skt", NULL, LRS_ESTABLISHED },
+	/* ---- transport machine ---- */
+
+	{ "*", "C", LRS_UNCONNECTED,		LWS_WSIEV_DNS_START, NULL, NULL, XT(LTS_WAITING_DNS) },
+	{ "*", "C", LRS_WAITING_DNS,		LWS_WSIEV_DNS_RETRY, NULL, NULL, XT(LTS_NONE) },
+	{ "*", "C", LRS_UNCONNECTED,		LWS_WSIEV_CONNECT_START, NULL, NULL, XT(LTS_WAITING_CONNECT) },
+	{ "*", "C", LRS_WAITING_DNS,		LWS_WSIEV_CONNECT_START, NULL, NULL, XT(LTS_WAITING_CONNECT) },
+	{ "*", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_CONNECT_START, NULL, NULL, XT(LTS_WAITING_CONNECT) },	/* next address */
+	{ "*", "C", LRS_WAITING_SSL,		LWS_WSIEV_CONNECT_START, NULL, NULL, XT(LTS_WAITING_CONNECT) },	/* quic to tcp */
+	{ "*", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_PROXY_CONNECT_SENT, NULL, NULL, XT(LTS_WAITING_PROXY_REPLY) },
+	{ "*", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_SOCKS_GREETING_SENT, NULL, NULL, XT(LTS_WAITING_SOCKS_GREETING_REPLY) },
+	{ "*", "C", LRS_WAITING_SOCKS_GREETING_REPLY, LWS_WSIEV_SOCKS_AUTH_SENT, NULL, NULL, XT(LTS_WAITING_SOCKS_AUTH_REPLY) },
+	{ "*", "C", LRS_WAITING_SOCKS_GREETING_REPLY, LWS_WSIEV_SOCKS_CONNECT_SENT, NULL, NULL, XT(LTS_WAITING_SOCKS_CONNECT_REPLY) },
+	{ "*", "C", LRS_WAITING_SOCKS_AUTH_REPLY, LWS_WSIEV_SOCKS_CONNECT_SENT, NULL, NULL, XT(LTS_WAITING_SOCKS_CONNECT_REPLY) },
+	{ "*", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_TLS_START, NULL, NULL, XT(LTS_WAITING_SSL) },
+	{ "*", "C", LRS_WAITING_PROXY_REPLY,	LWS_WSIEV_TLS_START, NULL, NULL, XT(LTS_WAITING_SSL) },
+	{ "*", "C", LRS_WAITING_SOCKS_CONNECT_REPLY, LWS_WSIEV_TLS_START, NULL, NULL, XT(LTS_WAITING_SSL) },
+	{ "*", "C", LRS_H1C_ISSUE_HANDSHAKE,	LWS_WSIEV_TLS_START, NULL, NULL, XT(LTS_WAITING_SSL) },
+	{ "*", "C", LRS_WAITING_SSL,		LWS_WSIEV_TLS_START, NULL, NULL, XT(LTS_WAITING_SSL) },	/* more service */
+	{ "*", "S", LRS_SSL_INIT,		LWS_WSIEV_TLS_ACCEPT_PENDING, NULL, NULL, XT(LTS_SSL_ACK_PENDING) },
+	{ "*", "S", LRS_SSL_ACK_PENDING,	LWS_WSIEV_TLS_ACCEPT_PENDING, NULL, NULL, XT(LTS_SSL_ACK_PENDING) },
+	{ "*", "S", LRS_AWAITING_SSL_ACCEPT,	LWS_WSIEV_TLS_ACCEPT_PENDING, NULL, NULL, XT(LTS_SSL_ACK_PENDING) },
+	{ "*", "S", LRS_SSL_INIT,		LWS_WSIEV_TLS_ACCEPT_QUEUED, NULL, NULL, XT(LTS_AWAITING_SSL_ACCEPT) },
+	{ "*", "S", LRS_SSL_ACK_PENDING,	LWS_WSIEV_TLS_ACCEPT_QUEUED, NULL, NULL, XT(LTS_AWAITING_SSL_ACCEPT) },
+	{ "*", "C", ANY,			LWS_WSIEV_CONN_FAILED, NULL, NULL, XT(LTS_FAILED) },
+	{ "*", "C", ANY,			LWS_WSIEV_RETARGET, NULL, NULL, XT(LTS_RESTARTING) },
+
+	/* ---- close machine: the polite ws close is specific, the rest can come from anywhere ---- */
+
+	{ "ws", "*", LRS_ESTABLISHED,		LWS_WSIEV_WS_CLOSE_INITIATED, NULL, NULL, XC(LCS_WAITING_TO_SEND_CLOSE) },
+	{ "ws", "*", LRS_WAITING_TO_SEND_CLOSE,	LWS_WSIEV_WS_CLOSE_SENT, NULL, NULL, XC(LCS_AWAITING_CLOSE_ACK) },
+	{ "ws", "*", LRS_ESTABLISHED,		LWS_WSIEV_WS_PEER_CLOSE, NULL, NULL, XC(LCS_RETURNED_CLOSE) },
+	{ "*", "*", ANY,			LWS_WSIEV_CLOSE_FLUSH, NULL, NULL, XC(LCS_FLUSHING_BEFORE_CLOSE) },
+	{ "*", "S", ANY,			LWS_WSIEV_CLOSE_STAGED, NULL, NULL, XC(LCS_SHUTDOWN) },
+	{ "*", "*", ANY,			LWS_WSIEV_SOCKET_GONE, NULL, NULL, XC(LCS_DEAD_SOCKET) },
+	{ "*", "*", LRS_DEAD_SOCKET,		LWS_WSIEV_USER_TOLD, NULL, NULL, XC(LCS_USER_TOLD) },
+
 };
 
 /* the side flags a to_side spec stands for */
@@ -457,6 +517,22 @@ lws_wsi_event_x(struct lws *wsi, enum lws_wsi_event ev,
 		} else if (ops && (!e->to_role || !strcmp(e->to_role, "P") ||
 				   strcmp(e->to_role, ops->name)))
 			continue;
+
+		if (e->to & 0x8000) {
+			lws_wsi_set_transport_ev(wsi, (enum lws_transport_phase)
+						 (e->to & 0xff),
+						 lws_wsi_event_names[ev]);
+
+			return 0;
+		}
+
+		if (e->to & 0x4000) {
+			lws_wsi_set_close_ev(wsi, (enum lws_close_phase)
+					     (e->to & 0xff),
+					     lws_wsi_event_names[ev]);
+
+			return 0;
+		}
 
 		if (!e->to_role && !e->to_side) {
 			lws_wsi_set_state_ev(wsi, e->to, lws_wsi_event_names[ev]);
@@ -639,78 +715,6 @@ lws_state_machine_name(lws_wsi_state_t s)
 }
 
 /*
- * Allowed transport and close machine edges, the two machines with phase
- * setters.  role and side are the role_ops name and C / S / - with a
- * trailing e for h2-encapsulated, or "*"; from is an LRS state or ANY.
- * The carrier and transaction machines have no table here: their edges are
- * whatever the event table above produces, and a live-state edge is checked
- * against that.
- *
- * The close machine can be entered from anywhere: a connection can die, be
- * flushed or be staged for shutdown from any state.  Within it, and for the
- * polite ws close, the edges are specific.
- */
-
-struct lws_state_edge {
-	const char		*role;
-	const char		*side;
-	uint16_t		from;
-	uint16_t		to;
-};
-
-static const struct lws_state_edge lws_state_edges[] = {
-	/* ---- transport machine ---- */
-
-	{ "*", "C", LRS_UNCONNECTED, LRS_WAITING_CONNECT },
-	{ "*", "C", LRS_UNCONNECTED, LRS_WAITING_DNS },
-	{ "*", "C", LRS_WAITING_CONNECT, LRS_WAITING_PROXY_REPLY },
-	{ "*", "C", LRS_WAITING_CONNECT, LRS_WAITING_SOCKS_GREETING_REPLY },
-	{ "*", "C", LRS_WAITING_CONNECT, LRS_WAITING_SSL },
-	{ "*", "C", LRS_WAITING_DNS, LRS_WAITING_CONNECT },
-	{ "*", "C", LRS_WAITING_DNS, LRS_UNCONNECTED },		/* connect3.c dns retry */
-	{ "*", "C", LRS_WAITING_PROXY_REPLY, LRS_WAITING_SSL },
-	{ "*", "C", LRS_WAITING_SOCKS_AUTH_REPLY, LRS_WAITING_SOCKS_CONNECT_REPLY },
-	{ "*", "C", LRS_WAITING_SOCKS_CONNECT_REPLY, LRS_WAITING_SSL },
-	{ "*", "C", LRS_WAITING_SOCKS_GREETING_REPLY, LRS_WAITING_SOCKS_AUTH_REPLY },
-	{ "*", "C", LRS_WAITING_SOCKS_GREETING_REPLY, LRS_WAITING_SOCKS_CONNECT_REPLY },
-	{ "*", "C", LRS_WAITING_SSL, LRS_WAITING_CONNECT },
-	{ "*", "S", LRS_AWAITING_SSL_ACCEPT, LRS_SSL_ACK_PENDING },
-	{ "*", "S", LRS_SSL_ACK_PENDING, LRS_AWAITING_SSL_ACCEPT },
-	{ "*", "S", LRS_SSL_INIT, LRS_SSL_ACK_PENDING },
-	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE, LRS_WAITING_SSL },	/* carrier -> transport */
-
-	/* ---- close machine ---- */
-
-	{ "*", "*", ANY, LRS_DEAD_SOCKET },
-	{ "*", "*", ANY, LRS_FLUSHING_BEFORE_CLOSE },
-	{ "*", "*", ANY, LRS_SHUTDOWN },
-	{ "h1", "S", LRS_SHUTDOWN, LRS_DEAD_SOCKET },
-	{ "h2", "S", LRS_SHUTDOWN, LRS_DEAD_SOCKET },
-	{ "h3", "S", LRS_FLUSHING_BEFORE_CLOSE, LRS_DEAD_SOCKET },
-	{ "ws", "*", LRS_RETURNED_CLOSE, LRS_FLUSHING_BEFORE_CLOSE },
-	{ "ws", "C", LRS_ESTABLISHED, LRS_WAITING_TO_SEND_CLOSE },	/* txn -> close */
-	{ "ws", "C", LRS_AWAITING_CLOSE_ACK, LRS_DEAD_SOCKET },
-	{ "ws", "C", LRS_FLUSHING_BEFORE_CLOSE, LRS_DEAD_SOCKET },
-	{ "ws", "C", LRS_WAITING_TO_SEND_CLOSE, LRS_AWAITING_CLOSE_ACK },
-	{ "ws", "Ce", LRS_ESTABLISHED, LRS_WAITING_TO_SEND_CLOSE },	/* txn -> close */
-	{ "ws", "Ce", LRS_AWAITING_CLOSE_ACK, LRS_DEAD_SOCKET },
-	{ "ws", "Ce", LRS_RETURNED_CLOSE, LRS_DEAD_SOCKET },
-	{ "ws", "Ce", LRS_WAITING_TO_SEND_CLOSE, LRS_AWAITING_CLOSE_ACK },
-	{ "ws", "Ce", LRS_WAITING_TO_SEND_CLOSE, LRS_DEAD_SOCKET },
-	{ "ws", "*", LRS_ESTABLISHED, LRS_RETURNED_CLOSE },	/* peer's CLOSE, we answer */	/* txn -> close */
-	{ "ws", "S", LRS_ESTABLISHED, LRS_WAITING_TO_SEND_CLOSE },	/* txn -> close */
-	{ "ws", "S", LRS_AWAITING_CLOSE_ACK, LRS_SHUTDOWN },
-	{ "ws", "S", LRS_FLUSHING_BEFORE_CLOSE, LRS_SHUTDOWN },
-	{ "ws", "S", LRS_SHUTDOWN, LRS_DEAD_SOCKET },
-	{ "ws", "S", LRS_WAITING_TO_SEND_CLOSE, LRS_AWAITING_CLOSE_ACK },
-	{ "ws", "S", LRS_WAITING_TO_SEND_CLOSE, LRS_DEAD_SOCKET },
-	{ "ws", "Se", LRS_ESTABLISHED, LRS_WAITING_TO_SEND_CLOSE },	/* txn -> close */
-	{ "ws", "Se", LRS_AWAITING_CLOSE_ACK, LRS_DEAD_SOCKET },
-	{ "ws", "Se", LRS_RETURNED_CLOSE, LRS_DEAD_SOCKET },
-	{ "ws", "Se", LRS_WAITING_TO_SEND_CLOSE, LRS_AWAITING_CLOSE_ACK },
-};
-
-/*
  * A wsi's birth: the creator hands in the ops, so there is no event row for
  * it.  Every other role or side change comes from an event row and is
  * checked as that; here are the births.
@@ -733,29 +737,6 @@ static const struct lws_role_edge lws_role_edges[] = {
 	{ "(none)", "-", 0, "pipe", "-", LRS_UNCONNECTED },
 	{ "(none)", "-", 0, "raw-file", "-", LRS_UNCONNECTED },
 };
-
-static int
-lws_state_edge_allowed(const struct lws_role_ops *ops, lws_wsi_state_t from,
-		       lws_wsi_state_t to)
-{
-	const char *role = ops ? ops->name : "(none)";
-	const struct lws_state_edge *e = lws_state_edges;
-	char side[3];
-	unsigned int n;
-
-	from = lws_wsi_state_of(from);
-	to = lws_wsi_state_of(to);
-	lws_state_side(to, side);
-
-	for (n = 0; n < LWS_ARRAY_SIZE(lws_state_edges); n++, e++)
-		if (e->to == (to & LRS_MASK) &&
-		    (e->from == ANY || e->from == (from & LRS_MASK)) &&
-		    lws_state_match(e->role, role) &&
-		    lws_state_match(e->side, side))
-			return 1;
-
-	return 0;
-}
 
 /* a live-state edge must be one some event row produces */
 
@@ -867,26 +848,18 @@ lws_wsi_state_check(struct lws *wsi, const struct lws_role_ops *from_ops,
 	int ok;
 
 	/*
-	 * A live-state edge must come from the event table; transport and
-	 * close phase edges from the state table; a role change from an event
-	 * row (it carries the event's name) or else be a birth
+	 * A live-state edge must come from the event table; a transport or
+	 * close phase edge or a role change must carry an event's name (the
+	 * engine made it from a row), else be a birth
 	 */
-	if (!strcmp(how, "set_transport") &&
-	    (((to & LWSI_TRANSPORT_MASK) >> LWSI_TRANSPORT_SHIFT) == LTS_FAILED ||
-	     ((to & LWSI_TRANSPORT_MASK) >> LWSI_TRANSPORT_SHIFT) == LTS_RESTARTING))
-		/*
-		 * a connect can be reported failed from any phase, and a client
-		 * can be retargeted (redirect, auth retry, fallback) from any
-		 */
-		ok = 1;
-	else if (!strcmp(how, "set_state"))
+	if (!strcmp(how, "set_state"))
 		ok = lws_event_edge_allowed(to_ops, from, to);
-	else if (!strcmp(how, "set_close") || !strcmp(how, "set_transport"))
-		ok = lws_state_edge_allowed(to_ops, from, to);
 	else if (ev)
 		ok = 1;
-	else
+	else if (!strcmp(how, "role_transition"))
 		ok = lws_role_edge_allowed(from_ops, from, to_ops, to);
+	else
+		ok = 0;
 
 	if (ok)
 		why = lws_state_invariant(wsi, to);
