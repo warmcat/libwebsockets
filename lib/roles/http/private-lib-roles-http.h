@@ -284,6 +284,22 @@ struct lws_access_log {
 #define LWS_HTTP_PROXY_BODY_BUFFERED_LO		(64 * 1024)
 #endif
 
+/*
+ * Stream-level state shared by every protocol carried on an http stream:
+ * the http roles themselves, and ws, which after its upgrade still needs
+ * the request headers (until the ESTABLISHED callback has seen them), the
+ * request version and the access log.  Kept out of the http role struct so
+ * that the http and ws role state are genuinely disjoint.
+ */
+
+struct _lws_stream_related {
+	struct allocated_headers	*ah;
+#ifdef LWS_WITH_ACCESS_LOG
+	struct lws_access_log		access_log;
+#endif
+	enum http_version		request_version;
+};
+
 struct _lws_http_mode_related {
 	struct lws *new_wsi_list;
 
@@ -296,7 +312,6 @@ struct _lws_http_mode_related {
 	struct lws_buflist *buflist_post_body;
 	size_t buflist_post_body_len;
 #endif
-	struct allocated_headers *ah;
 	struct lws *ah_wait_list;
 
 	unsigned long		writeable_len;
@@ -314,9 +329,6 @@ struct _lws_http_mode_related {
 	char multipart_content_type[64];
 #endif
 
-#ifdef LWS_WITH_ACCESS_LOG
-	struct lws_access_log access_log;
-#endif
 #if defined(LWS_WITH_SERVER)
 	unsigned int response_code;
 	const struct lws_protocol_vhost_options *mount_specific_headers;
@@ -331,7 +343,6 @@ struct _lws_http_mode_related {
 	unsigned char comp_accept_mask;
 #endif
 
-	enum http_version request_version;
 	enum http_conn_type conn_type;
 	lws_filepos_t tx_content_length;
 	lws_filepos_t tx_content_remain;

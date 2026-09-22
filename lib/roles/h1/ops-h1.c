@@ -65,7 +65,7 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		/* fallthru */
 
 	case LRS_HEADERS:
-		if (!wsi->http.ah) {
+		if (!wsi->stream.ah) {
 			lwsl_err("%s: LRS_HEADERS: NULL ah\n", __func__);
 			assert(0);
 			/* under NDEBUG this would hand a NULL ah to the parser */
@@ -536,7 +536,7 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	     lwsi_state(wsi) == LRS_DISCARD_BODY ||
 	     lwsi_state(wsi) == LRS_BODY)) {
 
-		if (!wsi->http.ah) {
+		if (!wsi->stream.ah) {
 			lws_ah_attach_result_t ar =
 					lws_header_table_attach(wsi, 0);
 
@@ -657,7 +657,7 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		 * so the ah has no further meaning
 		 */
 
-		if (wsi->http.ah &&
+		if (wsi->stream.ah &&
 		    !lwsi_role_h1(wsi) &&
 		    !lwsi_role_h2(wsi) &&
 		    !lwsi_role_cgi(wsi))
@@ -1030,10 +1030,10 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 			lwsl_wsi_info(wsi, "nothing to send");
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 			/* prepare ourselves to do the parsing */
-			wsi->http.ah->parser_state = WSI_TOKEN_NAME_PART;
-			wsi->http.ah->lextable_pos = 0;
+			wsi->stream.ah->parser_state = WSI_TOKEN_NAME_PART;
+			wsi->stream.ah->lextable_pos = 0;
 #if defined(LWS_WITH_CUSTOM_HEADERS)
-			wsi->http.ah->unk_pos = 0;
+			wsi->stream.ah->unk_pos = 0;
 #endif
 			/* a 1xx interim rewinds to here */
 			lws_header_table_rx_snapshot(wsi);

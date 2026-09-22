@@ -223,8 +223,8 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1, si
 	lws_SHA1((unsigned char *)buf, (unsigned int)s, (unsigned char *)hash);
 
 	lws_b64_encode_string(hash, 20,
-		  wsi->http.ah->initial_handshake_hash_base64,
-		  sizeof(wsi->http.ah->initial_handshake_hash_base64));
+		  wsi->stream.ah->initial_handshake_hash_base64,
+		  sizeof(wsi->stream.ah->initial_handshake_hash_base64));
 
 	return p;
 }
@@ -250,16 +250,16 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 #endif
 
 	if (wsi->client_mux_substream) {
-		if (wsi->http.ah->http_response != 200) {
+		if (wsi->stream.ah->http_response != 200) {
 			lwsl_wsi_warn(wsi, "got bad HTTP response '%ld'",
-				      (long)wsi->http.ah->http_response);
+				      (long)wsi->stream.ah->http_response);
 			*cce = "HS: ws upgrade response not 200";
 			goto bail3;
 		}
 	} else {
-		if (wsi->http.ah->http_response != 101) {
+		if (wsi->stream.ah->http_response != 101) {
 			lwsl_wsi_warn(wsi, "got bad HTTP response '%ld'",
-				      (long)wsi->http.ah->http_response);
+				      (long)wsi->stream.ah->http_response);
 			*cce = "HS: ws upgrade response not 101";
 			goto bail3;
 		}
@@ -602,10 +602,10 @@ check_accept:
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_ACCEPT);
 	if (!wsi->client_mux_substream &&
-	    (!p || strcmp(p, wsi->http.ah->initial_handshake_hash_base64))) {
+	    (!p || strcmp(p, wsi->stream.ah->initial_handshake_hash_base64))) {
 		lwsl_wsi_warn(wsi, "lws_client_int_s_hs: accept '%s' wrong vs '%s'",
 				  p ? p : "(null)",
-				  wsi->http.ah->initial_handshake_hash_base64);
+				  wsi->stream.ah->initial_handshake_hash_base64);
 		*cce = "HS: Accept hash wrong";
 		goto bail2;
 	}

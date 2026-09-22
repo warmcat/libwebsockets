@@ -485,7 +485,7 @@ drain:
 	 * it like that... it will get detached at stream close
 	 */
 
-	if (wsi->http.ah
+	if (wsi->stream.ah
 #if defined(LWS_WITH_CLIENT)
 			&& !wsi->client_h2_alpn
 #endif
@@ -1969,13 +1969,13 @@ rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
 
 	/* adopt the header info */
 
-	ah = wsi->http.ah;
+	ah = wsi->stream.ah;
 
 	lws_role_transition(wsi, lwsi_role_client(wsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_H2_AWAIT_PREFACE,
 			    &role_ops_h2);
 
 	/* http2 union member has http union struct at start */
-	wsi->http.ah = ah;
+	wsi->stream.ah = ah;
 
 	if (!wsi->h2.h2n)
 		wsi->h2.h2n = lws_zalloc(sizeof(*wsi->h2.h2n), "h2n");

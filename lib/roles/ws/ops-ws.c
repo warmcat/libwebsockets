@@ -1227,7 +1227,7 @@ post_pollout:
 		goto drain;
 	}
 
-	if (!(pollfd->revents & pollfd->events & LWS_POLLIN) && !wsi->http.ah)
+	if (!(pollfd->revents & pollfd->events & LWS_POLLIN) && !wsi->stream.ah)
 		return LWS_HPI_RET_HANDLED;
 
 	if (lws_is_flowcontrolled(wsi)) {
@@ -1360,7 +1360,7 @@ drain:
 	if (lws_is_flowcontrolled(wsi))
 		return LWS_HPI_RET_HANDLED;
 
-	if (wsi->http.ah
+	if (wsi->stream.ah
 #if defined(LWS_WITH_CLIENT)
 			&& !wsi->client_h2_alpn
 #endif

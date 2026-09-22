@@ -600,7 +600,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 static int
 lws_h3_parse_path(struct lws *wsi, const char *value, size_t value_len)
 {
-	struct allocated_headers *ah = wsi->http.ah;
+	struct allocated_headers *ah = wsi->stream.ah;
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 	size_t i;
 
@@ -696,7 +696,7 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 	int is_pseudo = 0;
 
 	/* If we haven't attached an ah, do it now */
-	if (!wsi->http.ah) {
+	if (!wsi->stream.ah) {
 		lws_ah_attach_result_t ar = lws_header_table_attach(wsi, 0);
 
 		if (ar == LWS_AH_ATTACH_WSI_GONE)
@@ -812,7 +812,7 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 	if (tok >= 0 && tok < WSI_TOKEN_COUNT) {
 		/* Known token */
 		if (tok == WSI_TOKEN_HTTP_COLON_STATUS) {
-			wsi->http.ah->http_response = (uint32_t)atoi(value);
+			wsi->stream.ah->http_response = (uint32_t)atoi(value);
 		}
 		if (tok == WSI_TOKEN_HTTP_COLON_PATH) {
 			if (lws_h3_parse_path(wsi, value, value_len))
@@ -827,7 +827,7 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 		}
 	} else {
 #if defined(LWS_WITH_CUSTOM_HEADERS)
-		struct allocated_headers *ah = wsi->http.ah;
+		struct allocated_headers *ah = wsi->stream.ah;
 		if (ah && name && name_len > 0 && ah->pos + 8 + name_len + 1 + value_len < (unsigned int)wsi->a.context->max_http_header_data) {
 			uint32_t unk_pos = ah->pos;
 			size_t k;
@@ -1584,7 +1584,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 									return 1;
 								}
 								if (lwsi_state(wsi) == LRS_ESTABLISHED) {
-									if (!wsi->http.ah) {
+									if (!wsi->stream.ah) {
 										lwsl_wsi_notice(wsi, "DATA after body completed");
 										return 1;
 									}
@@ -1759,8 +1759,8 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					};
 					for (int n = 0; n < (int)LWS_ARRAY_SIZE(method_names); n++) {
 						if (p && !strcasecmp(p, method_names[n])) {
-							wsi->http.ah->frag_index[method_index[n]] =
-								wsi->http.ah->frag_index[WSI_TOKEN_HTTP_COLON_PATH];
+							wsi->stream.ah->frag_index[method_index[n]] =
+								wsi->stream.ah->frag_index[WSI_TOKEN_HTTP_COLON_PATH];
 							break;
 						}
 					}

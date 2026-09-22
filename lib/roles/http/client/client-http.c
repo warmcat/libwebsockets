@@ -365,9 +365,9 @@ hs2:
 client_http_body_sent:
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 		/* prepare ourselves to do the parsing */
-		wsi->http.ah->parser_state = WSI_TOKEN_NAME_PART;
-		wsi->http.ah->lextable_pos = 0;
-		wsi->http.ah->unk_pos = 0;
+		wsi->stream.ah->parser_state = WSI_TOKEN_NAME_PART;
+		wsi->stream.ah->lextable_pos = 0;
+		wsi->stream.ah->unk_pos = 0;
 		lws_header_table_rx_snapshot(wsi);
 #endif
 		lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
@@ -419,7 +419,7 @@ client_http_body_sent:
 		 * in one packet, since at that point the connection is
 		 * definitively ready from browser pov.
 		 */
-		while (wsi->http.ah->parser_state != WSI_PARSING_COMPLETE) {
+		while (wsi->stream.ah->parser_state != WSI_PARSING_COMPLETE) {
 			struct lws_tokens eb;
 			int n, m, buffered;
 
@@ -466,7 +466,7 @@ client_http_body_sent:
 					h->info.dump(ss_to_userobj(h),
 						(const uint8_t *)eb.token,
 						(size_t)m,
-						(wsi->http.ah->parser_state ==
+						(wsi->stream.ah->parser_state ==
 						 WSI_PARSING_COMPLETE) ? 1 : 0);
 				}
 			} while (0);
@@ -484,7 +484,7 @@ client_http_body_sent:
 			 */
 
 			if (n) {
-				assert(wsi->http.ah->parser_state ==
+				assert(wsi->stream.ah->parser_state ==
 						WSI_PARSING_COMPLETE);
 
 				break;
@@ -496,7 +496,7 @@ client_http_body_sent:
 		 * libwebsocket timeout still active here too, so if parsing did
 		 * not complete just wait for next packet coming in this state
 		 */
-		if (wsi->http.ah->parser_state != WSI_PARSING_COMPLETE)
+		if (wsi->stream.ah->parser_state != WSI_PARSING_COMPLETE)
 			break;
 #endif
 
@@ -537,7 +537,7 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	lwsl_info("%s: %s (%s)\n", __func__, lws_wsi_tag(wsi),
 			wsi->a.protocol->name);
 
-	// if (wsi->http.ah && wsi->http.ah->http_response)
+	// if (wsi->stream.ah && wsi->stream.ah->http_response)
 	/* we're only judging if any (200, or 500 etc) http txn completed */
 	lws_metrics_caliper_report(wsi->cal_conn, METRES_GO);
 
@@ -559,7 +559,7 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	n = _lws_generic_transaction_completed_active_conn(&wsi, 1);
 	lws_pt_unlock(pt);
 
-	if (wsi->http.ah) {
+	if (wsi->stream.ah) {
 		if (wsi->client_mux_substream)
 			/*
 			 * As an h2 client, once we did our transaction, that is
@@ -569,10 +569,10 @@ lws_http_transaction_completed_client(struct lws *wsi)
 			__lws_header_table_detach(wsi, 0);
 		else
 			if (!n)
-				_lws_header_table_reset(wsi->http.ah);
+				_lws_header_table_reset(wsi->stream.ah);
 	}
 
-	if (!n || !wsi->http.ah)
+	if (!n || !wsi->stream.ah)
 		return 0;
 
 	/*
@@ -582,16 +582,16 @@ lws_http_transaction_completed_client(struct lws *wsi)
 
 	/* otherwise set ourselves up ready to go again */
 
-	wsi->http.ah->parser_state = WSI_TOKEN_NAME_PART;
-	wsi->http.ah->lextable_pos = 0;
-	wsi->http.ah->unk_pos = 0;
+	wsi->stream.ah->parser_state = WSI_TOKEN_NAME_PART;
+	wsi->stream.ah->lextable_pos = 0;
+	wsi->stream.ah->unk_pos = 0;
 	lws_header_table_rx_snapshot(wsi);
 
 	lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 			(int)wsi->a.context->timeout_secs);
 
 	/* If we're (re)starting on headers, need other implied init */
-	wsi->http.ah->ues = URIES_IDLE;
+	wsi->stream.ah->ues = URIES_IDLE;
 	lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
 
 	lwsl_info("%s: %s: new queued transaction\n", __func__, lws_wsi_tag(wsi));
@@ -603,8 +603,8 @@ lws_http_transaction_completed_client(struct lws *wsi)
 unsigned int
 lws_http_client_http_response(struct lws *wsi)
 {
-	if (wsi->http.ah && wsi->http.ah->http_response)
-		return wsi->http.ah->http_response;
+	if (wsi->stream.ah && wsi->stream.ah->http_response)
+		return wsi->stream.ah->http_response;
 
 	return 0;
 }
@@ -656,8 +656,8 @@ lws_http_digest_auth(struct lws* wsi)
 
 	/* Disallow fragmentation monkey business */
 
-	fi = wsi->http.ah->frag_index[WSI_TOKEN_HTTP_WWW_AUTHENTICATE];
-	if (wsi->http.ah->frags[fi].nfrag) {
+	fi = wsi->stream.ah->frag_index[WSI_TOKEN_HTTP_WWW_AUTHENTICATE];
+	if (wsi->stream.ah->frags[fi].nfrag) {
 		lwsl_wsi_err(wsi, "fragmented http auth header not allowed\n");
 		return LCBA_FAILED_AUTH;
 	}
@@ -1122,7 +1122,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 #endif
 	// lws_free_set_NULL(wsi->stash);
 
-	ah = wsi->http.ah;
+	ah = wsi->stream.ah;
 	if (!wsi->do_ws) {
 		/* we are being an http client...
 		 */
@@ -1191,7 +1191,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 #endif
 		}
 
-		wsi->http.ah = ah;
+		wsi->stream.ah = ah;
 		ah->http_response = 0;
 	}
 
@@ -1296,7 +1296,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 			lwsl_wsi_info(wsi, "digest auth: reusing TCP/TLS connection\n");
 
-			_lws_header_table_reset(wsi->http.ah);
+			_lws_header_table_reset(wsi->stream.ah);
 
 			if (wsi->stash)
 				for (m = 0; m < (int)LWS_ARRAY_SIZE(hnames_cis); m++)
@@ -1306,7 +1306,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 						goto bail3_l;
 
 			wsi->hdr_parsing_completed = 0;
-			wsi->http.ah->ues = URIES_IDLE;
+			wsi->stream.ah->ues = URIES_IDLE;
 			lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
 			lws_callback_on_writable(wsi);
 			return 0;
@@ -1322,7 +1322,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		return -1;
 	}
 
-    ah = wsi->http.ah;
+    ah = wsi->stream.ah;
 #endif
 	if (ah)
 		ah->http_response = (unsigned int)n;
@@ -1475,7 +1475,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 				lwsl_info("%s: 303 switching to GET\n", __func__);
 				memcpy(mp, "GET", 4);
 				wsi->redirected_to_get = 1;
-				wsi->http.ah->frags[wsi->http.ah->frag_index[
+				wsi->stream.ah->frags[wsi->stream.ah->frag_index[
 					_WSI_TOKEN_CLIENT_METHOD]].len = 3;
 			}
         		if (wsi->stash)
@@ -1486,14 +1486,14 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			(void)mp;
 			(void)ml;
 
-			if (wsi->http.ah->pos + pl + 1 >= wsi->http.ah->data_length) {
+			if (wsi->stream.ah->pos + pl + 1 >= wsi->stream.ah->data_length) {
 				lwsl_warn("%s: redirect path exceeds ah size\n", __func__);
 				goto bail3_l;
 			}
-			memcpy(wsi->http.ah->data + wsi->http.ah->pos + 1, path, pl + 1u);
-			wsi->http.ah->data[wsi->http.ah->pos] = '/';
-			wsi->http.ah->frags[wsi->http.ah->frag_index[_WSI_TOKEN_CLIENT_URI]].offset = wsi->http.ah->pos;
-			wsi->http.ah->frags[wsi->http.ah->frag_index[_WSI_TOKEN_CLIENT_URI]].len = (uint16_t)(pl + 1u);
+			memcpy(wsi->stream.ah->data + wsi->stream.ah->pos + 1, path, pl + 1u);
+			wsi->stream.ah->data[wsi->stream.ah->pos] = '/';
+			wsi->stream.ah->frags[wsi->stream.ah->frag_index[_WSI_TOKEN_CLIENT_URI]].offset = wsi->stream.ah->pos;
+			wsi->stream.ah->frags[wsi->stream.ah->frag_index[_WSI_TOKEN_CLIENT_URI]].len = (uint16_t)(pl + 1u);
 
 			if (wsi->stash) {
 				struct client_info_stash *ostash = wsi->stash;
@@ -1503,7 +1503,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 				wsi->stash = NULL;
 				for (m = 0; m < CIS_COUNT; m++)
 					cisin[m] = ostash->cis[m];
-				cisin[CIS_PATH] = wsi->http.ah->data + wsi->http.ah->pos;
+				cisin[CIS_PATH] = wsi->stream.ah->data + wsi->stream.ah->pos;
 
 				if (lws_client_stash_create(wsi, cisin)) {
 					lwsl_err("%s: failed to realloc stash for redirect\n", __func__);
@@ -1514,7 +1514,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 				lws_free(ostash);
 			}
 
-			wsi->http.ah->pos += pl + 1u;
+			wsi->stream.ah->pos += pl + 1u;
 		}
 
 
@@ -1707,12 +1707,12 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * we seem to be good to go, give client last chance to check
 		 * headers and OK it
 		 */
-		ah1 = wsi->http.ah;
-		wsi->http.ah = ah;
+		ah1 = wsi->stream.ah;
+		wsi->stream.ah = ah;
 		if (wsi->a.protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
 					    wsi->user_space, NULL, 0)) {
-			wsi->http.ah = ah1;
+			wsi->stream.ah = ah1;
 			cce = "HS: disallowed by client filter";
 			goto bail2;
 		}
@@ -1726,12 +1726,12 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		if (wsi->a.protocol->callback(wsi,
 					    LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP,
 					    wsi->user_space, NULL, 0)) {
-			wsi->http.ah = ah1;
+			wsi->stream.ah = ah1;
 			cce = "HS: disallowed at ESTABLISHED";
 			goto bail3_l;
 		}
 
-		wsi->http.ah = ah1;
+		wsi->stream.ah = ah1;
 
 		lwsl_info("%s: %s: client conn up\n", __func__, lws_wsi_tag(wsi));
 
@@ -2444,7 +2444,7 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 	if (buffered < 0) {
 		lwsl_debug("%s: SSL capable error\n", __func__);
 		lwsl_notice("%s: SSL capable error, hdr_parsing_completed=%d, content_length_given=%d, chunked=%d, ah_ptr=%p\n",
-			__func__, wsi->hdr_parsing_completed, wsi->http.content_length_given, wsi->http.rx_chunked, wsi->http.ah);
+			__func__, wsi->hdr_parsing_completed, wsi->http.content_length_given, wsi->http.rx_chunked, wsi->stream.ah);
 
 		if (wsi->hdr_parsing_completed &&
 		    !wsi->http.content_length_given &&
@@ -2657,7 +2657,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 #endif
 	}
 
-	r = wsi->http.ah ? (int)wsi->http.ah->http_response : 0;
+	r = wsi->stream.ah ? (int)wsi->stream.ah->http_response : 0;
 
 #if defined(LWS_WITH_TLS)
 	cisin[CIS_ALPN]		= wsi->alpn;

@@ -43,7 +43,7 @@ lws_http_compression_validate(struct lws *wsi)
 
 	wsi->http.comp_accept_mask = 0;
 
-	if (!wsi->http.ah || !lwsi_role_server(wsi))
+	if (!wsi->stream.ah || !lwsi_role_server(wsi))
 		return 0;
 
 	a = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING);

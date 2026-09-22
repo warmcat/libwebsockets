@@ -432,9 +432,9 @@ lws_process_ws_upgrade2(struct lws *wsi)
 		int l = 14, meth = lws_http_get_uri_and_method(wsi, &uptr, &l);
 
 		if (wsi->h23_stream_carries_ws)
-			wsi->http.request_version = HTTP_VERSION_2;
+			wsi->stream.request_version = HTTP_VERSION_2;
 
-		wsi->http.access_log.response = 101;
+		wsi->stream.access_log.response = 101;
 
 		lws_strnncpy(dotstar, uptr, l, sizeof(dotstar));
 		l = lws_snprintf(combo, sizeof(combo), "%s (%s)", dotstar,

@@ -732,15 +732,15 @@ lws_parse_set_cookie(struct lws *wsi)
 		return -1;
 
 	/* the response headers may already have been released */
-	if (!wsi->http.ah)
+	if (!wsi->stream.ah)
 		return -1;
 
-	f = wsi->http.ah->frag_index[WSI_TOKEN_HTTP_SET_COOKIE];
+	f = wsi->stream.ah->frag_index[WSI_TOKEN_HTTP_SET_COOKIE];
 
 	while (f) {
-		cookiep = wsi->http.ah->data + wsi->http.ah->frags[f].offset;
-		fl = wsi->http.ah->frags[f].len;
-		f = wsi->http.ah->frags[f].nfrag;
+		cookiep = wsi->stream.ah->data + wsi->stream.ah->frags[f].offset;
+		fl = wsi->stream.ah->frags[f].len;
+		f = wsi->stream.ah->frags[f].nfrag;
 
 		if (!cookiep || !fl)
 			continue;

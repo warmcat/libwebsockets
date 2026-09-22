@@ -726,7 +726,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	 * the ah.
 	 */
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	if (!wsi->http.ah)
+	if (!wsi->stream.ah)
 		ar = lws_header_table_attach(wsi, 0);
 
 	if (ar == LWS_AH_ATTACH_WSI_GONE)

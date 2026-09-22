@@ -1137,11 +1137,11 @@ int lws_h2_do_pps_send(struct lws *wsi)
 				goto bail;
 
 			/* pass on the initial headers to SID 1 */
-			h2n->swsi->http.ah = wsi->http.ah;
-			wsi->http.ah = NULL;
+			h2n->swsi->stream.ah = wsi->stream.ah;
+			wsi->stream.ah = NULL;
 
 			lwsl_info("%s: inherited headers %p\n", __func__,
-				  h2n->swsi->http.ah);
+				  h2n->swsi->stream.ah);
 			h2n->swsi->txc.tx_cr = (int32_t)
 				h2n->our_set.s[H2SET_INITIAL_WINDOW_SIZE];
 			lwsl_info("initial tx credit on %s: %d\n",
@@ -1707,7 +1707,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		 * ah needs attaching to child wsi, even though
 		 * we only fill it from network wsi
 		 */
-		if (!h2n->swsi->http.ah) {
+		if (!h2n->swsi->stream.ah) {
 			lws_ah_attach_result_t ar =
 				lws_header_table_attach(h2n->swsi, 0);
 
@@ -1757,7 +1757,7 @@ update_end_headers:
 		 * the stream to decode into (the client path above does not
 		 * attach one, and the ah is dropped on eg, ws upgrade)
 		 */
-		if (!h2n->swsi->http.ah) {
+		if (!h2n->swsi->stream.ah) {
 			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 				      "HEADERS on stream without ah");
 			break;
@@ -1946,10 +1946,10 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			 * a double-detach and use-after-free when the ah is
 			 * eventually destroyed.
 			 */
-			h2n->swsi->http.ah = wsi->http.ah;
-			wsi->http.ah = NULL;
-			if (h2n->swsi->http.ah)
-				h2n->swsi->http.ah->wsi = h2n->swsi;
+			h2n->swsi->stream.ah = wsi->stream.ah;
+			wsi->stream.ah = NULL;
+			if (h2n->swsi->stream.ah)
+				h2n->swsi->stream.ah->wsi = h2n->swsi;
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 			lws_fi_import(&h2n->swsi->fic, &wsi->fic);
 #endif
@@ -2432,8 +2432,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		 */
 		for (n = 0; n < (int)LWS_ARRAY_SIZE(method_names); n++)
 			if (p && !strcasecmp(p, method_names[n])) {
-				h2n->swsi->http.ah->frag_index[method_index[n]] =
-						h2n->swsi->http.ah->frag_index[
+				h2n->swsi->stream.ah->frag_index[method_index[n]] =
+						h2n->swsi->stream.ah->frag_index[
 				                     WSI_TOKEN_HTTP_COLON_PATH];
 				break;
 			}

@@ -1281,7 +1281,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 			return;
 		}
 //		}
-		//_lws_header_table_reset(wsi->http.ah);
+		//_lws_header_table_reset(wsi->stream.ah);
 
 #if defined(LWS_WITH_TLS)
 		wsi->tls.use_ssl = (unsigned int)wsi->flags;

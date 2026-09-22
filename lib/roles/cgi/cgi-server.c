@@ -223,7 +223,7 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 			goto bail;
 	}
 
-	if (cgiinfo->wsi->http.ah) {
+	if (cgiinfo->wsi->stream.ah) {
 		static const unsigned char meths[] = {
 			WSI_TOKEN_GET_URI,
 			WSI_TOKEN_POST_URI,

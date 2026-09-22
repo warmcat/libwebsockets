@@ -1032,7 +1032,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_IF_RANGE))
 		if (strcmp(sym, lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_IF_RANGE)))
 			/* differs - defeat Range: */
-			wsi->http.ah->frag_index[WSI_TOKEN_HTTP_RANGE] = 0;
+			wsi->stream.ah->frag_index[WSI_TOKEN_HTTP_RANGE] = 0;
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_IF_NONE_MATCH)) {
 		/*
@@ -1486,8 +1486,8 @@ lws_authorization_rewrite(struct lws *wsi, const char *name, size_t len)
 	if (!p)
 		return 1;
 
-	fi = wsi->http.ah->frag_index[WSI_TOKEN_HTTP_AUTHORIZATION];
-	wsi->http.ah->frags[fi].len = (uint16_t)len;
+	fi = wsi->stream.ah->frag_index[WSI_TOKEN_HTTP_AUTHORIZATION];
+	wsi->stream.ah->frags[fi].len = (uint16_t)len;
 	strncpy(p, name, (unsigned int)len);
 	p[len] = '\0';
 
@@ -1515,8 +1515,8 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
 
 	/* Disallow fragmentation monkey business */
 
-	fi = wsi->http.ah->frag_index[WSI_TOKEN_HTTP_AUTHORIZATION];
-	if (wsi->http.ah->frags[fi].nfrag) {
+	fi = wsi->stream.ah->frag_index[WSI_TOKEN_HTTP_AUTHORIZATION];
+	if (wsi->stream.ah->frags[fi].nfrag) {
 		lwsl_err("fragmented basic auth header not allowed\n");
 		return LCBA_FAILED_AUTH;
 	}
@@ -2498,7 +2498,7 @@ lws_http_action(struct lws *wsi)
 		 * be routed by one name and act under another.
 		 */
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HOST) &&
-		    wsi->http.ah->frags[wsi->http.ah->frag_index[
+		    wsi->stream.ah->frags[wsi->stream.ah->frag_index[
 					WSI_TOKEN_HOST]].nfrag) {
 			lwsl_wsi_notice(wsi, "more than one Host header");
 			lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, NULL);
@@ -2633,7 +2633,7 @@ lws_http_action(struct lws *wsi)
 	}
 
 	if (wsi->mux_substream) {
-		wsi->http.request_version = HTTP_VERSION_2;
+		wsi->stream.request_version = HTTP_VERSION_2;
 	} else {
 		/* http_version? Default to 1.0, override with token: */
 		request_version = HTTP_VERSION_1_0;
@@ -2647,7 +2647,7 @@ lws_http_action(struct lws *wsi)
 		    http_version_str[5] == '1' && http_version_str[7] == '1')
 			request_version = HTTP_VERSION_1_1;
 
-		wsi->http.request_version = request_version;
+		wsi->stream.request_version = request_version;
 
 		/* HTTP/1.1 defaults to "keep-alive", 1.0 to "close" */
 		if (request_version == HTTP_VERSION_1_1)
@@ -3057,7 +3057,7 @@ deal_body:
 		 * 1.0 client cannot parse an interim response.
 		 */
 		if (!wsi->mux_substream &&
-		    wsi->http.request_version == HTTP_VERSION_1_1 &&
+		    wsi->stream.request_version == HTTP_VERSION_1_1 &&
 		    !wsi->http.response_code &&
 		    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_EXPECT)) {
 			uint8_t ib[LWS_PRE + 32];
@@ -3242,7 +3242,7 @@ lws_http_to_fallback(struct lws *wsi, unsigned char *obuf, size_t olen)
 	lwsl_notice("%s: vh %s, peer: %s, role %s, "
 		    "protocol %s, cb %d, ah %p\n", __func__, wsi->a.vhost->name,
 		    ipbuf, role ? role->name : "null", protocol->name, n,
-		    wsi->http.ah);
+		    wsi->stream.ah);
 
 	if ((wsi->a.protocol->callback)(wsi, (enum lws_callback_reasons)n, wsi->user_space, NULL, 0))
 		return 1;
@@ -3276,7 +3276,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 		assert(0);
 	}
 
-	if (!wsi->http.ah) {
+	if (!wsi->stream.ah) {
 		lwsl_err("%s: assert: NULL ah\n", __func__);
 		assert(0);
 		/* under NDEBUG this would hand a NULL ah to lws_parse() */
@@ -3327,10 +3327,10 @@ raw_transition:
 		}
 
 		/* coverity... */
-		if (!wsi->http.ah)
+		if (!wsi->stream.ah)
 			goto bail_nuke_ah;
 
-		if (wsi->http.ah->parser_state != WSI_PARSING_COMPLETE)
+		if (wsi->stream.ah->parser_state != WSI_PARSING_COMPLETE)
 			continue;
 
 		lwsl_parser("%s: lws_parse sees parsing complete\n", __func__);
@@ -3525,7 +3525,7 @@ raw_transition:
 #endif
 
 		lwsl_debug("%s: %s: ah %p\n", __func__, lws_wsi_tag(wsi),
-			   (void *)wsi->http.ah);
+			   (void *)wsi->stream.ah);
 
 		/*
 		 * Whatever follows the headers in this read is request body,
@@ -3581,12 +3581,12 @@ upgrade_h2c:
 
 		/* adopt the header info */
 
-		ah = wsi->http.ah;
+		ah = wsi->stream.ah;
 		lws_role_transition(wsi, LWSIFR_SERVER, LRS_H2_AWAIT_PREFACE,
 				    &role_ops_h2);
 
 		/* http2 union member has http union struct at start */
-		wsi->http.ah = ah;
+		wsi->stream.ah = ah;
 
 		if (!wsi->h2.h2n) {
 			wsi->h2.h2n = lws_zalloc(sizeof(*wsi->h2.h2n), "h2n");
@@ -3808,7 +3808,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	wsi->hdr_parsing_completed = 0;
 	wsi->sending_chunked = 0;
 #ifdef LWS_WITH_ACCESS_LOG
-	wsi->http.access_log.sent = 0;
+	wsi->stream.access_log.sent = 0;
 #endif
 #if defined(LWS_WITH_FILE_OPS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 	if (lwsi_role_http(wsi) && lwsi_role_server(wsi) &&
@@ -3840,7 +3840,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	 * that is already at least the start of another header set, simply
 	 * reset the existing header table and keep it.
 	 */
-	if (wsi->http.ah) {
+	if (wsi->stream.ah) {
 		// lws_buflist_describe(&wsi->buflist, wsi, __func__);
 		if (!lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
 			wsi->http.pipeline_count = 0;
@@ -3882,8 +3882,8 @@ lws_http_transaction_completed(struct lws *wsi)
 					wsi->a.vhost->keepalive_timeout);
 		}
 		/* If we're (re)starting on headers, need other implied init */
-		if (wsi->http.ah)
-			wsi->http.ah->ues = URIES_IDLE;
+		if (wsi->stream.ah)
+			wsi->stream.ah->ues = URIES_IDLE;
 
 		//lwsi_set_state(wsi, LRS_ESTABLISHED); // !!!
 	} else
@@ -4795,7 +4795,7 @@ all_sent:
 			 * discard path completes the transaction, and with
 			 * it the ah, once the body is gone.
 			 */
-			if (wsi->http.ah &&
+			if (wsi->stream.ah &&
 			    lwsi_state(wsi) != LRS_DISCARD_BODY)
 				lws_header_table_reset(wsi, 0);
 

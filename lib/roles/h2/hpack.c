@@ -205,7 +205,7 @@ static int huftable_decode(int pos, char c)
 
 static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 {
-	struct allocated_headers *ah = wsi->http.ah;
+	struct allocated_headers *ah = wsi->stream.ah;
 
 	if (!ah) {
 		lwsl_notice("%s: no ah\n", __func__);
@@ -278,7 +278,7 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 
 static int lws_frag_append(struct lws *wsi, unsigned char c)
 {
-	struct allocated_headers *ah = wsi->http.ah;
+	struct allocated_headers *ah = wsi->stream.ah;
 
 	if ((unsigned int)ah->pos >= wsi->a.context->max_http_header_data)
 		return 1;
@@ -291,7 +291,7 @@ static int lws_frag_append(struct lws *wsi, unsigned char c)
 
 static int lws_frag_end(struct lws *wsi)
 {
-	struct allocated_headers *ah = wsi->http.ah;
+	struct allocated_headers *ah = wsi->stream.ah;
 
 	lwsl_header("%s\n", __func__);
 
@@ -306,9 +306,9 @@ static int lws_frag_end(struct lws *wsi)
 		return 1;
 
 	/* don't account for the terminating NUL in the logical length */
-	wsi->http.ah->frags[wsi->http.ah->nfrag].len--;
+	wsi->stream.ah->frags[wsi->stream.ah->nfrag].len--;
 
-	wsi->http.ah->nfrag++;
+	wsi->stream.ah->nfrag++;
 	return 0;
 }
 
@@ -976,7 +976,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 {
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	struct lws_h2_netconn *h2n = nwsi->h2.h2n;
-	struct allocated_headers *ah = wsi->http.ah;
+	struct allocated_headers *ah = wsi->stream.ah;
 	unsigned int prev;
 	unsigned char c1;
 	int n, m, plen;

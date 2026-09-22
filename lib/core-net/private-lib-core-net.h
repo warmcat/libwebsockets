@@ -860,6 +860,7 @@ struct lws {
 	/* structs */
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+	struct _lws_stream_related	stream;
 	struct _lws_http_mode_related	http;
 #endif
 #if defined(LWS_ROLE_H2)

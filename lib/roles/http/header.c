@@ -502,7 +502,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 
 	wsi->http.response_code = code;
 #ifdef LWS_WITH_ACCESS_LOG
-	wsi->http.access_log.response = (int)code;
+	wsi->stream.access_log.response = (int)code;
 #endif
 
 #ifdef LWS_WITH_HTTP2
@@ -535,8 +535,8 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 			if (code >= 300 && code < 400)
 				description = "Redirect";
 
-		if (wsi->http.request_version < LWS_ARRAY_SIZE(hver))
-			p1 = hver[wsi->http.request_version];
+		if (wsi->stream.request_version < LWS_ARRAY_SIZE(hver))
+			p1 = hver[wsi->stream.request_version];
 		else
 			p1 = hver[0];
 
@@ -1056,7 +1056,7 @@ lws_http_zap_header(struct lws *wsi, const char *name)
 	int n = (int)strlen(name);
 	int index;
 
-	if (!wsi->http.ah)
+	if (!wsi->stream.ah)
 		return 0;
 
 	/*
@@ -1068,11 +1068,11 @@ lws_http_zap_header(struct lws *wsi, const char *name)
 	 */
 	index = lws_http_string_to_known_header(name, (size_t)n);
 	if (index != LWS_HTTP_NO_KNOWN_HEADER && index < WSI_TOKEN_COUNT)
-		wsi->http.ah->frag_index[index] = 0;
+		wsi->stream.ah->frag_index[index] = 0;
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 	{
-		ah_data_idx_t ll = wsi->http.ah->unk_ll_head, prev = 0;
+		ah_data_idx_t ll = wsi->stream.ah->unk_ll_head, prev = 0;
 		char cname[128];
 
 		/*
@@ -1104,28 +1104,28 @@ lws_http_zap_header(struct lws *wsi, const char *name)
 			 * link and the 2-byte name length be read past the
 			 * end of ah->data.
 			 */
-			if (ll + UHO_NAME >= wsi->http.ah->data_length)
+			if (ll + UHO_NAME >= wsi->stream.ah->data_length)
 				return 1;
 
 			next = lws_ser_ru32be(
-				(uint8_t *)&wsi->http.ah->data[ll + UHO_LL]);
+				(uint8_t *)&wsi->stream.ah->data[ll + UHO_LL]);
 
 			if (n == lws_ser_ru16be(
-				(uint8_t *)&wsi->http.ah->data[ll + UHO_NLEN]) &&
+				(uint8_t *)&wsi->stream.ah->data[ll + UHO_NLEN]) &&
 			    ll + UHO_NAME + (ah_data_idx_t)n <=
-					    wsi->http.ah->data_length &&
-			    !strncasecmp(name, &wsi->http.ah->data[ll + UHO_NAME],
+					    wsi->stream.ah->data_length &&
+			    !strncasecmp(name, &wsi->stream.ah->data[ll + UHO_NAME],
 					 (unsigned int)n)) {
 				/* found one, remove from list and carry on */
 				if (!prev)
-					wsi->http.ah->unk_ll_head = next;
+					wsi->stream.ah->unk_ll_head = next;
 				else
 					lws_ser_wu32be(
-						(uint8_t *)&wsi->http.ah->data[prev + UHO_LL],
+						(uint8_t *)&wsi->stream.ah->data[prev + UHO_LL],
 						next);
 
 				if (!next)
-					wsi->http.ah->unk_ll_tail = prev;
+					wsi->stream.ah->unk_ll_tail = prev;
 
 				ll = next;
 				continue;

@@ -224,7 +224,7 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	}
 
 #ifdef LWS_WITH_ACCESS_LOG
-	wsi->http.access_log.sent += len;
+	wsi->stream.access_log.sent += len;
 #endif
 
 	assert(wsi->role_ops);

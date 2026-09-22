@@ -1300,7 +1300,7 @@ lws_parse_uri_destroy(lws_parse_uri_t **pcuri)
 
 int lws_get_urlarg_by_name_safe(struct lws *wsi, const char *name, char *buf,
 		int len) {
-	struct allocated_headers *ah = wsi->http.ah;
+	struct allocated_headers *ah = wsi->stream.ah;
 	int sl = (int)strlen(name);
 	int fi;
 
@@ -1396,7 +1396,7 @@ lws_wsi_request_uri(struct lws *wsi)
 	};
 	unsigned int n;
 
-	if (!wsi->http.ah)
+	if (!wsi->stream.ah)
 		return NULL;
 
 	for (n = 0; n < LWS_ARRAY_SIZE(tokens); n++)
