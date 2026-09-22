@@ -98,37 +98,38 @@ struct xcase {
 	long		expect_server_rx; /* -1: don't check; else payload bytes the server saw */
 	enum xf_gate	gate;
 	int		expect;		/* 1: Expect: 100-continue, 2: Expect: nope */
+	int		via_proxy;	/* through the http proxy mount to srv-h1 */
 };
 
 static const struct xcase cases[] = {
 	{ "h1 POST Content-Length 100KB, 8KB writes, CL response",
-	  "POST", "/echo-cl", XR_CL, 100000, 0, 8192, 0, 0, 200, 100000, XG_NONE, 0 },
+	  "POST", "/echo-cl", XR_CL, 100000, 0, 8192, 0, 0, 200, 100000, XG_NONE, 0, 0 },
 	{ "h1 POST 600KB, response in one write completed at once (deferred "
 	  "completion), second request pipelined on the same connection",
 	  "POST", "/echo-oneshot", XR_CL, 600000, 0, 65536, 0, 1, 200,
-	  -1, XG_NONE, 0 },
+	  -1, XG_NONE, 0, 0 },
 	{ "h1 POST Content-Length 5KB, one write, chunked response",
-	  "POST", "/echo-chunked", XR_CL, 5000, 0, 8192, 0, 0, 200, 5000, XG_NONE, 0 },
+	  "POST", "/echo-chunked", XR_CL, 5000, 0, 8192, 0, 0, 200, 5000, XG_NONE, 0, 0 },
 	{ "h1 POST Content-Length 30KB, 4KB writes, close-delimited response",
-	  "POST", "/echo-nolen", XR_CL, 30000, 0, 4096, 0, 0, 200, 30000, XG_NONE, 0 },
+	  "POST", "/echo-nolen", XR_CL, 30000, 0, 4096, 0, 0, 200, 30000, XG_NONE, 0, 0 },
 	{ "h1 POST Content-Length 60KB, chunked response in many chunks",
-	  "POST", "/echo-chunked", XR_CL, 60000, 0, 8192, 0, 0, 200, 60000, XG_NONE, 0 },
+	  "POST", "/echo-chunked", XR_CL, 60000, 0, 8192, 0, 0, 200, 60000, XG_NONE, 0, 0 },
 	{ "h1 POST chunked 100KB, 8KB writes, CL response",
-	  "POST", "/echo-cl", XR_CHUNKED, 100000, 0, 8192, 0, 0, 200, 100000, XG_NONE, 0 },
+	  "POST", "/echo-cl", XR_CHUNKED, 100000, 0, 8192, 0, 0, 200, 100000, XG_NONE, 0, 0 },
 	{ "h1 POST chunked 5KB, one write, chunked response",
-	  "POST", "/echo-chunked", XR_CHUNKED, 5000, 0, 8192, 0, 0, 200, 5000, XG_NONE, 0 },
+	  "POST", "/echo-chunked", XR_CHUNKED, 5000, 0, 8192, 0, 0, 200, 5000, XG_NONE, 0, 0 },
 	{ "h1 POST chunked 300B, framing split into 3-byte writes",
-	  "POST", "/echo-cl", XR_CHUNKED, 300, 0, 3, 0, 0, 200, 300, XG_NONE, 0 },
+	  "POST", "/echo-cl", XR_CHUNKED, 300, 0, 3, 0, 0, 200, 300, XG_NONE, 0, 0 },
 	{ "h1 POST chunked 2KB with extensions and trailers, 7-byte writes",
-	  "POST", "/echo-cl", XR_CHUNKED_EXT, 2000, 0, 7, 0, 0, 200, 2000, XG_NONE, 0 },
+	  "POST", "/echo-cl", XR_CHUNKED_EXT, 2000, 0, 7, 0, 0, 200, 2000, XG_NONE, 0, 0 },
 	{ "h1 POST chunked 5KB, 1KB writes, close-delimited response",
-	  "POST", "/echo-nolen", XR_CHUNKED, 5000, 0, 1000, 0, 0, 200, 5000, XG_NONE, 0 },
+	  "POST", "/echo-nolen", XR_CHUNKED, 5000, 0, 1000, 0, 0, 200, 5000, XG_NONE, 0, 0 },
 	{ "h1 POST chunked 3KB, two requests pipelined on one connection",
-	  "POST", "/echo-cl", XR_CHUNKED, 3000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0 },
+	  "POST", "/echo-cl", XR_CHUNKED, 3000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0, 0 },
 	{ "h1 GET with a chunked body, two requests pipelined on one connection",
-	  "GET", "/echo-cl", XR_CHUNKED, 1000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0 },
+	  "GET", "/echo-cl", XR_CHUNKED, 1000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0, 0 },
 	{ "h1 GET with a Content-Length body, two requests pipelined",
-	  "GET", "/echo-cl", XR_CL, 1000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0 },
+	  "GET", "/echo-cl", XR_CL, 1000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0, 0 },
 	/*
 	 * No h1 "POST with neither header" case: by lws convention such a body
 	 * is delimited by the multipart closing boundary (lws_spa) or the
@@ -136,22 +137,22 @@ static const struct xcase cases[] = {
 	 * variant below is END_STREAM delimited and does complete.
 	 */
 	{ "h1 GET, no body",
-	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0 },
+	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0, 0 },
 	/*
 	 * The server answers /redir-cl with a 302 to /echo-cl: the client must
 	 * follow it on the same wsi (a new connection underneath) and complete
 	 * the second request normally
 	 */
 	{ "h1 GET 302, redirect followed on the same wsi",
-	  "GET", "/redir-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0 },
+	  "GET", "/redir-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0, 0 },
 	{ "h1 POST Transfer-Encoding: gzip is refused with 501",
-	  "POST", "/echo-cl", XR_TE_BAD, 0, 0, 8192, 0, 0, 501, -1, XG_NONE, 0 },
+	  "POST", "/echo-cl", XR_TE_BAD, 0, 0, 8192, 0, 0, 501, -1, XG_NONE, 0, 0 },
 	{ "h1 POST Transfer-Encoding with Content-Length is refused with 400",
-	  "POST", "/echo-cl", XR_TE_AND_CL, 0, 5, 8192, 0, 0, 400, -1, XG_NONE, 0 },
+	  "POST", "/echo-cl", XR_TE_AND_CL, 0, 5, 8192, 0, 0, 400, -1, XG_NONE, 0, 0 },
 	{ "h1 POST chunked body over the mount limit is dropped",
-	  "POST", "/small/echo-cl", XR_CHUNKED, 200, 0, 8192, 0, 0, 0, -1, XG_NONE, 0 },
+	  "POST", "/small/echo-cl", XR_CHUNKED, 200, 0, 8192, 0, 0, 0, -1, XG_NONE, 0, 0 },
 	{ "h1 POST Content-Length over the mount limit gets 413",
-	  "POST", "/small/echo-cl", XR_CL, 0, 200, 8192, 0, 0, 413, -1, XG_NONE, 0 },
+	  "POST", "/small/echo-cl", XR_CL, 0, 200, 8192, 0, 0, 413, -1, XG_NONE, 0, 0 },
 	/*
 	 * Expect: 100-continue.  The server answers an h1.1 request it is
 	 * about to read the body of with an interim 100 Continue; the lws
@@ -162,15 +163,15 @@ static const struct xcase cases[] = {
 	 * other expectation is 417.
 	 */
 	{ "h1 POST Content-Length 20KB with Expect: 100-continue",
-	  "POST", "/echo-cl", XR_CL, 20000, 0, 4096, 0, 0, 200, 20000, XG_NONE, 1 },
+	  "POST", "/echo-cl", XR_CL, 20000, 0, 4096, 0, 0, 200, 20000, XG_NONE, 1, 0 },
 	{ "h1 POST chunked 5KB with Expect: 100-continue",
-	  "POST", "/echo-cl", XR_CHUNKED, 5000, 0, 1000, 0, 0, 200, 5000, XG_NONE, 1 },
+	  "POST", "/echo-cl", XR_CHUNKED, 5000, 0, 1000, 0, 0, 200, 5000, XG_NONE, 1, 0 },
 	{ "h1 POST chunked with Expect, two requests pipelined",
-	  "POST", "/echo-cl", XR_CHUNKED, 3000, 0, 8192, 0, 1, 200, -1, XG_NONE, 1 },
+	  "POST", "/echo-cl", XR_CHUNKED, 3000, 0, 8192, 0, 1, 200, -1, XG_NONE, 1, 0 },
 	{ "h1 POST over the mount limit with Expect gets 413, no 100",
-	  "POST", "/small/echo-cl", XR_CL, 0, 200, 8192, 0, 0, 413, -1, XG_NONE, 1 },
+	  "POST", "/small/echo-cl", XR_CL, 0, 200, 8192, 0, 0, 413, -1, XG_NONE, 1, 0 },
 	{ "h1 POST with an unknown Expect gets 417",
-	  "POST", "/echo-cl", XR_CL, 0, 5, 8192, 0, 0, 417, -1, XG_NONE, 2 },
+	  "POST", "/echo-cl", XR_CL, 0, 5, 8192, 0, 0, 417, -1, XG_NONE, 2, 0 },
 #if defined(LWS_WITH_JOSE)
 	/*
 	 * Mount interceptor gating.  "/gated" is guarded by the "/bouncer"
@@ -178,19 +179,19 @@ static const struct xcase cases[] = {
 	 * ?auth=1 and otherwise answers it itself with 403.
 	 */
 	{ "h1 GET to an interceptor-gated mount is blocked",
-	  "GET", "/gated/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, 403, 0, XG_BLOCK, 0 },
+	  "GET", "/gated/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, 403, 0, XG_BLOCK, 0, 0 },
 	{ "h1 GET the interceptor passes reaches the app",
 	  "GET", "/gated/echo-cl?auth=1", XR_NONE, 0, 0, 8192, 0, 0, 200, 0,
-	  XG_PASS, 0 },
+	  XG_PASS, 0, 0 },
 	{ "h1 POST to an interceptor-gated mount is blocked",
 	  "POST", "/gated/echo-cl", XR_CL, 4000, 0, 8192, 0, 0, 403, 0,
-	  XG_BLOCK, 0 },
+	  XG_BLOCK, 0, 0 },
 	{ "h1 POST the interceptor passes reaches the app with its body",
 	  "POST", "/gated/echo-cl?auth=1", XR_CL, 4000, 0, 8192, 0, 0, 200,
-	  4000, XG_PASS, 0 },
+	  4000, XG_PASS, 0, 0 },
 	{ "h1 POST chunked to an interceptor-gated mount is blocked",
 	  "POST", "/gated/echo-cl", XR_CHUNKED, 2000, 0, 512, 0, 0, 403, 0,
-	  XG_BLOCK, 0 },
+	  XG_BLOCK, 0, 0 },
 	/*
 	 * Blocking a request whose body is still arriving must leave the h1
 	 * connection resynchronized: the body of the refused request is
@@ -200,21 +201,38 @@ static const struct xcase cases[] = {
 	{ "h1 POST blocked by the interceptor, second request pipelined on the "
 	  "same connection",
 	  "POST", "/gated/echo-cl", XR_CL, 4000, 0, 8192, 0, 1, 403, 0,
-	  XG_BLOCK, 0 },
+	  XG_BLOCK, 0, 0 },
+#endif
+#if defined(LWS_WITH_HTTP_PROXY)
+	/*
+	 * The same server behind the http proxy mount: the proxy's onward
+	 * client forwards the request (and its body from the stash it keeps
+	 * for it) and relays the response.  These pass through the proxied
+	 * client's own request-sent / body-sent transitions, which nothing
+	 * else here exercises.
+	 */
+	{ "h1 GET via the http proxy mount",
+	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0, 1 },
+	{ "h1 POST Content-Length 5KB via the http proxy mount",
+	  "POST", "/echo-cl", XR_CL, 5000, 0, 8192, 0, 0, 200, 5000, XG_NONE, 0, 1 },
+	{ "h1 POST Content-Length 100KB, 8KB writes, via the http proxy mount",
+	  "POST", "/echo-cl", XR_CL, 100000, 0, 8192, 0, 0, 200, 100000, XG_NONE, 0, 1 },
+	{ "h1 POST Content-Length 20KB, no-length response, via the http proxy mount",
+	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 0, 0, 200, 20000, XG_NONE, 0, 1 },
 #endif
 #if defined(LWS_WITH_HTTP2)
 	{ "h2 POST Content-Length 50KB, 8KB writes, CL response",
-	  "POST", "/echo-cl", XR_CL, 50000, 0, 8192, 1, 0, 200, 50000, XG_NONE, 0 },
+	  "POST", "/echo-cl", XR_CL, 50000, 0, 8192, 1, 0, 200, 50000, XG_NONE, 0, 0 },
 	{ "h2 POST no Content-Length 20KB (END_STREAM delimited)",
-	  "POST", "/echo-cl", XR_BODY_NOHDR, 20000, 0, 4096, 1, 0, 200, 20000, XG_NONE, 0 },
+	  "POST", "/echo-cl", XR_BODY_NOHDR, 20000, 0, 4096, 1, 0, 200, 20000, XG_NONE, 0, 0 },
 	{ "h2 POST Content-Length 20KB, no-length response (END_STREAM)",
-	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 1, 0, 200, 20000, XG_NONE, 0 },
+	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 1, 0, 200, 20000, XG_NONE, 0, 0 },
 	{ "h2 GET, no body",
-	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0 },
+	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0, 0 },
 	{ "h2 GET 302, redirect followed on the same wsi",
-	  "GET", "/redir-cl", XR_NONE, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0 },
+	  "GET", "/redir-cl", XR_NONE, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0, 0 },
 	{ "h2 POST with neither header: zero-length body",
-	  "POST", "/echo-cl", XR_NOLEN, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0 },
+	  "POST", "/echo-cl", XR_NOLEN, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0, 0 },
 	/*
 	 * No h2 Transfer-Encoding refusal case: the lws h2 client does not
 	 * forward a Transfer-Encoding header, so it cannot provoke one
@@ -229,19 +247,19 @@ static const struct xcase cases[] = {
 	 */
 	{ "h2 GET to an interceptor-gated mount is blocked",
 	  "GET", "/gated/echo-cl", XR_NONE, 0, 0, 8192, 1, 0, 403, 0,
-	  XG_BLOCK, 0 },
+	  XG_BLOCK, 0, 0 },
 	{ "h2 POST to an interceptor-gated mount is blocked",
 	  "POST", "/gated/echo-cl", XR_CL, 4000, 0, 8192, 1, 0, 403, 0,
-	  XG_BLOCK, 0 },
+	  XG_BLOCK, 0, 0 },
 	{ "h2 POST with no body to an interceptor-gated mount is blocked",
 	  "POST", "/gated/echo-cl", XR_NOLEN, 0, 0, 8192, 1, 0, 403, 0,
-	  XG_BLOCK, 0 },
+	  XG_BLOCK, 0, 0 },
 	{ "h2 POST with no Content-Length to a gated mount is blocked",
 	  "POST", "/gated/echo-cl", XR_BODY_NOHDR, 2000, 0, 512, 1, 0, 403, 0,
-	  XG_BLOCK, 0 },
+	  XG_BLOCK, 0, 0 },
 	{ "h2 POST the interceptor passes reaches the app with its body",
 	  "POST", "/gated/echo-cl?auth=1", XR_CL, 4000, 0, 8192, 1, 0, 200,
-	  4000, XG_PASS, 0 },
+	  4000, XG_PASS, 0, 0 },
 #endif
 #endif
 };
@@ -309,7 +327,7 @@ static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_next, sul_watchdog;
 static struct conn *conn_list, *conns[2];
 static int result, cur = -1, failures, port_h1 = 7681,
-	   port_h2 = 7682, only_case = -1, case_done;
+	   port_h2 = 7682, port_proxy = 7683, only_case = -1, case_done;
 
 static const char *server_addr = "127.0.0.1";
 
@@ -1120,7 +1138,7 @@ conn_start(const struct xcase *c)
 	i.address = server_addr;
 	i.host = server_addr;
 	i.origin = server_addr;
-	i.port = c->h2 ? port_h2 : port_h1;
+	i.port = c->via_proxy ? port_proxy : (c->h2 ? port_h2 : port_h1);
 	i.path = c->path;
 	i.method = c->method;
 	i.protocol = "http-xfer";
@@ -1246,6 +1264,19 @@ static const struct lws_http_mount mount_gated = {
 #define MOUNT_LIST (&mount_small)
 #endif
 
+#if defined(LWS_WITH_HTTP_PROXY)
+/* the proxy vhost forwards everything to the h1 server vhost */
+
+static char proxy_origin[48];
+
+static const struct lws_http_mount mount_proxy = {
+	.mountpoint		= "/",
+	.origin			= proxy_origin,
+	.origin_protocol	= LWSMPRO_HTTP,
+	.mountpoint_len		= 1,
+};
+#endif
+
 void sigint_handler(int sig)
 {
 	lws_default_loop_exit(context);
@@ -1275,6 +1306,8 @@ int main(int argc, const char **argv)
 		port_h1 = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--h2-port")))
 		port_h2 = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--proxy-port")))
+		port_proxy = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		server_addr = p;
 	if ((p = lws_cmdline_option(argc, argv, "--case")))
@@ -1319,6 +1352,28 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 	info.options &= ~(uint64_t)LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
+#endif
+
+#if defined(LWS_WITH_HTTP_PROXY)
+	/* proxy vhost, an http proxy mount on to the h1 server */
+
+	lws_snprintf(proxy_origin, sizeof(proxy_origin), "%s:%d/",
+		     server_addr, port_h1);
+	info.port = port_proxy;
+	info.vhost_name = "srv-proxy";
+	info.mounts = &mount_proxy;
+	/*
+	 * The relay of the onward response lives in the default http
+	 * callback, so this vhost must not have our server protocol, whose
+	 * callback answers HTTP_WRITEABLE for its own echo
+	 */
+	info.protocols = NULL;
+
+	vh = lws_create_vhost(context, &info);
+	if (!vh) {
+		lwsl_err("Failed to create proxy vhost\n");
+		goto bail;
+	}
 #endif
 
 	/* client vhost, no listener */
