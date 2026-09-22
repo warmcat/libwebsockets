@@ -906,12 +906,15 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 		}
 	}
 
-	if ((
-#if defined(LWS_WITH_CLIENT)
-			wsi->client_mux_substream ||
-#endif
-			wsi->mux_substream) &&
-	     wsi->mux.parent_wsi) {
+	/*
+	 * A stream leaving its connection: judged by the parent it is still
+	 * attached to, not by the substream marks, which a redirect's
+	 * lws_client_reset() has already cleared by the time the close gets
+	 * here.  Without the swsi clear below, a redirected stream rejoining
+	 * the same connection found the parent still pointing at it as the
+	 * stream to send headers first, and waited for itself forever.
+	 */
+	if (wsi->mux.parent_wsi) {
 
 		if (wsi->mux.parent_wsi->h2.h2n &&
 		    wsi->mux.parent_wsi->h2.h2n->swsi == wsi) {
