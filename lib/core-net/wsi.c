@@ -76,6 +76,36 @@ lws_lts_of_lrs(lws_wsi_state_t lrs)
 	return LTS_NONE;
 }
 
+const enum lwsi_state lws_lrs_of_carrier[16] = {
+	[LCR_NONE]			= LRS_UNCONNECTED, /* not used */
+	[LCR_H1C_ISSUE_HANDSHAKE]	= LRS_H1C_ISSUE_HANDSHAKE,
+	[LCR_H1C_ISSUE_HANDSHAKE2]	= LRS_H1C_ISSUE_HANDSHAKE2,
+	[LCR_WAITING_SERVER_REPLY]	= LRS_WAITING_SERVER_REPLY,
+	[LCR_H2_AWAIT_PREFACE]		= LRS_H2_AWAIT_PREFACE,
+	[LCR_H2_AWAIT_SETTINGS]		= LRS_H2_AWAIT_SETTINGS,
+	[LCR_H2_WAITING_TO_SEND_HEADERS] = LRS_H2_WAITING_TO_SEND_HEADERS,
+	[LCR_H1_UPGRADE]		= LRS_H1_UPGRADE,
+	[LCR_MQTTC_IDLE]		= LRS_MQTTC_IDLE,
+	[LCR_MQTTC_AWAIT_CONNACK]	= LRS_MQTTC_AWAIT_CONNACK,
+	[LCR_ESTABLISHED]		= LRS_ESTABLISHED, /* not used */
+};
+
+/* the carrier phase an LRS_ constant stands for, or LCR_NONE */
+
+static enum lws_carrier_phase
+lws_lcr_of_lrs(lws_wsi_state_t lrs)
+{
+	unsigned int n;
+
+	for (n = LCR_H1C_ISSUE_HANDSHAKE; n < LCR_ESTABLISHED; n++)
+		if ((lws_wsi_state_t)lws_lrs_of_carrier[n] == (lrs & LRS_MASK))
+			return (enum lws_carrier_phase)n;
+
+	return LCR_NONE;
+}
+
+#define lws_carrier_bits(lcr) ((lws_wsi_state_t)(lcr) << LWSI_CARRIER_SHIFT)
+
 void
 lwsi_set_transport(struct lws *wsi, enum lws_transport_phase phase)
 {
@@ -115,24 +145,46 @@ void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role) {
 
 	lwsl_wsi_debug(wsi, "state 0x%lx", (unsigned long)wsi->wsistate);
 }
+#endif
 
 void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs) {
-	lws_wsi_state_t old = wsi->wsistate;
+	lws_wsi_state_t old = wsi->wsistate, w;
+	enum lws_carrier_phase lcr = lws_lcr_of_lrs(lrs);
 
 	/* the close and transport machines have their own setters and bits */
 	assert((lrs & 0xff) < (LRS_WAITING_TO_SEND_CLOSE & 0xff) ||
 	       (lrs & 0xff) > (LRS_DEAD_SOCKET & 0xff));
 	assert(lws_lts_of_lrs(lrs) == LTS_NONE);
 
-	/* setting a live state completes any transport phase */
-	wsi->wsistate = (old & ~(LRS_MASK | LWSI_TRANSPORT_MASK)) | lrs;
+	/* setting any live state completes any transport phase */
+	w = old & ~LWSI_TRANSPORT_MASK;
+
+	if (lcr != LCR_NONE && (w & LWSI_CARRIER_MASK) !=
+					lws_carrier_bits(LCR_ESTABLISHED))
+		/* a handshake state while the handshake is still going on */
+		w = (w & ~LWSI_CARRIER_MASK) | lws_carrier_bits(lcr);
+	else {
+		/*
+		 * A transaction state, which means the carrier is
+		 * established from now on, or a handshake-named state on an
+		 * established carrier, which is a per-transaction phase: both
+		 * go in the live bits
+		 */
+		if ((lrs & LRS_MASK) == LRS_UNCONNECTED)
+			w &= ~LWSI_CARRIER_MASK;
+		else
+			w = (w & ~LWSI_CARRIER_MASK) |
+			    lws_carrier_bits(LCR_ESTABLISHED);
+		w = (w & ~(lws_wsi_state_t)LRS_MASK) | lrs;
+	}
+
+	wsi->wsistate = w;
 	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
 			"set_state");
 
 	lwsl_wsi_debug(wsi, "lwsi_set_state 0x%lx -> 0x%lx", (unsigned long)old,
 			(unsigned long)wsi->wsistate);
 }
-#endif
 
 void lws_log_prepend_wsi(struct lws_log_cx *cx, void *obj, char **p, char *e) {
 	struct lws *wsi = (struct lws *)obj;
@@ -1044,17 +1096,25 @@ void lws_role_transition(struct lws *wsi, enum lwsi_role role,
 	lws_wsi_state_t old = wsi->wsistate;
 #endif
 	enum lws_transport_phase lts = lws_lts_of_lrs((lws_wsi_state_t)state);
+	enum lws_carrier_phase lcr = lws_lcr_of_lrs((lws_wsi_state_t)state);
 
 	/*
-	 * A transport state goes in the transport bits over an unconnected
-	 * live state; anything else is a live state and ends any transport
-	 * phase, the redirect / fallback restart included
+	 * A transport or carrier handshake state goes in its own bits over
+	 * an unconnected live state; UNCONNECTED restarts everything (the
+	 * redirect / fallback path); any other live state means the carrier
+	 * is established and ends any transport phase
 	 */
 	if (lts != LTS_NONE)
 		wsi->wsistate = (unsigned int)role | LRS_UNCONNECTED |
 				((lws_wsi_state_t)lts << LWSI_TRANSPORT_SHIFT);
-	else
+	else if (lcr != LCR_NONE)
+		wsi->wsistate = (unsigned int)role | LRS_UNCONNECTED |
+				lws_carrier_bits(lcr);
+	else if (((unsigned int)state & LRS_MASK) == LRS_UNCONNECTED)
 		wsi->wsistate = (unsigned int)role | (unsigned int)state;
+	else
+		wsi->wsistate = (unsigned int)role | (unsigned int)state |
+				lws_carrier_bits(LCR_ESTABLISHED);
 	if (ops)
 		wsi->role_ops = ops;
 	lws_state_hook(wsi, old_ops, old, wsi->role_ops, wsi->wsistate,

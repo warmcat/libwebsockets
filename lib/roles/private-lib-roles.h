@@ -32,14 +32,20 @@ typedef uint32_t lws_wsi_state_t;
  * role is a client or server side, if it has that concept.  And the connection
  * fulfilling the role, has a separate dynamic state.
  *
- *   31        20 19    16 15 14  12 11 10   9    8   7      0
- *   [ role flags ][transp] [cs][close][ - ][nest][pocb][ state ]
+ *   31     24 23    20 19    16 15 14  12 11 10   9    8   7      0
+ *   [ role  ][carrier][transp] [cs][close][ - ][nest][pocb][ state ]
  *
- * bits 0-9 are the live state: the carrier / transaction machines' LRS_
- * value with its LWSIFS_ flags.  bits 16-19 are the transport machine (enum
- * lws_transport_phase): dns, connect, proxy / socks, tls handshake; while
- * it is set the connection is not yet usable and lwsi_state() reports it in
- * preference to the live state.  bits 12-14 are the close machine (enum
+ * bits 0-9 are the live state: the transaction machine's LRS_ value with
+ * its LWSIFS_ flags.  bits 20-23 are the carrier machine (enum
+ * lws_carrier_phase): the protocol handshake on top of the transport, h1
+ * first request / reply, h2 preface and settings, mqtt connack, the h1
+ * server's upgrade decision; while a handshake is in progress lwsi_state()
+ * reports it in preference to the live state, and once the transaction
+ * machine starts it reads LCR_ESTABLISHED.  bits 16-19 are the transport
+ * machine (enum lws_transport_phase): dns, connect, proxy / socks, tls
+ * handshake; while it is set the connection is not yet usable and
+ * lwsi_state() reports it in preference to both.  bits 12-14 are the close
+ * machine (enum
  * lws_close_phase), which runs on top of both without disturbing them, so
  * what the connection was doing when it started to close remains visible
  * (lwsi_state_live()).  bit 15 records that __lws_close_free_wsi() has
@@ -70,7 +76,7 @@ typedef uint32_t lws_wsi_state_t;
 #define LWSIFR_P_ENCAP_H2	(0x0100 << _RS) /* we are encapsulated by h2 */
 
 enum lwsi_role {
-	LWSI_ROLE_MASK		=			     (0xfff0 << _RS),
+	LWSI_ROLE_MASK		=			     (0xff00 << _RS),
 	LWSI_ROLE_ENCAP_MASK	=			     (0x0f00 << _RS),
 };
 
@@ -226,6 +232,42 @@ void
 lwsi_set_transport(struct lws *wsi, enum lws_transport_phase phase);
 
 /*
+ * The carrier machine: the protocol handshake between transport and the
+ * first transaction, per role.  Its states are the LRS_ values the
+ * handshake code sets; they route into these bits while the handshake is in
+ * progress, and once any transaction state has been set the carrier reads
+ * LCR_ESTABLISHED and the same LRS_ values set again are per-transaction
+ * phases in the live bits (the h1 client re-issues its request headers and
+ * waits for the reply for every pipelined transaction).  Either way
+ * lwsi_state() reports the value last set, as it always did.
+ */
+
+enum lws_carrier_phase {
+	LCR_NONE,			/* handshake not started */
+	LCR_H1C_ISSUE_HANDSHAKE,	/* h1 client, before tls */
+	LCR_H1C_ISSUE_HANDSHAKE2,	/* h1 client, sending the first request */
+	LCR_WAITING_SERVER_REPLY,	/* client, first reply headers */
+	LCR_H2_AWAIT_PREFACE,
+	LCR_H2_AWAIT_SETTINGS,
+	LCR_H2_WAITING_TO_SEND_HEADERS,	/* h2 / h3 client stream */
+	LCR_H1_UPGRADE,			/* h1 server upgrade decision */
+	LCR_MQTTC_IDLE,
+	LCR_MQTTC_AWAIT_CONNACK,
+	LCR_ESTABLISHED			/* the transaction machine has begun */
+};
+
+#define LWSI_CARRIER_SHIFT	20
+#define LWSI_CARRIER_MASK	(0xfu << LWSI_CARRIER_SHIFT)
+
+extern const enum lwsi_state lws_lrs_of_carrier[16];
+
+#define lwsi_carrier(wsi) ((enum lws_carrier_phase) \
+	((wsi->wsistate & LWSI_CARRIER_MASK) >> LWSI_CARRIER_SHIFT))
+/* handshake in progress, ie, neither not started nor done */
+#define lwsi_carrier_handshaking(wsi) \
+	(lwsi_carrier(wsi) != LCR_NONE && lwsi_carrier(wsi) != LCR_ESTABLISHED)
+
+/*
  * The close machine.  Entered from any live state; once set, the live state
  * is retained underneath but lwsi_state() reports the close state.  Cleared
  * only by lws_role_transition(), ie, the redirect / fallback restart.
@@ -267,6 +309,11 @@ lwsi_state_of_word(lws_wsi_state_t w)
 	if (w & LWSI_TRANSPORT_MASK)
 		return lws_lrs_of_transport[(w & LWSI_TRANSPORT_MASK) >>
 						LWSI_TRANSPORT_SHIFT];
+	if ((w & LWSI_CARRIER_MASK) &&
+	    (w & LWSI_CARRIER_MASK) != ((lws_wsi_state_t)LCR_ESTABLISHED <<
+							LWSI_CARRIER_SHIFT))
+		return lws_lrs_of_carrier[(w & LWSI_CARRIER_MASK) >>
+						LWSI_CARRIER_SHIFT];
 
 	return (enum lwsi_state)(w & LRS_MASK);
 }
@@ -274,18 +321,10 @@ lwsi_state_of_word(lws_wsi_state_t w)
 #define lwsi_state(wsi) lwsi_state_of_word(wsi->wsistate)
 /* the live machines' state, whether or not a close is in progress */
 #define lwsi_state_live(wsi) ((enum lwsi_state)(wsi->wsistate & LRS_MASK))
-#define lwsi_state_est(wsi) \
-		(lwsi_close(wsi) || (!lwsi_transport(wsi) && \
-				     !(wsi->wsistate & LWSIFS_NOT_EST)))
+#define lwsi_state_est(wsi) (!(lwsi_state(wsi) & LWSIFS_NOT_EST))
 #define lwsi_state_live_est(wsi) (!(wsi->wsistate & LWSIFS_NOT_EST))
 #define lwsi_state_can_handle_POLLOUT(wsi) (lwsi_state(wsi) & LWSIFS_POCB)
-#if !defined (_DEBUG) && !defined(LWS_WITH_STATE_TRACE) && \
-    !defined(LWS_WITH_STATE_CHECK)
-#define lwsi_set_state(wsi, lrs) wsi->wsistate = \
-	(wsi->wsistate & (lws_wsi_state_t)~(LRS_MASK | LWSI_TRANSPORT_MASK)) | lrs
-#else
 void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs);
-#endif
 
 #define _LWS_ADOPT_FINISH (1 << 24)
 
