@@ -3046,6 +3046,9 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 									lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, dnssec_monitor_expiry_timer_cb, 1 * LWS_US_PER_SEC);
 									lws_sul_schedule(vhd->context, 0, &vhd->sul_fast_timer, dnssec_monitor_fast_timer_cb, 5 * LWS_US_PER_SEC);
 
+									/* country geolocation CSVs for the inventory map */
+									lws_sul_schedule(vhd->context, 0, &vhd->sul_geo, inv_geo_timer_cb, 15 * LWS_US_PER_SEC);
+
 #if defined(LWS_WITH_DIR)
 									vhd->dn = lws_dir_notify_create(cx, scan_path, dir_notify_cb, vhd);
 									if (!vhd->dn)
@@ -3344,6 +3347,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_jwk_destroy(&vhd->jwk);
 		lws_sul_cancel(&vhd->sul_timer);
 		lws_sul_cancel(&vhd->sul_fast_timer);
+		inv_geo_destroy(vhd);
 #if defined(LWS_WITH_DIR)
 			if (vhd->dn) {
 				lws_dir_notify_destroy(&vhd->dn);
@@ -3582,6 +3586,9 @@ fallback:
 			} else if (magic && *magic == PSS_MAGIC) {
 				struct pss *wpss = (struct pss *)magic;
 				wpss->cwsi = NULL;
+			} else if (magic && *magic == INV_GEO_DL_MAGIC) {
+				inv_geo_dl_fail((struct inv_geo_dl *)magic);
+				lws_set_opaque_user_data(wsi, NULL);
 			}
 		}
 		break;
@@ -3611,6 +3618,20 @@ fallback:
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		{
+			struct inv_geo_dl *g = (struct inv_geo_dl *)lws_get_opaque_user_data(wsi);
+			if (g && g->magic == INV_GEO_DL_MAGIC) {
+				if (inv_geo_dl_rx(g, in, len)) {
+					lwsl_notice("%s: geo csv rx failed\n", __func__);
+					inv_geo_dl_fail(g);
+					lws_set_opaque_user_data(wsi, NULL);
+
+					return -1;
+				}
+
+				return 0;
+			}
+		}
+		{
 			struct acme_profiles_fetch_info *afi = (struct acme_profiles_fetch_info *)lws_get_opaque_user_data(wsi);
 			if (afi && afi->magic == ACME_PROFILES_MAGIC) {
 				lwsl_notice("%s: Received %zu bytes for ACME directory\n", __func__, len);
@@ -3638,6 +3659,15 @@ fallback:
 		return 0;
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+		{
+			struct inv_geo_dl *g = (struct inv_geo_dl *)lws_get_opaque_user_data(wsi);
+			if (g && g->magic == INV_GEO_DL_MAGIC) {
+				inv_geo_dl_complete(g);
+				lws_set_opaque_user_data(wsi, NULL);
+
+				return 0;
+			}
+		}
 		{
 			struct acme_profiles_fetch_info *afi = (struct acme_profiles_fetch_info *)lws_get_opaque_user_data(wsi);
 			if (afi && afi->magic == ACME_PROFILES_MAGIC) {
@@ -3712,6 +3742,13 @@ fallback:
 				if (afi->json) free(afi->json);
 				free(afi);
 				lws_set_opaque_user_data(wsi, NULL);
+			} else {
+				struct inv_geo_dl *g = (struct inv_geo_dl *)
+						lws_get_opaque_user_data(wsi);
+				if (g && g->magic == INV_GEO_DL_MAGIC) {
+					inv_geo_dl_fail(g);
+					lws_set_opaque_user_data(wsi, NULL);
+				}
 			}
 		}
 		break;

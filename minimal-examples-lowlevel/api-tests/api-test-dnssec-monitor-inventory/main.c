@@ -62,6 +62,13 @@ struct t_name {
 	int	ns;
 };
 
+struct t_geo {
+	double	lat, lon;
+	int	set;
+	char	src[8];
+	char	cc[4];
+};
+
 struct t_iface {
 	struct t_ip	ips[T_MAX_IPS];
 	int		nips;
@@ -69,6 +76,7 @@ struct t_iface {
 	int		nnames;
 	char		ns_zones[T_MAX_NSZ][T_NAME_SZ];
 	int		nnsz;
+	struct t_geo	geo;
 	int		has_v4, has_v6;
 };
 
@@ -93,6 +101,10 @@ static const char * const t_paths[] = {
 	"ifaces[].ns_zones[].z",
 	"ifaces[].v4",
 	"ifaces[].v6",
+	"ifaces[].geo.lat",
+	"ifaces[].geo.lon",
+	"ifaces[].geo.src",
+	"ifaces[].geo.cc",
 	"total",
 	"more",
 	"next"
@@ -109,6 +121,10 @@ enum {
 	TP_NSZ,
 	TP_F_V4,
 	TP_F_V6,
+	TP_G_LAT,
+	TP_G_LON,
+	TP_G_SRC,
+	TP_G_CC,
 	TP_TOTAL,
 	TP_MORE,
 	TP_NEXT
@@ -182,6 +198,18 @@ t_cb(struct lejp_ctx *ctx, char reason)
 					    ctx->buf, T_NAME_SZ);
 			}
 			break;
+		case TP_G_SRC:
+			if (tf) {
+				lws_strncpy(tf->geo.src, ctx->buf,
+					    sizeof(tf->geo.src));
+				tf->geo.set = 1;
+			}
+			break;
+		case TP_G_CC:
+			if (tf)
+				lws_strncpy(tf->geo.cc, ctx->buf,
+					    sizeof(tf->geo.cc));
+			break;
 		default:
 			break;
 		}
@@ -189,9 +217,21 @@ t_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 	}
 
-	if (reason == LEJPCB_VAL_NUM_INT || reason == LEJPCB_VAL_TRUE ||
-	    reason == LEJPCB_VAL_FALSE) {
+	if (reason == LEJPCB_VAL_NUM_INT || reason == LEJPCB_VAL_NUM_FLOAT ||
+	    reason == LEJPCB_VAL_TRUE || reason == LEJPCB_VAL_FALSE) {
 		int v = atoi(ctx->buf);
+
+		if (m == TP_G_LAT && tf) {
+			tf->geo.lat = atof(ctx->buf);
+			tf->geo.set = 1;
+
+			return 0;
+		}
+		if (m == TP_G_LON && tf) {
+			tf->geo.lon = atof(ctx->buf);
+
+			return 0;
+		}
 
 		if (reason == LEJPCB_VAL_TRUE)
 			v = 1;
@@ -406,6 +446,12 @@ int main(void)
 	    t_mkdir("./inv-corpus/domains") ||
 	    t_mkdir("./inv-corpus/domains/example.com") ||
 	    t_mkdir("./inv-corpus/domains/other.com") ||
+	    t_mkdir("./inv-corpus/geo") ||
+	    t_write_file("./inv-corpus/geo/dbip-country-ipv4-cidr.csv",
+			 "192.0.2.0/24,FR\n"
+			 "198.51.100.0/24,JP\n") ||
+	    t_write_file("./inv-corpus/geo/dbip-country-ipv6-cidr.csv",
+			 "2001:db8::/32,CH\n") ||
 	    t_write_file("./inv-corpus/domains/example.com/example.com.zone",
 			 z_example) ||
 	    t_write_file("./inv-corpus/domains/other.com/other.com.zone",
@@ -487,6 +533,30 @@ int main(void)
 				  t_ip_flag(f, "198.51.100.3", "ns_only") == 1,
 				  "ns3 address is NS glue only");
 	}
+
+	/*
+	 * geo: the shared-address interface is placed exactly by ns1's LOC
+	 * record, mail by its address's country (FR centroid), and the
+	 * dynamic interface by the detected v6 (CH); the download machinery
+	 * itself needs the network and stays out of the test
+	 */
+
+	f = t_find_ip(&ti, "192.0.2.1");
+	fails += t_expect(f && f->geo.set && !strcmp(f->geo.src, "loc") &&
+			  f->geo.lat > 42.3 && f->geo.lat < 42.4 &&
+			  f->geo.lon > -71.2 && f->geo.lon < -71.1,
+			  "LOC-placed interface at its record's coordinates");
+
+	f = t_find_ip(&ti, "192.0.2.9");
+	fails += t_expect(f && f->geo.set && !strcmp(f->geo.src, "est") &&
+			  !strcmp(f->geo.cc, "FR") &&
+			  f->geo.lat > 46 && f->geo.lat < 47,
+			  "country-estimated interface at the FR centroid");
+
+	f = t_find_ip(&ti, "203.0.113.7");
+	fails += t_expect(f && f->geo.set && !strcmp(f->geo.src, "est") &&
+			  !strcmp(f->geo.cc, "CH"),
+			  "dynamic interface estimated via its v6 address");
 
 	/* no interface for the addressless NS target or the LOC-only name */
 	for (n = 0; n < ti.nif; n++) {

@@ -8,7 +8,7 @@ require_lws_config(LWS_WITH_DIR 1 requirements)
 require_lws_config(LWS_WITH_SYS_WHOIS 1 requirements)
 
 if (requirements)
-	create_plugin(${PLUGIN_NAME} "lws-dht-dnssec-monitor" "protocol_lws_dht_dnssec_monitor.c;monitor-pki.c;monitor-acme.c;monitor-api.c;monitor-dnssec.c;monitor-inventory.c;monitor-whois.c;monitor-utils.c;monitor-proxy.c" "" "")
+	create_plugin(${PLUGIN_NAME} "lws-dht-dnssec-monitor" "protocol_lws_dht_dnssec_monitor.c;monitor-pki.c;monitor-acme.c;monitor-api.c;monitor-dnssec.c;monitor-inventory.c;monitor-geo.c;monitor-whois.c;monitor-utils.c;monitor-proxy.c" "" "")
 	if (NOT LWS_WITH_PLUGINS_BUILTIN)
 		target_compile_definitions(${PLUGIN_NAME} PRIVATE LWS_BUILDING_SHARED)
 	endif()

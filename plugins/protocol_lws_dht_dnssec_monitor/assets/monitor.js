@@ -862,6 +862,236 @@ function fetchIpInventory(cursor) {
 }
 
 /*
+ * World map of the inventory interfaces.
+ *
+ * The land outline is vendored Natural Earth 1:110m TopoJSON (public
+ * domain, world-atlas packaging) decoded here; coordinates project with
+ * Web Mercator clamped to +/-85 degrees.  Zoom and pan only manipulate
+ * the svg viewBox, so the projected land path is built once.
+ */
+
+const GEO_W = 1000;
+const GEO_SVG_NS = 'http://www.w3.org/2000/svg';
+let geoMap = null;
+
+function geoMercator(lon, lat) {
+    const clamped = Math.max(-85, Math.min(85, lat));
+    const x = (lon + 180) / 360;
+    const rad = clamped * Math.PI / 180;
+    const y = (1 - Math.log(Math.tan(Math.PI / 4 + rad / 2)) / Math.PI) / 2;
+
+    return [x * GEO_W, y * GEO_W];
+}
+
+/* decode the topology's quantized delta arcs into absolute coordinates */
+
+function geoDecodeTopo(topo) {
+    const tr = topo.transform;
+    const abs = topo.arcs.map(arc => {
+        let x = 0, y = 0;
+
+        return arc.map(d => {
+            x += d[0];
+            y += d[1];
+
+            return [x, y];
+        });
+    });
+
+    const toGeo = tr
+        ? p => [p[0] * tr.scale[0] + tr.translate[0],
+                p[1] * tr.scale[1] + tr.translate[1]]
+        : p => p;
+
+    const ring = idxs => {
+        let pts = [];
+
+        idxs.forEach(ai => {
+            const rev = ai < 0;
+            let a = abs[rev ? ~ai : ai].map(toGeo);
+
+            if (rev) a = a.slice().reverse();
+            pts = pts.concat(a);
+        });
+
+        return pts;
+    };
+
+    let d = '';
+    const emit = polys => polys.forEach(poly => poly.forEach((ringIdxs, ri) => {
+        ring(ringIdxs).forEach((pt, i) => {
+            const [x, y] = geoMercator(pt[0], pt[1]);
+
+            d += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+        });
+        d += 'Z';
+    }));
+
+    (topo.objects.land.geometries || [topo.objects.land]).forEach(g => {
+        const arcs = g.arcs;
+
+        if (g.type === 'MultiPolygon')
+            emit(arcs);
+        else if (g.type === 'Polygon')
+            emit([arcs]);
+    });
+
+    return d;
+}
+
+function geoApplyVB() {
+    geoMap.svg.setAttribute('viewBox',
+        `${geoMap.vb.x} ${geoMap.vb.y} ${geoMap.vb.w} ${geoMap.vb.h}`);
+}
+
+function geoInitMap() {
+    const svg = document.getElementById('geo-map');
+
+    if (!svg || geoMap)
+        return;
+
+    geoMap = { svg, vb: { x: 0, y: 0, w: GEO_W, h: GEO_W }, placed: 0, total: 0 };
+
+    const land = document.createElementNS(GEO_SVG_NS, 'path');
+    land.setAttribute('class', 'geo-land');
+    svg.appendChild(land);
+    const markers = document.createElementNS(GEO_SVG_NS, 'g');
+    markers.setAttribute('id', 'geo-markers');
+    svg.appendChild(markers);
+
+    geoApplyVB();
+
+    fetch('land-110m.json')
+        .then(r => {
+            if (!r.ok) throw new Error('map data ' + r.status);
+
+            return r.json();
+        })
+        .then(topo => land.setAttribute('d', geoDecodeTopo(topo)))
+        .catch(e => {
+            land.setAttribute('d', '');
+            console.warn('geo map: no land outline:', e);
+        });
+
+    /* zoom on the point under the cursor */
+    svg.addEventListener('wheel', e => {
+        e.preventDefault();
+        const rect = svg.getBoundingClientRect();
+        const mx = geoMap.vb.x + (e.clientX - rect.left) / rect.width * geoMap.vb.w;
+        const my = geoMap.vb.y + (e.clientY - rect.top) / rect.height * geoMap.vb.h;
+        const k = e.deltaY < 0 ? 0.8 : 1.25;
+        const nw = Math.min(GEO_W, Math.max(16, geoMap.vb.w * k));
+        const nh = nw;
+
+        geoMap.vb = {
+            x: mx - (mx - geoMap.vb.x) * (nw / geoMap.vb.w),
+            y: my - (my - geoMap.vb.y) * (nh / geoMap.vb.h),
+            w: nw, h: nh
+        };
+        geoApplyVB();
+    }, { passive: false });
+
+    /* drag to pan */
+    let pan = null;
+    svg.addEventListener('pointerdown', e => {
+        pan = { x: e.clientX, y: e.clientY, vb: { ...geoMap.vb } };
+        svg.setPointerCapture(e.pointerId);
+    });
+    svg.addEventListener('pointermove', e => {
+        if (!pan) return;
+        const rect = svg.getBoundingClientRect();
+
+        geoMap.vb.x = pan.vb.x - (e.clientX - pan.x) / rect.width * pan.vb.w;
+        geoMap.vb.y = pan.vb.y - (e.clientY - pan.y) / rect.height * pan.vb.h;
+        geoApplyVB();
+    });
+    const endPan = () => { pan = null; };
+    svg.addEventListener('pointerup', endPan);
+    svg.addEventListener('pointercancel', endPan);
+}
+
+/*
+ * One abstract server icon per interface: a small rack glyph, solid for
+ * LOC-placed servers and outlined for country-estimated ones.  Clicking
+ * it opens the zonefile editor of its first name.
+ */
+
+function geoMarker(ifc) {
+    const [x, y] = geoMercator(ifc.geo.lon, ifc.geo.lat);
+    const est = ifc.geo.src !== 'loc';
+    const g = document.createElementNS(GEO_SVG_NS, 'g');
+    g.setAttribute('class', est ? 'geo-mk geo-mk-est' : 'geo-mk geo-mk-loc');
+    g.setAttribute('transform', `translate(${x.toFixed(1)} ${y.toFixed(1)})`);
+
+    const body = document.createElementNS(GEO_SVG_NS, 'rect');
+    body.setAttribute('x', -5);
+    body.setAttribute('y', -6);
+    body.setAttribute('width', 10);
+    body.setAttribute('height', 12);
+    body.setAttribute('rx', 2);
+    g.appendChild(body);
+
+    [ -2, 2 ].forEach(oy => {
+        const slot = document.createElementNS(GEO_SVG_NS, 'line');
+        slot.setAttribute('x1', -3);
+        slot.setAttribute('y1', oy);
+        slot.setAttribute('x2', 3);
+        slot.setAttribute('y2', oy);
+        g.appendChild(slot);
+    });
+
+    const led = document.createElementNS(GEO_SVG_NS, 'circle');
+    led.setAttribute('cx', 0);
+    led.setAttribute('cy', 5);
+    led.setAttribute('r', 1.4);
+    g.appendChild(led);
+
+    const first = (ifc.names || [])[0];
+    const tip = [(ifc.names || []).map(n => n.name).join(', '),
+                 (ifc.ips || []).map(i => i.ip).join(', '),
+                 est ? `estimated: ${ifc.geo.cc || '?'}` : 'LOC record']
+        .filter(Boolean).join('\n');
+    const t = document.createElementNS(GEO_SVG_NS, 'title');
+    t.textContent = tip;
+    g.appendChild(t);
+
+    if (first) {
+        const z = (first.zones || [])[0];
+        if (z && z.z)
+            g.addEventListener('click', () => selectDomain(z.z));
+    }
+
+    return g;
+}
+
+function renderGeoMap() {
+    if (!geoMap)
+        return;
+
+    const g = geoMap.svg.querySelector('#geo-markers');
+    if (g)
+        g.innerHTML = '';
+
+    const inv = window.ipInventory || [];
+    let placed = 0;
+
+    inv.forEach(ifc => {
+        if (!ifc || !ifc.geo) return;
+        const m = geoMarker(ifc);
+        if (m) {
+            g.appendChild(m);
+            placed++;
+        }
+    });
+
+    const st = document.getElementById('geo-status');
+    if (st)
+        st.textContent = placed
+            ? `${placed} of ${inv.length} servers placed`
+            : (inv.length ? 'no located servers yet' : '');
+}
+
+/*
  * Render the accumulated get_ip_inventory pages.  Each entry is one
  * network interface: a set of addresses proven to belong to the same
  * interface because some name binds them together, with every name that
@@ -888,6 +1118,7 @@ function renderIpInventory() {
 
     if (!inv.length) {
         tbody.innerHTML = '<tr><td colspan="4" class="loading">No IP records found in any zonefile.</td></tr>';
+        renderGeoMap();
         return;
     }
 
@@ -1020,6 +1251,8 @@ function renderIpInventory() {
         tr.appendChild(tdUse);
         tbody.appendChild(tr);
     });
+
+    renderGeoMap();
 }
 
 function formatExpiry(unixtime) {
@@ -1073,6 +1306,7 @@ function selectDomain(domain) {
     document.getElementById('detail-panel')?.classList.remove('hidden-panel');
     document.getElementById('domain-panel')?.classList.add('hidden-panel');
     document.getElementById('ip-inventory-panel')?.classList.add('hidden-panel');
+    document.getElementById('geo-panel')?.classList.add('hidden-panel');
     document.getElementById('record-editor')?.classList.add('hidden-panel');
 
     const rows = document.querySelectorAll('#table-domains tbody tr');
@@ -1416,6 +1650,7 @@ function closeDetail() {
     document.getElementById('detail-panel').classList.add('hidden-panel');
     document.getElementById('domain-panel').classList.remove('hidden-panel');
     document.getElementById('ip-inventory-panel')?.classList.remove('hidden-panel');
+    document.getElementById('geo-panel')?.classList.remove('hidden-panel');
 }
 
 function updateRawEditor() {
@@ -1670,6 +1905,7 @@ function initApp() {
     if (typeof window.renderLwsLoginStatus === 'function') {
         window.renderLwsLoginStatus('user-info');
     }
+    geoInitMap();
     connect();
 
     // Tab Switching Logic

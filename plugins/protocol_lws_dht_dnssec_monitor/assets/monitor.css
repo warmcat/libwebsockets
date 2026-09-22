@@ -204,6 +204,9 @@ main {
 
 .domain-panel {
   overflow-y: auto;
+  /* keep the domain list to about half the panel area so the map and
+   * inventory below stay reachable */
+  max-height: 50%;
 }
 
 .panel-header {
@@ -1085,4 +1088,84 @@ body.is-disconnected .app-container {
 .inv-badge-warn {
   color: #fbbf24;
   border: 1px solid #fbbf24;
+}
+
+/* Server map */
+
+.geo-panel {
+  margin-top: 1rem;
+}
+
+.geo-map-wrap {
+  width: 100%;
+  height: 380px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.25);
+  touch-action: none;
+  cursor: grab;
+}
+
+.geo-map-wrap:active {
+  cursor: grabbing;
+}
+
+.geo-map-wrap svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.geo-land {
+  fill: rgba(120, 145, 170, 0.35);
+  stroke: rgba(160, 190, 220, 0.8);
+  stroke-width: 0.6;
+  vector-effect: non-scaling-stroke;
+}
+
+.geo-mk {
+  cursor: pointer;
+}
+
+.geo-mk rect {
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.geo-mk line {
+  stroke-width: 0.8;
+  vector-effect: non-scaling-stroke;
+}
+
+.geo-mk-loc rect {
+  fill: #34d399;
+  stroke: #0d6e4d;
+}
+
+.geo-mk-loc line {
+  stroke: #0d6e4d;
+}
+
+.geo-mk-loc circle {
+  fill: #a7f3d0;
+}
+
+.geo-mk-est rect {
+  fill: rgba(251, 191, 36, 0.25);
+  stroke: #fbbf24;
+}
+
+.geo-mk-est line {
+  stroke: #fbbf24;
+}
+
+.geo-mk-est circle {
+  fill: #fbbf24;
+}
+
+.geo-help {
+  margin-top: 0.5rem;
+  font-size: 0.8em;
+  color: var(--text-secondary);
 }

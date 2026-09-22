@@ -1474,7 +1474,64 @@ handle_req_get_ip_inventory(struct vhd *vhd, struct pss *root_pss,
 					     zm->zone));
 			n++;
 		} lws_end_foreach_dll(z);
-		inv_emit(&e, "],\"v4\":%d,\"v6\":%d}",
+		inv_emit(&e, "]");
+
+		/*
+		 * Where this interface is: exact from a zonefile LOC record
+		 * on one of its names if any, else the country centroid of
+		 * its first address that the downloaded CSV can place
+		 */
+		{
+			double lat = 0, lon = 0;
+			const char *cc = NULL, *src = NULL;
+
+			lws_start_foreach_dll(struct lws_dll2 *, m,
+					lws_dll2_get_head(&f->names)) {
+				struct inv_iname *inm = lws_container_of(m,
+						struct inv_iname, list);
+
+				if (inm->n->loc &&
+				    !inv_geo_loc_parse(inm->n->loc, &lat, &lon)) {
+					src = "loc";
+
+					break;
+				}
+			} lws_end_foreach_dll(m);
+
+			if (!src) {
+				lws_start_foreach_dll(struct lws_dll2 *, p2,
+						lws_dll2_get_head(&f->addrs)) {
+					struct inv_iaddr *ia = lws_container_of(
+							p2, struct inv_iaddr,
+							list);
+
+					cc = inv_geo_cc(vhd, ia->a->ip,
+							ia->a->is_v6);
+					if (cc && !inv_geo_centroid(cc, &lat,
+								   &lon))
+						break;
+
+					cc = NULL;
+				} lws_end_foreach_dll(p2);
+
+				if (cc)
+					src = "est";
+			}
+
+			if (src) {
+				inv_emit(&e, ",\"geo\":{\"lat\":%.4f,"
+					 "\"lon\":%.4f,\"src\":\"%s\"",
+					 lat, lon, src);
+				if (cc)
+					inv_emit(&e, ",\"cc\":\"%s\"",
+						 json_escape(esc_zone,
+							     sizeof(esc_zone),
+							     cc));
+				inv_emit(&e, "}");
+			}
+		}
+
+		inv_emit(&e, ",\"v4\":%d,\"v6\":%d}",
 			 f->has_v4 ? 1 : 0, f->has_v6 ? 1 : 0);
 
 		if (e.saturated) {

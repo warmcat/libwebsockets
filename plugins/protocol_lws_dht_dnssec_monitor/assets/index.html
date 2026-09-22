@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DNSSEC Monitor</title>
     <!-- Strict CSP prevents inline styles, and using external font CDNs without explicit whitelist, so we use system fonts -->
-    <link rel="stylesheet" href="monitor.css?v=5">
+    <link rel="stylesheet" href="monitor.css?v=6">
     <script src="lws-login.js"></script>
 </head>
 <body>
@@ -61,6 +61,16 @@
                         </tbody>
                     </table>
                 </div>
+            </section>
+            <section class="panel geo-panel" id="geo-panel">
+                <div class="panel-header">
+                    <h2>Server Map</h2>
+                    <span id="geo-status" class="inv-count"></span>
+                </div>
+                <div class="geo-map-wrap" id="geo-map-wrap">
+                    <svg id="geo-map" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet" aria-label="World map of monitored servers"></svg>
+                </div>
+                <div class="geo-help">Scroll to zoom, drag to pan. Solid markers are placed by LOC records; outlined markers are estimated from address country data.</div>
             </section>
             <section class="panel ip-inventory-panel" id="ip-inventory-panel">
                 <div class="panel-header">
@@ -323,6 +333,6 @@
     <!-- Notification Toast -->
     <div id="toast" class="toast"></div>
 
-    <script src="monitor.js?v=19"></script>
+    <script src="monitor.js?v=20"></script>
 </body>
 </html>

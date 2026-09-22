@@ -69,6 +69,35 @@ struct pub_state {
 	time_t mtime;
 };
 
+/* one address range -> country row from the downloaded CSV cache */
+
+struct inv_grange4 {
+	uint32_t		start;
+	uint32_t		end;
+	char			cc[3];
+};
+
+struct inv_grange6 {
+	unsigned char		start[16];
+	unsigned char		end[16];
+	char			cc[3];
+};
+
+/*
+ * IP -> country caches lazily parsed from the dbip-country CSVs kept in
+ * <base-dir>/geo, plus any in-flight re-download of them
+ */
+struct inv_geo {
+	struct inv_grange4	*r4;
+	size_t			n4;
+	time_t			mt4;
+	struct inv_grange6	*r6;
+	size_t			n6;
+	time_t			mt6;
+	void			*dl4;
+	void			*dl6;
+};
+
 struct vhd {
 	struct lws_context *context;
 	struct lws_vhost *vhost;
@@ -109,6 +138,10 @@ struct vhd {
 
 	lws_dll2_owner_t pub_states;
 	int initial_parent_scan_done;
+
+	/* server IP inventory geolocation state (root process) */
+	lws_sorted_usec_list_t sul_geo;
+	struct inv_geo		geo;
 };
 
 struct monitor_req_args {
@@ -173,5 +206,47 @@ json_escape(char *esc, size_t esc_len, const char *s)
 void
 handle_req_get_ip_inventory(struct vhd *vhd, struct pss *root_pss,
 			     struct monitor_req_args *a);
+
+/* monitor-geo.c */
+
+/*
+ * Country-level IP geolocation for the inventory map: addresses whose
+ * names carry no LOC record are placed at their country's centroid,
+ * using CSVs downloaded monthly from sapics/ip-location-db (DBIP
+ * country lite) into <base-dir>/geo
+ */
+const char *
+inv_geo_cc(struct vhd *vhd, const char *ip, int is_v6);
+int
+inv_geo_centroid(const char *cc, double *lat, double *lon);
+int
+inv_geo_loc_parse(const char *rdata, double *lat, double *lon);
+void
+inv_geo_timer_cb(lws_sorted_usec_list_t *sul);
+void
+inv_geo_destroy(struct vhd *vhd);
+
+/* download state machine driven from the main callback by magic */
+
+#define INV_GEO_DL_MAGIC 0x6E6B6701
+
+struct inv_geo_dl {
+	uint32_t	magic;
+	struct vhd	*vhd;
+	int		is_v6;
+	int		fd;
+	size_t		got;
+	char		final[1024];
+	char		tmp[1064];
+};
+
+struct inv_geo_dl *
+inv_geo_dl_create(struct vhd *vhd, int is_v6);
+int
+inv_geo_dl_rx(struct inv_geo_dl *g, const char *in, size_t len);
+void
+inv_geo_dl_complete(struct inv_geo_dl *g);
+void
+inv_geo_dl_fail(struct inv_geo_dl *g);
 
 #endif

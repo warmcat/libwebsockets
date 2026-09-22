@@ -7,7 +7,8 @@ include(LwsCheckRequirements)
 
 set(SAMP lws-api-test-dnssec-monitor-inventory)
 set(SRCS main.c
-	 ../../../plugins/protocol_lws_dht_dnssec_monitor/monitor-inventory.c)
+	 ../../../plugins/protocol_lws_dht_dnssec_monitor/monitor-inventory.c
+	 ../../../plugins/protocol_lws_dht_dnssec_monitor/monitor-geo.c)
 
 set(requirements 1)
 require_lws_config(LWS_WITH_AUTHORITATIVE_DNS 1 requirements)
