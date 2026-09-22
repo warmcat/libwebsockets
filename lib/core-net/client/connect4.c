@@ -33,20 +33,16 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 #endif
 #endif
-	const char *meth;
 	struct lws_pollfd pfd;
 	const char *cce = "";
 	int n, m, rawish = 0;
 
-	meth = lws_wsi_client_stash_item(wsi, CIS_METHOD,
-					 _WSI_TOKEN_CLIENT_METHOD);
-
-	if ((meth && (!strcmp(meth, "RAW") ||
-		     !strcmp(meth, "MQTT") ||
-		     !strcmp(meth, "QUIC") ||
-		     !strcmp(meth, "UDP"))) ||
-	    !strcmp(wsi->role_ops->name, "quic"))
-		rawish = 1;
+	/*
+	 * The client bind already chose the role from the method: an http
+	 * role talks http on the connection, anything else is "rawish" and
+	 * does its own thing once the transport is up
+	 */
+	rawish = !lwsi_role_http(wsi);
 
 	if (wsi_piggyback)
 		goto send_hs;
@@ -269,8 +265,7 @@ send_hs:
 #endif
 
 #if defined(LWS_ROLE_QUIC)
-			if ((meth && !strcmp(meth, "QUIC")) ||
-			    !strcmp(wsi->role_ops->name, "quic")) {
+			if (wsi->role_ops == &role_ops_quic) {
 				lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
 				lws_callback_on_writable(wsi);
 				return wsi;
@@ -293,7 +288,7 @@ send_hs:
 			}
 
 #if defined(LWS_ROLE_MQTT)
-			if (meth && !strcmp(meth, "MQTT")) {
+			if (lwsi_role_mqtt(wsi)) {
 #if defined(LWS_WITH_TLS)
 				if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
 					lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
