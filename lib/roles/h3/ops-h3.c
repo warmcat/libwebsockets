@@ -1953,7 +1953,8 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 			} else if (child->role_ops && !strcmp(child->role_ops->name, "quic")) {
 				/* Server-side peer-initiated stream adopted during 0-RTT! Transition it to H3 now. */
 				lwsl_wsi_info(child, "H3 ALPN Negotiated, transitioning 0-RTT child to H3");
-				lws_role_transition(child, lwsi_role_client(nwsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_ESTABLISHED, &role_ops_h3);
+				lws_role_transition(child, lwsi_role_client(nwsi) ? LWSIFR_CLIENT : LWSIFR_SERVER,
+						    lwsi_role_client(nwsi) ? LRS_ESTABLISHED : LRS_HEADERS, &role_ops_h3);
 			}
 		}
 		lws_end_foreach_dll(d);

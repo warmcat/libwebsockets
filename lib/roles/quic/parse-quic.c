@@ -1528,7 +1528,9 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					
 					/* Inherit the role from the network WSI, but use H3 role if H3 ALPN was negotiated */
 #if defined(LWS_ROLE_H3)
-					lws_role_transition(wsi_child, lwsi_role_client(nwsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_ESTABLISHED, nwsi->h3.h3n ? &role_ops_h3 : nwsi->role_ops);
+					lws_role_transition(wsi_child, lwsi_role_client(nwsi) ? LWSIFR_CLIENT : LWSIFR_SERVER,
+							    (nwsi->h3.h3n && !lwsi_role_client(nwsi)) ? LRS_HEADERS : LRS_ESTABLISHED,
+							    nwsi->h3.h3n ? &role_ops_h3 : nwsi->role_ops);
 #else
 					lws_role_transition(wsi_child, lwsi_role_client(nwsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_ESTABLISHED, nwsi->role_ops);
 #endif

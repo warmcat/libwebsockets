@@ -325,13 +325,13 @@ static const struct lws_state_edge lws_state_edges[] = {
 	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE, LRS_ISSUE_HTTP_BODY },	/* carrier -> txn */
 	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE2, LRS_ISSUE_HTTP_BODY },	/* carrier -> txn */
 	{ "h1", "C", LRS_ESTABLISHED, LRS_IDLING },
-	{ "h1", "S", LRS_AWAITING_SSL_ACCEPT, LRS_ESTABLISHED },	/* transport -> txn */
-	{ "h1", "S", LRS_SSL_ACK_PENDING, LRS_ESTABLISHED },	/* transport -> txn */
+	{ "h1", "S", LRS_AWAITING_SSL_ACCEPT, LRS_HEADERS },	/* transport -> txn */
+	{ "h1", "S", LRS_SSL_ACK_PENDING, LRS_HEADERS },	/* transport -> txn */
 	{ "h1", "S", LRS_H1_UPGRADE, LRS_ESTABLISHED },	/* carrier -> txn */
 	{ "h1", "S", LRS_AWAITING_FILE_READ, LRS_ISSUING_FILE },
 	{ "h1", "S", LRS_BODY, LRS_TXN_COMPLETED },
 	{ "h1", "S", LRS_BODY, LRS_DISCARD_BODY },
-	{ "h1", "S", LRS_TXN_COMPLETED, LRS_ESTABLISHED },
+	{ "h1", "S", LRS_TXN_COMPLETED, LRS_HEADERS },
 	{ "h1", "S", LRS_DISCARD_BODY, LRS_TXN_COMPLETED },
 	{ "h1", "S", LRS_DOING_TRANSACTION, LRS_BODY },
 	{ "h1", "S", LRS_ESTABLISHED, LRS_BODY },
@@ -341,9 +341,12 @@ static const struct lws_state_edge lws_state_edges[] = {
 	{ "h1", "S", LRS_ISSUING_FILE, LRS_AWAITING_FILE_READ },
 	{ "h1", "S", LRS_ISSUING_FILE, LRS_ESTABLISHED },
 	{ "h2", "*", LRS_ESTABLISHED, LRS_BODY },
+	{ "h2", "C", LRS_UNCONNECTED, LRS_ESTABLISHED },	/* client mux child born */
 	{ "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LRS_ESTABLISHED },	/* carrier -> txn */
 	{ "h2", "C", LRS_ESTABLISHED, LRS_ISSUE_HTTP_BODY },
-	{ "h2", "S", LRS_UNCONNECTED, LRS_ESTABLISHED },	/* transport -> txn */
+	{ "h2", "S", LRS_UNCONNECTED, LRS_HEADERS },
+	{ "h2", "S", LRS_HEADERS, LRS_DEFERRING_ACTION },
+	{ "h2", "S", LRS_HEADERS, LRS_DOING_TRANSACTION },	/* action run without deferring */	/* transport -> txn */
 	{ "h2", "S", LRS_H2_AWAIT_SETTINGS, LRS_ESTABLISHED },	/* carrier -> txn */
 	{ "h2", "S", LRS_AWAITING_FILE_READ, LRS_ISSUING_FILE },
 	{ "h2", "S", LRS_BODY, LRS_ESTABLISHED },
@@ -359,6 +362,7 @@ static const struct lws_state_edge lws_state_edges[] = {
 	{ "h3", "S", LRS_DEFERRING_ACTION, LRS_ESTABLISHED },
 	{ "h3", "S", LRS_ESTABLISHED, LRS_BODY },
 	{ "h3", "S", LRS_ESTABLISHED, LRS_DEFERRING_ACTION },
+	{ "h3", "S", LRS_HEADERS, LRS_DEFERRING_ACTION },
 	{ "h3", "S", LRS_ESTABLISHED, LRS_DOING_TRANSACTION },
 	{ "h3", "S", LRS_ESTABLISHED, LRS_ISSUING_FILE },
 	{ "h3", "S", LRS_ISSUING_FILE, LRS_AWAITING_FILE_READ },
@@ -415,7 +419,7 @@ static const struct lws_state_edge lws_state_edges[] = {
 	{ "h1",   "C", LRS_ESTABLISHED, LRS_H1C_ISSUE_HANDSHAKE2 },	/* pipeline restart, digest retry */
 	{ "h1",   "C", LRS_IDLING, LRS_H1C_ISSUE_HANDSHAKE2 },		/* pipeline restart from idle */
 	{ "h1",   "C", LRS_WAITING_SERVER_REPLY, LRS_H1C_ISSUE_HANDSHAKE2 }, /* client-http.c digest retry */
-	{ "h1",   "S", LRS_SSL_INIT, LRS_ESTABLISHED },			/* tls-server.c notls_accepted */
+	{ "h1",   "S", LRS_SSL_INIT, LRS_HEADERS },			/* tls-server.c notls_accepted */
 	{ "h2",   "C", LRS_IDLING, LRS_ESTABLISHED },			/* vhost.c revive idle mux conn */
 	{ "h3",   "C", LRS_IDLING, LRS_ESTABLISHED },			/* vhost.c revive idle mux conn */
 	{ "mqtt", "C", LRS_WAITING_SSL, LRS_MQTTC_IDLE },		/* client-mqtt.c mqtts */
@@ -453,7 +457,8 @@ static const struct lws_role_edge lws_role_edges[] = {
 	{ "(none)", "S", LRS_UNCONNECTED, "h2", "S", LRS_H2_AWAIT_PREFACE },
 	{ "(none)", "S", LRS_UNCONNECTED, "h2", "S", LRS_UNCONNECTED },
 	{ "(none)", "S", LRS_UNCONNECTED, "h3", "C", LRS_ESTABLISHED },
-	{ "(none)", "S", LRS_UNCONNECTED, "h3", "S", LRS_ESTABLISHED },
+	{ "(none)", "S", LRS_UNCONNECTED, "h3", "S", LRS_HEADERS },	/* request stream */
+	{ "(none)", "S", LRS_UNCONNECTED, "h3", "S", LRS_ESTABLISHED },	/* our unidi control streams */
 	{ "(none)", "S", LRS_UNCONNECTED, "mqtt", "S", LRS_UNCONNECTED },
 	{ "(none)", "S", LRS_UNCONNECTED, "quic", "C", LRS_ESTABLISHED },
 	{ "(none)", "S", LRS_UNCONNECTED, "quic", "S", LRS_ESTABLISHED },
@@ -467,14 +472,14 @@ static const struct lws_role_edge lws_role_edges[] = {
 	{ "h1", "C", LRS_WAITING_SERVER_REPLY, "h1", "C", LRS_ESTABLISHED },
 	{ "h1", "C", LRS_WAITING_SERVER_REPLY, "ws", "C", LRS_ESTABLISHED },
 	{ "h1", "C", LRS_WAITING_SSL, "h2", "C", LRS_H2_AWAIT_PREFACE },
-	{ "h1", "S", LRS_ESTABLISHED, "h2", "S", LRS_H2_AWAIT_PREFACE },
+	{ "h1", "S", LRS_HEADERS, "h2", "S", LRS_H2_AWAIT_PREFACE },	/* tls accept, alpn h2 */
 	{ "h1", "S", LRS_H1_UPGRADE, "h2", "S", LRS_H2_AWAIT_PREFACE },
 	{ "h1", "S", LRS_H1_UPGRADE, "ws", "S", LRS_ESTABLISHED },
 	{ "h2", "C", LRS_ESTABLISHED, "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS },
 	{ "h2", "C", LRS_ESTABLISHED, "ws", "Ce", LRS_ESTABLISHED },
 	{ "h2", "C", LRS_H2_AWAIT_PREFACE, "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS },
 	{ "h2", "C", LRS_WAITING_SERVER_REPLY, "h2", "C", LRS_ESTABLISHED },
-	{ "h2", "S", LRS_ESTABLISHED, "h2", "C", LRS_ESTABLISHED },
+	{ "h2", "S", LRS_UNCONNECTED, "h2", "C", LRS_UNCONNECTED },	/* client mux child takes its side before its state */
 	{ "h2", "S", LRS_ESTABLISHED, "ws", "Se", LRS_ESTABLISHED },
 	{ "h3", "C", LRS_H2_WAITING_TO_SEND_HEADERS, "h3", "C", LRS_ESTABLISHED },
 	{ "h3", "C", LRS_WAITING_SERVER_REPLY, "h3", "C", LRS_ESTABLISHED },
@@ -483,7 +488,7 @@ static const struct lws_role_edge lws_role_edges[] = {
 	{ "quic", "C", LRS_UNCONNECTED, "h3", "C", LRS_H2_WAITING_TO_SEND_HEADERS },
 	{ "quic", "S", LRS_ESTABLISHED, "h3", "S", LRS_ESTABLISHED },
 	{ "quic", "S", LRS_UNCONNECTED, "h3", "C", LRS_ESTABLISHED },
-	{ "quic", "S", LRS_UNCONNECTED, "h3", "S", LRS_ESTABLISHED },
+	{ "quic", "S", LRS_UNCONNECTED, "h3", "S", LRS_HEADERS },
 	{ "raw-file", "-", LRS_UNCONNECTED, "raw-file", "-", LRS_ESTABLISHED },
 	{ "raw-skt", "S", LRS_ESTABLISHED, "raw-skt", "-", LRS_ESTABLISHED },
 

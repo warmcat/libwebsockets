@@ -701,7 +701,8 @@ try_pollout:
 	if (lwsi_state(wsi) == LRS_TXN_COMPLETED) {
 		lwsl_debug("%s: LRS_TXN_COMPLETED now writable\n", __func__);
 
-		lwsi_set_state(wsi, LRS_ESTABLISHED);
+		/* idle until the next request's headers arrive */
+		lwsi_set_state(wsi, LRS_HEADERS);
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 			lwsl_info("failed at set pollfd\n");
 			goto fail;

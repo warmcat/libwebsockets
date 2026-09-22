@@ -411,8 +411,9 @@ __lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	wsi->txc.peer_tx_cr_est =
 			(int32_t)nwsi->h2.h2n->our_set.s[H2SET_INITIAL_WINDOW_SIZE];
 
-	lwsi_set_state(wsi, LRS_ESTABLISHED);
 	lwsi_set_role(wsi, lwsi_role(parent_wsi));
+	lwsi_set_state(wsi, lwsi_role_server(wsi) ? LRS_HEADERS :
+						    LRS_ESTABLISHED);
 
 	wsi->a.protocol = &vh->protocols[0];
 	if (lws_ensure_user_space(wsi))
@@ -2890,7 +2891,8 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 						  __func__);
 
 				if (lwsi_role_http(h2n->swsi) &&
-				    lwsi_state(h2n->swsi) == LRS_ESTABLISHED) {
+				    (lwsi_state(h2n->swsi) == LRS_ESTABLISHED ||
+				     lwsi_state(h2n->swsi) == LRS_HEADERS)) {
 					lwsi_set_state(h2n->swsi, LRS_BODY);
 					lwsl_info("%s: %s to LRS_BODY\n",
 							__func__, lws_wsi_tag(h2n->swsi));
