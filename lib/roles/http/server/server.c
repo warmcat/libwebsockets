@@ -4343,6 +4343,16 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	if (wsi->http.method_head) {
 		/* we do not emit the body */
 		lws_vfs_file_close(&wsi->http.fop_fd);
+
+		/*
+		 * The file phase is over before it started... we must leave
+		 * it explicitly, the transaction cannot complete from inside
+		 * it.  Otherwise the connection goes back to keepalive idle
+		 * still in LRS_ISSUING_FILE with no fop_fd, and the next
+		 * POLLOUT re-enters the file sender on the closed file.
+		 */
+		lws_wsi_event(wsi, LWS_WSIEV_FILE_COMPLETE);
+
 		if (lws_http_transaction_completed(wsi))
 			goto bail;
 
