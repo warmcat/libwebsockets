@@ -528,7 +528,7 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 		lws_tls_restrict_return_handshake(wsi);
 		lwsl_info("%s: SSL_accept failed socket %u: %d\n",
 				__func__, wsi->desc.sockfd, n);
-		wsi->socket_is_permanently_unusable = 1;
+		lwsi_set_skt_unusable(wsi, 1);
 		return 1;
 
 	default: /* MORE_SERVICE */
@@ -599,7 +599,7 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 		lwsl_wsi_notice(wsi, "dropping: vh %s requires a client cert "
 				     "this handshake did not provide",
 				     wsi->a.vhost->name);
-		wsi->socket_is_permanently_unusable = 1;
+		lwsi_set_skt_unusable(wsi, 1);
 
 		return 1;
 	}

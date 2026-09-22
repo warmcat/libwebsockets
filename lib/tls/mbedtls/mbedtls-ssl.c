@@ -69,7 +69,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	lwsl_debug("%s: %s: mbedtls_ssl_read says %d\n", __func__, lws_wsi_tag(wsi), n);
 	/* manpage: returning 0 means connection shut down */
 	if (!n || n == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
-		wsi->socket_is_permanently_unusable = 1;
+		lwsi_set_skt_unusable(wsi, 1);
 
 		return LWS_SSL_CAPABLE_ERROR;
 	}
@@ -108,7 +108,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		}
 
 do_err1:
-		wsi->socket_is_permanently_unusable = 1;
+		lwsi_set_skt_unusable(wsi, 1);
 
 #if defined(LWS_WITH_SYS_METRICS)
 	if (wsi->a.vhost)
@@ -220,7 +220,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 	}
 
 	lwsl_debug("%s failed: %d\n",__func__, m);
-	wsi->socket_is_permanently_unusable = 1;
+	lwsi_set_skt_unusable(wsi, 1);
 
 #if defined(LWS_WITH_SYS_METRICS)
 		if (wsi->a.vhost)
@@ -267,7 +267,7 @@ lws_ssl_close(struct lws *wsi)
 #endif
 
 	n = wsi->desc.sockfd;
-	if (!wsi->socket_is_permanently_unusable) {
+	if (!lwsi_skt_unusable(wsi)) {
 		mbedtls_ssl_close_notify(&wsi->tls.ssl->ssl);
 	}
 	compatible_close(n);

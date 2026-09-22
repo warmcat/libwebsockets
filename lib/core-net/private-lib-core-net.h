@@ -1047,7 +1047,6 @@ struct lws {
 	unsigned int			pf_packet:1;
 	unsigned int			do_broadcast:1;
 	unsigned int			user_space_externally_allocated:1;
-	unsigned int			socket_is_permanently_unusable:1;
 	unsigned int			rxflow_change_to:2;
 	unsigned int			conn_stat_done:1;
 	unsigned int			cache_reuse:1;

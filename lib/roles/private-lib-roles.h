@@ -76,7 +76,7 @@ typedef uint32_t lws_wsi_state_t;
 #define LWSIFR_P_ENCAP_H2	(0x0100 << _RS) /* we are encapsulated by h2 */
 
 enum lwsi_role {
-	LWSI_ROLE_MASK		=			     (0xff00 << _RS),
+	LWSI_ROLE_MASK		=			     (0x3f00 << _RS),
 	LWSI_ROLE_ENCAP_MASK	=			     (0x0f00 << _RS),
 };
 
@@ -84,7 +84,7 @@ enum lwsi_role {
 #if !defined (_DEBUG) && !defined(LWS_WITH_STATE_TRACE) && \
     !defined(LWS_WITH_STATE_CHECK)
 #define lwsi_set_role(wsi, role) wsi->wsistate = \
-				(wsi->wsistate & (~LWSI_ROLE_MASK)) | role
+		(wsi->wsistate & ~(lws_wsi_state_t)LWSI_ROLE_MASK) | role
 #else
 void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role);
 #endif
@@ -111,8 +111,22 @@ void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role);
 void
 lwsi_set_txn_completing(struct lws *wsi, int on);
 
+/*
+ * Attribute of the close machine: the socket can no longer be used, so no
+ * polite close handshake, no staged shutdown, no more writes; just tear it
+ * down.  Set on write and read errors, on protocol errors that want an
+ * abrupt close, and on mux children a dying parent takes with it (bit 30,
+ * outside the role and state masks)
+ */
+#define LWSIFS_SKT_UNUSABLE	(1u << 30)
+
+#define lwsi_skt_unusable(wsi) (!!(wsi->wsistate & LWSIFS_SKT_UNUSABLE))
+
+void
+lwsi_set_skt_unusable(struct lws *wsi, int on);
+
 /* the attributes ride through role transitions, only their setters clear them */
-#define LWSIFS_ATTR_MASK	(LWSIFS_TXN_COMPLETING)
+#define LWSIFS_ATTR_MASK	(LWSIFS_TXN_COMPLETING | LWSIFS_SKT_UNUSABLE)
 
 enum lwsi_state {
 

@@ -919,7 +919,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 		 * we may rely on this to get RX, just drop connection
 		 */
 		lwsl_notice("%s: LWS_EXT_CB_PAYLOAD_RX blew out\n", __func__);
-		wsi->socket_is_permanently_unusable = 1;
+		lwsi_set_skt_unusable(wsi, 1);
 
 		return -1;
 	}

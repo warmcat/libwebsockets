@@ -551,7 +551,7 @@ lws_callback_on_writable(struct lws *wsi)
 	if (lwsi_close(wsi) == LCS_SHUTDOWN)
 		return 0;
 
-	if (wsi->socket_is_permanently_unusable)
+	if (lwsi_skt_unusable(wsi))
 		return 0;
 
 	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_callback_on_writable)) {

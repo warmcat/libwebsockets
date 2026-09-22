@@ -136,6 +136,19 @@ lwsi_set_txn_completing(struct lws *wsi, int on)
 }
 
 void
+lwsi_set_skt_unusable(struct lws *wsi, int on)
+{
+	lws_wsi_state_t old = wsi->wsistate;
+
+	if (on)
+		wsi->wsistate |= LWSIFS_SKT_UNUSABLE;
+	else
+		wsi->wsistate &= ~LWSIFS_SKT_UNUSABLE;
+	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
+		       "set_unusable");
+}
+
+void
 lwsi_set_close(struct lws *wsi, enum lws_close_phase phase)
 {
 	lws_wsi_state_t old = wsi->wsistate;
@@ -154,7 +167,7 @@ lwsi_set_close(struct lws *wsi, enum lws_close_phase phase)
 void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role) {
 	lws_wsi_state_t old = wsi->wsistate;
 
-	wsi->wsistate = (old & (~LWSI_ROLE_MASK)) | role;
+	wsi->wsistate = (old & ~(lws_wsi_state_t)LWSI_ROLE_MASK) | role;
 	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
 			"set_role");
 
@@ -2092,7 +2105,7 @@ void lws_wsi_mux_close_children(struct lws *wsi, int reason) {
 		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 
 		lwsl_wsi_info(w, "   closing child");
-		w->socket_is_permanently_unusable = 1;
+		lwsi_set_skt_unusable(w, 1);
 		__lws_close_free_wsi(w, (enum lws_close_status)reason,
 				"mux child recurse");
 	}

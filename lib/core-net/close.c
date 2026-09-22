@@ -225,10 +225,11 @@ __lws_reset_wsi(struct lws *wsi)
 	if (wsi->mux_stream_immortal)
 		lws_http_close_immortal(wsi);
 
+	lwsi_set_skt_unusable(wsi, 0);
 	wsi->mux_substream =
 	wsi->upgraded_to_http2 = wsi->mux_stream_immortal =
 	wsi->h2_acked_settings = wsi->seen_nonpseudoheader =
-	wsi->socket_is_permanently_unusable = wsi->favoured_pollin =
+	wsi->favoured_pollin =
 	wsi->already_did_cce = wsi->told_user_closed =
 	wsi->parent_pending_cb_on_writable = wsi->seen_zero_length_recv =
 	wsi->close_when_buffered_out_drained = wsi->could_have_pending = 0;
@@ -326,7 +327,7 @@ __lws_free_wsi(struct lws *wsi)
 	/* confirm no sul left scheduled in wsi itself */
 	lws_sul_debug_zombies(wsi->a.context, wsi, sizeof(*wsi), __func__);
 
-	wsi->socket_is_permanently_unusable = 1; // !!!
+	lwsi_set_skt_unusable(wsi, 1); /* !!! */
 
 	__lws_lc_untag(wsi->a.context, &wsi->lc);
 	lws_free(wsi);
@@ -627,7 +628,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		wsi2 = lws_container_of(lws_dll2_get_head(&wsi->child_list_owner),
 					struct lws, sibling_list);
 		/* stop it doing shutdown processing */
-		wsi2->socket_is_permanently_unusable = 1;
+		lwsi_set_skt_unusable(wsi2, 1);
 		__lws_close_free_wsi(wsi2, reason, "general child recurse");
 		if (lws_dll2_get_head(&wsi->child_list_owner) == &wsi2->sibling_list) {
 			/*
@@ -681,7 +682,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 				wsi->parent->http.cgi->lsp->stdwsi[(int)wsi->lsp_channel] =
 									NULL;
 		}
-		wsi->socket_is_permanently_unusable = 1;
+		lwsi_set_skt_unusable(wsi, 1);
 
 		goto just_kill_connection;
 	}
@@ -700,7 +701,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #endif
 
 	if (wsi->role_ops == &role_ops_raw_skt) {
-		wsi->socket_is_permanently_unusable = 1;
+		lwsi_set_skt_unusable(wsi, 1);
 		goto just_kill_connection;
 	}
 #if defined(LWS_WITH_FILE_OPS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
@@ -712,7 +713,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	if (lwsi_close(wsi) == LCS_DEAD_SOCKET)
 		return;
 
-	if (wsi->socket_is_permanently_unusable ||
+	if (lwsi_skt_unusable(wsi) ||
 	    reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY ||
 	    lwsi_close(wsi) == LCS_SHUTDOWN)
 		goto just_kill_connection;
@@ -869,7 +870,7 @@ just_kill_connection:
 				lwsi_state(wsi),
 				(int)wsi->desc.sockfd, wsi->parallel_count,
 				wsi->close_is_redirect);
-		wsi->socket_is_permanently_unusable = 1;
+		lwsi_set_skt_unusable(wsi, 1);
 
 		lws_inform_client_conn_fail(wsi,
 			(void *)_reason, sizeof(_reason) - 1);
@@ -890,7 +891,7 @@ just_kill_connection:
 	    lwsi_close(wsi) != LCS_SHUTDOWN &&
 	    lwsi_state(wsi) != LRS_UNCONNECTED &&
 	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
-	    !wsi->socket_is_permanently_unusable) {
+	    !lwsi_skt_unusable(wsi)) {
 
 #if defined(LWS_WITH_TLS)
 		if (lws_is_ssl(wsi) && wsi->tls.ssl) {
@@ -930,7 +931,7 @@ just_kill_connection:
 		 */
 #if !defined(_WIN32_WCE) && !defined(LWS_PLAT_FREERTOS)
 		/* libuv: no event available to guarantee completion */
-		if (!wsi->socket_is_permanently_unusable &&
+		if (!lwsi_skt_unusable(wsi) &&
 #if defined(LWS_WITH_CLIENT)
 		    !wsi->close_is_redirect &&
 #endif
@@ -1132,7 +1133,7 @@ async_close:
 
 
 	lws_remove_child_from_any_parent(wsi);
-	wsi->socket_is_permanently_unusable = 1;
+	lwsi_set_skt_unusable(wsi, 1);
 
 	if (wsi->a.context->event_loop_ops->wsi_logical_close)
 		if (wsi->a.context->event_loop_ops->wsi_logical_close(wsi))
@@ -1234,7 +1235,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
 				    &role_ops_h3);
 #else
-		wsi->socket_is_permanently_unusable = 1;
+		lwsi_set_skt_unusable(wsi, 1);
 #endif
 
 

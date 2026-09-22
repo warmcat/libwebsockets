@@ -226,7 +226,7 @@ lws_bearssl_server_sni(struct lws *wsi)
 
 	lws_tls_server_send_alert(wsi, ver, LWS_TLS_ALERT_UNRECOGNIZED_NAME);
 
-	wsi->socket_is_permanently_unusable = 1;
+	lwsi_set_skt_unusable(wsi, 1);
 
 	return -1;
 }

@@ -144,7 +144,7 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 		 * this "failed timeout" close as a violent death and
 		 * don't try to do protocol cleanup like flush partials.
 		 */
-		wsi->socket_is_permanently_unusable = 1;
+		lwsi_set_skt_unusable(wsi, 1);
 #if defined(LWS_WITH_CLIENT)
 	if (lwsi_transport(wsi) == LTS_WAITING_SSL)
 		lws_inform_client_conn_fail(wsi,

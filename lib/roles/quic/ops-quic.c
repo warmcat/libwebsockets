@@ -2304,7 +2304,7 @@ tp_ok:
 						 */
 						w->quic.qs->close_after_rx = 0;
 						if (w->quic.qs->abandon)
-							w->socket_is_permanently_unusable = 1;
+							lwsi_set_skt_unusable(w, 1);
 						lws_close_free_wsi(w,
 							LWS_CLOSE_STATUS_NOSTATUS,
 							"quic post rx stream close");
@@ -3605,7 +3605,7 @@ end_children:
 				if (w->quic.qs && w->quic.qs->close_after_rx) {
 					w->quic.qs->close_after_rx = 0;
 					if (w->quic.qs->abandon)
-						w->socket_is_permanently_unusable = 1;
+						lwsi_set_skt_unusable(w, 1);
 					lws_close_free_wsi(w,
 						LWS_CLOSE_STATUS_NOSTATUS,
 						"quic post tx stream close");

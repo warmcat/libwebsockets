@@ -327,7 +327,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 
 			/* unclean, eg closed conn */
 
-			wsi->socket_is_permanently_unusable = 1;
+			lwsi_set_skt_unusable(wsi, 1);
 
 #if defined(LWS_WITH_SYS_METRICS)
 		if (wsi->a.vhost)
@@ -472,7 +472,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 	lwsl_debug("%s failed: %s\n",__func__, ERR_error_string(LWS_TLS_ERR_CAST(m), NULL));
 	lws_tls_err_describe_clear();
 
-	wsi->socket_is_permanently_unusable = 1;
+	lwsi_set_skt_unusable(wsi, 1);
 
 #if defined(LWS_WITH_SYS_METRICS)
 		if (wsi->a.vhost)
@@ -552,7 +552,7 @@ lws_ssl_close(struct lws *wsi)
 #endif
 
 	n = SSL_get_fd(wsi->tls.ssl);
-	if (!wsi->socket_is_permanently_unusable)
+	if (!lwsi_skt_unusable(wsi))
 		SSL_shutdown(wsi->tls.ssl);
 
 	/*

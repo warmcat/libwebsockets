@@ -54,7 +54,7 @@ _lws_ws_client_rx_payload_passthrough(struct lws *wsi, const uint8_t *buf,
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &pmdrx, 0);
 		if (n < 0) {
-			wsi->socket_is_permanently_unusable = 1;
+			lwsi_set_skt_unusable(wsi, 1);
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 		if (n == PMDR_DID_NOTHING)
@@ -793,7 +793,7 @@ drain_extension:
 					      &pmdrx, 0);
 			lwsl_wsi_ext(wsi, "Ext RX returned %d", n);
 			if (n < 0) {
-				wsi->socket_is_permanently_unusable = 1;
+				lwsi_set_skt_unusable(wsi, 1);
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
 			if (n == PMDR_DID_NOTHING)

@@ -533,7 +533,7 @@ spill:
 				 * we can't do a normal close response and
 				 * have to just close our end.
 				 */
-				wsi->socket_is_permanently_unusable = 1;
+				lwsi_set_skt_unusable(wsi, 1);
 				lwsl_parser("Closing on peer close "
 					    "due to pending tx\n");
 				goto ret_asking_close;
@@ -689,7 +689,7 @@ drain_extension:
 				 * we may rely on this to get RX, just drop
 				 * connection
 				 */
-				wsi->socket_is_permanently_unusable = 1;
+				lwsi_set_skt_unusable(wsi, 1);
 
 				goto ret_asking_close;
 			}
@@ -1078,7 +1078,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 	 * we ended up back in the event loop without completing it
 	 */
 	if (lwsi_state(wsi) == LRS_H1_UPGRADE) {
-		wsi->socket_is_permanently_unusable = 1;
+		lwsi_set_skt_unusable(wsi, 1);
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
@@ -1531,7 +1531,7 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 		return LWS_HP_RET_BAIL_OK;
 	}
 
-	if (!wsi->socket_is_permanently_unusable &&
+	if (!lwsi_skt_unusable(wsi) &&
 	    wsi->ws->send_check_ping) {
 
 		lwsl_info("%s: issuing ping on wsi %s: %s %s h2: %d\n", __func__,

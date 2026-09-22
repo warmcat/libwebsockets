@@ -1232,7 +1232,7 @@ ads_known:
 	lws_metrics_caliper_bind(wsi->cal_conn, wsi->a.context->mt_conn_tcp);
 #endif
 
-	wsi->socket_is_permanently_unusable = 0;
+	lwsi_set_skt_unusable(wsi, 0);
 
 	if (lws_fi(&wsi->fic, "conn_cb_rej") ||
 	    user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,

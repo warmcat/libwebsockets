@@ -279,7 +279,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 		lwsl_wsi_debug(wsi, "%s: completing partial", __func__);
 		if (lws_issue_raw(wsi, NULL, 0) < 0) {
 			lwsl_wsi_info(wsi, "%s signalling to close", __func__);
-			wsi->socket_is_permanently_unusable = 1;
+			lwsi_set_skt_unusable(wsi, 1);
 			return -1;
 		}
 		if (wsi->buflist_out)
@@ -291,7 +291,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 		if (!lws_has_buffered_out(wsi)) {
 			lwsi_set_txn_completing(wsi, 0);
 			if (lws_http_transaction_completed(wsi)) {
-				wsi->socket_is_permanently_unusable = 1;
+				lwsi_set_skt_unusable(wsi, 1);
 				return -1;
 			}
 		} else {
@@ -304,7 +304,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 
 	if (lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE) {
 		if (!lws_has_buffered_out(wsi)) {
-			wsi->socket_is_permanently_unusable = 1;
+			lwsi_set_skt_unusable(wsi, 1);
 			return -1;
 		}
 		if (lws_has_unsent_buffered_out(wsi)) {

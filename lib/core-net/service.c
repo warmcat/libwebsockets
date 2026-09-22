@@ -149,7 +149,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	lws_handling_result_t hr;
 	int n;
 
-	if (wsi->socket_is_permanently_unusable)
+	if (lwsi_skt_unusable(wsi))
 		return 0;
 
 #if defined(LWS_WITH_CLIENT)
@@ -211,7 +211,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		goto bail_ok;
 	} else
 		if (lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE) {
-			wsi->socket_is_permanently_unusable = 1;
+			lwsi_set_skt_unusable(wsi, 1);
 			goto bail_die; /* retry closing now */
 		}
 
@@ -883,7 +883,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 				return 1;
 		}
 #endif
-		wsi->socket_is_permanently_unusable = 1;
+		lwsi_set_skt_unusable(wsi, 1);
 
 		if (!(pollfd->revents & pollfd->events & LWS_POLLIN)) {
 

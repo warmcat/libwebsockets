@@ -2067,7 +2067,7 @@ lws_context_deprecate(struct lws_context *cx, lws_reload_func cb)
 			struct lws *wsi = lws_container_of(d, struct lws,
 							   listen_list);
 
-			wsi->socket_is_permanently_unusable = 1;
+			lwsi_set_skt_unusable(wsi, 1);
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   __func__);
 			cx->deprecation_pending_listen_close_count++;

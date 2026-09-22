@@ -301,7 +301,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		/* unclean, eg closed conn */
 		if (m == HITLS_ERR_TLS || m == HITLS_ERR_SYSCALL ||
 		    LWS_ERRNO == LWS_ENOTCONN) {
-			wsi->socket_is_permanently_unusable = 1;
+			lwsi_set_skt_unusable(wsi, 1);
 #if defined(LWS_WITH_SYS_METRICS)
 			if (wsi->a.vhost)
 				lws_metric_event(wsi->a.vhost->mt_traffic_rx,
@@ -430,7 +430,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 	lwsl_debug("%s: write error: 0x%x\n", __func__, ret);
 	lws_tls_err_describe_clear();
 
-	wsi->socket_is_permanently_unusable = 1;
+	lwsi_set_skt_unusable(wsi, 1);
 #if defined(LWS_WITH_SYS_METRICS)
 	if (wsi->a.vhost) {
 		lws_metric_event(wsi->a.vhost->mt_traffic_tx, METRES_NOGO, 0);

@@ -147,7 +147,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 	 * we ended up back in the event loop without completing it
 	 */
 	if (lwsi_state(wsi) == LRS_H1_UPGRADE) {
-		wsi->socket_is_permanently_unusable = 1;
+		lwsi_set_skt_unusable(wsi, 1);
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
@@ -188,7 +188,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 		}
 		if (hr) {
 			/* the write failed... it's had it */
-			wsi->socket_is_permanently_unusable = 1;
+			lwsi_set_skt_unusable(wsi, 1);
 
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
@@ -537,7 +537,7 @@ rops_handle_POLLOUT_h2(struct lws *wsi)
 		while (budget-- &&
 		       lws_dll2_get_head(&wsi->h2.h2n->pps_owner)) {
 			if (lws_h2_do_pps_send(wsi)) {
-				wsi->socket_is_permanently_unusable = 1;
+				lwsi_set_skt_unusable(wsi, 1);
 				return LWS_HP_RET_BAIL_DIE;
 			}
 		}
@@ -945,7 +945,7 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 			 */
 			if (nwsi && lwsi_role_client(nwsi) &&
 			    !lwsi_close_started(nwsi) &&
-			    !nwsi->socket_is_permanently_unusable &&
+			    !lwsi_skt_unusable(nwsi) &&
 			    !lws_dll2_is_empty(&nwsi->dll2_cli_txn_queue_owner) &&
 			    !nwsi->a.context->being_destroyed)
 				lws_wsi_mux_apply_queue(nwsi);
@@ -1572,7 +1572,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		/* priority 3: if no buffered out and waiting for that... */
 
 		if (lwsi_close(w) == LCS_FLUSHING_BEFORE_CLOSE) {
-			w->socket_is_permanently_unusable = 1;
+			lwsi_set_skt_unusable(w, 1);
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "h2 end stream 1");
 			continue;
