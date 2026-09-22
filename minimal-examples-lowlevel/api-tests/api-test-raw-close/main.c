@@ -61,7 +61,13 @@ struct pss_srv {
 
 static struct lws_context *context;
 static lws_sorted_usec_list_t sul_next, sul_watchdog;
-static int result, cur = -1, failures, port = 7690, case_done;
+static int result, cur = -1, failures, port = 7690, case_done, ncases;
+
+/* with --socks host:port, the cases run again through a socks5 proxy */
+static struct lws_vhost *vh_socks;
+
+#define CASE(n) (&cases[(n) % (int)LWS_ARRAY_SIZE(cases)])
+#define CASE_VIA_SOCKS(n) ((n) >= (int)LWS_ARRAY_SIZE(cases))
 
 static uint8_t
 pat(size_t i)
@@ -91,7 +97,7 @@ case_finish(int pass, const char *why)
 	case_done = 1;
 	lws_sul_cancel(&sul_watchdog);
 
-	lwsl_user("--- case %d: %s: %s%s%s ---\n", cur, cases[cur].name,
+	lwsl_user("--- case %d: %s: %s%s%s ---\n", cur, CASE(cur)->name,
 		  pass ? "PASS" : "FAIL", why ? ": " : "", why ? why : "");
 	if (!pass)
 		failures++;
@@ -103,7 +109,7 @@ case_finish(int pass, const char *why)
 static void
 case_evaluate(void)
 {
-	const struct xcase *c = &cases[cur];
+	const struct xcase *c = CASE(cur);
 
 	if (cli.error) {
 		case_finish(0, "client connection error");
@@ -142,9 +148,9 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_RAW_ADOPT:
-		if (cur < 0 || cur >= (int)LWS_ARRAY_SIZE(cases))
+		if (cur < 0 || cur >= ncases)
 			return -1;
-		c = &cases[cur];
+		c = CASE(cur);
 		lwsl_user("%s: server: adopted\n", __func__);
 #if !defined(WIN32)
 		if (c->shrink) {
@@ -161,9 +167,9 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
-		if (pss->wrote || cur < 0 || cur >= (int)LWS_ARRAY_SIZE(cases))
+		if (pss->wrote || cur < 0 || cur >= ncases)
 			break;
-		c = &cases[cur];
+		c = CASE(cur);
 		pss->wrote = 1;
 
 		for (n = 0; n < c->len; n++)
@@ -242,20 +248,20 @@ next_case(lws_sorted_usec_list_t *sul)
 	const struct xcase *c;
 
 	cur++;
-	if (cur >= (int)LWS_ARRAY_SIZE(cases)) {
+	if (cur >= ncases) {
 		result = !!failures;
 		lwsl_user("Completed: %s (%d of %d cases failed)\n",
-			  failures ? "FAIL" : "PASS", failures,
-			  (int)LWS_ARRAY_SIZE(cases));
+			  failures ? "FAIL" : "PASS", failures, ncases);
 		lws_default_loop_exit(context);
 		return;
 	}
 
-	c = &cases[cur];
+	c = CASE(cur);
 	case_done = 0;
 	memset(&cli, 0, sizeof(cli));
 
-	lwsl_user("=== case %d: %s ===\n", cur, c->name);
+	lwsl_user("=== case %d: %s%s ===\n", cur, c->name,
+		  CASE_VIA_SOCKS(cur) ? " (via socks5)" : "");
 
 	lws_sul_schedule(context, 0, &sul_watchdog, watchdog_cb,
 			 CASE_TIMEOUT_S * LWS_US_PER_SEC);
@@ -267,6 +273,8 @@ next_case(lws_sorted_usec_list_t *sul)
 	i.host			= i.address;
 	i.port			= port;
 	i.local_protocol_name	= "raw-drain-cli";
+	if (CASE_VIA_SOCKS(cur))
+		i.vhost		= vh_socks;
 
 	if (!lws_client_connect_via_info(&i)) {
 		case_finish(0, "could not start connection");
@@ -296,6 +304,7 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		port = atoi(p);
+	ncases = (int)LWS_ARRAY_SIZE(cases);
 
 	signal(SIGINT, sigint_handler);
 
@@ -312,6 +321,25 @@ int main(int argc, const char **argv)
 		lwsl_err("lws init failed\n");
 		return 1;
 	}
+
+#if defined(LWS_WITH_SOCKS5)
+	/*
+	 * A raw client through socks5: the raw role's own path out of the
+	 * socks handshake, which no other test reaches.  The proxy fixture
+	 * is api-test-ws-close's proxy-fixture.py.
+	 */
+	if ((p = lws_cmdline_option(argc, argv, "--socks"))) {
+		info.port = CONTEXT_PORT_NO_LISTEN;
+		info.vhost_name = "cli-socks";
+		info.socks_proxy_address = p;
+		vh_socks = lws_create_vhost(context, &info);
+		if (!vh_socks) {
+			lwsl_err("Failed to create socks client vhost\n");
+			return 1;
+		}
+		ncases *= 2;
+	}
+#endif
 
 	result = 1;
 	lws_sul_schedule(context, 0, &sul_next, next_case, 1);
