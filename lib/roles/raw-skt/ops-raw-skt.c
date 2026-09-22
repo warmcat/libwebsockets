@@ -165,14 +165,15 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 				lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
 				goto fail;
 			case LW5CHS_RET_STARTHS:
-				lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
-				lws_client_connect_4_established(wsi, NULL, 0);
-
 				/*
-				 * Now we got the socks5 connection, we need to
-				 * go down the tls path on it now if that's what
-				 * we want
+				 * The socks leg is done: finish the connection
+				 * the way a direct one finishes, tls first if
+				 * that was asked for.  Going back through the
+				 * generic completion would only send the socks
+				 * greeting again.
 				 */
+				if (lws_raw_skt_connect(wsi) < 0)
+					goto fail;
 				goto post_rx_l;
 
 			default:
@@ -262,7 +263,16 @@ try_pollout:
 	    if (!lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd))
 		return LWS_HPI_RET_WSI_ALREADY_DIED;
 
-	    if (lws_raw_skt_connect(wsi) < 0)
+	    /*
+	     * The generic completion either finished a plain connection
+	     * (ESTABLISHED already), started tls (WAITING_SSL, which we
+	     * carry on with here), or only started a proxy or socks leg
+	     * whose replies arrive on POLLIN in their own states.  It may
+	     * also still be connecting.  Only the tls case is ours to
+	     * finish now.
+	     */
+	    if (lwsi_transport(wsi) == LTS_WAITING_SSL &&
+		lws_raw_skt_connect(wsi) < 0)
 		    goto fail;
 	}
 #endif
