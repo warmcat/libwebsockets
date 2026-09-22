@@ -1362,11 +1362,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	else {
 		/* if it's data, either way no swsi means CLOSED state */
 		if (h2n->type == LWS_H2_FRAME_TYPE_DATA) {
-			if (h2n->sid <= h2n->highest_sid_opened
-#if defined(LWS_WITH_CLIENT)
-					&& wsi->client_h2_alpn
-#endif
-			) {
+			if (h2n->sid <= h2n->highest_sid_opened &&
+			    lwsi_role_client(wsi)) {
 				/*
 				 * The stream went away, but the peer had DATA
 				 * for it already queued or in flight.  The
@@ -1644,7 +1641,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		}
 
 #if defined(LWS_WITH_CLIENT)
-		if (wsi->client_h2_alpn) {
+		if (lwsi_role_client(wsi)) {
 			if (h2n->sid) {
 				h2n->swsi = lws_wsi_mux_from_id(wsi, h2n->sid);
 				lwsl_info("HEADERS: nwsi %s: sid %u mapped "
@@ -1897,7 +1894,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 	case LWS_H2_FRAME_TYPE_SETTINGS:
 
 #if defined(LWS_WITH_CLIENT)
-		if (wsi->client_h2_alpn && !lws_wsi_client_nwsi_migrated(wsi) &&
+		if (lwsi_role_client(wsi) && !lws_wsi_client_nwsi_migrated(wsi) &&
 		    !(h2n->flags & LWS_H2_FLAG_SETTINGS_ACK)) {
 			struct lws_h2_protocol_send *pps;
 
@@ -1945,7 +1942,6 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			lws_fi_import(&h2n->swsi->fic, &wsi->fic);
 #endif
 			h2n->swsi->client_mux_substream = 1;
-			h2n->swsi->client_h2_alpn = 1;
 #if defined(LWS_ROLE_WS)
 			/*
 			 * If the original client ask was a ws connection, the

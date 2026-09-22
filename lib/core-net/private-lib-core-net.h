@@ -1099,7 +1099,6 @@ struct lws {
 	unsigned int			keepalive_rejected:1;
 	unsigned int			redirected_to_get:1;
 	unsigned int			client_pipeline:1;
-	unsigned int			client_h2_alpn:1;
 	unsigned int			client_mux_substream:1;
 	unsigned int			disable_h3_fallback:1;
 	unsigned int			client_subsequent_mime_part:1;

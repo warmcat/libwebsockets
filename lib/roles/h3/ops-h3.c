@@ -2466,9 +2466,6 @@ lws_wsi_h3_adopt(struct lws *parent_wsi, struct lws *wsi)
 	wsi->quic.qs->last_rx_update_us = lws_now_usecs();
 
 	wsi->mux_substream = 1;
-#if defined(LWS_WITH_CLIENT)
-	wsi->client_h2_alpn = 1;
-#endif
 
 	if (!qn->is_server && qn->early_data_status == LWS_0RTT_STATUS_ATTEMPTED)
 		wsi->quic.qs->opted_into_early_data = 1;

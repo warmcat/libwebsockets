@@ -244,9 +244,7 @@ start_ws_handshake_l:
 #endif
 
 #if defined (LWS_WITH_HTTP2)
-		if (wsi->client_h2_alpn //&&
-		    //lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE2
-		    ) {
+		if (lwsi_role_h2(wsi)) {
 			/*
 			 * We connected to the server and set up tls and
 			 * negotiated "h2" or connected as clear text
@@ -263,7 +261,7 @@ start_ws_handshake_l:
 			 *
 			 * transitions us to LRS_H2_WAITING_TO_SEND_HEADERS
 			 */
-			if (wsi->client_h2_alpn)
+			if (lwsi_role_h2(wsi))
 				if (lws_h2_issue_preface(wsi)) {
 					cce = "error sending h2 preface";
 					goto bail3_l;
@@ -1166,24 +1164,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			wsi->wt.is_session = 1;
 		} else
 #endif
-#if defined(LWS_ROLE_H2)
-		if (wsi->client_h2_alpn || wsi->client_mux_substream) {
-			lwsl_debug("%s: %s: transitioning to mux client\n",
-				   __func__, lws_wsi_tag(wsi));
-			lws_wsi_event(wsi, LWS_WSIEV_RESP_HDRS);
-		} else
-#endif
 		{
-#if defined(LWS_ROLE_H1)
-			{
-			lwsl_debug("%s: %s: transitioning to h1 client\n",
-				   __func__, lws_wsi_tag(wsi));
+			/* the response headers are in: h1, or a mux stream */
 			lws_wsi_event(wsi, LWS_WSIEV_RESP_HDRS);
-			}
-#else
-			cce = "h1 not built";
-			goto bail3_l;
-#endif
 		}
 
 		wsi->stream.ah = ah;
@@ -1550,7 +1533,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 	/* if h1 KA is allowed, enable the queued pipeline guys */
 
-	if (!wsi->client_h2_alpn && !wsi->client_mux_substream) {
+	if (lwsi_role_h1(wsi)) {
 		/* ie, coming to this for the first time */
 		if (wsi->http.conn_type != HTTP_CONNECTION_KEEP_ALIVE) {
 			/*

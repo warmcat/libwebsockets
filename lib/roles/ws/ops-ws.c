@@ -1355,11 +1355,9 @@ drain:
 	if (lws_is_flowcontrolled(wsi))
 		return LWS_HPI_RET_HANDLED;
 
-	if (wsi->stream.ah
-#if defined(LWS_WITH_CLIENT)
-			&& !wsi->client_h2_alpn
-#endif
-			) {
+	/* a client stream inside h2 keeps its ah for the stream's headers */
+	if (wsi->stream.ah &&
+	    !(lwsi_role_client(wsi) && lwsi_role_h2_ENCAPSULATION(wsi))) {
 		lwsl_info("%s: %p: detaching ah\n", __func__, wsi);
 		lws_header_table_detach(wsi, 0);
 	}

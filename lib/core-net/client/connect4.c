@@ -248,9 +248,8 @@ send_hs:
 				 * LRS_H2_WAITING_TO_SEND_HEADERS already.
 				 */
 
-				lwsl_wsi_notice(wsi, "tls established st 0x%x, "
-					    "client_h2_alpn %d", lwsi_state(wsi),
-					    wsi->client_h2_alpn);
+				lwsl_wsi_notice(wsi, "tls established st 0x%x, h2 %d",
+					    lwsi_state(wsi), lwsi_role_h2(wsi));
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 				lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);

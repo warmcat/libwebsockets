@@ -2246,7 +2246,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 * h2: if in usable state already: just use it without
 			 *     going through the queue
 			 */
-			if (lwsi_role_h2(w) && w->client_h2_alpn && lws_wsi_client_nwsi_migrated(w) &&
+			if (lwsi_role_h2(w) && lws_wsi_client_nwsi_migrated(w) &&
 			    (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS ||
 			     lwsi_state(w) == LRS_ESTABLISHED ||
 			     lwsi_state(w) == LRS_IDLING)) {
@@ -2277,7 +2277,6 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 					lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
 				}
 
-				wsi->client_h2_alpn = 1;
 				if (lws_wsi_h2_adopt(w, wsi)) {
 					lws_vhost_unlock(wsi->a.vhost); /* } ---------- */
 					lws_context_unlock(wsi->a.context); /* -------------- cx { */
@@ -2300,7 +2299,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 * h3: if in usable state already: just use it without
 			 *     going through the queue
 			 */
-			if ((w->role_ops && !strcmp(w->role_ops->name, "quic")) && w->client_h2_alpn && lws_wsi_client_nwsi_migrated(w) &&
+			if ((w->role_ops && !strcmp(w->role_ops->name, "quic")) && lws_wsi_client_nwsi_migrated(w) &&
 			    (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS ||
 			     lwsi_state(w) == LRS_ESTABLISHED ||
 			     lwsi_state(w) == LRS_IDLING)) {
@@ -2320,7 +2319,6 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 					lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
 				}
 
-				wsi->client_h2_alpn = 1;
 				if (lws_wsi_h3_adopt(w, wsi)) {
 					lws_vhost_unlock(wsi->a.vhost); /* } ---------- */
 					lws_context_unlock(wsi->a.context); /* -------------- cx { */

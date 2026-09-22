@@ -4843,12 +4843,6 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 		memset(&wsi->h3, 0, sizeof(wsi->h3));
 	}
 #endif
-#if defined(LWS_WITH_CLIENT)
-        if (!strcmp(alpn, "h3") && lwsi_role_client(wsi)) {
-                wsi->client_h2_alpn = 1;
-                nwsi->client_h2_alpn = 1;
-        }
-#endif
 
 	wsi->mux_substream = 1;
 #if defined(LWS_WITH_CLIENT)

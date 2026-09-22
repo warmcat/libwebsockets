@@ -565,11 +565,7 @@ rops_callback_on_writable_mqtt(struct lws *wsi)
 	lwsl_debug("%s: %s (wsistate 0x%x)\n", __func__, lws_wsi_tag(wsi),
 			(unsigned int)wsi->wsistate);
 
-	if (wsi->mux.requested_POLLOUT
-#if defined(LWS_WITH_CLIENT)
-			&& !wsi->client_h2_alpn
-#endif
-	) {
+	if (wsi->mux.requested_POLLOUT) {
 		lwsl_debug("already pending writable\n");
 		// return 1;
 	}

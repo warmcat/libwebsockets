@@ -301,7 +301,7 @@ post_pollout:
 		 * network wsi dies in a state that is neither "unestablished"
 		 * (no CCE) nor with a child to report CLOSED for
 		 */
-		if (lwsi_role_client(wsi) && wsi->client_h2_alpn &&
+		if (lwsi_role_client(wsi) && lws_wsi_is_mux_nwsi(wsi) &&
 		    !lws_wsi_client_nwsi_migrated(wsi) &&
 		    lws_fi(&wsi->fic, "h2cli_nwsi_early_rx_err"))
 			scr_ret = LWS_SSL_CAPABLE_ERROR;
@@ -492,11 +492,8 @@ drain:
 	 * it like that... it will get detached at stream close
 	 */
 
-	if (wsi->stream.ah
-#if defined(LWS_WITH_CLIENT)
-			&& !wsi->client_h2_alpn
-#endif
-			) {
+	/* a client keeps its ah for the response */
+	if (wsi->stream.ah && !lwsi_role_client(wsi)) {
 		lwsl_err("xxx\n");
 
 		lws_header_table_detach(wsi, 0);
@@ -978,11 +975,7 @@ rops_callback_on_writable_h2(struct lws *wsi)
 //	if (!lwsi_role_h2(wsi) && !lwsi_role_h2_ENCAPSULATION(wsi))
 //		return 0;
 
-	if (wsi->mux.requested_POLLOUT
-#if defined(LWS_WITH_CLIENT)
-			&& !wsi->client_h2_alpn
-#endif
-	) {
+	if (wsi->mux.requested_POLLOUT) {
 		lwsl_debug("already pending writable\n");
 		// return 1;
 	}
@@ -1008,8 +1001,7 @@ rops_callback_on_writable_h2(struct lws *wsi)
 
 	if (already
 #if defined(LWS_WITH_CLIENT)
-			&& !network_wsi->client_h2_alpn
-			&& !network_wsi->client_mux_substream
+			&& !lwsi_role_client(network_wsi)
 #endif
 			)
 		return 1;
@@ -1966,10 +1958,8 @@ rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
 
 	lwsl_debug("%s: client %d\n", __func__, lwsi_role_client(wsi));
 #if defined(LWS_WITH_CLIENT)
-	if (lwsi_role_client(wsi)) {
+	if (lwsi_role_client(wsi))
 		lwsl_info("%s: upgraded to H2\n", __func__);
-		wsi->client_h2_alpn = 1;
-	}
 #endif
 
 	/* adopt the header info */
