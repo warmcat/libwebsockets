@@ -1413,6 +1413,9 @@ lws_wsi_state_changed(struct lws *wsi, const struct lws_role_ops *from_ops,
 int
 lws_http_to_fallback(struct lws *wsi, unsigned char *buf, size_t len);
 
+int
+lws_wsi_can_consume_parked_rx(struct lws *wsi);
+
 int LWS_WARN_UNUSED_RESULT
 user_callback_handle_rxflow(lws_callback_function, struct lws *wsi,
 			    enum lws_callback_reasons reason, void *user,

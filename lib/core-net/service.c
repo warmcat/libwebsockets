@@ -423,6 +423,35 @@ lws_rxflow_cache(struct lws *wsi, unsigned char *buf, size_t n, size_t len)
  * activity in poll() when we have something that already needs service
  */
 
+/*
+ * Can this wsi consume rx parked on its buflist if we service it now?
+ *
+ * While it has a deferred http action, is serving a file (synchronously or on a worker), is
+ * in the middle of a callback-driven transaction, is waiting for an async
+ * tls accept, or is flushing before close, it stashes or ignores rx without
+ * consuming it, so forcing a zero wait would only spin the event loop until
+ * the state change at the end of that phase brings it back here.
+ */
+
+int
+lws_wsi_can_consume_parked_rx(struct lws *wsi)
+{
+	if (lws_is_flowcontrolled(wsi))
+		return 0;
+
+	switch (lwsi_state(wsi)) {
+	case LRS_DEFERRING_ACTION:
+	case LRS_AWAITING_FILE_READ:
+	case LRS_ISSUING_FILE:
+	case LRS_DOING_TRANSACTION:
+	case LRS_AWAITING_SSL_ACCEPT:
+	case LRS_FLUSHING_BEFORE_CLOSE:
+		return 0;
+	default:
+		return 1;
+	}
+}
+
 int
 lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 {
@@ -501,14 +530,8 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 		 * the transfer; the state change at the end of the
 		 * transaction brings it back here.
 		 */
-		if (!lws_is_flowcontrolled(wsi) &&
-		     lwsi_state(wsi) != LRS_DEFERRING_ACTION &&
-		     lwsi_state(wsi) != LRS_AWAITING_FILE_READ &&
-		     lwsi_state(wsi) != LRS_ISSUING_FILE &&
-		     lwsi_state(wsi) != LRS_DOING_TRANSACTION &&
-		     lwsi_close(wsi) != LCS_FLUSHING_BEFORE_CLOSE) {
+		if (lws_wsi_can_consume_parked_rx(wsi))
 			return 0;
-		}
 
 	/*
 	 * 5) If any guys with http compression to spill, we shouldn't wait in
@@ -741,11 +764,7 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&pt->dll_buflist_owner)) {
 		struct lws *wsi = lws_container_of(d, struct lws, dll_buflist);
 
-		if (!lws_is_flowcontrolled(wsi) &&
-		    lwsi_state(wsi) != LRS_DEFERRING_ACTION &&
-		    lwsi_state(wsi) != LRS_AWAITING_FILE_READ &&
-		    lwsi_state(wsi) != LRS_DOING_TRANSACTION &&
-		    lwsi_transport(wsi) != LTS_AWAITING_SSL_ACCEPT) {
+		if (lws_wsi_can_consume_parked_rx(wsi)) {
 			forced = 1;
 			break;
 		}
