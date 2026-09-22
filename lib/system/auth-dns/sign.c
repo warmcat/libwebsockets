@@ -26,6 +26,8 @@
 #ifndef _WIN32
 #include <arpa/inet.h>
 #endif
+#include <ctype.h>
+#include <math.h>
 
 #if defined(LWS_WITH_AUTHORITATIVE_DNS)
 
@@ -136,6 +138,119 @@ struct auth_dns_rdata_scratch {
 /* bail unless there is room for _n more bytes of wire RDATA */
 #define WCHK(_n) do { if (wl + (size_t)(_n) > sizeof(sc->w)) goto fail; } while (0)
 
+/*
+ * LOC (RFC 1876) helpers
+ *
+ * The presentation format spells an angle as up to three numeric tokens
+ * (degrees [minutes [seconds]]) followed by a single direction letter, and a
+ * distance as a decimal count of metres with an optional 'm' suffix.  On the
+ * wire, latitude and longitude are unsigned 32-bit counts of
+ * milliarcseconds biased by 2^31 (the equator / prime meridian), and
+ * altitude is a signed count of centimetres biased by 10000000m.  Size and
+ * precision fields are centimetres compressed to one byte as a decimal
+ * mantissa (0..9) and exponent (0..9).
+ */
+
+/* parse one dms group, advancing *ti past it; returns the angle in degrees */
+
+static int
+loc_dms(char (*toks)[1024], int *ti, int num_toks, double *degrees)
+{
+	double v[3] = { 0, 0, 0 };
+	char dir;
+	int n = 0;
+
+	while (*ti < num_toks && n < 3) {
+		char *e;
+
+		if (!strcasecmp(toks[*ti], "N") || !strcasecmp(toks[*ti], "S") ||
+		    !strcasecmp(toks[*ti], "E") || !strcasecmp(toks[*ti], "W"))
+			break;
+
+		v[n] = strtod(toks[*ti], &e);
+		if (e == toks[*ti] || *e || v[n] < 0.0)
+			return 1;
+		n++;
+		(*ti)++;
+	}
+
+	if (*ti >= num_toks || toks[*ti][1])
+		return 1;
+
+	dir = (char)toupper((unsigned char)toks[*ti][0]);
+	if (dir != 'N' && dir != 'S' && dir != 'E' && dir != 'W')
+		return 1;
+	(*ti)++;
+
+	/* only whole degrees, or degrees and minutes, or all three are legal */
+
+	if (n == 2 && v[1] >= 60.0)
+		return 1;
+	if (n == 3 && (v[1] >= 60.0 || v[2] >= 60.0))
+		return 1;
+
+	*degrees = v[0];
+	if (n > 1)
+		*degrees += v[1] / 60.0;
+	if (n > 2)
+		*degrees += v[2] / 3600.0;
+
+	if (dir == 'S' || dir == 'W')
+		*degrees = -*degrees;
+
+	return 0;
+}
+
+/* parse one metre-valued token, eg "-24m" or "0.00m"; returns 0 if it is one */
+
+static int
+loc_metres(const char *t, double *m)
+{
+	char *e;
+	double d = strtod(t, &e);
+
+	if (e == t)
+		return 1;
+	if (*e == 'm')
+		e++;
+
+	if (*e)
+		return 1;
+
+	*m = d;
+
+	return 0;
+}
+
+/* compress a centimetre count into the RFC 1876 mantissa / exponent byte */
+
+static uint8_t
+loc_encode_cm(double cm)
+{
+	int mant, e = 0;
+
+	if (cm <= 0.0)
+		return 0;
+
+	mant = (int)lround(cm);
+	while (mant > 9) {
+		mant /= 10;
+		e++;
+	}
+
+	return (uint8_t)((mant << 4) | e);
+}
+
+static void
+loc_put_u32(uint8_t *w, uint32_t v)
+{
+	w[0] = (uint8_t)(v >> 24);
+	w[1] = (uint8_t)(v >> 16);
+	w[2] = (uint8_t)(v >> 8);
+	w[3] = (uint8_t)v;
+}
+
+
 int
 lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint16_t type, const char *ipv4, const char *ipv6)
 {
@@ -241,6 +356,47 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		size_t av = sizeof(sc->w);
 		if (name_to_wire(toks[0], z->origin, w, &av)) goto fail;
 		wl = av;
+	} else if (type == 29 && num_toks >= 4) { // LOC, RFC 1876
+		static const double mas_bias = 2147483648.0;  /* 2^31 mas  */
+		static const double alt_bias = 1000000000.0;  /* 10000000m in cm */
+		double lat, lon, d, alt = 0, siz = 1, hp = 10000, vp = 10;
+		long latw, lonw, altw;
+		int ti = 0;
+
+		if (loc_dms(toks, &ti, num_toks, &lat) ||
+		    loc_dms(toks, &ti, num_toks, &lon) ||
+		    fabs(lat) > 90.0 || fabs(lon) > 180.0)
+			goto fail;
+
+		/* altitude, size, horizontal and vertical precision are
+		 * optional and default per RFC 1876 section "Presentation
+		 * format"; anything left after them is not LOC rdata
+		 */
+
+		if (ti < num_toks && !loc_metres(toks[ti], &d)) { alt = d; ti++; }
+		if (ti < num_toks && !loc_metres(toks[ti], &d)) { siz = d; ti++; }
+		if (ti < num_toks && !loc_metres(toks[ti], &d)) { hp  = d; ti++; }
+		if (ti < num_toks && !loc_metres(toks[ti], &d)) { vp  = d; ti++; }
+		if (ti != num_toks)
+			goto fail;
+
+		latw = lround(mas_bias + lat * 3600000.0);
+		lonw = lround(mas_bias + lon * 3600000.0);
+		altw = lround(alt_bias + alt * 100.0);
+		if (latw < 0 || latw > (long)0xffffffff ||
+		    lonw < 0 || lonw > (long)0xffffffff ||
+		    altw < 0 || altw > (long)0xffffffff)
+			goto fail;
+
+		WCHK(16);
+		w[0] = 0; /* version 0 */
+		w[1] = loc_encode_cm(siz * 100.0);
+		w[2] = loc_encode_cm(hp * 100.0);
+		w[3] = loc_encode_cm(vp * 100.0);
+		loc_put_u32(&w[4],  (uint32_t)latw);
+		loc_put_u32(&w[8],  (uint32_t)lonw);
+		loc_put_u32(&w[12], (uint32_t)altw);
+		wl = 16;
 	} else if (type == 5 && num_toks >= 1) { // CNAME
 		size_t av = sizeof(sc->w);
 		if (name_to_wire(toks[0], z->origin, w, &av)) goto fail;

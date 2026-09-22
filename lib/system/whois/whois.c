@@ -187,14 +187,28 @@ lws_whois_eval_line(struct lws_whois *w)
 	case WHS_M_NAME_SERVER:
 	case WHS_M_NSERVER:
 	{
-		size_t max_len, cur_len;
+		/*
+		 * Append with explicit bounds rather than strncat(): gcc 14
+		 * cannot prove strncat's source and destination do not
+		 * overlap inside the same containing object, and this keeps
+		 * the whole append behind a single bounds computation
+		 */
 
-		if (w->res.nameservers[0])
-			strncat(w->res.nameservers, ", ",
-				sizeof(w->res.nameservers) - strlen(w->res.nameservers) - 1);
-		max_len = sizeof(w->res.nameservers) - strlen(w->res.nameservers) - 1;
-		cur_len = w->vv_len;
-		strncat(w->res.nameservers, w->vv, cur_len < max_len ? cur_len : max_len);
+		size_t ol = strlen(w->res.nameservers);
+		size_t room = sizeof(w->res.nameservers) - 1 - ol;
+
+		/* room for the ", " plus at least one nameserver character */
+		if (ol && room > 2) {
+			w->res.nameservers[ol++] = ',';
+			w->res.nameservers[ol++] = ' ';
+			room -= 2;
+		}
+
+		if (w->vv_len < room)
+			room = w->vv_len;
+
+		memcpy(w->res.nameservers + ol, w->vv, room);
+		w->res.nameservers[ol + room] = '\0';
 		break;
 	}
 	case WHS_M_DNSSEC:

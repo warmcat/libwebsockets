@@ -295,6 +295,7 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 							else if (!strcasecmp(toks[type_idx], "MX")) type = 15;
 							else if (!strcasecmp(toks[type_idx], "TXT")) type = 16;
 							else if (!strcasecmp(toks[type_idx], "AAAA")) type = 28;
+							else if (!strcasecmp(toks[type_idx], "LOC")) type = 29;
 							else if (!strcasecmp(toks[type_idx], "RRSIG")) type = 46;
 							else if (!strcasecmp(toks[type_idx], "DNSKEY")) type = 48;
 							else if (!strcasecmp(toks[type_idx], "NSEC3")) type = 50;
@@ -557,6 +558,7 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 			case 15: ts = "MX"; break;
 			case 16: ts = "TXT"; break;
 			case 28: ts = "AAAA"; break;
+			case 29: ts = "LOC"; break;
 			case 46: ts = "RRSIG"; break;
 			case 48: ts = "DNSKEY"; break;
 			case 50: ts = "NSEC3"; break;

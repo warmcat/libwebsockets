@@ -52,6 +52,7 @@ static const char *zone_body =
 	"        2026090801 60 120 1209600 120 )\n"
 	"@			IN	NS	ns1.example.com.\n"
 	"ns1			IN	A	127.0.0.1\n"
+	"ns1			IN	LOC	42 21 54 N 71 6 18 W -24m 30m 200m 15m\n"
 	"www			IN	A	127.0.0.2\n"
 	"x.deeper		IN	A	127.0.0.3\n"
 	"@			IN	TXT	\"v=spf1 -all\"\n";
@@ -258,6 +259,93 @@ bail:
 	return r;
 }
 
+/*
+ * The RFC 1876 LOC record has to survive the whole sign / reload path: the
+ * parser must type it as 29, the writer must label it LOC again, and the
+ * wire form the RRSIG is computed over must be the RFC's encoding of the
+ * presentation values.
+ */
+
+static int
+test_loc(struct lws_context *cx)
+{
+	static const char *loc_rdata = "42 21 54 N 71 6 18 W -24m 30m 200m 15m";
+	struct auth_dns_zone z;
+	struct auth_dns_rrset *rs = NULL;
+	struct auth_dns_rr *rr;
+	uint32_t lat = 0x80000000u + (42u * 3600u + 21u * 60u + 54u) * 1000u;
+	uint32_t lon = 0x80000000u - (71u * 3600u + 6u * 60u + 18u) * 1000u;
+	uint32_t alt = 1000000000u - 2400u;
+	int r = 1;
+
+	if (write_zone("./test-loc.zone.in", "$ORIGIN example.com.\n") ||
+	    sign_zone_to(cx, "./test-loc.zone.in", "./test-loc.zone.signed",
+			 "./test-loc.zone.signed.jws")) {
+		lwsl_err("%s: signing failed\n", __func__);
+
+		return 1;
+	}
+
+	if (load_zone(&z, "./test-loc.zone.signed")) {
+		lwsl_err("%s: unable to reload signed zone\n", __func__);
+
+		return 1;
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z.rrset_list)) {
+		struct auth_dns_rrset *s = lws_container_of(d,
+						struct auth_dns_rrset, list);
+		if (s->type == 29 && !strcmp(s->name, "ns1.example.com.")) {
+			rs = s;
+			break;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (!rs) {
+		lwsl_err("%s: no LOC rrset for ns1.example.com.\n", __func__);
+		goto bail;
+	}
+
+	rr = lws_container_of(lws_dll2_get_head(&rs->rr_list),
+			      struct auth_dns_rr, list);
+
+	if (!rr->rdata || strcmp(rr->rdata, loc_rdata)) {
+		lwsl_err("%s: LOC rdata '%s' not preserved\n", __func__,
+			 rr->rdata ? rr->rdata : "(null)");
+		goto bail;
+	}
+
+	if (!rr->wire_rdata || rr->wire_rdata_len != 16 || rr->wire_rdata[0]) {
+		lwsl_err("%s: LOC wire form wrong (%zu bytes)\n", __func__,
+			 rr->wire_rdata_len);
+		goto bail;
+	}
+
+	if (rr->wire_rdata[4]  != (uint8_t)(lat >> 24) ||
+	    rr->wire_rdata[5]  != (uint8_t)(lat >> 16) ||
+	    rr->wire_rdata[6]  != (uint8_t)(lat >> 8)  ||
+	    rr->wire_rdata[7]  != (uint8_t)lat         ||
+	    rr->wire_rdata[8]  != (uint8_t)(lon >> 24) ||
+	    rr->wire_rdata[9]  != (uint8_t)(lon >> 16) ||
+	    rr->wire_rdata[10] != (uint8_t)(lon >> 8)  ||
+	    rr->wire_rdata[11] != (uint8_t)lon         ||
+	    rr->wire_rdata[12] != (uint8_t)(alt >> 24) ||
+	    rr->wire_rdata[13] != (uint8_t)(alt >> 16) ||
+	    rr->wire_rdata[14] != (uint8_t)(alt >> 8)  ||
+	    rr->wire_rdata[15] != (uint8_t)alt) {
+		lwsl_err("%s: LOC angle / altitude encoding wrong\n", __func__);
+		goto bail;
+	}
+
+	lwsl_user("LOC rrset encoding: ok\n");
+	r = 0;
+
+bail:
+	lws_auth_dns_free_zone(&z);
+
+	return r;
+}
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info cx_info;
@@ -355,6 +443,9 @@ int main(int argc, const char **argv)
 	}
 
 	if (test_dotless_origin(cx))
+		goto bail;
+
+	if (test_loc(cx))
 		goto bail;
 
 	res = 0;
