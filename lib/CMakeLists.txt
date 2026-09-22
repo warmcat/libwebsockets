@@ -71,9 +71,7 @@ if (LWS_PLAT_FREERTOS)
 		    $ENV{IDF_PATH}/components/esp32/include
 		    $ENV{IDF_PATH}/components/spi_flash/include
 		    $ENV{IDF_PATH}/components/mdns/include
-		    $ENV{IDF_PATH}/components/lwip/lwip/src/include/lwip
-		    $ENV{IDF_PATH}/components/lwip/lwip/src/include
-		    $ENV{IDF_PATH}/components/lwip/lwip/src/include/lwip)
+		    $ENV{IDF_PATH}/components/lwip/lwip/src/include)
 
 		# IDF v6 renamed the newlib component to esp_libc; its
 		# platform_include carries esp_newlib.h / esp_libc.h and the
@@ -85,7 +83,16 @@ if (LWS_PLAT_FREERTOS)
 			    $ENV{IDF_PATH}/components/esp_libc/platform_include
 			    $ENV{IDF_PATH}/components/esp_libc/include)
 		else()
+			# lwip's own header dir on the search path makes
+			# <errno.h> resolve to lwip/errno.h, which only declares
+			# errno and the E* codes under LWIP_PROVIDE_ERRNO.  The
+			# newlib-era builds set that and have always leant on the
+			# shadowing, so keep it there; on v6 we use the libc errno
+			# (picolibc's is thread-local) and the shadowing would
+			# hide it instead.  Nothing in lws includes a bare lwip
+			# header name.
 			list(APPEND LWS_ESP_IDF_DIRS
+			    $ENV{IDF_PATH}/components/lwip/lwip/src/include/lwip
 			    $ENV{IDF_PATH}/components/newlib/platform_include)
 		endif()
 
