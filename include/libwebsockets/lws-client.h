@@ -256,7 +256,9 @@ struct lws_client_connect_info {
 	 * defer closing it for this many seconds in case another outgoing
 	 * connection to the same endpoint turns up.  For h1 that is the
 	 * connection after its transaction completed; for h2 and h3 it is the
-	 * shared connection after its last stream closed.
+	 * shared connection after its last stream closed.  A connection that
+	 * serves several requests in turn keeps warm for the time asked by the
+	 * request that last used it.
 	 */
 
 	lws_log_cx_t				*log_cx;

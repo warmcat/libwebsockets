@@ -1825,7 +1825,10 @@ idle:
 		wnew->cli_hostname_copy = wsi->cli_hostname_copy;
 		wsi->cli_hostname_copy = NULL;
 	}
-	wnew->keep_warm_secs = wsi->keep_warm_secs;
+	/*
+	 * wnew keeps its own keep_warm_secs: how long a connection stays warm
+	 * after a transaction is the choice of the request that made it
+	 */
 
 	/*
 	 * selected queued guy now replaces the original leader on the

@@ -2437,6 +2437,8 @@ lws_wsi_h3_adopt(struct lws *parent_wsi, struct lws *wsi)
 	wsi->seen_nonpseudoheader = 0;
 #if defined(LWS_WITH_CLIENT)
 	wsi->client_mux_substream = 1;
+	/* the last request to use the connection sets its keep-warm time */
+	parent_wsi->keep_warm_secs = wsi->keep_warm_secs;
 #endif
 
 	/*

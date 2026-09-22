@@ -483,6 +483,11 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 	wsi->client_mux_substream = 1;
 	/*
+	 * How long the connection stays warm after its last stream closes is
+	 * the choice of the request that last used it
+	 */
+	parent_wsi->keep_warm_secs = wsi->keep_warm_secs;
+	/*
 	 * A reused client stream is a mux substream just like the first one.
 	 * Without this, HPACK skips capturing custom (non-indexed) response
 	 * headers into the ah unknown-header list (that capture is gated on
