@@ -553,7 +553,6 @@ elops_close_handle_manually_uv(struct lws *wsi)
 		if (lws_socket_is_valid(wsi->desc.sockfd))
 			compatible_close(wsi->desc.sockfd);
 		wsi->desc.sockfd = LWS_SOCK_INVALID;
-		wsi->told_event_loop_closed = 1;
 
 		return;
 	}
@@ -573,7 +572,6 @@ elops_close_handle_manually_uv(struct lws *wsi)
 
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 	wsi_to_priv_uv(wsi)->w_read.pwatcher = NULL;
-	wsi->told_event_loop_closed = 1;
 
 	/* the handle was accounted when it was created at accept time */
 
@@ -643,14 +641,6 @@ elops_accept_uv(struct lws *wsi)
 
 	((uv_handle_t *)w_read->pwatcher)->data = (void *)wsi;
 
-	/*
-	 * A fresh poll watcher has just been attached to this wsi.  If the wsi
-	 * is being reused (eg, http->https redirect via lws_client_reset()),
-	 * told_event_loop_closed may still be latched from the previous close.
-	 * Clear it now that a new handle is live.
-	 */
-	wsi->told_event_loop_closed = 0;
-
 	ptpriv->extant_handles++;
 
 	lwsl_wsi_debug(wsi, "thr %d: sa left %d: dyn left: %d",
@@ -683,7 +673,7 @@ elops_io_uv(struct lws *wsi, unsigned int flags)
 		assert(0);
 	}
 
-	if (!w->pwatcher || wsi->told_event_loop_closed) {
+	if (!w->pwatcher) {
 		lwsl_wsi_info(wsi, "no watcher");
 
 		return;
@@ -1036,8 +1026,6 @@ lws_libuv_closehandle_int(struct lws *wsi)
 
 //	lwsl_wsi_debug(wsi, "in");
 
-	wsi->told_event_loop_closed = 1;
-
 	/*
 	 * The normal close path attaches the related wsi as the
 	 * handle->data.
@@ -1123,7 +1111,7 @@ elops_io_parallel_uv(struct lws *wsi, int pidx, unsigned int flags)
 	if (!pt_to_priv_uv(pt)->io_loop || !w->context)
 		return;
 
-	if (!w->pwatcher || wsi->told_event_loop_closed)
+	if (!w->pwatcher)
 		return;
 
 	if (flags & LWS_EV_START) {

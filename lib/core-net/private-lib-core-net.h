@@ -1056,7 +1056,6 @@ struct lws {
 	unsigned int			favoured_pollin:1;
 	unsigned int			sending_chunked:1;
 	unsigned int			interpreting:1;
-	unsigned int			told_event_loop_closed:1;
 	unsigned int			ipv6:1;
 	unsigned int			ipv4:1;
 	unsigned int			parent_pending_cb_on_writable:1;

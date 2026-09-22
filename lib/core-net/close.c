@@ -985,9 +985,6 @@ just_kill_connection:
 	__lws_ssl_remove_wsi_from_buffered_list(wsi);
 	__lws_wsi_remove_from_sul(wsi);
 
-	//if (wsi->told_event_loop_closed) // cgi std close case (dummy-callback)
-	//	return;
-
 	/* checking return redundant since we anyway close */
 	__remove_wsi_socket_from_fds(wsi);
 
