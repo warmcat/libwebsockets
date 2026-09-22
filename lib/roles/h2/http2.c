@@ -552,7 +552,8 @@ lws_h2_issue_preface(struct lws *wsi)
 		return 1;
 	}
 
-	if (h2n->sent_preface)
+	/* the alpn / prior-knowledge role transition left us awaiting it */
+	if (lwsi_state(wsi) != LRS_H2_AWAIT_PREFACE)
 		return 1;
 
 	lwsl_debug("%s: %s: fd %d\n", __func__, lws_wsi_tag(wsi), (int)wsi->desc.sockfd);
@@ -560,8 +561,6 @@ lws_h2_issue_preface(struct lws *wsi)
 	if (lws_issue_raw(wsi, (uint8_t *)preface, strlen(preface)) !=
 		(int)strlen(preface))
 		return 1;
-
-	h2n->sent_preface = 1;
 
 	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_H2_WAITING_TO_SEND_HEADERS,
 			    &role_ops_h2);
@@ -1162,15 +1161,11 @@ int lws_h2_do_pps_send(struct lws *wsi)
 			/*
 			 * RFC 7540 3.2: the upgraded h1 request is stream 1
 			 * and is in the half-closed (remote) state.  It never
-			 * passes through the HEADERS end-of-frame path, so
-			 * mark its header block as done here too; otherwise
-			 * the stream is left IDLE with no headers seen, and a
-			 * later HEADERS on sid 1 would be taken as a fresh
-			 * request and dispatched a second time (and a HEADERS
-			 * on a higher sid would close sid 1 as an idle
-			 * stream while it is being served).
+			 * passes through the HEADERS end-of-frame path; the
+			 * action below takes it out of LRS_HEADERS, so a later
+			 * HEADERS on sid 1 reads as trailers, not a fresh
+			 * request.
 			 */
-			h2n->swsi->h2.hdrs_done = 1;
 			lws_h2_state(h2n->swsi, LWS_H2_STATE_HALF_CLOSED_REMOTE);
 			lwsl_info("servicing initial http request\n");
 
@@ -1777,7 +1772,7 @@ update_end_headers:
 		 * a first block made only of pseudo-headers (legal) left that
 		 * gate open, so close it explicitly for the trailers.
 		 */
-		if (h2n->swsi->h2.hdrs_done)
+		if (!lwsi_hdrs_pending(h2n->swsi))
 			h2n->swsi->seen_nonpseudoheader = 1;
 
 		/*
@@ -2120,7 +2115,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			break;
 		}
 
-		if (h2n->swsi->h2.hdrs_done) {
+		if (!lwsi_hdrs_pending(h2n->swsi)) {
 			/*
 			 * We already processed a complete header block on
 			 * this stream, so this second block is trailers
@@ -2233,7 +2228,6 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		lwsl_info("http req, %s, h2n->swsi=%s\n", lws_wsi_tag(wsi),
 				lws_wsi_tag(h2n->swsi));
-		h2n->swsi->h2.hdrs_done = 1;
 
 #if defined(LWS_WITH_CLIENT)
 		if (h2n->swsi->client_mux_substream &&

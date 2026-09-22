@@ -311,6 +311,7 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 
 	/* serving a file */
 	{ "*",  "S", LRS_ESTABLISHED,		LWS_WSIEV_FILE_BEGIN, LRS_ISSUING_FILE },
+	{ "h2", "S", LRS_HEADERS,		LWS_WSIEV_FILE_BEGIN, LRS_ISSUING_FILE },	/* h2c upgrade stream 1 */
 	{ "*",  "S", LRS_DOING_TRANSACTION,	LWS_WSIEV_FILE_BEGIN, LRS_ISSUING_FILE },
 	{ "*",  "S", LRS_ISSUING_FILE,		LWS_WSIEV_FILE_READ_QUEUED, LRS_AWAITING_FILE_READ },
 	{ "*",  "S", LRS_AWAITING_FILE_READ,	LWS_WSIEV_FILE_READ_DONE, LRS_ISSUING_FILE },

@@ -828,13 +828,13 @@ static int
 lws_h2_hdrs_are_trailers(struct lws *wsi)
 {
 	/*
-	 * Not "the headers are complete": that used to be a bool the ah reset
-	 * cleared
-	 * when an ah is re-attached for this very block, if the stream had
-	 * released its ah after dispatch (cgi mounts do, and an early detach
+	 * The stream's state: past LRS_HEADERS on a server, past waiting for
+	 * the response on a client.  Not a bool in the ah, which the ah reset
+	 * cleared when one was re-attached for this very block after the
+	 * stream had released it (cgi mounts do, and an early detach
 	 * generally would)
 	 */
-	return wsi->h2.hdrs_done;
+	return !lwsi_hdrs_pending(wsi);
 }
 
 static int

@@ -258,7 +258,6 @@ struct lws_h2_netconn {
 	unsigned int is_first_header_char:1;
 	unsigned int zero_huff_padding:1;
 	unsigned int last_action_dyntable_resize:1;
-	unsigned int sent_preface:1;
 
 	uint32_t hdr_idx;
 	uint32_t hpack_len;
@@ -313,17 +312,6 @@ struct _lws_h2_related {
 	uint8_t			send_END_STREAM:1;
 	uint8_t			long_poll:1;
 	uint8_t			initialized:1;
-	/*
-	 * The stream's first header block completed and was dispatched:
-	 * any further HEADERS on it are trailers.  This must live here and
-	 * not in the old headers-complete bool, which __lws_header_table_reset()
-	 * clears whenever an ah is (re)attached... a trailer block arriving
-	 * after the ah was released would otherwise re-attach one, lose the
-	 * flag, and be decoded and dispatched as a second request on the
-	 * same stream.
-	 */
-	uint8_t			hdrs_done:1;
-
 	/*
 	 * Transmit-side duplicate-pseudoheader detection.  Reset to 0 at the
 	 * start of each HEADERS block build; each pseudo-header add sets its
