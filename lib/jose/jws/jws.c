@@ -632,7 +632,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 
 		if ((int)map->len[LJWS_SIG] != h_len) {
 			lwsl_notice("%s: sig len %u, expected %d\n", __func__,
-				    map->len[LJWS_SIG], h_len);
+				    (unsigned int)map->len[LJWS_SIG], h_len);
 			goto bail;
 		}
 
