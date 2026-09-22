@@ -923,7 +923,7 @@ function geoDecodeTopo(topo) {
      * -180 and +180: projecting those straight to [0, 1000] draws a
      * full-width horizontal line and inverts the fill around it.
      * Unwrap each ring's longitudes to be continuous first, letting x
-     * leave [0, 1000]; the seam copies below show the wrapped part.
+     * leave [0, 1000]; the emit below shifts the wrapped parts back in.
      */
     const unwrap = pts => {
         let prev = pts.length ? pts[0][0] : 0;
@@ -939,15 +939,60 @@ function geoDecodeTopo(topo) {
         return pts;
     };
 
-    let d = '';
-    const emit = polys => polys.forEach(poly => poly.forEach((ringIdxs, ri) => {
-        unwrap(ring(ringIdxs)).forEach((pt, i) => {
-            const [x, y] = geoMercator(pt[0], pt[1]);
+    /*
+     * Sutherland-Hodgman clip of a ring against one vertical half-plane:
+     * keep x >= edge, or x <= edge when keepGreater is false
+     */
 
-            d += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+    const clipHalf = (pts, edge, keepGreater) => {
+        const out = [];
+
+        for (let i = 0; i < pts.length; i++) {
+            const a = pts[i], b = pts[(i + 1) % pts.length];
+            const ain = keepGreater ? a[0] >= edge : a[0] <= edge;
+            const bin = keepGreater ? b[0] >= edge : b[0] <= edge;
+
+            if (ain)
+                out.push(a);
+            if (ain !== bin) {
+                const t = (edge - a[0]) / (b[0] - a[0]);
+
+                out.push([edge, a[1] + (b[1] - a[1]) * t]);
+            }
+        }
+
+        return out;
+    };
+
+    /*
+     * Emit one unwrapped ring into the single world: at x, x - 1000 and
+     * x + 1000, each clipped into [0, 1000] so every painted point lies
+     * inside the one map.  The shifted copies only ever contribute the
+     * wrapped sliver of an outline that crosses the antimeridian, and
+     * nothing exists outside the viewBox that a browser with loose svg
+     * overflow clipping could show repeated
+     */
+
+    const emitRing = pts => {
+        const xy = pts.map(pt => geoMercator(pt[0], pt[1]));
+
+        [-GEO_W, 0, GEO_W].forEach(off => {
+            let p = xy.map(q => [q[0] + off, q[1]]);
+
+            p = clipHalf(p, 0, true);
+            p = clipHalf(p, GEO_W, false);
+            if (p.length < 3)
+                return;
+            p.forEach((q, i) => {
+                d += (i ? 'L' : 'M') + q[0].toFixed(1) + ' ' + q[1].toFixed(1);
+            });
+            d += 'Z';
         });
-        d += 'Z';
-    }));
+    };
+
+    let d = '';
+    const emit = polys => polys.forEach(poly =>
+            poly.forEach(ringIdxs => emitRing(unwrap(ring(ringIdxs)))));
 
     (topo.objects.land.geometries || [topo.objects.land]).forEach(g => {
         const arcs = g.arcs;
@@ -968,10 +1013,10 @@ function geoApplyVB() {
 
 /*
  * The view is always clamped to exactly one world: you cannot zoom out
- * past the whole map fitting the panel, nor pan past its edge, so the
- * seam copies are only ever visible as the wrapped sliver at the
- * antimeridian and nothing repeats.  Zooming in reaches a small patch
- * of a world much larger than the screen.
+ * past the whole map fitting the panel, nor pan past its edge, and all
+ * land is clipped into that one world at build time, so nothing ever
+ * repeats.  Zooming in reaches a small patch of a world much larger
+ * than the screen.
  */
 
 function geoClampVB() {
@@ -1012,19 +1057,17 @@ function geoInitMap() {
                lands: [], markers: null };
 
     /*
-     * The land outline is drawn at x, x - 1000 and x + 1000, so
-     * antimeridian-wrapped outlines stay whole and the seam is
-     * seamless; the view is clamped to one world, so at most one
-     * wrapped sliver is ever in view and nothing repeats.  Markers
-     * never unwrap, so they need only the one copy.
+     * All painted land lies inside the one [0, 1000] world after the
+     * clip at emit time, so a single path is enough and nothing can
+     * appear outside the viewBox.  Markers never unwrap, so they need
+     * only the one copy too.
      */
-    [-GEO_W, 0, GEO_W].forEach(off => {
-        const land = document.createElementNS(GEO_SVG_NS, 'path');
-        land.setAttribute('class', 'geo-land');
-        land.setAttribute('transform', `translate(${off} 0)`);
-        svg.appendChild(land);
-        geoMap.lands.push(land);
-    });
+
+    const land = document.createElementNS(GEO_SVG_NS, 'path');
+
+    land.setAttribute('class', 'geo-land');
+    svg.appendChild(land);
+    geoMap.lands = [land];
 
     const markers = document.createElementNS(GEO_SVG_NS, 'g');
     markers.setAttribute('class', 'geo-markers');
