@@ -304,7 +304,13 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		vwsi->leave_pollout_active = 0;
 	}
 
-	if (lwsi_role_client(wsi) && !wsi->hdr_parsing_completed &&
+	/*
+	 * An http client gets no user writeable callbacks until the response
+	 * headers have arrived, except while it is issuing its own request
+	 * headers or body.  Roles without headers are not gated.
+	 */
+	if (lwsi_role_client(wsi) && lwsi_role_http(wsi) &&
+	    !wsi->hdr_parsing_completed &&
 	     lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS &&
 	     lwsi_state(wsi) != LRS_ISSUE_HTTP_BODY)
 		goto bail_ok;

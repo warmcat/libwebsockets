@@ -279,7 +279,6 @@ send_hs:
 			if ((meth && !strcmp(meth, "QUIC")) ||
 			    !strcmp(wsi->role_ops->name, "quic")) {
 				lwsi_set_transport(wsi, LTS_WAITING_SSL);
-				wsi->hdr_parsing_completed = 1;
 				lws_callback_on_writable(wsi);
 				return wsi;
 			}
@@ -300,8 +299,6 @@ send_hs:
 				}
 			}
 
-			/* service.c pollout processing wants this */
-			wsi->hdr_parsing_completed = 1;
 #if defined(LWS_ROLE_MQTT)
 			if (meth && !strcmp(meth, "MQTT")) {
 #if defined(LWS_WITH_TLS)
