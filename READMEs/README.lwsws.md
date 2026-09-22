@@ -155,6 +155,12 @@ if a keyword is found in the user agent
 
  - `timeout-secs` lets you set the global timeout for various network-related
  operations in lws, in seconds.  It defaults to 5.
+
+ - `http-header-data` sets the maximum bytes of http header lws will buffer
+per connection, for server and client connections.  It defaults to 4096;
+sites that deal with very fat response headers (for example, release
+redirects from github with many cookies) should raise it, eg `"8192"`.
+The maximum is 32768.
  
 ## Lwsws Vhosts
 

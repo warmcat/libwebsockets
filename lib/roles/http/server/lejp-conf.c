@@ -54,6 +54,7 @@ static const char * const paths_global[] = {
 	"global.allow-early-data",
 	"global.quic-only-latest",
 	"global.quic-early-key-update",
+	"global.http-header-data",
 };
 
 enum lejp_global_paths {
@@ -79,6 +80,7 @@ enum lejp_global_paths {
 	LEJPGP_ALLOW_EARLY_DATA,
 	LEJPGP_QUIC_ONLY_LATEST,
 	LEJPGP_QUIC_EARLY_KEY_UPDATE,
+	LEJPGP_HTTP_HEADER_DATA,
 };
 
 static const char * const paths_vhosts[] = {
@@ -553,6 +555,16 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 
 	case LWJPGP_TIMEOUT_SECS:
 		a->info->timeout_secs = (unsigned int)atoi(ctx->buf);
+		return 0;
+
+	/*
+	 * http header buffering for both server and client connections is
+	 * sized by this; sites with fat response headers (eg, github release
+	 * redirects with many cookies) need more than the 4KB default
+	 */
+	case LEJPGP_HTTP_HEADER_DATA:
+		a->info->max_http_header_data =
+				(unsigned short)atoi(ctx->buf);
 		return 0;
 
 #if defined(LWS_WITH_TLS)
