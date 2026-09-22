@@ -32,8 +32,8 @@ typedef uint32_t lws_wsi_state_t;
  * role is a client or server side, if it has that concept.  And the connection
  * fulfilling the role, has a separate dynamic state.
  *
- *   31     24 23    20 19    16 15 14  12 11 10   9    8   7      0
- *   [ role  ][carrier][transp] [cs][close][ - ][nest][pocb][ state ]
+ *   31 30   24 23    20 19    16 15 14  12 11 10   9    8   7      0
+ *   [u][role ][carrier][transp] [cs][close][-][c][nest][pocb][ state ]
  *
  * bits 0-9 are the live state: the transaction machine's LRS_ value with
  * its LWSIFS_ flags.  bits 20-23 are the carrier machine (enum
@@ -49,7 +49,11 @@ typedef uint32_t lws_wsi_state_t;
  * lws_close_phase), which runs on top of both without disturbing them, so
  * what the connection was doing when it started to close remains visible
  * (lwsi_state_live()).  bit 15 records that __lws_close_free_wsi() has
- * been entered.
+ * been entered.  bits 10 (c: the transaction completed while a partial
+ * write was outstanding) and 30 (u: the socket is known unusable) are
+ * attributes of the live state that survive lwsi_set_state() and a role
+ * transition, but not a restart to LRS_UNCONNECTED.  See
+ * READMEs/README.wsi-state-machines.md.
  *
  * The role flags part is generally invariant for the lifetime of the wsi,
  * although it can change if the connection role itself does, eg, if the

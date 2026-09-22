@@ -25,10 +25,10 @@
  *
  * Only built with LWS_WITH_STATE_TRACE and / or LWS_WITH_STATE_CHECK, both
  * off by default.  Neither changes what any transition does; they observe
- * lwsi_set_state(), lwsi_set_role() and lws_role_transition(), the only
- * three places wsistate and role_ops are written.
+ * the setters in wsi.c, the only places wsistate and role_ops are written.
  *
- * The 36 LRS states in one word actually hold four independent machines:
+ * The LRS states are the states of four machines, each in its own bits of
+ * wsistate (see READMEs/README.wsi-state-machines.md):
  *
  *   transport   : getting a socket to the peer (dns, connect, proxy, socks,
  *                 tls handshake)
@@ -39,13 +39,10 @@
  *                 phases
  *   close       : polite ws close, flush, staged shutdown, dead
  *
- * Because one word can only be in one place, every edge below tagged as
- * crossing machines is a point where a second machine's state is being
- * carried elsewhere, today by one of the per-wsi bools.  The tables are the
- * observed transition set from the whole ctest suite and the fuzz seed corpus
- * (LWS_WITH_STATE_TRACE) plus the statically present edges no test reaches,
- * marked as such.  They are the specification the machines will be split
- * along; until then LWS_WITH_STATE_CHECK aborts on any edge not listed, so an
+ * The tables are the observed transition set from the whole ctest suite and
+ * the fuzz seed corpus (LWS_WITH_STATE_TRACE) plus the statically present
+ * edges no test reaches, marked as such.  They are the specification of the
+ * machines; LWS_WITH_STATE_CHECK aborts on any edge not listed, so an
  * unknown edge is either an omission here or a bug there.
  */
 
