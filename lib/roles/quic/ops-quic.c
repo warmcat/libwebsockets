@@ -4712,6 +4712,8 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	if (wsi->cli_hostname_copy)
 		nwsi->cli_hostname_copy = lws_strdup(wsi->cli_hostname_copy);
 	nwsi->c_port = wsi->c_port;
+	/* how long we stay warm after our last stream closes: the request's */
+	nwsi->keep_warm_secs = wsi->keep_warm_secs;
 #endif
 
 	/* Transfer the socket fd and fds table entry if valid */

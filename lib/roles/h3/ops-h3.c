@@ -1978,8 +1978,15 @@ rops_close_kill_connection_h3(struct lws *wsi, enum lws_close_status reason)
 		wsi->h3.qpack_dec_state = NULL;
 	}
 
-	if (wsi->mux.parent_wsi)
+	if (wsi->mux.parent_wsi) {
+		struct lws *nwsi = wsi->mux.parent_wsi;
+
 		lws_wsi_mux_sibling_disconnect(wsi);
+#if defined(LWS_WITH_CLIENT)
+		/* if that was the connection's last request stream, keep it warm */
+		lws_wsi_mux_client_idle_check(nwsi);
+#endif
+	}
 
 	return 0;
 }
