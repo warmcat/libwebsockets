@@ -968,7 +968,9 @@ lws_font_register_file(struct lws_context *cx, const char *path);
  * \param dirpath: the directory to scan
  *
  * Returns the number of faces registered (0 if the directory can't be read
- * or holds none).
+ * or holds none).  Needs LWS_WITH_DIR, which is off by default on esp32;
+ * without it, this always returns 0 and lws_font_register_file() is the
+ * way to register file-backed faces.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_fonts_register_dir(struct lws_context *cx, const char *dirpath);

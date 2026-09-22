@@ -504,6 +504,7 @@ bail:
 	return 1;
 }
 
+#if defined(LWS_WITH_DIR)
 static int
 lws_font_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
@@ -533,6 +534,18 @@ lws_fonts_register_dir(struct lws_context *cx, const char *dirpath)
 
 	return (int)lws_dll2_count(&cx->fonts) - n;
 }
+#else
+int
+lws_fonts_register_dir(struct lws_context *cx, const char *dirpath)
+{
+	/* no directory scanning in this build (LWS_WITH_DIR off, as on
+	 * esp32): nothing can be found, register files individually */
+	(void)cx;
+	(void)dirpath;
+
+	return 0;
+}
+#endif
 
 static int
 lws_font_destroy(struct lws_dll2 *d, void *user)
