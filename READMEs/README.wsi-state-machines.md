@@ -171,11 +171,13 @@ server's own unidirectional control streams.
 
 ### h2 and h3 client streams
 
-A stream is born `ESTABLISHED`, immediately takes
-`H2_WAITING_TO_SEND_HEADERS`, sends its headers (`ISSUE_HTTP_BODY` if it has
-a body) and waits in `WAITING_SERVER_REPLY`; the response headers bring it
-back to `ESTABLISHED` and `BODY`.  The network connection goes `IDLING` when
-its last stream closes and is revived to `ESTABLISHED` when a new one joins.
+A stream is born in `H2_WAITING_TO_SEND_HEADERS`, sends its headers
+(`ISSUE_HTTP_BODY` if it has a body) and waits in `WAITING_SERVER_REPLY`;
+the response headers bring it to `ESTABLISHED` and `BODY`.  The network
+connection is `ESTABLISHED` while it has streams in flight, goes `IDLING`
+when its last stream closes and is revived to `ESTABLISHED` when a new one
+joins, so on every client `ESTABLISHED` means a response is in flight and
+`IDLING` means nothing is.
 
 ### Other roles
 
@@ -279,12 +281,11 @@ The events the sites reduce to, with the states they lead to today:
 |response headers complete|||`ESTABLISHED` (role may change to ws)|`ESTABLISHED` (or ws encapsulated)|
 |1xx interim response|||`WAITING_SERVER_REPLY`||
 |auth challenge, retrying|||`H1C_ISSUE_HANDSHAKE2`||
-|stream born||`HEADERS`||`ESTABLISHED` then `H2_WAITING_TO_SEND_HEADERS`|
+|stream born||`HEADERS`||`H2_WAITING_TO_SEND_HEADERS`|
 
-One irregularity stands out in that table and is the candidate to fix
-before the sites are converted: a client mux stream is born `ESTABLISHED`
-and an idle mux connection is revived to `ESTABLISHED`, while on the h1
-client `ESTABLISHED` means a response is in flight and "nothing in flight"
-is `IDLING`.  The server side had the same ambiguity until `HEADERS` was
-made the server's idle state; the client needs the same split so that
-`ESTABLISHED` means one thing on both sides.
+With that table `ESTABLISHED` now means one thing on each side: on a
+server, acting on a parsed request; on a client, a response in flight.
+The decision still open before the sites are converted is the event
+vocabulary itself: whether the site-local facts (body pending, upgrade
+asked, can act now, pipelined next) become distinct events or arguments of
+one, since that is the interface a protocol core would be driven through.

@@ -346,7 +346,6 @@ static const struct lws_state_edge lws_state_edges[] = {
 	{ "h1", "S", LRS_ISSUING_FILE, LRS_AWAITING_FILE_READ },
 	{ "h1", "S", LRS_ISSUING_FILE, LRS_ESTABLISHED },
 	{ "h2", "*", LRS_ESTABLISHED, LRS_BODY },
-	{ "h2", "C", LRS_UNCONNECTED, LRS_ESTABLISHED },	/* client mux child born */
 	{ "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LRS_ISSUE_HTTP_BODY },	/* carrier -> txn */
 	{ "h2", "S", LRS_UNCONNECTED, LRS_HEADERS },
 	{ "h2", "S", LRS_HEADERS, LRS_DEFERRING_ACTION },
@@ -476,7 +475,7 @@ static const struct lws_role_edge lws_role_edges[] = {
 	{ "h1", "S", LRS_HEADERS, "h2", "S", LRS_H2_AWAIT_PREFACE },	/* tls accept, alpn h2 */
 	{ "h1", "S", LRS_H1_UPGRADE, "h2", "S", LRS_H2_AWAIT_PREFACE },
 	{ "h1", "S", LRS_H1_UPGRADE, "ws", "S", LRS_ESTABLISHED },
-	{ "h2", "C", LRS_ESTABLISHED, "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS },
+	{ "h2", "C", LRS_UNCONNECTED, "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS }, /* sid-1 child of the migration */
 	{ "h2", "C", LRS_WAITING_SERVER_REPLY, "ws", "Ce", LRS_ESTABLISHED },
 	{ "h2", "C", LRS_H2_AWAIT_PREFACE, "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS },
 	{ "h2", "C", LRS_WAITING_SERVER_REPLY, "h2", "C", LRS_ESTABLISHED },
