@@ -50,9 +50,12 @@ if (ESP_PLATFORM AND NOT (DEFINED IDF_TARGET AND IDF_TARGET STREQUAL "linux"))
 	# not provide an errno of its own. Forcing LWIP_PROVIDE_ERRNO here bakes a
 	# non-TLS `extern int errno` into lws_config_private.h, which then fails to
 	# link against picolibc's TLS errno ("TLS definition ... mismatches non-TLS
-	# reference"). Only force it on older IDF (newlib), detected via the absence
-	# of mbedtls 4.
-	if (NOT LWS_HAVE_MBEDTLS_V4)
+	# reference"). Only force it on older IDF (newlib).  IDF v6 is
+	# recognised by its esp_libc component (renamed from newlib); the
+	# mbedtls 4 cache result from lib/tls is only available on a
+	# reconfigure, since it is detected long after this point.
+	if (NOT LWS_HAVE_MBEDTLS_V4 AND
+	    NOT EXISTS $ENV{IDF_PATH}/components/esp_libc)
 		set(LWIP_PROVIDE_ERRNO 1)
 	endif()
 endif()

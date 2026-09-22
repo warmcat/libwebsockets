@@ -89,9 +89,27 @@ if (LWS_PLAT_FREERTOS)
 			    $ENV{IDF_PATH}/components/newlib/platform_include)
 		endif()
 
+		# mbedtls 4 (IDF v6) keeps the crypto headers, platform_util.h
+		# among them, in the TF-PSA-Crypto submodule.  Needed here so
+		# the configure-time header checks below can see them.
+		set(_lws_tfpsa $ENV{IDF_PATH}/components/mbedtls/mbedtls/tf-psa-crypto)
+		if (EXISTS ${_lws_tfpsa})
+			list(APPEND LWS_ESP_IDF_DIRS
+			    ${_lws_tfpsa}/include
+			    ${_lws_tfpsa}/drivers/builtin/include)
+		endif()
+
 		    include_directories(${LWS_ESP_IDF_DIRS})
 
 		    list(APPEND CMAKE_REQUIRED_INCLUDES ${LWS_ESP_IDF_DIRS})
+
+		# Inherit the include dirs and config-file defines
+		# (MBEDTLS_CONFIG_FILE, TF_PSA_CRYPTO_CONFIG_FILE) IDF gives
+		# its own mbedtls consumers, so lws sees the same mbedtls
+		# configuration the rest of the firmware was built with.
+		if (TARGET idf::mbedtls)
+			list(APPEND LIB_LIST idf::mbedtls)
+		endif()
 	endif()
 
 	
