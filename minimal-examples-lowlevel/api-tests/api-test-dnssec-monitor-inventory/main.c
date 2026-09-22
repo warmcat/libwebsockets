@@ -415,9 +415,11 @@ static const char *z_example =
 	"www IN A 192.0.2.1\n"
 	"www IN AAAA 2001:db8::1\n"
 	"mail IN A 192.0.2.9\n"
-	"dyn IN A MHWC_DYNAMIC\n"
-	"dyn IN AAAA MHWC6_DYNAMIC\n"
-	"dyn2 IN A MHWC_DYNAMIC\n"
+	"@ IN A ${MHWC_DYNAMIC}\n"
+	"@ IN AAAA ${MHWC6_DYNAMIC}\n"
+	"dyn IN A ${MHWC_DYNAMIC}\n"
+	"dyn IN AAAA ${MHWC6_DYNAMIC}\n"
+	"dyn2 IN A ${MHWC_DYNAMIC}\n"
 	"lonely IN LOC 1 2 3 N 4 5 6 E 10m\n"
 	"@ IN TXT \"v=spf1 -all\"\n";
 
@@ -517,10 +519,11 @@ int main(void)
 	fails += t_expect(!!f, "dynamic v4 resolved");
 	if (f) {
 		fails += t_expect(f->nips == 2, "detected v4 + v6 together");
-		fails += t_expect(f->nnames == 2 &&
+		fails += t_expect(f->nnames == 3 &&
 				  !!t_find_name(f, "dyn.example.com.") &&
-				  !!t_find_name(f, "dyn2.example.com."),
-				  "both dynamic names on the detected pair");
+				  !!t_find_name(f, "dyn2.example.com.") &&
+				  !!t_find_name(f, "example.com."),
+				  "dynamic names incl the zone apex on the detected pair");
 	}
 
 	f = t_find_ip(&ti, "198.51.100.3");

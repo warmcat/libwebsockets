@@ -966,9 +966,25 @@ function geoApplyVB() {
         `${geoMap.vb.x} ${geoMap.vb.y} ${geoMap.vb.w} ${geoMap.vb.h}`);
 }
 
-/* keep the visible window inside the [-1000, 2000] strip */
+/*
+ * Keep the visible window inside the [-1000, 2000] strip.  A window
+ * narrower than one world can never show a longitude twice, but at the
+ * full zoom-out floor the window is exactly one world wide, so it is
+ * locked to x = 0 and the seam copies stay out of view: you cannot
+ * zoom out past the whole map fitting the panel, and zooming in can
+ * go down to a small patch of a world much larger than the screen
+ */
 
 function geoClampVB() {
+    if (geoMap.vb.w >= GEO_W) {
+        geoMap.vb.w = GEO_W;
+        geoMap.vb.h = GEO_W;
+        geoMap.vb.x = 0;
+        geoMap.vb.y = 0;
+
+        return;
+    }
+
     geoMap.vb.x = Math.max(-GEO_W,
                   Math.min(2 * GEO_W - geoMap.vb.w, geoMap.vb.x));
     geoMap.vb.y = Math.max(0, Math.min(GEO_W - geoMap.vb.h, geoMap.vb.y));

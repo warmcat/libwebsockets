@@ -832,7 +832,18 @@ inv_resolve_rdata(const char *rdata, int is_v6, const char *ip4,
 	unsigned char ad[16];
 	int fam = is_v6 ? AF_INET6 : AF_INET;
 
-	if (!strcmp(rdata, is_v6 ? "MHWC6_DYNAMIC" : "MHWC_DYNAMIC")) {
+	/*
+	 * Zonefiles spell the dynamic-address macros with the ${...}
+	 * strexp wrapper, which the signer expands before parsing; the
+	 * scanner sees the raw zonefile, so accept both spellings
+	 */
+	static const char * const dyn[2][2] = {
+		{ "${MHWC_DYNAMIC}", "MHWC_DYNAMIC" },
+		{ "${MHWC6_DYNAMIC}", "MHWC6_DYNAMIC" },
+	};
+
+	if (!strcmp(rdata, dyn[!!is_v6][0]) ||
+	    !strcmp(rdata, dyn[!!is_v6][1])) {
 		/*
 		 * subst is either empty or already canonical, see
 		 * handle_req_get_ip_inventory()
