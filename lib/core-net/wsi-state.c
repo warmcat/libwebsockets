@@ -568,6 +568,21 @@ lws_role_edge_allowed(const struct lws_role_ops *from_ops, lws_wsi_state_t from,
 static const char *
 lws_state_invariant(struct lws *wsi, lws_wsi_state_t to)
 {
+	/*
+	 * An unusable socket takes the abortive path: it may be flushed or
+	 * declared dead, but never enters the polite close states
+	 */
+	if (to & LWSIFS_SKT_UNUSABLE)
+		switch (lws_wsi_state_of(to) & LRS_MASK) {
+		case LRS_WAITING_TO_SEND_CLOSE:
+		case LRS_RETURNED_CLOSE:
+		case LRS_AWAITING_CLOSE_ACK:
+		case LRS_SHUTDOWN:
+			return "polite close state entered with the socket unusable";
+		default:
+			break;
+		}
+
 	switch (lws_wsi_state_of(to) & LRS_MASK) {
 	case LRS_RETURNED_CLOSE:
 		if (!lwsi_role_ws(wsi))
