@@ -30,6 +30,51 @@ const char *mbedtls_client_preload_filepath;
 extern int lws_plat_mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len);
 extern int lws_plat_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len);
 
+#if defined(LWS_WITH_TLS_JIT_TRUST) && defined(LWS_HAVE_mbedtls_ssl_set_verify)
+
+/*
+ * mbedtls calls this for each cert in the peer's chain as it verifies it.
+ *
+ * Our job is just to collect the SKID and AKID of each into the wsi's
+ * kid_chain; if the verification result turns out to be "not trusted", the
+ * JIT trust code sorts them into a hierarchy and asks the system for the CA
+ * whose SKID the top of the chain names.  None of these certs are trusted
+ * by being seen here, even if a misconfigured server sends us its root.
+ */
+
+static int
+lws_mbedtls_client_verify_cb(void *opaque, mbedtls_x509_crt *x509, int depth,
+			     uint32_t *flags)
+{
+	struct lws *wsi = (struct lws *)opaque;
+	lws_tls_kid_chain_t *ch = &wsi->tls.kid_chain;
+	union lws_tls_cert_info_results ci;
+
+	(void)depth;
+	(void)flags;
+
+	if (ch->count == LWS_ARRAY_SIZE(ch->akid))
+		return 0;
+
+	/*
+	 * the len is the usable size of ci.ns.name[]; the backend rejects a
+	 * KID that does not fit in it
+	 */
+
+	if (!lws_tls_mbedtls_cert_info(x509, LWS_TLS_CERT_INFO_SUBJECT_KEY_ID,
+				       &ci, sizeof(ci.ns.name)))
+		lws_tls_kid_copy(&ci, &ch->skid[ch->count]);
+
+	if (!lws_tls_mbedtls_cert_info(x509, LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID,
+				       &ci, sizeof(ci.ns.name)))
+		lws_tls_kid_copy(&ci, &ch->akid[ch->count]);
+
+	ch->count++;
+
+	return 0;
+}
+#endif
+
 int ERR_get_error(void)
 {
 	return 0;
@@ -120,6 +165,16 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		return -1;
 	}
 
+#if defined(LWS_WITH_TLS_JIT_TRUST) && defined(LWS_HAVE_mbedtls_ssl_set_verify)
+	/*
+	 * Per-connection verify callback so we can capture the peer chain's
+	 * key identifiers for JIT trust; the vhost-shared conf cannot carry a
+	 * per-wsi opaque.  Start each connection with an empty chain.
+	 */
+	memset(&wsi->tls.kid_chain, 0, sizeof(wsi->tls.kid_chain));
+	mbedtls_ssl_set_verify(&conn->ssl, lws_mbedtls_client_verify_cb, wsi);
+#endif
+
 #if defined(LWS_WITH_TLS_SESSIONS)
 	if (!(wsi->a.vhost->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE))
 		lws_tls_reuse_session(wsi);
@@ -206,6 +261,16 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	if (flags != 0) {
 		mbedtls_x509_crt_verify_info(ebuf, ebuf_len, "  ! ", flags);
 		lwsl_info("%s: cert problem: %s\n", __func__, ebuf);
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+		/*
+		 * We did not have the CA to validate the chain.  Hand the key
+		 * identifiers collected during the handshake to JIT trust,
+		 * which asks the system for the CA and, if it gets it, makes
+		 * a vhost trusting it for the retry.
+		 */
+		if (flags & MBEDTLS_X509_BADCERT_NOT_TRUSTED)
+			lws_tls_jit_trust_sort_kids(wsi, &wsi->tls.kid_chain);
+#endif
 		return -1;
 	}
 

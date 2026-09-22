@@ -174,8 +174,8 @@ struct lws_lws_tls {
 #if defined(LWS_TLS_SYNTHESIZE_CB)
 	lws_sorted_usec_list_t	sul_cb_synth;
 #endif
-#if !defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_TLS_JIT_TRUST)
-	/* mbedtls has this in the wrapper, since no wsi ptr at validation */
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	/* key identifiers of the peer chain, collected during validation */
 	lws_tls_kid_chain_t	kid_chain;
 #endif
 	struct lws_dll2		dll_pending_tls;
