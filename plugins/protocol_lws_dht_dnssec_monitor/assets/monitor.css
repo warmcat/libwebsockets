@@ -1014,3 +1014,60 @@ body.is-disconnected .app-container {
 }
 
 .mb-10 { margin-bottom: 10px; }
+
+/* Server IP inventory panel */
+
+.ip-inventory-panel {
+  margin-top: 1rem;
+}
+
+.inv-count {
+  color: var(--text-secondary);
+  font-size: 0.85em;
+  margin-left: auto;
+}
+
+.inv-name-cell {
+  max-width: 320px;
+  overflow-wrap: anywhere;
+}
+
+.inv-zone-links {
+  font-size: 0.8em;
+  margin-top: 2px;
+}
+
+.inv-loc-cell {
+  font-size: 0.8em;
+  max-width: 260px;
+  overflow-wrap: anywhere;
+}
+
+.inv-use-cell {
+  font-size: 0.85em;
+}
+
+.inv-kind-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 0.75em;
+  margin-bottom: 2px;
+}
+
+.inv-badge {
+  display: inline-block;
+  padding: 0 5px;
+  font-size: 0.72em;
+  border-radius: 8px;
+  vertical-align: middle;
+}
+
+.inv-badge-ok {
+  color: #34d399;
+  border: 1px solid #34d399;
+}
+
+.inv-badge-warn {
+  color: #fbbf24;
+  border: 1px solid #fbbf24;
+}

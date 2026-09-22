@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DNSSEC Monitor</title>
     <!-- Strict CSP prevents inline styles, and using external font CDNs without explicit whitelist, so we use system fonts -->
-    <link rel="stylesheet" href="monitor.css?v=3">
+    <link rel="stylesheet" href="monitor.css?v=4">
     <script src="lws-login.js"></script>
 </head>
 <body>
@@ -58,6 +58,28 @@
                         </thead>
                         <tbody>
                             <tr><td colspan="3" class="loading">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            <section class="panel ip-inventory-panel" id="ip-inventory-panel">
+                <div class="panel-header">
+                    <h2>Server IP Inventory</h2>
+                    <span id="ip-inventory-count" class="inv-count"></span>
+                </div>
+                <div class="table-container table-responsive">
+                    <table id="table-ip-inventory" class="table-striped table-nowrap">
+                        <thead>
+                            <tr>
+                                <th>Server</th>
+                                <th>IPv4</th>
+                                <th>IPv6</th>
+                                <th>Location (LOC)</th>
+                                <th>Usage</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="5" class="loading">Loading...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -302,6 +324,6 @@
     <!-- Notification Toast -->
     <div id="toast" class="toast"></div>
 
-    <script src="monitor.js?v=16"></script>
+    <script src="monitor.js?v=18"></script>
 </body>
 </html>

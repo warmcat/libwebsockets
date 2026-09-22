@@ -379,6 +379,16 @@ function showToast(msg, isError = false) {
 
 function handleResponse(data) {
     if (data.status === 'error') {
+        /* say inventory errors in the panel itself rather than leaving the
+         * table stuck at "Loading..." behind a transient toast */
+        if (data.req === 'get_ip_inventory') {
+            const tb = document.querySelector('#table-ip-inventory tbody');
+            if (tb) tb.innerHTML = `<tr><td colspan="5" class="loading">${escapeHtml(data.msg || 'Inventory unavailable')}</td></tr>`;
+            const cnt = document.getElementById('ip-inventory-count');
+            if (cnt) cnt.textContent = '';
+            window.ipInventory = [];
+            window.ipInventoryMore = false;
+        }
         showToast(data.msg || 'An error occurred', true);
         return;
     }
@@ -434,6 +444,12 @@ function handleResponse(data) {
                 sendReq({ req: 'get_dist_server_domain' });
             }, 100);
 
+            /* the IP inventory is derived from the same zonefiles; fetch it
+             * once the other bootstrap requests have been sequenced out */
+            setTimeout(() => {
+                sendReq({ req: 'get_ip_inventory', cursor: 0 });
+            }, 200);
+
             let didSelect = false;
             // Restore saved domain state if possible
             if (!currentDomain) {
@@ -461,6 +477,32 @@ function handleResponse(data) {
             if (!didSelect) {
                 window.didBootstrapPhase2 = true;
                 setTimeout(() => sendReq({ req: 'get_ipv6_suffix' }), 150);
+            }
+            break;
+        case 'get_ip_inventory':
+            /*
+             * The server pages the rolled-up server list; accumulate the
+             * pages in order and keep asking until it says there are no
+             * more.  A page always arrives as one newline-framed response.
+             */
+            if (data.status === 'ok') {
+                if (!data.cursor)
+                    window.ipInventory = [];
+                window.ipInventoryMore = !!data.more;
+                (data.servers || []).forEach(s => window.ipInventory.push(s));
+                renderIpInventory();
+                if (data.more && typeof data.next === 'number') {
+                    /*
+                     * A page can legitimately come back empty when the
+                     * server's tx buffer was nearly full; but only follow
+                     * a "next" that actually advances, so a stalled
+                     * sequence cannot spin
+                     */
+                    if (data.next > (data.cursor || 0) || (data.servers || []).length)
+                        sendReq({ req: 'get_ip_inventory', cursor: data.next });
+                    else
+                        window.ipInventoryMore = false;
+                }
             }
             break;
         case 'create_domain':
@@ -496,6 +538,9 @@ function handleResponse(data) {
         case 'update_zone':
             showToast('Zonefile updated successfully');
             document.getElementById('btn-save-zonefile').disabled = true;
+            /* the inventory is rolled up from the zonefiles, so refresh it
+             * now this zone's contents have changed */
+            setTimeout(() => sendReq({ req: 'get_ip_inventory', cursor: 0 }), 150);
             break;
         case 'get_acme_config':
             if (data.config) {
@@ -779,6 +824,142 @@ function renderDomains(domains) {
     });
 }
 
+/*
+ * Render the accumulated get_ip_inventory pages.  Each entry is one
+ * "server": every address record in the zonefiles that shared one
+ * fully-qualified owner name, with its v4 and v6 addresses, any LOC record
+ * for that name, and what kinds of records mention each address.
+ *
+ * Everything shown here came out of a zonefile some admin last saved, so
+ * it all goes through textContent rather than innerHTML.
+ */
+function renderIpInventory() {
+    const tbody = document.querySelector('#table-ip-inventory tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    const inv = window.ipInventory || [];
+
+    const cnt = document.getElementById('ip-inventory-count');
+    if (cnt) {
+        cnt.textContent = inv.length
+            ? `${inv.length} server${inv.length > 1 ? 's' : ''}${window.ipInventoryMore ? '+' : ''}`
+            : '';
+    }
+
+    if (!inv.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="loading">No IP records found in any zonefile.</td></tr>';
+        return;
+    }
+
+    inv.forEach(srv => {
+        const tr = document.createElement('tr');
+
+        /* server cell: the name opens the zonefile editor it came from */
+        const tdSrv = document.createElement('td');
+        tdSrv.className = 'ext-mono inv-name-cell';
+        const zones = srv.zones || [];
+        const a = document.createElement('a');
+        a.href = '#';
+        a.textContent = srv.name || '';
+        a.onclick = (e) => {
+            e.preventDefault();
+            if (zones.length) selectDomain(zones[0]);
+        };
+        tdSrv.appendChild(a);
+        if (zones.length > 1) {
+            const div = document.createElement('div');
+            div.className = 'inv-zone-links';
+            div.appendChild(document.createTextNode('in '));
+            zones.forEach((z, i) => {
+                if (i) div.appendChild(document.createTextNode(', '));
+                const za = document.createElement('a');
+                za.href = '#';
+                za.className = 'ext-link';
+                za.textContent = z;
+                za.onclick = (e) => {
+                    e.preventDefault();
+                    selectDomain(z);
+                };
+                div.appendChild(za);
+            });
+            tdSrv.appendChild(div);
+        }
+        tr.appendChild(tdSrv);
+
+        /* address columns, with what kind of records use each address */
+        const cols = [[], []];
+        (srv.ips || []).forEach(ip => cols[ip.v6 ? 1 : 0].push(ip));
+
+        cols.forEach(list => {
+            const td = document.createElement('td');
+            td.className = 'ext-mono';
+            if (!list.length) {
+                td.textContent = '—';
+            } else list.forEach(ip => {
+                const d = document.createElement('div');
+                d.textContent = ip.ip;
+                if (ip.ns) {
+                    d.appendChild(document.createTextNode(' '));
+                    const b = document.createElement('span');
+                    b.className = 'inv-badge ' +
+                        (ip.ns_only ? 'inv-badge-warn' : 'inv-badge-ok');
+                    b.textContent = ip.ns_only ? 'NS only' : 'NS';
+                    b.title = ip.ns_only
+                        ? 'Only referred to by NS records: may not be our infrastructure'
+                        : 'Referred to by NS records and by host records';
+                    d.appendChild(b);
+                }
+                td.appendChild(d);
+            });
+            tr.appendChild(td);
+        });
+
+        const tdLoc = document.createElement('td');
+        tdLoc.className = 'ext-mono inv-loc-cell';
+        tdLoc.textContent = srv.loc || '—';
+        tr.appendChild(tdLoc);
+
+        /* usage: the record kinds seen, and the NS classification */
+        const tdUse = document.createElement('td');
+        tdUse.className = 'inv-use-cell';
+        const kinds = [];
+        if (srv.v4) kinds.push('A');
+        if (srv.v6) kinds.push('AAAA');
+        if (srv.ns) kinds.push('NS');
+
+        kinds.forEach(k => {
+            const b = document.createElement('span');
+            b.className = 'status-badge ext-badge inv-kind-badge';
+            b.textContent = k;
+            tdUse.appendChild(b);
+            tdUse.appendChild(document.createTextNode(' '));
+        });
+
+        if (srv.ns) {
+            const ips = srv.ips || [];
+            const allNsOnly = ips.length && ips.every(ip => ip.ns_only);
+            const n = document.createElement('div');
+            n.className = allNsOnly ? 'dns-fg-gray' : 'dns-fg-green';
+            n.textContent = allNsOnly
+                ? 'NS glue only: may not be our infrastructure'
+                : 'NS with host records: our infrastructure';
+            tdUse.appendChild(n);
+
+            const nz = srv.ns_zones || [];
+            if (nz.length) {
+                const d = document.createElement('div');
+                d.className = 'inv-zone-links';
+                d.appendChild(document.createTextNode('delegated from: ' + nz.join(', ')));
+                tdUse.appendChild(d);
+            }
+        }
+
+        tr.appendChild(tdUse);
+        tbody.appendChild(tr);
+    });
+}
+
 function formatExpiry(unixtime) {
     if (!unixtime) return '---';
     const now = Math.floor(Date.now() / 1000);
@@ -829,6 +1010,7 @@ function selectDomain(domain) {
     document.querySelector('#detail-title span').textContent = domain;
     document.getElementById('detail-panel')?.classList.remove('hidden-panel');
     document.getElementById('domain-panel')?.classList.add('hidden-panel');
+    document.getElementById('ip-inventory-panel')?.classList.add('hidden-panel');
     document.getElementById('record-editor')?.classList.add('hidden-panel');
 
     const rows = document.querySelectorAll('#table-domains tbody tr');
@@ -1171,6 +1353,7 @@ function closeDetail() {
     localStorage.removeItem('lws-dnssec-monitor-selected-domain');
     document.getElementById('detail-panel').classList.add('hidden-panel');
     document.getElementById('domain-panel').classList.remove('hidden-panel');
+    document.getElementById('ip-inventory-panel')?.classList.remove('hidden-panel');
 }
 
 function updateRawEditor() {
