@@ -372,8 +372,28 @@ client_rx_cb(struct lejp_ctx *ctx, char reason)
 
 			return 1;
 		}
-		if (!pss->cert_len && !pss->key_len) {
-			lwsl_info("%s: Server reported certificate unchanged, skipping\n", __func__);
+		if (!pss->cert_len || !pss->key_len) {
+			/*
+			 * The server answers an unchanged cert with empty
+			 * strings; an update with only one side is malformed.
+			 * Either way there is nothing to install, and the
+			 * empty buffers must go now, or the next writable on
+			 * this connection (eg, a ws ping) would push them as
+			 * a "new" cert and blank the installed key material.
+			 */
+			if (pss->cert_len || pss->key_len)
+				lwsl_warn("%s: server sent a one-sided update, dropping\n",
+					  __func__);
+			else
+				lwsl_info("%s: Server reported certificate unchanged, skipping\n",
+					  __func__);
+			free(pss->cert);
+			pss->cert = NULL;
+			pss->cert_len = 0;
+			free(pss->key);
+			pss->key = NULL;
+			pss->key_len = 0;
+
 			/* We successfully checked, keep connection open */
                         break;
 		}
@@ -539,6 +559,24 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 		}
 
 		lwsl_notice("%s: Valid command for %s\n", __func__, a->subdomain);
+
+		/*
+		 * Nothing that arrives here may replace working key material
+		 * with junk: both sides must be non-empty and actually look
+		 * like PEM.  Empty strings reach here as zero-length buffers,
+		 * and write(fd, NULL-ish, 0) "succeeds", so without this the
+		 * symlink flip would atomically install 0-byte certs.
+		 */
+		if (a->fc_len <= 0 || a->pk_len <= 0 ||
+		    !strstr(a->fullchain, "-----BEGIN CERTIFICATE-----") ||
+		    !strstr(a->fullchain, "-----END CERTIFICATE-----") ||
+		    !strstr(a->privkey, "-----BEGIN") ||
+		    !strstr(a->privkey, "PRIVATE KEY-----")) {
+			lwsl_err("%s: refusing to install non-PEM cert or key for %s (fc %d, pk %d)\n",
+				 __func__, a->subdomain, a->fc_len, a->pk_len);
+
+			return 1;
+		}
 
 		gettimeofday(&tv, NULL);
 		lws_snprintf(timestamp, sizeof(timestamp), "%lld.%06lld",
@@ -797,7 +835,8 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_notice("%s: [DEBUG] WRITEABLE fired on wsi %p (pss->wsi=%p, cert=%p, key=%p, wsi_uds=%p)\n",
 				    __func__, wsi, pss->wsi, pss->cert, pss->key, pss->wsi_uds);
 
-			if (pss->wsi == wsi && pss->cert && pss->key && !pss->wsi_uds) {
+			if (pss->wsi == wsi && pss->cert && pss->key &&
+			    pss->cert_len && pss->key_len && !pss->wsi_uds) {
 				size_t est_len;
 				const char *sec;
 
