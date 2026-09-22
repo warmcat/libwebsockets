@@ -4588,28 +4588,42 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 			pthread_mutex_lock(&wsi->a.context->async_worker_mutex);
 			if (lws_dll2_count(&wsi->a.context->async_worker_waiting) >=
 			    (uint32_t)(wsi->a.context->count_async_threads * 10)) {
+				/*
+				 * The workers are saturated.  That is backpressure,
+				 * not a file error: read this fragment on the event
+				 * loop, as a build without the async queue always
+				 * does, rather than fail the request.  (Behind a
+				 * peer's concurrent stream limit, the last streams
+				 * to be granted send credit found ten siblings'
+				 * reads already queued and were closed with no
+				 * body, intermittently.)
+				 */
 				pthread_mutex_unlock(&wsi->a.context->async_worker_mutex);
 				lws_free(job);
 				wsi->async_worker_job = NULL;
-				goto file_had_it;
-			}
-			lws_dll2_add_tail(&job->list, &wsi->a.context->async_worker_waiting);
+				lwsl_wsi_info(wsi, "async read queue full, reading inline");
+			} else {
+				lws_dll2_add_tail(&job->list,
+						  &wsi->a.context->async_worker_waiting);
 
-			/* Scale threads up to limit if needed */
-			if (wsi->a.context->async_worker_threads_idle == 0 &&
-			    wsi->a.context->async_worker_threads_active < wsi->a.context->count_async_threads) {
-				pthread_t pt;
-				wsi->a.context->async_worker_threads_active++;
-				if (pthread_create(&pt, NULL, lws_async_worker_worker, wsi->a.context) == 0)
-					pthread_detach(pt);
-				else
-					wsi->a.context->async_worker_threads_active--;
-			}
+				/* Scale threads up to limit if needed */
+				if (wsi->a.context->async_worker_threads_idle == 0 &&
+				    wsi->a.context->async_worker_threads_active <
+					    wsi->a.context->count_async_threads) {
+					pthread_t pt;
+					wsi->a.context->async_worker_threads_active++;
+					if (pthread_create(&pt, NULL, lws_async_worker_worker,
+							   wsi->a.context) == 0)
+						pthread_detach(pt);
+					else
+						wsi->a.context->async_worker_threads_active--;
+				}
 
-			pthread_cond_signal(&wsi->a.context->async_worker_cond);
-			pthread_mutex_unlock(&wsi->a.context->async_worker_mutex);
-			lws_wsi_event(wsi, LWS_WSIEV_FILE_READ_QUEUED);
-			return 0; // go back to event loop, wait for worker
+				pthread_cond_signal(&wsi->a.context->async_worker_cond);
+				pthread_mutex_unlock(&wsi->a.context->async_worker_mutex);
+				lws_wsi_event(wsi, LWS_WSIEV_FILE_READ_QUEUED);
+				return 0; // go back to event loop, wait for worker
+			}
 		}
 
 		/* We are returning from async read logic here, amount would be pre-filled */

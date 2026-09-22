@@ -880,30 +880,41 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 			pthread_mutex_lock(&context->async_worker_mutex);
 			if (lws_dll2_count(&context->async_worker_waiting) >=
 			    (uint32_t)(context->count_async_threads * 10)) {
+				/*
+				 * The workers are saturated.  That is backpressure,
+				 * not a failed handshake: do this accept on the
+				 * event loop, as a build without the async queue
+				 * always does, rather than drop the connection.
+				 * The synchronous path re-arms its own poll wants.
+				 */
 				pthread_mutex_unlock(&context->async_worker_mutex);
 				lws_free(job);
 				wsi->async_worker_job = NULL;
-				goto fail;
+				lwsl_wsi_info(wsi, "async accept queue full, accepting inline");
+			} else {
+				lws_dll2_add_tail(&job->list, &context->async_worker_waiting);
+
+				if (context->async_worker_threads_idle == 0 &&
+				    context->async_worker_threads_active <
+						    context->count_async_threads) {
+					pthread_t pt_th;
+					context->async_worker_threads_active++;
+					if (pthread_create(&pt_th, NULL,
+							   lws_async_worker_worker,
+							   context) == 0)
+						pthread_detach(pt_th);
+					else
+						context->async_worker_threads_active--;
+				}
+
+				/* wake up any idle worker threads */
+				pthread_cond_signal(&context->async_worker_cond);
+
+				pthread_mutex_unlock(&context->async_worker_mutex);
+
+				lwsi_set_transport(wsi, LTS_AWAITING_SSL_ACCEPT);
+				return 0;
 			}
-			lws_dll2_add_tail(&job->list, &context->async_worker_waiting);
-
-			if (context->async_worker_threads_idle == 0 &&
-			    context->async_worker_threads_active < context->count_async_threads) {
-				pthread_t pt_th;
-				context->async_worker_threads_active++;
-				if (pthread_create(&pt_th, NULL, lws_async_worker_worker, context) == 0)
-					pthread_detach(pt_th);
-				else
-					context->async_worker_threads_active--;
-			}
-
-			/* wake up any idle worker threads */
-			pthread_cond_signal(&context->async_worker_cond);
-
-			pthread_mutex_unlock(&context->async_worker_mutex);
-
-			lwsi_set_transport(wsi, LTS_AWAITING_SSL_ACCEPT);
-			return 0;
 		}
 #endif
 
