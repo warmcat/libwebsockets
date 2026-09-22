@@ -1026,6 +1026,15 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 			par->http.buflist_post_body_len = 0;
 			lws_rx_flow_control(par, 1);
 
+			/*
+			 * Only the end of the body we were forwarding is news:
+			 * a POLLOUT while we already wait for the response
+			 * must not reset the response parser (it may be part
+			 * way through the headers) or re-arm the timeout
+			 */
+			if (lwsi_state(wsi) != LRS_ISSUE_HTTP_BODY)
+				return LWS_HP_RET_DROP_POLLOUT;
+
 			lwsl_wsi_info(wsi, "nothing to send");
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 			/* prepare ourselves to do the parsing */
