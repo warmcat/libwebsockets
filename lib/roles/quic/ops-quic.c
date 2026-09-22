@@ -4835,7 +4835,13 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	}
 
 	/* Transition wsi to HTTP/3 and link as a child of nwsi */
-	lws_role_transition(wsi, lwsi_role_client(wsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, (!strcmp(alpn, "h3") && lwsi_role_client(wsi)) ? LRS_H2_WAITING_TO_SEND_HEADERS : LRS_ESTABLISHED, role);
+	/*
+	 * This wsi becomes stream 0 of the connection: on an h3 client it goes
+	 * on to send its request, on an h3 server it starts by parsing one
+	 */
+	lws_role_transition(wsi, lwsi_role_client(wsi) ? LWSIFR_CLIENT : LWSIFR_SERVER,
+			    !strcmp(alpn, "h3") ? (lwsi_role_client(wsi) ? LRS_H2_WAITING_TO_SEND_HEADERS : LRS_HEADERS) : LRS_ESTABLISHED,
+			    role);
 #if defined(LWS_ROLE_H3)
 	if (!strcmp(alpn, "h3")) {
 		memset(&wsi->h3, 0, sizeof(wsi->h3));

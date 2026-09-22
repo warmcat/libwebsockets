@@ -482,7 +482,7 @@ static const struct lws_role_edge lws_role_edges[] = {
 	{ "mqtt", "S", LRS_ESTABLISHED, "mqtt", "C", LRS_ESTABLISHED },
 	{ "quic", "C", LRS_ESTABLISHED, "h3", "C", LRS_H2_WAITING_TO_SEND_HEADERS },
 	{ "quic", "C", LRS_UNCONNECTED, "h3", "C", LRS_H2_WAITING_TO_SEND_HEADERS },
-	{ "quic", "S", LRS_ESTABLISHED, "h3", "S", LRS_ESTABLISHED },
+	{ "quic", "S", LRS_ESTABLISHED, "h3", "S", LRS_HEADERS },	/* alpn h3: this wsi is request stream 0 */
 	{ "quic", "S", LRS_UNCONNECTED, "h3", "C", LRS_ESTABLISHED },
 	{ "quic", "S", LRS_UNCONNECTED, "h3", "S", LRS_HEADERS },
 	{ "raw-file", "-", LRS_UNCONNECTED, "raw-file", "-", LRS_ESTABLISHED },
