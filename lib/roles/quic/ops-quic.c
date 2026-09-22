@@ -4407,6 +4407,9 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 		lws_wsi_mux_sibling_disconnect(wsi);
 		if (nwsi->quic.qn)
 			lws_quic_server_idle_check(nwsi);
+#if defined(LWS_WITH_CLIENT)
+		lws_wsi_mux_client_idle_check(nwsi);
+#endif
 	}
 
 	lws_quic_stream_cleanup(wsi);

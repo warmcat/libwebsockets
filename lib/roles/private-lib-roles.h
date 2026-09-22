@@ -435,6 +435,8 @@ enum lws_wsi_event {
 	LWS_WSIEV_REQ_BODY_SENT,	/* the request body all went out */
 	LWS_WSIEV_RESP_INTERIM,		/* a 1xx, the real response is pending */
 	LWS_WSIEV_CONN_REUSED,		/* an idle connection gets a new stream */
+	LWS_WSIEV_LAST_STREAM_CLOSED,	/* a mux connection's last stream closed,
+					 * nothing queued: keep it warm */
 	LWS_WSIEV_MQTT_CONNECT_SENT,
 	LWS_WSIEV_MQTT_CONNACK,
 

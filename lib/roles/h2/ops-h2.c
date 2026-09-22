@@ -953,6 +953,9 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 			    !lws_dll2_is_empty(&nwsi->dll2_cli_txn_queue_owner) &&
 			    !nwsi->a.context->being_destroyed)
 				lws_wsi_mux_apply_queue(nwsi);
+
+			/* ... and if that was its last stream, keep it warm */
+			lws_wsi_mux_client_idle_check(nwsi);
 #else
 			(void)nwsi;
 #endif

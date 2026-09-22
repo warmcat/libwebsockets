@@ -2165,6 +2165,45 @@ void lws_wsi_mux_sibling_disconnect(struct lws *wsi) {
 	wsi->mux.parent_wsi = NULL;
 }
 
+#if defined(LWS_WITH_CLIENT)
+/*
+ * A child of a client mux connection closed.  If that was its last request
+ * stream and nothing is queued on it, the connection has nothing to do: keep
+ * it warm in LRS_IDLING for keep_warm_secs, so a new request to the same
+ * destination in that time joins it (lws_vhost_active_conns() raises
+ * LWS_WSIEV_CONN_REUSED and drops the timeout) instead of paying for a new
+ * tcp + tls connection.  If nothing joins, the timeout closes it.
+ */
+void
+lws_wsi_mux_client_idle_check(struct lws *nwsi)
+{
+	if (!nwsi || !lwsi_role_client(nwsi) || !lws_wsi_is_mux_nwsi(nwsi) ||
+	    lwsi_state(nwsi) != LRS_ESTABLISHED ||
+	    lwsi_close_started(nwsi) || lwsi_skt_unusable(nwsi) ||
+	    nwsi->a.context->being_destroyed ||
+	    !lws_dll2_is_empty(&nwsi->dll2_cli_txn_queue_owner))
+		return;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
+#if defined(LWS_ROLE_QUIC)
+		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
+
+		/* h3's control and qpack streams live as long as the connection */
+		if (w->quic.qs && w->quic.qs->is_unidirectional)
+			continue;
+#endif
+		return; /* a request stream is still open */
+	} lws_end_foreach_dll(d);
+
+	lwsl_wsi_info(nwsi, "last stream closed, keeping warm %ds",
+		      (int)nwsi->keep_warm_secs);
+	lws_wsi_event(nwsi, LWS_WSIEV_LAST_STREAM_CLOSED);
+	lws_set_timeout(nwsi, PENDING_TIMEOUT_CLIENT_CONN_IDLE,
+			(int)nwsi->keep_warm_secs);
+}
+#endif
+
 void lws_wsi_mux_dump_waiting_children(struct lws *wsi) {
 #if defined(_DEBUG) && (_LWS_ENABLED_LOGS & LLL_INFO)
 	lwsl_info("%s: %s: children waiting for POLLOUT service:\n", __func__,

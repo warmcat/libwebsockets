@@ -136,13 +136,18 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 				   wsi->pending_timeout);
 #endif
 	/* cgi timeout */
-	if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
+	if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE &&
+	    wsi->pending_timeout != PENDING_TIMEOUT_CLIENT_CONN_IDLE)
 		/*
 		 * Since he failed a timeout, he already had a chance to
 		 * do something and was unable to... that includes
 		 * situations like half closed connections.  So process
 		 * this "failed timeout" close as a violent death and
 		 * don't try to do protocol cleanup like flush partials.
+		 *
+		 * The two idle timeouts are the exception: a keep-alive or
+		 * kept-warm connection that nothing used is closed in good
+		 * order, it did nothing wrong.
 		 */
 		lwsi_set_skt_unusable(wsi, 1);
 #if defined(LWS_WITH_CLIENT)

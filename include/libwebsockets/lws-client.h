@@ -254,7 +254,9 @@ struct lws_client_connect_info {
 	uint16_t				keep_warm_secs;
 	/**< 0 means 5s.  If the client connection to the endpoint becomes idle,
 	 * defer closing it for this many seconds in case another outgoing
-	 * connection to the same endpoint turns up.
+	 * connection to the same endpoint turns up.  For h1 that is the
+	 * connection after its transaction completed; for h2 and h3 it is the
+	 * shared connection after its last stream closed.
 	 */
 
 	lws_log_cx_t				*log_cx;

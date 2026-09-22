@@ -166,8 +166,11 @@ server's own unidirectional control streams.
 - `ISSUE_HTTP_BODY`: request headers sent, the user is supplying a body.
 - `WAITING_SERVER_REPLY`: a request is out, response headers pending.  A
   1xx interim response rewinds to here.
-- `IDLING`: keep-alive, nothing in flight; the connection may be reused by
-  the pipeline queue, which re-enters `H1C_ISSUE_HANDSHAKE2`.
+- `IDLING`: keep-alive, nothing in flight; the connection is kept warm for
+  the `keep_warm_secs` of the request that last used it, and a new request
+  to the same endpoint in that time is handed the connection (it re-enters
+  `H1C_ISSUE_HANDSHAKE2` from the pipeline queue).  Nothing turns up: the
+  keep-warm timeout closes it in good order.
 
 ### h2 and h3 client streams
 
@@ -176,9 +179,15 @@ A stream is born in `H2_WAITING_TO_SEND_HEADERS`, sends its headers
 the response headers bring it to `ESTABLISHED` and `BODY`.  The network
 connection is `ESTABLISHED` from the moment its own first request moves to
 the sid-1 child (it carries streams only from then on), goes `IDLING` when
-its last stream closes and is revived to `ESTABLISHED` when a new one
-joins, so on every client `ESTABLISHED` means a response is in flight and
-`IDLING` means nothing is.
+its last stream closes with nothing queued (`LAST_STREAM_CLOSED`) and is
+revived to `ESTABLISHED` when a new one joins (`CONN_REUSED`), so on every
+client `ESTABLISHED` means a response is in flight and `IDLING` means
+nothing is.  While `IDLING` the connection is kept warm for the
+`keep_warm_secs` of the request that last used it, with its tcp + tls
+already up for a new request to the same endpoint; the peer's PINGs and
+WINDOW_UPDATEs do not extend that, only a new stream (which drops the
+timeout) does.  Nothing joins: the keep-warm timeout closes it in good
+order.
 
 ### Other roles
 
@@ -305,6 +314,8 @@ The events, with the states they lead to:
 |auth challenge, retrying|||`H1C_ISSUE_HANDSHAKE2`||
 |stream opened by the peer||`HEADERS`|||
 |stream let onto its connection||||`H2_WAITING_TO_SEND_HEADERS`|
+|last stream closed, nothing queued (connection)||||`IDLING`|
+|idle connection gets a new stream (connection)||||`ESTABLISHED`|
 
 `ESTABLISHED` means one thing on each side: on a server, acting on a
 parsed request; on a client, a response in flight.

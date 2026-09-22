@@ -1403,6 +1403,11 @@ lws_wsi_is_mux_nwsi(struct lws *wsi);
 int
 lws_wsi_client_nwsi_migrated(struct lws *wsi);
 
+#if defined(LWS_WITH_CLIENT)
+void
+lws_wsi_mux_client_idle_check(struct lws *nwsi);
+#endif
+
 /* the event engine's entry: a role change a table row asked for */
 void
 lws_wsi_role_transition_ev(struct lws *wsi, enum lwsi_role role,

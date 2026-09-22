@@ -2255,23 +2255,17 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 						   lwsi_state(w));
 
 				if (lwsi_state(w) == LRS_IDLING) {
-					_lws_generic_transaction_completed_active_conn(&w, 0);
-
 					/*
-					 * The connection was kept warm in
-					 * LRS_IDLING, which does not carry
-					 * LWSIFS_POCB, so its POLLOUT is never
-					 * serviced (lwsi_state_can_handle_POLLOUT()
-					 * is false).  If we adopt the new stream
-					 * while the network wsi is still IDLING, the
-					 * child-walking POLLOUT loop never runs, the
-					 * new stream's HEADERS are never sent
-					 * (lws_h2_client_handshake() is never
-					 * reached) and its response would not be read
-					 * either.  Put it back into the same
-					 * LRS_ESTABLISHED state it uses while actively
-					 * muxing, and drop the keep-warm idle timeout
-					 * since it is no longer idle.
+					 * Kept warm by
+					 * lws_wsi_mux_client_idle_check() after
+					 * its last stream closed.  LRS_IDLING does
+					 * not carry LWSIFS_POCB, so its POLLOUT is
+					 * never serviced and the child-walking
+					 * POLLOUT loop that sends a new stream's
+					 * HEADERS never runs: put it back into the
+					 * LRS_ESTABLISHED it uses while actively
+					 * muxing, and drop the keep-warm timeout,
+					 * it is in use again.
 					 */
 					lws_wsi_event(w, LWS_WSIEV_CONN_REUSED);
 					lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
@@ -2309,12 +2303,10 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 
 
 				if (lwsi_state(w) == LRS_IDLING) {
-					_lws_generic_transaction_completed_active_conn(&w, 0);
-
-					/* See the h2 branch above: a revived idle
-					 * mux connection must leave LRS_IDLING so its
-					 * POLLOUT is serviced and the new stream's
-					 * headers get sent. */
+					/* See the h2 branch above: a kept-warm
+					 * mux connection must leave LRS_IDLING so
+					 * its POLLOUT is serviced and the new
+					 * stream's headers get sent. */
 					lws_wsi_event(w, LWS_WSIEV_CONN_REUSED);
 					lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
 				}

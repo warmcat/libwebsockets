@@ -1303,9 +1303,13 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		return 0;
 	}
 
-	/* let the network wsi live a bit longer if subs are active */
+	/*
+	 * let the network wsi live a bit longer if subs are active... unless
+	 * it is a client connection being kept warm with no streams, whose
+	 * keep-warm timeout a PING or WINDOW_UPDATE must not displace
+	 */
 
-	if (!wsi->immortal_substream_count) {
+	if (!wsi->immortal_substream_count && lwsi_state(wsi) != LRS_IDLING) {
 		int ds = lws_wsi_keepalive_timeout_eff(wsi);
 
 		/*
@@ -2860,12 +2864,11 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 				 * subs are active... our frame may take a long
 				 * time to chew through
 				 */
-				if (!wsi->immortal_substream_count) {
-					
+				if (!wsi->immortal_substream_count &&
+				    lwsi_state(wsi) != LRS_IDLING)
 					lws_set_timeout(wsi,
 						PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
 						lws_wsi_keepalive_timeout_eff(wsi));
-				}
 
 				if (!h2n->swsi || lwsi_skt_unusable(h2n->swsi))
 					break;
