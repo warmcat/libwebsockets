@@ -1143,11 +1143,12 @@ int lws_h2_do_pps_send(struct lws *wsi)
 
 			lwsl_info("%s: inherited headers %p\n", __func__,
 				  h2n->swsi->stream.ah);
-			h2n->swsi->txc.tx_cr = (int32_t)
-				h2n->our_set.s[H2SET_INITIAL_WINDOW_SIZE];
-			lwsl_info("initial tx credit on %s: %d\n",
-				  lws_wsi_tag(h2n->swsi),
-				  (int)h2n->swsi->txc.tx_cr);
+			/*
+			 * __lws_wsi_server_new() already gave sid 1 the peer's
+			 * initial window as its tx credit; our own advertised
+			 * window is what the peer may send us, not what we may
+			 * send it.
+			 */
 			h2n->swsi->h2.initialized = 1;
 			/* demanded by HTTP2 */
 			h2n->swsi->h2.END_STREAM = 1;
