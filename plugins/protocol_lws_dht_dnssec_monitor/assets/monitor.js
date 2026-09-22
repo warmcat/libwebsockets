@@ -917,9 +917,31 @@ function geoDecodeTopo(topo) {
         return pts;
     };
 
+    /*
+     * The topology is cut at the antimeridian, so a ring whose land
+     * crosses it (Eurasia, the Diomede pair) has consecutive points at
+     * -180 and +180: projecting those straight to [0, 1000] draws a
+     * full-width horizontal line and inverts the fill around it.
+     * Unwrap each ring's longitudes to be continuous first, letting x
+     * leave [0, 1000]; the seam copies below show the wrapped part.
+     */
+    const unwrap = pts => {
+        let prev = pts.length ? pts[0][0] : 0;
+
+        pts.forEach(pt => {
+            while (pt[0] - prev > 180)
+                pt[0] -= 360;
+            while (pt[0] - prev < -180)
+                pt[0] += 360;
+            prev = pt[0];
+        });
+
+        return pts;
+    };
+
     let d = '';
     const emit = polys => polys.forEach(poly => poly.forEach((ringIdxs, ri) => {
-        ring(ringIdxs).forEach((pt, i) => {
+        unwrap(ring(ringIdxs)).forEach((pt, i) => {
             const [x, y] = geoMercator(pt[0], pt[1]);
 
             d += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
@@ -944,20 +966,39 @@ function geoApplyVB() {
         `${geoMap.vb.x} ${geoMap.vb.y} ${geoMap.vb.w} ${geoMap.vb.h}`);
 }
 
+/* keep the visible window inside the [-1000, 2000] strip */
+
+function geoClampVB() {
+    geoMap.vb.x = Math.max(-GEO_W,
+                  Math.min(2 * GEO_W - geoMap.vb.w, geoMap.vb.x));
+    geoMap.vb.y = Math.max(0, Math.min(GEO_W - geoMap.vb.h, geoMap.vb.y));
+}
+
 function geoInitMap() {
     const svg = document.getElementById('geo-map');
 
     if (!svg || geoMap)
         return;
 
-    geoMap = { svg, vb: { x: 0, y: 0, w: GEO_W, h: GEO_W }, placed: 0, total: 0 };
+    geoMap = { svg, vb: { x: 0, y: 0, w: GEO_W, h: GEO_W },
+               lands: [], markerGroups: [] };
 
-    const land = document.createElementNS(GEO_SVG_NS, 'path');
-    land.setAttribute('class', 'geo-land');
-    svg.appendChild(land);
-    const markers = document.createElementNS(GEO_SVG_NS, 'g');
-    markers.setAttribute('id', 'geo-markers');
-    svg.appendChild(markers);
+    /* land and markers are drawn at x, x - 1000 and x + 1000, so
+     * antimeridian-wrapped outlines stay whole and the seam is
+     * seamless when panning */
+    [-GEO_W, 0, GEO_W].forEach(off => {
+        const land = document.createElementNS(GEO_SVG_NS, 'path');
+        land.setAttribute('class', 'geo-land');
+        land.setAttribute('transform', `translate(${off} 0)`);
+        svg.appendChild(land);
+        geoMap.lands.push(land);
+
+        const markers = document.createElementNS(GEO_SVG_NS, 'g');
+        markers.setAttribute('class', 'geo-markers');
+        markers.setAttribute('transform', `translate(${off} 0)`);
+        svg.appendChild(markers);
+        geoMap.markerGroups.push(markers);
+    });
 
     geoApplyVB();
 
@@ -967,9 +1008,12 @@ function geoInitMap() {
 
             return r.json();
         })
-        .then(topo => land.setAttribute('d', geoDecodeTopo(topo)))
+        .then(topo => {
+            const d = geoDecodeTopo(topo);
+
+            geoMap.lands.forEach(l => l.setAttribute('d', d));
+        })
         .catch(e => {
-            land.setAttribute('d', '');
             console.warn('geo map: no land outline:', e);
         });
 
@@ -988,6 +1032,7 @@ function geoInitMap() {
             y: my - (my - geoMap.vb.y) * (nh / geoMap.vb.h),
             w: nw, h: nh
         };
+        geoClampVB();
         geoApplyVB();
     }, { passive: false });
 
@@ -1003,6 +1048,7 @@ function geoInitMap() {
 
         geoMap.vb.x = pan.vb.x - (e.clientX - pan.x) / rect.width * pan.vb.w;
         geoMap.vb.y = pan.vb.y - (e.clientY - pan.y) / rect.height * pan.vb.h;
+        geoClampVB();
         geoApplyVB();
     });
     const endPan = () => { pan = null; };
@@ -1068,20 +1114,16 @@ function renderGeoMap() {
     if (!geoMap)
         return;
 
-    const g = geoMap.svg.querySelector('#geo-markers');
-    if (g)
-        g.innerHTML = '';
+    geoMap.markerGroups.forEach(g => { g.innerHTML = ''; });
 
     const inv = window.ipInventory || [];
     let placed = 0;
 
     inv.forEach(ifc => {
         if (!ifc || !ifc.geo) return;
-        const m = geoMarker(ifc);
-        if (m) {
-            g.appendChild(m);
-            placed++;
-        }
+        geoMap.markerGroups.forEach(g =>
+            g.appendChild(geoMarker(ifc)));
+        placed++;
     });
 
     const st = document.getElementById('geo-status');
