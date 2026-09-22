@@ -174,8 +174,9 @@ server's own unidirectional control streams.
 A stream is born in `H2_WAITING_TO_SEND_HEADERS`, sends its headers
 (`ISSUE_HTTP_BODY` if it has a body) and waits in `WAITING_SERVER_REPLY`;
 the response headers bring it to `ESTABLISHED` and `BODY`.  The network
-connection is `ESTABLISHED` while it has streams in flight, goes `IDLING`
-when its last stream closes and is revived to `ESTABLISHED` when a new one
+connection is `ESTABLISHED` from the moment its own first request moves to
+the sid-1 child (it carries streams only from then on), goes `IDLING` when
+its last stream closes and is revived to `ESTABLISHED` when a new one
 joins, so on every client `ESTABLISHED` means a response is in flight and
 `IDLING` means nothing is.
 

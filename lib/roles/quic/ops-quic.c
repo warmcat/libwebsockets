@@ -4849,9 +4849,7 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 #if defined(LWS_WITH_CLIENT)
         if (!strcmp(alpn, "h3") && lwsi_role_client(wsi)) {
                 wsi->client_h2_alpn = 1;
-                wsi->client_mux_migrated = 1;
                 nwsi->client_h2_alpn = 1;
-                nwsi->client_mux_migrated = 1;
         }
 #endif
 

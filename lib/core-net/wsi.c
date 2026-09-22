@@ -1160,6 +1160,18 @@ void lws_wsi_role_transition_ev(struct lws *wsi, enum lwsi_role role,
 #endif
 }
 
+int
+lws_wsi_client_nwsi_migrated(struct lws *wsi)
+{
+	if (!lwsi_role_client(wsi) || wsi->mux_substream)
+		return 0;
+#if defined(LWS_ROLE_QUIC) && defined(LWS_ROLE_H3)
+	if (wsi->role_ops == &role_ops_quic)
+		return !!wsi->h3.h3n;
+#endif
+	return lwsi_carrier(wsi) == LCR_ESTABLISHED;
+}
+
 /*
  * A wsi's birth: the creator hands in the ops, and there is no event.  Every
  * later role change is a table row, through lws_wsi_event_x().

@@ -1897,7 +1897,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 	case LWS_H2_FRAME_TYPE_SETTINGS:
 
 #if defined(LWS_WITH_CLIENT)
-		if (wsi->client_h2_alpn && !wsi->client_mux_migrated &&
+		if (wsi->client_h2_alpn && !lws_wsi_client_nwsi_migrated(wsi) &&
 		    !(h2n->flags & LWS_H2_FLAG_SETTINGS_ACK)) {
 			struct lws_h2_protocol_send *pps;
 
@@ -1906,7 +1906,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			wsi->http.fop_fd = NULL;
 #endif
 			lwsl_info("%s: migrating\n", __func__);
-			wsi->client_mux_migrated = 1;
+			lws_wsi_event(wsi, LWS_WSIEV_MUX_MIGRATED);
 			/*
 			 * we need to treat the headers from the upgrade as the
 			 * first job.  So these need to get shifted to sid 1.

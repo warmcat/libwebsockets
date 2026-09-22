@@ -2199,7 +2199,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 #if defined(LWS_ROLE_H3)
 		     || (lwsi_role_http(wsi) && w->role_ops &&
 			 !strcmp(w->role_ops->name, "quic") &&
-			 w->client_mux_migrated)
+			 lws_wsi_client_nwsi_migrated(w))
 #endif
 		    ) &&
 		     /* ... same role, or at least both some kind of http */
@@ -2246,7 +2246,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 * h2: if in usable state already: just use it without
 			 *     going through the queue
 			 */
-			if (lwsi_role_h2(w) && w->client_h2_alpn && w->client_mux_migrated &&
+			if (lwsi_role_h2(w) && w->client_h2_alpn && lws_wsi_client_nwsi_migrated(w) &&
 			    (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS ||
 			     lwsi_state(w) == LRS_ESTABLISHED ||
 			     lwsi_state(w) == LRS_IDLING)) {
@@ -2300,7 +2300,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 * h3: if in usable state already: just use it without
 			 *     going through the queue
 			 */
-			if ((w->role_ops && !strcmp(w->role_ops->name, "quic")) && w->client_h2_alpn && w->client_mux_migrated &&
+			if ((w->role_ops && !strcmp(w->role_ops->name, "quic")) && w->client_h2_alpn && lws_wsi_client_nwsi_migrated(w) &&
 			    (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS ||
 			     lwsi_state(w) == LRS_ESTABLISHED ||
 			     lwsi_state(w) == LRS_IDLING)) {
@@ -2338,7 +2338,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 *	 going through the queue
 			 */
 
-			if (lwsi_role_mqtt(wsi) && w->client_mux_migrated &&
+			if (lwsi_role_mqtt(wsi) && lws_wsi_client_nwsi_migrated(w) &&
 			    lwsi_state(w) == LRS_ESTABLISHED) {
 
 				if (lws_wsi_mqtt_adopt(w, wsi)) {

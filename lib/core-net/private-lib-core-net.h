@@ -1102,7 +1102,6 @@ struct lws {
 	unsigned int			client_pipeline:1;
 	unsigned int			client_h2_alpn:1;
 	unsigned int			client_mux_substream:1;
-	unsigned int			client_mux_migrated:1;
 	unsigned int			disable_h3_fallback:1;
 	unsigned int			client_subsequent_mime_part:1;
 	unsigned int                    client_no_follow_redirect:1;
@@ -1389,6 +1388,15 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len);
 void
 lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
 		    const struct lws_role_ops *ops);
+/*
+ * A client's network connection whose own first transaction has moved to a
+ * child stream, leaving it carrying streams only.  For h2 and mqtt that is
+ * its carrier being established, which only that migration does; for quic
+ * it is h3 having been negotiated on it.
+ */
+int
+lws_wsi_client_nwsi_migrated(struct lws *wsi);
+
 /* the event engine's entry: a role change a table row asked for */
 void
 lws_wsi_role_transition_ev(struct lws *wsi, enum lwsi_role role,

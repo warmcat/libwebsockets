@@ -181,6 +181,7 @@ const char * const lws_wsi_event_names[LWS_WSIEV_COUNT] = {
 	[LWS_WSIEV_WT_SESSION]		= "WT_SESSION",
 	[LWS_WSIEV_WT_STREAM]		= "WT_STREAM",
 	[LWS_WSIEV_RAW_UPGRADED]	= "RAW_UPGRADED",
+	[LWS_WSIEV_MUX_MIGRATED]	= "MUX_MIGRATED",
 	[LWS_WSIEV_DNS_START]		= "DNS_START",
 	[LWS_WSIEV_DNS_RETRY]		= "DNS_RETRY",
 	[LWS_WSIEV_CONNECT_START]	= "CONNECT_START",
@@ -408,6 +409,12 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	{ "quic", "C", ANY,			LWS_WSIEV_ALPN_DONE, "h3", NULL, LRS_H2_WAITING_TO_SEND_HEADERS },
 	{ "quic", "S", ANY,			LWS_WSIEV_ALPN_DONE, "h3", NULL, LRS_HEADERS },
 	{ "quic", "*", ANY,			LWS_WSIEV_ALPN_DONE, "quic", NULL, LRS_ESTABLISHED },
+
+	/*
+	 * the h2 client nwsi hands its own request to the sid-1 child and is
+	 * from then on the carrier of streams only: established
+	 */
+	{ "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_MUX_MIGRATED, NULL, NULL, LRS_ESTABLISHED },
 
 	/* h2: chosen by alpn, h2c upgrade or prior knowledge; the client preface */
 	{ "h1", "S", LRS_HEADERS,		LWS_WSIEV_H2_SELECTED, "h2", NULL, LRS_H2_AWAIT_PREFACE },

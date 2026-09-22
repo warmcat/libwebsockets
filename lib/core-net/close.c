@@ -36,8 +36,7 @@ lws_wsi_close_cb_waived(struct lws *wsi)
 	if (lwsi_close(wsi) == LCS_USER_TOLD)
 		return 1;
 #if defined(LWS_ROLE_MQTT)
-	if (lwsi_role_mqtt(wsi) && wsi->client_mux_migrated &&
-	    lwsi_role_client(wsi))
+	if (lwsi_role_mqtt(wsi) && lws_wsi_client_nwsi_migrated(wsi))
 		return 1;
 #endif
 	return 0;
@@ -267,7 +266,7 @@ __lws_reset_wsi(struct lws *wsi)
 	wsi->client_http_body_pending = wsi->transaction_from_pipeline_queue =
 	wsi->keepalive_rejected =
 	wsi->redirected_to_get = wsi->client_pipeline = wsi->client_h2_alpn =
-	wsi->client_mux_substream = wsi->client_mux_migrated =
+	wsi->client_mux_substream =
 	wsi->tls_session_reused = wsi->perf_done =
 		wsi->tried_quic = 0;
 

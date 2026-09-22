@@ -461,6 +461,7 @@ enum lws_wsi_event {
 	LWS_WSIEV_WT_SESSION,		/* a webtransport session was agreed */
 	LWS_WSIEV_WT_STREAM,		/* a stream belongs to a webtransport session */
 	LWS_WSIEV_RAW_UPGRADED,		/* the http connection became raw */
+	LWS_WSIEV_MUX_MIGRATED,		/* a client nwsi's own request moved to sid 1 */
 
 	/* transport machine */
 	LWS_WSIEV_DNS_START,

@@ -302,7 +302,7 @@ post_pollout:
 		 * (no CCE) nor with a child to report CLOSED for
 		 */
 		if (lwsi_role_client(wsi) && wsi->client_h2_alpn &&
-		    !wsi->client_mux_migrated &&
+		    !lws_wsi_client_nwsi_migrated(wsi) &&
 		    lws_fi(&wsi->fic, "h2cli_nwsi_early_rx_err"))
 			scr_ret = LWS_SSL_CAPABLE_ERROR;
 
@@ -311,7 +311,7 @@ post_pollout:
 		 * connection at any point, eg, with streams open and more
 		 * queued on it waiting for a stream slot
 		 */
-		if (lwsi_role_client(wsi) && wsi->client_mux_migrated &&
+		if (lws_wsi_client_nwsi_migrated(wsi) &&
 		    wsi->h2.h2n && wsi->h2.h2n->swsi &&
 		    /* the faults migrated to sid 1 with the original ask */
 		    lws_fi(&wsi->h2.h2n->swsi->fic, "h2cli_nwsi_rx_err"))
@@ -376,7 +376,13 @@ post_pollout:
 
 drain:
 #if defined(LWS_WITH_CLIENT)
-	if (lwsi_role_http(wsi) && lwsi_role_client(wsi) &&
+	/*
+	 * A client stream whose response headers are in hands its body to
+	 * the user from here.  The network connection is never that, however
+	 * established it is: its bytes are frames for the parser below.
+	 */
+	if (wsi->mux_substream &&
+	    lwsi_role_http(wsi) && lwsi_role_client(wsi) &&
 	    !lwsi_hdrs_pending(wsi) && lwsi_close(wsi) != LCS_USER_TOLD) {
 
 		/*
@@ -1601,10 +1607,25 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 #if defined(LWS_WITH_CLIENT)
 		if (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS) {
-			if (w->mux.my_sid != 1 && (!wsi->client_mux_migrated ||
-			    (wsi->h2.h2n->swsi && lwsi_state(wsi->h2.h2n->swsi) == LRS_H2_WAITING_TO_SEND_HEADERS))) {
-				lwsl_info("%s: waiting for sid 1 to send headers\n", __func__);
-				continue;
+			/*
+			 * Stream ids must rise, so stream 1 opens the
+			 * connection: until the migration the connection's own
+			 * request is stream 1 and nothing else may go, after it
+			 * the sid-1 child must have sent its headers first.
+			 * (Ask that child, not the parser's current stream
+			 * pointer, which is the connection itself between
+			 * frames on stream 0.)
+			 */
+			if (w->mux.my_sid != 1) {
+				struct lws *s1 = lws_wsi_mux_from_id(wsi, 1);
+
+				if (!lws_wsi_client_nwsi_migrated(wsi) ||
+				    (s1 && lwsi_state(s1) ==
+						LRS_H2_WAITING_TO_SEND_HEADERS)) {
+					lwsl_info("%s: waiting for sid 1 to send headers\n",
+						  __func__);
+					continue;
+				}
 			}
 
 			if (lws_h2_client_handshake(w))
