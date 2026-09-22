@@ -1232,14 +1232,11 @@ __lws_close_free_wsi_final(struct lws *wsi)
 
 		/* the restart ends the transport phase, with everything else */
 #if defined(LWS_ROLE_H1)
-		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
-				    &role_ops_h1);
+		lws_wsi_event_role(wsi, LWS_WSIEV_RESTART, &role_ops_h1);
 #elif defined(LWS_ROLE_H2)
-		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
-				    &role_ops_h2);
+		lws_wsi_event_role(wsi, LWS_WSIEV_RESTART, &role_ops_h2);
 #elif defined(LWS_ROLE_H3)
-		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
-				    &role_ops_h3);
+		lws_wsi_event_role(wsi, LWS_WSIEV_RESTART, &role_ops_h3);
 #else
 		lwsi_set_skt_unusable(wsi, 1);
 #endif

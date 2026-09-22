@@ -478,7 +478,7 @@ solo:
 					memset(&i, 0, sizeof(i));
 					i.method = "QUIC";
 					i.alpn = "h3";
-					lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, r);
+					lws_wsi_event_role(wsi, LWS_WSIEV_CLIENT_BIND, r);
 					if (lws_role_call_client_bind(wsi, &i)) {
 						lwsl_wsi_err(wsi, "QUIC client bind failed");
 						goto failed1;

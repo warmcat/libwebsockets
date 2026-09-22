@@ -1249,7 +1249,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_HANDLED;
 		}
 
-		lws_role_transition(nwsi, LWSIFR_SERVER, LRS_SSL_INIT, &role_ops_quic);
+		lws_wsi_event_role(nwsi, LWS_WSIEV_ADOPTED_TLS, &role_ops_quic);
 
 		nwsi->quic.qn = lws_zalloc(sizeof(*nwsi->quic.qn), "quic_netconn");
 		if (!nwsi->quic.qn) {
@@ -3919,7 +3919,7 @@ tp_ok2:
 #undef LWS_QUIC_WRITE_TP_BUF
 		}
 
-		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, &role_ops_quic);
+		lws_wsi_event_role(wsi, LWS_WSIEV_CLIENT_BIND, &role_ops_quic);
 		lws_callback_on_writable(wsi);
 		return 1;
 	}
@@ -3982,7 +3982,8 @@ rops_adoption_bind_quic(struct lws *wsi, int type, const char *vh_prot_name)
 		wsi->txc.peer_tx_cr_est = init_cr;
 		wsi->txc.tx_cr = init_cr;
 
-		lws_role_transition(wsi, LWSIFR_SERVER, LRS_ESTABLISHED, &role_ops_quic);
+		if (!(type & _LWS_ADOPT_FINISH))
+			lws_wsi_event_role(wsi, LWS_WSIEV_ADOPTED, &role_ops_quic);
 		lws_bind_protocol(wsi, wsi->a.protocol, __func__);
 
 		if ((type & _LWS_ADOPT_FINISH) && wsi->do_bind) {
@@ -4828,8 +4829,8 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	if (nwsi->quic.qn)
 		nwsi->quic.qn->nwsi = nwsi;
 
-	/* Setup role and state for nwsi */
-	lws_role_transition(nwsi, lwsi_role_client(wsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_ESTABLISHED, &role_ops_quic);
+	/* the new network wsi is on our side, and up */
+	lws_wsi_event_x(nwsi, LWS_WSIEV_CONN_TAKEOVER, &role_ops_quic, wsi);
 	if (!strcmp(alpn, "h3")) {
 		nwsi->upgraded_to_http2 = 1;
 	}
@@ -4839,9 +4840,7 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	 * This wsi becomes stream 0 of the connection: on an h3 client it goes
 	 * on to send its request, on an h3 server it starts by parsing one
 	 */
-	lws_role_transition(wsi, lwsi_role_client(wsi) ? LWSIFR_CLIENT : LWSIFR_SERVER,
-			    !strcmp(alpn, "h3") ? (lwsi_role_client(wsi) ? LRS_H2_WAITING_TO_SEND_HEADERS : LRS_HEADERS) : LRS_ESTABLISHED,
-			    role);
+	lws_wsi_event_role(wsi, LWS_WSIEV_ALPN_DONE, role);
 #if defined(LWS_ROLE_H3)
 	if (!strcmp(alpn, "h3")) {
 		memset(&wsi->h3, 0, sizeof(wsi->h3));

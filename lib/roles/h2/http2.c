@@ -412,16 +412,11 @@ __lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 			(int32_t)nwsi->h2.h2n->our_set.s[H2SET_INITIAL_WINDOW_SIZE];
 
 	/*
-	 * A server stream starts by reading its request.  A client stream
-	 * (the sid-1 child of the migration) stays UNCONNECTED until its
-	 * adopter gives it LRS_H2_WAITING_TO_SEND_HEADERS: nothing in between
-	 * reads its state, and being born ESTABLISHED read as a response in
-	 * flight before a request had gone out.
+	 * A server's stream starts by reading its request.  A client's (the
+	 * sid-1 child of the migration) stays UNCONNECTED until its adopter
+	 * lets it send.
 	 */
-	lws_role_transition(wsi, (enum lwsi_role)lwsi_role(parent_wsi),
-			    lwsi_role_server(parent_wsi) ? LRS_HEADERS :
-							    LRS_UNCONNECTED,
-			    wsi->role_ops);
+	lws_wsi_event(wsi, LWS_WSIEV_STREAM_OPENED);
 
 	wsi->a.protocol = &vh->protocols[0];
 	if (lws_ensure_user_space(wsi))
@@ -521,8 +516,7 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 	if (lws_ensure_user_space(wsi))
 		goto bail1;
 
-	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_H2_WAITING_TO_SEND_HEADERS,
-			    &role_ops_h2);
+	lws_wsi_event_role(wsi, LWS_WSIEV_MUX_STREAM_ADOPTED, &role_ops_h2);
 
 	lws_callback_on_writable(wsi);
 
@@ -562,8 +556,7 @@ lws_h2_issue_preface(struct lws *wsi)
 		(int)strlen(preface))
 		return 1;
 
-	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_H2_WAITING_TO_SEND_HEADERS,
-			    &role_ops_h2);
+	lws_wsi_event(wsi, LWS_WSIEV_H2_PREFACE_SENT);
 
 	h2n->count = 0;
 	wsi->txc.tx_cr = 65535;
@@ -1932,13 +1925,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 			assert(lws_wsi_mux_from_id(wsi, 1) == h2n->swsi);
 
-		//	lws_role_transition(wsi, LWSIFR_CLIENT,
-		//			    LRS_H2_WAITING_TO_SEND_HEADERS,
-		//			    &role_ops_h2);
-
-			lws_role_transition(h2n->swsi, LWSIFR_CLIENT,
-					    LRS_H2_WAITING_TO_SEND_HEADERS,
-					    &role_ops_h2);
+			lws_wsi_event_role(h2n->swsi, LWS_WSIEV_MUX_STREAM_ADOPTED,
+					   &role_ops_h2);
 
 			/*
 			 * Pass on the initial headers to SID 1.  Do the

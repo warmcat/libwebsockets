@@ -163,6 +163,24 @@ const char * const lws_wsi_event_names[LWS_WSIEV_COUNT] = {
 	[LWS_WSIEV_CONN_REUSED]		= "CONN_REUSED",
 	[LWS_WSIEV_MQTT_CONNECT_SENT]	= "MQTT_CONNECT_SENT",
 	[LWS_WSIEV_MQTT_CONNACK]	= "MQTT_CONNACK",
+	[LWS_WSIEV_SERVER_SIDE]		= "SERVER_SIDE",
+	[LWS_WSIEV_ADOPTED]		= "ADOPTED",
+	[LWS_WSIEV_ADOPTED_TLS]		= "ADOPTED_TLS",
+	[LWS_WSIEV_CLIENT_BIND]		= "CLIENT_BIND",
+	[LWS_WSIEV_RESTART]		= "RESTART",
+	[LWS_WSIEV_MUX_INSERTED]	= "MUX_INSERTED",
+	[LWS_WSIEV_STREAM_OPENED]	= "STREAM_OPENED",
+	[LWS_WSIEV_MUX_STREAM_ADOPTED]	= "MUX_STREAM_ADOPTED",
+	[LWS_WSIEV_CONTROL_STREAM_OPENED] = "CONTROL_STREAM_OPENED",
+	[LWS_WSIEV_CONN_TAKEOVER]	= "CONN_TAKEOVER",
+	[LWS_WSIEV_ALPN_DONE]		= "ALPN_DONE",
+	[LWS_WSIEV_H2_SELECTED]		= "H2_SELECTED",
+	[LWS_WSIEV_H2_PREFACE_SENT]	= "H2_PREFACE_SENT",
+	[LWS_WSIEV_WS_UPGRADED]		= "WS_UPGRADED",
+	[LWS_WSIEV_RESP_HDRS]		= "RESP_HDRS",
+	[LWS_WSIEV_WT_SESSION]		= "WT_SESSION",
+	[LWS_WSIEV_WT_STREAM]		= "WT_STREAM",
+	[LWS_WSIEV_RAW_UPGRADED]	= "RAW_UPGRADED",
 };
 
 #define ANY 0xffff
@@ -182,11 +200,17 @@ lws_state_match(const char *want, const char *have)
 }
 
 /*
- * The transition function of the carrier and transaction machines: what
- * state an event lands a connection in, by role, side and current state.
- * role and side are the role_ops name and C / S / - with a trailing e for
- * h2-encapsulated, or "*"; from is the state lwsi_state() reports or ANY.
- * The first matching row wins, so a role's own row goes before a "*" one.
+ * The transition function of the carrier and transaction machines, and of
+ * every role change after a wsi's birth: what state, role and side an event
+ * lands a connection in, by role, side and current state.  role and side
+ * are the role_ops name and C / S / - with a trailing e for h2-encapsulated,
+ * or "*"; from is the state lwsi_state() reports or ANY.  to_role is NULL
+ * for no role change, "?" for the ops the site passed, "P" for the mux
+ * parent's, else a role name; to_side is NULL for no change, "P" for the
+ * mux parent's, "L" for that of the wsi the site passed as like, else
+ * C / S / - / Ce / Se.  A site that passes ops only matches rows that take
+ * them ("?" or their name).  The first matching row wins, so a role's own
+ * row goes before a "*" one.
  *
  * A (role, side, state, event) with no row is a bug at the site that
  * raised it: lws_wsi_event() leaves the state alone and returns -1, and
@@ -198,6 +222,8 @@ struct lws_wsi_event_edge {
 	const char		*side;
 	uint16_t		from;
 	uint8_t			ev;
+	const char		*to_role;
+	const char		*to_side;
 	uint16_t		to;
 };
 
@@ -206,142 +232,277 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	 * the transport finished: a server starts on the request, an h1 client
 	 * on sending one, an mqtt client on its CONNECT, the rest are up
 	 */
-	{ "h1", "C", LRS_UNCONNECTED,		LWS_WSIEV_TRANSPORT_UP, LRS_H1C_ISSUE_HANDSHAKE2 }, /* inherited from an idle leader */
-	{ "h1", "C", LRS_WAITING_SSL,		LWS_WSIEV_TRANSPORT_UP, LRS_H1C_ISSUE_HANDSHAKE2 },
-	{ "h1", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_TRANSPORT_UP, LRS_H1C_ISSUE_HANDSHAKE2 },
-	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE,	LWS_WSIEV_TRANSPORT_UP, LRS_H1C_ISSUE_HANDSHAKE2 },
-	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE2,	LWS_WSIEV_TRANSPORT_UP, LRS_H1C_ISSUE_HANDSHAKE2 },
-	{ "h1", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_TRANSPORT_UP, LRS_H2_WAITING_TO_SEND_HEADERS },
-	{ "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_TRANSPORT_UP, LRS_H2_WAITING_TO_SEND_HEADERS },
-	{ "mqtt", "C", LRS_UNCONNECTED,		LWS_WSIEV_TRANSPORT_UP, LRS_MQTTC_IDLE },
-	{ "mqtt", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_TRANSPORT_UP, LRS_MQTTC_IDLE },
-	{ "mqtt", "C", LRS_WAITING_SSL,		LWS_WSIEV_TRANSPORT_UP, LRS_MQTTC_IDLE },
-	{ "mqtt", "C", LRS_WAITING_SOCKS_CONNECT_REPLY, LWS_WSIEV_TRANSPORT_UP, LRS_MQTTC_IDLE },
-	{ "raw-skt", "C", ANY,			LWS_WSIEV_TRANSPORT_UP, LRS_ESTABLISHED },
-	{ "quic", "C", LRS_WAITING_SSL,		LWS_WSIEV_TRANSPORT_UP, LRS_ESTABLISHED },
-	{ "quic", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_TRANSPORT_UP, LRS_ESTABLISHED },
-	{ "quic", "S", LRS_SSL_INIT,		LWS_WSIEV_TRANSPORT_UP, LRS_ESTABLISHED },
-	{ "h1", "S", LRS_SSL_ACK_PENDING,	LWS_WSIEV_TRANSPORT_UP, LRS_HEADERS },
-	{ "h1", "S", LRS_AWAITING_SSL_ACCEPT,	LWS_WSIEV_TRANSPORT_UP, LRS_HEADERS },
-	{ "h1", "S", LRS_SSL_INIT,		LWS_WSIEV_TRANSPORT_UP, LRS_HEADERS },
-	{ "*",  "S", LRS_SSL_ACK_PENDING,	LWS_WSIEV_TRANSPORT_UP, LRS_ESTABLISHED },
-	{ "*",  "S", LRS_AWAITING_SSL_ACCEPT,	LWS_WSIEV_TRANSPORT_UP, LRS_ESTABLISHED },
-	{ "*",  "S", LRS_SSL_INIT,		LWS_WSIEV_TRANSPORT_UP, LRS_ESTABLISHED },
+	{ "h1", "C", LRS_UNCONNECTED,		LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_H1C_ISSUE_HANDSHAKE2 }, /* inherited from an idle leader */
+	{ "h1", "C", LRS_WAITING_SSL,		LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_H1C_ISSUE_HANDSHAKE2 },
+	{ "h1", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_H1C_ISSUE_HANDSHAKE2 },
+	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE,	LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_H1C_ISSUE_HANDSHAKE2 },
+	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE2,	LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_H1C_ISSUE_HANDSHAKE2 },
+	{ "h1", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_H2_WAITING_TO_SEND_HEADERS },
+	{ "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_H2_WAITING_TO_SEND_HEADERS },
+	{ "mqtt", "C", LRS_UNCONNECTED,		LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_MQTTC_IDLE },
+	{ "mqtt", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_MQTTC_IDLE },
+	{ "mqtt", "C", LRS_WAITING_SSL,		LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_MQTTC_IDLE },
+	{ "mqtt", "C", LRS_WAITING_SOCKS_CONNECT_REPLY, LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_MQTTC_IDLE },
+	{ "raw-skt", "C", ANY,			LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_ESTABLISHED },
+	{ "quic", "C", LRS_WAITING_SSL,		LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_ESTABLISHED },
+	{ "quic", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_ESTABLISHED },
+	{ "quic", "S", LRS_SSL_INIT,		LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_ESTABLISHED },
+	{ "h1", "S", LRS_SSL_ACK_PENDING,	LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_HEADERS },
+	{ "h1", "S", LRS_AWAITING_SSL_ACCEPT,	LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_HEADERS },
+	{ "h1", "S", LRS_SSL_INIT,		LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_HEADERS },
+	{ "*",  "S", LRS_SSL_ACK_PENDING,	LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_ESTABLISHED },
+	{ "*",  "S", LRS_AWAITING_SSL_ACCEPT,	LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_ESTABLISHED },
+	{ "*",  "S", LRS_SSL_INIT,		LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_ESTABLISHED },
 
 	/* an h1 client's tcp is up before its tls */
-	{ "h1", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_SOCKET_CONNECTED, LRS_H1C_ISSUE_HANDSHAKE },
-	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE2,	LWS_WSIEV_SOCKET_CONNECTED, LRS_H1C_ISSUE_HANDSHAKE2 },
+	{ "h1", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_SOCKET_CONNECTED, NULL, NULL, LRS_H1C_ISSUE_HANDSHAKE },
+	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE2,	LWS_WSIEV_SOCKET_CONNECTED, NULL, NULL, LRS_H1C_ISSUE_HANDSHAKE2 },
 
 	/* a client request queued on, or issued by, a connection */
-	{ "h1", "C", LRS_UNCONNECTED,		LWS_WSIEV_QUEUED, LRS_H2_WAITING_TO_SEND_HEADERS },
-	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE2,	LWS_WSIEV_QUEUED, LRS_H2_WAITING_TO_SEND_HEADERS },
-	{ "h1", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_REQ_ISSUE, LRS_H1C_ISSUE_HANDSHAKE2 },
-	{ "h1", "C", LRS_ESTABLISHED,		LWS_WSIEV_REQ_ISSUE, LRS_H1C_ISSUE_HANDSHAKE2 },
-	{ "h1", "C", LRS_IDLING,		LWS_WSIEV_REQ_ISSUE, LRS_H1C_ISSUE_HANDSHAKE2 },
-	{ "h1", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_REQ_ISSUE, LRS_H1C_ISSUE_HANDSHAKE2 },
+	{ "h1", "C", LRS_UNCONNECTED,		LWS_WSIEV_QUEUED, NULL, NULL, LRS_H2_WAITING_TO_SEND_HEADERS },
+	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE2,	LWS_WSIEV_QUEUED, NULL, NULL, LRS_H2_WAITING_TO_SEND_HEADERS },
+	{ "h1", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_REQ_ISSUE, NULL, NULL, LRS_H1C_ISSUE_HANDSHAKE2 },
+	{ "h1", "C", LRS_ESTABLISHED,		LWS_WSIEV_REQ_ISSUE, NULL, NULL, LRS_H1C_ISSUE_HANDSHAKE2 },
+	{ "h1", "C", LRS_IDLING,		LWS_WSIEV_REQ_ISSUE, NULL, NULL, LRS_H1C_ISSUE_HANDSHAKE2 },
+	{ "h1", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_REQ_ISSUE, NULL, NULL, LRS_H1C_ISSUE_HANDSHAKE2 },
 
 	/* the request goes out, then its response is pending */
-	{ "h1", "C", LRS_WAITING_SSL,		LWS_WSIEV_REQ_HDRS_SENT, LRS_WAITING_SERVER_REPLY },
-	{ "h1", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_REQ_HDRS_SENT, LRS_WAITING_SERVER_REPLY },
-	{ "h1", "C", LRS_WAITING_PROXY_REPLY,	LWS_WSIEV_REQ_HDRS_SENT, LRS_WAITING_SERVER_REPLY },
-	{ "h1", "C", LRS_WAITING_SOCKS_CONNECT_REPLY, LWS_WSIEV_REQ_HDRS_SENT, LRS_WAITING_SERVER_REPLY },
-	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE,	LWS_WSIEV_REQ_HDRS_SENT, LRS_WAITING_SERVER_REPLY },
-	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE2,	LWS_WSIEV_REQ_HDRS_SENT, LRS_WAITING_SERVER_REPLY },
-	{ "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_REQ_HDRS_SENT, LRS_WAITING_SERVER_REPLY },
-	{ "h3", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_REQ_HDRS_SENT, LRS_WAITING_SERVER_REPLY },
-	{ "h1", "C", LRS_WAITING_SSL,		LWS_WSIEV_REQ_HDRS_SENT_BODY, LRS_ISSUE_HTTP_BODY },
-	{ "h1", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_REQ_HDRS_SENT_BODY, LRS_ISSUE_HTTP_BODY },
-	{ "h1", "C", LRS_WAITING_PROXY_REPLY,	LWS_WSIEV_REQ_HDRS_SENT_BODY, LRS_ISSUE_HTTP_BODY },
-	{ "h1", "C", LRS_WAITING_SOCKS_CONNECT_REPLY, LWS_WSIEV_REQ_HDRS_SENT_BODY, LRS_ISSUE_HTTP_BODY },
-	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE,	LWS_WSIEV_REQ_HDRS_SENT_BODY, LRS_ISSUE_HTTP_BODY },
-	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE2,	LWS_WSIEV_REQ_HDRS_SENT_BODY, LRS_ISSUE_HTTP_BODY },
-	{ "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_REQ_HDRS_SENT_BODY, LRS_ISSUE_HTTP_BODY },
-	{ "h3", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_REQ_HDRS_SENT_BODY, LRS_ISSUE_HTTP_BODY },
-	{ "*",  "C", LRS_ISSUE_HTTP_BODY,	LWS_WSIEV_REQ_BODY_SENT, LRS_WAITING_SERVER_REPLY },
-	{ "h1", "C", LRS_ESTABLISHED,		LWS_WSIEV_RESP_INTERIM, LRS_WAITING_SERVER_REPLY },
+	{ "h1", "C", LRS_WAITING_SSL,		LWS_WSIEV_REQ_HDRS_SENT, NULL, NULL, LRS_WAITING_SERVER_REPLY },
+	{ "h1", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_REQ_HDRS_SENT, NULL, NULL, LRS_WAITING_SERVER_REPLY },
+	{ "h1", "C", LRS_WAITING_PROXY_REPLY,	LWS_WSIEV_REQ_HDRS_SENT, NULL, NULL, LRS_WAITING_SERVER_REPLY },
+	{ "h1", "C", LRS_WAITING_SOCKS_CONNECT_REPLY, LWS_WSIEV_REQ_HDRS_SENT, NULL, NULL, LRS_WAITING_SERVER_REPLY },
+	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE,	LWS_WSIEV_REQ_HDRS_SENT, NULL, NULL, LRS_WAITING_SERVER_REPLY },
+	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE2,	LWS_WSIEV_REQ_HDRS_SENT, NULL, NULL, LRS_WAITING_SERVER_REPLY },
+	{ "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_REQ_HDRS_SENT, NULL, NULL, LRS_WAITING_SERVER_REPLY },
+	{ "h3", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_REQ_HDRS_SENT, NULL, NULL, LRS_WAITING_SERVER_REPLY },
+	{ "h1", "C", LRS_WAITING_SSL,		LWS_WSIEV_REQ_HDRS_SENT_BODY, NULL, NULL, LRS_ISSUE_HTTP_BODY },
+	{ "h1", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_REQ_HDRS_SENT_BODY, NULL, NULL, LRS_ISSUE_HTTP_BODY },
+	{ "h1", "C", LRS_WAITING_PROXY_REPLY,	LWS_WSIEV_REQ_HDRS_SENT_BODY, NULL, NULL, LRS_ISSUE_HTTP_BODY },
+	{ "h1", "C", LRS_WAITING_SOCKS_CONNECT_REPLY, LWS_WSIEV_REQ_HDRS_SENT_BODY, NULL, NULL, LRS_ISSUE_HTTP_BODY },
+	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE,	LWS_WSIEV_REQ_HDRS_SENT_BODY, NULL, NULL, LRS_ISSUE_HTTP_BODY },
+	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE2,	LWS_WSIEV_REQ_HDRS_SENT_BODY, NULL, NULL, LRS_ISSUE_HTTP_BODY },
+	{ "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_REQ_HDRS_SENT_BODY, NULL, NULL, LRS_ISSUE_HTTP_BODY },
+	{ "h3", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_REQ_HDRS_SENT_BODY, NULL, NULL, LRS_ISSUE_HTTP_BODY },
+	{ "*",  "C", LRS_ISSUE_HTTP_BODY,	LWS_WSIEV_REQ_BODY_SENT, NULL, NULL, LRS_WAITING_SERVER_REPLY },
+	{ "h1", "C", LRS_ESTABLISHED,		LWS_WSIEV_RESP_INTERIM, NULL, NULL, LRS_WAITING_SERVER_REPLY },
 
 	/* the response is done: idle, or an idle connection is picked up */
-	{ "h1", "C", LRS_ESTABLISHED,		LWS_WSIEV_TXN_COMPLETED, LRS_IDLING },
-	{ "*",  "C", LRS_IDLING,		LWS_WSIEV_TXN_COMPLETED, LRS_IDLING },
-	{ "h2", "C", LRS_IDLING,		LWS_WSIEV_CONN_REUSED, LRS_ESTABLISHED },
-	{ "quic", "C", LRS_IDLING,		LWS_WSIEV_CONN_REUSED, LRS_ESTABLISHED },
+	{ "h1", "C", LRS_ESTABLISHED,		LWS_WSIEV_TXN_COMPLETED, NULL, NULL, LRS_IDLING },
+	{ "*",  "C", LRS_IDLING,		LWS_WSIEV_TXN_COMPLETED, NULL, NULL, LRS_IDLING },
+	{ "h2", "C", LRS_IDLING,		LWS_WSIEV_CONN_REUSED, NULL, NULL, LRS_ESTABLISHED },
+	{ "quic", "C", LRS_IDLING,		LWS_WSIEV_CONN_REUSED, NULL, NULL, LRS_ESTABLISHED },
 
 	/* mqtt client handshake */
-	{ "mqtt", "C", LRS_MQTTC_IDLE,		LWS_WSIEV_MQTT_CONNECT_SENT, LRS_MQTTC_AWAIT_CONNACK },
-	{ "mqtt", "C", LRS_MQTTC_AWAIT_CONNACK,	LWS_WSIEV_MQTT_CONNACK, LRS_ESTABLISHED },
+	{ "mqtt", "C", LRS_MQTTC_IDLE,		LWS_WSIEV_MQTT_CONNECT_SENT, NULL, NULL, LRS_MQTTC_AWAIT_CONNACK },
+	{ "mqtt", "C", LRS_MQTTC_AWAIT_CONNACK,	LWS_WSIEV_MQTT_CONNACK, NULL, NULL, LRS_ESTABLISHED },
 
 	/* h2 connection preface */
-	{ "h2", "S", LRS_H2_AWAIT_PREFACE,	LWS_WSIEV_H2_PREFACE_RX, LRS_H2_AWAIT_SETTINGS },
-	{ "h2", "S", LRS_H2_AWAIT_SETTINGS,	LWS_WSIEV_H2_SETTINGS_ACKED, LRS_ESTABLISHED },
+	{ "h2", "S", LRS_H2_AWAIT_PREFACE,	LWS_WSIEV_H2_PREFACE_RX, NULL, NULL, LRS_H2_AWAIT_SETTINGS },
+	{ "h2", "S", LRS_H2_AWAIT_SETTINGS,	LWS_WSIEV_H2_SETTINGS_ACKED, NULL, NULL, LRS_ESTABLISHED },
 
 	/* request headers: h1 decides on the upgrade, mux streams defer the action */
-	{ "h1", "S", LRS_HEADERS,		LWS_WSIEV_REQ_HDRS_COMPLETE, LRS_H1_UPGRADE },
-	{ "h1", "S", LRS_ESTABLISHED,		LWS_WSIEV_REQ_HDRS_COMPLETE, LRS_H1_UPGRADE },
-	{ "h2", "S", LRS_HEADERS,		LWS_WSIEV_REQ_HDRS_COMPLETE, LRS_DEFERRING_ACTION },
-	{ "h2", "S", LRS_ESTABLISHED,		LWS_WSIEV_REQ_HDRS_COMPLETE, LRS_DEFERRING_ACTION },
-	{ "h3", "S", LRS_HEADERS,		LWS_WSIEV_REQ_HDRS_COMPLETE, LRS_DEFERRING_ACTION },
-	{ "h3", "S", LRS_ESTABLISHED,		LWS_WSIEV_REQ_HDRS_COMPLETE, LRS_DEFERRING_ACTION },
-	{ "h1", "S", LRS_H1_UPGRADE,		LWS_WSIEV_REQ_PLAIN_HTTP, LRS_ESTABLISHED },
-	{ "h2", "S", LRS_DEFERRING_ACTION,	LWS_WSIEV_ACTION_DEFERRED_RUN, LRS_ESTABLISHED },
-	{ "h3", "S", LRS_DEFERRING_ACTION,	LWS_WSIEV_ACTION_DEFERRED_RUN, LRS_ESTABLISHED },
+	{ "h1", "S", LRS_HEADERS,		LWS_WSIEV_REQ_HDRS_COMPLETE, NULL, NULL, LRS_H1_UPGRADE },
+	{ "h1", "S", LRS_ESTABLISHED,		LWS_WSIEV_REQ_HDRS_COMPLETE, NULL, NULL, LRS_H1_UPGRADE },
+	{ "h2", "S", LRS_HEADERS,		LWS_WSIEV_REQ_HDRS_COMPLETE, NULL, NULL, LRS_DEFERRING_ACTION },
+	{ "h2", "S", LRS_ESTABLISHED,		LWS_WSIEV_REQ_HDRS_COMPLETE, NULL, NULL, LRS_DEFERRING_ACTION },
+	{ "h3", "S", LRS_HEADERS,		LWS_WSIEV_REQ_HDRS_COMPLETE, NULL, NULL, LRS_DEFERRING_ACTION },
+	{ "h3", "S", LRS_ESTABLISHED,		LWS_WSIEV_REQ_HDRS_COMPLETE, NULL, NULL, LRS_DEFERRING_ACTION },
+	{ "h1", "S", LRS_H1_UPGRADE,		LWS_WSIEV_REQ_PLAIN_HTTP, NULL, NULL, LRS_ESTABLISHED },
+	{ "h2", "S", LRS_DEFERRING_ACTION,	LWS_WSIEV_ACTION_DEFERRED_RUN, NULL, NULL, LRS_ESTABLISHED },
+	{ "h3", "S", LRS_DEFERRING_ACTION,	LWS_WSIEV_ACTION_DEFERRED_RUN, NULL, NULL, LRS_ESTABLISHED },
 
 	/* acting on the request */
-	{ "h1", "S", LRS_ESTABLISHED,		LWS_WSIEV_ACTION_BEGIN, LRS_DOING_TRANSACTION },
-	{ "h2", "S", LRS_HEADERS,		LWS_WSIEV_ACTION_BEGIN, LRS_DOING_TRANSACTION },
-	{ "h2", "S", LRS_ESTABLISHED,		LWS_WSIEV_ACTION_BEGIN, LRS_DOING_TRANSACTION },
-	{ "h3", "S", LRS_HEADERS,		LWS_WSIEV_ACTION_BEGIN, LRS_DOING_TRANSACTION },
-	{ "h3", "S", LRS_ESTABLISHED,		LWS_WSIEV_ACTION_BEGIN, LRS_DOING_TRANSACTION },
+	{ "h1", "S", LRS_ESTABLISHED,		LWS_WSIEV_ACTION_BEGIN, NULL, NULL, LRS_DOING_TRANSACTION },
+	{ "h2", "S", LRS_HEADERS,		LWS_WSIEV_ACTION_BEGIN, NULL, NULL, LRS_DOING_TRANSACTION },
+	{ "h2", "S", LRS_ESTABLISHED,		LWS_WSIEV_ACTION_BEGIN, NULL, NULL, LRS_DOING_TRANSACTION },
+	{ "h3", "S", LRS_HEADERS,		LWS_WSIEV_ACTION_BEGIN, NULL, NULL, LRS_DOING_TRANSACTION },
+	{ "h3", "S", LRS_ESTABLISHED,		LWS_WSIEV_ACTION_BEGIN, NULL, NULL, LRS_DOING_TRANSACTION },
 
 	/* request body */
-	{ "h1", "S", LRS_ESTABLISHED,		LWS_WSIEV_BODY_BEGIN, LRS_BODY },
-	{ "h1", "S", LRS_DOING_TRANSACTION,	LWS_WSIEV_BODY_BEGIN, LRS_BODY },
-	{ "h2", "*", LRS_ESTABLISHED,		LWS_WSIEV_BODY_BEGIN, LRS_BODY },
-	{ "h2", "*", LRS_HEADERS,		LWS_WSIEV_BODY_BEGIN, LRS_BODY },
-	{ "h3", "*", LRS_ESTABLISHED,		LWS_WSIEV_BODY_BEGIN, LRS_BODY },
-	{ "h2", "S", LRS_BODY,			LWS_WSIEV_BODY_COMPLETE, LRS_ESTABLISHED },
-	{ "h3", "S", LRS_BODY,			LWS_WSIEV_BODY_COMPLETE, LRS_ESTABLISHED },
-	{ "h1", "S", LRS_BODY,			LWS_WSIEV_BODY_DISCARD, LRS_DISCARD_BODY },
+	{ "h1", "S", LRS_ESTABLISHED,		LWS_WSIEV_BODY_BEGIN, NULL, NULL, LRS_BODY },
+	{ "h1", "S", LRS_DOING_TRANSACTION,	LWS_WSIEV_BODY_BEGIN, NULL, NULL, LRS_BODY },
+	{ "h2", "*", LRS_ESTABLISHED,		LWS_WSIEV_BODY_BEGIN, NULL, NULL, LRS_BODY },
+	{ "h2", "*", LRS_HEADERS,		LWS_WSIEV_BODY_BEGIN, NULL, NULL, LRS_BODY },
+	{ "h3", "*", LRS_ESTABLISHED,		LWS_WSIEV_BODY_BEGIN, NULL, NULL, LRS_BODY },
+	{ "h2", "S", LRS_BODY,			LWS_WSIEV_BODY_COMPLETE, NULL, NULL, LRS_ESTABLISHED },
+	{ "h3", "S", LRS_BODY,			LWS_WSIEV_BODY_COMPLETE, NULL, NULL, LRS_ESTABLISHED },
+	{ "h1", "S", LRS_BODY,			LWS_WSIEV_BODY_DISCARD, NULL, NULL, LRS_DISCARD_BODY },
 
 	/* the h1 transaction ends and the connection is reused */
-	{ "h1", "S", LRS_ESTABLISHED,		LWS_WSIEV_TXN_COMPLETED, LRS_TXN_COMPLETED },
-	{ "h1", "S", LRS_BODY,			LWS_WSIEV_TXN_COMPLETED, LRS_TXN_COMPLETED },
-	{ "h1", "S", LRS_DISCARD_BODY,		LWS_WSIEV_TXN_COMPLETED, LRS_TXN_COMPLETED },
-	{ "h1", "S", LRS_DOING_TRANSACTION,	LWS_WSIEV_TXN_COMPLETED, LRS_TXN_COMPLETED },
-	{ "h1", "S", LRS_TXN_COMPLETED,		LWS_WSIEV_TXN_DRAINED, LRS_HEADERS },
+	{ "h1", "S", LRS_ESTABLISHED,		LWS_WSIEV_TXN_COMPLETED, NULL, NULL, LRS_TXN_COMPLETED },
+	{ "h1", "S", LRS_BODY,			LWS_WSIEV_TXN_COMPLETED, NULL, NULL, LRS_TXN_COMPLETED },
+	{ "h1", "S", LRS_DISCARD_BODY,		LWS_WSIEV_TXN_COMPLETED, NULL, NULL, LRS_TXN_COMPLETED },
+	{ "h1", "S", LRS_DOING_TRANSACTION,	LWS_WSIEV_TXN_COMPLETED, NULL, NULL, LRS_TXN_COMPLETED },
+	{ "h1", "S", LRS_TXN_COMPLETED,		LWS_WSIEV_TXN_DRAINED, NULL, NULL, LRS_HEADERS },
 
 	/* serving a file */
-	{ "*",  "S", LRS_ESTABLISHED,		LWS_WSIEV_FILE_BEGIN, LRS_ISSUING_FILE },
-	{ "h2", "S", LRS_HEADERS,		LWS_WSIEV_FILE_BEGIN, LRS_ISSUING_FILE },	/* h2c upgrade stream 1 */
-	{ "*",  "S", LRS_DOING_TRANSACTION,	LWS_WSIEV_FILE_BEGIN, LRS_ISSUING_FILE },
-	{ "*",  "S", LRS_ISSUING_FILE,		LWS_WSIEV_FILE_READ_QUEUED, LRS_AWAITING_FILE_READ },
-	{ "*",  "S", LRS_AWAITING_FILE_READ,	LWS_WSIEV_FILE_READ_DONE, LRS_ISSUING_FILE },
-	{ "*",  "S", LRS_ISSUING_FILE,		LWS_WSIEV_FILE_COMPLETE, LRS_ESTABLISHED },
+	{ "*",  "S", LRS_ESTABLISHED,		LWS_WSIEV_FILE_BEGIN, NULL, NULL, LRS_ISSUING_FILE },
+	{ "h2", "S", LRS_HEADERS,		LWS_WSIEV_FILE_BEGIN, NULL, NULL, LRS_ISSUING_FILE },	/* h2c upgrade stream 1 */
+	{ "*",  "S", LRS_DOING_TRANSACTION,	LWS_WSIEV_FILE_BEGIN, NULL, NULL, LRS_ISSUING_FILE },
+	{ "*",  "S", LRS_ISSUING_FILE,		LWS_WSIEV_FILE_READ_QUEUED, NULL, NULL, LRS_AWAITING_FILE_READ },
+	{ "*",  "S", LRS_AWAITING_FILE_READ,	LWS_WSIEV_FILE_READ_DONE, NULL, NULL, LRS_ISSUING_FILE },
+	{ "*",  "S", LRS_ISSUING_FILE,		LWS_WSIEV_FILE_COMPLETE, NULL, NULL, LRS_ESTABLISHED },
+
+	/* ---- role changes ---- */
+
+	/* birth on a server, adoption, the client bind, a restart */
+	{ "(none)", "-", LRS_UNCONNECTED,	LWS_WSIEV_SERVER_SIDE, NULL, "S", LRS_UNCONNECTED },
+	{ "*", "*", LRS_UNCONNECTED,		LWS_WSIEV_ADOPTED_TLS, "?", NULL, LRS_SSL_INIT },
+	{ "*", "*", LRS_UNCONNECTED,		LWS_WSIEV_ADOPTED, "h1", NULL, LRS_HEADERS },
+	{ "*", "*", LRS_UNCONNECTED,		LWS_WSIEV_ADOPTED, "?", NULL, LRS_ESTABLISHED },
+	{ "*", "*", LRS_UNCONNECTED,		LWS_WSIEV_CLIENT_BIND, "?", "C", LRS_UNCONNECTED },
+	{ "*", "C", ANY,			LWS_WSIEV_RESTART, "?", "C", LRS_UNCONNECTED },
+
+	/* mux children: a fresh child is its parent's; a server's opened stream reads its request */
+	{ "(none)", "*", LRS_UNCONNECTED,	LWS_WSIEV_MUX_INSERTED, "P", "P", LRS_UNCONNECTED },
+	{ "h2", "S", LRS_UNCONNECTED,		LWS_WSIEV_STREAM_OPENED, NULL, NULL, LRS_HEADERS },
+	{ "h2", "C", LRS_UNCONNECTED,		LWS_WSIEV_STREAM_OPENED, NULL, NULL, LRS_UNCONNECTED },
+	{ "quic", "S", LRS_UNCONNECTED,		LWS_WSIEV_STREAM_OPENED, "h3", NULL, LRS_HEADERS },
+	{ "quic", "C", LRS_UNCONNECTED,		LWS_WSIEV_STREAM_OPENED, "h3", NULL, LRS_ESTABLISHED },
+	{ "quic", "*", LRS_UNCONNECTED,		LWS_WSIEV_STREAM_OPENED, "quic", NULL, LRS_ESTABLISHED },
+
+	/* a client stream is let onto its connection: h2 / h3 send a request, mqtt is up */
+	{ "*", "*", LRS_UNCONNECTED,		LWS_WSIEV_MUX_STREAM_ADOPTED, "h2", "P", LRS_H2_WAITING_TO_SEND_HEADERS },
+	{ "*", "*", LRS_H1C_ISSUE_HANDSHAKE2,	LWS_WSIEV_MUX_STREAM_ADOPTED, "h2", "P", LRS_H2_WAITING_TO_SEND_HEADERS },
+	{ "*", "*", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_MUX_STREAM_ADOPTED, "h2", "P", LRS_H2_WAITING_TO_SEND_HEADERS },
+	{ "*", "*", LRS_UNCONNECTED,		LWS_WSIEV_MUX_STREAM_ADOPTED, "h3", "P", LRS_H2_WAITING_TO_SEND_HEADERS },
+	{ "*", "*", LRS_H1C_ISSUE_HANDSHAKE2,	LWS_WSIEV_MUX_STREAM_ADOPTED, "h3", "P", LRS_H2_WAITING_TO_SEND_HEADERS },
+	{ "*", "*", LRS_WAITING_CONNECT,	LWS_WSIEV_MUX_STREAM_ADOPTED, "h3", "P", LRS_H2_WAITING_TO_SEND_HEADERS },
+	{ "*", "*", LRS_WAITING_SSL,		LWS_WSIEV_MUX_STREAM_ADOPTED, "h3", "P", LRS_H2_WAITING_TO_SEND_HEADERS },
+	{ "*", "*", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_MUX_STREAM_ADOPTED, "h3", "P", LRS_H2_WAITING_TO_SEND_HEADERS },
+	{ "*", "*", LRS_UNCONNECTED,		LWS_WSIEV_MUX_STREAM_ADOPTED, "mqtt", "P", LRS_ESTABLISHED },
+	{ "*", "*", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_MUX_STREAM_ADOPTED, "mqtt", "P", LRS_ESTABLISHED },
+	{ "*", "*", LRS_ESTABLISHED,		LWS_WSIEV_MUX_STREAM_ADOPTED, "mqtt", "P", LRS_ESTABLISHED },
+
+	/* our own h3 unidirectional streams, and a wsi taking over a quic connection */
+	{ "(none)", "*", LRS_UNCONNECTED,	LWS_WSIEV_CONTROL_STREAM_OPENED, "h3", "L", LRS_ESTABLISHED },
+	{ "(none)", "*", LRS_UNCONNECTED,	LWS_WSIEV_CONN_TAKEOVER, "?", "L", LRS_ESTABLISHED },
+
+	/* the quic handshake chose h3 (a client stream sends, a server stream reads) or not */
+	{ "*", "C", LRS_UNCONNECTED,		LWS_WSIEV_ALPN_DONE, "h3", NULL, LRS_H2_WAITING_TO_SEND_HEADERS },
+	{ "*", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_ALPN_DONE, "h3", NULL, LRS_H2_WAITING_TO_SEND_HEADERS },
+	{ "quic", "C", ANY,			LWS_WSIEV_ALPN_DONE, "h3", NULL, LRS_H2_WAITING_TO_SEND_HEADERS },
+	{ "quic", "S", ANY,			LWS_WSIEV_ALPN_DONE, "h3", NULL, LRS_HEADERS },
+	{ "quic", "*", ANY,			LWS_WSIEV_ALPN_DONE, "quic", NULL, LRS_ESTABLISHED },
+
+	/* h2: chosen by alpn, h2c upgrade or prior knowledge; the client preface */
+	{ "h1", "S", LRS_HEADERS,		LWS_WSIEV_H2_SELECTED, "h2", NULL, LRS_H2_AWAIT_PREFACE },
+	{ "h1", "S", LRS_H1_UPGRADE,		LWS_WSIEV_H2_SELECTED, "h2", NULL, LRS_H2_AWAIT_PREFACE },
+	{ "(none)", "S", LRS_UNCONNECTED,	LWS_WSIEV_H2_SELECTED, "h2", NULL, LRS_H2_AWAIT_PREFACE },
+	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE,	LWS_WSIEV_H2_SELECTED, "h2", NULL, LRS_H2_AWAIT_PREFACE },
+	{ "h1", "C", LRS_WAITING_SSL,		LWS_WSIEV_H2_SELECTED, "h2", NULL, LRS_H2_AWAIT_PREFACE },
+	{ "h1", "C", LRS_UNCONNECTED,		LWS_WSIEV_H2_SELECTED, "h2", NULL, LRS_H2_AWAIT_PREFACE },
+	{ "h2", "C", LRS_H2_AWAIT_PREFACE,	LWS_WSIEV_H2_PREFACE_SENT, NULL, NULL, LRS_H2_WAITING_TO_SEND_HEADERS },
+
+	/* ws upgrade, on a server from the upgrade decision, on a client from the 101 */
+	{ "h1", "S", LRS_H1_UPGRADE,		LWS_WSIEV_WS_UPGRADED, "ws", NULL, LRS_ESTABLISHED },
+	{ "h2", "S", LRS_ESTABLISHED,		LWS_WSIEV_WS_UPGRADED, "ws", "Se", LRS_ESTABLISHED },
+	{ "h1", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_WS_UPGRADED, "ws", NULL, LRS_ESTABLISHED },
+	{ "h2", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_WS_UPGRADED, "ws", "Ce", LRS_ESTABLISHED },
+
+	/* the client's response headers; webtransport; raw */
+	{ "*", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_RESP_HDRS, NULL, NULL, LRS_ESTABLISHED },
+	{ "h3", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_WT_SESSION, "wt", NULL, LRS_ESTABLISHED },
+	{ "h3", "S", ANY,			LWS_WSIEV_WT_SESSION, "wt", NULL, LRS_ESTABLISHED },
+	{ "h3", "*", ANY,			LWS_WSIEV_WT_STREAM, "wt", NULL, LRS_ESTABLISHED },
+	{ "(none)", "*", LRS_UNCONNECTED,	LWS_WSIEV_WT_STREAM, "wt", "L", LRS_ESTABLISHED },
+	{ "h1", "S", LRS_HEADERS,		LWS_WSIEV_RAW_UPGRADED, "?", NULL, LRS_ESTABLISHED },
+	{ "h1", "S", LRS_H1_UPGRADE,		LWS_WSIEV_RAW_UPGRADED, "?", NULL, LRS_ESTABLISHED },
+	{ "h1", "C", LRS_ESTABLISHED,		LWS_WSIEV_RAW_UPGRADED, "raw-skt", NULL, LRS_ESTABLISHED },
+	{ "h1", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_RAW_UPGRADED, "raw-skt", NULL, LRS_ESTABLISHED },
 };
 
+/* the side flags a to_side spec stands for */
+
+static lws_wsi_state_t
+lws_state_side_flags(const char *spec)
+{
+	lws_wsi_state_t f = 0;
+
+	if (spec[0] == 'C')
+		f = LWSIFR_CLIENT;
+	if (spec[0] == 'S')
+		f = LWSIFR_SERVER;
+	if (spec[1] == 'e')
+		f |= LWSIFR_P_ENCAP_H2;
+
+	return f;
+}
+
 int
-lws_wsi_event(struct lws *wsi, enum lws_wsi_event ev)
+lws_wsi_event_x(struct lws *wsi, enum lws_wsi_event ev,
+		const struct lws_role_ops *ops, struct lws *like)
 {
 	const char *role = wsi->role_ops ? wsi->role_ops->name : "(none)";
 	const struct lws_wsi_event_edge *e = lws_wsi_event_edges;
-	lws_wsi_state_t from = lws_wsi_state_of(wsi->wsistate);
+	lws_wsi_state_t from = lws_wsi_state_of(wsi->wsistate), rf;
+	struct lws *parent = wsi->mux.parent_wsi;
+	const struct lws_role_ops *nops;
 	char side[3], a[64];
 	unsigned int n;
 
 	lws_state_side(from, side);
 
-	for (n = 0; n < LWS_ARRAY_SIZE(lws_wsi_event_edges); n++, e++)
-		if (e->ev == ev &&
-		    (e->from == ANY || e->from == (from & LRS_MASK)) &&
-		    lws_state_match(e->role, role) &&
-		    lws_state_match(e->side, side)) {
+	for (n = 0; n < LWS_ARRAY_SIZE(lws_wsi_event_edges); n++, e++) {
+		if (e->ev != ev ||
+		    (e->from != ANY && e->from != (from & LRS_MASK)) ||
+		    !lws_state_match(e->role, role) ||
+		    !lws_state_match(e->side, side))
+			continue;
+
+		/* an ops argument must be what the row takes */
+		if (e->to_role && !strcmp(e->to_role, "?")) {
+			if (!ops)
+				continue;
+		} else if (ops && (!e->to_role || !strcmp(e->to_role, "P") ||
+				   strcmp(e->to_role, ops->name)))
+			continue;
+
+		if (!e->to_role && !e->to_side) {
 			lws_wsi_set_state_ev(wsi, e->to, lws_wsi_event_names[ev]);
 
 			return 0;
 		}
 
+		nops = wsi->role_ops;
+		if (e->to_role) {
+			if (!strcmp(e->to_role, "?"))
+				nops = ops;
+			else if (!strcmp(e->to_role, "P"))
+				nops = parent ? parent->role_ops : wsi->role_ops;
+			else
+				nops = lws_role_by_name(e->to_role);
+			if (!nops) {
+				lwsl_wsi_err(wsi, "event %s: no role %s",
+					     lws_wsi_event_names[ev], e->to_role);
+				goto bad;
+			}
+		}
+
+		rf = lwsi_role(wsi);
+		if (e->to_side) {
+			if (!strcmp(e->to_side, "P")) {
+				if (parent)
+					rf = lwsi_role(parent);
+			} else if (!strcmp(e->to_side, "L")) {
+				if (like)
+					rf = lwsi_role(like);
+			} else
+				rf = lws_state_side_flags(e->to_side);
+		}
+
+		lws_wsi_role_transition_ev(wsi, (enum lwsi_role)rf,
+					   (enum lwsi_state)e->to, nops,
+					   lws_wsi_event_names[ev]);
+
+		return 0;
+	}
+
 	lws_wsi_state_fmt(wsi->role_ops, wsi->wsistate, a, sizeof(a));
-	lwsl_wsi_err(wsi, "no state for event %s in %s",
-		     lws_wsi_event_names[ev], a);
+	lwsl_wsi_err(wsi, "no state for event %s%s%s in %s",
+		     lws_wsi_event_names[ev], ops ? " with role " : "",
+		     ops ? ops->name : "", a);
+bad:
 #if defined(LWS_WITH_STATE_CHECK)
 	abort();
 #endif
@@ -550,9 +711,9 @@ static const struct lws_state_edge lws_state_edges[] = {
 };
 
 /*
- * Allowed edges where the role ops or the side changes: adoption, client
- * connect, h1 -> h2 / ws upgrade, quic -> h3, the client's sid-1 migration,
- * and the redirect / fallback restart from DEAD_SOCKET.
+ * A wsi's birth: the creator hands in the ops, so there is no event row for
+ * it.  Every other role or side change comes from an event row and is
+ * checked as that; here are the births.
  */
 
 struct lws_role_edge {
@@ -566,61 +727,11 @@ struct lws_role_edge {
 
 static const struct lws_role_edge lws_role_edges[] = {
 	{ "(none)", "-", 0, "(none)", "-", LRS_UNCONNECTED },
-	{ "(none)", "-", LRS_UNCONNECTED, "(none)", "S", LRS_UNCONNECTED },	/* server-side wsi born */
 	{ "(none)", "-", 0, "h3", "-", LRS_UNCONNECTED },
 	{ "(none)", "-", 0, "listen", "-", LRS_UNCONNECTED },
 	{ "(none)", "-", 0, "netlink", "-", LRS_UNCONNECTED },
 	{ "(none)", "-", 0, "pipe", "-", LRS_UNCONNECTED },
 	{ "(none)", "-", 0, "raw-file", "-", LRS_UNCONNECTED },
-	{ "(none)", "-", LRS_UNCONNECTED, "h1", "C", LRS_UNCONNECTED },
-	{ "(none)", "-", LRS_UNCONNECTED, "mqtt", "C", LRS_UNCONNECTED },
-	{ "(none)", "-", LRS_UNCONNECTED, "quic", "C", LRS_UNCONNECTED },
-	{ "(none)", "-", LRS_UNCONNECTED, "raw-skt", "C", LRS_UNCONNECTED },
-	{ "(none)", "S", LRS_UNCONNECTED, "h1", "S", LRS_HEADERS },
-	{ "(none)", "S", LRS_UNCONNECTED, "h1", "S", LRS_SSL_INIT },
-	{ "(none)", "S", LRS_UNCONNECTED, "h2", "S", LRS_H2_AWAIT_PREFACE },
-	{ "(none)", "S", LRS_UNCONNECTED, "h2", "S", LRS_UNCONNECTED },
-	{ "(none)", "S", LRS_UNCONNECTED, "h3", "C", LRS_ESTABLISHED },
-	{ "(none)", "S", LRS_UNCONNECTED, "h3", "S", LRS_HEADERS },	/* request stream */
-	{ "(none)", "S", LRS_UNCONNECTED, "h3", "S", LRS_ESTABLISHED },	/* our unidi control streams */
-	{ "(none)", "S", LRS_UNCONNECTED, "mqtt", "S", LRS_UNCONNECTED },
-	{ "(none)", "S", LRS_UNCONNECTED, "quic", "C", LRS_ESTABLISHED },
-	{ "(none)", "S", LRS_UNCONNECTED, "quic", "S", LRS_ESTABLISHED },
-	{ "(none)", "S", LRS_UNCONNECTED, "quic", "S", LRS_SSL_INIT },
-	{ "(none)", "S", LRS_UNCONNECTED, "quic", "S", LRS_UNCONNECTED },
-	{ "(none)", "S", LRS_UNCONNECTED, "raw-skt", "S", LRS_ESTABLISHED },
-	{ "(none)", "S", LRS_UNCONNECTED, "raw-skt", "S", LRS_SSL_INIT },
-	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE, "h2", "C", LRS_H2_AWAIT_PREFACE },
-	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE2, "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS },
-	{ "h1", "C", LRS_UNCONNECTED, "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS },
-	{ "h1", "C", LRS_UNCONNECTED, "quic", "C", LRS_UNCONNECTED },
-	{ "h1", "C", LRS_WAITING_SERVER_REPLY, "h1", "C", LRS_ESTABLISHED },
-	{ "h1", "C", LRS_WAITING_SERVER_REPLY, "ws", "C", LRS_ESTABLISHED },
-	{ "h1", "C", LRS_WAITING_SSL, "h2", "C", LRS_H2_AWAIT_PREFACE },
-	{ "h1", "S", LRS_HEADERS, "h2", "S", LRS_H2_AWAIT_PREFACE },	/* tls accept, alpn h2 */
-	{ "h1", "S", LRS_H1_UPGRADE, "h2", "S", LRS_H2_AWAIT_PREFACE },
-	{ "h1", "S", LRS_H1_UPGRADE, "ws", "S", LRS_ESTABLISHED },
-	{ "h2", "C", LRS_UNCONNECTED, "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS }, /* sid-1 child of the migration */
-	{ "h2", "C", LRS_WAITING_SERVER_REPLY, "ws", "Ce", LRS_ESTABLISHED },
-	{ "h2", "C", LRS_H2_AWAIT_PREFACE, "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS },
-	{ "h2", "C", LRS_WAITING_SERVER_REPLY, "h2", "C", LRS_ESTABLISHED },
-	{ "h2", "S", LRS_UNCONNECTED, "h2", "C", LRS_UNCONNECTED },	/* a client mux child takes its side */
-	{ "h2", "S", LRS_UNCONNECTED, "h2", "S", LRS_HEADERS },		/* a server mux child starts on its request */
-	{ "h2", "S", LRS_ESTABLISHED, "ws", "Se", LRS_ESTABLISHED },
-	{ "h3", "C", LRS_WAITING_SERVER_REPLY, "h3", "C", LRS_ESTABLISHED },
-	{ "mqtt", "S", LRS_UNCONNECTED, "mqtt", "C", LRS_ESTABLISHED },	/* sid-1 child of the migration */
-	{ "quic", "C", LRS_ESTABLISHED, "h3", "C", LRS_H2_WAITING_TO_SEND_HEADERS },
-	{ "quic", "C", LRS_UNCONNECTED, "h3", "C", LRS_H2_WAITING_TO_SEND_HEADERS },
-	{ "quic", "S", LRS_ESTABLISHED, "h3", "S", LRS_HEADERS },	/* alpn h3: this wsi is request stream 0 */
-	{ "quic", "S", LRS_UNCONNECTED, "h3", "C", LRS_ESTABLISHED },
-	{ "quic", "S", LRS_UNCONNECTED, "h3", "S", LRS_HEADERS },
-	{ "raw-file", "*", LRS_UNCONNECTED, "raw-file", "*", LRS_ESTABLISHED },
-
-	/* present in the code but not reached by ctest or the fuzz seeds */
-	{ "*",  "C", LRS_DEAD_SOCKET, "h1", "C", LRS_UNCONNECTED },	/* close.c redirect / fallback restart */
-	{ "(none)", "*", LRS_UNCONNECTED, "raw-file", "*", LRS_ESTABLISHED }, /* ops-raw-file.c adoption bind: dir-notify, stdin */
-	{ "h1", "C", LRS_UNCONNECTED, "h3", "C", LRS_H2_WAITING_TO_SEND_HEADERS }, /* lws_wsi_h3_adopt() */
-	{ "h3", "*", LRS_ESTABLISHED, "wt", "*", LRS_ESTABLISHED },	/* ops-h3.c webtransport session */
 };
 
 static int
@@ -749,7 +860,7 @@ lws_state_invariant(struct lws *wsi, lws_wsi_state_t to)
 static void
 lws_wsi_state_check(struct lws *wsi, const struct lws_role_ops *from_ops,
 		    lws_wsi_state_t from, const struct lws_role_ops *to_ops,
-		    lws_wsi_state_t to, const char *how)
+		    lws_wsi_state_t to, const char *how, const char *ev)
 {
 	const char *why = NULL;
 	char a[64], b[64];
@@ -757,8 +868,8 @@ lws_wsi_state_check(struct lws *wsi, const struct lws_role_ops *from_ops,
 
 	/*
 	 * A live-state edge must come from the event table; transport and
-	 * close phase edges from the state table; lws_role_transition() edges
-	 * from the role table, even when the ops or side turn out unchanged
+	 * close phase edges from the state table; a role change from an event
+	 * row (it carries the event's name) or else be a birth
 	 */
 	if (!strcmp(how, "set_transport") &&
 	    (((to & LWSI_TRANSPORT_MASK) >> LWSI_TRANSPORT_SHIFT) == LTS_FAILED ||
@@ -772,6 +883,8 @@ lws_wsi_state_check(struct lws *wsi, const struct lws_role_ops *from_ops,
 		ok = lws_event_edge_allowed(to_ops, from, to);
 	else if (!strcmp(how, "set_close") || !strcmp(how, "set_transport"))
 		ok = lws_state_edge_allowed(to_ops, from, to);
+	else if (ev)
+		ok = 1;
 	else
 		ok = lws_role_edge_allowed(from_ops, from, to_ops, to);
 
@@ -817,13 +930,11 @@ lws_wsi_state_changed(struct lws *wsi, const struct lws_role_ops *from_ops,
 
 #if defined(LWS_WITH_STATE_TRACE)
 	lws_wsi_state_trace(wsi, from_ops, from, to_ops, to, how, ev);
-#else
-	(void)ev;
 #endif
 #if defined(LWS_WITH_STATE_CHECK)
 	/* only an attribute changed: no edge to check */
 	if (!attr_only)
-		lws_wsi_state_check(wsi, from_ops, from, to_ops, to, how);
+		lws_wsi_state_check(wsi, from_ops, from, to_ops, to, how, ev);
 #endif
 }
 #endif

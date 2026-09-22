@@ -147,7 +147,7 @@ lws_create_stdwsi(struct lws_context *context, int tsi,
 
 	/* initialize the instance struct */
 
-	lws_role_transition(new_wsi, 0, LRS_ESTABLISHED, ops);
+	lws_wsi_event_role(new_wsi, LWS_WSIEV_ADOPTED, ops);
 
 
 	/*

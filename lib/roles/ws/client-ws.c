@@ -640,9 +640,7 @@ check_accept:
 	 * writes, writable requests and tx credit all route via the h2
 	 * parent based on lwsi_role_h2_ENCAPSULATION().
 	 */
-	lws_role_transition(wsi, LWSIFR_CLIENT |
-			    (wsi->client_mux_substream ? LWSIFR_P_ENCAP_H2 : 0),
-			    LRS_ESTABLISHED, &role_ops_ws);
+	lws_wsi_event(wsi, LWS_WSIEV_WS_UPGRADED);
 	lws_validity_confirmed(wsi);
 
 	wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;

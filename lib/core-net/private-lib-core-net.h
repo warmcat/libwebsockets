@@ -1389,6 +1389,11 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len);
 void
 lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
 		    const struct lws_role_ops *ops);
+/* the event engine's entry: a role change a table row asked for */
+void
+lws_wsi_role_transition_ev(struct lws *wsi, enum lwsi_role role,
+			   enum lwsi_state state,
+			   const struct lws_role_ops *ops, const char *ev);
 
 #if defined(LWS_WITH_STATE_TRACE) || defined(LWS_WITH_STATE_CHECK)
 /* wsi-state.c: names, transition tables, trace and check */

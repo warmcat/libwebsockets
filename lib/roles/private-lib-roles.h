@@ -436,14 +436,45 @@ enum lws_wsi_event {
 	LWS_WSIEV_MQTT_CONNECT_SENT,
 	LWS_WSIEV_MQTT_CONNACK,
 
+	/*
+	 * role changes: the row names the role and side that follow, or
+	 * takes them from the ops argument (to_role "?"), the mux parent
+	 * ("P") or the wsi the caller says it is like ("L")
+	 */
+	LWS_WSIEV_SERVER_SIDE,		/* a wsi created to be a server's */
+	LWS_WSIEV_ADOPTED,		/* a role took the adopted descriptor */
+	LWS_WSIEV_ADOPTED_TLS,		/* ... and tls accept comes first */
+	LWS_WSIEV_CLIENT_BIND,		/* a role took the client connect */
+	LWS_WSIEV_RESTART,		/* a client starts over with a new connection */
+	LWS_WSIEV_MUX_INSERTED,		/* a new child joined its parent */
+	LWS_WSIEV_STREAM_OPENED,	/* the peer opened a stream to us */
+	LWS_WSIEV_MUX_STREAM_ADOPTED,	/* a client stream may send on its connection */
+	LWS_WSIEV_CONTROL_STREAM_OPENED,/* our own h3 unidirectional stream */
+	LWS_WSIEV_CONN_TAKEOVER,	/* a new wsi takes over a quic connection */
+	LWS_WSIEV_ALPN_DONE,		/* the quic handshake chose the protocol */
+	LWS_WSIEV_H2_SELECTED,		/* alpn, h2c or prior knowledge chose h2 */
+	LWS_WSIEV_H2_PREFACE_SENT,
+	LWS_WSIEV_WS_UPGRADED,
+	LWS_WSIEV_RESP_HDRS,		/* client: the response headers are in */
+	LWS_WSIEV_WT_SESSION,		/* a webtransport session was agreed */
+	LWS_WSIEV_WT_STREAM,		/* a stream belongs to a webtransport session */
+	LWS_WSIEV_RAW_UPGRADED,		/* the http connection became raw */
+
 	LWS_WSIEV_COUNT
 };
 
 extern const char * const lws_wsi_event_names[LWS_WSIEV_COUNT];
 
-/* returns 0 and moves to the listed state, or -1 leaving it (a bug here) */
+/*
+ * returns 0 and moves to the listed state (and role and side, if the row
+ * changes them), or -1 leaving it (a bug here).  ops is the role a row with
+ * to_role "?" takes; like is the wsi a row with to_side "L" takes the side of.
+ */
 int
-lws_wsi_event(struct lws *wsi, enum lws_wsi_event ev);
+lws_wsi_event_x(struct lws *wsi, enum lws_wsi_event ev,
+		const struct lws_role_ops *ops, struct lws *like);
+#define lws_wsi_event(wsi, ev) lws_wsi_event_x(wsi, ev, NULL, NULL)
+#define lws_wsi_event_role(wsi, ev, ops) lws_wsi_event_x(wsi, ev, ops, NULL)
 
 #define _LWS_ADOPT_FINISH (1 << 24)
 

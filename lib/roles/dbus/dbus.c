@@ -82,7 +82,7 @@ __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 	lwsl_info("%s: creating shadow wsi\n", __func__);
 
 	wsi->desc.sockfd = fd;
-	lws_role_transition(wsi, 0, LRS_ESTABLISHED, &role_ops_dbus);
+	lws_wsi_event_role(wsi, LWS_WSIEV_ADOPTED, &role_ops_dbus);
 	wsi->a.protocol = ctx->vh->protocols;
 	wsi->shadow = 1;
 	wsi->opaque_parent_data = ctx;

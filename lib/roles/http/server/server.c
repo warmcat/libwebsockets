@@ -3225,7 +3225,7 @@ lws_http_to_fallback(struct lws *wsi, unsigned char *obuf, size_t olen)
 
 	lws_bind_protocol(wsi, protocol, __func__);
 
-	lws_role_transition(wsi, LWSIFR_SERVER, LRS_ESTABLISHED, role);
+	lws_wsi_event_role(wsi, LWS_WSIEV_RAW_UPGRADED, role);
 
 	lws_header_table_detach(wsi, 0);
 	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
@@ -3582,8 +3582,7 @@ upgrade_h2c:
 		/* adopt the header info */
 
 		ah = wsi->stream.ah;
-		lws_role_transition(wsi, LWSIFR_SERVER, LRS_H2_AWAIT_PREFACE,
-				    &role_ops_h2);
+		lws_wsi_event(wsi, LWS_WSIEV_H2_SELECTED);
 
 		/* http2 union member has http union struct at start */
 		wsi->stream.ah = ah;

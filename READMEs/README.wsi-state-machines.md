@@ -45,7 +45,7 @@ describes what they mean.
 |15|`LWSIFS_CLOSE_STARTED`: `__lws_close_free_wsi()` has been entered|||
 |16-19|transport machine, `enum lws_transport_phase` `LTS_*`|`lwsi_transport()`|`lwsi_set_transport()`|
 |20-23|carrier machine, `enum lws_carrier_phase` `LCR_*`|`lwsi_carrier()`|`lws_wsi_event()` routes handshake states here|
-|24-29|role flags: client / server side, h2 encapsulation|`lwsi_role_*()`|`lws_role_transition()`|
+|24-29|role flags: client / server side, h2 encapsulation|`lwsi_role_*()`|`lws_wsi_event()`, a row that names a side|
 |30|`LWSIFS_SKT_UNUSABLE`: the socket is known dead, take the abortive close path|`lwsi_skt_unusable()`|`lwsi_set_skt_unusable()`|
 
 `lwsi_state()` still returns a single `LRS_` value for the many readers that
@@ -218,24 +218,30 @@ Invariants the checker enforces: an unusable socket never enters
 `SHUTDOWN`; `RETURNED_CLOSE` only on a ws role; `SHUTDOWN` only on a server
 wsi with a socket.
 
-## Role transitions
+## Role changes
 
-`lws_role_transition(wsi, role, state, ops)` is the one place `role_ops` and
-the side flags are written, and the only way a wsi gets a live state
-without an event: birth (a new wsi is `UNCONNECTED`, a server mux child is
-`HEADERS`), adoption, the client bind, the h1 to h2 / ws upgrades, quic to
-h3 at ALPN, the client's sid-1 migration, and the restart to `UNCONNECTED`
-on redirect or fallback.  It rewrites the whole word: side flags, a
-transport or carrier state into its bits over an `UNCONNECTED` live state,
-or a live state with the carrier marked established.  Its edges are listed
-in the role table.
+A role or side change is an event like any other: the row names the role
+and side that follow, or takes them from the site (the ops argument of
+`lws_wsi_event_role()` for adoption, the client bind and a restart, which
+are the site's to choose), from the mux parent (a fresh child is its
+parent's), or from a wsi the site says the new one is like
+(`lws_wsi_event_x()`, for our own h3 control streams and a wsi taking over
+a quic connection).  So the h1 to h2 / ws upgrades, quic to h3 at ALPN, the
+client's sid-1 migration, a stream let onto its connection, webtransport,
+raw, and the restart to `UNCONNECTED` on redirect or fallback all read as
+`ev=NAME` on a `role_transition` edge in the trace.  The only role write
+without an event is a wsi's birth, where the creator hands in the ops.
+
+Underneath, `lws_wsi_role_transition_ev()` rewrites the whole word: side
+flags, a transport or carrier state into its bits over an `UNCONNECTED`
+live state, or a live state with the carrier marked established.
 
 ## Build options
 
 |option|effect|
 |---|---|
 |`LWS_WITH_STATE_TRACE`|append each distinct `(role, state) -> (role, state)` edge the process performs, once, to `$LWS_STATE_TRACE_FILE` (stderr if unset), as `LRS h1/S:HEADERS -> h1/S:ESTABLISHED set_state <wsi tag>`.  Attributes show as `+completing`, `+unusable`, `+failed`, `+restarting`, `+told`.|
-|`LWS_WITH_STATE_CHECK`|look every edge up: a live-state edge in the event table, a transport or close edge in the phase table, a role change in the role table; `abort()` on one that is not listed or that breaks an invariant, logging `unlisted wsi state edge ...` or `invariant broken on wsi state edge ...`; an event with no row aborts too|
+|`LWS_WITH_STATE_CHECK`|look every edge up: a live-state edge in the event table, a transport or close edge in the phase table, a role change must carry an event or be a birth; `abort()` on one that is not listed or that breaks an invariant, logging `unlisted wsi state edge ...` or `invariant broken on wsi state edge ...`; an event with no row aborts too|
 
 Both are off by default and change nothing about what any transition does.
 To regenerate the observed edge set, build with the trace on and run
@@ -244,11 +250,11 @@ To regenerate the observed edge set, build with the trace on and run
 LWS_STATE_TRACE_FILE=/tmp/edges.txt ctest
 ```
 
-then `sort -u` the file; the phase and role tables in `wsi-state.c` are the
-union of that over the ctest suite and the fuzz seed corpus, plus the
-statically present edges nothing reaches (marked as such, each citing its
-site), and the event table is the transition function itself.  A new edge is
-either an omission in a table or a bug at the site.
+then `sort -u` the file; the phase table in `wsi-state.c` is the union of
+that over the ctest suite and the fuzz seed corpus, plus the statically
+present edges nothing reaches (marked as such, each citing its site), and
+the event table is the transition function itself.  A new edge is either
+an omission in a table or a bug at the site.
 
 ## Events
 
@@ -263,8 +269,9 @@ upgrade asked for) are distinct events instead, so the information is in
 the word rather than in a bool beside it.  An event with no row is a bug
 at the site: the state is left alone, an error is logged, and
 `LWS_WITH_STATE_CHECK` aborts.  The trace shows the event on each edge as
-`ev=NAME`.  Nothing else writes a live state: there is no setter for one
-outside `wsi-state.c`, only the events and `lws_role_transition()`.
+`ev=NAME`.  Nothing else writes a live state, a role or a side: there is
+no setter for them outside `wsi-state.c`, only the events, and a wsi's
+birth.
 
 For the transport and close machines every site corresponds to exactly one
 phase, so the phase name is the event name and they keep their phase
@@ -291,7 +298,8 @@ The events, with the states they lead to:
 |response headers complete|||`ESTABLISHED` (role may change to ws)|`ESTABLISHED` (or ws encapsulated)|
 |1xx interim response|||`WAITING_SERVER_REPLY`||
 |auth challenge, retrying|||`H1C_ISSUE_HANDSHAKE2`||
-|stream born||`HEADERS`||`H2_WAITING_TO_SEND_HEADERS`|
+|stream opened by the peer||`HEADERS`|||
+|stream let onto its connection||||`H2_WAITING_TO_SEND_HEADERS`|
 
 `ESTABLISHED` means one thing on each side: on a server, acting on a
 parsed request; on a client, a response in flight.

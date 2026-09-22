@@ -224,10 +224,9 @@ rops_adoption_bind_mqtt(struct lws *wsi, int type, const char *vh_prot_name)
 	    (type & _LWS_ADOPT_FINISH))
 		return 0; /* no match */
 
-	/* keep the side the adopter gave us */
-	lws_role_transition(wsi, (enum lwsi_role)lwsi_role(wsi),
-			    (type & LWS_ADOPT_ALLOW_SSL) ? LRS_SSL_INIT :
-						LRS_ESTABLISHED, &role_ops_mqtt);
+	lws_wsi_event_role(wsi, (type & LWS_ADOPT_ALLOW_SSL) ?
+				LWS_WSIEV_ADOPTED_TLS : LWS_WSIEV_ADOPTED,
+			   &role_ops_mqtt);
 
 	if (vh_prot_name)
 		lws_bind_protocol(wsi, wsi->a.protocol, __func__);
@@ -287,8 +286,7 @@ rops_client_bind_mqtt(struct lws *wsi, const struct lws_client_connect_info *i)
 	if (lws_create_client_mqtt_object(i, wsi))
 		return -1;
 
-	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
-				&role_ops_mqtt);
+	lws_wsi_event_role(wsi, LWS_WSIEV_CLIENT_BIND, &role_ops_mqtt);
 	return 1; /* matched */
 }
 

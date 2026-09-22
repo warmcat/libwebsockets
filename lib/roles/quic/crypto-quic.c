@@ -480,7 +480,7 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 							}
 						}
 
-						lws_role_transition(w, LWSIFR_CLIENT, LRS_H2_WAITING_TO_SEND_HEADERS, &role_ops_h3);
+						lws_wsi_event_role(w, LWS_WSIEV_MUX_STREAM_ADOPTED, &role_ops_h3);
 
 						if (w->quic.qs)
 							w->quic.qs->opted_into_early_data = 1;

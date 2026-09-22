@@ -1105,9 +1105,9 @@ lws_fileofs_t lws_get_peer_write_allowance(struct lws *wsi) {
 		.tx_credit(wsi, LWSTXCR_US_TO_PEER, 0);
 }
 
-void lws_role_transition(struct lws *wsi, enum lwsi_role role,
+void lws_wsi_role_transition_ev(struct lws *wsi, enum lwsi_role role,
 		enum lwsi_state state,
-		const struct lws_role_ops *ops) {
+		const struct lws_role_ops *ops, const char *ev) {
 #if (_LWS_ENABLED_LOGS & LLL_DEBUG)
 	const char *name = "(unset)";
 #endif
@@ -1149,13 +1149,23 @@ void lws_role_transition(struct lws *wsi, enum lwsi_role role,
 	if (ops)
 		wsi->role_ops = ops;
 	lws_state_hook(wsi, old_ops, old, wsi->role_ops, wsi->wsistate,
-			"role_transition", NULL);
+			"role_transition", ev);
 #if (_LWS_ENABLED_LOGS & LLL_DEBUG)
 	if (wsi->role_ops)
 		name = wsi->role_ops->name;
 	lwsl_wsi_debug(wsi, "wsistate 0x%lx, ops %s", (unsigned long)wsi->wsistate,
 			name);
 #endif
+}
+
+/*
+ * A wsi's birth: the creator hands in the ops, and there is no event.  Every
+ * later role change is a table row, through lws_wsi_event_x().
+ */
+void lws_role_transition(struct lws *wsi, enum lwsi_role role,
+		enum lwsi_state state,
+		const struct lws_role_ops *ops) {
+	lws_wsi_role_transition_ev(wsi, role, state, ops, NULL);
 }
 
 int lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
@@ -2052,10 +2062,9 @@ void lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi,
 
 	wsi->mux.my_sid = sid;
 	wsi->mux.parent_wsi = parent_wsi;
+	/* a fresh child takes its parent's role and side */
 	if (!wsi->role_ops)
-		lws_role_transition(wsi, (enum lwsi_role)lwsi_role(wsi),
-				    lwsi_state(wsi),
-				    parent_wsi->role_ops);
+		lws_wsi_event(wsi, LWS_WSIEV_MUX_INSERTED);
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	if (parent_wsi->peer && !wsi->peer) {

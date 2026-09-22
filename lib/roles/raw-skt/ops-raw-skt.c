@@ -324,10 +324,11 @@ rops_adoption_bind_raw_skt(struct lws *wsi, int type, const char *vh_prot_name)
 	}
 #endif
 
-	/* keep the side the adopter gave us */
-	lws_role_transition(wsi, (enum lwsi_role)lwsi_role(wsi),
-			    (type & LWS_ADOPT_ALLOW_SSL) ? LRS_SSL_INIT :
-						LRS_ESTABLISHED, &role_ops_raw_skt);
+	/* the udp FINISH pass only binds the protocol: no second adoption */
+	if (!(type & _LWS_ADOPT_FINISH))
+		lws_wsi_event_role(wsi, (type & LWS_ADOPT_ALLOW_SSL) ?
+					LWS_WSIEV_ADOPTED_TLS : LWS_WSIEV_ADOPTED,
+				   &role_ops_raw_skt);
 
 	if (vh_prot_name)
 		lws_bind_protocol(wsi, wsi->a.protocol, __func__);
@@ -360,8 +361,7 @@ rops_client_bind_raw_skt(struct lws *wsi,
 
 	if (!i->local_protocol_name ||
 	    strcmp(i->local_protocol_name, "raw-proxy"))
-		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
-			    &role_ops_raw_skt);
+		lws_wsi_event_role(wsi, LWS_WSIEV_CLIENT_BIND, &role_ops_raw_skt);
 
 	return 1; /* matched */
 }

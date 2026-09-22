@@ -74,8 +74,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, int group,
 	__lws_lc_tag(vhost->context, &vhost->context->lcg[group],
 			&new_wsi->lc, "%s|%s", vhost->name, desc);
 
-	/* a server-side wsi, with no role or state yet */
-	lws_role_transition(new_wsi, LWSIFR_SERVER, LRS_UNCONNECTED, NULL);
+	lws_wsi_event(new_wsi, LWS_WSIEV_SERVER_SIDE);
 	new_wsi->tsi = (char)n;
 	lwsl_wsi_debug(new_wsi, "joining vh %s, tsi %d",
 			vhost->name, new_wsi->tsi);

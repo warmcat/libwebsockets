@@ -138,16 +138,11 @@ lws_wt_create_stream(struct lws *wsi_session, int unidi)
 		return NULL;
 
 	/*
-	 * Take the client/server sense from the connection, don't just claim
-	 * to be a client: lws_role_transition() *replaces* the LWSIFR_SERVER
-	 * that lws_create_new_server_wsi() set, and role_ops_wt's callback
-	 * tables and the generic lwsi_role_client() paths are selected by it.
-	 * A server-created stream marked as a client silently gets
+	 * The stream takes the client/server sense of the connection: a
+	 * server-created stream marked as a client would silently get
 	 * LWS_CALLBACK_CLIENT_WRITEABLE and the client teardown paths.
 	 */
-	lws_role_transition(cwsi, lwsi_role_client(nwsi) ? LWSIFR_CLIENT :
-							   LWSIFR_SERVER,
-			    LRS_ESTABLISHED, &role_ops_wt);
+	lws_wsi_event_x(cwsi, LWS_WSIEV_WT_STREAM, NULL, nwsi);
 	cwsi->mux_substream = 1;
 #if defined(LWS_WITH_CLIENT)
 	if (lwsi_role_client(nwsi))

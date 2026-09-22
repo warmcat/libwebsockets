@@ -1229,8 +1229,9 @@ rops_adoption_bind_h1(struct lws *wsi, int type, const char *vh_prot_name)
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SECURE_STREAMS)
 	if (wsi->a.vhost->ss_handle &&
 	    wsi->a.vhost->ss_handle->policy->protocol == LWSSSP_RAW) {
-		lws_role_transition(wsi, LWSIFR_SERVER, (type & LWS_ADOPT_ALLOW_SSL) ?
-				LRS_SSL_INIT : LRS_ESTABLISHED, &role_ops_raw_skt);
+		lws_wsi_event_role(wsi, (type & LWS_ADOPT_ALLOW_SSL) ?
+				LWS_WSIEV_ADOPTED_TLS : LWS_WSIEV_ADOPTED,
+				   &role_ops_raw_skt);
 		return 1;
 	}
 #endif
@@ -1245,8 +1246,9 @@ rops_adoption_bind_h1(struct lws *wsi, int type, const char *vh_prot_name)
 	}
 	else
 #endif
-		lws_role_transition(wsi, LWSIFR_SERVER, (type & LWS_ADOPT_ALLOW_SSL) ?
-				LRS_SSL_INIT : LRS_HEADERS, &role_ops_h1);
+		lws_wsi_event_role(wsi, (type & LWS_ADOPT_ALLOW_SSL) ?
+				LWS_WSIEV_ADOPTED_TLS : LWS_WSIEV_ADOPTED,
+				   &role_ops_h1);
 
 	/*
 	 * Otherwise, we have to bind to h1 as a default even when we're actually going to
@@ -1365,8 +1367,7 @@ rops_client_bind_h1(struct lws *wsi, const struct lws_client_connect_info *i)
 	return 0; /* no match */
 
 bind_h1:
-	/* assert the mode and union status (hdr) clearly */
-	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, &role_ops_h1);
+	lws_wsi_event_role(wsi, LWS_WSIEV_CLIENT_BIND, &role_ops_h1);
 
 	return 1; /* matched */
 

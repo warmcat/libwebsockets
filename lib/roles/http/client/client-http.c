@@ -1139,7 +1139,6 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 #if defined(LWS_ROLE_WT)
 		if (wsi->a.protocol && !strcmp(wsi->a.protocol->name, "webtransport")) {
-			extern const struct lws_role_ops role_ops_wt;
 			const char *st = lws_hdr_simple_ptr(wsi,
 						WSI_TOKEN_HTTP_COLON_STATUS);
 
@@ -1163,8 +1162,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 			lwsl_debug("%s: %s: transitioning to WebTransport client\n",
 				   __func__, lws_wsi_tag(wsi));
-			lws_role_transition(wsi, LWSIFR_CLIENT,
-					    LRS_ESTABLISHED, &role_ops_wt);
+			lws_wsi_event(wsi, LWS_WSIEV_WT_SESSION);
 			wsi->wt.is_session = 1;
 		} else
 #endif
@@ -1172,8 +1170,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		if (wsi->client_h2_alpn || wsi->client_mux_substream) {
 			lwsl_debug("%s: %s: transitioning to mux client\n",
 				   __func__, lws_wsi_tag(wsi));
-			lws_role_transition(wsi, LWSIFR_CLIENT,
-					    LRS_ESTABLISHED, wsi->role_ops);
+			lws_wsi_event(wsi, LWS_WSIEV_RESP_HDRS);
 		} else
 #endif
 		{
@@ -1181,8 +1178,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			{
 			lwsl_debug("%s: %s: transitioning to h1 client\n",
 				   __func__, lws_wsi_tag(wsi));
-			lws_role_transition(wsi, LWSIFR_CLIENT,
-					    LRS_ESTABLISHED, &role_ops_h1);
+			lws_wsi_event(wsi, LWS_WSIEV_RESP_HDRS);
 			}
 #else
 			cce = "h1 not built";
@@ -1587,18 +1583,17 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 				ww->client_pipeline = 0;
 
 				/* go back to "trying to connect" state */
-				lws_role_transition(ww, LWSIFR_CLIENT,
-						    LRS_UNCONNECTED,
+				lws_wsi_event_role(ww, LWS_WSIEV_RESTART,
 #if defined(LWS_ROLE_H1)
-						    &role_ops_h1);
+						   &role_ops_h1);
 #else
 #if defined (LWS_ROLE_H2)
-						    &role_ops_h2);
+						   &role_ops_h2);
 #else
 #if defined (LWS_ROLE_H3)
-						    &role_ops_h3);
+						   &role_ops_h3);
 #else
-						    NULL);
+						   NULL);
 #endif
 #endif
 #endif
@@ -2201,8 +2196,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 					      wsi->user_space, NULL, 0))
 			return NULL;
 
-		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_ESTABLISHED,
-				    &role_ops_raw_skt);
+		lws_wsi_event(wsi, LWS_WSIEV_RAW_UPGRADED);
 		lws_header_table_detach(wsi, 1);
 
 		return NULL;

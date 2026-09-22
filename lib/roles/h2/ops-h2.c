@@ -1958,8 +1958,7 @@ rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
 
 	ah = wsi->stream.ah;
 
-	lws_role_transition(wsi, lwsi_role_client(wsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_H2_AWAIT_PREFACE,
-			    &role_ops_h2);
+	lws_wsi_event(wsi, LWS_WSIEV_H2_SELECTED);
 
 	/* http2 union member has http union struct at start */
 	wsi->stream.ah = ah;

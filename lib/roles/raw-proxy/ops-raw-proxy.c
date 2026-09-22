@@ -176,9 +176,9 @@ rops_adoption_bind_raw_proxy(struct lws *wsi, int type,
 	}
 #endif
 
-	lws_role_transition(wsi, LWSIFR_SERVER, (type & LWS_ADOPT_ALLOW_SSL) ?
-				    LRS_SSL_INIT : LRS_ESTABLISHED,
-			    &role_ops_raw_proxy);
+	lws_wsi_event_role(wsi, (type & LWS_ADOPT_ALLOW_SSL) ?
+				LWS_WSIEV_ADOPTED_TLS : LWS_WSIEV_ADOPTED,
+			   &role_ops_raw_proxy);
 
 	if (vh_prot_name)
 		lws_bind_protocol(wsi, wsi->a.protocol, __func__);
@@ -209,8 +209,7 @@ rops_client_bind_raw_proxy(struct lws *wsi,
 	/* we are a fallback if nothing else matched */
 
 	if (i->local_protocol_name && !strcmp(i->local_protocol_name, "raw-proxy"))
-		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
-				    &role_ops_raw_proxy);
+		lws_wsi_event_role(wsi, LWS_WSIEV_CLIENT_BIND, &role_ops_raw_proxy);
 
 	return 0;
 }

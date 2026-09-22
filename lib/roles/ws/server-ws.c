@@ -317,8 +317,7 @@ lws_process_ws_upgrade2(struct lws *wsi)
 	 */
 
 	if (!wsi->h23_stream_carries_ws) {
-		lws_role_transition(wsi, LWSIFR_SERVER, LRS_ESTABLISHED,
-				    &role_ops_ws);
+		lws_wsi_event(wsi, LWS_WSIEV_WS_UPGRADED);
 
 #if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
 
@@ -398,9 +397,7 @@ lws_process_ws_upgrade2(struct lws *wsi)
 				lwsl_notice("h2 ws handshake failed\n");
 				return 1;
 			}
-			lws_role_transition(wsi,
-					    LWSIFR_SERVER | LWSIFR_P_ENCAP_H2,
-					    LRS_ESTABLISHED, &role_ops_ws);
+			lws_wsi_event(wsi, LWS_WSIEV_WS_UPGRADED);
 
 
 		} else

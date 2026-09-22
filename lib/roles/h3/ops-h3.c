@@ -957,9 +957,7 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 	 * whichever side we are: a server's control streams are not client
 	 * streams, and must not pick the client-side callbacks
 	 */
-	lws_role_transition(cwsi, lwsi_role_server(nwsi) ? LWSIFR_SERVER :
-							  LWSIFR_CLIENT,
-			    LRS_ESTABLISHED, &role_ops_h3);
+	lws_wsi_event_x(cwsi, LWS_WSIEV_CONTROL_STREAM_OPENED, NULL, nwsi);
 	cwsi->mux_substream = 1;
 #if defined(LWS_WITH_CLIENT)
 	if (!lwsi_role_server(nwsi))
@@ -1091,7 +1089,6 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 	// lwsl_hexdump_notice(buf, len);
 
 #if defined(LWS_ROLE_WT)
-	extern const struct lws_role_ops role_ops_wt;
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 	int has_wt_session = 0;
 	if (nwsi) {
@@ -1147,7 +1144,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				
 				if (session_wsi) {
 					lwsl_notice("Transitioning client-initiated uni stream to WT (session ID %llu)\n", (unsigned long long)session_id);
-					lws_role_transition(wsi, lwsi_role_client(wsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_ESTABLISHED, &role_ops_wt);
+					lws_wsi_event(wsi, LWS_WSIEV_WT_STREAM);
 					wsi->wt.is_unidi = 1;
 					wsi->wt.is_session = 0;
 					/* the session this stream belongs to (C-068) */
@@ -1210,7 +1207,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				
 				if (session_wsi) {
 					lwsl_notice("Transitioning client-initiated bidi stream to WT (session ID %llu)\n", (unsigned long long)session_id);
-					lws_role_transition(wsi, lwsi_role_client(wsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_ESTABLISHED, &role_ops_wt);
+					lws_wsi_event(wsi, LWS_WSIEV_WT_STREAM);
 					wsi->wt.is_unidi = 0;
 					wsi->wt.is_session = 0;
 					wsi->wt.session_wsi = session_wsi;
@@ -1937,13 +1934,12 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 
 			if (lwsi_state(child) == LRS_UNCONNECTED || lwsi_transport(child) == LTS_WAITING_CONNECT) {
 				lwsl_wsi_info(child, "H3 ALPN Negotiated, transitioning child");
-				lws_role_transition(child, lwsi_role_client(nwsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_H2_WAITING_TO_SEND_HEADERS, &role_ops_h3);
+				lws_wsi_event_role(child, LWS_WSIEV_ALPN_DONE, &role_ops_h3);
 				lws_callback_on_writable(child);
 			} else if (child->role_ops && !strcmp(child->role_ops->name, "quic")) {
 				/* Server-side peer-initiated stream adopted during 0-RTT! Transition it to H3 now. */
 				lwsl_wsi_info(child, "H3 ALPN Negotiated, transitioning 0-RTT child to H3");
-				lws_role_transition(child, lwsi_role_client(nwsi) ? LWSIFR_CLIENT : LWSIFR_SERVER,
-						    lwsi_role_client(nwsi) ? LRS_ESTABLISHED : LRS_HEADERS, &role_ops_h3);
+				lws_wsi_event_role(child, LWS_WSIEV_ALPN_DONE, &role_ops_h3);
 			}
 		}
 		lws_end_foreach_dll(d);
@@ -2159,7 +2155,6 @@ rops_check_upgrades_h3(struct lws *wsi)
 	} else if (!strcmp(p, "webtransport")) {
 #if defined(LWS_ROLE_WT)
 		lwsl_info("Upgrade h3 to wt\n");
-		extern const struct lws_role_ops role_ops_wt;
 		unsigned char response_buf[LWS_PRE + 4096], *rp = response_buf + LWS_PRE, *end = response_buf + sizeof(response_buf);
 		char client_protos[256];
 		char negotiated[64] = "";
@@ -2309,8 +2304,7 @@ rops_check_upgrades_h3(struct lws *wsi)
 		if (lws_write(wsi, response_buf + LWS_PRE, lws_ptr_diff_size_t(rp, response_buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS) < 0)
 			return LWS_UPG_RET_BAIL;
 
-		/* Switch role to WebTransport */
-		lws_role_transition(wsi, LWSIFR_SERVER, LRS_ESTABLISHED, &role_ops_wt);
+		lws_wsi_event(wsi, LWS_WSIEV_WT_SESSION);
 		wsi->wt.is_session = 1;
 
 		if (lws_ensure_user_space(wsi))
@@ -2499,8 +2493,7 @@ lws_wsi_h3_adopt(struct lws *parent_wsi, struct lws *wsi)
 		return NULL;
 	}
 
-	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_H2_WAITING_TO_SEND_HEADERS,
-			    &role_ops_h3);
+	lws_wsi_event_role(wsi, LWS_WSIEV_MUX_STREAM_ADOPTED, &role_ops_h3);
 
 	lws_callback_on_writable(wsi);
 

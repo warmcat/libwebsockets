@@ -248,8 +248,7 @@ lws_mqtt_pconsume(lws_mqtt_parser_t *par, int consumed)
 static int
 lws_mqtt_set_client_established(struct lws *wsi)
 {
-	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_ESTABLISHED,
-			    &role_ops_mqtt);
+	lws_wsi_event_role(wsi, LWS_WSIEV_MUX_STREAM_ADOPTED, &role_ops_mqtt);
 
 	if (user_callback_handle_rxflow(wsi->a.protocol->callback,
 					wsi, LWS_CALLBACK_MQTT_CLIENT_ESTABLISHED,
@@ -1458,9 +1457,6 @@ cmd_completion:
 				 */
 				lws_dll2_remove(&w->pre_natal);
 
-				/* the child takes our side and role in one write */
-				lws_role_transition(w, LWSIFR_CLIENT, LRS_ESTABLISHED,
-						    wsi->role_ops);
 				lws_wsi_event(wsi, LWS_WSIEV_MQTT_CONNACK);
 
 #if defined(LWS_WITH_CLIENT)
