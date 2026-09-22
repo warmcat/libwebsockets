@@ -99,8 +99,11 @@ struct xcase {
 	enum xf_gate	gate;
 	int		expect;		/* 1: Expect: 100-continue, 2: Expect: nope */
 	int		via_proxy;	/* through the http proxy mount to srv-h1 */
-	int		reuse;		/* the second request goes only after the
-					 * first completed: on the idle connection */
+	int		reuse;		/* 1: the second request goes 150ms after
+					 * the first completed, on the kept-warm
+					 * connection; 2: keep_warm_secs 1 and the
+					 * second goes 1500ms later, after the
+					 * connection idled out */
 	int		h2c;		/* a raw client does an Upgrade: h2c and
 					 * reads stream 1's response as h2 frames */
 };
@@ -219,11 +222,20 @@ static const struct xcase cases[] = {
 	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 1, 200, 0, XG_NONE, 0, 0, 1, 0 },
 	{ "h1 POST Content-Length 5KB, then a second handed the idle connection",
 	  "POST", "/echo-cl", XR_CL, 5000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0, 0, 1, 0 },
+	/*
+	 * The same with the keep-warm time (1s) expired before the second
+	 * request: the idle connection has been closed and the second
+	 * request must open a fresh one, the server sees two connections.
+	 */
+	{ "h1 GET, then a second GET after the kept-warm connection expired",
+	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 1, 200, 0, XG_NONE, 0, 0, 2, 0 },
 #if defined(LWS_WITH_HTTP2)
-	{ "h2 GET, then a second GET joining the established connection",
+	{ "h2 GET, then a second GET joining the kept-warm connection",
 	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 1, 1, 200, 0, XG_NONE, 0, 0, 1, 0 },
 	{ "h2 POST Content-Length 5KB, then a second joining the connection",
 	  "POST", "/echo-cl", XR_CL, 5000, 0, 8192, 1, 1, 200, -1, XG_NONE, 0, 0, 1, 0 },
+	{ "h2 GET, then a second GET after the kept-warm connection expired",
+	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 1, 1, 200, 0, XG_NONE, 0, 0, 2, 0 },
 #endif
 #if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_FILE_OPS)
 	/*
@@ -358,6 +370,8 @@ static struct {
 	long		body_len;	/* decoded payload bytes, all requests */
 	int		http_cbs;	/* LWS_CALLBACK_HTTP count */
 	int		conns;		/* accepted connections */
+	int		conns_first;	/* ... when a reuse case's first request
+					 * completed */
 	int		gate_blocks;	/* requests the mount interceptor took */
 } srv;
 
@@ -898,6 +912,25 @@ case_evaluate(void)
 		goto next;
 	}
 
+	if (c->reuse) {
+		/*
+		 * The second request rides the kept-warm connection when it
+		 * comes within the keep-warm time, and opens a fresh one when
+		 * not.  Counted from the first request's completion: the
+		 * first request itself may have ridden a connection kept warm
+		 * from the previous case.
+		 */
+		int want = c->reuse == 2 ? 1 : 0;
+
+		if (srv.conns - srv.conns_first != want) {
+			lwsl_err("second request opened %d connections, "
+				 "expected %d\n", srv.conns - srv.conns_first,
+				 want);
+			case_finish(0, "connection reuse");
+			goto next;
+		}
+	}
+
 	if (c->pipeline) {
 		if (c->gate != XG_BLOCK && srv.http_cbs != 2) {
 			lwsl_err("server saw %d requests, expected 2\n",
@@ -1093,10 +1126,14 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			 * a reuse case's second request goes now the first is
 			 * done, after the connection has had time to idle
 			 */
-			if (cases[cur].reuse && cn == conns[0] && !conns[1])
+			if (cases[cur].reuse && cn == conns[0] && !conns[1]) {
+				srv.conns_first = srv.conns;
 				lws_sul_schedule(context, 0, &sul_reuse,
 						 reuse_start,
-						 150 * LWS_US_PER_MS);
+						 (cases[cur].reuse == 2 ? 1500 :
+								      150) *
+							LWS_US_PER_MS);
+			}
 			case_check();
 		}
 		break;
@@ -1206,6 +1243,9 @@ conn_start(const struct xcase *c)
 	i.method = c->method;
 	i.protocol = "http-xfer";
 	i.opaque_user_data = cn;
+	if (c->reuse == 2)
+		/* keep the connection warm for only 1s after it completes */
+		i.keep_warm_secs = 1;
 #if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_FILE_OPS)
 	if (c->h2c) {
 		/* a raw client that speaks the upgrade and the h2 frames itself */
