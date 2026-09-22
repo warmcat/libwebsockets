@@ -98,6 +98,10 @@ struct xcase {
 static const struct xcase cases[] = {
 	{ "h1 POST Content-Length 100KB, 8KB writes, CL response",
 	  "POST", "/echo-cl", XR_CL, 100000, 0, 8192, 0, 0, 200, 100000, XG_NONE, 0 },
+	{ "h1 POST 600KB, response in one write completed at once (deferred "
+	  "completion), second request pipelined on the same connection",
+	  "POST", "/echo-oneshot", XR_CL, 600000, 0, 65536, 0, 1, 200,
+	  -1, XG_NONE, 0 },
 	{ "h1 POST Content-Length 5KB, one write, chunked response",
 	  "POST", "/echo-chunked", XR_CL, 5000, 0, 8192, 0, 0, 200, 5000, XG_NONE, 0 },
 	{ "h1 POST Content-Length 30KB, 4KB writes, close-delimited response",
@@ -254,7 +258,16 @@ enum resp_mode {
 	RM_CL,
 	RM_CHUNKED,	/* hand-framed, h1 only */
 	RM_NOLEN,	/* h1: close-delimited; h2: END_STREAM */
+	RM_ONESHOT,	/* CL, whole body in one write, completed at once */
 };
+
+/*
+ * The one-shot case shrinks the accepted socket's send buffer so that most
+ * of a single write of this size has to be queued as a partial, while
+ * staying well under the buflist's 2MB sanity limit
+ */
+#define ONESHOT_MAX (1024 * 1024)
+#define ONESHOT_SNDBUF 16384
 
 struct pss_srv {
 	enum resp_mode		mode;
@@ -372,6 +385,7 @@ srv_start_response(struct lws *wsi, struct pss_srv *pss)
 
 	switch (pss->mode) {
 	case RM_CL:
+	case RM_ONESHOT:
 		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
 						"text/plain",
 						(lws_filepos_t)pss->tx_total,
@@ -429,6 +443,33 @@ srv_writeable(struct lws *wsi, struct pss_srv *pss)
 
 	if (!pss->responding)
 		return 0;
+
+	if (pss->mode == RM_ONESHOT) {
+		/*
+		 * Hand lws the whole response in one write and complete the
+		 * transaction in the same callback, the way a naive app does.
+		 * Most of it can only be queued as a partial, so the
+		 * completion must be deferred until the partial has drained,
+		 * and the connection must still take the next request after.
+		 */
+		static uint8_t obuf[LWS_PRE + ONESHOT_MAX];
+		uint8_t *q = &obuf[LWS_PRE];
+
+		if (pss->tx_total > ONESHOT_MAX)
+			return -1;
+		for (i = 0; i < pss->tx_total; i++)
+			q[i] = srv_tx_byte(pss, i);
+		if (lws_write(wsi, q, pss->tx_total, LWS_WRITE_HTTP_FINAL) !=
+							(int)pss->tx_total)
+			return -1;
+		pss->tx_pos = pss->tx_total;
+		pss->responding = 0;
+
+		if (lws_http_transaction_completed(wsi))
+			return -1;
+
+		return 0;
+	}
 
 	if (pss->mode == RM_CHUNKED) {
 		n = chunk_sizes[(size_t)pss->chunk_idx++ %
@@ -491,6 +532,19 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
 		srv.conns++;
+#if !defined(WIN32)
+		if (cur >= 0 && cur < (int)LWS_ARRAY_SIZE(cases) &&
+		    strstr(cases[cur].path, "oneshot")) {
+			struct lws_filter_network_conn_args *a =
+				(struct lws_filter_network_conn_args *)user;
+			int sb = ONESHOT_SNDBUF;
+
+			/* make the one-shot write partial, deterministically */
+			if (setsockopt(a->accept_fd, SOL_SOCKET, SO_SNDBUF,
+				       &sb, sizeof(sb)))
+				lwsl_warn("%s: SO_SNDBUF failed\n", __func__);
+		}
+#endif
 		break;
 
 	case LWS_CALLBACK_HTTP:
@@ -502,6 +556,8 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			pss->mode = RM_CHUNKED;
 		if (path && strstr(path, "echo-nolen"))
 			pss->mode = RM_NOLEN;
+		if (path && strstr(path, "echo-oneshot"))
+			pss->mode = RM_ONESHOT;
 
 		lwsl_user("%s: server: HTTP %s\n", __func__, path ? path : "");
 
