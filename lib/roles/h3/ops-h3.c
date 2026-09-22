@@ -991,6 +991,13 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 		cwsi->txc.peer_tx_cr_est = 65535;
 	}
 	cwsi->quic.qs->stream_id = qn->next_stream_id_unidi_local;
+	/*
+	 * Unidirectional by construction (bit 1 of the id): the idle checks
+	 * tell request streams from these by this flag, and without it our
+	 * own control and qpack streams counted as requests in flight, so a
+	 * connection carrying only them never looked idle
+	 */
+	cwsi->quic.qs->is_unidirectional = 1;
 
 	cwsi->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 	cwsi->quic.qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
