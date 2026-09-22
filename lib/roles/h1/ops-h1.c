@@ -439,8 +439,9 @@ ws_mode:
 		//	       lws_ptr_diff(buf, oldbuf));
 		break;
 
+	case LRS_TXN_COMPLETED:
 	case LRS_DEFERRING_ACTION:
-		lwsl_notice("%s: LRS_DEFERRING_ACTION\n", __func__);
+		lwsl_notice("%s: state 0x%x\n", __func__, lwsi_state(wsi));
 		break;
 
 	case LRS_SSL_ACK_PENDING:
@@ -496,7 +497,7 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	struct lws_tokens ebuf;
 	int n, buffered;
 
-	if (lwsi_state(wsi) == LRS_DEFERRING_ACTION ||
+	if (lwsi_state(wsi) == LRS_TXN_COMPLETED ||
 	    wsi->http.deferred_transaction_completed)
 		goto try_pollout;
 
@@ -698,8 +699,8 @@ try_pollout:
 	/* clear back-to-back write detection */
 	wsi->could_have_pending = 0;
 
-	if (lwsi_state(wsi) == LRS_DEFERRING_ACTION) {
-		lwsl_debug("%s: LRS_DEFERRING_ACTION now writable\n", __func__);
+	if (lwsi_state(wsi) == LRS_TXN_COMPLETED) {
+		lwsl_debug("%s: LRS_TXN_COMPLETED now writable\n", __func__);
 
 		lwsi_set_state(wsi, LRS_ESTABLISHED);
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {

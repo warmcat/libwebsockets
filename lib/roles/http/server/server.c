@@ -3802,7 +3802,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	 */
 	lwsl_debug("%s: %s: setting DEF_ACT from 0x%x: %p\n", __func__,
 		   lws_wsi_tag(wsi), (int)wsi->wsistate, wsi->buflist);
-	lwsi_set_state(wsi, LRS_DEFERRING_ACTION);
+	lwsi_set_state(wsi, LRS_TXN_COMPLETED);
 	wsi->http.tx_content_length = 0;
 	wsi->http.tx_content_remain = 0;
 	wsi->hdr_parsing_completed = 0;

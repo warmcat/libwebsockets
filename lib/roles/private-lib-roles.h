@@ -137,6 +137,18 @@ enum lwsi_state {
 	/* Phase 5: protocol logically established */
 
 	LRS_H2_WAITING_TO_SEND_HEADERS		= LWSIFS_POCB | 15,
+	/*
+	 * h1 server: the transaction completed and the connection is being
+	 * kept alive, but nothing more is read until a POLLOUT confirms no
+	 * partial of the last response is still outstanding
+	 */
+	LRS_TXN_COMPLETED			= LWSIFS_POCB | 14,
+	/*
+	 * h2 / h3 server stream: request headers complete, the http action
+	 * is deferred to the POLLOUT handler, where we know for sure the
+	 * network wsi has no partial pending; any body arriving meanwhile is
+	 * stashed on the stream's buflist
+	 */
 	LRS_DEFERRING_ACTION			= LWSIFS_POCB | 16,
 	LRS_IDLING				= 17,
 	LRS_H1C_ISSUE_HANDSHAKE			= 18,

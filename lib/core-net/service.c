@@ -426,7 +426,8 @@ lws_rxflow_cache(struct lws *wsi, unsigned char *buf, size_t n, size_t len)
 /*
  * Can this wsi consume rx parked on its buflist if we service it now?
  *
- * While it has a deferred http action, is serving a file (synchronously or on a worker), is
+ * While it is holding the next request off until a clean POLLOUT, has a
+ * deferred http action, is serving a file (synchronously or on a worker), is
  * in the middle of a callback-driven transaction, is waiting for an async
  * tls accept, or is flushing before close, it stashes or ignores rx without
  * consuming it, so forcing a zero wait would only spin the event loop until
@@ -440,6 +441,7 @@ lws_wsi_can_consume_parked_rx(struct lws *wsi)
 		return 0;
 
 	switch (lwsi_state(wsi)) {
+	case LRS_TXN_COMPLETED:
 	case LRS_DEFERRING_ACTION:
 	case LRS_AWAITING_FILE_READ:
 	case LRS_ISSUING_FILE:
@@ -720,6 +722,7 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 				    (unsigned long)wsi->wsistate);
 
 		if (!lws_is_flowcontrolled(wsi) &&
+		    lwsi_state(wsi) != LRS_TXN_COMPLETED &&
 		    lwsi_state(wsi) != LRS_DEFERRING_ACTION) {
 			pt->inside_lws_service = 1;
 
