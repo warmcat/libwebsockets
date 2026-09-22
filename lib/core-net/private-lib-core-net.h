@@ -1394,13 +1394,13 @@ lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
 /* wsi-state.c: names, transition tables, trace and check */
 extern const char * const lws_lrs_names[];
 void
-lws_wsi_state_fmt(const struct lws_role_ops *ops, lws_wsi_state_t s,
-		  char *buf, size_t len);
-void
 lws_wsi_state_changed(struct lws *wsi, const struct lws_role_ops *from_ops,
 		      lws_wsi_state_t from, const struct lws_role_ops *to_ops,
-		      lws_wsi_state_t to, const char *how);
+		      lws_wsi_state_t to, const char *how, const char *ev);
 #endif
+void
+lws_wsi_state_fmt(const struct lws_role_ops *ops, lws_wsi_state_t s,
+		  char *buf, size_t len);
 
 int
 lws_http_to_fallback(struct lws *wsi, unsigned char *buf, size_t len);

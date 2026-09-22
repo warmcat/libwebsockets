@@ -415,7 +415,7 @@ postbody_completion:
 				}
 
 				if (wsi->mux_substream)
-					lwsi_set_state(wsi, LRS_ESTABLISHED);
+					lws_wsi_event(wsi, LWS_WSIEV_BODY_COMPLETE);
 			}
 
 			break;
@@ -699,7 +699,7 @@ try_pollout:
 		lwsl_debug("%s: LRS_TXN_COMPLETED now writable\n", __func__);
 
 		/* idle until the next request's headers arrive */
-		lwsi_set_state(wsi, LRS_HEADERS);
+		lws_wsi_event(wsi, LWS_WSIEV_TXN_DRAINED);
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 			lwsl_info("failed at set pollfd\n");
 			goto fail;

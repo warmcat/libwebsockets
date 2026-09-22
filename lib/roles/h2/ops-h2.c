@@ -1242,7 +1242,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 	lwsl_info("%s: setting LRS_BODY from 0x%x (%s)\n", __func__,
 		    (int)wsi->wsistate, wsi->a.protocol->name);
 
-	lwsi_set_state(wsi, LRS_BODY);
+	lws_wsi_event(wsi, LWS_WSIEV_BODY_BEGIN);
 
 	if (wsi->http.content_length_explicitly_zero) {
 		/*
@@ -1624,7 +1624,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			 * that there is no partial pending on the network wsi.
 			 */
 
-			lwsi_set_state(w, LRS_ESTABLISHED);
+			lws_wsi_event(w, LWS_WSIEV_ACTION_DEFERRED_RUN);
 
 			if (w->buflist) {
 				struct lws_context_per_thread *pt;

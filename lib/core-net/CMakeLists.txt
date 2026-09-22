@@ -38,12 +38,8 @@ list(APPEND SOURCES
 	core-net/adopt.c
 	core-net/txpacer.c
 	roles/pipe/ops-pipe.c
+	core-net/wsi-state.c
 )
-
-if (LWS_WITH_STATE_TRACE OR LWS_WITH_STATE_CHECK)
-	list(APPEND SOURCES
-		core-net/wsi-state.c)
-endif()
 
 if (LWS_WITH_LATENCY)
 	list(APPEND SOURCES

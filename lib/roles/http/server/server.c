@@ -2764,7 +2764,7 @@ lws_http_action(struct lws *wsi)
 				      "no mount hit"))
 			return 1;
 
-		lwsi_set_state(wsi, LRS_DOING_TRANSACTION);
+		lws_wsi_event(wsi, LWS_WSIEV_ACTION_BEGIN);
 
 		m = wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP,
 				    wsi->user_space, uri_ptr, (unsigned int)uri_len);
@@ -2972,7 +2972,7 @@ lws_http_action(struct lws *wsi)
 			if (!pp)
 				return 1;
 
-			lwsi_set_state(wsi, LRS_DOING_TRANSACTION);
+			lws_wsi_event(wsi, LWS_WSIEV_ACTION_BEGIN);
 
 			if (lws_bind_protocol(wsi, pp, "http_action HTTP"))
 				return 1;
@@ -3041,7 +3041,7 @@ deal_body:
 		return 0;
 
 	if (lwsi_state(wsi) != LRS_DISCARD_BODY) {
-		lwsi_set_state(wsi, LRS_BODY);
+		lws_wsi_event(wsi, LWS_WSIEV_BODY_BEGIN);
 		lwsl_info("%s: %s: LRS_BODY state set (0x%x)\n", __func__,
 			  lws_wsi_tag(wsi), (int)wsi->wsistate);
 
@@ -3450,7 +3450,7 @@ raw_transition:
 			goto raw_transition;
 		}
 
-		lwsi_set_state(wsi, LRS_H1_UPGRADE);
+		lws_wsi_event(wsi, LWS_WSIEV_REQ_HDRS_COMPLETE);
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
@@ -3515,7 +3515,7 @@ raw_transition:
 
 		lwsl_info("%s: %s: No upgrade\n", __func__, lws_wsi_tag(wsi));
 
-		lwsi_set_state(wsi, LRS_ESTABLISHED);
+		lws_wsi_event(wsi, LWS_WSIEV_REQ_PLAIN_HTTP);
 #if defined(LWS_WITH_FILE_OPS)
 		wsi->http.fop_fd = NULL;
 #endif
@@ -3727,7 +3727,7 @@ lws_http_transaction_completed(struct lws *wsi)
 		 * let's defer transaction completed processing until we
 		 * discarded the remaining body
 		 */
-		lwsi_set_state(wsi, LRS_DISCARD_BODY);
+		lws_wsi_event(wsi, LWS_WSIEV_BODY_DISCARD);
 
 		return 0;
 	}
@@ -3802,7 +3802,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	 */
 	lwsl_debug("%s: %s: setting DEF_ACT from 0x%x: %p\n", __func__,
 		   lws_wsi_tag(wsi), (int)wsi->wsistate, wsi->buflist);
-	lwsi_set_state(wsi, LRS_TXN_COMPLETED);
+	lws_wsi_event(wsi, LWS_WSIEV_TXN_COMPLETED);
 	wsi->http.tx_content_length = 0;
 	wsi->http.tx_content_remain = 0;
 	wsi->sending_chunked = 0;
@@ -4341,7 +4341,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	}
 
 	wsi->http.filepos = 0;
-	lwsi_set_state(wsi, LRS_ISSUING_FILE);
+	lws_wsi_event(wsi, LWS_WSIEV_FILE_BEGIN);
 
 	if (wsi->http.method_head) {
 		/* we do not emit the body */
@@ -4609,7 +4609,7 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 
 			pthread_cond_signal(&wsi->a.context->async_worker_cond);
 			pthread_mutex_unlock(&wsi->a.context->async_worker_mutex);
-			lwsi_set_state(wsi, LRS_AWAITING_FILE_READ);
+			lws_wsi_event(wsi, LWS_WSIEV_FILE_READ_QUEUED);
 			return 0; // go back to event loop, wait for worker
 		}
 
@@ -4751,7 +4751,7 @@ all_sent:
 		)
 #endif
 		) {
-			lwsi_set_state(wsi, LRS_ESTABLISHED);
+			lws_wsi_event(wsi, LWS_WSIEV_FILE_COMPLETE);
 			/* we might be in keepalive, so close it off here */
 			lws_vfs_file_close(&wsi->http.fop_fd);
 

@@ -32,12 +32,12 @@ const char *lws_wsi_tag(struct lws *wsi) {
 
 
 #if defined(LWS_WITH_STATE_TRACE) || defined(LWS_WITH_STATE_CHECK)
-#define lws_state_hook(wsi, fo, f, to, t, how) \
-		lws_wsi_state_changed(wsi, fo, f, to, t, how)
+#define lws_state_hook(wsi, fo, f, to, t, how, ev) \
+		lws_wsi_state_changed(wsi, fo, f, to, t, how, ev)
 #else
 /* consume the old-state argument so the setters need no #if of their own */
-#define lws_state_hook(wsi, fo, f, to, t, how) \
-				do { (void)(fo); (void)(f); } while (0)
+#define lws_state_hook(wsi, fo, f, to, t, how, ev) \
+				do { (void)(fo); (void)(f); (void)(ev); } while (0)
 #endif
 
 const enum lwsi_state lws_lrs_of_close[8] = {
@@ -119,7 +119,7 @@ lwsi_set_transport(struct lws *wsi, enum lws_transport_phase phase)
 	wsi->wsistate = (old & ~LWSI_TRANSPORT_MASK) |
 			((lws_wsi_state_t)phase << LWSI_TRANSPORT_SHIFT);
 	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
-		       "set_transport");
+		       "set_transport", NULL);
 
 	lwsl_wsi_debug(wsi, "lwsi_set_transport 0x%lx -> 0x%lx",
 			(unsigned long)old, (unsigned long)wsi->wsistate);
@@ -135,7 +135,7 @@ lwsi_set_txn_completing(struct lws *wsi, int on)
 	else
 		wsi->wsistate &= ~LWSIFS_TXN_COMPLETING;
 	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
-		       "set_completing");
+		       "set_completing", NULL);
 }
 
 void
@@ -148,7 +148,7 @@ lwsi_set_skt_unusable(struct lws *wsi, int on)
 	else
 		wsi->wsistate &= ~LWSIFS_SKT_UNUSABLE;
 	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
-		       "set_unusable");
+		       "set_unusable", NULL);
 }
 
 void
@@ -159,7 +159,7 @@ lwsi_set_close(struct lws *wsi, enum lws_close_phase phase)
 	wsi->wsistate = (old & ~LWSI_CLOSE_MASK) |
 			((lws_wsi_state_t)phase << LWSI_CLOSE_SHIFT);
 	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
-		       "set_close");
+		       "set_close", NULL);
 
 	lwsl_wsi_debug(wsi, "lwsi_set_close 0x%lx -> 0x%lx", (unsigned long)old,
 			(unsigned long)wsi->wsistate);
@@ -172,13 +172,13 @@ void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role) {
 
 	wsi->wsistate = (old & ~(lws_wsi_state_t)LWSI_ROLE_MASK) | role;
 	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
-			"set_role");
+			"set_role", NULL);
 
 	lwsl_wsi_debug(wsi, "state 0x%lx", (unsigned long)wsi->wsistate);
 }
 #endif
 
-void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs) {
+void lws_wsi_set_state_ev(struct lws *wsi, lws_wsi_state_t lrs, const char *ev) {
 	lws_wsi_state_t old = wsi->wsistate, w;
 	enum lws_carrier_phase lcr = lws_lcr_of_lrs(lrs);
 
@@ -213,10 +213,14 @@ void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs) {
 
 	wsi->wsistate = w;
 	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
-			"set_state");
+			"set_state", ev);
 
 	lwsl_wsi_debug(wsi, "lwsi_set_state 0x%lx -> 0x%lx", (unsigned long)old,
 			(unsigned long)wsi->wsistate);
+}
+
+void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs) {
+	lws_wsi_set_state_ev(wsi, lrs, NULL);
 }
 
 void lws_log_prepend_wsi(struct lws_log_cx *cx, void *obj, char **p, char *e) {
@@ -1162,7 +1166,7 @@ void lws_role_transition(struct lws *wsi, enum lwsi_role role,
 	if (ops)
 		wsi->role_ops = ops;
 	lws_state_hook(wsi, old_ops, old, wsi->role_ops, wsi->wsistate,
-			"role_transition");
+			"role_transition", NULL);
 #if (_LWS_ENABLED_LOGS & LLL_DEBUG)
 	if (wsi->role_ops)
 		name = wsi->role_ops->name;

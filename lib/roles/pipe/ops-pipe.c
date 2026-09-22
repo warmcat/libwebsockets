@@ -132,7 +132,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 
 			lws_dll2_remove(d);
 			if (job->type == LWS_AQ_FILE_READ) {
-				lwsi_set_state(job->wsi, LRS_ISSUING_FILE);
+				lws_wsi_event(job->wsi, LWS_WSIEV_FILE_READ_DONE);
 				lws_callback_on_writable(job->wsi);
 			}
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_SERVER)

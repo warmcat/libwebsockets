@@ -1117,7 +1117,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		wsi->h2_acked_settings = 0;
 		/* this is the end of the preface dance then? */
 		if (lwsi_state(wsi) == LRS_H2_AWAIT_SETTINGS) {
-			lwsi_set_state(wsi, LRS_ESTABLISHED);
+			lws_wsi_event(wsi, LWS_WSIEV_H2_SETTINGS_ACKED);
 #if defined(LWS_WITH_FILE_OPS)
 			wsi->http.fop_fd = NULL;
 #endif
@@ -2447,7 +2447,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		{
 			lwsl_debug("%s: setting DEF_ACT from 0x%x\n", __func__,
 				   (unsigned int)h2n->swsi->wsistate);
-			lwsi_set_state(h2n->swsi, LRS_DEFERRING_ACTION);
+			lws_wsi_event(h2n->swsi, LWS_WSIEV_REQ_HDRS_COMPLETE);
 			lws_callback_on_writable(h2n->swsi);
 		}
 		break;
@@ -2718,7 +2718,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 				break;
 
 			lwsl_info("http2: %s: established\n", lws_wsi_tag(wsi));
-			lwsi_set_state(wsi, LRS_H2_AWAIT_SETTINGS);
+			lws_wsi_event(wsi, LWS_WSIEV_H2_PREFACE_RX);
 			lws_validity_confirmed(wsi);
 			h2n->count = 0;
 			wsi->txc.tx_cr = 65535;
@@ -2898,7 +2898,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 				if (lwsi_role_http(h2n->swsi) &&
 				    (lwsi_state(h2n->swsi) == LRS_ESTABLISHED ||
 				     lwsi_state(h2n->swsi) == LRS_HEADERS)) {
-					lwsi_set_state(h2n->swsi, LRS_BODY);
+					lws_wsi_event(h2n->swsi, LWS_WSIEV_BODY_BEGIN);
 					lwsl_info("%s: %s to LRS_BODY\n",
 							__func__, lws_wsi_tag(h2n->swsi));
 				}
@@ -3765,12 +3765,8 @@ lws_h2_ws_handshake(struct lws *wsi)
 		return -1;
 	}
 
-	/*
-	 * alright clean up, set our state to generic ws established, the
-	 * mode / state of the nwsi will get the h2 processing done.
-	 */
+	/* the caller's role transition to ws follows; the nwsi does the h2 */
 
-	lwsi_set_state(wsi, LRS_ESTABLISHED);
 	wsi->lws_rx_parse_state = 0; // ==LWS_RXPS_NEW;
 
 	uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);

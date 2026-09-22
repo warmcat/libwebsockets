@@ -795,9 +795,8 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 		goto bail;
 	}
 
-	/* alright clean up and set ourselves into established state */
+	/* the role transition to ws established was made by the caller */
 
-	lwsi_set_state(wsi, LRS_ESTABLISHED);
 	wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 
 	{

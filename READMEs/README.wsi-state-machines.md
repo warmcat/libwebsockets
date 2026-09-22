@@ -247,20 +247,26 @@ over the ctest suite and the fuzz seed corpus, plus the statically present
 edges nothing reaches (marked as such, each citing its site).  A new edge is
 either an omission in the table or a bug at the site.
 
-## Next: events instead of states at the sites
+## Events
 
-The 156 places that write the word today each name the state they want.
+The sites of the carrier and transaction machines do not name the state
+they want; they report what happened with `lws_wsi_event(wsi, LWS_WSIEV_*)`
+and the event table in `wsi-state.c` says what state that lands in, by
+role, side and current state.  The same event lands in different states by
+role (request headers complete is `H1_UPGRADE` on an h1 server and
+`DEFERRING_ACTION` on a mux stream), and a site does not choose.  The
+site-local facts that used to pick the state (is a body pending, was an
+upgrade asked for) are distinct events instead, so the information is in
+the word rather than in a bool beside it.  An event with no row is a bug
+at the site: the state is left alone, an error is logged, and
+`LWS_WITH_STATE_CHECK` aborts.  The trace shows the event on each edge as
+`ev=NAME`.
+
 For the transport and close machines every site corresponds to exactly one
-phase, so the phase name is the event name and nothing is gained by
-renaming.  For the transaction machine it is different: the same thing
-happening leads to different states by role and side, and the site-local
-facts that decide it (is a body pending, was an upgrade asked for, can the
-action run now, is there a pipelined next request) are today re-derived at
-each site.  Naming those as events makes the tables the transition function
-rather than only a check on it, which is the shape a protocol core needs
-to be driven from outside its I/O.
+phase, so the phase name is the event name and they keep their phase
+setters.
 
-The events the sites reduce to, with the states they lead to today:
+The events, with the states they lead to:
 
 |event|h1 server|h2 / h3 server stream|h1 client|h2 / h3 client stream|
 |---|---|---|---|---|
@@ -283,9 +289,5 @@ The events the sites reduce to, with the states they lead to today:
 |auth challenge, retrying|||`H1C_ISSUE_HANDSHAKE2`||
 |stream born||`HEADERS`||`H2_WAITING_TO_SEND_HEADERS`|
 
-With that table `ESTABLISHED` now means one thing on each side: on a
-server, acting on a parsed request; on a client, a response in flight.
-The decision still open before the sites are converted is the event
-vocabulary itself: whether the site-local facts (body pending, upgrade
-asked, can act now, pipelined next) become distinct events or arguments of
-one, since that is the interface a protocol core would be driven through.
+`ESTABLISHED` means one thing on each side: on a server, acting on a
+parsed request; on a client, a response in flight.

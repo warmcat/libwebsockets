@@ -21,11 +21,11 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- * wsi role / state transition tables, trace and check.
- *
- * Only built with LWS_WITH_STATE_TRACE and / or LWS_WITH_STATE_CHECK, both
- * off by default.  Neither changes what any transition does; they observe
- * the setters in wsi.c, the only places wsistate and role_ops are written.
+ * wsi state machines: the event table that drives the carrier and
+ * transaction machines, and (with LWS_WITH_STATE_TRACE / LWS_WITH_STATE_CHECK,
+ * both off by default) the trace and the check of every transition against
+ * the per-machine tables.  The trace and check observe the setters in wsi.c,
+ * the only places wsistate and role_ops are written, and change nothing.
  *
  * The LRS states are the states of four machines, each in its own bits of
  * wsistate (see READMEs/README.wsi-state-machines.md):
@@ -136,6 +136,148 @@ lws_wsi_state_fmt(const struct lws_role_ops *ops, lws_wsi_state_t s,
 		     (w & LWSIFS_SKT_UNUSABLE) ? "+unusable" : "");
 }
 
+const char * const lws_wsi_event_names[LWS_WSIEV_COUNT] = {
+	[LWS_WSIEV_TRANSPORT_UP]	= "TRANSPORT_UP",
+	[LWS_WSIEV_H2_PREFACE_RX]	= "H2_PREFACE_RX",
+	[LWS_WSIEV_H2_SETTINGS_ACKED]	= "H2_SETTINGS_ACKED",
+	[LWS_WSIEV_REQ_HDRS_COMPLETE]	= "REQ_HDRS_COMPLETE",
+	[LWS_WSIEV_REQ_PLAIN_HTTP]	= "REQ_PLAIN_HTTP",
+	[LWS_WSIEV_ACTION_DEFERRED_RUN]	= "ACTION_DEFERRED_RUN",
+	[LWS_WSIEV_ACTION_BEGIN]	= "ACTION_BEGIN",
+	[LWS_WSIEV_BODY_BEGIN]		= "BODY_BEGIN",
+	[LWS_WSIEV_BODY_COMPLETE]	= "BODY_COMPLETE",
+	[LWS_WSIEV_BODY_DISCARD]	= "BODY_DISCARD",
+	[LWS_WSIEV_TXN_COMPLETED]	= "TXN_COMPLETED",
+	[LWS_WSIEV_TXN_DRAINED]		= "TXN_DRAINED",
+	[LWS_WSIEV_FILE_BEGIN]		= "FILE_BEGIN",
+	[LWS_WSIEV_FILE_READ_QUEUED]	= "FILE_READ_QUEUED",
+	[LWS_WSIEV_FILE_READ_DONE]	= "FILE_READ_DONE",
+	[LWS_WSIEV_FILE_COMPLETE]	= "FILE_COMPLETE",
+};
+
+#define ANY 0xffff
+
+static void
+lws_state_side(lws_wsi_state_t s, char *side)
+{
+	side[0] = (s & LWSIFR_CLIENT) ? 'C' : ((s & LWSIFR_SERVER) ? 'S' : '-');
+	side[1] = (s & LWSI_ROLE_ENCAP_MASK) ? 'e' : '\0';
+	side[2] = '\0';
+}
+
+static int
+lws_state_match(const char *want, const char *have)
+{
+	return !strcmp(want, "*") || !strcmp(want, have);
+}
+
+/*
+ * The transition function of the carrier and transaction machines: what
+ * state an event lands a connection in, by role, side and current state.
+ * role and side are the role_ops name and C / S / - with a trailing e for
+ * h2-encapsulated, or "*"; from is the state lwsi_state() reports or ANY.
+ * The first matching row wins, so a role's own row goes before a "*" one.
+ *
+ * A (role, side, state, event) with no row is a bug at the site that
+ * raised it: lws_wsi_event() leaves the state alone and returns -1, and
+ * aborts with LWS_WITH_STATE_CHECK.
+ */
+
+struct lws_wsi_event_edge {
+	const char		*role;
+	const char		*side;
+	uint16_t		from;
+	uint8_t			ev;
+	uint16_t		to;
+};
+
+static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
+	/* the transport finished: a server starts on the request, others are up */
+	{ "h1", "S", LRS_SSL_ACK_PENDING,	LWS_WSIEV_TRANSPORT_UP, LRS_HEADERS },
+	{ "h1", "S", LRS_AWAITING_SSL_ACCEPT,	LWS_WSIEV_TRANSPORT_UP, LRS_HEADERS },
+	{ "h1", "S", LRS_SSL_INIT,		LWS_WSIEV_TRANSPORT_UP, LRS_HEADERS },
+	{ "*",  "S", LRS_SSL_ACK_PENDING,	LWS_WSIEV_TRANSPORT_UP, LRS_ESTABLISHED },
+	{ "*",  "S", LRS_AWAITING_SSL_ACCEPT,	LWS_WSIEV_TRANSPORT_UP, LRS_ESTABLISHED },
+	{ "*",  "S", LRS_SSL_INIT,		LWS_WSIEV_TRANSPORT_UP, LRS_ESTABLISHED },
+
+	/* h2 connection preface */
+	{ "h2", "S", LRS_H2_AWAIT_PREFACE,	LWS_WSIEV_H2_PREFACE_RX, LRS_H2_AWAIT_SETTINGS },
+	{ "h2", "S", LRS_H2_AWAIT_SETTINGS,	LWS_WSIEV_H2_SETTINGS_ACKED, LRS_ESTABLISHED },
+
+	/* request headers: h1 decides on the upgrade, mux streams defer the action */
+	{ "h1", "S", LRS_HEADERS,		LWS_WSIEV_REQ_HDRS_COMPLETE, LRS_H1_UPGRADE },
+	{ "h1", "S", LRS_ESTABLISHED,		LWS_WSIEV_REQ_HDRS_COMPLETE, LRS_H1_UPGRADE },
+	{ "h2", "S", LRS_HEADERS,		LWS_WSIEV_REQ_HDRS_COMPLETE, LRS_DEFERRING_ACTION },
+	{ "h2", "S", LRS_ESTABLISHED,		LWS_WSIEV_REQ_HDRS_COMPLETE, LRS_DEFERRING_ACTION },
+	{ "h3", "S", LRS_HEADERS,		LWS_WSIEV_REQ_HDRS_COMPLETE, LRS_DEFERRING_ACTION },
+	{ "h3", "S", LRS_ESTABLISHED,		LWS_WSIEV_REQ_HDRS_COMPLETE, LRS_DEFERRING_ACTION },
+	{ "h1", "S", LRS_H1_UPGRADE,		LWS_WSIEV_REQ_PLAIN_HTTP, LRS_ESTABLISHED },
+	{ "h2", "S", LRS_DEFERRING_ACTION,	LWS_WSIEV_ACTION_DEFERRED_RUN, LRS_ESTABLISHED },
+	{ "h3", "S", LRS_DEFERRING_ACTION,	LWS_WSIEV_ACTION_DEFERRED_RUN, LRS_ESTABLISHED },
+
+	/* acting on the request */
+	{ "h1", "S", LRS_ESTABLISHED,		LWS_WSIEV_ACTION_BEGIN, LRS_DOING_TRANSACTION },
+	{ "h2", "S", LRS_HEADERS,		LWS_WSIEV_ACTION_BEGIN, LRS_DOING_TRANSACTION },
+	{ "h2", "S", LRS_ESTABLISHED,		LWS_WSIEV_ACTION_BEGIN, LRS_DOING_TRANSACTION },
+	{ "h3", "S", LRS_HEADERS,		LWS_WSIEV_ACTION_BEGIN, LRS_DOING_TRANSACTION },
+	{ "h3", "S", LRS_ESTABLISHED,		LWS_WSIEV_ACTION_BEGIN, LRS_DOING_TRANSACTION },
+
+	/* request body */
+	{ "h1", "S", LRS_ESTABLISHED,		LWS_WSIEV_BODY_BEGIN, LRS_BODY },
+	{ "h1", "S", LRS_DOING_TRANSACTION,	LWS_WSIEV_BODY_BEGIN, LRS_BODY },
+	{ "h2", "*", LRS_ESTABLISHED,		LWS_WSIEV_BODY_BEGIN, LRS_BODY },
+	{ "h2", "*", LRS_HEADERS,		LWS_WSIEV_BODY_BEGIN, LRS_BODY },
+	{ "h3", "*", LRS_ESTABLISHED,		LWS_WSIEV_BODY_BEGIN, LRS_BODY },
+	{ "h2", "S", LRS_BODY,			LWS_WSIEV_BODY_COMPLETE, LRS_ESTABLISHED },
+	{ "h3", "S", LRS_BODY,			LWS_WSIEV_BODY_COMPLETE, LRS_ESTABLISHED },
+	{ "h1", "S", LRS_BODY,			LWS_WSIEV_BODY_DISCARD, LRS_DISCARD_BODY },
+
+	/* the h1 transaction ends and the connection is reused */
+	{ "h1", "S", LRS_ESTABLISHED,		LWS_WSIEV_TXN_COMPLETED, LRS_TXN_COMPLETED },
+	{ "h1", "S", LRS_BODY,			LWS_WSIEV_TXN_COMPLETED, LRS_TXN_COMPLETED },
+	{ "h1", "S", LRS_DISCARD_BODY,		LWS_WSIEV_TXN_COMPLETED, LRS_TXN_COMPLETED },
+	{ "h1", "S", LRS_DOING_TRANSACTION,	LWS_WSIEV_TXN_COMPLETED, LRS_TXN_COMPLETED },
+	{ "h1", "S", LRS_TXN_COMPLETED,		LWS_WSIEV_TXN_DRAINED, LRS_HEADERS },
+
+	/* serving a file */
+	{ "*",  "S", LRS_ESTABLISHED,		LWS_WSIEV_FILE_BEGIN, LRS_ISSUING_FILE },
+	{ "*",  "S", LRS_DOING_TRANSACTION,	LWS_WSIEV_FILE_BEGIN, LRS_ISSUING_FILE },
+	{ "*",  "S", LRS_ISSUING_FILE,		LWS_WSIEV_FILE_READ_QUEUED, LRS_AWAITING_FILE_READ },
+	{ "*",  "S", LRS_AWAITING_FILE_READ,	LWS_WSIEV_FILE_READ_DONE, LRS_ISSUING_FILE },
+	{ "*",  "S", LRS_ISSUING_FILE,		LWS_WSIEV_FILE_COMPLETE, LRS_ESTABLISHED },
+};
+
+int
+lws_wsi_event(struct lws *wsi, enum lws_wsi_event ev)
+{
+	const char *role = wsi->role_ops ? wsi->role_ops->name : "(none)";
+	const struct lws_wsi_event_edge *e = lws_wsi_event_edges;
+	lws_wsi_state_t from = lws_wsi_state_of(wsi->wsistate);
+	char side[3], a[64];
+	unsigned int n;
+
+	lws_state_side(from, side);
+
+	for (n = 0; n < LWS_ARRAY_SIZE(lws_wsi_event_edges); n++, e++)
+		if (e->ev == ev &&
+		    (e->from == ANY || e->from == (from & LRS_MASK)) &&
+		    lws_state_match(e->role, role) &&
+		    lws_state_match(e->side, side)) {
+			lws_wsi_set_state_ev(wsi, e->to, lws_wsi_event_names[ev]);
+
+			return 0;
+		}
+
+	lws_wsi_state_fmt(wsi->role_ops, wsi->wsistate, a, sizeof(a));
+	lwsl_wsi_err(wsi, "no state for event %s in %s",
+		     lws_wsi_event_names[ev], a);
+#if defined(LWS_WITH_STATE_CHECK)
+	abort();
+#endif
+
+	return -1;
+}
+
 #if defined(LWS_WITH_STATE_TRACE)
 
 /*
@@ -161,7 +303,7 @@ static unsigned int lws_state_trace_count;
 static void
 lws_wsi_state_trace(struct lws *wsi, const struct lws_role_ops *from_ops,
 		    lws_wsi_state_t from, const struct lws_role_ops *to_ops,
-		    lws_wsi_state_t to, const char *how)
+		    lws_wsi_state_t to, const char *how, const char *ev)
 {
 	struct lws_state_trace_edge *e = lws_state_trace_edges;
 	char a[64], b[64];
@@ -191,7 +333,8 @@ lws_wsi_state_trace(struct lws *wsi, const struct lws_role_ops *from_ops,
 	if (!f)
 		return;
 
-	fprintf(f, "LRS %s -> %s %s %s\n", a, b, how, lws_wsi_tag(wsi));
+	fprintf(f, "LRS %s -> %s %s %s%s%s\n", a, b, how, lws_wsi_tag(wsi),
+		ev ? " ev=" : "", ev ? ev : "");
 	if (path)
 		fclose(f);
 	else
@@ -262,8 +405,6 @@ lws_state_machine_name(lws_wsi_state_t s)
 
 	return lws_state_machine_names[lws_lrs_machine[i]];
 }
-
-#define ANY 0xffff
 
 /*
  * Allowed edges where the role ops do not change.  role and side are the
@@ -499,20 +640,6 @@ static const struct lws_role_edge lws_role_edges[] = {
 	{ "h3", "*", LRS_ESTABLISHED, "wt", "*", LRS_ESTABLISHED },	/* ops-h3.c webtransport session */
 };
 
-static void
-lws_state_side(lws_wsi_state_t s, char *side)
-{
-	side[0] = (s & LWSIFR_CLIENT) ? 'C' : ((s & LWSIFR_SERVER) ? 'S' : '-');
-	side[1] = (s & LWSI_ROLE_ENCAP_MASK) ? 'e' : '\0';
-	side[2] = '\0';
-}
-
-static int
-lws_state_match(const char *want, const char *have)
-{
-	return !strcmp(want, "*") || !strcmp(want, have);
-}
-
 static int
 lws_state_edge_allowed(const struct lws_role_ops *ops, lws_wsi_state_t from,
 		       lws_wsi_state_t to)
@@ -657,14 +784,16 @@ lws_wsi_state_check(struct lws *wsi, const struct lws_role_ops *from_ops,
 }
 #endif
 
+#if defined(LWS_WITH_STATE_TRACE) || defined(LWS_WITH_STATE_CHECK)
 /*
- * Called from the three setters in wsi.c after the new state is in place
+ * Called from the setters in wsi.c after the new state is in place; ev is
+ * the event name when the change came through lws_wsi_event(), else NULL
  */
 
 void
 lws_wsi_state_changed(struct lws *wsi, const struct lws_role_ops *from_ops,
 		      lws_wsi_state_t from, const struct lws_role_ops *to_ops,
-		      lws_wsi_state_t to, const char *how)
+		      lws_wsi_state_t to, const char *how, const char *ev)
 {
 	int attr_only = lws_wsi_state_of(from) == lws_wsi_state_of(to) &&
 			from_ops == to_ops;
@@ -678,7 +807,9 @@ lws_wsi_state_changed(struct lws *wsi, const struct lws_role_ops *from_ops,
 		return;
 
 #if defined(LWS_WITH_STATE_TRACE)
-	lws_wsi_state_trace(wsi, from_ops, from, to_ops, to, how);
+	lws_wsi_state_trace(wsi, from_ops, from, to_ops, to, how, ev);
+#else
+	(void)ev;
 #endif
 #if defined(LWS_WITH_STATE_CHECK)
 	/* only an attribute changed: no edge to check */
@@ -686,3 +817,4 @@ lws_wsi_state_changed(struct lws *wsi, const struct lws_role_ops *from_ops,
 		lws_wsi_state_check(wsi, from_ops, from, to_ops, to, how);
 #endif
 }
+#endif

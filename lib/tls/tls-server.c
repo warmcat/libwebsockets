@@ -608,8 +608,7 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 	lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
 			(int)context->timeout_secs);
 
-	/* an h1 server goes to parse the request; other roles are up */
-	lwsi_set_state(wsi, lwsi_role_h1(wsi) ? LRS_HEADERS : LRS_ESTABLISHED);
+	lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 	if (lws_tls_server_conn_alpn(wsi)) {
 		lwsl_warn("%s: fail on alpn\n", __func__);
 		return 1; /* fail */
@@ -938,7 +937,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 	return 0;
 
 notls_accepted:
-	lwsi_set_state(wsi, lwsi_role_h1(wsi) ? LRS_HEADERS : LRS_ESTABLISHED);
+	lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 
 	return 0;
 

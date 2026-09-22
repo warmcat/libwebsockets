@@ -487,7 +487,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 	if (lwsi_state(wsi) == LRS_DEFERRING_ACTION) {
 		int n;
 
-		lwsi_set_state(wsi, LRS_ESTABLISHED);
+		lws_wsi_event(wsi, LWS_WSIEV_ACTION_DEFERRED_RUN);
 
 		lwsl_debug("H3_TRACE: wsi %p entering lws_http_action from rops_perform_user_POLLOUT_h3\n", wsi);
 		n = lws_http_action(wsi);
@@ -1588,7 +1588,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 										lwsl_wsi_notice(wsi, "DATA after body completed");
 										return 1;
 									}
-									lwsi_set_state(wsi, LRS_BODY);
+									lws_wsi_event(wsi, LWS_WSIEV_BODY_BEGIN);
 								}
 							}
 
@@ -1857,7 +1857,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 							}
 						}
 
-						lwsi_set_state(wsi, LRS_DEFERRING_ACTION);
+						lws_wsi_event(wsi, LWS_WSIEV_REQ_HDRS_COMPLETE);
 						lws_callback_on_writable(wsi);
 						lwsl_debug("H3_TRACE: wsi %p transitioned to LRS_DEFERRING_ACTION and called callback_on_writable\n", wsi);
 					}

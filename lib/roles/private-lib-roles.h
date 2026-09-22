@@ -396,6 +396,46 @@ lwsi_state_of_word(lws_wsi_state_t w)
 	 lwsi_state(wsi) == LRS_H2_WAITING_TO_SEND_HEADERS || \
 	 lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY))
 void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs);
+void lws_wsi_set_state_ev(struct lws *wsi, lws_wsi_state_t lrs, const char *ev);
+
+/*
+ * What happened, as the sites of the carrier and transaction machines report
+ * it.  The state that follows is the event table's business
+ * (lib/core-net/wsi-state.c), keyed on role, side, current state and event:
+ * the same event lands in different states by role, and a site does not
+ * choose.  The transport and close machines keep their phase setters: each
+ * of their sites maps to exactly one phase, so the phase is the event.
+ */
+enum lws_wsi_event {
+	LWS_WSIEV_TRANSPORT_UP,		/* socket up, tls done or not wanted */
+
+	/* carrier */
+	LWS_WSIEV_H2_PREFACE_RX,	/* server: the peer's preface arrived */
+	LWS_WSIEV_H2_SETTINGS_ACKED,	/* the settings exchange completed */
+
+	/* server transaction */
+	LWS_WSIEV_REQ_HDRS_COMPLETE,	/* request headers parsed */
+	LWS_WSIEV_REQ_PLAIN_HTTP,	/* ... and it asked for no upgrade */
+	LWS_WSIEV_ACTION_DEFERRED_RUN,	/* the deferred action runs now */
+	LWS_WSIEV_ACTION_BEGIN,		/* a mount action or user callback is on */
+	LWS_WSIEV_BODY_BEGIN,		/* body bytes will follow */
+	LWS_WSIEV_BODY_COMPLETE,	/* the body was all delivered */
+	LWS_WSIEV_BODY_DISCARD,		/* the user is done, drain what is left */
+	LWS_WSIEV_TXN_COMPLETED,	/* lws_http_transaction_completed() */
+	LWS_WSIEV_TXN_DRAINED,		/* ... and writable with tx drained */
+	LWS_WSIEV_FILE_BEGIN,		/* serving a file */
+	LWS_WSIEV_FILE_READ_QUEUED,	/* a read is out on a worker */
+	LWS_WSIEV_FILE_READ_DONE,	/* the worker returned it */
+	LWS_WSIEV_FILE_COMPLETE,	/* the whole file went out */
+
+	LWS_WSIEV_COUNT
+};
+
+extern const char * const lws_wsi_event_names[LWS_WSIEV_COUNT];
+
+/* returns 0 and moves to the listed state, or -1 leaving it (a bug here) */
+int
+lws_wsi_event(struct lws *wsi, enum lws_wsi_event ev);
 
 #define _LWS_ADOPT_FINISH (1 << 24)
 
