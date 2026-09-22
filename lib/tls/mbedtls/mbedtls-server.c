@@ -545,7 +545,10 @@ enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
 {
 	union lws_tls_cert_info_results ir;
-	int n, en;
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
+	int en;
+#endif
+	int n;
 
 #if defined(LWS_WITH_LATENCY)
 	lws_usec_t _o_mbed_ssl_acc_start = lws_now_usecs();
@@ -612,9 +615,11 @@ lws_tls_server_accept(struct lws *wsi)
 		return LWS_SSL_CAPABLE_DONE;
 	}
 
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
 	en = errno;
 	lwsl_debug("%s: %s: accept mbedtls_ssl_handshake %d errno %d\n", __func__,
 		    lws_wsi_tag(wsi), n, en);
+#endif
 
 	if (n == MBEDTLS_ERR_SSL_WANT_READ) {
 		if (!wsi->tls.ssl_accept_in_bg && lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
