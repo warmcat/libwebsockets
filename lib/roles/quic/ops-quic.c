@@ -4695,6 +4695,7 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 				lws_remove_parallel_fd_safely(wsi, i);
 
 		wsi->parallel_count = 0;
+		lws_free_set_NULL(wsi->parallel_conns);
 	}
 #endif
 

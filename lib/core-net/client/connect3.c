@@ -725,6 +725,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 						/* A parallel socket failed. Just close it and remove from fds */
 						lws_remove_parallel_fd_safely(wsi, m);
 				wsi->parallel_count = 0;
+				lws_free_set_NULL(wsi->parallel_conns);
 				goto conn_good;
 			case LCCCR_CONTINUE:
 #if defined(WIN32)
@@ -791,6 +792,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 					}
 					/* all failed */
 					wsi->parallel_count = 0;
+					lws_free_set_NULL(wsi->parallel_conns);
 					/*
 					 * The primary was dispositioned before
 					 * any parallel racer could start (eg,
@@ -927,6 +929,15 @@ ads_known:
 	if (!lws_socket_is_valid(wsi->desc.sockfd) || wsi->parallel_count < LWS_MAX_PARALLEL_CONNS) {
 
 		is_parallel = lws_socket_is_valid(wsi->desc.sockfd);
+		if (is_parallel && !wsi->parallel_conns) {
+			wsi->parallel_conns = lws_zalloc(LWS_MAX_PARALLEL_CONNS *
+						sizeof(*wsi->parallel_conns),
+						"racers");
+			if (!wsi->parallel_conns) {
+				cce = "OOM";
+				goto oom4;
+			}
+		}
 		pidx = is_parallel ? wsi->parallel_count++ : -1;
 		new_fd = LWS_SOCK_INVALID;
 		saved_pos = -1;
@@ -1535,6 +1546,7 @@ conn_good:
 			}
 		}
 		wsi->parallel_count = 0;
+		lws_free_set_NULL(wsi->parallel_conns);
 	} else {
 		lwsl_wsi_info(wsi, "QUIC reached conn_good, keeping %d parallel TCP sockets alive", wsi->parallel_count);
 	}

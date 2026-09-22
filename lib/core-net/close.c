@@ -315,6 +315,7 @@ __lws_free_wsi(struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 	if (wsi->stash)
 		lws_free_set_NULL(wsi->stash);
+	lws_free_set_NULL(wsi->parallel_conns);
 #endif
 
 	if (wsi->a.context->event_loop_ops->destroy_wsi)
@@ -817,6 +818,7 @@ just_kill_connection:
 		}
 	}
 	wsi->parallel_count = 0;
+	lws_free_set_NULL(wsi->parallel_conns);
 #endif
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	lws_async_dns_cancel(wsi);

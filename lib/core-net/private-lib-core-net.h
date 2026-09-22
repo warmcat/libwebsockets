@@ -994,7 +994,8 @@ struct lws {
 	 * origin port */
 #endif
 
-	struct lws_client_parallel_conn parallel_conns[LWS_MAX_PARALLEL_CONNS];
+	/* the happy-eyeballs racers: allocated only while a race is on */
+	struct lws_client_parallel_conn *parallel_conns;
 	lws_sorted_usec_list_t		sul_happy_eyeballs;
 	lws_sorted_usec_list_t		sul_h3_grace;
 	uint8_t				parallel_count;
