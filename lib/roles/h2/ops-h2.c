@@ -1741,31 +1741,14 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		if (lwsi_role_ws(w) &&
 		    lwsi_close(w) == LCS_WAITING_TO_SEND_CLOSE) {
 			lwsl_debug("sending close packet\n");
-			write_type = LWS_WRITE_CLOSE;
-			if (!w->close_needs_ack)
-				/* it's our ack of his close: end the stream */
-				write_type |= LWS_WRITE_H2_STREAM_END;
 			n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
 				      w->ws->close_in_ping_buffer_len,
-				      (enum lws_write_protocol)write_type);
+				      LWS_WRITE_CLOSE);
 			if (n >= 0) {
-				if (w->close_needs_ack) {
-					/* we initiated it, wait for his ack */
-					lwsi_set_close(w, LCS_AWAITING_CLOSE_ACK);
-					lws_set_timeout(w, PENDING_TIMEOUT_CLOSE_ACK,
-							5);
-					lwsl_debug("sent close frame, awaiting ack\n");
-					continue;
-				}
-
-				/*
-				 * We were answering his close, so that was
-				 * the ack and we are done, the same as the
-				 * plain-socket path in rops_handle_POLLOUT_ws()
-				 */
-				lwsi_set_close(w, LCS_RETURNED_CLOSE);
-				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
-						   "returned close packet");
+				/* we initiated it: wait for his ack */
+				lwsi_set_close(w, LCS_AWAITING_CLOSE_ACK);
+				lws_set_timeout(w, PENDING_TIMEOUT_CLOSE_ACK, 5);
+				lwsl_debug("sent close frame, awaiting ack\n");
 			}
 
 			continue;

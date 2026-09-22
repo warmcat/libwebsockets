@@ -387,21 +387,18 @@ static const struct lws_state_edge lws_state_edges[] = {
 	{ "ws", "C", LRS_AWAITING_CLOSE_ACK, LRS_DEAD_SOCKET },
 	{ "ws", "C", LRS_FLUSHING_BEFORE_CLOSE, LRS_DEAD_SOCKET },
 	{ "ws", "C", LRS_WAITING_TO_SEND_CLOSE, LRS_AWAITING_CLOSE_ACK },
-	{ "ws", "C", LRS_WAITING_TO_SEND_CLOSE, LRS_RETURNED_CLOSE },
 	{ "ws", "Ce", LRS_ESTABLISHED, LRS_WAITING_TO_SEND_CLOSE },	/* txn -> close */
 	{ "ws", "Ce", LRS_AWAITING_CLOSE_ACK, LRS_DEAD_SOCKET },
 	{ "ws", "Ce", LRS_RETURNED_CLOSE, LRS_DEAD_SOCKET },
 	{ "ws", "Ce", LRS_WAITING_TO_SEND_CLOSE, LRS_AWAITING_CLOSE_ACK },
 	{ "ws", "Ce", LRS_WAITING_TO_SEND_CLOSE, LRS_DEAD_SOCKET },
-	{ "ws", "Ce", LRS_WAITING_TO_SEND_CLOSE, LRS_RETURNED_CLOSE },
-	{ "ws", "S", LRS_ESTABLISHED, LRS_RETURNED_CLOSE },	/* txn -> close */
+	{ "ws", "*", LRS_ESTABLISHED, LRS_RETURNED_CLOSE },	/* peer's CLOSE, we answer */	/* txn -> close */
 	{ "ws", "S", LRS_ESTABLISHED, LRS_WAITING_TO_SEND_CLOSE },	/* txn -> close */
 	{ "ws", "S", LRS_AWAITING_CLOSE_ACK, LRS_SHUTDOWN },
 	{ "ws", "S", LRS_FLUSHING_BEFORE_CLOSE, LRS_SHUTDOWN },
 	{ "ws", "S", LRS_SHUTDOWN, LRS_DEAD_SOCKET },
 	{ "ws", "S", LRS_WAITING_TO_SEND_CLOSE, LRS_AWAITING_CLOSE_ACK },
 	{ "ws", "S", LRS_WAITING_TO_SEND_CLOSE, LRS_DEAD_SOCKET },
-	{ "ws", "Se", LRS_ESTABLISHED, LRS_RETURNED_CLOSE },	/* txn -> close */
 	{ "ws", "Se", LRS_ESTABLISHED, LRS_WAITING_TO_SEND_CLOSE },	/* txn -> close */
 	{ "ws", "Se", LRS_AWAITING_CLOSE_ACK, LRS_DEAD_SOCKET },
 	{ "ws", "Se", LRS_RETURNED_CLOSE, LRS_DEAD_SOCKET },
@@ -575,10 +572,6 @@ lws_state_invariant(struct lws *wsi, lws_wsi_state_t to)
 	case LRS_RETURNED_CLOSE:
 		if (!lwsi_role_ws(wsi))
 			return "RETURNED_CLOSE on a non-ws role";
-		break;
-	case LRS_AWAITING_CLOSE_ACK:
-		if (!wsi->close_needs_ack)
-			return "AWAITING_CLOSE_ACK without close_needs_ack";
 		break;
 	case LRS_SHUTDOWN:
 		if (to & LWSIFR_CLIENT)

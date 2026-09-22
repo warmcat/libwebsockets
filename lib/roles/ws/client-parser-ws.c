@@ -669,16 +669,20 @@ spill:
 					wsi->ws->rx_ubuf_head))
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
-			memcpy(wsi->ws->ping_payload_buf + LWS_PRE, pp,
-			       wsi->ws->rx_ubuf_head);
-			wsi->ws->close_in_ping_buffer_len =
-					(uint8_t)wsi->ws->rx_ubuf_head;
-
+			/*
+			 * We are the responder: answer his close with his own
+			 * payload from the pong path, the same as the server
+			 * side does, and stop reading meanwhile
+			 */
 			lwsl_wsi_info(wsi, "scheduling return close as ack");
 			__lws_change_pollfd(wsi, LWS_POLLIN, 0);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 3);
-			wsi->close_needs_ack = 0;
-			lwsi_set_close(wsi, LCS_WAITING_TO_SEND_CLOSE);
+			lwsi_set_close(wsi, LCS_RETURNED_CLOSE);
+			wsi->ws->payload_is_close = 1;
+			memcpy(wsi->ws->pong_payload_buf + LWS_PRE, pp,
+			       wsi->ws->rx_ubuf_head);
+			wsi->ws->pong_payload_len = (uint8_t)wsi->ws->rx_ubuf_head;
+			wsi->ws->pong_pending_flag = 1;
 			lws_callback_on_writable(wsi);
 			handled = 1;
 			break;

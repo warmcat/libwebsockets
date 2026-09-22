@@ -1485,16 +1485,12 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 			      wsi->ws->close_in_ping_buffer_len,
 			      LWS_WRITE_CLOSE);
 		if (n >= 0) {
-			if (wsi->close_needs_ack) {
-				lwsi_set_close(wsi, LCS_AWAITING_CLOSE_ACK);
-				lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK,
-						5);
-				lwsl_debug("sent close, await ack\n");
+			/* we initiated it: wait for his ack */
+			lwsi_set_close(wsi, LCS_AWAITING_CLOSE_ACK);
+			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK, 5);
+			lwsl_debug("sent close, await ack\n");
 
-				return LWS_HP_RET_BAIL_OK;
-			}
-			wsi->close_needs_ack = 0;
-			lwsi_set_close(wsi, LCS_RETURNED_CLOSE);
+			return LWS_HP_RET_BAIL_OK;
 		}
 
 		return LWS_HP_RET_BAIL_DIE;
@@ -1731,7 +1727,6 @@ rops_close_via_role_protocol_ws(struct lws *wsi, enum lws_close_status reason)
 		wsi->ws->ping_payload_buf[LWS_PRE + 1] = reason & 0xff;
 	}
 
-	wsi->close_needs_ack = 1;
 	lwsi_set_close(wsi, LCS_WAITING_TO_SEND_CLOSE);
 	__lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 5);
 

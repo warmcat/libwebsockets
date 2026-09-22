@@ -231,7 +231,6 @@ __lws_reset_wsi(struct lws *wsi)
 	wsi->h2_acked_settings = wsi->seen_nonpseudoheader =
 	wsi->socket_is_permanently_unusable = wsi->favoured_pollin =
 	wsi->already_did_cce = wsi->told_user_closed =
-	wsi->close_needs_ack =
 	wsi->parent_pending_cb_on_writable = wsi->seen_zero_length_recv =
 	wsi->close_when_buffered_out_drained = wsi->could_have_pending = 0;
 #endif

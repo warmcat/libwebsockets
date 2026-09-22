@@ -1060,7 +1060,6 @@ struct lws {
 	unsigned int			already_did_cce:1;
 	unsigned int			told_user_closed:1;
 	unsigned int			told_event_loop_closed:1;
-	unsigned int			close_needs_ack:1;
 	unsigned int			ipv6:1;
 	unsigned int			ipv4:1;
 	unsigned int			parent_pending_cb_on_writable:1;
