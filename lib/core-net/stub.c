@@ -916,7 +916,15 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 			       alive ? "is alive" : "has DIED/DOES NOT EXIST",
 			       mgr->lsp ? (int)(intptr_t)mgr->lsp->child_pid : -1);
 #endif
+		/*
+		 * We stop tracking this wsi here, so it must also stop
+		 * pointing at us: its destruction is asynchronous (eg, under
+		 * libuv it happens from the uv close callback) and we may
+		 * well be destroyed in between, leaving it to dereference
+		 * freed memory at WSI_DESTROY
+		 */
 		mgr->wsi_client = NULL;
+		lws_set_opaque_user_data(wsi, NULL);
 		lws_retry_sul_schedule(mgr->cx, 0, &mgr->sul, &stub_retry, stub_retry_cb, &mgr->ctry);
 		break;
 	}
@@ -1031,7 +1039,10 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_CLOSE:
 	case LWS_CALLBACK_CLIENT_CLOSED:
-		mgr->wsi_client = NULL;
+		/* as above, both directions of the link go at the same time */
+		if (mgr->wsi_client == wsi)
+			mgr->wsi_client = NULL;
+		lws_set_opaque_user_data(wsi, NULL);
 		lws_stub_conn_lost(mgr);
 		break;
 
@@ -1042,6 +1053,9 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 		 * we get at all when the context is being destroyed, since
 		 * the usual close callbacks are suppressed then.  Drop our
 		 * pointer to the wsi before its memory goes away.
+		 *
+		 * Any wsi we already stopped tracking cleared its opaque
+		 * pointer to us at that time and cannot arrive here.
 		 */
 		if (mgr->wsi_client == wsi)
 			mgr->wsi_client = NULL;
