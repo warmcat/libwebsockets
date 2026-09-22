@@ -4425,6 +4425,20 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 	}
 #endif
 
+		/*
+		 * Whatever was already buffered from the file went out above
+		 * without needing it, but from here on we are going to read
+		 * the file: if it is not open, the only thing we can do with
+		 * the connection is close it.  It means somebody left us in
+		 * LRS_ISSUING_FILE without a file, which is a bug, but it
+		 * must not be a remote crash.
+		 */
+		if (!wsi->http.fop_fd) {
+			lwsl_wsi_err(wsi, "issuing file with no file open");
+
+			goto file_had_it;
+		}
+
 		if (wsi->http.filepos == wsi->http.filelen)
 			goto all_sent;
 
