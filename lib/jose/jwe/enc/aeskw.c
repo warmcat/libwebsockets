@@ -143,7 +143,7 @@ lws_jwe_auth_and_decrypt_aeskw_cbc_hs(struct lws_jwe *jwe)
 					jwe->jose.enc_alg->hmac_type) +
 			LWS_JWE_RFC3394_OVERHEAD_BYTES) {
 		lwsl_err("%s: bad EKEY len %u\n", __func__,
-			 jwe->jws.map.len[LJWE_EKEY]);
+			 (unsigned int)jwe->jws.map.len[LJWE_EKEY]);
 
 		return -1;
 	}

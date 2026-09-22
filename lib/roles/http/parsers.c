@@ -1473,7 +1473,7 @@ swallow:
 					uhlen, sizeof(dotstar));
 				lwsl_debug("%s: unk header %d '%s'\n",
 					    __func__,
-					    ah->pos - (ah->unk_pos + UHO_NAME),
+					    (int)(ah->pos - (ah->unk_pos + UHO_NAME)),
 					    dotstar);
 #endif
 

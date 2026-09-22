@@ -1729,7 +1729,7 @@ lejp_conf_define_complete(struct lejp_conf_subs *subs, struct lejp_ctx *ctx)
 	v = lwsac_use(&s->ac, subs->pending_len + 1, LEJP_CONF_LWSAC_CHUNK);
 	if (!sym || !v) {
 		lwsl_err("%s: line %u: OOM creating define '%s'\n", __func__,
-			 ctx->line, subs->pending_name);
+			 (unsigned int)ctx->line, subs->pending_name);
 
 		return -1;
 	}
@@ -1778,7 +1778,7 @@ lejp_conf_str_chunk(struct lejp_conf_subs *subs, struct lejp_ctx *ctx,
 				      &used_out);
 		if (n < 0) {
 			lwsl_err("%s: line %u: substitution failed\n",
-				 __func__, ctx->line);
+				 __func__, (unsigned int)ctx->line);
 
 			return -1;
 		}
@@ -1862,7 +1862,7 @@ lejp_conf_preproc_cb(struct lejp_ctx *ctx, char reason)
 			return lejp_conf_forward(subs, ctx, reason);
 		default:
 			lwsl_err("%s: line %u: define '%s': value must be a "
-				 "string\n", __func__, ctx->line,
+				 "string\n", __func__, (unsigned int)ctx->line,
 				 subs->pending_name);
 			return -1;
 		}
@@ -1934,7 +1934,7 @@ lejp_conf_preproc_cb(struct lejp_ctx *ctx, char reason)
 
 		if (subs->untracked || !subs->depth) {
 			lwsl_err("%s: line %u: define nested too deeply\n",
-				 __func__, ctx->line);
+				 __func__, (unsigned int)ctx->line);
 			return -1;
 		}
 
@@ -1945,7 +1945,7 @@ lejp_conf_preproc_cb(struct lejp_ctx *ctx, char reason)
 		    strspn(nm, "abcdefghijklmnopqrstuvwxyz"
 			       "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != nl) {
 			lwsl_err("%s: line %u: invalid define name\n",
-				 __func__, ctx->line);
+				 __func__, (unsigned int)ctx->line);
 			return -1;
 		}
 

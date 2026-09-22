@@ -215,7 +215,7 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 	ah->hdr_token_idx = -1;
 
 	lwsl_header("%s: token %d ah->pos = %d, ah->nfrag = %d\n",
-		   __func__, hdr_token_idx, ah->pos, ah->nfrag);
+		   __func__, hdr_token_idx, (int)ah->pos, ah->nfrag);
 
 	if (!hdr_token_idx) {
 		lwsl_err("%s: zero hdr_token_idx\n", __func__);

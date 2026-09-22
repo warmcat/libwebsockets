@@ -561,7 +561,7 @@ lws_jwe_auth_and_decrypt_ecdh(struct lws_jwe *jwe)
 		if (jwe->jws.map.len[LJWE_EKEY] != (unsigned int)enc_hlen +
 					LWS_JWE_RFC3394_OVERHEAD_BYTES) {
 			lwsl_err("%s: bad EKEY len %u\n", __func__,
-				 jwe->jws.map.len[LJWE_EKEY]);
+				 (unsigned int)jwe->jws.map.len[LJWE_EKEY]);
 
 			goto bail;
 		}

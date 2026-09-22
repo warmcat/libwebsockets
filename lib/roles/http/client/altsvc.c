@@ -309,7 +309,7 @@ lws_client_alt_svc_learn(struct lws *wsi)
 				sizeof(payload), expiry, NULL);
 
 	lwsl_wsi_notice(wsi, "Alt-Svc: learned h3 :%u for %s (ma %us)",
-			alt.port, key, alt.ma_secs);
+			alt.port, key, (unsigned int)alt.ma_secs);
 
 	/* record host-level knowledge that an h3 alternative exists */
 

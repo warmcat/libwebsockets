@@ -603,7 +603,7 @@ second_half:
 			lws_pt_unlock(pt);
 
 			lwsl_cx_netlink_debug(cx, "route list size %u",
-				lws_dll2_count(&cx->routing_table));
+				(unsigned int)lws_dll2_count(&cx->routing_table));
 
 			/*
 			 * 3. Close anyything we cant reach anymore due to the removal.
