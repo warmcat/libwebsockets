@@ -202,7 +202,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		 * while a partial send is pending; if that just drained,
 		 * let it read again
 		 */
-		if (!lws_has_buffered_out(wsi) && wsi->upgraded_to_http2 &&
+		if (!lws_has_buffered_out(wsi) && lws_wsi_is_mux_nwsi(wsi) &&
 		    !lwsi_role_client(wsi) &&
 		    lws_change_pollfd(wsi, 0, LWS_POLLIN))
 			goto bail_die;

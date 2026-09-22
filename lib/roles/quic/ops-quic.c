@@ -4831,9 +4831,6 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 
 	/* the new network wsi is on our side, and up */
 	lws_wsi_event_x(nwsi, LWS_WSIEV_CONN_TAKEOVER, &role_ops_quic, wsi);
-	if (!strcmp(alpn, "h3")) {
-		nwsi->upgraded_to_http2 = 1;
-	}
 
 	/* Transition wsi to HTTP/3 and link as a child of nwsi */
 	/*

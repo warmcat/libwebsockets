@@ -111,7 +111,7 @@ lws_wsi_is_h2(struct lws *wsi)
 	if (lwsi_role_h3(wsi))
 		return 0;
 
-	return wsi->upgraded_to_http2 ||
+	return lws_wsi_is_mux_nwsi(wsi) ||
 	       wsi->mux_substream ||
 #if defined(LWS_WITH_CLIENT)
 	       wsi->client_mux_substream ||

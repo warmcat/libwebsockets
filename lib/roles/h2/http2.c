@@ -813,7 +813,7 @@ lws_h2_tx_cr_get(struct lws *wsi)
 	int c = wsi->txc.tx_cr;
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 
-	if (!wsi->mux_substream && !nwsi->upgraded_to_http2)
+	if (!wsi->mux_substream && !lws_wsi_is_mux_nwsi(nwsi))
 		return ~0x80000000;
 
 	lwsl_info ("%s: %s: own tx credit %d: nwsi credit %d\n",
@@ -1543,7 +1543,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			if (h2n->type == LWS_H2_FRAME_TYPE_COUNT)
 				return 0;
 
-			if (wsi->upgraded_to_http2 &&
+			if (lws_wsi_is_mux_nwsi(wsi) &&
 #if defined(LWS_WITH_CLIENT)
 			    (!(wsi->flags & LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM) ||
 #else

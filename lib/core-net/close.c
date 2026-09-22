@@ -27,8 +27,8 @@
 /*
  * The user has already had the last word on this connection, or waived it:
  * CLOSED was delivered, or this is the network wsi of a migrated mqtt client
- * mux, whose sessions belong to its child streams (h2 says the same with
- * upgraded_to_http2 further down).
+ * mux, whose sessions belong to its child streams (h2 says the same for
+ * its network wsi further down).
  */
 static int
 lws_wsi_close_cb_waived(struct lws *wsi)
@@ -244,8 +244,7 @@ __lws_reset_wsi(struct lws *wsi)
 		lws_http_close_immortal(wsi);
 
 	lwsi_set_skt_unusable(wsi, 0);
-	wsi->mux_substream =
-	wsi->upgraded_to_http2 = wsi->mux_stream_immortal =
+	wsi->mux_substream = wsi->mux_stream_immortal =
 	wsi->h2_acked_settings = wsi->seen_nonpseudoheader =
 	wsi->favoured_pollin =
 	wsi->parent_pending_cb_on_writable = wsi->seen_zero_length_recv =
@@ -1004,7 +1003,7 @@ just_kill_connection:
 	     lwsi_state_live(wsi) == LRS_WAITING_SERVER_REPLY) &&
 	    !lws_wsi_close_cb_waived(wsi) &&
 	    wsi->role_ops->close_cb[lwsi_role_server(wsi)]) {
-		if (!wsi->upgraded_to_http2 || !lwsi_role_client(wsi))
+		if (!lws_wsi_is_mux_nwsi(wsi) || !lwsi_role_client(wsi))
 			ccb = 1;
 			/*
 			 * The network wsi for a client h2 connection shouldn't

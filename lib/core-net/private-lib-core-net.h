@@ -1037,7 +1037,6 @@ struct lws {
 	short				bugcatcher;
 
 	unsigned int			mux_substream:1;
-	unsigned int			upgraded_to_http2:1;
 	unsigned int			mux_stream_immortal:1;
 	unsigned int			h23_stream_carries_ws:1; /* immortal set as well */
 	unsigned int			h2_stream_carries_sse:1; /* immortal set as well */
@@ -1388,6 +1387,14 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len);
 void
 lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
 		    const struct lws_role_ops *ops);
+/*
+ * The network connection of an h2 connection, or of an h3 one over quic:
+ * the wsi that owns the connection-level protocol context, as opposed to
+ * a stream on it.  Neither is ever a mux substream.
+ */
+int
+lws_wsi_is_mux_nwsi(struct lws *wsi);
+
 /*
  * A client's network connection whose own first transaction has moved to a
  * child stream, leaving it carrying streams only.  For h2 and mqtt that is

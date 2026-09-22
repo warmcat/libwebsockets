@@ -3010,7 +3010,7 @@ deal_body:
 	/* Prepare to read body if we have a content length: */
 	lwsl_debug("wsi->http.rx_content_length %lld %d %d\n",
 		   (long long)wsi->http.rx_content_length,
-		   wsi->upgraded_to_http2, wsi->mux_substream);
+		   lws_wsi_is_mux_nwsi(wsi), wsi->mux_substream);
 
 	if (wsi->http.content_length_explicitly_zero &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
@@ -3576,8 +3576,6 @@ upgrade_h2c:
 			lwsl_parser("HTTP2_SETTINGS too long\n");
 			return 1;
 		}
-
-		wsi->upgraded_to_http2 = 1;
 
 		/* adopt the header info */
 

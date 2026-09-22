@@ -210,7 +210,7 @@ post_pollout:
 #endif
 	}
 
-	if (wsi->mux_substream || wsi->upgraded_to_http2) {
+	if (wsi->mux_substream || lws_wsi_is_mux_nwsi(wsi)) {
 		wsi1 = lws_get_network_wsi(wsi);
 		if (wsi1 && lws_has_buffered_out(wsi1)) {
 
@@ -524,11 +524,8 @@ rops_handle_POLLOUT_h2(struct lws *wsi)
 	/*
 	 * Priority 1: H2 protocol packets
 	 */
-	if ((wsi->upgraded_to_http2
-#if defined(LWS_WITH_CLIENT)
-			|| wsi->client_h2_alpn
-#endif
-		) && lws_dll2_get_head(&wsi->h2.h2n->pps_owner)) {
+	if (lws_wsi_is_mux_nwsi(wsi) &&
+	    lws_dll2_get_head(&wsi->h2.h2n->pps_owner)) {
 		int budget = 64;
 
 		lwsl_info("servicing pps\n");
@@ -841,7 +838,7 @@ rops_destroy_role_h2(struct lws *wsi)
 	lws_http_compression_destroy(wsi);
 #endif
 
-	if (wsi->upgraded_to_http2 || wsi->mux_substream) {
+	if (lws_wsi_is_mux_nwsi(wsi) || wsi->mux_substream) {
 		lws_hpack_destroy_dynamic_header(wsi);
 
 		if (wsi->h2.h2n)
@@ -888,7 +885,7 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 	lwsl_info(" %s, his parent %s: siblings:\n", lws_wsi_tag(wsi), lws_wsi_tag(wsi->mux.parent_wsi));
 	lws_wsi_mux_dump_children(wsi);
 
-	if (wsi->upgraded_to_http2 || wsi->mux_substream
+	if (lws_wsi_is_mux_nwsi(wsi) || wsi->mux_substream
 #if defined(LWS_WITH_CLIENT)
 			|| wsi->client_mux_substream
 #endif
@@ -903,7 +900,7 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 		lws_wsi_mux_close_children(wsi, (int)reason);
 	}
 
-	if (wsi->upgraded_to_http2) {
+	if (lws_wsi_is_mux_nwsi(wsi)) {
 		/* remove pps */
 		while(!lws_dll2_is_empty(&wsi->h2.h2n->pps_owner)) {
 			struct lws_dll2 *d = lws_dll2_get_head(&wsi->h2.h2n->pps_owner);
@@ -992,7 +989,7 @@ rops_callback_on_writable_h2(struct lws *wsi)
 
 	/* is this for DATA or for control messages? */
 
-	if (wsi->upgraded_to_http2 && !lws_dll2_get_head(&wsi->h2.h2n->pps_owner) &&
+	if (lws_wsi_is_mux_nwsi(wsi) && !lws_dll2_get_head(&wsi->h2.h2n->pps_owner) &&
 	    lws_wsi_txc_check_skint(&wsi->txc, lws_h2_tx_cr_get(wsi))) {
 		/*
 		 * refuse his efforts to get WRITABLE if we have no credit and
@@ -1974,8 +1971,6 @@ rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
 		wsi->client_h2_alpn = 1;
 	}
 #endif
-
-	wsi->upgraded_to_http2 = 1;
 
 	/* adopt the header info */
 

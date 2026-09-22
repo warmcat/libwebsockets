@@ -575,7 +575,7 @@ rops_callback_on_writable_mqtt(struct lws *wsi)
 	}
 #if 0
 	/* is this for DATA or for control messages? */
-	if (wsi->upgraded_to_http2 && !wsi->h2.h2n->pps &&
+	if (lws_wsi_is_mux_nwsi(wsi) && !wsi->h2.h2n->pps &&
 	    !lws_h2_tx_cr_get(wsi)) {
 		/*
 		 * other side is not able to cope with us sending DATA
@@ -631,7 +631,7 @@ rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 			 * close them here, they are orphaned with a dangling
 			 * mux.parent_wsi, and only get found (and set loose on
 			 * it) at context destroy.  h2 covers the same case for
-			 * its nwsi via upgraded_to_http2 in its own gate.
+			 * its nwsi via lws_wsi_is_mux_nwsi() in its own gate.
 			 */
 			|| !lws_dll2_is_empty(&wsi->mux.child_list_owner)
 		) {

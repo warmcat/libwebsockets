@@ -1161,6 +1161,20 @@ void lws_wsi_role_transition_ev(struct lws *wsi, enum lwsi_role role,
 }
 
 int
+lws_wsi_is_mux_nwsi(struct lws *wsi)
+{
+#if defined(LWS_ROLE_H2)
+	if (lwsi_role_h2(wsi) && wsi->h2.h2n)
+		return 1;
+#endif
+#if defined(LWS_ROLE_QUIC) && defined(LWS_ROLE_H3)
+	if (wsi->role_ops == &role_ops_quic && wsi->h3.h3n)
+		return 1;
+#endif
+	return 0;
+}
+
+int
 lws_wsi_client_nwsi_migrated(struct lws *wsi)
 {
 	if (!lwsi_role_client(wsi) || wsi->mux_substream)
