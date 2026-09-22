@@ -101,37 +101,39 @@ struct xcase {
 	int		via_proxy;	/* through the http proxy mount to srv-h1 */
 	int		reuse;		/* the second request goes only after the
 					 * first completed: on the idle connection */
+	int		h2c;		/* a raw client does an Upgrade: h2c and
+					 * reads stream 1's response as h2 frames */
 };
 
 static const struct xcase cases[] = {
 	{ "h1 POST Content-Length 100KB, 8KB writes, CL response",
-	  "POST", "/echo-cl", XR_CL, 100000, 0, 8192, 0, 0, 200, 100000, XG_NONE, 0, 0, 0 },
+	  "POST", "/echo-cl", XR_CL, 100000, 0, 8192, 0, 0, 200, 100000, XG_NONE, 0, 0, 0, 0 },
 	{ "h1 POST 600KB, response in one write completed at once (deferred "
 	  "completion), second request pipelined on the same connection",
 	  "POST", "/echo-oneshot", XR_CL, 600000, 0, 65536, 0, 1, 200,
-	  -1, XG_NONE, 0, 0, 0 },
+	  -1, XG_NONE, 0, 0, 0, 0 },
 	{ "h1 POST Content-Length 5KB, one write, chunked response",
-	  "POST", "/echo-chunked", XR_CL, 5000, 0, 8192, 0, 0, 200, 5000, XG_NONE, 0, 0, 0 },
+	  "POST", "/echo-chunked", XR_CL, 5000, 0, 8192, 0, 0, 200, 5000, XG_NONE, 0, 0, 0, 0 },
 	{ "h1 POST Content-Length 30KB, 4KB writes, close-delimited response",
-	  "POST", "/echo-nolen", XR_CL, 30000, 0, 4096, 0, 0, 200, 30000, XG_NONE, 0, 0, 0 },
+	  "POST", "/echo-nolen", XR_CL, 30000, 0, 4096, 0, 0, 200, 30000, XG_NONE, 0, 0, 0, 0 },
 	{ "h1 POST Content-Length 60KB, chunked response in many chunks",
-	  "POST", "/echo-chunked", XR_CL, 60000, 0, 8192, 0, 0, 200, 60000, XG_NONE, 0, 0, 0 },
+	  "POST", "/echo-chunked", XR_CL, 60000, 0, 8192, 0, 0, 200, 60000, XG_NONE, 0, 0, 0, 0 },
 	{ "h1 POST chunked 100KB, 8KB writes, CL response",
-	  "POST", "/echo-cl", XR_CHUNKED, 100000, 0, 8192, 0, 0, 200, 100000, XG_NONE, 0, 0, 0 },
+	  "POST", "/echo-cl", XR_CHUNKED, 100000, 0, 8192, 0, 0, 200, 100000, XG_NONE, 0, 0, 0, 0 },
 	{ "h1 POST chunked 5KB, one write, chunked response",
-	  "POST", "/echo-chunked", XR_CHUNKED, 5000, 0, 8192, 0, 0, 200, 5000, XG_NONE, 0, 0, 0 },
+	  "POST", "/echo-chunked", XR_CHUNKED, 5000, 0, 8192, 0, 0, 200, 5000, XG_NONE, 0, 0, 0, 0 },
 	{ "h1 POST chunked 300B, framing split into 3-byte writes",
-	  "POST", "/echo-cl", XR_CHUNKED, 300, 0, 3, 0, 0, 200, 300, XG_NONE, 0, 0, 0 },
+	  "POST", "/echo-cl", XR_CHUNKED, 300, 0, 3, 0, 0, 200, 300, XG_NONE, 0, 0, 0, 0 },
 	{ "h1 POST chunked 2KB with extensions and trailers, 7-byte writes",
-	  "POST", "/echo-cl", XR_CHUNKED_EXT, 2000, 0, 7, 0, 0, 200, 2000, XG_NONE, 0, 0, 0 },
+	  "POST", "/echo-cl", XR_CHUNKED_EXT, 2000, 0, 7, 0, 0, 200, 2000, XG_NONE, 0, 0, 0, 0 },
 	{ "h1 POST chunked 5KB, 1KB writes, close-delimited response",
-	  "POST", "/echo-nolen", XR_CHUNKED, 5000, 0, 1000, 0, 0, 200, 5000, XG_NONE, 0, 0, 0 },
+	  "POST", "/echo-nolen", XR_CHUNKED, 5000, 0, 1000, 0, 0, 200, 5000, XG_NONE, 0, 0, 0, 0 },
 	{ "h1 POST chunked 3KB, two requests pipelined on one connection",
-	  "POST", "/echo-cl", XR_CHUNKED, 3000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0, 0, 0 },
+	  "POST", "/echo-cl", XR_CHUNKED, 3000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0, 0, 0, 0 },
 	{ "h1 GET with a chunked body, two requests pipelined on one connection",
-	  "GET", "/echo-cl", XR_CHUNKED, 1000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0, 0, 0 },
+	  "GET", "/echo-cl", XR_CHUNKED, 1000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0, 0, 0, 0 },
 	{ "h1 GET with a Content-Length body, two requests pipelined",
-	  "GET", "/echo-cl", XR_CL, 1000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0, 0, 0 },
+	  "GET", "/echo-cl", XR_CL, 1000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0, 0, 0, 0 },
 	/*
 	 * No h1 "POST with neither header" case: by lws convention such a body
 	 * is delimited by the multipart closing boundary (lws_spa) or the
@@ -139,22 +141,22 @@ static const struct xcase cases[] = {
 	 * variant below is END_STREAM delimited and does complete.
 	 */
 	{ "h1 GET, no body",
-	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0, 0, 0 },
+	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0, 0, 0, 0 },
 	/*
 	 * The server answers /redir-cl with a 302 to /echo-cl: the client must
 	 * follow it on the same wsi (a new connection underneath) and complete
 	 * the second request normally
 	 */
 	{ "h1 GET 302, redirect followed on the same wsi",
-	  "GET", "/redir-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0, 0, 0 },
+	  "GET", "/redir-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0, 0, 0, 0 },
 	{ "h1 POST Transfer-Encoding: gzip is refused with 501",
-	  "POST", "/echo-cl", XR_TE_BAD, 0, 0, 8192, 0, 0, 501, -1, XG_NONE, 0, 0, 0 },
+	  "POST", "/echo-cl", XR_TE_BAD, 0, 0, 8192, 0, 0, 501, -1, XG_NONE, 0, 0, 0, 0 },
 	{ "h1 POST Transfer-Encoding with Content-Length is refused with 400",
-	  "POST", "/echo-cl", XR_TE_AND_CL, 0, 5, 8192, 0, 0, 400, -1, XG_NONE, 0, 0, 0 },
+	  "POST", "/echo-cl", XR_TE_AND_CL, 0, 5, 8192, 0, 0, 400, -1, XG_NONE, 0, 0, 0, 0 },
 	{ "h1 POST chunked body over the mount limit is dropped",
-	  "POST", "/small/echo-cl", XR_CHUNKED, 200, 0, 8192, 0, 0, 0, -1, XG_NONE, 0, 0, 0 },
+	  "POST", "/small/echo-cl", XR_CHUNKED, 200, 0, 8192, 0, 0, 0, -1, XG_NONE, 0, 0, 0, 0 },
 	{ "h1 POST Content-Length over the mount limit gets 413",
-	  "POST", "/small/echo-cl", XR_CL, 0, 200, 8192, 0, 0, 413, -1, XG_NONE, 0, 0, 0 },
+	  "POST", "/small/echo-cl", XR_CL, 0, 200, 8192, 0, 0, 413, -1, XG_NONE, 0, 0, 0, 0 },
 	/*
 	 * Expect: 100-continue.  The server answers an h1.1 request it is
 	 * about to read the body of with an interim 100 Continue; the lws
@@ -165,15 +167,15 @@ static const struct xcase cases[] = {
 	 * other expectation is 417.
 	 */
 	{ "h1 POST Content-Length 20KB with Expect: 100-continue",
-	  "POST", "/echo-cl", XR_CL, 20000, 0, 4096, 0, 0, 200, 20000, XG_NONE, 1, 0, 0 },
+	  "POST", "/echo-cl", XR_CL, 20000, 0, 4096, 0, 0, 200, 20000, XG_NONE, 1, 0, 0, 0 },
 	{ "h1 POST chunked 5KB with Expect: 100-continue",
-	  "POST", "/echo-cl", XR_CHUNKED, 5000, 0, 1000, 0, 0, 200, 5000, XG_NONE, 1, 0, 0 },
+	  "POST", "/echo-cl", XR_CHUNKED, 5000, 0, 1000, 0, 0, 200, 5000, XG_NONE, 1, 0, 0, 0 },
 	{ "h1 POST chunked with Expect, two requests pipelined",
-	  "POST", "/echo-cl", XR_CHUNKED, 3000, 0, 8192, 0, 1, 200, -1, XG_NONE, 1, 0, 0 },
+	  "POST", "/echo-cl", XR_CHUNKED, 3000, 0, 8192, 0, 1, 200, -1, XG_NONE, 1, 0, 0, 0 },
 	{ "h1 POST over the mount limit with Expect gets 413, no 100",
-	  "POST", "/small/echo-cl", XR_CL, 0, 200, 8192, 0, 0, 413, -1, XG_NONE, 1, 0, 0 },
+	  "POST", "/small/echo-cl", XR_CL, 0, 200, 8192, 0, 0, 413, -1, XG_NONE, 1, 0, 0, 0 },
 	{ "h1 POST with an unknown Expect gets 417",
-	  "POST", "/echo-cl", XR_CL, 0, 5, 8192, 0, 0, 417, -1, XG_NONE, 2, 0, 0 },
+	  "POST", "/echo-cl", XR_CL, 0, 5, 8192, 0, 0, 417, -1, XG_NONE, 2, 0, 0, 0 },
 #if defined(LWS_WITH_JOSE)
 	/*
 	 * Mount interceptor gating.  "/gated" is guarded by the "/bouncer"
@@ -181,19 +183,19 @@ static const struct xcase cases[] = {
 	 * ?auth=1 and otherwise answers it itself with 403.
 	 */
 	{ "h1 GET to an interceptor-gated mount is blocked",
-	  "GET", "/gated/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, 403, 0, XG_BLOCK, 0, 0, 0 },
+	  "GET", "/gated/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, 403, 0, XG_BLOCK, 0, 0, 0, 0 },
 	{ "h1 GET the interceptor passes reaches the app",
 	  "GET", "/gated/echo-cl?auth=1", XR_NONE, 0, 0, 8192, 0, 0, 200, 0,
-	  XG_PASS, 0, 0, 0 },
+	  XG_PASS, 0, 0, 0, 0 },
 	{ "h1 POST to an interceptor-gated mount is blocked",
 	  "POST", "/gated/echo-cl", XR_CL, 4000, 0, 8192, 0, 0, 403, 0,
-	  XG_BLOCK, 0, 0, 0 },
+	  XG_BLOCK, 0, 0, 0, 0 },
 	{ "h1 POST the interceptor passes reaches the app with its body",
 	  "POST", "/gated/echo-cl?auth=1", XR_CL, 4000, 0, 8192, 0, 0, 200,
-	  4000, XG_PASS, 0, 0, 0 },
+	  4000, XG_PASS, 0, 0, 0, 0 },
 	{ "h1 POST chunked to an interceptor-gated mount is blocked",
 	  "POST", "/gated/echo-cl", XR_CHUNKED, 2000, 0, 512, 0, 0, 403, 0,
-	  XG_BLOCK, 0, 0, 0 },
+	  XG_BLOCK, 0, 0, 0, 0 },
 	/*
 	 * Blocking a request whose body is still arriving must leave the h1
 	 * connection resynchronized: the body of the refused request is
@@ -203,7 +205,7 @@ static const struct xcase cases[] = {
 	{ "h1 POST blocked by the interceptor, second request pipelined on the "
 	  "same connection",
 	  "POST", "/gated/echo-cl", XR_CL, 4000, 0, 8192, 0, 1, 403, 0,
-	  XG_BLOCK, 0, 0, 0 },
+	  XG_BLOCK, 0, 0, 0, 0 },
 #endif
 	/*
 	 * A second request issued only after the first completed, on a
@@ -214,14 +216,28 @@ static const struct xcase cases[] = {
 	 * The server byte count covers both requests, so is not checked.
 	 */
 	{ "h1 GET, then a second GET handed the idle keep-alive connection",
-	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 1, 200, 0, XG_NONE, 0, 0, 1 },
+	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 1, 200, 0, XG_NONE, 0, 0, 1, 0 },
 	{ "h1 POST Content-Length 5KB, then a second handed the idle connection",
-	  "POST", "/echo-cl", XR_CL, 5000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0, 0, 1 },
+	  "POST", "/echo-cl", XR_CL, 5000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0, 0, 1, 0 },
 #if defined(LWS_WITH_HTTP2)
 	{ "h2 GET, then a second GET joining the established connection",
-	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 1, 1, 200, 0, XG_NONE, 0, 0, 1 },
+	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 1, 1, 200, 0, XG_NONE, 0, 0, 1, 0 },
 	{ "h2 POST Content-Length 5KB, then a second joining the connection",
-	  "POST", "/echo-cl", XR_CL, 5000, 0, 8192, 1, 1, 200, -1, XG_NONE, 0, 0, 1 },
+	  "POST", "/echo-cl", XR_CL, 5000, 0, 8192, 1, 1, 200, -1, XG_NONE, 0, 0, 1, 0 },
+#endif
+#if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_FILE_OPS)
+	/*
+	 * A cleartext h1 request carrying Upgrade: h2c: the server answers
+	 * 101, takes the request as stream 1 of the new h2 connection and
+	 * serves it from a file mount, so stream 1 goes from reading its
+	 * request straight to serving a file (the only h2 stream that acts
+	 * without deferring).  A raw client speaks just enough h2 to see the
+	 * response: it sends the preface after the 101 and reads frames until
+	 * a DATA frame ends the stream.
+	 */
+	{ "h1 Upgrade: h2c, stream 1 served from a file mount",
+	  "GET", "/file/README.md", XR_NONE, 0, 0, 8192, 0, 0, 200, 0,
+	  XG_NONE, 0, 0, 0, 1 },
 #endif
 #if defined(LWS_WITH_HTTP_PROXY)
 	/*
@@ -232,27 +248,27 @@ static const struct xcase cases[] = {
 	 * else here exercises.
 	 */
 	{ "h1 GET via the http proxy mount",
-	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0, 1, 0 },
+	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0, 1, 0, 0 },
 	{ "h1 POST Content-Length 5KB via the http proxy mount",
-	  "POST", "/echo-cl", XR_CL, 5000, 0, 8192, 0, 0, 200, 5000, XG_NONE, 0, 1, 0 },
+	  "POST", "/echo-cl", XR_CL, 5000, 0, 8192, 0, 0, 200, 5000, XG_NONE, 0, 1, 0, 0 },
 	{ "h1 POST Content-Length 100KB, 8KB writes, via the http proxy mount",
-	  "POST", "/echo-cl", XR_CL, 100000, 0, 8192, 0, 0, 200, 100000, XG_NONE, 0, 1, 0 },
+	  "POST", "/echo-cl", XR_CL, 100000, 0, 8192, 0, 0, 200, 100000, XG_NONE, 0, 1, 0, 0 },
 	{ "h1 POST Content-Length 20KB, no-length response, via the http proxy mount",
-	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 0, 0, 200, 20000, XG_NONE, 0, 1, 0 },
+	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 0, 0, 200, 20000, XG_NONE, 0, 1, 0, 0 },
 #endif
 #if defined(LWS_WITH_HTTP2)
 	{ "h2 POST Content-Length 50KB, 8KB writes, CL response",
-	  "POST", "/echo-cl", XR_CL, 50000, 0, 8192, 1, 0, 200, 50000, XG_NONE, 0, 0, 0 },
+	  "POST", "/echo-cl", XR_CL, 50000, 0, 8192, 1, 0, 200, 50000, XG_NONE, 0, 0, 0, 0 },
 	{ "h2 POST no Content-Length 20KB (END_STREAM delimited)",
-	  "POST", "/echo-cl", XR_BODY_NOHDR, 20000, 0, 4096, 1, 0, 200, 20000, XG_NONE, 0, 0, 0 },
+	  "POST", "/echo-cl", XR_BODY_NOHDR, 20000, 0, 4096, 1, 0, 200, 20000, XG_NONE, 0, 0, 0, 0 },
 	{ "h2 POST Content-Length 20KB, no-length response (END_STREAM)",
-	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 1, 0, 200, 20000, XG_NONE, 0, 0, 0 },
+	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 1, 0, 200, 20000, XG_NONE, 0, 0, 0, 0 },
 	{ "h2 GET, no body",
-	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0, 0, 0 },
+	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0, 0, 0, 0 },
 	{ "h2 GET 302, redirect followed on the same wsi",
-	  "GET", "/redir-cl", XR_NONE, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0, 0, 0 },
+	  "GET", "/redir-cl", XR_NONE, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0, 0, 0, 0 },
 	{ "h2 POST with neither header: zero-length body",
-	  "POST", "/echo-cl", XR_NOLEN, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0, 0, 0 },
+	  "POST", "/echo-cl", XR_NOLEN, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0, 0, 0, 0 },
 	/*
 	 * No h2 Transfer-Encoding refusal case: the lws h2 client does not
 	 * forward a Transfer-Encoding header, so it cannot provoke one
@@ -267,19 +283,19 @@ static const struct xcase cases[] = {
 	 */
 	{ "h2 GET to an interceptor-gated mount is blocked",
 	  "GET", "/gated/echo-cl", XR_NONE, 0, 0, 8192, 1, 0, 403, 0,
-	  XG_BLOCK, 0, 0, 0 },
+	  XG_BLOCK, 0, 0, 0, 0 },
 	{ "h2 POST to an interceptor-gated mount is blocked",
 	  "POST", "/gated/echo-cl", XR_CL, 4000, 0, 8192, 1, 0, 403, 0,
-	  XG_BLOCK, 0, 0, 0 },
+	  XG_BLOCK, 0, 0, 0, 0 },
 	{ "h2 POST with no body to an interceptor-gated mount is blocked",
 	  "POST", "/gated/echo-cl", XR_NOLEN, 0, 0, 8192, 1, 0, 403, 0,
-	  XG_BLOCK, 0, 0, 0 },
+	  XG_BLOCK, 0, 0, 0, 0 },
 	{ "h2 POST with no Content-Length to a gated mount is blocked",
 	  "POST", "/gated/echo-cl", XR_BODY_NOHDR, 2000, 0, 512, 1, 0, 403, 0,
-	  XG_BLOCK, 0, 0, 0 },
+	  XG_BLOCK, 0, 0, 0, 0 },
 	{ "h2 POST the interceptor passes reaches the app with its body",
 	  "POST", "/gated/echo-cl?auth=1", XR_CL, 4000, 0, 8192, 1, 0, 200,
-	  4000, XG_PASS, 0, 0, 0 },
+	  4000, XG_PASS, 0, 0, 0, 0 },
 #endif
 #endif
 };
@@ -298,6 +314,9 @@ struct conn {
 	char			line[64];	/* response summary line */
 	size_t			line_len;
 	int			line_done;
+	uint8_t			*h2c_buf;	/* raw h2c client: rx so far */
+	size_t			h2c_len;
+	int			h2c_phase;	/* 0: awaiting 101, 1: frames */
 	int			status;
 	int			completed;
 	int			closed;
@@ -799,6 +818,15 @@ case_evaluate(void)
 		if (c->expect_status != 200)
 			continue;
 
+		if (c->h2c) {
+			/* the file came as h2 DATA on stream 1, nothing to sum */
+			if (!cn->rx_len) {
+				case_finish(0, "no DATA on the h2c stream");
+				goto next;
+			}
+			continue;
+		}
+
 		if (!cn->line_done ||
 		    sscanf(cn->line, "len=%u sum=%x", &rlen, &rsum) != 2) {
 			lwsl_err("conn %d: line_done %d, line '%s', %u payload bytes\n",
@@ -1104,6 +1132,7 @@ conn_free(struct conn *cn)
 		*pp = cn->next;
 
 	free(cn->framed);
+	free(cn->h2c_buf);
 	free(cn);
 }
 
@@ -1177,6 +1206,13 @@ conn_start(const struct xcase *c)
 	i.method = c->method;
 	i.protocol = "http-xfer";
 	i.opaque_user_data = cn;
+#if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_FILE_OPS)
+	if (c->h2c) {
+		/* a raw client that speaks the upgrade and the h2 frames itself */
+		i.method = "RAW";
+		i.local_protocol_name = "http-xfer-h2c";
+	}
+#endif
 	if (c->pipeline)
 		i.ssl_connection |= LCCSCF_PIPELINE;
 #if defined(LWS_WITH_HTTP2)
@@ -1252,6 +1288,150 @@ next_case(lws_sorted_usec_list_t *sul)
 	}
 }
 
+#if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_FILE_OPS)
+
+/*
+ * The raw client of the Upgrade: h2c case.  Speaks just enough h2 to read
+ * stream 1's response: the preface and an empty SETTINGS after the 101,
+ * a SETTINGS ACK for the server's, and frames parsed until a DATA frame
+ * carries END_STREAM.  The status is read from the HEADERS frame: lws sends
+ * :status first, as a literal name and value without indexing.
+ */
+
+#define H2C_BUF_MAX (64 * 1024)
+
+static int
+callback_raw_h2c(struct lws *wsi, enum lws_callback_reasons reason,
+		 void *user, void *in, size_t len)
+{
+	struct conn *cn = (struct conn *)lws_get_opaque_user_data(wsi);
+	static const uint8_t preface[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+					 "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
+	static const uint8_t settings_ack[] =
+					 "\x00\x00\x00\x04\x01\x00\x00\x00\x00";
+	uint8_t buf[LWS_PRE + 256], *p;
+	size_t o;
+	int n;
+
+	if (!cn)
+		return lws_callback_http_dummy(wsi, reason, user, in, len);
+
+	switch (reason) {
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		lwsl_user("%s: h2c client: connection error: %s\n", __func__,
+			  in ? (const char *)in : "(null)");
+		cn->error = 1;
+		if (cn->case_idx == cur)
+			case_check();
+		break;
+
+	case LWS_CALLBACK_RAW_CONNECTED:
+		n = lws_snprintf((char *)buf + LWS_PRE, sizeof(buf) - LWS_PRE,
+				 "GET %s HTTP/1.1\r\n"
+				 "Host: %s\r\n"
+				 "Connection: Upgrade, HTTP2-Settings\r\n"
+				 "Upgrade: h2c\r\n"
+				 "HTTP2-Settings: AAMAAABk\r\n\r\n",
+				 cn->c->path, server_addr);
+		if (lws_write(wsi, buf + LWS_PRE, (size_t)n, LWS_WRITE_RAW) != n)
+			return -1;
+		break;
+
+	case LWS_CALLBACK_RAW_RX:
+		if (!cn->h2c_buf) {
+			cn->h2c_buf = malloc(H2C_BUF_MAX);
+			if (!cn->h2c_buf)
+				return -1;
+		}
+		if (cn->h2c_len + len > H2C_BUF_MAX)
+			return -1;
+		memcpy(cn->h2c_buf + cn->h2c_len, in, len);
+		cn->h2c_len += len;
+
+		if (!cn->h2c_phase) {
+			uint8_t *e = NULL;
+
+			for (o = 0; o + 4 <= cn->h2c_len; o++)
+				if (!memcmp(cn->h2c_buf + o, "\r\n\r\n", 4)) {
+					e = cn->h2c_buf + o + 4;
+					break;
+				}
+			if (!e)
+				break;
+			if (cn->h2c_len < 12 ||
+			    memcmp(cn->h2c_buf, "HTTP/1.1 101", 12)) {
+				lwsl_user("%s: no 101: '%.*s'\n", __func__,
+					  (int)(e - cn->h2c_buf), (const char *)cn->h2c_buf);
+				return -1;
+			}
+			cn->h2c_len -= (size_t)(e - cn->h2c_buf);
+			memmove(cn->h2c_buf, e, cn->h2c_len);
+			cn->h2c_phase = 1;
+			memcpy(buf + LWS_PRE, preface, sizeof(preface) - 1);
+			if (lws_write(wsi, buf + LWS_PRE, sizeof(preface) - 1,
+				      LWS_WRITE_RAW) != (int)sizeof(preface) - 1)
+				return -1;
+		}
+
+		/* h2 frames */
+		p = cn->h2c_buf;
+		while (cn->h2c_len >= 9) {
+			size_t flen = ((size_t)p[0] << 16) | ((size_t)p[1] << 8) | p[2];
+			uint8_t type = p[3], flags = p[4];
+
+			if (cn->h2c_len < 9 + flen)
+				break;
+			switch (type) {
+			case 4: /* SETTINGS: ack theirs */
+				if (!(flags & 1)) {
+					memcpy(buf + LWS_PRE, settings_ack, 9);
+					if (lws_write(wsi, buf + LWS_PRE, 9,
+						      LWS_WRITE_RAW) != 9)
+						return -1;
+				}
+				break;
+			case 1: /* HEADERS: lws sends :status first, as a
+				 * literal name and value without indexing */
+				if (!(flags & 0x28) && flen >= 13 && !p[9] &&
+				    p[10] == 7 && !memcmp(p + 11, ":status", 7) &&
+				    p[18] == 3)
+					cn->status = ((p[19] - '0') * 100) +
+						     ((p[20] - '0') * 10) +
+						      (p[21] - '0');
+				break;
+			case 0: /* DATA */
+				cn->rx_len += flen;
+				if (flags & 1) {
+					cn->completed = 1;
+					if (cn->case_idx == cur)
+						case_check();
+					return -1; /* done: close */
+				}
+				break;
+			default:
+				break;
+			}
+			p += 9 + flen;
+			cn->h2c_len -= 9 + flen;
+		}
+		if (p != cn->h2c_buf)
+			memmove(cn->h2c_buf, p, cn->h2c_len);
+		break;
+
+	case LWS_CALLBACK_RAW_CLOSE:
+		cn->closed = 1;
+		if (cn->case_idx == cur)
+			case_check();
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+#endif
+
 static const struct lws_protocols protocols_srv[] = {
 	{ "http-xfer", callback_srv, sizeof(struct pss_srv), 0, 0, NULL, 0 },
 #if defined(LWS_WITH_JOSE)
@@ -1262,6 +1442,9 @@ static const struct lws_protocols protocols_srv[] = {
 
 static const struct lws_protocols protocols_cli[] = {
 	{ "http-xfer", callback_cli, 0, 0, 0, NULL, 0 },
+#if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_FILE_OPS)
+	{ "http-xfer-h2c", callback_raw_h2c, 0, 0, 0, NULL, 0 },
+#endif
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -1306,6 +1489,20 @@ static const struct lws_http_mount mount_gated = {
 #define MOUNT_LIST (&mount_gated)
 #else
 #define MOUNT_LIST (&mount_small)
+#endif
+
+#if defined(LWS_WITH_FILE_OPS)
+/* /file serves this directory, for the h2c upgrade case */
+
+static const struct lws_http_mount mount_file = {
+	.mount_next		= MOUNT_LIST,
+	.mountpoint		= "/file",
+	.origin			= ".",
+	.origin_protocol	= LWSMPRO_FILE,
+	.mountpoint_len		= 5,
+};
+#undef MOUNT_LIST
+#define MOUNT_LIST (&mount_file)
 #endif
 
 #if defined(LWS_WITH_HTTP_PROXY)
