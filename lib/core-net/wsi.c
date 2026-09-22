@@ -1144,8 +1144,18 @@ void lws_role_transition(struct lws *wsi, enum lwsi_role role,
 		wsi->wsistate = (unsigned int)role | (unsigned int)state |
 				lws_carrier_bits(LCR_ESTABLISHED);
 
-	/* the transaction attributes are not the role's to reset */
-	wsi->wsistate |= old & LWSIFS_ATTR_MASK;
+	/*
+	 * The transaction attributes are not the role's to reset... except
+	 * that a restart to UNCONNECTED is a new connection: the old socket's
+	 * unusability and the old transaction's completion stay behind with
+	 * it.  (The redirect / fallback pickup used to carry the dead socket's
+	 * unusable mark into the new connection, where it silenced
+	 * lws_callback_on_writable(): a redirected h2 stream rejoining its
+	 * connection never sent its headers.)
+	 */
+	if (lts != LTS_NONE || lcr != LCR_NONE ||
+	    ((unsigned int)state & LRS_MASK) != LRS_UNCONNECTED)
+		wsi->wsistate |= old & LWSIFS_ATTR_MASK;
 	if (ops)
 		wsi->role_ops = ops;
 	lws_state_hook(wsi, old_ops, old, wsi->role_ops, wsi->wsistate,
