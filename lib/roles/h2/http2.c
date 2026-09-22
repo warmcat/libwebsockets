@@ -418,9 +418,10 @@ __lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	 * reads its state, and being born ESTABLISHED read as a response in
 	 * flight before a request had gone out.
 	 */
-	lwsi_set_role(wsi, lwsi_role(parent_wsi));
-	if (lwsi_role_server(wsi))
-		lwsi_set_state(wsi, LRS_HEADERS);
+	lws_role_transition(wsi, (enum lwsi_role)lwsi_role(parent_wsi),
+			    lwsi_role_server(parent_wsi) ? LRS_HEADERS :
+							    LRS_UNCONNECTED,
+			    wsi->role_ops);
 
 	wsi->a.protocol = &vh->protocols[0];
 	if (lws_ensure_user_space(wsi))

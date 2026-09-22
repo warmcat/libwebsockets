@@ -477,9 +477,12 @@ lws_state_machine_name(lws_wsi_state_t s)
 }
 
 /*
- * Allowed edges where the role ops do not change.  role and side are the
- * role_ops name and C / S / - with a trailing e for h2-encapsulated, or "*".
- * from is an LRS state or ANY.
+ * Allowed transport and close machine edges, the two machines with phase
+ * setters.  role and side are the role_ops name and C / S / - with a
+ * trailing e for h2-encapsulated, or "*"; from is an LRS state or ANY.
+ * The carrier and transaction machines have no table here: their edges are
+ * whatever the event table above produces, and a live-state edge is checked
+ * against that.
  *
  * The close machine can be entered from anywhere: a connection can die, be
  * flushed or be staged for shutdown from any state.  Within it, and for the
@@ -494,7 +497,7 @@ struct lws_state_edge {
 };
 
 static const struct lws_state_edge lws_state_edges[] = {
-	/* ---- edges into the transport machine ---- */
+	/* ---- transport machine ---- */
 
 	{ "*", "C", LRS_UNCONNECTED, LRS_WAITING_CONNECT },
 	{ "*", "C", LRS_UNCONNECTED, LRS_WAITING_DNS },
@@ -502,6 +505,7 @@ static const struct lws_state_edge lws_state_edges[] = {
 	{ "*", "C", LRS_WAITING_CONNECT, LRS_WAITING_SOCKS_GREETING_REPLY },
 	{ "*", "C", LRS_WAITING_CONNECT, LRS_WAITING_SSL },
 	{ "*", "C", LRS_WAITING_DNS, LRS_WAITING_CONNECT },
+	{ "*", "C", LRS_WAITING_DNS, LRS_UNCONNECTED },		/* connect3.c dns retry */
 	{ "*", "C", LRS_WAITING_PROXY_REPLY, LRS_WAITING_SSL },
 	{ "*", "C", LRS_WAITING_SOCKS_AUTH_REPLY, LRS_WAITING_SOCKS_CONNECT_REPLY },
 	{ "*", "C", LRS_WAITING_SOCKS_CONNECT_REPLY, LRS_WAITING_SSL },
@@ -513,82 +517,7 @@ static const struct lws_state_edge lws_state_edges[] = {
 	{ "*", "S", LRS_SSL_INIT, LRS_SSL_ACK_PENDING },
 	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE, LRS_WAITING_SSL },	/* carrier -> transport */
 
-	/* ---- edges into the carrier machine ---- */
-
-	{ "h1", "C", LRS_WAITING_CONNECT, LRS_H1C_ISSUE_HANDSHAKE },	/* transport -> carrier */
-	{ "h1", "C", LRS_WAITING_SSL, LRS_WAITING_SERVER_REPLY },	/* transport -> carrier */
-	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE, LRS_WAITING_SERVER_REPLY },
-	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE2, LRS_H2_WAITING_TO_SEND_HEADERS },
-	{ "h1", "C", LRS_UNCONNECTED, LRS_H2_WAITING_TO_SEND_HEADERS },	/* queued on a connection */
-	{ "h1", "C", LRS_UNCONNECTED, LRS_H1C_ISSUE_HANDSHAKE2 },	/* handed an idle leader's connection */
-	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE2, LRS_WAITING_SERVER_REPLY },
-	{ "h1", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LRS_H1C_ISSUE_HANDSHAKE2 },
-	{ "h1", "C", LRS_ESTABLISHED, LRS_WAITING_SERVER_REPLY },	/* txn -> carrier */
-	{ "h1", "C", LRS_ISSUE_HTTP_BODY, LRS_WAITING_SERVER_REPLY },	/* txn -> carrier */
-	{ "h1", "S", LRS_ESTABLISHED, LRS_H1_UPGRADE },	/* txn -> carrier */
-	{ "h1", "S", LRS_HEADERS, LRS_H1_UPGRADE },	/* txn -> carrier */
-	{ "h2", "C", LRS_ISSUE_HTTP_BODY, LRS_WAITING_SERVER_REPLY },	/* txn -> carrier */
-	{ "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LRS_WAITING_SERVER_REPLY }, /* bodyless request sent */
-	{ "h2", "S", LRS_H2_AWAIT_PREFACE, LRS_H2_AWAIT_SETTINGS },
-	{ "h3", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LRS_WAITING_SERVER_REPLY }, /* bodyless request sent */
-	{ "h3", "C", LRS_ISSUE_HTTP_BODY, LRS_WAITING_SERVER_REPLY },	/* txn -> carrier */
-	{ "mqtt", "C", LRS_WAITING_CONNECT, LRS_MQTTC_IDLE },	/* transport -> carrier */
-	{ "mqtt", "C", LRS_MQTTC_IDLE, LRS_MQTTC_AWAIT_CONNACK },
-
-	/* ---- edges into the txn machine ---- */
-
-	{ "h1", "C", LRS_WAITING_SSL, LRS_ISSUE_HTTP_BODY },	/* transport -> txn */
-	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE, LRS_ISSUE_HTTP_BODY },	/* carrier -> txn */
-	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE2, LRS_ISSUE_HTTP_BODY },	/* carrier -> txn */
-	{ "h1", "C", LRS_ESTABLISHED, LRS_IDLING },
-	{ "h1", "S", LRS_AWAITING_SSL_ACCEPT, LRS_HEADERS },	/* transport -> txn */
-	{ "h1", "S", LRS_SSL_ACK_PENDING, LRS_HEADERS },	/* transport -> txn */
-	{ "h1", "S", LRS_H1_UPGRADE, LRS_ESTABLISHED },	/* carrier -> txn */
-	{ "h1", "S", LRS_AWAITING_FILE_READ, LRS_ISSUING_FILE },
-	{ "h1", "S", LRS_BODY, LRS_TXN_COMPLETED },
-	{ "h1", "S", LRS_BODY, LRS_DISCARD_BODY },
-	{ "h1", "S", LRS_TXN_COMPLETED, LRS_HEADERS },
-	{ "h1", "S", LRS_DISCARD_BODY, LRS_TXN_COMPLETED },
-	{ "h1", "S", LRS_DOING_TRANSACTION, LRS_BODY },
-	{ "h1", "S", LRS_DOING_TRANSACTION, LRS_TXN_COMPLETED },	/* keep-alive GET answered inside the HTTP callback */
-	{ "h1", "S", LRS_ESTABLISHED, LRS_BODY },
-	{ "h1", "S", LRS_ESTABLISHED, LRS_TXN_COMPLETED },
-	{ "h1", "S", LRS_ESTABLISHED, LRS_DOING_TRANSACTION },
-	{ "h1", "S", LRS_ESTABLISHED, LRS_ISSUING_FILE },
-	{ "h1", "S", LRS_ISSUING_FILE, LRS_AWAITING_FILE_READ },
-	{ "h1", "S", LRS_ISSUING_FILE, LRS_ESTABLISHED },
-	{ "h2", "*", LRS_ESTABLISHED, LRS_BODY },
-	{ "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LRS_ISSUE_HTTP_BODY },	/* carrier -> txn */
-	{ "h2", "S", LRS_UNCONNECTED, LRS_HEADERS },
-	{ "h2", "S", LRS_HEADERS, LRS_DEFERRING_ACTION },
-	{ "h2", "S", LRS_HEADERS, LRS_DOING_TRANSACTION },	/* action run without deferring */	/* transport -> txn */
-	{ "h2", "S", LRS_H2_AWAIT_SETTINGS, LRS_ESTABLISHED },	/* carrier -> txn */
-	{ "h2", "S", LRS_AWAITING_FILE_READ, LRS_ISSUING_FILE },
-	{ "h2", "S", LRS_BODY, LRS_ESTABLISHED },
-	{ "h2", "S", LRS_DEFERRING_ACTION, LRS_ESTABLISHED },
-	{ "h2", "S", LRS_ESTABLISHED, LRS_DEFERRING_ACTION },
-	{ "h2", "S", LRS_ESTABLISHED, LRS_DOING_TRANSACTION },
-	{ "h2", "S", LRS_ESTABLISHED, LRS_ISSUING_FILE },
-	{ "h2", "S", LRS_ISSUING_FILE, LRS_AWAITING_FILE_READ },
-	{ "h2", "S", LRS_ISSUING_FILE, LRS_ESTABLISHED },
-	{ "h3", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LRS_ISSUE_HTTP_BODY },	/* carrier -> txn */
-	{ "h3", "S", LRS_AWAITING_FILE_READ, LRS_ISSUING_FILE },
-	{ "h3", "S", LRS_BODY, LRS_ESTABLISHED },
-	{ "h3", "S", LRS_DEFERRING_ACTION, LRS_ESTABLISHED },
-	{ "h3", "S", LRS_ESTABLISHED, LRS_BODY },
-	{ "h3", "S", LRS_ESTABLISHED, LRS_DEFERRING_ACTION },
-	{ "h3", "S", LRS_HEADERS, LRS_DEFERRING_ACTION },
-	{ "h3", "S", LRS_ESTABLISHED, LRS_DOING_TRANSACTION },
-	{ "h3", "S", LRS_ESTABLISHED, LRS_ISSUING_FILE },
-	{ "h3", "S", LRS_ISSUING_FILE, LRS_AWAITING_FILE_READ },
-	{ "h3", "S", LRS_ISSUING_FILE, LRS_ESTABLISHED },
-	{ "mqtt", "C", LRS_MQTTC_AWAIT_CONNACK, LRS_ESTABLISHED },	/* carrier -> txn */
-	{ "quic", "C", LRS_WAITING_CONNECT, LRS_ESTABLISHED },	/* transport -> txn */
-	{ "quic", "C", LRS_WAITING_SSL, LRS_ESTABLISHED },	/* transport -> txn */
-	{ "quic", "S", LRS_SSL_INIT, LRS_ESTABLISHED },	/* transport -> txn */
-	{ "raw-skt", "C", LRS_WAITING_CONNECT, LRS_ESTABLISHED },	/* transport -> txn */
-
-	/* ---- edges into the close machine ---- */
+	/* ---- close machine ---- */
 
 	{ "*", "*", ANY, LRS_DEAD_SOCKET },
 	{ "*", "*", ANY, LRS_FLUSHING_BEFORE_CLOSE },
@@ -617,24 +546,6 @@ static const struct lws_state_edge lws_state_edges[] = {
 	{ "ws", "Se", LRS_AWAITING_CLOSE_ACK, LRS_DEAD_SOCKET },
 	{ "ws", "Se", LRS_RETURNED_CLOSE, LRS_DEAD_SOCKET },
 	{ "ws", "Se", LRS_WAITING_TO_SEND_CLOSE, LRS_AWAITING_CLOSE_ACK },
-
-
-	/*
-	 * Present in the code but not reached by ctest or the fuzz seeds; each
-	 * cites the site.  Confirm and move into the observed groups above when
-	 * a test reaches them.
-	 */
-	{ "*",    "C", LRS_WAITING_DNS, LRS_UNCONNECTED },		/* connect3.c dns retry */
-	{ "h1",   "C", LRS_WAITING_CONNECT, LRS_H1C_ISSUE_HANDSHAKE2 },	/* connect4.c sync tls */
-	{ "h1",   "C", LRS_WAITING_SSL, LRS_H1C_ISSUE_HANDSHAKE2 },	/* connect4.c sync tls */
-	{ "h1",   "C", LRS_ESTABLISHED, LRS_H1C_ISSUE_HANDSHAKE2 },	/* pipeline restart, digest retry */
-	{ "h1",   "C", LRS_IDLING, LRS_H1C_ISSUE_HANDSHAKE2 },		/* pipeline restart from idle */
-	{ "h1",   "C", LRS_WAITING_SERVER_REPLY, LRS_H1C_ISSUE_HANDSHAKE2 }, /* client-http.c digest retry */
-	{ "h1",   "S", LRS_SSL_INIT, LRS_HEADERS },			/* tls-server.c notls_accepted */
-	{ "h2",   "C", LRS_IDLING, LRS_ESTABLISHED },			/* vhost.c revive idle mux conn */
-	{ "h3",   "C", LRS_IDLING, LRS_ESTABLISHED },			/* vhost.c revive idle mux conn */
-	{ "mqtt", "C", LRS_WAITING_SSL, LRS_MQTTC_IDLE },		/* client-mqtt.c mqtts */
-	{ "raw-skt", "C", LRS_WAITING_SOCKS_CONNECT_REPLY, LRS_ESTABLISHED }, /* ops-raw-skt.c socks5 */
 };
 
 /*
@@ -654,6 +565,7 @@ struct lws_role_edge {
 
 static const struct lws_role_edge lws_role_edges[] = {
 	{ "(none)", "-", 0, "(none)", "-", LRS_UNCONNECTED },
+	{ "(none)", "-", LRS_UNCONNECTED, "(none)", "S", LRS_UNCONNECTED },	/* server-side wsi born */
 	{ "(none)", "-", 0, "h3", "-", LRS_UNCONNECTED },
 	{ "(none)", "-", 0, "listen", "-", LRS_UNCONNECTED },
 	{ "(none)", "-", 0, "netlink", "-", LRS_UNCONNECTED },
@@ -675,7 +587,8 @@ static const struct lws_role_edge lws_role_edges[] = {
 	{ "(none)", "S", LRS_UNCONNECTED, "quic", "S", LRS_ESTABLISHED },
 	{ "(none)", "S", LRS_UNCONNECTED, "quic", "S", LRS_SSL_INIT },
 	{ "(none)", "S", LRS_UNCONNECTED, "quic", "S", LRS_UNCONNECTED },
-	{ "(none)", "S", LRS_UNCONNECTED, "raw-skt", "-", LRS_ESTABLISHED },
+	{ "(none)", "S", LRS_UNCONNECTED, "raw-skt", "S", LRS_ESTABLISHED },
+	{ "(none)", "S", LRS_UNCONNECTED, "raw-skt", "S", LRS_SSL_INIT },
 	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE, "h2", "C", LRS_H2_AWAIT_PREFACE },
 	{ "h1", "C", LRS_H1C_ISSUE_HANDSHAKE2, "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS },
 	{ "h1", "C", LRS_UNCONNECTED, "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS },
@@ -690,7 +603,8 @@ static const struct lws_role_edge lws_role_edges[] = {
 	{ "h2", "C", LRS_WAITING_SERVER_REPLY, "ws", "Ce", LRS_ESTABLISHED },
 	{ "h2", "C", LRS_H2_AWAIT_PREFACE, "h2", "C", LRS_H2_WAITING_TO_SEND_HEADERS },
 	{ "h2", "C", LRS_WAITING_SERVER_REPLY, "h2", "C", LRS_ESTABLISHED },
-	{ "h2", "S", LRS_UNCONNECTED, "h2", "C", LRS_UNCONNECTED },	/* client mux child takes its side before its state */
+	{ "h2", "S", LRS_UNCONNECTED, "h2", "C", LRS_UNCONNECTED },	/* a client mux child takes its side */
+	{ "h2", "S", LRS_UNCONNECTED, "h2", "S", LRS_HEADERS },		/* a server mux child starts on its request */
 	{ "h2", "S", LRS_ESTABLISHED, "ws", "Se", LRS_ESTABLISHED },
 	{ "h3", "C", LRS_WAITING_SERVER_REPLY, "h3", "C", LRS_ESTABLISHED },
 	{ "mqtt", "S", LRS_UNCONNECTED, "mqtt", "C", LRS_ESTABLISHED },	/* sid-1 child of the migration */
@@ -699,12 +613,11 @@ static const struct lws_role_edge lws_role_edges[] = {
 	{ "quic", "S", LRS_ESTABLISHED, "h3", "S", LRS_HEADERS },	/* alpn h3: this wsi is request stream 0 */
 	{ "quic", "S", LRS_UNCONNECTED, "h3", "C", LRS_ESTABLISHED },
 	{ "quic", "S", LRS_UNCONNECTED, "h3", "S", LRS_HEADERS },
-	{ "raw-file", "-", LRS_UNCONNECTED, "raw-file", "-", LRS_ESTABLISHED },
-	{ "raw-skt", "S", LRS_ESTABLISHED, "raw-skt", "-", LRS_ESTABLISHED },
+	{ "raw-file", "*", LRS_UNCONNECTED, "raw-file", "*", LRS_ESTABLISHED },
 
 	/* present in the code but not reached by ctest or the fuzz seeds */
 	{ "*",  "C", LRS_DEAD_SOCKET, "h1", "C", LRS_UNCONNECTED },	/* close.c redirect / fallback restart */
-	{ "(none)", "*", LRS_UNCONNECTED, "raw-file", "-", LRS_ESTABLISHED }, /* ops-raw-file.c adoption bind: dir-notify, stdin */
+	{ "(none)", "*", LRS_UNCONNECTED, "raw-file", "*", LRS_ESTABLISHED }, /* ops-raw-file.c adoption bind: dir-notify, stdin */
 	{ "h1", "C", LRS_UNCONNECTED, "h3", "C", LRS_H2_WAITING_TO_SEND_HEADERS }, /* lws_wsi_h3_adopt() */
 	{ "h3", "*", LRS_ESTABLISHED, "wt", "*", LRS_ESTABLISHED },	/* ops-h3.c webtransport session */
 };
@@ -723,6 +636,31 @@ lws_state_edge_allowed(const struct lws_role_ops *ops, lws_wsi_state_t from,
 	lws_state_side(to, side);
 
 	for (n = 0; n < LWS_ARRAY_SIZE(lws_state_edges); n++, e++)
+		if (e->to == (to & LRS_MASK) &&
+		    (e->from == ANY || e->from == (from & LRS_MASK)) &&
+		    lws_state_match(e->role, role) &&
+		    lws_state_match(e->side, side))
+			return 1;
+
+	return 0;
+}
+
+/* a live-state edge must be one some event row produces */
+
+static int
+lws_event_edge_allowed(const struct lws_role_ops *ops, lws_wsi_state_t from,
+		       lws_wsi_state_t to)
+{
+	const char *role = ops ? ops->name : "(none)";
+	const struct lws_wsi_event_edge *e = lws_wsi_event_edges;
+	char side[3];
+	unsigned int n;
+
+	from = lws_wsi_state_of(from);
+	to = lws_wsi_state_of(to);
+	lws_state_side(to, side);
+
+	for (n = 0; n < LWS_ARRAY_SIZE(lws_wsi_event_edges); n++, e++)
 		if (e->to == (to & LRS_MASK) &&
 		    (e->from == ANY || e->from == (from & LRS_MASK)) &&
 		    lws_state_match(e->role, role) &&
@@ -817,9 +755,9 @@ lws_wsi_state_check(struct lws *wsi, const struct lws_role_ops *from_ops,
 	int ok;
 
 	/*
-	 * lwsi_set_state() edges live in the state table; lws_role_transition()
-	 * and lwsi_set_role() edges in the role table, even when the ops or
-	 * side turn out unchanged, since the tables were derived that way
+	 * A live-state edge must come from the event table; transport and
+	 * close phase edges from the state table; lws_role_transition() edges
+	 * from the role table, even when the ops or side turn out unchanged
 	 */
 	if (!strcmp(how, "set_transport") &&
 	    (((to & LWSI_TRANSPORT_MASK) >> LWSI_TRANSPORT_SHIFT) == LTS_FAILED ||
@@ -829,8 +767,9 @@ lws_wsi_state_check(struct lws *wsi, const struct lws_role_ops *from_ops,
 		 * can be retargeted (redirect, auth retry, fallback) from any
 		 */
 		ok = 1;
-	else if (!strcmp(how, "set_state") || !strcmp(how, "set_close") ||
-		 !strcmp(how, "set_transport"))
+	else if (!strcmp(how, "set_state"))
+		ok = lws_event_edge_allowed(to_ops, from, to);
+	else if (!strcmp(how, "set_close") || !strcmp(how, "set_transport"))
 		ok = lws_state_edge_allowed(to_ops, from, to);
 	else
 		ok = lws_role_edge_allowed(from_ops, from, to_ops, to);

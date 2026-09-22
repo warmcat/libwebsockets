@@ -324,8 +324,10 @@ rops_adoption_bind_raw_skt(struct lws *wsi, int type, const char *vh_prot_name)
 	}
 #endif
 
-	lws_role_transition(wsi, 0, (type & LWS_ADOPT_ALLOW_SSL) ? LRS_SSL_INIT :
-				LRS_ESTABLISHED, &role_ops_raw_skt);
+	/* keep the side the adopter gave us */
+	lws_role_transition(wsi, (enum lwsi_role)lwsi_role(wsi),
+			    (type & LWS_ADOPT_ALLOW_SSL) ? LRS_SSL_INIT :
+						LRS_ESTABLISHED, &role_ops_raw_skt);
 
 	if (vh_prot_name)
 		lws_bind_protocol(wsi, wsi->a.protocol, __func__);

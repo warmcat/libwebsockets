@@ -64,7 +64,9 @@ rops_adoption_bind_raw_file(struct lws *wsi, int type, const char *vh_prot_name)
 	    (type & _LWS_ADOPT_FINISH))
 		return 0; /* no match */
 
-	lws_role_transition(wsi, 0, LRS_ESTABLISHED, &role_ops_raw_file);
+	/* keep the side the adopter gave us */
+	lws_role_transition(wsi, (enum lwsi_role)lwsi_role(wsi), LRS_ESTABLISHED,
+			    &role_ops_raw_file);
 
 	if (!vh_prot_name) {
 		if (wsi->a.vhost->default_protocol_index >=

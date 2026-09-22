@@ -165,19 +165,6 @@ lwsi_set_close(struct lws *wsi, enum lws_close_phase phase)
 			(unsigned long)wsi->wsistate);
 }
 
-#if defined(_DEBUG) || defined(LWS_WITH_STATE_TRACE) || \
-    defined(LWS_WITH_STATE_CHECK)
-void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role) {
-	lws_wsi_state_t old = wsi->wsistate;
-
-	wsi->wsistate = (old & ~(lws_wsi_state_t)LWSI_ROLE_MASK) | role;
-	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
-			"set_role", NULL);
-
-	lwsl_wsi_debug(wsi, "state 0x%lx", (unsigned long)wsi->wsistate);
-}
-#endif
-
 void lws_wsi_set_state_ev(struct lws *wsi, lws_wsi_state_t lrs, const char *ev) {
 	lws_wsi_state_t old = wsi->wsistate, w;
 	enum lws_carrier_phase lcr = lws_lcr_of_lrs(lrs);
@@ -217,10 +204,6 @@ void lws_wsi_set_state_ev(struct lws *wsi, lws_wsi_state_t lrs, const char *ev) 
 
 	lwsl_wsi_debug(wsi, "lwsi_set_state 0x%lx -> 0x%lx", (unsigned long)old,
 			(unsigned long)wsi->wsistate);
-}
-
-void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs) {
-	lws_wsi_set_state_ev(wsi, lrs, NULL);
 }
 
 void lws_log_prepend_wsi(struct lws_log_cx *cx, void *obj, char **p, char *e) {

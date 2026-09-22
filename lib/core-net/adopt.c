@@ -74,7 +74,8 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, int group,
 	__lws_lc_tag(vhost->context, &vhost->context->lcg[group],
 			&new_wsi->lc, "%s|%s", vhost->name, desc);
 
-	new_wsi->wsistate |= LWSIFR_SERVER;
+	/* a server-side wsi, with no role or state yet */
+	lws_role_transition(new_wsi, LWSIFR_SERVER, LRS_UNCONNECTED, NULL);
 	new_wsi->tsi = (char)n;
 	lwsl_wsi_debug(new_wsi, "joining vh %s, tsi %d",
 			vhost->name, new_wsi->tsi);
@@ -82,10 +83,6 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, int group,
 	lws_vhost_bind_wsi(vhost, new_wsi);
 	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 	new_wsi->retry_policy = vhost->retry_policy;
-
-	/* initialize the instance struct */
-
-	lwsi_set_state(new_wsi, LRS_UNCONNECTED);
 
 #ifdef LWS_WITH_TLS
 	new_wsi->tls.use_ssl = LWS_SSL_ENABLED(vhost);
@@ -415,7 +412,6 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 	 * selected yet so we issue this to the vhosts's default protocol,
 	 * itself by default protocols[0]
 	 */
-	new_wsi->wsistate |= LWSIFR_SERVER;
 	n = LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED;
 	if (new_wsi->role_ops->adoption_cb[lwsi_role_server(new_wsi)])
 		n = new_wsi->role_ops->adoption_cb[lwsi_role_server(new_wsi)];

@@ -85,13 +85,6 @@ enum lwsi_role {
 };
 
 #define lwsi_role(wsi) (wsi->wsistate & (unsigned int)LWSI_ROLE_MASK)
-#if !defined (_DEBUG) && !defined(LWS_WITH_STATE_TRACE) && \
-    !defined(LWS_WITH_STATE_CHECK)
-#define lwsi_set_role(wsi, role) wsi->wsistate = \
-		(wsi->wsistate & ~(lws_wsi_state_t)LWSI_ROLE_MASK) | role
-#else
-void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role);
-#endif
 
 #define lwsi_role_client(wsi) (!!(wsi->wsistate & LWSIFR_CLIENT))
 #define lwsi_role_server(wsi) (!!(wsi->wsistate & LWSIFR_SERVER))
@@ -395,7 +388,10 @@ lwsi_state_of_word(lws_wsi_state_t w)
 	 lwsi_state(wsi) == LRS_H1C_ISSUE_HANDSHAKE2 || \
 	 lwsi_state(wsi) == LRS_H2_WAITING_TO_SEND_HEADERS || \
 	 lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY))
-void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs);
+/*
+ * The live state is only ever written by lws_wsi_event() below, through
+ * this, and by lws_role_transition() when a wsi is born or changes role
+ */
 void lws_wsi_set_state_ev(struct lws *wsi, lws_wsi_state_t lrs, const char *ev);
 
 /*

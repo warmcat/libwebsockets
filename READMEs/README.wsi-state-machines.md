@@ -39,12 +39,12 @@ describes what they mean.
 
 |bits|holds|read with|set with|
 |---|---|---|---|
-|0-9|the live state: the transaction machine's `LRS_` value with its `LWSIFS_POCB` / `LWSIFS_NOT_EST` qualifiers|`lwsi_state_live()`|`lwsi_set_state()`|
+|0-9|the live state: the transaction machine's `LRS_` value with its `LWSIFS_POCB` / `LWSIFS_NOT_EST` qualifiers|`lwsi_state_live()`|`lws_wsi_event()`|
 |10|`LWSIFS_TXN_COMPLETING`: the transaction was completed while a partial write was outstanding|`lwsi_txn_completing()`|`lwsi_set_txn_completing()`|
 |12-14|close machine, `enum lws_close_phase` `LCS_*`|`lwsi_close()`|`lwsi_set_close()`|
 |15|`LWSIFS_CLOSE_STARTED`: `__lws_close_free_wsi()` has been entered|||
 |16-19|transport machine, `enum lws_transport_phase` `LTS_*`|`lwsi_transport()`|`lwsi_set_transport()`|
-|20-23|carrier machine, `enum lws_carrier_phase` `LCR_*`|`lwsi_carrier()`|`lwsi_set_state()` routes handshake states here|
+|20-23|carrier machine, `enum lws_carrier_phase` `LCR_*`|`lwsi_carrier()`|`lws_wsi_event()` routes handshake states here|
 |24-29|role flags: client / server side, h2 encapsulation|`lwsi_role_*()`|`lws_role_transition()`|
 |30|`LWSIFS_SKT_UNUSABLE`: the socket is known dead, take the abortive close path|`lwsi_skt_unusable()`|`lwsi_set_skt_unusable()`|
 
@@ -57,7 +57,7 @@ live bits underneath a close, so what the connection was doing when it
 started to close stays visible.
 
 Bits 10 and 30 are attributes of the live state rather than machines:
-they survive `lwsi_set_state()`, and `lws_role_transition()` carries them
+they survive a live-state change, and `lws_role_transition()` carries them
 across a role change, except that a restart to `LRS_UNCONNECTED` (redirect,
 auth retry, h3 to tcp fallback) drops them, since the new connection has its
 own socket and its own transaction.
@@ -109,9 +109,9 @@ The carrier is `LCR_ESTABLISHED` from the first transaction state onward.
 Carrier and transaction are sequential, not stacked, and the same `LRS_`
 names are reused per transaction: an h1 client re-enters
 `H1C_ISSUE_HANDSHAKE2` and `WAITING_SERVER_REPLY` for each pipelined request.
-`lwsi_set_state()` routes a handshake-named state into the carrier bits only
-while the carrier is not yet established; afterwards it is a per-transaction
-phase in the live bits.  So "is this client still waiting for its first
+A handshake-named state is routed into the carrier bits only while the
+carrier is not yet established; afterwards it is a per-transaction phase in
+the live bits.  So "is this client still waiting for its first
 response" is `lwsi_carrier() == LCR_WAITING_SERVER_REPLY`, while "is a
 response pending" is `lwsi_hdrs_pending()`.
 
@@ -220,20 +220,22 @@ wsi with a socket.
 
 ## Role transitions
 
-`lws_role_transition(wsi, role, state, ops)` is the one place `role_ops` is
-written.  It rewrites the whole word: side flags, a transport or carrier
-state into its bits over an `UNCONNECTED` live state, or a live state with
-the carrier marked established.  It is used for adoption, the client bind,
-the h1 to h2 / ws upgrades, quic to h3 at ALPN, the client's sid-1
-migration, and the restart to `UNCONNECTED` on redirect or fallback.  Its
-edges are listed separately from `lwsi_set_state()` edges in the role table.
+`lws_role_transition(wsi, role, state, ops)` is the one place `role_ops` and
+the side flags are written, and the only way a wsi gets a live state
+without an event: birth (a new wsi is `UNCONNECTED`, a server mux child is
+`HEADERS`), adoption, the client bind, the h1 to h2 / ws upgrades, quic to
+h3 at ALPN, the client's sid-1 migration, and the restart to `UNCONNECTED`
+on redirect or fallback.  It rewrites the whole word: side flags, a
+transport or carrier state into its bits over an `UNCONNECTED` live state,
+or a live state with the carrier marked established.  Its edges are listed
+in the role table.
 
 ## Build options
 
 |option|effect|
 |---|---|
 |`LWS_WITH_STATE_TRACE`|append each distinct `(role, state) -> (role, state)` edge the process performs, once, to `$LWS_STATE_TRACE_FILE` (stderr if unset), as `LRS h1/S:HEADERS -> h1/S:ESTABLISHED set_state <wsi tag>`.  Attributes show as `+completing`, `+unusable`, `+failed`, `+restarting`, `+told`.|
-|`LWS_WITH_STATE_CHECK`|look every edge up in the per-machine tables and `abort()` on one that is not listed or that breaks an invariant, logging `unlisted wsi state edge ...` or `invariant broken on wsi state edge ...`|
+|`LWS_WITH_STATE_CHECK`|look every edge up: a live-state edge in the event table, a transport or close edge in the phase table, a role change in the role table; `abort()` on one that is not listed or that breaks an invariant, logging `unlisted wsi state edge ...` or `invariant broken on wsi state edge ...`; an event with no row aborts too|
 
 Both are off by default and change nothing about what any transition does.
 To regenerate the observed edge set, build with the trace on and run
@@ -242,10 +244,11 @@ To regenerate the observed edge set, build with the trace on and run
 LWS_STATE_TRACE_FILE=/tmp/edges.txt ctest
 ```
 
-then `sort -u` the file; the tables in `wsi-state.c` are the union of that
-over the ctest suite and the fuzz seed corpus, plus the statically present
-edges nothing reaches (marked as such, each citing its site).  A new edge is
-either an omission in the table or a bug at the site.
+then `sort -u` the file; the phase and role tables in `wsi-state.c` are the
+union of that over the ctest suite and the fuzz seed corpus, plus the
+statically present edges nothing reaches (marked as such, each citing its
+site), and the event table is the transition function itself.  A new edge is
+either an omission in a table or a bug at the site.
 
 ## Events
 
@@ -260,7 +263,8 @@ upgrade asked for) are distinct events instead, so the information is in
 the word rather than in a bool beside it.  An event with no row is a bug
 at the site: the state is left alone, an error is logged, and
 `LWS_WITH_STATE_CHECK` aborts.  The trace shows the event on each edge as
-`ev=NAME`.
+`ev=NAME`.  Nothing else writes a live state: there is no setter for one
+outside `wsi-state.c`, only the events and `lws_role_transition()`.
 
 For the transport and close machines every site corresponds to exactly one
 phase, so the phase name is the event name and they keep their phase
