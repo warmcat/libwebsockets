@@ -584,6 +584,19 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 		return m;
 	}
 
+#if defined(LWS_WITH_SERVER)
+	/*
+	 * A server wsi still in LRS_HEADERS has no request the user has been
+	 * told about, so it has nothing for the user to write to.  The h3
+	 * connection wsi sits there for the life of the connection, and the
+	 * control and qpack streams' writes mark it as wanting POLLOUT: a
+	 * user offered HTTP_WRITEABLE on it, with no LWS_CALLBACK_HTTP before
+	 * and no user space, reads a request that was never made.
+	 */
+	if (lwsi_role_server(wsi) && lwsi_state(wsi) == LRS_HEADERS)
+		return 0;
+#endif
+
 	lwsl_wsi_info(wsi, "rops_perform_user_POLLOUT_h3: falling through to lws_callback_as_writeable with state=%d", lwsi_state(wsi));
 	return lws_callback_as_writeable(wsi);
 }
