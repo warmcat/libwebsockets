@@ -111,7 +111,6 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 
 	lws_role_transition(new_wsi, 0, LRS_ESTABLISHED, ops);
 
-	lwsi_set_hdrs_complete(new_wsi, 0);
 	new_wsi->position_in_fds_table = LWS_NO_FDS_POS;
 
 	/*

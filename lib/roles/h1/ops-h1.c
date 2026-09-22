@@ -60,7 +60,6 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		if (lwsi_role_client(wsi))
 			break;
 
-		lwsi_set_hdrs_complete(wsi, 0);
 
 		/* fallthru */
 
@@ -114,7 +113,7 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		 */
 		len -= (unsigned int)lws_ptr_diff(buf, last_char);
 
-		if (!lwsi_hdrs_complete(wsi))
+		if (lwsi_state(wsi) == LRS_HEADERS)
 			/* More header content on the way */
 			return lws_ptr_diff(buf, oldbuf);
 
@@ -709,7 +708,8 @@ try_pollout:
 		}
 	}
 
-	if (!lwsi_hdrs_complete(wsi))
+	/* nothing to write until there is a request to answer */
+	if (lwsi_state(wsi) == LRS_HEADERS)
 		return LWS_HPI_RET_HANDLED;
 
 	if (lwsi_state(wsi) == LRS_AWAITING_FILE_READ) {
@@ -878,7 +878,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 
 #if defined(LWS_WITH_CLIENT)
 	if ((pollfd->revents & LWS_POLLIN) &&
-	     lwsi_hdrs_complete(wsi) && !wsi->told_user_closed) {
+	     !lwsi_hdrs_pending(wsi) && !wsi->told_user_closed) {
 
 		/*
 		 * In SSL mode we get POLLIN notification about

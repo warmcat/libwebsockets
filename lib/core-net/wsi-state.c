@@ -126,10 +126,9 @@ lws_wsi_state_fmt(const struct lws_role_ops *ops, lws_wsi_state_t s,
 		name = tmp;
 	}
 
-	lws_snprintf(buf, len, "%s/%c%s:%s%s%s", ops ? ops->name : "(none)",
+	lws_snprintf(buf, len, "%s/%c%s:%s%s", ops ? ops->name : "(none)",
 		     (s & LWSIFR_CLIENT) ? 'C' : ((s & LWSIFR_SERVER) ? 'S' : '-'),
 		     (s & LWSI_ROLE_ENCAP_MASK) ? "e" : "", name,
-		     (w & LWSIFS_HDRS_COMPLETE) ? "+hdrs" : "",
 		     (w & LWSIFS_TXN_COMPLETING) ? "+completing" : "");
 }
 
@@ -638,8 +637,7 @@ lws_wsi_state_changed(struct lws *wsi, const struct lws_role_ops *from_ops,
 	int attr_only = lws_wsi_state_of(from) == lws_wsi_state_of(to) &&
 			from_ops == to_ops;
 
-	if (attr_only && !((from ^ to) & (LWSIFS_TXN_COMPLETING |
-					     LWSIFS_HDRS_COMPLETE)))
+	if (attr_only && !((from ^ to) & LWSIFS_TXN_COMPLETING))
 		return;
 
 #if defined(LWS_WITH_STATE_TRACE)

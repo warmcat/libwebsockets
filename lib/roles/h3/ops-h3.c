@@ -1474,9 +1474,9 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 
 				/* Validation: Request Streams */
 				if (!wsi->quic.qs || !wsi->quic.qs->is_unidirectional) {
-					lwsl_wsi_debug(wsi, "H3 Validation: rx_frame_type=%d, hdr_parsing_completed=%d",
-						(int)wsi->h3.rx_frame_type, lwsi_hdrs_complete(wsi));
-					if (wsi->h3.rx_frame_type == 0x00 && !lwsi_hdrs_complete(wsi)) {
+					lwsl_wsi_debug(wsi, "H3 Validation: rx_frame_type=%d, hdrs_pending=%d",
+						(int)wsi->h3.rx_frame_type, lwsi_hdrs_pending(wsi));
+					if (wsi->h3.rx_frame_type == 0x00 && lwsi_hdrs_pending(wsi)) {
 						struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 						lws_quic_enter_closing_state(nwsi, LWS_H3_FRAME_UNEXPECTED, 0, 1);
 						return 1;
@@ -1579,7 +1579,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 							 * to LRS_BODY here.
 							 */
 							if (lwsi_role_http(wsi)) {
-								if (!lwsi_hdrs_complete(wsi)) {
+								if (lwsi_hdrs_pending(wsi)) {
 									lwsl_wsi_notice(wsi, "DATA before header block");
 									return 1;
 								}
@@ -1773,7 +1773,6 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST) ? lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST) : "null",
 						wsi->a.vhost ? wsi->a.vhost->name : "null");
 
-					lwsi_set_hdrs_complete(wsi, 1);
 					
 					/* Extract Content-Length if present */
 					if (lws_hdr_extant(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
@@ -2452,7 +2451,6 @@ lws_wsi_h3_adopt(struct lws *parent_wsi, struct lws *wsi)
 	}
 
 	wsi->seen_nonpseudoheader = 0;
-	lwsi_set_hdrs_complete(wsi, 0);
 #if defined(LWS_WITH_CLIENT)
 	wsi->client_mux_substream = 1;
 #endif

@@ -316,7 +316,7 @@ struct _lws_h2_related {
 	/*
 	 * The stream's first header block completed and was dispatched:
 	 * any further HEADERS on it are trailers.  This must live here and
-	 * not in lwsi_hdrs_complete(wsi), which __lws_header_table_reset()
+	 * not in the old headers-complete bool, which __lws_header_table_reset()
 	 * clears whenever an ah is (re)attached... a trailer block arriving
 	 * after the ah was released would otherwise re-attach one, lose the
 	 * flag, and be decoded and dispatched as a second request on the

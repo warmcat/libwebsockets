@@ -340,7 +340,6 @@ hs2:
 		}
 
 		lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
-		lwsi_set_hdrs_complete(wsi, 0);
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 				(int)wsi->a.context->timeout_secs);
@@ -1305,7 +1304,6 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 					    lws_hdr_simple_create(wsi, hnames_cis[m], wsi->stash->cis[m]))
 						goto bail3_l;
 
-			lwsi_set_hdrs_complete(wsi, 0);
 			wsi->stream.ah->ues = URIES_IDLE;
 			lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
 			lws_callback_on_writable(wsi);
@@ -1352,7 +1350,6 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		lwsl_wsi_info(wsi, "%d interim response, awaiting the final one",
 			      n);
 		lws_header_table_rx_rewind(wsi);
-		lwsi_set_hdrs_complete(wsi, 0);
 		/* the role transition above already moved us to ESTABLISHED */
 		lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
 		lws_validity_confirmed(wsi);
@@ -2443,10 +2440,10 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 
 	if (buffered < 0) {
 		lwsl_debug("%s: SSL capable error\n", __func__);
-		lwsl_notice("%s: SSL capable error, hdr_parsing_completed=%d, content_length_given=%d, chunked=%d, ah_ptr=%p\n",
-			__func__, lwsi_hdrs_complete(wsi), wsi->http.content_length_given, wsi->http.rx_chunked, wsi->stream.ah);
+		lwsl_notice("%s: SSL capable error, hdrs_pending=%d, content_length_given=%d, chunked=%d, ah_ptr=%p\n",
+			__func__, lwsi_hdrs_pending(wsi), wsi->http.content_length_given, wsi->http.rx_chunked, wsi->stream.ah);
 
-		if (lwsi_hdrs_complete(wsi) &&
+		if (!lwsi_hdrs_pending(wsi) &&
 		    !wsi->http.content_length_given &&
 		    !wsi->http.rx_chunked) {
 			lwsl_notice("%s: generating lws_http_transaction_completed_client\n", __func__);

@@ -377,7 +377,7 @@ post_pollout:
 drain:
 #if defined(LWS_WITH_CLIENT)
 	if (lwsi_role_http(wsi) && lwsi_role_client(wsi) &&
-	    lwsi_hdrs_complete(wsi) && !wsi->told_user_closed) {
+	    !lwsi_hdrs_pending(wsi) && !wsi->told_user_closed) {
 
 		/*
 		 * In SSL mode we get POLLIN notification about

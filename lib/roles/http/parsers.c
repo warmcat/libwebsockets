@@ -119,9 +119,6 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 
 	_lws_header_table_reset(ah);
 
-	/* since we will restart the ah, our new headers are not completed */
-	lwsi_set_hdrs_complete(wsi, 0);
-
 	/* while we hold the ah, keep a timeout on the wsi */
 	__lws_set_timeout(wsi, PENDING_TIMEOUT_HOLDING_AH,
 			  wsi->a.vhost->timeout_secs_ah_idle);
@@ -1760,7 +1757,6 @@ set_parsing_complete:
 #endif
 	}
 	ah->parser_state = WSI_PARSING_COMPLETE;
-	lwsi_set_hdrs_complete(wsi, 1);
 
 	return LPR_OK;
 

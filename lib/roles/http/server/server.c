@@ -3748,7 +3748,7 @@ lws_http_transaction_completed(struct lws *wsi)
 #endif
 	lws_access_log(wsi);
 
-	if (!lwsi_hdrs_complete(wsi)
+	if (lwsi_state(wsi) == LRS_HEADERS
 #if defined(LWS_WITH_CGI)
 			&& !wsi->http.cgi
 #endif
@@ -3805,7 +3805,6 @@ lws_http_transaction_completed(struct lws *wsi)
 	lwsi_set_state(wsi, LRS_TXN_COMPLETED);
 	wsi->http.tx_content_length = 0;
 	wsi->http.tx_content_remain = 0;
-	lwsi_set_hdrs_complete(wsi, 0);
 	wsi->sending_chunked = 0;
 #ifdef LWS_WITH_ACCESS_LOG
 	wsi->stream.access_log.sent = 0;

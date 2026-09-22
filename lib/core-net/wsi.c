@@ -136,19 +136,6 @@ lwsi_set_txn_completing(struct lws *wsi, int on)
 }
 
 void
-lwsi_set_hdrs_complete(struct lws *wsi, int on)
-{
-	lws_wsi_state_t old = wsi->wsistate;
-
-	if (on)
-		wsi->wsistate |= LWSIFS_HDRS_COMPLETE;
-	else
-		wsi->wsistate &= ~LWSIFS_HDRS_COMPLETE;
-	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
-		       "set_hdrs");
-}
-
-void
 lwsi_set_close(struct lws *wsi, enum lws_close_phase phase)
 {
 	lws_wsi_state_t old = wsi->wsistate;

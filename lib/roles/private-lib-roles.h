@@ -111,21 +111,8 @@ void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role);
 void
 lwsi_set_txn_completing(struct lws *wsi, int on);
 
-/*
- * Attribute of the live transaction state: the http headers of the current
- * request (server) or response (client) have all been parsed.  Splits the
- * two meanings ESTABLISHED has today, idle / parsing headers vs acting on a
- * parsed request or receiving a response (bit 11, outside LRS_MASK)
- */
-#define LWSIFS_HDRS_COMPLETE	(0x800u)
-
-#define lwsi_hdrs_complete(wsi) (!!(wsi->wsistate & LWSIFS_HDRS_COMPLETE))
-
 /* the attributes ride through role transitions, only their setters clear them */
-#define LWSIFS_ATTR_MASK	(LWSIFS_TXN_COMPLETING | LWSIFS_HDRS_COMPLETE)
-
-void
-lwsi_set_hdrs_complete(struct lws *wsi, int on);
+#define LWSIFS_ATTR_MASK	(LWSIFS_TXN_COMPLETING)
 
 enum lwsi_state {
 
@@ -352,6 +339,25 @@ lwsi_state_of_word(lws_wsi_state_t w)
 #define lwsi_state_est(wsi) (!(lwsi_state(wsi) & LWSIFS_NOT_EST))
 #define lwsi_state_live_est(wsi) (!(wsi->wsistate & LWSIFS_NOT_EST))
 #define lwsi_state_can_handle_POLLOUT(wsi) (lwsi_state(wsi) & LWSIFS_POCB)
+
+/*
+ * True while the http headers of the current request (server) or response
+ * (client) are still to come.  A server is parsing them exactly while it is
+ * in HEADERS, since the parse loop moves it on before returning.  A client
+ * has not seen its response headers during transport setup, the carrier
+ * handshake, and while issuing its request and body and waiting for the
+ * reply; an interim 1xx puts it back to waiting.  This is what the
+ * hdr_parsing_completed bool used to say, read from the machines instead,
+ * so that every reset and redirect disposes of it with them.
+ */
+#define lwsi_hdrs_pending(wsi) (lwsi_role_server(wsi) ? \
+	(lwsi_state(wsi) == LRS_HEADERS) : \
+	(lwsi_transport(wsi) || lwsi_carrier_handshaking(wsi) || \
+	 lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY || \
+	 lwsi_state(wsi) == LRS_H1C_ISSUE_HANDSHAKE || \
+	 lwsi_state(wsi) == LRS_H1C_ISSUE_HANDSHAKE2 || \
+	 lwsi_state(wsi) == LRS_H2_WAITING_TO_SEND_HEADERS || \
+	 lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY))
 void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs);
 
 #define _LWS_ADOPT_FINISH (1 << 24)

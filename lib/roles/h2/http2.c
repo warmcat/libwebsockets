@@ -1162,7 +1162,6 @@ int lws_h2_do_pps_send(struct lws *wsi)
 			 * on a higher sid would close sid 1 as an idle
 			 * stream while it is being served).
 			 */
-			lwsi_set_hdrs_complete(h2n->swsi, 1);
 			h2n->swsi->h2.hdrs_done = 1;
 			lws_h2_state(h2n->swsi, LWS_H2_STATE_HALF_CLOSED_REMOTE);
 			lwsl_info("servicing initial http request\n");
@@ -2226,7 +2225,6 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		lwsl_info("http req, %s, h2n->swsi=%s\n", lws_wsi_tag(wsi),
 				lws_wsi_tag(h2n->swsi));
-		lwsi_set_hdrs_complete(h2n->swsi, 1);
 		h2n->swsi->h2.hdrs_done = 1;
 
 #if defined(LWS_WITH_CLIENT)
