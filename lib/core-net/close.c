@@ -225,7 +225,8 @@ __lws_reset_wsi(struct lws *wsi)
 	if (wsi->mux_stream_immortal)
 		lws_http_close_immortal(wsi);
 
-	wsi->hdr_parsing_completed = wsi->mux_substream =
+	lwsi_set_hdrs_complete(wsi, 0);
+	wsi->mux_substream =
 	wsi->upgraded_to_http2 = wsi->mux_stream_immortal =
 	wsi->h2_acked_settings = wsi->seen_nonpseudoheader =
 	wsi->socket_is_permanently_unusable = wsi->favoured_pollin =
@@ -1256,7 +1257,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 		if (wsi->a.protocol)
 			lws_bind_protocol(wsi, wsi->a.protocol, "client_reset");
 		wsi->pending_timeout = NO_PENDING_TIMEOUT;
-		wsi->hdr_parsing_completed = 0;
+		lwsi_set_hdrs_complete(wsi, 0);
 
 #if defined(LWS_WITH_TLS)
 		/* guarded like the CIS_ADDRESS use further down */

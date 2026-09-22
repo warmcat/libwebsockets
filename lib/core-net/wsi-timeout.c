@@ -124,7 +124,7 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 	else if (wsi->pending_timeout != PENDING_TIMEOUT_USER_OK)
 		lwsl_wsi_info(wsi, "TIMEDOUT WAITING %d, dhdr %d, ah %p, wl %d",
 				   wsi->pending_timeout,
-				   wsi->hdr_parsing_completed, wsi->stream.ah,
+				   lwsi_hdrs_complete(wsi), wsi->stream.ah,
 				   pt->http.ah_wait_list_length);
 #if defined(LWS_WITH_CGI)
 	if (wsi->http.cgi)

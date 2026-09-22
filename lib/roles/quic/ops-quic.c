@@ -4845,7 +4845,7 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
         if (!strcmp(alpn, "h3") && lwsi_role_client(wsi)) {
                 wsi->client_h2_alpn = 1;
                 wsi->client_mux_migrated = 1;
-                wsi->hdr_parsing_completed = 0;
+                lwsi_set_hdrs_complete(wsi, 0);
                 nwsi->client_h2_alpn = 1;
                 nwsi->client_mux_migrated = 1;
         }

@@ -149,7 +149,7 @@ lws_create_stdwsi(struct lws_context *context, int tsi,
 
 	lws_role_transition(new_wsi, 0, LRS_ESTABLISHED, ops);
 
-	new_wsi->hdr_parsing_completed = 0;
+	lwsi_set_hdrs_complete(new_wsi, 0);
 
 	/*
 	 * these can only be set once the protocol is known

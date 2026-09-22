@@ -136,6 +136,19 @@ lwsi_set_txn_completing(struct lws *wsi, int on)
 }
 
 void
+lwsi_set_hdrs_complete(struct lws *wsi, int on)
+{
+	lws_wsi_state_t old = wsi->wsistate;
+
+	if (on)
+		wsi->wsistate |= LWSIFS_HDRS_COMPLETE;
+	else
+		wsi->wsistate &= ~LWSIFS_HDRS_COMPLETE;
+	lws_state_hook(wsi, wsi->role_ops, old, wsi->role_ops, wsi->wsistate,
+		       "set_hdrs");
+}
+
+void
 lwsi_set_close(struct lws *wsi, enum lws_close_phase phase)
 {
 	lws_wsi_state_t old = wsi->wsistate;
@@ -1128,6 +1141,9 @@ void lws_role_transition(struct lws *wsi, enum lwsi_role role,
 	else
 		wsi->wsistate = (unsigned int)role | (unsigned int)state |
 				lws_carrier_bits(LCR_ESTABLISHED);
+
+	/* the transaction attributes are not the role's to reset */
+	wsi->wsistate |= old & LWSIFS_ATTR_MASK;
 	if (ops)
 		wsi->role_ops = ops;
 	lws_state_hook(wsi, old_ops, old, wsi->role_ops, wsi->wsistate,

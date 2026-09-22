@@ -1036,7 +1036,6 @@ struct lws {
 
 	short				bugcatcher;
 
-	unsigned int			hdr_parsing_completed:1;
 	unsigned int			mux_substream:1;
 	unsigned int			upgraded_to_http2:1;
 	unsigned int			mux_stream_immortal:1;

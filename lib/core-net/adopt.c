@@ -86,7 +86,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, int group,
 	/* initialize the instance struct */
 
 	lwsi_set_state(new_wsi, LRS_UNCONNECTED);
-	new_wsi->hdr_parsing_completed = 0;
+	lwsi_set_hdrs_complete(new_wsi, 0);
 
 #ifdef LWS_WITH_TLS
 	new_wsi->tls.use_ssl = LWS_SSL_ENABLED(vhost);

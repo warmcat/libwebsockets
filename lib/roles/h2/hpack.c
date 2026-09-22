@@ -828,7 +828,7 @@ static int
 lws_h2_hdrs_are_trailers(struct lws *wsi)
 {
 	/*
-	 * Not wsi->hdr_parsing_completed: that is cleared by the ah reset
+	 * Not lwsi_hdrs_complete(wsi): that is cleared by the ah reset
 	 * when an ah is re-attached for this very block, if the stream had
 	 * released its ah after dispatch (cgi mounts do, and an early detach
 	 * generally would)

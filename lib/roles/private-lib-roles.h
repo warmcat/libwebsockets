@@ -111,6 +111,22 @@ void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role);
 void
 lwsi_set_txn_completing(struct lws *wsi, int on);
 
+/*
+ * Attribute of the live transaction state: the http headers of the current
+ * request (server) or response (client) have all been parsed.  Splits the
+ * two meanings ESTABLISHED has today, idle / parsing headers vs acting on a
+ * parsed request or receiving a response (bit 11, outside LRS_MASK)
+ */
+#define LWSIFS_HDRS_COMPLETE	(0x800u)
+
+#define lwsi_hdrs_complete(wsi) (!!(wsi->wsistate & LWSIFS_HDRS_COMPLETE))
+
+/* the attributes ride through role transitions, only their setters clear them */
+#define LWSIFS_ATTR_MASK	(LWSIFS_TXN_COMPLETING | LWSIFS_HDRS_COMPLETE)
+
+void
+lwsi_set_hdrs_complete(struct lws *wsi, int on);
+
 enum lwsi_state {
 
 	/* Phase 1: no transport yet, the live state of a new wsi */
