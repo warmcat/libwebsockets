@@ -667,6 +667,7 @@ if (LWS_WITH_MBEDTLS)
 	if (ESP_PLATFORM)
 		# we know we should have things
 		set(LWS_HAVE_MBEDTLS_AUTH_KEY_ID 1 CACHE BOOL x)
+		set(LWS_HAVE_mbedtls_ssl_set_verify 1 CACHE BOOL x) # JIT trust KID capture
 		set(LWS_HAVE_mbedtls_ssl_conf_alpn_protocols 1 CACHE BOOL x)
 		set(LWS_HAVE_mbedtls_ssl_get_alpn_protocol 1 CACHE BOOL x)
 		set(LWS_HAVE_mbedtls_ssl_conf_sni 1 CACHE BOOL x)
