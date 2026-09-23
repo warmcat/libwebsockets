@@ -182,11 +182,11 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 	 * (lws_dlo_ss_detach_lhp() from its stream's DESTROYING): then
 	 * there is no parse to resume and no sul of its to schedule
 	 */
-	if (!m->ssevsul || !m->lhp)
+	if (!m->ssevsul)
 		return;
 
 	rs = lws_container_of(m->ssevsul, lws_display_render_state_t, sul);
-	if (rs->html != 1) {
+	if (rs->html != 1 || !m->lhp) {
 		lws_sul_schedule(lws_ss_get_context(m->ss), 0, m->ssevsul, m->on_rx, 1);
 		return;
 	}
@@ -205,8 +205,43 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
  */
 
 static int
+dlo_asset_holds_layout_up(const dloss_t *ds)
+{
+	if (!ds->inflight && !ds->retrying)
+		return 0; /* nothing is coming: it cannot hold anything up */
+
+	/*
+	 * A stylesheet has to arrive whole before the cascade is right, so
+	 * the layout waits for all of it.
+	 */
+
+	if (ds->type == LWSDLOSS_TYPE_CSS)
+		return 1;
+
+	/*
+	 * An image is different: all the layout wants from it is its
+	 * dimensions, which come out of the first part of the payload.  Once
+	 * those are known (or it failed), the rest of it is pixel data that
+	 * nothing needs until the raster sweep reaches the image... and the
+	 * raster is downstream of the document completing.
+	 *
+	 * Holding the document open for the whole payload meant every byte
+	 * of every image had to be buflisted first, with no consumer and so
+	 * no backpressure: a 45KB page of images on a target with 100KB of
+	 * heap has nowhere to put them.
+	 */
+
+	if (ds->u.failed || lws_dlo_image_width(&ds->u))
+		return 0;
+
+	return 1;
+}
+
+static int
 dlo_assets_outstanding(struct lws_context *cx)
 {
+	/* a queued asset has not started, so it has no dimensions yet */
+
 	if (cx->pending_assets.head)
 		return 1;
 
@@ -214,7 +249,7 @@ dlo_assets_outstanding(struct lws_context *cx)
 			      lws_dll2_get_head(&cx->active_assets)) {
 		dloss_t *ds = lws_container_of(d, dloss_t, active_asset_list);
 
-		if (ds->inflight || ds->retrying)
+		if (dlo_asset_holds_layout_up(ds))
 			return 1;
 	} lws_end_foreach_dll(d);
 
@@ -786,7 +821,10 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		return flags & LWSSS_FLAG_EOM ? LWSSSSRET_DISCONNECT_ME : LWSSSSRET_OK;
 	}
 okie:
-	lws_sul_schedule(lws_ss_get_context(m->ss), 0, m->ssevsul, m->on_rx, 1);
+	/* wake the raster: this may be the data the line it is on wants */
+	if (m->ssevsul && m->on_rx)
+		lws_sul_schedule(lws_ss_get_context(m->ss), 0, m->ssevsul,
+				 m->on_rx, 1);
 
 	return flags & LWSSS_FLAG_EOM ? LWSSSSRET_DISCONNECT_ME : LWSSSSRET_OK;
 }
@@ -1593,11 +1631,17 @@ lws_dlo_ss_detach_lhp(struct lws_context *cx, lhp_ctx_t *lhp)
 			dloss_t *ds = lws_container_of(d, dloss_t,
 						       active_asset_list);
 
-			if (ds->lhp == lhp) {
+			if (ds->lhp == lhp)
+				/*
+				 * Only the parser goes: an asset may still be
+				 * streaming its pixel data for a document
+				 * that has completed, and ssevsul / on_rx are
+				 * the render's, not the parser's.  The render
+				 * state outlives the document stream, and
+				 * that wake is how arriving data moves the
+				 * raster on.
+				 */
 				ds->lhp = NULL;
-				ds->ssevsul = NULL;
-				ds->on_rx = NULL;
-			}
 		} lws_end_foreach_dll(d);
 #endif
 }

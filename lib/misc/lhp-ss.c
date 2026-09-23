@@ -366,6 +366,13 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 	m->flow.h = h;
 	m->flow.window = w;
 
+	/*
+	 * The assets this document refers to are fetched with the same
+	 * window.  They are the big payloads... a page's images dwarf its
+	 * html, and without a window the peer sends them as fast as it can
+	 * and we buflist the lot.
+	 */
+
 	m->drt.dl = &rs->displaylist;
 	m->drt.w = rs->ic->wh_px[0].whole;
 	m->drt.h = rs->ic->wh_px[1].whole;
@@ -387,6 +394,8 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 	}
 
 	m->lhp.user1 = cx;
+	/* after lws_lhp_construct(), which zeroes the ctx */
+	m->lhp.window = w;
 	m->lhp.viewport_h = rs->viewport_h;
 	m->lhp.base_url = strdup(url);
 	m->lhp.ssevcb = render;
