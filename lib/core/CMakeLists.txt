@@ -33,6 +33,7 @@ if (NOT LWS_ONLY_SSPC)
 	list(APPEND SOURCES
 		core/alloc.c
 		core/buflist.c
+		core/fragbuf.c
 		core/context.c
 		core/lws_map.c
 		core/adapt.c

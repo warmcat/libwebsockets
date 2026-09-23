@@ -44,6 +44,92 @@
 
 struct lws_buflist;
 
+/*
+ * lws_fragbuf: a large buffer that does not insist on being contiguous
+ *
+ * A decoder that wants tens of KB in one piece fails on a heap that has the
+ * space but not in one run - and on a small target, mixed in with the
+ * connections and parsers that are still live, that is the normal state of
+ * affairs rather than the exception.
+ *
+ * Where the consumer can work with the buffer in pieces, this takes the
+ * failure of the monolithic allocation as an invitation to try again in
+ * smaller ones.  It still asks for the whole thing first, so when the heap
+ * can do it nothing is lost: the unit table is then simply a contiguous walk
+ * and lws_fragbuf_at() hands back the whole remainder at once.
+ *
+ * unit_size is the granularity the consumer needs contiguous, eg, a row pitch
+ * for image data: a unit is never split across allocations, so
+ * lws_fragbuf_unit() always hands back unit_size contiguous bytes.
+ */
+
+typedef struct lws_fragbuf lws_fragbuf_t;
+
+/**
+ * lws_fragbuf_create() - allocate units x unit_size, in pieces if it must
+ *
+ * \param units: how many units
+ * \param unit_size: bytes per unit, the granularity kept contiguous
+ *
+ * Returns NULL if even the fragmented allocation could not be satisfied.
+ */
+LWS_VISIBLE LWS_EXTERN lws_fragbuf_t *
+lws_fragbuf_create(size_t units, size_t unit_size);
+
+/**
+ * lws_fragbuf_destroy() - free it and everything it allocated
+ *
+ * \param fb: pointer to the fragbuf pointer, cleared on return
+ */
+/**
+ * lws_fragbuf_create_cap() - as above, but never ask for more than cap units
+ *
+ * \param units: how many units
+ * \param unit_size: bytes per unit, the granularity kept contiguous
+ * \param cap: largest number of units to ask for in one piece, 0 = no cap
+ *
+ * The same thing the allocation failure path arrives at by halving, but
+ * asked for directly... which is how the fragmented path gets exercised on a
+ * host with plenty of memory.
+ */
+LWS_VISIBLE LWS_EXTERN lws_fragbuf_t *
+lws_fragbuf_create_cap(size_t units, size_t unit_size, size_t cap);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_fragbuf_destroy(lws_fragbuf_t **fb);
+
+/**
+ * lws_fragbuf_unit() - the unit_size contiguous bytes of a unit
+ *
+ * \param fb: the fragbuf
+ * \param unit: which unit
+ *
+ * One indexed load, whether the buffer ended up in one piece or many.
+ */
+LWS_VISIBLE LWS_EXTERN uint8_t *
+lws_fragbuf_unit(const lws_fragbuf_t *fb, size_t unit);
+
+/**
+ * lws_fragbuf_at() - the byte at an offset, and how much follows it in one run
+ *
+ * \param fb: the fragbuf
+ * \param ofs: byte offset from the start
+ * \param avail: set to the contiguous bytes available from the result
+ *
+ * For consumers that walk by byte offset rather than by unit.  For an
+ * unfragmented buffer avail is all the rest of it, so the walk is one pass.
+ */
+LWS_VISIBLE LWS_EXTERN uint8_t *
+lws_fragbuf_at(const lws_fragbuf_t *fb, size_t ofs, size_t *avail);
+
+/**
+ * lws_fragbuf_pieces() - how many allocations it took (1 = contiguous)
+ *
+ * \param fb: the fragbuf
+ */
+LWS_VISIBLE LWS_EXTERN unsigned int
+lws_fragbuf_pieces(const lws_fragbuf_t *fb);
+
 /**
  * lws_buflist_append_segment(): add buffer to buflist at head
  *
