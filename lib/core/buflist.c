@@ -39,6 +39,7 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 	void *p = *head;
 	int sanity = 8192;
 	size_t tot = len;
+	unsigned int segs = 0;
 
 	if (!buf)
 		return -1;
@@ -48,6 +49,7 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 	/* append at the tail */
 	while (*head) {
 		tot += (*head)->len;
+		segs++;
 		if (!--sanity) {
 			lwsl_err("%s: buflist reached sanity limit\n", __func__);
 			return -1;
@@ -66,7 +68,10 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 	 */
 
 	if (tot > LWS_BUFLIST_OOM_LIMIT) {
-		lwsl_err("%s: buflist reached sanity limit bytes\n", __func__);
+		lwsl_err("%s: %u + %u already in %u segs exceeds the %u limit\n",
+			 __func__, (unsigned int)len,
+			 (unsigned int)(tot - len), segs,
+			 (unsigned int)LWS_BUFLIST_OOM_LIMIT);
 		return -1;
 	}
 
@@ -77,7 +82,15 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 	nbuf = (struct lws_buflist *)lws_malloc(sizeof(struct lws_buflist) +
 						len + LWS_PRE + 1, __func__);
 	if (!nbuf) {
-		lwsl_err("%s: OOM\n", __func__);
+		/*
+		 * Say what it was we could not take, and what this buflist is
+		 * already holding... on a small target, a buflist that grew
+		 * to tens of KB is the bug, and the allocation that finally
+		 * failed is just where it showed up
+		 */
+		lwsl_err("%s: OOM adding %u to %u already buffered in %u segs\n",
+			 __func__, (unsigned int)len,
+			 (unsigned int)(tot - len), segs);
 		return -1;
 	}
 
@@ -102,6 +115,7 @@ lws_buflist_append_segment_take_ownership(struct lws_buflist **head, uint8_t *bu
 	int first = !*head;
 	int sanity = 8192;
 	size_t tot = len;
+	unsigned int segs = 0;
 
 	if (!buf)
 		return -1;
@@ -111,6 +125,7 @@ lws_buflist_append_segment_take_ownership(struct lws_buflist **head, uint8_t *bu
 	/* append at the tail */
 	while (*head) {
 		tot += (*head)->len;
+		segs++;
 		if (!--sanity) {
 			lwsl_err("%s: buflist reached sanity limit\n", __func__);
 			return -1;
@@ -125,13 +140,18 @@ lws_buflist_append_segment_take_ownership(struct lws_buflist **head, uint8_t *bu
 	/* as above, the limit test has to be outside the walk */
 
 	if (tot > LWS_BUFLIST_OOM_LIMIT) {
-		lwsl_err("%s: buflist reached sanity limit bytes\n", __func__);
+		lwsl_err("%s: %u + %u already in %u segs exceeds the %u limit\n",
+			 __func__, (unsigned int)len,
+			 (unsigned int)(tot - len), segs,
+			 (unsigned int)LWS_BUFLIST_OOM_LIMIT);
 		return -1;
 	}
 
 	nbuf = (struct lws_buflist *)lws_malloc(sizeof(struct lws_buflist), __func__);
 	if (!nbuf) {
-		lwsl_err("%s: OOM\n", __func__);
+		lwsl_err("%s: OOM adding %u to %u already buffered in %u segs\n",
+			 __func__, (unsigned int)len,
+			 (unsigned int)(tot - len), segs);
 		return -1;
 	}
 
