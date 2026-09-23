@@ -617,11 +617,6 @@ typedef enum lcsp_css_units {
 typedef struct lcsp_atr {
 	lws_dll2_t		list;
 
-	int			propval; /* lcsp_propvals_t LCSP_PROPVAL_ */
-
-	size_t			value_len;	/* for string . url */
-	lcsp_css_units_t	unit;
-
 	union {
 		lws_fx_t	i;
 		uint32_t 	rgba;	/* for colours */
@@ -629,6 +624,16 @@ typedef struct lcsp_atr {
 
 	lws_fx_t		r;
 
+	/*
+	 * A page's cascade is thousands of these: the enums and the length
+	 * are all small, and stored as int / size_t they cost 8 bytes an
+	 * attribute that a small target has better uses for
+	 */
+
+	uint16_t		propval; /* lcsp_propvals_t LCSP_PROPVAL_ */
+	uint16_t		value_len;	/* for string . url */
+
+	uint8_t			unit;	/* lcsp_css_units_t LCSP_UNIT_ */
 	uint8_t			op;
 
 	/* .value_len bytes follow (for strings and blobs) */
@@ -640,7 +645,7 @@ typedef struct lcsp_defs {
 	lws_dll2_owner_t	atrs;		/* lcsp_atr_t */
 	struct lhp_css_var	*var;		/* if prop == LCSP_PROP__COUNT:
 						 * the --name this declares */
-	lcsp_props_t		prop;		/* lcsp_props_t, LCSP_PROP_* */
+	uint16_t		prop;		/* lcsp_props_t, LCSP_PROP_* */
 	uint8_t			important;	/* declared !important */
 } lcsp_defs_t;
 
@@ -652,9 +657,9 @@ typedef struct lcsp_defs {
 
 typedef struct lcsp_names {
 	lws_dll2_t		list;
-	size_t			name_len;
 	uint32_t		specificity;	/* (layer << 18) | (ids << 12) |
 						 * (classes << 6) | tags */
+	uint16_t		name_len;
 	uint16_t		key_ofs;	/* rightmost compound's most
 						 * selective simple selector,
 						 * for the cascade prefilter */

@@ -40,6 +40,14 @@ static uint8_t css_propconst_lextable[] = { /* the css property values */
 #define LHP_AC_GRANULE 512
 
 /*
+ * lcsp_atr_t.value_len and lcsp_names_t.name_len are uint16_t: every css
+ * value and selector is composed in ctx->buf first, so the chunk size is
+ * what bounds them
+ */
+
+typedef char lhp_chunk_fits_value_len[LHP_STRING_CHUNK <= 0xffff ? 1 : -1];
+
+/*
  * Largest whole part we will accumulate for a css number; any real length is
  * orders of magnitude smaller, and this keeps the int32_t lws_fx_t whole part
  * away from overflow no matter how many digits the document offers
@@ -1462,7 +1470,7 @@ lcsp_append_cssval_int(lhp_ctx_t *ctx)
 
 	atr->u.i = ctx->tf;
 	/* a bare number: keep it distinct from keyword atrs (unit NONE) */
-	atr->unit = ctx->unit ? ctx->unit : LCSP_UNIT_NUM;
+	atr->unit = (uint8_t)(ctx->unit ? ctx->unit : LCSP_UNIT_NUM);
 
 	lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
 
@@ -1703,7 +1711,7 @@ lcsp_func_value(lhp_ctx_t *ctx)
 			return 1;
 
 		atr->unit = LCSP_UNIT_CALC;
-		atr->value_len = (size_t)(end - p);
+		atr->value_len = (uint16_t)(end - p);
 		memcpy(&atr[1], p, atr->value_len);
 		((char *)&atr[1])[atr->value_len] = '\0';
 		lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
@@ -1725,7 +1733,7 @@ lcsp_func_value(lhp_ctx_t *ctx)
 			return 1;
 
 		atr->unit = LCSP_UNIT_CALC;
-		atr->value_len = fl;
+		atr->value_len = (uint16_t)fl;
 		memcpy(&atr[1], b, fl);
 		((char *)&atr[1])[fl] = '\0';
 		lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
@@ -1795,7 +1803,7 @@ lcsp_func_value(lhp_ctx_t *ctx)
 			return 1;
 
 		atr->unit = LCSP_UNIT_URL;
-		atr->value_len = vl;
+		atr->value_len = (uint16_t)vl;
 		memcpy(&atr[1], p, vl);
 		((char *)&atr[1])[vl] = '\0';
 		lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
@@ -1832,7 +1840,7 @@ lcsp_finish_cssval_keyword(lhp_ctx_t *ctx)
 		if (!atr)
 			return 1;
 
-		atr->propval = ctx->propval;
+		atr->propval = (uint16_t)ctx->propval;
 		lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
 	} else if (ctx->npos)
 		r = lcsp_append_cssval_string(ctx);
@@ -1887,7 +1895,7 @@ lcsp_append_cssval_string(lhp_ctx_t *ctx)
 		return 1;
 
 	v = (char *)&atr[1];
-	atr->value_len = (size_t)ctx->npos;
+	atr->value_len = (uint16_t)ctx->npos;
 	memcpy(v, c, (size_t)ctx->npos);
 	v[ctx->npos] = '\0';
 	atr->unit = LCSP_UNIT_STRING;
@@ -2940,7 +2948,7 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 		if (!na)
 			return 1;
 
-		na->name_len = n;
+		na->name_len = (uint16_t)n;
 		na->specificity = lhp_sel_specificity(norm, norm + n) |
 				  lhp_css_layer_bits(ctx);
 		lhp_sel_key(norm, norm + n - lhp_pseudo_elem_suffix(norm, n),
@@ -6339,7 +6347,7 @@ issue_post:
 							goto oom;
 						/* add this prop value atr to the def */
 
-						atr->propval = ctx->propval;
+						atr->propval = (uint16_t)ctx->propval;
 
 						lws_dll2_add_tail(&atr->list,
 								&ctx->def->atrs);
