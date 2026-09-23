@@ -194,7 +194,7 @@ struct lws_jpeg {
 	pjpeg_scan_type_t	scan_type;
 	
 	const uint8_t		*inbuf;
-	uint8_t			*lines;
+	lws_fragbuf_t		*lines; /* mcu_max_size_y + 8 rows */
 	size_t			insize;
 
 	lws_jpeg_decode_state_t	dstate;
@@ -2424,8 +2424,7 @@ transform_block(lws_jpeg_t *j, uint8_t mb)
 static lws_stateful_ret_t
 lws_jpeg_mcu_next(lws_jpeg_t *j)
 {
-	unsigned int x, y, row_pitch = (unsigned int)(j->frame_comps *
-						      j->image_width);
+	unsigned int x, y;
 	lws_stateful_ret_t r;
 
 	if (!j->fs_mcu_phase) {
@@ -2609,8 +2608,7 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 	 * Place the MCB into the allocated, MCU-height pixel buffer
 	 */
 
-	 uint8_t *dr = j->lines + (j->mcu_ofs_x * j->mcu_max_size_x *
-				   j->frame_comps);
+	size_t xo = (size_t)(j->mcu_ofs_x * j->mcu_max_size_x * j->frame_comps);
 	unsigned int step = j->is_progressive_tiny ? 1 : 8;
 
          for (y = 0; y < j->mcu_max_size_y; y += step) {
@@ -2623,7 +2621,7 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 			by_limit = 8;
 
 		for (x = 0; x < j->mcu_max_size_x; x += step) {
-			uint8_t *db = dr + (x * j->frame_comps);
+			size_t dbo = xo + (size_t)(x * j->frame_comps);
 			uint8_t src_ofs;
 			const uint8_t *pSrcR, *pSrcG, *pSrcB;
 			unsigned int bx_limit = (unsigned int)(
@@ -2645,21 +2643,27 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 			if (bx_limit > 8)
 				bx_limit = 8;
 
+			/*
+			 * The row step is the only thing that changed: the
+			 * inner loop is inside one row, which the fragbuf
+			 * guarantees contiguous
+			 */
+
 			if (j->scan_type == PJPG_GRAYSCALE) {
 				for (by = 0; by < by_limit; by++) {
-					uint8_t *pDst = db;
+					uint8_t *pDst = lws_fragbuf_unit(
+						j->lines, y + by) + dbo;
 
 					for (bx = 0; bx < bx_limit; bx++)
 						*pDst++ = *pSrcR++;
 
 					if (!j->is_progressive_tiny)
 						pSrcR += (8 - bx_limit);
-
-					db += row_pitch;
 				}
 			} else {
 				for (by = 0; by < by_limit; by++) {
-					uint8_t *pDst = db;
+					uint8_t *pDst = lws_fragbuf_unit(
+						j->lines, y + by) + dbo;
 
 					for (bx = 0; bx < bx_limit; bx++) {
 						pDst[0] = *pSrcR++;
@@ -2673,16 +2677,9 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 						pSrcG += (8 - bx_limit);
 						pSrcB += (8 - bx_limit);
 					}
-
-					db += row_pitch;
 				}
 			}
 		} /* x */
-
-		if (j->is_progressive_tiny)
-			dr += row_pitch;
-		else
-			dr += (row_pitch * 8);
 	} /* y */
 
 	if (j->mcu_ofs_x++ == j->mcu_max_row - 1) {
@@ -2712,7 +2709,7 @@ lws_jpeg_free(lws_jpeg_t **j)
 	if (!*j)
 		return;
 
-	lws_free_set_NULL((*j)->lines);
+	lws_fragbuf_destroy(&(*j)->lines);
 	lws_free_set_NULL(*j);
 }
 
@@ -2881,15 +2878,36 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 			 *
 			 * max by_limit and bx_limit = 8
 			*/
-			mcu_buf_len = (size_t)(j->mcu_max_row * j->mcu_max_size_x * j->frame_comps)
-				+ (size_t)(j->image_width * j->frame_comps * j->mcu_max_size_y)
-				+ (size_t)(j->mcu_max_size_x * j->frame_comps)
-				+ (size_t)(8 * j->frame_comps * j->image_width)
-				+ (size_t)(8 * 3);
+			/*
+			 * The MCU-height band of pixels, a row at a time.
+			 *
+			 * The slack the old single allocation carried is now
+			 * per row and per band: a block write at the right
+			 * hand edge can run up to one MCU past the end of its
+			 * row when the width is not a multiple of the MCU
+			 * width, and a block write on the last row of the
+			 * band can run up to 8 rows past the end of it.  Both
+			 * used to land in the tail of one big buffer; now
+			 * each row carries its own tail and the band carries
+			 * 8 spare rows, so neither can reach another row's
+			 * pixels.
+			 *
+			 * Being per row is also what lets this be a fragbuf:
+			 * the band is tens of KB, which on a small target is
+			 * exactly the size that stops being available before
+			 * the heap is anywhere near full.
+			 */
 
-			j->lines = lws_zalloc(mcu_buf_len, __func__);
+			mcu_buf_len = (size_t)(j->image_width * j->frame_comps) +
+				      (size_t)(j->mcu_max_size_x * j->frame_comps);
+
+			j->lines = lws_fragbuf_create(
+					(size_t)j->mcu_max_size_y + 8,
+					mcu_buf_len);
 			if (!j->lines) {
-				lwsl_jpeg("%s: OOM (%d)\n", __func__, (int)mcu_buf_len);
+				lwsl_jpeg("%s: OOM (%d x %d)\n", __func__,
+					  (int)j->mcu_max_size_y + 8,
+					  (int)mcu_buf_len);
 				return LWS_SRET_FATAL + 32;
 			}
 
@@ -2957,8 +2975,8 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 	} while (1);
 
 intra:
-	*ppix = j->lines + (((j->ringy++) & (j->mcu_max_size_y - 1)) *
-				j->frame_comps * j->image_width);
+	*ppix = lws_fragbuf_unit(j->lines,
+				 (j->ringy++) & (j->mcu_max_size_y - 1u));
 
 	r |= LWS_SRET_WANT_OUTPUT;
 
