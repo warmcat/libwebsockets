@@ -144,9 +144,26 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 	lws_dlo_t *dlo = &m->u.u.dlo_png->dlo;
 
 	if (m->u.failed) {
-		dlo->box.w.whole = -1;
-		dlo->box.h.whole = -1;
-		lwsl_notice("%s: Failing %s\n", __func__, m->url);
+		if (!lws_dlo_image_width(&m->u)) {
+			/*
+			 * It failed before we ever knew how big it is: the
+			 * layout has nothing to place, and the negative box
+			 * is how it is told to lay the element out without
+			 * the image
+			 */
+			dlo->box.w.whole = -1;
+			dlo->box.h.whole = -1;
+			lwsl_notice("%s: Failing %s\n", __func__, m->url);
+		} else
+			/*
+			 * It failed after its dimensions were known, so it is
+			 * already placed in a finished layout at its real
+			 * size... disturbing the box now would move whatever
+			 * was laid out around it.  Its flow is completed,
+			 * which is what releases the render.
+			 */
+			lwsl_notice("%s: %s failed after it was laid out\n",
+				    __func__, m->url);
 	} else {
 
 		/*
@@ -767,7 +784,18 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	}
 
 	if (dloss_rx_stash(m, buf, len)) {
+		/*
+		 * Out of memory taking the payload.  Complete the flow as
+		 * well as failing the asset: the render may already be
+		 * waiting on this image for pixel data, and without this it
+		 * waits for data that is never coming (the whole page then
+		 * hangs on one asset that lost a chunk).  It is the same
+		 * treatment a disconnect partway through gets.
+		 */
+		lwsl_warn("%s: OOM taking %u of %s: giving the asset up\n",
+			  __func__, (unsigned int)len, m->url);
 		m->u.failed = 1;
+		m->u.u.dlo_jpeg->flow.state = LWSDLOFLOW_STATE_READ_COMPLETED;
 		lws_sul_schedule(lws_ss_get_context(m->ss), 0,
 				&m->sul, lws_lhp_image_dimensions_cb, 1);
 		return LWSSSSRET_DISCONNECT_ME;

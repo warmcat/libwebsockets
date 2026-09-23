@@ -233,8 +233,21 @@ htmlss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	lws_ss_state_return_t r = LWSSSSRET_OK;
 
 	if (len &&
-	    lws_buflist_append_segment(&m->flow.bl, buf, len) < 0)
+	    lws_buflist_append_segment(&m->flow.bl, buf, len) < 0) {
+		/*
+		 * We could not take part of the document.  What we have is
+		 * truncated html, which the parser will make the best of,
+		 * but it must not be written to the asset cache as if it
+		 * were the page... the next visit would render the same
+		 * truncation from cache with no way to notice
+		 */
+		lwsl_warn("%s: OOM taking %u of the document\n", __func__,
+			  (unsigned int)len);
+#if defined(LWS_WITH_CACHE_BLOB)
+		m->no_cache = 1;
+#endif
 		return LWSSSSRET_DISCONNECT_ME;
+	}
 
 #if defined(LWS_WITH_CACHE_BLOB)
 	/*
