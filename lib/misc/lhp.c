@@ -412,6 +412,21 @@ static const struct {
 	{ "dash", 8212 },
 };
 
+#if defined(LWS_WITH_LHP_UA_FLASH)
+
+/*
+ * The default (user-agent) stylesheet as const tables, generated from the
+ * default_css below by lhp-ua-gen.  Parsing that text cost ~19KB of cascade
+ * arena on every page; as tables it costs flash and no heap at all.
+ *
+ * Regenerating it needs a lws built with LWS_WITH_LHP_UA_FLASH off, so that
+ * it still parses default_css... see lhp-ua-gen.c.
+ */
+
+#include "lhp-ua-css.h"
+
+#else
+
 static const char *const default_css =
 	"/* lws_lhp default css */"
 	"html, address,blockquote, dd, div,dl, dt, fieldset, form, frame, "
@@ -493,6 +508,8 @@ static const char *const default_css =
 	"}\n"
 ;
 
+#endif
+
 
 
 static int
@@ -567,6 +584,30 @@ lhp_clean_level(lhp_pstack_t *ps)
 	lws_free(ps);
 }
 
+/*
+ * The buckets start out holding the default stylesheet's prebuilt chains (or
+ * empty, if it is parsed at runtime instead).  Document selectors are
+ * prepended to them as they are indexed, so what the cascade walks is the
+ * document's own selectors followed by the ua sheet's... order does not
+ * matter, the hits are sorted by stanza seq before use.
+ */
+
+static void
+lhp_selidx_reset(lhp_ctx_t *ctx)
+{
+#if defined(LWS_WITH_LHP_UA_FLASH)
+	int n;
+
+	for (n = 0; n < LHP_SELIDX_BUCKETS; n++)
+		ctx->selidx[n] = (lhp_selidx_t *)lhp_ua_buckets[n];
+
+	ctx->selidx_nokey = (lhp_selidx_t *)lhp_ua_nokey;
+#else
+	memset(ctx->selidx, 0, sizeof(ctx->selidx));
+	ctx->selidx_nokey = NULL;
+#endif
+}
+
 int
 lws_lhp_construct(lhp_ctx_t *ctx, lhp_callback cb, void *user,
 		  const lws_surface_info_t *ic)
@@ -591,6 +632,12 @@ lws_lhp_construct(lhp_ctx_t *ctx, lhp_callback cb, void *user,
 	ps->css_resolved	= 1;
 	lws_fx_set(ps->font_size, 16, 0);
 	lws_dll2_add_tail(&ps->list, &ctx->stack);
+
+	lhp_selidx_reset(ctx);
+#if defined(LWS_WITH_LHP_UA_FLASH)
+	/* the document's own stanzas carry on from where the ua sheet ended */
+	ctx->stz_seq		= LHP_UA_STZ_SEQ;
+#endif
 
 	return 0;
 }
@@ -2752,8 +2799,7 @@ static int
 lhp_selidx_build(lhp_ctx_t *ctx)
 {
 	lwsac_free(&ctx->idxac);
-	memset(ctx->selidx, 0, sizeof(ctx->selidx));
-	ctx->selidx_nokey = NULL;
+	lhp_selidx_reset(ctx);
 
 	lws_start_foreach_dll(struct lws_dll2 *, q,
 			      lws_dll2_get_head(&ctx->css)) {
@@ -4490,6 +4536,7 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 
 		case LHPS_INIT:
 
+#if !defined(LWS_WITH_LHP_UA_FLASH)
 			/* default css injection first, then... */
 
 			ctx->state = LCSPS_CSS_OUTER;
@@ -4507,6 +4554,7 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 				return r;
 			}
 			ctx->u.f.default_css = 0;
+#endif
 
 			if (ctx->filter_css) {
 				/*
