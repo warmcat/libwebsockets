@@ -87,7 +87,7 @@ lws_display_dlo_hit_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 lws_dlo_hit_t *
 lws_display_dl_hit_test(lws_displaylist_t *dl, int x, int y, lws_box_t *abox)
 {
-	lws_display_render_stack_t st[64];
+	lws_display_render_stack_t st[LWS_DLO_STACK_DEPTH];
 	lws_dlo_hit_t *hit = NULL;
 	lws_dll2_t *d = lws_dll2_get_head(&dl->dl);
 	int sp = 0;

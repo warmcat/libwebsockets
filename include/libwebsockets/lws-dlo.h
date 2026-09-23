@@ -408,6 +408,21 @@ typedef struct lws_display_render_stack {
 	lws_box_t			co;	/* our origin as parent */
 } lws_display_render_stack_t;
 
+/*
+ * How deep a display list the dlo tree walkers (render, dump, hit test) can
+ * follow.  Deeper nesting than this is truncated, it is not an error: the
+ * walkers all carry the stack by value, so on a constrained target the
+ * ceiling is what keeps them off a couple of KB of stack apiece.
+ */
+
+#if !defined(LWS_DLO_STACK_DEPTH)
+#if defined(LWS_ESP_PLATFORM)
+#define LWS_DLO_STACK_DEPTH	16
+#else
+#define LWS_DLO_STACK_DEPTH	64
+#endif
+#endif
+
 typedef struct lws_display_render_state {
 	lws_sorted_usec_list_t		sul; /* return to event loop statefully */
 	struct lws_display_state	*lds; /* optional, if using lws_display */
@@ -416,11 +431,8 @@ typedef struct lws_display_render_state {
 
 	const struct lws_surface_info	*ic; /* display dimensions, palette */
 
-#if defined(LWS_ESP_PLATFORM)
-	lws_display_render_stack_t	st[16]; /* DLO child stack */
-#else
-	lws_display_render_stack_t	st[64]; /* DLO child stack */
-#endif
+	lws_display_render_stack_t	st[LWS_DLO_STACK_DEPTH];
+						/* DLO child stack */
 	int				sp;	/* DLO child stack level */
 
 	uint8_t				*line; /* Y or RGB line comp buffer */

@@ -258,7 +258,8 @@ lws_display_dlo_adjust_dims(lws_dlo_t *dlo, lws_dlo_dim_t *dim)
 void
 lws_display_dl_dump(lws_displaylist_t *dl)
 {
-	lws_display_render_stack_t	st[64]; /* DLO child stack */
+	lws_display_render_stack_t	st[LWS_DLO_STACK_DEPTH];
+						/* DLO child stack */
 	int				sp = 0;
 	lws_dll2_t *d = lws_dll2_get_head(&dl->dl);
 #if (_LWS_ENABLED_LOGS & dlodump_loglevel)
