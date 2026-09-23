@@ -1201,10 +1201,19 @@ lws_csp_calc(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base,
 	return v;
 }
 
+static lws_fx_t *
+lhp_fx_scratch(lhp_ctx_t *ctx)
+{
+	ctx->fxsi = (uint8_t)((ctx->fxsi + 1) % LWS_ARRAY_SIZE(ctx->fxs));
+
+	return &ctx->fxs[ctx->fxsi];
+}
+
 const lws_fx_t *
 lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base)
 {
 	lhp_ctx_t *ctx;
+	lws_fx_t *r;
 	const lws_display_font_t *f;
 	lws_fx_t t1, t2, t3, em, ex;
 	int ref;
@@ -1220,6 +1229,7 @@ lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base)
 		return &c_0;
 
 	ctx = lws_dll2_owner_container(&ps->list, lhp_ctx_t, stack);
+	r = lhp_fx_scratch(ctx);
 	f = ps->font;
 
 	/*
@@ -1234,8 +1244,8 @@ lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base)
 		em = f->em;
 		ex = f->ex;
 	} else {
-		*(lws_fx_t *)&a->r = c_0;
-		return &a->r;
+		*r = c_0;
+		return r;
 	}
 
 	ref = lhp_prop_axis(a);
@@ -1254,43 +1264,43 @@ lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base)
 		root = lws_container_of(d, lhp_pstack_t, list);
 		if (!root->font_size.whole && !root->font_size.frac)
 			break;
-		return lws_fx_mul((lws_fx_t *)&a->r, &a->u.i, &root->font_size);
+		return lws_fx_mul(r, &a->u.i, &root->font_size);
 	}
 
 	case LCSP_UNIT_CALC:
-		*(lws_fx_t *)&a->r = lws_csp_calc(a, ps, base, NULL);
-		return &a->r;
+		*r = lws_csp_calc(a, ps, base, NULL);
+		return r;
 
 	case LCSP_UNIT_LENGTH_EM:
-		return lws_fx_mul((lws_fx_t *)&a->r, &a->u.i, &em);
+		return lws_fx_mul(r, &a->u.i, &em);
 
 	case LCSP_UNIT_LENGTH_EX:
-		return lws_fx_mul((lws_fx_t *)&a->r, &a->u.i, &ex);
+		return lws_fx_mul(r, &a->u.i, &ex);
 
 	case LCSP_UNIT_LENGTH_IN:	/* (inches * 2.54 * hwmm) / hwpx */
 		if (ref == LWS_LHPREF_NONE)
 			break;
-		return lws_fx_div((lws_fx_t *)&a->r, lws_fx_mul(&t2,
+		return lws_fx_div(r, lws_fx_mul(&t2,
 			lws_fx_mul(&t3, &a->u.i, &c_254),
 				&ctx->ic.wh_mm[ref]), &ctx->ic.wh_px[ref]);
 
 	case LCSP_UNIT_LENGTH_CM:	/* (cm * 10 * hwmm) / hwpx */
 		if (ref == LWS_LHPREF_NONE)
 			break;
-		return lws_fx_div((lws_fx_t *)&a->r,
+		return lws_fx_div(r,
 				lws_fx_mul(&t2,
 					lws_fx_mul(&t3, &a->u.i, &c_10),
 					&ctx->ic.wh_mm[ref]), &ctx->ic.wh_px[ref]);
 	case LCSP_UNIT_LENGTH_MM:	/* (mm * hwmm) / hwpx */
 		if (ref == LWS_LHPREF_NONE)
 			break;
-		return lws_fx_div((lws_fx_t *)&a->r, lws_fx_mul(&t2,
+		return lws_fx_div(r, lws_fx_mul(&t2,
 				&a->u.i, &ctx->ic.wh_mm[ref]), &ctx->ic.wh_px[ref]);
 
 	case LCSP_UNIT_LENGTH_PT:	/* ((pt * 2.54 * hwmm) / hwpx ) / 72 */
 		if (ref == LWS_LHPREF_NONE)
 			break;
-		return lws_fx_div((lws_fx_t *)&a->r, lws_fx_div(&t1,
+		return lws_fx_div(r, lws_fx_div(&t1,
 			 lws_fx_mul(&t2, lws_fx_mul(&t3,
 					 &a->u.i, &c_254),
 					 &ctx->ic.wh_mm[ref]),
@@ -1299,7 +1309,7 @@ lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base)
 	case LCSP_UNIT_LENGTH_PC:	/* ((pc * 2.54 * hwmm) / hwpx ) / 6 */
 		if (ref == LWS_LHPREF_NONE)
 			break;
-		return lws_fx_div((lws_fx_t *)&a->r, lws_fx_div(&t1,
+		return lws_fx_div(r, lws_fx_div(&t1,
 				lws_fx_mul(&t2, lws_fx_mul(&t3,
 					&a->u.i, &c_254), &ctx->ic.wh_mm[ref]),
 						  &ctx->ic.wh_px[ref]), &c_6);
@@ -1329,7 +1339,7 @@ lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base)
 
 		/* the value is in 100ths of the viewport dimension */
 
-		return lws_fx_div((lws_fx_t *)&a->r,
+		return lws_fx_div(r,
 				  lws_fx_mul(&t2, &a->u.i, v), &c_100);
 	}
 
@@ -1342,7 +1352,7 @@ lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base)
 
 		lws_css_compute_cascaded_length(ctx, ref, ps, &t1);
 
-		return lws_fx_div((lws_fx_t *)&a->r,
+		return lws_fx_div(r,
 				lws_fx_mul(&t2, &a->u.i, &t1), &c_100);
 
 	default:

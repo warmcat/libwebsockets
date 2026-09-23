@@ -622,8 +622,6 @@ typedef struct lcsp_atr {
 		uint32_t 	rgba;	/* for colours */
 	} u;
 
-	lws_fx_t		r;
-
 	/*
 	 * A page's cascade is thousands of these: the enums and the length
 	 * are all small, and stored as int / size_t they cost 8 bytes an
@@ -786,6 +784,17 @@ typedef struct lhp_ctx {
 	lws_dll2_owner_t	*ids;
 
 	lws_fx_t		tf;
+
+	/*
+	 * Somewhere for lws_csp_px_base() to compute a resolved length into
+	 * and hand back a pointer to.  It used to use a slot on the attribute
+	 * itself, which made every attribute 8 bytes bigger and, worse, made
+	 * a stylesheet something the layout writes to... callers all consume
+	 * the result immediately, so a small ring is plenty
+	 */
+	lws_fx_t		fxs[8];
+	uint8_t			fxsi;
+
 	lcsp_css_units_t	unit;
 	lcsp_stanza_t		*stz; /* current stanza getting properties */
 	lcsp_defs_t		*def; /* current property getting values */
