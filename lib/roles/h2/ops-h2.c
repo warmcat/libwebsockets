@@ -107,7 +107,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 {
 	struct lws_tokens ebuf;
 	unsigned int pending = 0;
-	char buffered = 0;
+	char buffered = 0, did_read = 1;
 	struct lws *wsi1;
 	int n, m;
 
@@ -282,7 +282,18 @@ post_pollout:
 	      (lwsi_state(wsi) != LRS_ESTABLISHED &&
 	       lwsi_state(wsi) != LRS_ISSUE_HTTP_BODY &&
 	       lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY &&
-	       lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS))) {
+	       lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS &&
+	       /*
+		* A kept-warm mux connection has no stream on it, but it is
+		* still a live h2 connection: GOAWAY, PING, SETTINGS and
+		* WINDOW_UPDATE all arrive on it while it is idle and have to
+		* be parsed.  Skipping the read here left whatever tls had
+		* already decrypted unread, and since lws_ssl_pending() kept
+		* reporting it, the loop below never exited: 100% cpu until
+		* the connection went away (on FreeRTOS, until the task
+		* watchdog fired).
+		*/
+	       lwsi_state(wsi) != LRS_IDLING))) {
 
 		int scr_ret;
 
@@ -368,8 +379,16 @@ post_pollout:
 		// lwsl_notice("%s: Actual RX %d\n", __func__, ebuf.len);
 		// if (ebuf.len > 0)
 		//	lwsl_hexdump_notice(ebuf.token, ebuf.len);
-	} else
+	} else {
+		/*
+		 * We are in a state that does not read.  Whatever tls has
+		 * pending is going to stay pending, so going around again on
+		 * it can only spin: leave, and come back when the state has
+		 * moved on.
+		 */
 		lwsl_info("%s: skipped read\n", __func__);
+		did_read = 0;
+	}
 
 	if (ebuf.len < 0)
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
@@ -501,7 +520,7 @@ drain:
 #endif
 
 		pending = (unsigned int)lws_ssl_pending(wsi);
-	} while (pending);
+	} while (pending && did_read);
 
 	return LWS_HPI_RET_HANDLED;
 }
