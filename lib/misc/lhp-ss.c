@@ -46,6 +46,25 @@ LWS_SS_USER_TYPEDEF
 						* data can't move it on */
 } htmlss_t;
 
+/*
+ * The layout is complete: the display list is finished and owned by the
+ * render state, which outlives us.  Nothing else needs the parser now, so
+ * the document stream goes away before the render starts... its destruction
+ * returns the whole css working set (the cascade arenas are tens of KB even
+ * for a small page) to the heap the renderer is about to want.
+ *
+ * It is also what stops a browse leaking its parser: the stream has no
+ * other owner, lws_lhp_ss_cancel() only deals with a page still in flight.
+ */
+
+static void
+htmlss_done(lws_sorted_usec_list_t *sul)
+{
+	htmlss_t *m = lws_container_of(sul, htmlss_t, sul);
+
+	lws_ss_destroy(&m->ss);
+}
+
 static void
 lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul)
 {
@@ -176,10 +195,25 @@ cache_done:
 
 	lws_display_dl_dump(m->drt.dl);
 
-        /* schedule starting the render */
+	/*
+	 * Tear the document stream down from the event loop, not inline: the
+	 * usual way a page with assets completes is the last asset to drain
+	 * resuming the parse, and the document stream must not be destroyed
+	 * from inside an asset stream's callback.
+	 */
 
-	lws_sul_schedule(m->cx, 0, &m->rs->sul, m->lhp.ssevcb, 1);
-	//lws_ss_destroy(&m->ss);
+	lws_sul_schedule(m->cx, 0, &m->sul, htmlss_done, 1);
+
+	/*
+	 * Start the render behind it, on the heap the teardown just freed.
+	 *
+	 * This has to stay on rs->sul: an asset that arrives after the
+	 * document completed schedules the render on that same sul, and the
+	 * two coalescing into one render start is what stops a second render
+	 * pass finding the display list already consumed.
+	 */
+
+	lws_sul_schedule(m->cx, 0, &m->rs->sul, m->lhp.ssevcb, 2);
 }
 
 void
