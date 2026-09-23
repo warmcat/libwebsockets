@@ -63,7 +63,17 @@ const struct http2_settings lws_h2_defaults_esp32 = { {
 	/* H2SET_MAX_CONCURRENT_STREAMS */		   16,
 	/* H2SET_INITIAL_WINDOW_SIZE */		           0,
 	/* H2SET_MAX_FRAME_SIZE */		       16384,
-	/* H2SET_MAX_HEADER_LIST_SIZE */	 	2048,
+	/* H2SET_MAX_HEADER_LIST_SIZE */	       65536,
+	/*< This is advisory to the peer and costs us nothing to raise: it
+	 * bounds the hpack input byte count for one header block, it does
+	 * not size any allocation.  The header storage is bounded
+	 * separately by max_http_header_data.
+	 *
+	 * Like the stock settings, the old value of 2048 was smaller than
+	 * the response headers many real servers send (Cloudflare, GFE,
+	 * github.com), so their streams were GOAWAY'd with
+	 * ENHANCE_YOUR_CALM before the headers had even been stored.
+	 */
 	/* H2SET_RESERVED7 */				   0,
 	/* H2SET_ENABLE_CONNECT_PROTOCOL */		   1,
 }};
