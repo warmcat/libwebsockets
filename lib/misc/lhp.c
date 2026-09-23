@@ -2797,6 +2797,8 @@ static int
 lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
 	       uint8_t kind, const char *k, size_t klen)
 {
+	uint32_t hn;
+
 	for (; e; e = e->next) {
 		lcsp_names_t *nm = e->nm;
 		const char *n = (const char *)&nm[1];
@@ -2842,9 +2844,21 @@ lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
 				   n + nm->name_len, &budget))
 			continue;
 
-		if (stz->hit_serial == ctx->cascade_serial) {
-			if (nm->specificity > stz->hit_best)
-				stz->hit_best = nm->specificity;
+		/*
+		 * Have we taken this stanza already in this pass?  The hits
+		 * array is the pass, and it holds the handful of stanzas
+		 * that matched one element, so walking it costs less than it
+		 * looks... and unlike the per-stanza serial it replaces, it
+		 * leaves the stanza itself untouched
+		 */
+
+		for (hn = 0; hn < ctx->hits_count; hn++)
+			if (ctx->hits[hn].stz == stz)
+				break;
+
+		if (hn != ctx->hits_count) {
+			if (nm->specificity > ctx->hits[hn].specificity)
+				ctx->hits[hn].specificity = nm->specificity;
 			continue;
 		}
 
@@ -2852,9 +2866,9 @@ lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
 
 		if (ctx->hits_count == ctx->hits_alloc) {
 			uint32_t na = ctx->hits_alloc ? ctx->hits_alloc * 2 : 16;
-			lcsp_stanza_t **h = lws_realloc(ctx->hits,
-							na * sizeof(*h),
-							__func__);
+			lcsp_match_t *h = lws_realloc(ctx->hits,
+						      na * sizeof(*h),
+						      __func__);
 
 			if (!h)
 				return 1;
@@ -2862,10 +2876,8 @@ lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
 			ctx->hits_alloc = na;
 		}
 
-		ctx->hits[ctx->hits_count++] = stz;
-
-		stz->hit_serial = ctx->cascade_serial;
-		stz->hit_best = nm->specificity;
+		ctx->hits[ctx->hits_count].stz = stz;
+		ctx->hits[ctx->hits_count++].specificity = nm->specificity;
 	}
 
 	return 0;
@@ -2874,8 +2886,8 @@ lhp_selidx_try(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_selidx_t *e,
 static int
 lhp_hits_cmp(const void *a, const void *b)
 {
-	const lcsp_stanza_t *sa = *(lcsp_stanza_t * const *)a,
-			    *sb = *(lcsp_stanza_t * const *)b;
+	const lcsp_stanza_t *sa = ((const lcsp_match_t *)a)->stz,
+			    *sb = ((const lcsp_match_t *)b)->stz;
 
 	return sa->seq < sb->seq ? -1 : sa->seq > sb->seq;
 }
@@ -4050,7 +4062,6 @@ lws_css_cascade(lhp_ctx_t *ctx)
 		    lhp_selidx_build(ctx))
 			return 1;
 
-		ctx->cascade_serial++;
 		ctx->hits_count = 0;
 
 		if (lhp_selidx_try(ctx, ps, ctx->selidx_nokey, LHP_SELKEY_NONE,
@@ -4099,8 +4110,8 @@ lws_css_cascade(lhp_ctx_t *ctx)
 			      lhp_hits_cmp);
 
 			for (n = 0; n < ctx->hits_count; n++)
-				if (lhp_add_match(ps, ctx->hits[n],
-						  ctx->hits[n]->hit_best))
+				if (lhp_add_match(ps, ctx->hits[n].stz,
+						  ctx->hits[n].specificity))
 					return 1;
 		}
 

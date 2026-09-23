@@ -676,8 +676,14 @@ typedef struct lcsp_stanza { /* css stanza, with names and defs */
 	lws_dll2_owner_t	defs; /* lcsp_defs_t */
 
 	uint32_t		seq;	/* source order, for cascade ties */
-	uint32_t		hit_serial; /* cascade pass that last hit it */
-	uint32_t		hit_best; /* best specificity in that pass */
+
+	/*
+	 * Nothing else is written to a stanza after the parse that created
+	 * it.  Keeping it that way is what lets a stylesheet be immutable,
+	 * and so live in flash instead of costing heap... the cascade's
+	 * per-pass "have I taken this one already, and at what specificity"
+	 * lives on ctx->hits instead
+	 */
 } lcsp_stanza_t;
 
 /*
@@ -796,11 +802,12 @@ typedef struct lhp_ctx {
 	struct lwsac		*idxac; /* selector index allocations */
 	lhp_selidx_t		*selidx[LHP_SELIDX_BUCKETS];
 	lhp_selidx_t		*selidx_nokey; /* selectors without a key */
-	lcsp_stanza_t		**hits; /* stanzas hit in the current pass */
+	struct lcsp_match	*hits; /* stanzas hit in the current pass,
+					* with the best specificity among the
+					* selectors of theirs that matched */
 	uint32_t		hits_alloc;
 	uint32_t		hits_count;
 	uint32_t		selidx_count; /* stanzas indexed */
-	uint32_t		cascade_serial;
 	uint32_t		stz_seq;
 
 	/* ad / junk filtering, see lws_lhp_set_filter() */
