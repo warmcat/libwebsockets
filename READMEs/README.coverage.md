@@ -46,8 +46,15 @@ some of the data files, and says so in the output.
 ## In Sai
 
 The `coverage` configuration in `.sai.json` builds `distro_recommended`
-instrumented on the `rocky9-ca/aarch64-a72a55-rk3588/clang` platform, runs
-ctest and prints the report into the job log; `build/coverage-summary.json`
-is kept as an artifact.  A clang-built tree needs `llvm-cov` on the builder
-to read the counters; without it the report says so and the job is not
-affected.
+instrumented on the `rocky9-ca/aarch64-a72a55-rk3588/clang` platform, with
+fault injection, http stream compression (deflate and brotli) and ws
+permessage-deflate forced on so their tests are in the run, then runs ctest
+and prints the report into the job log; `build/coverage-summary.json` is
+kept as an artifact.  A clang-built tree needs `llvm-cov` on the builder to
+read the counters; without it the report says so and the job is not
+affected.  The builder also needs the brotli development package.
+
+`lws-api-test-http-compression` is the transfer check for the compression
+paths: it serves a generated multi-megabyte text file named after its own
+sha256 and fetches it back over h1 and h2c with each content-encoding,
+decoding client-side and checking the digest against the name.
