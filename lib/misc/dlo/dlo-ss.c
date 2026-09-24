@@ -290,6 +290,21 @@ dlo_assets_maybe_drained(struct lws_context *cx, lhp_ctx_t *lhp)
 }
 
 /*
+ * An asset that has left both context asset lists is no longer reachable
+ * from lws_dlo_ss_detach_lhp(), which is how a document stream tells the
+ * assets it is going away.  Such an asset must therefore drop its parser
+ * backref itself, or it is left dereferencing the freed document at its own
+ * destroy (its ss handle lives on for url dedup and for the render, both of
+ * which outlive the parse).
+ */
+
+static void
+dloss_drop_lhp(dloss_t *m)
+{
+	m->lhp = NULL;
+}
+
+/*
  * How many assets may be actually fetching at once.  Each one holds a
  * connection, an fd, for its lifetime, so the ceiling adapts to the fd budget
  * of the context, leaving room for the document connection and the event
@@ -734,8 +749,12 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 #endif
 		}
 
-		if (r & LWS_SRET_FATAL)
+		if (r & LWS_SRET_FATAL) {
+			if (flags & LWSSS_FLAG_EOM)
+				dloss_drop_lhp(m);
+
 			return LWSSSSRET_DISCONNECT_ME;
+		}
 
 		if (r & LWS_SRET_AWAIT_RETRY) {
 			/*
@@ -750,6 +769,10 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 						 m->lhp->sshtmlevsul,
 						 m->lhp->sshtmlevcb, 1);
 		}
+
+		if (flags & LWSSS_FLAG_EOM)
+			dloss_drop_lhp(m);
+
 		goto okie;
 	}
 
@@ -948,6 +971,9 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 				lws_sul_schedule(lws_ss_get_context(m->ss), 0,
 						 m->lhp->sshtmlevsul,
 						 m->lhp->sshtmlevcb, 1);
+
+				/* off the lists now: see dloss_drop_lhp() */
+				dloss_drop_lhp(m);
 			}
 			break;
 		}
