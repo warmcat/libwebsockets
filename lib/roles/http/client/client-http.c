@@ -1108,7 +1108,6 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 #if defined(LWS_ROLE_WT)
 	char wt_cce[40];
 #endif
-	void *opaque;
 	lws_parse_uri_t *puri = NULL;
 
 	// lws_free_set_NULL(wsi->stash);
@@ -1292,9 +1291,12 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		if (auth_res)
 			goto bail3_l;
 
-		opaque = wsi->a.opaque_user_data;
+		/*
+		 * The close either restarts this wsi, keeping its opaque
+		 * (close.c leaves the ss binding alone for a restart), or
+		 * fails and frees it: nothing may be written to it after
+		 */
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "digest_auth_step2");
-		wsi->a.opaque_user_data = opaque;
 
 		return -1;
 	}
@@ -1521,9 +1523,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * flow late in the close action.
 		 */
 
-		opaque = wsi->a.opaque_user_data;
+		/* restarts the wsi, or fails and frees it: no write after */
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "redir");
-		wsi->a.opaque_user_data = opaque;
 
 		if (puri)
 			lws_parse_uri_destroy(&puri);
