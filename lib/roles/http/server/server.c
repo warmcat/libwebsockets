@@ -3466,6 +3466,13 @@ raw_transition:
 						HTTP_STATUS_FORBIDDEN, NULL) ||
 				    lws_http_transaction_completed(wsi))
 					goto bail_nuke_ah;
+
+				/*
+				 * That was the whole response: going on to
+				 * act on the request as plain http sent a
+				 * second one after the 403
+				 */
+				return 0;
 			} else {
 				n = user_callback_handle_rxflow(wsi->a.protocol->callback,
 						wsi, LWS_CALLBACK_HTTP_CONFIRM_UPGRADE,
