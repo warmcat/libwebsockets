@@ -26,16 +26,16 @@ include_directories(.)
 
 list(APPEND SOURCES
 	core-net/dummy-callback.c
-	core-net/output.c
+	core-net/IO/output.c
 	core-net/close.c
-	core-net/network.c
+	core-net/IO/network.c
 	core-net/vhost.c
-	core-net/pollfd.c
-	core-net/service.c
-	core-net/sorted-usec-list.c
+	core-net/IO/pollfd.c
+	core-net/IO/service.c
+	core-net/IO/sorted-usec-list.c
 	core-net/wsi.c
-	core-net/wsi-timeout.c
-	core-net/adopt.c
+	core-net/IO/wsi-timeout.c
+	core-net/IO/adopt.c
 	core-net/txpacer.c
 	roles/pipe/ops-pipe.c
 	core-net/wsi-state.c
@@ -75,7 +75,7 @@ endif()
 
 if (LWS_WITH_ROUTING)
 	list(APPEND SOURCES
-		core-net/route.c
+		core-net/IO/route.c
 	)
 endif()
 
@@ -92,9 +92,9 @@ endif()
 if (LWS_WITH_CLIENT)
 	list(APPEND SOURCES
 		core-net/client/client.c
-		core-net/client/connect.c
-		core-net/client/connect2.c
-		core-net/client/connect3.c
+		core-net/IO/client/connect.c
+		core-net/IO/client/connect2.c
+		core-net/IO/client/connect3.c
 		core-net/client/connect4.c
 		core-net/client/sort-dns.c
 		)

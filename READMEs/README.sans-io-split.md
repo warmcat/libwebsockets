@@ -69,8 +69,8 @@ The directories are the halves.  Placement by directory is the whole rule.
 | `lib/roles/*` | sansIO | every role: state machine, parser, framer, scheduler |
 | `lib/core-net/wsi.c`, `wsi-state.c`, `close.c`, `state.c`, `vhost.c`, `socks5-client.c`, `dummy-callback.c` | sansIO | the wsi state, the event table, connection lifecycle decisions, the socks handshake |
 | `lib/core-net/client/connect4.c` proxy CONNECT composition | sansIO | it composes protocol bytes |
-| `lib/core-net/output.c`, `pollfd.c`, `service.c`, `adopt.c`, `network.c`, `route.c`, `wsi-timeout.c`, `sorted-usec-list.c` | IO | moving bytes, fds, poll, timers |
-| `lib/core-net/client/connect.c`, `connect2.c`, `connect3.c` | IO | dns, connect, happy eyeballs |
+| `lib/core-net/IO/`: `output.c`, `pollfd.c`, `service.c`, `adopt.c`, `network.c`, `route.c`, `wsi-timeout.c`, `sorted-usec-list.c` | IO | moving bytes, fds, poll, timers |
+| `lib/core-net/IO/client/`: `connect.c`, `connect2.c`, `connect3.c` | IO | dns, connect, happy eyeballs |
 | `lib/tls/*` record layer: `lws_ssl_capable_read/write`, bio, session cache, handshake driving | IO | sansIO sees plaintext |
 | `lib/roles/quic` packet and frame layer, `lib/roles/h3`, qpack | sansIO | quic is a sansIO part with a datagram interface instead of a stream one |
 | `lib/roles/quic` `sendto`/`recvfrom` | IO | the one place a role touches the socket, to be moved behind tx/rx |
@@ -103,7 +103,7 @@ each function is in.
    `client_transport_up` op).
 2. Land the lint with today's count as its baseline (done: 273).
 3. Move the IO files of `lib/core-net` into `lib/core-net/IO/`, no code
-   change, so the directory says what the file is.
+   change, so the directory says what the file is (done).
 4. Convert one role's rx to take bytes instead of reading them (h1 or ws),
    with the trace unchanged.  This is the pattern for the rest.
 5. h2, then h3 over the quic datagram layer, then the remaining roles.
