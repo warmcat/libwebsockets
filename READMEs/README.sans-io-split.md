@@ -111,8 +111,11 @@ each function is in.
 3. Move the IO files of `lib/core-net` into `lib/core-net/IO/`, no code
    change, so the directory says what the file is (done).
 4. Convert one role's rx to take bytes instead of reading them (h1 or ws),
-   with the trace unchanged.  This is the pattern for the rest (done for
-   the h1 server path: `rops_rx_h1()` fed by `lws_rx_pump()`).
+   with the trace unchanged.  This is the pattern for the rest (done:
+   `lws_rx_pump()` feeds the `rx` op of h1 both sides, raw-skt, raw-proxy,
+   mqtt, h2 and ws.  Left reading the transport themselves: quic's
+   datagram receive, the h1 idle probe, the http proxy reply, and
+   `lws_http_client_read()`, the user's pull of a response body).
 5. h2, then h3 over the quic datagram layer, then the remaining roles.
 6. When every role is converted, the IO half is a replaceable component,
    and the sansIO half is what a port translates.
