@@ -426,7 +426,7 @@ if (LWS_WITH_COSE)
 endif()
 option(LWS_WITH_GENCRYPTO "Enable support for Generic Crypto apis independent of TLS backend" OFF)
 option(LWS_WITH_SELFTESTS "Selftests run at context creation" OFF)
-option(LWS_WITH_GCOV "Build with gcc gcov coverage instrumentation" OFF)
+option(LWS_WITH_GCOV "Build with gcov-format coverage instrumentation (gcc or clang); see READMEs/README.coverage.md" OFF)
 option(LWS_WITH_EXPORT_LWSTARGETS "Export libwebsockets CMake targets.  Disable if they conflict with an outer cmake project." ON)
 option(LWS_REPRODUCIBLE "Build libwebsockets reproducible. It removes the build user and hostname from the build" ON)
 if (ESP_PLATFORM OR LWS_WITH_ESP32 OR LWS_PLAT_BAREMETAL OR LWS_PLAT_FREERTOS)
@@ -1666,6 +1666,22 @@ set(CPACK_SOURCE_IGNORE_FILES $(CPACK_SOURCE_IGNORE_FILES) "/.git/" "/build/" "\
 
 # Most people are more used to "make dist" compared to "make package_source"
 add_custom_target(dist COMMAND "${CMAKE_MAKE_PROGRAM}" package_source)
+
+# "make coverage": summarize the gcov counters left by the last ctest run in
+# this tree, see READMEs/README.coverage.md
+if (LWS_WITH_GCOV)
+	find_program(LWS_PYTHON3 NAMES python3 python)
+	if (LWS_PYTHON3)
+		add_custom_target(coverage
+			COMMAND ${LWS_PYTHON3} ${PROJECT_SOURCE_DIR}/scripts/coverage-report.py
+				--build-dir ${PROJECT_BINARY_DIR}
+				--source-dir ${PROJECT_SOURCE_DIR}
+				--compiler ${CMAKE_C_COMPILER}
+			WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
+			COMMENT "Summarizing coverage from the last ctest run"
+			VERBATIM)
+	endif()
+endif()
 
 
 
