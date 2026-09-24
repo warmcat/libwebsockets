@@ -1112,7 +1112,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
 	unsigned int pending = 0;
-	int n = 0, sanity = 10000;
+	int sanity = 10000;
 
 	if (!wsi->ws) {
 		lwsl_err("ws role wsi with no ws\n");
@@ -1148,8 +1148,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 			}
 		}
 
-		n = lws_http_client_socket_service(wsi, pollfd);
-		if (n)
+		if (lws_http_client_socket_service(wsi, pollfd))
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 #endif
 		return LWS_HPI_RET_HANDLED;
@@ -1402,14 +1401,13 @@ post_pollout:
 		} while (pending);
 	}
 
-	if (!lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
-		/* nothing parked (any more): a pending rx flow change can go */
-#if !defined(LWS_WITH_SERVER)
-		n =
-#endif
+	if (!lws_buflist_next_segment_len(&wsi->buflist, NULL))
+		/*
+		 * Nothing parked (any more): a pending rx flow change can go.
+		 * Its result is deliberately ignored, the same as it was when
+		 * it was taken into a variable to be ignored.
+		 */
 		__lws_rx_flow_control(wsi);
-		/* n ignored, needed for NO_SERVER case */
-	}
 
 	return LWS_HPI_RET_HANDLED;
 }

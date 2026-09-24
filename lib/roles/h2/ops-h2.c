@@ -187,7 +187,6 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 	unsigned int pending = 0;
 	struct lws *wsi1;
 	int flags = 0;
-	int n;
 
 #ifdef LWS_WITH_CGI
 	if (wsi->http.cgi && (pollfd->revents & LWS_POLLOUT)) {
@@ -242,8 +241,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 			}
 		}
 
-		n = lws_http_client_socket_service(wsi, pollfd);
-		if (n)
+		if (lws_http_client_socket_service(wsi, pollfd))
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 #endif
 		return LWS_HPI_RET_HANDLED;
