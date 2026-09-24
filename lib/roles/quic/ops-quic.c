@@ -424,6 +424,38 @@ lws_quic_find_child_by_dcid(struct lws *listener,
 	return NULL;
 }
 
+/*
+ * "1.2.3.4:5678 (af 2, salen 16)", or what we have instead of an address on a
+ * connected socket.  Only for logging a datagram we could not send: knowing
+ * only the errno leaves no way to tell a wrong destination from a wrong
+ * socket, which is exactly what differs between platforms here.
+ */
+
+static void
+lws_quic_sa46_str(const lws_sockaddr46 *sa46, char *buf, size_t len)
+{
+	char ads[48];
+	unsigned int port;
+
+	if (!sa46) {
+		lws_snprintf(buf, len, "(connected socket)");
+
+		return;
+	}
+
+	lws_sa46_write_numeric_address((lws_sockaddr46 *)sa46, ads, sizeof(ads));
+#if defined(LWS_WITH_IPV6)
+	port = ntohs(sa46->sa4.sin_family == AF_INET ? sa46->sa4.sin_port :
+						      sa46->sa6.sin6_port);
+#else
+	port = ntohs(sa46->sa4.sin_port);
+#endif
+
+	lws_snprintf(buf, len, "%s:%u (af %d, salen %u)", ads, port,
+		     (int)sa46->sa4.sin_family,
+		     (unsigned int)sa46_socklen((lws_sockaddr46 *)sa46));
+}
+
 #if defined(LWS_WITH_SERVER)
 /*
  * Server egress fd for a peer that may have migrated onto a different address
@@ -3325,7 +3357,20 @@ send_frames:
 				n = (int)send(fd, (const void *)pkt, send_len, 0);
 #endif
 			if (n < 0) {
-				lwsl_warn("QUIC TX: sendto/send failed: returned %d, errno=%d\n", n, LWS_ERRNO);
+				struct lws *lw = wsi->mux_substream ?
+						wsi->mux.parent_wsi : wsi;
+				char d[80], b[80];
+				int e = LWS_ERRNO;
+
+				lws_quic_sa46_str(dest_sa46, d, sizeof(d));
+				lws_quic_sa46_str(lw && lw->udp ? &lw->udp->sa46 :
+						  NULL, b, sizeof(b));
+
+				lwsl_wsi_warn(wsi, "QUIC TX: %s fd %d -> %s, "
+					      "%u bytes, socket bound %s: errno %d",
+					      dest_sa46 ? "sendto" : "send",
+					      (int)fd, d, (unsigned int)send_len,
+					      b, e);
 			}
 		}
 		if (n < 0) {
