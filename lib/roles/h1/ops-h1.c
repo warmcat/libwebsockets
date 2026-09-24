@@ -847,11 +847,24 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 #endif
 
-        if (lws_is_flowcontrolled(wsi))
-                /* We cannot deal with any kind of new RX because we are
-                 * RX-flowcontrolled.
-                 */
-		return LWS_HPI_RET_HANDLED;
+	if (lws_is_flowcontrolled(wsi)) {
+		/*
+		 * We cannot deal with any kind of new RX because we are
+		 * RX-flowcontrolled.
+		 *
+		 * POLLOUT is a different matter and must still be serviced:
+		 * serving a file over parked rx is itself what takes POLLIN
+		 * off (LRS_ISSUING_FILE in rops_rx_h1()), and the transfer
+		 * that clears the flow control again only happens on its
+		 * writeable.  Returning here for POLLOUT too left the
+		 * response unwritten and the connection spinning on a
+		 * level-triggered POLLOUT until its transfer timeout.
+		 */
+		if (!(pollfd->revents & LWS_POLLOUT))
+			return LWS_HPI_RET_HANDLED;
+
+		pollfd->revents &= (short)~(LWS_POLLIN);
+	}
 
 #if defined(LWS_WITH_SERVER)
 	if (!lwsi_role_client(wsi)) {
