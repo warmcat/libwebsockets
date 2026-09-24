@@ -1651,9 +1651,27 @@ __lws_tls_shutdown(struct lws *wsi)
 #define LWS_SCH_TRUST_DONT_CARE (CERT_TRUST_REVOCATION_STATUS_UNKNOWN | \
 				 CERT_TRUST_IS_OFFLINE_REVOCATION)
 
+/*
+ * SSL_EXTRA_CERT_CHAIN_POLICY_PARA::fdwChecks takes the wininet.h
+ * SECURITY_FLAG_IGNORE_* values, and we do not include wininet.h for them
+ */
+
+#if !defined(SECURITY_FLAG_IGNORE_UNKNOWN_CA)
+#define SECURITY_FLAG_IGNORE_UNKNOWN_CA		0x00000100
+#endif
+#if !defined(SECURITY_FLAG_IGNORE_WRONG_USAGE)
+#define SECURITY_FLAG_IGNORE_WRONG_USAGE	0x00000200
+#endif
+#if !defined(SECURITY_FLAG_IGNORE_CERT_CN_INVALID)
+#define SECURITY_FLAG_IGNORE_CERT_CN_INVALID	0x00001000
+#endif
+#if !defined(SECURITY_FLAG_IGNORE_CERT_DATE_INVALID)
+#define SECURITY_FLAG_IGNORE_CERT_DATE_INVALID	0x00002000
+#endif
+
 static DWORD
 lws_tls_schannel_policy(PCCERT_CHAIN_CONTEXT chain, DWORD auth_type,
-			WCHAR *wname, DWORD ignore)
+			WCHAR *wname, DWORD ignore, DWORD checks)
 {
 	CERT_CHAIN_POLICY_STATUS ps;
 	HTTPSPolicyCallbackData ph;
@@ -1663,6 +1681,12 @@ lws_tls_schannel_policy(PCCERT_CHAIN_CONTEXT chain, DWORD auth_type,
 	ph.cbStruct = sizeof(ph);
 	ph.dwAuthType = auth_type;
 	ph.pwszServerName = wname;
+	/*
+	 * The SSL policy does the name and trust checks itself and takes its
+	 * "do not mind this" bits here, not only from
+	 * CERT_CHAIN_POLICY_PARA::dwFlags below
+	 */
+	ph.fdwChecks = checks;
 
 	memset(&pp, 0, sizeof(pp));
 	pp.cbSize = sizeof(pp);
@@ -1707,7 +1731,7 @@ lws_tls_schannel_confirm_cert(struct lws_tls_schannel_ctx *ctx,
 	PCCERT_CHAIN_CONTEXT chain = NULL;
 	DWORD auth_type = hostname ? AUTHTYPE_SERVER : AUTHTYPE_CLIENT;
 	WCHAR wname[128], *pwname = NULL;
-	DWORD err, ignore = 0, allowed = LWS_SCH_TRUST_DONT_CARE;
+	DWORD err, ignore = 0, checks = 0, allowed = LWS_SCH_TRUST_DONT_CARE;
 	HCERTCHAINENGINE engine;
 	CERT_CHAIN_PARA cp;
 	int ret = -1;
@@ -1760,7 +1784,7 @@ lws_tls_schannel_confirm_cert(struct lws_tls_schannel_ctx *ctx,
 		return -1;
 	}
 
-	err = lws_tls_schannel_policy(chain, auth_type, pwname, 0);
+	err = lws_tls_schannel_policy(chain, auth_type, pwname, 0, 0);
 	if (err == ERROR_SUCCESS &&
 	    !(chain->TrustStatus.dwErrorStatus & ~LWS_SCH_TRUST_DONT_CARE)) {
 		conn->f_peer_cert_verified = 1;
@@ -1779,12 +1803,14 @@ lws_tls_schannel_confirm_cert(struct lws_tls_schannel_ctx *ctx,
 
 	if (conn->relax & (LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_INSECURE)) {
 		ignore |= CERT_CHAIN_POLICY_ALLOW_UNKNOWN_CA_FLAG;
+		checks |= SECURITY_FLAG_IGNORE_UNKNOWN_CA;
 		allowed |= CERT_TRUST_IS_UNTRUSTED_ROOT |
 			   CERT_TRUST_IS_PARTIAL_CHAIN;
 	}
 
 	if (conn->relax & (LCCSCF_ALLOW_EXPIRED | LCCSCF_ALLOW_INSECURE)) {
 		ignore |= CERT_CHAIN_POLICY_IGNORE_ALL_NOT_TIME_VALID_FLAGS;
+		checks |= SECURITY_FLAG_IGNORE_CERT_DATE_INVALID;
 		allowed |= CERT_TRUST_IS_NOT_TIME_VALID |
 			   CERT_TRUST_CTL_IS_NOT_TIME_VALID |
 			   CERT_TRUST_IS_NOT_TIME_NESTED;
@@ -1794,6 +1820,7 @@ lws_tls_schannel_confirm_cert(struct lws_tls_schannel_ctx *ctx,
 		ignore |= CERT_CHAIN_POLICY_IGNORE_WRONG_USAGE_FLAG |
 			  CERT_CHAIN_POLICY_IGNORE_INVALID_POLICY_FLAG |
 			  CERT_CHAIN_POLICY_IGNORE_INVALID_BASIC_CONSTRAINTS_FLAG;
+		checks |= SECURITY_FLAG_IGNORE_WRONG_USAGE;
 		allowed |= CERT_TRUST_IS_NOT_VALID_FOR_USAGE |
 			   CERT_TRUST_INVALID_BASIC_CONSTRAINTS |
 			   CERT_TRUST_INVALID_POLICY_CONSTRAINTS |
@@ -1805,10 +1832,12 @@ lws_tls_schannel_confirm_cert(struct lws_tls_schannel_ctx *ctx,
 	 * LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK, exactly as on openssl
 	 */
 
-	if (conn->relax & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)
+	if (conn->relax & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK) {
 		ignore |= CERT_CHAIN_POLICY_IGNORE_INVALID_NAME_FLAG;
+		checks |= SECURITY_FLAG_IGNORE_CERT_CN_INVALID;
+	}
 
-	err = lws_tls_schannel_policy(chain, auth_type, pwname, ignore);
+	err = lws_tls_schannel_policy(chain, auth_type, pwname, ignore, checks);
 	if (err == ERROR_SUCCESS &&
 	    !(chain->TrustStatus.dwErrorStatus & ~allowed)) {
 		lwsl_info("%s: allowing anyway\n", __func__);
@@ -1817,12 +1846,12 @@ lws_tls_schannel_confirm_cert(struct lws_tls_schannel_ctx *ctx,
 	}
 
 	lws_snprintf(ebuf, ebuf_len, "Certificate validation failed: 0x%x "
-		     "(chain 0x%x) name '%s' relax 0x%x ign 0x%x allow 0x%x",
-		     (unsigned int)err,
+		     "(chain 0x%x) name '%s' relax 0x%x ign 0x%x chk 0x%x "
+		     "allow 0x%x", (unsigned int)err,
 		     (unsigned int)chain->TrustStatus.dwErrorStatus,
 		     hostname ? hostname : "(none)",
 		     (unsigned int)conn->relax, (unsigned int)ignore,
-		     (unsigned int)allowed);
+		     (unsigned int)checks, (unsigned int)allowed);
 
 bail:
 	CertFreeCertificateChain(chain);
