@@ -461,6 +461,7 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	/* ws upgrade, on a server from the upgrade decision, on a client from the 101 */
 	{ "h1", "S", LRS_H1_UPGRADE,		LWS_WSIEV_WS_UPGRADED, "ws", NULL, LRS_ESTABLISHED },
 	{ "h2", "S", LRS_ESTABLISHED,		LWS_WSIEV_WS_UPGRADED, "ws", "Se", LRS_ESTABLISHED },
+	{ "h3", "S", LRS_ESTABLISHED,		LWS_WSIEV_WS_UPGRADED, "ws", "Se", LRS_ESTABLISHED }, /* RFC 9220 */
 	{ "h1", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_WS_UPGRADED, "ws", NULL, LRS_ESTABLISHED },
 	{ "h2", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_WS_UPGRADED, "ws", "Ce", LRS_ESTABLISHED },
 
