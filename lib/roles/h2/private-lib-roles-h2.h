@@ -247,6 +247,14 @@ struct lws_h2_netconn {
 	enum http2_hpack_state hpack;
 	enum http2_hpack_type hpack_type;
 
+	/*
+	 * Stands in for the stream ah while we are decoding a header block
+	 * that has no stream to be stored for, so the connection-wide
+	 * dynamic table stays in step with the peer (RFC 9113 5.1).  Only
+	 * allocated if a peer actually makes us do it.
+	 */
+	struct allocated_headers *hpack_sink;
+
 	unsigned int huff:1;
 	unsigned int value:1;
 	unsigned int unknown_header:1;
@@ -254,6 +262,7 @@ struct lws_h2_netconn {
 	unsigned int cont_exp_headers:1;
 	unsigned int we_told_goaway:1;
 	unsigned int goaway_queued:1;
+	unsigned int hpack_no_store:1;
 	unsigned int pad_length:1;
 	unsigned int collected_priority:1;
 	unsigned int is_first_header_char:1;
@@ -384,6 +393,10 @@ int
 lws_hpack_dynamic_size(struct lws *wsi, int size);
 int
 lws_h2_goaway(struct lws *wsi, uint32_t err, const char *reason);
+int
+lws_h2_hpack_sink_start(struct lws *wsi);
+void
+lws_h2_hpack_sink_destroy(struct lws *wsi);
 int
 lws_h2_tx_cr_get(struct lws *wsi);
 void

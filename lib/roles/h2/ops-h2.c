@@ -728,8 +728,10 @@ rops_destroy_role_h2(struct lws *wsi)
 	if (lws_wsi_is_mux_nwsi(wsi) || wsi->mux_substream) {
 		lws_hpack_destroy_dynamic_header(wsi);
 
-		if (wsi->h2.h2n)
+		if (wsi->h2.h2n) {
+			lws_h2_hpack_sink_destroy(wsi);
 			lws_free_set_NULL(wsi->h2.h2n);
+		}
 	}
 
 	return 0;

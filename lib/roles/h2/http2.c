@@ -1624,9 +1624,16 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		if (!h2n->cont_exp ||
 		     h2n->cont_exp_sid != h2n->sid ||
 		     !h2n->sid ||
-		     !h2n->swsi) {
+		     (!h2n->swsi && !h2n->hpack_no_store)) {
 			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 				      "unexpected CONTINUATION");
+			break;
+		}
+
+		if (h2n->hpack_no_store) {
+			/* no stream to track END_HEADERS on, cont_exp is it */
+			if (h2n->flags & LWS_H2_FLAG_END_HEADERS)
+				h2n->cont_exp = 0;
 			break;
 		}
 
@@ -1644,6 +1651,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	case LWS_H2_FRAME_TYPE_HEADERS:
 		h2n->hpack_total_hdr_len = 0;
 		h2n->cont_count = 0;
+		h2n->hpack_no_store = 0;
 		lwsl_info("HEADERS: frame header: sid = %u\n",
 				(unsigned int)h2n->sid);
 
@@ -1703,8 +1711,32 @@ lws_h2_parse_frame_header(struct lws *wsi)
 					  "to wsi %s\n", lws_wsi_tag(wsi),
 					  (unsigned int)h2n->sid,
 					  lws_wsi_tag(h2n->swsi));
-				if (!h2n->swsi)
+				if (!h2n->swsi) {
+					/*
+					 * The stream is gone -- typically we
+					 * closed it while the peer's HEADERS
+					 * for it was already in flight.  We
+					 * still have to decode the block: the
+					 * hpack dynamic table is shared by the
+					 * whole connection, and dropping a
+					 * block leaves ours permanently out of
+					 * step with the peer's, so every later
+					 * indexed field line on the connection
+					 * silently resolves to the wrong entry.
+					 *
+					 * Decode it into the sink instead, and
+					 * store nothing.
+					 */
+					if (lws_h2_hpack_sink_start(wsi))
+						return 1;
+
+					h2n->cont_exp = !(h2n->flags &
+						     LWS_H2_FLAG_END_HEADERS);
+					h2n->cont_exp_sid = h2n->sid;
+					h2n->cont_exp_headers = 1;
+
 					break;
+				}
 			}
 			goto update_end_headers;
 		}
@@ -2112,6 +2144,36 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 	case LWS_H2_FRAME_TYPE_CONTINUATION:
 	case LWS_H2_FRAME_TYPE_HEADERS:
+
+		if (h2n->hpack_no_store) {
+			/*
+			 * We sank this block: there is no stream to dispatch
+			 * it to, and nothing was stored.  But it still had to
+			 * be a well-formed header block, since the dynamic
+			 * table it just updated is the whole connection's.
+			 */
+
+			if (h2n->last_action_dyntable_resize) {
+				lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
+					"dyntable resize last in headers");
+				break;
+			}
+
+			if (h2n->cont_exp)
+				/* CONTINUATION still to come */
+				break;
+
+			if (h2n->hpack != HPKS_TYPE) {
+				lwsl_info("%s: sunk hpack incomplete %d\n",
+					  __func__, h2n->hpack);
+				lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
+					      "hpack incomplete");
+				break;
+			}
+
+			h2n->hpack_no_store = 0;
+			break;
+		}
 
 		if (!h2n->swsi)
 			break;
@@ -2878,9 +2940,10 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 
 			case LWS_H2_FRAME_TYPE_CONTINUATION:
 			case LWS_H2_FRAME_TYPE_HEADERS:
-				if (!h2n->swsi)
+				if (!h2n->swsi && !h2n->hpack_no_store)
 					break;
-				if (lws_hpack_interpret(h2n->swsi, c)) {
+				if (lws_hpack_interpret(h2n->hpack_no_store ?
+							wsi : h2n->swsi, c)) {
 					lwsl_info("%s: hpack failed\n",
 						  __func__);
 					goto fail;

@@ -837,6 +837,86 @@ lws_h2_hdrs_are_trailers(struct lws *wsi)
 	return !lwsi_hdrs_pending(wsi);
 }
 
+/*
+ * We are decoding a header block that names a stream we don't have (the peer's
+ * HEADERS was already in flight when we closed it, say).  RFC 9113 5.1 still
+ * requires us to decode it, because the hpack context is connection-wide: drop
+ * it and our dynamic table is permanently out of step with the peer's, and
+ * every later indexed field line on the connection resolves to the wrong entry.
+ *
+ * So we decode it into the sink instead: the field lines are parsed and the
+ * dynamic table is updated, and nothing is stored or acted on.
+ */
+static int
+lws_h2_hpack_sinking(struct lws *wsi)
+{
+	struct lws *nwsi = lws_get_network_wsi(wsi);
+
+	return nwsi->h2.h2n && nwsi->h2.h2n->hpack_no_store;
+}
+
+/*
+ * Is there anywhere for what we decode to go?  Either we are sinking the whole
+ * block as above, or these are trailers, which we also decode only to keep the
+ * dynamic table in step.  Everything that would store into the ah, or apply a
+ * decoded field to the stream, is gated on this.
+ */
+static int
+lws_h2_hpack_no_store(struct lws *wsi)
+{
+	return lws_h2_hpack_sinking(wsi) || lws_h2_hdrs_are_trailers(wsi);
+}
+
+/*
+ * The stand-in ah used while sinking.  Only parser_state and lextable_pos are
+ * ever touched on it: every path that would reach ah->data, ah->frags or the
+ * unknown-header list is gated on lws_h2_hpack_no_store() above, which is true
+ * for as long as this is in use.  So it has no data buffer.
+ */
+static struct allocated_headers *
+lws_h2_hpack_sink_ah(struct lws *wsi)
+{
+	struct lws *nwsi = lws_get_network_wsi(wsi);
+	struct lws_h2_netconn *h2n = nwsi->h2.h2n;
+
+	if (!h2n)
+		return NULL;
+
+	if (!h2n->hpack_sink) {
+		h2n->hpack_sink = lws_zalloc(sizeof(*h2n->hpack_sink),
+					     "hpack sink");
+		if (!h2n->hpack_sink)
+			return NULL;
+	}
+
+	_lws_header_table_reset(h2n->hpack_sink);
+
+	return h2n->hpack_sink;
+}
+
+int
+lws_h2_hpack_sink_start(struct lws *wsi)
+{
+	struct lws *nwsi = lws_get_network_wsi(wsi);
+
+	if (!lws_h2_hpack_sink_ah(wsi)) {
+		lws_h2_goaway(nwsi, H2_ERR_INTERNAL_ERROR, "OOM");
+
+		return 1;
+	}
+
+	nwsi->h2.h2n->hpack_no_store = 1;
+
+	return 0;
+}
+
+void
+lws_h2_hpack_sink_destroy(struct lws *wsi)
+{
+	if (wsi->h2.h2n && wsi->h2.h2n->hpack_sink)
+		lws_free_set_NULL(wsi->h2.h2n->hpack_sink);
+}
+
 static int
 lws_hpack_handle_pseudo_rules(struct lws *nwsi, struct lws *wsi, int m);
 
@@ -871,16 +951,24 @@ lws_hpack_use_idx_hdr(struct lws *wsi, int idx, int known_token)
 	if (tok == LWS_HPACK_IGNORE_ENTRY)
 		return 0;
 
-	if (lws_h2_hdrs_are_trailers(wsi))
+	if (lws_h2_hpack_no_store(wsi)) {
 		/*
 		 * We validated the index (which is all the connection-wide
 		 * hpack state cares about for a fully-indexed header), so throw
 		 * the field away instead of adding it to the ah... but a
 		 * trailer still may not carry a pseudo-header (RFC 9113 8.1),
-		 * which is what this decides
+		 * which is what this decides.
+		 *
+		 * When sinking there is no stream this field belongs to, so
+		 * there is no pseudo-header ordering to judge it against
+		 * either
 		 */
+		if (lws_h2_hpack_sinking(wsi))
+			return 0;
+
 		return lws_hpack_handle_pseudo_rules(lws_get_network_wsi(wsi),
 						     wsi, tok);
+	}
 
 	if (arg)
 		p = arg;
@@ -977,12 +1065,16 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 {
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	struct lws_h2_netconn *h2n = nwsi->h2.h2n;
-	struct allocated_headers *ah = wsi->stream.ah;
+	struct allocated_headers *ah;
 	unsigned int prev;
 	unsigned char c1;
 	int n, m, plen;
 
 	if (!h2n)
+		return -1;
+
+	ah = h2n->hpack_no_store ? h2n->hpack_sink : wsi->stream.ah;
+	if (!ah)
 		return -1;
 
 	h2n->hpack_total_hdr_len++;
@@ -1035,7 +1127,8 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 
 			m = lws_token_from_index(wsi, (int)h2n->hdr_idx,
 						 NULL, NULL, NULL);
-			if (lws_hpack_handle_pseudo_rules(nwsi, wsi, m))
+			if (!lws_h2_hpack_sinking(wsi) &&
+			    lws_hpack_handle_pseudo_rules(nwsi, wsi, m))
 				return 1;
 
 			lwsl_header("HPKT_INDEXED_HDR_7: hdr %d\n", c & 0x7f);
@@ -1257,7 +1350,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				 * custom-header collection (name bytes, value
 				 * bytes and the UHO list linkage) for it
 				 */
-				if (!lws_h2_hdrs_are_trailers(wsi) &&
+				if (!lws_h2_hpack_no_store(wsi) &&
 				    ah->pos + UHO_NAME <
 				    wsi->a.context->max_http_header_data) {
 					ah->unk_pos = ah->pos;
@@ -1301,7 +1394,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 			break;
 		default:
 			if (n != -1 && n != LWS_HPACK_IGNORE_ENTRY &&
-			    !lws_h2_hdrs_are_trailers(wsi) &&
+			    !lws_h2_hpack_no_store(wsi) &&
 			    lws_frag_start(wsi, n)) {
 				lwsl_header("%s: frag start failed\n",
 					    __func__);
@@ -1370,7 +1463,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 
 				if (h2n->hdr_idx &&
 				    h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&
-				    !lws_h2_hdrs_are_trailers(wsi)) {
+				    !lws_h2_hpack_no_store(wsi)) {
 
 					if (ah->hdr_token_idx ==
 					    WSI_TOKEN_HTTP_COLON_PATH) {
@@ -1470,7 +1563,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				 * the field to the ignored-entry handling
 				 */
 				if (!h2n->unknown_header &&
-				    !lws_h2_hdrs_are_trailers(wsi) &&
+				    !lws_h2_hpack_no_store(wsi) &&
 				    lws_parse(wsi, &c1, &plen))
 					h2n->unknown_header = 1;
 			}
@@ -1514,7 +1607,8 @@ fin:
 			 * have.
 			 */
 
-			if (lws_h2_hdrs_are_trailers(wsi) &&
+			if (!lws_h2_hpack_sinking(wsi) &&
+			    lws_h2_hdrs_are_trailers(wsi) &&
 			    h2n->first_hdr_char == ':') {
 				lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
 					      "Pseudoheader in trailers");
@@ -1522,7 +1616,7 @@ fin:
 			}
 
 			if (ah->parser_state == WSI_TOKEN_NAME_PART &&
-			    !lws_h2_hdrs_are_trailers(wsi)) {
+			    !lws_h2_hpack_no_store(wsi)) {
 				/* h2 headers come without the colon */
 				c1 = ':';
 				plen = 1;
@@ -1537,7 +1631,8 @@ fin:
 			    ah->parser_state == WSI_TOKEN_SKIPPING) {
 				h2n->unknown_header = 1;
 				ah->parser_state = 0xff;
-				wsi->seen_nonpseudoheader = 1;
+				if (!lws_h2_hpack_sinking(wsi))
+					wsi->seen_nonpseudoheader = 1;
 			}
 		}
 
@@ -1615,7 +1710,8 @@ fin:
 			if (h2n->unknown_header ||
 			    ah->parser_state == WSI_TOKEN_NAME_PART ||
 			    ah->parser_state == WSI_TOKEN_SKIPPING) {
-				if (h2n->first_hdr_char == ':') {
+				if (h2n->first_hdr_char == ':' &&
+				    !lws_h2_hpack_sinking(wsi)) {
 					lwsl_info("HPKT_LITERAL_HDR_VALUE_INCR:"
 						  " end state %d unk hdr %d\n",
 						  ah->parser_state,
@@ -1630,7 +1726,7 @@ fin:
 			}
 add_it:
 			if (m == LWS_HPACK_IGNORE_ENTRY ||
-			    lws_h2_hdrs_are_trailers(wsi)) {
+			    lws_h2_hpack_no_store(wsi)) {
 				/*
 				 * There is no lws token for this header (or it
 				 * is in a trailer block, which we decode
@@ -1694,7 +1790,7 @@ add_it:
 
 		if (m == WSI_TOKEN_HTTP_COLON_PATH &&
 		    h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&
-		    !lws_h2_hdrs_are_trailers(wsi) &&
+		    !lws_h2_hpack_no_store(wsi) &&
 		    ah->ups == URIPS_SEEN_SLASH_DOT_DOT) {
 			/*
 			 * :path ended in "/..": back up one dir level if
@@ -1717,7 +1813,7 @@ add_it:
 		}
 
 		if (h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&
-		    !lws_h2_hdrs_are_trailers(wsi)) {
+		    !lws_h2_hpack_no_store(wsi)) {
 			/*
 			 * RFC 9113 8.2.1: a field value containing NUL, CR or
 			 * LF is malformed and must be treated as a stream /
@@ -1747,7 +1843,8 @@ add_it:
 		if (m != -1 && m != LWS_HPACK_IGNORE_ENTRY)
 			lws_dump_header(wsi, m);
 
-		if (lws_hpack_handle_pseudo_rules(nwsi, wsi, m))
+		if (!lws_h2_hpack_sinking(wsi) &&
+		    lws_hpack_handle_pseudo_rules(nwsi, wsi, m))
 			return 1;
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
