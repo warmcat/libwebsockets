@@ -64,16 +64,16 @@ rops_adoption_bind_raw_file(struct lws *wsi, int type, const char *vh_prot_name)
 	    (type & _LWS_ADOPT_FINISH))
 		return 0; /* no match */
 
+	/* answer "no match" before the role is changed, not after */
+	if (!vh_prot_name && wsi->a.vhost->default_protocol_index >=
+				     wsi->a.vhost->count_protocols)
+		return 0;
+
 	lws_wsi_event_role(wsi, LWS_WSIEV_ADOPTED, &role_ops_raw_file);
 
-	if (!vh_prot_name) {
-		if (wsi->a.vhost->default_protocol_index >=
-		    wsi->a.vhost->count_protocols)
-			return 0;
-
+	if (!vh_prot_name)
 		wsi->a.protocol = &wsi->a.vhost->protocols[
 					wsi->a.vhost->default_protocol_index];
-	}
 
 	return 1; /* bound */
 }
