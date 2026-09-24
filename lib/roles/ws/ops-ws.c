@@ -502,6 +502,17 @@ spill:
 			if (wsi->ws->peer_has_sent_close)
 				break;
 
+			/*
+			 * A CLOSE that arrives while we are already past the
+			 * polite phases (draining, staged shutdown, socket
+			 * known dead) is not answered: there is no polite
+			 * close to return to from there, and an unusable
+			 * socket must not enter one
+			 */
+			if (lwsi_skt_unusable(wsi) ||
+			    lwsi_close(wsi) >= LCS_FLUSHING_BEFORE_CLOSE)
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+
 			wsi->ws->peer_has_sent_close = 1;
 
 			pp = &wsi->ws->rx_ubuf[LWS_PRE];
