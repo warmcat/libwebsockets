@@ -558,7 +558,11 @@ lws_wsi_event_x(struct lws *wsi, enum lws_wsi_event ev,
 	const char *role = wsi->role_ops ? wsi->role_ops->name : "(none)";
 	const struct lws_wsi_event_edge *e = lws_wsi_event_edges;
 	lws_wsi_state_t from = lws_wsi_state_of(wsi->wsistate), rf;
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_QUIC)
 	struct lws *parent = wsi->mux.parent_wsi;
+#else
+	struct lws *parent = NULL;
+#endif
 	const struct lws_role_ops *nops;
 	char side[3], a[64];
 	unsigned int n;
