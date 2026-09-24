@@ -217,7 +217,16 @@ int main(int argc, const char **argv)
 		
 		if (wsi_closed && client_wsi == NULL) {
 			service_loops_after_close++;
-			
+
+			if (service_loops_after_close < 2)
+				/*
+				 * The stage only advances after a couple more
+				 * service passes, and the context may have
+				 * nothing left that would wake it: ask for
+				 * them rather than waiting out an idle poll.
+				 */
+				lws_cancel_service(context);
+
 			if (service_loops_after_close >= 2 && test_stage < 3 && !bad) {
 				wsi_closed = 0;
 				service_loops_after_close = 0;
@@ -232,6 +241,21 @@ int main(int argc, const char **argv)
 						break;
 				}
 				
+				/*
+				 * This stage's connection is done with, and a
+				 * context nobody uses any more has nothing
+				 * that would ever wake its lws_service(): if
+				 * we keep servicing them, every loop turn
+				 * waits out an idle poll in each one.  Let
+				 * each stage's context go as we leave it.
+				 */
+				for (idx = 0; idx < num_contexts; idx++)
+					if (all_contexts[idx]) {
+						lws_context_destroy(all_contexts[idx]);
+						all_contexts[idx] = NULL;
+					}
+				num_contexts = 0;
+
 				context = create_context_for_stage(test_stage);
 				if (!context) {
 					lwsl_err("Failed to create context for stage %d\n", test_stage);
