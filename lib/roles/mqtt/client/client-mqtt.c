@@ -240,6 +240,13 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			if (!(wsi->tls.use_ssl & LCCSCF_USE_SSL))
 				goto start_ws_handshake;
 
+			/*
+			 * as for raw-skt (C-533): the tls connect only runs
+			 * its handshake from WAITING_SSL, and we are still in
+			 * the socks phase here
+			 */
+			lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
+
 			switch (lws_client_create_tls(wsi, &cce, 0)) {
 			case 0:
 				break;
