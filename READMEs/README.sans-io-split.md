@@ -38,7 +38,7 @@ requests.  Nothing else crosses.
 | io -> core | **deadline()**: the deadline you set has passed | `sul` callbacks, `lws_sul_wsitimeout_cb` |
 | io -> core | **transport(up / failed / gone)** | `LWS_WSIEV_TRANSPORT_UP`, `CONN_FAILED`, `SOCKET_GONE` |
 | core -> io | **tx(bytes)**: queue these to send | `lws_issue_raw()` appending to `buflist_out` |
-| core -> io | **want_write()**: call me back when drained | `lws_callback_on_writable()` |
+| core -> io | **want_write()**: call me back when drained | `lws_callback_on_writable()`; `lws_service_wsi_as_writable()` is the same request served now |
 | core -> io | **deadline(us) / no deadline** | `lws_set_timeout()`, `lws_sul_schedule()` |
 | core -> io | **close(reason)** | `lws_close_free_wsi()`, `LWS_WSIEV_CLOSE_FLUSH` |
 
@@ -86,8 +86,9 @@ each function is in.
 ## Staging
 
 1. Finish the boundary violations that already exist: the socks and proxy
-   legs writing to the fd (done), connect completion special cases living
-   in `connect4.c` instead of the roles.
+   legs writing to the fd, connect completion special cases living in
+   `connect4.c` instead of the roles (both done: `c9ca0d2f5` and the
+   `client_transport_up` op).
 2. Land the lint with today's count as its baseline.
 3. Move the io files of `lib/core-net` into `lib/core-net/io/`, no code
    change, so the directory says what the file is.
