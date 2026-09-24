@@ -48,6 +48,14 @@ lws_raw_skt_connect(struct lws *wsi)
 	}
 
 	if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+		/*
+		 * Arriving here from the socks5 leg the transport is still in
+		 * the socks phase, and the tls connect only runs its handshake
+		 * from WAITING_SSL: without this it reported the tls link up
+		 * with no handshake ever made
+		 */
+		if (lwsi_transport(wsi) != LTS_WAITING_SSL)
+			lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
 		n = lws_ssl_client_connect2(wsi, ccebuf, sizeof(ccebuf));
 		if (n < 0) {
 			lws_inform_client_conn_fail(wsi, (void *)ccebuf,
