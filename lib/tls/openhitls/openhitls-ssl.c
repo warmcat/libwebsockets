@@ -583,8 +583,8 @@ lws_tls_ctx_from_wsi(struct lws *wsi)
 enum lws_ssl_capable_status
 __lws_tls_shutdown(struct lws *wsi)
 {
-	int ret;
 	uint32_t state = 0;
+	int ret, error;
 
 	ret = HITLS_Close(wsi->tls.ssl);
 	lwsl_debug("%s: HITLS_Close=%d for fd %d\n", __func__, ret,
@@ -595,23 +595,41 @@ __lws_tls_shutdown(struct lws *wsi)
 		shutdown(wsi->desc.sockfd, SHUT_WR);
 		return LWS_SSL_CAPABLE_DONE;
 	}
-	if (state == HITLS_SENT_SHUTDOWN) {
+
+	/*
+	 * What the call itself said comes before the shutdown state: once our
+	 * close_notify is away the state stays SENT for the rest of the
+	 * connection, so deciding on it first meant a peer that went without
+	 * answering (HITLS_REC_NORMAL_IO_EOF, or HITLS_REC_ERR_IO_EXCEPTION,
+	 * both of which HITLS_GetError() reports as HITLS_ERR_SYSCALL) kept
+	 * being reported as "come back when it is readable" forever, and the
+	 * wsi only went away on its shutdown-flush timeout.
+	 */
+
+	error = HITLS_GetError(wsi->tls.ssl, ret);
+
+	if (error == HITLS_WANT_READ) {
+		lwsl_debug("(wants read)\n");
 		__lws_change_pollfd(wsi, 0, LWS_POLLIN);
 		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 	}
-	int error = HITLS_GetError(wsi->tls.ssl, ret);
-	if (error != HITLS_ERR_SYSCALL && error != HITLS_ERR_TLS) {
-		if (error == HITLS_WANT_READ) {
-			lwsl_debug("(wants read)\n");
-			__lws_change_pollfd(wsi, 0, LWS_POLLIN);
-			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
-		}
-		if (error == HITLS_WANT_WRITE) {
-			lwsl_debug("(wants write)\n");
-			__lws_change_pollfd(wsi, 0, LWS_POLLOUT);
-			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
-		}
+
+	if (error == HITLS_WANT_WRITE) {
+		lwsl_debug("(wants write)\n");
+		__lws_change_pollfd(wsi, 0, LWS_POLLOUT);
+		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 	}
+
+	if (error != HITLS_SUCCESS)
+		/* not a retry: nothing more is coming, the caller must close */
+		return LWS_SSL_CAPABLE_ERROR;
+
+	if (state == HITLS_SENT_SHUTDOWN) {
+		/* ours is away and the link is fine: await the peer's */
+		__lws_change_pollfd(wsi, 0, LWS_POLLIN);
+		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+	}
+
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
