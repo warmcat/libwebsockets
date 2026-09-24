@@ -37,6 +37,7 @@ things only through these requests.  Nothing else crosses.
 | direction | call | today's C |
 |---|---|---|
 | IO -> sansIO | **rx(bytes) -> consumed**: bytes arrived, take what you can; an empty rx is the peer closing | the `rx` role op, fed by `lws_rx_pump()`; roles not yet converted still read the socket in `handle_POLLIN` |
+| IO -> sansIO | **rx_dgram(bytes, peer, ecn) -> ok**: the datagram spelling of rx: one datagram arrived from this peer with these ECN bits; it is taken whole, nothing is parked | the `rx_dgram` role op, fed by `lws_rx_pump_dgram()`; quic |
 | IO -> sansIO | **tx(buf, max) -> n, more**: the transport can take bytes: fill the caller's buffer with the next ones to send, from wherever you got to last time, and say whether more remain | `lws_write()` composing into the `LWS_PRE` headroom then `lws_issue_raw()`; role `handle_POLLOUT` |
 | IO -> sansIO | **deadline()**: the deadline you set has passed | `sul` callbacks, `lws_sul_wsitimeout_cb` |
 | IO -> sansIO | **transport(up / failed / gone)** | `client_transport_up` op, `LWS_WSIEV_TRANSPORT_UP`, `CONN_FAILED`, `SOCKET_GONE` |
@@ -45,7 +46,7 @@ things only through these requests.  Nothing else crosses.
 | sansIO -> IO | **want_read(on / off)**: stop feeding me rx, or resume | `lws_rx_flow_control()` |
 | sansIO -> IO | **close(reason)** | `lws_close_free_wsi()`, `LWS_WSIEV_CLOSE_FLUSH` |
 
-Four in, four out.  A sansIO part that needs anything else from IO is a
+Four in (rx has a datagram spelling for quic), four out.  A sansIO part that needs anything else from IO is a
 sansIO part with IO in it.
 
 **Sending is a pull.**  IO owns the buffer and calls tx when the transport
@@ -77,7 +78,7 @@ The directories are the halves.  Placement by directory is the whole rule.
 | `lib/core-net/IO/client/`: `connect.c`, `connect2.c`, `connect3.c` | IO | dns, connect, happy eyeballs |
 | `lib/tls/*` record layer: `lws_ssl_capable_read/write`, bio, session cache, handshake driving | IO | sansIO sees plaintext |
 | `lib/roles/quic` packet and frame layer, `lib/roles/h3`, qpack | sansIO | quic is a sansIO part with a datagram interface instead of a stream one |
-| `lib/roles/quic` `sendto`/`recvfrom` | IO | the one place a role touches the socket, to be moved behind tx/rx |
+| `lib/roles/quic` `sendto` for version negotiation, retry and path migration | IO | the last place a role touches the socket, to be moved behind tx |
 | `lib/plat/*`, `lib/event-libs/*` | IO | |
 | `lib/core/*`, `lib/misc/*`, `lib/system/*` | neither | context, logging, utilities: shared by both halves, used by both |
 
@@ -113,8 +114,9 @@ each function is in.
 4. Convert one role's rx to take bytes instead of reading them (h1 or ws),
    with the trace unchanged.  This is the pattern for the rest (done:
    `lws_rx_pump()` feeds the `rx` op of h1 both sides, raw-skt, raw-proxy,
-   mqtt, h2 and ws.  Left reading the transport themselves: quic's
-   datagram receive, the h1 idle probe, the http proxy reply, and
+   mqtt, h2 and ws; `lws_rx_pump_dgram()` feeds quic's `rx_dgram`, doing
+   the recvmsg and the ECN control message itself.  Left reading the
+   transport themselves: the h1 idle probe, the http proxy reply, and
    `lws_http_client_read()`, the user's pull of a response body).
 5. h2, then h3 over the quic datagram layer, then the remaining roles.
 6. When every role is converted, the IO half is a replaceable component,

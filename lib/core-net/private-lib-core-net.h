@@ -1421,6 +1421,12 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 	    struct lws_pollfd *pollfd, int flags, size_t max, int *nothing,
 	    int *consumed);
 
+#if defined(LWS_WITH_UDP)
+lws_handling_result_t
+lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
+		  struct lws_pollfd *pollfd, int *nothing);
+#endif
+
 /* the event engine's entry: a role change a table row asked for */
 void
 lws_wsi_role_transition_ev(struct lws *wsi, enum lwsi_role role,

@@ -799,6 +799,115 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 	return LWS_HPI_RET_HANDLED;
 }
 
+#if defined(LWS_WITH_UDP)
+/*
+ * The datagram spelling of the pump: receive one datagram for wsi into the
+ * pt serv_buf and hand it, with the peer it came from and the ECN bits it
+ * carried, to the role's rx_dgram op.  A datagram is taken whole, so there
+ * is nothing to park.
+ *
+ * Which family the peer's address is reported in is the platform's choice:
+ * macOS hands a v4 peer up from an AF_INET6 socket as a plain sockaddr_in,
+ * Linux always uses the v4-mapped AF_INET6 form.  The role must answer on
+ * the socket the datagram came in on, and a sockaddr of the other family is
+ * not a valid destination for it (Linux tolerates the mismatch, macOS
+ * refuses it with EINVAL).  So the peer is brought to the socket's family
+ * here, once, before the role records it, compares it for path migration
+ * or answers to it.
+ */
+lws_handling_result_t
+lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
+		  struct lws_pollfd *pollfd, int *nothing)
+{
+	lws_sockaddr46 sa46;
+	socklen_t slen = sizeof(sa46);
+	uint8_t ecn = 0;
+	int n;
+
+	*nothing = 0;
+
+	if (pollfd && !(pollfd->revents & LWS_POLLIN)) {
+		*nothing = 1;
+
+		return LWS_HPI_RET_HANDLED;
+	}
+
+	memset(&sa46, 0, sizeof(sa46));
+
+#if defined(WIN32) || defined(_WIN32)
+	n = (int)recvfrom(wsi->desc.sockfd, (char *)pt->serv_buf,
+			  (int)wsi->a.context->pt_serv_buf_size, 0,
+			  sa46_sockaddr(&sa46), &slen);
+#else
+	{
+		struct iovec iov;
+		struct msghdr msg;
+		struct cmsghdr *cmsg;
+		uint8_t cmsg_buf[256];
+
+		iov.iov_base = (void *)pt->serv_buf;
+		iov.iov_len = wsi->a.context->pt_serv_buf_size;
+
+		memset(&msg, 0, sizeof(msg));
+		msg.msg_name = sa46_sockaddr(&sa46);
+		msg.msg_namelen = slen;
+		msg.msg_iov = &iov;
+		msg.msg_iovlen = 1;
+		msg.msg_control = cmsg_buf;
+		msg.msg_controllen = sizeof(cmsg_buf);
+
+		n = (int)recvmsg(wsi->desc.sockfd, &msg, 0);
+
+		if (n > 0)
+			for (cmsg = CMSG_FIRSTHDR(&msg); cmsg;
+			     cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+#if defined(IP_TOS)
+				if (cmsg->cmsg_level == IPPROTO_IP &&
+				    cmsg->cmsg_type == IP_TOS)
+					ecn = *(uint8_t *)CMSG_DATA(cmsg) & 3;
+#endif
+#if defined(LWS_WITH_IPV6) && defined(IPV6_TCLASS)
+				if (cmsg->cmsg_level == IPPROTO_IPV6 &&
+				    cmsg->cmsg_type == IPV6_TCLASS)
+					ecn = *(uint8_t *)CMSG_DATA(cmsg) & 3;
+#endif
+			}
+	}
+#endif
+
+	if (n <= 0) {
+		lwsl_wsi_info(wsi, "dgram recv returned %d (errno %d)", n,
+			      LWS_ERRNO);
+		*nothing = 1;
+
+		return LWS_HPI_RET_HANDLED;
+	}
+
+#if defined(LWS_WITH_IPV6)
+	if (wsi->udp && wsi->udp->sa46.sa4.sin_family == AF_INET6 &&
+	    sa46.sa4.sin_family == AF_INET) {
+		uint8_t a4[4];
+		uint16_t port;
+
+		memcpy(a4, &sa46.sa4.sin_addr, sizeof(a4));
+		port = ntohs(sa46.sa4.sin_port);
+
+		memset(&sa46, 0, sizeof(sa46));
+		lws_sa46_4to6(&sa46, a4, port);
+	}
+#endif
+
+	n = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx_dgram).
+			rx_dgram(wsi, pt->serv_buf, (size_t)n, &sa46, ecn);
+	if (n == LWS_RX_DIED)
+		return LWS_HPI_RET_WSI_ALREADY_DIED;
+	if (n == LWS_RX_CLOSE)
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+
+	return LWS_HPI_RET_HANDLED;
+}
+#endif
+
 void
 lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 {

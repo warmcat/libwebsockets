@@ -627,8 +627,17 @@ typedef int (*lws_rops_client_transport_up_t)(struct lws *wsi);
 #define LWS_RX_CLOSE	(-2)
 typedef int (*lws_rops_rx_t)(struct lws *wsi, const uint8_t *buf, size_t len,
 			     int from_transport);
+/*
+ * sansIO rx, datagram spelling: one datagram for this wsi, from peer, with
+ * the ECN bits it arrived with (0 where the transport does not report them).
+ * peer is in the socket's family.  The datagram is taken whole and the buffer
+ * is the role's to work in for the duration of the call; nothing is parked.
+ * Returns 0, or LWS_RX_CLOSE / LWS_RX_DIED as rx does.
+ */
+typedef int (*lws_rops_rx_dgram_t)(struct lws *wsi, uint8_t *buf, size_t len,
+				   const lws_sockaddr46 *peer, uint8_t ecn);
 
-#define LWS_COUNT_ROLE_OPS			22
+#define LWS_COUNT_ROLE_OPS			23
 
 typedef union lws_rops {
 	lws_rops_check_upgrades_t		check_upgrades;
@@ -653,6 +662,7 @@ typedef union lws_rops {
 	lws_rops_issue_keepalive_t		issue_keepalive;
 	lws_rops_client_transport_up_t		client_transport_up;
 	lws_rops_rx_t				rx;
+	lws_rops_rx_dgram_t			rx_dgram;
 } lws_rops_t;
 
 typedef enum {
@@ -678,6 +688,7 @@ typedef enum {
 	LWS_ROPS_issue_keepalive,
 	LWS_ROPS_client_transport_up,
 	LWS_ROPS_rx,
+	LWS_ROPS_rx_dgram,
 } lws_rops_func_idx_t;
 
 struct lws_context_per_thread;

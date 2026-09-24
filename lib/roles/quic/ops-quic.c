@@ -988,125 +988,27 @@ lws_get_quic_network_wsi(struct lws *wsi)
 	return NULL;
 }
 
-static lws_handling_result_t
-rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
-			struct lws_pollfd *pollfd)
+/*
+ * sansIO rx for quic: one datagram, from peer, with its ECN bits.  It may
+ * carry several coalesced packets; each is decrypted in place and its frames
+ * parsed.  wsi is the socket's wsi: on a server the listening one, where the
+ * packet's DCID finds the connection it belongs to.
+ */
+static int
+rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
+		   const lws_sockaddr46 *peer, uint8_t ecn)
 {
-	int n;
+	lws_sockaddr46 sa46 = *peer;
+	int n = (int)len, orig_n = n;
 	uint8_t *p;
 	uint8_t scid_len = 0;
 	uint8_t dcid_len = 0;
 	struct lws_quic_cid dcid, scid;
 
-	if (!(pollfd->revents & LWS_POLLIN))
-		goto try_pollout;
-
-	lwsl_wsi_debug(wsi, "QUIC RX: POLLIN fired on socket!");
-
-	lws_sockaddr46 sa46;
-	socklen_t slen = sizeof(sa46);
-
-#if defined(WIN32) || defined(_WIN32)
-        n = recvfrom(wsi->desc.sockfd, (char *)pt->serv_buf, (int)wsi->a.context->pt_serv_buf_size, 0,
-                     sa46_sockaddr(&sa46), &slen);
-#else
-        struct iovec iov;
-        struct msghdr msg;
-        uint8_t cmsg_buf[256];
-        
-        iov.iov_base = (void *)pt->serv_buf;
-        iov.iov_len = wsi->a.context->pt_serv_buf_size;
-
-        memset(&msg, 0, sizeof(msg));
-        msg.msg_name = sa46_sockaddr(&sa46);
-        msg.msg_namelen = slen;
-        msg.msg_iov = &iov;
-        msg.msg_iovlen = 1;
-        msg.msg_control = cmsg_buf;
-        msg.msg_controllen = sizeof(cmsg_buf);
-
-        n = (int)recvmsg(wsi->desc.sockfd, &msg, 0);
-        slen = msg.msg_namelen;
-        
-        uint8_t ecn_tos = 0;
-        if (n > 0) {
-                struct cmsghdr *cmsg;
-                for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
-#if defined(IP_TOS)
-                        if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_TOS) {
-                                ecn_tos = *(uint8_t *)CMSG_DATA(cmsg);
-                        }
-#endif
-#if defined(LWS_WITH_IPV6)
-#if defined(IPV6_TCLASS)
-                        if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_TCLASS) {
-                                ecn_tos = *(uint8_t *)CMSG_DATA(cmsg);
-                        }
-#endif
-#endif
-                }
-        }
-#endif
-
-	if (n <= 0) {
-		lwsl_wsi_info(wsi, "QUIC RX: recv returned %d (errno %d)", n, errno);
-		return LWS_HPI_RET_HANDLED;
-	}
-
-#if defined(LWS_WITH_IPV6)
-	/*
-	 * Which family the peer's address arrives as is the platform's choice,
-	 * not ours: macOS hands a v4 peer up from an AF_INET6 socket as a
-	 * plain sockaddr_in, where Linux always uses the v4-mapped AF_INET6
-	 * form.  We have to answer on the socket the datagram came in on, and
-	 * a sockaddr of the other family is not a valid destination for it
-	 * (Linux tolerates the mismatch, macOS refuses it with EINVAL and the
-	 * server can never reply).
-	 *
-	 * Bring it to the socket's family once, here, before it is recorded as
-	 * the connection's peer, compared against it for path migration, or
-	 * used to pick an egress socket.
-	 */
-	if (wsi->udp && wsi->udp->sa46.sa4.sin_family == AF_INET6 &&
-	    sa46.sa4.sin_family == AF_INET) {
-		uint8_t a4[4];
-		uint16_t port;
-
-		memcpy(a4, &sa46.sa4.sin_addr, sizeof(a4));
-		port = ntohs(sa46.sa4.sin_port);
-
-		memset(&sa46, 0, sizeof(sa46));
-		lws_sa46_4to6(&sa46, a4, port);
-		slen = (socklen_t)sizeof(struct sockaddr_in6);
-	}
-#endif
-
-	int orig_n = n;
-
-#if 0
-	{
-		char buf_peer[64], buf_recv[64];
-#if defined(LWS_WITH_IPV6)
-		uint16_t port_recv = sa46.sa4.sin_family == AF_INET ? sa46.sa4.sin_port : sa46.sa6.sin6_port;
-		uint16_t port_peer = wsi->sa46_peer.sa4.sin_family == AF_INET ? wsi->sa46_peer.sa4.sin_port : wsi->sa46_peer.sa6.sin6_port;
-#else
-		uint16_t port_recv = sa46.sa4.sin_port;
-		uint16_t port_peer = wsi->sa46_peer.sa4.sin_port;
-#endif
-		lws_sa46_write_numeric_address(&wsi->sa46_peer, buf_peer, sizeof(buf_peer));
-		lws_sa46_write_numeric_address(&sa46, buf_recv, sizeof(buf_recv));
-		/* lwsl_notice("QUIC RX: recv %d bytes from %s:%u (wsi peer %s:%u)\n", n,
-			    buf_recv, (unsigned int)ntohs(port_recv),
-			    buf_peer, (unsigned int)ntohs(port_peer)); */
-	}
-#endif
-
-	lwsl_wsi_debug(wsi, "QUIC RX: read %d bytes from UDP", n);
-
 	if (n < 2)
-		return LWS_HPI_RET_HANDLED;
+		return 0;
 
-	p = pt->serv_buf;
+	p = buf;
 
 	memset(&dcid, 0, sizeof(dcid));
 	memset(&scid, 0, sizeof(scid));
@@ -1115,7 +1017,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		dcid_len = p[5];
 		if (dcid_len > LWS_QUIC_MAX_CID_LEN || n < 6 + dcid_len) {
 			lwsl_wsi_notice(wsi, "QUIC RX: Invalid DCID length");
-			return LWS_HPI_RET_HANDLED;
+			return 0;
 		}
 
 		dcid.len = dcid_len;
@@ -1124,13 +1026,13 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		int scid_pos = 6 + dcid_len;
 		if (n < scid_pos + 1) {
 			lwsl_wsi_notice(wsi, "QUIC RX: Truncated before SCID");
-			return LWS_HPI_RET_HANDLED;
+			return 0;
 		}
 
 		scid_len = p[scid_pos];
 		if (scid_len > LWS_QUIC_MAX_CID_LEN || n < scid_pos + 1 + scid_len) {
 			lwsl_wsi_notice(wsi, "QUIC RX: Invalid SCID length");
-			return LWS_HPI_RET_HANDLED;
+			return 0;
 		}
 
 		scid.len = scid_len;
@@ -1139,7 +1041,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		dcid_len = 8;
 		if (n < 1 + dcid_len) {
 			lwsl_wsi_notice(wsi, "QUIC RX: dropping, short header too short");
-			return LWS_HPI_RET_HANDLED;
+			return 0;
 		}
 
 		dcid.len = dcid_len;
@@ -1198,7 +1100,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (!nwsi) {
 		if (!(p[0] & 0x80) || ((p[0] & 0x30) >> 4) != 0) {
 			// lwsl_wsi_notice(wsi, "QUIC RX: Unknown DCID and not Initial, dropping");
-			return LWS_HPI_RET_HANDLED;
+			return 0;
 		}
 
 		uint32_t pkt_version = ((uint32_t)p[1] << 24) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 8) | p[4];
@@ -1213,7 +1115,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 			 * one-liner makes us a reflector
 			 */
 			if (orig_n < 1200)
-				return LWS_HPI_RET_HANDLED;
+				return 0;
 
 			lwsl_wsi_notice(wsi, "QUIC RX: Unsupported version 0x%08X, sending VN packet", pkt_version);
 			uint8_t *vp = vn;
@@ -1231,17 +1133,17 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 			*vp++ = (uint8_t)(LWS_QUIC_VERSION_2 >> 8); *vp++ = (uint8_t)(LWS_QUIC_VERSION_2);
 
 #if defined(WIN32) || defined(_WIN32)
-			sendto(wsi->desc.sockfd, (char *)vn, (int)(vp - vn), 0, sa46_sockaddr(&sa46), slen);
+			sendto(wsi->desc.sockfd, (char *)vn, (int)(vp - vn), 0, sa46_sockaddr(&sa46), sa46_socklen(&sa46));
 #else
-			sendto(wsi->desc.sockfd, (void *)vn, (size_t)(vp - vn), 0, sa46_sockaddr(&sa46), slen);
+			sendto(wsi->desc.sockfd, (void *)vn, (size_t)(vp - vn), 0, sa46_sockaddr(&sa46), sa46_socklen(&sa46));
 #endif
-			return LWS_HPI_RET_HANDLED;
+			return 0;
 		}
 
 		/* Enforce 1200-byte padding for client-to-server Initial packets (RFC 9000 Section 14.1) */
 		if (n < 1200) {
 			lwsl_wsi_notice(wsi, "QUIC RX: Dropping under-padded Initial packet (len %d)", n);
-			return LWS_HPI_RET_HANDLED;
+			return 0;
 		}
 
 		struct lws_quic_cid valid_retry_scid;
@@ -1251,7 +1153,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 			size_t t_off = (size_t)scid_pos_tmp + 1 + scid.len;
 			uint64_t t_len = 0;
 			size_t t_cons = lws_quic_parse_varint(&p[t_off], (size_t)n - t_off, &t_len);
-			if (!t_cons) return LWS_HPI_RET_HANDLED;
+			if (!t_cons) return 0;
 
 			uint8_t peer_ip[16] = {0};
 			size_t peer_ip_len = 0;
@@ -1275,7 +1177,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 				if (scid.len) { memcpy(rp, scid.id, scid.len); rp += scid.len; }
 				struct lws_quic_cid retry_scid;
 				retry_scid.len = 8;
-				if (lws_get_random(wsi->a.context, retry_scid.id, 8) != 8) return LWS_HPI_RET_HANDLED;
+				if (lws_get_random(wsi->a.context, retry_scid.id, 8) != 8) return 0;
 				*rp++ = retry_scid.len;
 				memcpy(rp, retry_scid.id, retry_scid.len); rp += retry_scid.len;
 				size_t tok_out_len = 0;
@@ -1286,18 +1188,18 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 						memcpy(rp, tag, 16); rp += 16;
 						lwsl_wsi_notice(wsi, "QUIC RX: Forcing Retry, sending Retry packet!");
 #if defined(WIN32) || defined(_WIN32)
-						sendto(wsi->desc.sockfd, (char *)retry_pkt, (int)(rp - retry_pkt), 0, sa46_sockaddr(&sa46), slen);
+						sendto(wsi->desc.sockfd, (char *)retry_pkt, (int)(rp - retry_pkt), 0, sa46_sockaddr(&sa46), sa46_socklen(&sa46));
 #else
-						sendto(wsi->desc.sockfd, (void *)retry_pkt, (size_t)(rp - retry_pkt), 0, sa46_sockaddr(&sa46), slen);
+						sendto(wsi->desc.sockfd, (void *)retry_pkt, (size_t)(rp - retry_pkt), 0, sa46_sockaddr(&sa46), sa46_socklen(&sa46));
 #endif
 					}
 				}
-				return LWS_HPI_RET_HANDLED;
+				return 0;
 
 			} else {
 				if (lws_quic_validate_retry_token(wsi, &p[t_off + t_cons], (size_t)t_len, peer_ip, peer_ip_len, &dcid, &valid_retry_scid)) {
 					lwsl_wsi_notice(wsi, "QUIC RX: Invalid Retry Token, dropping Initial packet");
-					return LWS_HPI_RET_HANDLED;
+					return 0;
 				}
 			}
 		}
@@ -1306,7 +1208,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		nwsi = lws_create_new_server_wsi(wsi->a.vhost, wsi->tsi, 0, "quic child");
 		if (!nwsi) {
 			lwsl_wsi_notice(wsi, "QUIC RX: failed to create server wsi");
-			return LWS_HPI_RET_HANDLED;
+			return 0;
 		}
 
 		lws_wsi_event_role(nwsi, LWS_WSIEV_ADOPTED_TLS, &role_ops_quic);
@@ -1314,7 +1216,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		nwsi->quic.qn = lws_zalloc(sizeof(*nwsi->quic.qn), "quic_netconn");
 		if (!nwsi->quic.qn) {
 			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "oom");
-			return LWS_HPI_RET_HANDLED;
+			return 0;
 		}
 
 		nwsi->quic.qn->nwsi = nwsi;
@@ -1362,13 +1264,13 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 			if (lws_tls_server_new_nonblocking(nwsi, LWS_SOCK_INVALID)) {
 				lwsl_wsi_err(wsi, "QUIC RX: lws_tls_server_new_nonblocking failed");
 				lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "ssl fail");
-				return LWS_HPI_RET_HANDLED;
+				return 0;
 			}
 			/* Init the memory BIOs for QUIC crypto */
 			if (lws_tls_quic_init(nwsi, quic_secret_cb)) {
 				lwsl_wsi_err(wsi, "QUIC RX: lws_tls_quic_init failed");
 				lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "ssl fail");
-				return LWS_HPI_RET_HANDLED;
+				return 0;
 			}
 		}
 #endif
@@ -1385,7 +1287,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		nwsi->quic.qn->loc_cid.len = 8;
 		if (lws_get_random(wsi->a.context, nwsi->quic.qn->loc_cid.id, 8) != 8) {
 			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "random fail");
-			return LWS_HPI_RET_HANDLED;
+			return 0;
 		}
 
 		{
@@ -1401,7 +1303,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 				lwsl_wsi_err(wsi, "OOM allocating tp scratch buffer");
 				lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS,
 						   "tp scratch oom");
-				return LWS_HPI_RET_HANDLED;
+				return 0;
 			}
 			uint8_t *tp = local_tp_buf;
 			uint8_t *tp_end = tp + 4096;
@@ -1580,7 +1482,7 @@ tp_overflow:
 			lws_free(local_tp_buf);
 			lwsl_wsi_err(wsi, "QUIC TX: tp buffer overflow");
 			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "tp overflow");
-			return LWS_HPI_RET_HANDLED;
+			return 0;
 tp_ok:
 			;
 #undef LWS_QUIC_WRITE_TP_VARINT
@@ -1596,7 +1498,7 @@ tp_ok:
 		if (lws_quic_derive_initial_keys(nwsi, &dcid)) {
 			lwsl_wsi_err(wsi, "QUIC RX: Initial key derivation failed");
 			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "keys failed");
-			return LWS_HPI_RET_HANDLED;
+			return 0;
 		}
 
 		/*
@@ -1616,7 +1518,7 @@ tp_ok:
 #else
 	if (!nwsi) {
 		lwsl_wsi_notice(wsi, "QUIC RX: Unknown DCID and no server support, dropping");
-		return LWS_HPI_RET_HANDLED;
+		return 0;
 	}
 #endif
 
@@ -1920,7 +1822,7 @@ tp_ok:
 					 */
 					if (nwsi != wsi)
 						goto next_packet;
-					return LWS_HPI_RET_PLEASE_CLOSE_ME;
+					return LWS_RX_CLOSE;
 				}
 			}
 
@@ -1934,7 +1836,7 @@ tp_ok:
 						lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NORMAL, "quic stateless reset");
 						goto next_packet;
 					}
-					return LWS_HPI_RET_PLEASE_CLOSE_ME;
+					return LWS_RX_CLOSE;
 				}
 			}
 			goto next_packet;
@@ -1949,7 +1851,7 @@ tp_ok:
 					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
 					goto next_packet;
 				}
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+				return LWS_RX_CLOSE;
 			}
 		} else {
 			/* Short header: Bits 0x18 MUST be zero */
@@ -1959,7 +1861,7 @@ tp_ok:
 					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
 					goto next_packet;
 				}
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+				return LWS_RX_CLOSE;
 			}
 		}
 
@@ -1997,12 +1899,12 @@ tp_ok:
 		        if (nwsi->quic.qn) {
                 nwsi->quic.qn->rx_packets_since_update++;
 
-#if !defined(WIN32) && !defined(_WIN32)
-                int ecn = ecn_tos & 0x03;
-                if (ecn == 1)      nwsi->quic.qn->ecn_rx_ect1++;
-                else if (ecn == 2) nwsi->quic.qn->ecn_rx_ect0++;
-                else if (ecn == 3) nwsi->quic.qn->ecn_rx_ce++;
-#endif
+		if (ecn == 1)
+			nwsi->quic.qn->ecn_rx_ect1++;
+		else if (ecn == 2)
+			nwsi->quic.qn->ecn_rx_ect0++;
+		else if (ecn == 3)
+			nwsi->quic.qn->ecn_rx_ce++;
         }
 
 		if (nwsi->quic.qn && level == LWS_QUIC_LEVEL_HANDSHAKE) {
@@ -2176,7 +2078,7 @@ tp_ok:
 							if (lws_get_random(wsi->a.context,
 									   f_pc->data, 8) != 8) {
 								lws_free(f_pc);
-								return LWS_HPI_RET_HANDLED;
+								return 0;
 							}
 							memcpy(nwsi->quic.qn->path_challenge,
 							       f_pc->data, 8);
@@ -2252,7 +2154,7 @@ tp_ok:
 						f_pc->data = (uint8_t *)&f_pc[1];
 						if (lws_get_random(wsi->a.context, f_pc->data, 8) != 8) {
 							lws_free(f_pc);
-							return LWS_HPI_RET_HANDLED;
+							return 0;
 						}
 						memcpy(nwsi->quic.qn->path_challenge, f_pc->data, 8);
 						nwsi->quic.qn->path_challenge_pending = 1;
@@ -2271,7 +2173,7 @@ tp_ok:
 					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
 					goto next_packet;
 				}
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+				return LWS_RX_CLOSE;
 			}
 
 			int parse_res = lws_quic_parse_frames(nwsi, pn_space, &p[pn_offset + (size_t)pn_len], (size_t)dec_len, &sa46);
@@ -2403,7 +2305,7 @@ tp_ok:
 					nwsi = NULL;
 					goto next_packet;
 				}
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+				return LWS_RX_CLOSE;
 			}
 			/* We found an error and queued a CONNECTION_CLOSE frame */
 			if (nwsi) {
@@ -2482,15 +2384,28 @@ next_packet:
 		p += packet_size;
 	}
 
-try_pollout:
-	if (pollfd->revents & LWS_POLLOUT) {
-		int hr = lws_handle_POLLOUT_event(wsi, pollfd);
+	return 0;
+}
 
-		if (hr < 0) {
+static lws_handling_result_t
+rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
+			struct lws_pollfd *pollfd)
+{
+	lws_handling_result_t hr;
+	int nothing;
+
+	hr = lws_rx_pump_dgram(pt, wsi, pollfd, &nothing);
+	if (hr != LWS_HPI_RET_HANDLED)
+		return hr;
+
+	if (pollfd->revents & LWS_POLLOUT) {
+		int po = lws_handle_POLLOUT_event(wsi, pollfd);
+
+		if (po < 0) {
 			/* connect racing already closed and freed the wsi */
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
-		if (hr) {
+		if (po) {
 			lwsl_debug("POLLOUT event closed it\n");
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
@@ -5039,6 +4954,8 @@ static const lws_rops_t rops_table_quic[] = {
 	/* 10 */ { .client_bind		  = rops_client_bind_quic },
 	/* 11 */ { .client_transport_up	  = rops_client_transport_up_quic },
 #endif
+	/* 12, or 10 without client */
+		 { .rx_dgram		  = rops_rx_dgram_quic },
 };
 
 const struct lws_role_ops role_ops_quic = {
@@ -5066,13 +4983,17 @@ const struct lws_role_ops role_ops_quic = {
 	  /* LWS_ROPS_destroy_role */
 	  /* LWS_ROPS_adoption_bind */			0x89,
 #if defined(LWS_WITH_CLIENT)
-	  /* LWS_ROPS_client_bind */                    0xA0,
-	  /* LWS_ROPS_issue_keepalive */
-	  /* LWS_ROPS_client_transport_up */		0xB0,
+	  /* LWS_ROPS_client_bind */
+	  /* LWS_ROPS_issue_keepalive */		0xA0,
+	  /* LWS_ROPS_client_transport_up */
+	  /* LWS_ROPS_rx */				0xB0,
+	  /* LWS_ROPS_rx_dgram */			0xC0,
 #else
-	  /* LWS_ROPS_client_bind */                    0x00,
-	  /* LWS_ROPS_issue_keepalive */
-	  /* LWS_ROPS_client_transport_up */		0x00,
+	  /* LWS_ROPS_client_bind */
+	  /* LWS_ROPS_issue_keepalive */		0x00,
+	  /* LWS_ROPS_client_transport_up */
+	  /* LWS_ROPS_rx */				0x00,
+	  /* LWS_ROPS_rx_dgram */			0xA0,
 #endif
 					},
 

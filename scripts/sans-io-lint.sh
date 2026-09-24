@@ -29,7 +29,7 @@ SANSIO="lib/roles \
 	lib/core-net/dummy-callback.c"
 
 # one alternation, extended regex
-FORBIDDEN='desc\.sockfd|\bsend\(|\brecv\(|\bsendto\(|\brecvfrom\(|\blws_ssl_capable_(read|write)\(|\blws_buflist_aware_read\(|\blws_ssl_pending\(|\bLWS_POLL(IN|OUT|HUP)\b|\bSSL_[A-Za-z_]+\(|\bgnutls_[a-z_]+\(|\bmbedtls_[a-z_]+\(|\bbr_ssl_[a-z_]+\(|\bwolfSSL_[A-Za-z_]+\(|\buv_[a-z_]+\(|\bev_io_[a-z_]+\(|\bevent_base_[a-z_]+\(|\bg_main_[a-z_]+\(|\bsd_event_[a-z_]+\('
+FORBIDDEN='desc\.sockfd|\bsend\(|\brecv\(|\bsendto\(|\brecvfrom\(|\brecvmsg\(|\bCMSG_[A-Z]+\(|\blws_ssl_capable_(read|write)\(|\blws_buflist_aware_read\(|\blws_ssl_pending\(|\bLWS_POLL(IN|OUT|HUP)\b|\bSSL_[A-Za-z_]+\(|\bgnutls_[a-z_]+\(|\bmbedtls_[a-z_]+\(|\bbr_ssl_[a-z_]+\(|\bwolfSSL_[A-Za-z_]+\(|\buv_[a-z_]+\(|\bev_io_[a-z_]+\(|\bevent_base_[a-z_]+\(|\bg_main_[a-z_]+\(|\bsd_event_[a-z_]+\('
 
 BASELINE_FILE=scripts/sans-io-lint.baseline
 
