@@ -491,6 +491,34 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 				goto bail;
 			}
 
+			/*
+			 * ...and its kid must be unique in the set: lookups
+			 * take the first match, so a later member with a
+			 * colliding kid (a usable key of the attacker's own)
+			 * would shadow nothing, but an earlier one shadows
+			 * the genuine key for every signature naming it
+			 */
+			{
+				struct lws_gencrypto_keyelem *k1 =
+					&cps->ck->meta[COSEKEY_META_KID];
+
+				lws_start_foreach_dll(struct lws_dll2 *, d,
+					      lws_dll2_get_head(cps->pkey_set)) {
+					lws_cose_key_t *o = lws_container_of(d,
+							lws_cose_key_t, list);
+					struct lws_gencrypto_keyelem *k2 =
+						&o->meta[COSEKEY_META_KID];
+
+					if (o != cps->ck && k1->buf && k2->buf &&
+					    k1->len == k2->len &&
+					    !memcmp(k1->buf, k2->buf, k1->len)) {
+						lwsl_warn("%s: duplicate kid in key set\n",
+							  __func__);
+						goto bail;
+					}
+				} lws_end_foreach_dll(d);
+			}
+
 			if (cps->per_key_cb)
 				cps->per_key_cb(cps->ck, cps->user);
 		}
