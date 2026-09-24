@@ -44,9 +44,13 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	 * read.
 	 */
 
-	/* just ignore sends after we cleared the truncation buffer */
+	/*
+	 * just ignore sends after we cleared the truncation buffer... of a
+	 * close that has started: the flushing phase is also entered from
+	 * outside by lws_raw_transaction_completed(), on a live connection
+	 */
 	if (lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE &&
-	    !lws_has_buffered_out(wsi)
+	    lwsi_close_started(wsi) && !lws_has_buffered_out(wsi)
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	    && !wsi->http.comp_ctx.may_have_more
 #endif
