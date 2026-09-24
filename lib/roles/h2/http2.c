@@ -1646,6 +1646,27 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		h2n->cont_count = 0;
 		lwsl_info("HEADERS: frame header: sid = %u\n",
 				(unsigned int)h2n->sid);
+
+		/*
+		 * A HEADERS frame always begins a new header block, so the
+		 * hpack decoder must be sitting at a field-line boundary.
+		 *
+		 * The decoder state is connection-wide but the ah it decodes
+		 * into is per-stream, so resuming a half-decoded field line
+		 * here would apply it to whichever stream this HEADERS names.
+		 * Connection-scoped state (hpack, value, hdr_idx, huff...)
+		 * and stream-scoped state (ah->parser_state, ah->nfrag,
+		 * ah->unk_pos) would then be describing different headers.
+		 */
+
+		if (h2n->hpack != HPKS_TYPE) {
+			lwsl_info("%s: HEADERS mid hpack field (state %d)\n",
+				  __func__, h2n->hpack);
+			lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
+				      "HEADERS mid hpack field");
+			break;
+		}
+
 		if (!h2n->sid) {
 			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "sid 0");
 			return 1;
