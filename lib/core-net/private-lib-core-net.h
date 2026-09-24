@@ -1738,6 +1738,8 @@ lws_client_hdr_append_room_bad(struct lws *wsi, unsigned char **p, size_t len);
 int
 lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd);
 int
+lws_h1_client_body_rx(struct lws *wsi, uint8_t *buf, size_t len);
+int
 lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 		 int from_transport);
 

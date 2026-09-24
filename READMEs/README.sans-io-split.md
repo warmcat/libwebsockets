@@ -36,7 +36,7 @@ things only through these requests.  Nothing else crosses.
 
 | direction | call | today's C |
 |---|---|---|
-| IO -> sansIO | **rx(bytes) -> consumed**: bytes arrived, take what you can; an empty rx is the peer closing | the `rx` role op, fed by `lws_rx_pump()`; roles not yet converted still read the socket in `handle_POLLIN` |
+| IO -> sansIO | **rx(bytes) -> consumed**: bytes arrived, take what you can; an empty rx is the peer closing | the `rx` role op, fed by `lws_rx_pump()` from every role's `handle_POLLIN`; the app's pull of a response body, `lws_http_client_read()`, is the same read at the app's pace into the app's buffer, feeding `lws_h1_client_body_rx()` |
 | IO -> sansIO | **rx_dgram(bytes, peer, ecn) -> ok**: the datagram spelling of rx: one datagram arrived from this peer with these ECN bits; it is taken whole, nothing is parked | the `rx_dgram` role op, fed by `lws_rx_pump_dgram()`; quic |
 | IO -> sansIO | **tx(buf, max) -> n, more**: the transport can take bytes: fill the caller's buffer with the next ones to send, from wherever you got to last time, and say whether more remain | `lws_write()` composing into the `LWS_PRE` headroom then `lws_issue_raw()`; role `handle_POLLOUT` |
 | IO -> sansIO | **deadline()**: the deadline you set has passed | `sul` callbacks, `lws_sul_wsitimeout_cb` |
@@ -117,8 +117,11 @@ each function is in.
    mqtt, h2 and ws; `lws_rx_pump_dgram()` feeds quic's `rx_dgram`, doing
    the recvmsg and the ECN control message itself; the socks5 and http
    CONNECT legs of a client's transport, and the idle wait of a kept-warm
-   h1 connection, are states of the client rx.  Left reading the transport
-   itself: `lws_http_client_read()`, the user's pull of a response body).
+   h1 connection, are states of the client rx.  The app's pull of a
+   response body, `lws_http_client_read()`, is IO too: it reads as much as
+   fits the app's buffer and feeds the body rx, so nothing is queued for a
+   body the app has not asked for and the transport's window is the
+   backpressure.  No role reads its transport any more).
 5. h2, then h3 over the quic datagram layer, then the remaining roles.
 6. When every role is converted, the IO half is a replaceable component,
    and the sansIO half is what a port translates.

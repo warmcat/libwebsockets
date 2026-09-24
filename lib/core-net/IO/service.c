@@ -927,6 +927,73 @@ lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 }
 #endif
 
+#if defined(LWS_WITH_CLIENT) && \
+    (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
+/*
+ * The app's pull of a response body.  IO at the app's pace: reads into the
+ * app's buffer (or the pt serv_buf), as much as fits, and hands it to the
+ * sansIO body rx, which strips any chunked framing and delivers the payload.
+ * Nothing is queued in lws for a body the app has not asked for: what it
+ * does not pull stays in the kernel, and the peer feels it as the window
+ * closing.  On a stream of a muxed connection there is nothing to read, and
+ * what the connection parked for the stream is offered instead.
+ */
+int
+lws_http_client_read(struct lws *wsi, char **buf, int *len)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_tokens eb;
+	int buffered, n;
+
+	/*
+	 * If the caller provided a non-NULL *buf and nonzero *len, we should
+	 * use that as the buffer for the read action, limititing it to *len
+	 * (actual payload will be less if chunked headers inside).
+	 *
+	 * If it's NULL / 0 length, buflist_aware_read will use the pt_serv_buf
+	 */
+
+	eb.token = (unsigned char *)*buf;
+	eb.len = *len;
+
+	buffered = lws_buflist_aware_read(pt, wsi, &eb, 0, __func__);
+	*buf = (char *)eb.token; /* may be pointing to buflist or pt_serv_buf */
+	*len = 0;
+
+	/* allow the source to signal he has data again next time */
+	if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
+		return -1;
+
+	if (buffered < 0) {
+		/* the transport failed: the body ends here, however framed */
+		lwsl_wsi_notice(wsi, "%s: read error, hdrs_pending=%d, "
+				"content_length_given=%d, chunked=%d", __func__,
+				lwsi_hdrs_pending(wsi),
+				wsi->http.content_length_given,
+				wsi->http.rx_chunked);
+		lws_h1_client_body_rx(wsi, NULL, 0);
+
+		return -1;
+	}
+
+	if (eb.len <= 0)
+		return 0;
+
+	n = lws_h1_client_body_rx(wsi, eb.token, (size_t)eb.len);
+	if (n < 0)
+		return -1;
+
+	*buf += n;
+	*len = eb.len - n;
+
+	if (lws_buflist_aware_finished_consuming(wsi, &eb, n, buffered,
+						 __func__))
+		return -1;
+
+	return 0;
+}
+#endif
+
 void
 lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 {

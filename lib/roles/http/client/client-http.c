@@ -2463,70 +2463,38 @@ int lws_http_basic_auth_gen(const char *user, const char *pw, char *buf, size_t 
 
 #endif
 
+/*
+ * sansIO body rx for an http client: the bytes the app pulled with
+ * lws_http_client_read(), or none when the transport ended.  Strips any
+ * chunked framing, delivers the payload to the app in
+ * LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ (a callback per chunk block), keeps
+ * the content accounting and completes the transaction when the body is
+ * done.  Returns the bytes taken, or LWS_RX_CLOSE.
+ */
 int
-lws_http_client_read(struct lws *wsi, char **buf, int *len)
+lws_h1_client_body_rx(struct lws *wsi, uint8_t *buf, size_t len)
 {
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	struct lws_tokens eb;
-	int buffered, n, consumed = 0;
+	unsigned char *p = buf;
+	int rem = (int)len, consumed = 0, n;
 
-	/*
-	 * If the caller provided a non-NULL *buf and nonzero *len, we should
-	 * use that as the buffer for the read action, limititing it to *len
-	 * (actual payload will be less if chunked headers inside).
-	 *
-	 * If it's NULL / 0 length, buflist_aware_read will use the pt_serv_buf
-	 */
-
-	eb.token = (unsigned char *)*buf;
-	eb.len = *len;
-
-	buffered = lws_buflist_aware_read(pt, wsi, &eb, 0, __func__);
-	*buf = (char *)eb.token; /* may be pointing to buflist or pt_serv_buf */
-	*len = 0;
-
-	/*
-	 * we're taking on responsibility for handling used / unused eb
-	 * when we leave, via lws_buflist_aware_finished_consuming()
-	 */
-
-//	lwsl_notice("%s: eb.len %d ENTRY chunk remaining %d\n", __func__, eb.len,
-//			wsi->http.chunk_remaining);
-
-	/* allow the source to signal he has data again next time */
-	if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
-		return -1;
-
-	if (buffered < 0) {
-		lwsl_debug("%s: SSL capable error\n", __func__);
-		lwsl_notice("%s: SSL capable error, hdrs_pending=%d, content_length_given=%d, chunked=%d, ah_ptr=%p\n",
-			__func__, lwsi_hdrs_pending(wsi), wsi->http.content_length_given, wsi->http.rx_chunked, wsi->stream.ah);
-
+	if (!len) {
 		if (!lwsi_hdrs_pending(wsi) &&
-		    !wsi->http.content_length_given &&
-		    !wsi->http.rx_chunked) {
-			lwsl_notice("%s: generating lws_http_transaction_completed_client\n", __func__);
+		    !wsi->http.content_length_given && !wsi->http.rx_chunked) {
 			/*
 			 * We had the headers from this stream, but as there
 			 * was no content-length: we had to wait until the
 			 * stream ended to inform the user code the transaction
 			 * has completed to the best of our knowledge
 			 */
+			lwsl_wsi_info(wsi, "body ended with the stream");
 			if (lws_http_transaction_completed_client(wsi))
-				/*
-				 * We're going to close anyway, but that api has
-				 * warn_unused_result
-				 */
-				return -1;
+				/* closing anyway, the api has warn_unused_result */
+				return LWS_RX_CLOSE;
 		}
 
-		return -1;
+		return LWS_RX_CLOSE;
 	}
 
-	if (eb.len <= 0)
-		return 0;
-
-	*len = eb.len;
 	wsi->client_rx_avail = 0;
 
 	/*
@@ -2535,33 +2503,33 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 	 */
 spin_chunks:
 	if (wsi->http.rx_chunked) {
-		unsigned char *b = (unsigned char *)*buf;
-		size_t l = (size_t)*len;
+		unsigned char *b = p;
+		size_t l = (size_t)rem;
 
 		/* consume any chunk framing before the next payload bytes */
 
 		n = lws_http_dechunk_framing(wsi, &b, &l);
-		consumed += (int)((size_t)*len - l);
-		*buf = (char *)b;
-		*len = (int)l;
+		consumed += rem - (int)l;
+		p = b;
+		rem = (int)l;
 
 		if (n < 0)
-			return -1;
+			return LWS_RX_CLOSE;
 
 		if (n > 0)
 			/* that was the terminating chunk */
 			goto completed;
 
-		if (!*len)
+		if (!rem)
 			/* need more to get to the next payload bytes */
-			goto account_and_ret;
+			return consumed;
 	}
 
 	if (wsi->http.rx_content_remain &&
-	    wsi->http.rx_content_remain < (unsigned int)*len)
+	    wsi->http.rx_content_remain < (unsigned int)rem)
 		n = (int)wsi->http.rx_content_remain;
 	else
-		n = *len;
+		n = rem;
 
 	if (wsi->http.rx_chunked && wsi->http.chunk_remaining &&
 	    wsi->http.chunk_remaining < n)
@@ -2570,7 +2538,7 @@ spin_chunks:
 #if defined(LWS_WITH_HTTP_PROXY) && defined(LWS_WITH_HUBBUB)
 	/* hubbub */
 	if (wsi->http.perform_rewrite)
-		lws_rewrite_parse(wsi->http.rw, (unsigned char *)*buf, n);
+		lws_rewrite_parse(wsi->http.rw, p, n);
 	else
 #endif
 	{
@@ -2582,67 +2550,48 @@ spin_chunks:
 		    !!wsi->protocol_bind_balance
 #endif
 		  ) {
-			int q;
+			if (user_callback_handle_rxflow(wsi->a.protocol->callback,
+					wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
+					wsi->user_space, p, (unsigned int)n)) {
+				lwsl_wsi_info(wsi, "RECEIVE_CLIENT_HTTP_READ refused");
 
-			q = user_callback_handle_rxflow(wsi->a.protocol->callback,
-				wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
-				wsi->user_space, *buf, (unsigned int)n);
-			if (q) {
-				lwsl_info("%s: RECEIVE_CLIENT_HTTP_READ returned %d\n",
-						__func__, q);
-
-				return q;
+				return LWS_RX_CLOSE;
 			}
 		} else
-			lwsl_notice("%s: swallowed read (%d)\n", __func__, n);
+			lwsl_wsi_notice(wsi, "swallowed read (%d)", n);
 	}
 
-	(*buf) += n;
-	*len -= n;
+	p += n;
+	rem -= n;
 	if (wsi->http.rx_chunked && wsi->http.chunk_remaining)
 		wsi->http.chunk_remaining -= n;
 
-	//lwsl_notice("chunk_remaining <- %d, block remaining %d\n",
-	//		wsi->http.chunk_remaining, *len);
-
 	consumed += n;
-	//eb.token += n;
-	//eb.len -= n;
 
 	if (wsi->http.rx_chunked && !wsi->http.chunk_remaining)
 		wsi->http.chunk_parser = ELCP_POST_CR;
 
-	if (wsi->http.rx_chunked && *len)
+	if (wsi->http.rx_chunked && rem)
 		goto spin_chunks;
 
 	if (wsi->http.rx_chunked)
-		goto account_and_ret;
+		return consumed;
 
 	/* if we know the content length, decrement the content remaining */
 	if (wsi->http.rx_content_length > 0)
 		wsi->http.rx_content_remain -= (unsigned int)n;
 
-	// lwsl_notice("rx_content_remain %lld, rx_content_length %lld, giv %d\n",
-	//	    wsi->http.rx_content_remain, wsi->http.rx_content_length,
-	//	    wsi->http.content_length_given);
-
 	if (wsi->http.rx_content_remain || !wsi->http.content_length_given)
-		goto account_and_ret;
+		return consumed;
 
 completed:
-
 	if (lws_http_transaction_completed_client(wsi)) {
-		lwsl_info("%s: transaction completed says -1\n", __func__);
-		return -1;
+		lwsl_wsi_info(wsi, "transaction completed says -1");
+
+		return LWS_RX_CLOSE;
 	}
 
-account_and_ret:
-//	lwsl_warn("%s: on way out, consuming %d / %d\n", __func__, consumed, eb.len);
-	if (lws_buflist_aware_finished_consuming(wsi, &eb, consumed, buffered,
-							__func__))
-		return -1;
-
-	return 0;
+	return consumed;
 }
 
 #endif
