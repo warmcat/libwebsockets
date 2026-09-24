@@ -597,7 +597,13 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 			goto try_pollout;
 		}
 
-		if (wsi->pending_timeout && wsi->pending_timeout != PENDING_TIMEOUT_SHUTDOWN_FLUSH)
+		/*
+		 * Only rx that came from the socket is peer activity worth
+		 * extending the timeout for: a replay of what is parked on
+		 * the buflist is not
+		 */
+		if (!buffered && wsi->pending_timeout &&
+		    wsi->pending_timeout != PENDING_TIMEOUT_SHUTDOWN_FLUSH)
 			lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
 					wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
 					(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
@@ -613,6 +619,19 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 			if (lws_buflist_aware_finished_consuming(wsi, &ebuf, 0,
 							buffered, __func__))
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			/*
+			 * While a file is being served, rx parked on the
+			 * buflist is not consumed and the socket behind it is
+			 * not read, so a peer that sent bytes after its
+			 * request and stopped reading had POLLIN firing every
+			 * loop turn with nothing ever consumed: take POLLIN
+			 * off until the transaction completes and the parked
+			 * rx can be dealt with.
+			 */
+			if (buffered)
+				lws_rx_flow_control(wsi,
+					LWS_RXFLOW_REASON_APPLIES_DISABLE |
+					LWS_RXFLOW_REASON_HTTP_RXBUFFER);
 
 			goto try_pollout;
 		}

@@ -3670,6 +3670,10 @@ lws_http_transaction_completed(struct lws *wsi)
 {
 	lws_free_set_NULL(wsi->http.extra_onward_headers);
 
+	/* rx parked behind a file transfer may be read again now */
+	lws_rx_flow_control(wsi, LWS_RXFLOW_REASON_APPLIES_ENABLE |
+				 LWS_RXFLOW_REASON_HTTP_RXBUFFER);
+
 	wsi->http.sent_response_headers = 0;
 	/*
 	 * Whether an interceptor took the request is a property of the
