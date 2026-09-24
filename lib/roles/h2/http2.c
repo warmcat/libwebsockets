@@ -628,6 +628,21 @@ lws_h2_goaway(struct lws *wsi, uint32_t err, const char *reason)
 
 	h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
 
+	/*
+	 * A GOAWAY is only ever issued for a connection error, and the pps
+	 * handler closes the connection as soon as it has written it.  But
+	 * that's at the next POLLOUT: we are in the middle of parsing an rx
+	 * buffer that may contain many more frames, and the type = COUNT
+	 * above only causes the rest of the *current* frame to be ignored.
+	 *
+	 * Until the GOAWAY actually goes out, we must not keep acting on the
+	 * peer's frames.  Otherwise a peer can, eg, have us reject a broken
+	 * header block and then continue feeding the connection-scoped hpack
+	 * decoder from frames that follow it in the same buffer, decoding
+	 * what's left of the old field line into a different stream's ah.
+	 */
+	h2n->goaway_queued = 1;
+
 	return 0;
 }
 
@@ -1340,6 +1355,15 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		  h2n->flags, (unsigned int)h2n->sid, (unsigned int)h2n->length);
 
 	if (h2n->we_told_goaway && h2n->sid > h2n->highest_sid)
+		h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
+
+	/*
+	 * We already decided the connection is dead and queued the GOAWAY
+	 * saying so... consume what the peer sends until it goes out and we
+	 * close, but don't act on any of it (see lws_h2_goaway())
+	 */
+
+	if (h2n->goaway_queued)
 		h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
 
 	if (h2n->type >= LWS_H2_FRAME_TYPE_COUNT) {
