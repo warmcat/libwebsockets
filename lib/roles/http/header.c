@@ -717,6 +717,53 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 	return 0;
 }
 
+/* the most of the caller's text a deferred status page keeps */
+#define LWS_STATUS_TEXT_MAX 63
+
+static int
+lws_http_status_page_body(unsigned char *body, size_t max, unsigned int code,
+			  const char *text)
+{
+	return lws_snprintf((char *)body, max, "<html><head>"
+		"<meta charset=utf-8 http-equiv=\"Content-Language\" "
+			"content=\"en\"/>"
+		"<link rel=\"stylesheet\" type=\"text/css\" "
+			"href=\"/error.css\"/>"
+		"</head><body><h1>%u</h1>%s</body></html>", code, text);
+}
+
+#if defined(LWS_WITH_HTTP2)
+/*
+ * The body of a status page whose HEADERS already went out on a stream:
+ * regenerated from what was kept, written as the stream's final DATA.
+ */
+int
+lws_http_status_page_send_pending(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt =
+			&wsi->a.context->pt[(int)wsi->tsi];
+	unsigned char *p = pt->serv_buf + LWS_PRE;
+	int len, n;
+
+	len = lws_http_status_page_body(p, 512, wsi->h2.pending_status_code,
+					wsi->h2.pending_status_text ?
+					wsi->h2.pending_status_text : "");
+	lws_http_status_page_drop_pending(wsi);
+
+	n = lws_write(wsi, p, (size_t)len, LWS_WRITE_HTTP_FINAL);
+
+	return n != len;
+}
+
+void
+lws_http_status_page_drop_pending(struct lws *wsi)
+{
+	if (wsi->h2.pending_status_text)
+		lws_free_set_NULL(wsi->h2.pending_status_text);
+	wsi->h2.pending_status_code = 0;
+}
+#endif
+
 int
 lws_return_http_status(struct lws *wsi, unsigned int code,
 		       const char *html_body)
@@ -773,6 +820,29 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 	if (!html_body)
 		html_body = "";
 
+#if defined(LWS_WITH_HTTP2)
+	if (wsi->mux_substream) {
+		/*
+		 * On a stream the body is deferred (below) and regenerated
+		 * from a bounded copy of the text: announce the length of
+		 * what will actually be sent
+		 */
+		size_t tl = strlen(html_body);
+
+		if (tl > LWS_STATUS_TEXT_MAX)
+			tl = LWS_STATUS_TEXT_MAX;
+		if (tl) {
+			wsi->h2.pending_status_text = lws_malloc(tl + 1,
+							"pending status text");
+			if (!wsi->h2.pending_status_text)
+				return 1;
+			memcpy(wsi->h2.pending_status_text, html_body, tl);
+			wsi->h2.pending_status_text[tl] = '\0';
+			html_body = wsi->h2.pending_status_text;
+		}
+	}
+#endif
+
 	if (lws_add_http_header_status(wsi, code, &p, body))
 		return 1;
 
@@ -781,12 +851,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 					 &p, body))
 		return 1;
 
-	len = lws_snprintf((char *)body, 510, "<html><head>"
-		"<meta charset=utf-8 http-equiv=\"Content-Language\" "
-			"content=\"en\"/>"
-		"<link rel=\"stylesheet\" type=\"text/css\" "
-			"href=\"/error.css\"/>"
-		"</head><body><h1>%u</h1>%s</body></html>", code, html_body);
+	len = lws_http_status_page_body(body, 510, code, html_body);
 
 
 	n = lws_snprintf(slen, 12, "%d", len);
@@ -814,22 +879,19 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		 */
 		m = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
 			      LWS_WRITE_HTTP_HEADERS);
-		if (m != lws_ptr_diff(p, start))
+		if (m != lws_ptr_diff(p, start)) {
+			lws_http_status_page_drop_pending(wsi);
 			return 1;
+		}
 
 		/*
-		 * ... but stash the body and send it as a priority next
-		 * handle_POLLOUT
+		 * ... and send the body, regenerated from the code and the
+		 * kept text, as a priority next handle_POLLOUT
 		 */
 		wsi->http.tx_content_length = (unsigned int)len;
 		wsi->http.tx_content_remain = (unsigned int)len;
 
-		wsi->h2.pending_status_body = lws_malloc((unsigned int)len + LWS_PRE + 1,
-							"pending status body");
-		if (!wsi->h2.pending_status_body)
-			return -1;
-
-		strcpy(wsi->h2.pending_status_body + LWS_PRE, (char *)body);
+		wsi->h2.pending_status_code = (uint16_t)code;
 		lws_callback_on_writable(wsi);
 
 		return 0;

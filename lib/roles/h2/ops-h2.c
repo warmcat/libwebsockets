@@ -979,8 +979,7 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 			(void)nwsi;
 #endif
 		}
-		if (wsi->h2.pending_status_body)
-			lws_free_set_NULL(wsi->h2.pending_status_body);
+		lws_http_status_page_drop_pending(wsi);
 	}
 
 	return 0;
@@ -1603,14 +1602,9 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		w->could_have_pending = 0;
 		wsi->could_have_pending = 0;
 
-		if (w->h2.pending_status_body) {
+		if (w->h2.pending_status_code) {
 			w->h2.send_END_STREAM = 1;
-			n = lws_write(w, (uint8_t *)w->h2.pending_status_body +
-					 LWS_PRE,
-				         strlen(w->h2.pending_status_body +
-					        LWS_PRE), LWS_WRITE_HTTP_FINAL);
-			(void)n;
-			lws_free_set_NULL(w->h2.pending_status_body);
+			lws_http_status_page_send_pending(w);
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "h2 end stream 1");
 			continue;
@@ -1716,7 +1710,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			 * states.  In those cases we will hear about
 			 * END_STREAM going out in the POLLOUT handler.
 			 */
-			if (n >= 0 && !w->h2.pending_status_body &&
+			if (n >= 0 && !w->h2.pending_status_code &&
 			    (n || w->h2.send_END_STREAM)) {
 				lwsl_info("closing stream after h2 action\n");
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,

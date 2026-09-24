@@ -252,13 +252,8 @@ static int
 rops_perform_user_POLLOUT_h3(struct lws *wsi)
 {
 #if defined(LWS_WITH_HTTP2)
-	if (wsi->h2.pending_status_body) {
-		int n = lws_write(wsi, (uint8_t *)wsi->h2.pending_status_body +
-					 LWS_PRE,
-				 strlen(wsi->h2.pending_status_body +
-					 LWS_PRE), LWS_WRITE_HTTP_FINAL);
-		(void)n;
-		lws_free_set_NULL(wsi->h2.pending_status_body);
+	if (wsi->h2.pending_status_code) {
+		lws_http_status_page_send_pending(wsi);
 		lwsl_wsi_notice(wsi, "closing stream after sending pending status body");
 		return -1;
 	}
@@ -488,7 +483,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 		}
 		if (n > 0
 #if defined(LWS_WITH_HTTP2)
-		    && !wsi->h2.pending_status_body
+		    && !wsi->h2.pending_status_code
 #endif
 		) {
 			lwsl_wsi_notice(wsi, "closing stream after h3 action completed (%d)", n);

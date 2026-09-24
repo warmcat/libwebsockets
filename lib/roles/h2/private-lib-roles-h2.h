@@ -290,11 +290,25 @@ struct lws_h2_netconn {
 	uint8_t ext_count;
 };
 
+/* a status page on a stream: the body follows its HEADERS on the next writeable */
+int
+lws_http_status_page_send_pending(struct lws *wsi);
+void
+lws_http_status_page_drop_pending(struct lws *wsi);
+
 struct _lws_h2_related {
 
 	struct lws_h2_netconn	*h2n; /* malloc'd for root net conn */
 
-	char			*pending_status_body;
+	/*
+	 * A status page on a stream goes out as two frames, HEADERS then
+	 * DATA, and the second may not fit the writeability that took the
+	 * first: the body follows on the next writeable, regenerated from the
+	 * code, plus a bounded copy of any text the caller gave, held only
+	 * while it is pending.
+	 */
+	char			*pending_status_text;
+	uint16_t		pending_status_code;
 
 	/*
 	 * On a stream wsi, stashed copy of the error code from a peer-sent
