@@ -107,12 +107,12 @@ lws_wsi_state_fmt(const struct lws_role_ops *ops, lws_wsi_state_t s,
 		  char *buf, size_t len)
 {
 	lws_wsi_state_t w = s;
+	const char *name;
 	unsigned int i;
+	char tmp[16];
 
 	s = lws_wsi_state_of(s);
 	i = s & 0xff;
-	const char *name = "?";
-	char tmp[16];
 
 	if (!s)
 		name = "(zero)";
