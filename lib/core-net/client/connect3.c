@@ -1678,7 +1678,9 @@ try_next_dns_result_fds:
 			wsi->position_in_fds_table = wsi->parallel_conns[pidx].position_in_fds_table;
 		}
 		__remove_wsi_socket_from_fds(wsi);
-		wsi->parallel_conns[pidx].is_valid = 0;
+		/* the race may already be over and its array freed */
+		if (wsi->parallel_conns)
+			wsi->parallel_conns[pidx].is_valid = 0;
 	} else {
 		__remove_wsi_socket_from_fds(wsi);
 	}
