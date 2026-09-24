@@ -52,7 +52,9 @@ status page, a redirect) is a small state machine over those frames, not
 two writes in a row hoping the second fits, and not a heap copy of the
 remainder waiting on a buflist.  IO's partial-send buffering exists only
 for the transport's own short writes, never as a place for sansIO to park
-what it could not send.
+what it could not send.  Where the whole thing fits one call, one call;
+the state machine is for what may not, above all quic, whose packets are
+sized to a dynamic MTU.
 
 Time is an input: sansIO is told the deadline passed, it never reads the
 clock to decide anything.  Reading the clock for a log line or a metric
