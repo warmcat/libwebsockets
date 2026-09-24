@@ -21,10 +21,13 @@ transitions change for a given input?**  Yes: sansIO.  No, only *when* or
 *how* the same bytes get moved: IO.
 
 Corollary, as a grep: sansIO code never names a socket or fd
-(`desc.sockfd`, `send(`, `recv(`, `sendto(`), a poll flag (`pollfd`,
-`revents`, `LWS_POLLIN`), a TLS library object (`SSL_`, `gnutls_`,
-`mbedtls_`), or an event-loop handle (`uv_`, `ev_`, `event_base`).  IO
-code never parses or composes a protocol byte.
+(`desc.sockfd`, `send(`, `recv(`, `sendto(`), a poll flag (`LWS_POLLIN`),
+a TLS library object (`SSL_`, `gnutls_`, `mbedtls_`), or an event-loop
+handle (`uv_`, `ev_`, `event_base`), and never reads or writes the
+transport itself (`lws_ssl_capable_read(`, `lws_buflist_aware_read(`): the
+rx pump and the tx path do that.  IO code never parses or composes a
+protocol byte.  The `pollfd` a role's `handle_POLLIN` is handed today is
+the IO-to-sansIO entry in its current spelling, not a violation.
 
 ## The interface
 
@@ -102,7 +105,9 @@ each function is in.
    legs writing to the fd, connect completion special cases living in
    `connect4.c` instead of the roles (both done: `c9ca0d2f5` and the
    `client_transport_up` op).
-2. Land the lint with today's count as its baseline (done: 273).
+2. Land the lint with today's count as its baseline (done: 273 by the
+   first measure; 213 once it counted transport reads and stopped counting
+   the handler's pollfd).
 3. Move the IO files of `lib/core-net` into `lib/core-net/IO/`, no code
    change, so the directory says what the file is (done).
 4. Convert one role's rx to take bytes instead of reading them (h1 or ws),

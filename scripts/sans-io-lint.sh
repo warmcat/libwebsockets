@@ -4,8 +4,15 @@
 # belongs to IO.  See READMEs/README.sans-io-split.md for the rule.
 #
 # The sansIO directories and files are listed below, from that document.
-# The forbidden identifiers are its corollary: a socket or fd, a poll flag,
-# a TLS library object, an event-loop handle.
+# The forbidden identifiers are its corollary: a socket or fd, a poll flag
+# asked for by name, a TLS library object, an event-loop handle; and the
+# transport read and write calls themselves, which a converted role leaves
+# to the rx pump and the tx path.
+#
+# Not counted: the pollfd and revents the event loop hands a role's
+# handle_POLLIN today.  That is the IO-to-sansIO entry in its current
+# spelling, on its way to being rx() and writable(); a role passing it on to
+# the pump is not reaching for IO.
 #
 # Usage: scripts/sans-io-lint.sh [--update]
 #
@@ -22,7 +29,7 @@ SANSIO="lib/roles \
 	lib/core-net/dummy-callback.c"
 
 # one alternation, extended regex
-FORBIDDEN='desc\.sockfd|\bsend\(|\brecv\(|\bsendto\(|\brecvfrom\(|\bpollfd\b|\brevents\b|\bLWS_POLL(IN|OUT|HUP)\b|\bSSL_[A-Za-z_]+\(|\bgnutls_[a-z_]+\(|\bmbedtls_[a-z_]+\(|\bbr_ssl_[a-z_]+\(|\bwolfSSL_[A-Za-z_]+\(|\buv_[a-z_]+\(|\bev_io_[a-z_]+\(|\bevent_base_[a-z_]+\(|\bg_main_[a-z_]+\(|\bsd_event_[a-z_]+\('
+FORBIDDEN='desc\.sockfd|\bsend\(|\brecv\(|\bsendto\(|\brecvfrom\(|\blws_ssl_capable_(read|write)\(|\blws_buflist_aware_read\(|\blws_ssl_pending\(|\bLWS_POLL(IN|OUT|HUP)\b|\bSSL_[A-Za-z_]+\(|\bgnutls_[a-z_]+\(|\bmbedtls_[a-z_]+\(|\bbr_ssl_[a-z_]+\(|\bwolfSSL_[A-Za-z_]+\(|\buv_[a-z_]+\(|\bev_io_[a-z_]+\(|\bevent_base_[a-z_]+\(|\bg_main_[a-z_]+\(|\bsd_event_[a-z_]+\('
 
 BASELINE_FILE=scripts/sans-io-lint.baseline
 
