@@ -363,6 +363,11 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	{ "h2", "S", LRS_DOING_TRANSACTION,	LWS_WSIEV_BODY_BEGIN, NULL, NULL, LRS_BODY }, /* same on h2 */
 	{ "h2", "S", LRS_BODY,			LWS_WSIEV_BODY_COMPLETE, NULL, NULL, LRS_ESTABLISHED },
 	{ "h3", "S", LRS_BODY,			LWS_WSIEV_BODY_COMPLETE, NULL, NULL, LRS_ESTABLISHED },
+	/* the body completion callback may itself have started serving a file (C-522) */
+	{ "h2", "S", LRS_ISSUING_FILE,		LWS_WSIEV_BODY_COMPLETE, NULL, NULL, LRS_ISSUING_FILE },
+	{ "h3", "S", LRS_ISSUING_FILE,		LWS_WSIEV_BODY_COMPLETE, NULL, NULL, LRS_ISSUING_FILE },
+	{ "h2", "S", LRS_AWAITING_FILE_READ,	LWS_WSIEV_BODY_COMPLETE, NULL, NULL, LRS_AWAITING_FILE_READ },
+	{ "h3", "S", LRS_AWAITING_FILE_READ,	LWS_WSIEV_BODY_COMPLETE, NULL, NULL, LRS_AWAITING_FILE_READ },
 	{ "h1", "S", LRS_BODY,			LWS_WSIEV_BODY_DISCARD, NULL, NULL, LRS_DISCARD_BODY },
 	/* the user may complete the transaction before the body was ever delivered */
 	{ "h1", "S", LRS_ESTABLISHED,		LWS_WSIEV_BODY_DISCARD, NULL, NULL, LRS_DISCARD_BODY },
