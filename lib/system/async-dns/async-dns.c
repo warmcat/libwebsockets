@@ -2147,7 +2147,8 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 			}
 		} lws_end_foreach_dll_safe(d, d1);
 
-		if (lws_dll2_count(&dns->nameservers) && all_failed) {
+		if (lws_dll2_count(&dns->nameservers) && all_failed &&
+		    !dns->in_parse) {
 			if (lws_now_usecs() - dns->time_last_reload > 5000000) {
 				lwsl_cx_notice(context, "Async DNS fallback reload triggered");
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,

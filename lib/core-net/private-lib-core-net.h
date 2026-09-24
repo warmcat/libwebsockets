@@ -342,6 +342,7 @@ typedef struct lws_async_dns {
 	struct lws_context	*cx;
 
 	lws_usec_t		time_last_reload;
+	uint8_t			in_parse; /* inside lws_adns_parse_udp() */
 
 	/*
 	 * Platform DNS server change detection + publication on SMD.

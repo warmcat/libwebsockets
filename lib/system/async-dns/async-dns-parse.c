@@ -768,9 +768,29 @@ lws_async_dns_store(const char *name, void *opaque, uint32_t ttl,
  * We want to parse out all A or AAAA records
  */
 
+static void
+lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
+			 lws_async_dns_server_t *dsrv);
+
 void
 lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		   lws_async_dns_server_t *dsrv)
+{
+	/*
+	 * A validation started from inside the parse issues sub-queries,
+	 * and a new query may reload the nameserver list when they all
+	 * look failed, destroying every query on the old servers... the one
+	 * being parsed included.  The reload is deferred while a parse is on
+	 * the stack.
+	 */
+	dns->in_parse++;
+	lws_adns_parse_udp_inner(dns, pkt, len, dsrv);
+	dns->in_parse--;
+}
+
+static void
+lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
+			 lws_async_dns_server_t *dsrv)
 {
 	const char *nm, *nmcname;
 	lws_adns_cache_t *c;
