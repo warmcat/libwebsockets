@@ -151,7 +151,13 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 		 */
 		lwsi_set_skt_unusable(wsi, 1);
 #if defined(LWS_WITH_CLIENT)
-	if (lwsi_transport(wsi) == LTS_WAITING_SSL)
+	/*
+	 * lwsi_transport() sees the phase under a close in progress, where
+	 * the lwsi_state() read this replaced did not: a connection already
+	 * closing is not told it failed to connect on top of that
+	 */
+	if (lwsi_transport(wsi) == LTS_WAITING_SSL &&
+	    lwsi_close(wsi) == LCS_NONE)
 		lws_inform_client_conn_fail(wsi,
 			(void *)"Timed out waiting SSL", 21);
 	if (lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY)
