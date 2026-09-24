@@ -285,6 +285,10 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	{ "*",  "S", LRS_SSL_ACK_PENDING,	LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_ESTABLISHED },
 	{ "*",  "S", LRS_AWAITING_SSL_ACCEPT,	LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_ESTABLISHED },
 	{ "*",  "S", LRS_SSL_INIT,		LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_ESTABLISHED },
+	/* the non-tls fallback already established the wsi before the accept path reports the transport up */
+	{ "*", "S", LRS_ESTABLISHED,		LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_ESTABLISHED },
+	/* 0-RTT: the ALPN migration ran inside the handshake, so handshake-done finds the new nwsi established */
+	{ "quic", "*", LRS_ESTABLISHED,		LWS_WSIEV_TRANSPORT_UP, NULL, NULL, LRS_ESTABLISHED },
 
 	/* an h1 client's tcp is up before its tls */
 	{ "h1", "C", LRS_WAITING_CONNECT,	LWS_WSIEV_SOCKET_CONNECTED, NULL, NULL, LRS_H1C_ISSUE_HANDSHAKE },
