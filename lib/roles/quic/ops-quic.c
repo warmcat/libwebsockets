@@ -431,6 +431,7 @@ lws_quic_find_child_by_dcid(struct lws *listener,
  * socket, which is exactly what differs between platforms here.
  */
 
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
 static void
 lws_quic_sa46_str(const lws_sockaddr46 *sa46, char *buf, size_t len)
 {
@@ -455,6 +456,7 @@ lws_quic_sa46_str(const lws_sockaddr46 *sa46, char *buf, size_t len)
 		     (int)sa46->sa4.sin_family,
 		     (unsigned int)sa46_socklen((lws_sockaddr46 *)sa46));
 }
+#endif
 
 #if defined(LWS_WITH_SERVER)
 /*
@@ -3247,6 +3249,8 @@ send_frames:
 		} lws_end_foreach_dll_back(d);
 
 		/* Fault Injection for dropping UDP packets (simulating packet loss) */
+		int e = 0;
+
 		if (lws_fi(&wsi->fic, "quic_tx_drop")) {
 			lwsl_wsi_debug(wsi, "QUIC TX: Dropping packet via lws_fi fault injection!");
 			n = (int)send_len; /* Pretend it succeeded */
@@ -3300,11 +3304,19 @@ send_frames:
 				n = (int)send(fd, (const void *)pkt, send_len, 0);
 #endif
 			if (n < 0) {
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
 				struct lws *lw = wsi->mux_substream ?
 						wsi->mux.parent_wsi : wsi;
 				char d[80], b[80];
-				int e = LWS_ERRNO;
+#endif
 
+				/*
+				 * Latch errno immediately: the logging helpers
+				 * below may clobber it before we classify it
+				 */
+				e = LWS_ERRNO;
+
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
 				lws_quic_sa46_str(dest_sa46, d, sizeof(d));
 				lws_quic_sa46_str(lw && lw->udp ? &lw->udp->sa46 :
 						  NULL, b, sizeof(b));
@@ -3314,10 +3326,10 @@ send_frames:
 					      dest_sa46 ? "sendto" : "send",
 					      (int)fd, d, (unsigned int)send_len,
 					      b, e);
+#endif
 			}
 		}
 		if (n < 0) {
-			int e = LWS_ERRNO;
 			if (e == LWS_EAGAIN || e == LWS_EWOULDBLOCK || e == LWS_EINTR
 #if defined(EPIPE)
 			    || e == EPIPE
