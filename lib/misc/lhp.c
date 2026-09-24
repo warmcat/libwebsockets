@@ -6529,7 +6529,7 @@ issue_post:
 						  LHP_AC_GRANULE);
 				if (!ctx->def)
 					goto oom;
-				ctx->def->prop = (lcsp_props_t)ctx->prop;
+				ctx->def->prop = (uint16_t)ctx->prop;
 				/* add this prop def to the stanza */
 				lws_dll2_add_tail(&ctx->def->list, &ctx->stz->defs);
 				ctx->u.f.arg = 1;
