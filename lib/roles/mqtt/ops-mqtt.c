@@ -36,6 +36,11 @@ rops_rx_mqtt(struct lws *wsi, const uint8_t *buf, size_t len,
 {
 	(void)from_transport;
 
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SOCKS5)
+	if (lwsi_in_socks5_leg(wsi))
+		return lws_mqtt_client_socks_rx(wsi, buf, len);
+#endif
+
 	if (!len) {
 		lwsl_wsi_info(wsi, "zero length read");
 

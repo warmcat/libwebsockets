@@ -53,6 +53,27 @@ lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 
 	(void)from_transport;
 
+#if defined(LWS_WITH_SOCKS5)
+	if (lwsi_in_socks5_leg(wsi)) {
+		switch (lws_socks5c_rx(wsi, buf, len, &cce)) {
+		case LW5CHS_RET_BAIL3:
+			goto fail;
+		case LW5CHS_RET_STARTHS:
+			/*
+			 * The tunnel is up: for the protocol this is the
+			 * socket connecting, and it goes on from here as a
+			 * direct connection does
+			 */
+			lws_wsi_event(wsi, LWS_WSIEV_SOCKET_CONNECTED);
+			break;
+		default:
+			break;
+		}
+
+		return (int)len;
+	}
+#endif
+
 	if (lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY || !wsi->stream.ah) {
 		lwsl_wsi_err(wsi, "%s: rx in state 0x%x", __func__,
 			     lwsi_state(wsi));
@@ -163,18 +184,24 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	case LRS_WAITING_SOCKS_GREETING_REPLY:
 	case LRS_WAITING_SOCKS_AUTH_REPLY:
 	case LRS_WAITING_SOCKS_CONNECT_REPLY:
+	{
+		lws_handling_result_t hr;
+		int nothing, consumed;
 
-		switch (lws_socks5c_handle_state(wsi, pollfd, &cce)) {
-		case LW5CHS_RET_RET0:
-			return 0;
-		case LW5CHS_RET_BAIL3:
+		hr = lws_rx_pump(pt, wsi, pollfd, 0, 0, &nothing, &consumed);
+		if (hr == LWS_HPI_RET_WSI_ALREADY_DIED)
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
+		if (hr == LWS_HPI_RET_PLEASE_CLOSE_ME) {
+			cce = "socks recv fail";
 			goto bail3_l;
-		case LW5CHS_RET_STARTHS:
-			goto start_ws_handshake_l;
-		default:
-			break;
 		}
-		break;
+
+		/* the tunnel came up: issue the handshake as a direct connection does */
+		if (lwsi_state(wsi) == LRS_H1C_ISSUE_HANDSHAKE)
+			goto start_ws_handshake_l;
+
+		return 0;
+	}
 #endif
 
 #if defined(LWS_CLIENT_HTTP_PROXYING) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))

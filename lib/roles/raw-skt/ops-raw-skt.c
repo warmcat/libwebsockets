@@ -109,6 +109,42 @@ rops_rx_raw_skt(struct lws *wsi, const uint8_t *buf, size_t len,
 
 	(void)from_transport;
 
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SOCKS5)
+	if (lwsi_in_socks5_leg(wsi)) {
+		const char *cce = NULL;
+
+		switch (lws_socks5c_rx(wsi, buf, len, &cce)) {
+		case LW5CHS_RET_BAIL3:
+			lws_inform_client_conn_fail(wsi, (void *)cce,
+						    strlen(cce));
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "raw skt socks fail");
+
+			return LWS_RX_DIED;
+		case LW5CHS_RET_STARTHS:
+			/*
+			 * The socks leg is done: finish the connection the
+			 * way a direct one finishes, tls first if that was
+			 * asked for.  Going back through the generic
+			 * completion would only send the socks greeting
+			 * again.
+			 */
+			if (lws_raw_skt_connect(wsi) < 0) {
+				lws_close_free_wsi(wsi,
+						   LWS_CLOSE_STATUS_NOSTATUS,
+						   "raw svc fail");
+
+				return LWS_RX_DIED;
+			}
+			break;
+		default:
+			break;
+		}
+
+		return (int)len;
+	}
+#endif
+
 	if (!len)
 		return LWS_RX_CLOSE;
 
@@ -133,9 +169,6 @@ static lws_handling_result_t
 rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			   struct lws_pollfd *pollfd)
 {
-#if defined(LWS_WITH_SOCKS5)
-	const char *cce = NULL;
-#endif
 	int n = 0;
 #if defined(LWS_WITH_LATENCY)
 	lws_usec_t _raw_skt_start = lws_now_usecs();
@@ -197,36 +230,6 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 #endif
 			break;
 
-#if defined(LWS_WITH_SOCKS5)
-
-		/* SOCKS Greeting Reply */
-		case LRS_WAITING_SOCKS_GREETING_REPLY:
-		case LRS_WAITING_SOCKS_AUTH_REPLY:
-		case LRS_WAITING_SOCKS_CONNECT_REPLY:
-
-			switch (lws_socks5c_handle_state(wsi, pollfd, &cce)) {
-			case LW5CHS_RET_RET0:
-				goto nope;
-			case LW5CHS_RET_BAIL3:
-				lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
-				goto fail;
-			case LW5CHS_RET_STARTHS:
-				/*
-				 * The socks leg is done: finish the connection
-				 * the way a direct one finishes, tls first if
-				 * that was asked for.  Going back through the
-				 * generic completion would only send the socks
-				 * greeting again.
-				 */
-				if (lws_raw_skt_connect(wsi) < 0)
-					goto fail;
-				goto try_pollout;
-
-			default:
-				break;
-			}
-			goto try_pollout;
-#endif
 		default:
 		{
 			lws_handling_result_t hr;

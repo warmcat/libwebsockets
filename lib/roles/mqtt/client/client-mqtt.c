@@ -246,6 +246,56 @@ lws_mqtt_client_connack_failed(struct lws *wsi)
 	return LWS_RX_DIED;
 }
 
+#if defined(LWS_WITH_SOCKS5)
+/*
+ * sansIO rx while the socks5 leg is outstanding.  When the tunnel comes up
+ * the connection goes on as a direct one does: tls first if that was asked
+ * for, else the transport is up and the CONNECT is due.
+ */
+int
+lws_mqtt_client_socks_rx(struct lws *wsi, const uint8_t *buf, size_t len)
+{
+	const char *cce = NULL;
+	int n;
+
+	switch (lws_socks5c_rx(wsi, buf, len, &cce)) {
+	case LW5CHS_RET_BAIL3:
+		goto bail;
+	case LW5CHS_RET_STARTHS:
+#if defined(LWS_WITH_TLS)
+		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+			/*
+			 * as for raw-skt (C-533): the tls connect only runs
+			 * its handshake from WAITING_SSL, and we are still in
+			 * the socks phase here
+			 */
+			lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
+
+			n = lws_client_create_tls(wsi, &cce, 0);
+			if (n != 0 && n != 1)
+				goto bail;
+			break;
+		}
+#endif
+		lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
+				(int)wsi->a.context->timeout_secs);
+		break;
+	default:
+		break;
+	}
+
+	return (int)len;
+
+bail:
+	lwsl_wsi_info(wsi, "socks leg failed: %s", cce);
+	lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cbail3");
+
+	return LWS_RX_DIED;
+}
+#endif
+
 int
 lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			  struct lws *wsi_conn)
@@ -264,44 +314,24 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 	case LRS_WAITING_SOCKS_GREETING_REPLY:
 	case LRS_WAITING_SOCKS_AUTH_REPLY:
 	case LRS_WAITING_SOCKS_CONNECT_REPLY:
+	{
+		lws_handling_result_t hr;
+		int nothing, consumed;
 
-		switch (lws_socks5c_handle_state(wsi, pollfd, &cce)) {
-		case LW5CHS_RET_RET0:
-			return 0;
-		case LW5CHS_RET_BAIL3:
+		hr = lws_rx_pump(pt, wsi, pollfd, 0, 0, &nothing, &consumed);
+		if (hr == LWS_HPI_RET_WSI_ALREADY_DIED)
+			return -1;
+		if (hr == LWS_HPI_RET_PLEASE_CLOSE_ME) {
+			cce = "socks recv fail";
 			goto bail3_l;
-		case LW5CHS_RET_STARTHS:
-
-			/*
-			 * Now we got the socks5 connection, we need to go down
-			 * the tls path on it if that's what we want
-			 */
-
-			if (!(wsi->tls.use_ssl & LCCSCF_USE_SSL))
-				goto start_ws_handshake;
-
-			/*
-			 * as for raw-skt (C-533): the tls connect only runs
-			 * its handshake from WAITING_SSL, and we are still in
-			 * the socks phase here
-			 */
-			lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
-
-			switch (lws_client_create_tls(wsi, &cce, 0)) {
-			case 0:
-				break;
-			case 1:
-				return 0;
-			default:
-				goto bail3_l;
-			}
-
-			break;
-
-		default:
-			break;
 		}
-		break;
+
+		/* the tunnel came up in the clear: the CONNECT is due now */
+		if (lwsi_state(wsi) == LRS_MQTTC_IDLE)
+			goto mqttc_idle_l;
+
+		return 0;
+	}
 #endif
 	case LRS_WAITING_DNS:
 		/*
@@ -351,9 +381,6 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 
 		/* fallthru */
 
-#if defined(LWS_WITH_SOCKS5)
-start_ws_handshake:
-#endif
 		lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
 				(int)context->timeout_secs);
@@ -361,6 +388,9 @@ start_ws_handshake:
 		/* fallthru */
 
 	case LRS_MQTTC_IDLE:
+#if defined(LWS_WITH_SOCKS5)
+mqttc_idle_l:
+#endif
 		/*
 		 * we should be ready to send out MQTT CONNECT
 		 */

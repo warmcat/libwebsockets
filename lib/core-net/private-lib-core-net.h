@@ -2035,8 +2035,14 @@ lws_socks5c_ads_server(struct lws_vhost *vh,
 		       const struct lws_context_creation_info *info);
 
 int
-lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
-			 const char **pcce);
+lws_socks5c_rx(struct lws *wsi, const uint8_t *buf, size_t len,
+	       const char **pcce);
+
+/* the client's transport phase is a socks5 leg awaiting the proxy's reply */
+#define lwsi_in_socks5_leg(wsi) \
+	(lwsi_transport(wsi) == LTS_WAITING_SOCKS_GREETING_REPLY || \
+	 lwsi_transport(wsi) == LTS_WAITING_SOCKS_AUTH_REPLY || \
+	 lwsi_transport(wsi) == LTS_WAITING_SOCKS_CONNECT_REPLY)
 
 int
 lws_socks5c_greet(struct lws *wsi, const char **pcce);
@@ -2114,7 +2120,6 @@ lws_netdev_wifi_scan(lws_sorted_usec_list_t *sul);
 				 struct lws_context, netdevs)
 
 enum {
-	LW5CHS_RET_RET0,
 	LW5CHS_RET_BAIL3,
 	LW5CHS_RET_STARTHS,
 	LW5CHS_RET_NOTHING

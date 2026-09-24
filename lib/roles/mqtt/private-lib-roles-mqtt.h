@@ -442,6 +442,8 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 int
 lws_mqtt_client_connack_failed(struct lws *wsi);
 int
+lws_mqtt_client_socks_rx(struct lws *wsi, const uint8_t *buf, size_t len);
+int
 lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			       struct lws *wsi_conn);
 

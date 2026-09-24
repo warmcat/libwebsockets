@@ -275,67 +275,50 @@ lws_socks5c_greet(struct lws *wsi, const char **pcce)
 	return 1;
 }
 
+/*
+ * sansIO rx for the socks5 leg of a client connection: the proxy's reply to
+ * whichever of our messages is outstanding.  Every reply we act on is decided
+ * by its first two bytes; a fragment shorter than that is not worth
+ * reassembling and is a failure, and whatever follows the two bytes is taken
+ * with them.  The role's rx op calls this in the socks states and acts on the
+ * result: BAIL3 with *pcce set, STARTHS when the tunnel is up and the role's
+ * own protocol starts, NOTHING when the next reply is awaited.
+ */
 int
-lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
-			 const char **pcce)
+lws_socks5c_rx(struct lws *wsi, const uint8_t *buf, size_t len,
+	       const char **pcce)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	enum lws_wsi_event sent = LWS_WSIEV_COUNT;
 	int pending_timeout = 0;
-	ssize_t len;
+	ssize_t plen;
 	int n;
 
-	/* handle proxy hung up on us */
-
-	if (pollfd->revents & LWS_POLLHUP) {
-		lwsl_wsi_warn(wsi, "SOCKS fd=%d dead", pollfd->fd);
+	if (!len) {
+		/* the proxy hung up on us */
 		*pcce = "socks conn dead";
+
 		return LW5CHS_RET_BAIL3;
 	}
 
-	n = lws_ssl_capable_read(wsi, pt->serv_buf,
-				 wsi->a.context->pt_serv_buf_size);
-	switch (n) {
-	case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-	case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-		lwsl_wsi_debug(wsi, "SOCKS read EAGAIN, retrying");
-		return LW5CHS_RET_RET0;
-	case LWS_SSL_CAPABLE_ERROR:
-		/* includes the proxy having gone away */
-		lwsl_wsi_err(wsi, "ERROR reading from SOCKS socket");
-		*pcce = "socks recv fail";
-		return LW5CHS_RET_BAIL3;
-	default:
-		break;
-	}
-
-	/*
-	 * Every state below acts on serv_buf[0] and [1]... for anything
-	 * shorter than the two bytes we're going to consume, we would be
-	 * deciding the handshake on stale content left in the shared,
-	 * per-thread serv_buf.  Reply fragments that small aren't worth
-	 * reassembling, treat them as a failure.
-	 */
-
-	if (n < 2) {
-		lwsl_wsi_err(wsi, "SOCKS short read %d", n);
+	if (len < 2) {
+		lwsl_wsi_err(wsi, "SOCKS short read %d", (int)len);
 		*pcce = "socks short reply";
 
 		return LW5CHS_RET_BAIL3;
 	}
 
-	// lwsl_hexdump_warn(pt->serv_buf, n);
 
 	switch (lwsi_transport(wsi)) {
 
 	case LTS_WAITING_SOCKS_GREETING_REPLY:
-		if (pt->serv_buf[0] != SOCKS_VERSION_5)
+		if (buf[0] != SOCKS_VERSION_5)
 			goto socks_reply_fail_l;
 
-		if (pt->serv_buf[1] == SOCKS_AUTH_NO_AUTH) {
+		if (buf[1] == SOCKS_AUTH_NO_AUTH) {
 			lwsl_wsi_client(wsi, "SOCKS GR: No Auth Method");
 			if (lws_socks5c_generate_msg(wsi, SOCKS_MSG_CONNECT,
-						     &len)) {
+						     &plen)) {
 				lwsl_wsi_err(wsi, "generate connect msg fail");
 				goto socks_send_msg_fail_l;
 			}
@@ -345,11 +328,11 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 			goto socks_send_l;
 		}
 
-		if (pt->serv_buf[1] == SOCKS_AUTH_USERNAME_PASSWORD) {
+		if (buf[1] == SOCKS_AUTH_USERNAME_PASSWORD) {
 			lwsl_wsi_client(wsi, "SOCKS GR: User/Pw Method");
 			if (lws_socks5c_generate_msg(wsi,
 					   SOCKS_MSG_USERNAME_PASSWORD,
-					   &len))
+					   &plen))
 				goto socks_send_msg_fail_l;
 			sent = LWS_WSIEV_SOCKS_AUTH_SENT;
 			pending_timeout =
@@ -359,13 +342,13 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 		goto socks_reply_fail_l;
 
 	case LTS_WAITING_SOCKS_AUTH_REPLY:
-		if (pt->serv_buf[0] != SOCKS_SUBNEGOTIATION_VERSION_1 ||
-		    pt->serv_buf[1] !=
+		if (buf[0] != SOCKS_SUBNEGOTIATION_VERSION_1 ||
+		    buf[1] !=
 				    SOCKS_SUBNEGOTIATION_STATUS_SUCCESS)
 			goto socks_reply_fail_l;
 
 		lwsl_wsi_client(wsi, "SOCKS password OK, sending connect");
-		if (lws_socks5c_generate_msg(wsi, SOCKS_MSG_CONNECT, &len)) {
+		if (lws_socks5c_generate_msg(wsi, SOCKS_MSG_CONNECT, &plen)) {
 			goto socks_send_msg_fail_l;
 		}
 		sent = LWS_WSIEV_SOCKS_CONNECT_SENT;
@@ -374,8 +357,8 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 		goto socks_send_l;
 
 	case LTS_WAITING_SOCKS_CONNECT_REPLY:
-		if (pt->serv_buf[0] != SOCKS_VERSION_5 ||
-		    pt->serv_buf[1] != SOCKS_REQUEST_REPLY_SUCCESS)
+		if (buf[0] != SOCKS_VERSION_5 ||
+		    buf[1] != SOCKS_REQUEST_REPLY_SUCCESS)
 			goto socks_reply_fail_l;
 
 		lwsl_wsi_client(wsi, "socks connect OK");
@@ -401,8 +384,8 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 	return LW5CHS_RET_NOTHING;
 
 socks_send_l:
-	// lwsl_hexdump_notice(pt->serv_buf, len);
-	n = lws_issue_raw(wsi, pt->serv_buf, (size_t)len);
+	// lwsl_hexdump_notice(pt->serv_buf, plen);
+	n = lws_issue_raw(wsi, pt->serv_buf, (size_t)plen);
 	if (n < 0) {
 		lwsl_wsi_debug(wsi, "ERROR writing to socks proxy");
 		*pcce = "socks write fail";
@@ -420,7 +403,7 @@ socks_send_msg_fail_l:
 
 socks_reply_fail_l:
 	lwsl_wsi_err(wsi, "socks reply: v%d, err %d",
-		     pt->serv_buf[0], pt->serv_buf[1]);
+		     buf[0], buf[1]);
 	*pcce = "socks reply fail";
 	return LW5CHS_RET_BAIL3;
 }
