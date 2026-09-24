@@ -101,17 +101,93 @@ const struct http2_settings lws_h2_stock_settings = { {
  * another path via lws_service_do_ripe_rxflow() on mux children too tho...
  */
 
+/*
+ * sansIO rx for an h2 connection or stream.  On the network connection the
+ * bytes are frames for the h2 parser (or, in a body state, h1-style body).
+ * A client stream whose response headers are in does not consume: its
+ * parked body is the user's to read with lws_http_client_read(), so it is
+ * told and the bytes stay where they are.  len 0 is the peer closing.
+ */
+static int
+rops_rx_h2(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
+{
+	int n;
+
+	if (!len) {
+		lwsl_wsi_info(wsi, "zero length read");
+
+		return LWS_RX_CLOSE;
+	}
+
+	/* bytes from the peer are activity worth extending the timeout for */
+	if (from_transport && wsi->pending_timeout)
+		lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
+				wsi->pending_timeout ==
+					PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
+				(int)lws_wsi_keepalive_timeout_eff(wsi) :
+				(int)wsi->a.context->timeout_secs);
+
+#if defined(LWS_WITH_CLIENT)
+	if (wsi->mux_substream &&
+	    lwsi_role_http(wsi) && lwsi_role_client(wsi) &&
+	    !lwsi_hdrs_pending(wsi) && lwsi_close(wsi) != LCS_USER_TOLD) {
+		/*
+		 * Mark ourselves as having readable data and turn off our
+		 * POLLIN; the user usually asks for a writeable callback and
+		 * drains / re-enables from there
+		 */
+		wsi->client_rx_avail = 1;
+		if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+			return LWS_RX_CLOSE;
+
+		if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
+						LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
+						wsi->user_space, NULL, 0)) {
+			lwsl_info("RECEIVE_CLIENT_HTTP closed it\n");
+
+			return LWS_RX_CLOSE;
+		}
+
+		return 0;
+	}
+#endif
+
+	{
+#if defined(LWS_WITH_LATENCY)
+		lws_usec_t _h2_read_start = lws_now_usecs();
+#endif
+		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY &&
+		    lwsi_state(wsi) != LRS_DISCARD_BODY)
+			n = lws_read_h2(wsi, (unsigned char *)buf,
+					(unsigned int)len);
+		else
+			n = lws_read_h1(wsi, (unsigned char *)buf,
+					(unsigned int)len, 0);
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() -
+						_h2_read_start) / 1000);
+			if (ms > 2)
+				lws_latency_note(&wsi->a.context->pt[(int)wsi->tsi],
+						 _h2_read_start, 2000,
+						 "h2read:%dms", ms);
+		}
+#endif
+	}
+	if (n < 0) /* we closed wsi */
+		return LWS_RX_DIED;
+
+	return n;
+}
+
 static lws_handling_result_t
 rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
-	struct lws_tokens ebuf;
 	unsigned int pending = 0;
-	char buffered = 0, did_read = 1;
 	struct lws *wsi1;
-	int n, m;
-
-	memset(&ebuf, 0, sizeof(ebuf));
+	int flags = 0;
+	int n;
 
 #ifdef LWS_WITH_CGI
 	if (wsi->http.cgi && (pollfd->revents & LWS_POLLOUT)) {
@@ -242,285 +318,80 @@ post_pollout:
 		}
 	}
 
-	do {
-	/* 3: network wsi buflist needs to be drained */
+	if (wsi->mux_substream &&
+	    !lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
+		lwsl_warn("%s: uh... %s mux child with nothing to drain\n",
+			  __func__, lws_wsi_tag(wsi));
+		lws_dll2_remove(&wsi->dll_buflist);
 
-	// lws_buflist_describe(&wsi->buflist, wsi, __func__);
-
-	/*
-	 * Per pass: an earlier pass around this loop may have drained the
-	 * buflist and left buffered set, and if tls still had decrypted
-	 * data pending we come round and read the socket directly; the
-	 * remainder of that read must go on the (now empty) buflist, not
-	 * be "used" from it (assert in lws_buflist_use_segment)
-	 */
-	buffered = 0;
-
-	ebuf.len = (int)lws_buflist_next_segment_len(&wsi->buflist,
-						&ebuf.token);
-	if (ebuf.len) {
-		lwsl_info("draining buflist (len %d)\n", ebuf.len);
-		buffered = 1;
-		goto drain;
-	} else {
-
-		if (wsi->mux_substream) {
-			lwsl_warn("%s: uh... %s mux child with nothing to drain\n", __func__, lws_wsi_tag(wsi));
-			// assert(0);
-			lws_dll2_remove(&wsi->dll_buflist);
-			return LWS_HPI_RET_HANDLED;
-		}
+		return LWS_HPI_RET_HANDLED;
 	}
 
-	if (!lws_ssl_pending(wsi) &&
-	    !(pollfd->revents & pollfd->events & LWS_POLLIN))
-		return LWS_HPI_RET_HANDLED;
-
-	/* We have something to read... */
-
-	if (!(lwsi_role_client(wsi) &&
-	      (lwsi_state(wsi) != LRS_ESTABLISHED &&
-	       lwsi_state(wsi) != LRS_ISSUE_HTTP_BODY &&
-	       lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY &&
-	       lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS &&
-	       /*
-		* A kept-warm mux connection has no stream on it, but it is
-		* still a live h2 connection: GOAWAY, PING, SETTINGS and
-		* WINDOW_UPDATE all arrive on it while it is idle and have to
-		* be parsed.  Skipping the read here left whatever tls had
-		* already decrypted unread, and since lws_ssl_pending() kept
-		* reporting it, the loop below never exited: 100% cpu until
-		* the connection went away (on FreeRTOS, until the task
-		* watchdog fired).
-		*/
-	       lwsi_state(wsi) != LRS_IDLING))) {
-
-		int scr_ret;
-
-		ebuf.token = pt->serv_buf;
-#if defined(LWS_WITH_LATENCY)
-		lws_usec_t _h2_cap_read_start = lws_now_usecs();
-#endif
-		scr_ret = lws_ssl_capable_read(wsi,
-					ebuf.token,
-					wsi->a.context->pt_serv_buf_size);
+	/*
+	 * A stream has no transport of its own: only what its connection
+	 * parked for it.  A client connection reads only in the states
+	 * where h2 frames can arrive, which includes a kept-warm one with no
+	 * stream on it: GOAWAY, PING, SETTINGS and WINDOW_UPDATE all arrive
+	 * while it is idle and have to be parsed.  Reading in another state
+	 * left whatever tls had decrypted unread, and with lws_ssl_pending()
+	 * reporting it the loop below never exited: 100% cpu until the
+	 * connection went away.
+	 */
+	if (wsi->mux_substream ||
+	    (lwsi_role_client(wsi) &&
+	     lwsi_state(wsi) != LRS_ESTABLISHED &&
+	     lwsi_state(wsi) != LRS_ISSUE_HTTP_BODY &&
+	     lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY &&
+	     lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS &&
+	     lwsi_state(wsi) != LRS_IDLING)) {
+		lwsl_info("%s: parked rx only\n", __func__);
+		flags = LWS_RXP_NO_READ;
+	}
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION) && defined(LWS_WITH_CLIENT)
-		/*
-		 * Simulate the peer dropping a client h2 connection right
-		 * after ALPN, before we created our first stream on it: the
-		 * network wsi dies in a state that is neither "unestablished"
-		 * (no CCE) nor with a child to report CLOSED for
-		 */
-		if (lwsi_role_client(wsi) && lws_wsi_is_mux_nwsi(wsi) &&
-		    !lws_wsi_client_nwsi_migrated(wsi) &&
-		    lws_fi(&wsi->fic, "h2cli_nwsi_early_rx_err"))
-			scr_ret = LWS_SSL_CAPABLE_ERROR;
-
-		/*
-		 * ... and the peer dropping an established client h2
-		 * connection at any point, eg, with streams open and more
-		 * queued on it waiting for a stream slot
-		 */
-		if (lws_wsi_client_nwsi_migrated(wsi) &&
-		    wsi->h2.h2n && wsi->h2.h2n->swsi &&
-		    /* the faults migrated to sid 1 with the original ask */
-		    lws_fi(&wsi->h2.h2n->swsi->fic, "h2cli_nwsi_rx_err"))
-			scr_ret = LWS_SSL_CAPABLE_ERROR;
-#endif
-#if defined(LWS_WITH_LATENCY)
-		{
-			unsigned int ms = (unsigned int)((lws_now_usecs() - _h2_cap_read_start) / 1000);
-			if (ms > 2)
-				lws_latency_note(pt, _h2_cap_read_start, 2000, "h2capread:%dms", ms);
-		}
-#endif
-		switch (scr_ret) {
-		case 0:
-			lwsl_info("%s: zero length read\n", __func__);
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-			lwsl_info("SSL Capable more service (read)\n");
-			if (wsi->pending_timeout)
-				lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
-						wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
-						(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
-			return LWS_HPI_RET_HANDLED;
-		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-			lwsl_info("SSL Capable more service (write)\n");
-			if (wsi->pending_timeout)
-				lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
-						wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
-						(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
-			return LWS_HPI_RET_HANDLED;
-		case LWS_SSL_CAPABLE_ERROR:
-			lwsl_info("%s: LWS_SSL_CAPABLE_ERROR\n", __func__);
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		}
-
-		/*
-		 * coverity is confused: it knows lws_ssl_capable_read may
-		 * return < 0 and assigning that to ebuf.len is bad, but it
-		 * doesn't understand this check below on scr_ret < 0
-		 * removes that possibility
-		 */
-
-		ebuf.len = scr_ret;
-		if (ebuf.len < 0) /* ie, not usable data */ {
-			lwsl_info("%s: other error\n", __func__);
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		}
-
-		if (wsi->pending_timeout)
-			lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
-					wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
-					(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
-
-		// lwsl_notice("%s: Actual RX %d\n", __func__, ebuf.len);
-		// if (ebuf.len > 0)
-		//	lwsl_hexdump_notice(ebuf.token, ebuf.len);
-	} else {
-		/*
-		 * We are in a state that does not read.  Whatever tls has
-		 * pending is going to stay pending, so going around again on
-		 * it can only spin: leave, and come back when the state has
-		 * moved on.
-		 */
-		lwsl_info("%s: skipped read\n", __func__);
-		did_read = 0;
-	}
-
-	if (ebuf.len < 0)
+	/*
+	 * Simulate the peer dropping a client h2 connection right after
+	 * ALPN, before we created our first stream on it: the network wsi
+	 * dies in a state that is neither "unestablished" (no CCE) nor with a
+	 * child to report CLOSED for ... and the peer dropping an established
+	 * client h2 connection at any point, eg, with streams open and more
+	 * queued on it waiting for a stream slot.  Where the read would have
+	 * failed, fail before it.
+	 */
+	if (!flags && lwsi_role_client(wsi) && lws_wsi_is_mux_nwsi(wsi) &&
+	    (lws_ssl_pending(wsi) ||
+	     (pollfd->revents & pollfd->events & LWS_POLLIN)) &&
+	    ((!lws_wsi_client_nwsi_migrated(wsi) &&
+	      lws_fi(&wsi->fic, "h2cli_nwsi_early_rx_err")) ||
+	     (lws_wsi_client_nwsi_migrated(wsi) &&
+	      wsi->h2.h2n && wsi->h2.h2n->swsi &&
+	      /* the faults migrated to sid 1 with the original ask */
+	      lws_fi(&wsi->h2.h2n->swsi->fic, "h2cli_nwsi_rx_err"))))
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
-
-drain:
-#if defined(LWS_WITH_CLIENT)
-	/*
-	 * A client stream whose response headers are in hands its body to
-	 * the user from here.  The network connection is never that, however
-	 * established it is: its bytes are frames for the parser below.
-	 */
-	if (wsi->mux_substream &&
-	    lwsi_role_http(wsi) && lwsi_role_client(wsi) &&
-	    !lwsi_hdrs_pending(wsi) && lwsi_close(wsi) != LCS_USER_TOLD) {
-
-		/*
-		 * In SSL mode we get POLLIN notification about
-		 * encrypted data in.
-		 *
-		 * But that is not necessarily related to decrypted
-		 * data out becoming available; in may need to perform
-		 * other in or out before that happens.
-		 *
-		 * simply mark ourselves as having readable data
-		 * and turn off our POLLIN
-		 */
-		wsi->client_rx_avail = 1;
-		if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-
-		/* let user code know, he'll usually ask for writeable
-		 * callback and drain / re-enable it there
-		 */
-		if (user_callback_handle_rxflow(
-				wsi->a.protocol->callback,
-				wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
-				wsi->user_space, NULL, 0)) {
-			lwsl_info("RECEIVE_CLIENT_HTTP closed it\n");
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		}
-
-		return LWS_HPI_RET_HANDLED;
-	}
 #endif
-
-	/* service incoming data */
-
-	if (ebuf.len) {
-#if defined(LWS_WITH_LATENCY)
-		lws_usec_t _h2_read_start = lws_now_usecs();
-#endif
-		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY &&
-		    lwsi_state(wsi) != LRS_DISCARD_BODY) {
-			n = lws_read_h2(wsi, ebuf.token, (unsigned int)ebuf.len);
-		} else
-			n = lws_read_h1(wsi, ebuf.token, (unsigned int)ebuf.len,
-					0);
-#if defined(LWS_WITH_LATENCY)
-		{
-			unsigned int ms = (unsigned int)((lws_now_usecs() - _h2_read_start) / 1000);
-			if (ms > 2)
-				lws_latency_note(pt, _h2_read_start, 2000, "h2read:%dms", ms);
-		}
-#endif
-
-		if (n < 0) {
-			/* we closed wsi */
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		}
-
-		if (buffered) {
-			/*
-			 * it's in the buflist; we didn't use any... retain
-			 * the segment for the next attempt, appending a
-			 * copy of it would duplicate the data
-			 */
-
-			if (!n)
-				break;
-
-			// lwsl_notice("%s: h2 use %d\n", __func__, n);
-			m = (int)lws_buflist_use_segment(&wsi->buflist, (size_t)n);
-			lwsl_info("%s: draining rxflow: used %d, next %d\n",
-				    __func__, n, m);
-			if (!m) {
-				lwsl_notice("%s: removed %s from dll_buflist\n",
-					    __func__, lws_wsi_tag(wsi));
-				lws_dll2_remove(&wsi->dll_buflist);
-			}
-		} else
-			/*
-			 * direct read: any remainder goes on the buflist
-			 *
-			 * cov: both n and ebuf.len are int
-			 */
-			if (n >= 0 && n < ebuf.len && ebuf.len > 0) {
-				// lwsl_notice("%s: h2 append seg %d\n", __func__, ebuf.len - n);
-				m = lws_buflist_append_segment(&wsi->buflist,
-						ebuf.token + n,
-						(unsigned int)(ebuf.len - n));
-				if (m < 0)
-					return LWS_HPI_RET_PLEASE_CLOSE_ME;
-				if (m) {
-					lwsl_debug("%s: added %s to rxflow list\n",
-						   __func__, lws_wsi_tag(wsi));
-					if (lws_dll2_is_detached(&wsi->dll_buflist))
-						lws_dll2_add_head(&wsi->dll_buflist,
-							 &pt->dll_buflist_owner);
-				}
-			}
-	}
-
-	// lws_buflist_describe(&wsi->buflist, wsi, __func__);
-
-#if 0
 
 	/*
-	 * This seems to be too aggressive... we don't want the ah stuck
-	 * there but eg, WINDOW_UPDATE may come and detach it if we leave
-	 * it like that... it will get detached at stream close
+	 * Parked rx first, then what the transport has, then again while the
+	 * tls layer still holds bytes it already took from the socket
 	 */
+	pending = (unsigned int)lws_ssl_pending(wsi);
+	do {
+		lws_handling_result_t hr;
+		int nothing, consumed;
 
-	/* a client keeps its ah for the response */
-	if (wsi->stream.ah && !lwsi_role_client(wsi)) {
-		lwsl_err("xxx\n");
-
-		lws_header_table_detach(wsi, 0);
-	}
-#endif
+		hr = lws_rx_pump(pt, wsi, pending ? NULL : pollfd, flags,
+				 0, &nothing, &consumed);
+		if (hr != LWS_HPI_RET_HANDLED)
+			return hr;
+		if (nothing || !consumed)
+			/*
+			 * nothing there, or a parked segment the parser
+			 * could not take yet: retain it for the next attempt
+			 */
+			break;
 
 		pending = (unsigned int)lws_ssl_pending(wsi);
-	} while (pending && did_read);
+	} while (pending && !flags);
 
 	return LWS_HPI_RET_HANDLED;
 }
@@ -2068,6 +1939,7 @@ static const lws_rops_t rops_table_h2[] = {
 	/* 12 */ { .close_kill_connection = rops_close_kill_connection_h2 },
 	/* 13 */ { .destroy_role	  = rops_destroy_role_h2 },
 	/* 14 */ { .issue_keepalive	  = rops_issue_keepalive_h2 },
+	/* 15 */ { .rx			  = rops_rx_h2 },
 };
 
 
@@ -2101,6 +1973,8 @@ const struct lws_role_ops role_ops_h2 = {
 	  /* LWS_ROPS_adoption_bind */			0xd0,
 	  /* LWS_ROPS_client_bind */
 	  /* LWS_ROPS_issue_keepalive */		0x0e,
+	  /* LWS_ROPS_client_transport_up */
+	  /* LWS_ROPS_rx */				0x0f,
 					},
 	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
 					  LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED },

@@ -709,7 +709,9 @@ lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
  * pollfd is what the event loop reported, NULL to read regardless: unless
  * it says readable only parked rx is offered.  LWS_RXP_FORCE_READ reads
  * even when something is parked (a mux stream must, to avoid head-of-line
- * blocking).  max is the most to read, 0 for the per-thread buffer's worth.
+ * blocking); LWS_RXP_NO_READ offers parked rx only, for a wsi with no
+ * transport of its own or in a state that must not read.  max is the most
+ * to read, 0 for the per-thread buffer's worth.
  *
  * Returns LWS_HPI_RET_HANDLED when the caller can carry on to its POLLOUT
  * side, with *nothing set when there was no rx for the role to act on (and
@@ -727,7 +729,8 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 	*nothing = 0;
 	*consumed = 0;
 
-	if (pollfd && !(pollfd->revents & pollfd->events & LWS_POLLIN) &&
+	if (((flags & LWS_RXP_NO_READ) ||
+	     (pollfd && !(pollfd->revents & pollfd->events & LWS_POLLIN))) &&
 	    !lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
 		/* nothing readable, nothing parked */
 		*nothing = 1;
@@ -735,9 +738,15 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_HANDLED;
 	}
 
-	buffered = lws_buflist_aware_read(pt, wsi, &ebuf,
-					  !!(flags & LWS_RXP_FORCE_READ),
-					  __func__);
+	if (flags & LWS_RXP_NO_READ) {
+		/* parked rx only: what is there is offered as it lies */
+		ebuf.len = (int)lws_buflist_next_segment_len(&wsi->buflist,
+							     &ebuf.token);
+		buffered = 1;
+	} else
+		buffered = lws_buflist_aware_read(pt, wsi, &ebuf,
+						  !!(flags & LWS_RXP_FORCE_READ),
+						  __func__);
 	switch (ebuf.len) {
 	case 0:
 #if defined(LWS_WITH_UDP)

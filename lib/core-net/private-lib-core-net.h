@@ -1414,6 +1414,7 @@ lws_service_wsi_as_writable(struct lws *wsi);
 
 /* lws_rx_pump() flags */
 #define LWS_RXP_FORCE_READ	(1 << 0) /* read even with rx parked */
+#define LWS_RXP_NO_READ		(1 << 1) /* offer parked rx only */
 
 lws_handling_result_t
 lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
