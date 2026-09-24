@@ -1286,6 +1286,33 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 
 			lwsl_parser("WSI_TOK_(%d) '%c'\n", ah->parser_state, c);
 
+			/*
+			 * Everything that is not a real header token index has
+			 * its own case above (NAME_PART, SKIPPING,
+			 * SKIPPING_SAW_CR, UNKNOWN_VALUE_PART and
+			 * PARSING_COMPLETE are all >= WSI_TOKEN_COUNT), so
+			 * arriving here means we are collecting the value of a
+			 * header lws knows, and parser_state indexes
+			 * frag_index[].
+			 *
+			 * h2's hpack decoder also parks 255 in parser_state as
+			 * its "no lws token yet" sentinel, though, and that is
+			 * not a token index at all: subscripting frag_index[]
+			 * with it reads off the end of the ah allocation.  That
+			 * is not reachable by itself -- hpack replaces the
+			 * sentinel before it hands us any name byte -- but only
+			 * so long as the ah it set it on is the ah we are
+			 * called with, which is a property of the h2 frame
+			 * sequencing rather than of anything here.  Don't take
+			 * that on trust.
+			 */
+
+			if ((unsigned int)ah->parser_state >= WSI_TOKEN_COUNT) {
+				lwsl_parse_fail(wsi, "bad parser state %d",
+						ah->parser_state);
+				return LPR_FAIL;
+			}
+
 			/* collect into malloc'd buffers */
 			/* optional initial space swallow */
 			if (!ah->frags[ah->frag_index[ah->parser_state]].len &&
