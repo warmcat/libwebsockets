@@ -477,8 +477,8 @@ inner_protected_l:
 
 		switch (csc->type) {
 		case SIGTYPE_MULTI:
-			alg = lws_container_of(lws_dll2_get_head(&csc->algs),
-					       lws_cose_sig_alg_t, list);
+			/* this signature's key, not the first signer's */
+			alg = csc->alg;
 			ke = &alg->cose_key->meta[COSEKEY_META_KID];
 			if (ke->len) {
 				ret = lws_lec_printf(csc->info.lec, "{%d:%.*b}",
