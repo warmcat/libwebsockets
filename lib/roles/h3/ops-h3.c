@@ -584,21 +584,53 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 		return m;
 	}
 
-#if defined(LWS_WITH_SERVER)
-	/*
-	 * A server wsi still in LRS_HEADERS has no request the user has been
-	 * told about, so it has nothing for the user to write to.  The h3
-	 * connection wsi sits there for the life of the connection, and the
-	 * control and qpack streams' writes mark it as wanting POLLOUT: a
-	 * user offered HTTP_WRITEABLE on it, with no LWS_CALLBACK_HTTP before
-	 * and no user space, reads a request that was never made.
-	 */
-	if (lwsi_role_server(wsi) && lwsi_state(wsi) == LRS_HEADERS)
-		return 0;
-#endif
+	switch (lwsi_state(wsi)) {
+	case LRS_DOING_TRANSACTION:
+	case LRS_BODY:
+	case LRS_DISCARD_BODY:
+		/*
+		 * The user has been given the request and may respond to it
+		 * from any of these: this is the writeable it asked for
+		 */
+		return lws_callback_as_writeable(wsi);
 
-	lwsl_wsi_info(wsi, "rops_perform_user_POLLOUT_h3: falling through to lws_callback_as_writeable with state=%d", lwsi_state(wsi));
-	return lws_callback_as_writeable(wsi);
+#if defined(LWS_WITH_SERVER)
+	case LRS_AWAITING_FILE_READ:
+		/*
+		 * A worker has the file read; when it is back the stream is
+		 * put in ISSUING_FILE and asked to write, so nothing to do
+		 * with a writeable that arrives while we wait
+		 */
+		return 0;
+
+	case LRS_HEADERS:
+		/*
+		 * A server wsi still in LRS_HEADERS has no request the user has
+		 * been told about, so nothing the user could write to.  The h3
+		 * connection wsi sits there for the life of the connection, and
+		 * the control and qpack streams' writes mark it as wanting
+		 * POLLOUT; that is the normal way here.
+		 */
+		if (lwsi_role_server(wsi))
+			return 0;
+		break;
+#endif
+	default:
+		break;
+	}
+
+	/*
+	 * Every state that can want a writeable is named above.  Anything
+	 * else is a stream being serviced for POLLOUT with nothing to write
+	 * and nobody to tell: an lws bug, not a user callback.  Handing the
+	 * user HTTP_WRITEABLE on a request it was never given dereferences
+	 * per-session data that was never allocated.
+	 */
+	lwsl_wsi_err(wsi, "%s: user writeable in state 0x%x, no state asks "
+			  "for one", __func__, lwsi_state(wsi));
+	assert(0);
+
+	return 0;
 }
 
 static int
