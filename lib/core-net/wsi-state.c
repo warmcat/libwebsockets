@@ -478,11 +478,13 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	{ "h3", "S", ANY,			LWS_WSIEV_WT_SESSION, "wt", NULL, LRS_ESTABLISHED },
 	{ "h3", "*", ANY,			LWS_WSIEV_WT_STREAM, "wt", NULL, LRS_ESTABLISHED },
 	{ "(none)", "*", LRS_UNCONNECTED,	LWS_WSIEV_WT_STREAM, "wt", "L", LRS_ESTABLISHED },
-	{ "h1", "S", LRS_HEADERS,		LWS_WSIEV_RAW_UPGRADED, "?", NULL, LRS_ESTABLISHED },
-	{ "h1", "S", LRS_H1_UPGRADE,		LWS_WSIEV_RAW_UPGRADED, "?", NULL, LRS_ESTABLISHED },
+	{ "*", "S", LRS_HEADERS,		LWS_WSIEV_RAW_UPGRADED, "?", NULL, LRS_ESTABLISHED },
+	{ "*", "S", LRS_H1_UPGRADE,		LWS_WSIEV_RAW_UPGRADED, "?", NULL, LRS_ESTABLISHED },
 	/* the non-tls fallback on a tls listener, from the first byte peek in the accept */
-	{ "h1", "S", LRS_SSL_INIT,		LWS_WSIEV_RAW_UPGRADED, "?", NULL, LRS_ESTABLISHED },
-	{ "h1", "S", LRS_SSL_ACK_PENDING,	LWS_WSIEV_RAW_UPGRADED, "?", NULL, LRS_ESTABLISHED },
+	{ "*", "S", LRS_SSL_INIT,		LWS_WSIEV_RAW_UPGRADED, "?", NULL, LRS_ESTABLISHED },
+	{ "*", "S", LRS_SSL_ACK_PENDING,	LWS_WSIEV_RAW_UPGRADED, "?", NULL, LRS_ESTABLISHED },
+	/* a later request on a kept-alive connection, and a listener already in the raw role */
+	{ "*", "S", LRS_ESTABLISHED,		LWS_WSIEV_RAW_UPGRADED, "?", NULL, LRS_ESTABLISHED },
 	{ "h1", "C", LRS_ESTABLISHED,		LWS_WSIEV_RAW_UPGRADED, "raw-skt", NULL, LRS_ESTABLISHED },
 	{ "h1", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_RAW_UPGRADED, "raw-skt", NULL, LRS_ESTABLISHED },
 	/* ---- transport machine ---- */
