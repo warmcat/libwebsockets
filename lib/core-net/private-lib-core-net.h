@@ -1409,6 +1409,9 @@ void
 lws_wsi_mux_client_idle_check(struct lws *nwsi);
 #endif
 
+int
+lws_service_wsi_as_writable(struct lws *wsi);
+
 /* the event engine's entry: a role change a table row asked for */
 void
 lws_wsi_role_transition_ev(struct lws *wsi, enum lwsi_role role,

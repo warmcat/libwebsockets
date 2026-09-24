@@ -262,13 +262,27 @@ send_hs:
 			}
 #endif
 
-#if defined(LWS_ROLE_QUIC)
-			if (wsi->role_ops == &role_ops_quic) {
-				lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
-				lws_callback_on_writable(wsi);
+			/*
+			 * The transport is up.  A role that starts its own
+			 * protocol from here says so with client_transport_up;
+			 * otherwise the user hears the connection exists and
+			 * the role's state machine takes it from there.
+			 */
+			if (lws_rops_fidx(wsi->role_ops,
+					  LWS_ROPS_client_transport_up)) {
+				n = lws_rops_func_fidx(wsi->role_ops,
+						LWS_ROPS_client_transport_up).
+						client_transport_up(wsi);
+				if (n < 0) {
+					cce = "role transport up failed";
+					goto failed;
+				}
+				if (n)
+					/* the role closed it already */
+					return NULL;
+
 				return wsi;
 			}
-#endif
 
 			/* clear his established timeout */
 			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
@@ -285,42 +299,6 @@ send_hs:
 				}
 			}
 
-#if defined(LWS_ROLE_MQTT)
-			if (lwsi_role_mqtt(wsi)) {
-#if defined(LWS_WITH_TLS)
-				if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-					lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
-					return wsi;
-				}
-#endif
-				lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
-
-				/*
-				 * provoke service to issue the CONNECT
-				 * directly.
-				 */
-				lws_set_timeout(wsi,
-					PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
-						(int)wsi->a.context->timeout_secs);
-
-				assert(lws_socket_is_valid(wsi->desc.sockfd));
-
-				pfd.fd = wsi->desc.sockfd;
-				pfd.events = LWS_POLLIN;
-				pfd.revents = LWS_POLLOUT;
-
-				lwsl_wsi_info(wsi, "going to service fd");
-				n = lws_service_fd_tsi(wsi->a.context, &pfd, wsi->tsi);
-				if (n < 0) {
-					cce = "first service failed";
-					goto failed;
-				}
-				if (n)
-					/* returns 1 on fail after close wsi */
-					return NULL;
-				return wsi;
-			}
-#endif
 			lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 
 			return wsi;

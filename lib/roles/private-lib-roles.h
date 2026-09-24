@@ -606,8 +606,17 @@ typedef int (*lws_rops_client_bind_t)(struct lws *wsi,
 /* isvalid = 0: request a role-specific keepalive (PING etc)
  *         = 1: reset any related validity timer */
 typedef int (*lws_rops_issue_keepalive_t)(struct lws *wsi, int isvalid);
+/*
+ * The client transport to the peer is up: connected, any socks or proxy leg
+ * done, and tls (io's business) started if it was wanted.  The role starts
+ * its protocol from here.  A role without this op gets the default: its
+ * adoption callback to the user and TRANSPORT_UP.
+ * ret 0 = ok, -1 = failed, the caller closes the wsi; 1 = the role already
+ * closed the wsi
+ */
+typedef int (*lws_rops_client_transport_up_t)(struct lws *wsi);
 
-#define LWS_COUNT_ROLE_OPS			20
+#define LWS_COUNT_ROLE_OPS			21
 
 typedef union lws_rops {
 	lws_rops_check_upgrades_t		check_upgrades;
@@ -630,6 +639,7 @@ typedef union lws_rops {
 	lws_rops_adoption_bind_t		adoption_bind;
 	lws_rops_client_bind_t			client_bind;
 	lws_rops_issue_keepalive_t		issue_keepalive;
+	lws_rops_client_transport_up_t		client_transport_up;
 } lws_rops_t;
 
 typedef enum {
@@ -653,6 +663,7 @@ typedef enum {
 	LWS_ROPS_adoption_bind,
 	LWS_ROPS_client_bind,
 	LWS_ROPS_issue_keepalive,
+	LWS_ROPS_client_transport_up,
 } lws_rops_func_idx_t;
 
 struct lws_context_per_thread;

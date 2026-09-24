@@ -656,6 +656,38 @@ rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 	return 0;
 }
 
+#if defined(LWS_WITH_CLIENT)
+static int
+rops_client_transport_up_mqtt(struct lws *wsi)
+{
+	int n;
+
+	/* clear his established timeout */
+	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+	n = user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
+			(enum lws_callback_reasons)wsi->role_ops->adoption_cb[0],
+			wsi->user_space, NULL, 0);
+	if (n < 0)
+		return -1;
+
+#if defined(LWS_WITH_TLS)
+	if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+		lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
+
+		return 0;
+	}
+#endif
+	lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
+
+	/* get the CONNECT out now rather than next time round the loop */
+	lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
+			(int)wsi->a.context->timeout_secs);
+
+	return lws_service_wsi_as_writable(wsi);
+}
+#endif
+
 static const lws_rops_t rops_table_mqtt[] = {
 	/*  1 */ { .handle_POLLIN	  = rops_handle_POLLIN_mqtt },
 	/*  2 */ { .handle_POLLOUT	  = rops_handle_POLLOUT_mqtt },
@@ -665,6 +697,7 @@ static const lws_rops_t rops_table_mqtt[] = {
 #if defined(LWS_WITH_CLIENT)
 	/*  6 */ { .client_bind		  = rops_client_bind_mqtt },
 	/*  7 */ { .issue_keepalive	  = rops_issue_keepalive_mqtt },
+	/*  8 */ { .client_transport_up	  = rops_client_transport_up_mqtt },
 #endif
 };
 
@@ -696,8 +729,10 @@ struct lws_role_ops role_ops_mqtt = {
 	  /* LWS_ROPS_client_bind */
 #if defined(LWS_WITH_CLIENT)
 	  /* LWS_ROPS_issue_keepalive */		0x67,
+	  /* LWS_ROPS_client_transport_up */		0x80,
 #else
 	  /* LWS_ROPS_issue_keepalive */		0x00,
+	  /* LWS_ROPS_client_transport_up */		0x00,
 #endif
 					},
 

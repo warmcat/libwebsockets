@@ -1098,6 +1098,26 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	return ret;
 }
 
+/*
+ * Service the wsi now as if its socket had reported writable, instead of
+ * waiting for the event loop to come round: a role uses this to get its
+ * first protocol write out in the same call that saw the transport come up.
+ * Returns what the service did: 0 ok, -1 failed, 1 the wsi was closed.
+ */
+int
+lws_service_wsi_as_writable(struct lws *wsi)
+{
+	struct lws_pollfd pfd;
+
+	assert(lws_socket_is_valid(wsi->desc.sockfd));
+
+	pfd.fd = wsi->desc.sockfd;
+	pfd.events = LWS_POLLIN;
+	pfd.revents = LWS_POLLOUT;
+
+	return lws_service_fd_tsi(wsi->a.context, &pfd, wsi->tsi);
+}
+
 int
 lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 {

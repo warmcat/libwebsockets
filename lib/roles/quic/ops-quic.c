@@ -4940,6 +4940,18 @@ rops_destroy_role_quic(struct lws *wsi)
 	return rops_close_kill_connection_quic(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 }
 
+#if defined(LWS_WITH_CLIENT)
+static int
+rops_client_transport_up_quic(struct lws *wsi)
+{
+	/* quic drives its own tls handshake from its POLLOUT handler */
+	lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
+	lws_callback_on_writable(wsi);
+
+	return 0;
+}
+#endif
+
 static const lws_rops_t rops_table_quic[] = {
 	/*  1 */ { .handle_POLLIN	  = rops_handle_POLLIN_quic },
 	/*  2 */ { .handle_POLLOUT	  = rops_handle_POLLOUT_quic },
@@ -4952,6 +4964,7 @@ static const lws_rops_t rops_table_quic[] = {
 	/*  9 */ { .adoption_bind	  = rops_adoption_bind_quic },
 #if defined(LWS_WITH_CLIENT)
 	/* 10 */ { .client_bind		  = rops_client_bind_quic },
+	/* 11 */ { .client_transport_up	  = rops_client_transport_up_quic },
 #endif
 };
 
@@ -4982,9 +4995,11 @@ const struct lws_role_ops role_ops_quic = {
 #if defined(LWS_WITH_CLIENT)
 	  /* LWS_ROPS_client_bind */                    0xA0,
 	  /* LWS_ROPS_issue_keepalive */
+	  /* LWS_ROPS_client_transport_up */		0xB0,
 #else
 	  /* LWS_ROPS_client_bind */                    0x00,
 	  /* LWS_ROPS_issue_keepalive */
+	  /* LWS_ROPS_client_transport_up */		0x00,
 #endif
 					},
 
