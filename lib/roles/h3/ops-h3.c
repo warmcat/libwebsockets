@@ -251,7 +251,7 @@ lws_h3_client_handshake(struct lws *wsi)
 static int
 rops_perform_user_POLLOUT_h3(struct lws *wsi)
 {
-#if defined(LWS_WITH_HTTP2)
+#if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_SERVER)
 	if (wsi->h2.pending_status_code) {
 		lws_http_status_page_send_pending(wsi);
 		lwsl_wsi_notice(wsi, "closing stream after sending pending status body");

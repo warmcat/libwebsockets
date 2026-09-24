@@ -852,7 +852,9 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 			(void)nwsi;
 #endif
 		}
+#if defined(LWS_WITH_SERVER)
 		lws_http_status_page_drop_pending(wsi);
+#endif
 	}
 
 	return 0;
@@ -1477,6 +1479,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		w->could_have_pending = 0;
 		wsi->could_have_pending = 0;
 
+#if defined(LWS_WITH_SERVER)
 		if (w->h2.pending_status_code) {
 			w->h2.send_END_STREAM = 1;
 			lws_http_status_page_send_pending(w);
@@ -1484,6 +1487,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 					   "h2 end stream 1");
 			continue;
 		}
+#endif
 
 #if defined(LWS_WITH_CLIENT)
 		if (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS) {
