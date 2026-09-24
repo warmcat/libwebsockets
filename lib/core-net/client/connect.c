@@ -73,12 +73,14 @@ no_ah:
 	return lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(wsi);
 
 bail:
-#if defined(LWS_WITH_SOCKS5)
-	if (!wsi->a.vhost->socks_proxy_port)
-		lws_free_set_NULL(wsi->stash);
-#endif
-
 	lws_free_set_NULL(wsi->stash);
+
+	/*
+	 * Every caller takes NULL as "the wsi has been closed and freed":
+	 * returning it with the wsi still alive leaked the wsi and its ah
+	 * for each redirect whose headers did not fit
+	 */
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cvi2 bail");
 
 	return NULL;
 }
