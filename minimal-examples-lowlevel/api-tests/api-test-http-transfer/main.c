@@ -252,6 +252,25 @@ static const struct xcase cases[] = {
 	{ "h3 GET, then a second GET after the kept-warm connection expired",
 	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 2, 1, 200, 0, XG_NONE, 0, 0, 2, 0 },
 #endif
+	/*
+	 * The server answers /nope with lws_return_http_status(404, text):
+	 * on h1 one write; on a stream HEADERS now and the body as a DATA
+	 * frame on the next writeable, regenerated from the kept code and a
+	 * bounded copy of the text
+	 */
+	{ "h1 GET /nope: 404 status page",
+	  "GET", "/nope", XR_NONE, 0, 0, 8192, 0, 0, 404, 0,
+	  XG_NONE, 0, 0, 0, 0 },
+#if defined(LWS_WITH_HTTP2)
+	{ "h2 GET /nope: 404 status page in two frames",
+	  "GET", "/nope", XR_NONE, 0, 0, 8192, 1, 0, 404, 0,
+	  XG_NONE, 0, 0, 0, 0 },
+#endif
+#if defined(LWS_ROLE_H3)
+	{ "h3 GET /nope: 404 status page in two frames",
+	  "GET", "/nope", XR_NONE, 0, 0, 8192, 2, 0, 404, 0,
+	  XG_NONE, 0, 0, 0, 0 },
+#endif
 #if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_FILE_OPS)
 	/*
 	 * A cleartext h1 request carrying Upgrade: h2c: the server answers
@@ -764,6 +783,18 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_HTTP:
 		srv.http_cbs++;
 		memset(pss, 0, sizeof(*pss));
+
+		if (path && strstr(path, "nope")) {
+			/* a status page with text, the way an app makes one */
+			lwsl_user("%s: server: 404 for %s\n", __func__, path);
+			if (lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND,
+					"nope, and this text is longer than "
+					"the bounded copy a stream keeps of it"))
+				return -1;
+			if (lws_http_transaction_completed(wsi))
+				return -1;
+			return 0;
+		}
 
 		pss->mode = RM_CL;
 		if (path && strstr(path, "echo-chunked"))
