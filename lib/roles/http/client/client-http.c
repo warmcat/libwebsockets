@@ -1559,6 +1559,22 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		/* ie, coming to this for the first time */
 		if (wsi->http.conn_type != HTTP_CONNECTION_KEEP_ALIVE) {
 			/*
+			 * The role the restarted guys go back to... this has
+			 * to be computed outside the event macro's argument
+			 * list, MSVC rejects #if inside one (C5101)
+			 */
+			const struct lws_role_ops *rops =
+#if defined(LWS_ROLE_H1)
+						   &role_ops_h1;
+#elif defined(LWS_ROLE_H2)
+						   &role_ops_h2;
+#elif defined(LWS_ROLE_H3)
+						   &role_ops_h3;
+#else
+						   NULL;
+#endif
+
+			/*
 			 * Ugh... now the main http connection has seen
 			 * both sides, we learn the server doesn't
 			 * support keepalive.
@@ -1588,20 +1604,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 				ww->client_pipeline = 0;
 
 				/* go back to "trying to connect" state */
-				lws_wsi_event_role(ww, LWS_WSIEV_RESTART,
-#if defined(LWS_ROLE_H1)
-						   &role_ops_h1);
-#else
-#if defined (LWS_ROLE_H2)
-						   &role_ops_h2);
-#else
-#if defined (LWS_ROLE_H3)
-						   &role_ops_h3);
-#else
-						   NULL);
-#endif
-#endif
-#endif
+				lws_wsi_event_role(ww, LWS_WSIEV_RESTART, rops);
 				ww->user_space = NULL;
 			} lws_end_foreach_dll_safe(d, d1);
 			lws_vhost_unlock(wsi->a.vhost);
