@@ -287,6 +287,14 @@ send_hs:
 			/* clear his established timeout */
 			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
+			/*
+			 * The transport is up before the user hears of it (as
+			 * C-556 in the raw role): a callback that completes or
+			 * closes the connection leaves it in a close phase, from
+			 * which TRANSPORT_UP raised afterwards has no row
+			 */
+			lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
+
 			m = wsi->role_ops->adoption_cb[0];
 			if (m) {
 				n = user_callback_handle_rxflow(
@@ -298,8 +306,6 @@ send_hs:
 					goto failed;
 				}
 			}
-
-			lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 
 			return wsi;
 		}
