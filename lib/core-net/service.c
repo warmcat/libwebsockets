@@ -950,6 +950,26 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	}
 #endif
 
+	/*
+	 * A plaintext server close staged in SHUTDOWN has sent its FIN and
+	 * only waits for his; nothing he sends now is for anyone (the
+	 * protocol has been dropped), so it is read and discarded rather
+	 * than parsed by the role, and his FIN or a socket error ends it.
+	 */
+	if (lwsi_close(wsi) == LCS_SHUTDOWN && !lws_is_ssl(wsi) &&
+	    (pollfd->revents & LWS_POLLIN)) {
+		int m = lws_ssl_capable_read_no_ssl(wsi, pt->serv_buf,
+						    context->pt_serv_buf_size);
+
+		if (m > 0)
+			goto handled;
+		if (m != LWS_SSL_CAPABLE_MORE_SERVICE_READ &&
+		    m != LWS_SSL_CAPABLE_MORE_SERVICE_WRITE)
+			goto close_and_handled_l;
+
+		goto handled;
+	}
+
 	if ((pollfd->revents & LWS_POLLOUT) == LWS_POLLOUT &&
 	    wsi->tls_read_wanted_write) {
 		/*
