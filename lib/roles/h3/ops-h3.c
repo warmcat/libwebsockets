@@ -1726,7 +1726,19 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					}
 				}
 
-				if ((!wsi->quic.qs || !wsi->quic.qs->is_unidirectional) && wsi->h3.rx_frame_type == 0x01) {
+				if ((!wsi->quic.qs || !wsi->quic.qs->is_unidirectional) && wsi->h3.rx_frame_type == 0x01 &&
+				    !lwsi_hdrs_pending(wsi)) {
+					/*
+					 * A second HEADERS block on a stream
+					 * whose head was already acted on is
+					 * trailers (RFC 9114 4.1): there is
+					 * nothing to dispatch or interpret
+					 * again, and doing so re-ran the
+					 * request (server) or the response
+					 * handling (client)
+					 */
+					lwsl_wsi_info(wsi, "trailers block, ignored");
+				} else if ((!wsi->quic.qs || !wsi->quic.qs->is_unidirectional) && wsi->h3.rx_frame_type == 0x01) {
 					/* HEADERS frame complete, validate and notify application! */
 					
 					/* HTTP/3 4.1.3: MUST send H3_MESSAGE_ERROR if mandatory pseudo-header fields are absent */
