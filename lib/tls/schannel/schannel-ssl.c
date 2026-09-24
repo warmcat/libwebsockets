@@ -1770,8 +1770,10 @@ lws_tls_schannel_confirm_cert(struct lws_tls_schannel_ctx *ctx,
 
 	if (!conn->relax) {
 		lws_snprintf(ebuf, ebuf_len, "Certificate validation failed: "
-			     "0x%x (chain 0x%x)", (unsigned int)err,
-			     (unsigned int)chain->TrustStatus.dwErrorStatus);
+			     "0x%x (chain 0x%x) name '%s' relax 0 "
+			     "(nothing forgiven)", (unsigned int)err,
+			     (unsigned int)chain->TrustStatus.dwErrorStatus,
+			     hostname ? hostname : "(none)");
 		goto bail;
 	}
 
@@ -1815,8 +1817,12 @@ lws_tls_schannel_confirm_cert(struct lws_tls_schannel_ctx *ctx,
 	}
 
 	lws_snprintf(ebuf, ebuf_len, "Certificate validation failed: 0x%x "
-		     "(chain 0x%x)", (unsigned int)err,
-		     (unsigned int)chain->TrustStatus.dwErrorStatus);
+		     "(chain 0x%x) name '%s' relax 0x%x ign 0x%x allow 0x%x",
+		     (unsigned int)err,
+		     (unsigned int)chain->TrustStatus.dwErrorStatus,
+		     hostname ? hostname : "(none)",
+		     (unsigned int)conn->relax, (unsigned int)ignore,
+		     (unsigned int)allowed);
 
 bail:
 	CertFreeCertificateChain(chain);
@@ -1863,7 +1869,7 @@ lws_tls_schannel_server_client_cert(struct lws *wsi)
 		       !lws_check_opt(wsi->a.vhost->options,
 		LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED);
 	PCCERT_CONTEXT pCert = NULL;
-	char ebuf[128];
+	char ebuf[192];
 
 	if (!conn)
 		return 1;

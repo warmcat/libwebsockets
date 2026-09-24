@@ -702,7 +702,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			 * any certificate at all.
 			 */
 			if (lwsi_role_client(wsi)) {
-				char ebuf[128];
+				char ebuf[192];
 
 				ebuf[0] = '\0';
 				if (lws_tls_client_confirm_peer_cert(wsi, ebuf,
