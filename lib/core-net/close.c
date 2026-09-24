@@ -1000,7 +1000,13 @@ just_kill_connection:
 	if ((est_at_entry ||
 	    /* raw skt adopted but didn't complete tls hs should CLOSE */
 	    (wsi->role_ops == &role_ops_raw_skt && !lwsi_role_client(wsi)) ||
-	     lwsi_state_live(wsi) == LRS_WAITING_SERVER_REPLY) &&
+	     /*
+	      * a client's first response is awaited in the carrier
+	      * machine, later ones in the live state: both are "we
+	      * asked and were dropped", which is a CLOSED not an error
+	      */
+	     lwsi_state_live(wsi) == LRS_WAITING_SERVER_REPLY ||
+	     lwsi_carrier(wsi) == LCR_WAITING_SERVER_REPLY) &&
 	    !lws_wsi_close_cb_waived(wsi) &&
 	    wsi->role_ops->close_cb[lwsi_role_server(wsi)]) {
 		if (!lws_wsi_is_mux_nwsi(wsi) || !lwsi_role_client(wsi))
