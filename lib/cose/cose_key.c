@@ -1421,8 +1421,8 @@ lws_cose_key_export(lws_cose_key_t *ck, lws_lec_pctx_t *ctx, int flags)
 		if (ck->meta[COSEKEY_META_KID].buf &&
 		    ck->meta[COSEKEY_META_KID].len)
 			ctx->opaque[0]++;
-		if (ck->meta[COSEKEY_META_ALG].buf &&
-		    ck->meta[COSEKEY_META_ALG].len)
+		if ((ck->meta[COSEKEY_META_ALG].buf &&
+		     ck->meta[COSEKEY_META_ALG].len) || ck->cose_alg)
 			ctx->opaque[0]++;
 		/* key_ops is emitted as an array, even an empty one */
 		if (ck->meta[COSEKEY_META_KEY_OPS].buf)
@@ -1506,6 +1506,17 @@ lws_cose_key_export(lws_cose_key_t *ck, lws_lec_pctx_t *ctx, int flags)
 				if (ck->meta[COSEKEY_META_ALG].buf) {
 					ke = &ck->meta[COSEKEY_META_ALG];
 					cose_key_param = LWSCOSE_WKK_ALG;
+					break;
+				}
+				/*
+				 * an integer alg was recorded in cose_alg by
+				 * the import and not in the meta: a re-export
+				 * that dropped it made the key usable with
+				 * every alg the original had restricted
+				 */
+				if (ck->cose_alg) {
+					lws_lec_signed(ctx, LWSCOSE_WKK_ALG);
+					lws_lec_signed(ctx, (int64_t)ck->cose_alg);
 				}
 				break;
 
