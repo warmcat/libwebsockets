@@ -700,6 +700,69 @@ lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
 	return 0;
 }
 
+/*
+ * The rx pump: IO's side of the rx interface.  Takes what the transport has
+ * (or what was parked from an earlier read), hands it to the role's rx,
+ * parks what it did not consume, and deals with the transport's own
+ * conditions: nothing there yet, an error, the peer closed.
+ *
+ * Returns LWS_HPI_RET_HANDLED when the caller can carry on to its POLLOUT
+ * side, with *nothing set when there was no rx for the role to act on (and
+ * *consumed the count it took), or the usual PLEASE_CLOSE_ME /
+ * WSI_ALREADY_DIED.
+ */
+lws_handling_result_t
+lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi, int fr,
+	    int *nothing, int *consumed)
+{
+	struct lws_tokens ebuf = { NULL, 0 };
+	int buffered, n;
+
+	*nothing = 0;
+	*consumed = 0;
+
+	buffered = lws_buflist_aware_read(pt, wsi, &ebuf, (char)fr, __func__);
+	switch (ebuf.len) {
+	case 0:
+		/* the peer closed its side: stop reading, tell the role */
+		wsi->seen_zero_length_recv = 1;
+		if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		n = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx).
+						rx(wsi, NULL, 0, 1);
+		if (n == LWS_RX_DIED)
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
+		if (n == LWS_RX_CLOSE)
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		*nothing = 1;
+
+		return LWS_HPI_RET_HANDLED;
+
+	case LWS_SSL_CAPABLE_ERROR:
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+
+	case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
+	case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
+		*nothing = 1;
+
+		return LWS_HPI_RET_HANDLED;
+	}
+
+	n = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx).
+			rx(wsi, ebuf.token, (size_t)ebuf.len, !buffered);
+	if (n == LWS_RX_DIED)
+		return LWS_HPI_RET_WSI_ALREADY_DIED;
+	if (n == LWS_RX_CLOSE)
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+
+	*consumed = n;
+	if (lws_buflist_aware_finished_consuming(wsi, &ebuf, n, buffered,
+						 __func__))
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+
+	return LWS_HPI_RET_HANDLED;
+}
+
 void
 lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 {

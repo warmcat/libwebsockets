@@ -486,12 +486,108 @@ bail:
 	return -1;
 }
 #if defined(LWS_WITH_SERVER)
+/*
+ * sansIO rx for an h1 server connection (which may have become h2 or ws by
+ * now: the parsers decide).  buf/len is what the transport delivered, or
+ * the parked remainder of an earlier delivery; len 0 is the peer closing.
+ */
+static int
+rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
+{
+	int n;
+
+	if (!len) {
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+		/*
+		 * autobahn requires us to win the race between close and
+		 * draining the extensions
+		 */
+		if (wsi->ws &&
+		    (wsi->ws->rx_draining_ext || wsi->ws->tx_draining_ext))
+			return 0;
+#endif
+		/* normally, we respond to close by logically closing our side */
+		return LWS_RX_CLOSE;
+	}
+
+	/*
+	 * Only rx from the transport is peer activity worth extending the
+	 * timeout for: a replay of what was parked is not
+	 */
+	if (from_transport && wsi->pending_timeout &&
+	    wsi->pending_timeout != PENDING_TIMEOUT_SHUTDOWN_FLUSH)
+		lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
+				wsi->pending_timeout ==
+					PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
+				(int)lws_wsi_keepalive_timeout_eff(wsi) :
+				(int)wsi->a.context->timeout_secs);
+
+	/* just ignore incoming if waiting for close */
+	if (lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE) {
+		lwsl_notice("%s: just ignoring\n", __func__);
+		/* what the transport brought is dropped, what was parked stays */
+		return from_transport ? (int)len : 0;
+	}
+
+	if (lwsi_state(wsi) == LRS_ISSUING_FILE) {
+		/*
+		 * While a file is being served, rx is not consumed: it is
+		 * parked and the socket behind it is not read, so a peer
+		 * that sent bytes after its request and stopped reading had
+		 * POLLIN firing every loop turn with nothing ever consumed:
+		 * take POLLIN off until the transaction completes and the
+		 * parked rx can be dealt with.
+		 */
+		if (!from_transport)
+			lws_rx_flow_control(wsi,
+					LWS_RXFLOW_REASON_APPLIES_DISABLE |
+					LWS_RXFLOW_REASON_HTTP_RXBUFFER);
+		return 0;
+	}
+
+	/* give it to whoever wants it according to the connection state */
+	{
+#if defined(LWS_WITH_LATENCY)
+		lws_usec_t _h1_read_start = lws_now_usecs();
+#endif
+#if defined(LWS_ROLE_H2)
+		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
+			n = lws_read_h2(wsi, (unsigned char *)buf,
+					(unsigned int)len);
+		else
+#endif
+			n = lws_read_h1(wsi, (unsigned char *)buf,
+					(unsigned int)len, 0);
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() -
+						_h1_read_start) / 1000);
+			if (ms > 2)
+				lws_latency_note(&wsi->a.context->pt[(int)wsi->tsi],
+						 _h1_read_start, 2000,
+						 "h1read:%dms", ms);
+		}
+#endif
+	}
+	if (n < 0) /* we closed wsi */
+		return LWS_RX_DIED;
+
+	/*
+	 * during the parsing our role changed to something non-http,
+	 * so the ah has no further meaning
+	 */
+	if (wsi->stream.ah &&
+	    !lwsi_role_h1(wsi) && !lwsi_role_h2(wsi) && !lwsi_role_cgi(wsi))
+		lws_header_table_detach(wsi, 0);
+
+	return n;
+}
+
 static lws_handling_result_t
 lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	struct lws_tokens ebuf;
-	int n, buffered;
+	int n;
 
 	if (lwsi_state(wsi) == LRS_TXN_COMPLETED || lwsi_txn_completing(wsi))
 		goto try_pollout;
@@ -546,148 +642,33 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 			}
 		}
 
-		/*
-		 * We got here because there was specifically POLLIN...
-		 * regardless of our buflist state, we need to get it,
-		 * and either use it, or append to the buflist and use
-		 * buflist head material.
-		 *
-		 * We will not notice a connection close until the buflist is
-		 * exhausted and we tried to do a read of some kind.
-		 */
-
-		ebuf.token = NULL;
-		ebuf.len = 0;
-		buffered = lws_buflist_aware_read(pt, wsi, &ebuf, 0, __func__);
-		switch (ebuf.len) {
-		case 0:
-			lwsl_info("%s: read 0 len a\n", __func__);
-			wsi->seen_zero_length_recv = 1;
-			if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
-				goto fail;
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-			/*
-			 * autobahn requires us to win the race between close
-			 * and draining the extensions
-			 */
-			if (wsi->ws &&
-			    (wsi->ws->rx_draining_ext ||
-			     wsi->ws->tx_draining_ext))
-				goto try_pollout;
-#endif
-			/*
-			 * normally, we respond to close with logically closing
-			 * our side immediately
-			 */
-			goto fail;
-
-		case LWS_SSL_CAPABLE_ERROR:
-			goto fail;
-		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-			if (wsi->pending_timeout && wsi->pending_timeout != PENDING_TIMEOUT_SHUTDOWN_FLUSH)
-				lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
-						wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
-						(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
-			goto try_pollout;
-		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-			if (wsi->pending_timeout && wsi->pending_timeout != PENDING_TIMEOUT_SHUTDOWN_FLUSH)
-				lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
-						wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
-						(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
-			goto try_pollout;
-		}
-
-		/*
-		 * Only rx that came from the socket is peer activity worth
-		 * extending the timeout for: a replay of what is parked on
-		 * the buflist is not
-		 */
-		if (!buffered && wsi->pending_timeout &&
-		    wsi->pending_timeout != PENDING_TIMEOUT_SHUTDOWN_FLUSH)
-			lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
-					wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
-					(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
-
-		/* just ignore incoming if waiting for close */
-		if (lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE) {
-			lwsl_notice("%s: just ignoring\n", __func__);
-			goto try_pollout;
-		}
-
-		if (lwsi_state(wsi) == LRS_ISSUING_FILE) {
-			// lwsl_notice("stashing: wsi %p: bd %d\n", wsi, buffered);
-			if (lws_buflist_aware_finished_consuming(wsi, &ebuf, 0,
-							buffered, __func__))
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
-			/*
-			 * While a file is being served, rx parked on the
-			 * buflist is not consumed and the socket behind it is
-			 * not read, so a peer that sent bytes after its
-			 * request and stopped reading had POLLIN firing every
-			 * loop turn with nothing ever consumed: take POLLIN
-			 * off until the transaction completes and the parked
-			 * rx can be dealt with.
-			 */
-			if (buffered)
-				lws_rx_flow_control(wsi,
-					LWS_RXFLOW_REASON_APPLIES_DISABLE |
-					LWS_RXFLOW_REASON_HTTP_RXBUFFER);
-
-			goto try_pollout;
-		}
-
-		/*
-		 * Otherwise give it to whoever wants it according to the
-		 * connection state
-		 */
-#if defined(LWS_WITH_LATENCY)
-		lws_usec_t _h1_read_start = lws_now_usecs();
-#endif
-#if defined(LWS_ROLE_H2)
-		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
-			n = lws_read_h2(wsi, ebuf.token, (unsigned int)ebuf.len);
-		else
-#endif
-			n = lws_read_h1(wsi, ebuf.token, (unsigned int)ebuf.len,
-					0);
-
-#if defined(LWS_WITH_LATENCY)
 		{
-			unsigned int ms = (unsigned int)((lws_now_usecs() - _h1_read_start) / 1000);
-			if (ms > 2)
-				lws_latency_note(pt, _h1_read_start, 2000, "h1read:%dms", ms);
+			lws_handling_result_t hr;
+			int nothing, consumed;
+
+			hr = lws_rx_pump(pt, wsi, 0, &nothing, &consumed);
+			if (hr != LWS_HPI_RET_HANDLED)
+				return hr;
+
+			/*
+			 * Nothing for the role to act on (no rx yet, or the
+			 * peer closed while extensions drain), or the file
+			 * being served has parked what came: on to POLLOUT
+			 */
+			if (nothing ||
+			    (!consumed && lwsi_state(wsi) == LRS_ISSUING_FILE))
+				goto try_pollout;
+
+			/*
+			 * He may have used up the writability above, if we
+			 * will defer POLLOUT processing in favour of POLLIN,
+			 * note it
+			 */
+			if (pollfd->revents & LWS_POLLOUT)
+				wsi->favoured_pollin = 1;
+
+			return LWS_HPI_RET_HANDLED;
 		}
-#endif
-		if (n < 0) /* we closed wsi */
-
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-
-		// lwsl_notice("%s: consumed %d\n", __func__, n);
-
-		if (lws_buflist_aware_finished_consuming(wsi, &ebuf, n,
-							 buffered, __func__))
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-
-		/*
-		 * during the parsing our role changed to something non-http,
-		 * so the ah has no further meaning
-		 */
-
-		if (wsi->stream.ah &&
-		    !lwsi_role_h1(wsi) &&
-		    !lwsi_role_h2(wsi) &&
-		    !lwsi_role_cgi(wsi))
-			lws_header_table_detach(wsi, 0);
-
-		/*
-		 * He may have used up the writability above, if we will defer
-		 * POLLOUT processing in favour of POLLIN, note it
-		 */
-
-		if (pollfd->revents & LWS_POLLOUT)
-			wsi->favoured_pollin = 1;
-
-		return LWS_HPI_RET_HANDLED;
 	}
 
 	/*
@@ -1464,6 +1445,10 @@ static const lws_rops_t rops_table_h1[] = {
 	/*  8 if client and no server */
 	/*  9 */ { .client_bind		  = rops_client_bind_h1 },
 #endif
+#if defined(LWS_WITH_SERVER)
+	/* 10, or 9 with no client */
+	{ .rx				  = rops_rx_h1 },
+#endif
 };
 
 const struct lws_role_ops role_ops_h1 = {
@@ -1497,11 +1482,22 @@ const struct lws_role_ops role_ops_h1 = {
 #if defined(LWS_WITH_CLIENT)
 #if defined(LWS_WITH_SERVER)
 	  /* LWS_ROPS_issue_keepalive */		0x90,
+	  /* LWS_ROPS_client_transport_up */
+	  /* LWS_ROPS_rx */				0x0A,
 #else
 	  /* LWS_ROPS_issue_keepalive */		0x80,
+	  /* LWS_ROPS_client_transport_up */
+	  /* LWS_ROPS_rx */				0x00,
 #endif
 #else
 	  /* LWS_ROPS_issue_keepalive */		0x00,
+#if defined(LWS_WITH_SERVER)
+	  /* LWS_ROPS_client_transport_up */
+	  /* LWS_ROPS_rx */				0x09,
+#else
+	  /* LWS_ROPS_client_transport_up */
+	  /* LWS_ROPS_rx */				0x00,
+#endif
 #endif
 					},
 	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,

@@ -33,15 +33,16 @@ things only through these requests.  Nothing else crosses.
 
 | direction | call | today's C |
 |---|---|---|
-| IO -> sansIO | **rx(bytes)**: bytes arrived, consume them | role `handle_POLLIN` (which today reads the socket itself; the split hands it the bytes) |
+| IO -> sansIO | **rx(bytes) -> consumed**: bytes arrived, take what you can; an empty rx is the peer closing | the `rx` role op, fed by `lws_rx_pump()`; roles not yet converted still read the socket in `handle_POLLIN` |
 | IO -> sansIO | **tx(buf, max) -> n, more**: the transport can take bytes: fill the caller's buffer with the next ones to send, from wherever you got to last time, and say whether more remain | `lws_write()` composing into the `LWS_PRE` headroom then `lws_issue_raw()`; role `handle_POLLOUT` |
 | IO -> sansIO | **deadline()**: the deadline you set has passed | `sul` callbacks, `lws_sul_wsitimeout_cb` |
 | IO -> sansIO | **transport(up / failed / gone)** | `client_transport_up` op, `LWS_WSIEV_TRANSPORT_UP`, `CONN_FAILED`, `SOCKET_GONE` |
 | sansIO -> IO | **want_write()**: call tx when the transport can take bytes | `lws_callback_on_writable()`; `lws_service_wsi_as_writable()` is the same request served now |
 | sansIO -> IO | **deadline(us) / no deadline** | `lws_set_timeout()`, `lws_sul_schedule()` |
+| sansIO -> IO | **want_read(on / off)**: stop feeding me rx, or resume | `lws_rx_flow_control()` |
 | sansIO -> IO | **close(reason)** | `lws_close_free_wsi()`, `LWS_WSIEV_CLOSE_FLUSH` |
 
-Four in, three out.  A sansIO part that needs anything else from IO is a
+Four in, four out.  A sansIO part that needs anything else from IO is a
 sansIO part with IO in it.
 
 **Sending is a pull.**  IO owns the buffer and calls tx when the transport
@@ -86,7 +87,7 @@ each function is in.
 1. New code goes on the side the test puts it.  A change that adds a
    socket, poll or TLS-library reference under `lib/roles` or the sansIO
    files above is wrong, whatever else it does.
-2. The seven interface calls are the only way across.  Adding an eighth is a
+2. The eight interface calls are the only way across.  Adding a ninth is a
    design change, not a convenience.
 3. The state trace (`LWS_STATE_TRACE_FILE`) is the oracle: a split step is
    done when the gate's edge set is unchanged.
@@ -105,7 +106,8 @@ each function is in.
 3. Move the IO files of `lib/core-net` into `lib/core-net/IO/`, no code
    change, so the directory says what the file is (done).
 4. Convert one role's rx to take bytes instead of reading them (h1 or ws),
-   with the trace unchanged.  This is the pattern for the rest.
+   with the trace unchanged.  This is the pattern for the rest (done for
+   the h1 server path: `rops_rx_h1()` fed by `lws_rx_pump()`).
 5. h2, then h3 over the quic datagram layer, then the remaining roles.
 6. When every role is converted, the IO half is a replaceable component,
    and the sansIO half is what a port translates.

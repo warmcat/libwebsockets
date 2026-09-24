@@ -615,8 +615,20 @@ typedef int (*lws_rops_issue_keepalive_t)(struct lws *wsi, int isvalid);
  * closed the wsi
  */
 typedef int (*lws_rops_client_transport_up_t)(struct lws *wsi);
+/*
+ * sansIO rx: bytes for this wsi.  Either what the transport just delivered
+ * (from_transport) or the parked remainder of an earlier delivery being
+ * offered again.  len 0 with from_transport: the peer closed its side.
+ * Returns how many bytes were consumed; the rest is parked and offered
+ * again when the wsi can take it.  LWS_RX_CLOSE asks IO to close the wsi,
+ * LWS_RX_DIED says the role closed it already: do not touch it.
+ */
+#define LWS_RX_DIED	(-1)
+#define LWS_RX_CLOSE	(-2)
+typedef int (*lws_rops_rx_t)(struct lws *wsi, const uint8_t *buf, size_t len,
+			     int from_transport);
 
-#define LWS_COUNT_ROLE_OPS			21
+#define LWS_COUNT_ROLE_OPS			22
 
 typedef union lws_rops {
 	lws_rops_check_upgrades_t		check_upgrades;
@@ -640,6 +652,7 @@ typedef union lws_rops {
 	lws_rops_client_bind_t			client_bind;
 	lws_rops_issue_keepalive_t		issue_keepalive;
 	lws_rops_client_transport_up_t		client_transport_up;
+	lws_rops_rx_t				rx;
 } lws_rops_t;
 
 typedef enum {
@@ -664,6 +677,7 @@ typedef enum {
 	LWS_ROPS_client_bind,
 	LWS_ROPS_issue_keepalive,
 	LWS_ROPS_client_transport_up,
+	LWS_ROPS_rx,
 } lws_rops_func_idx_t;
 
 struct lws_context_per_thread;
