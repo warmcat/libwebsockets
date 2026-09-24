@@ -1740,7 +1740,25 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					 * request (server) or the response
 					 * handling (client)
 					 */
-					lwsl_wsi_info(wsi, "trailers block, ignored");
+					lwsl_wsi_info(wsi, "trailers block");
+					/*
+					 * ...but qpack decoded it into the live
+					 * ah all the same, so re-run the
+					 * connection-specific field refusals of
+					 * the first block over it (RFC 9114 4.2,
+					 * and RFC 9110 6.5.1 forbids framing
+					 * fields in trailers), the way h2 does
+					 */
+					if (lws_hdr_extant(wsi, WSI_TOKEN_CONNECTION) ||
+					    lws_hdr_extant(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING) ||
+					    lws_hdr_extant(wsi, WSI_TOKEN_TE)) {
+						struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+
+						lwsl_wsi_notice(wsi, "connection-specific field in trailers");
+						if (nwsi)
+							lws_quic_enter_closing_state(nwsi, LWS_H3_MESSAGE_ERROR, 0, 1);
+						return 1;
+					}
 				} else if ((!wsi->quic.qs || !wsi->quic.qs->is_unidirectional) && wsi->h3.rx_frame_type == 0x01) {
 					/* HEADERS frame complete, validate and notify application! */
 					
