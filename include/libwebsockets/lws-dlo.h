@@ -463,6 +463,7 @@ typedef struct lws_display_render_state {
 						* surface is taller than what is
 						* shown at once (a scrolling
 						* window) */
+	struct lws_context		*cx; /* set by lws_lhp_ss_browse_filter() */
 
 } lws_display_render_state_t;
 

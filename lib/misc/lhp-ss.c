@@ -359,6 +359,8 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 	struct lws_ss_handle *h = NULL;
 	lws_ss_info_t ssi;
 	int32_t w = 64 * 1024;
+
+	rs->cx = cx;
 	htmlss_t *m;
 
 	/* fetch via SS */
@@ -492,11 +494,6 @@ lws_lhp_ss_cancel(lws_display_render_state_t *rs)
 	htmlss_t *m;
 	struct lws_ss_handle *h = rs->hss_html;
 
-	if (!h)
-		return;
-
-	m = (htmlss_t *)lws_ss_to_user_object(h);
-
 	/*
 	 * Mark the parse dead first, so destroying the document's assets
 	 * cannot resume it against render state that is about to go away
@@ -506,13 +503,23 @@ lws_lhp_ss_cancel(lws_display_render_state_t *rs)
 	 * still coherent for their teardown callbacks, the html ss is
 	 * destroyed (destructing the lhp), and finally any render that the
 	 * teardown had scheduled for the old document is cancelled.
+	 *
+	 * The document stream destroys itself once the layout completes,
+	 * while assets whose pixels are still arriving are left streaming:
+	 * for such a page there is no html ss any more, but the assets and
+	 * the render they schedule still have to be stopped here.
 	 */
 
-	m->lhp.cancelled = 1;
+	if (h) {
+		m = (htmlss_t *)lws_ss_to_user_object(h);
+		m->lhp.cancelled = 1;
+	}
 
-	lws_dlo_ss_stop_any_active(m->cx);
+	if (rs->cx)
+		lws_dlo_ss_stop_any_active(rs->cx);
 
-	lws_ss_destroy(&h); /* rs->hss_html is cleared at DESTROYING */
+	if (h)
+		lws_ss_destroy(&h); /* rs->hss_html is cleared at DESTROYING */
 
 	lws_sul_cancel(&rs->sul);
 }
