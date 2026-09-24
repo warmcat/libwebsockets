@@ -62,10 +62,12 @@ ws_echo_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 static lws_ss_state_return_t
 ws_echo_rx(void *userobj, const uint8_t *in, size_t len, int flags)
 {
+#if (_LWS_ENABLED_LOGS & LLL_USER)
 	ws_echo_t *g = (ws_echo_t *)userobj;
 
 	lwsl_ss_user(lws_ss_from_user(g), "RX %zu, flags 0x%x", len,
 					  (unsigned int)flags);
+#endif
 
 	lwsl_hexdump_notice(in, len);
 

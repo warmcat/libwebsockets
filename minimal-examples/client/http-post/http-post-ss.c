@@ -154,10 +154,12 @@ http_post_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 static lws_ss_state_return_t
 http_post_rx(void *userobj, const uint8_t *in, size_t len, int flags)
 {
+#if (_LWS_ENABLED_LOGS & LLL_USER)
 	http_post_t *g = (http_post_t *)userobj;
 
 	lwsl_ss_user(lws_ss_from_user(g), "RX %zu, flags 0x%x", len,
 					  (unsigned int)flags);
+#endif
 
 	lwsl_hexdump_notice(in, len);
 

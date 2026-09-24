@@ -29,10 +29,12 @@ sul_start_get(lws_sorted_usec_list_t *sul)
 static lws_ss_state_return_t
 get_rx(void *userobj, const uint8_t *in, size_t len, int flags)
 {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	get_t *g = (get_t *)userobj;
 
 	lwsl_ss_notice(lws_ss_from_user(g), "RX %u, flags 0x%x",
 		       (unsigned int)len, (unsigned int)flags);
+#endif
 
 	if (len) {
 		lwsl_hexdump_notice(in, 16);
