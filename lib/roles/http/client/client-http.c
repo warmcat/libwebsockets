@@ -35,6 +35,80 @@ lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
  * meaning the wsi was destroyed by us before return.
  */
 	
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+/*
+ * sansIO rx for an h1 client waiting for its response headers.  The header
+ * parser takes bytes one at a time and stops at the end of the block, so
+ * whatever the peer coalesced after it (a browser's first ws frames, say)
+ * is left for the next phase, which interprets the completed block once
+ * the remainder has been parked.  A parse failure, or the peer closing
+ * before responding, is a connection failure for the user.
+ */
+int
+lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
+		 int from_transport)
+{
+	const char *cce;
+	int n, m;
+
+	(void)from_transport;
+
+	if (lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY || !wsi->stream.ah) {
+		lwsl_wsi_err(wsi, "%s: rx in state 0x%x", __func__,
+			     lwsi_state(wsi));
+
+		return LWS_RX_CLOSE;
+	}
+
+	if (!len) {
+		cce = "server closed before responding";
+		goto fail;
+	}
+
+	n = (int)len;
+	m = lws_parse(wsi, (unsigned char *)buf, &n);
+	if (m) {
+		lwsl_wsi_warn(wsi, "problems parsing header");
+		if (m == LPR_FAIL)
+			lws_parse_fail_diag(wsi, buf, (int)len - n, (int)len);
+		cce = "problems parsing header";
+		goto fail;
+	}
+	m = (int)len - n;
+
+#if defined(LWS_WITH_SECURE_STREAMS_BUFFER_DUMP)
+	do {
+		lws_ss_handle_t *h;
+
+		/* the opaque user data is only an ss handle on
+		 * a wsi that belongs to a secure stream */
+		if (!wsi->for_ss)
+			break;
+
+		h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
+		if (!h)
+			break;
+
+		if (h->info.dump)
+			h->info.dump(ss_to_userobj(h), buf, (size_t)m,
+				     (wsi->stream.ah->parser_state ==
+					WSI_PARSING_COMPLETE) ? 1 : 0);
+	} while (0);
+#endif
+
+	return m;
+
+fail:
+	lwsl_info("%s: closing conn at LWS_CONNMODE...SERVER_REPLY, %s, state 0x%x\n",
+		  __func__, lws_wsi_tag(wsi), lwsi_state(wsi));
+	lwsl_info("reason: %s\n", cce);
+	lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cbail3");
+
+	return LWS_RX_DIED;
+}
+#endif
+
 int
 lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 {
@@ -420,85 +494,28 @@ client_http_body_sent:
 		 * in one packet, since at that point the connection is
 		 * definitively ready from browser pov.
 		 */
+		/*
+		 * The block may come in several packets, and the peer may
+		 * coalesce what follows it: the parser stops at its end and
+		 * the pump parks the rest for the next phase.  A 5-sec
+		 * timeout is active here, so if the block is not complete yet
+		 * just wait for the next packet in this state.
+		 */
 		while (wsi->stream.ah->parser_state != WSI_PARSING_COMPLETE) {
-			struct lws_tokens eb;
-			int n, m, buffered;
+			lws_handling_result_t hr;
+			int nothing, consumed;
 
-			eb.token = NULL;
-			eb.len = 0;
-			buffered = lws_buflist_aware_read(pt, wsi, &eb, 0, __func__);
-			lwsl_debug("%s: buflist-aware-read %d %d\n", __func__,
-					buffered, eb.len);
-			if (buffered < 0) {
+			hr = lws_rx_pump(pt, wsi, NULL, 0, 0, &nothing,
+					 &consumed);
+			if (hr == LWS_HPI_RET_WSI_ALREADY_DIED)
+				return LWS_HPI_RET_WSI_ALREADY_DIED;
+			if (hr == LWS_HPI_RET_PLEASE_CLOSE_ME) {
 				cce = "read failed";
 				goto bail3_l;
 			}
-			if (eb.len <= 0)
+			if (nothing)
 				return 0;
-			if (!eb.len)
-				return 0;
-
-			n = eb.len;
-			m = lws_parse(wsi, eb.token, &n);
-			if (m) {
-				lwsl_wsi_warn(wsi, "problems parsing header");
-				if (m == LPR_FAIL)
-					lws_parse_fail_diag(wsi, eb.token,
-							    eb.len - n, eb.len);
-				cce = "problems parsing header";
-				goto bail3_l;
-			}
-
-			m = eb.len - n;
-#if defined(LWS_WITH_SECURE_STREAMS_BUFFER_DUMP)
-			do {
-				lws_ss_handle_t *h;
-
-				/* the opaque user data is only an ss handle on
-				 * a wsi that belongs to a secure stream */
-				if (!wsi->for_ss)
-					break;
-
-				h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
-				if (!h)
-					break;
-
-				if (h->info.dump) {
-					h->info.dump(ss_to_userobj(h),
-						(const uint8_t *)eb.token,
-						(size_t)m,
-						(wsi->stream.ah->parser_state ==
-						 WSI_PARSING_COMPLETE) ? 1 : 0);
-				}
-			} while (0);
-#endif
-			if (lws_buflist_aware_finished_consuming(wsi, &eb, m,
-								 buffered,
-								 __func__))
-			        goto bail3_l;
-
-			/*
-			 * coverity: uncomment if extended
-			 *
-			 * eb.token += m;
-			 * eb.len -= m;
-			 */
-
-			if (n) {
-				assert(wsi->stream.ah->parser_state ==
-						WSI_PARSING_COMPLETE);
-
-				break;
-			}
 		}
-
-		/*
-		 * hs may also be coming in multiple packets, there is a 5-sec
-		 * libwebsocket timeout still active here too, so if parsing did
-		 * not complete just wait for next packet coming in this state
-		 */
-		if (wsi->stream.ah->parser_state != WSI_PARSING_COMPLETE)
-			break;
 #endif
 
 		/*

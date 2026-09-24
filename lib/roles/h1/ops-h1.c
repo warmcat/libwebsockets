@@ -485,17 +485,25 @@ bail:
 
 	return -1;
 }
-#if defined(LWS_WITH_SERVER)
+#if defined(LWS_WITH_SERVER) || defined(LWS_WITH_CLIENT)
 /*
- * sansIO rx for an h1 server connection (which may have become h2 or ws by
- * now: the parsers decide).  buf/len is what the transport delivered, or
- * the parked remainder of an earlier delivery; len 0 is the peer closing.
+ * sansIO rx for an h1 connection.  buf/len is what the transport delivered,
+ * or the parked remainder of an earlier delivery; len 0 is the peer closing.
+ *
+ * A client's, while it waits for its response headers, is the header
+ * parser's: lws_h1_client_rx() in client-http.c.  A server connection's
+ * (which may have become h2 or ws by now: the parsers decide) is below.
  */
 static int
 rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 {
 	int n;
 
+#if defined(LWS_WITH_CLIENT)
+	if (lwsi_role_client(wsi))
+		return lws_h1_client_rx(wsi, buf, len, from_transport);
+#endif
+#if defined(LWS_WITH_SERVER)
 	if (!len) {
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 		/*
@@ -581,8 +589,15 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 		lws_header_table_detach(wsi, 0);
 
 	return n;
-}
+#else
+	(void)n;
 
+	return LWS_RX_CLOSE;
+#endif
+}
+#endif
+
+#if defined(LWS_WITH_SERVER)
 static lws_handling_result_t
 lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 {
@@ -1446,10 +1461,8 @@ static const lws_rops_t rops_table_h1[] = {
 	/*  8 if client and no server */
 	/*  9 */ { .client_bind		  = rops_client_bind_h1 },
 #endif
-#if defined(LWS_WITH_SERVER)
-	/* 10, or 9 with no client */
+	/* 10 with server and client, 9 with one, 8 with neither */
 	{ .rx				  = rops_rx_h1 },
-#endif
 };
 
 const struct lws_role_ops role_ops_h1 = {
@@ -1488,7 +1501,7 @@ const struct lws_role_ops role_ops_h1 = {
 #else
 	  /* LWS_ROPS_issue_keepalive */		0x80,
 	  /* LWS_ROPS_client_transport_up */
-	  /* LWS_ROPS_rx */				0x00,
+	  /* LWS_ROPS_rx */				0x09,
 #endif
 #else
 	  /* LWS_ROPS_issue_keepalive */		0x00,
@@ -1497,7 +1510,7 @@ const struct lws_role_ops role_ops_h1 = {
 	  /* LWS_ROPS_rx */				0x09,
 #else
 	  /* LWS_ROPS_client_transport_up */
-	  /* LWS_ROPS_rx */				0x00,
+	  /* LWS_ROPS_rx */				0x08,
 #endif
 #endif
 					},
