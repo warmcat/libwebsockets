@@ -1188,11 +1188,15 @@ lws_sa46_write_numeric_address(lws_sockaddr46 *sa46, char *buf, size_t len)
 		return lws_write_numeric_address(
 				(uint8_t *)&sa46->sa6.sin6_addr, 16, buf, len);
 #endif
-#if defined(LWS_WITH_IPV4)
+	/*
+	 * Not under LWS_WITH_IPV4: an IPv6-only build can still be handed an
+	 * AF_INET sockaddr by the platform (macOS reports a v4 peer on an
+	 * AF_INET6 socket that way), and refusing to render it is exactly
+	 * when you most want to see what the address was
+	 */
 	if (sa46->sa4.sin_family == AF_INET)
 		return lws_write_numeric_address(
 				(uint8_t *)&sa46->sa4.sin_addr, 4, buf, len);
-#endif
 
 #if defined(LWS_WITH_UNIX_SOCK)
 	if (sa46->sa4.sin_family == AF_UNIX)

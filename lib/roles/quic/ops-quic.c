@@ -1053,6 +1053,34 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_HANDLED;
 	}
 
+#if defined(LWS_WITH_IPV6)
+	/*
+	 * Which family the peer's address arrives as is the platform's choice,
+	 * not ours: macOS hands a v4 peer up from an AF_INET6 socket as a
+	 * plain sockaddr_in, where Linux always uses the v4-mapped AF_INET6
+	 * form.  We have to answer on the socket the datagram came in on, and
+	 * a sockaddr of the other family is not a valid destination for it
+	 * (Linux tolerates the mismatch, macOS refuses it with EINVAL and the
+	 * server can never reply).
+	 *
+	 * Bring it to the socket's family once, here, before it is recorded as
+	 * the connection's peer, compared against it for path migration, or
+	 * used to pick an egress socket.
+	 */
+	if (wsi->udp && wsi->udp->sa46.sa4.sin_family == AF_INET6 &&
+	    sa46.sa4.sin_family == AF_INET) {
+		uint8_t a4[4];
+		uint16_t port;
+
+		memcpy(a4, &sa46.sa4.sin_addr, sizeof(a4));
+		port = ntohs(sa46.sa4.sin_port);
+
+		memset(&sa46, 0, sizeof(sa46));
+		lws_sa46_4to6(&sa46, a4, port);
+		slen = (socklen_t)sizeof(struct sockaddr_in6);
+	}
+#endif
+
 	int orig_n = n;
 
 #if 0
