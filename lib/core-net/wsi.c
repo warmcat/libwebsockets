@@ -1147,7 +1147,15 @@ void lws_wsi_role_transition_ev(struct lws *wsi, enum lwsi_role role,
 	 */
 	if (lts != LTS_NONE || lcr != LCR_NONE ||
 	    ((unsigned int)state & LRS_MASK) != LRS_UNCONNECTED)
-		wsi->wsistate |= old & LWSIFS_ATTR_MASK;
+		wsi->wsistate |= old & (LWSIFS_ATTR_MASK | LWSI_CLOSE_MASK |
+					LWSIFS_CLOSE_STARTED);
+	/*
+	 * ...and neither is the close machine: a role change row that can
+	 * fire from a close phase (the ANY-from ALPN and webtransport rows)
+	 * must not resurrect a wsi that __lws_close_free_wsi() has entered,
+	 * or its re-entrancy guards stop tripping and it can be closed and
+	 * freed twice.  Only the restart is a new life.
+	 */
 	if (ops)
 		wsi->role_ops = ops;
 	lws_state_hook(wsi, old_ops, old, wsi->role_ops, wsi->wsistate,
