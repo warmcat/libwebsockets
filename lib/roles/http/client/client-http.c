@@ -50,8 +50,56 @@ lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 {
 	const char *cce;
 	int n, m;
+#if defined(LWS_CLIENT_HTTP_PROXYING)
+	char pbuf[24];
+#endif
 
 	(void)from_transport;
+
+#if defined(LWS_CLIENT_HTTP_PROXYING)
+	if (lwsi_state(wsi) == LRS_WAITING_PROXY_REPLY) {
+		/*
+		 * The http proxy's reply to our CONNECT.  Its status line
+		 * decides it; whatever the proxy sent with it is discarded,
+		 * as before (the peer speaks only after we do, in every
+		 * protocol this tunnel carries).
+		 */
+		if (!len) {
+			cce = "proxy conn dead";
+			goto fail;
+		}
+
+		if (len < 13 || strncmp((const char *)buf, "HTTP/1.", 7) ||
+		    (buf[7] != '0' && buf[7] != '1') || buf[8] != ' ') {
+			cce = "http_proxy fail";
+			goto fail;
+		}
+
+		memcpy(pbuf, &buf[9], 3);
+		pbuf[3] = '\0';
+		n = atoi(pbuf);
+		if (n != 200) {
+			lws_snprintf(pbuf, sizeof(pbuf), "http_proxy -> %u",
+				     (unsigned int)n);
+			cce = pbuf;
+			goto fail;
+		}
+
+		lwsl_wsi_info(wsi, "proxy connection established");
+
+		/* clear his proxy connection timeout */
+		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+		/*
+		 * The tunnel is up: for the protocol this is the socket
+		 * connecting, and it goes on from here as a direct
+		 * connection does
+		 */
+		lws_wsi_event(wsi, LWS_WSIEV_SOCKET_CONNECTED);
+
+		return (int)len;
+	}
+#endif
 
 #if defined(LWS_WITH_SOCKS5)
 	if (lwsi_in_socks5_leg(wsi)) {
@@ -207,58 +255,23 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 #if defined(LWS_CLIENT_HTTP_PROXYING) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 
 	case LRS_WAITING_PROXY_REPLY:
+	{
+		lws_handling_result_t hr;
+		int nothing, consumed;
 
-		/* handle proxy hung up on us */
-
-		if (pollfd->revents & LWS_POLLHUP) {
-
-			lwsl_warn("Proxy conn %s (fd=%d) dead\n",
-				  lws_wsi_tag(wsi), pollfd->fd);
-
-			cce = "proxy conn dead";
-			goto bail3_l;
-		}
-
-		n = lws_ssl_capable_read(wsi, (unsigned char *)sb,
-					 context->pt_serv_buf_size);
-		switch (n) {
-		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-			lwsl_debug("Proxy read EAGAIN... retrying\n");
-			return 0;
-		case LWS_SSL_CAPABLE_ERROR:
-			lwsl_err("ERROR reading from proxy socket\n");
+		hr = lws_rx_pump(pt, wsi, pollfd, 0, 0, &nothing, &consumed);
+		if (hr == LWS_HPI_RET_WSI_ALREADY_DIED)
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
+		if (hr == LWS_HPI_RET_PLEASE_CLOSE_ME) {
 			cce = "proxy read err";
 			goto bail3_l;
-		default:
-			break;
 		}
 
-		/* sanity check what we were sent... */
+		if (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE)
+			return 0;
 
-		pt->serv_buf[13] = '\0';
-		if (n < 13 || strncmp(sb, "HTTP/1.", 7) ||
-			      (sb[7] != '0' && sb[7] != '1') || sb[8] != ' ') {
-			/* lwsl_hexdump_notice(sb, n); */
-			cce = "http_proxy fail";
-			goto bail3_l;
-		}
-
-		/* it's h1 alright... what's his logical response code? */
-		n = atoi(&sb[9]);
-		if (n != 200) {
-			lws_snprintf(sb, 20, "http_proxy -> %u",
-				     (unsigned int)n);
-			cce = sb;
-			goto bail3_l;
-		}
-
-		lwsl_info("%s: proxy connection established\n", __func__);
-
-		/* clear his proxy connection timeout */
-
-		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-
+		/* the tunnel came up: issue the handshake as a direct connection does */
+	}
                /* fallthru */
 
 #endif
