@@ -191,7 +191,8 @@ write_cb(void *user, const uint8_t *buf, size_t len)
 	if (want_defer(r))
 		return LWS_SRET_WANT_OUTPUT;
 
-	gb_put(&r->out, buf, len);
+	if (buf)
+		gb_put(&r->out, buf, len);
 
 	return LWS_SRET_OK;
 }
