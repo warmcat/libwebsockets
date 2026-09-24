@@ -1816,6 +1816,11 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		    (lwsi_close(w) == LCS_RETURNED_CLOSE &&
 		     w->ws->payload_is_close)) {
 
+			/*
+			 * per child: the close-responder's write type must
+			 * not leak into the next child's PONG on this pass
+			 */
+			write_type = LWS_WRITE_PONG;
 			if (w->ws->payload_is_close)
 				write_type = LWS_WRITE_CLOSE |
 					     LWS_WRITE_H2_STREAM_END;
