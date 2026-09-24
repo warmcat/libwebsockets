@@ -73,7 +73,17 @@ lws_raw_skt_connect(struct lws *wsi)
 	 * already delivered the adoption callback and set ESTABLISHED, so the
 	 * carrier being established is "the user has already been told"
 	 */
-	if (lwsi_carrier(wsi) != LCR_ESTABLISHED) {
+	n = lwsi_carrier(wsi) != LCR_ESTABLISHED;
+
+	/*
+	 * The transport is up before the user hears of it: a callback that
+	 * completes the raw transaction, or closes, leaves the wsi in a close
+	 * phase, from which TRANSPORT_UP raised afterwards had no row
+	 */
+	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+	lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
+
+	if (n) {
 		n = user_callback_handle_rxflow(wsi->a.protocol->callback,
 				wsi, wsi->role_ops->adoption_cb[lwsi_role_server(wsi)],
 				wsi->user_space, NULL, 0);
@@ -82,9 +92,6 @@ lws_raw_skt_connect(struct lws *wsi)
 			return 1;
 		}
 	}
-
-	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-	lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 
 	return 1; /* success */
 }
