@@ -468,8 +468,8 @@ inv_geo_row(struct inv_grange4 *r4, struct inv_grange6 *r6,
 			 * Keep the top plen % 8 bits of the partial byte;
 			 * with no partial bits the whole byte is host bits
 			 */
-			uint8_t m = plen % 8 ?
-				(uint8_t)(0xff00 >> (plen % 8)) : 0;
+			uint8_t m = (uint8_t)(plen % 8 ?
+				((0xff00 >> (plen % 8)) & 0xff) : 0);
 
 			r6->start[pre] &= m;
 			memset(r6->start + pre + 1, 0, (size_t)(15 - pre));
