@@ -1,0 +1,6 @@
+GET / HTTP/1.1
+Host: fuzz
+Upgrade: websocket
+Connection: upgrade
+
+ƒ```ƒ```ƒ```ƒ```ƒ```ƒ```ƒ```ƒ``

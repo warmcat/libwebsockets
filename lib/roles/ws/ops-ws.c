@@ -1662,6 +1662,18 @@ rops_close_via_role_protocol_ws(struct lws *wsi, enum lws_close_status reason)
 		return 0;
 
 	/*
+	 * A failed ws upgrade (eg, no Sec-Websocket-Key) is discovered after
+	 * the role transition to ws, but before we sent the 101 and before
+	 * lws_server_init_wsi_for_ws() gave us the rx buffer.  The peer never
+	 * saw a 101, so he is not speaking ws: a Close frame would just be
+	 * garbage in his http response, and taking over the close would leave
+	 * us in the ws role rx path with no rx_ubuf.  Just drop him.
+	 */
+
+	if (!wsi->ws->rx_ubuf)
+		return 0;
+
+	/*
 	 * Context destroy is the one case we drop the socket without a
 	 * Close frame.  Otherwise, even if nobody prepared a close reason,
 	 * RFC 6455 7.1.1 wants us to send one before closing, so the peer
