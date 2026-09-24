@@ -203,16 +203,56 @@ oom:
 	return 1;
 }
 
+/*
+ * The CONNACK did not come, or said no: tell the user why, as a connection
+ * failure, and close.  The parser may have replaced or removed wsi->mqtt on
+ * its way out: at CONNACK the struct holding the client id is handed to the
+ * new sid 1 child and we get a fresh, zeroed one instead (or, if that
+ * allocation failed, none at all).  So neither wsi->mqtt nor c->id may be
+ * assumed here.
+ */
+int
+lws_mqtt_client_connack_failed(struct lws *wsi)
+{
+	int n;
+
+	lws_mqttc_t *c = wsi->mqtt ? &wsi->mqtt->client : NULL;
+	char msg[128];
+
+	switch (c ? c->par.reason : LMQCP_REASON_PROTOCOL_ERROR) {
+	case LMQCP_REASON_UNSUPPORTED_PROTOCOL:
+		n = lws_snprintf(msg, sizeof(msg), "reason: server does not support MQTT protocol " MQTT_VER_STRING "\n");
+		break;
+	case LMQCP_REASON_CLIENT_ID_INVALID:
+		if (c && c->id)
+			n = lws_snprintf(msg, sizeof(msg), "reason: server does not accept client ID %.*s\n", c->id->len, c->id->buf);
+		else
+			n = lws_snprintf(msg, sizeof(msg), "reason: server does not accept client ID\n");
+		break;
+	case LMQCP_REASON_BAD_CREDENTIALS:
+		n = lws_snprintf(msg, sizeof(msg), "reason: invalid credentials\n");
+		break;
+	case LMQCP_REASON_NOT_AUTHORIZED:
+		n = lws_snprintf(msg, sizeof(msg), "reason: not authorized\n");
+		break;
+	default:
+		n = lws_snprintf(msg, sizeof(msg), "reason: unknown MQTT connection failure\n");
+		break;
+	}
+
+	lws_inform_client_conn_fail(wsi, (void *)msg, (size_t)n);
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, __func__);
+
+	return LWS_RX_DIED;
+}
+
 int
 lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			  struct lws *wsi_conn)
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	int n = 0, m = 0;
-	struct lws_tokens ebuf;
-	int buffered = 0;
-	int pending = 0;
+	int n = 0;
 #if defined(LWS_WITH_TLS)
 	char erbuf[128];
 #endif
@@ -340,87 +380,18 @@ start_ws_handshake:
 
 	case LRS_ESTABLISHED:
 	case LRS_MQTTC_AWAIT_CONNACK:
-		buffered = 0;
-		ebuf.token = pt->serv_buf;
-		ebuf.len = (int)wsi->a.context->pt_serv_buf_size;
+	{
+		lws_handling_result_t hr;
+		int nothing, consumed;
 
-		if ((unsigned int)ebuf.len > wsi->a.context->pt_serv_buf_size)
-			ebuf.len = (int)wsi->a.context->pt_serv_buf_size;
-
-		if ((int)pending > ebuf.len)
-			pending = (char)ebuf.len;
-
-		ebuf.len = lws_ssl_capable_read(wsi, ebuf.token,
-						(unsigned int)(pending ? pending :
-						ebuf.len));
-		switch (ebuf.len) {
-		case 0:
-			lwsl_info("%s: zero length read\n",
-				  __func__);
-			goto fail;
-		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-			lwsl_info("SSL Capable more service\n");
-			return 0;
-		case LWS_SSL_CAPABLE_ERROR:
-			lwsl_info("%s: LWS_SSL_CAPABLE_ERROR\n",
-					__func__);
-			goto fail;
-		}
-
-		if (ebuf.len < 0)
-			n = -1;
-		else
-			n = lws_read_mqtt(wsi, ebuf.token, (unsigned int)ebuf.len);
-
-		if (n < 0) {
-			/*
-			 * The parser may have replaced or removed wsi->mqtt on
-			 * its way out: at CONNACK the struct holding the
-			 * client id is handed to the new sid 1 child and we
-			 * get a fresh, zeroed one instead (or, if that
-			 * allocation failed, none at all).  So neither
-			 * wsi->mqtt nor c->id may be assumed here.
-			 */
-			lws_mqttc_t *c = wsi->mqtt ? &wsi->mqtt->client : NULL;
-			char msg[128];
-
-			switch (c ? c->par.reason : LMQCP_REASON_PROTOCOL_ERROR) {
-			case LMQCP_REASON_UNSUPPORTED_PROTOCOL:
-				n = lws_snprintf(msg, sizeof(msg), "reason: server does not support MQTT protocol " MQTT_VER_STRING "\n");
-			   break;
-			case LMQCP_REASON_CLIENT_ID_INVALID:
-				if (c && c->id)
-					n = lws_snprintf(msg, sizeof(msg), "reason: server does not accept client ID %.*s\n", c->id->len, c->id->buf);
-				else
-					n = lws_snprintf(msg, sizeof(msg), "reason: server does not accept client ID\n");
-				break;
-			case LMQCP_REASON_BAD_CREDENTIALS:
-				n = lws_snprintf(msg, sizeof(msg), "reason: invalid credentials\n");
-				break;
-			case LMQCP_REASON_NOT_AUTHORIZED:
-				n = lws_snprintf(msg, sizeof(msg), "reason: not authorized\n");
-				break;
-			default:
-				n = lws_snprintf(msg, sizeof(msg), "reason: unknown MQTT connection failure\n");
-				break;
-			}
-
-			lws_inform_client_conn_fail(wsi, (void *)msg, (size_t)n);
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, __func__);
-
+		hr = lws_rx_pump(pt, wsi, pollfd, 0, 0, &nothing, &consumed);
+		if (hr == LWS_HPI_RET_WSI_ALREADY_DIED)
 			return -1;
-		}
-
-		m = ebuf.len - n;
-		// lws_buflist_describe(&wsi->buflist, wsi, __func__);
-		lwsl_debug("%s: consuming %d / %d\n", __func__, n, ebuf.len);
-		if (lws_buflist_aware_finished_consuming(wsi, &ebuf, m,
-							 buffered,
-							 __func__))
-			return -1;
+		if (hr == LWS_HPI_RET_PLEASE_CLOSE_ME)
+			goto fail;
 
 		return 0;
+	}
 
 #if defined(LWS_WITH_TLS) || defined(LWS_WITH_SOCKS5)
 bail3_l:

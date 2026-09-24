@@ -91,7 +91,8 @@ rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
 		int nothing, consumed;
 
 		/* a plain socket: read even with rx parked */
-		hr = lws_rx_pump(pt, wsi, 1, 0, &nothing, &consumed);
+		hr = lws_rx_pump(pt, wsi, pollfd, LWS_RXP_FORCE_READ, 0,
+				 &nothing, &consumed);
 		if (hr != LWS_HPI_RET_HANDLED)
 			return hr;
 	} else

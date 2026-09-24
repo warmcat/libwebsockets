@@ -24,14 +24,43 @@
 
 #include "private-lib-core.h"
 
+/*
+ * sansIO rx for mqtt: the parser takes everything it is given and keeps
+ * its own place in a packet, so all of it is consumed.  A failure while a
+ * client awaits its CONNACK is reported to the user as a connection
+ * failure; any other failure closes.  len 0 is the peer closing.
+ */
+static int
+rops_rx_mqtt(struct lws *wsi, const uint8_t *buf, size_t len,
+	     int from_transport)
+{
+	(void)from_transport;
+
+	if (!len) {
+		lwsl_wsi_info(wsi, "zero length read");
+
+		return LWS_RX_CLOSE;
+	}
+
+	if (lws_read_mqtt(wsi, (unsigned char *)buf, len) < 0) {
+#if defined(LWS_WITH_CLIENT)
+		if (lwsi_role_client(wsi) &&
+		    lwsi_state(wsi) == LRS_MQTTC_AWAIT_CONNACK)
+			return lws_mqtt_client_connack_failed(wsi);
+#endif
+		lwsl_wsi_notice(wsi, "lws_read_mqtt failed");
+
+		return LWS_RX_CLOSE;
+	}
+
+	return (int)len;
+}
+
 static lws_handling_result_t
 rops_handle_POLLIN_mqtt(struct lws_context_per_thread *pt, struct lws *wsi,
 			   struct lws_pollfd *pollfd)
 {
-	unsigned int pending = 0;
-	struct lws_tokens ebuf;
 	int n = 0;
-	char buffered = 0;
 
 	lwsl_debug("%s: wsistate 0x%x, %s pollout %d\n", __func__,
 		   (unsigned int)wsi->wsistate,  wsi->a.protocol->name,
@@ -48,9 +77,6 @@ rops_handle_POLLIN_mqtt(struct lws_context_per_thread *pt, struct lws *wsi,
 	 * SUBACK - reflected to child stream that asked for it
 	 * PUBACK - routed to child that did the related publish
 	 */
-
-	ebuf.token = NULL;
-	ebuf.len = 0;
 
 	if (lwsi_state(wsi) != LRS_ESTABLISHED) {
 #if defined(LWS_WITH_CLIENT)
@@ -99,119 +125,36 @@ rops_handle_POLLIN_mqtt(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 post_pollout:
-
-	/* 3: buflist needs to be drained
+	/*
+	 * Parked rx first, then what the transport has, then again while the
+	 * tls layer still holds bytes it already took from the socket
 	 */
-	do {
-	// lws_buflist_describe(&wsi->buflist, wsi, __func__);
-	ebuf.len = (int)lws_buflist_next_segment_len(&wsi->buflist, &ebuf.token);
-	if (ebuf.len) {
-		lwsl_info("draining buflist (len %d)\n", ebuf.len);
-		buffered = 1;
-		goto drain;
+	{
+		size_t pending = 0;
+
+		do {
+			lws_handling_result_t hr;
+			int nothing, consumed;
+
+			hr = lws_rx_pump(pt, wsi, pollfd, 0, pending, &nothing,
+					 &consumed);
+			if (hr != LWS_HPI_RET_HANDLED)
+				return hr;
+			if (nothing)
+				break;
+
+			pending = (size_t)lws_ssl_pending(wsi);
+		} while (pending);
 	}
 
-	if (!(pollfd->revents & pollfd->events & LWS_POLLIN))
-		return LWS_HPI_RET_HANDLED;
-
-	/* if (lws_is_flowcontrolled(wsi)) { */
-	/*	lwsl_info("%s: %p should be rxflow (bm 0x%x)..\n", */
-	/*		    __func__, wsi, wsi->rxflow_bitmap); */
-	/*	return LWS_HPI_RET_HANDLED; */
-	/* } */
-
-	if (!(lwsi_role_client(wsi) && lwsi_state(wsi) != LRS_ESTABLISHED)) {
+	if (!lws_buflist_next_segment_len(&wsi->buflist, NULL))
 		/*
-		 * In case we are going to react to this rx by scheduling
-		 * writes, we need to restrict the amount of rx to the size
-		 * the protocol reported for rx buffer.
-		 *
-		 * Otherwise we get a situation we have to absorb possibly a
-		 * lot of reads before we get a chance to drain them by writing
-		 * them, eg, with echo type tests in autobahn.
+		 * nothing parked (any more): a pending rx flow change can be
+		 * applied, which re-arms POLLIN after a drain
 		 */
-
-		buffered = 0;
-		ebuf.token = pt->serv_buf;
-		ebuf.len = (int)wsi->a.context->pt_serv_buf_size;
-
-		if ((unsigned int)ebuf.len > wsi->a.context->pt_serv_buf_size)
-			ebuf.len = (int)wsi->a.context->pt_serv_buf_size;
-
-		if ((int)pending > ebuf.len)
-			pending = (unsigned int)ebuf.len;
-
-		ebuf.len = lws_ssl_capable_read(wsi, ebuf.token,
-						pending ? pending :
-						(unsigned int)ebuf.len);
-		switch (ebuf.len) {
-		case 0:
-			lwsl_info("%s: zero length read\n",
-				  __func__);
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-			lwsl_info("SSL Capable more service\n");
-			return LWS_HPI_RET_HANDLED;
-		case LWS_SSL_CAPABLE_ERROR:
-			lwsl_info("%s: LWS_SSL_CAPABLE_ERROR\n",
-					__func__);
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		}
-
-		/*
-		 * coverity thinks ssl_capable_read() may read over
-		 * 2GB.  Dissuade it...
-		 */
-		ebuf.len &= 0x7fffffff;
-	}
-
-drain:
-	/* service incoming data */
-	//lws_buflist_describe(&wsi->buflist, wsi, __func__);
-	if (ebuf.len) {
-		n = lws_read_mqtt(wsi, ebuf.token, (unsigned int)ebuf.len);
-		if (n < 0) {
-			lwsl_notice("%s: lws_read_mqtt returned %d\n",
-					__func__, n);
-			/* we closed wsi */
-			goto fail;
-                }
-		// lws_buflist_describe(&wsi->buflist, wsi, __func__);
-		lwsl_debug("%s: consuming %d / %d\n", __func__, n, ebuf.len);
-		if (lws_buflist_aware_finished_consuming(wsi, &ebuf, ebuf.len,
-							 buffered, __func__))
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-	}
-
-	ebuf.token = NULL;
-
-		pending = (unsigned int)lws_ssl_pending(wsi);
-		if (pending) {
-			pending = pending > wsi->a.context->pt_serv_buf_size ?
-				wsi->a.context->pt_serv_buf_size : pending;
-		}
-	} while (pending);
-
-	if (buffered && /* were draining, now nothing left */
-	    !lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
-		lwsl_info("%s: %s flow buf: drained\n", __func__, lws_wsi_tag(wsi));
-		/* having drained the rxflow buffer, can rearm POLLIN */
-#if !defined(LWS_WITH_SERVER)
-		n =
-#endif
 		__lws_rx_flow_control(wsi);
-		/* n ignored, needed for NO_SERVER case */
-	}
 
-	/* n = 0 */
 	return LWS_HPI_RET_HANDLED;
-
-fail:
-	lwsl_err("%s: Failed, bailing\n", __func__);
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "mqtt svc fail");
-
-	return LWS_HPI_RET_WSI_ALREADY_DIED;
 }
 
 #if 0 /* defined(LWS_WITH_SERVER) */
@@ -699,6 +642,8 @@ static const lws_rops_t rops_table_mqtt[] = {
 	/*  7 */ { .issue_keepalive	  = rops_issue_keepalive_mqtt },
 	/*  8 */ { .client_transport_up	  = rops_client_transport_up_mqtt },
 #endif
+	/*  9, or 6 with no client */
+	{ .rx				  = rops_rx_mqtt },
 };
 
 struct lws_role_ops role_ops_mqtt = {
@@ -729,10 +674,12 @@ struct lws_role_ops role_ops_mqtt = {
 	  /* LWS_ROPS_client_bind */
 #if defined(LWS_WITH_CLIENT)
 	  /* LWS_ROPS_issue_keepalive */		0x67,
-	  /* LWS_ROPS_client_transport_up */		0x80,
+	  /* LWS_ROPS_client_transport_up */
+	  /* LWS_ROPS_rx */				0x89,
 #else
 	  /* LWS_ROPS_issue_keepalive */		0x00,
-	  /* LWS_ROPS_client_transport_up */		0x00,
+	  /* LWS_ROPS_client_transport_up */
+	  /* LWS_ROPS_rx */				0x06,
 #endif
 					},
 

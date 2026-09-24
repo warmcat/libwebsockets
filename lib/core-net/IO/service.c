@@ -706,9 +706,10 @@ lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
  * parks what it did not consume, and deals with the transport's own
  * conditions: nothing there yet, an error, the peer closed.
  *
- * fr forces a read even when something is parked (a mux stream must, to
- * avoid head-of-line blocking); max is the most to read, 0 for the
- * per-thread buffer's worth.
+ * pollfd is what the event loop reported, NULL to read regardless: unless
+ * it says readable only parked rx is offered.  LWS_RXP_FORCE_READ reads
+ * even when something is parked (a mux stream must, to avoid head-of-line
+ * blocking).  max is the most to read, 0 for the per-thread buffer's worth.
  *
  * Returns LWS_HPI_RET_HANDLED when the caller can carry on to its POLLOUT
  * side, with *nothing set when there was no rx for the role to act on (and
@@ -716,8 +717,9 @@ lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
  * WSI_ALREADY_DIED.
  */
 lws_handling_result_t
-lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi, int fr,
-	    size_t max, int *nothing, int *consumed)
+lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
+	    struct lws_pollfd *pollfd, int flags, size_t max, int *nothing,
+	    int *consumed)
 {
 	struct lws_tokens ebuf = { NULL, (int)max };
 	int buffered, n;
@@ -725,7 +727,17 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi, int fr,
 	*nothing = 0;
 	*consumed = 0;
 
-	buffered = lws_buflist_aware_read(pt, wsi, &ebuf, (char)fr, __func__);
+	if (pollfd && !(pollfd->revents & pollfd->events & LWS_POLLIN) &&
+	    !lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
+		/* nothing readable, nothing parked */
+		*nothing = 1;
+
+		return LWS_HPI_RET_HANDLED;
+	}
+
+	buffered = lws_buflist_aware_read(pt, wsi, &ebuf,
+					  !!(flags & LWS_RXP_FORCE_READ),
+					  __func__);
 	switch (ebuf.len) {
 	case 0:
 #if defined(LWS_WITH_UDP)

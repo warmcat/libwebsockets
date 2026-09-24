@@ -1412,9 +1412,13 @@ lws_wsi_mux_client_idle_check(struct lws *nwsi);
 int
 lws_service_wsi_as_writable(struct lws *wsi);
 
+/* lws_rx_pump() flags */
+#define LWS_RXP_FORCE_READ	(1 << 0) /* read even with rx parked */
+
 lws_handling_result_t
-lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi, int fr,
-	    size_t max, int *nothing, int *consumed);
+lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
+	    struct lws_pollfd *pollfd, int flags, size_t max, int *nothing,
+	    int *consumed);
 
 /* the event engine's entry: a role change a table row asked for */
 void

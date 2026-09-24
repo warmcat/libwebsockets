@@ -237,7 +237,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			 * plain socket, there is nothing to block behind.  The
 			 * protocol's rx_buffer_size bounds the read.
 			 */
-			hr = lws_rx_pump(pt, wsi, 1,
+			hr = lws_rx_pump(pt, wsi, pollfd, LWS_RXP_FORCE_READ,
 					 wsi->a.protocol->rx_buffer_size,
 					 &nothing, &consumed);
 			if (hr != LWS_HPI_RET_HANDLED)
