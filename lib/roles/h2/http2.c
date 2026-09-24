@@ -2224,6 +2224,19 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 				lws_wsi_tag(h2n->swsi));
 
 #if defined(LWS_WITH_CLIENT)
+		/*
+		 * A response on a stream we have not sent a request on yet
+		 * (the peer's HEADERS on our idle sid, RFC 9113 5.1) passed
+		 * both trailers gates and reached the response handling from
+		 * H2_WAITING_TO_SEND_HEADERS, which has no row
+		 */
+		if (h2n->swsi->client_mux_substream &&
+		    lwsi_state(h2n->swsi) == LRS_H2_WAITING_TO_SEND_HEADERS) {
+			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				      "HEADERS on unsent stream");
+			break;
+		}
+
 		if (h2n->swsi->client_mux_substream &&
 		    lws_client_interpret_server_handshake(h2n->swsi)) {
 			/*

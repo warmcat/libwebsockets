@@ -1862,6 +1862,16 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					}
 
 #if defined(LWS_WITH_CLIENT)
+					if (wsi->client_mux_substream &&
+					    lwsi_state(wsi) == LRS_H2_WAITING_TO_SEND_HEADERS) {
+						/* a response before our request went (as h2) */
+						struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+
+						lwsl_wsi_notice(wsi, "HEADERS on unsent stream");
+						if (nwsi)
+							lws_quic_enter_closing_state(nwsi, LWS_H3_FRAME_UNEXPECTED, 0, 1);
+						return 1;
+					}
 					if (wsi->client_mux_substream) {
 						if (lws_client_interpret_server_handshake(wsi)) {
 							lwsl_info("cli int serv hs closed, or redir\n");
