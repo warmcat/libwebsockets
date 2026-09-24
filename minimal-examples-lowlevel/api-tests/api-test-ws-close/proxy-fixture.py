@@ -44,29 +44,31 @@ def recv_exact(c, n):
         buf += d
     return buf
 
-def socks5(c, require_auth):
+def socks5_userpass(c):
+    sv, ul = recv_exact(c, 2)
+    user = recv_exact(c, ul)
+    pl = recv_exact(c, 1)[0]
+    pw = recv_exact(c, pl)
+    if sv != 1 or user != b"user" or pw != b"pass":
+        c.sendall(b"\x01\x01")
+        raise OSError("bad credentials")
+    c.sendall(b"\x01\x00")
+
+def socks5_greeting(c, require_auth):
     ver, nm = recv_exact(c, 2)
     methods = recv_exact(c, nm)
     if ver != 5:
         raise OSError("not socks5")
+    want = 2 if require_auth else 0
+    if want not in methods:
+        c.sendall(b"\x05\xff")
+        raise OSError("client did not offer method %d" % want)
+    c.sendall(bytes([5, want]))
     if require_auth:
-        if 2 not in methods:
-            c.sendall(b"\x05\xff")
-            raise OSError("client did not offer user/pass")
-        c.sendall(b"\x05\x02")
-        sv, ul = recv_exact(c, 2)
-        user = recv_exact(c, ul)
-        pl = recv_exact(c, 1)[0]
-        pw = recv_exact(c, pl)
-        if sv != 1 or user != b"user" or pw != b"pass":
-            c.sendall(b"\x01\x01")
-            raise OSError("bad credentials")
-        c.sendall(b"\x01\x00")
-    else:
-        if 0 not in methods:
-            c.sendall(b"\x05\xff")
-            raise OSError("client did not offer no-auth")
-        c.sendall(b"\x05\x00")
+        socks5_userpass(c)
+
+def socks5(c, require_auth):
+    socks5_greeting(c, require_auth)
     ver, cmd, _, atyp = recv_exact(c, 4)
     if ver != 5 or cmd != 1:
         c.sendall(b"\x05\x07\x00\x01" + b"\x00" * 6)
