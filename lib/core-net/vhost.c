@@ -2267,11 +2267,25 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 					 * muxing, and drop the keep-warm timeout,
 					 * it is in use again.
 					 */
-					lws_wsi_event(w, LWS_WSIEV_CONN_REUSED);
-					lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
-				}
+					/*
+					 * ...but only once the adopt has succeeded:
+					 * revived and stripped of its timeout before
+					 * an adopt the peer's stream limit refuses,
+					 * it sat ESTABLISHED with no streams, no
+					 * timeout and nothing that could ever wake
+					 * it, for ever
+					 */
+					if (lws_wsi_h2_adopt(w, wsi)) {
+						lws_wsi_event(w, LWS_WSIEV_CONN_REUSED);
+						lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
+						lws_vhost_unlock(wsi->a.vhost); /* } ---------- */
+						lws_context_unlock(wsi->a.context); /* -------------- cx { */
 
-				if (lws_wsi_h2_adopt(w, wsi)) {
+						*nwsi = w;
+
+						return ACTIVE_CONNS_MUXED;
+					}
+				} else if (lws_wsi_h2_adopt(w, wsi)) {
 					lws_vhost_unlock(wsi->a.vhost); /* } ---------- */
 					lws_context_unlock(wsi->a.context); /* -------------- cx { */
 
@@ -2302,16 +2316,16 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 						   lwsi_state(w));
 
 
-				if (lwsi_state(w) == LRS_IDLING) {
+				if (lws_wsi_h3_adopt(w, wsi)) {
 					/* See the h2 branch above: a kept-warm
 					 * mux connection must leave LRS_IDLING so
 					 * its POLLOUT is serviced and the new
-					 * stream's headers get sent. */
-					lws_wsi_event(w, LWS_WSIEV_CONN_REUSED);
-					lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
-				}
-
-				if (lws_wsi_h3_adopt(w, wsi)) {
+					 * stream's headers get sent, once it has
+					 * a stream. */
+					if (lwsi_state(w) == LRS_IDLING) {
+						lws_wsi_event(w, LWS_WSIEV_CONN_REUSED);
+						lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
+					}
 					lws_vhost_unlock(wsi->a.vhost); /* } ---------- */
 					lws_context_unlock(wsi->a.context); /* -------------- cx { */
 
