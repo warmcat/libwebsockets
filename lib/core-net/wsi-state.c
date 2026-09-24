@@ -359,6 +359,11 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	{ "h2", "S", LRS_BODY,			LWS_WSIEV_BODY_COMPLETE, NULL, NULL, LRS_ESTABLISHED },
 	{ "h3", "S", LRS_BODY,			LWS_WSIEV_BODY_COMPLETE, NULL, NULL, LRS_ESTABLISHED },
 	{ "h1", "S", LRS_BODY,			LWS_WSIEV_BODY_DISCARD, NULL, NULL, LRS_DISCARD_BODY },
+	/* the user may complete the transaction before the body was ever delivered */
+	{ "h1", "S", LRS_ESTABLISHED,		LWS_WSIEV_BODY_DISCARD, NULL, NULL, LRS_DISCARD_BODY },
+	{ "h1", "S", LRS_DOING_TRANSACTION,	LWS_WSIEV_BODY_DISCARD, NULL, NULL, LRS_DISCARD_BODY },
+	{ "h1", "S", LRS_H1_UPGRADE,		LWS_WSIEV_BODY_DISCARD, NULL, NULL, LRS_DISCARD_BODY },
+	{ "h1", "S", LRS_ISSUING_FILE,		LWS_WSIEV_BODY_DISCARD, NULL, NULL, LRS_DISCARD_BODY },
 
 	/* the h1 transaction ends and the connection is reused */
 	{ "h1", "S", LRS_ESTABLISHED,		LWS_WSIEV_TXN_COMPLETED, NULL, NULL, LRS_TXN_COMPLETED },
