@@ -718,6 +718,25 @@ lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
  * *consumed the count it took), or the usual PLEASE_CLOSE_ME /
  * WSI_ALREADY_DIED.
  */
+/* the peer closed its side: stop reading, tell the role */
+static lws_handling_result_t
+rx_pump_peer_closed(struct lws *wsi, int *nothing)
+{
+	int n;
+
+	wsi->seen_zero_length_recv = 1;
+	if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	n = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx).rx(wsi, NULL, 0, 1);
+	if (n == LWS_RX_DIED)
+		return LWS_HPI_RET_WSI_ALREADY_DIED;
+	if (n == LWS_RX_CLOSE)
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	*nothing = 1;
+
+	return LWS_HPI_RET_HANDLED;
+}
+
 lws_handling_result_t
 lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 	    struct lws_pollfd *pollfd, int flags, size_t max, int *nothing,
@@ -760,25 +779,25 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_HANDLED;
 		}
 #endif
-		/* the peer closed its side: stop reading, tell the role */
-		wsi->seen_zero_length_recv = 1;
-		if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		n = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx).
-						rx(wsi, NULL, 0, 1);
-		if (n == LWS_RX_DIED)
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		if (n == LWS_RX_CLOSE)
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		*nothing = 1;
-
-		return LWS_HPI_RET_HANDLED;
+		return rx_pump_peer_closed(wsi, nothing);
 
 	case LWS_SSL_CAPABLE_ERROR:
-		return LWS_HPI_RET_PLEASE_CLOSE_ME;
-
 	case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
 	case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
+		/*
+		 * A hangup the poll reported is trusted over the read's own
+		 * account of the socket: not every platform and tls library
+		 * tells a closed peer apart from an empty record or a
+		 * transient error, and some would have us try again
+		 * forever.  A read that yields nothing on a hung-up socket
+		 * is the peer closed, however it was spelled.
+		 */
+		if (pollfd && (pollfd->revents & LWS_POLLHUP))
+			return rx_pump_peer_closed(wsi, nothing);
+
+		if (ebuf.len == LWS_SSL_CAPABLE_ERROR)
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+
 		*nothing = 1;
 
 		return LWS_HPI_RET_HANDLED;
