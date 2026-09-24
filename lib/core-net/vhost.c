@@ -2374,7 +2374,13 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			lws_dll2_add_tail(&wsi->dll2_cli_txn_queue,
 					  &w->dll2_cli_txn_queue_owner);
 
-			if (lwsi_state(w) == LRS_IDLING) {
+			/*
+			 * An h2 / h3 leader kept warm in IDLING whose adopt was
+			 * refused (peer stream limit) stays IDLING, and this
+			 * hand-off is the h1 pipeline's: it must not run on a
+			 * mux leader
+			 */
+			if (lwsi_state(w) == LRS_IDLING && lwsi_role_h1(w)) {
 				_lws_generic_transaction_completed_active_conn(&w, 0);
 
 				/*
