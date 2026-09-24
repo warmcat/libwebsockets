@@ -614,6 +614,28 @@ lws_h2_goaway(struct lws *wsi, uint32_t err, const char *reason)
 	if (h2n->type == LWS_H2_FRAME_TYPE_COUNT)
 		return 0;
 
+	/*
+	 * A GOAWAY is only ever issued for a connection error, and the pps
+	 * handler closes the connection as soon as it has written it.  But
+	 * that's at the next POLLOUT: we are in the middle of parsing an rx
+	 * buffer that may contain many more frames, and type = COUNT only
+	 * causes the rest of the *current* frame to be ignored.
+	 *
+	 * Until the GOAWAY actually goes out, we must not keep acting on the
+	 * peer's frames.  Otherwise a peer can, eg, have us reject a broken
+	 * header block and then continue feeding the connection-scoped hpack
+	 * decoder from frames that follow it in the same buffer, decoding
+	 * what's left of the old field line into a different stream's ah.
+	 *
+	 * Latch "this connection is dead, stop acting on the peer's frames"
+	 * before anything that can fail.  If we can't even allocate the pps to
+	 * tell him why, that is all the more reason not to carry on parsing
+	 * what he sends us.
+	 */
+
+	h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
+	h2n->goaway_queued = 1;
+
 	pps = lws_h2_new_pps(LWS_H2_PPS_GOAWAY);
 	if (!pps)
 		return 1;
@@ -625,23 +647,6 @@ lws_h2_goaway(struct lws *wsi, uint32_t err, const char *reason)
 	pps->u.ga.highest_sid = h2n->highest_sid;
 	lws_strncpy(pps->u.ga.str, reason, sizeof(pps->u.ga.str));
 	lws_pps_schedule(wsi, pps);
-
-	h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
-
-	/*
-	 * A GOAWAY is only ever issued for a connection error, and the pps
-	 * handler closes the connection as soon as it has written it.  But
-	 * that's at the next POLLOUT: we are in the middle of parsing an rx
-	 * buffer that may contain many more frames, and the type = COUNT
-	 * above only causes the rest of the *current* frame to be ignored.
-	 *
-	 * Until the GOAWAY actually goes out, we must not keep acting on the
-	 * peer's frames.  Otherwise a peer can, eg, have us reject a broken
-	 * header block and then continue feeding the connection-scoped hpack
-	 * decoder from frames that follow it in the same buffer, decoding
-	 * what's left of the old field line into a different stream's ah.
-	 */
-	h2n->goaway_queued = 1;
 
 	return 0;
 }
