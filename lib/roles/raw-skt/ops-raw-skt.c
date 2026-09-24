@@ -97,6 +97,38 @@ lws_raw_skt_connect(struct lws *wsi)
 }
 #endif
 
+/*
+ * sansIO rx for a raw socket: every byte goes to the user as RAW_RX, so
+ * everything is consumed.  len 0 is the peer closing.
+ */
+static int
+rops_rx_raw_skt(struct lws *wsi, const uint8_t *buf, size_t len,
+		int from_transport)
+{
+	int n;
+
+	(void)from_transport;
+
+	if (!len)
+		return LWS_RX_CLOSE;
+
+#if defined(LWS_WITH_UDP)
+	if (lws_fi(&wsi->fic, "udp_rx_loss"))
+		return (int)len;
+#endif
+
+	n = user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
+					LWS_CALLBACK_RAW_RX, wsi->user_space,
+					(void *)buf, len);
+	if (n < 0) {
+		lwsl_wsi_info(wsi, "LWS_CALLBACK_RAW_RX_fail");
+
+		return LWS_RX_CLOSE;
+	}
+
+	return (int)len;
+}
+
 static lws_handling_result_t
 rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			   struct lws_pollfd *pollfd)
@@ -104,8 +136,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 #if defined(LWS_WITH_SOCKS5)
 	const char *cce = NULL;
 #endif
-	struct lws_tokens ebuf;
-	int n = 0, buffered = 0;
+	int n = 0;
 #if defined(LWS_WITH_LATENCY)
 	lws_usec_t _raw_skt_start = lws_now_usecs();
 #endif
@@ -189,77 +220,31 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 				 */
 				if (lws_raw_skt_connect(wsi) < 0)
 					goto fail;
-				goto post_rx_l;
+				goto try_pollout;
 
 			default:
 				break;
 			}
-			goto post_rx_l;
+			goto try_pollout;
 #endif
 		default:
-			ebuf.token = NULL;
-			ebuf.len = (int) wsi->a.protocol->rx_buffer_size;
+		{
+			lws_handling_result_t hr;
+			int nothing, consumed;
 
-			buffered = lws_buflist_aware_read(pt, wsi, &ebuf, 1, __func__);
-			switch (ebuf.len) {
-			case 0:
-				if (wsi->unix_skt)
-					break;
-#if defined(LWS_WITH_UDP)
-				if (lws_wsi_is_udp(wsi)) {
-					/*
-					 * An empty datagram is legal and says
-					 * nothing about the socket... consume
-					 * it and keep the wsi alive
-					 */
-					lwsl_wsi_info(wsi, "empty datagram");
-					goto try_pollout;
-				}
-#endif
-				lwsl_wsi_info(wsi, "read 0 len");
-				wsi->seen_zero_length_recv = 1;
-				if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
-					goto fail;
-
-				/*
-				 * we need to go to fail here, since it's the only
-				 * chance we get to understand that the socket has
-				 * closed
-				 */
-				// goto try_pollout;
-				goto fail;
-
-			case LWS_SSL_CAPABLE_ERROR:
-				goto fail;
-		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-				goto try_pollout;
-			}
-
-#if defined(LWS_WITH_UDP)
-			if (lws_fi(&wsi->fic, "udp_rx_loss")) {
-				n = ebuf.len;
-				goto post_rx_l;
-			}
-#endif
-
-			n = user_callback_handle_rxflow(wsi->a.protocol->callback,
-							wsi, LWS_CALLBACK_RAW_RX,
-							wsi->user_space, ebuf.token,
-							(unsigned int)ebuf.len);
-#if defined(LWS_WITH_UDP) || defined(LWS_WITH_SOCKS5)
-post_rx_l:
-#endif
-			if (n < 0) {
-				lwsl_wsi_info(wsi, "LWS_CALLBACK_RAW_RX_fail");
-				goto fail;
-			}
-
-			if (lws_buflist_aware_finished_consuming(wsi, &ebuf, ebuf.len,
-								 buffered, __func__))
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			/*
+			 * A read is forced even with rx parked: this is a
+			 * plain socket, there is nothing to block behind.  The
+			 * protocol's rx_buffer_size bounds the read.
+			 */
+			hr = lws_rx_pump(pt, wsi, 1,
+					 wsi->a.protocol->rx_buffer_size,
+					 &nothing, &consumed);
+			if (hr != LWS_HPI_RET_HANDLED)
+				return hr;
 
 			goto try_pollout;
+		}
 		}
 	}
 nope:
@@ -398,6 +383,8 @@ static const lws_rops_t rops_table_raw_skt[] = {
 #if defined(LWS_WITH_CLIENT)
 	/*  3 */ { .client_bind		  = rops_client_bind_raw_skt },
 #endif
+	/*  4, or 3 with no client */
+	{ .rx				  = rops_rx_raw_skt },
 };
 
 const struct lws_role_ops role_ops_raw_skt = {
@@ -427,9 +414,13 @@ const struct lws_role_ops role_ops_raw_skt = {
 #if defined(LWS_WITH_CLIENT)
 	  /* LWS_ROPS_client_bind */
 	  /* LWS_ROPS_issue_keepalive */		0x30,
+	  /* LWS_ROPS_client_transport_up */
+	  /* LWS_ROPS_rx */				0x04,
 #else
 	  /* LWS_ROPS_client_bind */
 	  /* LWS_ROPS_issue_keepalive */		0x00,
+	  /* LWS_ROPS_client_transport_up */
+	  /* LWS_ROPS_rx */				0x03,
 #endif
 					},
 

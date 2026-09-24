@@ -706,6 +706,10 @@ lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
  * parks what it did not consume, and deals with the transport's own
  * conditions: nothing there yet, an error, the peer closed.
  *
+ * fr forces a read even when something is parked (a mux stream must, to
+ * avoid head-of-line blocking); max is the most to read, 0 for the
+ * per-thread buffer's worth.
+ *
  * Returns LWS_HPI_RET_HANDLED when the caller can carry on to its POLLOUT
  * side, with *nothing set when there was no rx for the role to act on (and
  * *consumed the count it took), or the usual PLEASE_CLOSE_ME /
@@ -713,9 +717,9 @@ lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
  */
 lws_handling_result_t
 lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi, int fr,
-	    int *nothing, int *consumed)
+	    size_t max, int *nothing, int *consumed)
 {
-	struct lws_tokens ebuf = { NULL, 0 };
+	struct lws_tokens ebuf = { NULL, (int)max };
 	int buffered, n;
 
 	*nothing = 0;
@@ -724,6 +728,17 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi, int fr,
 	buffered = lws_buflist_aware_read(pt, wsi, &ebuf, (char)fr, __func__);
 	switch (ebuf.len) {
 	case 0:
+#if defined(LWS_WITH_UDP)
+		/*
+		 * An empty datagram is legal and says nothing about the
+		 * socket: nothing for the role, the wsi lives on
+		 */
+		if (lws_wsi_is_udp(wsi)) {
+			*nothing = 1;
+
+			return LWS_HPI_RET_HANDLED;
+		}
+#endif
 		/* the peer closed its side: stop reading, tell the role */
 		wsi->seen_zero_length_recv = 1;
 		if (lws_change_pollfd(wsi, LWS_POLLIN, 0))

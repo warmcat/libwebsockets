@@ -646,7 +646,7 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 			lws_handling_result_t hr;
 			int nothing, consumed;
 
-			hr = lws_rx_pump(pt, wsi, 0, &nothing, &consumed);
+			hr = lws_rx_pump(pt, wsi, 0, 0, &nothing, &consumed);
 			if (hr != LWS_HPI_RET_HANDLED)
 				return hr;
 

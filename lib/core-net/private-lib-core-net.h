@@ -1414,7 +1414,7 @@ lws_service_wsi_as_writable(struct lws *wsi);
 
 lws_handling_result_t
 lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi, int fr,
-	    int *nothing, int *consumed);
+	    size_t max, int *nothing, int *consumed);
 
 /* the event engine's entry: a role change a table row asked for */
 void

@@ -24,6 +24,36 @@
 
 #include <private-lib-core.h>
 
+/*
+ * sansIO rx for a proxied raw socket: every byte goes to the user as the
+ * side's RAW_PROXY_*_RX, so everything is consumed.  len 0 is the peer
+ * closing.
+ */
+static int
+rops_rx_raw_proxy(struct lws *wsi, const uint8_t *buf, size_t len,
+		  int from_transport)
+{
+	int n;
+
+	(void)from_transport;
+
+	if (!len)
+		return LWS_RX_CLOSE;
+
+	n = user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
+					lwsi_role_client(wsi) ?
+						LWS_CALLBACK_RAW_PROXY_CLI_RX :
+						LWS_CALLBACK_RAW_PROXY_SRV_RX,
+					wsi->user_space, (void *)buf, len);
+	if (n < 0) {
+		lwsl_info("LWS_CALLBACK_RAW_PROXY_*_RX fail\n");
+
+		return LWS_RX_CLOSE;
+	}
+
+	return (int)len;
+}
+
 static lws_handling_result_t
 rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
 			     struct lws_pollfd *pollfd)
@@ -31,9 +61,6 @@ rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
 #if defined(LWS_WITH_LATENCY)
 	lws_usec_t _rproxy_start = lws_now_usecs();
 #endif
-	struct lws_tokens ebuf;
-	int n, buffered;
-
 	/* pending truncated sends have uber priority */
 
 	if (lws_has_buffered_out(wsi)) {
@@ -60,47 +87,13 @@ rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
 	    !(wsi->favoured_pollin &&
 	      (pollfd->revents & pollfd->events & LWS_POLLOUT))) {
 
-		ebuf.token = NULL;
-		ebuf.len = 0;
-		buffered = lws_buflist_aware_read(pt, wsi, &ebuf, 1, __func__);
-		if (buffered < 0)
-			goto fail;
+		lws_handling_result_t hr;
+		int nothing, consumed;
 
-		switch (ebuf.len) {
-		case 0:
-			lwsl_info("%s: read 0 len\n", __func__);
-			wsi->seen_zero_length_recv = 1;
-			if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
-				goto fail;
-
-			/*
-			 * we need to go to fail here, since it's the only
-			 * chance we get to understand that the socket has
-			 * closed
-			 */
-			// goto try_pollout;
-			goto fail;
-
-		case LWS_SSL_CAPABLE_ERROR:
-			goto fail;
-		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-			goto try_pollout;
-		}
-		n = user_callback_handle_rxflow(wsi->a.protocol->callback,
-						wsi, lwsi_role_client(wsi) ?
-						 LWS_CALLBACK_RAW_PROXY_CLI_RX :
-						 LWS_CALLBACK_RAW_PROXY_SRV_RX,
-						wsi->user_space, ebuf.token,
-						(size_t)ebuf.len);
-		if (n < 0) {
-			lwsl_info("LWS_CALLBACK_RAW_PROXY_*_RX fail\n");
-			goto fail;
-		}
-
-		if (lws_buflist_aware_finished_consuming(wsi, &ebuf, ebuf.len,
-							 buffered, __func__))
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		/* a plain socket: read even with rx parked */
+		hr = lws_rx_pump(pt, wsi, 1, 0, &nothing, &consumed);
+		if (hr != LWS_HPI_RET_HANDLED)
+			return hr;
 	} else
 		if (wsi->favoured_pollin &&
 		    (pollfd->revents & pollfd->events & LWS_POLLOUT))
@@ -231,6 +224,7 @@ static const lws_rops_t rops_table_raw_proxy[] = {
 	/*  2 */ { .handle_POLLOUT	= rops_handle_POLLOUT_raw_proxy },
 	/*  3 */ { .adoption_bind	= rops_adoption_bind_raw_proxy },
 	/*  4 */ { .client_bind		= rops_client_bind_raw_proxy },
+	/*  5 */ { .rx			= rops_rx_raw_proxy },
 };
 
 
@@ -260,6 +254,8 @@ const struct lws_role_ops role_ops_raw_proxy = {
 	  /* LWS_ROPS_adoption_bind */			0x03,
 	  /* LWS_ROPS_client_bind */
 	  /* LWS_ROPS_issue_keepalive */		0x40,
+	  /* LWS_ROPS_client_transport_up */
+	  /* LWS_ROPS_rx */				0x05,
 					},
 
 	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_RAW_PROXY_CLI_ADOPT,
