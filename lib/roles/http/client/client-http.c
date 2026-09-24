@@ -37,7 +37,11 @@ lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
 	
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 /*
- * sansIO rx for an h1 client waiting for its response headers.  The header
+ * sansIO rx for an h1 client until it is established: the socks and http
+ * CONNECT legs of its transport, the wait for its response headers, and the
+ * idle wait between transactions of a connection kept warm.
+ *
+ * While it waits for its response headers it is the header parser's.  The
  * parser takes bytes one at a time and stops at the end of the block, so
  * whatever the peer coalesced after it (a browser's first ws frames, say)
  * is left for the next phase, which interprets the completed block once
@@ -121,6 +125,19 @@ lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 		return (int)len;
 	}
 #endif
+
+	if (lwsi_state(wsi) == LRS_IDLING) {
+		/*
+		 * Kept warm between transactions: the peer has nothing to
+		 * say to us.  It closing, or sending anyway, ends the
+		 * connection; the 1-byte probe read this replaces silently
+		 * ate whatever arrived.
+		 */
+		lwsl_wsi_info(wsi, "peer %s while idle",
+			      len ? "sent" : "closed");
+
+		return LWS_RX_CLOSE;
+	}
 
 	if (lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY || !wsi->stream.ah) {
 		lwsl_wsi_err(wsi, "%s: rx in state 0x%x", __func__,

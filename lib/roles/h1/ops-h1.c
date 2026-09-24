@@ -783,22 +783,18 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 	// lwsl_notice("%s: %s state 0x%x, revents %d\n", __func__, lws_wsi_tag(wsi), lwsi_state(wsi), pollfd->revents);
 
 	if (lwsi_state(wsi) == LRS_IDLING) {
-		uint8_t buf[1];
-		int rlen;
+		lws_handling_result_t hr;
+		int nothing, consumed;
 
 		/*
-		 * h1 staggered spins here in IDLING if we don't close it.
-		 * It shows POLLIN but the tls connection returns ERROR if
-		 * you try to read it.
+		 * A connection kept warm for reuse has nothing to hear from
+		 * its peer but that it has gone away: the rx op closes it on
+		 * anything that arrives.  (A tls connection here shows POLLIN
+		 * and errors on the read; we used to spin on that.)
 		 */
-
-		// lwsl_notice("%s: %p: wsistate 0x%x %s, revents 0x%x\n",
-		//	    __func__, wsi, wsi->wsistate, wsi->role_ops->name,
-		//	    pollfd->revents);
-
-		rlen = lws_ssl_capable_read(wsi, buf, sizeof(buf));
-		if (rlen == LWS_SSL_CAPABLE_ERROR)
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		hr = lws_rx_pump(pt, wsi, pollfd, 0, 0, &nothing, &consumed);
+		if (hr != LWS_HPI_RET_HANDLED)
+			return hr;
 	}
 
 #ifdef LWS_WITH_CGI

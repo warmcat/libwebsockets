@@ -115,9 +115,10 @@ each function is in.
    with the trace unchanged.  This is the pattern for the rest (done:
    `lws_rx_pump()` feeds the `rx` op of h1 both sides, raw-skt, raw-proxy,
    mqtt, h2 and ws; `lws_rx_pump_dgram()` feeds quic's `rx_dgram`, doing
-   the recvmsg and the ECN control message itself.  Left reading the
-   transport themselves: the h1 idle probe, the http proxy reply, and
-   `lws_http_client_read()`, the user's pull of a response body).
+   the recvmsg and the ECN control message itself; the socks5 and http
+   CONNECT legs of a client's transport, and the idle wait of a kept-warm
+   h1 connection, are states of the client rx.  Left reading the transport
+   itself: `lws_http_client_read()`, the user's pull of a response body).
 5. h2, then h3 over the quic datagram layer, then the remaining roles.
 6. When every role is converted, the IO half is a replaceable component,
    and the sansIO half is what a port translates.
