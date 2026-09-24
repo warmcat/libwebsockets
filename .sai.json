@@ -235,6 +235,17 @@
 			"cpack":	"cpack $SAI_CPACK",
 			"artifacts":	"build/*.rpm, build/*.deb, build/*.zip"
 		},
+		# distro_recommended built with gcov instrumentation, run through
+		# ctest, then scripts/coverage-report.py prints the line / function
+		# coverage of lib/ and the worst-covered functions into the log.  The
+		# clang platform's own steps stop at scan-build, so the build, install
+		# and ctest ride along in the cmake string like quic-interop does;
+		# ctest's result still decides the step, the report never does.
+		"coverage": {
+			"cmake":	"-DLWS_WITH_DISTRO_RECOMMENDED=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_GCOV=1 && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install && ( LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3 ; R=$? ; python3 ../scripts/coverage-report.py --build-dir . --source-dir .. --json-out coverage-summary.json ; exit $R )",
+			"platforms":	"none, rocky9-ca/aarch64-a72a55-rk3588/clang",
+			"artifacts":	"build/coverage-summary.json"
+		},
 		"lwsws": {
 			"cmake":	"-DLWS_WITH_LWSWS=ON -DLWS_WITHOUT_EXTENSIONS=0 -DLWS_WITH_HTTP2=1 -DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_AUTHORITATIVE_DNS=1 -DLWS_WITH_SYS_NTPCLIENT=1"
 		},
