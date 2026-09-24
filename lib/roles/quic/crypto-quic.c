@@ -461,6 +461,16 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 			for (d = lws_dll2_get_head(&nwsi->mux.child_list_owner); d; d = lws_dll2_get_next(d)) {
 				struct lws *w = lws_container_of(d, struct lws,
 								 mux.sibling_list);
+
+				/*
+				 * our own unidirectional control streams are on
+				 * this list too: they carry no request, and
+				 * re-adopting one as a request stream would
+				 * rewrite it
+				 */
+				if (w->quic.qs && w->quic.qs->is_unidirectional)
+					continue;
+
 				if (w->a.protocol && w->a.protocol->callback) {
 					int ret = w->a.protocol->callback(w,
 							LWS_CALLBACK_CLIENT_ESTABLISHED_EARLY,
