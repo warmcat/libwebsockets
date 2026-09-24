@@ -1129,9 +1129,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	}
 #endif
 
-#if defined(LWS_WITH_TLS)
 handled:
-#endif
 	pollfd->revents = 0;
 #if defined(LWS_WITH_LATENCY)
 	lws_usec_t _role_out_start = lws_now_usecs();
