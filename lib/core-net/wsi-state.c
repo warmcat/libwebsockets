@@ -448,6 +448,8 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 
 	/* the client's response headers; webtransport; raw */
 	{ "*", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_RESP_HDRS, NULL, NULL, LRS_ESTABLISHED },
+	/* a server may answer before the request body is finished (401, 413...) */
+	{ "*", "C", LRS_ISSUE_HTTP_BODY,	LWS_WSIEV_RESP_HDRS, NULL, NULL, LRS_ESTABLISHED },
 	{ "h3", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_WT_SESSION, "wt", NULL, LRS_ESTABLISHED },
 	{ "h3", "S", ANY,			LWS_WSIEV_WT_SESSION, "wt", NULL, LRS_ESTABLISHED },
 	{ "h3", "*", ANY,			LWS_WSIEV_WT_STREAM, "wt", NULL, LRS_ESTABLISHED },
