@@ -91,7 +91,9 @@ each function is in.
 3. The state trace (`LWS_STATE_TRACE_FILE`) is the oracle: a split step is
    done when the gate's edge set is unchanged.
 4. `scripts/sans-io-lint.sh` greps the sansIO directories for the forbidden
-   identifiers.  It reports the count; the count only goes down.
+   identifiers and compares the total with `scripts/sans-io-lint.baseline`.
+   More than the baseline fails; a step that brings it down re-baselines
+   with `--update`.  The count only goes down.
 
 ## Staging
 
@@ -99,7 +101,7 @@ each function is in.
    legs writing to the fd, connect completion special cases living in
    `connect4.c` instead of the roles (both done: `c9ca0d2f5` and the
    `client_transport_up` op).
-2. Land the lint with today's count as its baseline.
+2. Land the lint with today's count as its baseline (done: 273).
 3. Move the IO files of `lib/core-net` into `lib/core-net/IO/`, no code
    change, so the directory says what the file is.
 4. Convert one role's rx to take bytes instead of reading them (h1 or ws),
