@@ -764,8 +764,10 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 		 * failed with REFUSED_STREAM so the peer knows the stream was
 		 * never processed and may safely retry it elsewhere.
 		 */
-		lws_h2_rst_stream(wsi, H2_ERR_REFUSED_STREAM,
-				  "ws-over-h2 handshake refused");
+		if (lws_h2_rst_stream(wsi, H2_ERR_REFUSED_STREAM,
+				      "ws-over-h2 handshake refused"))
+			lwsl_wsi_info(wsi, "%s: couldn't queue RST_STREAM",
+				      __func__);
 /*	else
 		if (wsi->mux_substream)
 			lws_h2_rst_stream(wsi, H2_ERR_STREAM_CLOSED, "swsi got closed");
@@ -1234,8 +1236,10 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 				  (unsigned long long)
 					wsi->http.rx_content_length);
 
-			lws_h2_rst_stream(wsi, H2_ERR_PROTOCOL_ERROR,
-					  "Not enough rx content");
+			if (lws_h2_rst_stream(wsi, H2_ERR_PROTOCOL_ERROR,
+					      "Not enough rx content"))
+				lwsl_info("%s: RST_STREAM not queued\n",
+					  __func__);
 
 			return 1;
 		}

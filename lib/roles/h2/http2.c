@@ -363,7 +363,10 @@ __lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	if (sid <= h2n->highest_sid_opened) {
 		lwsl_info("%s: tried to open lower sid %d (%d)\n", __func__,
 				sid, (int)h2n->highest_sid_opened);
-		lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR, "Bad sid");
+		/* our caller holds the locks, and there is no stream either way */
+		if (lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR, "Bad sid"))
+			lwsl_info("%s: GOAWAY not queued\n", __func__);
+
 		return NULL;
 	}
 
@@ -595,7 +598,11 @@ lws_pps_schedule(struct lws *wsi, struct lws_h2_protocol_send *pps)
 		lwsl_warn("%s: too many pending protocol sends (%u), dropping conn\n",
 			  __func__, (unsigned int)lws_dll2_count(&h2n->pps_owner));
 		lws_free(pps);
-		lws_h2_goaway(nwsi, H2_ERR_ENHANCE_YOUR_CALM, "too many pending pps");
+		if (lws_h2_goaway(nwsi, H2_ERR_ENHANCE_YOUR_CALM,
+				  "too many pending pps"))
+			lwsl_warn("%s: and no room to queue the GOAWAY\n",
+				  __func__);
+
 		return;
 	}
 
@@ -664,6 +671,17 @@ lws_h2_rst_stream(struct lws *wsi, uint32_t err, const char *reason)
 	if (!wsi->h23_stream_carries_ws && h2n->type == LWS_H2_FRAME_TYPE_COUNT)
 		return 0;
 
+	/*
+	 * As for lws_h2_goaway(): latch the decision before anything that can
+	 * fail.  Moving the stream to CLOSED is what makes http2_rx_validity[]
+	 * reject the peer's further HEADERS / CONTINUATION / DATA for it in
+	 * the window before the RST_STREAM is actually written -- if we can't
+	 * even queue the RST_STREAM, we need that rejection more, not less.
+	 */
+
+	h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
+	lws_h2_state(wsi, LWS_H2_STATE_CLOSED);
+
 	pps = lws_h2_new_pps(LWS_H2_PPS_RST_STREAM);
 	if (!pps)
 		return 1;
@@ -675,9 +693,6 @@ lws_h2_rst_stream(struct lws *wsi, uint32_t err, const char *reason)
 	pps->u.rs.err = err;
 
 	lws_pps_schedule(wsi, pps);
-
-	h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
-	lws_h2_state(wsi, LWS_H2_STATE_CLOSED);
 
 	return 0;
 }
@@ -706,8 +721,9 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 			break;
 		case H2SET_ENABLE_PUSH:
 			if (b > 1) {
-				lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
-					      "ENABLE_PUSH invalid arg");
+				if (lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
+					      "ENABLE_PUSH invalid arg"))
+					return 1;
 				return 1;
 			}
 			break;
@@ -715,8 +731,9 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 			break;
 		case H2SET_INITIAL_WINDOW_SIZE:
 			if (b > 0x7fffffff) {
-				lws_h2_goaway(nwsi, H2_ERR_FLOW_CONTROL_ERROR,
-					      "Initial Window beyond max");
+				if (lws_h2_goaway(nwsi, H2_ERR_FLOW_CONTROL_ERROR,
+					      "Initial Window beyond max"))
+					return 1;
 				return 1;
 			}
 
@@ -770,9 +787,10 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 					  b - (unsigned int)settings->s[a],
 					  (long long)cr);
 				if (cr > 0x7fffffffll || cr < -0x80000000ll) {
-					lws_h2_goaway(nwsi,
+					if (lws_h2_goaway(nwsi,
 						      H2_ERR_FLOW_CONTROL_ERROR,
-						      "Initial Window delta overflow");
+						      "Initial Window delta overflow"))
+						return 1;
 					return 1;
 				}
 				w->txc.tx_cr = (int32_t)cr;
@@ -786,13 +804,15 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 			break;
 		case H2SET_MAX_FRAME_SIZE:
 			if (b < wsi->a.vhost->h2.set.s[H2SET_MAX_FRAME_SIZE]) {
-				lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
-					      "Frame size < initial");
+				if (lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
+					      "Frame size < initial"))
+					return 1;
 				return 1;
 			}
 			if (b > 0x00ffffff) {
-				lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
-					      "Settings Frame size above max");
+				if (lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
+					      "Settings Frame size above max"))
+					return 1;
 				return 1;
 			}
 			break;
@@ -1323,7 +1343,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	if (h2n->sid && !(h2n->sid & 1)) {
 		char pes[32];
 		lws_snprintf(pes, sizeof(pes), "Even Stream ID 0x%x", (unsigned int)h2n->sid);
-		lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, pes);
+		if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, pes))
+			return 1;
 
 		return 0;
 	}
@@ -1389,9 +1410,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		 */
 		lwsl_info("%s: received oversize frame %d\n", __func__,
 			  (unsigned int)h2n->length);
-		lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
+		return lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
 			      "Peer ignored our frame size setting");
-		return 1;
 	}
 
 	if (h2n->swsi)
@@ -1436,8 +1456,9 @@ lws_h2_parse_frame_header(struct lws *wsi)
 						__func__, (int)h2n->length, (int)h2n->sid, (int)h2n->highest_sid_opened);
 
 //				if (h2n->sid > h2n->highest_sid_opened) {
-				lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED,
-				      "Data for nonexistent sid");
+				if (lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED,
+				      "Data for nonexistent sid"))
+					return 1;
 				return 0;
 //				}
 			}
@@ -1449,8 +1470,9 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			/* if not credible, reject it */
 			lwsl_info("%s: %s, No child for sid %d, rxcmd %d\n",
 			  __func__, lws_wsi_tag(h2n->swsi), (unsigned int)h2n->sid, h2n->type);
-			lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED,
-				     "Data for nonexistent sid");
+			if (lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED,
+				     "Data for nonexistent sid"))
+				return 1;
 			return 0;
 		}
 	}
@@ -1467,7 +1489,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			n = H2_ERR_STREAM_CLOSED;
 		else
 			n = H2_ERR_PROTOCOL_ERROR;
-		lws_h2_goaway(wsi, (unsigned int)n, "invalid rx for state");
+		if (lws_h2_goaway(wsi, (unsigned int)n, "invalid rx for state"))
+			return 1;
 
 		return 0;
 	}
@@ -1483,7 +1506,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			n = H2_ERR_COMPRESSION_ERROR;
 		else
 			n = H2_ERR_PROTOCOL_ERROR;
-		lws_h2_goaway(wsi, (unsigned int)n, "Continuation hdrs State");
+		if (lws_h2_goaway(wsi, (unsigned int)n, "Continuation hdrs State"))
+			return 1;
 
 		return 0;
 	}
@@ -1493,7 +1517,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		lwsl_info("seen incoming LWS_H2_FRAME_TYPE_DATA start\n");
 		if (!h2n->sid) {
 			lwsl_info("DATA: 0 sid\n");
-			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "DATA 0 sid");
+			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "DATA 0 sid"))
+				return 1;
 			break;
 		}
 		lwsl_info("Frame header DATA: sid %u, flags 0x%x, len %u\n",
@@ -1510,7 +1535,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		if (
 		    h2n->swsi->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_REMOTE ||
 		    h2n->swsi->h2.h2_state == LWS_H2_STATE_CLOSED) {
-			lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED, "conn closed");
+			if (lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED, "conn closed"))
+				return 1;
 			break;
 		}
 
@@ -1522,20 +1548,23 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	case LWS_H2_FRAME_TYPE_PRIORITY:
 		lwsl_info("LWS_H2_FRAME_TYPE_PRIORITY complete frame\n");
 		if (!h2n->sid) {
-			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-				      "Priority has 0 sid");
+			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				      "Priority has 0 sid"))
+				return 1;
 			break;
 		}
 		if (h2n->length != 5) {
-			lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
-				      "Priority has length other than 5");
+			if (lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
+				      "Priority has length other than 5"))
+				return 1;
 			break;
 		}
 		break;
 	case LWS_H2_FRAME_TYPE_PUSH_PROMISE:
                 h2n->cont_count = 0;
                 lwsl_info("LWS_H2_FRAME_TYPE_PUSH_PROMISE complete frame\n");
-		lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "Server only");
+		if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "Server only"))
+			return 1;
 		break;
 
 	case LWS_H2_FRAME_TYPE_GOAWAY:
@@ -1548,13 +1577,13 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		if (!h2n->swsi) {
 			if (h2n->sid <= h2n->highest_sid_opened)
 				break;
-			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+			return lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 				      "crazy sid on RST_STREAM");
-			return 1;
 		}
 		if (h2n->length != 4) {
-			lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
-				      "RST_STREAM can only be length 4");
+			if (lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
+				      "RST_STREAM can only be length 4"))
+				return 1;
 			break;
 		}
 		lws_h2_state(h2n->swsi, LWS_H2_STATE_CLOSED);
@@ -1564,15 +1593,17 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		lwsl_info("LWS_H2_FRAME_TYPE_SETTINGS complete frame\n");
 		/* nonzero sid on settings is illegal */
 		if (h2n->sid) {
-			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-					 "Settings has nonzero sid");
+			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+					 "Settings has nonzero sid"))
+				return 1;
 			break;
 		}
 
 		if (!(h2n->flags & LWS_H2_FLAG_SETTINGS_ACK)) {
 			if (h2n->length % 6) {
-				lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
-						 "Settings length error");
+				if (lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
+						 "Settings length error"))
+					return 1;
 				break;
 			}
 
@@ -1598,20 +1629,23 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		/* came to us with ACK set... not allowed to have payload */
 
 		if (h2n->length) {
-			lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
-				      "Settings with ACK not allowed payload");
+			if (lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
+				      "Settings with ACK not allowed payload"))
+				return 1;
 			break;
 		}
 		break;
 	case LWS_H2_FRAME_TYPE_PING:
 		if (h2n->sid) {
-			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-				      "Ping has nonzero sid");
+			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				      "Ping has nonzero sid"))
+				return 1;
 			break;
 		}
 		if (h2n->length != 8) {
-			lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
-				      "Ping payload can only be 8");
+			if (lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
+				      "Ping payload can only be 8"))
+				return 1;
 			break;
 		}
 		break;
@@ -1621,17 +1655,17 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			  (int)h2n->cont_exp_sid);
 
 		if (++h2n->cont_count > 64) {
-			lws_h2_goaway(wsi, H2_ERR_ENHANCE_YOUR_CALM,
+			return lws_h2_goaway(wsi, H2_ERR_ENHANCE_YOUR_CALM,
 				      "CONTINUATION flood");
-			return 1;
 		}
 
 		if (!h2n->cont_exp ||
 		     h2n->cont_exp_sid != h2n->sid ||
 		     !h2n->sid ||
 		     (!h2n->swsi && !h2n->hpack_no_store)) {
-			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-				      "unexpected CONTINUATION");
+			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				      "unexpected CONTINUATION"))
+				return 1;
 			break;
 		}
 
@@ -1643,8 +1677,9 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		}
 
 		if (h2n->swsi->h2.END_HEADERS) {
-			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-				      "END_HEADERS already seen");
+			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				      "END_HEADERS already seen"))
+				return 1;
 			break;
 		}
 		/*
@@ -1675,22 +1710,21 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		if (h2n->hpack != HPKS_TYPE) {
 			lwsl_info("%s: HEADERS mid hpack field (state %d)\n",
 				  __func__, h2n->hpack);
-			lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
-				      "HEADERS mid hpack field");
+			if (lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
+				      "HEADERS mid hpack field"))
+				return 1;
 			break;
 		}
 
 		if (!h2n->sid) {
-			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "sid 0");
-			return 1;
+			return lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "sid 0");
 		}
 
 		if (h2n->swsi && !h2n->swsi->h2.END_STREAM &&
 		    h2n->swsi->h2.END_HEADERS &&
 		    !(h2n->flags & LWS_H2_FLAG_END_STREAM)) {
-			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+			return lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 				      "extra HEADERS together");
-			return 1;
 		}
 
 		/*
@@ -1703,8 +1737,9 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		 * connection error.
 		 */
 		if (h2n->swsi && !lwsi_role_http(h2n->swsi)) {
-			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-				      "HEADERS on non-http stream");
+			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				      "HEADERS on non-http stream"))
+				return 1;
 			break;
 		}
 
@@ -1751,10 +1786,9 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			/* no more children allowed by parent */
 			if (lws_wsi_mux_child_count(wsi) + 1 >
 			    wsi->h2.h2n->our_set.s[H2SET_MAX_CONCURRENT_STREAMS]) {
-				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				return lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 				"Another stream not allowed");
 
-				return 1;
 			}
 
 			/*
@@ -1772,10 +1806,9 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			lws_context_unlock(wsi->a.context);
 
 			if (!h2n->swsi) {
-				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				return lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 					      "OOM");
 
-				return 1;
 			}
 
 			if (h2n->sid >= h2n->highest_sid)
@@ -1843,8 +1876,9 @@ update_end_headers:
 		 * attach one, and the ah is dropped on eg, ws upgrade)
 		 */
 		if (!h2n->swsi->stream.ah) {
-			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-				      "HEADERS on stream without ah");
+			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				      "HEADERS on stream without ah"))
+				return 1;
 			break;
 		}
 
@@ -1905,8 +1939,9 @@ cleanup_wsi_l:
 
 	case LWS_H2_FRAME_TYPE_WINDOW_UPDATE:
 		if (h2n->length != 4) {
-			lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
-				      "window update frame not 4");
+			if (lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
+				      "window update frame not 4"))
+				return 1;
 			break;
 		}
 		lwsl_info("LWS_H2_FRAME_TYPE_WINDOW_UPDATE\n");
@@ -1977,7 +2012,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		h2n->highest_sid = h2n->sid;
 
 	if (h2n->collected_priority && (h2n->dep & ~(1u << 31)) == h2n->sid) {
-		lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "depends on own sid");
+		if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "depends on own sid"))
+			return 1;
 		return 0;
 	}
 
@@ -2159,8 +2195,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			 */
 
 			if (h2n->last_action_dyntable_resize) {
-				lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
-					"dyntable resize last in headers");
+				if (lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
+					"dyntable resize last in headers"))
+					return 1;
 				break;
 			}
 
@@ -2171,8 +2208,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			if (h2n->hpack != HPKS_TYPE) {
 				lwsl_info("%s: sunk hpack incomplete %d\n",
 					  __func__, h2n->hpack);
-				lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
-					      "hpack incomplete");
+				if (lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
+					      "hpack incomplete"))
+					return 1;
 				break;
 			}
 
@@ -2186,8 +2224,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		/* service the http request itself */
 
 		if (h2n->last_action_dyntable_resize) {
-			lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
-				"dyntable resize last in headers");
+			if (lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
+				"dyntable resize last in headers"))
+				return 1;
 			break;
 		}
 
@@ -2206,8 +2245,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			lwsl_info("hpack incomplete %d (type %d, len %u)\n",
 				  h2n->hpack, h2n->type,
 				  (unsigned int)h2n->hpack_len);
-			lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
-				      "hpack incomplete");
+			if (lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
+				      "hpack incomplete"))
+				return 1;
 			break;
 		}
 
@@ -2253,8 +2293,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			 */
 
 			if (lws_hdr_extant(h2n->swsi, WSI_TOKEN_CONNECTION)) {
-				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-					      "Connection hdr in trailers");
+				if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+					      "Connection hdr in trailers"))
+					return 1;
 				break;
 			}
 
@@ -2266,8 +2307,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			 */
 			if (lws_hdr_extant(h2n->swsi,
 					   WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
-				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-					      "Transfer-Encoding in trailers");
+				if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+					      "Transfer-Encoding in trailers"))
+					return 1;
 				break;
 			}
 
@@ -2281,9 +2323,10 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 				    strncmp(lws_hdr_simple_ptr(h2n->swsi,
 							       WSI_TOKEN_TE),
 					    "trailers", (unsigned int)n)) {
-					lws_h2_goaway(wsi,
+					if (lws_h2_goaway(wsi,
 						      H2_ERR_PROTOCOL_ERROR,
-						      "Illegal TE in trailers");
+						      "Illegal TE in trailers"))
+						return 1;
 					break;
 				}
 			}
@@ -2303,9 +2346,10 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			    h2n->swsi->h2.END_STREAM &&
 			    h2n->swsi->http.rx_content_length &&
 			    h2n->swsi->http.rx_content_remain) {
-				lws_h2_rst_stream(h2n->swsi,
+				if (lws_h2_rst_stream(h2n->swsi,
 						  H2_ERR_PROTOCOL_ERROR,
-						  "Not enough rx content");
+						  "Not enough rx content"))
+					return 1;
 				break;
 			}
 
@@ -2321,8 +2365,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 #if defined(LWS_WITH_CLIENT)
 			if (h2n->swsi->client_mux_substream) {
-				lws_h2_rst_stream(h2n->swsi, H2_ERR_NO_ERROR,
-						  "client done");
+				if (lws_h2_rst_stream(h2n->swsi, H2_ERR_NO_ERROR,
+						  "client done"))
+					return 1;
 
 				if (lws_http_transaction_completed_client(
 								h2n->swsi))
@@ -2344,8 +2389,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		 */
 		if (h2n->swsi->client_mux_substream &&
 		    lwsi_state(h2n->swsi) == LRS_H2_WAITING_TO_SEND_HEADERS) {
-			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-				      "HEADERS on unsent stream");
+			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				      "HEADERS on unsent stream"))
+				return 1;
 			break;
 		}
 
@@ -2438,8 +2484,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		if (h2n->swsi->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_REMOTE ||
 		    h2n->swsi->h2.h2_state == LWS_H2_STATE_CLOSED) {
-			lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED,
-				      "Banning service on CLOSED_REMOTE");
+			if (lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED,
+				      "Banning service on CLOSED_REMOTE"))
+				return 1;
 			break;
 		}
 
@@ -2484,8 +2531,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		     (h2n->swsi->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_REMOTE &&
 		      h2n->swsi->h2.END_STREAM))) {
 
-			lws_h2_rst_stream(h2n->swsi, H2_ERR_NO_ERROR,
-				"client done");
+			if (lws_h2_rst_stream(h2n->swsi, H2_ERR_NO_ERROR,
+				"client done"))
+				return 1;
 
 			if (lws_http_transaction_completed_client(h2n->swsi))
 				lwsl_debug("tx completed returned close\n");
@@ -2505,8 +2553,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		    !lws_hdr_total_length(h2n->swsi, WSI_TOKEN_HTTP_COLON_SCHEME) ||
 		     lws_hdr_total_length(h2n->swsi, WSI_TOKEN_HTTP_COLON_STATUS) ||
 		     lws_hdr_extant(h2n->swsi, WSI_TOKEN_CONNECTION)) {
-			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-				      "Pseudoheader checks");
+			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				      "Pseudoheader checks"))
+				return 1;
 			break;
 		}
 
@@ -2523,8 +2572,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		if (lws_hdr_extant(h2n->swsi,
 				   WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
-			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-				      "Transfer-Encoding in h2 request");
+			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				      "Transfer-Encoding in h2 request"))
+				return 1;
 			break;
 		}
 
@@ -2535,8 +2585,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			    !lws_hdr_simple_ptr(h2n->swsi, WSI_TOKEN_TE) ||
 			    strncmp(lws_hdr_simple_ptr(h2n->swsi, WSI_TOKEN_TE),
 				  "trailers", (unsigned int)n)) {
-				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-					      "Illegal TE");
+				if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+					      "Illegal TE"))
+					return 1;
 				break;
 			}
 		}
@@ -2602,8 +2653,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		    h2n->swsi->h2.END_STREAM &&
 		    h2n->swsi->http.rx_content_length &&
 		    h2n->swsi->http.rx_content_remain) {
-			lws_h2_rst_stream(h2n->swsi, H2_ERR_PROTOCOL_ERROR,
-					  "Not enough rx content");
+			if (lws_h2_rst_stream(h2n->swsi, H2_ERR_PROTOCOL_ERROR,
+					  "Not enough rx content"))
+				return 1;
 			break;
 		}
 
@@ -2641,8 +2693,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			{
 				lws_h2_state(h2n->swsi, LWS_H2_STATE_CLOSED);
 
-				lws_h2_rst_stream(h2n->swsi, H2_ERR_NO_ERROR,
-						  "client done");
+				if (lws_h2_rst_stream(h2n->swsi, H2_ERR_NO_ERROR,
+						  "client done"))
+					return 1;
 
 				if (lws_http_transaction_completed_client(h2n->swsi))
 					lwsl_debug("tx completed returned close\n");
@@ -2684,8 +2737,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		if (!eff_wsi) {
 			if (h2n->sid > h2n->highest_sid_opened)
-				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-					      "alien sid");
+				if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+					      "alien sid"))
+					return 1;
 			break; /* ignore */
 		}
 
@@ -2709,19 +2763,22 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 					__func__, (unsigned long long)eff_wsi->txc.tx_cr,
 					(unsigned long long)h2n->hpack_e_dep,
 					(unsigned long long)eff_wsi->txc.tx_cr + (unsigned long long)h2n->hpack_e_dep);
-			if (h2n->sid)
-				lws_h2_rst_stream(h2n->swsi,
-						  H2_ERR_FLOW_CONTROL_ERROR,
-						  "Flow control exceeded max");
-			else
-				lws_h2_goaway(wsi, H2_ERR_FLOW_CONTROL_ERROR,
-					      "Flow control exceeded max");
+			if (h2n->sid) {
+				if (lws_h2_rst_stream(h2n->swsi,
+						H2_ERR_FLOW_CONTROL_ERROR,
+						"Flow control exceeded max"))
+					return 1;
+			} else
+				if (lws_h2_goaway(wsi, H2_ERR_FLOW_CONTROL_ERROR,
+					      "Flow control exceeded max"))
+					return 1;
 			break;
 		}
 
 		if (!h2n->hpack_e_dep) {
-			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-				      "Zero length window update");
+			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				      "Zero length window update"))
+				return 1;
 			break;
 		}
 		n = eff_wsi->txc.tx_cr;
@@ -2895,9 +2952,10 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 				h2n->preamble++;
 
 				if (h2n->padding > h2n->length - 1)
-					lws_h2_goaway(wsi,
+					if (lws_h2_goaway(wsi,
 						      H2_ERR_PROTOCOL_ERROR,
-						      "execssive padding");
+						      "execssive padding"))
+						return 1;
 				break; /* we consumed this */
 			}
 
@@ -2922,8 +2980,9 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 			if (h2n->padding && h2n->count >
 			    (h2n->length - h2n->padding)) {
 				if (c) {
-					lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-						      "nonzero padding");
+					if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+						      "nonzero padding"))
+						return 1;
 					break;
 				}
 				goto frame_end;
@@ -3057,9 +3116,10 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 						  (unsigned long)h2n->inside, (unsigned long)h2n->length);
 
 					/* unread data in frame */
-					lws_h2_goaway(wsi,
+					if (lws_h2_goaway(wsi,
 						      H2_ERR_PROTOCOL_ERROR,
-					    "More rx than content_length told");
+					    "More rx than content_length told"))
+						return 1;
 					break;
 				}
 
@@ -3291,8 +3351,9 @@ do_windows:
 					  (unsigned int)h2n->dep, h2n->weight_temp);
 
 				if ((h2n->dep & ~(1u << 31)) == h2n->sid) {
-					lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
-						      "cant depend on own sid");
+					if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+						      "cant depend on own sid"))
+						return 1;
 					break;
 				}
 				break;

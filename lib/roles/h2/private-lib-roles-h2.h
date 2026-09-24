@@ -350,7 +350,14 @@ struct _lws_h2_related {
 
 #define HTTP2_IS_TOPLEVEL_WSI(wsi) (!wsi->mux.parent_wsi)
 
-int
+/*
+ * Both of these declare the connection (or the stream) dead and queue the
+ * notification for the next POLLOUT.  They latch that decision before they
+ * can fail, so a caller that only drains afterwards is safe -- but a nonzero
+ * return means we could not queue the notification at all, ie, there is
+ * nothing to flush and nothing to wait for.  Don't discard it.
+ */
+int LWS_WARN_UNUSED_RESULT
 lws_h2_rst_stream(struct lws *wsi, uint32_t err, const char *reason);
 struct lws * lws_h2_get_nth_child(struct lws *wsi, int n);
 void lws_h2_init(struct lws *wsi);
@@ -391,7 +398,7 @@ void
 lws_hpack_destroy_dynamic_header(struct lws *wsi);
 int
 lws_hpack_dynamic_size(struct lws *wsi, int size);
-int
+int LWS_WARN_UNUSED_RESULT
 lws_h2_goaway(struct lws *wsi, uint32_t err, const char *reason);
 int
 lws_h2_hpack_sink_start(struct lws *wsi);

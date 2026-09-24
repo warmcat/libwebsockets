@@ -241,8 +241,9 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 				     "Duplicated pseudoheader %s", hn ? hn : "?");
 			lwsl_wsi_warn(wsi, "%s: RX DUPLICATE pseudo-header "
 					"'%s' -> GOAWAY", __func__, hn ? hn : "?");
-			lws_h2_goaway(lws_get_network_wsi(wsi),
-				      H2_ERR_PROTOCOL_ERROR, reason);
+			if (lws_h2_goaway(lws_get_network_wsi(wsi),
+					      H2_ERR_PROTOCOL_ERROR, reason))
+				lwsl_info("%s: GOAWAY not queued\n", __func__);
 			return 1;
 		}
 	}
@@ -410,16 +411,18 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 	if (!dyn->entries || !dyn->used_entries) {
 		lwsl_info("%s: dynamic table empty for index %d\n", __func__,
 			  index);
-		lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
-			      "index into empty dynamic table");
+		if (lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
+				      "index into empty dynamic table"))
+			lwsl_info("%s: GOAWAY not queued\n", __func__);
 		return -1;
 	}
 
 	if (index >= (int)LWS_ARRAY_SIZE(static_token) + dyn->used_entries) {
 		lwsl_info("  %s: adjusted index %d >= %d\n", __func__, index,
 				(int)LWS_ARRAY_SIZE(static_token) + dyn->used_entries);
-		lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
-			      "index out of range");
+		if (lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
+				      "index out of range"))
+			lwsl_info("%s: GOAWAY not queued\n", __func__);
 		return -1;
 	}
 
@@ -666,8 +669,10 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 
 		if (nwsi->a.vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE] == 65536 &&
 				size == 65537) { /* h2spec */
-			lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
-				  "Asked for header table bigger than we told");
+			if (lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
+					  "Asked for header table bigger "
+					  "than we told"))
+				lwsl_info("%s: GOAWAY not queued\n", __func__);
 			goto bail;
 		}
 
@@ -900,7 +905,8 @@ lws_h2_hpack_sink_start(struct lws *wsi)
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 
 	if (!lws_h2_hpack_sink_ah(wsi)) {
-		lws_h2_goaway(nwsi, H2_ERR_INTERNAL_ERROR, "OOM");
+		if (lws_h2_goaway(nwsi, H2_ERR_INTERNAL_ERROR, "OOM"))
+			lwsl_info("%s: GOAWAY not queued\n", __func__);
 
 		return 1;
 	}
@@ -1050,8 +1056,9 @@ lws_hpack_handle_pseudo_rules(struct lws *nwsi, struct lws *wsi, int m)
 		 * pseudoheader after normal
 		 * headers
 		 */
-		lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
-			"Pseudoheader after normal hdrs");
+		if (lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
+				"Pseudoheader after normal hdrs"))
+			lwsl_info("%s: GOAWAY not queued\n", __func__);
 		return 1;
 	}
 
@@ -1080,9 +1087,8 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 	h2n->hpack_total_hdr_len++;
 	if (h2n->hpack_total_hdr_len >
 	    h2n->our_set.s[H2SET_MAX_HEADER_LIST_SIZE]) {
-		lws_h2_goaway(nwsi, H2_ERR_ENHANCE_YOUR_CALM,
+		return lws_h2_goaway(nwsi, H2_ERR_ENHANCE_YOUR_CALM,
 			      "Header list size limit exceeded");
-		return 1;
 	}
 
 	/*
@@ -1120,9 +1126,8 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				break;
 			}
 			if (!h2n->hdr_idx) {
-				lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
+				return lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
 					      "hdr index 0 seen");
-					return 1;
 			}
 
 			m = lws_token_from_index(wsi, (int)h2n->hdr_idx,
@@ -1169,9 +1174,8 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 			h2n->value = 1;
 			h2n->hpack = HPKS_HLEN;
 			if (!h2n->hdr_idx) {
-				lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
+				return lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
 					      "hdr index 0 seen");
-					return 1;
 			}
 			break;
 		}
@@ -1240,9 +1244,8 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 	case HPKS_IDX_EXT:
 		if (h2n->ext_count > 24) {
 			lwsl_notice("%s: HPACK integer overflow\n", __func__);
-			lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
+			return lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
 				      "HPACK integer exceeds uint32 range");
-			return 1;
 		}
 		h2n->hpack_len = (uint32_t)((unsigned int)h2n->hpack_len |
 				(((unsigned int)(c & 0x7f)) << h2n->ext_count));
@@ -1274,9 +1277,8 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 		default:
 			h2n->hdr_idx = h2n->hpack_len;
 			if (!h2n->hdr_idx) {
-				lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
+				return lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
 					      "extended header index was 0");
-				return 1;
 			}
 			h2n->value = 1;
 			h2n->hpack = HPKS_HLEN;
@@ -1301,9 +1303,8 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 		} else {
 			if (h2n->ext_count > 24) {
 				lwsl_notice("%s: HPACK integer overflow\n", __func__);
-				lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
+				return lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
 					      "HPACK integer exceeds uint32 range");
-				return 1;
 			}
 			h2n->hpack_len = (uint32_t)((unsigned int)h2n->hpack_len |
 					(unsigned int)((c & 0x7f) << h2n->ext_count));
@@ -1321,9 +1322,8 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 			 * in HPKS_DATA would wrap hpack_len and the rest of
 			 * the header block would be swallowed as the name.
 			 */
-			lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
+			return lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
 				      "Zero-length header name");
-			return 1;
 		}
 
 		h2n->hpack = HPKS_DATA;
@@ -1451,10 +1451,9 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 
 				/* EOS |11111111|11111111|11111111|111111 */
 				if (!c1 && prev == HUFTABLE_0x100_PREV) {
-					lws_h2_goaway(nwsi,
+					return lws_h2_goaway(nwsi,
 						H2_ERR_COMPRESSION_ERROR,
 						"Huffman EOT seen");
-					return 1;
 				}
 			} else
 				n = 8;
@@ -1476,10 +1475,9 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 							goto swallow_l;
 						case LPUR_EXCESSIVE:
 						case LPUR_FORBID:
-							lws_h2_goaway(nwsi,
+							return lws_h2_goaway(nwsi,
 							  H2_ERR_PROTOCOL_ERROR,
 							  "Evil URI");
-							return 1;
 
 						default:
 							return -1;
@@ -1507,10 +1505,9 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 					 * before they are stored
 					 */
 					if (c1 == '\r' || c1 == '\n' || !c1) {
-						lws_h2_goaway(nwsi,
+						return lws_h2_goaway(nwsi,
 							H2_ERR_PROTOCOL_ERROR,
 							"CR/LF/NUL in header value");
-						return 1;
 					}
 					/* collect unknown-header value byte */
 					ah->data[ah->pos++] = (char)c1;
@@ -1534,10 +1531,9 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				lwsl_header("parser: %c\n", c1);
 				/* uppercase header names illegal */
 				if (c1 >= 'A' && c1 <= 'Z') {
-					lws_h2_goaway(nwsi,
+					return lws_h2_goaway(nwsi,
 						H2_ERR_COMPRESSION_ERROR,
 						"Uppercase literal hpack hdr");
-					return 1;
 				}
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 				/*
@@ -1583,9 +1579,8 @@ swallow_l:
 		    (h2n->zero_huff_padding && h2n->huff_pad))) {
 			lwsl_info("zero_huff_padding: %d huff_pad: %d\n",
 				    h2n->zero_huff_padding, h2n->huff_pad);
-			lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
+			return lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
 				      "Huffman padding excessive or wrong");
-			return 1;
 		}
 fin:
 		if (!h2n->value && (
@@ -1610,9 +1605,8 @@ fin:
 			if (!lws_h2_hpack_sinking(wsi) &&
 			    lws_h2_hdrs_are_trailers(wsi) &&
 			    h2n->first_hdr_char == ':') {
-				lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
+				return lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
 					      "Pseudoheader in trailers");
-				return 1;
 			}
 
 			if (ah->parser_state == WSI_TOKEN_NAME_PART &&
@@ -1717,10 +1711,9 @@ fin:
 						  ah->parser_state,
 						h2n->unknown_header);
 					/* unknown pseudoheaders are illegal */
-					lws_h2_goaway(nwsi,
+					return lws_h2_goaway(nwsi,
 						      H2_ERR_PROTOCOL_ERROR,
 						      "Unknown pseudoheader");
-					return 1;
 				}
 				m = LWS_HPACK_IGNORE_ENTRY;
 			}
@@ -1831,9 +1824,8 @@ add_it:
 			for (i = 0; i < ah->frags[ah->nfrag].len; i++)
 				if (fp[i] == '\r' || fp[i] == '\n' ||
 				    !fp[i]) {
-					lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
+					return lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
 						      "CR/LF/NUL in header value");
-					return 1;
 				}
 
 			if (lws_frag_end(wsi))
