@@ -2663,13 +2663,18 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 
 	{
 		/*
-		 * If we are being reset from inside the close flow (eg, the
-		 * h3 grace timer, or a failed QUIC attempt falling back to
-		 * TCP), the close flow has already freed the stash... take
-		 * the opaque binding from the wsi itself then
+		 * The wsi's own binding is the live one: a stash that
+		 * survived the first connect may carry none (the redirect
+		 * case: it was what the post-close restore in the redirect
+		 * path used to put back), and when we are reset from inside
+		 * the close flow (the h3 grace timer, a failed QUIC attempt
+		 * falling back to tcp) the stash is already gone.  Fall back
+		 * to the stash only if the wsi has no binding.
 		 */
-		void *opaque = wsi->stash ? wsi->stash->opaque_user_data :
-					   wsi->a.opaque_user_data;
+		void *opaque = wsi->a.opaque_user_data;
+
+		if (!opaque && wsi->stash)
+			opaque = wsi->stash->opaque_user_data;
 
 		if (lws_client_stash_create(wsi, cisin))
 			return NULL;
