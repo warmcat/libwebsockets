@@ -911,8 +911,8 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
 		/*
 		 * For IPv6 UDP sockets we own the IPV6_V6ONLY state rather
-		 * than inheriting the OS default (which is 0 = dual-stack on
-		 * Linux/macOS but 1 = v6-only on Windows):
+		 * than inheriting the OS default, which varies by platform
+		 * (0 = dual-stack on Linux, 1 = v6-only on Windows):
 		 *
 		 *   - by default (!MODIFY) we force v6-only in dual builds,
 		 *     matching the TCP listen path.  Callers that want both
@@ -927,10 +927,19 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		 * In an IPv6-only build there is no second (AF_INET) socket
 		 * possible, so lws_v6only_opt() defaults to dual-stack there:
 		 * a lone :: listener still receives v4-mapped peers.
+		 *
+		 * A v4-mapped bind address (eg, "127.0.0.1" resolved in an
+		 * IPv6-only build) is dual-stack by construction and the
+		 * vhost option has nothing to say about it: force V6ONLY=0.
+		 * Leaving the OS default in place there is what made this
+		 * platform-dependent -- on a v6-only socket the v4-mapped
+		 * bind still succeeds and packets still arrive, but every
+		 * send back to the v4-mapped peer is refused.
 		 */
-		if (s->dest.sa4.sin_family == AF_INET6 &&
-		    !lws_sa46_is_ipv4_mapped(&s->dest)) {
-			int opt = lws_v6only_opt(wsi->a.vhost->options);
+		if (s->dest.sa4.sin_family == AF_INET6) {
+			int opt = lws_sa46_is_ipv4_mapped(&s->dest) ? 0 :
+				  lws_v6only_opt(wsi->a.vhost->options);
+
 			if (setsockopt(sock.sockfd, IPPROTO_IPV6, IPV6_V6ONLY,
 				       (const void *)&opt, sizeof(opt)) < 0) {
 				lwsl_vhost_notice(wsi->a.vhost, "set IPV6_V6ONLY fail");
@@ -1125,9 +1134,10 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 	}
 
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
-		if (dest.sa4.sin_family == AF_INET6 &&
-		    !lws_sa46_is_ipv4_mapped(&dest)) {
-			int opt = lws_v6only_opt(wsi->a.vhost->options);
+		if (dest.sa4.sin_family == AF_INET6) {
+			int opt = lws_sa46_is_ipv4_mapped(&dest) ? 0 :
+				  lws_v6only_opt(wsi->a.vhost->options);
+
 			if (setsockopt(sock.sockfd, IPPROTO_IPV6, IPV6_V6ONLY,
 				       (const void *)&opt, sizeof(opt)) < 0) {
 				lwsl_vhost_notice(wsi->a.vhost, "set IPV6_V6ONLY fail");
