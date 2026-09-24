@@ -260,8 +260,7 @@ lws_socks5c_greet(struct lws *wsi, const char **pcce)
 		return -1;
 	}
 	// lwsl_hexdump_notice(pt->serv_buf, plen);
-	n = (int)send(wsi->desc.sockfd, (char *)pt->serv_buf,
-		      LWS_POSIX_LENGTH_CAST(plen), MSG_NOSIGNAL);
+	n = lws_issue_raw(wsi, pt->serv_buf, (size_t)plen);
 	if (n < 0) {
 		lwsl_wsi_debug(wsi, "ERROR writing socks greeting");
 		*pcce = "socks write failed";
@@ -294,29 +293,33 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 		return LW5CHS_RET_BAIL3;
 	}
 
-	n = (int)recv(wsi->desc.sockfd, (void *)pt->serv_buf,
-		 wsi->a.context->pt_serv_buf_size, 0);
-	if (n < 0) {
-		if (LWS_ERRNO == LWS_EAGAIN) {
-			lwsl_wsi_debug(wsi, "SOCKS read EAGAIN, retrying");
-			return LW5CHS_RET_RET0;
-		}
+	n = lws_ssl_capable_read(wsi, pt->serv_buf,
+				 wsi->a.context->pt_serv_buf_size);
+	switch (n) {
+	case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
+	case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
+		lwsl_wsi_debug(wsi, "SOCKS read EAGAIN, retrying");
+		return LW5CHS_RET_RET0;
+	case LWS_SSL_CAPABLE_ERROR:
+		/* includes the proxy having gone away */
 		lwsl_wsi_err(wsi, "ERROR reading from SOCKS socket");
 		*pcce = "socks recv fail";
 		return LW5CHS_RET_BAIL3;
+	default:
+		break;
 	}
 
 	/*
-	 * Every state below acts on serv_buf[0] and [1]... n == 0 means the
-	 * proxy went away, and for anything shorter than the two bytes we're
-	 * going to consume, we would be deciding the handshake on stale
-	 * content left in the shared, per-thread serv_buf.  Reply fragments
-	 * that small aren't worth reassembling, treat them as a failure.
+	 * Every state below acts on serv_buf[0] and [1]... for anything
+	 * shorter than the two bytes we're going to consume, we would be
+	 * deciding the handshake on stale content left in the shared,
+	 * per-thread serv_buf.  Reply fragments that small aren't worth
+	 * reassembling, treat them as a failure.
 	 */
 
 	if (n < 2) {
 		lwsl_wsi_err(wsi, "SOCKS short read %d", n);
-		*pcce = n ? "socks short reply" : "socks conn dead";
+		*pcce = "socks short reply";
 
 		return LW5CHS_RET_BAIL3;
 	}
@@ -399,8 +402,7 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 
 socks_send_l:
 	// lwsl_hexdump_notice(pt->serv_buf, len);
-	n = (int)send(wsi->desc.sockfd, (char *)pt->serv_buf,
-		      LWS_POSIX_LENGTH_CAST(len), MSG_NOSIGNAL);
+	n = lws_issue_raw(wsi, pt->serv_buf, (size_t)len);
 	if (n < 0) {
 		lwsl_wsi_debug(wsi, "ERROR writing to socks proxy");
 		*pcce = "socks write fail";

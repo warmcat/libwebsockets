@@ -118,15 +118,19 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 			goto bail3_l;
 		}
 
-		n = (int)recv(wsi->desc.sockfd, sb, context->pt_serv_buf_size, 0);
-		if (n < 0) {
-			if (LWS_ERRNO == LWS_EAGAIN) {
-				lwsl_debug("Proxy read EAGAIN... retrying\n");
-				return 0;
-			}
+		n = lws_ssl_capable_read(wsi, (unsigned char *)sb,
+					 context->pt_serv_buf_size);
+		switch (n) {
+		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
+		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
+			lwsl_debug("Proxy read EAGAIN... retrying\n");
+			return 0;
+		case LWS_SSL_CAPABLE_ERROR:
 			lwsl_err("ERROR reading from proxy socket\n");
 			cce = "proxy read err";
 			goto bail3_l;
+		default:
+			break;
 		}
 
 		/* sanity check what we were sent... */
