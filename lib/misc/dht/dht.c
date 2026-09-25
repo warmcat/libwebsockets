@@ -605,7 +605,13 @@ lws_dht_get_external_addr(struct lws_dht_ctx *ctx, struct sockaddr_storage *ss,
 		return -1;
 
 	for (j = 0; j < ctx->num_reported_ads; j++) {
-		if (ctx->reported_ads[j].count >= 3) {
+		/*
+		 * The quorum decision lives where the reports are tallied, and
+		 * it is not a fixed count of three: in a small network it is
+		 * however many nodes there were to ask.  Report what that
+		 * decided rather than re-deriving it wrongly here.
+		 */
+		if (ctx->reported_ads[j].confirmed) {
 			*ss = ctx->reported_ads[j].ss;
 			*sslen = ctx->reported_ads[j].sslen;
 

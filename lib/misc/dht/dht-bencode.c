@@ -799,14 +799,14 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 		 * address looks like from outside.  It counts only if it
 		 * carries this round's random nonce and comes from a node the
 		 * round was actually sent to, once per node; and nothing is
-		 * believed until three distinct nodes agree.  The old code
+		 * believed until a quorum of distinct nodes agree.  The old code
 		 * accepted a predictable counter from anyone and acted on the
 		 * first report, so one forged datagram set, and a second one
 		 * flipped, what we announced as our public address.
 		 */
 		struct sockaddr_storage ss;
 		size_t sslen;
-		int found = -1, j, k, flag, probe = -1;
+		int found = -1, j, k, flag, probe = -1, quorum;
 		uint16_t decoded_seq;
 
 		if (!tid_match(mp.tid, "ip", NULL))
@@ -881,7 +881,24 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 			ctx->reported_ads[found].count++;
 		}
 
-		if (ctx->reported_ads[found].count < 3)
+		/*
+		 * Three distinct probed nodes agreeing is what we want, but a
+		 * small network may not contain three nodes to ask: then the
+		 * quorum is every node of this family the round could be sent
+		 * to, which is all the confirmation that exists.  ip_probes[]
+		 * is what we sent, so a peer can neither inflate nor deflate
+		 * it, and a two-node network still learns its address.
+		 */
+		quorum = 0;
+		for (j = 0; j < ctx->ip_probe_count; j++)
+			if (ctx->ip_probes[j].ss.ss_family == ss.ss_family)
+				quorum++;
+		if (quorum > 3)
+			quorum = 3;
+		if (quorum < 1)
+			quorum = 1;
+
+		if (ctx->reported_ads[found].count < quorum)
 			goto skip_ip_tracking; /* no quorum yet */
 
 		{
@@ -899,7 +916,7 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 			if (!ctx->reported_ads[found].confirmed) {
 				ctx->reported_ads[found].confirmed = 1;
 				if (!(ctx->external_ads_set & flag)) {
-					lwsl_notice("%s: reached consensus on external address (%s)\n", __func__, ss.ss_family == AF_INET ? "IPv4" : "IPv6");
+					lwsl_notice("%s: reached consensus on external address (%s), %d agreeing nodes, quorum %d\n", __func__, ss.ss_family == AF_INET ? "IPv4" : "IPv6", ctx->reported_ads[found].count, quorum);
 					ctx->external_ads_set |= flag;
 				} else {
 					/*
