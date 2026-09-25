@@ -2144,6 +2144,9 @@ tp_ok:
 			if (parse_res == -3) {
 				/* Peer closed the connection via CONNECTION_CLOSE. Drop silently without replying. */
 				lwsl_wsi_notice(nwsi ? nwsi : wsi, "QUIC RX: Peer closed connection. Dropping silently.");
+				/* draining: RFC 9000 10.2.2, nothing may be sent back */
+				if (nwsi && nwsi->quic.qn)
+					nwsi->quic.qn->is_closing = 1;
 				if (nwsi && nwsi != wsi) {
 					lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NORMAL, "quic peer closed");
 					/*
@@ -2304,32 +2307,18 @@ quic_secret_cb(struct lws *wsi, enum lws_tls_quic_secret_type type,
 	return 0;
 }
 
-void
-lws_quic_enter_closing_state(struct lws *wsi, uint64_t err_code, uint64_t frame_type, int is_app_error)
+/*
+ * Queue the one CONNECTION_CLOSE frame that ends the connection, at the
+ * highest encryption level we have keys for, dropping everything else
+ * pending except the CRYPTO frames the peer may still need to derive keys
+ */
+static void
+lws_quic_queue_connection_close(struct lws *nwsi, uint64_t err_code,
+				uint64_t frame_type, int is_app_error)
 {
-	struct lws_quic_netconn *qn;
-	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
 	struct lws_quic_tx_frame *f;
 	int level, target_level = LWS_QUIC_LEVEL_INITIAL;
-
-	if (!nwsi || !nwsi->quic.qn) {
-		lwsl_notice("lws_quic_enter_closing_state: nwsi %s, qn %p (wsi %s parent %s)\n", 
-			lws_wsi_tag(nwsi), nwsi ? nwsi->quic.qn : NULL, lws_wsi_tag(wsi), lws_wsi_tag(wsi ? wsi->mux.parent_wsi : NULL));
-		return;
-	}
-
-	qn = nwsi->quic.qn;
-
-	if (qn->is_closing) {
-		lwsl_notice("lws_quic_enter_closing_state: qn->is_closing is already 1\n");
-		return; /* Already closing */
-	}
-
-	qn->is_closing = 1;
-	qn->conn_close_err = err_code;
-
-
-	lwsl_wsi_warn(nwsi, "QUIC: Entering Closing State (err 0x%llx)", (unsigned long long)err_code);
 
 	/* Determine highest available encryption level to send CONNECTION_CLOSE */
 	int start_level = qn->highest_rx_level;
@@ -2357,7 +2346,7 @@ lws_quic_enter_closing_state(struct lws *wsi, uint64_t err_code, uint64_t frame_
 		uint8_t *p = (uint8_t *)&f[1];
 		f->type = is_app_error ? LWS_QUIC_FT_CONNECTION_CLOSE_APP : LWS_QUIC_FT_CONNECTION_CLOSE;
 		
-		lwsl_wsi_warn(nwsi, "QUIC TX: Enqueueing CONNECTION_CLOSE (type 0x%x, err 0x%llx) at level %d",
+		lwsl_wsi_info(nwsi, "QUIC TX: Enqueueing CONNECTION_CLOSE (type 0x%x, err 0x%llx) at level %d",
 			f->type, (unsigned long long)err_code, target_level);
 
 		/* Encode the error code (varint) */
@@ -2373,15 +2362,42 @@ lws_quic_enter_closing_state(struct lws *wsi, uint64_t err_code, uint64_t frame_
 
 		f->data = (uint8_t *)&f[1];
 		f->len = (size_t)(p - f->data);
-
-		lwsl_wsi_warn(nwsi, "QUIC TX: Enqueueing CONNECTION_CLOSE (type 0x%x, err 0x%llx) at level %d",
-			f->type, (unsigned long long)err_code, target_level);
-		lwsl_hexdump_warn(f->data, f->len);
+		lwsl_hexdump_debug(f->data, f->len);
 
 		if (target_level == LWS_QUIC_LEVEL_APP)
 			lws_quic_dbg_1rtt_account(qn, f, "connection-close");
 		lws_dll2_add_tail(&f->list, &qn->pending_tx[target_level]);
 	}
+
+}
+
+void
+lws_quic_enter_closing_state(struct lws *wsi, uint64_t err_code, uint64_t frame_type, int is_app_error)
+{
+	struct lws_quic_netconn *qn;
+	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+
+	if (!nwsi || !nwsi->quic.qn) {
+		lwsl_notice("lws_quic_enter_closing_state: nwsi %s, qn %p (wsi %s parent %s)\n", 
+			lws_wsi_tag(nwsi), nwsi ? nwsi->quic.qn : NULL, lws_wsi_tag(wsi), lws_wsi_tag(wsi ? wsi->mux.parent_wsi : NULL));
+		return;
+	}
+
+	qn = nwsi->quic.qn;
+
+	if (qn->is_closing) {
+		lwsl_notice("lws_quic_enter_closing_state: qn->is_closing is already 1\n");
+		return; /* Already closing */
+	}
+
+	qn->is_closing = 1;
+	qn->conn_close_err = err_code;
+
+
+	lwsl_wsi_warn(nwsi, "QUIC: Entering Closing State (err 0x%llx)", (unsigned long long)err_code);
+
+	lws_quic_queue_connection_close(nwsi, err_code, frame_type,
+					is_app_error);
 
 	/* Wait 3 seconds, then drop the socket */
 	lws_set_timeout(nwsi, PENDING_TIMEOUT_KILLED_BY_SSL_INFO, 3);
@@ -4261,6 +4277,53 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 	return 0;
 }
 
+/*
+ * A live quic connection we are closing of our own accord (the keep-warm or
+ * idle timeout, the user, a redirect) tells the peer with CONNECTION_CLOSE,
+ * RFC 9000 10.2, the way a tls close sends close_notify: one packet, sent
+ * now, then the close carries on to free the connection.  We do not linger
+ * in the closing state to repeat it: if it is lost the peer idles the
+ * connection out, as it did before when it was never sent.
+ *
+ * A connection the peer closed (draining, RFC 9000 10.2.2: nothing may be
+ * sent) or one already closing after an error has nothing to add.  The
+ * close flow does not come here for a socket already unusable, nor at
+ * context destroy.
+ */
+static int
+rops_close_via_role_protocol_quic(struct lws *wsi, enum lws_close_status reason)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_quic_netconn *qn = wsi->quic.qn;
+	struct lws_quic_tx_pkt tp;
+	int level = 0, n;
+
+	if (!qn || qn->nwsi != wsi || qn->is_closing || !qn->handshake_done)
+		return 0;
+
+	qn->is_closing = 1;
+	lws_quic_queue_connection_close(wsi, 0, 0, 1);
+
+	lwsl_wsi_info(wsi, "sending CONNECTION_CLOSE (%d)", (int)reason);
+
+	while (level < LWS_QUIC_LEVEL_COUNT) {
+		tp.level = level;
+		n = lws_quic_packet_tx(wsi, pt->serv_buf,
+				       wsi->a.context->pt_serv_buf_size, &tp);
+		if (n <= 0) /* nothing more, or held or failed: best effort */
+			break;
+
+		n = lws_io_send_dgram(wsi, pt->serv_buf, (size_t)n,
+				      tp.has_dest ? &tp.dest : NULL);
+		if (lws_quic_packet_sent(wsi, &tp, n))
+			break;
+
+		level = tp.level + 1;
+	}
+
+	return 0; /* the close carries on */
+}
+
 int
 rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 {
@@ -4719,15 +4782,16 @@ static const lws_rops_t rops_table_quic[] = {
 	/*  5 */ { .write_role_protocol	  = rops_write_role_protocol_quic },
 	/*  6 */ { .alpn_negotiated	  = rops_alpn_negotiated_quic },
 	/*  7 */ { .close_kill_connection = rops_close_kill_connection_quic },
-	/*  8 */ { .destroy_role          = rops_destroy_role_quic },
-	/*  9 */ { .adoption_bind	  = rops_adoption_bind_quic },
+	/*  8 */ { .close_via_role_protocol = rops_close_via_role_protocol_quic },
+	/*  9 */ { .destroy_role          = rops_destroy_role_quic },
+	/* 10 */ { .adoption_bind	  = rops_adoption_bind_quic },
 #if defined(LWS_WITH_CLIENT)
-	/* 10 */ { .client_bind		  = rops_client_bind_quic },
-	/* 11 */ { .client_transport_up	  = rops_client_transport_up_quic },
+	/* 11 */ { .client_bind		  = rops_client_bind_quic },
+	/* 12 */ { .client_transport_up	  = rops_client_transport_up_quic },
 #endif
-	/* 12, or 10 without client */
-		 { .rx_dgram		  = rops_rx_dgram_quic },
 	/* 13, or 11 without client */
+		 { .rx_dgram		  = rops_rx_dgram_quic },
+	/* 14, or 12 without client */
 		 { .rx_policy		  = rops_rx_policy_quic },
 };
 
@@ -4750,23 +4814,23 @@ const struct lws_role_ops role_ops_quic = {
 	  /* LWS_ROPS_write_role_protocol */
 	  /* LWS_ROPS_encapsulation_parent */		0x05, 0x00,
 	  /* LWS_ROPS_alpn_negotiated */
-	  /* LWS_ROPS_close_via_role_protocol */	0x06, 0x00,
+	  /* LWS_ROPS_close_via_role_protocol */	0x06, 0x08,
 	  /* LWS_ROPS_close_role */
 	  /* LWS_ROPS_close_kill_connection */		0x00, 0x07,
 	  /* LWS_ROPS_destroy_role */
-	  /* LWS_ROPS_adoption_bind */			0x08, 0x09,
+	  /* LWS_ROPS_adoption_bind */			0x09, 0x0A,
 #if defined(LWS_WITH_CLIENT)
 	  /* LWS_ROPS_client_bind */
-	  /* LWS_ROPS_issue_keepalive */		0x0A, 0x00,
+	  /* LWS_ROPS_issue_keepalive */		0x0B, 0x00,
 	  /* LWS_ROPS_client_transport_up */
-	  /* LWS_ROPS_rx */				0x0B, 0x00,
-	  /* LWS_ROPS_rx_dgram */			0x0C, 0x0D,
+	  /* LWS_ROPS_rx */				0x0C, 0x00,
+	  /* LWS_ROPS_rx_dgram */			0x0D, 0x0E,
 #else
 	  /* LWS_ROPS_client_bind */
 	  /* LWS_ROPS_issue_keepalive */		0x00, 0x00,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x00, 0x00,
-	  /* LWS_ROPS_rx_dgram */			0x0A, 0x0B,
+	  /* LWS_ROPS_rx_dgram */			0x0B, 0x0C,
 #endif
 					},
 
