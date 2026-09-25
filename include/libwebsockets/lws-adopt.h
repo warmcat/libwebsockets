@@ -177,6 +177,44 @@ LWS_VISIBLE LWS_EXTERN SSL*
 lws_get_ssl(struct lws *wsi);
 #endif
 
+/*
+ * A transport under IO, in place of the socket.  IO still owns the wsi's
+ * place in the poll set (the fd is what the loop watches), but the bytes
+ * of a connection with a transport set go through these instead of recv,
+ * send, recvmsg and sendto, below the tls record layer: a connection in
+ * the clear exchanges its protocol bytes with the transport, one with tls
+ * its ciphertext.  This is how a test drives the sansIO half with no
+ * network under it (api-test-sansio), and how an embedder carries lws over
+ * something that is not a socket.
+ *
+ * read and write follow lws_ssl_capable_read() / write(): bytes moved, or
+ * LWS_SSL_CAPABLE_MORE_SERVICE_READ / _WRITE when nothing can move now, or
+ * LWS_SSL_CAPABLE_ERROR; a read of 0 is the peer closing.  recv_dgram
+ * returns the datagram's length with its peer and ECN bits, or 0 when
+ * there is none; send_dgram as lws_io_send_dgram().  Either datagram op
+ * may be NULL when the transport carries streams only.
+ */
+typedef struct lws_transport_ops {
+	int (*read)(struct lws *wsi, void *opaque, uint8_t *buf, size_t len);
+	int (*write)(struct lws *wsi, void *opaque, const uint8_t *buf,
+		     size_t len);
+	int (*recv_dgram)(struct lws *wsi, void *opaque, uint8_t *buf,
+			  size_t len, lws_sockaddr46 *peer, uint8_t *ecn);
+	int (*send_dgram)(struct lws *wsi, void *opaque, const uint8_t *buf,
+			  size_t len, const lws_sockaddr46 *dest);
+} lws_transport_ops_t;
+
+/**
+ * lws_set_transport() - carry a wsi's bytes over a transport, not its socket
+ *
+ * \param wsi: the connection (the one with the transport, not a stream)
+ * \param ops: the transport, or NULL to go back to the socket
+ * \param opaque: handed to every op
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_set_transport(struct lws *wsi, const lws_transport_ops_t *ops,
+		  void *opaque);
+
 typedef struct lws_adopt_desc {
 	struct lws_vhost	*vh;		/**< vhost the wsi should belong to */
 	lws_adoption_type	type;		/**< OR-ed combinations of

@@ -356,6 +356,10 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	int n = 0, en;
 
+	if (wsi->io.transport)
+		return wsi->io.transport->read(wsi, wsi->io.transport_opaque,
+					       buf, len);
+
 	errno = 0;
 
 #if defined(LWS_WITH_LATENCY)
@@ -435,6 +439,10 @@ int
 lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	int n = 0;
+
+	if (wsi->io.transport)
+		return wsi->io.transport->write(wsi, wsi->io.transport_opaque,
+						buf, len);
 #if defined(LWS_PLAT_OPTEE)
 	ssize_t send(int sockfd, const void *buf, size_t len, int flags);
 #endif

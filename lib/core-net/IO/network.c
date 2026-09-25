@@ -1622,6 +1622,10 @@ lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
 	lws_sockfd_type fd = nwsi->io.desc.sockfd;
 	int n, e;
 
+	if (nwsi->io.transport && nwsi->io.transport->send_dgram)
+		return nwsi->io.transport->send_dgram(wsi,
+						      nwsi->io.transport_opaque,
+						      buf, len, dest);
 #if defined(LWS_WITH_SERVER)
 	if (dest && !lwsi_role_client(nwsi) && nwsi->io.udp && nwsi->a.vhost &&
 	    nwsi->io.udp->sa46.sa4.sin_family != dest->sa4.sin_family) {
@@ -1752,6 +1756,14 @@ lws_get_udp(const struct lws *wsi)
 	return wsi->io.udp;
 }
 #endif
+
+void
+lws_set_transport(struct lws *wsi, const lws_transport_ops_t *ops,
+		  void *opaque)
+{
+	wsi->io.transport = ops;
+	wsi->io.transport_opaque = opaque;
+}
 
 /*
  * The peer's address as IO knows it: a connection that learned or changed

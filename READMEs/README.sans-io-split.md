@@ -286,9 +286,13 @@ each function is in.
 8. Split the object: IO's fields of `struct lws` move into the
    `lws_io_adjunct` (see "The object"), the check making it opaque to
    sansIO (in progress: the socket identity first).
-9. A sansIO-only build target and a byte-level harness: a context whose
-   `io_ops` and transport are the test's, driving an h1 transaction and a
-   ws echo with no socket.  This is the test of "technically complete";
-   the static checks above are inferences until it passes.
+9. A byte-level harness: a connection whose transport is the test's
+   (`lws_set_transport()`, under the tls record layer and at the datagram
+   edge), driving an h1 transaction and a ws echo with no socket under
+   them (done for the server half: `api-test-sansio`; a client's connect
+   machine still makes its own socket, so the client half waits on the
+   connect taking a transport).  Then a sansIO-only build target.  These
+   are the test of "technically complete"; the static checks above are
+   inferences until they pass.
 10. When every role is converted, the IO half is a replaceable component,
    and the sansIO half is what a port translates.

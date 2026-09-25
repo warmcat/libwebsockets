@@ -914,6 +914,10 @@ struct lws_io_adjunct {
 	uint8_t				addrinfo_idx;
 #endif
 
+	/* a transport under IO in place of the socket (lws_set_transport) */
+	const struct lws_transport_ops	*transport;
+	void				*transport_opaque;
+
 	volatile char			handling_pollout;
 	volatile char			leave_pollout_active;
 };

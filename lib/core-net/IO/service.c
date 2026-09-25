@@ -896,6 +896,12 @@ lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	memset(&sa46, 0, sizeof(sa46));
 
+	if (wsi->io.transport && wsi->io.transport->recv_dgram)
+		n = wsi->io.transport->recv_dgram(wsi, wsi->io.transport_opaque,
+						  pt->serv_buf,
+						  wsi->a.context->pt_serv_buf_size,
+						  &sa46, &ecn);
+	else
 #if defined(WIN32) || defined(_WIN32)
 	n = (int)recvfrom(wsi->io.desc.sockfd, (char *)pt->serv_buf,
 			  (int)wsi->a.context->pt_serv_buf_size, 0,
