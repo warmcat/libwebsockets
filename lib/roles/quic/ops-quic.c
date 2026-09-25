@@ -424,67 +424,7 @@ lws_quic_find_child_by_dcid(struct lws *listener,
 	return NULL;
 }
 
-/*
- * "1.2.3.4:5678 (af 2, salen 16)", or what we have instead of an address on a
- * connected socket.  Only for logging a datagram we could not send: knowing
- * only the errno leaves no way to tell a wrong destination from a wrong
- * socket, which is exactly what differs between platforms here.
- */
 
-#if (_LWS_ENABLED_LOGS & LLL_WARN)
-static void
-lws_quic_sa46_str(const lws_sockaddr46 *sa46, char *buf, size_t len)
-{
-	char ads[48];
-	unsigned int port;
-
-	if (!sa46) {
-		lws_snprintf(buf, len, "(connected socket)");
-
-		return;
-	}
-
-	lws_sa46_write_numeric_address((lws_sockaddr46 *)sa46, ads, sizeof(ads));
-#if defined(LWS_WITH_IPV6)
-	port = ntohs(sa46->sa4.sin_family == AF_INET ? sa46->sa4.sin_port :
-						      sa46->sa6.sin6_port);
-#else
-	port = ntohs(sa46->sa4.sin_port);
-#endif
-
-	lws_snprintf(buf, len, "%s:%u (af %d, salen %u)", ads, port,
-		     (int)sa46->sa4.sin_family,
-		     (unsigned int)sa46_socklen((lws_sockaddr46 *)sa46));
-}
-#endif
-
-#if defined(LWS_WITH_SERVER)
-/*
- * Server egress fd for a peer that may have migrated onto a different address
- * family than the listener that accepted the connection (eg, an IPv6
- * connection actively migrating to our IPv4 preferred address): use the
- * vhost's QUIC listener bound to the destination's family.
- */
-static lws_sockfd_type
-lws_quic_server_egress_fd(struct lws_vhost *vh, int family,
-			  lws_sockfd_type fall_back)
-{
-	if (vh) {
-		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				lws_dll2_get_head(&vh->listen_wsi)) {
-			struct lws *lw = lws_container_of(d, struct lws,
-							  listen_list);
-			if (lw->role_ops != &role_ops_quic || !lw->udp)
-				continue;
-			if (lw->udp->sa46.sa4.sin_family == family &&
-			    lws_socket_is_valid(lw->desc.sockfd))
-				return lw->desc.sockfd;
-		} lws_end_foreach_dll_safe(d, d1);
-	}
-
-	return fall_back;
-}
-#endif
 
 static void
 lws_quic_pacer_cb(lws_sorted_usec_list_t *sul)
@@ -1134,11 +1074,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 			*vp++ = (uint8_t)(LWS_QUIC_VERSION_2 >> 24); *vp++ = (uint8_t)(LWS_QUIC_VERSION_2 >> 16);
 			*vp++ = (uint8_t)(LWS_QUIC_VERSION_2 >> 8); *vp++ = (uint8_t)(LWS_QUIC_VERSION_2);
 
-#if defined(WIN32) || defined(_WIN32)
-			sendto(wsi->desc.sockfd, (char *)vn, (int)(vp - vn), 0, sa46_sockaddr(&sa46), sa46_socklen(&sa46));
-#else
-			sendto(wsi->desc.sockfd, (void *)vn, (size_t)(vp - vn), 0, sa46_sockaddr(&sa46), sa46_socklen(&sa46));
-#endif
+			lws_io_send_dgram(wsi, vn, (size_t)(vp - vn), &sa46);
 			return 0;
 		}
 
@@ -1189,11 +1125,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 					if (!lws_quic_create_retry_tag(dcid.id, dcid.len, retry_pkt, (size_t)(rp - retry_pkt), tag)) {
 						memcpy(rp, tag, 16); rp += 16;
 						lwsl_wsi_notice(wsi, "QUIC RX: Forcing Retry, sending Retry packet!");
-#if defined(WIN32) || defined(_WIN32)
-						sendto(wsi->desc.sockfd, (char *)retry_pkt, (int)(rp - retry_pkt), 0, sa46_sockaddr(&sa46), sa46_socklen(&sa46));
-#else
-						sendto(wsi->desc.sockfd, (void *)retry_pkt, (size_t)(rp - retry_pkt), 0, sa46_sockaddr(&sa46), sa46_socklen(&sa46));
-#endif
+						lws_io_send_dgram(wsi, retry_pkt, (size_t)(rp - retry_pkt), &sa46);
 					}
 				}
 				return 0;
@@ -3234,7 +3166,6 @@ send_frames:
 
 		/* 4. Transmit UDP Datagram */
 
-		lws_sockfd_type fd = wsi->mux_substream ? wsi->mux.parent_wsi->desc.sockfd : wsi->desc.sockfd;
 		size_t send_len = (size_t)(p - pkt) + 16;
 
 		/* PMTUD: tag in-flight frames with this packet's wire length so we can track MTU losses */
@@ -3249,8 +3180,6 @@ send_frames:
 		} lws_end_foreach_dll_back(d);
 
 		/* Fault Injection for dropping UDP packets (simulating packet loss) */
-		int e = 0;
-
 		if (lws_fi(&wsi->fic, "quic_tx_drop")) {
 			lwsl_wsi_debug(wsi, "QUIC TX: Dropping packet via lws_fi fault injection!");
 			n = (int)send_len; /* Pretend it succeeded */
@@ -3268,92 +3197,11 @@ send_frames:
 					dest_sa46 = &wsi->mux.parent_wsi->udp->sa46;
 			}
 
-#if defined(LWS_WITH_SERVER)
-			if (!is_client && dest_sa46) {
-				/*
-				 * Family-aware egress: if the peer migrated to
-				 * the other address family, the listener that
-				 * accepted the connection can't reach the new
-				 * path.  Send via the vhost's QUIC listener
-				 * bound to the destination's family.
-				 */
-				struct lws *lw = wsi->mux_substream ?
-							wsi->mux.parent_wsi : wsi;
-
-				if (lw && lw->udp &&
-				    lw->udp->sa46.sa4.sin_family !=
-					    dest_sa46->sa4.sin_family)
-					fd = lws_quic_server_egress_fd(
-							wsi->a.vhost,
-							dest_sa46->sa4.sin_family,
-							fd);
-			}
-#endif
-
-#if defined(WIN32) || defined(_WIN32)
-			if (dest_sa46)
-				n = sendto(fd, (const char *)pkt, (int)send_len, 0,
-					   sa46_sockaddr(dest_sa46), sa46_socklen(dest_sa46));
-			else
-				n = send(fd, (const char *)pkt, (int)send_len, 0);
-#else
-			if (dest_sa46)
-				n = (int)sendto(fd, (const void *)pkt, send_len, 0,
-						sa46_sockaddr(dest_sa46), sa46_socklen(dest_sa46));
-			else
-				n = (int)send(fd, (const void *)pkt, send_len, 0);
-#endif
-			if (n < 0) {
-#if (_LWS_ENABLED_LOGS & LLL_WARN)
-				struct lws *lw = wsi->mux_substream ?
-						wsi->mux.parent_wsi : wsi;
-				char d[80], b[80];
-#endif
-
-				/*
-				 * Latch errno immediately: the logging helpers
-				 * below may clobber it before we classify it
-				 */
-				e = LWS_ERRNO;
-
-#if (_LWS_ENABLED_LOGS & LLL_WARN)
-				lws_quic_sa46_str(dest_sa46, d, sizeof(d));
-				lws_quic_sa46_str(lw && lw->udp ? &lw->udp->sa46 :
-						  NULL, b, sizeof(b));
-
-				lwsl_wsi_warn(wsi, "QUIC TX: %s fd %d -> %s, "
-					      "%u bytes, socket bound %s: errno %d",
-					      dest_sa46 ? "sendto" : "send",
-					      (int)fd, d, (unsigned int)send_len,
-					      b, e);
-#endif
-			}
+			n = lws_io_send_dgram(wsi, pkt, send_len, dest_sa46);
 		}
 		if (n < 0) {
-			if (e == LWS_EAGAIN || e == LWS_EWOULDBLOCK || e == LWS_EINTR
-#if defined(EPIPE)
-			    || e == EPIPE
-#endif
-#if defined(EHOSTUNREACH)
-			    || e == EHOSTUNREACH
-#endif
-#if defined(ENETDOWN)
-			    || e == ENETDOWN
-#endif
-#if defined(ENETUNREACH)
-			    || e == ENETUNREACH
-#endif
-#if defined(EADDRNOTAVAIL)
-			    || e == EADDRNOTAVAIL
-#endif
-#if defined(EDESTADDRREQ)
-			    || e == EDESTADDRREQ
-#endif
-#if defined(ENOBUFS)
-			    || e == ENOBUFS
-#endif
-			) {
-				lwsl_wsi_info(wsi, "QUIC TX: UDP socket EAGAIN/transient error, errno=%d. Pausing send.", e);
+			if (n == LWS_SSL_CAPABLE_MORE_SERVICE_WRITE) {
+				lwsl_wsi_info(wsi, "QUIC TX: transport cannot take the datagram now, pausing send");
 				
 				/* 
 				 * The OS UDP socket buffer is full. We cannot send this packet.
@@ -3387,7 +3235,7 @@ send_frames:
 				eagain_blocked = 1;
 				break;
 			} else {
-				lwsl_wsi_err(wsi, "QUIC TX: Write failed, errno=%d", e);
+				lwsl_wsi_err(wsi, "QUIC TX: write failed");
 				return LWS_HP_RET_BAIL_OK;
 			}
 		}

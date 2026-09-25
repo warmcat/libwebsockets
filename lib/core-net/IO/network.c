@@ -1599,3 +1599,107 @@ lws_is_local_address(const char *ads)
 
 	return 0;
 }
+
+#if defined(LWS_WITH_UDP)
+/*
+ * Send one datagram for wsi: IO's side of the datagram tx (see
+ * README.sans-io-split.md).  dest NULL means the socket is connected.  On a
+ * server, a peer that migrated to the other address family than the socket
+ * that accepted it is reached through the vhost's udp listener of the
+ * destination's family, if it has one: a sockaddr of the other family is
+ * not a valid destination for a socket (Linux tolerates it, macOS refuses).
+ *
+ * Returns the bytes sent; LWS_SSL_CAPABLE_MORE_SERVICE_WRITE when the
+ * transport cannot take it now (buffer full, route briefly down: try again
+ * when writable); LWS_SSL_CAPABLE_ERROR otherwise.
+ */
+int
+lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
+		  const lws_sockaddr46 *dest)
+{
+	struct lws *nwsi = lws_get_network_wsi(wsi);
+	lws_sockfd_type fd = nwsi->desc.sockfd;
+	int n, e;
+
+#if defined(LWS_WITH_SERVER)
+	if (dest && !lwsi_role_client(nwsi) && nwsi->udp && nwsi->a.vhost &&
+	    nwsi->udp->sa46.sa4.sin_family != dest->sa4.sin_family) {
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				lws_dll2_get_head(&nwsi->a.vhost->listen_wsi)) {
+			struct lws *lw = lws_container_of(d, struct lws,
+							  listen_list);
+
+			if (lw->udp &&
+			    lw->udp->sa46.sa4.sin_family ==
+						dest->sa4.sin_family &&
+			    lws_socket_is_valid(lw->desc.sockfd)) {
+				fd = lw->desc.sockfd;
+				break;
+			}
+		} lws_end_foreach_dll(d);
+	}
+#endif
+
+#if defined(WIN32) || defined(_WIN32)
+	if (dest)
+		n = sendto(fd, (const char *)buf, (int)len, 0,
+			   sa46_sockaddr((lws_sockaddr46 *)dest), sa46_socklen(dest));
+	else
+		n = send(fd, (const char *)buf, (int)len, 0);
+#else
+	if (dest)
+		n = (int)sendto(fd, (const void *)buf, len, 0,
+				sa46_sockaddr((lws_sockaddr46 *)dest), sa46_socklen(dest));
+	else
+		n = (int)send(fd, (const void *)buf, len, 0);
+#endif
+	if (n >= 0)
+		return n;
+
+	/* latch it before the logging can clobber it */
+	e = LWS_ERRNO;
+
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
+	{
+		char da[80] = "connected", ba[80] = "-";
+
+		if (dest)
+			lws_sa46_write_numeric_address((lws_sockaddr46 *)dest,
+						       da, sizeof(da));
+		if (nwsi->udp)
+			lws_sa46_write_numeric_address(&nwsi->udp->sa46, ba,
+						       sizeof(ba));
+		lwsl_wsi_warn(wsi, "dgram %s fd %d -> %s, %u bytes, socket "
+				   "bound %s: errno %d", dest ? "sendto" : "send",
+				   (int)fd, da, (unsigned int)len, ba, e);
+	}
+#endif
+
+	if (e == LWS_EAGAIN || e == LWS_EWOULDBLOCK || e == LWS_EINTR
+#if defined(EPIPE)
+	    || e == EPIPE
+#endif
+#if defined(EHOSTUNREACH)
+	    || e == EHOSTUNREACH
+#endif
+#if defined(ENETDOWN)
+	    || e == ENETDOWN
+#endif
+#if defined(ENETUNREACH)
+	    || e == ENETUNREACH
+#endif
+#if defined(EADDRNOTAVAIL)
+	    || e == EADDRNOTAVAIL
+#endif
+#if defined(EDESTADDRREQ)
+	    || e == EDESTADDRREQ
+#endif
+#if defined(ENOBUFS)
+	    || e == ENOBUFS
+#endif
+	    )
+		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+
+	return LWS_SSL_CAPABLE_ERROR;
+}
+#endif

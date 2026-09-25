@@ -381,4 +381,10 @@ lws_remove_parallel_fd_safely(struct lws *wsi, int pidx);
 
 #endif
 
+#if defined(LWS_WITH_UDP)
+int
+lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
+		  const lws_sockaddr46 *dest);
+#endif
+
 #endif /* __LWS_PRIVATE_LIB_IO_H__ */
