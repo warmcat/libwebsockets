@@ -221,87 +221,6 @@ lws_quic_path_probe_sul_cb(lws_sorted_usec_list_t *sul)
  */
 #define LWS_QUIC_PREFADDR_DEADLINE_US (10 * LWS_USEC_PER_SEC)
 
-static int
-lws_quic_prefaddr_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
-{
-	struct lws_context *cx = nwsi->a.context;
-	struct lws_context_per_thread *pt = &cx->pt[(int)nwsi->tsi];
-	lws_sock_file_fd_type new_sock;
-	int fam = to_sa46->sa4.sin_family;
-	lws_sockfd_type n_fd;
-
-	n_fd = socket(fam, SOCK_DGRAM, 0);
-	if (!lws_socket_is_valid(n_fd)) {
-		lwsl_wsi_warn(nwsi, "prefaddr: socket fail errno=%d", LWS_ERRNO);
-		return 1;
-	}
-	if (lws_plat_apply_FD_CLOEXEC((int)n_fd) ||
-	    lws_plat_set_nonblocking(n_fd)) {
-		compatible_close(n_fd);
-		return 1;
-	}
-	{
-		int opt = 4 * 1024 * 1024;
-		if (setsockopt(n_fd, SOL_SOCKET, SO_RCVBUF, (const char *)&opt, sizeof(opt)) < 0)
-			lwsl_wsi_warn(nwsi, "prefaddr: set SO_RCVBUF failed");
-		if (setsockopt(n_fd, SOL_SOCKET, SO_SNDBUF, (const char *)&opt, sizeof(opt)) < 0)
-			lwsl_wsi_warn(nwsi, "prefaddr: set SO_SNDBUF failed");
-	}
-	if (connect(n_fd, sa46_sockaddr((lws_sockaddr46 *)to_sa46),
-		    sa46_socklen((lws_sockaddr46 *)to_sa46)) < 0)
-		lwsl_wsi_warn(nwsi, "prefaddr: connect fail errno=%d", LWS_ERRNO);
-
-	new_sock.sockfd = n_fd;
-
-	lws_pt_lock(pt, __func__);
-	if (lws_socket_is_valid(nwsi->io.desc.sockfd))
-		__remove_wsi_socket_from_fds(nwsi);
-
-	/*
-	 * The fd number itself is changing: the event-loop handle that was
-	 * bound to the old fd at accept time cannot be repointed to the new
-	 * fd.  For libuv, leaving it in place leaks libuv's per-fd watcher
-	 * entry for the old fd (which was already closed below); when the
-	 * kernel later recycles that fd number, uv_poll_init_socket() trips
-	 * UV_EEXIST on the unrelated new socket.  Tear down the old handle
-	 * through the event-lib ops (which also closes the old kernel fd),
-	 * then build a fresh handle for the new fd, exactly as the redirect
-	 * / fd-handoff paths do.
-	 */
-#if defined(LWS_WITH_EVENT_LIBS)
-	if (cx->event_loop_ops->close_handle_manually)
-		cx->event_loop_ops->close_handle_manually(nwsi);
-	else
-#endif
-	{
-		if (lws_socket_is_valid(nwsi->io.desc.sockfd))
-			compatible_close(nwsi->io.desc.sockfd);
-		nwsi->io.desc.sockfd = LWS_SOCK_INVALID;
-	}
-
-	nwsi->io.desc = new_sock;
-
-#if defined(LWS_WITH_EVENT_LIBS)
-	if (cx->event_loop_ops->sock_accept)
-		if (cx->event_loop_ops->sock_accept(nwsi)) {
-			lws_pt_unlock(pt);
-			compatible_close(n_fd);
-			return 1;
-		}
-#endif
-
-	if (__insert_wsi_socket_into_fds(cx, nwsi)) {
-		lws_pt_unlock(pt);
-		compatible_close(n_fd);
-		return 1;
-	}
-	lws_pt_unlock(pt);
-
-	nwsi->udp->sa46 = *to_sa46;
-
-	return 0;
-}
-
 static void
 lws_quic_prefaddr_sul_cb(lws_sorted_usec_list_t *sul)
 {
@@ -320,7 +239,7 @@ lws_quic_prefaddr_sul_cb(lws_sorted_usec_list_t *sul)
 	qn->prefaddr_active = 0;
 	qn->rem_cid = qn->prefaddr_original_rem_cid;
 
-	if (lws_quic_prefaddr_swap_socket(nwsi, &qn->prefaddr_original_sa46))
+	if (lws_io_udp_swap_socket(nwsi, &qn->prefaddr_original_sa46))
 		lwsl_wsi_err(nwsi, "prefaddr: revert socket failed");
 
 	lws_callback_on_writable(nwsi);
@@ -373,7 +292,7 @@ lws_quic_client_probe_preferred_address(struct lws *nwsi,
 	qn->prefaddr_active = 1;
 	qn->prefaddr_committed = 0;
 
-	if (lws_quic_prefaddr_swap_socket(nwsi, pref_sa46))
+	if (lws_io_udp_swap_socket(nwsi, pref_sa46))
 		return 1;
 
 	if (pref_cid && pref_cid->len)
@@ -2044,9 +1963,8 @@ tp_ok:
 #endif
 
 					/* Re-connect the socket to the new server address */
-					if (connect(nwsi->io.desc.sockfd, sa46_sockaddr(&migration_sa46), sa46_socklen(&migration_sa46)) < 0) {
-						lwsl_warn("QUIC: failed to re-connect client socket, errno=%d\n", errno);
-					}
+					if (lws_io_udp_connect_peer(nwsi, &migration_sa46))
+						lwsl_wsi_warn(nwsi, "QUIC: failed to re-connect client socket");
 
 					nwsi->udp->sa46 = migration_sa46;
 
@@ -3891,34 +3809,8 @@ rops_adoption_bind_quic(struct lws *wsi, int type, const char *vh_prot_name)
 		}
 #endif
 
-		/* Configure socket for ECN (Explicit Congestion Notification) */
-#if !defined(WIN32) && !defined(_WIN32)
-                int opt = 1;
-                (void)opt;
-#if defined(IP_RECVTOS)
-                if (setsockopt(wsi->io.desc.sockfd, IPPROTO_IP, IP_RECVTOS, &opt, sizeof(opt)))
-                    lwsl_wsi_info(wsi, "setsockopt IP_RECVTOS failed\n");
-#endif
-#if defined(LWS_WITH_IPV6)
-#if defined(IPV6_RECVTCLASS)
-                if (setsockopt(wsi->io.desc.sockfd, IPPROTO_IPV6, IPV6_RECVTCLASS, &opt, sizeof(opt)))
-                    lwsl_wsi_info(wsi, "setsockopt IPV6_RECVTCLASS failed\n");
-#endif
-#endif
-                /* Send ECT(0) (0x02) on outgoing QUIC packets */
-                int tos = 0x02;
-                (void)tos;
-#if defined(IP_TOS)
-                if (setsockopt(wsi->io.desc.sockfd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos)))
-                    lwsl_wsi_info(wsi, "setsockopt IP_TOS failed\n");
-#endif
-#if defined(LWS_WITH_IPV6)
-#if defined(IPV6_TCLASS)
-                if (setsockopt(wsi->io.desc.sockfd, IPPROTO_IPV6, IPV6_TCLASS, &tos, sizeof(tos)))
-                    lwsl_wsi_info(wsi, "setsockopt IPV6_TCLASS failed\n");
-#endif
-#endif
-#endif
+		/* the socket marks what it sends ECT(0) and reports ECN on rx */
+		lws_io_udp_enable_ecn(wsi);
 
 		/* Initialize Flow Control Credits */
 		int32_t init_cr = wsi->txc.manual_initial_tx_credit;
@@ -3931,7 +3823,7 @@ rops_adoption_bind_quic(struct lws *wsi, int type, const char *vh_prot_name)
 			lws_wsi_event_role(wsi, LWS_WSIEV_ADOPTED, &role_ops_quic);
 		lws_bind_protocol(wsi, wsi->a.protocol, __func__);
 
-		if ((type & _LWS_ADOPT_FINISH) && wsi->io.do_bind) {
+		if ((type & _LWS_ADOPT_FINISH) && lws_io_udp_is_bound(wsi)) {
 			wsi->listener = 1;
 #if defined(LWS_WITH_SERVER)
 			if (!lws_dll2_owner(&wsi->listen_list))
@@ -4661,42 +4553,9 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	nwsi->keep_warm_secs = wsi->keep_warm_secs;
 #endif
 
-	/* Transfer the socket fd and fds table entry if valid */
-	nwsi->io.desc = wsi->io.desc;
-	if (lws_socket_is_valid(wsi->io.desc.sockfd)) {
-		struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-
-		lws_pt_lock(pt, __func__);
-		if (__remove_wsi_socket_from_fds(wsi)) {
-			lws_pt_unlock(pt);
-			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "fd table fail");
-			return 1;
-		}
-		wsi->io.desc.sockfd = LWS_SOCK_INVALID;
-#if defined(LWS_WITH_EVENT_LIBS)
-		if (wsi->a.context->event_loop_ops->evlib_size_wsi) {
-			/*
-			 * The evlib's watchers may hold the old block's
-			 * addresses (libev's embedded ev_io, libevent's
-			 * callback arg) or the old wsi (libuv handle data,
-			 * glib source, sd-event userdata): let it re-home
-			 * them, a raw copy only suits an evlib that says so.
-			 */
-			if (wsi->a.context->event_loop_ops->migrate_wsi)
-				wsi->a.context->event_loop_ops->migrate_wsi(wsi, nwsi);
-			else {
-				memcpy(nwsi->io.evlib_wsi, wsi->io.evlib_wsi, wsi->a.context->event_loop_ops->evlib_size_wsi);
-				memset(wsi->io.evlib_wsi, 0, wsi->a.context->event_loop_ops->evlib_size_wsi);
-			}
-		}
-#endif
-		if (__insert_wsi_socket_into_fds(wsi->a.context, nwsi)) {
-			lws_pt_unlock(pt);
-			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "fd table fail");
-			return 1;
-		}
-		lws_pt_unlock(pt);
-	}
+	/* the socket, its place in the poll set and its watcher move over */
+	if (lws_io_udp_transfer_socket(wsi, nwsi))
+		return 1;
 
 	/* Transfer the udp and quic contexts */
 #if defined(LWS_WITH_UDP)

@@ -403,6 +403,18 @@ int
 lws_io_service_now(struct lws *wsi);
 int
 lws_io_flag_pending_rx(struct lws *wsi);
+#if defined(LWS_ROLE_QUIC)
+int
+lws_io_udp_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46);
+int
+lws_io_udp_connect_peer(struct lws *nwsi, const lws_sockaddr46 *sa46);
+void
+lws_io_udp_enable_ecn(struct lws *wsi);
+int
+lws_io_udp_is_bound(struct lws *wsi);
+int
+lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi);
+#endif
 void
 lws_pipe_wsi_release_fds(struct lws *wsi);
 #if defined(LWS_WITH_ASYNC_QUEUE)

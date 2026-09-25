@@ -1703,3 +1703,194 @@ lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
 	return LWS_SSL_CAPABLE_ERROR;
 }
 #endif
+
+#if defined(LWS_ROLE_QUIC)
+/*
+ * quic's socket setup (README.sans-io-split.md: quic is a sansIO part with
+ * a datagram interface; these are the datagram socket's).
+ */
+
+/*
+ * Move a client onto a fresh UDP socket connected to to_sa46 (RFC 9000
+ * preferred address: a new source port), replacing the old socket and its
+ * event-library watcher.  Returns 1 on failure with the old socket intact.
+ */
+int
+lws_io_udp_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
+{
+	struct lws_context *cx = nwsi->a.context;
+	struct lws_context_per_thread *pt = &cx->pt[(int)nwsi->tsi];
+	lws_sock_file_fd_type new_sock;
+	int fam = to_sa46->sa4.sin_family;
+	lws_sockfd_type n_fd;
+
+	n_fd = socket(fam, SOCK_DGRAM, 0);
+	if (!lws_socket_is_valid(n_fd)) {
+		lwsl_wsi_warn(nwsi, "udp swap: socket fail errno=%d", LWS_ERRNO);
+		return 1;
+	}
+	if (lws_plat_apply_FD_CLOEXEC((int)n_fd) ||
+	    lws_plat_set_nonblocking(n_fd)) {
+		compatible_close(n_fd);
+		return 1;
+	}
+	{
+		int opt = 4 * 1024 * 1024;
+		if (setsockopt(n_fd, SOL_SOCKET, SO_RCVBUF, (const char *)&opt, sizeof(opt)) < 0)
+			lwsl_wsi_warn(nwsi, "udp swap: set SO_RCVBUF failed");
+		if (setsockopt(n_fd, SOL_SOCKET, SO_SNDBUF, (const char *)&opt, sizeof(opt)) < 0)
+			lwsl_wsi_warn(nwsi, "udp swap: set SO_SNDBUF failed");
+	}
+	if (connect(n_fd, sa46_sockaddr((lws_sockaddr46 *)to_sa46),
+		    sa46_socklen((lws_sockaddr46 *)to_sa46)) < 0)
+		lwsl_wsi_warn(nwsi, "udp swap: connect fail errno=%d", LWS_ERRNO);
+
+	new_sock.sockfd = n_fd;
+
+	lws_pt_lock(pt, __func__);
+	if (lws_socket_is_valid(nwsi->io.desc.sockfd))
+		__remove_wsi_socket_from_fds(nwsi);
+
+	/*
+	 * The fd number itself is changing: the event-loop handle that was
+	 * bound to the old fd at accept time cannot be repointed to the new
+	 * fd.  For libuv, leaving it in place leaks libuv's per-fd watcher
+	 * entry for the old fd (which was already closed below); when the
+	 * kernel later recycles that fd number, uv_poll_init_socket() trips
+	 * UV_EEXIST on the unrelated new socket.  Tear down the old handle
+	 * through the event-lib ops (which also closes the old kernel fd),
+	 * then build a fresh handle for the new fd, exactly as the redirect
+	 * / fd-handoff paths do.
+	 */
+#if defined(LWS_WITH_EVENT_LIBS)
+	if (cx->event_loop_ops->close_handle_manually)
+		cx->event_loop_ops->close_handle_manually(nwsi);
+	else
+#endif
+	{
+		if (lws_socket_is_valid(nwsi->io.desc.sockfd))
+			compatible_close(nwsi->io.desc.sockfd);
+		nwsi->io.desc.sockfd = LWS_SOCK_INVALID;
+	}
+
+	nwsi->io.desc = new_sock;
+
+#if defined(LWS_WITH_EVENT_LIBS)
+	if (cx->event_loop_ops->sock_accept)
+		if (cx->event_loop_ops->sock_accept(nwsi)) {
+			lws_pt_unlock(pt);
+			compatible_close(n_fd);
+			return 1;
+		}
+#endif
+
+	if (__insert_wsi_socket_into_fds(cx, nwsi)) {
+		lws_pt_unlock(pt);
+		compatible_close(n_fd);
+		return 1;
+	}
+	lws_pt_unlock(pt);
+
+	nwsi->udp->sa46 = *to_sa46;
+
+	return 0;
+}
+
+
+/* reconnect a connected UDP socket to a peer that moved (path migration) */
+int
+lws_io_udp_connect_peer(struct lws *nwsi, const lws_sockaddr46 *sa46)
+{
+	if (connect(nwsi->io.desc.sockfd, sa46_sockaddr((lws_sockaddr46 *)sa46),
+		    sa46_socklen((lws_sockaddr46 *)sa46)) < 0) {
+		lwsl_wsi_warn(nwsi, "connect errno=%d", LWS_ERRNO);
+
+		return 1;
+	}
+
+	return 0;
+}
+
+/* send ECT(0) and be told the ECN bits of what arrives */
+void
+lws_io_udp_enable_ecn(struct lws *wsi)
+{
+#if !defined(WIN32) && !defined(_WIN32)
+	int opt = 1, tos = 0x02;
+
+	(void)opt; (void)tos;
+#if defined(IP_RECVTOS)
+	if (setsockopt(wsi->io.desc.sockfd, IPPROTO_IP, IP_RECVTOS, &opt, sizeof(opt)))
+		lwsl_wsi_info(wsi, "setsockopt IP_RECVTOS failed");
+#endif
+#if defined(LWS_WITH_IPV6) && defined(IPV6_RECVTCLASS)
+	if (setsockopt(wsi->io.desc.sockfd, IPPROTO_IPV6, IPV6_RECVTCLASS, &opt, sizeof(opt)))
+		lwsl_wsi_info(wsi, "setsockopt IPV6_RECVTCLASS failed");
+#endif
+#if defined(IP_TOS)
+	if (setsockopt(wsi->io.desc.sockfd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos)))
+		lwsl_wsi_info(wsi, "setsockopt IP_TOS failed");
+#endif
+#if defined(LWS_WITH_IPV6) && defined(IPV6_TCLASS)
+	if (setsockopt(wsi->io.desc.sockfd, IPPROTO_IPV6, IPV6_TCLASS, &tos, sizeof(tos)))
+		lwsl_wsi_info(wsi, "setsockopt IPV6_TCLASS failed");
+#endif
+#else
+	(void)wsi;
+#endif
+}
+
+/* was the udp socket created bound (LWS_CAUDP_BIND), ie, is it a listener */
+int
+lws_io_udp_is_bound(struct lws *wsi)
+{
+	return wsi->io.do_bind;
+}
+
+/*
+ * A quic netconn is born as one wsi and goes on as another: the socket, its
+ * place in the poll set and its event-library watcher move to nwsi.  Returns
+ * 1 on failure, having closed nwsi.
+ */
+int
+lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi)
+{
+	nwsi->io.desc = wsi->io.desc;
+	if (lws_socket_is_valid(wsi->io.desc.sockfd)) {
+		struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+
+		lws_pt_lock(pt, __func__);
+		if (__remove_wsi_socket_from_fds(wsi)) {
+			lws_pt_unlock(pt);
+			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "fd table fail");
+			return 1;
+		}
+		wsi->io.desc.sockfd = LWS_SOCK_INVALID;
+	#if defined(LWS_WITH_EVENT_LIBS)
+		if (wsi->a.context->event_loop_ops->evlib_size_wsi) {
+			/*
+			 * The evlib's watchers may hold the old block's
+			 * addresses (libev's embedded ev_io, libevent's
+			 * callback arg) or the old wsi (libuv handle data,
+			 * glib source, sd-event userdata): let it re-home
+			 * them, a raw copy only suits an evlib that says so.
+			 */
+			if (wsi->a.context->event_loop_ops->migrate_wsi)
+				wsi->a.context->event_loop_ops->migrate_wsi(wsi, nwsi);
+			else {
+				memcpy(nwsi->io.evlib_wsi, wsi->io.evlib_wsi, wsi->a.context->event_loop_ops->evlib_size_wsi);
+				memset(wsi->io.evlib_wsi, 0, wsi->a.context->event_loop_ops->evlib_size_wsi);
+			}
+		}
+	#endif
+		if (__insert_wsi_socket_into_fds(wsi->a.context, nwsi)) {
+			lws_pt_unlock(pt);
+			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "fd table fail");
+			return 1;
+		}
+		lws_pt_unlock(pt);
+	}
+
+	return 0;
+}
+#endif /* LWS_ROLE_QUIC */
