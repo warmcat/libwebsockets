@@ -399,7 +399,9 @@ solo:
 
 #if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
 	if (wsi->use_ssl && !wsi->tried_quic) {
-		int try_quic = 0;
+		const char *my_alpn = lws_wsi_client_stash_item(wsi, CIS_ALPN,
+						_WSI_TOKEN_CLIENT_ALPN);
+		int try_quic = 0, pinned = 0;
 		uint16_t alt_port = 0;
 
 		/*
@@ -412,9 +414,18 @@ solo:
 		 * A learned RFC 7838 alt-svc alternative is aimed at its
 		 * advertised port; a remembered h3 ALPN negotiation means the
 		 * origin port itself speaks QUIC.
+		 *
+		 * But an alpn list the user gave that leaves h3 out, eg,
+		 * "http/1.1" or "h2", is him pinning the protocol: neither
+		 * an alternative the origin advertised nor one it negotiated
+		 * before overrides that, or an h1 connection he asked for
+		 * silently becomes h3 the second time it is made.
 		 */
 
-		if (wsi->a.context->altsvc_cache && wsi->c_port) {
+		if (my_alpn && !strstr(my_alpn, "h3"))
+			pinned = 1;
+
+		if (!pinned && wsi->a.context->altsvc_cache && wsi->c_port) {
 			char key[256];
 			const uint8_t *payload;
 			size_t plen;
@@ -432,7 +443,7 @@ solo:
 			}
 		}
 
-		if (!try_quic && wsi->alpn_discovered[0] &&
+		if (!pinned && !try_quic && wsi->alpn_discovered[0] &&
 		    strstr(wsi->alpn_discovered, "h3"))
 			/* we negotiated h3 on this origin port before */
 			try_quic = 1;
