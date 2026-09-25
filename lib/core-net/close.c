@@ -1120,6 +1120,14 @@ __lws_close_free_wsi_final(struct lws *wsi)
 #endif
 
 #if defined(LWS_WITH_TLS)
+		/*
+		 * The restart reconnects from inside the ah attach below,
+		 * before the wish is set again from the flags after it, and
+		 * the kept-warm join test reads the wish: a restarting
+		 * connection makes its own connection rather than joining
+		 * one, as it did when the whole tls struct was cleared here
+		 */
+		wsi->use_ssl = 0;
 #endif
 
 	//	wsi->a.protocol = NULL;
