@@ -423,6 +423,7 @@ extern const struct http2_settings lws_h2_defaults;
 int
 lws_h2_ws_handshake(struct lws *wsi);
 int lws_h2_issue_preface(struct lws *wsi);
+int lws_h2_client_transport_up(struct lws *wsi);
 int
 lws_h2_client_handshake(struct lws *wsi);
 struct lws *

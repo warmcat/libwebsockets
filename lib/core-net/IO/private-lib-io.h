@@ -417,6 +417,15 @@ void
 lws_io_peer_address(struct lws *wsi, char *buf, size_t len);
 int
 lws_io_udp_alloc(struct lws *wsi);
+#if defined(LWS_WITH_CLIENT)
+/* the client transport machine (IO/client/transport.c) */
+int
+lws_client_transport_connected(struct lws *wsi);
+int
+lws_client_transport_stage(struct lws *wsi, struct lws_pollfd *pollfd);
+struct lws * LWS_WARN_UNUSED_RESULT
+lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi);
+#endif
 void
 lws_io_udp_release(struct lws *wsi);
 #if defined(LWS_ROLE_QUIC)

@@ -95,12 +95,7 @@ rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_HANDLED;
 	}
 
-	if (lwsi_transport(wsi) == LTS_WAITING_CONNECT)
-		goto try_pollout;
-
 	/* the reading, and the fairness with POLLOUT, are IO's rx stage's */
-
-try_pollout:
 
 	if (!(pollfd->revents & LWS_POLLOUT))
 		return LWS_HPI_RET_HANDLED;
@@ -117,11 +112,6 @@ try_pollout:
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 	}
-
-#if defined(LWS_WITH_CLIENT)
-	if (lws_http_client_socket_service(wsi, pollfd))
-		return LWS_HPI_RET_WSI_ALREADY_DIED;
-#endif
 
 #if defined(LWS_WITH_LATENCY)
 		{

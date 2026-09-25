@@ -543,6 +543,30 @@ bail1:
 }
 
 
+#if defined(LWS_WITH_CLIENT)
+/*
+ * The client's transport is up and it is an h2 connection: the preface
+ * legitimizes it (transitions us to LRS_H2_WAITING_TO_SEND_HEADERS).  The
+ * client_transport_up op.
+ */
+int
+lws_h2_client_transport_up(struct lws *wsi)
+{
+	lwsl_wsi_info(wsi, "doing h2 hello path");
+
+	if (lws_h2_issue_preface(wsi)) {
+		lwsl_wsi_info(wsi, "error sending h2 preface");
+
+		return -1;
+	}
+
+	lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
+			(int)wsi->a.context->timeout_secs);
+
+	return 0;
+}
+#endif
+
 int
 lws_h2_issue_preface(struct lws *wsi)
 {

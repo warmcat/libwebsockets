@@ -641,7 +641,14 @@ lws_http_response_started(struct lws *wsi)
 }
 #endif
 
+#if defined(LWS_WITH_CLIENT)
+int
+lws_h1_client_issue_handshake(struct lws *wsi);
+void
+lws_h1_client_request_sent(struct lws *wsi);
+int
+lws_h1_client_transport_up(struct lws *wsi);
+#endif
+
 int
 lws_http_date_parse_unix(const char *b, size_t len, time_t *t);
-
-

@@ -1474,6 +1474,19 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	lws_usec_t _role_start = lws_now_usecs();
 #endif
 
+#if defined(LWS_WITH_CLIENT)
+	/* a client's dns, connect and tls passes are IO's alone */
+	switch (lws_client_transport_stage(wsi, pollfd)) {
+	case 1:
+		/* the wsi is closed and freed already: see below */
+		return 1;
+	case 2:
+		goto handled;
+	default:
+		break;
+	}
+#endif
+
 	switch (lws_rx_stage(pt, wsi, pollfd)) {
 	case 1:
 		/* the wsi is closed and freed already: see below */

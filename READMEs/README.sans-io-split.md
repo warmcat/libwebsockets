@@ -253,9 +253,13 @@ each function is in.
    the roles' handlers stop reading: `rx_policy` and IO's rx stage
    (done: every role answers it, IO's `lws_rx_stage()` reads for the
    poll and for the ripe-rxflow pass alike, and keeps the fairness
-   between POLLIN and POLLOUT).  What the handlers keep is the pass's
-   POLLOUT and a client's transport-phase dispatch (connect, tls, socks
-   and CONNECT legs), which are IO's to take next.
+   between POLLIN and POLLOUT).  The pass's POLLOUT is IO's dispatcher's
+   (done: every role's writeable is its `handle_POLLOUT` op).  A client's
+   dns, connect and tls passes are IO's client transport machine
+   (done: `IO/client/transport.c`; the role hears the transport is up
+   through its `client_transport_up` op and starts its protocol; the socks
+   and CONNECT legs stay the role's rx and tell IO when the tunnel is up
+   with `lws_client_transport_connected()`).
 6. Tier the public headers into `lws-core.h`, `lws-sansio.h`, `lws-io.h`
    (done), then the private ones, with the sansIO-only compile check
    (done: `private-lib-io.h`, `scripts/sans-io-check.sh`; first inventory

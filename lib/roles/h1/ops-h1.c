@@ -858,27 +858,6 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_WSI_ALREADY_DIED;
 #endif
 
-#if defined(LWS_WITH_CLIENT)
-	if (lwsi_transport(wsi) == LTS_WAITING_CONNECT &&
-	    (pollfd->revents & LWS_POLLHUP)) {
-		/*
-		 * This fd's connect attempt failed.  But if we are racing
-		 * parallel connect attempts, the failing fd may only be the
-		 * primary while a racer is still live and able to win.
-		 *
-		 * Let connect_3 disposition the failed attempt (promoting a
-		 * live racer, or trying the next dns result, or informing
-		 * the connect failure if nothing is left) rather than
-		 * killing the whole wsi here.
-		 */
-		if (!lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd))
-			/* the wsi was synchronously closed and freed */
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-
-		return LWS_HPI_RET_HANDLED;
-	}
-#endif
-
 	return LWS_HPI_RET_HANDLED;
 }
 
@@ -1406,6 +1385,10 @@ static const lws_rops_t rops_table_h1[] = {
 	{ .rx				  = rops_rx_h1 },
 	/* 11 with server and client, 10 with one, 9 with neither */
 	{ .rx_policy			  = rops_rx_policy_h1 },
+#if defined(LWS_WITH_CLIENT)
+	/* 12 with server, 11 without */
+	{ .client_transport_up		  = lws_h1_client_transport_up },
+#endif
 };
 
 const struct lws_role_ops role_ops_h1 = {
@@ -1440,13 +1423,13 @@ const struct lws_role_ops role_ops_h1 = {
 #if defined(LWS_WITH_SERVER)
 	  /* LWS_ROPS_issue_keepalive */		0x09, 0x00,
 	  /* LWS_ROPS_client_transport_up */
-	  /* LWS_ROPS_rx */				0x00, 0x0A,
+	  /* LWS_ROPS_rx */				0x0C, 0x0A,
 	  /* LWS_ROPS_rx_dgram */			0x00,
 	  /* LWS_ROPS_rx_policy */			0x0B,
 #else
 	  /* LWS_ROPS_issue_keepalive */		0x08, 0x00,
 	  /* LWS_ROPS_client_transport_up */
-	  /* LWS_ROPS_rx */				0x00, 0x09,
+	  /* LWS_ROPS_rx */				0x0B, 0x09,
 	  /* LWS_ROPS_rx_dgram */			0x00,
 	  /* LWS_ROPS_rx_policy */			0x0A,
 #endif

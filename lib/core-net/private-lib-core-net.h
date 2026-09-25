@@ -1647,8 +1647,6 @@ __lws_seq_timeout_check(struct lws_context_per_thread *pt, lws_usec_t usnow);
 lws_usec_t
 __lws_ss_timeout_check(struct lws_context_per_thread *pt, lws_usec_t usnow);
 
-struct lws * LWS_WARN_UNUSED_RESULT
-lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi);
 
 
 LWS_VISIBLE struct lws * LWS_WARN_UNUSED_RESULT

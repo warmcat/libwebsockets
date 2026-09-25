@@ -96,10 +96,11 @@ lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 
 		/*
 		 * The tunnel is up: for the protocol this is the socket
-		 * connecting, and it goes on from here as a direct
-		 * connection does
+		 * connecting, and IO goes on from here as for a direct
+		 * connection (tls, then our handshake)
 		 */
-		lws_wsi_event(wsi, LWS_WSIEV_SOCKET_CONNECTED);
+		if (lws_client_transport_connected(wsi))
+			return LWS_RX_DIED;
 
 		return (int)len;
 	}
@@ -115,10 +116,11 @@ lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 		case LW5CHS_RET_STARTHS:
 			/*
 			 * The tunnel is up: for the protocol this is the
-			 * socket connecting, and it goes on from here as a
-			 * direct connection does
+			 * socket connecting, and IO goes on from here as for
+			 * a direct connection (tls, then our handshake)
 			 */
-			lws_wsi_event(wsi, LWS_WSIEV_SOCKET_CONNECTED);
+			if (lws_client_transport_connected(wsi))
+				return LWS_RX_DIED;
 			break;
 		default:
 			break;
@@ -198,266 +200,127 @@ fail:
 }
 #endif
 
+/*
+ * Our request headers went out (or the body that followed them): the
+ * response is awaited.
+ */
+void
+lws_h1_client_request_sent(struct lws *wsi)
+{
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+	/* prepare ourselves to do the parsing */
+	wsi->stream.ah->parser_state = WSI_TOKEN_NAME_PART;
+	wsi->stream.ah->lextable_pos = 0;
+	wsi->stream.ah->unk_pos = 0;
+	lws_header_table_rx_snapshot(wsi);
+#endif
+	if (lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY)
+		lws_wsi_event(wsi, LWS_WSIEV_REQ_BODY_SENT);
+	lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
+			(int)wsi->a.context->timeout_secs);
+}
+
+/*
+ * The transport is up and it is our turn on it: compose and send the
+ * request (or ws upgrade) headers.  Returns 0, or 1 when the wsi was closed
+ * and freed here.
+ */
 int
-lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
+lws_h1_client_issue_handshake(struct lws *wsi)
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	char *p = (char *)&pt->serv_buf[0], *end = p + wsi->a.context->pt_serv_buf_size;
-#if defined(LWS_WITH_TLS)
-	char ebuf[128];
-#endif
-	const char *cce = NULL;
+	char *p = (char *)&pt->serv_buf[0], *end = p + context->pt_serv_buf_size;
 	char *sb = p;
-	int n = 0;
+	int n;
+
+	p = lws_generate_client_handshake(wsi, p, lws_ptr_diff_size_t(end, p));
+	if (p == NULL) {
+		lwsl_err("Failed to generate handshake for client\n");
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "chs");
+
+		return 1;
+	}
+
+	/* send our request to the server */
+
+	lwsl_wsi_info(wsi, "HANDSHAKE2: sending headers (wsistate 0x%lx)",
+		      (unsigned long)wsi->wsistate);
+
+	n = lws_ssl_capable_write(wsi, (unsigned char *)sb,
+				  lws_ptr_diff_size_t(p, sb));
+	switch (n) {
+	case LWS_SSL_CAPABLE_ERROR:
+		lwsl_debug("ERROR writing to client socket\n");
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cws");
+
+		return 1;
+	case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
+	case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
+		lws_callback_on_writable(wsi);
+		break;
+	}
+
+	if (wsi->client_http_body_pending || lws_has_buffered_out(wsi)) {
+		lwsl_debug("body pending\n");
+		lws_wsi_event(wsi, LWS_WSIEV_REQ_HDRS_SENT_BODY);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
+				(int)context->timeout_secs);
+
+		if (wsi->flags & LCCSCF_HTTP_X_WWW_FORM_URLENCODED)
+			lws_callback_on_writable(wsi);
+#if defined(LWS_WITH_HTTP_PROXY)
+		if (wsi->http.proxy_clientside && wsi->parent &&
+		    wsi->parent->http.buflist_post_body)
+			lws_callback_on_writable(wsi);
+#endif
+		/* user code must ask for writable callback */
+		return 0;
+	}
+
+	lws_wsi_event(wsi, LWS_WSIEV_REQ_HDRS_SENT);
+
+	lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
+			(int)wsi->a.context->timeout_secs);
+
+	lws_callback_on_writable(wsi);
+
+	lws_h1_client_request_sent(wsi);
+
+	return 0;
+}
+
+/*
+ * The client's transport is up (IO's connect and tls are done): an h2
+ * connection, by alpn or prior knowledge, sends its preface; an h1 one its
+ * request.  The client_transport_up op.
+ */
+int
+lws_h1_client_transport_up(struct lws *wsi)
+{
+#if defined(LWS_ROLE_H2)
+	if (wsi->flags & LCCSCF_H2_PRIOR_KNOWLEDGE) {
+		lwsl_info("h2 prior knowledge\n");
+		lws_role_call_alpn_negotiated(wsi, "h2");
+	}
+
+	if (lwsi_role_h2(wsi))
+		return lws_h2_client_transport_up(wsi);
+#endif
+
+	return lws_h1_client_issue_handshake(wsi);
+}
+
+int
+lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
+{
+	const char *cce = NULL;
 
 	switch (lwsi_state(wsi)) {
 
-	case LRS_WAITING_DNS:
-		/*
-		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
-		 * timeout protection set in client-handshake.c
-		 */
-		lwsl_err("%s: %s: WAITING_DNS\n", __func__, lws_wsi_tag(wsi));
-		if (!lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(wsi)) {
-			/* closed */
-			lwsl_client("closed\n");
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		}
-
-		/* either still pending connection, or changed mode */
-		return 0;
-
-	case LRS_WAITING_CONNECT:
-
-		/*
-		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
-		 * timeout protection set in client-handshake.c
-		 */
-		/*
-		 * A hangup or error here means this fd's attempt failed;
-		 * disposition it via connect_3 so any parallel racing
-		 * attempt on the same wsi can still be promoted instead of
-		 * being lost when the wsi is killed
-		 */
-		if (pollfd->revents & (LWS_POLLOUT | LWS_POLLHUP))
-			if (lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd) == NULL) {
-				lwsl_client("closed\\n");
-				return LWS_HPI_RET_WSI_ALREADY_DIED;
-			}
-		break;
-
-#if defined(LWS_WITH_SOCKS5)
-	/* SOCKS Greeting Reply */
-	case LRS_WAITING_SOCKS_GREETING_REPLY:
-	case LRS_WAITING_SOCKS_AUTH_REPLY:
-	case LRS_WAITING_SOCKS_CONNECT_REPLY:
-		/*
-		 * IO's rx stage read the proxy's reply; if the tunnel came up
-		 * we issue the handshake as a direct connection does
-		 */
-		if (lwsi_state(wsi) == LRS_H1C_ISSUE_HANDSHAKE)
-			goto start_ws_handshake_l;
-
-		return 0;
-#endif
-
-#if defined(LWS_CLIENT_HTTP_PROXYING) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
-
-	case LRS_WAITING_PROXY_REPLY:
-		/* IO's rx stage read the proxy's reply */
-		if (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE)
-			return 0;
-
-		/* the tunnel came up: issue the handshake as a direct connection does */
-               /* fallthru */
-
-#endif
-
-               /* dummy fallthru to satisfy compiler */
-               /* fallthru */
-	case LRS_H1C_ISSUE_HANDSHAKE:
-
-		// lwsl_debug("%s: LRS_H1C_ISSUE_HANDSHAKE\n", __func__);
-
-		/*
-		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
-		 * timeout protection set in client-handshake.c
-		 *
-		 * take care of our lws_callback_on_writable
-		 * happening at a time when there's no real connection yet
-		 */
-#if defined(LWS_WITH_SOCKS5)
-start_ws_handshake_l:
-#endif
-		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
-			cce = "unable to clear POLLOUT";
-			/* turn whatever went wrong into a clean close */
-			goto bail3_l;
-		}
-
-#if defined(LWS_ROLE_H2) || defined(LWS_WITH_TLS)
-		if (
-#if defined(LWS_WITH_TLS)
-		    !(wsi->tls.use_ssl & LCCSCF_USE_SSL)
-#endif
-#if defined(LWS_ROLE_H2) && defined(LWS_WITH_TLS)
-		    &&
-#endif
-#if defined(LWS_ROLE_H2)
-		    !(wsi->flags & LCCSCF_H2_PRIOR_KNOWLEDGE)
-#endif
-		    )
-			goto hs2;
-#endif
-
-#if defined(LWS_WITH_TLS)
-		n = lws_client_create_tls(wsi, &cce, 1);
-		if (n == CCTLS_RETURN_ERROR)
-			goto bail3_l;
-		if (n == CCTLS_RETURN_RETRY)
-			return 0;
-
-		/*
-		 * lws_client_create_tls() can already have done the
-		 * whole tls setup and preface send... if so he set our state
-		 * to LRS_H1C_ISSUE_HANDSHAKE2... let's proceed but be prepared
-		 * to notice our state and not resend the preface...
-		 */
-
-		// lwsl_debug("%s: LRS_H1C_ISSUE_HANDSHAKE fallthru\n", __func__);
-
-		/* fallthru */
-
-	case LRS_WAITING_SSL:
-
-		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-			n = lws_ssl_client_connect2(wsi, ebuf, sizeof(ebuf));
-			if (!n)
-				return 0;
-			if (n < 0) {
-				cce = ebuf;
-				goto bail3_l;
-			}
-		} else {
-			wsi->tls.ssl = NULL;
-			if (wsi->flags & LCCSCF_H2_PRIOR_KNOWLEDGE) {
-				lwsl_info("h2 prior knowledge\n");
-				lws_role_call_alpn_negotiated(wsi, "h2");
-			}
-		}
-#endif
-#if !defined(LWS_WITH_TLS) && defined(LWS_ROLE_H2)
-		/*
-		 * No TLS in this build, so no LRS_WAITING_SSL case above to
-		 * do it: cleartext h2 prior knowledge still has to move us to
-		 * the h2 role before the preface goes out below.
-		 */
-		if (wsi->flags & LCCSCF_H2_PRIOR_KNOWLEDGE) {
-			lwsl_info("h2 prior knowledge\n");
-			lws_role_call_alpn_negotiated(wsi, "h2");
-		}
-#endif
-
-#if defined (LWS_WITH_HTTP2)
-		if (lwsi_role_h2(wsi)) {
-			/*
-			 * We connected to the server and set up tls and
-			 * negotiated "h2" or connected as clear text
-			 * with http/2 prior knowledge.
-			 *
-			 * So this is it, we are an h2 nwsi client connection
-			 * now, not an h1 client connection.
-			 */
-
-			lwsl_info("%s: doing h2 hello path\n", __func__);
-
-			/*
-			 * send the H2 preface to legitimize the connection
-			 *
-			 * transitions us to LRS_H2_WAITING_TO_SEND_HEADERS
-			 */
-			if (lwsi_role_h2(wsi))
-				if (lws_h2_issue_preface(wsi)) {
-					cce = "error sending h2 preface";
-					goto bail3_l;
-				}
-
-			lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
-					(int)context->timeout_secs);
-
-			break;
-		}
-#endif
-
-		/* fallthru */
-
 	case LRS_H1C_ISSUE_HANDSHAKE2:
-
-#if defined(LWS_ROLE_H2) || defined(LWS_WITH_TLS)
-hs2:
-#endif
-
-		p = lws_generate_client_handshake(wsi, p,
-						  lws_ptr_diff_size_t(end, p));
-		if (p == NULL) {
-			if (wsi->role_ops == &role_ops_raw_skt
-#if defined(LWS_ROLE_RAW_FILE)
-				|| wsi->role_ops == &role_ops_raw_file
-#endif
-			    )
-				return 0;
-
-			lwsl_err("Failed to generate handshake for client\n");
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
-					   "chs");
-			return -1;
-		}
-
-		/* send our request to the server */
-
-		lwsl_wsi_info(wsi, "HANDSHAKE2: sending headers (wsistate 0x%lx)",
-			      (unsigned long)wsi->wsistate);
-
-		n = lws_ssl_capable_write(wsi, (unsigned char *)sb, lws_ptr_diff_size_t(p, sb));
-		switch (n) {
-		case LWS_SSL_CAPABLE_ERROR:
-			lwsl_debug("ERROR writing to client socket\n");
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
-					   "cws");
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-			lws_callback_on_writable(wsi);
-			break;
-		}
-
-		if (wsi->client_http_body_pending || lws_has_buffered_out(wsi)) {
-			lwsl_debug("body pending\n");
-			lws_wsi_event(wsi, LWS_WSIEV_REQ_HDRS_SENT_BODY);
-			lws_set_timeout(wsi,
-					PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
-					(int)context->timeout_secs);
-
-			if (wsi->flags & LCCSCF_HTTP_X_WWW_FORM_URLENCODED)
-				lws_callback_on_writable(wsi);
-#if defined(LWS_WITH_HTTP_PROXY)
-			if (wsi->http.proxy_clientside && wsi->parent &&
-			    wsi->parent->http.buflist_post_body)
-				lws_callback_on_writable(wsi);
-#endif
-			/* user code must ask for writable callback */
-			break;
-		}
-
-		lws_wsi_event(wsi, LWS_WSIEV_REQ_HDRS_SENT);
-
-		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
-				(int)wsi->a.context->timeout_secs);
-
-		lws_callback_on_writable(wsi);
-
-		goto client_http_body_sent;
+		/* a pipelined request whose turn on the connection has come */
+		return lws_h1_client_issue_handshake(wsi);
 
 	case LRS_ISSUE_HTTP_BODY:
 #if defined(LWS_WITH_HTTP_PROXY)
@@ -472,18 +335,7 @@ hs2:
 			/* user code must ask for writable callback */
 			break;
 		}
-client_http_body_sent:
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
-		/* prepare ourselves to do the parsing */
-		wsi->stream.ah->parser_state = WSI_TOKEN_NAME_PART;
-		wsi->stream.ah->lextable_pos = 0;
-		wsi->stream.ah->unk_pos = 0;
-		lws_header_table_rx_snapshot(wsi);
-#endif
-		if (lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY)
-			lws_wsi_event(wsi, LWS_WSIEV_REQ_BODY_SENT);
-		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
-				(int)context->timeout_secs);
+		lws_h1_client_request_sent(wsi);
 		break;
 
 	case LRS_WAITING_SERVER_REPLY:

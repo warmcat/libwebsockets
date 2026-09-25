@@ -257,30 +257,17 @@ lws_mqtt_client_socks_rx(struct lws *wsi, const uint8_t *buf, size_t len)
 {
 	const char *cce = NULL;
 	size_t used;
-	int n;
 
 	switch (lws_socks5c_rx(wsi, buf, len, &cce, &used)) {
 	case LW5CHS_RET_BAIL3:
 		goto bail;
 	case LW5CHS_RET_STARTHS:
-#if defined(LWS_WITH_TLS)
-		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-			/*
-			 * as for raw-skt (C-533): the tls connect only runs
-			 * its handshake from WAITING_SSL, and we are still in
-			 * the socks phase here
-			 */
-			lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
-
-			n = lws_client_create_tls(wsi, &cce, 0);
-			if (n != 0 && n != 1)
-				goto bail;
-			break;
-		}
-#endif
-		lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
-		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
-				(int)wsi->a.context->timeout_secs);
+		/*
+		 * The tunnel is up: IO goes on from here as for a direct
+		 * connection (tls if asked for, then our transport_up)
+		 */
+		if (lws_client_transport_connected(wsi))
+			return LWS_RX_DIED;
 		break;
 	default:
 		break;
@@ -304,10 +291,6 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	int n = 0;
-#if defined(LWS_WITH_TLS)
-	char erbuf[128];
-#endif
 	const char *cce = NULL;
 
 	switch (lwsi_state(wsi)) {
@@ -335,60 +318,6 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 		return 0;
 	}
 #endif
-	case LRS_WAITING_DNS:
-		/*
-		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
-		 * timeout protection set in client-handshake.c
-		 */
-		if (!lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(wsi)) {
-			/* closed */
-			lwsl_client("closed\n");
-			return -1;
-		}
-
-		/* either still pending connection, or changed mode */
-		return 0;
-
-	case LRS_WAITING_CONNECT:
-
-		/*
-		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
-		 * timeout protection set in client-handshake.c
-		 */
-		if ((pollfd->revents & LWS_POLLOUT) &&
-		    !lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd))
-			/*
-			 * It dispositioned the failed attempt by closing and
-			 * freeing the wsi; our caller maps nonzero to
-			 * LWS_HPI_RET_WSI_ALREADY_DIED so nothing else touches
-			 * it.  Same contract as ops-h1 / ops-raw-skt.
-			 */
-			return -1;
-		break;
-
-#if defined(LWS_WITH_TLS)
-	case LRS_WAITING_SSL:
-
-		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-			n = lws_ssl_client_connect2(wsi, erbuf, sizeof(erbuf));
-			if (!n)
-				return 0;
-			if (n < 0) {
-				cce = erbuf;
-				goto bail3_l;
-			}
-		} else
-			wsi->tls.ssl = NULL;
-#endif /* LWS_WITH_TLS */
-
-		/* fallthru */
-
-		lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
-		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
-				(int)context->timeout_secs);
-
-		/* fallthru */
-
 	case LRS_MQTTC_IDLE:
 #if defined(LWS_WITH_SOCKS5)
 mqttc_idle_l:

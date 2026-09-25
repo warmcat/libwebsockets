@@ -331,27 +331,6 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
-	if (lwsi_transport(wsi) == LTS_WAITING_CONNECT) {
-#if defined(LWS_WITH_CLIENT)
-		if (pollfd->revents & LWS_POLLOUT) {
-			int hr = lws_handle_POLLOUT_event(wsi, pollfd);
-
-			if (hr < 0) {
-				/* connect racing already closed+freed the wsi */
-				return LWS_HPI_RET_WSI_ALREADY_DIED;
-			}
-			if (hr) {
-				lwsl_debug("POLLOUT event closed it\n");
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
-			}
-		}
-
-		if (lws_http_client_socket_service(wsi, pollfd))
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-#endif
-		return LWS_HPI_RET_HANDLED;
-	}
-
 	/* 1: the pass's POLLOUT was served by IO's rx stage */
 
 
@@ -1942,6 +1921,9 @@ static const lws_rops_t rops_table_h2[] = {
 	/* 14 */ { .issue_keepalive	  = rops_issue_keepalive_h2 },
 	/* 15 */ { .rx			  = rops_rx_h2 },
 	/* 16 */ { .rx_policy		  = rops_rx_policy_h2 },
+#if defined(LWS_WITH_CLIENT)
+	/* 17 */ { .client_transport_up	  = lws_h2_client_transport_up },
+#endif
 };
 
 
@@ -1975,8 +1957,13 @@ const struct lws_role_ops role_ops_h2 = {
 	  /* LWS_ROPS_adoption_bind */			0x0D, 0x00,
 	  /* LWS_ROPS_client_bind */
 	  /* LWS_ROPS_issue_keepalive */		0x00, 0x0E,
+#if defined(LWS_WITH_CLIENT)
+	  /* LWS_ROPS_client_transport_up */
+	  /* LWS_ROPS_rx */				0x11, 0x0F,
+#else
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x00, 0x0F,
+#endif
 	  /* LWS_ROPS_rx_dgram */			0x00,
 	  /* LWS_ROPS_rx_policy */			0x10,
 					},

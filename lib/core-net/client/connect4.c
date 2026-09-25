@@ -34,14 +34,19 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 #endif
 #endif
 	const char *cce = "";
-	int n, m, rawish = 0;
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+	int rawish;
+#endif
+	int n;
 
 	/*
 	 * The client bind already chose the role from the method: an http
 	 * role talks http on the connection, anything else is "rawish" and
 	 * does its own thing once the transport is up
 	 */
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 	rawish = !lwsi_role_http(wsi);
+#endif
 
 	if (wsi_piggyback)
 		goto send_hs;
@@ -191,148 +196,15 @@ send_hs:
 			  wsi->role_ops->name, wsi->a.protocol->name, rawish,
 			  wsi->a.vhost->name, lwsi_state(wsi));
 
-		/* we are making our own connection */
-
-		if (!rawish
-#if defined(LWS_WITH_TLS)
-		    // && (!(wsi->tls.use_ssl & LCCSCF_USE_SSL) || wsi->tls.ssl)
-#endif
-		    ) {
-
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-			lws_wsi_event(wsi, LWS_WSIEV_SOCKET_CONNECTED);
-#endif
-		} else {
-			/* for a method = "RAW" connection, this makes us
-			 * established */
-
-#if defined(LWS_WITH_TLS)// && !defined(LWS_WITH_MBEDTLS)
-
-			/* we have connected if we got here */
-
-			if (lwsi_transport(wsi) == LTS_WAITING_CONNECT &&
-#if defined(LWS_ROLE_QUIC)
-			    strcmp(wsi->role_ops->name, "quic") != 0 &&
-#endif
-			    (wsi->tls.use_ssl & LCCSCF_USE_SSL)) {
-				int result;
-
-				/*
-				 * We can retry this... just cook the SSL BIO
-				 * the first time
-				 */
-
-				result = lws_client_create_tls(wsi, &cce, 1);
-				switch (result) {
-				case CCTLS_RETURN_DONE:
-					break;
-				case CCTLS_RETURN_RETRY:
-					lwsl_wsi_debug(wsi, "create_tls RETRY");
-					return wsi;
-				default:
-					lwsl_wsi_debug(wsi, "create_tls FAIL");
-					goto failed;
-				}
-
-				/*
-				 * We succeeded to negotiate a new client tls
-				 * tunnel.  If it's h2 alpn, we have arranged
-				 * to send the h2 prefix and set our state to
-				 * LRS_H2_WAITING_TO_SEND_HEADERS already.
-				 */
-
-				lwsl_wsi_notice(wsi, "tls established st 0x%x, h2 %d",
-					    lwsi_state(wsi), lwsi_role_h2(wsi));
-
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-				lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
-#endif
-				lws_set_timeout(wsi,
-					PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
-					(int)wsi->a.context->timeout_secs);
-#if 0
-				/* ensure pollin enabled */
-				if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
-					lwsl_wsi_notice(wsi,
-							"unable to set POLLIN");
-#endif
-
-				goto provoke_service;
-			}
-#endif
-
-			/*
-			 * The transport is up.  A role that starts its own
-			 * protocol from here says so with client_transport_up;
-			 * otherwise the user hears the connection exists and
-			 * the role's state machine takes it from there.
-			 */
-			if (lws_rops_fidx(wsi->role_ops,
-					  LWS_ROPS_client_transport_up)) {
-				n = lws_rops_func_fidx(wsi->role_ops,
-						LWS_ROPS_client_transport_up).
-						client_transport_up(wsi);
-				if (n < 0) {
-					cce = "role transport up failed";
-					goto failed;
-				}
-				if (n)
-					/* the role closed it already */
-					return NULL;
-
-				return wsi;
-			}
-
-			/* clear his established timeout */
-			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-
-			/*
-			 * The transport is up before the user hears of it (as
-			 * C-556 in the raw role): a callback that completes or
-			 * closes the connection leaves it in a close phase, from
-			 * which TRANSPORT_UP raised afterwards has no row
-			 */
-			lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
-
-			m = wsi->role_ops->adoption_cb[0];
-			if (m) {
-				n = user_callback_handle_rxflow(
-						wsi->a.protocol->callback, wsi,
-						(enum lws_callback_reasons)m,
-						wsi->user_space, NULL, 0);
-				if (n < 0) {
-					lwsl_wsi_info(wsi, "RAW_PROXY_CLI_ADOPT err");
-					goto failed;
-				}
-			}
-
-			return wsi;
-		}
-
 		/*
-		 * provoke service to issue the handshake directly.
-		 *
-		 * we need to do it this way because in the proxy case, this is
-		 * the next state and executed only if and when we get a good
-		 * proxy response inside the state machine... but notice in
-		 * SSL case this may not have sent anything yet with 0 return,
-		 * and won't until many retries from main loop.  To stop that
-		 * becoming endless, cover with a timeout.
+		 * We are making our own connection and the socket is up:
+		 * IO starts tls if it was asked for and brings the transport
+		 * up, and the role starts its protocol from there
 		 */
-#if defined(LWS_WITH_TLS) //&& !defined(LWS_WITH_MBEDTLS)
-provoke_service:
-#endif
-		lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
-				(int)wsi->a.context->timeout_secs);
-
-		n = lws_io_service_now(wsi);
-		if (n < 0) {
-			cce = "first service failed";
-			goto failed;
-		}
-		if (n) /* returns 1 on failure after closing wsi */
+		if (lws_client_transport_connected(wsi))
 			return NULL;
 	}
+
 	return wsi;
 
 failed:

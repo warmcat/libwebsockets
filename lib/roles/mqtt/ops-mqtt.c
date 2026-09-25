@@ -102,14 +102,6 @@ rops_handle_POLLIN_mqtt(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	if (lwsi_state(wsi) != LRS_ESTABLISHED) {
 #if defined(LWS_WITH_CLIENT)
-
-		if (lwsi_transport(wsi) == LTS_WAITING_SSL &&
-		    ((pollfd->revents & LWS_POLLOUT)) &&
-		    lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
-			lwsl_info("failed at set pollfd\n");
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		}
-
 		if (pollfd->revents & LWS_POLLOUT) {
 			int hr = lws_handle_POLLOUT_event(wsi, pollfd);
 
@@ -601,15 +593,8 @@ rops_client_transport_up_mqtt(struct lws *wsi)
 	if (n < 0)
 		return -1;
 
-#if defined(LWS_WITH_TLS)
-	if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-		lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
-
-		return 0;
-	}
-#endif
+	/* IO's connect and tls are done: the CONNECT is due */
 	lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
-
 	/* get the CONNECT out now rather than next time round the loop */
 	lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
 			(int)wsi->a.context->timeout_secs);

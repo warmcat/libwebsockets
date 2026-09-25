@@ -95,6 +95,7 @@ if (LWS_WITH_CLIENT)
 		core-net/IO/client/connect.c
 		core-net/IO/client/connect2.c
 		core-net/IO/client/connect3.c
+		core-net/IO/client/transport.c
 		core-net/client/connect4.c
 		core-net/client/sort-dns.c
 		)

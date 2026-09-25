@@ -25,55 +25,15 @@
 #include <private-lib-core.h>
 
 #if defined(LWS_WITH_CLIENT)
+/*
+ * The client's transport is up (IO's connect and tls are done): the user
+ * hears the connection exists.  The client_transport_up op.
+ */
 static int
-lws_raw_skt_connect(struct lws *wsi)
+rops_client_transport_up_raw_skt(struct lws *wsi)
 {
-	int n;
-#if defined(LWS_WITH_TLS)
-	const char *cce = NULL;
-	char ccebuf[128];
-
-#if !defined(LWS_WITH_SYS_ASYNC_DNS)
-	switch (lws_client_create_tls(wsi, &cce, 1)) {
-#else
-	switch (lws_client_create_tls(wsi, &cce, 0)) {
-#endif
-	case CCTLS_RETURN_ERROR:
-		lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
-		return -1;
-	case CCTLS_RETURN_RETRY:
-		return 0;
-	case CCTLS_RETURN_DONE:
-		break;
-	}
-
-	if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-		/*
-		 * Arriving here from the socks5 leg the transport is still in
-		 * the socks phase, and the tls connect only runs its handshake
-		 * from WAITING_SSL: without this it reported the tls link up
-		 * with no handshake ever made
-		 */
-		if (lwsi_transport(wsi) != LTS_WAITING_SSL)
-			lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
-		n = lws_ssl_client_connect2(wsi, ccebuf, sizeof(ccebuf));
-		if (n < 0) {
-			lws_inform_client_conn_fail(wsi, (void *)ccebuf,
-						    strlen(ccebuf));
-
-			return -1;
-		}
-		if (n != 1)
-			return 0; /* wait */
-	}
-#endif
-
-	/*
-	 * The POLLOUT path runs the generic connect completion first, which
-	 * already delivered the adoption callback and set ESTABLISHED, so the
-	 * carrier being established is "the user has already been told"
-	 */
-	n = lwsi_carrier(wsi) != LCR_ESTABLISHED;
+	/* whether the user has already been told: TRANSPORT_UP below tells */
+	int told = lwsi_carrier(wsi) == LCR_ESTABLISHED, n;
 
 	/*
 	 * The transport is up before the user hears of it: a callback that
@@ -83,17 +43,16 @@ lws_raw_skt_connect(struct lws *wsi)
 	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 	lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 
-	if (n) {
-		n = user_callback_handle_rxflow(wsi->a.protocol->callback,
-				wsi, wsi->role_ops->adoption_cb[lwsi_role_server(wsi)],
-				wsi->user_space, NULL, 0);
-		if (n) {
-			lws_inform_client_conn_fail(wsi, (void *)"user", 4);
-			return 1;
-		}
-	}
+	if (told)
+		return 0;
 
-	return 1; /* success */
+	n = user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
+			wsi->role_ops->adoption_cb[lwsi_role_server(wsi)],
+			wsi->user_space, NULL, 0);
+	if (n)
+		return -1;
+
+	return 0;
 }
 #endif
 
@@ -124,19 +83,12 @@ rops_rx_raw_skt(struct lws *wsi, const uint8_t *buf, size_t len,
 			return LWS_RX_DIED;
 		case LW5CHS_RET_STARTHS:
 			/*
-			 * The socks leg is done: finish the connection the
-			 * way a direct one finishes, tls first if that was
-			 * asked for.  Going back through the generic
-			 * completion would only send the socks greeting
-			 * again.
+			 * The socks leg is done: IO finishes the connection
+			 * the way a direct one finishes, tls first if that was
+			 * asked for
 			 */
-			if (lws_raw_skt_connect(wsi) < 0) {
-				lws_close_free_wsi(wsi,
-						   LWS_CLOSE_STATUS_NOSTATUS,
-						   "raw svc fail");
-
+			if (lws_client_transport_connected(wsi))
 				return LWS_RX_DIED;
-			}
 			break;
 		default:
 			break;
@@ -212,7 +164,6 @@ static lws_handling_result_t
 rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			   struct lws_pollfd *pollfd)
 {
-	int n = 0;
 #if defined(LWS_WITH_LATENCY)
 	lws_usec_t _raw_skt_start = lws_now_usecs();
 #endif
@@ -263,14 +214,6 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 		case LRS_WAITING_CONNECT:
 			goto nope;
 
-		case LRS_WAITING_SSL:
-#if defined(LWS_WITH_CLIENT)
-			n = lws_raw_skt_connect(wsi);
-			if (n < 0)
-				goto fail;
-#endif
-			break;
-
 		default:
 			/* the reading was done by IO's rx stage */
 			break;
@@ -279,25 +222,6 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 nope:
 	if (!(pollfd->revents & LWS_POLLOUT))
 		return LWS_HPI_RET_HANDLED;
-
-#if defined(LWS_WITH_CLIENT)
-	if (lwsi_transport(wsi) == LTS_WAITING_CONNECT) {
-	    if (!lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd))
-		return LWS_HPI_RET_WSI_ALREADY_DIED;
-
-	    /*
-	     * The generic completion either finished a plain connection
-	     * (ESTABLISHED already), started tls (WAITING_SSL, which we
-	     * carry on with here), or only started a proxy or socks leg
-	     * whose replies arrive on POLLIN in their own states.  It may
-	     * also still be connecting.  Only the tls case is ours to
-	     * finish now.
-	     */
-	    if (lwsi_transport(wsi) == LTS_WAITING_SSL &&
-		lws_raw_skt_connect(wsi) < 0)
-		    goto fail;
-	}
-#endif
 
 	/*
 	 * Established, the pass's POLLOUT was served by IO's rx stage.  In a
@@ -388,8 +312,10 @@ static const lws_rops_t rops_table_raw_skt[] = {
 	{ .rx				  = rops_rx_raw_skt },
 	/*  6, or 5 with no client */
 	{ .rx_policy			  = rops_rx_policy_raw_skt },
+#if defined(LWS_WITH_CLIENT)
+	/*  7 */ { .client_transport_up	  = rops_client_transport_up_raw_skt },
+#endif
 };
-
 const struct lws_role_ops role_ops_raw_skt = {
 	/* role name */			"raw-skt",
 	/* alpn id */			NULL,
@@ -418,7 +344,7 @@ const struct lws_role_ops role_ops_raw_skt = {
 	  /* LWS_ROPS_client_bind */
 	  /* LWS_ROPS_issue_keepalive */		0x04, 0x00,
 	  /* LWS_ROPS_client_transport_up */
-	  /* LWS_ROPS_rx */				0x00, 0x05,
+	  /* LWS_ROPS_rx */				0x07, 0x05,
 	  /* LWS_ROPS_rx_dgram */
 	  /* LWS_ROPS_rx_policy */			0x00, 0x06,
 #else
