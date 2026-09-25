@@ -1591,6 +1591,15 @@ callback_raw_h2c(struct lws *wsi, enum lws_callback_reasons reason,
 			size_t flen = ((size_t)p[0] << 16) | ((size_t)p[1] << 8) | p[2];
 			uint8_t type = p[3], flags = p[4];
 
+			/*
+			 * A frame bigger than our whole rx buffer can never
+			 * be assembled, so we'd stall here forever
+			 */
+			if (flen > H2C_BUF_MAX - 9) {
+				lwsl_err("%s: h2 frame len %u too big\n",
+					 __func__, (unsigned int)flen);
+				return -1;
+			}
 			if (cn->h2c_len < 9 + flen)
 				break;
 			switch (type) {
