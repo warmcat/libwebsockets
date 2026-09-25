@@ -1323,3 +1323,52 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
         return adopt_socket_readbuf(lws_adopt_socket_vhost(vhost, accept_fd),
 				    readbuf, len);
 }
+
+/* a wsi's place in the event loop: given, and taken back */
+
+int lws_wsi_inject_to_loop(struct lws_context_per_thread *pt, struct lws *wsi) {
+	int ret = 1;
+
+	lws_pt_lock(pt, __func__); /* -------------- pt { */
+
+	if (pt->context->event_loop_ops->sock_accept)
+		if (pt->context->event_loop_ops->sock_accept(wsi))
+			goto bail;
+
+	if (__insert_wsi_socket_into_fds(pt->context, wsi))
+		goto bail;
+
+	lws_dll2_remove(&wsi->pre_natal);
+	ret = 0;
+
+bail:
+	lws_pt_unlock(pt);
+
+	return ret;
+}
+
+/*
+ * Take a copy of wsi->desc.sockfd before calling this, then close it
+ * afterwards
+ */
+
+int lws_wsi_extract_from_loop(struct lws *wsi) {
+	if (lws_socket_is_valid(wsi->desc.sockfd))
+		__remove_wsi_socket_from_fds(wsi);
+
+	if (!wsi->a.context->event_loop_ops->destroy_wsi &&
+			wsi->a.context->event_loop_ops->wsi_logical_close)
+		/*
+		 * Only the event lib knows whether it actually queued an
+		 * asynchronous close (it may have nothing to close, eg, a wsi
+		 * that never got a handle)... if it did not, we must tell the
+		 * caller he is responsible for destroying the wsi now, or it
+		 * and its fd are simply never freed
+		 */
+		return !!wsi->a.context->event_loop_ops->wsi_logical_close(wsi);
+
+	if (wsi->a.context->event_loop_ops->destroy_wsi)
+		wsi->a.context->event_loop_ops->destroy_wsi(wsi);
+
+	return 0; /* he is destroyed */
+}

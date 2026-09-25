@@ -1521,8 +1521,6 @@ lws_ensure_user_space(struct lws *wsi);
 
 
 #if defined(LWS_WITH_SERVER)
- int _lws_vhost_init_server(const struct lws_context_creation_info *info,
-			      struct lws_vhost *vhost);
 struct lws_vhost *
  lws_select_vhost(struct lws_context *context, int port, const char *servername);
 int LWS_WARN_UNUSED_RESULT
@@ -1531,7 +1529,6 @@ void
  lws_server_get_canonical_hostname(struct lws_context *context,
 				   const struct lws_context_creation_info *info);
 #else
- #define _lws_vhost_init_server(_a, _b) (0)
  #define lws_parse_ws(_a, _b, _c) (0)
  #define lws_server_get_canonical_hostname(_a, _b)
 #endif
@@ -1615,8 +1612,6 @@ lws_create_client_ws_object(const struct lws_client_connect_info *i,
 int
 lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn);
 
-void
-lws_destroy_event_pipe(struct lws *wsi);
 
 /* socks */
 int
@@ -1654,11 +1649,7 @@ struct lws *
 __lws_wsi_create_with_role(struct lws_context *context, int tsi,
 			 const struct lws_role_ops *ops,
 			 lws_log_cx_t *log_cx_template);
-int
-lws_wsi_inject_to_loop(struct lws_context_per_thread *pt, struct lws *wsi);
 
-int
-lws_wsi_extract_from_loop(struct lws *wsi);
 
 /*
  * Sanity-check the (in, len) pair a request-head composer handed to

@@ -366,4 +366,18 @@ lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
 		  const lws_sockaddr46 *dest);
 #endif
 
+/* the vhost's listen sockets, the pt pipe, a wsi's place in the loop */
+#if defined(LWS_WITH_SERVER)
+int _lws_vhost_init_server(const struct lws_context_creation_info *info,
+			   struct lws_vhost *vhost);
+#else
+#define _lws_vhost_init_server(_a, _b) (0)
+#endif
+void
+lws_destroy_event_pipe(struct lws *wsi);
+int
+lws_wsi_inject_to_loop(struct lws_context_per_thread *pt, struct lws *wsi);
+int
+lws_wsi_extract_from_loop(struct lws *wsi);
+
 #endif /* __LWS_PRIVATE_LIB_IO_H__ */
