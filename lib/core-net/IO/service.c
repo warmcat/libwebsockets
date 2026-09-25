@@ -737,8 +737,20 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 		if (pollfd && (pollfd->revents & LWS_POLLHUP))
 			return rx_pump_peer_closed(wsi, nothing);
 
-		if (ebuf.len == LWS_SSL_CAPABLE_ERROR)
+		if (ebuf.len == LWS_SSL_CAPABLE_ERROR) {
+			/*
+			 * The transport failed.  To the role that is the peer
+			 * gone, however it was spelled: it hears the empty rx
+			 * so a client still waiting for its reply can report a
+			 * connection error rather than a bare close, and then
+			 * the wsi is closed regardless of what it answered.
+			 */
+			if (rx_pump_peer_closed(wsi, nothing) ==
+						LWS_HPI_RET_WSI_ALREADY_DIED)
+				return LWS_HPI_RET_WSI_ALREADY_DIED;
+
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
 
 		*nothing = 1;
 
