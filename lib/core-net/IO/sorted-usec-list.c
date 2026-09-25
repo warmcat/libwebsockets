@@ -85,6 +85,16 @@ lws_sul2_schedule(struct lws_context *context, int tsi, int flags,
 
 	__lws_sul_insert(
 		&pt->pt_sul_owner[!!(flags & LWSSULLI_WAKE_IF_SUSPENDED)], sul);
+
+	/*
+	 * If this became the earliest deadline on the pt, an IO that wants
+	 * to be told (lws-io-ops.h) hears it now; the built-in loops ask
+	 * what is due each time round instead
+	 */
+	if (context->io_ops && context->io_ops->deadline &&
+	    lws_dll2_get_head(&pt->pt_sul_owner[
+			!!(flags & LWSSULLI_WAKE_IF_SUSPENDED)]) == &sul->list)
+		context->io_ops->deadline(context, tsi, sul->us);
 }
 
 /*

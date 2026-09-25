@@ -915,7 +915,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * and turn off our POLLIN
 		 */
 		wsi->client_rx_avail = 1;
-		if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+		if (lws_io_want_read(wsi, 0))
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 		//lwsl_notice("calling back %s\n", wsi->a.protocol->name);

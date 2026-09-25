@@ -190,6 +190,7 @@ each function is in.
 5. h2, then h3 over the quic datagram layer, then the remaining roles.
 6. Tier the public headers into `lws-core.h`, `lws-sansio.h`, `lws-io.h`
    (done), then the private ones, with the sansIO-only compile check.
-7. The four requests through `lws_io_ops_t`.
+7. The four requests through `lws_io_ops_t` (done: `lws-io-ops.h`,
+   `lws_io_ops_default` in IO/pollfd.c, `lws_context_creation_info.io_ops`).
 8. When every role is converted, the IO half is a replaceable component,
    and the sansIO half is what a port translates.

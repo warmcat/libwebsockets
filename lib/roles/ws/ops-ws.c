@@ -1217,7 +1217,7 @@ post_pollout:
 		 */
 		lwsl_info("%s: flowcontrolled, ignoring rx\n", __func__);
 
-		if (__lws_change_pollfd(wsi, LWS_POLLIN, 0))
+		if (__lws_io_want_read(wsi, 0))
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 		return LWS_HPI_RET_HANDLED;

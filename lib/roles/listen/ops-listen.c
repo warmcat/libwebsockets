@@ -35,7 +35,7 @@ lws_accept_pause_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws *wsi = lws_container_of(sul, struct lws, sul_validity);
 
-	if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
+	if (lws_io_want_read(wsi, 1))
 		lwsl_wsi_info(wsi, "fail");
 }
 
@@ -161,7 +161,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			    m == ENFILE ||
 #endif
 			    0) {
-				if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+				if (lws_io_want_read(wsi, 0))
 					lwsl_wsi_info(wsi, "failed disable POLLIN");
 
 				/*

@@ -934,14 +934,158 @@ int __lws_rx_flow_control(struct lws *wsi) {
 	/* adjust the pollfd for this wsi */
 
 	if (wsi->rxflow_change_to & LWS_RXFLOW_ALLOW) {
-		lwsl_wsi_info(wsi, "reenable POLLIN");
+		lwsl_wsi_info(wsi, "reenable rx");
 
-		if (__lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+		if (__lws_io_want_read(wsi, 1)) {
 			lwsl_wsi_info(wsi, "fail");
 			return -1;
 		}
-	} else if (__lws_change_pollfd(wsi, LWS_POLLIN, 0))
+	} else if (__lws_io_want_read(wsi, 0))
 		return -1;
+
+	return 0;
+}
+
+/* the requests of IO (lws-io-ops.h): __ for callers holding the pt lock */
+
+int
+__lws_io_want_write(struct lws *wsi)
+{
+	return wsi->a.context->io_ops->want_write(wsi);
+}
+
+int
+__lws_io_want_read(struct lws *wsi, int on)
+{
+	return wsi->a.context->io_ops->want_read(wsi, on);
+}
+
+void
+__lws_io_close_transport(struct lws *wsi)
+{
+	wsi->a.context->io_ops->close(wsi);
+}
+
+int
+lws_io_want_write(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	int n;
+
+	lws_pt_lock(pt, __func__);
+	n = __lws_io_want_write(wsi);
+	lws_pt_unlock(pt);
+
+	return n;
+}
+
+int
+lws_io_want_read(struct lws *wsi, int on)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	int n;
+
+	lws_pt_lock(pt, __func__);
+	n = __lws_io_want_read(wsi, on);
+	lws_pt_unlock(pt);
+
+	return n;
+}
+
+/*
+ * sansIO's want_write, as the roles and the app spell it: the role may have
+ * something to say about which connection carries the request (a stream's
+ * request lands on its mux parent), and then it goes to IO.
+ */
+int
+lws_callback_on_writable(struct lws *wsi)
+{
+	struct lws *w = wsi;
+
+	if (lwsi_close(wsi) == LCS_SHUTDOWN)
+		return 0;
+
+	if (lwsi_skt_unusable(wsi))
+		return 0;
+
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_callback_on_writable)) {
+		int q = lws_rops_func_fidx(wsi->role_ops,
+					   LWS_ROPS_callback_on_writable).
+						      callback_on_writable(wsi);
+		if (q)
+			return 1;
+		w = lws_get_network_wsi(wsi);
+	} else
+		if (w->position_in_fds_table == LWS_NO_FDS_POS) {
+			lwsl_wsi_debug(wsi, "failed to find socket %d",
+					    wsi->desc.sockfd);
+			return -1;
+		}
+
+	if (__lws_io_want_write(w))
+		return -1;
+
+	return 1;
+}
+
+int
+lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
+				           const struct lws_protocols *protocol)
+{
+	struct lws *wsi;
+	int n;
+
+	if (protocol < vhost->protocols ||
+	    protocol >= (vhost->protocols + vhost->count_protocols)) {
+		lwsl_vhost_err((struct lws_vhost *)vhost,
+			       "protocol %p is not from vhost %p (%p - %p)",
+			       protocol, vhost->protocols, vhost,
+				  (vhost->protocols + vhost->count_protocols));
+
+		return -1;
+	}
+
+	n = (int)(protocol - vhost->protocols);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			lws_dll2_get_head(&vhost->same_vh_protocol_owner[n])) {
+		wsi = lws_container_of(d, struct lws, same_vh_protocol);
+
+		assert(wsi->a.protocol &&
+		       wsi->a.protocol->callback == protocol->callback &&
+		       !strcmp(protocol->name, wsi->a.protocol->name));
+
+		lws_callback_on_writable(wsi);
+
+	} lws_end_foreach_dll_safe(d, d1);
+
+	return 0;
+}
+
+int
+lws_callback_on_writable_all_protocol(const struct lws_context *context,
+				      const struct lws_protocols *protocol)
+{
+	struct lws_vhost *vhost;
+	int n;
+
+	if (!context)
+		return 0;
+
+	vhost = lws_vhost_first(context);
+
+	while (vhost) {
+		for (n = 0; n < vhost->count_protocols; n++)
+			if (protocol->callback ==
+			     vhost->protocols[n].callback &&
+			    !strcmp(protocol->name, vhost->protocols[n].name))
+				break;
+		if (n != vhost->count_protocols)
+			lws_callback_on_writable_all_protocol_vhost(
+				vhost, &vhost->protocols[n]);
+
+		vhost = lws_vhost_next(vhost);
+	}
 
 	return 0;
 }
@@ -2279,7 +2423,7 @@ int lws_wsi_mux_action_pending_writeable_reqs(struct lws *wsi) {
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 
 	if (wsi->mux.requested_POLLOUT) {
-		if (lws_change_pollfd(nwsi, 0, LWS_POLLOUT))
+		if (lws_io_want_write(nwsi))
 			return -1;
 		return 0;
 	}
@@ -2288,7 +2432,7 @@ int lws_wsi_mux_action_pending_writeable_reqs(struct lws *wsi) {
 		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 
 		if (w->mux.requested_POLLOUT) {
-			if (lws_change_pollfd(nwsi, 0, LWS_POLLOUT))
+			if (lws_io_want_write(nwsi))
 				return -1;
 			return 0;
 		}

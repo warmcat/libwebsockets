@@ -137,7 +137,7 @@ rops_rx_h2(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 		 * drains / re-enables from there
 		 */
 		wsi->client_rx_avail = 1;
-		if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+		if (lws_io_want_read(wsi, 0))
 			return LWS_RX_CLOSE;
 
 		if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
@@ -319,7 +319,7 @@ post_pollout:
 				 * wsi; lws_handle_POLLOUT_event() restores
 				 * it once the buffered output is gone.
 				 */
-				if (lws_change_pollfd(wsi1, LWS_POLLIN, 0))
+				if (lws_io_want_read(wsi1, 0))
 					return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 				return LWS_HPI_RET_HANDLED;
@@ -1844,7 +1844,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 	 * POLLOUT asserted while the netconn still has pps pending.
 	 */
 	if (wsi->h2.h2n && lws_dll2_get_head(&wsi->h2.h2n->pps_owner)) {
-		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+		if (lws_io_want_write(wsi))
 			return -1;
 		return 0;
 	}

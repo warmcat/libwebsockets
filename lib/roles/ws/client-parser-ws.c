@@ -692,7 +692,7 @@ spill:
 			 * side does, and stop reading meanwhile
 			 */
 			lwsl_wsi_info(wsi, "scheduling return close as ack");
-			__lws_change_pollfd(wsi, LWS_POLLIN, 0);
+			__lws_io_want_read(wsi, 0);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 3);
 			lws_wsi_event(wsi, LWS_WSIEV_WS_PEER_CLOSE);
 			wsi->ws->payload_is_close = 1;

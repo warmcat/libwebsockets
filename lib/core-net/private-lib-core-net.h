@@ -1412,6 +1412,24 @@ lws_wsi_mux_client_idle_check(struct lws *nwsi);
 int
 lws_service_wsi_as_writable(struct lws *wsi);
 
+/*
+ * The four requests sansIO makes of IO (lws-io-ops.h), as sansIO code spells
+ * them.  The __ forms are for callers holding the pt lock; the others take
+ * it.  IO's own implementation of the four is lws_io_ops_default.
+ */
+extern const lws_io_ops_t lws_io_ops_default;
+
+int
+__lws_io_want_write(struct lws *wsi);
+int
+__lws_io_want_read(struct lws *wsi, int on);
+void
+__lws_io_close_transport(struct lws *wsi);
+int
+lws_io_want_write(struct lws *wsi);
+int
+lws_io_want_read(struct lws *wsi, int on);
+
 /* lws_rx_pump() flags */
 #define LWS_RXP_FORCE_READ	(1 << 0) /* read even with rx parked */
 #define LWS_RXP_NO_READ		(1 << 1) /* offer parked rx only */

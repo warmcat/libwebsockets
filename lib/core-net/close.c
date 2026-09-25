@@ -1172,59 +1172,13 @@ async_close:
 void
 __lws_close_free_wsi_final(struct lws *wsi)
 {
-	int n, ssl_handled = 0;
 
 #if defined(LWS_WITH_ASYNC_QUEUE)
 	lws_async_worker_wait_and_reap(wsi);
 #endif
 
-	if (!wsi->shadow)
-		ssl_handled = lws_ssl_close(wsi);
-
-	if (!wsi->shadow &&
-	    lws_socket_is_valid(wsi->desc.sockfd) && !ssl_handled) {
-		lwsl_wsi_debug(wsi, "fd %d", wsi->desc.sockfd);
-
-		__remove_wsi_socket_from_fds(wsi);
-		if (lws_socket_is_valid(wsi->desc.sockfd))
-			delete_from_fd(wsi->a.context, wsi->desc.sockfd);
-
-		/*
-		 * if this is the pt pipe, skip the actual close,
-		 * go through the motions though so we will reach 0 open wsi
-		 * on the pt, and trigger the pt destroy to close the pipe fds
-		 */
-		if (!lws_plat_pipe_is_fd_assocated(wsi->a.context, wsi->tsi,
-						   wsi->desc.sockfd)) {
-			n = compatible_close(wsi->desc.sockfd);
-			if (n)
-				lwsl_wsi_debug(wsi, "closing: close ret %d",
-					       LWS_ERRNO);
-		}
-
-#if !defined(LWS_PLAT_FREERTOS) && !defined(WIN32) && !defined(LWS_PLAT_OPTEE)
-		delete_from_fdwsi(wsi->a.context, wsi);
-#endif
-
-		sanity_assert_no_sockfd_traces(wsi->a.context, wsi->desc.sockfd);
-	}
-
-	/* ... if we're closing the cancel pipe, account for it */
-	{
-		struct lws_context_per_thread *pt =
-				&wsi->a.context->pt[(int)wsi->tsi];
-
-		if (pt->pipe_wsi == wsi) {
-			lws_plat_pipe_close(wsi);
-			pt->pipe_wsi = NULL;
-		}
-		if (pt->dummy_pipe_fds[0] == wsi->desc.sockfd)
-               {
-#if !defined(LWS_PLAT_FREERTOS)
-			pt->dummy_pipe_fds[0] = LWS_SOCK_INVALID;
-#endif
-               }
-	}
+	/* the transport goes: tls session, fd, place in the poll set */
+	__lws_io_close_transport(wsi);
 
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 

@@ -480,6 +480,7 @@ typedef struct {
  */
 
 struct lws_context {
+	const lws_io_ops_t		*io_ops; /* the four requests of IO */
  #if defined(LWS_WITH_SERVER)
 	char canonical_hostname[96];
  #endif

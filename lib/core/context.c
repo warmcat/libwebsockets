@@ -1235,6 +1235,11 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 	context->options = info->options;
+#if defined(LWS_WITH_NETWORK)
+	context->io_ops = info->io_ops ? info->io_ops : &lws_io_ops_default;
+#else
+	context->io_ops = info->io_ops;
+#endif
 #if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_EVENT_LIBS)
 	/* carry an LWS_EVLIB-chosen event library into the context options */
 	context->options |= ev_options & LWS_EVLIB_OPTION_MASK;

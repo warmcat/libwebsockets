@@ -402,7 +402,7 @@ mqttc_idle_l:
 			lwsl_err("%s: Unable to send MQTT CONNECT\n", __func__);
 			return -1;
 		}
-		if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
+		if (lws_io_want_read(wsi, 1))
 			return -1;
 
 		lws_wsi_event(wsi, LWS_WSIEV_MQTT_CONNECT_SENT);

@@ -1185,6 +1185,10 @@ struct lws_context_creation_info {
 	uint64_t			max_http_body_size;
 	/**< VHOST: 0 for default (100MB), or the desired max HTTP body size */
 
+	const struct lws_io_ops		*io_ops;
+	/**< CONTEXT: NULL for lws's own IO half, or the four requests of IO
+	 * supplied by an embedder of the sansIO half (see lws-io-ops.h) */
+
 #if !defined(__STRICT_ANSI__)
 	void *_unused[1]; /**< dummy */
 #endif
