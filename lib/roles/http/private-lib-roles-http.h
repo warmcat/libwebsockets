@@ -93,6 +93,23 @@ struct lws_range_parsing {
 	char start_valid, end_valid, ctr, count_ranges, did_try, inside, send_ctr;
 };
 
+/*
+ * The framing of a multipart/byteranges body (RFC 2046 5.1.1): each part is
+ * introduced by CRLF "--" boundary CRLF, and the body ends at CRLF "--"
+ * boundary "--".  The CRLF ahead of a delimiter belongs to the delimiter, so
+ * it also terminates the part before it.
+ *
+ * The response header sizes the body by composing the same part header it
+ * will send, so the Content-Length and the framing cannot drift apart.
+ */
+
+#define LWS_RANGES_BOUNDARY	"_lws"
+#define LWS_RANGES_PART_HDR	"\x0d\x0a--" LWS_RANGES_BOUNDARY "\x0d\x0a" \
+				"Content-Type: %s\x0d\x0a" \
+				"Content-Range: bytes %llu-%llu/%llu\x0d\x0a" \
+				"\x0d\x0a"
+#define LWS_RANGES_CLOSE	"\x0d\x0a--" LWS_RANGES_BOUNDARY "--\x0d\x0a"
+
 int
 lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp,
 		unsigned long long extent);
