@@ -256,9 +256,10 @@ int
 lws_mqtt_client_socks_rx(struct lws *wsi, const uint8_t *buf, size_t len)
 {
 	const char *cce = NULL;
+	size_t used;
 	int n;
 
-	switch (lws_socks5c_rx(wsi, buf, len, &cce)) {
+	switch (lws_socks5c_rx(wsi, buf, len, &cce, &used)) {
 	case LW5CHS_RET_BAIL3:
 		goto bail;
 	case LW5CHS_RET_STARTHS:
@@ -285,7 +286,8 @@ lws_mqtt_client_socks_rx(struct lws *wsi, const uint8_t *buf, size_t len)
 		break;
 	}
 
-	return (int)len;
+	/* what followed the reply is the broker's, left for the protocol */
+	return (int)used;
 
 bail:
 	lwsl_wsi_info(wsi, "socks leg failed: %s", cce);

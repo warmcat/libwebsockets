@@ -1867,7 +1867,7 @@ lws_socks5c_ads_server(struct lws_vhost *vh,
 
 int
 lws_socks5c_rx(struct lws *wsi, const uint8_t *buf, size_t len,
-	       const char **pcce);
+	       const char **pcce, size_t *used);
 
 /* the client's transport phase is a socks5 leg awaiting the proxy's reply */
 #define lwsi_in_socks5_leg(wsi) \

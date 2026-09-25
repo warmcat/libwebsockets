@@ -112,8 +112,9 @@ rops_rx_raw_skt(struct lws *wsi, const uint8_t *buf, size_t len,
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SOCKS5)
 	if (lwsi_in_socks5_leg(wsi)) {
 		const char *cce = NULL;
+		size_t used;
 
-		switch (lws_socks5c_rx(wsi, buf, len, &cce)) {
+		switch (lws_socks5c_rx(wsi, buf, len, &cce, &used)) {
 		case LW5CHS_RET_BAIL3:
 			lws_inform_client_conn_fail(wsi, (void *)cce,
 						    strlen(cce));
@@ -141,7 +142,8 @@ rops_rx_raw_skt(struct lws *wsi, const uint8_t *buf, size_t len,
 			break;
 		}
 
-		return (int)len;
+		/* what followed the reply is the peer's: left for us as raw */
+		return (int)used;
 	}
 #endif
 

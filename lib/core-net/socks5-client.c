@@ -278,21 +278,27 @@ lws_socks5c_greet(struct lws *wsi, const char **pcce)
 /*
  * sansIO rx for the socks5 leg of a client connection: the proxy's reply to
  * whichever of our messages is outstanding.  Every reply we act on is decided
- * by its first two bytes; a fragment shorter than that is not worth
- * reassembling and is a failure, and whatever follows the two bytes is taken
- * with them.  The role's rx op calls this in the socks states and acts on the
- * result: BAIL3 with *pcce set, STARTHS when the tunnel is up and the role's
- * own protocol starts, NOTHING when the next reply is awaited.
+ * by its first two bytes; a fragment shorter than the whole reply is not
+ * worth reassembling and is a failure.  *used is how many bytes the reply
+ * took: what follows it is the peer's, already relayed by the proxy when it
+ * speaks first (a raw protocol's server banner can share the read with the
+ * connect reply), and the caller leaves it for the role's own rx.  The role's
+ * rx op calls this in the socks states and acts on the result: BAIL3 with
+ * *pcce set, STARTHS when the tunnel is up and the role's own protocol
+ * starts, NOTHING when the next reply is awaited.
  */
 int
 lws_socks5c_rx(struct lws *wsi, const uint8_t *buf, size_t len,
-	       const char **pcce)
+	       const char **pcce, size_t *used)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	enum lws_wsi_event sent = LWS_WSIEV_COUNT;
 	int pending_timeout = 0;
+	size_t need = 2;
 	ssize_t plen;
 	int n;
+
+	*used = 0;
 
 	if (!len) {
 		/* the proxy hung up on us */
@@ -301,12 +307,31 @@ lws_socks5c_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 		return LW5CHS_RET_BAIL3;
 	}
 
-	if (len < 2) {
+	if (lwsi_transport(wsi) == LTS_WAITING_SOCKS_CONNECT_REPLY && len >= 5)
+		/* VER REP RSV ATYP BND.ADDR BND.PORT */
+		switch (buf[3]) {
+		case 1: /* IPv4 */
+			need = 4 + 4 + 2;
+			break;
+		case 4: /* IPv6 */
+			need = 4 + 16 + 2;
+			break;
+		case 3: /* domain name, length-prefixed */
+			need = 4 + 1 + buf[4] + 2;
+			break;
+		default:
+			need = len; /* let the reply check below reject it */
+			break;
+		}
+
+	if (len < need) {
 		lwsl_wsi_err(wsi, "SOCKS short read %d", (int)len);
 		*pcce = "socks short reply";
 
 		return LW5CHS_RET_BAIL3;
 	}
+
+	*used = need;
 
 
 	switch (lwsi_transport(wsi)) {

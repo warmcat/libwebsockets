@@ -107,7 +107,9 @@ lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 
 #if defined(LWS_WITH_SOCKS5)
 	if (lwsi_in_socks5_leg(wsi)) {
-		switch (lws_socks5c_rx(wsi, buf, len, &cce)) {
+		size_t used;
+
+		switch (lws_socks5c_rx(wsi, buf, len, &cce, &used)) {
 		case LW5CHS_RET_BAIL3:
 			goto fail;
 		case LW5CHS_RET_STARTHS:
@@ -122,7 +124,8 @@ lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 			break;
 		}
 
-		return (int)len;
+		/* what followed the reply is the peer's, left for the protocol */
+		return (int)used;
 	}
 #endif
 
