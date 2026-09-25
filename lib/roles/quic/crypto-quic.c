@@ -172,6 +172,13 @@ lws_quic_derive_initial_keys(struct lws *wsi, const struct lws_quic_cid *dcid)
 	}
 	k->valid = 1;
 
+	/*
+	 * A second derivation replaces the first: a client wsi bound as quic
+	 * for the user's h3 alpn is bound again by the connect path when it
+	 * finds a learned alt-svc, and starts over with new connection ids
+	 */
+	if (qn->keys[LWS_QUIC_LEVEL_INITIAL])
+		lws_quic_keys_destroy(qn->keys[LWS_QUIC_LEVEL_INITIAL]);
 	qn->keys[LWS_QUIC_LEVEL_INITIAL] = k;
 
 	ret = 0;
