@@ -438,7 +438,25 @@ rops_handle_POLLOUT_h2(struct lws *wsi)
 		 */
 		while (budget-- &&
 		       lws_dll2_get_head(&wsi->h2.h2n->pps_owner)) {
-			if (lws_h2_do_pps_send(wsi)) {
+			struct lws_context_per_thread *pt =
+					&wsi->a.context->pt[(int)wsi->tsi];
+			struct lws_h2_protocol_send *pps;
+			int n;
+
+			/*
+			 * compose, write, then the consequences: the
+			 * SETTINGS ack's start the first response, whose
+			 * bytes must follow the ack's
+			 */
+			n = lws_h2_pps_tx(wsi, pt->serv_buf,
+					  wsi->a.context->pt_serv_buf_size,
+					  &pps);
+			if (n > 0 && lws_issue_raw(wsi, pt->serv_buf,
+						   (size_t)n) != n) {
+				lws_free(pps);
+				n = LWS_TX_FAIL;
+			}
+			if (n < 0 || lws_h2_pps_done(wsi, pps)) {
 				lwsi_set_skt_unusable(wsi, 1);
 				return LWS_HP_RET_BAIL_DIE;
 			}

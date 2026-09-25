@@ -888,21 +888,13 @@ int lws_h2_frame_write(struct lws *wsi, int type, int flags,
 		       unsigned int sid, unsigned int len, unsigned char *buf)
 {
 	struct lws *nwsi = lws_get_network_wsi(wsi);
-	unsigned char *p = &buf[-LWS_H2_FRAME_HEADER_LENGTH];
 	int n;
 
 	//if (wsi->h23_stream_carries_ws)
 	// lwsl_hexdump_level(LLL_NOTICE, buf, len);
 
-	*p++ = (uint8_t)(len >> 16);
-	*p++ = (uint8_t)(len >> 8);
-	*p++ = (uint8_t)len;
-	*p++ = (uint8_t)type;
-	*p++ = (uint8_t)flags;
-	*p++ = (uint8_t)(sid >> 24);
-	*p++ = (uint8_t)(sid >> 16);
-	*p++ = (uint8_t)(sid >> 8);
-	*p++ = (uint8_t)sid;
+	lws_h2_frame_header(&buf[-LWS_H2_FRAME_HEADER_LENGTH], type, flags,
+			    sid, len);
 
 	lwsl_debug("%s: %s (eff %s). typ %d, fl 0x%x, sid=%d, len=%d, "
 		   "txcr=%d, nwsi->txcr=%d\n", __func__, lws_wsi_tag(wsi),
@@ -1070,88 +1062,191 @@ static void lws_h2_set_bin(struct lws *wsi, int n, unsigned char *buf)
 
 /* we get called on the network connection */
 
-int lws_h2_do_pps_send(struct lws *wsi)
+/* the 9-byte frame header, RFC 7540 4.1 */
+void
+lws_h2_frame_header(uint8_t *p, int type, int flags, unsigned int sid,
+		    unsigned int len)
+{
+	*p++ = (uint8_t)(len >> 16);
+	*p++ = (uint8_t)(len >> 8);
+	*p++ = (uint8_t)len;
+	*p++ = (uint8_t)type;
+	*p++ = (uint8_t)flags;
+	*p++ = (uint8_t)(sid >> 24);
+	*p++ = (uint8_t)(sid >> 16);
+	*p++ = (uint8_t)(sid >> 8);
+	*p++ = (uint8_t)sid;
+}
+
+/*
+ * sansIO tx of the connection's own protocol packets (README.sans-io-split.md,
+ * "A content source's tx").  Composes the oldest pending one, header and
+ * payload, into buf and hands it back in *ppps for lws_h2_pps_done() once IO
+ * has taken the bytes: some packets have consequences that must follow the
+ * bytes onto the wire (the SETTINGS ack starts the first response).
+ *
+ * Returns the frame's length, 0 when nothing is pending, LWS_TX_FAIL when it
+ * does not fit.
+ */
+int
+lws_h2_pps_tx(struct lws *wsi, uint8_t *buf, size_t max,
+	      struct lws_h2_protocol_send **ppps)
 {
 	struct lws_h2_netconn *h2n = wsi->h2.h2n;
-	struct lws_h2_protocol_send *pps = NULL;
-	struct lws *cwsi;
-	uint8_t set[LWS_PRE + 64], *p = &set[LWS_PRE], *q;
-	int n, m = 0, flags = 0;
+	struct lws_h2_protocol_send *pps;
+	uint8_t *p = buf + LWS_H2_FRAME_HEADER_LENGTH, *q;
+	unsigned int sid = LWS_H2_STREAM_ID_MASTER;
+	int n, m = 0, flags = 0, type;
+	struct lws_dll2 *d;
 
+	*ppps = NULL;
 	if (!h2n)
-		return 1;
+		return 0;
 
-	/* get the oldest pps */
+	d = lws_dll2_get_tail(&h2n->pps_owner);
+	if (!d)
+		return 0;
 
-	{
-		struct lws_dll2 *d = lws_dll2_get_tail(&h2n->pps_owner);
+	if (max < LWS_H2_FRAME_HEADER_LENGTH + 64)
+		return LWS_TX_FAIL;
 
-		if (!d)
-			return 1;
-
-		/* take the oldest pps (they are added at the head) */
-		pps = lws_container_of(d, struct lws_h2_protocol_send, list);
-		lws_dll2_remove(d);
-	}
+	/* take the oldest pps (they are added at the head) */
+	pps = lws_container_of(d, struct lws_h2_protocol_send, list);
+	lws_dll2_remove(d);
+	*ppps = pps;
 
 	lwsl_info("%s: %s: %d\n", __func__, lws_wsi_tag(wsi), pps->type);
 
 	switch (pps->type) {
 
 	case LWS_H2_PPS_MY_SETTINGS:
-
 		/*
 		 * if any of our settings varies from h2 "default defaults"
 		 * then we must inform the peer
 		 */
+		type = LWS_H2_FRAME_TYPE_SETTINGS;
 		for (n = 1; n < H2SET_COUNT; n++)
 			if (h2n->our_set.s[n] != lws_h2_defaults.s[n]) {
 				lwsl_debug("sending SETTING %d 0x%x\n", n,
 					   (unsigned int)
 						   wsi->h2.h2n->our_set.s[n]);
 
-				lws_h2_set_bin(wsi, n, &set[LWS_PRE + m]);
+				lws_h2_set_bin(wsi, n, &p[m]);
 				m += (int)sizeof(h2n->one_setting);
 			}
-		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_SETTINGS,
-				       flags, LWS_H2_STREAM_ID_MASTER, (unsigned int)m,
-		     		       &set[LWS_PRE]);
-		if (n != m) {
-			lwsl_info("send %d %d\n", n, m);
-			goto bail;
-		}
 		break;
 
 	case LWS_H2_PPS_SETTINGS_INITIAL_UPDATE_WINDOW:
-		q = &set[LWS_PRE];
+		type = LWS_H2_FRAME_TYPE_SETTINGS;
+		q = p;
 		*q++ = (uint8_t)(H2SET_INITIAL_WINDOW_SIZE >> 8);
 		*q++ = (uint8_t)(H2SET_INITIAL_WINDOW_SIZE);
 		*q++ = (uint8_t)(pps->u.update_window.credit >> 24);
 		*q++ = (uint8_t)(pps->u.update_window.credit >> 16);
 		*q++ = (uint8_t)(pps->u.update_window.credit >> 8);
 		*q = (uint8_t)(pps->u.update_window.credit);
+		m = 6;
 
 		lwsl_debug("%s: resetting initial window to %d\n", __func__,
 				(int)pps->u.update_window.credit);
-
-		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_SETTINGS,
-				       flags, LWS_H2_STREAM_ID_MASTER, 6,
-		     		       &set[LWS_PRE]);
-		if (n != 6) {
-			lwsl_info("send %d %d\n", n, m);
-			goto bail;
-		}
 		break;
 
 	case LWS_H2_PPS_ACK_SETTINGS:
 		/* send ack ... always empty */
-		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_SETTINGS, 1,
-				       LWS_H2_STREAM_ID_MASTER, 0,
-				       &set[LWS_PRE]);
-		if (n) {
-			lwsl_err("%s: writing settings ack frame failed %d\n", __func__, n);
-			goto bail;
+		type = LWS_H2_FRAME_TYPE_SETTINGS;
+		flags = 1;
+		break;
+
+	/*
+	 * h2 only has PING... ACK = 0 = ping, ACK = 1 = pong
+	 */
+
+	case LWS_H2_PPS_PING:
+	case LWS_H2_PPS_PONG:
+		type = LWS_H2_FRAME_TYPE_PING;
+		if (pps->type == LWS_H2_PPS_PING)
+			lwsl_info("sending PING\n");
+		else {
+			lwsl_info("sending PONG\n");
+			flags = LWS_H2_FLAG_SETTINGS_ACK;
 		}
+
+		memcpy(p, pps->u.ping.ping_payload, 8);
+		m = 8;
+		break;
+
+	case LWS_H2_PPS_GOAWAY:
+		lwsl_info("LWS_H2_PPS_GOAWAY\n");
+		type = LWS_H2_FRAME_TYPE_GOAWAY;
+		q = p;
+		*q++ = (uint8_t)(pps->u.ga.highest_sid >> 24);
+		*q++ = (uint8_t)(pps->u.ga.highest_sid >> 16);
+		*q++ = (uint8_t)(pps->u.ga.highest_sid >> 8);
+		*q++ = (uint8_t)(pps->u.ga.highest_sid);
+		*q++ = (uint8_t)(pps->u.ga.err >> 24);
+		*q++ = (uint8_t)(pps->u.ga.err >> 16);
+		*q++ = (uint8_t)(pps->u.ga.err >> 8);
+		*q++ = (uint8_t)(pps->u.ga.err);
+		n = 0;
+		while (pps->u.ga.str[n] && n < (int)sizeof(pps->u.ga.str))
+			*q++ = (uint8_t)pps->u.ga.str[n++];
+		m = lws_ptr_diff(q, p);
+		h2n->we_told_goaway = 1;
+		break;
+
+	case LWS_H2_PPS_RST_STREAM:
+		lwsl_info("LWS_H2_PPS_RST_STREAM\n");
+		type = LWS_H2_FRAME_TYPE_RST_STREAM;
+		sid = pps->u.rs.sid;
+		q = p;
+		*q++ = (uint8_t)(pps->u.rs.err >> 24);
+		*q++ = (uint8_t)(pps->u.rs.err >> 16);
+		*q++ = (uint8_t)(pps->u.rs.err >> 8);
+		*q++ = (uint8_t)(pps->u.rs.err);
+		m = 4;
+		break;
+
+	case LWS_H2_PPS_UPDATE_WINDOW:
+		lwsl_info("Issuing LWS_H2_PPS_UPDATE_WINDOW: sid %d: add %d\n",
+			    (int)pps->u.update_window.sid,
+			    (int)pps->u.update_window.credit);
+		type = LWS_H2_FRAME_TYPE_WINDOW_UPDATE;
+		sid = pps->u.update_window.sid;
+		q = p;
+		*q++ = (uint8_t)((pps->u.update_window.credit >> 24) & 0x7f); /* 31b */
+		*q++ = (uint8_t)(pps->u.update_window.credit >> 16);
+		*q++ = (uint8_t)(pps->u.update_window.credit >> 8);
+		*q++ = (uint8_t)(pps->u.update_window.credit);
+		m = 4;
+		break;
+
+	default:
+		/* nothing to send for it; done with it */
+		return 0;
+	}
+
+	lws_h2_frame_header(buf, type, flags, sid, (unsigned int)m);
+
+	return LWS_H2_FRAME_HEADER_LENGTH + m;
+}
+
+/*
+ * The protocol packet's bytes are IO's: whatever follows from having sent
+ * it.  Frees the pps.  Returns 1 when the connection is finished with (it
+ * was our GOAWAY, or the consequences failed), else 0.
+ */
+int
+lws_h2_pps_done(struct lws *wsi, struct lws_h2_protocol_send *pps)
+{
+	struct lws_h2_netconn *h2n = wsi->h2.h2n;
+	struct lws *cwsi;
+	int ret = 0;
+
+	if (!pps)
+		return 0;
+
+	switch (pps->type) {
+	case LWS_H2_PPS_ACK_SETTINGS:
 		wsi->h2_acked_settings = 0;
 		/* this is the end of the preface dance then? */
 		if (lwsi_state(wsi) == LRS_H2_AWAIT_SETTINGS) {
@@ -1180,7 +1275,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 			lws_context_unlock(wsi->a.context);
 
 			if (!h2n->swsi)
-				goto bail;
+				{ lws_free(pps); return 1; }
 
 			/* pass on the initial headers to SID 1 */
 			h2n->swsi->stream.ah = wsi->stream.ah;
@@ -1210,73 +1305,18 @@ int lws_h2_do_pps_send(struct lws *wsi)
 
 #if defined(LWS_WITH_SERVER)
 			if (lws_http_action(h2n->swsi))
-				goto bail;
+				{ lws_free(pps); return 1; }
 #endif
-			break;
+				break;
 		}
-		break;
-
-	/*
-	 * h2 only has PING... ACK = 0 = ping, ACK = 1 = pong
-	 */
-
-	case LWS_H2_PPS_PING:
-	case LWS_H2_PPS_PONG:
-		if (pps->type == LWS_H2_PPS_PING)
-			lwsl_info("sending PING\n");
-		else {
-			lwsl_info("sending PONG\n");
-			flags = LWS_H2_FLAG_SETTINGS_ACK;
-		}
-
-		memcpy(&set[LWS_PRE], pps->u.ping.ping_payload, 8);
-		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_PING, flags,
-				       LWS_H2_STREAM_ID_MASTER, 8,
-				       &set[LWS_PRE]);
-		if (n != 8)
-			goto bail;
-
 		break;
 
 	case LWS_H2_PPS_GOAWAY:
-		lwsl_info("LWS_H2_PPS_GOAWAY\n");
-		*p++ = (uint8_t)(pps->u.ga.highest_sid >> 24);
-		*p++ = (uint8_t)(pps->u.ga.highest_sid >> 16);
-		*p++ = (uint8_t)(pps->u.ga.highest_sid >> 8);
-		*p++ = (uint8_t)(pps->u.ga.highest_sid);
-		*p++ = (uint8_t)(pps->u.ga.err >> 24);
-		*p++ = (uint8_t)(pps->u.ga.err >> 16);
-		*p++ = (uint8_t)(pps->u.ga.err >> 8);
-		*p++ = (uint8_t)(pps->u.ga.err);
-		q = (unsigned char *)pps->u.ga.str;
-		n = 0;
-		while (*q && n < (int)sizeof(pps->u.ga.str)) {
-			n++;
-			*p++ = *q++;
-		}
-		h2n->we_told_goaway = 1;
-		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_GOAWAY, 0,
-				       LWS_H2_STREAM_ID_MASTER,
-				       (unsigned int)lws_ptr_diff(p, &set[LWS_PRE]),
-				       &set[LWS_PRE]);
-		if (n != 4) {
-			lwsl_info("send %d %d\n", n, m);
-			goto bail;
-		}
-		goto bail;
+		/* we said goodbye: nothing more goes on this connection */
+		ret = 1;
+		break;
 
 	case LWS_H2_PPS_RST_STREAM:
-		lwsl_info("LWS_H2_PPS_RST_STREAM\n");
-		*p++ = (uint8_t)(pps->u.rs.err >> 24);
-		*p++ = (uint8_t)(pps->u.rs.err >> 16);
-		*p++ = (uint8_t)(pps->u.rs.err >> 8);
-		*p++ = (uint8_t)(pps->u.rs.err);
-		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_RST_STREAM,
-				       0, pps->u.rs.sid, 4, &set[LWS_PRE]);
-		if (n != 4) {
-			lwsl_info("send %d %d\n", n, m);
-			goto bail;
-		}
 		cwsi = lws_wsi_mux_from_id(wsi, pps->u.rs.sid);
 		if (cwsi) {
 			lwsl_debug("%s: closing cwsi %s %s %s (wsi %s)\n",
@@ -1287,35 +1327,13 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		}
 		break;
 
-	case LWS_H2_PPS_UPDATE_WINDOW:
-		lwsl_info("Issuing LWS_H2_PPS_UPDATE_WINDOW: sid %d: add %d\n",
-			    (int)pps->u.update_window.sid,
-			    (int)pps->u.update_window.credit);
-		*p++ = (uint8_t)((pps->u.update_window.credit >> 24) & 0x7f); /* 31b */
-		*p++ = (uint8_t)(pps->u.update_window.credit >> 16);
-		*p++ = (uint8_t)(pps->u.update_window.credit >> 8);
-		*p++ = (uint8_t)(pps->u.update_window.credit);
-		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_WINDOW_UPDATE,
-				       0, pps->u.update_window.sid, 4,
-				       &set[LWS_PRE]);
-		if (n != 4) {
-			lwsl_info("send %d %d\n", n, m);
-			goto bail;
-		}
-		break;
-
 	default:
 		break;
 	}
 
 	lws_free(pps);
 
-	return 0;
-
-bail:
-	lws_free(pps);
-
-	return 1;
+	return ret;
 }
 
 static int

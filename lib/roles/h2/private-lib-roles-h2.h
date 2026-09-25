@@ -367,8 +367,14 @@ lws_h2_settings(struct lws *nwsi, struct http2_settings *settings,
 int
 lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 	      lws_filepos_t *inused);
+void
+lws_h2_frame_header(uint8_t *p, int type, int flags, unsigned int sid,
+		    unsigned int len);
 int
-lws_h2_do_pps_send(struct lws *wsi);
+lws_h2_pps_tx(struct lws *wsi, uint8_t *buf, size_t max,
+	      struct lws_h2_protocol_send **ppps);
+int
+lws_h2_pps_done(struct lws *wsi, struct lws_h2_protocol_send *pps);
 int
 lws_h2_frame_write(struct lws *wsi, int type, int flags, unsigned int sid,
 		   unsigned int len, unsigned char *buf);
