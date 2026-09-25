@@ -4455,24 +4455,33 @@ lws_http_file_tx(struct lws *wsi, unsigned char *buf, size_t max,
 
 		wsi->http.filepos = wsi->http.range.start;
 
-		if (wsi->http.range.count_ranges > 1) {
-			n =  lws_snprintf((char *)p,
-					lws_ptr_diff_size_t(bufend, p),
-				"_lws\x0d\x0a"
-				"Content-Type: %s\x0d\x0a"
-				"Content-Range: bytes "
-					"%llu-%llu/%llu\x0d\x0a"
-				"\x0d\x0a",
-				wsi->http.multipart_content_type,
-				wsi->http.range.start,
-				wsi->http.range.end,
-				wsi->http.range.extent);
-			p += n;
-		}
-
 		wsi->http.range.budget = wsi->http.range.end -
 					   wsi->http.range.start + 1;
 		wsi->http.range.inside = 1;
+	}
+
+	if (wsi->http.range.count_ranges > 1 &&
+	    wsi->http.range.budget == wsi->http.range.end -
+				      wsi->http.range.start + 1) {
+		/*
+		 * At the start of a part: its header goes ahead of its
+		 * bytes.  Regenerated here rather than kept, since the
+		 * read of the part's first bytes may go to a worker thread
+		 * and come back in a later call, into a serv_buf that has
+		 * been used for other things meanwhile.
+		 */
+		n =  lws_snprintf((char *)p,
+				lws_ptr_diff_size_t(bufend, p),
+			"_lws\x0d\x0a"
+			"Content-Type: %s\x0d\x0a"
+			"Content-Range: bytes "
+				"%llu-%llu/%llu\x0d\x0a"
+			"\x0d\x0a",
+			wsi->http.multipart_content_type,
+			wsi->http.range.start,
+			wsi->http.range.end,
+			wsi->http.range.extent);
+		p += n;
 	}
 #endif
 
