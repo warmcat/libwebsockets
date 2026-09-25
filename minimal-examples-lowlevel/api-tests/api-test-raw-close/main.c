@@ -154,11 +154,13 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("%s: server: adopted\n", __func__);
 #if !defined(WIN32)
 		if (c->shrink) {
+			int sfd = lws_get_socket_fd(wsi);
 			int sb = SMALL_SNDBUF;
 
 			/* make the single write partial, deterministically */
-			if (setsockopt(lws_get_socket_fd(wsi), SOL_SOCKET,
-				       SO_SNDBUF, &sb, sizeof(sb)))
+			if (sfd >= 0 &&
+			    setsockopt(sfd, SOL_SOCKET, SO_SNDBUF, &sb,
+				       sizeof(sb)))
 				lwsl_warn("%s: SO_SNDBUF failed\n", __func__);
 		}
 #endif
