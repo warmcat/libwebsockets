@@ -598,119 +598,16 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 #endif
 
 #if defined(LWS_WITH_SERVER)
-static lws_handling_result_t
-lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
-{
-	int n;
-
-	if (lwsi_state(wsi) == LRS_TXN_COMPLETED || lwsi_txn_completing(wsi))
-		goto try_pollout;
-
-	/* any incoming data ready? */
-
-	if (!(pollfd->revents & pollfd->events & LWS_POLLIN))
-		goto try_pollout;
-
-	/*
-	 * We haven't processed that the tunnel is set up yet, so
-	 * defer reading
-	 */
-
-	if (lwsi_transport(wsi) == LTS_SSL_ACK_PENDING)
-		return LWS_HPI_RET_HANDLED;
-
-	/*
-	 * The reading was done by IO's rx stage, which also keeps the
-	 * fairness between POLLIN and POLLOUT that used to be noted here
-	 */
-
-try_pollout:
-
-	/* this handles POLLOUT for http serving fragments */
-
-	if (!(pollfd->revents & LWS_POLLOUT))
-		return LWS_HPI_RET_HANDLED;
-
-	/* one shot */
-	if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
-		lwsl_notice("%s a\n", __func__);
-		goto fail;
-	}
-
-	/* clear back-to-back write detection */
-	wsi->could_have_pending = 0;
-
-	if (lwsi_state(wsi) == LRS_TXN_COMPLETED) {
-		lwsl_debug("%s: LRS_TXN_COMPLETED now writable\n", __func__);
-
-		/* idle until the next request's headers arrive */
-		lws_wsi_event(wsi, LWS_WSIEV_TXN_DRAINED);
-		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
-			lwsl_info("failed at set pollfd\n");
-			goto fail;
-		}
-	}
-
-	/* nothing to write until there is a request to answer */
-	if (lwsi_state(wsi) == LRS_HEADERS)
-		return LWS_HPI_RET_HANDLED;
-
-	if (lwsi_state(wsi) == LRS_AWAITING_FILE_READ) {
-		return LWS_HPI_RET_HANDLED;
-	}
-
-	if (lwsi_state(wsi) != LRS_ISSUING_FILE) {
-
-		if (lws_has_buffered_out(wsi)) {
-			//lwsl_notice("%s: completing partial\n", __func__);
-			if (lws_issue_raw(wsi, NULL, 0) < 0) {
-				lwsl_info("%s signalling to close\n", __func__);
-				goto fail;
-			}
-			return LWS_HPI_RET_HANDLED;
-		}
-
-		n = user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
-						LWS_CALLBACK_HTTP_WRITEABLE,
-						wsi->user_space, NULL, 0);
-		if (n < 0) {
-			lwsl_info("writeable_fail\n");
-			goto fail;
-		}
-
-		return LWS_HPI_RET_HANDLED;
-	}
-
-#if defined(LWS_WITH_FILE_OPS)
-
-	/* >0 == completion, <0 == error
-	 *
-	 * We'll get a LWS_CALLBACK_HTTP_FILE_COMPLETION callback when
-	 * it's done.  That's the case even if we just completed the
-	 * send, so wait for that.
-	 */
-	n = lws_serve_http_file_fragment(wsi);
-	if (n < 0)
-		goto fail;
-#endif
-
-	return LWS_HPI_RET_HANDLED;
-
-
-fail:
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
-			   "server socket svc fail");
-
-	return LWS_HPI_RET_WSI_ALREADY_DIED;
-}
 #endif
 
 /*
  * How an h1 connection is read (README.sans-io-split.md, "Who calls rx").
  * A client kept warm between transactions is read to hear its peer go
  * away.  A compression partial's and a flow-controlled connection's pass
- * are the handler's (a cgi's is read like any other: its handler's cgi
- * block is about POLLOUT).  A server connection is read in the
+ * are the handler's (a cgi's is read like any other: the dispatcher has
+ * its own cgi step).  A server's writeable is its handle_POLLOUT op, so
+ * the pass's POLLOUT is IO's except while a compression partial is
+ * pending.  A server connection is read in the
  * states that take a request or its body, after making sure it holds a
  * header table (waiting for one holds the reading; the attach can close the
  * wsi); its transaction end, tls accept and tunnel setup are the handler's.
@@ -721,28 +618,35 @@ fail:
 static int
 rops_rx_policy_h1(struct lws *wsi, int *flags, size_t *max)
 {
-	/*
-	 * POLLOUT stays with the handler: a server's writeable is its own
-	 * path there (the transaction's drain, the file being served, the
-	 * user's writeable), not yet the dispatcher's; a client's handler
-	 * calls the dispatcher itself and then its transport-phase service,
-	 * which needs POLLOUT still in the pass
-	 */
-	*flags = LWS_RXPOL_F_HOLD_POLLOUT;
+	*flags = 0;
 	*max = 0;
 
 	if (lwsi_state(wsi) == LRS_IDLING)
 		return LWS_RXPOL_PUMP;
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
-	if (wsi->http.comp_ctx.buflist_comp || wsi->http.comp_ctx.may_have_more)
+	if (wsi->http.comp_ctx.buflist_comp ||
+	    wsi->http.comp_ctx.may_have_more) {
+		/* the handler completes the compression partial, on any pass */
+		*flags = LWS_RXPOL_F_HOLD_POLLOUT;
+
 		return LWS_RXPOL_ROLE;
+	}
 #endif
 	if (lws_is_flowcontrolled(wsi))
 		return LWS_RXPOL_ROLE;
 
 #if defined(LWS_WITH_SERVER)
 	if (!lwsi_role_client(wsi)) {
+		/*
+		 * A server's POLLOUT is served in every state: serving a file
+		 * (LRS_ISSUING_FILE) and taking a body take no writeable
+		 * callback by their state bit, but the file's next lump and
+		 * the transaction's drain happen on the socket's writeable
+		 */
+		if (lwsi_transport(wsi) != LTS_SSL_ACK_PENDING)
+			*flags |= LWS_RXPOL_F_POLLOUT;
+
 		if (lwsi_state(wsi) == LRS_TXN_COMPLETED ||
 		    lwsi_txn_completing(wsi) ||
 		    lwsi_transport(wsi) == LTS_SSL_ACK_PENDING)
@@ -876,8 +780,6 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 
 #if defined(LWS_WITH_SERVER)
 	if (!lwsi_role_client(wsi)) {
-		lws_handling_result_t hr;
-
 		lwsl_debug("%s: %s: wsistate 0x%x\n", __func__, lws_wsi_tag(wsi),
 			   (unsigned int)wsi->wsistate);
 
@@ -885,22 +787,10 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		    !lws_buflist_total_len(&wsi->buflist))
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
-#if defined(LWS_WITH_LATENCY)
-		lws_usec_t _h1s_start = lws_now_usecs();
-#endif
-
-		hr = lws_h1_server_socket_service(wsi, pollfd);
-
-#if defined(LWS_WITH_LATENCY)
-		{
-			unsigned int ms = (unsigned int)((lws_now_usecs() - _h1s_start) / 1000);
-			if (ms > 2)
-				lws_latency_note(pt, _h1s_start, 2000, "h1sv:%dms", ms);
-		}
-#endif
-
-		if (hr != LWS_HPI_RET_HANDLED)
-			return hr;
+		/*
+		 * The reading, and the pass's POLLOUT, were IO's rx stage's;
+		 * what is left of a server pass is its tls accept
+		 */
 		if (lwsi_transport(wsi) != LTS_SSL_INIT)
 			if (lws_server_socket_service_ssl(wsi,
 							  LWS_SOCK_INVALID,
@@ -1096,11 +986,41 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 	if (lwsi_role_client(wsi))
 		return LWS_HP_RET_USER_SERVICE;
 
-	if (lwsi_state(wsi) == LRS_AWAITING_FILE_READ) {
+	/*
+	 * A server's writeable.  The dispatcher has already flushed a partial
+	 * send and cleared the back-to-back write detection; it clears
+	 * POLLOUT after us unless something asked for it again meanwhile.
+	 */
+	if (lwsi_state(wsi) == LRS_TXN_COMPLETED) {
+		lwsl_wsi_debug(wsi, "LRS_TXN_COMPLETED now writable");
+
+		/* idle until the next request's headers arrive */
+		lws_wsi_event(wsi, LWS_WSIEV_TXN_DRAINED);
+
 		return LWS_HP_RET_DROP_POLLOUT;
 	}
 
-	return LWS_HP_RET_BAIL_OK;
+	/* nothing to write until there is a request to answer */
+	if (lwsi_state(wsi) == LRS_HEADERS ||
+	    lwsi_state(wsi) == LRS_AWAITING_FILE_READ)
+		return LWS_HP_RET_DROP_POLLOUT;
+
+#if defined(LWS_WITH_FILE_OPS)
+	if (lwsi_state(wsi) == LRS_ISSUING_FILE) {
+		/*
+		 * >0 == completion, <0 == error.  We'll get a
+		 * LWS_CALLBACK_HTTP_FILE_COMPLETION callback when it's done,
+		 * even if we just completed the send, so wait for that.  More
+		 * to send asks for writeable again, which keeps POLLOUT.
+		 */
+		if (lws_serve_http_file_fragment(wsi) < 0)
+			return LWS_HP_RET_BAIL_DIE;
+
+		return LWS_HP_RET_DROP_POLLOUT;
+	}
+#endif
+
+	return LWS_HP_RET_USER_SERVICE;
 }
 
 static int
