@@ -721,8 +721,8 @@ struct lws_role_ops {
 
 	const lws_rops_t	*rops_table;
 	/**< the occupied role ops func ptrs */
-	uint8_t			rops_idx[(LWS_COUNT_ROLE_OPS + 1) / 2];
-	/**< translates role index into .rops[] offset */
+	uint8_t			rops_idx[LWS_COUNT_ROLE_OPS];
+	/**< translates role index into .rops[] offset, one byte each */
 
 	/*
 	 * the callback reasons for adoption for client, server
@@ -760,8 +760,7 @@ struct lws_role_ops {
 };
 
 #define lws_rops_fidx(_rops, fidx) \
-		((fidx & 1) ? (_rops)->rops_idx[fidx / 2] & 0xf : \
-			      (_rops)->rops_idx[fidx / 2] >> 4)
+		((_rops)->rops_idx[fidx])
 
 #define lws_rops_func_fidx(_rops, fidx) \
 		((_rops)->rops_table[lws_rops_fidx(_rops, fidx) - 1])

@@ -1480,46 +1480,46 @@ const struct lws_role_ops role_ops_h1 = {
 	/* rops_table */		rops_table_h1,
 	/* rops_idx */			{
 	  /* LWS_ROPS_check_upgrades */
-	  /* LWS_ROPS_pt_init_destroy */		0x01,
+	  /* LWS_ROPS_pt_init_destroy */		0x00, 0x01,
 	  /* LWS_ROPS_init_vhost */
-	  /* LWS_ROPS_destroy_vhost */			0x00,
+	  /* LWS_ROPS_destroy_vhost */			0x00, 0x00,
 	  /* LWS_ROPS_service_flag_pending */
-	  /* LWS_ROPS_handle_POLLIN */			0x02,
+	  /* LWS_ROPS_handle_POLLIN */			0x00, 0x02,
 	  /* LWS_ROPS_handle_POLLOUT */
-	  /* LWS_ROPS_perform_user_POLLOUT */		0x30,
+	  /* LWS_ROPS_perform_user_POLLOUT */		0x03, 0x00,
 	  /* LWS_ROPS_callback_on_writable */
-	  /* LWS_ROPS_tx_credit */			0x00,
+	  /* LWS_ROPS_tx_credit */			0x00, 0x00,
 	  /* LWS_ROPS_write_role_protocol */
-	  /* LWS_ROPS_encapsulation_parent */		0x40,
+	  /* LWS_ROPS_encapsulation_parent */		0x04, 0x00,
 	  /* LWS_ROPS_alpn_negotiated */
-	  /* LWS_ROPS_close_via_role_protocol */	0x50,
+	  /* LWS_ROPS_close_via_role_protocol */	0x05, 0x00,
 	  /* LWS_ROPS_close_role */
-	  /* LWS_ROPS_close_kill_connection */		0x06,
+	  /* LWS_ROPS_close_kill_connection */		0x00, 0x06,
 	  /* LWS_ROPS_destroy_role */
 #if defined(LWS_WITH_SERVER)
-	  /* LWS_ROPS_adoption_bind */			0x78,
+	  /* LWS_ROPS_adoption_bind */			0x07, 0x08,
 #else
-	  /* LWS_ROPS_adoption_bind */			0x70,
+	  /* LWS_ROPS_adoption_bind */			0x07, 0x00,
 #endif
 	  /* LWS_ROPS_client_bind */
 #if defined(LWS_WITH_CLIENT)
 #if defined(LWS_WITH_SERVER)
-	  /* LWS_ROPS_issue_keepalive */		0x90,
+	  /* LWS_ROPS_issue_keepalive */		0x09, 0x00,
 	  /* LWS_ROPS_client_transport_up */
-	  /* LWS_ROPS_rx */				0x0A,
+	  /* LWS_ROPS_rx */				0x00, 0x0A,
 #else
-	  /* LWS_ROPS_issue_keepalive */		0x80,
+	  /* LWS_ROPS_issue_keepalive */		0x08, 0x00,
 	  /* LWS_ROPS_client_transport_up */
-	  /* LWS_ROPS_rx */				0x09,
+	  /* LWS_ROPS_rx */				0x00, 0x09,
 #endif
 #else
-	  /* LWS_ROPS_issue_keepalive */		0x00,
+	  /* LWS_ROPS_issue_keepalive */		0x00, 0x00,
 #if defined(LWS_WITH_SERVER)
 	  /* LWS_ROPS_client_transport_up */
-	  /* LWS_ROPS_rx */				0x09,
+	  /* LWS_ROPS_rx */				0x00, 0x09,
 #else
 	  /* LWS_ROPS_client_transport_up */
-	  /* LWS_ROPS_rx */				0x08,
+	  /* LWS_ROPS_rx */				0x00, 0x08,
 #endif
 #endif
 					},

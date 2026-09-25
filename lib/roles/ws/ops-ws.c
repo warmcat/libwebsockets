@@ -2300,29 +2300,29 @@ const struct lws_role_ops role_ops_ws = {
 	/* rops_table */		rops_table_ws,
 	/* rops_idx */			{
 	  /* LWS_ROPS_check_upgrades */
-	  /* LWS_ROPS_pt_init_destroy */		0x00,
+	  /* LWS_ROPS_pt_init_destroy */		0x00, 0x00,
 	  /* LWS_ROPS_init_vhost */
-	  /* LWS_ROPS_destroy_vhost */			0x12,
+	  /* LWS_ROPS_destroy_vhost */			0x01, 0x02,
 	  /* LWS_ROPS_service_flag_pending */
-	  /* LWS_ROPS_handle_POLLIN */			0x34,
+	  /* LWS_ROPS_handle_POLLIN */			0x03, 0x04,
 	  /* LWS_ROPS_handle_POLLOUT */
-	  /* LWS_ROPS_perform_user_POLLOUT */		0x50,
+	  /* LWS_ROPS_perform_user_POLLOUT */		0x05, 0x00,
 	  /* LWS_ROPS_callback_on_writable */
-	  /* LWS_ROPS_tx_credit */			0x6d,
+	  /* LWS_ROPS_tx_credit */			0x06, 0x0D,
 	  /* LWS_ROPS_write_role_protocol */
-	  /* LWS_ROPS_encapsulation_parent */		0x70,
+	  /* LWS_ROPS_encapsulation_parent */		0x07, 0x00,
 	  /* LWS_ROPS_alpn_negotiated */
-	  /* LWS_ROPS_close_via_role_protocol */	0x08,
+	  /* LWS_ROPS_close_via_role_protocol */	0x00, 0x08,
 	  /* LWS_ROPS_close_role */
-	  /* LWS_ROPS_close_kill_connection */		0x9a,
+	  /* LWS_ROPS_close_kill_connection */		0x09, 0x0A,
 	  /* LWS_ROPS_destroy_role */
-	  /* LWS_ROPS_adoption_bind */			0xb0,
+	  /* LWS_ROPS_adoption_bind */			0x0B, 0x00,
 	  /* LWS_ROPS_client_bind */
-	  /* LWS_ROPS_issue_keepalive */		0x0c,
+	  /* LWS_ROPS_issue_keepalive */		0x00, 0x0C,
 	  /* LWS_ROPS_client_transport_up */
-	  /* LWS_ROPS_rx */				0x0e,
+	  /* LWS_ROPS_rx */				0x00, 0x0E,
 	  /* LWS_ROPS_rx_dgram */
-	  /* LWS_ROPS_rx_policy */			0x0f,
+	  /* LWS_ROPS_rx_policy */			0x00, 0x0F,
 					},
 
 	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
