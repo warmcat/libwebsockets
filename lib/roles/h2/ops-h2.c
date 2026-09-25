@@ -1474,10 +1474,6 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			continue;
 		}
 
-		/* if we arrived here, even by looping, we checked choked */
-		w->io.could_have_pending = 0;
-		wsi->io.could_have_pending = 0;
-
 #if defined(LWS_WITH_SERVER)
 		if (w->h2.pending_status_code) {
 			w->h2.send_END_STREAM = 1;
@@ -1606,8 +1602,6 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 						    lws_h2_tx_cr_get(w))) {
 				continue;
 			}
-
-			((volatile struct lws *)w)->io.leave_pollout_active = 0;
 
 			/* >0 == completion, <0 == error
 			 *

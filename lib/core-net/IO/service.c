@@ -165,7 +165,6 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	 * handling_pollout is set, he will only set leave_pollout_active.
 	 * If we are going to disable POLLOUT, we will check that first.
 	 */
-	wsi->io.could_have_pending = 0; /* clear back-to-back write detection */
 
 	/*
 	 * user callback is lowest priority to get these notifications
@@ -1417,7 +1416,6 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		cow = 1;
 	}
 
-	wsi->io.could_have_pending = 0; /* clear back-to-back write detection */
 
 	/* okay, what we came here to do... */
 

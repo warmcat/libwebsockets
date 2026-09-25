@@ -244,9 +244,7 @@ __lws_reset_wsi(struct lws *wsi)
 	lwsi_set_skt_unusable(wsi, 0);
 	wsi->mux_substream = wsi->mux_stream_immortal =
 	wsi->h2_acked_settings = wsi->seen_nonpseudoheader =
-	wsi->io.favoured_pollin =
-	wsi->parent_pending_cb_on_writable = wsi->seen_zero_length_recv =
-	wsi->io.could_have_pending = 0;
+	wsi->parent_pending_cb_on_writable = wsi->seen_zero_length_recv = 0;
 #endif
 
 #if defined(LWS_ROLE_QUIC)

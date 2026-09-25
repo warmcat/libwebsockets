@@ -861,7 +861,6 @@ struct lws_io_adjunct {
 	int				position_in_fds_table;
 
 	unsigned int			favoured_pollin:1;
-	unsigned int			could_have_pending:1; /* detect back-to-back writes */
 	unsigned int			event_pipe:1;
 	unsigned int			file_desc:1;
 	unsigned int			shadow:1; /* we do not control fd lifecycle at all */

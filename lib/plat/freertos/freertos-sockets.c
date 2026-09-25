@@ -45,8 +45,6 @@ lws_send_pipe_choked(struct lws *wsi)
 	wsi_eff = lws_get_network_wsi(wsi);
 #endif
 
-	/* the fact we checked implies we avoided back-to-back writes */
-	wsi_eff->io.could_have_pending = 0;
 
 	/* treat the fact we got a truncated send pending as if we're choked */
 	if (lws_has_buffered_out(wsi)

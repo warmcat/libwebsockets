@@ -110,9 +110,6 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 
 	// lwsl_wsi_info(wsi, "ssl_capable_write (%d) says %d", n, m);
 
-	/* something got written, it can have been truncated now */
-	wsi->io.could_have_pending = 1;
-
 	switch ((int)m) {
 	case LWS_SSL_CAPABLE_ERROR:
 		/* we're going to close, let close know sends aren't possible */
