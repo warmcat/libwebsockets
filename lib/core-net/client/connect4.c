@@ -33,7 +33,6 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 #endif
 #endif
-	struct lws_pollfd pfd;
 	const char *cce = "";
 	int n, m, rawish = 0;
 
@@ -326,13 +325,7 @@ provoke_service:
 		lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
 				(int)wsi->a.context->timeout_secs);
 
-		assert(lws_socket_is_valid(wsi->io.desc.sockfd));
-
-		pfd.fd = wsi->io.desc.sockfd;
-		pfd.events = LWS_POLLIN;
-		pfd.revents = LWS_POLLIN;
-
-		n = lws_service_fd_tsi(wsi->a.context, &pfd, wsi->tsi);
+		n = lws_io_service_now(wsi);
 		if (n < 0) {
 			cce = "first service failed";
 			goto failed;

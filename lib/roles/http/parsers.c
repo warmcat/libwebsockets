@@ -105,12 +105,12 @@ _lws_header_table_reset(struct allocated_headers *ah)
 
 // doesn't scrub the ah rxbuffer by default, parent must do if needed
 
-void
+int
 __lws_header_table_reset(struct lws *wsi, int autoservice)
 {
 	struct allocated_headers *ah = wsi->stream.ah;
 	struct lws_context_per_thread *pt;
-	struct lws_pollfd *pfd;
+	int gone = 0;
 
 	/* if we have the idea we're resetting 'our' ah, must be bound to one */
 	assert(ah);
@@ -125,19 +125,15 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 
 	time(&ah->assigned);
 
-	if (wsi->io.position_in_fds_table != LWS_NO_FDS_POS &&
-	    lws_buflist_next_segment_len(&wsi->buflist, NULL) &&
-	    autoservice) {
+	if (lws_buflist_next_segment_len(&wsi->buflist, NULL) && autoservice) {
 		lwsl_debug("%s: service on readbuf ah\n", __func__);
 
 		pt = &wsi->a.context->pt[(int)wsi->tsi];
-		/*
-		 * Unlike a normal connect, we have the headers already
-		 * (or the first part of them anyway)
-		 */
-		pfd = &pt->fds[wsi->io.position_in_fds_table];
 
 		/*
+		 * Unlike a normal connect, we have the headers already
+		 * (or the first part of them anyway).
+		 *
 		 * We are usually here from the previous owner's detach.  If
 		 * the recipient's pipelined request is served synchronously,
 		 * its completion detaches and hands the ah to the next
@@ -151,15 +147,16 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 			lwsl_info("%s: deferring nested service\n", __func__);
 			lws_cancel_service_pt(wsi);
 
-			return;
+			return 0;
 		}
 
-		pfd->revents |= LWS_POLLIN;
 		lwsl_info("%s: calling service\n", __func__);
 		pt->http.ah_autoservice_depth++;
-		lws_service_fd_tsi(wsi->a.context, pfd, wsi->tsi);
+		gone = lws_io_service_now(wsi) > 0;
 		pt->http.ah_autoservice_depth--;
 	}
+
+	return gone;
 }
 
 void
@@ -224,8 +221,7 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	lws_sockfd_type lifecheck_sfd = LWS_SOCK_INVALID;
-	int n, lifecheck = 0;
+	int n;
 
 #if defined(LWS_ROLE_MQTT) && defined(LWS_WITH_CLIENT)
 	if (lwsi_role_mqtt(wsi))
@@ -311,15 +307,7 @@ reset:
 	 * (The pointer comparison below never dereferences wsi.)
 	 */
 
-	if (autoservice && wsi->io.position_in_fds_table != LWS_NO_FDS_POS &&
-	    lws_socket_is_valid(wsi->io.desc.sockfd)) {
-		lifecheck_sfd = wsi->io.desc.sockfd;
-		lifecheck = 1;
-	}
-
-	__lws_header_table_reset(wsi, autoservice);
-
-	if (lifecheck && wsi_from_fd(context, lifecheck_sfd) != wsi) {
+	if (__lws_header_table_reset(wsi, autoservice)) {
 		lws_pt_unlock(pt);
 
 		lwsl_info("%s: wsi closed inside the reset\n", __func__);
@@ -463,15 +451,13 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	lws_context_unlock(context); /* ====================================> */
 #endif
 
-	/* clients acquire the ah and then insert themselves in fds table... */
-	if (wsi->io.position_in_fds_table != LWS_NO_FDS_POS) {
-		lwsl_info("%s: Enabling %s POLLIN\n", __func__, lws_wsi_tag(wsi));
-
-		/* he has been stuck waiting for an ah, but now his wait is
-		 * over, let him progress */
-
-		__lws_io_want_read(wsi, 1);
-	}
+	/*
+	 * he has been stuck waiting for an ah, but now his wait is over, let
+	 * him progress (a client acquires the ah before it has a socket: IO
+	 * has nothing to arm for him yet)
+	 */
+	lwsl_info("%s: Enabling %s POLLIN\n", __func__, lws_wsi_tag(wsi));
+	__lws_io_want_read(wsi, 1);
 
 #if defined(LWS_WITH_CLIENT)
 	if (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED) {

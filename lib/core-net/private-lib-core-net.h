@@ -1513,7 +1513,7 @@ lws_header_table_reset(struct lws *wsi, int autoservice);
  * shows the fd re-lookup technique for that).
  */
 
-void
+int
 __lws_header_table_reset(struct lws *wsi, int autoservice);
 
 #endif

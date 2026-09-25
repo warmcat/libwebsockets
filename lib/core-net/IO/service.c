@@ -771,6 +771,51 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 	return LWS_HPI_RET_HANDLED;
 }
 
+/*
+ * Service a wsi now as though its socket had POLLIN pending, for a role
+ * that already holds bytes for it (a pipelined request in the buflist, the
+ * first bytes after a tunnel came up).  Returns what the service says: <0 a
+ * failure, 1 the wsi died in the service, 0 otherwise; a wsi with no place
+ * in the poll set yet has nothing to service and gets 0.
+ */
+int
+lws_io_service_now(struct lws *wsi)
+{
+	struct lws_pollfd pfd;
+
+	if (wsi->io.position_in_fds_table == LWS_NO_FDS_POS ||
+	    !lws_socket_is_valid(wsi->io.desc.sockfd))
+		return 0;
+
+	pfd.fd = wsi->io.desc.sockfd;
+	pfd.events = LWS_POLLIN;
+	pfd.revents = LWS_POLLIN;
+
+	return lws_service_fd_tsi(wsi->a.context, &pfd, wsi->tsi);
+}
+
+/*
+ * Mark a wsi's poll entry as having rx pending so the loop services it on
+ * this turn without waiting in poll: for a role holding bytes it has not
+ * finished with (ws extension data still draining).  Returns 1 when the wsi
+ * is watched for rx and so will be serviced, else 0.
+ */
+int
+lws_io_flag_pending_rx(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_pollfd *pfd;
+
+	if (wsi->io.position_in_fds_table == LWS_NO_FDS_POS)
+		return 0;
+
+	pfd = &pt->fds[wsi->io.position_in_fds_table];
+	pfd->revents = (short)((short)pfd->revents |
+			       (short)(pfd->events & LWS_POLLIN));
+
+	return !!(pfd->revents & LWS_POLLIN);
+}
+
 #if defined(LWS_WITH_ASYNC_QUEUE)
 /*
  * Hand a job to the async worker threads, starting one if none is idle and
