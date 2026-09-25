@@ -2591,3 +2591,273 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 #endif
 
 #endif
+
+int
+lws_callback_as_writeable(struct lws *wsi)
+{
+	int n, m;
+
+	n = wsi->role_ops->writeable_cb[lwsi_role_server(wsi)];
+	// lwsl_wsi_notice(wsi, "lws_callback_as_writeable: cb enum = %d", n);
+	m = user_callback_handle_rxflow(wsi->a.protocol->callback,
+					wsi, (enum lws_callback_reasons) n,
+					wsi->user_space, NULL, 0);
+
+	return m;
+}
+
+void
+__lws_wsi_remove_from_sul(struct lws *wsi)
+{
+	lws_sul_cancel(&wsi->sul_timeout);
+	lws_sul_cancel(&wsi->sul_hrtimer);
+	lws_sul_cancel(&wsi->sul_validity);
+	lws_sul_cancel(&wsi->sul_connect_timeout);
+#if defined(LWS_WITH_CLIENT)
+	/*
+	 * The h3 grace and happy-eyeballs timers hold the wsi too...
+	 * without cancelling them here, a wsi that dies while its QUIC
+	 * race is still pending leaves them scheduled against freed
+	 * memory
+	 */
+	lws_sul_cancel(&wsi->sul_h3_grace);
+	lws_sul_cancel(&wsi->sul_happy_eyeballs);
+#endif
+#if defined(WIN32)
+	lws_sul_cancel(&wsi->win32_sul_connect_async_check);
+#endif
+#if defined(LWS_WITH_HTTP_PROXY)
+	lws_sul_cancel(&wsi->sul_ws_proxy_est);
+#endif
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_sul_cancel(&wsi->sul_fault_timedclose);
+#endif
+#if defined(LWS_TLS_SYNTHESIZE_CB)
+	lws_sul_cancel(&wsi->tls.sul_cb_synth);
+#endif
+}
+
+static void
+lws_validity_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws *wsi = lws_container_of(sul, struct lws, sul_validity);
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	const lws_retry_bo_t *rbo = wsi->retry_policy;
+
+	/* one of either the ping or hangup validity threshold was crossed */
+
+	if (wsi->validity_hup) {
+		char buf[128];
+		buf[0] = '\0';
+		lws_get_peer_simple(wsi, buf, sizeof(buf));
+
+		lwsl_wsi_notice(wsi, "VALIDITY TIMEOUT EXPIRED ON (protocol %s, peer %s)! Server is closing connection. (ping=%d, hangup=%d)\n",
+			    wsi->a.protocol ? wsi->a.protocol->name : "none", buf,
+			    rbo ? rbo->secs_since_valid_ping : 0, rbo ? rbo->secs_since_valid_hangup : 0);
+		struct lws_context *cx = wsi->a.context;
+		struct lws_context_per_thread *pt = &cx->pt[(int)wsi->tsi];
+
+		lws_context_lock(cx, __func__);
+		lws_pt_lock(pt, __func__);
+		__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+				     "validity timeout");
+		lws_pt_unlock(pt);
+		lws_context_unlock(cx);
+		return;
+	}
+
+	/* schedule a protocol-dependent ping */
+
+	lwsl_wsi_info(wsi, "scheduling validity check");
+
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_issue_keepalive))
+		lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_issue_keepalive).
+							issue_keepalive(wsi, 0);
+
+	/*
+	 * We arrange to come back here after the additional ping to hangup time
+	 * and do the hangup, unless we get validated (by, eg, a PONG) and
+	 * reset the timer
+	 */
+
+	assert(rbo->secs_since_valid_hangup > rbo->secs_since_valid_ping);
+
+	wsi->validity_hup = 1;
+	__lws_sul_insert_us(&pt->pt_sul_owner[!!wsi->conn_validity_wakesuspend],
+			    &wsi->sul_validity,
+			    ((uint64_t)rbo->secs_since_valid_hangup -
+				 rbo->secs_since_valid_ping) * LWS_US_PER_SEC);
+}
+
+/*
+ * The role calls this back to actually confirm validity on a particular wsi
+ * (which may not be the original wsi)
+ */
+
+void
+_lws_validity_confirmed_role(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	const lws_retry_bo_t *rbo = wsi->retry_policy;
+
+	if (!rbo || !rbo->secs_since_valid_hangup)
+		return;
+
+	wsi->validity_hup = 0;
+	wsi->sul_validity.cb = lws_validity_cb;
+
+	wsi->validity_hup = rbo->secs_since_valid_ping >=
+			    rbo->secs_since_valid_hangup;
+
+	lwsl_wsi_info(wsi, "setting validity timer %ds (hup %d)",
+			   wsi->validity_hup ? rbo->secs_since_valid_hangup :
+					    rbo->secs_since_valid_ping,
+			   wsi->validity_hup);
+
+	__lws_sul_insert_us(&pt->pt_sul_owner[!!wsi->conn_validity_wakesuspend],
+			    &wsi->sul_validity,
+			    ((uint64_t)(wsi->validity_hup ?
+				rbo->secs_since_valid_hangup :
+				rbo->secs_since_valid_ping)) * LWS_US_PER_SEC);
+}
+
+void
+lws_validity_confirmed(struct lws *wsi)
+{
+	/*
+	 * This may be a stream inside a muxed network connection... leave it
+	 * to the role to figure out who actually needs to understand their
+	 * validity was confirmed.
+	 */
+	if (wsi->role_ops &&
+	    lws_rops_fidx(wsi->role_ops, LWS_ROPS_issue_keepalive))
+		lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_issue_keepalive).
+							issue_keepalive(wsi, 1);
+}
+
+int
+lws_rxflow_cache(struct lws *wsi, unsigned char *buf, size_t n, size_t len)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	uint8_t *buffered;
+	size_t blen;
+	int ret = LWSRXFC_CACHED, m;
+
+	/* his RX is flowcontrolled, don't send remaining now */
+	blen = lws_buflist_next_segment_len(&wsi->buflist, &buffered);
+	if (blen) {
+		if (buf >= buffered && buf + len <= buffered + blen) {
+			if (blen != (size_t)len) {
+				/*
+				 * rxflow while we were spilling prev rxflow
+				 *
+				 * len indicates how much was unused, then... so trim
+				 * the head buflist to match that situation
+				 */
+
+				lws_buflist_use_segment(&wsi->buflist, blen - len);
+				lwsl_wsi_debug(wsi, "trim existing rxflow %d -> %d",
+						    (int)blen, (int)len);
+			}
+
+			return LWSRXFC_TRIMMED;
+		}
+		ret = LWSRXFC_ADDITIONAL;
+	}
+
+	/* a new rxflow, buffer it and warn caller */
+
+	lwsl_wsi_debug(wsi, "rxflow append %d", (int)(len - n));
+	m = lws_buflist_append_segment(&wsi->buflist, buf + n, len - n);
+
+	if (m < 0)
+		return LWSRXFC_ERROR;
+	if (m) {
+		lwsl_wsi_debug(wsi, "added to rxflow list");;
+		if (lws_dll2_is_detached(&wsi->dll_buflist))
+			lws_dll2_add_head(&wsi->dll_buflist, &pt->dll_buflist_owner);
+	}
+
+	return ret;
+}
+
+static int
+lws_get_idlest_tsi(struct lws_context *context)
+{
+	unsigned int lowest = ~0u;
+	int n = 0, hit = -1;
+
+	for (; n < context->count_threads; n++) {
+		lwsl_cx_debug(context, "%d %d\n", context->pt[n].fds_count,
+				context->fd_limit_per_thread - 1);
+		if ((unsigned int)context->pt[n].fds_count !=
+		    context->fd_limit_per_thread - 1 &&
+		    (unsigned int)context->pt[n].fds_count < lowest) {
+			lowest = context->pt[n].fds_count;
+			hit = n;
+		}
+	}
+
+	return hit;
+}
+
+struct lws *
+lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, int group,
+			  const char *desc)
+{
+	struct lws *new_wsi;
+	int n = fixed_tsi;
+
+	if (n < 0)
+		n = lws_get_idlest_tsi(vhost->context);
+
+	if (n < 0) {
+		lwsl_vhost_err(vhost, "no space for new conn");
+		return NULL;
+	}
+
+	lws_context_lock(vhost->context, __func__);
+	new_wsi = __lws_wsi_create_with_role(vhost->context, n, NULL,
+					     vhost->lc.log_cx);
+	lws_context_unlock(vhost->context);
+	if (new_wsi == NULL) {
+		lwsl_vhost_err(vhost, "OOM");
+		return NULL;
+	}
+
+	lws_wsi_fault_timedclose(new_wsi);
+
+	__lws_lc_tag(vhost->context, &vhost->context->lcg[group],
+			&new_wsi->lc, "%s|%s", vhost->name, desc);
+
+	lws_wsi_event(new_wsi, LWS_WSIEV_SERVER_SIDE);
+	new_wsi->tsi = (char)n;
+	lwsl_wsi_debug(new_wsi, "joining vh %s, tsi %d",
+			vhost->name, new_wsi->tsi);
+
+	lws_vhost_bind_wsi(vhost, new_wsi);
+	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
+	new_wsi->retry_policy = vhost->retry_policy;
+
+#ifdef LWS_WITH_TLS
+	new_wsi->tls.use_ssl = LWS_SSL_ENABLED(vhost);
+#endif
+
+	/*
+	 * these can only be set once the protocol is known
+	 * we set an un-established connection's protocol pointer
+	 * to the start of the supported list, so it can look
+	 * for matching ones during the handshake
+	 */
+	new_wsi->a.protocol = vhost->protocols;
+	new_wsi->user_space = NULL;
+
+	/*
+	 * outermost create notification for wsi
+	 * no user_space because no protocol selection
+	 */
+	vhost->protocols[0].callback(new_wsi, LWS_CALLBACK_WSI_CREATE, NULL,
+				     NULL, 0);
+
+	return new_wsi;
+}

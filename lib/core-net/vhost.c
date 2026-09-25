@@ -2442,3 +2442,50 @@ lws_log_prepend_vhost(struct lws_log_cx *cx, void *obj, char **p, char *e)
 	*p += lws_snprintf(*p, lws_ptr_diff_size_t(e, (*p)), "%s: ",
 							lws_vh_tag(vh));
 }
+
+/*
+ * stitch protocol choice into the vh protocol linked list
+ * We always insert ourselves at the start of the list
+ *
+ * X <-> B
+ * X <-> pAn <-> pB
+ *
+ * Illegal to attach more than once without detach inbetween
+ */
+void
+lws_same_vh_protocol_insert(struct lws *wsi, int n)
+{
+	lws_context_lock(wsi->a.context, __func__);
+	lws_vhost_lock(wsi->a.vhost);
+
+	lws_dll2_remove(&wsi->same_vh_protocol);
+	lws_dll2_add_head(&wsi->same_vh_protocol,
+			  &wsi->a.vhost->same_vh_protocol_owner[n]);
+
+	wsi->bound_vhost_index = (uint8_t)n;
+
+	lws_vhost_unlock(wsi->a.vhost);
+	lws_context_unlock(wsi->a.context);
+}
+
+void
+__lws_same_vh_protocol_remove(struct lws *wsi)
+{
+	if (wsi->a.vhost && wsi->a.vhost->same_vh_protocol_owner)
+		lws_dll2_remove(&wsi->same_vh_protocol);
+}
+
+void
+lws_same_vh_protocol_remove(struct lws *wsi)
+{
+	if (!wsi->a.vhost)
+		return;
+
+	lws_context_lock(wsi->a.context, __func__);
+	lws_vhost_lock(wsi->a.vhost);
+
+	__lws_same_vh_protocol_remove(wsi);
+
+	lws_vhost_unlock(wsi->a.vhost);
+	lws_context_unlock(wsi->a.context);
+}

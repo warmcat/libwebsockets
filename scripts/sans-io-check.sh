@@ -4,7 +4,9 @@
 # prototypes hidden (LWS_SANSIO_CHECK), so every place sansIO code calls into
 # IO fails to compile and names its line.  See READMEs/README.sans-io-split.md.
 #
-# Usage: scripts/sans-io-check.sh <build-dir-with-compile_commands.json>
+# Usage: scripts/sans-io-check.sh <build-dir-with-compile_commands.json> [-v]
+#
+# -v also prints every offending line, as file:line: callee.
 #
 # The build dir needs CMAKE_EXPORT_COMPILE_COMMANDS=1.  Prints each error
 # once per callee, then the count of distinct callees and of error lines.
@@ -16,7 +18,7 @@ CC=$B/compile_commands.json
 [ -f "$CC" ] || { echo "no $CC (configure with -DCMAKE_EXPORT_COMPILE_COMMANDS=1)"; exit 2; }
 
 # the sansIO sources, as scripts/sans-io-lint.sh lists them
-FILTER='/lib/roles/|/lib/core-net/(wsi|wsi-state|close|state|vhost|socks5-client|dummy-callback)\.c'
+FILTER='/lib/roles/(h1|h2|h3|http|ws|wt|quic|mqtt|raw-skt|raw-proxy)/|/lib/core-net/(wsi|wsi-state|close|state|vhost|socks5-client|dummy-callback)\.c'
 
 LOG=$(mktemp)
 python3 - "$CC" "$FILTER" <<'PY' | while IFS= read -r cmd; do
@@ -42,6 +44,10 @@ PY
 	( eval "${cmd##*; cd }" 2>/dev/null; cd "$(echo "$cmd" | sed 's/.*; cd //' | tr -d "'")" && eval "${cmd%% ; cd *}" ) 2>&1 | grep -E 'error:' >> "$LOG"
 done
 
+if [ "$2" = "-v" ]; then
+	sed -nE "s#^$(pwd)/(.*): error: (implicit declaration of function|call to undeclared function) ['‘]([a-z_0-9]+)['’].*#\1: \3#p" "$LOG" | sort
+	echo
+fi
 sed -E "s/.*error: (implicit declaration of function|call to undeclared function) ['‘]([a-z_0-9]+)['’].*/\2/" "$LOG" | grep -E '^[a-z_0-9]+$' | sort | uniq -c | sort -rn
 N=$(sed -E "s/.*error: (implicit declaration of function|call to undeclared function) ['‘]([a-z_0-9]+)['’].*/\2/" "$LOG" | grep -cE '^[a-z_0-9]+$')
 D=$(sed -E "s/.*error: (implicit declaration of function|call to undeclared function) ['‘]([a-z_0-9]+)['’].*/\2/" "$LOG" | grep -E '^[a-z_0-9]+$' | sort -u | wc -l)

@@ -116,8 +116,6 @@ __remove_wsi_socket_from_fds(struct lws *wsi);
 int
 _lws_plat_service_forced_tsi(struct lws_context *context, int tsi);
 
-int
-lws_rxflow_cache(struct lws *wsi, unsigned char *buf, size_t n, size_t len);
 
 int
 lws_service_flag_pending(struct lws_context *context, int tsi);
@@ -150,8 +148,6 @@ _lws_event_loop_ops_io(struct lws *wsi, unsigned int flags);
 int
 __lws_change_pollfd(struct lws *wsi, int _and, int _or);
 
-int
-lws_callback_as_writeable(struct lws *wsi);
 
 int
 lws_alpn_comma_to_openssl(const char *comma, uint8_t *os, int len);
@@ -168,9 +164,6 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len);
 void
 lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
 
-struct lws * LWS_WARN_UNUSED_RESULT
-lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi,
-				int group, const char *desc);
 
 struct lws *
 lws_http_client_connect_via_info2(struct lws *wsi);
@@ -222,17 +215,9 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, socklen_t cnt);
 int LWS_WARN_UNUSED_RESULT
 lws_plat_inet_pton(int af, const char *src, void *dst);
 
-void
-lws_same_vh_protocol_remove(struct lws *wsi);
 
-void
-__lws_same_vh_protocol_remove(struct lws *wsi);
 
-void
-lws_same_vh_protocol_insert(struct lws *wsi, int n);
 
-int
-lws_client_stash_create(struct lws *wsi, const char **cisin);
 
 int
 _lws_route_pt_close_unroutable(struct lws_context_per_thread *pt);
@@ -271,14 +256,8 @@ void
 lws_service_assert_loop_thread(struct lws_context *cx, int tsi);
 
 #endif
-void
-__lws_wsi_remove_from_sul(struct lws *wsi);
 
-void
-lws_validity_confirmed(struct lws *wsi);
 
-void
-_lws_validity_confirmed_role(struct lws *wsi);
 
 int
 lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,

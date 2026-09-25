@@ -152,6 +152,7 @@ The directories are the halves.  Placement by directory is the whole rule.
 | `lib/core-net/IO/client/`: `connect.c`, `connect2.c`, `connect3.c` | IO | dns, connect, happy eyeballs |
 | `lib/tls/*` record layer: `lws_ssl_capable_read/write`, bio, session cache, handshake driving | IO | sansIO sees plaintext |
 | `lib/roles/quic` packet and frame layer, `lib/roles/h3`, qpack | sansIO | quic is a sansIO part with a datagram interface instead of a stream one |
+| `lib/roles/listen`, `netlink`, `pipe`, `raw-file`, `dbus`, `cgi` | IO | transport adapters wearing the role interface: they accept sockets, read pipes, fds and the kernel's routing; nothing on the wire is theirs |
 | `lib/roles/quic` `sendto` for version negotiation, retry and path migration | IO | the last place a role touches the socket, to be moved behind tx |
 | `lib/plat/*`, `lib/event-libs/*` | IO | |
 | `lib/core/*`, `lib/misc/*`, `lib/system/*` | neither | context, logging, utilities: shared by both halves, used by both |
@@ -200,8 +201,11 @@ each function is in.
 6. Tier the public headers into `lws-core.h`, `lws-sansio.h`, `lws-io.h`
    (done), then the private ones, with the sansIO-only compile check
    (done: `private-lib-io.h`, `scripts/sans-io-check.sh`; first inventory
-   82 calls into IO from sansIO sources, 42 callees, `lws_issue_raw` and
-   `lws_rx_pump` from the roles' own handlers among them).
+   82 calls into IO from sansIO sources, 42 callees; 48 and 25 once the
+   adapter roles were classed as IO and the sansIO functions that lived in
+   IO files moved home.  What is left is IO code in sansIO files, the
+   POLLOUT clears, the pump calls from the roles' own handlers, and
+   `lws_issue_raw` as today's spelling of tx).
 7. The four requests through `lws_io_ops_t` (done: `lws-io-ops.h`,
    `lws_io_ops_default` in IO/pollfd.c, `lws_context_creation_info.io_ops`).
 8. When every role is converted, the IO half is a replaceable component,

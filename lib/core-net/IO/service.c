@@ -122,19 +122,6 @@ lws_async_worker_worker(void *d)
 }
 #endif
 
-int
-lws_callback_as_writeable(struct lws *wsi)
-{
-	int n, m;
-
-	n = wsi->role_ops->writeable_cb[lwsi_role_server(wsi)];
-	// lwsl_wsi_notice(wsi, "lws_callback_as_writeable: cb enum = %d", n);
-	m = user_callback_handle_rxflow(wsi->a.protocol->callback,
-					wsi, (enum lws_callback_reasons) n,
-					wsi->user_space, NULL, 0);
-
-	return m;
-}
 
 /*
  * Returns 0 = handled (wsi alive), 1 = caller should close the wsi (it is
@@ -379,51 +366,6 @@ bail_die:
 	return 1;
 }
 
-int
-lws_rxflow_cache(struct lws *wsi, unsigned char *buf, size_t n, size_t len)
-{
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	uint8_t *buffered;
-	size_t blen;
-	int ret = LWSRXFC_CACHED, m;
-
-	/* his RX is flowcontrolled, don't send remaining now */
-	blen = lws_buflist_next_segment_len(&wsi->buflist, &buffered);
-	if (blen) {
-		if (buf >= buffered && buf + len <= buffered + blen) {
-			if (blen != (size_t)len) {
-				/*
-				 * rxflow while we were spilling prev rxflow
-				 *
-				 * len indicates how much was unused, then... so trim
-				 * the head buflist to match that situation
-				 */
-
-				lws_buflist_use_segment(&wsi->buflist, blen - len);
-				lwsl_wsi_debug(wsi, "trim existing rxflow %d -> %d",
-						    (int)blen, (int)len);
-			}
-
-			return LWSRXFC_TRIMMED;
-		}
-		ret = LWSRXFC_ADDITIONAL;
-	}
-
-	/* a new rxflow, buffer it and warn caller */
-
-	lwsl_wsi_debug(wsi, "rxflow append %d", (int)(len - n));
-	m = lws_buflist_append_segment(&wsi->buflist, buf + n, len - n);
-
-	if (m < 0)
-		return LWSRXFC_ERROR;
-	if (m) {
-		lwsl_wsi_debug(wsi, "added to rxflow list");;
-		if (lws_dll2_is_detached(&wsi->dll_buflist))
-			lws_dll2_add_head(&wsi->dll_buflist, &pt->dll_buflist_owner);
-	}
-
-	return ret;
-}
 
 /* this is used by the platform service code to stop us waiting for network
  * activity in poll() when we have something that already needs service

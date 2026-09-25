@@ -122,3 +122,50 @@ auth_too_long:
 	return -1;
 }
 #endif
+
+int
+lws_client_stash_create(struct lws *wsi, const char **cisin)
+{
+	size_t size;
+	char *pc;
+	int n;
+	struct client_info_stash *old_stash = wsi->stash;
+	struct client_info_stash *new_stash;
+
+	size = sizeof(*new_stash) + 1;
+
+	/*
+	 * Let's overallocate the stash object with space for all the args
+	 * in one hit.
+	 */
+	for (n = 0; n < CIS_COUNT; n++)
+		if (cisin[n])
+			size += strlen(cisin[n]) + 1;
+
+	new_stash = lws_malloc(size, "client stash");
+	if (!new_stash)
+		return 1;
+
+	/* all the pointers default to NULL, but no need to zero the args */
+	memset(new_stash, 0, sizeof(*new_stash));
+
+	pc = (char *)&new_stash[1];
+
+	for (n = 0; n < CIS_COUNT; n++)
+		if (cisin[n]) {
+			size_t mm;
+			new_stash->cis[n] = pc;
+			if (n == CIS_PATH && cisin[n][0] != '/')
+				*pc++ = '/';
+			mm = strlen(cisin[n]) + 1;
+			memcpy(pc, cisin[n], mm);
+			pc += mm;
+		}
+
+	if (old_stash)
+		lws_free(old_stash);
+
+	wsi->stash = new_stash;
+
+	return 0;
+}

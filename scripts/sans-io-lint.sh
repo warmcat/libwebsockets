@@ -4,6 +4,8 @@
 # belongs to IO.  See READMEs/README.sans-io-split.md for the rule.
 #
 # The sansIO directories and files are listed below, from that document.
+# The listen, netlink, pipe, raw-file, dbus and cgi roles are transport
+# adapters wearing the role interface: IO's, and not listed.
 # The forbidden identifiers are its corollary: a socket or fd, a poll flag
 # asked for by name, a TLS library object, an event-loop handle; and the
 # transport read and write calls themselves, which a converted role leaves
@@ -23,7 +25,8 @@
 
 cd "$(dirname "$0")/.." || exit 1
 
-SANSIO="lib/roles \
+SANSIO="lib/roles/h1 lib/roles/h2 lib/roles/h3 lib/roles/http lib/roles/ws lib/roles/wt \
+	lib/roles/quic lib/roles/mqtt lib/roles/raw-skt lib/roles/raw-proxy lib/roles/*.c lib/roles/*.h \
 	lib/core-net/wsi.c lib/core-net/wsi-state.c lib/core-net/close.c \
 	lib/core-net/state.c lib/core-net/vhost.c lib/core-net/socks5-client.c \
 	lib/core-net/dummy-callback.c"

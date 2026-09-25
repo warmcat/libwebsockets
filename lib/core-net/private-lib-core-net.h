@@ -1407,6 +1407,29 @@ lws_io_want_write(struct lws *wsi);
 int
 lws_io_want_read(struct lws *wsi, int on);
 
+/* sansIO's own, back from the IO header: their content is not IO's */
+int
+lws_callback_as_writeable(struct lws *wsi);
+void
+__lws_wsi_remove_from_sul(struct lws *wsi);
+void
+_lws_validity_confirmed_role(struct lws *wsi);
+void
+lws_validity_confirmed(struct lws *wsi);
+int
+lws_rxflow_cache(struct lws *wsi, unsigned char *buf, size_t n, size_t len);
+struct lws * LWS_WARN_UNUSED_RESULT
+lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi,
+				int group, const char *desc);
+int
+lws_client_stash_create(struct lws *wsi, const char **cisin);
+void
+lws_same_vh_protocol_insert(struct lws *wsi, int n);
+void
+__lws_same_vh_protocol_remove(struct lws *wsi);
+void
+lws_same_vh_protocol_remove(struct lws *wsi);
+
 /* lws_rx_pump() flags */
 #define LWS_RXP_FORCE_READ	(1 << 0) /* read even with rx parked */
 #define LWS_RXP_NO_READ		(1 << 1) /* offer parked rx only */
