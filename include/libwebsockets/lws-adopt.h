@@ -156,6 +156,16 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 LWS_VISIBLE LWS_EXTERN lws_sockfd_type
 lws_get_socket_fd(struct lws *wsi);
 
+/**
+ * lws_get_udp() - get wsi's udp struct
+ *
+ * \param wsi: lws connection
+ *
+ * Returns NULL or pointer to the wsi's UDP-specific information
+ */
+LWS_VISIBLE LWS_EXTERN const struct lws_udp * LWS_WARN_UNUSED_RESULT
+lws_get_udp(const struct lws *wsi);
+
 typedef struct lws_adopt_desc {
 	struct lws_vhost	*vh;		/**< vhost the wsi should belong to */
 	lws_adoption_type	type;		/**< OR-ed combinations of

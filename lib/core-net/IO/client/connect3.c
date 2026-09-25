@@ -460,11 +460,11 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 #if defined(LWS_WITH_UDP) && \
     (defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC))
-	if (wsi->udp && wsi->quic_alt_port)
+	if (wsi->io.udp && wsi->quic_alt_port)
 		/*
 		 * The QUIC race is aimed at the RFC 7838 alt-svc endpoint
 		 * learned for this origin, not at the origin's own port.
-		 * TCP attempts on this wsi don't take this (wsi->udp is
+		 * TCP attempts on this wsi don't take this (wsi->io.udp is
 		 * only set for the QUIC attempt).
 		 */
 		port = wsi->quic_alt_port;
@@ -900,9 +900,9 @@ next_dns_result_seq:
 	wsi->io.sa46_peer = curr->dest;
 #if defined(LWS_WITH_UDP)
 	/* the datagram peer is the primary attempt's, not a TCP racer's */
-	if (wsi->udp && !lws_socket_is_valid(wsi->io.desc.sockfd)) {
-		wsi->udp->sa46 = curr->dest;
-		sa46_sockport(&wsi->udp->sa46, htons(port));
+	if (wsi->io.udp && !lws_socket_is_valid(wsi->io.desc.sockfd)) {
+		wsi->io.udp->sa46 = curr->dest;
+		sa46_sockport(&wsi->io.udp->sa46, htons(port));
 	}
 #endif
 #if defined(LWS_WITH_ROUTING)
@@ -971,7 +971,7 @@ ads_known:
 			 */
 			want_udp = !is_parallel && (
 #if defined(LWS_WITH_UDP)
-				    wsi->udp ||
+				    wsi->io.udp ||
 #endif
 				    (wsi->role_ops &&
 				     !strcmp(wsi->role_ops->name, "quic")));

@@ -1229,16 +1229,6 @@ lws_plat_user_to_uid(const char *username, uid_t *puid);
 LWS_VISIBLE LWS_EXTERN int
 lws_plat_group_to_gid(const char *groupname, gid_t *pgid);
 
-/**
- * lws_get_udp() - get wsi's udp struct
- *
- * \param wsi: lws connection
- *
- * Returns NULL or pointer to the wsi's UDP-specific information
- */
-LWS_VISIBLE LWS_EXTERN const struct lws_udp * LWS_WARN_UNUSED_RESULT
-lws_get_udp(const struct lws *wsi);
-
 LWS_VISIBLE LWS_EXTERN void *
 lws_get_opaque_parent_data(const struct lws *wsi);
 

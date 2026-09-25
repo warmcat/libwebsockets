@@ -334,18 +334,6 @@ rops_adoption_bind_raw_skt(struct lws *wsi, int type, const char *vh_prot_name)
 	    ((type & _LWS_ADOPT_FINISH) && (!(type & LWS_ADOPT_FLAG_UDP))))
 		return 0; /* no match */
 
-#if defined(LWS_WITH_UDP)
-	if ((type & LWS_ADOPT_FLAG_UDP) && !wsi->udp) {
-		/*
-		 * these can be >128 bytes, so just alloc for UDP
-		 */
-		wsi->udp = lws_malloc(sizeof(*wsi->udp), "udp struct");
-		if (!wsi->udp)
-			return 0;
-		memset(wsi->udp, 0, sizeof(*wsi->udp));
-	}
-#endif
-
 	/* the udp FINISH pass only binds the protocol: no second adoption */
 	if (!(type & _LWS_ADOPT_FINISH))
 		lws_wsi_event_role(wsi, (type & LWS_ADOPT_ALLOW_SSL) ?

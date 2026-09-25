@@ -1279,11 +1279,11 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						 * Client side (preferred_address, RFC 9000
 						 * §9.6): the socket was already re-targeted
 						 * at the preferred address by the probe
-						 * helper, so udp->sa46 is already correct;
+						 * helper, so path_sa46 is already correct;
 						 * we just finalize and reset the path state.
 						 */
 						if (nwsi->quic.qn->is_server) {
-							nwsi->udp->sa46 =
+							nwsi->quic.qn->path_sa46 =
 								nwsi->quic.qn->probing_sa46;
 							lws_sul_cancel(&nwsi->quic.qn->path_probe_sul);
 							nwsi->quic.qn->probe_bytes_received = 0;
@@ -1307,11 +1307,10 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						 * checks (sa46_peer) reason about
 						 * the path we are actually using
 						 * now, not the pre-migration one.
-						 * udp->sa46 holds the committed
+						 * path_sa46 holds the committed
 						 * peer address for both sides.
 						 */
-						if (nwsi->udp)
-							lws_io_set_peer(nwsi, &nwsi->udp->sa46);
+						lws_io_set_peer(nwsi, &nwsi->quic.qn->path_sa46);
 
 						/* Reset CC / RTT / PMTUD (RFC 9000 9.3.3) */
 						if (nwsi->quic.qn->cc_ops &&
@@ -2020,8 +2019,8 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 					have_v6 = have_v6 && v6port;
 
 					if (have_v6 && (!have_v4 ||
-					    (qn->nwsi && qn->nwsi->udp &&
-					     qn->nwsi->udp->sa46.sa4.sin_family
+					    (qn->nwsi &&
+					     qn->path_sa46.sa4.sin_family
 								== AF_INET6))) {
 						pref.sa6.sin6_family = AF_INET6;
 						memcpy(&pref.sa6.sin6_addr, v6, 16);

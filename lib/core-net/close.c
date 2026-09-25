@@ -130,14 +130,7 @@ __lws_reset_wsi(struct lws *wsi)
 	lws_buflist_destroy_all_segments(&wsi->buflist);
 	lws_dll2_remove(&wsi->dll_buflist);
 	lws_buflist_destroy_all_segments(&wsi->buflist_out);
-#if defined(LWS_WITH_UDP)
-	if (wsi->udp) {
-		/* confirm no sul left scheduled in wsi->udp itself */
-		lws_sul_debug_zombies(wsi->a.context, wsi->udp,
-				      sizeof(*wsi->udp), "close udp wsi");
-		lws_free_set_NULL(wsi->udp);
-	}
-#endif
+	lws_io_udp_release(wsi);
 	wsi->mount_hit = 0;
 
 #if defined(LWS_WITH_CLIENT)
@@ -398,7 +391,7 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 		if (ads && host && path) {
 			wsi->tried_quic = 0;
 			lwsl_wsi_notice(wsi, "QUIC connection failed, falling back to TCP");
-			lws_free_set_NULL(wsi->udp);
+			lws_io_udp_release(wsi);
 			/*
 			 * Forget any learned h3 alternative for this origin,
 			 * it just failed... per RFC 7838 return to the origin
@@ -838,9 +831,6 @@ just_kill_connection:
 	 * the actual close.
 	 */
 	if (wsi->role_ops != &role_ops_raw_skt && !lwsi_role_client(wsi) &&
-#if defined(LWS_WITH_UDP)
-	    !wsi->udp && /* nothing to stage on a datagram socket */
-#endif
 	    lwsi_close(wsi) != LCS_SHUTDOWN &&
 	    lwsi_state(wsi) != LRS_UNCONNECTED &&
 	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&

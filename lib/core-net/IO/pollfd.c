@@ -617,6 +617,7 @@ lws_io_close_pollfd(struct lws *wsi)
 	sanity_assert_no_wsi_traces(wsi->a.context, wsi);
 
 	wsi->io.desc.sockfd = LWS_SOCK_INVALID;
+	lws_io_udp_release(wsi);
 }
 
 /*

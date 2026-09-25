@@ -1738,7 +1738,6 @@ const struct lws_protocols *lws_protocol_get(struct lws *wsi) {
 }
 
 #if defined(LWS_WITH_UDP)
-const struct lws_udp *lws_get_udp(const struct lws *wsi) { return wsi->udp; }
 #endif
 
 struct lws_context *lws_get_context(const struct lws *wsi) {

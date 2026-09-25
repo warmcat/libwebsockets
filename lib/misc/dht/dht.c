@@ -418,8 +418,8 @@ lws_callback_dht(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		lws_dht_process_packet(ctx, in, len,
-				       sa46_sockaddr(&wsi->udp->sa46),
-				       sa46_socklen(&wsi->udp->sa46));
+				       sa46_sockaddr(&wsi->io.udp->sa46),
+				       sa46_socklen(&wsi->io.udp->sa46));
 		break;
 
 	case LWS_CALLBACK_RAW_CLOSE:

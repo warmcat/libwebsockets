@@ -110,6 +110,12 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	    !(type & LWS_ADOPT_SOCKET))
 		type &= (unsigned int)~LWS_ADOPT_ALLOW_SSL;
 
+#if defined(LWS_WITH_UDP)
+	/* a datagram socket's peer state, before any role sees the wsi */
+	if ((type & LWS_ADOPT_FLAG_UDP) && lws_io_udp_alloc(new_wsi))
+		goto bail;
+#endif
+
 	if (lws_role_call_adoption_bind(new_wsi, (int)type, vh_prot_name)) {
 		lwsl_wsi_err(new_wsi, "no role for desc type 0x%x", type);
 		goto bail;
@@ -928,8 +934,8 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 #endif
 		}
 
-		if (wsi->udp)
-			wsi->udp->sa46 = s->dest;
+		if (wsi->io.udp)
+			wsi->io.udp->sa46 = s->dest;
 		/*
 		 * Only a connected socket has a peer.  A bound listener's
 		 * address is our own side, and recording it as the peer makes
@@ -1113,7 +1119,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		 * have to rely on the kernel-level filter this provides:
 		 * callback_async_dns() checks the source of every answer
 		 * itself, on every platform, and restores the chosen server
-		 * to wsi->udp->sa46 before doing it, since recvfrom() left
+		 * to wsi->io.udp->sa46 before doing it, since recvfrom() left
 		 * the datagram's source (which is also the send target)
 		 * there.  See the "resolver source-check legs" in
 		 * ./minimal-examples-lowlevel/api-tests/api-test-async-dns,
@@ -1130,8 +1136,8 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 #endif
 	}
 
-	if (wsi->udp)
-		wsi->udp->sa46 = dest;
+	if (wsi->io.udp)
+		wsi->io.udp->sa46 = dest;
 	if (!wsi->io.do_bind)
 		wsi->io.sa46_peer = dest;
 
@@ -1521,6 +1527,10 @@ lws_io_socket_waiters_close(struct lws_vhost *vh, int tsi)
 int
 lws_io_shutdown_write(struct lws *wsi)
 {
+#if defined(LWS_WITH_UDP)
+	if (wsi->io.udp)
+		return 0; /* nothing to shut on a datagram socket */
+#endif
 #if defined(LWS_WITH_TLS)
 	if (lws_is_ssl(wsi) && wsi->tls.ssl) {
 		__lws_tls_shutdown(wsi);
@@ -1550,6 +1560,10 @@ lws_io_shutdown_write(struct lws *wsi)
 int
 lws_io_close_staged(struct lws *wsi)
 {
+#if defined(LWS_WITH_UDP)
+	if (wsi->io.udp)
+		return 0; /* nothing to stage on a datagram socket */
+#endif
 	if (!lws_socket_is_valid(wsi->io.desc.sockfd) ||
 	    !(wsi->a.context->event_loop_ops->flags & LELOF_ISPOLL))
 		return 0;

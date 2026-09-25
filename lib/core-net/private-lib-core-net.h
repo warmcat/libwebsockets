@@ -286,7 +286,7 @@ struct client_info_stash {
 #endif
 
 #if defined(LWS_WITH_UDP)
-#define lws_wsi_is_udp(___wsi) (!!___wsi->udp)
+#define lws_wsi_is_udp(___wsi) (!!(___wsi)->io.udp)
 #endif
 
 #if defined(LWS_WITH_CLIENT)
@@ -882,6 +882,10 @@ struct lws_io_adjunct {
 	unsigned int			ipv4:1;
 	unsigned int			dns_reachability:1;
 
+#if defined(LWS_WITH_UDP)
+	struct lws_udp			*udp; /* the datagram socket's peer state */
+#endif
+
 	/* the client connect machine: dns, racers, timers */
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	struct lws_dll2			adns; /* on adns list of guys to tell result */
@@ -1018,9 +1022,6 @@ struct lws {
 	struct lws_peer			*peer;
 #endif
 
-#if defined(LWS_WITH_UDP)
-	struct lws_udp			*udp;
-#endif
 #if defined(LWS_WITH_CLIENT)
 	struct client_info_stash	*stash;
 	char				*cli_hostname_copy;

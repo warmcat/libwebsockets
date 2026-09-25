@@ -241,6 +241,8 @@ lws_quic_prefaddr_sul_cb(lws_sorted_usec_list_t *sul)
 
 	if (lws_io_udp_swap_socket(nwsi, &qn->prefaddr_original_sa46))
 		lwsl_wsi_err(nwsi, "prefaddr: revert socket failed");
+	else
+		qn->path_sa46 = qn->prefaddr_original_sa46;
 
 	lws_callback_on_writable(nwsi);
 }
@@ -253,7 +255,7 @@ lws_quic_client_probe_preferred_address(struct lws *nwsi,
 {
 	struct lws_quic_netconn *qn;
 
-	if (!nwsi || !nwsi->quic.qn || !nwsi->udp || !pref_sa46)
+	if (!nwsi || !nwsi->quic.qn || !pref_sa46)
 		return 1;
 	qn = nwsi->quic.qn;
 
@@ -266,7 +268,7 @@ lws_quic_client_probe_preferred_address(struct lws *nwsi,
 	 * (and original DCID).  This is entered at most twice for one probe
 	 * (once at TP parse, once at HANDSHAKE_DONE), both before any swap.
 	 */
-	qn->prefaddr_original_sa46 = nwsi->udp->sa46;
+	qn->prefaddr_original_sa46 = qn->path_sa46;
 	qn->prefaddr_original_rem_cid = qn->rem_cid;
 
 	/* Save the migration parameters for later */
@@ -294,6 +296,7 @@ lws_quic_client_probe_preferred_address(struct lws *nwsi,
 
 	if (lws_io_udp_swap_socket(nwsi, pref_sa46))
 		return 1;
+	qn->path_sa46 = *pref_sa46;
 
 	if (pref_cid && pref_cid->len)
 		qn->rem_cid = *pref_cid;
@@ -1105,11 +1108,9 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		nwsi->txc.peer_tx_cr_est = LWS_QUIC_DEFAULT_WINDOW; /* How much the peer can write to us */
 		/* tx_cr is strictly initialized when we parse the peer's initial_max_data parameter */
 
-#if defined(LWS_WITH_UDP)
-		nwsi->udp = lws_malloc(sizeof(*nwsi->udp), "quic udp");
-		memset(nwsi->udp, 0, sizeof(*nwsi->udp));
-		nwsi->udp->sa46 = sa46; /* Copy peer address */
-#endif
+		/* the peer we were born from is the committed path */
+		nwsi->quic.qn->path_sa46 = sa46;
+		lws_io_set_peer(nwsi, &sa46);
 
 #if defined(LWS_WITH_TLS)
 		nwsi->tls.use_ssl = (unsigned int)wsi->a.vhost->tls.use_ssl;
@@ -1378,27 +1379,27 @@ tp_ok:
 	int pending_migration = 0;
 	lws_sockaddr46 migration_sa46;
 
-	if (nwsi && nwsi->udp) {
+	if (nwsi && nwsi->quic.qn) {
 		int addr_changed = 0;
-		if (nwsi->udp->sa46.sa4.sin_family != sa46.sa4.sin_family) {
+		if (nwsi->quic.qn->path_sa46.sa4.sin_family != sa46.sa4.sin_family) {
 			addr_changed = 1;
 		} else if (sa46.sa4.sin_family == AF_INET) {
-			if (nwsi->udp->sa46.sa4.sin_addr.s_addr != sa46.sa4.sin_addr.s_addr ||
-			    nwsi->udp->sa46.sa4.sin_port != sa46.sa4.sin_port)
+			if (nwsi->quic.qn->path_sa46.sa4.sin_addr.s_addr != sa46.sa4.sin_addr.s_addr ||
+			    nwsi->quic.qn->path_sa46.sa4.sin_port != sa46.sa4.sin_port)
 				addr_changed = 1;
 		}
 #if defined(LWS_WITH_IPV6)
 		else if (sa46.sa4.sin_family == AF_INET6) {
-			if (memcmp(&nwsi->udp->sa46.sa6.sin6_addr, &sa46.sa6.sin6_addr, sizeof(struct in6_addr)) ||
-			    nwsi->udp->sa46.sa6.sin6_port != sa46.sa6.sin6_port)
+			if (memcmp(&nwsi->quic.qn->path_sa46.sa6.sin6_addr, &sa46.sa6.sin6_addr, sizeof(struct in6_addr)) ||
+			    nwsi->quic.qn->path_sa46.sa6.sin6_port != sa46.sa6.sin6_port)
 				addr_changed = 1;
 		}
 #endif
-		if (addr_changed && nwsi->quic.qn) {
+		if (addr_changed) {
 			pending_migration = 1;
 			migration_sa46 = sa46;
 		} else {
-			nwsi->udp->sa46 = sa46;
+			nwsi->quic.qn->path_sa46 = sa46;
 		}
 	}
 
@@ -1869,14 +1870,14 @@ tp_ok:
 				char buf_old[64], buf_new[64];
 				uint16_t port_old, port_new;
 
-				lws_sa46_write_numeric_address(&nwsi->udp->sa46, buf_old, sizeof(buf_old));
+				lws_sa46_write_numeric_address(&nwsi->quic.qn->path_sa46, buf_old, sizeof(buf_old));
 				lws_sa46_write_numeric_address(&migration_sa46, buf_new, sizeof(buf_new));
 				
 #if defined(LWS_WITH_IPV6)
-				port_old = nwsi->udp->sa46.sa4.sin_family == AF_INET ? nwsi->udp->sa46.sa4.sin_port : nwsi->udp->sa46.sa6.sin6_port;
+				port_old = nwsi->quic.qn->path_sa46.sa4.sin_family == AF_INET ? nwsi->quic.qn->path_sa46.sa4.sin_port : nwsi->quic.qn->path_sa46.sa6.sin6_port;
 				port_new = migration_sa46.sa4.sin_family == AF_INET ? migration_sa46.sa4.sin_port : migration_sa46.sa6.sin6_port;
 #else
-				port_old = nwsi->udp->sa46.sa4.sin_port;
+				port_old = nwsi->quic.qn->path_sa46.sa4.sin_port;
 				port_new = migration_sa46.sa4.sin_port;
 #endif
 #endif
@@ -1966,7 +1967,8 @@ tp_ok:
 					if (lws_io_udp_connect_peer(nwsi, &migration_sa46))
 						lwsl_wsi_warn(nwsi, "QUIC: failed to re-connect client socket");
 
-					nwsi->udp->sa46 = migration_sa46;
+					nwsi->quic.qn->path_sa46 = migration_sa46;
+					lws_io_set_peer(nwsi, &migration_sa46);
 
 					/* Reset Congestion Control State (RFC 9000 9.3.3) */
 					if (nwsi->quic.qn->cc_ops && nwsi->quic.qn->cc_ops->init)
@@ -2612,7 +2614,7 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		uint64_t probe_budget = 0;
 		int to_probe_path = 0, has_path_challenge = 0;
 
-		if (level == LWS_QUIC_LEVEL_APP && qn->is_server && wsi->udp) {
+		if (level == LWS_QUIC_LEVEL_APP && qn->is_server) {
 			if (qn->probing_sa46_valid && qn->pending_tx[level].head) {
 				struct lws_quic_tx_frame *first_f = lws_container_of(
 					qn->pending_tx[level].head,
@@ -2647,7 +2649,7 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 
 				if (f->has_dest &&
 				    !lws_quic_sa46_same_path(&f->dest_sa46,
-							     &wsi->udp->sa46) &&
+							     &qn->path_sa46) &&
 				    (!qn->probing_sa46_valid ||
 				     !lws_quic_sa46_same_path(&f->dest_sa46,
 							      &qn->probing_sa46))) {
@@ -3000,12 +3002,12 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 				if (has_packet_dest) {
 					tp->dest = packet_dest_sa46;
 					tp->has_dest = 1;
-				} else if (wsi->udp) {
-					tp->dest = wsi->udp->sa46;
+				} else if (wsi->quic.qn) {
+					tp->dest = wsi->quic.qn->path_sa46;
 					tp->has_dest = 1;
 				} else if (wsi->mux_substream && wsi->mux.parent_wsi &&
-					   wsi->mux.parent_wsi->udp) {
-					tp->dest = wsi->mux.parent_wsi->udp->sa46;
+					   wsi->mux.parent_wsi->quic.qn) {
+					tp->dest = wsi->mux.parent_wsi->quic.qn->path_sa46;
 					tp->has_dest = 1;
 				}
 			}
@@ -3648,12 +3650,9 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 	    (i->alpn && !strcmp(i->alpn, "h3"))) {
 		struct lws_quic_cid dcid;
 
-		if (!wsi->udp) {
-			wsi->udp = lws_malloc(sizeof(*wsi->udp), "udp struct");
-			if (!wsi->udp)
-				return 1;
-			memset(wsi->udp, 0, sizeof(*wsi->udp));
-		}
+		/* a quic client rides a datagram transport: IO gives it one */
+		if (lws_io_udp_alloc(wsi))
+			return 1;
 
 		/* Allocate QUIC netconn for client! */
                 if (!wsi->quic.qn) {
@@ -3800,15 +3799,6 @@ rops_adoption_bind_quic(struct lws *wsi, int type, const char *vh_prot_name)
 	     !strcmp(wsi->a.vhost->listen_accept_role, "quic")) ||
 	    (vh_prot_name && !strcmp(vh_prot_name, "quic")) ||
 	    (wsi->role_ops == &role_ops_quic)) {
-#if defined(LWS_WITH_UDP)
-		if (!wsi->udp) {
-			wsi->udp = lws_malloc(sizeof(*wsi->udp), "udp struct");
-			if (!wsi->udp)
-				return 0;
-			memset(wsi->udp, 0, sizeof(*wsi->udp));
-		}
-#endif
-
 		/* the socket marks what it sends ECT(0) and reports ECN on rx */
 		lws_io_udp_enable_ecn(wsi);
 
@@ -4251,13 +4241,8 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 
 	lws_quic_stream_cleanup(wsi);
 
-	if (!qn) {
-#if defined(LWS_WITH_UDP)
-		if (wsi->udp)
-			lws_free_set_NULL(wsi->udp);
-#endif
+	if (!qn)
 		return 0;
-	}
 
 	/* If we are the network wsi, free the qn and all resources */
 	if (qn->nwsi == wsi) {
@@ -4283,11 +4268,6 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 
 		lws_quic_netconn_destroy(&wsi->quic.qn);
 	}
-
-#if defined(LWS_WITH_UDP)
-	if (wsi->udp)
-		lws_free_set_NULL(wsi->udp);
-#endif
 
 	return 0;
 }
@@ -4547,11 +4527,7 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	if (lws_io_udp_transfer_socket(wsi, nwsi))
 		return 1;
 
-	/* Transfer the udp and quic contexts */
-#if defined(LWS_WITH_UDP)
-	nwsi->udp = wsi->udp;
-	wsi->udp = NULL;
-#endif
+	/* Transfer the quic contexts (the udp state moved with the socket) */
 	nwsi->quic = wsi->quic;
 	nwsi->txc = wsi->txc;
 	nwsi->tls = wsi->tls;

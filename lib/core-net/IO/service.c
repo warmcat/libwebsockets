@@ -939,7 +939,7 @@ lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 
 #if defined(LWS_WITH_IPV6)
-	if (wsi->udp && wsi->udp->sa46.sa4.sin_family == AF_INET6 &&
+	if (wsi->io.udp && wsi->io.udp->sa46.sa4.sin_family == AF_INET6 &&
 	    sa46.sa4.sin_family == AF_INET) {
 		uint8_t a4[4];
 		uint16_t port;

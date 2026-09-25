@@ -431,12 +431,14 @@ struct lws_quic_netconn {
 	/* Path Validation (RFC 9000 Section 8.2) */
 	uint8_t			path_challenge[8];
 	uint8_t			path_challenge_pending:1;
+	/* the committed path's peer: where our packets go, what IO is told */
+	lws_sockaddr46		path_sa46;
 	lws_sockaddr46		probing_sa46;
 	uint8_t			probing_sa46_valid:1;
 	uint8_t			rx_has_non_probing:1;
 	/*
 	 * Server-side peer migration (RFC 9000 9.3): while probing_sa46 is
-	 * unvalidated we keep sending on the committed path (udp->sa46) and
+	 * unvalidated we keep sending on the committed path (path_sa46) and
 	 * only PATH_CHALLENGE / PATH_RESPONSE go to the new address, limited
 	 * to 3x the bytes we received from it (9.3.1 / 8.1).  The probe is
 	 * abandoned when path_probe_sul fires without a matching

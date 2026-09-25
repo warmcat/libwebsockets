@@ -148,26 +148,6 @@ rops_adoption_bind_raw_proxy(struct lws *wsi, int type,
 	    (!(type & LWS_ADOPT_FLAG_RAW_PROXY)) || (type & _LWS_ADOPT_FINISH))
 		return 0; /* no match */
 
-#if defined(LWS_WITH_UDP)
-	if (type & LWS_ADOPT_FLAG_UDP) {
-		/*
-		 * these can be >128 bytes, so just alloc for UDP
-		 */
-		wsi->udp = lws_malloc(sizeof(*wsi->udp), "udp struct");
-		if (!wsi->udp)
-			/*
-			 * "no match", so the adopt fails cleanly rather than
-			 * leaving a wsi that will NULL-deref wsi->udp
-			 */
-			return 0;
-		/*
-		 * lws_wsi_is_udp() is just "wsi->udp is set", so from here the
-		 * wsi is a UDP wsi... sa46 / sa46_pending must not be left as
-		 * heap garbage, sendto() would use them as the destination
-		 */
-		memset(wsi->udp, 0, sizeof(*wsi->udp));
-	}
-#endif
 
 	lws_wsi_event_role(wsi, (type & LWS_ADOPT_ALLOW_SSL) ?
 				LWS_WSIEV_ADOPTED_TLS : LWS_WSIEV_ADOPTED,

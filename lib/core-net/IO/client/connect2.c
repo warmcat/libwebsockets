@@ -445,12 +445,12 @@ solo:
 							alt_port);
 				else
 					lwsl_wsi_notice(wsi, "Attempting QUIC connection first");
-				if (!wsi->udp) {
-					wsi->udp = lws_malloc(sizeof(*wsi->udp), "udp struct");
-					if (wsi->udp)
-						memset(wsi->udp, 0, sizeof(*wsi->udp));
+				if (!wsi->io.udp) {
+					wsi->io.udp = lws_malloc(sizeof(*wsi->io.udp), "udp struct");
+					if (wsi->io.udp)
+						memset(wsi->io.udp, 0, sizeof(*wsi->io.udp));
 				}
-				if (wsi->udp) {
+				if (wsi->io.udp) {
 					struct lws_client_connect_info i;
 #if defined(LWS_WITH_TLS)
 					/*

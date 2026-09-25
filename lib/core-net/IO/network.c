@@ -248,15 +248,16 @@ lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen)
 	while (wsi && !wsi->quic.qn && wsi->mux.parent_wsi)
 		wsi = wsi->mux.parent_wsi;
 
-	if (wsi && wsi->quic.qn && wsi->udp) {
-		lws_sa46_write_numeric_address(&wsi->udp->sa46, name, namelen);
+	if (wsi && wsi->quic.qn) {
+		/* the netconn told IO its committed path's peer */
+		lws_sa46_write_numeric_address(&wsi->io.sa46_peer, name, namelen);
 		return name;
 	}
 #endif
 	wsi = lws_get_network_wsi(wsi);
 #if defined(LWS_WITH_UDP)
-	if (wsi->udp) {
-		lws_sa46_write_numeric_address(&wsi->udp->sa46, name, namelen);
+	if (wsi->io.udp) {
+		lws_sa46_write_numeric_address(&wsi->io.udp->sa46, name, namelen);
 		return name;
 	}
 #endif
@@ -1622,15 +1623,15 @@ lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
 	int n, e;
 
 #if defined(LWS_WITH_SERVER)
-	if (dest && !lwsi_role_client(nwsi) && nwsi->udp && nwsi->a.vhost &&
-	    nwsi->udp->sa46.sa4.sin_family != dest->sa4.sin_family) {
+	if (dest && !lwsi_role_client(nwsi) && nwsi->io.udp && nwsi->a.vhost &&
+	    nwsi->io.udp->sa46.sa4.sin_family != dest->sa4.sin_family) {
 		lws_start_foreach_dll(struct lws_dll2 *, d,
 				lws_dll2_get_head(&nwsi->a.vhost->listen_wsi)) {
 			struct lws *lw = lws_container_of(d, struct lws,
 							  listen_list);
 
-			if (lw->udp &&
-			    lw->udp->sa46.sa4.sin_family ==
+			if (lw->io.udp &&
+			    lw->io.udp->sa46.sa4.sin_family ==
 						dest->sa4.sin_family &&
 			    lws_socket_is_valid(lw->io.desc.sockfd)) {
 				fd = lw->io.desc.sockfd;
@@ -1666,8 +1667,8 @@ lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
 		if (dest)
 			lws_sa46_write_numeric_address((lws_sockaddr46 *)dest,
 						       da, sizeof(da));
-		if (nwsi->udp)
-			lws_sa46_write_numeric_address(&nwsi->udp->sa46, ba,
+		if (nwsi->io.udp)
+			lws_sa46_write_numeric_address(&nwsi->io.udp->sa46, ba,
 						       sizeof(ba));
 		lwsl_wsi_warn(wsi, "dgram %s fd %d -> %s, %u bytes, socket "
 				   "bound %s: errno %d", dest ? "sendto" : "send",
@@ -1701,6 +1702,54 @@ lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
 		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
 	return LWS_SSL_CAPABLE_ERROR;
+}
+#endif
+
+/*
+ * The datagram socket's peer state: where the last datagram came from, where
+ * the next goes.  IO allocates it for a udp adoption and for a client that
+ * asks for a datagram transport, and frees it with the transport, or when a
+ * connection restarts over tcp.
+ */
+int
+lws_io_udp_alloc(struct lws *wsi)
+{
+#if defined(LWS_WITH_UDP)
+	if (wsi->io.udp)
+		return 0;
+
+	/* these can be >128 bytes, so just alloc for UDP */
+	wsi->io.udp = lws_zalloc(sizeof(*wsi->io.udp), "udp struct");
+
+	return !wsi->io.udp;
+#else
+	(void)wsi;
+
+	return 1;
+#endif
+}
+
+void
+lws_io_udp_release(struct lws *wsi)
+{
+#if defined(LWS_WITH_UDP)
+	if (!wsi->io.udp)
+		return;
+
+	/* confirm no sul left scheduled in wsi->io.udp itself */
+	lws_sul_debug_zombies(wsi->a.context, wsi->io.udp,
+			      sizeof(*wsi->io.udp), "close udp wsi");
+	lws_free_set_NULL(wsi->io.udp);
+#else
+	(void)wsi;
+#endif
+}
+
+#if defined(LWS_WITH_UDP)
+const struct lws_udp *
+lws_get_udp(const struct lws *wsi)
+{
+	return wsi->io.udp;
 }
 #endif
 
@@ -1827,7 +1876,7 @@ lws_io_udp_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
 	}
 	lws_pt_unlock(pt);
 
-	nwsi->udp->sa46 = *to_sa46;
+	nwsi->io.udp->sa46 = *to_sa46;
 
 	return 0;
 }
@@ -1893,6 +1942,10 @@ lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi)
 {
 	nwsi->io.desc = wsi->io.desc;
 	nwsi->io.sa46_peer = wsi->io.sa46_peer;
+#if defined(LWS_WITH_UDP)
+	nwsi->io.udp = wsi->io.udp;
+	wsi->io.udp = NULL;
+#endif
 	if (lws_socket_is_valid(wsi->io.desc.sockfd)) {
 		struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
