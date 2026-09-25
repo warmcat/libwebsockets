@@ -1441,24 +1441,11 @@ __lws_vhost_destroy_pt_wsi_dieback_start(struct lws_vhost *vh)
 		return;
 #endif
 
-#if defined(LWS_WITH_CLIENT)
 	/*
 	 * destroy any wsi that are associated with us but have no socket
 	 * (and will otherwise be missed for destruction)
 	 */
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-			      lws_dll2_get_head(&vh->vh_awaiting_socket_owner)) {
-		struct lws *w =
-			lws_container_of(d, struct lws, io.vh_awaiting_socket);
-
-		if (w->tsi == tsi) {
-
-			lwsl_vhost_debug(vh, "closing aso");
-			lws_wsi_close(w, LWS_TO_KILL_ASYNC);
-		}
-
-	} lws_end_foreach_dll_safe(d, d1);
-#endif
+	lws_io_socket_waiters_close(vh, tsi);
 
 	/*
 	 * Close any wsi on this pt bound to the vhost

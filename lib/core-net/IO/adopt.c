@@ -1406,6 +1406,49 @@ lws_io_unwatch(struct lws *wsi)
 }
 
 /*
+ * The vhost's list of wsi that have no socket yet (they are waiting for the
+ * fd budget, or for dns): a closing wsi leaves it, and one still on it when
+ * it closes never got to tell its user it existed, so the close callback is
+ * owed.  A vhost going away closes the ones on this pt.
+ */
+void
+lws_io_socket_wait_cancel(struct lws *wsi)
+{
+	if (!wsi->a.vhost)
+		return;
+
+	lws_vhost_lock(wsi->a.vhost);
+	lws_dll2_remove(&wsi->io.vh_awaiting_socket);
+	lws_vhost_unlock(wsi->a.vhost);
+}
+
+int
+lws_io_socket_wait_pending(struct lws *wsi)
+{
+	return !lws_dll2_is_detached(&wsi->io.vh_awaiting_socket);
+}
+
+void
+lws_io_socket_waiters_close(struct lws_vhost *vh, int tsi)
+{
+#if defined(LWS_WITH_CLIENT)
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			      lws_dll2_get_head(&vh->vh_awaiting_socket_owner)) {
+		struct lws *w =
+			lws_container_of(d, struct lws, io.vh_awaiting_socket);
+
+		if (w->tsi == tsi) {
+			lwsl_vhost_debug(vh, "closing aso");
+			lws_wsi_close(w, LWS_TO_KILL_ASYNC);
+		}
+
+	} lws_end_foreach_dll_safe(d, d1);
+#else
+	(void)vh; (void)tsi;
+#endif
+}
+
+/*
  * Stop sending on the transport, keeping it open for what the peer still
  * sends: a tls close_notify when there is a session, else the socket's
  * write side.  Returns 1 when a tls shutdown was attempted (it may want more

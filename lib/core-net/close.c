@@ -103,11 +103,7 @@ __lws_reset_wsi(struct lws *wsi)
 	}
 #endif
 
-	if (wsi->a.vhost) {
-		lws_vhost_lock(wsi->a.vhost);
-		lws_dll2_remove(&wsi->io.vh_awaiting_socket);
-		lws_vhost_unlock(wsi->a.vhost);
-	}
+	lws_io_socket_wait_cancel(wsi);
 
 	/*
 	 * Protocol user data may be allocated either internally by lws
@@ -977,8 +973,7 @@ just_kill_connection:
 			 */
 	}
 
-	if (!lws_wsi_close_cb_waived(wsi) &&
-	    !lws_dll2_is_detached(&wsi->io.vh_awaiting_socket))
+	if (!lws_wsi_close_cb_waived(wsi) && lws_io_socket_wait_pending(wsi))
 		/*
 		 * He's a guy who go started with dns, but failed or is
 		 * caught with a shutdown before he got the result.  We have

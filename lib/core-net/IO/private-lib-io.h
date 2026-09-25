@@ -394,6 +394,12 @@ lws_io_transfer_socket(struct lws *wsi, struct lws *wnew);
 void
 lws_io_adjunct_init(struct lws *wsi);
 void
+lws_io_socket_wait_cancel(struct lws *wsi);
+int
+lws_io_socket_wait_pending(struct lws *wsi);
+void
+lws_io_socket_waiters_close(struct lws_vhost *vh, int tsi);
+void
 lws_pipe_wsi_release_fds(struct lws *wsi);
 #if defined(LWS_WITH_ASYNC_QUEUE)
 int
