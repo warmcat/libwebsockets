@@ -928,8 +928,24 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 					marker = "SHIFT";
 					for (j = 0; j < ctx->num_reported_ads; j++)
 						if (j != found &&
-						    ctx->reported_ads[j].ss.ss_family == ss.ss_family)
+						    ctx->reported_ads[j].ss.ss_family == ss.ss_family) {
+							/*
+							 * Drop the superseded
+							 * tally along with its
+							 * confirmation: a peer
+							 * already in its list
+							 * can never report it
+							 * again, so leaving the
+							 * tally would pin the
+							 * address below quorum
+							 * for good and we would
+							 * never notice a shift
+							 * back to it.
+							 */
 							ctx->reported_ads[j].confirmed = 0;
+							ctx->reported_ads[j].count = 0;
+							ctx->reported_ads[j].num_peers = 0;
+						}
 				}
 			} else if (ctx->reported_ads[found].count > 8)
 				goto skip_ip_tracking; /* enough said */
