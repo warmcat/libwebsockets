@@ -708,8 +708,9 @@ fail:
 /*
  * How an h1 connection is read (README.sans-io-split.md, "Who calls rx").
  * A client kept warm between transactions is read to hear its peer go
- * away.  A cgi's, a compression partial's and a flow-controlled
- * connection's pass are the handler's.  A server connection is read in the
+ * away.  A compression partial's and a flow-controlled connection's pass
+ * are the handler's (a cgi's is read like any other: its handler's cgi
+ * block is about POLLOUT).  A server connection is read in the
  * states that take a request or its body, after making sure it holds a
  * header table (waiting for one holds the reading; the attach can close the
  * wsi); its transaction end, tls accept and tunnel setup are the handler's.
@@ -726,10 +727,6 @@ rops_rx_policy_h1(struct lws *wsi, int *flags, size_t *max)
 	if (lwsi_state(wsi) == LRS_IDLING)
 		return LWS_RXPOL_PUMP;
 
-#if defined(LWS_WITH_CGI)
-	if (wsi->http.cgi)
-		return LWS_RXPOL_ROLE;
-#endif
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	if (wsi->http.comp_ctx.buflist_comp || wsi->http.comp_ctx.may_have_more)
 		return LWS_RXPOL_ROLE;

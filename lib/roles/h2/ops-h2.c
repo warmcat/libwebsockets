@@ -182,8 +182,9 @@ rops_rx_h2(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 
 /*
  * How an h2 connection or stream is read (README.sans-io-split.md, "Who
- * calls rx").  The handshake's failure, a client's transport phases and a
- * cgi's own POLLOUT are the handler's.  A server connection with a partial
+ * calls rx").  The handshake's failure and a client's transport phases are
+ * the handler's (a cgi's is read like any other: its handler's cgi block is
+ * about POLLOUT).  A server connection with a partial
  * send outstanding is not read at all, and stops being polled for reading
  * until the partial drains: new rx would start actions that expect to send
  * behind it, and rx flow control is a no-op for h2, so a level-armed POLLIN
@@ -199,10 +200,6 @@ rops_rx_policy_h2(struct lws *wsi, int *flags, size_t *max)
 {
 	struct lws *wsi1;
 
-#if defined(LWS_WITH_CGI)
-	if (wsi->http.cgi)
-		return LWS_RXPOL_ROLE;
-#endif
 	if (lwsi_state(wsi) == LRS_H1_UPGRADE ||
 	    lwsi_transport(wsi) == LTS_WAITING_CONNECT)
 		return LWS_RXPOL_ROLE;
