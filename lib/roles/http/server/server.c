@@ -4733,7 +4733,8 @@ lws_http_file_tx(struct lws *wsi, unsigned char *buf, size_t max,
 		wsi->http.range.count_ranges && // last range
 	    wsi->http.range.count_ranges > 1 && // was 2+ ranges (ie, multipart)
 	    wsi->http.range.budget - amount == 0) {// final part
-		n += lws_snprintf((char *)pstart + n, 6,
+		/* 7: the six of the boundary and the NUL lws_snprintf keeps */
+		n += lws_snprintf((char *)pstart + n, 7,
 			"_lws\x0d\x0a"); // append trailing boundary
 		lwsl_debug("added trailing boundary\n");
 	}
