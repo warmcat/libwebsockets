@@ -69,6 +69,13 @@ lws_ranges_next(struct lws_range_parsing *rp)
 {
 	static const char * const beq = "bytes=";
 
+	if (!rp->buf) {
+		/* there was no Range: header, or it has been let go of */
+		rp->state = LWSRS_COMPLETED;
+
+		return 0;
+	}
+
 	while (1) {
 
 		char c = rp->buf[rp->pos];
@@ -223,6 +230,16 @@ lws_ranges_close_len(struct lws_range_parsing *rp)
 }
 
 void
+lws_ranges_destroy(struct lws_range_parsing *rp)
+{
+	if (rp->buf)
+		lws_free_set_NULL(rp->buf);
+
+	rp->state = LWSRS_COMPLETED;
+	rp->count_ranges = 0;
+}
+
+void
 lws_ranges_reset(struct lws_range_parsing *rp)
 {
 	rp->pos = 0;
@@ -241,6 +258,11 @@ int
 lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp,
 		unsigned long long extent)
 {
+	int len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_RANGE);
+
+	/* the previous request on this connection may have had ranges */
+	lws_ranges_destroy(rp);
+
 	rp->agg = 0;
 	rp->send_ctr = 0;
 	rp->inside = 0;
@@ -251,19 +273,23 @@ lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp,
 
 	rp->extent = extent;
 
-	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_RANGE))
+	if (!len)
 		return 0; /* no Range: at all, serve the whole thing */
 
-	if (lws_hdr_copy(wsi, rp->buf, sizeof(rp->buf),
+	/*
+	 * Keep our own copy of the header for as long as the response takes:
+	 * the parser is walked again for each range as its budget is spent,
+	 * by which time the ah has long been handed to somebody else.  The
+	 * ah bounds what len can be.
+	 */
+
+	rp->buf = lws_malloc((size_t)len + 1, "ranges");
+	if (!rp->buf)
+		return -1;
+
+	if (lws_hdr_copy(wsi, rp->buf, len + 1,
 			 WSI_TOKEN_HTTP_RANGE) <= 0) {
-		/*
-		 * There is a Range:, but it is longer than any reasonable
-		 * set of ranges needs to be.  RFC 7233 6.1 lets us refuse
-		 * an unreasonable request; serving the whole representation
-		 * instead would be exactly the amplification the limits
-		 * below exist to deny.
-		 */
-		lwsl_notice("%s: Range: header too long to parse\n", __func__);
+		lws_ranges_destroy(rp);
 
 		return -1;
 	}
@@ -291,7 +317,7 @@ lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp,
 			lwsl_notice("%s: overlapping / repeated ranges\n",
 				    __func__);
 
-			return -1;
+			goto refuse;
 		}
 
 		/* the count is incremented above, so this accepts exactly
@@ -301,7 +327,7 @@ lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp,
 			lwsl_notice("%s: more than %d ranges\n", __func__,
 				    LWS_RANGES_MAX);
 
-			return -1;
+			goto refuse;
 		}
 	}
 
@@ -309,9 +335,15 @@ lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp,
 	lws_ranges_reset(rp);
 
 	if (rp->did_try && !rp->count_ranges)
-		return -1; /* "not satisfiable */
+		goto refuse; /* not satisfiable */
 
 	lws_ranges_next(rp);
 
 	return rp->count_ranges;
+
+refuse:
+	/* nothing will be served from it, so it need not outlive the header */
+	lws_ranges_destroy(rp);
+
+	return -1;
 }

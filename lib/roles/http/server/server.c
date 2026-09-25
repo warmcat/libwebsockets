@@ -4204,6 +4204,9 @@ lws_http_file_complete(struct lws *wsi)
 	lws_wsi_event(wsi, LWS_WSIEV_FILE_COMPLETE);
 	/* we might be in keepalive, so close it off here */
 	lws_vfs_file_close(&wsi->http.fop_fd);
+#if defined(LWS_WITH_RANGES)
+	lws_ranges_destroy(&wsi->http.range);
+#endif
 
 	lwsl_debug("file completed\n");
 
@@ -4256,6 +4259,9 @@ void
 lws_http_file_tx_abort(struct lws *wsi)
 {
 	lws_vfs_file_close(&wsi->http.fop_fd);
+#if defined(LWS_WITH_RANGES)
+	lws_ranges_destroy(&wsi->http.range);
+#endif
 }
 
 #endif

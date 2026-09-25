@@ -86,22 +86,21 @@ enum range_states {
 };
 
 /*
- * The most ranges we will compose a response from, and the buffer that has
- * to express them.
+ * The most ranges we will compose a response from.
  *
  * The parser re-reads the Range: header all through the response, long after
- * the ah has been handed on, so the header is copied into the wsi and that
- * copy bounds what can be asked for.  Sized so LWS_RANGES_MAX ranges of
- * ten-digit offsets always fit: the count is then what actually refuses an
- * unreasonable request, rather than being dead code behind the buffer.
+ * the ah has been handed on, so the header is copied where it will live as
+ * long as the response does.  The copy is allocated to the length of the
+ * header that actually arrived -- a couple of dozen bytes for what a real
+ * client asks -- so nothing here has to be sized for the worst case, and
+ * this count is the only thing deciding what is unreasonable.
  */
 
 #define LWS_RANGES_MAX		16
-#define LWS_RANGES_BUF		384
 
 struct lws_range_parsing {
 	unsigned long long start, end, extent, agg, budget;
-	char buf[LWS_RANGES_BUF];
+	char *buf;
 	char boundary[24];
 	int pos;
 	enum range_states state;
@@ -136,6 +135,13 @@ int
 lws_ranges_next(struct lws_range_parsing *rp);
 void
 lws_ranges_reset(struct lws_range_parsing *rp);
+
+/*
+ * Let go of the copied Range: header.  Safe at any time, and again after:
+ * the request that is finishing may never have had one.
+ */
+void
+lws_ranges_destroy(struct lws_range_parsing *rp);
 
 /*
  * Choose this response's boundary.  Returns nonzero if there is no random

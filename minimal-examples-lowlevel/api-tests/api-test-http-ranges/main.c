@@ -71,6 +71,7 @@ struct xcase {
 	uint8_t		if_range_etag;	/* send If-Range: <the file's etag> */
 	uint8_t		gen_n;		/* generate this many 1-byte ranges */
 	uint8_t		h2;
+	uint32_t	abort_after;	/* hang up after this many body bytes */
 	uint16_t	status;		/* expected */
 	uint8_t		nexp;		/* expected parts; 0 means whole file */
 	struct rng	exp[3];
@@ -148,7 +149,7 @@ static const struct xcase cases[] = {
 	  .file = F_SMALL, .range = "bytes=0-999,0-999", .status = 416 },
 	{ .name = "h1 more ranges than we will compose",
 	  .file = F_SMALL, .gen_n = 17, .status = 416 },
-	{ .name = "h1 a Range longer than the parser will hold",
+	{ .name = "h1 far more ranges than we will compose",
 	  .file = F_SMALL, .gen_n = 80, .status = 416 },
 
 	/* multipart/byteranges */
@@ -196,6 +197,17 @@ static const struct xcase cases[] = {
 	{ .name = "h1 big file, a one-byte part beside a huge one",
 	  .file = F_BIG, .range = "bytes=0-0,1000-190000", .status = 206,
 	  .nexp = 2, .exp = { { 0, 0 }, { 1000, 190000 } } },
+
+	/*
+	 * The peer walking away in the middle: the server is inside a part,
+	 * with the rest of the ranges still to come, when its wsi is torn
+	 * down.  Nothing it is holding for the response may outlive that.
+	 */
+
+	{ .name = "h1 big file, peer hangs up mid-multipart",
+	  .file = F_BIG, .range = "bytes=0-49999,60000-109999,150000-199999",
+	  .status = 206, .nexp = 3, .abort_after = 20000,
+	  .exp = { { 0, 49999 }, { 60000, 109999 }, { 150000, BIG_LEN - 1 } } },
 
 	/* an empty representation has no satisfiable byte-range at all */
 
@@ -632,6 +644,10 @@ verify(const struct xcase *c, struct conn *cn)
 		return 0;
 	}
 
+	if (c->abort_after)
+		/* we hung up on it; there is no complete response to check */
+		return 1;
+
 	if (c->status == 416) {
 		/*
 		 * RFC 7233 4.4: a 416 says what length the ranges were
@@ -883,10 +899,17 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
-		if (!cn || cn->completed)
+		if (!cn || !c || cn->completed)
 			break;
 		if (conn_rx(cn, (const uint8_t *)in, len)) {
 			cn->failed = 1;
+
+			return -1;
+		}
+		if (c->abort_after && cn->body_len >= c->abort_after) {
+			lwsl_info("%s: hanging up after %u body bytes\n",
+				  __func__, (unsigned int)cn->body_len);
+			conn_finish(cn, c, 1);
 
 			return -1;
 		}
