@@ -4767,11 +4767,11 @@ dnssec_subst_cb(struct lws_auth_dns_sign_info *info, const char *name)
 	static char ret[512];
 
 	if (!strcmp(name, "EXTIP4")) {
-		if (info->io.ipv4) return info->io.ipv4;
+		if (info->ipv4) return info->ipv4;
 		return "";
 	}
 	if (!strcmp(name, "EXTIP6")) {
-		if (info->io.ipv6) return info->io.ipv6;
+		if (info->ipv6) return info->ipv6;
 		return "";
 	}
 
@@ -4954,8 +4954,8 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 	info.output_filepath = zone_out;
 	info.jws_filepath = jws_out;
 	info.subst_priv = (void *)args->certs_dir;
-	if (args->io.ipv4[0]) info.ipv4 = args->io.ipv4;
-	if (args->io.ipv6[0]) info.ipv6 = args->io.ipv6;
+	if (args->ipv4[0]) info.ipv4 = args->ipv4;
+	if (args->ipv6[0]) info.ipv6 = args->ipv6;
 
 	/* Auto-bump the SOA serial before anything else */
 	lws_dht_dnssec_bump_zone_serial(context, zone_in);

@@ -207,7 +207,7 @@ callback_raw_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_tokenize(&ts) != LWS_TOKZE_TOKEN)
 			goto bad_onward;
 		if (!strncmp(ts.token, "ipv6", ts.token_len))
-			vhd->io.ipv6 = 1;
+			vhd->ipv6 = 1;
 		else
 			if (strncmp(ts.token, "ipv4", ts.token_len))
 				goto bad_onward;
@@ -217,7 +217,7 @@ callback_raw_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			goto bad_onward;
 
 		e = lws_tokenize(&ts);
-		if (!vhd->io.ipv6) {
+		if (!vhd->ipv6) {
 			if (e != LWS_TOKZE_TOKEN ||
 			    ts.token_len + 1 >= (int)sizeof(vhd->addr))
 				goto bad_onward;
@@ -239,7 +239,7 @@ callback_raw_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lwsl_notice("%s: vh %s: onward %s:%s:%d\n", __func__,
 			    lws_get_vhost_name(lws_get_vhost(wsi)),
-			    vhd->io.ipv6 ? "ipv6": "ipv4", vhd->addr, vhd->port);
+			    vhd->ipv6 ? "ipv6": "ipv4", vhd->addr, vhd->port);
 		break;
 
 bad_onward:

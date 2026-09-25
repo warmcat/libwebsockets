@@ -521,7 +521,7 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 	struct auth_dns_zone zone;
 	memset(&zone, 0, sizeof(zone));
 
-	if (lws_auth_dns_parse_zone_buf(expbuf, uout, &zone, info->io.ipv4, info->ipv6)) {
+	if (lws_auth_dns_parse_zone_buf(expbuf, uout, &zone, info->ipv4, info->ipv6)) {
 		lwsl_err("Failed to parse zone\n");
 		goto bail_zone;
 	}
