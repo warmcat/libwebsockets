@@ -245,12 +245,12 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
                 vh = lws_create_vhost(cx, &info);
                 if (!vh) {
 			lwsl_err("http vhost creation failed\n");
-			return 0;
+			goto fail;
 		}
 
 		if (!lws_vhost_name_to_protocol(vh, "lws-dht-stats")) {
 			lwsl_err("dht-stats protocol plugin not found\n");
-			return 0;
+			goto fail;
 		}
 
 		lws_context_info_defaults(&info, NULL);info.vhost_name		= "dht";
@@ -259,7 +259,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			int __pt = atoi(port_buf);
 			if (__pt < 0 || __pt > 65535) {
 				lwsl_err("Port %d is outside valid 16-bit range\n", __pt);
-				return 1;
+				goto fail;
 			}
 			info.port = __pt;
 		}
@@ -268,21 +268,33 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
                 vh = lws_create_vhost(cx, &info);
                 if (!vh) {
 			lwsl_err("vhost creation failed\n");
-			return 0;
+			goto fail;
 		}
 
 		if (!lws_vhost_name_to_protocol(vh, "lws-dht-dnssec")) {
 			lwsl_err("dht-dnssec protocol plugin not found\n");
-			return 0;
+			goto fail;
 		}
 		if (!lws_vhost_name_to_protocol(vh, "lws-dht-object-store")) {
 			lwsl_err("dht-object-store protocol plugin not found\n");
-			return 0;
+			goto fail;
 		}
 
                 lws_finalize_startup(cx, __func__);
 		break;
         }
+	return 0;
+
+fail:
+	/*
+	 * Nothing we need is going to exist: bring the event loop down now
+	 * with retcode still set, rather than sit in lws_service() until the
+	 * test harness' timeout, which reports the failure as a timeout and
+	 * buries the reason in the log.
+	 */
+	lws_default_loop_exit(cx);
+	lws_cancel_service(cx);
+
 	return 0;
 }
 
