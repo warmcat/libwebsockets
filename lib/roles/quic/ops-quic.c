@@ -2326,7 +2326,8 @@ static int
 rops_rx_policy_quic(struct lws *wsi, int *flags, size_t *max)
 {
 	(void)wsi;
-	*flags = 0;
+	/* and the pass's POLLOUT is served whatever the state */
+	*flags = LWS_RXPOL_F_POLLOUT;
 	*max = 0;
 
 	return LWS_RXPOL_PUMP_DGRAM;
@@ -2337,20 +2338,9 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 			struct lws_pollfd *pollfd)
 {
 	(void)pt;
-	/* the reading was done by IO's rx stage */
-
-	if (pollfd->revents & LWS_POLLOUT) {
-		int po = lws_handle_POLLOUT_event(wsi, pollfd);
-
-		if (po < 0) {
-			/* connect racing already closed and freed the wsi */
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		}
-		if (po) {
-			lwsl_debug("POLLOUT event closed it\n");
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		}
-	}
+	(void)wsi;
+	(void)pollfd;
+	/* the reading and the pass's POLLOUT were done by IO's rx stage */
 
 	return LWS_HPI_RET_HANDLED;
 }

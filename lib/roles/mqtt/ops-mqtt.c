@@ -130,23 +130,8 @@ rops_handle_POLLIN_mqtt(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_HANDLED;
 	}
 
-	/* 1: something requested a callback when it was OK to write */
+	/* 1: the pass's POLLOUT was served by IO's rx stage */
 
-	if (pollfd->revents & LWS_POLLOUT) {
-		int hr;
-
-		if (!lwsi_state_can_handle_POLLOUT(wsi))
-			goto post_pollout;
-
-		hr = lws_handle_POLLOUT_event(wsi, pollfd);
-		if (hr < 0) {
-			/* connect racing already closed and freed the wsi */
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		}
-		if (hr)
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-	}
-post_pollout:
 	/* the reading was done by IO's rx stage */
 
 	if (!lws_buflist_next_segment_len(&wsi->buflist, NULL))

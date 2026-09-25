@@ -657,6 +657,15 @@ typedef int (*lws_rops_rx_dgram_t)(struct lws *wsi, uint8_t *buf, size_t len,
 #define LWS_RXPOL_CLOSE		4	/* the housekeeping found the connection must close */
 #define LWS_RXPOL_DIED		5	/* the housekeeping closed and freed the wsi */
 #define LWS_RXPOL_PUMP_DGRAM	6	/* read one datagram, to rx_dgram */
+/*
+ * The policy also advises on the pass's POLLOUT, in *flags: by default IO
+ * serves it through lws_handle_POLLOUT_event() in the states that take a
+ * writeable callback (LWSIFS_POCB); a role can insist, or hold it for its
+ * own handler.  The LWS_RXP_* read flags share the word.
+ */
+#define LWS_RXPOL_F_POLLOUT		(1 << 8)  /* serve POLLOUT whatever the state */
+#define LWS_RXPOL_F_HOLD_POLLOUT	(1 << 9)  /* leave POLLOUT to the handler */
+#define LWS_RXPOL_RXP_MASK		0xff
 typedef int (*lws_rops_rx_policy_t)(struct lws *wsi, int *flags, size_t *max);
 
 #define LWS_COUNT_ROLE_OPS			24

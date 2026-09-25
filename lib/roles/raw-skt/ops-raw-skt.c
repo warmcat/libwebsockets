@@ -197,6 +197,15 @@ rops_rx_policy_raw_skt(struct lws *wsi, int *flags, size_t *max)
 	return LWS_RXPOL_PUMP;
 }
 
+/* established: the user hears it is writeable; the dispatcher does the rest */
+static lws_handling_result_t
+rops_handle_POLLOUT_raw_skt(struct lws *wsi)
+{
+	(void)wsi;
+
+	return LWS_HP_RET_USER_SERVICE;
+}
+
 static lws_handling_result_t
 rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			   struct lws_pollfd *pollfd)
@@ -290,23 +299,13 @@ nope:
 	}
 #endif
 
-	if (lwsi_transport(wsi) == LTS_WAITING_SSL)
-		return LWS_HPI_RET_HANDLED;
-
-	/* one shot */
-	if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
+	/*
+	 * Established, the pass's POLLOUT was served by IO's rx stage.  In a
+	 * transport phase it was not, and nothing else clears it: one shot
+	 */
+	if (!lwsi_state_can_handle_POLLOUT(wsi) &&
+	    lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 		goto fail;
-
-	/* clear back-to-back write detection */
-	wsi->could_have_pending = 0;
-
-	n = user_callback_handle_rxflow(wsi->a.protocol->callback,
-			wsi, LWS_CALLBACK_RAW_WRITEABLE,
-			wsi->user_space, NULL, 0);
-	if (n < 0) {
-		lwsl_info("writeable_fail\n");
-		goto fail;
-	}
 
 #if defined(LWS_WITH_LATENCY)
 		{
@@ -393,12 +392,13 @@ rops_client_bind_raw_skt(struct lws *wsi,
 static const lws_rops_t rops_table_raw_skt[] = {
 	/*  1 */ { .handle_POLLIN	  = rops_handle_POLLIN_raw_skt },
 	/*  2 */ { .adoption_bind	  = rops_adoption_bind_raw_skt },
+	/*  3 */ { .handle_POLLOUT	  = rops_handle_POLLOUT_raw_skt },
 #if defined(LWS_WITH_CLIENT)
-	/*  3 */ { .client_bind		  = rops_client_bind_raw_skt },
+	/*  4 */ { .client_bind		  = rops_client_bind_raw_skt },
 #endif
-	/*  4, or 3 with no client */
-	{ .rx				  = rops_rx_raw_skt },
 	/*  5, or 4 with no client */
+	{ .rx				  = rops_rx_raw_skt },
+	/*  6, or 5 with no client */
 	{ .rx_policy			  = rops_rx_policy_raw_skt },
 };
 
@@ -415,7 +415,7 @@ const struct lws_role_ops role_ops_raw_skt = {
 	  /* LWS_ROPS_service_flag_pending */
 	  /* LWS_ROPS_handle_POLLIN */			0x00, 0x01,
 	  /* LWS_ROPS_handle_POLLOUT */
-	  /* LWS_ROPS_perform_user_POLLOUT */		0x00, 0x00,
+	  /* LWS_ROPS_perform_user_POLLOUT */		0x03, 0x00,
 	  /* LWS_ROPS_callback_on_writable */
 	  /* LWS_ROPS_tx_credit */			0x00, 0x00,
 	  /* LWS_ROPS_write_role_protocol */
@@ -428,18 +428,18 @@ const struct lws_role_ops role_ops_raw_skt = {
 	  /* LWS_ROPS_adoption_bind */			0x00, 0x02,
 #if defined(LWS_WITH_CLIENT)
 	  /* LWS_ROPS_client_bind */
-	  /* LWS_ROPS_issue_keepalive */		0x03, 0x00,
+	  /* LWS_ROPS_issue_keepalive */		0x04, 0x00,
 	  /* LWS_ROPS_client_transport_up */
-	  /* LWS_ROPS_rx */				0x00, 0x04,
+	  /* LWS_ROPS_rx */				0x00, 0x05,
 	  /* LWS_ROPS_rx_dgram */
-	  /* LWS_ROPS_rx_policy */			0x00, 0x05,
+	  /* LWS_ROPS_rx_policy */			0x00, 0x06,
 #else
 	  /* LWS_ROPS_client_bind */
 	  /* LWS_ROPS_issue_keepalive */		0x00, 0x00,
 	  /* LWS_ROPS_client_transport_up */
-	  /* LWS_ROPS_rx */				0x00, 0x03,
+	  /* LWS_ROPS_rx */				0x00, 0x04,
 	  /* LWS_ROPS_rx_dgram */
-	  /* LWS_ROPS_rx_policy */			0x00, 0x04,
+	  /* LWS_ROPS_rx_policy */			0x00, 0x05,
 #endif
 					},
 

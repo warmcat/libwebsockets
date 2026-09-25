@@ -1120,6 +1120,13 @@ rops_rx_ws(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 static int
 rops_rx_policy_ws(struct lws *wsi, int *flags, size_t *max)
 {
+	/*
+	 * POLLOUT stays with the handler: what it does after the dispatch
+	 * (a close returned meaning flush, the tx extension drain) is its own
+	 */
+	*flags = LWS_RXPOL_F_HOLD_POLLOUT;
+	*max = 0;
+
 	if (!wsi->ws || lwsi_state(wsi) == LRS_H1_UPGRADE ||
 	    lwsi_transport(wsi) == LTS_WAITING_CONNECT ||
 	    lws_is_flowcontrolled(wsi))
@@ -1173,11 +1180,10 @@ rops_rx_policy_ws(struct lws *wsi, int *flags, size_t *max)
 	 * or as an h2 stream waiting to send its headers: in any other state
 	 * only what is parked is offered
 	 */
-	*flags = 0;
 	if (lwsi_role_client(wsi) && lwsi_state(wsi) != LRS_ESTABLISHED &&
 	    lwsi_close(wsi) != LCS_AWAITING_CLOSE_ACK &&
 	    lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS)
-		*flags = LWS_RXP_NO_READ;
+		*flags |= LWS_RXP_NO_READ;
 
 	/*
 	 * In case we are going to react to this rx by scheduling writes,

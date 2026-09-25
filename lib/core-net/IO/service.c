@@ -1001,28 +1001,58 @@ static int
 lws_rx_stage(struct lws_context_per_thread *pt, struct lws *wsi,
 	     struct lws_pollfd *pollfd)
 {
-	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_rx_policy) &&
-	    (pollfd->revents & pollfd->events & LWS_POLLIN) &&
-	    wsi->favoured_pollin &&
-	    (pollfd->revents & pollfd->events & LWS_POLLOUT))
+	size_t max = 0;
+	int flags = 0, pol, in, out;
+
+	if (!lws_rops_fidx(wsi->role_ops, LWS_ROPS_rx_policy))
+		return 0;
+
+	in = !!(pollfd->revents & pollfd->events & LWS_POLLIN);
+	out = !!(pollfd->revents & LWS_POLLOUT);
+	if (!in && !out)
+		return 0;
+
+	pol = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx_policy).
+					rx_policy(wsi, &flags, &max);
+	if (pol == LWS_RXPOL_CLOSE)
+		return -1;
+	if (pol == LWS_RXPOL_DIED)
+		return 1;
+
+	if (in && wsi->favoured_pollin &&
+	    (pollfd->revents & pollfd->events & LWS_POLLOUT)) {
 		/* POLLIN went first last time: this pass is POLLOUT's */
 		wsi->favoured_pollin = 0;
-	else if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_rx_policy) &&
-		 (pollfd->revents & pollfd->events & LWS_POLLIN)) {
-		size_t max = 0;
-		int flags = 0, pol;
+		in = 0;
+	}
 
-		pol = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx_policy).
-					rx_policy(wsi, &flags, &max);
-		if (pol == LWS_RXPOL_CLOSE)
-			return -1;
-		if (pol == LWS_RXPOL_DIED)
-			return 1;
 #if defined(LWS_WITH_UDP)
-		if (pol == LWS_RXPOL_PUMP_DGRAM) {
-			int nothing;
+	if (in && pol == LWS_RXPOL_PUMP_DGRAM) {
+		int nothing;
 
-			switch (lws_rx_pump_dgram(pt, wsi, pollfd, &nothing)) {
+		switch (lws_rx_pump_dgram(pt, wsi, pollfd, &nothing)) {
+		case LWS_HPI_RET_WSI_ALREADY_DIED:
+			return 1;
+		case LWS_HPI_RET_PLEASE_CLOSE_ME:
+			return -1;
+		default:
+			break;
+		}
+		pollfd->revents &= (short)~LWS_POLLIN;
+	}
+#endif
+	if (in && (pol == LWS_RXPOL_PUMP || pol == LWS_RXPOL_PUMP_LOOP)) {
+		struct lws_pollfd *pfd = pollfd;
+		int nothing, consumed, budget = 1000, took = 0;
+		size_t pending = 0;
+
+		do {
+			/* with tls bytes pending, take exactly those */
+			if (pending && (!max || pending < max))
+				max = pending;
+			switch (lws_rx_pump(pt, wsi, pfd,
+					    flags & LWS_RXPOL_RXP_MASK, max,
+					    &nothing, &consumed)) {
 			case LWS_HPI_RET_WSI_ALREADY_DIED:
 				return 1;
 			case LWS_HPI_RET_PLEASE_CLOSE_ME:
@@ -1030,64 +1060,59 @@ lws_rx_stage(struct lws_context_per_thread *pt, struct lws *wsi,
 			default:
 				break;
 			}
-			pollfd->revents &= (short)~LWS_POLLIN;
-		}
-#endif
-		if (pol == LWS_RXPOL_PUMP || pol == LWS_RXPOL_PUMP_LOOP) {
-			struct lws_pollfd *pfd = pollfd;
-			int nothing, consumed, budget = 1000, took = 0;
-			size_t pending = 0;
+			took |= consumed > 0;
+			if (pol != LWS_RXPOL_PUMP_LOOP || nothing ||
+			    !consumed || !--budget)
+				break;
+			pending = (size_t)lws_ssl_pending(wsi);
+			if (!pending)
+				break;
+			/* tls still holds decrypted bytes: read again, regardless of the poll */
+			pfd = NULL;
+			pol = lws_rops_func_fidx(wsi->role_ops,
+						 LWS_ROPS_rx_policy).
+					rx_policy(wsi, &flags, &max);
+			if (pol == LWS_RXPOL_CLOSE)
+				return -1;
+			if (pol == LWS_RXPOL_DIED)
+				return 1;
+		} while (pol == LWS_RXPOL_PUMP ||
+			 pol == LWS_RXPOL_PUMP_LOOP);
 
-			do {
-				/* with tls bytes pending, take exactly those */
-				if (pending && (!max || pending < max))
-					max = pending;
-				switch (lws_rx_pump(pt, wsi, pfd, flags, max,
-						    &nothing, &consumed)) {
-				case LWS_HPI_RET_WSI_ALREADY_DIED:
-					return 1;
-				case LWS_HPI_RET_PLEASE_CLOSE_ME:
-					return -1;
-				default:
-					break;
-				}
-				took |= consumed > 0;
-				if (pol != LWS_RXPOL_PUMP_LOOP || nothing ||
-				    !consumed || !--budget)
-					break;
-				pending = (size_t)lws_ssl_pending(wsi);
-				if (!pending)
-					break;
-				/* tls still holds decrypted bytes: read again, regardless of the poll */
-				pfd = NULL;
-				pol = lws_rops_func_fidx(wsi->role_ops,
-							 LWS_ROPS_rx_policy).
-						rx_policy(wsi, &flags, &max);
-				if (pol == LWS_RXPOL_CLOSE)
-					return -1;
-				if (pol == LWS_RXPOL_DIED)
-					return 1;
-			} while (pol == LWS_RXPOL_PUMP ||
-				 pol == LWS_RXPOL_PUMP_LOOP);
+		/* the read is done; the role's handler has the rest */
+		pollfd->revents &= (short)~LWS_POLLIN;
 
-			/* the read is done; the role's handler has the rest */
-			pollfd->revents &= (short)~LWS_POLLIN;
-
-			/*
-			 * Bytes were taken and POLLOUT also waits: taking them
-			 * may have used the writability up, so POLLOUT is left
-			 * for the next pass, which favours it.  Nothing taken
-			 * (or a file being served parked what came) and POLLOUT
-			 * is served now.
-			 */
-			if (took && (pollfd->revents & pollfd->events &
-				     LWS_POLLOUT)) {
-				wsi->favoured_pollin = 1;
-				pollfd->revents &= (short)~LWS_POLLOUT;
-			}
+		/*
+		 * Bytes were taken and POLLOUT also waits: taking them may
+		 * have used the writability up, so POLLOUT is left for the
+		 * next pass, which favours it.  Nothing taken (or a file
+		 * being served parked what came) and POLLOUT is served now.
+		 */
+		if (took && (pollfd->revents & pollfd->events & LWS_POLLOUT)) {
+			wsi->favoured_pollin = 1;
+			pollfd->revents &= (short)~LWS_POLLOUT;
+			out = 0;
 		}
 	}
 
+	/*
+	 * The pass's POLLOUT: served here through the dispatcher in the
+	 * states that take a writeable callback, or where the role insisted,
+	 * unless it held it for its own handler (its transport phases, or
+	 * consequences of its own it draws from the dispatch)
+	 */
+	if (out && !(flags & LWS_RXPOL_F_HOLD_POLLOUT) &&
+	    (lwsi_state_can_handle_POLLOUT(wsi) ||
+	     (flags & LWS_RXPOL_F_POLLOUT))) {
+		int hr = lws_handle_POLLOUT_event(wsi, pollfd);
+
+		if (hr < 0)
+			/* a connect racing closed and freed the wsi */
+			return 1;
+		if (hr)
+			return -1;
+		pollfd->revents &= (short)~LWS_POLLOUT;
+	}
 
 	return 0;
 }

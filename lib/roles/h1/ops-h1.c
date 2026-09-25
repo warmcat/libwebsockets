@@ -721,7 +721,14 @@ fail:
 static int
 rops_rx_policy_h1(struct lws *wsi, int *flags, size_t *max)
 {
-	*flags = 0;
+	/*
+	 * POLLOUT stays with the handler: a server's writeable is its own
+	 * path there (the transaction's drain, the file being served, the
+	 * user's writeable), not yet the dispatcher's; a client's handler
+	 * calls the dispatcher itself and then its transport-phase service,
+	 * which needs POLLOUT still in the pass
+	 */
+	*flags = LWS_RXPOL_F_HOLD_POLLOUT;
 	*max = 0;
 
 	if (lwsi_state(wsi) == LRS_IDLING)

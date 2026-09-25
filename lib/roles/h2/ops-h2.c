@@ -200,6 +200,22 @@ rops_rx_policy_h2(struct lws *wsi, int *flags, size_t *max)
 {
 	struct lws *wsi1;
 
+	*flags = 0;
+	*max = 0;
+
+	/*
+	 * A client mux connection kept warm after its last stream closed
+	 * sits in LRS_IDLING, which takes no writeable callback, but it is
+	 * still a live h2 connection: its POLLOUT is the connection's own
+	 * business (the pps queue, and the walk of children that want to
+	 * write), not a transaction's.  It has to be serviced, or a POLLOUT
+	 * already asserted on it when it went idle (the pps path leaves
+	 * POLLOUT active on purpose) is never cleared and the loop spins.
+	 */
+	if (lwsi_state(wsi) == LRS_IDLING && lwsi_role_client(wsi) &&
+	    lws_wsi_is_mux_nwsi(wsi))
+		*flags |= LWS_RXPOL_F_POLLOUT;
+
 	if (lwsi_state(wsi) == LRS_H1_UPGRADE ||
 	    lwsi_transport(wsi) == LTS_WAITING_CONNECT)
 		return LWS_RXPOL_ROLE;
@@ -207,9 +223,6 @@ rops_rx_policy_h2(struct lws *wsi, int *flags, size_t *max)
 	/* as ws: a close of ours waiting to go out goes before more comes in */
 	if (lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE)
 		return LWS_RXPOL_HOLD;
-
-	*flags = 0;
-	*max = 0;
 
 	if (wsi->mux_substream || lws_wsi_is_mux_nwsi(wsi)) {
 		wsi1 = lws_get_network_wsi(wsi);
@@ -339,40 +352,8 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_HANDLED;
 	}
 
-	/* 1: something requested a callback when it was OK to write */
+	/* 1: the pass's POLLOUT was served by IO's rx stage */
 
-	if (pollfd->revents & LWS_POLLOUT) {
-		int hr;
-
-		/*
-		 * A client mux connection kept warm after its last stream
-		 * closed sits in LRS_IDLING, which has no POCB, but it is
-		 * still a live h2 connection: its POLLOUT is the connection's
-		 * own business (the pps queue, and the walk of children that
-		 * want to write), not a transaction's.  It has to be serviced,
-		 * or a POLLOUT already asserted on it when it went idle --
-		 * the pps path leaves POLLOUT active on purpose -- is never
-		 * cleared and the event loop spins on it until something else
-		 * closes the connection.
-		 */
-		if (!lwsi_state_can_handle_POLLOUT(wsi) &&
-		    !(lwsi_state(wsi) == LRS_IDLING && lwsi_role_client(wsi) &&
-		      lws_wsi_is_mux_nwsi(wsi)))
-			goto post_pollout;
-
-		hr = lws_handle_POLLOUT_event(wsi, pollfd);
-		if (hr < 0) {
-			/* connect racing already closed and freed the wsi */
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		}
-		if (hr) {
-			/* the write failed... it's had it */
-			lwsi_set_skt_unusable(wsi, 1);
-
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		}
-	}
-post_pollout:
 
 	if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
 	    lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE ||
