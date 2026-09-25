@@ -45,10 +45,11 @@ wsi_from_fd(const struct lws_context *context, int fd)
 			if ((*p)->io.desc.sockfd == fd)
 				return *p;
 #if defined(LWS_WITH_CLIENT)
-			for (int j = 0; j < (*p)->io.parallel_count; j++) {
-				if ((*p)->io.parallel_conns[j].is_valid && (*p)->io.parallel_conns[j].desc.sockfd == fd)
-					return *p;
-			}
+			if ((*p)->io.parallel_conns)
+				for (int j = 0; j < (*p)->io.parallel_count; j++) {
+					if ((*p)->io.parallel_conns[j].is_valid && (*p)->io.parallel_conns[j].desc.sockfd == fd)
+						return *p;
+				}
 #endif
 		}
 		p++;
@@ -68,9 +69,16 @@ sanity_assert_no_wsi_traces(const struct lws_context *context, struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 	if (lws_socket_is_valid(wsi->io.desc.sockfd))
 		expected++;
-	for (int i = 0; i < wsi->io.parallel_count; i++)
-		if (wsi->io.parallel_conns[i].is_valid)
-			expected++;
+	/*
+	 * parallel_count is only ever nonzero while parallel_conns is
+	 * allocated, but we are also called from the client connect
+	 * failure paths, ie, from the OOM path where the racer array
+	 * allocation itself just failed
+	 */
+	if (wsi->io.parallel_conns)
+		for (int i = 0; i < wsi->io.parallel_count; i++)
+			if (wsi->io.parallel_conns[i].is_valid)
+				expected++;
 #endif
 
 	if (!context->max_fds_unrelated_to_ulimit)
