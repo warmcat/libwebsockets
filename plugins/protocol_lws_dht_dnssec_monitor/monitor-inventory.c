@@ -427,7 +427,7 @@ inv_scan_zone(struct inv_stmts *s, const char *domains_path,
 	struct stat st;
 	uint8_t stack_buf[4096];
 	uint8_t *buf = NULL;
-	size_t alloc;
+	size_t alloc, cap;
 	ssize_t n;
 	int fd, pl, ret = 1;
 
@@ -449,12 +449,19 @@ inv_scan_zone(struct inv_stmts *s, const char *domains_path,
 
 	alloc = (size_t)n + (size_t)pl + 1;
 
-	if (alloc <= sizeof(stack_buf))
+	if (alloc <= sizeof(stack_buf)) {
 		buf = stack_buf;
-	else
+		cap = sizeof(stack_buf);
+	} else {
 		buf = malloc(alloc);
+		cap = alloc;
+	}
 
 	if (!buf)
+		goto bail;
+
+	/* alloc is n + pl + 1, so this cannot fire... say so explicitly */
+	if ((size_t)n + (size_t)pl + 1 > cap)
 		goto bail;
 
 	if (read(fd, buf, (size_t)n) != n)
