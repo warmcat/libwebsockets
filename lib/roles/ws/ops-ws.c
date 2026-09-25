@@ -1125,6 +1125,14 @@ rops_rx_policy_ws(struct lws *wsi, int *flags, size_t *max)
 	    lws_is_flowcontrolled(wsi))
 		return LWS_RXPOL_ROLE;
 
+	/*
+	 * Our CLOSE frame is waiting to go out: it goes before we take more
+	 * in, else the peer's CLOSE read first ends the connection without
+	 * ours ever being sent
+	 */
+	if (lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE)
+		return LWS_RXPOL_HOLD;
+
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	if (wsi->ws->tx_draining_ext)
 		/* new rx would trample the buffer the tx drain still needs */

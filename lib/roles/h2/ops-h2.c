@@ -180,14 +180,109 @@ rops_rx_h2(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 	return n;
 }
 
+/*
+ * How an h2 connection or stream is read (README.sans-io-split.md, "Who
+ * calls rx").  The handshake's failure, a client's transport phases and a
+ * cgi's own POLLOUT are the handler's.  A server connection with a partial
+ * send outstanding is not read at all, and stops being polled for reading
+ * until the partial drains: new rx would start actions that expect to send
+ * behind it, and rx flow control is a no-op for h2, so a level-armed POLLIN
+ * would spin.  A stream has no transport of its own: only what its
+ * connection parked for it, and one with nothing parked leaves the parked
+ * list.  A client connection reads only in the states where h2 frames can
+ * arrive, including kept warm with no stream: GOAWAY, PING, SETTINGS and
+ * WINDOW_UPDATE all arrive while it is idle.  Otherwise it reads while tls
+ * holds more.
+ */
+static int
+rops_rx_policy_h2(struct lws *wsi, int *flags, size_t *max)
+{
+	struct lws *wsi1;
+
+#if defined(LWS_WITH_CGI)
+	if (wsi->http.cgi)
+		return LWS_RXPOL_ROLE;
+#endif
+	if (lwsi_state(wsi) == LRS_H1_UPGRADE ||
+	    lwsi_transport(wsi) == LTS_WAITING_CONNECT)
+		return LWS_RXPOL_ROLE;
+
+	/* as ws: a close of ours waiting to go out goes before more comes in */
+	if (lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE)
+		return LWS_RXPOL_HOLD;
+
+	*flags = 0;
+	*max = 0;
+
+	if (wsi->mux_substream || lws_wsi_is_mux_nwsi(wsi)) {
+		wsi1 = lws_get_network_wsi(wsi);
+		if (wsi1 && lws_has_buffered_out(wsi1)) {
+			lwsl_wsi_info(wsi, "has buffered out");
+			if (!lwsi_role_client(wsi)) {
+				/*
+				 * Nothing will consume the rx until the
+				 * partial send drains: drop POLLIN on the
+				 * network wsi; lws_handle_POLLOUT_event()
+				 * restores it once the buffered output is gone
+				 */
+				if (lws_io_want_read(wsi1, 0))
+					return LWS_RXPOL_CLOSE;
+
+				return LWS_RXPOL_HOLD;
+			}
+			lwsl_wsi_notice(wsi, "allowing rx despite buffered out (client)");
+		}
+	}
+
+	if (wsi->mux_substream &&
+	    !lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
+		lwsl_wsi_warn(wsi, "mux child with nothing to drain");
+		lws_dll2_remove(&wsi->dll_buflist);
+
+		return LWS_RXPOL_HOLD;
+	}
+
+	if (wsi->mux_substream ||
+	    (lwsi_role_client(wsi) &&
+	     lwsi_state(wsi) != LRS_ESTABLISHED &&
+	     lwsi_state(wsi) != LRS_ISSUE_HTTP_BODY &&
+	     lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY &&
+	     lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS &&
+	     lwsi_state(wsi) != LRS_IDLING)) {
+		lwsl_wsi_info(wsi, "parked rx only");
+		*flags = LWS_RXP_NO_READ;
+
+		return LWS_RXPOL_PUMP;
+	}
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION) && defined(LWS_WITH_CLIENT)
+	/*
+	 * Simulate the peer dropping a client h2 connection right after
+	 * ALPN, before we created our first stream on it: the network wsi
+	 * dies in a state that is neither "unestablished" (no CCE) nor with a
+	 * child to report CLOSED for ... and the peer dropping an established
+	 * client h2 connection at any point, eg, with streams open and more
+	 * queued on it waiting for a stream slot.  Where the read would have
+	 * failed, fail before it.  (We are only asked when there is something
+	 * to read.)
+	 */
+	if (lwsi_role_client(wsi) && lws_wsi_is_mux_nwsi(wsi) &&
+	    ((!lws_wsi_client_nwsi_migrated(wsi) &&
+	      lws_fi(&wsi->fic, "h2cli_nwsi_early_rx_err")) ||
+	     (lws_wsi_client_nwsi_migrated(wsi) &&
+	      wsi->h2.h2n && wsi->h2.h2n->swsi &&
+	      /* the faults migrated to sid 1 with the original ask */
+	      lws_fi(&wsi->h2.h2n->swsi->fic, "h2cli_nwsi_rx_err"))))
+		return LWS_RXPOL_CLOSE;
+#endif
+
+	return LWS_RXPOL_PUMP_LOOP;
+}
+
 static lws_handling_result_t
 rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
-	unsigned int pending = 0;
-	struct lws *wsi1;
-	int flags = 0;
-
 #ifdef LWS_WITH_CGI
 	if (wsi->http.cgi && (pollfd->revents & LWS_POLLOUT)) {
 		int hr = lws_handle_POLLOUT_event(wsi, pollfd);
@@ -297,112 +392,7 @@ post_pollout:
 #endif
 	}
 
-	if (wsi->mux_substream || lws_wsi_is_mux_nwsi(wsi)) {
-		wsi1 = lws_get_network_wsi(wsi);
-		if (wsi1 && lws_has_buffered_out(wsi1)) {
-
-			lwsl_info("%s: has buffered out\n", __func__);
-			/*
-			 * We cannot deal with any kind of new RX
-			 * because we are dealing with a partial send
-			 * (new RX may trigger new http_action() that
-			 * expect to be able to send)
-			 */
-			if (!lwsi_role_client(wsi)) {
-				/*
-				 * Nothing will consume the rx until the
-				 * partial send drains, and rx flow control
-				 * is a no-op for h2, so leaving POLLIN
-				 * level-armed would spin the event loop at
-				 * 100% for as long as the peer withholds
-				 * its window.  Drop POLLIN on the network
-				 * wsi; lws_handle_POLLOUT_event() restores
-				 * it once the buffered output is gone.
-				 */
-				if (lws_io_want_read(wsi1, 0))
-					return LWS_HPI_RET_PLEASE_CLOSE_ME;
-
-				return LWS_HPI_RET_HANDLED;
-			}
-
-			lwsl_notice("%s: allowing POLLIN despite buffered out (client)\n", __func__);
-		}
-	}
-
-	if (wsi->mux_substream &&
-	    !lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
-		lwsl_warn("%s: uh... %s mux child with nothing to drain\n",
-			  __func__, lws_wsi_tag(wsi));
-		lws_dll2_remove(&wsi->dll_buflist);
-
-		return LWS_HPI_RET_HANDLED;
-	}
-
-	/*
-	 * A stream has no transport of its own: only what its connection
-	 * parked for it.  A client connection reads only in the states
-	 * where h2 frames can arrive, which includes a kept-warm one with no
-	 * stream on it: GOAWAY, PING, SETTINGS and WINDOW_UPDATE all arrive
-	 * while it is idle and have to be parsed.  Reading in another state
-	 * left whatever tls had decrypted unread, and with lws_ssl_pending()
-	 * reporting it the loop below never exited: 100% cpu until the
-	 * connection went away.
-	 */
-	if (wsi->mux_substream ||
-	    (lwsi_role_client(wsi) &&
-	     lwsi_state(wsi) != LRS_ESTABLISHED &&
-	     lwsi_state(wsi) != LRS_ISSUE_HTTP_BODY &&
-	     lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY &&
-	     lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS &&
-	     lwsi_state(wsi) != LRS_IDLING)) {
-		lwsl_info("%s: parked rx only\n", __func__);
-		flags = LWS_RXP_NO_READ;
-	}
-
-#if defined(LWS_WITH_SYS_FAULT_INJECTION) && defined(LWS_WITH_CLIENT)
-	/*
-	 * Simulate the peer dropping a client h2 connection right after
-	 * ALPN, before we created our first stream on it: the network wsi
-	 * dies in a state that is neither "unestablished" (no CCE) nor with a
-	 * child to report CLOSED for ... and the peer dropping an established
-	 * client h2 connection at any point, eg, with streams open and more
-	 * queued on it waiting for a stream slot.  Where the read would have
-	 * failed, fail before it.
-	 */
-	if (!flags && lwsi_role_client(wsi) && lws_wsi_is_mux_nwsi(wsi) &&
-	    (lws_ssl_pending(wsi) ||
-	     (pollfd->revents & pollfd->events & LWS_POLLIN)) &&
-	    ((!lws_wsi_client_nwsi_migrated(wsi) &&
-	      lws_fi(&wsi->fic, "h2cli_nwsi_early_rx_err")) ||
-	     (lws_wsi_client_nwsi_migrated(wsi) &&
-	      wsi->h2.h2n && wsi->h2.h2n->swsi &&
-	      /* the faults migrated to sid 1 with the original ask */
-	      lws_fi(&wsi->h2.h2n->swsi->fic, "h2cli_nwsi_rx_err"))))
-		return LWS_HPI_RET_PLEASE_CLOSE_ME;
-#endif
-
-	/*
-	 * Parked rx first, then what the transport has, then again while the
-	 * tls layer still holds bytes it already took from the socket
-	 */
-	pending = (unsigned int)lws_ssl_pending(wsi);
-	do {
-		lws_handling_result_t hr;
-		int nothing, consumed;
-
-		hr = lws_rx_pump(pt, wsi, pending ? NULL : pollfd, flags,
-				 0, &nothing, &consumed);
-		if (hr != LWS_HPI_RET_HANDLED)
-			return hr;
-		if (nothing || !consumed)
-			/*
-			 * nothing there, or a parked segment the parser
-			 * could not take yet: retain it for the next attempt
-			 */
-			break;
-
-		pending = (unsigned int)lws_ssl_pending(wsi);
-	} while (pending && !flags);
+	/* the reading was done by IO's rx stage */
 
 	return LWS_HPI_RET_HANDLED;
 }
@@ -1979,6 +1969,7 @@ static const lws_rops_t rops_table_h2[] = {
 	/* 13 */ { .destroy_role	  = rops_destroy_role_h2 },
 	/* 14 */ { .issue_keepalive	  = rops_issue_keepalive_h2 },
 	/* 15 */ { .rx			  = rops_rx_h2 },
+	/* 16 */ { .rx_policy		  = rops_rx_policy_h2 },
 };
 
 
@@ -2014,6 +2005,8 @@ const struct lws_role_ops role_ops_h2 = {
 	  /* LWS_ROPS_issue_keepalive */		0x00, 0x0E,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x00, 0x0F,
+	  /* LWS_ROPS_rx_dgram */			0x00,
+	  /* LWS_ROPS_rx_policy */			0x10,
 					},
 	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
 					  LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED },
