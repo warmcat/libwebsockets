@@ -644,7 +644,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 		return 1;
 	}
 
-	BSL_UIO_SetFD(uio, (int)wsi->desc.sockfd);
+	BSL_UIO_SetFD(uio, (int)wsi->io.desc.sockfd);
 
 	/* Set non-blocking mode */
 	BSL_UIO_Ctrl(uio, BSL_UIO_SET_NOBLOCK, 1, NULL);

@@ -839,6 +839,44 @@ struct lws_a {
 #define lws_fakewsi_prep_plwsa_ctx(_c) \
 		memset(plwsa, 0, sizeof(*plwsa)); plwsa->context = _c
 
+/*
+ * IO's half of a connection (README.sans-io-split.md, "The object"): the
+ * socket, its place in the fd table, the poll bookkeeping, the event
+ * library's handle, what kind of socket it is.  sansIO never reads it:
+ * under LWS_SANSIO_CHECK it is opaque, so a sansIO file naming wsi->io
+ * does not compile.
+ */
+#if defined(LWS_SANSIO_CHECK)
+struct lws_io_adjunct {
+	uint8_t				opaque;
+};
+#else
+#define LWS_NO_FDS_POS (-1)
+struct lws_io_adjunct {
+#if defined(LWS_WITH_EVENT_LIBS)
+	void				*evlib_wsi; /* overallocated */
+#endif
+	struct lws_dll2			vh_awaiting_socket;
+	lws_sock_file_fd_type		desc; /* .filefd / .sockfd */
+	int				position_in_fds_table;
+
+	unsigned int			favoured_pollin:1;
+	unsigned int			could_have_pending:1; /* detect back-to-back writes */
+	unsigned int			event_pipe:1;
+	unsigned int			file_desc:1;
+	unsigned int			shadow:1; /* we do not control fd lifecycle at all */
+	unsigned int			pf_packet:1;
+	unsigned int			do_broadcast:1;
+	unsigned int			do_bind:1;
+	unsigned int			unix_skt:1;
+#ifdef _WIN32
+	unsigned int			sock_send_blocking:1;
+#endif
+	volatile char			handling_pollout;
+	volatile char			leave_pollout_active;
+};
+#endif
+
 struct lws {
 
 	struct lws_a			a;
@@ -880,9 +918,6 @@ struct lws {
 
 	/* lifetime members */
 
-#if defined(LWS_WITH_EVENT_LIBS)
-	void				*evlib_wsi; /* overallocated */
-#endif
 
 	lws_sorted_usec_list_t		sul_timeout;
 	lws_sorted_usec_list_t		sul_hrtimer;
@@ -899,7 +934,6 @@ struct lws {
 
 	struct lws_dll2			dll_buflist; /* guys with pending rxflow */
 	struct lws_dll2			same_vh_protocol;
-	struct lws_dll2			vh_awaiting_socket;
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	struct lws_dll2			adns; /* on adns list of guys to tell result */
 	lws_async_dns_cb_t		adns_cb; /* callback with result */
@@ -1007,13 +1041,11 @@ struct lws {
 	char				alpn[24];
 #endif
 
-	lws_sock_file_fd_type		desc; /* .filefd / .sockfd */
 
+	struct lws_io_adjunct		io;
 	lws_wsi_state_t			wsistate;
 
 	/* ints */
-#define LWS_NO_FDS_POS (-1)
-	int				position_in_fds_table;
 
 #if defined(LWS_WITH_CLIENT)
 	int				flags;
@@ -1029,8 +1061,6 @@ struct lws {
 	unsigned int			h2_acked_settings:1;
 	unsigned int			seen_nonpseudoheader:1;
 	unsigned int			listener:1;
-	unsigned int			pf_packet:1;
-	unsigned int			do_broadcast:1;
 	unsigned int			user_space_externally_allocated:1;
 	unsigned int			rxflow_change_to:2;
 	unsigned int			conn_stat_done:1;
@@ -1038,7 +1068,6 @@ struct lws {
 	unsigned int			cache_revalidate:1;
 	unsigned int			cache_intermediaries:1;
 	unsigned int			cache_no:1;
-	unsigned int			favoured_pollin:1;
 	unsigned int			sending_chunked:1;
 	unsigned int			interpreting:1;
 	unsigned int			ipv6:1;
@@ -1047,22 +1076,16 @@ struct lws {
 	unsigned int			cgi_stdout_zero_length:1;
 	unsigned int			seen_zero_length_recv:1;
 	unsigned int			rxflow_will_be_applied:1;
-	unsigned int			event_pipe:1;
 	unsigned int			handling_404:1;
 	unsigned int			protocol_bind_balance:1;
-	unsigned int			unix_skt:1;
 	unsigned int			h1_ws_proxied:1;
 	unsigned int			proxied_ws_parent:1;
-	unsigned int			do_bind:1;
 	unsigned int			validity_hup:1;
 	unsigned int			skip_fallback:1;
-	unsigned int			file_desc:1;
 	unsigned int			conn_validity_wakesuspend:1;
 	unsigned int			dns_reachability:1;
 	unsigned int			mount_hit:1;
 
-	unsigned int			could_have_pending:1; /* detect back-to-back writes */
-	unsigned int			shadow:1; /* we do not control fd lifecycle at all */
 #if defined(LWS_WITH_SECURE_STREAMS)
 	unsigned int			for_ss:1;
 	unsigned int			bound_ss_proxy_conn:1;
@@ -1097,9 +1120,6 @@ struct lws {
 	unsigned int			client_mux_substream_was:1;
 #endif
 
-#ifdef _WIN32
-	unsigned int sock_send_blocking:1;
-#endif
 
 	uint16_t			ocport, c_port, conn_port;
 	uint16_t			retry;
@@ -1138,8 +1158,6 @@ struct lws {
 #endif
 	uint8_t immortal_substream_count;
 	/* volatile to make sure code is aware other thread can change */
-	volatile char handling_pollout;
-	volatile char leave_pollout_active;
 #if LWS_MAX_SMP > 1
 	volatile char undergoing_init_from_other_pt;
 #endif

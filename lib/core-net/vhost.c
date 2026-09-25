@@ -1449,7 +1449,7 @@ __lws_vhost_destroy_pt_wsi_dieback_start(struct lws_vhost *vh)
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 			      lws_dll2_get_head(&vh->vh_awaiting_socket_owner)) {
 		struct lws *w =
-			lws_container_of(d, struct lws, vh_awaiting_socket);
+			lws_container_of(d, struct lws, io.vh_awaiting_socket);
 
 		if (w->tsi == tsi) {
 

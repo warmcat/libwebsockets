@@ -284,9 +284,9 @@ dht_send(struct lws_dht_ctx *ctx, const void *buf, size_t len,
 	int n;
 
 #ifdef _WIN32
-	n = (int)sendto(wsi->desc.sockfd, (const char *)buf, (int)len, 0, sa, (socklen_t)salen);
+	n = (int)sendto(wsi->io.desc.sockfd, (const char *)buf, (int)len, 0, sa, (socklen_t)salen);
 #else
-	n = (int)sendto(wsi->desc.sockfd, (const void *)buf, len, 0, sa, (socklen_t)salen);
+	n = (int)sendto(wsi->io.desc.sockfd, (const void *)buf, len, 0, sa, (socklen_t)salen);
 #endif
 
 	if (n < 0) {

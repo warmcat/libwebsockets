@@ -265,7 +265,7 @@ lws_tls_server_send_alert(struct lws *wsi, const uint8_t *ver, uint8_t desc)
 	 * fresh socket does not block in practice
 	 */
 
-	(void)send(wsi->desc.sockfd, (const char *)rec, sizeof(rec),
+	(void)send(wsi->io.desc.sockfd, (const char *)rec, sizeof(rec),
 		   MSG_NOSIGNAL);
 }
 
@@ -527,7 +527,7 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 	case LWS_SSL_CAPABLE_ERROR:
 		lws_tls_restrict_return_handshake(wsi);
 		lwsl_info("%s: SSL_accept failed socket %u: %d\n",
-				__func__, wsi->desc.sockfd, n);
+				__func__, wsi->io.desc.sockfd, n);
 		lwsi_set_skt_unusable(wsi, 1);
 		return 1;
 
@@ -704,7 +704,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 			 * something to read...
 			 */
 
-			s = recv(wsi->desc.sockfd, (char *)pt->serv_buf,
+			s = recv(wsi->io.desc.sockfd, (char *)pt->serv_buf,
 				 context->pt_serv_buf_size, MSG_PEEK);
 			/*
 			 * We have LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT..

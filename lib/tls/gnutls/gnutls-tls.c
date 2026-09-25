@@ -775,7 +775,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		    wsi->a.vhost->name,
 		    wsi->a.vhost->tls.ssl_client_ctx->has_client_cert);
 
-	gnutls_transport_set_int(session, (int)wsi->desc.sockfd);
+	gnutls_transport_set_int(session, (int)wsi->io.desc.sockfd);
 
 	/*
 	 * RFC 6066 3: SNI carries only hostnames, "literal IPv4 and IPv6

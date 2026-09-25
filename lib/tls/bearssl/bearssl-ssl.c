@@ -86,7 +86,7 @@ lws_bearssl_pump(struct lws *wsi)
 		if (st & BR_SSL_SENDREC) {
 			size_t len;
 			unsigned char *buf = br_ssl_engine_sendrec_buf(&conn->u.engine, &len);
-			int n = (int)send(wsi->desc.sockfd, (const char *)buf, len, MSG_NOSIGNAL);
+			int n = (int)send(wsi->io.desc.sockfd, (const char *)buf, len, MSG_NOSIGNAL);
 			// lwsl_notice("%s: sendrec_buf len %zu, send n=%d\n", __func__, len, n);
 			if (n > 0) {
 				br_ssl_engine_sendrec_ack(&conn->u.engine, (size_t)n);
@@ -102,7 +102,7 @@ lws_bearssl_pump(struct lws *wsi)
 		if (st & BR_SSL_RECVREC) {
 			size_t len;
 			unsigned char *buf = br_ssl_engine_recvrec_buf(&conn->u.engine, &len);
-			int n = (int)recv(wsi->desc.sockfd, (char *)buf, len, 0);
+			int n = (int)recv(wsi->io.desc.sockfd, (char *)buf, len, 0);
 			// lwsl_notice("%s: recvrec_buf len %d, recv n=%d\n", __func__, (int)len, n);
 			if (n > 0) {
 				br_ssl_engine_recvrec_ack(&conn->u.engine, (size_t)n);

@@ -105,7 +105,7 @@ __lws_reset_wsi(struct lws *wsi)
 
 	if (wsi->a.vhost) {
 		lws_vhost_lock(wsi->a.vhost);
-		lws_dll2_remove(&wsi->vh_awaiting_socket);
+		lws_dll2_remove(&wsi->io.vh_awaiting_socket);
 		lws_vhost_unlock(wsi->a.vhost);
 	}
 
@@ -244,9 +244,9 @@ __lws_reset_wsi(struct lws *wsi)
 	lwsi_set_skt_unusable(wsi, 0);
 	wsi->mux_substream = wsi->mux_stream_immortal =
 	wsi->h2_acked_settings = wsi->seen_nonpseudoheader =
-	wsi->favoured_pollin =
+	wsi->io.favoured_pollin =
 	wsi->parent_pending_cb_on_writable = wsi->seen_zero_length_recv =
-	wsi->could_have_pending = 0;
+	wsi->io.could_have_pending = 0;
 #endif
 
 #if defined(LWS_ROLE_QUIC)
@@ -791,14 +791,14 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	    lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_via_role_protocol).
 					 close_via_role_protocol(wsi, reason)) {
 		lwsl_wsi_info(wsi, "close_via_role took over (sockfd %d)",
-			      wsi->desc.sockfd);
+			      wsi->io.desc.sockfd);
 		return;
 	}
 
 just_kill_connection:
 
 	lwsl_wsi_debug(wsi, "real just_kill_connection A: (sockfd %d)",
-			wsi->desc.sockfd);
+			wsi->io.desc.sockfd);
 
 #if defined(LWS_WITH_THREADPOOL) && defined(LWS_HAVE_PTHREAD_H)
 	lws_threadpool_wsi_closing(wsi);
@@ -867,7 +867,7 @@ just_kill_connection:
 		lwsl_wsi_debug(wsi, "closing in unestablished state 0x%x "
 				"(fd %d, parallels %d)",
 				lwsi_state(wsi),
-				(int)wsi->desc.sockfd, wsi->parallel_count);
+				(int)wsi->io.desc.sockfd, wsi->parallel_count);
 		lwsi_set_skt_unusable(wsi, 1);
 
 		lws_inform_client_conn_fail(wsi,
@@ -925,7 +925,7 @@ just_kill_connection:
 	}
 
 	lwsl_wsi_info(wsi, "real just_kill_connection: sockfd %d\n",
-			wsi->desc.sockfd);
+			wsi->io.desc.sockfd);
 
 #ifdef LWS_WITH_HUBBUB
 	if (wsi->http.rw) {
@@ -984,7 +984,7 @@ just_kill_connection:
 	}
 
 	if (!lws_wsi_close_cb_waived(wsi) &&
-	    !lws_dll2_is_detached(&wsi->vh_awaiting_socket))
+	    !lws_dll2_is_detached(&wsi->io.vh_awaiting_socket))
 		/*
 		 * He's a guy who go started with dns, but failed or is
 		 * caught with a shutdown before he got the result.  We have
@@ -1143,7 +1143,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 	/* the transport goes: tls session, fd, place in the poll set */
 	__lws_io_close_transport(wsi);
 
-	wsi->desc.sockfd = LWS_SOCK_INVALID;
+	wsi->io.desc.sockfd = LWS_SOCK_INVALID;
 
 #if defined(LWS_WITH_CLIENT)
 	lws_free_set_NULL(wsi->cli_hostname_copy);

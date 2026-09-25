@@ -186,7 +186,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 			return -1;
 	}
 
-	conn->net.MBEDTLS_PRIVATE_V30_ONLY(fd) = (int)wsi->desc.sockfd;
+	conn->net.MBEDTLS_PRIVATE_V30_ONLY(fd) = (int)wsi->io.desc.sockfd;
 	mbedtls_ssl_set_bio(&conn->ssl, &conn->net, lws_plat_mbedtls_net_send, lws_plat_mbedtls_net_recv, NULL);
 
 	return 0;

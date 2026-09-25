@@ -375,7 +375,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 			return 0;
 		}
 
-		((volatile struct lws *)wsi)->leave_pollout_active = 0;
+		((volatile struct lws *)wsi)->io.leave_pollout_active = 0;
 
 		n = lws_serve_http_file_fragment(wsi);
 		lwsl_wsi_info(wsi, "lws_serve_http_file_fragment says %d", n);

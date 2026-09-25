@@ -136,7 +136,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 
 	/* If we have pending output from previous step, try to send it */
 	if (conn->tx_buf && conn->tx_pos < conn->tx_len) {
-		n = send(wsi->desc.sockfd, (char *)conn->tx_buf + conn->tx_pos, (int)(conn->tx_len - conn->tx_pos), 0);
+		n = send(wsi->io.desc.sockfd, (char *)conn->tx_buf + conn->tx_pos, (int)(conn->tx_len - conn->tx_pos), 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 				return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
@@ -243,7 +243,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 		if (conn->rx_len == 0) {
 			if (conn->rx_alloc < 4096) lws_tls_schannel_realloc_buffer(conn, 4096);
 
-			n = recv(wsi->desc.sockfd, (char *)conn->rx_buf, (int)conn->rx_alloc, 0);
+			n = recv(wsi->io.desc.sockfd, (char *)conn->rx_buf, (int)conn->rx_alloc, 0);
 			if (n < 0) {
 				if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 					return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
@@ -290,7 +290,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 				return LWS_SSL_CAPABLE_ERROR;
 		}
 
-		n = recv(wsi->desc.sockfd, (char *)conn->rx_buf + conn->rx_len, (int)(conn->rx_alloc - conn->rx_len), 0);
+		n = recv(wsi->io.desc.sockfd, (char *)conn->rx_buf + conn->rx_len, (int)(conn->rx_alloc - conn->rx_len), 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 				return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
@@ -355,7 +355,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
                }
 
                if (conn->tx_buf) {
-                       n = send(wsi->desc.sockfd, (char *)conn->tx_buf, (int)conn->tx_len, 0);
+                       n = send(wsi->io.desc.sockfd, (char *)conn->tx_buf, (int)conn->tx_len, 0);
                        if (n < 0) {
                                if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
                                        return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
@@ -450,7 +450,7 @@ lws_tls_schannel_server_sni(struct lws *wsi)
 		    lws_tls_schannel_realloc_buffer(conn, conn->rx_alloc + 2048))
 			return -1;
 
-		s = recv(wsi->desc.sockfd, (char *)conn->rx_buf + conn->rx_len,
+		s = recv(wsi->io.desc.sockfd, (char *)conn->rx_buf + conn->rx_len,
 			 (int)(conn->rx_alloc - conn->rx_len), 0);
 		if (s < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN ||
@@ -541,7 +541,7 @@ lws_tls_server_accept(struct lws *wsi)
 		return LWS_SSL_CAPABLE_DONE;
 
 	if (conn->tx_buf && conn->tx_pos < conn->tx_len) {
-		n = send(wsi->desc.sockfd, (char *)conn->tx_buf + conn->tx_pos, (int)(conn->tx_len - conn->tx_pos), 0);
+		n = send(wsi->io.desc.sockfd, (char *)conn->tx_buf + conn->tx_pos, (int)(conn->tx_len - conn->tx_pos), 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 				return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
@@ -556,7 +556,7 @@ lws_tls_server_accept(struct lws *wsi)
 
 	if (conn->rx_len == 0) {
 		if (conn->rx_alloc < 4096) lws_tls_schannel_realloc_buffer(conn, 4096);
-		n = recv(wsi->desc.sockfd, (char *)conn->rx_buf, (int)conn->rx_alloc, 0);
+		n = recv(wsi->io.desc.sockfd, (char *)conn->rx_buf, (int)conn->rx_alloc, 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 				return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
@@ -697,7 +697,7 @@ lws_tls_server_accept(struct lws *wsi)
 			if (lws_tls_schannel_realloc_buffer(conn, conn->rx_alloc + 2048))
 				return LWS_SSL_CAPABLE_ERROR;
 		}
-		n = recv(wsi->desc.sockfd, (char *)conn->rx_buf + conn->rx_len, (int)(conn->rx_alloc - conn->rx_len), 0);
+		n = recv(wsi->io.desc.sockfd, (char *)conn->rx_buf + conn->rx_len, (int)(conn->rx_alloc - conn->rx_len), 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 				return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
@@ -731,7 +731,7 @@ lws_tls_server_accept(struct lws *wsi)
 			conn->tx_pos = 0;
 			FreeContextBuffer(out_buf[0].pvBuffer);
 
-			n = send(wsi->desc.sockfd, (char *)conn->tx_buf, (int)conn->tx_len, 0);
+			n = send(wsi->io.desc.sockfd, (char *)conn->tx_buf, (int)conn->tx_len, 0);
 			if (n < 0) {
 				if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 					return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
@@ -906,7 +906,7 @@ lws_tls_schannel_tx_queue(struct lws *wsi, struct lws_tls_schannel_conn *conn,
 	conn->tx_buf = p;
 	conn->tx_len += len;
 
-	n = send(wsi->desc.sockfd, (char *)conn->tx_buf + conn->tx_pos,
+	n = send(wsi->io.desc.sockfd, (char *)conn->tx_buf + conn->tx_pos,
 		 (int)(conn->tx_len - conn->tx_pos), 0);
 	if (n < 0) {
 		if (LWS_ERRNO != LWS_EAGAIN && LWS_ERRNO != LWS_EWOULDBLOCK)
@@ -1052,7 +1052,7 @@ lws_tls_schannel_post_hs_step(struct lws *wsi)
 					return -1;
 			}
 
-			n = recv(wsi->desc.sockfd,
+			n = recv(wsi->io.desc.sockfd,
 				 (char *)conn->rx_buf + conn->rx_len,
 				 (int)(conn->rx_alloc - conn->rx_len), 0);
 			if (n < 0) {
@@ -1202,7 +1202,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		if (!conn->rx_alloc &&
 		    lws_tls_schannel_realloc_buffer(conn, 4096))
 			return LWS_SSL_CAPABLE_ERROR;
-		n = recv(wsi->desc.sockfd, (char *)conn->rx_buf, (int)conn->rx_alloc, 0);
+		n = recv(wsi->io.desc.sockfd, (char *)conn->rx_buf, (int)conn->rx_alloc, 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN ||
 					LWS_ERRNO == LWS_EWOULDBLOCK)
@@ -1236,7 +1236,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		    lws_tls_schannel_realloc_buffer(conn, conn->rx_alloc + 2048))
 			return LWS_SSL_CAPABLE_ERROR;
 
-		n = recv(wsi->desc.sockfd, (char *)conn->rx_buf + conn->rx_len, (int)(conn->rx_alloc - conn->rx_len), 0);
+		n = recv(wsi->io.desc.sockfd, (char *)conn->rx_buf + conn->rx_len, (int)(conn->rx_alloc - conn->rx_len), 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 				goto want_read;
@@ -1419,7 +1419,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 
 	/* Flush existing ciphertext */
 	if (conn->tx_buf) {
-		n = send(wsi->desc.sockfd, (char *)conn->tx_buf + conn->tx_pos, (int)(conn->tx_len - conn->tx_pos), 0);
+		n = send(wsi->io.desc.sockfd, (char *)conn->tx_buf + conn->tx_pos, (int)(conn->tx_len - conn->tx_pos), 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 				return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
@@ -1517,7 +1517,7 @@ fresh:
 
 	size_t total_len = msg_buf[0].cbBuffer + msg_buf[1].cbBuffer + msg_buf[2].cbBuffer;
 
-	n = send(wsi->desc.sockfd, (char *)alloc_buf, (int)total_len, 0);
+	n = send(wsi->io.desc.sockfd, (char *)alloc_buf, (int)total_len, 0);
 
 	if (n < 0) {
 		if (LWS_ERRNO != LWS_EAGAIN && LWS_ERRNO != LWS_EWOULDBLOCK) {

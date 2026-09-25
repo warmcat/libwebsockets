@@ -69,11 +69,11 @@ lws_plat_lookup_index(const struct lws_context *context, int fd)
 int
 insert_wsi(const struct lws_context *context, struct lws *wsi)
 {
-	int idx = lws_plat_lookup_index(context, wsi->desc.sockfd);
+	int idx = lws_plat_lookup_index(context, wsi->io.desc.sockfd);
 
 	if (idx < 0) {
 		lwsl_err("%s: socket fd %d outside lookup table\n", __func__,
-			 wsi->desc.sockfd);
+			 wsi->io.desc.sockfd);
 
 		return 1;
 	}

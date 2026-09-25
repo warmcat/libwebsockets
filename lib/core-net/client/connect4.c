@@ -326,9 +326,9 @@ provoke_service:
 		lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
 				(int)wsi->a.context->timeout_secs);
 
-		assert(lws_socket_is_valid(wsi->desc.sockfd));
+		assert(lws_socket_is_valid(wsi->io.desc.sockfd));
 
-		pfd.fd = wsi->desc.sockfd;
+		pfd.fd = wsi->io.desc.sockfd;
 		pfd.events = LWS_POLLIN;
 		pfd.revents = LWS_POLLIN;
 

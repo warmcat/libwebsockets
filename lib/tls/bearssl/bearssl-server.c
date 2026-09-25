@@ -159,7 +159,7 @@ lws_bearssl_server_sni(struct lws *wsi)
 	 * serv buf instead would not be safe on the async accept worker.)
 	 */
 
-	s = (int)recv(wsi->desc.sockfd, (char *)conn->iobuf_in,
+	s = (int)recv(wsi->io.desc.sockfd, (char *)conn->iobuf_in,
 		      LWS_POSIX_LENGTH_CAST(sizeof(conn->iobuf_in)), MSG_PEEK);
 	if (s <= 0) {
 		if (s < 0 && (LWS_ERRNO == LWS_EAGAIN ||

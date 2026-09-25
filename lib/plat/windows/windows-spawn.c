@@ -111,7 +111,7 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 
 	lws_wsi_event_role(new_wsi, LWS_WSIEV_ADOPTED, ops);
 
-	new_wsi->position_in_fds_table = LWS_NO_FDS_POS;
+	new_wsi->io.position_in_fds_table = LWS_NO_FDS_POS;
 
 	/*
 	 * these can only be set once the protocol is known
@@ -121,7 +121,7 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 	 */
 
 	new_wsi->user_space = NULL;
-	new_wsi->desc.sockfd = LWS_SOCK_INVALID;
+	new_wsi->io.desc.sockfd = LWS_SOCK_INVALID;
 
 	return new_wsi;
 }
@@ -182,7 +182,7 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 		lwsl_notice("%s: closing stdwsi %d\n", __func__, n);
 		wsi = lsp->stdwsi[n];
 		/* we closed the pipe above; stop the wsi close doing it again */
-		wsi->desc.filefd = NULL;
+		wsi->io.desc.filefd = NULL;
 		/*
 		 * Close synchronously; lws_spawn_stdwsi_closed() is called
 		 * back during this and clears lsp->stdwsi[n] itself if it
@@ -410,16 +410,16 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 			 * that is entitled to destroy the lsp
 			 */
 
-			CloseHandle(wsi->desc.filefd);
-			wsi->desc.filefd = NULL;
+			CloseHandle(wsi->io.desc.filefd);
+			wsi->io.desc.filefd = NULL;
 			lsp->pipe_fds[LWS_STDOUT][0] = NULL;
 			lsp->stdwsi[LWS_STDOUT] = NULL;
 
 			if (wsi2) {
 				lwsl_info("%s: closing stdin from stdout close\n",
 					  __func__);
-				CloseHandle(wsi2->desc.filefd);
-				wsi2->desc.filefd = NULL;
+				CloseHandle(wsi2->io.desc.filefd);
+				wsi2->io.desc.filefd = NULL;
 				lsp->stdwsi[LWS_STDIN] = NULL;
 				lsp->pipe_fds[LWS_STDIN][1] = NULL;
 			}
@@ -457,8 +457,8 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 				   NULL, NULL)) {
 
                        lwsl_info("%s: stderr pipe errored\n", __func__);
-			CloseHandle(wsi1->desc.filefd);
-			wsi1->desc.filefd = NULL;
+			CloseHandle(wsi1->io.desc.filefd);
+			wsi1->io.desc.filefd = NULL;
 			lsp->stdwsi[LWS_STDERR] = NULL;
 			lsp->pipe_fds[LWS_STDERR][0] = NULL;
 
@@ -731,8 +731,8 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		if (!lsp->pipe_fds[n][!n])
 			continue;
 
-		lsp->stdwsi[n]->desc.filefd = lsp->pipe_fds[n][!n];
-		lsp->stdwsi[n]->file_desc = 1;
+		lsp->stdwsi[n]->io.desc.filefd = lsp->pipe_fds[n][!n];
+		lsp->stdwsi[n]->io.file_desc = 1;
 
 		lws_dll2_remove(&lsp->stdwsi[n]->pre_natal);
 
@@ -745,7 +745,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 		/* read side is 0, stdin we want the write side, others read */
 
-		lsp->stdwsi[n]->desc.filefd = lsp->pipe_fds[n][!!(n == 0)];
+		lsp->stdwsi[n]->io.desc.filefd = lsp->pipe_fds[n][!!(n == 0)];
 		if (fcntl(lsp->pipe_fds[n][!!(n == 0)], F_SETFL, O_NONBLOCK) < 0) {
 			lwsl_err("%s: setting NONBLOCK failed\n", __func__);
 			goto bail2;
@@ -761,9 +761,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		}
 
 	// lwsl_notice("%s: pipe handles in %p, out %p, err %p\n", __func__,
-	//	   lsp->stdwsi[LWS_STDIN]->desc.sockfd,
-	//	   lsp->stdwsi[LWS_STDOUT]->desc.sockfd,
-	//	   lsp->stdwsi[LWS_STDERR]->desc.sockfd);
+	//	   lsp->stdwsi[LWS_STDIN]->io.desc.sockfd,
+	//	   lsp->stdwsi[LWS_STDOUT]->io.desc.sockfd,
+	//	   lsp->stdwsi[LWS_STDERR]->io.desc.sockfd);
 
 	/*
 	 * Windows nonblocking pipe handling is a mess that is unable

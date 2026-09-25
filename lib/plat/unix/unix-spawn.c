@@ -645,7 +645,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 		/* read side is 0, stdin we want the write side, others read */
 
-		lsp->stdwsi[n]->desc.sockfd = lsp->pipe_fds[n][n == 0];
+		lsp->stdwsi[n]->io.desc.sockfd = lsp->pipe_fds[n][n == 0];
 		if (fcntl(lsp->pipe_fds[n][n == 0], F_SETFL, O_NONBLOCK) < 0) {
 			lwsl_err("%s: setting NONBLOCK failed\n", __func__);
 			goto bail2;
@@ -704,9 +704,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	lws_pt_unlock(pt);
 
 	lwsl_info("%s: fds in %d, out %d, err %d\n", __func__,
-		   lsp->stdwsi[LWS_STDIN] ? lsp->stdwsi[LWS_STDIN]->desc.sockfd : -1,
-		   lsp->stdwsi[LWS_STDOUT] ? lsp->stdwsi[LWS_STDOUT]->desc.sockfd : -1,
-		   lsp->stdwsi[LWS_STDERR] ? lsp->stdwsi[LWS_STDERR]->desc.sockfd : -1);
+		   lsp->stdwsi[LWS_STDIN] ? lsp->stdwsi[LWS_STDIN]->io.desc.sockfd : -1,
+		   lsp->stdwsi[LWS_STDOUT] ? lsp->stdwsi[LWS_STDOUT]->io.desc.sockfd : -1,
+		   lsp->stdwsi[LWS_STDERR] ? lsp->stdwsi[LWS_STDERR]->io.desc.sockfd : -1);
  
 #if defined(__linux__)
 	if (i->cgroup_name_suffix && i->cgroup_name_suffix[0]) {

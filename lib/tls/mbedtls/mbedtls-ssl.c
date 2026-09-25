@@ -266,7 +266,7 @@ lws_ssl_close(struct lws *wsi)
 	lws_sess_cache_synth_cb(&wsi->tls.sul_cb_synth);
 #endif
 
-	n = wsi->desc.sockfd;
+	n = wsi->io.desc.sockfd;
 	if (!lwsi_skt_unusable(wsi)) {
 		mbedtls_ssl_close_notify(&wsi->tls.ssl->ssl);
 	}
@@ -322,11 +322,11 @@ __lws_tls_shutdown(struct lws *wsi)
 {
 	int n = mbedtls_ssl_close_notify(&wsi->tls.ssl->ssl);
 
-	lwsl_debug("mbedtls_ssl_close_notify=%d for fd %d\n", n, wsi->desc.sockfd);
+	lwsl_debug("mbedtls_ssl_close_notify=%d for fd %d\n", n, wsi->io.desc.sockfd);
 
 	if (n == 0) {
 		/* successful completion */
-		(void)shutdown(wsi->desc.sockfd, SHUT_WR);
+		(void)shutdown(wsi->io.desc.sockfd, SHUT_WR);
 		return LWS_SSL_CAPABLE_DONE;
 	}
 

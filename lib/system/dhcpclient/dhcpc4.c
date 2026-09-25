@@ -96,7 +96,7 @@ lws_dhcpc4_prep(uint8_t *start, unsigned int bufsiz, lws_dhcpc_req_t *r, int op)
 
 	p += 0x1c - 3;
 
-	if (lws_plat_ifname_to_hwaddr(r->wsi_raw->desc.sockfd,
+	if (lws_plat_ifname_to_hwaddr(r->wsi_raw->io.desc.sockfd,
 				      (const char *)&r[1], r->is.mac, 6) < 0)
 		return -1;
 
@@ -189,7 +189,7 @@ callback_dhcpc4(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		/* set up our network interface as offered */
 
-		if (lws_plat_ifconfig(r->wsi_raw->desc.sockfd, &r->is))
+		if (lws_plat_ifconfig(r->wsi_raw->io.desc.sockfd, &r->is))
 			/*
 			 * Problem setting the IP... maybe something
 			 * transient like racing with NetworkManager?
@@ -276,7 +276,7 @@ bcast:
 			m = lws_plat_rawudp_broadcast(p, rawdisc4,
 						      LWS_ARRAY_SIZE(rawdisc4),
 						      (size_t)(n + 28),
-						      r->wsi_raw->desc.sockfd,
+						      r->wsi_raw->io.desc.sockfd,
 						      (const char *)&r[1]);
 			if (m < 0)
 				lwsl_err("%s: Failed to write dhcp client req: "
@@ -341,8 +341,8 @@ lws_dhcpc4_retry_conn(struct lws_sorted_usec_list *sul)
 	}
 
 	/* force the network if up */
-	lws_plat_if_up((const char *)&r[1], r->wsi_raw->desc.sockfd, 0);
-	lws_plat_if_up((const char *)&r[1], r->wsi_raw->desc.sockfd, 1);
+	lws_plat_if_up((const char *)&r[1], r->wsi_raw->io.desc.sockfd, 0);
+	lws_plat_if_up((const char *)&r[1], r->wsi_raw->io.desc.sockfd, 1);
 
 	r->wsi_raw->user_space = r;
 	r->wsi_raw->user_space_externally_allocated = 1;

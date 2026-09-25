@@ -54,7 +54,7 @@ lws_send_pipe_choked(struct lws *wsi)
 	wsi_eff = wsi;
 #endif
 	/* the fact we checked implies we avoided back-to-back writes */
-	wsi_eff->could_have_pending = 0;
+	wsi_eff->io.could_have_pending = 0;
 
 	/* treat the fact we got a truncated send pending as if we're choked */
 	if (lws_has_buffered_out(wsi_eff)
@@ -65,7 +65,7 @@ lws_send_pipe_choked(struct lws *wsi)
 	)
 		return 1;
 
-	return (int)wsi_eff->sock_send_blocking;
+	return (int)wsi_eff->io.sock_send_blocking;
 }
 
 int
@@ -305,7 +305,7 @@ lws_plat_check_connection_error(struct lws *wsi)
 	int optVal;
 	int optLen = sizeof(int);
 
-	if (getsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_ERROR,
+	if (getsockopt(wsi->io.desc.sockfd, SOL_SOCKET, SO_ERROR,
 			   (char*)&optVal, &optLen) != SOCKET_ERROR && optVal &&
 		optVal != LWS_EALREADY && optVal != LWS_EINPROGRESS &&
 		optVal != LWS_EWOULDBLOCK && optVal != WSAEINVAL) {

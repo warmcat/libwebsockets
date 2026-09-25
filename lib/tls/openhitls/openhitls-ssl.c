@@ -518,12 +518,12 @@ lws_ssl_close(struct lws *wsi)
 	 * otherwise.
 	 */
 	if (lws_socket_is_valid(n)) {
-		if (n == wsi->desc.sockfd) {
+		if (n == wsi->io.desc.sockfd) {
 			compatible_close(n);
 			closed = 1;
 		} else
 			lwsl_wsi_info(wsi, "tls fd %d is not the wsi socket %d",
-				      (int)n, (int)wsi->desc.sockfd);
+				      (int)n, (int)wsi->io.desc.sockfd);
 	}
 	/*
 	 * Detach the fd from the UIO so neither HITLS_Free() nor BSL_UIO_Free()
@@ -588,11 +588,11 @@ __lws_tls_shutdown(struct lws *wsi)
 
 	ret = HITLS_Close(wsi->tls.ssl);
 	lwsl_debug("%s: HITLS_Close=%d for fd %d\n", __func__, ret,
-		   wsi->desc.sockfd);
+		   wsi->io.desc.sockfd);
 	HITLS_GetShutdownState(wsi->tls.ssl, &state);
 
 	if (state == (HITLS_SENT_SHUTDOWN | HITLS_RECEIVED_SHUTDOWN)) {
-		shutdown(wsi->desc.sockfd, SHUT_WR);
+		shutdown(wsi->io.desc.sockfd, SHUT_WR);
 		return LWS_SSL_CAPABLE_DONE;
 	}
 

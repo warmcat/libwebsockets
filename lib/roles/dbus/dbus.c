@@ -81,10 +81,10 @@ __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 
 	lwsl_info("%s: creating shadow wsi\n", __func__);
 
-	wsi->desc.sockfd = fd;
+	wsi->io.desc.sockfd = fd;
 	lws_wsi_event_role(wsi, LWS_WSIEV_ADOPTED, &role_ops_dbus);
 	wsi->a.protocol = ctx->vh->protocols;
-	wsi->shadow = 1;
+	wsi->io.shadow = 1;
 	wsi->opaque_parent_data = ctx;
 	ctx->w[0] = w;
 
@@ -119,7 +119,7 @@ __lws_shadow_wsi_destroy(struct lws_dbus_ctx *ctx, struct lws *wsi)
 
 	if (__remove_wsi_socket_from_fds(wsi)) {
 		lwsl_err("%s: unable to remove %d from fds\n", __func__,
-				wsi->desc.sockfd);
+				wsi->io.desc.sockfd);
 
 		return 1;
 	}

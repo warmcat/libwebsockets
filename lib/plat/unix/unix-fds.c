@@ -42,7 +42,7 @@ wsi_from_fd(const struct lws_context *context, int fd)
 
 	while (p != done) {
 		if (*p) {
-			if ((*p)->desc.sockfd == fd)
+			if ((*p)->io.desc.sockfd == fd)
 				return *p;
 #if defined(LWS_WITH_CLIENT)
 			for (int j = 0; j < (*p)->parallel_count; j++) {
@@ -66,7 +66,7 @@ sanity_assert_no_wsi_traces(const struct lws_context *context, struct lws *wsi)
 	int expected = 0;
 
 #if defined(LWS_WITH_CLIENT)
-	if (lws_socket_is_valid(wsi->desc.sockfd))
+	if (lws_socket_is_valid(wsi->io.desc.sockfd))
 		expected++;
 	for (int i = 0; i < wsi->parallel_count; i++)
 		if (wsi->parallel_conns[i].is_valid)
@@ -122,7 +122,7 @@ sanity_assert_no_sockfd_traces(const struct lws_context *context,
 		lwsl_err("%s: fd %d still in lws_lookup as %s (wsistate 0x%x, "
 			 "fds pos %d, its sockfd %d)\n", __func__, (int)sfd,
 			 lws_wsi_tag(w), (unsigned int)w->wsistate,
-			 w->position_in_fds_table, (int)w->desc.sockfd);
+			 w->io.position_in_fds_table, (int)w->io.desc.sockfd);
 		assert(0); /* the fd is still in use */
 		return 1;
 	}
@@ -135,7 +135,7 @@ sanity_assert_no_sockfd_traces(const struct lws_context *context,
 	/* confirm the sfd not already in use */
 
 	while (p != done) {
-		if (*p && (*p)->desc.sockfd == sfd) {
+		if (*p && (*p)->io.desc.sockfd == sfd) {
 #if defined(LWS_WITH_CLIENT)
 			if ((*p)->parallel_count > 0) {
 				p++;
@@ -153,7 +153,7 @@ sanity_assert_no_sockfd_traces(const struct lws_context *context,
 	lwsl_err("%s: fd %d still in lws_lookup[%d] as %s (wsistate 0x%x, "
 		 "fds pos %d)\n", __func__, (int)sfd,
 		 (int)(p - context->lws_lookup), lws_wsi_tag(*p),
-		 (unsigned int)(*p)->wsistate, (*p)->position_in_fds_table);
+		 (unsigned int)(*p)->wsistate, (*p)->io.position_in_fds_table);
 	assert(0); /* this fd is still in the tables */
 
 	return 1;
@@ -171,10 +171,10 @@ insert_wsi(const struct lws_context *context, struct lws *wsi)
 		return 0;
 
 	if (!context->max_fds_unrelated_to_ulimit) {
-		assert(context->lws_lookup[wsi->desc.sockfd -
+		assert(context->lws_lookup[wsi->io.desc.sockfd -
 		                           lws_plat_socket_offset()] == 0);
 
-		context->lws_lookup[wsi->desc.sockfd - \
+		context->lws_lookup[wsi->io.desc.sockfd - \
 				  lws_plat_socket_offset()] = wsi;
 
 		return 0;
@@ -187,7 +187,7 @@ insert_wsi(const struct lws_context *context, struct lws *wsi)
 
 	/* confirm fd isn't already in use by a wsi */
 
-	if (sanity_assert_no_sockfd_traces(context, wsi->desc.sockfd))
+	if (sanity_assert_no_sockfd_traces(context, wsi->io.desc.sockfd))
 		return 0;
 
 	p = context->lws_lookup;
@@ -233,7 +233,7 @@ delete_from_fd(const struct lws_context *context, int fd)
 
 	/* find the match */
 
-	while (p != done && (!*p || (*p)->desc.sockfd != fd))
+	while (p != done && (!*p || (*p)->io.desc.sockfd != fd))
 		p++;
 
 	if (p != done)
@@ -242,7 +242,7 @@ delete_from_fd(const struct lws_context *context, int fd)
 #if defined(_DEBUG)
 	p = context->lws_lookup;
 	while (p != done) {
-		if (*p && (*p)->desc.sockfd == fd) {
+		if (*p && (*p)->io.desc.sockfd == fd) {
 #if defined(LWS_WITH_CLIENT)
 			if ((*p)->parallel_count > 0) {
 				p++;

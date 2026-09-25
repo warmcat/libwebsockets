@@ -686,7 +686,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		 * we don't have a way to use it if we listed it
 		 */
 
-		if (lws_dll2_count(&pt->context->routing_table) && !wsi->do_bind) {
+		if (lws_dll2_count(&pt->context->routing_table) && !wsi->io.do_bind) {
 
 			estr = _lws_route_est_outgoing(pt, &ds->dest);
 			if (!estr) {

@@ -1308,11 +1308,11 @@ lws_cgi_stdin_body_end(struct lws *wsi)
 		return;
 
 	siwsi = wsi->http.cgi->lsp->stdwsi[LWS_STDIN];
-	if (!siwsi || siwsi->desc.filefd <= 0)
+	if (!siwsi || siwsi->io.desc.filefd <= 0)
 		return;
 
 	lwsl_wsi_info(siwsi, "request body complete: closing stdin fd %d",
-		      siwsi->desc.sockfd);
+		      siwsi->io.desc.sockfd);
 
 	/*
 	 * We don't want the child / parent relationship to be handled in

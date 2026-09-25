@@ -537,7 +537,7 @@ int lws_ssl_client_bio_create(struct lws *wsi)
 	}
 
 	/* BSL_UIO_SetFD returns void */
-	BSL_UIO_SetFD(uio, (int)wsi->desc.sockfd);
+	BSL_UIO_SetFD(uio, (int)wsi->io.desc.sockfd);
 
 	/* Set non-blocking mode */
 	BSL_UIO_Ctrl(uio, BSL_UIO_SET_NOBLOCK, 1, NULL);

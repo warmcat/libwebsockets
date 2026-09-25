@@ -35,10 +35,10 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	eventfd_t value;
 	int n;
 
-	n = eventfd_read(wsi->desc.sockfd, &value);
+	n = eventfd_read(wsi->io.desc.sockfd, &value);
 	if (n < 0) {
 		lwsl_notice("%s: eventfd read %d bailed errno %d\n", __func__,
-				wsi->desc.sockfd, LWS_ERRNO);
+				wsi->io.desc.sockfd, LWS_ERRNO);
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 #elif !defined(WIN32) && !defined(_WIN32)
@@ -50,7 +50,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	 * We really don't care about the number of bytes, but coverity
 	 * thinks we should.
 	 */
-	n = (int)read(wsi->desc.sockfd, s, sizeof(s));
+	n = (int)read(wsi->io.desc.sockfd, s, sizeof(s));
 	(void)n;
 	/*
 	 * Only treat a real read error as a reason to close the pipe wsi.
@@ -68,7 +68,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	char s[100];
 	int n;
 
-	n = recv(wsi->desc.sockfd, s, sizeof(s), 0);
+	n = recv(wsi->io.desc.sockfd, s, sizeof(s), 0);
 	if (n == SOCKET_ERROR)
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 #endif
@@ -147,7 +147,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 					if (lws_io_want_read(job->wsi, 1)) {
 						lws_close_free_wsi(job->wsi, LWS_CLOSE_STATUS_NOSTATUS, "ssl accept pollin failed");
 					} else {
-						if (lws_server_socket_service_ssl(job->wsi, job->wsi->desc.sockfd, 0))
+						if (lws_server_socket_service_ssl(job->wsi, job->wsi->io.desc.sockfd, 0))
 							lwsl_notice("OOB ssl success path failed\n");
 
 						/*
@@ -161,7 +161,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 							if (lws_dll2_is_detached(&job->wsi->tls.dll_pending_tls)) {
 								lws_dll2_add_head(&job->wsi->tls.dll_pending_tls,
 										  &pt->tls.dll_pending_tls_owner);
-								lwsl_notice("ops-pipe added %s to pending tls list, pos=%d\n", lws_wsi_tag(job->wsi), job->wsi->position_in_fds_table);
+								lwsl_notice("ops-pipe added %s to pending tls list, pos=%d\n", lws_wsi_tag(job->wsi), job->wsi->io.position_in_fds_table);
 							}
 							lws_pt_unlock(pt);
 						}
@@ -340,7 +340,7 @@ __lws_create_event_pipes(struct lws_context *context)
 		__lws_lc_tag(context, &context->lcg[LWSLCG_WSI], &wsi->lc,
 				"pipe");
 
-		wsi->event_pipe = 1;
+		wsi->io.event_pipe = 1;
 		pt->pipe_wsi = wsi;
 
 		if (!lws_plat_pipe_create(wsi)) {
@@ -353,8 +353,8 @@ __lws_create_event_pipes(struct lws_context *context)
 			 * etc.
 			 */
 
-			wsi->desc.sockfd = context->pt[n].dummy_pipe_fds[0];
-			// lwsl_debug("event pipe fd %d\n", wsi->desc.sockfd);
+			wsi->io.desc.sockfd = context->pt[n].dummy_pipe_fds[0];
+			// lwsl_debug("event pipe fd %d\n", wsi->io.desc.sockfd);
 
 			if (lws_wsi_inject_to_loop(pt, wsi))
 					goto bail;
@@ -385,12 +385,12 @@ lws_destroy_event_pipe(struct lws *wsi)
 void
 lws_pipe_wsi_release_fds(struct lws *wsi)
 {
-	if (!lws_socket_is_valid(wsi->desc.sockfd))
+	if (!lws_socket_is_valid(wsi->io.desc.sockfd))
 		return;
 
 	__remove_wsi_socket_from_fds(wsi);
-	if (lws_socket_is_valid(wsi->desc.sockfd))
-		delete_from_fd(wsi->a.context, wsi->desc.sockfd);
+	if (lws_socket_is_valid(wsi->io.desc.sockfd))
+		delete_from_fd(wsi->a.context, wsi->io.desc.sockfd);
 #if !defined(LWS_PLAT_FREERTOS) && !defined(WIN32) && !defined(LWS_PLAT_OPTEE)
 	delete_from_fdwsi(wsi->a.context, wsi);
 #endif

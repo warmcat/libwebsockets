@@ -93,14 +93,14 @@ lws_plat_pipe_close(struct lws *wsi)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	if (pt->dummy_pipe_fds[0] != LWS_SOCK_INVALID) {
-		if (wsi->desc.sockfd == pt->dummy_pipe_fds[0])
-			wsi->desc.sockfd = LWS_SOCK_INVALID;
+		if (wsi->io.desc.sockfd == pt->dummy_pipe_fds[0])
+			wsi->io.desc.sockfd = LWS_SOCK_INVALID;
 		close(pt->dummy_pipe_fds[0]);
 		pt->dummy_pipe_fds[0] = LWS_SOCK_INVALID;
 	}
 	if (pt->dummy_pipe_fds[1] != LWS_SOCK_INVALID) {
-		if (wsi->desc.sockfd == pt->dummy_pipe_fds[1])
-			wsi->desc.sockfd = LWS_SOCK_INVALID;
+		if (wsi->io.desc.sockfd == pt->dummy_pipe_fds[1])
+			wsi->io.desc.sockfd = LWS_SOCK_INVALID;
 		close(pt->dummy_pipe_fds[1]);
 		pt->dummy_pipe_fds[1] = LWS_SOCK_INVALID;
 	}

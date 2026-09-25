@@ -26,7 +26,7 @@
 #include "private-lib-event-libs-libuv.h"
 
 #define pt_to_priv_uv(_pt) ((struct lws_pt_eventlibs_libuv *)(_pt)->evlib_pt)
-#define wsi_to_priv_uv(_w) ((struct lws_wsi_eventlibs_libuv *)(_w)->evlib_wsi)
+#define wsi_to_priv_uv(_w) ((struct lws_wsi_eventlibs_libuv *)(_w)->io.evlib_wsi)
 
 static int
 lws_libuv_closehandle_int(struct lws *wsi);
@@ -489,15 +489,15 @@ elops_destroy_context2_uv(struct lws_context *context)
 static int
 elops_wsi_logical_close_uv(struct lws *wsi)
 {
-	if (!lws_socket_is_valid(wsi->desc.sockfd) &&
+	if (!lws_socket_is_valid(wsi->io.desc.sockfd) &&
 	    wsi->role_ops && strcmp(wsi->role_ops->name, "raw-file") &&
 	    !wsi_to_priv_uv(wsi)->w_read.pwatcher)
 		return 0;
 
-	if (wsi->listener || wsi->event_pipe) {
+	if (wsi->listener || wsi->io.event_pipe) {
 		lwsl_wsi_debug(wsi, "%d %d stop listener / pipe poll",
 				    wsi->listener,
-				    wsi->event_pipe);
+				    wsi->io.event_pipe);
 		if (wsi_to_priv_uv(wsi)->w_read.pwatcher)
 			uv_poll_stop(wsi_to_priv_uv(wsi)->w_read.pwatcher);
 	}
@@ -550,9 +550,9 @@ elops_close_handle_manually_uv(struct lws *wsi)
 	 */
 
 	if (!h) {
-		if (lws_socket_is_valid(wsi->desc.sockfd))
-			compatible_close(wsi->desc.sockfd);
-		wsi->desc.sockfd = LWS_SOCK_INVALID;
+		if (lws_socket_is_valid(wsi->io.desc.sockfd))
+			compatible_close(wsi->io.desc.sockfd);
+		wsi->io.desc.sockfd = LWS_SOCK_INVALID;
 
 		return;
 	}
@@ -563,14 +563,14 @@ elops_close_handle_manually_uv(struct lws *wsi)
 	 * the "manual" variant only closes the handle itself and the
 	 * related fd.  handle->data is the fd.
 	 */
-	h->data = (void *)(lws_intptr_t)wsi->desc.sockfd;
+	h->data = (void *)(lws_intptr_t)wsi->io.desc.sockfd;
 
 	/*
 	 * We take responsibility to close / destroy these now.
 	 * Remove any trace from the wsi.
 	 */
 
-	wsi->desc.sockfd = LWS_SOCK_INVALID;
+	wsi->io.desc.sockfd = LWS_SOCK_INVALID;
 	wsi_to_priv_uv(wsi)->w_read.pwatcher = NULL;
 
 	/* the handle was accounted when it was created at accept time */
@@ -603,14 +603,14 @@ elops_accept_uv(struct lws *wsi)
 
 	if (wsi->role_ops->file_handle)
 		n = uv_poll_init(pt_to_priv_uv(pt)->io_loop, w_read->pwatcher,
-			     (int)(lws_intptr_t)wsi->desc.filefd);
+			     (int)(lws_intptr_t)wsi->io.desc.filefd);
 	else
 		n = uv_poll_init_socket(pt_to_priv_uv(pt)->io_loop,
-				    w_read->pwatcher, wsi->desc.sockfd);
+				    w_read->pwatcher, wsi->io.desc.sockfd);
 
 	if (n) {
 		lwsl_wsi_err(wsi, "uv_poll_init failed %d, sockfd=%p", n,
-				  (void *)(lws_intptr_t)wsi->desc.sockfd);
+				  (void *)(lws_intptr_t)wsi->io.desc.sockfd);
 
 		/*
 		 * UV_EEXIST means libuv's per-loop watcher table still has a
@@ -622,15 +622,15 @@ elops_accept_uv(struct lws *wsi)
 		 * whole process, the caller closes the new fd cleanly.
 		 */
 		if (n == UV_EEXIST) {
-			int fd = (int)(lws_intptr_t)wsi->desc.sockfd;
+			int fd = (int)(lws_intptr_t)wsi->io.desc.sockfd;
 			struct lws *pw = pt->pipe_wsi;
 			lwsl_cx_err(wsi->a.context,
 				"EEXIST fd %d: pipe_wsi fd %d, "
 				"fds_count %u, extant_handles %d, "
 				"static_handles %d",
 				fd,
-				(pw && lws_socket_is_valid(pw->desc.sockfd)) ?
-					(int)pw->desc.sockfd : -1,
+				(pw && lws_socket_is_valid(pw->io.desc.sockfd)) ?
+					(int)pw->io.desc.sockfd : -1,
 				pt->fds_count, ptpriv->extant_handles,
 				pt->count_event_loop_static_asset_handles);
 		}
@@ -731,10 +731,10 @@ elops_init_vhost_listen_wsi_uv(struct lws *wsi)
 		return -1;
 
 	n = uv_poll_init_socket(pt_to_priv_uv(pt)->io_loop,
-				w_read->pwatcher, wsi->desc.sockfd);
+				w_read->pwatcher, wsi->io.desc.sockfd);
 	if (n) {
 		lwsl_wsi_err(wsi, "uv_poll_init failed %d, sockfd=%p", n,
-				  (void *)(lws_intptr_t)wsi->desc.sockfd);
+				  (void *)(lws_intptr_t)wsi->io.desc.sockfd);
 		lws_free(w_read->pwatcher);
 		w_read->pwatcher = NULL;
 		w_read->context = NULL;

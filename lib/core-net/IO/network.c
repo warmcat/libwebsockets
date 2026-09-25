@@ -260,7 +260,7 @@ lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen)
 		return name;
 	}
 #endif
-	return lws_get_peer_simple_fd(wsi->desc.sockfd, name, namelen);
+	return lws_get_peer_simple_fd(wsi->io.desc.sockfd, name, namelen);
 }
 #endif
 
@@ -1618,7 +1618,7 @@ lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
 		  const lws_sockaddr46 *dest)
 {
 	struct lws *nwsi = lws_get_network_wsi(wsi);
-	lws_sockfd_type fd = nwsi->desc.sockfd;
+	lws_sockfd_type fd = nwsi->io.desc.sockfd;
 	int n, e;
 
 #if defined(LWS_WITH_SERVER)
@@ -1632,8 +1632,8 @@ lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
 			if (lw->udp &&
 			    lw->udp->sa46.sa4.sin_family ==
 						dest->sa4.sin_family &&
-			    lws_socket_is_valid(lw->desc.sockfd)) {
-				fd = lw->desc.sockfd;
+			    lws_socket_is_valid(lw->io.desc.sockfd)) {
+				fd = lw->io.desc.sockfd;
 				break;
 			}
 		} lws_end_foreach_dll(d);

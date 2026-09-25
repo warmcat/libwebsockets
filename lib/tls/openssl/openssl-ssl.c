@@ -556,7 +556,7 @@ lws_ssl_close(struct lws *wsi)
 		SSL_shutdown(wsi->tls.ssl);
 
 	/*
-	 * The socket BIO holds whatever wsi->desc.sockfd was when the TLS
+	 * The socket BIO holds whatever wsi->io.desc.sockfd was when the TLS
 	 * object was created.  The wsi's socket can be replaced under it
 	 * later (a happy-eyeballs racer promoted over a QUIC socket, a QUIC
 	 * preferred-address socket swap), after which the old fd number is
@@ -569,12 +569,12 @@ lws_ssl_close(struct lws *wsi)
 	 * socket the same way.)
 	 */
 	if (n != (lws_sockfd_type)LWS_SOCK_INVALID && n != (lws_sockfd_type)-1) {
-		if (n == wsi->desc.sockfd) {
+		if (n == wsi->io.desc.sockfd) {
 			compatible_close(n);
 			closed = 1;
 		} else
 			lwsl_wsi_info(wsi, "tls fd %d is not the wsi socket %d",
-				      (int)n, (int)wsi->desc.sockfd);
+				      (int)n, (int)wsi->io.desc.sockfd);
 	}
 	SSL_free(wsi->tls.ssl);
 	wsi->tls.ssl = NULL;
@@ -666,10 +666,10 @@ __lws_tls_shutdown(struct lws *wsi)
 #endif
 	ERR_clear_error();
 	n = SSL_shutdown(wsi->tls.ssl);
-	lwsl_debug("SSL_shutdown=%d for fd %d\n", n, wsi->desc.sockfd);
+	lwsl_debug("SSL_shutdown=%d for fd %d\n", n, wsi->io.desc.sockfd);
 	switch (n) {
 	case 1: /* successful completion */
-		n = shutdown(wsi->desc.sockfd, SHUT_WR);
+		n = shutdown(wsi->io.desc.sockfd, SHUT_WR);
 		return LWS_SSL_CAPABLE_DONE;
 
 	case 0: /* needs a retry */

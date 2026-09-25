@@ -495,7 +495,7 @@ solo:
 	 */
 
 	if (*adsin == '+') {
-		wsi->unix_skt = 1;
+		wsi->io.unix_skt = 1;
 		n = 0;
 		goto next_step;
 	}

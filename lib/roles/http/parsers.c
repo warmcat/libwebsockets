@@ -125,7 +125,7 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 
 	time(&ah->assigned);
 
-	if (wsi->position_in_fds_table != LWS_NO_FDS_POS &&
+	if (wsi->io.position_in_fds_table != LWS_NO_FDS_POS &&
 	    lws_buflist_next_segment_len(&wsi->buflist, NULL) &&
 	    autoservice) {
 		lwsl_debug("%s: service on readbuf ah\n", __func__);
@@ -135,7 +135,7 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 		 * Unlike a normal connect, we have the headers already
 		 * (or the first part of them anyway)
 		 */
-		pfd = &pt->fds[wsi->position_in_fds_table];
+		pfd = &pt->fds[wsi->io.position_in_fds_table];
 
 		/*
 		 * We are usually here from the previous owner's detach.  If
@@ -311,9 +311,9 @@ reset:
 	 * (The pointer comparison below never dereferences wsi.)
 	 */
 
-	if (autoservice && wsi->position_in_fds_table != LWS_NO_FDS_POS &&
-	    lws_socket_is_valid(wsi->desc.sockfd)) {
-		lifecheck_sfd = wsi->desc.sockfd;
+	if (autoservice && wsi->io.position_in_fds_table != LWS_NO_FDS_POS &&
+	    lws_socket_is_valid(wsi->io.desc.sockfd)) {
+		lifecheck_sfd = wsi->io.desc.sockfd;
 		lifecheck = 1;
 	}
 
@@ -464,7 +464,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 #endif
 
 	/* clients acquire the ah and then insert themselves in fds table... */
-	if (wsi->position_in_fds_table != LWS_NO_FDS_POS) {
+	if (wsi->io.position_in_fds_table != LWS_NO_FDS_POS) {
 		lwsl_info("%s: Enabling %s POLLIN\n", __func__, lws_wsi_tag(wsi));
 
 		/* he has been stuck waiting for an ah, but now his wait is

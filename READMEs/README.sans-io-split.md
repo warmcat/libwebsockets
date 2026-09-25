@@ -163,6 +163,33 @@ Time is an input: sansIO is told the deadline passed, it never reads the
 clock to decide anything.  Reading the clock for a log line or a metric
 is tolerated in sansIO until the split is done.
 
+## The object
+
+`struct lws` is the connection as sansIO knows it: the state word, the
+role, the parsers' state, the buflists, the timers, the mux position.  IO
+has its own things to remember about the same connection, which sansIO
+never reads: the socket, its place in the fd table, the poll bookkeeping,
+the event-library handle, what kind of socket it is.  Those live in
+`struct lws_io_adjunct`, the `io` member of `struct lws`, and nothing
+under the sansIO directories names `wsi->io`.
+
+The compile check enforces it: under `LWS_SANSIO_CHECK` the adjunct is an
+opaque stub, so a sansIO file that reads `wsi->io.desc.sockfd` does not
+compile, the same way a call into IO does not.  Today the adjunct is a
+member by value, so the split is visible in the source and costs nothing
+at runtime; a port keeps the two objects apart (in Rust the IO side owns
+its adjunct and holds the sansIO connection by value or handle).
+
+What goes in the adjunct is decided by the same test as a function: if
+sansIO's decisions do not depend on it, it is IO's.  The socket identity
+went first (`desc`, `position_in_fds_table`, the POLLOUT bookkeeping
+bits, `evlib_wsi`, the socket-kind flags).  The connection's addresses,
+address family, udp state, the parallel-connect racers, peer limits and
+the async workers follow.  The tls session is the open question: the
+record layer is IO, so `tls` belongs in the adjunct, but the handshake's
+outcome (ALPN, the session being reused) is something sansIO acts on and
+has to be handed over at `TRANSPORT_UP`.
+
 ## What goes where in the tree
 
 The directories are the halves.  Placement by directory is the whole rule.
@@ -239,5 +266,12 @@ each function is in.
    `lws_issue_raw` as today's spelling of tx).
 7. The four requests through `lws_io_ops_t` (done: `lws-io-ops.h`,
    `lws_io_ops_default` in IO/pollfd.c, `lws_context_creation_info.io_ops`).
-8. When every role is converted, the IO half is a replaceable component,
+8. Split the object: IO's fields of `struct lws` move into the
+   `lws_io_adjunct` (see "The object"), the check making it opaque to
+   sansIO (in progress: the socket identity first).
+9. A sansIO-only build target and a byte-level harness: a context whose
+   `io_ops` and transport are the test's, driving an h1 transaction and a
+   ws echo with no socket.  This is the test of "technically complete";
+   the static checks above are inferences until it passes.
+10. When every role is converted, the IO half is a replaceable component,
    and the sansIO half is what a port translates.

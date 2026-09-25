@@ -278,7 +278,7 @@ lws_client_connect_check(struct lws *wsi, lws_sockfd_type fd, int *real_errno)
 	int ret;
 
 #if defined(LWS_WITH_UNIX_SOCK)
-	if (wsi->unix_skt) {
+	if (wsi->io.unix_skt) {
 		char buf;
 		int n = recv((int)fd, &buf, 1, MSG_PEEK);
 		if (n >= 0 || LWS_ERRNO == WSAEWOULDBLOCK) {
@@ -343,8 +343,8 @@ lws_remove_parallel_fd_safely(struct lws *wsi, int pidx)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	int hole_pos = wsi->parallel_conns[pidx].position_in_fds_table;
 	int last_pos = (int)pt->fds_count - 1;
-	int saved_pos = wsi->position_in_fds_table;
-	lws_sock_file_fd_type saved_fd = wsi->desc;
+	int saved_pos = wsi->io.position_in_fds_table;
+	lws_sock_file_fd_type saved_fd = wsi->io.desc;
 
 	/*
 	 * An attempt that already failed (eg, synchronous connect() failure
@@ -366,8 +366,8 @@ lws_remove_parallel_fd_safely(struct lws *wsi, int pidx)
 
 	lws_pt_lock(pt, __func__);
 
-	wsi->desc.sockfd = wsi->parallel_conns[pidx].desc.sockfd;
-	wsi->position_in_fds_table = hole_pos;
+	wsi->io.desc.sockfd = wsi->parallel_conns[pidx].desc.sockfd;
+	wsi->io.position_in_fds_table = hole_pos;
 
 	__remove_wsi_socket_from_fds(wsi);
 	if (wsi->a.context->event_loop_ops->close_handle_manually_parallel)
@@ -376,12 +376,12 @@ lws_remove_parallel_fd_safely(struct lws *wsi, int pidx)
 		compatible_close(wsi->parallel_conns[pidx].desc.sockfd);
 	wsi->parallel_conns[pidx].is_valid = 0;
 
-	wsi->desc = saved_fd;
+	wsi->io.desc = saved_fd;
 
 	if (saved_pos == last_pos)
-		wsi->position_in_fds_table = hole_pos;
+		wsi->io.position_in_fds_table = hole_pos;
 	else
-		wsi->position_in_fds_table = saved_pos;
+		wsi->io.position_in_fds_table = saved_pos;
 
 	for (int i = 0; i < wsi->parallel_count; i++) {
 		if (wsi->parallel_conns[i].is_valid && wsi->parallel_conns[i].position_in_fds_table == last_pos) {
@@ -395,8 +395,8 @@ lws_remove_parallel_fd_safely(struct lws *wsi, int pidx)
 static void
 promote_parallel_fd(struct lws *wsi, int pidx)
 {
-	wsi->desc.sockfd = wsi->parallel_conns[pidx].desc.sockfd;
-	wsi->position_in_fds_table = wsi->parallel_conns[pidx].position_in_fds_table;
+	wsi->io.desc.sockfd = wsi->parallel_conns[pidx].desc.sockfd;
+	wsi->io.position_in_fds_table = wsi->parallel_conns[pidx].position_in_fds_table;
 	wsi->parallel_conns[pidx].is_valid = 0;
 }
 #endif
@@ -526,7 +526,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 	if (n < 0 &&  /* calling back with a problem */
 	    !lws_dll2_count(&wsi->dns_sorted_list) && /* there's no results */
-	    !lws_socket_is_valid(wsi->desc.sockfd) && /* no attempt ongoing */
+	    !lws_socket_is_valid(wsi->io.desc.sockfd) && /* no attempt ongoing */
 	    !lws_dll2_count(&wsi->speculative_connect_owner) /* no spec attempt */ ) {
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
@@ -593,7 +593,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	int is_quic_race = (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") && lws_dll2_owner(
 		&wsi->sul_h3_grace.list));
 	if ((lwsi_transport(wsi) == LTS_WAITING_CONNECT || (is_quic_race && pollfd != NULL)) &&
-	    (lws_socket_is_valid(wsi->desc.sockfd) || wsi->parallel_count > 0)) {
+	    (lws_socket_is_valid(wsi->io.desc.sockfd) || wsi->parallel_count > 0)) {
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 		if (lwsi_transport(wsi) == LTS_WAITING_CONNECT && wsi->parallel_count > 0) {
 			int any_parallel = 0;
@@ -623,10 +623,10 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			/* on Windows, FD_CONNECT and sul async check pass NULL opaque.
 			 * we need to check the primary fd and parallel fds until we find one
 			 * that completed or failed. */
-			if (lws_socket_is_valid(wsi->desc.sockfd)) {
+			if (lws_socket_is_valid(wsi->io.desc.sockfd)) {
 				int real_errno = 0;
-				if (lws_client_connect_check(wsi, wsi->desc.sockfd, &real_errno) != LCCCR_CONTINUE) {
-					check_fd = wsi->desc.sockfd;
+				if (lws_client_connect_check(wsi, wsi->io.desc.sockfd, &real_errno) != LCCCR_CONTINUE) {
+					check_fd = wsi->io.desc.sockfd;
 				}
 			}
 			if (check_fd == LWS_SOCK_INVALID) {
@@ -647,7 +647,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			int real_errno = 0;
 			int pidx = -1;
 
-			if (check_fd != wsi->desc.sockfd) {
+			if (check_fd != wsi->io.desc.sockfd) {
 				for (m = 0; m < wsi->parallel_count; m++)
 					if (wsi->parallel_conns[m].is_valid && wsi->parallel_conns[m].desc.sockfd == check_fd)
 						pidx = m;
@@ -667,15 +667,15 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			switch (lws_client_connect_check(wsi, check_fd, &real_errno)) {
 			case LCCCR_CONNECTED:
 				if (is_quic_race && pidx != -1) {
-					int saved_pos_tmp = wsi->position_in_fds_table;
-					lws_sock_file_fd_type saved_fd_tmp = wsi->desc;
+					int saved_pos_tmp = wsi->io.position_in_fds_table;
+					lws_sock_file_fd_type saved_fd_tmp = wsi->io.desc;
 					lwsl_wsi_notice(wsi, "TCP connected, waiting for QUIC grace");
-					wsi->desc.sockfd = wsi->parallel_conns[pidx].desc.sockfd;
-					wsi->position_in_fds_table = wsi->parallel_conns[pidx].position_in_fds_table;
+					wsi->io.desc.sockfd = wsi->parallel_conns[pidx].desc.sockfd;
+					wsi->io.position_in_fds_table = wsi->parallel_conns[pidx].position_in_fds_table;
 					if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 						lwsl_wsi_debug(wsi, "POLLOUT clear failed");
-					wsi->desc = saved_fd_tmp;
-					wsi->position_in_fds_table = saved_pos_tmp;
+					wsi->io.desc = saved_fd_tmp;
+					wsi->io.position_in_fds_table = saved_pos_tmp;
 					/*
 					 * The wsi is alive and still racing,
 					 * waiting to see if QUIC completes
@@ -714,8 +714,8 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 					 * that is still our job here, in all
 					 * cases.
 					 */
-					if (lws_socket_is_valid(wsi->desc.sockfd))
-						compatible_close(wsi->desc.sockfd);
+					if (lws_socket_is_valid(wsi->io.desc.sockfd))
+						compatible_close(wsi->io.desc.sockfd);
 
 					promote_parallel_fd(wsi, pidx);
 				}
@@ -760,8 +760,8 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 					lws_pt_lock(pt, __func__);
 					__remove_wsi_socket_from_fds(wsi);
 					lws_pt_unlock(pt);
-					compatible_close(wsi->desc.sockfd);
-					wsi->desc.sockfd = LWS_SOCK_INVALID;
+					compatible_close(wsi->io.desc.sockfd);
+					wsi->io.desc.sockfd = LWS_SOCK_INVALID;
 					/* if we have a parallel running, promote it */
 					for (m = 0; m < wsi->parallel_count; m++) {
 						if (wsi->parallel_conns[m].is_valid) {
@@ -900,7 +900,7 @@ next_dns_result_seq:
 	wsi->sa46_peer = curr->dest;
 #if defined(LWS_WITH_UDP)
 	/* the datagram peer is the primary attempt's, not a TCP racer's */
-	if (wsi->udp && !lws_socket_is_valid(wsi->desc.sockfd)) {
+	if (wsi->udp && !lws_socket_is_valid(wsi->io.desc.sockfd)) {
 		wsi->udp->sa46 = curr->dest;
 		sa46_sockport(&wsi->udp->sa46, htons(port));
 	}
@@ -926,9 +926,9 @@ ads_known:
 	 * socket and add to the fds
 	 */
 
-	if (!lws_socket_is_valid(wsi->desc.sockfd) || wsi->parallel_count < LWS_MAX_PARALLEL_CONNS) {
+	if (!lws_socket_is_valid(wsi->io.desc.sockfd) || wsi->parallel_count < LWS_MAX_PARALLEL_CONNS) {
 
-		is_parallel = lws_socket_is_valid(wsi->desc.sockfd);
+		is_parallel = lws_socket_is_valid(wsi->io.desc.sockfd);
 		if (is_parallel && !wsi->parallel_conns) {
 			wsi->parallel_conns = lws_zalloc(LWS_MAX_PARALLEL_CONNS *
 						sizeof(*wsi->parallel_conns),
@@ -951,7 +951,7 @@ ads_known:
 		}
 
 #if defined(LWS_WITH_UNIX_SOCK)
-		if (wsi->unix_skt) {
+		if (wsi->io.unix_skt) {
 			af = AF_UNIX;
 			new_fd = socket(AF_UNIX, SOCK_STREAM, 0);
 		}
@@ -1001,7 +1001,7 @@ ads_known:
 
 		if (!want_udp && lws_plat_set_socket_options(wsi->a.vhost, new_fd,
 #if defined(LWS_WITH_UNIX_SOCK)
-						wsi->unix_skt)) {
+						wsi->io.unix_skt)) {
 #else
 						0)) {
 #endif
@@ -1066,12 +1066,12 @@ ads_known:
 			wsi->parallel_conns[pidx].position_in_fds_table = LWS_NO_FDS_POS;
 			
 			/* setup swap */
-			saved_pos = wsi->position_in_fds_table;
-			saved_fd = wsi->desc;
-			wsi->desc.sockfd = new_fd;
-			wsi->position_in_fds_table = LWS_NO_FDS_POS;
+			saved_pos = wsi->io.position_in_fds_table;
+			saved_fd = wsi->io.desc;
+			wsi->io.desc.sockfd = new_fd;
+			wsi->io.position_in_fds_table = LWS_NO_FDS_POS;
 		} else {
-			wsi->desc.sockfd = new_fd;
+			wsi->io.desc.sockfd = new_fd;
 		}
 
 		if (is_parallel && wsi->a.context->event_loop_ops->sock_accept_parallel) {
@@ -1080,8 +1080,8 @@ ads_known:
 					     "conn fail: sock accept");
 				cce = dcce;
 				lwsl_wsi_warn(wsi, "%s", dcce);
-				wsi->position_in_fds_table = saved_pos;
-				wsi->desc = saved_fd;
+				wsi->io.position_in_fds_table = saved_pos;
+				wsi->io.desc = saved_fd;
 				wsi->parallel_conns[pidx].is_valid = 0;
 				wsi->parallel_count--;
 				compatible_close(new_fd);
@@ -1093,7 +1093,7 @@ ads_known:
 					     "conn fail: sock accept");
 				cce = dcce;
 				lwsl_wsi_warn(wsi, "%s", dcce);
-				wsi->desc.sockfd = LWS_SOCK_INVALID;
+				wsi->io.desc.sockfd = LWS_SOCK_INVALID;
 				compatible_close(new_fd);
 				goto try_next_dns_result;
 			}
@@ -1111,8 +1111,8 @@ ads_known:
 				compatible_close(new_fd);
 			if (is_parallel) {
 				wsi->parallel_count--;
-				wsi->position_in_fds_table = saved_pos;
-				wsi->desc = saved_fd;
+				wsi->io.position_in_fds_table = saved_pos;
+				wsi->io.desc = saved_fd;
 			} else
 				/*
 				 * The insertion failed before it assigned
@@ -1126,7 +1126,7 @@ ads_known:
 				 * second time, by then likely reissued to an
 				 * unrelated socket or file.
 				 */
-				wsi->desc.sockfd = LWS_SOCK_INVALID;
+				wsi->io.desc.sockfd = LWS_SOCK_INVALID;
 			goto try_next_dns_result;
 		}
 		lws_pt_unlock(pt);
@@ -1162,7 +1162,7 @@ ads_known:
 						  _WSI_TOKEN_CLIENT_LOCALPORT);
 
 		if ((iface && *iface) || (local_port && atoi(local_port))) {
-			m = lws_socket_bind(wsi->a.vhost, wsi, wsi->desc.sockfd,
+			m = lws_socket_bind(wsi->a.vhost, wsi, wsi->io.desc.sockfd,
 					    (local_port ? atoi(local_port) : 0), iface, af);
 			if (m < 0) {
 				lws_snprintf(dcce, sizeof(dcce),
@@ -1189,7 +1189,7 @@ ads_known:
 	}
 
 #if defined(LWS_WITH_UNIX_SOCK)
-	if (wsi->unix_skt) {
+	if (wsi->io.unix_skt) {
 		psa = (const struct sockaddr *)&sau;
 		if (sau.sun_path[0]) {
 #if defined(WIN32)
@@ -1216,7 +1216,7 @@ ads_known:
 
 	/* grab a copy for peer tracking */
 #if defined(LWS_WITH_UNIX_SOCK)
-	if (!wsi->unix_skt)
+	if (!wsi->io.unix_skt)
 #endif
 		memmove(&wsi->sa46_peer, psa, (unsigned int)n);
 
@@ -1236,7 +1236,7 @@ ads_known:
 	if (lws_fi(&wsi->fic, "conn_cb_rej") ||
 	    user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 			LWS_CALLBACK_CONNECTING, wsi->user_space,
-			(void *)(intptr_t)wsi->desc.sockfd, 0)) {
+			(void *)(intptr_t)wsi->io.desc.sockfd, 0)) {
 		lwsl_wsi_info(wsi, "CONNECTION CB closed");
 		goto failed1;
 	}
@@ -1259,7 +1259,7 @@ ads_known:
 		lws_usec_t _conn_start = lws_now_usecs();
 #endif
 
-		m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa,
+		m = connect(wsi->io.desc.sockfd, (const struct sockaddr *)psa,
 			    (socklen_t)n);
 
 #if defined(LWS_WITH_LATENCY)
@@ -1304,7 +1304,7 @@ ads_known:
 #endif
 
 		lwsl_wsi_debug(wsi, "connect: fd %d, %s",
-				wsi->desc.sockfd,
+				wsi->io.desc.sockfd,
 				lws_errno_describe(errno_copy, t16, sizeof(t16)));
 
 		if (errno_copy &&
@@ -1329,7 +1329,7 @@ ads_known:
 
 #if defined(_DEBUG)
 #if defined(LWS_WITH_UNIX_SOCK)
-			if (!wsi->unix_skt) {
+			if (!wsi->io.unix_skt) {
 #endif
 
 			char nads[48];
@@ -1373,7 +1373,7 @@ ads_known:
 		 * POSIX platforms must do specifically a POLLOUT poll to hear
 		 * about the connect completion as a POLLOUT event.
 		 *
-		 * This has to happen while wsi->desc / position_in_fds_table
+		 * This has to happen while wsi->io.desc / position_in_fds_table
 		 * still refer to the socket we just called connect() on, ie,
 		 * before the parallel swap is restored below: otherwise a
 		 * racing (parallel) connect only ever gets the POLLIN that
@@ -1388,9 +1388,9 @@ ads_known:
 
 		if (is_parallel) {
 			/* restore swap */
-			wsi->parallel_conns[pidx].position_in_fds_table = wsi->position_in_fds_table;
-			wsi->position_in_fds_table = saved_pos;
-			wsi->desc = saved_fd;
+			wsi->parallel_conns[pidx].position_in_fds_table = wsi->io.position_in_fds_table;
+			wsi->io.position_in_fds_table = saved_pos;
+			wsi->io.desc = saved_fd;
 		}
 
 		/*
@@ -1503,9 +1503,9 @@ conn_good:
 		 * TCP with the racers closed by the redirect close flow.
 		 */
 		lwsl_wsi_notice(wsi, "TCP connected synchronously, waiting for QUIC grace");
-		wsi->parallel_conns[pidx].position_in_fds_table = wsi->position_in_fds_table;
-		wsi->position_in_fds_table = saved_pos;
-		wsi->desc = saved_fd;
+		wsi->parallel_conns[pidx].position_in_fds_table = wsi->io.position_in_fds_table;
+		wsi->io.position_in_fds_table = saved_pos;
+		wsi->io.desc = saved_fd;
 
 		return wsi;
 	}
@@ -1513,9 +1513,9 @@ conn_good:
 	if (is_parallel) {
 		/* promote parallel to primary right away */
 		lwsl_wsi_notice(wsi, "parallel racer %d connected synchronously, promoting", pidx);
-		wsi->parallel_conns[pidx].position_in_fds_table = wsi->position_in_fds_table;
-		wsi->position_in_fds_table = saved_pos;
-		wsi->desc = saved_fd;
+		wsi->parallel_conns[pidx].position_in_fds_table = wsi->io.position_in_fds_table;
+		wsi->io.position_in_fds_table = saved_pos;
+		wsi->io.desc = saved_fd;
 
 		/* kill primary */
 		lws_pt_lock(pt, __func__);
@@ -1528,8 +1528,8 @@ conn_good:
 		 * The promote op only reparents the event lib watchers, it is
 		 * still our job to close the losing primary's fd in all cases
 		 */
-		if (lws_socket_is_valid(wsi->desc.sockfd))
-			compatible_close(wsi->desc.sockfd);
+		if (lws_socket_is_valid(wsi->io.desc.sockfd))
+			compatible_close(wsi->io.desc.sockfd);
 
 		promote_parallel_fd(wsi, pidx);
 	}
@@ -1566,7 +1566,7 @@ conn_good:
 #if defined(_DEBUG)
 		char buf[64];
 #endif
-		if (getsockname((int)wsi->desc.sockfd,
+		if (getsockname((int)wsi->io.desc.sockfd,
 				(struct sockaddr *)&wsi->sa46_local,
 				&salen) == -1) {
 			en = LWS_ERRNO;
@@ -1590,7 +1590,7 @@ conn_good:
 		}
 #if defined(_DEBUG)
 #if defined(LWS_WITH_UNIX_SOCK)
-		if (wsi->unix_skt)
+		if (wsi->io.unix_skt)
 			buf[0] = '\0';
 		else
 #endif
@@ -1630,7 +1630,7 @@ oom4:
 		lws_inform_client_conn_fail(wsi,(void *)cce, strlen(cce));
 
 	/* take care that we might be inserted in fds already */
-	if (wsi->position_in_fds_table != LWS_NO_FDS_POS)
+	if (wsi->io.position_in_fds_table != LWS_NO_FDS_POS)
 		/* do the full wsi close flow */
 		goto failed1;
 
@@ -1645,7 +1645,7 @@ oom4:
 	 */
 	{
 		struct lws_vhost *vhost = wsi->a.vhost;
-		lws_sockfd_type sfd = wsi->desc.sockfd;
+		lws_sockfd_type sfd = wsi->io.desc.sockfd;
 
 		/*
 		 * The trace check reads the wsi's sockfd and parallel
@@ -1673,9 +1673,9 @@ try_next_dns_result_fds:
 	lws_pt_lock(pt, __func__);
 	if (is_parallel) {
 		/* If we're failing after swap was restored, we need to manually swap it back temporarily */
-		if (wsi->desc.sockfd != new_fd) {
-			wsi->desc.sockfd = new_fd;
-			wsi->position_in_fds_table = wsi->parallel_conns[pidx].position_in_fds_table;
+		if (wsi->io.desc.sockfd != new_fd) {
+			wsi->io.desc.sockfd = new_fd;
+			wsi->io.position_in_fds_table = wsi->parallel_conns[pidx].position_in_fds_table;
 		}
 		__remove_wsi_socket_from_fds(wsi);
 		/* the race may already be over and its array freed */
@@ -1695,12 +1695,12 @@ try_next_dns_result_fds:
 		else
 			compatible_close(new_fd);
 		/* restore primary */
-		wsi->position_in_fds_table = saved_pos;
-		wsi->desc = saved_fd;
+		wsi->io.position_in_fds_table = saved_pos;
+		wsi->io.desc = saved_fd;
 	} else {
-		if (lws_socket_is_valid(wsi->desc.sockfd))
-			compatible_close(wsi->desc.sockfd);
-		wsi->desc.sockfd = LWS_SOCK_INVALID;
+		if (lws_socket_is_valid(wsi->io.desc.sockfd))
+			compatible_close(wsi->io.desc.sockfd);
+		wsi->io.desc.sockfd = LWS_SOCK_INVALID;
 		
 #if defined(LWS_WITH_CLIENT)
 		/* promote a parallel connection to primary if possible */
@@ -1732,7 +1732,7 @@ try_next_dns_result_fds:
 try_next_dns_result:
 #if defined(LWS_WITH_CLIENT)
 	{
-		int any_valid = lws_socket_is_valid(wsi->desc.sockfd);
+		int any_valid = lws_socket_is_valid(wsi->io.desc.sockfd);
 		for (int i = 0; i < wsi->parallel_count; i++) {
 			if (wsi->parallel_conns[i].is_valid)
 				any_valid = 1;

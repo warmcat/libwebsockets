@@ -137,7 +137,7 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	 */
 	lws_vhost_lock(new_wsi->a.vhost);
 
-	lws_dll2_add_head(&new_wsi->vh_awaiting_socket,
+	lws_dll2_add_head(&new_wsi->io.vh_awaiting_socket,
 			  &new_wsi->a.vhost->vh_awaiting_socket_owner);
 	lws_vhost_unlock(new_wsi->a.vhost);
 
@@ -246,7 +246,7 @@ lws_adopt_ss_server_accept(struct lws *new_wsi)
 	h->policy = new_wsi->a.vhost->ss_handle->policy;
 
 	/* apply requested socket options */
-	if (lws_plat_set_socket_options_ip(new_wsi->desc.sockfd,
+	if (lws_plat_set_socket_options_ip(new_wsi->io.desc.sockfd,
 					   h->policy->priority,
 		      (LCCSCF_IP_LOW_LATENCY *
 		       !!(h->policy->flags & LWSSSPOLF_ATTR_LOW_LATENCY)) |
@@ -320,7 +320,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 		}
 #endif
 
-	new_wsi->desc = fd;
+	new_wsi->io.desc = fd;
 
 	if (!LWS_SSL_ENABLED(new_wsi->a.vhost) ||
 	    !(type & LWS_ADOPT_SOCKET))
@@ -391,7 +391,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 
 	lws_vhost_lock(new_wsi->a.vhost);
 	/* he has fds visibility now, remove from vhost orphan list */
-	lws_dll2_remove(&new_wsi->vh_awaiting_socket);
+	lws_dll2_remove(&new_wsi->io.vh_awaiting_socket);
 	lws_vhost_unlock(new_wsi->a.vhost);
 
 	/*
@@ -460,7 +460,7 @@ fail:
 	lws_pt_lock(pt, __func__); /* -------------------------------- pt { */
 
 	__remove_wsi_socket_from_fds(new_wsi);
-	new_wsi->desc.sockfd = LWS_SOCK_INVALID;
+	new_wsi->io.desc.sockfd = LWS_SOCK_INVALID;
 
 	__lws_close_free_wsi(new_wsi, LWS_CLOSE_STATUS_NOSTATUS,
 			     "adopt file fail");
@@ -618,7 +618,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	if (!readbuf || len == 0)
 		return wsi;
 
-	if (wsi->position_in_fds_table == LWS_NO_FDS_POS)
+	if (wsi->io.position_in_fds_table == LWS_NO_FDS_POS)
 		return wsi;
 
 	pt = &wsi->a.context->pt[(int)wsi->tsi];
@@ -662,7 +662,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 		 * libuv won't come back and service us without a network
 		 * event, so we need to do the header service right here.
 		 */
-		pfd = &pt->fds[wsi->position_in_fds_table];
+		pfd = &pt->fds[wsi->io.position_in_fds_table];
 		pfd->revents |= LWS_POLLIN;
 		lwsl_err("%s: calling service\n", __func__);
 		if (lws_service_fd_tsi(wsi->a.context, pfd, wsi->tsi))
@@ -713,7 +713,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 	if (r) {
 		m = lws_sort_dns(wsi, r);
 
-		if (!ads && !m && wsi->do_bind) {
+		if (!ads && !m && wsi->io.do_bind) {
 			/*
 			 * A wildcard bind.  The resolver hands us both wildcards
 			 * with 0.0.0.0 first, and binding that gives an
@@ -804,9 +804,9 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 				     SOCK_DGRAM, IPPROTO_UDP);
 #else
 		/* PF_PACKET is linux-only */
-		sock.sockfd = socket(wsi->pf_packet ? PF_PACKET :
+		sock.sockfd = socket(wsi->io.pf_packet ? PF_PACKET :
 						s->dest.sa4.sin_family,
-				     SOCK_DGRAM, wsi->pf_packet ?
+				     SOCK_DGRAM, wsi->io.pf_packet ?
 					htons(0x800) : IPPROTO_UDP);
 #endif
 		if (sock.sockfd == LWS_SOCK_INVALID)
@@ -885,7 +885,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			       (const char *)&bc, sizeof(bc)) < 0)
 			lwsl_err("%s: failed to set reuse\n", __func__);
 
-		if (wsi->do_broadcast &&
+		if (wsi->io.do_broadcast &&
 		    setsockopt(sock.sockfd, SOL_SOCKET, SO_BROADCAST,
 			       (const char *)&bc, sizeof(bc)) < 0)
 			lwsl_err("%s: failed to set broadcast\n", __func__);
@@ -899,7 +899,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			goto resume;
 		}
 
-		if (wsi->do_bind &&
+		if (wsi->io.do_bind &&
 		    bind(sock.sockfd, sa46_sockaddr(&s->dest),
 #if defined(_WIN32)
 			 (int)
@@ -912,7 +912,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			goto resume;
 		}
 
-		if (!wsi->do_bind && !wsi->pf_packet) {
+		if (!wsi->io.do_bind && !wsi->io.pf_packet) {
 #if !defined(__APPLE__)
 			if (connect(sock.sockfd, sa46_sockaddr(&s->dest),
 				    sa46_socklen(&s->dest)) == -1 &&
@@ -938,7 +938,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		 * when the netlink coldplug completes on a host without a
 		 * route of that family.
 		 */
-		if (!wsi->do_bind)
+		if (!wsi->io.do_bind)
 			wsi->sa46_peer = s->dest;
 
 		/* we connected: complete the udp socket adoption flow */
@@ -1031,8 +1031,8 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 #if !defined(__linux__)
 	sock.sockfd = socket(dest.sa4.sin_family, SOCK_DGRAM, IPPROTO_UDP);
 #else
-	sock.sockfd = socket(wsi->pf_packet ? PF_PACKET : dest.sa4.sin_family,
-			     SOCK_DGRAM, wsi->pf_packet ? htons(0x800) : IPPROTO_UDP);
+	sock.sockfd = socket(wsi->io.pf_packet ? PF_PACKET : dest.sa4.sin_family,
+			     SOCK_DGRAM, wsi->io.pf_packet ? htons(0x800) : IPPROTO_UDP);
 #endif
 	if (sock.sockfd == LWS_SOCK_INVALID)
 		goto bail;
@@ -1081,7 +1081,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		       (const char *)&bc, sizeof(bc)) < 0)
 		lwsl_err("%s: failed to set reuse\n", __func__);
 
-	if (wsi->do_broadcast &&
+	if (wsi->io.do_broadcast &&
 	    setsockopt(sock.sockfd, SOL_SOCKET, SO_BROADCAST,
 		       (const char *)&bc, sizeof(bc)) < 0)
 		lwsl_err("%s: failed to set broadcast\n", __func__);
@@ -1089,7 +1089,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 	if (opaque && lws_plat_BINDTODEVICE(sock.sockfd, (const char *)opaque))
 		goto resume;
 
-	if (wsi->do_bind &&
+	if (wsi->io.do_bind &&
 	    bind(sock.sockfd, sa46_sockaddr(&dest),
 #if defined(_WIN32)
 		 (int)
@@ -1099,7 +1099,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		goto resume;
 	}
 
-	if (!wsi->do_bind && !wsi->pf_packet) {
+	if (!wsi->io.do_bind && !wsi->io.pf_packet) {
 		/*
 		 * The connect() is compiled out on Apple since dacae3a95
 		 * (2020, "osx: do not connect udp"): unlike linux or windows,
@@ -1132,7 +1132,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 	if (wsi->udp)
 		wsi->udp->sa46 = dest;
-	if (!wsi->do_bind)
+	if (!wsi->io.do_bind)
 		wsi->sa46_peer = dest;
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
@@ -1185,9 +1185,9 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 
 	// lwsl_notice("%s: role %s\n", __func__, wsi->role_ops->name);
 
-	wsi->do_bind = !!(flags & LWS_CAUDP_BIND);
-	wsi->do_broadcast = !!(flags & LWS_CAUDP_BROADCAST);
-	wsi->pf_packet = !!(flags & LWS_CAUDP_PF_PACKET);
+	wsi->io.do_bind = !!(flags & LWS_CAUDP_BIND);
+	wsi->io.do_broadcast = !!(flags & LWS_CAUDP_BROADCAST);
+	wsi->io.pf_packet = !!(flags & LWS_CAUDP_PF_PACKET);
 	wsi->c_port = (uint16_t)(unsigned int)port;
 	if (retry_policy)
 		wsi->retry_policy = retry_policy;
@@ -1348,12 +1348,12 @@ bail:
 }
 
 /*
- * Take a copy of wsi->desc.sockfd before calling this, then close it
+ * Take a copy of wsi->io.desc.sockfd before calling this, then close it
  * afterwards
  */
 
 int lws_wsi_extract_from_loop(struct lws *wsi) {
-	if (lws_socket_is_valid(wsi->desc.sockfd))
+	if (lws_socket_is_valid(wsi->io.desc.sockfd))
 		__remove_wsi_socket_from_fds(wsi);
 
 	if (!wsi->a.context->event_loop_ops->destroy_wsi &&
@@ -1421,12 +1421,12 @@ lws_io_shutdown_write(struct lws *wsi)
 		return 1;
 	}
 #endif
-	if (!lws_socket_is_valid(wsi->desc.sockfd))
+	if (!lws_socket_is_valid(wsi->io.desc.sockfd))
 		return 0;
 
 	lwsl_wsi_info(wsi, "shutdown conn (sk %d, state 0x%x)",
-		      (int)(lws_intptr_t)wsi->desc.sockfd, lwsi_state(wsi));
-	if (shutdown(wsi->desc.sockfd, SHUT_WR)) {
+		      (int)(lws_intptr_t)wsi->io.desc.sockfd, lwsi_state(wsi));
+	if (shutdown(wsi->io.desc.sockfd, SHUT_WR)) {
 		lwsl_wsi_debug(wsi, "shutdown errno %d", LWS_ERRNO);
 
 		return -1;
@@ -1443,7 +1443,7 @@ lws_io_shutdown_write(struct lws *wsi)
 int
 lws_io_close_staged(struct lws *wsi)
 {
-	if (!lws_socket_is_valid(wsi->desc.sockfd) ||
+	if (!lws_socket_is_valid(wsi->io.desc.sockfd) ||
 	    !(wsi->a.context->event_loop_ops->flags & LELOF_ISPOLL))
 		return 0;
 
@@ -1462,14 +1462,14 @@ lws_io_close_staged(struct lws *wsi)
 int
 lws_io_transfer_socket(struct lws *wsi, struct lws *wnew)
 {
-assert(lws_socket_is_valid(wsi->desc.sockfd));
+assert(lws_socket_is_valid(wsi->io.desc.sockfd));
 
 __lws_change_pollfd(wsi, LWS_POLLOUT | LWS_POLLIN, 0);
 
 /* copy the fd */
-wnew->desc = wsi->desc;
+wnew->io.desc = wsi->io.desc;
 
-assert(lws_socket_is_valid(wnew->desc.sockfd));
+assert(lws_socket_is_valid(wnew->io.desc.sockfd));
 
 /* disconnect the fd from association with old wsi */
 
@@ -1477,8 +1477,8 @@ if (__remove_wsi_socket_from_fds(wsi))
 	return -1; /* we must not return holding the vh lock */
 
 sanity_assert_no_wsi_traces(wsi->a.context, wsi);
-sanity_assert_no_sockfd_traces(wsi->a.context, wsi->desc.sockfd);
-wsi->desc.sockfd = LWS_SOCK_INVALID;
+sanity_assert_no_sockfd_traces(wsi->a.context, wsi->io.desc.sockfd);
+wsi->io.desc.sockfd = LWS_SOCK_INVALID;
 
 /*
  * ... we're doing some magic here in terms of handing off the socket
@@ -1498,8 +1498,8 @@ if (wsi->a.context->event_loop_ops->sock_accept &&
 	 * not go into the fds table where nothing would ever service
 	 * or close his fd
 	 */
-	compatible_close(wnew->desc.sockfd);
-	wnew->desc.sockfd = LWS_SOCK_INVALID;
+	compatible_close(wnew->io.desc.sockfd);
+	wnew->io.desc.sockfd = LWS_SOCK_INVALID;
 
 	return -1;
 }
@@ -1507,7 +1507,7 @@ if (wsi->a.context->event_loop_ops->sock_accept &&
 
 /* point the fd table entry to new guy */
 
-assert(lws_socket_is_valid(wnew->desc.sockfd));
+assert(lws_socket_is_valid(wnew->io.desc.sockfd));
 
 if (__insert_wsi_socket_into_fds(wsi->a.context, wnew)) {
 	/*
@@ -1516,8 +1516,8 @@ if (__insert_wsi_socket_into_fds(wsi->a.context, wnew)) {
 	 * ever poll or close it now, so close it here rather than
 	 * leak it
 	 */
-	compatible_close(wnew->desc.sockfd);
-	wnew->desc.sockfd = LWS_SOCK_INVALID;
+	compatible_close(wnew->io.desc.sockfd);
+	wnew->io.desc.sockfd = LWS_SOCK_INVALID;
 
 	return -1;
 }

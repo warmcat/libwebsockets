@@ -42,9 +42,9 @@
 #define compatible_close(x) close(x)
 #define lws_plat_socket_offset() (0)
 #define wsi_from_fd(A,B)  A->lws_lookup[B - lws_plat_socket_offset()]
-#define insert_wsi(A,B)   assert(A->lws_lookup[B->desc.sockfd - \
+#define insert_wsi(A,B)   assert(A->lws_lookup[B->io.desc.sockfd - \
 				  lws_plat_socket_offset()] == 0); \
-				 A->lws_lookup[B->desc.sockfd - \
+				 A->lws_lookup[B->io.desc.sockfd - \
 				  lws_plat_socket_offset()] = B
 #define delete_from_fd(A,B)  assert((int)A->max_fds > B - lws_plat_socket_offset()); \
     A->lws_lookup[B - lws_plat_socket_offset()] = 0

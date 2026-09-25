@@ -26,7 +26,7 @@
 #include "private-lib-event-libs-uloop.h"
 
 #define pt_to_priv_uloop(_pt) ((struct lws_pt_eventlibs_uloop *)(_pt)->evlib_pt)
-#define wsi_to_priv_uloop(_w) ((struct lws_wsi_eventlibs_uloop *)(_w)->evlib_wsi)
+#define wsi_to_priv_uloop(_w) ((struct lws_wsi_eventlibs_uloop *)(_w)->io.evlib_wsi)
 
 /*
  * uloop_timeout_set() takes an int ms... a sul scheduled further out than
@@ -159,7 +159,7 @@ elops_listen_init_uloop(struct lws_dll2 *d, void *user)
 	struct lws_wsi_eventlibs_uloop *wu = wsi_to_priv_uloop(wsi);
 
 	wu->wsi = wsi;
-	wu->fd.fd = wsi->desc.sockfd;
+	wu->fd.fd = wsi->io.desc.sockfd;
 	wu->fd.cb = lws_uloop_cb;
 	uloop_fd_add(&wu->fd,  ULOOP_READ);
 	wu->actual_events = ULOOP_READ;
@@ -197,7 +197,7 @@ elops_accept_uloop(struct lws *wsi)
 	struct lws_wsi_eventlibs_uloop *wu = wsi_to_priv_uloop(wsi);
 
 	wu->wsi = wsi;
-	wu->fd.fd = wsi->desc.sockfd;
+	wu->fd.fd = wsi->io.desc.sockfd;
 	wu->fd.cb = lws_uloop_cb;
 	uloop_fd_add(&wu->fd, ULOOP_READ);
 	wu->actual_events = ULOOP_READ;
@@ -295,7 +295,7 @@ elops_init_vhost_listen_wsi_uloop(struct lws *wsi)
 
 	wu = wsi_to_priv_uloop(wsi);
 	wu->wsi = wsi;
-	wu->fd.fd = wsi->desc.sockfd;
+	wu->fd.fd = wsi->io.desc.sockfd;
 	wu->fd.cb = lws_uloop_cb;
 	uloop_fd_add(&wu->fd,  ULOOP_READ);
 

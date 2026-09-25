@@ -52,7 +52,7 @@
 
  #define compatible_close(fd) closesocket(fd)
  #define compatible_file_close(fd) CloseHandle(fd)
- #define lws_set_blocking_send(wsi) wsi->sock_send_blocking = 1
+ #define lws_set_blocking_send(wsi) wsi->io.sock_send_blocking = 1
 
  #include <winsock2.h>
  #include <ws2tcpip.h>

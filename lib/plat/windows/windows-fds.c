@@ -34,7 +34,7 @@ wsi_from_fd(const struct lws_context *context, lws_sockfd_type fd)
 	int n = 0;
 
 	for (n = 0; n < context->fd_hashtable[h].length; n++)
-		if (context->fd_hashtable[h].wsi[n]->desc.sockfd == fd)
+		if (context->fd_hashtable[h].wsi[n]->io.desc.sockfd == fd)
 			return context->fd_hashtable[h].wsi[n];
 
 	return NULL;
@@ -43,7 +43,7 @@ wsi_from_fd(const struct lws_context *context, lws_sockfd_type fd)
 int
 insert_wsi(struct lws_context *context, struct lws *wsi)
 {
-	int h = LWS_FD_HASH(wsi->desc.sockfd);
+	int h = LWS_FD_HASH(wsi->io.desc.sockfd);
 
 	/*
 	 * The bucket is context->max_fds entries, and max_fds is reduced from
@@ -68,7 +68,7 @@ delete_from_fd(struct lws_context *context, lws_sockfd_type fd)
 	int n = 0;
 
 	for (n = 0; n < context->fd_hashtable[h].length; n++)
-		if (context->fd_hashtable[h].wsi[n]->desc.sockfd == fd) {
+		if (context->fd_hashtable[h].wsi[n]->io.desc.sockfd == fd) {
 			/*
 			 * Compaction must stop at the last live element...
 			 * going to length would read wsi[length], one past it

@@ -254,7 +254,7 @@ lws_quic_prefaddr_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
 	new_sock.sockfd = n_fd;
 
 	lws_pt_lock(pt, __func__);
-	if (lws_socket_is_valid(nwsi->desc.sockfd))
+	if (lws_socket_is_valid(nwsi->io.desc.sockfd))
 		__remove_wsi_socket_from_fds(nwsi);
 
 	/*
@@ -274,12 +274,12 @@ lws_quic_prefaddr_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
 	else
 #endif
 	{
-		if (lws_socket_is_valid(nwsi->desc.sockfd))
-			compatible_close(nwsi->desc.sockfd);
-		nwsi->desc.sockfd = LWS_SOCK_INVALID;
+		if (lws_socket_is_valid(nwsi->io.desc.sockfd))
+			compatible_close(nwsi->io.desc.sockfd);
+		nwsi->io.desc.sockfd = LWS_SOCK_INVALID;
 	}
 
-	nwsi->desc = new_sock;
+	nwsi->io.desc = new_sock;
 
 #if defined(LWS_WITH_EVENT_LIBS)
 	if (cx->event_loop_ops->sock_accept)
@@ -2044,7 +2044,7 @@ tp_ok:
 #endif
 
 					/* Re-connect the socket to the new server address */
-					if (connect(nwsi->desc.sockfd, sa46_sockaddr(&migration_sa46), sa46_socklen(&migration_sa46)) < 0) {
+					if (connect(nwsi->io.desc.sockfd, sa46_sockaddr(&migration_sa46), sa46_socklen(&migration_sa46)) < 0) {
 						lwsl_warn("QUIC: failed to re-connect client socket, errno=%d\n", errno);
 					}
 
@@ -3896,12 +3896,12 @@ rops_adoption_bind_quic(struct lws *wsi, int type, const char *vh_prot_name)
                 int opt = 1;
                 (void)opt;
 #if defined(IP_RECVTOS)
-                if (setsockopt(wsi->desc.sockfd, IPPROTO_IP, IP_RECVTOS, &opt, sizeof(opt)))
+                if (setsockopt(wsi->io.desc.sockfd, IPPROTO_IP, IP_RECVTOS, &opt, sizeof(opt)))
                     lwsl_wsi_info(wsi, "setsockopt IP_RECVTOS failed\n");
 #endif
 #if defined(LWS_WITH_IPV6)
 #if defined(IPV6_RECVTCLASS)
-                if (setsockopt(wsi->desc.sockfd, IPPROTO_IPV6, IPV6_RECVTCLASS, &opt, sizeof(opt)))
+                if (setsockopt(wsi->io.desc.sockfd, IPPROTO_IPV6, IPV6_RECVTCLASS, &opt, sizeof(opt)))
                     lwsl_wsi_info(wsi, "setsockopt IPV6_RECVTCLASS failed\n");
 #endif
 #endif
@@ -3909,12 +3909,12 @@ rops_adoption_bind_quic(struct lws *wsi, int type, const char *vh_prot_name)
                 int tos = 0x02;
                 (void)tos;
 #if defined(IP_TOS)
-                if (setsockopt(wsi->desc.sockfd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos)))
+                if (setsockopt(wsi->io.desc.sockfd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos)))
                     lwsl_wsi_info(wsi, "setsockopt IP_TOS failed\n");
 #endif
 #if defined(LWS_WITH_IPV6)
 #if defined(IPV6_TCLASS)
-                if (setsockopt(wsi->desc.sockfd, IPPROTO_IPV6, IPV6_TCLASS, &tos, sizeof(tos)))
+                if (setsockopt(wsi->io.desc.sockfd, IPPROTO_IPV6, IPV6_TCLASS, &tos, sizeof(tos)))
                     lwsl_wsi_info(wsi, "setsockopt IPV6_TCLASS failed\n");
 #endif
 #endif
@@ -3931,7 +3931,7 @@ rops_adoption_bind_quic(struct lws *wsi, int type, const char *vh_prot_name)
 			lws_wsi_event_role(wsi, LWS_WSIEV_ADOPTED, &role_ops_quic);
 		lws_bind_protocol(wsi, wsi->a.protocol, __func__);
 
-		if ((type & _LWS_ADOPT_FINISH) && wsi->do_bind) {
+		if ((type & _LWS_ADOPT_FINISH) && wsi->io.do_bind) {
 			wsi->listener = 1;
 #if defined(LWS_WITH_SERVER)
 			if (!lws_dll2_owner(&wsi->listen_list))
@@ -4662,8 +4662,8 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 #endif
 
 	/* Transfer the socket fd and fds table entry if valid */
-	nwsi->desc = wsi->desc;
-	if (lws_socket_is_valid(wsi->desc.sockfd)) {
+	nwsi->io.desc = wsi->io.desc;
+	if (lws_socket_is_valid(wsi->io.desc.sockfd)) {
 		struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 		lws_pt_lock(pt, __func__);
@@ -4672,7 +4672,7 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "fd table fail");
 			return 1;
 		}
-		wsi->desc.sockfd = LWS_SOCK_INVALID;
+		wsi->io.desc.sockfd = LWS_SOCK_INVALID;
 #if defined(LWS_WITH_EVENT_LIBS)
 		if (wsi->a.context->event_loop_ops->evlib_size_wsi) {
 			/*
@@ -4685,8 +4685,8 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 			if (wsi->a.context->event_loop_ops->migrate_wsi)
 				wsi->a.context->event_loop_ops->migrate_wsi(wsi, nwsi);
 			else {
-				memcpy(nwsi->evlib_wsi, wsi->evlib_wsi, wsi->a.context->event_loop_ops->evlib_size_wsi);
-				memset(wsi->evlib_wsi, 0, wsi->a.context->event_loop_ops->evlib_size_wsi);
+				memcpy(nwsi->io.evlib_wsi, wsi->io.evlib_wsi, wsi->a.context->event_loop_ops->evlib_size_wsi);
+				memset(wsi->io.evlib_wsi, 0, wsi->a.context->event_loop_ops->evlib_size_wsi);
 			}
 		}
 #endif
