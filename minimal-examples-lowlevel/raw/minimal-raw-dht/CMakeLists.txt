@@ -48,12 +48,26 @@ if (requirements)
 
 	if (NOT WIN32)
 
+		#
+		# Every one of these runs creates an http stats vhost as well
+		# as its DHT socket.  Without --stats-port the example derives
+		# that from the DHT port as port + 100, which is a port nobody
+		# allocated: it lands inside the range lws_get_free_port()
+		# hands out, so on a busy builder it is liable to be the port
+		# some other test was legitimately given, and the bind fails
+		# with EADDRINUSE.  Allocate one for each of them instead.
+		#
+
 		lws_get_free_port(PORT_DHT_SRV)
 		lws_get_free_port(PORT_DHT_HTTP)
 		lws_get_free_port(PORT_DHT_CLI)
+		lws_get_free_port(PORT_DHT_CLI_HTTP)
 		lws_get_free_port(PORT_DHT_BULK)
+		lws_get_free_port(PORT_DHT_BULK_HTTP)
 		lws_get_free_port(PORT_DHT_GEN)
+		lws_get_free_port(PORT_DHT_GEN_HTTP)
 		lws_get_free_port(PORT_DHT_MAN)
+		lws_get_free_port(PORT_DHT_MAN_HTTP)
 
 		add_test(NAME st_raw_dht_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
@@ -79,7 +93,7 @@ if (requirements)
 
 		add_test(NAME raw_dht_cli COMMAND
 			$<TARGET_FILE:lws-minimal-raw-dht>
-			-s dht-store-cli -p ${PORT_DHT_CLI} --put test-data.txt --target-ip 127.0.0.1 --target-port ${PORT_DHT_SRV} --domain test.com)
+			-s dht-store-cli -p ${PORT_DHT_CLI} --stats-port ${PORT_DHT_CLI_HTTP} --put test-data.txt --target-ip 127.0.0.1 --target-port ${PORT_DHT_SRV} --domain test.com)
 
 		set_tests_properties(raw_dht_cli PROPERTIES
 			FIXTURES_REQUIRED "raw_dht_srv"
@@ -89,7 +103,7 @@ if (requirements)
 
 		add_test(NAME raw_dht_bulk COMMAND
 			$<TARGET_FILE:lws-minimal-raw-dht>
-			-s dht-store-bulk -p ${PORT_DHT_BULK} --bulk --target-ip 127.0.0.1 --target-port ${PORT_DHT_SRV} --domain test.com)
+			-s dht-store-bulk -p ${PORT_DHT_BULK} --stats-port ${PORT_DHT_BULK_HTTP} --bulk --target-ip 127.0.0.1 --target-port ${PORT_DHT_SRV} --domain test.com)
 
 		set_tests_properties(raw_dht_bulk PROPERTIES
 			FIXTURES_REQUIRED "raw_dht_srv"
@@ -100,14 +114,14 @@ if (requirements)
 		# 1. Generate Manifest (Sender)
 		add_test(NAME raw_dht_gen_manifest COMMAND
 			${CMAKE_COMMAND}
-			"-DCMD=$<TARGET_FILE:lws-minimal-raw-dht>;-s;dht-store-upl;-p;${PORT_DHT_GEN};--bulk;--gen-manifest;--target-ip;127.0.0.1;--target-port;${PORT_DHT_SRV};--domain;test.com"
+			"-DCMD=$<TARGET_FILE:lws-minimal-raw-dht>;-s;dht-store-upl;-p;${PORT_DHT_GEN};--stats-port;${PORT_DHT_GEN_HTTP};--bulk;--gen-manifest;--target-ip;127.0.0.1;--target-port;${PORT_DHT_SRV};--domain;test.com"
 			"-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/manifest.txt"
 			-P "${CMAKE_SOURCE_DIR}/scripts/ctest-redirect.cmake")
 
 		# 2. Consume Manifest (Receiver)
 		add_test(NAME raw_dht_manifest COMMAND
 			${CMAKE_COMMAND}
-			"-DCMD=$<TARGET_FILE:lws-minimal-raw-dht>;-s;dht-store-man;-p;${PORT_DHT_MAN};--receiver;--target-ip;127.0.0.1;--target-port;${PORT_DHT_SRV};--domain;test.com"
+			"-DCMD=$<TARGET_FILE:lws-minimal-raw-dht>;-s;dht-store-man;-p;${PORT_DHT_MAN};--stats-port;${PORT_DHT_MAN_HTTP};--receiver;--target-ip;127.0.0.1;--target-port;${PORT_DHT_SRV};--domain;test.com"
 			"-DINPUT=${CMAKE_CURRENT_BINARY_DIR}/manifest.txt"
 			-P "${CMAKE_SOURCE_DIR}/scripts/ctest-redirect.cmake")
 
