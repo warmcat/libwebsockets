@@ -1618,7 +1618,7 @@ int
 lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
 		  const lws_sockaddr46 *dest)
 {
-	struct lws *nwsi = lws_get_network_wsi(wsi);
+	struct lws *nwsi = lws_wsi_socket_owner(wsi);
 	lws_sockfd_type fd = nwsi->io.desc.sockfd;
 	int n, e;
 

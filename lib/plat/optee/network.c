@@ -62,7 +62,7 @@ lws_send_pipe_choked(struct lws *wsi)
 	struct lws *wsi_eff;
 
 #if defined(LWS_WITH_HTTP2)
-	wsi_eff = lws_get_network_wsi(wsi);
+	wsi_eff = lws_wsi_socket_owner(wsi);
 #else
 	wsi_eff = wsi;
 #endif

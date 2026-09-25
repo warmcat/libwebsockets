@@ -1420,6 +1420,14 @@ lws_wsi_is_mux_nwsi(struct lws *wsi);
 int
 lws_wsi_client_nwsi_migrated(struct lws *wsi);
 
+/*
+ * The wsi whose socket carries wsi's traffic: the network wsi, except that a
+ * server-side quic connection sends and polls through the udp listener it
+ * hangs off
+ */
+struct lws *
+lws_wsi_socket_owner(struct lws *wsi);
+
 #if defined(LWS_WITH_CLIENT)
 void
 lws_wsi_mux_client_idle_check(struct lws *nwsi);

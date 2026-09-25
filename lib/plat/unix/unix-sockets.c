@@ -67,7 +67,7 @@ lws_send_pipe_choked(struct lws *wsi)
 #endif
 
 #if defined(LWS_WITH_HTTP2)
-	wsi_eff = lws_get_network_wsi(wsi);
+	wsi_eff = lws_wsi_socket_owner(wsi);
 
 	/*
 	 * ws-over-h2: whole DATA frames parked on the stream awaiting h2

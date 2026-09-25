@@ -538,10 +538,38 @@ struct lws *lws_get_network_wsi(struct lws *wsi) {
 	   )
 		return wsi;
 
-	while (wsi->mux.parent_wsi)
+	/*
+	 * A quic connection on the server side hangs off the udp listener as
+	 * one of its mux children, so the listener can hand it its packets:
+	 * the listener is the connection's parent but not its network
+	 * connection, and stamping or closing "the network wsi" of an h3
+	 * stream must land on the connection.  Stop below a listener.
+	 */
+	while (wsi->mux.parent_wsi
+#if defined(LWS_WITH_SERVER)
+	       && lws_dll2_is_detached(&wsi->mux.parent_wsi->listen_list)
+#endif
+	      )
 		wsi = wsi->mux.parent_wsi;
 #endif
 
+	return wsi;
+}
+
+struct lws *
+lws_wsi_socket_owner(struct lws *wsi)
+{
+	wsi = lws_get_network_wsi(wsi);
+#if defined(LWS_WITH_SERVER) && defined(LWS_ROLE_QUIC)
+	/*
+	 * A server-side quic connection has no socket of its own: its
+	 * datagrams leave by the udp listener it hangs off, and POLLOUT for
+	 * it is asked of the listener's fd
+	 */
+	if (wsi && wsi->mux.parent_wsi &&
+	    !lws_dll2_is_detached(&wsi->mux.parent_wsi->listen_list))
+		return wsi->mux.parent_wsi;
+#endif
 	return wsi;
 }
 
@@ -964,7 +992,7 @@ lws_callback_on_writable(struct lws *wsi)
 						      callback_on_writable(wsi);
 		if (q)
 			return 1;
-		w = lws_get_network_wsi(wsi);
+		w = lws_wsi_socket_owner(wsi);
 	}
 
 	/* without a transport yet there is nothing to arm: IO says so */
@@ -2287,7 +2315,7 @@ struct lws *lws_wsi_mux_move_child_to_tail(struct lws *parent_wsi) {
 }
 
 int lws_wsi_mux_action_pending_writeable_reqs(struct lws *wsi) {
-	struct lws *nwsi = lws_get_network_wsi(wsi);
+	struct lws *nwsi = lws_wsi_socket_owner(wsi);
 
 	if (wsi->mux.requested_POLLOUT) {
 		if (lws_io_want_write(nwsi))

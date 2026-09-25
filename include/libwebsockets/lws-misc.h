@@ -1262,6 +1262,8 @@ lws_get_close_payload(struct lws *wsi);
  *
  * HTTP/1 connections will always return the incoming wsi
  * HTTP/2 connections may return a different wsi that has the tcp connection
+ * HTTP/3 streams return the wsi that has the quic connection: on a server
+ * that is the connection, never the udp listener it receives its packets by
  */
 LWS_VISIBLE LWS_EXTERN
 struct lws *lws_get_network_wsi(struct lws *wsi);
