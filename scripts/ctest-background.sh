@@ -6,7 +6,9 @@
 # $2 - executable
 # $3+ - args
 
-J=`basename $2`.$1.$SAI_INSTANCE_IDX
+FIXTURE_NAME=$1
+FIXTURE_EXE=`basename $2`
+. "$(dirname "$0")/ctest-fixture-key.sh"
 
 EXE_PATH=""
 for arg in "$@"; do
@@ -27,14 +29,13 @@ fi
 # We shift off $1 (the background fixture name) so that "$@" contains only the executable and its args.
 shift
 
-"$@" -d1039 2>/tmp/ctest-background-$J 1>/dev/null 0</dev/null &
-echo $! > /tmp/sai-ctest-$J
+"$@" -d1039 2>"$FIX_LOG" 1>/dev/null 0</dev/null &
+echo $! > "$FIX_PID"
 
 # really we want to loop until the listen port is up
 # on, eg, rpi it can be blocked at sd card and slow to start
 # due to parallel tests and disc cache flush
 
-# echo "runscript SAI_LIST_PORT ${SAI_LIST_PORT}" > /tmp/q
 
 if [ -z "${SAI_LIST_PORT}" ] ; then
 
@@ -42,6 +43,15 @@ if [ -z "${SAI_LIST_PORT}" ] ; then
 		sleep 15
 	else
 		sleep 1
+	fi
+
+	# The port being listened on is not proof it is ours: a stale server on it
+	# leaves our child dead of EADDRINUSE while the port looks up, and the tests
+	# would then run against a stranger.  The child must still be alive.
+	if ! kill -0 $! 2>/dev/null ; then
+		echo "Background process $! died; its log:" >&2
+		cat "$FIX_LOG" >&2
+		exit 1
 	fi
 else
 	if [ "`uname -s`" = "Darwin" ] || [ "${VENDOR}" = "apple" ] ; then
@@ -55,7 +65,7 @@ else
 			if ! kill -0 $! 2>/dev/null ; then
 				echo "Background process died while waiting for port ${SAI_LIST_PORT}" >&2
 				echo "Background process logs:" >&2
-				cat /tmp/ctest-background-$J >&2
+				cat "$FIX_LOG" >&2
 				exit 1
 			fi
 			if [ $CNT -gt 60 ] ; then
@@ -63,7 +73,7 @@ else
 				echo "Background process state:" >&2
 				ps -fp $! >&2
 				echo "Background process logs:" >&2
-				cat /tmp/ctest-background-$J >&2
+				cat "$FIX_LOG" >&2
 				if command -v pgrep >/dev/null 2>&1; then
 					CPIDS=`pgrep -P $!`
 					for i in $CPIDS ; do
@@ -101,7 +111,7 @@ else
 			if ! kill -0 $! 2>/dev/null ; then
 				echo "Background process died while waiting for port ${SAI_LIST_PORT}" >&2
 				echo "Background process logs:" >&2
-				cat /tmp/ctest-background-$J >&2
+				cat "$FIX_LOG" >&2
 				exit 1
 			fi
 			if [ $CNT -gt 60 ] ; then
@@ -109,7 +119,7 @@ else
 				echo "Background process state:" >&2
 				ps -fp $! >&2
 				echo "Background process logs:" >&2
-				cat /tmp/ctest-background-$J >&2
+				cat "$FIX_LOG" >&2
 				echo "Listen socket output:" >&2
 				if command -v netstat >/dev/null 2>&1 ; then
 					netstat -an >&2
@@ -131,6 +141,15 @@ else
 			CNT=$((CNT + 1))
 			sleep 0.5
 		done
+	fi
+
+	# The port being listened on is not proof it is ours: a stale server on it
+	# leaves our child dead of EADDRINUSE while the port looks up, and the tests
+	# would then run against a stranger.  The child must still be alive.
+	if ! kill -0 $! 2>/dev/null ; then
+		echo "Background process $! died; its log:" >&2
+		cat "$FIX_LOG" >&2
+		exit 1
 	fi
 
 	sleep 1

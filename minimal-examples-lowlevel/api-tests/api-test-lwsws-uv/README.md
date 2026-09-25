@@ -15,7 +15,7 @@ connect race under libuv.
 `st_lwsws_uv` / `ki_lwsws_uv` start and stop `lwsws` through
 `scripts/ctest-background.sh`, which appends `-d1039`; that is what makes lwsws
 install its crash handler, so a `SIGSEGV` in the worker prints a backtrace into
-the fixture log (`/tmp/ctest-background-lwsws.lwsws_uv.*`).  The kill test
+the fixture log (`Testing/fixtures/lwsws.lwsws_uv.*.log` in the build tree).  The kill test
 prints that log.
 
 CMake generates the config from `conf.in` and `conf.d/apitest.json.in` with

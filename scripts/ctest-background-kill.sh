@@ -7,8 +7,15 @@
 
 echo "$0 $1 $2 $3 $4"
 
-J=`basename $2`.$1.$SAI_INSTANCE_IDX
-PI=`cat /tmp/sai-ctest-$J`
+FIXTURE_NAME=$1
+FIXTURE_EXE=`basename $2`
+. "$(dirname "$0")/ctest-fixture-key.sh"
+
+if [ ! -f "$FIX_PID" ] ; then
+	echo "No pid file $FIX_PID for background task $J"
+	exit 1
+fi
+PI=`cat "$FIX_PID"`
 
 #
 # We expect our background process to initially still be around
@@ -21,12 +28,12 @@ echo "Background task $PI: $J"
 
 if [ $GONESKI -eq 1 ] ; then
 	echo "Background Process $PI unexpectedly dead already, their log"
-	cat /tmp/ctest-background-$J
+	cat "$FIX_LOG"
 	exit 1
 fi
 
 echo "Background task $PI: $J logs before kill:"
-cat /tmp/ctest-background-$J
+cat "$FIX_LOG"
 
 echo "Trying SIGTERM..."
 
@@ -67,6 +74,7 @@ while [ $BUDGET -ne 0 ] ; do
         done
         if [ $STILL_ALIVE -eq 0 ] ; then
                 echo "Went down OK"
+                rm -f "$FIX_PID"
                 exit 0
         fi
         BUDGET=$(( $BUDGET - 1 ))
@@ -95,6 +103,7 @@ while [ $BUDGET -ne 0 ] ; do
         done
         if [ $STILL_ALIVE -eq 0 ] ; then
                 echo "Went down OK after SIGKILL"
+                rm -f "$FIX_PID"
                 exit 0
         fi
         BUDGET=$(( $BUDGET - 1 ))
