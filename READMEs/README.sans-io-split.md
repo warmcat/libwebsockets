@@ -38,7 +38,7 @@ things only through these requests.  Nothing else crosses.
 |---|---|---|
 | IO -> sansIO | **rx(bytes) -> consumed**: bytes arrived, take what you can; an empty rx is the peer closing | the `rx` role op, fed by `lws_rx_pump()` from every role's `handle_POLLIN`; the app's pull of a response body, `lws_http_client_read()`, is the same read at the app's pace into the app's buffer, feeding `lws_h1_client_body_rx()` |
 | IO -> sansIO | **rx_dgram(bytes, peer, ecn) -> ok**: the datagram spelling of rx: one datagram arrived from this peer with these ECN bits; it is taken whole, nothing is parked | the `rx_dgram` role op, fed by `lws_rx_pump_dgram()`; quic |
-| IO -> sansIO | **tx(buf, max) -> n, more**: the transport can take bytes: fill the caller's buffer with the next ones to send, from wherever you got to last time, and say whether more remain | `lws_write()` composing into the `LWS_PRE` headroom then `lws_issue_raw()`; role `handle_POLLOUT` |
+| IO -> sansIO | **tx(buf, max) -> n, more**: the transport can take bytes: fill the caller's buffer with the next ones to send, from wherever you got to last time, and say whether more remain | `lws_write()` composing into the `LWS_PRE` headroom then `lws_issue_raw()`; role `handle_POLLOUT`.  Converted: the status page (`lws_http_status_page_send_pending()`), file serving (`lws_http_file_tx()` producing, `lws_serve_http_file_fragment()` in IO driving) |
 | IO -> sansIO | **deadline()**: the deadline you set has passed | `sul` callbacks, `lws_sul_wsitimeout_cb` |
 | IO -> sansIO | **transport(up / failed / gone)** | `client_transport_up` op, `LWS_WSIEV_TRANSPORT_UP`, `CONN_FAILED`, `SOCKET_GONE` |
 | sansIO -> IO | **want_write()**: call tx when the transport can take bytes | `lws_callback_on_writable()`; `lws_service_wsi_as_writable()` is the same request served now |
@@ -60,6 +60,35 @@ for the transport's own short writes, never as a place for sansIO to park
 what it could not send.  Where the whole thing fits one call, one call;
 the state machine is for what may not, above all quic, whose packets are
 sized to a dynamic MTU.
+
+**A content source's tx.**  File serving is the shape every tx of a
+source follows:
+
+    n = tx(wsi, buf, max, &p, &flags, &last)
+
+IO owns `buf` (the pt serv_buf behind its `LWS_PRE` headroom) and says how
+much of it, `max`, may be used.  sansIO fills it with the payload of the
+next `lws_write()` and returns:
+
+| return | meaning |
+|---|---|
+| n > 0 | n bytes at `p` in `buf`; `flags` says how the role frames them; `last` says they end the response |
+| 0 | nothing more: the source is finished |
+| `LWS_TX_WAIT` | nothing now, and sansIO has asked want_write for when there is (its read went to a worker thread, its tx credit is spent) |
+| `LWS_TX_FAIL` | the source failed and has cleaned up; IO closes |
+
+sansIO's position advances by what it produced: once produced, bytes are
+IO's, and IO's partial-send buffer holds what the transport does not take
+at once.  sansIO applies its own clamps inside `max`, from what the peer
+told it (h2 max frame size, tx credit, a Range budget) and what its own
+framing needs (a chunk header's room, a transform's growth); IO never
+knows why n is less than max.  The driver is IO's: while the transport can
+take more, tx then write; when tx says the source is finished and nothing
+of it is left buffered, tell sansIO the response completed.
+
+The file system is a content source, not the transport: reading the file,
+and handing that read to a worker thread, are the source's business and
+stay on the sansIO side of this line.
 
 Time is an input: sansIO is told the deadline passed, it never reads the
 clock to decide anything.  Reading the clock for a log line or a metric

@@ -625,6 +625,12 @@ typedef int (*lws_rops_client_transport_up_t)(struct lws *wsi);
  */
 #define LWS_RX_DIED	(-1)
 #define LWS_RX_CLOSE	(-2)
+/*
+ * sansIO tx of a content source (README.sans-io-split.md, "A content
+ * source's tx"): bytes produced, 0 when finished, or one of these
+ */
+#define LWS_TX_FAIL	(-1)	/* the source failed and cleaned up */
+#define LWS_TX_WAIT	(-2)	/* nothing now; want_write asked for later */
 typedef int (*lws_rops_rx_t)(struct lws *wsi, const uint8_t *buf, size_t len,
 			     int from_transport);
 /*

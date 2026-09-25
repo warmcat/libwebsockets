@@ -427,6 +427,17 @@ enum lws_chunk_parser {
 int
 lws_http_dechunk_framing(struct lws *wsi, unsigned char **buf, size_t *len);
 
+#if defined(LWS_WITH_FILE_OPS)
+/* the sansIO side of serving a file: its tx, its completion, its failure */
+int
+lws_http_file_tx(struct lws *wsi, unsigned char *buf, size_t max,
+		 unsigned char **pp, enum lws_write_protocol *wp, int *last);
+int
+lws_http_file_complete(struct lws *wsi);
+void
+lws_http_file_tx_abort(struct lws *wsi);
+#endif
+
 void
 lws_header_table_rx_snapshot(struct lws *wsi);
 void

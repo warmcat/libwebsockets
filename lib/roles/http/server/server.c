@@ -4383,484 +4383,451 @@ bail:
 
 #if defined(LWS_WITH_FILE_OPS)
 
-int lws_serve_http_file_fragment(struct lws *wsi)
+/*
+ * sansIO tx of the file being served (README.sans-io-split.md, "A content
+ * source's tx").  Fills buf, of which max may be used, with the payload of
+ * the next lws_write(): any multipart range header, then the file bytes,
+ * transformed in place if the mount asks, sized by what the peer allows (h2
+ * max frame size, tx credit, the Range budget) and what the framing needs.
+ * The file position advances by what was produced.
+ *
+ * Returns the count of bytes at *pp, with *wp how the role frames them and
+ * *last whether they end the response; 0 when there is nothing more;
+ * LWS_TX_WAIT when there is nothing now and want_write is asked for when
+ * there is (the read went to a worker thread, tx credit is spent);
+ * LWS_TX_FAIL when the source failed, with the file closed.
+ */
+int
+lws_http_file_tx(struct lws *wsi, unsigned char *buf, size_t max,
+		 unsigned char **pp, enum lws_write_protocol *wp, int *last)
 {
-	struct lws_context *context = wsi->a.context;
-	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+#if defined(LWS_WITH_LATENCY)
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+#endif
 	struct lws_process_html_args args;
 	lws_filepos_t amount, poss, room;
 	unsigned char *p, *pstart, *bufend;
-#if defined(LWS_WITH_RANGES)
-	unsigned char finished = 0;
-#endif
 #if defined(LWS_ROLE_H2)
 	struct lws *nwsi;
 #endif
-	int n, m;
+	int n;
 
-	// lwsl_wsi_notice(wsi, "entry, state=%d", lwsi_state(wsi));
-	lwsl_debug("wsi->mux_substream %d\n", wsi->mux_substream);
+	*last = 0;
+	*wp = LWS_WRITE_HTTP;
 
-	do {
+	/*
+	 * We are going to read the file: if it is not open, the only thing
+	 * we can do with the connection is close it.  It means somebody left
+	 * us in LRS_ISSUING_FILE without a file, which is a bug, but it must
+	 * not be a remote crash.
+	 */
+	if (!wsi->http.fop_fd) {
+		lwsl_wsi_err(wsi, "issuing file with no file open");
 
-		/* priority 1: buffered output */
+		return LWS_TX_FAIL;
+	}
 
-		if (lws_has_buffered_out(wsi)) {
-			if (lws_issue_raw(wsi, NULL, 0) < 0) {
-				lwsl_info("%s: closing\n", __func__);
-				goto file_had_it;
-			}
-			break;
-		}
+	if (wsi->http.filepos == wsi->http.filelen)
+		return 0;
 
-		/* priority 2: buffered pre-compression-transform */
+#if defined(LWS_WITH_RANGES)
+	if (wsi->http.range.count_ranges && !wsi->http.range.inside &&
+	    (wsi->http.range.state == LWSRS_COMPLETED ||
+	     wsi->http.range.state == LWSRS_SYNTAX))
+		/* the last range's budget was spent */
+		return 0;
+#endif
 
-#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
-	if (wsi->http.comp_ctx.buflist_comp ||
-	    wsi->http.comp_ctx.may_have_more) {
-		enum lws_write_protocol wp = LWS_WRITE_HTTP;
+	n = 0;
+	p = pstart = buf;
+	bufend = buf + max;
 
-		lwsl_info("%s: completing comp partial (buflist %p, may %d)\n",
-			   __func__, wsi->http.comp_ctx.buflist_comp,
-			   wsi->http.comp_ctx.may_have_more);
+#if defined(LWS_WITH_RANGES)
+	if (wsi->http.range.count_ranges && !wsi->http.range.inside) {
 
-		if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol) &&
-		    lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol).
-					write_role_protocol(wsi, NULL, 0, &wp) < 0) {
-			lwsl_info("%s signalling to close\n", __func__);
+		lwsl_notice("%s: doing range start %llu\n", __func__,
+			    wsi->http.range.start);
+
+		if ((long long)lws_vfs_file_seek_cur(wsi->http.fop_fd,
+					   (lws_fileofs_t)wsi->http.range.start -
+					   (lws_fileofs_t)wsi->http.filepos) < 0)
 			goto file_had_it;
-		}
-		lws_callback_on_writable(wsi);
 
-		break;
+		wsi->http.filepos = wsi->http.range.start;
+
+		if (wsi->http.range.count_ranges > 1) {
+			n =  lws_snprintf((char *)p,
+					lws_ptr_diff_size_t(bufend, p),
+				"_lws\x0d\x0a"
+				"Content-Type: %s\x0d\x0a"
+				"Content-Range: bytes "
+					"%llu-%llu/%llu\x0d\x0a"
+				"\x0d\x0a",
+				wsi->http.multipart_content_type,
+				wsi->http.range.start,
+				wsi->http.range.end,
+				wsi->http.range.extent);
+			p += n;
+		}
+
+		wsi->http.range.budget = wsi->http.range.end -
+					   wsi->http.range.start + 1;
+		wsi->http.range.inside = 1;
 	}
 #endif
 
-		/*
-		 * Whatever was already buffered from the file went out above
-		 * without needing it, but from here on we are going to read
-		 * the file: if it is not open, the only thing we can do with
-		 * the connection is close it.  It means somebody left us in
-		 * LRS_ISSUING_FILE without a file, which is a bug, but it
-		 * must not be a remote crash.
-		 */
-		if (!wsi->http.fop_fd) {
-			lwsl_wsi_err(wsi, "issuing file with no file open");
-
-			goto file_had_it;
-		}
-
-		if (wsi->http.filepos == wsi->http.filelen)
-			goto all_sent;
-
-		n = 0;
-		p = pstart = pt->serv_buf + LWS_PRE;
-		bufend = pt->serv_buf + context->pt_serv_buf_size;
-
-#if defined(LWS_WITH_RANGES)
-		if (wsi->http.range.count_ranges && !wsi->http.range.inside) {
-
-			lwsl_notice("%s: doing range start %llu\n", __func__,
-				    wsi->http.range.start);
-
-			if ((long long)lws_vfs_file_seek_cur(wsi->http.fop_fd,
-						   (lws_fileofs_t)wsi->http.range.start -
-						   (lws_fileofs_t)wsi->http.filepos) < 0)
-				goto file_had_it;
-
-			wsi->http.filepos = wsi->http.range.start;
-
-			if (wsi->http.range.count_ranges > 1) {
-				n =  lws_snprintf((char *)p,
-						lws_ptr_diff_size_t(bufend, p),
-					"_lws\x0d\x0a"
-					"Content-Type: %s\x0d\x0a"
-					"Content-Range: bytes "
-						"%llu-%llu/%llu\x0d\x0a"
-					"\x0d\x0a",
-					wsi->http.multipart_content_type,
-					wsi->http.range.start,
-					wsi->http.range.end,
-					wsi->http.range.extent);
-				p += n;
-			}
-
-			wsi->http.range.budget = wsi->http.range.end -
-						   wsi->http.range.start + 1;
-			wsi->http.range.inside = 1;
-		}
-#endif
-
-		poss = context->pt_serv_buf_size;
+	poss = (lws_filepos_t)max;
 
 #if defined(LWS_ROLE_H2)
-		/*
-		 * If it's h2, restrict any lump that we are sending to the
-		 * max h2 frame size the peer indicated he could handle in
-		 * his SETTINGS
-		 */
-		nwsi = lws_get_network_wsi(wsi);
-		if (nwsi->h2.h2n &&
-		    poss > (lws_filepos_t)nwsi->h2.h2n->peer_set.s[H2SET_MAX_FRAME_SIZE])
-			poss = (lws_filepos_t)nwsi->h2.h2n->peer_set.s[H2SET_MAX_FRAME_SIZE];
+	/*
+	 * If it's h2, restrict any lump that we are sending to the
+	 * max h2 frame size the peer indicated he could handle in
+	 * his SETTINGS
+	 */
+	nwsi = lws_get_network_wsi(wsi);
+	if (nwsi->h2.h2n &&
+	    poss > (lws_filepos_t)nwsi->h2.h2n->peer_set.s[H2SET_MAX_FRAME_SIZE])
+		poss = (lws_filepos_t)nwsi->h2.h2n->peer_set.s[H2SET_MAX_FRAME_SIZE];
 #endif
-		/*
-		 * The h2 frame header and the multipart part header we may
-		 * just have written are part of the same lump... take them
-		 * off the budget, saturating rather than wrapping if the
-		 * peer chose a max frame size smaller than the part header
-		 */
-		if (poss > (lws_filepos_t)(n + LWS_H2_FRAME_HEADER_LENGTH))
-			poss -= (lws_filepos_t)(n + LWS_H2_FRAME_HEADER_LENGTH);
-		else
-			poss = 0;
+	/*
+	 * The h2 frame header and the multipart part header we may
+	 * just have written are part of the same lump... take them
+	 * off the budget, saturating rather than wrapping if the
+	 * peer chose a max frame size smaller than the part header
+	 */
+	if (poss > (lws_filepos_t)(n + LWS_H2_FRAME_HEADER_LENGTH))
+		poss -= (lws_filepos_t)(n + LWS_H2_FRAME_HEADER_LENGTH);
+	else
+		poss = 0;
 
-		if (wsi->http.tx_content_length)
-			if (poss > wsi->http.tx_content_remain)
-				poss = wsi->http.tx_content_remain;
+	if (wsi->http.tx_content_length)
+		if (poss > wsi->http.tx_content_remain)
+			poss = wsi->http.tx_content_remain;
 
-		/*
-		 * If there is a hint about how much we will do well to send at
-		 * one time, restrict ourselves to only trying to send that.
-		 */
-		if (wsi->a.protocol->tx_packet_size &&
-		    poss > wsi->a.protocol->tx_packet_size)
-			poss = wsi->a.protocol->tx_packet_size;
+	/*
+	 * If there is a hint about how much we will do well to send at
+	 * one time, restrict ourselves to only trying to send that.
+	 */
+	if (wsi->a.protocol->tx_packet_size &&
+	    poss > wsi->a.protocol->tx_packet_size)
+		poss = wsi->a.protocol->tx_packet_size;
 
-		if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_tx_credit)) {
-			int txc = lws_rops_func_fidx(wsi->role_ops,
-						     LWS_ROPS_tx_credit).
-					tx_credit(wsi, LWSTXCR_US_TO_PEER, 0);
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_tx_credit)) {
+		int txc = lws_rops_func_fidx(wsi->role_ops,
+					     LWS_ROPS_tx_credit).
+				tx_credit(wsi, LWSTXCR_US_TO_PEER, 0);
 
-			if (txc <= 0) {
-				/*
-				 * tx credit is 0. This can happen because the
-				 * QUIC pending_tx buffer throttle (64KB cap) kicked
-				 * in *between* the POLLOUT handler's check and here.
-				 * lws_callback_on_writable propagates requested_POLLOUT
-				 * up the full parent chain so the post-ACK wakeup loop
-				 * can restart us once the buffer drains.
-				 */
-				lwsl_notice("%s: %s: no tx credit\n", __func__,
-						lws_wsi_tag(wsi));
-				lws_callback_on_writable(wsi);
-
-				return 0;
-			}
-			if ((lws_filepos_t)txc < poss)
-				poss = (lws_filepos_t)txc;
-
+		if (txc <= 0) {
 			/*
-			 * Tracking consumption of the actual payload amount
-			 * will be handled when the role data frame is sent...
+			 * tx credit is 0. This can happen because the
+			 * QUIC pending_tx buffer throttle (64KB cap) kicked
+			 * in *between* the POLLOUT handler's check and here.
+			 * lws_callback_on_writable propagates requested_POLLOUT
+			 * up the full parent chain so the post-ACK wakeup loop
+			 * can restart us once the buffer drains.
 			 */
+			lwsl_notice("%s: %s: no tx credit\n", __func__,
+					lws_wsi_tag(wsi));
+			lws_callback_on_writable(wsi);
+
+			return LWS_TX_WAIT;
 		}
-
-#if defined(LWS_WITH_RANGES)
-		if (wsi->http.range.count_ranges &&
-		    poss > wsi->http.range.budget)
-			poss = wsi->http.range.budget;
-#endif
-		if (wsi->sending_chunked)
-			/* we need to drop the chunk size in here */
-			p += 10;
+		if ((lws_filepos_t)txc < poss)
+			poss = (lws_filepos_t)txc;
 
 		/*
-		 * Everything above clamps poss against lengths the peer chose
-		 * (his window, his tx credit, his Range budget), none of which
-		 * are related to the size of pt->serv_buf.  So compute what is
-		 * really left in the buffer at p, minus what we must keep back
-		 * for framing we will add after the content, and apply that as
-		 * the last word on the read length.
+		 * Tracking consumption of the actual payload amount
+		 * will be handled when the role data frame is sent...
 		 */
-
-		room = p < bufend ?
-			(lws_filepos_t)lws_ptr_diff_size_t(bufend, p) : 0;
+	}
 
 #if defined(LWS_WITH_RANGES)
-		if (wsi->http.range.count_ranges > 1)
-			/* allow for final boundary */
-			room = room > 7 ? room - 7 : 0;
+	if (wsi->http.range.count_ranges &&
+	    poss > wsi->http.range.budget)
+		poss = wsi->http.range.budget;
+#endif
+	if (wsi->sending_chunked)
+		/* we need to drop the chunk size in here */
+		p += 10;
+
+	/*
+	 * Everything above clamps poss against lengths the peer chose
+	 * (his window, his tx credit, his Range budget), none of which
+	 * are related to the size of pt->serv_buf.  So compute what is
+	 * really left in the buffer at p, minus what we must keep back
+	 * for framing we will add after the content, and apply that as
+	 * the last word on the read length.
+	 */
+
+	room = p < bufend ?
+		(lws_filepos_t)lws_ptr_diff_size_t(bufend, p) : 0;
+
+#if defined(LWS_WITH_RANGES)
+	if (wsi->http.range.count_ranges > 1)
+		/* allow for final boundary */
+		room = room > 7 ? room - 7 : 0;
 #endif
 
-		if (wsi->interpreting)
-			/* allow for the chunk to grow by 128 in translation */
-			room = room > 128 ? room - 128 : 0;
+	if (wsi->interpreting)
+		/* allow for the chunk to grow by 128 in translation */
+		room = room > 128 ? room - 128 : 0;
 
-		if (poss > room)
-			poss = room;
+	if (poss > room)
+		poss = room;
 
-		if (!poss) {
+	if (!poss) {
+		/*
+		 * There is no space at all for content this time...
+		 * that can only mean the buffer is too small for the
+		 * framing, or a length we were given is 0; either way
+		 * looping would never make progress
+		 */
+		lwsl_wsi_err(wsi, "no room for file content");
+
+		goto file_had_it;
+	}
+
+#if defined(LWS_WITH_ASYNC_QUEUE)
+	if (wsi->async_worker_job == NULL &&
+	    wsi->http.fop_fd->fops == wsi->a.context->fops) {
+		/* Do the read asynchronously instead of blocking */
+		struct lws_async_job *job = lws_malloc(sizeof(*job) + poss, "async_fs");
+		if (!job)
+			goto file_had_it;
+		memset(job, 0, sizeof(*job));
+		wsi->async_worker_job = job;
+		job->wsi = wsi;
+		job->type = LWS_AQ_FILE_READ;
+		job->u.fs.fop_fd = wsi->http.fop_fd;
+		job->u.fs.buf = (uint8_t *)&job[1];
+		job->u.fs.len = poss;
+
+		/* enqueue */
+		pthread_mutex_lock(&wsi->a.context->async_worker_mutex);
+		if (lws_dll2_count(&wsi->a.context->async_worker_waiting) >=
+		    (uint32_t)(wsi->a.context->count_async_threads * 10)) {
 			/*
-			 * There is no space at all for content this time...
-			 * that can only mean the buffer is too small for the
-			 * framing, or a length we were given is 0; either way
-			 * looping would never make progress
+			 * The workers are saturated.  That is backpressure,
+			 * not a file error: read this fragment on the event
+			 * loop, as a build without the async queue always
+			 * does, rather than fail the request.  (Behind a
+			 * peer's concurrent stream limit, the last streams
+			 * to be granted send credit found ten siblings'
+			 * reads already queued and were closed with no
+			 * body, intermittently.)
 			 */
-			lwsl_wsi_err(wsi, "no room for file content");
+			pthread_mutex_unlock(&wsi->a.context->async_worker_mutex);
+			lws_free(job);
+			wsi->async_worker_job = NULL;
+			lwsl_wsi_info(wsi, "async read queue full, reading inline");
+		} else {
+			lws_dll2_add_tail(&job->list,
+					  &wsi->a.context->async_worker_waiting);
 
+			/* Scale threads up to limit if needed */
+			if (wsi->a.context->async_worker_threads_idle == 0 &&
+			    wsi->a.context->async_worker_threads_active <
+				    wsi->a.context->count_async_threads) {
+				pthread_t pt;
+				wsi->a.context->async_worker_threads_active++;
+				if (pthread_create(&pt, NULL, lws_async_worker_worker,
+						   wsi->a.context) == 0)
+					pthread_detach(pt);
+				else
+					wsi->a.context->async_worker_threads_active--;
+			}
+
+			pthread_cond_signal(&wsi->a.context->async_worker_cond);
+			pthread_mutex_unlock(&wsi->a.context->async_worker_mutex);
+			lws_wsi_event(wsi, LWS_WSIEV_FILE_READ_QUEUED);
+			return LWS_TX_WAIT; /* the worker's completion drives us */
+		}
+	}
+
+	/* We are returning from async read logic here, amount would be pre-filled */
+	if (wsi->async_worker_job == NULL) {
+#endif
+		amount = 0;
+#if defined(LWS_WITH_LATENCY)
+		{
+			lws_usec_t _lws_start = lws_now_usecs();
+#endif
+		if (lws_vfs_file_read(wsi->http.fop_fd, &amount, p, poss) < 0)
+			goto file_had_it; /* caller will close */
+
+		/*
+		 * A 0-byte success short of the length the fops
+		 * reported at open means the backing data is
+		 * truncated; retrying would never progress, and
+		 * this loop only exits on progress or a choked pipe
+		 */
+		if (!amount && poss &&
+		    wsi->http.filepos < wsi->http.filelen) {
+			lwsl_wsi_notice(wsi, "short file read at %llu / %llu",
+					(unsigned long long)wsi->http.filepos,
+					(unsigned long long)wsi->http.filelen);
 			goto file_had_it;
 		}
-
-#if defined(LWS_WITH_ASYNC_QUEUE)
-		if (wsi->async_worker_job == NULL &&
-		    wsi->http.fop_fd->fops == wsi->a.context->fops) {
-			/* Do the read asynchronously instead of blocking */
-			struct lws_async_job *job = lws_malloc(sizeof(*job) + poss, "async_fs");
-			if (!job)
-				goto file_had_it;
-			memset(job, 0, sizeof(*job));
-			wsi->async_worker_job = job;
-			job->wsi = wsi;
-			job->type = LWS_AQ_FILE_READ;
-			job->u.fs.fop_fd = wsi->http.fop_fd;
-			job->u.fs.buf = (uint8_t *)&job[1];
-			job->u.fs.len = poss;
-
-			/* enqueue */
-			pthread_mutex_lock(&wsi->a.context->async_worker_mutex);
-			if (lws_dll2_count(&wsi->a.context->async_worker_waiting) >=
-			    (uint32_t)(wsi->a.context->count_async_threads * 10)) {
-				/*
-				 * The workers are saturated.  That is backpressure,
-				 * not a file error: read this fragment on the event
-				 * loop, as a build without the async queue always
-				 * does, rather than fail the request.  (Behind a
-				 * peer's concurrent stream limit, the last streams
-				 * to be granted send credit found ten siblings'
-				 * reads already queued and were closed with no
-				 * body, intermittently.)
-				 */
-				pthread_mutex_unlock(&wsi->a.context->async_worker_mutex);
-				lws_free(job);
-				wsi->async_worker_job = NULL;
-				lwsl_wsi_info(wsi, "async read queue full, reading inline");
-			} else {
-				lws_dll2_add_tail(&job->list,
-						  &wsi->a.context->async_worker_waiting);
-
-				/* Scale threads up to limit if needed */
-				if (wsi->a.context->async_worker_threads_idle == 0 &&
-				    wsi->a.context->async_worker_threads_active <
-					    wsi->a.context->count_async_threads) {
-					pthread_t pt;
-					wsi->a.context->async_worker_threads_active++;
-					if (pthread_create(&pt, NULL, lws_async_worker_worker,
-							   wsi->a.context) == 0)
-						pthread_detach(pt);
-					else
-						wsi->a.context->async_worker_threads_active--;
-				}
-
-				pthread_cond_signal(&wsi->a.context->async_worker_cond);
-				pthread_mutex_unlock(&wsi->a.context->async_worker_mutex);
-				lws_wsi_event(wsi, LWS_WSIEV_FILE_READ_QUEUED);
-				return 0; // go back to event loop, wait for worker
-			}
+#if defined(LWS_WITH_LATENCY)
+			lws_latency_note(pt, _lws_start, 500, "read:%uus ",
+				(unsigned int)(lws_now_usecs() - _lws_start));
 		}
-
-		/* We are returning from async read logic here, amount would be pre-filled */
-		if (wsi->async_worker_job == NULL) {
-#endif
-			amount = 0;
-#if defined(LWS_WITH_LATENCY)
-			{
-				lws_usec_t _lws_start = lws_now_usecs();
-#endif
-			if (lws_vfs_file_read(wsi->http.fop_fd, &amount, p, poss) < 0)
-				goto file_had_it; /* caller will close */
-
-			/*
-			 * A 0-byte success short of the length the fops
-			 * reported at open means the backing data is
-			 * truncated; retrying would never progress, and
-			 * this loop only exits on progress or a choked pipe
-			 */
-			if (!amount && poss &&
-			    wsi->http.filepos < wsi->http.filelen) {
-				lwsl_wsi_notice(wsi, "short file read at %llu / %llu",
-						(unsigned long long)wsi->http.filepos,
-						(unsigned long long)wsi->http.filelen);
-				goto file_had_it;
-			}
-#if defined(LWS_WITH_LATENCY)
-				lws_latency_note(pt, _lws_start, 500, "read:%uus ",
-					(unsigned int)(lws_now_usecs() - _lws_start));
-			}
 #endif
 #if defined(LWS_WITH_ASYNC_QUEUE)
-		} else {
-			amount = wsi->async_worker_job->u.fs.amount;
-			if ((int)amount < 0) {
-				goto file_had_it;
-			}
-			memcpy(p, wsi->async_worker_job->u.fs.buf, amount);
-
-			/* Clean up job */
-			wsi->async_worker_job->wsi = NULL;
-			lws_free(wsi->async_worker_job);
-			wsi->async_worker_job = NULL;
+	} else {
+		amount = wsi->async_worker_job->u.fs.amount;
+		if ((int)amount < 0) {
+			goto file_had_it;
 		}
+		memcpy(p, wsi->async_worker_job->u.fs.buf, amount);
+
+		/* Clean up job */
+		wsi->async_worker_job->wsi = NULL;
+		lws_free(wsi->async_worker_job);
+		wsi->async_worker_job = NULL;
+	}
 #endif
 
-		if (wsi->sending_chunked)
-			n = (int)amount;
-		else
-			n = lws_ptr_diff(p, pstart) + (int)amount;
+	if (wsi->sending_chunked)
+		n = (int)amount;
+	else
+		n = lws_ptr_diff(p, pstart) + (int)amount;
 
-		lwsl_debug("%s: sending %d\n", __func__, n);
+	if (!n)
+		return 0;
 
-		if (n) {
-			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
-					(int)context->timeout_secs);
-
-			if (wsi->interpreting) {
-				args.p = (char *)p;
-				args.len = n;
-				/*
-				 * the transform may grow the content in
-				 * place: it may use everything that is
-				 * actually left in serv_buf at p, no more
-				 */
-				args.max_len = lws_ptr_diff(bufend, p);
-				args.final = wsi->http.filepos + (unsigned int)n ==
-							wsi->http.filelen;
-				args.chunked = wsi->sending_chunked;
-				if (user_callback_handle_rxflow(
-				     wsi->a.vhost->protocols[
-				     (int)wsi->protocol_interpret_idx].callback,
-				     wsi, LWS_CALLBACK_PROCESS_HTML,
-				     wsi->user_space, &args, 0) < 0)
-					goto file_had_it;
-				n = args.len;
-				p = (unsigned char *)args.p;
-			} else
-				p = pstart;
-
-#if defined(LWS_WITH_RANGES)
-			if (wsi->http.range.send_ctr + 1 ==
-				wsi->http.range.count_ranges && // last range
-			    wsi->http.range.count_ranges > 1 && // was 2+ ranges (ie, multipart)
-			    wsi->http.range.budget - amount == 0) {// final part
-				n += lws_snprintf((char *)pstart + n, 6,
-					"_lws\x0d\x0a"); // append trailing boundary
-				lwsl_debug("added trailing boundary\n");
-			}
-#endif
-			m = lws_write(wsi, p, (unsigned int)n, wsi->http.filepos + amount ==
-					wsi->http.filelen ?
-					 LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP);
-			if (m < 0)
-				goto file_had_it;
-
-			lws_filepos_t sent_amount = 0;
-			if (m >= (n - (int)amount))
-				sent_amount = (lws_filepos_t)(m - (n - (int)amount));
-
-			wsi->http.filepos += sent_amount;
-
-#if defined(LWS_WITH_RANGES)
-			if (wsi->http.range.count_ranges >= 1) {
-				wsi->http.range.budget -= sent_amount;
-				if (wsi->http.range.budget == 0) {
-					lwsl_notice("range budget exhausted\n");
-					wsi->http.range.inside = 0;
-					wsi->http.range.send_ctr++;
-
-					if (lws_ranges_next(&wsi->http.range) < 1) {
-						finished = 1;
-						goto all_sent;
-					}
-				}
-			}
-#endif
-
-			if (m != n) {
-				/* adjust for what was not sent */
-				if (lws_vfs_file_seek_cur(wsi->http.fop_fd,
-							   m - n) ==
-							     (lws_fileofs_t)-1)
-					goto file_had_it;
-			}
-		}
-
-all_sent:
-		if ((!lws_has_buffered_out(wsi)
-#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
-				&& !wsi->http.comp_ctx.buflist_comp &&
-		    !wsi->http.comp_ctx.may_have_more
-#endif
-		    ) && (wsi->http.filepos >= wsi->http.filelen
-#if defined(LWS_WITH_RANGES)
-		    || finished)
-#else
-		)
-#endif
-		) {
-			lws_wsi_event(wsi, LWS_WSIEV_FILE_COMPLETE);
-			/* we might be in keepalive, so close it off here */
-			lws_vfs_file_close(&wsi->http.fop_fd);
-
-			lwsl_debug("file completed\n");
-
-			if (wsi->a.protocol->callback &&
-			    user_callback_handle_rxflow(wsi->a.protocol->callback,
-					wsi, LWS_CALLBACK_HTTP_FILE_COMPLETION,
-					wsi->user_space, NULL, 0) < 0) {
-					/*
-					 * For http/1.x, the choices from
-					 * transaction_completed are either
-					 * 0 to use the connection for pipelined
-					 * or nonzero to hang it up.
-					 *
-					 * However for http/2. while we are
-					 * still interested in hanging up the
-					 * nwsi if there was a network-level
-					 * fatal error, simply completing the
-					 * transaction is a matter of the stream
-					 * state, not the root connection at the
-					 * network level
-					 */
-
-					if (wsi->mux_substream)
-						return 1;
-					else
-						return -1;
-				}
-
-			/*
-			 * If the completion above was deferred because the
-			 * request body still has to be discarded (we are in
-			 * LRS_DISCARD_BODY), the transaction is not over yet.
-			 * Resetting the ah here would clear
-			 * hdr_parsing_completed, and the completion that
-			 * follows the discard would then be ignored as
-			 * "parsing incomplete", leaving the connection
-			 * spinning on the bytes of the next request.  The
-			 * discard path completes the transaction, and with
-			 * it the ah, once the body is gone.
-			 */
-			if (wsi->stream.ah &&
-			    lwsi_state(wsi) != LRS_DISCARD_BODY)
-				lws_header_table_reset(wsi, 0);
-
-			return 1;  /* >0 indicates completed */
-		}
+	if (wsi->interpreting) {
+		args.p = (char *)p;
+		args.len = n;
 		/*
-		 * while(1) here causes us to spam the whole file contents into
-		 * a hugely bloated output buffer if it ever can't send the
-		 * whole chunk...
+		 * the transform may grow the content in
+		 * place: it may use everything that is
+		 * actually left in serv_buf at p, no more
 		 */
-	} while (!lws_send_pipe_choked(wsi));
+		args.max_len = lws_ptr_diff(bufend, p);
+		args.final = wsi->http.filepos + (unsigned int)n ==
+					wsi->http.filelen;
+		args.chunked = wsi->sending_chunked;
+		if (user_callback_handle_rxflow(
+		     wsi->a.vhost->protocols[
+		     (int)wsi->protocol_interpret_idx].callback,
+		     wsi, LWS_CALLBACK_PROCESS_HTML,
+		     wsi->user_space, &args, 0) < 0)
+			goto file_had_it;
+		n = args.len;
+		p = (unsigned char *)args.p;
+	} else
+		p = pstart;
 
-	lws_callback_on_writable(wsi);
+#if defined(LWS_WITH_RANGES)
+	if (wsi->http.range.send_ctr + 1 ==
+		wsi->http.range.count_ranges && // last range
+	    wsi->http.range.count_ranges > 1 && // was 2+ ranges (ie, multipart)
+	    wsi->http.range.budget - amount == 0) {// final part
+		n += lws_snprintf((char *)pstart + n, 6,
+			"_lws\x0d\x0a"); // append trailing boundary
+		lwsl_debug("added trailing boundary\n");
+	}
+#endif
 
-	return 0; /* indicates further processing must be done */
+	*wp = wsi->http.filepos + amount == wsi->http.filelen ?
+					LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP;
+	*pp = p;
+
+	/*
+	 * What was produced is IO's now: the position moves on, IO buffers
+	 * whatever the transport does not take at once
+	 */
+	wsi->http.filepos += amount;
+
+#if defined(LWS_WITH_RANGES)
+	if (wsi->http.range.count_ranges >= 1) {
+		wsi->http.range.budget -= amount;
+		if (wsi->http.range.budget == 0) {
+			lwsl_notice("range budget exhausted\n");
+			wsi->http.range.inside = 0;
+			wsi->http.range.send_ctr++;
+
+			if (lws_ranges_next(&wsi->http.range) < 1)
+				*last = 1;
+		}
+	}
+#endif
+	if (wsi->http.filepos >= wsi->http.filelen)
+		*last = 1;
+
+	return n;
 
 file_had_it:
 	lws_vfs_file_close(&wsi->http.fop_fd);
 
-	return -1;
+	return LWS_TX_FAIL;
+}
+
+/*
+ * The whole file went out and none of it is left with IO: the response is
+ * complete.  Returns 1, or -1 (1 on a substream, whose completion is the
+ * stream's business, not the connection's) if the user's completion
+ * callback failed.
+ */
+int
+lws_http_file_complete(struct lws *wsi)
+{
+	lws_wsi_event(wsi, LWS_WSIEV_FILE_COMPLETE);
+	/* we might be in keepalive, so close it off here */
+	lws_vfs_file_close(&wsi->http.fop_fd);
+
+	lwsl_debug("file completed\n");
+
+	if (wsi->a.protocol->callback &&
+	    user_callback_handle_rxflow(wsi->a.protocol->callback,
+			wsi, LWS_CALLBACK_HTTP_FILE_COMPLETION,
+			wsi->user_space, NULL, 0) < 0) {
+			/*
+			 * For http/1.x, the choices from
+			 * transaction_completed are either
+			 * 0 to use the connection for pipelined
+			 * or nonzero to hang it up.
+			 *
+			 * However for http/2. while we are
+			 * still interested in hanging up the
+			 * nwsi if there was a network-level
+			 * fatal error, simply completing the
+			 * transaction is a matter of the stream
+			 * state, not the root connection at the
+			 * network level
+			 */
+
+			if (wsi->mux_substream)
+				return 1;
+			else
+				return -1;
+		}
+
+	/*
+	 * If the completion above was deferred because the
+	 * request body still has to be discarded (we are in
+	 * LRS_DISCARD_BODY), the transaction is not over yet.
+	 * Resetting the ah here would clear
+	 * hdr_parsing_completed, and the completion that
+	 * follows the discard would then be ignored as
+	 * "parsing incomplete", leaving the connection
+	 * spinning on the bytes of the next request.  The
+	 * discard path completes the transaction, and with
+	 * it the ah, once the body is gone.
+	 */
+	if (wsi->stream.ah &&
+	    lwsi_state(wsi) != LRS_DISCARD_BODY)
+		lws_header_table_reset(wsi, 0);
+
+	return 1;  /* >0 indicates completed */
+}
+
+/* IO could not send what was produced: the source is done with */
+void
+lws_http_file_tx_abort(struct lws *wsi)
+{
+	lws_vfs_file_close(&wsi->http.fop_fd);
 }
 
 #endif

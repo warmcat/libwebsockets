@@ -247,6 +247,113 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	return m;
 }
 
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_FILE_OPS)
+/*
+ * The send loop of a served file: IO's side of the file's tx (see
+ * README.sans-io-split.md, "A content source's tx").  While the transport
+ * can take more, ask lws_http_file_tx() for the next payload and write it;
+ * when the file is done and nothing of it is left buffered here, the
+ * response is complete.
+ *
+ * <0: error, the wsi should be closed.  >0: the file was completely sent
+ * and its completion delivered.  0: more service is needed later, the wsi
+ * should be left alone.
+ */
+int
+lws_serve_http_file_fragment(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	unsigned char *buf = pt->serv_buf + LWS_PRE, *p = NULL;
+	enum lws_write_protocol wp;
+	int n, m, last;
+
+	do {
+		/* priority 1: buffered output */
+
+		if (lws_has_buffered_out(wsi)) {
+			if (lws_issue_raw(wsi, NULL, 0) < 0) {
+				lwsl_wsi_info(wsi, "closing");
+				goto had_it;
+			}
+			break;
+		}
+
+		/* priority 2: buffered pre-compression-transform */
+
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+		if (wsi->http.comp_ctx.buflist_comp ||
+		    wsi->http.comp_ctx.may_have_more) {
+			enum lws_write_protocol cwp = LWS_WRITE_HTTP;
+
+			lwsl_wsi_info(wsi, "completing comp partial (buflist %p, may %d)",
+				      wsi->http.comp_ctx.buflist_comp,
+				      wsi->http.comp_ctx.may_have_more);
+
+			if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol) &&
+			    lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol).
+					write_role_protocol(wsi, NULL, 0, &cwp) < 0) {
+				lwsl_wsi_info(wsi, "signalling to close");
+				goto had_it;
+			}
+			lws_callback_on_writable(wsi);
+
+			break;
+		}
+#endif
+
+		n = lws_http_file_tx(wsi, buf,
+				     wsi->a.context->pt_serv_buf_size - LWS_PRE,
+				     &p, &wp, &last);
+		if (n == LWS_TX_FAIL)
+			return -1;
+		if (n == LWS_TX_WAIT)
+			return 0;
+
+		if (n > 0) {
+			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+					(int)wsi->a.context->timeout_secs);
+
+			m = lws_write(wsi, p, (size_t)n, wp);
+			if (m < 0)
+				goto had_it;
+			if (m != n) {
+				/*
+				 * The role would not take it: an h2 stream
+				 * the peer already closed bins its writes.
+				 * The response cannot complete on it.
+				 */
+				lwsl_wsi_notice(wsi, "role took %d of %d", m, n);
+				goto had_it;
+			}
+		} else
+			last = 1;
+
+		if (last && !lws_has_buffered_out(wsi)
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+		    && !wsi->http.comp_ctx.buflist_comp &&
+		    !wsi->http.comp_ctx.may_have_more
+#endif
+		   )
+			return lws_http_file_complete(wsi);
+
+		/*
+		 * while(1) here causes us to spam the whole file contents into
+		 * a hugely bloated output buffer if it ever can't send the
+		 * whole chunk...
+		 */
+	} while (!lws_send_pipe_choked(wsi));
+
+	lws_callback_on_writable(wsi);
+
+	return 0; /* indicates further processing must be done */
+
+had_it:
+	lws_http_file_tx_abort(wsi);
+
+	return -1;
+}
+#endif
+
 int
 lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 {
