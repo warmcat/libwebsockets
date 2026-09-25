@@ -1267,7 +1267,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_wsi_info(wsi, "proxied %d bytes", n);
 
 		if (wsi->http.cgi->post_in_expected && args->stdwsi[LWS_STDIN] &&
-		    args->stdwsi[LWS_STDIN]->io.desc.filefd > 0) {
+		    lws_get_socket_fd(args->stdwsi[LWS_STDIN]) > 0) {
 			wsi->http.cgi->post_in_expected -= (unsigned int)n;
 
 			if (!wsi->http.cgi->post_in_expected)

@@ -615,6 +615,31 @@ lws_io_close_pollfd(struct lws *wsi)
 
 
 	sanity_assert_no_wsi_traces(wsi->a.context, wsi);
+
+	wsi->io.desc.sockfd = LWS_SOCK_INVALID;
+}
+
+/*
+ * A new wsi's adjunct: no socket, no place in the poll set, and the event
+ * library's per-wsi block, which is allocated after the wsi
+ */
+void
+lws_io_adjunct_init(struct lws *wsi)
+{
+#if defined(LWS_WITH_EVENT_LIBS)
+	wsi->io.evlib_wsi = (uint8_t *)wsi + sizeof(*wsi);
+#endif
+	wsi->io.desc.sockfd = LWS_SOCK_INVALID;
+	wsi->io.position_in_fds_table = LWS_NO_FDS_POS;
+}
+
+lws_sockfd_type
+lws_get_socket_fd(struct lws *wsi)
+{
+	if (!wsi)
+		return -1;
+
+	return wsi->io.desc.sockfd;
 }
 
 const lws_io_ops_t lws_io_ops_default = {

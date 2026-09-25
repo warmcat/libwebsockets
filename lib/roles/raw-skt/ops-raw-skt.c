@@ -250,9 +250,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 #endif
 
-	if ((pollfd->revents & pollfd->events & LWS_POLLIN) &&
-	    !(wsi->io.favoured_pollin &&
-	      (pollfd->revents & pollfd->events & LWS_POLLOUT))) {
+	if (pollfd->revents & pollfd->events & LWS_POLLIN) {
 
 		lwsl_wsi_debug(wsi, "POLLIN: state 0x%x", lwsi_state(wsi));
 

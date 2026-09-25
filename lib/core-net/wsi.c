@@ -701,17 +701,13 @@ struct lws *__lws_wsi_create_with_role(struct lws_context *context, int tsi,
 	else
 		wsi->lc.log_cx = context->log_cx;
 
-#if defined(LWS_WITH_EVENT_LIBS)
-	wsi->io.evlib_wsi = (uint8_t *)wsi + sizeof(*wsi);
-#endif
 	wsi->a.context = context;
+	lws_io_adjunct_init(wsi);
 	lws_role_transition(wsi, 0, LRS_UNCONNECTED, ops);
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->a.protocol = NULL;
 	wsi->tsi = (char)tsi;
 	wsi->a.vhost = NULL;
-	wsi->io.desc.sockfd = LWS_SOCK_INVALID;
-	wsi->io.position_in_fds_table = LWS_NO_FDS_POS;
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	lws_xos_init(&wsi->fic.xos, lws_xos(&context->fic.xos));
@@ -969,13 +965,9 @@ lws_callback_on_writable(struct lws *wsi)
 		if (q)
 			return 1;
 		w = lws_get_network_wsi(wsi);
-	} else
-		if (w->io.position_in_fds_table == LWS_NO_FDS_POS) {
-			lwsl_wsi_debug(wsi, "failed to find socket %d",
-					    wsi->io.desc.sockfd);
-			return -1;
-		}
+	}
 
+	/* without a transport yet there is nothing to arm: IO says so */
 	if (__lws_io_want_write(w))
 		return -1;
 
@@ -1735,12 +1727,6 @@ void *lws_get_vhost_user(struct lws_vhost *vhost) { return vhost->user; }
 
 const char *lws_get_vhost_iface(struct lws_vhost *vhost) {
 	return vhost->iface;
-}
-
-lws_sockfd_type lws_get_socket_fd(struct lws *wsi) {
-	if (!wsi)
-		return -1;
-	return wsi->io.desc.sockfd;
 }
 
 struct lws_vhost *lws_vhost_get(struct lws *wsi) { return wsi->a.vhost; }

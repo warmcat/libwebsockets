@@ -893,8 +893,8 @@ lws_state_invariant(struct lws *wsi, lws_wsi_state_t to)
 			return "SHUTDOWN staging on a client wsi";
 		if (wsi->role_ops == &role_ops_raw_skt)
 			return "SHUTDOWN staging on a raw socket";
-		if (!lws_socket_is_valid(wsi->io.desc.sockfd))
-			return "SHUTDOWN staging without a socket";
+		if (wsi->mux_substream)
+			return "SHUTDOWN staging on a mux substream";
 		break;
 	default:
 		break;

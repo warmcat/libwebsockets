@@ -788,15 +788,13 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_via_role_protocol) &&
 	    lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_via_role_protocol).
 					 close_via_role_protocol(wsi, reason)) {
-		lwsl_wsi_info(wsi, "close_via_role took over (sockfd %d)",
-			      wsi->io.desc.sockfd);
+		lwsl_wsi_info(wsi, "close_via_role took over");
 		return;
 	}
 
 just_kill_connection:
 
-	lwsl_wsi_debug(wsi, "real just_kill_connection A: (sockfd %d)",
-			wsi->io.desc.sockfd);
+	lwsl_wsi_debug(wsi, "real just_kill_connection A");
 
 #if defined(LWS_WITH_THREADPOOL) && defined(LWS_HAVE_PTHREAD_H)
 	lws_threadpool_wsi_closing(wsi);
@@ -863,9 +861,8 @@ just_kill_connection:
 		static const char _reason[] = "closed before established";
 
 		lwsl_wsi_debug(wsi, "closing in unestablished state 0x%x "
-				"(fd %d, parallels %d)",
-				lwsi_state(wsi),
-				(int)wsi->io.desc.sockfd, wsi->parallel_count);
+				"(parallels %d)",
+				lwsi_state(wsi), wsi->parallel_count);
 		lwsi_set_skt_unusable(wsi, 1);
 
 		lws_inform_client_conn_fail(wsi,
@@ -922,8 +919,7 @@ just_kill_connection:
 #endif
 	}
 
-	lwsl_wsi_info(wsi, "real just_kill_connection: sockfd %d\n",
-			wsi->io.desc.sockfd);
+	lwsl_wsi_info(wsi, "real just_kill_connection");
 
 #ifdef LWS_WITH_HUBBUB
 	if (wsi->http.rw) {
@@ -1140,8 +1136,6 @@ __lws_close_free_wsi_final(struct lws *wsi)
 
 	/* the transport goes: tls session, fd, place in the poll set */
 	__lws_io_close_transport(wsi);
-
-	wsi->io.desc.sockfd = LWS_SOCK_INVALID;
 
 #if defined(LWS_WITH_CLIENT)
 	lws_free_set_NULL(wsi->cli_hostname_copy);

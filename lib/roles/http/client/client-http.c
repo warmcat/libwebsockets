@@ -416,10 +416,8 @@ hs2:
 
 		/* send our request to the server */
 
-		lwsl_info("%s: HANDSHAKE2: %s: sending headers "
-			  "(wsistate 0x%lx), w sock %d\n",
-			  __func__, lws_wsi_tag(wsi),
-			  (unsigned long)wsi->wsistate, wsi->io.desc.sockfd);
+		lwsl_wsi_info(wsi, "HANDSHAKE2: sending headers (wsistate 0x%lx)",
+			      (unsigned long)wsi->wsistate);
 
 		n = lws_ssl_capable_write(wsi, (unsigned char *)sb, lws_ptr_diff_size_t(p, sb));
 		switch (n) {

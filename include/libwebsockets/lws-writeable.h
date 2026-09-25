@@ -191,16 +191,6 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len);
 
 /**
- * lws_get_socket_fd() - returns the socket file descriptor
- *
- * This is needed to use sendto() on UDP raw sockets
- *
- * \param wsi:	Websocket connection instance
- */
-LWS_VISIBLE LWS_EXTERN lws_sockfd_type
-lws_get_socket_fd(struct lws *wsi);
-
-/**
  * lws_get_peer_write_allowance() - get the amount of data writeable to peer
  * 					if known
  *

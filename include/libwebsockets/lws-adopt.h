@@ -146,6 +146,16 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			   lws_sock_file_fd_type fd, const char *vh_prot_name,
 			   struct lws *parent);
 
+/**
+ * lws_get_socket_fd() - returns the socket file descriptor
+ *
+ * This is needed to use sendto() on UDP raw sockets
+ *
+ * \param wsi:	Websocket connection instance
+ */
+LWS_VISIBLE LWS_EXTERN lws_sockfd_type
+lws_get_socket_fd(struct lws *wsi);
+
 typedef struct lws_adopt_desc {
 	struct lws_vhost	*vh;		/**< vhost the wsi should belong to */
 	lws_adoption_type	type;		/**< OR-ed combinations of
