@@ -643,7 +643,20 @@ typedef int (*lws_rops_rx_t)(struct lws *wsi, const uint8_t *buf, size_t len,
 typedef int (*lws_rops_rx_dgram_t)(struct lws *wsi, uint8_t *buf, size_t len,
 				   const lws_sockaddr46 *peer, uint8_t ecn);
 
-#define LWS_COUNT_ROLE_OPS			23
+/*
+ * sansIO rx policy: how IO should feed this wsi's rx this pass, given the
+ * connection's state (README.sans-io-split.md, "Who calls rx").  Fill *flags
+ * (LWS_RXP_*) and *max (0: IO's buffer) and return one of LWS_RXPOL_*.
+ * LWS_RXPOL_ROLE leaves the pass to the role's own handle_POLLIN, for what
+ * is not converted yet.
+ */
+#define LWS_RXPOL_ROLE		0	/* the role's handler takes the pass */
+#define LWS_RXPOL_PUMP		1	/* read once */
+#define LWS_RXPOL_PUMP_LOOP	2	/* read while there is more and progress */
+#define LWS_RXPOL_HOLD		3	/* do not read now */
+typedef int (*lws_rops_rx_policy_t)(struct lws *wsi, int *flags, size_t *max);
+
+#define LWS_COUNT_ROLE_OPS			24
 
 typedef union lws_rops {
 	lws_rops_check_upgrades_t		check_upgrades;
@@ -669,6 +682,7 @@ typedef union lws_rops {
 	lws_rops_client_transport_up_t		client_transport_up;
 	lws_rops_rx_t				rx;
 	lws_rops_rx_dgram_t			rx_dgram;
+	lws_rops_rx_policy_t			rx_policy;
 } lws_rops_t;
 
 typedef enum {
@@ -695,6 +709,7 @@ typedef enum {
 	LWS_ROPS_client_transport_up,
 	LWS_ROPS_rx,
 	LWS_ROPS_rx_dgram,
+	LWS_ROPS_rx_policy,
 } lws_rops_func_idx_t;
 
 struct lws_context_per_thread;

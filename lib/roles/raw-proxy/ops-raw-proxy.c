@@ -54,6 +54,23 @@ rops_rx_raw_proxy(struct lws *wsi, const uint8_t *buf, size_t len,
 	return (int)len;
 }
 
+/* as raw-skt: hold behind a partial, not during the transport phases */
+static int
+rops_rx_policy_raw_proxy(struct lws *wsi, int *flags, size_t *max)
+{
+	if (lws_has_buffered_out(wsi))
+		return LWS_RXPOL_HOLD;
+
+	if (lwsi_transport(wsi) == LTS_WAITING_CONNECT ||
+	    lwsi_transport(wsi) == LTS_SSL_ACK_PENDING)
+		return LWS_RXPOL_ROLE;
+
+	*flags = LWS_RXP_FORCE_READ;
+	*max = 0;
+
+	return LWS_RXPOL_PUMP;
+}
+
 static lws_handling_result_t
 rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
 			     struct lws_pollfd *pollfd)
@@ -81,25 +98,11 @@ rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (lwsi_transport(wsi) == LTS_WAITING_CONNECT)
 		goto try_pollout;
 
-	if ((pollfd->revents & pollfd->events & LWS_POLLIN) &&
-	    /* any tunnel has to have been established... */
-	    lwsi_transport(wsi) != LTS_SSL_ACK_PENDING &&
-	    !(wsi->favoured_pollin &&
-	      (pollfd->revents & pollfd->events & LWS_POLLOUT))) {
-
-		lws_handling_result_t hr;
-		int nothing, consumed;
-
-		/* a plain socket: read even with rx parked */
-		hr = lws_rx_pump(pt, wsi, pollfd, LWS_RXP_FORCE_READ, 0,
-				 &nothing, &consumed);
-		if (hr != LWS_HPI_RET_HANDLED)
-			return hr;
-	} else
-		if (wsi->favoured_pollin &&
-		    (pollfd->revents & pollfd->events & LWS_POLLOUT))
-			/* we balanced the last favouring of pollin */
-			wsi->favoured_pollin = 0;
+	/* the reading was done by IO's rx stage */
+	if (wsi->favoured_pollin &&
+	    (pollfd->revents & pollfd->events & LWS_POLLOUT))
+		/* we balanced the last favouring of pollin */
+		wsi->favoured_pollin = 0;
 
 try_pollout:
 
@@ -226,6 +229,7 @@ static const lws_rops_t rops_table_raw_proxy[] = {
 	/*  3 */ { .adoption_bind	= rops_adoption_bind_raw_proxy },
 	/*  4 */ { .client_bind		= rops_client_bind_raw_proxy },
 	/*  5 */ { .rx			= rops_rx_raw_proxy },
+	/*  6 */ { .rx_policy		= rops_rx_policy_raw_proxy },
 };
 
 
@@ -257,6 +261,8 @@ const struct lws_role_ops role_ops_raw_proxy = {
 	  /* LWS_ROPS_issue_keepalive */		0x40,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x05,
+	  /* LWS_ROPS_rx_dgram */
+	  /* LWS_ROPS_rx_policy */			0x06,
 					},
 
 	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_RAW_PROXY_CLI_ADOPT,

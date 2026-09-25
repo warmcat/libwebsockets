@@ -144,6 +144,21 @@ for theirs.  A port that returns its requests as polled outputs, the way a
 Rust sans-IO crate does, implements the same four.  The struct is the seam;
 the rest of the two halves never see each other.
 
+**Who calls rx.**  The end state of the rx side is that IO's service reads
+and calls rx itself, and no role has a `handle_POLLIN` of its own.  What
+a role knows is *how* it can be read in its current state: an h2 stream
+takes parked bytes only, ws bounds a pass by its own budget, h1 parks
+while it serves a file, a raw socket reads even with rx parked, and
+during the transport phases of a client the bytes are not the role's at
+all.  That knowledge is one small op, `rx_policy(wsi, &flags, &max)`,
+answering for this pass: pump once, pump while there is more (tls holds
+decrypted bytes, or a parked remainder), hold (do not read now), or
+"the role's own handler takes this pass" for what is not converted yet.
+IO's service asks it before it dispatches, does the reading it was told
+to, and the role's `handle_POLLIN` is left with the pass's POLLOUT and
+its transport-phase business, which go the same way in turn.  Fairness
+between a socket's POLLIN and POLLOUT is IO's, kept in the service.
+
 Time is an input: sansIO is told the deadline passed, it never reads the
 clock to decide anything.  Reading the clock for a log line or a metric
 is tolerated in sansIO until the split is done.
@@ -206,7 +221,10 @@ each function is in.
    fits the app's buffer and feeds the body rx, so nothing is queued for a
    body the app has not asked for and the transport's window is the
    backpressure.  No role reads its transport any more).
-5. h2, then h3 over the quic datagram layer, then the remaining roles.
+5. h2, then h3 over the quic datagram layer, then the remaining roles
+   (done for rx: every role's bytes come through rx / rx_dgram).  Then
+   the roles' handlers stop reading: `rx_policy` and IO's rx stage (in
+   progress: raw-skt and raw-proxy first).
 6. Tier the public headers into `lws-core.h`, `lws-sansio.h`, `lws-io.h`
    (done), then the private ones, with the sansIO-only compile check
    (done: `private-lib-io.h`, `scripts/sans-io-check.sh`; first inventory

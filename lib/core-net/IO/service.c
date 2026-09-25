@@ -1274,6 +1274,53 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	lws_usec_t _role_start = lws_now_usecs();
 #endif
 
+	/*
+	 * The rx stage: a role that says how it wants to be read in its
+	 * current state is read here (README.sans-io-split.md, "Who calls
+	 * rx"), and its own handler gets the rest of the pass with POLLIN
+	 * already taken.  A pass where POLLIN was favoured last time and
+	 * POLLOUT also waits is left for POLLOUT: that fairness is ours.
+	 */
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_rx_policy) &&
+	    (pollfd->revents & pollfd->events & LWS_POLLIN) &&
+	    !(wsi->favoured_pollin &&
+	      (pollfd->revents & pollfd->events & LWS_POLLOUT))) {
+		size_t max = 0;
+		int flags = 0, pol;
+
+		pol = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx_policy).
+					rx_policy(wsi, &flags, &max);
+		if (pol == LWS_RXPOL_PUMP || pol == LWS_RXPOL_PUMP_LOOP) {
+			struct lws_pollfd *pfd = pollfd;
+			int nothing, consumed, budget = 1000;
+
+			do {
+				switch (lws_rx_pump(pt, wsi, pfd, flags, max,
+						    &nothing, &consumed)) {
+				case LWS_HPI_RET_WSI_ALREADY_DIED:
+					return 1;
+				case LWS_HPI_RET_PLEASE_CLOSE_ME:
+					goto close_and_handled_l;
+				default:
+					break;
+				}
+				if (pol != LWS_RXPOL_PUMP_LOOP || nothing ||
+				    !consumed || !lws_ssl_pending(wsi) ||
+				    !--budget)
+					break;
+				/* tls still holds decrypted bytes: read again, regardless of the poll */
+				pfd = NULL;
+				pol = lws_rops_func_fidx(wsi->role_ops,
+							 LWS_ROPS_rx_policy).
+						rx_policy(wsi, &flags, &max);
+			} while (pol == LWS_RXPOL_PUMP ||
+				 pol == LWS_RXPOL_PUMP_LOOP);
+
+			/* the read is done; the role's handler has the rest */
+			pollfd->revents &= (short)~LWS_POLLIN;
+		}
+	}
+
 	switch (lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_handle_POLLIN).
 					       handle_POLLIN(pt, wsi, pollfd)) {
 	case LWS_HPI_RET_WSI_ALREADY_DIED:

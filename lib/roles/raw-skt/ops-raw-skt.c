@@ -165,6 +165,38 @@ rops_rx_raw_skt(struct lws *wsi, const uint8_t *buf, size_t len,
 	return (int)len;
 }
 
+/*
+ * How a raw socket is read: not while a partial send is pending (nothing
+ * must be generated behind it), not during the transport phases, else
+ * forced even with rx parked (a plain socket, nothing to block behind),
+ * bounded by the protocol's rx_buffer_size.  Pre-established server
+ * sockets are in their tls accept, the handler's.
+ */
+static int
+rops_rx_policy_raw_skt(struct lws *wsi, int *flags, size_t *max)
+{
+	if (lws_has_buffered_out(wsi))
+		return LWS_RXPOL_HOLD;
+
+#if defined(LWS_WITH_SERVER)
+	if (!lwsi_role_client(wsi) && lwsi_state(wsi) != LRS_ESTABLISHED)
+		return LWS_RXPOL_ROLE;
+#endif
+	switch (lwsi_state(wsi)) {
+	case LRS_SSL_ACK_PENDING:
+	case LRS_WAITING_CONNECT:
+	case LRS_WAITING_SSL:
+		return LWS_RXPOL_ROLE;
+	default:
+		break;
+	}
+
+	*flags = LWS_RXP_FORCE_READ;
+	*max = wsi->a.protocol->rx_buffer_size;
+
+	return LWS_RXPOL_PUMP;
+}
+
 static lws_handling_result_t
 rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			   struct lws_pollfd *pollfd)
@@ -231,23 +263,8 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			break;
 
 		default:
-		{
-			lws_handling_result_t hr;
-			int nothing, consumed;
-
-			/*
-			 * A read is forced even with rx parked: this is a
-			 * plain socket, there is nothing to block behind.  The
-			 * protocol's rx_buffer_size bounds the read.
-			 */
-			hr = lws_rx_pump(pt, wsi, pollfd, LWS_RXP_FORCE_READ,
-					 wsi->a.protocol->rx_buffer_size,
-					 &nothing, &consumed);
-			if (hr != LWS_HPI_RET_HANDLED)
-				return hr;
-
-			goto try_pollout;
-		}
+			/* the reading was done by IO's rx stage */
+			break;
 		}
 	}
 nope:
@@ -255,8 +272,6 @@ nope:
 	    (pollfd->revents & pollfd->events & LWS_POLLOUT))
 		/* we balanced the last favouring of pollin */
 		wsi->favoured_pollin = 0;
-
-try_pollout:
 
 	if (!(pollfd->revents & LWS_POLLOUT))
 		return LWS_HPI_RET_HANDLED;
@@ -388,6 +403,8 @@ static const lws_rops_t rops_table_raw_skt[] = {
 #endif
 	/*  4, or 3 with no client */
 	{ .rx				  = rops_rx_raw_skt },
+	/*  5, or 4 with no client */
+	{ .rx_policy			  = rops_rx_policy_raw_skt },
 };
 
 const struct lws_role_ops role_ops_raw_skt = {
@@ -419,11 +436,15 @@ const struct lws_role_ops role_ops_raw_skt = {
 	  /* LWS_ROPS_issue_keepalive */		0x30,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x04,
+	  /* LWS_ROPS_rx_dgram */
+	  /* LWS_ROPS_rx_policy */			0x05,
 #else
 	  /* LWS_ROPS_client_bind */
 	  /* LWS_ROPS_issue_keepalive */		0x00,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x03,
+	  /* LWS_ROPS_rx_dgram */
+	  /* LWS_ROPS_rx_policy */			0x04,
 #endif
 					},
 
