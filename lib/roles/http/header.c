@@ -768,6 +768,15 @@ int
 lws_return_http_status(struct lws *wsi, unsigned int code,
 		       const char *html_body)
 {
+	return _lws_return_http_status(wsi, code, html_body, WSI_TOKEN_COUNT,
+				       NULL);
+}
+
+int
+_lws_return_http_status(struct lws *wsi, unsigned int code,
+			const char *html_body, enum lws_token_indexes tok,
+			const char *val)
+{
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	unsigned char *p = pt->serv_buf + LWS_PRE;
@@ -849,6 +858,11 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
 					 (unsigned char *)"text/html", 9,
 					 &p, body))
+		return 1;
+
+	if (tok != WSI_TOKEN_COUNT && val &&
+	    lws_add_http_header_by_token(wsi, tok, (unsigned char *)val,
+					 (int)strlen(val), &p, body))
 		return 1;
 
 	len = lws_http_status_page_body(body, 510, code, html_body);

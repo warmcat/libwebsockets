@@ -618,6 +618,22 @@ verify(const struct xcase *c, struct conn *cn)
 		return 0;
 	}
 
+	if (c->status == 416) {
+		/*
+		 * RFC 7233 4.4: a 416 says what length the ranges were
+		 * unsatisfiable against
+		 */
+
+		lws_snprintf(want, sizeof(want), "bytes */%llu", extent);
+		if (strcmp(cn->cr, want)) {
+			lwsl_err("%s: 416 content-range '%s', expected '%s'\n",
+				 __func__, cn->cr, want);
+			ok = 0;
+		}
+
+		return ok;
+	}
+
 	if (c->status != 200 && c->status != 206)
 		/* an error response's own body is not our business */
 		return 1;

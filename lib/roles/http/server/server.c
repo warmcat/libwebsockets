@@ -4052,9 +4052,23 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	 *  		along with Content-Range
 	 */
 	if (ranges < 0) {
-		/* it means he expressed a range in Range:, but it was illegal */
-		lws_return_http_status(wsi,
-				HTTP_STATUS_REQ_RANGE_NOT_SATISFIABLE, NULL);
+		/*
+		 * It means he expressed a range in Range:, but it was
+		 * illegal, or asked for more of them than we will compose.
+		 *
+		 * RFC 7233 4.4: tell him the length he was working from, so
+		 * a client whose range went past the end of a representation
+		 * that has since changed can see that and ask again, rather
+		 * than having to guess why we refused
+		 */
+
+		lws_snprintf(cache_control, sizeof(cache_control),
+			     "bytes */%llu",
+			     (unsigned long long)wsi->http.filelen);
+
+		_lws_return_http_status(wsi,
+				HTTP_STATUS_REQ_RANGE_NOT_SATISFIABLE, NULL,
+				WSI_TOKEN_HTTP_CONTENT_RANGE, cache_control);
 		if (lws_http_transaction_completed(wsi))
 			goto bail; /* <0 means just hang up */
 
