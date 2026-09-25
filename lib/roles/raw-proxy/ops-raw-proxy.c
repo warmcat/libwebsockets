@@ -98,11 +98,7 @@ rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (lwsi_transport(wsi) == LTS_WAITING_CONNECT)
 		goto try_pollout;
 
-	/* the reading was done by IO's rx stage */
-	if (wsi->favoured_pollin &&
-	    (pollfd->revents & pollfd->events & LWS_POLLOUT))
-		/* we balanced the last favouring of pollin */
-		wsi->favoured_pollin = 0;
+	/* the reading, and the fairness with POLLOUT, are IO's rx stage's */
 
 try_pollout:
 

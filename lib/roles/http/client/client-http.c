@@ -249,46 +249,24 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	case LRS_WAITING_SOCKS_GREETING_REPLY:
 	case LRS_WAITING_SOCKS_AUTH_REPLY:
 	case LRS_WAITING_SOCKS_CONNECT_REPLY:
-	{
-		lws_handling_result_t hr;
-		int nothing, consumed;
-
-		hr = lws_rx_pump(pt, wsi, pollfd, 0, 0, &nothing, &consumed);
-		if (hr == LWS_HPI_RET_WSI_ALREADY_DIED)
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		if (hr == LWS_HPI_RET_PLEASE_CLOSE_ME) {
-			cce = "socks recv fail";
-			goto bail3_l;
-		}
-
-		/* the tunnel came up: issue the handshake as a direct connection does */
+		/*
+		 * IO's rx stage read the proxy's reply; if the tunnel came up
+		 * we issue the handshake as a direct connection does
+		 */
 		if (lwsi_state(wsi) == LRS_H1C_ISSUE_HANDSHAKE)
 			goto start_ws_handshake_l;
 
 		return 0;
-	}
 #endif
 
 #if defined(LWS_CLIENT_HTTP_PROXYING) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 
 	case LRS_WAITING_PROXY_REPLY:
-	{
-		lws_handling_result_t hr;
-		int nothing, consumed;
-
-		hr = lws_rx_pump(pt, wsi, pollfd, 0, 0, &nothing, &consumed);
-		if (hr == LWS_HPI_RET_WSI_ALREADY_DIED)
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		if (hr == LWS_HPI_RET_PLEASE_CLOSE_ME) {
-			cce = "proxy read err";
-			goto bail3_l;
-		}
-
+		/* IO's rx stage read the proxy's reply */
 		if (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE)
 			return 0;
 
 		/* the tunnel came up: issue the handshake as a direct connection does */
-	}
                /* fallthru */
 
 #endif
@@ -509,29 +487,19 @@ client_http_body_sent:
 
 	case LRS_WAITING_SERVER_REPLY:
 		/*
-		 * handle server hanging up on us...
-		 * but if there is POLLIN waiting, handle that first
+		 * IO's rx stage reads the response header block; the server
+		 * hanging up reaches the rx op as an empty rx and is reported
+		 * from there.
 		 */
-		if ((pollfd->revents & (LWS_POLLIN | LWS_POLLHUP)) ==
-								LWS_POLLHUP) {
-
-			if (lws_buflist_total_len(&wsi->buflist))
-				lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK, 3);
-			else {
-				lwsl_debug("Server conn %s (fd=%d) dead\n",
-						lws_wsi_tag(wsi), pollfd->fd);
-				cce = "Peer hung up";
-				goto bail3_l;
-			}
-		}
-
 		if (pollfd->revents & LWS_POLLOUT)
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 				cce = "Unable to clear POLLOUT";
 				goto bail3_l;
 			}
 
-		if (!(pollfd->revents & LWS_POLLIN))
+		if (!wsi->stream.ah ||
+		    wsi->stream.ah->parser_state != WSI_PARSING_COMPLETE)
+			/* the block is not complete yet; the timeout guards */
 			break;
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
@@ -558,21 +526,6 @@ client_http_body_sent:
 		 * timeout is active here, so if the block is not complete yet
 		 * just wait for the next packet in this state.
 		 */
-		while (wsi->stream.ah->parser_state != WSI_PARSING_COMPLETE) {
-			lws_handling_result_t hr;
-			int nothing, consumed;
-
-			hr = lws_rx_pump(pt, wsi, NULL, 0, 0, &nothing,
-					 &consumed);
-			if (hr == LWS_HPI_RET_WSI_ALREADY_DIED)
-				return LWS_HPI_RET_WSI_ALREADY_DIED;
-			if (hr == LWS_HPI_RET_PLEASE_CLOSE_ME) {
-				cce = "read failed";
-				goto bail3_l;
-			}
-			if (nothing)
-				return 0;
-		}
 #endif
 
 		/*

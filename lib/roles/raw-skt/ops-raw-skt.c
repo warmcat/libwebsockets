@@ -268,11 +268,6 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 		}
 	}
 nope:
-	if (wsi->favoured_pollin &&
-	    (pollfd->revents & pollfd->events & LWS_POLLOUT))
-		/* we balanced the last favouring of pollin */
-		wsi->favoured_pollin = 0;
-
 	if (!(pollfd->revents & LWS_POLLOUT))
 		return LWS_HPI_RET_HANDLED;
 

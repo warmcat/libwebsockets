@@ -601,7 +601,6 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 static lws_handling_result_t
 lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 {
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	int n;
 
 	if (lwsi_state(wsi) == LRS_TXN_COMPLETED || lwsi_txn_completing(wsi))
@@ -613,20 +612,6 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		goto try_pollout;
 
 	/*
-	 * If we previously just did POLLIN when IN and OUT were signaled
-	 * (because POLLIN processing may have used up the POLLOUT), don't let
-	 * that happen twice in a row... next time we see the situation favour
-	 * POLLOUT
-	 */
-
-	if (wsi->favoured_pollin &&
-	    (pollfd->revents & pollfd->events & LWS_POLLOUT)) {
-		// lwsl_notice("favouring pollout\n");
-		wsi->favoured_pollin = 0;
-		goto try_pollout;
-	}
-
-	/*
 	 * We haven't processed that the tunnel is set up yet, so
 	 * defer reading
 	 */
@@ -634,66 +619,10 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	if (lwsi_transport(wsi) == LTS_SSL_ACK_PENDING)
 		return LWS_HPI_RET_HANDLED;
 
-	/* these states imply we MUST have an ah attached */
-
-	if ((lwsi_state(wsi) == LRS_ESTABLISHED ||
-	     lwsi_state(wsi) == LRS_ISSUING_FILE ||
-	     lwsi_state(wsi) == LRS_HEADERS ||
-	     lwsi_state(wsi) == LRS_DOING_TRANSACTION || /* at least, SSE */
-	     lwsi_state(wsi) == LRS_DISCARD_BODY ||
-	     lwsi_state(wsi) == LRS_BODY)) {
-
-		if (!wsi->stream.ah) {
-			lws_ah_attach_result_t ar =
-					lws_header_table_attach(wsi, 0);
-
-			if (ar == LWS_AH_ATTACH_WSI_GONE)
-				return LWS_HPI_RET_WSI_ALREADY_DIED;
-
-			if (ar != LWS_AH_ATTACH_OK) {
-				lwsl_info("%s: %s: ah not available\n",
-					  __func__, lws_wsi_tag(wsi));
-				goto try_pollout;
-			}
-		}
-
-		{
-			lws_handling_result_t hr;
-			int nothing, consumed;
-
-			hr = lws_rx_pump(pt, wsi, pollfd, 0, 0, &nothing,
-					 &consumed);
-			if (hr != LWS_HPI_RET_HANDLED)
-				return hr;
-
-			/*
-			 * Nothing for the role to act on (no rx yet, or the
-			 * peer closed while extensions drain), or the file
-			 * being served has parked what came: on to POLLOUT
-			 */
-			if (nothing ||
-			    (!consumed && lwsi_state(wsi) == LRS_ISSUING_FILE))
-				goto try_pollout;
-
-			/*
-			 * He may have used up the writability above, if we
-			 * will defer POLLOUT processing in favour of POLLIN,
-			 * note it
-			 */
-			if (pollfd->revents & LWS_POLLOUT)
-				wsi->favoured_pollin = 1;
-
-			return LWS_HPI_RET_HANDLED;
-		}
-	}
-
 	/*
-	 * He may have used up the writability above, if we will defer POLLOUT
-	 * processing in favour of POLLIN, note it
+	 * The reading was done by IO's rx stage, which also keeps the
+	 * fairness between POLLIN and POLLOUT that used to be noted here
 	 */
-
-	if (pollfd->revents & LWS_POLLOUT)
-		wsi->favoured_pollin = 1;
 
 try_pollout:
 
@@ -776,26 +705,105 @@ fail:
 }
 #endif
 
+/*
+ * How an h1 connection is read (README.sans-io-split.md, "Who calls rx").
+ * A client kept warm between transactions is read to hear its peer go
+ * away.  A cgi's, a compression partial's and a flow-controlled
+ * connection's pass are the handler's.  A server connection is read in the
+ * states that take a request or its body, after making sure it holds a
+ * header table (waiting for one holds the reading; the attach can close the
+ * wsi); its transaction end, tls accept and tunnel setup are the handler's.
+ * A client is read while its socks or CONNECT tunnel comes up and while its
+ * response headers come in, until the block is complete; once established
+ * the app pulls its body itself, so it is not read here.
+ */
+static int
+rops_rx_policy_h1(struct lws *wsi, int *flags, size_t *max)
+{
+	*flags = 0;
+	*max = 0;
+
+	if (lwsi_state(wsi) == LRS_IDLING)
+		return LWS_RXPOL_PUMP;
+
+#if defined(LWS_WITH_CGI)
+	if (wsi->http.cgi)
+		return LWS_RXPOL_ROLE;
+#endif
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	if (wsi->http.comp_ctx.buflist_comp || wsi->http.comp_ctx.may_have_more)
+		return LWS_RXPOL_ROLE;
+#endif
+	if (lws_is_flowcontrolled(wsi))
+		return LWS_RXPOL_ROLE;
+
+#if defined(LWS_WITH_SERVER)
+	if (!lwsi_role_client(wsi)) {
+		if (lwsi_state(wsi) == LRS_TXN_COMPLETED ||
+		    lwsi_txn_completing(wsi) ||
+		    lwsi_transport(wsi) == LTS_SSL_ACK_PENDING)
+			return LWS_RXPOL_ROLE;
+
+		/* these states imply we MUST have an ah attached */
+		if (lwsi_state(wsi) != LRS_ESTABLISHED &&
+		    lwsi_state(wsi) != LRS_ISSUING_FILE &&
+		    lwsi_state(wsi) != LRS_HEADERS &&
+		    lwsi_state(wsi) != LRS_DOING_TRANSACTION && /* at least, SSE */
+		    lwsi_state(wsi) != LRS_DISCARD_BODY &&
+		    lwsi_state(wsi) != LRS_BODY)
+			return LWS_RXPOL_ROLE;
+
+		if (!wsi->stream.ah) {
+			lws_ah_attach_result_t ar =
+					lws_header_table_attach(wsi, 0);
+
+			if (ar == LWS_AH_ATTACH_WSI_GONE)
+				return LWS_RXPOL_DIED;
+
+			if (ar != LWS_AH_ATTACH_OK) {
+				lwsl_wsi_info(wsi, "ah not available");
+
+				return LWS_RXPOL_HOLD;
+			}
+		}
+
+		return LWS_RXPOL_PUMP;
+	}
+#endif
+#if defined(LWS_WITH_CLIENT)
+	switch (lwsi_state(wsi)) {
+#if defined(LWS_WITH_SOCKS5)
+	case LRS_WAITING_SOCKS_GREETING_REPLY:
+	case LRS_WAITING_SOCKS_AUTH_REPLY:
+	case LRS_WAITING_SOCKS_CONNECT_REPLY:
+#endif
+#if defined(LWS_CLIENT_HTTP_PROXYING)
+	case LRS_WAITING_PROXY_REPLY:
+#endif
+		return LWS_RXPOL_PUMP;
+
+	case LRS_WAITING_SERVER_REPLY:
+		if (!wsi->stream.ah)
+			return LWS_RXPOL_ROLE;
+		if (wsi->stream.ah->parser_state == WSI_PARSING_COMPLETE)
+			/* the block is in: the handler interprets it */
+			return LWS_RXPOL_HOLD;
+
+		return LWS_RXPOL_PUMP_LOOP;
+
+	default:
+		break;
+	}
+#endif
+
+	return LWS_RXPOL_ROLE;
+}
+
 static lws_handling_result_t
 rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
 	// lwsl_notice("%s: %s state 0x%x, revents %d\n", __func__, lws_wsi_tag(wsi), lwsi_state(wsi), pollfd->revents);
-
-	if (lwsi_state(wsi) == LRS_IDLING) {
-		lws_handling_result_t hr;
-		int nothing, consumed;
-
-		/*
-		 * A connection kept warm for reuse has nothing to hear from
-		 * its peer but that it has gone away: the rx op closes it on
-		 * anything that arrives.  (A tls connection here shows POLLIN
-		 * and errors on the read; we used to spin on that.)
-		 */
-		hr = lws_rx_pump(pt, wsi, pollfd, 0, 0, &nothing, &consumed);
-		if (hr != LWS_HPI_RET_HANDLED)
-			return hr;
-	}
 
 #ifdef LWS_WITH_CGI
 	if (wsi->http.cgi && (pollfd->revents & LWS_POLLOUT)) {
@@ -1472,6 +1480,8 @@ static const lws_rops_t rops_table_h1[] = {
 #endif
 	/* 10 with server and client, 9 with one, 8 with neither */
 	{ .rx				  = rops_rx_h1 },
+	/* 11 with server and client, 10 with one, 9 with neither */
+	{ .rx_policy			  = rops_rx_policy_h1 },
 };
 
 const struct lws_role_ops role_ops_h1 = {
@@ -1507,19 +1517,27 @@ const struct lws_role_ops role_ops_h1 = {
 	  /* LWS_ROPS_issue_keepalive */		0x09, 0x00,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x00, 0x0A,
+	  /* LWS_ROPS_rx_dgram */			0x00,
+	  /* LWS_ROPS_rx_policy */			0x0B,
 #else
 	  /* LWS_ROPS_issue_keepalive */		0x08, 0x00,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x00, 0x09,
+	  /* LWS_ROPS_rx_dgram */			0x00,
+	  /* LWS_ROPS_rx_policy */			0x0A,
 #endif
 #else
 	  /* LWS_ROPS_issue_keepalive */		0x00, 0x00,
 #if defined(LWS_WITH_SERVER)
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x00, 0x09,
+	  /* LWS_ROPS_rx_dgram */			0x00,
+	  /* LWS_ROPS_rx_policy */			0x0A,
 #else
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x00, 0x08,
+	  /* LWS_ROPS_rx_dgram */			0x00,
+	  /* LWS_ROPS_rx_policy */			0x09,
 #endif
 #endif
 					},
