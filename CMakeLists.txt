@@ -1674,9 +1674,6 @@ if (LWS_WITH_GCOV)
 	if (LWS_PYTHON3)
 		add_custom_target(coverage
 			COMMAND ${LWS_PYTHON3} ${PROJECT_SOURCE_DIR}/scripts/coverage-report.py
-				--build-dir ${PROJECT_BINARY_DIR}
-				--source-dir ${PROJECT_SOURCE_DIR}
-				--compiler ${CMAKE_C_COMPILER}
 			WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
 			COMMENT "Summarizing coverage from the last ctest run"
 			VERBATIM)

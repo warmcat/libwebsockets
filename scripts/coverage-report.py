@@ -2,11 +2,12 @@
 #
 # Summarize gcov-format coverage of a build tree after ctest has run in it.
 #
-# The tree must have been configured with -DLWS_WITH_GCOV=1 (gcc or clang):
-# every test process then leaves .gcda counters next to its objects when it
-# exits.  This script runs gcov (or llvm-cov gcov for clang-built trees) over
-# every .gcno in the build tree, merges the results per source file, and
-# prints
+# Run it from the build directory of a tree configured with
+# -DLWS_WITH_GCOV=1 (gcc or clang): every test process leaves .gcda counters
+# next to its objects when it exits.  The script takes the compiler and the
+# source directory from CMakeCache.txt, runs gcov (or llvm-cov gcov for a
+# clang-built tree) over every .gcno under the build directory, merges the
+# results per source file, and prints
 #
 #  - overall line and function coverage of the library sources,
 #  - a per-directory table, worst first,
@@ -16,48 +17,87 @@
 # It only reports; it never fails the build.  Missing tools or unreadable
 # data files are printed as warnings and the exit code is still 0.
 #
-#   coverage-report.py [--build-dir B] [--source-dir S] [--compiler CC]
-#                      [--gcov "TOOL [ARGS]"] [--include PREFIX]...
-#                      [--threshold PCT] [--limit N] [--json-out FILE]
+#   cd build && ../scripts/coverage-report.py [--include PREFIX]...
+#                      [--threshold PCT] [--limit N] [--json]
 #
-# `make coverage` in a gcov-instrumented tree runs it with the right paths.
+# LWS_GCOV in the environment names the reader to use instead of the one
+# matched to the compiler, eg LWS_GCOV="llvm-cov gcov".
+#
+# `make coverage` in a gcov-instrumented tree runs it from the right place.
 
 import argparse, collections, concurrent.futures, glob, gzip, json, os, re
 import shutil, subprocess, sys, tempfile
 
+JSON_OUT = "coverage-summary.json"
 
-def find_tool(explicit, compiler):
-	"""Pick the gcov reader that matches the compiler that made the .gcno."""
-	if explicit:
-		return explicit.split()
 
-	cands = []
-	base = os.path.basename(compiler or "")
-	if "clang" in base:
-		# clang's gcov files need llvm-cov; gcc's gcov rejects them
-		p = subprocess.run([compiler, "-print-prog-name=llvm-cov"],
-				   capture_output=True, text=True).stdout.strip()
-		if p and os.sep in p:
-			cands.append([p, "gcov"])
-		cands.append(["llvm-cov", "gcov"])
-		cands += [["llvm-cov-%d" % v, "gcov"] for v in range(40, 9, -1)]
-		for c in cands:
-			if shutil.which(c[0]):
-				return c
-		# gcc's gcov rejects (and can crash on) clang's files: give up
-		return None
-	elif compiler:
-		p = subprocess.run([compiler, "-print-prog-name=gcov"],
-				   capture_output=True, text=True).stdout.strip()
-		if p and os.sep in p:
-			cands.append([p])
-	cands.append(["gcov"])
+def cmake_cache(keys):
+	"""The requested CMakeCache.txt entries of the current directory."""
+	found = {}
+	try:
+		with open("CMakeCache.txt") as fp:
+			for line in fp:
+				k, _, v = line.partition("=")
+				k = k.split(":")[0]
+				if k in keys:
+					found[k] = v.strip()
+	except OSError:
+		pass
 
+	return found
+
+
+def first_available(cands):
 	for c in cands:
 		if shutil.which(c[0]):
 			return c
 
 	return None
+
+
+def prog_name(compiler, name):
+	"""Ask the compiler where its companion tool lives, or ''."""
+	try:
+		p = subprocess.run([compiler, "-print-prog-name=" + name],
+				   capture_output=True, text=True).stdout.strip()
+	except OSError:
+		return ""
+
+	return p if os.sep in p else ""
+
+
+def clang_reader(compiler):
+	"""clang's gcov files need llvm-cov; gcc's gcov rejects them."""
+	cands = []
+	p = prog_name(compiler, "llvm-cov")
+	if p:
+		cands.append([p, "gcov"])
+	cands.append(["llvm-cov", "gcov"])
+	cands += [["llvm-cov-%d" % v, "gcov"] for v in range(40, 9, -1)]
+
+	return first_available(cands)
+
+
+def gcc_reader(compiler):
+	cands = []
+	p = prog_name(compiler, "gcov")
+	if p:
+		cands.append([p])
+	cands.append(["gcov"])
+
+	return first_available(cands)
+
+
+def find_tool(compiler):
+	"""Pick the gcov reader that matches the compiler that made the .gcno."""
+	explicit = os.environ.get("LWS_GCOV")
+	if explicit:
+		return explicit.split()
+
+	if "clang" in os.path.basename(compiler):
+		return clang_reader(compiler)
+
+	return gcc_reader(compiler)
 
 
 def tool_mode(tool):
@@ -108,6 +148,17 @@ def parse_json(path, cov, norm):
 			cov.add_line(f, ln["line_number"], ln.get("count", 0))
 
 
+def parse_text_function(rest):
+	"""'function:' payload -> (name, start, end, count), or None."""
+	a = rest.split(",")
+	if len(a) >= 4:		# gcc 8 / llvm-cov: start,end,count,name
+		return ",".join(a[3:]), int(a[0]), int(a[1]), int(a[2])
+	if len(a) == 3:		# gcc 7: start,count,name
+		return a[2], int(a[0]), int(a[0]), int(a[1])
+
+	return None
+
+
 def parse_text(path, cov, norm):
 	"""gcov 7/8 and llvm-cov gcov -i intermediate text format."""
 	f = None
@@ -116,20 +167,12 @@ def parse_text(path, cov, norm):
 			line = line.rstrip("\n")
 			if line.startswith("file:"):
 				f = norm(line[5:])
+			elif not f:
 				continue
-			if not f:
-				continue
-			if line.startswith("function:"):
-				a = line[9:].split(",")
-				if len(a) >= 4:		# start,end,count,name
-					start, end, count = int(a[0]), int(a[1]), int(a[2])
-					name = ",".join(a[3:])
-				elif len(a) == 3:	# gcc 7: start,count,name
-					start, count, name = int(a[0]), int(a[1]), a[2]
-					end = start
-				else:
-					continue
-				cov.add_func(f, name, start, end, count)
+			elif line.startswith("function:"):
+				fn = parse_text_function(line[9:])
+				if fn:
+					cov.add_func(f, *fn)
 			elif line.startswith("lcount:"):
 				a = line[7:].split(",")
 				if len(a) >= 2:
@@ -151,78 +194,35 @@ def run_one(tool, mode, gcno, tmp):
 	return outs, err
 
 
-def pct(n, d):
-	return 100.0 * n / d if d else 0.0
-
-
-def main():
-	ap = argparse.ArgumentParser()
-	ap.add_argument("--build-dir", default=os.getcwd())
-	ap.add_argument("--source-dir", default=None)
-	ap.add_argument("--compiler", default=None,
-			help="C compiler the tree was built with (picks the reader)")
-	ap.add_argument("--gcov", default=None,
-			help="reader to use, eg 'gcov-14' or 'llvm-cov gcov'")
-	ap.add_argument("--include", action="append", default=None,
-			help="source prefix to count (default: lib)")
-	ap.add_argument("--threshold", type=float, default=50.0,
-			help="list functions below this line coverage %% (default 50)")
-	ap.add_argument("--limit", type=int, default=0,
-			help="max functions to list, 0 = all")
-	ap.add_argument("--json-out", default=None,
-			help="also write a machine-readable summary here")
-	a = ap.parse_args()
-
-	bdir = os.path.abspath(a.build_dir)
-	sdir = os.path.abspath(a.source_dir) if a.source_dir else \
-		os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-	incl = a.include or ["lib"]
-	incl = [p.rstrip("/") + "/" for p in incl]
-
-	compiler = a.compiler
-	if not compiler:
-		try:
-			with open(os.path.join(bdir, "CMakeCache.txt")) as fp:
-				for line in fp:
-					if line.startswith("CMAKE_C_COMPILER:"):
-						compiler = line.split("=", 1)[1].strip()
-		except OSError:
-			pass
-
-	tool = find_tool(a.gcov, compiler)
-	if not tool:
-		print("coverage: no gcov reader found for compiler %s (a clang "
-		      "build needs llvm-cov, gcc's gcov cannot read its files); "
-		      "nothing to report" % compiler)
-		return 0
-	mode = tool_mode(tool)
-
+def find_gcnos(bdir):
 	gcnos = []
-	for root, dirs, files in os.walk(bdir):
+	for root, _, files in os.walk(bdir):
 		gcnos += [os.path.join(root, f) for f in files if f.endswith(".gcno")]
-	if not gcnos:
-		print("coverage: no .gcno files under %s; was the tree built with "
-		      "-DLWS_WITH_GCOV=1 ?" % bdir)
-		return 0
 
-	gcdas = sum(1 for g in gcnos if os.path.exists(g[:-5] + ".gcda"))
-	print("coverage: %d objects instrumented, %d with run data, reader %s (%s)" %
-	      (len(gcnos), gcdas, " ".join(tool), mode))
+	return gcnos
 
+
+def make_norm(bdir, sdir, incl):
+	"""Map a reader's file path to a counted source-relative path, or None."""
 	def norm(path):
 		p = os.path.normpath(path)
 		if not os.path.isabs(p):
 			p = os.path.normpath(os.path.join(bdir, p))
-		if p.startswith(sdir + os.sep):
-			rel = p[len(sdir) + 1:]
-		else:
+		if not p.startswith(sdir + os.sep):
 			return None
+		rel = p[len(sdir) + 1:]
 		for i in incl:
 			if rel.startswith(i):
 				return rel
 		return None
 
+	return norm
+
+
+def collect(tool, mode, gcnos, norm):
+	"""Run the reader over every .gcno and merge into one Cov."""
 	cov = Cov()
+	parse = parse_json if mode == "json" else parse_text
 	tmp = tempfile.mkdtemp(prefix="lws-cov-")
 	try:
 		with concurrent.futures.ThreadPoolExecutor(
@@ -233,41 +233,43 @@ def main():
 					cov.errors.append(err)
 				for o in outs:
 					try:
-						if mode == "json":
-							parse_json(o, cov, norm)
-						else:
-							parse_text(o, cov, norm)
+						parse(o, cov, norm)
 					except (OSError, ValueError, KeyError) as e:
 						cov.errors.append("%s: %s" % (o, e))
 	finally:
 		shutil.rmtree(tmp, ignore_errors=True)
 
-	if not cov.files:
-		print("coverage: no source under %s matched %s" % (sdir, incl))
-		for e in cov.errors[:20]:
-			print("  ", e)
-		return 0
+	return cov
 
-	# per-function line coverage from the lines inside its [start, end]
 
+def pct(n, d):
+	return 100.0 * n / d if d else 0.0
+
+
+def summarize(cov):
+	"""Totals, per-directory counts and per-function line coverage."""
 	funcs = []		# (pct, executed, total, file, start, name, count)
 	dirs = collections.defaultdict(lambda: [0, 0, 0, 0])	# lines x/n, funcs x/n
-	tl = te = tf = tfe = 0
+	tot = [0, 0, 0, 0]
 	for f, d in sorted(cov.files.items()):
 		lines = d["lines"]
 		nl = len(lines)
 		ne = sum(1 for c in lines.values() if c)
 		nf = len(d["funcs"])
 		nfe = sum(1 for c, _ in d["funcs"].values() if c)
-		tl += nl; te += ne; tf += nf; tfe += nfe
-		dd = dirs[os.path.dirname(f)]
-		dd[0] += ne; dd[1] += nl; dd[2] += nfe; dd[3] += nf
+		for acc in (tot, dirs[os.path.dirname(f)]):
+			acc[0] += ne; acc[1] += nl; acc[2] += nfe; acc[3] += nf
 		for (name, start), (count, end) in d["funcs"].items():
 			fl = [c for l, c in lines.items() if start <= l <= end]
 			n = len(fl)
 			e = sum(1 for c in fl if c)
 			funcs.append((pct(e, n), e, n, f, start, name, count))
 
+	return tot, dirs, funcs
+
+
+def print_report(incl, tot, dirs, funcs, threshold, limit, errors):
+	te, tl, tfe, tf = tot
 	print()
 	print("coverage: %s  lines %d / %d (%.1f%%)  functions %d / %d (%.1f%%)" %
 	      (" ".join(i.rstrip("/") for i in incl), te, tl, pct(te, tl),
@@ -279,37 +281,89 @@ def main():
 		print("  %5.1f%%  %6d / %6d lines  %4d / %4d functions  %s" %
 		      (pct(ne, nl), ne, nl, nfe, nf, dname))
 
-	thin = [x for x in funcs if x[0] < a.threshold]
+	thin = [x for x in funcs if x[0] < threshold]
 	thin.sort(key=lambda x: (x[0], -x[2], x[3], x[4]))
 	never = sum(1 for x in funcs if not x[6])
 	print()
 	print("functions below %.0f%% line coverage, worst first: %d of %d "
-	      "(%d never executed)" % (a.threshold, len(thin), len(funcs), never))
-	shown = thin[:a.limit] if a.limit else thin
-	for p, e, n, f, start, name, count in shown:
+	      "(%d never executed)" % (threshold, len(thin), len(funcs), never))
+	shown = thin[:limit] if limit else thin
+	for p, e, n, f, start, name, _ in shown:
 		print("  %5.1f%%  %4d / %4d  %s:%d %s" % (p, e, n, f, start, name))
 	if len(shown) < len(thin):
 		print("  ... %d more" % (len(thin) - len(shown)))
 
-	if cov.errors:
+	if errors:
 		print()
 		print("coverage: %d objects could not be read (first few):" %
-		      len(cov.errors))
-		for e in cov.errors[:10]:
+		      len(errors))
+		for e in errors[:10]:
 			print("  ", e)
 
-	if a.json_out:
-		with open(a.json_out, "w") as fp:
-			json.dump({
-				"lines": [te, tl], "functions": [tfe, tf],
-				"directories": {k: v for k, v in dirs.items()},
-				"thin": [{"pct": p, "lines": [e, n], "file": f,
-					  "line": s, "name": nm, "count": c}
-					 for p, e, n, f, s, nm, c in thin],
-			}, fp, indent=1)
+	return thin
 
-	return 0
+
+def write_json(tot, dirs, thin):
+	with open(JSON_OUT, "w") as fp:
+		json.dump({
+			"lines": [tot[0], tot[1]], "functions": [tot[2], tot[3]],
+			"directories": dict(dirs),
+			"thin": [{"pct": p, "lines": [e, n], "file": f,
+				  "line": s, "name": nm, "count": c}
+				 for p, e, n, f, s, nm, c in thin],
+		}, fp, indent=1)
+
+
+def main():
+	ap = argparse.ArgumentParser()
+	ap.add_argument("--include", action="append", default=None,
+			help="source prefix to count (default: lib)")
+	ap.add_argument("--threshold", type=float, default=50.0,
+			help="list functions below this line coverage %% (default 50)")
+	ap.add_argument("--limit", type=int, default=0,
+			help="max functions to list, 0 = all")
+	ap.add_argument("--json", action="store_true",
+			help="also write the summary to %s" % JSON_OUT)
+	a = ap.parse_args()
+
+	bdir = os.getcwd()
+	cache = cmake_cache(("CMAKE_C_COMPILER", "CMAKE_HOME_DIRECTORY"))
+	compiler = cache.get("CMAKE_C_COMPILER", "cc")
+	sdir = os.path.abspath(cache.get("CMAKE_HOME_DIRECTORY", ".."))
+	incl = [p.rstrip("/") + "/" for p in (a.include or ["lib"])]
+
+	tool = find_tool(compiler)
+	if not tool:
+		print("coverage: no gcov reader found for compiler %s (a clang "
+		      "build needs llvm-cov, gcc's gcov cannot read its files); "
+		      "nothing to report" % compiler)
+		return
+	mode = tool_mode(tool)
+
+	gcnos = find_gcnos(bdir)
+	if not gcnos:
+		print("coverage: no .gcno files under %s; was the tree built with "
+		      "-DLWS_WITH_GCOV=1 ?" % bdir)
+		return
+
+	gcdas = sum(1 for g in gcnos if os.path.exists(g[:-5] + ".gcda"))
+	print("coverage: %d objects instrumented, %d with run data, reader %s (%s)" %
+	      (len(gcnos), gcdas, " ".join(tool), mode))
+
+	cov = collect(tool, mode, gcnos, make_norm(bdir, sdir, incl))
+	if not cov.files:
+		print("coverage: no source under %s matched %s" % (sdir, incl))
+		for e in cov.errors[:20]:
+			print("  ", e)
+		return
+
+	tot, dirs, funcs = summarize(cov)
+	thin = print_report(incl, tot, dirs, funcs, a.threshold, a.limit,
+			    cov.errors)
+	if a.json:
+		write_json(tot, dirs, thin)
 
 
 if __name__ == "__main__":
-	sys.exit(main())
+	main()
+	sys.exit(0)

@@ -247,7 +247,7 @@
 		# quietly drop out of the coverage run.  Needs brotli-devel and
 		# llvm-cov on the builder.
 		"coverage": {
-			"cmake":	"-DLWS_WITH_DISTRO_RECOMMENDED=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_GCOV=1 -DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_HTTP_STREAM_COMPRESSION=1 -DLWS_WITH_HTTP_BROTLI=1 -DLWS_WITHOUT_EXTENSIONS=0 && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install && ( LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3 ; R=$? ; python3 ../scripts/coverage-report.py --build-dir . --source-dir .. --json-out coverage-summary.json ; exit $R )",
+			"cmake":	"-DLWS_WITH_DISTRO_RECOMMENDED=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_GCOV=1 -DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_HTTP_STREAM_COMPRESSION=1 -DLWS_WITH_HTTP_BROTLI=1 -DLWS_WITHOUT_EXTENSIONS=0 && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install && ( LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3 ; R=$? ; python3 ../scripts/coverage-report.py --json ; exit $R )",
 			"platforms":	"none, rocky9-ca/aarch64-a72a55-rk3588/clang",
 			"artifacts":	"build/coverage-summary.json"
 		},

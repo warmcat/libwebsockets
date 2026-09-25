@@ -30,15 +30,19 @@ Counters accumulate across runs until the `.gcda` files are deleted
 (`find . -name '*.gcda' -delete` in the build tree), so a report after
 running a single test shows only what that test reached.
 
-The script options:
+The script runs from the build directory and takes the compiler and the
+source directory from its CMakeCache.txt.  Options:
 
 ```
 --include PREFIX   count sources under this prefix instead of lib/ (repeatable)
 --threshold PCT    list functions below this line coverage (default 50)
 --limit N          list at most N functions (default: all)
---gcov "TOOL ..."  use this reader instead of the one matched to the compiler
---json-out FILE    also write the totals and the function list as JSON
+--json             also write the totals and the function list to
+                   coverage-summary.json in the build directory
 ```
+
+`LWS_GCOV="llvm-cov gcov"` in the environment overrides the reader matched to
+the compiler.
 
 It only reports.  It exits 0 even when it cannot find a reader or read
 some of the data files, and says so in the output.
