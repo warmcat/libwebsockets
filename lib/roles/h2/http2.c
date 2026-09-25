@@ -747,7 +747,8 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 			if (b > 1) {
 				if (lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
 					      "ENABLE_PUSH invalid arg"))
-					return 1;
+					lwsl_info("%s: GOAWAY not queued\n",
+						  __func__);
 				return 1;
 			}
 			break;
@@ -757,7 +758,8 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 			if (b > 0x7fffffff) {
 				if (lws_h2_goaway(nwsi, H2_ERR_FLOW_CONTROL_ERROR,
 					      "Initial Window beyond max"))
-					return 1;
+					lwsl_info("%s: GOAWAY not queued\n",
+						  __func__);
 				return 1;
 			}
 
@@ -814,7 +816,8 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 					if (lws_h2_goaway(nwsi,
 						      H2_ERR_FLOW_CONTROL_ERROR,
 						      "Initial Window delta overflow"))
-						return 1;
+						lwsl_info("%s: GOAWAY not "
+							  "queued\n", __func__);
 					return 1;
 				}
 				w->txc.tx_cr = (int32_t)cr;
@@ -830,13 +833,15 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 			if (b < wsi->a.vhost->h2.set.s[H2SET_MAX_FRAME_SIZE]) {
 				if (lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
 					      "Frame size < initial"))
-					return 1;
+					lwsl_info("%s: GOAWAY not queued\n",
+						  __func__);
 				return 1;
 			}
 			if (b > 0x00ffffff) {
 				if (lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
 					      "Settings Frame size above max"))
-					return 1;
+					lwsl_info("%s: GOAWAY not queued\n",
+						  __func__);
 				return 1;
 			}
 			break;
