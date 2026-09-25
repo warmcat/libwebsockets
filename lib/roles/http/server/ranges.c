@@ -216,9 +216,22 @@ lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp,
 
 	rp->extent = extent;
 
+	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_RANGE))
+		return 0; /* no Range: at all, serve the whole thing */
+
 	if (lws_hdr_copy(wsi, rp->buf, sizeof(rp->buf),
-			 WSI_TOKEN_HTTP_RANGE) <= 0)
-		return 0;
+			 WSI_TOKEN_HTTP_RANGE) <= 0) {
+		/*
+		 * There is a Range:, but it is longer than any reasonable
+		 * set of ranges needs to be.  RFC 7233 6.1 lets us refuse
+		 * an unreasonable request; serving the whole representation
+		 * instead would be exactly the amplification the limits
+		 * below exist to deny.
+		 */
+		lwsl_notice("%s: Range: header too long to parse\n", __func__);
+
+		return -1;
+	}
 
 	rp->state = LWSRS_BYTES_EQ;
 
@@ -246,8 +259,13 @@ lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp,
 			return -1;
 		}
 
-		if (rp->count_ranges >= 64) {
-			lwsl_notice("Too many ranges\n");
+		/* the count is incremented above, so this accepts exactly
+		 * LWS_RANGES_MAX of them and refuses the one after */
+
+		if (rp->count_ranges > LWS_RANGES_MAX) {
+			lwsl_notice("%s: more than %d ranges\n", __func__,
+				    LWS_RANGES_MAX);
+
 			return -1;
 		}
 	}

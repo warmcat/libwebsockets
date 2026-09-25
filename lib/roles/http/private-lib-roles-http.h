@@ -85,9 +85,23 @@ enum range_states {
 	LWSRS_SYNTAX,
 };
 
+/*
+ * The most ranges we will compose a response from, and the buffer that has
+ * to express them.
+ *
+ * The parser re-reads the Range: header all through the response, long after
+ * the ah has been handed on, so the header is copied into the wsi and that
+ * copy bounds what can be asked for.  Sized so LWS_RANGES_MAX ranges of
+ * ten-digit offsets always fit: the count is then what actually refuses an
+ * unreasonable request, rather than being dead code behind the buffer.
+ */
+
+#define LWS_RANGES_MAX		16
+#define LWS_RANGES_BUF		384
+
 struct lws_range_parsing {
 	unsigned long long start, end, extent, agg, budget;
-	char buf[128];
+	char buf[LWS_RANGES_BUF];
 	int pos;
 	enum range_states state;
 	char start_valid, end_valid, ctr, count_ranges, did_try, inside, send_ctr;

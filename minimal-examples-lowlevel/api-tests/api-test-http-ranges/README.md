@@ -27,8 +27,9 @@ doubled, misaligned, or seeked to the wrong place cannot pass by accident.
 |`bytes=abc`, `bytes=`, `items=0-9`|200, an unusable `Range:` is ignored|
 |`bytes=1000-`, `bytes=2000-3000`, `bytes=-0`, `bytes=500-400`|416|
 |`bytes=0-999,0-999`|416, ranges that aggregate past the file|
+|17 ranges, or a `Range:` too long for the parser's buffer|416|
 |`bytes=0-99,200-299` and other multi-range forms|206 `multipart/byteranges`|
-|a `Range:` longer than the parser's 128-byte buffer|200, ignored|
+|16 ranges, the most lws will compose|206, 16 parts|
 |`If-Range:` matching the etag / not matching|206 / 200|
 |the same on an empty file|200 for no range, 416 for any range|
 

@@ -146,8 +146,10 @@ static const struct xcase cases[] = {
 	  .file = F_SMALL, .range = "bytes=500-400", .status = 416 },
 	{ .name = "h1 ranges that aggregate past the file",
 	  .file = F_SMALL, .range = "bytes=0-999,0-999", .status = 416 },
-	{ .name = "h1 a Range longer than the parser will hold is ignored",
-	  .file = F_SMALL, .gen_n = 40, .status = 200 },
+	{ .name = "h1 more ranges than we will compose",
+	  .file = F_SMALL, .gen_n = 17, .status = 416 },
+	{ .name = "h1 a Range longer than the parser will hold",
+	  .file = F_SMALL, .gen_n = 80, .status = 416 },
 
 	/* multipart/byteranges */
 
@@ -171,8 +173,8 @@ static const struct xcase cases[] = {
 	  .nexp = 2, .exp = { { 800, 899 }, { 100, 199 } } },
 	{ .name = "h1 ten one-byte ranges",
 	  .file = F_SMALL, .gen_n = 10, .status = 206 },
-	{ .name = "h1 as many ranges as the parser will hold",
-	  .file = F_SMALL, .gen_n = 20, .status = 206 },
+	{ .name = "h1 as many ranges as we will compose",
+	  .file = F_SMALL, .gen_n = 16, .status = 206 },
 
 	/* the same, on a file far larger than one lws_write() */
 
@@ -264,7 +266,7 @@ static struct lws_context *context;
 static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_next, sul_watchdog;
 static struct conn conn;
-static char tmpdir[256], path[384], etag[64], gen_range[512];
+static char tmpdir[256], path[384], etag[64], gen_range[1024];
 static const char *tmpbase = ".";
 static const char *server_addr = "127.0.0.1";
 static int cur = -1, failures, only_case = -1, interrupted,
