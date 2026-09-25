@@ -38,7 +38,7 @@ things only through these requests.  Nothing else crosses.
 |---|---|---|
 | IO -> sansIO | **rx(bytes) -> consumed**: bytes arrived, take what you can; an empty rx is the peer closing | the `rx` role op, fed by `lws_rx_pump()` from every role's `handle_POLLIN`; the app's pull of a response body, `lws_http_client_read()`, is the same read at the app's pace into the app's buffer, feeding `lws_h1_client_body_rx()` |
 | IO -> sansIO | **rx_dgram(bytes, peer, ecn) -> ok**: the datagram spelling of rx: one datagram arrived from this peer with these ECN bits; it is taken whole, nothing is parked | the `rx_dgram` role op, fed by `lws_rx_pump_dgram()`; quic |
-| IO -> sansIO | **tx(buf, max) -> n, more**: the transport can take bytes: fill the caller's buffer with the next ones to send, from wherever you got to last time, and say whether more remain | `lws_write()` composing into the `LWS_PRE` headroom then `lws_issue_raw()`; role `handle_POLLOUT`.  Converted: the status page (`lws_http_status_page_send_pending()`), file serving (`lws_http_file_tx()` producing, `lws_serve_http_file_fragment()` in IO driving) |
+| IO -> sansIO | **tx(buf, max) -> n, more**: the transport can take bytes: fill the caller's buffer with the next ones to send, from wherever you got to last time, and say whether more remain | `lws_write()` composing into the `LWS_PRE` headroom then `lws_issue_raw()`; role `handle_POLLOUT`.  Converted: the status page (`lws_http_status_page_send_pending()`), file serving (`lws_http_file_tx()` producing, `lws_serve_http_file_fragment()` in IO driving), h2's protocol packets (`lws_h2_pps_tx()`, then `lws_h2_pps_done()` once written), quic's packets (`lws_quic_packet_tx()` into IO's buffer sized to the path MTU, `lws_io_send_dgram()`, `lws_quic_packet_sent()`) |
 | IO -> sansIO | **deadline()**: the deadline you set has passed | `sul` callbacks, `lws_sul_wsitimeout_cb` |
 | IO -> sansIO | **transport(up / failed / gone)** | `client_transport_up` op, `LWS_WSIEV_TRANSPORT_UP`, `CONN_FAILED`, `SOCKET_GONE` |
 | sansIO -> IO | **want_write()**: call tx when the transport can take bytes | `lws_callback_on_writable()`; `lws_service_wsi_as_writable()` is the same request served now |
@@ -89,6 +89,15 @@ of it is left buffered, tell sansIO the response completed.
 The file system is a content source, not the transport: reading the file,
 and handing that read to a worker thread, are the source's business and
 stay on the sansIO side of this line.
+
+Where what follows the bytes depends on their having gone, the shape has
+a third step: h2's SETTINGS ack starts the first response, whose bytes
+must follow the ack's, and quic's frames are in flight only once the
+datagram was taken, else they go back to pending under the same packet
+number.  So: produce into IO's buffer, IO writes, then the producer is
+told (`lws_h2_pps_done()`, `lws_quic_packet_sent()`).  quic is the case
+the README warned of: its buffer is the path MTU, which moves, so the
+producer clamps every packet to what it is handed and keeps no copy.
 
 ## The headers
 

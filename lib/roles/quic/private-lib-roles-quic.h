@@ -27,6 +27,8 @@
 
 extern const struct lws_role_ops role_ops_quic;
 
+/* the largest datagram we will assemble, whatever IO's buffer holds */
+#define LWS_QUIC_MAX_DGRAM 2048
 #define LWS_QUIC_MAX_CID_LEN 20
 
 #define LWS_QUIC_VERSION_1 0x1

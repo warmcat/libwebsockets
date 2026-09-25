@@ -2482,148 +2482,45 @@ lws_quic_enter_closing_state(struct lws *wsi, uint64_t err_code, uint64_t frame_
 	lws_callback_on_writable(nwsi);
 }
 
-static lws_handling_result_t
-rops_handle_POLLOUT_quic(struct lws *wsi)
+/* one produced packet: what the send and the accounting after it need */
+struct lws_quic_tx_pkt {
+	lws_sockaddr46	dest;		/* where it goes, if has_dest */
+	uint64_t	pn;
+	size_t		len;		/* bytes in the buffer, tag included */
+	int		level;
+	uint8_t		has_dest;
+	uint8_t		to_probe_path;
+};
+
+/*
+ * sansIO tx of the connection's next packet (README.sans-io-split.md, "A
+ * content source's tx").  From tp->level up, finds the first encryption
+ * level that has something to send and may send it now, and assembles one
+ * packet into IO's buffer: header, ACK, as many pending frames as fit within
+ * the path MTU (fragmenting STREAM and CRYPTO), padding, length, packet
+ * number, encrypted in place.  The frames that went in move to in_flight
+ * tagged with the packet number, as if sent; lws_quic_packet_sent() makes
+ * that final or, if IO could not take the packet, puts them back.
+ *
+ * Returns the packet's length, with tp filled in for the send and the
+ * accounting; 0 when no level from tp->level has anything to send;
+ * LWS_TX_WAIT when sending is held (amplification limit, congestion window,
+ * pacing: the pacer sul or an ACK wakes us); LWS_TX_FAIL when assembly or
+ * encryption failed.
+ */
+static int
+lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
+		   struct lws_quic_tx_pkt *tp)
 {
 	struct lws_quic_netconn *qn = wsi->quic.qn;
-	int level, n;
-	int blocked = 0;
-	int eagain_blocked = 0;
-	uint8_t pkt[2048]; memset(pkt, 0, sizeof(pkt));
-
-	if (!qn) {
-		lws_handling_result_t hr_ret = LWS_HP_RET_DROP_POLLOUT;
-		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				lws_dll2_get_head(&wsi->mux.child_list_owner)) {
-			struct lws *w = lws_container_of(d, struct lws,
-							 mux.sibling_list);
-			if (w->mux.requested_POLLOUT) {
-				w->mux.requested_POLLOUT = 0;
-				lws_handling_result_t hr_child = rops_handle_POLLOUT_quic(w);
-				if (hr_child == LWS_HP_RET_BAIL_DIE)
-					return LWS_HP_RET_BAIL_DIE;
-				if (hr_child == LWS_HP_RET_BAIL_OK)
-					hr_ret = LWS_HP_RET_BAIL_OK;
-			}
-		} lws_end_foreach_dll_safe(d, d1);
-		return hr_ret;
-	}
-
-	wsi->mux.requested_POLLOUT = 0;
-
 	lws_usec_t pto_delay = lws_quic_pto_delay_us(qn, qn->pto_count);
+	int level, n;
 
-        if (!wsi->quic.initialized && !qn->is_server) {
-                wsi->quic.initialized = 1;
+	if (max > LWS_QUIC_MAX_DGRAM)
+		max = LWS_QUIC_MAX_DGRAM;
+	memset(buf, 0, max);
 
-#if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
-		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-			if (!wsi->tls.ssl) {
-				const char *cce = NULL;
-				if (lws_client_create_tls(wsi, &cce, 0) == CCTLS_RETURN_ERROR) {
-					lwsl_wsi_err(wsi, "Failed to create TLS BIO: %s", cce ? cce : "unknown");
-					return LWS_HP_RET_BAIL_DIE;
-				}
-			}
-			/* The BIO was already created, just init QUIC TLS */
-			if (lws_tls_quic_init(wsi, quic_secret_cb)) {
-				lwsl_wsi_err(wsi, "Failed to init QUIC TLS");
-				return LWS_HP_RET_BAIL_DIE;
-			}
-			/* Kick off the handshake */
-			// lwsl_wsi_notice(wsi, "Kicking off QUIC TLS handshake");
-			lws_tls_quic_rx_crypto(wsi, LWS_QUIC_LEVEL_INITIAL, NULL, 0);
-
-			{
-				struct lws *nwsi = lws_get_quic_network_wsi(wsi);
-				if (nwsi) {
-					wsi = nwsi;
-					qn = wsi->quic.qn;
-				}
-			}
-		}
-#endif
-        }
-
-	if (qn->is_closing) {
-		/* We are in the Closing State. Only process the CONNECTION_CLOSE frame. */
-		/* The frame is queued in pending_tx by lws_quic_enter_closing_state. */
-		/* Skip PTO sweep and just let the normal frame generation send it. */
-		goto send_frames;
-	}
-
-	/*
-	 * PTO Sweep: Check for dropped/unacknowledged packets
-	 */
-	lws_usec_t now = lws_now_usecs();
-	size_t total_bytes_lost = 0;
-	uint64_t last_lost_pn = (uint64_t)-1;
-	for (level = 0; level < LWS_QUIC_LEVEL_COUNT; level++) {
-		if (!qn->in_flight[level].count)
-			continue;
-
-		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->in_flight[level].head) {
-			struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
-
-			lwsl_debug("PTO Sweep: checking packet %llu: now=%llu, sent=%llu, diff=%lld\n",
-				(unsigned long long)f->sent_in_pn, (unsigned long long)now, (unsigned long long)f->sent_time_us,
-				(long long)(now - f->sent_time_us));
-
-			/* Use the PTO delay that triggered this sweep, not the newly doubled one */
-			lws_usec_t sweep_pto_delay = lws_quic_pto_delay_us(qn,
-				qn->pto_count > 0 ? qn->pto_count - 1 : 0);
-
-			/* Allow a 5ms epsilon for timer jitter */
-			if (now + 5000 >= f->sent_time_us + sweep_pto_delay) {
-				// lwsl_notice("PTO Sweep: Packet %llu (type 0x%02x) lost! Retransmitting!\n", (unsigned long long)f->sent_in_pn, f->type);
-
-				/* PMTUD Black Hole Detection */
-				if (f->sent_in_pn != last_lost_pn) {
-					last_lost_pn = f->sent_in_pn;
-					if (qn->pmtud_probe_pn != LWS_QUIC_PMTUD_PROBE_NONE &&
-					    f->sent_in_pn == qn->pmtud_probe_pn) {
-						/* Active probe was lost */
-						qn->pmtud_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
-						qn->pmtud_state = 2; /* SEARCH_COMPLETE, stop probing */
-					} else if (f->packet_size >= qn->current_mtu - 16) {
-						qn->consecutive_mtu_losses++;
-						if (qn->consecutive_mtu_losses >= 3) {
-							lwsl_wsi_warn(wsi, "QUIC PMTUD: Black Hole detected! Reverting MTU to 1280.");
-							qn->current_mtu = 1280;
-							qn->pmtud_state = 0;
-							qn->consecutive_mtu_losses = 0;
-						}
-					}
-				}
-
-				/* Packet lost! */
-				lws_dll2_remove(&f->list);
-				total_bytes_lost += f->wire_len;
-				if ((f->type & 0xfe) == LWS_QUIC_FT_DATAGRAM) {
-					lws_free(f);
-				} else {
-					lws_dll2_add_head(&f->list, &qn->pending_tx[level]);
-					f->wire_len = 0;
-				}
-			}
-		} lws_end_foreach_dll_safe(d, d1);
-	}
-	/*
-	 * RFC 9002 Section 6.2.4: A PTO timer expiry does not indicate packet
-	 * loss and MUST NOT cause the congestion window to be reduced (no on_loss).
-	 * However, bytes_in_flight must be decremented for frames moved back to
-	 * pending_tx, otherwise the CC state diverges from reality.  Use on_discard
-	 * which adjusts bytes_in_flight without touching cwnd or ssthresh.
-	 */
-	if (total_bytes_lost && qn->cc_ops && qn->cc_ops->on_discard)
-		qn->cc_ops->on_discard(wsi, total_bytes_lost);
-
-send_frames:
-	/*
-	 * Iterate through the encryption levels in priority order.
-	 * Initial > Handshake > Application Data.
-	 */
-	for (level = 0; level < LWS_QUIC_LEVEL_COUNT; level++) {
+	for (level = tp->level; level < LWS_QUIC_LEVEL_COUNT; level++) {
 		if (!qn->keys[level]) {
 			continue;
 		}
@@ -2657,8 +2554,7 @@ send_frames:
 			if (qn->bytes_sent >= allowance) {
 				lwsl_notice("QUIC TX: Anti-Amplification limit reached! Sent: %llu, Recv: %llu. Blocking send.\n",
 					    (unsigned long long)qn->bytes_sent, (unsigned long long)qn->bytes_received);
-				blocked = 1;
-				break; /* Block sending further datagrams */
+				return LWS_TX_WAIT;
 			}
 			uint64_t remaining = allowance - qn->bytes_sent;
 			if (mtu > remaining)
@@ -2666,16 +2562,14 @@ send_frames:
 
 			if (mtu < 48) { /* Too small to send anything useful */
 				lwsl_notice("QUIC TX: Anti-Amplification remaining (%llu) too small. Blocking send.\n", (unsigned long long)remaining);
-				blocked = 1;
-				break;
+				return LWS_TX_WAIT;
 			}
 		}
 
 		/* Check congestion window - bypass for PTO probes and ACKs */
 		if (!qn->pto_probe_needed && !(qn->needs_ack[pn_space] && is_ack_allowed) && qn->cc_ops && qn->cc_ops->can_send && !qn->cc_ops->can_send(wsi, mtu)) {
 			is_congestion_limited = 1;
-			blocked = 1;
-			break; /* Stop processing sending loops */
+			return LWS_TX_WAIT;
 		}
 
 		/* Check pacing - bypass for PTO probes, exactly as we bypass CC */
@@ -2683,8 +2577,7 @@ send_frames:
 			lws_usec_t delay = qn->cc_ops->get_pacing_delay(wsi, mtu);
 			if (delay > 0) {
 				lws_sul_schedule(wsi->a.context, 0, &qn->pacer_sul, lws_quic_pacer_cb, delay);
-				blocked = 1;
-				break; /* Stop processing sending loops */
+				return LWS_TX_WAIT;
 			}
 		}
 
@@ -2698,7 +2591,7 @@ send_frames:
 		}
 
 		/* We have frames to send at this encryption level! */
-		uint8_t *p = pkt;
+		uint8_t *p = buf;
 		uint64_t my_pn = qn->keys[level]->pn_tx++;
 		lws_sockaddr46 packet_dest_sa46;
 		int has_packet_dest = 0;
@@ -2740,7 +2633,7 @@ send_frames:
 			if (level == LWS_QUIC_LEVEL_INITIAL) {
 				/* Token Length */
 				if (!qn->is_server && qn->retry_token_len > 0) {
-					p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), qn->retry_token_len);
+					p += lws_quic_write_varint(p, max - (size_t)(p - buf), qn->retry_token_len);
 					memcpy(p, qn->retry_token, qn->retry_token_len);
 					p += qn->retry_token_len;
 				} else {
@@ -2750,7 +2643,7 @@ send_frames:
 			/* Length (2-byte varint, will fill in later) */
 			*p++ = 0x40; *p++ = 0x00;
 
-			pn_offset = (size_t)(p - pkt);
+			pn_offset = (size_t)(p - buf);
 			header_len = pn_offset + 2; /* 2-byte PN */
 			p += 2; /* Skip PN bytes */
 		} else {
@@ -2761,7 +2654,7 @@ send_frames:
 			/* DCID */
 			if (qn->rem_cid.len) { memcpy(p, qn->rem_cid.id, qn->rem_cid.len); p += qn->rem_cid.len; }
 
-			pn_offset = (size_t)(p - pkt);
+			pn_offset = (size_t)(p - buf);
 			header_len = pn_offset + 2;
 			p += 2;
 		}
@@ -2885,21 +2778,21 @@ send_frames:
                         } else {
                                 *p++ = LWS_QUIC_FT_ACK; /* ACK (0x02) */
                         }
-                        p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), qn->highest_rx_pn[pn_space]); /* Largest Acknowledged */
-                        p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), ack_delay_enc); /* ACK Delay */
-                        p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), 0); /* ACK Range Count */
+                        p += lws_quic_write_varint(p, max - (size_t)(p - buf), qn->highest_rx_pn[pn_space]); /* Largest Acknowledged */
+                        p += lws_quic_write_varint(p, max - (size_t)(p - buf), ack_delay_enc); /* ACK Delay */
+                        p += lws_quic_write_varint(p, max - (size_t)(p - buf), 0); /* ACK Range Count */
                         uint64_t first_ack_range = 0;
                         uint64_t bm = qn->rx_pn_bitmask[pn_space] >> 1;
                         while (bm & 1) {
                                 first_ack_range++;
                                 bm >>= 1;
                         }
-                        p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), first_ack_range); /* First ACK Range */
+                        p += lws_quic_write_varint(p, max - (size_t)(p - buf), first_ack_range); /* First ACK Range */
 
                         if (qn->ecn_rx_ect0 || qn->ecn_rx_ect1 || qn->ecn_rx_ce) {
-                                p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), qn->ecn_rx_ect0);
-                                p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), qn->ecn_rx_ect1);
-                                p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), qn->ecn_rx_ce);
+                                p += lws_quic_write_varint(p, max - (size_t)(p - buf), qn->ecn_rx_ect0);
+                                p += lws_quic_write_varint(p, max - (size_t)(p - buf), qn->ecn_rx_ect1);
+                                p += lws_quic_write_varint(p, max - (size_t)(p - buf), qn->ecn_rx_ce);
                         }
 
                         qn->needs_ack[pn_space] = 0;
@@ -2965,16 +2858,16 @@ send_frames:
 			size_t frame_header_max_len = 1 + 8 + 8;
 			size_t max_udp_payload = mtu > 48 ? mtu - 48 : 1200;
 			if (max_udp_payload > 1200 && !qn->handshake_done) max_udp_payload = 1200; /* RFC 9000 Section 14.1 */
-			if (max_udp_payload > sizeof(pkt)) max_udp_payload = sizeof(pkt);
+			if (max_udp_payload > max) max_udp_payload = max;
 
-			if ((size_t)(p - pkt) + frame_header_max_len + 32 >= max_udp_payload)
+			if ((size_t)(p - buf) + frame_header_max_len + 32 >= max_udp_payload)
 				break;
 
 			size_t send_len = f->len;
 
-			if ((size_t)(p - pkt) + frame_header_max_len + send_len + 32 > max_udp_payload) {
+			if ((size_t)(p - buf) + frame_header_max_len + send_len + 32 > max_udp_payload) {
 				if ((f->type & 0xf8) == LWS_QUIC_FT_STREAM || f->type == LWS_QUIC_FT_CRYPTO) {
-					send_len = max_udp_payload - (size_t)(p - pkt) - frame_header_max_len - 32;
+					send_len = max_udp_payload - (size_t)(p - buf) - frame_header_max_len - 32;
 				} else {
 					break; /* Non-fragmentable frame doesn't fit */
 				}
@@ -2995,39 +2888,39 @@ send_frames:
 			if (type == LWS_QUIC_FT_PING) {
 				/* PING has no payload or additional headers */
 			} else if (type == LWS_QUIC_FT_CRYPTO) {
-				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->offset);
-				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), send_len);
+				p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->offset);
+				p += lws_quic_write_varint(p, max - (size_t)(p - buf), send_len);
 			} else if ((type & 0xf8) == LWS_QUIC_FT_STREAM) {
 				/* Stream ID */
-                                p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->stream_id);
+                                p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->stream_id);
 				if (type & 0x04) /* OFF */
-					p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->offset);
+					p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->offset);
 				if (type & 0x02) /* LEN */
-					p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), send_len);
+					p += lws_quic_write_varint(p, max - (size_t)(p - buf), send_len);
 			} else if ((type & 0xfe) == LWS_QUIC_FT_DATAGRAM) {
 				if (type & 0x01) /* LEN */
-					p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), send_len);
+					p += lws_quic_write_varint(p, max - (size_t)(p - buf), send_len);
 			} else if (type == LWS_QUIC_FT_MAX_DATA || type == LWS_QUIC_FT_DATA_BLOCKED) {
-				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->limit);
+				p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->limit);
 			} else if (type == LWS_QUIC_FT_MAX_STREAM_DATA || type == LWS_QUIC_FT_STREAM_DATA_BLOCKED) {
-                                p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->stream_id);
-				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->limit);
+                                p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->stream_id);
+				p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->limit);
 			} else if (type == LWS_QUIC_FT_RESET_STREAM) {
-                                p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->stream_id);
-				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->offset); /* app_err_code */
-				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->limit); /* final_size */
+                                p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->stream_id);
+				p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->offset); /* app_err_code */
+				p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->limit); /* final_size */
 			} else if (type == LWS_QUIC_FT_STOP_SENDING) {
-                                p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->stream_id);
-				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->offset); /* app_err_code */
+                                p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->stream_id);
+				p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->offset); /* app_err_code */
 			} else if (type == LWS_QUIC_FT_MAX_STREAMS_BIDI || type == LWS_QUIC_FT_MAX_STREAMS_UNIDI ||
 				   type == LWS_QUIC_FT_STREAMS_BLOCKED_BIDI || type == LWS_QUIC_FT_STREAMS_BLOCKED_UNIDI) {
-				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->limit);
+				p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->limit);
 			} else if (type == LWS_QUIC_FT_NEW_CONNECTION_ID) {
-                                p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->stream_id); /* seq */
-				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->offset); /* retire_prior_to */
+                                p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->stream_id); /* seq */
+				p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->offset); /* retire_prior_to */
 				/* cid + token in data */
 			} else if (type == LWS_QUIC_FT_RETIRE_CONNECTION_ID) {
-                                p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->stream_id); /* seq */
+                                p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->stream_id); /* seq */
 			}
 
 			if (send_len) {
@@ -3038,7 +2931,8 @@ send_frames:
 			if (send_len < f->len) {
 				/* Fragmentation! Duplicate into in_flight */
 				struct lws_quic_tx_frame *f_sent = lws_malloc(sizeof(*f_sent) + send_len, "quic tx frag");
-				if (!f_sent) return LWS_HPI_RET_HANDLED;
+				if (!f_sent)
+					return LWS_TX_FAIL;
 				*f_sent = *f;
 				lws_dll2_clear(&f_sent->list);
 				f_sent->len = send_len;
@@ -3079,7 +2973,7 @@ send_frames:
 
 		} lws_end_foreach_dll_safe(d, d1);
 
-		size_t payload_len = (size_t)(p - (pkt + header_len));
+		size_t payload_len = (size_t)(p - (buf + header_len));
 		if (payload_len == 0 && !has_ack)
 			continue;
 
@@ -3130,8 +3024,8 @@ send_frames:
 
 			if (target > probe_budget)
 				target = (size_t)probe_budget;
-			if (target > sizeof(pkt))
-				target = sizeof(pkt);
+			if (target > max)
+				target = max;
 			if (target > header_len + 16 &&
 			    payload_len < target - header_len - 16) {
 				size_t target_payload_len = target - header_len - 16;
@@ -3145,20 +3039,20 @@ send_frames:
 		/* Fill in Length for Initial/Handshake/0-RTT packets */
 		if (level == LWS_QUIC_LEVEL_INITIAL || level == LWS_QUIC_LEVEL_HANDSHAKE || level == LWS_QUIC_LEVEL_EARLY) {
 			uint16_t quic_len = (uint16_t)(payload_len + 2 + 16); /* PN (2) + AEAD Tag (16) */
-			uint8_t *len_ptr = pkt + pn_offset - 2;
+			uint8_t *len_ptr = buf + pn_offset - 2;
 			len_ptr[0] = (uint8_t)(0x40 | ((quic_len >> 8) & 0x3F));
 			len_ptr[1] = (uint8_t)(quic_len & 0xFF);
 		}
 
 		/* Fill in Packet Number */
-		pkt[pn_offset]     = (uint8_t)((my_pn >> 8) & 0xFF);
-		pkt[pn_offset + 1] = (uint8_t)(my_pn & 0xFF);
+		buf[pn_offset]     = (uint8_t)((my_pn >> 8) & 0xFF);
+		buf[pn_offset + 1] = (uint8_t)(my_pn & 0xFF);
 
 		/* 3. Encrypt payload and mask header */
-		n = lws_quic_encrypt_payload(qn->keys[level], pkt, (size_t)(p - pkt), pn_offset, 2, my_pn);
+		n = lws_quic_encrypt_payload(qn->keys[level], buf, (size_t)(p - buf), pn_offset, 2, my_pn);
 		if (n < 0) {
 			lwsl_wsi_warn(wsi, "QUIC TX: Payload encryption failed");
-			return LWS_HP_RET_BAIL_OK;
+			return LWS_TX_FAIL;
 		}
 
 		if (level == LWS_QUIC_LEVEL_APP)
@@ -3166,7 +3060,7 @@ send_frames:
 
 		/* 4. Transmit UDP Datagram */
 
-		size_t send_len = (size_t)(p - pkt) + 16;
+		size_t send_len = (size_t)(p - buf) + 16;
 
 		/* PMTUD: tag in-flight frames with this packet's wire length so we can track MTU losses */
 		lws_start_foreach_dll_back(struct lws_dll2 *, d,
@@ -3179,117 +3073,323 @@ send_frames:
 			f->packet_size = (uint16_t)send_len;
 		} lws_end_foreach_dll_back(d);
 
+
+		/* which peer the packet goes to: sansIO's decision */
+		tp->has_dest = 0;
+		{
+			struct lws *nwsi_quic = lws_get_quic_network_wsi(wsi);
+			int is_client = nwsi_quic ? lwsi_role_client(nwsi_quic) :
+						    lwsi_role_client(wsi);
+
+			if (!is_client) {
+				if (has_packet_dest) {
+					tp->dest = packet_dest_sa46;
+					tp->has_dest = 1;
+				} else if (wsi->udp) {
+					tp->dest = wsi->udp->sa46;
+					tp->has_dest = 1;
+				} else if (wsi->mux_substream && wsi->mux.parent_wsi &&
+					   wsi->mux.parent_wsi->udp) {
+					tp->dest = wsi->mux.parent_wsi->udp->sa46;
+					tp->has_dest = 1;
+				}
+			}
+		}
+
+		tp->level = level;
+		tp->pn = my_pn;
+		tp->len = send_len;
+		tp->to_probe_path = (uint8_t)to_probe_path;
+
+		return (int)send_len;
+	}
+
+	return 0;
+}
+
+/*
+ * The packet's bytes went to IO.  n is what it took, or
+ * LWS_SSL_CAPABLE_MORE_SERVICE_WRITE when the transport could not take it
+ * now: its frames go back to pending, to be sent first next time under the
+ * same packet number, and sending stops for this pass; the OS wakes us with
+ * POLLOUT when the socket drains.  Returns 0 to go on, 1 to stop sending for
+ * now, -1 when the write failed.
+ */
+static int
+lws_quic_packet_sent(struct lws *wsi, const struct lws_quic_tx_pkt *tp, int n)
+{
+	struct lws_quic_netconn *qn = wsi->quic.qn;
+
+	if (n < 0) {
+		if (n == LWS_SSL_CAPABLE_MORE_SERVICE_WRITE) {
+			lwsl_wsi_info(wsi, "QUIC TX: transport cannot take the datagram now, pausing send");
+			
+			/* 
+			 * The OS UDP socket buffer is full. We cannot send this packet.
+			 * We MUST NOT pretend it was sent, because it would move to in_flight
+			 * and wait for a PTO timer to retransmit, causing massive stalls.
+			 * Instead, we keep the frames in pending_tx, and stop sending.
+			 * The OS will wake us up with POLLOUT when the socket drains.
+			 */
+			struct lws_dll2 *d = qn->in_flight[tp->level].tail;
+			while (d) {
+				struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
+				if (f->sent_in_pn == tp->pn) {
+					struct lws_dll2 *prev = lws_dll2_get_prev(d);
+					lws_dll2_remove(d);
+					f->sent_in_pn = 0;
+					f->sent_time_us = 0;
+					f->wire_len = 0;
+					/* Push to head so it is sent first next time */
+					lws_dll2_add_head(&f->list, &qn->pending_tx[tp->level]);
+					d = prev;
+				} else {
+					break;
+				}
+			}
+			
+			/* Revert PN */
+			qn->keys[tp->level]->pn_tx--;
+			
+			/* the caller keeps POLLOUT: the transport wakes us */
+			return 1;
+		} else {
+			lwsl_wsi_err(wsi, "QUIC TX: write failed");
+			return -1;
+		}
+	}
+
+	qn->bytes_sent += (uint64_t)n;
+	if (tp->to_probe_path)
+		qn->probe_bytes_sent += (uint64_t)n;
+
+	/* Find the first frame we sent in this packet to attach wire_len to */
+	int ack_eliciting = 0;
+	if (qn->in_flight[tp->level].tail) {
+		/* Start from the end, which is the most recently added frame */
+		lws_start_foreach_dll(struct lws_dll2 *, d, qn->in_flight[tp->level].tail) {
+			struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
+			if (f->sent_in_pn == tp->pn) {
+				f->wire_len = tp->len;
+				ack_eliciting = 1;
+				break;
+			}
+			/* If we find a different PN, we didn't add any frames for this packet */
+			if (f->sent_in_pn != tp->pn)
+				break;
+		} lws_end_foreach_dll(d);
+	}
+
+	if (ack_eliciting) {
+		if (qn->pto_probe_needed > 0)
+			qn->pto_probe_needed--;
+		if (qn->cc_ops && qn->cc_ops->on_sent)
+			qn->cc_ops->on_sent(wsi, tp->len);
+	}
+
+	/*
+	 * If we still have pending frames we couldn't fit, request another POLLOUT
+	 */
+	if (qn->pending_tx[tp->level].count) {
+		lws_callback_on_writable(wsi);
+	}
+            
+	/*
+	 * If we successfully sent application-level data, the pending_tx buffer
+	 * has shrunk. We MUST wake up the child streams because they may have
+	 * been stalled by the application-layer pacing throttle in tx_credit!
+	 */
+	if (tp->level == LWS_QUIC_LEVEL_APP) {
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				lws_dll2_get_head(&wsi->mux.child_list_owner)) {
+			struct lws *w = lws_container_of(d, struct lws,
+							 mux.sibling_list);
+			if (w->mux.requested_POLLOUT)
+				lws_callback_on_writable(w);
+		}
+		lws_end_foreach_dll(d);
+	}
+
+	return 0;
+}
+
+static lws_handling_result_t
+rops_handle_POLLOUT_quic(struct lws *wsi)
+{
+	struct lws_quic_netconn *qn = wsi->quic.qn;
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_quic_tx_pkt tp;
+	int level, n, m;
+	int blocked = 0;
+	int eagain_blocked = 0;
+
+	if (!qn) {
+		lws_handling_result_t hr_ret = LWS_HP_RET_DROP_POLLOUT;
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				lws_dll2_get_head(&wsi->mux.child_list_owner)) {
+			struct lws *w = lws_container_of(d, struct lws,
+							 mux.sibling_list);
+			if (w->mux.requested_POLLOUT) {
+				w->mux.requested_POLLOUT = 0;
+				lws_handling_result_t hr_child = rops_handle_POLLOUT_quic(w);
+				if (hr_child == LWS_HP_RET_BAIL_DIE)
+					return LWS_HP_RET_BAIL_DIE;
+				if (hr_child == LWS_HP_RET_BAIL_OK)
+					hr_ret = LWS_HP_RET_BAIL_OK;
+			}
+		} lws_end_foreach_dll_safe(d, d1);
+		return hr_ret;
+	}
+
+	wsi->mux.requested_POLLOUT = 0;
+
+        if (!wsi->quic.initialized && !qn->is_server) {
+                wsi->quic.initialized = 1;
+
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+			if (!wsi->tls.ssl) {
+				const char *cce = NULL;
+				if (lws_client_create_tls(wsi, &cce, 0) == CCTLS_RETURN_ERROR) {
+					lwsl_wsi_err(wsi, "Failed to create TLS BIO: %s", cce ? cce : "unknown");
+					return LWS_HP_RET_BAIL_DIE;
+				}
+			}
+			/* The BIO was already created, just init QUIC TLS */
+			if (lws_tls_quic_init(wsi, quic_secret_cb)) {
+				lwsl_wsi_err(wsi, "Failed to init QUIC TLS");
+				return LWS_HP_RET_BAIL_DIE;
+			}
+			/* Kick off the handshake */
+			// lwsl_wsi_notice(wsi, "Kicking off QUIC TLS handshake");
+			lws_tls_quic_rx_crypto(wsi, LWS_QUIC_LEVEL_INITIAL, NULL, 0);
+
+			{
+				struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+				if (nwsi) {
+					wsi = nwsi;
+					qn = wsi->quic.qn;
+				}
+			}
+		}
+#endif
+        }
+
+	if (qn->is_closing) {
+		/* We are in the Closing State. Only process the CONNECTION_CLOSE frame. */
+		/* The frame is queued in pending_tx by lws_quic_enter_closing_state. */
+		/* Skip PTO sweep and just let the normal frame generation send it. */
+		goto send_frames;
+	}
+
+	/*
+	 * PTO Sweep: Check for dropped/unacknowledged packets
+	 */
+	lws_usec_t now = lws_now_usecs();
+	size_t total_bytes_lost = 0;
+	uint64_t last_lost_pn = (uint64_t)-1;
+	for (level = 0; level < LWS_QUIC_LEVEL_COUNT; level++) {
+		if (!qn->in_flight[level].count)
+			continue;
+
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->in_flight[level].head) {
+			struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
+
+			lwsl_debug("PTO Sweep: checking packet %llu: now=%llu, sent=%llu, diff=%lld\n",
+				(unsigned long long)f->sent_in_pn, (unsigned long long)now, (unsigned long long)f->sent_time_us,
+				(long long)(now - f->sent_time_us));
+
+			/* Use the PTO delay that triggered this sweep, not the newly doubled one */
+			lws_usec_t sweep_pto_delay = lws_quic_pto_delay_us(qn,
+				qn->pto_count > 0 ? qn->pto_count - 1 : 0);
+
+			/* Allow a 5ms epsilon for timer jitter */
+			if (now + 5000 >= f->sent_time_us + sweep_pto_delay) {
+				// lwsl_notice("PTO Sweep: Packet %llu (type 0x%02x) lost! Retransmitting!\n", (unsigned long long)f->sent_in_pn, f->type);
+
+				/* PMTUD Black Hole Detection */
+				if (f->sent_in_pn != last_lost_pn) {
+					last_lost_pn = f->sent_in_pn;
+					if (qn->pmtud_probe_pn != LWS_QUIC_PMTUD_PROBE_NONE &&
+					    f->sent_in_pn == qn->pmtud_probe_pn) {
+						/* Active probe was lost */
+						qn->pmtud_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
+						qn->pmtud_state = 2; /* SEARCH_COMPLETE, stop probing */
+					} else if (f->packet_size >= qn->current_mtu - 16) {
+						qn->consecutive_mtu_losses++;
+						if (qn->consecutive_mtu_losses >= 3) {
+							lwsl_wsi_warn(wsi, "QUIC PMTUD: Black Hole detected! Reverting MTU to 1280.");
+							qn->current_mtu = 1280;
+							qn->pmtud_state = 0;
+							qn->consecutive_mtu_losses = 0;
+						}
+					}
+				}
+
+				/* Packet lost! */
+				lws_dll2_remove(&f->list);
+				total_bytes_lost += f->wire_len;
+				if ((f->type & 0xfe) == LWS_QUIC_FT_DATAGRAM) {
+					lws_free(f);
+				} else {
+					lws_dll2_add_head(&f->list, &qn->pending_tx[level]);
+					f->wire_len = 0;
+				}
+			}
+		} lws_end_foreach_dll_safe(d, d1);
+	}
+	/*
+	 * RFC 9002 Section 6.2.4: A PTO timer expiry does not indicate packet
+	 * loss and MUST NOT cause the congestion window to be reduced (no on_loss).
+	 * However, bytes_in_flight must be decremented for frames moved back to
+	 * pending_tx, otherwise the CC state diverges from reality.  Use on_discard
+	 * which adjusts bytes_in_flight without touching cwnd or ssthresh.
+	 */
+	if (total_bytes_lost && qn->cc_ops && qn->cc_ops->on_discard)
+		qn->cc_ops->on_discard(wsi, total_bytes_lost);
+
+send_frames:
+	/*
+	 * Iterate through the encryption levels in priority order.
+	 * Initial > Handshake > Application Data.
+	 */
+	/*
+	 * Produce, send, account: one packet per encryption level per pass,
+	 * Initial > Handshake > Application, from IO's buffer sized to the
+	 * path MTU.  See lws_quic_packet_tx().
+	 */
+	level = 0;
+	while (level < LWS_QUIC_LEVEL_COUNT) {
+		tp.level = level;
+		n = lws_quic_packet_tx(wsi, pt->serv_buf,
+				       wsi->a.context->pt_serv_buf_size, &tp);
+		if (!n)
+			break;
+		if (n == LWS_TX_WAIT) {
+			blocked = 1;
+			break;
+		}
+		if (n == LWS_TX_FAIL)
+			return LWS_HP_RET_BAIL_OK;
+
 		/* Fault Injection for dropping UDP packets (simulating packet loss) */
 		if (lws_fi(&wsi->fic, "quic_tx_drop")) {
 			lwsl_wsi_debug(wsi, "QUIC TX: Dropping packet via lws_fi fault injection!");
-			n = (int)send_len; /* Pretend it succeeded */
-		} else {
-			const lws_sockaddr46 *dest_sa46 = NULL;
-			struct lws *nwsi_quic = lws_get_quic_network_wsi(wsi);
-			int is_client = nwsi_quic ? lwsi_role_client(nwsi_quic) : lwsi_role_client(wsi);
+			m = n; /* Pretend it succeeded */
+		} else
+			m = lws_io_send_dgram(wsi, pt->serv_buf, (size_t)n,
+					      tp.has_dest ? &tp.dest : NULL);
 
-			if (!is_client) {
-				if (has_packet_dest)
-					dest_sa46 = &packet_dest_sa46;
-				else if (wsi->udp)
-					dest_sa46 = &wsi->udp->sa46;
-				else if (wsi->mux_substream && wsi->mux.parent_wsi && wsi->mux.parent_wsi->udp)
-					dest_sa46 = &wsi->mux.parent_wsi->udp->sa46;
-			}
-
-			n = lws_io_send_dgram(wsi, pkt, send_len, dest_sa46);
-		}
-		if (n < 0) {
-			if (n == LWS_SSL_CAPABLE_MORE_SERVICE_WRITE) {
-				lwsl_wsi_info(wsi, "QUIC TX: transport cannot take the datagram now, pausing send");
-				
-				/* 
-				 * The OS UDP socket buffer is full. We cannot send this packet.
-				 * We MUST NOT pretend it was sent, because it would move to in_flight
-				 * and wait for a PTO timer to retransmit, causing massive stalls.
-				 * Instead, we keep the frames in pending_tx, and stop sending.
-				 * The OS will wake us up with POLLOUT when the socket drains.
-				 */
-				struct lws_dll2 *d = qn->in_flight[level].tail;
-				while (d) {
-					struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
-					if (f->sent_in_pn == my_pn) {
-						struct lws_dll2 *prev = lws_dll2_get_prev(d);
-						lws_dll2_remove(d);
-						f->sent_in_pn = 0;
-						f->sent_time_us = 0;
-						f->wire_len = 0;
-						/* Push to head so it is sent first next time */
-						lws_dll2_add_head(&f->list, &qn->pending_tx[level]);
-						d = prev;
-					} else {
-						break;
-					}
-				}
-				
-				/* Revert PN */
-				qn->keys[level]->pn_tx--;
-				
-				/* Since we are stopping the send loop, we should keep POLLOUT enabled! */
-				blocked = 1;
-				eagain_blocked = 1;
-				break;
-			} else {
-				lwsl_wsi_err(wsi, "QUIC TX: write failed");
-				return LWS_HP_RET_BAIL_OK;
-			}
+		m = lws_quic_packet_sent(wsi, &tp, m);
+		if (m < 0)
+			return LWS_HP_RET_BAIL_OK;
+		if (m > 0) {
+			blocked = 1;
+			eagain_blocked = 1;
+			break;
 		}
 
-		qn->bytes_sent += (uint64_t)n;
-		if (to_probe_path)
-			qn->probe_bytes_sent += (uint64_t)n;
-
-		/* Find the first frame we sent in this packet to attach wire_len to */
-		int ack_eliciting = 0;
-		if (qn->in_flight[level].tail) {
-			/* Start from the end, which is the most recently added frame */
-			lws_start_foreach_dll(struct lws_dll2 *, d, qn->in_flight[level].tail) {
-				struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
-				if (f->sent_in_pn == my_pn) {
-					f->wire_len = send_len;
-					ack_eliciting = 1;
-					break;
-				}
-				/* If we find a different PN, we didn't add any frames for this packet */
-				if (f->sent_in_pn != my_pn)
-					break;
-			} lws_end_foreach_dll(d);
-		}
-
-		if (ack_eliciting) {
-			if (qn->pto_probe_needed > 0)
-				qn->pto_probe_needed--;
-			if (qn->cc_ops && qn->cc_ops->on_sent)
-				qn->cc_ops->on_sent(wsi, send_len);
-		}
-
-		/*
-		 * If we still have pending frames we couldn't fit, request another POLLOUT
-		 */
-		if (qn->pending_tx[level].count) {
-			lws_callback_on_writable(wsi);
-		}
-            
-		/*
-		 * If we successfully sent application-level data, the pending_tx buffer
-		 * has shrunk. We MUST wake up the child streams because they may have
-		 * been stalled by the application-layer pacing throttle in tx_credit!
-		 */
-		if (level == LWS_QUIC_LEVEL_APP) {
-			lws_start_foreach_dll(struct lws_dll2 *, d,
-					lws_dll2_get_head(&wsi->mux.child_list_owner)) {
-				struct lws *w = lws_container_of(d, struct lws,
-								 mux.sibling_list);
-				if (w->mux.requested_POLLOUT)
-					lws_callback_on_writable(w);
-			}
-			lws_end_foreach_dll(d);
-		}
+		level = tp.level + 1;
 	}
 
 	/* If we handled all pending crypto/internal frames, give the user a chance to write */
@@ -3486,7 +3586,7 @@ end_children:
 	}
 
 	return LWS_HP_RET_DROP_POLLOUT;
-	}
+}
 
 static int
 rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
