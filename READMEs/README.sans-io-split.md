@@ -223,8 +223,12 @@ each function is in.
    backpressure.  No role reads its transport any more).
 5. h2, then h3 over the quic datagram layer, then the remaining roles
    (done for rx: every role's bytes come through rx / rx_dgram).  Then
-   the roles' handlers stop reading: `rx_policy` and IO's rx stage (in
-   progress: raw-skt and raw-proxy first).
+   the roles' handlers stop reading: `rx_policy` and IO's rx stage
+   (done: every role answers it, IO's `lws_rx_stage()` reads for the
+   poll and for the ripe-rxflow pass alike, and keeps the fairness
+   between POLLIN and POLLOUT).  What the handlers keep is the pass's
+   POLLOUT and a client's transport-phase dispatch (connect, tls, socks
+   and CONNECT legs), which are IO's to take next.
 6. Tier the public headers into `lws-core.h`, `lws-sansio.h`, `lws-io.h`
    (done), then the private ones, with the sansIO-only compile check
    (done: `private-lib-io.h`, `scripts/sans-io-check.sh`; first inventory
