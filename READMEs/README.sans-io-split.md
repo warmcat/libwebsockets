@@ -200,7 +200,8 @@ each function is in.
 6. Tier the public headers into `lws-core.h`, `lws-sansio.h`, `lws-io.h`
    (done), then the private ones, with the sansIO-only compile check
    (done: `private-lib-io.h`, `scripts/sans-io-check.sh`; first inventory
-   75 calls into IO from sansIO sources, 41 callees).
+   82 calls into IO from sansIO sources, 42 callees, `lws_issue_raw` and
+   `lws_rx_pump` from the roles' own handlers among them).
 7. The four requests through `lws_io_ops_t` (done: `lws-io-ops.h`,
    `lws_io_ops_default` in IO/pollfd.c, `lws_context_creation_info.io_ops`).
 8. When every role is converted, the IO half is a replaceable component,

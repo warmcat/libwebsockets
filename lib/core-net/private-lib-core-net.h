@@ -1353,8 +1353,15 @@ lws_client_interpret_server_handshake(struct lws *wsi);
 lws_handling_result_t LWS_WARN_UNUSED_RESULT
 lws_ws_rx_sm(struct lws *wsi, char already_processed, unsigned char c);
 
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+/*
+ * With extensions off this name is a macro for lws_issue_raw(), and the
+ * prototype would declare IO's function in the sansIO header behind the
+ * back of scripts/sans-io-check.sh
+ */
 int LWS_WARN_UNUSED_RESULT
 lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len);
+#endif
 
 void
 lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
