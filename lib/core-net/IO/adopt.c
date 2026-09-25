@@ -344,8 +344,8 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
         	struct lws *nwsi = lws_get_network_wsi(new_wsi);
 		char ta[64];
 
-        	if (nwsi->sa46_peer.sa4.sin_family)
-        	        lws_sa46_write_numeric_address(&nwsi->sa46_peer, ta, sizeof(ta));
+        	if (nwsi->io.sa46_peer.sa4.sin_family)
+        	        lws_sa46_write_numeric_address(&nwsi->io.sa46_peer, ta, sizeof(ta));
         	else
                 	strncpy(ta, "unknown", sizeof(ta));
 		__lws_lc_tag_append(&new_wsi->lc, ta);
@@ -548,7 +548,7 @@ lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 #endif
 
 	if (info->type & LWS_ADOPT_SOCKET &&
-	    getpeername(info->fd.sockfd, (struct sockaddr *)&new_wsi->sa46_peer,
+	    getpeername(info->fd.sockfd, (struct sockaddr *)&new_wsi->io.sa46_peer,
 								    &slen) < 0)
 		lwsl_info("%s: getpeername failed\n", __func__);
 
@@ -724,14 +724,14 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			 * on to 0.0.0.0, so either family may be absent.
 			 */
 			lws_start_foreach_dll(struct lws_dll2 *, d,
-					lws_dll2_get_head(&wsi->dns_sorted_list)) {
+					lws_dll2_get_head(&wsi->io.dns_sorted_list)) {
 				lws_dns_sort_t *s = lws_container_of(d,
 						lws_dns_sort_t, list);
 
 				if (s->dest.sa4.sin_family == AF_INET6) {
 					lws_dll2_remove(&s->list);
 					lws_dll2_add_head(&s->list,
-							  &wsi->dns_sorted_list);
+							  &wsi->io.dns_sorted_list);
 					break;
 				}
 			} lws_end_foreach_dll(d);
@@ -775,12 +775,12 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
                         s->af = AF_INET;
                 }
 #endif
-		lws_dll2_add_tail(&s->list, &wsi->dns_sorted_list);
+		lws_dll2_add_tail(&s->list, &wsi->io.dns_sorted_list);
 	}
 
-	while (lws_dll2_get_head(&wsi->dns_sorted_list)) {
+	while (lws_dll2_get_head(&wsi->io.dns_sorted_list)) {
 		lws_dns_sort_t *s = lws_container_of(
-				lws_dll2_get_head(&wsi->dns_sorted_list),
+				lws_dll2_get_head(&wsi->io.dns_sorted_list),
 				lws_dns_sort_t, list);
 
 		/*
@@ -939,7 +939,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		 * route of that family.
 		 */
 		if (!wsi->io.do_bind)
-			wsi->sa46_peer = s->dest;
+			wsi->io.sa46_peer = s->dest;
 
 		/* we connected: complete the udp socket adoption flow */
 
@@ -1133,7 +1133,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 	if (wsi->udp)
 		wsi->udp->sa46 = dest;
 	if (!wsi->io.do_bind)
-		wsi->sa46_peer = dest;
+		wsi->io.sa46_peer = dest;
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	{
@@ -1194,18 +1194,18 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 	else
 		wsi->retry_policy = vhost->retry_policy;
 	/*
-	 * lws_sort_dns() filters out IPv6 results if wsi->ipv6 == 0, pick up
+	 * lws_sort_dns() filters out IPv6 results if wsi->io.ipv6 == 0, pick up
 	 * the vhost / context ipv6 policy
 	 */
 #if !defined(LWS_WITH_IPV4)
 	/* IPv6-only build: no v4 socket path exists to fall back to */
-	wsi->ipv6 = 1;
+	wsi->io.ipv6 = 1;
 #else
-	wsi->ipv6 = !!LWS_IPV6_ENABLED(vhost);
-	wsi->ipv4 = !!LWS_IPV4_ENABLED(vhost);
+	wsi->io.ipv6 = !!LWS_IPV6_ENABLED(vhost);
+	wsi->io.ipv4 = !!LWS_IPV4_ENABLED(vhost);
 	if (lws_wsi_is_async_dns(wsi))
 		/* resolver's own socket: either family may reach the NS */
-		wsi->ipv6 = wsi->ipv4 = 1;
+		wsi->io.ipv6 = wsi->io.ipv4 = 1;
 #endif
 
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)
@@ -1383,14 +1383,78 @@ lws_io_abort_connect(struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 	int m;
 
-	for (m = 0; m < wsi->parallel_count; m++)
-		if (wsi->parallel_conns[m].is_valid)
+	for (m = 0; m < wsi->io.parallel_count; m++)
+		if (wsi->io.parallel_conns[m].is_valid)
 			lws_remove_parallel_fd_safely(wsi, m);
-	wsi->parallel_count = 0;
-	lws_free_set_NULL(wsi->parallel_conns);
+	wsi->io.parallel_count = 0;
+	lws_free_set_NULL(wsi->io.parallel_conns);
+	wsi->io.retry = 0;
 #endif
+	lws_io_connect_timers_cancel(wsi);
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	lws_async_dns_cancel(wsi);
+#endif
+}
+
+/* the connect machine's timers hold the wsi: cancel them all */
+void
+lws_io_connect_timers_cancel(struct lws *wsi)
+{
+	lws_sul_cancel(&wsi->io.sul_connect_timeout);
+#if defined(WIN32)
+	lws_sul_cancel(&wsi->io.win32_sul_connect_async_check);
+#endif
+#if defined(LWS_WITH_CLIENT)
+	lws_sul_cancel(&wsi->io.sul_happy_eyeballs);
+	lws_sul_cancel(&wsi->io.sul_h3_grace);
+#endif
+}
+
+/*
+ * Take the next of the sorted dns results, if any is left, as a numeric
+ * address string: the caller is falling back to it.  Returns 1 with the
+ * address written, 0 when there is none.
+ */
+int
+lws_io_dns_next(struct lws *wsi, char *ads, size_t len)
+{
+#if defined(LWS_WITH_CLIENT)
+	struct lws_dll2 *d = lws_dll2_get_head(&wsi->io.dns_sorted_list);
+	lws_dns_sort_t *ds;
+
+	if (!d)
+		return 0;
+
+	ds = lws_container_of(d, lws_dns_sort_t, list);
+	lws_sa46_write_numeric_address(&ds->dest, ads, len);
+	lws_dll2_remove(d);
+	lws_free(ds);
+
+	return 1;
+#else
+	(void)wsi; (void)ads; (void)len;
+
+	return 0;
+#endif
+}
+
+void
+lws_addrinfo_clean(struct lws *wsi)
+{
+#if defined(LWS_WITH_CLIENT)
+	struct lws_dll2 *d = lws_dll2_get_head(&wsi->io.dns_sorted_list), *d1;
+
+	while (d) {
+		lws_dns_sort_t *r = lws_container_of(d, lws_dns_sort_t, list);
+
+		d1 = lws_dll2_get_next(d);
+		lws_dll2_remove(d);
+		lws_free(r);
+
+		d = d1;
+	}
+#else
+	(void)wsi;
 #endif
 }
 

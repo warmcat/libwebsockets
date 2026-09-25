@@ -4487,15 +4487,13 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	const struct lws_role_ops *role;
 
 #if defined(LWS_WITH_CLIENT)
-	if (lwsi_role_client(wsi)) {
-		lws_sul_cancel(&wsi->sul_h3_grace);
-		/*
-		 * The happy eyeballs retry sul may still be armed from the
-		 * DNS-result staggering; after migration this wsi is an h3
-		 * mux child stream with no business opening TCP racers.
-		 */
-		lws_sul_cancel(&wsi->sul_happy_eyeballs);
-	}
+	/*
+	 * The happy eyeballs retry sul may still be armed from the
+	 * DNS-result staggering; after migration this wsi is an h3
+	 * mux child stream with no business opening TCP racers.
+	 */
+	if (lwsi_role_client(wsi))
+		lws_io_connect_timers_cancel(wsi);
 #endif
 
 	if (strcmp(alpn, "h3") && strcmp(alpn, "lws-quic"))
@@ -4528,16 +4526,8 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	 * unused TCP connection ten to forty seconds later was the POLLIN
 	 * that dereferenced it.
 	 */
-	if (lwsi_role_client(wsi)) {
-		int i;
-
-		for (i = 0; i < wsi->parallel_count; i++)
-			if (wsi->parallel_conns[i].is_valid)
-				lws_remove_parallel_fd_safely(wsi, i);
-
-		wsi->parallel_count = 0;
-		lws_free_set_NULL(wsi->parallel_conns);
-	}
+	if (lwsi_role_client(wsi))
+		lws_io_abort_connect(wsi);
 #endif
 
 	/* Create the new network WSI */
@@ -4565,7 +4555,6 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	nwsi->quic = wsi->quic;
 	nwsi->txc = wsi->txc;
 	nwsi->tls = wsi->tls;
-	nwsi->sa46_peer = wsi->sa46_peer;
 	memset(&wsi->quic, 0, sizeof(wsi->quic));
 	memset(&wsi->tls, 0, sizeof(wsi->tls));
 	lws_tls_quic_migrate_wsi(wsi, nwsi);

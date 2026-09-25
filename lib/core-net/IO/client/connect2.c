@@ -67,9 +67,9 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 	hints.ai_socktype = SOCK_STREAM;
 
 #ifdef LWS_WITH_IPV6
-	if (wsi->ipv6) {
+	if (wsi->io.ipv6) {
 
-		if (!wsi->ipv4)
+		if (!wsi->io.ipv4)
 			/* ipv6 forced (eg, -6): only interested in AAAA */
 			hints.ai_family = AF_INET6;
 #if !defined(__ANDROID__)
@@ -83,7 +83,7 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 	{
 		hints.ai_family = PF_UNSPEC;
 #if defined(LWS_WITH_IPV4)
-		if (wsi->ipv4)
+		if (wsi->io.ipv4)
 			/* ipv4 forced (eg, -4): only interested in A */
 			hints.ai_family = AF_INET;
 #endif
@@ -102,7 +102,7 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 	wsi->conmon_datum = lws_now_usecs();
 #endif
 
-	wsi->dns_reachability = 0;
+	wsi->io.dns_reachability = 0;
 	if (lws_fi(&wsi->fic, "dnsfail"))
 		n = EAI_FAIL;
 	else
@@ -132,7 +132,7 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 			|| n == EAI_AGAIN
 #endif
 			) {
-		wsi->dns_reachability = 1;
+		wsi->io.dns_reachability = 1;
 		lws_metrics_caliper_report(cal, METRES_NOGO);
 #if defined(LWS_WITH_SYS_METRICS)
 		lws_snprintf(buckname, sizeof(buckname), "dns=\"unreachable %d\"", n);
@@ -510,25 +510,25 @@ solo:
 	 * v4-mapped address handling relies on the v6 path, so it's v6
 	 * regardless of any options
 	 */
-	wsi->ipv6 = 1;
+	wsi->io.ipv6 = 1;
 #else
-	wsi->ipv6 = LWS_IPV6_ENABLED(wsi->a.vhost);
-	wsi->ipv4 = !!LWS_IPV4_ENABLED(wsi->a.vhost);
+	wsi->io.ipv6 = LWS_IPV6_ENABLED(wsi->a.vhost);
+	wsi->io.ipv4 = !!LWS_IPV4_ENABLED(wsi->a.vhost);
 #ifdef LWS_WITH_IPV6
 	if (wsi->stash)
 		iface = wsi->stash->cis[CIS_IFACE];
 	else
 		iface = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_IFACE);
 
-	if (wsi->ipv6 && iface &&
+	if (wsi->io.ipv6 && iface &&
 	    inet_pton(AF_INET, iface, &addr.sin_addr) == 1) {
 		lwsl_wsi_notice(wsi, "client connection forced to IPv4");
-		wsi->ipv6 = 0;
+		wsi->io.ipv6 = 0;
 	}
 #endif
 	if (lws_wsi_is_async_dns(wsi))
 		/* resolver's own socket: either family may reach the NS */
-		wsi->ipv6 = wsi->ipv4 = 1;
+		wsi->io.ipv6 = wsi->io.ipv4 = 1;
 #endif
 
 #if defined(LWS_CLIENT_HTTP_PROXYING) && \
@@ -573,7 +573,7 @@ solo:
 
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)
 	n = 0;
-	if (!lws_dll2_count(&wsi->dns_sorted_list)) {
+	if (!lws_dll2_count(&wsi->io.dns_sorted_list)) {
 		/*
 		 * blocking dns resolution
 		 */

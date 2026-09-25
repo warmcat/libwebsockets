@@ -1645,7 +1645,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			req_len = (uint16_t)pqdht->packet_len;
 
 			delayed_q = pqdht;
-			lws_sa46_write_numeric_address(&delayed_q->sa46_peer, peer_ip, sizeof(peer_ip));
+			lws_sa46_write_numeric_address(&delayed_q->io.sa46_peer, peer_ip, sizeof(peer_ip));
 		} else {
 			const struct lws_udp *udp = lws_get_udp(wsi);
 
@@ -1890,8 +1890,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				memset(pq, 0, sizeof(*pq));
 				pq->vhd = vhd;
 				pq->wsi = wsi;
-				if (delayed_q) pq->sa46_peer = delayed_q->sa46_peer;
-				else if (!is_tcp && lws_get_udp(wsi)) pq->sa46_peer = lws_get_udp(wsi)->sa46;
+				if (delayed_q) pq->io.sa46_peer = delayed_q->io.sa46_peer;
+				else if (!is_tcp && lws_get_udp(wsi)) pq->io.sa46_peer = lws_get_udp(wsi)->sa46;
 				pq->is_tcp = is_tcp;
 				lws_strncpy(pq->domain, base, sizeof(pq->domain));
 				lws_strncpy(pq->peer_ip, peer_ip, sizeof(pq->peer_ip));
@@ -2247,7 +2247,7 @@ after_refused:
 					lws_strncpy(q->domain, qname, sizeof(q->domain));
 					if (!is_tcp) {
 						const struct lws_udp *udp = lws_get_udp(wsi);
-						if (udp) q->sa46_peer = udp->sa46;
+						if (udp) q->io.sa46_peer = udp->sa46;
 					}
 					q->packet_len = is_tcp ? (size_t)req_len : len;
 					/* the replay uses this as the packet end */
@@ -2365,8 +2365,8 @@ after_refused:
 			if (reason == LWS_CALLBACK_USER && delayed_q) {
 				int sockfd = lws_get_socket_fd(wsi);
 				if (sockfd >= 0) {
-					struct sockaddr *sa = (struct sockaddr *)&delayed_q->sa46_peer;
-					socklen_t salen = delayed_q->sa46_peer.sa4.sin_family == AF_INET6 ?
+					struct sockaddr *sa = (struct sockaddr *)&delayed_q->io.sa46_peer;
+					socklen_t salen = delayed_q->io.sa46_peer.sa4.sin_family == AF_INET6 ?
 							sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
 
 					ssize_t snt = sendto(sockfd, (char *)dbuf, (size_t)pss->len, 0, sa, salen);

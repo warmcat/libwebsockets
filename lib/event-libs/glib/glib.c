@@ -568,7 +568,7 @@ elops_close_handle_manually_parallel_glib(struct lws *wsi, int pidx)
 	g_source_unref((GSource *)wsipr->racing[pidx].source);
 	wsipr->racing[pidx].source = NULL;
 
-	compatible_close(wsi->parallel_conns[pidx].desc.sockfd);
+	compatible_close(wsi->io.parallel_conns[pidx].desc.sockfd);
 }
 
 static int

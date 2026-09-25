@@ -484,7 +484,7 @@ elops_close_handle_manually_parallel_ev(struct lws *wsi, int pidx)
 	ev_io_stop(ptpr->io_loop, &w->racing[pidx].w_read.watcher);
 	ev_io_stop(ptpr->io_loop, &w->racing[pidx].w_write.watcher);
 
-	compatible_close(wsi->parallel_conns[pidx].desc.sockfd);
+	compatible_close(wsi->io.parallel_conns[pidx].desc.sockfd);
 }
 
 static int
@@ -493,7 +493,7 @@ elops_promote_parallel_ev(struct lws *wsi, int pidx)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
 	struct lws_wsi_eventlibs_libev *w = wsi_to_priv_ev(wsi);
-	int fd = (int)wsi->parallel_conns[pidx].desc.sockfd, ar, aw;
+	int fd = (int)wsi->io.parallel_conns[pidx].desc.sockfd, ar, aw;
 
 	/*
 	 * An ev_io is an intrusive list node: once started, libev holds the

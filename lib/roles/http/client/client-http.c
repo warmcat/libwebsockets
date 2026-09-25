@@ -2664,10 +2664,8 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		wsi->stash->opaque_user_data = opaque;
 	}
 
-#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
-	lws_sul_cancel(&wsi->sul_h3_grace);
-#endif
 	/* the old transport is no longer watched; the close releases it */
+	lws_io_connect_timers_cancel(wsi);
 	lws_io_unwatch(wsi);
 
 #if defined(LWS_ROLE_WS)

@@ -871,6 +871,38 @@ struct lws_io_adjunct {
 #ifdef _WIN32
 	unsigned int			sock_send_blocking:1;
 #endif
+	/* the connection's addresses, family and route */
+	lws_sockaddr46			sa46_local;
+	lws_sockaddr46			sa46_peer;
+#if defined(LWS_WITH_ROUTING)
+	lws_route_uidx_t		peer_route_uidx;
+#endif
+	uint8_t				af;
+	unsigned int			ipv6:1;
+	unsigned int			ipv4:1;
+	unsigned int			dns_reachability:1;
+
+	/* the client connect machine: dns, racers, timers */
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	struct lws_dll2			adns; /* on adns list of guys to tell result */
+	lws_async_dns_cb_t		adns_cb; /* callback with result */
+#endif
+	lws_sorted_usec_list_t		sul_connect_timeout;
+#if defined(WIN32)
+	lws_sorted_usec_list_t		win32_sul_connect_async_check;
+#endif
+#if defined(LWS_WITH_CLIENT)
+	lws_dll2_t			speculative_list;
+	lws_dll2_owner_t		speculative_connect_owner;
+	lws_dll2_owner_t		dns_sorted_list;
+	struct lws_client_parallel_conn *parallel_conns;
+	lws_sorted_usec_list_t		sul_happy_eyeballs;
+	lws_sorted_usec_list_t		sul_h3_grace;
+	uint16_t			retry;
+	uint8_t				parallel_count;
+	uint8_t				addrinfo_idx;
+#endif
+
 	volatile char			handling_pollout;
 	volatile char			leave_pollout_active;
 };
@@ -924,19 +956,11 @@ struct lws {
 #if defined(LWS_WITH_HTTP_PROXY)
 	lws_sorted_usec_list_t		sul_ws_proxy_est;
 #endif
-	lws_sorted_usec_list_t		sul_connect_timeout;
-#if defined(WIN32)
-	lws_sorted_usec_list_t		win32_sul_connect_async_check;
-#endif
 
 	lws_dll2_t			pre_natal;
 
 	struct lws_dll2			dll_buflist; /* guys with pending rxflow */
 	struct lws_dll2			same_vh_protocol;
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
-	struct lws_dll2			adns; /* on adns list of guys to tell result */
-	lws_async_dns_cb_t		adns_cb; /* callback with result */
-#endif
 #if defined(LWS_WITH_SERVER)
 	struct lws_dll2			listen_list;
 #endif
@@ -947,10 +971,7 @@ struct lws {
 
 	/**< caliper is reused for tcp, tls and txn conn phases */
 
-	lws_dll2_t			speculative_list;
-	lws_dll2_owner_t		speculative_connect_owner;
 	/* wsis: additional connection candidates */
-	lws_dll2_owner_t		dns_sorted_list;
 	/* lws_dns_sort_t: dns results wrapped and sorted in a linked-list...
 	 * deleted as they are tried, list empty == everything tried */
 #endif
@@ -966,8 +987,6 @@ struct lws {
 	lws_metrics_caliper_compose(cal_conn)
 #endif
 
-	lws_sockaddr46			sa46_local;
-	lws_sockaddr46			sa46_peer;
 
 	/* pointers */
 
@@ -1014,10 +1033,6 @@ struct lws {
 #endif
 
 	/* the happy-eyeballs racers: allocated only while a race is on */
-	struct lws_client_parallel_conn *parallel_conns;
-	lws_sorted_usec_list_t		sul_happy_eyeballs;
-	lws_sorted_usec_list_t		sul_h3_grace;
-	uint8_t				parallel_count;
 
 
 #if defined(LWS_WITH_CONMON)
@@ -1069,8 +1084,6 @@ struct lws {
 	unsigned int			cache_no:1;
 	unsigned int			sending_chunked:1;
 	unsigned int			interpreting:1;
-	unsigned int			ipv6:1;
-	unsigned int			ipv4:1;
 	unsigned int			parent_pending_cb_on_writable:1;
 	unsigned int			cgi_stdout_zero_length:1;
 	unsigned int			seen_zero_length_recv:1;
@@ -1082,7 +1095,6 @@ struct lws {
 	unsigned int			validity_hup:1;
 	unsigned int			skip_fallback:1;
 	unsigned int			conn_validity_wakesuspend:1;
-	unsigned int			dns_reachability:1;
 	unsigned int			mount_hit:1;
 
 #if defined(LWS_WITH_SECURE_STREAMS)
@@ -1121,7 +1133,6 @@ struct lws {
 
 
 	uint16_t			ocport, c_port, conn_port;
-	uint16_t			retry;
 #if defined(LWS_WITH_CLIENT)
 	uint16_t			keep_warm_secs;
 #endif
@@ -1143,17 +1154,11 @@ struct lws {
 	char hdr_state;
 #endif
 #if defined(LWS_WITH_CLIENT)
-	uint8_t addrinfo_idx;
 	uint8_t sys_tls_client_cert;
 	uint8_t c_pri;
 #endif
-	uint8_t		af;
 #if defined(LWS_WITH_CGI) || defined(LWS_WITH_CLIENT)
 	char reason_bf; /* internal writeable callback reason bitfield */
-#endif
-#if defined(LWS_WITH_ROUTING)
-	lws_route_uidx_t		peer_route_uidx;
-	/**< unique index of the route the connection is estimated to take */
 #endif
 	uint8_t immortal_substream_count;
 	/* volatile to make sure code is aware other thread can change */
@@ -1765,8 +1770,6 @@ lws_cgi_stdin_body_end(struct lws *wsi);
 #endif
 
 
-void
-lws_addrinfo_clean(struct lws *wsi);
 
 void
 lws_add_wsi_to_draining_ext_list(struct lws *wsi);

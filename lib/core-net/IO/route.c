@@ -331,10 +331,10 @@ _lws_route_check_wsi(struct lws *wsi)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	char buf[72];
 
-	if (!wsi->sa46_peer.sa4.sin_family ||
+	if (!wsi->io.sa46_peer.sa4.sin_family ||
 #if defined(LWS_WITH_UNIX_SOCK)
 	     wsi->io.unix_skt ||
-	     wsi->sa46_peer.sa4.sin_family == AF_UNIX ||
+	     wsi->io.sa46_peer.sa4.sin_family == AF_UNIX ||
 #endif
 	    wsi->io.desc.sockfd == LWS_SOCK_INVALID)
 		/* not a socket, cannot judge by route, or not connected,
@@ -343,7 +343,7 @@ _lws_route_check_wsi(struct lws *wsi)
 
 	/* the route to the peer is still workable? */
 
-	if (!_lws_route_est_outgoing(pt, &wsi->sa46_peer)) {
+	if (!_lws_route_est_outgoing(pt, &wsi->io.sa46_peer)) {
 		/* no way to talk to the peer */
 		lwsl_wsi_notice(wsi, "dest route gone");
 		return 1;
@@ -351,15 +351,15 @@ _lws_route_check_wsi(struct lws *wsi)
 
 	/* the source address is still workable? */
 
-	lws_sa46_write_numeric_address(&wsi->sa46_local,
+	lws_sa46_write_numeric_address(&wsi->io.sa46_local,
 				       buf, sizeof(buf));
 	//lwsl_notice("%s: %s sa46_local %s fam %d\n", __func__, wsi->lc.gutag,
-	//		buf, wsi->sa46_local.sa4.sin_family);
+	//		buf, wsi->io.sa46_local.sa4.sin_family);
 
-	if (wsi->sa46_local.sa4.sin_family &&
-	    !_lws_route_find_source(pt, &wsi->sa46_local)) {
+	if (wsi->io.sa46_local.sa4.sin_family &&
+	    !_lws_route_find_source(pt, &wsi->io.sa46_local)) {
 
-		lws_sa46_write_numeric_address(&wsi->sa46_local,
+		lws_sa46_write_numeric_address(&wsi->io.sa46_local,
 					       buf, sizeof(buf));
 		lwsl_wsi_notice(wsi, "source %s gone", buf);
 
@@ -424,10 +424,10 @@ _lws_route_pt_close_route_users(struct lws_context_per_thread *pt,
 		if (wsi->io.desc.sockfd != LWS_SOCK_INVALID &&
 #if defined(LWS_WITH_UNIX_SOCK)
 		    !wsi->io.unix_skt &&
-		    wsi->sa46_peer.sa4.sin_family != AF_UNIX &&
+		    wsi->io.sa46_peer.sa4.sin_family != AF_UNIX &&
 #endif
-		    wsi->sa46_peer.sa4.sin_family &&
-		    wsi->peer_route_uidx == uidx) {
+		    wsi->io.sa46_peer.sa4.sin_family &&
+		    wsi->io.peer_route_uidx == uidx) {
 			lwsl_wsi_notice(wsi, "culling wsi");
 			lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);
 		}

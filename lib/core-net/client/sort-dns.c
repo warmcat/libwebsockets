@@ -574,11 +574,11 @@ lws_sort_dns_dump(struct lws *wsi)
 
 	(void)n; /* nologs */
 
-	if(lws_dll2_is_empty(&wsi->dns_sorted_list))
+	if(lws_dll2_is_empty(&wsi->io.dns_sorted_list))
 		lwsl_wsi_notice(wsi, "empty");
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      lws_dll2_get_head(&wsi->dns_sorted_list)) {
+			      lws_dll2_get_head(&wsi->io.dns_sorted_list)) {
 		lws_dns_sort_t *s = lws_container_of(d, lws_dns_sort_t, list);
 		char dest[48], gw[48];
 
@@ -638,7 +638,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		* LWS_SERVER_OPTION_DISABLE_IPV6, or IPv4 source address)
 		*/
 #if defined(LWS_WITH_IPV6)
-		if (!wsi->ipv6 && ai->ai_family == AF_INET6)
+		if (!wsi->io.ipv6 && ai->ai_family == AF_INET6)
 			goto next;
 #else
 		if (ai->ai_family == AF_INET6)
@@ -650,7 +650,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		 * ...or it doesn't want ipv4 results (runtime
 		 * LWS_SERVER_OPTION_DISABLE_IPV4, eg, from -6)
 		 */
-		if (!wsi->ipv4 && ai->ai_family == AF_INET)
+		if (!wsi->io.ipv4 && ai->ai_family == AF_INET)
 			goto next;
 #endif
 		ds = lws_zalloc(sizeof(*ds), __func__);
@@ -732,7 +732,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 #endif
 
 		if (ds->dest.sa4.sin_family == AF_INET) {
-			if (!wsi->ipv6 || !estr ||
+			if (!wsi->io.ipv6 || !estr ||
 			    estr->dest.sa4.sin_family == AF_INET ||
 			    estr->gateway.sa4.sin_family == AF_INET)
 				/*
@@ -793,7 +793,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 just_add:
 		ds->source = bestsrc ? bestsrc : estr;
 		if (!ds->source) {
-			lws_dll2_add_tail(&ds->list, &wsi->dns_sorted_list);
+			lws_dll2_add_tail(&ds->list, &wsi->io.dns_sorted_list);
 			goto next;
 		}
 
@@ -804,7 +804,7 @@ just_add:
 		 * its preferability, so the head entry is the most preferred
 		 */
 
-		lws_dll2_add_sorted(&ds->list, &wsi->dns_sorted_list,
+		lws_dll2_add_sorted(&ds->list, &wsi->io.dns_sorted_list,
 				    lws_sort_dns_compare);
 #else
 		/*
@@ -813,7 +813,7 @@ just_add:
 		 * order of the addrinfo results
 		 */
 
-		lws_dll2_add_tail(&ds->list, &wsi->dns_sorted_list);
+		lws_dll2_add_tail(&ds->list, &wsi->io.dns_sorted_list);
 #endif
 
 next:
@@ -821,11 +821,11 @@ next:
 	}
 
 	//lwsl_notice("%s: sorted table: %d\n", __func__,
-	//		wsi->dns_sorted_list.count);
+	//		wsi->io.dns_sorted_list.count);
 
 #if defined(_DEBUG)
 	lws_sort_dns_dump(wsi);
 #endif
 
-	return !lws_dll2_count(&wsi->dns_sorted_list);
+	return !lws_dll2_count(&wsi->io.dns_sorted_list);
 }

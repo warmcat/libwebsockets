@@ -356,7 +356,7 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 
 	/* if there's a wsi, we want to mark it with our source ads:port */
 	if (wsi)
-		psin = (struct sockaddr_storage *)&wsi->sa46_local;
+		psin = (struct sockaddr_storage *)&wsi->io.sa46_local;
 
 	switch (af) {
 #if defined(LWS_WITH_UNIX_SOCK)
@@ -1704,6 +1704,42 @@ lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
 }
 #endif
 
+/*
+ * The peer's address as IO knows it: a connection that learned or changed
+ * its peer (a datagram peer moving, a mux stream standing for its parent's
+ * connection) tells IO, and a log or a report asks IO for it.
+ */
+void
+lws_io_set_peer(struct lws *wsi, const lws_sockaddr46 *sa46)
+{
+	wsi->io.sa46_peer = *sa46;
+#if defined(LWS_WITH_ROUTING)
+	{
+		struct lws_context_per_thread *pt =
+				&wsi->a.context->pt[(int)wsi->tsi];
+		lws_route_t *er = _lws_route_est_outgoing(pt, &wsi->io.sa46_peer);
+
+		if (er)
+			wsi->io.peer_route_uidx = er->uidx;
+	}
+#endif
+}
+
+void
+lws_io_peer_copy(struct lws *dst, const struct lws *src)
+{
+	dst->io.sa46_peer = src->io.sa46_peer;
+}
+
+void
+lws_io_peer_address(struct lws *wsi, char *buf, size_t len)
+{
+	if (wsi->io.sa46_peer.sa4.sin_family)
+		lws_sa46_write_numeric_address(&wsi->io.sa46_peer, buf, len);
+	else
+		lws_strncpy(buf, "unknown", len);
+}
+
 #if defined(LWS_ROLE_QUIC)
 /*
  * quic's socket setup (README.sans-io-split.md: quic is a sansIO part with
@@ -1856,6 +1892,7 @@ int
 lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi)
 {
 	nwsi->io.desc = wsi->io.desc;
+	nwsi->io.sa46_peer = wsi->io.sa46_peer;
 	if (lws_socket_is_valid(wsi->io.desc.sockfd)) {
 		struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 

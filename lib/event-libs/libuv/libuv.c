@@ -1138,7 +1138,7 @@ elops_close_handle_manually_parallel_uv(struct lws *wsi, int pidx)
 	if (!h)
 		return;
 
-	h->data = (void *)(lws_intptr_t)wsi->parallel_conns[pidx].desc.sockfd;
+	h->data = (void *)(lws_intptr_t)wsi->io.parallel_conns[pidx].desc.sockfd;
 	wsi_to_priv_uv(wsi)->racing[pidx].pwatcher = NULL;
 
 	/* the handle was accounted when it was created at accept time */

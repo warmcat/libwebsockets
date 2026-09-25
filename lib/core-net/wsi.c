@@ -2480,20 +2480,13 @@ __lws_wsi_remove_from_sul(struct lws *wsi)
 	lws_sul_cancel(&wsi->sul_timeout);
 	lws_sul_cancel(&wsi->sul_hrtimer);
 	lws_sul_cancel(&wsi->sul_validity);
-	lws_sul_cancel(&wsi->sul_connect_timeout);
-#if defined(LWS_WITH_CLIENT)
 	/*
-	 * The h3 grace and happy-eyeballs timers hold the wsi too...
-	 * without cancelling them here, a wsi that dies while its QUIC
-	 * race is still pending leaves them scheduled against freed
-	 * memory
+	 * The connect machine's timers (connect timeout, the h3 grace and
+	 * happy-eyeballs timers) hold the wsi too... without cancelling them
+	 * here, a wsi that dies while its QUIC race is still pending leaves
+	 * them scheduled against freed memory
 	 */
-	lws_sul_cancel(&wsi->sul_h3_grace);
-	lws_sul_cancel(&wsi->sul_happy_eyeballs);
-#endif
-#if defined(WIN32)
-	lws_sul_cancel(&wsi->win32_sul_connect_async_check);
-#endif
+	lws_io_connect_timers_cancel(wsi);
 #if defined(LWS_WITH_HTTP_PROXY)
 	lws_sul_cancel(&wsi->sul_ws_proxy_est);
 #endif

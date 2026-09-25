@@ -351,7 +351,7 @@ check_extant(struct lws_dll2 *d, void *user)
 	if (!lws_vhost_compare_listen(wsi->a.vhost, a->vhost))
 		return 0;
 
-	if (wsi->af != a ->af)
+	if (wsi->io.af != a ->af)
 		return 0;
 
 	if (a->info && a->info->vh_listen_sockfd &&
@@ -664,7 +664,7 @@ done_list:
 			goto bail;
 		}
 
-		wsi->af = (uint8_t)a->af;
+		wsi->io.af = (uint8_t)a->af;
 
 #ifdef LWS_WITH_UNIX_SOCK
 		if (LWS_UNIX_SOCK_ENABLED(a->vhost)) {

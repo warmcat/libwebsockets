@@ -138,7 +138,6 @@ __lws_reset_wsi(struct lws *wsi)
 		lws_free_set_NULL(wsi->udp);
 	}
 #endif
-	wsi->retry = 0;
 	wsi->mount_hit = 0;
 
 #if defined(LWS_WITH_CLIENT)
@@ -323,7 +322,6 @@ __lws_free_wsi(struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 	if (wsi->stash)
 		lws_free_set_NULL(wsi->stash);
-	lws_free_set_NULL(wsi->parallel_conns);
 #endif
 
 	if (wsi->a.context->event_loop_ops->destroy_wsi)
@@ -380,15 +378,10 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 		const char *host = wsi->stash ? wsi->stash->cis[CIS_HOST] : lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
 		const char *ads = wsi->stash ? wsi->stash->cis[CIS_ADDRESS] : wsi->cli_hostname_copy;
 		
-		if (lws_dll2_count(&wsi->dns_sorted_list)) {
-			struct lws_dll2 *d = lws_dll2_get_head(&wsi->dns_sorted_list);
-			lws_dns_sort_t *ds = lws_container_of(d, lws_dns_sort_t, list);
-			char ads_fallback[48];
+		char ads_fallback[48];
 
-			lws_sa46_write_numeric_address(&ds->dest, ads_fallback, sizeof(ads_fallback));
-			lws_dll2_remove(d);
-			lws_free(ds);
-
+		/* the next dns result, if IO has one left, is the fallback */
+		if (lws_io_dns_next(wsi, ads_fallback, sizeof(ads_fallback))) {
 			if (ads_fallback[0] && host && path) {
 				lwsl_wsi_notice(wsi, "QUIC fail, trying next DNS result %s", ads_fallback);
 				lws_addrinfo_clean(wsi);
@@ -476,24 +469,6 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 					wsi->user_space, arg, len);
 }
 #endif
-
-void
-lws_addrinfo_clean(struct lws *wsi)
-{
-#if defined(LWS_WITH_CLIENT)
-	struct lws_dll2 *d = lws_dll2_get_head(&wsi->dns_sorted_list), *d1;
-
-	while (d) {
-		lws_dns_sort_t *r = lws_container_of(d, lws_dns_sort_t, list);
-
-		d1 = lws_dll2_get_next(d);
-		lws_dll2_remove(d);
-		lws_free(r);
-
-		d = d1;
-	}
-#endif
-}
 
 #if defined(LWS_WITH_ASYNC_QUEUE)
 static void
@@ -803,16 +778,6 @@ just_kill_connection:
 		lws_vfs_file_close(&wsi->http.fop_fd);
 #endif
 
-	lws_sul_cancel(&wsi->sul_connect_timeout);
-#if defined(WIN32)
-	lws_sul_cancel(&wsi->win32_sul_connect_async_check);
-#endif
-#if defined(LWS_WITH_CLIENT)
-	lws_sul_cancel(&wsi->sul_happy_eyeballs);
-#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
-	lws_sul_cancel(&wsi->sul_h3_grace);
-#endif
-#endif
 	/* whatever a connect attempt still has in flight */
 	lws_io_abort_connect(wsi);
 
@@ -856,9 +821,8 @@ just_kill_connection:
 	     lwsi_transport(wsi) < LTS_FAILED && wsi->a.protocol) {
 		static const char _reason[] = "closed before established";
 
-		lwsl_wsi_debug(wsi, "closing in unestablished state 0x%x "
-				"(parallels %d)",
-				lwsi_state(wsi), wsi->parallel_count);
+		lwsl_wsi_debug(wsi, "closing in unestablished state 0x%x",
+				lwsi_state(wsi));
 		lwsi_set_skt_unusable(wsi, 1);
 
 		lws_inform_client_conn_fail(wsi,

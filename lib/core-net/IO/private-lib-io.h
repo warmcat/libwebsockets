@@ -403,6 +403,18 @@ int
 lws_io_service_now(struct lws *wsi);
 int
 lws_io_flag_pending_rx(struct lws *wsi);
+void
+lws_io_connect_timers_cancel(struct lws *wsi);
+int
+lws_io_dns_next(struct lws *wsi, char *ads, size_t len);
+void
+lws_addrinfo_clean(struct lws *wsi);
+void
+lws_io_set_peer(struct lws *wsi, const lws_sockaddr46 *sa46);
+void
+lws_io_peer_copy(struct lws *dst, const struct lws *src);
+void
+lws_io_peer_address(struct lws *wsi, char *buf, size_t len);
 #if defined(LWS_ROLE_QUIC)
 int
 lws_io_udp_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46);

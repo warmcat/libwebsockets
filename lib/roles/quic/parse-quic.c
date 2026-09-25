@@ -1310,23 +1310,8 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						 * udp->sa46 holds the committed
 						 * peer address for both sides.
 						 */
-						if (nwsi->udp) {
-							nwsi->sa46_peer =
-								nwsi->udp->sa46;
-#if defined(LWS_WITH_ROUTING)
-							{
-								struct lws_context_per_thread *_pt =
-									&nwsi->a.context->pt[(int)nwsi->tsi];
-								lws_route_t *_er =
-									_lws_route_est_outgoing(
-										_pt,
-										&nwsi->sa46_peer);
-								if (_er)
-									nwsi->peer_route_uidx =
-										_er->uidx;
-							}
-#endif
-						}
+						if (nwsi->udp)
+							lws_io_set_peer(nwsi, &nwsi->udp->sa46);
 
 						/* Reset CC / RTT / PMTUD (RFC 9000 9.3.3) */
 						if (nwsi->quic.qn->cc_ops &&

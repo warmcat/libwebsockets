@@ -141,7 +141,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 
 #if defined(LWS_WITH_CLIENT)
 	/* Intercept POLLOUT for parallel sockets if we are racing H3 */
-	if (pollfd && wsi->parallel_count > 0 && pollfd->fd != wsi->io.desc.sockfd) {
+	if (pollfd && wsi->io.parallel_count > 0 && pollfd->fd != wsi->io.desc.sockfd) {
 		if (!lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd)) {
 			/*
 			 * The connect processing took over the wsi's fate...

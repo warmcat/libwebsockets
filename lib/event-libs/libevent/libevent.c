@@ -563,7 +563,7 @@ elops_close_handle_manually_parallel_event(struct lws *wsi, int pidx)
 		w->racing[pidx].w_write.watcher = NULL;
 	}
 
-	compatible_close(wsi->parallel_conns[pidx].desc.sockfd);
+	compatible_close(wsi->io.parallel_conns[pidx].desc.sockfd);
 }
 
 static int

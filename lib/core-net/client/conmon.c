@@ -146,7 +146,7 @@ void
 lws_conmon_wsi_take(struct lws *wsi, struct lws_conmon *dest)
 {
 	memcpy(dest, &wsi->conmon, sizeof(*dest));
-	dest->peer46 = wsi->sa46_peer;
+	dest->peer46 = wsi->io.sa46_peer;
 
 	/* wsi no longer has to free it... */
 	wsi->conmon.dns_results_copy = NULL;

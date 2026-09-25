@@ -502,7 +502,7 @@ close_handle_manually_parallel_sd(struct lws *wsi, int pidx)
 		wsi_to_priv_sd(wsi)->racing[pidx].source = NULL;
 	}
 
-	compatible_close(wsi->parallel_conns[pidx].desc.sockfd);
+	compatible_close(wsi->io.parallel_conns[pidx].desc.sockfd);
 }
 
 static int

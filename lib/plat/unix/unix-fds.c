@@ -45,8 +45,8 @@ wsi_from_fd(const struct lws_context *context, int fd)
 			if ((*p)->io.desc.sockfd == fd)
 				return *p;
 #if defined(LWS_WITH_CLIENT)
-			for (int j = 0; j < (*p)->parallel_count; j++) {
-				if ((*p)->parallel_conns[j].is_valid && (*p)->parallel_conns[j].desc.sockfd == fd)
+			for (int j = 0; j < (*p)->io.parallel_count; j++) {
+				if ((*p)->io.parallel_conns[j].is_valid && (*p)->io.parallel_conns[j].desc.sockfd == fd)
 					return *p;
 			}
 #endif
@@ -68,8 +68,8 @@ sanity_assert_no_wsi_traces(const struct lws_context *context, struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 	if (lws_socket_is_valid(wsi->io.desc.sockfd))
 		expected++;
-	for (int i = 0; i < wsi->parallel_count; i++)
-		if (wsi->parallel_conns[i].is_valid)
+	for (int i = 0; i < wsi->io.parallel_count; i++)
+		if (wsi->io.parallel_conns[i].is_valid)
 			expected++;
 #endif
 
@@ -137,7 +137,7 @@ sanity_assert_no_sockfd_traces(const struct lws_context *context,
 	while (p != done) {
 		if (*p && (*p)->io.desc.sockfd == sfd) {
 #if defined(LWS_WITH_CLIENT)
-			if ((*p)->parallel_count > 0) {
+			if ((*p)->io.parallel_count > 0) {
 				p++;
 				continue;
 			}
@@ -244,7 +244,7 @@ delete_from_fd(const struct lws_context *context, int fd)
 	while (p != done) {
 		if (*p && (*p)->io.desc.sockfd == fd) {
 #if defined(LWS_WITH_CLIENT)
-			if ((*p)->parallel_count > 0) {
+			if ((*p)->io.parallel_count > 0) {
 				p++;
 				continue;
 			}

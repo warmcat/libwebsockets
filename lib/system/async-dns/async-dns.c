@@ -177,7 +177,7 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 	q->completing = 1;
 
 	while ((d = lws_dll2_get_head(&q->wsi_adns))) {
-		struct lws *w = lws_container_of(d, struct lws, adns);
+		struct lws *w = lws_container_of(d, struct lws, io.adns);
 
 		lws_dll2_remove(d);
 
@@ -188,7 +188,7 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 			c->refcount++;
 		}
 		lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
-		if (w->adns_cb(w, (const char *)&q[1], c ? c->results : NULL,
+		if (w->io.adns_cb(w, (const char *)&q[1], c ? c->results : NULL,
 			       rc, q->opaque) == NULL) {
 			lwsl_info("%s: failed\n", __func__);
 			ret = LADNS_RET_FAILED_WSI_CLOSED;
@@ -1542,7 +1542,7 @@ cancel(struct lws_dll2 *d, void *user)
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d3, d4,
 				   lws_dll2_get_head(&q->wsi_adns)) {
-		struct lws *w = lws_container_of(d3, struct lws, adns);
+		struct lws *w = lws_container_of(d3, struct lws, io.adns);
 
 		if (user == w) {
 			/*
@@ -1825,12 +1825,12 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		goto failed;
 
 	if (wsi) {
-		if (!lws_dll2_is_detached(&wsi->adns)) {
+		if (!lws_dll2_is_detached(&wsi->io.adns)) {
 			lwsl_cx_err(context, "%s already bound to query %p",
-					lws_wsi_tag(wsi), lws_dll2_owner(&wsi->adns));
+					lws_wsi_tag(wsi), lws_dll2_owner(&wsi->io.adns));
 			goto failed;
 		}
-		wsi->adns_cb = cb;
+		wsi->io.adns_cb = cb;
 	}
 
 	/* there's a done, cached query we can just reuse? */
@@ -2025,8 +2025,8 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		memset(&tmq.tq, 0, sizeof(tmq.tq));
 		tmq.tq.opaque = opaque;
 		if (wsi) {
-			wsi->adns_cb = cb;
-			lws_dll2_add_head(&wsi->adns, &tmq.tq.wsi_adns);
+			wsi->io.adns_cb = cb;
+			lws_dll2_add_head(&wsi->io.adns, &tmq.tq.wsi_adns);
 		} else
 			tmq.tq.standalone_cb = cb;
 		lws_strncpy(tmq.name, name, sizeof(tmq.name));
@@ -2071,7 +2071,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	if (q && wsi) {
 		lwsl_cx_debug(context, "dns piggybacking: %d:%s",
 				qtype, name);
-		lws_dll2_add_head(&wsi->adns, &q->wsi_adns);
+		lws_dll2_add_head(&wsi->io.adns, &q->wsi_adns);
 
 		return LADNS_RET_CONTINUING;
 	}
@@ -2092,7 +2092,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	}
 
 	if (wsi)
-		lws_dll2_add_head(&wsi->adns, &q->wsi_adns);
+		lws_dll2_add_head(&wsi->io.adns, &q->wsi_adns);
 
 	q->qtype = (uint16_t)qtype;
 	q->want_dnssec = want_dnssec != 0;
@@ -2258,7 +2258,7 @@ failed_unpublished_q:
 	 * the rest of its life (it trips the "already bound" check above).
 	 */
 	if (wsi)
-		lws_dll2_remove(&wsi->adns);
+		lws_dll2_remove(&wsi->io.adns);
 	lws_sul_cancel(&q->sul);
 	lws_sul_cancel(&q->write_sul);
 	lws_sul_cancel(&q->deadline_sul);

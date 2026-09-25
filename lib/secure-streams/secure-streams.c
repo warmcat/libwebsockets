@@ -457,7 +457,7 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 		h->h_in_svc = h;
 		r = h->info.state(ss_to_userobj(h), NULL, cs,
 			cs == LWSSSCS_UNREACHABLE &&
-			h->wsi && h->wsi->dns_reachability);
+			h->wsi && h->wsi->io.dns_reachability);
 		h->h_in_svc = NULL;
 
 #if defined(LWS_WITH_SERVER)

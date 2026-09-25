@@ -427,14 +427,14 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 			} else {
 #if defined(LWS_WITH_CLIENT)
 				int p = -1;
-				for (int i = 0; i < end_wsi->parallel_count; i++) {
-					if (end_wsi->parallel_conns[i].is_valid && end_wsi->parallel_conns[i].desc.sockfd == v) {
+				for (int i = 0; i < end_wsi->io.parallel_count; i++) {
+					if (end_wsi->io.parallel_conns[i].is_valid && end_wsi->io.parallel_conns[i].desc.sockfd == v) {
 						p = i;
 						break;
 					}
 				}
 				if (p != -1)
-					end_wsi->parallel_conns[p].position_in_fds_table = m;
+					end_wsi->io.parallel_conns[p].position_in_fds_table = m;
 				else
 #endif
 					end_wsi->io.position_in_fds_table = m;
@@ -480,10 +480,10 @@ _lws_event_loop_ops_io(struct lws *wsi, unsigned int flags)
 	struct lws_context *context = wsi->a.context;
 
 #if defined(LWS_WITH_CLIENT)
-	if (context->event_loop_ops->io_parallel && wsi->parallel_count > 0) {
-		for (int i = 0; i < wsi->parallel_count; i++) {
-			if (wsi->parallel_conns[i].is_valid &&
-			    wsi->parallel_conns[i].desc.sockfd == wsi->io.desc.sockfd) {
+	if (context->event_loop_ops->io_parallel && wsi->io.parallel_count > 0) {
+		for (int i = 0; i < wsi->io.parallel_count; i++) {
+			if (wsi->io.parallel_conns[i].is_valid &&
+			    wsi->io.parallel_conns[i].desc.sockfd == wsi->io.desc.sockfd) {
 				context->event_loop_ops->io_parallel(wsi, i, flags);
 				return;
 			}

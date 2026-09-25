@@ -346,7 +346,7 @@ elops_close_handle_manually_parallel_uloop(struct lws *wsi, int pidx)
 	struct lws_wsi_eventlibs_uloop *wu = wsi_to_priv_uloop(wsi);
 
 	uloop_fd_delete(&wu->racing[pidx].fd);
-	compatible_close(wsi->parallel_conns[pidx].desc.sockfd);
+	compatible_close(wsi->io.parallel_conns[pidx].desc.sockfd);
 }
 
 static int
@@ -367,7 +367,7 @@ elops_promote_parallel_uloop(struct lws *wsi, int pidx)
 	uloop_fd_delete(&wu->racing[pidx].fd);
 
 	wu->wsi = wsi;
-	wu->fd.fd = wsi->parallel_conns[pidx].desc.sockfd;
+	wu->fd.fd = wsi->io.parallel_conns[pidx].desc.sockfd;
 	wu->fd.cb = lws_uloop_cb;
 
 	uloop_fd_add(&wu->fd, ev);
