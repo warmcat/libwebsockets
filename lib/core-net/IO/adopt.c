@@ -1372,3 +1372,174 @@ int lws_wsi_extract_from_loop(struct lws *wsi) {
 
 	return 0; /* he is destroyed */
 }
+
+/*
+ * Whatever a connect attempt still has in flight: the racing sockets of
+ * happy eyeballs, the name resolution.  Idempotent.
+ */
+void
+lws_io_abort_connect(struct lws *wsi)
+{
+#if defined(LWS_WITH_CLIENT)
+	int m;
+
+	for (m = 0; m < wsi->parallel_count; m++)
+		if (wsi->parallel_conns[m].is_valid)
+			lws_remove_parallel_fd_safely(wsi, m);
+	wsi->parallel_count = 0;
+	lws_free_set_NULL(wsi->parallel_conns);
+#endif
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	lws_async_dns_cancel(wsi);
+#endif
+}
+
+/* the transport is no longer watched, but not released: a restart follows */
+void
+lws_io_unwatch(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+
+	lws_pt_lock(pt, __func__);
+	__remove_wsi_socket_from_fds(wsi);
+	lws_pt_unlock(pt);
+}
+
+/*
+ * Stop sending on the transport, keeping it open for what the peer still
+ * sends: a tls close_notify when there is a session, else the socket's
+ * write side.  Returns 1 when a tls shutdown was attempted (it may want more
+ * service), 0 when the write side is shut, -1 when shutdown() failed.
+ */
+int
+lws_io_shutdown_write(struct lws *wsi)
+{
+#if defined(LWS_WITH_TLS)
+	if (lws_is_ssl(wsi) && wsi->tls.ssl) {
+		__lws_tls_shutdown(wsi);
+
+		return 1;
+	}
+#endif
+	if (!lws_socket_is_valid(wsi->desc.sockfd))
+		return 0;
+
+	lwsl_wsi_info(wsi, "shutdown conn (sk %d, state 0x%x)",
+		      (int)(lws_intptr_t)wsi->desc.sockfd, lwsi_state(wsi));
+	if (shutdown(wsi->desc.sockfd, SHUT_WR)) {
+		lwsl_wsi_debug(wsi, "shutdown errno %d", LWS_ERRNO);
+
+		return -1;
+	}
+
+	return 0;
+}
+
+/*
+ * Stage the close: stop writing, keep reading, so the peer's FIN can be
+ * seen before the socket is closed.  Only a poll-based loop can promise the
+ * event that completes it.  Returns 1 when staged, 0 when not possible.
+ */
+int
+lws_io_close_staged(struct lws *wsi)
+{
+	if (!lws_socket_is_valid(wsi->desc.sockfd) ||
+	    !(wsi->a.context->event_loop_ops->flags & LELOF_ISPOLL))
+		return 0;
+
+	__lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
+
+	return 1;
+}
+
+/*
+ * The h1 keepalive handover: the connection goes on with a new wsi.  Its
+ * socket, its place in the loop (the event lib may need a new watcher) and
+ * its tls session move from wsi to wnew.  Returns -1 when the loop could not
+ * take the fd for wnew, in which case the fd is closed here and the caller
+ * bails.  Caller holds the pt lock.
+ */
+int
+lws_io_transfer_socket(struct lws *wsi, struct lws *wnew)
+{
+assert(lws_socket_is_valid(wsi->desc.sockfd));
+
+__lws_change_pollfd(wsi, LWS_POLLOUT | LWS_POLLIN, 0);
+
+/* copy the fd */
+wnew->desc = wsi->desc;
+
+assert(lws_socket_is_valid(wnew->desc.sockfd));
+
+/* disconnect the fd from association with old wsi */
+
+if (__remove_wsi_socket_from_fds(wsi))
+	return -1; /* we must not return holding the vh lock */
+
+sanity_assert_no_wsi_traces(wsi->a.context, wsi);
+sanity_assert_no_sockfd_traces(wsi->a.context, wsi->desc.sockfd);
+wsi->desc.sockfd = LWS_SOCK_INVALID;
+
+/*
+ * ... we're doing some magic here in terms of handing off the socket
+ * that has been active to a wsi that has not yet itself been active...
+ * depending on the event lib we may need to give a magic spark to the
+ * new guy and snuff out the old guy's magic spark at that level as well
+ */
+
+#if defined(LWS_WITH_EVENT_LIBS)
+if (wsi->a.context->event_loop_ops->destroy_wsi)
+	wsi->a.context->event_loop_ops->destroy_wsi(wsi);
+if (wsi->a.context->event_loop_ops->sock_accept &&
+    wsi->a.context->event_loop_ops->sock_accept(wnew)) {
+	/*
+	 * The event lib could not take the fd (eg, libuv already had
+	 * a handle on it)... the new guy has no watcher, so he must
+	 * not go into the fds table where nothing would ever service
+	 * or close his fd
+	 */
+	compatible_close(wnew->desc.sockfd);
+	wnew->desc.sockfd = LWS_SOCK_INVALID;
+
+	return -1;
+}
+#endif
+
+/* point the fd table entry to new guy */
+
+assert(lws_socket_is_valid(wnew->desc.sockfd));
+
+if (__insert_wsi_socket_into_fds(wsi->a.context, wnew)) {
+	/*
+	 * We already took the fd away from the old wsi, and it did not
+	 * make it into the fds table on the new guy... nothing will
+	 * ever poll or close it now, so close it here rather than
+	 * leak it
+	 */
+	compatible_close(wnew->desc.sockfd);
+	wnew->desc.sockfd = LWS_SOCK_INVALID;
+
+	return -1;
+}
+
+#if defined(LWS_WITH_TLS)
+/* pass on the tls */
+
+#if defined(LWS_TLS_SYNTHESIZE_CB)
+lws_sul_cancel(&wsi->tls.sul_cb_synth);
+/*
+ * ...but only if there is a tls session to harvest: a cleartext
+ * keepalive handover has no tls.ssl for the backend to look inside
+ */
+if (wsi->tls.ssl)
+	lws_sess_cache_synth_cb(&wsi->tls.sul_cb_synth);
+#endif
+
+wnew->tls = wsi->tls;
+wsi->tls.client_bio = NULL;
+wsi->tls.ssl = NULL;
+wsi->tls.use_ssl = 0;
+#endif
+
+	return 0;
+}

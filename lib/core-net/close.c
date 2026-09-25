@@ -152,9 +152,7 @@ __lws_reset_wsi(struct lws *wsi)
 		lws_free_set_NULL(wsi->cli_hostname_copy);
 #endif
 
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
-	lws_async_dns_cancel(wsi);
-#endif
+	lws_io_abort_connect(wsi);
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	if (wsi->http.buflist_post_body)
@@ -579,16 +577,8 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	context = wsi->a.context;
 	pt = &context->pt[(int)wsi->tsi];
 
-	if (pt->pipe_wsi == wsi) {
-		if (lws_socket_is_valid(wsi->desc.sockfd)) {
-			__remove_wsi_socket_from_fds(wsi);
-			if (lws_socket_is_valid(wsi->desc.sockfd))
-				delete_from_fd(wsi->a.context, wsi->desc.sockfd);
-#if !defined(LWS_PLAT_FREERTOS) && !defined(WIN32) && !defined(LWS_PLAT_OPTEE)
-			delete_from_fdwsi(wsi->a.context, wsi);
-#endif
-		}
-	}
+	if (pt->pipe_wsi == wsi)
+		lws_pipe_wsi_release_fds(wsi);
 
 #if defined(LWS_WITH_SYS_METRICS) && \
     (defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
@@ -830,17 +820,9 @@ just_kill_connection:
 #if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
 	lws_sul_cancel(&wsi->sul_h3_grace);
 #endif
-	for (int m = 0; m < wsi->parallel_count; m++) {
-		if (wsi->parallel_conns[m].is_valid) {
-			lws_remove_parallel_fd_safely(wsi, m);
-		}
-	}
-	wsi->parallel_count = 0;
-	lws_free_set_NULL(wsi->parallel_conns);
 #endif
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
-	lws_async_dns_cancel(wsi);
-#endif
+	/* whatever a connect attempt still has in flight */
+	lws_io_abort_connect(wsi);
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	if (wsi->http.buflist_post_body)
@@ -909,37 +891,20 @@ just_kill_connection:
 	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
 	    !lwsi_skt_unusable(wsi)) {
 
-#if defined(LWS_WITH_TLS)
-		if (lws_is_ssl(wsi) && wsi->tls.ssl) {
-			n = 0;
-			switch (__lws_tls_shutdown(wsi)) {
-			case LWS_SSL_CAPABLE_DONE:
-			case LWS_SSL_CAPABLE_ERROR:
-			case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-			case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-				if (wsi->lsp_channel++ == 8) {
-					lwsl_wsi_info(wsi, "avoiding shutdown spin");
-					lws_wsi_event(wsi, LWS_WSIEV_CLOSE_STAGED);
-				}
-				break;
-			}
-		} else
-#endif
-		{
-			lwsl_info("%s: shutdown conn: %s (sk %d, state 0x%x)\n",
-				  __func__, lws_wsi_tag(wsi), (int)(lws_intptr_t)wsi->desc.sockfd,
-				  lwsi_state(wsi));
-			/*
-			 * Don't mark the socket unusable here: the LRS_SHUTDOWN
-			 * staging below is gated on it, and we want to wait
-			 * for his FIN before closing the same as the tls path
-			 */
-			if (lws_socket_is_valid(wsi->desc.sockfd))
-				n = shutdown(wsi->desc.sockfd, SHUT_WR);
+		/*
+		 * Don't mark the socket unusable here: the LRS_SHUTDOWN
+		 * staging below is gated on it, and we want to wait for
+		 * his FIN before closing the same as the tls path
+		 */
+		n = lws_io_shutdown_write(wsi);
+		if (n > 0 && wsi->lsp_channel++ == 8) {
+			/* a tls shutdown that keeps wanting more service */
+			lwsl_wsi_info(wsi, "avoiding shutdown spin");
+			lws_wsi_event(wsi, LWS_WSIEV_CLOSE_STAGED);
 		}
-		if (n)
-			lwsl_wsi_debug(wsi, "closing: shutdown (state 0x%x) ret %d",
-				   lwsi_state(wsi), LWS_ERRNO);
+		if (n < 0)
+			lwsl_wsi_debug(wsi, "closing: shutdown (state 0x%x) failed",
+				   lwsi_state(wsi));
 
 		/*
 		 * This causes problems on WINCE / ESP32 with disconnection
@@ -948,10 +913,8 @@ just_kill_connection:
 #if !defined(_WIN32_WCE) && !defined(LWS_PLAT_FREERTOS)
 		/* libuv: no event available to guarantee completion */
 		if (!lwsi_skt_unusable(wsi) && !lwsi_restarting(wsi) &&
-		    lws_socket_is_valid(wsi->desc.sockfd) &&
 		    lwsi_close(wsi) != LCS_SHUTDOWN &&
-		    (context->event_loop_ops->flags & LELOF_ISPOLL)) {
-			__lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
+		    lws_io_close_staged(wsi)) {
 			lws_wsi_event(wsi, LWS_WSIEV_CLOSE_STAGED);
 			__lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
 					  (int)context->timeout_secs);
@@ -1294,7 +1257,6 @@ __lws_close_free_wsi_final(struct lws *wsi)
 #endif
 
 	__lws_wsi_remove_from_sul(wsi);
-	sanity_assert_no_wsi_traces(wsi->a.context, wsi);
 	__lws_free_wsi(wsi);
 }
 

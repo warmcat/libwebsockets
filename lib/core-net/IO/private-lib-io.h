@@ -380,4 +380,22 @@ lws_wsi_inject_to_loop(struct lws_context_per_thread *pt, struct lws *wsi);
 int
 lws_wsi_extract_from_loop(struct lws *wsi);
 
+/* connect attempts, restarts and the staged close */
+void
+lws_io_abort_connect(struct lws *wsi);
+void
+lws_io_unwatch(struct lws *wsi);
+int
+lws_io_shutdown_write(struct lws *wsi);
+int
+lws_io_close_staged(struct lws *wsi);
+int
+lws_io_transfer_socket(struct lws *wsi, struct lws *wnew);
+void
+lws_pipe_wsi_release_fds(struct lws *wsi);
+#if defined(LWS_WITH_ASYNC_QUEUE)
+int
+lws_async_queue_submit(struct lws_context *cx, struct lws_async_job *job);
+#endif
+
 #endif /* __LWS_PRIVATE_LIB_IO_H__ */

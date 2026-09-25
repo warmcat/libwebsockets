@@ -1844,86 +1844,14 @@ idle:
 
 	lws_dll2_remove(&wnew->dll2_cli_txn_queue);
 
-	assert(lws_socket_is_valid(wsi->desc.sockfd));
-
-	__lws_change_pollfd(wsi, LWS_POLLOUT | LWS_POLLIN, 0);
-
-	/* copy the fd */
-	wnew->desc = wsi->desc;
-
-	assert(lws_socket_is_valid(wnew->desc.sockfd));
-
-	/* disconnect the fd from association with old wsi */
-
-	if (__remove_wsi_socket_from_fds(wsi))
-		goto bail; /* we must not return holding the vh lock */
-
-	sanity_assert_no_wsi_traces(wsi->a.context, wsi);
-	sanity_assert_no_sockfd_traces(wsi->a.context, wsi->desc.sockfd);
-	wsi->desc.sockfd = LWS_SOCK_INVALID;
-
 	__lws_wsi_remove_from_sul(wsi);
 
 	/*
-	 * ... we're doing some magic here in terms of handing off the socket
-	 * that has been active to a wsi that has not yet itself been active...
-	 * depending on the event lib we may need to give a magic spark to the
-	 * new guy and snuff out the old guy's magic spark at that level as well
+	 * The socket, its place in the loop and its tls session go to wnew;
+	 * IO closes wsi's if it cannot take them, and we bail
 	 */
-
-#if defined(LWS_WITH_EVENT_LIBS)
-	if (wsi->a.context->event_loop_ops->destroy_wsi)
-		wsi->a.context->event_loop_ops->destroy_wsi(wsi);
-	if (wsi->a.context->event_loop_ops->sock_accept &&
-	    wsi->a.context->event_loop_ops->sock_accept(wnew)) {
-		/*
-		 * The event lib could not take the fd (eg, libuv already had
-		 * a handle on it)... the new guy has no watcher, so he must
-		 * not go into the fds table where nothing would ever service
-		 * or close his fd
-		 */
-		compatible_close(wnew->desc.sockfd);
-		wnew->desc.sockfd = LWS_SOCK_INVALID;
-
+	if (lws_io_transfer_socket(wsi, wnew))
 		goto bail;
-	}
-#endif
-
-	/* point the fd table entry to new guy */
-
-	assert(lws_socket_is_valid(wnew->desc.sockfd));
-
-	if (__insert_wsi_socket_into_fds(wsi->a.context, wnew)) {
-		/*
-		 * We already took the fd away from the old wsi, and it did not
-		 * make it into the fds table on the new guy... nothing will
-		 * ever poll or close it now, so close it here rather than
-		 * leak it
-		 */
-		compatible_close(wnew->desc.sockfd);
-		wnew->desc.sockfd = LWS_SOCK_INVALID;
-
-		goto bail;
-	}
-
-#if defined(LWS_WITH_TLS)
-	/* pass on the tls */
-
-#if defined(LWS_TLS_SYNTHESIZE_CB)
-	lws_sul_cancel(&wsi->tls.sul_cb_synth);
-	/*
-	 * ...but only if there is a tls session to harvest: a cleartext
-	 * keepalive handover has no tls.ssl for the backend to look inside
-	 */
-	if (wsi->tls.ssl)
-		lws_sess_cache_synth_cb(&wsi->tls.sul_cb_synth);
-#endif
-
-	wnew->tls = wsi->tls;
-	wsi->tls.client_bio = NULL;
-	wsi->tls.ssl = NULL;
-	wsi->tls.use_ssl = 0;
-#endif
 
 	/* take over his copy of his endpoint as an active connection */
 

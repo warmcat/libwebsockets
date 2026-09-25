@@ -380,3 +380,18 @@ lws_destroy_event_pipe(struct lws *wsi)
 	if (!n)
 		lws_free(wsi);
 }
+
+/* the pt pipe wsi's fd leaves the poll set and the fd tables */
+void
+lws_pipe_wsi_release_fds(struct lws *wsi)
+{
+	if (!lws_socket_is_valid(wsi->desc.sockfd))
+		return;
+
+	__remove_wsi_socket_from_fds(wsi);
+	if (lws_socket_is_valid(wsi->desc.sockfd))
+		delete_from_fd(wsi->a.context, wsi->desc.sockfd);
+#if !defined(LWS_PLAT_FREERTOS) && !defined(WIN32) && !defined(LWS_PLAT_OPTEE)
+	delete_from_fdwsi(wsi->a.context, wsi);
+#endif
+}

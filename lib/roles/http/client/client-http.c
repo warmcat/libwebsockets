@@ -2617,7 +2617,6 @@ struct lws *
 lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		const char *path, const char *host, char weak)
 {
-	struct lws_context_per_thread *pt;
 #if defined(LWS_ROLE_WS)
 	struct _lws_websocket_related *ws;
 #endif
@@ -2630,7 +2629,6 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		return NULL;
 
 	wsi = *pwsi;
-	pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	lwsl_debug("%s: %s: redir %d: %s\n", __func__, lws_wsi_tag(wsi),
 			wsi->redirects, address);
@@ -2712,12 +2710,11 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		wsi->stash->opaque_user_data = opaque;
 	}
 
-	lws_pt_lock(pt, __func__);
 #if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
 	lws_sul_cancel(&wsi->sul_h3_grace);
 #endif
-	__remove_wsi_socket_from_fds(wsi);
-	lws_pt_unlock(pt);
+	/* the old transport is no longer watched; the close releases it */
+	lws_io_unwatch(wsi);
 
 #if defined(LWS_ROLE_WS)
 	if (weak) {

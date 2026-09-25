@@ -613,6 +613,8 @@ lws_io_close_pollfd(struct lws *wsi)
                }
 	}
 
+
+	sanity_assert_no_wsi_traces(wsi->a.context, wsi);
 }
 
 const lws_io_ops_t lws_io_ops_default = {

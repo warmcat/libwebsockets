@@ -178,7 +178,6 @@ static void
 _lws_header_ensure_we_are_on_waiting_list(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	struct lws_pollargs pa;
 	struct lws **pwsi = &pt->http.ah_wait_list;
 
 	while (*pwsi) {
@@ -194,7 +193,7 @@ _lws_header_ensure_we_are_on_waiting_list(struct lws *wsi)
 
 	/* we cannot accept input then */
 
-	_lws_change_pollfd(wsi, LWS_POLLIN, 0, &pa);
+	__lws_io_want_read(wsi, 0);
 }
 
 static int
@@ -226,7 +225,6 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	lws_sockfd_type lifecheck_sfd = LWS_SOCK_INVALID;
-	struct lws_pollargs pa;
 	int n, lifecheck = 0;
 
 #if defined(LWS_ROLE_MQTT) && defined(LWS_WITH_CLIENT)
@@ -295,7 +293,7 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 	lws_context_unlock(context); /* ====================================> */
 #endif
 
-	_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
+	__lws_io_want_read(wsi, 1);
 
 	lwsl_info("%s: did attach wsi %s: ah %p: count %d (on exit)\n", __func__,
 		  lws_wsi_tag(wsi), (void *)wsi->stream.ah, pt->http.ah_count_in_use);
@@ -359,7 +357,6 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	struct lws_context *context = wsi->a.context;
 	struct allocated_headers *ah = wsi->stream.ah;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	struct lws_pollargs pa;
 	struct lws **pwsi, **pwsi_eligible;
 	time_t now;
 
@@ -473,7 +470,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 		/* he has been stuck waiting for an ah, but now his wait is
 		 * over, let him progress */
 
-		_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
+		__lws_io_want_read(wsi, 1);
 	}
 
 #if defined(LWS_WITH_CLIENT)

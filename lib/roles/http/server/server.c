@@ -4045,10 +4045,7 @@ lws_http_file_tx(struct lws *wsi, unsigned char *buf, size_t max,
 		job->u.fs.buf = (uint8_t *)&job[1];
 		job->u.fs.len = poss;
 
-		/* enqueue */
-		pthread_mutex_lock(&wsi->a.context->async_worker_mutex);
-		if (lws_dll2_count(&wsi->a.context->async_worker_waiting) >=
-		    (uint32_t)(wsi->a.context->count_async_threads * 10)) {
+		if (lws_async_queue_submit(wsi->a.context, job)) {
 			/*
 			 * The workers are saturated.  That is backpressure,
 			 * not a file error: read this fragment on the event
@@ -4059,29 +4056,10 @@ lws_http_file_tx(struct lws *wsi, unsigned char *buf, size_t max,
 			 * reads already queued and were closed with no
 			 * body, intermittently.)
 			 */
-			pthread_mutex_unlock(&wsi->a.context->async_worker_mutex);
 			lws_free(job);
 			wsi->async_worker_job = NULL;
 			lwsl_wsi_info(wsi, "async read queue full, reading inline");
 		} else {
-			lws_dll2_add_tail(&job->list,
-					  &wsi->a.context->async_worker_waiting);
-
-			/* Scale threads up to limit if needed */
-			if (wsi->a.context->async_worker_threads_idle == 0 &&
-			    wsi->a.context->async_worker_threads_active <
-				    wsi->a.context->count_async_threads) {
-				pthread_t pt;
-				wsi->a.context->async_worker_threads_active++;
-				if (pthread_create(&pt, NULL, lws_async_worker_worker,
-						   wsi->a.context) == 0)
-					pthread_detach(pt);
-				else
-					wsi->a.context->async_worker_threads_active--;
-			}
-
-			pthread_cond_signal(&wsi->a.context->async_worker_cond);
-			pthread_mutex_unlock(&wsi->a.context->async_worker_mutex);
 			lws_wsi_event(wsi, LWS_WSIEV_FILE_READ_QUEUED);
 			return LWS_TX_WAIT; /* the worker's completion drives us */
 		}

@@ -760,6 +760,44 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 	return LWS_HPI_RET_HANDLED;
 }
 
+#if defined(LWS_WITH_ASYNC_QUEUE)
+/*
+ * Hand a job to the async worker threads, starting one if none is idle and
+ * the limit allows.  Returns 1 when the queue is saturated: the caller does
+ * the work inline instead, as a build without the queue does.
+ */
+int
+lws_async_queue_submit(struct lws_context *cx, struct lws_async_job *job)
+{
+	pthread_mutex_lock(&cx->async_worker_mutex);
+	if (lws_dll2_count(&cx->async_worker_waiting) >=
+	    (uint32_t)(cx->count_async_threads * 10)) {
+		pthread_mutex_unlock(&cx->async_worker_mutex);
+
+		return 1;
+	}
+
+	lws_dll2_add_tail(&job->list, &cx->async_worker_waiting);
+
+	/* Scale threads up to limit if needed */
+	if (cx->async_worker_threads_idle == 0 &&
+	    cx->async_worker_threads_active < cx->count_async_threads) {
+		pthread_t pt;
+
+		cx->async_worker_threads_active++;
+		if (pthread_create(&pt, NULL, lws_async_worker_worker, cx) == 0)
+			pthread_detach(pt);
+		else
+			cx->async_worker_threads_active--;
+	}
+
+	pthread_cond_signal(&cx->async_worker_cond);
+	pthread_mutex_unlock(&cx->async_worker_mutex);
+
+	return 0;
+}
+#endif
+
 #if defined(LWS_WITH_UDP)
 /*
  * The datagram spelling of the pump: receive one datagram for wsi into the
