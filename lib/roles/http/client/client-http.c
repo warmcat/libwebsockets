@@ -972,7 +972,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	struct allocated_headers *ah, *ah1;
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	char *p = NULL, *q, *simp;
-	char new_path[300];
+	char new_path[300], redir_ads[256];
 #if defined(LWS_ROLE_WT)
 	char wt_cce[40];
 #endif
@@ -1249,13 +1249,24 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			goto bail3_l;
 		}
 
+		/*
+		 * A relative reference is to the address we are connected to.
+		 * An h3 stream (and any connection that kept its stash) has
+		 * that in the stash rather than in its ah, so look in both
+		 */
+
 		/* Relative reference absolute path */
 		if (p[0] == '/' || !(char *)strchr(p, ':')) {
 #if defined(LWS_WITH_TLS)
 			ssl = nwsi->use_ssl & LCCSCF_USE_SSL;
 #endif
-			ads = lws_hdr_simple_ptr(wsi,
-						 _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+			/* a copy: a stash it lives in is remade below */
+			ads = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
+						_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+			if (ads) {
+				lws_strncpy(redir_ads, ads, sizeof(redir_ads));
+				ads = redir_ads;
+			}
 			port = nwsi->c_port;
 			path = p;
 			/* lws_client_reset expects leading / omitted */
@@ -1284,8 +1295,13 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 #if defined(LWS_WITH_TLS)
 			ssl = nwsi->use_ssl & LCCSCF_USE_SSL;
 #endif
-			ads = lws_hdr_simple_ptr(wsi,
-						 _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+			/* a copy: a stash it lives in is remade below */
+			ads = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
+						_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+			if (ads) {
+				lws_strncpy(redir_ads, ads, sizeof(redir_ads));
+				ads = redir_ads;
+			}
 			port = wsi->c_port;
 			/* +1 as lws_client_reset expects leading / omitted */
 			path = new_path + 1;
