@@ -111,9 +111,18 @@ splitting.  `lws-callbacks.h` is sansIO's and carries a few IO reasons (the
 poll fd and lock ones): one C enum cannot live in two headers, so they stay
 there, marked.
 
-The private headers are next to be tiered the same way, with a build option
-that compiles lib/core, lib/roles and the sansIO core-net files against only
-the core and sansIO private headers.  From then on the compiler is the lint.
+The private headers are tiered the same way, by the file that defines each
+prototype: `lib/core-net/IO/private-lib-io.h` holds the IO half's (defined
+under `lib/core-net/IO`, `lib/plat`, `lib/tls`, `lib/event-libs`,
+`lib/drivers`, the async dns), and `private-lib-core.h` includes it unless
+`LWS_SANSIO_CHECK` is defined.  `scripts/sans-io-check.sh <build-dir>`
+compiles every sansIO source that way, from the build's
+`compile_commands.json`, so each place sansIO code calls into IO fails to
+compile and names its line; it prints the callees by frequency and the
+totals.  That list is the remaining work on the rx and tx plumbing, and
+the compiler keeps it, not a grep.  (The tls private prototypes are not yet
+hidden: they share a header with the tls structs that `struct lws` embeds
+by value, which the struct split resolves.)
 
 **The four requests sansIO makes of IO** (want_write, deadline, want_read,
 close) are calls into IO today, spelled `lws_callback_on_writable()`,
@@ -189,7 +198,9 @@ each function is in.
    backpressure.  No role reads its transport any more).
 5. h2, then h3 over the quic datagram layer, then the remaining roles.
 6. Tier the public headers into `lws-core.h`, `lws-sansio.h`, `lws-io.h`
-   (done), then the private ones, with the sansIO-only compile check.
+   (done), then the private ones, with the sansIO-only compile check
+   (done: `private-lib-io.h`, `scripts/sans-io-check.sh`; first inventory
+   75 calls into IO from sansIO sources, 41 callees).
 7. The four requests through `lws_io_ops_t` (done: `lws-io-ops.h`,
    `lws_io_ops_default` in IO/pollfd.c, `lws_context_creation_info.io_ops`).
 8. When every role is converted, the IO half is a replaceable component,

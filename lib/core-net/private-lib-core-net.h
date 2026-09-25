@@ -213,13 +213,6 @@ struct lws_peer {
 #define LWS_IPV4_ENABLED(context) (0)
 #endif
 
-/**
- * lws_wsi_is_async_dns(): true if the wsi is one of the async resolver's
- * own sockets, which are exempt from forced-family policy so they can
- * reach the configured nameservers over either family
- */
-int
-lws_wsi_is_async_dns(const struct lws *wsi);
 
 #if defined(LWS_WITH_IPV6)
 /*
@@ -309,8 +302,6 @@ struct lws_client_parallel_conn {
 
 #define LWS_H2_FRAME_HEADER_LENGTH 9
 
-lws_usec_t
-__lws_sul_service_ripe(lws_dll2_owner_t *own, int num_own, lws_usec_t usnow);
 
 /*
  * lws_async_dns
@@ -384,11 +375,7 @@ void
 lws_aysnc_dns_completed(struct lws *wsi, void *sa, size_t salen,
 			lws_async_dns_retcode_t ret);
 #endif
-void
-lws_async_dns_cancel(struct lws *wsi);
 
-void
-lws_async_dns_drop_server(lws_async_dns_server_t *dsrv);
 
 /*
  * so we can have n connections being serviced simultaneously,
@@ -809,8 +796,6 @@ struct lws_async_job {
 	} u;
 };
 
-void *
-lws_async_worker_worker(void *d);
 
 #endif
 
@@ -1220,11 +1205,6 @@ struct lws_spawn_piped {
 	uint8_t				destroying:1;
 };
 
-void
-lws_spawn_piped_destroy(struct lws_spawn_piped **lsp);
-
-int
-lws_spawn_reap(struct lws_spawn_piped *lsp);
 
 #endif
 
@@ -1292,16 +1272,10 @@ typedef struct lws_ota {
 } lws_ota_t;
 #endif
 
-void
-lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt);
 
 const struct lws_role_ops *
 lws_role_by_name(const char *name);
 
-int
-lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
-		lws_sockfd_type sockfd, int port, const char *iface,
-		int ipv6_allowed);
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 void
@@ -1311,8 +1285,6 @@ lws_wsi_fault_timedclose(struct lws *wsi);
 #endif
 
 #if defined(LWS_WITH_IPV6)
-unsigned long
-lws_get_addr_scope(struct lws *wsi, const char *ipaddr);
 #endif
 
 void
@@ -1409,8 +1381,6 @@ void
 lws_wsi_mux_client_idle_check(struct lws *nwsi);
 #endif
 
-int
-lws_service_wsi_as_writable(struct lws *wsi);
 
 /*
  * The four requests sansIO makes of IO (lws-io-ops.h), as sansIO code spells
@@ -1434,15 +1404,8 @@ lws_io_want_read(struct lws *wsi, int on);
 #define LWS_RXP_FORCE_READ	(1 << 0) /* read even with rx parked */
 #define LWS_RXP_NO_READ		(1 << 1) /* offer parked rx only */
 
-lws_handling_result_t
-lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
-	    struct lws_pollfd *pollfd, int flags, size_t max, int *nothing,
-	    int *consumed);
 
 #if defined(LWS_WITH_UDP)
-lws_handling_result_t
-lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
-		  struct lws_pollfd *pollfd, int *nothing);
 #endif
 
 /* the event engine's entry: a role change a table row asked for */
@@ -1466,26 +1429,12 @@ lws_wsi_state_fmt(const struct lws_role_ops *ops, lws_wsi_state_t s,
 int
 lws_http_to_fallback(struct lws *wsi, unsigned char *buf, size_t len);
 
-int
-lws_wsi_can_consume_parked_rx(struct lws *wsi);
 
 int LWS_WARN_UNUSED_RESULT
 user_callback_handle_rxflow(lws_callback_function, struct lws *wsi,
 			    enum lws_callback_reasons reason, void *user,
 			    void *in, size_t len);
 
-int
-lws_plat_set_nonblocking(lws_sockfd_type fd);
-
-int
-lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
-			    int unix_skt);
-
-int
-lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags);
-
-int
-lws_plat_check_connection_error(struct lws *wsi);
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 
@@ -1540,8 +1489,6 @@ lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s);
 int LWS_WARN_UNUSED_RESULT
 lws_ensure_user_space(struct lws *wsi);
 
-int LWS_WARN_UNUSED_RESULT
-lws_change_pollfd(struct lws *wsi, int _and, int _or);
 
 #if defined(LWS_WITH_SERVER)
  int _lws_vhost_init_server(const struct lws_context_creation_info *info,
@@ -1559,8 +1506,6 @@ void
  #define lws_server_get_canonical_hostname(_a, _b)
 #endif
 
-int
-__remove_wsi_socket_from_fds(struct lws *wsi);
 
 enum {
 	LWSRXFC_ERROR = -1,
@@ -1569,15 +1514,6 @@ enum {
 	LWSRXFC_TRIMMED = 2,
 };
 
-
-int
-_lws_plat_service_forced_tsi(struct lws_context *context, int tsi);
-
-int
-lws_rxflow_cache(struct lws *wsi, unsigned char *buf, size_t n, size_t len);
-
-int
-lws_service_flag_pending(struct lws_context *context, int tsi);
 
 int
 lws_has_buffered_out(struct lws *wsi);
@@ -1597,32 +1533,18 @@ void
 lws_parse_fail_diag(struct lws *wsi, const unsigned char *buf, int consumed,
 		    int len);
 
-void
-lws_sa46_copy_address(lws_sockaddr46 *sa46a, const void *in, int af);
 
 int LWS_WARN_UNUSED_RESULT
 lws_http_action(struct lws *wsi);
 
 void
 __lws_close_free_wsi_final(struct lws *wsi);
-void
-lws_libuv_closehandle(struct lws *wsi);
-int
-lws_libuv_check_watcher_active(struct lws *wsi);
 
 #if defined(LWS_WITH_EVLIB_PLUGINS) || defined(LWS_WITH_PLUGINS) || \
     defined(LWS_WITH_PLUGINS_API)
-const lws_plugin_header_t *
-lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
-		const char *sofilename, const char *_class,
-		each_plugin_cb_t each, void *each_user);
 
-int
-lws_plat_destroy_dl(struct lws_plugin *p);
 #endif
 
-struct lws *
-lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd);
 
 void
 lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi);
@@ -1645,15 +1567,7 @@ __lws_vhost_unbind_wsi(struct lws *wsi); /* req cx + vh lock */
 
 void
 __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
-void
-_lws_event_loop_ops_io(struct lws *wsi, unsigned int flags);
 
-int
-__lws_change_pollfd(struct lws *wsi, int _and, int _or);
-
-
-int
-lws_callback_as_writeable(struct lws *wsi);
 
 int
 lws_role_call_client_bind(struct lws *wsi,
@@ -1669,11 +1583,7 @@ int
 lws_create_client_ws_object(const struct lws_client_connect_info *i,
 			    struct lws *wsi);
 int
-lws_alpn_comma_to_openssl(const char *comma, uint8_t *os, int len);
-int
 lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn);
-int
-lws_tls_server_conn_alpn(struct lws *wsi);
 
 void
 lws_destroy_event_pipe(struct lws *wsi);
@@ -1682,11 +1592,6 @@ lws_destroy_event_pipe(struct lws *wsi);
 int
 lws_socks5c_generate_msg(struct lws *wsi, enum socks_msg_type type, ssize_t *msg_len);
 
-int LWS_WARN_UNUSED_RESULT
-__insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi);
-
-int LWS_WARN_UNUSED_RESULT
-lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len);
 
 lws_usec_t
 __lws_seq_timeout_check(struct lws_context_per_thread *pt, lws_usec_t usnow);
@@ -1697,16 +1602,11 @@ __lws_ss_timeout_check(struct lws_context_per_thread *pt, lws_usec_t usnow);
 struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi);
 
-void
-lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
 
 LWS_VISIBLE struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_reset(struct lws **wsi, int ssl, const char *address, int port,
 		 const char *path, const char *host, char weak);
 
-struct lws * LWS_WARN_UNUSED_RESULT
-lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi,
-				int group, const char *desc);
 
 char * LWS_WARN_UNUSED_RESULT
 lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len);
@@ -1718,9 +1618,6 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len);
  */
 int
 lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd);
-
-struct lws *
-lws_http_client_connect_via_info2(struct lws *wsi);
 
 
 struct lws *
@@ -1781,8 +1678,6 @@ lws_decode_ssl_error(void);
 int
 __lws_rx_flow_control(struct lws *wsi);
 
-int
-_lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa);
 
 #if defined(LWS_WITH_SERVER)
 int
@@ -1827,30 +1722,10 @@ lws_cgi_remove_and_kill(struct lws *wsi);
 void
 lws_cgi_stdin_body_end(struct lws *wsi);
 
-void
-lws_plat_delete_socket_from_fds(struct lws_context *context,
-				struct lws *wsi, int m);
-void
-lws_plat_insert_socket_into_fds(struct lws_context *context,
-				struct lws *wsi);
-
-int
-lws_plat_change_pollfd(struct lws_context *context, struct lws *wsi,
-		       struct lws_pollfd *pfd);
 
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SECURE_STREAMS)
-int
-lws_adopt_ss_server_accept(struct lws *new_wsi);
 #endif
 
-int
-lws_plat_pipe_create(struct lws *wsi);
-int
-lws_plat_pipe_signal(struct lws_context *ctx, int tsi);
-void
-lws_plat_pipe_close(struct lws *wsi);
-int
-lws_plat_pipe_is_fd_assocated(struct lws_context *cx, int tsi, lws_sockfd_type fd);
 
 void
 lws_addrinfo_clean(struct lws *wsi);
@@ -1859,29 +1734,10 @@ void
 lws_add_wsi_to_draining_ext_list(struct lws *wsi);
 void
 lws_remove_wsi_from_draining_ext_list(struct lws *wsi);
-int
-lws_poll_listen_fd(struct lws_pollfd *fd);
-int
-lws_plat_service(struct lws_context *context, int timeout_ms);
-LWS_VISIBLE int
-_lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi);
 
 int
 lws_pthread_self_to_tsi(struct lws_context *context);
-const char * LWS_WARN_UNUSED_RESULT
-lws_plat_inet_ntop(int af, const void *src, char *dst, socklen_t cnt);
-int LWS_WARN_UNUSED_RESULT
-lws_plat_inet_pton(int af, const char *src, void *dst);
 
-void
-lws_same_vh_protocol_remove(struct lws *wsi);
-void
-__lws_same_vh_protocol_remove(struct lws *wsi);
-void
-lws_same_vh_protocol_insert(struct lws *wsi, int n);
-
-int
-lws_client_stash_create(struct lws *wsi, const char **cisin);
 
 void
 lws_seq_destroy_all_on_pt(struct lws_context_per_thread *pt);
@@ -1889,38 +1745,11 @@ lws_seq_destroy_all_on_pt(struct lws_context_per_thread *pt);
 void
 lws_addrinfo_clean(struct lws *wsi);
 
-int
-_lws_route_pt_close_unroutable(struct lws_context_per_thread *pt);
-
-void
-_lws_routing_entry_dump(struct lws_context *cx, lws_route_t *rou);
-
-void
-_lws_routing_table_dump(struct lws_context *cx);
 
 #define LRR_IGNORE_PRI			(1 << 0)
 #define LRR_MATCH_SRC			(1 << 1)
 #define LRR_MATCH_DST			(1 << 2)
 
-lws_route_t *
-_lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj, int flags);
-
-void
-_lws_route_table_empty(struct lws_context_per_thread *pt);
-
-void
-_lws_route_table_ifdown(struct lws_context_per_thread *pt, int idx);
-
-lws_route_uidx_t
-_lws_route_get_uidx(struct lws_context *cx);
-
-int
-_lws_route_pt_close_route_users(struct lws_context_per_thread *pt,
-			        lws_route_uidx_t uidx);
-
-lws_route_t *
-_lws_route_est_outgoing(struct lws_context_per_thread *pt,
-		        const lws_sockaddr46 *dest);
 
 int
 lws_sort_dns(struct lws *wsi, const struct addrinfo *result);
@@ -1928,8 +1757,6 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result);
 int
 lws_broadcast(struct lws_context_per_thread *pt, int reason, void *in, size_t len);
 
-const char *
-lws_errno_describe(int en, char *result, size_t len);
 
 #if defined(LWS_WITH_PEER_LIMITS)
 void
@@ -1956,8 +1783,6 @@ html_parser_cb(const hubbub_token *token, void *pw);
 #endif
 
 #if defined(_DEBUG)
-void
-lws_service_assert_loop_thread(struct lws_context *cx, int tsi);
 #else
 #define lws_service_assert_loop_thread(_cx, _tsi)
 #endif
@@ -1968,23 +1793,10 @@ lws_threadpool_tsi_context(struct lws_context *context, int tsi);
 void
 lws_threadpool_wsi_closing(struct lws *wsi);
 
-void
-__lws_wsi_remove_from_sul(struct lws *wsi);
-
-void
-lws_validity_confirmed(struct lws *wsi);
-void
-_lws_validity_confirmed_role(struct lws *wsi);
 
 int
 lws_seq_pt_init(struct lws_context_per_thread *pt);
 
-int
-lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
-		       struct lws_tokens *ebuf, char fr, const char *hint);
-int
-lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
-				     int used, int buffered, const char *hint);
 
 extern const struct lws_protocols protocol_abs_client_raw_skt,
 				  protocol_abs_client_unit_test;
@@ -1999,20 +1811,6 @@ void
 lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len);
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-lws_async_dns_server_check_t
-lws_plat_asyncdns_init(struct lws_context *context, lws_async_dns_t *dns);
-int
-lws_async_dns_init(struct lws_context *context);
-void
-lws_async_dns_deinit(lws_async_dns_t *dns);
-int
-lws_adns_servers_known(struct lws_context *context);
-int
-lws_adns_gate_ok(struct lws_context *context);
-void
-lws_adns_kick(struct lws_context *context);
-void
-lws_adns_smd_destroy(struct lws_context *context);
 #endif
 
 int
@@ -2027,19 +1825,11 @@ _lws_generic_transaction_completed_active_conn(struct lws **wsi, char take_vh_lo
 
 #if defined(_DEBUG) && !defined(LWS_PLAT_FREERTOS) && !defined(WIN32) && !defined(LWS_PLAT_OPTEE)
 
-int
-sanity_assert_no_wsi_traces(const struct lws_context *context, struct lws *wsi);
-int
-sanity_assert_no_sockfd_traces(const struct lws_context *context,
-			       lws_sockfd_type sfd);
 #else
 static inline int sanity_assert_no_wsi_traces(const struct lws_context *context, struct lws *wsi) { (void)context; (void)wsi; return 0; }
 static inline int sanity_assert_no_sockfd_traces(const struct lws_context *context, lws_sockfd_type sfd) { (void)context; (void)sfd; return 0; }
 #endif
 
-
-void
-delete_from_fdwsi(const struct lws_context *context, struct lws *wsi);
 
 int
 lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin);
@@ -2067,14 +1857,6 @@ lws_socks5c_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 int
 lws_socks5c_greet(struct lws *wsi, const char **pcce);
 
-int
-lws_plat_mbedtls_net_send(void *ctx, const uint8_t *buf, size_t len);
-
-int
-lws_plat_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len);
-
-lws_usec_t
-lws_sul_nonmonotonic_adjust(struct lws_context *ctx, int64_t step_us);
 
 void
 __lws_vhost_destroy_pt_wsi_dieback_start(struct lws_vhost *vh);
@@ -2082,8 +1864,6 @@ __lws_vhost_destroy_pt_wsi_dieback_start(struct lws_vhost *vh);
 int
 lws_vhost_compare_listen(struct lws_vhost *v1, struct lws_vhost *v2);
 
-void
-lws_netdev_instance_remove_destroy(struct lws_netdev_instance *ni);
 
 int
 lws_score_dns_results(struct lws_context *ctx,
@@ -2093,40 +1873,12 @@ int
 lws_wsi_keepalive_timeout_eff(struct lws *wsi);
 
 #if defined(LWS_WITH_SYS_SMD)
-int
-lws_netdev_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
-		  void *buf, size_t len);
 #endif
 
-void
-lws_netdev_instance_create(lws_netdev_instance_t *ni, struct lws_context *ctx,
-			   const lws_netdev_ops_t *ops, const char *name,
-			   void *platinfo);
-
-int
-lws_netdev_wifi_rssi_sort_compare(const lws_dll2_t *d, const lws_dll2_t *i);
-void
-lws_netdev_wifi_scan_empty(lws_netdev_instance_wifi_t *wnd);
-
-lws_wifi_sta_t *
-lws_netdev_wifi_scan_find(lws_netdev_instance_wifi_t *wnd, const char *ssid,
-			  const uint8_t *bssid);
-
-int
-lws_netdev_wifi_scan_select(lws_netdev_instance_wifi_t *wnd);
-
-lws_wifi_creds_t *
-lws_netdev_credentials_find(lws_netdevs_t *netdevs, const char *ssid,
-			    const uint8_t *bssid);
-
-int
-lws_netdev_wifi_redo_last(lws_netdev_instance_wifi_t *wnd);
 
 void
 lws_ntpc_trigger(struct lws_context *ctx);
 
-void
-lws_netdev_wifi_scan(lws_sorted_usec_list_t *sul);
 
 #define lws_netdevs_from_ndi(ni) \
 		lws_dll2_owner_container(&(ni)->list, lws_netdevs_t, owner)
@@ -2145,14 +1897,8 @@ enum {
 	LW5CHS_RET_NOTHING
 };
 
-void
-lws_4to6(uint8_t *v6addr, const uint8_t *v4addr);
-void
-lws_sa46_4to6(lws_sockaddr46 *sa46, const uint8_t *v4addr, uint16_t port);
 
 #if defined(LWS_WITH_CLIENT)
-void
-lws_remove_parallel_fd_safely(struct lws *wsi, int pidx);
 #endif
 
 #ifdef __cplusplus

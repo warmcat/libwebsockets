@@ -350,6 +350,14 @@ struct lws_foreign_thread_pollfd {
 };
 
 #include "private-lib-core-net.h"
+/*
+ * The IO half's private prototypes.  Hidden from the sansIO sources by
+ * scripts/sans-io-check.sh (LWS_SANSIO_CHECK), so a sansIO file calling
+ * into IO fails to compile there.  See READMEs/README.sans-io-split.md.
+ */
+#if !defined(LWS_SANSIO_CHECK)
+#include "IO/private-lib-io.h"
+#endif
 #endif /* network */
 
 struct lws_system_blob {
