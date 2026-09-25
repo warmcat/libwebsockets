@@ -311,97 +311,81 @@ lws_h1_client_transport_up(struct lws *wsi)
 	return lws_h1_client_issue_handshake(wsi);
 }
 
-int
-lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
+/*
+ * The body the app was writing after our request headers has all gone
+ * (nothing pending, nothing buffered): the response is awaited.  Checked on
+ * the writeable and after the pass's reading, since the app clears the
+ * pending flag from either.
+ */
+void
+lws_h1_client_body_done_check(struct lws *wsi)
 {
-	const char *cce = NULL;
+	if (lwsi_state(wsi) != LRS_ISSUE_HTTP_BODY)
+		return;
 
-	switch (lwsi_state(wsi)) {
-
-	case LRS_H1C_ISSUE_HANDSHAKE2:
-		/* a pipelined request whose turn on the connection has come */
-		return lws_h1_client_issue_handshake(wsi);
-
-	case LRS_ISSUE_HTTP_BODY:
 #if defined(LWS_WITH_HTTP_PROXY)
-			if (wsi->http.proxy_clientside && wsi->parent &&
-			    wsi->parent->http.buflist_post_body)
-				lws_callback_on_writable(wsi);
+	if (wsi->http.proxy_clientside && wsi->parent &&
+	    wsi->parent->http.buflist_post_body)
+		lws_callback_on_writable(wsi);
 #endif
-		if (wsi->client_http_body_pending || lws_has_buffered_out(wsi)) {
-			//lws_set_timeout(wsi,
-			//		PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
-			//		context->timeout_secs);
-			/* user code must ask for writable callback */
-			break;
-		}
-		lws_h1_client_request_sent(wsi);
-		break;
+	if (wsi->client_http_body_pending || lws_has_buffered_out(wsi))
+		/* user code must ask for writable callback */
+		return;
 
-	case LRS_WAITING_SERVER_REPLY:
-		/*
-		 * IO's rx stage reads the response header block; the server
-		 * hanging up reaches the rx op as an empty rx and is reported
-		 * from there.
-		 */
-		if (pollfd->revents & LWS_POLLOUT)
-			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
-				cce = "Unable to clear POLLOUT";
-				goto bail3_l;
-			}
+	lws_h1_client_request_sent(wsi);
+}
 
+/*
+ * The pass's reading for an h1 client is done.  While the response headers
+ * are awaited, the block that just completed is interpreted here rather
+ * than from rx: interpreting may close or restart the wsi, which must not
+ * happen under the pump that fed it.  Once established, the app pulls the
+ * body at its own pace (lws_http_client_read()): reading stops and the app
+ * hears there is something to pull.
+ */
+int
+lws_h1_client_rx_done(struct lws *wsi)
+{
+	if (lws_is_flowcontrolled(wsi))
+		return 0;
+
+	lws_h1_client_body_done_check(wsi);
+
+	if (lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY) {
 		if (!wsi->stream.ah ||
 		    wsi->stream.ah->parser_state != WSI_PARSING_COMPLETE)
 			/* the block is not complete yet; the timeout guards */
-			break;
-
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
-		/* interpret the server response
-		 *
-		 *  HTTP/1.1 101 Switching Protocols
-		 *  Upgrade: websocket
-		 *  Connection: Upgrade
-		 *  Sec-WebSocket-Accept: me89jWimTRKTWwrS3aRrL53YZSo=
-		 *  Sec-WebSocket-Nonce: AQIDBAUGBwgJCgsMDQ4PEC==
-		 *  Sec-WebSocket-Protocol: chat
-		 *
-		 * we have to take some care here to only take from the
-		 * socket bytewise.  The browser may (and has been seen to
-		 * in the case that onopen() performs websocket traffic)
-		 * coalesce both handshake response and websocket traffic
-		 * in one packet, since at that point the connection is
-		 * definitively ready from browser pov.
-		 */
-		/*
-		 * The block may come in several packets, and the peer may
-		 * coalesce what follows it: the parser stops at its end and
-		 * the pump parks the rest for the next phase.  A 5-sec
-		 * timeout is active here, so if the block is not complete yet
-		 * just wait for the next packet in this state.
-		 */
-#endif
+			return 0;
 
 		/*
-		 * otherwise deal with the handshake.  If there's any
-		 * packet traffic already arrived we'll trigger poll() again
-		 * right away and deal with it that way
+		 * The peer may coalesce what follows the block: the parser
+		 * stopped at its end and the pump parked the rest for the
+		 * next phase.  Interpret the handshake; nonzero means the wsi
+		 * was closed (or restarted) in there and is not ours to touch
 		 */
-		return lws_client_interpret_server_handshake(wsi);
+		if (lws_client_interpret_server_handshake(wsi))
+			return LWS_RX_DIED;
 
-bail3_l:
-		lwsl_info("%s: closing conn at LWS_CONNMODE...SERVER_REPLY, %s, state 0x%x\n",
-				__func__, lws_wsi_tag(wsi), lwsi_state(wsi));
-		if (cce)
-			lwsl_info("reason: %s\n", cce);
-		else
-			cce = "unknown";
-		lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
+		return 0;
+	}
 
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cbail3");
-		return LWS_HPI_RET_WSI_ALREADY_DIED;
+	if (!lwsi_hdrs_pending(wsi) && lwsi_close(wsi) != LCS_USER_TOLD) {
+		/*
+		 * In SSL mode we get POLLIN notification about encrypted
+		 * data in, not necessarily decrypted data out becoming
+		 * available.  Either way, turn off our POLLIN and let the
+		 * app know: it usually asks for writeable and drains /
+		 * re-enables from there
+		 */
+		if (lws_io_want_read(wsi, 0))
+			return LWS_RX_CLOSE;
 
-	default:
-		break;
+		if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
+					       LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
+						wsi->user_space, NULL, 0)) {
+			lwsl_info("RECEIVE_CLIENT_HTTP closed it\n");
+			return LWS_RX_CLOSE;
+		}
 	}
 
 	return 0;
@@ -2300,8 +2284,6 @@ lws_h1_client_body_rx(struct lws *wsi, uint8_t *buf, size_t len)
 
 		return LWS_RX_CLOSE;
 	}
-
-	wsi->client_rx_avail = 0;
 
 	/*
 	 * server may insist on transfer-encoding: chunked,

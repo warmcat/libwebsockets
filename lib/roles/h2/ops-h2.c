@@ -136,10 +136,8 @@ rops_rx_h2(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 		 * POLLIN; the user usually asks for a writeable callback and
 		 * drains / re-enables from there
 		 */
-		wsi->client_rx_avail = 1;
 		if (lws_io_want_read(wsi, 0))
 			return LWS_RX_CLOSE;
-
 		if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 						LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
 						wsi->user_space, NULL, 0)) {
@@ -216,9 +214,29 @@ rops_rx_policy_h2(struct lws *wsi, int *flags, size_t *max)
 	    lws_wsi_is_mux_nwsi(wsi))
 		*flags |= LWS_RXPOL_F_POLLOUT;
 
-	if (lwsi_state(wsi) == LRS_H1_UPGRADE ||
-	    lwsi_transport(wsi) == LTS_WAITING_CONNECT)
-		return LWS_RXPOL_ROLE;
+	/*
+	 * something went wrong with parsing the handshake, and we ended up
+	 * back in the event loop without completing it
+	 */
+	if (lwsi_state(wsi) == LRS_H1_UPGRADE) {
+		lwsi_set_skt_unusable(wsi, 1);
+
+		return LWS_RXPOL_CLOSE;
+	}
+
+	if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
+	    lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE ||
+	    lwsi_close(wsi) == LCS_AWAITING_CLOSE_ACK) {
+		/*
+		 * we stopped caring about anything except control packets.
+		 * Force flow control off, defeat tx draining.
+		 */
+		lws_rx_flow_control(wsi, 1);
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
+		if (wsi->ws)
+			wsi->ws->tx_draining_ext = 0;
+#endif
+	}
 
 	/* as ws: a close of ours waiting to go out goes before more comes in */
 	if (lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE)
@@ -289,70 +307,6 @@ rops_rx_policy_h2(struct lws *wsi, int *flags, size_t *max)
 	return LWS_RXPOL_PUMP_LOOP;
 }
 
-static lws_handling_result_t
-rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
-		       struct lws_pollfd *pollfd)
-{
-#ifdef LWS_WITH_CGI
-	if (wsi->http.cgi && (pollfd->revents & LWS_POLLOUT)) {
-		int hr = lws_handle_POLLOUT_event(wsi, pollfd);
-
-		if (hr < 0)
-			/* connect racing already closed and freed the wsi */
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		if (hr)
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-
-		return LWS_HPI_RET_HANDLED;
-	}
-#endif
-
-	 lwsl_info("%s: %s wsistate 0x%x, events %d, revents %d, pollout %d\n", __func__,
-		   wsi->lc.gutag, (unsigned int)wsi->wsistate,
-		   pollfd->events, pollfd->revents,
-		   pollfd->revents & LWS_POLLOUT);
-
-	 /* !!! */
-	 if (wsi->wsistate == 0x10000013) {
-		 wsi->bugcatcher++;
-		 if (wsi->bugcatcher == 250) {
-			 lwsl_err("%s: BUGCATCHER\n", __func__);
-			 return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		 }
-	 } else
-		 wsi->bugcatcher = 0;
-
-	/*
-	 * something went wrong with parsing the handshake, and
-	 * we ended up back in the event loop without completing it
-	 */
-	if (lwsi_state(wsi) == LRS_H1_UPGRADE) {
-		lwsi_set_skt_unusable(wsi, 1);
-		return LWS_HPI_RET_PLEASE_CLOSE_ME;
-	}
-
-	/* 1: the pass's POLLOUT was served by IO's rx stage */
-
-
-	if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
-	    lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE ||
-	    lwsi_close(wsi) == LCS_AWAITING_CLOSE_ACK) {
-		/*
-		 * we stopped caring about anything except control
-		 * packets.  Force flow control off, defeat tx
-		 * draining.
-		 */
-		lws_rx_flow_control(wsi, 1);
-#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
-		if (wsi->ws)
-			wsi->ws->tx_draining_ext = 0;
-#endif
-	}
-
-	/* the reading was done by IO's rx stage */
-
-	return LWS_HPI_RET_HANDLED;
-}
 
 lws_handling_result_t
 rops_handle_POLLOUT_h2(struct lws *wsi)
@@ -1908,7 +1862,7 @@ static const lws_rops_t rops_table_h2[] = {
 #endif
 	/*  2 */ { .pt_init_destroy	  = rops_pt_init_destroy_h2 },
 	/*  3 */ { .init_vhost		  = rops_init_vhost_h2 },
-	/*  4 */ { .handle_POLLIN	  = rops_handle_POLLIN_h2 },
+	/*  4 */ { .handle_POLLIN	  = NULL }, /* a sansIO role has none */
 	/*  5 */ { .handle_POLLOUT	  = rops_handle_POLLOUT_h2 },
 	/*  6 */ { .perform_user_POLLOUT  = rops_perform_user_POLLOUT_h2 },
 	/*  7 */ { .callback_on_writable  = rops_callback_on_writable_h2 },
@@ -1942,7 +1896,7 @@ const struct lws_role_ops role_ops_h2 = {
 	  /* LWS_ROPS_init_vhost */
 	  /* LWS_ROPS_destroy_vhost */			0x03, 0x00,
 	  /* LWS_ROPS_service_flag_pending */
-	  /* LWS_ROPS_handle_POLLIN */			0x00, 0x04,
+	  /* LWS_ROPS_handle_POLLIN */			0x00, 0x00,
 	  /* LWS_ROPS_handle_POLLOUT */
 	  /* LWS_ROPS_perform_user_POLLOUT */		0x05, 0x06,
 	  /* LWS_ROPS_callback_on_writable */

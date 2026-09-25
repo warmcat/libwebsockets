@@ -627,8 +627,8 @@ rops_rx_policy_h1(struct lws *wsi, int *flags, size_t *max)
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	if (wsi->http.comp_ctx.buflist_comp ||
 	    wsi->http.comp_ctx.may_have_more) {
-		/* the handler completes the compression partial, on any pass */
-		*flags = LWS_RXPOL_F_HOLD_POLLOUT;
+		/* the dispatcher completes the compression partial: no rx */
+		*flags = LWS_RXPOL_F_POLLOUT;
 
 		return LWS_RXPOL_ROLE;
 	}
@@ -679,6 +679,18 @@ rops_rx_policy_h1(struct lws *wsi, int *flags, size_t *max)
 	}
 #endif
 #if defined(LWS_WITH_CLIENT)
+	/*
+	 * A client's POLLOUT is served in every state: a pipelined request's
+	 * turn (LRS_H1C_ISSUE_HANDSHAKE2) and the body it writes
+	 * (LRS_ISSUE_HTTP_BODY) take no writeable callback by their state
+	 * bit, but happen on the socket's writeable; the dispatcher gates the
+	 * user's callbacks itself
+	 */
+	*flags |= LWS_RXPOL_F_POLLOUT;
+
+	/* the body the app was writing may have all gone: then we await */
+	lws_h1_client_body_done_check(wsi);
+
 	switch (lwsi_state(wsi)) {
 #if defined(LWS_WITH_SOCKS5)
 	case LRS_WAITING_SOCKS_GREETING_REPLY:
@@ -707,165 +719,25 @@ rops_rx_policy_h1(struct lws *wsi, int *flags, size_t *max)
 	return LWS_RXPOL_ROLE;
 }
 
-static lws_handling_result_t
-rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
-		       struct lws_pollfd *pollfd)
+
+/*
+ * The pass's reading is done (README.sans-io-split.md "Who calls rx"): a
+ * client acts on the response headers it completed, or tells the app the
+ * body it can pull is there
+ */
+static int
+rops_rx_done_h1(struct lws *wsi)
 {
-	// lwsl_notice("%s: %s state 0x%x, revents %d\n", __func__, lws_wsi_tag(wsi), lwsi_state(wsi), pollfd->revents);
-
-#ifdef LWS_WITH_CGI
-	if (wsi->http.cgi && (pollfd->revents & LWS_POLLOUT)) {
-		int hr = lws_handle_POLLOUT_event(wsi, pollfd);
-
-		if (hr < 0)
-			/* connect racing already closed and freed the wsi */
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		if (hr)
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-
-		return LWS_HPI_RET_HANDLED;
-	}
-#endif
-
-	/* Priority 2: pre- compression transform */
-
-#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
-	if (wsi->http.comp_ctx.buflist_comp ||
-	    wsi->http.comp_ctx.may_have_more) {
-		enum lws_write_protocol wp = LWS_WRITE_HTTP;
-
-		lwsl_info("%s: completing comp partial (buflist_comp %p, may %d)\n",
-				__func__, wsi->http.comp_ctx.buflist_comp,
-				wsi->http.comp_ctx.may_have_more
-				);
-
-		if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol) &&
-		    lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol).
-					write_role_protocol(wsi, NULL, 0, &wp) < 0) {
-			lwsl_info("%s signalling to close\n", __func__);
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		}
-		lws_callback_on_writable(wsi);
-
-		if (!wsi->http.comp_ctx.buflist_comp &&
-		    !wsi->http.comp_ctx.may_have_more &&
-		    lwsi_txn_completing(wsi)) {
-			lwsi_set_txn_completing(wsi, 0);
-			if (lws_http_transaction_completed(wsi))
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		}
-
-		return LWS_HPI_RET_HANDLED;
-	}
-#endif
-
-	if (lws_is_flowcontrolled(wsi)) {
-		/*
-		 * We cannot deal with any kind of new RX because we are
-		 * RX-flowcontrolled.
-		 *
-		 * POLLOUT is a different matter and must still be serviced:
-		 * serving a file over parked rx is itself what takes POLLIN
-		 * off (LRS_ISSUING_FILE in rops_rx_h1()), and the transfer
-		 * that clears the flow control again only happens on its
-		 * writeable.  Returning here for POLLOUT too left the
-		 * response unwritten and the connection spinning on a
-		 * level-triggered POLLOUT until its transfer timeout.
-		 */
-		if (!(pollfd->revents & LWS_POLLOUT))
-			return LWS_HPI_RET_HANDLED;
-
-		pollfd->revents &= (short)~(LWS_POLLIN);
-	}
-
-#if defined(LWS_WITH_SERVER)
-	if (!lwsi_role_client(wsi)) {
-		lwsl_debug("%s: %s: wsistate 0x%x\n", __func__, lws_wsi_tag(wsi),
-			   (unsigned int)wsi->wsistate);
-
-		if (pollfd->revents & LWS_POLLHUP &&
-		    !lws_buflist_total_len(&wsi->buflist))
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-
-		/*
-		 * The reading, and the pass's POLLOUT, were IO's rx stage's;
-		 * what is left of a server pass is its tls accept
-		 */
-		if (lwsi_transport(wsi) != LTS_SSL_INIT)
-			if (lws_server_socket_service_ssl(wsi,
-							  LWS_SOCK_INVALID,
-					!!(pollfd->revents & LWS_POLLIN)))
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
-
-		return LWS_HPI_RET_HANDLED;
-	}
-#endif
-
 #if defined(LWS_WITH_CLIENT)
-	if ((pollfd->revents & LWS_POLLIN) &&
-	     !lwsi_hdrs_pending(wsi) && lwsi_close(wsi) != LCS_USER_TOLD) {
-
-		/*
-		 * In SSL mode we get POLLIN notification about
-		 * encrypted data in.
-		 *
-		 * But that is not necessarily related to decrypted
-		 * data out becoming available; in may need to perform
-		 * other in or out before that happens.
-		 *
-		 * simply mark ourselves as having readable data
-		 * and turn off our POLLIN
-		 */
-		wsi->client_rx_avail = 1;
-		if (lws_io_want_read(wsi, 0))
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-
-		//lwsl_notice("calling back %s\n", wsi->a.protocol->name);
-
-		/* let user code know, he'll usually ask for writeable
-		 * callback and drain / re-enable it there
-		 */
-		if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
-					       LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
-						wsi->user_space, NULL, 0)) {
-			lwsl_info("RECEIVE_CLIENT_HTTP closed it\n");
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		}
-
-		return LWS_HPI_RET_HANDLED;
-	}
+	if (lwsi_role_client(wsi))
+		return lws_h1_client_rx_done(wsi);
 #endif
-
-//	if (lwsi_state(wsi) == LRS_ESTABLISHED)
-//		return LWS_HPI_RET_HANDLED;
-
-#if defined(LWS_WITH_CLIENT)
-	if (pollfd->revents & LWS_POLLOUT) {
-		int hr = lws_handle_POLLOUT_event(wsi, pollfd);
-
-		if (hr < 0) {
-			/* connect racing already closed and freed the wsi */
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		}
-		if (hr) {
-			lwsl_debug("POLLOUT event closed it\n");
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		}
-	}
-
-	// lwsl_notice("Calling lws_http_client_socket_service: state %x\n", lwsi_state(wsi));
-	if (lws_http_client_socket_service(wsi, pollfd))
-		return LWS_HPI_RET_WSI_ALREADY_DIED;
-#endif
-
-	return LWS_HPI_RET_HANDLED;
+	return 0;
 }
 
 static lws_handling_result_t
 rops_handle_POLLOUT_h1(struct lws *wsi)
 {
-
-
 	if (lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY ||
 	    lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY) {
 #if defined(LWS_WITH_HTTP_PROXY)
@@ -962,8 +834,20 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 		return LWS_HP_RET_USER_SERVICE;
 	}
 
-	if (lwsi_role_client(wsi))
+	if (lwsi_role_client(wsi)) {
+		/* a pipelined request whose turn on the connection has come */
+		if (lwsi_state(wsi) == LRS_H1C_ISSUE_HANDSHAKE2) {
+			if (lws_h1_client_issue_handshake(wsi))
+				return LWS_HP_RET_BAIL_DIE;
+
+			return LWS_HP_RET_DROP_POLLOUT;
+		}
+
+		/* the body the app was writing has all gone */
+		lws_h1_client_body_done_check(wsi);
+
 		return LWS_HP_RET_USER_SERVICE;
+	}
 
 	/*
 	 * A server's writeable.  The dispatcher has already flushed a partial
@@ -1368,7 +1252,7 @@ rops_pt_init_destroy_h1(struct lws_context *context,
 
 static const lws_rops_t rops_table_h1[] = {
 	/*  1 */ { .pt_init_destroy	  = rops_pt_init_destroy_h1 },
-	/*  2 */ { .handle_POLLIN	  = rops_handle_POLLIN_h1 },
+	/*  2 */ { .rx_done		  = rops_rx_done_h1 },
 	/*  3 */ { .handle_POLLOUT	  = rops_handle_POLLOUT_h1 },
 	/*  4 */ { .write_role_protocol	  = rops_write_role_protocol_h1 },
 	/*  5 */ { .alpn_negotiated	  = rops_alpn_negotiated_h1 },
@@ -1401,7 +1285,7 @@ const struct lws_role_ops role_ops_h1 = {
 	  /* LWS_ROPS_init_vhost */
 	  /* LWS_ROPS_destroy_vhost */			0x00, 0x00,
 	  /* LWS_ROPS_service_flag_pending */
-	  /* LWS_ROPS_handle_POLLIN */			0x00, 0x02,
+	  /* LWS_ROPS_handle_POLLIN */			0x00, 0x00,
 	  /* LWS_ROPS_handle_POLLOUT */
 	  /* LWS_ROPS_perform_user_POLLOUT */		0x03, 0x00,
 	  /* LWS_ROPS_callback_on_writable */
@@ -1426,12 +1310,14 @@ const struct lws_role_ops role_ops_h1 = {
 	  /* LWS_ROPS_rx */				0x0C, 0x0A,
 	  /* LWS_ROPS_rx_dgram */			0x00,
 	  /* LWS_ROPS_rx_policy */			0x0B,
+	  /* LWS_ROPS_rx_done */			0x02,
 #else
 	  /* LWS_ROPS_issue_keepalive */		0x08, 0x00,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x0B, 0x09,
 	  /* LWS_ROPS_rx_dgram */			0x00,
 	  /* LWS_ROPS_rx_policy */			0x0A,
+	  /* LWS_ROPS_rx_done */			0x02,
 #endif
 #else
 	  /* LWS_ROPS_issue_keepalive */		0x00, 0x00,
@@ -1440,11 +1326,13 @@ const struct lws_role_ops role_ops_h1 = {
 	  /* LWS_ROPS_rx */				0x00, 0x09,
 	  /* LWS_ROPS_rx_dgram */			0x00,
 	  /* LWS_ROPS_rx_policy */			0x0A,
+	  /* LWS_ROPS_rx_done */			0x02,
 #else
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x00, 0x08,
 	  /* LWS_ROPS_rx_dgram */			0x00,
 	  /* LWS_ROPS_rx_policy */			0x09,
+	  /* LWS_ROPS_rx_done */			0x02,
 #endif
 #endif
 					},

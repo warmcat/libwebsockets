@@ -71,63 +71,6 @@ rops_rx_policy_raw_proxy(struct lws *wsi, int *flags, size_t *max)
 	return LWS_RXPOL_PUMP;
 }
 
-static lws_handling_result_t
-rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
-			     struct lws_pollfd *pollfd)
-{
-#if defined(LWS_WITH_LATENCY)
-	lws_usec_t _rproxy_start = lws_now_usecs();
-#endif
-	/* pending truncated sends have uber priority */
-
-	if (lws_has_buffered_out(wsi)) {
-		if (!(pollfd->revents & LWS_POLLOUT))
-			return LWS_HPI_RET_HANDLED;
-
-		/* drain the output buflist */
-		if (lws_issue_raw(wsi, NULL, 0) < 0)
-			goto fail;
-		/*
-		 * we can't afford to allow input processing to send
-		 * something new, so spin around he event loop until
-		 * he doesn't have any partials
-		 */
-		return LWS_HPI_RET_HANDLED;
-	}
-
-	/* the reading, and the fairness with POLLOUT, are IO's rx stage's */
-
-	if (!(pollfd->revents & LWS_POLLOUT))
-		return LWS_HPI_RET_HANDLED;
-
-	{
-		int hr = lws_handle_POLLOUT_event(wsi, pollfd);
-
-		if (hr < 0) {
-			/* connect racing already closed and freed the wsi */
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		}
-		if (hr) {
-			lwsl_debug("POLLOUT event closed it\n");
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		}
-	}
-
-#if defined(LWS_WITH_LATENCY)
-		{
-			unsigned int ms = (unsigned int)((lws_now_usecs() - _rproxy_start) / 1000);
-			if (ms > 2)
-				lws_latency_note(pt, _rproxy_start, 2000, "rproxy:%dms", ms);
-		}
-#endif
-
-	return LWS_HPI_RET_HANDLED;
-
-fail:
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "raw svc fail");
-
-	return LWS_HPI_RET_WSI_ALREADY_DIED;
-}
 
 static int
 rops_adoption_bind_raw_proxy(struct lws *wsi, int type,
@@ -190,7 +133,7 @@ rops_handle_POLLOUT_raw_proxy(struct lws *wsi)
 }
 
 static const lws_rops_t rops_table_raw_proxy[] = {
-	/*  1 */ { .handle_POLLIN	= rops_handle_POLLIN_raw_proxy },
+	/*  1 */ { .handle_POLLIN	= NULL }, /* a sansIO role has none */
 	/*  2 */ { .handle_POLLOUT	= rops_handle_POLLOUT_raw_proxy },
 	/*  3 */ { .adoption_bind	= rops_adoption_bind_raw_proxy },
 	/*  4 */ { .client_bind		= rops_client_bind_raw_proxy },
@@ -210,7 +153,7 @@ const struct lws_role_ops role_ops_raw_proxy = {
 	  /* LWS_ROPS_init_vhost */
 	  /* LWS_ROPS_destroy_vhost */			0x00, 0x00,
 	  /* LWS_ROPS_service_flag_pending */
-	  /* LWS_ROPS_handle_POLLIN */			0x00, 0x01,
+	  /* LWS_ROPS_handle_POLLIN */			0x00, 0x00,
 	  /* LWS_ROPS_handle_POLLOUT */
 	  /* LWS_ROPS_perform_user_POLLOUT */		0x02, 0x00,
 	  /* LWS_ROPS_callback_on_writable */

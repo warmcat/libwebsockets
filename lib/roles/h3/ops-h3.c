@@ -84,13 +84,6 @@ lws_h3_log_path_sans_urlargs(char *buf, size_t len, const char *path)
 }
 #endif
 
-static lws_handling_result_t
-rops_handle_POLLIN_h3(struct lws_context_per_thread *pt, struct lws *wsi,
-		      struct lws_pollfd *pollfd)
-{
-	/* h3 is an encapsulation role... it doesn't do POLLIN itself */
-	return LWS_HPI_RET_HANDLED;
-}
 
 #if defined(LWS_WITH_CLIENT)
 static int
@@ -2425,7 +2418,7 @@ rops_check_upgrades_h3(struct lws *wsi)
 #endif
 
 static const lws_rops_t rops_table_h3[] = {
-	/*  1 */ { .handle_POLLIN	  = rops_handle_POLLIN_h3 },
+	/*  1 */ { .handle_POLLIN	  = NULL }, /* an encapsulation role has none */
 	/*  2 */ { .perform_user_POLLOUT  = rops_perform_user_POLLOUT_h3 },
 	/*  3 */ { .adoption_bind	  = rops_adoption_bind_h3 },
 #if defined(LWS_WITH_CLIENT)
@@ -2457,7 +2450,7 @@ const struct lws_role_ops role_ops_h3 = {
 	  /* LWS_ROPS_init_vhost */
 	  /* LWS_ROPS_destroy_vhost */			0x00, 0x00,
 	  /* LWS_ROPS_service_flag_pending */
-	  /* LWS_ROPS_handle_POLLIN */			0x00, 0x01,
+	  /* LWS_ROPS_handle_POLLIN */			0x00, 0x00,
 	  /* LWS_ROPS_handle_POLLOUT */
 	  /* LWS_ROPS_perform_user_POLLOUT */		0x00, 0x02,
 	  /* LWS_ROPS_callback_on_writable */

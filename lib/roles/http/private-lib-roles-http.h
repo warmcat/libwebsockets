@@ -648,6 +648,10 @@ void
 lws_h1_client_request_sent(struct lws *wsi);
 int
 lws_h1_client_transport_up(struct lws *wsi);
+int
+lws_h1_client_rx_done(struct lws *wsi);
+void
+lws_h1_client_body_done_check(struct lws *wsi);
 #endif
 
 int

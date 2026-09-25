@@ -2253,17 +2253,6 @@ rops_rx_policy_quic(struct lws *wsi, int *flags, size_t *max)
 	return LWS_RXPOL_PUMP_DGRAM;
 }
 
-static lws_handling_result_t
-rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
-			struct lws_pollfd *pollfd)
-{
-	(void)pt;
-	(void)wsi;
-	(void)pollfd;
-	/* the reading and the pass's POLLOUT were done by IO's rx stage */
-
-	return LWS_HPI_RET_HANDLED;
-}
 
 int
 lws_tls_quic_tx_crypto_cb(struct lws *wsi, int level, const uint8_t *buf, size_t len)
@@ -4722,7 +4711,7 @@ rops_client_transport_up_quic(struct lws *wsi)
 #endif
 
 static const lws_rops_t rops_table_quic[] = {
-	/*  1 */ { .handle_POLLIN	  = rops_handle_POLLIN_quic },
+	/*  1 */ { .handle_POLLIN	  = NULL }, /* a sansIO role has none */
 	/*  2 */ { .handle_POLLOUT	  = rops_handle_POLLOUT_quic },
 	/*  3 */ { .callback_on_writable  = rops_callback_on_writable_quic },
 	/*  4 */ { .tx_credit		  = rops_tx_credit_quic },
@@ -4752,7 +4741,7 @@ const struct lws_role_ops role_ops_quic = {
 	  /* LWS_ROPS_init_vhost */
 	  /* LWS_ROPS_destroy_vhost */			0x00, 0x00,
 	  /* LWS_ROPS_service_flag_pending */
-	  /* LWS_ROPS_handle_POLLIN */			0x00, 0x01,
+	  /* LWS_ROPS_handle_POLLIN */			0x00, 0x00,
 	  /* LWS_ROPS_handle_POLLOUT */
 	  /* LWS_ROPS_perform_user_POLLOUT */		0x02, 0x00,
 	  /* LWS_ROPS_callback_on_writable */

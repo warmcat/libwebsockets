@@ -1067,7 +1067,6 @@ struct lws {
 #endif
 	unsigned int			cache_secs;
 
-	short				bugcatcher;
 
 	unsigned int			mux_substream:1;
 	unsigned int			mux_stream_immortal:1;
@@ -1114,7 +1113,6 @@ struct lws {
 #endif
 #if defined(LWS_WITH_CLIENT)
 	unsigned int			do_ws:1; /* whether we are doing http or ws flow */
-	unsigned int			client_rx_avail:1;
 	unsigned int			client_http_body_pending:1;
 	unsigned int			transaction_from_pipeline_queue:1;
 	unsigned int			keepalive_rejected:1;
@@ -1692,8 +1690,6 @@ lws_client_hdr_append_room_bad(struct lws *wsi, unsigned char **p, size_t len);
 
 
 #if defined(LWS_WITH_CLIENT)
-int
-lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd);
 int
 lws_h1_client_body_rx(struct lws *wsi, uint8_t *buf, size_t len);
 int

@@ -1120,18 +1120,44 @@ rops_rx_ws(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 static int
 rops_rx_policy_ws(struct lws *wsi, int *flags, size_t *max)
 {
-	/*
-	 * POLLOUT stays with the handler: what it does after the dispatch
-	 * (a close returned meaning flush, the tx extension drain) is its own
-	 */
-	*flags = LWS_RXPOL_F_HOLD_POLLOUT;
+	*flags = 0;
 	*max = 0;
 
-	if (!wsi->ws || lwsi_state(wsi) == LRS_H1_UPGRADE ||
-	    lwsi_transport(wsi) == LTS_WAITING_CONNECT ||
-	    lws_is_flowcontrolled(wsi))
-		return LWS_RXPOL_ROLE;
+	if (!wsi->ws) {
+		lwsl_err("ws role wsi with no ws\n");
 
+		return LWS_RXPOL_CLOSE;
+	}
+
+	/*
+	 * something went wrong with parsing the handshake, and we ended up
+	 * back in the event loop without completing it
+	 */
+	if (lwsi_state(wsi) == LRS_H1_UPGRADE) {
+		lwsi_set_skt_unusable(wsi, 1);
+
+		return LWS_RXPOL_CLOSE;
+	}
+
+	if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
+	    lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE) {
+		/*
+		 * we stopped caring about anything except control packets.
+		 * Force flow control off, defeat tx draining.
+		 */
+		lws_rx_flow_control(wsi, 1);
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+		wsi->ws->tx_draining_ext = 0;
+#endif
+	}
+
+	if (lws_is_flowcontrolled(wsi)) {
+		/* We cannot deal with any kind of new RX: stop being told */
+		if (__lws_io_want_read(wsi, 0))
+			return LWS_RXPOL_CLOSE;
+
+		return LWS_RXPOL_ROLE;
+	}
 	/*
 	 * Our CLOSE frame is waiting to go out: it goes before we take more
 	 * in, else the peer's CLOSE read first ends the connection without
@@ -1141,10 +1167,17 @@ rops_rx_policy_ws(struct lws *wsi, int *flags, size_t *max)
 		return LWS_RXPOL_HOLD;
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-	if (wsi->ws->tx_draining_ext)
-		/* new rx would trample the buffer the tx drain still needs */
-		return LWS_RXPOL_ROLE;
+	if (wsi->ws->tx_draining_ext) {
+		/*
+		 * New rx would trample the buffer the tx drain still needs:
+		 * the drain goes on through the writeable (it must go through
+		 * the event loop to avoid blocking), which we insist on
+		 */
+		*flags = LWS_RXPOL_F_POLLOUT;
+		lws_callback_on_writable(wsi);
 
+		return LWS_RXPOL_ROLE;
+	}
 	if (wsi->ws->rx_draining_ext) {
 		int drains = LWS_WS_RX_EXT_DRAIN_BUDGET;
 
@@ -1197,150 +1230,6 @@ rops_rx_policy_ws(struct lws *wsi, int *flags, size_t *max)
 	return LWS_RXPOL_PUMP_LOOP;
 }
 
-static lws_handling_result_t
-rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
-		       struct lws_pollfd *pollfd)
-{
-
-	if (!wsi->ws) {
-		lwsl_err("ws role wsi with no ws\n");
-		return LWS_HPI_RET_PLEASE_CLOSE_ME;
-	}
-
-	// lwsl_notice("%s: %s\n", __func__, wsi->a.protocol->name);
-
-	//lwsl_info("%s: wsistate 0x%x, pollout %d\n", __func__,
-	//	   wsi->wsistate, pollfd->revents & LWS_POLLOUT);
-
-	/*
-	 * something went wrong with parsing the handshake, and
-	 * we ended up back in the event loop without completing it
-	 */
-	if (lwsi_state(wsi) == LRS_H1_UPGRADE) {
-		lwsi_set_skt_unusable(wsi, 1);
-		return LWS_HPI_RET_PLEASE_CLOSE_ME;
-	}
-
-	/* 1: something requested a callback when it was OK to write */
-
-	if (pollfd->revents & LWS_POLLOUT) {
-		int hr;
-
-		if (!lwsi_state_can_handle_POLLOUT(wsi))
-			goto post_pollout;
-
-		hr = lws_handle_POLLOUT_event(wsi, pollfd);
-		if (hr < 0) {
-			/* connect racing already closed and freed the wsi */
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		}
-		if (hr) {
-			if (lwsi_close(wsi) == LCS_RETURNED_CLOSE)
-				lws_wsi_event(wsi, LWS_WSIEV_CLOSE_FLUSH);
-
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		}
-	}
-post_pollout:
-
-	if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
-	    lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE) {
-		/*
-		 * we stopped caring about anything except control
-		 * packets.  Force flow control off, defeat tx
-		 * draining.
-		 */
-		lws_rx_flow_control(wsi, 1);
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-		if (wsi->ws)
-			wsi->ws->tx_draining_ext = 0;
-#endif
-	}
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-	if (wsi->ws->tx_draining_ext) {
-		int hr = lws_handle_POLLOUT_event(wsi, pollfd);
-
-		if (hr < 0)
-			/* connect racing already closed and freed the wsi */
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		if (hr)
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		//lwsl_notice("%s: tx drain\n", __func__);
-		/*
-		 * We cannot deal with new RX until the TX ext path has
-		 * been drained.  It's because new rx will, eg, crap on
-		 * the wsi rx buf that may be needed to retain state.
-		 *
-		 * TX ext drain path MUST go through event loop to avoid
-		 * blocking.
-		 */
-		lws_callback_on_writable(wsi);
-		return LWS_HPI_RET_HANDLED;
-	}
-#endif
-	if ((pollfd->revents & LWS_POLLIN) && lws_is_flowcontrolled(wsi)) {
-		/* We cannot deal with any kind of new RX because we are
-		 * RX-flowcontrolled.
-		 */
-		lwsl_info("%s: flowcontrolled, ignoring rx\n", __func__);
-
-		if (__lws_io_want_read(wsi, 0))
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-
-		return LWS_HPI_RET_HANDLED;
-	}
-
-	if (lws_is_flowcontrolled(wsi))
-		return LWS_HPI_RET_HANDLED;
-
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-	/* 2: RX Extension needs to be drained
-	 */
-
-	if (wsi->ws->rx_draining_ext) {
-		lws_handling_result_t hr;
-
-		lwsl_debug("%s: RX EXT DRAINING: Service\n", __func__);
-#if defined(LWS_WITH_CLIENT)
-		if (lwsi_role_client(wsi))
-			hr = lws_ws_client_rx_sm(wsi, 0);
-		else
-#endif
-			hr = lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR, 0);
-
-		/*
-		 * Either role may have decided we must close, eg, the inflater
-		 * failed, the inflated content was not valid utf-8, or the user
-		 * callback returned nonzero... that must not be discarded just
-		 * because we came in via the drain path.
-		 */
-
-		if (hr == LWS_HPI_RET_PLEASE_CLOSE_ME)
-			/* we closed wsi */
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-	}
-
-	if (wsi->ws->rx_draining_ext)
-		/*
-		 * We have RX EXT content to drain, but can't do it
-		 * right now.  That means we cannot do anything lower
-		 * priority either.
-		 */
-		return LWS_HPI_RET_HANDLED;
-#endif
-
-	/* 3: the reading was done by IO's rx stage */
-
-	if (!lws_buflist_next_segment_len(&wsi->buflist, NULL))
-		/*
-		 * Nothing parked (any more): a pending rx flow change can go.
-		 * Its result is deliberately ignored, the same as it was when
-		 * it was taken into a variable to be ignored.
-		 */
-		__lws_rx_flow_control(wsi);
-
-	return LWS_HPI_RET_HANDLED;
-}
 
 
 lws_handling_result_t
@@ -1552,6 +1441,20 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 #endif
 
 	return LWS_HP_RET_USER_SERVICE;
+}
+
+/* the pass's reading is done: nothing parked means a pending rx flow change can go */
+static int
+rops_rx_done_ws(struct lws *wsi)
+{
+	if (!lws_buflist_next_segment_len(&wsi->buflist, NULL))
+		/*
+		 * Its result is deliberately ignored, the same as it was when
+		 * it was taken into a variable to be ignored.
+		 */
+		__lws_rx_flow_control(wsi);
+
+	return 0;
 }
 
 static int
@@ -2269,7 +2172,7 @@ static const lws_rops_t rops_table_ws[] = {
 	/*  1 */ { .init_vhost		    = rops_init_vhost_ws },
 	/*  2 */ { .destroy_vhost	    = rops_destroy_vhost_ws },
 	/*  3 */ { .service_flag_pending    = rops_service_flag_pending_ws },
-	/*  4 */ { .handle_POLLIN	    = rops_handle_POLLIN_ws },
+	/*  4 */ { .rx_done		    = rops_rx_done_ws },
 	/*  5 */ { .handle_POLLOUT	    = rops_handle_POLLOUT_ws },
 	/*  6 */ { .callback_on_writable    = rops_callback_on_writable_ws },
 	/*  7 */ { .write_role_protocol	    = rops_write_role_protocol_ws },
@@ -2294,7 +2197,7 @@ const struct lws_role_ops role_ops_ws = {
 	  /* LWS_ROPS_init_vhost */
 	  /* LWS_ROPS_destroy_vhost */			0x01, 0x02,
 	  /* LWS_ROPS_service_flag_pending */
-	  /* LWS_ROPS_handle_POLLIN */			0x03, 0x04,
+	  /* LWS_ROPS_handle_POLLIN */			0x03, 0x00,
 	  /* LWS_ROPS_handle_POLLOUT */
 	  /* LWS_ROPS_perform_user_POLLOUT */		0x05, 0x00,
 	  /* LWS_ROPS_callback_on_writable */
@@ -2313,8 +2216,8 @@ const struct lws_role_ops role_ops_ws = {
 	  /* LWS_ROPS_rx */				0x00, 0x0E,
 	  /* LWS_ROPS_rx_dgram */
 	  /* LWS_ROPS_rx_policy */			0x00, 0x0F,
+	  /* LWS_ROPS_rx_done */			0x04,
 					},
-
 	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
 					  LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED },
 	/* rx_cb clnt, srv */		{ LWS_CALLBACK_CLIENT_RECEIVE,

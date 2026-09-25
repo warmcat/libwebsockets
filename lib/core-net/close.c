@@ -245,7 +245,7 @@ __lws_reset_wsi(struct lws *wsi)
 #endif
 
 #if defined(LWS_WITH_CLIENT)
-	wsi->do_ws = wsi->client_rx_avail =
+	wsi->do_ws =
 	wsi->client_http_body_pending = wsi->transaction_from_pipeline_queue =
 	wsi->keepalive_rejected =
 	wsi->redirected_to_get = wsi->client_pipeline =

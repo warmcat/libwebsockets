@@ -557,7 +557,13 @@ typedef int (*lws_rops_destroy_vhost_t)(struct lws_vhost *vh);
 /* chance for the role to force POLLIN without network activity */
 typedef int (*lws_rops_service_flag_pending_t)(struct lws_context *context,
 					       int tsi);
-/* an fd using this role has POLLIN signalled */
+/*
+ * IO's per-pass service for a transport adapter role (listen, pipe, netlink,
+ * raw-file, dbus, cgi): those wear the role interface but are IO, and see
+ * the pollfd.  A sansIO role has no handler: IO's rx stage reads for it
+ * (rx_policy, rx) and serves its writeable (handle_POLLOUT), and tells it
+ * when the pass's reading is done (rx_done).
+ */
 typedef lws_handling_result_t (*lws_rops_handle_POLLIN_t)(
 					struct lws_context_per_thread *pt,
 					struct lws *wsi,
@@ -664,11 +670,20 @@ typedef int (*lws_rops_rx_dgram_t)(struct lws *wsi, uint8_t *buf, size_t len,
  * own handler.  The LWS_RXP_* read flags share the word.
  */
 #define LWS_RXPOL_F_POLLOUT		(1 << 8)  /* serve POLLOUT whatever the state */
-#define LWS_RXPOL_F_HOLD_POLLOUT	(1 << 9)  /* leave POLLOUT to the handler */
 #define LWS_RXPOL_RXP_MASK		0xff
 typedef int (*lws_rops_rx_policy_t)(struct lws *wsi, int *flags, size_t *max);
+/*
+ * sansIO: IO has done this pass's reading for the wsi (the pump fed rx, or
+ * the policy said the role reads on its own terms, or held the read) and
+ * the transport was readable.  The role acts on what it holds now: an h1
+ * client interprets the response headers it just completed, or tells the
+ * app a body is there to pull; a role that parked rx re-arms its reading
+ * once the parked bytes are gone.  Returns 0, or LWS_RX_CLOSE / LWS_RX_DIED
+ * as rx does.
+ */
+typedef int (*lws_rops_rx_done_t)(struct lws *wsi);
 
-#define LWS_COUNT_ROLE_OPS			24
+#define LWS_COUNT_ROLE_OPS			25
 
 typedef union lws_rops {
 	lws_rops_check_upgrades_t		check_upgrades;
@@ -695,6 +710,7 @@ typedef union lws_rops {
 	lws_rops_rx_t				rx;
 	lws_rops_rx_dgram_t			rx_dgram;
 	lws_rops_rx_policy_t			rx_policy;
+	lws_rops_rx_done_t			rx_done;
 } lws_rops_t;
 
 typedef enum {
@@ -722,6 +738,7 @@ typedef enum {
 	LWS_ROPS_rx,
 	LWS_ROPS_rx_dgram,
 	LWS_ROPS_rx_policy,
+	LWS_ROPS_rx_done,
 } lws_rops_func_idx_t;
 
 struct lws_context_per_thread;

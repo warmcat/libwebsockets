@@ -220,10 +220,17 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		}
 		lws_callback_on_writable(wsi);
 
+		/* the partial was the end of the transaction: it completes */
+		if (!wsi->http.comp_ctx.buflist_comp &&
+		    !wsi->http.comp_ctx.may_have_more &&
+		    lwsi_txn_completing(wsi)) {
+			lwsi_set_txn_completing(wsi, 0);
+			if (lws_http_transaction_completed(wsi))
+				goto bail_die;
+		}
 		goto bail_ok;
 	}
 #endif
-
 #ifdef LWS_WITH_CGI
 	/*
 	 * A cgi connection's wire protocol remains h1 or h2.  He is just
@@ -1123,9 +1130,8 @@ lws_rx_stage(struct lws_context_per_thread *pt, struct lws *wsi,
 		} while (pol == LWS_RXPOL_PUMP ||
 			 pol == LWS_RXPOL_PUMP_LOOP);
 
-		/* the read is done; the role's handler has the rest */
+		/* the read is done; the role hears so below */
 		pollfd->revents &= (short)~LWS_POLLIN;
-
 		/*
 		 * Bytes were taken and POLLOUT also waits: taking them may
 		 * have used the writability up, so POLLOUT is left for the
@@ -1140,27 +1146,51 @@ lws_rx_stage(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 
 	/*
-	 * The pass's POLLOUT: served here through the dispatcher in the
-	 * states that take a writeable callback, or where the role insisted,
-	 * unless it held it for its own handler (its transport phases, or
-	 * consequences of its own it draws from the dispatch)
+	 * The pass's reading is done (or the role reads on its own terms):
+	 * the role acts on what it holds
 	 */
-	if (out && !(flags & LWS_RXPOL_F_HOLD_POLLOUT) &&
-	    (lwsi_state_can_handle_POLLOUT(wsi) ||
-	     (flags & LWS_RXPOL_F_POLLOUT))) {
+	if (in && lws_rops_fidx(wsi->role_ops, LWS_ROPS_rx_done)) {
+		int n = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx_done).
+								rx_done(wsi);
+
+		if (n == LWS_RX_DIED)
+			return 1;
+		if (n == LWS_RX_CLOSE)
+			return -1;
+	}
+
+	/*
+	 * The pass's POLLOUT: served here through the dispatcher in the
+	 * states that take a writeable callback, or where the role insisted;
+	 * otherwise nothing wants it and it is cleared, since the poll is
+	 * level-triggered and the role asks again when it does
+	 */
+	if (out && (lwsi_state_can_handle_POLLOUT(wsi) ||
+		    (flags & LWS_RXPOL_F_POLLOUT))) {
 		int hr = lws_handle_POLLOUT_event(wsi, pollfd);
 
 		if (hr < 0)
 			/* a connect racing closed and freed the wsi */
 			return 1;
-		if (hr)
+		if (hr) {
+			/*
+			 * A close asked while our answer to the peer's Close
+			 * is still to go out flushes it first (ws)
+			 */
+			if (lwsi_close(wsi) == LCS_RETURNED_CLOSE)
+				lws_wsi_event(wsi, LWS_WSIEV_CLOSE_FLUSH);
+
+			return -1;
+		}
+		pollfd->revents &= (short)~LWS_POLLOUT;
+	} else if (out) {
+		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 			return -1;
 		pollfd->revents &= (short)~LWS_POLLOUT;
 	}
 
 	return 0;
 }
-
 void
 lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 {
@@ -1207,7 +1237,9 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 				break;
 			}
 
-			if (lws_rops_func_fidx(wsi->role_ops,
+			/* a transport adapter role (IO) keeps a handler */
+			if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_handle_POLLIN) &&
+			    lws_rops_func_fidx(wsi->role_ops,
 					       LWS_ROPS_handle_POLLIN).
 						handle_POLLIN(pt, wsi, &pfd) ==
 						   LWS_HPI_RET_PLEASE_CLOSE_ME)
@@ -1474,6 +1506,17 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	lws_usec_t _role_start = lws_now_usecs();
 #endif
 
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_TLS)
+	/* a server's tls accept in progress is IO's alone */
+	if (!lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_SSL_ACK_PENDING) {
+		if (lws_server_socket_service_ssl(wsi, LWS_SOCK_INVALID,
+					!!(pollfd->revents & LWS_POLLIN)))
+			goto close_and_handled_l;
+
+		goto handled;
+	}
+#endif
+
 #if defined(LWS_WITH_CLIENT)
 	/* a client's dns, connect and tls passes are IO's alone */
 	switch (lws_client_transport_stage(wsi, pollfd)) {
@@ -1496,6 +1539,10 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	default:
 		break;
 	}
+
+	/* a transport adapter role (IO) keeps a handler; a sansIO role has none */
+	if (!lws_rops_fidx(wsi->role_ops, LWS_ROPS_handle_POLLIN))
+		goto handled;
 
 	switch (lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_handle_POLLIN).
 					       handle_POLLIN(pt, wsi, pollfd)) {

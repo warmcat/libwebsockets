@@ -26,8 +26,8 @@ a TLS library object (`SSL_`, `gnutls_`, `mbedtls_`), or an event-loop
 handle (`uv_`, `ev_`, `event_base`), and never reads or writes the
 transport itself (`lws_ssl_capable_read(`, `lws_buflist_aware_read(`): the
 rx pump and the tx path do that.  IO code never parses or composes a
-protocol byte.  The `pollfd` a role's `handle_POLLIN` is handed today is
-the IO-to-sansIO entry in its current spelling, not a violation.
+protocol byte.  No sansIO role has a `handle_POLLIN` any more: only the transport
+adapter roles, which are IO, see a `pollfd`.
 
 ## The interface
 
@@ -36,7 +36,7 @@ things only through these requests.  Nothing else crosses.
 
 | direction | call | today's C |
 |---|---|---|
-| IO -> sansIO | **rx(bytes) -> consumed**: bytes arrived, take what you can; an empty rx is the peer closing | the `rx` role op, fed by `lws_rx_pump()` from every role's `handle_POLLIN`; the app's pull of a response body, `lws_http_client_read()`, is the same read at the app's pace into the app's buffer, feeding `lws_h1_client_body_rx()` |
+| IO -> sansIO | **rx(bytes) -> consumed**: bytes arrived, take what you can; an empty rx is the peer closing | the `rx` role op, fed by `lws_rx_pump()` from IO's rx stage under the role's `rx_policy`; after the pass's reading the role's `rx_done` acts on what it holds; the app's pull of a response body, `lws_http_client_read()`, is the same read at the app's pace into the app's buffer, feeding `lws_h1_client_body_rx()` |
 | IO -> sansIO | **rx_dgram(bytes, peer, ecn) -> ok**: the datagram spelling of rx: one datagram arrived from this peer with these ECN bits; it is taken whole, nothing is parked | the `rx_dgram` role op, fed by `lws_rx_pump_dgram()`; quic |
 | IO -> sansIO | **tx(buf, max) -> n, more**: the transport can take bytes: fill the caller's buffer with the next ones to send, from wherever you got to last time, and say whether more remain | `lws_write()` composing into the `LWS_PRE` headroom then `lws_issue_raw()`; role `handle_POLLOUT`.  Converted: the status page (`lws_http_status_page_send_pending()`), file serving (`lws_http_file_tx()` producing, `lws_serve_http_file_fragment()` in IO driving), h2's protocol packets (`lws_h2_pps_tx()`, then `lws_h2_pps_done()` once written), quic's packets (`lws_quic_packet_tx()` into IO's buffer sized to the path MTU, `lws_io_send_dgram()`, `lws_quic_packet_sent()`) |
 | IO -> sansIO | **deadline()**: the deadline you set has passed | `sul` callbacks, `lws_sul_wsitimeout_cb` |
@@ -152,12 +152,21 @@ while it serves a file, a raw socket reads even with rx parked, and
 during the transport phases of a client the bytes are not the role's at
 all.  That knowledge is one small op, `rx_policy(wsi, &flags, &max)`,
 answering for this pass: pump once, pump while there is more (tls holds
-decrypted bytes, or a parked remainder), hold (do not read now), or
-"the role's own handler takes this pass" for what is not converted yet.
-IO's service asks it before it dispatches, does the reading it was told
-to, and the role's `handle_POLLIN` is left with the pass's POLLOUT and
-its transport-phase business, which go the same way in turn.  Fairness
-between a socket's POLLIN and POLLOUT is IO's, kept in the service.
+decrypted bytes, or a parked remainder), hold (do not read now), or "the
+role reads on its own terms" (an h1 client whose body the app pulls).
+IO's service asks it, does the reading it was told to, then tells the
+role the pass's reading is done through `rx_done(wsi)`, where the role
+acts on what it now holds: an h1 client interprets the response headers
+it completed, or tells the app there is body to pull; a role that parked
+rx re-arms its reading once the parked bytes are gone.  The pass's
+POLLOUT goes to IO's dispatcher, in the states that take a writeable or
+where the policy insisted, and is cleared otherwise; the dispatcher's own
+priorities (a partial send, a compression partial, a cgi step) come before
+the role's `handle_POLLOUT` op.  Fairness between a socket's POLLIN and
+POLLOUT is IO's, kept in the service.  That is the whole of a sansIO
+role's service interface: `rx_policy`, `rx` (or `rx_dgram`), `rx_done`,
+`handle_POLLOUT`, and `client_transport_up`; no sansIO role has a
+`handle_POLLIN`, only the transport adapter roles, which are IO, keep one.
 
 Time is an input: sansIO is told the deadline passed, it never reads the
 clock to decide anything.  Reading the clock for a log line or a metric

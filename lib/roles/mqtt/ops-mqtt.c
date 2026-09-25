@@ -69,73 +69,30 @@ rops_rx_mqtt(struct lws *wsi, const uint8_t *buf, size_t len,
 static int
 rops_rx_policy_mqtt(struct lws *wsi, int *flags, size_t *max)
 {
-	if (lwsi_state(wsi) != LRS_ESTABLISHED)
-		return LWS_RXPOL_ROLE;
-
 	*flags = 0;
 	*max = 0;
 
-	return LWS_RXPOL_PUMP_LOOP;
+	/* the broker's CONNACK, and everything after it, come through rx */
+	if (lwsi_state(wsi) == LRS_ESTABLISHED ||
+	    lwsi_state(wsi) == LRS_MQTTC_AWAIT_CONNACK
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SOCKS5)
+	    || lwsi_in_socks5_leg(wsi)
+#endif
+	    )
+		return LWS_RXPOL_PUMP_LOOP;
+
+	return LWS_RXPOL_ROLE;
 }
 
-static lws_handling_result_t
-rops_handle_POLLIN_mqtt(struct lws_context_per_thread *pt, struct lws *wsi,
-			   struct lws_pollfd *pollfd)
+/* the pass's reading is done: nothing parked means a pending rx flow change can go */
+static int
+rops_rx_done_mqtt(struct lws *wsi)
 {
-	int n = 0;
-
-	lwsl_debug("%s: wsistate 0x%x, %s pollout %d\n", __func__,
-		   (unsigned int)wsi->wsistate,  wsi->a.protocol->name,
-		   pollfd->revents);
-
-	/*
-	 * After the CONNACK and nwsi establishment, the first logical
-	 * stream is migrated out of the nwsi to be child sid 1, and the
-	 * nwsi no longer has a wsi->mqtt of its own.
-	 *
-	 * RX events on the nwsi must be converted to events seen or not
-	 * seen by one or more child streams.
-	 *
-	 * SUBACK - reflected to child stream that asked for it
-	 * PUBACK - routed to child that did the related publish
-	 */
-
-	if (lwsi_state(wsi) != LRS_ESTABLISHED) {
-#if defined(LWS_WITH_CLIENT)
-		if (pollfd->revents & LWS_POLLOUT) {
-			int hr = lws_handle_POLLOUT_event(wsi, pollfd);
-
-			if (hr < 0) {
-				/* connect racing already closed+freed the wsi */
-				return LWS_HPI_RET_WSI_ALREADY_DIED;
-			}
-			if (hr) {
-				lwsl_debug("POLLOUT event closed it\n");
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
-			}
-		}
-
-		n = lws_mqtt_client_socket_service(wsi, pollfd, NULL);
-		if (n)
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
-#endif
-		return LWS_HPI_RET_HANDLED;
-	}
-
-	/* 1: the pass's POLLOUT was served by IO's rx stage */
-
-	/* the reading was done by IO's rx stage */
-
 	if (!lws_buflist_next_segment_len(&wsi->buflist, NULL))
-		/*
-		 * nothing parked (any more): a pending rx flow change can be
-		 * applied, which re-arms POLLIN after a drain
-		 */
 		__lws_rx_flow_control(wsi);
 
-	return LWS_HPI_RET_HANDLED;
+	return 0;
 }
-
 #if 0 /* defined(LWS_WITH_SERVER) */
 
 static int
@@ -217,6 +174,23 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 {
 	lwsl_debug("%s\n", __func__);
 
+#if defined(LWS_WITH_CLIENT)
+	if (lwsi_state(wsi) == LRS_MQTTC_IDLE) {
+		/* the transport is up: the CONNECT goes out */
+		lwsl_wsi_info(wsi, "Transport established, send out CONNECT");
+
+		if (!lws_mqtt_client_send_connect(wsi)) {
+			lwsl_wsi_err(wsi, "Unable to send MQTT CONNECT");
+
+			return LWS_HP_RET_BAIL_DIE;
+		}
+		if (lws_io_want_read(wsi, 1))
+			return LWS_HP_RET_BAIL_DIE;
+		lws_wsi_event(wsi, LWS_WSIEV_MQTT_CONNECT_SENT);
+
+		return LWS_HP_RET_DROP_POLLOUT;
+	}
+#endif
 #if defined(LWS_WITH_CLIENT)
 	if (wsi->mqtt && wsi->mqtt->send_pingreq && !wsi->mqtt->inside_payload) {
 		uint8_t buf[LWS_PRE + 2];
@@ -604,7 +578,7 @@ rops_client_transport_up_mqtt(struct lws *wsi)
 #endif
 
 static const lws_rops_t rops_table_mqtt[] = {
-	/*  1 */ { .handle_POLLIN	  = rops_handle_POLLIN_mqtt },
+	/*  1 */ { .rx_done		  = rops_rx_done_mqtt },
 	/*  2 */ { .handle_POLLOUT	  = rops_handle_POLLOUT_mqtt },
 	/*  3 */ { .callback_on_writable  = rops_callback_on_writable_mqtt },
 	/*  4 */ { .close_role		  = rops_close_role_mqtt },
@@ -631,7 +605,7 @@ struct lws_role_ops role_ops_mqtt = {
 	  /* LWS_ROPS_init_vhost */
 	  /* LWS_ROPS_destroy_vhost */			0x00, 0x00,
 	  /* LWS_ROPS_service_flag_pending */
-	  /* LWS_ROPS_handle_POLLIN */			0x00, 0x01,
+	  /* LWS_ROPS_handle_POLLIN */			0x00, 0x00,
 	  /* LWS_ROPS_handle_POLLOUT */
 	  /* LWS_ROPS_perform_user_POLLOUT */		0x02, 0x00,
 	  /* LWS_ROPS_callback_on_writable */
@@ -652,12 +626,14 @@ struct lws_role_ops role_ops_mqtt = {
 	  /* LWS_ROPS_rx */				0x08, 0x09,
 	  /* LWS_ROPS_rx_dgram */
 	  /* LWS_ROPS_rx_policy */			0x00, 0x0A,
+	  /* LWS_ROPS_rx_done */			0x01,
 #else
 	  /* LWS_ROPS_issue_keepalive */		0x00, 0x00,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x00, 0x06,
 	  /* LWS_ROPS_rx_dgram */
 	  /* LWS_ROPS_rx_policy */			0x00, 0x07,
+	  /* LWS_ROPS_rx_done */			0x01,
 #endif
 					},
 
