@@ -654,6 +654,7 @@ typedef int (*lws_rops_rx_dgram_t)(struct lws *wsi, uint8_t *buf, size_t len,
 #define LWS_RXPOL_PUMP		1	/* read once */
 #define LWS_RXPOL_PUMP_LOOP	2	/* read while there is more and progress */
 #define LWS_RXPOL_HOLD		3	/* do not read now */
+#define LWS_RXPOL_CLOSE		4	/* the housekeeping found the connection must close */
 typedef int (*lws_rops_rx_policy_t)(struct lws *wsi, int *flags, size_t *max);
 
 #define LWS_COUNT_ROLE_OPS			24

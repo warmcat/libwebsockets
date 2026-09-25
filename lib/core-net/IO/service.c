@@ -1290,11 +1290,17 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 		pol = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx_policy).
 					rx_policy(wsi, &flags, &max);
+		if (pol == LWS_RXPOL_CLOSE)
+			goto close_and_handled_l;
 		if (pol == LWS_RXPOL_PUMP || pol == LWS_RXPOL_PUMP_LOOP) {
 			struct lws_pollfd *pfd = pollfd;
 			int nothing, consumed, budget = 1000;
+			size_t pending = 0;
 
 			do {
+				/* with tls bytes pending, take exactly those */
+				if (pending && (!max || pending < max))
+					max = pending;
 				switch (lws_rx_pump(pt, wsi, pfd, flags, max,
 						    &nothing, &consumed)) {
 				case LWS_HPI_RET_WSI_ALREADY_DIED:
@@ -1305,14 +1311,18 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 					break;
 				}
 				if (pol != LWS_RXPOL_PUMP_LOOP || nothing ||
-				    !consumed || !lws_ssl_pending(wsi) ||
-				    !--budget)
+				    !consumed || !--budget)
+					break;
+				pending = (size_t)lws_ssl_pending(wsi);
+				if (!pending)
 					break;
 				/* tls still holds decrypted bytes: read again, regardless of the poll */
 				pfd = NULL;
 				pol = lws_rops_func_fidx(wsi->role_ops,
 							 LWS_ROPS_rx_policy).
 						rx_policy(wsi, &flags, &max);
+				if (pol == LWS_RXPOL_CLOSE)
+					goto close_and_handled_l;
 			} while (pol == LWS_RXPOL_PUMP ||
 				 pol == LWS_RXPOL_PUMP_LOOP);
 

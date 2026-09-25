@@ -1050,15 +1050,6 @@ lws_close_reason(struct lws *wsi, enum lws_close_status status,
 	wsi->ws->close_in_ping_buffer_len = (uint8_t)lws_ptr_diff(p, start);
 }
 
-static int
-lws_is_ws_with_ext(struct lws *wsi)
-{
-#if defined(LWS_WITHOUT_EXTENSIONS)
-	return 0;
-#else
-	return lwsi_role_ws(wsi) && !!wsi->ws->count_act_ext;
-#endif
-}
 
 /*
  * sansIO rx for a ws connection: the h1 (ws) or h2 parser takes what it can,
@@ -1104,15 +1095,98 @@ rops_rx_ws(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 	if (n < 0) /* we closed wsi */
 		return LWS_RX_DIED;
 
+	/*
+	 * Bytes taken as ws: the handshake's header table is done with.  A
+	 * client stream inside h2 keeps its ah for the stream's headers.
+	 */
+	if (n && wsi->stream.ah &&
+	    !(lwsi_role_client(wsi) && lwsi_role_h2_ENCAPSULATION(wsi))) {
+		lwsl_wsi_info(wsi, "detaching ah");
+		lws_header_table_detach(wsi, 0);
+	}
+
 	return n;
+}
+
+/*
+ * How a ws connection is read (README.sans-io-split.md, "Who calls rx").
+ * Not during the handshake or a client's transport phases, nor while rx is
+ * flow-controlled (the handler turns the read off): those are the handler's.
+ * The rx extension is drained first, our share of it, and if it still holds
+ * inflated output we do not read.  Then: a client not yet established is
+ * offered only what is parked; a pass is bounded by the protocol's rx
+ * buffer; and it goes on while tls holds more.
+ */
+static int
+rops_rx_policy_ws(struct lws *wsi, int *flags, size_t *max)
+{
+	if (!wsi->ws || lwsi_state(wsi) == LRS_H1_UPGRADE ||
+	    lwsi_transport(wsi) == LTS_WAITING_CONNECT ||
+	    lws_is_flowcontrolled(wsi))
+		return LWS_RXPOL_ROLE;
+
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	if (wsi->ws->tx_draining_ext)
+		/* new rx would trample the buffer the tx drain still needs */
+		return LWS_RXPOL_ROLE;
+
+	if (wsi->ws->rx_draining_ext) {
+		int drains = LWS_WS_RX_EXT_DRAIN_BUDGET;
+
+		/*
+		 * The RX extension needs to be drained before the next read,
+		 * but the peer decides how much inflated output one small
+		 * compressed frame turns into, so we may only do our share of
+		 * it here before going back to the event loop.  Either role
+		 * may decide we must close on the way: the inflater failed,
+		 * the inflated content was not valid utf-8, the user callback
+		 * returned nonzero.
+		 */
+		while (wsi->ws->rx_draining_ext && drains--) {
+			lws_handling_result_t hr;
+
+#if defined(LWS_WITH_CLIENT)
+			if (lwsi_role_client(wsi))
+				hr = lws_ws_client_rx_sm(wsi, 0);
+			else
+#endif
+				hr = lws_ws_rx_sm(wsi,
+						  ALREADY_PROCESSED_IGNORE_CHAR, 0);
+			if (hr == LWS_HPI_RET_PLEASE_CLOSE_ME)
+				return LWS_RXPOL_CLOSE;
+		}
+		if (wsi->ws->rx_draining_ext)
+			return LWS_RXPOL_HOLD;
+	}
+#endif
+
+	/*
+	 * A client reads only once established, while awaiting a close ack,
+	 * or as an h2 stream waiting to send its headers: in any other state
+	 * only what is parked is offered
+	 */
+	*flags = 0;
+	if (lwsi_role_client(wsi) && lwsi_state(wsi) != LRS_ESTABLISHED &&
+	    lwsi_close(wsi) != LCS_AWAITING_CLOSE_ACK &&
+	    lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS)
+		*flags = LWS_RXP_NO_READ;
+
+	/*
+	 * In case we are going to react to this rx by scheduling writes,
+	 * restrict the amount of rx to the size the protocol reported for
+	 * its rx buffer: otherwise we may have to absorb a lot of reads
+	 * before we get a chance to drain them by writing them, eg, with
+	 * echo type tests in autobahn.
+	 */
+	*max = lwsi_role_ws(wsi) ? wsi->ws->rx_ubuf_alloc : 0;
+
+	return LWS_RXPOL_PUMP_LOOP;
 }
 
 static lws_handling_result_t
 rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
-	unsigned int pending = 0;
-	int sanity = 10000;
 
 	if (!wsi->ws) {
 		lwsl_err("ws role wsi with no ws\n");
@@ -1262,144 +1336,7 @@ post_pollout:
 		return LWS_HPI_RET_HANDLED;
 #endif
 
-	/*
-	 * 3: rx.  Parked rx first, then what the transport has, then again
-	 * while tls still holds bytes it took from the socket (or, for a
-	 * client that prioritizes reads, while rx is parked).
-	 */
-	{
-		int flags = 0;
-
-		/*
-		 * A client reads only once established, while awaiting a
-		 * close ack, or as an h2 stream waiting to send its headers:
-		 * in any other state only what is parked is offered
-		 */
-		if (lwsi_role_client(wsi) &&
-		    lwsi_state(wsi) != LRS_ESTABLISHED &&
-		    lwsi_close(wsi) != LCS_AWAITING_CLOSE_ACK &&
-		    lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS)
-			flags = LWS_RXP_NO_READ;
-
-		do {
-			lws_handling_result_t hr;
-			int nothing, consumed;
-			size_t max;
-
-			if (!lws_buflist_next_segment_len(&wsi->buflist, NULL) &&
-			    lws_is_flowcontrolled(wsi)) {
-				lwsl_info("%s: %p should be rxflow (bm 0x%x)..\n",
-					  __func__, wsi, wsi->rxflow_bitmap);
-				return LWS_HPI_RET_HANDLED;
-			}
-
-			/*
-			 * In case we are going to react to this rx by
-			 * scheduling writes, restrict the amount of rx to the
-			 * size the protocol reported for its rx buffer:
-			 * otherwise we may have to absorb a lot of reads before
-			 * we get a chance to drain them by writing them, eg,
-			 * with echo type tests in autobahn.  With tls bytes
-			 * pending, take exactly those.
-			 */
-			max = lwsi_role_ws(wsi) ? wsi->ws->rx_ubuf_alloc : 0;
-			if (pending && (!max || pending < max))
-				max = pending;
-
-			/*
-			 * With tls bytes pending, or a header block in
-			 * progress, read regardless of what poll reported
-			 */
-			hr = lws_rx_pump(pt, wsi, (pending || wsi->stream.ah) ?
-						  NULL : pollfd,
-					 flags, max, &nothing, &consumed);
-			if (hr != LWS_HPI_RET_HANDLED)
-				return hr;
-			if (nothing)
-				return LWS_HPI_RET_HANDLED;
-			if (!consumed)
-				/* a parked segment the parser could not take yet */
-				break;
-
-			if (lws_is_flowcontrolled(wsi))
-				return LWS_HPI_RET_HANDLED;
-
-			/* a client stream inside h2 keeps its ah for the stream's headers */
-			if (wsi->stream.ah &&
-			    !(lwsi_role_client(wsi) && lwsi_role_h2_ENCAPSULATION(wsi))) {
-				lwsl_info("%s: %p: detaching ah\n", __func__, wsi);
-				lws_header_table_detach(wsi, 0);
-			}
-
-			pending = (unsigned int)lws_ssl_pending(wsi);
-			if (!pending &&
-			    lws_buflist_next_segment_len(&wsi->buflist, NULL))
-				return LWS_HPI_RET_HANDLED;
-
-#if defined(LWS_WITH_CLIENT)
-			if (!pending && (wsi->flags & LCCSCF_PRIORITIZE_READS) &&
-			    lws_buflist_total_len(&wsi->buflist))
-				pending = 9999999;
-#endif
-
-			if (pending) {
-				if (lws_is_ws_with_ext(wsi))
-					pending = pending > wsi->ws->rx_ubuf_alloc ?
-						wsi->ws->rx_ubuf_alloc : pending;
-				else
-					pending = pending > wsi->a.context->pt_serv_buf_size ?
-						wsi->a.context->pt_serv_buf_size : pending;
-
-				if (--sanity) {
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-					int drains = LWS_WS_RX_EXT_DRAIN_BUDGET;
-
-					/*
-					 * The RX extension needs to be drained
-					 * before the next read... but the peer
-					 * decides how much inflated output one
-					 * small compressed frame turns into, so
-					 * we may only do our share of it here
-					 * before going back to the event loop.
-					 */
-					while (wsi->ws->rx_draining_ext && drains--) {
-						lws_handling_result_t hr2;
-
-						/* like "2:" above, each role has its own sm */
-#if defined(LWS_WITH_CLIENT)
-						if (lwsi_role_client(wsi))
-							hr2 = lws_ws_client_rx_sm(wsi, 0);
-						else
-#endif
-							hr2 = lws_ws_rx_sm(wsi,
-								ALREADY_PROCESSED_IGNORE_CHAR, 0);
-						if (hr2 == LWS_HPI_RET_PLEASE_CLOSE_ME)
-							return LWS_HPI_RET_PLEASE_CLOSE_ME;
-					}
-
-					if (wsi->ws->rx_draining_ext)
-						/*
-						 * Still draining... we stay on the
-						 * pt's list and come back to it
-						 * from the event loop
-						 */
-						return LWS_HPI_RET_HANDLED;
-#endif
-				} else {
-					static lws_log_ratelimit_t rl = { 0, 0 };
-
-					/*
-					 * Something has gone wrong, we are spinning...
-					 * let's bail on this connection
-					 */
-					lwsl_ratelimit_err(&rl, 1 * LWS_US_PER_SEC,
-							   "ws %s: dropping connection due to sanity loop limit\n",
-							   lws_wsi_tag(wsi));
-					return LWS_HPI_RET_PLEASE_CLOSE_ME;
-				}
-			}
-		} while (pending);
-	}
+	/* 3: the reading was done by IO's rx stage */
 
 	if (!lws_buflist_next_segment_len(&wsi->buflist, NULL))
 		/*
@@ -2353,6 +2290,7 @@ static const lws_rops_t rops_table_ws[] = {
 	/* 12 */ { .issue_keepalive	    = rops_issue_keepalive_ws },
 	/* 13 */ { .tx_credit		    = rops_tx_credit_ws },
 	/* 14 */ { .rx			    = rops_rx_ws },
+	/* 15 */ { .rx_policy		    = rops_rx_policy_ws },
 };
 
 const struct lws_role_ops role_ops_ws = {
@@ -2383,6 +2321,8 @@ const struct lws_role_ops role_ops_ws = {
 	  /* LWS_ROPS_issue_keepalive */		0x0c,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x0e,
+	  /* LWS_ROPS_rx_dgram */
+	  /* LWS_ROPS_rx_policy */			0x0f,
 					},
 
 	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,

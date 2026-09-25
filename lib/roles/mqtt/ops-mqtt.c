@@ -61,6 +61,23 @@ rops_rx_mqtt(struct lws *wsi, const uint8_t *buf, size_t len,
 	return (int)len;
 }
 
+/*
+ * How an mqtt connection is read: not until it is established (the client's
+ * transport phases and CONNACK wait are its handler's), then while tls holds
+ * more.
+ */
+static int
+rops_rx_policy_mqtt(struct lws *wsi, int *flags, size_t *max)
+{
+	if (lwsi_state(wsi) != LRS_ESTABLISHED)
+		return LWS_RXPOL_ROLE;
+
+	*flags = 0;
+	*max = 0;
+
+	return LWS_RXPOL_PUMP_LOOP;
+}
+
 static lws_handling_result_t
 rops_handle_POLLIN_mqtt(struct lws_context_per_thread *pt, struct lws *wsi,
 			   struct lws_pollfd *pollfd)
@@ -130,27 +147,7 @@ rops_handle_POLLIN_mqtt(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 post_pollout:
-	/*
-	 * Parked rx first, then what the transport has, then again while the
-	 * tls layer still holds bytes it already took from the socket
-	 */
-	{
-		size_t pending = 0;
-
-		do {
-			lws_handling_result_t hr;
-			int nothing, consumed;
-
-			hr = lws_rx_pump(pt, wsi, pollfd, 0, pending, &nothing,
-					 &consumed);
-			if (hr != LWS_HPI_RET_HANDLED)
-				return hr;
-			if (nothing)
-				break;
-
-			pending = (size_t)lws_ssl_pending(wsi);
-		} while (pending);
-	}
+	/* the reading was done by IO's rx stage */
 
 	if (!lws_buflist_next_segment_len(&wsi->buflist, NULL))
 		/*
@@ -649,6 +646,8 @@ static const lws_rops_t rops_table_mqtt[] = {
 #endif
 	/*  9, or 6 with no client */
 	{ .rx				  = rops_rx_mqtt },
+	/* 10, or 7 with no client */
+	{ .rx_policy			  = rops_rx_policy_mqtt },
 };
 
 struct lws_role_ops role_ops_mqtt = {
@@ -681,10 +680,14 @@ struct lws_role_ops role_ops_mqtt = {
 	  /* LWS_ROPS_issue_keepalive */		0x67,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x89,
+	  /* LWS_ROPS_rx_dgram */
+	  /* LWS_ROPS_rx_policy */			0x0a,
 #else
 	  /* LWS_ROPS_issue_keepalive */		0x00,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x06,
+	  /* LWS_ROPS_rx_dgram */
+	  /* LWS_ROPS_rx_policy */			0x07,
 #endif
 					},
 
