@@ -32,7 +32,9 @@ brotlidec directly, since it decodes the same way the browser would.
 ## usage
 
 ```
- $ ./lws-api-test-http-compression -p 7681 --h2-port 7682 [--size bytes] [-d 1039]
+ $ ./lws-api-test-http-compression -p 7681 --h2-port 7682 [--size bytes] [--tmpdir dir] [-d 1039]
 ```
 
-`--size` defaults to 3 MiB.  The exit code is 0 only when every case passed.
+`--size` defaults to 3 MiB.  The generated file lives in a scratch directory
+made under `--tmpdir`, the current directory by default (ctest passes its
+build directory), and is removed at exit.  The exit code is 0 only when every case passed.

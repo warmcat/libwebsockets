@@ -81,7 +81,8 @@ static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_next, sul_watchdog;
 static int cur = -1, failures, port_h1 = 7681, port_h2 = 7682, interrupted;
 static size_t file_size = 3 * 1024 * 1024;
-static char tmpdir[64], file_path[128], file_name[80];
+static char tmpdir[256], file_path[384], file_name[80];
+static const char *tmpbase = ".";
 static uint8_t file_sha[32];
 static const char *server_addr = "127.0.0.1";
 
@@ -102,12 +103,15 @@ generate_file(void)
 	struct lws_genhash_ctx hc;
 	uint32_t x = 0x12345678u;
 	size_t done = 0;
-	char line[128];
+	char line[512];
 	FILE *f;
 	int n;
 
-	if (!mkdtemp(strcpy(tmpdir, "/tmp/lws-http-comp-XXXXXX"))) {
-		lwsl_err("%s: mkdtemp failed\n", __func__);
+	/* scratch dir under the caller's choice (the build dir from ctest) */
+	lws_snprintf(tmpdir, sizeof(tmpdir), "%s/lws-http-comp-XXXXXX", tmpbase);
+	if (!mkdtemp(tmpdir)) {
+		lwsl_err("%s: mkdtemp %s failed\n", __func__, tmpdir);
+		tmpdir[0] = '\0';
 		return 1;
 	}
 
@@ -534,6 +538,8 @@ main(int argc, const char **argv)
 		port_h2 = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--size")))
 		file_size = (size_t)atol(p);
+	if ((p = lws_cmdline_option(argc, argv, "--tmpdir")))
+		tmpbase = p;
 
 	lwsl_user("LWS API selftest: http stream compression\n");
 

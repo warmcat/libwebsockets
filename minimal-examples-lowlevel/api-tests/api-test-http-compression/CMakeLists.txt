@@ -43,7 +43,8 @@ if (requirements AND NOT WIN32)
 
 	add_test(NAME api-test-http-compression
 		 COMMAND lws-api-test-http-compression -p ${PORT_HTTP_COMP_H1}
-			 --h2-port ${PORT_HTTP_COMP_H2})
+			 --h2-port ${PORT_HTTP_COMP_H2}
+			 --tmpdir ${CMAKE_CURRENT_BINARY_DIR})
 	set_tests_properties(api-test-http-compression PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 			     TIMEOUT 120)
