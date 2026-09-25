@@ -3955,10 +3955,10 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	int ret = 0, cclen = 8, n = HTTP_STATUS_OK;
 	char cache_control[50], *cc = "no-store";
 #if defined(LWS_WITH_RANGES)
-	static const char * const mp_ct = "multipart/byteranges; boundary="
-					  LWS_RANGES_BOUNDARY;
+	char mp_ct[64];
 	/* scratch for sizing a multipart part header, bounded by the part
-	 * header format, the mimetype and three decimal file offsets */
+	 * header format, the boundary, the mimetype and three decimal file
+	 * offsets */
 	char part_hdr[256];
 #endif
 	lws_fop_flags_t fflags = LWS_O_RDONLY;
@@ -4125,15 +4125,21 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		lws_strncpy(wsi->http.multipart_content_type, content_type,
 			sizeof(wsi->http.multipart_content_type));
 
+		if (lws_ranges_boundary_create(context, rp))
+			goto bail;
+
 		/*
 		 * The boundary has to be declared here: it is the only thing
 		 * that tells the client how the parts below are delimited
 		 */
 
+		n = lws_snprintf(mp_ct, sizeof(mp_ct),
+				 "multipart/byteranges; boundary=%s",
+				 rp->boundary);
+
 		if (lws_add_http_header_by_token(wsi,
 						 WSI_TOKEN_HTTP_CONTENT_TYPE,
-						 (unsigned char *)mp_ct,
-						 (int)strlen(mp_ct),
+						 (unsigned char *)mp_ct, n,
 						 &p, end))
 			goto bail;
 
@@ -4151,14 +4157,14 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		 */
 
 		total_content_length = (lws_filepos_t)rp->agg +
-				       sizeof(LWS_RANGES_CLOSE) - 1;
+				       (lws_filepos_t)lws_ranges_close_len(rp);
 
 		lws_ranges_reset(rp);
 		while (lws_ranges_next(rp) == 1) {
 			n = lws_snprintf(part_hdr, sizeof(part_hdr),
 					 LWS_RANGES_PART_HDR,
-					 content_type, rp->start, rp->end,
-					 rp->extent);
+					 rp->boundary, content_type,
+					 rp->start, rp->end, rp->extent);
 
 			total_content_length = total_content_length +
 					       (lws_filepos_t)n;
@@ -4494,6 +4500,7 @@ lws_http_file_tx(struct lws *wsi, unsigned char *buf, size_t max,
 		n =  lws_snprintf((char *)p,
 				lws_ptr_diff_size_t(bufend, p),
 			LWS_RANGES_PART_HDR,
+			wsi->http.range.boundary,
 			wsi->http.multipart_content_type,
 			wsi->http.range.start,
 			wsi->http.range.end,
@@ -4589,11 +4596,14 @@ lws_http_file_tx(struct lws *wsi, unsigned char *buf, size_t max,
 		(lws_filepos_t)lws_ptr_diff_size_t(bufend, p) : 0;
 
 #if defined(LWS_WITH_RANGES)
-	if (wsi->http.range.count_ranges > 1)
+	if (wsi->http.range.count_ranges > 1) {
 		/* allow for the close delimiter, and the NUL lws_snprintf
 		 * keeps room for after it */
-		room = room > sizeof(LWS_RANGES_CLOSE) ?
-				room - sizeof(LWS_RANGES_CLOSE) : 0;
+		lws_filepos_t cl = (lws_filepos_t)
+				lws_ranges_close_len(&wsi->http.range) + 1;
+
+		room = room > cl ? room - cl : 0;
+	}
 #endif
 
 	if (wsi->interpreting)
@@ -4752,10 +4762,10 @@ lws_http_file_tx(struct lws *wsi, unsigned char *buf, size_t max,
 		wsi->http.range.count_ranges && // last range
 	    wsi->http.range.count_ranges > 1 && // was 2+ ranges (ie, multipart)
 	    wsi->http.range.budget - amount == 0) {// final part
-		/* sizeof(): the close delimiter and the NUL lws_snprintf
-		 * keeps room for after it */
-		n += lws_snprintf((char *)pstart + n, sizeof(LWS_RANGES_CLOSE),
-				  LWS_RANGES_CLOSE);
+		/* + 1: the NUL lws_snprintf keeps room for after it */
+		n += lws_snprintf((char *)pstart + n,
+				  lws_ranges_close_len(&wsi->http.range) + 1,
+				  LWS_RANGES_CLOSE, wsi->http.range.boundary);
 		lwsl_debug("added close delimiter\n");
 	}
 #endif

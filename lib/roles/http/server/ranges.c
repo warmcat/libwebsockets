@@ -187,6 +187,41 @@ lws_ranges_next(struct lws_range_parsing *rp)
 	}
 }
 
+/*
+ * A multipart/byteranges response has to delimit its parts with something
+ * that cannot occur in what it is delimiting.  With a fixed boundary, a file
+ * that contains the delimiter -- which a file the peer uploaded earlier may
+ * well do on purpose -- forges parts of its own in the eyes of a client that
+ * parses by scanning.  64 bits of random per response takes that away.
+ */
+
+int
+lws_ranges_boundary_create(struct lws_context *cx,
+			   struct lws_range_parsing *rp)
+{
+	uint8_t r[8];
+
+	if (lws_get_random(cx, r, sizeof(r)) != sizeof(r)) {
+		lwsl_err("%s: unable to get random\n", __func__);
+
+		return 1;
+	}
+
+	memcpy(rp->boundary, "_lws_", 5);
+	lws_hex_from_byte_array(r, sizeof(r), rp->boundary + 5,
+				sizeof(rp->boundary) - 5);
+
+	return 0;
+}
+
+size_t
+lws_ranges_close_len(struct lws_range_parsing *rp)
+{
+	/* CRLF "--" boundary "--" CRLF */
+
+	return strlen(rp->boundary) + 8;
+}
+
 void
 lws_ranges_reset(struct lws_range_parsing *rp)
 {

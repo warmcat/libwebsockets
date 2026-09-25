@@ -102,6 +102,7 @@ enum range_states {
 struct lws_range_parsing {
 	unsigned long long start, end, extent, agg, budget;
 	char buf[LWS_RANGES_BUF];
+	char boundary[24];
 	int pos;
 	enum range_states state;
 	char start_valid, end_valid, ctr, count_ranges, did_try, inside, send_ctr;
@@ -113,16 +114,20 @@ struct lws_range_parsing {
  * boundary "--".  The CRLF ahead of a delimiter belongs to the delimiter, so
  * it also terminates the part before it.
  *
+ * The boundary is random per response.  A fixed one could appear in the file
+ * being served, and then the payload itself would read as a delimiter: a
+ * client parsing the body by scanning for one would see parts we did not
+ * send, with headers of the file's choosing.
+ *
  * The response header sizes the body by composing the same part header it
  * will send, so the Content-Length and the framing cannot drift apart.
  */
 
-#define LWS_RANGES_BOUNDARY	"_lws"
-#define LWS_RANGES_PART_HDR	"\x0d\x0a--" LWS_RANGES_BOUNDARY "\x0d\x0a" \
+#define LWS_RANGES_PART_HDR	"\x0d\x0a--%s\x0d\x0a" \
 				"Content-Type: %s\x0d\x0a" \
 				"Content-Range: bytes %llu-%llu/%llu\x0d\x0a" \
 				"\x0d\x0a"
-#define LWS_RANGES_CLOSE	"\x0d\x0a--" LWS_RANGES_BOUNDARY "--\x0d\x0a"
+#define LWS_RANGES_CLOSE	"\x0d\x0a--%s--\x0d\x0a"
 
 int
 lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp,
@@ -131,6 +136,18 @@ int
 lws_ranges_next(struct lws_range_parsing *rp);
 void
 lws_ranges_reset(struct lws_range_parsing *rp);
+
+/*
+ * Choose this response's boundary.  Returns nonzero if there is no random
+ * to be had, in which case no multipart response may be sent.
+ */
+int
+lws_ranges_boundary_create(struct lws_context *cx,
+			   struct lws_range_parsing *rp);
+
+/* the length LWS_RANGES_CLOSE comes to with this response's boundary */
+size_t
+lws_ranges_close_len(struct lws_range_parsing *rp);
 #endif
 
 #define LWS_HTTP_NO_KNOWN_HEADER 0xff

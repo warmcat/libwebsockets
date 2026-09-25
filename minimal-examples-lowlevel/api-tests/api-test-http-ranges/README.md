@@ -36,7 +36,9 @@ doubled, misaligned, or seeked to the wrong place cannot pass by accident.
 A `multipart/byteranges` body is parsed the way a client has to parse it: the
 boundary comes from the `Content-Type` parameter, and the body must be the
 delimiters, part headers and payloads RFC 2046 lays out, ending at the close
-delimiter with nothing after it.
+delimiter with nothing after it.  The boundary is also checked to differ from
+the last response's, since a fixed one could appear in a served file and forge
+a delimiter.
 
 The files are a small one (1000 bytes, so a response fits one `lws_write()`),
 a big one (200000 bytes, so every part spans many, putting the producer's

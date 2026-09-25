@@ -267,6 +267,7 @@ static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_next, sul_watchdog;
 static struct conn conn;
 static char tmpdir[256], path[384], etag[64], gen_range[1024];
+static char last_boundary[80];
 static const char *tmpbase = ".";
 static const char *server_addr = "127.0.0.1";
 static int cur = -1, failures, only_case = -1, interrupted,
@@ -470,6 +471,19 @@ check_multipart(const char *ct, const uint8_t *body, size_t len,
 		return 1;
 	}
 	lws_strnncpy(boundary, b, bl, sizeof(boundary));
+
+	/*
+	 * A boundary the same as the last response's is a fixed boundary,
+	 * which a served file can contain and so forge a delimiter with
+	 */
+
+	if (!strcmp(boundary, last_boundary)) {
+		lwsl_err("%s: boundary '%s' is the same as the last one\n",
+			 __func__, boundary);
+
+		return 1;
+	}
+	lws_strncpy(last_boundary, boundary, sizeof(last_boundary));
 
 	dl = (size_t)lws_snprintf(dash, sizeof(dash), "--%s", boundary);
 
