@@ -90,6 +90,42 @@ The file system is a content source, not the transport: reading the file,
 and handing that read to a worker thread, are the source's business and
 stay on the sansIO side of this line.
 
+## The headers
+
+The public api is tiered the same way, as three meta-headers under
+`include/libwebsockets/` that `libwebsockets.h` includes in order:
+
+| meta-header | holds | rule |
+|---|---|---|
+| `lws-core.h` | the substrate both halves stand on: dll2, buflist, lwsac, logging, time as data, parsers, decoders, utilities | names nothing outside the process's memory |
+| `lws-sansio.h` | the protocol half as an application sees it: the callbacks, the write flags, the http, ws, h2, h3, mqtt vocabulary | IO's objects appear only through pointers; the meta-header forward-declares their tags |
+| `lws-io.h` | the transport half: context and vhost creation, adopt, connect, service, tls library objects, dns, event loops, platform devices | everything that names something outside the process |
+
+Applications keep including `libwebsockets.h` and see no change.  Someone
+porting the protocols, or embedding the sansIO half alone, reads
+`lws-core.h` and `lws-sansio.h` and has the whole of what they carry.
+Components are placed by the rule, not by their history; where a header
+mixes the two (`lws-client.h` has both the connect request, IO's, and the
+client's protocol calls) it sits with its predominant half and is noted for
+splitting.  `lws-callbacks.h` is sansIO's and carries a few IO reasons (the
+poll fd and lock ones): one C enum cannot live in two headers, so they stay
+there, marked.
+
+The private headers are next to be tiered the same way, with a build option
+that compiles lib/core, lib/roles and the sansIO core-net files against only
+the core and sansIO private headers.  From then on the compiler is the lint.
+
+**The four requests sansIO makes of IO** (want_write, deadline, want_read,
+close) are calls into IO today, spelled `lws_callback_on_writable()`,
+`lws_set_timeout()` / `lws_sul_schedule()`, `lws_rx_flow_control()` and
+`lws_close_free_wsi()`.  Those names stay, as sansIO's api: what the tiering
+adds is that at the bottom of each, where the request reaches the transport,
+it goes through one struct of four function pointers, `lws_io_ops_t`, that
+IO fills in for the normal build and an embedder of the sansIO half fills in
+for theirs.  A port that returns its requests as polled outputs, the way a
+Rust sans-IO crate does, implements the same four.  The struct is the seam;
+the rest of the two halves never see each other.
+
 Time is an input: sansIO is told the deadline passed, it never reads the
 clock to decide anything.  Reading the clock for a log line or a metric
 is tolerated in sansIO until the split is done.
@@ -152,5 +188,8 @@ each function is in.
    body the app has not asked for and the transport's window is the
    backpressure.  No role reads its transport any more).
 5. h2, then h3 over the quic datagram layer, then the remaining roles.
-6. When every role is converted, the IO half is a replaceable component,
+6. Tier the public headers into `lws-core.h`, `lws-sansio.h`, `lws-io.h`
+   (done), then the private ones, with the sansIO-only compile check.
+7. The four requests through `lws_io_ops_t`.
+8. When every role is converted, the IO half is a replaceable component,
    and the sansIO half is what a port translates.
