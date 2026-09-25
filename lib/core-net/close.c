@@ -241,6 +241,9 @@ __lws_reset_wsi(struct lws *wsi)
 #endif
 
 #if defined(LWS_ROLE_H3)
+	/* the stream's qpack decoder state is its own, h3n is the connection's */
+	if (wsi->h3.qpack_dec_state)
+		lws_free_set_NULL(wsi->h3.qpack_dec_state);
 	memset(&wsi->h3, 0, sizeof(wsi->h3));
 #endif
 
