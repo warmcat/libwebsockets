@@ -1129,13 +1129,13 @@ __lws_close_free_wsi_final(struct lws *wsi)
 
 #if defined(LWS_WITH_TLS)
 		/*
-		 * The restart reconnects from inside the ah attach below,
-		 * before the wish is set again from the flags after it, and
-		 * the kept-warm join test reads the wish: a restarting
-		 * connection makes its own connection rather than joining
-		 * one, as it did when the whole tls struct was cleared here
+		 * The restart reconnects from inside the ah attach below, and
+		 * the kept-warm join test compares our tls wish with the
+		 * candidate's: set it from the flags first, so a redirect or
+		 * a fallback over tls can join a kept-warm connection to the
+		 * same origin, as one over cleartext already does
 		 */
-		wsi->use_ssl = 0;
+		wsi->use_ssl = (unsigned int)wsi->flags;
 #endif
 
 	//	wsi->a.protocol = NULL;
@@ -1169,10 +1169,6 @@ __lws_close_free_wsi_final(struct lws *wsi)
 		}
 //		}
 		//_lws_header_table_reset(wsi->stream.ah);
-
-#if defined(LWS_WITH_TLS)
-		wsi->use_ssl = (unsigned int)wsi->flags;
-#endif
 
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 		if (wsi->stash && wsi->stash->cis[CIS_ADDRESS]) {

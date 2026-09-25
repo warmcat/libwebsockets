@@ -286,6 +286,18 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	switch (reason) {
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		/*
+		 * A request that joins a kept-warm h2 / h3 connection, as the
+		 * tcp fallback does when the h2 connection of an earlier step
+		 * is still warm, is told ESTABLISHED at the join, before it
+		 * sent anything and with no status: the response headers, and
+		 * the x-via: we are here for, come with a second one
+		 */
+		if (!lws_http_client_http_response(wsi)) {
+			lwsl_notice("CLIENT joined a warm connection: step %d\n",
+				    client_step);
+			break;
+		}
 		lwsl_notice("CLIENT ESTABLISHED HTTP: step %d\n", client_step);
 		/* capture which protocol the server tells us it served us by */
 		via[0] = '\0';
