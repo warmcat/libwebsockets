@@ -4746,8 +4746,6 @@ lws_http_file_tx(struct lws *wsi, unsigned char *buf, size_t max,
 	}
 #endif
 
-	*wp = wsi->http.filepos + amount == wsi->http.filelen ?
-					LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP;
 	*pp = p;
 
 	/*
@@ -4771,6 +4769,14 @@ lws_http_file_tx(struct lws *wsi, unsigned char *buf, size_t max,
 #endif
 	if (wsi->http.filepos >= wsi->http.filelen)
 		*last = 1;
+
+	/*
+	 * The last lump of the response is what the role has to frame as
+	 * final: the end of a range response is where the ranges run out,
+	 * which for all but the last range is short of the end of the file
+	 */
+
+	*wp = *last ? LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP;
 
 	return n;
 
