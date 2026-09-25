@@ -1113,7 +1113,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		lws_io_set_peer(nwsi, &sa46);
 
 #if defined(LWS_WITH_TLS)
-		nwsi->tls.use_ssl = (unsigned int)wsi->a.vhost->tls.use_ssl;
+		nwsi->use_ssl = (unsigned int)wsi->a.vhost->tls.use_ssl;
 		if (wsi->a.vhost->tls.ssl_ctx) {
 			if (lws_tls_server_new_nonblocking(nwsi, LWS_SOCK_INVALID)) {
 				lwsl_wsi_err(wsi, "QUIC RX: lws_tls_server_new_nonblocking failed");
@@ -3153,13 +3153,13 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
                 wsi->quic.initialized = 1;
 
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
-		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-			if (!wsi->tls.ssl) {
-				const char *cce = NULL;
-				if (lws_client_create_tls(wsi, &cce, 0) == CCTLS_RETURN_ERROR) {
-					lwsl_wsi_err(wsi, "Failed to create TLS BIO: %s", cce ? cce : "unknown");
-					return LWS_HP_RET_BAIL_DIE;
-				}
+		if (wsi->use_ssl & LCCSCF_USE_SSL) {
+			const char *cce = NULL;
+
+			/* creates the session only if there is none yet */
+			if (lws_client_create_tls(wsi, &cce, 0) == CCTLS_RETURN_ERROR) {
+				lwsl_wsi_err(wsi, "Failed to create TLS BIO: %s", cce ? cce : "unknown");
+				return LWS_HP_RET_BAIL_DIE;
 			}
 			/* The BIO was already created, just init QUIC TLS */
 			if (lws_tls_quic_init(wsi, quic_secret_cb)) {
@@ -4519,10 +4519,11 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	/* Transfer the quic contexts (the udp state moved with the socket) */
 	nwsi->quic = wsi->quic;
 	nwsi->txc = wsi->txc;
-	nwsi->tls = wsi->tls;
+#if defined(LWS_WITH_TLS)
+	/* what the connection asked for goes with it (the join test reads it) */
+	nwsi->use_ssl = wsi->use_ssl;
+#endif
 	memset(&wsi->quic, 0, sizeof(wsi->quic));
-	memset(&wsi->tls, 0, sizeof(wsi->tls));
-	lws_tls_quic_migrate_wsi(wsi, nwsi);
 	if (!wsi->quic.qs) {
 		wsi->quic.qs = lws_zalloc(sizeof(*wsi->quic.qs), "quic stream");
 		if (wsi->quic.qs) {

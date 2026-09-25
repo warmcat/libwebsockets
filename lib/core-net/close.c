@@ -379,7 +379,7 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 				lwsl_wsi_notice(wsi, "QUIC fail, trying next DNS result %s", ads_fallback);
 				lws_addrinfo_clean(wsi);
 				if (lws_client_reset(&wsi,
-						!!(wsi->tls.use_ssl & LCCSCF_USE_SSL),
+						!!(wsi->use_ssl & LCCSCF_USE_SSL),
 						ads_fallback, wsi->c_port, path, host, 1)) {
 					return;
 				}
@@ -440,7 +440,7 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 			}
 
 			if (lws_client_reset(&wsi,
-					!!(wsi->tls.use_ssl & LCCSCF_USE_SSL),
+					!!(wsi->use_ssl & LCCSCF_USE_SSL),
 					ads, wsi->c_port, path, host, 1)) {
 				/* Successfully scheduled fallback */
 				return;
@@ -1120,7 +1120,6 @@ __lws_close_free_wsi_final(struct lws *wsi)
 #endif
 
 #if defined(LWS_WITH_TLS)
-		memset(&wsi->tls, 0, sizeof(wsi->tls));
 #endif
 
 	//	wsi->a.protocol = NULL;
@@ -1156,7 +1155,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 		//_lws_header_table_reset(wsi->stream.ah);
 
 #if defined(LWS_WITH_TLS)
-		wsi->tls.use_ssl = (unsigned int)wsi->flags;
+		wsi->use_ssl = (unsigned int)wsi->flags;
 #endif
 
 #if defined(LWS_WITH_TLS_JIT_TRUST)

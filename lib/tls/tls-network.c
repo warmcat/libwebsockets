@@ -38,7 +38,7 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
 			lws_dll2_get_head(&pt->tls.dll_pending_tls_owner)) {
 		struct lws *wsi = lws_container_of(p, struct lws,
-						   tls.dll_pending_tls);
+						   io.tls.dll_pending_tls);
 
 		/*
 		 * ... allow custom event loop to override our POLLIN-setting
@@ -69,7 +69,7 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 void
 __lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 {
-	lws_dll2_remove(&wsi->tls.dll_pending_tls);
+	lws_dll2_remove(&wsi->io.tls.dll_pending_tls);
 }
 
 void

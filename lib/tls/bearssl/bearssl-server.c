@@ -108,10 +108,10 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	if (!conn)
 		return -1;
 
-	wsi->tls.ssl = (lws_tls_conn *)conn;
+	wsi->io.tls.ssl = (lws_tls_conn *)conn;
 	conn->is_client = 0;
-	wsi->tls.ctx_ref = lws_tls_ctx_ref_get(wsi->a.vhost);
-	conn->ctx = wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx : wsi->a.vhost->tls.ssl_ctx;
+	wsi->io.tls.ctx_ref = lws_tls_ctx_ref_get(wsi->a.vhost);
+	conn->ctx = wsi->io.tls.ctx_ref ? wsi->io.tls.ctx_ref->ctx : wsi->a.vhost->tls.ssl_ctx;
 
 	return 0;
 }
@@ -142,7 +142,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 static int
 lws_bearssl_server_sni(struct lws *wsi)
 {
-	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
+	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->io.tls.ssl;
 	struct lws_vhost *vh = wsi->a.vhost;
 	struct lws_tls_ctx_ref *ref;
 	char name[256];
@@ -206,9 +206,9 @@ lws_bearssl_server_sni(struct lws *wsi)
 		 */
 
 		ref = lws_tls_ctx_ref_get(wsi->a.vhost);
-		if (wsi->tls.ctx_ref)
-			lws_tls_ctx_ref_unref(wsi->tls.ctx_ref);
-		wsi->tls.ctx_ref = ref;
+		if (wsi->io.tls.ctx_ref)
+			lws_tls_ctx_ref_unref(wsi->io.tls.ctx_ref);
+		wsi->io.tls.ctx_ref = ref;
 		conn->ctx = ref ? ref->ctx : wsi->a.vhost->tls.ssl_ctx;
 
 		return 0;
@@ -234,7 +234,7 @@ lws_bearssl_server_sni(struct lws *wsi)
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
 {
-	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
+	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->io.tls.ssl;
 	unsigned st;
 	int err;
 
@@ -325,8 +325,8 @@ lws_tls_server_accept(struct lws *wsi)
 
 		if (lws_ssl_pending(wsi)) {
 			struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-			if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
-				lws_dll2_add_head(&wsi->tls.dll_pending_tls,
+			if (lws_dll2_is_detached(&wsi->io.tls.dll_pending_tls))
+				lws_dll2_add_head(&wsi->io.tls.dll_pending_tls,
 						  &pt->tls.dll_pending_tls_owner);
 		}
 

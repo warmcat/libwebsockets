@@ -50,7 +50,7 @@ lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len)
 		return 1;
 
 #if defined(LWS_WITH_CLIENT)
-	relaxed = wsi->tls.use_ssl & (LCCSCF_ALLOW_SELFSIGNED |
+	relaxed = wsi->use_ssl & (LCCSCF_ALLOW_SELFSIGNED |
 				      LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK |
 				      LCCSCF_ALLOW_EXPIRED |
 				      LCCSCF_ALLOW_INSECURE);

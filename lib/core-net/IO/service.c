@@ -85,9 +85,9 @@ lws_async_worker_worker(void *d)
 			case LWS_AQ_SSL_ACCEPT:
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_SERVER)
 				// lwsl_notice("worker handling LWS_AQ_SSL_ACCEPT for wsi %s\n", lws_wsi_tag(job->wsi));
-				job->wsi->tls.ssl_accept_in_bg = 1;
+				job->wsi->io.tls.ssl_accept_in_bg = 1;
 				job->u.ssl.status = lws_tls_server_accept(job->wsi);
-				job->wsi->tls.ssl_accept_in_bg = 0;
+				job->wsi->io.tls.ssl_accept_in_bg = 0;
 				// lwsl_notice("worker finished LWS_AQ_SSL_ACCEPT, st %d\n", job->u.ssl.status);
 #endif
 				break;
@@ -1302,7 +1302,7 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
 			lws_dll2_get_head(&pt->tls.dll_pending_tls_owner)) {
 		struct lws *wsi = lws_container_of(p, struct lws,
-						   tls.dll_pending_tls);
+						   io.tls.dll_pending_tls);
 
 		if (wsi->io.position_in_fds_table >= 0) {
 
@@ -1425,7 +1425,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 #if defined(LWS_WITH_TLS)
 	if (lwsi_close(wsi) == LCS_SHUTDOWN &&
-	    lws_is_ssl(wsi) && wsi->tls.ssl) {
+	    lws_is_ssl(wsi) && wsi->io.tls.ssl) {
 
 #if defined(LWS_WITH_LATENCY)
 		lws_usec_t _tls_shut_start = lws_now_usecs();
@@ -1478,7 +1478,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	}
 
 	if ((pollfd->revents & LWS_POLLOUT) == LWS_POLLOUT &&
-	    wsi->tls_read_wanted_write) {
+	    wsi->io.tls_read_wanted_write) {
 		/*
 		 * If this wsi has a pending WANT_WRITE from SSL_read(), it has
 		 * asked for a callback on writeable so it can retry the read.
@@ -1486,7 +1486,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		 *  Let's consume the POLLOUT by turning it into a POLLIIN, and
 		 *  setting a flag to request a new writeable
 		 */
-		wsi->tls_read_wanted_write = 0;
+		wsi->io.tls_read_wanted_write = 0;
 		pollfd->revents &= ~(LWS_POLLOUT);
 		pollfd->revents |= LWS_POLLIN;
 		__lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);

@@ -247,10 +247,10 @@ static const uint8_t *
 lws_wsi_hs_ca_id(struct lws *wsi)
 {
 	struct lws *nwsi = lws_get_network_wsi(wsi);
+	const uint8_t *id = lws_tls_wsi_hs_ca_id(nwsi);
 
-	if (nwsi->tls.hs_ca_id_valid)
-		return nwsi->tls.hs_ca_id;
-
+	if (id)
+		return id;
 	/*
 	 * Nothing was recorded at handshake time... that is the case for
 	 * quic, whose handshake completion does not pass through
@@ -302,7 +302,7 @@ lws_vhost_mtls_unsatisfied(struct lws *wsi, struct lws_vhost *vh)
 		  LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE))
 		return 0;
 
-	if (!lws_get_network_wsi(wsi)->tls.ssl ||
+	if (!lws_tls_session_ptr(lws_get_network_wsi(wsi)) ||
 	    lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VERIFIED, &ir,
 				   sizeof(ir.ns.name)) || !ir.verified) {
 		lwsl_wsi_notice(wsi, "mTLS vhost %s: connection has no "
@@ -485,7 +485,7 @@ void lws_vhost_bind_wsi_sni(struct lws_vhost *vh, struct lws *wsi) {
 	_lws_vhost_bind_wsi(vh, wsi, 1);
 
 	if (wsi->a.vhost == vh)
-		wsi->tls.sni_vh_bound = 1;
+		wsi->sni_vh_bound = 1;
 }
 #endif
 
@@ -1088,16 +1088,12 @@ int lws_get_tsi(struct lws *wsi) { return (int)wsi->tsi; }
 
 int lws_is_ssl(struct lws *wsi) {
 #if defined(LWS_WITH_TLS)
-	return wsi->tls.use_ssl & LCCSCF_USE_SSL;
+	return wsi->use_ssl & LCCSCF_USE_SSL;
 #else
 	(void)wsi;
 	return 0;
 #endif
 }
-
-#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
-lws_tls_conn *lws_get_ssl(struct lws *wsi) { return wsi->tls.ssl; }
-#endif
 
 int lws_has_buffered_out(struct lws *wsi) {
 	if (wsi->buflist_out) {
@@ -1835,6 +1831,10 @@ idle:
 	 * The socket, its place in the loop and its tls session go to wnew;
 	 * IO closes wsi's if it cannot take them, and we bail
 	 */
+#if defined(LWS_WITH_TLS)
+	/* what the connection asked for goes with it (the join test reads it) */
+	wnew->use_ssl = wsi->use_ssl;
+#endif
 	if (lws_io_transfer_socket(wsi, wnew))
 		goto bail;
 
@@ -2492,11 +2492,7 @@ __lws_wsi_remove_from_sul(struct lws *wsi)
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	lws_sul_cancel(&wsi->sul_fault_timedclose);
 #endif
-#if defined(LWS_TLS_SYNTHESIZE_CB)
-	lws_sul_cancel(&wsi->tls.sul_cb_synth);
-#endif
 }
-
 static void
 lws_validity_cb(lws_sorted_usec_list_t *sul)
 {
@@ -2700,7 +2696,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, int group,
 	new_wsi->retry_policy = vhost->retry_policy;
 
 #ifdef LWS_WITH_TLS
-	new_wsi->tls.use_ssl = LWS_SSL_ENABLED(vhost);
+	new_wsi->use_ssl = LWS_SSL_ENABLED(vhost);
 #endif
 
 	/*

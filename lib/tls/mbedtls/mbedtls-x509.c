@@ -431,17 +431,17 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 
 	wsi = lws_get_network_wsi(wsi);
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return -1;
 
-	x509 = (mbedtls_x509_crt *)mbedtls_ssl_get_peer_cert(&wsi->tls.ssl->ssl);
+	x509 = (mbedtls_x509_crt *)mbedtls_ssl_get_peer_cert(&wsi->io.tls.ssl->ssl);
 
 	if (!x509)
 		return -1;
 
 	switch (type) {
 	case LWS_TLS_CERT_INFO_VERIFIED:
-		buf->verified = mbedtls_ssl_get_verify_result(&wsi->tls.ssl->ssl) == 0;
+		buf->verified = mbedtls_ssl_get_verify_result(&wsi->io.tls.ssl->ssl) == 0;
 		return 0;
 	default:
 		return lws_tls_mbedtls_cert_info(x509, type, buf, len);

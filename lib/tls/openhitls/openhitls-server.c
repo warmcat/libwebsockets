@@ -112,7 +112,7 @@ OpenHiTLS_verify_callback(int32_t verify_code, HITLS_CERT_StoreCtx *store_ctx)
 
 	ssl = (lws_tls_conn *)userdata;
 	wsi = ssl ? (struct lws *)HITLS_GetUserData((HITLS_Ctx *)ssl) : NULL;
-	ssl = wsi ? wsi->tls.ssl : NULL;
+	ssl = wsi ? wsi->io.tls.ssl : NULL;
 
 	if (!wsi) {
 		return 1;
@@ -655,7 +655,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 			     HITLS_MODE_ACCEPT_MOVING_WRITE_BUFFER |
 			     HITLS_MODE_RELEASE_BUFFERS);
 
-	wsi->tls.ssl = ssl;
+	wsi->io.tls.ssl = ssl;
 	if (wsi->a.vhost->tls.ssl_info_event_mask)
 		HITLS_SetInfoCb(ssl, lws_ssl_info_callback);
 	return 0;
@@ -676,12 +676,12 @@ lws_tls_server_abort_connection(struct lws *wsi)
 	 * so we must BSL_UIO_Free() it.  Detach the fd first so neither
 	 * HITLS_Free() nor BSL_UIO_Free() touches the wsi-owned socket.
 	 */
-	uio = HITLS_GetUio(wsi->tls.ssl);
+	uio = HITLS_GetUio(wsi->io.tls.ssl);
 	if (uio) {
 		BSL_UIO_SetFD(uio, -1);
 	}
-	HITLS_Free(wsi->tls.ssl);
-	wsi->tls.ssl = NULL;
+	HITLS_Free(wsi->io.tls.ssl);
+	wsi->io.tls.ssl = NULL;
 	if (uio) {
 		BSL_UIO_Free(uio);
 	}
@@ -696,7 +696,7 @@ lws_tls_server_accept(struct lws *wsi)
 	union lws_tls_cert_info_results ir;
 	int ret;
 
-	ret = HITLS_Accept(wsi->tls.ssl);
+	ret = HITLS_Accept(wsi->io.tls.ssl);
 
 	wsi->skip_fallback = 1;
 
@@ -712,9 +712,9 @@ lws_tls_server_accept(struct lws *wsi)
 
 		lws_openhitls_describe_cipher(wsi);
 
-		if (HITLS_GetReadPendingBytes(wsi->tls.ssl) &&
-		    lws_dll2_is_detached(&wsi->tls.dll_pending_tls)) {
-			lws_dll2_add_head(&wsi->tls.dll_pending_tls,
+		if (HITLS_GetReadPendingBytes(wsi->io.tls.ssl) &&
+		    lws_dll2_is_detached(&wsi->io.tls.dll_pending_tls)) {
+			lws_dll2_add_head(&wsi->io.tls.dll_pending_tls,
 								  &pt->tls.dll_pending_tls_owner);
 		}
 

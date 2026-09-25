@@ -109,7 +109,7 @@ lws_tls_reuse_session(struct lws *wsi)
 
 	lwsl_tlssess("%s: %s\n", __func__, (const char *)&ts[1]);
 
-	if (!SSL_set_session(wsi->tls.ssl, ts->session)) {
+	if (!SSL_set_session(wsi->io.tls.ssl, ts->session)) {
 		lwsl_err("%s: session not set for %s\n", __func__, tag);
 		goto bail;
 	}
@@ -147,10 +147,10 @@ lws_tls_session_is_reused(struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 
-	if (!nwsi || !nwsi->tls.ssl)
+	if (!nwsi || !nwsi->io.tls.ssl)
 		return 0;
 
-       return (int)SSL_session_reused(nwsi->tls.ssl);
+       return (int)SSL_session_reused(nwsi->io.tls.ssl);
 #else
        return 0;
 #endif
@@ -354,7 +354,7 @@ lws_sess_cache_synth_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws_lws_tls *tls = lws_container_of(sul, struct lws_lws_tls,
 						   sul_cb_synth);
-	struct lws *wsi = lws_container_of(tls, struct lws, tls);
+	struct lws *wsi = lws_container_of(tls, struct lws, io.tls);
 	SSL_SESSION *sess;
 
 	if (lws_tls_session_is_reused(wsi))

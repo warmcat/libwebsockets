@@ -1056,7 +1056,7 @@ wrap_end_cert(const br_x509_class **ctx)
 		conn->capturing_peer_cert = 0; /* EE cert is the first one, stop capturing after it ends */
 	}
 #if defined(LWS_WITH_TLS_JIT_TRUST)
-	if (conn->wsi && conn->temp_cert && conn->wsi->tls.kid_chain.count < LWS_ARRAY_SIZE(conn->wsi->tls.kid_chain.akid)) {
+	if (conn->wsi && conn->temp_cert && conn->wsi->io.tls.kid_chain.count < LWS_ARRAY_SIZE(conn->wsi->io.tls.kid_chain.akid)) {
 		union lws_tls_cert_info_results ci;
 		/*
 		 * len is the usable size of ci.ns.name[]... passing 0 makes the
@@ -1065,10 +1065,10 @@ wrap_end_cert(const br_x509_class **ctx)
 		 * could never engage
 		 */
 		if (!lws_x509_info(conn->temp_cert, LWS_TLS_CERT_INFO_SUBJECT_KEY_ID, &ci, sizeof(ci.ns.name)))
-			lws_tls_kid_copy(&ci, &conn->wsi->tls.kid_chain.skid[conn->wsi->tls.kid_chain.count]);
+			lws_tls_kid_copy(&ci, &conn->wsi->io.tls.kid_chain.skid[conn->wsi->io.tls.kid_chain.count]);
 		if (!lws_x509_info(conn->temp_cert, LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID, &ci, sizeof(ci.ns.name)))
-			lws_tls_kid_copy(&ci, &conn->wsi->tls.kid_chain.akid[conn->wsi->tls.kid_chain.count]);
-		conn->wsi->tls.kid_chain.count++;
+			lws_tls_kid_copy(&ci, &conn->wsi->io.tls.kid_chain.akid[conn->wsi->io.tls.kid_chain.count]);
+		conn->wsi->io.tls.kid_chain.count++;
 	}
 	if (conn->temp_cert) lws_x509_destroy(&conn->temp_cert);
 #endif
@@ -1415,7 +1415,7 @@ fail_ta:
 
 int lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type, union lws_tls_cert_info_results *buf, size_t len)
 {
-	lws_tls_conn *conn = wsi->tls.ssl;
+	lws_tls_conn *conn = wsi->io.tls.ssl;
 
 	if (!conn)
 		return -1;

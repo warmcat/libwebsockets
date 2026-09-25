@@ -100,7 +100,7 @@ lws_tls_reuse_session(struct lws *wsi)
 	lwsl_tlssess("%s: %s\n", __func__, (const char *)&ts[1]);
 	wsi->tls_session_reused = 1;
 
-	conn = (struct lws_tls_conn *)wsi->tls.ssl;
+	conn = (struct lws_tls_conn *)wsi->io.tls.ssl;
 	br_ssl_engine_set_session_parameters(&conn->u.client.eng, &ts->ser_data->data);
 
 	/* keep our session list sorted in lru -> mru order */
@@ -197,7 +197,7 @@ lws_tls_session_new_bearssl(struct lws *wsi)
 
 	nl = strlen(buf);
 
-	conn = (struct lws_tls_conn *)wsi->tls.ssl;
+	conn = (struct lws_tls_conn *)wsi->io.tls.ssl;
 
 	lws_context_lock(vh->context, __func__); /* -------------- cx { */
 	lws_vhost_lock(vh); /* -------------- vh { */

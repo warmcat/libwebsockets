@@ -49,7 +49,7 @@ static const uint8_t quic_v2_initial_salt[20] = {
  *
  * They must NOT be inferred from the traffic-secret length: AES-128-GCM and
  * ChaCha20-Poly1305 both use SHA-256, so both yield a 32-byte secret.  The TLS
- * backend reports the negotiated AEAD in wsi->tls.quic_aead; only when it did
+ * backend reports the negotiated AEAD in the session (lws_tls_quic_aead_type()); only when it did
  * not (LWS_TLS_QUIC_AEAD_UNKNOWN, e.g. a backend that doesn't plumb it through)
  * do we fall back to the length heuristic, which can still tell AES-256-GCM
  * (48-byte / SHA-384) from AES-128-GCM but is blind to ChaCha20.
@@ -60,7 +60,7 @@ static const uint8_t quic_v2_initial_salt[20] = {
 static uint8_t
 lws_quic_cipher_type(struct lws *wsi, size_t secret_len)
 {
-	switch (wsi->tls.quic_aead) {
+	switch (lws_tls_quic_aead_type(wsi)) {
 	case LWS_TLS_QUIC_AEAD_AES_128_GCM:
 		return 0;
 	case LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305:
@@ -302,7 +302,7 @@ lws_quic_dbg_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type,
 		    tname[type], is_rx ? "rx" : "tx",
 		    secret_len,
 		    (unsigned)lws_quic_cipher_type(wsi, secret_len),
-		    (unsigned)wsi->tls.quic_aead,
+		    (unsigned)lws_tls_quic_aead_type(wsi),
 		    dropping ? "DROP(dupe)" : "APPLY",
 		    inb, (is_rx ? k->app_rx_installed : k->app_tx_installed) ? pvb : "(none)");
 }
@@ -508,20 +508,8 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 		qn->early_data_status = LWS_0RTT_STATUS_ACCEPTED;
 		
 		/* On server, migrate connection to H3 immediately to support 0-RTT stream adoption */
-		const unsigned char *prot = NULL;
-		unsigned int plen = 0;
-#if defined(LWS_WITH_GNUTLS)
-		gnutls_datum_t dt;
-		if (gnutls_alpn_get_selected_protocol(wsi->tls.ssl, &dt) >= 0) {
-			prot = dt.data;
-			plen = dt.size;
-		}
-#endif
-		if (plen) {
-			lws_strncpy(wsi->alpn, (const char *)prot, plen + 1);
-		} else {
+		if (!lws_tls_quic_alpn(wsi, wsi->alpn, sizeof(wsi->alpn)))
 			lws_strncpy(wsi->alpn, "h3", sizeof(wsi->alpn));
-		}
 		lwsl_wsi_notice(wsi, "QUIC Server 0-RTT ALPN: %s", wsi->alpn);
 		lws_role_call_alpn_negotiated(wsi, wsi->alpn);
 	}
@@ -1062,7 +1050,7 @@ error_handling:
 			lwsl_wsi_notice(wsi, "GnuTLS error %d mapped to alert %d (level %d)", n, alert, alert_level);
 			lws_quic_enter_closing_state(wsi, 0x0100 + (uint64_t)alert, 0, 0);
 		} else {
-			int alert_got = wsi->tls.ssl ? (int)gnutls_alert_get((gnutls_session_t)wsi->tls.ssl) : 0;
+			int alert_got = lws_tls_quic_alert(wsi);
 			if (alert_got > 0) {
 				lwsl_wsi_notice(wsi, "GnuTLS generated alert %d", alert_got);
 				lws_quic_enter_closing_state(wsi, 0x0100 + (uint64_t)alert_got, 0, 0);
@@ -1071,9 +1059,9 @@ error_handling:
 			}
 		}
 #else
-		if (wsi->tls.quic_alert > 0) {
-			lwsl_wsi_notice(wsi, "OpenSSL/BoringSSL generated alert %d", wsi->tls.quic_alert);
-			lws_quic_enter_closing_state(wsi, 0x0100 + (uint64_t)wsi->tls.quic_alert, 0, 0);
+		if (lws_tls_quic_alert(wsi) > 0) {
+			lwsl_wsi_notice(wsi, "OpenSSL/BoringSSL generated alert %d", lws_tls_quic_alert(wsi));
+			lws_quic_enter_closing_state(wsi, 0x0100 + (uint64_t)lws_tls_quic_alert(wsi), 0, 0);
 		} else {
 			lws_quic_enter_closing_state(wsi, 0x0100 + 10 /* unexpected_message fallback */, 0, 0);
 		}
@@ -1125,7 +1113,7 @@ error_handling:
 		 */
 
 		if (!wsi->quic.qn->is_server) {
-			struct lws *twsi = orig_wsi->tls.ssl ? orig_wsi : wsi;
+			struct lws *twsi = lws_tls_session_ptr(orig_wsi) ? orig_wsi : wsi;
 			char ebuf[128];
 
 			ebuf[0] = '\0';
@@ -1176,30 +1164,7 @@ error_handling:
 
 #if defined(LWS_WITH_TLS)
 		{
-			const unsigned char *prot = NULL;
-			unsigned int plen = 0;
-
-#if defined(USE_WOLFSSL)
-			wolfSSL_get0_alpn_selected(wsi->tls.ssl, &prot, &plen);
-#elif defined(LWS_WITH_MBEDTLS)
-#if defined(LWS_HAVE_mbedtls_ssl_get_alpn_protocol)
-			const char *alpn = mbedtls_ssl_get_alpn_protocol(&wsi->tls.ssl->ssl);
-			if (alpn) {
-				prot = (const unsigned char *)alpn;
-				plen = (unsigned int)strlen(alpn);
-			}
-#endif
-#elif defined(LWS_WITH_GNUTLS)
-			gnutls_datum_t dt;
-			if (gnutls_alpn_get_selected_protocol(wsi->tls.ssl, &dt) >= 0) {
-				prot = dt.data;
-				plen = dt.size;
-			}
-#elif defined(LWS_HAVE_SSL_get0_alpn_selected) || defined(OPENSSL_IS_AWSLC)
-			SSL_get0_alpn_selected(wsi->tls.ssl, &prot, &plen);
-#endif
-			if (plen) {
-				lws_strncpy(wsi->alpn, (const char *)prot, plen + 1);
+			if (lws_tls_quic_alpn(wsi, wsi->alpn, sizeof(wsi->alpn))) {
 				// lwsl_wsi_notice(wsi, "QUIC ALPN negotiated: %s", wsi->alpn);
 				lws_role_call_alpn_negotiated(wsi, wsi->alpn);
                        } else if (wsi->alpn[0]) {

@@ -48,7 +48,7 @@ lws_bearssl_time_always_in_window(void *tctx,
 enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 {
-	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
+	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->io.tls.ssl;
 	struct lws_tls_ctx *ctx = wsi->a.vhost->tls.ssl_client_ctx;
 	unsigned st;
 	int err;
@@ -88,10 +88,10 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 					br_ecdsa_sign_asn1_get_default());
 		}
 
-		conn->tls_use_ssl = wsi->tls.use_ssl;
+		conn->tls_use_ssl = wsi->use_ssl;
 		lws_bearssl_x509_wrap_conn(conn);
 
-		if (wsi->tls.use_ssl & LCCSCF_ALLOW_EXPIRED)
+		if (wsi->use_ssl & LCCSCF_ALLOW_EXPIRED)
 			/*
 			 * Must come after br_ssl_client_init_full(), which
 			 * resets the x509 context including the time source
@@ -160,7 +160,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		if (!(wsi->a.vhost->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE))
 			resume = lws_tls_reuse_session(wsi);
 #endif
-		int skip = (wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK);
+		int skip = (wsi->use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK);
 
 		/*
 		 * BearSSL takes a NULL server_name as "do not check the name
@@ -185,7 +185,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		err = br_ssl_engine_last_error(&conn->u.client.eng);
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 		if (err == BR_ERR_X509_NOT_TRUSTED)
-			lws_tls_jit_trust_sort_kids(wsi, &wsi->tls.kid_chain);
+			lws_tls_jit_trust_sort_kids(wsi, &wsi->io.tls.kid_chain);
 #endif
 		lws_snprintf(errbuf, elen, "BearSSL handshake failed: %d", err);
 		return LWS_SSL_CAPABLE_ERROR;
@@ -201,7 +201,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		err = br_ssl_engine_last_error(&conn->u.client.eng);
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 		if (err == BR_ERR_X509_NOT_TRUSTED)
-			lws_tls_jit_trust_sort_kids(wsi, &wsi->tls.kid_chain);
+			lws_tls_jit_trust_sort_kids(wsi, &wsi->io.tls.kid_chain);
 #endif
 		lws_snprintf(errbuf, elen, "BearSSL handshake failed: %d", err);
 		return LWS_SSL_CAPABLE_ERROR;
@@ -222,8 +222,8 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 
 		if (lws_ssl_pending(wsi)) {
 			struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-			if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
-				lws_dll2_add_head(&wsi->tls.dll_pending_tls,
+			if (lws_dll2_is_detached(&wsi->io.tls.dll_pending_tls))
+				lws_dll2_add_head(&wsi->io.tls.dll_pending_tls,
 						  &pt->tls.dll_pending_tls_owner);
 		}
 
@@ -540,7 +540,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	if (!conn)
 		return -1;
 
-	wsi->tls.ssl = (lws_tls_conn *)conn;
+	wsi->io.tls.ssl = (lws_tls_conn *)conn;
 	conn->is_client = 1;
 	conn->ctx = wsi->a.vhost->tls.ssl_client_ctx;
 

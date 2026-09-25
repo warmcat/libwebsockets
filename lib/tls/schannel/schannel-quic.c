@@ -91,9 +91,9 @@ schannel_extract_client_hello_tp(struct lws *wsi, const uint8_t *in, size_t in_l
 {
        size_t i = 0;
 
-       if (wsi->tls.quic_tp_recv) return;
+       if (wsi->io.tls.quic_tp_recv) return;
 
-       while (i + 4 <= in_len && !wsi->tls.quic_tp_recv) {
+       while (i + 4 <= in_len && !wsi->io.tls.quic_tp_recv) {
                uint8_t msg_type = in[i];
                size_t hs_len = (in[i+1] << 16) | (in[i+2] << 8) | in[i+3];
 
@@ -122,10 +122,10 @@ schannel_extract_client_hello_tp(struct lws *wsi, const uint8_t *in, size_t in_l
                                uint16_t len = (in[p+2] << 8) | in[p+3];
                                if (p + 4 + len > end) break;
                                if (type == 57) {
-                                       wsi->tls.quic_tp_recv = lws_malloc(len, "quic_tp_recv");
-                                       if (wsi->tls.quic_tp_recv) {
-                                               memcpy((void *)wsi->tls.quic_tp_recv, &in[p+4], len);
-                                               wsi->tls.quic_tp_recv_len = len;
+                                       wsi->io.tls.quic_tp_recv = lws_malloc(len, "quic_tp_recv");
+                                       if (wsi->io.tls.quic_tp_recv) {
+                                               memcpy((void *)wsi->io.tls.quic_tp_recv, &in[p+4], len);
+                                               wsi->io.tls.quic_tp_recv_len = len;
                                        }
                                        break;
                                }
@@ -144,10 +144,10 @@ schannel_extract_client_hello_tp(struct lws *wsi, const uint8_t *in, size_t in_l
                                uint16_t len = (in[p+2] << 8) | in[p+3];
                                if (p + 4 + len > end) break;
                                if (type == 57) {
-                                       wsi->tls.quic_tp_recv = lws_malloc(len, "quic_tp_recv");
-                                       if (wsi->tls.quic_tp_recv) {
-                                               memcpy((void *)wsi->tls.quic_tp_recv, &in[p+4], len);
-                                               wsi->tls.quic_tp_recv_len = len;
+                                       wsi->io.tls.quic_tp_recv = lws_malloc(len, "quic_tp_recv");
+                                       if (wsi->io.tls.quic_tp_recv) {
+                                               memcpy((void *)wsi->io.tls.quic_tp_recv, &in[p+4], len);
+                                               wsi->io.tls.quic_tp_recv_len = len;
                                        }
                                        break;
                                }
@@ -162,10 +162,10 @@ next_msg:
 int
 lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 {
-	if (!wsi || !wsi->tls.ssl)
+	if (!wsi || !wsi->io.tls.ssl)
 		return -1;
 
-	wsi->tls.quic_secret_cb = cb;
+	wsi->io.tls.quic_secret_cb = cb;
 
 	/* Schannel handles its own buffers, but we might set up a custom bio if needed */
 	return 0;
@@ -175,17 +175,17 @@ int
 lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t tp_len)
 {
 #if defined(SECPKG_ATTR_APPLICATION_PROTOCOL) || defined(SECPKG_ATTR_APP_DATA)
-	if (wsi->tls.quic_tp_send) {
-		lws_free((void *)wsi->tls.quic_tp_send);
-		wsi->tls.quic_tp_send = NULL;
+	if (wsi->io.tls.quic_tp_send) {
+		lws_free((void *)wsi->io.tls.quic_tp_send);
+		wsi->io.tls.quic_tp_send = NULL;
 	}
 
 	uint8_t *p = lws_malloc(tp_len, "quic tp");
 	if (!p)
 		return -1;
 	memcpy(p, tp, tp_len);
-	wsi->tls.quic_tp_send = p;
-	wsi->tls.quic_tp_send_len = tp_len;
+	wsi->io.tls.quic_tp_send = p;
+	wsi->io.tls.quic_tp_send_len = tp_len;
 	return 0;
 #else
 	return -1;
@@ -195,15 +195,15 @@ lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t
 int
 lws_tls_quic_get_transport_parameters(struct lws *wsi, const uint8_t **tp, size_t *tp_len)
 {
-	if (!wsi->tls.quic_tp_recv) {
+	if (!wsi->io.tls.quic_tp_recv) {
 		if (tp_len)
 			*tp_len = 0;
 		return -1;
 	}
 
-	*tp = wsi->tls.quic_tp_recv;
+	*tp = wsi->io.tls.quic_tp_recv;
 	if (tp_len)
-		*tp_len = wsi->tls.quic_tp_recv_len;
+		*tp_len = wsi->io.tls.quic_tp_recv_len;
 
 	return 0;
 }
@@ -213,7 +213,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			       const uint8_t *in, size_t in_len,
 			       uint8_t *out, size_t *out_len)
 {
-        struct lws_tls_schannel_conn *conn = (struct lws_tls_schannel_conn *)wsi->tls.ssl;
+        struct lws_tls_schannel_conn *conn = (struct lws_tls_schannel_conn *)wsi->io.tls.ssl;
 	DWORD flags = 0, req_flags = ISC_REQ_SEQUENCE_DETECT |
 				     ISC_REQ_CONFIDENTIALITY |
                                      ISC_REQ_EXTENDED_ERROR |
@@ -360,21 +360,21 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		ext->ExtensionType = LWS_SCH_QUIC_TP_EXT_TYPE;
 		ext->HandshakeType = lwsi_role_client(wsi) ? LWS_SCH_QUIC_TP_HS_TYPE_CLIENT_HELLO : LWS_SCH_QUIC_TP_HS_TYPE_ENCRYPTED_EXT;
 		ext->Flags = 0;
-		if (wsi->tls.quic_tp_send && wsi->tls.quic_tp_send_len) {
+		if (wsi->io.tls.quic_tp_send && wsi->io.tls.quic_tp_send_len) {
 			/*
 			 * ext lives in the 4096-byte tp_u; the (WORD) cast
 			 * would also truncate anything >= 64KB
 			 */
-			if (wsi->tls.quic_tp_send_len > sizeof(tp_u.buf) -
+			if (wsi->io.tls.quic_tp_send_len > sizeof(tp_u.buf) -
 				offsetof(SEND_GENERIC_TLS_EXTENSION, Buffer)) {
 				lwsl_wsi_err(wsi, "quic tp too big (%u)",
 					     (unsigned int)
-					     wsi->tls.quic_tp_send_len);
+					     wsi->io.tls.quic_tp_send_len);
 
 				return -1;
 			}
-			ext->BufferSize = (WORD)wsi->tls.quic_tp_send_len;
-			memcpy(ext->Buffer, wsi->tls.quic_tp_send, ext->BufferSize);
+			ext->BufferSize = (WORD)wsi->io.tls.quic_tp_send_len;
+			memcpy(ext->Buffer, wsi->io.tls.quic_tp_send, ext->BufferSize);
 		} else {
 			/* SChannel requires valid QUIC Transport Parameters. initial_source_connection_id is mandatory! */
 			ext->BufferSize = 16;
@@ -480,8 +480,8 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			NULL);
 		conn->f_context_init = 1;
 	} else {
-		struct lws_tls_schannel_ctx *ctx = wsi->tls.ctx_ref ?
-			(struct lws_tls_schannel_ctx *)wsi->tls.ctx_ref->ctx : wsi->a.vhost->tls.ssl_ctx;
+		struct lws_tls_schannel_ctx *ctx = wsi->io.tls.ctx_ref ?
+			(struct lws_tls_schannel_ctx *)wsi->io.tls.ctx_ref->ctx : wsi->a.vhost->tls.ssl_ctx;
 		status = AcceptSecurityContext(
 			&ctx->cred,
 			conn->f_context_init ? &conn->ctxt : NULL,
@@ -500,7 +500,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
             status == SEC_I_CONTINUE_NEEDED_MESSAGE_OK)
 		for (unsigned int j = 0; j < out_desc.cBuffers; j++)
 			if (out_bufs[j].BufferType == SECBUFFER_SUBSCRIBE_GENERIC_TLS_EXTENSION &&
-			    out_bufs[j].pvBuffer && !wsi->tls.quic_tp_recv) {
+			    out_bufs[j].pvBuffer && !wsi->io.tls.quic_tp_recv) {
 				
 				size_t ext_len = out_bufs[j].cbBuffer;
 				uint8_t *ext_data = (uint8_t *)out_bufs[j].pvBuffer;
@@ -512,10 +512,10 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 					ext_len -= 4;
 					ext_data += 4;
 					
-					wsi->tls.quic_tp_recv = lws_malloc(ext_len, "quic_tp_recv");
-					if (wsi->tls.quic_tp_recv) {
-						memcpy((void *)wsi->tls.quic_tp_recv, ext_data, ext_len);
-						wsi->tls.quic_tp_recv_len = ext_len;
+					wsi->io.tls.quic_tp_recv = lws_malloc(ext_len, "quic_tp_recv");
+					if (wsi->io.tls.quic_tp_recv) {
+						memcpy((void *)wsi->io.tls.quic_tp_recv, ext_data, ext_len);
+						wsi->io.tls.quic_tp_recv_len = ext_len;
 					}
 				}
 				/*
@@ -555,13 +555,13 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 	 * in the output SecBuffers we provided.
 	 */
 
-	if (wsi->tls.quic_secret_cb && (status == SEC_E_OK || status == SEC_I_CONTINUE_NEEDED || status == SEC_I_CONTINUE_NEEDED_MESSAGE_OK)) {
+	if (wsi->io.tls.quic_secret_cb && (status == SEC_E_OK || status == SEC_I_CONTINUE_NEEDED || status == SEC_I_CONTINUE_NEEDED_MESSAGE_OK)) {
 		for (unsigned int j = 0; j < out_desc.cBuffers; j++) {
 			if (out_bufs[j].BufferType == SECBUFFER_TRAFFIC_SECRETS && out_bufs[j].pvBuffer) {
 				SEC_TRAFFIC_SECRETS *secrets = (SEC_TRAFFIC_SECRETS *)out_bufs[j].pvBuffer;
 				if (secrets->TrafficSecretType != 0) {
 					uint8_t type = secrets->TrafficSecretType;
-					struct lws_tls_schannel_conn *conn = (struct lws_tls_schannel_conn *)wsi->tls.ssl;
+					struct lws_tls_schannel_conn *conn = (struct lws_tls_schannel_conn *)wsi->io.tls.ssl;
 
 					if (secrets->TrafficSecretSize > 48) {
 						lwsl_err("%s: TrafficSecretSize %zu exceeds 48\n", __func__, secrets->TrafficSecretSize);
@@ -584,10 +584,10 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 					 * cannot be misread as bits again.
 					 */
 					if (!wcscmp(secrets->SymmetricAlgId, L"CHACHA20_POLY1305"))
-						wsi->tls.quic_aead = LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305;
+						wsi->io.tls.quic_aead = LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305;
 					else if (!wcscmp(secrets->SymmetricAlgId, L"AES")) {
 						unsigned short key_size_bytes = secrets->KeySize;
-						wsi->tls.quic_aead = key_size_bytes == 32 ?
+						wsi->io.tls.quic_aead = key_size_bytes == 32 ?
 							LWS_TLS_QUIC_AEAD_AES_256_GCM :
 							LWS_TLS_QUIC_AEAD_AES_128_GCM;
 					}
@@ -637,7 +637,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 								split_offset = secrets->MsgSequenceStart;
 						}
 
-						if (wsi->tls.quic_secret_cb(wsi, mapped_type, secrets->TrafficSecret, secrets->TrafficSecretSize) < 0) {
+						if (wsi->io.tls.quic_secret_cb(wsi, mapped_type, secrets->TrafficSecret, secrets->TrafficSecretSize) < 0) {
 							lwsl_err("%s: quic_secret_cb failed for type %d\n", __func__, mapped_type);
 							return -1;
 						}

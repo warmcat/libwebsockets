@@ -511,7 +511,7 @@ ss_h1_redirect_leaks_identity(lws_ss_handle_t *h, struct lws *wsi,
 		bad = 1;
 
 #if defined(LWS_WITH_TLS)
-	if (!bad && (wsi->tls.use_ssl & LCCSCF_USE_SSL) &&
+	if (!bad && (wsi->use_ssl & LCCSCF_USE_SSL) &&
 	    strcmp(puri->scheme, "https") && strcmp(puri->scheme, "wss"))
 		bad = 1; /* tls downgrade */
 #endif

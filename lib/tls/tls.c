@@ -143,12 +143,12 @@ lws_tls_vhost_set_client_ca_id(struct lws_vhost *vh)
 void
 lws_tls_wsi_record_hs_ca(struct lws *wsi, struct lws_vhost *vh)
 {
-	if (!wsi || !vh || wsi->tls.hs_ca_id_valid)
+	if (!wsi || !vh || wsi->io.tls.hs_ca_id_valid)
 		return;
 
-	memcpy(wsi->tls.hs_ca_id, vh->tls.client_ca_id,
-	       sizeof(wsi->tls.hs_ca_id));
-	wsi->tls.hs_ca_id_valid = 1;
+	memcpy(wsi->io.tls.hs_ca_id, vh->tls.client_ca_id,
+	       sizeof(wsi->io.tls.hs_ca_id));
+	wsi->io.tls.hs_ca_id_valid = 1;
 }
 
 #if (!defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL) && \
@@ -284,8 +284,8 @@ lws_tls_restrict_borrow(struct lws *wsi)
 
 	cx->simultaneous_ssl++;
 	cx->simultaneous_ssl_handshake++;
-	wsi->tls_borrowed_hs = 1;
-	wsi->tls_borrowed = 1;
+	wsi->io.tls_borrowed_hs = 1;
+	wsi->io.tls_borrowed = 1;
 
 	lwsl_info("%s: %d -> %d\n", __func__,
 		  cx->simultaneous_ssl - 1,
@@ -333,10 +333,10 @@ lws_tls_restrict_return_handshake(struct lws *wsi)
 
 	/* we're just returning the hs part */
 
-	if (!wsi->tls_borrowed_hs)
+	if (!wsi->io.tls_borrowed_hs)
 		return;
 
-	wsi->tls_borrowed_hs = 0; /* return it one time per wsi */
+	wsi->io.tls_borrowed_hs = 0; /* return it one time per wsi */
 	cx->simultaneous_ssl_handshake--;
 
 	lwsl_info("%s:  %d -> %d\n", __func__,
@@ -351,10 +351,10 @@ lws_tls_restrict_return(struct lws *wsi)
 {
 	struct lws_context *cx = wsi->a.context;
 
-	if (!wsi->tls_borrowed)
+	if (!wsi->io.tls_borrowed)
 		return;
 
-	wsi->tls_borrowed = 0;
+	wsi->io.tls_borrowed = 0;
 	cx->simultaneous_ssl--;
 
 	lwsl_info("%s: %d -> %d\n", __func__,
@@ -363,7 +363,7 @@ lws_tls_restrict_return(struct lws *wsi)
 
 	/* We're returning everything, even if hs didn't complete */
 
-	if (wsi->tls_borrowed_hs)
+	if (wsi->io.tls_borrowed_hs)
 		lws_tls_restrict_return_handshake(wsi);
 	else
 		_lws_tls_restrict_return(wsi);
@@ -424,7 +424,7 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 
 	lwsl_info("%s\n", __func__);
 
-	if (!wsi->tls.ssl) {
+	if (!wsi->io.tls.ssl) {
 		lwsl_err("%s: non-ssl\n", __func__);
 		return 0;
 	}
@@ -432,7 +432,7 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 #if defined(LWS_WITH_GNUTLS)
 	{
 		gnutls_datum_t selected;
-		if (gnutls_alpn_get_selected_protocol((gnutls_session_t)wsi->tls.ssl, &selected) == 0) {
+		if (gnutls_alpn_get_selected_protocol((gnutls_session_t)wsi->io.tls.ssl, &selected) == 0) {
 			name = selected.data;
 			len = selected.size;
 		}
@@ -441,7 +441,7 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 	{
 		uint8_t *proto;
 		uint32_t protoLen;
-		if (HITLS_GetSelectedAlpnProto((HITLS_Ctx *)wsi->tls.ssl,
+		if (HITLS_GetSelectedAlpnProto((HITLS_Ctx *)wsi->io.tls.ssl,
 						       &proto, &protoLen) == HITLS_SUCCESS) {
 			name = proto;
 			len = protoLen;
@@ -449,15 +449,15 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 	}
 #elif defined(LWS_WITH_BEARSSL)
 	{
-		struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
+		struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->io.tls.ssl;
 		name = (const unsigned char *)br_ssl_engine_get_selected_protocol(&conn->u.engine);
 		len = name ? (unsigned int)strlen((const char *)name) : 0;
 	}
 #elif defined(LWS_WITH_MBEDTLS)
-	name = (const unsigned char *)mbedtls_ssl_get_alpn_protocol(&wsi->tls.ssl->ssl);
+	name = (const unsigned char *)mbedtls_ssl_get_alpn_protocol(&wsi->io.tls.ssl->ssl);
 	len = name ? (unsigned int)strlen((const char *)name) : 0;
 #else
-	SSL_get0_alpn_selected(wsi->tls.ssl, &name, &len);
+	SSL_get0_alpn_selected(wsi->io.tls.ssl, &name, &len);
 #endif
 	if (!len) {
 		lwsl_info("no ALPN upgrade\n");
@@ -471,7 +471,7 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 	cstr[len] = '\0';
 
 	lwsl_info("%s: negotiated '%s' using ALPN\n", __func__, cstr);
-	wsi->tls.use_ssl |= LCCSCF_USE_SSL;
+	wsi->use_ssl |= LCCSCF_USE_SSL;
 
 #if defined(LWS_WITH_CLIENT)
 	/* record the successful ALPN in the cache */
@@ -1280,4 +1280,96 @@ lws_tls_resolve_grace_period_certs(struct lws_context *context,
 	return 0;
 }
 
+/*
+ * What sansIO may ask of the tls session (README.sans-io-split.md "The
+ * object"): the session is IO's, these are the questions.
+ */
+void *
+lws_tls_session_ptr(struct lws *wsi)
+{
+	return (void *)wsi->io.tls.ssl;
+}
 
+const uint8_t *
+lws_tls_wsi_hs_ca_id(struct lws *wsi)
+{
+	if (!wsi->io.tls.hs_ca_id_valid)
+		return NULL;
+
+	return wsi->io.tls.hs_ca_id;
+}
+
+#if defined(LWS_ROLE_QUIC)
+int
+lws_tls_quic_aead_type(struct lws *wsi)
+{
+	return (int)wsi->io.tls.quic_aead;
+}
+
+/* the alert the library raised for the handshake failure, or 0 */
+int
+lws_tls_quic_alert(struct lws *wsi)
+{
+#if defined(LWS_WITH_GNUTLS)
+	if (!wsi->io.tls.ssl)
+		return 0;
+
+	return (int)gnutls_alert_get((gnutls_session_t)wsi->io.tls.ssl);
+#else
+	return wsi->io.tls.quic_alert;
+#endif
+}
+
+/* the alpn the handshake selected: 1 with it copied into buf, else 0 */
+int
+lws_tls_quic_alpn(struct lws *wsi, char *buf, size_t len)
+{
+	const unsigned char *prot = NULL;
+	unsigned int plen = 0;
+
+	if (!wsi->io.tls.ssl)
+		return 0;
+
+#if defined(USE_WOLFSSL)
+	wolfSSL_get0_alpn_selected(wsi->io.tls.ssl, &prot, &plen);
+#elif defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_HAVE_mbedtls_ssl_get_alpn_protocol)
+	{
+		const char *alpn = mbedtls_ssl_get_alpn_protocol(&wsi->io.tls.ssl->ssl);
+
+		if (alpn) {
+			prot = (const unsigned char *)alpn;
+			plen = (unsigned int)strlen(alpn);
+		}
+	}
+#endif
+#elif defined(LWS_WITH_GNUTLS)
+	{
+		gnutls_datum_t dt;
+
+		if (gnutls_alpn_get_selected_protocol(wsi->io.tls.ssl, &dt) >= 0) {
+			prot = dt.data;
+			plen = dt.size;
+		}
+	}
+#elif defined(LWS_HAVE_SSL_get0_alpn_selected) || defined(OPENSSL_IS_AWSLC)
+	SSL_get0_alpn_selected(wsi->io.tls.ssl, &prot, &plen);
+#endif
+	if (!plen || !prot)
+		return 0;
+
+	if (plen + 1 > len)
+		plen = (unsigned int)len - 1;
+	lws_strncpy(buf, (const char *)prot, plen + 1);
+
+	return 1;
+}
+#endif
+
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL)
+SSL *
+lws_get_ssl(struct lws *wsi)
+{
+	return wsi->io.tls.ssl;
+}
+#endif

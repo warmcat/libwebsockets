@@ -511,9 +511,9 @@ lws_gnutls_server_name_cb(gnutls_session_t session)
 		return 0;
 	}
 
-	if (wsi->tls.ctx_ref)
-		lws_tls_ctx_ref_unref(wsi->tls.ctx_ref);
-	wsi->tls.ctx_ref = ref;
+	if (wsi->io.tls.ctx_ref)
+		lws_tls_ctx_ref_unref(wsi->io.tls.ctx_ref);
+	wsi->io.tls.ctx_ref = ref;
 
 	/* select the credentials from the selected vhost for this session */
 	gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, ref->ctx->creds);
@@ -599,16 +599,16 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	 * would then deinit an already-deinited session
 	 */
 
-	wsi->tls.ctx_ref = lws_tls_ctx_ref_get(wsi->a.vhost);
-	if (!wsi->tls.ctx_ref && (!wsi->a.vhost->tls.ssl_ctx)) {
+	wsi->io.tls.ctx_ref = lws_tls_ctx_ref_get(wsi->a.vhost);
+	if (!wsi->io.tls.ctx_ref && (!wsi->a.vhost->tls.ssl_ctx)) {
 		lwsl_err("%s: No server SSL context on vhost\n", __func__);
 		gnutls_deinit(session);
 		return 1;
 	}
 
-	wsi->tls.ssl = (lws_tls_conn *)session;
-	gnutls_priority_set(session, wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx->priority : wsi->a.vhost->tls.ssl_ctx->priority);
-	gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx->creds : wsi->a.vhost->tls.ssl_ctx->creds);
+	wsi->io.tls.ssl = (lws_tls_conn *)session;
+	gnutls_priority_set(session, wsi->io.tls.ctx_ref ? wsi->io.tls.ctx_ref->ctx->priority : wsi->a.vhost->tls.ssl_ctx->priority);
+	gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, wsi->io.tls.ctx_ref ? wsi->io.tls.ctx_ref->ctx->creds : wsi->a.vhost->tls.ssl_ctx->creds);
 
 	/*
 	 * GnuTLS keeps the "request a client certificate" state on the
@@ -624,7 +624,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 				      LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED) ?
 				GNUTLS_CERT_REQUEST : GNUTLS_CERT_REQUIRE);
 
-	gnutls_transport_set_int((gnutls_session_t)wsi->tls.ssl, (int)accept_fd);
+	gnutls_transport_set_int((gnutls_session_t)wsi->io.tls.ssl, (int)accept_fd);
 
 	gnutls_session_set_ptr(session, wsi);
 
@@ -766,7 +766,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		}
 	}
 
-	wsi->tls.ssl = (lws_tls_conn *)session;
+	wsi->io.tls.ssl = (lws_tls_conn *)session;
 
 	gnutls_priority_set(session, wsi->a.vhost->tls.ssl_client_ctx->priority);
 	gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, wsi->a.vhost->tls.ssl_client_ctx->creds);
@@ -877,8 +877,8 @@ lws_tls_ctx_from_wsi(struct lws *wsi)
 	 * that a tautology
 	 */
 
-	if (wsi->tls.ctx_ref)
-		return wsi->tls.ctx_ref->ctx;
+	if (wsi->io.tls.ctx_ref)
+		return wsi->io.tls.ctx_ref->ctx;
 
 	if (!wsi->a.vhost)
 		return NULL;
@@ -1061,7 +1061,7 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 	/* the tls session lives on the network wsi, as for the other backends */
 	wsi = lws_get_network_wsi(wsi);
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return -1;
 
 	/*
@@ -1072,7 +1072,7 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 	if (!len)
 		len = sizeof(buf->ns.name);
 
-	cert_list = gnutls_certificate_get_peers((gnutls_session_t)wsi->tls.ssl, &cert_list_size);
+	cert_list = gnutls_certificate_get_peers((gnutls_session_t)wsi->io.tls.ssl, &cert_list_size);
 	if (!cert_list || cert_list_size == 0)
 		return -1;
 
@@ -1095,7 +1095,7 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 		 */
 
 		buf->verified = !gnutls_certificate_verify_peers2(
-					(gnutls_session_t)wsi->tls.ssl,
+					(gnutls_session_t)wsi->io.tls.ssl,
 					&status) && !status;
 		ret = 0;
 		break;
@@ -1148,10 +1148,10 @@ bail:
 int
 lws_tls_session_is_reused(struct lws *wsi)
 {
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return 0;
 
-	return (int)gnutls_session_is_resumed((gnutls_session_t)wsi->tls.ssl);
+	return (int)gnutls_session_is_resumed((gnutls_session_t)wsi->io.tls.ssl);
 }
 
 #if !defined(LWS_WITH_TLS_SESSIONS)

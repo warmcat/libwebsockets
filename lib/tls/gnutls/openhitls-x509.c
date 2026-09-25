@@ -366,10 +366,10 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 	int ret;
 
 	wsi = lws_get_network_wsi(wsi);
-	if (!wsi || !wsi->tls.ssl || !buf) {
+	if (!wsi || !wsi->io.tls.ssl || !buf) {
 		return -1;
 	}
-	ssl = (HITLS_Ctx *)wsi->tls.ssl;
+	ssl = (HITLS_Ctx *)wsi->io.tls.ssl;
 	cert = HITLS_GetPeerCertificate(ssl);
 	if (!cert) {
 		lwsl_debug("%s: no peer certificate\n", __func__);

@@ -110,7 +110,7 @@ lws_tls_reuse_session(struct lws *wsi)
 		goto bail;
 	}
 
-	if (gnutls_session_set_data((gnutls_session_t)wsi->tls.ssl,
+	if (gnutls_session_set_data((gnutls_session_t)wsi->io.tls.ssl,
 				     ts->ser_data->data,
 				     ts->ser_data->len) != GNUTLS_E_SUCCESS) {
 		lwsl_tlssess("%s: failed to set gnutls session data\n", __func__);
@@ -183,7 +183,7 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 	const char *disposition = "reuse";
 #endif
 
-	if (!wsi || !wsi->tls.ssl || !wsi->a.vhost)
+	if (!wsi || !wsi->io.tls.ssl || !wsi->a.vhost)
 		return 0;
 
 	vh = wsi->a.vhost;
@@ -200,12 +200,12 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
 	/* Check if a session ticket has actually been received (TLS 1.3 requirement) */
-	unsigned sess_flags = gnutls_session_get_flags((gnutls_session_t)wsi->tls.ssl);
+	unsigned sess_flags = gnutls_session_get_flags((gnutls_session_t)wsi->io.tls.ssl);
 	lwsl_info("%s: QUIC session ticket check: flags=0x%x, has_ticket=%d\n", __func__,
 		    sess_flags, !!(sess_flags & GNUTLS_SFLAGS_SESSION_TICKET));
 #endif
 
-	int ret = gnutls_session_get_data2((gnutls_session_t)wsi->tls.ssl, &gd);
+	int ret = gnutls_session_get_data2((gnutls_session_t)wsi->io.tls.ssl, &gd);
 	lwsl_info("%s: gnutls_session_get_data2 ret=%d, len=%u\n", __func__, ret, gd.size);
 	if (ret != GNUTLS_E_SUCCESS) {
 		if (ret == GNUTLS_E_INTERNAL_ERROR)

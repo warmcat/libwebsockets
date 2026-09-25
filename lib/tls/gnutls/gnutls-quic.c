@@ -69,7 +69,7 @@ gnutls_quic_secret_func(gnutls_session_t session,
 	struct lws *wsi = (struct lws *)gnutls_session_get_ptr(session);
 	int is_client;
 
-	if (!wsi || !wsi->tls.quic_secret_cb || secret_size > 48)
+	if (!wsi || !wsi->io.tls.quic_secret_cb || secret_size > 48)
 		return 0;
 
 	/*
@@ -80,13 +80,13 @@ gnutls_quic_secret_func(gnutls_session_t session,
 	 */
 	switch (gnutls_cipher_get(session)) {
 	case GNUTLS_CIPHER_AES_128_GCM:
-		wsi->tls.quic_aead = LWS_TLS_QUIC_AEAD_AES_128_GCM;
+		wsi->io.tls.quic_aead = LWS_TLS_QUIC_AEAD_AES_128_GCM;
 		break;
 	case GNUTLS_CIPHER_AES_256_GCM:
-		wsi->tls.quic_aead = LWS_TLS_QUIC_AEAD_AES_256_GCM;
+		wsi->io.tls.quic_aead = LWS_TLS_QUIC_AEAD_AES_256_GCM;
 		break;
 	case GNUTLS_CIPHER_CHACHA20_POLY1305:
-		wsi->tls.quic_aead = LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305;
+		wsi->io.tls.quic_aead = LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305;
 		break;
 	default:
 		/* leave any previously-reported suite in force */
@@ -96,7 +96,7 @@ gnutls_quic_secret_func(gnutls_session_t session,
 	if (wsi->a.vhost)
 		is_client = lwsi_role_client(wsi) ? 1 : 0;
 	else
-		is_client = (wsi->tls.quic_tp_send_len == 3);
+		is_client = (wsi->io.tls.quic_tp_send_len == 3);
 
 	if (secret_write) {
 		enum lws_tls_quic_secret_type qtype;
@@ -113,7 +113,7 @@ gnutls_quic_secret_func(gnutls_session_t session,
 		default:
 			return 0;
 		}
-		wsi->tls.quic_secret_cb(wsi, qtype, secret_write, secret_size);
+		wsi->io.tls.quic_secret_cb(wsi, qtype, secret_write, secret_size);
 	}
 
 	if (secret_read) {
@@ -134,7 +134,7 @@ gnutls_quic_secret_func(gnutls_session_t session,
 		default:
 			return 0;
 		}
-		wsi->tls.quic_secret_cb(wsi, qtype, secret_read, secret_size);
+		wsi->io.tls.quic_secret_cb(wsi, qtype, secret_read, secret_size);
 	}
 
 	return 0;
@@ -155,10 +155,10 @@ gnutls_quic_read_func(gnutls_session_t session,
 	lwsl_debug("GNUTLS QUIC READ FUNC: level %d, htype %d, len %d\n",
 		(int)level, (int)htype, (int)data_size);
 
-	if (!wsi || !wsi->tls.client_bio)
+	if (!wsi || !wsi->io.tls.client_bio)
 		return 0;
 
-	b = (struct gnutls_quic_bio *)wsi->tls.client_bio;
+	b = (struct gnutls_quic_bio *)wsi->io.tls.client_bio;
 
 	switch (level) {
 	case GNUTLS_ENCRYPTION_LEVEL_INITIAL:
@@ -224,16 +224,16 @@ gnutls_quic_ext_recv_func(gnutls_session_t session, const unsigned char *data, s
 	if (!wsi)
 		return 0;
 
-	if (wsi->tls.quic_tp_recv)
-		lws_free_set_NULL(wsi->tls.quic_tp_recv);
+	if (wsi->io.tls.quic_tp_recv)
+		lws_free_set_NULL(wsi->io.tls.quic_tp_recv);
 
 	p = lws_malloc(len, "quic tp recv");
 	if (!p)
 		return GNUTLS_E_MEMORY_ERROR;
 
 	memcpy(p, data, len);
-	wsi->tls.quic_tp_recv = p;
-	wsi->tls.quic_tp_recv_len = len;
+	wsi->io.tls.quic_tp_recv = p;
+	wsi->io.tls.quic_tp_recv_len = len;
 
 	return 0;
 }
@@ -248,17 +248,17 @@ gnutls_quic_ext_send_func(gnutls_session_t session, gnutls_buffer_t extdata)
 		return 0;
 	}
 
-	if (!wsi->tls.quic_tp_send || !wsi->tls.quic_tp_send_len) {
-		lwsl_err("GNUTLS EXT SEND: no tp_send (%p, len %d)!\n", wsi->tls.quic_tp_send, (int)wsi->tls.quic_tp_send_len);
+	if (!wsi->io.tls.quic_tp_send || !wsi->io.tls.quic_tp_send_len) {
+		lwsl_err("GNUTLS EXT SEND: no tp_send (%p, len %d)!\n", wsi->io.tls.quic_tp_send, (int)wsi->io.tls.quic_tp_send_len);
 		return 0;
 	}
 
-	lwsl_info("GNUTLS EXT SEND: appending %d bytes of TP!\n", (int)wsi->tls.quic_tp_send_len);
+	lwsl_info("GNUTLS EXT SEND: appending %d bytes of TP!\n", (int)wsi->io.tls.quic_tp_send_len);
 
-	if (gnutls_buffer_append_data(extdata, wsi->tls.quic_tp_send, wsi->tls.quic_tp_send_len) < 0)
+	if (gnutls_buffer_append_data(extdata, wsi->io.tls.quic_tp_send, wsi->io.tls.quic_tp_send_len) < 0)
 		return GNUTLS_E_MEMORY_ERROR;
 
-	return (int)wsi->tls.quic_tp_send_len;
+	return (int)wsi->io.tls.quic_tp_send_len;
 }
 
 void
@@ -267,25 +267,25 @@ gnutls_quic_bio_free(struct lws *wsi)
 	if (!wsi)
 		return;
 
-	if (wsi->tls.client_bio) {
-		struct gnutls_quic_bio *b = (struct gnutls_quic_bio *)wsi->tls.client_bio;
+	if (wsi->io.tls.client_bio) {
+		struct gnutls_quic_bio *b = (struct gnutls_quic_bio *)wsi->io.tls.client_bio;
 		int i;
 		for (i = 0; i < 4; i++) {
 			if (b->other_out[i])
 				lws_free(b->other_out[i]);
 		}
-		lws_free(wsi->tls.client_bio);
-		wsi->tls.client_bio = NULL;
+		lws_free(wsi->io.tls.client_bio);
+		wsi->io.tls.client_bio = NULL;
 	}
 
-	if (wsi->tls.quic_tp_recv) {
-		lws_free((void *)wsi->tls.quic_tp_recv);
-		wsi->tls.quic_tp_recv = NULL;
+	if (wsi->io.tls.quic_tp_recv) {
+		lws_free((void *)wsi->io.tls.quic_tp_recv);
+		wsi->io.tls.quic_tp_recv = NULL;
 	}
 
-	if (wsi->tls.quic_tp_send) {
-		lws_free((void *)wsi->tls.quic_tp_send);
-		wsi->tls.quic_tp_send = NULL;
+	if (wsi->io.tls.quic_tp_send) {
+		lws_free((void *)wsi->io.tls.quic_tp_send);
+		wsi->io.tls.quic_tp_send = NULL;
 	}
 }
 
@@ -301,13 +301,13 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	struct gnutls_quic_bio *b;
 	gnutls_session_t session;
 
-	if (!wsi->tls.ssl) {
-		lwsl_err("lws_tls_quic_init: wsi->tls.ssl is NULL\n");
+	if (!wsi->io.tls.ssl) {
+		lwsl_err("lws_tls_quic_init: wsi->io.tls.ssl is NULL\n");
 		return -1;
 	}
 
 	int ret;
-	session = (gnutls_session_t)wsi->tls.ssl;
+	session = (gnutls_session_t)wsi->io.tls.ssl;
 	if (!session) {
 		lwsl_err("lws_tls_quic_init: session is NULL\n");
 		return -1;
@@ -352,7 +352,7 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 		return -1;
 	}
 
-	if (!wsi->tls.quic_tp_send) {
+	if (!wsi->io.tls.quic_tp_send) {
 		/* Construct dynamically to include loc_cid */
 		struct lws_quic_netconn *qn = wsi->quic.qn;
 		uint8_t dynamic_tp[128];
@@ -386,10 +386,10 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 			p += qn->loc_cid.len;
 		}
 
-		wsi->tls.quic_tp_send = lws_malloc((size_t)(p - dynamic_tp), "quic tp");
-		if (wsi->tls.quic_tp_send) {
-			memcpy((void *)wsi->tls.quic_tp_send, dynamic_tp, (size_t)(p - dynamic_tp));
-			wsi->tls.quic_tp_send_len = (size_t)(p - dynamic_tp);
+		wsi->io.tls.quic_tp_send = lws_malloc((size_t)(p - dynamic_tp), "quic tp");
+		if (wsi->io.tls.quic_tp_send) {
+			memcpy((void *)wsi->io.tls.quic_tp_send, dynamic_tp, (size_t)(p - dynamic_tp));
+			wsi->io.tls.quic_tp_send_len = (size_t)(p - dynamic_tp);
 		}
 	}
 
@@ -430,7 +430,7 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 		gnutls_alpn_set_protocols(session, alpn, i, GNUTLS_ALPN_MANDATORY);
 	}
 
-	wsi->tls.quic_secret_cb = cb;
+	wsi->io.tls.quic_secret_cb = cb;
 
 	b = lws_zalloc(sizeof(*b), "quic bio");
 	if (!b) {
@@ -440,7 +440,7 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 
 	b->session = session;
 
-	wsi->tls.client_bio = (lws_tls_bio *)b;
+	wsi->io.tls.client_bio = (lws_tls_bio *)b;
 
 	gnutls_transport_set_ptr(session, b);
 	gnutls_transport_set_push_function(session, gnutls_quic_bio_push);
@@ -491,8 +491,8 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			       const uint8_t *in, size_t in_len,
 			       uint8_t *out, size_t *out_len)
 {
-	gnutls_session_t session = (gnutls_session_t)wsi->tls.ssl;
-	struct gnutls_quic_bio *b = (struct gnutls_quic_bio *)wsi->tls.client_bio;
+	gnutls_session_t session = (gnutls_session_t)wsi->io.tls.ssl;
+	struct gnutls_quic_bio *b = (struct gnutls_quic_bio *)wsi->io.tls.client_bio;
 	int n, l;
 
 	if (!b || !session)
@@ -593,31 +593,31 @@ lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t
 {
 	uint8_t *p;
 
-	if (wsi->tls.quic_tp_send)
-		lws_free((void *)wsi->tls.quic_tp_send);
+	if (wsi->io.tls.quic_tp_send)
+		lws_free((void *)wsi->io.tls.quic_tp_send);
 
 	p = lws_malloc(tp_len, "quic tp send");
 	if (!p)
 		return -1;
 
 	memcpy(p, tp, tp_len);
-	wsi->tls.quic_tp_send = p;
-	wsi->tls.quic_tp_send_len = tp_len;
+	wsi->io.tls.quic_tp_send = p;
+	wsi->io.tls.quic_tp_send_len = tp_len;
 	return 0;
 }
 
 int
 lws_tls_quic_get_transport_parameters(struct lws *wsi, const uint8_t **tp, size_t *tp_len)
 {
-	if (!wsi->tls.quic_tp_recv) {
+	if (!wsi->io.tls.quic_tp_recv) {
 		if (tp_len)
 			*tp_len = 0;
 		return -1;
 	}
 
-	*tp = wsi->tls.quic_tp_recv;
+	*tp = wsi->io.tls.quic_tp_recv;
 	if (tp_len)
-		*tp_len = wsi->tls.quic_tp_recv_len;
+		*tp_len = wsi->io.tls.quic_tp_recv_len;
 
 	return 0;
 }
@@ -664,8 +664,8 @@ lws_tls_quic_api_test(void)
 	gnutls_credentials_set(ssession, GNUTLS_CRD_CERTIFICATE, s_cred);
 	gnutls_credentials_set(csession, GNUTLS_CRD_CERTIFICATE, c_cred);
 
-	wsi_client.tls.ssl = (lws_tls_conn *)csession;
-	wsi_server.tls.ssl = (lws_tls_conn *)ssession;
+	wsi_client.io.tls.ssl = (lws_tls_conn *)csession;
+	wsi_server.io.tls.ssl = (lws_tls_conn *)ssession;
 
 	if (lws_tls_quic_init(&wsi_client, test_secret_cb))
 		goto fail;
@@ -734,10 +734,10 @@ lws_tls_quic_migrate_wsi(struct lws *old_wsi, struct lws *new_wsi)
 {
 	gnutls_session_t session;
 
-	if (!new_wsi || !new_wsi->tls.ssl)
+	if (!new_wsi || !new_wsi->io.tls.ssl)
 		return -1;
 
-	session = (gnutls_session_t)new_wsi->tls.ssl;
+	session = (gnutls_session_t)new_wsi->io.tls.ssl;
 	gnutls_session_set_ptr(session, new_wsi);
 
 	return 0;

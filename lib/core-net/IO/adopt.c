@@ -1414,6 +1414,9 @@ lws_io_connect_timers_cancel(struct lws *wsi)
 	lws_sul_cancel(&wsi->io.sul_happy_eyeballs);
 	lws_sul_cancel(&wsi->io.sul_h3_grace);
 #endif
+#if defined(LWS_TLS_SYNTHESIZE_CB)
+	lws_sul_cancel(&wsi->io.tls.sul_cb_synth);
+#endif
 }
 
 /*
@@ -1532,7 +1535,7 @@ lws_io_shutdown_write(struct lws *wsi)
 		return 0; /* nothing to shut on a datagram socket */
 #endif
 #if defined(LWS_WITH_TLS)
-	if (lws_is_ssl(wsi) && wsi->tls.ssl) {
+	if (lws_is_ssl(wsi) && wsi->io.tls.ssl) {
 		__lws_tls_shutdown(wsi);
 
 		return 1;
@@ -1647,19 +1650,19 @@ if (__insert_wsi_socket_into_fds(wsi->a.context, wnew)) {
 /* pass on the tls */
 
 #if defined(LWS_TLS_SYNTHESIZE_CB)
-lws_sul_cancel(&wsi->tls.sul_cb_synth);
+lws_sul_cancel(&wsi->io.tls.sul_cb_synth);
 /*
  * ...but only if there is a tls session to harvest: a cleartext
  * keepalive handover has no tls.ssl for the backend to look inside
  */
-if (wsi->tls.ssl)
-	lws_sess_cache_synth_cb(&wsi->tls.sul_cb_synth);
+if (wsi->io.tls.ssl)
+	lws_sess_cache_synth_cb(&wsi->io.tls.sul_cb_synth);
 #endif
 
-wnew->tls = wsi->tls;
-wsi->tls.client_bio = NULL;
-wsi->tls.ssl = NULL;
-wsi->tls.use_ssl = 0;
+wnew->io.tls = wsi->io.tls;
+wsi->io.tls.client_bio = NULL;
+wsi->io.tls.ssl = NULL;
+wsi->use_ssl = 0;
 #endif
 
 	return 0;

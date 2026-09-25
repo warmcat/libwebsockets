@@ -158,8 +158,8 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 						 */
 						if (lws_ssl_pending(job->wsi)) {
 							lws_pt_lock(pt, __func__);
-							if (lws_dll2_is_detached(&job->wsi->tls.dll_pending_tls)) {
-								lws_dll2_add_head(&job->wsi->tls.dll_pending_tls,
+							if (lws_dll2_is_detached(&job->wsi->io.tls.dll_pending_tls)) {
+								lws_dll2_add_head(&job->wsi->io.tls.dll_pending_tls,
 										  &pt->tls.dll_pending_tls_owner);
 								lwsl_notice("ops-pipe added %s to pending tls list, pos=%d\n", lws_wsi_tag(job->wsi), job->wsi->io.position_in_fds_table);
 							}

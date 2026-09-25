@@ -382,7 +382,7 @@ solo:
 		return NULL;
 
 #if defined(LWS_WITH_TLS)
-	if (wsi->a.context->alpn_cache && wsi->tls.use_ssl && wsi->c_port) {
+	if (wsi->a.context->alpn_cache && wsi->use_ssl && wsi->c_port) {
 		char key[256];
 		const char *cached_alpn;
 		size_t clen;
@@ -398,7 +398,7 @@ solo:
 #endif
 
 #if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
-	if (wsi->tls.use_ssl && !wsi->tried_quic) {
+	if (wsi->use_ssl && !wsi->tried_quic) {
 		int try_quic = 0;
 		uint16_t alt_port = 0;
 
@@ -602,7 +602,7 @@ solo:
 
 
 #if defined(LWS_WITH_TLS)
-		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+		if (wsi->use_ssl & LCCSCF_USE_SSL) {
 			/*
 			 * Standalone query (no wsi), so the h3 discovery does
 			 * not gate the A lookup we actually need.  Nothing

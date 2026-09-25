@@ -488,8 +488,8 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	struct lws_tls_conn *conn;
 
 	errno = 0;
-	wsi->tls.ctx_ref = lws_tls_ctx_ref_get(wsi->a.vhost);
-	if (!wsi->tls.ctx_ref && !wsi->a.vhost->tls.ssl_ctx) {
+	wsi->io.tls.ctx_ref = lws_tls_ctx_ref_get(wsi->a.vhost);
+	if (!wsi->io.tls.ctx_ref && !wsi->a.vhost->tls.ssl_ctx) {
 		lwsl_err("No TLS context\n");
 		return 1;
 	}
@@ -498,8 +498,8 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	if (!conn)
 		return 1;
 
-	wsi->tls.ssl = (lws_tls_conn *)conn;
-	conn->ctx = wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx : wsi->a.vhost->tls.ssl_ctx;
+	wsi->io.tls.ssl = (lws_tls_conn *)conn;
+	conn->ctx = wsi->io.tls.ctx_ref ? wsi->io.tls.ctx_ref->ctx : wsi->a.vhost->tls.ssl_ctx;
 
 	mbedtls_ssl_init(&conn->ssl);
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03020000
@@ -511,7 +511,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	if (mbedtls_ssl_setup(&conn->ssl, &conn->ctx->conf)) {
 		mbedtls_ssl_free(&conn->ssl);
 		lws_free(conn);
-		wsi->tls.ssl = NULL;
+		wsi->io.tls.ssl = NULL;
 		return 1;
 	}
 
@@ -524,17 +524,17 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 enum lws_ssl_capable_status
 lws_tls_server_abort_connection(struct lws *wsi)
 {
-	if (wsi->tls.use_ssl)
+	if (wsi->use_ssl)
 		__lws_tls_shutdown(wsi);
 	
 #if defined(LWS_ROLE_QUIC)
 	mbedtls_quic_bio_free(wsi);
 #endif
 
-	if (wsi->tls.ssl) {
-		mbedtls_ssl_free(&wsi->tls.ssl->ssl);
-		lws_free(wsi->tls.ssl);
-		wsi->tls.ssl = NULL;
+	if (wsi->io.tls.ssl) {
+		mbedtls_ssl_free(&wsi->io.tls.ssl->ssl);
+		lws_free(wsi->io.tls.ssl);
+		wsi->io.tls.ssl = NULL;
 	}
 
 	return 0;
@@ -554,12 +554,12 @@ lws_tls_server_accept(struct lws *wsi)
 	lws_usec_t _o_mbed_ssl_acc_start = lws_now_usecs();
 #endif
 
-	n = mbedtls_ssl_handshake(&wsi->tls.ssl->ssl);
+	n = mbedtls_ssl_handshake(&wsi->io.tls.ssl->ssl);
 
 #if defined(LWS_WITH_LATENCY)
 	{
 		unsigned int ms = (unsigned int)((lws_now_usecs() - _o_mbed_ssl_acc_start) / 1000);
-		if (ms > 2 && !wsi->tls.ssl_accept_in_bg)
+		if (ms > 2 && !wsi->io.tls.ssl_accept_in_bg)
 			lws_latency_note(&wsi->a.context->pt[(int)wsi->tsi], _o_mbed_ssl_acc_start, 2000, "ssl_accept:%dms", ms);
 	}
 #endif
@@ -574,7 +574,7 @@ lws_tls_server_accept(struct lws *wsi)
 		if (lws_check_opt(wsi->a.vhost->options,
 			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)) {
 			uint32_t f = mbedtls_ssl_get_verify_result(
-							&wsi->tls.ssl->ssl);
+							&wsi->io.tls.ssl->ssl);
 
 			/*
 			 * With LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED the
@@ -622,7 +622,7 @@ lws_tls_server_accept(struct lws *wsi)
 #endif
 
 	if (n == MBEDTLS_ERR_SSL_WANT_READ) {
-		if (!wsi->tls.ssl_accept_in_bg && lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+		if (!wsi->io.tls.ssl_accept_in_bg && lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
 			lwsl_info("%s: WANT_READ change_pollfd failed\n", __func__);
 			return LWS_SSL_CAPABLE_ERROR;
 		}
@@ -631,7 +631,7 @@ lws_tls_server_accept(struct lws *wsi)
 
 #if defined(MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET)
 	if (n == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) {
-		if (!wsi->tls.ssl_accept_in_bg && lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+		if (!wsi->io.tls.ssl_accept_in_bg && lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
 			lwsl_info("%s: WANT_READ change_pollfd failed\n", __func__);
 			return LWS_SSL_CAPABLE_ERROR;
 		}
@@ -640,7 +640,7 @@ lws_tls_server_accept(struct lws *wsi)
 #endif
 
 	if (n == MBEDTLS_ERR_SSL_WANT_WRITE) {
-		if (!wsi->tls.ssl_accept_in_bg && lws_change_pollfd(wsi, 0, LWS_POLLOUT)) {
+		if (!wsi->io.tls.ssl_accept_in_bg && lws_change_pollfd(wsi, 0, LWS_POLLOUT)) {
 			lwsl_info("%s: WANT_WRITE change_pollfd failed\n", __func__);
 			return LWS_SSL_CAPABLE_ERROR;
 		}

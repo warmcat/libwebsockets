@@ -251,7 +251,7 @@ lws_client_alt_svc_learn(struct lws *wsi)
 	int n;
 
 #if defined(LWS_WITH_TLS)
-	if (!(nwsi->tls.use_ssl & LCCSCF_USE_SSL))
+	if (!(nwsi->use_ssl & LCCSCF_USE_SSL))
 		/* insecure origin, ignore per RFC 7838 */
 		return;
 #endif

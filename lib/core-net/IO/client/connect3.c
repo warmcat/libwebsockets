@@ -152,7 +152,7 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 	 * h2 role and starting a fresh connect attempt on it: the wsi still
 	 * owns the QUIC TLS session objects, so the TCP TLS handshake
 	 * reuses them (lws_client_create_tls() only builds a new SSL
-	 * session when wsi->tls.ssl is NULL) and can then never complete,
+	 * session when wsi->io.tls.ssl is NULL) and can then never complete,
 	 * wedging the connection until timeout.  The redirect-marked close
 	 * flow destroys the QUIC role and TLS state properly (including
 	 * closing any parallel happy-eyeballs racers and the QUIC socket)

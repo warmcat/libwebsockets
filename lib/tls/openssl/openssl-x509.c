@@ -520,7 +520,7 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 
 	wsi = lws_get_network_wsi(wsi);
 
-	x509 = SSL_get_peer_certificate(wsi->tls.ssl);
+	x509 = SSL_get_peer_certificate(wsi->io.tls.ssl);
 
 	if (!x509) {
 		lwsl_debug("no peer cert\n");
@@ -530,7 +530,7 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 
 	switch (type) {
 	case LWS_TLS_CERT_INFO_VERIFIED:
-		buf->verified = SSL_get_verify_result(wsi->tls.ssl) ==
+		buf->verified = SSL_get_verify_result(wsi->io.tls.ssl) ==
 					X509_V_OK;
 		break;
 	default:

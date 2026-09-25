@@ -1940,6 +1940,12 @@ lws_io_udp_is_bound(struct lws *wsi)
 int
 lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi)
 {
+#if defined(LWS_WITH_TLS)
+	/* the tls session goes with the socket */
+	nwsi->io.tls = wsi->io.tls;
+	memset(&wsi->io.tls, 0, sizeof(wsi->io.tls));
+	lws_tls_quic_migrate_wsi(wsi, nwsi);
+#endif
 	nwsi->io.desc = wsi->io.desc;
 	nwsi->io.sa46_peer = wsi->io.sa46_peer;
 #if defined(LWS_WITH_UDP)

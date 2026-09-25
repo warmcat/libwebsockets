@@ -137,7 +137,7 @@ lws_tls_reuse_session(struct lws *wsi)
 	goto bail;
 #endif
 
-	msc = &wsi->tls.ssl->ssl;
+	msc = &wsi->io.tls.ssl->ssl;
 	if (mbedtls_ssl_set_session(msc, &session)) {
 		/*
 		 * Nothing was installed, so we are about to do a full
@@ -241,7 +241,7 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 
 	nl = strlen(buf);
 
-	msc = &wsi->tls.ssl->ssl;
+	msc = &wsi->io.tls.ssl->ssl;
 
 	/*
 	 * mbedtls clients run at VERIFY_OPTIONAL, so the handshake completes
@@ -404,7 +404,7 @@ lws_sess_cache_synth_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws_lws_tls *tls = lws_container_of(sul, struct lws_lws_tls,
 						   sul_cb_synth);
-	struct lws *wsi = lws_container_of(tls, struct lws, tls);
+	struct lws *wsi = lws_container_of(tls, struct lws, io.tls);
 
 	lws_tls_session_new_mbedtls(wsi);
 }

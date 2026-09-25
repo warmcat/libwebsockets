@@ -81,7 +81,7 @@ set_encryption_secrets(WOLFSSL *ssl, enum wolfssl_encryption_level_t level,
 	 */
 	c = SSL_get_current_cipher((SSL *)ssl);
 	if (c)
-		wsi->tls.quic_aead = lws_openssl_quic_aead_from_id(
+		wsi->io.tls.quic_aead = lws_openssl_quic_aead_from_id(
 					(uint32_t)SSL_CIPHER_get_id(c));
 
 	switch (level) {
@@ -101,11 +101,11 @@ set_encryption_secrets(WOLFSSL *ssl, enum wolfssl_encryption_level_t level,
 		return 1;
 	}
 
-	if (read_secret && wsi->tls.quic_secret_cb)
-		wsi->tls.quic_secret_cb(wsi, rt, read_secret, secret_len);
+	if (read_secret && wsi->io.tls.quic_secret_cb)
+		wsi->io.tls.quic_secret_cb(wsi, rt, read_secret, secret_len);
 
-	if (write_secret && wsi->tls.quic_secret_cb)
-		wsi->tls.quic_secret_cb(wsi, wt, write_secret, secret_len);
+	if (write_secret && wsi->io.tls.quic_secret_cb)
+		wsi->io.tls.quic_secret_cb(wsi, wt, write_secret, secret_len);
 
 	return 1;
 }
@@ -132,17 +132,17 @@ add_handshake_data(WOLFSSL *ssl, enum wolfssl_encryption_level_t level,
 	default: return 0;
 	}
 
-	if (wsi->tls.quic_secret_cb == test_secret_cb) {
-		uint8_t *out = (uint8_t *)wsi->tls.quic_tp_send;
-		size_t written = (size_t)(uintptr_t)wsi->tls.quic_tp_recv;
-		size_t capacity = wsi->tls.quic_tp_recv_len;
+	if (wsi->io.tls.quic_secret_cb == test_secret_cb) {
+		uint8_t *out = (uint8_t *)wsi->io.tls.quic_tp_send;
+		size_t written = (size_t)(uintptr_t)wsi->io.tls.quic_tp_recv;
+		size_t capacity = wsi->io.tls.quic_tp_recv_len;
 
 		if (out && written + 3 + len <= capacity) {
 			out[written] = (uint8_t)level;
 			out[written + 1] = (uint8_t)((len >> 8) & 0xff);
 			out[written + 2] = (uint8_t)(len & 0xff);
 			memcpy(out + written + 3, data, len);
-			wsi->tls.quic_tp_recv = (uint8_t *)(uintptr_t)(written + 3 + len);
+			wsi->io.tls.quic_tp_recv = (uint8_t *)(uintptr_t)(written + 3 + len);
 		}
 		return 1;
 	}
@@ -163,7 +163,7 @@ send_alert(WOLFSSL *ssl, enum wolfssl_encryption_level_t level, uint8_t alert)
 {
 	struct lws *wsi = (struct lws *)SSL_get_app_data((SSL *)ssl);
 	if (wsi)
-		wsi->tls.quic_alert = alert;
+		wsi->io.tls.quic_alert = alert;
 	return 1;
 }
 
@@ -189,7 +189,7 @@ set_read_secret(SSL *ssl, enum ssl_encryption_level_t level,
 
 	/* Report the negotiated AEAD (see lws_openssl_quic_aead_from_id). */
 	if (cipher)
-		wsi->tls.quic_aead = lws_openssl_quic_aead_from_id(
+		wsi->io.tls.quic_aead = lws_openssl_quic_aead_from_id(
 					(uint32_t)SSL_CIPHER_get_id(cipher));
 
 	switch (level) {
@@ -206,8 +206,8 @@ set_read_secret(SSL *ssl, enum ssl_encryption_level_t level,
 		return 1;
 	}
 
-	if (wsi->tls.quic_secret_cb)
-		wsi->tls.quic_secret_cb(wsi, t, secret, secret_len);
+	if (wsi->io.tls.quic_secret_cb)
+		wsi->io.tls.quic_secret_cb(wsi, t, secret, secret_len);
 
 	return 1;
 }
@@ -225,7 +225,7 @@ set_write_secret(SSL *ssl, enum ssl_encryption_level_t level,
 
 	/* Report the negotiated AEAD (see lws_openssl_quic_aead_from_id). */
 	if (cipher)
-		wsi->tls.quic_aead = lws_openssl_quic_aead_from_id(
+		wsi->io.tls.quic_aead = lws_openssl_quic_aead_from_id(
 					(uint32_t)SSL_CIPHER_get_id(cipher));
 
 	switch (level) {
@@ -242,8 +242,8 @@ set_write_secret(SSL *ssl, enum ssl_encryption_level_t level,
 		return 1;
 	}
 
-	if (wsi->tls.quic_secret_cb)
-		wsi->tls.quic_secret_cb(wsi, t, secret, secret_len);
+	if (wsi->io.tls.quic_secret_cb)
+		wsi->io.tls.quic_secret_cb(wsi, t, secret, secret_len);
 
 	return 1;
 }
@@ -270,17 +270,17 @@ add_handshake_data(SSL *ssl, enum ssl_encryption_level_t level,
 	default: return 0;
 	}
 
-	if (wsi->tls.quic_secret_cb == test_secret_cb) {
-		uint8_t *out = (uint8_t *)wsi->tls.quic_tp_send;
-		size_t written = (size_t)(uintptr_t)wsi->tls.quic_tp_recv;
-		size_t capacity = wsi->tls.quic_tp_recv_len;
+	if (wsi->io.tls.quic_secret_cb == test_secret_cb) {
+		uint8_t *out = (uint8_t *)wsi->io.tls.quic_tp_send;
+		size_t written = (size_t)(uintptr_t)wsi->io.tls.quic_tp_recv;
+		size_t capacity = wsi->io.tls.quic_tp_recv_len;
 
 		if (out && written + 3 + len <= capacity) {
 			out[written] = (uint8_t)level;
 			out[written + 1] = (uint8_t)((len >> 8) & 0xff);
 			out[written + 2] = (uint8_t)(len & 0xff);
 			memcpy(out + written + 3, data, len);
-			wsi->tls.quic_tp_recv = (uint8_t *)(uintptr_t)(written + 3 + len);
+			wsi->io.tls.quic_tp_recv = (uint8_t *)(uintptr_t)(written + 3 + len);
 		}
 		return 1;
 	}
@@ -307,7 +307,7 @@ send_alert(SSL *ssl, enum ssl_encryption_level_t level, uint8_t alert)
 	 */
 	lwsl_info("%s: alert %d, wsi %p\n", __func__, alert, (void *)wsi);
 	if (wsi)
-		wsi->tls.quic_alert = alert;
+		wsi->io.tls.quic_alert = alert;
 	return 1;
 }
 
@@ -330,11 +330,11 @@ lws_tls_quic_vhost_init(SSL_CTX *ctx)
 int
 lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 {
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return -1;
 
-	wsi->tls.quic_secret_cb = cb;
-	SSL_set_app_data(wsi->tls.ssl, wsi);
+	wsi->io.tls.quic_secret_cb = cb;
+	SSL_set_app_data(wsi->io.tls.ssl, wsi);
 
 	/*
 	 * RFC 9001 4.2: QUIC uses TLS 1.3 and nothing else.  The vhost ctx we
@@ -343,23 +343,23 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	 * connection, which is a per-SSL setting and does not affect them.
 	 */
 #if defined(TLS1_3_VERSION)
-	SSL_set_min_proto_version(wsi->tls.ssl, TLS1_3_VERSION);
-	SSL_set_max_proto_version(wsi->tls.ssl, TLS1_3_VERSION);
+	SSL_set_min_proto_version(wsi->io.tls.ssl, TLS1_3_VERSION);
+	SSL_set_max_proto_version(wsi->io.tls.ssl, TLS1_3_VERSION);
 #endif
 
 #if defined(USE_WOLFSSL)
-	wolfSSL_set_quic_method(wsi->tls.ssl, &quic_method);
+	wolfSSL_set_quic_method(wsi->io.tls.ssl, &quic_method);
 #else
-	SSL_set_quic_method(wsi->tls.ssl, &quic_method);
+	SSL_set_quic_method(wsi->io.tls.ssl, &quic_method);
 #endif
 
 	if (lwsi_role_client(wsi)) {
 		if (wsi->flags & LCCSCF_ALLOW_EARLY_DATA) {
 #if !defined(USE_WOLFSSL) && !defined(LWS_WITH_MBEDTLS)
-			SSL_set_early_data_enabled(wsi->tls.ssl, 1);
+			SSL_set_early_data_enabled(wsi->io.tls.ssl, 1);
 #endif
 		}
-		SSL_set_connect_state(wsi->tls.ssl);
+		SSL_set_connect_state(wsi->io.tls.ssl);
 	} else {
 		/*
 		 * We deliberately do not enable server-side 0-RTT.  RFC 9001
@@ -375,23 +375,23 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 			lwsl_wsi_info(wsi, "LWS_SERVER_OPTION_ALLOW_EARLY_DATA "
 					   "ignored: no 0-RTT replay mitigation");
 
-		SSL_set_accept_state(wsi->tls.ssl);
+		SSL_set_accept_state(wsi->io.tls.ssl);
 	}
 
-	if (!wsi->tls.quic_tp_send) {
+	if (!wsi->io.tls.quic_tp_send) {
 		const uint8_t dummy_tp[] = {
 			0x04, 0x04, 0x00, 0x00, 0x00, 0x00
 		};
 #if defined(USE_WOLFSSL)
-		wolfSSL_set_quic_transport_params(wsi->tls.ssl, dummy_tp, sizeof(dummy_tp));
+		wolfSSL_set_quic_transport_params(wsi->io.tls.ssl, dummy_tp, sizeof(dummy_tp));
 #else
-		SSL_set_quic_transport_params(wsi->tls.ssl, dummy_tp, sizeof(dummy_tp));
+		SSL_set_quic_transport_params(wsi->io.tls.ssl, dummy_tp, sizeof(dummy_tp));
 #endif
 	} else {
 #if defined(USE_WOLFSSL)
-		if (wolfSSL_set_quic_transport_params(wsi->tls.ssl, wsi->tls.quic_tp_send, wsi->tls.quic_tp_send_len) != 1) lwsl_err("SSL_set_quic_transport_params FAILED!");
+		if (wolfSSL_set_quic_transport_params(wsi->io.tls.ssl, wsi->io.tls.quic_tp_send, wsi->io.tls.quic_tp_send_len) != 1) lwsl_err("SSL_set_quic_transport_params FAILED!");
 #else
-		if (SSL_set_quic_transport_params(wsi->tls.ssl, wsi->tls.quic_tp_send, wsi->tls.quic_tp_send_len) != 1) lwsl_err("SSL_set_quic_transport_params FAILED!");
+		if (SSL_set_quic_transport_params(wsi->io.tls.ssl, wsi->io.tls.quic_tp_send, wsi->io.tls.quic_tp_send_len) != 1) lwsl_err("SSL_set_quic_transport_params FAILED!");
 #endif
 	}
 
@@ -410,17 +410,17 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 #endif
 	int hs_n;
 
-	if (wsi->tls.quic_secret_cb == test_secret_cb) {
-		wsi->tls.quic_tp_send = out;
-		wsi->tls.quic_tp_recv_len = out_len ? *out_len : 0;
-		wsi->tls.quic_tp_recv = NULL;
+	if (wsi->io.tls.quic_secret_cb == test_secret_cb) {
+		wsi->io.tls.quic_tp_send = out;
+		wsi->io.tls.quic_tp_recv_len = out_len ? *out_len : 0;
+		wsi->io.tls.quic_tp_recv = NULL;
 	} else {
 		if (out_len)
 			*out_len = 0;
 	}
 
 	if (in && in_len) {
-		if (wsi->tls.quic_secret_cb == test_secret_cb) {
+		if (wsi->io.tls.quic_secret_cb == test_secret_cb) {
 			size_t offset = 0;
 			int fed_any;
 			do {
@@ -437,11 +437,11 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 						break;
 
 #if defined(USE_WOLFSSL)
-					if (wolfSSL_provide_quic_data(wsi->tls.ssl, chunk_level, in + chunk_offset + 3, chunk_len) == 1) {
-						wolfSSL_quic_do_handshake(wsi->tls.ssl);
+					if (wolfSSL_provide_quic_data(wsi->io.tls.ssl, chunk_level, in + chunk_offset + 3, chunk_len) == 1) {
+						wolfSSL_quic_do_handshake(wsi->io.tls.ssl);
 #else
-					if (SSL_provide_quic_data(wsi->tls.ssl, chunk_level, in + chunk_offset + 3, chunk_len) == 1) {
-						SSL_do_handshake(wsi->tls.ssl);
+					if (SSL_provide_quic_data(wsi->io.tls.ssl, chunk_level, in + chunk_offset + 3, chunk_len) == 1) {
+						SSL_do_handshake(wsi->io.tls.ssl);
 #endif
 						fed_any = 1;
 						offset = chunk_offset + 3 + chunk_len;
@@ -467,9 +467,9 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			}
 
 #if defined(USE_WOLFSSL)
-			if (wolfSSL_provide_quic_data(wsi->tls.ssl, bssl_level, in, in_len) != 1)
+			if (wolfSSL_provide_quic_data(wsi->io.tls.ssl, bssl_level, in, in_len) != 1)
 #else
-			if (SSL_provide_quic_data(wsi->tls.ssl, bssl_level, in, in_len) != 1)
+			if (SSL_provide_quic_data(wsi->io.tls.ssl, bssl_level, in, in_len) != 1)
 #endif
 				return -1;
 		}
@@ -487,12 +487,12 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 	 * which session resumption can never work.  A failure here is a fatal
 	 * TLS error, so tear the connection down.
 	 */
-	if (wsi->tls.quic_secret_cb != test_secret_cb &&
-	    SSL_is_init_finished(wsi->tls.ssl)) {
+	if (wsi->io.tls.quic_secret_cb != test_secret_cb &&
+	    SSL_is_init_finished(wsi->io.tls.ssl)) {
 #if defined(USE_WOLFSSL)
-		if (wolfSSL_process_quic_post_handshake(wsi->tls.ssl) != 1) {
+		if (wolfSSL_process_quic_post_handshake(wsi->io.tls.ssl) != 1) {
 #else
-		if (SSL_process_quic_post_handshake(wsi->tls.ssl) != 1) {
+		if (SSL_process_quic_post_handshake(wsi->io.tls.ssl) != 1) {
 #endif
 			unsigned long pe = ERR_get_error();
 
@@ -507,17 +507,17 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 	}
 
 #if defined(USE_WOLFSSL)
-	hs_n = wolfSSL_quic_do_handshake(wsi->tls.ssl);
+	hs_n = wolfSSL_quic_do_handshake(wsi->io.tls.ssl);
 #else
-	hs_n = SSL_do_handshake(wsi->tls.ssl);
+	hs_n = SSL_do_handshake(wsi->io.tls.ssl);
 #endif
 
-	if (wsi->tls.quic_secret_cb == test_secret_cb) {
-		*out_len = (size_t)(uintptr_t)wsi->tls.quic_tp_recv;
+	if (wsi->io.tls.quic_secret_cb == test_secret_cb) {
+		*out_len = (size_t)(uintptr_t)wsi->io.tls.quic_tp_recv;
 	}
 
 	if (hs_n <= 0) {
-		int err = SSL_get_error(wsi->tls.ssl, hs_n);
+		int err = SSL_get_error(wsi->io.tls.ssl, hs_n);
 		if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
 			return 1;
 
@@ -544,26 +544,26 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 int
 lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t tp_len)
 {
-	if (wsi->tls.quic_tp_send) {
-		lws_free((void *)wsi->tls.quic_tp_send);
-		wsi->tls.quic_tp_send = NULL;
+	if (wsi->io.tls.quic_tp_send) {
+		lws_free((void *)wsi->io.tls.quic_tp_send);
+		wsi->io.tls.quic_tp_send = NULL;
 	}
 
 	uint8_t *p = lws_malloc(tp_len, "quic tp");
 	if (!p)
 		return -1;
 	memcpy(p, tp, tp_len);
-	wsi->tls.quic_tp_send = p;
-	wsi->tls.quic_tp_send_len = tp_len;
+	wsi->io.tls.quic_tp_send = p;
+	wsi->io.tls.quic_tp_send_len = tp_len;
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return 0;
 
 #if defined(USE_WOLFSSL)
-	if (wolfSSL_set_quic_transport_params(wsi->tls.ssl, p, tp_len) != 1)
+	if (wolfSSL_set_quic_transport_params(wsi->io.tls.ssl, p, tp_len) != 1)
 		return -1;
 #else
-	if (SSL_set_quic_transport_params(wsi->tls.ssl, p, tp_len) != 1)
+	if (SSL_set_quic_transport_params(wsi->io.tls.ssl, p, tp_len) != 1)
 		return -1;
 #endif
 	return 0;
@@ -572,9 +572,9 @@ int
 lws_tls_quic_get_transport_parameters(struct lws *wsi, const uint8_t **tp, size_t *tp_len)
 {
 #if defined(USE_WOLFSSL)
-	wolfSSL_get_peer_quic_transport_params(wsi->tls.ssl, tp, tp_len);
+	wolfSSL_get_peer_quic_transport_params(wsi->io.tls.ssl, tp, tp_len);
 #else
-	SSL_get_peer_quic_transport_params(wsi->tls.ssl, tp, tp_len);
+	SSL_get_peer_quic_transport_params(wsi->io.tls.ssl, tp, tp_len);
 #endif
 	if (!*tp || !*tp_len)
 		return -1;
@@ -606,11 +606,11 @@ openssl_quic_ext_add_cb(SSL *ssl, unsigned int ext_type,
 {
 	struct lws *wsi = (struct lws *)SSL_get_app_data(ssl);
 
-	if (!wsi || !wsi->tls.quic_tp_send)
+	if (!wsi || !wsi->io.tls.quic_tp_send)
 		return 0; /* do not add the extension if no params to send */
 
-	*out = wsi->tls.quic_tp_send;
-	*outlen = wsi->tls.quic_tp_send_len;
+	*out = wsi->io.tls.quic_tp_send;
+	*outlen = wsi->io.tls.quic_tp_send_len;
 
 	return 1;
 }
@@ -653,17 +653,17 @@ openssl_quic_ext_parse_cb(SSL *ssl, unsigned int ext_type,
 		return 0;
 	}
 
-	lws_free_set_NULL(wsi->tls.quic_tp_recv);
-	wsi->tls.quic_tp_recv_len = 0;
+	lws_free_set_NULL(wsi->io.tls.quic_tp_recv);
+	wsi->io.tls.quic_tp_recv_len = 0;
 
-	wsi->tls.quic_tp_recv = lws_malloc(inlen, "quic_tp_recv");
-	if (!wsi->tls.quic_tp_recv) {
+	wsi->io.tls.quic_tp_recv = lws_malloc(inlen, "quic_tp_recv");
+	if (!wsi->io.tls.quic_tp_recv) {
 		*al = SSL_AD_INTERNAL_ERROR;
 		return 0;
 	}
 
-	memcpy(wsi->tls.quic_tp_recv, in, inlen);
-	wsi->tls.quic_tp_recv_len = inlen;
+	memcpy(wsi->io.tls.quic_tp_recv, in, inlen);
+	wsi->io.tls.quic_tp_recv_len = inlen;
 
 	return 1;
 }
@@ -677,7 +677,7 @@ openssl_quic_keylog_cb(const SSL *ssl, const char *line)
 	uint8_t secret[64];
 	size_t len = 0;
 
-	if (!wsi || !wsi->tls.quic_secret_cb || !line)
+	if (!wsi || !wsi->io.tls.quic_secret_cb || !line)
 		return;
 
 	if (!strncmp(line, "CLIENT_EARLY_TRAFFIC_SECRET ", 28)) {
@@ -707,7 +707,7 @@ openssl_quic_keylog_cb(const SSL *ssl, const char *line)
 		secret_hex += 2;
 	}
 
-	wsi->tls.quic_secret_cb(wsi, type, secret, len);
+	wsi->io.tls.quic_secret_cb(wsi, type, secret, len);
 	lws_explicit_bzero(secret, sizeof(secret));
 }
 
@@ -729,10 +729,10 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	BIO *rbio, *wbio;
 	SSL_CTX *ctx;
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return -1;
 
-	ctx = SSL_get_SSL_CTX(wsi->tls.ssl);
+	ctx = SSL_get_SSL_CTX(wsi->io.tls.ssl);
 
 	/*
 	 * RFC 9001 4.2: QUIC uses TLS 1.3 and nothing else.  The vhost ctx we
@@ -741,8 +741,8 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	 * connection, which is a per-SSL setting and does not affect them.
 	 */
 #if defined(TLS1_3_VERSION)
-	SSL_set_min_proto_version(wsi->tls.ssl, TLS1_3_VERSION);
-	SSL_set_max_proto_version(wsi->tls.ssl, TLS1_3_VERSION);
+	SSL_set_min_proto_version(wsi->io.tls.ssl, TLS1_3_VERSION);
+	SSL_set_max_proto_version(wsi->io.tls.ssl, TLS1_3_VERSION);
 #endif
 
 	rbio = BIO_new(BIO_s_mem());
@@ -757,13 +757,13 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	BIO_set_nbio(rbio, 1);
 	BIO_set_nbio(wbio, 1);
 
-	SSL_set_bio(wsi->tls.ssl, rbio, wbio);
+	SSL_set_bio(wsi->io.tls.ssl, rbio, wbio);
 
-	wsi->tls.quic_secret_cb = cb;
-	SSL_set_app_data(wsi->tls.ssl, wsi);
+	wsi->io.tls.quic_secret_cb = cb;
+	SSL_set_app_data(wsi->io.tls.ssl, wsi);
 
 	if (lwsi_role_client(wsi)) {
-		SSL_set_connect_state(wsi->tls.ssl);
+		SSL_set_connect_state(wsi->io.tls.ssl);
 	} else {
 		/*
 		 * See the note in the BoringSSL-API arm above: lws has no 0-RTT
@@ -775,8 +775,8 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 			lwsl_wsi_info(wsi, "LWS_SERVER_OPTION_ALLOW_EARLY_DATA "
 					   "ignored: no 0-RTT replay mitigation");
 
-		SSL_set_max_early_data(wsi->tls.ssl, 0);
-		SSL_set_accept_state(wsi->tls.ssl);
+		SSL_set_max_early_data(wsi->io.tls.ssl, 0);
+		SSL_set_accept_state(wsi->io.tls.ssl);
 	}
 
 	SSL_CTX_set_keylog_callback(ctx, openssl_quic_keylog_cb);
@@ -789,8 +789,8 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			       const uint8_t *in, size_t in_len,
 			       uint8_t *out, size_t *out_len)
 {
-	BIO *rbio = SSL_get_rbio(wsi->tls.ssl);
-	BIO *wbio = SSL_get_wbio(wsi->tls.ssl);
+	BIO *rbio = SSL_get_rbio(wsi->io.tls.ssl);
+	BIO *wbio = SSL_get_wbio(wsi->io.tls.ssl);
 	int hs_n;
 	size_t written = 0;
 
@@ -823,7 +823,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 	if (in && in_len)
 		BIO_write(rbio, in, (int)in_len);
 	lwsl_info("QUIC TLS: SSL_do_handshake starting (in_len=%d)\n", (int)in_len);
-	hs_n = SSL_do_handshake(wsi->tls.ssl);
+	hs_n = SSL_do_handshake(wsi->io.tls.ssl);
 	lwsl_info("QUIC TLS: SSL_do_handshake returned %d\n", hs_n);
 
 	if (out && out_len) {
@@ -847,7 +847,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 	}
 
 	if (hs_n <= 0) {
-		int err = SSL_get_error(wsi->tls.ssl, hs_n);
+		int err = SSL_get_error(wsi->io.tls.ssl, hs_n);
 		lwsl_info("QUIC TLS: SSL_get_error returned %d\n", err);
 		if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
 			return 1; /* In progress */
@@ -877,28 +877,28 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 int
 lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t tp_len)
 {
-	if (wsi->tls.quic_tp_send) {
-		lws_free((void *)wsi->tls.quic_tp_send);
-		wsi->tls.quic_tp_send = NULL;
+	if (wsi->io.tls.quic_tp_send) {
+		lws_free((void *)wsi->io.tls.quic_tp_send);
+		wsi->io.tls.quic_tp_send = NULL;
 	}
 
 	uint8_t *p = lws_malloc(tp_len, "quic tp");
 	if (!p)
 		return -1;
 	memcpy(p, tp, tp_len);
-	wsi->tls.quic_tp_send = p;
-	wsi->tls.quic_tp_send_len = tp_len;
+	wsi->io.tls.quic_tp_send = p;
+	wsi->io.tls.quic_tp_send_len = tp_len;
 	return 0;
 }
 
 int
 lws_tls_quic_get_transport_parameters(struct lws *wsi, const uint8_t **tp, size_t *tp_len)
 {
-	if (!wsi->tls.quic_tp_recv)
+	if (!wsi->io.tls.quic_tp_recv)
 		return -1;
 
-	*tp = wsi->tls.quic_tp_recv;
-	*tp_len = wsi->tls.quic_tp_recv_len;
+	*tp = wsi->io.tls.quic_tp_recv;
+	*tp_len = wsi->io.tls.quic_tp_recv_len;
 	return 0;
 }
 
@@ -993,17 +993,17 @@ lws_tls_quic_api_test(void)
 	SSL_CTX_use_certificate(sctx, x509);
 	SSL_CTX_use_PrivateKey(sctx, pkey);
 
-	wsi_client.tls.ssl = SSL_new(cctx);
-	wsi_server.tls.ssl = SSL_new(sctx);
+	wsi_client.io.tls.ssl = SSL_new(cctx);
+	wsi_server.io.tls.ssl = SSL_new(sctx);
 
-	if (!wsi_client.tls.ssl || !wsi_server.tls.ssl)
+	if (!wsi_client.io.tls.ssl || !wsi_server.io.tls.ssl)
 		goto fail;
 
-	SSL_set_connect_state(wsi_client.tls.ssl);
-	SSL_set_accept_state(wsi_server.tls.ssl);
+	SSL_set_connect_state(wsi_client.io.tls.ssl);
+	SSL_set_accept_state(wsi_server.io.tls.ssl);
 
 #if defined(LWS_HAVE_BORINGSSL_QUIC_API)
-	SSL_set_alpn_protos(wsi_client.tls.ssl, (const unsigned char *)"\x04test", 5);
+	SSL_set_alpn_protos(wsi_client.io.tls.ssl, (const unsigned char *)"\x04test", 5);
 	SSL_CTX_set_alpn_select_cb(sctx, test_alpn_select_cb, NULL);
 #endif
 
@@ -1034,13 +1034,13 @@ lws_tls_quic_api_test(void)
 			s2c_len = 0;
 		}
 
-		if (SSL_is_init_finished(wsi_client.tls.ssl) && SSL_is_init_finished(wsi_server.tls.ssl))
+		if (SSL_is_init_finished(wsi_client.io.tls.ssl) && SSL_is_init_finished(wsi_server.io.tls.ssl))
 			break;
 	}
 
 	lwsl_notice("Handshake finished, secrets extracted: %d\n", test_secrets_extracted);
 
-	if (!SSL_is_init_finished(wsi_client.tls.ssl))
+	if (!SSL_is_init_finished(wsi_client.io.tls.ssl))
 		goto fail;
 
 	if (test_secrets_extracted < 4) /* Early, C_Handshake, S_Handshake, C_App, S_App */
@@ -1060,8 +1060,8 @@ lws_tls_quic_api_test(void)
 
 	lwsl_notice("Transport parameters successfully exchanged\n");
 
-	SSL_free(wsi_client.tls.ssl);
-	SSL_free(wsi_server.tls.ssl);
+	SSL_free(wsi_client.io.tls.ssl);
+	SSL_free(wsi_server.io.tls.ssl);
 	X509_free(x509);
 	EVP_PKEY_free(pkey);
 	BN_free(e);
@@ -1070,8 +1070,8 @@ lws_tls_quic_api_test(void)
 	return 0;
 
 fail:
-	if (wsi_client.tls.ssl) SSL_free(wsi_client.tls.ssl);
-	if (wsi_server.tls.ssl) SSL_free(wsi_server.tls.ssl);
+	if (wsi_client.io.tls.ssl) SSL_free(wsi_client.io.tls.ssl);
+	if (wsi_server.io.tls.ssl) SSL_free(wsi_server.io.tls.ssl);
 	if (x509) X509_free(x509);
 	if (pkey) EVP_PKEY_free(pkey);
 	if (e) BN_free(e);
@@ -1083,10 +1083,10 @@ fail:
 int
 lws_tls_quic_migrate_wsi(struct lws *old_wsi, struct lws *new_wsi)
 {
-	if (!new_wsi || !new_wsi->tls.ssl)
+	if (!new_wsi || !new_wsi->io.tls.ssl)
 		return -1;
 
-	SSL_set_app_data(new_wsi->tls.ssl, new_wsi);
+	SSL_set_app_data(new_wsi->io.tls.ssl, new_wsi);
 
 	/*
 	 * The SSL also carries the wsi in the lws ex_data slot, set at
@@ -1095,7 +1095,7 @@ lws_tls_quic_migrate_wsi(struct lws *old_wsi, struct lws *new_wsi)
 	 * which on QUIC can be long after the h3 stream that started the
 	 * connection has finished and been freed.  Move it with the SSL.
 	 */
-	SSL_set_ex_data(new_wsi->tls.ssl, openssl_websocket_private_data_index,
+	SSL_set_ex_data(new_wsi->io.tls.ssl, openssl_websocket_private_data_index,
 			new_wsi);
 
 	return 0;

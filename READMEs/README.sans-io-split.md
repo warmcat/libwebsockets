@@ -194,10 +194,14 @@ sansIO's decisions do not depend on it, it is IO's.  The socket identity
 went first (`desc`, `position_in_fds_table`, the POLLOUT bookkeeping
 bits, `evlib_wsi`, the socket-kind flags).  The connection's addresses,
 address family, udp state, the parallel-connect racers, peer limits and
-the async workers follow.  The tls session is the open question: the
-record layer is IO, so `tls` belongs in the adjunct, but the handshake's
-outcome (ALPN, the session being reused) is something sansIO acts on and
-has to be handed over at `TRANSPORT_UP`.
+the async workers follow, then the datagram socket's peer state.  The
+tls session is IO's: the record layer, the handshake, the library's
+objects live in the adjunct, and quic's crypto asks the session what it
+needs (the negotiated AEAD, the alert, the alpn) through `lws_tls_quic_*`
+queries.  sansIO keeps what it asked for (`use_ssl`, the connection's
+LCCSCF_ flags, which the roles decide by) and what the handshake settled
+that it acts on (`alpn`, whether the session was reused), which IO sets
+before it says the transport is up.
 
 ## What goes where in the tree
 

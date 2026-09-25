@@ -36,26 +36,26 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	int n;
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
 
-	n = (int)gnutls_record_recv((gnutls_session_t)wsi->tls.ssl, buf, len);
+	n = (int)gnutls_record_recv((gnutls_session_t)wsi->io.tls.ssl, buf, len);
 
 	/*
 	 * gnutls can call back into us from in there (keylog, session ticket,
 	 * verify), and a callback that closed the wsi took the session with
-	 * it... everything below dereferences wsi->tls.ssl again (C-417)
+	 * it... everything below dereferences wsi->io.tls.ssl again (C-417)
 	 */
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return LWS_SSL_CAPABLE_ERROR;
 
 	if (n > 0) {
 		struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
-		if (gnutls_record_check_pending((gnutls_session_t)wsi->tls.ssl)) {
-			if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
-				lws_dll2_add_head(&wsi->tls.dll_pending_tls,
+		if (gnutls_record_check_pending((gnutls_session_t)wsi->io.tls.ssl)) {
+			if (lws_dll2_is_detached(&wsi->io.tls.dll_pending_tls))
+				lws_dll2_add_head(&wsi->io.tls.dll_pending_tls,
 						  &pt->tls.dll_pending_tls_owner);
 		} else
 			__lws_ssl_remove_wsi_from_buffered_list(wsi);
@@ -72,10 +72,10 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	}
 
 	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) {
-		if (gnutls_record_get_direction((gnutls_session_t)wsi->tls.ssl) == 0)
+		if (gnutls_record_get_direction((gnutls_session_t)wsi->io.tls.ssl) == 0)
 			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 
-		wsi->tls_read_wanted_write = 1;
+		wsi->io.tls_read_wanted_write = 1;
 		lws_callback_on_writable(wsi);
 		__lws_change_pollfd(wsi, LWS_POLLIN, 0);
 		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
@@ -110,15 +110,15 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	int n;
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 
-	n = (int)gnutls_record_send((gnutls_session_t)wsi->tls.ssl, buf, len);
+	n = (int)gnutls_record_send((gnutls_session_t)wsi->io.tls.ssl, buf, len);
 	if (n >= 0)
 		return n;
 
 	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) {
-		if (gnutls_record_get_direction((gnutls_session_t)wsi->tls.ssl) == 1)
+		if (gnutls_record_get_direction((gnutls_session_t)wsi->io.tls.ssl) == 1)
 			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
 		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
@@ -130,10 +130,10 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 int
 lws_ssl_pending(struct lws *wsi)
 {
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return 0;
 
-	return (int)gnutls_record_check_pending((gnutls_session_t)wsi->tls.ssl);
+	return (int)gnutls_record_check_pending((gnutls_session_t)wsi->io.tls.ssl);
 }
 #endif
 
@@ -144,21 +144,21 @@ lws_ssl_close(struct lws *wsi)
 	gnutls_quic_bio_free(wsi);
 #endif
 
-	if (wsi->tls.ssl) {
+	if (wsi->io.tls.ssl) {
 #if defined(LWS_WITH_TLS_SESSIONS)
 		lws_tls_session_new_gnutls(wsi);
 #endif
-		gnutls_deinit((gnutls_session_t)wsi->tls.ssl);
-		wsi->tls.ssl = NULL;
+		gnutls_deinit((gnutls_session_t)wsi->io.tls.ssl);
+		wsi->io.tls.ssl = NULL;
 	}
 
 	__lws_ssl_remove_wsi_from_buffered_list(wsi);
 
 	lws_tls_restrict_return(wsi);
 
-	if (wsi->tls.ctx_ref) {
-		lws_tls_ctx_ref_unref(wsi->tls.ctx_ref);
-		wsi->tls.ctx_ref = NULL;
+	if (wsi->io.tls.ctx_ref) {
+		lws_tls_ctx_ref_unref(wsi->io.tls.ctx_ref);
+		wsi->io.tls.ctx_ref = NULL;
 	}
 
 	return 0;
@@ -174,18 +174,18 @@ lws_tls_server_accept(struct lws *wsi)
 	lws_usec_t _g_ssl_acc_start = lws_now_usecs();
 #endif
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return LWS_SSL_CAPABLE_ERROR;
 
 	wsi->skip_fallback = 1;
 
-	n = gnutls_handshake((gnutls_session_t)wsi->tls.ssl);
+	n = gnutls_handshake((gnutls_session_t)wsi->io.tls.ssl);
 	lwsl_debug("%s: gnutls_handshake returned %d\n", __func__, n);
 
 #if defined(LWS_WITH_LATENCY)
 	{
 		unsigned int ms = (unsigned int)((lws_now_usecs() - _g_ssl_acc_start) / 1000);
-		if (ms > 2 && !wsi->tls.ssl_accept_in_bg)
+		if (ms > 2 && !wsi->io.tls.ssl_accept_in_bg)
 			lws_latency_note(&wsi->a.context->pt[(int)wsi->tsi], _g_ssl_acc_start, 2000, "ssl_accept:%dms", ms);
 	}
 #endif
@@ -206,7 +206,7 @@ lws_tls_server_accept(struct lws *wsi)
 			unsigned int status = 0;
 
 			if (gnutls_certificate_verify_peers2(
-					(gnutls_session_t)wsi->tls.ssl,
+					(gnutls_session_t)wsi->io.tls.ssl,
 					&status) < 0) {
 				lwsl_notice("%s: vh %s: mTLS: no client cert presented\n",
 					    __func__, wsi->a.vhost->name);
@@ -235,7 +235,7 @@ lws_tls_server_accept(struct lws *wsi)
 				if (!gnutls_certificate_verification_status_print(
 						status,
 						gnutls_certificate_type_get(
-							(gnutls_session_t)wsi->tls.ssl),
+							(gnutls_session_t)wsi->io.tls.ssl),
 						&out, 0)) {
 					lws_strncpy(rbuf, (const char *)out.data,
 						    sizeof(rbuf) - 1);
@@ -276,13 +276,13 @@ lws_tls_server_accept(struct lws *wsi)
 	}
 
 	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) {
-		if (gnutls_record_get_direction((gnutls_session_t)wsi->tls.ssl) == 0) {
-			if (!wsi->tls.ssl_accept_in_bg && lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN))
+		if (gnutls_record_get_direction((gnutls_session_t)wsi->io.tls.ssl) == 0) {
+			if (!wsi->io.tls.ssl_accept_in_bg && lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN))
 				lwsl_notice("%s: lws_change_pollfd failed\n", __func__);
 
 			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 		} else {
-			if (!wsi->tls.ssl_accept_in_bg && lws_change_pollfd(wsi, LWS_POLLIN, LWS_POLLOUT))
+			if (!wsi->io.tls.ssl_accept_in_bg && lws_change_pollfd(wsi, LWS_POLLIN, LWS_POLLOUT))
 				lwsl_notice("%s: lws_change_pollfd failed\n", __func__);
 
 			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
@@ -299,13 +299,13 @@ lws_tls_server_accept(struct lws *wsi)
 
 		rbuf[0] = '\0';
 		if (!gnutls_certificate_verify_peers2(
-				(gnutls_session_t)wsi->tls.ssl, &status)) {
+				(gnutls_session_t)wsi->io.tls.ssl, &status)) {
 			gnutls_datum_t out;
 
 			if (!gnutls_certificate_verification_status_print(
 					status,
 					gnutls_certificate_type_get(
-						(gnutls_session_t)wsi->tls.ssl),
+						(gnutls_session_t)wsi->io.tls.ssl),
 					&out, 0)) {
 				lws_strncpy(rbuf, (const char *)out.data,
 					    sizeof(rbuf) - 1);
@@ -329,13 +329,13 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 {
 	int n;
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return LWS_SSL_CAPABLE_ERROR;
 
-	n = gnutls_handshake((gnutls_session_t)wsi->tls.ssl);
+	n = gnutls_handshake((gnutls_session_t)wsi->io.tls.ssl);
 	if (n == GNUTLS_E_SUCCESS) {
 #if defined(LWS_WITH_CLIENT)
-		wsi->tls_session_reused = gnutls_session_is_resumed((gnutls_session_t)wsi->tls.ssl) ? 1 : 0;
+		wsi->tls_session_reused = gnutls_session_is_resumed((gnutls_session_t)wsi->io.tls.ssl) ? 1 : 0;
 #endif
 #if defined(LWS_WITH_TLS_SESSIONS)
 		lws_tls_session_new_gnutls(wsi);
@@ -345,7 +345,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 	}
 
 	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) {
-		if (gnutls_record_get_direction((gnutls_session_t)wsi->tls.ssl) == 0) {
+		if (gnutls_record_get_direction((gnutls_session_t)wsi->io.tls.ssl) == 0) {
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN))
 				lwsl_notice("%s: lws_change_pollfd failed\n", __func__);
 
@@ -371,10 +371,10 @@ int
 lws_ssl_get_error(struct lws *wsi, int n)
 {
 	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) {
-		if (!wsi->tls.ssl)
+		if (!wsi->io.tls.ssl)
 			return 2; /* SSL_ERROR_WANT_READ */
 
-		if (gnutls_record_get_direction((gnutls_session_t)wsi->tls.ssl) == 0)
+		if (gnutls_record_get_direction((gnutls_session_t)wsi->io.tls.ssl) == 0)
 			return 2; /* SSL_ERROR_WANT_READ */
 
 		return 3; /* SSL_ERROR_WANT_WRITE */
@@ -388,15 +388,15 @@ __lws_tls_shutdown(struct lws *wsi)
 {
 	int n;
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return LWS_SSL_CAPABLE_DONE;
 
-	n = gnutls_bye((gnutls_session_t)wsi->tls.ssl, GNUTLS_SHUT_WR);
+	n = gnutls_bye((gnutls_session_t)wsi->io.tls.ssl, GNUTLS_SHUT_WR);
 	if (n == GNUTLS_E_SUCCESS)
 		return LWS_SSL_CAPABLE_DONE;
 
 	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) {
-		if (gnutls_record_get_direction((gnutls_session_t)wsi->tls.ssl) == 1)
+		if (gnutls_record_get_direction((gnutls_session_t)wsi->io.tls.ssl) == 1)
 			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
 		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
@@ -409,10 +409,10 @@ __lws_tls_shutdown(struct lws *wsi)
 enum lws_ssl_capable_status
 lws_tls_server_abort_connection(struct lws *wsi)
 {
-	if (wsi->tls.ssl) {
+	if (wsi->io.tls.ssl) {
 		__lws_tls_shutdown(wsi);
-		gnutls_deinit((gnutls_session_t)wsi->tls.ssl);
-		wsi->tls.ssl = NULL;
+		gnutls_deinit((gnutls_session_t)wsi->io.tls.ssl);
+		wsi->io.tls.ssl = NULL;
 	}
 
 	return LWS_SSL_CAPABLE_DONE;
@@ -423,7 +423,7 @@ lws_tls_server_abort_connection(struct lws *wsi)
 int
 lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 {
-	gnutls_session_t session = (gnutls_session_t)wsi->tls.ssl;
+	gnutls_session_t session = (gnutls_session_t)wsi->io.tls.ssl;
 	unsigned int status = 0, allowed = 0;
 	char hostname[128];
 	int n;
@@ -439,7 +439,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	 * X509_VERIFY_PARAM_set1_host() does on the openssl backend
 	 */
 
-	if (wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)
+	if (wsi->use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)
 		n = gnutls_certificate_verify_peers2(session, &status);
 	else {
 		if (lws_gnutls_client_hostname(wsi, hostname,
@@ -469,14 +469,14 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	 * asking for the name check at all) forgives the wrong name
 	 */
 
-	if (wsi->tls.use_ssl & LCCSCF_ALLOW_INSECURE)
+	if (wsi->use_ssl & LCCSCF_ALLOW_INSECURE)
 		allowed = status & (unsigned int)~GNUTLS_CERT_UNEXPECTED_OWNER;
 
-	if (wsi->tls.use_ssl & LCCSCF_ALLOW_SELFSIGNED)
+	if (wsi->use_ssl & LCCSCF_ALLOW_SELFSIGNED)
 		allowed |= GNUTLS_CERT_SIGNER_NOT_FOUND |
 			   GNUTLS_CERT_SIGNER_NOT_CA;
 
-	if (wsi->tls.use_ssl & LCCSCF_ALLOW_EXPIRED)
+	if (wsi->use_ssl & LCCSCF_ALLOW_EXPIRED)
 		allowed |= GNUTLS_CERT_EXPIRED | GNUTLS_CERT_NOT_ACTIVATED;
 
 	/*

@@ -204,12 +204,8 @@ struct lws_lws_tls {
 	 */
 	uint8_t			hs_ca_id[LWS_TLS_CA_ID_LEN];
 
-	unsigned int		use_ssl;
-	unsigned int		redirect_to_https:1;
 	unsigned int		ssl_accept_in_bg:1;
 	unsigned int		hs_ca_id_valid:1;
-	/* the SNI callback bound us to the vhost serving the handshake */
-	unsigned int		sni_vh_bound:1;
 };
 
 
@@ -218,6 +214,20 @@ lws_tls_vhost_set_client_ca_id(struct lws_vhost *vh);
 
 void
 lws_tls_wsi_record_hs_ca(struct lws *wsi, struct lws_vhost *vh);
+
+/* what sansIO may ask of the session */
+void *
+lws_tls_session_ptr(struct lws *wsi);
+const uint8_t *
+lws_tls_wsi_hs_ca_id(struct lws *wsi);
+#if defined(LWS_ROLE_QUIC)
+int
+lws_tls_quic_aead_type(struct lws *wsi);
+int
+lws_tls_quic_alert(struct lws *wsi);
+int
+lws_tls_quic_alpn(struct lws *wsi, char *buf, size_t len);
+#endif
 
 void
 lws_context_init_alpn(struct lws_vhost *vhost);

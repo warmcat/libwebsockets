@@ -119,7 +119,7 @@ lws_client_transport_connected(struct lws *wsi)
 
 #if defined(LWS_WITH_TLS)
 	/* quic drives its own tls handshake inside its packets */
-	if ((wsi->tls.use_ssl & LCCSCF_USE_SSL) && !lws_client_is_quic(wsi)) {
+	if ((wsi->use_ssl & LCCSCF_USE_SSL) && !lws_client_is_quic(wsi)) {
 		/*
 		 * We can retry this... just cook the SSL BIO the first
 		 * time

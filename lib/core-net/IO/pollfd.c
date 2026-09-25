@@ -618,6 +618,10 @@ lws_io_close_pollfd(struct lws *wsi)
 
 	wsi->io.desc.sockfd = LWS_SOCK_INVALID;
 	lws_io_udp_release(wsi);
+#if defined(LWS_WITH_TLS)
+	/* the session went with the socket: nothing of it is remembered */
+	memset(&wsi->io.tls, 0, sizeof(wsi->io.tls));
+#endif
 }
 
 /*

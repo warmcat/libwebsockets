@@ -93,9 +93,9 @@ mbedtls_quic_write_handshake_msg(mbedtls_ssl_context *ssl, mbedtls_ssl_quic_enc_
 	if (!wsi)
 		return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
 
-	if (wsi->tls.quic_secret_cb == (lws_tls_quic_secret_cb)1) {
+	if (wsi->io.tls.quic_secret_cb == (lws_tls_quic_secret_cb)1) {
 		/* Used during api test */
-		struct mbedtls_quic_buf *b = (struct mbedtls_quic_buf *)wsi->tls.client_bio;
+		struct mbedtls_quic_buf *b = (struct mbedtls_quic_buf *)wsi->io.tls.client_bio;
 		if (b && b->out && b->out_len + len <= b->out_max) {
 			memcpy(b->out + b->out_len, buf, len);
 			b->out_len += len;
@@ -127,10 +127,10 @@ mbedtls_quic_read_handshake_msg(mbedtls_ssl_context *ssl,
 	uint8_t *rx;
 	int li;
 
-	if (!wsi || !wsi->tls.client_bio)
+	if (!wsi || !wsi->io.tls.client_bio)
 		return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
 
-	b = (struct mbedtls_quic_buf *)wsi->tls.client_bio;
+	b = (struct mbedtls_quic_buf *)wsi->io.tls.client_bio;
 
 	/*
 	 * Only ever hand mbedtls bytes that arrived at the level it is asking
@@ -177,10 +177,10 @@ mbedtls_quic_set_traffic_secrets(mbedtls_ssl_context *ssl,
 	struct lws *wsi = (struct lws *)mbedtls_ssl_get_user_data_p(ssl);
 	enum lws_tls_quic_secret_type ct, st;
 
-	if (!wsi || !wsi->tls.quic_secret_cb || secret_len > 48)
+	if (!wsi || !wsi->io.tls.quic_secret_cb || secret_len > 48)
 		return 0;
 
-	if (wsi->tls.quic_secret_cb == (lws_tls_quic_secret_cb)1)
+	if (wsi->io.tls.quic_secret_cb == (lws_tls_quic_secret_cb)1)
 		return 0;
 
 	/*
@@ -194,13 +194,13 @@ mbedtls_quic_set_traffic_secrets(mbedtls_ssl_context *ssl,
 	 */
 	switch (ciphersuite_id) {
 	case MBEDTLS_TLS1_3_AES_128_GCM_SHA256:
-		wsi->tls.quic_aead = LWS_TLS_QUIC_AEAD_AES_128_GCM;
+		wsi->io.tls.quic_aead = LWS_TLS_QUIC_AEAD_AES_128_GCM;
 		break;
 	case MBEDTLS_TLS1_3_AES_256_GCM_SHA384:
-		wsi->tls.quic_aead = LWS_TLS_QUIC_AEAD_AES_256_GCM;
+		wsi->io.tls.quic_aead = LWS_TLS_QUIC_AEAD_AES_256_GCM;
 		break;
 	case MBEDTLS_TLS1_3_CHACHA20_POLY1305_SHA256:
-		wsi->tls.quic_aead = LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305;
+		wsi->io.tls.quic_aead = LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305;
 		break;
 	default:
 		/* leave any previously-reported suite in force */
@@ -224,9 +224,9 @@ mbedtls_quic_set_traffic_secrets(mbedtls_ssl_context *ssl,
 	}
 
 	if (client_secret)
-		wsi->tls.quic_secret_cb(wsi, ct, client_secret, secret_len);
+		wsi->io.tls.quic_secret_cb(wsi, ct, client_secret, secret_len);
 	if (server_secret)
-		wsi->tls.quic_secret_cb(wsi, st, server_secret, secret_len);
+		wsi->io.tls.quic_secret_cb(wsi, st, server_secret, secret_len);
 
 	return 0;
 }
@@ -236,7 +236,7 @@ mbedtls_quic_notify_alert(mbedtls_ssl_context *ssl, unsigned char level, unsigne
 {
 	struct lws *wsi = (struct lws *)mbedtls_ssl_get_user_data_p(ssl);
 	if (wsi)
-		wsi->tls.quic_alert = description;
+		wsi->io.tls.quic_alert = description;
 	return 0;
 }
 
@@ -256,19 +256,19 @@ mbedtls_quic_ext_write_cb(mbedtls_ssl_context *ssl, unsigned int ext_type,
 {
 	struct lws *wsi = (struct lws *)mbedtls_ssl_get_user_data_p(ssl);
 
-	if (!wsi || !wsi->tls.quic_tp_send) {
-		lwsl_notice("%s: wsi %p, quic_tp_send %p, returning 0 len\n", __func__, wsi, wsi ? wsi->tls.quic_tp_send : NULL);
+	if (!wsi || !wsi->io.tls.quic_tp_send) {
+		lwsl_notice("%s: wsi %p, quic_tp_send %p, returning 0 len\n", __func__, wsi, wsi ? wsi->io.tls.quic_tp_send : NULL);
 		*out_len = 0;
 		return 0;
 	}
 
-	if (wsi->tls.quic_tp_send_len > buf_len) {
-		lwsl_notice("%s: buf_len %d too small for %d\n", __func__, (int)buf_len, (int)wsi->tls.quic_tp_send_len);
+	if (wsi->io.tls.quic_tp_send_len > buf_len) {
+		lwsl_notice("%s: buf_len %d too small for %d\n", __func__, (int)buf_len, (int)wsi->io.tls.quic_tp_send_len);
 		return MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL;
 	}
 
-	memcpy(buf, wsi->tls.quic_tp_send, wsi->tls.quic_tp_send_len);
-	*out_len = wsi->tls.quic_tp_send_len;
+	memcpy(buf, wsi->io.tls.quic_tp_send, wsi->io.tls.quic_tp_send_len);
+	*out_len = wsi->io.tls.quic_tp_send_len;
 
 	lwsl_notice("%s: wrote %d bytes of ext\n", __func__, (int)*out_len);
 
@@ -287,19 +287,19 @@ mbedtls_quic_ext_parse_cb(mbedtls_ssl_context *ssl, unsigned int ext_type,
 		return 0;
 	}
 
-	if (wsi->tls.quic_tp_recv) {
-		lws_free((void *)wsi->tls.quic_tp_recv);
-		wsi->tls.quic_tp_recv = NULL;
+	if (wsi->io.tls.quic_tp_recv) {
+		lws_free((void *)wsi->io.tls.quic_tp_recv);
+		wsi->io.tls.quic_tp_recv = NULL;
 	}
 
-	wsi->tls.quic_tp_recv = lws_malloc(in_len, "quic_tp_recv");
-	if (!wsi->tls.quic_tp_recv) {
+	wsi->io.tls.quic_tp_recv = lws_malloc(in_len, "quic_tp_recv");
+	if (!wsi->io.tls.quic_tp_recv) {
 		lwsl_notice("%s: alloc failed\n", __func__);
 		return MBEDTLS_ERR_SSL_ALLOC_FAILED;
 	}
 
-	memcpy((void*)wsi->tls.quic_tp_recv, buf, in_len);
-	wsi->tls.quic_tp_recv_len = in_len;
+	memcpy((void*)wsi->io.tls.quic_tp_recv, buf, in_len);
+	wsi->io.tls.quic_tp_recv_len = in_len;
 
 	lwsl_notice("%s: parsed %d bytes of ext\n", __func__, (int)in_len);
 
@@ -330,10 +330,10 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	mbedtls_ssl_context *msc;
 	struct mbedtls_quic_buf *b;
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return -1;
 
-	conn = wsi->tls.ssl;
+	conn = wsi->io.tls.ssl;
 	msc = &conn->ssl;
 
 	if (!conn->ctx)
@@ -372,7 +372,7 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	mbedtls_ssl_set_quic_transport_ops(msc, &quic_ops);
 	mbedtls_ssl_set_quic_custom_ext(msc, &quic_ext);
 
-	wsi->tls.quic_secret_cb = cb;
+	wsi->io.tls.quic_secret_cb = cb;
 
 	mbedtls_ssl_set_user_data_p(msc, wsi);
 
@@ -380,7 +380,7 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	if (!b)
 		return -1;
 
-	wsi->tls.client_bio = (lws_tls_bio *)b;
+	wsi->io.tls.client_bio = (lws_tls_bio *)b;
 
 	return 0;
 }
@@ -393,10 +393,10 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 	int hs_n, err;
 	struct mbedtls_quic_buf *b;
 
-	if (!wsi->tls.client_bio)
+	if (!wsi->io.tls.client_bio)
 		return -1;
 
-	b = (struct mbedtls_quic_buf *)wsi->tls.client_bio;
+	b = (struct mbedtls_quic_buf *)wsi->io.tls.client_bio;
 
 	if (level < 0 || level >= LWS_MBQ_LEVEL_COUNT) {
 		lwsl_wsi_err(wsi, "bad crypto level %d", level);
@@ -437,7 +437,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		lwsl_debug("%s: feeding %d bytes to MbedTLS (is_server=%d)\n", __func__, (int)in_len, wsi->quic.qn ? wsi->quic.qn->is_server : -1);
 	}
 
-	hs_n = mbedtls_ssl_handshake(&wsi->tls.ssl->ssl);
+	hs_n = mbedtls_ssl_handshake(&wsi->io.tls.ssl->ssl);
 
 	if (out_len)
 		*out_len = b->out_len;
@@ -481,11 +481,11 @@ lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t
 
 	memcpy(p, tp, tp_len);
 
-	if (wsi->tls.quic_tp_send)
-		lws_free((void *)wsi->tls.quic_tp_send);
+	if (wsi->io.tls.quic_tp_send)
+		lws_free((void *)wsi->io.tls.quic_tp_send);
 
-	wsi->tls.quic_tp_send = p;
-	wsi->tls.quic_tp_send_len = tp_len;
+	wsi->io.tls.quic_tp_send = p;
+	wsi->io.tls.quic_tp_send_len = tp_len;
 
 	return 0;
 }
@@ -493,11 +493,11 @@ lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t
 int
 lws_tls_quic_get_transport_parameters(struct lws *wsi, const uint8_t **tp, size_t *tp_len)
 {
-	if (!wsi->tls.quic_tp_recv)
+	if (!wsi->io.tls.quic_tp_recv)
 		return -1;
 
-	*tp = wsi->tls.quic_tp_recv;
-	*tp_len = wsi->tls.quic_tp_recv_len;
+	*tp = wsi->io.tls.quic_tp_recv;
+	*tp_len = wsi->io.tls.quic_tp_recv_len;
 	return 0;
 }
 
@@ -516,10 +516,10 @@ lws_tls_quic_migrate_wsi(struct lws *old_wsi, struct lws *new_wsi)
 {
 	mbedtls_ssl_context *msc;
 
-	if (!new_wsi || !new_wsi->tls.ssl)
+	if (!new_wsi || !new_wsi->io.tls.ssl)
 		return -1;
 
-	msc = &new_wsi->tls.ssl->ssl;
+	msc = &new_wsi->io.tls.ssl->ssl;
 	if (!msc)
 		return -1;
 
@@ -587,24 +587,24 @@ mbedtls_quic_bio_free(struct lws *wsi)
 	if (!wsi)
 		return;
 
-	if (wsi->tls.client_bio) {
+	if (wsi->io.tls.client_bio) {
 		int n;
 
-		b = (struct mbedtls_quic_buf *)wsi->tls.client_bio;
+		b = (struct mbedtls_quic_buf *)wsi->io.tls.client_bio;
 		for (n = 0; n < LWS_MBQ_LEVEL_COUNT; n++)
 			if (b->rx_buf[n])
 				lws_free(b->rx_buf[n]);
-		lws_free(wsi->tls.client_bio);
-		wsi->tls.client_bio = NULL;
+		lws_free(wsi->io.tls.client_bio);
+		wsi->io.tls.client_bio = NULL;
 	}
 
-	if (wsi->tls.quic_tp_recv) {
-		lws_free((void *)wsi->tls.quic_tp_recv);
-		wsi->tls.quic_tp_recv = NULL;
+	if (wsi->io.tls.quic_tp_recv) {
+		lws_free((void *)wsi->io.tls.quic_tp_recv);
+		wsi->io.tls.quic_tp_recv = NULL;
 	}
 
-	if (wsi->tls.quic_tp_send) {
-		lws_free((void *)wsi->tls.quic_tp_send);
-		wsi->tls.quic_tp_send = NULL;
+	if (wsi->io.tls.quic_tp_send) {
+		lws_free((void *)wsi->io.tls.quic_tp_send);
+		wsi->io.tls.quic_tp_send = NULL;
 	}
 }

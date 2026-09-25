@@ -2029,7 +2029,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 #if defined(LWS_ROLE_H1)
 	char newconn_cannot_use_h1 = 0;
 
-	if ((wsi->tls.use_ssl & LCCSCF_USE_SSL) &&
+	if ((wsi->use_ssl & LCCSCF_USE_SSL) &&
 	    my_alpn && !(char *)strstr(my_alpn, "http/1.1"))
 		/*
 		 * new guy wants to use tls, he specifies the alpn and he does
@@ -2102,8 +2102,8 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 		   !(newconn_cannot_use_h1 && w->role_ops == &role_ops_h1) &&
 #endif
 		   /* if we can't use h1, old guy must not be h1 */
-		    (wsi->tls.use_ssl & LWS_ACTIVE_CONN_TLS_MASK) ==
-		     (w->tls.use_ssl & LWS_ACTIVE_CONN_TLS_MASK) &&
+		    (wsi->use_ssl & LWS_ACTIVE_CONN_TLS_MASK) ==
+		     (w->use_ssl & LWS_ACTIVE_CONN_TLS_MASK) &&
 		     /*
 		      * Must both agree on tls use or not, and on which parts
 		      * of peer validation they opted out of.

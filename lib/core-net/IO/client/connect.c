@@ -364,7 +364,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	}
 
 #if defined(LWS_WITH_TLS)
-	wsi->tls.use_ssl = (unsigned int)wsi->flags;
+	wsi->use_ssl = (unsigned int)wsi->flags;
 #else
 	if (i->ssl_connection & LCCSCF_USE_SSL) {
 		lwsl_wsi_err(wsi, "lws not configured for tls");
@@ -547,10 +547,10 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 #if defined(LWS_WITH_TLS)
 
-		wsi->tls.ssl = NULL;
+		wsi->io.tls.ssl = NULL;
 
 		if (strcmp(wsi->role_ops->name, "raw-skt") != 0 &&
-		    (wsi->tls.use_ssl & LCCSCF_USE_SSL)) {
+		    (wsi->use_ssl & LCCSCF_USE_SSL)) {
 			const char *cce = NULL;
 			int do_c1 = 1;
 
@@ -618,7 +618,7 @@ bail:
 	wsi->parent = NULL;
 
 #if defined(LWS_WITH_TLS)
-	if (wsi->tls.ssl)
+	if (wsi->io.tls.ssl)
 		lws_tls_restrict_return(wsi);
 #endif
 

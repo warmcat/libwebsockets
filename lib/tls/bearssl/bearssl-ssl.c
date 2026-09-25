@@ -58,7 +58,7 @@ void lws_ssl_destroy(struct lws_vhost *vhost)
 int
 lws_bearssl_pump(struct lws *wsi)
 {
-	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
+	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->io.tls.ssl;
 	unsigned st;
 	int progressed = 0;
 
@@ -125,8 +125,8 @@ lws_bearssl_pump(struct lws *wsi)
 	// lwsl_notice("%s: pump exit progressed=%d, pending=%d, st=%x\n", __func__, progressed, pending, st);
 	if (pending) {
 		struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-		if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
-			lws_dll2_add_head(&wsi->tls.dll_pending_tls,
+		if (lws_dll2_is_detached(&wsi->io.tls.dll_pending_tls))
+			lws_dll2_add_head(&wsi->io.tls.dll_pending_tls,
 					  &pt->tls.dll_pending_tls_owner);
 	}
 
@@ -136,14 +136,14 @@ lws_bearssl_pump(struct lws *wsi)
 int
 lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 {
-	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
+	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->io.tls.ssl;
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	size_t alen;
 	unsigned char *abuf;
 
 	unsigned st;
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
 
 	if (!conn)
@@ -167,8 +167,8 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 				br_ssl_engine_recvapp_ack(&conn->u.engine, alen);
 
 				if (lws_ssl_pending(wsi)) {
-					if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
-						lws_dll2_add_head(&wsi->tls.dll_pending_tls,
+					if (lws_dll2_is_detached(&wsi->io.tls.dll_pending_tls))
+						lws_dll2_add_head(&wsi->io.tls.dll_pending_tls,
 								  &pt->tls.dll_pending_tls_owner);
 				} else
 					lws_ssl_remove_wsi_from_buffered_list(wsi);
@@ -186,7 +186,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		 * everything below dereferences it again (C-417)
 		 */
 
-		if (wsi->tls.ssl != (lws_tls_conn *)conn)
+		if (wsi->io.tls.ssl != (lws_tls_conn *)conn)
 			return LWS_SSL_CAPABLE_ERROR;
 
 		/* 3. Check again if anything was decrypted */
@@ -206,8 +206,8 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 				br_ssl_engine_recvapp_ack(&conn->u.engine, alen);
 
 				if (lws_ssl_pending(wsi)) {
-					if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
-						lws_dll2_add_head(&wsi->tls.dll_pending_tls,
+					if (lws_dll2_is_detached(&wsi->io.tls.dll_pending_tls))
+						lws_dll2_add_head(&wsi->io.tls.dll_pending_tls,
 								  &pt->tls.dll_pending_tls_owner);
 				} else
 					lws_ssl_remove_wsi_from_buffered_list(wsi);
@@ -232,12 +232,12 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 int
 lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 {
-	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
+	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->io.tls.ssl;
 	size_t alen;
 	unsigned char *abuf;
 	unsigned st;
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 
 	if (!conn)
@@ -302,10 +302,10 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 
 int lws_ssl_pending(struct lws *wsi)
 {
-	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
+	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->io.tls.ssl;
 	size_t alen;
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return lws_ssl_pending_no_ssl(wsi);
 
 	if (!conn)
@@ -325,7 +325,7 @@ void lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret)
 
 int lws_ssl_close(struct lws *wsi)
 {
-	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
+	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->io.tls.ssl;
 
 	if (!conn)
 		return 0;
@@ -350,11 +350,11 @@ int lws_ssl_close(struct lws *wsi)
 	}
 
 	lws_free(conn);
-	wsi->tls.ssl = NULL;
+	wsi->io.tls.ssl = NULL;
 
-	if (wsi->tls.ctx_ref) {
-		lws_tls_ctx_ref_unref(wsi->tls.ctx_ref);
-		wsi->tls.ctx_ref = NULL;
+	if (wsi->io.tls.ctx_ref) {
+		lws_tls_ctx_ref_unref(wsi->io.tls.ctx_ref);
+		wsi->io.tls.ctx_ref = NULL;
 	}
 
 	return 0;
@@ -366,7 +366,7 @@ void lws_ssl_context_destroy(struct lws_context *context)
 
 lws_tls_ctx * lws_tls_ctx_from_wsi(struct lws *wsi)
 {
-	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
+	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->io.tls.ssl;
 	if (!conn)
 		return NULL;
 	return conn->ctx;

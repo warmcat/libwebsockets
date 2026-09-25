@@ -1671,17 +1671,6 @@ struct lws_wifi_scan { /* generic wlan scan item */
 	uint8_t authmode;
 };
 
-#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL)
-/**
- * lws_get_ssl() - Return wsi's SSL context structure
- * \param wsi:	websocket connection
- *
- * Returns pointer to the SSL library's context structure
- */
-LWS_VISIBLE LWS_EXTERN SSL*
-lws_get_ssl(struct lws *wsi);
-#endif
-
 LWS_VISIBLE LWS_EXTERN void
 lws_explicit_bzero(void *p, size_t len);
 

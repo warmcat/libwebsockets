@@ -191,7 +191,7 @@ int
 lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 		union lws_tls_cert_info_results *buf, size_t len)
 {
-	struct lws_tls_schannel_conn *conn = wsi->tls.ssl;
+	struct lws_tls_schannel_conn *conn = wsi->io.tls.ssl;
 	PCCERT_CONTEXT pCert = NULL;
 	int ret = 0;
 

@@ -840,7 +840,7 @@ str_val:
 		}
 
 		nwsi = lws_get_network_wsi(wsi);
-		ssl = nwsi->tls.use_ssl & LCCSCF_USE_SSL;
+		ssl = nwsi->use_ssl & LCCSCF_USE_SSL;
 
 		a = wsi->stash->cis[CIS_ADDRESS];
 		p = &wsi->stash->cis[CIS_PATH][1];
@@ -1252,7 +1252,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		/* Relative reference absolute path */
 		if (p[0] == '/' || !(char *)strchr(p, ':')) {
 #if defined(LWS_WITH_TLS)
-			ssl = nwsi->tls.use_ssl & LCCSCF_USE_SSL;
+			ssl = nwsi->use_ssl & LCCSCF_USE_SSL;
 #endif
 			ads = lws_hdr_simple_ptr(wsi,
 						 _WSI_TOKEN_CLIENT_PEER_ADDRESS);
@@ -1282,7 +1282,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			/* This doesn't try to calculate an absolute path,
 			 * that will be left to the server */
 #if defined(LWS_WITH_TLS)
-			ssl = nwsi->tls.use_ssl & LCCSCF_USE_SSL;
+			ssl = nwsi->use_ssl & LCCSCF_USE_SSL;
 #endif
 			ads = lws_hdr_simple_ptr(wsi,
 						 _WSI_TOKEN_CLIENT_PEER_ADDRESS);
@@ -1365,7 +1365,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 
 #if defined(LWS_WITH_TLS)
-		if ((wsi->tls.use_ssl & LCCSCF_USE_SSL) && !ssl &&
+		if ((wsi->use_ssl & LCCSCF_USE_SSL) && !ssl &&
 		     !(wsi->flags & LCCSCF_ACCEPT_TLS_DOWNGRADE_REDIRECTS)) {
 			cce = "HS: Redirect attempted SSL downgrade";
 			goto bail3_l;

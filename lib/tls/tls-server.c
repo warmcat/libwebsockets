@@ -553,7 +553,7 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 	 * listening vhost).  Leave those alone.
 	 */
 
-	if (wsi->tls.ssl && !wsi->tls.sni_vh_bound) {
+	if (wsi->io.tls.ssl && !wsi->sni_vh_bound) {
 		vh = lws_tls_vhost_owning_ctx(context, lws_tls_ctx_from_wsi(wsi));
 		if (vh) {
 			lwsl_info("setting wsi to vh %s\n", vh->name);
@@ -594,7 +594,7 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 	 * him from an mTLS vhost whose requirement he did not meet.
 	 */
 
-	if (wsi->tls.ssl && wsi->a.vhost &&
+	if (wsi->io.tls.ssl && wsi->a.vhost &&
 	    lws_vhost_mtls_unsatisfied(wsi, wsi->a.vhost)) {
 		lwsl_wsi_notice(wsi, "dropping: vh %s requires a client cert "
 				     "this handshake did not provide",
@@ -636,7 +636,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 	switch (lwsi_state(wsi)) {
 	case LRS_SSL_INIT:
 
-		if (wsi->tls.ssl)
+		if (wsi->io.tls.ssl)
 			lwsl_err("%s: leaking ssl\n", __func__);
 		if (accept_fd == LWS_SOCK_INVALID)
 			assert(0);
@@ -742,19 +742,19 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 				* connection and try to handle as a HTTP
 				* connection upgrade directly.
 				*/
-				wsi->tls.use_ssl = 0;
+				wsi->use_ssl = 0;
 
 				lws_tls_server_abort_connection(wsi);
 				/*
 				 * care... this creates wsi with no ssl when ssl
 				 * is enabled and normally mandatory
 				 */
-				wsi->tls.ssl = NULL;
+				wsi->io.tls.ssl = NULL;
 
 				/*
 				 * The backend lws_ssl_close() paths that return
 				 * the tls restriction slot and the vhost
-				 * SSL_CTX ref are all gated on wsi->tls.ssl,
+				 * SSL_CTX ref are all gated on wsi->io.tls.ssl,
 				 * which we just cleared.  So we have to hand
 				 * both back here, or an unauthenticated peer
 				 * can permanently exhaust
@@ -764,16 +764,16 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 				 */
 
 				lws_tls_restrict_return(wsi);
-				if (wsi->tls.ctx_ref) {
-					lws_tls_ctx_ref_unref(wsi->tls.ctx_ref);
-					wsi->tls.ctx_ref = NULL;
+				if (wsi->io.tls.ctx_ref) {
+					lws_tls_ctx_ref_unref(wsi->io.tls.ctx_ref);
+					wsi->io.tls.ctx_ref = NULL;
 				}
 
 				if (lws_check_opt(wsi->a.vhost->options,
 				    LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS)) {
 					lwsl_info("%s: redirecting from http "
 						  "to https\n", __func__);
-					wsi->tls.redirect_to_https = 1;
+					wsi->redirect_to_https = 1;
 					goto notls_accepted;
 				}
 

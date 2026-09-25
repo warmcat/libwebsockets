@@ -92,11 +92,11 @@ lws_openhitls_describe_cipher(struct lws *wsi)
 	uint8_t desc_buf[160] = {0};
 	int32_t version = 0;
 
-	if (!wsi || !wsi->tls.ssl) {
+	if (!wsi || !wsi->io.tls.ssl) {
 		return 0;
 	}
 
-	cipher = HITLS_GetCurrentCipher(wsi->tls.ssl);
+	cipher = HITLS_GetCurrentCipher(wsi->io.tls.ssl);
 	if (!cipher) {
 		lwsl_info("%s: %s: no negotiated cipher\n", __func__,
 			  lws_wsi_tag(wsi));
@@ -125,16 +125,16 @@ lws_openhitls_describe_cipher(struct lws *wsi)
 int
 lws_ssl_get_error(struct lws *wsi, int n)
 {
-	n = HITLS_GetError(wsi->tls.ssl, n);
+	n = HITLS_GetError(wsi->io.tls.ssl, n);
 
 	if (n == HITLS_ERR_TLS || n == HITLS_ERR_SYSCALL) {
 		const char *desc = BSL_ERR_GetString(n);
 
 		lwsl_debug("%s: %p 0x%x (errno %d)\n", __func__,
-			   (void *)wsi->tls.ssl, n, LWS_ERRNO);
-		if (!wsi->tls.err_helper[0] && desc && desc[0]) {
-			lws_strncpy(wsi->tls.err_helper, desc,
-							    sizeof(wsi->tls.err_helper));
+			   (void *)wsi->io.tls.ssl, n, LWS_ERRNO);
+		if (!wsi->io.tls.err_helper[0] && desc && desc[0]) {
+			lws_strncpy(wsi->io.tls.err_helper, desc,
+							    sizeof(wsi->io.tls.err_helper));
 		}
 		lws_tls_err_describe_clear();
 	}
@@ -275,7 +275,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	uint32_t readlen = 0;
 	int ret, n, m;
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
 
 #ifndef WIN32
@@ -283,7 +283,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 #else
 	WSASetLastError(0);
 #endif
-	ret = HITLS_Read(wsi->tls.ssl, buf, (uint32_t)len, &readlen);
+	ret = HITLS_Read(wsi->io.tls.ssl, buf, (uint32_t)len, &readlen);
 #if defined(LWS_PLAT_FREERTOS)
 	if (ret != HITLS_SUCCESS && errno == LWS_ENOTCONN) {
 		lwsl_debug("%s: SSL_read ENOTCONN\n", lws_wsi_tag(wsi));
@@ -319,7 +319,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		if (m == HITLS_WANT_WRITE) {
 			lwsl_info("%s: WANT_WRITE\n", __func__);
 			lwsl_debug("%s: LWS_SSL_CAPABLE_MORE_SERVICE_WRITE\n", lws_wsi_tag(wsi));
-			wsi->tls_read_wanted_write = 1;
+			wsi->io.tls_read_wanted_write = 1;
 			lws_callback_on_writable(wsi);
 			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 		}
@@ -358,12 +358,12 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	 * freed the session with it (C-417)
 	 */
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return LWS_SSL_CAPABLE_ERROR;
 
-	if (HITLS_GetReadPendingBytes(wsi->tls.ssl)) {
-		if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
-			lws_dll2_add_head(&wsi->tls.dll_pending_tls,
+	if (HITLS_GetReadPendingBytes(wsi->io.tls.ssl)) {
+		if (lws_dll2_is_detached(&wsi->io.tls.dll_pending_tls))
+			lws_dll2_add_head(&wsi->io.tls.dll_pending_tls,
 					  &pt->tls.dll_pending_tls_owner);
 	} else
 		__lws_ssl_remove_wsi_from_buffered_list(wsi);
@@ -378,11 +378,11 @@ bail:
 int
 lws_ssl_pending(struct lws *wsi)
 {
-	if (!wsi->tls.ssl) {
+	if (!wsi->io.tls.ssl) {
 		return 0;
 	}
 
-	return (int)HITLS_GetReadPendingBytes(wsi->tls.ssl);
+	return (int)HITLS_GetReadPendingBytes(wsi->io.tls.ssl);
 }
 
 int
@@ -396,11 +396,11 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 	lwsl_hexdump_notice(buf, len);
 #endif
 
-	if (!wsi->tls.ssl) {
+	if (!wsi->io.tls.ssl) {
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 	}
 
-	ret = HITLS_Write(wsi->tls.ssl, buf, (uint32_t)len, &writelen);
+	ret = HITLS_Write(wsi->io.tls.ssl, buf, (uint32_t)len, &writelen);
 
 	if (ret == HITLS_SUCCESS) {
 #if defined(LWS_WITH_SYS_METRICS)
@@ -489,23 +489,23 @@ lws_ssl_close(struct lws *wsi)
 	int closed = 0;
 	BSL_UIO *uio;
 
-	if (!wsi->tls.ssl) {
+	if (!wsi->io.tls.ssl) {
 		return 0;
 	} /* not handled */
 
 	if (wsi->a.vhost->tls.ssl_info_event_mask) {
-		(void)HITLS_SetInfoCb(wsi->tls.ssl, NULL);
+		(void)HITLS_SetInfoCb(wsi->io.tls.ssl, NULL);
 	}
 
 #if defined(LWS_TLS_SYNTHESIZE_CB)
-	lws_sul_cancel(&wsi->tls.sul_cb_synth);
-	lws_sess_cache_synth_cb(&wsi->tls.sul_cb_synth);
+	lws_sul_cancel(&wsi->io.tls.sul_cb_synth);
+	lws_sess_cache_synth_cb(&wsi->io.tls.sul_cb_synth);
 #endif
 
 	/*
 	 * Get the fd before any cleanup that may invalidate it.
 	 */
-	uio = HITLS_GetUio(wsi->tls.ssl);
+	uio = HITLS_GetUio(wsi->io.tls.ssl);
 	if (uio)
 		BSL_UIO_Ctrl(uio, BSL_UIO_GET_FD, sizeof(lws_sockfd_type), &n);
 
@@ -534,8 +534,8 @@ lws_ssl_close(struct lws *wsi)
 	 */
 	if (uio)
 		BSL_UIO_SetFD(uio, -1);
-	HITLS_Free(wsi->tls.ssl);
-	wsi->tls.ssl = NULL;
+	HITLS_Free(wsi->io.tls.ssl);
+	wsi->io.tls.ssl = NULL;
 	if (uio)
 		BSL_UIO_Free(uio);
 	lws_tls_restrict_return(wsi);
@@ -573,11 +573,11 @@ lws_ssl_context_destroy(struct lws_context *context)
 lws_tls_ctx *
 lws_tls_ctx_from_wsi(struct lws *wsi)
 {
-	if (!wsi->tls.ssl) {
+	if (!wsi->io.tls.ssl) {
 		return NULL;
 	}
 
-	return (lws_tls_ctx *)HITLS_GetGlobalConfig(wsi->tls.ssl);
+	return (lws_tls_ctx *)HITLS_GetGlobalConfig(wsi->io.tls.ssl);
 }
 
 enum lws_ssl_capable_status
@@ -586,10 +586,10 @@ __lws_tls_shutdown(struct lws *wsi)
 	uint32_t state = 0;
 	int ret, error;
 
-	ret = HITLS_Close(wsi->tls.ssl);
+	ret = HITLS_Close(wsi->io.tls.ssl);
 	lwsl_debug("%s: HITLS_Close=%d for fd %d\n", __func__, ret,
 		   wsi->io.desc.sockfd);
-	HITLS_GetShutdownState(wsi->tls.ssl, &state);
+	HITLS_GetShutdownState(wsi->io.tls.ssl, &state);
 
 	if (state == (HITLS_SENT_SHUTDOWN | HITLS_RECEIVED_SHUTDOWN)) {
 		shutdown(wsi->io.desc.sockfd, SHUT_WR);
@@ -606,7 +606,7 @@ __lws_tls_shutdown(struct lws *wsi)
 	 * wsi only went away on its shutdown-flush timeout.
 	 */
 
-	error = HITLS_GetError(wsi->tls.ssl, ret);
+	error = HITLS_GetError(wsi->io.tls.ssl, ret);
 
 	if (error == HITLS_WANT_READ) {
 		lwsl_debug("(wants read)\n");

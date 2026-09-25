@@ -256,31 +256,31 @@ static void lws_openhitls_collect_peer_kids(struct lws *wsi,
 		return;
 	}
 
-	wsi->tls.kid_chain.count = 0;
+	wsi->io.tls.kid_chain.count = 0;
 
 	for (node = list->first;
 	     node &&
-	     wsi->tls.kid_chain.count < LWS_ARRAY_SIZE(wsi->tls.kid_chain.akid);
+	     wsi->io.tls.kid_chain.count < LWS_ARRAY_SIZE(wsi->io.tls.kid_chain.akid);
 	     node = BSL_LIST_GetNextNode(list, node)) {
 		HITLS_X509_ExtSki ski = {0};
 		HITLS_X509_ExtAki aki = {0};
 		HITLS_X509_Cert *cert =
 		    (HITLS_X509_Cert *)BSL_LIST_GetData(node);
-		uint8_t idx = wsi->tls.kid_chain.count;
+		uint8_t idx = wsi->io.tls.kid_chain.count;
 
 		if (!cert) {
 			continue;
 		}
 
-		memset(&wsi->tls.kid_chain.skid[idx], 0,
-		       sizeof(wsi->tls.kid_chain.skid[idx]));
-		memset(&wsi->tls.kid_chain.akid[idx], 0,
-		       sizeof(wsi->tls.kid_chain.akid[idx]));
+		memset(&wsi->io.tls.kid_chain.skid[idx], 0,
+		       sizeof(wsi->io.tls.kid_chain.skid[idx]));
+		memset(&wsi->io.tls.kid_chain.akid[idx], 0,
+		       sizeof(wsi->io.tls.kid_chain.akid[idx]));
 
 		if (HITLS_X509_CertCtrl(cert, HITLS_X509_EXT_GET_SKI, &ski,
 					sizeof(ski)) == HITLS_SUCCESS) {
 			lws_openhitls_kid_from_bsl(
-			    &ski.kid, &wsi->tls.kid_chain.skid[idx]);
+			    &ski.kid, &wsi->io.tls.kid_chain.skid[idx]);
 		}
 
 		/*
@@ -294,11 +294,11 @@ static void lws_openhitls_collect_peer_kids(struct lws *wsi,
 		if (HITLS_X509_CertCtrl(cert, HITLS_X509_EXT_GET_AKI, &aki,
 					sizeof(aki)) == HITLS_SUCCESS) {
 			lws_openhitls_kid_from_bsl(
-			    &aki.kid, &wsi->tls.kid_chain.akid[idx]);
+			    &aki.kid, &wsi->io.tls.kid_chain.akid[idx]);
 		}
 		HITLS_X509_ClearAuthorityKeyId(&aki);
 
-		wsi->tls.kid_chain.count++;
+		wsi->io.tls.kid_chain.count++;
 	}
 }
 #endif
@@ -356,7 +356,7 @@ static int32_t OpenHiTLS_client_verify_callback(int32_t verify_code,
 			/* openHiTLS uses ROOT_CERT_NOT_FOUND for self-signed
 			 * certs */
 			if (vr == HITLS_X509_ERR_ROOT_CERT_NOT_FOUND &&
-			    wsi->tls.use_ssl & LCCSCF_ALLOW_SELFSIGNED) {
+			    wsi->use_ssl & LCCSCF_ALLOW_SELFSIGNED) {
 				lwsl_notice("accepting self-signed "
 					    "certificate (verify_callback)\n");
 				(void)lws_openhitls_store_ctx_set_error(
@@ -366,7 +366,7 @@ static int32_t OpenHiTLS_client_verify_callback(int32_t verify_code,
 				    vr == HITLS_X509_ERR_VFY_INTERCA_INVALID_BCONS ||
 				    vr == HITLS_X509_ERR_ISSUE_CERT_NOT_FOUND ||
 				    vr == HITLS_X509_ERR_ROOT_CERT_NOT_FOUND) &&
-				   wsi->tls.use_ssl & LCCSCF_ALLOW_INSECURE) {
+				   wsi->use_ssl & LCCSCF_ALLOW_INSECURE) {
 				lwsl_notice(
 				    "accepting non-trusted certificate\n");
 				(void)lws_openhitls_store_ctx_set_error(
@@ -375,7 +375,7 @@ static int32_t OpenHiTLS_client_verify_callback(int32_t verify_code,
 			} else if (
 			    (vr == HITLS_X509_ERR_VFY_NOTBEFORE_IN_FUTURE ||
 			     vr == HITLS_X509_ERR_VFY_NOTAFTER_EXPIRED) &&
-			    wsi->tls.use_ssl & LCCSCF_ALLOW_EXPIRED) {
+			    wsi->use_ssl & LCCSCF_ALLOW_EXPIRED) {
 				if (vr ==
 				    HITLS_X509_ERR_VFY_NOTBEFORE_IN_FUTURE) {
 					lwsl_notice("accepting not yet valid "
@@ -401,12 +401,12 @@ static int32_t OpenHiTLS_client_verify_callback(int32_t verify_code,
 
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	if (vr == HITLS_X509_ERR_ISSUE_CERT_NOT_FOUND) {
-		if (!wsi->tls.kid_chain.count) {
+		if (!wsi->io.tls.kid_chain.count) {
 			lws_openhitls_collect_peer_kids(wsi, store_ctx);
 		}
-		if (wsi->tls.kid_chain.count) {
+		if (wsi->io.tls.kid_chain.count) {
 			(void)lws_tls_jit_trust_sort_kids(wsi,
-							  &wsi->tls.kid_chain);
+							  &wsi->io.tls.kid_chain);
 		}
 	}
 #endif
@@ -430,8 +430,8 @@ static int32_t OpenHiTLS_client_verify_callback(int32_t verify_code,
 					sizeof(int32_t));
 		if (vr != HITLS_X509_V_OK) {
 			/* cert validation error was not handled in callback */
-			lws_strncpy(wsi->tls.err_helper, type,
-				    sizeof(wsi->tls.err_helper));
+			lws_strncpy(wsi->io.tls.err_helper, type,
+				    sizeof(wsi->io.tls.err_helper));
 
 			lwsl_err("SSL error: %s (preverify_ok=%d;err=%d)\n",
 				 type, internal_allow, vr);
@@ -497,9 +497,9 @@ int lws_ssl_client_bio_create(struct lws *wsi)
 #if defined(LWS_WITH_TLS_SESSIONS)
 	if (!(wsi->a.vhost->options &
 	      LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE)) {
-		wsi->tls.ssl = ssl;
+		wsi->io.tls.ssl = ssl;
 		lws_tls_reuse_session(wsi);
-		wsi->tls.ssl = NULL;
+		wsi->io.tls.ssl = NULL;
 	}
 #endif
 
@@ -507,7 +507,7 @@ int lws_ssl_client_bio_create(struct lws *wsi)
 		HITLS_SetInfoCb(ssl, lws_ssl_info_callback);
 	}
 
-	if (!(wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
+	if (!(wsi->use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
 		/* HiTLS support NO_PARTIAL_WILDCARDS by default */
 		HITLS_SetHost(ssl, hostname);
 	}
@@ -524,7 +524,7 @@ int lws_ssl_client_bio_create(struct lws *wsi)
 	 * per-connection LCCSCF_ALLOW_SELFSIGNED / LCCSCF_ALLOW_INSECURE
 	 * policy flags.
 	 */
-	if (wsi->tls.use_ssl &
+	if (wsi->use_ssl &
 	    (LCCSCF_ALLOW_INSECURE | LCCSCF_ALLOW_SELFSIGNED)) {
 		HITLS_SetVerifyNoneSupport(ssl, true);
 	}
@@ -599,7 +599,7 @@ int lws_ssl_client_bio_create(struct lws *wsi)
 	/* OpenHiTLS_client_verify_callback will be called @ HITLS_Connect(). */
 	HITLS_SetUserData(ssl, wsi);
 
-	wsi->tls.ssl = ssl;
+	wsi->io.tls.ssl = ssl;
 
 	if (wsi->sys_tls_client_cert) {
 		b = lws_system_get_blob(wsi->a.context,
@@ -680,8 +680,8 @@ enum lws_ssl_capable_status lws_tls_client_connect(struct lws *wsi,
 	int m, ret, en;
 
 	errno = 0;
-	wsi->tls.err_helper[0] = '\0';
-	ret = HITLS_Connect(wsi->tls.ssl);
+	wsi->io.tls.err_helper[0] = '\0';
+	ret = HITLS_Connect(wsi->io.tls.ssl);
 	en = errno;
 
 	m = lws_ssl_get_error(wsi, ret);
@@ -700,8 +700,8 @@ enum lws_ssl_capable_status lws_tls_client_connect(struct lws *wsi,
 
 	if (m == HITLS_ERR_TLS) {
 		int n =
-		    lws_snprintf(errbuf, len, "tls: %s", wsi->tls.err_helper);
-		if (!wsi->tls.err_helper[0]) {
+		    lws_snprintf(errbuf, len, "tls: %s", wsi->io.tls.err_helper);
+		if (!wsi->io.tls.err_helper[0]) {
 			const char *desc = BSL_ERR_GetString(m);
 			if (desc && desc[0]) {
 				lws_snprintf(errbuf + n, len - (unsigned int)n,
@@ -729,7 +729,7 @@ enum lws_ssl_capable_status lws_tls_client_connect(struct lws *wsi,
 		uint8_t *proto = NULL;
 		uint32_t proto_len = 0;
 
-		if (HITLS_GetSelectedAlpnProto(wsi->tls.ssl, &proto,
+		if (HITLS_GetSelectedAlpnProto(wsi->io.tls.ssl, &proto,
 					       &proto_len) == HITLS_SUCCESS &&
 		    proto && proto_len) {
 			char a[32];
@@ -744,7 +744,7 @@ enum lws_ssl_capable_status lws_tls_client_connect(struct lws *wsi,
 
 #if defined(LWS_TLS_SYNTHESIZE_CB)
 		lws_sul_schedule(wsi->a.context, wsi->tsi,
-				 &wsi->tls.sul_cb_synth,
+				 &wsi->io.tls.sul_cb_synth,
 				 lws_sess_cache_synth_cb, 500 * LWS_US_PER_MS);
 #endif
 
@@ -786,7 +786,7 @@ lws_openhitls_recheck_skipped(struct lws *wsi, HITLS_X509_Cert *cert,
 		return -1;
 	}
 
-	if (!(wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
+	if (!(wsi->use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
 
 		if (lws_openhitls_client_hostname(wsi, hostname,
 						  sizeof(hostname))) {
@@ -807,7 +807,7 @@ lws_openhitls_recheck_skipped(struct lws *wsi, HITLS_X509_Cert *cert,
 		}
 	}
 
-	if (wsi->tls.use_ssl & LCCSCF_ALLOW_EXPIRED)
+	if (wsi->use_ssl & LCCSCF_ALLOW_EXPIRED)
 		return 0;
 
 	now = (time_t)lws_now_secs();
@@ -845,7 +845,7 @@ int lws_tls_client_confirm_peer_cert(struct lws *wsi,
 	 * treat not knowing as not verified
 	 */
 
-	if (HITLS_GetVerifyResult((const HITLS_Ctx *)wsi->tls.ssl,
+	if (HITLS_GetVerifyResult((const HITLS_Ctx *)wsi->io.tls.ssl,
 				  &verify_result) != HITLS_SUCCESS) {
 		lws_snprintf(ebuf, ebuf_len, "no cert verify result available");
 
@@ -857,7 +857,7 @@ int lws_tls_client_confirm_peer_cert(struct lws *wsi,
 	}
 
 	vr = (int)verify_result;
-	tls_cert = HITLS_GetPeerCertificate(wsi->tls.ssl);
+	tls_cert = HITLS_GetPeerCertificate(wsi->io.tls.ssl);
 
 	lws_openhitls_verify_result_to_policy(vr, &type, &avoid);
 
@@ -870,7 +870,7 @@ int lws_tls_client_confirm_peer_cert(struct lws *wsi,
 	    type);
 #endif
 
-	if (wsi->tls.use_ssl & avoid) {
+	if (wsi->use_ssl & avoid) {
 		reason[0] = '\0';
 
 		if (!lws_openhitls_recheck_skipped(wsi, tls_cert, reason,
@@ -891,7 +891,7 @@ int lws_tls_client_confirm_peer_cert(struct lws *wsi,
 	lws_snprintf(
 	    ebuf, ebuf_len,
 	    "server cert didn't look good, %s (use_ssl 0x%x) verify = 0x%x",
-	    type, (unsigned int)wsi->tls.use_ssl, verify_result);
+	    type, (unsigned int)wsi->use_ssl, verify_result);
 	lwsl_info("%s: server cert verify failed: 0x%x\n", __func__,
 		  verify_result);
 	lws_tls_err_describe_clear();

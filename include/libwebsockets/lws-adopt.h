@@ -166,6 +166,17 @@ lws_get_socket_fd(struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN const struct lws_udp * LWS_WARN_UNUSED_RESULT
 lws_get_udp(const struct lws *wsi);
 
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL)
+/**
+ * lws_get_ssl() - Return wsi's SSL context structure
+ * \param wsi:	websocket connection
+ *
+ * Returns pointer to the SSL library's context structure
+ */
+LWS_VISIBLE LWS_EXTERN SSL*
+lws_get_ssl(struct lws *wsi);
+#endif
+
 typedef struct lws_adopt_desc {
 	struct lws_vhost	*vh;		/**< vhost the wsi should belong to */
 	lws_adoption_type	type;		/**< OR-ed combinations of

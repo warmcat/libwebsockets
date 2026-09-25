@@ -453,8 +453,8 @@ lws_tls_ctx_from_wsi(struct lws *wsi)
      * owning vhost, so answering with wsi->a.vhost's ctx made that a tautology
      */
 
-    if (wsi->tls.ctx_ref)
-        return wsi->tls.ctx_ref->ctx;
+    if (wsi->io.tls.ctx_ref)
+        return wsi->io.tls.ctx_ref->ctx;
 
     if (wsi->a.vhost)
         return wsi->a.vhost->tls.ssl_ctx;

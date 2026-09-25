@@ -2094,7 +2094,7 @@ lws_http_action(struct lws *wsi)
 		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 				(int)wsi->a.context->timeout_secs);
 #if defined(LWS_WITH_TLS)
-	if (wsi->tls.redirect_to_https) {
+	if (wsi->redirect_to_https) {
 		/*
 		 * We accepted http:// only so we could redirect to
 		 * https://, so issue the redirect.  Create the redirection
@@ -2556,10 +2556,9 @@ lws_confirm_host_header(struct lws *wsi)
 	}
 
 #if defined(LWS_WITH_TLS)
-	if (wsi->tls.ssl)
+	if (lws_is_ssl(wsi))
 		port = 443;
 #endif
-
 	n = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_HOST);
 	if (n <= 0) {
 		lwsl_info("%s: missing or oversize host header\n", __func__);

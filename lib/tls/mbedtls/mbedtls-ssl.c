@@ -54,11 +54,11 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	int n = 0, m;
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
 
 	errno = 0;
-	n = mbedtls_ssl_read(&wsi->tls.ssl->ssl, buf, len);
+	n = mbedtls_ssl_read(&wsi->io.tls.ssl->ssl, buf, len);
 #if defined(LWS_PLAT_FREERTOS)
 	if (!n && errno == LWS_ENOTCONN) {
 		lwsl_debug("%s: SSL_read ENOTCONN\n", lws_wsi_tag(wsi));
@@ -101,7 +101,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		if (m == MBEDTLS_ERR_SSL_WANT_WRITE) {
 			lwsl_info("%s: WANT_WRITE\n", __func__);
 			lwsl_debug("%s: LWS_SSL_CAPABLE_MORE_SERVICE_WRITE\n", lws_wsi_tag(wsi));
-			wsi->tls_read_wanted_write = 1;
+			wsi->io.tls_read_wanted_write = 1;
 			lws_callback_on_writable(wsi);
 			__lws_change_pollfd(wsi, LWS_POLLIN, 0);
 			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
@@ -143,12 +143,12 @@ do_err1:
 	 */
 	if (n != (int)len)
 		goto bail;
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		goto bail;
 
-	if (mbedtls_ssl_get_bytes_avail(&wsi->tls.ssl->ssl)) {
-		if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
-			lws_dll2_add_head(&wsi->tls.dll_pending_tls,
+	if (mbedtls_ssl_get_bytes_avail(&wsi->io.tls.ssl->ssl)) {
+		if (lws_dll2_is_detached(&wsi->io.tls.dll_pending_tls))
+			lws_dll2_add_head(&wsi->io.tls.dll_pending_tls,
 					  &pt->tls.dll_pending_tls_owner);
 	} else
 		__lws_ssl_remove_wsi_from_buffered_list(wsi);
@@ -163,10 +163,10 @@ bail:
 int
 lws_ssl_pending(struct lws *wsi)
 {
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return 0;
 
-	return (int)mbedtls_ssl_get_bytes_avail(&wsi->tls.ssl->ssl);
+	return (int)mbedtls_ssl_get_bytes_avail(&wsi->io.tls.ssl->ssl);
 }
 
 int
@@ -184,10 +184,10 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 	lwsl_hexdump_notice(buf, len);
 #endif
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 
-	n = mbedtls_ssl_write(&wsi->tls.ssl->ssl, buf, len);
+	n = mbedtls_ssl_write(&wsi->io.tls.ssl->ssl, buf, len);
 	if (n > 0) {
 #if defined(LWS_WITH_SYS_METRICS)
 		if (wsi->a.vhost)
@@ -246,7 +246,7 @@ lws_ssl_close(struct lws *wsi)
 {
 	lws_sockfd_type n;
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return 0; /* not handled */
 
 #if defined (LWS_HAVE_SSL_SET_INFO_CALLBACK)
@@ -254,35 +254,35 @@ lws_ssl_close(struct lws *wsi)
 	 * table linking it to the wsi
 	 */
 	if (wsi->a.vhost->tls.ssl_info_event_mask)
-		SSL_set_info_callback(wsi->tls.ssl, NULL);
+		SSL_set_info_callback(wsi->io.tls.ssl, NULL);
 #endif
 
 #if defined(LWS_TLS_SYNTHESIZE_CB)
-	lws_sul_cancel(&wsi->tls.sul_cb_synth);
+	lws_sul_cancel(&wsi->io.tls.sul_cb_synth);
 	/*
 	 * ... check the session in case it did not live long enough to get
 	 * the scheduled callback to sample it
 	 */
-	lws_sess_cache_synth_cb(&wsi->tls.sul_cb_synth);
+	lws_sess_cache_synth_cb(&wsi->io.tls.sul_cb_synth);
 #endif
 
 	n = wsi->io.desc.sockfd;
 	if (!lwsi_skt_unusable(wsi)) {
-		mbedtls_ssl_close_notify(&wsi->tls.ssl->ssl);
+		mbedtls_ssl_close_notify(&wsi->io.tls.ssl->ssl);
 	}
 	compatible_close(n);
 #if defined(LWS_ROLE_QUIC)
 	mbedtls_quic_bio_free(wsi);
 #endif
-	mbedtls_ssl_free(&wsi->tls.ssl->ssl);
-	lws_free(wsi->tls.ssl);
-	wsi->tls.ssl = NULL;
+	mbedtls_ssl_free(&wsi->io.tls.ssl->ssl);
+	lws_free(wsi->io.tls.ssl);
+	wsi->io.tls.ssl = NULL;
 
 	lws_tls_restrict_return(wsi);
 
-	if (wsi->tls.ctx_ref) {
-		lws_tls_ctx_ref_unref(wsi->tls.ctx_ref);
-		wsi->tls.ctx_ref = NULL;
+	if (wsi->io.tls.ctx_ref) {
+		lws_tls_ctx_ref_unref(wsi->io.tls.ctx_ref);
+		wsi->io.tls.ctx_ref = NULL;
 	}
 
 	return 1; /* handled */
@@ -311,16 +311,16 @@ lws_ssl_context_destroy(struct lws_context *context)
 lws_tls_ctx *
 lws_tls_ctx_from_wsi(struct lws *wsi)
 {
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return NULL;
 
-	return wsi->tls.ssl->ctx;
+	return wsi->io.tls.ssl->ctx;
 }
 
 enum lws_ssl_capable_status
 __lws_tls_shutdown(struct lws *wsi)
 {
-	int n = mbedtls_ssl_close_notify(&wsi->tls.ssl->ssl);
+	int n = mbedtls_ssl_close_notify(&wsi->io.tls.ssl->ssl);
 
 	lwsl_debug("mbedtls_ssl_close_notify=%d for fd %d\n", n, wsi->io.desc.sockfd);
 

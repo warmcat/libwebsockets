@@ -47,7 +47,7 @@ lws_mbedtls_client_verify_cb(void *opaque, mbedtls_x509_crt *x509, int depth,
 			     uint32_t *flags)
 {
 	struct lws *wsi = (struct lws *)opaque;
-	lws_tls_kid_chain_t *ch = &wsi->tls.kid_chain;
+	lws_tls_kid_chain_t *ch = &wsi->io.tls.kid_chain;
 	union lws_tls_cert_info_results ci;
 
 	(void)depth;
@@ -108,12 +108,12 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		return -1;
 	}
 
-	wsi->tls.ssl = (lws_tls_conn *)conn;
+	wsi->io.tls.ssl = (lws_tls_conn *)conn;
 	conn->ctx = wsi->a.vhost->tls.ssl_client_ctx;
 	if (!conn->ctx) {
 		lwsl_err("%s: vhost has no client tls ctx\n", __func__);
 		lws_free(conn);
-		wsi->tls.ssl = NULL;
+		wsi->io.tls.ssl = NULL;
 
 		return -1;
 	}
@@ -161,7 +161,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		lwsl_info("%s: mbedtls_ssl_setup failed\n", __func__);
 		mbedtls_ssl_free(&conn->ssl);
 		lws_free(conn);
-		wsi->tls.ssl = NULL;
+		wsi->io.tls.ssl = NULL;
 		return -1;
 	}
 
@@ -171,7 +171,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	 * key identifiers for JIT trust; the vhost-shared conf cannot carry a
 	 * per-wsi opaque.  Start each connection with an empty chain.
 	 */
-	memset(&wsi->tls.kid_chain, 0, sizeof(wsi->tls.kid_chain));
+	memset(&wsi->io.tls.kid_chain, 0, sizeof(wsi->io.tls.kid_chain));
 	mbedtls_ssl_set_verify(&conn->ssl, lws_mbedtls_client_verify_cb, wsi);
 #endif
 
@@ -180,7 +180,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		lws_tls_reuse_session(wsi);
 #endif
 
-	if (!(wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
+	if (!(wsi->use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
 		lwsl_info("%s: setting hostname %s\n", __func__, hostname);
 		if (mbedtls_ssl_set_hostname(&conn->ssl, hostname))
 			return -1;
@@ -198,7 +198,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 {
 	int n, en;
 
-	n = mbedtls_ssl_handshake(&wsi->tls.ssl->ssl);
+	n = mbedtls_ssl_handshake(&wsi->io.tls.ssl->ssl);
 
 	if (n == 0) {
 		lws_tls_server_conn_alpn(wsi);
@@ -232,14 +232,14 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 {
 	uint32_t flags;
 
-	if (!wsi->tls.ssl)
+	if (!wsi->io.tls.ssl)
 		return -1;
 
-	flags = mbedtls_ssl_get_verify_result(&wsi->tls.ssl->ssl);
+	flags = mbedtls_ssl_get_verify_result(&wsi->io.tls.ssl->ssl);
 	if (flags == 0)
 		return 0;
 
-	if (wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)
+	if (wsi->use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)
 		flags &= ~(uint32_t)MBEDTLS_X509_BADCERT_CN_MISMATCH;
 
 	/*
@@ -250,12 +250,12 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	 * errors and never relaxes the signature algorithm check.
 	 */
 
-	if (wsi->tls.use_ssl & LCCSCF_ALLOW_SELFSIGNED)
+	if (wsi->use_ssl & LCCSCF_ALLOW_SELFSIGNED)
 		flags &= ~(uint32_t)MBEDTLS_X509_BADCERT_NOT_TRUSTED;
 
-	if (wsi->tls.use_ssl & LCCSCF_ALLOW_EXPIRED)
+	if (wsi->use_ssl & LCCSCF_ALLOW_EXPIRED)
 		flags &= ~((uint32_t)MBEDTLS_X509_BADCERT_EXPIRED | (uint32_t)MBEDTLS_X509_BADCERT_FUTURE);
-	if (wsi->tls.use_ssl & LCCSCF_ALLOW_INSECURE)
+	if (wsi->use_ssl & LCCSCF_ALLOW_INSECURE)
 		flags = 0;
 
 	if (flags != 0) {
@@ -269,7 +269,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 		 * a vhost trusting it for the retry.
 		 */
 		if (flags & MBEDTLS_X509_BADCERT_NOT_TRUSTED)
-			lws_tls_jit_trust_sort_kids(wsi, &wsi->tls.kid_chain);
+			lws_tls_jit_trust_sort_kids(wsi, &wsi->io.tls.kid_chain);
 #endif
 		return -1;
 	}

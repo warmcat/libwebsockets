@@ -36,7 +36,7 @@ lws_ws_proxy_est_cb(lws_sorted_usec_list_t *sul)
 		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
 					    wsi->user_space,
 #ifdef LWS_WITH_TLS
-					    wsi->tls.ssl,
+					    lws_tls_session_ptr(wsi),
 #else
 					    NULL,
 #endif
@@ -961,7 +961,7 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
 					    wsi->user_space,
 #ifdef LWS_WITH_TLS
-					    wsi->tls.ssl,
+					    lws_tls_session_ptr(wsi),
 #else
 					    NULL,
 #endif

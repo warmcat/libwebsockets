@@ -885,6 +885,13 @@ struct lws_io_adjunct {
 #if defined(LWS_WITH_UDP)
 	struct lws_udp			*udp; /* the datagram socket's peer state */
 #endif
+#if defined(LWS_WITH_TLS)
+	/* the tls session: the record layer, the handshake, the library's objects */
+	struct lws_lws_tls		tls;
+	unsigned int			tls_borrowed:1;
+	unsigned int			tls_borrowed_hs:1;
+	unsigned int			tls_read_wanted_write:1;
+#endif
 
 	/* the client connect machine: dns, racers, timers */
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
@@ -1052,7 +1059,13 @@ struct lws {
 	struct lws_buflist		*buflist_out; /* output-side buflist */
 
 #if defined(LWS_WITH_TLS)
-	struct lws_lws_tls		tls;
+	/*
+	 * What sansIO knows of tls: what the connection asked for (use_ssl,
+	 * the LCCSCF_ flags) and what the handshake settled that it acts on
+	 * (alpn, tls_session_reused); the session itself is IO's, in the
+	 * adjunct
+	 */
+	unsigned int			use_ssl;
 	char				alpn[24];
 #endif
 
@@ -1103,9 +1116,8 @@ struct lws {
 	unsigned int			client_bound_sspc:1;
 	unsigned int			client_proxy_onward:1;
 #endif
-	unsigned int                    tls_borrowed:1;
-	unsigned int                    tls_borrowed_hs:1;
-	unsigned int                    tls_read_wanted_write:1;
+	unsigned int			redirect_to_https:1;
+	unsigned int			sni_vh_bound:1; /* the SNI callback bound us to the vhost serving the handshake */
 	unsigned int			tried_quic:1;
 
 #ifdef LWS_WITH_ACCESS_LOG
