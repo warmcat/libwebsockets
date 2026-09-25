@@ -777,9 +777,13 @@ inv_geo_dl_complete(struct inv_geo_dl *g)
 			    __func__, inv_geo_file[g->is_v6]);
 		unlink(g->tmp);
 	} else {
-		rename(g->tmp, g->final);
-		lwsl_notice("%s: %s updated (%zu bytes)\n", __func__,
-			    inv_geo_file[g->is_v6], g->got);
+		if (rename(g->tmp, g->final)) {
+			lwsl_err("%s: %s rename failed, keeping previous\n",
+				 __func__, inv_geo_file[g->is_v6]);
+			unlink(g->tmp);
+		} else
+			lwsl_notice("%s: %s updated (%zu bytes)\n", __func__,
+				    inv_geo_file[g->is_v6], g->got);
 	}
 
 	if (g->is_v6)
