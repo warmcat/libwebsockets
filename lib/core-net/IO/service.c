@@ -1006,6 +1006,21 @@ lws_rx_stage(struct lws_context_per_thread *pt, struct lws *wsi,
 			return -1;
 		if (pol == LWS_RXPOL_DIED)
 			return 1;
+#if defined(LWS_WITH_UDP)
+		if (pol == LWS_RXPOL_PUMP_DGRAM) {
+			int nothing;
+
+			switch (lws_rx_pump_dgram(pt, wsi, pollfd, &nothing)) {
+			case LWS_HPI_RET_WSI_ALREADY_DIED:
+				return 1;
+			case LWS_HPI_RET_PLEASE_CLOSE_ME:
+				return -1;
+			default:
+				break;
+			}
+			pollfd->revents &= (short)~LWS_POLLIN;
+		}
+#endif
 		if (pol == LWS_RXPOL_PUMP || pol == LWS_RXPOL_PUMP_LOOP) {
 			struct lws_pollfd *pfd = pollfd;
 			int nothing, consumed, budget = 1000, took = 0;

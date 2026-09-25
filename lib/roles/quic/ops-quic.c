@@ -2321,16 +2321,23 @@ next_packet:
 	return 0;
 }
 
+/* a quic socket is read one datagram at a time, to rx_dgram */
+static int
+rops_rx_policy_quic(struct lws *wsi, int *flags, size_t *max)
+{
+	(void)wsi;
+	*flags = 0;
+	*max = 0;
+
+	return LWS_RXPOL_PUMP_DGRAM;
+}
+
 static lws_handling_result_t
 rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 			struct lws_pollfd *pollfd)
 {
-	lws_handling_result_t hr;
-	int nothing;
-
-	hr = lws_rx_pump_dgram(pt, wsi, pollfd, &nothing);
-	if (hr != LWS_HPI_RET_HANDLED)
-		return hr;
+	(void)pt;
+	/* the reading was done by IO's rx stage */
 
 	if (pollfd->revents & LWS_POLLOUT) {
 		int po = lws_handle_POLLOUT_event(wsi, pollfd);
@@ -4916,6 +4923,8 @@ static const lws_rops_t rops_table_quic[] = {
 #endif
 	/* 12, or 10 without client */
 		 { .rx_dgram		  = rops_rx_dgram_quic },
+	/* 13, or 11 without client */
+		 { .rx_policy		  = rops_rx_policy_quic },
 };
 
 const struct lws_role_ops role_ops_quic = {
@@ -4947,13 +4956,13 @@ const struct lws_role_ops role_ops_quic = {
 	  /* LWS_ROPS_issue_keepalive */		0x0A, 0x00,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x0B, 0x00,
-	  /* LWS_ROPS_rx_dgram */			0x0C, 0x00,
+	  /* LWS_ROPS_rx_dgram */			0x0C, 0x0D,
 #else
 	  /* LWS_ROPS_client_bind */
 	  /* LWS_ROPS_issue_keepalive */		0x00, 0x00,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x00, 0x00,
-	  /* LWS_ROPS_rx_dgram */			0x0A, 0x00,
+	  /* LWS_ROPS_rx_dgram */			0x0A, 0x0B,
 #endif
 					},
 
