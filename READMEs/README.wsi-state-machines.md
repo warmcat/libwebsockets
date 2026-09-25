@@ -189,6 +189,13 @@ WINDOW_UPDATEs do not extend that, only a new stream (which drops the
 timeout) does.  Nothing joins: the keep-warm timeout closes it in good
 order.
 
+`IDLING` does not carry `POCB`, but a kept-warm mux connection still
+services its own POLLOUT: for a network connection POLLOUT is the
+connection's business (its pps queue, and the walk of children wanting to
+write), not the transaction's.  Skipping it would leave a POLLOUT that was
+already asserted when the last stream closed set forever, spinning the
+event loop.
+
 ### Other roles
 
 raw sockets, raw files, pipes, dbus, mqtt and quic have no transactions:

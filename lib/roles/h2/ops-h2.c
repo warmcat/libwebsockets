@@ -252,7 +252,20 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (pollfd->revents & LWS_POLLOUT) {
 		int hr;
 
-		if (!lwsi_state_can_handle_POLLOUT(wsi))
+		/*
+		 * A client mux connection kept warm after its last stream
+		 * closed sits in LRS_IDLING, which has no POCB, but it is
+		 * still a live h2 connection: its POLLOUT is the connection's
+		 * own business (the pps queue, and the walk of children that
+		 * want to write), not a transaction's.  It has to be serviced,
+		 * or a POLLOUT already asserted on it when it went idle --
+		 * the pps path leaves POLLOUT active on purpose -- is never
+		 * cleared and the event loop spins on it until something else
+		 * closes the connection.
+		 */
+		if (!lwsi_state_can_handle_POLLOUT(wsi) &&
+		    !(lwsi_state(wsi) == LRS_IDLING && lwsi_role_client(wsi) &&
+		      lws_wsi_is_mux_nwsi(wsi)))
 			goto post_pollout;
 
 		hr = lws_handle_POLLOUT_event(wsi, pollfd);
