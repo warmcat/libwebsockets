@@ -834,6 +834,7 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 		return LWS_HP_RET_USER_SERVICE;
 	}
 
+#if defined(LWS_WITH_CLIENT)
 	if (lwsi_role_client(wsi)) {
 		/* a pipelined request whose turn on the connection has come */
 		if (lwsi_state(wsi) == LRS_H1C_ISSUE_HANDSHAKE2) {
@@ -848,6 +849,7 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 
 		return LWS_HP_RET_USER_SERVICE;
 	}
+#endif
 
 	/*
 	 * A server's writeable.  The dispatcher has already flushed a partial
