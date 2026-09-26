@@ -978,7 +978,7 @@ lhp_calc_factor(struct lhp_calc *cs)
 	lws_fx_t v = { 0, 0 }, v2;
 	const char *n;
 	size_t nl;
-	int neg = 0;
+	int neg = 0, fn_paren = 0;
 
 	lhp_calc_ws(cs);
 
@@ -1012,6 +1012,14 @@ lhp_calc_factor(struct lhp_calc *cs)
 
 	if (nl && cs->p < cs->end && *cs->p == '(') {
 		cs->p++;
+
+		/* a function's ( recurses like a bare one: same bound (C-491) */
+		if (cs->paren >= 16) {
+			cs->p = cs->end;
+			goto done;
+		}
+		cs->paren++;
+		fn_paren = 1;
 
 		if (nl == 3 && !strncasecmp(n, "var", 3)) {
 			const char *vn;
@@ -1168,6 +1176,8 @@ lhp_calc_factor(struct lhp_calc *cs)
 	}
 
 done:
+	if (fn_paren)
+		cs->paren--;
 	if (neg) {
 		lws_fx_t z = { 0, 0 };
 
