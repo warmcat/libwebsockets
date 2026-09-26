@@ -21,6 +21,10 @@ Response bodies (server to client): Content-Length, hand-framed chunked with
 extensions and trailers, and unknown length (close-delimited on h1, END_STREAM
 on h2), each across many writes.
 
+On h3, a response write lws took whole must not report the stream as a partial
+(`lws_partial_buffered()`) or choked (`lws_send_pipe_choked()`) just because
+quic has yet to send it or have it acked: quic throttles its streams itself.
+
 The server answers each request with `len=<n> sum=<x>` describing the decoded
 payload it received, followed by n bytes of the same pattern, so the client can
 check both directions byte-exactly.

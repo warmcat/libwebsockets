@@ -1595,6 +1595,20 @@ enum {
 };
 
 
+/*
+ * What of a wsi's output is still ours, narrowest first:
+ *
+ *  - buflist: bytes lws holds from a write the transport did not take, on
+ *    the wsi or its network wsi; a partial send.  This is what chokes a
+ *    writer: a role with its own queue (quic's pending_tx) throttles its
+ *    streams through its tx credit instead
+ *  - unsent: that, or an h3 stream's frames queued in quic not yet sent
+ *  - buffered: that, or an h3 stream's frames in flight, not yet acked:
+ *    what a close or a transaction completion waits for
+ */
+int
+lws_has_buflist_out(struct lws *wsi);
+
 int
 lws_has_buffered_out(struct lws *wsi);
 

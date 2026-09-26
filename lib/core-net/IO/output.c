@@ -33,7 +33,7 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	struct lws_context *context = lws_get_context(wsi);
 	size_t real_len = len;
 	unsigned int n, m;
-	int queued = 0;
+	int queued = 0, draining = 0;
 
 	/*
 	 * If you're looking to dump data being sent down the tls tunnel, see
@@ -58,7 +58,12 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	    )
 		return (int)len;
 
-	if (buf && lws_has_buffered_out(wsi)) {
+	/*
+	 * A partial send goes first.  An h3 stream's frames that quic holds,
+	 * queued or in flight, are not ahead of these in lws' order: quic
+	 * sends and retransmits them.
+	 */
+	if (buf && lws_has_buflist_out(wsi)) {
 		lwsl_wsi_info(wsi, "** prot: %s, incr buflist_out by %lu",
 				   wsi->a.protocol->name, (unsigned long)len);
 
@@ -88,6 +93,7 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 
 		len = lws_buflist_next_segment_len(&wsi->buflist_out, &buf);
 		real_len = len;
+		draining = 1;
 
 		lwsl_wsi_debug(wsi, "draining %d", (int)len);
 	}
@@ -143,14 +149,14 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	 * is a small matter of advancing ourselves only by the amount we did
 	 * send in the buflist.
 	 */
-	if (lws_has_buffered_out(wsi)) {
+	if (draining) {
 		if (m) {
 			lwsl_wsi_info(wsi, "partial adv %d (vs %ld)",
 					   m, (long)real_len);
 			lws_buflist_use_segment(&wsi->buflist_out, m);
 		}
 
-		if (!lws_has_buffered_out(wsi)) {
+		if (!lws_has_buflist_out(wsi)) {
 			lwsl_wsi_info(wsi, "buflist_out flushed");
 
 			m = (unsigned int)real_len;
@@ -274,9 +280,13 @@ lws_serve_http_file_fragment(struct lws *wsi)
 	int n, m, last;
 
 	do {
-		/* priority 1: buffered output */
+		/*
+		 * priority 1: a partial send.  An h3 stream's frames that
+		 * quic holds, queued or in flight, are quic's to send; waiting
+		 * on their acks here sent one chunk per round trip.
+		 */
 
-		if (lws_has_buffered_out(wsi)) {
+		if (lws_has_buflist_out(wsi)) {
 			if (lws_issue_raw(wsi, NULL, 0) < 0) {
 				lwsl_wsi_info(wsi, "closing");
 				goto had_it;
@@ -334,7 +344,12 @@ lws_serve_http_file_fragment(struct lws *wsi)
 		} else
 			last = 1;
 
-		if (last && !lws_has_buffered_out(wsi)
+		/*
+		 * the file is sent when lws holds none of it; waiting for the
+		 * transport to send and the peer to ack it is the transaction
+		 * completion's business
+		 */
+		if (last && !lws_has_buflist_out(wsi)
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 		    && !wsi->http.comp_ctx.buflist_comp &&
 		    !wsi->http.comp_ctx.may_have_more

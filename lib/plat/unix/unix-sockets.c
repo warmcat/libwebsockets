@@ -73,8 +73,12 @@ lws_send_pipe_choked(struct lws *wsi)
 	 * ws-over-h2: whole DATA frames parked on the stream awaiting h2
 	 * tx credit (see lws_h2_frame_write) mean the pipe is choked for
 	 * this stream even though the network wsi could accept bytes.
+	 * Only a partial send chokes it: an h3 stream's frames in quic's
+	 * queue or in flight are quic's, which throttles the stream by its
+	 * tx credit; waiting on their acks here allowed one write per round
+	 * trip.
 	 */
-	if (wsi_eff != wsi && lws_has_buffered_out(wsi))
+	if (wsi_eff != wsi && lws_has_buflist_out(wsi))
 		return 1;
 #else
 	wsi_eff = wsi;

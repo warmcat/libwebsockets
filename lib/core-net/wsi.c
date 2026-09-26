@@ -1174,7 +1174,7 @@ int lws_has_buffered_out(struct lws *wsi) {
 	return 0;
 }
 
-int lws_has_unsent_buffered_out(struct lws *wsi) {
+int lws_has_buflist_out(struct lws *wsi) {
 	if (wsi->buflist_out)
 		return 1;
 
@@ -1186,6 +1186,13 @@ int lws_has_unsent_buffered_out(struct lws *wsi) {
 			return 1;
 	}
 #endif
+
+	return 0;
+}
+
+int lws_has_unsent_buffered_out(struct lws *wsi) {
+	if (lws_has_buflist_out(wsi))
+		return 1;
 
 #if defined(LWS_ROLE_QUIC)
 	if (wsi->quic.qs) {
@@ -1211,7 +1218,7 @@ int lws_has_unsent_buffered_out(struct lws *wsi) {
 	return 0;
 }
 
-int lws_partial_buffered(struct lws *wsi) { return lws_has_buffered_out(wsi); }
+int lws_partial_buffered(struct lws *wsi) { return lws_has_buflist_out(wsi); }
 
 lws_fileofs_t lws_get_peer_write_allowance(struct lws *wsi) {
 	if (!lws_rops_fidx(wsi->role_ops, LWS_ROPS_tx_credit))

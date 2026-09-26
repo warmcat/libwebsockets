@@ -50,6 +50,11 @@
  * so the client can confirm the server saw exactly the payload it sent, and
  * that it received exactly what the server sent.
  *
+ * On an h3 stream, a response write lws took whole is in quic's hands: it
+ * must not be reported back to the app as a partial or a choked pipe just
+ * because quic has not sent it, or had it acked, yet.  That gated a writer to
+ * one write per round trip, and a lossy long-rtt path stalled it for good.
+ *
  * The test fails if any case does not complete as expected inside the
  * watchdog period.
  */
@@ -407,6 +412,7 @@ static struct {
 	int		conns_first;	/* ... when a reuse case's first request
 					 * completed */
 	int		gate_blocks;	/* requests the mount interceptor took */
+	int		held;		/* whole h3 writes reported as held back */
 } srv;
 
 static struct lws_context *context;
@@ -718,6 +724,15 @@ srv_writeable(struct lws *wsi, struct pss_srv *pss)
 	if (lws_write(wsi, p, o, final ? LWS_WRITE_HTTP_FINAL :
 				 LWS_WRITE_HTTP) != (int)o)
 		return -1;
+
+#if defined(LWS_ROLE_H3)
+	/* lws took it all: whatever quic does with it is not held back here */
+	if (lws_get_vhost(wsi) == vh_h3 && !final &&
+	    (lws_partial_buffered(wsi) || lws_send_pipe_choked(wsi))) {
+		lwsl_wsi_err(wsi, "whole write reported held back");
+		srv.held++;
+	}
+#endif
 
 	pss->tx_pos += n;
 
@@ -1067,6 +1082,12 @@ case_evaluate(void)
 		lwsl_err("server decoded %ld body bytes, expected %ld\n",
 			 srv.body_len, c->expect_server_rx);
 		case_finish(0, "server body byte count");
+		goto next;
+	}
+
+	if (srv.held) {
+		lwsl_err("%d whole h3 writes reported held back\n", srv.held);
+		case_finish(0, "h3 write held back");
 		goto next;
 	}
 
