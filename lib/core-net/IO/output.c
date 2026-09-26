@@ -365,9 +365,15 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	int n = 0, en;
 
-	if (wsi->io.transport)
-		return wsi->io.transport->read(wsi, wsi->io.transport_opaque,
-					       buf, len);
+	if (wsi->io.transport) {
+		n = wsi->io.transport->read(wsi, wsi->io.transport_opaque,
+					    buf, len);
+		/* only the documented returns reach the pump's switch */
+		if (n < LWS_SSL_CAPABLE_MORE_SERVICE_WRITE || n > (int)len)
+			n = LWS_SSL_CAPABLE_ERROR;
+
+		return n;
+	}
 
 	errno = 0;
 
