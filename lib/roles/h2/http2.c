@@ -2147,7 +2147,6 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			 */
 			h2n->swsi->conmon = wsi->conmon;
 			h2n->swsi->conmon_datum = wsi->conmon_datum;
-			lws_io_peer_copy(h2n->swsi, wsi);
 			wsi->conmon.dns_results_copy = NULL;
 #endif
 #endif /* CLIENT */

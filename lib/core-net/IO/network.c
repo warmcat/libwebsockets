@@ -1786,17 +1786,23 @@ lws_io_set_peer(struct lws *wsi, const lws_sockaddr46 *sa46)
 #endif
 }
 
-void
-lws_io_peer_copy(struct lws *dst, const struct lws *src)
+/*
+ * The peer address of the transport a wsi is on: a mux stream's is its
+ * network connection's, so nothing has to copy it to the stream
+ */
+lws_sockaddr46 *
+lws_io_peer(struct lws *wsi)
 {
-	dst->io.sa46_peer = src->io.sa46_peer;
+	return &lws_wsi_socket_owner(wsi)->io.sa46_peer;
 }
 
 void
 lws_io_peer_address(struct lws *wsi, char *buf, size_t len)
 {
-	if (wsi->io.sa46_peer.sa4.sin_family)
-		lws_sa46_write_numeric_address(&wsi->io.sa46_peer, buf, len);
+	lws_sockaddr46 *peer = lws_io_peer(wsi);
+
+	if (peer->sa4.sin_family)
+		lws_sa46_write_numeric_address(peer, buf, len);
 	else
 		lws_strncpy(buf, "unknown", len);
 }

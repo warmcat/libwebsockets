@@ -638,7 +638,7 @@ lws_metrics_hist_bump_describe_wsi(struct lws *wsi, lws_metric_pub_t *pub,
 				wsi->stash->cis[CIS_HOST]);
 #endif
 
-	lws_sa46_write_numeric_address(&wsi->io.sa46_peer, d1, sizeof(d1));
+	lws_sa46_write_numeric_address(lws_io_peer(wsi), d1, sizeof(d1));
 	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "peer=\"%s\",", d1);
 
 	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s", name);

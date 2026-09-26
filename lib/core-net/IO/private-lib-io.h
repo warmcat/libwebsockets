@@ -403,8 +403,8 @@ void
 lws_addrinfo_clean(struct lws *wsi);
 void
 lws_io_set_peer(struct lws *wsi, const lws_sockaddr46 *sa46);
-void
-lws_io_peer_copy(struct lws *dst, const struct lws *src);
+lws_sockaddr46 *
+lws_io_peer(struct lws *wsi);
 void
 lws_io_peer_address(struct lws *wsi, char *buf, size_t len);
 int
