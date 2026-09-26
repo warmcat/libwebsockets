@@ -518,6 +518,7 @@ typedef struct lws_log_spew {
 } lws_log_spew_t;
 
 static lws_log_spew_t spew;
+static char spew_entering; /* setting the ring up: no re-entry */
 
 enum {
 	SPEW_EMIT,	/* not in spew mode, emit normally */
@@ -643,8 +644,21 @@ spew_track(lws_usec_t now, int level, const char *line, size_t len,
 						LWS_LOG_SPEW_ENTER_US)
 			return SPEW_EMIT;
 
+		/*
+		 * The ring comes from the libc allocator, not lws_malloc():
+		 * the lws allocator logs its allocations at debug level, and
+		 * that log re-entered here while the ring was being set up,
+		 * so an inner call allocated and filled one ring and the
+		 * outer then installed a different buffer under the inner's
+		 * counters (and with a non-recursive log lock it would have
+		 * deadlocked).  The guard below refuses re-entry outright.
+		 */
+		if (spew_entering)
+			return SPEW_EMIT;
+		spew_entering = 1;
 		memset(&spew.r, 0, sizeof(spew.r));
-		spew.r.buf = lws_malloc(LWS_LOG_SPEW_RING_SIZE, "log spew");
+		spew.r.buf = malloc(LWS_LOG_SPEW_RING_SIZE);
+		spew_entering = 0;
 		if (!spew.r.buf)
 			/* no memory to retain anything: keep emitting */
 			return SPEW_EMIT;
@@ -743,7 +757,7 @@ spew_replay(lws_log_cx_t *cx, int level, lws_log_spew_ring_t *r,
 
 	spew_emit(cx, level, "lws: log spew: end of replay");
 
-	lws_free(r->buf);
+	free(r->buf); /* libc's: see spew_track() */
 	r->buf = NULL;
 }
 
