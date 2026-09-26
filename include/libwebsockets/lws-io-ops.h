@@ -58,3 +58,10 @@ typedef struct lws_io_ops {
 	 * fd, its place in the poll set).  Called from the wsi's close path
 	 * with the context and vhost locks held. */
 } lws_io_ops_t;
+
+/*
+ * IO's own: the requests reach the poll set and the socket.  An embedder
+ * that only wants to hear the requests takes a copy and wraps the ops it
+ * listens to (api-test-sansio does).
+ */
+LWS_VISIBLE LWS_EXTERN_FOR_DATA const lws_io_ops_t lws_io_ops_default;
