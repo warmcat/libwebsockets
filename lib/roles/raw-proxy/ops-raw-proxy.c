@@ -58,8 +58,16 @@ rops_rx_raw_proxy(struct lws *wsi, const uint8_t *buf, size_t len,
 static int
 rops_rx_policy_raw_proxy(struct lws *wsi, int *flags, size_t *max)
 {
-	if (lws_has_buffered_out(wsi))
+	if (lws_has_buffered_out(wsi)) {
+		/*
+		 * Nothing is read until the partial send drains, so a
+		 * level-armed POLLIN would spin: drop it, the drain restores it
+		 */
+		if (lws_io_want_read(wsi, 0))
+			return LWS_RXPOL_CLOSE;
+
 		return LWS_RXPOL_HOLD;
+	}
 
 	if (lwsi_transport(wsi) == LTS_WAITING_CONNECT ||
 	    lwsi_transport(wsi) == LTS_SSL_ACK_PENDING)

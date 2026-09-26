@@ -103,17 +103,15 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 			lwsl_wsi_info(wsi, "signalling to close");
 			goto bail_die;
 		}
-#if defined(LWS_ROLE_H2)
 		/*
-		 * An h2 server network wsi stops reading (and drops POLLIN)
-		 * while a partial send is pending; if that just drained,
-		 * let it read again
+		 * A role whose rx policy holds behind a partial send drops
+		 * POLLIN meanwhile (h2 server network wsi, raw); if that just
+		 * drained, let it read again (rx flow control, if the role has
+		 * any on, still keeps it off)
 		 */
-		if (!lws_has_buffered_out(wsi) && lws_wsi_is_mux_nwsi(wsi) &&
-		    !lwsi_role_client(wsi) &&
+		if (!lws_has_buffered_out(wsi) && !lws_is_flowcontrolled(wsi) &&
 		    lws_change_pollfd(wsi, 0, LWS_POLLIN))
 			goto bail_die;
-#endif
 		/* leave POLLOUT active either way */
 		goto bail_ok;
 	} else
