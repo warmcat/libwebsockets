@@ -152,6 +152,8 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 bail: /* entered with the pt lock held */
 	lwsl_wsi_notice(new_wsi, "exiting on bail");
 
+	lws_io_udp_release(new_wsi); /* allocated above, before the bind */
+
 	lws_dll2_remove(&new_wsi->pre_natal);
 	if (parent)
 		lws_dll2_remove(&new_wsi->sibling_list);
