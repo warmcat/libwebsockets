@@ -22,6 +22,10 @@
  *    becomes the later of the file's date and when this viewer last
  *    watched it, so what they were watching recently sits at the top
  *    alongside what was recently added
+ *
+ * Media that is still being copied in (or whose copy stopped short) is
+ * listed as .item.pending, with no player link and no thumbnail: the
+ * server will not play it until it is all there.
  */
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -120,6 +124,13 @@ document.addEventListener('DOMContentLoaded', function() {
         var a = item.querySelector('a[href]');
         var img = item.querySelector('img.thumb');
         var q, fileDate = 0;
+
+        if (!a) {
+            /* still being copied in: nothing to play or resume yet,
+             * data-t is the file's mtime */
+            placed(item, (Number.parseInt(item.getAttribute('data-t'), 10) || 0) * 1000);
+            return;
+        }
 
         try {
             q = new URL(a.getAttribute('href'), window.location.href).searchParams;

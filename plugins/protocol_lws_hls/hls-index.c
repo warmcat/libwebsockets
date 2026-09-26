@@ -680,6 +680,11 @@ hls_index_build(struct per_vhost_data__lws_hls *vhd, const char *filename)
 	int video_idx = -1, total = 0, ret = -1;
 	unsigned int ui;
 
+	/* not even opened while it is not all there, see hls-media.c */
+	if (lws_hls_media_state(vhd->media_dir, filename, NULL) !=
+							HLS_MEDIA_COMPLETE)
+		return -1;
+
 	lws_snprintf(path, sizeof(path), "%s/%s", vhd->media_dir, filename);
 	if (avformat_open_input(&ic, path, NULL, NULL) < 0)
 		return -1;
@@ -717,7 +722,7 @@ lws_hls_indexer(void *d)
 
 	while (1) {
 		struct hls_index_job *j;
-		int failed;
+		int failed, arriving;
 
 		pthread_mutex_lock(&vhd->lock);
 		while (!vhd->thread_exit && !lws_dll2_get_head(&vhd->index_jobs))
@@ -734,8 +739,15 @@ lws_hls_indexer(void *d)
 
 		lwsl_notice("HLS-INDEX: %s: indexer starting\n", j->filename);
 		failed = hls_index_build(vhd, j->filename) < 0;
+		/*
+		 * Failing because the file is not all there yet is not worth
+		 * remembering: once it is, the next ask should build it
+		 */
+		arriving = failed && lws_hls_media_state(vhd->media_dir,
+					j->filename, NULL) != HLS_MEDIA_COMPLETE;
 		lwsl_notice("HLS-INDEX: %s: indexer %s\n", j->filename,
-			    failed ? "FAILED" : "done");
+			    arriving ? "skipped, file incomplete" :
+				    (failed ? "FAILED" : "done"));
 
 		pthread_mutex_lock(&vhd->lock);
 		vhd->index_running = NULL;
@@ -743,12 +755,17 @@ lws_hls_indexer(void *d)
 		j->finished = lws_now_usecs();
 		j->pct = 100;
 		/*
-		 * Kept on recent whether it worked or not: a success is in the
-		 * cache and never consults this, a failure or a file that gave
-		 * nothing cacheable must not have tasks parked behind it again
+		 * Otherwise kept on recent whether it worked or not: a success
+		 * is in the cache and never consults this, a failure or a file
+		 * that gave nothing cacheable must not have tasks parked
+		 * behind it again.  Tasks parked behind an incomplete file
+		 * are refused by the worker when they run again.
 		 */
-		lws_dll2_add_tail(&j->list, &vhd->index_recent);
 		hls_index_unpark(vhd, j->filename);
+		if (arriving)
+			free(j);
+		else
+			lws_dll2_add_tail(&j->list, &vhd->index_recent);
 		pthread_mutex_unlock(&vhd->lock);
 
 		/* the status endpoint may have someone polling */
@@ -808,7 +825,16 @@ lws_hls_index_status(struct per_vhost_data__lws_hls *vhd, const char *filename,
 		     char *json, size_t len, int can_delete)
 {
 	int ready = 0, running = 0, failed = 0, pct = 0, found = 0, n;
+	enum hls_media_state ms;
 	struct hls_index_job *j;
+
+	/*
+	 * A file that is not all there gets nothing queued for it: the
+	 * player shows the viewer why, and asks again until it is
+	 */
+	ms = lws_hls_media_state(vhd->media_dir, filename, NULL);
+	if (ms != HLS_MEDIA_COMPLETE)
+		goto compose;
 
 	pthread_mutex_lock(&vhd->lock);
 
@@ -863,9 +889,11 @@ lws_hls_index_status(struct per_vhost_data__lws_hls *vhd, const char *filename,
 		pthread_mutex_unlock(&vhd->lock);
 	}
 
-	n = lws_snprintf(json, len, "{\"ready\":%s,\"running\":%s,"
-				     "\"failed\":%s,\"progress\":%d,"
-				     "\"can_delete\":%s",
+compose:
+	n = lws_snprintf(json, len, "{\"media\":\"%s\",\"ready\":%s,"
+				     "\"running\":%s,\"failed\":%s,"
+				     "\"progress\":%d,\"can_delete\":%s",
+			 lws_hls_media_state_name(ms),
 			 ready ? "true" : "false", running ? "true" : "false",
 			 failed ? "true" : "false", pct,
 			 can_delete ? "true" : "false");
@@ -873,7 +901,7 @@ lws_hls_index_status(struct per_vhost_data__lws_hls *vhd, const char *filename,
 		return n < 0 ? n : (int)len - 1;
 
 	/* the shadow transcode half, when this file's audio needs it */
-	{
+	if (ms == HLS_MEDIA_COMPLETE) {
 		int m = lws_hls_atrans_status_json(vhd, filename, json + n,
 						   len - (size_t)n);
 

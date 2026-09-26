@@ -26,3 +26,14 @@ a { color: #4db8ff; text-decoration: none; }
     text-overflow: ellipsis;
 }
 
+
+/* Media still being copied in, or whose copy stopped short: listed, but
+ * with the state where the thumbnail would be and nothing to click. */
+.item.pending { opacity: 0.6; }
+.pending-thumb {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #bbb;
+    font-style: italic;
+}

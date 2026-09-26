@@ -6,6 +6,7 @@
 struct file_entry {
 	char name[256];
 	time_t mtime;
+	enum hls_media_state state;	/* anything but GONE */
 };
 
 /* escaped form of the longest possible name (255 chars, each expanding to
@@ -65,7 +66,7 @@ hls_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		return 0;
 
 	/* only list media files */
-	if (!strstr(lde->name, ".mp4") && !strstr(lde->name, ".mkv"))
+	if (!lws_hls_is_media_name(lde->name))
 		return 0;
 
 	if (ds->count >= ds->max) {
@@ -78,15 +79,23 @@ hls_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		ds->entries = ne;
 	}
 
-	if (stat(path, &st) == 0) {
+	{
 		const char *rel_path = path;
 		size_t base_len = strlen(ds->base_dir);
+		enum hls_media_state ms;
+
 		if (!strncmp(path, ds->base_dir, base_len) && path[base_len] == '/')
 			rel_path = path + base_len + 1;
+
+		/* is it all there, or still being copied in? */
+		ms = lws_hls_media_state(ds->base_dir, rel_path, &st);
+		if (ms == HLS_MEDIA_GONE)
+			return 0;
 
 		lws_strncpy(ds->entries[ds->count].name, rel_path,
 			    sizeof(ds->entries[ds->count].name));
 		ds->entries[ds->count].mtime = st.st_mtime;
+		ds->entries[ds->count].state = ms;
 		ds->count++;
 	}
 
@@ -111,18 +120,26 @@ struct hls_purge_state {
 
 /*
  * Purge probe: does this subtree still hold anything the user could play?
- * The playable test is the listing's (hls_dir_cb): a non-dot file whose
- * name says .mp4 / .mkv.  Dot-dirs are our caches or hidden state: not
- * playable, and the toplevel ones are not ours to purge.
+ * The playable test is the listing's (hls_dir_cb), lws_hls_is_media_name().
+ * Dot-dirs are our caches or hidden state: not playable, and the toplevel
+ * ones are not ours to purge.
+ *
+ * A file of any name that is still being written counts as well: media is
+ * often copied in under a temporary name (rsync's .Film.mkv.Xq3v9A, a
+ * downloader's .part) and renamed when it is complete, and the directory
+ * it is arriving in must not be removed from under the copy.
  */
 static int
 hls_purge_probe_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
 	struct hls_purge_state *ps = (struct hls_purge_state *)user;
 	char path[1024];
+	struct stat st;
 
 	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
 		return 0;
+
+	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
 
 	if (lde->type == LDOT_DIR) {
 		if (lde->name[0] == '.')
@@ -130,7 +147,6 @@ hls_purge_probe_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		/* the depth cap also bounds symlink loops, as in hls_dir_cb */
 		if (ps->depth >= HLS_DIR_MAX_DEPTH)
 			return 0;
-		lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
 		ps->depth++;
 		lws_dir(path, ps, hls_purge_probe_cb);
 		ps->depth--;
@@ -138,7 +154,8 @@ hls_purge_probe_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		return ps->has_media; /* stop the parents' walks too */
 	}
 
-	if (strstr(lde->name, ".mp4") || strstr(lde->name, ".mkv")) {
+	if (lws_hls_is_media_name(lde->name) ||
+	    (!stat(path, &st) && lws_hls_media_settling(&st))) {
 		ps->has_media = 1;
 		return 1;
 	}
@@ -494,6 +511,28 @@ lws_hls_serve_dir(struct lws *wsi, struct per_vhost_data__lws_hls *vhd)
 
 		hls_dir_esc(esc, sizeof(esc), ds.entries[i].name);
 		hls_dir_esc(fesc, sizeof(fesc), display);
+
+		if (ds.entries[i].state != HLS_MEDIA_COMPLETE) {
+			/*
+			 * Not all there yet: listed, so the viewer can see it
+			 * coming (and an admin can delete a copy that died),
+			 * but with nothing to play and no thumbnail to cut
+			 * from it.  The server refuses both anyway.
+			 */
+			q = hls_append_fmt(q, body, need,
+				"<div class='item pending' data-t='%llu'>"
+				"<div class='thumb pending-thumb'>%s</div>"
+				"<br>%s%s%s%s</div>",
+				(unsigned long long)ds.entries[i].mtime,
+				ds.entries[i].state == HLS_MEDIA_ARRIVING ?
+					"still arriving" : "incomplete",
+				fesc,
+				can_delete ? "<button class='del-btn' title='Delete' data-file='" : "",
+				can_delete ? esc : "",
+				can_delete ? "'>&#x1F5D1;</button>" : "");
+			continue;
+		}
+
 		q = hls_append_fmt(q, body, need,
 			"<div class='item'>"
 			"<a href='%splayer.html?v=stream/%s&t=%llu'>"

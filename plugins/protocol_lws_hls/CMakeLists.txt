@@ -36,6 +36,7 @@ if (requirements)
 			hls-av.c
 			hls-dir.c
 			hls-index.c
+			hls-media.c
 			hls-sub.c
 		)
 		set(PLUGIN_HDR private-lws-hls.h)

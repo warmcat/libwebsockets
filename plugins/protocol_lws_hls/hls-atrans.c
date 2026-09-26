@@ -477,10 +477,15 @@ unlock:
 	return 1;
 }
 
-/* write the provenance header beside a completed shadow, rename into place */
+/*
+ * write the provenance header beside a completed shadow, rename into place.
+ * st0 is the media file as it was when the transcode started: if it is not
+ * that any more, the shadow is of something else (or of however much of it
+ * had arrived) and gets no header.
+ */
 static int
 hls_atrans_hdr_write(const char *media_dir, const char *filename,
-		     int audio_idx)
+		     int audio_idx, const struct stat *st0)
 {
 	struct hls_atrans_hdr ah;
 	char hdr[1024], tmp[1100], path[1024];
@@ -494,7 +499,8 @@ hls_atrans_hdr_write(const char *media_dir, const char *filename,
 	lws_strncpy(ah.filename, filename, sizeof(ah.filename));
 
 	lws_snprintf(path, sizeof(path), "%s/%s", media_dir, filename);
-	if (stat(path, &st))
+	if (stat(path, &st) || st.st_size != st0->st_size ||
+	    st.st_mtime != st0->st_mtime)
 		return -1;
 	ah.size = (int64_t)st.st_size;
 	ah.mtime = (int64_t)st.st_mtime;
@@ -535,7 +541,18 @@ hls_atrans_build(struct per_vhost_data__lws_hls *vhd,
 	AVStream *out_stream;
 	int64_t dur_us = 0, last_pub_s = -1;
 	int audio_idx = j->audio_idx;
+	enum hls_media_state ms;
+	struct stat st0;
 	int ret = -1;
+
+	/* never a shadow of a file that is not all there, see hls-media.c */
+	ms = lws_hls_media_state(vhd->media_dir, j->filename, &st0);
+	if (ms != HLS_MEDIA_COMPLETE) {
+		lwsl_notice("HLS-ATRANS: %s:%d: %s, not transcoding\n",
+			    j->filename, audio_idx,
+			    lws_hls_media_state_name(ms));
+		return -1;
+	}
 
 	lws_snprintf(filepath, sizeof(filepath), "%s/%s", vhd->media_dir,
 		     j->filename);
@@ -663,7 +680,8 @@ hls_atrans_build(struct per_vhost_data__lws_hls *vhd,
 	av_write_trailer(out_ctx);
 
 	/* the media changing under us invalidates the whole shadow */
-	if (hls_atrans_hdr_write(vhd->media_dir, j->filename, audio_idx)) {
+	if (hls_atrans_hdr_write(vhd->media_dir, j->filename, audio_idx,
+				 &st0)) {
 		lwsl_notice("HLS-ATRANS: %s:%d: media changed, shadow "
 			    "dropped\n", j->filename, audio_idx);
 		goto out;
@@ -697,7 +715,7 @@ lws_hls_atrans_thread(void *d)
 
 	while (1) {
 		struct hls_atrans_job *j;
-		int failed;
+		int failed, arriving;
 
 		pthread_mutex_lock(&vhd->lock);
 		while (!vhd->thread_exit &&
@@ -716,8 +734,15 @@ lws_hls_atrans_thread(void *d)
 		lwsl_notice("HLS-ATRANS: %s:%d: transcoding shadow\n",
 			    j->filename, j->audio_idx);
 		failed = hls_atrans_build(vhd, j) < 0;
+		/*
+		 * Failing because the file is not all there yet is not worth
+		 * remembering: once it is, the next ask should build it
+		 */
+		arriving = failed && lws_hls_media_state(vhd->media_dir,
+					j->filename, NULL) != HLS_MEDIA_COMPLETE;
 		lwsl_notice("HLS-ATRANS: %s:%d: shadow %s\n", j->filename,
-			    j->audio_idx, failed ? "FAILED" : "ready");
+			    j->audio_idx, arriving ? "skipped, file incomplete" :
+					(failed ? "FAILED" : "ready"));
 
 		pthread_mutex_lock(&vhd->lock);
 		vhd->atrans_running = NULL;
@@ -726,15 +751,20 @@ lws_hls_atrans_thread(void *d)
 		j->pct = 100;
 		j->covered_us = failed ? 0 : INT64_MAX;
 		/*
-		 * Kept on recent whether it worked or not: a success is on
-		 * disk and never consults this, a failure must not have
-		 * tasks parked behind it again until the retry window
+		 * Otherwise kept on recent whether it worked or not: a
+		 * success is on disk and never consults this, a failure must
+		 * not have tasks parked behind it again until the retry
+		 * window.  Tasks parked behind an incomplete file are refused
+		 * by the worker when they run again.
 		 */
-		lws_dll2_add_tail(&j->list, &vhd->atrans_recent);
+		if (!arriving)
+			lws_dll2_add_tail(&j->list, &vhd->atrans_recent);
 		pthread_mutex_unlock(&vhd->lock);
 
 		hls_atrans_unpark(vhd, j->filename, j->audio_idx,
 				  INT64_MAX, 1);
+		if (arriving)
+			free(j);
 
 		/* the status endpoint may have someone polling */
 		lws_cancel_service(vhd->context);

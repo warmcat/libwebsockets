@@ -996,7 +996,7 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		else if (!strncmp(url, "/index/", 7)) {
 			/* is the keyframe index built?  asking starts it */
-			char filename[256], jb[LWS_PRE + 160],
+			char filename[256], jb[LWS_PRE + 256],
 			     *json = jb + LWS_PRE;
 			uint8_t buf[LWS_PRE + 1024], *start = buf + LWS_PRE,
 				*p = start, *end = buf + sizeof(buf) - 1;

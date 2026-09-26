@@ -42,6 +42,7 @@
 #include <libswresample/swresample.h>
 
 #include <pthread.h>
+#include <sys/stat.h>
 #include <stdarg.h>
 #include <stdio.h>
 
@@ -732,6 +733,47 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 			 AVFormatContext *in_ctx, int video_idx, int target_seg_idx,
 			 struct hls_segment_info *out_info, int *out_total_segments,
 			 volatile int *cancel);
+
+/* hls-media.c: is a media file all there?  See the file comment */
+
+/*
+ * How long after its last write a media file is taken to still be arriving.
+ * A copy in progress writes continuously; this only has to ride out the
+ * pauses of a slow network copy.
+ */
+#define HLS_MEDIA_SETTLE_SECS	30
+
+enum hls_media_state {
+	HLS_MEDIA_COMPLETE,	/* serve it */
+	HLS_MEDIA_ARRIVING,	/* written to within HLS_MEDIA_SETTLE_SECS */
+	HLS_MEDIA_TRUNCATED,	/* shorter than its container says it is */
+	HLS_MEDIA_GONE,		/* not there, or not a regular file */
+};
+
+/*
+ * The state of media-dir/filename; if st_out is given it gets the file's
+ * stat when it is there, so a caller can later tell whether it changed.
+ * Nothing libavformat opens should be built, cached or persisted from a
+ * file this does not call complete.
+ */
+enum hls_media_state
+lws_hls_media_state(const char *media_dir, const char *filename,
+		    struct stat *st_out);
+
+/* written to recently enough to be a copy in progress? */
+int
+lws_hls_media_settling(const struct stat *st);
+
+/* "complete", "arriving", "incomplete" or "gone", for logs and JSON */
+const char *
+lws_hls_media_state_name(enum hls_media_state ms);
+
+/*
+ * Does this (base)name say playable media: .mp4 / .mkv, any case, and not
+ * a dotfile (which is also how copies in progress are often named)?
+ */
+int
+lws_hls_is_media_name(const char *name);
 
 /* hls-index.c: the on-disk copy of vhd->index_list, see the file comment */
 

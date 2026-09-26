@@ -58,6 +58,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <sys/time.h>
 
 /* import the whole of the HLS plugin statically */
 #include <lws-plugin-hls-static-build-includes.h>
@@ -76,6 +77,18 @@
 /* ...as it goes in a request path */
 #define SPECIAL_URL	"Colon:%20Dollar$%2050%25.mkv"
 #define REFUSED_MEDIA	"Friendly.Name.Test.2020.mp4"
+
+/* media that is not all there: listed, but not playable */
+#define ARRIVING_MEDIA	"Arriving.Film.2024.mkv"	/* being written */
+#define STALLED_MEDIA	"Stalled.Film.2024.mkv"		/* copy stopped short */
+#define NOMOOV_MEDIA	"NoMoov.Film.2024.mp4"		/* moov not there yet */
+#define SHORTMDAT_MEDIA	"Short.Mdat.2024.mp4"		/* mdat past EOF */
+#define N_PENDING	4
+/* how rsync names a copy in progress: not media, not listed */
+#define RSYNC_TEMP	".Rsync.Temp.2024.mkv.Xq3v9A"
+/* a subdirectory something is being copied into under a temporary name */
+#define INCOMING_DIR	"Incoming.2024"
+#define INCOMING_TEMP	INCOMING_DIR "/.Incoming.2024.mkv.Ab12Cd"
 
 static struct lws_context *context;
 static lws_sorted_usec_list_t sul_timeout;
@@ -97,6 +110,8 @@ static int step_over;		/* this step's transaction has ended */
 static int done;		/* 1 = all steps ran, -1 = failed */
 
 static void check_listing(void);
+static void check_index_arriving(void);
+static void check_index_incomplete(void);
 static void check_refused(void);
 static void check_nested_deleted(void);
 static void check_special_deleted(void);
@@ -114,6 +129,16 @@ static const struct step {
 	void		(*check)(void);
 } steps[] = {
 	{ "GET",  "/media/",				0, 200, check_listing },
+	/* not all there: the player is told why, and nothing is built */
+	{ "GET",  "/media/index/" ARRIVING_MEDIA,	0, 200,
+						check_index_arriving },
+	{ "GET",  "/media/index/" STALLED_MEDIA,	0, 200,
+						check_index_incomplete },
+	{ "GET",  "/media/stream/" STALLED_MEDIA,	0, 503, NULL },
+	{ "GET",  "/media/segment/" SHORTMDAT_MEDIA "/0", 0, 503, NULL },
+	{ "GET",  "/media/preview/" NOMOOV_MEDIA,	0, 404, NULL },
+	/* ...but an admin can delete a copy that died */
+	{ "POST", "/media/delete/" STALLED_MEDIA,	1, 200, NULL },
 	{ "POST", "/media/delete/" REFUSED_MEDIA,	0, 403, check_refused },
 	{ "POST", "/media/delete/" NESTED_MEDIA,	1, 200,
 						check_nested_deleted },
@@ -328,23 +353,75 @@ sul_connect_cb(lws_sorted_usec_list_t *sul)
 
 /* ------------------------------------------------------------ fixtures */
 
+/*
+ * The listing only offers media that is all there: a container whose
+ * framing is complete, not written to in the last HLS_MEDIA_SETTLE_SECS.
+ * These are the smallest such files: an mp4 of an ftyp and a moov box, and
+ * a matroska of an empty EBML header and an empty Segment.
+ */
+static const uint8_t
+	stub_mp4[] = { 0, 0, 0, 8, 'f', 't', 'y', 'p',
+		       0, 0, 0, 8, 'm', 'o', 'o', 'v' },
+	stub_mkv[] = { 0x1a, 0x45, 0xdf, 0xa3, 0x80,
+		       0x18, 0x53, 0x80, 0x67, 0x80 },
+	/* a copy that stopped short: the Segment says 1000 bytes follow */
+	short_mkv[] = { 0x1a, 0x45, 0xdf, 0xa3, 0x80,
+			0x18, 0x53, 0x80, 0x67, 0x43, 0xe8, 0xec, 0x80 },
+	/* the moov of a non-faststart mp4 is written last */
+	nomoov_mp4[] = { 0, 0, 0, 8, 'f', 't', 'y', 'p',
+			 0, 0, 0, 8, 'm', 'd', 'a', 't' },
+	/* the mdat says it is much bigger than what arrived */
+	shortmdat_mp4[] = { 0, 0, 0, 8, 'f', 't', 'y', 'p',
+			    0, 1, 0, 0, 'm', 'd', 'a', 't', 1, 2, 3, 4 };
+
+/*
+ * Create dir/name holding data, last written an hour ago unless fresh (a
+ * copy that is still going on)
+ */
 static int
-touch(const char *dir, const char *name)
+mkfile(const char *dir, const char *name, const uint8_t *data, size_t len,
+       int fresh)
 {
+	struct timeval tv[2];
 	char path[384];
 	int fd;
 
 	lws_snprintf(path, sizeof(path), "%s/%s", dir, name);
 
-	fd = open(path, O_CREAT | O_WRONLY, 0600);
+	fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
 	if (fd < 0) {
 		lwsl_err("%s: open %s: %s\n", __func__, path,
 			 strerror(errno));
 		return 1;
 	}
+	if (len && write(fd, data, len) != (ssize_t)len) {
+		close(fd);
+		return 1;
+	}
 	close(fd);
 
-	return 0;
+	if (fresh)
+		return 0;
+
+	gettimeofday(&tv[0], NULL);
+	tv[0].tv_sec -= 3600;
+	tv[1] = tv[0];
+
+	return utimes(path, tv);
+}
+
+/* a complete, settled file, framed according to its extension */
+static int
+touch(const char *dir, const char *name)
+{
+	size_t nl = strlen(name);
+
+	if (nl > 4 && !strcmp(name + nl - 4, ".mkv"))
+		return mkfile(dir, name, stub_mkv, sizeof(stub_mkv), 0);
+	if (nl > 4 && !strcmp(name + nl - 4, ".mp4"))
+		return mkfile(dir, name, stub_mp4, sizeof(stub_mp4), 0);
+
+	return mkfile(dir, name, NULL, 0, 0);
 }
 
 static int
@@ -414,6 +491,28 @@ build_fixture_dir(void)
 	if (touch(fixture_dir, SPECIAL_MEDIA))
 		return 1;
 
+	/* media that is not all there, in the ways we can tell */
+	if (mkfile(fixture_dir, ARRIVING_MEDIA, stub_mkv, sizeof(stub_mkv), 1) ||
+	    mkfile(fixture_dir, STALLED_MEDIA, short_mkv, sizeof(short_mkv), 0) ||
+	    mkfile(fixture_dir, NOMOOV_MEDIA, nomoov_mp4,
+		   sizeof(nomoov_mp4), 0) ||
+	    mkfile(fixture_dir, SHORTMDAT_MEDIA, shortmdat_mp4,
+		   sizeof(shortmdat_mp4), 0) ||
+	    mkfile(fixture_dir, RSYNC_TEMP, stub_mkv, sizeof(stub_mkv), 1))
+		return 1;
+
+	/* nothing playable in it yet, but something is arriving: the purge
+	 * at startup must leave it alone */
+	{
+		char sub[384];
+
+		lws_snprintf(sub, sizeof(sub), "%s/" INCOMING_DIR, fixture_dir);
+		if (mkdir(sub, 0700) ||
+		    mkfile(fixture_dir, INCOMING_TEMP, stub_mkv,
+			   sizeof(stub_mkv), 1))
+			return 1;
+	}
+
 	/* a subdirectory with nothing playable in it: it and its stray
 	 * contents are removed once the server starts */
 	{
@@ -468,6 +567,22 @@ remove_fixture_dir(void)
 	(void)snprintf(path, sizeof(path), "%s/%s", fixture_dir,
 		       "2015.Some.Movie.720p.WEB-DL.aac.mkv");
 	unlink(path);
+	{
+		static const char * const pending[] = {
+			ARRIVING_MEDIA, STALLED_MEDIA, NOMOOV_MEDIA,
+			SHORTMDAT_MEDIA, RSYNC_TEMP, INCOMING_TEMP,
+			INCOMING_DIR
+		};
+		size_t j;
+
+		for (j = 0; j < LWS_ARRAY_SIZE(pending); j++) {
+			(void)snprintf(path, sizeof(path), "%s/%s",
+				       fixture_dir, pending[j]);
+			if (unlink(path))
+				rmdir(path);
+		}
+	}
+
 	/* the deletes should have removed these already */
 	(void)snprintf(path, sizeof(path), "%s/%s", fixture_dir, NESTED_MEDIA);
 	unlink(path);
@@ -610,7 +725,33 @@ check_listing(void)
 		lws_snprintf(sub, sizeof(sub), "%s/" NESTED_DIR, fixture_dir);
 		expect("subdirectory with media survives the purge",
 		       !stat(sub, &st) && S_ISDIR(st.st_mode));
+		expect("subdirectory something is arriving in survives the "
+		       "purge", fixture_exists(INCOMING_TEMP));
 	}
+
+	/*
+	 * Media that is not all there is listed as pending, with its state
+	 * where the thumbnail would be, and nothing to play or cut a
+	 * thumbnail from
+	 */
+	expect("pending media listed as pending",
+	       count_str(body, "class='item pending'") == N_PENDING);
+	expect("a copy in progress shows as still arriving",
+	       count_str(body, ">still arriving<") == 1);
+	expect("copies that stopped short show as incomplete",
+	       count_str(body, ">incomplete<") == N_PENDING - 1);
+	expect("pending media friendly named",
+	       !!strstr(body, "<br>Arriving Film"));
+	expect("no player link for pending media",
+	       !strstr(body, "stream/" ARRIVING_MEDIA) &&
+	       !strstr(body, "stream/" STALLED_MEDIA) &&
+	       !strstr(body, "stream/" NOMOOV_MEDIA) &&
+	       !strstr(body, "stream/" SHORTMDAT_MEDIA));
+	expect("no thumbnail asked of pending media",
+	       !strstr(body, "preview/" ARRIVING_MEDIA) &&
+	       !strstr(body, "preview/" SHORTMDAT_MEDIA));
+	expect("a copy in progress under a dotfile name is not listed",
+	       !strstr(body, "Rsync") && !strstr(body, "Incoming"));
 
 	/*
 	 * Links are relative only: the app is expected behind a reverse
@@ -625,6 +766,24 @@ check_listing(void)
 	/* the listing request carried no grant: no delete buttons */
 	expect("no delete buttons without a grant",
 	       !strstr(body, "del-btn"));
+}
+
+static void
+check_index_arriving(void)
+{
+	expect("index status says a copy in progress is arriving",
+	       !!strstr(body, "\"media\":\"arriving\"") &&
+	       !!strstr(body, "\"ready\":false"));
+}
+
+static void
+check_index_incomplete(void)
+{
+	expect("index status says a copy that stopped short is incomplete",
+	       !!strstr(body, "\"media\":\"incomplete\"") &&
+	       !!strstr(body, "\"running\":false"));
+	expect("nothing indexed for an incomplete file",
+	       !fixture_exists(".index"));
 }
 
 static void

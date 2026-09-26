@@ -92,6 +92,14 @@ The check runs at startup, hourly, and after every deletion; the toplevel
 media dir is never touched, and the `.index` / `.atrans` cache dirs are not
 part of it.  Each removal is logged.
 
+## Media still being copied in
+
+Media that is still being copied into the media dir, or whose copy stopped
+short, is listed as "still arriving" or "incomplete", with no player link
+or thumbnail, and the server refuses to play it or build anything from it
+until it is all there; the player page, if someone follows an old link to
+it, says so and waits.  See the plugin README for how that is decided.
+
 ## Delete permission
 
 The delete buttons (listing and player page) and the delete endpoint need

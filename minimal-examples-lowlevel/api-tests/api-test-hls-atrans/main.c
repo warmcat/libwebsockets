@@ -37,6 +37,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -350,6 +351,23 @@ build_fixture_media(void)
 	}
 
 	av_write_trailer(oc);
+	if (oc->pb)
+		avio_closep(&oc->pb);
+
+	/*
+	 * The plugin builds nothing from media written in the last
+	 * HLS_MEDIA_SETTLE_SECS (it may be a copy still going on): make
+	 * ours look like it has been sitting there a while
+	 */
+	{
+		struct timeval tv[2];
+
+		gettimeofday(&tv[0], NULL);
+		tv[0].tv_sec -= 3600;
+		tv[1] = tv[0];
+		if (utimes(path, tv))
+			goto out;
+	}
 	ret = 0;
 
 	lwsl_notice("%s: wrote %s (%d video frames)\n", __func__, path, n_video);

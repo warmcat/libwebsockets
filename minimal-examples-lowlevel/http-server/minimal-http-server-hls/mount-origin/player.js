@@ -250,6 +250,10 @@ document.addEventListener('DOMContentLoaded', function() {
      * index exists (which also queues the build if not) and wait, showing
      * progress over the video area, until it does.  An old server without
      * the endpoint, or a build that failed, just proceeds as before.
+     *
+     * The same answer says whether the file is all there ("media"): one
+     * still being copied in, or whose copy stopped short, is not played
+     * (the server refuses it anyway); we say so and wait for it instead.
      */
     function waitForIndex() {
         var pfx = 'stream/';
@@ -291,6 +295,22 @@ document.addEventListener('DOMContentLoaded', function() {
                         if (delBtn)
                             delBtn.classList.remove('hidden');
                         logMsg('delete: permitted for this session');
+                    }
+                    if (st.media && st.media !== 'complete') {
+                        /*
+                         * Not all there yet: the server builds nothing
+                         * from it until it is.  Keep asking; a copy
+                         * that completes plays without a reload.
+                         */
+                        polls++;
+                        show(friendlyName(name) + (st.media === 'arriving' ?
+                             ' is still arriving' :
+                             (st.media === 'gone' ? ' is not there' :
+                              ' is incomplete')) + ' \u2014 waiting');
+                        if (polls === 1 || polls % 15 === 0)
+                            logMsg('media: ' + st.media + ', waiting');
+                        setTimeout(poll, 5000);
+                        return;
                     }
                     if (st.ready || st.failed) {
                         if (polls)

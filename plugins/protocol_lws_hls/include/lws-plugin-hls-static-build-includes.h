@@ -14,4 +14,5 @@
 #include "../hls-av.c"
 #include "../hls-dir.c"
 #include "../hls-index.c"
+#include "../hls-media.c"
 #include "../hls-sub.c"

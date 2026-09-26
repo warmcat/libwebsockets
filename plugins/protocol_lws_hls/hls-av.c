@@ -308,12 +308,17 @@ out:
 	return jpeg;
 }
 
-/* worker thread: file the thumbnail in the shared cache */
+/*
+ * worker thread: file the thumbnail in the shared cache.  A failed
+ * extraction is cached too (empty), so the listing does not ask for it
+ * again and again, unless cache is 0: a file that was not all there yet
+ * gets another try once it is.
+ */
 static void
 finish_thumb_task(struct per_vhost_data__lws_hls *vhd, struct hls_task *t,
-		  uint8_t *jpeg_data, int jpeg_size)
+		  uint8_t *jpeg_data, int jpeg_size, int cache)
 {
-	struct thumb_cache *c = malloc(sizeof(*c));
+	struct thumb_cache *c = cache ? malloc(sizeof(*c)) : NULL;
 
 	pthread_mutex_lock(&vhd->lock);
 
@@ -402,6 +407,7 @@ lws_hls_worker(void *d)
         struct per_vhost_data__lws_hls *vhd = (struct per_vhost_data__lws_hls *)d;
 
         while (1) {
+		enum hls_media_state ms;
 		struct hls_task *t;
 
                 pthread_mutex_lock(&vhd->lock);
@@ -428,11 +434,27 @@ lws_hls_worker(void *d)
 
                 pthread_mutex_unlock(&vhd->lock);
 
+		/*
+		 * Nothing is built from a file that is not all there yet: a
+		 * copy in progress, or one that stopped short (hls-media.c).
+		 * What we would build from it describes a shorter film, and
+		 * some of it is cached or persisted.
+		 */
+		ms = lws_hls_media_state(vhd->media_dir, t->filename, NULL);
+		if (ms != HLS_MEDIA_COMPLETE)
+			lwsl_notice("HLS: '%s' is %s: not building type=%d\n",
+				    t->filename, lws_hls_media_state_name(ms),
+				    t->type);
+
 		if (t->type == HLS_TASK_THUMB) {
 			int jpeg_size = 0;
-			uint8_t *jpeg = run_thumb_task(vhd, t, &jpeg_size);
+			uint8_t *jpeg = NULL;
 
-			finish_thumb_task(vhd, t, jpeg, jpeg_size);
+			if (ms == HLS_MEDIA_COMPLETE)
+				jpeg = run_thumb_task(vhd, t, &jpeg_size);
+
+			finish_thumb_task(vhd, t, jpeg, jpeg_size,
+					  ms == HLS_MEDIA_COMPLETE);
 			lws_cancel_service(vhd->context);
 			continue;
 		}
@@ -440,7 +462,13 @@ lws_hls_worker(void *d)
 		lwsl_notice("HLS-TRACE: worker running task type=%d '%s' seg=%d\n",
 			    t->type, t->filename, t->segment_idx);
 
-		run_body_task(vhd, t);
+		if (ms == HLS_MEDIA_COMPLETE)
+			run_body_task(vhd, t);
+		else
+			/* try again later, vs not there at all */
+			t->r.status = ms == HLS_MEDIA_GONE ?
+					HTTP_STATUS_NOT_FOUND :
+					HTTP_STATUS_SERVICE_UNAVAILABLE;
 
 		if (t->parked) {
 			/* it needs an index the indexer is now building */
@@ -1762,6 +1790,7 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 {
 	AVStream *st = in_ctx->streams[video_idx];
 	int count = get_index_count(st);
+	struct stat st_scan;
 
 	/*
 	 * Building the index means reading the whole file, and the result is
@@ -1792,6 +1821,25 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 		 */
 		if (lws_hls_index_defer(vhd, filename, cancel))
 			return -1;
+
+		/*
+		 * Never from a file that is not all there: the index would
+		 * describe a shorter film, and it is persisted.  The file as
+		 * it is now is what the index gets recorded against, and it
+		 * must still be that when the scans are done
+		 */
+		memset(&st_scan, 0, sizeof(st_scan));
+		if (vhd) {
+			enum hls_media_state ms = lws_hls_media_state(
+					vhd->media_dir, filename, &st_scan);
+
+			if (ms != HLS_MEDIA_COMPLETE) {
+				lwsl_notice("HLS-INDEX: %s: %s, not indexing\n",
+					    filename,
+					    lws_hls_media_state_name(ms));
+				return -1;
+			}
+		}
 
 		/* Cues load and scan fallback as before */
 		if (count <= 1) {
@@ -1888,22 +1936,32 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 						lwsl_notice("HLS-INDEX: %s: keyframes not flagged by the container\n",
 							    filename);
 
-					/* for revalidation, see hls_index_lookup */
+					/*
+					 * for revalidation, see hls_index_lookup: recorded
+					 * against the file as it was before the scans, and
+					 * only if it is still that now.  A file still being
+					 * written that got past the check above gave us an
+					 * index of whatever had arrived so far.
+					 */
 					{
 						char mpath[1024];
-						struct stat st;
+						struct stat stn;
 
-						lws_snprintf(mpath,
-							     sizeof(mpath),
-							     "%s/%s",
-							     vhd->media_dir,
-							     filename);
-						if (!stat(mpath, &st)) {
-							new_idx->media_size =
-							     (int64_t)st.st_size;
-							new_idx->media_mtime =
-							     (int64_t)st.st_mtime;
+						lws_snprintf(mpath, sizeof(mpath), "%s/%s",
+							     vhd->media_dir, filename);
+						if (stat(mpath, &stn) ||
+						    stn.st_size != st_scan.st_size ||
+						    stn.st_mtime != st_scan.st_mtime) {
+							lwsl_notice("HLS-INDEX: %s: changed while "
+								    "being indexed, index discarded\n",
+								    filename);
+							free(new_idx->entries);
+							free(new_idx);
+							free(scanned);
+							return -1;
 						}
+						new_idx->media_size = (int64_t)st_scan.st_size;
+						new_idx->media_mtime = (int64_t)st_scan.st_mtime;
 					}
 
 					pthread_mutex_lock(&vhd->lock);

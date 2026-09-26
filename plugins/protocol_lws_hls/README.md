@@ -73,6 +73,44 @@ A timed thumbnail is only cut through the file's keyframe index (see below),
 never by asking the demuxer to seek a large file without cues; a file that
 has no index yet gets the default frame instead.
 
+## Media that is not all there yet
+
+Media usually arrives in the media dir by being copied there, and a film
+takes minutes to copy over a network while the listing already sees it.
+libavformat opens a partial file without complaint and describes a shorter
+film, and the keyframe index, audio shadows and thumbnails built from that
+would be persisted or cached as if it were the whole thing.  So before
+anything is built from a file, `hls-media.c` decides whether it is all
+there:
+
+ - **still arriving**: it was written to in the last `HLS_MEDIA_SETTLE_SECS`
+   (30s), ie a copy is in progress, whatever the container;
+
+ - **incomplete**: its container's own framing says there is more than the
+   file holds.  Matroska / webm declare the Segment size up front, and an
+   mp4 is a run of top-level boxes, each declaring its size, which needs a
+   `moov` (written last unless the file was made faststart).  This catches
+   a copy that stalled or died, however long ago.  A matroska written live
+   with an unknown Segment size says nothing either way.
+
+The listing shows such files, with their state where the thumbnail would
+be, but with no link to the player and no thumbnail; an admin still gets
+the delete button, for a copy that died.  Dotfiles are never listed, which
+is how rsync and others name a copy in progress.  Whatever asks, the worker
+answers 503 for any playlist, segment or init segment of such a file and
+does not cut its thumbnail, the indexer and the audio shadow transcoder
+do not open it, and `hls/index/<file>` reports `"media":"arriving"` or
+`"media":"incomplete"` without queueing anything, so the player says so and
+waits, playing it once it is complete.  A failure because the file was not
+all there is not remembered: the next ask after it completes builds it.
+
+The keyframe index and the audio shadows are also recorded against the
+file's size and mtime from before they were built, and discarded if the
+file is not still that when they are done.
+
+A subdirectory that something is being written into, under any name, is not
+removed by the purge of subdirectories with nothing playable left in them.
+
 ## Deleting media
 
 The directory listing shows a bin button on each item, and the player a

@@ -29,6 +29,15 @@ with an in-process client, and asserts:
  - HTML-significant characters in filenames appear only as entities
    (`&#39; &quot; &lt; &gt; &amp;`) in both text and attribute contexts.
 
+Media that is not all there is in the fixture too: one still being
+written, a matroska whose Segment runs past the end of the file, an mp4
+with no `moov` and one whose `mdat` runs past the end.  They must be listed
+as pending ("still arriving" / "incomplete") with no player link or
+thumbnail, the index status must report them without building anything,
+their playlist, segment and thumbnail requests must be refused, an rsync
+style dotfile copy must not be listed, and a subdirectory something is
+being copied into must survive the startup purge.
+
 It then drives the delete endpoint, forwarding the login grant level the
 way an `lws-login` gated proxy in front would (the vhost sets
 `trust-login-headers`), and asserts:
