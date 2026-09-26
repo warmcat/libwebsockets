@@ -609,7 +609,13 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 	    struct lws_pollfd *pollfd, int flags, size_t max, int *nothing,
 	    int *consumed)
 {
-	struct lws_tokens ebuf = { NULL, (int)max };
+	/*
+	 * With a NULL token lws_buflist_aware_read() substitutes the whole
+	 * pt serv_buf, length included, so the role's max (a ws protocol's
+	 * rx_buffer_size) was never applied; name the buffer so only the
+	 * length is clamped
+	 */
+	struct lws_tokens ebuf = { max ? pt->serv_buf + LWS_PRE : NULL, (int)max };
 	int buffered, n;
 
 	*nothing = 0;
