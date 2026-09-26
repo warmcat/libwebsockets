@@ -155,6 +155,10 @@ blob_prepare_dirs(const char *base)
 	char dir[256];
 	int n, m;
 
+	/* "<base>/x/y" must fit, or we would make some other dirs */
+	if (strlen(base) + 4 >= sizeof(dir))
+		return 1;
+
 	if (mkdir(base, 0700) && errno != EEXIST)
 		return 1;
 
@@ -452,8 +456,15 @@ lws_cache_blob_invalidate(struct lws_cache_ttl_lru *_c, const char *wc_key)
 	if (blob_hash_key(wc_key, hex))
 		return 0;
 
-	lws_snprintf(path, sizeof(path), "%s/%c/%c/%s",
-		     bc->cache.info.u.blob.dir, hex[0], hex[1], hex);
+	/*
+	 * lws_snprintf() reports a truncated result as the whole size... the
+	 * write could not have stored a path that does not fit, and unlinking
+	 * the truncated one would remove some other file
+	 */
+	if (lws_snprintf(path, sizeof(path), "%s/%c/%c/%s",
+			 bc->cache.info.u.blob.dir, hex[0], hex[1], hex) >=
+							(int)sizeof(path))
+		return 0;
 
 	/* size it through the fd, so what we account for is what we unlink */
 

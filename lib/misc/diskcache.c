@@ -60,6 +60,14 @@
  */
 #define LWS_DISKCACHE_NAME_MAX 129
 
+/*
+ * The cache dir base with a subdir after it, "<base>/x/y", has to fit in
+ * this: create() and prepare() refuse a base that does not, so the paths
+ * composed from it later cannot be truncated, which would open, create or
+ * unlink some other file, or walk some other dir.
+ */
+#define LWS_DISKCACHE_DIR_MAX 256
+
 struct file_entry {
 	lws_dll2_t	sorted;		/* on lds->batch_sorted, newest first */
 	char name[LWS_DISKCACHE_NAME_MAX];
@@ -103,11 +111,27 @@ fe_modified_sort(const lws_dll2_t *_member, const lws_dll2_t *_new)
 	return (int)((long)n->modified - (long)m->modified);
 }
 
+static int
+lws_diskcache_base_fits(const char *base)
+{
+	if (strlen(base) + 4 /* "/x/y" */ < LWS_DISKCACHE_DIR_MAX)
+		return 1;
+
+	lwsl_err("%s: cache dir path too long: %s\n", __func__, base);
+
+	return 0;
+}
+
 struct lws_diskcache_scan *
 lws_diskcache_create(const char *cache_dir_base, uint64_t cache_size_limit)
 {
-	struct lws_diskcache_scan *lds = lws_malloc(sizeof(*lds), "cachescan");
+	struct lws_diskcache_scan *lds;
 
+	/* a NULL base is a disabled cache */
+	if (cache_dir_base && !lws_diskcache_base_fits(cache_dir_base))
+		return NULL;
+
+	lds = lws_malloc(sizeof(*lds), "cachescan");
 	if (!lds)
 		return NULL;
 
@@ -131,8 +155,11 @@ lws_diskcache_destroy(struct lws_diskcache_scan **lds)
 int
 lws_diskcache_prepare(const char *cache_base_dir, int mode, uid_t uid)
 {
-	char dir[256];
+	char dir[LWS_DISKCACHE_DIR_MAX];
 	int n, m;
+
+	if (!lws_diskcache_base_fits(cache_base_dir))
+		return 1;
 
 	(void)mkdir(cache_base_dir, (unsigned short)mode);
 	if (chown(cache_base_dir, uid, (gid_t)-1))
@@ -164,10 +191,12 @@ lws_diskcache_prepare(const char *cache_base_dir, int mode, uid_t uid)
 int
 lws_diskcache_finalize_name(char *cache)
 {
-	char ren[256], *p;
+	char ren[LWS_DISKCACHE_DIR_MAX + LWS_DISKCACHE_NAME_MAX + 32], *p;
 
-	strncpy(ren, cache, sizeof(ren) - 1);
-	ren[sizeof(ren) - 1] = '\0';
+	if (strlen(cache) >= sizeof(ren))
+		return 1;
+
+	lws_strncpy(ren, cache, sizeof(ren));
 	p = (char *)strchr(cache, '~');
 	if (p) {
 		*p = '\0';
@@ -189,7 +218,7 @@ lws_diskcache_query(struct lws_diskcache_scan *lds, int is_bot,
 		    size_t *extant_cache_len)
 {
 	struct stat s;
-	int n;
+	int n, m;
 
 	/* caching is disabled? */
 	if (!lds->cache_dir_base)
@@ -198,8 +227,15 @@ lws_diskcache_query(struct lws_diskcache_scan *lds, int is_bot,
 	if (!is_bot)
 		lds->cache_tries++;
 
+	/* lws_snprintf() reports a truncated result as the whole size */
 	n = lws_snprintf(cache, (size_t)cache_len, "%s/%c/%c/%s", lds->cache_dir_base,
 			 hash_hex[0], hash_hex[1], hash_hex);
+	if (n >= cache_len) {
+		lwsl_err("%s: cache path does not fit in %d\n", __func__,
+			 cache_len);
+
+		return LWS_DISKCACHE_QUERY_NO_CACHE;
+	}
 
 	lwsl_info("%s: job cache %s\n", __func__, cache);
 
@@ -238,8 +274,14 @@ lws_diskcache_query(struct lws_diskcache_scan *lds, int is_bot,
 	 * layout).  pid + a per-process counter is enough to be unique.
 	 */
 
-	lws_snprintf(cache + n, (size_t)cache_len - (unsigned int)n, "~%d-%u",
-		     (int)getpid(), ++tempname_unique);
+	m = lws_snprintf(cache + n, (size_t)cache_len - (unsigned int)n, "~%d-%u",
+			 (int)getpid(), ++tempname_unique);
+	if (m >= cache_len - n) {
+		lwsl_err("%s: temp cache path does not fit in %d\n", __func__,
+			 cache_len);
+
+		return LWS_DISKCACHE_QUERY_NO_CACHE;
+	}
 
 	*_fd = open(cache, O_RDWR | O_CREAT | O_TRUNC, 0600);
 	if (*_fd < 0) {
@@ -289,7 +331,8 @@ int
 lws_diskcache_trim(struct lws_diskcache_scan *lds)
 {
 	size_t cache_size_limit = (size_t)lds->cache_size_limit;
-	char dirpath[132], filepath[132 + LWS_DISKCACHE_NAME_MAX];
+	char dirpath[LWS_DISKCACHE_DIR_MAX],
+	     filepath[LWS_DISKCACHE_DIR_MAX + LWS_DISKCACHE_NAME_MAX];
 #if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	int files_trimmed = 0;
 	size_t trimmed = 0;
