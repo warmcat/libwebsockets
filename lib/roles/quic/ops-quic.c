@@ -3184,6 +3184,14 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
         if (!wsi->quic.initialized && !qn->is_server) {
                 wsi->quic.initialized = 1;
 
+		/*
+		 * the committed path is the peer IO connected us to; unset,
+		 * the server's first packet looked like the server moving,
+		 * and the client "migrated" mid-handshake: cc, rtt and pmtud
+		 * reset, the path unvalidated and a PATH_CHALLENGE sent
+		 */
+		qn->path_sa46 = *lws_io_peer(wsi);
+
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
 		if (wsi->use_ssl & LCCSCF_USE_SSL) {
 			const char *cce = NULL;
