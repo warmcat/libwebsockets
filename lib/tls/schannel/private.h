@@ -215,6 +215,15 @@ lws_tls_schannel_confirm_cert(struct lws_tls_schannel_ctx *ctx,
 int
 lws_tls_schannel_server_client_cert(struct lws *wsi);
 
+/*
+ * Build the SEC_APPLICATION_PROTOCOLS buffer Schannel takes from a
+ * comma-separated alpn list, leaving out the tcp-only alpns if quic.
+ * Returns the length used in buf, or 0 if there is nothing to offer.
+ */
+size_t
+lws_tls_schannel_alpn_buf(const char *alpn_comma, int quic, uint8_t *buf,
+			  size_t len);
+
 /* Certificate loader prototype */
 int
 lws_tls_schannel_cert_info_load(struct lws_context *context,

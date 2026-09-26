@@ -276,32 +276,17 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 	memset(&alert_u, 0, sizeof(alert_u));
 
 	if (conn->rx_len == 0 && lwsi_role_client(wsi)) {
-		uint8_t *pData = alpn_u.buf + 10;
-		uint32_t ext_type = 2, total_list_size; /* 2 = SecApplicationProtocolNegotiationExt_ALPN */
-		uint16_t list_size;
-		const char *p = wsi->alpn ? wsi->alpn : (wsi->a.vhost->tls.alpn ? wsi->a.vhost->tls.alpn : "h3");
+		size_t alpn_len = lws_tls_schannel_alpn_buf(wsi->alpn[0] ?
+					wsi->alpn : "h3", 1, alpn_u.buf,
+					sizeof(alpn_u.buf));
 
-		while (p && *p) {
-			const char *comma = strchr(p, ',');
-			size_t item_len = comma ? lws_ptr_diff_size_t(comma, p) : strlen(p);
-			if (item_len > 255 || (pData + item_len + 1 - alpn_u.buf) > 256) break;
-			*pData++ = (uint8_t)item_len;
-			memcpy(pData, p, item_len);
-			pData += item_len;
-			if (comma) p = comma + 1;
-			else break;
+		if (alpn_len) {
+			in_bufs[num_in_bufs].BufferType =
+					SECBUFFER_APPLICATION_PROTOCOLS;
+			in_bufs[num_in_bufs].pvBuffer = alpn_u.buf;
+			in_bufs[num_in_bufs].cbBuffer = (unsigned long)alpn_len;
+			num_in_bufs++;
 		}
-
-		list_size = (uint16_t)(pData - (alpn_u.buf + 10));
-		total_list_size = 6 + list_size;
-		memcpy(alpn_u.buf, &total_list_size, 4);
-		memcpy(alpn_u.buf + 4, &ext_type, 4);
-		memcpy(alpn_u.buf + 8, &list_size, 2);
-
-		in_bufs[num_in_bufs].BufferType = SECBUFFER_APPLICATION_PROTOCOLS;
-		in_bufs[num_in_bufs].pvBuffer = alpn_u.buf;
-		in_bufs[num_in_bufs].cbBuffer = (unsigned long)(pData - alpn_u.buf);
-		num_in_bufs++;
 	} else if (conn->rx_len > 0) {
 		in_bufs[num_in_bufs].BufferType = SECBUFFER_TOKEN;
 		in_bufs[num_in_bufs].cbBuffer = (unsigned long)conn->rx_len;
@@ -319,33 +304,24 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 	in_bufs[num_in_bufs].pvBuffer = NULL;
 	num_in_bufs++;
 
-	if (conn->rx_len > 0 && !lwsi_role_client(wsi) && !conn->f_context_init && wsi->a.vhost->tls.alpn) {
-		uint8_t *pData = alpn_u.buf + 10;
-		uint32_t ext_type = 2, total_list_size; /* 2 = SecApplicationProtocolNegotiationExt_ALPN */
-		uint16_t list_size;
-		const char *p = wsi->a.vhost->tls.alpn;
+	if (conn->rx_len > 0 && !lwsi_role_client(wsi) && !conn->f_context_init) {
+		/*
+		 * A vhost without its own alpn list offers the context
+		 * default, less the tcp-only alpns in it, the same as the
+		 * other tls backends do
+		 */
+		size_t alpn_len = lws_tls_schannel_alpn_buf(
+				wsi->a.vhost->tls.alpn ? wsi->a.vhost->tls.alpn :
+					wsi->a.context->tls.alpn_default, 1,
+				alpn_u.buf, sizeof(alpn_u.buf));
 
-		while (p && *p) {
-			const char *comma = strchr(p, ',');
-			size_t item_len = comma ? lws_ptr_diff_size_t(comma, p) : strlen(p);
-			if (item_len > 255 || (pData + item_len + 1 - alpn_u.buf) > 256) break;
-			*pData++ = (uint8_t)item_len;
-			memcpy(pData, p, item_len);
-			pData += item_len;
-			if (comma) p = comma + 1;
-			else break;
+		if (alpn_len) {
+			in_bufs[num_in_bufs].BufferType =
+					SECBUFFER_APPLICATION_PROTOCOLS;
+			in_bufs[num_in_bufs].pvBuffer = alpn_u.buf;
+			in_bufs[num_in_bufs].cbBuffer = (unsigned long)alpn_len;
+			num_in_bufs++;
 		}
-
-		list_size = (uint16_t)(pData - (alpn_u.buf + 10));
-		total_list_size = 6 + list_size;
-		memcpy(alpn_u.buf, &total_list_size, 4);
-		memcpy(alpn_u.buf + 4, &ext_type, 4);
-		memcpy(alpn_u.buf + 8, &list_size, 2);
-
-		in_bufs[num_in_bufs].BufferType = SECBUFFER_APPLICATION_PROTOCOLS;
-		in_bufs[num_in_bufs].pvBuffer = alpn_u.buf;
-		in_bufs[num_in_bufs].cbBuffer = (unsigned long)(pData - alpn_u.buf);
-		num_in_bufs++;
 	}
 
 #if defined(ISC_REQ_MESSAGES)

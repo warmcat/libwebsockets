@@ -42,6 +42,65 @@ lws_tls_schannel_realloc_buffer(struct lws_tls_schannel_conn *conn, size_t new_s
 	return 0;
 }
 
+/*
+ * Schannel takes an alpn list as SEC_APPLICATION_PROTOCOLS: a u32 size of
+ * what follows, then one SEC_APPLICATION_PROTOCOL_LIST, ie, a u32 extension
+ * type, a u16 list size and the list in wire format.  Build one into buf from
+ * a comma-separated list.
+ *
+ * On a quic connection the h1 / h2 role alpns are left out: they can only be
+ * serviced on top of tcp, and a quic connection that negotiated one would
+ * migrate to a role that can never make progress on it (the openssl alpn
+ * select callback skips them the same way).
+ *
+ * Returns the length used in buf, or 0 if there is nothing to offer.
+ */
+
+size_t
+lws_tls_schannel_alpn_buf(const char *alpn_comma, int quic, uint8_t *buf,
+			  size_t len)
+{
+	uint8_t wire[128], *p = buf + 10;
+	uint32_t u32;
+	uint16_t u16;
+	size_t m = 0, n, el;
+
+	if (!alpn_comma || len < 12)
+		return 0;
+
+	n = (size_t)lws_alpn_comma_to_openssl(alpn_comma, wire,
+					      (int)sizeof(wire) - 1);
+
+	while (m < n) {
+		el = wire[m];
+		if (!el || m + 1 + el > n)
+			break;
+
+		if (!(quic && ((el == 2 && !memcmp(&wire[m + 1], "h2", 2)) ||
+			       (el == 8 && !memcmp(&wire[m + 1], "http/1.1", 8))))) {
+			if (lws_ptr_diff_size_t(buf + len, p) < 1 + el)
+				break;
+			*p++ = (uint8_t)el;
+			memcpy(p, &wire[m + 1], el);
+			p += el;
+		}
+
+		m += 1 + el;
+	}
+
+	if (p == buf + 10)
+		return 0;
+
+	u16 = (uint16_t)lws_ptr_diff_size_t(p, buf + 10);
+	u32 = 6u + u16;
+	memcpy(buf, &u32, 4);
+	u32 = 2; /* SecApplicationProtocolNegotiationExt_ALPN */
+	memcpy(buf + 4, &u32, 4);
+	memcpy(buf + 8, &u16, 2);
+
+	return lws_ptr_diff_size_t(p, buf);
+}
+
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
@@ -154,47 +213,9 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
        if (conn->f_handshake_finished)
                return LWS_SSL_CAPABLE_DONE;
 
-
-       uint8_t alpn_buf[256];
-       size_t alpn_len = 0;
-
-       /* ALPN */
-       if (conn->alpn[0]) {
-               uint32_t proto_lists_size = 0;
-               uint32_t proto_id_type = 2; /* SecApplicationProtocolNegotiationExt_ALPN */
-               uint16_t list_size = 0;
-
-               uint8_t *pData = alpn_buf + 10; /* Skip 10 bytes header */
-               char temp[64];
-               lws_strncpy(temp, conn->alpn, sizeof(temp));
-               const char *p = temp;
-               const char *end = p + strlen(p);
-
-               while (p < end) {
-                       const char *comma = strchr(p, ',');
-                       size_t item_len;
-                       if (comma) item_len = lws_ptr_diff_size_t(comma, p);
-                       else item_len = strlen(p);
-
-                       if (item_len > 0 && item_len < 256) {
-                               if (pData + 1 + item_len > alpn_buf + sizeof(alpn_buf)) break;
-                               *pData++ = (uint8_t)item_len;
-                               memcpy(pData, p, item_len);
-                               pData += item_len;
-                       }
-
-                       if (comma) p = comma + 1;
-                       else break;
-               }
-
-               list_size = (uint16_t)(pData - (alpn_buf + 10));
-               proto_lists_size = 6 + list_size;
-
-               memcpy(alpn_buf, &proto_lists_size, 4);
-               memcpy(alpn_buf + 4, &proto_id_type, 4);
-               memcpy(alpn_buf + 8, &list_size, 2);
-               alpn_len = (size_t)(pData - alpn_buf);
-       }
+	uint8_t alpn_buf[256];
+	size_t alpn_len = lws_tls_schannel_alpn_buf(conn->alpn, 0, alpn_buf,
+						    sizeof(alpn_buf));
 
 	while (budget--) {
 
@@ -616,33 +637,16 @@ lws_tls_server_accept(struct lws *wsi)
 		conn->f_want_client_cert = 1;
 	}
 
-       uint8_t alpn_buf[256];
-       size_t alpn_len = 0;
+	/*
+	 * A vhost without its own alpn list offers the context default, the
+	 * same as the other tls backends do
+	 */
 
-       if (wsi->a.vhost->tls.alpn) {
-               uint8_t *pData = alpn_buf + 10;
-               uint32_t ext_type = 2, total_list_size; /* 2 = SecApplicationProtocolNegotiationExt_ALPN */
-               uint16_t list_size;
-               const char *p = wsi->a.vhost->tls.alpn;
-
-               while (p && *p) {
-                       const char *comma = strchr(p, ',');
-                       size_t item_len = comma ? lws_ptr_diff_size_t(comma, p) : strlen(p);
-                       if (item_len > 255 || (pData + item_len + 1 - alpn_buf) > 256) break;
-                       *pData++ = (uint8_t)item_len;
-                       memcpy(pData, p, item_len);
-                       pData += item_len;
-                       if (comma) p = comma + 1;
-                       else break;
-               }
-
-               list_size = (uint16_t)(pData - (alpn_buf + 10));
-               total_list_size = 6 + list_size;
-               memcpy(alpn_buf, &total_list_size, 4);
-               memcpy(alpn_buf + 4, &ext_type, 4);
-               memcpy(alpn_buf + 8, &list_size, 2);
-               alpn_len = (size_t)(pData - alpn_buf);
-       }
+	uint8_t alpn_buf[256];
+	size_t alpn_len = lws_tls_schannel_alpn_buf(wsi->a.vhost->tls.alpn ?
+				wsi->a.vhost->tls.alpn :
+				wsi->a.context->tls.alpn_default, 0,
+				alpn_buf, sizeof(alpn_buf));
 
 	while (budget--) {
 
