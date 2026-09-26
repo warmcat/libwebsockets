@@ -60,7 +60,7 @@ int fork(void)
 
 static struct lws_context *context;
 static lws_sorted_usec_list_t sul_lwsws;
-static char config_dir[128], default_plugin_path = 1;
+static char config_dir[256], default_plugin_path = 1;
 static int opts = 0, do_reload = 1;
 static uv_loop_t loop;
 static uv_signal_t signal_outer[3];
@@ -348,6 +348,13 @@ int main(int argc, char **argv)
 			default_plugin_path = 0;
 			break;
 		case 'c':
+			/* truncated, it would name some other dir */
+			if (strlen(optarg) >= sizeof(config_dir)) {
+				fprintf(stderr, "config dir path longer than "
+						"%d chars\n",
+						(int)sizeof(config_dir) - 1);
+				exit(1);
+			}
 			lws_strncpy(config_dir, optarg, sizeof(config_dir));
 			break;
 		case 'h':

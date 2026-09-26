@@ -2049,17 +2049,41 @@ struct lws_dir_args {
 	int shared_root;
 };
 
+/*
+ * The config paths are the config dir with conf, conf.d, or conf.d/<file>
+ * after it.  lwsws allows the dir up to 256 chars, the file names are as
+ * long as the filesystem allows: a path that does not fit must not be
+ * opened truncated, since that is a different file, or none at all.
+ */
+
+#define LWSWS_CONF_PATH_MAX 512
+
+static int
+lwsws_conf_path(char *buf, size_t len, const char *dir, const char *name)
+{
+	/* lws_snprintf() reports a truncated result as the whole size */
+	if (lws_snprintf(buf, len, "%s/%s", dir, name) >= (int)len) {
+		lwsl_err("%s: config path too long: %s/%s\n", __func__,
+			 dir, name);
+
+		return 1;
+	}
+
+	return 0;
+}
+
 static int
 lwsws_get_config_d_cb(const char *dirpath, void *user,
 		      struct lws_dir_entry *lde)
 {
 	struct lws_dir_args *da = (struct lws_dir_args *)user;
-	char path[256];
+	char path[LWSWS_CONF_PATH_MAX];
 
 	if (lde->type != LDOT_FILE && lde->type != LDOT_UNKNOWN /* ZFS */)
 		return 0;
 
-	lws_snprintf(path, sizeof(path) - 1, "%s/%s", dirpath, lde->name);
+	if (lwsws_conf_path(path, sizeof(path), dirpath, lde->name))
+		return 1; /* stop, as for a file that failed to parse */
 
 	return lwsws_get_config(da->user, path, da->paths, da->count_paths,
 				da->cb, da->defs, da->shared_root);
@@ -2082,7 +2106,7 @@ lwsws_get_config_globals_defs(struct lws_lejp_conf_defs *defs,
 #if defined(LWS_WITH_PLUGINS)
 	const char * const *old = info->plugin_dirs;
 #endif
-	char dd[128];
+	char dd[LWSWS_CONF_PATH_MAX];
 
 	memset(&a, 0, sizeof(a));
 
@@ -2119,12 +2143,14 @@ lwsws_get_config_globals_defs(struct lws_lejp_conf_defs *defs,
 	}
 #endif
 
-	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf", d);
+	if (lwsws_conf_path(dd, sizeof(dd), d, "conf"))
+		goto bail;
 	if (lwsws_get_config(&a, dd, paths_global,
 			     LWS_ARRAY_SIZE(paths_global), lejp_globals_cb,
 			     defs, 1) > 1)
 		goto bail;
-	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
+	if (lwsws_conf_path(dd, sizeof(dd), d, "conf.d"))
+		goto bail;
 
 	da.user = &a;
 	da.paths = paths_global;
@@ -2194,7 +2220,7 @@ lwsws_get_config_vhosts_defs(struct lws_lejp_conf_defs *defs,
 {
 	struct lws_dir_args da;
 	struct jpargs a;
-	char dd[128];
+	char dd[LWSWS_CONF_PATH_MAX];
 
 	if (lws_cmdline_option_cx(context, "--lws-dht-dnssec-monitor-root") ||
 	    lws_cmdline_option_cx(context, "--lws-stub")) {
@@ -2238,12 +2264,14 @@ lwsws_get_config_vhosts_defs(struct lws_lejp_conf_defs *defs,
 	a.extensions = info->extensions;
 #endif
 
-	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf", d);
+	if (lwsws_conf_path(dd, sizeof(dd), d, "conf"))
+		goto bail;
 	if (lwsws_get_config(&a, dd, paths_vhosts,
 			     LWS_ARRAY_SIZE(paths_vhosts), lejp_vhosts_cb,
 			     defs, 0) > 1)
 		goto bail;
-	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
+	if (lwsws_conf_path(dd, sizeof(dd), d, "conf.d"))
+		goto bail;
 
 	da.user = &a;
 	da.paths = paths_vhosts;
