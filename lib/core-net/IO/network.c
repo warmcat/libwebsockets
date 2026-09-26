@@ -1878,9 +1878,17 @@ lws_io_udp_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
 
 	nwsi->io.desc = new_sock;
 
+	/*
+	 * If the new socket cannot be taken into the loop or the fd table,
+	 * it must not be left as the wsi's descriptor either: closed and
+	 * still named, its number would be reissued to something else that
+	 * our later sends and close would then hit.  The old socket is gone
+	 * already, so the wsi is left with no socket and its callers close it.
+	 */
 #if defined(LWS_WITH_EVENT_LIBS)
 	if (cx->event_loop_ops->sock_accept)
 		if (cx->event_loop_ops->sock_accept(nwsi)) {
+			nwsi->io.desc.sockfd = LWS_SOCK_INVALID;
 			lws_pt_unlock(pt);
 			compatible_close(n_fd);
 			return 1;
@@ -1888,6 +1896,7 @@ lws_io_udp_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
 #endif
 
 	if (__insert_wsi_socket_into_fds(cx, nwsi)) {
+		nwsi->io.desc.sockfd = LWS_SOCK_INVALID;
 		lws_pt_unlock(pt);
 		compatible_close(n_fd);
 		return 1;
