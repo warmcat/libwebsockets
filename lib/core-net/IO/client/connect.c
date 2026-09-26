@@ -211,6 +211,16 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	wsi->c_pri = i->priority;
 
+	/*
+	 * A connection with a transport under it (lws_set_transport()) has
+	 * its bytes carried by the transport and its place in the poll set
+	 * given: the connect machine skips dns and connect for it
+	 */
+	if (i->transport) {
+		wsi->io.desc.sockfd = i->transport_fd;
+		lws_set_transport(wsi, i->transport, i->transport_opaque);
+	}
+
 	if (i->retry_and_idle_policy)
 		wsi->retry_policy = i->retry_and_idle_policy;
 	else
@@ -616,6 +626,10 @@ bail:
 
 	lws_dll2_remove(&wsi->sibling_list);
 	wsi->parent = NULL;
+
+	/* a transport's fd became ours at the call: it goes with the wsi */
+	if (i->transport && lws_socket_is_valid(wsi->io.desc.sockfd))
+		compatible_close(wsi->io.desc.sockfd);
 
 #if defined(LWS_WITH_TLS)
 	if (wsi->io.tls.ssl)

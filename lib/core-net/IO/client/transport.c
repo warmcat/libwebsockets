@@ -154,6 +154,48 @@ lws_client_transport_connected(struct lws *wsi)
 }
 
 /*
+ * A connection whose bytes a transport carries (lws_set_transport()): there
+ * is no dns lookup or connect, the fd it was given is its place in the poll
+ * set, and the transport is connected from the start.  Returns the wsi, or
+ * NULL when it was closed and freed.
+ */
+struct lws *
+lws_client_connect_transport(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	const char *cce = "transport insert fd";
+
+	lws_wsi_event(wsi, LWS_WSIEV_CONNECT_START);
+
+	if (wsi->a.context->event_loop_ops->sock_accept &&
+	    wsi->a.context->event_loop_ops->sock_accept(wsi)) {
+		cce = "transport sock accept";
+		goto failed;
+	}
+
+	lws_pt_lock(pt, __func__);
+	if (__insert_wsi_socket_into_fds(wsi->a.context, wsi)) {
+		lws_pt_unlock(pt);
+		goto failed;
+	}
+	lws_pt_unlock(pt);
+
+	lws_metrics_caliper_report(wsi->cal_conn, METRES_GO);
+
+	if (wsi->a.protocol)
+		wsi->a.protocol->callback(wsi, LWS_CALLBACK_WSI_CREATE,
+					  wsi->user_space, NULL, 0);
+
+	return lws_client_connect_4_established(wsi, NULL, 0);
+
+failed:
+	lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "client transport");
+
+	return NULL;
+}
+
+/*
  * The client transport phases IO drives itself, before any role sees the
  * pass: the dns lookup, the connect (and its racers) and the tls handshake.
  * Returns 0 when this is not such a pass (the role's rx and handler take it),

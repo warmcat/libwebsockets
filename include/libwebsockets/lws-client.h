@@ -287,6 +287,17 @@ struct lws_client_connect_info {
 	 * instead of falling back to TCP after the H3 grace period.
 	 */
 
+	const struct lws_transport_ops *transport;
+	/**< NULL, or a transport under IO in place of a socket
+	 * (lws_set_transport()): no dns lookup or connect is made, the
+	 * connection starts on the transport as if connected, and
+	 * transport_fd is its place in the poll set.  The fd is the
+	 * connection's from this call on, and is closed with it. */
+	void		*transport_opaque;
+	/**< handed to every op of transport */
+	lws_sockfd_type	transport_fd;
+	/**< with transport: the fd the event loop watches for the connection */
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *

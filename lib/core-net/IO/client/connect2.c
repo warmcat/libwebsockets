@@ -243,6 +243,13 @@ lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 	}
 
 	/*
+	 * A connection with a transport under it needs no dns or connect: it
+	 * starts on the transport as if connected
+	 */
+	if (wsi->io.transport)
+		return lws_client_connect_transport(wsi);
+
+	/*
 	 * clients who will create their own fresh connection keep a copy of
 	 * the hostname they originally connected to, in case other connections
 	 * want to use it too

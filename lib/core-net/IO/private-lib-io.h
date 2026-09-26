@@ -425,6 +425,8 @@ int
 lws_client_transport_stage(struct lws *wsi, struct lws_pollfd *pollfd);
 struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi);
+struct lws * LWS_WARN_UNUSED_RESULT
+lws_client_connect_transport(struct lws *wsi);
 #endif
 void
 lws_io_udp_release(struct lws *wsi);
