@@ -1258,6 +1258,10 @@ void lws_free(void *p);
 #define lws_free_set_NULL(P)	do { lws_realloc(P, 0, "free"); (P) = NULL; } while(0)
 #endif
 
+/* replay and free anything a log spew left retained, eg, at context destroy */
+void
+lws_log_spew_flush(lws_log_cx_t *cx);
+
 int
 __lws_create_event_pipes(struct lws_context *context);
 

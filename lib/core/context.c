@@ -2989,6 +2989,14 @@ next_l:
 		}
 #endif
 
+#if !(defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NETWORK))
+		/*
+		 * If a log spew was in progress, get its retained tail out
+		 * now, there may be no further log to trigger the replay
+		 */
+		lws_log_spew_flush(context->log_cx);
+#endif
+
 		lwsl_refcount_cx(context->log_cx, -1);
 
 		lws_free(context);

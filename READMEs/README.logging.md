@@ -325,3 +325,69 @@ There are rate-limited counterparts for every log level and scoping context. For
 | lws_vhost | `lwsl_ratelimit_vhost_err(&rl, 1000000, vh, ...)` |
 | lws_wsi | `lwsl_ratelimit_wsi_err(&rl, 1000000, wsi, ...)` |
 | lws_ss | `lwsl_ratelimit_ss_err(&rl, 1000000, handle, ...)` |
+
+## Duplicate and spew suppression
+
+Two things happen to every log line that passes the level filter, before it
+reaches the emit function.
+
+### Back-to-back duplicates
+
+A line identical to the previous one is not emitted again.  The count of
+identical lines is accumulated, and at most once a second the line is emitted
+with ` (swallowed %u dupes)` appended.
+
+### Spew mode
+
+A "spew" is a sustained rate of logging that nothing downstream can absorb: a
+tight loop logging every service call, a POLLOUT storm, a state machine
+ping-ponging.  Left alone it fills the disk in seconds, and the lines are not
+even duplicates, so the check above does not help.
+
+lws keeps a small ring of the timestamps of the last 64 lines it emitted.  If
+those 64 lines span less than 20ms, ie, the sustained rate has exceeded about
+3200 lines per second, lws enters spew mode:
+
+ - one line is emitted saying so,
+
+ - subsequent lines are formatted as usual but diverted into a 16KB heap
+   ringbuffer allocated for the purpose, instead of being emitted; the ring
+   retains only the most recent lines of the spew,
+
+ - once a second, one line is emitted saying the spew is still going and how
+   many lines have been swallowed so far.
+
+Leaving spew mode is decided over a much shorter window than entering it,
+since a real spew never pauses: once the last 8 lines span more than 5ms, ie,
+the rate has dropped below half the entry rate, lws emits a summary line, then
+replays the retained tail of the spew in order, then frees the ringbuffer, and
+goes back to emitting directly.  The timestamp ring is restarted at that
+point, so another full 64 lines at spew rate are needed to re-enter, which
+stops a bursty spew flapping in and out of the mode.
+
+The exit check can only run when a log arrives.  If a spew stops dead and
+nothing logs afterwards, the retained tail is replayed by the next log
+whenever that comes, or by `lws_context_destroy()`.  If the process dies during
+a spew, the retained tail dies with it.
+
+A legitimate surge of logs, eg, context creation at debug level, may be fast
+enough to trip entry.  That costs nothing: as long as the surge totals less
+than the ringbuffer size, every line is retained and replayed intact when the
+surge ends.  The ringbuffer size is effectively the size of surge that is
+waved through losslessly; the entry rate only decides when lws starts paying
+attention.
+
+The tunables are compile-time, and can be overridden on the compiler command
+line, eg, `-DLWS_LOG_SPEW_RING_SIZE=65536`:
+
+|Define|Default|Meaning|
+|---|---|---|
+|`LWS_LOG_SPEW_TS_RING`|64|lines whose timestamps are tracked|
+|`LWS_LOG_SPEW_ENTER_US`|20000|enter spew mode if they all fit in this|
+|`LWS_LOG_SPEW_EXIT_SAMPLES`|8|lines considered for leaving spew mode|
+|`LWS_LOG_SPEW_EXIT_US`|5000|leave spew mode if they span more than this|
+|`LWS_LOG_SPEW_RING_SIZE`|16384 (2048 on FreeRTOS)|bytes of spew retained|
+|`LWS_LOG_SPEW_HEARTBEAT_US`|1000000|interval of the still-going line|
+
+A log context with `LLLF_LOG_SPEW_OFF` in its `lll_flags` is exempt from spew
+handling; its lines are emitted directly regardless of rate.

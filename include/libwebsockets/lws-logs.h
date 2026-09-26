@@ -59,6 +59,11 @@
 
 #define	LLLF_LOG_TIMESTAMP	(1 << 18)
 	/**< set to prepend logs with timestamp */
+#define	LLLF_LOG_SPEW_OFF	(1 << 19)
+	/**< set to exempt this log context from spew handling: normally when
+	 * logs are being emitted faster than anything can absorb them, lws
+	 * stops emitting them and retains only the most recent tail of the
+	 * spew in a ringbuffer, replaying that when the rate eases off */
 
 #define	LLLF_LOG_CONTEXT_AWARE	(1 << 30)
 /**< set if the context uses an emit function that takes the logctx, auto-
