@@ -2918,6 +2918,10 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		/* pad out to 1200 minimum total tx length for client initial */
 		if (level == LWS_QUIC_LEVEL_INITIAL && !qn->is_server) {
 			size_t target_payload_len = 1200 - header_len - 16;
+
+			/* never past the buffer IO handed us (small serv_buf) */
+			if (target_payload_len > max - header_len - 16)
+				target_payload_len = max - header_len - 16;
 			if (payload_len < target_payload_len) {
 				memset(p, LWS_QUIC_FT_PADDING, target_payload_len - payload_len);
 				p += (target_payload_len - payload_len);
@@ -2936,6 +2940,9 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		    !has_packet_dest &&
 		    !(qn->is_server && !qn->address_validated)) {
 			size_t target_payload_len = qn->probed_mtu - header_len - 16;
+
+			if (target_payload_len > max - header_len - 16)
+				target_payload_len = max - header_len - 16;
 			if (payload_len < target_payload_len) {
 				memset(p, LWS_QUIC_FT_PADDING, target_payload_len - payload_len);
 				p += (target_payload_len - payload_len);
