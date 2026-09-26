@@ -52,8 +52,6 @@ void
 lws_async_dns_drop_server(lws_async_dns_server_t *dsrv);
 
 #if (defined(LWS_WITH_ASYNC_QUEUE))
-void *
-lws_async_worker_worker(void *d);
 
 #endif
 #if (defined(LWS_WITH_SPAWN))
@@ -435,8 +433,6 @@ lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi);
 void
 lws_pipe_wsi_release_fds(struct lws *wsi);
 #if defined(LWS_WITH_ASYNC_QUEUE)
-int
-lws_async_queue_submit(struct lws_context *cx, struct lws_async_job *job);
 #endif
 
 #endif /* __LWS_PRIVATE_LIB_IO_H__ */

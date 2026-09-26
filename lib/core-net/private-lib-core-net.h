@@ -796,6 +796,14 @@ struct lws_async_job {
 	} u;
 };
 
+#if defined(LWS_WITH_ASYNC_QUEUE)
+/* the worker pool (async-queue.c): neither half's, both may hand it work */
+void *
+lws_async_worker_worker(void *d);
+int
+lws_async_queue_submit(struct lws_context *cx, struct lws_async_job *job);
+#endif
+
 
 #endif
 
