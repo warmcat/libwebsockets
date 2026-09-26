@@ -2082,8 +2082,11 @@ int lws_http_mark_sse(struct lws *wsi) {
 	lws_http_headers_detach(wsi);
 	lws_mux_mark_immortal(wsi);
 
-	if (wsi->mux_substream)
-		wsi->h2_stream_carries_sse = 1;
+	/*
+	 * No more requests on this stream, so no header table: see the h1
+	 * rx policy and rx op
+	 */
+	wsi->http_carries_sse = 1;
 
 	return 0;
 }

@@ -3218,6 +3218,8 @@ lws_http_transaction_completed(struct lws *wsi)
 	wsi->http.tx_content_length = 0;
 	wsi->http.tx_content_remain = 0;
 	wsi->sending_chunked = 0;
+	/* an SSE stream the app ended: the next request needs a table */
+	wsi->http_carries_sse = 0;
 #ifdef LWS_WITH_ACCESS_LOG
 	wsi->stream.access_log.sent = 0;
 #endif

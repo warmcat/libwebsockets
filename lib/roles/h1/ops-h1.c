@@ -519,6 +519,16 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 	}
 
 	/*
+	 * An SSE stream takes no further request and has no header table to
+	 * parse one with (see the rx policy): whatever the peer sends it, we
+	 * cannot act on
+	 */
+	if (wsi->http_carries_sse) {
+		lwsl_wsi_info(wsi, "rx on an SSE stream");
+		return LWS_RX_CLOSE;
+	}
+
+	/*
 	 * Only rx from the transport is peer activity worth extending the
 	 * timeout for: a replay of what was parked is not
 	 */
@@ -666,7 +676,7 @@ rops_rx_policy_h1(struct lws *wsi, int *flags, size_t *max)
 		    lwsi_transport(wsi) == LTS_SSL_ACK_PENDING)
 			return LWS_RXPOL_ROLE;
 
-		/* these states imply we MUST have an ah attached */
+		/* the states we read in */
 		if (lwsi_state(wsi) != LRS_ESTABLISHED &&
 		    lwsi_state(wsi) != LRS_ISSUING_FILE &&
 		    lwsi_state(wsi) != LRS_HEADERS &&
@@ -675,7 +685,17 @@ rops_rx_policy_h1(struct lws *wsi, int *flags, size_t *max)
 		    lwsi_state(wsi) != LRS_BODY)
 			return LWS_RXPOL_ROLE;
 
-		if (!wsi->stream.ah) {
+		/*
+		 * Reading a request or its body needs a header table.  An SSE
+		 * stream is read only to hear the peer go away: it gave its
+		 * table up in lws_http_mark_sse() and must not be handed one
+		 * back.  To us it looks like a keepalive connection waiting
+		 * for its next request, and attaching the table arms the ah
+		 * idle timeout that reaps those: we are asked this on every
+		 * service, not only for rx, so every h1 SSE stream was closed
+		 * timeout_secs_ah_idle after it was first writeable.
+		 */
+		if (!wsi->stream.ah && !wsi->http_carries_sse) {
 			lws_ah_attach_result_t ar =
 					lws_header_table_attach(wsi, 0);
 

@@ -1096,7 +1096,7 @@ struct lws {
 	unsigned int			mux_substream:1;
 	unsigned int			mux_stream_immortal:1;
 	unsigned int			h23_stream_carries_ws:1; /* immortal set as well */
-	unsigned int			h2_stream_carries_sse:1; /* immortal set as well */
+	unsigned int			http_carries_sse:1; /* lws_http_mark_sse() */
 	unsigned int			h2_acked_settings:1;
 	unsigned int			seen_nonpseudoheader:1;
 	unsigned int			listener:1;
