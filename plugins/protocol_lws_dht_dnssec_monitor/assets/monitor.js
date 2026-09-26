@@ -1216,15 +1216,27 @@ function geoInitMap() {
 /*
  * One abstract server icon per interface: a small rack glyph, solid for
  * LOC-placed servers and outlined for country-estimated ones.  Clicking
- * it opens the zonefile editor of its first name.
+ * it opens the zonefile editor of its first name.  A marker fanned out
+ * of a crowd (see geoSpread()) keeps a leader line back to where it
+ * really is.
  */
 
-function geoMarker(ifc) {
-    const [x, y] = geoMercator(ifc.geo.lon, ifc.geo.lat);
+function geoMarker(ifc, x, y, dx, dy) {
     const est = ifc.geo.src !== 'loc';
     const g = document.createElementNS(GEO_SVG_NS, 'g');
     g.setAttribute('class', est ? 'geo-mk geo-mk-est' : 'geo-mk geo-mk-loc');
-    g.setAttribute('transform', `translate(${x.toFixed(1)} ${y.toFixed(1)})`);
+    g.setAttribute('transform',
+                   `translate(${(x + dx).toFixed(1)} ${(y + dy).toFixed(1)})`);
+
+    if (dx || dy) {
+        const lead = document.createElementNS(GEO_SVG_NS, 'line');
+        lead.setAttribute('class', 'geo-mk-lead');
+        lead.setAttribute('x1', (-dx).toFixed(1));
+        lead.setAttribute('y1', (-dy).toFixed(1));
+        lead.setAttribute('x2', 0);
+        lead.setAttribute('y2', 0);
+        g.appendChild(lead);
+    }
 
     const body = document.createElementNS(GEO_SVG_NS, 'rect');
     body.setAttribute('x', -5);
@@ -1267,6 +1279,46 @@ function geoMarker(ifc) {
     return g;
 }
 
+/*
+ * Servers closer together than a marker is wide would hide each other;
+ * every country-estimated server in one country lands on exactly the
+ * same centroid.  Cluster them, and fan each crowd out on a ring around
+ * its middle, far enough apart that every marker (and its tooltip) can
+ * be seen.
+ */
+
+const GEO_MK_CROWD = 12;	/* map units: about a marker's width */
+
+function geoSpread(pts) {
+    const clusters = [];
+
+    pts.forEach(p => {
+        const c = clusters.find(c => c.some(q =>
+                Math.hypot(q.x - p.x, q.y - p.y) < GEO_MK_CROWD));
+        if (c)
+            c.push(p);
+        else
+            clusters.push([p]);
+    });
+
+    clusters.forEach(c => {
+        if (c.length < 2)
+            return;
+
+        const cx = c.reduce((a, p) => a + p.x, 0) / c.length;
+        const cy = c.reduce((a, p) => a + p.y, 0) / c.length;
+        /* ring circumference fits the markers side by side */
+        const r = Math.max(GEO_MK_CROWD,
+                           GEO_MK_CROWD * c.length / (2 * Math.PI));
+
+        c.forEach((p, i) => {
+            const a = -Math.PI / 2 + 2 * Math.PI * i / c.length;
+            p.dx = cx + r * Math.cos(a) - p.x;
+            p.dy = cy + r * Math.sin(a) - p.y;
+        });
+    });
+}
+
 function renderGeoMap() {
     if (!geoMap)
         return;
@@ -1274,13 +1326,19 @@ function renderGeoMap() {
     geoMap.markers.innerHTML = '';
 
     const inv = window.ipInventory || [];
-    let placed = 0;
+    const pts = [];
 
     inv.forEach(ifc => {
         if (!ifc || !ifc.geo) return;
-        geoMap.markers.appendChild(geoMarker(ifc));
-        placed++;
+        const [x, y] = geoMercator(ifc.geo.lon, ifc.geo.lat);
+        pts.push({ ifc, x, y, dx: 0, dy: 0 });
     });
+
+    geoSpread(pts);
+    pts.forEach(p => geoMap.markers.appendChild(
+                        geoMarker(p.ifc, p.x, p.y, p.dx, p.dy)));
+
+    const placed = pts.length;
 
     const st = document.getElementById('geo-status');
     if (st)

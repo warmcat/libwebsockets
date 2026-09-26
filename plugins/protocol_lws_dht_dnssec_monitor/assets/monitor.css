@@ -1192,6 +1192,14 @@ body.is-disconnected .app-container {
   fill: #fbbf24;
 }
 
+/* from a fanned-out marker back to the spot it really belongs at */
+.geo-mk line.geo-mk-lead {
+  stroke: rgba(160, 190, 220, 0.8);
+  stroke-width: 0.8;
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+}
+
 .geo-help {
   margin-top: 0.5rem;
   font-size: 0.8em;
