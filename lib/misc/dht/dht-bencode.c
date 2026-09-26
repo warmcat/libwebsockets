@@ -846,6 +846,16 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 			sin6->sin6_port = htons(mp.sender_port);
 			sslen = sizeof(*sin6);
 		}
+		/*
+		 * The quorum is counted over the probes of the reported
+		 * address's family: a v4 node reporting a v6 address for us
+		 * would be its own quorum of one.  A node can only see us on
+		 * the family it was probed on.
+		 */
+		if (ss.ss_family != ctx->ip_probes[probe].ss.ss_family) {
+			lwsl_dht_warn("%s: IP tracking reply family mismatch, dropped\n", __func__);
+			goto skip_ip_tracking;
+		}
 		flag = (ss.ss_family == AF_INET) ? 1 : 2;
 
 		for (j = 0; j < ctx->num_reported_ads; j++)
