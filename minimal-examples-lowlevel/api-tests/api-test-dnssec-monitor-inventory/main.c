@@ -572,6 +572,50 @@ int main(void)
 			  "dynamic interface estimated via its v6 address");
 
 	/*
+	 * Every ISO 3166-1 code the CSVs can hand back must have a place,
+	 * including those too small for a polygon of their own (SG, HK, MT,
+	 * ...); finding each by bsearch() also proves the table is sorted
+	 */
+	{
+		static const char iso[] =
+			"AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB "
+			"BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY "
+			"BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX "
+			"CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK "
+			"FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS "
+			"GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR "
+			"IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA "
+			"LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK "
+			"ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE "
+			"NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM "
+			"PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG "
+			"SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF "
+			"TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY "
+			"UZ VA VC VE VG VI VN VU WF WS XK YE YT ZA ZM ZW";
+		double lat, lon;
+		char cc[3];
+		size_t i;
+		int missing = 0;
+
+		for (i = 0; i + 2 <= sizeof(iso) - 1; i += 3) {
+			cc[0] = iso[i];
+			cc[1] = iso[i + 1];
+			cc[2] = '\0';
+			if (inv_geo_centroid(cc, &lat, &lon)) {
+				lwsl_err("%s: no centroid for %s\n", __func__, cc);
+				missing++;
+			}
+		}
+		fails += t_expect(!missing, "every country code has a centroid");
+
+		fails += t_expect(!inv_geo_centroid("SG", &lat, &lon) &&
+				  lat > 1 && lat < 2 && lon > 103 && lon < 105,
+				  "Singapore placed at Singapore");
+		fails += t_expect(!!inv_geo_centroid("ZZ", &lat, &lon),
+				  "unknown code has no centroid");
+	}
+
+	/*
 	 * Without detected addresses (the external IP determination has not
 	 * produced any yet), the dynamic records must still group the same
 	 * names into an interface, standing in on the macro text itself
