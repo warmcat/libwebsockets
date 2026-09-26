@@ -3730,6 +3730,8 @@ fallback:
 				struct pss *wpss = (struct pss *)magic;
 				wpss->cwsi = NULL;
 			} else if (magic && *magic == INV_GEO_DL_MAGIC) {
+				lwsl_notice("%s: geo csv connection failed: %s\n",
+					    __func__, in ? (const char *)in : "?");
 				inv_geo_dl_fail((struct inv_geo_dl *)magic);
 				lws_set_opaque_user_data(wsi, NULL);
 			}
@@ -3743,12 +3745,36 @@ fallback:
 				lwsl_notice("%s: Connected to ACME directory\n", __func__);
 			}
 		}
+		{
+			struct inv_geo_dl *g = (struct inv_geo_dl *)lws_get_opaque_user_data(wsi);
+			unsigned int st;
+
+			/*
+			 * Redirects were already followed: anything but a 200
+			 * now is an error page, not a CSV to replace ours with
+			 */
+			if (g && g->magic == INV_GEO_DL_MAGIC &&
+			    (st = lws_http_client_http_response(wsi)) != 200) {
+				lwsl_notice("%s: geo csv download got HTTP %u\n",
+					    __func__, st);
+				inv_geo_dl_fail(g);
+				lws_set_opaque_user_data(wsi, NULL);
+
+				return -1;
+			}
+		}
 		break;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
 		{
-			struct acme_profiles_fetch_info *afi = (struct acme_profiles_fetch_info *)lws_get_opaque_user_data(wsi);
-			if (afi && afi->magic == ACME_PROFILES_MAGIC) {
+			/*
+			 * On h1 the body is only delivered as
+			 * RECEIVE_CLIENT_HTTP_READ when we pull it here (h2
+			 * delivers it directly)
+			 */
+			uint32_t *magic = (uint32_t *)lws_get_opaque_user_data(wsi);
+			if (magic && (*magic == ACME_PROFILES_MAGIC ||
+				      *magic == INV_GEO_DL_MAGIC)) {
 				char buffer[2048 + LWS_PRE];
 				char *px = buffer + LWS_PRE;
 				int lenx = sizeof(buffer) - LWS_PRE;

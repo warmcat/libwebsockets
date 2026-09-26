@@ -879,6 +879,9 @@ inv_geo_dl_fail(struct inv_geo_dl *g)
 	if (!g || g->magic != INV_GEO_DL_MAGIC)
 		return;
 
+	lwsl_notice("%s: %s download failed after %zu bytes, keeping previous\n",
+		    __func__, inv_geo_file[g->is_v6], g->got);
+
 	if (g->fd >= 0)
 		close(g->fd);
 	unlink(g->tmp);
