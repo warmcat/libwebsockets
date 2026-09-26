@@ -33,6 +33,7 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	struct lws_context *context = lws_get_context(wsi);
 	size_t real_len = len;
 	unsigned int n, m;
+	int queued = 0;
 
 	/*
 	 * If you're looking to dump data being sent down the tls tunnel, see
@@ -70,6 +71,14 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		if (lws_buflist_append_segment(&wsi->buflist_out, buf, len))
 			return -1;
 
+		/*
+		 * The caller's bytes are all taken (queued): what we return
+		 * is what happened to them, not how much of the earlier
+		 * partial the drain below managed, which callers comparing the
+		 * return to their length were reading as a failed write and
+		 * killing the connection over
+		 */
+		queued = (int)len;
 		buf = NULL;
 		len = 0;
 	}
@@ -157,7 +166,7 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 					    "deferred transaction completed");
 				lwsi_set_txn_completing(wsi, 0);
 				return lws_http_transaction_completed(wsi) ?
-							-1 : (int)real_len;
+							-1 : (queued ? queued : (int)real_len);
 			}
 #endif
 #endif
@@ -170,7 +179,7 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		/* always callback on writeable */
 		lws_callback_on_writable(wsi);
 
-		return (int)m;
+		return queued ? queued : (int)m;
 	}
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
