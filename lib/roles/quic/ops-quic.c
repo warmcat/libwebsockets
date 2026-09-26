@@ -1687,7 +1687,16 @@ tp_ok:
 				    !memcmp(&p[n - 16], nwsi->quic.qn->rem_stateless_reset_token, 16)) {
 					lwsl_wsi_notice(wsi, "QUIC RX: Stateless reset token matched! Terminating connection silently.");
 					if (nwsi != wsi) {
+						/*
+						 * as for a peer CONNECTION_CLOSE
+						 * (C-471): the close frees nwsi
+						 * and the loop head reads it, and
+						 * it is a silent end, no
+						 * CONNECTION_CLOSE of ours goes out
+						 */
+						nwsi->quic.qn->is_closing = 1;
 						lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NORMAL, "quic stateless reset");
+						nwsi = NULL;
 						goto next_packet;
 					}
 					return LWS_RX_CLOSE;
