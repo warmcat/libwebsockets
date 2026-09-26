@@ -3436,7 +3436,7 @@ end_children:
 		}
 
 		if (!blocked && can_process_children) {
-			if (lws_wsi_mux_action_pending_writeable_reqs(wsi))
+			if (lws_wsi_mux_action_pending_writeable_reqs(wsi) < 0)
 				return LWS_HP_RET_BAIL_DIE;
 
 			for (level = 0; level < LWS_QUIC_LEVEL_COUNT; level++) {
@@ -3461,14 +3461,6 @@ end_children:
 			lws_end_foreach_dll(d);
 		}
 
-		if (((blocked && !eagain_blocked) || !have_pending_tx) && !children_need_POLLOUT) {
-			/* We are blocked by QUIC limits, or have nothing to send right now.
-			 * Stop asking the OS for POLLOUT. We will re-enable it if children
-			 * need to write. */
-			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
-				return LWS_HP_RET_BAIL_DIE;
-		}
-                
 		{
 			/*
 			 * Same reentrancy-safe situation as the post-RX loop
@@ -3492,17 +3484,21 @@ end_children:
 			} lws_end_foreach_dll_safe(d, d1);
 		}
 
+		/*
+		 * The poll flag is IO's: the answer says whether to keep it.
+		 * Frames of ours are waiting: keep POLLOUT, unless quic's own
+		 * limits blocked the send (not the socket) and no child wants
+		 * a turn, when the ACK that lifts them re-arms us.
+		 */
 		if (have_pending_tx)
-			return LWS_HP_RET_BAIL_OK;
+			return (blocked && !eagain_blocked &&
+				!children_need_POLLOUT) ?
+				LWS_HP_RET_DROP_POLLOUT : LWS_HP_RET_BAIL_OK;
 
 		/*
-		 * Check if any child still needs writeable service.
-		 * lws_wsi_mux_action_pending_writeable_reqs() may have
-		 * re-enabled POLLOUT on the fd, but the caller in service.c
-		 * will drop it again if we return LWS_HP_RET_DROP_POLLOUT.
-		 * This happens when children transition to LRS_ISSUING_FILE
-		 * and call lws_callback_on_writable() — they need another
-		 * POLLOUT cycle to call lws_serve_http_file_fragment().
+		 * Nothing of ours: a child that still wants a turn keeps
+		 * POLLOUT (it went to LRS_ISSUING_FILE and asked for its
+		 * next fragment); otherwise IO drops it.
 		 */
 		{
 			lws_start_foreach_dll(struct lws_dll2 *, d,

@@ -1770,7 +1770,11 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		return 0;
 	}
 
-	if (lws_wsi_mux_action_pending_writeable_reqs(wsi))
+	/*
+	 * Nothing wanting a turn needs no answer: the dispatcher's one-shot
+	 * already dropped POLLOUT before this user service
+	 */
+	if (lws_wsi_mux_action_pending_writeable_reqs(wsi) < 0)
 		return -1;
 
 	return 0;

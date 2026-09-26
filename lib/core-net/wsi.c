@@ -2314,13 +2314,20 @@ struct lws *lws_wsi_mux_move_child_to_tail(struct lws *parent_wsi) {
 	return w;
 }
 
+/*
+ * After a mux parent's POLLOUT pass: if it, or any child, still wants a
+ * turn, ask IO for the next one and return 1.  Returns 0 when nothing does,
+ * and the caller's handler answers IO with LWS_HP_RET_DROP_POLLOUT so the
+ * dispatcher drops POLLOUT: the poll flag is IO's, the answer is the role's.
+ * -1 when the request failed.
+ */
 int lws_wsi_mux_action_pending_writeable_reqs(struct lws *wsi) {
 	struct lws *nwsi = lws_wsi_socket_owner(wsi);
 
 	if (wsi->mux.requested_POLLOUT) {
 		if (lws_io_want_write(nwsi))
 			return -1;
-		return 0;
+		return 1;
 	}
 
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&wsi->mux.child_list_owner)) {
@@ -2329,13 +2336,10 @@ int lws_wsi_mux_action_pending_writeable_reqs(struct lws *wsi) {
 		if (w->mux.requested_POLLOUT) {
 			if (lws_io_want_write(nwsi))
 				return -1;
-			return 0;
+			return 1;
 		}
 	}
 	lws_end_foreach_dll(d);
-
-	if (lws_change_pollfd(nwsi, LWS_POLLOUT, 0))
-		return -1;
 
 	return 0;
 }

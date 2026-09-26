@@ -357,10 +357,15 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 
 	// lws_wsi_mux_dump_waiting_children(wsi);
 
-	if (lws_wsi_mux_action_pending_writeable_reqs(wsi))
-		return LWS_HP_RET_BAIL_DIE;
+	{
+		int n = lws_wsi_mux_action_pending_writeable_reqs(wsi);
 
-	return LWS_HP_RET_BAIL_OK;
+		if (n < 0)
+			return LWS_HP_RET_BAIL_DIE;
+
+		/* nothing wants a turn: IO drops POLLOUT */
+		return n ? LWS_HP_RET_BAIL_OK : LWS_HP_RET_DROP_POLLOUT;
+	}
 }
 
 #if defined(LWS_WITH_CLIENT)
