@@ -33,6 +33,7 @@
 
 #if defined(LWS_WITH_CLIENT)
 
+#if defined(LWS_WITH_TLS)
 static int
 lws_client_is_quic(struct lws *wsi)
 {
@@ -44,6 +45,7 @@ lws_client_is_quic(struct lws *wsi)
 	return 0;
 #endif
 }
+#endif
 
 /*
  * The transport the role asked for is up.  A role that starts its own
