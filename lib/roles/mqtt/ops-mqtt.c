@@ -267,15 +267,20 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 	 * Fair-share POLLOUT service via a forward walk; see
 	 * rops_perform_user_POLLOUT_h2() for the rationale.  _safe caches
 	 * next before the body so relocating/closing the current child is
-	 * safe and the walk terminates after one pass over the children
-	 * present at entry.  The choke test is post-tested (first iteration
-	 * skips it) so a pipe that already looks choked on entry cannot
-	 * starve every child.
+	 * safe; the walk is bounded to the count of children present at
+	 * entry, since the rotation alone lets two children that re-arm on
+	 * every visit alternate forever (see ops-h2.c).  The choke test is
+	 * post-tested (first iteration skips it) so a pipe that already
+	 * looks choked on entry cannot starve every child.
 	 */
-	int first_iteration = 1;
+	int first_iteration = 1,
+	    remaining = (int)wsi->mux.child_list_owner.count;
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 			lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
+
+		if (remaining-- <= 0)
+			break;
 
 		if (!first_iteration && lws_send_pipe_choked(wsi))
 			break;

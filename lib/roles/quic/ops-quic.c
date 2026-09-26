@@ -3327,21 +3327,30 @@ send_frames:
 		 * Fair-share POLLOUT service, forward walk.  We visit each child
 		 * once per pass; the lws_start_foreach_dll_safe iterator caches
 		 * next before the body, so moving the current node to the tail
-		 * (fair-share rotation) or removing it (close) is safe and the
-		 * walk still terminates after every node present at pass start
-		 * has been seen.  Nodes a callback adds or re-arms are behind
-		 * the cursor and get picked up on a future pass.
+		 * (fair-share rotation) or removing it (close) is safe.  The
+		 * rotation alone does not make the walk terminate: a serviced
+		 * child goes behind the next one's cached next, so two children
+		 * that re-arm on every visit (a file stream whose last frame is
+		 * still in flight, and another whose HEADERS wait in pending_tx)
+		 * alternate forever inside this one pass, and the connection's
+		 * PTO never fires.  The bound is the count at pass start: every
+		 * child then present is seen once, and nodes a callback adds or
+		 * re-arms are picked up on a future pass.
 		 *
 		 * The connection-level credit guard is post-tested (first
 		 * iteration skips it) so we always service at least one child
 		 * per POLLOUT; per-stream throttling below (usable_credit and
 		 * lws_wsi_txc_check_skint) still breaks/re-arms correctly.
 		 */
-		int first_iteration = 1;
+		int first_iteration = 1,
+		    remaining = (int)wsi->mux.child_list_owner.count;
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 			struct lws *w = lws_container_of(d, struct lws,
 							 mux.sibling_list);
+
+			if (remaining-- <= 0)
+				break;
 
 			if (!first_iteration &&
 			    (wsi->txc.tx_cr <= 0 ||

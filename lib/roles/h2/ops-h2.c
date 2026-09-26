@@ -1246,9 +1246,13 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 	/*
 	 * Fair-share POLLOUT service via a forward walk.  _safe caches next
 	 * before the body, so relocating the current child to the tail
-	 * (fair-share rotation) or removing it (close) is safe and the walk
-	 * terminates after every child present at pass start has been seen.
-	 * Children a callback adds or re-arms land behind the cursor.
+	 * (fair-share rotation) or removing it (close) is safe.  The
+	 * rotation does not make the walk terminate by itself: a serviced
+	 * child lands behind the next one's cached next, so two children
+	 * that re-arm on every visit alternate for as long as the pipe is
+	 * not choked.  The bound is the count at pass start: every child
+	 * then present is seen once, and children a callback adds or
+	 * re-arms are picked up on a future pass.
 	 *
 	 * The choke test is post-tested, matching the historical do/while:
 	 * the first iteration skips it so a pipe that already looks choked on
@@ -1257,10 +1261,14 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 	 * second iteration on we re-check before the next sibling, so writes
 	 * that re-arm via 'continue' are still gated the next time round.
 	 */
-	int first_iteration = 1;
+	int first_iteration = 1,
+	    remaining = (int)wsi->mux.child_list_owner.count;
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 			lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
+
+		if (remaining-- <= 0)
+			break;
 
 		if (!first_iteration && lws_send_pipe_choked(wsi))
 			break;
