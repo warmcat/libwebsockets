@@ -884,7 +884,7 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 	    lwsi_state(wsi) == LRS_AWAITING_FILE_READ)
 		return LWS_HP_RET_DROP_POLLOUT;
 
-#if defined(LWS_WITH_FILE_OPS)
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_FILE_OPS)
 	if (lwsi_state(wsi) == LRS_ISSUING_FILE) {
 		/*
 		 * >0 == completion, <0 == error.  We'll get a
