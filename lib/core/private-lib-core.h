@@ -351,10 +351,13 @@ struct lws_foreign_thread_pollfd {
 
 #include "private-lib-core-net.h"
 /*
- * The IO half's private prototypes.  Hidden from the sansIO sources by
- * scripts/sans-io-check.sh (LWS_SANSIO_CHECK), so a sansIO file calling
- * into IO fails to compile there.  See READMEs/README.sans-io-split.md.
+ * The sansIO half's requests of IO, in today's private spellings: always
+ * visible.  The rest of the IO half's private prototypes are hidden from
+ * the sansIO sources by scripts/sans-io-check.sh (LWS_SANSIO_CHECK), so a
+ * sansIO file calling into IO past the seam fails to compile there.  See
+ * READMEs/README.sans-io-split.md.
  */
+#include "private-lib-sansio-seam.h"
 #if !defined(LWS_SANSIO_CHECK)
 #include "IO/private-lib-io.h"
 #endif

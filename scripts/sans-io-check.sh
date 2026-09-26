@@ -2,7 +2,9 @@
 #
 # sans-io-check.sh: compile the sansIO sources with the IO half's private
 # prototypes hidden (LWS_SANSIO_CHECK), so every place sansIO code calls into
-# IO fails to compile and names its line.  See READMEs/README.sans-io-split.md.
+# IO past the seam (lib/core-net/private-lib-sansio-seam.h, the requests in
+# their private spellings) fails to compile and names its line.  See
+# READMEs/README.sans-io-split.md.
 #
 # Usage: scripts/sans-io-check.sh <build-dir-with-compile_commands.json> [-v]
 #

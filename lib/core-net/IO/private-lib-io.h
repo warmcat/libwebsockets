@@ -77,9 +77,6 @@ unsigned long
 lws_get_addr_scope(struct lws *wsi, const char *ipaddr);
 
 #endif
-int
-lws_service_wsi_as_writable(struct lws *wsi);
-
 lws_handling_result_t
 lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 	    struct lws_pollfd *pollfd, int flags, size_t max, int *nothing,
@@ -157,9 +154,6 @@ lws_tls_server_conn_alpn(struct lws *wsi);
 
 int LWS_WARN_UNUSED_RESULT
 __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi);
-
-int LWS_WARN_UNUSED_RESULT
-lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len);
 
 void
 lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
@@ -400,8 +394,6 @@ lws_io_socket_wait_pending(struct lws *wsi);
 void
 lws_io_socket_waiters_close(struct lws_vhost *vh, int tsi);
 int
-lws_io_service_now(struct lws *wsi);
-int
 lws_io_flag_pending_rx(struct lws *wsi);
 void
 lws_io_connect_timers_cancel(struct lws *wsi);
@@ -419,8 +411,6 @@ int
 lws_io_udp_alloc(struct lws *wsi);
 #if defined(LWS_WITH_CLIENT)
 /* the client transport machine (IO/client/transport.c) */
-int
-lws_client_transport_connected(struct lws *wsi);
 int
 lws_client_transport_stage(struct lws *wsi, struct lws_pollfd *pollfd);
 struct lws * LWS_WARN_UNUSED_RESULT

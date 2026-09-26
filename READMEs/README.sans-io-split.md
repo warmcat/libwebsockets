@@ -124,12 +124,18 @@ The private headers are tiered the same way, by the file that defines each
 prototype: `lib/core-net/IO/private-lib-io.h` holds the IO half's (defined
 under `lib/core-net/IO`, `lib/plat`, `lib/tls`, `lib/event-libs`,
 `lib/drivers`, the async dns), and `private-lib-core.h` includes it unless
-`LWS_SANSIO_CHECK` is defined.  `scripts/sans-io-check.sh <build-dir>`
+`LWS_SANSIO_CHECK` is defined.  The requests sansIO makes of IO in their
+private spellings (`lws_issue_raw()` as tx's push form,
+`lws_service_wsi_as_writable()` and `lws_io_service_now()` as want_write
+served now, `lws_client_transport_connected()` as the tunnel legs' "the
+transport is up") are in `lib/core-net/private-lib-sansio-seam.h`, which
+stays visible: the seam is the interface, and what the check reports is
+exactly the calls that are not it.  `scripts/sans-io-check.sh <build-dir>`
 compiles every sansIO source that way, from the build's
-`compile_commands.json`, so each place sansIO code calls into IO fails to
-compile and names its line; it prints the callees by frequency and the
-totals.  That list is the remaining work on the rx and tx plumbing, and
-the compiler keeps it, not a grep.  (The tls private prototypes are not yet
+`compile_commands.json`, so each place sansIO code calls into IO past the
+seam fails to compile and names its line; it prints the callees by
+frequency and the totals.  That list is the remaining work on the rx and
+tx plumbing, and the compiler keeps it, not a grep.  (The tls private prototypes are not yet
 hidden: they share a header with the tls structs that `struct lws` embeds
 by value, which the struct split resolves.)
 
