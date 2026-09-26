@@ -747,6 +747,18 @@ typedef struct sai_browse_rx_evinfo {
 typedef struct sai_browse_rx_taskinfo {
 	char				task_hash[65];
 	uint64_t			last_log_ts;
+	/*
+	 * The highest logs.uid the browser already has for this task + run, so
+	 * a reconnecting or refreshing browser resumes where it left off.
+	 *
+	 * This used to be done with last_log_ts, but the log timestamps come
+	 * from the builder's lws_now_usecs(), ie, its CLOCK_MONOTONIC, which is
+	 * relative to that machine's boot: a builder VM that reboots (or any
+	 * other builder taking over) issues timestamps below the cursor and
+	 * every row after that is silently never delivered.  uid is the logs
+	 * table's autoincrement primary key, so it only ever increases.
+	 */
+	uint64_t			last_log_uid;
 	unsigned int			log_start;
 	unsigned int			js_api_version;
 	unsigned int			offset;

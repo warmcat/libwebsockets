@@ -404,7 +404,7 @@ const SaiAuthState = {
 var logs = "", redpend = 0, gitohashi_integ = 0, authd = 0, auth_is_admin = 0, auth_grant_level = -1, auth_state = SaiAuthState.NOT_LOGGED_IN, exptimer, auth_user = "",
 active_terminals = {};
 	logAnsiState = {}, logs_pending = "", lines_pending = "", times_pending = "",
-	ongoing_task_activities = {}, last_log_timestamp = 0, spreadsheet_data_cache = {}, loadreport_data_cache = {},
+	ongoing_task_activities = {}, last_log_timestamp = 0, last_log_uid = 0, spreadsheet_data_cache = {}, loadreport_data_cache = {},
 	watcher_services = [],
 	fadingTasks = new Map();
 
@@ -2659,15 +2659,7 @@ function clear_task_view()
 	if (stickyEl) stickyEl.innerHTML = "";
 	if (overviewEl) overviewEl.innerHTML = "";
 
-	lines = times = logs = "";
-	lines_pending = times_pending = logs_pending = "";
-	segment_stack = [];
-	seg_counter = 0;
-	window.held_start_line = null;
-	logAnsiState = {};
-	tfirst = 0;
-	lli = 1;
-	last_log_timestamp = 0;
+	sai_reset_log_pane(0);
 }
 
 function selectEvent(uuid) {
@@ -2710,6 +2702,39 @@ function selectEvent(uuid) {
 	}
 }
 
+/*
+ * Throw away everything we are showing for a task's logs and start again from
+ * the first row.  The task's rows can go away underneath us: "remove all tries"
+ * deletes them, and a rebuild or a builder that dropped off starts a new run,
+ * so sai-web tells us to do this rather than us appending new lines under stale
+ * ones.  Pass 1 to rebuild the log DOM as well.
+ */
+function sai_reset_log_pane(rebuild_dom) {
+	lines = times = logs = "";
+	lines_pending = times_pending = logs_pending = "";
+	segment_stack = [];
+	seg_counter = 0;
+	window.held_start_line = null;
+	window.pending_log_line = "";
+	logAnsiState = {};
+	tfirst = 0;
+	lli = 1;
+	last_log_timestamp = 0;
+	last_log_uid = 0;
+
+	if (rebuild_dom) {
+		init_task_logs_dom();
+		return;
+	}
+
+	var dlogsn = document.getElementById("dlogsn");
+	var dlogst = document.getElementById("dlogst");
+	var dlogs = document.getElementById("dlogs");
+	if (dlogsn) dlogsn.innerHTML = "";
+	if (dlogst) dlogst.innerHTML = "";
+	if (dlogs) dlogs.innerHTML = "<span id=\"logs\" class=\"nowrap\"></span>";
+}
+
 function init_task_logs_dom() {
 	var s = "<table><td colspan=\"3\"><pre><table class=\"scrollogs\"><tr>" +
 			"<td class=\"atop\">" +
@@ -2747,24 +2772,14 @@ function selectTask(taskUuid, runVal) {
 		stickyEl.innerHTML = "<div class=\"taskinfo\" id=\"taskinfo-" + san(taskUuid) + "\"></div>";
 	}
 
-	lines = times = logs = "";
-	lines_pending = times_pending = logs_pending = "";
-	segment_stack = [];
-	seg_counter = 0;
-	window.held_start_line = null;
-	logAnsiState = {};
-	tfirst = 0;
-	lli = 1;
-	last_log_timestamp = 0;
-
-	init_task_logs_dom();
+	sai_reset_log_pane(1);
 
 	// Request logs from websocket
 	var req = "{\"schema\":" +
 		  "\"com.warmcat.sai.taskinfo\"," +
 		  "\"js_api_version\": " + SAI_JS_API_VERSION + "," +
 		  "\"logs\": 1," +
-		  "\"last_log_ts\":" + last_log_timestamp + ",";
+		  "\"last_log_ts\":" + last_log_timestamp + ",\"last_log_uid\":" + last_log_uid + ",";
 	if (runVal && runVal !== "-1")
 		 req += "\"run\":" + runVal + ",";
 	 else
@@ -3853,7 +3868,7 @@ function ws_open_sai()
 					  "\"com.warmcat.sai.taskinfo\"," +
 					  "\"js_api_version\": " + SAI_JS_API_VERSION + "," +
 					  "\"logs\": 1," +
-					  "\"last_log_ts\":" + last_log_timestamp + ",";
+					  "\"last_log_ts\":" + last_log_timestamp + ",\"last_log_uid\":" + last_log_uid + ",";
 				 if (run_idx)
 					 req += "\"run\":" + run_idx + ",";
 				 else
@@ -4593,7 +4608,7 @@ function ws_open_sai()
 								  "\"js_api_version\": " + SAI_JS_API_VERSION + "," +
 								  "\"logs\": 1," +
 								  "\"run\": -1," +
-								  "\"last_log_ts\":" + last_log_timestamp + "," +
+								  "\"last_log_ts\":" + last_log_timestamp + ",\"last_log_uid\":" + last_log_uid + "," +
 								  "\"task_hash\":" +
 								  JSON.stringify(tid) + "}";
 
@@ -4777,6 +4792,17 @@ function ws_open_sai()
 				window.location.href = window.location.origin + window.location.pathname;
 				break;
 
+			/*
+			 * sai-web is about to send this task's logs from the
+			 * first row again: what we are showing is either gone
+			 * (the task's tries were removed) or belongs to an
+			 * earlier run, so drop it rather than appending under it
+			 */
+			case "com.warmcat.sai.logs_reset":
+				if (jso.task_hash === selected_task_uuid)
+					sai_reset_log_pane(0);
+				break;
+
 			case "com-warmcat-sai-logs":
 				var s1;
 				try {
@@ -4821,6 +4847,8 @@ function ws_open_sai()
 
 				if (!tfirst) tfirst = jso.timestamp;
 				last_log_timestamp = jso.timestamp;
+				if (jso.uid > last_log_uid)
+					last_log_uid = jso.uid;
 
 				/* normalize CRs to LFs so line number counts track them properly */
 				if (window._sai_cr_pending && s1.startsWith('\n')) {
@@ -5104,23 +5132,9 @@ window.addEventListener("load", function() {
 			sai.send(rs);
 
 			// Clear logs and re-request taskinfo
-			var dlogsn = document.getElementById("dlogsn");
-			var dlogst = document.getElementById("dlogst");
-			var dlogs = document.getElementById("dlogs");
-			if (dlogsn) dlogsn.innerHTML = "";
-			if (dlogst) dlogst.innerHTML = "";
-			if (dlogs) dlogs.innerHTML = "<span id=\"logs\" class=\"nowrap\"></span>";
-			lines = times = logs = "";
-			lines_pending = times_pending = logs_pending = "";
-			segment_stack = [];
-			seg_counter = 0;
-			window.held_start_line = null;
-			logAnsiState = {};
-			tfirst = 0;
-			lli = 1;
-			last_log_timestamp = 0;
+			sai_reset_log_pane(0);
 
-			var rq = "{\"schema\":\"com.warmcat.sai.taskinfo\",\"js_api_version\":" + SAI_JS_API_VERSION + ",\"logs\":1,\"run\":-1,\"last_log_ts\":" + last_log_timestamp + ",\"task_hash\":" + JSON.stringify(tid) + "}";
+			var rq = "{\"schema\":\"com.warmcat.sai.taskinfo\",\"js_api_version\":" + SAI_JS_API_VERSION + ",\"logs\":1,\"run\":-1,\"last_log_ts\":" + last_log_timestamp + ",\"last_log_uid\":" + last_log_uid + ",\"task_hash\":" + JSON.stringify(tid) + "}";
 			console.log(rq);
 			sai.send(rq);
 		}

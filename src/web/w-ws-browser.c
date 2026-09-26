@@ -70,12 +70,18 @@ static lws_struct_map_t lsm_browser_builder_visibility[] = {
 	LSM_UNSIGNED	(sai_browse_rx_builder_visibility_t, visible, "visible"),
 };
 
+static void
+saiw_browser_logs_reset(struct pss *pss);
+static int
+saiw_browser_logs_cursor_stale(struct vhd *vhd, struct pss *pss);
+
 static lws_struct_map_t lsm_browser_taskinfo[] = {
 	LSM_CARRAY	(sai_browse_rx_taskinfo_t, task_hash,		"task_hash"),
 	LSM_UNSIGNED	(sai_browse_rx_taskinfo_t, logs,		"logs"),
 	LSM_UNSIGNED    (sai_browse_rx_taskinfo_t, js_api_version,	"js_api_version"),
 	LSM_UNSIGNED    (sai_browse_rx_taskinfo_t, offset,		"offset"),
 	LSM_UNSIGNED    (sai_browse_rx_taskinfo_t, last_log_ts,		"last_log_ts"),
+	LSM_UNSIGNED    (sai_browse_rx_taskinfo_t, last_log_uid,	"last_log_uid"),
 	LSM_SIGNED      (sai_browse_rx_taskinfo_t, run,			"run"),
 	/* Sidebar selection scoping the overview to project + branch */
 	LSM_CARRAY	(sai_browse_rx_taskinfo_t, project,		"project"),
@@ -683,6 +689,8 @@ saiw_pss_schedule_taskinfo(struct pss *pss, const char *task_uuid, int logsub, i
 	/* does he want to subscribe to logs? */
 	if (logsub) {
 		int new_run = run_idx >= 0 ? run_idx : one_task->run;
+		/* was this pss watching anything before now? */
+		int had_sub = !!pss->sub_task_uuid[0];
 		int is_new_task = strcmp(pss->sub_task_uuid, one_task->uuid);
 		int is_new_run = pss->sub_run != new_run;
 
@@ -693,18 +701,51 @@ saiw_pss_schedule_taskinfo(struct pss *pss, const char *task_uuid, int logsub, i
 			lws_dll2_add_head(&pss->subs_list, &pss->vhd->subs_owner);
 		}
 
-		if (is_new_task || is_new_run || pss->initial_log_timestamp == 0) {
-			pss->sub_timestamp = pss->initial_log_timestamp;
+		/*
+		 * The browser tells us the highest row it already has, so it can
+		 * resume across a reconnect instead of us shipping the whole log
+		 * again.  It sends 0 when it wants the log from the start, which
+		 * is what it does whenever it selects a task.
+		 *
+		 * We have to wipe what it is showing if we are about to send
+		 * from the start, or if the rows it has belong to a run it is no
+		 * longer looking at... otherwise the new lines just pile up
+		 * underneath lines that are not part of this build any more.
+		 */
+
+		if (!pss->initial_log_uid ||
+		    (had_sub && (is_new_task || is_new_run))) {
+			saiw_browser_logs_reset(pss);
 			saiw_broadcast_logs_batch(pss->vhd, pss);
+		} else {
+			pss->sub_uid = pss->initial_log_uid;
+			pss->sub_timestamp = pss->initial_log_timestamp;
+
+			if (saiw_browser_logs_cursor_stale(pss->vhd, pss)) {
+				/* the rows it is resuming from are gone */
+				saiw_browser_logs_reset(pss);
+				saiw_broadcast_logs_batch(pss->vhd, pss);
+			}
 		}
 	} else if (!strcmp(pss->sub_task_uuid, one_task->uuid)) {
 		/* If already subscribed to this task, track new runs automatically */
 		int new_run = run_idx >= 0 ? run_idx : one_task->run;
+
 		if (pss->sub_run != new_run) {
 			pss->sub_run = new_run;
-			pss->sub_timestamp = 0;
+			saiw_browser_logs_reset(pss);
 			saiw_broadcast_logs_batch(pss->vhd, pss);
-		}
+		} else
+			/*
+			 * Same task, same run, but the rows may have been
+			 * removed under us: "remove all tries" deletes a task's
+			 * logs and puts it back to run 0, so the run alone does
+			 * not always change
+			 */
+			if (saiw_browser_logs_cursor_stale(pss->vhd, pss)) {
+				saiw_browser_logs_reset(pss);
+				saiw_broadcast_logs_batch(pss->vhd, pss);
+			}
 	}
 
 	saiw_browser_broadcast_queue_builders(pss->vhd, pss);
@@ -956,10 +997,13 @@ saiw_ws_json_rx_browser(struct vhd *vhd, struct pss *pss, uint8_t *buf,
 		 * as long as needed to send it out
 		 */
 
-		if (ti->logs)
+		if (ti->logs) {
 			pss->initial_log_timestamp = ti->last_log_ts;
-		else
+			pss->initial_log_uid = ti->last_log_uid;
+		} else {
 			pss->initial_log_timestamp = 0;
+			pss->initial_log_uid = 0;
+		}
 
 		if (saiw_pss_schedule_taskinfo(pss, ti->task_hash, !!ti->logs, ti->run))
 			goto soft_error;
@@ -1393,6 +1437,73 @@ saiw_retry_logs(lws_sorted_usec_list_t *sul)
 	saiw_broadcast_logs_batch(pss->vhd, pss);
 }
 
+/*
+ * Tell a browser to throw away the log lines it is showing for the task it is
+ * subscribed to, and start again from the first row.
+ *
+ * The task's logs can go away underneath a browser that is looking at them:
+ * "remove all tries" deletes them outright, and a builder disconnecting or a
+ * rebuild starts a new run.  Without this the pane keeps showing lines that no
+ * longer exist, and for a fresh run appends the new ones underneath the old.
+ */
+
+static void
+saiw_browser_logs_reset(struct pss *pss)
+{
+	uint8_t buf[LWS_PRE + 192], *start = buf + LWS_PRE;
+	char esc[132];
+	int n;
+
+	pss->sub_uid		= 0;
+	pss->sub_timestamp	= 0;
+
+	n = lws_snprintf((char *)start, sizeof(buf) - LWS_PRE,
+			 "{\"schema\":\"com.warmcat.sai.logs_reset\","
+			  "\"task_hash\":\"%s\",\"run\":%d}",
+			 lws_json_purify(esc, pss->sub_task_uuid,
+					 sizeof(esc) - 1, NULL), pss->sub_run);
+
+	saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start, (size_t)n,
+					       LWS_WRITE_TEXT);
+}
+
+/*
+ * The cursor can never legitimately be ahead of the newest row that exists, so
+ * if it is, the rows it was counting have been deleted (or we have moved to a
+ * run that has not produced any yet) and the browser has to start over.
+ */
+
+static int
+saiw_browser_logs_cursor_stale(struct vhd *vhd, struct pss *pss)
+{
+	char event_uuid[33], q[256], pesc[132];
+	uint64_t max_uid = 0;
+	sqlite3 *pdb = NULL;
+
+	if (!pss->sub_uid || !pss->sub_task_uuid[0])
+		return 0;
+
+	sai_task_uuid_to_event_uuid(event_uuid, pss->sub_task_uuid);
+
+	if (sai_event_db_ensure_open(vhd->context, &vhd->sqlite3_cache,
+				     vhd->sqlite3_path_lhs, event_uuid, 0, &pdb))
+		/* the event is gone, which the log query itself will report */
+		return 0;
+
+	lws_sql_purify(pesc, pss->sub_task_uuid, sizeof(pesc));
+	lws_snprintf(q, sizeof(q),
+		     "select coalesce(max(uid), 0) from logs where "
+		     "task_uuid='%s' and run=%d", pesc, pss->sub_run);
+
+	if (sqlite3_exec(pdb, q, sai_sql3_get_uint64_cb, &max_uid, NULL) !=
+								SQLITE_OK)
+		max_uid = pss->sub_uid; /* don't guess on a query failure */
+
+	sai_event_db_close(&vhd->sqlite3_cache, &pdb);
+
+	return max_uid < pss->sub_uid;
+}
+
 static void
 saiw_retry_overview(lws_sorted_usec_list_t *sul)
 {
@@ -1434,10 +1545,19 @@ saiw_broadcast_logs_batch(struct vhd *vhd, struct pss *pss)
 		/* uuid is db-derived, purify keeps the literal safe anyway */
 		lws_sql_purify(pesc, pss->sub_task_uuid, sizeof(pesc));
 
+		/*
+		 * Page on uid, the logs table's autoincrement primary key, not
+		 * on timestamp: the timestamps are the builder's
+		 * CLOCK_MONOTONIC, so they restart from near zero whenever a
+		 * builder VM reboots, and rows issued below the cursor are
+		 * never delivered.  uid only ever increases, and the rows come
+		 * back in uid order anyway.
+		 */
+
 		lws_snprintf(esc, sizeof(esc),
-		     "and task_uuid='%s' and run=%d and timestamp > %llu",
+		     "and task_uuid='%s' and run=%d and uid > %llu",
 		     pesc, pss->sub_run,
-		     (unsigned long long)pss->sub_timestamp);
+		     (unsigned long long)pss->sub_uid);
 
 		// lwsl_notice("%s: collecting logs %s\n", __func__, esc);
 
@@ -1458,7 +1578,7 @@ saiw_broadcast_logs_batch(struct vhd *vhd, struct pss *pss)
 		}
 
 		sr = lws_struct_sq3_deserialize(pdb, esc,
-						"uid,timestamp ",
+						"uid ",
 						lsm_schema_sq3_map_log,
 						&pss->logs_owner,
 						&pss->logs_ac, 0, 50);
@@ -1514,6 +1634,7 @@ saiw_broadcast_logs_batch(struct vhd *vhd, struct pss *pss)
 
 			fi = 0;
 			pss->sub_timestamp = log->timestamp;
+			pss->sub_uid = (uint64_t)log->uid;
 		} while (n != LSJS_RESULT_FINISH);
 	}
 

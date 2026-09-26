@@ -98,6 +98,8 @@ struct pss {	struct vhd		*vhd;
 	struct lws_dll2		subs_list;
 
 	uint64_t		sub_timestamp;
+	/* highest logs.uid shipped to this browser for sub_task_uuid + sub_run */
+	uint64_t		sub_uid;
 	char			sub_task_uuid[65];
 	int			sub_run;
 	char			specific_ref[65];
@@ -164,6 +166,7 @@ struct pss {	struct vhd		*vhd;
 
 	uint64_t		first_log_timestamp;
 	uint64_t		initial_log_timestamp;
+	uint64_t		initial_log_uid;
 	uint64_t		artifact_offset;
 	uint64_t		artifact_length;
 
