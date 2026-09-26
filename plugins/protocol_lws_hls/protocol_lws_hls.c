@@ -98,6 +98,19 @@ static struct per_vhost_data__lws_hls *stub_vhd;
 
 static const char * const stub_req_paths[] = { "secret", "delete" };
 
+/*
+ * The UDS the stub child listens on.  It is named after the parent's pid,
+ * so two servers on one box (or api tests folding the plugin in, running in
+ * parallel) do not unlink and take over each other's stub: the parent
+ * composes it with its own pid, the child with its parent's.
+ */
+static void
+hls_stub_uds_path(char *buf, size_t len, int parent_pid)
+{
+	lws_snprintf(buf, len, "/tmp/lws-hls-stub.%d.sock", // NOSONAR
+		     parent_pid);
+}
+
 static signed char
 stub_req_cb(struct lejp_ctx *ctx, char reason)
 {
@@ -625,15 +638,16 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 #if defined(LWS_WITH_STUB)
 		if (stub) {
 			struct lws_stub_config sc;
-			char extra[512];
+			char extra[512], uds[64];
 
 			stub_vhd = vhd;
 			memset(&sc, 0, sizeof(sc));
 			memset(extra, 0, sizeof(extra));
+			hls_stub_uds_path(uds, sizeof(uds), (int)getppid());
 			sc.cx = lws_get_context(wsi);
 			sc.vh = lws_get_vhost(wsi);
 			sc.stub_name = "lws-hls-stub";
-			sc.uds_path = "/tmp/lws-hls-stub.sock"; // NOSONAR
+			sc.uds_path = uds;
 			sc.protocols = stub_prots;
 			
 			/* kept in vhd so stub_req_cb() can authenticate the
@@ -717,11 +731,14 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 #if defined(LWS_WITH_STUB)
 		{
 			struct lws_stub_config sc;
+			char uds[64];
+
 			memset(&sc, 0, sizeof(sc));
+			hls_stub_uds_path(uds, sizeof(uds), (int)getpid());
 			sc.cx = lws_get_context(wsi);
 			sc.vh = lws_get_vhost(wsi);
 			sc.stub_name = "lws-hls-stub";
-			sc.uds_path = "/tmp/lws-hls-stub.sock"; // NOSONAR
+			sc.uds_path = uds;
 			sc.protocols = stub_prots;
 			sc.parent_protocol_name = "lws-hls";
 			sc.extra_payload = vhd->media_dir;
