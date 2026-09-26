@@ -633,8 +633,22 @@ rops_rx_policy_h1(struct lws *wsi, int *flags, size_t *max)
 		return LWS_RXPOL_ROLE;
 	}
 #endif
-	if (lws_is_flowcontrolled(wsi))
+	if (lws_is_flowcontrolled(wsi)) {
+#if defined(LWS_WITH_SERVER)
+		/*
+		 * ...but the server's writeable is still owed: a file being
+		 * served over parked rx (C-537) is exactly the case where rx
+		 * is flow-controlled and the transfer, and the completion
+		 * that lifts the flow control, live on POLLOUT.  Without this
+		 * the pass dropped POLLOUT from the fd and the connection
+		 * wedged with neither side armed.
+		 */
+		if (!lwsi_role_client(wsi) &&
+		    lwsi_transport(wsi) != LTS_SSL_ACK_PENDING)
+			*flags |= LWS_RXPOL_F_POLLOUT;
+#endif
 		return LWS_RXPOL_ROLE;
+	}
 
 #if defined(LWS_WITH_SERVER)
 	if (!lwsi_role_client(wsi)) {
