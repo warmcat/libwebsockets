@@ -449,12 +449,21 @@ static pthread_mutex_t log_lock = PTHREAD_MUTEX_INITIALIZER;
  *
  * Leaving spew mode is decided over a much shorter window than entering it,
  * since a spew typically never pauses at all: once the last
- * LWS_LOG_SPEW_EXIT_SAMPLES lines span more than LWS_LOG_SPEW_EXIT_US, the
- * rate has fallen below half the entry rate, and we replay the retained tail
- * in order, free the ringbuffer and go back to emitting directly.  The
- * timestamp ring is restarted, so a full LWS_LOG_SPEW_TS_RING lines at spew
- * rate are needed before we would enter again; that stops a bursty spew
- * flapping in and out of the mode and replaying its tail each time.
+ * LWS_LOG_SPEW_EXIT_SAMPLES lines span more than the exit quiet, initially
+ * LWS_LOG_SPEW_EXIT_US, we call the spew over, replay the retained tail in
+ * order, free the ringbuffer and go back to emitting directly.  The timestamp
+ * ring is restarted, so a full LWS_LOG_SPEW_TS_RING lines at spew rate are
+ * needed before we would enter again; that stops a bursty spew flapping in
+ * and out of the mode and replaying its tail each time.
+ *
+ * When the next log arrives, a spew that stopped and a process that was
+ * starved of cpu for a while, eg, on an overloaded box, look exactly the same.
+ * What does tell them apart is the spew coming back: if we enter spew mode
+ * again within LWS_LOG_SPEW_RESUME_US of calling it over, we were wrong, and
+ * the quiet that fooled us is what a stall looks like on this box at the
+ * moment.  So the exit quiet grows to twice that, up to
+ * LWS_LOG_SPEW_EXIT_MAX_US, and we say so.  Conditions change, so each time a
+ * spew starts afresh, the exit quiet halves back towards LWS_LOG_SPEW_EXIT_US.
  *
  * A legitimate surge of logs, eg, context creation at debug level, may be
  * fast enough to trip entry.  That costs nothing: as long as the surge
@@ -485,6 +494,12 @@ static pthread_mutex_t log_lock = PTHREAD_MUTEX_INITIALIZER;
 #if !defined(LWS_LOG_SPEW_EXIT_US)
 #define LWS_LOG_SPEW_EXIT_US		5000
 #endif
+#if !defined(LWS_LOG_SPEW_EXIT_MAX_US)
+#define LWS_LOG_SPEW_EXIT_MAX_US	1000000
+#endif
+#if !defined(LWS_LOG_SPEW_RESUME_US)
+#define LWS_LOG_SPEW_RESUME_US		1000000
+#endif
 #if !defined(LWS_LOG_SPEW_RING_SIZE)
 #if defined(LWS_PLAT_FREERTOS) || defined(LWS_PLAT_BAREMETAL)
 #define LWS_LOG_SPEW_RING_SIZE		2048
@@ -505,6 +520,8 @@ typedef struct lws_log_spew_ring {
 	size_t		tail;		/* oldest byte retained */
 	size_t		used;
 	lws_usec_t	entered;
+	lws_usec_t	exit_us;	/* quiet needed to call this spew over */
+	lws_usec_t	quiet;		/* the quiet that called it over */
 	uint32_t	swallowed;	/* lines diverted into the ring */
 	uint32_t	lost;		/* of those, pushed out again */
 } lws_log_spew_ring_t;
@@ -513,6 +530,9 @@ typedef struct lws_log_spew {
 	lws_usec_t		ts[LWS_LOG_SPEW_TS_RING];
 	lws_log_spew_ring_t	r;
 	lws_usec_t		last_heartbeat;
+	lws_usec_t		exit_us;	/* quiet that calls a spew over */
+	lws_usec_t		exited;		/* when we last called one over */
+	lws_usec_t		exited_quiet;	/* ... on seeing this quiet */
 	unsigned int		ts_head;	/* next slot to write */
 	unsigned int		ts_count;	/* valid slots */
 } lws_log_spew_t;
@@ -523,6 +543,7 @@ static char spew_entering; /* setting the ring up: no re-entry */
 enum {
 	SPEW_EMIT,	/* not in spew mode, emit normally */
 	SPEW_ENTERED,	/* this line entered spew mode and was retained */
+	SPEW_RESUMED,	/* ... and we had called the spew over too early */
 	SPEW_SWALLOWED,	/* retained, say nothing */
 	SPEW_HEARTBEAT,	/* retained, but it is time to show signs of life */
 	SPEW_EXITED	/* spew eased: replay the ring, then emit normally */
@@ -633,6 +654,9 @@ static int
 spew_track(lws_usec_t now, int level, const char *line, size_t len,
 	   lws_log_spew_ring_t *replay)
 {
+	lws_usec_t quiet;
+	int act;
+
 	spew.ts[spew.ts_head] = now;
 	spew.ts_head = (spew.ts_head + 1) % LWS_LOG_SPEW_TS_RING;
 	if (spew.ts_count < LWS_LOG_SPEW_TS_RING)
@@ -663,21 +687,48 @@ spew_track(lws_usec_t now, int level, const char *line, size_t len,
 			/* no memory to retain anything: keep emitting */
 			return SPEW_EMIT;
 
+		if (spew.exited && now - spew.exited < LWS_LOG_SPEW_RESUME_US) {
+			/*
+			 * The spew never ended, we were only descheduled for
+			 * long enough to think so: don't be fooled by that
+			 * again
+			 */
+			act = SPEW_RESUMED;
+			if (spew.exit_us < 2 * spew.exited_quiet)
+				spew.exit_us = 2 * spew.exited_quiet;
+			if (spew.exit_us > LWS_LOG_SPEW_EXIT_MAX_US)
+				spew.exit_us = LWS_LOG_SPEW_EXIT_MAX_US;
+			spew.r.quiet = spew.exited_quiet;
+		} else {
+			/* a new spew: conditions may have improved since */
+			act = SPEW_ENTERED;
+			spew.exit_us /= 2;
+			if (spew.exit_us < LWS_LOG_SPEW_EXIT_US)
+				spew.exit_us = LWS_LOG_SPEW_EXIT_US;
+		}
+		spew.exited = 0;
+
 		spew.r.entered = now;
+		spew.r.exit_us = spew.exit_us;
 		spew.last_heartbeat = now;
 		spew_ring_push(&spew.r, level, line, len);
+		*replay = spew.r;
 
-		return SPEW_ENTERED;
+		return act;
 	}
 
+	quiet = now - spew_ts_ago(LWS_LOG_SPEW_EXIT_SAMPLES);
 	if (spew.ts_count > LWS_LOG_SPEW_EXIT_SAMPLES &&
-	    now - spew_ts_ago(LWS_LOG_SPEW_EXIT_SAMPLES) >
-						LWS_LOG_SPEW_EXIT_US) {
+	    quiet > spew.r.exit_us) {
+		spew.r.quiet = quiet;
 		*replay = spew.r;
 		memset(&spew.r, 0, sizeof(spew.r));
 		/* a fresh run at spew rate is needed to enter again */
 		spew.ts_head = 0;
 		spew.ts_count = 0;
+		/* if it enters again right away, we were wrong about this */
+		spew.exited = now;
+		spew.exited_quiet = quiet;
 
 		return SPEW_EXITED;
 	}
@@ -745,8 +796,10 @@ spew_replay(lws_log_cx_t *cx, int level, lws_log_spew_ring_t *r,
 	size_t len;
 	int lv;
 
-	spew_emit(cx, level, "lws: log spew eased: swallowed %u logs over %ums,"
-			     " %u oldest not retained, last %u replayed:",
+	spew_emit(cx, level, "lws: log spew eased: %ums quiet, swallowed %u logs"
+			     " over %ums, %u oldest not retained, last %u"
+			     " replayed:",
+		  (unsigned int)(r->quiet / 1000),
 		  (unsigned int)r->swallowed,
 		  (unsigned int)((now - r->entered) / 1000),
 		  (unsigned int)r->lost,
@@ -779,6 +832,8 @@ lws_log_spew_flush(lws_log_cx_t *cx)
 	memset(&spew.r, 0, sizeof(spew.r));
 	spew.ts_head = 0;
 	spew.ts_count = 0;
+	/* not called over by a quiet: nothing to learn if it comes back */
+	spew.exited = 0;
 	log_lock_release();
 
 	if (r.buf)
@@ -925,9 +980,20 @@ __lws_logv(lws_log_cx_t *cx, lws_log_prepend_cx_t prep, void *obj,
 	switch (act) {
 	case SPEW_ENTERED:
 		spew_emit(cx, filter, "lws: log spew: %u logs in %ums, retaining"
-				      " the last %u bytes of it until it eases",
+				      " the last %u bytes of it until %u logs"
+				      " span over %ums",
 			  LWS_LOG_SPEW_TS_RING, LWS_LOG_SPEW_ENTER_US / 1000,
-			  LWS_LOG_SPEW_RING_SIZE);
+			  LWS_LOG_SPEW_RING_SIZE, LWS_LOG_SPEW_EXIT_SAMPLES,
+			  (unsigned int)(replay.exit_us / 1000));
+		return;
+
+	case SPEW_RESUMED:
+		spew_emit(cx, filter, "lws: log spew: resumed after %ums quiet,"
+				      " it was not over: retaining again until"
+				      " %u logs span over %ums",
+			  (unsigned int)(replay.quiet / 1000),
+			  LWS_LOG_SPEW_EXIT_SAMPLES,
+			  (unsigned int)(replay.exit_us / 1000));
 		return;
 
 	case SPEW_SWALLOWED:

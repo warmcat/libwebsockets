@@ -358,12 +358,22 @@ those 64 lines span less than 20ms, ie, the sustained rate has exceeded about
    many lines have been swallowed so far.
 
 Leaving spew mode is decided over a much shorter window than entering it,
-since a real spew never pauses: once the last 8 lines span more than 5ms, ie,
-the rate has dropped below half the entry rate, lws emits a summary line, then
-replays the retained tail of the spew in order, then frees the ringbuffer, and
-goes back to emitting directly.  The timestamp ring is restarted at that
-point, so another full 64 lines at spew rate are needed to re-enter, which
-stops a bursty spew flapping in and out of the mode.
+since a real spew never pauses: once the last 8 lines span more than the exit
+quiet, initially 5ms, lws emits a summary line saying how long the quiet was,
+then replays the retained tail of the spew in order, then frees the
+ringbuffer, and goes back to emitting directly.  The timestamp ring is
+restarted at that point, so another full 64 lines at spew rate are needed to
+re-enter, which stops a bursty spew flapping in and out of the mode.
+
+At the moment the next line arrives, a spew that has stopped and a process
+that was starved of cpu for a while, eg, on an overloaded CI builder, look the
+same.  The difference shows afterwards: the spew comes back.  If lws enters
+spew mode again within a second of calling it over, it says it resumed, and
+the exit quiet grows to twice the quiet that fooled it, up to a second, so the
+same size of stall does not end the spew again.  Since the load on the box
+changes, each time a spew starts afresh rather than resuming, the exit quiet
+halves back towards 5ms.  The lines saying spew mode was entered or resumed
+state the exit quiet in force.
 
 The exit check can only run when a log arrives.  If a spew stops dead and
 nothing logs afterwards, the retained tail is replayed by the next log
@@ -386,6 +396,8 @@ line, eg, `-DLWS_LOG_SPEW_RING_SIZE=65536`:
 |`LWS_LOG_SPEW_ENTER_US`|20000|enter spew mode if they all fit in this|
 |`LWS_LOG_SPEW_EXIT_SAMPLES`|8|lines considered for leaving spew mode|
 |`LWS_LOG_SPEW_EXIT_US`|5000|leave spew mode if they span more than this|
+|`LWS_LOG_SPEW_EXIT_MAX_US`|1000000|limit of how far that grows after resuming|
+|`LWS_LOG_SPEW_RESUME_US`|1000000|re-entering this soon after leaving is a resume|
 |`LWS_LOG_SPEW_RING_SIZE`|16384 (2048 on FreeRTOS)|bytes of spew retained|
 |`LWS_LOG_SPEW_HEARTBEAT_US`|1000000|interval of the still-going line|
 
