@@ -1280,6 +1280,7 @@ lws_tls_resolve_grace_period_certs(struct lws_context *context,
 	return 0;
 }
 
+#if defined(LWS_WITH_NETWORK)
 /*
  * What sansIO may ask of the tls session (README.sans-io-split.md "The
  * object"): the session is IO's, these are the questions.
@@ -1373,3 +1374,4 @@ lws_get_ssl(struct lws *wsi)
 	return wsi->io.tls.ssl;
 }
 #endif
+#endif /* LWS_WITH_NETWORK */
