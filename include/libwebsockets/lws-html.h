@@ -745,6 +745,7 @@ typedef struct lhp_css_var {
 
 typedef struct lhp_css_layer {
 	lws_dll2_t list;
+	size_t len; /* name length, the name may contain NUL bytes */
 	/* name+NUL follows (empty for an anonymous layer) */
 } lhp_css_layer_t;
 

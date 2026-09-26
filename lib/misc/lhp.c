@@ -2614,8 +2614,11 @@ lhp_css_layer(lhp_ctx_t *ctx, const char *name, size_t len)
 				      lws_dll2_get_head(&ctx->css_layers)) {
 			l = lws_container_of(d, lhp_css_layer_t, list);
 			n++;
-			if (!strncmp((const char *)&l[1], name, len) &&
-			    !((const char *)&l[1])[len])
+			/* the name is untrusted text and may hold NUL bytes,
+			 * so a string compare can agree with a shorter stored
+			 * name and then index past its allocation: compare
+			 * by length */
+			if (l->len == len && !memcmp(&l[1], name, len))
 				return (uint8_t)n;
 		} lws_end_foreach_dll(d);
 
@@ -2627,6 +2630,7 @@ lhp_css_layer(lhp_ctx_t *ctx, const char *name, size_t len)
 	if (!l)
 		return 0;
 
+	l->len = len;
 	memcpy(&l[1], name, len);
 	((char *)&l[1])[len] = '\0';
 	lws_dll2_add_tail(&l->list, &ctx->css_layers);
