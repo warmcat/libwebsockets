@@ -91,65 +91,48 @@ lws_tls_client_host_is_literal(const char *host)
 }
 
 #if defined(LWS_WITH_TCP_TLS)
-static int
-lws_ssl_client_connect1(struct lws *wsi, char *errbuf, size_t len)
-{
-	int n;
-
-	n = lws_tls_client_connect(wsi, errbuf, len);
-	switch (n) {
-	case LWS_SSL_CAPABLE_ERROR:
-		lws_tls_restrict_return_handshake(wsi);
-		return -1;
-	case LWS_SSL_CAPABLE_DONE:
-		lws_tls_restrict_return_handshake(wsi);
-		lws_metrics_caliper_report(wsi->cal_conn, METRES_GO);
-#if defined(LWS_WITH_CONMON)
-	wsi->conmon.ciu_tls = (lws_conmon_interval_us_t)
-					(lws_now_usecs() - wsi->conmon_datum);
-#endif
-		return 1; /* connected */
-	case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-		lws_callback_on_writable(wsi);
-		/* fallthru */
-	case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-		lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
-		break;
-	}
-
-	return 0; /* retry */
-}
-
+/*
+ * One step of the client tls handshake, the first one from
+ * lws_client_create_tls() and the rest from the transport stage as the socket
+ * becomes readable or writable.
+ *
+ * Any step may be the one that completes it, the first included (eg, a
+ * resumed session on loopback, when the server's flight is already there by
+ * the time the backend reads for it), so the completion is handled here for
+ * all of them: the peer is only confirmed here, which gnutls and mbedtls rely
+ * on to verify it at all.  The backend has already acted on the negotiated
+ * alpn by then.
+ *
+ * Returns 0 if the handshake needs more service, 1 when it completed with the
+ * peer confirmed, or -1 on failure, with the reason in errbuf.
+ */
 int
 lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 {
 	int n;
 
-	if (lwsi_transport(wsi) == LTS_WAITING_SSL) {
-		n = lws_tls_client_connect(wsi, errbuf, len);
-		lwsl_debug("%s: SSL_connect says %d\n", __func__, n);
+	n = lws_tls_client_connect(wsi, errbuf, len);
+	lwsl_debug("%s: SSL_connect says %d\n", __func__, n);
 
-		switch (n) {
-		case LWS_SSL_CAPABLE_ERROR:
-			lws_tls_restrict_return_handshake(wsi);
+	switch (n) {
+	case LWS_SSL_CAPABLE_ERROR:
+		lws_tls_restrict_return_handshake(wsi);
 
-			if (lws_tls_client_confirm_peer_cert(wsi, errbuf, len)) {
-				lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
-				return -1;
-			}
-
-			// lws_snprintf(errbuf, len, "client connect failed");
+		if (lws_tls_client_confirm_peer_cert(wsi, errbuf, len)) {
+			lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
 			return -1;
-		case LWS_SSL_CAPABLE_DONE:
-			break; /* connected */
-		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-			lws_callback_on_writable(wsi);
-			/* fallthru */
-		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-			lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
-			/* fallthru */
-			return 0; /* retry */
 		}
+
+		// lws_snprintf(errbuf, len, "client connect failed");
+		return -1;
+	case LWS_SSL_CAPABLE_DONE:
+		break; /* connected */
+	case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
+		lws_callback_on_writable(wsi);
+		/* fallthru */
+	case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
+		lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
+		return 0; /* retry */
 	}
 
 	lws_tls_restrict_return_handshake(wsi);
@@ -334,9 +317,8 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 		wsi->conmon_datum = lws_now_usecs();
 #endif
 
-		n = lws_ssl_client_connect1(wsi, (char *)wsi->a.context->pt[(int)wsi->tsi].serv_buf,
+		n = lws_ssl_client_connect2(wsi, (char *)wsi->a.context->pt[(int)wsi->tsi].serv_buf,
 					    wsi->a.context->pt_serv_buf_size);
-		lwsl_debug("%s: lws_ssl_client_connect1: %d\n", __func__, n);
 		if (!n)
 			return CCTLS_RETURN_RETRY; /* caller should return 0 */
 
@@ -345,9 +327,7 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 			lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
 			return CCTLS_RETURN_ERROR;
 		}
-		/* ...connect1 already handled caliper if SSL_accept done */
-
-		lws_tls_server_conn_alpn(wsi);
+		/* ...it completed at once, and connect2 has confirmed the peer */
 #else
 		*pcce = "TCP TLS disabled";
 		return CCTLS_RETURN_ERROR;
