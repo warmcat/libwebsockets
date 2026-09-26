@@ -17,27 +17,28 @@
 #include "private-lws-hls.h"
 #include <string.h>
 #include <unistd.h>
-#include <libgen.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 
 /*
- * Remove one media file by its plain name, and the container subdir the
- * name may have been in if that is now empty.  Purified here regardless of
- * who asks, so neither the http endpoint nor the stub UDS can point it
- * outside media-dir.
+ * Remove one media file by its media name, which may span subdirectories
+ * as the listing shows it.  When it was in a subdirectory, the toplevel
+ * subdirectory holding it goes too if nothing playable is left anywhere in
+ * it (lws_hls_purge_subdir()).  Validated here regardless of who asks, so
+ * neither the http endpoint nor the stub UDS can point it outside
+ * media-dir.
  *
  * Returns 0 on success, else the errno from unlink() (EINVAL if the name
- * did not survive purification).
+ * is not a valid media name).
  */
 static int
-hls_delete_media(struct per_vhost_data__lws_hls *vhd, char *filename)
+hls_delete_media(struct per_vhost_data__lws_hls *vhd, const char *filename)
 {
-	char path[512], *dir_path;
+	const char *sl;
+	char path[1024];
 	int en;
 
-	lws_filename_purify_inplace(filename);
-	if (!filename[0] || strchr(filename, '/')) {
+	if (!hls_media_name_valid(filename, strlen(filename))) {
 		lwsl_warn("%s: refusing to delete '%s'\n", __func__, filename);
 		return EINVAL;
 	}
@@ -57,11 +58,9 @@ hls_delete_media(struct per_vhost_data__lws_hls *vhd, char *filename)
 		return en;
 	}
 
-	/* if there was a container subdir, and it is now empty, remove it */
-	dir_path = dirname(path);
-	if (dir_path && !strncmp(dir_path, vhd->media_dir, strlen(vhd->media_dir)) &&
-	    strcmp(dir_path, vhd->media_dir))
-		rmdir(dir_path); /* rmdir only succeeds if directory is empty */
+	sl = strchr(filename, '/');
+	if (sl)
+		lws_hls_purge_subdir(vhd, filename, (size_t)(sl - filename));
 
 	return 0;
 }
@@ -118,15 +117,36 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 	struct per_vhost_data__lws_hls *vhd;
 	size_t sl;
 
-	if (reason == LEJPCB_VAL_STR_END) {
+	if (reason == LEJPCB_VAL_STR_START && ctx->path_match - 1 == 1) {
+		pss->stub_delete_len = 0;
+		pss->stub_delete[0] = '\0';
+
+		return 0;
+	}
+
+	if (reason == LEJPCB_VAL_STR_CHUNK || reason == LEJPCB_VAL_STR_END) {
 		switch (ctx->path_match - 1) {
 		case 0:
-			lws_strncpy(pss->stub_secret, ctx->buf,
-				    sizeof(pss->stub_secret));
+			if (reason == LEJPCB_VAL_STR_END)
+				lws_strncpy(pss->stub_secret, ctx->buf,
+					    sizeof(pss->stub_secret));
 			break;
 		case 1:
-			lws_strncpy(pss->stub_delete, ctx->buf,
-				    sizeof(pss->stub_delete));
+			/*
+			 * A media name with its subdirectories can be longer
+			 * than one lejp string chunk: collect the chunks.  One
+			 * that does not fit leaves the length at the sentinel
+			 * (the buffer size), which is refused below
+			 */
+			if (pss->stub_delete_len + ctx->npos >=
+						sizeof(pss->stub_delete)) {
+				pss->stub_delete_len = sizeof(pss->stub_delete);
+				break;
+			}
+			memcpy(pss->stub_delete + pss->stub_delete_len,
+			       ctx->buf, ctx->npos);
+			pss->stub_delete_len += ctx->npos;
+			pss->stub_delete[pss->stub_delete_len] = '\0';
 			break;
 		}
 
@@ -154,14 +174,18 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 		return -1;
 	}
 
-	if (pss->stub_delete[0]) {
-		char filename[256];
-		int en;
+	if (pss->stub_delete_len) {
+		char filename[sizeof(pss->stub_delete)];
+		int en = EINVAL;
 
 		lws_strncpy(filename, pss->stub_delete, sizeof(filename));
 		/* one request per object; don't replay it on the next one */
+		if (pss->stub_delete_len < sizeof(pss->stub_delete))
+			en = hls_delete_media(vhd, filename);
+		else
+			lwsl_warn("%s: delete name too long\n", __func__);
 		pss->stub_delete[0] = '\0';
-		en = hls_delete_media(vhd, filename);
+		pss->stub_delete_len = 0;
 
 		/* tell the requester how it went, from our writeable cb */
 		pss->stub_reply_len = (size_t)lws_snprintf(pss->stub_reply + LWS_PRE,
@@ -214,34 +238,14 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		 void *user, void *in, size_t len);
 
 /*
- * A route's media name may span subdirectories under media-dir (the
- * listing walks them), so it is a relative path rather than a single
- * component.  Validate it as such and copy it: every '/'-separated
- * component non-empty and neither "." nor "..", and no control characters
- * anywhere (a leading or trailing '/' is an empty component, so those
- * fail too).  Returns 0, else -1.
+ * Validate a route's media name (see hls_media_name_valid()) and copy it.
+ * Returns 0, else -1.
  */
 static int
 hls_media_name_copy(char *filename, size_t fn_sz, const char *p, size_t len)
 {
-	size_t i, cs = 0;
-
-	if (!len || len >= fn_sz)
+	if (len >= fn_sz || !hls_media_name_valid(p, len))
 		return -1;
-
-	for (i = 0; i <= len; i++) {
-		char c = (i < len) ? p[i] : '/';
-
-		if (c == '/') {
-			size_t cl = i - cs;
-
-			if (!cl || (cl == 1 && p[cs] == '.') ||
-			    (cl == 2 && p[cs] == '.' && p[cs + 1] == '.'))
-				return -1;
-			cs = i + 1;
-		} else if ((unsigned char)c < 0x20 || (unsigned char)c == 0x7f)
-			return -1;
-	}
 
 	memcpy(filename, p, len);
 	filename[len] = '\0';
@@ -1177,12 +1181,11 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 				return -1;
 			}
 
-			lws_strncpy(filename, url + 8, sizeof(filename));
-			lws_filename_purify_inplace(filename);
-			if (!filename[0] || strchr(filename, '/')) {
-				lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, "Not Found");
-				return -1;
-			}
+			/* media in a subdirectory is named by its path, as
+			 * the listing shows it */
+			if (hls_media_name_copy(filename, sizeof(filename),
+						url + 8, strlen(url + 8)))
+				goto err_404;
 
 			/* our cached index of it goes regardless of who does
 			 * the unlink; the stub child has no cache */
@@ -1191,11 +1194,18 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 #if defined(LWS_WITH_STUB)
 			if (vhd->stub_mgr) {
 				const char *sec = lws_stub_get_secret(vhd->stub_mgr);
-				char json[512];
+				char json[1024], esc[768];
+				int used = 0;
 
-				/* purify leaves '"' alone, and it would break
-				 * out of the JSON string we are composing */
-				if (!sec || strchr(filename, '"')) {
+				/*
+				 * The name is composed into a JSON string:
+				 * escape it, and refuse one that does not fit
+				 * escaped, rather than hand the stub a
+				 * truncated name
+				 */
+				lws_json_purify(esc, filename, (int)sizeof(esc),
+						&used);
+				if (!sec || (size_t)used != strlen(filename)) {
 					lws_return_http_status(wsi,
 						HTTP_STATUS_NOT_FOUND, "Not Found");
 					return -1;
@@ -1203,7 +1213,7 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 
 				lws_snprintf(json, sizeof(json),
 					     "{\"secret\":\"%s\",\"delete\":\"%s\"}",
-					     sec, filename);
+					     sec, esc);
 				pss->stub_del_result = -1;
 				pss->stub_del_pending = 1;
 				pss->stub_req = lws_stub_request_h(vhd->stub_mgr,

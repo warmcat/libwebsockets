@@ -110,6 +110,41 @@ hls_up_prefix(char *buf, size_t len, int depth)
 	buf[o] = '\0';
 }
 
+/*
+ * Is [p, p + len) a media name we may act on?  A media name may span
+ * subdirectories under media-dir (the listing walks them), so it is a
+ * relative path rather than a single component: every '/'-separated
+ * component non-empty and neither "." nor "..", and no control characters
+ * anywhere (a leading or trailing '/' is an empty component, so those fail
+ * too).  Everything that turns a name from outside (a URL, the stub UDS, a
+ * cache header read back from disk) into a path under media-dir asks this
+ * first.
+ */
+static inline int
+hls_media_name_valid(const char *p, size_t len)
+{
+	size_t i, cs = 0;
+
+	if (!len)
+		return 0;
+
+	for (i = 0; i <= len; i++) {
+		char c = (i < len) ? p[i] : '/';
+
+		if (c == '/') {
+			size_t cl = i - cs;
+
+			if (!cl || (cl == 1 && p[cs] == '.') ||
+			    (cl == 2 && p[cs] == '.' && p[cs + 1] == '.'))
+				return 0;
+			cs = i + 1;
+		} else if ((unsigned char)c < 0x20 || (unsigned char)c == 0x7f)
+			return 0;
+	}
+
+	return 1;
+}
+
 /* how many '/' a media name carries, ie its subdirectory depth */
 static inline int
 hls_media_depth(const char *filename)
@@ -582,6 +617,7 @@ struct per_session_data__lws_hls {
 	int parser_valid;
 	char stub_secret[129];
 	char stub_delete[256];
+	size_t stub_delete_len;	/* sizeof(stub_delete) if it overflowed */
 	/* stub side: the reply to the request we just acted on */
 	char stub_reply[LWS_PRE + 32];
 	size_t stub_reply_len;
@@ -638,11 +674,18 @@ lws_hls_serve_dir(struct lws *wsi, struct per_vhost_data__lws_hls *vhd);
  * outlive their last file for no reason, whether it went through our
  * delete or outside us.  The toplevel media dir itself is never touched,
  * and dot-dirs (the .index / .atrans caches) are not playable but also
- * not purged from the toplevel.  Runs at init, after any deletion, and
- * on the hourly sweep.
+ * not purged from the toplevel.  Runs at init and on the hourly sweep.
  */
 void
 lws_hls_purge_empty_dirs(struct per_vhost_data__lws_hls *vhd);
+
+/*
+ * The same, for the one toplevel subdirectory [top, top + len) of media-dir,
+ * after media was deleted from somewhere below it
+ */
+void
+lws_hls_purge_subdir(struct per_vhost_data__lws_hls *vhd, const char *top,
+		     size_t len);
 
 /*
  * Body builders, run on the worker thread.  They never touch a wsi; they

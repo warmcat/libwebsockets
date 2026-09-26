@@ -1,6 +1,8 @@
 # lws-api-test-hls-dir
 
-Fences the F-059 fix in the HLS plugin's media directory listing
+Tests the HLS plugin's media directory listing and deletion.
+
+It fences the F-059 fix in the media directory listing
 (`lws_hls_serve_dir()` in `plugins/protocol_lws_hls/hls-dir.c`).
 
 The listing used to be composed with the naive `p += snprintf(p, rem, ...)`
@@ -26,6 +28,20 @@ with an in-process client, and asserts:
    truncated, nothing written past the buffer);
  - HTML-significant characters in filenames appear only as entities
    (`&#39; &quot; &lt; &gt; &amp;`) in both text and attribute contexts.
+
+It then drives the delete endpoint, forwarding the login grant level the
+way an `lws-login` gated proxy in front would (the vhost sets
+`trust-login-headers`), and asserts:
+
+ - a delete without the grant is refused (403) and the file stays;
+ - media in a subdirectory is deleted by its path, and the subdirectory,
+   stray non-media contents included, goes with it once nothing playable
+   is left in it;
+ - a name containing `:` `$` `%` is deleted as named.
+
+With `LWS_WITH_STUB` the deletes are done by the plugin's privilege-separated
+stub child, which is this executable re-run with `--lws-stub=lws-hls-stub`:
+`main()` then only hosts the plugin for it, and it exits with its parent.
 
 ## Build requirements
 

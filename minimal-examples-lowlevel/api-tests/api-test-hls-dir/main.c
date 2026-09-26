@@ -32,6 +32,20 @@
  *    separators spaced) while href / src / data-file keep the raw name,
  *    and a name that snips down to nothing falls back to the filename.
  *
+ * It then drives the delete endpoint, with the login grant level forwarded
+ * the way an lws-login proxy in front stamps it (trust-login-headers):
+ *
+ *  - a delete without the grant is refused and the file stays;
+ *  - media in a subdirectory is deleted by its path, and the subdirectory
+ *    goes with it once nothing playable is left in it, stray non-media
+ *    contents included;
+ *  - a name with characters that are ordinary in media names but were
+ *    once "purified" away (':' '$' '%') is deleted as named.
+ *
+ * With LWS_WITH_STUB, deletes are done by the plugin's privilege-separated
+ * stub child, which is this same executable re-run with --lws-stub=; main()
+ * then does nothing but host the plugin for it.
+ *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  */
@@ -53,9 +67,17 @@
 #define LONG_NAME_LEN	254	/* chars including the ".mp4" suffix */
 #define N_FRIENDLY	5	/* friendly-name massage fixtures */
 #define N_NESTED	1	/* media in its own subdirectory */
+#define N_SPECIAL	1	/* ':' '$' '%' in the name */
+
+#define NESTED_DIR	"Movies.2020"
+#define NESTED_MEDIA	NESTED_DIR "/Nested.Bunny.1080p.WEB-DL.mkv"
+#define NESTED_STRAY	NESTED_DIR "/Nested.Bunny.en.srt"
+#define SPECIAL_MEDIA	"Colon: Dollar$ 50%.mkv"
+/* ...as it goes in a request path */
+#define SPECIAL_URL	"Colon:%20Dollar$%2050%25.mkv"
+#define REFUSED_MEDIA	"Friendly.Name.Test.2020.mp4"
 
 static struct lws_context *context;
-static struct lws *cli_wsi;
 static lws_sorted_usec_list_t sul_timeout;
 static lws_sorted_usec_list_t sul_connect;
 static int result = 1;
@@ -65,13 +87,40 @@ static uint16_t port_hls = 21080;
 
 static char fixture_dir[128];
 
-/* collected response */
+/* collected response of the current step */
 
 static char body[64 * 1024];
 static size_t body_len;
 static int got_status;
 static long got_cl = -1;
-static int done;		/* 1 = completed, -1 = failed */
+static int step_over;		/* this step's transaction has ended */
+static int done;		/* 1 = all steps ran, -1 = failed */
+
+static void check_listing(void);
+static void check_refused(void);
+static void check_nested_deleted(void);
+static void check_special_deleted(void);
+
+/*
+ * The client's requests, in order.  grant sends the login grant level an
+ * lws-login proxy in front would forward (the vhost trusts it, see
+ * pvo_trust); status is the response status the step expects.
+ */
+static const struct step {
+	const char	*method;
+	const char	*path;
+	int		grant;
+	int		status;
+	void		(*check)(void);
+} steps[] = {
+	{ "GET",  "/media/",				0, 200, check_listing },
+	{ "POST", "/media/delete/" REFUSED_MEDIA,	0, 403, check_refused },
+	{ "POST", "/media/delete/" NESTED_MEDIA,	1, 200,
+						check_nested_deleted },
+	{ "POST", "/media/delete/" SPECIAL_URL,	1, 200,
+						check_special_deleted },
+};
+static size_t cur;
 
 /* -------------------------------------------------------------- server */
 
@@ -96,10 +145,15 @@ static const struct lws_http_mount
 		.mountpoint_len		= 6,
 	};
 
-/* pvo chain handing the plugin its fixture media dir */
+/*
+ * pvo chain handing the plugin its fixture media dir, and telling it to
+ * trust the login grant level forwarded in the request, as it would behind
+ * an lws-login gated proxy
+ */
 static struct lws_protocol_vhost_options
-	pvo_hls		= { NULL, NULL, "lws-hls", NULL },
-	pvo_media_dir	= { NULL, NULL, "media-dir", NULL };
+	pvo_trust	= { NULL, NULL, "trust-login-headers", "1" },
+	pvo_media_dir	= { &pvo_trust, NULL, "media-dir", NULL },
+	pvo_hls		= { NULL, &pvo_media_dir, "lws-hls", NULL };
 
 /* -------------------------------------------------------------- client */
 
@@ -107,22 +161,75 @@ static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len);
 
+static void
+expect(const char *name, int cond);
+
+static void
+sul_connect_cb(lws_sorted_usec_list_t *sul);
+
+/* the current step's transaction is over, however it ended */
+static void
+step_end(int ok)
+{
+	const struct step *st = &steps[cur];
+	char name[128];
+
+	if (step_over)
+		return;
+	step_over = 1;
+
+	lws_snprintf(name, sizeof(name), "%s %s: status %d (want %d)",
+		     st->method, st->path, got_status, st->status);
+	expect(name, ok && got_status == st->status);
+	if (ok && got_status == st->status && st->check)
+		st->check();
+
+	if (++cur == LWS_ARRAY_SIZE(steps)) {
+		done = 1;
+		lws_cancel_service(context);
+		return;
+	}
+
+	lws_sul_schedule(context, 0, &sul_connect, sul_connect_cb, 1);
+}
+
 static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
+	/*
+	 * Each step's connection carries its step number: the previous
+	 * step's connection can still be closing (CLOSED after COMPLETED)
+	 * while the next one runs, and must not be taken for it
+	 */
+	if ((uintptr_t)lws_get_opaque_user_data(wsi) != cur + 1)
+		return 0;
+
 	switch (reason) {
+
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
+		unsigned char **p = (unsigned char **)in, *end = (*p) + len;
+
+		if (steps[cur].grant &&
+		    lws_add_http_header_by_name(wsi,
+				(const unsigned char *)LWS_LOGIN_HDR_GRANT_LEVEL ":",
+				(const unsigned char *)"2", 1, p, end))
+			return -1;
+
+		/* a bodyless POST, as the pages send it */
+		if (!strcmp(steps[cur].method, "POST") &&
+		    lws_add_http_header_by_token(wsi,
+				WSI_TOKEN_HTTP_CONTENT_LENGTH,
+				(const unsigned char *)"0", 1, p, end))
+			return -1;
+		break;
+	}
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: {
 		char cl[16];
 		int n;
 
 		got_status = (int)lws_http_client_http_response(wsi);
-		if (got_status != HTTP_STATUS_OK) {
-			lwsl_err("%s: bad response %d\n", __func__, got_status);
-			done = -1;
-			return -1;
-		}
 
 		n = lws_hdr_copy(wsi, cl, sizeof(cl),
 				 WSI_TOKEN_HTTP_CONTENT_LENGTH);
@@ -147,7 +254,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		if (body_len + len >= sizeof(body)) {
 			lwsl_err("%s: body overran collection buffer\n",
 				 __func__);
-			done = -1;
+			step_end(0);
 			return -1;
 		}
 		memcpy(body + body_len, in, len);
@@ -156,12 +263,18 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+		step_end(1);
+		break;
+
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		/* a refusal is a complete response the server closes after */
+		step_end(got_status != 0);
+		break;
+
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		if (reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR)
-			lwsl_err("%s: client connection error: %s\n",
-				 __func__, in ? (const char *)in : "?");
-		done = reason == LWS_CALLBACK_COMPLETED_CLIENT_HTTP ? 1 : -1;
-		lws_cancel_service(lws_get_context(wsi));
+		lwsl_err("%s: client connection error: %s\n",
+			 __func__, in ? (const char *)in : "?");
+		step_end(0);
 		break;
 
 	default:
@@ -175,8 +288,9 @@ static void
 sul_timeout_cb(lws_sorted_usec_list_t *sul)
 {
 	(void)sul;
-	lwsl_err("%s: timed out\n", __func__);
-	lws_default_loop_exit(context);
+	lwsl_err("%s: timed out in step %d\n", __func__, (int)cur);
+	done = -1;
+	lws_cancel_service(context);
 }
 
 static void
@@ -187,21 +301,28 @@ sul_connect_cb(lws_sorted_usec_list_t *sul)
 
 	(void)sul;
 
+	body_len = 0;
+	body[0] = '\0';
+	got_status = 0;
+	got_cl = -1;
+	step_over = 0;
+
 	memset(&i, 0, sizeof(i));
 	i.context		= context;
-	i.vhost		= vh;
+	i.vhost			= vh;
 	i.address		= "127.0.0.1";
 	i.port			= port_hls;
-	i.path			= "/media/";
+	i.path			= steps[cur].path;
 	i.host			= "127.0.0.1";
-	i.method		= "GET";
+	i.method		= steps[cur].method;
 	i.protocol		= "defprot";
 	i.local_protocol_name	= "lws-api-test-hls-dir-cli";
-	i.pwsi			= &cli_wsi;
+	i.opaque_user_data	= (void *)(uintptr_t)(cur + 1);
 
 	if (!lws_client_connect_via_info(&i)) {
 		lwsl_err("%s: connect failed\n", __func__);
-		lws_default_loop_exit(context);
+		done = -1;
+		lws_cancel_service(context);
 	}
 }
 
@@ -275,16 +396,23 @@ build_fixture_dir(void)
 		return 1;
 
 	/* a movie that arrived in its own subdirectory: the listing walks
-	 * it, and every route has to take the subdir in the name */
+	 * it, and every route has to take the subdir in the name.  Its
+	 * sidecar is not playable, so deleting the movie takes the whole
+	 * subdirectory */
 	{
 		char sub[384];
 
-		lws_snprintf(sub, sizeof(sub), "%s/Movies.2020", fixture_dir);
+		lws_snprintf(sub, sizeof(sub), "%s/" NESTED_DIR, fixture_dir);
 		if (mkdir(sub, 0700))
 			return 1;
-		if (touch(sub, "Nested.Bunny.1080p.WEB-DL.mkv"))
+		if (touch(fixture_dir, NESTED_MEDIA) ||
+		    touch(fixture_dir, NESTED_STRAY))
 			return 1;
 	}
+
+	/* characters that are ordinary in a media name */
+	if (touch(fixture_dir, SPECIAL_MEDIA))
+		return 1;
 
 	/* a subdirectory with nothing playable in it: it and its stray
 	 * contents are removed once the server starts */
@@ -340,8 +468,12 @@ remove_fixture_dir(void)
 	(void)snprintf(path, sizeof(path), "%s/%s", fixture_dir,
 		       "2015.Some.Movie.720p.WEB-DL.aac.mkv");
 	unlink(path);
-	(void)snprintf(path, sizeof(path), "%s/%s", fixture_dir,
-		       "Movies.2020/Nested.Bunny.1080p.WEB-DL.mkv");
+	/* the deletes should have removed these already */
+	(void)snprintf(path, sizeof(path), "%s/%s", fixture_dir, NESTED_MEDIA);
+	unlink(path);
+	(void)snprintf(path, sizeof(path), "%s/%s", fixture_dir, NESTED_STRAY);
+	unlink(path);
+	(void)snprintf(path, sizeof(path), "%s/%s", fixture_dir, SPECIAL_MEDIA);
 	unlink(path);
 	{
 		char sub[384];
@@ -353,7 +485,7 @@ remove_fixture_dir(void)
 		unlink(sub);
 		lws_snprintf(sub, sizeof(sub), "%s/Dead.2020", fixture_dir);
 		rmdir(sub);
-		lws_snprintf(sub, sizeof(sub), "%s/Movies.2020", fixture_dir);
+		lws_snprintf(sub, sizeof(sub), "%s/" NESTED_DIR, fixture_dir);
 		rmdir(sub);
 	}
 
@@ -387,6 +519,18 @@ count_str(const char *hay, const char *needle)
 	return n;
 }
 
+/* does fixture-relative rel exist? */
+static int
+fixture_exists(const char *rel)
+{
+	struct stat st;
+	char path[512];
+
+	lws_snprintf(path, sizeof(path), "%s/%s", fixture_dir, rel);
+
+	return !stat(path, &st);
+}
+
 static void
 expect(const char *name, int cond)
 {
@@ -398,7 +542,7 @@ expect(const char *name, int cond)
 }
 
 static void
-check_body(void)
+check_listing(void)
 {
 	body[body_len] = '\0';
 
@@ -413,7 +557,8 @@ check_body(void)
 	       !strcmp(body + body_len - 20, "</div></body></html>"));
 	expect("every entry listed",
 	       count_str(body, "player.html?v=stream/") ==
-					2 + N_FRIENDLY + N_NESTED + N_LONG_ENTRIES);
+					2 + N_FRIENDLY + N_NESTED + N_SPECIAL +
+					N_LONG_ENTRIES);
 
 	/* F-059 leg 2: names only reach markup as entities */
 	expect("script payload escaped",
@@ -442,8 +587,7 @@ check_body(void)
 	/* media in its own subdirectory: listed with its path, friendly
 	 * named from the basename */
 	expect("nested media listed by path",
-	       !!strstr(body,
-			"player.html?v=stream/Movies.2020/Nested.Bunny.1080p.WEB-DL.mkv"));
+	       !!strstr(body, "player.html?v=stream/" NESTED_MEDIA));
 	expect("nested media friendly name from the basename",
 	       !!strstr(body, "<br>Nested Bunny</a>"));
 
@@ -463,7 +607,7 @@ check_body(void)
 		lws_snprintf(sub, sizeof(sub), "%s/Dead.2020", fixture_dir);
 		expect("media-less subdirectory purged, dir gone",
 		       stat(sub, &st) != 0);
-		lws_snprintf(sub, sizeof(sub), "%s/Movies.2020", fixture_dir);
+		lws_snprintf(sub, sizeof(sub), "%s/" NESTED_DIR, fixture_dir);
 		expect("subdirectory with media survives the purge",
 		       !stat(sub, &st) && S_ISDIR(st.st_mode));
 	}
@@ -478,15 +622,77 @@ check_body(void)
 	expect("no absolute hrefs in the listing",
 	       !strstr(body, "href='/"));
 
-	/* no auth scheme configured: no delete buttons at all */
+	/* the listing request carried no grant: no delete buttons */
 	expect("no delete buttons without a grant",
 	       !strstr(body, "del-btn"));
+}
+
+static void
+check_refused(void)
+{
+	expect("refused delete leaves the media", fixture_exists(REFUSED_MEDIA));
+}
+
+static void
+check_nested_deleted(void)
+{
+	expect("nested media deleted by its path", !fixture_exists(NESTED_MEDIA));
+	expect("subdirectory with nothing playable left removed, contents "
+	       "and all", !fixture_exists(NESTED_STRAY) &&
+			  !fixture_exists(NESTED_DIR));
+	expect("unrelated media untouched by the subdirectory purge",
+	       fixture_exists(REFUSED_MEDIA));
+}
+
+static void
+check_special_deleted(void)
+{
+	expect("media named with ':' '$' '%' deleted as named",
+	       !fixture_exists(SPECIAL_MEDIA));
 }
 
 static void
 sigint_handler(int sig)
 {
 	lws_default_loop_exit(context);
+}
+
+/*
+ * We are the plugin's stub child (LWS_WITH_STUB): the plugin in the parent
+ * re-ran this executable with --lws-stub=lws-hls-stub, to do its deletes
+ * with the privileges it may have dropped.  All we have to do is host the
+ * plugin on a vhost that listens on nothing: its PROTOCOL_INIT sees the
+ * option and sets up the stub side, taking its media dir from the parent.
+ * The stub layer exits the process when the parent goes away.
+ */
+static int
+run_stub(struct lws_context_creation_info *info)
+{
+	int n = 0;
+
+	info->options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+
+	context = lws_create_context(info);
+	if (!context)
+		return 1;
+
+	/* no pvo to instantiate the plugin by: instantiate everything */
+	info->options		|= LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS;
+	info->port		= CONTEXT_PORT_NO_LISTEN;
+	info->vhost_name	= "hls-stub";
+	info->pprotocols	= pprotocols_hls;
+
+	if (!lws_create_vhost(context, info)) {
+		lws_context_destroy(context);
+		return 1;
+	}
+
+	while (n >= 0)
+		n = lws_service(context, 0);
+
+	lws_context_destroy(context);
+
+	return 0;
 }
 
 int
@@ -507,7 +713,10 @@ main(int argc, const char **argv)
 
 	lws_set_log_level(LLL_ERR | LLL_WARN | LLL_USER | LLL_NOTICE, NULL);
 
-	lwsl_user("LWS API selftest: HLS media dir listing (F-059)\n");
+	if (lws_cmdline_option(argc, argv, "--lws-stub="))
+		return run_stub(&info);
+
+	lwsl_user("LWS API selftest: HLS media dir listing and deletion\n");
 
 	if (build_fixture_dir())
 		goto bail;
@@ -522,7 +731,6 @@ main(int argc, const char **argv)
 
 	/* HLS vhost serving the fixture media dir */
 	pvo_media_dir.value	= fixture_dir;
-	pvo_hls.options		= &pvo_media_dir;
 
 	info.port		= port_hls;
 	info.vhost_name		= "hls";
@@ -548,7 +756,12 @@ main(int argc, const char **argv)
 	}
 
 	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
-			 20 * LWS_US_PER_SEC);
+			 30 * LWS_US_PER_SEC);
+	/*
+	 * With LWS_WITH_STUB the plugin spawned its stub child at vhost
+	 * creation; give it a moment to come up and listen before the first
+	 * delete needs it (the listing comes first anyway)
+	 */
 	lws_sul_schedule(context, 0, &sul_connect, sul_connect_cb, 1);
 
 	while (n >= 0 && !done)
@@ -556,10 +769,7 @@ main(int argc, const char **argv)
 
 	lws_sul_cancel(&sul_timeout);
 
-	if (done == 1)
-		check_body();
-	else
-		expect("listing fetched", 0);
+	expect("every step ran", done == 1);
 
 	result = !!fail;
 

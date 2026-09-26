@@ -124,10 +124,11 @@ struct hls_atrans_walk {
 };
 
 /*
- * Read and validate one shadow pair's header: it must be ours, name a plain
- * media filename that still exists at the recorded size and mtime, and the
- * shadow media itself must be there.  Returns 0 if so, else 1 (stale,
- * orphaned or unreadable: the caller removes it).
+ * Read and validate one shadow pair's header: it must be ours, name a valid
+ * media name (subdirectories allowed, see hls_media_name_valid()) that still
+ * exists at the recorded size and mtime, and the shadow media itself must be
+ * there.  Returns 0 if so, else 1 (stale, orphaned or unreadable: the caller
+ * removes it).
  */
 static int
 hls_atrans_ent_fill(struct hls_atrans_ent *e, const char *media_dir,
@@ -155,7 +156,7 @@ hls_atrans_ent_fill(struct hls_atrans_ent *e, const char *media_dir,
 	    memcmp(ah.magic, HLS_ATRANS_MAGIC, sizeof(ah.magic)) ||
 	    ah.version != HLS_ATRANS_VERSION ||
 	    !memchr(ah.filename, '\0', sizeof(ah.filename)) ||
-	    !ah.filename[0] || strchr(ah.filename, '/'))
+	    !hls_media_name_valid(ah.filename, strlen(ah.filename)))
 		return 1;
 
 	if (stat(e->m4a, &st) || st.st_size < 8)

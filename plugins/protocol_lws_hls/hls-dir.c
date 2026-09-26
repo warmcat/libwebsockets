@@ -146,13 +146,31 @@ hls_purge_probe_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	return 0;
 }
 
+/* path is a toplevel subdirectory of media-dir: remove it if it is dead */
+static void
+hls_purge_one(struct per_vhost_data__lws_hls *vhd, const char *path)
+{
+	struct hls_purge_state st;
+
+	memset(&st, 0, sizeof(st));
+	lws_dir(path, &st, hls_purge_probe_cb);
+	if (st.has_media)
+		return;
+
+	lwsl_notice("HLS-DIR: %s: nothing playable left in %s, removing it\n",
+		    vhd->media_dir, path);
+
+	lws_dir(path, NULL, lws_dir_rm_rf_cb);
+	if (rmdir(path))
+		lwsl_warn("%s: rmdir %s failed %d\n", __func__, path, errno);
+}
+
 /* the toplevel walk: only whole subdirectories are purge candidates */
 static int
 hls_purge_top_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
 	struct per_vhost_data__lws_hls *vhd =
 			(struct per_vhost_data__lws_hls *)user;
-	struct hls_purge_state st;
 	char path[1024];
 
 	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
@@ -163,20 +181,30 @@ hls_purge_top_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		return 0;
 
 	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
-
-	memset(&st, 0, sizeof(st));
-	lws_dir(path, &st, hls_purge_probe_cb);
-	if (st.has_media)
-		return 0;
-
-	lwsl_notice("HLS-DIR: %s: nothing playable left in %s, removing it\n",
-		    vhd->media_dir, path);
-
-	lws_dir(path, NULL, lws_dir_rm_rf_cb);
-	if (rmdir(path))
-		lwsl_warn("%s: rmdir %s failed %d\n", __func__, path, errno);
+	hls_purge_one(vhd, path);
 
 	return 0;
+}
+
+void
+lws_hls_purge_subdir(struct per_vhost_data__lws_hls *vhd, const char *top,
+		     size_t len)
+{
+	char path[1024];
+	struct stat st;
+
+	/* the same candidates as the toplevel walk: a real directory (never
+	 * a link out of media-dir), not one of our dot-dirs */
+	if (!len || top[0] == '.' || !hls_media_name_valid(top, len) ||
+	    memchr(top, '/', len))
+		return;
+
+	lws_snprintf(path, sizeof(path), "%s/%.*s", vhd->media_dir, (int)len,
+		     top);
+	if (lstat(path, &st) || !S_ISDIR(st.st_mode))
+		return;
+
+	hls_purge_one(vhd, path);
 }
 
 void

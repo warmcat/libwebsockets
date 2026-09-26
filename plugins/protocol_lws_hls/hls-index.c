@@ -119,7 +119,7 @@ hls_index_read_hdr(const char *media_dir, const char *path,
 	    memcmp(hdr->magic, HLS_INDEX_MAGIC, sizeof(hdr->magic)) ||
 	    hdr->version != HLS_INDEX_VERSION ||
 	    !memchr(hdr->filename, '\0', sizeof(hdr->filename)) ||
-	    !hdr->filename[0] || strchr(hdr->filename, '/'))
+	    !hls_media_name_valid(hdr->filename, strlen(hdr->filename)))
 		return 1;
 
 	if (hls_media_stat(media_dir, hdr->filename, &size, &mtime) ||
