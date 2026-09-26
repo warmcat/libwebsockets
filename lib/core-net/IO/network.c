@@ -1793,7 +1793,12 @@ lws_io_set_peer(struct lws *wsi, const lws_sockaddr46 *sa46)
 lws_sockaddr46 *
 lws_io_peer(struct lws *wsi)
 {
-	return &lws_wsi_socket_owner(wsi)->io.sa46_peer;
+	/*
+	 * the connection's, not the socket owner's: a server quic connection
+	 * shares its listener's socket, whose bound-side peer is never set,
+	 * which put "unknown" in every h3 request's access log and metrics
+	 */
+	return &lws_get_network_wsi(wsi)->io.sa46_peer;
 }
 
 void
