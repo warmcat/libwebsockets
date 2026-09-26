@@ -362,7 +362,19 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 						}
 
 						lws_dll2_add_tail(&rr->list, &rrset->rr_list);
-						if (lws_auth_dns_rdata_to_wire(zone, rr, rrset->type))
+
+						/*
+						 * The signer expands ${...} substitutions
+						 * before it parses, so rdata still holding
+						 * one comes from a reader of the raw
+						 * zonefile (eg, the monitor's inventory),
+						 * which only wants the text: keep it as
+						 * that, there is no wire form to fail at
+						 */
+						if (rr->rdata && strstr(rr->rdata, "${"))
+							lwsl_info("%s: %s: unexpanded '%s' kept as text\n",
+								  __func__, rrset->name, rr->rdata);
+						else if (lws_auth_dns_rdata_to_wire(zone, rr, rrset->type))
 							lwsl_err("Failed to wire-encode rdata for %s\n", rrset->name);
 
 						lwsl_info("Parsed RR: name=%s type=%d ttl=%u rdata=%s\n", rrset->name, rrset->type, rrset->ttl, rr->rdata ? rr->rdata : "");

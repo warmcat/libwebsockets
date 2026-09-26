@@ -345,6 +345,70 @@ bail:
 	return r;
 }
 
+/*
+ * Readers of the raw zonefile (eg, the dnssec-monitor's inventory) parse it
+ * with its ${...} substitutions unexpanded.  Those records must survive as
+ * text with no wire form, not fail the parse, while the literal ones still
+ * encode.
+ */
+
+static int
+test_unexpanded(void)
+{
+	static const char *raw =
+		"$ORIGIN example.com.\n"
+		"$TTL 3600\n"
+		"@ IN A ${EXTIP4}\n"
+		"_443._tcp IN TLSA ${DANE0}\n"
+		"www IN A 192.0.2.1\n";
+	struct auth_dns_zone z;
+	int r = 1, seen = 0;
+
+	memset(&z, 0, sizeof(z));
+	if (lws_auth_dns_parse_zone_buf(raw, strlen(raw), &z)) {
+		lwsl_err("%s: raw zone parse failed\n", __func__);
+		goto bail;
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z.rrset_list)) {
+		struct auth_dns_rrset *s = lws_container_of(d,
+						struct auth_dns_rrset, list);
+		struct auth_dns_rr *rr = lws_container_of(
+				lws_dll2_get_head(&s->rr_list),
+				struct auth_dns_rr, list);
+
+		if (!rr->rdata)
+			continue;
+
+		if (strstr(rr->rdata, "${")) {
+			if (rr->wire_rdata) {
+				lwsl_err("%s: %s: '%s' was wire-encoded\n",
+					 __func__, s->name, rr->rdata);
+				goto bail;
+			}
+			seen++;
+		} else if (!strcmp(s->name, "www.example.com.") &&
+			   (!rr->wire_rdata || rr->wire_rdata_len != 4)) {
+			lwsl_err("%s: literal A not encoded\n", __func__);
+			goto bail;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (seen != 2) {
+		lwsl_err("%s: %d unexpanded records kept, expected 2\n",
+			 __func__, seen);
+		goto bail;
+	}
+
+	lwsl_user("unexpanded substitutions kept as text: ok\n");
+	r = 0;
+
+bail:
+	lws_auth_dns_free_zone(&z);
+
+	return r;
+}
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info cx_info;
@@ -445,6 +509,9 @@ int main(int argc, const char **argv)
 		goto bail;
 
 	if (test_loc(cx))
+		goto bail;
+
+	if (test_unexpanded())
 		goto bail;
 
 	res = 0;
