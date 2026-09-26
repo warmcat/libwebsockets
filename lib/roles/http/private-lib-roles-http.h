@@ -103,6 +103,7 @@ struct lws_range_parsing {
 	char *buf;
 	char boundary[24];
 	int pos;
+	int len; /* of buf's content: the walk stops there */
 	enum range_states state;
 	char start_valid, end_valid, ctr, count_ranges, did_try, inside, send_ctr;
 };

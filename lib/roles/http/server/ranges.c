@@ -77,8 +77,18 @@ lws_ranges_next(struct lws_range_parsing *rp)
 	}
 
 	while (1) {
+		char c;
 
-		char c = rp->buf[rp->pos];
+		/*
+		 * the comma skip and the loop's own advance below both move
+		 * pos, and buf is an allocation of exactly the header's size
+		 * now: never read past its terminator
+		 */
+		if (rp->pos > rp->len) {
+			rp->state = LWSRS_COMPLETED;
+			return 0;
+		}
+		c = rp->buf[rp->pos];
 
 		switch (rp->state) {
 		case LWSRS_SYNTAX:
@@ -137,7 +147,7 @@ lws_ranges_next(struct lws_range_parsing *rp)
 				 */
 				if (!rp->extent) {
 					if (c == ',')
-						break;
+						continue; /* pos already past it */
 					rp->state = LWSRS_COMPLETED;
 					return 0;
 				}
@@ -173,7 +183,7 @@ lws_ranges_next(struct lws_range_parsing *rp)
 				if (rp->end < rp->start ||
 				    rp->start >= rp->extent) {
 					if (c == ',')
-						break;
+						continue; /* pos already past it */
 					rp->state = LWSRS_COMPLETED;
 					return 0;
 				}
@@ -286,6 +296,7 @@ lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp,
 	rp->buf = lws_malloc((size_t)len + 1, "ranges");
 	if (!rp->buf)
 		return -1;
+	rp->len = len;
 
 	if (lws_hdr_copy(wsi, rp->buf, len + 1,
 			 WSI_TOKEN_HTTP_RANGE) <= 0) {
