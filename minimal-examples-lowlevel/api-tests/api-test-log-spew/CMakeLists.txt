@@ -6,6 +6,8 @@ include(CheckCSourceCompiles)
 include(LwsCheckRequirements)
 
 set(requirements 1)
+# the spew under test is made of notice logs
+require_lws_config(LWS_WITH_NO_LOGS 0 requirements)
 
 if (requirements)
 
