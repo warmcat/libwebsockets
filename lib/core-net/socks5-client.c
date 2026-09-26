@@ -307,22 +307,27 @@ lws_socks5c_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 		return LW5CHS_RET_BAIL3;
 	}
 
-	if (lwsi_transport(wsi) == LTS_WAITING_SOCKS_CONNECT_REPLY && len >= 5)
-		/* VER REP RSV ATYP BND.ADDR BND.PORT */
-		switch (buf[3]) {
-		case 1: /* IPv4 */
-			need = 4 + 4 + 2;
-			break;
-		case 4: /* IPv6 */
-			need = 4 + 16 + 2;
-			break;
-		case 3: /* domain name, length-prefixed */
-			need = 4 + 1 + buf[4] + 2;
-			break;
-		default:
-			need = len; /* let the reply check below reject it */
-			break;
-		}
+	if (lwsi_transport(wsi) == LTS_WAITING_SOCKS_CONNECT_REPLY) {
+		/* VER REP RSV ATYP BND.ADDR BND.PORT: at least the fixed 4 + 1 */
+		need = 5;
+		if (len >= 5)
+			switch (buf[3]) {
+			case 1: /* IPv4 */
+				need = 4 + 4 + 2;
+				break;
+			case 4: /* IPv6 */
+				need = 4 + 16 + 2;
+				break;
+			case 3: /* domain name, length-prefixed */
+				need = 4 + 1 + buf[4] + 2;
+				break;
+			default:
+				lwsl_wsi_err(wsi, "SOCKS bad ATYP %d", buf[3]);
+				*pcce = "socks bad reply";
+
+				return LW5CHS_RET_BAIL3;
+			}
+	}
 
 	if (len < need) {
 		lwsl_wsi_err(wsi, "SOCKS short read %d", (int)len);
@@ -398,6 +403,22 @@ lws_socks5c_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 #endif
 
 		wsi->c_port = (uint16_t)wsi->a.vhost->socks_proxy_port;
+
+		/*
+		 * What follows the reply is the peer's, and is left for the
+		 * protocol (an smtp banner, say)... unless tls is to come:
+		 * the tls peer speaks second, so bytes ahead of our
+		 * ClientHello can only be the proxy's, and if we kept them
+		 * they would be replayed into the stream after a handshake
+		 * that verified the real origin, as its response.
+		 */
+		if (*used < len && (wsi->use_ssl & LCCSCF_USE_SSL)) {
+			lwsl_wsi_err(wsi, "SOCKS: %d bytes after the reply "
+					  "with tls to come", (int)(len - *used));
+			*pcce = "socks trailing bytes";
+
+			return LW5CHS_RET_BAIL3;
+		}
 
 		/* clear his proxy connection timeout */
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
