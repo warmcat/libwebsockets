@@ -1483,6 +1483,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		goto handled;
 	}
 
+#if defined(LWS_WITH_TLS)
 	if ((pollfd->revents & LWS_POLLOUT) == LWS_POLLOUT &&
 	    wsi->io.tls_read_wanted_write) {
 		/*
@@ -1498,6 +1499,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		__lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
 		cow = 1;
 	}
+#endif
 
 
 	/* okay, what we came here to do... */
