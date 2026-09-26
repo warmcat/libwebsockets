@@ -97,8 +97,12 @@ hls_media_stat(const char *media_dir, const char *filename, int64_t *size,
 }
 
 /*
- * Read and validate just the header of an index file: it must be ours, and
- * the media file it names must still exist at the recorded size and mtime.
+ * Read and validate just the header of an index file: it must be ours, the
+ * media file it names must still exist at the recorded size and mtime, and
+ * the index must not be older than the media.  An index is written once,
+ * after the media was scanned, so its own mtime is when it was made; one
+ * older than the media was made from something else, whatever its header
+ * says (eg, a replacement copied in with its size and date preserved).
  * Returns 0 if so, 1 if the file is stale or orphaned (caller removes it),
  * -1 if it could not be read.
  */
@@ -107,11 +111,16 @@ hls_index_read_hdr(const char *media_dir, const char *path,
 		   struct hls_index_hdr *hdr)
 {
 	int64_t size, mtime;
+	struct stat ist;
 	int fd, n;
 
 	fd = open(path, O_RDONLY);
 	if (fd < 0)
 		return -1;
+	if (fstat(fd, &ist)) {
+		close(fd);
+		return -1;
+	}
 	n = (int)read(fd, hdr, sizeof(*hdr));
 	close(fd);
 
@@ -123,7 +132,8 @@ hls_index_read_hdr(const char *media_dir, const char *path,
 		return 1;
 
 	if (hls_media_stat(media_dir, hdr->filename, &size, &mtime) ||
-	    size != hdr->size || mtime != hdr->mtime)
+	    size != hdr->size || mtime != hdr->mtime ||
+	    (int64_t)ist.st_mtime < mtime)
 		return 1;
 
 	return 0;

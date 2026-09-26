@@ -127,7 +127,7 @@ struct hls_atrans_walk {
  * Read and validate one shadow pair's header: it must be ours, name a valid
  * media name (subdirectories allowed, see hls_media_name_valid()) that still
  * exists at the recorded size and mtime, and the shadow media itself must be
- * there.  Returns 0 if so, else 1 (stale, orphaned or unreadable: the caller
+ * there, and not older than the media.  Returns 0 if so, else 1 (stale, orphaned or unreadable: the caller
  * removes it).
  */
 static int
@@ -163,6 +163,7 @@ hls_atrans_ent_fill(struct hls_atrans_ent *e, const char *media_dir,
 		return 1;
 
 	{
+		time_t made = st.st_mtime;
 		char mpath[1024];
 		int64_t size, mtime;
 
@@ -171,9 +172,15 @@ hls_atrans_ent_fill(struct hls_atrans_ent *e, const char *media_dir,
 		if (stat(mpath, &st))
 			return 1;
 
+		/*
+		 * ...and the shadow is not older than the media: it was
+		 * written from the media, so a shadow older than it was
+		 * made from something else, whatever the header says
+		 */
 		size = (int64_t)st.st_size;
 		mtime = (int64_t)st.st_mtime;
-		if (size != ah.size || mtime != ah.mtime)
+		if (size != ah.size || mtime != ah.mtime ||
+		    made < st.st_mtime)
 			return 1;
 	}
 

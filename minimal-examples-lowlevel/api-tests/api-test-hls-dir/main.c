@@ -84,6 +84,10 @@
 #define NOMOOV_MEDIA	"NoMoov.Film.2024.mp4"		/* moov not there yet */
 #define SHORTMDAT_MEDIA	"Short.Mdat.2024.mp4"		/* mdat past EOF */
 #define N_PENDING	4
+/* media with a persisted keyframe index made before it, and after it */
+#define STALEIDX_MEDIA	"Stale.Index.2020.mkv"
+#define GOODIDX_MEDIA	"Good.Index.2020.mkv"
+#define N_INDEXED	2
 /* how rsync names a copy in progress: not media, not listed */
 #define RSYNC_TEMP	".Rsync.Temp.2024.mkv.Xq3v9A"
 /* a subdirectory something is being copied into under a temporary name */
@@ -507,6 +511,64 @@ mkfile(const char *dir, const char *name, const uint8_t *data, size_t len,
 	return utimes(path, tv);
 }
 
+/*
+ * A persisted keyframe index for fixture media name, in the plugin's own
+ * format, whose header matches the media as it is, last written age_secs
+ * ago
+ */
+static int
+mkindex(const char *name, int age_secs)
+{
+	struct hls_index_hdr hdr;
+	struct timeval tv[2];
+	char path[1024];
+	struct stat st;
+	int fd;
+
+	lws_snprintf(path, sizeof(path), "%s/%s", fixture_dir, name);
+	if (stat(path, &st))
+		return 1;
+
+	memset(&hdr, 0, sizeof(hdr));
+	memcpy(hdr.magic, HLS_INDEX_MAGIC, sizeof(hdr.magic));
+	hdr.version	= HLS_INDEX_VERSION;
+	hdr.size	= (int64_t)st.st_size;
+	hdr.mtime	= (int64_t)st.st_mtime;
+	lws_strncpy(hdr.filename, name, sizeof(hdr.filename));
+
+	hls_index_dir(fixture_dir, path, sizeof(path));
+	if (mkdir(path, 0700) && errno != EEXIST)
+		return 1;
+
+	hls_index_path(fixture_dir, name, path, sizeof(path));
+	fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+	if (fd < 0)
+		return 1;
+	if (write(fd, &hdr, sizeof(hdr)) != (ssize_t)sizeof(hdr)) {
+		close(fd);
+		return 1;
+	}
+	close(fd);
+
+	gettimeofday(&tv[0], NULL);
+	tv[0].tv_sec -= age_secs;
+	tv[1] = tv[0];
+
+	return utimes(path, tv);
+}
+
+/* does name have a persisted index? */
+static int
+has_index(const char *name)
+{
+	struct stat st;
+	char path[1024];
+
+	hls_index_path(fixture_dir, name, path, sizeof(path));
+
+	return !stat(path, &st);
+}
+
 /* a complete, settled file, framed according to its extension */
 static int
 touch(const char *dir, const char *name)
@@ -598,6 +660,15 @@ build_fixture_dir(void)
 	    mkfile(fixture_dir, RSYNC_TEMP, stub_mkv, sizeof(stub_mkv), 1))
 		return 1;
 
+	/*
+	 * Media last written an hour ago, one with an index made two hours
+	 * ago, ie from something else, and one with an index made after it
+	 */
+	if (touch(fixture_dir, STALEIDX_MEDIA) ||
+	    touch(fixture_dir, GOODIDX_MEDIA) ||
+	    mkindex(STALEIDX_MEDIA, 7200) || mkindex(GOODIDX_MEDIA, 60))
+		return 1;
+
 	/* nothing playable in it yet, but something is arriving: the purge
 	 * at startup must leave it alone */
 	{
@@ -668,9 +739,16 @@ remove_fixture_dir(void)
 		static const char * const pending[] = {
 			ARRIVING_MEDIA, STALLED_MEDIA, NOMOOV_MEDIA,
 			SHORTMDAT_MEDIA, RSYNC_TEMP, INCOMING_TEMP,
-			INCOMING_DIR
+			INCOMING_DIR, STALEIDX_MEDIA, GOODIDX_MEDIA
 		};
 		size_t j;
+
+		hls_index_path(fixture_dir, STALEIDX_MEDIA, path, sizeof(path));
+		unlink(path);
+		hls_index_path(fixture_dir, GOODIDX_MEDIA, path, sizeof(path));
+		unlink(path);
+		hls_index_dir(fixture_dir, path, sizeof(path));
+		rmdir(path);
 
 		for (j = 0; j < LWS_ARRAY_SIZE(pending); j++) {
 			(void)snprintf(path, sizeof(path), "%s/%s",
@@ -779,7 +857,7 @@ check_listing(void)
 	expect("every entry listed",
 	       count_str(body, "player.html?v=stream/") ==
 					2 + N_FRIENDLY + N_NESTED + N_SPECIAL +
-					N_LONG_ENTRIES);
+					N_INDEXED + N_LONG_ENTRIES);
 
 	/* F-059 leg 2: names only reach markup as entities */
 	expect("script payload escaped",
@@ -836,6 +914,13 @@ check_listing(void)
 	}
 
 	/*
+	 * The startup sweep removed the index made before its media, and
+	 * kept the one made after it
+	 */
+	expect("index older than its media removed", !has_index(STALEIDX_MEDIA));
+	expect("index newer than its media kept", has_index(GOODIDX_MEDIA));
+
+	/*
 	 * Media that is not all there is listed as pending, with its state
 	 * where the thumbnail would be, and nothing to play or cut a
 	 * thumbnail from
@@ -889,7 +974,7 @@ check_index_incomplete(void)
 	       !!strstr(body, "\"media\":\"incomplete\"") &&
 	       !!strstr(body, "\"running\":false"));
 	expect("nothing indexed for an incomplete file",
-	       !fixture_exists(".index"));
+	       !has_index(STALLED_MEDIA));
 }
 
 static void

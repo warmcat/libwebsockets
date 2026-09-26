@@ -189,7 +189,9 @@ the file is read end to end once, which for a large MKV is minutes, so the
 result is kept in memory per vhost and also written to
 `<media-dir>/.index/<sha1 of the filename>.idx`, and loaded from there after
 a restart.  The index records the media file's size and mtime; one that no
-longer matches, or whose media is gone, is removed when seen, when the media
+longer matches, whose media is gone, or that is older than its media (it was
+made from something else, eg a replacement copied in with its size and date
+preserved), is removed when seen, when the media
 is deleted through the plugin, at protocol init, and by an hourly sweep, so
 nothing accumulates in `.index`.  If `.index` cannot be created (media dir
 not writable by the server), that is logged once per attempt and the index
