@@ -1010,6 +1010,9 @@ sais_create_and_offer_task_step(struct vhd *vhd, const char *task_uuid)
 			lwsl_err("%s: +++ determined no more steps after "
 				 "build_step %d for task %s, setting SAIES_SUCCESS\n",
 					__func__, build_step, temp_task->uuid);
+			sais_task_logf(vhd, temp_task->uuid,
+				       "all %d steps completed, task succeeded",
+				       build_step);
 			sais_set_task_state(vhd, temp_task->uuid, SAIES_SUCCESS, 0, 0);
 
 			if (sais_is_task_inflight(vhd, sp, temp_task->uuid, &u))

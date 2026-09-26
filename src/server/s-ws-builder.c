@@ -28,6 +28,8 @@
 
 #include <libwebsockets.h>
 #include <string.h>
+#include <stdarg.h>
+#include <stdio.h>
 
 #include <assert.h>
 #include <time.h>
@@ -326,6 +328,78 @@ sais_log_to_db(struct vhd *vhd, sai_log_t *log)
 	 */
 }
 
+/*
+ * Say something in a task's own log, as the server.
+ *
+ * A builder cannot always explain itself: it may be a VM that just went away,
+ * and anything it had queued for us went with it.  When we are the one deciding
+ * a task's fate, the reason has to go somewhere the user will find it, and the
+ * only place that survives is the task's log.
+ *
+ * The log column holds base64 the browser decodes, and the timestamps are the
+ * builder's monotonic clock, so borrow the newest one we have for this task
+ * rather than inventing a value from our own unrelated clock.
+ */
+
+int
+sais_task_logf(struct vhd *vhd, const char *task_uuid, const char *fmt, ...)
+{
+	char text[512], esc[132], q[224], event_uuid[33];
+	uint64_t ts = 0;
+	sqlite3 *pdb = NULL;
+	sai_log_t log;
+	va_list ap;
+	int n;
+
+	if (!task_uuid || !task_uuid[0])
+		return -1;
+
+	n = lws_snprintf(text, sizeof(text), ">sais> ");
+
+	va_start(ap, fmt);
+	n += vsnprintf(text + n, sizeof(text) - (unsigned int)n - 2, fmt, ap);
+	va_end(ap);
+
+	if (n > (int)sizeof(text) - 2)
+		n = (int)sizeof(text) - 2;
+	text[n++] = '\n';
+	text[n] = '\0';
+
+	lwsl_notice("%s: %s: %s", __func__, task_uuid, text);
+
+	sai_task_uuid_to_event_uuid(event_uuid, task_uuid);
+	lws_sql_purify(esc, task_uuid, sizeof(esc));
+
+	if (!sai_event_db_ensure_open(vhd->context, &vhd->sqlite3_cache,
+				      vhd->sqlite3_path_lhs, event_uuid, 0,
+				      &pdb)) {
+		lws_snprintf(q, sizeof(q),
+			     "select coalesce(max(timestamp), 0) from logs "
+			     "where task_uuid='%s'", esc);
+		sqlite3_exec(pdb, q, sai_sql3_get_uint64_cb, &ts, NULL);
+		sai_event_db_close(&vhd->sqlite3_cache, &pdb);
+	}
+
+	memset(&log, 0, sizeof(log));
+	lws_strncpy(log.task_uuid, task_uuid, sizeof(log.task_uuid));
+	log.timestamp	= ts + 1;
+	log.channel	= 3;
+	log.len		= (size_t)n;
+
+	{
+		char b64[(sizeof(text) * 4) / 3 + 8];
+
+		if (lws_b64_encode_string(text, n, b64, (int)sizeof(b64)) < 0)
+			return -1;
+
+		log.log = b64;
+
+		sais_log_to_db(vhd, &log);
+	}
+
+	return 0;
+}
+
 sai_plat_t *
 sais_builder_from_uuid(struct vhd *vhd, const char *hostname)
 {
@@ -478,7 +552,7 @@ sais_builder_disconnected(struct vhd *vhd, struct lws *wsi)
 						sqlite3_stmt *sm;
 
 						lws_snprintf(q, sizeof(q),
-							"SELECT uuid FROM tasks WHERE "
+							"SELECT uuid, build_step FROM tasks WHERE "
 							"builder_name=? AND (state = 0 OR state = %d OR state = %d) "
 							"AND run=(SELECT max(run) FROM tasks t2 WHERE t2.uuid = tasks.uuid)",
 							SAIES_PASSED_TO_BUILDER,
@@ -488,10 +562,25 @@ sais_builder_disconnected(struct vhd *vhd, struct lws *wsi)
 							sqlite3_bind_text(sm, 1, sp->name, -1, SQLITE_TRANSIENT);
 							while (sqlite3_step(sm) == SQLITE_ROW) {
 								const unsigned char *task_uuid = sqlite3_column_text(sm, 0);
+								int bs = sqlite3_column_int(sm, 1);
+
 								if (task_uuid) {
 									lwsl_notice("%s: resetting task %s from disconnected builder %s\n",
 											__func__, (const char *)task_uuid, sp->name);
 									sais_task_clear_build_and_logs(vhd, (const char *)task_uuid, 0);
+
+									/*
+									 * The builder went away mid-task, so whatever it
+									 * was about to tell us went with it and its log just
+									 * stops.  Say so at the top of the retry's log: the
+									 * reset above has already moved us to a new run, so
+									 * this lands there.
+									 */
+									sais_task_logf(vhd, (const char *)task_uuid,
+										"builder %s disconnected while this task was "
+										"at step %d, so its log stops there; retrying "
+										"the task from the beginning",
+										sp->name, bs);
 								}
 							}
 							sqlite3_finalize(sm);
@@ -655,9 +744,13 @@ sais_process_rej(struct vhd *vhd, struct pss *pss,
 				n = SAIES_FAIL;
 				lwsl_notice("%s: |||| SAIES_FAIL: %s\n",
 						__func__, rej->task_uuid);
+				sais_task_logf(vhd, rej->task_uuid,
+					       "builder %s reported the step exited %d, "
+					       "failing the task", sp->name,
+					       rej->ecode & 0xff);
 			}
 		} else
-			if (rej->ecode & 0x2000) {
+			if (rej->ecode & SAISPRF_TERMINATED) {
 				n = SAIES_CANCELLED;
 				lwsl_notice("%s: |||| SAIES_CANCELLED: %s\n",
 						__func__, rej->task_uuid);
@@ -666,6 +759,30 @@ sais_process_rej(struct vhd *vhd, struct pss *pss,
 				n = SAIES_FAIL;
 				lwsl_notice("%s: |||| SAIES_STEP_FAIL: %s\n",
 						__func__, rej->task_uuid);
+
+				/*
+				 * We are about to make this red, and unlike a
+				 * nonzero exit the builder has no log line that
+				 * matches: an ecode of 0 in particular means it
+				 * never worked out how the step ended
+				 */
+				if (rej->ecode & SAISPRF_TIMEDOUT)
+					sais_task_logf(vhd, rej->task_uuid,
+						"builder %s timed the step out, "
+						"failing the task", sp->name);
+				else
+					if (rej->ecode & SAISPRF_SIGNALLED)
+						sais_task_logf(vhd, rej->task_uuid,
+							"builder %s reported the step "
+							"was killed by signal %d, "
+							"failing the task", sp->name,
+							rej->ecode & 0xff);
+					else
+						sais_task_logf(vhd, rej->task_uuid,
+							"builder %s finished this step "
+							"without saying how it ended "
+							"(ecode 0x%x), failing the task",
+							sp->name, rej->ecode);
 			}
 
 		if (sais_set_task_state(vhd, rej->task_uuid, n, 0,

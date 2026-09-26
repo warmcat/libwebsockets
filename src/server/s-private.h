@@ -298,6 +298,14 @@ sai_sq3_event_lookup(sqlite3 *pdb, uint64_t start, lws_struct_args_cb cb, void *
 int
 sai_sql3_get_uint64_cb(void *user, int cols, char **values, char **name);
 
+/*
+ * Say something in a task's own log, as the server.  Used where we decide a
+ * task's fate and the builder either cannot say why or is already gone.
+ */
+int
+sais_task_logf(struct vhd *vhd, const char *task_uuid, const char *fmt, ...)
+	LWS_FORMAT(3);
+
 int
 sais_validate_id(const char *id, int reqlen);
 
