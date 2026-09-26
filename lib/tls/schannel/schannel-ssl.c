@@ -365,14 +365,6 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 
 				return LWS_SSL_CAPABLE_ERROR;
 			}
-
-			/*
-			 * Handle the negotiated ALPN through the shared
-			 * helper, so (for client connections) the negotiated
-			 * ALPN is also recorded in the client alpn cache like
-			 * the other TLS backends do
-			 */
-			lws_tls_schannel_server_conn_alpn(wsi);
                }
 
                if (conn->tx_buf) {

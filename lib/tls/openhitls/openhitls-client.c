@@ -726,22 +726,6 @@ enum lws_ssl_capable_status lws_tls_client_connect(struct lws *wsi,
 	 */
 
 	if (ret == HITLS_SUCCESS) {
-		uint8_t *proto = NULL;
-		uint32_t proto_len = 0;
-
-		if (HITLS_GetSelectedAlpnProto(wsi->io->tls.ssl, &proto,
-					       &proto_len) == HITLS_SUCCESS &&
-		    proto && proto_len) {
-			char a[32];
-
-			if (proto_len >= sizeof(a)) {
-				proto_len = sizeof(a) - 1;
-			}
-			memcpy(a, proto, proto_len);
-			a[proto_len] = '\0';
-			lws_role_call_alpn_negotiated(wsi, a);
-		}
-
 #if defined(LWS_TLS_SYNTHESIZE_CB)
 		lws_sul_schedule(wsi->a.context, wsi->tsi,
 				 &wsi->io->tls.sul_cb_synth,

@@ -100,8 +100,12 @@ lws_tls_client_host_is_literal(const char *host)
  * resumed session on loopback, when the server's flight is already there by
  * the time the backend reads for it), so the completion is handled here for
  * all of them: the peer is only confirmed here, which gnutls and mbedtls rely
- * on to verify it at all.  The backend has already acted on the negotiated
- * alpn by then.
+ * on to verify it at all.
+ *
+ * The negotiated alpn is only acted on after that, here too, rather than by
+ * the backends as they see the handshake complete: it changes the wsi role
+ * and is recorded in the client alpn cache for later connections to the same
+ * origin, neither of which a peer we did not accept may cause.
  *
  * Returns 0 if the handshake needs more service, 1 when it completed with the
  * peer confirmed, or -1 on failure, with the reason in errbuf.
@@ -138,6 +142,12 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 	lws_tls_restrict_return_handshake(wsi);
 
 	if (lws_tls_client_confirm_peer_cert(wsi, errbuf, len)) {
+		lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
+		return -1;
+	}
+
+	if (lws_tls_server_conn_alpn(wsi)) {
+		lws_snprintf(errbuf, len, "alpn role change failed");
 		lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
 		return -1;
 	}

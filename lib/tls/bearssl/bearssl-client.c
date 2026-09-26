@@ -211,14 +211,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
 	if (st & (BR_SSL_SENDAPP | BR_SSL_RECVAPP)) {
-		const char *alpn_selected = br_ssl_engine_get_selected_protocol(&conn->u.engine);
-
 		lwsl_info("%s: client connect OK\n", __func__);
-
-		if (alpn_selected) {
-			lwsl_info("%s: ALPN selected: %s\n", __func__, alpn_selected);
-			lws_role_call_alpn_negotiated(wsi, alpn_selected);
-		}
 
 		if (lws_ssl_pending(wsi)) {
 			struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];

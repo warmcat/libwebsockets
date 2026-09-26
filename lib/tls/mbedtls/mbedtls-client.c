@@ -201,7 +201,6 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 	n = mbedtls_ssl_handshake(&wsi->io->tls.ssl->ssl);
 
 	if (n == 0) {
-		lws_tls_server_conn_alpn(wsi);
 #if defined(LWS_WITH_TLS_SESSIONS)
 		lws_tls_session_new_mbedtls(wsi);
 #endif

@@ -616,14 +616,6 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
 	if (n == 1) {
-		/*
-		 * Handle the negotiated ALPN the same way at handshake
-		 * completion as the gnutls backend does: this also records
-		 * the negotiated ALPN in the client alpn cache, so later
-		 * connections to the same origin can take the stored
-		 * knowledge into account
-		 */
-		lws_tls_server_conn_alpn(wsi);
 #if defined(LWS_TLS_SYNTHESIZE_CB)
 		lws_sul_schedule(wsi->a.context, wsi->tsi,
 				 &wsi->io->tls.sul_cb_synth,
