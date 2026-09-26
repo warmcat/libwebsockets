@@ -54,6 +54,14 @@
  *
  * The test fails if any case does not complete as expected inside the
  * watchdog period.
+ *
+ * The cases of one transport are a group, --transport <group> runs only
+ * them and only creates the vhosts they need: ctest registers one test per
+ * group, so the groups run in parallel with a clean log each.  The h3 on
+ * the tls vhost port group carries the one tls request that teaches the
+ * client the vhost's alt-svc, as an earlier group did when all ran in one
+ * process: the connect path treats a port with a known alternative
+ * differently.  --case n, or --case n-m, runs a subset of the cases.
  */
 
 #include <libwebsockets.h>
@@ -96,6 +104,11 @@ struct xcase {
 	uint8_t		no_pipeline;	/* h1 without LCCSCF_PIPELINE */
 	uint8_t		redirect;	/* ask /redir, answered 302 -> /hello */
 	uint8_t		made;		/* connections the client must open */
+	uint8_t		group;		/* the --transport group it belongs to */
+};
+
+static const char * const group_names[] = {
+	"h1", "h1-tls", "h2c", "h2-tls", "h3", "h3-alt"
 };
 
 /*
@@ -105,20 +118,20 @@ struct xcase {
  */
 #define KW_SHAPES(xp, pfx, made_redir) \
 	{ pfx ": second request inside the keep-warm time rides the connection", \
-	  xp, 2, { 0, INSIDE_MS }, { 0, 1 }, 0, 0, 1 }, \
+	  xp, 2, { 0, INSIDE_MS }, { 0, 1 }, 0, 0, 1, xp }, \
 	{ pfx ": second request after the keep-warm time opens a new connection", \
-	  xp, 2, { 0, OUTSIDE_MS }, { 0, 0 }, 0, 0, 2 }, \
+	  xp, 2, { 0, OUTSIDE_MS }, { 0, 0 }, 0, 0, 2, xp }, \
 	{ pfx ": three requests inside the keep-warm time all ride one connection", \
-	  xp, 3, { 0, INSIDE_MS, INSIDE_MS }, { 0, 1, 1 }, 0, 0, 1 }, \
+	  xp, 3, { 0, INSIDE_MS, INSIDE_MS }, { 0, 1, 1 }, 0, 0, 1, xp }, \
 	{ pfx ": second request rides, third after the keep-warm time opens a new one", \
-	  xp, 3, { 0, INSIDE_MS, OUTSIDE_MS }, { 0, 1, 0 }, 0, 0, 2 }, \
+	  xp, 3, { 0, INSIDE_MS, OUTSIDE_MS }, { 0, 1, 0 }, 0, 0, 2, xp }, \
 	{ pfx ": 302 to the same origin, followed on the same wsi", \
-	  xp, 1, { 0 }, { 0 }, 0, 1, made_redir }
+	  xp, 1, { 0 }, { 0 }, 0, 1, made_redir, xp }
 
 static const struct xcase cases[] = {
 	KW_SHAPES(XP_H1, "h1", 2),
 	{ "h1: without LCCSCF_PIPELINE the second request opens a new connection",
-	  XP_H1, 2, { 0, INSIDE_MS }, { 0, 0 }, 1, 0, 2 },
+	  XP_H1, 2, { 0, INSIDE_MS }, { 0, 0 }, 1, 0, 2, XP_H1 },
 #if defined(LWS_WITH_TLS)
 	KW_SHAPES(XP_H1_TLS, "h1 tls", 2),
 #endif
@@ -130,6 +143,19 @@ static const struct xcase cases[] = {
 #endif
 #if defined(LWS_ROLE_H3)
 	KW_SHAPES(XP_H3, "h3", 1),
+	/*
+	 * A response from the tls vhost teaches the client the vhost's h3
+	 * alt-svc and caches its tcp alpn: the cases on its port are meant to
+	 * follow that, as they do after the tls groups in one process, since
+	 * the connect path handles a port with a known alternative differently
+	 */
+	{ "tls: a response from the tls vhost teaches the client its h3 alt-svc",
+#if defined(LWS_WITH_HTTP2)
+	  XP_H2_TLS,
+#else
+	  XP_H1_TLS,
+#endif
+	  1, { 0 }, { 0 }, 0, 0, 1, XP_H3_ALT },
 	KW_SHAPES(XP_H3_ALT, "h3 on the tls vhost port", 1),
 #endif
 };
@@ -181,7 +207,7 @@ static struct lws_context *context;
 static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_next, sul_watchdog, sul_req, sul_poll;
 static int result, cur = -1, failures, only_case = -1, last_case = -1,
-	   case_done,
+	   only_group = -1, ran, case_done,
 	   port_h1 = 7681, port_tls = 7682, port_h2c = 7683, port_h3 = 7684;
 static const char *server_addr = "127.0.0.1";
 
@@ -407,6 +433,33 @@ case_finish(int ok, const char *why)
 
 static void
 next_case(lws_sorted_usec_list_t *sul);
+
+/* is case n in the --transport group and the --case range we were given */
+
+static int
+case_selected(int n)
+{
+	if (only_case >= 0 && (n < only_case || n > last_case))
+		return 0;
+	if (only_group >= 0 && cases[n].group != only_group)
+		return 0;
+
+	return 1;
+}
+
+/* does a selected case use the transport, so we need its vhost */
+
+static int
+xport_used(int xp)
+{
+	int n;
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(cases); n++)
+		if (case_selected(n) && cases[n].xport == xp)
+			return 1;
+
+	return 0;
+}
 
 static void
 case_evaluate(void)
@@ -737,20 +790,18 @@ watchdog_cb(lws_sorted_usec_list_t *sul)
 static void
 next_case(lws_sorted_usec_list_t *sul)
 {
-	/* --case n, or --case n-m: only those */
-	if (only_case >= 0 && cur >= last_case)
-		cur = (int)LWS_ARRAY_SIZE(cases) - 1;
-	cur++;
-	if (only_case >= 0 && cur < only_case)
-		cur = only_case;
+	do {
+		cur++;
+	} while (cur < (int)LWS_ARRAY_SIZE(cases) && !case_selected(cur));
 
-	if (cur == (int)LWS_ARRAY_SIZE(cases)) {
+	if (cur >= (int)LWS_ARRAY_SIZE(cases)) {
 		result = failures ? 1 : 0;
 		lws_default_loop_exit(context);
 		return;
 	}
 
 	lwsl_user("=== case %d: %s ===\n", cur, cases[cur].name);
+	ran++;
 
 	memset(&srv, 0, sizeof(srv));
 	memset(&cli, 0, sizeof(cli));
@@ -806,6 +857,19 @@ int main(int argc, const char **argv)
 		port_h3 = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		server_addr = p;
+	if ((p = lws_cmdline_option(argc, argv, "--transport"))) {
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(group_names); n++)
+			if (!strcmp(p, group_names[n]))
+				only_group = n;
+		if (only_group < 0) {
+			lwsl_err("--transport: one of");
+			for (n = 0; n < (int)LWS_ARRAY_SIZE(group_names); n++)
+				lwsl_err("  %s", group_names[n]);
+			return 1;
+		}
+		n = 0;
+	}
+
 	if ((p = lws_cmdline_option(argc, argv, "--case"))) {
 		only_case = atoi(p);
 		last_case = only_case;
@@ -835,77 +899,93 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	/* h1 server vhost, cleartext */
+	/* only the server vhosts the selected cases use */
 
-	info.port = port_h1;
-	info.vhost_name = "srv-h1";
 	info.protocols = protocols_srv;
 
-	vh = lws_create_vhost(context, &info);
-	if (!vh) {
-		lwsl_err("Failed to create h1 server vhost\n");
-		goto bail;
+	if (xport_used(XP_H1)) {
+		/* h1 server vhost, cleartext */
+
+		info.port = port_h1;
+		info.vhost_name = "srv-h1";
+
+		vh = lws_create_vhost(context, &info);
+		if (!vh) {
+			lwsl_err("Failed to create h1 server vhost\n");
+			goto bail;
+		}
 	}
 
 #if defined(LWS_WITH_HTTP2)
-	/* h2 server vhost, cleartext with prior knowledge */
+	if (xport_used(XP_H2C)) {
+		/* h2 server vhost, cleartext with prior knowledge */
 
-	info.port = port_h2c;
-	info.vhost_name = "srv-h2c";
-	info.options |= LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
+		info.port = port_h2c;
+		info.vhost_name = "srv-h2c";
+		info.options |= LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
 
-	vh = lws_create_vhost(context, &info);
-	if (!vh) {
-		lwsl_err("Failed to create h2c server vhost\n");
-		goto bail;
+		vh = lws_create_vhost(context, &info);
+		if (!vh) {
+			lwsl_err("Failed to create h2c server vhost\n");
+			goto bail;
+		}
+		info.options &= ~(uint64_t)LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
 	}
-	info.options &= ~(uint64_t)LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
 #endif
 
 #if defined(LWS_WITH_TLS)
-	/*
-	 * tls server vhost: the client's alpn picks h1 or h2 on it.  The
-	 * vhost's default alpn offers h2 when the build has it
-	 */
+	/* the tls vhosts share the test cert */
 
-	info.port = port_tls;
-	info.vhost_name = "srv-tls";
 	info.server_ssl_cert_mem = test_cert;
 	info.server_ssl_cert_mem_len = (unsigned int)strlen(test_cert);
 	info.server_ssl_private_key_mem = test_key;
 	info.server_ssl_private_key_mem_len = (unsigned int)strlen(test_key);
 
-	vh = lws_create_vhost(context, &info);
-	if (!vh) {
-		lwsl_err("Failed to create tls server vhost\n");
-		goto bail;
+	if (xport_used(XP_H1_TLS) || xport_used(XP_H2_TLS) ||
+	    xport_used(XP_H3_ALT)) {
+		/*
+		 * tls server vhost: the client's alpn picks h1 or h2 on it.
+		 * The vhost's default alpn offers h2 when the build has it,
+		 * and it opens a quic listener beside its tcp one
+		 */
+
+		info.port = port_tls;
+		info.vhost_name = "srv-tls";
+
+		vh = lws_create_vhost(context, &info);
+		if (!vh) {
+			lwsl_err("Failed to create tls server vhost\n");
+			goto bail;
+		}
 	}
 
 #if defined(LWS_ROLE_H3)
-	/* h3 server vhost: a quic listener on udp, tls with the test cert */
+	if (xport_used(XP_H3)) {
+		/* h3 server vhost: a quic listener on udp only */
 
-	info.port = CONTEXT_PORT_NO_LISTEN_SERVER;
-	info.vhost_name = "srv-h3";
-	info.listen_accept_role = "quic";
-	info.listen_accept_protocol = "keep-warm";
-	info.alpn = "h3";
+		info.port = CONTEXT_PORT_NO_LISTEN_SERVER;
+		info.vhost_name = "srv-h3";
+		info.listen_accept_role = "quic";
+		info.listen_accept_protocol = "keep-warm";
+		info.alpn = "h3";
 
-	vh_h3 = lws_create_vhost(context, &info);
-	if (!vh_h3) {
-		lwsl_err("Failed to create h3 server vhost\n");
-		goto bail;
+		vh_h3 = lws_create_vhost(context, &info);
+		if (!vh_h3) {
+			lwsl_err("Failed to create h3 server vhost\n");
+			goto bail;
+		}
+
+		if (!lws_create_adopt_udp(vh_h3, server_addr, port_h3,
+					  LWS_CAUDP_BIND, "keep-warm", NULL,
+					  NULL, NULL, NULL, "quic_listen")) {
+			lwsl_err("Failed to bind the quic listener\n");
+			goto bail;
+		}
+
+		info.listen_accept_role = NULL;
+		info.listen_accept_protocol = NULL;
+		info.alpn = NULL;
 	}
-
-	if (!lws_create_adopt_udp(vh_h3, server_addr, port_h3, LWS_CAUDP_BIND,
-				  "keep-warm", NULL, NULL, NULL, NULL,
-				  "quic_listen")) {
-		lwsl_err("Failed to bind the quic listener\n");
-		goto bail;
-	}
-
-	info.listen_accept_role = NULL;
-	info.listen_accept_protocol = NULL;
-	info.alpn = NULL;
 #endif
 
 	info.server_ssl_cert_mem = NULL;
@@ -936,8 +1016,7 @@ bail:
 	lws_context_destroy(context);
 
 	lwsl_user("Completed: %s (%d of %d cases failed)\n",
-		  result ? "FAIL" : "PASS", failures,
-		  (int)LWS_ARRAY_SIZE(cases));
+		  result ? "FAIL" : "PASS", failures, ran);
 
 	return result;
 }
