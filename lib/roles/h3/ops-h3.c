@@ -281,7 +281,14 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 				lwsi_set_skt_unusable(wsi, 1);
 				return -1;
 			}
-		} else {
+		} else if (lws_has_unsent_buffered_out(wsi)) {
+			/*
+			 * only bytes still to send want a writeable: a frame
+			 * merely in flight is the ack's business (which wakes
+			 * us), and udp POLLOUT is always ready, so re-arming
+			 * for it spun a core until the last STREAM frame was
+			 * acked, which a peer can withhold indefinitely
+			 */
 			lws_callback_on_writable(wsi);
 			wsi->mux.requested_POLLOUT = 1;
 		}
