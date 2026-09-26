@@ -88,6 +88,13 @@
 #define STALEIDX_MEDIA	"Stale.Index.2020.mkv"
 #define GOODIDX_MEDIA	"Good.Index.2020.mkv"
 #define N_INDEXED	2
+/*
+ * media bigger than the whole audio shadow cap (a sparse file, so it costs
+ * nothing), with a shadow: the cap is on the shadows, not their media
+ */
+#define BIG_MEDIA	"Big.Sparse.2020.mkv"
+#define BIG_SIZE	((off_t)5 * 1024 * 1024 * 1024)
+#define N_BIG		1
 /* how rsync names a copy in progress: not media, not listed */
 #define RSYNC_TEMP	".Rsync.Temp.2024.mkv.Xq3v9A"
 /* a subdirectory something is being copied into under a temporary name */
@@ -475,19 +482,27 @@ static const uint8_t
 	shortmdat_mp4[] = { 0, 0, 0, 8, 'f', 't', 'y', 'p',
 			    0, 1, 0, 0, 'm', 'd', 'a', 't', 1, 2, 3, 4 };
 
-/*
- * Create dir/name holding data, last written an hour ago unless fresh (a
- * copy that is still going on)
- */
+/* make path look last written secs ago */
 static int
-mkfile(const char *dir, const char *name, const uint8_t *data, size_t len,
-       int fresh)
+backdate(const char *path, int secs)
 {
 	struct timeval tv[2];
-	char path[384];
-	int fd;
 
-	lws_snprintf(path, sizeof(path), "%s/%s", dir, name);
+	gettimeofday(&tv[0], NULL);
+	tv[0].tv_sec -= secs;
+	tv[1] = tv[0];
+
+	return utimes(path, tv);
+}
+
+/*
+ * Create path holding data, last written an hour ago unless fresh (a copy
+ * that is still going on)
+ */
+static int
+mkfile_path(const char *path, const uint8_t *data, size_t len, int fresh)
+{
+	int fd;
 
 	fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
 	if (fd < 0) {
@@ -501,14 +516,19 @@ mkfile(const char *dir, const char *name, const uint8_t *data, size_t len,
 	}
 	close(fd);
 
-	if (fresh)
-		return 0;
+	return fresh ? 0 : backdate(path, 3600);
+}
 
-	gettimeofday(&tv[0], NULL);
-	tv[0].tv_sec -= 3600;
-	tv[1] = tv[0];
+/* the same, for dir/name */
+static int
+mkfile(const char *dir, const char *name, const uint8_t *data, size_t len,
+       int fresh)
+{
+	char path[1024];
 
-	return utimes(path, tv);
+	lws_snprintf(path, sizeof(path), "%s/%s", dir, name);
+
+	return mkfile_path(path, data, len, fresh);
 }
 
 /*
@@ -520,7 +540,6 @@ static int
 mkindex(const char *name, int age_secs)
 {
 	struct hls_index_hdr hdr;
-	struct timeval tv[2];
 	char path[1024];
 	struct stat st;
 	int fd;
@@ -550,11 +569,62 @@ mkindex(const char *name, int age_secs)
 	}
 	close(fd);
 
-	gettimeofday(&tv[0], NULL);
-	tv[0].tv_sec -= age_secs;
-	tv[1] = tv[0];
+	return backdate(path, age_secs);
+}
 
-	return utimes(path, tv);
+/*
+ * An audio shadow pair for fixture media name, stream 1, in the plugin's
+ * own format, made after the media
+ */
+static int
+mkshadow(const char *name)
+{
+	char m4a[1024], hdrp[1024], dir[1024];
+	struct hls_atrans_hdr ah;
+	struct stat st;
+	int fd;
+
+	lws_snprintf(m4a, sizeof(m4a), "%s/%s", fixture_dir, name);
+	if (stat(m4a, &st))
+		return 1;
+
+	memset(&ah, 0, sizeof(ah));
+	memcpy(ah.magic, HLS_ATRANS_MAGIC, sizeof(ah.magic));
+	ah.version	= HLS_ATRANS_VERSION;
+	ah.audio_idx	= 1;
+	ah.size		= (int64_t)st.st_size;
+	ah.mtime	= (int64_t)st.st_mtime;
+	lws_strncpy(ah.filename, name, sizeof(ah.filename));
+
+	hls_atrans_dir(fixture_dir, dir, sizeof(dir));
+	if (mkdir(dir, 0700) && errno != EEXIST)
+		return 1;
+	hls_atrans_paths(fixture_dir, name, 1, m4a, sizeof(m4a),
+			 hdrp, sizeof(hdrp));
+
+	fd = open(hdrp, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+	if (fd < 0)
+		return 1;
+	if (write(fd, &ah, sizeof(ah)) != (ssize_t)sizeof(ah)) {
+		close(fd);
+		return 1;
+	}
+	close(fd);
+
+	/* the sweep only asks it to be there and not trivially short */
+	return mkfile_path(m4a, stub_mp4, sizeof(stub_mp4), 1);
+}
+
+/* does name's shadow exist? */
+static int
+has_shadow(const char *name)
+{
+	char m4a[1024];
+	struct stat st;
+
+	hls_atrans_paths(fixture_dir, name, 1, m4a, sizeof(m4a), NULL, 0);
+
+	return !stat(m4a, &st);
 }
 
 /* does name have a persisted index? */
@@ -669,6 +739,17 @@ build_fixture_dir(void)
 	    mkindex(STALEIDX_MEDIA, 7200) || mkindex(GOODIDX_MEDIA, 60))
 		return 1;
 
+	/* 5GB of media, all hole but its matroska header, with a shadow */
+	{
+		char path[384];
+
+		lws_snprintf(path, sizeof(path), "%s/" BIG_MEDIA, fixture_dir);
+		if (touch(fixture_dir, BIG_MEDIA) ||
+		    truncate(path, BIG_SIZE) || backdate(path, 3600) ||
+		    mkshadow(BIG_MEDIA))
+			return 1;
+	}
+
 	/* nothing playable in it yet, but something is arriving: the purge
 	 * at startup must leave it alone */
 	{
@@ -739,9 +820,18 @@ remove_fixture_dir(void)
 		static const char * const pending[] = {
 			ARRIVING_MEDIA, STALLED_MEDIA, NOMOOV_MEDIA,
 			SHORTMDAT_MEDIA, RSYNC_TEMP, INCOMING_TEMP,
-			INCOMING_DIR, STALEIDX_MEDIA, GOODIDX_MEDIA
+			INCOMING_DIR, STALEIDX_MEDIA, GOODIDX_MEDIA,
+			BIG_MEDIA
 		};
+		char hp[1024];
 		size_t j;
+
+		hls_atrans_paths(fixture_dir, BIG_MEDIA, 1, path,
+				 sizeof(path), hp, sizeof(hp));
+		unlink(path);
+		unlink(hp);
+		hls_atrans_dir(fixture_dir, path, sizeof(path));
+		rmdir(path);
 
 		hls_index_path(fixture_dir, STALEIDX_MEDIA, path, sizeof(path));
 		unlink(path);
@@ -857,7 +947,7 @@ check_listing(void)
 	expect("every entry listed",
 	       count_str(body, "player.html?v=stream/") ==
 					2 + N_FRIENDLY + N_NESTED + N_SPECIAL +
-					N_INDEXED + N_LONG_ENTRIES);
+					N_INDEXED + N_BIG + N_LONG_ENTRIES);
 
 	/* F-059 leg 2: names only reach markup as entities */
 	expect("script payload escaped",
@@ -919,6 +1009,8 @@ check_listing(void)
 	 */
 	expect("index older than its media removed", !has_index(STALEIDX_MEDIA));
 	expect("index newer than its media kept", has_index(GOODIDX_MEDIA));
+	expect("shadow of media bigger than the shadow cap kept",
+	       has_shadow(BIG_MEDIA));
 
 	/*
 	 * Media that is not all there is listed as pending, with its state

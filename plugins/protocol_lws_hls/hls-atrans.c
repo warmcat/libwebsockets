@@ -163,13 +163,12 @@ hls_atrans_ent_fill(struct hls_atrans_ent *e, const char *media_dir,
 		return 1;
 
 	{
-		time_t made = st.st_mtime;
 		char mpath[1024];
-		int64_t size, mtime;
+		struct stat mst;
 
 		lws_snprintf(mpath, sizeof(mpath), "%s/%s", media_dir,
 			     ah.filename);
-		if (stat(mpath, &st))
+		if (stat(mpath, &mst))
 			return 1;
 
 		/*
@@ -177,15 +176,15 @@ hls_atrans_ent_fill(struct hls_atrans_ent *e, const char *media_dir,
 		 * written from the media, so a shadow older than it was
 		 * made from something else, whatever the header says
 		 */
-		size = (int64_t)st.st_size;
-		mtime = (int64_t)st.st_mtime;
-		if (size != ah.size || mtime != ah.mtime ||
-		    made < st.st_mtime)
+		if ((int64_t)mst.st_size != ah.size ||
+		    (int64_t)mst.st_mtime != ah.mtime ||
+		    st.st_mtime < mst.st_mtime)
 			return 1;
 	}
 
 	lws_strncpy(e->filename, ah.filename, sizeof(e->filename));
 	e->audio_idx = (int)ah.audio_idx;
+	/* the shadow's own size and age, not the media's: see the sweep */
 	e->size = (int64_t)st.st_size;
 	e->used = st.st_mtime;
 	if (!stat(e->hdr, &st))
