@@ -1008,6 +1008,9 @@ lws_rx_stage(struct lws_context_per_thread *pt, struct lws *wsi,
 				break;
 			/* tls still holds decrypted bytes: read again, regardless of the poll */
 			pfd = NULL;
+			/* the rx may have changed the role to one IO reads for itself */
+			if (!lws_rops_fidx(wsi->role_ops, LWS_ROPS_rx_policy))
+				break;
 			pol = lws_rops_func_fidx(wsi->role_ops,
 						 LWS_ROPS_rx_policy).
 					rx_policy(wsi, &flags, &max);
