@@ -3255,10 +3255,28 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 				}
 #endif
 				if (lwsi_state(h2n->swsi) == LRS_DEFERRING_ACTION) {
+					/*
+					 * The stash has to stay inside the
+					 * window we advertised, like delivered
+					 * body does: unaccounted, a peer that
+					 * kept the action deferred (a PING per
+					 * pass) grew it without bound
+					 */
+					if (lws_buflist_total_len(&h2n->swsi->buflist) +
+					    (size_t)n >
+					    (size_t)h2n->our_set.s[H2SET_INITIAL_WINDOW_SIZE]) {
+						if (lws_h2_goaway(wsi,
+							      H2_ERR_FLOW_CONTROL_ERROR,
+							      "deferred body over window"))
+							lwsl_info("%s: GOAWAY not queued\n", __func__);
+						return 1;
+					}
 					m = lws_buflist_append_segment(
 						&h2n->swsi->buflist, in - 1, (unsigned int)n);
 					if (m < 0)
 						return -1;
+					h2n->swsi->txc.peer_tx_cr_est -= n;
+					wsi->txc.peer_tx_cr_est -= n;
 
 					/*
 					 * Since we're in an open-ended
