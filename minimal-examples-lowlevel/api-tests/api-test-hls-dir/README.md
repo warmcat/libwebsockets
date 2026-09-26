@@ -48,6 +48,10 @@ way an `lws-login` gated proxy in front would (the vhost sets
    is left in it;
  - a name containing `:` `$` `%` is deleted as named.
 
+Across the deletes it holds the listing's change feed (`events`) open: it
+must first carry the generation the listing page was built with, and then a
+different one once media was deleted.
+
 With `LWS_WITH_STUB` the deletes are done by the plugin's privilege-separated
 stub child, which is this executable re-run with `--lws-stub=lws-hls-stub`:
 `main()` then only hosts the plugin for it, and it exits with its parent.

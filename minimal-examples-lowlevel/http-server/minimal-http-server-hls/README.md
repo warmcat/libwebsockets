@@ -20,8 +20,10 @@ Visit http://localhost:7681 for the media library listing.  The URL space is
 flat and owned by the plugin at /: the listing, the player page and its
 assets (player.html, player.js, hls.min.js, dir.js/css, favicon.ico) all sit
 beside the HLS endpoints (/stream/, /init/, /segment/, /avstream/, /subsm/,
-/subseg/, /preview/, /index/), with the raw media files under /media/ the
-only separate mount.  The plugin serves the player assets itself from
+/subseg/, /preview/, /index/, and /events, the listing's change feed), with
+the raw media files under /media/ the only separate mount.  The listing page
+follows the feed and reloads itself when media arrives, finishes arriving or
+goes.  The plugin serves the player assets itself from
 www-dir, so the whole app is a single mount and every link is relative.
 
 ## Commandline Options

@@ -73,6 +73,20 @@ A timed thumbnail is only cut through the file's keyframe index (see below),
 never by asking the demuxer to seek a large file without cues; a file that
 has no index yet gets the default frame instead.
 
+The listing keeps itself current.  The page carries a generation token of
+what it lists (`data-gen` on its body), and `dir.js` subscribes to
+`hls/events`, an SSE stream of the current token: when it is not the one
+the page was built with, media arrived, finished arriving (see below) or
+went, and the page reloads.  While anyone is subscribed, the media dir is
+rewalked every 3s from `stat()` alone, and our own deletes make it look
+at once; with nobody subscribed, nothing is walked.  The token covers each
+listed file's name and whether it is still arriving, and for a settled file
+its size and date, but not the size or date of a file still being written,
+so a long copy does not reload the page every few seconds.  Polling rather
+than a directory notifier, because media lives in subdirectories too and a
+copy finishing is only the passing of time.  Behind a proxy, the stream
+must not be buffered (the response says `x-accel-buffering: no`).
+
 ## Media that is not all there yet
 
 Media usually arrives in the media dir by being copied there, and a film

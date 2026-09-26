@@ -9,6 +9,15 @@ struct file_entry {
 	enum hls_media_state state;	/* anything but GONE */
 };
 
+/*
+ * How often the listing is rewalked for changes while any page showing it
+ * is subscribed to them (hls_watch_sul()), and how long a subscriber may go
+ * without hearing from us before it gets a keepalive, which is also what
+ * finds out it has gone
+ */
+#define HLS_WATCH_US		(3 * LWS_US_PER_SEC)
+#define HLS_WATCH_KEEPALIVE_US	(30 * LWS_US_PER_SEC)
+
 /* escaped form of the longest possible name (255 chars, each expanding to
  * the 5-char entity "&#39;") plus the NUL */
 #define HLS_DIR_ESC_MAX (255 * 5 + 1)
@@ -34,12 +43,58 @@ struct dir_state {
 	size_t max;
 	const char *base_dir;
 	int depth;
+	/*
+	 * The listing's generation: a token of what it holds, pushed to the
+	 * pages showing it so they can tell when it changed (see
+	 * lws_hls_watch_add()).  With gen_only, the walk only computes this.
+	 */
+	uint64_t gen;
+	int gen_only;
 };
+
+/*
+ * One listed file's part of the listing generation: everything the listing
+ * shows of it that can change, from stat alone.  Its name, and whether it
+ * is still arriving, which also changes with time alone; for a settled
+ * file, its size and date, which decide whether it stopped short and date
+ * its link.  Not the size or date of a file still being written, which
+ * change all the time and show as nothing but "still arriving".  The parts
+ * are summed, so the walk order does not matter.
+ */
+static uint64_t
+hls_dir_gen_part(const char *name, const struct stat *st)
+{
+	uint64_t h = 0xcbf29ce484222325ull, v[3];
+	const uint8_t *p = (const uint8_t *)name;
+	size_t n;
+
+	while (*p) {
+		h ^= *p++;
+		h *= 0x100000001b3ull;
+	}
+
+	memset(v, 0, sizeof(v));
+	v[0] = (uint64_t)lws_hls_media_settling(st);
+	if (!v[0]) {
+		v[1] = (uint64_t)st->st_size;
+		v[2] = (uint64_t)st->st_mtime;
+	}
+	p = (const uint8_t *)v;
+	for (n = 0; n < sizeof(v); n++) {
+		h ^= p[n];
+		h *= 0x100000001b3ull;
+	}
+
+	return h;
+}
 
 static int
 hls_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
 	struct dir_state *ds = (struct dir_state *)user;
+	const char *rel_path;
+	enum hls_media_state ms;
+	size_t base_len;
 	struct stat st;
 	char path[1024];
 
@@ -69,6 +124,18 @@ hls_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	if (!lws_hls_is_media_name(lde->name))
 		return 0;
 
+	rel_path = path;
+	base_len = strlen(ds->base_dir);
+	if (!strncmp(path, ds->base_dir, base_len) && path[base_len] == '/')
+		rel_path = path + base_len + 1;
+
+	if (ds->gen_only) {
+		/* the same files the listing would show, from stat alone */
+		if (!stat(path, &st) && S_ISREG(st.st_mode))
+			ds->gen += hls_dir_gen_part(rel_path, &st);
+		return 0;
+	}
+
 	if (ds->count >= ds->max) {
 		struct file_entry *ne;
 
@@ -79,25 +146,18 @@ hls_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		ds->entries = ne;
 	}
 
-	{
-		const char *rel_path = path;
-		size_t base_len = strlen(ds->base_dir);
-		enum hls_media_state ms;
+	/* is it all there, or still being copied in? */
+	ms = lws_hls_media_state(ds->base_dir, rel_path, &st);
+	if (ms == HLS_MEDIA_GONE)
+		return 0;
 
-		if (!strncmp(path, ds->base_dir, base_len) && path[base_len] == '/')
-			rel_path = path + base_len + 1;
+	ds->gen += hls_dir_gen_part(rel_path, &st);
 
-		/* is it all there, or still being copied in? */
-		ms = lws_hls_media_state(ds->base_dir, rel_path, &st);
-		if (ms == HLS_MEDIA_GONE)
-			return 0;
-
-		lws_strncpy(ds->entries[ds->count].name, rel_path,
-			    sizeof(ds->entries[ds->count].name));
-		ds->entries[ds->count].mtime = st.st_mtime;
-		ds->entries[ds->count].state = ms;
-		ds->count++;
-	}
+	lws_strncpy(ds->entries[ds->count].name, rel_path,
+		    sizeof(ds->entries[ds->count].name));
+	ds->entries[ds->count].mtime = st.st_mtime;
+	ds->entries[ds->count].state = ms;
+	ds->count++;
 
 	return 0;
 }
@@ -498,9 +558,10 @@ lws_hls_serve_dir(struct lws *wsi, struct per_vhost_data__lws_hls *vhd)
 		"<link rel=\"stylesheet\" href=\"%sdir.css\">"
 		"<script src=\"/lws-login-media/lws-login.js\"></script>"
 		"<script src=\"%sdir.js\" defer></script>"
-		"</head><body>"
+		"</head><body data-gen='%016llx'>"
 		"<div id=\"auth-status\"></div>"
-		"<h1>Media Directory</h1><div>", apref, apref, apref);
+		"<h1>Media Directory</h1><div>", apref, apref, apref,
+		(unsigned long long)ds.gen);
 
 	for (i = 0; i < ds.count; i++) {
 		const char *display = ds.entries[i].name;
@@ -590,4 +651,155 @@ lws_hls_serve_dir(struct lws *wsi, struct per_vhost_data__lws_hls *vhd)
 	if (ds.entries) free(ds.entries);
 
 	return lws_http_transaction_completed(wsi);
+}
+
+/*
+ * Change feed for the pages showing the listing.
+ *
+ * A page subscribes with an SSE request to "events" beside it.  While there
+ * is anyone subscribed, the media dir is rewalked every HLS_WATCH_US, from
+ * stat alone, for the listing's generation; every subscriber is sent the
+ * generation when it subscribes and whenever it changes, and the page
+ * compares it with the one it was built from (data-gen on its body) to know
+ * it is out of date: media arrived, finished arriving, or went.
+ *
+ * Polling rather than a directory notifier: media lives in subdirectories
+ * as well, and what a page needs to hear about includes a copy finishing,
+ * which is only the passing of time.  The walk is stat()s of the listing's
+ * files, and only happens while somebody is looking.
+ */
+
+uint64_t
+lws_hls_listing_gen(struct per_vhost_data__lws_hls *vhd)
+{
+	struct dir_state ds;
+
+	memset(&ds, 0, sizeof(ds));
+	ds.base_dir = vhd->media_dir;
+	ds.gen_only = 1;
+	lws_dir(vhd->media_dir, &ds, hls_dir_cb);
+
+	return ds.gen;
+}
+
+static void
+hls_watch_sul(lws_sorted_usec_list_t *sul)
+{
+	struct per_vhost_data__lws_hls *vhd = lws_container_of(sul,
+				struct per_vhost_data__lws_hls, sul_watch);
+	lws_usec_t now = lws_now_usecs();
+	uint64_t gen;
+
+	if (!vhd->watchers.count)
+		/* nobody looking: stop until somebody is */
+		return;
+
+	gen = lws_hls_listing_gen(vhd);
+	if (gen != vhd->watch_gen) {
+		lwsl_info("%s: listing changed, telling %d page(s)\n",
+			  __func__, (int)vhd->watchers.count);
+		vhd->watch_gen = gen;
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->watchers)) {
+		struct per_session_data__lws_hls *pss = lws_container_of(d,
+				struct per_session_data__lws_hls, watch_list);
+
+		if (pss->watch_sent_gen != vhd->watch_gen ||
+		    now - pss->watch_tx > HLS_WATCH_KEEPALIVE_US)
+			lws_callback_on_writable(pss->wsi);
+	} lws_end_foreach_dll(d);
+
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_watch, hls_watch_sul,
+			 HLS_WATCH_US);
+}
+
+void
+lws_hls_watch_kick(struct per_vhost_data__lws_hls *vhd)
+{
+	if (vhd->watchers.count)
+		lws_sul_schedule(vhd->context, 0, &vhd->sul_watch,
+				 hls_watch_sul, 1);
+}
+
+int
+lws_hls_watch_add(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
+		  struct per_session_data__lws_hls *pss)
+{
+	/* room for the vhost's own headers too, eg a CSP */
+	uint8_t buf[LWS_PRE + 2048], *start = buf + LWS_PRE, *p = start,
+		*end = buf + sizeof(buf) - 1;
+
+	if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+					"text/event-stream",
+					LWS_ILLEGAL_HTTP_CONTENT_LEN, &p, end) ||
+	    lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CACHE_CONTROL,
+					 (const uint8_t *)"no-store", 8,
+					 &p, end) ||
+	    /* a buffering proxy in front would hold the events back */
+	    lws_add_http_header_by_name(wsi,
+					(const uint8_t *)"x-accel-buffering:",
+					(const uint8_t *)"no", 2, &p, end) ||
+	    lws_finalize_write_http_header(wsi, start, &p, end))
+		return -1;
+
+	/* no longer an http transaction with a timeout, but a feed */
+	lws_http_mark_sse(wsi);
+
+	/*
+	 * The first subscriber starts the watch, from the listing as it is
+	 * now; a later one is told what the watch last saw, and anything
+	 * since is at most HLS_WATCH_US away
+	 */
+	if (!vhd->watchers.count) {
+		vhd->watch_gen = lws_hls_listing_gen(vhd);
+		lws_sul_schedule(vhd->context, 0, &vhd->sul_watch,
+				 hls_watch_sul, HLS_WATCH_US);
+	}
+
+	pss->watching = 1;
+	pss->watch_sent = 0;
+	lws_dll2_add_tail(&pss->watch_list, &vhd->watchers);
+	lws_callback_on_writable(wsi);
+
+	return 0;
+}
+
+void
+lws_hls_watch_remove(struct per_vhost_data__lws_hls *vhd,
+		     struct per_session_data__lws_hls *pss)
+{
+	if (!pss->watching)
+		return;
+
+	pss->watching = 0;
+	lws_dll2_remove(&pss->watch_list);
+	if (!vhd->watchers.count)
+		lws_sul_cancel(&vhd->sul_watch);
+}
+
+int
+lws_hls_watch_writeable(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
+			struct per_session_data__lws_hls *pss)
+{
+	char buf[LWS_PRE + 64], *start = buf + LWS_PRE;
+	int n;
+
+	if (!pss->watch_sent || pss->watch_sent_gen != vhd->watch_gen) {
+		n = lws_snprintf(start, sizeof(buf) - LWS_PRE,
+				 "data: %016llx\r\n\r\n",
+				 (unsigned long long)vhd->watch_gen);
+		pss->watch_sent_gen = vhd->watch_gen;
+		pss->watch_sent = 1;
+	} else
+		/* an SSE comment: the page ignores it, the connection lives */
+		n = lws_snprintf(start, sizeof(buf) - LWS_PRE, ":\r\n\r\n");
+
+	if (lws_write(wsi, (uint8_t *)start, (size_t)n, LWS_WRITE_HTTP) != n)
+		return -1;
+
+	pss->watch_tx = lws_now_usecs();
+
+	return 0;
 }

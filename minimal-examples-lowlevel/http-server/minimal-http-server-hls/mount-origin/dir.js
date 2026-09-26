@@ -26,6 +26,11 @@
  * Media that is still being copied in (or whose copy stopped short) is
  * listed as .item.pending, with no player link and no thumbnail: the
  * server will not play it until it is all there.
+ *
+ * The listing keeps itself current: the server pushes a token of what it
+ * would list on the "events" SSE feed beside it, and when that is not the
+ * one this page was built from (data-gen on the body), media arrived,
+ * finished arriving or went, and the page reloads.
  */
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -35,6 +40,30 @@ document.addEventListener('DOMContentLoaded', function() {
     var btns = document.querySelectorAll('button.del-btn');
     for (var i = 0; i < btns.length; i++)
         btns[i].addEventListener('click', delFile);
+
+    /*
+     * Reloading under a delete in flight would lose its outcome (and a
+     * delete of ours is itself what changes the listing): wait for it
+     */
+    var deleting = 0, staleListing = false;
+
+    function reloadWhenIdle() {
+        staleListing = true;
+        if (!deleting)
+            window.location.reload();
+    }
+
+    var gen = document.body.getAttribute('data-gen');
+    if (gen && window.EventSource) {
+        var es = new EventSource('events');
+
+        es.onmessage = function(e) {
+            if (e.data === gen)
+                return;
+            es.close();
+            reloadWhenIdle();
+        };
+    }
 
     function delFile(event) {
         var btn = event.currentTarget;
@@ -55,6 +84,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
 
         btn.disabled = true;
+        deleting++;
 
         fetch('delete/' + encodeURIComponent(name), {
             method: 'POST',
@@ -72,6 +102,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }).catch(function(e) {
             btn.disabled = false;
             alert('Failed to delete "' + name + '": ' + e.message);
+        }).finally(function() {
+            if (!--deleting && staleListing)
+                window.location.reload();
         });
     }
 

@@ -395,6 +395,11 @@ struct per_vhost_data__lws_hls {
 	lws_sorted_usec_list_t sul_sweep; /* hourly stale-cache sweep */
 	lws_dll2_owner_t pss_list; /* active sessions */
 
+	/* the listing's change feed, see lws_hls_watch_add() */
+	lws_dll2_owner_t watchers;	/* pss subscribed to "events" */
+	lws_sorted_usec_list_t sul_watch; /* rewalk, while anyone watches */
+	uint64_t watch_gen;		/* the listing generation last seen */
+
 	/*
 	 * audio shadow transcode thread: browsers cannot play every audio
 	 * codec, and transcoding it per-segment restarted the encoder at
@@ -611,6 +616,13 @@ struct per_session_data__lws_hls {
 	
 	int can_delete;		/* this request may delete media */
 
+	/* subscribed to the listing's change feed (vhd->watchers) */
+	lws_dll2_t watch_list;
+	uint64_t watch_sent_gen;	/* the generation we last sent */
+	lws_usec_t watch_tx;		/* when we last sent anything */
+	uint8_t watching;
+	uint8_t watch_sent;		/* watch_sent_gen is valid */
+
 	/* stub lejp parsing.  The request members are collected and only acted
 	 * on once the whole object has parsed, so the secret can be checked
 	 * before anything is deleted regardless of member order. */
@@ -668,6 +680,29 @@ lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir,
 
 int
 lws_hls_serve_dir(struct lws *wsi, struct per_vhost_data__lws_hls *vhd);
+
+/*
+ * The listing's change feed: an SSE stream, on "events" beside the listing,
+ * of the listing's generation, which the listing page also carries.  _add()
+ * turns the request on wsi into a subscription, _writeable() is its
+ * HTTP_WRITEABLE, _remove() is called when it closes, and _kick() makes the
+ * watch look now, after we changed the media dir ourselves.
+ */
+int
+lws_hls_watch_add(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
+		  struct per_session_data__lws_hls *pss);
+int
+lws_hls_watch_writeable(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
+			struct per_session_data__lws_hls *pss);
+void
+lws_hls_watch_remove(struct per_vhost_data__lws_hls *vhd,
+		     struct per_session_data__lws_hls *pss);
+void
+lws_hls_watch_kick(struct per_vhost_data__lws_hls *vhd);
+
+/* the listing's generation, from a stat()-only walk of media-dir */
+uint64_t
+lws_hls_listing_gen(struct per_vhost_data__lws_hls *vhd);
 
 /*
  * Remove subdirectories of media-dir that no longer hold anything the

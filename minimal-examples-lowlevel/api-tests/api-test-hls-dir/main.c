@@ -108,6 +108,19 @@ static int got_status;
 static long got_cl = -1;
 static int step_over;		/* this step's transaction has ended */
 static int done;		/* 1 = all steps ran, -1 = failed */
+static int steps_done;		/* ...waiting for the feed to catch up */
+
+/*
+ * The listing's change feed ("events"), subscribed to once the listing is
+ * fetched and kept open across the steps: it must first say the
+ * generation the listing page was built with, and after the deletes, a
+ * different one
+ */
+#define FEED_TAG	((uintptr_t)0x10000)
+static char listing_gen[17], feed_first[17], feed_last[17];
+static int feed_count, feed_closed;
+static lws_sorted_usec_list_t sul_feed;
+static struct lws *feed_wsi;
 
 static void check_listing(void);
 static void check_index_arriving(void);
@@ -192,6 +205,83 @@ expect(const char *name, int cond);
 static void
 sul_connect_cb(lws_sorted_usec_list_t *sul);
 
+/* the change feed's client connection */
+static int
+callback_feed(struct lws *wsi, enum lws_callback_reasons reason, void *in,
+	      size_t len)
+{
+	switch (reason) {
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP: {
+		char buffer[1024 + LWS_PRE];
+		char *px = buffer + LWS_PRE;
+		int alen = (int)sizeof(buffer) - LWS_PRE;
+
+		if (lws_http_client_read(wsi, &px, &alen) < 0)
+			return -1;
+		break;
+	}
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ: {
+		const char *p = (const char *)in, *e = p + len;
+
+		/* each "data: <16 hex>" event arrives whole */
+		while ((p = memchr(p, 'd', lws_ptr_diff_size_t(e, p))) &&
+		       e - p >= 22) {
+			if (!strncmp(p, "data: ", 6)) {
+				lws_strncpy(feed_last, p + 6, sizeof(feed_last));
+				if (!feed_count++)
+					lws_strncpy(feed_first, feed_last,
+						    sizeof(feed_first));
+				else if (strcmp(feed_last, feed_first) &&
+					 steps_done) {
+					done = 1;
+					lws_cancel_service(context);
+				}
+			}
+			p++;
+		}
+		break;
+	}
+
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		feed_closed = 1;
+		feed_wsi = NULL;
+		if (steps_done) {
+			done = 1;
+			lws_cancel_service(context);
+		}
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+static void
+sul_feed_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_client_connect_info i;
+
+	memset(&i, 0, sizeof(i));
+	i.context		= context;
+	i.vhost			= lws_get_vhost_by_name(context, "cli");
+	i.address		= "127.0.0.1";
+	i.port			= port_hls;
+	i.path			= "/media/events";
+	i.host			= "127.0.0.1";
+	i.method		= "GET";
+	i.protocol		= "defprot";
+	i.local_protocol_name	= "lws-api-test-hls-dir-cli";
+	i.opaque_user_data	= (void *)FEED_TAG;
+	i.pwsi			= &feed_wsi;
+
+	if (!lws_client_connect_via_info(&i))
+		feed_closed = 1;
+}
+
 /* the current step's transaction is over, however it ended */
 static void
 step_end(int ok)
@@ -210,8 +300,12 @@ step_end(int ok)
 		st->check();
 
 	if (++cur == LWS_ARRAY_SIZE(steps)) {
-		done = 1;
-		lws_cancel_service(context);
+		steps_done = 1;
+		/* the deletes kicked the watch: the feed has news, or will */
+		if (feed_count > 1 || feed_closed) {
+			done = 1;
+			lws_cancel_service(context);
+		}
 		return;
 	}
 
@@ -227,6 +321,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	 * step's connection can still be closing (CLOSED after COMPLETED)
 	 * while the next one runs, and must not be taken for it
 	 */
+	if ((uintptr_t)lws_get_opaque_user_data(wsi) == FEED_TAG)
+		return callback_feed(wsi, reason, in, len);
+
 	if ((uintptr_t)lws_get_opaque_user_data(wsi) != cur + 1)
 		return 0;
 
@@ -659,7 +756,16 @@ expect(const char *name, int cond)
 static void
 check_listing(void)
 {
+	const char *g;
+
 	body[body_len] = '\0';
+
+	/* the generation the page was built with, for the change feed */
+	g = strstr(body, "<body data-gen='");
+	expect("listing carries its generation", !!g);
+	if (g)
+		lws_strncpy(listing_gen, g + 16, sizeof(listing_gen));
+	lws_sul_schedule(context, 0, &sul_feed, sul_feed_cb, 1);
 
 	expect("HTTP 200", got_status == HTTP_STATUS_OK);
 	expect("body arrived", body_len > 0);
@@ -929,6 +1035,16 @@ main(int argc, const char **argv)
 	lws_sul_cancel(&sul_timeout);
 
 	expect("every step ran", done == 1);
+
+	/* the change feed */
+	expect("feed opened with the listing's generation",
+	       feed_count && !strcmp(feed_first, listing_gen));
+	expect("feed told of the deletes",
+	       feed_count > 1 && strcmp(feed_last, feed_first));
+	expect("feed still open at the end", !feed_closed);
+	if (feed_wsi)
+		lws_set_timeout(feed_wsi, PENDING_TIMEOUT_USER_OK,
+				LWS_TO_KILL_SYNC);
 
 	result = !!fail;
 

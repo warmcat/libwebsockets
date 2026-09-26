@@ -807,6 +807,7 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 #endif
 		lws_hls_index_sweep_stop(vhd);
+		lws_sul_cancel(&vhd->sul_watch);
 
 		pthread_mutex_lock(&vhd->lock);
 		vhd->thread_exit = 1;
@@ -964,6 +965,10 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		/* Simple routing based on URL prefix */
 		if (!strcmp(url, "/") || !strcmp(url, "/index.html")) {
 			return lws_hls_serve_dir(wsi, vhd);
+		}
+		else if (!strcmp(url, "/events")) {
+			/* the listing page's change feed */
+			return lws_hls_watch_add(wsi, vhd, pss);
 		}
 		else if (!strncmp(url, "/preview/", 9)) {
 			/*
@@ -1250,6 +1255,8 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 						strerror(en));
 					return -1;
 				}
+				/* pages showing the listing hear of it now */
+				lws_hls_watch_kick(vhd);
 			}
 
 			lws_return_http_status(wsi, HTTP_STATUS_OK, "OK");
@@ -1321,10 +1328,15 @@ err_404:
 				return -1;
 			}
 
+			/* pages showing the listing hear of it now */
+			lws_hls_watch_kick(vhd);
+
 			lws_return_http_status(wsi, HTTP_STATUS_OK, "OK");
 			return -1;
 		}
 #endif
+		if (pss && pss->watching)
+			return lws_hls_watch_writeable(wsi, vhd, pss);
 		if (pss && pss->resp_ready) {
 			/* a task result arrived: start the response */
 			uint8_t buf[LWS_PRE + 2048];
@@ -1494,6 +1506,7 @@ err_404:
 					lwsl_notice("HLS-TRACE: connection closed with task in flight (type=%d seg=%d)\n",
 						    pss->task->type, pss->task->segment_idx);
 				lws_dll2_remove(&pss->pss_list);
+				lws_hls_watch_remove(vhd, pss);
 				/* a task in flight must not deliver to us */
 				lws_hls_task_detach(vhd, pss);
 #if defined(LWS_WITH_STUB)
