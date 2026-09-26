@@ -1659,7 +1659,26 @@ if (wsi->io.tls.ssl)
 	lws_sess_cache_synth_cb(&wsi->io.tls.sul_cb_synth);
 #endif
 
-wnew->io.tls = wsi->io.tls;
+/*
+ * The struct copy takes the pending-tls list node with it by value: if the
+ * old wsi was on the pt's list (the tls layer holds more decrypted bytes than
+ * the last read took), both now claim the same slot and the list holds a node
+ * inside a wsi about to be freed.  Move the membership, not the node.
+ */
+{
+	int pending = !lws_dll2_is_detached(&wsi->io.tls.dll_pending_tls);
+	lws_dll2_owner_t *own = lws_dll2_owner(&wsi->io.tls.dll_pending_tls);
+
+	if (pending)
+		lws_dll2_remove(&wsi->io.tls.dll_pending_tls);
+
+	wnew->io.tls = wsi->io.tls;
+	lws_dll2_clear(&wnew->io.tls.dll_pending_tls);
+	lws_dll2_clear(&wsi->io.tls.dll_pending_tls);
+
+	if (pending && own)
+		lws_dll2_add_head(&wnew->io.tls.dll_pending_tls, own);
+}
 wsi->io.tls.client_bio = NULL;
 wsi->io.tls.ssl = NULL;
 wsi->use_ssl = 0;
