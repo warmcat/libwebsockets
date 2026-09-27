@@ -425,9 +425,7 @@ inv_scan_zone(struct inv_stmts *s, const char *domains_path,
 	char path[1024], pfx[320], origin[300], tok[512], qual[512], ip[46];
 	struct auth_dns_zone zone;
 	struct stat st;
-	uint8_t stack_buf[4096];
 	uint8_t *buf = NULL;
-	size_t alloc, cap;
 	ssize_t n;
 	int fd, pl, ret = 1;
 
@@ -447,21 +445,9 @@ inv_scan_zone(struct inv_stmts *s, const char *domains_path,
 	if (pl < 0)
 		goto bail;
 
-	alloc = (size_t)n + (size_t)pl + 1;
-
-	if (alloc <= sizeof(stack_buf)) {
-		buf = stack_buf;
-		cap = sizeof(stack_buf);
-	} else {
-		buf = malloc(alloc);
-		cap = alloc;
-	}
-
+	/* room for the file, a $ORIGIN line we may put in front, and a NUL */
+	buf = malloc((size_t)n + (size_t)pl + 1);
 	if (!buf)
-		goto bail;
-
-	/* alloc is n + pl + 1, so this cannot fire... say so explicitly */
-	if ((size_t)n + (size_t)pl + 1 > cap)
 		goto bail;
 
 	if (read(fd, buf, (size_t)n) != n)
@@ -556,8 +542,7 @@ bail_zone:
 	lws_auth_dns_free_zone(&zone);
 
 bail:
-	if (buf && buf != stack_buf)
-		free(buf);
+	free(buf);
 	close(fd);
 
 	return ret;
