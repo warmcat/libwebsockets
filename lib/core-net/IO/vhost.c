@@ -70,6 +70,22 @@ static const struct lws_protocols protocols_dummy[] = {
 #undef LWS_HAVE_GETENV
 #endif
 
+#if defined(LWS_WITH_PROTOCOL_PLUGINS)
+/* is a protocol of this name already in the first count of pcols? */
+static int
+lws_pcols_have_name(const struct lws_protocols *pcols, int count,
+		    const char *name)
+{
+	int n;
+
+	for (n = 0; n < count; n++)
+		if (pcols[n].name && !strcmp(pcols[n].name, name))
+			return 1;
+
+	return 0;
+}
+#endif
+
 struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
 		 const struct lws_context_creation_info *info)
@@ -458,6 +474,17 @@ lws_create_vhost(struct lws_context *context,
 				(const lws_plugin_protocol_t *)plugin->hdr;
 
 			for (n = 0; n < plpr->count_protocols; n++) {
+				/*
+				 * A protocol the vhost already has by this
+				 * name, the user's own copy of a plugin
+				 * built into lws or one another plugin also
+				 * provides, wins: a second one could never be
+				 * bound by name, but would be given the same
+				 * pvo and so instantiate and run beside it
+				 */
+				if (lws_pcols_have_name(lwsp, m,
+						plpr->protocols[n].name))
+					continue;
 				/*
 				 * for compatibility's sake, no pvo implies
 				 * allow all protocols
