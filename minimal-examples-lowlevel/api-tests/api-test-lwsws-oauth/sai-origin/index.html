@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>apitest gated origin</title></head>
+<body>
+<!--
+  The content behind the lws-login interceptor.  In the real deployment this
+  mount is a UDS proxy to a separate sai process; what this test cares about is
+  the interceptor in front of it, not what it guards, so a static file stands in
+  for it.  The marker below is what the test matches to prove it got through.
+-->
+<p id="gated">APITEST-OAUTH-GATED-ORIGIN-REACHED</p>
+</body></html>

@@ -73,3 +73,4 @@ security-audit/
 
 # in-source cmake leftovers
 CTestTestfile.cmake
+build-oauth-apitest

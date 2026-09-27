@@ -1,0 +1,139 @@
+# lwsws vhosts for the api-test-lwsws-oauth ctest fixture
+#
+# Generated from conf.d/apitest.json.in by CMake at build time: do not edit the
+# copy in the build tree.
+#
+# This mirrors the shape of the warmcat.com deployment: one lwsws carrying both
+# halves of the delegated login, an "auth" vhost running lws-auth-server and an
+# "app" vhost running lws-oauth2-client + lws-login + lws_login_client, with the
+# app's protected mount reached through an lws-login interceptor-path.
+#
+# Differences from the deployment, and why:
+#
+#  - both vhosts answer on the same name (ctest only has localhost / a loopback
+#    literal to resolve), on two ports.  The deployment has them on two
+#    registrable domains, which matters only for whether the auth server's own
+#    cookies are visible to the app -- they never are either way, since the BFF
+#    forwards the app-host jar explicitly.  What this test does need to
+#    reproduce is Domain= versus host-only scoping of the *same* name, and that
+#    works identically on localhost;
+#
+#  - the app's protected mount is a static dir rather than a UDS proxy to a
+#    separate sai process.  The interceptor in front of it is the part under
+#    test, not what it guards;
+#
+#  - "alpn" is named explicitly on both vhosts so the transport matrix is
+#    deterministic.  Note that a deployment which says nothing gets h3 anyway:
+#    with no "alpn" key lws composes one from every built role (context.c,
+#    alpn_discovered), and an effective alpn mentioning h3 makes lws bind a QUIC
+#    UDP listener on the same port (ops-listen.c, "check_quic:").
+{
+ "vhosts": [{
+     "name": "@OAUTH_VHOST_NAME@",
+     "port": "@OAUTH_PORT_AUTH@",
+     "host-ssl-cert": "@OAUTH_CERT@",
+     "host-ssl-key": "@OAUTH_KEY@",
+     "alpn": "h3,h2,http/1.1",
+     "enable-client-ssl": "1",
+     "sni-fallback": "1",
+     "error-document-404": "/404.html",
+     "disable-no-protocol-ws-upgrades": "on",
+
+     "ws-protocols": [{
+        "lws-auth-server": {
+                "status":                       "ok",
+                "db_path":                      "@OAUTH_AUTH_DB@",
+                "auth_domain":                  "@OAUTH_VHOST_NAME@",
+                "jwk_path":                     "@OAUTH_JWK_PATH@",
+                "jwt_alg":                      "ES256",
+                "jwt-validity-secs":            "@OAUTH_JWT_VALIDITY@",
+                "refresh-validity-secs":        "2592000",
+                "registration_ui":              "1"
+        }
+       }],
+
+     "headers": [{
+        "content-security-policy": "default-src 'none'; img-src 'self' data: ; script-src 'self'; font-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self';",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "no-referrer"
+       }],
+
+     "mounts": [{
+        "mountpoint": "/api",
+        "origin": "callback://lws-auth-server"
+       }, {
+        "mountpoint": "/",
+        "origin": "file://@OAUTH_AUTH_ASSETS_DIR@",
+        "default": "index.html",
+        "headers": [{
+                "Content-Security-Policy": "default-src 'none'; img-src 'self' data: ; script-src 'self'; font-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://@OAUTH_VHOST_NAME@:@OAUTH_PORT_APP@;"
+        }]
+       }]
+    }, {
+     "name": "@OAUTH_VHOST_NAME@",
+     "port": "@OAUTH_PORT_APP@",
+     "host-ssl-cert": "@OAUTH_CERT@",
+     "host-ssl-key": "@OAUTH_KEY@",
+     "alpn": "h3,h2,http/1.1",
+     "enable-client-ssl": "1",
+     "sni-fallback": "1",
+     "error-document-404": "/404.html",
+     "disable-no-protocol-ws-upgrades": "on",
+
+     "ws-protocols": [{
+        "lws_login_client": {
+                "status":               "ok"
+        },
+        "lws-login": {
+                "status":               "ok",
+                "protocol":             "lws-login",
+                "auth-server-url":      "/oauth/login",
+                "auth-api-url":         "https://@OAUTH_VHOST_NAME@:@OAUTH_PORT_AUTH@",
+                "csrf-max-age-secs":    "2592000",
+                "jwt-jwk":              "@OAUTH_JWK_PATH@",
+                "cookie-name":          "auth_session",
+                "@OAUTH_COOKIE_DOMAIN_KEY@": "@OAUTH_COOKIE_DOMAIN@",
+                "unauth-allow":         "1"
+        },
+        "lws-oauth2-client": {
+                "status":               "ok",
+                "protocol":             "lws-oauth2-client",
+                "remote-auth-url":      "https://@OAUTH_VHOST_NAME@:@OAUTH_PORT_AUTH@",
+                "client-id":            "@OAUTH_CLIENT_ID@",
+                "cookie-name":          "auth_session",
+                "@OAUTH_COOKIE_DOMAIN_KEY@": "@OAUTH_COOKIE_DOMAIN@",
+                "cookie-max-age-secs":  "@OAUTH_JWT_VALIDITY@"
+        }
+       }],
+
+     "headers": [{
+        "content-security-policy": "default-src 'none'; img-src 'self' data: ; script-src 'self'; font-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self';",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "no-referrer"
+       }],
+
+     "mounts": [{
+        "mountpoint":                   "/lws-login-sai",
+        "origin":                       "callback://lws-login",
+        "protocol":                     "lws-login",
+        "pmo": [{
+                "service-name":         "@OAUTH_SERVICE_NAME@",
+                "unauth-allow":         1
+        }]
+       }, {
+        "mountpoint":                   "/oauth",
+        "origin":                       "callback://lws-oauth2-client",
+        "protocol":                     "lws-oauth2-client"
+       }, {
+        "mountpoint":                   "/sai",
+        "origin":                       "file://@OAUTH_SAI_ORIGIN_DIR@",
+        "default":                      "index.html",
+        "interceptor-path":             "/lws-login-sai",
+        "cache-no":                     "1"
+       }, {
+        "mountpoint":                   "/",
+        "origin":                       "file://@OAUTH_APP_ORIGIN_DIR@",
+        "default":                      "index.html"
+       }]
+    }]
+}
