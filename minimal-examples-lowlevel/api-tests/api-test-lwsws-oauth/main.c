@@ -56,8 +56,8 @@ static const char *server = "127.0.0.1", *alpn = "http/1.1",
 
 /*
  * Send a Host header as well as the authority the role composes.  A browser or
- * a reverse proxy may do this on h2 (RFC 9113 8.3.1 permits it when the two
- * agree), and it is what caught a mirror of :authority into Host that appended
+ * a reverse proxy may do this on h2 or h3 (RFC 9113 8.3.1 and RFC 9114 4.3.1
+ * permit it when the two agree), and it is what caught a mirror of :authority into Host that appended
  * rather than replaced: the server then read the two joined with a comma and
  * composed an absolute URL naming "host,host".
  */

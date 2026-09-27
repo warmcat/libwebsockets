@@ -784,6 +784,41 @@ char *lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h)
 	return wsi->stream.ah->data + wsi->stream.ah->frags[n].offset;
 }
 
+int
+lws_hdr_alias(struct lws *wsi, enum lws_token_indexes dst,
+	      enum lws_token_indexes src)
+{
+	struct allocated_headers *ah = wsi->stream.ah;
+	int s;
+
+	if (!ah || ah->frag_index[dst])
+		return -1;
+
+	s = ah->frag_index[src];
+	if (!s)
+		return 0;
+
+	/*
+	 * Only src's first fragment: a token that legitimately repeats is not
+	 * one worth aliasing, and the new fragment ends dst's chain, so
+	 * anything later chained onto dst leaves src alone
+	 */
+
+	if (ah->nfrag + 1 >= (int)LWS_ARRAY_SIZE(ah->frags)) {
+		lwsl_wsi_warn(wsi, "no hdr frag left to alias %d", (int)dst);
+		return -1;
+	}
+
+	ah->nfrag++;
+	ah->frags[ah->nfrag].offset = ah->frags[s].offset;
+	ah->frags[ah->nfrag].len = ah->frags[s].len;
+	ah->frags[ah->nfrag].nfrag = 0;
+	ah->frags[ah->nfrag].flags = 2;
+	ah->frag_index[dst] = ah->nfrag;
+
+	return 0;
+}
+
 static int LWS_WARN_UNUSED_RESULT
 lws_pos_in_bounds(struct lws *wsi)
 {

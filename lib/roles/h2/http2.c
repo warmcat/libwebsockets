@@ -2330,18 +2330,15 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		 * so a real Host arriving after :authority would append to the
 		 * mirrored copy and lws_hdr_copy() would then hand out the two
 		 * joined with a comma.
+		 *
+		 * Alias it rather than copy it: a request whose headers just
+		 * fit the ah must not be refused over a Host the peer never
+		 * sent.
 		 */
-		if (!lws_hdr_total_length(h2n->swsi, WSI_TOKEN_HOST) &&
-		    lws_hdr_total_length(h2n->swsi,
-					 WSI_TOKEN_HTTP_COLON_AUTHORITY) > 0) {
-			char authority[128];
-
-			if (lws_hdr_copy(h2n->swsi, authority, sizeof(authority),
-					 WSI_TOKEN_HTTP_COLON_AUTHORITY) > 0 &&
-			    lws_hdr_simple_create(h2n->swsi, WSI_TOKEN_HOST,
-						  authority))
-				return 1;
-		}
+		if (!lws_hdr_extant(h2n->swsi, WSI_TOKEN_HOST) &&
+		    lws_hdr_alias(h2n->swsi, WSI_TOKEN_HOST,
+				  WSI_TOKEN_HTTP_COLON_AUTHORITY))
+			return 1;
 
 		switch (h2n->swsi->h2.h2_state) {
 		case LWS_H2_STATE_IDLE:

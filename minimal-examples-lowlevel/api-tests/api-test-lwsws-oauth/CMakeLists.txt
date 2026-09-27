@@ -239,13 +239,18 @@ if (requirements)
 
 		#
 		# (c) a peer that sends Host as well as the authority, as a
-		# browser or a reverse proxy may on h2.  The absolute URLs the
-		# app composes from the request host must name one host.
+		# browser or a reverse proxy may on h2 or h3.  The absolute URLs
+		# the app composes from the request host must name one host.
 		#
 		if (has_h2)
 			add_test(NAME lwsws-oauth-dualhost-h2
 				 COMMAND ${SAMP} -t dualhost --h2 ${ARGS_COMMON})
 			list(APPEND mytests lwsws-oauth-dualhost-h2)
+		endif()
+		if (has_h3)
+			add_test(NAME lwsws-oauth-dualhost-h3
+				 COMMAND ${SAMP} -t dualhost --h3 ${ARGS_COMMON})
+			list(APPEND mytests lwsws-oauth-dualhost-h3)
 		endif()
 
 		foreach(t ${mytests})

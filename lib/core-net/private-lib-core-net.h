@@ -1635,6 +1635,16 @@ void
 lws_header_table_reset(struct lws *wsi, int autoservice);
 
 /*
+ * Give token dst, which must not be present, the value src already has,
+ * without copying it: dst gets a fragment of its own over src's bytes, so it
+ * costs no header data space.  Returns 0 if done or src is absent, nonzero if
+ * dst is already present or the ah has no fragment left for it.
+ */
+int LWS_WARN_UNUSED_RESULT
+lws_hdr_alias(struct lws *wsi, enum lws_token_indexes dst,
+	      enum lws_token_indexes src);
+
+/*
  * Contract: with autoservice set, and the wsi in the fds table with pending
  * buffered rx, this services the wsi's fd inline, and so can complete a
  * transaction, close the wsi and free it before it returns.  A caller passing

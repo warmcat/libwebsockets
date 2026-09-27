@@ -893,10 +893,6 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 			if (lws_h3_parse_path(wsi, value, value_len))
 				return -1;
 		} else {
-			if (tok == WSI_TOKEN_HTTP_COLON_AUTHORITY) {
-				if (lws_hdr_simple_create(wsi, WSI_TOKEN_HOST, value))
-					return -1;
-			}
 			if (lws_hdr_simple_create(wsi, (enum lws_token_indexes)tok, value))
 				return -1;
 		}
@@ -1829,6 +1825,23 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						    lws_hdr_extant(wsi, WSI_TOKEN_CONNECTION)) {
 							lwsl_wsi_notice(wsi, "H3 MESSAGE_ERROR: connection-specific header in request");
 							lws_quic_enter_closing_state(nwsi, LWS_H3_MESSAGE_ERROR, 0, 1);
+							return 1;
+						}
+
+						/*
+						 * Server code asks for the Host it
+						 * would have had on h1: give it the
+						 * :authority, once the block is done
+						 * and only if no Host came, the way h2
+						 * does (a real Host after :authority
+						 * would otherwise chain onto the
+						 * mirror).  An alias, so a request
+						 * that just fits the ah still does.
+						 */
+						if (!lws_hdr_extant(wsi, WSI_TOKEN_HOST) &&
+						    lws_hdr_alias(wsi, WSI_TOKEN_HOST,
+								  WSI_TOKEN_HTTP_COLON_AUTHORITY)) {
+							lws_quic_enter_closing_state(nwsi, LWS_H3_INTERNAL_ERROR, 0, 1);
 							return 1;
 						}
 					}
