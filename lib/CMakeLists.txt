@@ -490,6 +490,32 @@ foreach (lib ${LWS_LIBRARIES})
 endforeach()
 
 #
+# The sansIO half as websockets-sansio compiled it, blind to IO's
+# internals, linked with the rest of the library compiled the ordinary way.
+# The two halves have the same struct lws, so this is the whole library;
+# api-test-sansio also runs against it (READMEs/README.sans-io-split.md).
+#
+if (LWS_WITH_SANSIO_BUILD)
+	set(SOURCES_NOT_SANSIO ${SOURCES})
+	list(REMOVE_ITEM SOURCES_NOT_SANSIO ${SOURCES_SANSIO})
+	add_library(websockets-split STATIC $<TARGET_OBJECTS:websockets-sansio>
+		    ${SOURCES_NOT_SANSIO})
+	set_target_properties(websockets-split PROPERTIES LINKER_LANGUAGE C)
+	target_include_directories(websockets-split INTERFACE
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../include>)
+	target_include_directories(websockets-split PRIVATE
+		${LWS_LIB_BUILD_INC_PATHS} ${LWS_LIB_BUILD_INC_PATHS_TEMP}
+		${CMAKE_CURRENT_SOURCE_DIR}/../core)
+	foreach(inc ${LWS_PUBLIC_INCLUDES})
+		target_include_directories(websockets-split PUBLIC
+					   "$<BUILD_INTERFACE:${inc}>")
+	endforeach()
+	target_compile_definitions(websockets-split PRIVATE LWS_BUILDING_STATIC)
+	target_link_libraries(websockets-split ${STRIPPED_LIB_LIST})
+endif()
+
+#
 # These will be available to parent projects including libwebsockets
 # using add_subdirectory()
 #

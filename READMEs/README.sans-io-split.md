@@ -429,9 +429,10 @@ can be live).
    client's jit-trust vhost and a jit-trust vhost's grace are IO's.
 8. Split the object: IO's fields of `struct lws` move into the
    `lws_io_adjunct` (see "The object"), the check making it opaque to
-   sansIO (in progress: the socket identity first; then the adjunct is
-   held by pointer, allocated after the wsi, its type incomplete to
-   sansIO, so both halves compile the same `struct lws`).
+   sansIO (done: the socket identity first; then the adjunct is held by
+   pointer, allocated after the wsi, its type incomplete to sansIO, so
+   both halves compile the same `struct lws`; then the members only IO
+   used, found by counting each member's uses in the two halves).
 9. A byte-level harness: a connection whose transport is the test's
    (`lws_set_transport()` for a server connection, the `transport` of
    `lws_client_connect_info` for a client one, under the tls record layer
@@ -444,9 +445,10 @@ can be live).
    (done as a compile: `websockets-sansio`, above, builds only what the
    sansIO directories declare, and fails on a call into IO past the
    seam; with the link-level check, the objects need nothing private of
-   IO's).  It is not yet a link: IO's half of the object is opaque to
-   it, so the objects cannot be linked with a real IO half until the
-   struct split.  These are the test of
+   IO's), and as a link (done: with the struct split both halves compile
+   the same `struct lws`, so `websockets-split` links those objects with
+   the rest of the library compiled the ordinary way, and
+   `api-test-sansio-split` runs the byte-level harness against it).  These are the test of
    "technically complete"; the static checks above are inferences until
    they pass.
 10. When every role is converted, the IO half is a replaceable component,
