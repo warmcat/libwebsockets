@@ -2684,6 +2684,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 #endif
 	unsigned char *obuf = *buf;
 #if defined(LWS_WITH_HTTP2)
+	struct lws_h2_protocol_send *pps;
 	char tbuf[128], *p;
 #endif
 	size_t olen = len;
@@ -3039,15 +3040,11 @@ upgrade_h2c:
 		                                      H2SET_HEADER_TABLE_SIZE]))
 			return 1;
 
-		strcpy(tbuf, "HTTP/1.1 101 Switching Protocols\x0d\x0a"
-			      "Connection: Upgrade\x0d\x0a"
-			      "Upgrade: h2c\x0d\x0a\x0d\x0a");
-		m = (int)strlen(tbuf);
-		n = lws_issue_raw(wsi, (unsigned char *)tbuf, (unsigned int)m);
-		if (n != m) {
-			lwsl_debug("http2 switch: ERROR writing to socket\n");
+		/* our answer to the upgrade goes first, the h2 after it */
+		pps = lws_h2_new_pps(LWS_H2_PPS_H2C_101);
+		if (!pps)
 			return 1;
-		}
+		lws_pps_schedule(wsi, pps);
 
 		return 0;
 #endif

@@ -194,7 +194,9 @@ enum lws_h2_protocol_send_type {
 	LWS_H2_PPS_GOAWAY,
 	LWS_H2_PPS_RST_STREAM,
 	LWS_H2_PPS_UPDATE_WINDOW,
-	LWS_H2_PPS_SETTINGS_INITIAL_UPDATE_WINDOW
+	LWS_H2_PPS_SETTINGS_INITIAL_UPDATE_WINDOW,
+	LWS_H2_PPS_PREFACE,	/* a client's connection preface, RFC 9113 3.4 */
+	LWS_H2_PPS_H2C_101,	/* the http/1.1 answer switching to h2c */
 };
 
 struct lws_h2_protocol_send {
@@ -243,6 +245,9 @@ struct lws_h2_netconn {
 	char goaway_str[32]; /* for rx */
 	struct lws *swsi;
 	lws_dll2_owner_t pps_owner; /* protocol sends to issue, oldest at tail */
+	struct lws_h2_protocol_send *pps_tx; /* the one IO is writing */
+	uint8_t pps_tx_budget; /* left to send this tx pass */
+	uint8_t pps_tx_pass:1; /* the tx pass sent protocol packets */
 
 	enum http2_hpack_state hpack;
 	enum http2_hpack_type hpack_type;

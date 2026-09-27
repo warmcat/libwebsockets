@@ -215,6 +215,15 @@ rops_rx_policy_h2(struct lws *wsi, int *flags, size_t *max)
 		*flags |= LWS_RXPOL_F_POLLOUT;
 
 	/*
+	 * Likewise its protocol packets are the connection's own, whatever the
+	 * state: the 101 answering an h2c upgrade is sent while we await the
+	 * peer's preface, which only comes after it
+	 */
+	if (lws_wsi_is_mux_nwsi(wsi) &&
+	    !lws_dll2_is_empty(&wsi->h2.h2n->pps_owner))
+		*flags |= LWS_RXPOL_F_POLLOUT;
+
+	/*
 	 * something went wrong with parsing the handshake, and we ended up
 	 * back in the event loop without completing it
 	 */
@@ -308,6 +317,75 @@ rops_rx_policy_h2(struct lws *wsi, int *flags, size_t *max)
 }
 
 
+/*
+ * The network connection's tx (README.sans-io-split.md, "Sending is a
+ * pull"): IO asks for its protocol packets first each POLLOUT pass, oldest
+ * first.  They are drained as far as a pass allows: the frames are small,
+ * and leaving the bulk of them queued risks the pps ceiling goaway-ing the
+ * connection, and everything in flight on it, when rx arrives in bursts.
+ */
+static int
+rops_tx_h2(struct lws *wsi, uint8_t *buf, size_t max, lws_sockaddr46 *dest,
+	   int first)
+{
+	struct lws_h2_netconn *h2n = wsi->h2.h2n;
+	int n;
+
+	if (!lws_wsi_is_mux_nwsi(wsi) || !h2n ||
+	    lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY ||
+	    lwsi_state(wsi) == LRS_AWAITING_FILE_READ)
+		return 0;
+
+	if (first) {
+		h2n->pps_tx_budget = 64;
+		h2n->pps_tx_pass = 0;
+	}
+
+	while (h2n->pps_tx_budget && lws_dll2_get_tail(&h2n->pps_owner)) {
+		h2n->pps_tx_budget--;
+		h2n->pps_tx_pass = 1;
+
+		n = lws_h2_pps_tx(wsi, buf, max, &h2n->pps_tx);
+		if (n)
+			return n; /* bytes for IO, or it failed */
+
+		/* nothing to send for this one: its consequences, the next */
+		n = lws_h2_pps_done(wsi, h2n->pps_tx);
+		h2n->pps_tx = NULL;
+		if (n) {
+			lwsi_set_skt_unusable(wsi, 1);
+			return LWS_TX_FAIL;
+		}
+	}
+
+	return 0;
+}
+
+/*
+ * The pps IO wrote: its consequences, whose bytes must follow it (the
+ * SETTINGS ack's start the first response).
+ */
+static int
+rops_tx_sent_h2(struct lws *wsi, int n)
+{
+	struct lws_h2_netconn *h2n = wsi->h2.h2n;
+	struct lws_h2_protocol_send *pps = h2n->pps_tx;
+
+	h2n->pps_tx = NULL;
+	if (n < 0) {
+		lws_free(pps);
+		lwsi_set_skt_unusable(wsi, 1);
+		return -1;
+	}
+
+	if (lws_h2_pps_done(wsi, pps)) {
+		lwsi_set_skt_unusable(wsi, 1);
+		return -1;
+	}
+
+	return 0;
+}
+
 lws_handling_result_t
 rops_handle_POLLOUT_h2(struct lws *wsi)
 {
@@ -321,53 +399,14 @@ rops_handle_POLLOUT_h2(struct lws *wsi)
 	}
 
 	/*
-	 * Priority 1: H2 protocol packets
+	 * Priority 1: H2 protocol packets.  IO's tx pull sent what it could of
+	 * them just before this pass (rops_tx_h2()): if it sent any, the pass
+	 * was theirs.
 	 */
-	if (lws_wsi_is_mux_nwsi(wsi) &&
-	    lws_dll2_get_head(&wsi->h2.h2n->pps_owner)) {
-		int budget = 64;
+	if (lws_wsi_is_mux_nwsi(wsi) && wsi->h2.h2n->pps_tx_pass) {
+		wsi->h2.h2n->pps_tx_pass = 0;
 
-		lwsl_info("servicing pps\n");
-		/*
-		 * this is called on the network connection, but may close
-		 * substreams... that may affect callers
-		 *
-		 * Drain as many as we can per pass: the frames are small, and
-		 * leaving the bulk of them queued risks the pps ceiling
-		 * goaway-ing the connection, and everything in flight on it,
-		 * when rx arrives in bursts
-		 */
-		while (budget-- &&
-		       lws_dll2_get_head(&wsi->h2.h2n->pps_owner)) {
-			struct lws_context_per_thread *pt =
-					&wsi->a.context->pt[(int)wsi->tsi];
-			struct lws_h2_protocol_send *pps;
-			int n, sb;
-
-			/*
-			 * compose, write, then the consequences: the
-			 * SETTINGS ack's start the first response, whose
-			 * bytes must follow the ack's
-			 */
-			sb = lws_servbuf_claim(pt, pt->serv_buf,
-					       wsi->a.context->pt_serv_buf_size,
-					       "h2 pps tx");
-			n = lws_h2_pps_tx(wsi, pt->serv_buf,
-					  wsi->a.context->pt_serv_buf_size,
-					  &pps);
-			if (n > 0 && lws_issue_raw(wsi, pt->serv_buf,
-						   (size_t)n) != n) {
-				lws_free(pps);
-				n = LWS_TX_FAIL;
-			}
-			lws_servbuf_release(pt, sb);
-			if (n < 0 || lws_h2_pps_done(wsi, pps)) {
-				lwsi_set_skt_unusable(wsi, 1);
-				return LWS_HP_RET_BAIL_DIE;
-			}
-		}
-
-		if(!lws_dll2_is_empty(&wsi->h2.h2n->pps_owner))
+		if (!lws_dll2_is_empty(&wsi->h2.h2n->pps_owner))
 			return LWS_HP_RET_BAIL_OK;
 
 		/* we can resume whatever we were doing */
@@ -1891,8 +1930,10 @@ static const lws_rops_t rops_table_h2[] = {
 	/* 14 */ { .issue_keepalive	  = rops_issue_keepalive_h2 },
 	/* 15 */ { .rx			  = rops_rx_h2 },
 	/* 16 */ { .rx_policy		  = rops_rx_policy_h2 },
+	/* 17 */ { .tx			  = rops_tx_h2 },
+	/* 18 */ { .tx_sent		  = rops_tx_sent_h2 },
 #if defined(LWS_WITH_CLIENT)
-	/* 17 */ { .client_transport_up	  = lws_h2_client_transport_up },
+	/* 19 */ { .client_transport_up	  = lws_h2_client_transport_up },
 #endif
 };
 
@@ -1929,13 +1970,16 @@ const struct lws_role_ops role_ops_h2 = {
 	  /* LWS_ROPS_issue_keepalive */		0x00, 0x0E,
 #if defined(LWS_WITH_CLIENT)
 	  /* LWS_ROPS_client_transport_up */
-	  /* LWS_ROPS_rx */				0x11, 0x0F,
+	  /* LWS_ROPS_rx */				0x13, 0x0F,
 #else
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x00, 0x0F,
 #endif
 	  /* LWS_ROPS_rx_dgram */			0x00,
 	  /* LWS_ROPS_rx_policy */			0x10,
+	  /* LWS_ROPS_rx_done */			0x00,
+	  /* LWS_ROPS_tx */				0x11,
+	  /* LWS_ROPS_tx_sent */			0x12,
 					},
 	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
 					  LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED },

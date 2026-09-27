@@ -585,9 +585,11 @@ lws_h2_issue_preface(struct lws *wsi)
 
 	lwsl_wsi_debug(wsi, "start");
 
-	if (lws_issue_raw(wsi, (uint8_t *)preface, strlen(preface)) !=
-		(int)strlen(preface))
+	/* the preface goes first, the settings after it */
+	pps = lws_h2_new_pps(LWS_H2_PPS_PREFACE);
+	if (!pps)
 		return 1;
+	lws_pps_schedule(wsi, pps);
 
 	lws_wsi_event(wsi, LWS_WSIEV_H2_PREFACE_SENT);
 
@@ -1148,6 +1150,19 @@ lws_h2_pps_tx(struct lws *wsi, uint8_t *buf, size_t max,
 	lwsl_info("%s: %s: %d\n", __func__, lws_wsi_tag(wsi), pps->type);
 
 	switch (pps->type) {
+
+	case LWS_H2_PPS_PREFACE:
+		/* not a frame: the bytes that say the connection is h2 */
+		n = (int)strlen(preface);
+		memcpy(buf, preface, (size_t)n);
+		return n;
+
+	case LWS_H2_PPS_H2C_101:
+		/* not a frame either: http/1.1's answer to the upgrade */
+		return lws_snprintf((char *)buf, max,
+				    "HTTP/1.1 101 Switching Protocols\x0d\x0a"
+				    "Connection: Upgrade\x0d\x0a"
+				    "Upgrade: h2c\x0d\x0a\x0d\x0a");
 
 	case LWS_H2_PPS_MY_SETTINGS:
 		/*

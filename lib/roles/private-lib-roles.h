@@ -651,22 +651,26 @@ typedef int (*lws_rops_rx_t)(struct lws *wsi, const uint8_t *buf, size_t len,
 typedef int (*lws_rops_rx_dgram_t)(struct lws *wsi, uint8_t *buf, size_t len,
 				   const lws_sockaddr46 *peer, uint8_t ecn);
 /*
- * sansIO tx, datagram spelling (README.sans-io-split.md, "Sending is a
- * pull"): the socket wsi owns can take a datagram.  Produce the next one into
- * buf, at most max bytes, and say where it goes in *dest (family 0: to the
- * socket's connected peer).  first is set on the first call of a tx pass.
- * Returns its length; 0 when nothing more is to be sent now; LWS_TX_WAIT when
- * sansIO holds what it has (its own limits: it asks for tx again when they
- * lift); LWS_TX_FAIL when producing failed and it gave up on the pass.
+ * sansIO tx (README.sans-io-split.md, "Sending is a pull"): the transport
+ * wsi owns can take bytes.  Produce the next of them into buf, at most max.
+ * On a datagram transport (a role with rx_dgram) that is one datagram, and
+ * *dest says where it goes (family 0: to the socket's connected peer); on a
+ * stream transport dest is NULL.  first is set on the first call of a tx
+ * pass.  Returns how many bytes; 0 when nothing more is to be sent now;
+ * LWS_TX_WAIT when sansIO holds what it has (its own limits: it asks for tx
+ * again when they lift); LWS_TX_FAIL when the connection is finished with:
+ * IO closes it.
  *
- * After each datagram IO tries to send, tx_dgram_sent says how it went: n
- * bytes taken, or LWS_SSL_CAPABLE_MORE_SERVICE_WRITE, the transport could not
- * take it now, or LWS_SSL_CAPABLE_ERROR.  Returns 0 to go on with the pass,
- * 1 to end it (the transport is full: IO keeps asking when it is writable).
+ * After each write, tx_sent says how it went: n bytes taken (a stream
+ * transport takes them all, buffering what the socket did not), or
+ * LWS_SSL_CAPABLE_MORE_SERVICE_WRITE, a datagram transport could not take
+ * it now, or LWS_SSL_CAPABLE_ERROR.  Returns 0 to go on with the pass, 1 to
+ * end it (the transport is full: IO keeps asking when it is writable), -1
+ * when the connection is finished with: IO closes it.
  */
-typedef int (*lws_rops_tx_dgram_t)(struct lws *wsi, uint8_t *buf, size_t max,
-				   lws_sockaddr46 *dest, int first);
-typedef int (*lws_rops_tx_dgram_sent_t)(struct lws *wsi, int n);
+typedef int (*lws_rops_tx_t)(struct lws *wsi, uint8_t *buf, size_t max,
+			     lws_sockaddr46 *dest, int first);
+typedef int (*lws_rops_tx_sent_t)(struct lws *wsi, int n);
 
 /*
  * sansIO rx policy: how IO should feed this wsi's rx this pass, given the
@@ -730,8 +734,8 @@ typedef union lws_rops {
 	lws_rops_rx_dgram_t			rx_dgram;
 	lws_rops_rx_policy_t			rx_policy;
 	lws_rops_rx_done_t			rx_done;
-	lws_rops_tx_dgram_t			tx_dgram;
-	lws_rops_tx_dgram_sent_t		tx_dgram_sent;
+	lws_rops_tx_t				tx;
+	lws_rops_tx_sent_t			tx_sent;
 } lws_rops_t;
 
 typedef enum {
@@ -760,8 +764,8 @@ typedef enum {
 	LWS_ROPS_rx_dgram,
 	LWS_ROPS_rx_policy,
 	LWS_ROPS_rx_done,
-	LWS_ROPS_tx_dgram,
-	LWS_ROPS_tx_dgram_sent,
+	LWS_ROPS_tx,
+	LWS_ROPS_tx_sent,
 } lws_rops_func_idx_t;
 
 struct lws_context_per_thread;

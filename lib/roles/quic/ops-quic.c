@@ -3332,20 +3332,24 @@ lws_quic_conn_tx_sent(struct lws *nwsi, int n)
 }
 
 /*
- * tx_dgram: IO pulls the next datagram of the socket wsi owns.  A client's
+ * tx: IO pulls the next datagram of the socket wsi owns.  A client's
  * connection owns its socket.  A listener's connections share its socket:
  * its own replies go first, then its connections that asked to write, each
  * taken until it has nothing more this pass.
  */
 static int
-rops_tx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t max,
+rops_tx_quic(struct lws *wsi, uint8_t *buf, size_t max,
 		   lws_sockaddr46 *dest, int first)
 {
 	struct lws_dll2 *d;
 	int n;
 
-	if (wsi->quic.qn)
-		return lws_quic_conn_tx(wsi, buf, max, dest, first);
+	if (wsi->quic.qn) {
+		n = lws_quic_conn_tx(wsi, buf, max, dest, first);
+
+		/* a failed packet ends our pass, not the connection */
+		return n == LWS_TX_FAIL ? 0 : n;
+	}
 
 	if (first) {
 		wsi->quic.tx_cur = NULL;
@@ -3363,16 +3367,17 @@ rops_tx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t max,
 		struct lws_quic_reply *r = lws_container_of(d,
 					struct lws_quic_reply, list);
 
-		if (r->len > max) { /* cannot be: they are small */
-			lws_dll2_remove(&r->list);
-			lws_free(r);
-			return LWS_TX_FAIL;
-		}
-		memcpy(buf, &r[1], r->len);
-		*dest = r->dest;
-		wsi->quic.tx_is_reply = 1;
+		if (r->len <= max) {
+			memcpy(buf, &r[1], r->len);
+			*dest = r->dest;
+			wsi->quic.tx_is_reply = 1;
 
-		return (int)r->len;
+			return (int)r->len;
+		}
+
+		/* cannot be: they are small */
+		lws_dll2_remove(&r->list);
+		lws_free(r);
 	}
 
 	d = wsi->quic.tx_cur ? &wsi->quic.tx_cur->mux.sibling_list :
@@ -3405,7 +3410,7 @@ rops_tx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t max,
 }
 
 static int
-rops_tx_dgram_sent_quic(struct lws *wsi, int n)
+rops_tx_sent_quic(struct lws *wsi, int n)
 {
 	if (wsi->quic.qn)
 		return lws_quic_conn_tx_sent(wsi, n);
@@ -4957,9 +4962,9 @@ static const lws_rops_t rops_table_quic[] = {
 	/* 14, or 12 without client */
 		 { .rx_policy		  = rops_rx_policy_quic },
 	/* 15, or 13 without client */
-		 { .tx_dgram		  = rops_tx_dgram_quic },
+		 { .tx			  = rops_tx_quic },
 	/* 16, or 14 without client */
-		 { .tx_dgram_sent	  = rops_tx_dgram_sent_quic },
+		 { .tx_sent		  = rops_tx_sent_quic },
 };
 
 const struct lws_role_ops role_ops_quic = {
@@ -4993,8 +4998,8 @@ const struct lws_role_ops role_ops_quic = {
 	  /* LWS_ROPS_rx */				0x0C, 0x00,
 	  /* LWS_ROPS_rx_dgram */			0x0D, 0x0E,
 	  /* LWS_ROPS_rx_done */
-	  /* LWS_ROPS_tx_dgram */			0x00, 0x0F,
-	  /* LWS_ROPS_tx_dgram_sent */			0x10,
+	  /* LWS_ROPS_tx */			0x00, 0x0F,
+	  /* LWS_ROPS_tx_sent */			0x10,
 #else
 	  /* LWS_ROPS_client_bind */
 	  /* LWS_ROPS_issue_keepalive */		0x00, 0x00,
@@ -5002,8 +5007,8 @@ const struct lws_role_ops role_ops_quic = {
 	  /* LWS_ROPS_rx */				0x00, 0x00,
 	  /* LWS_ROPS_rx_dgram */			0x0B, 0x0C,
 	  /* LWS_ROPS_rx_done */
-	  /* LWS_ROPS_tx_dgram */			0x00, 0x0D,
-	  /* LWS_ROPS_tx_dgram_sent */			0x0E,
+	  /* LWS_ROPS_tx */			0x00, 0x0D,
+	  /* LWS_ROPS_tx_sent */			0x0E,
 #endif
 					},
 
