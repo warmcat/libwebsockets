@@ -1271,6 +1271,21 @@ rand_fail:
 		if (!ps)
 			break;
 
+		/*
+		 * A WRITEABLE is not a verdict: lws may deliver ones we did not
+		 * ask for (README.coding.md, "Do not rely on only your own
+		 * WRITEABLE requests appearing"), eg, h2 wakes every stream on
+		 * the connection when the peer opens the connection window.
+		 * The client leg's completion, error and close callbacks clear
+		 * wsi_client as they ask for the WRITEABLE that carries the
+		 * outcome, which is only delivered after they return; so while
+		 * it is still set, the /api/token exchange is in flight and
+		 * there is nothing to say yet.  The server leg's
+		 * PENDING_TIMEOUT_HTTP_CONTENT bounds how long we wait.
+		 */
+		if (ps->wsi_client)
+			break;
+
 		if (ps->fatal_error || !ps->token[0]) {
 			/*
 			 * If /api/token returned an OAuth2 error JSON, surface
