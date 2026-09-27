@@ -1606,11 +1606,19 @@ callback_raw_h2c(struct lws *wsi, enum lws_callback_reasons reason,
 				return -1;
 		}
 
-		/* h2 frames */
-		p = cn->h2c_buf;
-		while (cn->h2c_len >= 9) {
-			size_t flen = ((size_t)p[0] << 16) | ((size_t)p[1] << 8) | p[2];
-			uint8_t type = p[3], flags = p[4];
+		/*
+		 * h2 frames: o is how far into the buffer whole frames were
+		 * consumed, cn->h2c_len stays what we buffered until the end
+		 */
+		o = 0;
+		while (o + 9 <= cn->h2c_len) {
+			size_t flen;
+			uint8_t type, flags;
+
+			p = cn->h2c_buf + o;
+			flen = ((size_t)p[0] << 16) | ((size_t)p[1] << 8) | p[2];
+			type = p[3];
+			flags = p[4];
 
 			/*
 			 * A frame bigger than our whole rx buffer can never
@@ -1621,7 +1629,7 @@ callback_raw_h2c(struct lws *wsi, enum lws_callback_reasons reason,
 					 __func__, (unsigned int)flen);
 				return -1;
 			}
-			if (cn->h2c_len < 9 + flen)
+			if (cn->h2c_len - o < 9 + flen)
 				break;
 			switch (type) {
 			case 4: /* SETTINGS: ack theirs */
@@ -1653,11 +1661,12 @@ callback_raw_h2c(struct lws *wsi, enum lws_callback_reasons reason,
 			default:
 				break;
 			}
-			p += 9 + flen;
-			cn->h2c_len -= 9 + flen;
+			o += 9 + flen;
 		}
-		if (p != cn->h2c_buf)
-			memmove(cn->h2c_buf, p, cn->h2c_len);
+		if (o) {
+			cn->h2c_len -= o;
+			memmove(cn->h2c_buf, cn->h2c_buf + o, cn->h2c_len);
+		}
 		break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
