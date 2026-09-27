@@ -144,6 +144,13 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 	if ((int)m < 0)
 		m = 0;
 
+	if (m > n) {
+		/* a tls backend claiming more than we offered it is broken */
+		lwsl_wsi_err(wsi, "wrote %u of %u", m, n);
+		lwsi_set_skt_unusable(wsi, 1);
+		return -1;
+	}
+
 	/*
 	 * we were sending this from buflist_out?  Then not sending everything
 	 * is a small matter of advancing ourselves only by the amount we did
