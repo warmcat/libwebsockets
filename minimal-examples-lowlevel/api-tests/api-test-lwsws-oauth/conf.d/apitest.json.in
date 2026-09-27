@@ -81,6 +81,10 @@
      "host-ssl-key": "@OAUTH_KEY@",
      "alpn": "h3,h2,http/1.1",
      "enable-client-ssl": "1",
+     # the BFF's own server-to-server calls to the auth server have to trust
+     # it, and in a deployment that is a public CA.  Here both vhosts serve the
+     # build tree's self-signed test cert, so it is its own CA
+     "client-ssl-ca": "@OAUTH_CERT@",
      "sni-fallback": "1",
      "error-document-404": "/404.html",
      "disable-no-protocol-ws-upgrades": "on",

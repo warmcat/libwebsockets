@@ -212,6 +212,31 @@ if (requirements)
 			list(APPEND mytests lwsws-oauth-bounce-h3)
 		endif()
 
+		#
+		# (b) the credential half: the seeded account logs in through the
+		# auth server, the BFF exchanges the code for a token over its
+		# own server-to-server hop, and the session cookies land.  This
+		# is the only path that makes the auth server mint a session --
+		# so the only one that exercises the response carrying the large
+		# Set-Cookies -- and the only one that makes the BFF talk to the
+		# auth server at all.
+		#
+		add_test(NAME lwsws-oauth-login-h1
+			 COMMAND ${SAMP} -t login --h1 ${ARGS_COMMON})
+		list(APPEND mytests lwsws-oauth-login-h1)
+
+		if (has_h2)
+			add_test(NAME lwsws-oauth-login-h2
+				 COMMAND ${SAMP} -t login --h2 ${ARGS_COMMON})
+			list(APPEND mytests lwsws-oauth-login-h2)
+		endif()
+
+		if (has_h3)
+			add_test(NAME lwsws-oauth-login-h3
+				 COMMAND ${SAMP} -t login --h3 ${ARGS_COMMON})
+			list(APPEND mytests lwsws-oauth-login-h3)
+		endif()
+
 		foreach(t ${mytests})
 			set_tests_properties(${t} PROPERTIES
 					     WORKING_DIRECTORY ${OAUTH_DIR}

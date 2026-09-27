@@ -142,12 +142,254 @@ loc_has(const char *key)
 	return !!strstr(q, nb);
 }
 
+/* ---------------------------------------------------------------- cookie jar */
+
+/*
+ * One jar per vhost, not one jar.
+ *
+ * In the deployment the app and the auth server are on two registrable
+ * domains, so neither ever sees the other's cookies; the BFF forwards the app
+ * jar to the auth server explicitly and that is the only path between them.
+ * Here both vhosts answer on one name at two ports, and cookies are keyed by
+ * host and not by port, so a single jar would let the two servers' same-named
+ * cookies overwrite each other -- modelling something that cannot happen and
+ * hiding the thing that can.
+ */
+
+enum { JAR_AUTH, JAR_APP, JAR_COUNT };
+
+struct cookie {
+	char		name[64];
+	char		value[3072];
+	char		domain[128];	/* "" when the cookie is host-only */
+	char		dead;
+};
+
+#define COOKIES_MAX 12
+
+static struct cookie	jar[JAR_COUNT][COOKIES_MAX];
+
+static const char *jar_name[JAR_COUNT] = { "auth", "app" };
+
+static struct cookie *
+jar_find(int j, const char *name, const char *domain)
+{
+	int n;
+
+	for (n = 0; n < COOKIES_MAX; n++)
+		if (jar[j][n].name[0] && !strcmp(jar[j][n].name, name) &&
+		    !strcmp(jar[j][n].domain, domain ? domain : ""))
+			return &jar[j][n];
+
+	return NULL;
+}
+
+static struct cookie *
+jar_slot(int j)
+{
+	int n;
+
+	for (n = 0; n < COOKIES_MAX; n++)
+		if (!jar[j][n].name[0])
+			return &jar[j][n];
+
+	return NULL;
+}
+
+/*
+ * Take in one Set-Cookie value.  A cookie is identified by name *and* scope: a
+ * Domain=-scoped one and a host-only one of the same name are two different
+ * cookies that a browser stores side by side and sends both of, which is the
+ * state that had the field picking a stale csrf over a live one.
+ */
+static void
+jar_set(int j, const char *sc)
+{
+	char name[64], value[3072], domain[128] = "";
+	const char *eq, *semi, *p;
+	struct cookie *c;
+	size_t n;
+	long ma = -1;
+
+	eq = strchr(sc, '=');
+	if (!eq || (size_t)(eq - sc) >= sizeof(name))
+		return;
+
+	n = (size_t)(eq - sc);
+	memcpy(name, sc, n);
+	name[n] = '\0';
+
+	semi = strchr(eq + 1, ';');
+	n = semi ? (size_t)(semi - eq - 1) : strlen(eq + 1);
+	if (n >= sizeof(value))
+		n = sizeof(value) - 1;
+	memcpy(value, eq + 1, n);
+	value[n] = '\0';
+
+	/* attributes we have to understand to model the jar honestly */
+
+	p = semi;
+	while (p) {
+		while (*p == ';' || *p == ' ')
+			p++;
+		if (!strncasecmp(p, "Domain=", 7)) {
+			const char *e = strchr(p, ';');
+			size_t dl = e ? (size_t)(e - p - 7) : strlen(p + 7);
+
+			if (dl >= sizeof(domain))
+				dl = sizeof(domain) - 1;
+			/* a leading dot is how it may be written; same scope */
+			if (p[7] == '.') {
+				memcpy(domain, p + 8, dl - 1);
+				domain[dl - 1] = '\0';
+			} else {
+				memcpy(domain, p + 7, dl);
+				domain[dl] = '\0';
+			}
+		}
+		if (!strncasecmp(p, "Max-Age=", 8))
+			ma = atol(p + 8);
+		p = strchr(p, ';');
+	}
+
+	c = jar_find(j, name, domain);
+	if (!c) {
+		c = jar_slot(j);
+		if (!c)
+			return;
+	}
+
+	lws_strncpy(c->name, name, sizeof(c->name));
+	lws_strncpy(c->value, value, sizeof(c->value));
+	lws_strncpy(c->domain, domain, sizeof(c->domain));
+	/* Max-Age=0 (or an empty value) is a deletion */
+	c->dead = (char)(!ma || !value[0]);
+
+	lwsl_info("jar[%s]: %s %s=%.16s...\n", jar_name[j],
+		  c->dead ? "cleared" : (domain[0] ? "set (Domain)" :
+					 "set (host-only)"), name, value);
+}
+
+/* absorb every Set-Cookie of the last response */
+static void
+jar_absorb(int j, const char *set_cookies)
+{
+	char one[3300];
+	const char *p = set_cookies;
+
+	/*
+	 * lws_hdr_copy() joins several Set-Cookie headers (or the h2 / h3
+	 * crumbs of them) with ';', which is also the attribute separator, so
+	 * split on the boundary that actually distinguishes them: a ';'
+	 * followed by something that looks like "name=" and is not one of the
+	 * attributes.
+	 */
+
+	while (p && *p) {
+		const char *q = p;
+		size_t n;
+
+		for (;;) {
+			q = strchr(q, ';');
+			if (!q)
+				break;
+			{
+				const char *r = q + 1;
+
+				while (*r == ' ')
+					r++;
+				if (strncasecmp(r, "Domain=", 7) &&
+				    strncasecmp(r, "Path=", 5) &&
+				    strncasecmp(r, "Max-Age=", 8) &&
+				    strncasecmp(r, "Expires=", 8) &&
+				    strncasecmp(r, "HttpOnly", 8) &&
+				    strncasecmp(r, "Secure", 6) &&
+				    strncasecmp(r, "SameSite=", 9) &&
+				    strchr(r, '='))
+					break;
+			}
+			q++;
+		}
+
+		n = q ? (size_t)(q - p) : strlen(p);
+		if (n >= sizeof(one))
+			n = sizeof(one) - 1;
+		memcpy(one, p, n);
+		one[n] = '\0';
+
+		jar_set(j, one);
+
+		p = q ? q + 1 : NULL;
+		while (p && *p == ' ')
+			p++;
+	}
+}
+
+/* compose the Cookie header this jar would send */
+static int
+jar_header(int j, char *out, size_t out_len)
+{
+	int n, first = 1, m = 0;
+
+	out[0] = '\0';
+
+	for (n = 0; n < COOKIES_MAX; n++) {
+		if (!jar[j][n].name[0] || jar[j][n].dead)
+			continue;
+
+		m += lws_snprintf(out + m, out_len - (size_t)m, "%s%s=%s",
+				  first ? "" : "; ", jar[j][n].name,
+				  jar[j][n].value);
+		first = 0;
+	}
+
+	return m;
+}
+
+static const char *
+jar_value(int j, const char *name)
+{
+	int n;
+
+	for (n = 0; n < COOKIES_MAX; n++)
+		if (jar[j][n].name[0] && !jar[j][n].dead &&
+		    !strcmp(jar[j][n].name, name))
+			return jar[j][n].value;
+
+	return NULL;
+}
+
+/* how many live copies of \p name the jar holds, across scopes */
+static int
+jar_count(int j, const char *name)
+{
+	int n, c = 0;
+
+	for (n = 0; n < COOKIES_MAX; n++)
+		if (jar[j][n].name[0] && !jar[j][n].dead &&
+		    !strcmp(jar[j][n].name, name))
+			c++;
+
+	return c;
+}
+
 /* ------------------------------------------------------------------ callback */
+
+struct req_args {
+	const char	*body;		/* NULL for a GET */
+	size_t		body_len;
+	size_t		body_pos;
+	int		jar;
+};
+
+static struct req_args cur;
 
 static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	      void *user, void *in, size_t len)
 {
+	uint8_t buf[LWS_PRE + 4096], *start = &buf[LWS_PRE], *p = start;
+
 	switch (reason) {
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
@@ -156,19 +398,84 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		interrupted = 1;
 		break;
 
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+		{
+			unsigned char **pp = (unsigned char **)in,
+				      *pend = (*pp) + len;
+			char ck[4096];
+
+			if (jar_header(cur.jar, ck, sizeof(ck)) &&
+			    lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_COOKIE,
+					(unsigned char *)ck, (int)strlen(ck),
+					pp, pend))
+				return -1;
+
+			if (cur.body) {
+				char cl[24];
+
+				if (lws_add_http_header_by_token(wsi,
+						WSI_TOKEN_HTTP_CONTENT_TYPE,
+						(unsigned char *)
+						"application/x-www-form-urlencoded",
+						33, pp, pend))
+					return -1;
+
+				lws_snprintf(cl, sizeof(cl), "%u",
+					     (unsigned int)cur.body_len);
+
+				if (lws_add_http_header_by_token(wsi,
+						WSI_TOKEN_HTTP_CONTENT_LENGTH,
+						(unsigned char *)cl,
+						(int)strlen(cl), pp, pend))
+					return -1;
+
+				/*
+				 * Without these the request goes out with no
+				 * body at all and the peer closes on us: the
+				 * canonical pattern is to declare the body
+				 * pending here and ask for the writeable
+				 */
+				lws_client_http_body_pending(wsi, 1);
+				lws_callback_on_writable(wsi);
+			}
+		}
+		break;
+
+	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+		if (!cur.body || cur.body_pos >= cur.body_len)
+			break;
+		{
+			size_t n = cur.body_len - cur.body_pos;
+
+			if (n > 1024)
+				n = 1024;
+			memcpy(p, cur.body + cur.body_pos, n);
+			cur.body_pos += n;
+			if (lws_write(wsi, start, n,
+				      cur.body_pos == cur.body_len ?
+					LWS_WRITE_HTTP_FINAL :
+					LWS_WRITE_HTTP) != (int)n)
+				return -1;
+
+			if (cur.body_pos < cur.body_len)
+				lws_callback_on_writable(wsi);
+			else
+				lws_client_http_body_pending(wsi, 0);
+		}
+		return 0;
+
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		status = (unsigned int)lws_http_client_http_response(wsi);
 
 		loc[0] = set_cookie[0] = body[0] = '\0';
 		body_len = 0;
 		lws_hdr_copy(wsi, loc, sizeof(loc), WSI_TOKEN_HTTP_LOCATION);
-		/*
-		 * lws_hdr_copy() walks the fragment chain, so several
-		 * Set-Cookie headers (or h2 / h3 crumbs of one) all arrive,
-		 * separated by ';'
-		 */
 		lws_hdr_copy(wsi, set_cookie, sizeof(set_cookie),
 			     WSI_TOKEN_HTTP_SET_COOKIE);
+
+		if (set_cookie[0])
+			jar_absorb(cur.jar, set_cookie);
 
 		lwsl_info("%s: %u, Location '%s'\n", __func__, status, loc);
 		break;
@@ -182,15 +489,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
-		/*
-		 * h1 does not pump the body on its own: without this the
-		 * transaction never completes and the test would hang rather
-		 * than say what it was waiting for
-		 */
 		{
-			char buf[1024 + LWS_PRE];
-			char *px = buf + LWS_PRE;
-			int lenx = sizeof(buf) - LWS_PRE;
+			char rb[1024 + LWS_PRE];
+			char *px = rb + LWS_PRE;
+			int lenx = sizeof(rb) - LWS_PRE;
 
 			if (lws_http_client_read(wsi, &px, &lenx) < 0)
 				return -1;
@@ -220,23 +522,40 @@ static const struct lws_protocols protocols[] = {
 };
 
 /*
- * One request, no redirect following: each hop of the handover is an assertion
- * of its own, so the test has to see every status and header itself.
+ * One request, no redirect following: each hop of the flow is an assertion of
+ * its own, so the test has to see every status and header itself.
  */
 static int
-req(int port, const char *path)
+req_full(int which_jar, int port, const char *path, const char *body)
 {
 	struct lws_client_connect_info i;
+	char hostport[128];
 
 	memset(&i, 0, sizeof(i));
+	memset(&cur, 0, sizeof(cur));
+
+	/*
+	 * The Host header has to carry the port, as a browser's would on a
+	 * non-default one: both plugins compose absolute URLs of their own from
+	 * it -- the BFF its redirect_uri, the auth server the RFC 9207 iss --
+	 * and those have to name somewhere reachable.
+	 */
+	if (port == 443)
+		lws_strncpy(hostport, server, sizeof(hostport));
+	else
+		lws_snprintf(hostport, sizeof(hostport), "%s:%d", server, port);
+
+	cur.jar		= which_jar;
+	cur.body	= body;
+	cur.body_len	= body ? strlen(body) : 0;
 
 	i.context		= context;
 	i.port			= port;
 	i.address		= server;
 	i.path			= path;
-	i.host			= server;
-	i.origin		= server;
-	i.method		= "GET";
+	i.host			= hostport;
+	i.origin		= hostport;
+	i.method		= body ? "POST" : "GET";
 	i.protocol		= protocols[0].name;
 	i.alpn			= alpn;
 	/*
@@ -253,12 +572,12 @@ req(int port, const char *path)
 	status = 0;
 	interrupted = 0;
 	body_len = 0;
+
 	if (!lws_client_connect_via_info(&i))
 		return 1;
 
 	{
-		lws_usec_t deadline = lws_now_usecs() +
-					(20 * LWS_US_PER_SEC);
+		lws_usec_t deadline = lws_now_usecs() + (20 * LWS_US_PER_SEC);
 
 		while (!interrupted && lws_service(context, 0) >= 0)
 			if (lws_now_usecs() > deadline) {
@@ -272,12 +591,14 @@ req(int port, const char *path)
 	return 0;
 }
 
-/* ----------------------------------------------------------------- scenarios */
+/* the app vhost, which is what the old scenario only ever talked to */
+static int
+req(int port, const char *path)
+{
+	return req_full(port == port_auth ? JAR_AUTH : JAR_APP, port, path,
+			NULL);
+}
 
-/*
- * An empty jar asking for the protected mount must come back as the start of a
- * login, not as content and not as a bare error.
- */
 /* ------------------------------------------------------- credential helpers */
 
 /*
@@ -523,6 +844,98 @@ bail:
 	return r;
 }
 
+/* --------------------------------------------------------- little extractors */
+
+/*
+ * The value of \p key from a URL query, left exactly as it appeared.  Taking it
+ * verbatim is deliberate: it goes straight back out in a urlencoded form body,
+ * so re-coding it could only introduce a difference between what the BFF minted
+ * and what the auth server is asked to match.
+ */
+static int
+url_arg(const char *url, const char *key, char *out, size_t out_len)
+{
+	char nb[64];
+	const char *q = strchr(url, '?'), *v, *e;
+
+	out[0] = '\0';
+	if (!q)
+		return 1;
+
+	lws_snprintf(nb, sizeof(nb), "%s=", key);
+
+	if (!strncmp(q + 1, nb, strlen(nb)))
+		v = q + 1 + strlen(nb);
+	else {
+		lws_snprintf(nb, sizeof(nb), "&%s=", key);
+		v = strstr(q, nb);
+		if (!v)
+			return 1;
+		v += strlen(nb);
+	}
+
+	e = strchr(v, '&');
+	lws_strnncpy(out, v, e ? (size_t)(e - v) : strlen(v), out_len);
+
+	return 0;
+}
+
+/* the string value of \p key from a flat JSON object, unescaping only "\/" */
+static int
+json_str(const char *json, const char *key, char *out, size_t out_len)
+{
+	char nb[64];
+	const char *v;
+	size_t m = 0;
+
+	out[0] = '\0';
+
+	lws_snprintf(nb, sizeof(nb), "\"%s\"", key);
+	v = strstr(json, nb);
+	if (!v)
+		return 1;
+
+	v = strchr(v + strlen(nb), ':');
+	if (!v)
+		return 1;
+	v++;
+	while (*v == ' ')
+		v++;
+	if (*v != '"')
+		return 1;
+	v++;
+
+	while (*v && *v != '"' && m < out_len - 1) {
+		if (v[0] == '\\' && v[1] == '/') {
+			out[m++] = '/';
+			v += 2;
+			continue;
+		}
+		out[m++] = *v++;
+	}
+	out[m] = '\0';
+
+	return 0;
+}
+
+/*
+ * The registered redirect_uri has no port in it (the BFF composes it without
+ * one), so the callback has to be issued against the app port by path.  Reduce
+ * an absolute URL to its path + query.
+ */
+static const char *
+url_path(const char *url)
+{
+	const char *p = strstr(url, "://");
+
+	if (!p)
+		return url;
+
+	p = strchr(p + 3, '/');
+
+	return p ? p : "/";
+}
+
 /*
  * The front half of the delegated login: the interceptor-guarded mount, the
  * widget's own view of whether anyone is logged in, and the BFF's PKCE handover
@@ -639,6 +1052,146 @@ scenario_bounce(void)
 	return 0;
 }
 
+
+/*
+ * The credential half, end to end, and the point of the whole fixture: it is
+ * the only path that makes the auth server mint a session, which is the
+ * response carrying the large Set-Cookies, and the only one that makes the BFF
+ * talk to the auth server server-to-server.
+ */
+static int
+scenario_login(void)
+{
+	char p[1024], body_buf[2048], authorize[1024];
+	char csrf[128], state[256], chal[256], ruri[512], redirect[768];
+
+	/* (1) the BFF mints the state, the PKCE verifier, and its binding cookie */
+
+	lws_snprintf(p, sizeof(p), "/oauth/login?service_name=%s", service_name);
+
+	if (req_full(JAR_APP, port_app, p, NULL) || status != 302)
+		return fail("login", "/oauth/login answered %u, wanted a 302 "
+				     "to the auth server", status);
+
+	lws_strncpy(authorize, loc, sizeof(authorize));
+
+	if (url_arg(authorize, "state", state, sizeof(state)) ||
+	    url_arg(authorize, "code_challenge", chal, sizeof(chal)) ||
+	    url_arg(authorize, "redirect_uri", ruri, sizeof(ruri)))
+		return fail("login", "the authorize redirect is missing a PKCE "
+				     "parameter: '%s'", authorize);
+
+	if (!jar_value(JAR_APP, "auth_oauth_state"))
+		return fail("login", "no auth_oauth_state binding cookie in "
+				     "the app jar after /oauth/login");
+
+	/*
+	 * (2) the auth server's own page state.  This is where the browser gets
+	 * the auth_csrf cookie, and the csrf_token to submit with it: /api/login
+	 * enforces the double-submit, so a test that skips this gets a 403 and
+	 * learns nothing about the credentials.
+	 */
+
+	if (req_full(JAR_AUTH, port_auth, "/api/status", NULL) || status != 200)
+		return fail("login", "/api/status answered %u, wanted 200",
+			    status);
+
+	if (json_str(body, "csrf_token", csrf, sizeof(csrf)) || !csrf[0])
+		return fail("login", "no csrf_token in the /api/status body "
+				     "'%s'", body);
+
+	if (!jar_value(JAR_AUTH, "auth_csrf"))
+		return fail("login", "/api/status set no auth_csrf cookie, so "
+				     "the double-submit cannot be satisfied");
+
+	/* (3) the credentials, with the BFF's PKCE parameters carried through */
+
+	lws_snprintf(body_buf, sizeof(body_buf),
+		     "username=%s&password=%s&csrf_token=%s"
+		     "&client_id=%s&redirect_uri=%s&state=%s"
+		     "&code_challenge=%s&code_challenge_method=S256"
+		     "&service_name=%s",
+		     SEED_USER, SEED_PASSWORD, csrf, client_id, ruri, state,
+		     chal, service_name);
+
+	if (req_full(JAR_AUTH, port_auth, "/api/login", body_buf))
+		return fail("login", "unable to POST /api/login");
+
+	if (status != 200)
+		return fail("login", "/api/login answered %u for a seeded "
+				     "verified account, body '%s'", status,
+			    body);
+
+	if (json_str(body, "redirect", redirect, sizeof(redirect)) ||
+	    !strstr(redirect, "code="))
+		return fail("login", "/api/login returned no authorization "
+				     "code to redirect with: '%s'", body);
+
+	/*
+	 * (4) the callback.  This is the hop that matters most: the BFF
+	 * exchanges the code at the auth server's /api/token over its own
+	 * server-to-server connection, and then plants the session cookies.
+	 */
+
+	if (req_full(JAR_APP, port_app, url_path(redirect), NULL))
+		return fail("login", "unable to fetch the callback %s",
+			    url_path(redirect));
+
+	if (status != 302 && status != 303)
+		return fail("login", "/oauth/callback answered %u, wanted a "
+				     "redirect back to the app: body '%s'",
+			    status, body);
+
+	if (!jar_value(JAR_APP, "auth_session"))
+		return fail("login", "/oauth/callback planted no auth_session "
+				     "cookie (Set-Cookie seen: '%s')",
+			    set_cookie);
+
+	if (!jar_value(JAR_APP, "auth_refresh_session"))
+		return fail("login", "/oauth/callback planted no "
+				     "auth_refresh_session, so nothing can renew "
+				     "the session later (Set-Cookie seen: '%s')",
+			    set_cookie);
+
+	if (!jar_value(JAR_APP, "auth_csrf"))
+		return fail("login", "/oauth/callback planted no auth_csrf "
+				     "sidecar for the refresh session");
+
+	/*
+	 * Each of those should exist once.  Two live copies of one name is the
+	 * state that had the field submitting a stale csrf while forwarding a
+	 * jar that held both.
+	 */
+
+	if (jar_count(JAR_APP, "auth_session") != 1 ||
+	    jar_count(JAR_APP, "auth_csrf") != 1 ||
+	    jar_count(JAR_APP, "auth_refresh_session") != 1)
+		return fail("login", "the app jar holds duplicate scopes of a "
+				     "session cookie: auth_session %d, "
+				     "auth_csrf %d, auth_refresh_session %d",
+			    jar_count(JAR_APP, "auth_session"),
+			    jar_count(JAR_APP, "auth_csrf"),
+			    jar_count(JAR_APP, "auth_refresh_session"));
+
+	/* (5) and the widget now sees a session */
+
+	if (req_full(JAR_APP, port_app, "/sai/.lws-login-status", NULL) ||
+	    status != 200)
+		return fail("login", "the status probe answered %u after a "
+				     "successful login", status);
+
+	if (!strstr(body, "\"logged_in\": 1") &&
+	    !strstr(body, "\"logged_in\":1"))
+		return fail("login", "the status probe still reports no "
+				     "session after a successful login: '%s'",
+			    body);
+
+	lwsl_user("PASS: login: %s authenticated, session planted, widget "
+		  "agrees\n", SEED_USER);
+
+	return 0;
+}
+
 /* ---------------------------------------------------------------------- main */
 
 int
@@ -709,6 +1262,8 @@ main(int argc, const char **argv)
 
 	if (!strcmp(test, "bounce"))
 		bad = scenario_bounce();
+	else if (!strcmp(test, "login"))
+		bad = scenario_login();
 	else {
 		lwsl_err("%s: unknown scenario '%s'\n", __func__, test);
 		bad = 1;
