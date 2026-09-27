@@ -842,6 +842,13 @@ lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s)
 	wsi->stream.ah->frags[wsi->stream.ah->nfrag].offset = wsi->stream.ah->pos;
 	wsi->stream.ah->frags[wsi->stream.ah->nfrag].len = 0;
 	wsi->stream.ah->frags[wsi->stream.ah->nfrag].nfrag = 0;
+	/*
+	 * we had reason to set it: lws_hdr_extant() reads this, and h3 stores
+	 * every header but :path through here, so without it nothing h3
+	 * received was extant... or a stale flag from the ah's last user said
+	 * it was
+	 */
+	wsi->stream.ah->frags[wsi->stream.ah->nfrag].flags = 2;
 
 	do {
 		if (lws_pos_in_bounds(wsi))

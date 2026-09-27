@@ -99,7 +99,9 @@ struct xcase {
 	size_t		write_sz;	/* bytes per client write, framing included */
 	int		h2;		/* 1: h2 prior knowledge, 2: h3 over quic */
 	int		pipeline;	/* issue two pipelined requests */
-	int		expect_status;	/* 0: expect no completed 200 response */
+	int		expect_status;	/* 0: expect no completed 200 response,
+					 * -1: expect no response at all, the
+					 * request refused as malformed */
 	long		expect_server_rx; /* -1: don't check; else payload bytes the server saw */
 	enum xf_gate	gate;
 	int		expect;		/* 1: Expect: 100-continue, 2: Expect: nope */
@@ -256,6 +258,14 @@ static const struct xcase cases[] = {
 	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 2, 1, 200, 0, XG_NONE, 0, 0, 1, 0 },
 	{ "h3 GET, then a second GET after the kept-warm connection expired",
 	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 2, 1, 200, 0, XG_NONE, 0, 0, 2, 0 },
+	/*
+	 * RFC 9114 4.2: Transfer-Encoding is connection-specific, and a
+	 * request carrying one is malformed.  Let through to an onward h1 leg
+	 * it is the downgrade request-smuggling primitive, so the server must
+	 * refuse it outright, not answer it the way h1 does (501)
+	 */
+	{ "h3 POST with Transfer-Encoding is refused as malformed",
+	  "POST", "/echo-cl", XR_TE_BAD, 0, 0, 8192, 2, 0, -1, 0, XG_NONE, 0, 0, 0, 0 },
 #endif
 	/*
 	 * The server answers /nope with lws_return_http_status(404, text):
@@ -987,6 +997,17 @@ case_evaluate(void)
 		struct conn *cn = conns[n];
 		unsigned int rlen = 0, rsum = 0;
 
+		if (c->expect_status < 0) {
+			if (cn->completed || cn->status) {
+				lwsl_err("conn %d: status %d, expected no "
+					 "response\n", n, cn->status);
+				case_finish(0, "expected the request refused, "
+					       "got a response");
+				goto next;
+			}
+			continue;
+		}
+
 		if (!c->expect_status) {
 			if (cn->completed && cn->status == 200) {
 				case_finish(0, "expected a failure, got 200");
@@ -1151,7 +1172,7 @@ case_check(void)
 		if (!cn)
 			return; /* a reuse case's second request not started yet */
 
-		if (c->expect_status) {
+		if (c->expect_status > 0) {
 			if (!cn->completed && !cn->closed && !cn->error)
 				return;
 		} else
