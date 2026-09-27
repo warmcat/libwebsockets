@@ -24,6 +24,10 @@
 #include <string.h>
 #include <stdlib.h>
 #if defined(LWS_HAVE_PTHREAD_H)
+#if defined(WIN32)
+/* the ucrt time.h already defined it, don't let pthreads-win32 do it again */
+#define HAVE_STRUCT_TIMESPEC
+#endif
 #include <pthread.h>
 #endif
 
