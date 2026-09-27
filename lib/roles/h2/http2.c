@@ -2314,6 +2314,35 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		}
 
 		/* this is the last part of HEADERS */
+
+		/*
+		 * h2 carries the request authority in :authority rather than a
+		 * Host header, but server-side code asks for the Host it would
+		 * have seen on h1 and has nothing else to answer it with -- so
+		 * anything composing an absolute URL of its own from the Host
+		 * (an oauth redirect_uri, an RFC 9207 iss) silently got nothing
+		 * on h2 and fell back to whatever default it had.  h3 already
+		 * mirrors the two when it decodes the pseudo-header.
+		 *
+		 * Do it here, once the whole block is decoded, and only when no
+		 * Host arrived: per-header is not safe, because lws_frag_start()
+		 * *chains* a second fragment onto a token that already has one,
+		 * so a real Host arriving after :authority would append to the
+		 * mirrored copy and lws_hdr_copy() would then hand out the two
+		 * joined with a comma.
+		 */
+		if (!lws_hdr_total_length(h2n->swsi, WSI_TOKEN_HOST) &&
+		    lws_hdr_total_length(h2n->swsi,
+					 WSI_TOKEN_HTTP_COLON_AUTHORITY) > 0) {
+			char authority[128];
+
+			if (lws_hdr_copy(h2n->swsi, authority, sizeof(authority),
+					 WSI_TOKEN_HTTP_COLON_AUTHORITY) > 0 &&
+			    lws_hdr_simple_create(h2n->swsi, WSI_TOKEN_HOST,
+						  authority))
+				return 1;
+		}
+
 		switch (h2n->swsi->h2.h2_state) {
 		case LWS_H2_STATE_IDLE:
 			lws_h2_state(h2n->swsi, LWS_H2_STATE_OPEN);
