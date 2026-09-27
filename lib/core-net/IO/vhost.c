@@ -83,7 +83,7 @@ lws_create_vhost(struct lws_context *context,
 	struct lws_plugin *plugin = context->plugin_list;
 #endif
 	struct lws_protocols *lwsp;
-	int m, f = !info->pvo, fx = 0, abs_pcol_count = 0, sec_pcol_count = 0, dht_count = 0;
+	int m, f = !info->pvo, fx = 0, sec_pcol_count = 0, dht_count = 0;
 	const char *name = "default";
 	char buf[96];
 	char *p;
@@ -335,10 +335,6 @@ lws_create_vhost(struct lws_context *context,
 	fx = 1;
 #endif
 	/* the tables are NULL-terminated */
-#if defined(LWS_WITH_ABSTRACT)
-	while (available_abstract_protocols[abs_pcol_count])
-		abs_pcol_count++;
-#endif
 #if defined(LWS_WITH_SECURE_STREAMS)
 	while (available_secstream_protocols[sec_pcol_count])
 		sec_pcol_count++;
@@ -361,7 +357,6 @@ lws_create_vhost(struct lws_context *context,
 	else
 		lwsp = lws_zalloc(sizeof(struct lws_protocols) *
 				((unsigned int)vh->count_protocols +
-				   (unsigned int)abs_pcol_count +
 				   (unsigned int)sec_pcol_count +
 				   (unsigned int)dht_count +
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
@@ -397,17 +392,7 @@ lws_create_vhost(struct lws_context *context,
 		memcpy(lwsp, pcols, sizeof(struct lws_protocols) * (unsigned int)m);
 
 	/*
-	 * 2: abstract protocols
-	 */
-#if defined(LWS_WITH_ABSTRACT)
-	for (n = 0; n < abs_pcol_count; n++) {
-		memcpy(&lwsp[m++], available_abstract_protocols[n],
-		       sizeof(*lwsp));
-		vh->count_protocols++;
-	}
-#endif
-	/*
-	 * 3: async dns protocol (first vhost only)
+	 * 2: async dns protocol (first vhost only)
 	 */
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	if(lws_dll2_is_empty(&context->vhost_list_owner)) {
@@ -992,18 +977,6 @@ out:
 	lws_context_unlock(context); /* --------------------------- context { */
 }
 
-#if defined(LWS_WITH_ABSTRACT)
-static int
-destroy_ais(struct lws_dll2 *d, void *user)
-{
-	lws_abs_t *ai = lws_container_of(d, lws_abs_t, abstract_instances);
-
-	lws_abs_destroy_instance(&ai);
-
-	return 0;
-}
-#endif
-
 /*
  * Either start close or destroy any wsi on the vhost that belong to this pt,
  * if SMP mark the vh that we have done it for
@@ -1180,14 +1153,6 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 
 	if (vh->finalize)
 		vh->finalize(vh, vh->finalize_arg);
-
-#if defined(LWS_WITH_ABSTRACT)
-	/*
-	 * abstract instances
-	 */
-
-	lws_dll2_foreach_safe(&vh->abstract_instances_owner, NULL, destroy_ais);
-#endif
 
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SYS_METRICS)
 	lws_metric_destroy(&vh->mt_traffic_rx, 0);

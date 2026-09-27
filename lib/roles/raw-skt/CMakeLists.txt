@@ -34,10 +34,6 @@ include_directories(.)
 lws_sansio_sources(
 	roles/raw-skt/ops-raw-skt.c)
 
-if (LWS_WITH_ABSTRACT)
-	list(APPEND SOURCES
-		abstract/transports/raw-skt.c)
-endif()
 
 #
 # Keep explicit parent scope exports at end

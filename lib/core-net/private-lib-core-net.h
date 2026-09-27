@@ -83,9 +83,6 @@ extern const struct lws_role_ops *available_roles[];
 #if defined(LWS_WITH_SECURE_STREAMS)
 extern const struct lws_protocols *available_secstream_protocols[];
 #endif
-#if defined(LWS_WITH_ABSTRACT)
-extern const struct lws_protocols *available_abstract_protocols[];
-#endif
 
 #define LWS_FOR_EVERY_AVAILABLE_ROLE_START(xx) { \
 		const struct lws_role_ops **ppxx = available_roles; \
@@ -735,7 +732,6 @@ struct lws_vhost {
 	const struct lws_protocol_vhost_options *headers;
 	struct lws_dll2_owner *same_vh_protocol_owner;
 	lws_dll2_t			no_listener_vlist;
-	struct lws_dll2_owner abstract_instances_owner;		/* vh lock */
 
 #if defined(LWS_WITH_CLIENT)
 	struct lws_dll2_owner dll_cli_active_conns_owner;
@@ -1965,13 +1961,6 @@ lws_threadpool_tsi_context(struct lws_context *context, int tsi);
 void
 lws_threadpool_wsi_closing(struct lws *wsi);
 
-
-int
-lws_seq_pt_init(struct lws_context_per_thread *pt);
-
-
-extern const struct lws_protocols protocol_abs_client_raw_skt,
-				  protocol_abs_client_unit_test;
 
 void
 __lws_reset_wsi(struct lws *wsi);

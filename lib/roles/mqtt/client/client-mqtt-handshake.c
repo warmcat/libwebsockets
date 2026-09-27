@@ -30,8 +30,6 @@
 struct lws *
 lws_mqtt_client_send_connect(struct lws *wsi)
 {
-	/* static int */
-	/* 	lws_mqttc_abs_writeable(lws_abs_protocol_inst_t *api, size_t budget) */
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	const lws_mqttc_t *c = &wsi->mqtt->client;
 	uint8_t *b = (uint8_t *)pt->compose_buf, *start = b + LWS_PRE, *p = start,

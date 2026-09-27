@@ -1365,10 +1365,6 @@ lws_plugins_handle_builtin(struct lws_plugin **pplugin,
 #define PRIu64 "llu"
 #endif
 
-#if defined(LWS_WITH_ABSTRACT)
-#include "private-lib-abstract.h"
-#endif
-
 #ifdef __cplusplus
 };
 #endif

@@ -551,12 +551,6 @@ if (LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
 	set(LWS_WITH_GENCRYPTO 1)
 endif()
 
-# using any abstract protocol enables LWS_WITH_ABSTRACT
-
-#if (LWS_WITH_SMTP)
-#	set(LWS_WITH_ABSTRACT 1)
-#endif()
-
 if (NOT LWS_WITH_EVLIB_PLUGINS AND (LWS_WITH_LIBEV AND LWS_WITH_LIBEVENT))
 	message(FATAL_ERROR "Sorry libev and libevent conflict with each others' namespace, you can only have one or the other")
 endif()

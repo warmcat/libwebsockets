@@ -24,14 +24,6 @@
 
 #include "private-lib-core.h"
 
-#if defined(LWS_WITH_ABSTRACT)
-const struct lws_protocols *available_abstract_protocols[] = {
-#if defined(LWS_ROLE_RAW)
-	&protocol_abs_client_raw_skt,
-#endif
-	NULL
-};
-#endif
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 const struct lws_protocols *available_secstream_protocols[] = {

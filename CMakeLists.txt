@@ -402,8 +402,6 @@ option(LWS_WITH_STRUCT_JSON "Generic struct serialization to and from JSON" OFF)
 option(LWS_WITH_STRUCT_SQLITE3 "Generic struct serialization to and from SQLITE3" OFF)
 option(LWS_WITH_JSONRPC "JSON RPC support" ON)
 option(LWS_WITH_STUB "Formalized stub API for IPC" ON)
-# broken atm
-#option(LWS_WITH_SMTP "Provide SMTP support" OFF)
 if (LWS_WITH_ESP32)
 option(LWS_WITH_DIR "Directory scanning api support" OFF)
 option(LWS_WITH_LEJP_CONF "With LEJP configuration parser as used by lwsws" OFF)
