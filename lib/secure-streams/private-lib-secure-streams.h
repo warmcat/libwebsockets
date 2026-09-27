@@ -590,6 +590,11 @@ lws_ss_sys_fetch_policy(struct lws_context *context);
 lws_ss_state_return_t
 lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs);
 
+#if defined(LWS_WITH_SERVER)
+int
+lws_ss_server_accept_bind(struct lws *new_wsi);
+#endif
+
 lws_ss_state_return_t
 _lws_ss_backoff(lws_ss_handle_t *h, lws_usec_t us_override);
 

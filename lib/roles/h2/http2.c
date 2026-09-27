@@ -426,7 +426,8 @@ __lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 		goto bail1;
 
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SECURE_STREAMS)
-	if (lws_adopt_ss_server_accept(wsi))
+	/* a stream of a server ss connection is an accepted ss of its own */
+	if (lws_ss_server_accept_bind(wsi))
 		goto bail1;
 #endif
 

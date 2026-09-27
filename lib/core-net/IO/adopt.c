@@ -201,59 +201,17 @@ bail: /* entered with the pt lock held */
 int
 lws_adopt_ss_server_accept(struct lws *new_wsi)
 {
-	struct lws_context_per_thread *pt =
-			&new_wsi->a.context->pt[(int)new_wsi->tsi];
 	lws_ss_handle_t *h;
-	void *pv, **ppv;
 
-	if (!new_wsi->a.vhost->ss_handle)
+	if (lws_ss_server_accept_bind(new_wsi))
+		return 1;
+
+	if (!new_wsi->for_ss)
 		return 0;
 
-	pv = (char *)&new_wsi->a.vhost->ss_handle[1];
+	h = (lws_ss_handle_t *)new_wsi->a.opaque_user_data;
 
-	/*
-	 * Yes... the vhost is pointing to its secure stream representing the
-	 * server... we want to create an accepted SS and bind it to new_wsi,
-	 * the info/ssi from the server SS (so the SS callbacks defined there),
-	 * the opaque_user_data of the server object and the policy of it.
-	 */
-
-	ppv = (void **)((char *)pv +
-	      new_wsi->a.vhost->ss_handle->info.opaque_user_data_offset);
-
-	/*
-	 * indicate we are an accepted connection referencing the
-	 * server object
-	 */
-
-	new_wsi->a.vhost->ss_handle->info.flags |= LWSSSINFLAGS_SERVER;
-
-	if (lws_ss_create(new_wsi->a.context, new_wsi->tsi,
-			  &new_wsi->a.vhost->ss_handle->info,
-			  *ppv, &h, NULL, NULL)) {
-		lwsl_wsi_err(new_wsi, "accept ss creation failed");
-		goto fail1;
-	}
-
-	/*
-	 * We made a fresh accepted SS conn from the server pieces,
-	 * now bind the wsi... the problem is, this is the nwsi if it's
-	 * h2.
-	 */
-
-	h->wsi = new_wsi;
-	new_wsi->a.opaque_user_data = h;
-	h->info.flags |= LWSSSINFLAGS_ACCEPTED;
-	/* indicate wsi should invalidate any ss link to it on close */
-	new_wsi->for_ss = 1;
-
-	// lwsl_wsi_notice(new_wsi, "%s: opaq %p, role %s",
-	//			     new_wsi->a.opaque_user_data,
-	//			     new_wsi->role_ops->name);
-
-	h->policy = new_wsi->a.vhost->ss_handle->policy;
-
-	/* apply requested socket options */
+	/* the accepted socket takes the policy's socket options */
 	if (lws_plat_set_socket_options_ip(new_wsi->io.desc.sockfd,
 					   h->policy->priority,
 		      (LCCSCF_IP_LOW_LATENCY *
@@ -266,37 +224,7 @@ lws_adopt_ss_server_accept(struct lws *new_wsi)
 		       !!(h->policy->flags & LWSSSPOLF_ATTR_LOW_COST))))
 		lwsl_wsi_warn(new_wsi, "unable to set ip options");
 
-	/*
-	 * add us to the list of clients that came in from the server
-	 */
-
-	lws_pt_lock(pt, __func__);
-	lws_dll2_add_tail(&h->cli_list, &new_wsi->a.vhost->ss_handle->src_list);
-	lws_pt_unlock(pt);
-
-	/*
-	 * Let's give it appropriate state notifications
-	 */
-
-	if (lws_ss_event_helper(h, LWSSSCS_CREATING))
-		goto fail;
-	if (lws_ss_event_helper(h, LWSSSCS_CONNECTING))
-		goto fail;
-
-	/* defer CONNECTED until we see if he is upgrading */
-
-//	if (lws_ss_event_helper(h, LWSSSCS_CONNECTED))
-//		goto fail;
-
-	// lwsl_notice("%s: accepted ss complete, pcol %s\n", __func__,
-	//		new_wsi->a.protocol->name);
-
 	return 0;
-
-fail:
-	lws_ss_destroy(&h);
-fail1:
-	return 1;
 }
 
 #endif
