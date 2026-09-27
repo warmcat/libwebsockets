@@ -88,7 +88,10 @@ typedef struct lws_io_ops {
 	 * ask what is due each time round instead. */
 	int (*close)(struct lws *wsi, int phase);
 	/**< the wsi's transport is closing, by enum lws_io_close_phase.
-	 * QUIESCE, UNWATCH and RELEASE return 0.  SHUTDOWN returns 1 when
+	 * QUIESCE returns 1 when the wsi was still waiting for its socket
+	 * (for dns, or for the fd budget): its user was never told it
+	 * existed, so the close owes it the close callback; else 0.
+	 * UNWATCH and RELEASE return 0.  SHUTDOWN returns 1 when
 	 * the tls shutdown wants more service (the close re-enters as the
 	 * transport becomes readable or writable), 2 when it has wanted that
 	 * too often and will not complete, 0 when the write side is shut,

@@ -575,8 +575,10 @@ lws_io_close_pollfd(struct lws *wsi, int phase)
 
 	switch (phase) {
 	case LWS_IOCLOSE_QUIESCE:
+		/* the quiesce ends the wait: whether there was one is asked */
+		n = lws_io_socket_wait_pending(wsi);
 		lws_io_quiesce_pollfd(wsi);
-		return 0;
+		return n;
 
 	case LWS_IOCLOSE_UNWATCH:
 		lws_io_quiesce_pollfd(wsi);

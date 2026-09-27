@@ -512,7 +512,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #endif
 	struct lws_context *context;
 	struct lws *wsi2;
-	int n, ccb;
+	int n, ccb, owed;
 
 	if (!wsi)
 		return;
@@ -773,8 +773,11 @@ just_kill_connection:
 		lws_vfs_file_close(&wsi->http.fop_fd);
 #endif
 
-	/* nothing of the transport's may act on the wsi from here */
-	__lws_io_close_transport(wsi, LWS_IOCLOSE_QUIESCE);
+	/*
+	 * nothing of the transport's may act on the wsi from here; one that
+	 * was still waiting for its socket is owed its close callback below
+	 */
+	owed = __lws_io_close_transport(wsi, LWS_IOCLOSE_QUIESCE) == 1;
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	if (wsi->http.buflist_post_body)
@@ -929,11 +932,11 @@ just_kill_connection:
 			 */
 	}
 
-	if (!lws_wsi_close_cb_waived(wsi) && lws_io_socket_wait_pending(wsi))
+	if (!lws_wsi_close_cb_waived(wsi) && owed)
 		/*
-		 * He's a guy who go started with dns, but failed or is
+		 * He's a guy who got started with dns, but failed or is
 		 * caught with a shutdown before he got the result.  We have
-		 * to issclient_mux_substream_wasue him a close cb
+		 * to issue him a close cb
 		 */
 		ccb = 1;
 
