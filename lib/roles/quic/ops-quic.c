@@ -3475,7 +3475,9 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 	/* If we handled all pending crypto/internal frames, give the user a chance to write */
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 	/* Process stream queues for Application (1-RTT) and Early (0-RTT) data */
-	if (qn && (qn->handshake_done || qn->early_data_status == LWS_0RTT_STATUS_ATTEMPTED || qn->early_data_status == LWS_0RTT_STATUS_ACCEPTED)) {
+	if (qn->handshake_done ||
+	    qn->early_data_status == LWS_0RTT_STATUS_ATTEMPTED ||
+	    qn->early_data_status == LWS_0RTT_STATUS_ACCEPTED) {
 		if (lws_wsi_txc_check_skint(&wsi->txc, (int32_t)wsi->txc.tx_cr))
 			goto end_children;
 		if (nwsi && lws_wsi_txc_check_skint(&nwsi->txc, (int32_t)nwsi->txc.tx_cr))
