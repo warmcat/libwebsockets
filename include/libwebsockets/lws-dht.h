@@ -166,10 +166,24 @@ struct lws_dht_verb_dispatch_args {
 	lws_dht_verb_result_t out_precedence;
 };
 
+/**
+ * lws_dht_send_subscribe() - ask a node for a token to subscribe to a hash
+ *
+ * \param ctx: the DHT
+ * \param sa: the node's address
+ * \param salen: length of \p sa
+ * \param infohash: the hash to subscribe to
+ * \param want: 0, or the address families wanted in the reply's nodes
+ * \param confirm: unused
+ *
+ * The node answers like a get_peers, with nodes and a token.  The library
+ * chooses the transaction id itself so it can route that reply: the token
+ * surfaces as LWS_DHT_EVENT_TOKEN, to be returned in
+ * lws_dht_send_subscribe_confirm().
+ */
 LWS_VISIBLE LWS_EXTERN int
 lws_dht_send_subscribe(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
-		       uint8_t *tid, size_t tid_len, const lws_dht_hash_t *infohash,
-		       int want, int confirm);
+		       const lws_dht_hash_t *infohash, int want, int confirm);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_dht_send_subscribe_confirm(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,

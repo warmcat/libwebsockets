@@ -832,8 +832,8 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				break;
 			}
 
-			lwsl_notice("%s: [DEBUG] WRITEABLE fired on wsi %p (pss->wsi=%p, cert=%p, key=%p, wsi_uds=%p)\n",
-				    __func__, wsi, pss->wsi, pss->cert, pss->key, pss->wsi_uds);
+			// lwsl_notice("%s: [DEBUG] WRITEABLE fired on wsi %p (pss->wsi=%p, cert=%p, key=%p, wsi_uds=%p)\n",
+			//	    __func__, wsi, pss->wsi, pss->cert, pss->key, pss->wsi_uds);
 
 			if (pss->wsi == wsi && pss->cert && pss->key &&
 			    pss->cert_len && pss->key_len && !pss->wsi_uds) {

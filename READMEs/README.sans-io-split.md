@@ -219,9 +219,9 @@ The directories are the halves.  Placement by directory is the whole rule.
 | directory | half | notes |
 |---|---|---|
 | `lib/roles/*` | sansIO | every role: state machine, parser, framer, scheduler |
-| `lib/core-net/wsi.c`, `wsi-state.c`, `close.c`, `state.c`, `vhost.c`, `socks5-client.c`, `dummy-callback.c` | sansIO | the wsi state, the event table, connection lifecycle decisions, the socks handshake |
+| `lib/core-net/wsi.c`, `wsi-state.c`, `close.c`, `state.c`, `vhost.c`, `socks5-client.c`, `dummy-callback.c` | sansIO | the wsi state, the event table, connection lifecycle decisions, the vhost's protocols and roles, the socks handshake |
 | `lib/core-net/client/connect4.c` proxy CONNECT composition | sansIO | it composes protocol bytes |
-| `lib/core-net/IO/`: `output.c`, `pollfd.c`, `service.c`, `adopt.c`, `network.c`, `route.c`, `wsi-timeout.c`, `sorted-usec-list.c` | IO | moving bytes, fds, poll, timers |
+| `lib/core-net/IO/`: `output.c`, `pollfd.c`, `service.c`, `adopt.c`, `network.c`, `route.c`, `wsi-timeout.c`, `sorted-usec-list.c`, `vhost.c` | IO | moving bytes, fds, poll, timers; a vhost's creation and destruction (its listen sockets, tls contexts, dns) |
 | `lib/core-net/IO/client/`: `connect.c`, `connect2.c`, `connect3.c` | IO | dns, connect, happy eyeballs |
 | `lib/tls/*` record layer: `lws_ssl_capable_read/write`, bio, session cache, handshake driving | IO | sansIO sees plaintext |
 | `lib/roles/quic` packet and frame layer, `lib/roles/h3`, qpack | sansIO | quic is a sansIO part with a datagram interface instead of a stream one |

@@ -121,15 +121,14 @@ poll_cb(lws_sorted_usec_list_t *sul)
 
 	if (sa.rx_pong && !sv.searched) {
 		lws_dht_hash_t *ih;
-		uint8_t tid[4], idata[20];
+		uint8_t idata[20];
 
 		sv.searched = 1;
 
 		/*
 		 * Ask B to subscribe to a hash: the reply is built by the
-		 * same closest-nodes + token path a get_peers reply uses.
-		 * The tid deliberately carries the "gp" prefix so A routes
-		 * the reply through the get_peers reply handling and the
+		 * same closest-nodes + token path a get_peers reply uses,
+		 * and the library's own tid must route it back so the
 		 * token surfaces as the LWS_DHT_EVENT_TOKEN callback.
 		 */
 
@@ -141,12 +140,8 @@ poll_cb(lws_sorted_usec_list_t *sul)
 			return;
 		}
 
-		tid[0] = 'g';
-		tid[1] = 'p';
-		tid[2] = 0;
-		tid[3] = 0;
 		lws_dht_send_subscribe(dht_a, (struct sockaddr *)&sa_b,
-				       sizeof(sa_b), tid, 4, ih, 0, 0);
+				       sizeof(sa_b), ih, 0, 0);
 		lws_dht_hash_destroy(&ih);
 
 		sv.data_sent = 1;

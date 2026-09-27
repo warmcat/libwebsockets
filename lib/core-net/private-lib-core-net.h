@@ -80,6 +80,12 @@ extern "C" {
 
 /* null-terminated array of pointers to roles lws built with */
 extern const struct lws_role_ops *available_roles[];
+#if defined(LWS_WITH_SECURE_STREAMS)
+extern const struct lws_protocols *available_secstream_protocols[];
+#endif
+#if defined(LWS_WITH_ABSTRACT)
+extern const struct lws_protocols *available_abstract_protocols[];
+#endif
 
 #define LWS_FOR_EVERY_AVAILABLE_ROLE_START(xx) { \
 		const struct lws_role_ops **ppxx = available_roles; \
@@ -88,6 +94,10 @@ extern const struct lws_role_ops *available_roles[];
 
 #define LWS_FOR_EVERY_AVAILABLE_ROLE_END }}
 
+
+#define lws_vh_pinit_get(vh, n) \
+	((vh)->protocol_init && \
+	 ((vh)->protocol_init[(n) >> 3] & (uint8_t)(1 << ((n) & 7))))
 /*
  *
  *  ------ event_loop ops ------

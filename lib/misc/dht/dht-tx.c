@@ -418,11 +418,19 @@ fail:
 
 LWS_VISIBLE int
 lws_dht_send_subscribe(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
-		uint8_t *tid, size_t tid_len, const lws_dht_hash_t *infohash,
-		int want, int confirm)
+		       const lws_dht_hash_t *infohash, int want, int confirm)
 {
 	char buf[512];
 	dht_txbuf_t t = { .buf = buf, .size = sizeof(buf) };
+	unsigned short seq;
+	uint8_t tid[4];
+
+	/*
+	 * Our own "sb" tid, so the nodes + token reply is routed to the
+	 * token handling; any other tid lands as an unexpected reply
+	 */
+	lws_get_random(ctx->vhost->context, &seq, sizeof(seq));
+	make_tid(tid, "sb", seq);
 
 	if (dht_tx_lit(&t, "d1:ad2:id") ||
 	    dht_tx_id(ctx, &t, ctx->myid) ||
@@ -430,7 +438,7 @@ lws_dht_send_subscribe(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_
 	    dht_tx_id(ctx, &t, infohash) ||
 	    (want && dht_tx_want(&t, want)) ||
 	    dht_tx_lit(&t, "e1:q9:subscribe1:t") ||
-	    dht_tx_str(&t, tid, tid_len) ||
+	    dht_tx_str(&t, tid, sizeof(tid)) ||
 	    dht_tx_v(ctx, &t) ||
 	    dht_tx_lit(&t, "1:y1:qe"))
 		goto fail;

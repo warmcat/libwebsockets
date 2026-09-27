@@ -1264,9 +1264,6 @@ ds_test_done:
 		/* Also, as a client, we should now send a native DHT SUBSCRIBE to the target node
 		   so we get notified if this zonefile ever changes! */
 		if (frag->dht_ctx) {
-			uint8_t tid[4];
-			lws_get_random(vhd->context, tid, sizeof(tid));
-
 			uint8_t raw_hash[32];
 			/* returns the count of bytes decoded, or -1; 0 never means OK */
 			if (lws_hex_to_byte_array(frag->safe_hash, raw_hash,
@@ -1274,7 +1271,7 @@ ds_test_done:
 				lws_dht_hash_t *id = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA256, 32, raw_hash);
 				if (id) {
 					lwsl_user("%s: Sending native DHT SUBSCRIBE to establish long-poll\n", __func__);
-					lws_dht_send_subscribe(frag->dht_ctx, (struct sockaddr *)&frag->from_sa, frag->from_salen, tid, sizeof(tid), id, 0, 0);
+					lws_dht_send_subscribe(frag->dht_ctx, (struct sockaddr *)&frag->from_sa, frag->from_salen, id, 0, 0);
 					lws_dht_hash_destroy(&id);
 				}
 			}

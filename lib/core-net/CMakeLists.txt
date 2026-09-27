@@ -30,6 +30,7 @@ list(APPEND SOURCES
 	core-net/close.c
 	core-net/IO/network.c
 	core-net/vhost.c
+	core-net/IO/vhost.c
 	core-net/IO/pollfd.c
 	core-net/IO/service.c
 	core-net/IO/sorted-usec-list.c

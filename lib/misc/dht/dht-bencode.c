@@ -993,7 +993,9 @@ skip_ip_tracking:
 			lws_dht_reply_pong(ctx, &mp, from, fromlen);
 			break;
 		}
-		if (tid_match(mp.tid, "fn", NULL) || tid_match(mp.tid, "gp", NULL)) {
+		/* a subscribe is answered like a get_peers: nodes + token */
+		if (tid_match(mp.tid, "fn", NULL) || tid_match(mp.tid, "gp", NULL) ||
+		    tid_match(mp.tid, "sb", NULL)) {
 			lws_dht_reply_nodes(ctx, &mp, from, fromlen);
 			break;
 		}
