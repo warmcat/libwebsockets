@@ -1233,7 +1233,7 @@ lws_h2_pps_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		*q++ = (uint8_t)(pps->u.ga.err >> 8);
 		*q++ = (uint8_t)(pps->u.ga.err);
 		n = 0;
-		while (pps->u.ga.str[n] && n < (int)sizeof(pps->u.ga.str))
+		while (n < (int)sizeof(pps->u.ga.str) && pps->u.ga.str[n])
 			*q++ = (uint8_t)pps->u.ga.str[n++];
 		m = lws_ptr_diff(q, p);
 		h2n->we_told_goaway = 1;
