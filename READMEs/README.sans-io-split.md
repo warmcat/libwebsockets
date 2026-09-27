@@ -453,3 +453,53 @@ can be live).
    they pass.
 10. When every role is converted, the IO half is a replaceable component,
    and the sansIO half is what a port translates.
+
+## Open before it is done
+
+An outside review (2026-09-27) of whether the split is ready to rely on
+in C, and to be the source of a Rust port, listed these.  Each is worked
+on and marked done here, like the staging above.
+
+### Before relying on it in C
+
+1. CI.  `LWS_WITH_SANSIO_BUILD` is off by default, so nothing guards the
+   split unless a CI configuration turns it on: the `websockets-sansio`
+   build (the compile check), `scripts/sans-io-link-check.sh` and
+   `api-test-sansio-split` (done: the sai configuration `sansio`, on one
+   Linux gcc builder, with the optional features that reach across the
+   split on; `scripts/sans-io-check.sh` is not run there, since the
+   `websockets-sansio` build fails on the same calls).
+2. The harness covers only h1 and ws (six cases).  It needs h2, h3
+   through the datagram edge (`recv_dgram` / `send_dgram` in the
+   transport ops), mqtt, and a case under tls.
+3. Behaviour left over from the split:
+   - a quic frame in flight counts as buffered output, so an h3 file
+     response goes one fragment per round trip, and the loop spins after
+     the client vanishes;
+   - mux streams on the parked-rx list: they have no fd, so the forced
+     service pass they cause may not be able to reach them (unverified);
+   - the keep-warm join's status at ESTABLISHED (parked).
+
+### Before it is the port's source
+
+4. tx is a push where the app's data is concerned: `lws_write()` reaches
+   `lws_io_tx_push()` from sansIO (15 files, about 60 call sites), and
+   the roles compose into the pt's buffers directly.  A sans-IO port has
+   to hand bytes out, so the app's data becomes a pull like the rest,
+   with `lws_write()` kept as the app's api on top of it.
+5. Time is not an input: sansIO reads the clock about 56 times, about 23
+   of them decisions (quic congestion control, loss detection, pacing),
+   and timer callbacks get no "now".  The pass's timestamp is to be
+   passed into the rx, tx and deadline entry points.
+6. What IO reads of the object is wide: about 85 members of `struct lws`,
+   1674 uses.  Most are config reads through the vhost and context, but
+   the cgi adapter reaches into the http role's state 132 times, and IO
+   reads the stash, the alpn, the user space and the tls wish directly.
+   IO wants an explicit accessor set, and cgi its own state.
+7. Locks and the fd table: sansIO takes the pt, context and vhost locks
+   about 38 times, and walks IO's fd table to enumerate connections in
+   three places in wsi.c.  A port has neither.
+8. The interface is about twenty calls, not the four requests above:
+   the transport machine's five, seven tls session queries, the cgi's
+   four and the served-now variants.  "The interface" is to state the
+   real contract, since that is what a port implements.
