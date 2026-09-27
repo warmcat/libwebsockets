@@ -310,6 +310,28 @@ static int lws_frag_end(struct lws *wsi)
 	wsi->stream.ah->frags[wsi->stream.ah->nfrag].len--;
 
 	wsi->stream.ah->nfrag++;
+
+	/*
+	 * h2 carries the request authority in :authority, but server-side code
+	 * asks for the Host it would have seen on h1, and there is nothing else
+	 * to answer it with.  Mirror it, as h3 does when it decodes the same
+	 * pseudo-header (lib/roles/h3/ops-h3.c, WSI_TOKEN_HTTP_COLON_AUTHORITY).
+	 *
+	 * Without this, anything composing an absolute URL of its own from the
+	 * Host silently got nothing on h2 alone -- a redirect_uri, an RFC 9207
+	 * iss -- and fell back to whatever default it had.
+	 */
+	if (ah->hdr_token_idx == WSI_TOKEN_HTTP_COLON_AUTHORITY &&
+	    !ah->frag_index[WSI_TOKEN_HOST]) {
+		int n = (int)ah->frags[ah->nfrag - 1].len;
+
+		if (lws_hdr_simple_create(wsi, WSI_TOKEN_HOST,
+					  &ah->data[ah->frags[ah->nfrag - 1].offset]))
+			return 1;
+
+		lwsl_header("%s: mirrored :authority (%d) to Host\n", __func__, n);
+	}
+
 	return 0;
 }
 
