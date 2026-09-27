@@ -3698,6 +3698,19 @@ lws_h2_client_handshake_composed(struct lws *wsi)
 
 	n = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_HOST);
 	simp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
+	/*
+	 * A mux child carries the request in the stash, not in ah tokens, so
+	 * the authority has to come from there.  Prefer the host the caller
+	 * gave us over the bare address: on a non-default port the host is
+	 * "name:port" and the address is just "name", and servers compose
+	 * absolute URLs of their own from the authority we send -- a
+	 * redirect_uri, an RFC 9207 iss -- so dropping the port makes them name
+	 * somewhere unreachable.
+	 */
+	if (!n && wsi->stash && wsi->stash->cis[CIS_HOST]) {
+		n = (int)strlen(wsi->stash->cis[CIS_HOST]);
+		simp = wsi->stash->cis[CIS_HOST];
+	}
 	if (!n && wsi->stash && wsi->stash->cis[CIS_ADDRESS]) {
 		n = (int)strlen(wsi->stash->cis[CIS_ADDRESS]);
 		simp = wsi->stash->cis[CIS_ADDRESS];

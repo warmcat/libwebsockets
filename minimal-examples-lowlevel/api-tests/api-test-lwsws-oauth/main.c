@@ -404,12 +404,21 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 				      *pend = (*pp) + len;
 			char ck[4096];
 
-			if (jar_header(cur.jar, ck, sizeof(ck)) &&
-			    lws_add_http_header_by_token(wsi,
-					WSI_TOKEN_HTTP_COOKIE,
-					(unsigned char *)ck, (int)strlen(ck),
-					pp, pend))
-				return -1;
+			{
+				int cl = jar_header(cur.jar, ck, sizeof(ck));
+
+				lwsl_wsi_info(wsi, "cookie header: %d bytes, "
+					      "room %d", cl, (int)(pend - *pp));
+
+				if (cl && lws_add_http_header_by_token(wsi,
+						WSI_TOKEN_HTTP_COOKIE,
+						(unsigned char *)ck, cl,
+						pp, pend)) {
+					lwsl_wsi_err(wsi, "cookie header would "
+							  "not fit");
+					return -1;
+				}
+			}
 
 			if (cur.body) {
 				char cl[24];
