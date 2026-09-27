@@ -254,19 +254,15 @@ lws_h1_client_issue_handshake(struct lws *wsi)
 	lwsl_wsi_info(wsi, "HANDSHAKE2: sending headers (wsistate 0x%lx)",
 		      (unsigned long)wsi->wsistate);
 
-	n = lws_ssl_capable_write(wsi, (unsigned char *)sb,
-				  lws_ptr_diff_size_t(p, sb));
+	/* IO keeps what a short write leaves, and sends it first */
+	n = lws_io_tx_push(wsi, (unsigned char *)sb,
+			   lws_ptr_diff_size_t(p, sb));
 	lws_servbuf_release(pt, sbc);
-	switch (n) {
-	case LWS_SSL_CAPABLE_ERROR:
+	if (n < 0) {
 		lwsl_debug("ERROR writing to client socket\n");
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cws");
 
 		return 1;
-	case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-	case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-		lws_callback_on_writable(wsi);
-		break;
 	}
 
 	if (wsi->client_http_body_pending || lws_has_buffered_out(wsi)) {
