@@ -1963,6 +1963,8 @@ send_nxdomain:
 				/* Write standard DNS Question */
 				uint8_t *rp_flags = rp + 2; /* Save pointer to flags */
 				uint8_t *rp_auth_count = rp + 8; /* Save pointer to NSCOUNT */
+				uint8_t *rp_ar_count = rp + 10; /* Save pointer to ARCOUNT */
+				int trunc = 0;
 				rp[8] = 0; rp[9] = 0; /* NSCOUNT */
 				rp[10] = 0; rp[11] = 0; /* ARCOUNT = 0 */
 				rp += 12;
@@ -1998,6 +2000,34 @@ send_nxdomain:
 				}
 
 				/*
+				 * A validator can only trust the SOA (and so
+				 * the negative answer's TTL) with its RRSIG
+				 */
+				if (do_bit && soa_rs && added_auth) {
+					lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&matched_ce->zone.rrset_list)) {
+						struct auth_dns_rrset *sg = lws_container_of(d, struct auth_dns_rrset, list);
+
+						if (trunc || sg->type != 46 || strcmp(sg->name, soa_rs->name))
+							continue;
+
+						lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&sg->rr_list)) {
+							struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
+
+							if (rr->wire_rdata_len < 2 ||
+							    ((rr->wire_rdata[0] << 8) | rr->wire_rdata[1]) != 6)
+								continue;
+
+							if (auth_dns_emit_rr(&rp, dbuf, max_buf, sg, rr,
+									     matched_ce->zone.origin)) {
+								trunc = 1;
+								break;
+							}
+							added_auth++;
+						} lws_end_foreach_dll(d2);
+					} lws_end_foreach_dll(d);
+				}
+
+				/*
 				 * Serialize the NSEC3 denial-of-existence
 				 * proof and its RRSIGs, if the querier asked
 				 * for DNSSEC.  C-238: only the (at most
@@ -2006,7 +2036,7 @@ send_nxdomain:
 				 */
 				if (do_bit) {
 					struct auth_dns_rrset *sel[LWS_AUTH_DNS_MAX_NSEC3_PROOF];
-					int sn, sel_count, trunc = 0;
+					int sn, sel_count;
 
 					sel_count = auth_dns_nsec3_proof(
 						&matched_ce->zone, qname, sel,
@@ -2051,21 +2081,38 @@ send_nxdomain:
 						} lws_end_foreach_dll(d);
 					}
 
-					if (trunc) {
-						/*
-						 * an incomplete proof is not a
-						 * proof; say so rather than
-						 * emit a partial one
-						 */
-						rflags |= 0x0200; /* TC */
-						rp_flags[0] = (uint8_t)(rflags >> 8);
-						rp_flags[1] = (uint8_t)(rflags & 0xff);
-					}
+				}
+
+				if (trunc) {
+					/*
+					 * an incomplete proof is not a proof;
+					 * say so rather than emit a partial one
+					 */
+					rflags |= 0x0200; /* TC */
+					rp_flags[0] = (uint8_t)(rflags >> 8);
+					rp_flags[1] = (uint8_t)(rflags & 0xff);
 				}
 
 				/* Update Authority Count dynamically */
 				rp_auth_count[0] = (uint8_t)(added_auth >> 8);
 				rp_auth_count[1] = (uint8_t)(added_auth & 0xff);
+
+				/*
+				 * Answer EDNS with EDNS, as the positive path
+				 * does: without the OPT echoing DO, a
+				 * resolver cannot tell this responder speaks
+				 * DNSSEC at all
+				 */
+				if (arcount > 0 && !trunc &&
+				    lws_ptr_diff_size_t(rp, dbuf) + 11 <= max_buf) {
+					*rp++ = 0; /* root name */
+					*rp++ = 0; *rp++ = 41; /* Type OPT */
+					*rp++ = 16; *rp++ = 0; /* UDP payload size 4096 */
+					*rp++ = 0; *rp++ = 0; /* Ext rcode + version */
+					*rp++ = do_bit ? 0x80 : 0; *rp++ = 0; /* DO bit */
+					*rp++ = 0; *rp++ = 0; /* rdlen 0 */
+					rp_ar_count[1] = 1;
+				}
 
 				goto after_refused;
 			}
