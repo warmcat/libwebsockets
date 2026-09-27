@@ -153,7 +153,11 @@ not a grep.  The same check is a build target: each sansIO directory's
 those, the IO prototypes hidden and an implicit declaration an error, so
 a call past the seam fails the build at its line.  (The tls private prototypes are not yet
 hidden: they share a header with the tls structs that `struct lws` embeds
-by value, which the struct split resolves.)
+by value, which the struct split resolves.)  What the compile cannot see,
+a call to an IO function declared in a header both halves include,
+`scripts/sans-io-link-check.sh <build-dir>` finds in the built objects:
+every symbol the sansIO objects reference that only an IO object defines
+and that is neither public api nor in the seam, with the files using it.
 
 **The four requests sansIO makes of IO** (want_write, deadline, want_read,
 close) are calls into IO today, spelled `lws_callback_on_writable()`,
@@ -241,6 +245,8 @@ The directories are the halves.  Placement by directory is the whole rule.
 | `lib/roles/listen`, `netlink`, `pipe`, `raw-file`, `dbus`, `cgi` | IO | transport adapters wearing the role interface: they accept sockets, read pipes, fds and the kernel's routing; nothing on the wire is theirs |
 | `lib/plat/*`, `lib/event-libs/*` | IO | |
 | `lib/core/*`, `lib/misc/*`, `lib/system/*` | neither | context, logging, utilities: shared by both halves, used by both |
+| `lib/core-net/roles.c`, `async-queue.c`, the generic crypto in `lib/tls` (`lws-gen*`) | neither | the role registry both halves dispatch through (sansIO roles and IO's adapters), the worker pool, crypto primitives |
+| `lib/core-net/IO/lejp-conf.c` | IO | lwsws' config: it makes the vhosts and mounts it describes |
 
 Where a file has both today (`connect4.c`, `ops-quic.c`), the split is
 inside the file until it is moved; the decision rule still says which half
@@ -395,8 +401,15 @@ can be live).
    a header table are `lws_client_transport_failed()` and
    `lws_client_transport_start()`.  The check only sees calls to what is
    declared for IO alone; an IO function also declared in a header both
-   halves see (`lws_addrinfo_clean()` is one) is invisible to it, which
-   the sansIO-only build closes, at link time.
+   halves see (`lws_addrinfo_clean()` was one) is invisible to it.  The
+   link-level check (`scripts/sans-io-link-check.sh`) found 20 of those
+   (done: 0): the close's remaining transport steps are its phases; what
+   sansIO asks of the tls session is in the seam, quic's session is made
+   by one request, and an SNI bind records its CA on the tls side; the
+   locked deadline and a destroyed vhost's last unbind are seam requests;
+   the role registry is neither half's; lwsws' config loader is IO's; and
+   the h1 client's request headers go out through the push, which also
+   keeps what a short write left (they were lost before).
 8. Split the object: IO's fields of `struct lws` move into the
    `lws_io_adjunct` (see "The object"), the check making it opaque to
    sansIO (in progress: the socket identity first).
@@ -411,12 +424,10 @@ can be live).
    `lws_client_connect_transport()`).  Then a sansIO-only build target
    (done as a compile: `websockets-sansio`, above, builds only what the
    sansIO directories declare, and fails on a call into IO past the
-   seam).  It is not yet a link: its objects still need IO symbols that
-   the compile cannot see, because they are declared in headers both
-   halves include (the tls private prototypes, `lws_addrinfo_clean()`,
-   the vhost's creation, `wsi_from_fd()`, among others), and IO's half of
-   the object is opaque to it, so the objects cannot be linked with a
-   real IO half until the struct split.  These are the test of
+   seam; with the link-level check, the objects need nothing private of
+   IO's).  It is not yet a link: IO's half of the object is opaque to
+   it, so the objects cannot be linked with a real IO half until the
+   struct split.  These are the test of
    "technically complete"; the static checks above are inferences until
    they pass.
 10. When every role is converted, the IO half is a replaceable component,

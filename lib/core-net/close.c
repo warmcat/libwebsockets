@@ -507,7 +507,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	}
 
 #if defined(LWS_ROLE_RAW_FILE)
-	if (wsi->role_ops == &role_ops_raw_file) {
+	/* a file whose user hears it close (raw-file, not the pt pipe) */
+	if (wsi->role_ops && wsi->role_ops->file_handle &&
+	    wsi->role_ops->close_cb[0]) {
 		lws_remove_child_from_any_parent(wsi);
 		/* the file is watched no more; the final free releases it */
 		__lws_io_close_transport(wsi, LWS_IOCLOSE_UNWATCH);

@@ -818,9 +818,6 @@ void
 lws_stub_destroy_all_on_vhost(struct lws_vhost *vh);
 #endif
 
-void
-__lws_vhost_destroy2(struct lws_vhost *vh);
-
 #define mux_to_wsi(_m) lws_container_of(_m, struct lws, mux)
 
 /* Number of mux children on wsi (kept in child_list_owner.count). */
@@ -1758,8 +1755,6 @@ lws_vhost_rebind_mtls_refused(struct lws *wsi, struct lws_vhost *vh);
 void
 __lws_vhost_unbind_wsi(struct lws *wsi); /* req cx + vh lock */
 
-void
-__lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 
 
 int

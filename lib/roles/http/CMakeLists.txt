@@ -73,12 +73,6 @@ if (LWS_WITH_HTTP_STREAM_COMPRESSION)
 	endif()
 endif()
 
-if (LWS_WITH_LEJP_CONF AND LWS_WITH_NETWORK AND NOT LWS_PLAT_OPTEE)
-	lws_sansio_sources(
-		roles/http/server/lejp-conf.c
-	)
-endif()
-
 if (LWS_WITH_RANGES)
 	lws_sansio_sources(
 		roles/http/server/ranges.c)

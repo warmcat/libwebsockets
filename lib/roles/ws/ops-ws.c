@@ -1361,11 +1361,7 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 	 */
 
 	ret = 1;
-	if (wsi->role_ops == &role_ops_raw_skt
-#if defined(LWS_ROLE_RAW_FILE)
-		|| wsi->role_ops == &role_ops_raw_file
-#endif
-	    )
+	if (wsi->role_ops == &role_ops_raw_skt || wsi->role_ops->file_handle)
 		ret = 0;
 
 	while (ret == 1) {

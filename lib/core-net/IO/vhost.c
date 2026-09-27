@@ -678,12 +678,21 @@ lws_create_vhost(struct lws_context *context,
 
 	/* for the case we are adding a vhost much later, after server init */
 
-	if (context->protocol_init_done)
+	if (context->protocol_init_done) {
 		if (lws_fi(&vh->fic, "vh_create_protocol_init") ||
 		    lws_protocol_init(context)) {
 			lwsl_vhost_err(vh, "lws_protocol_init failed");
 			goto bail1;
 		}
+#if defined(LWS_WITH_SERVER)
+		/* a server's certs are checked as it comes up, this one too */
+		if (!lws_check_opt(vh->options,
+				   LWS_SERVER_OPTION_SKIP_PROTOCOL_INIT)) {
+			/* nothing without tls */
+			lws_tls_check_all_cert_lifetimes(context);
+		}
+#endif
+	}
 
 	return vh;
 

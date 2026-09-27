@@ -45,6 +45,16 @@
 int LWS_WARN_UNUSED_RESULT
 lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len);
 
+/* deadline, in the spelling for callers holding the service thread lock */
+void
+__lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
+/*
+ * the last connection bound to a vhost that is being destroyed went: IO
+ * finishes destroying it (a vhost's creation and destruction are IO's)
+ */
+void
+__lws_vhost_destroy2(struct lws_vhost *vh);
+
 /* want_write, served now rather than on the next turn of the loop */
 int
 lws_service_wsi_as_writable(struct lws *wsi);

@@ -105,12 +105,8 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len,
 			goto bail;
 
 		/* we might have transitioned to RAW */
-		if (wsi->role_ops == &role_ops_raw_skt
-#if defined(LWS_ROLE_RAW_FILE)
-				||
-		    wsi->role_ops == &role_ops_raw_file
-#endif
-		    )
+		if (wsi->role_ops == &role_ops_raw_skt ||
+		    wsi->role_ops->file_handle)
 			 /* we gave the read buffer to RAW handler already */
 			return lws_ptr_diff(buf, oldbuf);
 

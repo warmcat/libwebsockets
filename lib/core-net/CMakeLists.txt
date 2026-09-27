@@ -45,8 +45,16 @@ list(APPEND SOURCES
 	core-net/IO/adopt.c
 	core-net/txpacer.c
 	core-net/async-queue.c
+	core-net/roles.c
 	roles/pipe/ops-pipe.c
 )
+
+# lwsws' config: the vhosts and mounts it describes are made here
+if (LWS_WITH_LEJP_CONF AND LWS_WITH_NETWORK AND NOT LWS_PLAT_OPTEE)
+	list(APPEND SOURCES
+		core-net/IO/lejp-conf.c
+	)
+endif()
 
 if (LWS_WITH_LATENCY)
 	list(APPEND SOURCES
