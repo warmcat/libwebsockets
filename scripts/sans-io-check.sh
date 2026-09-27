@@ -10,9 +10,11 @@
 #
 # -v also prints every offending line, as file:line: callee.
 #
-# The build dir needs CMAKE_EXPORT_COMPILE_COMMANDS=1.  Prints each error
-# once per callee, then the count of distinct callees and of error lines.
-# Exit 0 when clean.
+# The build dir needs CMAKE_EXPORT_COMPILE_COMMANDS=1.  Prints each callee
+# with how many files call it, then the totals.  The compiler reports an
+# implicit declaration once per file, so a line is a (file, callee) pair,
+# not a call site: a file that calls the same IO function twice shows once,
+# and clearing one site can reveal the next.  Exit 0 when clean.
 
 cd "$(dirname "$0")/.." || exit 1
 B=${1:?build dir}

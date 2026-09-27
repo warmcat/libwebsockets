@@ -133,9 +133,12 @@ stays visible: the seam is the interface, and what the check reports is
 exactly the calls that are not it.  `scripts/sans-io-check.sh <build-dir>`
 compiles every sansIO source that way, from the build's
 `compile_commands.json`, so each place sansIO code calls into IO past the
-seam fails to compile and names its line; it prints the callees by
-frequency and the totals.  That list is the remaining work on the rx and
-tx plumbing, and the compiler keeps it, not a grep.  (The tls private prototypes are not yet
+seam fails to compile and names its line; it prints the callees by the
+number of files calling them, and the totals (the compiler reports a
+callee once per file, so the count is of file-and-callee pairs, and
+clearing one site can reveal the next in the same file).  That list is
+the remaining work on the rx and tx plumbing, and the compiler keeps it,
+not a grep.  (The tls private prototypes are not yet
 hidden: they share a header with the tls structs that `struct lws` embeds
 by value, which the struct split resolves.)
 
