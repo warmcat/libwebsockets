@@ -343,6 +343,27 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 	lws_role_call_adoption_bind(new_wsi, (int)type | _LWS_ADOPT_FINISH,
 				    new_wsi->a.protocol->name);
 
+#if defined(LWS_WITH_UDP)
+	if ((type & LWS_ADOPT_FLAG_UDP) &&
+	    lws_rops_fidx(new_wsi->role_ops, LWS_ROPS_rx_dgram)) {
+		/*
+		 * A datagram role hears the ECN bits of what arrives (its
+		 * rx_dgram), and what it sends is marked ECT(0)
+		 */
+		lws_io_udp_enable_ecn(new_wsi);
+
+		/* bound, it is where new peers arrive: one of our listeners */
+		if (new_wsi->io.do_bind) {
+			new_wsi->listener = 1;
+#if defined(LWS_WITH_SERVER)
+			if (!lws_dll2_owner(&new_wsi->listen_list))
+				lws_dll2_add_tail(&new_wsi->listen_list,
+						  &new_wsi->a.vhost->listen_wsi);
+#endif
+		}
+	}
+#endif
+
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SECURE_STREAMS)
 	/*
 	 * Did we come from an accepted client connection to a ss server?
@@ -1513,7 +1534,7 @@ lws_io_close_staged(struct lws *wsi)
  * take the fd for wnew, in which case the fd is closed here and the caller
  * bails.  Caller holds the pt lock.
  */
-int
+static int
 lws_io_transfer_socket(struct lws *wsi, struct lws *wnew)
 {
 assert(lws_socket_is_valid(wsi->io.desc.sockfd));
@@ -1615,4 +1636,29 @@ wsi->use_ssl = 0;
 #endif
 
 	return 0;
+}
+
+/*
+ * io_ops transfer (lws-io-ops.h): the connection sansIO knew as from goes on
+ * as to.  A stream socket's watcher is made anew on to (the keep-warm join).
+ * A datagram connection moves with its peer state and its watcher re-homed
+ * (quic's network wsi), and so does one with no socket of its own, a server
+ * quic connection on its listener's.
+ */
+int
+lws_io_transfer_pollfd(struct lws *from, struct lws *to)
+{
+	struct lws_context_per_thread *pt = &from->a.context->pt[(int)from->tsi];
+	int n;
+
+#if defined(LWS_WITH_UDP)
+	if (from->io.udp || !lws_socket_is_valid(from->io.desc.sockfd))
+		return lws_io_udp_transfer_socket(from, to);
+#endif
+
+	lws_pt_lock(pt, __func__);
+	n = lws_io_transfer_socket(from, to);
+	lws_pt_unlock(pt);
+
+	return n;
 }

@@ -1519,9 +1519,9 @@ lws_wsi_mux_client_idle_check(struct lws *nwsi);
 
 
 /*
- * The four requests sansIO makes of IO (lws-io-ops.h), as sansIO code spells
+ * The requests sansIO makes of IO (lws-io-ops.h), as sansIO code spells
  * them.  The __ forms are for callers holding the pt lock; the others take
- * it.  IO's own implementation of the four is lws_io_ops_default.
+ * it.  IO's own implementation of them is lws_io_ops_default.
  */
 extern const lws_io_ops_t lws_io_ops_default;
 
@@ -1538,6 +1538,10 @@ int
 lws_io_want_write(struct lws *wsi);
 int
 lws_io_want_read(struct lws *wsi, int on);
+int
+lws_io_path(struct lws *wsi, int op, const lws_sockaddr46 *peer);
+int
+lws_io_transfer(struct lws *from, struct lws *to);
 
 /* sansIO's own, back from the IO header: their content is not IO's */
 int

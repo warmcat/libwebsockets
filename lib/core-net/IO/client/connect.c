@@ -254,6 +254,16 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 		goto bail;
 	}
+
+#if defined(LWS_WITH_UDP)
+	/* a role that takes datagrams rides a datagram transport: IO's */
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_rx_dgram) &&
+	    lws_io_udp_alloc(wsi)) {
+		lwsl_wsi_err(wsi, "OOM on udp");
+
+		goto bail;
+	}
+#endif
 	lwsl_wsi_info(wsi, "role binding to %s", wsi->role_ops->name);
 
 	/*

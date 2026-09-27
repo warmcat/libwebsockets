@@ -56,6 +56,13 @@ lws_io_service_now(struct lws *wsi);
  */
 int
 lws_client_transport_connected(struct lws *wsi);
+/*
+ * transport: a role that makes its transport inside its own protocol (quic's
+ * handshake) has made it; it won any race for the connection, and IO drops
+ * what else it had trying to be it
+ */
+void
+lws_client_transport_established(struct lws *wsi);
 #endif
 
 #endif

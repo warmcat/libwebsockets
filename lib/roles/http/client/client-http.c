@@ -304,7 +304,7 @@ lws_h1_client_issue_handshake(struct lws *wsi)
  * request.  The client_transport_up op.
  */
 int
-lws_h1_client_transport_up(struct lws *wsi)
+lws_h1_client_transport_up(struct lws *wsi, const lws_sockaddr46 *peer)
 {
 #if defined(LWS_ROLE_H2)
 	if (wsi->flags & LCCSCF_H2_PRIOR_KNOWLEDGE) {
@@ -313,7 +313,7 @@ lws_h1_client_transport_up(struct lws *wsi)
 	}
 
 	if (lwsi_role_h2(wsi))
-		return lws_h2_client_transport_up(wsi);
+		return lws_h2_client_transport_up(wsi, peer);
 #endif
 
 	return lws_h1_client_issue_handshake(wsi);

@@ -564,7 +564,7 @@ rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 
 #if defined(LWS_WITH_CLIENT)
 static int
-rops_client_transport_up_mqtt(struct lws *wsi)
+rops_client_transport_up_mqtt(struct lws *wsi, const lws_sockaddr46 *peer)
 {
 	int n;
 

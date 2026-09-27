@@ -692,6 +692,10 @@ const lws_io_ops_t lws_io_ops_default = {
 	.want_read	= lws_io_want_read_pollfd,
 	.deadline	= NULL, /* the loops ask what is due each time round */
 	.close		= lws_io_close_pollfd,
+#if defined(LWS_WITH_UDP)
+	.path		= lws_io_path_dgram,
+#endif
+	.transfer	= lws_io_transfer_pollfd,
 };
 
 

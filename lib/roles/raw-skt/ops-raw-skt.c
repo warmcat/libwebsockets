@@ -30,7 +30,7 @@
  * hears the connection exists.  The client_transport_up op.
  */
 static int
-rops_client_transport_up_raw_skt(struct lws *wsi)
+rops_client_transport_up_raw_skt(struct lws *wsi, const lws_sockaddr46 *peer)
 {
 	/* whether the user has already been told: TRANSPORT_UP below tells */
 	int told = lwsi_carrier(wsi) == LCR_ESTABLISHED, n;

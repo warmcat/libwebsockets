@@ -616,11 +616,13 @@ typedef int (*lws_rops_issue_keepalive_t)(struct lws *wsi, int isvalid);
  * The client transport to the peer is up: connected, any socks or proxy leg
  * done, and tls (io's business) started if it was wanted.  The role starts
  * its protocol from here.  A role without this op gets the default: its
- * adoption callback to the user and TRANSPORT_UP.
+ * adoption callback to the user and TRANSPORT_UP.  peer is the address the
+ * transport reached (the proxy's, when it went through one).
  * ret 0 = ok, -1 = failed, the caller closes the wsi; 1 = the role already
  * closed the wsi
  */
-typedef int (*lws_rops_client_transport_up_t)(struct lws *wsi);
+typedef int (*lws_rops_client_transport_up_t)(struct lws *wsi,
+					      const lws_sockaddr46 *peer);
 /*
  * sansIO rx: bytes for this wsi.  Either what the transport just delivered
  * (from_transport) or the parked remainder of an earlier delivery being

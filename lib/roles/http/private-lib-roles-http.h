@@ -654,7 +654,7 @@ lws_h1_client_issue_handshake(struct lws *wsi);
 void
 lws_h1_client_request_sent(struct lws *wsi);
 int
-lws_h1_client_transport_up(struct lws *wsi);
+lws_h1_client_transport_up(struct lws *wsi, const lws_sockaddr46 *peer);
 int
 lws_h1_client_rx_done(struct lws *wsi);
 void

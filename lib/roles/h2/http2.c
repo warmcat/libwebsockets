@@ -551,7 +551,7 @@ bail1:
  * client_transport_up op.
  */
 int
-lws_h2_client_transport_up(struct lws *wsi)
+lws_h2_client_transport_up(struct lws *wsi, const lws_sockaddr46 *peer)
 {
 	lwsl_wsi_info(wsi, "doing h2 hello path");
 

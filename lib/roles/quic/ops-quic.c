@@ -239,7 +239,8 @@ lws_quic_prefaddr_sul_cb(lws_sorted_usec_list_t *sul)
 	qn->prefaddr_active = 0;
 	qn->rem_cid = qn->prefaddr_original_rem_cid;
 
-	if (lws_io_udp_swap_socket(nwsi, &qn->prefaddr_original_sa46))
+	if (lws_io_path(nwsi, LWS_IOPATH_NEW_SOCKET,
+			&qn->prefaddr_original_sa46))
 		lwsl_wsi_err(nwsi, "prefaddr: revert socket failed");
 	else
 		qn->path_sa46 = qn->prefaddr_original_sa46;
@@ -294,7 +295,8 @@ lws_quic_client_probe_preferred_address(struct lws *nwsi,
 	qn->prefaddr_active = 1;
 	qn->prefaddr_committed = 0;
 
-	if (lws_io_udp_swap_socket(nwsi, pref_sa46))
+	/* a new local port for the new path, RFC 9000 9.5 */
+	if (lws_io_path(nwsi, LWS_IOPATH_NEW_SOCKET, pref_sa46))
 		return 1;
 	qn->path_sa46 = *pref_sa46;
 
@@ -1110,7 +1112,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 
 		/* the peer we were born from is the committed path */
 		nwsi->quic.qn->path_sa46 = sa46;
-		lws_io_set_peer(nwsi, &sa46);
+		lws_io_path(nwsi, LWS_IOPATH_COMMIT, &sa46);
 
 #if defined(LWS_WITH_TLS)
 		nwsi->use_ssl = (unsigned int)wsi->a.vhost->tls.use_ssl;
@@ -1972,12 +1974,12 @@ tp_ok:
 						    buf_new, (unsigned int)ntohs(port_new));
 #endif
 
-					/* Re-connect the socket to the new server address */
-					if (lws_io_udp_connect_peer(nwsi, &migration_sa46))
+					/* the path is the new server address */
+					if (lws_io_path(nwsi, LWS_IOPATH_COMMIT,
+							&migration_sa46))
 						lwsl_wsi_warn(nwsi, "QUIC: failed to re-connect client socket");
 
 					nwsi->quic.qn->path_sa46 = migration_sa46;
-					lws_io_set_peer(nwsi, &migration_sa46);
 
 					/* Reset Congestion Control State (RFC 9000 9.3.3) */
 					if (nwsi->quic.qn->cc_ops && nwsi->quic.qn->cc_ops->init)
@@ -3186,14 +3188,6 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
         if (!wsi->quic.initialized && !qn->is_server) {
                 wsi->quic.initialized = 1;
 
-		/*
-		 * the committed path is the peer IO connected us to; unset,
-		 * the server's first packet looked like the server moving,
-		 * and the client "migrated" mid-handshake: cc, rtt and pmtud
-		 * reset, the path unvalidated and a PATH_CHALLENGE sent
-		 */
-		qn->path_sa46 = *lws_io_peer(wsi);
-
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
 		if (wsi->use_ssl & LCCSCF_USE_SSL) {
 			const char *cce = NULL;
@@ -3691,10 +3685,6 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 	    (i->alpn && !strcmp(i->alpn, "h3"))) {
 		struct lws_quic_cid dcid;
 
-		/* a quic client rides a datagram transport: IO gives it one */
-		if (lws_io_udp_alloc(wsi))
-			return 1;
-
 		/* Allocate QUIC netconn for client! */
                 if (!wsi->quic.qn) {
                         wsi->quic.qn = lws_zalloc(sizeof(*wsi->quic.qn), "quic_netconn");
@@ -3840,9 +3830,6 @@ rops_adoption_bind_quic(struct lws *wsi, int type, const char *vh_prot_name)
 	     !strcmp(wsi->a.vhost->listen_accept_role, "quic")) ||
 	    (vh_prot_name && !strcmp(vh_prot_name, "quic")) ||
 	    (wsi->role_ops == &role_ops_quic)) {
-		/* the socket marks what it sends ECT(0) and reports ECN on rx */
-		lws_io_udp_enable_ecn(wsi);
-
 		/* Initialize Flow Control Credits */
 		int32_t init_cr = wsi->txc.manual_initial_tx_credit;
 		if (!init_cr)
@@ -3853,14 +3840,6 @@ rops_adoption_bind_quic(struct lws *wsi, int type, const char *vh_prot_name)
 		if (!(type & _LWS_ADOPT_FINISH))
 			lws_wsi_event_role(wsi, LWS_WSIEV_ADOPTED, &role_ops_quic);
 		lws_bind_protocol(wsi, wsi->a.protocol, __func__);
-
-		if ((type & _LWS_ADOPT_FINISH) && lws_io_udp_is_bound(wsi)) {
-			wsi->listener = 1;
-#if defined(LWS_WITH_SERVER)
-			if (!lws_dll2_owner(&wsi->listen_list))
-				lws_dll2_add_tail(&wsi->listen_list, &wsi->a.vhost->listen_wsi);
-#endif
-		}
 
 		return 1;
 	}
@@ -4563,12 +4542,18 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 
 #if defined(LWS_WITH_CLIENT)
 	/*
-	 * The happy eyeballs retry sul may still be armed from the
-	 * DNS-result staggering; after migration this wsi is an h3
-	 * mux child stream with no business opening TCP racers.
+	 * The handshake is done: quic has won the race for the connection,
+	 * and the tcp connects racing it as the fallback, their pacing timers
+	 * and the h3 grace go now.  It must be before anything below moves
+	 * off this wsi: the racers' event-lib watchers live in its evlib
+	 * block, which the migration moves to the new network wsi.  Torn down
+	 * after that, a parked tcp socket kept a live libuv poll handle whose
+	 * data pointed at this wsi, freed when its h3 stream ends, and the
+	 * peer's idle close of that unused connection ten to forty seconds
+	 * later was the POLLIN that dereferenced it.
 	 */
 	if (lwsi_role_client(wsi))
-		lws_io_connect_timers_cancel(wsi);
+		lws_client_transport_established(wsi);
 #endif
 
 	if (strcmp(alpn, "h3") && strcmp(alpn, "lws-quic"))
@@ -4587,24 +4572,6 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	if (!wsi->quic.qn || wsi->quic.qn->alpn_migrated)
 		return 0;
 
-#if defined(LWS_WITH_CLIENT)
-	/*
-	 * QUIC succeeded: resolve the race by killing the parallel TCP
-	 * connections NOW, before anything below is moved off this wsi.
-	 *
-	 * The racers' event-lib watchers live in wsi's evlib private block,
-	 * which the migration copies wholesale onto nwsi and then zeroes on
-	 * wsi.  Tearing the racers down after that found no watcher on wsi
-	 * and returned without closing it: the parked TCP socket kept a live
-	 * libuv poll handle whose data still pointed at this wsi, which is
-	 * freed when its h3 stream ends, and the peer's idle close of that
-	 * unused TCP connection ten to forty seconds later was the POLLIN
-	 * that dereferenced it.
-	 */
-	if (lwsi_role_client(wsi))
-		lws_io_abort_connect(wsi);
-#endif
-
 	/* Create the new network WSI */
 	nwsi = lws_create_new_server_wsi(wsi->a.vhost, wsi->tsi, 0, "quic_nwsi");
 	if (!nwsi)
@@ -4619,8 +4586,11 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 #endif
 
 	/* the socket, its place in the poll set and its watcher move over */
-	if (lws_io_udp_transfer_socket(wsi, nwsi))
+	if (lws_io_transfer(wsi, nwsi)) {
+		lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS,
+				   "transfer fail");
 		return 1;
+	}
 
 	/* Transfer the quic contexts (the udp state moved with the socket) */
 	nwsi->quic = wsi->quic;
@@ -4807,8 +4777,17 @@ rops_destroy_role_quic(struct lws *wsi)
 
 #if defined(LWS_WITH_CLIENT)
 static int
-rops_client_transport_up_quic(struct lws *wsi)
+rops_client_transport_up_quic(struct lws *wsi, const lws_sockaddr46 *peer)
 {
+	/*
+	 * the committed path is the peer IO connected us to; unset, the
+	 * server's first packet looked like the server moving, and the client
+	 * "migrated" mid-handshake: cc, rtt and pmtud reset, the path
+	 * unvalidated and a PATH_CHALLENGE sent
+	 */
+	if (wsi->quic.qn)
+		wsi->quic.qn->path_sa46 = *peer;
+
 	/* quic drives its own tls handshake from its POLLOUT handler */
 	lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
 	lws_callback_on_writable(wsi);

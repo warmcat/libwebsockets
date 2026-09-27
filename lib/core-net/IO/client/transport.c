@@ -56,13 +56,24 @@ lws_client_is_quic(struct lws *wsi)
 static int
 lws_client_transport_up(struct lws *wsi)
 {
+	const lws_sockaddr46 *peer = lws_io_peer(wsi);
 	const char *cce;
 	int n, m;
+
+#if defined(LWS_WITH_UDP)
+	/*
+	 * The connection's peer address is the last connect attempt's, and a
+	 * tcp racer to another of the dns results may have been started after
+	 * the datagram socket was aimed: the datagram peer is where that is
+	 */
+	if (wsi->io.udp)
+		peer = &wsi->io.udp->sa46;
+#endif
 
 	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_client_transport_up)) {
 		n = lws_rops_func_fidx(wsi->role_ops,
 				       LWS_ROPS_client_transport_up).
-					client_transport_up(wsi);
+					client_transport_up(wsi, peer);
 		if (n < 0) {
 			cce = "role transport up failed";
 			goto failed;
@@ -151,6 +162,20 @@ lws_client_transport_connected(struct lws *wsi)
 #endif
 
 	return lws_client_transport_up(wsi);
+}
+
+/*
+ * A role whose transport is made inside its own protocol says when it is up:
+ * quic's connection exists once its handshake, inside its packets, is done.
+ * It has won the race for the connection (README.sans-io-split.md): the tcp
+ * connects racing it as the fallback, the timers pacing them and the h3
+ * grace, and any dns still out for it, go now, while this wsi still holds
+ * them and before the role moves the connection anywhere else.
+ */
+void
+lws_client_transport_established(struct lws *wsi)
+{
+	lws_io_abort_connect(wsi);
 }
 
 /*

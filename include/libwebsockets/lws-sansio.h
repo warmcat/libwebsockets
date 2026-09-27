@@ -37,6 +37,7 @@ struct lws_vhost;
 struct lws_http_mount;
 struct lws_protocol_vhost_options;
 struct lws_context_creation_info;
+union lws_sockaddr46;
 
 #include <libwebsockets/lws-io-ops.h>
 #include <libwebsockets/lws-callbacks.h>

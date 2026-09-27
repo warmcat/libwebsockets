@@ -378,7 +378,7 @@ lws_io_shutdown_write(struct lws *wsi);
 int
 lws_io_close_staged(struct lws *wsi);
 int
-lws_io_transfer_socket(struct lws *wsi, struct lws *wnew);
+lws_io_transfer_pollfd(struct lws *from, struct lws *to);
 void
 lws_io_adjunct_init(struct lws *wsi);
 void
@@ -414,15 +414,12 @@ lws_client_connect_transport(struct lws *wsi);
 #endif
 void
 lws_io_udp_release(struct lws *wsi);
-#if defined(LWS_ROLE_QUIC)
+#if defined(LWS_WITH_UDP)
+/* the datagram socket under a datagram role: path is the io_ops op */
 int
-lws_io_udp_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46);
-int
-lws_io_udp_connect_peer(struct lws *nwsi, const lws_sockaddr46 *sa46);
+lws_io_path_dgram(struct lws *wsi, int op, const lws_sockaddr46 *peer);
 void
 lws_io_udp_enable_ecn(struct lws *wsi);
-int
-lws_io_udp_is_bound(struct lws *wsi);
 int
 lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi);
 #endif

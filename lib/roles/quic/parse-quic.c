@@ -1300,17 +1300,18 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 								"preferred_address");
 
 						/*
-						 * Keep the wsi-level route tracking
-						 * consistent with the new peer, so
-						 * netlink route-teardown culling
-						 * (peer_route_uidx) and routability
-						 * checks (sa46_peer) reason about
-						 * the path we are actually using
-						 * now, not the pre-migration one.
-						 * path_sa46 holds the committed
-						 * peer address for both sides.
+						 * Commit the path to IO, so its
+						 * route tracking (netlink
+						 * route-teardown culling,
+						 * routability) and what it reports
+						 * as the peer follow the path we
+						 * are actually using now, not the
+						 * pre-migration one.  path_sa46
+						 * holds the committed peer address
+						 * for both sides.
 						 */
-						lws_io_set_peer(nwsi, &nwsi->quic.qn->path_sa46);
+						lws_io_path(nwsi, LWS_IOPATH_COMMIT,
+							    &nwsi->quic.qn->path_sa46);
 
 						/* Reset CC / RTT / PMTUD (RFC 9000 9.3.3) */
 						if (nwsi->quic.qn->cc_ops &&

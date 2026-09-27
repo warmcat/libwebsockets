@@ -1812,10 +1812,10 @@ lws_io_peer_address(struct lws *wsi, char *buf, size_t len)
 		lws_strncpy(buf, "unknown", len);
 }
 
-#if defined(LWS_ROLE_QUIC)
+#if defined(LWS_WITH_UDP)
 /*
- * quic's socket setup (README.sans-io-split.md: quic is a sansIO part with
- * a datagram interface; these are the datagram socket's).
+ * The datagram socket under a datagram role (README.sans-io-split.md: quic is
+ * a sansIO part with a datagram interface; these are the datagram socket's).
  */
 
 /*
@@ -1823,7 +1823,7 @@ lws_io_peer_address(struct lws *wsi, char *buf, size_t len)
  * preferred address: a new source port), replacing the old socket and its
  * event-library watcher.  Returns 1 on failure with the old socket intact.
  */
-int
+static int
 lws_io_udp_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
 {
 	struct lws_context *cx = nwsi->a.context;
@@ -1915,7 +1915,7 @@ lws_io_udp_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
 
 
 /* reconnect a connected UDP socket to a peer that moved (path migration) */
-int
+static int
 lws_io_udp_connect_peer(struct lws *nwsi, const lws_sockaddr46 *sa46)
 {
 	if (connect(nwsi->io.desc.sockfd, sa46_sockaddr((lws_sockaddr46 *)sa46),
@@ -1925,7 +1925,41 @@ lws_io_udp_connect_peer(struct lws *nwsi, const lws_sockaddr46 *sa46)
 		return 1;
 	}
 
+	nwsi->io.udp->sa46 = *sa46;
+
 	return 0;
+}
+
+/*
+ * io_ops path (lws-io-ops.h): the datagram connection's protocol moved its
+ * path; the socket that reaches it is ours.  Only a connection with its own
+ * connected socket (a client) has one to aim or replace: a server's
+ * connection shares its listener's, and a connection on a transport has none.
+ */
+int
+lws_io_path_dgram(struct lws *wsi, int op, const lws_sockaddr46 *peer)
+{
+	int own = !wsi->io.transport && wsi->io.udp;
+
+	switch (op) {
+	case LWS_IOPATH_COMMIT:
+		lws_io_set_peer(wsi, peer);
+		if (!own || !lws_socket_is_valid(wsi->io.desc.sockfd) ||
+		    (!lws_sa46_compare_ads(&wsi->io.udp->sa46, peer) &&
+		     wsi->io.udp->sa46.sa4.sin_port == peer->sa4.sin_port))
+			return 0; /* nothing to aim, or aimed there already */
+
+		return lws_io_udp_connect_peer(wsi, peer);
+
+	case LWS_IOPATH_NEW_SOCKET:
+		/* a failed earlier swap may have left it none: make one */
+		if (!own)
+			return 0;
+
+		return lws_io_udp_swap_socket(wsi, peer);
+	}
+
+	return 1;
 }
 
 /* send ECT(0) and be told the ECN bits of what arrives */
@@ -1957,17 +1991,11 @@ lws_io_udp_enable_ecn(struct lws *wsi)
 #endif
 }
 
-/* was the udp socket created bound (LWS_CAUDP_BIND), ie, is it a listener */
-int
-lws_io_udp_is_bound(struct lws *wsi)
-{
-	return wsi->io.do_bind;
-}
-
 /*
  * A quic netconn is born as one wsi and goes on as another: the socket, its
  * place in the poll set and its event-library watcher move to nwsi.  Returns
- * 1 on failure, having closed nwsi.
+ * 1 when the fd table could not be moved over, and the caller closes nwsi,
+ * which by then holds the socket.  The transfer io_ops op, lws_io_transfer_pollfd().
  */
 int
 lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi)
@@ -1990,7 +2018,6 @@ lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi)
 		lws_pt_lock(pt, __func__);
 		if (__remove_wsi_socket_from_fds(wsi)) {
 			lws_pt_unlock(pt);
-			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "fd table fail");
 			return 1;
 		}
 		wsi->io.desc.sockfd = LWS_SOCK_INVALID;
@@ -2013,7 +2040,6 @@ lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi)
 	#endif
 		if (__insert_wsi_socket_into_fds(wsi->a.context, nwsi)) {
 			lws_pt_unlock(pt);
-			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "fd table fail");
 			return 1;
 		}
 		lws_pt_unlock(pt);
@@ -2021,4 +2047,4 @@ lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi)
 
 	return 0;
 }
-#endif /* LWS_ROLE_QUIC */
+#endif /* LWS_WITH_UDP */

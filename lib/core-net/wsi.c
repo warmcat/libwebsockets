@@ -1021,6 +1021,23 @@ lws_io_want_read(struct lws *wsi, int on)
 	return n;
 }
 
+/* a datagram connection's path moved (enum lws_io_path_op) */
+int
+lws_io_path(struct lws *wsi, int op, const lws_sockaddr46 *peer)
+{
+	if (!wsi->a.context->io_ops->path)
+		return 0; /* the embedder carries no datagram connections */
+
+	return wsi->a.context->io_ops->path(wsi, op, peer);
+}
+
+/* the connection goes on as another wsi: its transport moves with it */
+int
+lws_io_transfer(struct lws *from, struct lws *to)
+{
+	return from->a.context->io_ops->transfer(from, to);
+}
+
 /*
  * sansIO's want_write, as the roles and the app spell it: the role may have
  * something to say about which connection carries the request (a stream's
@@ -1921,7 +1938,7 @@ idle:
 	/* what the connection asked for goes with it (the join test reads it) */
 	wnew->use_ssl = wsi->use_ssl;
 #endif
-	if (lws_io_transfer_socket(wsi, wnew))
+	if (lws_io_transfer(wsi, wnew))
 		goto bail;
 
 	/* take over his copy of his endpoint as an active connection */

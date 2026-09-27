@@ -84,7 +84,7 @@ typedef union {
 #include <lwip/sockets.h>
 #endif
 
-typedef union {
+typedef union lws_sockaddr46 {
 #if defined(LWS_WITH_IPV6)
 	struct sockaddr_in6 sa6;
 #else
