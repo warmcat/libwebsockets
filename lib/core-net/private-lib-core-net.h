@@ -1663,6 +1663,10 @@ lws_wsi_request_uri(struct lws *wsi);
 
 int LWS_WARN_UNUSED_RESULT
 lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s);
+#if defined(LWS_WITH_CLIENT)
+int LWS_WARN_UNUSED_RESULT
+lws_client_stash_to_headers(struct lws *wsi);
+#endif
 
 int LWS_WARN_UNUSED_RESULT
 lws_ensure_user_space(struct lws *wsi);

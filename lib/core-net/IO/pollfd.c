@@ -566,6 +566,10 @@ lws_io_quiesce_pollfd(struct lws *wsi)
 {
 	lws_io_abort_connect(wsi);
 	lws_io_socket_wait_cancel(wsi);
+
+	/* the service thread's event pipe leaves the loop now */
+	if (wsi->a.context->pt[(int)wsi->tsi].pipe_wsi == wsi)
+		lws_pipe_wsi_release_fds(wsi);
 }
 
 static int
@@ -581,8 +585,8 @@ lws_io_close_pollfd(struct lws *wsi, int phase)
 		return n;
 
 	case LWS_IOCLOSE_UNWATCH:
+		/* the datagram state, like the socket, goes at the RELEASE */
 		lws_io_quiesce_pollfd(wsi);
-		lws_io_udp_release(wsi);
 		lws_io_unwatch(wsi);
 		return 0;
 
@@ -670,7 +674,7 @@ lws_io_close_pollfd(struct lws *wsi, int phase)
  * A new wsi's adjunct: no socket, no place in the poll set, and the event
  * library's per-wsi block, which is allocated after the wsi
  */
-void
+static void
 lws_io_adjunct_init(struct lws *wsi)
 {
 #if defined(LWS_WITH_EVENT_LIBS)
@@ -697,6 +701,7 @@ const lws_io_ops_t lws_io_ops_default = {
 #if defined(LWS_WITH_UDP)
 	.path		= lws_io_path_dgram,
 #endif
+	.created	= lws_io_adjunct_init,
 	.transfer	= lws_io_transfer_pollfd,
 };
 

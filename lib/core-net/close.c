@@ -369,86 +369,11 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 		return;
 
 #if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
-	if (wsi->tried_quic && wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
-		const char *path = wsi->stash ? wsi->stash->cis[CIS_PATH] : lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
-		const char *host = wsi->stash ? wsi->stash->cis[CIS_HOST] : lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
-		const char *ads = wsi->stash ? wsi->stash->cis[CIS_ADDRESS] : wsi->cli_hostname_copy;
-		
-		char ads_fallback[48];
-
-		/* the next dns result, if IO has one left, is the fallback */
-		if (lws_io_dns_next(wsi, ads_fallback, sizeof(ads_fallback))) {
-			if (ads_fallback[0] && host && path) {
-				lwsl_wsi_notice(wsi, "QUIC fail, trying next DNS result %s", ads_fallback);
-				lws_addrinfo_clean(wsi);
-				if (lws_client_reset(&wsi,
-						!!(wsi->use_ssl & LCCSCF_USE_SSL),
-						ads_fallback, wsi->c_port, path, host, 1)) {
-					return;
-				}
-			}
-		}
-
-		if (!ads) ads = host;
-
-		if (ads && host && path) {
-			wsi->tried_quic = 0;
-			lwsl_wsi_notice(wsi, "QUIC connection failed, falling back to TCP");
-			/*
-			 * Forget any learned h3 alternative for this origin,
-			 * it just failed... per RFC 7838 return to the origin
-			 * until the alternative is advertised again
-			 */
-			lws_client_alt_svc_forget(wsi);
-			lws_addrinfo_clean(wsi);
-
-			/*
-			 * Invalidate any cached h3 ALPN for this host:port so
-			 * the post-reset connect path does not immediately try
-			 * QUIC again.  We write "h2" with a short (60 s) TTL so
-			 * the preference is temporary -- QUIC may work again
-			 * later when transient conditions clear.
-			 */
-			if (wsi->a.context->alpn_cache && wsi->c_port) {
-				char _key[256];
-				void *_p;
-				lws_snprintf(_key, sizeof(_key), "alpn_%s_%u",
-					     ads, wsi->c_port);
-				lws_cache_write_through(wsi->a.context->alpn_cache,
-							_key, (const uint8_t *)"h2", 3,
-							lws_now_usecs() +
-							(60LL * LWS_US_PER_SEC),
-							&_p);
-			}
-			/*
-			 * Clear discovered ALPN so connect_2_restart does not
-			 * see h3 from the cache-hit path.  Keep the original
-			 * offered ALPN for the retry, so an h1 streamtype does
-			 * not silently become h2... but if h3 was explicitly
-			 * offered, fall back to the TCP alpns for the retry.
-			 */
-			wsi->alpn_discovered[0] = '\0';
-			/* the QUIC attempt had set wsi alpn to h3, recover
-			 * the original from the ah headers, or TCP alpns */
-			if (strstr(wsi->alpn, "h3")) {
-				const char *orig = lws_hdr_simple_ptr(wsi,
-							_WSI_TOKEN_CLIENT_ALPN);
-
-				if (!orig || strstr(orig, "h3"))
-					orig = "h2,http/1.1";
-
-				lws_strncpy(wsi->alpn, orig,
-					    sizeof(wsi->alpn));
-			}
-
-			if (lws_client_reset(&wsi,
-					!!(wsi->use_ssl & LCCSCF_USE_SSL),
-					ads, wsi->c_port, path, host, 1)) {
-				/* Successfully scheduled fallback */
-				return;
-			}
-		}
-	}
+	/* a quic attempt IO can retarget: the next address, or tcp */
+	if (wsi->tried_quic && wsi->role_ops &&
+	    !strcmp(wsi->role_ops->name, "quic") &&
+	    lws_client_transport_failed(wsi))
+		return;
 #endif
 
 	lws_addrinfo_clean(wsi);
@@ -541,9 +466,6 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	context = wsi->a.context;
 	pt = &context->pt[(int)wsi->tsi];
 
-	if (pt->pipe_wsi == wsi)
-		lws_pipe_wsi_release_fds(wsi);
-
 #if defined(LWS_WITH_SYS_METRICS) && \
     (defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
 	/* wsi level: only reports if dangling caliper */
@@ -617,7 +539,8 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #if defined(LWS_ROLE_RAW_FILE)
 	if (wsi->role_ops == &role_ops_raw_file) {
 		lws_remove_child_from_any_parent(wsi);
-		__remove_wsi_socket_from_fds(wsi);
+		/* the file is watched no more; the final free releases it */
+		__lws_io_close_transport(wsi, LWS_IOCLOSE_UNWATCH);
 		if (wsi->a.protocol)
 			wsi->a.protocol->callback(wsi, wsi->role_ops->close_cb[0],
 					wsi->user_space, NULL, 0);
@@ -889,14 +812,12 @@ just_kill_connection:
 #endif
 
 	/*
-	 * we won't be servicing or receiving anything further from this guy
-	 * delete socket from the internal poll list if still present
+	 * we won't be servicing or receiving anything further from this guy:
+	 * his timers go, and the transport is watched no more (the final free
+	 * releases it)
 	 */
-	__lws_ssl_remove_wsi_from_buffered_list(wsi);
 	__lws_wsi_remove_from_sul(wsi);
-
-	/* checking return redundant since we anyway close */
-	__remove_wsi_socket_from_fds(wsi);
+	__lws_io_close_transport(wsi, LWS_IOCLOSE_UNWATCH);
 
 	lws_wsi_event(wsi, LWS_WSIEV_SOCKET_GONE);
 	lws_buflist_destroy_all_segments(&wsi->buflist);

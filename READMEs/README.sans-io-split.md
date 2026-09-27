@@ -44,14 +44,16 @@ things only through these requests.  Nothing else crosses.
 | sansIO -> IO | **want_write()**: call tx when the transport can take bytes | `lws_callback_on_writable()`; `lws_service_wsi_as_writable()` is the same request served now, and `lws_io_tx_now()` its datagram tx alone (a closing quic connection's CONNECTION_CLOSE) |
 | sansIO -> IO | **deadline(us) / no deadline** | `lws_set_timeout()`, `lws_sul_schedule()` |
 | sansIO -> IO | **want_read(on / off)**: stop feeding me rx, or resume | `lws_rx_flow_control()` |
-| sansIO -> IO | **close(reason)** | `lws_close_free_wsi()`, `LWS_WSIEV_CLOSE_FLUSH`; at the transport the request has phases, `lws_io_ops_t.close(wsi, phase)`: quiesce (nothing of the transport's may act on the wsi), unwatch (a restart keeps the wsi), shutdown, stage (keep it until the peer has finished), release |
-| sansIO -> IO | **transport(made)**: a transport the role makes inside its own protocol is up, so it won any race for the connection | `lws_client_transport_established()`: quic's handshake is done, IO drops the tcp connects racing it, their timers and the h3 grace; the socks and CONNECT legs' tunnel coming up is `lws_client_transport_connected()`, after which IO still has the tls to do |
+| sansIO -> IO | **close(reason)** | `lws_close_free_wsi()`, `LWS_WSIEV_CLOSE_FLUSH`; at the transport the request has phases, `lws_io_ops_t.close(wsi, phase)`: quiesce (nothing of the transport's may act on the wsi; it answers whether the wsi was still waiting for its socket, when its close callback is owed), unwatch (no longer polled or offered buffered rx; a restart, a file closing, and every close once its shutdown and staging are decided), shutdown, stage (keep it until the peer has finished), release |
+| sansIO -> IO | **transport(start / made / failed)**: the client's request is ready, so its transport may start; a transport the role makes inside its own protocol is up, so it won any race for the connection; or it failed before it was up | `lws_client_transport_start()`: a client that waited for its header table has it, IO starts dns and the connect; `lws_client_transport_established()`: quic's handshake is done, IO drops the tcp connects racing it, their timers and the h3 grace; `lws_client_transport_failed()`: quic's never completed, IO retargets the connection to the next dns result or to tcp if it can.  The socks and CONNECT legs' tunnel coming up is `lws_client_transport_connected()`, after which IO still has the tls to do |
 | sansIO -> IO | **path(commit / new socket, peer)**: a datagram connection's peer moved, or it wants a new local port to reach it | `lws_io_path()`, `lws_io_ops_t.path`: quic's connection migration and preferred address (RFC 9000 9); IO aims or replaces the socket and reports the committed peer |
+| sansIO -> IO | **created(wsi)**: a connection object was made | `lws_io_ops_t.created`: IO sets up its half of the object, with no transport yet; the close's release is its end |
 | sansIO -> IO | **transfer(from, to)**: the connection goes on as another object | `lws_io_transfer()`, `lws_io_ops_t.transfer`: quic's connection leaving the wsi that dialled it for its own network wsi, a kept-warm connection joining the wsi queued on it; IO moves the socket, its poll place, its watcher and the tls session |
 
-Four in (rx has a datagram spelling for quic), seven out.  The last three
-out are about the transport itself rather than the bytes: a protocol that
-makes its own transport (quic) decides when it is up and where its peer is,
+Four in (rx has a datagram spelling for quic), eight out.  The last four
+out are about the transport and its object rather than the bytes: a client
+decides when its transport may start, a protocol that makes its own
+transport (quic) decides when it is up or has failed and where its peer is,
 and sansIO decides which of its objects a connection is.  A sansIO part that
 needs anything else from IO is a sansIO part with IO in it.
 
@@ -381,6 +383,16 @@ can be live).
    client preface and the h2c 101 among them; what stays a push is named
    for it, `lws_io_tx_push()`: the app's lws_write() data, framed in place
    uncopied, the proxy legs' one-shot messages, a mux stream's partial).
+   Then the last of the check's lines (done: 0): the close's quiesce
+   answers whether the close callback is owed, the pt pipe leaves the loop
+   at the quiesce, a raw file and every close stop watching the transport
+   through the unwatch phase, the object's IO half is set up through
+   `created`, and a client's quic fallback and its start after waiting for
+   a header table are `lws_client_transport_failed()` and
+   `lws_client_transport_start()`.  The check only sees calls to what is
+   declared for IO alone; an IO function also declared in a header both
+   halves see (`lws_addrinfo_clean()` is one) is invisible to it, which
+   the sansIO-only build closes, at link time.
 8. Split the object: IO's fields of `struct lws` move into the
    `lws_io_adjunct` (see "The object"), the check making it opaque to
    sansIO (in progress: the socket identity first).

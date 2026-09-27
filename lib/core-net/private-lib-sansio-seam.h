@@ -69,12 +69,27 @@ lws_io_service_now(struct lws *wsi);
 int
 lws_client_transport_connected(struct lws *wsi);
 /*
+ * transport: the client's request is ready to go (it got its header table):
+ * IO starts its transport, dns first.  Returns the wsi, or NULL when it was
+ * closed and freed
+ */
+struct lws *
+lws_client_transport_start(struct lws *wsi);
+/*
  * transport: a role that makes its transport inside its own protocol (quic's
  * handshake) has made it; it won any race for the connection, and IO drops
  * what else it had trying to be it
  */
 void
 lws_client_transport_established(struct lws *wsi);
+#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
+/*
+ * transport: such a role's transport failed before it was up; IO retargets
+ * the connection if it can (the next address, then tcp) and returns 1, else 0
+ */
+int
+lws_client_transport_failed(struct lws *wsi);
+#endif
 #endif
 
 #endif

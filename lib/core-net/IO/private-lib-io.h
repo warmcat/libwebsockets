@@ -157,9 +157,6 @@ void
 lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
 
 
-struct lws *
-lws_http_client_connect_via_info2(struct lws *wsi);
-
 int
 _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa);
 
@@ -381,8 +378,6 @@ int
 lws_io_close_staged(struct lws *wsi);
 int
 lws_io_transfer_pollfd(struct lws *from, struct lws *to);
-void
-lws_io_adjunct_init(struct lws *wsi);
 void
 lws_io_socket_wait_cancel(struct lws *wsi);
 int

@@ -29,9 +29,10 @@
  * my transport.  It asks through the names it always has (
  * lws_callback_on_writable(), lws_rx_flow_control(), lws_set_timeout() and
  * lws_sul_schedule(), lws_close_free_wsi()); at the bottom of each, where
- * the request reaches the transport, it goes through this struct.  Two more
- * are about the transport itself: a datagram connection's path moved, and
- * a connection moved to another wsi.
+ * the request reaches the transport, it goes through this struct.  The rest
+ * are about the transport and its object themselves: a datagram
+ * connection's path moved, a connection object was made, and a connection
+ * moved to another object.
  *
  * IO fills it in for the normal build (lws_io_ops_default).  An embedder of
  * the sansIO half alone supplies its own in
@@ -47,8 +48,9 @@ enum lws_io_close_phase {
 	LWS_IOCLOSE_QUIESCE,	/* nothing of the transport's may act on the
 				 * wsi any more: connect attempts and their
 				 * timers, dns, the wait for a socket */
-	LWS_IOCLOSE_UNWATCH,	/* a restart follows: stop watching the
-				 * transport, keep it for the release */
+	LWS_IOCLOSE_UNWATCH,	/* stop watching the transport, keep it for
+				 * the release (a restart follows, or a
+				 * file's user hears it close first) */
 	LWS_IOCLOSE_SHUTDOWN,	/* stop sending: a tls close_notify when there
 				 * is a session, else the write side */
 	LWS_IOCLOSE_STAGE,	/* keep the transport until the peer has
@@ -109,6 +111,12 @@ typedef struct lws_io_ops {
 	 * NEW_SOCKET the old socket is still in place if the new one could
 	 * not be opened, else the wsi is left with none.  May be NULL when no
 	 * datagram connection is carried. */
+	void (*created)(struct lws *wsi);
+	/**< a connection object was just made: IO sets up its half of it, as
+	 * having no transport yet (no socket, no place in the poll set).
+	 * Its end is the close's RELEASE, and a move to another object is
+	 * transfer.  May be NULL when the embedder's IO keeps nothing of its
+	 * own in the object. */
 	int (*transfer)(struct lws *from, struct lws *to);
 	/**< the connection sansIO knew as from goes on as to (a quic
 	 * connection leaving the wsi that dialled it for its own network

@@ -322,7 +322,7 @@ reset:
 connect_via_info2:
 #endif
 	if (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED)
-		if (!lws_http_client_connect_via_info2(wsi))
+		if (!lws_client_transport_start(wsi))
 			/*
 			 * Our client connect has failed; by that api's
 			 * contract the wsi has been closed and freed.
@@ -480,7 +480,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 		 */
 		lws_pt_unlock(pt);
 
-		if (!lws_http_client_connect_via_info2(wsi))
+		if (!lws_client_transport_start(wsi))
 			/* our client connect has failed, the wsi
 			 * has been closed
 			 */

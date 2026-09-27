@@ -1195,7 +1195,7 @@ rops_client_bind_h1(struct lws *wsi, const struct lws_client_connect_info *i)
 		/* if we went on the ah waiting list, it's ok, we can wait.
 		 *
 		 * When we do get the ah, now or later, he will end up at
-		 * lws_http_client_connect_via_info2().
+		 * lws_client_transport_start().
 		 */
 		if (lws_header_table_attach(wsi, 0) ==
 						LWS_AH_ATTACH_WSI_GONE)

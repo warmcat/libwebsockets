@@ -781,7 +781,9 @@ struct lws *__lws_wsi_create_with_role(struct lws_context *context, int tsi,
 		wsi->lc.log_cx = context->log_cx;
 
 	wsi->a.context = context;
-	lws_io_adjunct_init(wsi);
+	/* IO's half of the object: no transport yet */
+	if (context->io_ops && context->io_ops->created)
+		context->io_ops->created(wsi);
 	lws_role_transition(wsi, 0, LRS_UNCONNECTED, ops);
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->a.protocol = NULL;

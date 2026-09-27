@@ -1360,3 +1360,53 @@ lws_http_add_onward_header(struct lws *wsi, const char *name, const char *value)
 
 	return lws_http_onward_header_append(wsi, name, value);
 }
+
+#if defined(LWS_WITH_CLIENT)
+static const uint8_t hnames[] = {
+	_WSI_TOKEN_CLIENT_PEER_ADDRESS,
+	_WSI_TOKEN_CLIENT_URI,
+	_WSI_TOKEN_CLIENT_HOST,
+	_WSI_TOKEN_CLIENT_ORIGIN,
+	_WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
+	_WSI_TOKEN_CLIENT_METHOD,
+	_WSI_TOKEN_CLIENT_IFACE,
+	_WSI_TOKEN_CLIENT_ALPN
+};
+
+/*
+ * A client's request, stashed when it was asked for, goes into its header
+ * table now that it has one, before its transport starts.  A connection that
+ * has no header table (raw, mqtt, quic) keeps its stash.  Returns 0, or -1
+ * when it did not fit: the stash is freed, and the caller closes the wsi.
+ */
+int
+lws_client_stash_to_headers(struct lws *wsi)
+{
+	struct client_info_stash *stash = wsi->stash;
+	int n;
+
+	wsi->a.opaque_user_data = stash->opaque_user_data;
+
+	if ((stash->cis[CIS_METHOD] && (!strcmp(stash->cis[CIS_METHOD], "RAW") ||
+				      !strcmp(stash->cis[CIS_METHOD], "MQTT") ||
+				      !strcmp(stash->cis[CIS_METHOD], "QUIC"))) ||
+	    (stash->cis[CIS_ALPN] && !strcmp(stash->cis[CIS_ALPN], "h3")))
+		return 0;
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames); n++)
+		if (hnames[n] && stash->cis[n] &&
+		    lws_hdr_simple_create(wsi, hnames[n], stash->cis[n])) {
+			lws_free_set_NULL(wsi->stash);
+
+			return -1;
+		}
+
+#if defined(LWS_WITH_SOCKS5)
+	/* the socks leg reconnects from it; nothing else needs it now */
+	if (!wsi->a.vhost->socks_proxy_port)
+		lws_free_set_NULL(wsi->stash);
+#endif
+
+	return 0;
+}
+#endif

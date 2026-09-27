@@ -1418,13 +1418,15 @@ lws_addrinfo_clean(struct lws *wsi)
 #endif
 }
 
-/* the transport is no longer watched, but not released: a restart follows */
+/* the transport is no longer watched, but not released until the RELEASE */
 void
 lws_io_unwatch(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	lws_pt_lock(pt, __func__);
+	/* nothing it has buffered is offered any more, nor is it polled */
+	__lws_ssl_remove_wsi_from_buffered_list(wsi);
 	__remove_wsi_socket_from_fds(wsi);
 	lws_pt_unlock(pt);
 }

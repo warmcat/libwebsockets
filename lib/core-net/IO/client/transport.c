@@ -178,6 +178,101 @@ lws_client_transport_established(struct lws *wsi)
 	lws_io_abort_connect(wsi);
 }
 
+#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
+/*
+ * A role that makes its transport inside its own protocol says when that
+ * failed before it was up (quic: its handshake never completed).  Retargeting
+ * the connection is IO's: the next of the sorted dns results for another quic
+ * attempt, and after those tcp, with the learned h3 alternative and the
+ * cached h3 alpn for the origin forgotten.  Returns 1 when the connection was
+ * retargeted (it goes on as a redirect-marked restart), 0 when there is
+ * nothing left to try and the failure stands.
+ */
+int
+lws_client_transport_failed(struct lws *wsi)
+{
+	const char *path = wsi->stash ? wsi->stash->cis[CIS_PATH] : lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
+	const char *host = wsi->stash ? wsi->stash->cis[CIS_HOST] : lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
+	const char *ads = wsi->stash ? wsi->stash->cis[CIS_ADDRESS] : wsi->cli_hostname_copy;
+	char ads_fallback[48];
+
+	/* the next dns result, if there is one left, is the fallback */
+	if (lws_io_dns_next(wsi, ads_fallback, sizeof(ads_fallback))) {
+		if (ads_fallback[0] && host && path) {
+			lwsl_wsi_notice(wsi, "QUIC fail, trying next DNS result %s", ads_fallback);
+			lws_addrinfo_clean(wsi);
+			if (lws_client_reset(&wsi,
+					!!(wsi->use_ssl & LCCSCF_USE_SSL),
+					ads_fallback, wsi->c_port, path, host, 1)) {
+				return 1;
+			}
+		}
+	}
+
+	if (!ads) ads = host;
+
+	if (ads && host && path) {
+		wsi->tried_quic = 0;
+		lwsl_wsi_notice(wsi, "QUIC connection failed, falling back to TCP");
+		/*
+		 * Forget any learned h3 alternative for this origin,
+		 * it just failed... per RFC 7838 return to the origin
+		 * until the alternative is advertised again
+		 */
+		lws_client_alt_svc_forget(wsi);
+		lws_addrinfo_clean(wsi);
+
+		/*
+		 * Invalidate any cached h3 ALPN for this host:port so
+		 * the post-reset connect path does not immediately try
+		 * QUIC again.  We write "h2" with a short (60 s) TTL so
+		 * the preference is temporary -- QUIC may work again
+		 * later when transient conditions clear.
+		 */
+		if (wsi->a.context->alpn_cache && wsi->c_port) {
+			char _key[256];
+			void *_p;
+			lws_snprintf(_key, sizeof(_key), "alpn_%s_%u",
+				     ads, wsi->c_port);
+			lws_cache_write_through(wsi->a.context->alpn_cache,
+						_key, (const uint8_t *)"h2", 3,
+						lws_now_usecs() +
+						(60LL * LWS_US_PER_SEC),
+						&_p);
+		}
+		/*
+		 * Clear discovered ALPN so connect_2_restart does not
+		 * see h3 from the cache-hit path.  Keep the original
+		 * offered ALPN for the retry, so an h1 streamtype does
+		 * not silently become h2... but if h3 was explicitly
+		 * offered, fall back to the TCP alpns for the retry.
+		 */
+		wsi->alpn_discovered[0] = '\0';
+		/* the QUIC attempt had set wsi alpn to h3, recover
+		 * the original from the ah headers, or TCP alpns */
+		if (strstr(wsi->alpn, "h3")) {
+			const char *orig = lws_hdr_simple_ptr(wsi,
+						_WSI_TOKEN_CLIENT_ALPN);
+
+			if (!orig || strstr(orig, "h3"))
+				orig = "h2,http/1.1";
+
+			lws_strncpy(wsi->alpn, orig,
+				    sizeof(wsi->alpn));
+		}
+
+		if (lws_client_reset(&wsi,
+				!!(wsi->use_ssl & LCCSCF_USE_SSL),
+				ads, wsi->c_port, path, host, 1)) {
+			/* Successfully scheduled fallback */
+			return 1;
+		}
+	}
+
+	return 0;
+}
+#endif
+
 /*
  * A connection whose bytes a transport carries (lws_set_transport()): there
  * is no dns lookup or connect, the fd it was given is its place in the poll

@@ -24,67 +24,32 @@
 
 #include "private-lib-core.h"
 
-static const uint8_t hnames[] = {
-	_WSI_TOKEN_CLIENT_PEER_ADDRESS,
-	_WSI_TOKEN_CLIENT_URI,
-	_WSI_TOKEN_CLIENT_HOST,
-	_WSI_TOKEN_CLIENT_ORIGIN,
-	_WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
-	_WSI_TOKEN_CLIENT_METHOD,
-	_WSI_TOKEN_CLIENT_IFACE,
-	_WSI_TOKEN_CLIENT_ALPN
-};
-
+/*
+ * The client's request is ready to go (it has its header table, if it needs
+ * one): its stashed request goes into the headers, and the transport starts,
+ * with dns.  Returns the wsi, or NULL when it was closed and freed.
+ */
 struct lws *
-lws_http_client_connect_via_info2(struct lws *wsi)
+lws_client_transport_start(struct lws *wsi)
 {
-	struct client_info_stash *stash = wsi->stash;
-	int n;
+	lwsl_wsi_debug(wsi, "stash %p", wsi->stash);
 
-	lwsl_wsi_debug(wsi, "stash %p", stash);
-
-	if (!stash)
+	if (!wsi->stash)
 		return wsi;
 
-	wsi->a.opaque_user_data = wsi->stash->opaque_user_data;
+	if (lws_client_stash_to_headers(wsi)) {
+		/*
+		 * Every caller takes NULL as "the wsi has been closed and
+		 * freed": returning it with the wsi still alive leaked the
+		 * wsi and its ah for each redirect whose headers did not fit
+		 */
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cvi2 bail");
 
-	if ((stash->cis[CIS_METHOD] && (!strcmp(stash->cis[CIS_METHOD], "RAW") ||
-				      !strcmp(stash->cis[CIS_METHOD], "MQTT") ||
-				      !strcmp(stash->cis[CIS_METHOD], "QUIC"))) ||
-	    (stash->cis[CIS_ALPN] && !strcmp(stash->cis[CIS_ALPN], "h3")))
-		goto no_ah;
+		return NULL;
+	}
 
-	/*
-	 * we're not necessarily in a position to action these right away,
-	 * stash them... we only need during connect phase so into a temp
-	 * allocated stash
-	 */
-	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames); n++)
-		if (hnames[n] && stash->cis[n] &&
-		    lws_hdr_simple_create(wsi, hnames[n], stash->cis[n]))
-			goto bail;
-
-#if defined(LWS_WITH_SOCKS5)
-	if (!wsi->a.vhost->socks_proxy_port)
-		lws_free_set_NULL(wsi->stash);
-#endif
-
-no_ah:
 	return lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(wsi);
-
-bail:
-	lws_free_set_NULL(wsi->stash);
-
-	/*
-	 * Every caller takes NULL as "the wsi has been closed and freed":
-	 * returning it with the wsi still alive leaked the wsi and its ah
-	 * for each redirect whose headers did not fit
-	 */
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cvi2 bail");
-
-	return NULL;
 }
-
 
 struct lws *
 lws_client_connect_via_info(const struct lws_client_connect_info *i)
@@ -596,7 +561,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 		/* fallthru */
 
-		wsi = lws_http_client_connect_via_info2(wsi);
+		wsi = lws_client_transport_start(wsi);
 	}
 
 	if (wsi)
