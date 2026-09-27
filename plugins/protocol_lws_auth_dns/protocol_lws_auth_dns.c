@@ -263,11 +263,9 @@ static int
 auth_dns_nsec3_hash(const char *name, const struct auth_dns_nsec3_params *pa,
 		    char *b32, size_t b32_len)
 {
-	struct lws_genhash_ctx hctx;
-	uint8_t wire[256], hash[20];
+	uint8_t wire[256], hash[LWS_AUTH_DNS_NSEC3_HASH_LEN];
 	size_t wl = sizeof(wire), nl = strlen(name);
 	char fq[260];
-	int n;
 
 	lws_snprintf(fq, sizeof(fq), "%s%s", name,
 		     nl && name[nl - 1] == '.' ? "" : ".");
@@ -275,32 +273,16 @@ auth_dns_nsec3_hash(const char *name, const struct auth_dns_nsec3_params *pa,
 	if (name_to_wire(fq, "", wire, &wl))
 		return 1;
 
-	if (lws_genhash_init(&hctx, LWS_GENHASH_TYPE_SHA1) ||
-	    (pa->salt_len && lws_genhash_update(&hctx, pa->salt, pa->salt_len)) ||
-	    lws_genhash_update(&hctx, wire, wl) ||
-	    lws_genhash_destroy(&hctx, hash)) {
-		lws_genhash_destroy(&hctx, NULL);
-
-		return 1;
-	}
-
 	/*
 	 * auth_dns_nsec3_params() already refuses a zone whose NSEC3PARAM asks
-	 * for more than this, but the bound belongs next to the loop it limits
+	 * for more than this, but the bound belongs next to the work it limits
 	 */
 	if (pa->iterations > LWS_AUTH_DNS_MAX_NSEC3_ITERATIONS)
 		return 1;
 
-	for (n = 0; n < (int)pa->iterations; n++)
-		if (lws_genhash_init(&hctx, LWS_GENHASH_TYPE_SHA1) ||
-		    (pa->salt_len && lws_genhash_update(&hctx, pa->salt,
-							pa->salt_len)) ||
-		    lws_genhash_update(&hctx, hash, sizeof(hash)) ||
-		    lws_genhash_destroy(&hctx, hash)) {
-			lws_genhash_destroy(&hctx, NULL);
-
-			return 1;
-		}
+	if (lws_auth_dns_nsec3_hash(wire, wl, pa->salt, pa->salt_len,
+				    (unsigned int)pa->iterations, hash))
+		return 1;
 
 	auth_dns_b32hex(hash, sizeof(hash), b32, b32_len);
 
