@@ -186,6 +186,15 @@ static const struct lws_protocols
 	*pprotocols_hls[] = { &defprot, &prot_hls, NULL },
 	*pprotocols_cli[]  = { &defprot, &prot_cli, NULL };
 
+/*
+ * We composed the plugin into ourselves: tell lws, so it runs the plugin's
+ * one-time init and deinit for our copy, and ignores any copy of the same
+ * plugin built into lws or found as a dlopenable plugin
+ */
+static const lws_plugin_protocol_t * const composed_plugins[] = {
+	&lws_hls, NULL
+};
+
 static const struct lws_http_mount
 	mount_hls = {
 		.mountpoint		= "/media",
@@ -1102,10 +1111,10 @@ sigint_handler(int sig)
 /*
  * We are the plugin's stub child (LWS_WITH_STUB): the plugin in the parent
  * re-ran this executable with --lws-stub=lws-hls-stub, to do its deletes
- * with the privileges it may have dropped.  All we have to do is host the
- * plugin on a vhost that listens on nothing: its PROTOCOL_INIT sees the
- * option and sets up the stub side, taking its media dir from the parent.
- * The stub layer exits the process when the parent goes away.
+ * with the privileges it may have dropped.  All we have to do is create a
+ * context with the plugin in it: the plugin's init sees the option and sets
+ * up the stub side, taking its media dir from the parent.  The stub layer
+ * exits the process when the parent goes away.
  */
 static int
 run_stub(struct lws_context_creation_info *info)
@@ -1113,21 +1122,11 @@ run_stub(struct lws_context_creation_info *info)
 	int n = 0;
 
 	info->options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+	info->plugins = composed_plugins;
 
 	context = lws_create_context(info);
 	if (!context)
 		return 1;
-
-	/* no pvo to instantiate the plugin by: instantiate everything */
-	info->options		|= LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS;
-	info->port		= CONTEXT_PORT_NO_LISTEN;
-	info->vhost_name	= "hls-stub";
-	info->pprotocols	= pprotocols_hls;
-
-	if (!lws_create_vhost(context, info)) {
-		lws_context_destroy(context);
-		return 1;
-	}
 
 	while (n >= 0)
 		n = lws_service(context, 0);
@@ -1164,6 +1163,7 @@ main(int argc, const char **argv)
 		goto bail;
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+	info.plugins = composed_plugins;
 
 	context = lws_create_context(&info);
 	if (!context) {

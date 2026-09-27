@@ -191,11 +191,22 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	/* We create the vhost explicitly so plugins are loaded and attached */
-	struct lws_vhost *vh = lws_create_vhost(context, &info);
-	if (!vh) {
-		lwsl_err("Failed to create vhost\n");
-		return 1;
+	/*
+	 * The hls plugin does its deletes in a stub child, which is this
+	 * executable run again with --lws-stub=lws-hls-stub.  The plugin's
+	 * init already did everything that process is for, as the context
+	 * was created: it must not serve on our port as well.
+	 */
+	if (!lws_cmdline_option(argc, argv, "--lws-stub=")) {
+		/* We create the vhost explicitly so plugins are loaded and
+		 * attached */
+		struct lws_vhost *vh = lws_create_vhost(context, &info);
+
+		if (!vh) {
+			lwsl_err("Failed to create vhost\n");
+			lws_context_destroy(context);
+			return 1;
+		}
 	}
 
 	while (n >= 0)

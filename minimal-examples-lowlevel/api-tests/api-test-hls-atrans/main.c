@@ -98,6 +98,15 @@ static const struct lws_protocols
 	*pprotocols_hls[] = { &defprot, &prot_hls, NULL },
 	*pprotocols_cli[]  = { &defprot, &prot_cli, NULL };
 
+/*
+ * We composed the plugin into ourselves: tell lws, so it runs the plugin's
+ * one-time init and deinit for our copy, and ignores any copy of the same
+ * plugin built into lws or found as a dlopenable plugin
+ */
+static const lws_plugin_protocol_t * const composed_plugins[] = {
+	&lws_hls, NULL
+};
+
 static const struct lws_http_mount
 	mount_hls = {
 		.mountpoint		= "/media",
@@ -576,6 +585,32 @@ sigint_handler(int sig)
 	lws_default_loop_exit(context);
 }
 
+/*
+ * We are the plugin's stub child (LWS_WITH_STUB): the plugin in the parent
+ * re-ran this executable with --lws-stub=lws-hls-stub.  We never ask it to
+ * delete anything, but it must come up and wait for the parent to go away,
+ * not run the test again.  The plugin's init does the stub side.
+ */
+static int
+run_stub(struct lws_context_creation_info *info)
+{
+	int n = 0;
+
+	info->options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+	info->plugins = composed_plugins;
+
+	context = lws_create_context(info);
+	if (!context)
+		return 1;
+
+	while (n >= 0)
+		n = lws_service(context, 0);
+
+	lws_context_destroy(context);
+
+	return 0;
+}
+
 int
 main(int argc, const char **argv)
 {
@@ -594,12 +629,16 @@ main(int argc, const char **argv)
 
 	lws_set_log_level(LLL_ERR | LLL_WARN | LLL_USER | LLL_NOTICE, NULL);
 
+	if (lws_cmdline_option(argc, argv, "--lws-stub="))
+		return run_stub(&info);
+
 	lwsl_user("LWS API selftest: HLS pre-transcoded audio shadow\n");
 
 	if (build_fixture_media())
 		goto bail;
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+	info.plugins = composed_plugins;
 
 	context = lws_create_context(&info);
 	if (!context) {

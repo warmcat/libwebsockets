@@ -89,11 +89,13 @@ hls_relay_stub_log(const char *in, size_t len)
 
 #if defined(LWS_WITH_STUB)
 /*
- * Stub child only: the one vhd that consumed the secret and owns the UDS
- * listener.  Requests arrive on the listener vhost, which has no vhd of its
- * own (see PROTOCOL_INIT), so they find their config through this.
+ * Stub child only: what the plugin init (lws_hls_plugin_init()) was handed
+ * by the parent on stdin, the secret and the media dir.  Requests arrive on
+ * the UDS listener vhost, where no vhost instantiates us, so they find
+ * their config through this.
  */
-static struct per_vhost_data__lws_hls *stub_vhd;
+static struct per_vhost_data__lws_hls *hls_stub;
+static char hls_stub_media_dir[512];
 
 static const char * const stub_req_paths[] = { "secret", "delete" };
 
@@ -156,7 +158,7 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 	if (reason != LEJPCB_COMPLETE)
 		return 0;
 
-	vhd = stub_vhd;
+	vhd = hls_stub;
 	if (!vhd)
 		return -1;
 
@@ -593,82 +595,24 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 					lws_get_protocol(wsi));
 	const struct lws_protocol_vhost_options *pvo;
-#if defined(LWS_WITH_STUB)
-	const char *stub;
-#endif
-
 	struct per_session_data__lws_hls *pss =
 			(struct per_session_data__lws_hls *)user;
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
-#if defined(LWS_WITH_STUB)
-		stub = lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub");
-		if (stub && strcmp(stub, "lws-hls-stub"))
-			return 0;
-#endif
-
 		/*
 		 * We are offered to every vhost.  One that has no pvo for us
 		 * simply doesn't want us: leave silently without a vhd, so the
-		 * other callbacks stay inert on it.  The stub child gets its
-		 * config over the UDS instead of by pvo, so it is exempt.
+		 * other callbacks stay inert on it.  That includes every vhost
+		 * of our stub child, whose one-time setup is the plugin init.
 		 */
-		if (!in
-#if defined(LWS_WITH_STUB)
-		    && !stub
-#endif
-		   )
+		if (!in)
 			return 0;
-
-#if defined(LWS_WITH_STUB)
-		/*
-		 * In the stub child we are instantiated on every vhost,
-		 * including the UDS listener vhost lws_stub_server_init()
-		 * itself creates, but the secret can only be consumed from
-		 * stdin once: a second lws_stub_server_init() blocks forever
-		 * on the pipe, leaving the listener bound but never serviced.
-		 * The first instantiation does it, the rest stay inert.
-		 */
-		if (stub && stub_vhd)
-			return 0;
-#endif
 
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi), sizeof(struct per_vhost_data__lws_hls));
 		if (!vhd)
 			return 1;
-
-#if defined(LWS_WITH_STUB)
-		if (stub) {
-			struct lws_stub_config sc;
-			char extra[512], uds[64];
-
-			stub_vhd = vhd;
-			memset(&sc, 0, sizeof(sc));
-			memset(extra, 0, sizeof(extra));
-			hls_stub_uds_path(uds, sizeof(uds), (int)getppid());
-			sc.cx = lws_get_context(wsi);
-			sc.vh = lws_get_vhost(wsi);
-			sc.stub_name = "lws-hls-stub";
-			sc.uds_path = uds;
-			sc.protocols = stub_prots;
-			
-			/* kept in vhd so stub_req_cb() can authenticate the
-			 * peer on the UDS before acting on its request */
-			if (lws_stub_server_init(&sc, vhd->stub_secret, extra,
-						 sizeof(extra)) < 0)
-				return 1;
-				
-			/* Update our media_dir to the one provided by the parent via extra_payload */
-			if (extra[0])
-				vhd->media_dir = strdup(extra);
-			else
-				vhd->media_dir = "/tmp";
-				
-			return 0;
-		}
-#endif
 
 		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "media-dir")))
 			vhd->media_dir = pvo->value;
@@ -799,13 +743,6 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (!vhd)
 			break;
-#if defined(LWS_WITH_STUB)
-		if (vhd == stub_vhd) {
-			/* the stub child never started the worker or caches */
-			stub_vhd = NULL;
-			break;
-		}
-#endif
 		lws_hls_index_sweep_stop(vhd);
 		lws_sul_cancel(&vhd->sul_watch);
 
@@ -1634,13 +1571,82 @@ err_404:
 	return 0;
 }
 
-#if !defined (LWS_PLUGIN_STATIC)
+#if defined(LWS_WITH_STUB)
+/*
+ * Once per context, however many vhosts instantiate us.  Only our stub child
+ * has anything to do here: read the secret and the media dir the parent
+ * hands it on stdin, and listen on the UDS the parent will connect to.
+ */
+static int
+lws_hls_plugin_init(struct lws_context *cx)
+{
+	const char *stub = lws_cmdline_option_cx(cx, "--lws-stub");
+	struct lws_stub_config sc;
+	char uds[64];
 
-LWS_VISIBLE const struct lws_protocols lws_hls_protocols[] = {
+	if (!stub || strcmp(stub, "lws-hls-stub"))
+		return 0;
+
+	hls_stub = calloc(1, sizeof(*hls_stub));
+	if (!hls_stub)
+		return 1;
+
+	memset(&sc, 0, sizeof(sc));
+	hls_stub_uds_path(uds, sizeof(uds), (int)getppid());
+	sc.cx		= cx;
+	sc.stub_name	= "lws-hls-stub";
+	sc.uds_path	= uds;
+	sc.protocols	= stub_prots;
+
+	/* the extra payload is the parent's media dir, NUL included, but
+	 * leave room for a NUL of our own whatever arrives */
+	memset(hls_stub_media_dir, 0, sizeof(hls_stub_media_dir));
+	if (lws_stub_server_init(&sc, hls_stub->stub_secret,
+				 hls_stub_media_dir,
+				 sizeof(hls_stub_media_dir) - 1) < 0) {
+		free(hls_stub);
+		hls_stub = NULL;
+
+		return 1;
+	}
+
+	hls_stub->media_dir = hls_stub_media_dir[0] ? hls_stub_media_dir :
+						      "/tmp";
+
+	return 0;
+}
+
+static void
+lws_hls_plugin_deinit(struct lws_context *cx)
+{
+	(void)cx;
+
+	if (!hls_stub)
+		return;
+
+	lws_explicit_bzero(hls_stub->stub_secret,
+			   sizeof(hls_stub->stub_secret));
+	free(hls_stub);
+	hls_stub = NULL;
+}
+#endif
+
+/*
+ * An application composing us into itself (LWS_PLUGIN_STATIC, see
+ * include/lws-plugin-hls-static-build-includes.h) gets the same export,
+ * private to it, to list in its context creation info->plugins
+ */
+#if defined(LWS_PLUGIN_STATIC)
+#define LWS_HLS_EXPORT static
+#else
+#define LWS_HLS_EXPORT LWS_VISIBLE
+#endif
+
+LWS_HLS_EXPORT const struct lws_protocols lws_hls_protocols[] = {
 	LWS_PLUGIN_PROTOCOL_LWS_HLS
 };
 
-LWS_VISIBLE const lws_plugin_protocol_t lws_hls = {
+LWS_HLS_EXPORT const lws_plugin_protocol_t lws_hls = {
 	.hdr = {
 		.name = "lws hls",
 		._class = "lws_protocol_plugin",
@@ -1652,6 +1658,8 @@ LWS_VISIBLE const lws_plugin_protocol_t lws_hls = {
 	.count_protocols = LWS_ARRAY_SIZE(lws_hls_protocols),
 	.extensions = NULL,
 	.count_extensions = 0,
-};
-
+#if defined(LWS_WITH_STUB)
+	.init = lws_hls_plugin_init,
+	.deinit = lws_hls_plugin_deinit,
 #endif
+};
