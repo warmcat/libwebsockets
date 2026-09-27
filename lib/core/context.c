@@ -499,6 +499,104 @@ lws_evlib_options_from_env(uint64_t options)
 }
 #endif
 
+#if defined(LWS_WITH_NETWORK)
+/*
+ * The protocol plugins in the context, in the order their .init is called:
+ * the ones the application composed into itself first, then the ones lws
+ * found (built in, or dlopened).  NULL past the end.
+ */
+static const lws_plugin_protocol_t *
+lws_plugins_protocol_nth(struct lws_context *cx, int n)
+{
+#if defined(LWS_WITH_PROTOCOL_PLUGINS)
+	struct lws_plugin *p;
+#endif
+	int m = 0;
+
+	if (cx->plugins_composed)
+		while (cx->plugins_composed[m]) {
+			if (m == n)
+				return cx->plugins_composed[m];
+			m++;
+		}
+
+	n -= m;
+
+#if defined(LWS_WITH_PROTOCOL_PLUGINS)
+	for (p = cx->plugin_list; p; p = p->list)
+		if (!n--)
+			return (const lws_plugin_protocol_t *)p->hdr;
+#endif
+
+	return NULL;
+}
+
+/*
+ * One .init per plugin per context, however it arrived and however many
+ * vhosts, if any, later instantiate its protocols
+ */
+static int
+lws_plugins_protocol_init(struct lws_context *cx)
+{
+	const lws_plugin_protocol_t *plpr;
+
+	while ((plpr = lws_plugins_protocol_nth(cx, cx->plugins_inited))) {
+		if (plpr->hdr.api_magic >= 193 && plpr->init &&
+		    plpr->init(cx)) {
+			lwsl_cx_err(cx, "plugin '%s' failed init",
+				    plpr->hdr.name);
+
+			return 1;
+		}
+		cx->plugins_inited++;
+	}
+
+	return 0;
+}
+
+static void
+lws_plugins_protocol_deinit(struct lws_context *cx)
+{
+	const lws_plugin_protocol_t *plpr;
+
+	while (cx->plugins_inited) {
+		plpr = lws_plugins_protocol_nth(cx, --cx->plugins_inited);
+		if (plpr && plpr->hdr.api_magic >= 193 && plpr->deinit)
+			plpr->deinit(cx);
+	}
+}
+
+#if defined(LWS_WITH_PROTOCOL_PLUGINS)
+/*
+ * A plugin the application composed into itself wins over a builtin or
+ * dlopened one of the same name: drop those, before anything saw them
+ */
+static void
+lws_plugins_drop_composed(struct lws_context *cx)
+{
+	const lws_plugin_protocol_t * const *c = cx->plugins_composed;
+	struct lws_plugin **pp, *p;
+
+	for (; c && *c; c++) {
+		pp = &cx->plugin_list;
+		while (*pp) {
+			if (strcmp((*pp)->hdr->name, (*c)->hdr.name)) {
+				pp = &(*pp)->list;
+				continue;
+			}
+
+			lwsl_cx_info(cx, "plugin '%s': using the app's own copy",
+				     (*c)->hdr.name);
+			p = *pp;
+			*pp = p->list;
+			p->list = NULL;
+			lws_plugins_destroy(&p, NULL, NULL);
+		}
+	}
+}
+#endif
+#endif
+
 struct lws_context *
 lws_create_context(const struct lws_context_creation_info *info)
 {
@@ -1619,9 +1717,17 @@ lws_create_context(const struct lws_context_creation_info *info)
 	 * loop and if libuv,  have to take care about how to unpick them...
 	 */
 
+#if defined(LWS_WITH_NETWORK)
+	context->plugins_composed = info->plugins;
+#endif
+
 	if (lws_plat_init(context, info) ||
 	    lws_fi(&context->fic, "ctx_createfail_plat_init"))
 		goto bail_libuv_aware;
+
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_PROTOCOL_PLUGINS)
+	lws_plugins_drop_composed(context);
+#endif
 
 #if defined(LWS_WITH_NETWORK)
 
@@ -1765,6 +1871,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 		}
 	}
+
+	if (lws_plugins_protocol_init(context))
+		goto bail_libuv_aware;
 
 #if defined(LWS_WITH_SYS_STATE)
 	/*
@@ -2695,6 +2804,8 @@ next_l:
 #endif
 
 #if defined(LWS_WITH_NETWORK)
+		/* every vhost, and so every user of plugin state, is gone */
+		lws_plugins_protocol_deinit(context);
 		lws_ssl_context_destroy(context);
 #endif
 		lws_plat_context_late_destroy(context);

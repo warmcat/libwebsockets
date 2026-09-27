@@ -53,7 +53,9 @@ your server, just define this before including the plugin source
 ```
 
 This gets you most of the advantages without needing dynamic loading +
-libuv.
+libuv.  List the plugin's export in the context creation `info->plugins`, so
+lws runs its one-time init for your copy, see
+[README.lws_plugins.md](README.lws_plugins.md).
 
 
 Notes about lws test apps

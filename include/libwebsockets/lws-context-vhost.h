@@ -1189,6 +1189,17 @@ struct lws_context_creation_info {
 	/**< CONTEXT: NULL for lws's own IO half, or the requests of IO
 	 * supplied by an embedder of the sansIO half (see lws-io-ops.h) */
 
+	const struct lws_plugin_protocol * const *plugins;
+	/**< CONTEXT: NULL, or a NULL-terminated array of protocol plugin
+	 * exports the application composed into itself, by building the
+	 * plugin's source in rather than having lws dlopen it or build it in.
+	 * lws treats them as it treats the plugins it finds itself: their
+	 * .init and .deinit are called once for the context, and a builtin or
+	 * dlopened plugin of the same hdr.name is not used at all, the
+	 * application's copy wins.  Their protocols are given to vhosts as
+	 * usual, in the vhost's info->pprotocols or info->protocols.  The
+	 * array and what it points to must outlive the context. */
+
 #if !defined(__STRICT_ANSI__)
 	void *_unused[1]; /**< dummy */
 #endif

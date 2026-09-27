@@ -257,7 +257,11 @@ lws_pmo_get_str(const struct lws_http_mount *mount, const char *name,
 LWS_VISIBLE LWS_EXTERN int
 lws_protocol_init(struct lws_context *context);
 
-#define LWS_PLUGIN_API_MAGIC 192
+/*
+ * 192: lws_plugin_header_t .priority
+ * 193: lws_plugin_protocol_t .init / .deinit
+ */
+#define LWS_PLUGIN_API_MAGIC 193
 
 /*
  * Abstract plugin header for any kind of plugin class, always at top of
@@ -296,6 +300,23 @@ typedef struct lws_plugin_protocol {
 	const struct lws_extension *extensions; /**< array of extensions provided by plugin */
 	int count_protocols; /**< how many protocols */
 	int count_extensions; /**< how many extensions */
+
+	/* the members below are only read from plugins built with
+	 * api_magic >= 193 */
+
+	int (*init)(struct lws_context *cx);
+	/**< NULL, or called once per context the plugin is in, after the
+	 * context's system vhost exists and before the context creation api
+	 * returns, however the plugin arrived: dlopened, built into lws, or
+	 * composed into the application and listed in info->plugins.  This is
+	 * the place for one-time plugin setup that must not depend on which,
+	 * or how many, vhosts instantiate the plugin's protocols... unlike
+	 * LWS_CALLBACK_PROTOCOL_INIT, which comes once per such vhost.
+	 * Nonzero fails the context creation. */
+	void (*deinit)(struct lws_context *cx);
+	/**< NULL, or called once at context destruction for a plugin whose
+	 * init succeeded (or which had no init), after every vhost has been
+	 * destroyed */
 } lws_plugin_protocol_t;
 
 

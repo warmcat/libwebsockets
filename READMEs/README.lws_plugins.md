@@ -149,3 +149,65 @@ If your plugin **is explicitly designed to run** inside a specific stub (e.g. `d
 		if (stub && strcmp(stub, "dnssec-priv"))
 			return 0;
 ```
+
+### 4. One-time setup goes in the export's `.init`, not `PROTOCOL_INIT`
+
+`LWS_CALLBACK_PROTOCOL_INIT` comes once per vhost that instantiates your
+protocol, and with `in` NULL on vhosts that merely offer it.  Anything that must
+happen once per process -- above all the server side of your own stub, which
+reads its secret from stdin exactly once -- does not belong there: how many
+times it arrives depends on the deployment.
+
+A protocol plugin export built with `LWS_PLUGIN_API_MAGIC` 193 or later can
+give `.init` and `.deinit`.  lws calls `.init` once per context, after the
+system vhost exists and before `lws_create_context()` returns, and `.deinit`
+once at context destruction after every vhost is gone, however the plugin
+arrived: dlopened, built into lws, or composed into the application (below).
+
+```c
+static int
+my_plugin_init(struct lws_context *cx)
+{
+	const char *stub = lws_cmdline_option_cx(cx, "--lws-stub");
+
+	/* only our own stub child has anything to set up */
+	if (!stub || strcmp(stub, "my-stub"))
+		return 0;
+
+	/* lws_stub_server_init(), keep what it read in plugin state... */
+
+	return 0;
+}
+
+const lws_plugin_protocol_t my_plugin = {
+	.hdr = { ..., .api_magic = LWS_PLUGIN_API_MAGIC },
+	...
+	.init		= my_plugin_init,
+	.deinit		= my_plugin_deinit,
+};
+```
+
+Then `PROTOCOL_INIT` stays the plain "no pvo, return 0" of section 1, even in
+the stub child, where no vhost needs to instantiate the plugin at all.
+
+### 5. Applications composing a plugin into themselves
+
+An application may build a protocol plugin's source into itself instead of
+having lws load it (`#define LWS_PLUGIN_STATIC` before including the source, eg
+via the plugin's `include/lws-plugin-*-static-build-includes.h`).  It should
+then list the plugin's export in `info->plugins` when creating the context:
+
+```c
+static const lws_plugin_protocol_t * const composed_plugins[] = {
+	&my_plugin, NULL
+};
+	...
+	info.plugins = composed_plugins;
+```
+
+lws then calls its `.init` and `.deinit` just as for a plugin it loaded itself,
+and a builtin or dlopened plugin with the same `hdr.name` is not used at all:
+the application's copy wins.  The protocols still go on vhosts through the
+vhost's `pprotocols` as usual.  A plugin supporting this defines its export
+`static` under `LWS_PLUGIN_STATIC`, so it cannot collide with the same export
+in a libwebsockets built with `LWS_WITH_PLUGINS_BUILTIN`.

@@ -716,6 +716,11 @@ struct lws_context {
 #if defined(LWS_WITH_PROTOCOL_PLUGINS)
 	struct lws_plugin		*plugin_list;
 #endif
+	const struct lws_plugin_protocol * const *plugins_composed;
+	/* from info->plugins */
+	int				plugins_inited;
+	/* how many plugins, in lws_plugins_protocol_init() order, had their
+	 * .init done, so destroy deinits exactly those */
 #ifdef _WIN32
 /* different implementation between unix and windows */
 	struct lws_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
