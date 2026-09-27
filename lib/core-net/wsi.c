@@ -556,6 +556,57 @@ struct lws *lws_get_network_wsi(struct lws *wsi) {
 	return wsi;
 }
 
+/*
+ * What a read took of the bytes it was offered: the rest is parked on the
+ * wsi's buflist for the next pass, or the pass's bytes leave it.  IO's rx
+ * pump and a mux role parking a stream's DATA both finish here; the pt's
+ * list of wsi holding parked rx is what gives them their pass.
+ */
+int
+lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
+				     int used, int buffered, const char *hint)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	int m;
+
+	/* it's in the buflist; we didn't use any */
+
+	if (!used && buffered)
+		return 0;
+
+	if (used && buffered) {
+		if (wsi->buflist) {
+			m = (int)lws_buflist_use_segment(&wsi->buflist,
+							 (size_t)used);
+			if (m)
+				return 0;
+		}
+
+		lwsl_wsi_info(wsi, "removed from dll_buflist");
+		lws_dll2_remove(&wsi->dll_buflist);
+
+		return 0;
+	}
+
+	/* any remainder goes on the buflist */
+
+	if (used < ebuf->len && ebuf->len >= 0 && used >= 0) {
+		m = lws_buflist_append_segment(&wsi->buflist,
+					       ebuf->token + used,
+					       (unsigned int)(ebuf->len - used));
+		if (m < 0)
+			return 1; /* OOM */
+		if (m) {
+			lwsl_wsi_debug(wsi, "added to rxflow list");
+			if (lws_dll2_is_detached(&wsi->dll_buflist))
+				lws_dll2_add_head(&wsi->dll_buflist,
+					 &pt->dll_buflist_owner);
+		}
+	}
+
+	return 0;
+}
+
 struct lws *
 lws_wsi_socket_owner(struct lws *wsi)
 {

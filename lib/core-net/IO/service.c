@@ -522,50 +522,6 @@ buflist_material:
 	return 1; /* from buflist */
 }
 
-int
-lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
-				     int used, int buffered, const char *hint)
-{
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	int m;
-
-	/* it's in the buflist; we didn't use any */
-
-	if (!used && buffered)
-		return 0;
-
-	if (used && buffered) {
-		if (wsi->buflist) {
-			m = (int)lws_buflist_use_segment(&wsi->buflist,
-							 (size_t)used);
-			if (m)
-				return 0;
-		}
-
-		lwsl_wsi_info(wsi, "removed from dll_buflist");
-		lws_dll2_remove(&wsi->dll_buflist);
-
-		return 0;
-	}
-
-	/* any remainder goes on the buflist */
-
-	if (used < ebuf->len && ebuf->len >= 0 && used >= 0) {
-		m = lws_buflist_append_segment(&wsi->buflist,
-					       ebuf->token + used,
-					       (unsigned int)(ebuf->len - used));
-		if (m < 0)
-			return 1; /* OOM */
-		if (m) {
-			lwsl_wsi_debug(wsi, "added to rxflow list");
-			if (lws_dll2_is_detached(&wsi->dll_buflist))
-				lws_dll2_add_head(&wsi->dll_buflist,
-					 &pt->dll_buflist_owner);
-		}
-	}
-
-	return 0;
-}
 
 /*
  * The rx pump: IO's side of the rx interface.  Takes what the transport has

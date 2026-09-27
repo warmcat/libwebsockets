@@ -255,10 +255,6 @@ int
 lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_tokens *ebuf, char fr, const char *hint);
 
-int
-lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
-				     int used, int buffered, const char *hint);
-
 #if (defined(LWS_WITH_SYS_ASYNC_DNS))
 lws_async_dns_server_check_t
 lws_plat_asyncdns_init(struct lws_context *context, lws_async_dns_t *dns);

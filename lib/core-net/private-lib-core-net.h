@@ -1483,6 +1483,9 @@ __lws_io_want_read(struct lws *wsi, int on);
 int
 __lws_io_close_transport(struct lws *wsi, int phase);
 int
+lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
+				     int used, int buffered, const char *hint);
+int
 lws_io_want_write(struct lws *wsi);
 int
 lws_io_want_read(struct lws *wsi, int on);
