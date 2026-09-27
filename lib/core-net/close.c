@@ -41,7 +41,6 @@ lws_wsi_close_cb_waived(struct lws *wsi)
 #endif
 	return 0;
 }
-#include "private-lib-async-dns.h"
 
 #if defined(LWS_WITH_CLIENT)
 static int
@@ -177,9 +176,6 @@ __lws_reset_wsi(struct lws *wsi)
 
 	/* since we will destroy the wsi, make absolutely sure now */
 
-#if defined(LWS_WITH_TLS)
-	__lws_ssl_remove_wsi_from_buffered_list(wsi);
-#endif
 	__lws_wsi_remove_from_sul(wsi);
 
 	/* a client wsi that bailed before its role was chosen has none */
@@ -376,8 +372,6 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 		return;
 #endif
 
-	lws_addrinfo_clean(wsi);
-
 	lws_wsi_event(wsi, LWS_WSIEV_CONN_FAILED);
 
 	if (!wsi->a.protocol || (wsi->a.context && wsi->a.context->being_destroyed))
@@ -480,35 +474,11 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		lws_metrics_caliper_done(wsi->cal_conn);
 #endif
 
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
-	/* is this wsi handling the interface to a dns server? */
-	{
-		lws_async_dns_server_t *dsrv =
-			__lws_async_dns_server_find_wsi(&context->async_dns, wsi);
-
-		if (dsrv)
-			dsrv->wsi = NULL;
-	}
-#endif
-
 	lws_pt_assert_lock_held(pt);
 
 #if defined(LWS_WITH_CLIENT)
-#if defined(LWS_WITH_TLS_SESSIONS) && defined(LWS_WITH_GNUTLS)
-	/*
-	 * For multiplexed connections (H3/H2), the TLS session belongs
-	 * to the network-level WSI, not to individual stream WSIs.  Don't
-	 * perform the (expensive) session ticket snapshot on every mux
-	 * substream close — only on the actual network wsi.
-	 */
-	if (!wsi->client_mux_substream)
-		lws_tls_session_new_gnutls(wsi);
-#endif
-
 	lws_free_set_NULL(wsi->cli_hostname_copy);
 	wsi->client_mux_substream_was = wsi->client_mux_substream;
-
-	lws_addrinfo_clean(wsi);
 #endif
 
 #if defined(LWS_WITH_HTTP2)

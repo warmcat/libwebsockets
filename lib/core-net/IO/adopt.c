@@ -1332,7 +1332,7 @@ int lws_wsi_extract_from_loop(struct lws *wsi) {
 
 /*
  * Whatever a connect attempt still has in flight: the racing sockets of
- * happy eyeballs, the name resolution.  Idempotent.
+ * happy eyeballs, the name resolution and what it resolved.  Idempotent.
  */
 void
 lws_io_abort_connect(struct lws *wsi)
@@ -1351,6 +1351,7 @@ lws_io_abort_connect(struct lws *wsi)
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	lws_async_dns_cancel(wsi);
 #endif
+	lws_addrinfo_clean(wsi);
 }
 
 /* the connect machine's timers hold the wsi: cancel them all */

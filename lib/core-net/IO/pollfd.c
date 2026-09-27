@@ -23,6 +23,9 @@
  */
 
 #include "private-lib-core.h"
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+#include "private-lib-async-dns.h"
+#endif
 
 int
 _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
@@ -570,6 +573,17 @@ lws_io_quiesce_pollfd(struct lws *wsi)
 	/* the service thread's event pipe leaves the loop now */
 	if (wsi->a.context->pt[(int)wsi->tsi].pipe_wsi == wsi)
 		lws_pipe_wsi_release_fds(wsi);
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	{
+		/* a dns server's socket: the server forgets it */
+		lws_async_dns_server_t *dsrv = __lws_async_dns_server_find_wsi(
+					&wsi->a.context->async_dns, wsi);
+
+		if (dsrv)
+			dsrv->wsi = NULL;
+	}
+#endif
 }
 
 static int
@@ -579,6 +593,16 @@ lws_io_close_pollfd(struct lws *wsi, int phase)
 
 	switch (phase) {
 	case LWS_IOCLOSE_QUIESCE:
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_TLS_SESSIONS) && \
+    defined(LWS_WITH_GNUTLS)
+		/*
+		 * keep the session for resumption while it is intact.  A mux
+		 * stream's session is its network connection's: that one
+		 * takes the (expensive) snapshot, not every stream
+		 */
+		if (!wsi->client_mux_substream)
+			lws_tls_session_new_gnutls(wsi);
+#endif
 		/* the quiesce ends the wait: whether there was one is asked */
 		n = lws_io_socket_wait_pending(wsi);
 		lws_io_quiesce_pollfd(wsi);
@@ -663,6 +687,7 @@ lws_io_close_pollfd(struct lws *wsi, int phase)
 	lws_io_udp_release(wsi);
 #if defined(LWS_WITH_TLS)
 	/* the session went with the socket: nothing of it is remembered */
+	__lws_ssl_remove_wsi_from_buffered_list(wsi);
 	memset(&wsi->io.tls, 0, sizeof(wsi->io.tls));
 #endif
 	wsi->io.shutdown_tries = 0;
