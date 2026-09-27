@@ -56,6 +56,7 @@ struct lws_context_creation_info;
 #include <libwebsockets/lws-misc.h>
 #include <libwebsockets/lws-dsh.h>
 #include <libwebsockets/lws-ring.h>
+#include <libwebsockets/lws-region.h>
 #if defined(LWS_WITH_MNEMONIC)
 #include <libwebsockets/lws-mnemonic.h>
 #endif

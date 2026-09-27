@@ -34,6 +34,7 @@ if (NOT LWS_ONLY_SSPC)
 		core/alloc.c
 		core/buflist.c
 		core/fragbuf.c
+		core/region.c
 		core/context.c
 		core/lws_map.c
 		core/adapt.c
