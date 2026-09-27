@@ -765,6 +765,28 @@ LWS_VISIBLE LWS_EXTERN void
 lws_set_log_level(int level, lws_log_emit_t log_emit_function);
 
 /**
+ * lws_log_spew_tail_lines() - set how much of a log spew is retained
+ * \param lines:	lines of the spew to retain and replay, or 0 for the
+ *			built-in default (LWS_LOG_SPEW_TAIL_LINES, 10)
+ *
+ * When logs arrive faster than anything can absorb them, lws stops emitting
+ * them and retains only the most recent tail of the spew on the heap,
+ * replaying it when the rate eases off (see READMEs/README.logging.md).  By
+ * default that is a small tail, enough to see how a spew ended.  When the
+ * part of interest is further back, eg, when debugging with a verbose log
+ * level where normal traffic trips the spew handling, this raises it.
+ *
+ * The ring is sized for \p lines lines of typical length, so long lines may
+ * mean somewhat fewer are retained.  \p lines is capped at 65536, which costs
+ * 16MiB of heap for the duration of a spew.  The setting is processwide, and a
+ * spew already in progress keeps the tail it started with.
+ *
+ * lws_cmdline_option_handle_builtin() calls this for --log-spew-tail <lines>.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_log_spew_tail_lines(unsigned int lines);
+
+/**
  * lwsl_emit_syslog() - helper log emit function writes to system log
  *
  * \param level: one of LLL_ log level indexes

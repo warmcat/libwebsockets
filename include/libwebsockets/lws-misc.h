@@ -1096,6 +1096,9 @@ lws_cmdline_option_cx_argv0(const struct lws_context *cx);
  *
  * Applies default log levels that can be overriden by -d
  *
+ * --log-spew-tail <lines> sets how many lines of a log spew are retained and
+ * replayed when it eases, see lws_log_spew_tail_lines()
+ *
  * -4 forces IPv4-only and -6 IPv6-only operation, by disabling the other
  * address family at context level, so DNS results for it are filtered out
  * and no listeners are created for it.  If both are given, -6 wins.

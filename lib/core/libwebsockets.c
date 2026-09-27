@@ -1835,6 +1835,7 @@ lws_mutex_refcount_assert_held(struct lws_mutex_refcount *mr)
 #if !defined(LWS_PLAT_ANDROID) && defined(LWS_WITH_NETWORK)
 static const struct lws_switches builtins[] = {
 	{ "-d", "Log level (eg, -d15)" },
+	{ "--log-spew-tail", "Lines of a log spew to retain and replay (default 10)" },
 	{ "--fault-injection", "Inject fault at named point" },
 	{ "--fault-seed", "Random seed for fault injection" },
 	{ "--ignore-sigterm", "Ignore sigterm" },
@@ -1885,6 +1886,7 @@ static const struct {
 
 enum opts {
 	OPT_DEBUGLEVEL,
+	OPT_LOG_SPEW_TAIL,
 	OPT_FAULTINJECTION,
 	OPT_FAULT_SEED,
 	OPT_IGNORE_SIGTERM,
@@ -2130,6 +2132,10 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 		switch (n) {
 		case OPT_DEBUGLEVEL:
 			logs = m;
+			break;
+
+		case OPT_LOG_SPEW_TAIL:
+			lws_log_spew_tail_lines((unsigned int)(m < 0 ? 0 : m));
 			break;
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)

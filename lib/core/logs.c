@@ -494,7 +494,10 @@ static pthread_mutex_t log_lock = PTHREAD_MUTEX_INITIALIZER;
  * during a spew, the retained tail dies with it; that is the price of not
  * having written it out.
  *
- * The tunables can be overridden from the compiler command line.  A log
+ * The tunables can be overridden from the compiler command line.  How much of
+ * the tail is retained can also be changed at runtime by
+ * lws_log_spew_tail_lines(), eg from the --log-spew-tail commandline switch,
+ * for when the part of interest is further back than the default tail.  A log
  * context with LLLF_LOG_SPEW_OFF in its flags bypasses all of this.
  */
 
@@ -529,6 +532,18 @@ static pthread_mutex_t log_lock = PTHREAD_MUTEX_INITIALIZER;
 #if !defined(LWS_LOG_SPEW_HEARTBEAT_US)
 #define LWS_LOG_SPEW_HEARTBEAT_US	1000000
 #endif
+/*
+ * Ring bytes budgeted per line when the tail is set at runtime: typical lines
+ * fit, so the tail is usually the number of lines asked for, fewer if they
+ * are long
+ */
+#if !defined(LWS_LOG_SPEW_LINE_BUDGET)
+#define LWS_LOG_SPEW_LINE_BUDGET	256
+#endif
+/* limit of a runtime tail, so a typo cannot ask for gigabytes of heap */
+#if !defined(LWS_LOG_SPEW_TAIL_LINES_MAX)
+#define LWS_LOG_SPEW_TAIL_LINES_MAX	65536
+#endif
 
 /* each retained line is [len lo][len hi][level lo][level hi][len bytes] */
 #define SPEW_HDR			4
@@ -539,10 +554,12 @@ static pthread_mutex_t log_lock = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct lws_log_spew_ring {
 	uint8_t		*buf;		/* NULL: not in spew mode */
+	size_t		size;		/* of buf */
 	size_t		head;		/* next byte to write */
 	size_t		tail;		/* oldest byte retained */
 	size_t		used;
 	unsigned int	lines;		/* retained */
+	unsigned int	max_lines;	/* most lines to retain */
 	lws_usec_t	entered;
 	lws_usec_t	exit_us;	/* quiet needed to call this spew over */
 	lws_usec_t	quiet;		/* the quiet that called it over */
@@ -559,6 +576,7 @@ typedef struct lws_log_spew {
 	lws_usec_t		exited_quiet;	/* ... on seeing this quiet */
 	unsigned int		ts_head;	/* next slot to write */
 	unsigned int		ts_count;	/* valid slots */
+	unsigned int		tail_lines;	/* runtime tail, 0 = default */
 } lws_log_spew_t;
 
 static lws_log_spew_t spew;
@@ -585,28 +603,28 @@ spew_ts_ago(unsigned int k)
 static void
 spew_ring_write(lws_log_spew_ring_t *r, const uint8_t *p, size_t len)
 {
-	size_t n = LWS_LOG_SPEW_RING_SIZE - r->head;
+	size_t n = r->size - r->head;
 
 	if (n > len)
 		n = len;
 	memcpy(r->buf + r->head, p, n);
 	if (len - n)
 		memcpy(r->buf, p + n, len - n);
-	r->head = (r->head + len) % LWS_LOG_SPEW_RING_SIZE;
+	r->head = (r->head + len) % r->size;
 	r->used += len;
 }
 
 static void
 spew_ring_read(lws_log_spew_ring_t *r, uint8_t *p, size_t len)
 {
-	size_t n = LWS_LOG_SPEW_RING_SIZE - r->tail;
+	size_t n = r->size - r->tail;
 
 	if (n > len)
 		n = len;
 	memcpy(p, r->buf + r->tail, n);
 	if (len - n)
 		memcpy(p + n, r->buf, len - n);
-	r->tail = (r->tail + len) % LWS_LOG_SPEW_RING_SIZE;
+	r->tail = (r->tail + len) % r->size;
 	r->used -= len;
 }
 
@@ -628,7 +646,7 @@ spew_ring_pop(lws_log_spew_ring_t *r, char *line, size_t max, int *level)
 
 	if (!line) {
 		/* discard it */
-		r->tail = (r->tail + len) % LWS_LOG_SPEW_RING_SIZE;
+		r->tail = (r->tail + len) % r->size;
 		r->used -= len;
 
 		return len;
@@ -649,12 +667,13 @@ spew_ring_push(lws_log_spew_ring_t *r, int level, const char *line, size_t len)
 
 	/*
 	 * len is at most LWS_LOG_LINE_MAX, which the ring is checked at
-	 * compile time to hold along with its header; make room by
-	 * forgetting the oldest lines
+	 * compile time to hold along with its header, and is never sized
+	 * smaller than that at runtime; make room by forgetting the oldest
+	 * lines
 	 */
 
-	while (r->lines >= LWS_LOG_SPEW_TAIL_LINES ||
-	       LWS_LOG_SPEW_RING_SIZE - r->used < len + SPEW_HDR) {
+	while (r->lines >= r->max_lines ||
+	       r->size - r->used < len + SPEW_HDR) {
 		spew_ring_pop(r, NULL, 0, &lv);
 		r->lost++;
 	}
@@ -708,7 +727,16 @@ spew_track(lws_usec_t now, int level, const char *line, size_t len,
 			return SPEW_EMIT;
 		spew_entering = 1;
 		memset(&spew.r, 0, sizeof(spew.r));
-		spew.r.buf = malloc(LWS_LOG_SPEW_RING_SIZE);
+		spew.r.max_lines = LWS_LOG_SPEW_TAIL_LINES;
+		spew.r.size = LWS_LOG_SPEW_RING_SIZE;
+		if (spew.tail_lines) {
+			spew.r.max_lines = spew.tail_lines;
+			if (spew.r.size < (size_t)spew.tail_lines *
+						LWS_LOG_SPEW_LINE_BUDGET)
+				spew.r.size = (size_t)spew.tail_lines *
+						LWS_LOG_SPEW_LINE_BUDGET;
+		}
+		spew.r.buf = malloc(spew.r.size);
 		spew_entering = 0;
 		if (!spew.r.buf)
 			/* no memory to retain anything: keep emitting */
@@ -840,6 +868,18 @@ spew_replay(lws_log_cx_t *cx, int level, lws_log_spew_ring_t *r,
 
 	free(r->buf); /* libc's: see spew_track() */
 	r->buf = NULL;
+}
+
+void
+lws_log_spew_tail_lines(unsigned int lines)
+{
+	if (lines > LWS_LOG_SPEW_TAIL_LINES_MAX)
+		lines = LWS_LOG_SPEW_TAIL_LINES_MAX;
+
+	/* a spew in progress keeps the ring it has, the next one uses this */
+	log_lock_take();
+	spew.tail_lines = lines;
+	log_lock_release();
 }
 
 /*

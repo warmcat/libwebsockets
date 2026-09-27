@@ -10,7 +10,8 @@
  * to the emit function, that a short tail of it is replayed in order when the
  * rate eases, that a stall in the middle of a spew is recognized for what it
  * was when the spew resumes, and that a surge short enough to end within the
- * retained tail is waved through without losing a line.  Where there are
+ * retained tail is waved through without losing a line, including when the
+ * tail was lengthened at runtime by --log-spew-tail.  Where there are
  * pthreads, it also has several threads spew at once.
  *
  * CI builders are overloaded as a matter of course, so we can be starved of
@@ -49,6 +50,10 @@
 /* trips spew mode, but ends within the retained tail */
 #define SURGE_LINES	(SPEW_ENTER_LINES - 1 + SPEW_TAIL - 3)
 
+/* a tail set at runtime, and a surge that only fits in that one */
+#define SPEW_TAIL_RT	200
+#define SURGE_RT_LINES	(SPEW_ENTER_LINES - 1 + SPEW_TAIL_RT - 3)
+
 /*
  * What the emit function saw, in order.  Test lines are recorded by their
  * sequence number; lws' own spew lines as negative codes, with the numbers
@@ -75,6 +80,9 @@ static unsigned int rec_count, rec_overflow;
 
 /* the exit quiet lws most recently told us it is using, and if it spews */
 static int exit_ms, in_spew;
+
+/* the most lines lws should be replaying at the moment */
+static int tail = SPEW_TAIL;
 
 /*
  * While test_emit() is installed, anything we log ourselves is fed through
@@ -329,7 +337,7 @@ check_decisions(const char *hint)
 			for (m = n + 1; m < rec_count &&
 					rec[m].v != REC_END_REPLAY; m++)
 				;
-			if (m == rec_count || rec[n].c > SPEW_TAIL ||
+			if (m == rec_count || rec[n].c > tail ||
 			    (int)(m - n - 1) != rec[n].c) {
 				fail("%s: replayed %u lines, said %d", hint,
 				     m - n - 1, rec[n].c);
@@ -502,6 +510,63 @@ check_threads(void)
 
 #endif
 
+static int
+check_surge_rt(void)
+{
+#if defined(LWS_WITH_NETWORK)
+	static const char *rt_argv[] = { "lws-api-test-log-spew",
+					 "--log-spew-tail", "200" };
+	struct lws_context_creation_info info;
+#endif
+	int n, e = 0;
+
+#if defined(LWS_WITH_NETWORK)
+	memset(&info, 0, sizeof(info));
+	info.default_loglevel = LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_USER;
+	/* this leaves test_emit() in place */
+	lws_cmdline_option_handle_builtin((int)LWS_ARRAY_SIZE(rt_argv),
+					  rt_argv, &info);
+#else
+	/* no builtin commandline handling without networking */
+	lws_log_spew_tail_lines(SPEW_TAIL_RT);
+#endif
+	tail = SPEW_TAIL_RT;
+
+	for (n = 0; n < SURGE_RT_LINES; n++)
+		lwsl_notice("tl %d\n", n);
+
+	ease();
+	lwsl_notice("final\n");
+
+	if (rec_overflow) {
+		fail("surge-rt: %u lines not recorded", rec_overflow);
+		e++;
+	}
+	if (check_run(0, SURGE_RT_LINES - 1, "surge-rt"))
+		e++;
+	if (find(REC_FINAL) != (int)rec_count - 1) {
+		fail("surge-rt: final not last");
+		e++;
+	}
+	if (count(REC_OTHER)) {
+		fail("surge-rt: unexpected lines emitted");
+		e++;
+	}
+	if (check_decisions("surge-rt"))
+		e++;
+	if (!e)
+		pass("surge-rt: %d lines all accounted for with a %d line "
+		     "tail, %s spew mode", SURGE_RT_LINES, SPEW_TAIL_RT,
+		     find(REC_ENTERED) >= 0 ||
+		     find(REC_RESUMED) >= 0 ? "via" : "without");
+
+	/* back to the default for what follows */
+	lws_log_spew_tail_lines(0);
+	tail = SPEW_TAIL;
+
+	return e;
+}
+
 int
 main(int argc, const char **argv)
 {
@@ -586,9 +651,18 @@ main(int argc, const char **argv)
 		     SURGE_LINES, find(REC_ENTERED) >= 0 ||
 				  find(REC_RESUMED) >= 0 ? "via" : "without");
 
+	/*
+	 * 4: the same with a longer tail, set the way an app's user would, by
+	 *    --log-spew-tail on the commandline: a surge that would lose its
+	 *    middle with the default tail is waved through intact
+	 */
+
+	rec_count = 0;
+	e += check_surge_rt();
+
 #if defined(LWS_HAVE_PTHREAD_H)
 	/*
-	 * 4: several threads spew at once: the spew handling is processwide,
+	 * 5: several threads spew at once: the spew handling is processwide,
 	 *    and lws' own threads, eg, the async queue workers, log too
 	 */
 

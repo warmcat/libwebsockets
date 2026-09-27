@@ -407,5 +407,16 @@ line, eg, `-DLWS_LOG_SPEW_TAIL_LINES=20`:
 |`LWS_LOG_SPEW_RING_SIZE`|2048 (1024 on FreeRTOS)|bytes of spew retained|
 |`LWS_LOG_SPEW_HEARTBEAT_US`|1000000|interval of the still-going line|
 
+How much of the tail is retained can also be set at runtime, for when the part
+of interest is further back than how the spew ended, eg, when debugging at a
+verbose log level where ordinary traffic is enough to trip spew mode.
+`lws_log_spew_tail_lines(lines)` sets it processwide, and any app that calls
+`lws_cmdline_option_handle_builtin()`, which includes lwsws and the examples,
+takes it on the commandline as `--log-spew-tail <lines>`.  The ring is then
+sized for that many lines of typical length (256 bytes each), so long lines
+may mean somewhat fewer are kept; the count is capped at 65536.  0 restores the
+compile-time default.  A spew already in progress keeps the tail it started
+with.
+
 A log context with `LLLF_LOG_SPEW_OFF` in its `lll_flags` is exempt from spew
 handling; its lines are emitted directly regardless of rate.
