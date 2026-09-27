@@ -3117,47 +3117,12 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 								vhd->uds_path = uds_path;
 								vhd->signature_duration = 31536000;
 
-								const char *auth_token = lws_cmdline_option_cx(cx, "--auth-token");
-								const char *ctl_rest = NULL;
-								size_t ctl_rest_len = 0;
-								char buf[256];
-								if (!auth_token) {
-									int n, retries = 50;
-									while (retries-- > 0) {
-										n = (int)read(0, buf, sizeof(buf) - 1);
-										if (n > 0 || (n < 0 && errno != EAGAIN)) break;
-										usleep(100000);
-									}
-									if (n > 0) {
-										buf[n] = '\0';
-										char *p = (char *)strchr(buf, '\n');
-										if (p) {
-											/* control lines may already follow the token */
-											*p = '\0';
-											ctl_rest = p + 1;
-											ctl_rest_len = lws_ptr_diff_size_t(buf + n, ctl_rest);
-										}
-										p = (char *)strchr(buf, '\r'); if (p) *p = '\0';
-										auth_token = buf;
-									}
-								}
-
-								if (auth_token) {
-									lws_strncpy(vhd->auth_token, auth_token, sizeof(vhd->auth_token));
-									vhd->auth_jwk.kty = LWS_GENCRYPTO_KTY_OCT;
-									vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
-									vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
-									lws_hex_to_byte_array(auth_token, vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, 64);
-									lwsl_notice("%s: securely mapped symmetric daemon auth-token\n", __func__);
-								}
-
 								/*
-								 * stdin stays open after the token as the
-								 * proxy's control channel, see
-								 * monitor-extip.c
+								 * stdin is the proxy's control channel, see
+								 * monitor-extip.c: its first line is the
+								 * UDS IPC auth token, which arrives with the
+								 * event loop running like everything after it
 								 */
-								if (ctl_rest_len)
-									monitor_extip_ctl_rx(vhd, ctl_rest, ctl_rest_len);
 #if !defined(WIN32)
 								{
 									lws_adopt_desc_t ad;
@@ -3395,25 +3360,24 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 
 			if (exec_array[0]) {
 				/* Generate secure HS256 auth token for UDS */
-				uint8_t rand[64];
-				char hex[129];
-				lws_get_random(vhd->context, rand, sizeof(rand));
-				lws_hex_from_byte_array(rand, sizeof(rand), hex, sizeof(hex));
+				uint8_t rand[MON_AUTH_KEY_LEN];
 
-				lws_strncpy(vhd->auth_token, hex, sizeof(vhd->auth_token));
-				vhd->auth_jwk.kty = LWS_GENCRYPTO_KTY_OCT;
-				vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
-				vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
-				memcpy(vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, rand, 64);
+				if (lws_get_random(vhd->context, rand, sizeof(rand)) !=
+								sizeof(rand) ||
+				    monitor_auth_key_set(vhd, rand)) {
+					lws_explicit_bzero(rand, sizeof(rand));
+					lwsl_err("%s: unable to create the IPC key\n",
+						 __func__);
+					return -1;
+				}
+				lws_explicit_bzero(rand, sizeof(rand));
 
 				lws_system_blob_t *b = lws_system_get_blob(vhd->context, LWS_SYSBLOB_TYPE_EXT_AUTH1, 0);
 				if (b) {
 					lws_system_blob_direct_set(b, (uint8_t *)vhd->auth_token, strlen(vhd->auth_token));
 				}
 
-				/* Inject auth token over native stdin pipe instead of argv to prevent ps inspection */
-
-
+				/* the token goes over the stdin pipe, not argv where ps can see it */
 				exec_array[n++] = NULL;
 
 				spawn_info.exec_array = exec_array;
@@ -3442,7 +3406,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				if (stdin_fd) {
 					char token_buf[140];
 					DWORD bw;
-					lws_snprintf(token_buf, sizeof(token_buf), "%s\n", hex);
+					lws_snprintf(token_buf, sizeof(token_buf), "%s\n", vhd->auth_token);
 					if (!WriteFile(stdin_fd, token_buf, (DWORD)strlen(token_buf), &bw, NULL)) {
 						lwsl_err("%s: Failed dropping token via stdin pipe\n", __func__);
 					}
@@ -3450,10 +3414,12 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 #else
 				if (stdin_fd >= 0) {
 					char token_buf[140];
-					lws_snprintf(token_buf, sizeof(token_buf), "%s\n", hex);
-					if (write(stdin_fd, token_buf, strlen(token_buf)) < 0) {
+					int tl = lws_snprintf(token_buf, sizeof(token_buf), "%s\n", vhd->auth_token);
+
+					/* far below PIPE_BUF, so the nonblocking write is all or nothing */
+					if (write(stdin_fd, token_buf, (size_t)tl) != (ssize_t)tl)
 						lwsl_err("%s: Failed dropping token via stdin pipe\n", __func__);
-					}
+					lws_explicit_bzero(token_buf, sizeof(token_buf));
 				}
 #endif
 				vhd->root_process_active = 1;
@@ -3493,6 +3459,8 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			vhd->smd_peer = NULL;
 		}
 		lws_jwk_destroy(&vhd->jwk);
+		lws_jwk_destroy(&vhd->auth_jwk);
+		lws_explicit_bzero(vhd->auth_token, sizeof(vhd->auth_token));
 		lws_sul_cancel(&vhd->sul_timer);
 		lws_sul_cancel(&vhd->sul_fast_timer);
 		inv_geo_destroy(vhd);

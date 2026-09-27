@@ -7,6 +7,9 @@
  * Exercises the dnssec-monitor plugin's handling of the DHT-detected
  * external addresses on the zone signing side (monitor-extip.c):
  *
+ *  - the first control line is the UDS IPC auth token: it is only
+ *    installed if it is exactly 128 hex chars, and is consumed either way,
+ *    so a bad token cannot be mistaken for an ext-ips line or vice versa
  *  - the proxy -> root control channel reassembles ext-ips lines across
  *    reads, takes only literal addresses of the right family, rejects
  *    malformed JSON, resyncs after an overlong line, and only counts a
@@ -75,6 +78,45 @@ t_ctl(struct vhd *vhd, const char *s)
 }
 
 static int
+t_key_is(struct vhd *vhd, const uint8_t *key)
+{
+	return vhd->auth_jwk.kty == LWS_GENCRYPTO_KTY_OCT &&
+	       vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len ==
+							MON_AUTH_KEY_LEN &&
+	       !memcmp(vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, key,
+		       MON_AUTH_KEY_LEN);
+}
+
+/* the token line and anything after it, delivered over the given reads */
+
+static int
+t_token(const char *const *reads, const uint8_t *key, const char *what)
+{
+	struct vhd vhd;
+	int fails = 0;
+
+	memset(&vhd, 0, sizeof(vhd));
+	while (*reads)
+		t_ctl(&vhd, *reads++);
+
+	if (key)
+		fails += t_expect(t_key_is(&vhd, key), what);
+	else
+		fails += t_expect(!vhd.auth_jwk.kty &&
+				  !vhd.auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf &&
+				  !vhd.auth_token[0], what);
+
+	/* whatever the token was, the next line is taken as ext-ips */
+	fails += t_expect(vhd.extip_gen == 1 &&
+			  !strcmp(vhd.extip4, "192.0.2.5"),
+			  "ext-ips line after the token");
+
+	lws_jwk_destroy(&vhd.auth_jwk);
+
+	return fails;
+}
+
+static int
 t_suffix(const char *ip6, const char *suffix, const char *expect)
 {
 	char out[64];
@@ -92,10 +134,15 @@ t_suffix(const char *ip6, const char *suffix, const char *expect)
 
 int main(void)
 {
+	char ip4[64], ip6[64], big[1024], tok[(MON_AUTH_KEY_LEN * 2) + 2],
+	     tok_crlf[sizeof(tok) + 1], tok_short[sizeof(tok) - 1],
+	     tok_bad[sizeof(tok)];
+	static const char *xl = "{\"ext-ips\": [\"192.0.2.5\"]}\n";
+	uint8_t key[MON_AUTH_KEY_LEN];
 	struct vhd vhd;
-	char ip4[64], ip6[64], big[1024];
 	unsigned int gen;
 	int fails = 0;
+	size_t n;
 
 	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE, NULL);
 	lwsl_user("LWS API selftest: dnssec-monitor external addresses\n");
@@ -121,6 +168,55 @@ int main(void)
 
 		return 1;
 	}
+
+	/* control channel: the first line is the IPC auth token */
+
+	for (n = 0; n < sizeof(key); n++)
+		key[n] = (uint8_t)(n * 37 + 11);
+	lws_hex_from_byte_array(key, sizeof(key), tok, sizeof(tok) - 1);
+	lws_snprintf(tok_crlf, sizeof(tok_crlf), "%s\r\n", tok);
+	memcpy(tok_short, tok, sizeof(tok_short) - 2);
+	tok_short[sizeof(tok_short) - 2] = '\n';
+	tok_short[sizeof(tok_short) - 1] = '\0';
+	lws_strncpy(tok_bad, tok, sizeof(tok_bad));
+	tok_bad[5] = 'g';
+	n = strlen(tok);
+	tok[n] = '\n';
+	tok[n + 1] = '\0';
+	tok_bad[n] = '\n';
+	tok_bad[n + 1] = '\0';
+
+	{
+		const char *whole[] = { tok, xl, NULL };
+		const char *crlf[] = { tok_crlf, xl, NULL };
+		const char *shrt[] = { tok_short, xl, NULL };
+		const char *bad[] = { tok_bad, xl, NULL };
+		const char *over[] = { big, "\n", xl, NULL };
+		char split1[80], both[sizeof(tok) + 64];
+		const char *split[] = { split1, tok + sizeof(split1) - 1,
+					xl, NULL };
+		const char *one[] = { both, NULL };
+
+		lws_strncpy(split1, tok, sizeof(split1));
+		lws_snprintf(both, sizeof(both), "%s%s", tok, xl);
+
+		memset(big, 'a', sizeof(big) - 1);
+		big[sizeof(big) - 1] = '\0';
+
+		fails += t_token(whole, key, "token installed");
+		fails += t_token(crlf, key, "token with CRLF installed");
+		fails += t_token(split, key, "token split over reads");
+		fails += t_token(one, key, "token and ext-ips in one read");
+		fails += t_token(shrt, NULL, "short token refused");
+		fails += t_token(bad, NULL, "non-hex token refused");
+		fails += t_token(over, NULL, "overlong token refused");
+	}
+
+	/* the rest of the tests run after a bootstrapped channel */
+
+	t_ctl(&vhd, tok);
+	fails += t_expect(t_key_is(&vhd, key) && !vhd.extip_gen,
+			  "token is not an ext-ips line");
 
 	/* control channel: a line split over reads only lands when complete */
 
@@ -225,6 +321,8 @@ int main(void)
 				"./extip-corpus/both.zone.signed.extip",
 				"203.0.113.7", ""),
 			  "lost v6 does not match");
+
+	lws_jwk_destroy(&vhd.auth_jwk);
 
 	lws_dir("./extip-corpus", NULL, lws_dir_rm_rf_cb);
 	rmdir("./extip-corpus");

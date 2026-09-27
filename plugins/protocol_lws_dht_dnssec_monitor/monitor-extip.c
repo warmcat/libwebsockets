@@ -23,10 +23,11 @@
  * Zonefiles write ${EXTIP4} / ${EXTIP6} where the DHT-detected external
  * addresses belong.  The DHT, and so the ext-ips SMD, lives in the
  * unprivileged proxy process, but zones are signed by the root monitor
- * process, which runs no DHT.  The proxy already owns the root process'
- * stdin pipe, which it used to hand over the IPC auth token at spawn; it
- * keeps it as a private control channel and forwards each ext-ips SMD
- * payload down it as one line.
+ * process, which runs no DHT.  The proxy owns the root process' stdin
+ * pipe as a private control channel: its first line is the UDS IPC auth
+ * token, generated at spawn, and after that the proxy forwards each ext-ips
+ * SMD payload down it as one line.  The root process adopts it into its
+ * event loop at init, so nothing waits on it.
  *
  * The root process applies the configured IPv6 suffix (one hex group that
  * replaces the low 16 bits of the detected address, exactly as the UI
@@ -307,6 +308,68 @@ monitor_extip_ctl_line(struct vhd *vhd, const char *line, size_t len)
 	return 0;
 }
 
+/*
+ * The proxy generates the UDS IPC key at spawn and hands it to the root
+ * process as the first control line.  Until it is installed, the root
+ * process rejects every UDS request.
+ */
+
+int
+monitor_auth_key_set(struct vhd *vhd, const uint8_t *key)
+{
+	lws_jwk_destroy(&vhd->auth_jwk);
+	memset(&vhd->auth_jwk, 0, sizeof(vhd->auth_jwk));
+
+	if (lws_jwk_dup_oct(&vhd->auth_jwk, key, MON_AUTH_KEY_LEN)) {
+		/* it set kty before failing: stay unbootstrapped */
+		memset(&vhd->auth_jwk, 0, sizeof(vhd->auth_jwk));
+		return 1;
+	}
+
+	lws_hex_from_byte_array(key, MON_AUTH_KEY_LEN, vhd->auth_token,
+				sizeof(vhd->auth_token));
+
+	return 0;
+}
+
+/*
+ * The first control line is the UDS IPC key, as 128 hex chars.  Anything
+ * else leaves us unbootstrapped, rejecting every UDS request.
+ */
+
+static void
+monitor_ctl_token_line(struct vhd *vhd, const char *line, size_t len)
+{
+	uint8_t key[MON_AUTH_KEY_LEN];
+	char hex[(MON_AUTH_KEY_LEN * 2) + 1];
+
+	if (len && line[len - 1] == '\r')
+		len--;
+
+	if (len != sizeof(hex) - 1) {
+		lwsl_err("%s: bad IPC auth token length\n", __func__);
+		return;
+	}
+
+	memcpy(hex, line, len);
+	hex[len] = '\0';
+
+	if (lws_hex_to_byte_array(hex, key, (int)sizeof(key)) !=
+							(int)sizeof(key)) {
+		lwsl_err("%s: malformed IPC auth token\n", __func__);
+		goto bail;
+	}
+
+	if (monitor_auth_key_set(vhd, key))
+		lwsl_err("%s: unable to install IPC auth token\n", __func__);
+	else
+		lwsl_notice("%s: IPC auth token installed\n", __func__);
+
+bail:
+	lws_explicit_bzero(key, sizeof(key));
+	lws_explicit_bzero(hex, sizeof(hex));
+}
+
 void
 monitor_extip_ctl_rx(struct vhd *vhd, const char *in, size_t len)
 {
@@ -326,9 +389,16 @@ monitor_extip_ctl_rx(struct vhd *vhd, const char *in, size_t len)
 			continue;
 		}
 
-		if (!vhd->ctl_rx_discard && vhd->ctl_rx_len)
-			monitor_extip_ctl_line(vhd, vhd->ctl_rx,
-					       vhd->ctl_rx_len);
+		if (!vhd->ctl_rx_token_done) {
+			if (!vhd->ctl_rx_discard)
+				monitor_ctl_token_line(vhd, vhd->ctl_rx,
+						       vhd->ctl_rx_len);
+			lws_explicit_bzero(vhd->ctl_rx, vhd->ctl_rx_len);
+			vhd->ctl_rx_token_done = 1;
+		} else
+			if (!vhd->ctl_rx_discard && vhd->ctl_rx_len)
+				monitor_extip_ctl_line(vhd, vhd->ctl_rx,
+						       vhd->ctl_rx_len);
 		vhd->ctl_rx_len = 0;
 		vhd->ctl_rx_discard = 0;
 	}
@@ -356,6 +426,8 @@ callback_monitor_ctl(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		monitor_extip_ctl_rx(vhd, buf, (size_t)n);
+		/* the first read carries the IPC auth token */
+		lws_explicit_bzero(buf, (size_t)n);
 		break;
 
 	default:

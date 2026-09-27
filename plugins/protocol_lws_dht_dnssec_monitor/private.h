@@ -159,6 +159,7 @@ struct vhd {
 	char			ctl_rx[512];
 	size_t			ctl_rx_len;
 	char			ctl_rx_discard;
+	char			ctl_rx_token_done; /* first line consumed */
 };
 
 struct monitor_req_args {
@@ -219,6 +220,12 @@ json_escape(char *esc, size_t esc_len, const char *s)
 #define MON_ESC_FIELD_SZ	(6 * 128 + 8)
 
 /* monitor-extip.c */
+
+#define MON_AUTH_KEY_LEN	64
+
+/* install the UDS IPC HS256 key, and its hex form for the stub blob */
+int
+monitor_auth_key_set(struct vhd *vhd, const uint8_t *key);
 
 #define MON_EXTIP_USES_4	1
 #define MON_EXTIP_USES_6	2

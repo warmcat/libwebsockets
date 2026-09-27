@@ -12,6 +12,7 @@ set(SRCS main.c
 set(requirements 1)
 require_lws_config(LWS_WITH_AUTHORITATIVE_DNS 1 requirements)
 require_lws_config(LWS_WITH_LEJP 1 requirements)
+require_lws_config(LWS_WITH_JOSE 1 requirements)
 require_lws_config(LWS_WITH_DIR 1 requirements)
 
 if (requirements)
