@@ -35,7 +35,7 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 #endif
 	const char *cce = "";
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
-	int rawish, sb;
+	int rawish;
 #endif
 	int n;
 
@@ -58,6 +58,7 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 	/* http proxy */
 	if (wsi->a.vhost->http.http_proxy_port) {
 		const char *cpa;
+		int sb;
 		/*
 		 * The CONNECT is composed into the first 256 bytes of the
 		 * serv_buf... but pt_serv_buf_size is the user's choice and
