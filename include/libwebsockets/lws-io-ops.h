@@ -38,6 +38,24 @@
  * polled outputs implements the same four.
  */
 
+/*
+ * The close request reaches the transport in phases, in this order over a
+ * connection's close: not every close has every phase
+ */
+enum lws_io_close_phase {
+	LWS_IOCLOSE_QUIESCE,	/* nothing of the transport's may act on the
+				 * wsi any more: connect attempts and their
+				 * timers, dns, the wait for a socket */
+	LWS_IOCLOSE_UNWATCH,	/* a restart follows: stop watching the
+				 * transport, keep it for the release */
+	LWS_IOCLOSE_SHUTDOWN,	/* stop sending: a tls close_notify when there
+				 * is a session, else the write side */
+	LWS_IOCLOSE_STAGE,	/* keep the transport until the peer has
+				 * finished, and say when it has */
+	LWS_IOCLOSE_RELEASE,	/* release it all: tls session, fd, its place
+				 * in the poll set */
+};
+
 typedef struct lws_io_ops {
 	int (*want_write)(struct lws *wsi);
 	/**< the wsi's transport connection should be written when it can take
@@ -53,10 +71,16 @@ typedef struct lws_io_ops {
 	 * A deadline that is cancelled is not announced; a wake that finds
 	 * nothing due is harmless.  May be NULL: the built-in event loops
 	 * ask what is due each time round instead. */
-	void (*close)(struct lws *wsi);
-	/**< the wsi is done with its transport: release it (tls session,
-	 * fd, its place in the poll set).  Called from the wsi's close path
-	 * with the context and vhost locks held. */
+	int (*close)(struct lws *wsi, int phase);
+	/**< the wsi's transport is closing, by enum lws_io_close_phase.
+	 * QUIESCE, UNWATCH and RELEASE return 0.  SHUTDOWN returns 1 when
+	 * the tls shutdown wants more service (the close re-enters as the
+	 * transport becomes readable or writable), 2 when it has wanted that
+	 * too often and will not complete, 0 when the write side is shut,
+	 * -1 when the shutdown failed.  STAGE returns 1 when the transport
+	 * can be kept until the peer finishes, so the close continues when
+	 * the peer's end arrives through rx, 0 when it cannot.  Called from
+	 * the wsi's close path with the context and vhost locks held. */
 } lws_io_ops_t;
 
 /*

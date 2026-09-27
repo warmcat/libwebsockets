@@ -44,7 +44,7 @@ things only through these requests.  Nothing else crosses.
 | sansIO -> IO | **want_write()**: call tx when the transport can take bytes | `lws_callback_on_writable()`; `lws_service_wsi_as_writable()` is the same request served now |
 | sansIO -> IO | **deadline(us) / no deadline** | `lws_set_timeout()`, `lws_sul_schedule()` |
 | sansIO -> IO | **want_read(on / off)**: stop feeding me rx, or resume | `lws_rx_flow_control()` |
-| sansIO -> IO | **close(reason)** | `lws_close_free_wsi()`, `LWS_WSIEV_CLOSE_FLUSH` |
+| sansIO -> IO | **close(reason)** | `lws_close_free_wsi()`, `LWS_WSIEV_CLOSE_FLUSH`; at the transport the request has phases, `lws_io_ops_t.close(wsi, phase)`: quiesce (nothing of the transport's may act on the wsi), unwatch (a restart keeps the wsi), shutdown, stage (keep it until the peer has finished), release |
 
 Four in (rx has a datagram spelling for quic), four out.  A sansIO part that needs anything else from IO is a
 sansIO part with IO in it.

@@ -938,10 +938,10 @@ __lws_io_want_read(struct lws *wsi, int on)
 	return wsi->a.context->io_ops->want_read(wsi, on);
 }
 
-void
-__lws_io_close_transport(struct lws *wsi)
+int
+__lws_io_close_transport(struct lws *wsi, int phase)
 {
-	wsi->a.context->io_ops->close(wsi);
+	return wsi->a.context->io_ops->close(wsi, phase);
 }
 
 int
@@ -2522,12 +2522,9 @@ __lws_wsi_remove_from_sul(struct lws *wsi)
 	lws_sul_cancel(&wsi->sul_hrtimer);
 	lws_sul_cancel(&wsi->sul_validity);
 	/*
-	 * The connect machine's timers (connect timeout, the h3 grace and
-	 * happy-eyeballs timers) hold the wsi too... without cancelling them
-	 * here, a wsi that dies while its QUIC race is still pending leaves
-	 * them scheduled against freed memory
+	 * The connect machine's timers are IO's: the close's quiesce and
+	 * release cancel them, before anything here can free the wsi
 	 */
-	lws_io_connect_timers_cancel(wsi);
 #if defined(LWS_WITH_HTTP_PROXY)
 	lws_sul_cancel(&wsi->sul_ws_proxy_est);
 #endif

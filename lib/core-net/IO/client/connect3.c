@@ -1654,6 +1654,7 @@ oom4:
 		 */
 		sanity_assert_no_wsi_traces(vhost->context, wsi);
 
+		__lws_io_close_transport(wsi, LWS_IOCLOSE_RELEASE);
 		//lws_vhost_lock(vhost);
 		__lws_free_wsi(wsi); /* acquires vhost lock in wsi reset */
 		//lws_vhost_unlock(vhost);

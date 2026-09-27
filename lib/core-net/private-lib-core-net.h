@@ -954,6 +954,7 @@ struct lws_io_adjunct {
 
 	volatile char			handling_pollout;
 	volatile char			leave_pollout_active;
+	uint8_t				shutdown_tries; /* tls close_notify */
 };
 #endif
 
@@ -1479,8 +1480,8 @@ int
 __lws_io_want_write(struct lws *wsi);
 int
 __lws_io_want_read(struct lws *wsi, int on);
-void
-__lws_io_close_transport(struct lws *wsi);
+int
+__lws_io_close_transport(struct lws *wsi, int phase);
 int
 lws_io_want_write(struct lws *wsi);
 int

@@ -560,10 +560,47 @@ lws_io_want_read_pollfd(struct lws *wsi, int on)
 	return __lws_change_pollfd(wsi, on ? 0 : LWS_POLLIN, on ? LWS_POLLIN : 0);
 }
 
+/* nothing of the transport's may act on the wsi any more */
 static void
-lws_io_close_pollfd(struct lws *wsi)
+lws_io_quiesce_pollfd(struct lws *wsi)
+{
+	lws_io_abort_connect(wsi);
+	lws_io_socket_wait_cancel(wsi);
+}
+
+static int
+lws_io_close_pollfd(struct lws *wsi, int phase)
 {
 	int n, ssl_handled = 0;
+
+	switch (phase) {
+	case LWS_IOCLOSE_QUIESCE:
+		lws_io_quiesce_pollfd(wsi);
+		return 0;
+
+	case LWS_IOCLOSE_UNWATCH:
+		lws_io_quiesce_pollfd(wsi);
+		lws_io_udp_release(wsi);
+		lws_io_unwatch(wsi);
+		return 0;
+
+	case LWS_IOCLOSE_SHUTDOWN:
+		n = lws_io_shutdown_write(wsi);
+		if (n > 0 && wsi->io.shutdown_tries++ == 8)
+			/* a tls shutdown that keeps wanting more service */
+			return 2;
+		return n;
+
+	case LWS_IOCLOSE_STAGE:
+		return lws_io_close_staged(wsi);
+
+	default:
+		break;
+	}
+
+	/* LWS_IOCLOSE_RELEASE */
+
+	lws_io_quiesce_pollfd(wsi);
 
 	if (!wsi->io.shadow)
 		ssl_handled = lws_ssl_close(wsi);
@@ -622,6 +659,9 @@ lws_io_close_pollfd(struct lws *wsi)
 	/* the session went with the socket: nothing of it is remembered */
 	memset(&wsi->io.tls, 0, sizeof(wsi->io.tls));
 #endif
+	wsi->io.shutdown_tries = 0;
+
+	return 0;
 }
 
 /*

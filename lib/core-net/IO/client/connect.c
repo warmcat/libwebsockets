@@ -657,6 +657,7 @@ bail:
 			     wsi->a.vhost ? wsi->a.vhost->name : "novh",
 			     i->address ? i->address : "");
 
+	__lws_io_close_transport(wsi, LWS_IOCLOSE_RELEASE);
 	__lws_free_wsi(wsi); /* acquires vhost lock in wsi reset */
 	lws_context_unlock(i->context);
 

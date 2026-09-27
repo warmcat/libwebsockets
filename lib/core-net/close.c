@@ -103,8 +103,6 @@ __lws_reset_wsi(struct lws *wsi)
 	}
 #endif
 
-	lws_io_socket_wait_cancel(wsi);
-
 	/*
 	 * Protocol user data may be allocated either internally by lws
 	 * or by specified the user. We should only free what we allocated.
@@ -130,7 +128,6 @@ __lws_reset_wsi(struct lws *wsi)
 	lws_buflist_destroy_all_segments(&wsi->buflist);
 	lws_dll2_remove(&wsi->dll_buflist);
 	lws_buflist_destroy_all_segments(&wsi->buflist_out);
-	lws_io_udp_release(wsi);
 	wsi->mount_hit = 0;
 
 #if defined(LWS_WITH_CLIENT)
@@ -139,8 +136,6 @@ __lws_reset_wsi(struct lws *wsi)
 	if (wsi->cli_hostname_copy)
 		lws_free_set_NULL(wsi->cli_hostname_copy);
 #endif
-
-	lws_io_abort_connect(wsi);
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	if (wsi->http.buflist_post_body)
@@ -399,7 +394,6 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 		if (ads && host && path) {
 			wsi->tried_quic = 0;
 			lwsl_wsi_notice(wsi, "QUIC connection failed, falling back to TCP");
-			lws_io_udp_release(wsi);
 			/*
 			 * Forget any learned h3 alternative for this origin,
 			 * it just failed... per RFC 7838 return to the origin
@@ -779,8 +773,8 @@ just_kill_connection:
 		lws_vfs_file_close(&wsi->http.fop_fd);
 #endif
 
-	/* whatever a connect attempt still has in flight */
-	lws_io_abort_connect(wsi);
+	/* nothing of the transport's may act on the wsi from here */
+	__lws_io_close_transport(wsi, LWS_IOCLOSE_QUIESCE);
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	if (wsi->http.buflist_post_body)
@@ -849,8 +843,8 @@ just_kill_connection:
 		 * staging below is gated on it, and we want to wait for
 		 * his FIN before closing the same as the tls path
 		 */
-		n = lws_io_shutdown_write(wsi);
-		if (n > 0 && wsi->lsp_channel++ == 8) {
+		n = __lws_io_close_transport(wsi, LWS_IOCLOSE_SHUTDOWN);
+		if (n == 2) {
 			/* a tls shutdown that keeps wanting more service */
 			lwsl_wsi_info(wsi, "avoiding shutdown spin");
 			lws_wsi_event(wsi, LWS_WSIEV_CLOSE_STAGED);
@@ -867,7 +861,7 @@ just_kill_connection:
 		/* libuv: no event available to guarantee completion */
 		if (!lwsi_skt_unusable(wsi) && !lwsi_restarting(wsi) &&
 		    lwsi_close(wsi) != LCS_SHUTDOWN &&
-		    lws_io_close_staged(wsi)) {
+		    __lws_io_close_transport(wsi, LWS_IOCLOSE_STAGE) > 0) {
 			lws_wsi_event(wsi, LWS_WSIEV_CLOSE_STAGED);
 			__lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
 					  (int)context->timeout_secs);
@@ -1092,7 +1086,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 #endif
 
 	/* the transport goes: tls session, fd, place in the poll set */
-	__lws_io_close_transport(wsi);
+	__lws_io_close_transport(wsi, LWS_IOCLOSE_RELEASE);
 
 #if defined(LWS_WITH_CLIENT)
 	lws_free_set_NULL(wsi->cli_hostname_copy);

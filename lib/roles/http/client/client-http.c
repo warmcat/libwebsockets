@@ -2523,8 +2523,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	}
 
 	/* the old transport is no longer watched; the close releases it */
-	lws_io_connect_timers_cancel(wsi);
-	lws_io_unwatch(wsi);
+	__lws_io_close_transport(wsi, LWS_IOCLOSE_UNWATCH);
 
 #if defined(LWS_ROLE_WS)
 	if (weak) {

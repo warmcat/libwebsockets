@@ -2288,6 +2288,7 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 		struct lws *wsi = lws_container_of(d, struct lws, pre_natal);
 
 		lwsl_wsi_info(wsi, "pt pre_natal cleanup");
+		__lws_io_close_transport(wsi, LWS_IOCLOSE_RELEASE);
 		__lws_free_wsi(wsi);
 
 	} lws_end_foreach_dll_safe(d, d1);
