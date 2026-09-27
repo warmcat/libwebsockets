@@ -38,8 +38,20 @@ set(has_h3 1)
 require_lws_config(LWS_WITH_HTTP3 1 has_h3)
 require_lws_config(LWS_ROLE_QUIC 1 has_h3)
 
+#
+# The seed step writes verified accounts straight into the auth server's own
+# sqlite db, so it needs sqlite3 itself rather than only the library's use of it
+#
+find_path(OAUTH_SQLITE3_INCLUDE_DIRS NAMES sqlite3.h)
+find_library(OAUTH_SQLITE3_LIBRARIES NAMES sqlite3)
+if (NOT OAUTH_SQLITE3_INCLUDE_DIRS OR NOT OAUTH_SQLITE3_LIBRARIES)
+	set(requirements 0)
+endif()
+
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
+	target_include_directories(${SAMP} PRIVATE ${OAUTH_SQLITE3_INCLUDE_DIRS})
+	target_link_libraries(${SAMP} ${OAUTH_SQLITE3_LIBRARIES})
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
@@ -137,6 +149,32 @@ if (requirements)
 				     TIMEOUT 120)
 		set_tests_properties(ki_lwsws_oauth PROPERTIES
 				     FIXTURES_CLEANUP lwsws_oauth)
+
+		#
+		# What the BFF composes as its redirect_uri.  Note it does not
+		# carry the port, so a deployment on anything but 443 registers
+		# a callback the client will not present -- both forms are
+		# registered here so the flow is testable either way.
+		#
+		set(OAUTH_REDIRECT_URIS
+		    "https://${LWS_CTEST_SERVER_RESOLVE}/oauth/callback,https://${LWS_CTEST_SERVER_RESOLVE}:${PORT_OAUTH_APP}/oauth/callback")
+
+		#
+		# Second fixture step: the schema is made by the auth server
+		# plugin at vhost init, so the accounts can only go in once
+		# lwsws is up.  DEPENDS orders it after the start step.
+		#
+		add_test(NAME sd_lwsws_oauth
+			 COMMAND ${SAMP} -t seed
+				 --db ${OAUTH_AUTH_DB}
+				 --client-id ${OAUTH_CLIENT_ID}
+				 --service-name ${OAUTH_SERVICE_NAME}
+				 --redirect-uris ${OAUTH_REDIRECT_URIS})
+		set_tests_properties(sd_lwsws_oauth PROPERTIES
+				     WORKING_DIRECTORY ${OAUTH_DIR}
+				     FIXTURES_SETUP lwsws_oauth
+				     DEPENDS st_lwsws_oauth
+				     TIMEOUT 60)
 
 		set(ARGS_COMMON --server ${LWS_CTEST_SERVER_RESOLVE}
 				--auth-port ${PORT_OAUTH}

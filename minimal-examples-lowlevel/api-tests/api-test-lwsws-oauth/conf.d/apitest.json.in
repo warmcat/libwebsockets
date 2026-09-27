@@ -43,7 +43,12 @@
         "lws-auth-server": {
                 "status":                       "ok",
                 "db_path":                      "@OAUTH_AUTH_DB@",
-                "auth_domain":                  "@OAUTH_VHOST_NAME@",
+                # note the mixed spelling of this plugin's PVO names: db_path,
+                # jwk_path, registration_ui and jwt_alg take an underscore
+                # while auth-domain, cookie-domain and the *-validity-secs take
+                # a hyphen.  A mistyped one is silently ignored, so these are
+                # the spellings the plugin actually reads
+                "auth-domain":                  "@OAUTH_VHOST_NAME@",
                 "jwk_path":                     "@OAUTH_JWK_PATH@",
                 "jwt_alg":                      "ES256",
                 "jwt-validity-secs":            "@OAUTH_JWT_VALIDITY@",
@@ -93,6 +98,9 @@
                 "jwt-jwk":              "@OAUTH_JWK_PATH@",
                 "cookie-name":          "auth_session",
                 "@OAUTH_COOKIE_DOMAIN_KEY@": "@OAUTH_COOKIE_DOMAIN@",
+                # the deployment leaves this at its default, where the auth
+                # server's db happens to be; here it has to be said explicitly
+                "db-path":              "@OAUTH_AUTH_DB@",
                 "unauth-allow":         "1"
         },
         "lws-oauth2-client": {

@@ -34,6 +34,8 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <sqlite3.h>
+#include <time.h>
 
 static int	interrupted, bad = 1, port_auth, port_app;
 /*
@@ -49,7 +51,25 @@ static int	interrupted, bad = 1, port_auth, port_app;
  * and a stale idle close never does.
  */
 static const char *server = "127.0.0.1", *alpn = "http/1.1",
-		  *test = "bounce", *client_id = "", *service_name = "";
+		  *test = "bounce", *client_id = "", *service_name = "",
+		  *db_path = NULL, *redirect_uris = "";
+
+/*
+ * The seeded accounts.  Both are *verified*: a row in "users" is a verified
+ * account, "registrations" being the table that holds ones still waiting on an
+ * emailed link, so seeding straight into users is what skips the mail round
+ * trip a test cannot do.
+ *
+ * One has no TOTP secret and one has, because the auth server skips the whole
+ * second factor when the column is empty -- so the pair covers both the plain
+ * password login and the authenticator path with one set of fixtures.
+ */
+#define SEED_USER		"apitest-user"
+#define SEED_USER_TOTP		"apitest-totp-user"
+#define SEED_PASSWORD		"apitest-password"
+#define SEED_SALT		"0123456789abcdef0123456789abcdef"
+/* base32, as the column holds it and as lws_b32_decode_string_len() wants */
+#define SEED_TOTP_SECRET	"JBSWY3DPEHPK3PXP"
 
 /* what the exchange under way is collecting */
 static char	loc[1024];		/* Location: of the last response */
@@ -258,6 +278,251 @@ req(int port, const char *path)
  * An empty jar asking for the protected mount must come back as the start of a
  * login, not as content and not as a bare error.
  */
+/* ------------------------------------------------------- credential helpers */
+
+/*
+ * PBKDF2-SHA-512, one block, exactly as the auth server computes it for
+ * users.password_hash (plugins/protocol_lws_auth_server: pbkdf2_sha512()).
+ * Seeding means reproducing it, so if the server's scheme ever changes this
+ * test fails loudly rather than quietly seeding an account nothing can log
+ * into.
+ */
+static int
+seed_pbkdf2_sha512(const char *password, const char *salt, int iterations,
+		   uint8_t *out_hash)
+{
+	uint8_t salt_block[256], u[64];
+	struct lws_genhmac_ctx ctx;
+	size_t salt_len = strlen(salt);
+	int i, j;
+
+	if (salt_len > sizeof(salt_block) - 4)
+		return -1;
+
+	memcpy(salt_block, salt, salt_len);
+	salt_block[salt_len] = 0;
+	salt_block[salt_len + 1] = 0;
+	salt_block[salt_len + 2] = 0;
+	salt_block[salt_len + 3] = 1;
+
+	if (lws_genhmac_init(&ctx, LWS_GENHMAC_TYPE_SHA512,
+			     (const uint8_t *)password, strlen(password)))
+		return -1;
+	if (lws_genhmac_update(&ctx, salt_block, salt_len + 4))
+		return -1;
+	if (lws_genhmac_destroy(&ctx, u))
+		return -1;
+
+	memcpy(out_hash, u, 64);
+
+	for (i = 1; i < iterations; i++) {
+		if (lws_genhmac_init(&ctx, LWS_GENHMAC_TYPE_SHA512,
+				     (const uint8_t *)password,
+				     strlen(password)))
+			return -1;
+		if (lws_genhmac_update(&ctx, u, 64))
+			return -1;
+		if (lws_genhmac_destroy(&ctx, u))
+			return -1;
+		for (j = 0; j < 64; j++)
+			out_hash[j] ^= u[j];
+	}
+
+	return 0;
+}
+
+/* the hex form that goes in the column */
+static int
+seed_password_hash(const char *password, const char *salt, char *hex,
+		   size_t hex_len)
+{
+	uint8_t hash[64];
+
+	if (seed_pbkdf2_sha512(password, salt, 100000, hash))
+		return -1;
+
+	return lws_genhash_render(LWS_GENHASH_TYPE_SHA512, hash, hex, hex_len);
+}
+
+/*
+ * RFC 6238 TOTP for \p secret_b32 at the current time, the same computation
+ * the auth server verifies with.
+ */
+static int
+totp_now(const char *secret_b32, uint32_t *code)
+{
+	uint8_t secret[64], t_bytes[8], hmac_result[LWS_GENHASH_LARGEST];
+	struct lws_genhmac_ctx ctx;
+	int secret_len, offset;
+
+	secret_len = lws_b32_decode_string_len(secret_b32, -1, (char *)secret,
+					       sizeof(secret));
+	if (secret_len <= 0)
+		return -1;
+
+	lws_ser_wu64be(t_bytes, (uint64_t)time(NULL) / 30);
+
+	if (lws_genhmac_init(&ctx, LWS_GENHMAC_TYPE_SHA1, secret,
+			     (size_t)secret_len))
+		return -1;
+	if (lws_genhmac_update(&ctx, t_bytes, 8)) {
+		lws_genhmac_destroy(&ctx, NULL);
+
+		return -1;
+	}
+	if (lws_genhmac_destroy(&ctx, hmac_result))
+		return -1;
+
+	offset = hmac_result[19] & 0x0f;
+	*code = (lws_ser_ru32be(&hmac_result[offset]) & 0x7fffffff) % 1000000;
+
+	return 0;
+}
+
+/* ------------------------------------------------------------- the seeding */
+
+static int
+seed_exec(sqlite3 *db, const char *sql)
+{
+	char *err = NULL;
+
+	if (sqlite3_exec(db, sql, NULL, NULL, &err) == SQLITE_OK)
+		return 0;
+
+	lwsl_err("%s: %s: %s\n", __func__, sql, err ? err : "?");
+	if (err)
+		sqlite3_free(err);
+
+	return 1;
+}
+
+/*
+ * Put verified accounts, their service grant, and the oauth client straight
+ * into the auth server's db.
+ *
+ * The schema is created by the plugin at vhost init, so this runs as a second
+ * ctest fixture step once lwsws is listening: it only ever inserts, it never
+ * defines, so a schema change shows up here as a failing insert rather than as
+ * a test quietly running against a table of its own invention.
+ */
+static int
+scenario_seed(void)
+{
+	char sql[1024], hex[LWS_GENHASH_LARGEST * 2 + 1];
+	sqlite3 *db = NULL;
+	int r = 1;
+
+	if (!db_path)
+		return fail("seed", "--db is required for the seed step");
+
+	if (seed_password_hash(SEED_PASSWORD, SEED_SALT, hex, sizeof(hex)) < 0)
+		return fail("seed", "unable to compute the password hash");
+
+	if (sqlite3_open(db_path, &db) != SQLITE_OK)
+		return fail("seed", "unable to open %s: %s", db_path,
+			    sqlite3_errmsg(db));
+
+	/*
+	 * The tables must already exist: if they do not, lwsws has not got as
+	 * far as initialising the auth server vhost and seeding into a db we
+	 * created ourselves would test nothing.
+	 */
+	lws_snprintf(sql, sizeof(sql),
+		     "SELECT uid FROM users LIMIT 1");
+	if (seed_exec(db, sql)) {
+		fail("seed", "the auth server's schema is not in %s yet: "
+			     "lwsws has not initialised its vhost", db_path);
+		goto bail;
+	}
+
+	if (seed_exec(db, "BEGIN"))
+		goto bail;
+
+	/* the service the interceptor's pmo asks for a grant on */
+
+	lws_snprintf(sql, sizeof(sql),
+		     "INSERT OR IGNORE INTO services(service_id, name) "
+		     "VALUES (1, '%s')", service_name);
+	if (seed_exec(db, sql))
+		goto bail;
+
+	/* a password-only account, and one with a second factor */
+
+	lws_snprintf(sql, sizeof(sql),
+		     "INSERT OR REPLACE INTO users(uid, username, "
+		     "password_hash, salt, totp_secret, session_epoch, "
+		     "totp_last) VALUES (1, '%s', '%s', '%s', '', 0, 0)",
+		     SEED_USER, hex, SEED_SALT);
+	if (seed_exec(db, sql))
+		goto bail;
+
+	lws_snprintf(sql, sizeof(sql),
+		     "INSERT OR REPLACE INTO users(uid, username, "
+		     "password_hash, salt, totp_secret, session_epoch, "
+		     "totp_last) VALUES (2, '%s', '%s', '%s', '%s', 0, 0)",
+		     SEED_USER_TOTP, hex, SEED_SALT, SEED_TOTP_SECRET);
+	if (seed_exec(db, sql))
+		goto bail;
+
+	/* both hold the service grant above min-grant-level */
+
+	if (seed_exec(db, "INSERT OR REPLACE INTO "
+			  "grants(uid, service_id, grant_level) "
+			  "VALUES (1, 1, 2)") ||
+	    seed_exec(db, "INSERT OR REPLACE INTO "
+			  "grants(uid, service_id, grant_level) "
+			  "VALUES (2, 1, 2)"))
+		goto bail;
+
+	/*
+	 * The oauth client.  client_secret_hash is empty: this is a public
+	 * PKCE client, which is what the BFF is.  redirect_uris is the
+	 * comma-separated set auth_verify_redirect_uri() matches whole
+	 * entries of.
+	 */
+
+	lws_snprintf(sql, sizeof(sql),
+		     "INSERT OR REPLACE INTO oauth_clients(client_id, "
+		     "client_secret_hash, redirect_uris, name) "
+		     "VALUES ('%s', '', '%s', 'apitest')",
+		     client_id, redirect_uris);
+	if (seed_exec(db, sql))
+		goto bail;
+
+	if (seed_exec(db, "COMMIT"))
+		goto bail;
+
+	/*
+	 * Prove the seeded secret is something the verifier's own algorithm can
+	 * turn into a code, here rather than as a mystified 401 in a later
+	 * login: a secret that is not valid base32 decodes to nothing and every
+	 * code computed from it is simply wrong.
+	 */
+	{
+		uint32_t code;
+
+		if (totp_now(SEED_TOTP_SECRET, &code)) {
+			fail("seed", "the seeded TOTP secret '%s' is not usable "
+				     "base32", SEED_TOTP_SECRET);
+			goto bail;
+		}
+
+		lwsl_info("seeded TOTP secret is live (code right now %06u)\n",
+			  code);
+	}
+
+	lwsl_user("PASS: seed: %s (no totp) and %s (totp), grant on '%s', "
+		  "client '%s'\n", SEED_USER, SEED_USER_TOTP, service_name,
+		  client_id);
+
+	r = 0;
+
+bail:
+	sqlite3_close(db);
+
+	return r;
+}
+
 /*
  * The front half of the delegated login: the interceptor-guarded mount, the
  * widget's own view of whether anyone is logged in, and the BFF's PKCE handover
@@ -400,6 +665,10 @@ main(int argc, const char **argv)
 		service_name = p;
 	if ((p = lws_cmdline_option(argc, argv, "-t")))
 		test = p;
+	if ((p = lws_cmdline_option(argc, argv, "--db")))
+		db_path = p;
+	if ((p = lws_cmdline_option(argc, argv, "--redirect-uris")))
+		redirect_uris = p;
 
 	if (lws_cmdline_option(argc, argv, "--h1"))
 		alpn = "http/1.1";
@@ -407,6 +676,14 @@ main(int argc, const char **argv)
 		alpn = "h2";
 	if (lws_cmdline_option(argc, argv, "--h3"))
 		alpn = "h3";
+
+	if (!strcmp(test, "seed")) {
+		/* no context needed: this one only touches the db */
+		bad = scenario_seed();
+		lwsl_user("Completed: %s\n", bad ? "FAIL" : "PASS");
+
+		return bad;
+	}
 
 	if (!port_auth || !port_app) {
 		lwsl_err("%s: --auth-port and --app-port are required\n",
