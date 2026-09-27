@@ -211,6 +211,19 @@
 		"plugins": {
 			"cmake":	"-DLWS_WITH_PLUGINS=1"
 		},
+
+		#
+		# The oauth / login stack end-to-end: a real lwsws with the
+		# auth-server, oauth2-client and login plugins dlopened out of
+		# the build tree, driven over h1, h2 and h3.  Everything here is
+		# needed for api-test-lwsws-oauth to be built at all -- without
+		# it the whole delegated login flow, which is what every other
+		# service authenticates through, has no coverage on any
+		# transport.
+		#
+		"oauth": {
+			"cmake":	"-DLWS_WITH_LWSWS=1 -DLWS_WITH_LIBUV=1 -DLWS_WITH_PLUGINS=1 -DLWS_WITH_AUTH_SERVER=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_STRUCT_SQLITE3=1 -DLWS_WITH_STRUCT_JSON=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_HTTP3=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG"
+		},
 		# WARN_DEPRECATED disabled for openssl v3 case on windows
 		"lws_system": {
 			"cmake":	"-DLWS_SUPPRESS_DEPRECATED_API_WARNINGS=1 -DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=RELEASE -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_AUTHORITATIVE_DNS=1 -DLWS_WITH_SYS_NTPCLIENT=1"
