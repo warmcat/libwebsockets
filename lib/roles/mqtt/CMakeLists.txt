@@ -32,7 +32,7 @@
 include_directories(.)
 
 if (LWS_WITH_CLIENT)
-       list(APPEND SOURCES
+       lws_sansio_sources(
 	       roles/mqtt/mqtt.c
 	       roles/mqtt/ops-mqtt.c
 	       roles/mqtt/primitives.c

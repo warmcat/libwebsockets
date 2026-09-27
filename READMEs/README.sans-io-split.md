@@ -147,7 +147,11 @@ number of files calling them, and the totals (the compiler reports a
 callee once per file, so the count is of file-and-callee pairs, and
 clearing one site can reveal the next in the same file).  That list is
 the remaining work on the rx and tx plumbing, and the compiler keeps it,
-not a grep.  (The tls private prototypes are not yet
+not a grep.  The same check is a build target: each sansIO directory's
+`CMakeLists.txt` declares its sources with `lws_sansio_sources()`, and with
+`-DLWS_WITH_SANSIO_BUILD=ON` the target `websockets-sansio` builds just
+those, the IO prototypes hidden and an implicit declaration an error, so
+a call past the seam fails the build at its line.  (The tls private prototypes are not yet
 hidden: they share a header with the tls structs that `struct lws` embeds
 by value, which the struct split resolves.)
 
@@ -404,8 +408,16 @@ can be live).
    hears lws's requests of the transport through a wrapped
    `lws_io_ops_default` (done: `api-test-sansio`, both halves; a client
    with a transport skips dns and connect and starts on it as connected,
-   `lws_client_connect_transport()`).  Then a sansIO-only build target.
-   These are the test of "technically complete"; the static checks above
-   are inferences until they pass.
+   `lws_client_connect_transport()`).  Then a sansIO-only build target
+   (done as a compile: `websockets-sansio`, above, builds only what the
+   sansIO directories declare, and fails on a call into IO past the
+   seam).  It is not yet a link: its objects still need IO symbols that
+   the compile cannot see, because they are declared in headers both
+   halves include (the tls private prototypes, `lws_addrinfo_clean()`,
+   the vhost's creation, `wsi_from_fd()`, among others), and IO's half of
+   the object is opaque to it, so the objects cannot be linked with a
+   real IO half until the struct split.  These are the test of
+   "technically complete"; the static checks above are inferences until
+   they pass.
 10. When every role is converted, the IO half is a replaceable component,
    and the sansIO half is what a port translates.

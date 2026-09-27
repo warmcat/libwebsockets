@@ -31,62 +31,62 @@
 
 include_directories(. ./compression)
 
-list(APPEND SOURCES
+lws_sansio_sources(
 	roles/http/header.c
 	roles/http/date.c
 	roles/http/parsers.c)
 
 if (NOT LWS_WITHOUT_SERVER)
-	list(APPEND SOURCES
+	lws_sansio_sources(
 		roles/http/server/server.c
 		roles/http/server/lws-spa.c)
 	if (LWS_WITH_JOSE)
-		list(APPEND SOURCES
+		lws_sansio_sources(
 			roles/http/server/interceptor.c)
 	endif()
 endif()
 
 if (LWS_WITH_CACHE_NSCOOKIEJAR AND LWS_WITH_CLIENT)
-	list(APPEND SOURCES
+	lws_sansio_sources(
 		roles/http/cookie.c)
 endif()
 
 if (LWS_WITH_HTTP_PROXY AND LWS_WITH_HUBBUB)
-	list(APPEND SOURCES
+	lws_sansio_sources(
 		roles/http/server/rewrite.c)
 endif()
 
 if (LWS_WITH_ACCESS_LOG)
-	list(APPEND SOURCES
+	lws_sansio_sources(
 		roles/http/server/access-log.c)
 endif()
 	
 if (LWS_WITH_HTTP_STREAM_COMPRESSION)
-	list(APPEND SOURCES
+	lws_sansio_sources(
 		roles/http/compression/stream.c
 		roles/http/compression/deflate/deflate.c)
 
 	if (LWS_WITH_HTTP_BROTLI)
-		list(APPEND SOURCES
+		lws_sansio_sources(
 			roles/http/compression/brotli/brotli.c)
 		list(APPEND LIB_LIST brotlienc brotlidec brotlidec)
 	endif()
 endif()
 
 if (LWS_WITH_LEJP_CONF AND LWS_WITH_NETWORK AND NOT LWS_PLAT_OPTEE)
-	list(APPEND SOURCES
+	lws_sansio_sources(
 		roles/http/server/lejp-conf.c
 	)
 endif()
 
 if (LWS_WITH_RANGES)
-	list(APPEND SOURCES
+	lws_sansio_sources(
 		roles/http/server/ranges.c)
 endif()
 
 if (LWS_WITH_ZIP_FOPS)
        if (LWS_WITH_ZLIB)
-               list(APPEND SOURCES
+               lws_sansio_sources(
                        roles/http/server/fops-zip.c)
        else()
                message(FATAL_ERROR "Pre-zipped file support (LWS_WITH_ZIP_FOPS) requires ZLIB (LWS_WITH_ZLIB)")

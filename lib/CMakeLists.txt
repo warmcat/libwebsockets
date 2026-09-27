@@ -371,6 +371,41 @@ if (LWS_WITH_SHARED)
 endif()
 
 #
+# The sansIO half alone (READMEs/README.sans-io-split.md): the sources its
+# directories declared with lws_sansio_sources(), built with LWS_SANSIO_CHECK
+# so the IO half's private prototypes are hidden and only the interface (the
+# seam, lws-io-ops.h and the public api) is visible.  A call into IO past it
+# is an implicit declaration, made an error here, naming the file and line.
+# IO's half of the object is opaque to it, so these objects are a check of
+# the half, not a library to link.
+#
+if (LWS_WITH_SANSIO_BUILD)
+	add_library(websockets-sansio OBJECT ${SOURCES_SANSIO})
+	target_include_directories(websockets-sansio PRIVATE
+		${LWS_LIB_BUILD_INC_PATHS} ${LWS_LIB_BUILD_INC_PATHS_TEMP}
+		${CMAKE_CURRENT_SOURCE_DIR}/../core
+		${CMAKE_CURRENT_SOURCE_DIR}/../include
+		${CMAKE_CURRENT_BINARY_DIR}/../include)
+	foreach(inc ${LWS_PUBLIC_INCLUDES})
+		target_include_directories(websockets-sansio PRIVATE ${inc})
+	endforeach()
+	target_compile_definitions(websockets-sansio PRIVATE
+				   LWS_SANSIO_CHECK LWS_BUILDING_STATIC)
+	if (MSVC)
+		target_compile_options(websockets-sansio PRIVATE /we4013)
+	else()
+		target_compile_options(websockets-sansio PRIVATE
+				       -Werror=implicit-function-declaration)
+	endif()
+	# the generated headers the library builds with come first
+	if (LWS_WITH_SHARED)
+		add_dependencies(websockets-sansio websockets_shared)
+	else()
+		add_dependencies(websockets-sansio websockets)
+	endif()
+endif()
+
+#
 # expose the library private include dirs to plugins, test apps etc that are
 # part of the lib build but different targets 
 #

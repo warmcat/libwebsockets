@@ -31,7 +31,7 @@
 
 include_directories(.)
 
-list(APPEND SOURCES
+lws_sansio_sources(
 	roles/raw-skt/ops-raw-skt.c)
 
 if (LWS_WITH_ABSTRACT)

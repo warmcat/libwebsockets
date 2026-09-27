@@ -31,7 +31,7 @@
 
 include_directories(.)
 
-list(APPEND SOURCES
+lws_sansio_sources(
 		roles/raw-proxy/ops-raw-proxy.c)
 
 #

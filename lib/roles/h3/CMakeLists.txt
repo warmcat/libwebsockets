@@ -31,7 +31,7 @@
 
 include_directories(.)
 
-list(APPEND SOURCES
+lws_sansio_sources(
 	roles/h3/qpack.c
 	roles/h3/ops-h3.c
 )

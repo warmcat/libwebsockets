@@ -24,7 +24,7 @@
 
 include_directories(.)
 
-list(APPEND SOURCES
+lws_sansio_sources(
 	roles/wt/ops-wt.c)
 
 #

@@ -31,24 +31,24 @@
 
 include_directories(.)
 
-list(APPEND SOURCES
+lws_sansio_sources(
 	roles/ws/ops-ws.c)
 
 if (NOT LWS_WITHOUT_CLIENT)
-	list(APPEND SOURCES
+	lws_sansio_sources(
 		roles/ws/client-ws.c
 		roles/ws/client-parser-ws.c)
 endif()
 
 if (NOT LWS_WITHOUT_SERVER)
-	list(APPEND SOURCES
+	lws_sansio_sources(
 		roles/ws/server-ws.c)
 endif()
 
 if (NOT LWS_WITHOUT_EXTENSIONS)
 	list(APPEND HDR_PRIVATE
 		roles/ws/ext/extension-permessage-deflate.h)
-	list(APPEND SOURCES
+	lws_sansio_sources(
 		roles/ws/ext/extension.c
 		roles/ws/ext/extension-permessage-deflate.c)
 endif()

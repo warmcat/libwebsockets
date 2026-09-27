@@ -32,7 +32,7 @@
 include_directories(.)
 
 if (LWS_ROLE_H1)
-	list(APPEND SOURCES
+	lws_sansio_sources(
 		roles/h1/ops-h1.c)
 endif()
 

@@ -24,23 +24,28 @@
 
 include_directories(.)
 
-list(APPEND SOURCES
+# the sansIO half's (READMEs/README.sans-io-split.md)
+lws_sansio_sources(
 	core-net/dummy-callback.c
-	core-net/IO/output.c
 	core-net/close.c
-	core-net/IO/network.c
 	core-net/vhost.c
+	core-net/wsi.c
+	core-net/wsi-state.c
+)
+
+# IO's, and what neither half owns
+list(APPEND SOURCES
+	core-net/IO/output.c
+	core-net/IO/network.c
 	core-net/IO/vhost.c
 	core-net/IO/pollfd.c
 	core-net/IO/service.c
 	core-net/IO/sorted-usec-list.c
-	core-net/wsi.c
 	core-net/IO/wsi-timeout.c
 	core-net/IO/adopt.c
 	core-net/txpacer.c
 	core-net/async-queue.c
 	roles/pipe/ops-pipe.c
-	core-net/wsi-state.c
 )
 
 if (LWS_WITH_LATENCY)
@@ -70,7 +75,7 @@ endif()
 
 
 if (LWS_WITH_SYS_STATE)
-	list(APPEND SOURCES
+	lws_sansio_sources(
 		core-net/state.c
 	)
 endif()
@@ -109,7 +114,7 @@ if (LWS_WITH_CLIENT)
 endif()
 
 if (LWS_WITH_SOCKS5 AND NOT LWS_WITHOUT_CLIENT)
-	list(APPEND SOURCES
+	lws_sansio_sources(
 		core-net/socks5-client.c)
 endif()
 

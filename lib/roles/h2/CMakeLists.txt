@@ -31,7 +31,7 @@
 
 include_directories(.)
 
-list(APPEND SOURCES
+lws_sansio_sources(
 	roles/h2/http2.c
 	roles/h2/hpack.c
 	roles/h2/ops-h2.c)
