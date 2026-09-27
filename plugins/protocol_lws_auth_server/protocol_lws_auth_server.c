@@ -101,6 +101,48 @@ enum enum_param_names {
 #define AUTH_SERVER_CLEAR_COOKIES 6
 
 /*
+ * Room for a whole response header block.
+ *
+ * It has to hold the status line, content-type and content-length, the
+ * no-cache trio, any CSP the mount adds, and then the Set-Cookies.  A single
+ * session Set-Cookie carries a JWT and is composed into a buffer of
+ * LWS_SSO_MAX_COOKIE, so it alone may be that big; a successful login emits
+ * two of them (the session JWT and auth_refresh_session), and a session
+ * teardown emits AUTH_SERVER_CLEAR_COOKIES clearing ones.
+ *
+ * Sizing this block for one cookie guaranteed failure for exactly the
+ * responses that emit more than one, and the failure drops the connection
+ * with no response at all: the peer sees a closed socket rather than a
+ * status, so a successful login is indistinguishable from the network being
+ * down.
+ */
+#define AUTH_SERVER_RESP_HDR_SZ						\
+	((2 * LWS_SSO_MAX_COOKIE) +					\
+	 (AUTH_SERVER_CLEAR_COOKIES * AUTH_SERVER_CLEAR_COOKIE_SZ) + 1024)
+
+/*
+ * Add one response header, saying exactly what did not fit when it does not.
+ * Returns 0 if it was added, 1 if it would not fit (the caller must fail the
+ * response: a truncated header block is not recoverable).
+ */
+static int
+auth_add_hdr(struct lws *wsi, const char *name, const char *value,
+	     uint8_t **p, uint8_t *end)
+{
+	if (!lws_add_http_header_by_name(wsi, (const unsigned char *)name,
+					 (const unsigned char *)value,
+					 (int)strlen(value), p, end))
+		return 0;
+
+	lwsl_wsi_err(wsi, "response header '%s' (%d bytes of value) did not "
+			  "fit: %d bytes left of a %d byte header block",
+		     name, (int)strlen(value), (int)lws_ptr_diff(end, *p),
+		     (int)AUTH_SERVER_RESP_HDR_SZ);
+
+	return 1;
+}
+
+/*
  * F-048: compose one of the logout / session-destroy *clearing* Set-Cookies
  * (empty value, Expires at epoch, Max-Age=0) into out
  * (AUTH_SERVER_CLEAR_COOKIE_SZ bytes); domain may be NULL / "" for the
@@ -1125,38 +1167,50 @@ auth_verify_redirect_uri(struct per_vhost_data__auth_server *vhd,
 static int
 send_auth_headers(struct lws *wsi, struct per_session_data__auth_server *pss, const char *content_type, const char *cookie1, const char *cookie2)
 {
-	uint8_t buf[LWS_SSO_MAX_COOKIE + LWS_PRE], *start = &buf[LWS_PRE], *p = start, *end = &buf[sizeof(buf) - 1], *pq;
+	uint8_t buf[AUTH_SERVER_RESP_HDR_SZ + LWS_PRE], *start = &buf[LWS_PRE],
+		*p = start, *end = &buf[sizeof(buf) - 1], *pq;
 	unsigned int resp_code = pss->http_response_code ? pss->http_response_code : HTTP_STATUS_OK;
         size_t amount = (size_t)lws_buflist_next_segment_len(&pss->tx_buflist, &pq);
 
         if (lws_add_http_common_headers(wsi, resp_code, content_type,
                                         (unsigned int)(amount ? amount - LWS_PRE: LWS_ILLEGAL_HTTP_CONTENT_LEN), &p,
                                         end)) {
-                lwsl_info("send_auth_headers custom hdr err\n");
-
-                return -1;
-        }
-        if (pss->totp_required &&
-            lws_add_http_header_by_name(wsi, (unsigned char *)"X-Requires-TOTP:", (unsigned char *)"1", 1, &p, end)) {
-                lwsl_info("send_auth_headers custom hdr err\n");
+                lwsl_wsi_err(wsi, "common headers for %u did not fit a %d "
+				  "byte header block", resp_code,
+			     (int)AUTH_SERVER_RESP_HDR_SZ);
 
                 return -1;
         }
 
-        if (lws_add_http_header_by_name(wsi, (unsigned char *)"Cache-Control:", (unsigned char *)"no-cache, no-store, must-revalidate", 35, &p, end)) return -1;
-        if (lws_add_http_header_by_name(wsi, (unsigned char *)"Pragma:", (unsigned char *)"no-cache", 8, &p, end)) return -1;
-        if (lws_add_http_header_by_name(wsi, (unsigned char *)"Expires:", (unsigned char *)"0", 1, &p, end)) return -1;
+	if (pss->totp_required &&
+	    auth_add_hdr(wsi, "X-Requires-TOTP:", "1", &p, end))
+		return -1;
 
-	if (cookie1 && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie1, (int)strlen(cookie1), &p, end)) {
-		lwsl_info("send_auth_headers cookie1 hdr err\n");
+	if (auth_add_hdr(wsi, "Cache-Control:",
+			 "no-cache, no-store, must-revalidate", &p, end) ||
+	    auth_add_hdr(wsi, "Pragma:", "no-cache", &p, end) ||
+	    auth_add_hdr(wsi, "Expires:", "0", &p, end))
 		return -1;
-	}
-	if (cookie2 && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie2, (int)strlen(cookie2), &p, end)) {
-		lwsl_info("send_auth_headers cookie2 hdr err\n");
+
+	/*
+	 * These two are the large ones: the session JWT and
+	 * auth_refresh_session.  They are only present on the responses that
+	 * establish a session, ie exactly the ones the user cares about, so a
+	 * failure here must be loud.
+	 */
+
+	if (cookie1 && auth_add_hdr(wsi, "set-cookie:", cookie1, &p, end))
 		return -1;
-	}
+
+	if (cookie2 && auth_add_hdr(wsi, "set-cookie:", cookie2, &p, end))
+		return -1;
+
 	if (lws_finalize_write_http_header(wsi, start, &p, end)) {
-		lwsl_info("send_auth_headers final hdr err\n");
+		lwsl_wsi_err(wsi, "unable to write the response header block "
+				  "(%d bytes used of %d)",
+			     (int)lws_ptr_diff(p, start),
+			     (int)AUTH_SERVER_RESP_HDR_SZ);
+
 		return -1;
 	}
 
@@ -1832,7 +1886,7 @@ lws_auth_api_logout(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		    struct per_session_data__auth_server *pss)
 {
 	char hdr[AUTH_SERVER_CLEAR_COOKIES][AUTH_SERVER_CLEAR_COOKIE_SZ];
-	char buf[LWS_SSO_MAX_COOKIE + LWS_PRE], pl[LWS_PRE + 64];
+	char buf[AUTH_SERVER_RESP_HDR_SZ + LWS_PRE], pl[LWS_PRE + 64];
 	uint8_t *start = (uint8_t *)buf + LWS_PRE, *p = start,
 		*end = (uint8_t *)buf + sizeof(buf) - 1;
 	size_t pl_len;
@@ -1867,8 +1921,16 @@ lws_auth_api_logout(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 			(unsigned char *)"no-cache, no-store, must-revalidate",
 			35, &p, end) ||
 	    auth_server_add_clear_cookies(wsi, hdr, &p, end) ||
-	    lws_finalize_write_http_header(wsi, start, &p, end))
+	    lws_finalize_write_http_header(wsi, start, &p, end)) {
+		lwsl_wsi_err(wsi, "logout: unable to compose the response "
+				  "header block with %d clearing cookies "
+				  "(%d bytes used of %d)",
+			     AUTH_SERVER_CLEAR_COOKIES,
+			     (int)lws_ptr_diff(p, start),
+			     (int)AUTH_SERVER_RESP_HDR_SZ);
+
 		return -1;
+	}
 
 	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl,
 				       pl_len + LWS_PRE) < 0)
