@@ -55,6 +55,15 @@ static const char *server = "127.0.0.1", *alpn = "http/1.1",
 		  *db_path = NULL, *redirect_uris = "";
 
 /*
+ * Send a Host header as well as the authority the role composes.  A browser or
+ * a reverse proxy may do this on h2 (RFC 9113 8.3.1 permits it when the two
+ * agree), and it is what caught a mirror of :authority into Host that appended
+ * rather than replaced: the server then read the two joined with a comma and
+ * composed an absolute URL naming "host,host".
+ */
+static int send_host_hdr;
+
+/*
  * The seeded accounts.  Both are *verified*: a row in "users" is a verified
  * account, "registrations" being the table that holds ones still waiting on an
  * emailed link, so seeding straight into users is what skips the mail round
@@ -383,6 +392,7 @@ struct req_args {
 };
 
 static struct req_args cur;
+static char	hostport_cur[128];
 
 static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason,
@@ -419,6 +429,12 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 					return -1;
 				}
 			}
+
+			if (send_host_hdr &&
+			    lws_add_http_header_by_token(wsi, WSI_TOKEN_HOST,
+					(unsigned char *)hostport_cur,
+					(int)strlen(hostport_cur), pp, pend))
+				return -1;
 
 			if (cur.body) {
 				char cl[24];
@@ -553,6 +569,8 @@ req_full(int which_jar, int port, const char *path, const char *body)
 		lws_strncpy(hostport, server, sizeof(hostport));
 	else
 		lws_snprintf(hostport, sizeof(hostport), "%s:%d", server, port);
+
+	lws_strncpy(hostport_cur, hostport, sizeof(hostport_cur));
 
 	cur.jar		= which_jar;
 	cur.body	= body;
@@ -1201,6 +1219,42 @@ scenario_login(void)
 	return 0;
 }
 
+
+/*
+ * A peer that sends Host as well as the authority.  The absolute URLs the app
+ * composes from the request host must name one host, not two.
+ */
+static int
+scenario_dualhost(void)
+{
+	char p[1024], ruri[512];
+
+	send_host_hdr = 1;
+
+	lws_snprintf(p, sizeof(p), "/oauth/login?service_name=%s", service_name);
+
+	if (req_full(JAR_APP, port_app, p, NULL) || status != 302)
+		return fail("dualhost", "/oauth/login answered %u, wanted a 302",
+			    status);
+
+	if (url_arg(loc, "redirect_uri", ruri, sizeof(ruri)))
+		return fail("dualhost", "no redirect_uri in '%s'", loc);
+
+	if (strchr(ruri, ',') || strstr(ruri, "%2C") || strstr(ruri, "%2c"))
+		return fail("dualhost", "the composed redirect_uri names more "
+					"than one host: '%s' -- Host and the "
+					"authority were joined rather than one "
+					"of them used", ruri);
+
+	if (!strstr(ruri, "oauth%2Fcallback") && !strstr(ruri, "/oauth/callback"))
+		return fail("dualhost", "the composed redirect_uri is not the "
+					"callback: '%s'", ruri);
+
+	lwsl_user("PASS: dualhost: redirect_uri is a single host: %s\n", ruri);
+
+	return 0;
+}
+
 /* ---------------------------------------------------------------------- main */
 
 int
@@ -1273,6 +1327,8 @@ main(int argc, const char **argv)
 		bad = scenario_bounce();
 	else if (!strcmp(test, "login"))
 		bad = scenario_login();
+	else if (!strcmp(test, "dualhost"))
+		bad = scenario_dualhost();
 	else {
 		lwsl_err("%s: unknown scenario '%s'\n", __func__, test);
 		bad = 1;
