@@ -854,6 +854,50 @@ lws_get_quic_network_wsi(struct lws *wsi)
 	return NULL;
 }
 
+#if defined(LWS_WITH_SERVER)
+/*
+ * A listener answering without a connection (version negotiation, retry)
+ * queues the datagram for its tx, bounded: it is not a connection's, and a
+ * flood of unanswerable Initials must not grow it.
+ */
+static void
+lws_quic_queue_reply(struct lws *lwsi, const uint8_t *buf, size_t len,
+		     const lws_sockaddr46 *dest)
+{
+	struct lws_quic_reply *r;
+
+	if (lwsi->quic.tx_replies.count >= LWS_QUIC_MAX_QUEUED_REPLIES) {
+		lwsl_wsi_info(lwsi, "reply queue full, dropping");
+		return;
+	}
+
+	r = lws_malloc(sizeof(*r) + len, "quic reply");
+	if (!r)
+		return;
+
+	memset(&r->list, 0, sizeof(r->list));
+	r->dest = *dest;
+	r->len = len;
+	memcpy(&r[1], buf, len);
+	lws_dll2_add_tail(&r->list, &lwsi->quic.tx_replies);
+
+	lws_callback_on_writable(lwsi);
+}
+#endif
+
+static void
+lws_quic_replies_destroy(struct lws *lwsi)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			lws_dll2_get_head(&lwsi->quic.tx_replies)) {
+		struct lws_quic_reply *r = lws_container_of(d,
+					struct lws_quic_reply, list);
+
+		lws_dll2_remove(&r->list);
+		lws_free(r);
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
 /*
  * sansIO rx for quic: one datagram, from peer, with its ECN bits.  It may
  * carry several coalesced packets; each is decrypted in place and its frames
@@ -998,7 +1042,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 			*vp++ = (uint8_t)(LWS_QUIC_VERSION_2 >> 24); *vp++ = (uint8_t)(LWS_QUIC_VERSION_2 >> 16);
 			*vp++ = (uint8_t)(LWS_QUIC_VERSION_2 >> 8); *vp++ = (uint8_t)(LWS_QUIC_VERSION_2);
 
-			lws_io_send_dgram(wsi, vn, (size_t)(vp - vn), &sa46);
+			lws_quic_queue_reply(wsi, vn, (size_t)(vp - vn), &sa46);
 			return 0;
 		}
 
@@ -1049,7 +1093,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 					if (!lws_quic_create_retry_tag(dcid.id, dcid.len, retry_pkt, (size_t)(rp - retry_pkt), tag)) {
 						memcpy(rp, tag, 16); rp += 16;
 						lwsl_wsi_notice(wsi, "QUIC RX: Forcing Retry, sending Retry packet!");
-						lws_io_send_dgram(wsi, retry_pkt, (size_t)(rp - retry_pkt), &sa46);
+						lws_quic_queue_reply(wsi, retry_pkt, (size_t)(rp - retry_pkt), &sa46);
 					}
 				}
 				return 0;
@@ -2416,15 +2460,6 @@ lws_quic_enter_closing_state(struct lws *wsi, uint64_t err_code, uint64_t frame_
 }
 
 /* one produced packet: what the send and the accounting after it need */
-struct lws_quic_tx_pkt {
-	lws_sockaddr46	dest;		/* where it goes, if has_dest */
-	uint64_t	pn;
-	size_t		len;		/* bytes in the buffer, tag included */
-	int		level;
-	uint8_t		has_dest;
-	uint8_t		to_probe_path;
-};
-
 /*
  * sansIO tx of the connection's next packet (README.sans-io-split.md, "A
  * content source's tx").  From tp->level up, finds the first encryption
@@ -3155,78 +3190,16 @@ lws_quic_packet_sent(struct lws *wsi, const struct lws_quic_tx_pkt *tp, int n)
 	return 0;
 }
 
-static lws_handling_result_t
-rops_handle_POLLOUT_quic(struct lws *wsi)
+/*
+ * PTO sweep, at the start of a connection's tx pass: frames in flight longer
+ * than the PTO that fired are lost, and go back to pending to be sent again
+ */
+static void
+lws_quic_pto_sweep(struct lws *wsi)
 {
 	struct lws_quic_netconn *qn = wsi->quic.qn;
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	struct lws_quic_tx_pkt tp;
-	int level, n, m, sb;
-	int blocked = 0;
-	int eagain_blocked = 0;
+	int level;
 
-	if (!qn) {
-		lws_handling_result_t hr_ret = LWS_HP_RET_DROP_POLLOUT;
-		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				lws_dll2_get_head(&wsi->mux.child_list_owner)) {
-			struct lws *w = lws_container_of(d, struct lws,
-							 mux.sibling_list);
-			if (w->mux.requested_POLLOUT) {
-				w->mux.requested_POLLOUT = 0;
-				lws_handling_result_t hr_child = rops_handle_POLLOUT_quic(w);
-				if (hr_child == LWS_HP_RET_BAIL_DIE)
-					return LWS_HP_RET_BAIL_DIE;
-				if (hr_child == LWS_HP_RET_BAIL_OK)
-					hr_ret = LWS_HP_RET_BAIL_OK;
-			}
-		} lws_end_foreach_dll_safe(d, d1);
-		return hr_ret;
-	}
-
-	wsi->mux.requested_POLLOUT = 0;
-
-        if (!wsi->quic.initialized && !qn->is_server) {
-                wsi->quic.initialized = 1;
-
-#if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
-		if (wsi->use_ssl & LCCSCF_USE_SSL) {
-			const char *cce = NULL;
-
-			/* creates the session only if there is none yet */
-			if (lws_client_create_tls(wsi, &cce, 0) == CCTLS_RETURN_ERROR) {
-				lwsl_wsi_err(wsi, "Failed to create TLS BIO: %s", cce ? cce : "unknown");
-				return LWS_HP_RET_BAIL_DIE;
-			}
-			/* The BIO was already created, just init QUIC TLS */
-			if (lws_tls_quic_init(wsi, quic_secret_cb)) {
-				lwsl_wsi_err(wsi, "Failed to init QUIC TLS");
-				return LWS_HP_RET_BAIL_DIE;
-			}
-			/* Kick off the handshake */
-			// lwsl_wsi_notice(wsi, "Kicking off QUIC TLS handshake");
-			lws_tls_quic_rx_crypto(wsi, LWS_QUIC_LEVEL_INITIAL, NULL, 0);
-
-			{
-				struct lws *nwsi = lws_get_quic_network_wsi(wsi);
-				if (nwsi) {
-					wsi = nwsi;
-					qn = wsi->quic.qn;
-				}
-			}
-		}
-#endif
-        }
-
-	if (qn->is_closing) {
-		/* We are in the Closing State. Only process the CONNECTION_CLOSE frame. */
-		/* The frame is queued in pending_tx by lws_quic_enter_closing_state. */
-		/* Skip PTO sweep and just let the normal frame generation send it. */
-		goto send_frames;
-	}
-
-	/*
-	 * PTO Sweep: Check for dropped/unacknowledged packets
-	 */
 	lws_usec_t now = lws_now_usecs();
 	size_t total_bytes_lost = 0;
 	uint64_t last_lost_pn = (uint64_t)-1;
@@ -3289,55 +3262,219 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 	 */
 	if (total_bytes_lost && qn->cc_ops && qn->cc_ops->on_discard)
 		qn->cc_ops->on_discard(wsi, total_bytes_lost);
+}
 
-send_frames:
-	/*
-	 * Iterate through the encryption levels in priority order.
-	 * Initial > Handshake > Application Data.
-	 */
-	/*
-	 * Produce, send, account: one packet per encryption level per pass,
-	 * Initial > Handshake > Application, from IO's buffer sized to the
-	 * path MTU.  See lws_quic_packet_tx().
-	 */
-	level = 0;
-	while (level < LWS_QUIC_LEVEL_COUNT) {
-		tp.level = level;
-		sb = lws_servbuf_claim(pt, pt->serv_buf,
-				       wsi->a.context->pt_serv_buf_size, "quic tx");
-		n = lws_quic_packet_tx(wsi, pt->serv_buf,
-				       wsi->a.context->pt_serv_buf_size, &tp);
-		if (n == LWS_TX_FAIL || n == LWS_TX_WAIT || !n) {
-			lws_servbuf_release(pt, sb);
-			if (!n)
-				break;
-			if (n == LWS_TX_WAIT) {
-				blocked = 1;
-				break;
-			}
-			return LWS_HP_RET_BAIL_OK;
-		}
+/*
+ * One connection's next packet this tx pass (README.sans-io-split.md, "A
+ * content source's tx"): one per encryption level per pass, Initial >
+ * Handshake > Application, into IO's buffer sized to the path MTU.  first
+ * starts the connection's pass.
+ */
+static int
+lws_quic_conn_tx(struct lws *nwsi, uint8_t *buf, size_t max,
+		 lws_sockaddr46 *dest, int first)
+{
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
+	int n;
 
-		/* Fault Injection for dropping UDP packets (simulating packet loss) */
-		if (lws_fi(&wsi->fic, "quic_tx_drop")) {
-			lwsl_wsi_debug(wsi, "QUIC TX: Dropping packet via lws_fi fault injection!");
-			m = n; /* Pretend it succeeded */
-		} else
-			m = lws_io_send_dgram(wsi, pt->serv_buf, (size_t)n,
-					      tp.has_dest ? &tp.dest : NULL);
-		lws_servbuf_release(pt, sb);
-
-		m = lws_quic_packet_sent(wsi, &tp, m);
-		if (m < 0)
-			return LWS_HP_RET_BAIL_OK;
-		if (m > 0) {
-			blocked = 1;
-			eagain_blocked = 1;
-			break;
-		}
-
-		level = tp.level + 1;
+	if (first) {
+		qn->tx_level = 0;
+		qn->tx_held = 0;
+		qn->tx_full = 0;
+		qn->tx_failed = 0;
+		/* closing, only the CONNECTION_CLOSE goes: nothing is resent */
+		if (!qn->is_closing)
+			lws_quic_pto_sweep(nwsi);
 	}
+
+	if (qn->tx_failed || qn->tx_level >= LWS_QUIC_LEVEL_COUNT)
+		return 0;
+
+	qn->tx_pkt.level = qn->tx_level;
+	n = lws_quic_packet_tx(nwsi, buf, max, &qn->tx_pkt);
+	switch (n) {
+	case 0:
+		break;
+	case LWS_TX_WAIT:
+		qn->tx_held = 1;
+		break;
+	case LWS_TX_FAIL:
+		qn->tx_failed = 1;
+		break;
+	default:
+		if (qn->tx_pkt.has_dest)
+			*dest = qn->tx_pkt.dest;
+		break;
+	}
+
+	return n;
+}
+
+/* how IO's send of the connection's packet went: 1 = the transport is full */
+static int
+lws_quic_conn_tx_sent(struct lws *nwsi, int n)
+{
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
+	int m = lws_quic_packet_sent(nwsi, &qn->tx_pkt, n);
+
+	if (m < 0) {
+		qn->tx_failed = 1;
+		return 0;
+	}
+	if (m > 0) {
+		qn->tx_full = 1;
+		return 1;
+	}
+
+	qn->tx_level = qn->tx_pkt.level + 1;
+
+	return 0;
+}
+
+/*
+ * tx_dgram: IO pulls the next datagram of the socket wsi owns.  A client's
+ * connection owns its socket.  A listener's connections share its socket:
+ * its own replies go first, then its connections that asked to write, each
+ * taken until it has nothing more this pass.
+ */
+static int
+rops_tx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t max,
+		   lws_sockaddr46 *dest, int first)
+{
+	struct lws_dll2 *d;
+	int n;
+
+	if (wsi->quic.qn)
+		return lws_quic_conn_tx(wsi, buf, max, dest, first);
+
+	if (first) {
+		wsi->quic.tx_cur = NULL;
+		lws_start_foreach_dll(struct lws_dll2 *, d1,
+				lws_dll2_get_head(&wsi->mux.child_list_owner)) {
+			struct lws *w = lws_container_of(d1, struct lws,
+							 mux.sibling_list);
+			if (w->quic.qn)
+				w->quic.qn->tx_in_pass = 0;
+		} lws_end_foreach_dll(d1);
+	}
+
+	d = lws_dll2_get_head(&wsi->quic.tx_replies);
+	if (d) {
+		struct lws_quic_reply *r = lws_container_of(d,
+					struct lws_quic_reply, list);
+
+		if (r->len > max) { /* cannot be: they are small */
+			lws_dll2_remove(&r->list);
+			lws_free(r);
+			return LWS_TX_FAIL;
+		}
+		memcpy(buf, &r[1], r->len);
+		*dest = r->dest;
+		wsi->quic.tx_is_reply = 1;
+
+		return (int)r->len;
+	}
+
+	d = wsi->quic.tx_cur ? &wsi->quic.tx_cur->mux.sibling_list :
+			       lws_dll2_get_head(&wsi->mux.child_list_owner);
+	while (d) {
+		struct lws *w = lws_container_of(d, struct lws,
+						 mux.sibling_list);
+		int f = 0;
+
+		d = d->next;
+		if (!w->quic.qn || !w->mux.requested_POLLOUT)
+			continue;
+
+		if (!w->quic.qn->tx_in_pass) {
+			w->quic.qn->tx_in_pass = 1;
+			f = 1;
+		}
+
+		n = lws_quic_conn_tx(w, buf, max, dest, f);
+		if (n > 0) {
+			wsi->quic.tx_cur = w;
+			return n;
+		}
+		/* nothing more from w this pass: on to the next */
+	}
+
+	wsi->quic.tx_cur = NULL;
+
+	return 0;
+}
+
+static int
+rops_tx_dgram_sent_quic(struct lws *wsi, int n)
+{
+	if (wsi->quic.qn)
+		return lws_quic_conn_tx_sent(wsi, n);
+
+	if (wsi->quic.tx_is_reply) {
+		struct lws_dll2 *d = lws_dll2_get_head(&wsi->quic.tx_replies);
+
+		/* sent or not, a reply is not kept */
+		wsi->quic.tx_is_reply = 0;
+		if (d) {
+			lws_dll2_remove(d);
+			lws_free(lws_container_of(d, struct lws_quic_reply,
+						  list));
+		}
+
+		return n == LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+	}
+
+	if (!wsi->quic.tx_cur || !lws_quic_conn_tx_sent(wsi->quic.tx_cur, n))
+		return 0;
+
+	/*
+	 * The socket is full for all of them: the connections the pass did
+	 * not reach hear it too, and keep asking to write
+	 */
+	lws_start_foreach_dll(struct lws_dll2 *, d1,
+			lws_dll2_get_head(&wsi->mux.child_list_owner)) {
+		struct lws *w = lws_container_of(d1, struct lws,
+						 mux.sibling_list);
+		if (w->quic.qn && w->mux.requested_POLLOUT)
+			w->quic.qn->tx_full = 1;
+	} lws_end_foreach_dll(d1);
+
+	return 1;
+}
+
+static lws_handling_result_t
+rops_handle_POLLOUT_quic(struct lws *wsi)
+{
+	struct lws_quic_netconn *qn = wsi->quic.qn;
+	int level, blocked, eagain_blocked;
+
+	if (!qn) {
+		lws_handling_result_t hr_ret = LWS_HP_RET_DROP_POLLOUT;
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				lws_dll2_get_head(&wsi->mux.child_list_owner)) {
+			struct lws *w = lws_container_of(d, struct lws,
+							 mux.sibling_list);
+			if (w->mux.requested_POLLOUT) {
+				w->mux.requested_POLLOUT = 0;
+				lws_handling_result_t hr_child = rops_handle_POLLOUT_quic(w);
+				if (hr_child == LWS_HP_RET_BAIL_DIE)
+					return LWS_HP_RET_BAIL_DIE;
+				if (hr_child == LWS_HP_RET_BAIL_OK)
+					hr_ret = LWS_HP_RET_BAIL_OK;
+			}
+		} lws_end_foreach_dll_safe(d, d1);
+		return hr_ret;
+	}
+
+	wsi->mux.requested_POLLOUT = 0;
+
+	if (qn->tx_failed)
+		/* producing or sending failed: nothing more this pass */
+		return LWS_HP_RET_BAIL_OK;
+
+	/* how IO's tx pull went for us, just before this pass */
+	blocked = qn->tx_held || qn->tx_full;
+	eagain_blocked = qn->tx_full;
 
 	/* If we handled all pending crypto/internal frames, give the user a chance to write */
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
@@ -4246,6 +4383,9 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 {
 	struct lws_quic_netconn *qn = wsi->quic.qn;
 
+	/* a listener's replies not yet sent */
+	lws_quic_replies_destroy(wsi);
+
 	if(!lws_dll2_is_empty(&wsi->mux.child_list_owner))
 		lws_wsi_mux_close_children(wsi, (int)reason);
 
@@ -4308,10 +4448,7 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 static int
 rops_close_via_role_protocol_quic(struct lws *wsi, enum lws_close_status reason)
 {
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws_quic_netconn *qn = wsi->quic.qn;
-	struct lws_quic_tx_pkt tp;
-	int level = 0, n;
 
 	if (!qn || qn->nwsi != wsi || qn->is_closing || !qn->handshake_done)
 		return 0;
@@ -4321,27 +4458,8 @@ rops_close_via_role_protocol_quic(struct lws *wsi, enum lws_close_status reason)
 
 	lwsl_wsi_info(wsi, "sending CONNECTION_CLOSE (%d)", (int)reason);
 
-	while (level < LWS_QUIC_LEVEL_COUNT) {
-		int sb = lws_servbuf_claim(pt, pt->serv_buf,
-					   wsi->a.context->pt_serv_buf_size,
-					   "quic close tx");
-
-		tp.level = level;
-		n = lws_quic_packet_tx(wsi, pt->serv_buf,
-				       wsi->a.context->pt_serv_buf_size, &tp);
-		if (n <= 0) { /* nothing more, or held or failed: best effort */
-			lws_servbuf_release(pt, sb);
-			break;
-		}
-
-		n = lws_io_send_dgram(wsi, pt->serv_buf, (size_t)n,
-				      tp.has_dest ? &tp.dest : NULL);
-		lws_servbuf_release(pt, sb);
-		if (lws_quic_packet_sent(wsi, &tp, n))
-			break;
-
-		level = tp.level + 1;
-	}
+	/* now, not on a later POLLOUT: best effort, the close goes on */
+	lws_io_tx_now(wsi);
 
 	return 0; /* the close carries on */
 }
@@ -4788,8 +4906,31 @@ rops_client_transport_up_quic(struct lws *wsi, const lws_sockaddr46 *peer)
 	if (wsi->quic.qn)
 		wsi->quic.qn->path_sa46 = *peer;
 
-	/* quic drives its own tls handshake from its POLLOUT handler */
+	/* quic drives its own tls handshake, inside its packets */
 	lws_wsi_event(wsi, LWS_WSIEV_TLS_START);
+
+#if defined(LWS_WITH_TLS)
+	if (!wsi->quic.initialized && (wsi->use_ssl & LCCSCF_USE_SSL)) {
+		const char *cce = NULL;
+
+		wsi->quic.initialized = 1;
+
+		/* creates the session only if there is none yet */
+		if (lws_client_create_tls(wsi, &cce, 0) == CCTLS_RETURN_ERROR) {
+			lwsl_wsi_err(wsi, "Failed to create TLS BIO: %s",
+				     cce ? cce : "unknown");
+			return -1;
+		}
+		if (lws_tls_quic_init(wsi, quic_secret_cb)) {
+			lwsl_wsi_err(wsi, "Failed to init QUIC TLS");
+			return -1;
+		}
+		/* the ClientHello, queued as our first CRYPTO frames */
+		lws_tls_quic_rx_crypto(wsi, LWS_QUIC_LEVEL_INITIAL, NULL, 0);
+	}
+#endif
+
+	/* the first tx sends them */
 	lws_callback_on_writable(wsi);
 
 	return 0;
@@ -4815,6 +4956,10 @@ static const lws_rops_t rops_table_quic[] = {
 		 { .rx_dgram		  = rops_rx_dgram_quic },
 	/* 14, or 12 without client */
 		 { .rx_policy		  = rops_rx_policy_quic },
+	/* 15, or 13 without client */
+		 { .tx_dgram		  = rops_tx_dgram_quic },
+	/* 16, or 14 without client */
+		 { .tx_dgram_sent	  = rops_tx_dgram_sent_quic },
 };
 
 const struct lws_role_ops role_ops_quic = {
@@ -4847,12 +4992,18 @@ const struct lws_role_ops role_ops_quic = {
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x0C, 0x00,
 	  /* LWS_ROPS_rx_dgram */			0x0D, 0x0E,
+	  /* LWS_ROPS_rx_done */
+	  /* LWS_ROPS_tx_dgram */			0x00, 0x0F,
+	  /* LWS_ROPS_tx_dgram_sent */			0x10,
 #else
 	  /* LWS_ROPS_client_bind */
 	  /* LWS_ROPS_issue_keepalive */		0x00, 0x00,
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x00, 0x00,
 	  /* LWS_ROPS_rx_dgram */			0x0B, 0x0C,
+	  /* LWS_ROPS_rx_done */
+	  /* LWS_ROPS_tx_dgram */			0x00, 0x0D,
+	  /* LWS_ROPS_tx_dgram_sent */			0x0E,
 #endif
 					},
 

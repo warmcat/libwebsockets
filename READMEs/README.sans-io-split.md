@@ -38,10 +38,10 @@ things only through these requests.  Nothing else crosses.
 |---|---|---|
 | IO -> sansIO | **rx(bytes) -> consumed**: bytes arrived, take what you can; an empty rx is the peer closing | the `rx` role op, fed by `lws_rx_pump()` from IO's rx stage under the role's `rx_policy`; after the pass's reading the role's `rx_done` acts on what it holds; the app's pull of a response body, `lws_http_client_read()`, is the same read at the app's pace into the app's buffer, feeding `lws_h1_client_body_rx()` |
 | IO -> sansIO | **rx_dgram(bytes, peer, ecn) -> ok**: the datagram spelling of rx: one datagram arrived from this peer with these ECN bits; it is taken whole, nothing is parked | the `rx_dgram` role op, fed by `lws_rx_pump_dgram()`; quic.  A role with this op rides a datagram transport: IO gives a client one when the role binds, reports ECN and marks what it sends ECT(0), and takes a bound one as a listener |
-| IO -> sansIO | **tx(buf, max) -> n, more**: the transport can take bytes: fill the caller's buffer with the next ones to send, from wherever you got to last time, and say whether more remain | `lws_write()` composing into the `LWS_PRE` headroom then `lws_issue_raw()`; role `handle_POLLOUT`.  Converted: the status page (`lws_http_status_page_send_pending()`), file serving (`lws_http_file_tx()` producing, `lws_serve_http_file_fragment()` in IO driving), h2's protocol packets (`lws_h2_pps_tx()`, then `lws_h2_pps_done()` once written), quic's packets (`lws_quic_packet_tx()` into IO's buffer sized to the path MTU, `lws_io_send_dgram()`, `lws_quic_packet_sent()`) |
+| IO -> sansIO | **tx(buf, max) -> n, more**: the transport can take bytes: fill the caller's buffer with the next ones to send, from wherever you got to last time, and say whether more remain | `lws_write()` composing into the `LWS_PRE` headroom then `lws_issue_raw()`; role `handle_POLLOUT`.  Converted: the status page (`lws_http_status_page_send_pending()`), file serving (`lws_http_file_tx()` producing, `lws_serve_http_file_fragment()` in IO driving), h2's protocol packets (`lws_h2_pps_tx()`, then `lws_h2_pps_done()` once written), quic's packets (the datagram spelling: the `tx_dgram` and `tx_dgram_sent` role ops, pulled by IO's `lws_tx_pump_dgram()` at the start of the socket owner's POLLOUT pass, before its `handle_POLLOUT`; `lws_quic_packet_tx()` produces into IO's buffer sized to the path MTU and `lws_quic_packet_sent()` hears how the send went.  A listener's connections share its socket, so its tx is its own queued replies (version negotiation, retry) and then each connection that asked to write, in turn) |
 | IO -> sansIO | **deadline()**: the deadline you set has passed | `sul` callbacks, `lws_sul_wsitimeout_cb` |
 | IO -> sansIO | **transport(up(peer) / failed / gone)** | `client_transport_up(wsi, peer)` op, `LWS_WSIEV_TRANSPORT_UP`, `CONN_FAILED`, `SOCKET_GONE` |
-| sansIO -> IO | **want_write()**: call tx when the transport can take bytes | `lws_callback_on_writable()`; `lws_service_wsi_as_writable()` is the same request served now |
+| sansIO -> IO | **want_write()**: call tx when the transport can take bytes | `lws_callback_on_writable()`; `lws_service_wsi_as_writable()` is the same request served now, and `lws_io_tx_now()` its datagram tx alone (a closing quic connection's CONNECTION_CLOSE) |
 | sansIO -> IO | **deadline(us) / no deadline** | `lws_set_timeout()`, `lws_sul_schedule()` |
 | sansIO -> IO | **want_read(on / off)**: stop feeding me rx, or resume | `lws_rx_flow_control()` |
 | sansIO -> IO | **close(reason)** | `lws_close_free_wsi()`, `LWS_WSIEV_CLOSE_FLUSH`; at the transport the request has phases, `lws_io_ops_t.close(wsi, phase)`: quiesce (nothing of the transport's may act on the wsi), unwatch (a restart keeps the wsi), shutdown, stage (keep it until the peer has finished), release |
@@ -132,9 +132,10 @@ under `lib/core-net/IO`, `lib/plat`, `lib/tls`, `lib/event-libs`,
 `lib/drivers`, the async dns), and `private-lib-core.h` includes it unless
 `LWS_SANSIO_CHECK` is defined.  The requests sansIO makes of IO in their
 private spellings (`lws_issue_raw()` as tx's push form,
-`lws_service_wsi_as_writable()` and `lws_io_service_now()` as want_write
-served now, `lws_client_transport_connected()` as the tunnel legs' "the
-transport is up") are in `lib/core-net/private-lib-sansio-seam.h`, which
+`lws_service_wsi_as_writable()`, `lws_io_tx_now()` and
+`lws_io_service_now()` as want_write served now,
+`lws_client_transport_connected()` as the tunnel legs' "the transport is
+up" and `lws_client_transport_established()` as quic's) are in `lib/core-net/private-lib-sansio-seam.h`, which
 stays visible: the seam is the interface, and what the check reports is
 exactly the calls that are not it.  `scripts/sans-io-check.sh <build-dir>`
 compiles every sansIO source that way, from the build's
@@ -232,7 +233,6 @@ The directories are the halves.  Placement by directory is the whole rule.
 | `lib/tls/*` record layer: `lws_ssl_capable_read/write`, bio, session cache, handshake driving | IO | sansIO sees plaintext |
 | `lib/roles/quic` packet and frame layer, `lib/roles/h3`, qpack | sansIO | quic is a sansIO part with a datagram interface instead of a stream one |
 | `lib/roles/listen`, `netlink`, `pipe`, `raw-file`, `dbus`, `cgi` | IO | transport adapters wearing the role interface: they accept sockets, read pipes, fds and the kernel's routing; nothing on the wire is theirs |
-| `lib/roles/quic` `sendto` for version negotiation and retry | IO | the last place a role touches the socket, to be moved behind tx; its socket's path is asked of IO (`lws_io_path()`) |
 | `lib/plat/*`, `lib/event-libs/*` | IO | |
 | `lib/core/*`, `lib/misc/*`, `lib/system/*` | neither | context, logging, utilities: shared by both halves, used by both |
 
@@ -374,8 +374,10 @@ can be live).
    race with the tcp fallback is `lws_client_transport_established()`, and
    what IO already knew (the peer it connected to, that a datagram role
    wants a udp socket, ECN and its listeners) is IO's to act on or to pass
-   in (done: the check fell from 19 lines to 7; quic's last is the
-   `sendto` of version negotiation, retry and its packets, which is tx).
+   in (done: the check fell from 19 lines to 7).  Then quic's tx is a
+   pull: IO drives the loop that sends its packets and asks quic for each
+   (done: quic names nothing of IO's any more; 6 lines left, none quic's).
+   The stream roles' `lws_issue_raw()` push is the rest of tx.
 8. Split the object: IO's fields of `struct lws` move into the
    `lws_io_adjunct` (see "The object"), the check making it opaque to
    sansIO (in progress: the socket identity first).

@@ -275,9 +275,39 @@ struct lws_quic_stream {
 };
 
 
+/* the packet IO has in hand between our tx and its send (lws_quic_packet_tx) */
+struct lws_quic_tx_pkt {
+	lws_sockaddr46	dest;		/* where it goes, if has_dest */
+	uint64_t	pn;
+	size_t		len;		/* bytes in the buffer, tag included */
+	int		level;
+	uint8_t		has_dest;
+	uint8_t		to_probe_path;
+};
+
+/*
+ * A datagram answered from a listener without a connection (version
+ * negotiation, retry), waiting for the listener's tx
+ */
+struct lws_quic_reply {
+	lws_dll2_t		list;
+	lws_sockaddr46		dest;
+	size_t			len;
+	/* the datagram follows */
+};
+
+#define LWS_QUIC_MAX_QUEUED_REPLIES 16
 
 struct lws_quic_netconn {
 	struct lws		*nwsi; /* the parent UDP network wsi */
+
+	/* this tx pass (IO's, README.sans-io-split.md "Sending is a pull") */
+	struct lws_quic_tx_pkt	tx_pkt;	/* the one IO is sending */
+	int			tx_level; /* the level we got to this pass */
+	uint8_t			tx_in_pass:1; /* a listener's pass reached us */
+	uint8_t			tx_held:1; /* our limits held what we have */
+	uint8_t			tx_full:1; /* the transport could not take it */
+	uint8_t			tx_failed:1; /* producing or sending failed */
 
 	struct lws_quic_cid	loc_cid; /* Our local Connection ID */
 	struct lws_quic_cid	rem_cid; /* Remote peer's Connection ID */
@@ -642,8 +672,13 @@ struct _lws_quic_related {
 
         lws_usec_t quic_race_start_us;
 
+	/* a listener's tx pass: its replies, then its connections' packets */
+	lws_dll2_owner_t tx_replies;
+	struct lws *tx_cur; /* the connection whose packet IO has in hand */
+
         uint8_t initialized:1;
         uint8_t tx_blocked_sent:1;
+	uint8_t tx_is_reply:1; /* IO has the head of tx_replies in hand */
 };
 
 

@@ -352,6 +352,8 @@ lws_remove_parallel_fd_safely(struct lws *wsi, int pidx);
 int
 lws_io_send_dgram(struct lws *wsi, const uint8_t *buf, size_t len,
 		  const lws_sockaddr46 *dest);
+void
+lws_tx_pump_dgram(struct lws *wsi);
 #endif
 
 /* the vhost's listen sockets, the pt pipe, a wsi's place in the loop */

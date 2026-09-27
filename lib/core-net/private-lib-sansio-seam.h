@@ -44,6 +44,14 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len);
 /* want_write, served now rather than on the next turn of the loop */
 int
 lws_service_wsi_as_writable(struct lws *wsi);
+#if defined(LWS_WITH_UDP)
+/*
+ * the same for a datagram connection's tx alone: IO pulls its datagrams now
+ * (a closing connection's CONNECTION_CLOSE), without a writeable pass
+ */
+void
+lws_io_tx_now(struct lws *wsi);
+#endif
 
 /* rx now: the header table's autoservice, for a wsi that was waiting on one */
 int

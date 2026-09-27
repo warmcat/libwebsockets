@@ -169,6 +169,12 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	/* if we got here, we should have wire protocol ops set on the wsi */
 	assert(wsi->role_ops);
 
+#if defined(LWS_WITH_UDP)
+	/* a datagram role's tx is pulled first, then it has the pass */
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_tx_dgram))
+		lws_tx_pump_dgram(wsi);
+#endif
+
 	if (!lws_rops_fidx(wsi->role_ops, LWS_ROPS_handle_POLLOUT))
 		goto bail_ok;
 
@@ -821,6 +827,51 @@ lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 	return LWS_HPI_RET_HANDLED;
+}
+
+/*
+ * The datagram spelling of tx (README.sans-io-split.md, "Sending is a
+ * pull"): the transport can take datagrams, so take them from the role one at
+ * a time into the pt serv_buf, send each where the role says, and tell the
+ * role how each send went.  wsi is the socket's owner, or a connection whose
+ * datagrams must go now (lws_io_tx_now()).  The pass ends when the role has
+ * nothing more it may send now, or the transport is full.
+ */
+void
+lws_tx_pump_dgram(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	size_t max = wsi->a.context->pt_serv_buf_size;
+	lws_sockaddr46 dest;
+	int first = 1, n, sb;
+
+	do {
+		memset(&dest, 0, sizeof(dest));
+		sb = lws_servbuf_claim(pt, pt->serv_buf, max, "dgram tx");
+		n = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_tx_dgram).
+				tx_dgram(wsi, pt->serv_buf, max, &dest, first);
+		first = 0;
+		if (n <= 0) { /* nothing more now, held, or failed */
+			lws_servbuf_release(pt, sb);
+			return;
+		}
+
+		/* a fault dropping it looks like it was sent */
+		if (!lws_fi(&wsi->fic, "udp_tx_loss"))
+			n = lws_io_send_dgram(wsi, pt->serv_buf, (size_t)n,
+					      dest.sa4.sin_family ? &dest : NULL);
+		lws_servbuf_release(pt, sb);
+
+	} while (!lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_tx_dgram_sent).
+							tx_dgram_sent(wsi, n));
+}
+
+/* the datagrams of a connection that must go now, not on the next POLLOUT */
+void
+lws_io_tx_now(struct lws *wsi)
+{
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_tx_dgram))
+		lws_tx_pump_dgram(wsi);
 }
 #endif
 
