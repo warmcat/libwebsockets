@@ -151,6 +151,64 @@ lws_tls_wsi_record_hs_ca(struct lws *wsi, struct lws_vhost *vh)
 	wsi->io.tls.hs_ca_id_valid = 1;
 }
 
+/*
+ * A TLS SNI callback chose the vhost for the handshake it is setting up: the
+ * connection's client-cert policy is that vhost's, which the session records,
+ * and then the connection is bound to it (lws_vhost_bind_wsi_sni()).
+ */
+void
+lws_tls_sni_bind(struct lws_vhost *vh, struct lws *wsi)
+{
+	lws_tls_wsi_record_hs_ca(wsi, vh);
+	lws_vhost_bind_wsi_sni(vh, wsi);
+}
+
+#if defined(LWS_ROLE_QUIC)
+/*
+ * A quic connection's tls session.  quic runs the handshake inside its own
+ * packets, so the session is made when quic asks, the client's when its
+ * transport is up, the server's when a connection's first Initial arrives,
+ * and is set up for quic (lws_tls_quic_init()).  A server vhost without tls
+ * has none to make.  Returns 0, or -1 when it could not be made.
+ */
+int
+lws_tls_quic_session(struct lws *wsi, lws_tls_quic_secret_cb cb)
+{
+#if defined(LWS_WITH_CLIENT)
+	if (lwsi_role_client(wsi)) {
+		const char *cce = NULL;
+
+		/* creates the session only if there is none yet */
+		if (lws_client_create_tls(wsi, &cce, 0) == CCTLS_RETURN_ERROR) {
+			lwsl_wsi_err(wsi, "no tls session: %s",
+				     cce ? cce : "unknown");
+			return -1;
+		}
+	} else
+#endif
+	{
+#if defined(LWS_WITH_SERVER)
+		if (!wsi->a.vhost || !wsi->a.vhost->tls.ssl_ctx)
+			return 0;
+
+		if (lws_tls_server_new_nonblocking(wsi, LWS_SOCK_INVALID)) {
+			lwsl_wsi_err(wsi, "no tls session");
+			return -1;
+		}
+#else
+		return -1;
+#endif
+	}
+
+	if (lws_tls_quic_init(wsi, cb)) {
+		lwsl_wsi_err(wsi, "quic tls init failed");
+		return -1;
+	}
+
+	return 0;
+}
+#endif
+
 #if (!defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL) && \
 	!defined(LWS_WITH_SCHANNEL) && !defined(LWS_WITH_OPENHITLS) && \
 	defined(OPENSSL_VERSION_NUMBER) && \

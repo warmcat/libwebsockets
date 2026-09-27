@@ -61,6 +61,33 @@ lws_io_tx_now(struct lws *wsi);
 int
 lws_io_service_now(struct lws *wsi);
 
+#if defined(LWS_WITH_TLS)
+/*
+ * What sansIO may ask of the connection's tls session, which is IO's: the
+ * library's session object (handed to the user with ESTABLISHED), which CA's
+ * store verified the peer (mTLS vhost binding), whether the server's
+ * certificate is acceptable under the connection's LCCSCF_ flags (quic
+ * confirms it when its handshake is done, as tls does for tcp).  quic runs
+ * the handshake in its own packets, so it also asks for its session to be
+ * made, and what the handshake settled: the AEAD, the alert, the alpn.
+ */
+void *
+lws_tls_session_ptr(struct lws *wsi);
+const uint8_t *
+lws_tls_wsi_hs_ca_id(struct lws *wsi);
+int
+lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len);
+#if defined(LWS_ROLE_QUIC)
+int
+lws_tls_quic_session(struct lws *wsi, lws_tls_quic_secret_cb cb);
+int
+lws_tls_quic_aead_type(struct lws *wsi);
+int
+lws_tls_quic_alert(struct lws *wsi);
+int
+lws_tls_quic_alpn(struct lws *wsi, char *buf, size_t len);
+#endif
+#endif
 #if defined(LWS_WITH_CLIENT)
 /*
  * transport: the socks or CONNECT leg a client role ran over the raw

@@ -343,7 +343,7 @@ lws_tls_server_sni_select(struct lws *wsi, const char *servername)
 	 * so the post-accept ctx-to-vhost adaptation leaves it alone (C-409).
 	 */
 
-	lws_vhost_bind_wsi_sni(vhost, wsi);
+	lws_tls_sni_bind(vhost, wsi);
 
 	return 0;
 }

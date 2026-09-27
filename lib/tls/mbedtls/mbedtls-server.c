@@ -244,7 +244,7 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 		 * records whose CA store will verify his client cert (C-318).
 		 */
 		if (wsi)
-			lws_vhost_bind_wsi_sni(vhost, wsi);
+			lws_tls_sni_bind(vhost, wsi);
 	}
 #endif
 

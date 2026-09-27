@@ -349,7 +349,7 @@ lws_ssl_server_name_cb(HITLS_Ctx *ssl, int *alert, void *arg)
 
 	wsi = (struct lws *)HITLS_GetUserData(ssl);
 	if (wsi) {
-		lws_vhost_bind_wsi_sni(vhost, wsi);
+		lws_tls_sni_bind(vhost, wsi);
 	}
 
 	lwsl_info("SNI: Found: %s:%d\n", servername, vh->listen_port);

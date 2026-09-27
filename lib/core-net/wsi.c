@@ -480,8 +480,7 @@ void lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi) {
  */
 
 void lws_vhost_bind_wsi_sni(struct lws_vhost *vh, struct lws *wsi) {
-	lws_tls_wsi_record_hs_ca(wsi, vh);
-
+	/* the session recorded the CA already (lws_tls_sni_bind()) */
 	_lws_vhost_bind_wsi(vh, wsi, 1);
 
 	if (wsi->a.vhost == vh)

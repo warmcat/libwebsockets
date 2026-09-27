@@ -1160,18 +1160,9 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 
 #if defined(LWS_WITH_TLS)
 		nwsi->use_ssl = (unsigned int)wsi->a.vhost->tls.use_ssl;
-		if (wsi->a.vhost->tls.ssl_ctx) {
-			if (lws_tls_server_new_nonblocking(nwsi, LWS_SOCK_INVALID)) {
-				lwsl_wsi_err(wsi, "QUIC RX: lws_tls_server_new_nonblocking failed");
-				lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "ssl fail");
-				return 0;
-			}
-			/* Init the memory BIOs for QUIC crypto */
-			if (lws_tls_quic_init(nwsi, quic_secret_cb)) {
-				lwsl_wsi_err(wsi, "QUIC RX: lws_tls_quic_init failed");
-				lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "ssl fail");
-				return 0;
-			}
+		if (lws_tls_quic_session(nwsi, quic_secret_cb)) {
+			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "ssl fail");
+			return 0;
 		}
 #endif
 
@@ -4916,20 +4907,10 @@ rops_client_transport_up_quic(struct lws *wsi, const lws_sockaddr46 *peer)
 
 #if defined(LWS_WITH_TLS)
 	if (!wsi->quic.initialized && (wsi->use_ssl & LCCSCF_USE_SSL)) {
-		const char *cce = NULL;
-
 		wsi->quic.initialized = 1;
 
-		/* creates the session only if there is none yet */
-		if (lws_client_create_tls(wsi, &cce, 0) == CCTLS_RETURN_ERROR) {
-			lwsl_wsi_err(wsi, "Failed to create TLS BIO: %s",
-				     cce ? cce : "unknown");
+		if (lws_tls_quic_session(wsi, quic_secret_cb))
 			return -1;
-		}
-		if (lws_tls_quic_init(wsi, quic_secret_cb)) {
-			lwsl_wsi_err(wsi, "Failed to init QUIC TLS");
-			return -1;
-		}
 		/* the ClientHello, queued as our first CRYPTO frames */
 		lws_tls_quic_rx_crypto(wsi, LWS_QUIC_LEVEL_INITIAL, NULL, 0);
 	}

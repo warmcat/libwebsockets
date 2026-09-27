@@ -215,19 +215,9 @@ lws_tls_vhost_set_client_ca_id(struct lws_vhost *vh);
 void
 lws_tls_wsi_record_hs_ca(struct lws *wsi, struct lws_vhost *vh);
 
-/* what sansIO may ask of the session */
-void *
-lws_tls_session_ptr(struct lws *wsi);
-const uint8_t *
-lws_tls_wsi_hs_ca_id(struct lws *wsi);
-#if defined(LWS_ROLE_QUIC)
-int
-lws_tls_quic_aead_type(struct lws *wsi);
-int
-lws_tls_quic_alert(struct lws *wsi);
-int
-lws_tls_quic_alpn(struct lws *wsi, char *buf, size_t len);
-#endif
+void
+lws_tls_sni_bind(struct lws_vhost *vh, struct lws *wsi);
+/* what sansIO may ask of the session is in private-lib-sansio-seam.h */
 
 void
 lws_context_init_alpn(struct lws_vhost *vhost);
@@ -382,8 +372,6 @@ lws_tls_server_sni_select(struct lws *wsi, const char *servername);
 enum lws_ssl_capable_status
 __lws_tls_shutdown(struct lws *wsi);
 
-int
-lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len);
 int
 lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			    const struct lws_context_creation_info *info,
