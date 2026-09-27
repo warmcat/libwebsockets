@@ -2004,7 +2004,9 @@ lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi)
 	/* the tls session goes with the socket */
 	nwsi->io.tls = wsi->io.tls;
 	memset(&wsi->io.tls, 0, sizeof(wsi->io.tls));
+#if defined(LWS_ROLE_QUIC)
 	lws_tls_quic_migrate_wsi(wsi, nwsi);
+#endif
 #endif
 	nwsi->io.desc = wsi->io.desc;
 	nwsi->io.sa46_peer = wsi->io.sa46_peer;
