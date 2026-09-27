@@ -533,6 +533,10 @@ static pthread_mutex_t log_lock = PTHREAD_MUTEX_INITIALIZER;
 /* each retained line is [len lo][len hi][level lo][level hi][len bytes] */
 #define SPEW_HDR			4
 
+#if LWS_LOG_LINE_MAX + SPEW_HDR > LWS_LOG_SPEW_RING_SIZE
+#error "LWS_LOG_SPEW_RING_SIZE must hold at least one maximum-length log line"
+#endif
+
 typedef struct lws_log_spew_ring {
 	uint8_t		*buf;		/* NULL: not in spew mode */
 	size_t		head;		/* next byte to write */
@@ -643,11 +647,11 @@ spew_ring_push(lws_log_spew_ring_t *r, int level, const char *line, size_t len)
 	uint8_t hdr[SPEW_HDR];
 	int lv;
 
-	if (len + SPEW_HDR > LWS_LOG_SPEW_RING_SIZE)
-		/* a ring smaller than a line: keep the start of the line */
-		len = LWS_LOG_SPEW_RING_SIZE - SPEW_HDR;
-
-	/* make room by forgetting the oldest lines */
+	/*
+	 * len is at most LWS_LOG_LINE_MAX, which the ring is checked at
+	 * compile time to hold along with its header; make room by
+	 * forgetting the oldest lines
+	 */
 
 	while (r->lines >= LWS_LOG_SPEW_TAIL_LINES ||
 	       LWS_LOG_SPEW_RING_SIZE - r->used < len + SPEW_HDR) {
