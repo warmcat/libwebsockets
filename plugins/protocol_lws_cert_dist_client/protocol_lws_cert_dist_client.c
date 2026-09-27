@@ -22,9 +22,16 @@ struct vhd_cert_dist_client {
 	char                            reload_cmd[256];
 	struct lws_stub_manager         *stub_mgr;
 	struct lws_dll2_owner           clients;
-	int                             is_stub;
 	const char                      *server_url;
 };
+
+/*
+ * Stub child only: what the plugin init (cert_dist_client_init()) was handed
+ * by the parent on stdin, the secret, base_dir and reload_cmd.  Requests
+ * arrive on the UDS listener vhost, where no vhost instantiates us, so they
+ * find their config through this.
+ */
+static struct vhd_cert_dist_client *cdc_stub;
 
 /*
  * A PEM cert chain or key larger than this is not something we are going to
@@ -684,9 +691,7 @@ static int
 callback_cert_dist_stub(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
-	struct vhd_cert_dist_client *vhd = NULL;
-	if (active_client_vhds.head)
-		vhd = lws_container_of(active_client_vhds.head, struct vhd_cert_dist_client, list_vhd);
+	struct vhd_cert_dist_client *vhd = cdc_stub;
 	struct stub_req_args *a = (struct stub_req_args *)user;
 
 	if (!vhd) return -1;
@@ -1002,91 +1007,13 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 		{
 			const char *stub = lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub");
 
-			if (stub) {
-				/*
-				 * Only claim our own stub children.  The
-				 * prefix must not be a prefix of any other
-				 * plugin's stub name, or we consume its stdin
-				 * secret and break its UDS listener
-				 */
-				if (strncmp(stub, "certdistcli-", 12))
-					return 0;
-
-				const char *orig_vh = stub + 12;
-
-				/*
-				 * We are instantiated on every vhost in the
-				 * stub child, but the stub secret can only be
-				 * consumed from stdin once: later
-				 * instantiations must not block on the pipe
-				 */
-				lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&active_client_vhds)) {
-					struct vhd_cert_dist_client *v = lws_container_of(d,
-							struct vhd_cert_dist_client, list_vhd);
-					if (!strcmp(v->vh_name, orig_vh))
-						return 0; /* already initialized */
-				} lws_end_foreach_dll(d);
-				char uds_path[256];
-				lws_snprintf(uds_path, sizeof(uds_path), "/var/run/lws-cert-dist-stub-%s.sock", orig_vh);
-
-				vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
-								  lws_get_protocol(wsi),
-								  sizeof(struct vhd_cert_dist_client));
-				if (!vhd) return -1;
-				vhd->cx = lws_get_context(wsi);
-				vhd->vh = lws_get_vhost(wsi);
-				vhd->protocol = lws_get_protocol(wsi);
-				lws_strncpy(vhd->vh_name, orig_vh, sizeof(vhd->vh_name));
-				vhd->is_stub = 1;
-
-				struct lws_stub_config sc;
-				memset(&sc, 0, sizeof(sc));
-				sc.cx = vhd->cx;
-				sc.vh = vhd->vh;
-				sc.stub_name = stub;
-				sc.uds_path = uds_path;
-				sc.protocols = stub_protocols;
-
-				/* preload defaults in case there is no payload */
-				lws_strncpy(vhd->base_dir, "/etc/lwsws-pki", sizeof(vhd->base_dir));
-
-				lws_dll2_add_tail(&vhd->list_vhd, &active_client_vhds);
-				if (lws_stub_server_init(&sc, vhd->secret, vhd->reload_cmd, sizeof(vhd->reload_cmd))) {
-					lws_dll2_remove(&vhd->list_vhd);
-					return -1;
-				}
-
-				/*
-				 * the parent packs {"base_dir":...,"reload_cmd":...}
-				 * into the extra payload... recover base_dir from it
-				 */
-				{
-					char *p = (char *)strstr(vhd->reload_cmd, "\"base_dir\":\"");
-					if (p) {
-						char *q;
-						p += 12;
-						q = (char *)strchr(p, '"');
-						if (q && (size_t)(q - p) < sizeof(vhd->base_dir)) {
-							memcpy(vhd->base_dir, p, (size_t)(q - p));
-							vhd->base_dir[q - p] = '\0';
-						}
-					}
-					p = (char *)strstr(vhd->reload_cmd, "\"reload_cmd\":\"");
-					if (p) {
-						char tmp[256];
-						char *q;
-						p += 14;
-						q = (char *)strchr(p, '"');
-						if (q && (size_t)(q - p) < sizeof(tmp)) {
-							memcpy(tmp, p, (size_t)(q - p));
-							tmp[q - p] = '\0';
-							lws_strncpy(vhd->reload_cmd, tmp, sizeof(vhd->reload_cmd));
-						}
-					} else
-						vhd->reload_cmd[0] = '\0';
-				}
+			/*
+			 * A stub process, ours or anybody's, never takes the
+			 * client role: our own stub's side is set up once by
+			 * the plugin init
+			 */
+			if (stub)
 				return 0;
-			}
 
 			if (!in)
 				return 0;
@@ -1393,6 +1320,101 @@ static const struct lws_protocols protocols[] = {
 	}
 };
 
+/*
+ * Once per context, however many vhosts instantiate us.  Only our own stub
+ * child has anything to do here: read the secret and the base_dir and
+ * reload_cmd the parent hands it on stdin, and listen on the UDS the parent
+ * will connect to.
+ */
+static int
+cert_dist_client_init(struct lws_context *cx)
+{
+	const char *stub = lws_cmdline_option_cx(cx, "--lws-stub");
+	struct lws_stub_config sc;
+	char uds_path[256], tmp[256];
+	const char *orig_vh;
+	char *p, *q;
+
+	/*
+	 * Only claim our own stub children.  The prefix must not be a prefix
+	 * of any other plugin's stub name, or we consume its stdin secret and
+	 * break its UDS listener
+	 */
+	if (!stub || strncmp(stub, "certdistcli-", 12))
+		return 0;
+
+	orig_vh = stub + 12;
+
+	cdc_stub = calloc(1, sizeof(*cdc_stub));
+	if (!cdc_stub)
+		return 1;
+
+	cdc_stub->cx = cx;
+	lws_strncpy(cdc_stub->vh_name, orig_vh, sizeof(cdc_stub->vh_name));
+	/* preload defaults in case there is no payload */
+	lws_strncpy(cdc_stub->base_dir, "/etc/lwsws-pki",
+		    sizeof(cdc_stub->base_dir));
+
+	lws_snprintf(uds_path, sizeof(uds_path),
+		     "/var/run/lws-cert-dist-stub-%s.sock", orig_vh);
+
+	memset(&sc, 0, sizeof(sc));
+	sc.cx		= cx;
+	sc.stub_name	= stub;
+	sc.uds_path	= uds_path;
+	sc.protocols	= stub_protocols;
+
+	if (lws_stub_server_init(&sc, cdc_stub->secret, cdc_stub->reload_cmd,
+				 sizeof(cdc_stub->reload_cmd) - 1)) {
+		free(cdc_stub);
+		cdc_stub = NULL;
+
+		return 1;
+	}
+
+	/*
+	 * the parent packs {"base_dir":...,"reload_cmd":...} into the extra
+	 * payload, which we read into reload_cmd... recover both from it
+	 */
+	p = strstr(cdc_stub->reload_cmd, "\"base_dir\":\"");
+	if (p) {
+		p += 12;
+		q = strchr(p, '"');
+		if (q && (size_t)(q - p) < sizeof(cdc_stub->base_dir)) {
+			memcpy(cdc_stub->base_dir, p, (size_t)(q - p));
+			cdc_stub->base_dir[q - p] = '\0';
+		}
+	}
+
+	p = strstr(cdc_stub->reload_cmd, "\"reload_cmd\":\"");
+	if (p) {
+		p += 14;
+		q = strchr(p, '"');
+		if (q && (size_t)(q - p) < sizeof(tmp)) {
+			memcpy(tmp, p, (size_t)(q - p));
+			tmp[q - p] = '\0';
+			lws_strncpy(cdc_stub->reload_cmd, tmp,
+				    sizeof(cdc_stub->reload_cmd));
+		}
+	} else
+		cdc_stub->reload_cmd[0] = '\0';
+
+	return 0;
+}
+
+static void
+cert_dist_client_deinit(struct lws_context *cx)
+{
+	(void)cx;
+
+	if (!cdc_stub)
+		return;
+
+	lws_explicit_bzero(cdc_stub->secret, sizeof(cdc_stub->secret));
+	free(cdc_stub);
+	cdc_stub = NULL;
+}
+
 LWS_VISIBLE const lws_plugin_protocol_t lws_cert_dist_client = {
 	.hdr = {
 		.name           = "cert dist client",
@@ -1402,4 +1424,6 @@ LWS_VISIBLE const lws_plugin_protocol_t lws_cert_dist_client = {
 	},
 	.protocols              = protocols,
 	.count_protocols        = LWS_ARRAY_SIZE(protocols),
+	.init                   = cert_dist_client_init,
+	.deinit                 = cert_dist_client_deinit,
 };

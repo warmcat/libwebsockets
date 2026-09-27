@@ -19,12 +19,19 @@ struct vhd_cert_dist_server {
 	struct lws_dll2                     list_vhd;
 	char                                vh_name[128];
 
-	int                                 is_stub;
 	char                                secret[129];
 	struct lws_stub_manager             *stub_mgr;
 };
 
 static struct lws_dll2_owner active_server_vhds;
+
+/*
+ * Stub child only: what the plugin init (cert_dist_server_init()) was handed
+ * by the parent on stdin, the secret and our pki_root.  Requests arrive on
+ * the UDS listener vhost, where no vhost instantiates us, so they find their
+ * config through this.
+ */
+static struct vhd_cert_dist_server *cds_stub;
 
 struct pss_cert_dist_server {
 	struct lws_dll2                     list;
@@ -213,9 +220,7 @@ static int
 callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason,
 			       void *user, void *in, size_t len)
 {
-	struct vhd_cert_dist_server *vhd = NULL;
-	if (active_server_vhds.head)
-		vhd = lws_container_of(active_server_vhds.head, struct vhd_cert_dist_server, list_vhd);
+	struct vhd_cert_dist_server *vhd = cds_stub;
 	struct pss_stub_server *pss = (struct pss_stub_server *)user;
 
 	if (!vhd) return -1;
@@ -490,84 +495,12 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		const char *stub = lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub");
 		const char *vh_name = lws_get_vhost_name(lws_get_vhost(wsi));
 
-		if (stub) {
-			/*
-			 * Only claim our own stub children.  The prefix must
-			 * not be a prefix of any other plugin's stub name, or
-			 * we consume its stdin secret and break its UDS
-			 * listener
-			 */
-			if (strncmp(stub, "certdistsrv-", 12))
-				return 0;
-
-			const char *orig_vh = stub + 12;
-
-			/*
-			 * We are instantiated on every vhost in the stub
-			 * child, but the stub secret can only be consumed
-			 * from stdin once: later instantiations must not
-			 * block on the pipe
-			 */
-			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&active_server_vhds)) {
-				struct vhd_cert_dist_server *v = lws_container_of(d,
-						struct vhd_cert_dist_server, list_vhd);
-				if (!strcmp(v->vh_name, orig_vh))
-					return 0; /* already initialized */
-			} lws_end_foreach_dll(d);
-
-			vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
-							  lws_get_protocol(wsi),
-							  sizeof(struct vhd_cert_dist_server));
-			if (!vhd) return -1;
-			vhd->cx = lws_get_context(wsi);
-			vhd->vh = lws_get_vhost(wsi);
-			vhd->protocol = lws_get_protocol(wsi);
-			lws_strncpy(vhd->vh_name, orig_vh, sizeof(vhd->vh_name));
-			vhd->is_stub = 1;
-			lws_strncpy(vhd->pki_root, "/var/dnssec", sizeof(vhd->pki_root));
-
-			char uds_path[256];
-			lws_snprintf(uds_path, sizeof(uds_path), "/var/run/lws-cert-dist-server-stub-%s.sock", orig_vh);
-
-			struct lws_stub_config sc;
-			memset(&sc, 0, sizeof(sc));
-			sc.cx = vhd->cx;
-			sc.vh = vhd->vh;
-			sc.stub_name = stub;
-			sc.uds_path = uds_path;
-			sc.protocols = stub_protocols;
-
-			/*
-			 * The parent packs our pki_root into the extra
-			 * payload at spawn time, since the stub child
-			 * cannot see PVOs: recover it from what was read
-			 * off stdin
-			 */
-			{
-				char buf[256];
-				memset(buf, 0, sizeof(buf));
-
-				lws_dll2_add_tail(&vhd->list_vhd, &active_server_vhds);
-				if (lws_stub_server_init(&sc, vhd->secret, buf, sizeof(buf))) {
-					lws_dll2_remove(&vhd->list_vhd);
-					return -1;
-				}
-
-				{
-					char *p = (char *)strstr(buf, "\"pki_root\":\"");
-					if (p) {
-						char *q;
-						p += 12;
-						q = (char *)strchr(p, '"');
-						if (q && (size_t)(q - p) < sizeof(vhd->pki_root)) {
-							memcpy(vhd->pki_root, p, (size_t)(q - p));
-							vhd->pki_root[q - p] = '\0';
-						}
-					}
-				}
-			}
+		/*
+		 * A stub process, ours or anybody's, never takes the server
+		 * role: our own stub's side is set up once by the plugin init
+		 */
+		if (stub)
 			return 0;
-		}
 
 		/* Only initialize unprivileged side if the plugin is explicitly enabled on this vhost */
 		if (!in)
@@ -670,7 +603,8 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		union lws_tls_cert_info_results *ir = (union lws_tls_cert_info_results *)buf;
 		char *p;
 
-		if (!vhd || vhd->is_stub) return -1; /* Stub doesn't accept WSS */
+		if (!vhd)
+			return -1;
 
 		/*
 		 * The len argument is the space available for ir->ns.name[]
@@ -716,7 +650,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_TIMER:
-		if (vhd && !vhd->is_stub && pss->established && !pss->stub_req && !pss->needs_cert_update) {
+		if (vhd && pss->established && !pss->stub_req && !pss->needs_cert_update) {
 			/* Timer expired without getting a hash, fetch anyway */
 			pss->needs_cert_update = 1;
 			lws_callback_on_writable(wsi);
@@ -724,7 +658,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
-		if (vhd && !vhd->is_stub && pss->established && !pss->needs_cert_update) {
+		if (vhd && pss->established && !pss->needs_cert_update) {
 			/*
 			 * Expecting {"hash":"..."}.  lws only NUL-terminates
 			 * the ws rx buffer if the frame had a payload, so the
@@ -749,7 +683,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED:
-		if (vhd && !vhd->is_stub && pss && pss->established) {
+		if (vhd && pss && pss->established) {
 			lws_dll2_remove(&pss->list);
 			if (pss->uds_tx) free(pss->uds_tx);
 			if (pss->uds_rx) free(pss->uds_rx);
@@ -766,7 +700,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		if (!vhd || vhd->is_stub)
+		if (!vhd)
                         break;
 		if (!pss || !pss->established)
                         return -1;
@@ -879,6 +813,87 @@ static const struct lws_protocols protocols[] = {
     }
 };
 
+/*
+ * Once per context, however many vhosts instantiate us.  Only our own stub
+ * child has anything to do here: read the secret and our pki_root the parent
+ * hands it on stdin, and listen on the UDS the parent will connect to.
+ */
+static int
+cert_dist_server_init(struct lws_context *cx)
+{
+	const char *stub = lws_cmdline_option_cx(cx, "--lws-stub");
+	struct lws_stub_config sc;
+	char uds_path[256], buf[256];
+	const char *orig_vh;
+	char *p, *q;
+
+	/*
+	 * Only claim our own stub children.  The prefix must not be a prefix
+	 * of any other plugin's stub name, or we consume its stdin secret and
+	 * break its UDS listener
+	 */
+	if (!stub || strncmp(stub, "certdistsrv-", 12))
+		return 0;
+
+	orig_vh = stub + 12;
+
+	cds_stub = calloc(1, sizeof(*cds_stub));
+	if (!cds_stub)
+		return 1;
+
+	cds_stub->cx = cx;
+	lws_strncpy(cds_stub->vh_name, orig_vh, sizeof(cds_stub->vh_name));
+	lws_strncpy(cds_stub->pki_root, "/var/dnssec",
+		    sizeof(cds_stub->pki_root));
+
+	lws_snprintf(uds_path, sizeof(uds_path),
+		     "/var/run/lws-cert-dist-server-stub-%s.sock", orig_vh);
+
+	memset(&sc, 0, sizeof(sc));
+	sc.cx		= cx;
+	sc.stub_name	= stub;
+	sc.uds_path	= uds_path;
+	sc.protocols	= stub_protocols;
+
+	/*
+	 * The parent packs our pki_root into the extra payload at spawn time,
+	 * since the stub child cannot see PVOs: recover it from what was read
+	 * off stdin
+	 */
+	memset(buf, 0, sizeof(buf));
+	if (lws_stub_server_init(&sc, cds_stub->secret, buf, sizeof(buf) - 1)) {
+		free(cds_stub);
+		cds_stub = NULL;
+
+		return 1;
+	}
+
+	p = strstr(buf, "\"pki_root\":\"");
+	if (p) {
+		p += 12;
+		q = strchr(p, '"');
+		if (q && (size_t)(q - p) < sizeof(cds_stub->pki_root)) {
+			memcpy(cds_stub->pki_root, p, (size_t)(q - p));
+			cds_stub->pki_root[q - p] = '\0';
+		}
+	}
+
+	return 0;
+}
+
+static void
+cert_dist_server_deinit(struct lws_context *cx)
+{
+	(void)cx;
+
+	if (!cds_stub)
+		return;
+
+	lws_explicit_bzero(cds_stub->secret, sizeof(cds_stub->secret));
+	free(cds_stub);
+	cds_stub = NULL;
+}
+
 LWS_VISIBLE const lws_plugin_protocol_t lws_cert_dist_server = {
 	.hdr = {
 		.name = "cert dist server",
@@ -888,4 +903,6 @@ LWS_VISIBLE const lws_plugin_protocol_t lws_cert_dist_server = {
 	},
 	.protocols = protocols,
 	.count_protocols = LWS_ARRAY_SIZE(protocols),
+	.init = cert_dist_server_init,
+	.deinit = cert_dist_server_deinit,
 };

@@ -93,6 +93,11 @@ lws_stub_spawn(const struct lws_stub_config *config);
  * creates a raw UDS vhost bound to config->uds_path only its own uid can reach,
  * and sets up JSON-RPC dispatching for config->rpc_methods.
  *
+ * The secret can be read from stdin only once, so call this exactly once per
+ * stub process.  A protocol plugin does it from its lws_plugin_protocol_t
+ * .init when --lws-stub names its stub, not from LWS_CALLBACK_PROTOCOL_INIT,
+ * which comes once per vhost instantiating it (see README.lws_plugins.md).
+ *
  * On platforms with getppid() and sigaction(), the stub also arranges to
  * detect that the parent process that spawned it has died (it notices it has
  * been re-parented, and, where lws_spawn armed it, accepts the resulting
