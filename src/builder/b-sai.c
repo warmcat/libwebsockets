@@ -350,6 +350,28 @@ saib_create_resproxy_listen_uds(struct lws_context *context,
 	return 0;
 }
 
+/*
+ * A builder VM often boots with a nonsense wall clock and has ntp correct it a
+ * moment later.  We should not start work before then: everything we create
+ * gets an mtime from the bad clock, and once the step lands those mtimes make
+ * the job dirs look as old as the step was big, so the deletion paths remove
+ * dirs whose task is still building.  TLS certificate validity is decided by
+ * the same clock.
+ *
+ * So hold the system state below TIME_VALID until the clock is at least
+ * plausible.  We rejected the transition, so we own retrying it.
+ */
+
+static lws_usec_t clock_wait_started;
+
+static void
+sul_clock_wait_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_state_transition_steps(
+		lws_system_get_state_manager(builder.context),
+		LWS_SYSTATE_OPERATIONAL);
+}
+
 static int
 app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		    int current, int target)
@@ -360,6 +382,47 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	 * state wait while we trigger the dependent action.
 	 */
 	switch (target) {
+
+	case LWS_SYSTATE_TIME_VALID:
+		if (current >= LWS_SYSTATE_TIME_VALID)
+			break;
+
+		if ((uint64_t)lws_now_secs() >= SAI_CLOCK_PLAUSIBLE_AFTER) {
+			if (clock_wait_started)
+				lwsl_notice("%s: wall clock now reads %llu, "
+					    "starting work\n", __func__,
+					    (unsigned long long)lws_now_secs());
+
+			/* the clock is believable, this is where we start from */
+			saib_clock_baseline();
+			break;
+		}
+
+		if (!clock_wait_started) {
+			clock_wait_started = lws_now_usecs();
+			lwsl_warn("%s: wall clock reads %llu, before %llu: it has "
+				  "not been set yet, holding off starting work "
+				  "for up to %ds\n", __func__,
+				  (unsigned long long)lws_now_secs(),
+				  (unsigned long long)SAI_CLOCK_PLAUSIBLE_AFTER,
+				  SAI_CLOCK_WAIT_MAX_SECS);
+		} else
+			if (lws_now_usecs() - clock_wait_started >
+			    (lws_usec_t)SAI_CLOCK_WAIT_MAX_SECS * LWS_US_PER_SEC) {
+				lwsl_err("%s: wall clock still reads %llu after "
+					 "%ds: starting work anyway, but expect "
+					 "anything that cares about dates to be "
+					 "wrong until it is set\n", __func__,
+					 (unsigned long long)lws_now_secs(),
+					 SAI_CLOCK_WAIT_MAX_SECS);
+				saib_clock_baseline();
+				break;
+			}
+
+		lws_sul_schedule(mgr->context, 0, &builder.sul_clock_wait,
+				 sul_clock_wait_cb, 2 * LWS_US_PER_SEC);
+
+		return 1;
 
 	case LWS_SYSTATE_CONTEXT_CREATED:
 	{

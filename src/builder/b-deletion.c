@@ -399,6 +399,102 @@ sai_deletion_worker(const char *home_dir_unused)
  */
 
 /*
+ * Wall clock step detection
+ *
+ * A builder VM commonly boots with a nonsense date and has ntp correct it a
+ * moment later.  Job dir ages are wall clock now minus the dir's mtime, so a
+ * forward step makes every dir written before it look exactly that much older
+ * than it is -- a job dir created seconds ago looks a day and a half old, is
+ * past the 24h threshold, and gets deleted while its task is still building.
+ * A backward step is worse: the mtimes are then in the future, and the age
+ * subtraction below used to wrap to an enormous number, so everything went.
+ *
+ * We cannot tell a pre-step mtime from a genuinely old one, so once a step is
+ * seen we simply stop deciding anything from ages for a while.  Removing old
+ * job dirs is housekeeping and the next pass will do it.
+ */
+
+void
+saib_clock_baseline(void)
+{
+	builder.mono_at_base		= lws_now_usecs();
+	builder.wall_at_base		= (uint64_t)lws_now_secs();
+	builder.mono_last_clock_step	= 0;
+}
+
+int
+saib_clock_ages_trustworthy(void)
+{
+	lws_usec_t mono = lws_now_usecs();
+	uint64_t wall = (uint64_t)lws_now_secs(), expect;
+	int64_t delta;
+
+	if (!builder.wall_at_base) {
+		/* nothing has baselined us yet, so this is the baseline */
+		saib_clock_baseline();
+
+		return 1;
+	}
+
+	expect = builder.wall_at_base +
+		 (uint64_t)((mono - builder.mono_at_base) / LWS_US_PER_SEC);
+
+	delta = (int64_t)wall - (int64_t)expect;
+
+	if (delta > SAI_CLOCK_STEP_TOLERANCE_SECS ||
+	    delta < -SAI_CLOCK_STEP_TOLERANCE_SECS) {
+
+		lwsl_warn("%s: wall clock stepped by %llds (ntp on a VM that "
+			  "booted with the wrong date?): not trusting job dir "
+			  "ages for the next %ds\n", __func__,
+			  (long long)delta, SAI_CLOCK_STEP_SETTLE_SECS);
+
+		/*
+		 * Tell anything we are building, since this also explains the
+		 * jump it is about to see in its own log timestamps
+		 */
+
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      builder.sai_plat_owner.head) {
+			sai_plat_t *sp = lws_container_of(d, sai_plat_t,
+							 sai_plat_list);
+
+			lws_start_foreach_dll(struct lws_dll2 *, d2,
+					      sp->nspawn_owner.head) {
+				struct sai_nspawn *ns = lws_container_of(d2,
+						struct sai_nspawn, list);
+
+				saib_task_logf(ns->spm, ns, NULL,
+					"the builder's wall clock just stepped "
+					"by %llds, most likely ntp correcting a "
+					"VM that booted with the wrong date",
+					(long long)delta);
+
+			} lws_end_foreach_dll(d2);
+		} lws_end_foreach_dll(d);
+
+		/* rebase, so a single step is only reported once */
+
+		builder.wall_at_base		= wall;
+		builder.mono_at_base		= mono;
+		builder.mono_last_clock_step	= mono;
+
+		return 0;
+	}
+
+	if (!builder.mono_last_clock_step)
+		return 1;
+
+	if (mono - builder.mono_last_clock_step <
+			(lws_usec_t)SAI_CLOCK_STEP_SETTLE_SECS * LWS_US_PER_SEC)
+		return 0;
+
+	builder.mono_last_clock_step = 0;
+
+	return 1;
+}
+
+/*
  * Job dir holds
  *
  * A task's build steps are each offered, run and destroyed separately, so
@@ -512,6 +608,8 @@ struct cleanup_ctx {
 	struct lwsac *ac;
 	struct inactive_job *inactive_head;
 	int inactive_count;
+	/* may we believe wall-clock-derived file ages on this pass? */
+	char ages_trustworthy;
 };
 
 struct active_job_uuid {
@@ -588,9 +686,20 @@ scan_jobs_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 	/* older than 24h? */
 
-	age = (uint64_t)lws_now_secs() - (uint64_t)sb.st_mtime;
+	{
+		uint64_t now = (uint64_t)lws_now_secs();
 
-	if (age > SAI_CLEANUP_JOB_DIR_MIN_AGE_SECS) {
+		/*
+		 * An mtime in the future means the clock went backwards since
+		 * the dir was written; it does not mean the dir is older than
+		 * the epoch, which is what the unsigned subtraction used to
+		 * produce
+		 */
+		age = now > (uint64_t)sb.st_mtime ?
+				now - (uint64_t)sb.st_mtime : 0;
+	}
+
+	if (age > SAI_CLEANUP_JOB_DIR_MIN_AGE_SECS && ctx->ages_trustworthy) {
 		lwsl_info("%s: requesting removal of old job dir %s (age %llus)\n",
 			    __func__, path, (unsigned long long)age);
 
@@ -634,6 +743,7 @@ saib_deletion_free_kib(unsigned int needed_kib, const char *protect_vn)
 		return 0;
 
 	memset(&ctx, 0, sizeof(ctx));
+	ctx.ages_trustworthy = (char)saib_clock_ages_trustworthy();
 
 	/* find out the uuids of any active jobs */
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, b->sai_plat_owner.head) {
@@ -686,7 +796,8 @@ saib_deletion_free_kib(unsigned int needed_kib, const char *protect_vn)
 				 * taking it just breaks that build instead of
 				 * fixing our disk problem.
 				 */
-				if (ij->age >= SAI_FREEKIB_JOB_DIR_MIN_AGE_SECS)
+				if (ctx.ages_trustworthy &&
+				    ij->age >= SAI_FREEKIB_JOB_DIR_MIN_AGE_SECS)
 					sorted[candidates++] = ij;
 				else
 					lwsl_info("%s: sparing %s, only %llus old\n",
@@ -696,10 +807,14 @@ saib_deletion_free_kib(unsigned int needed_kib, const char *protect_vn)
 			}
 
 			if (!candidates) {
-				lwsl_warn("%s: need %uMiB, only %uMiB free, but no "
-					  "job dir is old enough to remove\n",
+				lwsl_warn("%s: need %uMiB, only %uMiB free, but "
+					  "no job dir is old enough to remove%s\n",
 					  __func__, needed_kib / 1024,
-					  free_kib / 1024);
+					  free_kib / 1024,
+					  ctx.ages_trustworthy ? "" :
+					    " (and the wall clock stepped "
+					    "recently, so their ages cannot be "
+					    "believed)");
 				goto done;
 			}
 
@@ -739,6 +854,7 @@ sul_cleanup_jobs_cb(lws_sorted_usec_list_t *sul)
 	lwsl_info("%s: starting periodic cleanup\n", __func__);
 
 	memset(&ctx, 0, sizeof(ctx));
+	ctx.ages_trustworthy = (char)saib_clock_ages_trustworthy();
 
 	/*
 	 * We must not delete any active job directories, find out the uuids

@@ -107,6 +107,34 @@ struct saib_opaque_spawn {
  * task that died on the server side pinning its job dir forever.
  */
 #define SAI_JOBDIR_HOLD_MAX_SECS		(2u * 3600u)
+/*
+ * How far the wall clock and the monotonic clock may disagree about how much
+ * time has passed before we call it a step rather than drift.  ntp slews both,
+ * so in normal running they track each other within a second.
+ */
+#define SAI_CLOCK_STEP_TOLERANCE_SECS		60
+/*
+ * After the wall clock has been stepped, every mtime written before the step is
+ * wrong by the size of the step, and there is no way to tell one from a
+ * genuinely old file.  So stop making age-based decisions for this long (of
+ * monotonic time) afterwards.  Deleting old job dirs is only housekeeping; it
+ * can always wait for the next pass.
+ */
+#define SAI_CLOCK_STEP_SETTLE_SECS		(60 * 60)
+/*
+ * A wall clock reading before this is not a clock that has been set yet, it is
+ * a VM that has just booted.  It only has to be later than any default date a
+ * builder might come up with and earlier than now, so it never needs moving;
+ * a clock that is wrong but still after it is caught by the step detection
+ * above instead.  (2025-01-01 UTC)
+ */
+#define SAI_CLOCK_PLAUSIBLE_AFTER		1735689600ull
+/*
+ * How long to wait for the clock to be set before starting work anyway.  A
+ * builder that never appears is worse than one with a wrong clock, and the step
+ * detection above stops a late correction eating the job dirs regardless.
+ */
+#define SAI_CLOCK_WAIT_MAX_SECS			(5 * 60)
 
 
 struct saib_ws_pss;
@@ -177,6 +205,7 @@ struct sai_builder {
 	lws_sorted_usec_list_t	sul_power; /* current power state's deadline */
 	lws_sorted_usec_list_t	sul_stay;
 	lws_sorted_usec_list_t	sul_cleanup_jobs;
+	lws_sorted_usec_list_t	sul_clock_wait;
 	lws_sorted_usec_list_t	sul_deletion_respawn;
 
 #if defined(__APPLE__)
@@ -240,6 +269,17 @@ struct sai_builder {
 	uint64_t		ram_reserved_kib;
 	uint64_t		disk_total_kib;
 	uint64_t		disk_reserved_kib;
+
+	/*
+	 * Wall clock vs monotonic clock baseline, for noticing that something
+	 * (ntp, usually, on a VM that booted with a nonsense date) has stepped
+	 * the wall clock under us.  Job dir ages are wall clock minus file
+	 * mtime, so a step makes every existing job dir look as old as the step
+	 * was big, and the deletion paths take dirs that are still in use.
+	 */
+	uint64_t		wall_at_base;		/* lws_now_secs() */
+	lws_usec_t		mono_at_base;
+	lws_usec_t		mono_last_clock_step;	/* 0: none seen */
 
 	/*
 	 * Strictly-increasing log chunk timestamp latch.  It is builder-wide
@@ -457,6 +497,17 @@ saib_jobdir_holds_destroy(void);
  */
 void
 saib_task_jobdir_vn(char *dest, size_t dest_len, const char *task_uuid);
+
+/*
+ * Wall clock step detection.  saib_clock_baseline() records where the two
+ * clocks started out; saib_clock_ages_trustworthy() reports whether file ages
+ * computed from the wall clock can be believed right now, and notices (and
+ * reports) a step as a side effect of being asked.
+ */
+void
+saib_clock_baseline(void);
+int
+saib_clock_ages_trustworthy(void);
 int
 saib_reassess_idle_situation(void);
 void
