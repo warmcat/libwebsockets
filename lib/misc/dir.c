@@ -362,6 +362,55 @@ lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	return 0;
 }
 
+int
+lws_dir_symlink_rotate(const char *cur, const char *target,
+		       const char *cur_tag, const char *prev_tag)
+{
+#if !defined(WIN32) && !defined(_WIN32)
+	size_t ct = strlen(cur_tag), pt = strlen(prev_tag);
+	char prev[512], old[512];
+	const char *p, *q;
+	ssize_t n;
+
+	/* the tag names the link, so it's the last one in the path */
+	p = NULL;
+	for (q = strstr(cur, cur_tag); q && ct; q = strstr(q + 1, cur_tag))
+		p = q;
+	if (!p)
+		return -1;
+
+	n = readlink(cur, old, sizeof(old) - 1);
+	if (n > 0) {
+		old[n] = '\0';
+
+		if (!strcmp(old, target))
+			return 0; /* already current, nothing is outgoing */
+
+		if (lws_ptr_diff_size_t(p, cur) + pt + strlen(p + ct) >=
+								sizeof(prev))
+			return -1;
+
+		lws_snprintf(prev, sizeof(prev), "%.*s%s%s",
+			     (int)lws_ptr_diff_size_t(p, cur), cur, prev_tag,
+			     p + ct);
+
+		unlink(prev);
+		if (symlink(old, prev))
+			lwsl_warn("%s: unable to link %s\n", __func__, prev);
+	}
+
+	unlink(cur);
+	if (symlink(target, cur)) {
+		lwsl_err("%s: unable to link %s\n", __func__, cur);
+		return -1;
+	}
+
+	return 0;
+#else
+	return -1;
+#endif
+}
+
 
 #endif
 

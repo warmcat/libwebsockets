@@ -1526,6 +1526,30 @@ lws_dir_via_info(struct lws_dir_info *info);
 LWS_VISIBLE LWS_EXTERN int
 lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde);
 
+/**
+ * lws_dir_symlink_rotate() - repoint a "current" symlink, keeping the old one
+ *
+ * \param cur: path of the symlink to repoint, containing \p cur_tag in its
+ *		name, eg "/certs/crt/example.com-latest.crt"
+ * \param target: what \p cur should point at now, exactly as it should be
+ *		stored in the link (eg, a basename in the same directory)
+ * \param cur_tag: the part of \p cur naming it as current, eg "-latest"
+ * \param prev_tag: what replaces the last \p cur_tag in \p cur to name the
+ *		link to the outgoing target, eg "-previous"
+ *
+ * If \p cur was already a symlink to something other than \p target, the
+ * "previous" link (eg, "/certs/crt/example.com-previous.crt") is made to
+ * point at what \p cur pointed at, replacing any older previous link.
+ * Then \p cur is made to point at \p target.  Re-pointing \p cur at what it
+ * already points at leaves the previous link alone.
+ *
+ * Returns 0 if \p cur now points at \p target.  Platforms without symlinks
+ * (Windows) return -1 without touching anything.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dir_symlink_rotate(const char *cur, const char *target,
+		       const char *cur_tag, const char *prev_tag);
+
 
 /**
  * lws_dir_du_t: context for lws_dir_du_cb()
