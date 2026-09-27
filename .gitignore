@@ -31,6 +31,10 @@ win32port/zlib/Release*/
 *.su
 *.m4
 *.a
+*.o
+*.so
+*.so.*
+*.dylib
 missing
 depcomp
 install-sh
