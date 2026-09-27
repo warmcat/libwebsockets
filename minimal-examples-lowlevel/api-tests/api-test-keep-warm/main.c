@@ -648,7 +648,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			int st = 0;
 			socklen_t sl = sizeof(st);
 
-			if (!getsockopt(r->fd, SOL_SOCKET, SO_TYPE, &st, &sl))
+			if (r->fd >= 0 &&
+			    !getsockopt(r->fd, SOL_SOCKET, SO_TYPE, &st, &sl))
 				r->dgram = st == SOCK_DGRAM;
 		}
 #endif
