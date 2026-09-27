@@ -3332,6 +3332,19 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 					 * here, swallow what we have and mark
 					 * the frame ignored so the remainder is
 					 * discarded byte by byte as it arrives.
+					 *
+					 * A stream that answered with a status
+					 * page (eg, from its BODY_COMPLETION,
+					 * which lws_http_transaction_completed()
+					 * then has fail on a stream) is not
+					 * closed here though: its HEADERS went,
+					 * its page body goes on its next
+					 * POLLOUT, which then closes it with
+					 * END_STREAM, the same as after a
+					 * deferred action that answered that
+					 * way.  Closing it now loses the body
+					 * and leaves the peer waiting on a
+					 * stream that is gone.
 					 */
 					m = lws_ptr_diff(iend, in);
 					if ((uint32_t)m >=
@@ -3339,6 +3352,9 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 						in += h2n->length - h2n->count;
 						h2n->inside = h2n->length;
 						h2n->count = h2n->length - 1;
+
+						if (h2n->swsi->h2.pending_status_code)
+							goto done_with_swsi_and_return;
 
 						goto close_swsi_and_return;
 					}
@@ -3348,8 +3364,9 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 					h2n->inside = h2n->count;
 					h2n->type = LWS_H2_FRAME_TYPE_COUNT;
 
-					lws_close_free_wsi(h2n->swsi, 0,
-							   "close_swsi_partial");
+					if (!h2n->swsi->h2.pending_status_code)
+						lws_close_free_wsi(h2n->swsi, 0,
+								"close_swsi_partial");
 					h2n->swsi = NULL;
 					*inused = (lws_filepos_t)
 						lws_ptr_diff_size_t(in, oldin);
@@ -3536,6 +3553,8 @@ try_frame_start:
 close_swsi_and_return:
 
 	lws_close_free_wsi(h2n->swsi, 0, "close_swsi_and_return");
+
+done_with_swsi_and_return:
 	h2n->swsi = NULL;
 	h2n->frame_state = 0;
 	h2n->count = 0;
@@ -4112,7 +4131,7 @@ lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			return -1;
 		}
 		if (m == 2) {
-			/* swsi has been closed */
+			/* swsi has been closed, or is done with */
 			buf += body_chunk_len;
 			break;
 		}
