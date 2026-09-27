@@ -147,6 +147,19 @@ lws_h3_client_handshake_composed(struct lws *wsi)
 
 	n = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_HOST);
 	simp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
+	/*
+	 * A mux child carries the request in the stash, not in ah tokens, so
+	 * the authority has to come from there.  Prefer the host the caller
+	 * gave us over the bare address: on a non-default port the host is
+	 * "name:port" and the address is just "name", and servers compose
+	 * absolute URLs of their own from the authority we send -- a
+	 * redirect_uri, an RFC 9207 iss -- so dropping the port makes them name
+	 * somewhere unreachable.
+	 */
+	if (!n && wsi->stash && wsi->stash->cis[CIS_HOST]) {
+		n = (int)strlen(wsi->stash->cis[CIS_HOST]);
+		simp = wsi->stash->cis[CIS_HOST];
+	}
 	if (!n && wsi->stash && wsi->stash->cis[CIS_ADDRESS]) {
 		n = (int)strlen(wsi->stash->cis[CIS_ADDRESS]);
 		simp = wsi->stash->cis[CIS_ADDRESS];
@@ -504,8 +517,24 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 		}
 		lwsl_debug("H3_TRACE: wsi %p lws_http_action returned 0 (success)\n", wsi);
 
-		/* Detach the ah now that headers are processed, to prevent ah pool exhaustion */
-		lws_header_table_detach(wsi, 0);
+		/*
+		 * Detach the ah now that headers are processed, to prevent ah
+		 * pool exhaustion.
+		 *
+		 * Not while a request body is still to come, though.  For a
+		 * request with a body lws_http_action() returning 0 means
+		 * "headers dispatched, now read the body", and the handler that
+		 * acts on the request runs later, from the body / body
+		 * completion callbacks -- which still read request headers.
+		 * Detaching here took every request header away from them, so
+		 * on h3 a POST handler saw no Cookie at all: the body arrived
+		 * intact (it is not in the ah) while the headers had gone,
+		 * which is what made a cookie-authenticated POST fail on h3
+		 * alone.  h1 and h2 both keep the ah for the whole transaction
+		 * (the equivalent h2 detach is commented out in http2.c).
+		 */
+		if (lwsi_state(wsi) != LRS_BODY)
+			lws_header_table_detach(wsi, 0);
 
 		/*
 		 * lws_http_action sets LRS_DOING_TRANSACTION on the wsi BEFORE
