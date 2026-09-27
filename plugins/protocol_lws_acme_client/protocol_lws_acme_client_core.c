@@ -188,6 +188,30 @@ static void
 acme_aging_next_cert(struct per_vhost_data__lws_acme_client *vhd);
 
 /*
+ * Point a -latest[-fullchain].crt / -latest.key symlink at the newly
+ * written timestamped file (linked by its basename, it is in the same
+ * dir).  Whatever it pointed at before stays linked as -previous, which
+ * the zone signer's ${DANE1/...} publishes the TLSA for.
+ */
+
+static void
+acme_link_rotate(const char *latest, const char *written)
+{
+	const char *target = strrchr(written, '/') ? strrchr(written, '/') + 1 :
+						     written;
+
+#if defined(LWS_WITH_DIR)
+	lws_dir_symlink_rotate(latest, target, "-latest", "-previous");
+#else
+	unlink(latest);
+#if !defined(WIN32)
+	if (symlink(target, latest))
+		lwsl_err("%s: unable to link %s\n", __func__, latest);
+#endif
+#endif
+}
+
+/*
  * Maps for nested JSON parsing
  */
 static const lws_struct_map_t map_acme_acme_obj[] = {
@@ -2454,18 +2478,10 @@ poll_again:
 					}
 				}
 
-				/* Symlink update */
-				unlink(cert_latest);
-				unlink(full_latest);
-#if !defined(WIN32)
-				symlink((char *)strrchr(cert_ts, '/') ? (char *)strrchr(cert_ts, '/') + 1 : cert_ts, cert_latest);
-				symlink((char *)strrchr(full_ts, '/') ? (char *)strrchr(full_ts, '/') + 1 : full_ts, full_latest);
-#endif
-
-				unlink(key_latest);
-#if !defined(WIN32)
-				symlink((char *)strrchr(key_ts, '/') ? (char *)strrchr(key_ts, '/') + 1 : key_ts, key_latest);
-#endif
+				/* Symlink update, keeping the outgoing ones as -previous */
+				acme_link_rotate(cert_latest, cert_ts);
+				acme_link_rotate(full_latest, full_ts);
+				acme_link_rotate(key_latest, key_ts);
 
 				lwsl_vhost_notice(vhd->vhost, "Updated certs written for %s "
 						"to %s and %s",

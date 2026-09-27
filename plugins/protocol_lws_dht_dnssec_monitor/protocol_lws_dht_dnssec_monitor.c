@@ -1794,8 +1794,13 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 					else if ((char *)strstr(a->subdomain, ".key"))
 						lws_snprintf(p, sizeof(link_path) - (size_t)(p - link_path), "-latest.key");
 
-					unlink(link_path);
-					symlink(a->subdomain, link_path);
+					/*
+					 * the outgoing cert stays linked as
+					 * -previous, which ${DANE1/...}
+					 * publishes the TLSA for
+					 */
+					lws_dir_symlink_rotate(link_path, a->subdomain,
+							       "-latest", "-previous");
 				}
 			}
 		} else {
