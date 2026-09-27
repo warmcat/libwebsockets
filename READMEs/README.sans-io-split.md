@@ -256,17 +256,33 @@ each function is in.
 
 ## The scratch buffer
 
-`pt->serv_buf` is one buffer per service thread that everything piles into
-so that nothing has to allocate: the rx pump reads into it behind `LWS_PRE`,
-the tx pulls (quic packets, h2 pps, file fragments) produce into it, and the
-composers (`lws_serve_http_file()`, `lws_return_http_status()`,
-`lws_http_redirect()`, the ws and mqtt handshakes, the client requests)
-build their bytes in it.  That is only sound while whoever is using a range
-of it is the only user of that range, and only inside one service pass: the
-next pass, for any socket on the thread, reuses it.  Ownership can be
-fragmented: while a read's unparsed tail is still live at the top, a
-composer may legitimately use the part below it that the parser has already
-consumed.
+`pt->serv_buf` is one buffer per service thread that IO piles into so that
+nothing has to allocate: the rx pump reads into it behind `LWS_PRE`, and the
+tx pulls (quic packets, h2 pps, file fragments, the h1 proxy body relay)
+produce into it.  Directly above it, the same size, is `pt->compose_buf`,
+where the composers (`lws_serve_http_file()`, `lws_return_http_status()`,
+the ws and mqtt handshakes and packets, the client requests, socks5 and
+proxy CONNECT) build their bytes.  `lws_http_redirect()` and the
+`lws_add_http_header_...()` helpers write into whatever buffer the caller
+passes them, so they are the caller's business.
+
+The composers get their own half because they cannot know what else is
+live when they run: user code calls them from callbacks the parsers deliver
+in the middle of a read, while the read's unparsed tail is still in
+serv_buf (a POST answered from `LWS_CALLBACK_HTTP_BODY_COMPLETION` with a
+pipelined request, later h2 frames or the rest of a quic datagram behind
+it; an mqtt publish from `LWS_CALLBACK_MQTT_CLIENT_RX` with the broker's
+next packets behind it, or echoing the very payload it was handed).  The
+tx pulls run from POLLOUT, never inside a read, so they can share serv_buf
+with the rx pump.  Both halves are one allocation after the context,
+`2 x pt_serv_buf_size` per thread, so `pt_serv_buf_size` keeps meaning the
+most any one user of either half may use.
+
+Both halves are only sound while whoever is using a range of them is the
+only user of that range, and only inside one service pass: the next pass,
+for any socket on the thread, reuses them.  Ownership can be fragmented:
+while a read's unparsed tail is still live at the top, the pump's claim on
+the part below it that the parser has already consumed is given back.
 
 The rules:
 
@@ -277,15 +293,17 @@ The rules:
    request, gives all of it back (`lws_servbuf_release_containing()`).
    User code must not run while unparsed bytes it could compose over are
    still in the buffer: park them first.
-2. A composer owns what it composes into from its first byte until the
-   write that consumes it returns, and hands the buffer over explicitly
-   when it delegates to another composer without having composed anything
-   (the file server's 404 and 416).
+2. A composer composes in compose_buf, never serv_buf, and owns what it
+   composes into from its first byte until the write that consumes it
+   returns.  It hands the buffer over explicitly when it delegates to
+   another composer without having composed anything (the file server's
+   404 and 416).
 3. Nothing holds any of it across a service pass boundary.
 
 `LWS_WITH_SERVBUF_CHECK` (Debug only, off by default, alongside
 `LWS_WITH_STATE_CHECK`) makes these checkable: each user claims its range
-with a name (`lws_servbuf_claim()`) into a small per-thread table, a claim
+with a name (`lws_servbuf_claim()`) into a small per-thread table covering
+both halves (so either one overrunning into the other is seen too), a claim
 overlapping a live one aborts naming both, a claim still live when
 `_lws_service_fd_tsi()` is entered aborts naming it.  Every serv_buf user
 in the library is instrumented; pointers that turn out not to be in
@@ -294,19 +312,17 @@ parked paths.  Without the option the calls compile to nothing.
 
 The tracking itself is not IO's or sansIO's: it is the core `lws_region`
 api (`include/libwebsockets/lws-region.h`), which tracks claims on any
-caller-provided buffer in a caller-provided slot table.  The pt holds an
-`lws_region_t` over serv_buf, set up with `LWS_REGION_F_ABORT` when the
-context allocates it, and the `lws_servbuf_...()` spellings are macros in
+caller-provided buffer in a caller-provided slot table.  The pt holds one
+`lws_region_t` over serv_buf and compose_buf together, set up with
+`LWS_REGION_F_ABORT` when the context allocates them, and the `lws_servbuf_...()` spellings are macros in
 `private-lib-core-net.h` over the pt's region, visible to both halves, so
 neither side reaches across the seam to use it.  A release is by the
 handle the claim returned, which carries the slot's generation, so a
 stale release after the claim was already handed on by
-`lws_servbuf_release_containing()` leaves whoever reused the slot alone.  Two users
-are not claimed on purpose: the tls fallback peek (`recv(MSG_PEEK)` on a
-fresh connection in the accept path, nothing else can be live) and the
-ws client's copy of the server's `Sec-WebSocket-Extensions` list, which is
-claimed but can never reach the read's tail because the list is a
-substring of the response block that precedes that tail.
+`lws_servbuf_release_containing()` leaves whoever reused the slot alone.
+One user is not claimed on purpose: the tls fallback peek
+(`recv(MSG_PEEK)` on a fresh connection in the accept path, nothing else
+can be live).
 
 ## Staging
 

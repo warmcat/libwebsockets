@@ -54,16 +54,16 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 	 */
 
 	/*
-	 * The copy lands at the start of serv_buf, below the 101 response
+	 * The copy lands at the start of compose_buf, below the 101 response
 	 * head that handshake_0405() has already composed at +400; the scan
 	 * below refuses a list longer than 255 anyway, so bound the copy to
 	 * that rather than let a long list overwrite the response
 	 */
-	if (lws_hdr_copy(wsi, (char *)pt->serv_buf, 256,
+	if (lws_hdr_copy(wsi, (char *)pt->compose_buf, 256,
 			 WSI_TOKEN_EXTENSIONS) < 0)
 		return 1;
 
-	c = (char *)pt->serv_buf;
+	c = (char *)pt->compose_buf;
 	lwsl_parser("WSI_TOKEN_EXTENSIONS = '%s'\n", c);
 	wsi->ws->count_act_ext = 0;
 	ignore = 0;
@@ -84,7 +84,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 
 	while (more) {
 
-		if (c >= (char *)pt->serv_buf + 255)
+		if (c >= (char *)pt->compose_buf + 255)
 			return -1;
 
 		if (*c && (*c != ',' && *c != '\t')) {
@@ -686,14 +686,14 @@ handshake_0405_composed(struct lws_context *context, struct lws *wsi)
 	 * since key length is restricted above (currently 128), cannot
 	 * overflow
 	 */
-	n = lws_snprintf((char *)pt->serv_buf, context->pt_serv_buf_size,
+	n = lws_snprintf((char *)pt->compose_buf, context->pt_serv_buf_size,
 		    "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
 		    lws_hdr_simple_ptr(wsi, WSI_TOKEN_KEY));
 
-	lws_SHA1(pt->serv_buf, (unsigned int)n, hash);
+	lws_SHA1(pt->compose_buf, (unsigned int)n, hash);
 
 	accept_len = lws_b64_encode_string((char *)hash, 20,
-			(char *)pt->serv_buf, (int)context->pt_serv_buf_size);
+			(char *)pt->compose_buf, (int)context->pt_serv_buf_size);
 	if (accept_len < 0) {
 		lwsl_warn("Base64 encoded hash too long\n");
 		goto bail;
@@ -707,14 +707,14 @@ handshake_0405_composed(struct lws_context *context, struct lws *wsi)
 
 	/* make a buffer big enough for everything */
 
-	response = (char *)pt->serv_buf + MAX_WEBSOCKET_04_KEY_LEN +
+	response = (char *)pt->compose_buf + MAX_WEBSOCKET_04_KEY_LEN +
 		   256 + LWS_PRE;
 	p = response;
 	LWS_CPYAPP(p, "HTTP/1.1 101 Switching Protocols\x0d\x0a"
 		      "Upgrade: WebSocket\x0d\x0a"
 		      "Connection: Upgrade\x0d\x0a"
 		      "Sec-WebSocket-Accept: ");
-	strcpy(p, (char *)pt->serv_buf);
+	strcpy(p, (char *)pt->compose_buf);
 	p += accept_len;
 
 	/* we can only return the protocol header if:
@@ -771,7 +771,7 @@ handshake_0405_composed(struct lws_context *context, struct lws *wsi)
 #endif
 
 	args.p = p;
-	args.max_len = lws_ptr_diff((char *)pt->serv_buf +
+	args.max_len = lws_ptr_diff((char *)pt->compose_buf +
 				    context->pt_serv_buf_size, p);
 	if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 					LWS_CALLBACK_ADD_HEADERS,
@@ -825,7 +825,7 @@ int
 handshake_0405(struct lws_context *context, struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	int sb = lws_servbuf_claim(pt, pt->serv_buf, context->pt_serv_buf_size,
+	int sb = lws_servbuf_claim(pt, pt->compose_buf, context->pt_serv_buf_size,
 				   "ws server handshake");
 	int r = handshake_0405_composed(context, wsi);
 

@@ -115,7 +115,7 @@ lws_socks5c_generate_msg(struct lws *wsi, enum socks_msg_type type,
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	uint8_t *p = pt->serv_buf, *end = &p[context->pt_serv_buf_size];
+	uint8_t *p = pt->compose_buf, *end = &p[context->pt_serv_buf_size];
 	ssize_t n, passwd_len;
 	short net_num;
 	char *cp;
@@ -196,7 +196,7 @@ lws_socks5c_generate_msg(struct lws *wsi, enum socks_msg_type type,
 		return 1;
 	}
 
-	*msg_len = lws_ptr_diff(p, pt->serv_buf);
+	*msg_len = lws_ptr_diff(p, pt->compose_buf);
 
 	return 0;
 }
@@ -259,9 +259,9 @@ lws_socks5c_greet(struct lws *wsi, const char **pcce)
 		*pcce = "socks msg too large";
 		return -1;
 	}
-	// lwsl_hexdump_notice(pt->serv_buf, plen);
-	sb = lws_servbuf_claim(pt, pt->serv_buf, (size_t)plen, "socks greet");
-	n = lws_issue_raw(wsi, pt->serv_buf, (size_t)plen);
+	// lwsl_hexdump_notice(pt->compose_buf, plen);
+	sb = lws_servbuf_claim(pt, pt->compose_buf, (size_t)plen, "socks greet");
+	n = lws_issue_raw(wsi, pt->compose_buf, (size_t)plen);
 	lws_servbuf_release(pt, sb);
 	if (n < 0) {
 		lwsl_wsi_debug(wsi, "ERROR writing socks greeting");
@@ -452,11 +452,11 @@ lws_socks5c_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 	return LW5CHS_RET_NOTHING;
 
 socks_send_l:
-	// lwsl_hexdump_notice(pt->serv_buf, plen);
-	/* composed above, into what must not have been the rest of the read */
-	n = lws_servbuf_claim(pt, pt->serv_buf, (size_t)plen, "socks rx compose");
+	// lwsl_hexdump_notice(pt->compose_buf, plen);
+	/* composed above, in compose_buf: the read it answers is in serv_buf */
+	n = lws_servbuf_claim(pt, pt->compose_buf, (size_t)plen, "socks rx compose");
 	lws_servbuf_release(pt, n);
-	n = lws_issue_raw(wsi, pt->serv_buf, (size_t)plen);
+	n = lws_issue_raw(wsi, pt->compose_buf, (size_t)plen);
 	if (n < 0) {
 		lwsl_wsi_debug(wsi, "ERROR writing to socks proxy");
 		*pcce = "socks write fail";

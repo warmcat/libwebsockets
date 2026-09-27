@@ -746,7 +746,7 @@ static int
 lws_unauthorised_basic_auth_composed(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	unsigned char *start = pt->serv_buf + LWS_PRE, *p = start,
+	unsigned char *start = pt->compose_buf + LWS_PRE, *p = start,
 		      *end = pt->serv_buf + wsi->a.context->pt_serv_buf_size;
 	char buf[64];
 	int n;
@@ -781,7 +781,7 @@ int
 lws_unauthorised_basic_auth(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	int sb = lws_servbuf_claim(pt, pt->serv_buf + LWS_PRE,
+	int sb = lws_servbuf_claim(pt, pt->compose_buf + LWS_PRE,
 				   wsi->a.context->pt_serv_buf_size - LWS_PRE,
 				   "lws_unauthorised_basic_auth");
 	int r = lws_unauthorised_basic_auth_composed(wsi);
@@ -1534,7 +1534,7 @@ lws_http_redirect_hit(struct lws_context_per_thread *pt, struct lws *wsi,
 	     hit->origin_protocol != LWSMPRO_CGI &&
 	     hit->origin_protocol != LWSMPRO_CALLBACK)) {
 		char peer_buf[64];
-		unsigned char *start = pt->serv_buf + LWS_PRE, *p = start,
+		unsigned char *start = pt->compose_buf + LWS_PRE, *p = start,
 			      *end = p + wsi->a.context->pt_serv_buf_size -
 					LWS_PRE - 512;
 
@@ -2115,7 +2115,7 @@ lws_http_action(struct lws *wsi)
 		 * URI from the host: header, and regenerate the path part from
 		 * the parsed pieces
 		 */
-		unsigned char *start = pt->serv_buf + LWS_PRE, *p = start,
+		unsigned char *start = pt->compose_buf + LWS_PRE, *p = start,
 			      *end = p + wsi->a.context->pt_serv_buf_size -
 				     LWS_PRE;
 
@@ -3381,7 +3381,7 @@ lws_serve_http_file_composed(struct lws *wsi, const char *file, const char *cont
 {
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	unsigned char *response = pt->serv_buf + LWS_PRE;
+	unsigned char *response = pt->compose_buf + LWS_PRE;
 #if defined(LWS_WITH_RANGES)
 	struct lws_range_parsing *rp = &wsi->http.range;
 #endif
@@ -3849,7 +3849,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		    const char *other_headers, int other_headers_len)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	int sb = lws_servbuf_claim(pt, pt->serv_buf + LWS_PRE,
+	int sb = lws_servbuf_claim(pt, pt->compose_buf + LWS_PRE,
 				   wsi->a.context->pt_serv_buf_size - LWS_PRE,
 				   "lws_serve_http_file");
 	int r = lws_serve_http_file_composed(wsi, file, content_type, other_headers, other_headers_len);

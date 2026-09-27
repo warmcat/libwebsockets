@@ -240,7 +240,7 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 	const char *pc;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	char *sb = (char *)&pt->serv_buf[0];
+	char *sb = (char *)pt->compose_buf;
 	const struct lws_ext_options *opts;
 	const struct lws_extension *ext;
 	char ext_name[128];

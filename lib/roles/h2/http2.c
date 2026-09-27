@@ -3623,7 +3623,7 @@ lws_h2_client_handshake_composed(struct lws *wsi)
 	lwsl_info("%s: CLIENT_WAITING_TO_SEND_HEADERS: pollout (sid %llu)\n",
 			__func__, (unsigned long long)wsi->mux.my_sid);
 
-	p = start = buf = pt->serv_buf + LWS_PRE;
+	p = start = buf = pt->compose_buf + LWS_PRE;
 	end = start + (wsi->a.context->pt_serv_buf_size / 2) - LWS_PRE - 1;
 
 	/* Reset the per-HEADERS duplicate-pseudoheader tracker (hpack.c) */
@@ -3911,7 +3911,7 @@ int
 lws_h2_client_handshake(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	int sb = lws_servbuf_claim(pt, pt->serv_buf + LWS_PRE,
+	int sb = lws_servbuf_claim(pt, pt->compose_buf + LWS_PRE,
 				   (wsi->a.context->pt_serv_buf_size / 2) - LWS_PRE,
 				   "lws_h2_client_handshake");
 	int r = lws_h2_client_handshake_composed(wsi);

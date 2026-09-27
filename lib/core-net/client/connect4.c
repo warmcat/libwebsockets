@@ -61,7 +61,7 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 		int sb;
 		/*
 		 * The CONNECT is composed into the first 256 bytes of the
-		 * serv_buf... but pt_serv_buf_size is the user's choice and
+		 * compose_buf... but pt_serv_buf_size is the user's choice and
 		 * has no enforced minimum, so clip to what actually exists.
 		 *
 		 * Each append must be given the space that is actually left,
@@ -82,8 +82,8 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 
 		lwsl_wsi_info(wsi, "going via proxy");
 
-		sb = lws_servbuf_claim(pt, pt->serv_buf, room, "proxy CONNECT");
-		plen = lws_snprintf((char *)pt->serv_buf, room,
+		sb = lws_servbuf_claim(pt, pt->compose_buf, room, "proxy CONNECT");
+		plen = lws_snprintf((char *)pt->compose_buf, room,
 			"CONNECT %s:%u HTTP/1.1\x0d\x0a"
 			"Host: %s:%u\x0d\x0a"
 			"User-agent: lws\x0d\x0a", cpa, wsi->ocport,
@@ -92,7 +92,7 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
 		if ((size_t)plen < room &&
 		    wsi->a.vhost->proxy_basic_auth_token[0])
-			plen += lws_snprintf((char *)pt->serv_buf + plen,
+			plen += lws_snprintf((char *)pt->compose_buf + plen,
 					room - (size_t)plen,
 					"Proxy-authorization: basic %s\x0d\x0a",
 					wsi->a.vhost->proxy_basic_auth_token);
@@ -110,10 +110,10 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 			goto failed;
 		}
 
-		plen += lws_snprintf((char *)pt->serv_buf + plen,
+		plen += lws_snprintf((char *)pt->compose_buf + plen,
 					room - (size_t)plen, "\x0d\x0a");
 
-		/* lwsl_hexdump_notice(pt->serv_buf, plen); */
+		/* lwsl_hexdump_notice(pt->compose_buf, plen); */
 
 		/*
 		 * OK from now on we talk via the proxy, so connect to that
@@ -130,7 +130,7 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 		}
 		wsi->c_port = (uint16_t)wsi->a.vhost->http.http_proxy_port;
 
-		n = lws_issue_raw(wsi, pt->serv_buf, (size_t)plen);
+		n = lws_issue_raw(wsi, pt->compose_buf, (size_t)plen);
 		lws_servbuf_release(pt, sb);
 		if (n < 0) {
 			lwsl_wsi_debug(wsi, "ERROR writing to proxy socket");

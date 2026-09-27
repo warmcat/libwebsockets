@@ -34,7 +34,7 @@ lws_mqtt_client_send_connect(struct lws *wsi)
 	/* 	lws_mqttc_abs_writeable(lws_abs_protocol_inst_t *api, size_t budget) */
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	const lws_mqttc_t *c = &wsi->mqtt->client;
-	uint8_t *b = (uint8_t *)pt->serv_buf, *start = b + LWS_PRE, *p = start,
+	uint8_t *b = (uint8_t *)pt->compose_buf, *start = b + LWS_PRE, *p = start,
 		*end = b + wsi->a.context->pt_serv_buf_size;
 	unsigned int len = MQTT_CONNECT_MSG_BASE_LEN;
 	int n;
@@ -75,8 +75,8 @@ lws_mqtt_client_send_connect(struct lws *wsi)
 		p += n;
 
 		/*
-		 * Will it fit?  We compose from start (serv_buf + LWS_PRE)
-		 * and must stay inside serv_buf, so the space we have is from
+		 * Will it fit?  We compose from start (compose_buf + LWS_PRE)
+		 * and must stay inside compose_buf, so the space we have is from
 		 * there to the end of serv_buf, not pt_serv_buf_size.  What
 		 * we write is exactly the fixed header + remaining length vbi
 		 * already at p, then len bytes of variable header + payload.
@@ -202,7 +202,7 @@ struct lws *
 lws_mqtt_client_send_disconnect(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	uint8_t *b = (uint8_t *)pt->serv_buf, *start = b + LWS_PRE, *p = start;
+	uint8_t *b = (uint8_t *)pt->compose_buf, *start = b + LWS_PRE, *p = start;
 
 	/* 1. Fixed Headers */
 	if (lws_mqtt_fill_fixed_header(p++, LMQCP_DISCONNECT, 0, 0, 0))

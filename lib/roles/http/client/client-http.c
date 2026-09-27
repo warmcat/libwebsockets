@@ -234,7 +234,7 @@ lws_h1_client_issue_handshake(struct lws *wsi)
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	char *p = (char *)&pt->serv_buf[0], *end = p + context->pt_serv_buf_size;
+	char *p = (char *)pt->compose_buf, *end = p + context->pt_serv_buf_size;
 	char *sb = p;
 	int n, sbc;
 
@@ -2198,7 +2198,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 	 */
 
 	if (lws_ptr_diff(end, p) <= 12) {
-		lwsl_wsi_err(wsi, "request head too long for pt_serv_buf");
+		lwsl_wsi_err(wsi, "request head too long for pt compose_buf");
 
 		return NULL;
 	}

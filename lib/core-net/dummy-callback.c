@@ -38,7 +38,7 @@ lws_client_hdr_append_room_bad(struct lws *wsi, unsigned char **p, size_t len)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	size_t sbs = wsi->a.context->pt_serv_buf_size;
 
-	if (!p || !*p || !pt->serv_buf)
+	if (!p || !*p || !pt->compose_buf)
 		return 1;
 
 	/*
@@ -46,7 +46,7 @@ lws_client_hdr_append_room_bad(struct lws *wsi, unsigned char **p, size_t len)
 	 * overflow on a bogus len
 	 */
 
-	return len > sbs || *p < pt->serv_buf || *p + len > pt->serv_buf + sbs;
+	return len > sbs || *p < pt->compose_buf || *p + len > pt->compose_buf + sbs;
 }
 
 #if defined(LWS_WITH_HTTP_PROXY)

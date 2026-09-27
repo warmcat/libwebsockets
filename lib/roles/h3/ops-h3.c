@@ -98,7 +98,7 @@ lws_h3_client_handshake_composed(struct lws *wsi)
 
 	lwsl_wsi_debug(wsi, "%s", __func__);
 
-	p = start = buf = pt->serv_buf + LWS_PRE;
+	p = start = buf = pt->compose_buf + LWS_PRE;
 	end = start + (wsi->a.context->pt_serv_buf_size / 2) - LWS_PRE - 1;
 
 	if (wsi->do_ws)
@@ -243,7 +243,7 @@ static int
 lws_h3_client_handshake(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	int sb = lws_servbuf_claim(pt, pt->serv_buf + LWS_PRE,
+	int sb = lws_servbuf_claim(pt, pt->compose_buf + LWS_PRE,
 				   wsi->a.context->pt_serv_buf_size - LWS_PRE,
 				   "lws_h3_client_handshake");
 	int r = lws_h3_client_handshake_composed(wsi);

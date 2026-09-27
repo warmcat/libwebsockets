@@ -611,8 +611,13 @@ lws_create_context(const struct lws_context_creation_info *info)
 		s1 = LWS_PRE + 1024;
 	}
 
-	/* pt fakewsi and the pt serv buf allocations ride after the context */
-	size += count_threads * s1;
+	/*
+	 * pt fakewsi and the pt serv buf allocations ride after the context.
+	 * Each pt gets two pt_serv_buf_size halves: serv_buf for IO's reads and
+	 * the tx pulls, compose_buf above it for the composers, which may be
+	 * called from a callback while a read is still live in serv_buf
+	 */
+	size += count_threads * s1 * 2;
 #if !defined(LWS_PLAT_FREERTOS)
 	size += (count_threads * sizeof(struct lws));
 #endif
@@ -1452,11 +1457,13 @@ lws_create_context(const struct lws_context_creation_info *info)
 	u = (uint8_t *)&context[1];
 	for (n = 0; n < context->count_threads; n++) {
 		context->pt[n].serv_buf = u;
-		u += context->pt_serv_buf_size;
+		context->pt[n].compose_buf = u + context->pt_serv_buf_size;
+		u += 2 * context->pt_serv_buf_size;
 #if defined(LWS_WITH_SERVBUF_CHECK)
+		/* one region over both halves: an overrun of either is seen */
 		lws_region_init(&context->pt[n].servbuf_region, "serv_buf",
 				context->pt[n].serv_buf,
-				context->pt_serv_buf_size,
+				2 * context->pt_serv_buf_size,
 				context->pt[n].servbuf_claims,
 				LWS_ARRAY_SIZE(context->pt[n].servbuf_claims),
 				LWS_REGION_F_ABORT);
@@ -1563,10 +1570,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 	lwsl_cx_info(context, "ctx: %5luB (%ld ctx + pt(%ld thr x %d)), "
 		  "pt-fds: %d",
 		  (long)sizeof(struct lws_context) +
-		  (context->count_threads * context->pt_serv_buf_size),
+		  (context->count_threads * 2 * context->pt_serv_buf_size),
 		  (long)sizeof(struct lws_context),
 		  (long)context->count_threads,
-		  context->pt_serv_buf_size,
+		  2 * context->pt_serv_buf_size,
 		  context->fd_limit_per_thread);
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)

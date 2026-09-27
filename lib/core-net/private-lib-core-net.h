@@ -468,12 +468,22 @@ struct lws_context_per_thread {
 	 * of any socket can likewise use it and overwrite)
 	 */
 	unsigned char *serv_buf;
+	/*
+	 * pt_serv_buf_size more, directly above serv_buf, same scope rule.
+	 * The composers build their messages here, never in serv_buf: they
+	 * can be reached from a callback delivered while a read's unparsed
+	 * tail is still live in serv_buf (a POST answered from
+	 * HTTP_BODY_COMPLETION, an mqtt publish from the RX callback).  IO's
+	 * reads and the tx pulls keep serv_buf.
+	 */
+	unsigned char *compose_buf;
 #if defined(LWS_WITH_SERVBUF_CHECK)
 	/*
-	 * Who holds which range of serv_buf right now: several claims may be
-	 * live at once if their ranges do not overlap (the rx pump's, trimmed
-	 * to what is still unconsumed, and a composer's below it), and none
-	 * may be live when a service pass starts.  See lws_servbuf_claim().
+	 * Who holds which range of serv_buf and compose_buf (one region over
+	 * both) right now: several claims may be live at once if their
+	 * ranges do not overlap (the rx pump's, trimmed to what is still
+	 * unconsumed, and a composer's), and none may be live when a service
+	 * pass starts.  See lws_servbuf_claim().
 	 */
 	lws_region_t		servbuf_region;
 	lws_region_claim_t	servbuf_claims[4];
@@ -540,8 +550,10 @@ struct lws_context_per_thread {
 
 /*
  * pt->serv_buf is one scratch buffer per service thread that everything
- * piles into to avoid allocations: the rx pump reads into it, composers build
- * response heads in it, the tx pulls produce into it.  That is only safe
+ * piles into to avoid allocations: the rx pump reads into it and the tx
+ * pulls produce into it.  pt->compose_buf directly above it is where the
+ * composers build response heads and requests, since they can be called
+ * from inside an rx whose tail is still live in serv_buf.  That is only safe
  * while whoever is using a range of it is the only user of that range, and
  * only within one service pass (the next pass, of any socket, reuses it).
  *
@@ -1803,12 +1815,12 @@ __lws_wsi_create_with_role(struct lws_context *context, int tsi,
  * Sanity-check the (in, len) pair a request-head composer handed to
  * LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER.
  *
- * The h1, h2 and h3 composers all build the request head inside pt->serv_buf
+ * The h1, h2 and h3 composers all build the request head inside pt->compose_buf
  * and pass the callback a pointer into it plus the room remaining after it.
  * Consumers derive end = *p + len from that and write up to end, so a
  * composer that miscomputes len (C-443 had one that underflowed to ~4GB)
  * silently turns every one of them into an out-of-bounds write.  Consumers
- * inside the library check the pair against the pt serv_buf it must lie
+ * inside the library check the pair against the pt compose_buf it must lie
  * inside, so a composer bug cannot arm them again.
  *
  * Returns nonzero if the pair is not credible, in which case the consumer

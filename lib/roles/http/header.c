@@ -742,7 +742,7 @@ lws_http_status_page_send_pending(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt =
 			&wsi->a.context->pt[(int)wsi->tsi];
-	unsigned char *p = pt->serv_buf + LWS_PRE;
+	unsigned char *p = pt->compose_buf + LWS_PRE;
 	int len, n, sb;
 
 	sb = lws_servbuf_claim(pt, p, 512, "status page");
@@ -781,7 +781,7 @@ _lws_return_http_status_composed(struct lws *wsi, unsigned int code,
 {
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	unsigned char *p = pt->serv_buf + LWS_PRE;
+	unsigned char *p = pt->compose_buf + LWS_PRE;
 	unsigned char *start = p;
 	unsigned char *end = p + context->pt_serv_buf_size - LWS_PRE;
 	unsigned char *body;
@@ -952,7 +952,7 @@ _lws_return_http_status(struct lws *wsi, unsigned int code,
 			const char *val)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	int sb = lws_servbuf_claim(pt, pt->serv_buf + LWS_PRE,
+	int sb = lws_servbuf_claim(pt, pt->compose_buf + LWS_PRE,
 				   wsi->a.context->pt_serv_buf_size - LWS_PRE,
 				   "_lws_return_http_status");
 	int r = _lws_return_http_status_composed(wsi, code, html_body, tok, val);
