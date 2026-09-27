@@ -195,4 +195,5 @@ const struct lws_role_ops role_ops_raw_proxy = {
 	/* protocol_unbind cb c, srv */	{ LWS_CALLBACK_RAW_PROXY_CLI_DROP_PROTOCOL,
 					  LWS_CALLBACK_RAW_PROXY_SRV_DROP_PROTOCOL },
 	/* file_handle */		0,
+	/* child_stdio */		0,
 };

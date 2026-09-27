@@ -409,7 +409,14 @@ can be live).
    locked deadline and a destroyed vhost's last unbind are seam requests;
    the role registry is neither half's; lwsws' config loader is IO's; and
    the h1 client's request headers go out through the push, which also
-   keeps what a short write left (they were lost before).
+   keeps what a short write left (they were lost before).  The check sees
+   only what a build compiles: with the optional features on (cgi, the
+   access log, jit trust) 8 more (done: 0): a cgi is a child process IO
+   runs for an http transaction, asked through the seam to take its
+   request body, end its stdin, be killed and released; a cgi stdio pipe
+   is known by a role property (`child_stdio`) rather than by naming the
+   cgi role; the access log asks IO for the peer as text; a restarted
+   client's jit-trust vhost and a jit-trust vhost's grace are IO's.
 8. Split the object: IO's fields of `struct lws` move into the
    `lws_io_adjunct` (see "The object"), the check making it opaque to
    sansIO (in progress: the socket identity first).

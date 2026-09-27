@@ -396,8 +396,6 @@ void
 lws_io_set_peer(struct lws *wsi, const lws_sockaddr46 *sa46);
 lws_sockaddr46 *
 lws_io_peer(struct lws *wsi);
-void
-lws_io_peer_address(struct lws *wsi, char *buf, size_t len);
 int
 lws_io_udp_alloc(struct lws *wsi);
 #if defined(LWS_WITH_CLIENT)
@@ -422,6 +420,10 @@ lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi);
 #endif
 void
 lws_pipe_wsi_release_fds(struct lws *wsi);
+#if defined(LWS_WITH_CGI)
+void
+lws_cgi_stdwsi_quiesce(struct lws *wsi);
+#endif
 #if defined(LWS_WITH_ASYNC_QUEUE)
 #endif
 

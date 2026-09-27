@@ -1329,3 +1329,73 @@ lws_cgi_stdin_body_end(struct lws *wsi)
 	 */
 	lws_spawn_stdwsi_closed(wsi->http.cgi->lsp, siwsi);
 }
+
+/*
+ * The transaction is finished with its cgi: the child and its pipes, and
+ * the cgi object itself, go
+ */
+void
+lws_cgi_release(struct lws *wsi)
+{
+	if (!wsi->http.cgi)
+		return;
+
+	lws_spawn_piped_destroy(&wsi->http.cgi->lsp);
+	lws_sul_cancel(&wsi->http.cgi->sul_grace);
+	lws_free_set_NULL(wsi->http.cgi);
+}
+
+/*
+ * One of a cgi's stdio pipes is closing: it is no longer the child's.  The
+ * logical cgi stays, so it can be drained.
+ */
+void
+lws_cgi_stdwsi_quiesce(struct lws *wsi)
+{
+	if (!lwsi_role_cgi(wsi) || !wsi->parent || !wsi->parent->http.cgi ||
+	    !wsi->parent->http.cgi->lsp)
+		return;
+
+	wsi->parent->http.cgi->lsp->stdwsi[(int)wsi->lsp_channel] = NULL;
+}
+
+/*
+ * The http transaction's request body goes to the cgi's stdin, as much of
+ * it as the pipe takes now.  Returns what it took: 0 when the pipe is full,
+ * a normal backpressure condition, and the stdin pipe is then watched for
+ * writable, so the cgi role's stdin POLLOUT lets the transaction read again
+ * when it drains; -1 when the stdin is gone or failed.
+ */
+int
+lws_cgi_stdin_write(struct lws_cgi_args *args)
+{
+	int n;
+
+	if (!args->stdwsi[LWS_STDIN])
+		return -1;
+	n = lws_get_socket_fd(args->stdwsi[LWS_STDIN]);
+	if (n < 0)
+		return -1;
+
+	/*
+	 * The data is only consumed using its explicit length: the buffer it
+	 * arrives in is not guaranteed to have a spare byte after it
+	 */
+	n = (int)write(n, args->data, (unsigned int)args->len);
+	if (n < 0) {
+		/*
+		 * Anything but the pipe being momentarily full (eg, EPIPE
+		 * from the cgi going away) really is fatal for the transaction
+		 */
+		if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+			return -1;
+		n = 0;
+	}
+
+	if (n < args->len &&
+	    lws_change_pollfd(args->stdwsi[LWS_STDIN], 0, LWS_POLLOUT))
+		return -1;
+
+	return n;
+}
+

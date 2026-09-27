@@ -203,4 +203,5 @@ const struct lws_role_ops role_ops_cgi = {
 	/* protocol_unbind_cb c,s */	{ 0, 0 },
 
 	/* file_handle */		0,
+	/* child_stdio */		1,
 };

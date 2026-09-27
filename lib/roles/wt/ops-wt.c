@@ -371,4 +371,5 @@ const struct lws_role_ops role_ops_wt = {
 	/* protocol_unbind_cb c,s */	{ LWS_CALLBACK_WT_DROP_PROTOCOL,
 					  LWS_CALLBACK_WT_DROP_PROTOCOL },
 	/* file_handle */		0,
+	/* child_stdio */		0,
 };

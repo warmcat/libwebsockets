@@ -153,8 +153,6 @@ int
 lws_tls_jit_trust_vhost_bind(struct lws_context *cx, const char *address,
 			     struct lws_vhost **pvh);
 
-void
-lws_tls_jit_trust_vh_start_grace(struct lws_vhost *vh);
 
 #endif
 

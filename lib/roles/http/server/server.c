@@ -3207,10 +3207,7 @@ lws_http_transaction_completed(struct lws *wsi)
 		lwsl_debug("%s: cleaning cgi\n", __func__);
 		wsi->http.cgi_transaction_complete = 1;
 		lws_cgi_remove_and_kill(wsi);
-		lws_spawn_piped_destroy(&wsi->http.cgi->lsp);
-		lws_sul_cancel(&wsi->http.cgi->sul_grace);
-
-		lws_free_set_NULL(wsi->http.cgi);
+		lws_cgi_release(wsi);
 		wsi->http.cgi_transaction_complete = 0;
 	}
 #endif

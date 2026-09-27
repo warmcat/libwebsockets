@@ -124,4 +124,5 @@ const struct lws_role_ops role_ops_raw_file = {
 	/* protocol_unbind cb c, srv */	{ LWS_CALLBACK_RAW_FILE_DROP_PROTOCOL,
 					  LWS_CALLBACK_RAW_FILE_DROP_PROTOCOL },
 	/* file_handle */		1,
+	/* child_stdio */		0,
 };

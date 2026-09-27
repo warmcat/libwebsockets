@@ -278,6 +278,7 @@ const struct lws_role_ops role_ops_pipe = {
 #else
 	/* file_handle */		1,
 #endif
+	/* child_stdio */		0,
 };
 
 /*

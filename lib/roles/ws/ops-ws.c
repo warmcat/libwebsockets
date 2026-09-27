@@ -2226,5 +2226,6 @@ const struct lws_role_ops role_ops_ws = {
 					  LWS_CALLBACK_WS_SERVER_BIND_PROTOCOL },
 	/* protocol_unbind cb c, srv */	{ LWS_CALLBACK_WS_CLIENT_DROP_PROTOCOL,
 					  LWS_CALLBACK_WS_SERVER_DROP_PROTOCOL },
-	/* file handles */		0
+	/* file_handle */		0,
+	/* child_stdio */		0,
 };

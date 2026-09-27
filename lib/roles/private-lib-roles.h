@@ -812,6 +812,8 @@ struct lws_role_ops {
 
 	uint8_t			file_handle:1;
 	/* role operates on files not sockets */
+	uint8_t			child_stdio:1;
+	/* role carries a spawned child's stdin, stdout or stderr (cgi) */
 };
 
 #define lws_rops_fidx(_rops, fidx) \

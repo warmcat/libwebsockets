@@ -531,23 +531,12 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	lwsi_set_close_started(wsi);
 
 #ifdef LWS_WITH_CGI
-	if (wsi->role_ops == &role_ops_cgi) {
-
-		// lwsl_debug("%s: closing stdwsi index %d\n", __func__, (int)wsi->lsp_channel);
-
-		/* we are not a network connection, but a handler for CGI io */
-		if (wsi->parent && wsi->parent->http.cgi) {
-
-			/*
-			 * We need to keep the logical cgi around so we can
-			 * drain it
-			 */
-
-			/* end the binding between us and network connection */
-			if (wsi->parent->http.cgi && wsi->parent->http.cgi->lsp)
-				wsi->parent->http.cgi->lsp->stdwsi[(int)wsi->lsp_channel] =
-									NULL;
-		}
+	if (lwsi_role_cgi(wsi)) {
+		/*
+		 * we are not a network connection, but one of a cgi's stdio
+		 * pipes: the quiesce ends its binding to the child, keeping
+		 * the logical cgi around so it can be drained
+		 */
 		lwsi_set_skt_unusable(wsi, 1);
 
 		goto just_kill_connection;
@@ -1061,20 +1050,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 		//_lws_header_table_reset(wsi->stream.ah);
 
 #if defined(LWS_WITH_TLS_JIT_TRUST)
-		if (wsi->stash && wsi->stash->cis[CIS_ADDRESS]) {
-			struct lws_vhost *vh = NULL;
-			lws_tls_jit_trust_vhost_bind(wsi->a.context,
-						     wsi->stash->cis[CIS_ADDRESS],
-						     &vh);
-			/*
-			 * Rebind through the proper helper: it unbinds the
-			 * old vhost itself (unbinding here first would clear
-			 * wsi->a.vhost and disarm its dying-vhost and mTLS
-			 * rebind refusals, which test that)
-			 */
-			if (vh && vh != wsi->a.vhost)
-				lws_vhost_bind_wsi(vh, wsi);
-		}
+		lws_client_transport_rebind(wsi);
 #endif
 
 		return;
@@ -1087,11 +1063,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 						  wsi->user_space, NULL, 0);
 
 #ifdef LWS_WITH_CGI
-	if (wsi->http.cgi) {
-		lws_spawn_piped_destroy(&wsi->http.cgi->lsp);
-		lws_sul_cancel(&wsi->http.cgi->sul_grace);
-		lws_free_set_NULL(wsi->http.cgi);
-	}
+	lws_cgi_release(wsi);
 #endif
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)

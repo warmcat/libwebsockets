@@ -877,4 +877,5 @@ const struct lws_role_ops role_ops_netlink = {
 	/* protocol_bind_cb c,s */	{ 0, 0 },
 	/* protocol_unbind_cb c,s */	{ 0, 0 },
 	/* file_handle */		0,
+	/* child_stdio */		0,
 };

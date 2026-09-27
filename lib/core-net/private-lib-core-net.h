@@ -1895,10 +1895,6 @@ lws_http_close_immortal(struct lws *wsi);
 int
 lws_cgi_kill_terminated(struct lws_context_per_thread *pt);
 
-void
-lws_cgi_remove_and_kill(struct lws *wsi);
-void
-lws_cgi_stdin_body_end(struct lws *wsi);
 
 
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SECURE_STREAMS)

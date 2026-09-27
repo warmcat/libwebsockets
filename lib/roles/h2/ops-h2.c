@@ -1994,4 +1994,5 @@ const struct lws_role_ops role_ops_h2 = {
 	/* protocol_unbind cb c, srv */	{ LWS_CALLBACK_CLIENT_HTTP_DROP_PROTOCOL,
 					  LWS_CALLBACK_HTTP_DROP_PROTOCOL },
 	/* file_handle */		0,
+	/* child_stdio */		0,
 };

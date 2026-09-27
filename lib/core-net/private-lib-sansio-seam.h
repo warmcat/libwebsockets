@@ -45,6 +45,37 @@
 int LWS_WARN_UNUSED_RESULT
 lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len);
 
+#if defined(LWS_WITH_CGI)
+/*
+ * An http transaction's cgi is a child process IO runs for it: its request
+ * body is written to the child's stdin, and the child's end of it closed,
+ * as sansIO says; the child is killed, and it and its pipes released, when
+ * the transaction is done with it
+ */
+struct lws_cgi_args;
+int
+lws_cgi_stdin_write(struct lws_cgi_args *args);
+void
+lws_cgi_stdin_body_end(struct lws *wsi);
+void
+lws_cgi_remove_and_kill(struct lws *wsi);
+void
+lws_cgi_release(struct lws *wsi);
+#endif
+
+/* the connection's peer, as IO knows it, as text ("unknown" if none) */
+void
+lws_io_peer_address(struct lws *wsi, char *buf, size_t len);
+
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+/*
+ * a vhost made for a jit-trusted peer lost its last connection: IO keeps it
+ * a grace period in case another comes, then destroys it
+ */
+void
+lws_tls_jit_trust_vh_start_grace(struct lws_vhost *vh);
+#endif
+
 /* deadline, in the spelling for callers holding the service thread lock */
 void
 __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
@@ -112,6 +143,14 @@ lws_client_transport_connected(struct lws *wsi);
  */
 struct lws *
 lws_client_transport_start(struct lws *wsi);
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+/*
+ * transport: a restarted client may belong on another vhost now, the one
+ * whose trust store (jit trust) is for its new address: IO rebinds it
+ */
+void
+lws_client_transport_rebind(struct lws *wsi);
+#endif
 /*
  * transport: a role that makes its transport inside its own protocol (quic's
  * handshake) has made it; it won any race for the connection, and IO drops

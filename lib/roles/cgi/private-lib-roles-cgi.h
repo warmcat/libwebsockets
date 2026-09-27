@@ -26,7 +26,7 @@
 
 extern const struct lws_role_ops role_ops_cgi;
 
-#define lwsi_role_cgi(wsi) (wsi->role_ops == &role_ops_cgi)
+#define lwsi_role_cgi(wsi) (wsi->role_ops && wsi->role_ops->child_stdio)
 
 #define LWS_HTTP_CHUNK_HDR_SIZE 16
 

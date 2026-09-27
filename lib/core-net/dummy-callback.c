@@ -1207,31 +1207,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		 * was historically done and comprised a 1-byte OOB write
 		 * past the end of pt->serv_buf on the direct-read path.
 		 */
-		if (!args->stdwsi[LWS_STDIN])
-			return -1;
-		n = lws_get_socket_fd(args->stdwsi[LWS_STDIN]);
+		/* as much as the pipe takes now; 0 when it is full */
+		n = lws_cgi_stdin_write(args);
 		if (n < 0)
 			return -1;
-
-		n = (int)write(n, args->data, (unsigned int)args->len);
-//		lwsl_hexdump_notice(args->data, args->len);
-		if (n < 0) {
-			/*
-			 * The cgi stdin pipe is nonblocking... it being
-			 * momentarily full is a normal backpressure
-			 * condition, not a transaction error.  Report that
-			 * nothing was consumed, so the caller keeps it
-			 * accounted and reoffers it when the pipe drains.
-			 *
-			 * Anything else (eg, EPIPE from the cgi going away)
-			 * really is fatal for the transaction.
-			 */
-			if (errno == EAGAIN || errno == EWOULDBLOCK ||
-			    errno == EINTR)
-				n = 0;
-			else
-				return -1;
-		}
 
 		if (n < args->len) {
 			lwsl_wsi_notice(wsi, "CGI_STDIN_DATA: "
@@ -1258,10 +1237,6 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 					LWS_RXFLOW_REASON_USER_BOOL |
 					LWS_RXFLOW_REASON_APPLIES_DISABLE |
 					LWS_RXFLOW_REASON_FLAG_PROCESS_NOW);
-			if (args->stdwsi[LWS_STDIN] &&
-			    lws_change_pollfd(args->stdwsi[LWS_STDIN],
-					      0, LWS_POLLOUT))
-				return -1;
 		}
 
 		lwsl_wsi_info(wsi, "proxied %d bytes", n);

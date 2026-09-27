@@ -603,6 +603,10 @@ lws_io_close_pollfd(struct lws *wsi, int phase)
 		if (!wsi->client_mux_substream)
 			lws_tls_session_new_gnutls(wsi);
 #endif
+#if defined(LWS_WITH_CGI)
+		/* a cgi's stdio pipe is no longer the child's */
+		lws_cgi_stdwsi_quiesce(wsi);
+#endif
 		/* the quiesce ends the wait: whether there was one is asked */
 		n = lws_io_socket_wait_pending(wsi);
 		lws_io_quiesce_pollfd(wsi);

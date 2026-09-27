@@ -273,6 +273,31 @@ lws_client_transport_failed(struct lws *wsi)
 }
 #endif
 
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+/*
+ * A restarted client may belong on another vhost now: the one jit trust
+ * keeps for its new address, whose trust store knows that peer.
+ */
+void
+lws_client_transport_rebind(struct lws *wsi)
+{
+	struct lws_vhost *vh = NULL;
+
+	if (!wsi->stash || !wsi->stash->cis[CIS_ADDRESS])
+		return;
+
+	lws_tls_jit_trust_vhost_bind(wsi->a.context,
+				     wsi->stash->cis[CIS_ADDRESS], &vh);
+	/*
+	 * Rebind through the proper helper: it unbinds the old vhost itself
+	 * (unbinding here first would clear wsi->a.vhost and disarm its
+	 * dying-vhost and mTLS rebind refusals, which test that)
+	 */
+	if (vh && vh != wsi->a.vhost)
+		lws_vhost_bind_wsi(vh, wsi);
+}
+#endif
+
 /*
  * A connection whose bytes a transport carries (lws_set_transport()): there
  * is no dns lookup or connect, the fd it was given is its place in the poll
