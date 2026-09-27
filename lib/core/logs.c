@@ -820,8 +820,8 @@ spew_replay(lws_log_cx_t *cx, int level, lws_log_spew_ring_t *r,
 	    lws_usec_t now)
 {
 	char line[LWS_LOG_LINE_MAX + 1];
+	int lv = level;
 	size_t len;
-	int lv;
 
 	spew_emit(cx, level, "lws: log spew eased: %ums quiet, swallowed %u logs"
 			     " over %ums, %u oldest not retained, last %u"
