@@ -876,26 +876,32 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 
 		cn->status = (int)lws_http_client_http_response(wsi);
-		lws_hdr_copy(wsi, cn->ct, sizeof(cn->ct),
-			     WSI_TOKEN_HTTP_CONTENT_TYPE);
-		lws_hdr_copy(wsi, cn->cr, sizeof(cn->cr),
-			     WSI_TOKEN_HTTP_CONTENT_RANGE);
-		lws_hdr_copy(wsi, cn->ar, sizeof(cn->ar),
-			     WSI_TOKEN_HTTP_ACCEPT_RANGES);
+
+		/*
+		 * A header too long for us to hold would be judged as absent,
+		 * so it's a failure of the case rather than something to pass.
+		 * The first case is the plain GET whose etag the If-Range
+		 * cases quote back.
+		 */
+		if (lws_hdr_copy(wsi, cn->ct, sizeof(cn->ct),
+				 WSI_TOKEN_HTTP_CONTENT_TYPE) < 0 ||
+		    lws_hdr_copy(wsi, cn->cr, sizeof(cn->cr),
+				 WSI_TOKEN_HTTP_CONTENT_RANGE) < 0 ||
+		    lws_hdr_copy(wsi, cn->ar, sizeof(cn->ar),
+				 WSI_TOKEN_HTTP_ACCEPT_RANGES) < 0 ||
+		    (!etag[0] && lws_hdr_copy(wsi, etag, sizeof(etag),
+					      WSI_TOKEN_HTTP_ETAG) < 0)) {
+			lwsl_err("%s: response header too long\n", __func__);
+			cn->failed = 1;
+
+			return -1;
+		}
 
 		if (lws_hdr_copy(wsi, buf, sizeof(buf),
 				 WSI_TOKEN_HTTP_CONTENT_LENGTH) > 0) {
 			cn->cl = atoll(buf);
 			cn->cl_valid = 1;
 		}
-
-		/*
-		 * The first case is the plain GET whose etag the If-Range
-		 * cases quote back
-		 */
-		if (!etag[0])
-			lws_hdr_copy(wsi, etag, sizeof(etag),
-				     WSI_TOKEN_HTTP_ETAG);
 
 		lwsl_info("%s: status %d, ct '%s', cr '%s', cl %lld\n",
 			  __func__, cn->status, cn->ct, cn->cr,
