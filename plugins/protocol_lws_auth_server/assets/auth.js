@@ -1,6 +1,23 @@
 // auth.js - CSP Compliant Frontend Logic
 
 /*
+ * A fetch() that never reached the server has no status and no body to explain
+ * itself: the browser just reports "NetworkError".  Name the absolute URL we
+ * were trying to reach, so a connection that was dropped (a ban, a proxy, a
+ * broken transport) can be told from a server that answered badly.
+ */
+function lwsAuthNetErr(path, err) {
+    let u = path;
+
+    try {
+        u = new URL(path, window.location.origin).href;
+    } catch (e) {}
+
+    return 'Network communication failed reaching ' + u +
+           (err && err.message ? ': ' + err.message : '');
+}
+
+/*
  * F-050: html escaper for every dynamic string composed into
  * innerHTML.  Covers the urlarg-sourced service_name (reflected),
  * and, as defense-in-depth, the /api/status-sourced fields.  Escapes
@@ -442,7 +459,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 showNotif('error', errMsg);
             }
         } catch (err) {
-            showNotif('error', 'Network communication failed.' + err.message);
+            showNotif('error', lwsAuthNetErr('/api/login', err));
         } finally {
             btn.classList.remove('loading');
         }
@@ -480,7 +497,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 showNotif('error', errMsg);
             }
         } catch (err) {
-            showNotif('error', 'Network communication failed.');
+            showNotif('error', lwsAuthNetErr('/api/register', err));
         } finally {
             btn.classList.remove('loading');
         }
@@ -516,7 +533,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     showNotif('error', errMsg);
                 }
             } catch (err) {
-                showNotif('error', 'Network communication failed.');
+                showNotif('error', lwsAuthNetErr('/api/forgot_password', err));
             } finally {
                 btn.classList.remove('loading');
             }
@@ -555,7 +572,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     showNotif('error', errMsg);
                 }
             } catch (err) {
-                showNotif('error', 'Network communication failed.');
+                showNotif('error', lwsAuthNetErr('/api/reset_password', err));
             } finally {
                 btn.classList.remove('loading');
             }
