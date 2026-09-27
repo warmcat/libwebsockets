@@ -284,7 +284,18 @@ overlapping a live one aborts naming both, a claim still live when
 `_lws_service_fd_tsi()` is entered aborts naming it.  Every serv_buf user
 in the library is instrumented; pointers that turn out not to be in
 serv_buf (a buflist segment) are ignored, so the same calls cover the
-parked paths.  Without the option the calls compile to nothing.  Two users
+parked paths.  Without the option the calls compile to nothing.
+
+The tracking itself is not IO's or sansIO's: it is the core `lws_region`
+api (`include/libwebsockets/lws-region.h`), which tracks claims on any
+caller-provided buffer in a caller-provided slot table.  The pt holds an
+`lws_region_t` over serv_buf, set up with `LWS_REGION_F_ABORT` when the
+context allocates it, and the `lws_servbuf_...()` spellings are macros in
+`private-lib-core-net.h` over the pt's region, visible to both halves, so
+neither side reaches across the seam to use it.  A release is by the
+handle the claim returned, which carries the slot's generation, so a
+stale release after the claim was already handed on by
+`lws_servbuf_release_containing()` leaves whoever reused the slot alone.  Two users
 are not claimed on purpose: the tls fallback peek (`recv(MSG_PEEK)` on a
 fresh connection in the accept path, nothing else can be live) and the
 ws client's copy of the server's `Sec-WebSocket-Extensions` list, which is

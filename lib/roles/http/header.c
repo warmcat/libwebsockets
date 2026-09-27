@@ -752,7 +752,7 @@ lws_http_status_page_send_pending(struct lws *wsi)
 	lws_http_status_page_drop_pending(wsi);
 
 	n = lws_write(wsi, p, (size_t)len, LWS_WRITE_HTTP_FINAL);
-	lws_servbuf_release(pt, sb, "status page");
+	lws_servbuf_release(pt, sb);
 
 	return n != len;
 }
@@ -957,7 +957,7 @@ _lws_return_http_status(struct lws *wsi, unsigned int code,
 				   "_lws_return_http_status");
 	int r = _lws_return_http_status_composed(wsi, code, html_body, tok, val);
 
-	lws_servbuf_release(pt, sb, "_lws_return_http_status");
+	lws_servbuf_release(pt, sb);
 
 	return r;
 }

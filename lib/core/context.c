@@ -1453,6 +1453,14 @@ lws_create_context(const struct lws_context_creation_info *info)
 	for (n = 0; n < context->count_threads; n++) {
 		context->pt[n].serv_buf = u;
 		u += context->pt_serv_buf_size;
+#if defined(LWS_WITH_SERVBUF_CHECK)
+		lws_region_init(&context->pt[n].servbuf_region, "serv_buf",
+				context->pt[n].serv_buf,
+				context->pt_serv_buf_size,
+				context->pt[n].servbuf_claims,
+				LWS_ARRAY_SIZE(context->pt[n].servbuf_claims),
+				LWS_REGION_F_ABORT);
+#endif
 
 		context->pt[n].context = context;
 		context->pt[n].tid = (uint8_t)n;

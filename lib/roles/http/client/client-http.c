@@ -242,7 +242,7 @@ lws_h1_client_issue_handshake(struct lws *wsi)
 				"h1 client handshake");
 	p = lws_generate_client_handshake(wsi, p, lws_ptr_diff_size_t(end, p));
 	if (p == NULL) {
-		lws_servbuf_release(pt, sbc, "h1 client handshake");
+		lws_servbuf_release(pt, sbc);
 		lwsl_err("Failed to generate handshake for client\n");
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "chs");
 
@@ -256,7 +256,7 @@ lws_h1_client_issue_handshake(struct lws *wsi)
 
 	n = lws_ssl_capable_write(wsi, (unsigned char *)sb,
 				  lws_ptr_diff_size_t(p, sb));
-	lws_servbuf_release(pt, sbc, "h1 client handshake");
+	lws_servbuf_release(pt, sbc);
 	switch (n) {
 	case LWS_SSL_CAPABLE_ERROR:
 		lwsl_debug("ERROR writing to client socket\n");

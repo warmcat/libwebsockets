@@ -786,7 +786,7 @@ lws_unauthorised_basic_auth(struct lws *wsi)
 				   "lws_unauthorised_basic_auth");
 	int r = lws_unauthorised_basic_auth_composed(wsi);
 
-	lws_servbuf_release(pt, sb, "lws_unauthorised_basic_auth");
+	lws_servbuf_release(pt, sb);
 
 	return r;
 }
@@ -3854,7 +3854,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 				   "lws_serve_http_file");
 	int r = lws_serve_http_file_composed(wsi, file, content_type, other_headers, other_headers_len);
 
-	lws_servbuf_release(pt, sb, "lws_serve_http_file");
+	lws_servbuf_release(pt, sb);
 
 	return r;
 }

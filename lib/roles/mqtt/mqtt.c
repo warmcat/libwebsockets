@@ -2422,7 +2422,7 @@ lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
 				   "lws_mqtt_client_send_publish");
 	int r = lws_mqtt_client_send_publish_composed(wsi, pub, buf, len, is_complete);
 
-	lws_servbuf_release(pt, sb, "lws_mqtt_client_send_publish");
+	lws_servbuf_release(pt, sb);
 
 	return r;
 }
@@ -2646,7 +2646,7 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 				   "lws_mqtt_client_send_subcribe");
 	int r = lws_mqtt_client_send_subcribe_composed(wsi, sub);
 
-	lws_servbuf_release(pt, sb, "lws_mqtt_client_send_subcribe");
+	lws_servbuf_release(pt, sb);
 
 	return r;
 }
@@ -2850,7 +2850,7 @@ lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 				   "lws_mqtt_client_send_unsubcribe");
 	int r = lws_mqtt_client_send_unsubcribe_composed(wsi, unsub);
 
-	lws_servbuf_release(pt, sb, "lws_mqtt_client_send_unsubcribe");
+	lws_servbuf_release(pt, sb);
 
 	return r;
 }

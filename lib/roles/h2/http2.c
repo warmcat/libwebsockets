@@ -3897,7 +3897,7 @@ lws_h2_client_handshake(struct lws *wsi)
 				   "lws_h2_client_handshake");
 	int r = lws_h2_client_handshake_composed(wsi);
 
-	lws_servbuf_release(pt, sb, "lws_h2_client_handshake");
+	lws_servbuf_release(pt, sb);
 
 	return r;
 }

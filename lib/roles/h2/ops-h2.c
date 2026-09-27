@@ -360,7 +360,7 @@ rops_handle_POLLOUT_h2(struct lws *wsi)
 				lws_free(pps);
 				n = LWS_TX_FAIL;
 			}
-			lws_servbuf_release(pt, sb, "h2 pps tx");
+			lws_servbuf_release(pt, sb);
 			if (n < 0 || lws_h2_pps_done(wsi, pps)) {
 				lwsi_set_skt_unusable(wsi, 1);
 				return LWS_HP_RET_BAIL_DIE;

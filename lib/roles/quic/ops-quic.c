@@ -3314,7 +3314,7 @@ send_frames:
 		n = lws_quic_packet_tx(wsi, pt->serv_buf,
 				       wsi->a.context->pt_serv_buf_size, &tp);
 		if (n == LWS_TX_FAIL || n == LWS_TX_WAIT || !n) {
-			lws_servbuf_release(pt, sb, "quic tx");
+			lws_servbuf_release(pt, sb);
 			if (!n)
 				break;
 			if (n == LWS_TX_WAIT) {
@@ -3331,7 +3331,7 @@ send_frames:
 		} else
 			m = lws_io_send_dgram(wsi, pt->serv_buf, (size_t)n,
 					      tp.has_dest ? &tp.dest : NULL);
-		lws_servbuf_release(pt, sb, "quic tx");
+		lws_servbuf_release(pt, sb);
 
 		m = lws_quic_packet_sent(wsi, &tp, m);
 		if (m < 0)
@@ -4351,13 +4351,13 @@ rops_close_via_role_protocol_quic(struct lws *wsi, enum lws_close_status reason)
 		n = lws_quic_packet_tx(wsi, pt->serv_buf,
 				       wsi->a.context->pt_serv_buf_size, &tp);
 		if (n <= 0) { /* nothing more, or held or failed: best effort */
-			lws_servbuf_release(pt, sb, "quic close tx");
+			lws_servbuf_release(pt, sb);
 			break;
 		}
 
 		n = lws_io_send_dgram(wsi, pt->serv_buf, (size_t)n,
 				      tp.has_dest ? &tp.dest : NULL);
-		lws_servbuf_release(pt, sb, "quic close tx");
+		lws_servbuf_release(pt, sb);
 		if (lws_quic_packet_sent(wsi, &tp, n))
 			break;
 

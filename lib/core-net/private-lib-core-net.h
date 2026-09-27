@@ -470,17 +470,13 @@ struct lws_context_per_thread {
 	unsigned char *serv_buf;
 #if defined(LWS_WITH_SERVBUF_CHECK)
 	/*
-	 * Who holds which range of serv_buf right now: a claim is a range
-	 * and a name, several may be live at once if their ranges do not
-	 * overlap (the rx pump's, trimmed to what is still unconsumed, and a
-	 * composer's below it), and none may be live when a service pass
-	 * starts or ends.  See lws_servbuf_claim().
+	 * Who holds which range of serv_buf right now: several claims may be
+	 * live at once if their ranges do not overlap (the rx pump's, trimmed
+	 * to what is still unconsumed, and a composer's below it), and none
+	 * may be live when a service pass starts.  See lws_servbuf_claim().
 	 */
-	struct lws_servbuf_claim {
-		const unsigned char	*s;	/* NULL: slot free */
-		const unsigned char	*e;
-		const char		*who;
-	} servbuf_claims[4];
+	lws_region_t		servbuf_region;
+	lws_region_claim_t	servbuf_claims[4];
 #endif
 
 	struct lws_pollfd *fds;
@@ -541,6 +537,49 @@ struct lws_context_per_thread {
 	lws_latency_bucket_t latency_ring[LWS_LATENCY_RING_SIZE];
 #endif
 };
+
+/*
+ * pt->serv_buf is one scratch buffer per service thread that everything
+ * piles into to avoid allocations: the rx pump reads into it, composers build
+ * response heads in it, the tx pulls produce into it.  That is only safe
+ * while whoever is using a range of it is the only user of that range, and
+ * only within one service pass (the next pass, of any socket, reuses it).
+ *
+ * With LWS_WITH_SERVBUF_CHECK each user claims the range it is about to use
+ * and releases it when done, in pt->servbuf_region (lws_region, which aborts
+ * on a violation naming both parties); a claim that overlaps a live one, or
+ * one still held when a pass starts, aborts.  Ownership can be fragmented: a
+ * claim may give back its consumed prefix with lws_servbuf_trim() (the rx
+ * pump's parsed head, so a composer may use that part while the unparsed tail
+ * is still live), and a role that has stashed or finished with the rx bytes
+ * releases the pump's claim by any pointer inside it with
+ * lws_servbuf_release_containing().  Pointers outside serv_buf (a buflist
+ * segment) are ignored by all of these.
+ *
+ * These are the same on both sides of the sansIO / IO split: they are the
+ * core lws_region api on the pt's region.  Without the option they compile
+ * to nothing.
+ */
+#if defined(LWS_WITH_SERVBUF_CHECK)
+#define lws_servbuf_claim(pt, p, len, who) \
+		lws_region_claim(&(pt)->servbuf_region, p, len, who)
+#define lws_servbuf_release(pt, h) \
+		lws_region_release(&(pt)->servbuf_region, h)
+#define lws_servbuf_release_containing(pt, p) \
+		lws_region_release_containing(&(pt)->servbuf_region, p)
+#define lws_servbuf_trim(pt, p) \
+		lws_region_trim(&(pt)->servbuf_region, p)
+#define lws_servbuf_pass_boundary(pt, where) \
+		((void)lws_region_idle(&(pt)->servbuf_region, where))
+#else
+#define lws_servbuf_claim(pt, p, len, who) \
+		((void)(pt), (void)(p), (void)(len), (void)(who), \
+		 LWS_REGION_NOT_TRACKED)
+#define lws_servbuf_release(pt, h) ((void)(pt), (void)(h))
+#define lws_servbuf_release_containing(pt, p) ((void)(pt), (void)(p))
+#define lws_servbuf_trim(pt, p) ((void)(pt), (void)(p))
+#define lws_servbuf_pass_boundary(pt, where) ((void)(pt), (void)(where))
+#endif
 
 #if defined(LWS_WITH_LATENCY)
 LWS_EXTERN LWS_VISIBLE void

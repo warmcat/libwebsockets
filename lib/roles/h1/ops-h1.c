@@ -817,7 +817,7 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 
 				n = lws_write(wsi, pt->serv_buf + LWS_PRE, len,
 					      LWS_WRITE_HTTP);
-				lws_servbuf_release(pt, sb, "h1 proxy body");
+				lws_servbuf_release(pt, sb);
 				if (n < 0) {
 					lwsl_err("%s: PROXY_BODY: write %d failed\n",
 						 __func__, (int)len);

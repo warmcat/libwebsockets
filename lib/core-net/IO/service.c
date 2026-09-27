@@ -560,127 +560,6 @@ rx_pump_peer_closed(struct lws *wsi, int *nothing)
 	return LWS_HPI_RET_HANDLED;
 }
 
-#if defined(LWS_WITH_SERVBUF_CHECK)
-
-static struct lws_servbuf_claim *
-lws_servbuf_find(struct lws_context_per_thread *pt, const unsigned char *p)
-{
-	size_t n;
-
-	for (n = 0; n < LWS_ARRAY_SIZE(pt->servbuf_claims); n++)
-		if (pt->servbuf_claims[n].s && p >= pt->servbuf_claims[n].s &&
-		    p <= pt->servbuf_claims[n].e)
-			return &pt->servbuf_claims[n];
-
-	return NULL;
-}
-
-static int
-lws_servbuf_inside(struct lws_context_per_thread *pt, const unsigned char *p)
-{
-	return p >= pt->serv_buf &&
-	       p <= pt->serv_buf + pt->context->pt_serv_buf_size;
-}
-
-int
-lws_servbuf_claim(struct lws_context_per_thread *pt, const void *_p,
-		  size_t len, const char *who)
-{
-	const unsigned char *p = (const unsigned char *)_p, *e = p + len;
-	size_t n;
-
-	if (!lws_servbuf_inside(pt, p))
-		return -1; /* not serv_buf: nothing to track */
-
-	if (!lws_servbuf_inside(pt, e)) {
-		lwsl_err("%s: %s claims past the end of serv_buf (%zu at +%d)\n",
-			 __func__, who, len, (int)(p - pt->serv_buf));
-		abort();
-	}
-
-	for (n = 0; n < LWS_ARRAY_SIZE(pt->servbuf_claims); n++) {
-		struct lws_servbuf_claim *c = &pt->servbuf_claims[n];
-
-		if (c->s && p < c->e && e > c->s) {
-			lwsl_err("%s: %s claims serv_buf +%d..+%d while %s "
-				 "holds +%d..+%d\n", __func__, who,
-				 (int)(p - pt->serv_buf), (int)(e - pt->serv_buf),
-				 c->who, (int)(c->s - pt->serv_buf),
-				 (int)(c->e - pt->serv_buf));
-			abort();
-		}
-	}
-
-	for (n = 0; n < LWS_ARRAY_SIZE(pt->servbuf_claims); n++)
-		if (!pt->servbuf_claims[n].s) {
-			pt->servbuf_claims[n].s = p;
-			pt->servbuf_claims[n].e = e;
-			pt->servbuf_claims[n].who = who;
-
-			return (int)n;
-		}
-
-	lwsl_err("%s: %s: no free serv_buf claim slot\n", __func__, who);
-	abort();
-}
-
-void
-lws_servbuf_release(struct lws_context_per_thread *pt, int slot,
-		    const char *who)
-{
-	if (slot < 0 || slot >= (int)LWS_ARRAY_SIZE(pt->servbuf_claims))
-		return;
-
-	/* the claim may have been released early by name (a role that stashed
-	 * the rx); the slot then may already be somebody else's */
-	if (pt->servbuf_claims[slot].who == who)
-		pt->servbuf_claims[slot].s = NULL;
-}
-
-void
-lws_servbuf_release_containing(struct lws_context_per_thread *pt,
-			       const void *p)
-{
-	struct lws_servbuf_claim *c = lws_servbuf_find(pt,
-						(const unsigned char *)p);
-
-	if (c)
-		c->s = NULL;
-}
-
-void
-lws_servbuf_trim(struct lws_context_per_thread *pt, const void *_p)
-{
-	const unsigned char *p = (const unsigned char *)_p;
-	struct lws_servbuf_claim *c = lws_servbuf_find(pt, p);
-
-	if (!c)
-		return;
-
-	if (p >= c->e)
-		c->s = NULL; /* nothing left of it */
-	else
-		c->s = p;
-}
-
-void
-lws_servbuf_pass_boundary(struct lws_context_per_thread *pt,
-			  const char *where)
-{
-	size_t n;
-
-	for (n = 0; n < LWS_ARRAY_SIZE(pt->servbuf_claims); n++)
-		if (pt->servbuf_claims[n].s) {
-			lwsl_err("%s: %s still holds serv_buf +%d..+%d at %s\n",
-				 __func__, pt->servbuf_claims[n].who,
-				 (int)(pt->servbuf_claims[n].s - pt->serv_buf),
-				 (int)(pt->servbuf_claims[n].e - pt->serv_buf),
-				 where);
-			abort();
-		}
-}
-#endif
-
 lws_handling_result_t
 lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 	    struct lws_pollfd *pollfd, int flags, size_t max, int *nothing,
@@ -768,7 +647,7 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 	sb = lws_servbuf_claim(pt, ebuf.token, (size_t)ebuf.len, "rx pump");
 	n = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx).
 			rx(wsi, ebuf.token, (size_t)ebuf.len, !buffered);
-	lws_servbuf_release(pt, sb, "rx pump");
+	lws_servbuf_release(pt, sb);
 	if (n == LWS_RX_DIED)
 		return LWS_HPI_RET_WSI_ALREADY_DIED;
 	if (n == LWS_RX_CLOSE)
@@ -935,7 +814,7 @@ lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 	sb = lws_servbuf_claim(pt, pt->serv_buf, (size_t)n, "rx dgram pump");
 	n = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx_dgram).
 			rx_dgram(wsi, pt->serv_buf, (size_t)n, &sa46, ecn);
-	lws_servbuf_release(pt, sb, "rx dgram pump");
+	lws_servbuf_release(pt, sb);
 	if (n == LWS_RX_DIED)
 		return LWS_HPI_RET_WSI_ALREADY_DIED;
 	if (n == LWS_RX_CLOSE)

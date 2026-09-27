@@ -324,7 +324,7 @@ lws_serve_http_file_fragment(struct lws *wsi)
 				     wsi->a.context->pt_serv_buf_size - LWS_PRE,
 				     &p, &wp, &last);
 		if (n == LWS_TX_FAIL || n == LWS_TX_WAIT) {
-			lws_servbuf_release(pt, sb, "file tx");
+			lws_servbuf_release(pt, sb);
 			return n == LWS_TX_FAIL ? -1 : 0;
 		}
 
@@ -333,7 +333,7 @@ lws_serve_http_file_fragment(struct lws *wsi)
 					(int)wsi->a.context->timeout_secs);
 
 			m = lws_write(wsi, p, (size_t)n, wp);
-			lws_servbuf_release(pt, sb, "file tx");
+			lws_servbuf_release(pt, sb);
 			if (m < 0)
 				goto had_it;
 			if (m != n) {
@@ -346,7 +346,7 @@ lws_serve_http_file_fragment(struct lws *wsi)
 				goto had_it;
 			}
 		} else {
-			lws_servbuf_release(pt, sb, "file tx");
+			lws_servbuf_release(pt, sb);
 			last = 1;
 		}
 

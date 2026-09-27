@@ -829,7 +829,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 				   "ws server handshake");
 	int r = handshake_0405_composed(context, wsi);
 
-	lws_servbuf_release(pt, sb, "ws server handshake");
+	lws_servbuf_release(pt, sb);
 
 	return r;
 }

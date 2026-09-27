@@ -431,47 +431,4 @@ lws_pipe_wsi_release_fds(struct lws *wsi);
 #if defined(LWS_WITH_ASYNC_QUEUE)
 #endif
 
-/*
- * pt->serv_buf is one scratch buffer per service thread that everything
- * piles into to avoid allocations: the rx pump reads into it, composers build
- * response heads in it, the tx pulls produce into it.  That is only safe
- * while whoever is using a range of it is the only user of that range, and
- * only within one service pass (the next pass, of any socket, reuses it).
- *
- * With LWS_WITH_SERVBUF_CHECK each user claims the range it is about to use
- * and releases it when done; a claim that overlaps a live one, or one still
- * held when a pass starts or ends, aborts with both names.  Ownership can be
- * fragmented: a claim may give back its consumed prefix with
- * lws_servbuf_trim() (the rx pump's parsed head, so a composer may use that
- * part while the unparsed tail is still live), and a role that has stashed
- * or finished with the rx bytes releases the pump's claim by any pointer
- * inside it with lws_servbuf_release_containing().  Pointers outside
- * serv_buf (a buflist segment) are ignored by all of these.  Without the
- * option these compile to nothing.
- */
-#if defined(LWS_WITH_SERVBUF_CHECK)
-int
-lws_servbuf_claim(struct lws_context_per_thread *pt, const void *p,
-		  size_t len, const char *who);
-void
-lws_servbuf_release(struct lws_context_per_thread *pt, int slot,
-		    const char *who);
-void
-lws_servbuf_release_containing(struct lws_context_per_thread *pt,
-			       const void *p);
-void
-lws_servbuf_trim(struct lws_context_per_thread *pt, const void *p);
-void
-lws_servbuf_pass_boundary(struct lws_context_per_thread *pt,
-			  const char *where);
-#else
-#define lws_servbuf_claim(pt, p, len, who) \
-	((void)(pt), (void)(p), (void)(len), (void)(who), -1)
-#define lws_servbuf_release(pt, slot, who) \
-	((void)(pt), (void)(slot), (void)(who))
-#define lws_servbuf_release_containing(pt, p) ((void)(pt), (void)(p))
-#define lws_servbuf_trim(pt, p) ((void)(pt), (void)(p))
-#define lws_servbuf_pass_boundary(pt, where) ((void)(pt), (void)(where))
-#endif
-
 #endif /* __LWS_PRIVATE_LIB_IO_H__ */
