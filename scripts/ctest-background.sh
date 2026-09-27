@@ -10,26 +10,43 @@ FIXTURE_NAME=$1
 FIXTURE_EXE=`basename $2`
 . "$(dirname "$0")/ctest-fixture-key.sh"
 
-EXE_PATH=""
-for arg in "$@"; do
-    if [[ "$arg" == *"test-server"* ]] || [[ "$arg" == *"minimal-"* ]]; then
-        if [ -f "$arg" ]; then
-            EXE_PATH="$arg"
-            break
-        fi
-    fi
-done
+#
+# Build-tree binaries carry a RUNPATH to the build's lib/, and CI exports
+# LD_LIBRARY_PATH for the installed-to-destdir case, so this guess is only for
+# callers that have neither.  Skip it when the caller already said where the
+# libraries are, rather than prepending a guess in front of their answer.
+#
+if [ -z "$LD_LIBRARY_PATH" ] ; then
+	EXE_PATH=""
+	for arg in "$@"; do
+	    if [[ "$arg" == *"test-server"* ]] || [[ "$arg" == *"minimal-"* ]]; then
+		if [ -f "$arg" ]; then
+		    EXE_PATH="$arg"
+		    break
+		fi
+	    fi
+	done
 
-if [ ! -z "$EXE_PATH" ]; then
-    BIN_DIR=`dirname "$EXE_PATH"`
-    BUILD_DIR=`dirname "$BIN_DIR"`
-    export LD_LIBRARY_PATH="$BUILD_DIR/lib:$LD_LIBRARY_PATH"
+	if [ ! -z "$EXE_PATH" ]; then
+	    BIN_DIR=`dirname "$EXE_PATH"`
+	    BUILD_DIR=`dirname "$BIN_DIR"`
+	    export LD_LIBRARY_PATH="$BUILD_DIR/lib"
+	fi
 fi
 
 # We shift off $1 (the background fixture name) so that "$@" contains only the executable and its args.
 shift
 
-"$@" -d1039 2>"$FIX_LOG" 1>/dev/null 0</dev/null &
+#
+# $LWS_CTEST_BG_DEBUG - optional, the log-level argument to append.  The
+# default is deliberately noisy: -d1039 is also what makes lwsws install its
+# crash handler, so a SIGSEGV in a fixture prints a backtrace into its log
+# instead of vanishing.  Set it empty to append nothing (a fixture whose own
+# args already set a level, or one too chatty to run at info).
+#
+BG_DEBUG="${LWS_CTEST_BG_DEBUG--d1039}"
+
+"$@" $BG_DEBUG 2>"$FIX_LOG" 1>/dev/null 0</dev/null &
 echo $! > "$FIX_PID"
 
 # really we want to loop until the listen port is up
