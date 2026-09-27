@@ -99,7 +99,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	 */
 
 	if (lws_has_buffered_out(wsi)) {
-		if (lws_issue_raw(wsi, NULL, 0) < 0) {
+		if (lws_io_tx_push(wsi, NULL, 0) < 0) {
 			lwsl_wsi_info(wsi, "signalling to close");
 			goto bail_die;
 		}
@@ -878,7 +878,7 @@ lws_tx_pump(struct lws *wsi)
 		} else
 #endif
 		{
-			int m = lws_issue_raw(wsi, pt->serv_buf, (size_t)n);
+			int m = lws_io_tx_push(wsi, pt->serv_buf, (size_t)n);
 
 			/* the stream takes it all, or it failed */
 			n = m == n ? m : LWS_SSL_CAPABLE_ERROR;

@@ -28,7 +28,7 @@
  * notice this returns number of bytes consumed, or -1
  */
 int
-lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
+lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	struct lws_context *context = lws_get_context(wsi);
 	size_t real_len = len;
@@ -243,7 +243,7 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	// lwsl_notice("%s: lws_write calling write_role_protocol on %s\n", __func__, lws_wsi_tag(wsi));
 
 	if (!lws_rops_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol))
-		m = lws_issue_raw(wsi, buf, len);
+		m = lws_io_tx_push(wsi, buf, len);
 	else
 		m = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol).
 				write_role_protocol(wsi, buf, len, &wp);
@@ -287,7 +287,7 @@ lws_serve_http_file_fragment(struct lws *wsi)
 		 */
 
 		if (lws_has_buflist_out(wsi)) {
-			if (lws_issue_raw(wsi, NULL, 0) < 0) {
+			if (lws_io_tx_push(wsi, NULL, 0) < 0) {
 				lwsl_wsi_info(wsi, "closing");
 				goto had_it;
 			}

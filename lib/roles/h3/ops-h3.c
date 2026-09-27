@@ -271,14 +271,14 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 	/*
 	 * For QUIC/H3, lws_has_buffered_out() also checks QUIC pending_tx
 	 * for stream frames.  But those are drained by the QUIC POLLOUT
-	 * handler, not by lws_issue_raw().  Only check buflist_out here —
+	 * handler, not by lws_io_tx_push().  Only check buflist_out here —
 	 * blocking on QUIC pending_tx prevents the H3 state machine from
 	 * ever progressing past this point for client streams whose HEADERS
 	 * STREAM frames are still in the QUIC TX queue.
 	 */
 	if (wsi->buflist_out) {
 		lwsl_wsi_debug(wsi, "%s: completing partial", __func__);
-		if (lws_issue_raw(wsi, NULL, 0) < 0) {
+		if (lws_io_tx_push(wsi, NULL, 0) < 0) {
 			lwsl_wsi_info(wsi, "%s signalling to close", __func__);
 			lwsi_set_skt_unusable(wsi, 1);
 			return -1;

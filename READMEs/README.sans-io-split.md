@@ -38,7 +38,7 @@ things only through these requests.  Nothing else crosses.
 |---|---|---|
 | IO -> sansIO | **rx(bytes) -> consumed**: bytes arrived, take what you can; an empty rx is the peer closing | the `rx` role op, fed by `lws_rx_pump()` from IO's rx stage under the role's `rx_policy`; after the pass's reading the role's `rx_done` acts on what it holds; the app's pull of a response body, `lws_http_client_read()`, is the same read at the app's pace into the app's buffer, feeding `lws_h1_client_body_rx()` |
 | IO -> sansIO | **rx_dgram(bytes, peer, ecn) -> ok**: the datagram spelling of rx: one datagram arrived from this peer with these ECN bits; it is taken whole, nothing is parked | the `rx_dgram` role op, fed by `lws_rx_pump_dgram()`; quic.  A role with this op rides a datagram transport: IO gives a client one when the role binds, reports ECN and marks what it sends ECT(0), and takes a bound one as a listener |
-| IO -> sansIO | **tx(buf, max) -> n, more**: the transport can take bytes: fill the caller's buffer with the next ones to send, from wherever you got to last time, and say whether more remain | `lws_write()` composing into the `LWS_PRE` headroom then `lws_issue_raw()`; role `handle_POLLOUT`.  Converted: the status page (`lws_http_status_page_send_pending()`), file serving (`lws_http_file_tx()` producing, `lws_serve_http_file_fragment()` in IO driving), and, through the `tx` and `tx_sent` role ops that IO's `lws_tx_pump()` pulls at the start of the transport owner's POLLOUT pass, before its `handle_POLLOUT`: h2's protocol packets (`lws_h2_pps_tx()`, then `lws_h2_pps_done()` once written; the client preface and the 101 answering an h2c upgrade are protocol packets too, so they go in order ahead of the SETTINGS), and quic's packets (the datagram spelling, where each piece is a datagram with its destination: `lws_quic_packet_tx()` produces into IO's buffer sized to the path MTU and `lws_quic_packet_sent()` hears how the send went.  A listener's connections share its socket, so its tx is its own queued replies (version negotiation, retry) and then each connection that asked to write, in turn) |
+| IO -> sansIO | **tx(buf, max) -> n, more**: the transport can take bytes: fill the caller's buffer with the next ones to send, from wherever you got to last time, and say whether more remain | The app's data is the push form: its writeable callback is IO's pull, and `lws_write()` frames what it hands in place, in the `LWS_PRE` headroom, and gives it to IO with `lws_io_tx_push()`, uncopied; so do the proxy legs' one-shot messages (socks, http CONNECT) and a mux stream continuing its partial (`lws_io_tx_push(w, NULL, 0)`).  Everything else is pulled.  Converted: the status page (`lws_http_status_page_send_pending()`), file serving (`lws_http_file_tx()` producing, `lws_serve_http_file_fragment()` in IO driving), and, through the `tx` and `tx_sent` role ops that IO's `lws_tx_pump()` pulls at the start of the transport owner's POLLOUT pass, before its `handle_POLLOUT`: h2's protocol packets (`lws_h2_pps_tx()`, then `lws_h2_pps_done()` once written; the client preface and the 101 answering an h2c upgrade are protocol packets too, so they go in order ahead of the SETTINGS), and quic's packets (the datagram spelling, where each piece is a datagram with its destination: `lws_quic_packet_tx()` produces into IO's buffer sized to the path MTU and `lws_quic_packet_sent()` hears how the send went.  A listener's connections share its socket, so its tx is its own queued replies (version negotiation, retry) and then each connection that asked to write, in turn) |
 | IO -> sansIO | **deadline()**: the deadline you set has passed | `sul` callbacks, `lws_sul_wsitimeout_cb` |
 | IO -> sansIO | **transport(up(peer) / failed / gone)** | `client_transport_up(wsi, peer)` op, `LWS_WSIEV_TRANSPORT_UP`, `CONN_FAILED`, `SOCKET_GONE` |
 | sansIO -> IO | **want_write()**: call tx when the transport can take bytes | `lws_callback_on_writable()`; `lws_service_wsi_as_writable()` is the same request served now, and `lws_io_tx_now()` its datagram tx alone (a closing quic connection's CONNECTION_CLOSE) |
@@ -131,7 +131,7 @@ prototype: `lib/core-net/IO/private-lib-io.h` holds the IO half's (defined
 under `lib/core-net/IO`, `lib/plat`, `lib/tls`, `lib/event-libs`,
 `lib/drivers`, the async dns), and `private-lib-core.h` includes it unless
 `LWS_SANSIO_CHECK` is defined.  The requests sansIO makes of IO in their
-private spellings (`lws_issue_raw()` as tx's push form,
+private spellings (`lws_io_tx_push()` as tx's push form,
 `lws_service_wsi_as_writable()`, `lws_io_tx_now()` and
 `lws_io_service_now()` as want_write served now,
 `lws_client_transport_connected()` as the tunnel legs' "the transport is
@@ -365,7 +365,7 @@ can be live).
    adapter roles were classed as IO and the sansIO functions that lived in
    IO files moved home.  What is left is IO code in sansIO files, the
    POLLOUT clears, the pump calls from the roles' own handlers, and
-   `lws_issue_raw` as today's spelling of tx).
+   `lws_issue_raw`, now `lws_io_tx_push()`, as today's spelling of tx).
 7. The four requests through `lws_io_ops_t` (done: `lws-io-ops.h`,
    `lws_io_ops_default` in IO/pollfd.c, `lws_context_creation_info.io_ops`).
    Then quic's datagram socket, the largest group left in the check: its
@@ -377,7 +377,10 @@ can be live).
    in (done: the check fell from 19 lines to 7).  Then quic's tx is a
    pull: IO drives the loop that sends its packets and asks quic for each
    (done: quic names nothing of IO's any more; 6 lines left, none quic's).
-   The stream roles' `lws_issue_raw()` push is the rest of tx.
+   Then the stream roles (done: h2's protocol packets are pulled, the
+   client preface and the h2c 101 among them; what stays a push is named
+   for it, `lws_io_tx_push()`: the app's lws_write() data, framed in place
+   uncopied, the proxy legs' one-shot messages, a mux stream's partial).
 8. Split the object: IO's fields of `struct lws` move into the
    `lws_io_adjunct` (see "The object"), the check making it opaque to
    sansIO (in progress: the socket identity first).

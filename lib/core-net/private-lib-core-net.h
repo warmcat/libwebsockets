@@ -1476,7 +1476,7 @@ lws_pt_stats_unlock(struct lws_context_per_thread *pt)
 #define lws_any_extension_handled(_a, _b, _c, _d) (0)
 #define lws_ext_cb_active(_a, _b, _c, _d) (0)
 #define lws_ext_cb_all_exts(_a, _b, _c, _d, _e) (0)
-#define lws_issue_raw_ext_access lws_issue_raw
+#define lws_ws_ext_tx_push lws_io_tx_push
 #define lws_context_init_extensions(_a, _b)
 #endif
 
@@ -1488,12 +1488,12 @@ lws_ws_rx_sm(struct lws *wsi, char already_processed, unsigned char c);
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 /*
- * With extensions off this name is a macro for lws_issue_raw(), and the
+ * With extensions off this name is a macro for lws_io_tx_push(), and the
  * prototype would declare IO's function in the sansIO header behind the
  * back of scripts/sans-io-check.sh
  */
 int LWS_WARN_UNUSED_RESULT
-lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len);
+lws_ws_ext_tx_push(struct lws *wsi, unsigned char *buf, size_t len);
 #endif
 
 void

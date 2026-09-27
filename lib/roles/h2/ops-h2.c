@@ -1391,7 +1391,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 		if (lws_has_buffered_out(w)) {
 			lwsl_debug("%s: completing partial\n", __func__);
-			if (lws_issue_raw(w, NULL, 0) < 0) {
+			if (lws_io_tx_push(w, NULL, 0) < 0) {
 				lwsl_info("%s signalling to close\n", __func__);
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "h2 end stream 1");

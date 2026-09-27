@@ -940,7 +940,7 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	/*
 	 * The compressed (and maybe chunked) output is built in here, and
-	 * buf / len are pointed into it for the lws_issue_raw() below, so it
+	 * buf / len are pointed into it for the lws_io_tx_push() below, so it
 	 * has to be at function scope: block-scoped inside the if, the send
 	 * read a dead stack object (stack-use-after-scope under ASan, seen
 	 * serving any static file to a browser that offers gzip / br).
@@ -1012,7 +1012,7 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 	}
 #endif
 
-	n = lws_issue_raw(wsi, (unsigned char *)buf, len);
+	n = lws_io_tx_push(wsi, (unsigned char *)buf, len);
 	if (n < 0)
 		return n;
 

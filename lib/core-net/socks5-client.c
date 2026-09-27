@@ -261,7 +261,7 @@ lws_socks5c_greet(struct lws *wsi, const char **pcce)
 	}
 	// lwsl_hexdump_notice(pt->compose_buf, plen);
 	sb = lws_servbuf_claim(pt, pt->compose_buf, (size_t)plen, "socks greet");
-	n = lws_issue_raw(wsi, pt->compose_buf, (size_t)plen);
+	n = lws_io_tx_push(wsi, pt->compose_buf, (size_t)plen);
 	lws_servbuf_release(pt, sb);
 	if (n < 0) {
 		lwsl_wsi_debug(wsi, "ERROR writing socks greeting");
@@ -456,7 +456,7 @@ socks_send_l:
 	/* composed above, in compose_buf: the read it answers is in serv_buf */
 	n = lws_servbuf_claim(pt, pt->compose_buf, (size_t)plen, "socks rx compose");
 	lws_servbuf_release(pt, n);
-	n = lws_issue_raw(wsi, pt->compose_buf, (size_t)plen);
+	n = lws_io_tx_push(wsi, pt->compose_buf, (size_t)plen);
 	if (n < 0) {
 		lwsl_wsi_debug(wsi, "ERROR writing to socks proxy");
 		*pcce = "socks write fail";

@@ -34,12 +34,16 @@
 #define __LWS_PRIVATE_LIB_SANSIO_SEAM_H__
 
 /*
- * tx, in its push spelling: hand IO these bytes for the transport now.  The
- * pull (IO calling the role's tx when the transport can take bytes) replaces
- * this as the roles are converted.
+ * tx, in its push spelling: hand IO these bytes for the transport now; IO
+ * takes them all, buffering what the transport does not take at once, and
+ * returns len, or -1 when the transport failed.  buf NULL continues such a
+ * partial, returning what of it went.  What sansIO produces when IO asks is the pull (the role's tx op);
+ * the push is for what the app's writeable pass hands lws_write(), framed in
+ * place in its LWS_PRE headroom so it is not copied, and the one-shot messages
+ * of the proxy legs (socks, http CONNECT), composed at a state change.
  */
 int LWS_WARN_UNUSED_RESULT
-lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len);
+lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len);
 
 /* want_write, served now rather than on the next turn of the loop */
 int

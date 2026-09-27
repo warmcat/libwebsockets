@@ -969,7 +969,7 @@ int lws_h2_frame_write(struct lws *wsi, int type, int flags,
 				lws_h2_tx_cr_consume(wsi, (int)len);
 	}
 
-	n = lws_issue_raw(nwsi, &buf[-LWS_H2_FRAME_HEADER_LENGTH],
+	n = lws_io_tx_push(nwsi, &buf[-LWS_H2_FRAME_HEADER_LENGTH],
 			  len + LWS_H2_FRAME_HEADER_LENGTH);
 	if (n < 0)
 		return n;
@@ -1001,7 +1001,7 @@ lws_h2_ws_drain_parked_tx(struct lws *nwsi, struct lws *wsi)
 	/*
 	 * Test the stream's own buflist directly: lws_has_buffered_out()
 	 * additionally reports the nwsi's buffer, which fills up whenever
-	 * lws_issue_raw() below takes a partial socket write and must not
+	 * lws_io_tx_push() below takes a partial socket write and must not
 	 * keep us looping after our own parked frames are gone.
 	 */
 	while (wsi->buflist_out) {
@@ -1047,11 +1047,11 @@ lws_h2_ws_drain_parked_tx(struct lws *nwsi, struct lws *wsi)
 		lws_h2_tx_cr_consume(wsi, (int)chunk);
 
 		/*
-		 * lws_issue_raw() either sends the bytes or copies any
+		 * lws_io_tx_push() either sends the bytes or copies any
 		 * remainder onto nwsi's own buflist, so the parked bytes can
 		 * be released either way.
 		 */
-		if (lws_issue_raw(nwsi, out,
+		if (lws_io_tx_push(nwsi, out,
 				  LWS_H2_FRAME_HEADER_LENGTH + chunk) < 0)
 			return -1;
 

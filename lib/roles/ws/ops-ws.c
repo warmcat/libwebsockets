@@ -1394,7 +1394,7 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 		/* assuming they gave us something to send, send it */
 
 		if (pmdrx.eb_in.len) {
-			n = lws_issue_raw(wsi, (unsigned char *)pmdrx.eb_in.token,
+			n = lws_io_tx_push(wsi, (unsigned char *)pmdrx.eb_in.token,
 					(unsigned int)pmdrx.eb_in.len);
 			if (n < 0) {
 				lwsl_info("closing from POLLOUT spill\n");
@@ -1899,7 +1899,7 @@ do_more_inside_frame:
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 		/*
 		 * The h1 path fires LWS_EXT_CB_PACKET_TX_PRESEND from
-		 * lws_issue_raw_ext_access(); this encapsulated path used to
+		 * lws_ws_ext_tx_push(); this encapsulated path used to
 		 * bypass it, so permessage-deflate never got to set RSV1 (or
 		 * fix up the first-frame opcode) on the compressed frame it
 		 * already produced above -- peers then treated the deflated
@@ -1967,7 +1967,7 @@ do_more_inside_frame:
 			 * consumed.
 			 */
 
-			n = lws_issue_raw_ext_access(wsi, buf - pre, len + (unsigned int)pre);
+			n = lws_ws_ext_tx_push(wsi, buf - pre, len + (unsigned int)pre);
 			wsi->ws->inside_frame = 1;
 			if (n <= 0)
 				return n;
@@ -1994,7 +1994,7 @@ do_more_inside_frame:
 	}
 
 send_raw:
-	return lws_issue_raw(wsi, (unsigned char *)buf - pre, len + (unsigned int)pre);
+	return lws_io_tx_push(wsi, (unsigned char *)buf - pre, len + (unsigned int)pre);
 }
 
 static int
