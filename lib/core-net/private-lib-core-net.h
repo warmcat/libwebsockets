@@ -1011,6 +1011,26 @@ struct lws_io_adjunct {
 	volatile char			handling_pollout;
 	volatile char			leave_pollout_active;
 	uint8_t				shutdown_tries; /* tls close_notify */
+
+	/* what else only IO acts on */
+	unsigned int			listener:1; /* one of our listen sockets */
+	unsigned int			skip_fallback:1;
+#if defined(LWS_WITH_CLIENT)
+	unsigned int			disable_h3_fallback:1;
+	char				alpn_discovered[8]; /* alpn the origin
+							 * negotiated before */
+	uint8_t				sys_tls_client_cert;
+	uint8_t				c_pri; /* socket priority */
+#endif
+	uint16_t			conn_port; /* port actually connected */
+	uint8_t				lsp_channel; /* a spawn's stdin/out/err */
+#if defined(LWS_WITH_CGI)
+	char				hdr_state; /* cgi response headers */
+#endif
+#if LWS_MAX_SMP > 1
+	/* volatile to make sure code is aware other thread can change */
+	volatile char			undergoing_init_from_other_pt;
+#endif
 };
 #endif
 
@@ -1127,7 +1147,6 @@ struct lws {
 #if defined(LWS_WITH_CLIENT)
 	struct client_info_stash	*stash;
 	char				*cli_hostname_copy;
-	char				alpn_discovered[8];
 #if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
 	uint16_t			quic_alt_port;
 	/**< RFC 7838 alt-svc learned h3 port for the origin, 0 = none, so
@@ -1182,7 +1201,6 @@ struct lws {
 	unsigned int			http_carries_sse:1; /* lws_http_mark_sse() */
 	unsigned int			h2_acked_settings:1;
 	unsigned int			seen_nonpseudoheader:1;
-	unsigned int			listener:1;
 	unsigned int			user_space_externally_allocated:1;
 	unsigned int			rxflow_change_to:2;
 	unsigned int			conn_stat_done:1;
@@ -1201,7 +1219,6 @@ struct lws {
 	unsigned int			h1_ws_proxied:1;
 	unsigned int			proxied_ws_parent:1;
 	unsigned int			validity_hup:1;
-	unsigned int			skip_fallback:1;
 	unsigned int			conn_validity_wakesuspend:1;
 	unsigned int			mount_hit:1;
 
@@ -1226,7 +1243,6 @@ struct lws {
 	unsigned int			redirected_to_get:1;
 	unsigned int			client_pipeline:1;
 	unsigned int			client_mux_substream:1;
-	unsigned int			disable_h3_fallback:1;
 	unsigned int			client_subsequent_mime_part:1;
 	unsigned int                    client_no_follow_redirect:1;
 	unsigned int                    client_suppress_CONNECTION_ERROR:1;
@@ -1238,7 +1254,7 @@ struct lws {
 #endif
 
 
-	uint16_t			ocport, c_port, conn_port;
+	uint16_t			ocport, c_port;
 #if defined(LWS_WITH_CLIENT)
 	uint16_t			keep_warm_secs;
 #endif
@@ -1255,22 +1271,10 @@ struct lws {
 #endif
 	uint8_t rxflow_bitmap;
 	uint8_t bound_vhost_index;
-	uint8_t lsp_channel; /* which of stdin/out/err */
-#ifdef LWS_WITH_CGI
-	char hdr_state;
-#endif
-#if defined(LWS_WITH_CLIENT)
-	uint8_t sys_tls_client_cert;
-	uint8_t c_pri;
-#endif
 #if defined(LWS_WITH_CGI) || defined(LWS_WITH_CLIENT)
 	char reason_bf; /* internal writeable callback reason bitfield */
 #endif
 	uint8_t immortal_substream_count;
-	/* volatile to make sure code is aware other thread can change */
-#if LWS_MAX_SMP > 1
-	volatile char undergoing_init_from_other_pt;
-#endif
 
 };
 

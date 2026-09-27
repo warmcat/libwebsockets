@@ -199,7 +199,7 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 		lws_set_timeout(cgiinfo->wsi, PENDING_TIMEOUT_CGI, cgiinfo->timeout_secs);
 
 	/* the cgi stdout is always sending us http1.x header data first */
-	cgiinfo->wsi->hdr_state = LCHS_HEADER;
+	cgiinfo->wsi->io->hdr_state = LCHS_HEADER;
 
 	/*
 	 * Notice we do NOT put ourselves on the pt list of active cgis yet:
@@ -636,12 +636,12 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 	 * checks it.
 	 */
 
-	while (wsi->hdr_state != LHCS_PAYLOAD) {
+	while (wsi->io->hdr_state != LHCS_PAYLOAD) {
 		/*
 		 * We have to separate header / finalize and payload chunks,
 		 * since they need to be handled separately
 		 */
-		switch (wsi->hdr_state) {
+		switch (wsi->io->hdr_state) {
 		case LHCS_RESPONSE:
 			lwsl_wsi_debug(wsi, "LHCS_RESPONSE: iss response %d",
 					    wsi->http.cgi->response_code);
@@ -758,7 +758,7 @@ post_hpack_recode:
 				return -1;
 			}
 
-			wsi->hdr_state = LHCS_DUMP_HEADERS;
+			wsi->io->hdr_state = LHCS_DUMP_HEADERS;
 			wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_HEADERS;
 			lws_callback_on_writable(wsi);
 			/* back to the loop for writeability again */
@@ -790,7 +790,7 @@ post_hpack_recode:
 			wsi->http.cgi->headers_dumped += n;
 			if (wsi->http.cgi->headers_dumped ==
 			    wsi->http.cgi->headers_pos) {
-				wsi->hdr_state = LHCS_PAYLOAD;
+				wsi->io->hdr_state = LHCS_PAYLOAD;
 				lws_free_set_NULL(wsi->http.cgi->headers_buf);
 				lwsl_wsi_debug(wsi, "freed cgi headers");
 
@@ -863,12 +863,12 @@ post_hpack_recode:
 			goto agin;
 
 		lwsl_wsi_debug(wsi, "-- 0x%02X %c %d %d", (unsigned char)c, c,
-				    wsi->http.cgi->match[1], wsi->hdr_state);
+				    wsi->http.cgi->match[1], wsi->io->hdr_state);
 		if (!c)
 			return -1;
 		do {
 			int reprocess = 0;
-			switch (wsi->hdr_state) {
+			switch (wsi->io->hdr_state) {
 			case LCHS_HEADER:
 				for (n = 0; n < SIGNIFICANT_HDR_COUNT; n++) {
 				/*
@@ -907,14 +907,14 @@ post_hpack_recode:
 
 			/* some cgi only send us \x0a for EOL */
 			if (c == '\x0a') {
-				wsi->hdr_state = LCHS_SINGLE_0A;
+				wsi->io->hdr_state = LCHS_SINGLE_0A;
 				*wsi->http.cgi->headers_pos++ = '\x0d';
 			}
 			*wsi->http.cgi->headers_pos++ = (unsigned char)c;
 			if (c == '\x0d')
-				wsi->hdr_state = LCHS_LF1;
+				wsi->io->hdr_state = LCHS_LF1;
 
-			if (wsi->hdr_state != LCHS_HEADER &&
+			if (wsi->io->hdr_state != LCHS_HEADER &&
 			    !significant_hdr[SIGNIFICANT_HDR_TRANSFER_ENCODING]
 				    [wsi->http.cgi->match[
 					 SIGNIFICANT_HDR_TRANSFER_ENCODING]]) {
@@ -923,7 +923,7 @@ post_hpack_recode:
 			}
 
 			/* presence of Location: mandates 302 retcode */
-			if (wsi->hdr_state != LCHS_HEADER &&
+			if (wsi->io->hdr_state != LCHS_HEADER &&
 			    !significant_hdr[SIGNIFICANT_HDR_LOCATION][
 			      wsi->http.cgi->match[SIGNIFICANT_HDR_LOCATION]]) {
 				lwsl_wsi_debug(wsi, "CGI: Location hdr seen");
@@ -933,7 +933,7 @@ post_hpack_recode:
 		case LCHS_LF1:
 			*wsi->http.cgi->headers_pos++ = (unsigned char)c;
 			if (c == '\x0a') {
-				wsi->hdr_state = LCHS_CR2;
+				wsi->io->hdr_state = LCHS_CR2;
 				break;
 			}
 			/* we got \r[^\n]... it's unreasonable */
@@ -944,10 +944,10 @@ post_hpack_recode:
 		case LCHS_CR2:
 			if (c == '\x0d') {
 				/* drop the \x0d */
-				wsi->hdr_state = LCHS_LF2;
+				wsi->io->hdr_state = LCHS_LF2;
 				break;
 			}
-			wsi->hdr_state = LCHS_HEADER;
+			wsi->io->hdr_state = LCHS_HEADER;
 			for (n = 0; n < SIGNIFICANT_HDR_COUNT; n++)
 				wsi->http.cgi->match[n] = 0;
 			wsi->http.cgi->lp = 0;
@@ -956,12 +956,12 @@ post_hpack_recode:
 
 		case LCHS_LF2:
 		case LCHS_SINGLE_0A:
-			m = wsi->hdr_state;
+			m = wsi->io->hdr_state;
 			if (c == '\x0a') {
 				lwsl_wsi_debug(wsi, "Content-Length: %lld",
 					(unsigned long long)
 					wsi->http.cgi->content_length);
-				wsi->hdr_state = LHCS_RESPONSE;
+				wsi->io->hdr_state = LHCS_RESPONSE;
 				/*
 				 * drop the \0xa ... finalize
 				 * will add it if needed (HTTP/1)
@@ -973,7 +973,7 @@ post_hpack_recode:
 				return -1;
 			/* we got \x0anext header, it's reasonable */
 			*wsi->http.cgi->headers_pos++ = (unsigned char)c;
-			wsi->hdr_state = LCHS_HEADER;
+			wsi->io->hdr_state = LCHS_HEADER;
 			for (n = 0; n < SIGNIFICANT_HDR_COUNT; n++)
 				wsi->http.cgi->match[n] = 0;
 			wsi->http.cgi->lp = 0;
@@ -987,7 +987,7 @@ post_hpack_recode:
 
 agin:
 		/* ran out of input, ended the hdrs, or filled up the hdrs buf */
-		if (!n || wsi->hdr_state == LHCS_PAYLOAD)
+		if (!n || wsi->io->hdr_state == LHCS_PAYLOAD)
 			return 0;
 	}
 
@@ -1356,7 +1356,7 @@ lws_cgi_stdwsi_quiesce(struct lws *wsi)
 	    !wsi->parent->http.cgi->lsp)
 		return;
 
-	wsi->parent->http.cgi->lsp->stdwsi[(int)wsi->lsp_channel] = NULL;
+	wsi->parent->http.cgi->lsp->stdwsi[(int)wsi->io->lsp_channel] = NULL;
 }
 
 /*

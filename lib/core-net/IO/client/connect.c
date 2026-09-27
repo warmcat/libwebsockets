@@ -174,7 +174,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	if (i->context->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA)
 		wsi->flags |= LCCSCF_ALLOW_EARLY_DATA;
 
-	wsi->c_pri = i->priority;
+	wsi->io->c_pri = i->priority;
 
 	/*
 	 * A connection with a transport under it (lws_set_transport()) has
@@ -242,7 +242,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->io->position_in_fds_table = LWS_NO_FDS_POS;
 	wsi->ocport = wsi->c_port = (uint16_t)(unsigned int)i->port;
-	wsi->sys_tls_client_cert = i->sys_tls_client_cert;
+	wsi->io->sys_tls_client_cert = i->sys_tls_client_cert;
 
 #if defined(LWS_ROLE_H2)
 	wsi->txc.manual_initial_tx_credit =
@@ -251,7 +251,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	wsi->a.protocol = &wsi->a.vhost->protocols[0];
 	wsi->client_pipeline = !!(i->ssl_connection & LCCSCF_PIPELINE);
-    wsi->disable_h3_fallback = !!i->disable_h3_fallback;
+    wsi->io->disable_h3_fallback = !!i->disable_h3_fallback;
 	wsi->client_no_follow_redirect = !!(i->ssl_connection &
 					    LCCSCF_HTTP_NO_FOLLOW_REDIRECT);
 

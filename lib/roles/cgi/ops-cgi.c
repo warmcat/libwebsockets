@@ -32,7 +32,7 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	assert(wsi->role_ops == &role_ops_cgi);
 
-	if (wsi->lsp_channel >= LWS_STDOUT &&
+	if (wsi->io->lsp_channel >= LWS_STDOUT &&
 	    !(pollfd->revents & pollfd->events & LWS_POLLIN)) {
 		/*
 		 * We were woken without POLLIN in revents... normally that
@@ -48,16 +48,16 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * stderr has no flow-controlled drain path, so it keeps the
 		 * old "nothing readable -> dead" handling.
 		 */
-		if (wsi->lsp_channel != LWS_STDOUT ||
+		if (wsi->io->lsp_channel != LWS_STDOUT ||
 		    !(pollfd->revents & LWS_POLLHUP))
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
-	if (wsi->lsp_channel == LWS_STDIN &&
+	if (wsi->io->lsp_channel == LWS_STDIN &&
 	    !(pollfd->revents & pollfd->events & LWS_POLLOUT))
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
-	if (wsi->lsp_channel == LWS_STDIN &&
+	if (wsi->io->lsp_channel == LWS_STDIN &&
 	    lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 		lwsl_wsi_info(wsi, "failed at set pollfd");
 		return LWS_HPI_RET_WSI_ALREADY_DIED;
@@ -69,7 +69,7 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_HANDLED;
 	}
 
-	if (wsi->lsp_channel == LWS_STDIN)
+	if (wsi->io->lsp_channel == LWS_STDIN)
 		/*
 		 * The cgi has drained its stdin pipe enough to accept more
 		 * body... if quenching rx on the parent network wsi while
@@ -93,9 +93,9 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_HANDLED;
 	}
 
-	args.ch = wsi->lsp_channel;
+	args.ch = wsi->io->lsp_channel;
 	args.stdwsi = &wsi->parent->http.cgi->lsp->stdwsi[0];
-	args.hdr_state = (enum lws_cgi_hdr_state)wsi->hdr_state;
+	args.hdr_state = (enum lws_cgi_hdr_state)wsi->io->hdr_state;
 
 	lwsl_wsi_debug(wsi, "CGI LWS_STDOUT %p wsistate 0x%x",
 			    wsi->parent, wsi->wsistate);
@@ -148,7 +148,7 @@ rops_close_role_cgi(struct lws_context_per_thread *pt, struct lws *wsi)
 	 * the stdin pipe was full must be released, or the network transaction
 	 * can be left unable to make progress
 	 */
-	if (wsi->lsp_channel == LWS_STDIN && wsi->parent)
+	if (wsi->io->lsp_channel == LWS_STDIN && wsi->parent)
 		lws_rx_flow_control(wsi->parent,
 				LWS_RXFLOW_REASON_USER_BOOL |
 				LWS_RXFLOW_REASON_APPLIES_ENABLE |

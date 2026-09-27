@@ -105,7 +105,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			continue;
 
 		wsi = wsi_from_fd(context, pfd->fd);
-		if (!wsi || wsi->listener)
+		if (!wsi || wsi->io->listener)
 			continue;
 		if (wsi->io->sock_send_blocking)
 			continue;

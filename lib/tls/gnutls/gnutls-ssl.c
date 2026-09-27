@@ -177,7 +177,7 @@ lws_tls_server_accept(struct lws *wsi)
 	if (!wsi->io->tls.ssl)
 		return LWS_SSL_CAPABLE_ERROR;
 
-	wsi->skip_fallback = 1;
+	wsi->io->skip_fallback = 1;
 
 	n = gnutls_handshake((gnutls_session_t)wsi->io->tls.ssl);
 	lwsl_debug("%s: gnutls_handshake returned %d\n", __func__, n);

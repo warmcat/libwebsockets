@@ -293,7 +293,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 	 * which may be concurrent to this.  We mark the wsi as still undergoing
 	 * init in another pt so the assigned pt leaves it alone.
 	 */
-	new_wsi->undergoing_init_from_other_pt = 1;
+	new_wsi->io->undergoing_init_from_other_pt = 1;
 #endif
 
 	if (!(type & LWS_ADOPT_ALLOW_SSL)) {
@@ -354,7 +354,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 
 		/* bound, it is where new peers arrive: one of our listeners */
 		if (new_wsi->io->do_bind) {
-			new_wsi->listener = 1;
+			new_wsi->io->listener = 1;
 #if defined(LWS_WITH_SERVER)
 			if (!lws_dll2_owner(&new_wsi->listen_list))
 				lws_dll2_add_tail(&new_wsi->listen_list,
@@ -382,7 +382,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 #if LWS_MAX_SMP > 1
 	/* its actual pt can service it now */
 
-	new_wsi->undergoing_init_from_other_pt = 0;
+	new_wsi->io->undergoing_init_from_other_pt = 0;
 #endif
 
 	lws_cancel_service_pt(new_wsi);

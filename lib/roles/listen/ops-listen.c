@@ -680,7 +680,7 @@ done_list:
 		wsi->io->desc.sockfd = sockfd;
 		wsi->a.protocol = a->vhost->protocols;
 		lws_vhost_bind_wsi(a->vhost, wsi);
-		wsi->listener = 1;
+		wsi->io->listener = 1;
 
 		if (wsi->a.context->event_loop_ops->init_vhost_listen_wsi)
 			wsi->a.context->event_loop_ops->init_vhost_listen_wsi(wsi);

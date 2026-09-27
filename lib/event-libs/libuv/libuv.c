@@ -494,9 +494,9 @@ elops_wsi_logical_close_uv(struct lws *wsi)
 	    !wsi_to_priv_uv(wsi)->w_read.pwatcher)
 		return 0;
 
-	if (wsi->listener || wsi->io->event_pipe) {
+	if (wsi->io->listener || wsi->io->event_pipe) {
 		lwsl_wsi_debug(wsi, "%d %d stop listener / pipe poll",
-				    wsi->listener,
+				    wsi->io->listener,
 				    wsi->io->event_pipe);
 		if (wsi_to_priv_uv(wsi)->w_read.pwatcher)
 			uv_poll_stop(wsi_to_priv_uv(wsi)->w_read.pwatcher);

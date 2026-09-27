@@ -698,7 +698,7 @@ lws_tls_server_accept(struct lws *wsi)
 
 	ret = HITLS_Accept(wsi->io->tls.ssl);
 
-	wsi->skip_fallback = 1;
+	wsi->io->skip_fallback = 1;
 
 	if (ret == HITLS_SUCCESS) {
 

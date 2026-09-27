@@ -396,10 +396,10 @@ solo:
 
 		lws_snprintf(key, sizeof(key), "alpn_%s_%u", adsin, wsi->c_port);
 		if (!lws_cache_item_get(wsi->a.context->alpn_cache, key, (const void **)&cached_alpn, &clen)) {
-			lws_strncpy(wsi->alpn_discovered, cached_alpn, sizeof(wsi->alpn_discovered));
-			lwsl_wsi_notice(wsi, "ALPN cache hit for %s: %s", key, wsi->alpn_discovered);
+			lws_strncpy(wsi->io->alpn_discovered, cached_alpn, sizeof(wsi->io->alpn_discovered));
+			lwsl_wsi_notice(wsi, "ALPN cache hit for %s: %s", key, wsi->io->alpn_discovered);
 		} else {
-			wsi->alpn_discovered[0] = '\0';
+			wsi->io->alpn_discovered[0] = '\0';
 		}
 	}
 #endif
@@ -450,8 +450,8 @@ solo:
 			}
 		}
 
-		if (!pinned && !try_quic && wsi->alpn_discovered[0] &&
-		    strstr(wsi->alpn_discovered, "h3"))
+		if (!pinned && !try_quic && wsi->io->alpn_discovered[0] &&
+		    strstr(wsi->io->alpn_discovered, "h3"))
 			/* we negotiated h3 on this origin port before */
 			try_quic = 1;
 
@@ -583,7 +583,7 @@ solo:
 	lws_wsi_event(wsi, LWS_WSIEV_DNS_START);
 
 	lwsl_wsi_info(wsi, "lookup %s:%u", adsin, port);
-	wsi->conn_port = (uint16_t)port;
+	wsi->io->conn_port = (uint16_t)port;
 
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)
 	n = 0;

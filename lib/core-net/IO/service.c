@@ -1299,7 +1299,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		return 0;
 
 #if LWS_MAX_SMP > 1
-	if (wsi->undergoing_init_from_other_pt)
+	if (wsi->io->undergoing_init_from_other_pt)
 		/*
 		 * Temporary situation that other service thread is initializing
 		 * this wsi right now for use on our service thread.

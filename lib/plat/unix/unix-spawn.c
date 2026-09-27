@@ -634,7 +634,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
                 __lws_lc_tag(i->vh->context, &i->vh->context->lcg[LWSLCG_WSI],
                 	     &lsp->stdwsi[n]->lc, "nspawn-stdwsi-%d", n);
 
-		lsp->stdwsi[n]->lsp_channel = (uint8_t)n;
+		lsp->stdwsi[n]->io->lsp_channel = (uint8_t)n;
 		lws_vhost_bind_wsi(i->vh, lsp->stdwsi[n]);
 		lsp->stdwsi[n]->a.protocol = pcol;
 		lsp->stdwsi[n]->a.opaque_user_data = i->opaque;
@@ -1072,7 +1072,7 @@ lws_spawn_get_stdwsi_open_count(struct lws_spawn_piped *lsp)
 int
 lws_spawn_get_stdfd(struct lws *wsi)
 {
-	return wsi->lsp_channel;
+	return wsi->io->lsp_channel;
 }
 
 int

@@ -698,7 +698,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 			goto fail;
 		}
 
-		if (wsi->a.vhost->tls.allow_non_ssl_on_ssl_port && !wsi->skip_fallback) {
+		if (wsi->a.vhost->tls.allow_non_ssl_on_ssl_port && !wsi->io->skip_fallback) {
 			/*
 			 * We came here by POLLIN, so there is supposed to be
 			 * something to read...

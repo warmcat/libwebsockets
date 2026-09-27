@@ -247,7 +247,7 @@ lws_client_transport_failed(struct lws *wsi)
 		 * not silently become h2... but if h3 was explicitly
 		 * offered, fall back to the TCP alpns for the retry.
 		 */
-		wsi->alpn_discovered[0] = '\0';
+		wsi->io->alpn_discovered[0] = '\0';
 		/* the QUIC attempt had set wsi alpn to h3, recover
 		 * the original from the ah headers, or TCP alpns */
 		if (strstr(wsi->alpn, "h3")) {

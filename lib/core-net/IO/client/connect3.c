@@ -123,7 +123,7 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 	}
 	/* Clear discovered ALPN so connect_2 does not see h3 from the
 	 * cache-hit path after the socket is rebuilt. */
-	wsi->alpn_discovered[0] = '\0';
+	wsi->io->alpn_discovered[0] = '\0';
 
 #if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
 	/*
@@ -455,7 +455,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	const char *cce = "Unable to connect", *iface, *local_port;
 	const struct sockaddr *psa = NULL;
-	uint16_t port = wsi->conn_port;
+	uint16_t port = wsi->io->conn_port;
 	char dcce[128], t16[16];
 
 #if defined(LWS_WITH_UDP) && \
@@ -1028,7 +1028,7 @@ ads_known:
 
 		/* apply requested socket options */
 		if (lws_plat_set_socket_options_ip(new_fd,
-						   wsi->c_pri, wsi->flags))
+						   wsi->io->c_pri, wsi->flags))
 			lwsl_wsi_warn(wsi, "unable to set ip options");
 
 #if !defined(WIN32) && !defined(_WIN32)
@@ -1468,7 +1468,7 @@ ads_known:
 		 */
 		if (grace_us < LWS_QUIC_GRACE_DEFAULT_US)
 			grace_us = LWS_QUIC_GRACE_DEFAULT_US;
-		if (wsi->disable_h3_fallback) {
+		if (wsi->io->disable_h3_fallback) {
 			lwsl_wsi_info(wsi, "QUIC socket created, H3 fallback disabled");
 		} else {
 			lwsl_wsi_info(wsi, "QUIC socket created, starting grace timer %uus", (unsigned int)grace_us);
