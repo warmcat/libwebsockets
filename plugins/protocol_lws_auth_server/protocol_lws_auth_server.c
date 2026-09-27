@@ -1175,6 +1175,9 @@ auth_check_csrf(struct lws *wsi, struct per_vhost_data__auth_server *vhd, struct
 	char csrf_ck[64] = {0};
 	size_t csrf_len = sizeof(csrf_ck);
 
+	lwsl_wsi_notice(wsi, "sso_exchange: Cookie header is %d bytes",
+				lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE));
+
 	lws_http_cookie_get(wsi, "auth_csrf", csrf_ck, &csrf_len);
 
 	if (!csrf_form || !csrf_ck[0] || strlen(csrf_ck) != strlen(csrf_form) || lws_timingsafe_bcmp(csrf_ck, csrf_form, (uint32_t)strlen(csrf_ck))) {
