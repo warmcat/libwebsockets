@@ -182,7 +182,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	 * given: the connect machine skips dns and connect for it
 	 */
 	if (i->transport) {
-		wsi->io.desc.sockfd = i->transport_fd;
+		wsi->io->desc.sockfd = i->transport_fd;
 		lws_set_transport(wsi, i->transport, i->transport_opaque);
 	}
 
@@ -240,7 +240,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	wsi->user_space = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
-	wsi->io.position_in_fds_table = LWS_NO_FDS_POS;
+	wsi->io->position_in_fds_table = LWS_NO_FDS_POS;
 	wsi->ocport = wsi->c_port = (uint16_t)(unsigned int)i->port;
 	wsi->sys_tls_client_cert = i->sys_tls_client_cert;
 
@@ -532,7 +532,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 #if defined(LWS_WITH_TLS)
 
-		wsi->io.tls.ssl = NULL;
+		wsi->io->tls.ssl = NULL;
 
 		if (strcmp(wsi->role_ops->name, "raw-skt") != 0 &&
 		    (wsi->use_ssl & LCCSCF_USE_SSL)) {
@@ -603,11 +603,11 @@ bail:
 	wsi->parent = NULL;
 
 	/* a transport's fd became ours at the call: it goes with the wsi */
-	if (i->transport && lws_socket_is_valid(wsi->io.desc.sockfd))
-		compatible_close(wsi->io.desc.sockfd);
+	if (i->transport && lws_socket_is_valid(wsi->io->desc.sockfd))
+		compatible_close(wsi->io->desc.sockfd);
 
 #if defined(LWS_WITH_TLS)
-	if (wsi->io.tls.ssl)
+	if (wsi->io->tls.ssl)
 		lws_tls_restrict_return(wsi);
 #endif
 

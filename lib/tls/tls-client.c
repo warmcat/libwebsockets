@@ -309,7 +309,7 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 #if defined(LWS_WITH_TCP_TLS)
 		int n;
 #endif
-		if (!wsi->io.tls.ssl) {
+		if (!wsi->io->tls.ssl) {
 
 #if defined(LWS_WITH_TLS)
 			if (!wsi->transaction_from_pipeline_queue &&
@@ -353,7 +353,7 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 		return CCTLS_RETURN_ERROR;
 #endif
 	} else
-		wsi->io.tls.ssl = NULL;
+		wsi->io->tls.ssl = NULL;
 
 	return CCTLS_RETURN_DONE; /* OK */
 }

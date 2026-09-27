@@ -263,8 +263,8 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 */
 
 	} while (pt->fds_count < context->fd_limit_per_thread - 1 &&
-		 wsi->io.position_in_fds_table != LWS_NO_FDS_POS &&
-		 lws_poll_listen_fd(&pt->fds[wsi->io.position_in_fds_table]) > 0);
+		 wsi->io->position_in_fds_table != LWS_NO_FDS_POS &&
+		 lws_poll_listen_fd(&pt->fds[wsi->io->position_in_fds_table]) > 0);
 
 #if defined(LWS_WITH_LATENCY)
 	{
@@ -352,11 +352,11 @@ check_extant(struct lws_dll2 *d, void *user)
 	if (!lws_vhost_compare_listen(wsi->a.vhost, a->vhost))
 		return 0;
 
-	if (wsi->io.af != a ->af)
+	if (wsi->io->af != a ->af)
 		return 0;
 
 	if (a->info && a->info->vh_listen_sockfd &&
-	    wsi->io.desc.sockfd != a->info->vh_listen_sockfd)
+	    wsi->io->desc.sockfd != a->info->vh_listen_sockfd)
 		return 0;
 
 	lwsl_notice(" using listen skt from vhost %s\n", wsi->a.vhost->name);
@@ -665,11 +665,11 @@ done_list:
 			goto bail;
 		}
 
-		wsi->io.af = (uint8_t)a->af;
+		wsi->io->af = (uint8_t)a->af;
 
 #ifdef LWS_WITH_UNIX_SOCK
 		if (LWS_UNIX_SOCK_ENABLED(a->vhost)) {
-			wsi->io.unix_skt = 1;
+			wsi->io->unix_skt = 1;
 		} else
 #endif
 		{
@@ -677,7 +677,7 @@ done_list:
 			lwsl_debug("%s: lws_socket_bind says %d\n", __func__, is);
 		}
 
-		wsi->io.desc.sockfd = sockfd;
+		wsi->io->desc.sockfd = sockfd;
 		wsi->a.protocol = a->vhost->protocols;
 		lws_vhost_bind_wsi(a->vhost, wsi);
 		wsi->listener = 1;
@@ -702,7 +702,7 @@ done_list:
 #if defined(WIN32) && defined(TCP_FASTOPEN)
 		if (a->vhost->fo_listen_queue) {
 			int optval = 1;
-			if (setsockopt(wsi->io.desc.sockfd, IPPROTO_TCP,
+			if (setsockopt(wsi->io->desc.sockfd, IPPROTO_TCP,
 				       TCP_FASTOPEN,
 				       (const char*)&optval, sizeof(optval)) < 0) {
 #if (_LWS_ENABLED_LOGS & LLL_WARN)
@@ -717,14 +717,14 @@ done_list:
 		if (a->vhost->fo_listen_queue) {
 			int qlen = a->vhost->fo_listen_queue;
 
-			if (setsockopt(wsi->io.desc.sockfd, SOL_TCP, TCP_FASTOPEN,
+			if (setsockopt(wsi->io->desc.sockfd, SOL_TCP, TCP_FASTOPEN,
 				       &qlen, sizeof(qlen)))
 				lwsl_warn("%s: TCP_FASTOPEN failed\n", __func__);
 		}
 #endif
 #endif
 
-		n = listen(wsi->io.desc.sockfd, LWS_SOMAXCONN);
+		n = listen(wsi->io->desc.sockfd, LWS_SOMAXCONN);
 		if (n < 0) {
 			lwsl_err("listen failed with error %d\n", LWS_ERRNO);
 			lws_dll2_remove(&wsi->listen_list);

@@ -265,7 +265,7 @@ lws_tls_server_send_alert(struct lws *wsi, const uint8_t *ver, uint8_t desc)
 	 * fresh socket does not block in practice
 	 */
 
-	(void)send(wsi->io.desc.sockfd, (const char *)rec, sizeof(rec),
+	(void)send(wsi->io->desc.sockfd, (const char *)rec, sizeof(rec),
 		   MSG_NOSIGNAL);
 }
 
@@ -527,7 +527,7 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 	case LWS_SSL_CAPABLE_ERROR:
 		lws_tls_restrict_return_handshake(wsi);
 		lwsl_info("%s: SSL_accept failed socket %u: %d\n",
-				__func__, wsi->io.desc.sockfd, n);
+				__func__, wsi->io->desc.sockfd, n);
 		lwsi_set_skt_unusable(wsi, 1);
 		return 1;
 
@@ -553,7 +553,7 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 	 * listening vhost).  Leave those alone.
 	 */
 
-	if (wsi->io.tls.ssl && !wsi->sni_vh_bound) {
+	if (wsi->io->tls.ssl && !wsi->sni_vh_bound) {
 		vh = lws_tls_vhost_owning_ctx(context, lws_tls_ctx_from_wsi(wsi));
 		if (vh) {
 			lwsl_info("setting wsi to vh %s\n", vh->name);
@@ -594,7 +594,7 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 	 * him from an mTLS vhost whose requirement he did not meet.
 	 */
 
-	if (wsi->io.tls.ssl && wsi->a.vhost &&
+	if (wsi->io->tls.ssl && wsi->a.vhost &&
 	    lws_vhost_mtls_unsatisfied(wsi, wsi->a.vhost)) {
 		lwsl_wsi_notice(wsi, "dropping: vh %s requires a client cert "
 				     "this handshake did not provide",
@@ -636,7 +636,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 	switch (lwsi_state(wsi)) {
 	case LRS_SSL_INIT:
 
-		if (wsi->io.tls.ssl)
+		if (wsi->io->tls.ssl)
 			lwsl_err("%s: leaking ssl\n", __func__);
 		if (accept_fd == LWS_SOCK_INVALID)
 			assert(0);
@@ -704,7 +704,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 			 * something to read...
 			 */
 
-			s = recv(wsi->io.desc.sockfd, (char *)pt->serv_buf,
+			s = recv(wsi->io->desc.sockfd, (char *)pt->serv_buf,
 				 context->pt_serv_buf_size, MSG_PEEK);
 			/*
 			 * We have LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT..
@@ -749,12 +749,12 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 				 * care... this creates wsi with no ssl when ssl
 				 * is enabled and normally mandatory
 				 */
-				wsi->io.tls.ssl = NULL;
+				wsi->io->tls.ssl = NULL;
 
 				/*
 				 * The backend lws_ssl_close() paths that return
 				 * the tls restriction slot and the vhost
-				 * SSL_CTX ref are all gated on wsi->io.tls.ssl,
+				 * SSL_CTX ref are all gated on wsi->io->tls.ssl,
 				 * which we just cleared.  So we have to hand
 				 * both back here, or an unauthenticated peer
 				 * can permanently exhaust
@@ -764,9 +764,9 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 				 */
 
 				lws_tls_restrict_return(wsi);
-				if (wsi->io.tls.ctx_ref) {
-					lws_tls_ctx_ref_unref(wsi->io.tls.ctx_ref);
-					wsi->io.tls.ctx_ref = NULL;
+				if (wsi->io->tls.ctx_ref) {
+					lws_tls_ctx_ref_unref(wsi->io->tls.ctx_ref);
+					wsi->io->tls.ctx_ref = NULL;
 				}
 
 				if (lws_check_opt(wsi->a.vhost->options,

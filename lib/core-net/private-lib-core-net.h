@@ -293,7 +293,7 @@ struct client_info_stash {
 #endif
 
 #if defined(LWS_WITH_UDP)
-#define lws_wsi_is_udp(___wsi) (!!(___wsi)->io.udp)
+#define lws_wsi_is_udp(___wsi) (!!(___wsi)->io->udp)
 #endif
 
 #if defined(LWS_WITH_CLIENT)
@@ -930,19 +930,21 @@ struct lws_a {
 /*
  * IO's half of a connection (README.sans-io-split.md, "The object"): the
  * socket, its place in the fd table, the poll bookkeeping, the event
- * library's handle, what kind of socket it is.  sansIO never reads it:
- * under LWS_SANSIO_CHECK it is opaque, so a sansIO file naming wsi->io
- * does not compile.
+ * library's handle, what kind of socket it is, the addresses, the tls
+ * session, the connect machine.  The connection holds it by pointer: it is
+ * allocated with the wsi, after it, at the size the context says
+ * (wsi_io_size, which includes the event library's block after it), and
+ * IO's created op sets it up.  sansIO never reads it: under
+ * LWS_SANSIO_CHECK its type is incomplete, so a sansIO file naming a
+ * member of it does not compile, and both halves see the same struct lws.
  */
-#if defined(LWS_SANSIO_CHECK)
-struct lws_io_adjunct {
-	uint8_t				opaque;
-};
-#else
+struct lws_io_adjunct;
+#if !defined(LWS_SANSIO_CHECK)
 #define LWS_NO_FDS_POS (-1)
 struct lws_io_adjunct {
+	struct lws			*wsi; /* whose half this is */
 #if defined(LWS_WITH_EVENT_LIBS)
-	void				*evlib_wsi; /* overallocated */
+	void				*evlib_wsi; /* allocated after us */
 #endif
 	struct lws_dll2			vh_awaiting_socket;
 	lws_sock_file_fd_type		desc; /* .filefd / .sockfd */
@@ -1163,7 +1165,7 @@ struct lws {
 #endif
 
 
-	struct lws_io_adjunct		io;
+	struct lws_io_adjunct		*io; /* IO's half, allocated after us */
 	lws_wsi_state_t			wsistate;
 
 	/* ints */

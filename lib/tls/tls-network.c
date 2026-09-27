@@ -37,8 +37,8 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
 			lws_dll2_get_head(&pt->tls.dll_pending_tls_owner)) {
-		struct lws *wsi = lws_container_of(p, struct lws,
-						   io.tls.dll_pending_tls);
+		struct lws *wsi = lws_container_of(p, struct lws_io_adjunct,
+						   tls.dll_pending_tls)->wsi;
 
 		/*
 		 * ... allow custom event loop to override our POLLIN-setting
@@ -50,14 +50,14 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 			pt->context->event_loop_ops->fake_POLLIN_override(
 							pt->context, pt->tid);
 		else {					
-			if (wsi->io.position_in_fds_table >= 0) {
+			if (wsi->io->position_in_fds_table >= 0) {
 
-				pt->fds[wsi->io.position_in_fds_table].revents = (short)
-					(pt->fds[wsi->io.position_in_fds_table].revents |
-					 (pt->fds[wsi->io.position_in_fds_table].events & LWS_POLLIN));
-				ret |= pt->fds[wsi->io.position_in_fds_table].revents & LWS_POLLIN;
+				pt->fds[wsi->io->position_in_fds_table].revents = (short)
+					(pt->fds[wsi->io->position_in_fds_table].revents |
+					 (pt->fds[wsi->io->position_in_fds_table].events & LWS_POLLIN));
+				ret |= pt->fds[wsi->io->position_in_fds_table].revents & LWS_POLLIN;
 
-				// lwsl_notice("%s: faked POLLIN for %s, revents=0x%x\n", __func__, lws_wsi_tag(wsi), pt->fds[wsi->io.position_in_fds_table].revents);
+				// lwsl_notice("%s: faked POLLIN for %s, revents=0x%x\n", __func__, lws_wsi_tag(wsi), pt->fds[wsi->io->position_in_fds_table].revents);
 			}
 		}
 
@@ -69,7 +69,7 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 void
 __lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 {
-	lws_dll2_remove(&wsi->io.tls.dll_pending_tls);
+	lws_dll2_remove(&wsi->io->tls.dll_pending_tls);
 }
 
 void
@@ -307,6 +307,7 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 	memset(&wsi, 0, sizeof(wsi));
 
 	wsi.a.context = context;
+	wsi.io = context->fake_io;
 
 	lws_start_foreach_vhost(v, context) {
 		wsi.a.vhost = v; /* not a real bound wsi */

@@ -205,15 +205,25 @@ role, the parsers' state, the buflists, the timers, the mux position.  IO
 has its own things to remember about the same connection, which sansIO
 never reads: the socket, its place in the fd table, the poll bookkeeping,
 the event-library handle, what kind of socket it is.  Those live in
-`struct lws_io_adjunct`, the `io` member of `struct lws`, and nothing
-under the sansIO directories names `wsi->io`.
+`struct lws_io_adjunct`, which `struct lws` holds by pointer, `wsi->io`,
+and nothing under the sansIO directories names a member of it.
 
-The compile check enforces it: under `LWS_SANSIO_CHECK` the adjunct is an
-opaque stub, so a sansIO file that reads `wsi->io.desc.sockfd` does not
-compile, the same way a call into IO does not.  Today the adjunct is a
-member by value, so the split is visible in the source and costs nothing
-at runtime; a port keeps the two objects apart (in Rust the IO side owns
-its adjunct and holds the sansIO connection by value or handle).
+The adjunct is allocated with the wsi, after it, so a connection is still
+one allocation: the wsi's constructor asks for `sizeof(struct lws)` plus
+the context's `wsi_io_size` (the adjunct, and the event library's per-wsi
+block after it), and IO's `created` op places the adjunct there and sets
+it up (no socket, no place in the poll set), with a pointer back to its
+wsi for what reaches the wsi from one of IO's own list nodes or timers.
+A wsi made up for a callback that has none (the protocol init and destroy
+callbacks, a vhost's callbacks, the h3 dummy) points at the context's
+`fake_io`, an adjunct with no transport.
+
+The compile check enforces it: under `LWS_SANSIO_CHECK` the adjunct's type
+is incomplete, so a sansIO file that reads `wsi->io->desc.sockfd` does not
+compile, the same way a call into IO does not, and `struct lws` has the
+same layout whichever half compiles it.  A port keeps the two objects
+apart the same way (in Rust the IO side owns its adjunct and holds the
+sansIO connection by value or handle).
 
 What goes in the adjunct is decided by the same test as a function: if
 sansIO's decisions do not depend on it, it is IO's.  The socket identity
@@ -419,7 +429,9 @@ can be live).
    client's jit-trust vhost and a jit-trust vhost's grace are IO's.
 8. Split the object: IO's fields of `struct lws` move into the
    `lws_io_adjunct` (see "The object"), the check making it opaque to
-   sansIO (in progress: the socket identity first).
+   sansIO (in progress: the socket identity first; then the adjunct is
+   held by pointer, allocated after the wsi, its type incomplete to
+   sansIO, so both halves compile the same `struct lws`).
 9. A byte-level harness: a connection whose transport is the test's
    (`lws_set_transport()` for a server connection, the `transport` of
    `lws_client_connect_info` for a client one, under the tls record layer

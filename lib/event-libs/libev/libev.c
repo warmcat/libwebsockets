@@ -27,7 +27,7 @@
 
 #define pt_to_priv_ev(_pt) ((struct lws_pt_eventlibs_libev *)(_pt)->evlib_pt)
 #define vh_to_priv_ev(_vh) ((struct lws_vh_eventlibs_libev *)(_vh)->evlib_vh)
-#define wsi_to_priv_ev(_w) ((struct lws_wsi_eventlibs_libev *)(_w)->io.evlib_wsi)
+#define wsi_to_priv_ev(_w) ((struct lws_wsi_eventlibs_libev *)(_w)->io->evlib_wsi)
 
 static void
 lws_ev_hrtimer_cb(struct ev_loop *loop, struct ev_timer *watcher, int revents)
@@ -160,7 +160,7 @@ elops_listen_init_ev(struct lws_dll2 *d, void *user)
 	vh_to_priv_ev(vh)->w_accept.context = context;
 
 	ev_io_init(&vh_to_priv_ev(vh)->w_accept.watcher,
-		   lws_accept_cb, wsi->io.desc.sockfd, EV_READ);
+		   lws_accept_cb, wsi->io->desc.sockfd, EV_READ);
 	ev_io_start(ptpr->io_loop, &vh_to_priv_ev(vh)->w_accept.watcher);
 #endif
 
@@ -303,9 +303,9 @@ elops_accept_ev(struct lws *wsi)
 	int fd;
 
 	if (wsi->role_ops->file_handle)
-		fd = wsi->io.desc.filefd;
+		fd = wsi->io->desc.filefd;
 	else
-		fd = wsi->io.desc.sockfd;
+		fd = wsi->io->desc.sockfd;
 
 	w->w_read.context = wsi->a.context;
 	w->w_write.context = wsi->a.context;
@@ -405,9 +405,9 @@ elops_init_vhost_listen_wsi_ev(struct lws *wsi)
 	w->w_write.context = wsi->a.context;
 
 	if (wsi->role_ops->file_handle)
-		fd = wsi->io.desc.filefd;
+		fd = wsi->io->desc.filefd;
 	else
-		fd = wsi->io.desc.sockfd;
+		fd = wsi->io->desc.sockfd;
 
 	ev_io_init(&w->w_read.watcher, lws_accept_cb, fd, EV_READ);
 	//ev_io_init(&w->w_write.watcher, lws_accept_cb, fd, EV_WRITE);
@@ -484,7 +484,7 @@ elops_close_handle_manually_parallel_ev(struct lws *wsi, int pidx)
 	ev_io_stop(ptpr->io_loop, &w->racing[pidx].w_read.watcher);
 	ev_io_stop(ptpr->io_loop, &w->racing[pidx].w_write.watcher);
 
-	compatible_close(wsi->io.parallel_conns[pidx].desc.sockfd);
+	compatible_close(wsi->io->parallel_conns[pidx].desc.sockfd);
 }
 
 static int
@@ -493,7 +493,7 @@ elops_promote_parallel_ev(struct lws *wsi, int pidx)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
 	struct lws_wsi_eventlibs_libev *w = wsi_to_priv_ev(wsi);
-	int fd = (int)wsi->io.parallel_conns[pidx].desc.sockfd, ar, aw;
+	int fd = (int)wsi->io->parallel_conns[pidx].desc.sockfd, ar, aw;
 
 	/*
 	 * An ev_io is an intrusive list node: once started, libev holds the

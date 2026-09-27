@@ -66,8 +66,8 @@ lws_client_transport_up(struct lws *wsi)
 	 * tcp racer to another of the dns results may have been started after
 	 * the datagram socket was aimed: the datagram peer is where that is
 	 */
-	if (wsi->io.udp)
-		peer = &wsi->io.udp->sa46;
+	if (wsi->io->udp)
+		peer = &wsi->io->udp->sa46;
 #endif
 
 	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_client_transport_up)) {

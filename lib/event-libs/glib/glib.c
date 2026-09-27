@@ -33,7 +33,7 @@
 #endif
 
 #define pt_to_priv_glib(_pt) ((struct lws_pt_eventlibs_glib *)(_pt)->evlib_pt)
-#define wsi_to_priv_glib(_w) ((struct lws_wsi_eventlibs_glib *)(_w)->io.evlib_wsi)
+#define wsi_to_priv_glib(_w) ((struct lws_wsi_eventlibs_glib *)(_w)->io->evlib_wsi)
 
 #define wsi_to_subclass(_w)	  (wsi_to_priv_glib(_w)->w_read.source)
 #define wsi_to_gsource(_w)	  ((GSource *)wsi_to_subclass(_w))
@@ -278,11 +278,11 @@ elops_accept_glib(struct lws *wsi)
 	wsi_to_subclass(wsi)->wsi = wsi;
 
 	if (wsi->role_ops->file_handle)
-		fd = wsi->io.desc.filefd;
+		fd = wsi->io->desc.filefd;
 	else
-		fd = wsi->io.desc.sockfd;
+		fd = wsi->io->desc.sockfd;
 
-	wsi_to_subclass(wsi)->fd = wsi->io.desc.sockfd;
+	wsi_to_subclass(wsi)->fd = wsi->io->desc.sockfd;
 	wsi_to_subclass(wsi)->tag = g_source_add_unix_fd(wsi_to_gsource(wsi),
 						fd, (GIOCondition)LWS_POLLIN);
 	wsipr->w_read.actual_events = LWS_POLLIN;
@@ -379,7 +379,7 @@ elops_io_glib(struct lws *wsi, unsigned int flags)
 
 	wsipr->w_read.actual_events = (uint8_t)cond;
 
-	lwsl_wsi_debug(wsi, "fd %d, 0x%x/0x%x", wsi->io.desc.sockfd,
+	lwsl_wsi_debug(wsi, "fd %d, 0x%x/0x%x", wsi->io->desc.sockfd,
 						flags, (int)cond);
 
 	g_source_modify_unix_fd(wsi_to_gsource(wsi), wsi_to_subclass(wsi)->tag,
@@ -568,7 +568,7 @@ elops_close_handle_manually_parallel_glib(struct lws *wsi, int pidx)
 	g_source_unref((GSource *)wsipr->racing[pidx].source);
 	wsipr->racing[pidx].source = NULL;
 
-	compatible_close(wsi->io.parallel_conns[pidx].desc.sockfd);
+	compatible_close(wsi->io->parallel_conns[pidx].desc.sockfd);
 }
 
 static int

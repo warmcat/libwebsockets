@@ -67,7 +67,7 @@ lws_send_pipe_choked(struct lws *wsi)
 	)
 		return 1;
 
-	return (int)wsi_eff->io.sock_send_blocking;
+	return (int)wsi_eff->io->sock_send_blocking;
 }
 
 int
@@ -277,7 +277,7 @@ lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 
 #if defined(LWS_WITH_UDP)
-	if (wsi->io.udp) {
+	if (wsi->io->udp) {
 		lwsl_info("%s: UDP\n", __func__);
 		pt->fds[pt->fds_count].events |= LWS_POLLIN;
 	}
@@ -307,7 +307,7 @@ lws_plat_check_connection_error(struct lws *wsi)
 	int optVal;
 	int optLen = sizeof(int);
 
-	if (getsockopt(wsi->io.desc.sockfd, SOL_SOCKET, SO_ERROR,
+	if (getsockopt(wsi->io->desc.sockfd, SOL_SOCKET, SO_ERROR,
 			   (char*)&optVal, &optLen) != SOCKET_ERROR && optVal &&
 		optVal != LWS_EALREADY && optVal != LWS_EINPROGRESS &&
 		optVal != LWS_EWOULDBLOCK && optVal != WSAEINVAL) {

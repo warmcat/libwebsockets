@@ -68,7 +68,7 @@ lws_tls_jit_trust_got_cert_cb(void *got_opaque, const uint8_t *der,
 		return 1;
 	}
 
-	xs = SSL_CTX_get_cert_store(SSL_get_SSL_CTX(wsi->io.tls.ssl));
+	xs = SSL_CTX_get_cert_store(SSL_get_SSL_CTX(wsi->io->tls.ssl));
 	if (xs) {
 		if (X509_STORE_add_cert(xs, x) != 1) {
 			lwsl_warn("%s: unable to set trusted CA\n", __func__);
@@ -158,8 +158,8 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 		if (x509_stack) {
 
 			for (n = 0; n < OPENSSL_sk_num((const OPENSSL_STACK *)x509_stack) &&
-				    wsi->io.tls.kid_chain.count !=
-				     LWS_ARRAY_SIZE(wsi->io.tls.kid_chain.akid); n++) {
+				    wsi->io->tls.kid_chain.count !=
+				     LWS_ARRAY_SIZE(wsi->io->tls.kid_chain.akid); n++) {
 				X509 *x509 = OPENSSL_sk_value((const OPENSSL_STACK *)x509_stack, n);
 
 				/* the len is the buffer size, 0 meant "never fits" */
@@ -167,23 +167,23 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 					    LWS_TLS_CERT_INFO_SUBJECT_KEY_ID,
 					    &ci, sizeof(ci.ns.name)))
 					lws_tls_kid_copy(&ci,
-						&wsi->io.tls.kid_chain.skid[
-						     wsi->io.tls.kid_chain.count]);
+						&wsi->io->tls.kid_chain.skid[
+						     wsi->io->tls.kid_chain.count]);
 
 				if (!lws_tls_openssl_cert_info(x509,
 					     LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID,
 					     &ci, sizeof(ci.ns.name)))
 					lws_tls_kid_copy(&ci,
-						 &wsi->io.tls.kid_chain.akid[
-						     wsi->io.tls.kid_chain.count]);
+						 &wsi->io->tls.kid_chain.akid[
+						     wsi->io->tls.kid_chain.count]);
 
-				wsi->io.tls.kid_chain.count++;
+				wsi->io->tls.kid_chain.count++;
 			}
 
 			sk_X509_pop_free(x509_stack, X509_free);
 		}
 
-		lws_tls_jit_trust_sort_kids(wsi, &wsi->io.tls.kid_chain);
+		lws_tls_jit_trust_sort_kids(wsi, &wsi->io->tls.kid_chain);
 	}
 #endif
 	lp = &(lws_get_context_protocol(wsi->a.context, 0));
@@ -206,8 +206,8 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 			int depth = X509_STORE_CTX_get_error_depth(x509_ctx);
 			const char *msg = X509_verify_cert_error_string(err);
 
-			lws_strncpy(wsi->io.tls.err_helper, msg,
-				    sizeof(wsi->io.tls.err_helper));
+			lws_strncpy(wsi->io->tls.err_helper, msg,
+				    sizeof(wsi->io->tls.err_helper));
 
 			lwsl_err("SSL error: %s (preverify_ok=%d;err=%d;"
 				 "depth=%d)\n", msg, preverify_ok, err, depth);
@@ -294,8 +294,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		return -1;
 	}
 
-	wsi->io.tls.ssl = SSL_new(wsi->a.vhost->tls.ssl_client_ctx);
-	if (!wsi->io.tls.ssl) {
+	wsi->io->tls.ssl = SSL_new(wsi->a.vhost->tls.ssl_client_ctx);
+	if (!wsi->io->tls.ssl) {
 		unsigned long err = ERR_get_error();
 		const char *es = ERR_error_string(LWS_TLS_ERR_CAST(err), NULL);
 		lwsl_err("SSL_new failed: %s (real error %lu)\n", es, err);
@@ -310,14 +310,14 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 #if defined (LWS_HAVE_SSL_SET_INFO_CALLBACK)
 	if (wsi->a.vhost->tls.ssl_info_event_mask)
-		SSL_set_info_callback(wsi->io.tls.ssl, lws_ssl_info_callback);
+		SSL_set_info_callback(wsi->io->tls.ssl, lws_ssl_info_callback);
 #endif
 
 #if defined(LWS_HAVE_X509_VERIFY_PARAM_set1_host)
 	if (!(wsi->use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
 #if !defined(USE_WOLFSSL)
 
-		X509_VERIFY_PARAM *param = SSL_get0_param(wsi->io.tls.ssl);
+		X509_VERIFY_PARAM *param = SSL_get0_param(wsi->io->tls.ssl);
 
 		/* Enable automatic hostname checks */
 		X509_VERIFY_PARAM_set_hostflags(param,
@@ -355,13 +355,13 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #if !defined(USE_WOLFSSL)
 #ifndef USE_OLD_CYASSL
 	/* OpenSSL_client_verify_callback will be called @ SSL_connect() */
-	SSL_set_verify(wsi->io.tls.ssl, SSL_VERIFY_PEER,
+	SSL_set_verify(wsi->io->tls.ssl, SSL_VERIFY_PEER,
 		       OpenSSL_client_verify_callback);
 #endif
 #endif
 
 #if !defined(USE_WOLFSSL)
-	SSL_set_mode(wsi->io.tls.ssl,  SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+	SSL_set_mode(wsi->io->tls.ssl,  SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 #endif
 	/*
 	 * use server name indication (SNI), if supported,
@@ -372,18 +372,18 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
 #ifdef CYASSL_SNI_HOST_NAME
-	CyaSSL_UseSNI(wsi->io.tls.ssl, CYASSL_SNI_HOST_NAME, hostname,
+	CyaSSL_UseSNI(wsi->io->tls.ssl, CYASSL_SNI_HOST_NAME, hostname,
 		      strlen(hostname));
 #endif
 #else
 #if defined(WOLFSSL_SNI_HOST_NAME) || defined(HAVE_SNI)
-	wolfSSL_UseSNI(wsi->io.tls.ssl, WOLFSSL_SNI_HOST_NAME, hostname,
+	wolfSSL_UseSNI(wsi->io->tls.ssl, WOLFSSL_SNI_HOST_NAME, hostname,
 		       (unsigned short)strlen(hostname));
 #endif
 #endif
 #else
 #if defined(SSL_CTRL_SET_TLSEXT_HOSTNAME) || defined(LWS_HAVE_SSL_set_tlsext_host_name)
-	SSL_set_tlsext_host_name(wsi->io.tls.ssl, hostname);
+	SSL_set_tlsext_host_name(wsi->io->tls.ssl, hostname);
 #endif
 #endif
 	}
@@ -399,10 +399,10 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	 */
 	if (!(wsi->use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
 #ifdef USE_OLD_CYASSL
-		if (CyaSSL_check_domain_name(wsi->io.tls.ssl, hostname) !=
+		if (CyaSSL_check_domain_name(wsi->io->tls.ssl, hostname) !=
 								SSL_SUCCESS)
 #else
-		if (wolfSSL_check_domain_name(wsi->io.tls.ssl, hostname) !=
+		if (wolfSSL_check_domain_name(wsi->io->tls.ssl, hostname) !=
 								SSL_SUCCESS)
 #endif
 		{
@@ -422,25 +422,25 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	 */
 #ifdef USE_OLD_CYASSL
 	if (wsi->use_ssl & LCCSCF_ALLOW_SELFSIGNED)
-		CyaSSL_set_verify(wsi->io.tls.ssl, SSL_VERIFY_NONE, NULL);
+		CyaSSL_set_verify(wsi->io->tls.ssl, SSL_VERIFY_NONE, NULL);
 #else
 	if (wsi->use_ssl & LCCSCF_ALLOW_SELFSIGNED)
-		wolfSSL_set_verify(wsi->io.tls.ssl, SSL_VERIFY_NONE, NULL);
+		wolfSSL_set_verify(wsi->io->tls.ssl, SSL_VERIFY_NONE, NULL);
 #endif
 #endif /* USE_WOLFSSL */
 
-	wsi->io.tls.client_bio = BIO_new_socket((int)(lws_intptr_t)wsi->io.desc.sockfd,
+	wsi->io->tls.client_bio = BIO_new_socket((int)(lws_intptr_t)wsi->io->desc.sockfd,
 					     BIO_NOCLOSE);
-	SSL_set_bio(wsi->io.tls.ssl, wsi->io.tls.client_bio, wsi->io.tls.client_bio);
+	SSL_set_bio(wsi->io->tls.ssl, wsi->io->tls.client_bio, wsi->io->tls.client_bio);
 
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
-	CyaSSL_set_using_nonblock(wsi->io.tls.ssl, 1);
+	CyaSSL_set_using_nonblock(wsi->io->tls.ssl, 1);
 #else
-	wolfSSL_set_using_nonblock(wsi->io.tls.ssl, 1);
+	wolfSSL_set_using_nonblock(wsi->io->tls.ssl, 1);
 #endif
 #else
-	BIO_set_nbio(wsi->io.tls.client_bio, 1); /* nonblocking */
+	BIO_set_nbio(wsi->io->tls.client_bio, 1); /* nonblocking */
 #endif
 
 #if (defined(LWS_HAVE_SSL_set_alpn_protos) || defined(OPENSSL_IS_AWSLC)) && \
@@ -475,10 +475,10 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	n = lws_alpn_comma_to_openssl(alpn_comma, openssl_alpn,
 				      sizeof(openssl_alpn) - 1);
 
-	SSL_set_alpn_protos(wsi->io.tls.ssl, openssl_alpn, (unsigned int)n);
+	SSL_set_alpn_protos(wsi->io->tls.ssl, openssl_alpn, (unsigned int)n);
 #endif
 
-	SSL_set_ex_data(wsi->io.tls.ssl, openssl_websocket_private_data_index,
+	SSL_set_ex_data(wsi->io->tls.ssl, openssl_websocket_private_data_index,
 			wsi);
 
 	if (wsi->sys_tls_client_cert) {
@@ -502,7 +502,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		if (lws_system_blob_get_single_ptr(b, &data))
 			goto no_client_cert;
 
-		if (SSL_use_certificate_ASN1(wsi->io.tls.ssl, SSL_DATA_CAST(data),
+		if (SSL_use_certificate_ASN1(wsi->io->tls.ssl, SSL_DATA_CAST(data),
 			SSL_SIZE_T_CAST(size)) != 1) {
 			lwsl_err("%s: use_certificate failed\n", __func__);
 			lws_tls_err_describe_clear();
@@ -522,9 +522,9 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		if (lws_system_blob_get_single_ptr(b, &data))
 			goto no_client_cert;
 
-		if (SSL_use_PrivateKey_ASN1(EVP_PKEY_RSA, wsi->io.tls.ssl, SSL_DATA_CAST(data),
+		if (SSL_use_PrivateKey_ASN1(EVP_PKEY_RSA, wsi->io->tls.ssl, SSL_DATA_CAST(data),
 			SSL_SIZE_T_CAST(size)) != 1 &&
-		    SSL_use_PrivateKey_ASN1(EVP_PKEY_EC, wsi->io.tls.ssl, SSL_DATA_CAST(data),
+		    SSL_use_PrivateKey_ASN1(EVP_PKEY_EC, wsi->io->tls.ssl, SSL_DATA_CAST(data),
 			SSL_SIZE_T_CAST(size)) != 1) {
 
 			lwsl_err("%s: use_privkey failed\n", __func__);
@@ -532,7 +532,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 			goto no_client_cert;
 		}
 
-		if (SSL_check_private_key(wsi->io.tls.ssl) != 1) {
+		if (SSL_check_private_key(wsi->io->tls.ssl) != 1) {
 			lwsl_err("Private SSL key doesn't match cert\n");
 			lws_tls_err_describe_clear();
 			return 1;
@@ -562,8 +562,8 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 #endif
 	errno = 0;
 	ERR_clear_error();
-	wsi->io.tls.err_helper[0] = '\0';
-	n = SSL_connect(wsi->io.tls.ssl);
+	wsi->io->tls.err_helper[0] = '\0';
+	n = SSL_connect(wsi->io->tls.ssl);
 	en = errno;
 
 	m = lws_ssl_get_error(wsi, n);
@@ -589,16 +589,16 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 
 	if (m == SSL_ERROR_SSL) {
 		l = ERR_get_error();
-		n = lws_snprintf(errbuf, elen, "tls: %s", wsi->io.tls.err_helper);
-		if (!wsi->io.tls.err_helper[0])
+		n = lws_snprintf(errbuf, elen, "tls: %s", wsi->io->tls.err_helper);
+		if (!wsi->io->tls.err_helper[0])
 			ERR_error_string_n(LWS_TLS_ERR_CAST(l), errbuf + n, (elen - (unsigned int)n));
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 
 #if defined(LWS_WITH_TLS_SESSIONS)
-	if (SSL_session_reused(wsi->io.tls.ssl)) {
+	if (SSL_session_reused(wsi->io->tls.ssl)) {
 #if defined(LWS_HAVE_SSL_SESSION_set_time)
-		sess = SSL_get_session(wsi->io.tls.ssl);
+		sess = SSL_get_session(wsi->io->tls.ssl);
 		if (sess) /* should always be true */
 #if defined(OPENSSL_IS_BORINGSSL) || defined(LWS_WITH_AWSLC)
 			SSL_SESSION_set_time(sess, (uint64_t)time(NULL)); /* extend session lifetime */
@@ -609,10 +609,10 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 	}
 #endif
 
-	if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->io.tls.ssl))
+	if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->io->tls.ssl))
 		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 
-	if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->io.tls.ssl))
+	if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->io->tls.ssl))
 		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
 	if (n == 1) {
@@ -626,7 +626,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		lws_tls_server_conn_alpn(wsi);
 #if defined(LWS_TLS_SYNTHESIZE_CB)
 		lws_sul_schedule(wsi->a.context, wsi->tsi,
-				 &wsi->io.tls.sul_cb_synth,
+				 &wsi->io->tls.sul_cb_synth,
 				 lws_sess_cache_synth_cb, 500 * LWS_US_PER_MS);
 #endif
 
@@ -654,7 +654,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 
 	errno = 0;
 	ERR_clear_error();
-	n = SSL_get_verify_result(wsi->io.tls.ssl);
+	n = SSL_get_verify_result(wsi->io->tls.ssl);
 
 	switch (n) {
 	case X509_V_OK:
@@ -722,7 +722,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	 * in lws_ssl_client_bio_create(), which leaves the result X509_V_OK.
 	 */
 
-	long n = SSL_get_verify_result(wsi->io.tls.ssl);
+	long n = SSL_get_verify_result(wsi->io->tls.ssl);
 
 	if (n == X509_V_OK)
 		return 0;

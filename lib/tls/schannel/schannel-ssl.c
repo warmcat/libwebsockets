@@ -110,7 +110,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	conn = lws_zalloc(sizeof(*conn), "schannel_conn");
 	if (!conn) return -1;
 
-	wsi->io.tls.ssl = conn;
+	wsi->io->tls.ssl = conn;
 
 	if (wsi->stash) {
 		lws_strncpy(hostname, wsi->stash->cis[CIS_HOST], sizeof(hostname));
@@ -176,7 +176,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 {
-	struct lws_tls_schannel_conn *conn = wsi->io.tls.ssl;
+	struct lws_tls_schannel_conn *conn = wsi->io->tls.ssl;
 	struct lws_tls_schannel_ctx *ctx = wsi->a.vhost->tls.ssl_client_ctx;
 	SecBufferDesc out_desc, in_desc;
        SecBuffer out_buf[1], in_buf[3];
@@ -195,7 +195,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 
 	/* If we have pending output from previous step, try to send it */
 	if (conn->tx_buf && conn->tx_pos < conn->tx_len) {
-		n = send(wsi->io.desc.sockfd, (char *)conn->tx_buf + conn->tx_pos, (int)(conn->tx_len - conn->tx_pos), 0);
+		n = send(wsi->io->desc.sockfd, (char *)conn->tx_buf + conn->tx_pos, (int)(conn->tx_len - conn->tx_pos), 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 				return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
@@ -264,7 +264,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 		if (conn->rx_len == 0) {
 			if (conn->rx_alloc < 4096) lws_tls_schannel_realloc_buffer(conn, 4096);
 
-			n = recv(wsi->io.desc.sockfd, (char *)conn->rx_buf, (int)conn->rx_alloc, 0);
+			n = recv(wsi->io->desc.sockfd, (char *)conn->rx_buf, (int)conn->rx_alloc, 0);
 			if (n < 0) {
 				if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 					return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
@@ -311,7 +311,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 				return LWS_SSL_CAPABLE_ERROR;
 		}
 
-		n = recv(wsi->io.desc.sockfd, (char *)conn->rx_buf + conn->rx_len, (int)(conn->rx_alloc - conn->rx_len), 0);
+		n = recv(wsi->io->desc.sockfd, (char *)conn->rx_buf + conn->rx_len, (int)(conn->rx_alloc - conn->rx_len), 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 				return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
@@ -376,7 +376,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
                }
 
                if (conn->tx_buf) {
-                       n = send(wsi->io.desc.sockfd, (char *)conn->tx_buf, (int)conn->tx_len, 0);
+                       n = send(wsi->io->desc.sockfd, (char *)conn->tx_buf, (int)conn->tx_len, 0);
                        if (n < 0) {
                                if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
                                        return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
@@ -412,9 +412,9 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	struct lws_tls_schannel_conn *conn;
 	conn = lws_zalloc(sizeof(*conn), "schannel_conn_srv");
 	if (!conn) return 1;
-	wsi->io.tls.ssl = conn;
+	wsi->io->tls.ssl = conn;
 
-	wsi->io.tls.ctx_ref = lws_tls_ctx_ref_get(wsi->a.vhost);
+	wsi->io->tls.ctx_ref = lws_tls_ctx_ref_get(wsi->a.vhost);
 
 	return 0;
 }
@@ -448,7 +448,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 static int
 lws_tls_schannel_server_sni(struct lws *wsi)
 {
-	struct lws_tls_schannel_conn *conn = wsi->io.tls.ssl;
+	struct lws_tls_schannel_conn *conn = wsi->io->tls.ssl;
 	struct lws_vhost *vh = wsi->a.vhost;
 	struct lws_tls_ctx_ref *ref;
 	char name[256];
@@ -471,7 +471,7 @@ lws_tls_schannel_server_sni(struct lws *wsi)
 		    lws_tls_schannel_realloc_buffer(conn, conn->rx_alloc + 2048))
 			return -1;
 
-		s = recv(wsi->io.desc.sockfd, (char *)conn->rx_buf + conn->rx_len,
+		s = recv(wsi->io->desc.sockfd, (char *)conn->rx_buf + conn->rx_len,
 			 (int)(conn->rx_alloc - conn->rx_len), 0);
 		if (s < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN ||
@@ -514,9 +514,9 @@ lws_tls_schannel_server_sni(struct lws *wsi)
 		 */
 
 		ref = lws_tls_ctx_ref_get(wsi->a.vhost);
-		if (wsi->io.tls.ctx_ref)
-			lws_tls_ctx_ref_unref(wsi->io.tls.ctx_ref);
-		wsi->io.tls.ctx_ref = ref;
+		if (wsi->io->tls.ctx_ref)
+			lws_tls_ctx_ref_unref(wsi->io->tls.ctx_ref);
+		wsi->io->tls.ctx_ref = ref;
 
 		return 0;
 	}
@@ -544,7 +544,7 @@ lws_tls_schannel_server_sni(struct lws *wsi)
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
 {
-	struct lws_tls_schannel_conn *conn = wsi->io.tls.ssl;
+	struct lws_tls_schannel_conn *conn = wsi->io->tls.ssl;
 	struct lws_tls_schannel_ctx *ctx;
 	SecBufferDesc out_desc, in_desc;
        SecBuffer out_buf[1], in_buf[3];
@@ -562,7 +562,7 @@ lws_tls_server_accept(struct lws *wsi)
 		return LWS_SSL_CAPABLE_DONE;
 
 	if (conn->tx_buf && conn->tx_pos < conn->tx_len) {
-		n = send(wsi->io.desc.sockfd, (char *)conn->tx_buf + conn->tx_pos, (int)(conn->tx_len - conn->tx_pos), 0);
+		n = send(wsi->io->desc.sockfd, (char *)conn->tx_buf + conn->tx_pos, (int)(conn->tx_len - conn->tx_pos), 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 				return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
@@ -577,7 +577,7 @@ lws_tls_server_accept(struct lws *wsi)
 
 	if (conn->rx_len == 0) {
 		if (conn->rx_alloc < 4096) lws_tls_schannel_realloc_buffer(conn, 4096);
-		n = recv(wsi->io.desc.sockfd, (char *)conn->rx_buf, (int)conn->rx_alloc, 0);
+		n = recv(wsi->io->desc.sockfd, (char *)conn->rx_buf, (int)conn->rx_alloc, 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 				return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
@@ -610,7 +610,7 @@ lws_tls_server_accept(struct lws *wsi)
 
 	/* ...so everything below follows the vhost we are bound to now */
 
-	ctx = wsi->io.tls.ctx_ref ? wsi->io.tls.ctx_ref->ctx :
+	ctx = wsi->io->tls.ctx_ref ? wsi->io->tls.ctx_ref->ctx :
 				 wsi->a.vhost->tls.ssl_ctx;
 	if (!ctx) {
 		lwsl_wsi_err(wsi, "no tls ctx on vhost %s\n",
@@ -687,7 +687,7 @@ lws_tls_server_accept(struct lws *wsi)
 #if defined(LWS_WITH_LATENCY)
 	{
 		unsigned int ms = (unsigned int)((lws_now_usecs() - _sch_ssl_acc_start) / 1000);
-		if (ms > 2 && !wsi->io.tls.ssl_accept_in_bg)
+		if (ms > 2 && !wsi->io->tls.ssl_accept_in_bg)
 			lws_latency_note(&wsi->a.context->pt[(int)wsi->tsi], _sch_ssl_acc_start, 2000, "ssl_accept:%dms", ms);
 	}
 #endif
@@ -701,7 +701,7 @@ lws_tls_server_accept(struct lws *wsi)
 			if (lws_tls_schannel_realloc_buffer(conn, conn->rx_alloc + 2048))
 				return LWS_SSL_CAPABLE_ERROR;
 		}
-		n = recv(wsi->io.desc.sockfd, (char *)conn->rx_buf + conn->rx_len, (int)(conn->rx_alloc - conn->rx_len), 0);
+		n = recv(wsi->io->desc.sockfd, (char *)conn->rx_buf + conn->rx_len, (int)(conn->rx_alloc - conn->rx_len), 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 				return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
@@ -735,7 +735,7 @@ lws_tls_server_accept(struct lws *wsi)
 			conn->tx_pos = 0;
 			FreeContextBuffer(out_buf[0].pvBuffer);
 
-			n = send(wsi->io.desc.sockfd, (char *)conn->tx_buf, (int)conn->tx_len, 0);
+			n = send(wsi->io->desc.sockfd, (char *)conn->tx_buf, (int)conn->tx_len, 0);
 			if (n < 0) {
 				if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 					return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
@@ -774,10 +774,10 @@ lws_tls_server_accept(struct lws *wsi)
 				return LWS_SSL_CAPABLE_ERROR;
 
                        if (lws_ssl_pending(wsi) &&
-                           lws_dll2_is_detached(&wsi->io.tls.dll_pending_tls)) {
+                           lws_dll2_is_detached(&wsi->io->tls.dll_pending_tls)) {
                                struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
                                lws_pt_lock(pt, __func__);
-                               lws_dll2_add_head(&wsi->io.tls.dll_pending_tls,
+                               lws_dll2_add_head(&wsi->io->tls.dll_pending_tls,
                                                  &pt->tls.dll_pending_tls_owner);
                                lws_pt_unlock(pt);
                        }
@@ -796,7 +796,7 @@ lws_tls_server_accept(struct lws *wsi)
 int
 lws_tls_schannel_server_conn_alpn(struct lws *wsi)
 {
-       struct lws_tls_schannel_conn *conn = wsi->io.tls.ssl;
+       struct lws_tls_schannel_conn *conn = wsi->io->tls.ssl;
        SecPkgContext_ApplicationProtocol alpn_result;
        SECURITY_STATUS alpn_stat;
 
@@ -910,7 +910,7 @@ lws_tls_schannel_tx_queue(struct lws *wsi, struct lws_tls_schannel_conn *conn,
 	conn->tx_buf = p;
 	conn->tx_len += len;
 
-	n = send(wsi->io.desc.sockfd, (char *)conn->tx_buf + conn->tx_pos,
+	n = send(wsi->io->desc.sockfd, (char *)conn->tx_buf + conn->tx_pos,
 		 (int)(conn->tx_len - conn->tx_pos), 0);
 	if (n < 0) {
 		if (LWS_ERRNO != LWS_EAGAIN && LWS_ERRNO != LWS_EWOULDBLOCK)
@@ -954,7 +954,7 @@ lws_tls_schannel_tx_queue(struct lws *wsi, struct lws_tls_schannel_conn *conn,
 static int
 lws_tls_schannel_post_hs_begin(struct lws *wsi)
 {
-	struct lws_tls_schannel_conn *conn = wsi->io.tls.ssl;
+	struct lws_tls_schannel_conn *conn = wsi->io->tls.ssl;
 	SecPkgContext_ConnectionInfo ci;
 
 	memset(&ci, 0, sizeof(ci));
@@ -987,7 +987,7 @@ lws_tls_schannel_post_hs_begin(struct lws *wsi)
 static int
 lws_tls_schannel_post_hs_step(struct lws *wsi)
 {
-	struct lws_tls_schannel_conn *conn = wsi->io.tls.ssl;
+	struct lws_tls_schannel_conn *conn = wsi->io->tls.ssl;
 	struct lws_tls_schannel_ctx *ctx;
 	SecBufferDesc out_desc, in_desc;
 	SecBuffer out_buf[1], in_buf[2];
@@ -1006,7 +1006,7 @@ lws_tls_schannel_post_hs_step(struct lws *wsi)
 			    ISC_REQ_MANUAL_CRED_VALIDATION |
 			    ISC_REQ_USE_SUPPLIED_CREDS;
 	} else {
-		ctx = wsi->io.tls.ctx_ref ? wsi->io.tls.ctx_ref->ctx :
+		ctx = wsi->io->tls.ctx_ref ? wsi->io->tls.ctx_ref->ctx :
 					 wsi->a.vhost->tls.ssl_ctx;
 		req_attrs = ASC_REQ_SEQUENCE_DETECT | ASC_REQ_REPLAY_DETECT |
 			    ASC_REQ_CONFIDENTIALITY | ASC_REQ_STREAM |
@@ -1056,7 +1056,7 @@ lws_tls_schannel_post_hs_step(struct lws *wsi)
 					return -1;
 			}
 
-			n = recv(wsi->io.desc.sockfd,
+			n = recv(wsi->io->desc.sockfd,
 				 (char *)conn->rx_buf + conn->rx_len,
 				 (int)(conn->rx_alloc - conn->rx_len), 0);
 			if (n < 0) {
@@ -1155,7 +1155,7 @@ lws_tls_schannel_post_hs_step(struct lws *wsi)
 	int
 lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 {
-	struct lws_tls_schannel_conn *conn = wsi->io.tls.ssl;
+	struct lws_tls_schannel_conn *conn = wsi->io->tls.ssl;
 	SecBufferDesc msg_desc;
 	SecBuffer msg_buf[4];
 	SECURITY_STATUS status;
@@ -1163,7 +1163,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	size_t pending_len;
 	ssize_t n;
 
-    if (!wsi->io.tls.ssl)
+    if (!wsi->io->tls.ssl)
         return lws_ssl_capable_read_no_ssl(wsi, buf, len);
 
 	if (!conn || !conn->f_handshake_finished) return LWS_SSL_CAPABLE_ERROR;
@@ -1206,7 +1206,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		if (!conn->rx_alloc &&
 		    lws_tls_schannel_realloc_buffer(conn, 4096))
 			return LWS_SSL_CAPABLE_ERROR;
-		n = recv(wsi->io.desc.sockfd, (char *)conn->rx_buf, (int)conn->rx_alloc, 0);
+		n = recv(wsi->io->desc.sockfd, (char *)conn->rx_buf, (int)conn->rx_alloc, 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN ||
 					LWS_ERRNO == LWS_EWOULDBLOCK)
@@ -1240,7 +1240,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		    lws_tls_schannel_realloc_buffer(conn, conn->rx_alloc + 2048))
 			return LWS_SSL_CAPABLE_ERROR;
 
-		n = recv(wsi->io.desc.sockfd, (char *)conn->rx_buf + conn->rx_len, (int)(conn->rx_alloc - conn->rx_len), 0);
+		n = recv(wsi->io->desc.sockfd, (char *)conn->rx_buf + conn->rx_len, (int)(conn->rx_alloc - conn->rx_len), 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 				goto want_read;
@@ -1394,8 +1394,8 @@ check_pending:
 
 		lws_pt_lock(pt, __func__);
 		if (lws_ssl_pending(wsi)) {
-			if (lws_dll2_is_detached(&wsi->io.tls.dll_pending_tls))
-				lws_dll2_add_head(&wsi->io.tls.dll_pending_tls,
+			if (lws_dll2_is_detached(&wsi->io->tls.dll_pending_tls))
+				lws_dll2_add_head(&wsi->io->tls.dll_pending_tls,
 						  &pt->tls.dll_pending_tls_owner);
 		} else
 			__lws_ssl_remove_wsi_from_buffered_list(wsi);
@@ -1408,7 +1408,7 @@ check_pending:
 	int
 lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 {
-	struct lws_tls_schannel_conn *conn = wsi->io.tls.ssl;
+	struct lws_tls_schannel_conn *conn = wsi->io->tls.ssl;
 	SecBufferDesc msg_desc;
 	SecBuffer msg_buf[4];
 	SECURITY_STATUS status;
@@ -1416,14 +1416,14 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 	size_t alloc_len;
 	ssize_t n;
 
-    if (!wsi->io.tls.ssl)
+    if (!wsi->io->tls.ssl)
         return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 
 	if (!conn || !conn->f_handshake_finished) return LWS_SSL_CAPABLE_ERROR;
 
 	/* Flush existing ciphertext */
 	if (conn->tx_buf) {
-		n = send(wsi->io.desc.sockfd, (char *)conn->tx_buf + conn->tx_pos, (int)(conn->tx_len - conn->tx_pos), 0);
+		n = send(wsi->io->desc.sockfd, (char *)conn->tx_buf + conn->tx_pos, (int)(conn->tx_len - conn->tx_pos), 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 				return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
@@ -1521,7 +1521,7 @@ fresh:
 
 	size_t total_len = msg_buf[0].cbBuffer + msg_buf[1].cbBuffer + msg_buf[2].cbBuffer;
 
-	n = send(wsi->io.desc.sockfd, (char *)alloc_buf, (int)total_len, 0);
+	n = send(wsi->io->desc.sockfd, (char *)alloc_buf, (int)total_len, 0);
 
 	if (n < 0) {
 		if (LWS_ERRNO != LWS_EAGAIN && LWS_ERRNO != LWS_EWOULDBLOCK) {
@@ -1558,7 +1558,7 @@ fresh:
 	int
 lws_ssl_pending(struct lws *wsi)
 {
-	struct lws_tls_schannel_conn *conn = wsi->io.tls.ssl;
+	struct lws_tls_schannel_conn *conn = wsi->io->tls.ssl;
 
 	/*
 	 * "Pending" has to mean "another call will make progress without the
@@ -1589,7 +1589,7 @@ lws_ssl_pending(struct lws *wsi)
 	int
 lws_ssl_close(struct lws *wsi)
 {
-	struct lws_tls_schannel_conn *conn = wsi->io.tls.ssl;
+	struct lws_tls_schannel_conn *conn = wsi->io->tls.ssl;
 	if (conn) {
 		DeleteSecurityContext(&conn->ctxt);
 		/* rx_buf / tx_buf hold plaintext, and conn holds key-ish
@@ -1604,21 +1604,21 @@ lws_ssl_close(struct lws *wsi)
 		lws_buflist_destroy_all_segments(&conn->decrypted_list);
 		lws_explicit_bzero(conn, sizeof(*conn));
 		lws_free_set_NULL(conn);
-		wsi->io.tls.ssl = NULL;
+		wsi->io->tls.ssl = NULL;
 	}
 
-	if (wsi->io.tls.ctx_ref) {
-		lws_tls_ctx_ref_unref(wsi->io.tls.ctx_ref);
-		wsi->io.tls.ctx_ref = NULL;
+	if (wsi->io->tls.ctx_ref) {
+		lws_tls_ctx_ref_unref(wsi->io->tls.ctx_ref);
+		wsi->io->tls.ctx_ref = NULL;
 	}
 
-	if (wsi->io.tls.quic_tp_recv) {
-		lws_free((void *)wsi->io.tls.quic_tp_recv);
-		wsi->io.tls.quic_tp_recv = NULL;
+	if (wsi->io->tls.quic_tp_recv) {
+		lws_free((void *)wsi->io->tls.quic_tp_recv);
+		wsi->io->tls.quic_tp_recv = NULL;
 	}
-	if (wsi->io.tls.quic_tp_send) {
-		lws_free((void *)wsi->io.tls.quic_tp_send);
-		wsi->io.tls.quic_tp_send = NULL;
+	if (wsi->io->tls.quic_tp_send) {
+		lws_free((void *)wsi->io->tls.quic_tp_send);
+		wsi->io->tls.quic_tp_send = NULL;
 	}
 
 	return 0;
@@ -1866,7 +1866,7 @@ bail:
 	int
 lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 {
-	struct lws_tls_schannel_conn *conn = wsi->io.tls.ssl;
+	struct lws_tls_schannel_conn *conn = wsi->io->tls.ssl;
 	struct lws_tls_schannel_ctx *ctx = wsi->a.vhost->tls.ssl_client_ctx;
 	PCCERT_CONTEXT pCert = NULL;
 	int ret;
@@ -1893,9 +1893,9 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 int
 lws_tls_schannel_server_client_cert(struct lws *wsi)
 {
-	struct lws_tls_schannel_conn *conn = wsi->io.tls.ssl;
-	struct lws_tls_schannel_ctx *ctx = wsi->io.tls.ctx_ref ?
-			wsi->io.tls.ctx_ref->ctx : wsi->a.vhost->tls.ssl_ctx;
+	struct lws_tls_schannel_conn *conn = wsi->io->tls.ssl;
+	struct lws_tls_schannel_ctx *ctx = wsi->io->tls.ctx_ref ?
+			wsi->io->tls.ctx_ref->ctx : wsi->a.vhost->tls.ssl_ctx;
 	int req_valid = !!lws_check_opt(wsi->a.vhost->options,
 		LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT);
 	int required = req_valid &&

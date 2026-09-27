@@ -62,7 +62,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 
 #if defined(LWS_WITH_CLIENT)
 	/* Intercept POLLOUT for parallel sockets if we are racing H3 */
-	if (pollfd && wsi->io.parallel_count > 0 && pollfd->fd != wsi->io.desc.sockfd) {
+	if (pollfd && wsi->io->parallel_count > 0 && pollfd->fd != wsi->io->desc.sockfd) {
 		if (!lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd)) {
 			/*
 			 * The connect processing took over the wsi's fate...
@@ -79,8 +79,8 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	}
 #endif
 
-	vwsi->io.leave_pollout_active = 0;
-	vwsi->io.handling_pollout = 1;
+	vwsi->io->leave_pollout_active = 0;
+	vwsi->io->handling_pollout = 1;
 	/*
 	 * if another thread wants POLLOUT on us, from here on while
 	 * handling_pollout is set, he will only set leave_pollout_active.
@@ -193,7 +193,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	/* one shot */
 
 	if (pollfd) {
-		int eff = vwsi->io.leave_pollout_active;
+		int eff = vwsi->io->leave_pollout_active;
 
 		if (!eff) {
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
@@ -202,10 +202,10 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 			}
 		}
 
-		vwsi->io.handling_pollout = 0;
+		vwsi->io->handling_pollout = 0;
 
 		/* cannot get leave_pollout_active set after the above */
-		if (!eff && wsi->io.leave_pollout_active) {
+		if (!eff && wsi->io->leave_pollout_active) {
 			/*
 			 * got set inbetween sampling eff and clearing
 			 * handling_pollout, force POLLOUT on
@@ -217,7 +217,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 			}
 		}
 
-		vwsi->io.leave_pollout_active = 0;
+		vwsi->io->leave_pollout_active = 0;
 	}
 
 	/*
@@ -252,12 +252,12 @@ user_service_go_again:
 			    (unsigned long)wsi->wsistate, wsi->role_ops->name);
 
 	vwsi = (volatile struct lws *)wsi;
-	vwsi->io.leave_pollout_active = 0;
+	vwsi->io->leave_pollout_active = 0;
 
 	n = lws_callback_as_writeable(wsi);
-	vwsi->io.handling_pollout = 0;
+	vwsi->io->handling_pollout = 0;
 
-	if (vwsi->io.leave_pollout_active)
+	if (vwsi->io->leave_pollout_active)
 		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 			goto bail_die;
 
@@ -276,14 +276,14 @@ user_service_go_again:
 	 */
 
 bail_ok:
-	vwsi->io.handling_pollout = 0;
-	vwsi->io.leave_pollout_active = 0;
+	vwsi->io->handling_pollout = 0;
+	vwsi->io->leave_pollout_active = 0;
 
 	return 0;
 
 bail_die:
-	vwsi->io.handling_pollout = 0;
-	vwsi->io.leave_pollout_active = 0;
+	vwsi->io->handling_pollout = 0;
+	vwsi->io->leave_pollout_active = 0;
 
 	/*
 	 * The wsi is still alive here, it just cannot continue: it's the
@@ -677,11 +677,11 @@ lws_io_service_now(struct lws *wsi)
 {
 	struct lws_pollfd pfd;
 
-	if (wsi->io.position_in_fds_table == LWS_NO_FDS_POS ||
-	    !lws_socket_is_valid(wsi->io.desc.sockfd))
+	if (wsi->io->position_in_fds_table == LWS_NO_FDS_POS ||
+	    !lws_socket_is_valid(wsi->io->desc.sockfd))
 		return 0;
 
-	pfd.fd = wsi->io.desc.sockfd;
+	pfd.fd = wsi->io->desc.sockfd;
 	pfd.events = LWS_POLLIN;
 	pfd.revents = LWS_POLLIN;
 
@@ -700,10 +700,10 @@ lws_io_flag_pending_rx(struct lws *wsi)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws_pollfd *pfd;
 
-	if (wsi->io.position_in_fds_table == LWS_NO_FDS_POS)
+	if (wsi->io->position_in_fds_table == LWS_NO_FDS_POS)
 		return 0;
 
-	pfd = &pt->fds[wsi->io.position_in_fds_table];
+	pfd = &pt->fds[wsi->io->position_in_fds_table];
 	pfd->revents = (short)((short)pfd->revents |
 			       (short)(pfd->events & LWS_POLLIN));
 
@@ -746,14 +746,14 @@ lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	memset(&sa46, 0, sizeof(sa46));
 
-	if (wsi->io.transport && wsi->io.transport->recv_dgram)
-		n = wsi->io.transport->recv_dgram(wsi, wsi->io.transport_opaque,
+	if (wsi->io->transport && wsi->io->transport->recv_dgram)
+		n = wsi->io->transport->recv_dgram(wsi, wsi->io->transport_opaque,
 						  pt->serv_buf,
 						  wsi->a.context->pt_serv_buf_size,
 						  &sa46, &ecn);
 	else
 #if defined(WIN32) || defined(_WIN32)
-	n = (int)recvfrom(wsi->io.desc.sockfd, (char *)pt->serv_buf,
+	n = (int)recvfrom(wsi->io->desc.sockfd, (char *)pt->serv_buf,
 			  (int)wsi->a.context->pt_serv_buf_size, 0,
 			  sa46_sockaddr(&sa46), &slen);
 #else
@@ -774,7 +774,7 @@ lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 		msg.msg_control = cmsg_buf;
 		msg.msg_controllen = sizeof(cmsg_buf);
 
-		n = (int)recvmsg(wsi->io.desc.sockfd, &msg, 0);
+		n = (int)recvmsg(wsi->io->desc.sockfd, &msg, 0);
 
 		if (n > 0)
 			for (cmsg = CMSG_FIRSTHDR(&msg); cmsg;
@@ -802,7 +802,7 @@ lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 
 #if defined(LWS_WITH_IPV6)
-	if (wsi->io.udp && wsi->io.udp->sa46.sa4.sin_family == AF_INET6 &&
+	if (wsi->io->udp && wsi->io->udp->sa46.sa4.sin_family == AF_INET6 &&
 	    sa46.sa4.sin_family == AF_INET) {
 		uint8_t a4[4];
 		uint16_t port;
@@ -1002,10 +1002,10 @@ lws_rx_stage(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (pol == LWS_RXPOL_DIED)
 		return 1;
 
-	if (in && wsi->io.favoured_pollin &&
+	if (in && wsi->io->favoured_pollin &&
 	    (pollfd->revents & pollfd->events & LWS_POLLOUT)) {
 		/* POLLIN went first last time: this pass is POLLOUT's */
-		wsi->io.favoured_pollin = 0;
+		wsi->io->favoured_pollin = 0;
 		in = 0;
 	}
 
@@ -1074,7 +1074,7 @@ lws_rx_stage(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * being served parked what came) and POLLOUT is served now.
 		 */
 		if (took && (pollfd->revents & pollfd->events & LWS_POLLOUT)) {
-			wsi->io.favoured_pollin = 1;
+			wsi->io->favoured_pollin = 1;
 			pollfd->revents &= (short)~LWS_POLLOUT;
 			out = 0;
 		}
@@ -1236,16 +1236,16 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	 */
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
 			lws_dll2_get_head(&pt->tls.dll_pending_tls_owner)) {
-		struct lws *wsi = lws_container_of(p, struct lws,
-						   io.tls.dll_pending_tls);
+		struct lws *wsi = lws_container_of(p, struct lws_io_adjunct,
+						   tls.dll_pending_tls)->wsi;
 
-		if (wsi->io.position_in_fds_table >= 0) {
+		if (wsi->io->position_in_fds_table >= 0) {
 
-			pt->fds[wsi->io.position_in_fds_table].revents = (short)(
-					pt->fds[wsi->io.position_in_fds_table].revents |
-				(pt->fds[wsi->io.position_in_fds_table].events &
+			pt->fds[wsi->io->position_in_fds_table].revents = (short)(
+					pt->fds[wsi->io->position_in_fds_table].revents |
+				(pt->fds[wsi->io->position_in_fds_table].events &
 								LWS_POLLIN));
-			if (pt->fds[wsi->io.position_in_fds_table].revents &
+			if (pt->fds[wsi->io->position_in_fds_table].revents &
 								LWS_POLLIN)
 				/*
 				 * We're not going to remove the wsi from the
@@ -1358,12 +1358,12 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 #ifdef _WIN32
 	if (pollfd->revents & LWS_POLLOUT)
-		wsi->io.sock_send_blocking = FALSE;
+		wsi->io->sock_send_blocking = FALSE;
 #endif
 
 #if defined(LWS_WITH_TLS)
 	if (lwsi_close(wsi) == LCS_SHUTDOWN &&
-	    lws_is_ssl(wsi) && wsi->io.tls.ssl) {
+	    lws_is_ssl(wsi) && wsi->io->tls.ssl) {
 
 #if defined(LWS_WITH_LATENCY)
 		lws_usec_t _tls_shut_start = lws_now_usecs();
@@ -1417,7 +1417,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 #if defined(LWS_WITH_TLS)
 	if ((pollfd->revents & LWS_POLLOUT) == LWS_POLLOUT &&
-	    wsi->io.tls_read_wanted_write) {
+	    wsi->io->tls_read_wanted_write) {
 		/*
 		 * If this wsi has a pending WANT_WRITE from SSL_read(), it has
 		 * asked for a callback on writeable so it can retry the read.
@@ -1425,7 +1425,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		 *  Let's consume the POLLOUT by turning it into a POLLIIN, and
 		 *  setting a flag to request a new writeable
 		 */
-		wsi->io.tls_read_wanted_write = 0;
+		wsi->io->tls_read_wanted_write = 0;
 		pollfd->revents &= ~(LWS_POLLOUT);
 		pollfd->revents |= LWS_POLLIN;
 		__lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
@@ -1591,9 +1591,9 @@ lws_service_wsi_as_writable(struct lws *wsi)
 {
 	struct lws_pollfd pfd;
 
-	assert(lws_socket_is_valid(wsi->io.desc.sockfd));
+	assert(lws_socket_is_valid(wsi->io->desc.sockfd));
 
-	pfd.fd = wsi->io.desc.sockfd;
+	pfd.fd = wsi->io->desc.sockfd;
 	pfd.events = LWS_POLLIN;
 	pfd.revents = LWS_POLLOUT;
 

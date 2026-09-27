@@ -101,7 +101,7 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 	if (!len || !buf)
 		return 0;
 
-	if (!wsi->mux_substream && !lws_socket_is_valid(wsi->io.desc.sockfd))
+	if (!wsi->mux_substream && !lws_socket_is_valid(wsi->io->desc.sockfd))
 		lwsl_wsi_err(wsi, "invalid sock");
 
 	/* limit sending */
@@ -213,7 +213,7 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 #if defined(LWS_WITH_UDP)
 	if (lws_wsi_is_udp(wsi))
 		/* stash original destination for fulfilling UDP partials */
-		wsi->io.udp->sa46_pending = wsi->io.udp->sa46;
+		wsi->io->udp->sa46_pending = wsi->io->udp->sa46;
 #endif
 
 	/* since something buffered, force it to get another chance to send */
@@ -386,8 +386,8 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	int n = 0, en;
 
-	if (wsi->io.transport) {
-		n = wsi->io.transport->read(wsi, wsi->io.transport_opaque,
+	if (wsi->io->transport) {
+		n = wsi->io->transport->read(wsi, wsi->io->transport_opaque,
 					    buf, len);
 		/* only the documented returns reach the pump's switch */
 		if (n < LWS_SSL_CAPABLE_MORE_SERVICE_WRITE || n > (int)len)
@@ -404,14 +404,14 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 
 #if defined(LWS_WITH_UDP)
 	if (lws_wsi_is_udp(wsi)) {
-		socklen_t slt = sizeof(wsi->io.udp->sa46);
+		socklen_t slt = sizeof(wsi->io->udp->sa46);
 
-		n = (int)recvfrom(wsi->io.desc.sockfd, (char *)buf,
+		n = (int)recvfrom(wsi->io->desc.sockfd, (char *)buf,
 				LWS_POSIX_LENGTH_CAST(len), 0,
-				sa46_sockaddr(&wsi->io.udp->sa46), &slt);
+				sa46_sockaddr(&wsi->io->udp->sa46), &slt);
 	} else
 #endif
-		n = (int)recv(wsi->io.desc.sockfd, (char *)buf,
+		n = (int)recv(wsi->io->desc.sockfd, (char *)buf,
 				LWS_POSIX_LENGTH_CAST(len), 0);
 
 #if defined(LWS_WITH_LATENCY)
@@ -426,7 +426,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 	en = LWS_ERRNO;
 	if (n >= 0) {
 
-		if (!n && wsi->io.unix_skt)
+		if (!n && wsi->io->unix_skt)
 			goto do_err;
 
 #if defined(LWS_WITH_UDP)
@@ -443,7 +443,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 		 * See https://libwebsockets.org/
 		 * pipermail/libwebsockets/2019-March/007857.html
 		 */
-		if (!n && !wsi->io.unix_skt)
+		if (!n && !wsi->io->unix_skt)
 			goto do_err;
 
 #if defined(LWS_WITH_SYS_METRICS) && defined(LWS_WITH_SERVER)
@@ -476,8 +476,8 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	int n = 0;
 
-	if (wsi->io.transport)
-		return wsi->io.transport->write(wsi, wsi->io.transport_opaque,
+	if (wsi->io->transport)
+		return wsi->io->transport->write(wsi, wsi->io->transport_opaque,
 						buf, len);
 #if defined(LWS_PLAT_OPTEE)
 	ssize_t send(int sockfd, const void *buf, size_t len, int flags);
@@ -497,24 +497,24 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 		}
 
 		if (lws_has_buffered_out(wsi))
-			n = (int)sendto(wsi->io.desc.sockfd, (const char *)buf,
-				   LWS_POSIX_LENGTH_CAST(len), 0, sa46_sockaddr(&wsi->io.udp->sa46_pending),
-				   sa46_socklen(&wsi->io.udp->sa46_pending));
+			n = (int)sendto(wsi->io->desc.sockfd, (const char *)buf,
+				   LWS_POSIX_LENGTH_CAST(len), 0, sa46_sockaddr(&wsi->io->udp->sa46_pending),
+				   sa46_socklen(&wsi->io->udp->sa46_pending));
 		else
-			n = (int)sendto(wsi->io.desc.sockfd, (const char *)buf,
-				   LWS_POSIX_LENGTH_CAST(len), 0, sa46_sockaddr(&wsi->io.udp->sa46),
-				   sa46_socklen(&wsi->io.udp->sa46));
+			n = (int)sendto(wsi->io->desc.sockfd, (const char *)buf,
+				   LWS_POSIX_LENGTH_CAST(len), 0, sa46_sockaddr(&wsi->io->udp->sa46),
+				   sa46_socklen(&wsi->io->udp->sa46));
 
 		if (n < 0 && LWS_ERRNO == LWS_EISCONN)
-			n = (int)sendto(wsi->io.desc.sockfd, (const char *)buf,
+			n = (int)sendto(wsi->io->desc.sockfd, (const char *)buf,
 				   LWS_POSIX_LENGTH_CAST(len), 0, NULL, 0);
 	} else
 #endif
 		if (wsi->role_ops->file_handle)
-			n = (int)write((int)(lws_intptr_t)wsi->io.desc.filefd, buf,
+			n = (int)write((int)(lws_intptr_t)wsi->io->desc.filefd, buf,
 					LWS_POSIX_LENGTH_CAST(len));
 		else
-			n = (int)send(wsi->io.desc.sockfd, (char *)buf,
+			n = (int)send(wsi->io->desc.sockfd, (char *)buf,
 					LWS_POSIX_LENGTH_CAST(len), MSG_NOSIGNAL);
 //	lwsl_info("%s: sent len %d result %d", __func__, len, n);
 
@@ -544,7 +544,7 @@ post_send:
 	}
 
 	lwsl_wsi_debug(wsi, "ERROR writing len %d to skt fd %d err %d / errno %d",
-			    (int)(ssize_t)len, wsi->io.desc.sockfd, n, LWS_ERRNO);
+			    (int)(ssize_t)len, wsi->io->desc.sockfd, n, LWS_ERRNO);
 
 	return LWS_SSL_CAPABLE_ERROR;
 }

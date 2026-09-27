@@ -1019,6 +1019,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 #endif
 	wsi.a.context = vh->context;
 	wsi.a.vhost = vh; /* not a real bound wsi */
+	wsi.io = vh->context->fake_io;
 
 #if defined(LWS_WITH_DHT)
 	lws_dht_destroy_all_on_vhost(vh);

@@ -1381,6 +1381,7 @@ lws_create_h3_dummy_wsi(struct lws_context *context, struct lws_qpack_tx_encoder
 		return NULL;
 
 	wsi->a.context = context;
+	wsi->io = context->fake_io; /* no transport */
 	lws_role_transition(wsi, 0, LRS_UNCONNECTED, &role_ops_h3);
 	wsi->h3.qpack_tx_encoder = tx_enc;
 	wsi->http.h3_base = 0;

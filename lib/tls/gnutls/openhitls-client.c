@@ -250,31 +250,31 @@ static void lws_openhitls_collect_peer_kids(struct lws *wsi,
 		return;
 	}
 
-	wsi->io.tls.kid_chain.count = 0;
+	wsi->io->tls.kid_chain.count = 0;
 
 	for (node = list->first;
 	     node &&
-	     wsi->io.tls.kid_chain.count < LWS_ARRAY_SIZE(wsi->io.tls.kid_chain.akid);
+	     wsi->io->tls.kid_chain.count < LWS_ARRAY_SIZE(wsi->io->tls.kid_chain.akid);
 	     node = BSL_LIST_GetNextNode(list, node)) {
 		HITLS_X509_ExtSki ski = {0};
 		HITLS_X509_ExtAki aki = {0};
 		HITLS_X509_Cert *cert =
 		    (HITLS_X509_Cert *)BSL_LIST_GetData(node);
-		uint8_t idx = wsi->io.tls.kid_chain.count;
+		uint8_t idx = wsi->io->tls.kid_chain.count;
 
 		if (!cert) {
 			continue;
 		}
 
-		memset(&wsi->io.tls.kid_chain.skid[idx], 0,
-		       sizeof(wsi->io.tls.kid_chain.skid[idx]));
-		memset(&wsi->io.tls.kid_chain.akid[idx], 0,
-		       sizeof(wsi->io.tls.kid_chain.akid[idx]));
+		memset(&wsi->io->tls.kid_chain.skid[idx], 0,
+		       sizeof(wsi->io->tls.kid_chain.skid[idx]));
+		memset(&wsi->io->tls.kid_chain.akid[idx], 0,
+		       sizeof(wsi->io->tls.kid_chain.akid[idx]));
 
 		if (HITLS_X509_CertCtrl(cert, HITLS_X509_EXT_GET_SKI, &ski,
 					sizeof(ski)) == HITLS_SUCCESS) {
 			lws_openhitls_kid_from_bsl(
-			    &ski.kid, &wsi->io.tls.kid_chain.skid[idx]);
+			    &ski.kid, &wsi->io->tls.kid_chain.skid[idx]);
 		}
 
 		/*
@@ -288,11 +288,11 @@ static void lws_openhitls_collect_peer_kids(struct lws *wsi,
 		if (HITLS_X509_CertCtrl(cert, HITLS_X509_EXT_GET_AKI, &aki,
 					sizeof(aki)) == HITLS_SUCCESS) {
 			lws_openhitls_kid_from_bsl(
-			    &aki.kid, &wsi->io.tls.kid_chain.akid[idx]);
+			    &aki.kid, &wsi->io->tls.kid_chain.akid[idx]);
 		}
 		HITLS_X509_ClearAuthorityKeyId(&aki);
 
-		wsi->io.tls.kid_chain.count++;
+		wsi->io->tls.kid_chain.count++;
 	}
 }
 #endif
@@ -395,12 +395,12 @@ static int32_t OpenHiTLS_client_verify_callback(int32_t verify_code,
 
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	if (vr == HITLS_X509_ERR_ISSUE_CERT_NOT_FOUND) {
-		if (!wsi->io.tls.kid_chain.count) {
+		if (!wsi->io->tls.kid_chain.count) {
 			lws_openhitls_collect_peer_kids(wsi, store_ctx);
 		}
-		if (wsi->io.tls.kid_chain.count) {
+		if (wsi->io->tls.kid_chain.count) {
 			(void)lws_tls_jit_trust_sort_kids(wsi,
-							  &wsi->io.tls.kid_chain);
+							  &wsi->io->tls.kid_chain);
 		}
 	}
 #endif
@@ -424,8 +424,8 @@ static int32_t OpenHiTLS_client_verify_callback(int32_t verify_code,
 					sizeof(int32_t));
 		if (vr != HITLS_X509_V_OK) {
 			/* cert validation error was not handled in callback */
-			lws_strncpy(wsi->io.tls.err_helper, type,
-				    sizeof(wsi->io.tls.err_helper));
+			lws_strncpy(wsi->io->tls.err_helper, type,
+				    sizeof(wsi->io->tls.err_helper));
 
 			lwsl_err("SSL error: %s (preverify_ok=%d;err=%d)\n",
 				 type, internal_allow, vr);
@@ -491,9 +491,9 @@ int lws_ssl_client_bio_create(struct lws *wsi)
 #if defined(LWS_WITH_TLS_SESSIONS)
 	if (!(wsi->a.vhost->options &
 	      LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE)) {
-		wsi->io.tls.ssl = ssl;
+		wsi->io->tls.ssl = ssl;
 		lws_tls_reuse_session(wsi);
-		wsi->io.tls.ssl = NULL;
+		wsi->io->tls.ssl = NULL;
 	}
 #endif
 
@@ -537,7 +537,7 @@ int lws_ssl_client_bio_create(struct lws *wsi)
 	}
 
 	/* BSL_UIO_SetFD returns void */
-	BSL_UIO_SetFD(uio, (int)wsi->io.desc.sockfd);
+	BSL_UIO_SetFD(uio, (int)wsi->io->desc.sockfd);
 
 	/* Set non-blocking mode */
 	BSL_UIO_Ctrl(uio, BSL_UIO_SET_NOBLOCK, 1, NULL);
@@ -591,7 +591,7 @@ int lws_ssl_client_bio_create(struct lws *wsi)
 	/* OpenHiTLS_client_verify_callback will be called @ HITLS_Connect(). */
 	HITLS_SetUserData(ssl, wsi);
 
-	wsi->io.tls.ssl = ssl;
+	wsi->io->tls.ssl = ssl;
 
 	if (wsi->sys_tls_client_cert) {
 		b = lws_system_get_blob(wsi->a.context,
@@ -672,8 +672,8 @@ enum lws_ssl_capable_status lws_tls_client_connect(struct lws *wsi,
 	int m, ret, en;
 
 	errno = 0;
-	wsi->io.tls.err_helper[0] = '\0';
-	ret = HITLS_Connect(wsi->io.tls.ssl);
+	wsi->io->tls.err_helper[0] = '\0';
+	ret = HITLS_Connect(wsi->io->tls.ssl);
 	en = errno;
 
 	m = lws_ssl_get_error(wsi, ret);
@@ -692,8 +692,8 @@ enum lws_ssl_capable_status lws_tls_client_connect(struct lws *wsi,
 
 	if (m == HITLS_ERR_TLS) {
 		int n =
-		    lws_snprintf(errbuf, len, "tls: %s", wsi->io.tls.err_helper);
-		if (!wsi->io.tls.err_helper[0]) {
+		    lws_snprintf(errbuf, len, "tls: %s", wsi->io->tls.err_helper);
+		if (!wsi->io->tls.err_helper[0]) {
 			const char *desc = BSL_ERR_GetString(m);
 			if (desc && desc[0]) {
 				lws_snprintf(errbuf + n, len - (unsigned int)n,
@@ -721,7 +721,7 @@ enum lws_ssl_capable_status lws_tls_client_connect(struct lws *wsi,
 		uint8_t *proto = NULL;
 		uint32_t proto_len = 0;
 
-		if (HITLS_GetSelectedAlpnProto(wsi->io.tls.ssl, &proto,
+		if (HITLS_GetSelectedAlpnProto(wsi->io->tls.ssl, &proto,
 					       &proto_len) == HITLS_SUCCESS &&
 		    proto && proto_len) {
 			char a[32];
@@ -736,7 +736,7 @@ enum lws_ssl_capable_status lws_tls_client_connect(struct lws *wsi,
 
 #if defined(LWS_TLS_SYNTHESIZE_CB)
 		lws_sul_schedule(wsi->a.context, wsi->tsi,
-				 &wsi->io.tls.sul_cb_synth,
+				 &wsi->io->tls.sul_cb_synth,
 				 lws_sess_cache_synth_cb, 500 * LWS_US_PER_MS);
 #endif
 
@@ -837,7 +837,7 @@ int lws_tls_client_confirm_peer_cert(struct lws *wsi,
 	 * treat not knowing as not verified
 	 */
 
-	if (HITLS_GetVerifyResult((const HITLS_Ctx *)wsi->io.tls.ssl,
+	if (HITLS_GetVerifyResult((const HITLS_Ctx *)wsi->io->tls.ssl,
 				  &verify_result) != HITLS_SUCCESS) {
 		lws_snprintf(ebuf, ebuf_len, "no cert verify result available");
 
@@ -849,7 +849,7 @@ int lws_tls_client_confirm_peer_cert(struct lws *wsi,
 	}
 
 	vr = (int)verify_result;
-	tls_cert = HITLS_GetPeerCertificate(wsi->io.tls.ssl);
+	tls_cert = HITLS_GetPeerCertificate(wsi->io->tls.ssl);
 
 	lws_openhitls_verify_result_to_policy(vr, &type, &avoid);
 

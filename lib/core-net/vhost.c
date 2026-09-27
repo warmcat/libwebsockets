@@ -295,6 +295,9 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 	memset((void *)&_lws, 0, sizeof(_lws));
 #endif
 	struct lws_a *lwsa = &_lws.a;
+
+	/* a made-up wsi for the callbacks: no transport */
+	_lws.io = vh->context->fake_io;
 #endif
 
 	lwsa->context = vh->context;

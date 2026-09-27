@@ -143,7 +143,7 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	 */
 	lws_vhost_lock(new_wsi->a.vhost);
 
-	lws_dll2_add_head(&new_wsi->io.vh_awaiting_socket,
+	lws_dll2_add_head(&new_wsi->io->vh_awaiting_socket,
 			  &new_wsi->a.vhost->vh_awaiting_socket_owner);
 	lws_vhost_unlock(new_wsi->a.vhost);
 
@@ -212,7 +212,7 @@ lws_adopt_ss_server_accept(struct lws *new_wsi)
 	h = (lws_ss_handle_t *)new_wsi->a.opaque_user_data;
 
 	/* the accepted socket takes the policy's socket options */
-	if (lws_plat_set_socket_options_ip(new_wsi->io.desc.sockfd,
+	if (lws_plat_set_socket_options_ip(new_wsi->io->desc.sockfd,
 					   h->policy->priority,
 		      (LCCSCF_IP_LOW_LATENCY *
 		       !!(h->policy->flags & LWSSSPOLF_ATTR_LOW_LATENCY)) |
@@ -256,7 +256,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 		}
 #endif
 
-	new_wsi->io.desc = fd;
+	new_wsi->io->desc = fd;
 
 	if (!LWS_SSL_ENABLED(new_wsi->a.vhost) ||
 	    !(type & LWS_ADOPT_SOCKET))
@@ -280,8 +280,8 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
         	struct lws *nwsi = lws_get_network_wsi(new_wsi);
 		char ta[64];
 
-        	if (nwsi->io.sa46_peer.sa4.sin_family)
-        	        lws_sa46_write_numeric_address(&nwsi->io.sa46_peer, ta, sizeof(ta));
+        	if (nwsi->io->sa46_peer.sa4.sin_family)
+        	        lws_sa46_write_numeric_address(&nwsi->io->sa46_peer, ta, sizeof(ta));
         	else
                 	strncpy(ta, "unknown", sizeof(ta));
 		__lws_lc_tag_append(&new_wsi->lc, ta);
@@ -327,7 +327,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 
 	lws_vhost_lock(new_wsi->a.vhost);
 	/* he has fds visibility now, remove from vhost orphan list */
-	lws_dll2_remove(&new_wsi->io.vh_awaiting_socket);
+	lws_dll2_remove(&new_wsi->io->vh_awaiting_socket);
 	lws_vhost_unlock(new_wsi->a.vhost);
 
 	/*
@@ -353,7 +353,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 		lws_io_udp_enable_ecn(new_wsi);
 
 		/* bound, it is where new peers arrive: one of our listeners */
-		if (new_wsi->io.do_bind) {
+		if (new_wsi->io->do_bind) {
 			new_wsi->listener = 1;
 #if defined(LWS_WITH_SERVER)
 			if (!lws_dll2_owner(&new_wsi->listen_list))
@@ -417,7 +417,7 @@ fail:
 	lws_pt_lock(pt, __func__); /* -------------------------------- pt { */
 
 	__remove_wsi_socket_from_fds(new_wsi);
-	new_wsi->io.desc.sockfd = LWS_SOCK_INVALID;
+	new_wsi->io->desc.sockfd = LWS_SOCK_INVALID;
 
 	__lws_close_free_wsi(new_wsi, LWS_CLOSE_STATUS_NOSTATUS,
 			     "adopt file fail");
@@ -505,7 +505,7 @@ lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 #endif
 
 	if (info->type & LWS_ADOPT_SOCKET &&
-	    getpeername(info->fd.sockfd, (struct sockaddr *)&new_wsi->io.sa46_peer,
+	    getpeername(info->fd.sockfd, (struct sockaddr *)&new_wsi->io->sa46_peer,
 								    &slen) < 0)
 		lwsl_info("%s: getpeername failed\n", __func__);
 
@@ -575,7 +575,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	if (!readbuf || len == 0)
 		return wsi;
 
-	if (wsi->io.position_in_fds_table == LWS_NO_FDS_POS)
+	if (wsi->io->position_in_fds_table == LWS_NO_FDS_POS)
 		return wsi;
 
 	pt = &wsi->a.context->pt[(int)wsi->tsi];
@@ -619,7 +619,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 		 * libuv won't come back and service us without a network
 		 * event, so we need to do the header service right here.
 		 */
-		pfd = &pt->fds[wsi->io.position_in_fds_table];
+		pfd = &pt->fds[wsi->io->position_in_fds_table];
 		pfd->revents |= LWS_POLLIN;
 		lwsl_err("%s: calling service\n", __func__);
 		if (lws_service_fd_tsi(wsi->a.context, pfd, wsi->tsi))
@@ -670,7 +670,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 	if (r) {
 		m = lws_sort_dns(wsi, r);
 
-		if (!ads && !m && wsi->io.do_bind) {
+		if (!ads && !m && wsi->io->do_bind) {
 			/*
 			 * A wildcard bind.  The resolver hands us both wildcards
 			 * with 0.0.0.0 first, and binding that gives an
@@ -681,14 +681,14 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			 * on to 0.0.0.0, so either family may be absent.
 			 */
 			lws_start_foreach_dll(struct lws_dll2 *, d,
-					lws_dll2_get_head(&wsi->io.dns_sorted_list)) {
+					lws_dll2_get_head(&wsi->io->dns_sorted_list)) {
 				lws_dns_sort_t *s = lws_container_of(d,
 						lws_dns_sort_t, list);
 
 				if (s->dest.sa4.sin_family == AF_INET6) {
 					lws_dll2_remove(&s->list);
 					lws_dll2_add_head(&s->list,
-							  &wsi->io.dns_sorted_list);
+							  &wsi->io->dns_sorted_list);
 					break;
 				}
 			} lws_end_foreach_dll(d);
@@ -732,12 +732,12 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
                         s->af = AF_INET;
                 }
 #endif
-		lws_dll2_add_tail(&s->list, &wsi->io.dns_sorted_list);
+		lws_dll2_add_tail(&s->list, &wsi->io->dns_sorted_list);
 	}
 
-	while (lws_dll2_get_head(&wsi->io.dns_sorted_list)) {
+	while (lws_dll2_get_head(&wsi->io->dns_sorted_list)) {
 		lws_dns_sort_t *s = lws_container_of(
-				lws_dll2_get_head(&wsi->io.dns_sorted_list),
+				lws_dll2_get_head(&wsi->io->dns_sorted_list),
 				lws_dns_sort_t, list);
 
 		/*
@@ -761,9 +761,9 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 				     SOCK_DGRAM, IPPROTO_UDP);
 #else
 		/* PF_PACKET is linux-only */
-		sock.sockfd = socket(wsi->io.pf_packet ? PF_PACKET :
+		sock.sockfd = socket(wsi->io->pf_packet ? PF_PACKET :
 						s->dest.sa4.sin_family,
-				     SOCK_DGRAM, wsi->io.pf_packet ?
+				     SOCK_DGRAM, wsi->io->pf_packet ?
 					htons(0x800) : IPPROTO_UDP);
 #endif
 		if (sock.sockfd == LWS_SOCK_INVALID)
@@ -842,7 +842,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			       (const char *)&bc, sizeof(bc)) < 0)
 			lwsl_err("%s: failed to set reuse\n", __func__);
 
-		if (wsi->io.do_broadcast &&
+		if (wsi->io->do_broadcast &&
 		    setsockopt(sock.sockfd, SOL_SOCKET, SO_BROADCAST,
 			       (const char *)&bc, sizeof(bc)) < 0)
 			lwsl_err("%s: failed to set broadcast\n", __func__);
@@ -856,7 +856,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			goto resume;
 		}
 
-		if (wsi->io.do_bind &&
+		if (wsi->io->do_bind &&
 		    bind(sock.sockfd, sa46_sockaddr(&s->dest),
 #if defined(_WIN32)
 			 (int)
@@ -869,7 +869,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			goto resume;
 		}
 
-		if (!wsi->io.do_bind && !wsi->io.pf_packet) {
+		if (!wsi->io->do_bind && !wsi->io->pf_packet) {
 #if !defined(__APPLE__)
 			if (connect(sock.sockfd, sa46_sockaddr(&s->dest),
 				    sa46_socklen(&s->dest)) == -1 &&
@@ -885,8 +885,8 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 #endif
 		}
 
-		if (wsi->io.udp)
-			wsi->io.udp->sa46 = s->dest;
+		if (wsi->io->udp)
+			wsi->io->udp->sa46 = s->dest;
 		/*
 		 * Only a connected socket has a peer.  A bound listener's
 		 * address is our own side, and recording it as the peer makes
@@ -895,8 +895,8 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		 * when the netlink coldplug completes on a host without a
 		 * route of that family.
 		 */
-		if (!wsi->io.do_bind)
-			wsi->io.sa46_peer = s->dest;
+		if (!wsi->io->do_bind)
+			wsi->io->sa46_peer = s->dest;
 
 		/* we connected: complete the udp socket adoption flow */
 
@@ -988,8 +988,8 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 #if !defined(__linux__)
 	sock.sockfd = socket(dest.sa4.sin_family, SOCK_DGRAM, IPPROTO_UDP);
 #else
-	sock.sockfd = socket(wsi->io.pf_packet ? PF_PACKET : dest.sa4.sin_family,
-			     SOCK_DGRAM, wsi->io.pf_packet ? htons(0x800) : IPPROTO_UDP);
+	sock.sockfd = socket(wsi->io->pf_packet ? PF_PACKET : dest.sa4.sin_family,
+			     SOCK_DGRAM, wsi->io->pf_packet ? htons(0x800) : IPPROTO_UDP);
 #endif
 	if (sock.sockfd == LWS_SOCK_INVALID)
 		goto bail;
@@ -1038,7 +1038,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		       (const char *)&bc, sizeof(bc)) < 0)
 		lwsl_err("%s: failed to set reuse\n", __func__);
 
-	if (wsi->io.do_broadcast &&
+	if (wsi->io->do_broadcast &&
 	    setsockopt(sock.sockfd, SOL_SOCKET, SO_BROADCAST,
 		       (const char *)&bc, sizeof(bc)) < 0)
 		lwsl_err("%s: failed to set broadcast\n", __func__);
@@ -1046,7 +1046,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 	if (opaque && lws_plat_BINDTODEVICE(sock.sockfd, (const char *)opaque))
 		goto resume;
 
-	if (wsi->io.do_bind &&
+	if (wsi->io->do_bind &&
 	    bind(sock.sockfd, sa46_sockaddr(&dest),
 #if defined(_WIN32)
 		 (int)
@@ -1056,7 +1056,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		goto resume;
 	}
 
-	if (!wsi->io.do_bind && !wsi->io.pf_packet) {
+	if (!wsi->io->do_bind && !wsi->io->pf_packet) {
 		/*
 		 * The connect() is compiled out on Apple since dacae3a95
 		 * (2020, "osx: do not connect udp"): unlike linux or windows,
@@ -1070,7 +1070,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		 * have to rely on the kernel-level filter this provides:
 		 * callback_async_dns() checks the source of every answer
 		 * itself, on every platform, and restores the chosen server
-		 * to wsi->io.udp->sa46 before doing it, since recvfrom() left
+		 * to wsi->io->udp->sa46 before doing it, since recvfrom() left
 		 * the datagram's source (which is also the send target)
 		 * there.  See the "resolver source-check legs" in
 		 * ./minimal-examples-lowlevel/api-tests/api-test-async-dns,
@@ -1087,10 +1087,10 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 #endif
 	}
 
-	if (wsi->io.udp)
-		wsi->io.udp->sa46 = dest;
-	if (!wsi->io.do_bind)
-		wsi->io.sa46_peer = dest;
+	if (wsi->io->udp)
+		wsi->io->udp->sa46 = dest;
+	if (!wsi->io->do_bind)
+		wsi->io->sa46_peer = dest;
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	{
@@ -1142,27 +1142,27 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 
 	// lwsl_notice("%s: role %s\n", __func__, wsi->role_ops->name);
 
-	wsi->io.do_bind = !!(flags & LWS_CAUDP_BIND);
-	wsi->io.do_broadcast = !!(flags & LWS_CAUDP_BROADCAST);
-	wsi->io.pf_packet = !!(flags & LWS_CAUDP_PF_PACKET);
+	wsi->io->do_bind = !!(flags & LWS_CAUDP_BIND);
+	wsi->io->do_broadcast = !!(flags & LWS_CAUDP_BROADCAST);
+	wsi->io->pf_packet = !!(flags & LWS_CAUDP_PF_PACKET);
 	wsi->c_port = (uint16_t)(unsigned int)port;
 	if (retry_policy)
 		wsi->retry_policy = retry_policy;
 	else
 		wsi->retry_policy = vhost->retry_policy;
 	/*
-	 * lws_sort_dns() filters out IPv6 results if wsi->io.ipv6 == 0, pick up
+	 * lws_sort_dns() filters out IPv6 results if wsi->io->ipv6 == 0, pick up
 	 * the vhost / context ipv6 policy
 	 */
 #if !defined(LWS_WITH_IPV4)
 	/* IPv6-only build: no v4 socket path exists to fall back to */
-	wsi->io.ipv6 = 1;
+	wsi->io->ipv6 = 1;
 #else
-	wsi->io.ipv6 = !!LWS_IPV6_ENABLED(vhost);
-	wsi->io.ipv4 = !!LWS_IPV4_ENABLED(vhost);
+	wsi->io->ipv6 = !!LWS_IPV6_ENABLED(vhost);
+	wsi->io->ipv4 = !!LWS_IPV4_ENABLED(vhost);
 	if (lws_wsi_is_async_dns(wsi))
 		/* resolver's own socket: either family may reach the NS */
-		wsi->io.ipv6 = wsi->io.ipv4 = 1;
+		wsi->io->ipv6 = wsi->io->ipv4 = 1;
 #endif
 
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)
@@ -1305,12 +1305,12 @@ bail:
 }
 
 /*
- * Take a copy of wsi->io.desc.sockfd before calling this, then close it
+ * Take a copy of wsi->io->desc.sockfd before calling this, then close it
  * afterwards
  */
 
 int lws_wsi_extract_from_loop(struct lws *wsi) {
-	if (lws_socket_is_valid(wsi->io.desc.sockfd))
+	if (lws_socket_is_valid(wsi->io->desc.sockfd))
 		__remove_wsi_socket_from_fds(wsi);
 
 	if (!wsi->a.context->event_loop_ops->destroy_wsi &&
@@ -1340,12 +1340,12 @@ lws_io_abort_connect(struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 	int m;
 
-	for (m = 0; m < wsi->io.parallel_count; m++)
-		if (wsi->io.parallel_conns[m].is_valid)
+	for (m = 0; m < wsi->io->parallel_count; m++)
+		if (wsi->io->parallel_conns[m].is_valid)
 			lws_remove_parallel_fd_safely(wsi, m);
-	wsi->io.parallel_count = 0;
-	lws_free_set_NULL(wsi->io.parallel_conns);
-	wsi->io.retry = 0;
+	wsi->io->parallel_count = 0;
+	lws_free_set_NULL(wsi->io->parallel_conns);
+	wsi->io->retry = 0;
 #endif
 	lws_io_connect_timers_cancel(wsi);
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
@@ -1358,16 +1358,16 @@ lws_io_abort_connect(struct lws *wsi)
 void
 lws_io_connect_timers_cancel(struct lws *wsi)
 {
-	lws_sul_cancel(&wsi->io.sul_connect_timeout);
+	lws_sul_cancel(&wsi->io->sul_connect_timeout);
 #if defined(WIN32)
-	lws_sul_cancel(&wsi->io.win32_sul_connect_async_check);
+	lws_sul_cancel(&wsi->io->win32_sul_connect_async_check);
 #endif
 #if defined(LWS_WITH_CLIENT)
-	lws_sul_cancel(&wsi->io.sul_happy_eyeballs);
-	lws_sul_cancel(&wsi->io.sul_h3_grace);
+	lws_sul_cancel(&wsi->io->sul_happy_eyeballs);
+	lws_sul_cancel(&wsi->io->sul_h3_grace);
 #endif
 #if defined(LWS_TLS_SYNTHESIZE_CB)
-	lws_sul_cancel(&wsi->io.tls.sul_cb_synth);
+	lws_sul_cancel(&wsi->io->tls.sul_cb_synth);
 #endif
 }
 
@@ -1380,7 +1380,7 @@ int
 lws_io_dns_next(struct lws *wsi, char *ads, size_t len)
 {
 #if defined(LWS_WITH_CLIENT)
-	struct lws_dll2 *d = lws_dll2_get_head(&wsi->io.dns_sorted_list);
+	struct lws_dll2 *d = lws_dll2_get_head(&wsi->io->dns_sorted_list);
 	lws_dns_sort_t *ds;
 
 	if (!d)
@@ -1403,7 +1403,7 @@ void
 lws_addrinfo_clean(struct lws *wsi)
 {
 #if defined(LWS_WITH_CLIENT)
-	struct lws_dll2 *d = lws_dll2_get_head(&wsi->io.dns_sorted_list), *d1;
+	struct lws_dll2 *d = lws_dll2_get_head(&wsi->io->dns_sorted_list), *d1;
 
 	while (d) {
 		lws_dns_sort_t *r = lws_container_of(d, lws_dns_sort_t, list);
@@ -1445,14 +1445,14 @@ lws_io_socket_wait_cancel(struct lws *wsi)
 		return;
 
 	lws_vhost_lock(wsi->a.vhost);
-	lws_dll2_remove(&wsi->io.vh_awaiting_socket);
+	lws_dll2_remove(&wsi->io->vh_awaiting_socket);
 	lws_vhost_unlock(wsi->a.vhost);
 }
 
 int
 lws_io_socket_wait_pending(struct lws *wsi)
 {
-	return !lws_dll2_is_detached(&wsi->io.vh_awaiting_socket);
+	return !lws_dll2_is_detached(&wsi->io->vh_awaiting_socket);
 }
 
 void
@@ -1462,7 +1462,7 @@ lws_io_socket_waiters_close(struct lws_vhost *vh, int tsi)
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 			      lws_dll2_get_head(&vh->vh_awaiting_socket_owner)) {
 		struct lws *w =
-			lws_container_of(d, struct lws, io.vh_awaiting_socket);
+			lws_container_of(d, struct lws_io_adjunct, vh_awaiting_socket)->wsi;
 
 		if (w->tsi == tsi) {
 			lwsl_vhost_debug(vh, "closing aso");
@@ -1485,22 +1485,22 @@ int
 lws_io_shutdown_write(struct lws *wsi)
 {
 #if defined(LWS_WITH_UDP)
-	if (wsi->io.udp)
+	if (wsi->io->udp)
 		return 0; /* nothing to shut on a datagram socket */
 #endif
 #if defined(LWS_WITH_TLS)
-	if (lws_is_ssl(wsi) && wsi->io.tls.ssl) {
+	if (lws_is_ssl(wsi) && wsi->io->tls.ssl) {
 		__lws_tls_shutdown(wsi);
 
 		return 1;
 	}
 #endif
-	if (!lws_socket_is_valid(wsi->io.desc.sockfd))
+	if (!lws_socket_is_valid(wsi->io->desc.sockfd))
 		return 0;
 
 	lwsl_wsi_info(wsi, "shutdown conn (sk %d, state 0x%x)",
-		      (int)(lws_intptr_t)wsi->io.desc.sockfd, lwsi_state(wsi));
-	if (shutdown(wsi->io.desc.sockfd, SHUT_WR)) {
+		      (int)(lws_intptr_t)wsi->io->desc.sockfd, lwsi_state(wsi));
+	if (shutdown(wsi->io->desc.sockfd, SHUT_WR)) {
 		lwsl_wsi_debug(wsi, "shutdown errno %d", LWS_ERRNO);
 
 		return -1;
@@ -1518,10 +1518,10 @@ int
 lws_io_close_staged(struct lws *wsi)
 {
 #if defined(LWS_WITH_UDP)
-	if (wsi->io.udp)
+	if (wsi->io->udp)
 		return 0; /* nothing to stage on a datagram socket */
 #endif
-	if (!lws_socket_is_valid(wsi->io.desc.sockfd) ||
+	if (!lws_socket_is_valid(wsi->io->desc.sockfd) ||
 	    !(wsi->a.context->event_loop_ops->flags & LELOF_ISPOLL))
 		return 0;
 
@@ -1540,14 +1540,14 @@ lws_io_close_staged(struct lws *wsi)
 static int
 lws_io_transfer_socket(struct lws *wsi, struct lws *wnew)
 {
-assert(lws_socket_is_valid(wsi->io.desc.sockfd));
+assert(lws_socket_is_valid(wsi->io->desc.sockfd));
 
 __lws_change_pollfd(wsi, LWS_POLLOUT | LWS_POLLIN, 0);
 
 /* copy the fd */
-wnew->io.desc = wsi->io.desc;
+wnew->io->desc = wsi->io->desc;
 
-assert(lws_socket_is_valid(wnew->io.desc.sockfd));
+assert(lws_socket_is_valid(wnew->io->desc.sockfd));
 
 /* disconnect the fd from association with old wsi */
 
@@ -1555,8 +1555,8 @@ if (__remove_wsi_socket_from_fds(wsi))
 	return -1; /* we must not return holding the vh lock */
 
 sanity_assert_no_wsi_traces(wsi->a.context, wsi);
-sanity_assert_no_sockfd_traces(wsi->a.context, wsi->io.desc.sockfd);
-wsi->io.desc.sockfd = LWS_SOCK_INVALID;
+sanity_assert_no_sockfd_traces(wsi->a.context, wsi->io->desc.sockfd);
+wsi->io->desc.sockfd = LWS_SOCK_INVALID;
 
 /*
  * ... we're doing some magic here in terms of handing off the socket
@@ -1576,8 +1576,8 @@ if (wsi->a.context->event_loop_ops->sock_accept &&
 	 * not go into the fds table where nothing would ever service
 	 * or close his fd
 	 */
-	compatible_close(wnew->io.desc.sockfd);
-	wnew->io.desc.sockfd = LWS_SOCK_INVALID;
+	compatible_close(wnew->io->desc.sockfd);
+	wnew->io->desc.sockfd = LWS_SOCK_INVALID;
 
 	return -1;
 }
@@ -1585,7 +1585,7 @@ if (wsi->a.context->event_loop_ops->sock_accept &&
 
 /* point the fd table entry to new guy */
 
-assert(lws_socket_is_valid(wnew->io.desc.sockfd));
+assert(lws_socket_is_valid(wnew->io->desc.sockfd));
 
 if (__insert_wsi_socket_into_fds(wsi->a.context, wnew)) {
 	/*
@@ -1594,8 +1594,8 @@ if (__insert_wsi_socket_into_fds(wsi->a.context, wnew)) {
 	 * ever poll or close it now, so close it here rather than
 	 * leak it
 	 */
-	compatible_close(wnew->io.desc.sockfd);
-	wnew->io.desc.sockfd = LWS_SOCK_INVALID;
+	compatible_close(wnew->io->desc.sockfd);
+	wnew->io->desc.sockfd = LWS_SOCK_INVALID;
 
 	return -1;
 }
@@ -1604,13 +1604,13 @@ if (__insert_wsi_socket_into_fds(wsi->a.context, wnew)) {
 /* pass on the tls */
 
 #if defined(LWS_TLS_SYNTHESIZE_CB)
-lws_sul_cancel(&wsi->io.tls.sul_cb_synth);
+lws_sul_cancel(&wsi->io->tls.sul_cb_synth);
 /*
  * ...but only if there is a tls session to harvest: a cleartext
  * keepalive handover has no tls.ssl for the backend to look inside
  */
-if (wsi->io.tls.ssl)
-	lws_sess_cache_synth_cb(&wsi->io.tls.sul_cb_synth);
+if (wsi->io->tls.ssl)
+	lws_sess_cache_synth_cb(&wsi->io->tls.sul_cb_synth);
 #endif
 
 /*
@@ -1620,21 +1620,21 @@ if (wsi->io.tls.ssl)
  * inside a wsi about to be freed.  Move the membership, not the node.
  */
 {
-	int pending = !lws_dll2_is_detached(&wsi->io.tls.dll_pending_tls);
-	lws_dll2_owner_t *own = lws_dll2_owner(&wsi->io.tls.dll_pending_tls);
+	int pending = !lws_dll2_is_detached(&wsi->io->tls.dll_pending_tls);
+	lws_dll2_owner_t *own = lws_dll2_owner(&wsi->io->tls.dll_pending_tls);
 
 	if (pending)
-		lws_dll2_remove(&wsi->io.tls.dll_pending_tls);
+		lws_dll2_remove(&wsi->io->tls.dll_pending_tls);
 
-	wnew->io.tls = wsi->io.tls;
-	lws_dll2_clear(&wnew->io.tls.dll_pending_tls);
-	lws_dll2_clear(&wsi->io.tls.dll_pending_tls);
+	wnew->io->tls = wsi->io->tls;
+	lws_dll2_clear(&wnew->io->tls.dll_pending_tls);
+	lws_dll2_clear(&wsi->io->tls.dll_pending_tls);
 
 	if (pending && own)
-		lws_dll2_add_head(&wnew->io.tls.dll_pending_tls, own);
+		lws_dll2_add_head(&wnew->io->tls.dll_pending_tls, own);
 }
-wsi->io.tls.client_bio = NULL;
-wsi->io.tls.ssl = NULL;
+wsi->io->tls.client_bio = NULL;
+wsi->io->tls.ssl = NULL;
 wsi->use_ssl = 0;
 #endif
 
@@ -1655,7 +1655,7 @@ lws_io_transfer_pollfd(struct lws *from, struct lws *to)
 	int n;
 
 #if defined(LWS_WITH_UDP)
-	if (from->io.udp || !lws_socket_is_valid(from->io.desc.sockfd))
+	if (from->io->udp || !lws_socket_is_valid(from->io->desc.sockfd))
 		return lws_io_udp_transfer_socket(from, to);
 #endif
 

@@ -181,7 +181,7 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 	q->completing = 1;
 
 	while ((d = lws_dll2_get_head(&q->wsi_adns))) {
-		struct lws *w = lws_container_of(d, struct lws, io.adns);
+		struct lws *w = lws_container_of(d, struct lws_io_adjunct, adns)->wsi;
 
 		lws_dll2_remove(d);
 
@@ -192,7 +192,7 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 			c->refcount++;
 		}
 		lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
-		if (w->io.adns_cb(w, (const char *)&q[1], c ? c->results : NULL,
+		if (w->io->adns_cb(w, (const char *)&q[1], c ? c->results : NULL,
 			       rc, q->opaque) == NULL) {
 			lwsl_info("%s: failed\n", __func__);
 			ret = LADNS_RET_FAILED_WSI_CLOSED;
@@ -440,13 +440,13 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	n = lws_ptr_diff(p, pkt + LWS_PRE);
 
 	if (q->broadsiding) {
-		m = wsi->io.udp ? n : n + 2; /* assume success unless primary fails */
+		m = wsi->io->udp ? n : n + 2; /* assume success unless primary fails */
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&q->dns->nameservers)) {
 			lws_async_dns_server_t *s = lws_container_of(d, lws_async_dns_server_t, list);
 			if (s->wsi) {
 				int m2;
-				if (!s->wsi->io.udp) {
+				if (!s->wsi->io->udp) {
 					lws_ser_wu16be(pkt + LWS_PRE - 2, (uint16_t)n);
 					m2 = lws_write(s->wsi, pkt + LWS_PRE - 2, (unsigned int)n + 2, 0);
 				} else
@@ -457,14 +457,14 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 			}
 		} lws_end_foreach_dll_safe(d, d1);
 	} else {
-		if (!wsi->io.udp) {
+		if (!wsi->io->udp) {
 			lws_ser_wu16be(pkt + LWS_PRE - 2, (uint16_t)n);
 			m = lws_write(wsi, pkt + LWS_PRE - 2, (unsigned int)n + 2, 0);
 		} else
 			m = lws_write(wsi, pkt + LWS_PRE, (unsigned int)n, 0);
 	}
 
-	if (m != (wsi->io.udp ? n : n + 2)) {
+	if (m != (wsi->io->udp ? n : n + 2)) {
 		lwsl_wsi_notice(wsi, "dns write failed %d %d errno %d",
 			    m, n, errno);
 		goto qfail;
@@ -504,7 +504,7 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct lws_async_dns *dns = &(lws_get_context(wsi)->async_dns);
 
-	if (!wsi->io.udp) {
+	if (!wsi->io->udp) {
 		lws_adns_q_t *q = (lws_adns_q_t *)wsi->a.opaque_user_data;
 
 		if (!q)
@@ -614,15 +614,15 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 		// lwsl_hexdump_wsi_notice(wsi, in, len);
 	{
 		/*
-		 * recvfrom() left the datagram's source in wsi->io.udp->sa46,
+		 * recvfrom() left the datagram's source in wsi->io->udp->sa46,
 		 * which is also where we send to... put the nameserver we
 		 * chose back first, so a foreign datagram cannot redirect our
 		 * queries to whoever sent it.
 		 */
 
-		lws_sockaddr46 src = wsi->io.udp->sa46;
+		lws_sockaddr46 src = wsi->io->udp->sa46;
 
-		wsi->io.udp->sa46 = dsrv->sa46;
+		wsi->io->udp->sa46 = dsrv->sa46;
 
 		/*
 		 * An answer only means anything if it came from the server we
@@ -840,18 +840,18 @@ lws_async_dns_create_server_wsi(struct lws_context *context)
 			}
 
 			/*
-			 * lws_create_adopt_udp() only allocates wsi->io.udp once
+			 * lws_create_adopt_udp() only allocates wsi->io->udp once
 			 * the raw-skt adoption actually completes.  If adoption
 			 * did not complete (eg, the resolved nameserver address
 			 * produced no usable route and the wsi is pending close),
-			 * wsi->io.udp may still be NULL -- don't deref it blindly.
+			 * wsi->io->udp may still be NULL -- don't deref it blindly.
 			 */
-			if (!dsrv->wsi->io.udp) {
+			if (!dsrv->wsi->io->udp) {
 				lwsl_cx_err(context, "adns wsi has no udp");
 				return 1;
 			}
 
-			dsrv->wsi->io.udp->sa46 = dsrv->sa46;
+			dsrv->wsi->io->udp->sa46 = dsrv->sa46;
 		}
 
 	} lws_end_foreach_dll_safe(d, d1);
@@ -1576,7 +1576,7 @@ cancel(struct lws_dll2 *d, void *user)
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d3, d4,
 				   lws_dll2_get_head(&q->wsi_adns)) {
-		struct lws *w = lws_container_of(d3, struct lws, io.adns);
+		struct lws *w = lws_container_of(d3, struct lws_io_adjunct, adns)->wsi;
 
 		if (user == w) {
 			/*
@@ -1865,12 +1865,12 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		goto failed;
 
 	if (wsi) {
-		if (!lws_dll2_is_detached(&wsi->io.adns)) {
+		if (!lws_dll2_is_detached(&wsi->io->adns)) {
 			lwsl_cx_err(context, "%s already bound to query %p",
-					lws_wsi_tag(wsi), lws_dll2_owner(&wsi->io.adns));
+					lws_wsi_tag(wsi), lws_dll2_owner(&wsi->io->adns));
 			goto failed;
 		}
-		wsi->io.adns_cb = cb;
+		wsi->io->adns_cb = cb;
 	}
 
 	/*
@@ -2053,8 +2053,8 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		memset(&tmq.tq, 0, sizeof(tmq.tq));
 		tmq.tq.opaque = opaque;
 		if (wsi) {
-			wsi->io.adns_cb = cb;
-			lws_dll2_add_head(&wsi->io.adns, &tmq.tq.wsi_adns);
+			wsi->io->adns_cb = cb;
+			lws_dll2_add_head(&wsi->io->adns, &tmq.tq.wsi_adns);
 		} else
 			tmq.tq.standalone_cb = cb;
 		lws_strncpy(tmq.name, name, sizeof(tmq.name));
@@ -2099,7 +2099,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	if (q && wsi) {
 		lwsl_cx_debug(context, "dns piggybacking: %d:%s",
 				qtype, name);
-		lws_dll2_add_head(&wsi->io.adns, &q->wsi_adns);
+		lws_dll2_add_head(&wsi->io->adns, &q->wsi_adns);
 
 		return LADNS_RET_CONTINUING;
 	}
@@ -2120,7 +2120,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	}
 
 	if (wsi)
-		lws_dll2_add_head(&wsi->io.adns, &q->wsi_adns);
+		lws_dll2_add_head(&wsi->io->adns, &q->wsi_adns);
 
 	q->qtype = (uint16_t)qtype;
 	q->want_dnssec = want_dnssec != 0;
@@ -2286,7 +2286,7 @@ failed_unpublished_q:
 	 * the rest of its life (it trips the "already bound" check above).
 	 */
 	if (wsi)
-		lws_dll2_remove(&wsi->io.adns);
+		lws_dll2_remove(&wsi->io->adns);
 	lws_sul_cancel(&q->sul);
 	lws_sul_cancel(&q->write_sul);
 	lws_sul_cancel(&q->deadline_sul);

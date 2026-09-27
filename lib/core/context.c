@@ -621,6 +621,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if !defined(LWS_PLAT_FREERTOS)
 	size += (count_threads * sizeof(struct lws));
 #endif
+	/* the made-up wsis' IO half, first after the context: aligned */
+	size += sizeof(struct lws_io_adjunct);
 
 	if (info->event_lib_custom) {
 		plev = info->event_lib_custom;
@@ -841,6 +843,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 #if defined(LWS_WITH_NETWORK)
 	context->event_loop_ops = plev->ops;
+	context->wsi_io_size = sizeof(struct lws_io_adjunct) +
+					plev->ops->evlib_size_wsi;
 	context->us_wait_resolution = us_wait_resolution;
 	context->wol_if = info->wol_if;
 	context->lws_stub = info->lws_stub;
@@ -1455,6 +1459,12 @@ lws_create_context(const struct lws_context_creation_info *info)
 	 * and header data pool
 	 */
 	u = (uint8_t *)&context[1];
+
+	context->fake_io = (struct lws_io_adjunct *)u;
+	u += sizeof(struct lws_io_adjunct);
+	memset(context->fake_io, 0, sizeof(*context->fake_io));
+	lws_io_adjunct_setup(context->fake_io);
+
 	for (n = 0; n < context->count_threads; n++) {
 		context->pt[n].serv_buf = u;
 		context->pt[n].compose_buf = u + context->pt_serv_buf_size;
@@ -1497,6 +1507,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if !defined(__COVERITY__)
 		memset((void *)context->pt[n].fake_wsi, 0, sizeof(struct lws));
 #endif
+		context->pt[n].fake_wsi->io = context->fake_io;
 #endif
 
 		context->pt[n].evlib_pt = u;
@@ -2325,6 +2336,7 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 #endif
 #endif
 		wsi.a.context = pt->context;
+		wsi.io = pt->context->fake_io;
 		wsi.tsi = (char)pt->tid;
 		lws_plat_pipe_close(&wsi);
 	}

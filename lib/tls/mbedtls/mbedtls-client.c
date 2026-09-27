@@ -47,7 +47,7 @@ lws_mbedtls_client_verify_cb(void *opaque, mbedtls_x509_crt *x509, int depth,
 			     uint32_t *flags)
 {
 	struct lws *wsi = (struct lws *)opaque;
-	lws_tls_kid_chain_t *ch = &wsi->io.tls.kid_chain;
+	lws_tls_kid_chain_t *ch = &wsi->io->tls.kid_chain;
 	union lws_tls_cert_info_results ci;
 
 	(void)depth;
@@ -108,12 +108,12 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		return -1;
 	}
 
-	wsi->io.tls.ssl = (lws_tls_conn *)conn;
+	wsi->io->tls.ssl = (lws_tls_conn *)conn;
 	conn->ctx = wsi->a.vhost->tls.ssl_client_ctx;
 	if (!conn->ctx) {
 		lwsl_err("%s: vhost has no client tls ctx\n", __func__);
 		lws_free(conn);
-		wsi->io.tls.ssl = NULL;
+		wsi->io->tls.ssl = NULL;
 
 		return -1;
 	}
@@ -161,7 +161,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		lwsl_info("%s: mbedtls_ssl_setup failed\n", __func__);
 		mbedtls_ssl_free(&conn->ssl);
 		lws_free(conn);
-		wsi->io.tls.ssl = NULL;
+		wsi->io->tls.ssl = NULL;
 		return -1;
 	}
 
@@ -171,7 +171,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	 * key identifiers for JIT trust; the vhost-shared conf cannot carry a
 	 * per-wsi opaque.  Start each connection with an empty chain.
 	 */
-	memset(&wsi->io.tls.kid_chain, 0, sizeof(wsi->io.tls.kid_chain));
+	memset(&wsi->io->tls.kid_chain, 0, sizeof(wsi->io->tls.kid_chain));
 	mbedtls_ssl_set_verify(&conn->ssl, lws_mbedtls_client_verify_cb, wsi);
 #endif
 
@@ -186,7 +186,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 			return -1;
 	}
 
-	conn->net.MBEDTLS_PRIVATE_V30_ONLY(fd) = (int)wsi->io.desc.sockfd;
+	conn->net.MBEDTLS_PRIVATE_V30_ONLY(fd) = (int)wsi->io->desc.sockfd;
 	mbedtls_ssl_set_bio(&conn->ssl, &conn->net, lws_plat_mbedtls_net_send, lws_plat_mbedtls_net_recv, NULL);
 
 	return 0;
@@ -198,7 +198,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 {
 	int n, en;
 
-	n = mbedtls_ssl_handshake(&wsi->io.tls.ssl->ssl);
+	n = mbedtls_ssl_handshake(&wsi->io->tls.ssl->ssl);
 
 	if (n == 0) {
 		lws_tls_server_conn_alpn(wsi);
@@ -232,10 +232,10 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 {
 	uint32_t flags;
 
-	if (!wsi->io.tls.ssl)
+	if (!wsi->io->tls.ssl)
 		return -1;
 
-	flags = mbedtls_ssl_get_verify_result(&wsi->io.tls.ssl->ssl);
+	flags = mbedtls_ssl_get_verify_result(&wsi->io->tls.ssl->ssl);
 	if (flags == 0)
 		return 0;
 
@@ -269,7 +269,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 		 * a vhost trusting it for the retry.
 		 */
 		if (flags & MBEDTLS_X509_BADCERT_NOT_TRUSTED)
-			lws_tls_jit_trust_sort_kids(wsi, &wsi->io.tls.kid_chain);
+			lws_tls_jit_trust_sort_kids(wsi, &wsi->io->tls.kid_chain);
 #endif
 		return -1;
 	}

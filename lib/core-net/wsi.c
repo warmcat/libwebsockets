@@ -763,9 +763,8 @@ struct lws *__lws_wsi_create_with_role(struct lws_context *context, int tsi,
 
 	lws_context_assert_lock_held(context);
 
-#if defined(LWS_WITH_EVENT_LIBS)
-	s += context->event_loop_ops->evlib_size_wsi;
-#endif
+	/* IO's half of it follows it (its created op sets it up) */
+	s += context->wsi_io_size;
 
 	wsi = lws_zalloc(s, __func__);
 
@@ -819,6 +818,7 @@ int lws_callback_vhost_protocols_vhost(struct lws_vhost *vh, int reason,
 		return 1;
 
 	wsi->a.context = vh->context;
+	wsi->io = vh->context->fake_io; /* no transport */
 	/*
 	 * This is only a stack-in of a wsi to give the protocol callbacks
 	 * something to work with, it's freed below without ever going through

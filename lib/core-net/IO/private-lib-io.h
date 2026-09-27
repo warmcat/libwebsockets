@@ -420,6 +420,8 @@ lws_io_udp_transfer_socket(struct lws *wsi, struct lws *nwsi);
 #endif
 void
 lws_pipe_wsi_release_fds(struct lws *wsi);
+void
+lws_io_adjunct_setup(struct lws_io_adjunct *io);
 #if defined(LWS_WITH_CGI)
 void
 lws_cgi_stdwsi_quiesce(struct lws *wsi);

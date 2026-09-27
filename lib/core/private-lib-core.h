@@ -492,6 +492,12 @@ typedef struct {
 
 struct lws_context {
 	const lws_io_ops_t		*io_ops; /* the requests of IO */
+	size_t				wsi_io_size;
+	/**< IO's half of each wsi, allocated after it: the adjunct and the
+	 * event library's per-wsi block */
+	struct lws_io_adjunct		*fake_io;
+	/**< the IO half of a wsi made up for a callback that has no real
+	 * one: no socket, no place in the poll set (rides after the context) */
  #if defined(LWS_WITH_SERVER)
 	char canonical_hostname[96];
  #endif
