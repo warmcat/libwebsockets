@@ -56,6 +56,28 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 LWS_VISIBLE LWS_EXTERN void
 lws_auth_dns_free_zone(struct auth_dns_zone *z);
 
+#define LWS_AUTH_DNS_NSEC3_HASH_LEN 20 /* SHA-1, the only NSEC3 hash */
+
+/**
+ * lws_auth_dns_nsec3_hash() - RFC 5155 hashed owner name
+ *
+ * \param wire: the owner name in canonical wire form (lowercased labels,
+ *		 terminating root label)
+ * \param wire_len: length of \p wire
+ * \param salt: the NSEC3 salt, or NULL if \p salt_len is 0
+ * \param salt_len: length of \p salt
+ * \param iterations: the NSEC3 additional iterations
+ * \param hash: LWS_AUTH_DNS_NSEC3_HASH_LEN bytes of output
+ *
+ * Returns 0 on success.  The signer names each NSEC3 by this hash, and an
+ * authoritative server picks the NSEC3 proving a denial by the same hash of
+ * the query name, so both must use it for resolvers to agree with them.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_auth_dns_nsec3_hash(const uint8_t *wire, size_t wire_len,
+			const uint8_t *salt, size_t salt_len,
+			unsigned int iterations, uint8_t *hash);
+
 struct lws_auth_dns_sign_info {
 	const char			*input_filepath;
 	const char			*output_filepath;

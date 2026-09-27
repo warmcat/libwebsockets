@@ -23,6 +23,7 @@
  */
 
 #include <libwebsockets.h>
+#include <ctype.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -409,6 +410,182 @@ bail:
 	return r;
 }
 
+/* canonical wire form of a text name, "." or "" is the root */
+
+static size_t
+t_name_to_wire(const char *name, uint8_t *w, size_t max)
+{
+	const char *p = name;
+	size_t o = 0;
+
+	while (*p && *p != '.') {
+		const char *dot = strchr(p, '.');
+		size_t l = dot ? (size_t)(dot - p) : strlen(p), n;
+
+		if (l > 63 || o + 1 + l + 1 > max)
+			return 0;
+		w[o++] = (uint8_t)l;
+		for (n = 0; n < l; n++)
+			w[o++] = (uint8_t)tolower((unsigned char)p[n]);
+		p = dot ? dot + 1 : p + l;
+	}
+	w[o++] = 0;
+
+	return o;
+}
+
+static void
+t_b32hex(const uint8_t *in, size_t len, char *out)
+{
+	static const char tab[] = "0123456789abcdefghijklmnopqrstuv";
+	uint32_t acc = 0;
+	int bits = 0;
+
+	while (len--) {
+		acc = (acc << 8) | *in++;
+		bits += 8;
+		while (bits >= 5) {
+			*out++ = tab[(acc >> (bits - 5)) & 31];
+			bits -= 5;
+		}
+	}
+	if (bits)
+		*out++ = tab[(acc << (5 - bits)) & 31];
+	*out = '\0';
+}
+
+static int
+t_nsec3_b32(const char *name, const uint8_t *salt, size_t salt_len,
+	    unsigned int it, char *b32)
+{
+	uint8_t w[256], h[LWS_AUTH_DNS_NSEC3_HASH_LEN];
+	size_t wl = t_name_to_wire(name, w, sizeof(w));
+
+	if (!wl || lws_auth_dns_nsec3_hash(w, wl, salt, salt_len, it, h))
+		return 1;
+	t_b32hex(h, sizeof(h), b32);
+
+	return 0;
+}
+
+/*
+ * NSEC3 owner names must be the RFC 5155 hash, or no resolver can match a
+ * denial of existence to the query name: every negative answer from a
+ * signed zone then fails validation (SERVFAIL).  Check the hash against the
+ * RFC's own Appendix A examples, then check that the zone signed above
+ * names each of its NSEC3 by that hash of a real owner, for every owner.
+ */
+
+static int
+test_nsec3(void)
+{
+	static const uint8_t rfc_salt[] = { 0xaa, 0xbb, 0xcc, 0xdd };
+	static const struct { const char *name, *b32; } kat[] = {
+		{ "example",	 "0p9mhaveqvm6t7vbl5lop2u3t2rp3tom" },
+		{ "a.example",	 "35mthgpgcu1qg68fab165klnsnk3dpvl" },
+		{ "ai.example",	 "gjeqe526plbf1g8mklp59enfd789njgi" },
+		{ "ns1.example", "2t7b4g4vsa5smi47k61mv5bv1a22bojr" },
+		{ "w.example",	 "k8udemvp1j2f7eg6jebps17vp3n8i58h" },
+	};
+	uint8_t salt[255];
+	char b32[40], want[40];
+	struct auth_dns_zone z;
+	int it = -1, salt_len = 0, owners = 0, r = 1;
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(kat); n++)
+		if (t_nsec3_b32(kat[n].name, rfc_salt, sizeof(rfc_salt), 12,
+				b32) || strcmp(b32, kat[n].b32)) {
+			lwsl_err("%s: RFC 5155 hash of %s is %s, expected %s\n",
+				 __func__, kat[n].name, b32, kat[n].b32);
+			return 1;
+		}
+
+	if (load_zone(&z, "./test.zone.signed")) {
+		lwsl_err("%s: unable to reload signed zone\n", __func__);
+		return 1;
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z.rrset_list)) {
+		struct auth_dns_rrset *s = lws_container_of(d,
+						struct auth_dns_rrset, list);
+		struct auth_dns_rr *rr = lws_container_of(
+				lws_dll2_get_head(&s->rr_list),
+				struct auth_dns_rr, list);
+		const char *f;
+		int k;
+
+		if (s->type != 51 || !rr->rdata)
+			continue;
+
+		/* "alg flags iterations salt": skip to the iterations field */
+		f = rr->rdata;
+		for (k = 0; k < 2 && f; k++)
+			if ((f = strchr(f, ' ')))
+				f++;
+		if (!f)
+			break;
+		it = atoi(f);
+		if (!(f = strchr(f, ' ')))
+			break;
+		f++;
+		if (strcmp(f, "-"))
+			salt_len = lws_hex_to_byte_array(f, salt, sizeof(salt));
+	} lws_end_foreach_dll(d);
+
+	if (it < 0 || salt_len < 0) {
+		lwsl_err("%s: no usable NSEC3PARAM in signed zone\n", __func__);
+		goto bail;
+	}
+
+	/* every owner has an NSEC3 named by its hash ... */
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z.rrset_list)) {
+		struct auth_dns_rrset *s = lws_container_of(d,
+						struct auth_dns_rrset, list);
+		int found = 0;
+
+		if (s->type == 50 || s->type == 46)
+			continue;
+
+		if (t_nsec3_b32(s->name, salt, (size_t)salt_len,
+				(unsigned int)it, want))
+			goto bail;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d1, lws_dll2_get_head(&z.rrset_list)) {
+			struct auth_dns_rrset *n3 = lws_container_of(d1,
+						struct auth_dns_rrset, list);
+
+			size_t wl = strlen(want), k;
+
+			if (n3->type != 50 || strlen(n3->name) <= wl ||
+			    n3->name[wl] != '.')
+				continue;
+			for (k = 0; k < wl; k++)
+				if (tolower((unsigned char)n3->name[k]) != want[k])
+					break;
+			if (k == wl)
+				found = 1;
+		} lws_end_foreach_dll(d1);
+
+		if (!found) {
+			lwsl_err("%s: no NSEC3 %s for owner %s\n", __func__,
+				 want, s->name);
+			goto bail;
+		}
+		owners++;
+	} lws_end_foreach_dll(d);
+
+	lwsl_user("NSEC3 hashes (RFC 5155 examples, %d signed owners): ok\n",
+		  owners);
+	r = 0;
+
+bail:
+	lws_auth_dns_free_zone(&z);
+
+	return r;
+}
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info cx_info;
@@ -512,6 +689,9 @@ int main(int argc, const char **argv)
 		goto bail;
 
 	if (test_unexpanded())
+		goto bail;
+
+	if (test_nsec3())
 		goto bail;
 
 	res = 0;

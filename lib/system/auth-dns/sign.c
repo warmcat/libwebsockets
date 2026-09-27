@@ -979,6 +979,37 @@ lws_auth_dns_b32hex_encode(const uint8_t *in, size_t len, char *out)
 	*out = '\0';
 }
 
+int
+lws_auth_dns_nsec3_hash(const uint8_t *wire, size_t wire_len,
+			const uint8_t *salt, size_t salt_len,
+			unsigned int iterations, uint8_t *hash)
+{
+	struct lws_genhash_ctx hctx;
+	const uint8_t *in = wire;
+	size_t in_len = wire_len;
+	unsigned int n;
+
+	/*
+	 * RFC 5155 5: IH(salt, x, 0) = H(x || salt) and
+	 * IH(salt, x, k) = H(IH(salt, x, k - 1) || salt): the salt always
+	 * goes after what is being hashed
+	 */
+	for (n = 0; n <= iterations; n++) {
+		if (lws_genhash_init(&hctx, LWS_GENHASH_TYPE_SHA1) ||
+		    lws_genhash_update(&hctx, in, in_len) ||
+		    (salt_len && lws_genhash_update(&hctx, salt, salt_len)) ||
+		    lws_genhash_destroy(&hctx, hash)) {
+			lws_genhash_destroy(&hctx, NULL);
+
+			return 1;
+		}
+		in = hash;
+		in_len = LWS_AUTH_DNS_NSEC3_HASH_LEN;
+	}
+
+	return 0;
+}
+
 /*
  * Compose the DNSKEY RDATA (RFC 4034 2.1 / RFC 3110) for an imported public
  * key into `wire`, returning the length used or 0 if it will not fit.
@@ -1317,27 +1348,11 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 			continue;
 		}
 
-		struct lws_genhash_ctx hctx;
-
-		/* first iteration: hash(salt + wire) */
-		if (lws_genhash_init(&hctx, LWS_GENHASH_TYPE_SHA1) ||
-		    (salt_len && lws_genhash_update(&hctx, salt, salt_len)) ||
-		    lws_genhash_update(&hctx, wire, wl) ||
-		    lws_genhash_destroy(&hctx, nodes[i]->hash)) {
-			lws_genhash_destroy(&hctx, NULL);
+		if (lws_auth_dns_nsec3_hash(wire, wl, salt, salt_len,
+					    (unsigned int)iterations,
+					    nodes[i]->hash)) {
 			nodes[i]->b32[0] = '\0';
 			continue;
-		}
-
-		/* subsequent iterations */
-		for (int j = 0; j < iterations; j++) {
-			if (lws_genhash_init(&hctx, LWS_GENHASH_TYPE_SHA1) ||
-			    (salt_len && lws_genhash_update(&hctx, salt, salt_len)) ||
-			    lws_genhash_update(&hctx, nodes[i]->hash, 20) || /* SHA1 is 20 bytes */
-			    lws_genhash_destroy(&hctx, nodes[i]->hash)) {
-				lws_genhash_destroy(&hctx, NULL);
-				break;
-			}
 		}
 
 		lws_auth_dns_b32hex_encode(nodes[i]->hash, 20, nodes[i]->b32);
