@@ -723,15 +723,28 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_strncpy(vhd->vh_name, vh_name, sizeof(vhd->vh_name));
 
 		lws_strncpy(vhd->pki_root, "/var/dnssec", sizeof(vhd->pki_root));
+		const char *stub_dir = "/var/run";
 		const struct lws_protocol_vhost_options *pvo = (const struct lws_protocol_vhost_options *)in;
 		while (pvo) {
 			if (!strcmp(pvo->name, "pki-root"))
 				lws_strncpy(vhd->pki_root, pvo->value, sizeof(vhd->pki_root));
+			if (!strcmp(pvo->name, "stub-dir"))
+				stub_dir = pvo->value;
 			pvo = pvo->next;
 		}
 
+		/*
+		 * The stub child listens wherever we say, lws_stub_spawn()
+		 * tells it on its cmdline
+		 */
 		char uds_path[256];
-		lws_snprintf(uds_path, sizeof(uds_path), "/var/run/lws-cert-dist-server-stub-%s.sock", vh_name);
+		if (lws_snprintf(uds_path, sizeof(uds_path),
+				 "%s/lws-cert-dist-server-stub-%s.sock",
+				 stub_dir, vh_name) >= (int)sizeof(uds_path) - 1) {
+			lwsl_vhost_err(lws_get_vhost(wsi), "%s: stub-dir too long\n",
+				       __func__);
+			return -1;
+		}
 
 		char stub_name[256];
 		lws_snprintf(stub_name, sizeof(stub_name), "certdistsrv-%s", vh_name);
@@ -1047,7 +1060,7 @@ static int
 cert_dist_server_init(struct lws_context *cx)
 {
 	const char *stub = lws_cmdline_option_cx(cx, "--lws-stub");
-	char uds_path[256], payload[CDS_PAYLOAD_MAX + 1];
+	char payload[CDS_PAYLOAD_MAX + 1];
 	struct cds_payload_parse pp;
 	struct lws_stub_config sc;
 	struct lejp_ctx jctx;
@@ -1073,13 +1086,10 @@ cert_dist_server_init(struct lws_context *cx)
 	lws_strncpy(cds_stub->pki_root, "/var/dnssec",
 		    sizeof(cds_stub->pki_root));
 
-	lws_snprintf(uds_path, sizeof(uds_path),
-		     "/var/run/lws-cert-dist-server-stub-%s.sock", orig_vh);
-
+	/* sc.uds_path NULL: listen where the parent told us on our cmdline */
 	memset(&sc, 0, sizeof(sc));
 	sc.cx		= cx;
 	sc.stub_name	= stub;
-	sc.uds_path	= uds_path;
 	sc.protocols	= stub_protocols;
 
 	/*

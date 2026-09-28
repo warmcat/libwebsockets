@@ -1165,6 +1165,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				return 0;
 
 			const char *vh_name = lws_get_vhost_name(lws_get_vhost(wsi));
+			const char *stub_dir = "/var/run";
 
 			vhd = lws_protocol_vh_priv_get(lws_get_vhost(wsi), lws_get_protocol(wsi));
 			if (vhd)
@@ -1181,7 +1182,6 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			char uds_path[256];
 			char stub_name[256];
 			lws_strncpy(vhd->vh_name, vh_name, sizeof(vhd->vh_name));
-			lws_snprintf(uds_path, sizeof(uds_path), "/var/run/lws-cert-dist-stub-%s.sock", vh_name);
 			lws_snprintf(stub_name, sizeof(stub_name), "certdistcli-%s", vh_name);
 
 			lwsl_notice("%s: allocated vhd\n", __func__);
@@ -1210,7 +1210,21 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 					ca_filepath = pvo->value;
 				if (!strcmp(pvo->name, "reload-cmd"))
 					lws_strncpy(vhd->reload_cmd, pvo->value, sizeof(vhd->reload_cmd));
+				if (!strcmp(pvo->name, "stub-dir"))
+					stub_dir = pvo->value;
 				pvo = pvo->next;
+			}
+
+			/*
+			 * The stub child listens wherever we say,
+			 * lws_stub_spawn() tells it on its cmdline
+			 */
+			if (lws_snprintf(uds_path, sizeof(uds_path),
+					 "%s/lws-cert-dist-stub-%s.sock", stub_dir,
+					 vh_name) >= (int)sizeof(uds_path) - 1) {
+				lwsl_vhost_err(lws_get_vhost(wsi),
+					       "%s: stub-dir too long\n", __func__);
+				return -1;
 			}
 
 		lwsl_vhost_notice(lws_get_vhost(wsi), "%s: Protocol init. euid=%d\n", __func__, (int)getuid());
@@ -1487,7 +1501,7 @@ static int
 cert_dist_client_init(struct lws_context *cx)
 {
 	const char *stub = lws_cmdline_option_cx(cx, "--lws-stub");
-	char uds_path[256], payload[CDC_PAYLOAD_MAX + 1];
+	char payload[CDC_PAYLOAD_MAX + 1];
 	struct cdc_payload_parse pp;
 	struct lws_stub_config sc;
 	struct lejp_ctx jctx;
@@ -1514,13 +1528,10 @@ cert_dist_client_init(struct lws_context *cx)
 	lws_strncpy(cdc_stub->base_dir, "/etc/lwsws-pki",
 		    sizeof(cdc_stub->base_dir));
 
-	lws_snprintf(uds_path, sizeof(uds_path),
-		     "/var/run/lws-cert-dist-stub-%s.sock", orig_vh);
-
+	/* sc.uds_path NULL: listen where the parent told us on our cmdline */
 	memset(&sc, 0, sizeof(sc));
 	sc.cx		= cx;
 	sc.stub_name	= stub;
-	sc.uds_path	= uds_path;
 	sc.protocols	= stub_protocols;
 
 	memset(payload, 0, sizeof(payload));

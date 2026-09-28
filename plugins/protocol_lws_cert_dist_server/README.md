@@ -12,7 +12,8 @@ This is the server-side protocol plugin for the certificate distribution system.
 
 | Name | Meaning | Default |
 |---|---|---|
-| `pki-root` | The root directory where domain certificates are stored. | `/var/dnssec/domains/` |
+| `pki-root` | The root directory where domain certificates are stored, in `<pki-root>/domains/` | `/var/dnssec` |
+| `stub-dir` | The directory the privileged stub's UDS socket is created in.  It must be one only the stub's user can create entries in. | `/var/run` |
 
 ## Usage
 
@@ -38,4 +39,4 @@ The watches are made at vhost init because under lwsws that is before privileges
 
 ### Privileged stub
 
-The unprivileged vhost spawns a stub child named `certdistsrv-<vhost>`, which is the only part that reads the PKI root.  The prefix is deliberately distinct from every other plugin's stub name: a stub child claims its work by prefix match, and claiming another plugin's child consumes the stdin secret meant for it.
+The unprivileged vhost spawns a stub child named `certdistsrv-<vhost>`, which is the only part that reads the PKI root.  It listens on `<stub-dir>/lws-cert-dist-server-stub-<vhost>.sock`, a path the parent passes it on its commandline.  The prefix is deliberately distinct from every other plugin's stub name: a stub child claims its work by prefix match, and claiming another plugin's child consumes the stdin secret meant for it.

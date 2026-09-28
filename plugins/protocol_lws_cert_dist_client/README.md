@@ -18,10 +18,13 @@ This is the client-side protocol plugin for the certificate distribution system.
 | `server-url` | The WebSocket URL of the central distribution server. | `wss://distribution-server.local` |
 | `ca-filepath` | Optional. Path to the CA certificate used to verify the distribution server's certificate. Needed if the server uses a self-signed or private CA. | N/A |
 | `certs` | A list of mTLS client certificates and keys to connect to the server. The client establishes a connection for each entry. The server deduces the domain being managed from the certificate presented. | N/A |
+| `stub-dir` | The directory the privileged stub's UDS socket is created in.  It must be one only the stub's user can create entries in. | `/var/run` |
 
 ## Usage
 
-When enabled, the plugin checks if it is running as root and if certs are configured. If so, it spawns a privileged stub process (named `certdistcli-<vhost>`) to handle file system operations and sets up a UDS server. Unprivileged clients connect to this UDS server, which forwards JSON payloads received from the central distribution server.
+When enabled with certs configured, the plugin spawns a privileged stub process (named `certdistcli-<vhost>`) to handle file system operations, listening on `<stub-dir>/lws-cert-dist-stub-<vhost>.sock`. The unprivileged side connects to it and forwards the JSON payloads received from the central distribution server.
+
+The link to the server stays up, and the server pushes renewed certs down it as they appear; each one is installed as it arrives.
 
 ### What is installed where
 
