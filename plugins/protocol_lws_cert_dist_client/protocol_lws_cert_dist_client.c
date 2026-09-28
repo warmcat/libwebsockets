@@ -34,6 +34,71 @@ struct vhd_cert_dist_client {
 static struct vhd_cert_dist_client *cdc_stub;
 
 /*
+ * The parent hands its stub {"base_dir":"...","reload_cmd":"..."} as the stub
+ * extra payload.  Room for both fields JSON-escaped at the worst case of 6
+ * chars per input char, and the rest of the object; it stays below PIPE_BUF,
+ * so the parent's write of it is atomic
+ */
+#define CDC_PAYLOAD_MAX \
+	((sizeof(((struct vhd_cert_dist_client *)0)->base_dir) + \
+	  sizeof(((struct vhd_cert_dist_client *)0)->reload_cmd)) * 6 + 64)
+
+static const char * const cdc_payload_paths[] = {
+	"base_dir",
+	"reload_cmd",
+};
+
+struct cdc_payload_parse {
+	struct vhd_cert_dist_client	*v;
+	size_t				len; /* of the string being collected */
+};
+
+static signed char
+cdc_payload_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct cdc_payload_parse *pp = (struct cdc_payload_parse *)ctx->user;
+	size_t cap;
+	char *dest;
+
+	if (!ctx->path_match)
+		return 0;
+
+	switch (ctx->path_match - 1) {
+	case 0:
+		dest = pp->v->base_dir;
+		cap = sizeof(pp->v->base_dir);
+		break;
+	default:
+		dest = pp->v->reload_cmd;
+		cap = sizeof(pp->v->reload_cmd);
+		break;
+	}
+
+	switch (reason) {
+	case LEJPCB_VAL_STR_START:
+		pp->len = 0;
+		dest[0] = '\0';
+		return 0;
+
+	case LEJPCB_VAL_STR_CHUNK:
+	case LEJPCB_VAL_STR_END:
+		/* a value we cannot hold whole is refused, not truncated */
+		if (pp->len + ctx->npos >= cap)
+			return -1;
+		memcpy(dest + pp->len, ctx->buf, ctx->npos);
+		pp->len += ctx->npos;
+		dest[pp->len] = '\0';
+		return 0;
+
+	default:
+		/* anything but a string there is not from our parent */
+		if (reason & LEJP_FLAG_CB_IS_VALUE)
+			return -1;
+		return 0;
+	}
+}
+
+/*
  * A PEM cert chain or key larger than this is not something we are going to
  * install, and accepting one lets the server make us buffer without limit
  */
@@ -1102,13 +1167,18 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			 * build file paths (base_dir) plus the reload command
 			 * via the stub extra payload
 			 */
-			char rc[256];
-			memset(rc, 0, sizeof(rc));
-			lws_snprintf(rc, sizeof(rc),
-				     "{\"base_dir\":\"%s\",\"reload_cmd\":\"%s\"}",
-				     vhd->base_dir, vhd->reload_cmd);
+			char rc[CDC_PAYLOAD_MAX],
+			     ebd[sizeof(vhd->base_dir) * 6],
+			     erc[sizeof(vhd->reload_cmd) * 6];
+
+			lws_json_purify(ebd, vhd->base_dir, (int)sizeof(ebd),
+					NULL);
+			lws_json_purify(erc, vhd->reload_cmd, (int)sizeof(erc),
+					NULL);
 			sc.extra_payload = rc;
-			sc.extra_payload_len = sizeof(rc);
+			sc.extra_payload_len = (size_t)lws_snprintf(rc, sizeof(rc),
+				     "{\"base_dir\":\"%s\",\"reload_cmd\":\"%s\"}",
+				     ebd, erc) + 1;
 
 			vhd->stub_mgr = lws_stub_spawn(&sc);
 			if (!vhd->stub_mgr)
@@ -1330,10 +1400,12 @@ static int
 cert_dist_client_init(struct lws_context *cx)
 {
 	const char *stub = lws_cmdline_option_cx(cx, "--lws-stub");
+	char uds_path[256], payload[CDC_PAYLOAD_MAX + 1];
+	struct cdc_payload_parse pp;
 	struct lws_stub_config sc;
-	char uds_path[256], tmp[256];
+	struct lejp_ctx jctx;
 	const char *orig_vh;
-	char *p, *q;
+	int m;
 
 	/*
 	 * Only claim our own stub children.  The prefix must not be a prefix
@@ -1364,42 +1436,36 @@ cert_dist_client_init(struct lws_context *cx)
 	sc.uds_path	= uds_path;
 	sc.protocols	= stub_protocols;
 
-	if (lws_stub_server_init(&sc, cdc_stub->secret, cdc_stub->reload_cmd,
-				 sizeof(cdc_stub->reload_cmd) - 1)) {
-		free(cdc_stub);
-		cdc_stub = NULL;
+	memset(payload, 0, sizeof(payload));
+	if (lws_stub_server_init(&sc, cdc_stub->secret, payload,
+				 sizeof(payload) - 1))
+		goto bail;
 
-		return 1;
+	/* the parent packs {"base_dir":...,"reload_cmd":...} as the payload */
+	if (!payload[0])
+		return 0; /* nothing from the parent, keep the defaults */
+
+	memset(&pp, 0, sizeof(pp));
+	pp.v = cdc_stub;
+	lejp_construct(&jctx, cdc_payload_cb, &pp, cdc_payload_paths,
+		       LWS_ARRAY_SIZE(cdc_payload_paths));
+	m = lejp_parse(&jctx, (uint8_t *)payload, (int)strlen(payload));
+	lejp_destruct(&jctx);
+	if (m) {
+		/* incomplete (LEJP_CONTINUE) is as bad as malformed */
+		lwsl_err("%s: stub '%s': bad payload from parent (%d)\n",
+			 __func__, stub, m);
+		goto bail;
 	}
-
-	/*
-	 * the parent packs {"base_dir":...,"reload_cmd":...} into the extra
-	 * payload, which we read into reload_cmd... recover both from it
-	 */
-	p = strstr(cdc_stub->reload_cmd, "\"base_dir\":\"");
-	if (p) {
-		p += 12;
-		q = strchr(p, '"');
-		if (q && (size_t)(q - p) < sizeof(cdc_stub->base_dir)) {
-			memcpy(cdc_stub->base_dir, p, (size_t)(q - p));
-			cdc_stub->base_dir[q - p] = '\0';
-		}
-	}
-
-	p = strstr(cdc_stub->reload_cmd, "\"reload_cmd\":\"");
-	if (p) {
-		p += 14;
-		q = strchr(p, '"');
-		if (q && (size_t)(q - p) < sizeof(tmp)) {
-			memcpy(tmp, p, (size_t)(q - p));
-			tmp[q - p] = '\0';
-			lws_strncpy(cdc_stub->reload_cmd, tmp,
-				    sizeof(cdc_stub->reload_cmd));
-		}
-	} else
-		cdc_stub->reload_cmd[0] = '\0';
 
 	return 0;
+
+bail:
+	lws_explicit_bzero(cdc_stub->secret, sizeof(cdc_stub->secret));
+	free(cdc_stub);
+	cdc_stub = NULL;
+
+	return 1;
 }
 
 static void

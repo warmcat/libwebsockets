@@ -33,6 +33,55 @@ static struct lws_dll2_owner active_server_vhds;
  */
 static struct vhd_cert_dist_server *cds_stub;
 
+/*
+ * The parent hands its stub {"pki_root":"..."} as the stub extra payload.
+ * Room for the field JSON-escaped at the worst case of 6 chars per input
+ * char, and the rest of the object
+ */
+#define CDS_PAYLOAD_MAX \
+	(sizeof(((struct vhd_cert_dist_server *)0)->pki_root) * 6 + 32)
+
+static const char * const cds_payload_paths[] = {
+	"pki_root",
+};
+
+struct cds_payload_parse {
+	struct vhd_cert_dist_server	*v;
+	size_t				len; /* of the string being collected */
+};
+
+static signed char
+cds_payload_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct cds_payload_parse *pp = (struct cds_payload_parse *)ctx->user;
+
+	if (!ctx->path_match)
+		return 0;
+
+	switch (reason) {
+	case LEJPCB_VAL_STR_START:
+		pp->len = 0;
+		pp->v->pki_root[0] = '\0';
+		return 0;
+
+	case LEJPCB_VAL_STR_CHUNK:
+	case LEJPCB_VAL_STR_END:
+		/* a value we cannot hold whole is refused, not truncated */
+		if (pp->len + ctx->npos >= sizeof(pp->v->pki_root))
+			return -1;
+		memcpy(pp->v->pki_root + pp->len, ctx->buf, ctx->npos);
+		pp->len += ctx->npos;
+		pp->v->pki_root[pp->len] = '\0';
+		return 0;
+
+	default:
+		/* anything but a string there is not from our parent */
+		if (reason & LEJP_FLAG_CB_IS_VALUE)
+			return -1;
+		return 0;
+	}
+}
+
 struct pss_cert_dist_server {
 	struct lws_dll2                     list;
 	struct lws                          *wsi;
@@ -554,12 +603,13 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			sc.parent_protocol_name = "lws-cert-dist-server";
 
 			/* hand the stub child our pki_root via the extra payload */
-			char ep[256];
-			memset(ep, 0, sizeof(ep));
-			lws_snprintf(ep, sizeof(ep), "{\"pki_root\":\"%s\"}",
-				     vhd->pki_root);
+			char ep[CDS_PAYLOAD_MAX], epr[sizeof(vhd->pki_root) * 6];
+
+			lws_json_purify(epr, vhd->pki_root, (int)sizeof(epr),
+					NULL);
 			sc.extra_payload = ep;
-			sc.extra_payload_len = sizeof(ep);
+			sc.extra_payload_len = (size_t)lws_snprintf(ep, sizeof(ep),
+					"{\"pki_root\":\"%s\"}", epr) + 1;
 
 			vhd->stub_mgr = lws_stub_spawn(&sc);
 			if (!vhd->stub_mgr)
@@ -822,10 +872,12 @@ static int
 cert_dist_server_init(struct lws_context *cx)
 {
 	const char *stub = lws_cmdline_option_cx(cx, "--lws-stub");
+	char uds_path[256], payload[CDS_PAYLOAD_MAX + 1];
+	struct cds_payload_parse pp;
 	struct lws_stub_config sc;
-	char uds_path[256], buf[256];
+	struct lejp_ctx jctx;
 	const char *orig_vh;
-	char *p, *q;
+	int m;
 
 	/*
 	 * Only claim our own stub children.  The prefix must not be a prefix
@@ -856,29 +908,38 @@ cert_dist_server_init(struct lws_context *cx)
 	sc.protocols	= stub_protocols;
 
 	/*
-	 * The parent packs our pki_root into the extra payload at spawn time,
-	 * since the stub child cannot see PVOs: recover it from what was read
-	 * off stdin
+	 * The parent packs {"pki_root":...} into the extra payload at spawn
+	 * time, since the stub child cannot see PVOs
 	 */
-	memset(buf, 0, sizeof(buf));
-	if (lws_stub_server_init(&sc, cds_stub->secret, buf, sizeof(buf) - 1)) {
-		free(cds_stub);
-		cds_stub = NULL;
+	memset(payload, 0, sizeof(payload));
+	if (lws_stub_server_init(&sc, cds_stub->secret, payload,
+				 sizeof(payload) - 1))
+		goto bail;
 
-		return 1;
-	}
+	if (!payload[0])
+		return 0; /* nothing from the parent, keep the default */
 
-	p = strstr(buf, "\"pki_root\":\"");
-	if (p) {
-		p += 12;
-		q = strchr(p, '"');
-		if (q && (size_t)(q - p) < sizeof(cds_stub->pki_root)) {
-			memcpy(cds_stub->pki_root, p, (size_t)(q - p));
-			cds_stub->pki_root[q - p] = '\0';
-		}
+	memset(&pp, 0, sizeof(pp));
+	pp.v = cds_stub;
+	lejp_construct(&jctx, cds_payload_cb, &pp, cds_payload_paths,
+		       LWS_ARRAY_SIZE(cds_payload_paths));
+	m = lejp_parse(&jctx, (uint8_t *)payload, (int)strlen(payload));
+	lejp_destruct(&jctx);
+	if (m) {
+		/* incomplete (LEJP_CONTINUE) is as bad as malformed */
+		lwsl_err("%s: stub '%s': bad payload from parent (%d)\n",
+			 __func__, stub, m);
+		goto bail;
 	}
 
 	return 0;
+
+bail:
+	lws_explicit_bzero(cds_stub->secret, sizeof(cds_stub->secret));
+	free(cds_stub);
+	cds_stub = NULL;
+
+	return 1;
 }
 
 static void
