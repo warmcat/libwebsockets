@@ -1880,7 +1880,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			h2n->swsi->h2.initialized = 1;
 
 			if (lws_h2_update_peer_txcredit(h2n->swsi,
-					(unsigned int)h2n->swsi->mux.my_sid, 4 * 65536))
+					(unsigned int)h2n->swsi->mux.my_sid,
+					LWS_H2_STREAM_RX_CREDIT))
 				goto cleanup_wsi_l;
 		}
 
@@ -3299,14 +3300,18 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 				if (lwsi_state(h2n->swsi) == LRS_DEFERRING_ACTION) {
 					/*
 					 * The stash has to stay inside the
-					 * window we advertised, like delivered
-					 * body does: unaccounted, a peer that
-					 * kept the action deferred (a PING per
-					 * pass) grew it without bound
+					 * window we granted the stream, like
+					 * delivered body does: unaccounted, a
+					 * peer that kept the action deferred (a
+					 * PING per pass) grew it without bound.
+					 *
+					 * That is the WINDOW_UPDATE the stream
+					 * got when it opened, not the SETTINGS
+					 * initial window, which we advertise as
+					 * 0 so we can manage it this way
 					 */
 					if (lws_buflist_total_len(&h2n->swsi->buflist) +
-					    (size_t)n >
-					    (size_t)h2n->our_set.s[H2SET_INITIAL_WINDOW_SIZE]) {
+					    (size_t)n > LWS_H2_STREAM_RX_CREDIT) {
 						if (lws_h2_goaway(wsi,
 							      H2_ERR_FLOW_CONTROL_ERROR,
 							      "deferred body over window"))
@@ -3890,7 +3895,7 @@ lws_h2_client_handshake_composed(struct lws *wsi)
 	 * the client create info
 	 */
 
-	n = 4 * 65536;
+	n = LWS_H2_STREAM_RX_CREDIT;
 	if (wsi->flags & LCCSCF_H2_MANUAL_RXFLOW) {
 		n = wsi->txc.manual_initial_tx_credit;
 		wsi->txc.manual = 1;

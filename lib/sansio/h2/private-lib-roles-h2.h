@@ -125,6 +125,12 @@ lws_h2_state(struct lws *wsi, enum lws_h2_states s);
 
 #define LWS_H2_STREAM_ID_MASTER 0
 #define LWS_H2_SETTINGS_LEN 6
+/*
+ * Our SETTINGS advertise an initial window of 0 (lws_h2_stock_settings):
+ * instead, each stream is granted this much rx credit by WINDOW_UPDATE when
+ * it opens, and it is topped back up as body is taken
+ */
+#define LWS_H2_STREAM_RX_CREDIT (4 * 65536)
 #define LWS_H2_FLAG_SETTINGS_ACK 1
 
 enum http2_hpack_state {
