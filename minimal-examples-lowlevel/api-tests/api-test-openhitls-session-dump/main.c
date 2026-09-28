@@ -1,28 +1,28 @@
 /*
  * lws-api-test-openhitls-session-dump
  *
- * Focused tests for openHiTLS session dump/load cold-storage blobs.
+ * Focused tests for openHiTLS session dump/load cold-storage blobs, using
+ * only the public session dump apis on a real context and vhost.
+ *
+ * The vhost's session cache can only be populated from outside the library
+ * by a handshake or by lws_tls_session_dump_load(), so the tests start from
+ * a blob the test encodes itself from a known session, load it, and check
+ * what lws_tls_session_dump_save() gives back.
  */
 
 #include <libwebsockets.h>
 
 #if defined(LWS_WITH_OPENHITLS) && defined(LWS_WITH_TLS_SESSIONS)
 
-#include "private-lib-core.h"
-#include "private-lib-tls.h"
-#include "private.h"
+#include <string.h>
+#include <stdlib.h>
 
-#include <crypt_eal_init.h>
-#include <hitls_cert_init.h>
-#include <hitls_crypt_init.h>
+#include <hitls_config.h>
+#include <hitls_error.h>
 #include <hitls_session.h>
 
-struct test_sco {
-	lws_dll2_t list;
-	HITLS_Session *session;
-	lws_sorted_usec_list_t sul_ttl;
-	/* tag is overallocated here */
-};
+#define TEST_HOST	"example.com"
+#define TEST_PORT	443
 
 struct blob_store {
 	uint8_t *blob;
@@ -30,68 +30,49 @@ struct blob_store {
 	int loads;
 };
 
-static int
-init_openhitls(void)
+/* not const: openHiTLS' session id setters take non-const buffers */
+static uint8_t expected_master_key[] = { 0x01, 0x03, 0x05, 0x07,
+					 0x09, 0x0b, 0x0d, 0x0f },
+	       expected_session_id[] = { 0x11, 0x22, 0x33, 0x44 },
+	       expected_session_id_ctx[] = { 0x55, 0x66, 0x77, 0x88 };
+
+static struct lws_context *
+create_context(struct lws_vhost **pvh)
 {
-	int32_t ret;
+	struct lws_context_creation_info info;
+	struct lws_context *cx;
 
-	ret = BSL_ERR_Init();
-	if (ret != BSL_SUCCESS)
-		return 1;
+	lws_context_info_defaults(&info, NULL);
+	info.vhost_name = "default";
 
-	ret = CRYPT_EAL_Init(CRYPT_EAL_INIT_ALL);
-	if (ret != CRYPT_SUCCESS)
-		return 1;
-
-	ret = HITLS_CertMethodInit();
-	if (ret != HITLS_SUCCESS)
-		return 1;
-	HITLS_CryptMethodInit();
-
-	return 0;
-}
-
-static void
-cleanup_vhost_sessions(struct lws_vhost *vh)
-{
-	while(!lws_dll2_is_empty(&vh->tls_sessions)) {
-		struct test_sco *ts = lws_container_of(lws_dll2_get_head(&vh->tls_sessions),
-						       struct test_sco, list);
-
-		lws_dll2_remove(&ts->list);
-		HITLS_SESS_Free(ts->session);
-		free(ts);
+	cx = lws_create_context(&info);
+	if (!cx) {
+		lwsl_err("%s: context creation failed\n", __func__);
+		return NULL;
 	}
-}
 
-static void
-init_vhost(struct lws_context *cx, struct lws_vhost *vh)
-{
-	memset(cx, 0, sizeof(*cx));
-	memset(vh, 0, sizeof(*vh));
-	/* lws_create_context() links each pt back; scheduling into it reads it */
-	cx->pt[0].context = cx;
-	vh->context = cx;
-	vh->name = "default";
+	*pvh = lws_create_vhost(cx, &info);
+	if (!*pvh) {
+		lwsl_err("%s: vhost creation failed\n", __func__);
+		lws_context_destroy(cx);
+		return NULL;
+	}
+
+	return cx;
 }
 
 static int
 init_session(HITLS_Session *session)
 {
-	uint8_t master_key[] = { 0x01, 0x03, 0x05, 0x07,
-				 0x09, 0x0b, 0x0d, 0x0f };
-	uint8_t session_id[] = { 0x11, 0x22, 0x33, 0x44 };
-	uint8_t session_id_ctx[] = { 0x55, 0x66, 0x77, 0x88 };
-
 	return HITLS_SESS_SetProtocolVersion(session, HITLS_VERSION_TLS12) ||
 	       HITLS_SESS_SetCipherSuite(session,
 					 HITLS_RSA_WITH_AES_128_GCM_SHA256) ||
-	       HITLS_SESS_SetMasterKey(session, master_key,
-				       sizeof(master_key)) ||
-	       HITLS_SESS_SetSessionId(session, session_id,
-				       sizeof(session_id)) ||
-	       HITLS_SESS_SetSessionIdCtx(session, session_id_ctx,
-					  sizeof(session_id_ctx)) ||
+	       HITLS_SESS_SetMasterKey(session, expected_master_key,
+				       sizeof(expected_master_key)) ||
+	       HITLS_SESS_SetSessionId(session, expected_session_id,
+				       sizeof(expected_session_id)) ||
+	       HITLS_SESS_SetSessionIdCtx(session, expected_session_id_ctx,
+					  sizeof(expected_session_id_ctx)) ||
 	       HITLS_SESS_SetHaveExtMasterSecret(session, 1) ||
 	       HITLS_SESS_SetTimeout(session, 12345);
 }
@@ -103,10 +84,6 @@ check_session(const HITLS_Session *session)
 	uint32_t master_key_len = sizeof(master_key);
 	uint32_t session_id_len = sizeof(session_id);
 	uint32_t session_id_ctx_len = sizeof(session_id_ctx);
-	uint8_t expected_master_key[] = { 0x01, 0x03, 0x05, 0x07,
-					  0x09, 0x0b, 0x0d, 0x0f };
-	uint8_t expected_session_id[] = { 0x11, 0x22, 0x33, 0x44 };
-	uint8_t expected_session_id_ctx[] = { 0x55, 0x66, 0x77, 0x88 };
 	uint16_t version = 0, cipher_suite = 0;
 	bool have_ext_master_secret = false;
 
@@ -134,27 +111,38 @@ check_session(const HITLS_Session *session)
 	return 0;
 }
 
+/*
+ * The cold-storage blob is openHiTLS' own session encoding, so the test can
+ * make the first one itself from a session with known contents
+ */
+
 static int
-seed_session(struct lws_vhost *vh)
+encode_known_session(struct blob_store *store)
 {
-	static const char tag[] = "default_example.com_443";
-	struct test_sco *ts;
+	HITLS_Session *session = HITLS_SESS_New();
+	uint32_t len = 0, used = 0;
+	int ret = 1;
 
-	ts = calloc(1, sizeof(*ts) + sizeof(tag));
-	if (!ts)
-		return 1;
+	if (!session || init_session(session) ||
+	    HITLS_SESS_Encode(session, NULL, 0, &len) != HITLS_SUCCESS || !len)
+		goto bail;
 
-	memcpy(&ts[1], tag, sizeof(tag));
-	ts->session = HITLS_SESS_New();
-	if (!ts->session || init_session(ts->session)) {
-		HITLS_SESS_Free(ts->session);
-		free(ts);
-		return 1;
-	}
+	store->blob = malloc(len);
+	if (!store->blob)
+		goto bail;
 
-	lws_dll2_add_tail(&ts->list, &vh->tls_sessions);
+	if (HITLS_SESS_Encode(session, store->blob, len, &used) !=
+							HITLS_SUCCESS ||
+	    !used || used > len)
+		goto bail;
 
-	return 0;
+	store->len = used;
+	ret = 0;
+
+bail:
+	HITLS_SESS_Free(session);
+
+	return ret;
 }
 
 static int
@@ -165,6 +153,7 @@ save_cb(struct lws_context *cx, struct lws_tls_session_dump *info)
 	(void)cx;
 
 	free(store->blob);
+	store->len = 0;
 	store->blob = malloc(info->blob_len);
 	if (!store->blob)
 		return 1;
@@ -186,6 +175,7 @@ load_cb(struct lws_context *cx, struct lws_tls_session_dump *info)
 	if (!store->blob || !store->len)
 		return 1;
 
+	/* lws frees the loaded blob with free() */
 	info->blob = malloc(store->len);
 	if (!info->blob)
 		return 1;
@@ -214,41 +204,61 @@ decode_and_check(const struct blob_store *store)
 	return ret;
 }
 
+/*
+ * A known session goes into cold storage and comes back out of it, in one
+ * context and then in a fresh one, as it would across a restart
+ */
+
 static int
 test_dump_roundtrip(void)
 {
-	struct lws_context cx1, cx2;
-	struct lws_vhost vh1, vh2;
-	struct blob_store saved = { 0 }, loaded = { 0 };
+	struct blob_store known = { 0 }, saved = { 0 }, resaved = { 0 };
+	struct lws_context *cx;
+	struct lws_vhost *vh;
 	int ret = 1;
 
-	init_vhost(&cx1, &vh1);
-	init_vhost(&cx2, &vh2);
+	if (encode_known_session(&known)) {
+		lwsl_err("%s: unable to encode test session\n", __func__);
+		goto bail;
+	}
 
-	if (seed_session(&vh1) ||
-	    lws_tls_session_dump_save(&vh1, "example.com", 443, save_cb,
+	cx = create_context(&vh);
+	if (!cx)
+		goto bail;
+
+	if (lws_tls_session_dump_load(vh, TEST_HOST, TEST_PORT, load_cb,
+				      &known) ||
+	    lws_tls_session_dump_save(vh, TEST_HOST, TEST_PORT, save_cb,
 				      &saved) ||
 	    decode_and_check(&saved)) {
-		lwsl_err("%s: save path failed\n", __func__);
+		lwsl_err("%s: first context roundtrip failed\n", __func__);
+		lws_context_destroy(cx);
 		goto bail;
 	}
 
-	if (lws_tls_session_dump_load(&vh2, "example.com", 443, load_cb,
+	lws_context_destroy(cx);
+
+	cx = create_context(&vh);
+	if (!cx)
+		goto bail;
+
+	if (lws_tls_session_dump_load(vh, TEST_HOST, TEST_PORT, load_cb,
 				      &saved) ||
-	    lws_tls_session_dump_save(&vh2, "example.com", 443, save_cb,
-				      &loaded) ||
-	    decode_and_check(&loaded)) {
-		lwsl_err("%s: load path failed\n", __func__);
+	    lws_tls_session_dump_save(vh, TEST_HOST, TEST_PORT, save_cb,
+				      &resaved) ||
+	    decode_and_check(&resaved)) {
+		lwsl_err("%s: second context roundtrip failed\n", __func__);
+		lws_context_destroy(cx);
 		goto bail;
 	}
 
+	lws_context_destroy(cx);
 	ret = 0;
 
 bail:
-	cleanup_vhost_sessions(&vh1);
-	cleanup_vhost_sessions(&vh2);
+	free(known.blob);
 	free(saved.blob);
-	free(loaded.blob);
+	free(resaved.blob);
 
 	return ret;
 }
@@ -256,21 +266,29 @@ bail:
 static int
 test_failure_paths(void)
 {
-	struct lws_context cx;
-	struct lws_vhost vh;
-	struct blob_store empty = { 0 }, corrupt = { 0 }, valid = { 0 };
-	uint8_t bad_blob[] = { 1, 2, 3, 4, 5 };
+	struct blob_store empty = { 0 }, corrupt = { 0 }, known = { 0 },
+			  saved = { 0 };
+	static const uint8_t bad_blob[] = { 1, 2, 3, 4, 5 };
+	struct lws_context *cx = NULL;
+	struct lws_vhost *vh;
 	int ret = 1;
 
-	init_vhost(&cx, &vh);
+	if (encode_known_session(&known)) {
+		lwsl_err("%s: unable to encode test session\n", __func__);
+		goto bail;
+	}
 
-	if (!lws_tls_session_dump_save(&vh, "example.com", 443, save_cb,
-				       &valid)) {
+	cx = create_context(&vh);
+	if (!cx)
+		goto bail;
+
+	if (!lws_tls_session_dump_save(vh, TEST_HOST, TEST_PORT, save_cb,
+				       &saved)) {
 		lwsl_err("%s: save without cache entry succeeded\n", __func__);
 		goto bail;
 	}
 
-	if (!lws_tls_session_dump_load(&vh, "example.com", 443, load_cb,
+	if (!lws_tls_session_dump_load(vh, TEST_HOST, TEST_PORT, load_cb,
 				       &empty)) {
 		lwsl_err("%s: empty blob load succeeded\n", __func__);
 		goto bail;
@@ -281,28 +299,53 @@ test_failure_paths(void)
 		goto bail;
 	memcpy(corrupt.blob, bad_blob, sizeof(bad_blob));
 	corrupt.len = sizeof(bad_blob);
-	if (!lws_tls_session_dump_load(&vh, "example.com", 443, load_cb,
+
+	if (!lws_tls_session_dump_load(vh, TEST_HOST, TEST_PORT, load_cb,
 				       &corrupt)) {
 		lwsl_err("%s: corrupt blob load succeeded\n", __func__);
 		goto bail;
 	}
 
-	if (seed_session(&vh))
+	/* ... and neither failed load may have left a cache entry behind */
+
+	if (!lws_tls_session_dump_save(vh, TEST_HOST, TEST_PORT, save_cb,
+				       &saved)) {
+		lwsl_err("%s: failed load left a cache entry\n", __func__);
 		goto bail;
+	}
+
+	if (lws_tls_session_dump_load(vh, TEST_HOST, TEST_PORT, load_cb,
+				      &known)) {
+		lwsl_err("%s: valid blob load failed\n", __func__);
+		goto bail;
+	}
+
+	/*
+	 * With a session cached for the tag, cold storage must not even be
+	 * asked, since what is cached is likely newer
+	 */
 
 	corrupt.loads = 0;
-	if (!lws_tls_session_dump_load(&vh, "example.com", 443, load_cb,
+	if (!lws_tls_session_dump_load(vh, TEST_HOST, TEST_PORT, load_cb,
 				       &corrupt) || corrupt.loads) {
 		lwsl_err("%s: existing session was overwritten\n", __func__);
+		goto bail;
+	}
+
+	if (lws_tls_session_dump_save(vh, TEST_HOST, TEST_PORT, save_cb,
+				      &saved) ||
+	    decode_and_check(&saved)) {
+		lwsl_err("%s: cached session was disturbed\n", __func__);
 		goto bail;
 	}
 
 	ret = 0;
 
 bail:
-	cleanup_vhost_sessions(&vh);
+	lws_context_destroy(cx);
 	free(corrupt.blob);
-	free(valid.blob);
+	free(known.blob);
+	free(saved.blob);
 
 	return ret;
 }
@@ -310,8 +353,8 @@ bail:
 int
 main(int argc, const char **argv)
 {
-	const char *p;
 	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	const char *p;
 	int e = 0;
 
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
@@ -320,12 +363,8 @@ main(int argc, const char **argv)
 	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS API selftest: openHiTLS session dump\n");
 
-	if (init_openhitls())
-		e = 1;
-	else {
-		e |= test_dump_roundtrip();
-		e |= test_failure_paths();
-	}
+	e |= test_dump_roundtrip();
+	e |= test_failure_paths();
 
 	if (e)
 		lwsl_err("%s: failed\n", __func__);

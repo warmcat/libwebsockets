@@ -14,38 +14,7 @@ require_lws_config(LWS_WITH_TLS_SESSIONS 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
-	target_include_directories(${SAMP} PRIVATE
-		${LWS_LIB_BUILD_INC_PATHS}
-		${CMAKE_SOURCE_DIR}/lib/core
-		${CMAKE_SOURCE_DIR}/lib/core-net
-		${CMAKE_SOURCE_DIR}/lib/misc
-		${CMAKE_SOURCE_DIR}/lib/system
-		${CMAKE_SOURCE_DIR}/lib/drivers
-		${CMAKE_SOURCE_DIR}/lib/event-libs
-		${CMAKE_SOURCE_DIR}/lib/event-libs/poll
-		${CMAKE_SOURCE_DIR}/lib/jose
-		${CMAKE_SOURCE_DIR}/lib/jose/jwe
-		${CMAKE_SOURCE_DIR}/lib/cose
-		${CMAKE_SOURCE_DIR}/lib/sansio
-		${CMAKE_SOURCE_DIR}/lib/io
-		${CMAKE_SOURCE_DIR}/lib/io/dbus
-		${CMAKE_SOURCE_DIR}/lib/sansio/http
-		${CMAKE_SOURCE_DIR}/lib/sansio/http/compression
-		${CMAKE_SOURCE_DIR}/lib/sansio/h1
-		${CMAKE_SOURCE_DIR}/lib/sansio/h2
-		${CMAKE_SOURCE_DIR}/lib/sansio/ws
-		${CMAKE_SOURCE_DIR}/lib/sansio/mqtt
-		${CMAKE_SOURCE_DIR}/lib/io/cgi
-		${CMAKE_SOURCE_DIR}/lib/sansio/raw-proxy
-		${CMAKE_SOURCE_DIR}/lib/io/listen
-		${CMAKE_SOURCE_DIR}/lib/secure-streams
-		${CMAKE_SOURCE_DIR}/lib/secure-streams/serialized/client
-		${CMAKE_SOURCE_DIR}/lib/system/metrics
-		${CMAKE_SOURCE_DIR}/lib/system/async-dns
-		${CMAKE_SOURCE_DIR}/lib/system/smd
-		${CMAKE_SOURCE_DIR}/lib/system/fault-injection
-		${CMAKE_SOURCE_DIR}/lib/tls
-		${CMAKE_SOURCE_DIR}/lib/tls/openhitls)
+	target_include_directories(${SAMP} PRIVATE ${LWS_LIB_BUILD_INC_PATHS})
 
 	add_test(NAME api-test-session-dump COMMAND ${SAMP}
 		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
