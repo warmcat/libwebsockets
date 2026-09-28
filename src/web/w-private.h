@@ -67,6 +67,14 @@ enum {
 	SAIM_SPECIFIC_TASK,
 };
 
+/* where a feed http transaction is up to, see w-rss.c */
+enum {
+	SAIW_RSS_IDLE,
+	SAIW_RSS_PARKED,	/* held for a long poll, sending keepalives */
+	SAIW_RSS_FINISHING,	/* the whole response is in rss_tx */
+	SAIW_RSS_FAILED,	/* drop the connection */
+};
+
 typedef enum {
 	SAI_AUTH_STATE_NOT_LOGGED_IN,
 	SAI_AUTH_STATE_LOGGED_IN_NO_GRANT,
@@ -136,8 +144,23 @@ struct pss {	struct vhd		*vhd;
 	sqlite3			*pdb_artifact;
 	sqlite3_blob		*blob_artifact;
 
-	/* rendered rss feed waiting to go out on this http transaction */
+	/*
+	 * Feed (rss.xml / rss.json) http transaction, see w-rss.c: the
+	 * rendered response waiting to go out, and for a held long poll
+	 * request, its place in vhd->rss_waiters, its keepalive / deadline
+	 * timer, and the scope and index it is waiting on
+	 */
 	struct lws_buflist	*rss_tx;
+	lws_dll2_t		rss_list;
+	lws_sorted_usec_list_t	sul_rss;
+	lws_usec_t		rss_deadline;
+	char			rss_project[65];
+	char			rss_branch[65];
+	char			rss_fetchurl[96];
+	char			rss_index[33];
+	uint8_t			rss_state; /* SAIW_RSS_* */
+	uint8_t			rss_json:1;
+	uint8_t			rss_ka:1;
 
 	lws_dll2_owner_t	logs_owner;
 	lws_sorted_usec_list_t	sul_logcache;
@@ -219,6 +242,7 @@ struct vhd {
 	const char			*sockpath; /* sai-server control link uds */
 
 	lws_dll2_owner_t		sqlite3_cache; /* sais_sqlite_cache_t */
+	lws_dll2_owner_t		rss_waiters; /* pss held on long poll */
 	lws_dll2_owner_t		tasklog_cache;
 };
 
@@ -331,7 +355,10 @@ saiw_event_summary_string(sqlite3 *pdb_event, const char *event_uuid,
 			  unsigned int *p_total);
 
 int
-saiw_rss_http(struct vhd *vhd, struct pss *pss, struct lws *wsi);
+saiw_rss_http(struct vhd *vhd, struct pss *pss, struct lws *wsi, int json);
+
+void
+saiw_rss_event_change(struct vhd *vhd);
 
 int
 saiw_rss_writeable(struct pss *pss, struct lws *wsi);

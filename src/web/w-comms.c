@@ -55,7 +55,9 @@ typedef enum {
 	SHMUT_ARTIFACTS_SAI,
 	SHMUT_LOGIN,
 	SHMUT_RSS,
-	SHMUT_RSS_SAI
+	SHMUT_RSS_SAI,
+	SHMUT_RSS_JSON,
+	SHMUT_RSS_JSON_SAI
 } sai_http_murl_t;
 
 static const char * const well_known[] = {
@@ -66,7 +68,9 @@ static const char * const well_known[] = {
 	"/sai/artifacts/", /* same, via the /sai mount the pages live under */
 	"/login",
 	"/rss.xml", /* public RSS 2.0 feed of recent events, see w-rss.c */
-	"/sai/rss.xml"
+	"/sai/rss.xml",
+	"/rss.json", /* the same feed as JSON */
+	"/sai/rss.json"
 };
 
 /*
@@ -513,11 +517,16 @@ w_callback_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		case SHMUT_RSS:
 		case SHMUT_RSS_SAI:
-			r = saiw_rss_http(vhd, pss, wsi);
+		case SHMUT_RSS_JSON:
+		case SHMUT_RSS_JSON_SAI:
+			r = saiw_rss_http(vhd, pss, wsi, mu == SHMUT_RSS_JSON ||
+							 mu == SHMUT_RSS_JSON_SAI);
 			if (r < 0)
 				goto bail;
 			if (!r)
 				return 0;
+			if (r == 1)
+				goto try_to_reuse;
 			resp = r;
 			goto http_resp;
 
@@ -538,7 +547,7 @@ http_resp:
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 
-		if (pss && pss->rss_tx)
+		if (pss && pss->rss_state)
 			return saiw_rss_writeable(pss, wsi);
 
 		if (!pss || !pss->blob_artifact)

@@ -151,6 +151,36 @@ const lws_struct_map_t lsm_schema_json_map_event[] = {
 						      "com.warmcat.sai.events"),
 };
 
+const lws_struct_map_t lsm_feed_item[] = {
+	LSM_CARRAY	(sai_feed_item_t, uuid,			"uuid"),
+	LSM_CARRAY	(sai_feed_item_t, project,		"project"),
+	LSM_CARRAY	(sai_feed_item_t, branch,		"branch"),
+	LSM_CARRAY	(sai_feed_item_t, ref,			"ref"),
+	LSM_CARRAY	(sai_feed_item_t, hash,			"hash"),
+	LSM_CARRAY	(sai_feed_item_t, fetchurl,		"fetchurl"),
+	LSM_CARRAY	(sai_feed_item_t, weburl,		"weburl"),
+	LSM_CARRAY	(sai_feed_item_t, state_name,		"state_name"),
+	LSM_CARRAY	(sai_feed_item_t, summary,		"summary"),
+	LSM_UNSIGNED	(sai_feed_item_t, received,		"received"),
+	LSM_SIGNED	(sai_feed_item_t, state,		"state"),
+	LSM_SIGNED	(sai_feed_item_t, adhoc,		"adhoc"),
+	LSM_UNSIGNED	(sai_feed_item_t, tasks_total,		"tasks_total"),
+	LSM_UNSIGNED	(sai_feed_item_t, tasks_ok,		"tasks_ok"),
+	LSM_UNSIGNED	(sai_feed_item_t, tasks_bad,		"tasks_bad"),
+	LSM_UNSIGNED	(sai_feed_item_t, tasks_building,	"tasks_building"),
+	LSM_UNSIGNED	(sai_feed_item_t, tasks_wait,		"tasks_wait"),
+};
+
+const lws_struct_map_t lsm_feed[] = {
+	LSM_CARRAY	(sai_feed_t, index,			"index"),
+	LSM_LIST	(sai_feed_t, items, sai_feed_item_t, list,
+			 NULL, lsm_feed_item,			"items"),
+};
+
+const lws_struct_map_t lsm_schema_json_map_feed[] = {
+	LSM_SCHEMA	(sai_feed_t, NULL, lsm_feed,	"com.warmcat.sai.feed"),
+};
+
 const lws_struct_map_t lsm_schema_sq3_map_event[] = {
 	LSM_SCHEMA_DLL2	(sai_event_t, list, NULL, lsm_event,	"events"),
 };

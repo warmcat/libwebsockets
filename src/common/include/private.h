@@ -486,6 +486,45 @@ typedef struct sai_event {
 	lws_dll2_owner_t		watcher_owner; /* sai_watcher_t */
 } sai_event_t;
 
+/*
+ * One event as sai-web's public feed of recent events reports it, and the
+ * feed itself, so the JSON form of the feed (rss.json) is written by sai-web
+ * and read by sai-push with the same lws_struct map
+ */
+
+typedef struct sai_feed_item {
+	struct lws_dll2			list;
+	char				uuid[65];
+	char				project[65];
+	/* the ref less any refs/heads/ */
+	char				branch[65];
+	char				ref[65];
+	char				hash[65];
+	char				fetchurl[96];
+	char				weburl[128];
+	/* eg, "building", "succeeded", see w-rss.c */
+	char				state_name[16];
+	char				summary[96];
+	/* unix time the notification creating the event arrived */
+	uint64_t			received;
+	int				state;
+	int				adhoc;
+	unsigned int			tasks_total;
+	unsigned int			tasks_ok;
+	unsigned int			tasks_bad;
+	unsigned int			tasks_building;
+	unsigned int			tasks_wait;
+} sai_feed_item_t;
+
+typedef struct sai_feed {
+	/*
+	 * Changes whenever an event joins or leaves the feed, or an event's
+	 * state_name changes (but not when only task counts change)
+	 */
+	char				index[33];
+	lws_dll2_owner_t		items; /* sai_feed_item_t */
+} sai_feed_t;
+
 typedef struct {
 	struct lws_dll2			list;
 	char				task_uuid[65];
@@ -987,6 +1026,9 @@ extern const lws_struct_map_t
 	lsm_schema_json_map_can[1],
 	lsm_schema_json_map_task[1],
 	lsm_schema_json_map_event[1],
+	lsm_feed_item[17],
+	lsm_feed[2],
+	lsm_schema_json_map_feed[1],
 	lsm_resource[4],
 	lsm_power_state[3],
 	lsm_openshell[2],

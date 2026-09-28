@@ -186,7 +186,9 @@ daemons (sai-server first, sai-web reconnects by itself).
 
 sai-web serves a public RSS 2.0 feed of the latest 10 events at
 `/sai/rss.xml`, newest notification first.  The web UI links to it from the
-logo area and advertises it for feed autodiscovery.  It can be scoped with `?project=<name>` and / or
+logo area and advertises it for feed autodiscovery.  The same feed is served
+as JSON at `/sai/rss.json`, for tools.  Either can be scoped with any of
+`?project=<name>`, `?fetchurl=<repository fetch url>` and
 `?branch=<branch name or full ref>`, eg,
 
 ```
@@ -217,6 +219,30 @@ counts change inside an item without changing the guid.
 Links in the feed are relative (eg, `index.html?event=<uuid>`), so they
 resolve against whatever url the feed was fetched from; no conf is needed to
 tell sai-web its public url.
+
+### Waiting for changes (long poll)
+
+The feed carries an index token (`sai:index` in the channel, `"index"` in the
+JSON), which changes when an event joins or leaves the feed, or any event's
+state changes.  Task counts changing alone don't change it.
+
+A request with `?wait=<secs>&index=<token>` added is answered straight away
+if the token is already out of date.  Otherwise it is held until the token
+goes out of date, or the wait (at most 600s) runs out, and then answered with
+the feed as it is then.  So instead of polling, a client can fetch the feed
+once and then loop asking to wait on the index from the last response, eg,
+
+```
+https://mydomain.com/sai/rss.json?project=libwebsockets&wait=600&index=<index from last time>
+```
+
+A held request gets its response headers at once, with no content length,
+then a newline every 10s until the feed follows, so that proxies and
+idle-connection reapers along the way leave it alone.  That whitespace is
+allowed before the JSON value, and between the XML declaration (which is sent
+at the start) and `<rss>`, so the body is still a valid document.  At most 64
+requests are held at once; past that, a request to wait is answered with a
+503 and `retry-after`.
 
 ## Build flow and support for embedded
 

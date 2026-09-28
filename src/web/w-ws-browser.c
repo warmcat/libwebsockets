@@ -850,6 +850,9 @@ saiw_browsers_task_state_change(struct vhd *vhd, const char *task_uuid)
 int
 saiw_event_state_change(struct vhd *vhd, const char *event_uuid)
 {
+	/* long poll feed requests may be waiting on this */
+	saiw_rss_event_change(vhd);
+
 	lws_start_foreach_dll(struct lws_dll2 *, p, vhd->browsers.head) {
 		struct pss *pss = lws_container_of(p, struct pss, same);
 
