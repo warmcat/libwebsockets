@@ -30,8 +30,13 @@ struct lws_dir_notify;
 /**
  * lws_dir_notify_cb_t() - Callback for directory/file modification events
  *
- * \param path:   The absolute path of the file or directory that was modified
+ * \param path:   The name of the entry in the monitored directory that was
+ *		  modified, not its path.  Where the platform cannot say which
+ *		  entry it was (kqueue on macOS / BSD), it is "", meaning
+ *		  something in the directory changed.  The monitor is not
+ *		  recursive: changes inside subdirectories are not reported.
  * \param is_file: Non-zero if the modified entry was a file, zero if a directory
+ *		  or it is not known
  * \param user:    Opaque pointer passed in during lws_dir_notify_create
  */
 typedef void (*lws_dir_notify_cb_t)(const char *path, int is_file, void *user);
