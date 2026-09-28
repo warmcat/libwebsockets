@@ -3171,3 +3171,51 @@ lws_system_context_from_system_mgr(lws_state_manager_t *mgr)
 #endif
 }
 #endif
+
+/*
+ * The context's process and its default loop, for the app: dropping the
+ * initial privileges once the protocols are up (the platform does it), and
+ * running the loop until told to stop.  They need the service and the
+ * platform, so they are here with the context's creation rather than among
+ * the utilities of libwebsockets.c.
+ */
+
+int
+lws_finalize_startup(struct lws_context *context, const char *where)
+{
+	if (lws_check_opt(context->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
+		lwsl_info("%s: dropping app privs: %s\n", __func__, where);
+#if defined(LWS_WITH_SYS_STATE) && defined(LWS_WITH_NETWORK)
+		lws_state_transition(&context->mgr_system, LWS_SYSTATE_PRE_PRIV_DROP);
+#endif
+
+		if (lws_plat_drop_app_privileges(context, 1))
+			return 1;
+	}
+
+	return 0;
+}
+
+void
+lws_default_loop_exit(struct lws_context *cx)
+{
+	if (cx) {
+		cx->interrupted = 1;
+#if defined(LWS_WITH_NETWORK)
+		lws_cancel_service(cx);
+#endif
+	}
+}
+
+#if defined(LWS_WITH_NETWORK)
+void
+lws_context_default_loop_run_destroy(struct lws_context *cx)
+{
+        /* the default event loop, since we didn't provide an alternative one */
+
+        while (!cx->interrupted && lws_service(cx, 0) >= 0)
+        	;
+
+        lws_context_destroy(cx);
+}
+#endif
