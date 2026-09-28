@@ -283,8 +283,8 @@ lws_tls_quic_alpn(struct lws *wsi, char *buf, size_t len)
 #endif
 
 /*
- * service (lws_io_ops_t service_writable, service_now, wake) and the app's
- * rx pull (http_client_read)
+ * service (lws_io_ops_t service_writable, service_now, flag_pending_rx,
+ * wake) and the app's rx pull (http_client_read)
  */
 
 /* want_write, served now rather than on the next turn of the loop */
@@ -299,6 +299,13 @@ static LWS_INLINE int
 lws_io_service_now(struct lws *wsi)
 {
 	return wsi->a.context->io_ops->service_now(wsi);
+}
+
+/* rx pending this pass: a role still has buffered rx to drain for the wsi */
+static LWS_INLINE int
+lws_io_flag_pending_rx(struct lws *wsi)
+{
+	return wsi->a.context->io_ops->flag_pending_rx(wsi);
 }
 
 /*

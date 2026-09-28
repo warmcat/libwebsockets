@@ -375,8 +375,6 @@ int
 lws_io_socket_wait_pending(struct lws *wsi);
 void
 lws_io_socket_waiters_close(struct lws_vhost *vh, int tsi);
-int
-lws_io_flag_pending_rx(struct lws *wsi);
 void
 lws_io_connect_timers_cancel(struct lws *wsi);
 int
@@ -469,6 +467,8 @@ int
 lws_service_wsi_as_writable(struct lws *wsi);
 int
 lws_io_service_now(struct lws *wsi);
+int
+lws_io_flag_pending_rx(struct lws *wsi);
 
 /* the tls session */
 #if defined(LWS_WITH_TLS)

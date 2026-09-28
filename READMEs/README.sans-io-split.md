@@ -221,6 +221,7 @@ embedder carries nothing that needs it.
 | tx | `tx_file` (optional) | drive a served file into the transport | `lws_serve_http_file_fragment()` |
 | service | `service_writable` | want_write served now | `lws_service_wsi_as_writable()` |
 | service | `service_now` | rx served now | `lws_io_service_now()` |
+| service | `flag_pending_rx` | serve my buffered rx this pass | `lws_io_flag_pending_rx()` |
 | service | `wake` | come round the loop soon | `lws_cancel_service_pt()` |
 | rx | `http_client_read` (optional) | the app pulls its response body | `lws_http_client_read()` |
 | vhost | `finalize_startup` (optional) | the protocols are initialized: the process may drop its privileges | `lws_finalize_startup()` |

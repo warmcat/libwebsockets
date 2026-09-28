@@ -282,6 +282,13 @@ typedef struct lws_io_ops {
 	 * role that already holds bytes for it (a pipelined request that got
 	 * its header table).  <0 failed, 1 the wsi was closed in the service,
 	 * 0 otherwise; a wsi with no transport yet gets 0. */
+	int (*flag_pending_rx)(struct lws *wsi);
+	/**< mark wsi as having rx pending, so the service pass running now
+	 * services it without waiting on its transport: for a role holding
+	 * bytes it has not finished with (ws extension data still draining).
+	 * Called from the role's service_flag_pending op with the service
+	 * thread lock held.  1 the wsi is watched for rx and will be
+	 * serviced, else 0. */
 	void (*wake)(struct lws *wsi);
 	/**< make sure wsi's service thread comes round its loop soon, without
 	 * waiting for its transport or a deadline: sansIO left work for the

@@ -882,6 +882,7 @@ const lws_io_ops_t lws_io_ops_default = {
 
 	.service_writable = lws_service_wsi_as_writable,
 	.service_now	= lws_io_service_now,
+	.flag_pending_rx = lws_io_flag_pending_rx,
 	.wake		= lws_cancel_service_pt,
 
 #if defined(LWS_WITH_CLIENT) && \
