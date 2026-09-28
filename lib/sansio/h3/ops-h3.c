@@ -2195,7 +2195,17 @@ rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 	}
 #endif
 
-	if (is_http) {
+	if (is_http && !len) {
+		/*
+		 * An empty DATA frame says nothing: a body-less FINAL only ends
+		 * the stream, which is a FIN on the quic stream, and a
+		 * body-less non-FINAL write is nothing at all.
+		 * Leaving it unframed also lets quic see a repeat of it (eg,
+		 * the proxy's stream close after the content-length already
+		 * ended the stream) for the harmless FIN-only write it is.
+		 */
+		is_http = 0;
+	} else if (is_http) {
 		/* It's HTTP payload, we need to frame it in an H3 DATA frame (type 0x00) */
 		/* We assume the caller reserved LWS_PRE bytes before buf. */
 		uint8_t len_buf[8];

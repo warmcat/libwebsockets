@@ -23,12 +23,14 @@ if (requirements)
 	lws_get_free_port(PORT_HTTP_TRANSFER_H2)
 	lws_get_free_port(PORT_HTTP_TRANSFER_PROXY)
 	lws_get_free_port(PORT_HTTP_TRANSFER_H3)
+	lws_get_free_port(PORT_HTTP_TRANSFER_PROXY_TLS)
 
 	add_test(NAME api-test-http-transfer
 		 COMMAND lws-api-test-http-transfer -p ${PORT_HTTP_TRANSFER_H1}
 			 --h2-port ${PORT_HTTP_TRANSFER_H2}
 			 --proxy-port ${PORT_HTTP_TRANSFER_PROXY}
-			 --h3-port ${PORT_HTTP_TRANSFER_H3})
+			 --h3-port ${PORT_HTTP_TRANSFER_H3}
+			 --proxy-tls-port ${PORT_HTTP_TRANSFER_PROXY_TLS})
 	set_tests_properties(api-test-http-transfer PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 			     TIMEOUT 300)

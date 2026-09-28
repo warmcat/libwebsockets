@@ -50,6 +50,12 @@
  * so the client can confirm the server saw exactly the payload it sent, and
  * that it received exactly what the server sent.
  *
+ * The http proxy mount relays the same server's responses, to h1 in the
+ * clear and, on a tls vhost set up the way lwsws does it, to h2 and h3; the
+ * relay's body-less FINAL at the end of the onward response must end a
+ * stream that is still open, and be nothing on one a Content-Length already
+ * ended.
+ *
  * On an h3 stream, a response write lws took whole is in quic's hands: it
  * must not be reported back to the app as a partial or a choked pipe just
  * because quic has not sent it, or had it acked, yet.  That gated a writer to
@@ -105,7 +111,9 @@ struct xcase {
 	long		expect_server_rx; /* -1: don't check; else payload bytes the server saw */
 	enum xf_gate	gate;
 	int		expect;		/* 1: Expect: 100-continue, 2: Expect: nope */
-	int		via_proxy;	/* through the http proxy mount to srv-h1 */
+	int		via_proxy;	/* through the http proxy mount to srv-h1:
+					 * h1 to srv-proxy, h2 and h3 to the tls
+					 * srv-proxy-tls */
 	int		reuse;		/* 1: the second request goes 150ms after
 					 * the first completed, on the kept-warm
 					 * connection; 2: it goes 1500ms later,
@@ -316,6 +324,31 @@ static const struct xcase cases[] = {
 	  "POST", "/echo-cl", XR_CL, 100000, 0, 8192, 0, 0, 200, 100000, XG_NONE, 0, 1, 0, 0 },
 	{ "h1 POST Content-Length 20KB, no-length response, via the http proxy mount",
 	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 0, 0, 200, 20000, XG_NONE, 0, 1, 0, 0 },
+#if defined(LWS_ROLE_H3)
+	/*
+	 * The same proxy mount on a tls vhost whose alpn offers h3, as lwsws
+	 * sets one up: the quic listener comes with it.  The relay ends the
+	 * parent stream with a body-less FINAL when the onward response ends.
+	 * With a Content-Length response the last body write already ended
+	 * the stream and that FINAL has nothing to do; with a no-length
+	 * response it is the only thing that ends it, and the client must see
+	 * the body complete from the bare FIN / END_STREAM.
+	 */
+#if defined(LWS_WITH_HTTP2)
+	{ "h2 GET via the http proxy mount",
+	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0, 1, 0, 0 },
+	{ "h2 POST Content-Length 20KB via the http proxy mount",
+	  "POST", "/echo-cl", XR_CL, 20000, 0, 8192, 1, 0, 200, 20000, XG_NONE, 0, 1, 0, 0 },
+	{ "h2 POST Content-Length 20KB, no-length response, via the http proxy mount",
+	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 1, 0, 200, 20000, XG_NONE, 0, 1, 0, 0 },
+#endif
+	{ "h3 GET via the http proxy mount",
+	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 2, 0, 200, 0, XG_NONE, 0, 1, 0, 0 },
+	{ "h3 POST Content-Length 20KB via the http proxy mount",
+	  "POST", "/echo-cl", XR_CL, 20000, 0, 8192, 2, 0, 200, 20000, XG_NONE, 0, 1, 0, 0 },
+	{ "h3 POST Content-Length 20KB, no-length response, via the http proxy mount",
+	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 2, 0, 200, 20000, XG_NONE, 0, 1, 0, 0 },
+#endif
 #endif
 #if defined(LWS_WITH_HTTP2)
 	{ "h2 POST Content-Length 50KB, 8KB writes, CL response",
@@ -439,6 +472,9 @@ static const char *server_addr = "127.0.0.1";
 
 static struct lws_vhost *vh_h3;
 static int port_h3 = 7684;
+#if defined(LWS_WITH_HTTP_PROXY)
+static int port_proxy_tls = 7685;
+#endif
 
 static const char * const test_cert =
 "-----BEGIN CERTIFICATE-----\n"
@@ -1448,6 +1484,15 @@ conn_start(const struct xcase *c)
 		i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
 				   LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	}
+#if defined(LWS_WITH_HTTP_PROXY)
+	if (c->via_proxy && c->h2) {
+		/* h2 by alpn over tls, or h3, to the tls proxy vhost */
+		i.port = port_proxy_tls;
+		i.alpn = c->h2 == 2 ? "h3" : "h2";
+		i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
+				   LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+	}
+#endif
 #endif
 	i.path = c->path;
 	i.method = c->method;
@@ -1470,7 +1515,7 @@ conn_start(const struct xcase *c)
 	if (c->pipeline)
 		i.ssl_connection |= LCCSCF_PIPELINE;
 #if defined(LWS_WITH_HTTP2)
-	if (c->h2 == 1)
+	if (c->h2 == 1 && !c->via_proxy)
 		i.ssl_connection |= LCCSCF_H2_PRIOR_KNOWLEDGE;
 #endif
 
@@ -1824,6 +1869,10 @@ int main(int argc, const char **argv)
 #if defined(LWS_ROLE_H3)
 	if ((p = lws_cmdline_option(argc, argv, "--h3-port")))
 		port_h3 = atoi(p);
+#if defined(LWS_WITH_HTTP_PROXY)
+	if ((p = lws_cmdline_option(argc, argv, "--proxy-tls-port")))
+		port_proxy_tls = atoi(p);
+#endif
 #endif
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		server_addr = p;
@@ -1929,6 +1978,34 @@ int main(int argc, const char **argv)
 		lwsl_err("Failed to create proxy vhost\n");
 		goto bail;
 	}
+
+#if defined(LWS_ROLE_H3)
+	/*
+	 * The same proxy mount on a tls vhost, the way lwsws sets one up: an
+	 * alpn naming h3 has the vhost bring up its own quic listener on the
+	 * same port, so h2 comes in over tcp and h3 over udp
+	 */
+
+	info.port = port_proxy_tls;
+	info.vhost_name = "srv-proxy-tls";
+	info.alpn = "h2,http/1.1,h3";
+	info.server_ssl_cert_mem = test_cert;
+	info.server_ssl_cert_mem_len = (unsigned int)strlen(test_cert);
+	info.server_ssl_private_key_mem = test_key;
+	info.server_ssl_private_key_mem_len = (unsigned int)strlen(test_key);
+
+	vh = lws_create_vhost(context, &info);
+	if (!vh) {
+		lwsl_err("Failed to create tls proxy vhost\n");
+		goto bail;
+	}
+
+	info.alpn = NULL;
+	info.server_ssl_cert_mem = NULL;
+	info.server_ssl_cert_mem_len = 0;
+	info.server_ssl_private_key_mem = NULL;
+	info.server_ssl_private_key_mem_len = 0;
+#endif
 #endif
 
 	/* client vhost, no listener */

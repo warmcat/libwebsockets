@@ -464,14 +464,18 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 	 * after his final write (eg, from a writeable callback that a later
 	 * WINDOW_UPDATE re-armed) would put DATA on a half-closed stream: the
 	 * peer answers that with a connection-level GOAWAY (STREAM_CLOSED),
-	 * taking every other stream on the connection with it.  Bin it.
+	 * taking every other stream on the connection with it.  Bin it.  A
+	 * repeated body-less FINAL (eg, the proxy's stream close after the
+	 * content-length already ended the stream) is pointless but
+	 * harmless, drop it quietly.
 	 */
 
 	if (wsi->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_LOCAL ||
 	    wsi->h2.h2_state == LWS_H2_STATE_CLOSED) {
-		lwsl_wsi_notice(wsi, "binning %d byte write after END_STREAM "
-				     "(h2 state %d)", (int)len,
-				     (int)wsi->h2.h2_state);
+		if (len)
+			lwsl_wsi_notice(wsi, "binning %d byte write after "
+					     "END_STREAM (h2 state %d)",
+					     (int)len, (int)wsi->h2.h2_state);
 
 		return 0;
 	}
