@@ -312,6 +312,42 @@ typedef struct lws_io_ops {
 	 * connection: keep it a grace period in case another comes, then
 	 * destroy it.  Called with the context and vhost locks held.  May be
 	 * NULL without jit trust. */
+
+#if defined(LWS_WITH_CGI)
+	/*
+	 * the cgi: an http transaction's cgi is a child process IO runs for
+	 * it, its stdio pipes watched by IO's cgi adapter role.  Only in a
+	 * build with cgi (LWS_WITH_CGI), since the types they name are.
+	 */
+
+	int (*cgi_start)(struct lws_cgi_info *info);
+	/**< start the child info describes for the transaction info->wsi, its
+	 * stdio on pipes, as the public lws_cgi_via_info(), which is IO's.
+	 * 0 ok, nonzero it could not be started. */
+	int (*cgi_stdout_tx)(struct lws *wsi);
+	/**< the transaction wsi is writeable and its child has stdout: relay
+	 * what it wrote, the response headers it wrote first as headers, as
+	 * the public lws_cgi_write_split_stdout_headers(), which is IO's.
+	 * <0 the transaction should be closed. */
+	int (*cgi_stdin_write)(struct lws_cgi_args *args);
+	/**< write args->data of args->len, request body, to the child's stdin
+	 * (args->stdwsi[LWS_STDIN], which sansIO knows is there): as much as
+	 * the pipe takes now, returning that; 0 when it is full, and the
+	 * transaction's rx is let go again when it drains; -1 when it failed. */
+	void (*cgi_stdin_body_end)(struct lws *wsi);
+	/**< the transaction wsi's request body is complete: close the child's
+	 * stdin so it sees the end, leaving the rest of the cgi up. */
+	int (*cgi_stderr_read)(struct lws *stdwsi, char *buf, size_t len);
+	/**< read what the child wrote on its stderr from its stderr pipe
+	 * stdwsi into buf of len, for the log.  Returns what was read, 0 or
+	 * -1 as read() does. */
+	void (*cgi_remove_and_kill)(struct lws *wsi);
+	/**< the transaction wsi is closing with its child still running:
+	 * kill the child. */
+	void (*cgi_release)(struct lws *wsi);
+	/**< the transaction wsi is done with its cgi: release the child, its
+	 * pipes and the cgi object. */
+#endif
 } lws_io_ops_t;
 
 /*

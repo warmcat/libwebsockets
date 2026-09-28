@@ -482,6 +482,20 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len);
 #endif
 #endif
 
+/* the cgi */
+#if defined(LWS_WITH_CGI)
+int
+lws_cgi_stdin_write(struct lws_cgi_args *args);
+void
+lws_cgi_stdin_body_end(struct lws *wsi);
+int
+lws_cgi_stderr_read(struct lws *stdwsi, char *buf, size_t len);
+void
+lws_cgi_remove_and_kill(struct lws *wsi);
+void
+lws_cgi_release(struct lws *wsi);
+#endif
+
 /* the vhost */
 void
 __lws_vhost_destroy2(struct lws_vhost *vh);

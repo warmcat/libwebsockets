@@ -2348,7 +2348,7 @@ lws_http_action(struct lws *wsi)
 		cgiinfo.chroot_path = hit->cgi_chroot_path;
 		cgiinfo.wd = hit->cgi_wd;
 
-		n = (unsigned int)lws_cgi_via_info(&cgiinfo);
+		n = (unsigned int)lws_io_cgi_start(&cgiinfo);
 		if (n) {
 			lwsl_err("%s: cgi failed\n", __func__);
 			goto bail_nuke_ah;

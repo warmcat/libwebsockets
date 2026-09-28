@@ -1331,6 +1331,19 @@ lws_cgi_stdin_body_end(struct lws *wsi)
 }
 
 /*
+ * What the child wrote on its stderr: read from its stderr pipe wsi, into
+ * buf.  Returns what read() does, or -1 when the pipe is gone.
+ */
+int
+lws_cgi_stderr_read(struct lws *stdwsi, char *buf, size_t len)
+{
+	if (!lws_socket_is_valid(stdwsi->io->desc.sockfd))
+		return -1;
+
+	return (int)read(stdwsi->io->desc.sockfd, buf, len);
+}
+
+/*
  * The transaction is finished with its cgi: the child and its pipes, and
  * the cgi object itself, go
  */

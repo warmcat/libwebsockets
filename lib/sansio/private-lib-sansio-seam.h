@@ -352,25 +352,74 @@ lws_tls_jit_trust_vh_start_grace(struct lws_vhost *vh)
 }
 #endif
 
-#endif /* LWS_SANSIO_CHECK */
-
 #if defined(LWS_WITH_CGI)
 /*
- * An http transaction's cgi is a child process IO runs for it: its request
- * body is written to the child's stdin, and the child's end of it closed,
- * as sansIO says; the child is killed, and it and its pipes released, when
- * the transaction is done with it
+ * the cgi (lws_io_ops_t cgi_...): an http transaction's cgi is a child
+ * process IO runs for it
  */
-struct lws_cgi_args;
-int
-lws_cgi_stdin_write(struct lws_cgi_args *args);
-void
-lws_cgi_stdin_body_end(struct lws *wsi);
-void
-lws_cgi_remove_and_kill(struct lws *wsi);
-void
-lws_cgi_release(struct lws *wsi);
+
+/* start the child for the transaction info->wsi: IO's lws_cgi_via_info() */
+static LWS_INLINE int
+lws_io_cgi_start(struct lws_cgi_info *info)
+{
+	return info->wsi->a.context->io_ops->cgi_start(info);
+}
+
+/*
+ * relay what the child wrote on its stdout to the transaction wsi, headers
+ * first: IO's lws_cgi_write_split_stdout_headers()
+ */
+static LWS_INLINE int
+lws_io_cgi_stdout_tx(struct lws *wsi)
+{
+	return wsi->a.context->io_ops->cgi_stdout_tx(wsi);
+}
+
+/* the request body to the child's stdin, as much as its pipe takes now */
+static LWS_INLINE int
+lws_cgi_stdin_write(struct lws_cgi_args *args)
+{
+	struct lws *siwsi = args->stdwsi[LWS_STDIN];
+
+	if (!siwsi)
+		return -1; /* the stdin is gone */
+
+	return siwsi->a.context->io_ops->cgi_stdin_write(args);
+}
+
+/* the request body is complete: the child's stdin is closed */
+static LWS_INLINE void
+lws_cgi_stdin_body_end(struct lws *wsi)
+{
+	wsi->a.context->io_ops->cgi_stdin_body_end(wsi);
+}
+
+/* what the child wrote on its stderr, from its stderr pipe wsi, into buf */
+static LWS_INLINE int
+lws_cgi_stderr_read(struct lws *stdwsi, char *buf, size_t len)
+{
+	if (!stdwsi)
+		return -1;
+
+	return stdwsi->a.context->io_ops->cgi_stderr_read(stdwsi, buf, len);
+}
+
+/* the transaction is going: the child is killed */
+static LWS_INLINE void
+lws_cgi_remove_and_kill(struct lws *wsi)
+{
+	wsi->a.context->io_ops->cgi_remove_and_kill(wsi);
+}
+
+/* the transaction is done with its cgi: it and its pipes are released */
+static LWS_INLINE void
+lws_cgi_release(struct lws *wsi)
+{
+	wsi->a.context->io_ops->cgi_release(wsi);
+}
 #endif
+
+#endif /* LWS_SANSIO_CHECK */
 
 
 

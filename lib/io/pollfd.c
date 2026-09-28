@@ -893,6 +893,16 @@ const lws_io_ops_t lws_io_ops_default = {
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	.vhost_jit_grace = lws_tls_jit_trust_vh_start_grace,
 #endif
+
+#if defined(LWS_WITH_CGI)
+	.cgi_start		= lws_cgi_via_info,
+	.cgi_stdout_tx		= lws_cgi_write_split_stdout_headers,
+	.cgi_stdin_write	= lws_cgi_stdin_write,
+	.cgi_stdin_body_end	= lws_cgi_stdin_body_end,
+	.cgi_stderr_read	= lws_cgi_stderr_read,
+	.cgi_remove_and_kill	= lws_cgi_remove_and_kill,
+	.cgi_release		= lws_cgi_release,
+#endif
 };
 
 

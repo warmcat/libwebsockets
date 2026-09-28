@@ -686,7 +686,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 #ifdef LWS_WITH_CGI
 		if (wsi->reason_bf & (LWS_CB_REASON_AUX_BF__CGI_HEADERS |
 				      LWS_CB_REASON_AUX_BF__CGI)) {
-			n = lws_cgi_write_split_stdout_headers(wsi);
+			n = lws_io_cgi_stdout_tx(wsi);
 			if (n < 0) {
 				lwsl_wsi_debug(wsi, "AUX_BF__CGI forcing close");
 				return -1;
@@ -1159,10 +1159,8 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_callback_on_writable(wsi);
 			break;
 		case LWS_STDERR:
-			n = lws_get_socket_fd(args->stdwsi[LWS_STDERR]);
-			if (n < 0)
-				break;
-			n = (int)read(n, buf, sizeof(buf) - 2);
+			n = lws_cgi_stderr_read(args->stdwsi[LWS_STDERR], buf,
+						sizeof(buf) - 2);
 			if (n > 0) {
 				if (buf[n - 1] != '\n')
 					buf[n++] = '\n';
@@ -1241,8 +1239,11 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lwsl_wsi_info(wsi, "proxied %d bytes", n);
 
-		if (wsi->http.cgi->post_in_expected && args->stdwsi[LWS_STDIN] &&
-		    lws_get_socket_fd(args->stdwsi[LWS_STDIN]) > 0) {
+		/*
+		 * The write above failed if the stdin was gone, so it is
+		 * still there
+		 */
+		if (wsi->http.cgi->post_in_expected && args->stdwsi[LWS_STDIN]) {
 			wsi->http.cgi->post_in_expected -= (unsigned int)n;
 
 			if (!wsi->http.cgi->post_in_expected)
