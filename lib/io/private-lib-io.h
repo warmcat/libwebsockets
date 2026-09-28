@@ -407,6 +407,13 @@ lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi);
 struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_connect_transport(struct lws *wsi);
 #endif
+/* address selection for connect (io/client/sort-dns.c) */
+int
+lws_sort_dns(struct lws *wsi, const struct addrinfo *result);
+/* the connection-monitoring copy of the dns results (io/client/conmon.c) */
+int
+lws_conmon_append_copy_new_dns_results(struct lws *wsi,
+				       const struct addrinfo *cai);
 void
 lws_io_udp_release(struct lws *wsi);
 #if defined(LWS_WITH_UDP)

@@ -131,7 +131,7 @@ lws_conmon_append_copy_new_dns_results(struct lws *wsi,
 	return 0;
 }
 
-void
+static void
 lws_conmon_addrinfo_destroy(struct addrinfo *ai)
 {
 	while (ai) {

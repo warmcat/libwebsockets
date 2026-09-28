@@ -1427,13 +1427,6 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status, const char *caller)
 void
 __lws_free_wsi(struct lws *wsi);
 
-void
-lws_conmon_addrinfo_destroy(struct addrinfo *ai);
-
-int
-lws_conmon_append_copy_new_dns_results(struct lws *wsi,
-				       const struct addrinfo *cai);
-
 #if LWS_MAX_SMP > 1
 
 static LWS_INLINE void
@@ -1934,9 +1927,6 @@ lws_addrinfo_clean(struct lws *wsi);
 #define LRR_MATCH_SRC			(1 << 1)
 #define LRR_MATCH_DST			(1 << 2)
 
-
-int
-lws_sort_dns(struct lws *wsi, const struct addrinfo *result);
 
 int
 lws_broadcast(struct lws_context_per_thread *pt, int reason, void *in, size_t len);

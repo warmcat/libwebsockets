@@ -67,7 +67,13 @@ if (LWS_WITH_CLIENT)
 		io/client/connect2.c
 		io/client/connect3.c
 		io/client/transport.c
+		io/client/sort-dns.c
 		)
+	if (LWS_WITH_CONMON)
+		list(APPEND SOURCES
+			io/client/conmon.c
+		)
+	endif()
 endif()
 
 if (LWS_ROLE_DBUS AND NOT LWS_PLAT_FREERTOS)

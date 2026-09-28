@@ -253,13 +253,13 @@ directory.
 | `lib/sansio/wsi.c`, `wsi-state.c`, `close.c`, `state.c`, `vhost.c`, `socks5-client.c`, `dummy-callback.c` | sansIO | the wsi state, the event table, connection lifecycle decisions, the vhost's protocols and roles, the socks handshake |
 | `lib/core-net/client/connect4.c` proxy CONNECT composition | sansIO | it composes protocol bytes |
 | `lib/io/`: `output.c`, `pollfd.c`, `service.c`, `adopt.c`, `network.c`, `route.c`, `wsi-timeout.c`, `sorted-usec-list.c`, `vhost.c` | IO | moving bytes, fds, poll, timers; a vhost's creation and destruction (its listen sockets, tls contexts, dns) |
-| `lib/io/client/`: `connect.c`, `connect2.c`, `connect3.c` | IO | dns, connect, happy eyeballs |
+| `lib/io/client/`: `connect.c`, `connect2.c`, `connect3.c`, `transport.c`, `sort-dns.c`, `conmon.c` | IO | dns, connect, happy eyeballs; address selection for connect (RFC 6724 sorting of the resolved addresses); the connection-monitoring report of what the transport did |
 | `lib/tls/*` record layer: `lws_ssl_capable_read/write`, bio, session cache, handshake driving | IO | sansIO sees plaintext |
 | `lib/sansio/quic` packet and frame layer, `lib/sansio/h3`, qpack | sansIO | quic is a sansIO part with a datagram interface instead of a stream one |
 | `lib/io/listen`, `netlink`, `pipe`, `raw-file`, `dbus`, `cgi` | IO | transport adapters wearing the role interface: they accept sockets, read pipes, fds and the kernel's routing; nothing on the wire is theirs |
 | `lib/plat/*`, `lib/event-libs/*` | IO | |
 | `lib/core/*`, `lib/misc/*`, `lib/system/*` | neither | context, logging, utilities: shared by both halves, used by both |
-| `lib/core-net/roles.c`, `async-queue.c`, the generic crypto in `lib/tls` (`lws-gen*`) | neither | the role registry both halves dispatch through (sansIO roles and IO's adapters), the worker pool, crypto primitives |
+| `lib/core-net/roles.c`, `async-queue.c`, `client/client.c`, the generic crypto in `lib/tls` (`lws-gen*`) | neither | the role registry both halves dispatch through (sansIO roles and IO's adapters), the worker pool, the client's proxy settings and header stash that both halves call, crypto primitives |
 | `lib/io/lejp-conf.c` | IO | lwsws' config: it makes the vhosts and mounts it describes |
 
 Where a file has both today (`connect4.c`, `ops-quic.c`), the split is

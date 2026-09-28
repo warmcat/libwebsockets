@@ -72,13 +72,7 @@ if (LWS_WITH_CLIENT)
 	list(APPEND SOURCES
 		core-net/client/client.c
 		core-net/client/connect4.c
-		core-net/client/sort-dns.c
 		)
-	if (LWS_WITH_CONMON)
-		list(APPEND SOURCES
-			core-net/client/conmon.c
-		)
-	endif()
 endif()
 
 if (LWS_WITH_WEBRTC)
