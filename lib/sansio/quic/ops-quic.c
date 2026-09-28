@@ -303,6 +303,13 @@ lws_quic_client_probe_preferred_address(struct lws *nwsi,
 	if (pref_cid && pref_cid->len)
 		qn->rem_cid = *pref_cid;
 
+	/*
+	 * The probe is in flight from here: the PATH_RESPONSE that answers
+	 * it commits the path and cancels prefaddr_sul, and the tx puts its
+	 * PATH_CHALLENGE first.  Both only act on a probe marked valid.
+	 */
+	qn->probing_sa46_valid = 1;
+
 	lws_quic_queue_path_challenge(nwsi);
 
 	lws_sul_schedule(nwsi->a.context, nwsi->tsi, &qn->prefaddr_sul,
