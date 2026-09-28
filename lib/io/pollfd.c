@@ -892,6 +892,68 @@ const lws_io_ops_t lws_io_ops_default = {
 };
 
 /*
+ * A table handed in through lws_context_creation_info.io_ops is refused,
+ * noisily, unless it was built for this lws_io_ops_t and has every member
+ * this build calls without checking.  Returns 0 when it can be used.
+ */
+int
+lws_io_ops_check(const lws_io_ops_t *ops)
+{
+	int bad = 0;
+
+	if (ops == &lws_io_ops_default)
+		return 0;
+
+	if (ops->abi_version != LWS_IO_OPS_ABI_VERSION) {
+		lwsl_err("%s: io_ops ABI version %u, this library's is %u: "
+			 "rebuild against its headers, starting the table with "
+			 "lws_io_ops_init()\n", __func__,
+			 (unsigned int)ops->abi_version,
+			 (unsigned int)LWS_IO_OPS_ABI_VERSION);
+		return 1;
+	}
+
+#define lws_io_ops_required(_m) \
+	if (!ops->_m) { \
+		lwsl_err("%s: io_ops." #_m " must be set\n", __func__); \
+		bad = 1; \
+	}
+
+	lws_io_ops_required(want_write)
+	lws_io_ops_required(want_read)
+	lws_io_ops_required(close)
+	lws_io_ops_required(transfer)
+	lws_io_ops_required(tx_push)
+	lws_io_ops_required(tx_choked)
+	lws_io_ops_required(service_writable)
+	lws_io_ops_required(service_now)
+	lws_io_ops_required(flag_pending_rx)
+	lws_io_ops_required(wake)
+	lws_io_ops_required(vhost_destroy)
+#if defined(LWS_WITH_CLIENT)
+	lws_io_ops_required(transport_start)
+	lws_io_ops_required(transport_connected)
+	lws_io_ops_required(transport_established)
+#endif
+#if defined(LWS_WITH_TLS) && defined(LWS_ROLE_QUIC)
+	lws_io_ops_required(tls_quic_session)
+	lws_io_ops_required(tls_quic_handshake)
+	lws_io_ops_required(tls_quic_set_tp)
+	lws_io_ops_required(tls_quic_get_tp)
+	lws_io_ops_required(tls_quic_aead)
+	lws_io_ops_required(tls_quic_alert)
+	lws_io_ops_required(tls_quic_alpn)
+#if defined(LWS_WITH_CLIENT)
+	lws_io_ops_required(tls_confirm_peer_cert)
+#endif
+#endif
+
+#undef lws_io_ops_required
+
+	return bad;
+}
+
+/*
  * IO's plumbing (private-lib-core-net.h): what sansIO asks of IO's own
  * features, a context's whatever io_ops it was given
  */

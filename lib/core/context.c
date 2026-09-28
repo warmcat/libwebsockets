@@ -657,6 +657,12 @@ lws_create_context(const struct lws_context_creation_info *info)
 	if (lws_fi(&info->fic, "ctx_createfail1"))
 		goto early_bail;
 
+#if defined(LWS_WITH_NETWORK)
+	/* a table of requests from the embedder must be one we can use */
+	if (info->io_ops && lws_io_ops_check(info->io_ops))
+		goto early_bail;
+#endif
+
 	if (lpf) {
 		lpf+= 2;
 #if defined(LWS_WITH_SYS_ASYNC_DNS)

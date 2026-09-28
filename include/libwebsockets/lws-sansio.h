@@ -62,6 +62,5 @@ union lws_sockaddr46;
 #include <libwebsockets/lws-write.h>
 #include <libwebsockets/lws-writeable.h>
 #endif
-#if defined(LWS_WITH_TLS)
+/* quic's tls vocabulary: lws_io_ops_t names it in every build */
 #include <libwebsockets/lws-quic.h>
-#endif

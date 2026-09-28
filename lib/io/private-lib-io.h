@@ -451,6 +451,10 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot);
  * calls these directly.
  */
 
+/* is a table handed in through the creation info usable: 0 yes */
+int
+lws_io_ops_check(const lws_io_ops_t *ops);
+
 /* tx */
 int LWS_WARN_UNUSED_RESULT
 lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len);

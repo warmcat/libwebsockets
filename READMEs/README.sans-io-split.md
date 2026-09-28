@@ -226,6 +226,22 @@ embedder carries nothing that needs it.
 | vhost | `finalize_startup` (optional) | the protocols are initialized: the process may drop its privileges | `lws_finalize_startup()` |
 | vhost | `vhost_destroy` | a going vhost's last connection went | `__lws_vhost_destroy2()` |
 
+The struct is one ABI whatever the build: every member is declared in
+every build, and one whose feature the build lacks (the tls members without
+tls, quic's without quic) is NULL there.  It is versioned by
+`LWS_IO_OPS_ABI_VERSION`, which changes with any change to its members,
+their order or their meaning, and a table handed in through
+`lws_context_creation_info.io_ops` carries the version it was compiled
+with in its first member, `abi_version`.  Context creation refuses a table
+of another version, and one missing a member this build calls without
+checking (every member not marked optional, those of the client transport
+in a build with a client, quic's tls ones in a build with quic), naming
+what is wrong.  `lws_io_ops_default` has `abi_version` 0: a plain copy of
+it takes the library's members only up to the embedder's size of the
+struct, so it is refused until it is stamped, and `lws_io_ops_init()`, an
+inline compiled into the embedder, copies it and stamps it with the
+embedder's version.
+
 A member marked optional is checked before it is called, and a NULL one
 answers as though the request could not be done (no file can be sent, no
 onward connection made, no fallback taken, no session or certificate

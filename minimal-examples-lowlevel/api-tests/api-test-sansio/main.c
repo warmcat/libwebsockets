@@ -26,6 +26,10 @@
  * Then whether the transport would take a write: a connection on the test's
  * transport is asked of the transport, never of the fd that is its place in
  * the poll set, even when that fd could not take a byte.
+ *
+ * Before any of it, the io_ops table is checked at context creation: one
+ * not stamped with the ABI version the test was built with, or missing a
+ * member lws calls without checking, is refused.
  */
 
 #include <libwebsockets.h>
@@ -620,6 +624,39 @@ client_half(struct lws_context *cx, struct lws_vhost *vh)
 }
 #endif
 
+/*
+ * 0: context creation refuses an io_ops table it cannot use: a plain copy
+ * of IO's, not stamped with our ABI version, and a stamped one missing a
+ * member lws calls without checking.  Returns nonzero if one was taken.
+ */
+static int
+refused_tables(struct lws_context_creation_info *info)
+{
+	lws_io_ops_t bad;
+	struct lws_context *cx;
+
+	bad = lws_io_ops_default;
+	info->io_ops = &bad;
+	cx = lws_create_context(info);
+	if (cx) {
+		lwsl_err("case 0: unstamped io_ops taken\n");
+		lws_context_destroy(cx);
+		return 1;
+	}
+
+	lws_io_ops_init(&bad);
+	bad.tx_push = NULL;
+	cx = lws_create_context(info);
+	if (cx) {
+		lwsl_err("case 0: io_ops without tx_push taken\n");
+		lws_context_destroy(cx);
+		return 1;
+	}
+	lwsl_user("case 0: unusable io_ops tables refused: PASS\n");
+
+	return 0;
+}
+
 int
 main(int argc, const char **argv)
 {
@@ -635,7 +672,7 @@ main(int argc, const char **argv)
 	lwsl_user("LWS API selftest: the sansIO half over a test transport\n");
 
 	/* IO's requests of the transport, with us listening */
-	io_ops = lws_io_ops_default;
+	lws_io_ops_init(&io_ops);
 	io_ops.want_write = tp_want_write;
 	io_ops.want_read = tp_want_read;
 
@@ -643,6 +680,10 @@ main(int argc, const char **argv)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = protocols;
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+
+	if (refused_tables(&info))
+		return 1;
+
 	info.io_ops = &io_ops;
 
 	cx = lws_create_context(&info);

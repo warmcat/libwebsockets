@@ -43,7 +43,19 @@
  * the sansIO half alone supplies its own in
  * lws_context_creation_info.io_ops, and a port that returns its requests as
  * polled outputs implements the same.
+ *
+ * The struct is one ABI whatever the build: every member is declared in
+ * every build, and one whose feature a build lacks is NULL there.  Its
+ * version is LWS_IO_OPS_ABI_VERSION, and a table handed in must carry the
+ * version the embedder was compiled with in its abi_version, or context
+ * creation fails, saying so.
  */
+
+/*
+ * The version of lws_io_ops_t: its members, their order and what they
+ * mean.  Any change to them changes it.
+ */
+#define LWS_IO_OPS_ABI_VERSION 1
 
 /*
  * The close request reaches the transport in phases, in this order over a
@@ -81,6 +93,13 @@ enum lws_io_path_op {
 struct lws_client_connect_info;
 
 typedef struct lws_io_ops {
+	uint32_t abi_version;
+	/**< LWS_IO_OPS_ABI_VERSION as the embedder was compiled with it:
+	 * start a table with lws_io_ops_init(), or set it in the table's
+	 * initializer.  lws_io_ops_default's is 0, so a plain copy of it,
+	 * which takes the library's members up to the embedder's size of
+	 * the struct, is refused until it is stamped. */
+
 	int (*want_write)(struct lws *wsi);
 	/**< the wsi's transport connection should be written when it can take
 	 * bytes: IO will call the wsi's writeable handling then.  wsi is the
@@ -168,10 +187,9 @@ typedef struct lws_io_ops {
 	 * is lws_get_peer_simple().  May be NULL: sansIO then says
 	 * "unknown". */
 
-#if defined(LWS_WITH_TLS)
 	/*
-	 * the tls session, which is IO's: what sansIO asks of it.  Only in a
-	 * build with tls.
+	 * the tls session, which is IO's: what sansIO asks of it.  NULL in a
+	 * build without tls.
 	 */
 
 	void *(*tls_session)(struct lws *wsi);
@@ -191,7 +209,10 @@ typedef struct lws_io_ops {
 	 * is IO's.  0 ok, nonzero when there is none.  May be NULL: there is
 	 * never any. */
 
-	/* quic runs the tls handshake inside its own packets */
+	/*
+	 * quic runs the tls handshake inside its own packets: these must be
+	 * set in a build with quic and tls, and are NULL in one without
+	 */
 
 	int (*tls_quic_session)(struct lws *wsi, lws_tls_quic_secret_cb cb);
 	/**< make the quic connection wsi's tls session, set up for quic: cb
@@ -228,7 +249,6 @@ typedef struct lws_io_ops {
 	int (*tls_quic_alpn)(struct lws *wsi, char *buf, size_t len);
 	/**< the alpn wsi's handshake selected: 1 with it copied into buf of
 	 * len, 0 when there is none. */
-#endif
 
 	/*
 	 * tx: the transport taking sansIO's bytes
@@ -328,7 +348,24 @@ typedef struct lws_io_ops {
 
 /*
  * IO's own: the requests reach the poll set and the socket.  An embedder
- * that only wants to hear the requests takes a copy and wraps the ops it
- * listens to (api-test-sansio does).
+ * that only wants to hear the requests starts its table from this one with
+ * lws_io_ops_init() and wraps the ops it listens to (api-test-sansio does).
  */
 LWS_VISIBLE LWS_EXTERN_FOR_DATA const lws_io_ops_t lws_io_ops_default;
+
+/**
+ * lws_io_ops_init() - start an io_ops table from IO's own
+ *
+ * \param ops: the table to fill
+ *
+ * Copies lws_io_ops_default into ops and stamps it with the
+ * LWS_IO_OPS_ABI_VERSION the caller is compiled with, so a library whose
+ * lws_io_ops_t differs refuses it instead of reading members it does not
+ * have.  Override members afterwards.
+ */
+static LWS_INLINE void
+lws_io_ops_init(lws_io_ops_t *ops)
+{
+	*ops = lws_io_ops_default;
+	ops->abi_version = LWS_IO_OPS_ABI_VERSION;
+}
