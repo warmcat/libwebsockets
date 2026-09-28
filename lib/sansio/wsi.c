@@ -634,75 +634,6 @@ const struct lws_protocols *lws_vhost_name_to_protocol(struct lws_vhost *vh,
 	return NULL;
 }
 
-int lws_callback_all_protocol(struct lws_context *context,
-		const struct lws_protocols *protocol,
-		int reason) {
-	struct lws_context_per_thread *pt = &context->pt[0];
-	unsigned int n, m = context->count_threads;
-	struct lws *wsi;
-
-	while (m--) {
-		for (n = 0; n < pt->fds_count; n++) {
-			wsi = wsi_from_fd(context, pt->fds[n].fd);
-			if (!wsi || !wsi->a.protocol)
-				continue;
-			if (wsi->a.protocol->callback == protocol->callback &&
-					!strcmp(protocol->name, wsi->a.protocol->name))
-				protocol->callback(wsi, (enum lws_callback_reasons)reason,
-						wsi->user_space, NULL, 0);
-		}
-		pt++;
-	}
-
-	return 0;
-}
-
-void *lws_evlib_wsi_to_evlib_pt(struct lws *wsi) {
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-
-	return pt->evlib_pt;
-}
-
-void *lws_evlib_tsi_to_evlib_pt(struct lws_context *cx, int tsi) {
-	struct lws_context_per_thread *pt = &cx->pt[tsi];
-
-	return pt->evlib_pt;
-}
-
-int lws_callback_all_protocol_vhost_args(struct lws_vhost *vh,
-		const struct lws_protocols *protocol,
-		int reason, void *argp, size_t len) {
-	struct lws_context *context = vh->context;
-	struct lws_context_per_thread *pt = &context->pt[0];
-	unsigned int n, m = context->count_threads;
-	struct lws *wsi;
-
-	while (m--) {
-		for (n = 0; n < pt->fds_count; n++) {
-			wsi = wsi_from_fd(context, pt->fds[n].fd);
-
-			if (!wsi || !wsi->a.protocol || wsi->a.vhost != vh)
-				continue;
-
-			if (protocol && wsi->a.protocol->callback != protocol->callback &&
-					strcmp(protocol->name, wsi->a.protocol->name))
-				continue;
-
-			wsi->a.protocol->callback(wsi, (enum lws_callback_reasons)reason,
-					wsi->user_space, argp, len);
-		}
-		pt++;
-	}
-
-	return 0;
-}
-
-int lws_callback_all_protocol_vhost(struct lws_vhost *vh,
-		const struct lws_protocols *protocol,
-		int reason) {
-	return lws_callback_all_protocol_vhost_args(vh, protocol, reason, NULL, 0);
-}
-
 int lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in,
 		size_t len) {
 	int n;
@@ -892,25 +823,6 @@ skip:
 	lws_pt_unlock(pt);
 
 	return 0;
-}
-
-void lws_rx_flow_allow_all_protocol(const struct lws_context *context,
-		const struct lws_protocols *protocol) {
-	const struct lws_context_per_thread *pt = &context->pt[0];
-	struct lws *wsi;
-	unsigned int n, m = context->count_threads;
-
-	while (m--) {
-		for (n = 0; n < pt->fds_count; n++) {
-			wsi = wsi_from_fd(context, pt->fds[n].fd);
-			if (!wsi || !wsi->a.protocol)
-				continue;
-			if (wsi->a.protocol->callback == protocol->callback &&
-					!strcmp(protocol->name, wsi->a.protocol->name))
-				lws_rx_flow_control(wsi, LWS_RXFLOW_ALLOW);
-		}
-		pt++;
-	}
 }
 
 int user_callback_handle_rxflow(lws_callback_function callback_function,

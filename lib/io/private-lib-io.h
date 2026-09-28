@@ -482,6 +482,14 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len);
 #endif
 #endif
 
+/* the vhost */
+void
+__lws_vhost_destroy2(struct lws_vhost *vh);
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+void
+lws_tls_jit_trust_vh_start_grace(struct lws_vhost *vh);
+#endif
+
 /* the transport */
 #if defined(LWS_WITH_CLIENT)
 struct lws *

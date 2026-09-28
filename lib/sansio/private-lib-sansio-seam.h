@@ -325,6 +325,33 @@ lws_io_http_client_read(struct lws *wsi, char **buf, int *len)
 }
 #endif
 
+/*
+ * the vhost (lws_io_ops_t vhost_destroy, vhost_jit_grace): a vhost's
+ * creation and destruction are IO's
+ */
+
+/*
+ * the last connection bound to a vhost that is being destroyed went: IO
+ * finishes destroying it
+ */
+static LWS_INLINE void
+__lws_vhost_destroy2(struct lws_vhost *vh)
+{
+	vh->context->io_ops->vhost_destroy(vh);
+}
+
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+/*
+ * a vhost made for a jit-trusted peer lost its last connection: IO keeps it
+ * a grace period in case another comes, then destroys it
+ */
+static LWS_INLINE void
+lws_tls_jit_trust_vh_start_grace(struct lws_vhost *vh)
+{
+	vh->context->io_ops->vhost_jit_grace(vh);
+}
+#endif
+
 #endif /* LWS_SANSIO_CHECK */
 
 #if defined(LWS_WITH_CGI)
@@ -344,22 +371,6 @@ lws_cgi_remove_and_kill(struct lws *wsi);
 void
 lws_cgi_release(struct lws *wsi);
 #endif
-
-#if defined(LWS_WITH_TLS_JIT_TRUST)
-/*
- * a vhost made for a jit-trusted peer lost its last connection: IO keeps it
- * a grace period in case another comes, then destroys it
- */
-void
-lws_tls_jit_trust_vh_start_grace(struct lws_vhost *vh);
-#endif
-
-/*
- * the last connection bound to a vhost that is being destroyed went: IO
- * finishes destroying it (a vhost's creation and destruction are IO's)
- */
-void
-__lws_vhost_destroy2(struct lws_vhost *vh);
 
 
 

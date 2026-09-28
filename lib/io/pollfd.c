@@ -731,6 +731,101 @@ lws_get_socket_fd(struct lws *wsi)
 	return wsi->io->desc.sockfd;
 }
 
+/*
+ * The app's calls over every connection of a protocol (a callback to each,
+ * or allowing each one's rx): finding them walks the fd table, which is
+ * IO's, as are the event library's per-thread handles.  sansIO keeps no
+ * list of every connection.
+ */
+
+int lws_callback_all_protocol(struct lws_context *context,
+		const struct lws_protocols *protocol,
+		int reason) {
+	struct lws_context_per_thread *pt = &context->pt[0];
+	unsigned int n, m = context->count_threads;
+	struct lws *wsi;
+
+	while (m--) {
+		for (n = 0; n < pt->fds_count; n++) {
+			wsi = wsi_from_fd(context, pt->fds[n].fd);
+			if (!wsi || !wsi->a.protocol)
+				continue;
+			if (wsi->a.protocol->callback == protocol->callback &&
+					!strcmp(protocol->name, wsi->a.protocol->name))
+				protocol->callback(wsi, (enum lws_callback_reasons)reason,
+						wsi->user_space, NULL, 0);
+		}
+		pt++;
+	}
+
+	return 0;
+}
+
+void *lws_evlib_wsi_to_evlib_pt(struct lws *wsi) {
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+
+	return pt->evlib_pt;
+}
+
+void *lws_evlib_tsi_to_evlib_pt(struct lws_context *cx, int tsi) {
+	struct lws_context_per_thread *pt = &cx->pt[tsi];
+
+	return pt->evlib_pt;
+}
+
+int lws_callback_all_protocol_vhost_args(struct lws_vhost *vh,
+		const struct lws_protocols *protocol,
+		int reason, void *argp, size_t len) {
+	struct lws_context *context = vh->context;
+	struct lws_context_per_thread *pt = &context->pt[0];
+	unsigned int n, m = context->count_threads;
+	struct lws *wsi;
+
+	while (m--) {
+		for (n = 0; n < pt->fds_count; n++) {
+			wsi = wsi_from_fd(context, pt->fds[n].fd);
+
+			if (!wsi || !wsi->a.protocol || wsi->a.vhost != vh)
+				continue;
+
+			if (protocol && wsi->a.protocol->callback != protocol->callback &&
+					strcmp(protocol->name, wsi->a.protocol->name))
+				continue;
+
+			wsi->a.protocol->callback(wsi, (enum lws_callback_reasons)reason,
+					wsi->user_space, argp, len);
+		}
+		pt++;
+	}
+
+	return 0;
+}
+
+int lws_callback_all_protocol_vhost(struct lws_vhost *vh,
+		const struct lws_protocols *protocol,
+		int reason) {
+	return lws_callback_all_protocol_vhost_args(vh, protocol, reason, NULL, 0);
+}
+
+void lws_rx_flow_allow_all_protocol(const struct lws_context *context,
+		const struct lws_protocols *protocol) {
+	const struct lws_context_per_thread *pt = &context->pt[0];
+	struct lws *wsi;
+	unsigned int n, m = context->count_threads;
+
+	while (m--) {
+		for (n = 0; n < pt->fds_count; n++) {
+			wsi = wsi_from_fd(context, pt->fds[n].fd);
+			if (!wsi || !wsi->a.protocol)
+				continue;
+			if (wsi->a.protocol->callback == protocol->callback &&
+					!strcmp(protocol->name, wsi->a.protocol->name))
+				lws_rx_flow_control(wsi, LWS_RXFLOW_ALLOW);
+		}
+		pt++;
+	}
+}
+
 const lws_io_ops_t lws_io_ops_default = {
 	.want_write	= lws_io_want_write_pollfd,
 	.want_read	= lws_io_want_read_pollfd,
@@ -792,6 +887,11 @@ const lws_io_ops_t lws_io_ops_default = {
 #if defined(LWS_WITH_CLIENT) && \
     (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 	.http_client_read = lws_http_client_read,
+#endif
+
+	.vhost_destroy	= __lws_vhost_destroy2,
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	.vhost_jit_grace = lws_tls_jit_trust_vh_start_grace,
 #endif
 };
 

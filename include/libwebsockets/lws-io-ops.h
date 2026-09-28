@@ -297,6 +297,21 @@ typedef struct lws_io_ops {
 	 * read.  0 ok, -1 the connection failed.  IO's is
 	 * lws_http_client_read().  May be NULL in a build without an http
 	 * client. */
+
+	/*
+	 * the vhost: its creation and destruction are IO's
+	 */
+
+	void (*vhost_destroy)(struct lws_vhost *vh);
+	/**< the last connection bound to vh, which is being destroyed, went:
+	 * finish destroying it (its protocols' destroy callbacks, its listen
+	 * sockets, its tls contexts, its memory).  Called with the context
+	 * lock held. */
+	void (*vhost_jit_grace)(struct lws_vhost *vh);
+	/**< vh, made for a peer trusted just in time, lost its last
+	 * connection: keep it a grace period in case another comes, then
+	 * destroy it.  Called with the context and vhost locks held.  May be
+	 * NULL without jit trust. */
 } lws_io_ops_t;
 
 /*
