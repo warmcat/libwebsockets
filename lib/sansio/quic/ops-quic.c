@@ -2513,6 +2513,12 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		int is_congestion_limited = 0;
 		(void)is_congestion_limited;
 		uint32_t mtu = qn->current_mtu ? qn->current_mtu : 1280;
+		/*
+		 * The anti-amplification allowances are datagram (UDP payload)
+		 * bytes, like the bytes received that earn them: they cap the
+		 * datagram, not the path MTU the IP and UDP headers come off.
+		 */
+		size_t dgram_cap = max;
 
 		/* Enforce RFC 9000 Anti-Amplification Limit (Section 8.1) for servers */
 		if (qn->is_server && !qn->address_validated) {
@@ -2523,10 +2529,10 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 				return LWS_TX_WAIT;
 			}
 			uint64_t remaining = allowance - qn->bytes_sent;
-			if (mtu > remaining)
-				mtu = (uint32_t)remaining;
+			if (dgram_cap > remaining)
+				dgram_cap = (size_t)remaining;
 
-			if (mtu < 48) { /* Too small to send anything useful */
+			if (remaining < 48) { /* Too small to send anything useful */
 				lwsl_notice("QUIC TX: Anti-Amplification remaining (%llu) too small. Blocking send.\n", (unsigned long long)remaining);
 				return LWS_TX_WAIT;
 			}
@@ -2673,9 +2679,13 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 				    lws_quic_sa46_same_path(&first_f->dest_sa46,
 							    &qn->probing_sa46)) {
 					uint64_t allowance = 3 * qn->probe_bytes_received;
+					size_t probe_min = header_len +
+						LWS_QUIC_FRAME_HDR_MAX +
+						LWS_QUIC_PATH_CHALLENGE_LEN +
+						LWS_QUIC_FIT_SLACK;
 
-					if (qn->probe_bytes_sent +
-					    LWS_QUIC_PROBE_MIN_DATAGRAM > allowance) {
+					if (qn->probe_bytes_sent + probe_min >
+								allowance) {
 						lwsl_wsi_notice(wsi, "QUIC TX: probe path "
 							"anti-amplification limit reached "
 							"(sent %llu, rx %llu)",
@@ -2685,8 +2695,8 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 					} else {
 						probe_budget = allowance - qn->probe_bytes_sent;
 						to_probe_path = 1;
-						if (mtu > probe_budget)
-							mtu = (uint32_t)probe_budget;
+						if (dgram_cap > probe_budget)
+							dgram_cap = (size_t)probe_budget;
 					}
 				}
 			}
@@ -2821,19 +2831,19 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 			}
 
 			/* Check if frame fits in remaining MTU (leaving room for headers and 16-byte AEAD tag) */
-			size_t frame_header_max_len = 1 + 8 + 8;
+			size_t frame_header_max_len = LWS_QUIC_FRAME_HDR_MAX;
 			size_t max_udp_payload = mtu > 48 ? mtu - 48 : 1200;
 			if (max_udp_payload > 1200 && !qn->handshake_done) max_udp_payload = 1200; /* RFC 9000 Section 14.1 */
-			if (max_udp_payload > max) max_udp_payload = max;
+			if (max_udp_payload > dgram_cap) max_udp_payload = dgram_cap;
 
-			if ((size_t)(p - buf) + frame_header_max_len + 32 >= max_udp_payload)
+			if ((size_t)(p - buf) + frame_header_max_len + LWS_QUIC_FIT_SLACK >= max_udp_payload)
 				break;
 
 			size_t send_len = f->len;
 
-			if ((size_t)(p - buf) + frame_header_max_len + send_len + 32 > max_udp_payload) {
+			if ((size_t)(p - buf) + frame_header_max_len + send_len + LWS_QUIC_FIT_SLACK > max_udp_payload) {
 				if ((f->type & 0xf8) == LWS_QUIC_FT_STREAM || f->type == LWS_QUIC_FT_CRYPTO) {
-					send_len = max_udp_payload - (size_t)(p - buf) - frame_header_max_len - 32;
+					send_len = max_udp_payload - (size_t)(p - buf) - frame_header_max_len - LWS_QUIC_FIT_SLACK;
 				} else {
 					break; /* Non-fragmentable frame doesn't fit */
 				}

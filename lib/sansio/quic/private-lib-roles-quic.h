@@ -186,15 +186,16 @@ enum lws_quic_frame_type {
 #define LWS_QUIC_PN_FORWARD_JUMP_LIMIT	1024u
 
 /*
- * LWS_QUIC_PROBE_MIN_DATAGRAM: smallest anti-amplification allowance for an
- *	unvalidated peer address that lets the tx bundler emit a packet
- *	carrying just a PATH_CHALLENGE (short header up to 23 bytes, 9-byte
- *	frame, 16-byte tag, plus the bundler's own fit margins).  Below this
- *	the probe is abandoned rather than left spinning in pending_tx; the
- *	allowance keeps accruing per address so the next packet from it can
- *	restart the probe.
+ * The tx bundler's fit margins: a frame goes in the packet only if the
+ * packet so far, LWS_QUIC_FRAME_HDR_MAX for the frame's type and length
+ * fields, the frame's data and LWS_QUIC_FIT_SLACK (the AEAD tag and room to
+ * spare) fit the datagram.  The smallest datagram that carries a lone
+ * PATH_CHALLENGE follows from them and the packet's own header; below that,
+ * a path probe is abandoned rather than left spinning in pending_tx.
  */
-#define LWS_QUIC_PROBE_MIN_DATAGRAM	160u
+#define LWS_QUIC_FRAME_HDR_MAX		(1u + 8u + 8u)
+#define LWS_QUIC_FIT_SLACK		32u
+#define LWS_QUIC_PATH_CHALLENGE_LEN	8u
 
 /*
  * A logical frame queued for transmission or in-flight waiting for ACK.
