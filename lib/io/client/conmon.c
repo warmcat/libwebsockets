@@ -131,17 +131,6 @@ lws_conmon_append_copy_new_dns_results(struct lws *wsi,
 	return 0;
 }
 
-static void
-lws_conmon_addrinfo_destroy(struct addrinfo *ai)
-{
-	while (ai) {
-		struct addrinfo *ai1 = ai->ai_next;
-
-		lws_free(ai);
-		ai = ai1;
-	}
-}
-
 void
 lws_conmon_wsi_take(struct lws *wsi, struct lws_conmon *dest)
 {
@@ -151,14 +140,4 @@ lws_conmon_wsi_take(struct lws *wsi, struct lws_conmon *dest)
 	/* wsi no longer has to free it... */
 	wsi->conmon.dns_results_copy = NULL;
 	wsi->perf_done = 1;
-}
-
-void
-lws_conmon_release(struct lws_conmon *conmon)
-{
-	if (!conmon)
-		return;
-
-	lws_conmon_addrinfo_destroy(conmon->dns_results_copy);
-	conmon->dns_results_copy = NULL;
 }

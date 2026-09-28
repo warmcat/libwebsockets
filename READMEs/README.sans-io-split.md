@@ -262,7 +262,7 @@ directory.
 | `lib/io/listen`, `netlink`, `pipe`, `raw-file`, `dbus`, `cgi` | IO | transport adapters wearing the role interface: they accept sockets, read pipes, fds and the kernel's routing; nothing on the wire is theirs |
 | `lib/plat/*`, `lib/event-libs/*` | IO | |
 | `lib/core/*`, `lib/misc/*`, `lib/system/*` | neither | context, logging, utilities: shared by both halves, used by both |
-| `lib/core-net/roles.c`, `async-queue.c`, `client/client.c`, `sorted-usec-list.c`, `wsi-timeout.c`, the generic crypto in `lib/tls` (`lws-gen*`) | neither | the role registry both halves dispatch through (sansIO roles and IO's adapters), the worker pool, the client's proxy settings and header stash that both halves call, the timer lists both halves schedule into and a connection's timeouts on them (a new earliest deadline is announced to IO through the `deadline` op), crypto primitives |
+| `lib/core-net/roles.c`, `async-queue.c`, `client/client.c`, `address.c`, `sorted-usec-list.c`, `wsi-timeout.c`, the generic crypto in `lib/tls` (`lws-gen*`) | neither | the role registry both halves dispatch through (sansIO roles and IO's adapters), the worker pool, the client's proxy settings, header stash and the freeing of a conmon record that both halves call, addresses as text and as data (`lws_sa46_*`, `lws_parse_numeric_address()`, cidr, mac), the timer lists both halves schedule into and a connection's timeouts on them (a new earliest deadline is announced to IO through the `deadline` op), crypto primitives |
 | `lib/io/lejp-conf.c` | IO | lwsws' config: it makes the vhosts and mounts it describes |
 
 Of the files that had both, `connect4.c` is whole in sansIO as

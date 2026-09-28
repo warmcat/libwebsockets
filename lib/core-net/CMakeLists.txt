@@ -30,6 +30,7 @@ list(APPEND SOURCES
 	core-net/txpacer.c
 	core-net/async-queue.c
 	core-net/roles.c
+	core-net/address.c
 	core-net/sorted-usec-list.c
 	core-net/wsi-timeout.c
 )

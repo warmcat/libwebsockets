@@ -169,3 +169,33 @@ lws_client_stash_create(struct lws *wsi, const char **cisin)
 
 	return 0;
 }
+
+#if defined(LWS_WITH_CONMON)
+/*
+ * A conmon record is data both halves hold: IO fills it in as the transport
+ * does its work, and sansIO drops what the connection's previous life left
+ * in it when the connection is reset (as does anyone who took a copy with
+ * lws_conmon_wsi_take()), so freeing it is neither half's
+ */
+
+static void
+lws_conmon_addrinfo_destroy(struct addrinfo *ai)
+{
+	while (ai) {
+		struct addrinfo *ai1 = ai->ai_next;
+
+		lws_free(ai);
+		ai = ai1;
+	}
+}
+
+void
+lws_conmon_release(struct lws_conmon *conmon)
+{
+	if (!conmon)
+		return;
+
+	lws_conmon_addrinfo_destroy(conmon->dns_results_copy);
+	conmon->dns_results_copy = NULL;
+}
+#endif
