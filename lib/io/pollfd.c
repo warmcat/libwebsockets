@@ -758,6 +758,24 @@ const lws_io_ops_t lws_io_ops_default = {
 	.peer_address		= lws_get_peer_simple,
 #endif
 
+#if defined(LWS_WITH_TLS)
+	.tls_session		= lws_tls_session_ptr,
+	.tls_hs_ca_id		= lws_tls_wsi_hs_ca_id,
+	.tls_peer_cert_info	= lws_tls_peer_cert_info,
+#if defined(LWS_ROLE_QUIC)
+	.tls_quic_session	= lws_tls_quic_session,
+	.tls_quic_handshake	= lws_tls_quic_advance_handshake,
+	.tls_quic_set_tp	= lws_tls_quic_set_transport_parameters,
+	.tls_quic_get_tp	= lws_tls_quic_get_transport_parameters,
+#if defined(LWS_WITH_CLIENT)
+	.tls_confirm_peer_cert	= lws_tls_client_confirm_peer_cert,
+#endif
+	.tls_quic_aead		= lws_tls_quic_aead_type,
+	.tls_quic_alert		= lws_tls_quic_alert,
+	.tls_quic_alpn		= lws_tls_quic_alpn,
+#endif
+#endif
+
 	.tx_push	= lws_io_tx_push,
 #if defined(LWS_WITH_UDP)
 	.tx_now		= lws_io_tx_now,

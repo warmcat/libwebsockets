@@ -167,6 +167,68 @@ typedef struct lws_io_ops {
 	 * is lws_get_peer_simple().  May be NULL: sansIO then says
 	 * "unknown". */
 
+#if defined(LWS_WITH_TLS)
+	/*
+	 * the tls session, which is IO's: what sansIO asks of it.  Only in a
+	 * build with tls.
+	 */
+
+	void *(*tls_session)(struct lws *wsi);
+	/**< the tls library's session object for wsi's connection, handed to
+	 * the user with the ESTABLISHED callbacks, or NULL when it has none.
+	 * May be NULL: no connection has a session. */
+	const uint8_t *(*tls_hs_ca_id)(struct lws *wsi);
+	/**< which CA store verified the peer's certificate in wsi's server
+	 * handshake (the id of the vhost's client CA it was made with), for
+	 * binding an mTLS connection only to vhosts trusting that CA; NULL
+	 * when nothing was recorded.  May be NULL. */
+	int (*tls_peer_cert_info)(struct lws *wsi, enum lws_tls_cert_info type,
+				  union lws_tls_cert_info_results *buf,
+				  size_t len);
+	/**< information of type from the peer's certificate on wsi's
+	 * connection into buf, as the public lws_tls_peer_cert_info(), which
+	 * is IO's.  0 ok, nonzero when there is none.  May be NULL: there is
+	 * never any. */
+
+	/* quic runs the tls handshake inside its own packets */
+
+	int (*tls_quic_session)(struct lws *wsi, lws_tls_quic_secret_cb cb);
+	/**< make the quic connection wsi's tls session, set up for quic: cb
+	 * is called with each traffic secret as the handshake derives it.  A
+	 * client's is made when its transport is up, a server's when the
+	 * connection's first Initial arrives; a server vhost without tls has
+	 * none to make.  0 ok, -1 it could not be made. */
+	int (*tls_quic_handshake)(struct lws *wsi, int level, const uint8_t *in,
+				  size_t in_len, uint8_t *out, size_t *out_len);
+	/**< feed in, the handshake bytes of CRYPTO frames at encryption
+	 * level, to wsi's session and advance the handshake; with out, what
+	 * it has to send next is put there, *out_len being its size on entry
+	 * and what was written on return.  IO's is the public
+	 * lws_tls_quic_advance_handshake(): <0 the handshake failed. */
+	int (*tls_quic_set_tp)(struct lws *wsi, const uint8_t *tp, size_t tp_len);
+	/**< set the quic transport parameters extension wsi's handshake will
+	 * carry.  0 ok. */
+	int (*tls_quic_get_tp)(struct lws *wsi, const uint8_t **tp,
+			       size_t *tp_len);
+	/**< point *tp at the peer's quic transport parameters from the
+	 * handshake, *tp_len long.  0 ok, nonzero when there are none yet. */
+	int (*tls_confirm_peer_cert)(struct lws *wsi, char *ebuf,
+				     size_t ebuf_len);
+	/**< the client quic connection wsi's handshake is done: is the
+	 * server's certificate acceptable under its LCCSCF_ flags, as tls
+	 * over tcp decides it.  0 yes, else nonzero with the reason in
+	 * ebuf. */
+	int (*tls_quic_aead)(struct lws *wsi);
+	/**< the packet protection AEAD wsi's handshake negotiated, an enum
+	 * lws_tls_quic_aead. */
+	int (*tls_quic_alert)(struct lws *wsi);
+	/**< the tls alert wsi's failed handshake raised, for quic's
+	 * CONNECTION_CLOSE, or 0. */
+	int (*tls_quic_alpn)(struct lws *wsi, char *buf, size_t len);
+	/**< the alpn wsi's handshake selected: 1 with it copied into buf of
+	 * len, 0 when there is none. */
+#endif
+
 	/*
 	 * tx: the transport taking sansIO's bytes
 	 */

@@ -303,8 +303,8 @@ lws_vhost_mtls_unsatisfied(struct lws *wsi, struct lws_vhost *vh)
 		return 0;
 
 	if (!lws_tls_session_ptr(lws_get_network_wsi(wsi)) ||
-	    lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VERIFIED, &ir,
-				   sizeof(ir.ns.name)) || !ir.verified) {
+	    lws_io_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VERIFIED, &ir,
+				      sizeof(ir.ns.name)) || !ir.verified) {
 		lwsl_wsi_notice(wsi, "mTLS vhost %s: connection has no "
 				     "verified client cert", vh->name);
 

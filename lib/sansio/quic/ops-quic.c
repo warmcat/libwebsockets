@@ -1366,7 +1366,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
                                 }
                         }
 
-			lws_tls_quic_set_transport_parameters(nwsi, local_tp_buf, (size_t)(tp - local_tp_buf));
+			lws_io_tls_quic_set_tp(nwsi, local_tp_buf, (size_t)(tp - local_tp_buf));
 			lws_free(local_tp_buf);
 			goto tp_ok;
 tp_overflow:
@@ -3934,7 +3934,7 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
                                 LWS_QUIC_WRITE_TP_BUF(0x11, vi_buf, 12);
                         }
 
-			lws_tls_quic_set_transport_parameters(wsi, local_tp_buf, (size_t)(tp - local_tp_buf));
+			lws_io_tls_quic_set_tp(wsi, local_tp_buf, (size_t)(tp - local_tp_buf));
 			lws_free(local_tp_buf);
 			goto tp_ok2;
 tp_overflow2:

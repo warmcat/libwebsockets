@@ -39,7 +39,6 @@ struct lws_protocol_vhost_options;
 struct lws_context_creation_info;
 union lws_sockaddr46;
 
-#include <libwebsockets/lws-io-ops.h>
 #include <libwebsockets/lws-callbacks.h>
 
 #if defined(LWS_WITH_NETWORK)

@@ -1010,7 +1010,7 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 			return 0;
 		}
 
-		n = lws_tls_quic_advance_handshake(wsi, level, buf, complete_len, NULL, NULL);
+		n = lws_io_tls_quic_handshake(wsi, level, buf, complete_len, NULL, NULL);
 
 		{
 			struct lws *nwsi = lws_get_quic_network_wsi(wsi);
@@ -1041,7 +1041,7 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 			}
 		}
 	} else {
-		n = lws_tls_quic_advance_handshake(wsi, level, buf, len, NULL, NULL);
+		n = lws_io_tls_quic_handshake(wsi, level, buf, len, NULL, NULL);
 		{
 			struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 			if (nwsi) wsi = nwsi;
@@ -1082,7 +1082,7 @@ error_handling:
 	if (wsi->quic.qn && !wsi->quic.qn->tp_parsed) {
 		const uint8_t *peer_tp = NULL;
 		size_t peer_tp_len = 0;
-		if (lws_tls_quic_get_transport_parameters(wsi, &peer_tp, &peer_tp_len) == 0 && peer_tp) {
+		if (lws_io_tls_quic_get_tp(wsi, &peer_tp, &peer_tp_len) == 0 && peer_tp) {
 			lwsl_wsi_debug(wsi, "Got peer_tp, len %zu, parsing...", peer_tp_len);
 			wsi->quic.qn->tp_parsed = 1;
 			if (lws_quic_parse_transport_parameters(wsi, peer_tp, peer_tp_len) < 0) {

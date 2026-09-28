@@ -913,6 +913,11 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <libwebsockets/lws-core.h>
 #include <libwebsockets/lws-sansio.h>
 #include <libwebsockets/lws-io.h>
+/*
+ * The interface between the halves, the requests sansIO makes of IO: it
+ * names types of both, so it comes after them
+ */
+#include <libwebsockets/lws-io-ops.h>
 
 #ifdef __cplusplus
 }

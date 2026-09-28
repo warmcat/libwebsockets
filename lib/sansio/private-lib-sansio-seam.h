@@ -179,6 +179,109 @@ lws_io_peer_address(struct lws *wsi, char *buf, size_t len)
 	return wsi->a.context->io_ops->peer_address(wsi, buf, len);
 }
 
+#if defined(LWS_WITH_TLS)
+/*
+ * the tls session (lws_io_ops_t tls_...): what sansIO may ask of the
+ * connection's tls session, which is IO's
+ */
+
+/* the library's session object, handed to the user with ESTABLISHED */
+static LWS_INLINE void *
+lws_tls_session_ptr(struct lws *wsi)
+{
+	if (!wsi->a.context->io_ops->tls_session)
+		return NULL;
+
+	return wsi->a.context->io_ops->tls_session(wsi);
+}
+
+/* which CA's store verified the peer (mTLS vhost binding) */
+static LWS_INLINE const uint8_t *
+lws_tls_wsi_hs_ca_id(struct lws *wsi)
+{
+	if (!wsi->a.context->io_ops->tls_hs_ca_id)
+		return NULL;
+
+	return wsi->a.context->io_ops->tls_hs_ca_id(wsi);
+}
+
+/* the peer's certificate: IO's lws_tls_peer_cert_info() */
+static LWS_INLINE int
+lws_io_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
+			  union lws_tls_cert_info_results *buf, size_t len)
+{
+	if (!wsi->a.context->io_ops->tls_peer_cert_info)
+		return -1;
+
+	return wsi->a.context->io_ops->tls_peer_cert_info(wsi, type, buf, len);
+}
+
+#if defined(LWS_ROLE_QUIC)
+/*
+ * quic runs the tls handshake in its own packets: it asks for its session
+ * to be made, feeds it the CRYPTO frames' bytes, sets and gets the transport
+ * parameters, and asks what the handshake settled: whether the server's
+ * certificate is acceptable under the connection's LCCSCF_ flags, the AEAD,
+ * the alert, the alpn
+ */
+static LWS_INLINE int
+lws_tls_quic_session(struct lws *wsi, lws_tls_quic_secret_cb cb)
+{
+	return wsi->a.context->io_ops->tls_quic_session(wsi, cb);
+}
+
+/* IO's lws_tls_quic_advance_handshake() */
+static LWS_INLINE int
+lws_io_tls_quic_handshake(struct lws *wsi, int level, const uint8_t *in,
+			  size_t in_len, uint8_t *out, size_t *out_len)
+{
+	return wsi->a.context->io_ops->tls_quic_handshake(wsi, level, in,
+							  in_len, out, out_len);
+}
+
+/* IO's lws_tls_quic_set_transport_parameters() */
+static LWS_INLINE int
+lws_io_tls_quic_set_tp(struct lws *wsi, const uint8_t *tp, size_t tp_len)
+{
+	return wsi->a.context->io_ops->tls_quic_set_tp(wsi, tp, tp_len);
+}
+
+/* IO's lws_tls_quic_get_transport_parameters() */
+static LWS_INLINE int
+lws_io_tls_quic_get_tp(struct lws *wsi, const uint8_t **tp, size_t *tp_len)
+{
+	return wsi->a.context->io_ops->tls_quic_get_tp(wsi, tp, tp_len);
+}
+
+#if defined(LWS_WITH_CLIENT)
+static LWS_INLINE int
+lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
+{
+	return wsi->a.context->io_ops->tls_confirm_peer_cert(wsi, ebuf,
+							     ebuf_len);
+}
+#endif
+
+static LWS_INLINE int
+lws_tls_quic_aead_type(struct lws *wsi)
+{
+	return wsi->a.context->io_ops->tls_quic_aead(wsi);
+}
+
+static LWS_INLINE int
+lws_tls_quic_alert(struct lws *wsi)
+{
+	return wsi->a.context->io_ops->tls_quic_alert(wsi);
+}
+
+static LWS_INLINE int
+lws_tls_quic_alpn(struct lws *wsi, char *buf, size_t len)
+{
+	return wsi->a.context->io_ops->tls_quic_alpn(wsi, buf, len);
+}
+#endif
+#endif
+
 /*
  * service (lws_io_ops_t service_writable, service_now, wake) and the app's
  * rx pull (http_client_read)
@@ -260,32 +363,5 @@ __lws_vhost_destroy2(struct lws_vhost *vh);
 
 
 
-#if defined(LWS_WITH_TLS)
-/*
- * What sansIO may ask of the connection's tls session, which is IO's: the
- * library's session object (handed to the user with ESTABLISHED), which CA's
- * store verified the peer (mTLS vhost binding), whether the server's
- * certificate is acceptable under the connection's LCCSCF_ flags (quic
- * confirms it when its handshake is done, as tls does for tcp).  quic runs
- * the handshake in its own packets, so it also asks for its session to be
- * made, and what the handshake settled: the AEAD, the alert, the alpn.
- */
-void *
-lws_tls_session_ptr(struct lws *wsi);
-const uint8_t *
-lws_tls_wsi_hs_ca_id(struct lws *wsi);
-int
-lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len);
-#if defined(LWS_ROLE_QUIC)
-int
-lws_tls_quic_session(struct lws *wsi, lws_tls_quic_secret_cb cb);
-int
-lws_tls_quic_aead_type(struct lws *wsi);
-int
-lws_tls_quic_alert(struct lws *wsi);
-int
-lws_tls_quic_alpn(struct lws *wsi, char *buf, size_t len);
-#endif
-#endif
 
 #endif

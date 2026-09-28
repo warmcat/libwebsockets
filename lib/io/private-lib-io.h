@@ -460,6 +460,28 @@ lws_service_wsi_as_writable(struct lws *wsi);
 int
 lws_io_service_now(struct lws *wsi);
 
+/* the tls session */
+#if defined(LWS_WITH_TLS)
+void *
+lws_tls_session_ptr(struct lws *wsi);
+const uint8_t *
+lws_tls_wsi_hs_ca_id(struct lws *wsi);
+#if defined(LWS_ROLE_QUIC)
+int
+lws_tls_quic_session(struct lws *wsi, lws_tls_quic_secret_cb cb);
+int
+lws_tls_quic_aead_type(struct lws *wsi);
+int
+lws_tls_quic_alert(struct lws *wsi);
+int
+lws_tls_quic_alpn(struct lws *wsi, char *buf, size_t len);
+#if defined(LWS_WITH_CLIENT)
+int
+lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len);
+#endif
+#endif
+#endif
+
 /* the transport */
 #if defined(LWS_WITH_CLIENT)
 struct lws *
