@@ -62,6 +62,7 @@ set(CPACK_DEBIAN_BUILDER_PACKAGE_NAME "sai-builder")
 
 option(SAI_SERVER "Build the server + web part" ON)
 option(SAI_BUILDER "Build the builder part" ON)
+option(SAI_PUSH "Build sai-push, which promotes branches that pass" ON)
 
 
 if (NOT SAI_SERVER AND NOT SAI_BUILDER)
@@ -181,6 +182,9 @@ if (requirements)
 		if (NOT MSVC AND NOT WIN32 AND NOT (${CMAKE_SYSTEM_NAME} MATCHES "SunOS"))
 			add_subdirectory(src/power)
 		endif()
+	endif()
+	if (SAI_PUSH AND NOT MSVC AND NOT WIN32)
+		add_subdirectory(src/push)
 	endif()
 	if (SAI_BUILDER)
 		add_subdirectory(src/builder)

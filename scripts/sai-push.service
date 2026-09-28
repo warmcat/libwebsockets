@@ -1,0 +1,20 @@
+[Unit]
+Description=Sai push
+#
+# sai-push is no use until the sai-web whose feed it follows is up.  When
+# that's on this host, start after it (and after the front-end web server
+# proxying it, if the feed url goes through that: add its unit here).
+# Ordering only, not a dependency: sai-push is often on the git server
+# host with sai-web elsewhere, and it retries the feed with backoff anyway.
+#
+After=network-online.target sai-web.service
+Wants=network-online.target
+
+[Service]
+# starts as root, becomes the conf's "user" before going on the network
+ExecStart=/usr/local/bin/sai-push
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

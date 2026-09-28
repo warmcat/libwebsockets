@@ -1,0 +1,69 @@
+# sai-push conf: /etc/sai/push/conf
+#
+# sai-push follows sai-web's feed of events for each watch, and when an event
+# for the watched repository succeeds on a branch one of the watch's rules
+# matches, it pushes that commit to the branch the rule maps it to.
+#
+# See READMEs/README-sai-push.md for all the options and setting it up.
+{
+	"schema": "sai-push",
+
+	# sai-push is started as root and becomes this user before doing
+	# anything on the network.  Make a user just for this, whose ssh key
+	# the git server (eg, gitolite) accepts for pushing to the repos it
+	# should manage, and whose ~/.ssh/known_hosts already has the git
+	# server's host key (ssh runs with BatchMode, so it won't ask).
+	"user": "sai-push",
+
+	# A bare repo per project is kept here, so each promotion only has to
+	# fetch what's new.  It's created, and given to "user", at startup.
+	# sai-push-state.json in here remembers the last event promoted to
+	# each branch, so an older event is never promoted over it, even
+	# across restarts.
+	"repo-cache": "/var/cache/sai-push",
+
+	"watches": [{
+		# the sai rss feed (sai-push uses the same feed as JSON,
+		# rss.json).  Must be https.
+		"feed": "https://libwebsockets.org/sai/rss.xml",
+
+		# only events whose notification gave this fetch url count
+		"fetchurl": "https://libwebsockets.org/repo/libwebsockets",
+
+		# the project name from the event is appended to make the url
+		# we fetch from and push to
+		"remote": "ssh://git@libwebsockets.org/",
+
+		# Optional: other repos that get whatever we push to "remote",
+		# the same commit on the same branch.  The project name is
+		# appended to "url" the same way.
+		#
+		# For github, use ssh with a deploy key for the repo, which
+		# doesn't expire, see READMEs/README-sai-push.md setup step 5.
+		#
+		# An https mirror can instead name a "token-file" holding a
+		# token with write access to just the mirror repos, eg,
+		# { "url": "https://github.com/warmcat/",
+		#   "token-file": "/home/sai-push/.github-token" }
+		# owned by "user", mode 0600, absolute path ("~" isn't
+		# expanded).  But tokens expire, and the pushes then fail
+		# until it's replaced.  Never put credentials in the url.
+		"mirrors": [
+			{ "url": "ssh://git@github.com/warmcat/" }
+		],
+
+		# The first rule matching a branch that has an event succeed
+		# decides.  "match" is a wildcard pattern on the branch
+		# (default "*"), the branch must end in "branch-suffix", which
+		# is removed to name the branch the commit is pushed to, and
+		# "force" says if that push may be a force push.  Branches no
+		# rule matches are left alone.
+		"rules": [
+			# eg, v5.0-stable-dev -> v5.0-stable, fast-forward only
+			{ "match": "*-stable-dev", "branch-suffix": "-dev",
+			  "force": false },
+			# anything else, eg, main-dev -> main, forced
+			{ "branch-suffix": "-dev", "force": true }
+		]
+	}]
+}

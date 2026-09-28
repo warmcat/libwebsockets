@@ -244,6 +244,19 @@ at the start) and `<rss>`, so the body is still a valid document.  At most 64
 requests are held at once; past that, a request to wait is answered with a
 503 and `retry-after`.
 
+## sai-push: promoting branches that pass
+
+sai-push is an optional daemon, usually run on the git server host, that
+follows sai-web's feed (as JSON, using the long poll above, so it only hears
+from sai-web when something happened) and promotes commits that pass: eg,
+when an event on `main-dev` succeeds, it pushes that commit to `main`, with
+or without force depending on the branch, and optionally to the same branch
+on mirrors such as github.
+
+See [READMEs/README-sai-push.md](READMEs/README-sai-push.md) for how it
+decides what to push, setting it up, and all of its conf options with an
+example.
+
 ## Build flow and support for embedded
 
 ![build flow](READMEs/sai-build-test-flow.png)
