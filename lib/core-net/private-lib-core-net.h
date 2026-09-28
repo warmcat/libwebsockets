@@ -1022,7 +1022,9 @@ struct lws_io_adjunct {
 	uint8_t				sys_tls_client_cert;
 	uint8_t				c_pri; /* socket priority */
 #endif
-	uint16_t			conn_port; /* port actually connected */
+	uint16_t			conn_port; /* port actually connected:
+						    * the http or socks proxy's
+						    * when there is one */
 	uint8_t				lsp_channel; /* a spawn's stdin/out/err */
 #if defined(LWS_WITH_CGI)
 	char				hdr_state; /* cgi response headers */

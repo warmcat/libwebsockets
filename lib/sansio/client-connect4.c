@@ -141,7 +141,6 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE,
 				(int)wsi->a.context->timeout_secs);
 
-		wsi->io->conn_port = wsi->c_port;
 		lws_wsi_event(wsi, LWS_WSIEV_PROXY_CONNECT_SENT);
 
 		return wsi;

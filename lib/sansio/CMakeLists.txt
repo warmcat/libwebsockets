@@ -53,6 +53,11 @@ if (LWS_WITH_SYS_STATE)
 	)
 endif()
 
+if (LWS_WITH_CLIENT)
+	list(APPEND SOURCES
+		sansio/client-connect4.c)
+endif()
+
 if (LWS_WITH_SOCKS5 AND NOT LWS_WITHOUT_CLIENT)
 	list(APPEND SOURCES
 		sansio/socks5-client.c)

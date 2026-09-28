@@ -251,7 +251,7 @@ directory.
 |---|---|---|
 | `lib/sansio/*` | sansIO | every role that speaks a wire protocol (`h1`, `h2`, `h3`, `http`, `ws`, `wt`, `quic`, `mqtt`, `raw-skt`, `raw-proxy`): state machine, parser, framer, scheduler; `private-lib-sansio.h`, the role ops and the wsi state; `private-lib-sansio-seam.h`, the seam |
 | `lib/sansio/wsi.c`, `wsi-state.c`, `close.c`, `state.c`, `vhost.c`, `socks5-client.c`, `dummy-callback.c` | sansIO | the wsi state, the event table, connection lifecycle decisions, the vhost's protocols and roles, the socks handshake |
-| `lib/core-net/client/connect4.c` proxy CONNECT composition | sansIO | it composes protocol bytes |
+| `lib/sansio/client-connect4.c` | sansIO | a client's step once its socket is connected (`lws_client_connect_4_established()`): it composes the http proxy CONNECT, runs the socks greeting, queues a pipelined connection behind its leader, and otherwise asks IO for the transport |
 | `lib/io/`: `output.c`, `pollfd.c`, `service.c`, `adopt.c`, `network.c`, `route.c`, `wsi-timeout.c`, `sorted-usec-list.c`, `vhost.c` | IO | moving bytes, fds, poll, timers; a vhost's creation and destruction (its listen sockets, tls contexts, dns) |
 | `lib/io/client/`: `connect.c`, `connect2.c`, `connect3.c`, `transport.c`, `sort-dns.c`, `conmon.c` | IO | dns, connect, happy eyeballs; address selection for connect (RFC 6724 sorting of the resolved addresses); the connection-monitoring report of what the transport did |
 | `lib/tls/*` record layer: `lws_ssl_capable_read/write`, bio, session cache, handshake driving | IO | sansIO sees plaintext |
@@ -262,9 +262,15 @@ directory.
 | `lib/core-net/roles.c`, `async-queue.c`, `client/client.c`, the generic crypto in `lib/tls` (`lws-gen*`) | neither | the role registry both halves dispatch through (sansIO roles and IO's adapters), the worker pool, the client's proxy settings and header stash that both halves call, crypto primitives |
 | `lib/io/lejp-conf.c` | IO | lwsws' config: it makes the vhosts and mounts it describes |
 
-Where a file has both today (`connect4.c`, `ops-quic.c`), the split is
-inside the file until it is moved; the decision rule still says which half
-each function is in.
+Of the files that had both, `connect4.c` is whole in sansIO as
+`client-connect4.c`: the port the socket connected to (the proxy's, when
+there is one) is IO's record, made when IO chooses where to connect, and
+nothing of IO is left in it.  The checks and the lint find nothing of IO
+in `quic/ops-quic.c` either.  What the lint still counts is
+`quic/crypto-quic.c` calling gnutls directly for quic's packet
+protection AEAD and its alert mapping.  Where a file has both, the split
+is inside the file until it is moved; the decision rule still says which
+half each function is in.
 
 ## Rules from now on
 
