@@ -436,4 +436,22 @@ lws_cgi_stdwsi_quiesce(struct lws *wsi);
 #if defined(LWS_WITH_ASYNC_QUEUE)
 #endif
 
+/*
+ * IO's implementations of the requests sansIO makes of it, the members of
+ * lws_io_ops_default (lws-io-ops.h).  The sansIO sources call the same names
+ * through the ops, as private-lib-sansio-seam.h spells them; everything else
+ * calls these directly.
+ */
+
+/* tx */
+int LWS_WARN_UNUSED_RESULT
+lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len);
+#if defined(LWS_WITH_UDP)
+void
+lws_io_tx_now(struct lws *wsi);
+#endif
+/* the platform's answer: would the transport under wsi block a write now */
+int
+lws_plat_tx_choked(struct lws *wsi);
+
 #endif /* __LWS_PRIVATE_LIB_IO_H__ */

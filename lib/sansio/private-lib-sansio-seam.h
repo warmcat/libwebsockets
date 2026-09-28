@@ -21,11 +21,21 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- * private-lib-sansio-seam.h: the sansIO half's requests of IO, in today's
- * private spellings (README.sans-io-split.md, "The interface").  This
- * header stays visible under LWS_SANSIO_CHECK, when the rest of IO's
- * prototypes are hidden, so what the check reports is exactly the calls
- * that are not the interface.  The public spellings (lws_callback_on_writable(),
+ * private-lib-sansio-seam.h: the sansIO half's requests of IO, as sansIO
+ * code spells them (README.sans-io-split.md, "The interface").  Each is a
+ * call through the context's lws_io_ops_t (include/libwebsockets/lws-io-ops.h),
+ * which IO fills in with lws_io_ops_default and an embedder of the sansIO half
+ * with its own, so the sansIO objects reference nothing of IO's for them.
+ *
+ * The wrappers are for the sansIO sources, which compile with
+ * LWS_SANSIO_CHECK: they keep the names the requests always had, so the call
+ * sites do not change.  IO's own implementations of the same names, and
+ * their prototypes (private-lib-io.h), are what every other source sees and
+ * what lws_io_ops_default points to.  A request whose IO implementation is
+ * public api is spelled lws_io_...() here.
+ *
+ * Requests not yet converted are still plain prototypes below, visible to
+ * both halves.  The public spellings of the others (lws_callback_on_writable(),
  * lws_set_timeout(), lws_sul_schedule(), lws_rx_flow_control(),
  * lws_close_free_wsi(), lws_write()) are visible as public api.
  */
@@ -33,17 +43,52 @@
 #if !defined(__LWS_PRIVATE_LIB_SANSIO_SEAM_H__)
 #define __LWS_PRIVATE_LIB_SANSIO_SEAM_H__
 
+#if defined(LWS_SANSIO_CHECK)
+
 /*
- * tx, in its push spelling: hand IO these bytes for the transport now; IO
- * takes them all, buffering what the transport does not take at once, and
- * returns len, or -1 when the transport failed.  buf NULL continues such a
- * partial, returning what of it went.  What sansIO produces when IO asks is the pull (the role's tx op);
- * the push is for what the app's writeable pass hands lws_write(), framed in
- * place in its LWS_PRE headroom so it is not copied, and the one-shot messages
- * of the proxy legs (socks, http CONNECT), composed at a state change.
+ * tx (lws_io_ops_t tx_push, tx_now, tx_choked, tx_file)
  */
-int LWS_WARN_UNUSED_RESULT
-lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len);
+
+/* tx, in its push spelling: lws_io_ops_t.tx_push */
+static LWS_INLINE int LWS_WARN_UNUSED_RESULT
+lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
+{
+	return wsi->a.context->io_ops->tx_push(wsi, buf, len);
+}
+
+#if defined(LWS_WITH_UDP)
+/* a datagram connection's tx, now: lws_io_ops_t.tx_now */
+static LWS_INLINE void
+lws_io_tx_now(struct lws *wsi)
+{
+	if (wsi->a.context->io_ops->tx_now)
+		wsi->a.context->io_ops->tx_now(wsi);
+}
+#endif
+
+/*
+ * whether the transport under wsi, the connection owning it, would not take
+ * bytes now: lws_io_ops_t.tx_choked, for lws_send_pipe_choked()
+ */
+static LWS_INLINE int
+lws_io_tx_choked(struct lws *wsi)
+{
+	return wsi->a.context->io_ops->tx_choked(wsi);
+}
+
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_FILE_OPS)
+/*
+ * drive the wsi's file into the transport while it takes more:
+ * lws_io_ops_t.tx_file, IO's lws_serve_http_file_fragment()
+ */
+static LWS_INLINE int
+lws_io_tx_file(struct lws *wsi)
+{
+	return wsi->a.context->io_ops->tx_file(wsi);
+}
+#endif
+
+#endif /* LWS_SANSIO_CHECK */
 
 #if defined(LWS_WITH_CGI)
 /*
@@ -86,14 +131,6 @@ __lws_vhost_destroy2(struct lws_vhost *vh);
 /* want_write, served now rather than on the next turn of the loop */
 int
 lws_service_wsi_as_writable(struct lws *wsi);
-#if defined(LWS_WITH_UDP)
-/*
- * the same for a datagram connection's tx alone: IO pulls its datagrams now
- * (a closing connection's CONNECTION_CLOSE), without a writeable pass
- */
-void
-lws_io_tx_now(struct lws *wsi);
-#endif
 
 /* rx now: the header table's autoservice, for a wsi that was waiting on one */
 int

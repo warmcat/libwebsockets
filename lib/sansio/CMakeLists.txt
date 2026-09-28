@@ -42,6 +42,7 @@ include_directories(.)
 list(APPEND SOURCES
 	sansio/dummy-callback.c
 	sansio/close.c
+	sansio/output.c
 	sansio/vhost.c
 	sansio/wsi.c
 	sansio/wsi-state.c

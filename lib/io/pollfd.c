@@ -741,6 +741,15 @@ const lws_io_ops_t lws_io_ops_default = {
 #endif
 	.created	= lws_io_adjunct_init,
 	.transfer	= lws_io_transfer_pollfd,
+
+	.tx_push	= lws_io_tx_push,
+#if defined(LWS_WITH_UDP)
+	.tx_now		= lws_io_tx_now,
+#endif
+	.tx_choked	= lws_plat_tx_choked,
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_FILE_OPS)
+	.tx_file	= lws_serve_http_file_fragment,
+#endif
 };
 
 

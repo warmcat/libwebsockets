@@ -125,6 +125,41 @@ typedef struct lws_io_ops {
 	 * its tls session move to to.  Called with or without the service
 	 * thread lock.  0 = ok, nonzero when to could not take them: what
 	 * could be handed on is to's, and goes when to is closed. */
+
+	/*
+	 * tx: the transport taking sansIO's bytes
+	 */
+
+	int (*tx_push)(struct lws *wsi, unsigned char *buf, size_t len);
+	/**< tx, in its push spelling: take these bytes for wsi's transport
+	 * now.  IO takes them all, keeping what the transport does not take
+	 * at once and sending it first when it can, and returns len; -1 when
+	 * the transport failed.  buf NULL continues such a partial, returning
+	 * what of it went.  What sansIO produces when IO asks is the pull (the
+	 * role's tx op); the push is for what the app's writeable pass hands
+	 * lws_write(), framed in place in its LWS_PRE headroom so it is not
+	 * copied, and the one-shot messages of the proxy legs (socks, http
+	 * CONNECT) composed at a state change.  Called on the wsi's service
+	 * thread. */
+	void (*tx_now)(struct lws *wsi);
+	/**< the datagram connection wsi has datagrams that must go now, not
+	 * on its next writeable pass (a closing quic connection's
+	 * CONNECTION_CLOSE): IO pulls its tx now.  May be NULL when no
+	 * datagram connection is carried. */
+	int (*tx_choked)(struct lws *wsi);
+	/**< would the transport under wsi, the connection owning it, not
+	 * take bytes now?  1 if a write would block, else 0.  What sansIO
+	 * holds itself (a partial send, a compression remainder, frames
+	 * waiting for tx credit) it has already answered for:
+	 * lws_send_pipe_choked() asks this last. */
+	int (*tx_file)(struct lws *wsi);
+	/**< the server wsi is sending a file: while the transport takes more,
+	 * ask the file for its next payload (lws_http_file_tx()) and write it,
+	 * and when it is done and nothing of it is left buffered, complete the
+	 * response.  <0 the wsi should be closed, >0 the file was sent and its
+	 * completion delivered, 0 more is to be sent on a later writeable
+	 * pass.  IO's is lws_serve_http_file_fragment().  May be NULL in a
+	 * build without files (LWS_WITH_FILE_OPS) or server. */
 } lws_io_ops_t;
 
 /*

@@ -34,34 +34,22 @@
 #endif
 #endif
 
+/*
+ * io_ops tx_choked (lws-io-ops.h): would the socket under wsi, the
+ * connection owning it, block a write now.  What sansIO holds itself,
+ * lws_send_pipe_choked() has already answered for.
+ */
 int
-lws_send_pipe_choked(struct lws *wsi)
+lws_plat_tx_choked(struct lws *wsi)
 {
-	struct lws *wsi_eff = wsi;
-	fd_set writefds;
 	struct timeval tv = { 0, 0 };
+	fd_set writefds;
 	int n;
-#if defined(LWS_WITH_HTTP2)
-	wsi_eff = lws_wsi_socket_owner(wsi);
-#endif
-
-
-	/*
-	 * treat the fact we got a truncated send pending as if we're choked:
-	 * a partial send, not an h3 stream's frames that quic holds
-	 */
-	if (lws_has_buflist_out(wsi)
-#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
-	    || wsi->http.comp_ctx.buflist_comp ||
-	       wsi->http.comp_ctx.may_have_more
-#endif
-	)
-		return 1;
 
 	FD_ZERO(&writefds);
-	FD_SET(wsi_eff->io->desc.sockfd, &writefds);
+	FD_SET(wsi->io->desc.sockfd, &writefds);
 
-	n = select(wsi_eff->io->desc.sockfd + 1, NULL, &writefds, NULL, &tv);
+	n = select(wsi->io->desc.sockfd + 1, NULL, &writefds, NULL, &tv);
 	if (n < 0)
 		return 1; /* choked */
 

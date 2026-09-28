@@ -351,13 +351,12 @@ struct lws_foreign_thread_pollfd {
 
 #include "private-lib-core-net.h"
 /*
- * The sansIO half's requests of IO, in today's private spellings: always
- * visible.  The rest of the IO half's private prototypes are hidden from
- * the sansIO sources by scripts/sans-io-check.sh (LWS_SANSIO_CHECK), so a
- * sansIO file calling into IO past the seam fails to compile there.  See
+ * The IO half's private prototypes are hidden from the sansIO sources, which
+ * compile with LWS_SANSIO_CHECK, so a sansIO file calling into IO past the
+ * seam fails to compile.  The seam, sansIO's spelling of its requests of
+ * IO, is included at the end, once the context is complete.  See
  * READMEs/README.sans-io-split.md.
  */
-#include "private-lib-sansio-seam.h"
 #if !defined(LWS_SANSIO_CHECK)
 #include "private-lib-io.h"
 #endif
@@ -1371,6 +1370,13 @@ int
 lws_plugins_handle_builtin(struct lws_plugin **pplugin,
 			   each_plugin_cb_t each, void *each_user);
 
+#if defined(LWS_WITH_NETWORK)
+/*
+ * The sansIO half's requests of IO, as sansIO spells them: calls through the
+ * context's lws_io_ops_t, which need the context complete
+ */
+#include "private-lib-sansio-seam.h"
+#endif
 
 #if !defined(PRIu64)
 #define PRIu64 "llu"

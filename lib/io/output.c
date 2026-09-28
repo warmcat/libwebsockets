@@ -229,43 +229,6 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 	return (int)real_len;
 }
 
-int
-lws_write(struct lws *wsi, unsigned char *buf, size_t len,
-	  enum lws_write_protocol wp)
-{
-	int m;
-
-	if ((int)len < 0) {
-		lwsl_wsi_err(wsi, "suspicious len int %d, ulong %lu",
-				  (int)len, (unsigned long)len);
-		return -1;
-	}
-
-#ifdef LWS_WITH_ACCESS_LOG
-	wsi->stream.access_log.sent += len;
-#endif
-
-	assert(wsi->role_ops);
-
-	// lwsl_notice("%s: lws_write calling write_role_protocol on %s\n", __func__, lws_wsi_tag(wsi));
-
-	if (!lws_rops_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol))
-		m = lws_io_tx_push(wsi, buf, len);
-	else
-		m = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol).
-				write_role_protocol(wsi, buf, len, &wp);
-	
-	// lwsl_notice("%s: lws_write write_role_protocol returned %d\n", __func__, m);
-
-#if defined(LWS_WITH_SYS_METRICS)
-	if (wsi->a.vhost)
-		lws_metric_event(wsi->a.vhost->mt_traffic_tx, (char)
-				 (m < 0 ? METRES_NOGO : METRES_GO), len);
-#endif
-
-	return m;
-}
-
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_FILE_OPS)
 /*
  * The send loop of a served file: IO's side of the file's tx (see

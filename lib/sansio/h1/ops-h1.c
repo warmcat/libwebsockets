@@ -917,7 +917,7 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 		 * even if we just completed the send, so wait for that.  More
 		 * to send asks for writeable again, which keeps POLLOUT.
 		 */
-		if (lws_serve_http_file_fragment(wsi) < 0)
+		if (lws_io_tx_file(wsi) < 0)
 			return LWS_HP_RET_BAIL_DIE;
 
 		return LWS_HP_RET_DROP_POLLOUT;

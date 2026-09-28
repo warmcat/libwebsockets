@@ -1593,8 +1593,8 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			 * callback when it's done.  That's the case even if we
 			 * just completed the send, so wait for that.
 			 */
-			n = lws_serve_http_file_fragment(w);
-			lwsl_debug("lws_serve_http_file_fragment says %d\n", n);
+			n = lws_io_tx_file(w);
+			lwsl_debug("file tx says %d\n", n);
 
 			/*
 			 * We will often hear about out having sent the final

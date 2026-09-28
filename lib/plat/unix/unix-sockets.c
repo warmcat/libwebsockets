@@ -55,46 +55,17 @@
 
 #include <netinet/ip.h>
 
+/*
+ * io_ops tx_choked (lws-io-ops.h): would the socket under wsi, the
+ * connection owning it, block a write now.  What sansIO holds itself,
+ * lws_send_pipe_choked() has already answered for.
+ */
 int
-lws_send_pipe_choked(struct lws *wsi)
+lws_plat_tx_choked(struct lws *wsi)
 {
 	struct lws_pollfd fds;
-	struct lws *wsi_eff;
 
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-	if (wsi->ws && wsi->ws->tx_draining_ext)
-		return 1;
-#endif
-
-#if defined(LWS_WITH_HTTP2)
-	wsi_eff = lws_wsi_socket_owner(wsi);
-
-	/*
-	 * ws-over-h2: whole DATA frames parked on the stream awaiting h2
-	 * tx credit (see lws_h2_frame_write) mean the pipe is choked for
-	 * this stream even though the network wsi could accept bytes.
-	 * Only a partial send chokes it: an h3 stream's frames in quic's
-	 * queue or in flight are quic's, which throttles the stream by its
-	 * tx credit; waiting on their acks here allowed one write per round
-	 * trip.
-	 */
-	if (wsi_eff != wsi && lws_has_buflist_out(wsi))
-		return 1;
-#else
-	wsi_eff = wsi;
-#endif
-
-
-	/* treat the fact we got a truncated send pending as if we're choked */
-	if (lws_has_buffered_out(wsi_eff)
-#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
-	    ||wsi->http.comp_ctx.buflist_comp ||
-	    wsi->http.comp_ctx.may_have_more
-#endif
-	    )
-		return 1;
-
-	fds.fd = wsi_eff->io->desc.sockfd;
+	fds.fd = wsi->io->desc.sockfd;
 	fds.events = POLLOUT;
 	fds.revents = 0;
 
