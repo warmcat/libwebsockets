@@ -522,7 +522,7 @@ int main(int argc, const char **argv)
 
 	lwsl_user("LWS secure streams Proxy [-d<verb>]\n");
 
-	info.fd_limit_per_thread = 1 + 26 + 1;
+	info.fd_limit_per_thread = 1 + 26 + 1 + 10;
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_C].sw))) {
 		int fd = open(p, O_RDONLY);

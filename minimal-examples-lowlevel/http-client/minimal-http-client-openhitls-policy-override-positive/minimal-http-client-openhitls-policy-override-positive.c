@@ -621,7 +621,7 @@ create_client_context(int argc, const char **argv)
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 		       LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS |
 		       LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE;
-	info.fd_limit_per_thread = 3;
+	info.fd_limit_per_thread = 3 + 10;
 	info.client_ssl_ca_filepath = scenario->client_ca;
 
 	context = lws_create_context(&info);

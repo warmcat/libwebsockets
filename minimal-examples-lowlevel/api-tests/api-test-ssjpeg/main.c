@@ -233,7 +233,7 @@ main(int argc, const char **argv)
 		}
 	}
 
-	info.fd_limit_per_thread = 1 + 6 + 1;
+	info.fd_limit_per_thread = 1 + 6 + 1 + 10;
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |

@@ -198,7 +198,7 @@ int main(int argc, const char **argv)
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-	info.fd_limit_per_thread = 1 + 26 + 1;
+	info.fd_limit_per_thread = 1 + 26 + 1 + 10;
 
 	info.connect_timeout_secs = 15; /* httpbin.org seems to need this depending on time of day */
 	info.timeout_secs = 10;

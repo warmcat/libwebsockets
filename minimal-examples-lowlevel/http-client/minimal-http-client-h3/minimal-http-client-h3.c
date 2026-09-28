@@ -242,7 +242,11 @@ int main(int argc, const char **argv)
 	info.protocols = protocols;
 	info.register_notifier_list = na;
 	info.connect_timeout_secs = 30;
-	info.fd_limit_per_thread = 1 + 1 + 1;
+	/*
+	 * Leave headroom for platform-dependent internal fds, eg, one adns
+	 * udp wsi per configured nameserver, that are not budgeted for us
+	 */
+	info.fd_limit_per_thread = 1 + 1 + 1 + 10;
 
 	context = lws_create_context(&info);
 	if (!context) {

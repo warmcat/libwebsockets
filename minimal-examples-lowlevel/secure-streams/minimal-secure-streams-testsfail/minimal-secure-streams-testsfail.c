@@ -1009,7 +1009,7 @@ main(int argc, const char **argv)
 
 	lwsl_user("LWS secure streams error path tests [-d<verb>]\n");
 
-	info.fd_limit_per_thread = 1 + 16 + 1;
+	info.fd_limit_per_thread = 1 + 16 + 1 + 10;
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.connect_timeout_secs = 15;
 	info.timeout_secs = 10;
