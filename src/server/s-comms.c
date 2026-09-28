@@ -315,6 +315,9 @@ s_callback_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return -1;
 		}
 
+		/* the other daemon has this db open too */
+		sqlite3_busy_timeout(vhd->server.pdb, SAI_SQLITE3_BUSY_TIMEOUT_MS);
+
 		sai_sqlite3_statement(vhd->server.pdb,
 				      "PRAGMA journal_mode=WAL;", "set WAL");
 

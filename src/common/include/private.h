@@ -71,6 +71,15 @@
 
 #define SAI_BUILDER_INSTANCE_LIMIT 256
 
+/*
+ * sai-server and sai-web each hold their own connections to the same sqlite3
+ * files (the events db and the per-event dbs).  Without a busy timeout, a
+ * write that meets the other process's write lock fails at once with "database
+ * is locked" and the data (eg, task log lines) is lost.  Wait this long for
+ * the lock instead: writes are small, so contention is brief.
+ */
+#define SAI_SQLITE3_BUSY_TIMEOUT_MS 500
+
 struct sai_plat;
 struct sai_builder;
 struct saib_opaque_spawn;

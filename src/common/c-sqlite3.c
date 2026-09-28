@@ -27,6 +27,37 @@
 
 #include "include/private.h"
 
+/*
+ * Event dbs made before tasks could have several runs have idx_task_uuid on
+ * tasks(uuid) alone, and need it rebuilt on tasks(uuid, run).  Only do that
+ * when the index needs it: rebuilding it takes the db write lock, and both
+ * sai-server and sai-web open event dbs while sai-server is writing a live
+ * event's logs into them.
+ */
+static int
+sai_task_index_needs_run(sqlite3 *pdb)
+{
+	sqlite3_stmt *sm;
+	const char *sql;
+	int r = 0;
+
+	if (sqlite3_prepare_v2(pdb, "SELECT sql FROM sqlite_master WHERE "
+			       "type='index' AND name='idx_task_uuid'", -1,
+			       &sm, NULL) != SQLITE_OK)
+		return 0;
+
+	if (sqlite3_step(sm) == SQLITE_ROW) {
+		sql = (const char *)sqlite3_column_text(sm, 0);
+		r = !sql || !strstr(sql, "run");
+	} else
+		/* missing entirely */
+		r = 1;
+
+	sqlite3_finalize(sm);
+
+	return r;
+}
+
 int
 sai_event_db_ensure_open(struct lws_context *cx, lws_dll2_owner_t *sqlite3_cache,
 			 const char *sqlite3_path_lhs, const char *event_uuid,
@@ -68,7 +99,16 @@ sai_event_db_ensure_open(struct lws_context *cx, lws_dll2_owner_t *sqlite3_cache
 		return 2;
 	}
 
-	/* create / add to the schema for the tables we will have in here */
+	sqlite3_busy_timeout(*ppdb, SAI_SQLITE3_BUSY_TIMEOUT_MS);
+
+	/*
+	 * create / add to the schema for the tables we will have in here.
+	 *
+	 * On an existing db, none of this writes: "if not exists" finds the
+	 * table or index already there, an ALTER TABLE adding a column that
+	 * exists fails when it is prepared, and journal_mode=WAL is already
+	 * set.  That matters since the other daemon may be writing to it.
+	 */
 
 	if (lws_struct_sq3_create_table(*ppdb, lsm_schema_sq3_map_task)) {
 		lwsl_err("%s: unable to create task table in %s\n", __func__, filepath);
@@ -110,10 +150,14 @@ sai_event_db_ensure_open(struct lws_context *cx, lws_dll2_owner_t *sqlite3_cache
 
 	sai_sqlite3_statement(*ppdb, "CREATE INDEX IF NOT EXISTS idx_art_task ON artifacts(task_uuid);", "create artifact index");
 
-	
-	/* Migrate the unique index to include the run column */
-	sqlite3_exec(*ppdb, "DROP INDEX IF EXISTS idx_task_uuid;", NULL, NULL, NULL);
-	sqlite3_exec(*ppdb, "CREATE UNIQUE INDEX idx_task_uuid ON tasks(uuid, run);", NULL, NULL, NULL);
+	if (sai_task_index_needs_run(*ppdb)) {
+		lwsl_notice("%s: migrating idx_task_uuid in %s\n", __func__,
+			    filepath);
+		sqlite3_exec(*ppdb, "DROP INDEX IF EXISTS idx_task_uuid;",
+			     NULL, NULL, NULL);
+		sai_sqlite3_statement(*ppdb, "CREATE UNIQUE INDEX idx_task_uuid "
+				      "ON tasks(uuid, run);", "migrate task index");
+	}
 
 	sc = malloc(sizeof(*sc));
 	if (!sc) {
@@ -150,8 +194,8 @@ sai_event_db_close(lws_dll2_owner_t *sqlite3_cache, sqlite3 **ppdb)
 
 		if (sc->pdb == *ppdb) {
 			*ppdb = NULL;
-			if (--sc->refcount) {
-				lwsl_notice("%s: zero refcount to idle\n",
+			if (!--sc->refcount) {
+				lwsl_info("%s: zero refcount to idle\n",
 						__func__);
 				/*
 				 * He's not currently in use then... don't
