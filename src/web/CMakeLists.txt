@@ -6,6 +6,7 @@ set(SRCS
 	w-sai.c
 	w-comms.c
 	w-artifact.c
+	w-rss.c
 	w-ws-server.c
 	w-ws-browser.c
 	../common/c-utils.c
@@ -77,6 +78,7 @@ add_dependencies(${SUB} sai_git_hash)
 		      ../../assets/OpenSans-Light.ttf
 		      ../../assets/rebuild.png
 		      ../../assets/delete.png
+		      ../../assets/rss.png
 		      ../../assets/passed.svg
 		      ../../assets/failed.svg
 		      ../../assets/locked.svg

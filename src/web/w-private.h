@@ -136,6 +136,9 @@ struct pss {	struct vhd		*vhd;
 	sqlite3			*pdb_artifact;
 	sqlite3_blob		*blob_artifact;
 
+	/* rendered rss feed waiting to go out on this http transaction */
+	struct lws_buflist	*rss_tx;
+
 	lws_dll2_owner_t	logs_owner;
 	lws_sorted_usec_list_t	sul_logcache;
 	lws_sorted_usec_list_t	sul_overview;
@@ -319,6 +322,22 @@ saiw_broadcast_logs_batch(struct vhd *vhd, struct pss *pss);
 
 int
 saiw_browser_queue_overview(struct vhd *vhd, struct pss *pss);
+
+void
+saiw_event_summary_string(sqlite3 *pdb_event, const char *event_uuid,
+			  char *out, size_t out_len,
+			  unsigned int *p_good, unsigned int *p_bad,
+			  unsigned int *p_ongoing, unsigned int *p_pending,
+			  unsigned int *p_total);
+
+int
+saiw_rss_http(struct vhd *vhd, struct pss *pss, struct lws *wsi);
+
+int
+saiw_rss_writeable(struct pss *pss, struct lws *wsi);
+
+void
+saiw_rss_close(struct pss *pss);
 
 int
 saiw_browser_broadcast_queue_builders(struct vhd *vhd, struct pss *pss);

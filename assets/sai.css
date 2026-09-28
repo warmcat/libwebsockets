@@ -2034,6 +2034,18 @@ div.ibuil.vm-builder {
 	display: block;
 }
 
+/* rss feed link under "Sai git" / apirev */
+.sidebar-pane .sb-col-logo a.logo-rss {
+	display: block;
+	line-height: 0;
+	margin-top: 2px;
+}
+
+.sidebar-pane .sb-col-logo a.logo-rss img {
+	width: 16px;
+	height: 16px;
+}
+
 /* col 2 + col 3: selectable project / branch lists */
 .sidebar-pane .sb-col-projects,
 .sidebar-pane .sb-col-branches {

@@ -53,7 +53,9 @@ typedef enum {
 	SHMUT_STATUS,
 	SHMUT_ARTIFACTS,
 	SHMUT_ARTIFACTS_SAI,
-	SHMUT_LOGIN
+	SHMUT_LOGIN,
+	SHMUT_RSS,
+	SHMUT_RSS_SAI
 } sai_http_murl_t;
 
 static const char * const well_known[] = {
@@ -62,7 +64,9 @@ static const char * const well_known[] = {
 	"/status",
 	"/artifacts/", /* HTTP api for accessing build artifacts */
 	"/sai/artifacts/", /* same, via the /sai mount the pages live under */
-	"/login"
+	"/login",
+	"/rss.xml", /* public RSS 2.0 feed of recent events, see w-rss.c */
+	"/sai/rss.xml"
 };
 
 /*
@@ -504,6 +508,16 @@ w_callback_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lws_callback_on_writable(wsi);
 			return 0;
 
+		case SHMUT_RSS:
+		case SHMUT_RSS_SAI:
+			r = saiw_rss_http(vhd, pss, wsi);
+			if (r < 0)
+				goto bail;
+			if (!r)
+				return 0;
+			resp = r;
+			goto http_resp;
+
 		default:
 			lwsl_notice("%s: DEFAULT!!!\n", __func__);
 			return 0;
@@ -520,6 +534,9 @@ http_resp:
 
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
+
+		if (pss && pss->rss_tx)
+			return saiw_rss_writeable(pss, wsi);
 
 		if (!pss || !pss->blob_artifact)
 			break;
@@ -553,12 +570,14 @@ http_resp:
 		/* the http conn went away, eg, mid-artifact-download */
 
 		saiw_close_artifact(pss);
+		saiw_rss_close(pss);
 		break;
 
 	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
-		/* the transaction is unbinding from us, drop artifact state */
+		/* the transaction is unbinding from us, drop its tx state */
 
 		saiw_close_artifact(pss);
+		saiw_rss_close(pss);
 		break;
 
 	/*

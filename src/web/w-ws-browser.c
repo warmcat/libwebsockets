@@ -1656,8 +1656,10 @@ saiw_broadcast_logs_batch(struct vhd *vhd, struct pss *pss)
  *
  * The task state values are the SAIES_* enum, bucketed the same way as the
  * browser: 0 -> pending, {1,2,6} -> ongoing, 3 -> good, {4,5} -> bad.
+ *
+ * The rss feed reports the same counts, see w-rss.c.
  */
-static void
+void
 saiw_event_summary_string(sqlite3 *pdb_event, const char *event_uuid,
 			  char *out, size_t out_len,
 			  unsigned int *p_good, unsigned int *p_bad,

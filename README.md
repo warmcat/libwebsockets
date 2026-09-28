@@ -182,6 +182,42 @@ local user on the host can connect to the link.  Existing deployments keep
 working unchanged, but should add the pvo to both confs and restart both
 daemons (sai-server first, sai-web reconnects by itself).
 
+## RSS feed of build events
+
+sai-web serves a public RSS 2.0 feed of the latest 10 events at
+`/sai/rss.xml`, newest notification first.  The web UI links to it from the
+logo area and advertises it for feed autodiscovery.  It can be scoped with `?project=<name>` and / or
+`?branch=<branch name or full ref>`, eg,
+
+```
+https://mydomain.com/sai/rss.xml?project=libwebsockets&branch=main-dev
+```
+
+Each item reflects the event as it is when the feed is fetched.  Besides the
+human-readable title, description and categories, it carries the details in
+elements in the `https://warmcat.com/sai/ns/rss` namespace:
+
+|element|meaning|
+|---|---|
+|`sai:received`|unix time the notification that created the event arrived|
+|`sai:project`|project (repo) name|
+|`sai:branch`|branch being built (the ref, less any `refs/heads/`)|
+|`sai:hash`|git commit being built|
+|`sai:fetchurl`|the repository fetch url the notification gave|
+|`sai:weburl`|the repository web url the notification gave, if any|
+|`sai:adhoc`|1 for an ad-hoc event an admin seeded from a task, else 0|
+|`sai:state`|event state: `waiting`, `building`, `failing` (still building, but some tasks already failed), `succeeded`, `failed`, `cancelled`, `not-ready` or `paused`; the `code` attribute has the raw state number|
+|`sai:tasks`|task counts as attributes: `total`, `ok`, `bad`, `building` and `wait`|
+
+The item `guid` is the event uuid plus its state, so feed readers show an
+event again as a new item when its state changes, eg, from `building` to
+`failed`, or back to `building` after an admin restarts tasks.  The task
+counts change inside an item without changing the guid.
+
+Links in the feed are relative (eg, `index.html?event=<uuid>`), so they
+resolve against whatever url the feed was fetched from; no conf is needed to
+tell sai-web its public url.
+
 ## Build flow and support for embedded
 
 ![build flow](READMEs/sai-build-test-flow.png)
