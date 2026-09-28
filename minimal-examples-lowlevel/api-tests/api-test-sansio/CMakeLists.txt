@@ -30,16 +30,4 @@ if (requirements AND NOT WIN32)
 	else()
 		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
-
-	# the same test against the library whose sansIO half was built alone
-	# (LWS_WITH_SANSIO_BUILD): both halves really are one library
-	if (TARGET websockets-split)
-		add_executable(${SAMP}-split ${SRCS})
-		target_link_libraries(${SAMP}-split websockets-split
-				      ${LIBWEBSOCKETS_DEP_LIBS})
-		add_test(NAME api-test-sansio-split COMMAND ${SAMP}-split)
-		set_tests_properties(api-test-sansio-split PROPERTIES
-				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-sansio
-				     TIMEOUT 20)
-	endif()
 endif()

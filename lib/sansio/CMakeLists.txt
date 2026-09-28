@@ -25,8 +25,8 @@
 # machines, parsers and framers, the roles that speak a wire protocol, and
 # the wsi and vhost lifecycle decisions.  Every source under this directory
 # is a sansIO source: they go into the library as ever, and into
-# SOURCES_SANSIO, from which the sansIO half is also built alone
-# (LWS_WITH_SANSIO_BUILD).
+# SOURCES_SANSIO, which lib/CMakeLists.txt compiles under the sansIO check
+# (LWS_SANSIO_CHECK, an implicit declaration an error).
 #
 # The strategy is to only export to PARENT_SCOPE
 #

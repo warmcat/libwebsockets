@@ -147,12 +147,15 @@ number of files calling them, and the totals (the compiler reports a
 callee once per file, so the count is of file-and-callee pairs, and
 clearing one site can reveal the next in the same file).  That list is
 the remaining work on the rx and tx plumbing, and the compiler keeps it,
-not a grep.  The same check is a build target: every source under
+not a grep.  The same check is part of every build: every source under
 `lib/sansio` is a sansIO source (`lib/sansio/CMakeLists.txt` collects what
-its directory added as `SOURCES_SANSIO`), and with
-`-DLWS_WITH_SANSIO_BUILD=ON` the target `websockets-sansio` builds just
-those, the IO prototypes hidden and an implicit declaration an error, so
-a call past the seam fails the build at its line.  (The tls private prototypes are not yet
+its directory added as `SOURCES_SANSIO`), and `lib/CMakeLists.txt` gives
+those sources `LWS_SANSIO_CHECK` and an implicit declaration as an error
+(`-Werror=implicit-function-declaration`, `/we4013` on MSVC) as source
+properties, so the ordinary library targets compile them blind to IO and
+a call past the seam fails the build at its line.  The script stays as
+the inventory: it lists every such call at once, where the build stops at
+the first.  (The tls private prototypes are not yet
 hidden: they share a header with the tls structs that `struct lws` embeds
 by value, which the struct split resolves.)  What the compile cannot see,
 a call to an IO function declared in a header both halves include,
@@ -453,16 +456,15 @@ can be live).
    hears lws's requests of the transport through a wrapped
    `lws_io_ops_default` (done: `api-test-sansio`, both halves; a client
    with a transport skips dns and connect and starts on it as connected,
-   `lws_client_connect_transport()`).  Then a sansIO-only build target
-   (done as a compile: `websockets-sansio`, above, builds only what is
-   under `lib/sansio`, and fails on a call into IO past the
+   `lws_client_connect_transport()`).  Then the sansIO half compiled
+   alone (done as a compile: every build compiles what is under
+   `lib/sansio` blind to IO, above, and fails on a call into IO past the
    seam; with the link-level check, the objects need nothing private of
-   IO's), and as a link (done: with the struct split both halves compile
-   the same `struct lws`, so `websockets-split` links those objects with
-   the rest of the library compiled the ordinary way, and
-   `api-test-sansio-split` runs the byte-level harness against it).  These are the test of
-   "technically complete"; the static checks above are inferences until
-   they pass.
+   IO's; and with the struct split both halves compile the same
+   `struct lws`, so the library the byte-level harness runs against is
+   the one whose sansIO objects were compiled that way).  These are the
+   test of "technically complete"; the static checks above are
+   inferences until they pass.
 10. When every role is converted, the IO half is a replaceable component,
    and the sansIO half is what a port translates.
 
@@ -474,13 +476,13 @@ on and marked done here, like the staging above.
 
 ### Before relying on it in C
 
-1. CI.  `LWS_WITH_SANSIO_BUILD` is off by default, so nothing guards the
-   split unless a CI configuration turns it on: the `websockets-sansio`
-   build (the compile check), `scripts/sans-io-link-check.sh` and
-   `api-test-sansio-split` (done: the sai configuration `sansio`, on one
-   Linux gcc builder, with the optional features that reach across the
-   split on; `scripts/sans-io-check.sh` is not run there, since the
-   `websockets-sansio` build fails on the same calls).
+1. CI.  Nothing guarded the split unless a CI configuration turned its
+   checks on (done: the compile check is part of every build, on every
+   platform and configuration CI builds; the sai configuration `sansio`,
+   on one Linux gcc builder with the optional features that reach across
+   the split on, also runs `scripts/sans-io-link-check.sh`;
+   `scripts/sans-io-check.sh` is not run there, since the build fails on
+   the same calls).
 2. The harness covers only h1 and ws (six cases).  It needs h2, h3
    through the datagram edge (`recv_dgram` / `send_dgram` in the
    transport ops), mqtt, and a case under tls.

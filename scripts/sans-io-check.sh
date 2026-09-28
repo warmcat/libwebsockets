@@ -6,6 +6,12 @@
 # their private spellings) fails to compile and names its line.  See
 # READMEs/README.sans-io-split.md.
 #
+# Every build already enforces the same thing: lib/CMakeLists.txt compiles
+# the sources under lib/sansio with LWS_SANSIO_CHECK and an implicit
+# declaration as an error, so the first such call fails the build.  This
+# script is the inventory: it recompiles each sansIO source with the check
+# but without failing, and lists every callee past the seam, by file.
+#
 # Usage: scripts/sans-io-check.sh <build-dir-with-compile_commands.json> [-v]
 #
 # -v also prints every offending line, as file:line: callee.

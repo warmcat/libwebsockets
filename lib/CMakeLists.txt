@@ -288,6 +288,27 @@ add_subdirectory(secure-streams/serialized/client)
 
 add_subdirectory(media)
 
+#
+# The sansIO half (READMEs/README.sans-io-split.md, "The headers"): every
+# source under lib/sansio (SOURCES_SANSIO) compiles with LWS_SANSIO_CHECK, so
+# IO's private prototypes and IO's half of the object are hidden from it,
+# and an implicit declaration is an error: a sansIO call into IO past the
+# interface fails the ordinary build, naming its line.  They are properties
+# of the sources, so both library targets compile them that way, each with
+# its own target defines (LWS_BUILDING_STATIC / LWS_BUILDING_SHARED) as well.
+#
+if (SOURCES_SANSIO)
+	set_property(SOURCE ${SOURCES_SANSIO} APPEND PROPERTY
+		     COMPILE_DEFINITIONS LWS_SANSIO_CHECK)
+	if (MSVC)
+		set_property(SOURCE ${SOURCES_SANSIO} APPEND PROPERTY
+			     COMPILE_OPTIONS /we4013)
+	elseif (CMAKE_COMPILER_IS_GNUCC OR COMPILER_IS_CLANG)
+		set_property(SOURCE ${SOURCES_SANSIO} APPEND PROPERTY
+			     COMPILE_OPTIONS -Werror=implicit-function-declaration)
+	endif()
+endif()
+
 if (LWS_WITH_STATIC)
     if (LWS_STATIC_PIC)
         set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -373,41 +394,6 @@ if (LWS_WITH_SHARED)
 endif()
 
 #
-# The sansIO half alone (READMEs/README.sans-io-split.md): the sources under
-# lib/sansio (SOURCES_SANSIO), built with LWS_SANSIO_CHECK
-# so the IO half's private prototypes are hidden and only the interface (the
-# seam, lws-io-ops.h and the public api) is visible.  A call into IO past it
-# is an implicit declaration, made an error here, naming the file and line.
-# IO's half of the object is opaque to it, so these objects are a check of
-# the half, not a library to link.
-#
-if (LWS_WITH_SANSIO_BUILD)
-	add_library(websockets-sansio OBJECT ${SOURCES_SANSIO})
-	target_include_directories(websockets-sansio PRIVATE
-		${LWS_LIB_BUILD_INC_PATHS} ${LWS_LIB_BUILD_INC_PATHS_TEMP}
-		${CMAKE_CURRENT_SOURCE_DIR}/../core
-		${CMAKE_CURRENT_SOURCE_DIR}/../include
-		${CMAKE_CURRENT_BINARY_DIR}/../include)
-	foreach(inc ${LWS_PUBLIC_INCLUDES})
-		target_include_directories(websockets-sansio PRIVATE ${inc})
-	endforeach()
-	target_compile_definitions(websockets-sansio PRIVATE
-				   LWS_SANSIO_CHECK LWS_BUILDING_STATIC)
-	if (MSVC)
-		target_compile_options(websockets-sansio PRIVATE /we4013)
-	else()
-		target_compile_options(websockets-sansio PRIVATE
-				       -Werror=implicit-function-declaration)
-	endif()
-	# the generated headers the library builds with come first
-	if (LWS_WITH_SHARED)
-		add_dependencies(websockets-sansio websockets_shared)
-	else()
-		add_dependencies(websockets-sansio websockets)
-	endif()
-endif()
-
-#
 # expose the library private include dirs to plugins, test apps etc that are
 # part of the lib build but different targets 
 #
@@ -490,32 +476,6 @@ foreach (lib ${LWS_LIBRARIES})
 		endforeach()
 	endif()
 endforeach()
-
-#
-# The sansIO half as websockets-sansio compiled it, blind to IO's
-# internals, linked with the rest of the library compiled the ordinary way.
-# The two halves have the same struct lws, so this is the whole library;
-# api-test-sansio also runs against it (READMEs/README.sans-io-split.md).
-#
-if (LWS_WITH_SANSIO_BUILD)
-	set(SOURCES_NOT_SANSIO ${SOURCES})
-	list(REMOVE_ITEM SOURCES_NOT_SANSIO ${SOURCES_SANSIO})
-	add_library(websockets-split STATIC $<TARGET_OBJECTS:websockets-sansio>
-		    ${SOURCES_NOT_SANSIO})
-	set_target_properties(websockets-split PROPERTIES LINKER_LANGUAGE C)
-	target_include_directories(websockets-split INTERFACE
-		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
-		$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../include>)
-	target_include_directories(websockets-split PRIVATE
-		${LWS_LIB_BUILD_INC_PATHS} ${LWS_LIB_BUILD_INC_PATHS_TEMP}
-		${CMAKE_CURRENT_SOURCE_DIR}/../core)
-	foreach(inc ${LWS_PUBLIC_INCLUDES})
-		target_include_directories(websockets-split PUBLIC
-					   "$<BUILD_INTERFACE:${inc}>")
-	endforeach()
-	target_compile_definitions(websockets-split PRIVATE LWS_BUILDING_STATIC)
-	target_link_libraries(websockets-split ${STRIPPED_LIB_LIST})
-endif()
 
 #
 # These will be available to parent projects including libwebsockets

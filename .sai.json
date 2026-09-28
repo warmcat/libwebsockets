@@ -383,15 +383,15 @@
 		},
 
 		# the sans-IO split's guards (READMEs/README.sans-io-split.md):
-		# the sansIO half built alone fails on a call into IO past the
-		# interface, the link check fails on a private IO symbol its
-		# objects need, and ctest runs api-test-sansio-split against the
-		# library linked from those objects.  The optional features that
-		# reach across the split (cgi, access log, proxy, socks, jit
-		# trust, mqtt, raw proxy) are on so the checks see them.
+		# every build compiles the sansIO sources blind to IO, so a call
+		# into IO past the interface fails it; here the link check also
+		# fails on a private IO symbol the sansIO objects need.  The
+		# optional features that reach across the split (cgi, access
+		# log, proxy, socks, jit trust, mqtt, raw proxy) are on so the
+		# checks see them.
 
 		"sansio": {
-			"cmake":	"-DLWS_WITH_SANSIO_BUILD=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_CGI=1 -DLWS_WITH_ACCESS_LOG=1 -DLWS_WITH_HTTP_PROXY=1 -DLWS_WITH_SOCKS5=1 -DLWS_WITH_TLS_JIT_TRUST=1 -DLWS_ROLE_MQTT=1 -DLWS_ROLE_RAW_PROXY=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DCMAKE_BUILD_TYPE=DEBUG && make -j$SAI_PARALLEL && ../scripts/sans-io-link-check.sh $PWD",
+			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_CGI=1 -DLWS_WITH_ACCESS_LOG=1 -DLWS_WITH_HTTP_PROXY=1 -DLWS_WITH_SOCKS5=1 -DLWS_WITH_TLS_JIT_TRUST=1 -DLWS_ROLE_MQTT=1 -DLWS_ROLE_RAW_PROXY=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DCMAKE_BUILD_TYPE=DEBUG && make -j$SAI_PARALLEL && ../scripts/sans-io-link-check.sh $PWD",
 			"platforms":	"none, linux-fedora44/x86_64-amd/gcc"
 		}
 		,
