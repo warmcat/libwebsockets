@@ -190,6 +190,12 @@ const lws_plugin_protocol_t my_plugin = {
 Then `PROTOCOL_INIT` stays the plain "no pvo, return 0" of section 1, even in
 the stub child, where no vhost needs to instantiate the plugin at all.
 
+The stub child cannot see the pvos, so where its UDS socket goes is best left
+to the parent alone: `lws_stub_spawn()` passes the child the `uds_path` it was
+given as `--lws-uds=<path>`, and a `lws_stub_server_init()` given a NULL
+`uds_path` listens there.  The parent can then take the path from its config,
+as the cert-dist plugins do with their `stub-dir` pvo.
+
 ### 5. Applications composing a plugin into themselves
 
 An application may build a protocol plugin's source into itself instead of

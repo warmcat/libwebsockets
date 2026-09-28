@@ -44,7 +44,9 @@ struct lws_stub_config {
 	struct lws_context		*cx;
 	struct lws_vhost		*vh;
 	const char			*stub_name;		/* e.g. "distribution-client" */
-	const char			*uds_path;		/* e.g. "/var/run/lws-cert-dist-stub.sock" */
+	const char			*uds_path;		/* e.g. "/var/run/lws-cert-dist-stub.sock"; in
+								 * the stub process, NULL means use the one
+								 * the parent gave on our cmdline */
 	const struct lws_protocols	*protocols;		/* Protocol array for the UDS server vhost */
 	const void			*extra_payload;		/* Optional extra data to write to child stdin */
 	size_t				extra_payload_len;
@@ -71,7 +73,8 @@ struct lws_stub_manager;
  *
  * \param config: pointer to the stub configuration
  *
- * Spawns a child process using lws_spawn_piped, appending --lws-stub=<stub_name>.
+ * Spawns a child process using lws_spawn_piped, appending --lws-stub=<stub_name>
+ * and, if config->uds_path is set, --lws-uds=<uds_path>.
  * It generates a 128-byte secure random secret and writes it to the child's stdin.
  * The client connection to the stub is made on an internal no-listen vhost that
  * this call creates, so the vhost in config->vh does not need to have registered
@@ -91,7 +94,9 @@ lws_stub_spawn(const struct lws_stub_config *config);
  *
  * Called by the child stub process upon startup. It reads the secret from stdin,
  * creates a raw UDS vhost bound to config->uds_path only its own uid can reach,
- * and sets up JSON-RPC dispatching for config->rpc_methods.
+ * and sets up JSON-RPC dispatching for config->rpc_methods.  If
+ * config->uds_path is NULL, the path lws_stub_spawn() in the parent put on our
+ * cmdline as --lws-uds= is used, so the parent alone decides where it goes.
  *
  * The secret can be read from stdin only once, so call this exactly once per
  * stub process.  A protocol plugin does it from its lws_plugin_protocol_t

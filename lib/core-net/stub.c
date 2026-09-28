@@ -103,6 +103,7 @@ struct lws_stub_manager {
 	lws_sorted_usec_list_t		sul;
 	uint16_t			ctry;
 	char				stub_arg[128];
+	char				uds_arg[272];	/* --lws-uds= + uds_path */
 	const char			*exec_array[5];
 	char				addr[256];
 	char				exe_path[256];
@@ -234,8 +235,17 @@ lws_stub_spawn(const struct lws_stub_config *config)
 	mgr->cx = config->cx;
 	mgr->vh = config->vh;
 	memcpy(&mgr->config, config, sizeof(mgr->config));
-	if (config->uds_path)
+	if (config->uds_path) {
+		/* truncated, it would name some other socket */
+		if (strlen(config->uds_path) >= sizeof(mgr->uds_path)) {
+			lwsl_err("%s: stub '%s': uds path too long\n", __func__,
+				 config->stub_name ? config->stub_name : "?");
+			lws_free(mgr);
+
+			return NULL;
+		}
 		lws_strncpy(mgr->uds_path, config->uds_path, sizeof(mgr->uds_path));
+	}
 	mgr->config.uds_path = mgr->uds_path;
 	if (config->stub_name)
 		lws_strncpy(mgr->stub_name, config->stub_name, sizeof(mgr->stub_name));
@@ -334,6 +344,15 @@ lws_stub_spawn(const struct lws_stub_config *config)
 	/* Construct the stub argument dynamically */
 	lws_snprintf(mgr->stub_arg, sizeof(mgr->stub_arg), "--lws-stub=%s", config->stub_name);
 	mgr->exec_array[n++] = mgr->stub_arg;
+	/*
+	 * Tell the child where to listen, so the parent alone decides it, eg,
+	 * from its config that the child cannot see
+	 */
+	if (mgr->uds_path[0]) {
+		lws_snprintf(mgr->uds_arg, sizeof(mgr->uds_arg), "--lws-uds=%s",
+			     mgr->uds_path);
+		mgr->exec_array[n++] = mgr->uds_arg;
+	}
 	mgr->exec_array[n++] = NULL;
 
 	spawn_info.exec_array = mgr->exec_array;
@@ -660,15 +679,29 @@ lws_stub_child_watchdog_init(const struct lws_stub_config *config)
 #endif /* LWS_STUB_AUTONOMOUS_EXIT */
 
 int
-lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, void *extra_out, size_t extra_len)
+lws_stub_server_init(const struct lws_stub_config *_config, char *secret_out, void *extra_out, size_t extra_len)
 {
 	struct lws_context_creation_info info;
+	struct lws_stub_config cfg = *_config, *config = &cfg;
 	struct lws_vhost *vh_uds;
 #if !defined(WIN32)
 	mode_t om;
 #endif
 
 	size_t rx = 0;
+
+	/*
+	 * With no uds_path of our own, listen where the parent that spawned
+	 * us said on our cmdline
+	 */
+	if (!config->uds_path)
+		config->uds_path = lws_cmdline_option_cx(config->cx, "--lws-uds");
+	if (!config->uds_path || !config->uds_path[0]) {
+		lwsl_err("%s: stub '%s': no uds path\n", __func__,
+			 config->stub_name ? config->stub_name : "unknown");
+
+		return -1;
+	}
 
 #if defined(WIN32)
 	_setmode(0, _O_BINARY);
