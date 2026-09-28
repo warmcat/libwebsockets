@@ -1139,6 +1139,18 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 								     mux.sibling_list);
 				if ((uint64_t)child->mux.my_sid == stream_id) {
 					lwsl_wsi_notice(child, "QUIC RX: Stream closed by peer via STOP_SENDING");
+					/*
+					 * Our queued frames for the stream
+					 * count as buffered out, so a normal
+					 * close would flush before closing:
+					 * sending the peer, ahead of every
+					 * later stream's frames, up to a whole
+					 * flow control window of data it just
+					 * told us it doesn't want.  Close it
+					 * without the flush, so the cleanup
+					 * purges them and sends RESET_STREAM
+					 */
+					lwsi_set_skt_unusable(child, 1);
 					lws_close_free_wsi(child, LWS_CLOSE_STATUS_ABNORMAL_CLOSE, "quic stop sending");
 					break;
 				}
