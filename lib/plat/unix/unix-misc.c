@@ -144,28 +144,3 @@ lws_plat_recommended_rsa_bits(void)
 {
 	return 4096;
 }
-
-/*
- * Platform-specific ntpclient server configuration
- */
-
-int
-lws_plat_ntpclient_config(struct lws_context *context)
-{
-#if defined(LWS_HAVE_GETENV)
-	char *ntpsrv = getenv("LWS_NTP_SERVER");
-
-	if (ntpsrv && strlen(ntpsrv) < 64) {
-		lws_system_blob_t *blob = lws_system_get_blob(context,
-                                            LWS_SYSBLOB_TYPE_NTP_SERVER, 0);
-		if (!blob)
-			return 0;
-
-		lws_system_blob_direct_set(blob, (const uint8_t *)ntpsrv,
-					    strlen(ntpsrv));
-		return 1;
-	}
-#endif
-	return 0;
-}
-
