@@ -69,6 +69,8 @@ init_vhost(struct lws_context *cx, struct lws_vhost *vh)
 {
 	memset(cx, 0, sizeof(*cx));
 	memset(vh, 0, sizeof(*vh));
+	/* lws_create_context() links each pt back; scheduling into it reads it */
+	cx->pt[0].context = cx;
 	vh->context = cx;
 	vh->name = "default";
 }
