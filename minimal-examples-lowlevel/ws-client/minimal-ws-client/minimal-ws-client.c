@@ -239,7 +239,7 @@ int main(int argc, const char **argv)
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_E].sw))
 		ssl_connection |= LCCSCF_ALLOW_EXPIRED;
 
-	info.fd_limit_per_thread = 1 + 1 + 1;
+	info.fd_limit_per_thread = 1 + 1 + 1 + 10;
 
 	context = lws_create_context(&info);
 	if (!context) {

@@ -381,7 +381,7 @@ int main(int argc, const char **argv)
 
 	lwsl_user("LWS secure streams - Alexa voice test [-d<verb>]\n");
 
-	info.fd_limit_per_thread = 1 + 6 + 1;
+	info.fd_limit_per_thread = 1 + 6 + 1 + 10;
 #if !defined(LWS_SS_USE_SSPC)
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;

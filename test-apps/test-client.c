@@ -736,7 +736,7 @@ int main(int argc, char **argv)
 	 * have to use the default allocations for fd tables up to ulimit -n.
 	 * It will just allocate for 2 internal and 4 that we might use.
 	 */
-	info.fd_limit_per_thread = 2 + 4;
+	info.fd_limit_per_thread = 2 + 4 + 10;
 
 #if defined(LWS_WITH_TLS)
 	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;

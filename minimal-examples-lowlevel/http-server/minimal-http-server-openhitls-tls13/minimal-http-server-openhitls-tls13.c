@@ -258,7 +258,7 @@ int main(int argc, const char **argv)
 	nl.name = "app";
 	nl.notify_cb = app_system_state_nf;
 	info.register_notifier_list = app_notifier_list;
-	info.fd_limit_per_thread = 1 + 1 + 4;
+	info.fd_limit_per_thread = 1 + 1 + 4 + 10;
 
 	context = lws_create_context(&info);
 	if (!context) {

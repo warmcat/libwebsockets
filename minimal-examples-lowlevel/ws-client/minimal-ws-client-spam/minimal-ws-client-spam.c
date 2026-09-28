@@ -280,7 +280,7 @@ int main(int argc, const char **argv)
 	 * It will just allocate for 1 internal and n (+ 1 http2 nwsi) that we
 	 * will use.
 	 */
-	info.fd_limit_per_thread = (unsigned int)(1 + concurrent + 1);
+	info.fd_limit_per_thread = (unsigned int)(1 + concurrent + 1 + 10);
 
 	context = lws_create_context(&info);
 	if (!context) {

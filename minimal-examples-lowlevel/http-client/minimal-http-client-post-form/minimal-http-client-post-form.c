@@ -392,7 +392,7 @@ int main(int argc, const char **argv)
 	nl.name				= "app";
 	nl.notify_cb			= app_system_state_nf;
 	info.register_notifier_list	= app_notifier_list;
-	info.fd_limit_per_thread = (unsigned int)(1 + 1 + 1);
+	info.fd_limit_per_thread = (unsigned int)(1 + 1 + 1 + 10);
 
 #if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL) || defined(LWS_WITH_OPENHITLS)
 	/*

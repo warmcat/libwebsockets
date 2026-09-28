@@ -698,7 +698,7 @@ int main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PASS_LIMIT].sw)))
 		predicted_good = atoi(p);
 
-	info.fd_limit_per_thread = 1 + 26 + 1;
+	info.fd_limit_per_thread = 1 + 26 + 1 + 10;
 	info.port = CONTEXT_PORT_NO_LISTEN;
 #if defined(LWS_SS_USE_SSPC)
 	info.protocols = lws_sspc_protocols;

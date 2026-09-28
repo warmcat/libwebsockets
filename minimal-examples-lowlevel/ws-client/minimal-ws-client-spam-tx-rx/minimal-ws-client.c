@@ -241,7 +241,7 @@ int main(int argc, const char **argv)
 		lwsl_notice("Message delay: %d\n", connection_delay);
 	}
 
-	info.fd_limit_per_thread = (unsigned int)(1 + nclients + 1);
+	info.fd_limit_per_thread = (unsigned int)(1 + nclients + 1 + 10);
 
 	context = lws_create_context(&info);
 	if (!context) {

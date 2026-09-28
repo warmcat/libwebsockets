@@ -338,7 +338,7 @@ main(int argc, const char **argv)
 	 * after the request is sent.
 	 */
 	info.timeout_secs = CLIENT_TIMEOUT_SECS;
-	info.fd_limit_per_thread = 1 + 1 + 1;
+	info.fd_limit_per_thread = 1 + 1 + 1 + 10;
 
 	lwsl_user("LWS minimal http client timeout h3 (%s mode)\n",
 		  server_mode ? "server/blackhole" : "client");
