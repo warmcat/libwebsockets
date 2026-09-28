@@ -476,6 +476,10 @@ void *
 lws_tls_session_ptr(struct lws *wsi);
 const uint8_t *
 lws_tls_wsi_hs_ca_id(struct lws *wsi);
+#if defined(LWS_WITH_CLIENT)
+int
+lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len);
+#endif
 #if defined(LWS_ROLE_QUIC)
 int
 lws_tls_quic_session(struct lws *wsi, lws_tls_quic_secret_cb cb);
@@ -485,10 +489,6 @@ int
 lws_tls_quic_alert(struct lws *wsi);
 int
 lws_tls_quic_alpn(struct lws *wsi, char *buf, size_t len);
-#if defined(LWS_WITH_CLIENT)
-int
-lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len);
-#endif
 #endif
 #endif
 
