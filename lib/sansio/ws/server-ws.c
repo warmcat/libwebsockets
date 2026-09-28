@@ -275,6 +275,9 @@ int
 lws_process_ws_upgrade2(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
+	char ss_upgrade = 0;
+#endif
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
 	const struct lws_protocol_vhost_options *pvos = NULL;
 	const char *ws_prot_basic_auth = NULL;
@@ -335,15 +338,7 @@ lws_process_ws_upgrade2(struct lws *wsi)
 			lwsl_info("%s: %s switching to ws protocol\n",
 				  __func__, lws_ss_tag(wsi->a.vhost->ss_handle));
 			wsi->a.protocol = &protocol_secstream_ws;
-
-			/*
-			 * inform the SS user code that this has done a one-way
-			 * upgrade to some other protocol... it will likely
-			 * want to treat subsequent payloads differently
-			 */
-
-			(void)lws_ss_event_helper(wsi->a.vhost->ss_handle,
-						LWSSSCS_SERVER_UPGRADE);
+			ss_upgrade = 1;
 		}
 #endif
 	}
@@ -414,6 +409,33 @@ lws_process_ws_upgrade2(struct lws *wsi)
 				lwsl_notice("hs0405 has failed the connection\n");
 				return 1;
 			}
+
+#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
+			if (ss_upgrade) {
+				lws_ss_handle_t *h = (lws_ss_handle_t *)
+						wsi->a.opaque_user_data;
+				lws_ss_state_return_t r;
+
+				/*
+				 * Inform the SS user code that this has done a
+				 * one-way upgrade to some other protocol... it
+				 * will likely want to treat subsequent payloads
+				 * differently.  It's the accepted stream bound
+				 * to this connection that is upgrading, not the
+				 * server's template stream on the vhost.  This
+				 * is the same point that h2 tells it, in
+				 * lws_h2_ws_handshake().
+				 */
+
+				r = lws_ss_event_helper(h,
+							LWSSSCS_SERVER_UPGRADE);
+				if (r != LWSSSSRET_OK) {
+					_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(
+								r, wsi, &h);
+					return 1;
+				}
+			}
+#endif
 		}
 		break;
 	}

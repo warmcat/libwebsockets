@@ -95,7 +95,6 @@ const uint32_t ss_state_txn_validity[] = {
 	[LWSSSCS_CREATING]		= (1 << LWSSSCS_CONNECTING) |
 					  (1 << LWSSSCS_TIMEOUT) |
 					  (1 << LWSSSCS_POLL) |
-					  (1 << LWSSSCS_SERVER_UPGRADE) |
 					  (1 << LWSSSCS_DESTROYING),
 
 	[LWSSSCS_DISCONNECTED]		= (1 << LWSSSCS_CONNECTING) |
@@ -136,6 +135,12 @@ const uint32_t ss_state_txn_validity[] = {
 					  (1 << LWSSSCS_AUTH_FAILED) |
 					  (1 << LWSSSCS_CONNECTING) |
 					  (1 << LWSSSCS_CONNECTED) |
+					  /*
+					   * an accepted server stream holds back
+					   * CONNECTED until it sees if the peer
+					   * upgrades
+					   */
+					  (1 << LWSSSCS_SERVER_UPGRADE) |
 					  (1 << LWSSSCS_QOS_ACK_REMOTE) |
 					  (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					  (1 << LWSSSCS_TIMEOUT) |
@@ -197,8 +202,9 @@ const uint32_t ss_state_txn_validity[] = {
 					  (1 << LWSSSCS_SERVER_TXN) |
 					  (1 << LWSSSCS_DESTROYING),
 
-	[LWSSSCS_SERVER_UPGRADE]	= (1 << LWSSSCS_SERVER_UPGRADE) |
-                      (1 << LWSSSCS_SERVER_TXN) |
+	[LWSSSCS_SERVER_UPGRADE]	= (1 << LWSSSCS_SERVER_TXN) |
+					  /* the upgraded protocol established */
+					  (1 << LWSSSCS_CONNECTED) |
 					  (1 << LWSSSCS_TIMEOUT) |
 					  (1 << LWSSSCS_DISCONNECTED) |
 					  (1 << LWSSSCS_DESTROYING),
