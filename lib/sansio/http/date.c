@@ -28,11 +28,12 @@
 
 /*
  * To avoid needless pointers, we encode these in one string using the fact
- * they're 3 chars each to index it
+ * they're 3 chars each to index it.  The days are in struct tm's tm_wday
+ * order, Sunday first.
  */
 
 static const char *const s =
-		"JanFebMarAprMayJunJulAugSepOctNovDecMonTueWedThuFriSatSun";
+		"JanFebMarAprMayJunJulAugSepOctNovDecSunMonTueWedThuFriSat";
 
 static int
 lws_http_date_render(char *buf, size_t len, const struct tm *tm)

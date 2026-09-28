@@ -1293,7 +1293,7 @@ int main(int argc, const char **argv)
 					lwsl_err("%s: failed date render\n", __func__);
 					fail++;
 				} else {
-					if (!strcmp(s, "Tue, 15 Nov 1994 08:12:31 GMT")) {
+					if (strcmp(s, "Tue, 15 Nov 1994 08:12:31 GMT")) {
 						lwsl_err("%s: date render wrong\n", __func__);
 						fail++;
 					}
