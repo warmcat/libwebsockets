@@ -504,6 +504,26 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct lws_async_dns *dns = &(lws_get_context(wsi)->async_dns);
 
+	/*
+	 * Only the reasons about one of our own connections, the nameserver's
+	 * UDP wsi or a query's TCP fallback wsi, may look past wsi->a.  The
+	 * others, like PROTOCOL_INIT or EVENT_WAIT_CANCELLED, come with a
+	 * wsi made up for the callback, which on freertos is only a
+	 * struct lws_a on the stack: it has no wsi->io at all.
+	 */
+
+	switch (reason) {
+	case LWS_CALLBACK_RAW_ADOPT:
+	case LWS_CALLBACK_RAW_CONNECTED:
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+	case LWS_CALLBACK_RAW_CLOSE:
+	case LWS_CALLBACK_RAW_RX:
+	case LWS_CALLBACK_RAW_WRITEABLE:
+		break;
+	default:
+		return 0;
+	}
+
 	if (!wsi->io->udp) {
 		lws_adns_q_t *q = (lws_adns_q_t *)wsi->a.opaque_user_data;
 
