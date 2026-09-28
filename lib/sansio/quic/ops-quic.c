@@ -3276,6 +3276,13 @@ lws_quic_conn_tx(struct lws *nwsi, uint8_t *buf, size_t max,
 	int n;
 
 	if (first) {
+		/*
+		 * The pass that serves the connection's request to write starts
+		 * here, so it is consumed here: a re-arm from what the pass
+		 * does next (frames that did not fit, a stream's next write)
+		 * must stand, or the listener's next pull passes us over.
+		 */
+		nwsi->mux.requested_POLLOUT = 0;
 		qn->tx_level = 0;
 		qn->tx_held = 0;
 		qn->tx_full = 0;
@@ -3453,12 +3460,19 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 
 	if (!qn) {
 		lws_handling_result_t hr_ret = LWS_HP_RET_DROP_POLLOUT;
+
+		/*
+		 * The listener's pass: each connection the tx pulled this pass,
+		 * or that still asks to write (the pull did not reach it), has
+		 * its streams serviced.  The pull already consumed the request
+		 * of those it reached; what re-armed since stays armed.
+		 */
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 			struct lws *w = lws_container_of(d, struct lws,
 							 mux.sibling_list);
-			if (w->mux.requested_POLLOUT) {
-				w->mux.requested_POLLOUT = 0;
+			if (w->mux.requested_POLLOUT ||
+			    (w->quic.qn && w->quic.qn->tx_in_pass)) {
 				lws_handling_result_t hr_child = rops_handle_POLLOUT_quic(w);
 				if (hr_child == LWS_HP_RET_BAIL_DIE)
 					return LWS_HP_RET_BAIL_DIE;
@@ -3468,8 +3482,6 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 		} lws_end_foreach_dll_safe(d, d1);
 		return hr_ret;
 	}
-
-	wsi->mux.requested_POLLOUT = 0;
 
 	if (qn->tx_failed)
 		/* producing or sending failed: nothing more this pass */
