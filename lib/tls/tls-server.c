@@ -356,7 +356,7 @@ lws_sul_tls_cb(lws_sorted_usec_list_t *sul)
 
 	lws_tls_check_all_cert_lifetimes(pt->context);
 
-	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+	__lws_sul_insert_us(pt, LWSSULLI_MISS_IF_SUSPENDED,
 			    &pt->sul_tls,
 			    (lws_usec_t)24 * 3600 * LWS_US_PER_SEC);
 }
@@ -458,7 +458,7 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 	/* check certs in a few seconds (after protocol init) and then once a day */
 
 	context->pt[0].sul_tls.cb = lws_sul_tls_cb;
-	__lws_sul_insert_us(&context->pt[0].pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+	__lws_sul_insert_us(&context->pt[0], LWSSULLI_MISS_IF_SUSPENDED,
 			    &context->pt[0].sul_tls,
 			    (lws_usec_t)5 * LWS_US_PER_SEC);
 

@@ -43,7 +43,6 @@ list(APPEND SOURCES
 	io/pollfd.c
 	io/service.c
 	io/sorted-usec-list.c
-	io/wsi-timeout.c
 	io/adopt.c
 	io/pipe/ops-pipe.c
 )

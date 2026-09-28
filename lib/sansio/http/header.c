@@ -1137,7 +1137,7 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 	 * it from the sul owner.
 	 */
 
-	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+	__lws_sul_insert_us(pt, LWSSULLI_MISS_IF_SUSPENDED,
 			    sul, 30 * LWS_US_PER_SEC);
 
 	lws_pt_unlock(pt);

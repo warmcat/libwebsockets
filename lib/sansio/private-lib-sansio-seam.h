@@ -76,9 +76,6 @@ void
 lws_tls_jit_trust_vh_start_grace(struct lws_vhost *vh);
 #endif
 
-/* deadline, in the spelling for callers holding the service thread lock */
-void
-__lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 /*
  * the last connection bound to a vhost that is being destroyed went: IO
  * finishes destroying it (a vhost's creation and destruction are IO's)

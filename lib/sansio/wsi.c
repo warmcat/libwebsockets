@@ -2647,7 +2647,7 @@ lws_validity_cb(lws_sorted_usec_list_t *sul)
 	assert(rbo->secs_since_valid_hangup > rbo->secs_since_valid_ping);
 
 	wsi->validity_hup = 1;
-	__lws_sul_insert_us(&pt->pt_sul_owner[!!wsi->conn_validity_wakesuspend],
+	__lws_sul_insert_us(pt, !!wsi->conn_validity_wakesuspend,
 			    &wsi->sul_validity,
 			    ((uint64_t)rbo->secs_since_valid_hangup -
 				 rbo->secs_since_valid_ping) * LWS_US_PER_SEC);
@@ -2678,7 +2678,7 @@ _lws_validity_confirmed_role(struct lws *wsi)
 					    rbo->secs_since_valid_ping,
 			   wsi->validity_hup);
 
-	__lws_sul_insert_us(&pt->pt_sul_owner[!!wsi->conn_validity_wakesuspend],
+	__lws_sul_insert_us(pt, !!wsi->conn_validity_wakesuspend,
 			    &wsi->sul_validity,
 			    ((uint64_t)(wsi->validity_hup ?
 				rbo->secs_since_valid_hangup :

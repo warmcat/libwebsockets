@@ -583,9 +583,9 @@ lws_ss_set_timeout_us(lws_ss_handle_t *h, lws_usec_t us)
 	struct lws_context_per_thread *pt = &h->context->pt[h->tsi];
 
 	h->sul.cb = lws_ss_timeout_sul_check_cb;
-	__lws_sul_insert_us(&pt->pt_sul_owner[
-	            !!(h->policy->flags & LWSSSPOLF_WAKE_SUSPEND__VALIDITY)],
-		    &h->sul, us);
+	__lws_sul_insert_us(pt,
+		!!(h->policy->flags & LWSSSPOLF_WAKE_SUSPEND__VALIDITY),
+		&h->sul, us);
 
 	return 0;
 }

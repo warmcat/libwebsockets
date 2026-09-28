@@ -20,10 +20,14 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
+ *
+ * wsi-timeout.c: a connection's deadlines, its timeout and its hrtimer, and
+ * what happens when one passes.  Neither half's (see
+ * READMEs/README.sans-io-split.md): they are set on the timer lists both
+ * halves schedule into (sorted-usec-list.c), by sansIO and by IO.
  */
 
 #include "private-lib-core.h"
-
 
 /*
  * hrtimer
@@ -47,7 +51,7 @@ __lws_set_timer_usecs(struct lws *wsi, lws_usec_t us)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	wsi->sul_hrtimer.cb = lws_sul_hrtimer_cb;
-	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+	__lws_sul_insert_us(pt, LWSSULLI_MISS_IF_SUSPENDED,
 			    &wsi->sul_hrtimer, us);
 }
 
@@ -154,7 +158,7 @@ __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 		}
 	}
 	wsi->sul_timeout.cb = lws_sul_wsitimeout_cb;
-	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+	__lws_sul_insert_us(pt, LWSSULLI_MISS_IF_SUSPENDED,
 			    &wsi->sul_timeout,
 			    ((lws_usec_t)secs) * LWS_US_PER_SEC);
 
@@ -224,7 +228,7 @@ lws_set_timeout_us(struct lws *wsi, enum pending_timeout reason, lws_usec_t us)
 	 * on the pt list with a NULL cb stalls that pt's whole timer wheel
 	 */
 	wsi->sul_timeout.cb = lws_sul_wsitimeout_cb;
-	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+	__lws_sul_insert_us(pt, LWSSULLI_MISS_IF_SUSPENDED,
 			    &wsi->sul_timeout, us);
 
 	lwsl_wsi_info(wsi, "%llu us, reason %d",

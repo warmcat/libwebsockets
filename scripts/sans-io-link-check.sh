@@ -29,8 +29,14 @@ NEITHER='/tls/(.*/)?lws-gen|/tls/(chacha|poly1305)\.c\.o'
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 
-find "$OBJ" -name '*.o' | grep -E "$SANSIO" > "$T/s.lst"
-find "$OBJ" -name '*.o' | grep -E "$IO" | grep -vE "$NEITHER" > "$T/io.lst"
+# only the objects of sources that still exist: a build tree keeps the
+# objects of a source that moved or went, and they would count
+find "$OBJ" -name '*.c.o' | while read -r o; do
+	r=${o#"$OBJ"/}
+	[ -f "lib/${r%.o}" ] && echo "$o"
+done > "$T/all.lst"
+grep -E "$SANSIO" "$T/all.lst" > "$T/s.lst"
+grep -E "$IO" "$T/all.lst" | grep -vE "$NEITHER" > "$T/io.lst"
 
 xargs nm -g --defined-only < "$T/io.lst" 2>/dev/null | awk 'NF==3{print $3}' | sort -u > "$T/io.def"
 xargs nm -g --defined-only < "$T/s.lst" 2>/dev/null | awk 'NF==3{print $3}' | sort -u > "$T/s.def"

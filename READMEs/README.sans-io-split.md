@@ -255,14 +255,14 @@ directory.
 | `lib/sansio/*` | sansIO | every role that speaks a wire protocol (`h1`, `h2`, `h3`, `http`, `ws`, `wt`, `quic`, `mqtt`, `raw-skt`, `raw-proxy`): state machine, parser, framer, scheduler; `private-lib-sansio.h`, the role ops and the wsi state; `private-lib-sansio-seam.h`, the seam |
 | `lib/sansio/wsi.c`, `wsi-state.c`, `close.c`, `state.c`, `vhost.c`, `socks5-client.c`, `dummy-callback.c` | sansIO | the wsi state, the event table, connection lifecycle decisions, the vhost's protocols and roles, the socks handshake |
 | `lib/sansio/client-connect4.c` | sansIO | a client's step once its socket is connected (`lws_client_connect_4_established()`): it composes the http proxy CONNECT, runs the socks greeting, queues a pipelined connection behind its leader, and otherwise asks IO for the transport |
-| `lib/io/`: `output.c`, `pollfd.c`, `service.c`, `adopt.c`, `network.c`, `route.c`, `wsi-timeout.c`, `sorted-usec-list.c`, `vhost.c` | IO | moving bytes, fds, poll, timers; a vhost's creation and destruction (its listen sockets, tls contexts, dns) |
+| `lib/io/`: `output.c`, `pollfd.c`, `service.c`, `adopt.c`, `network.c`, `route.c`, `sorted-usec-list.c`, `vhost.c` | IO | moving bytes, fds, poll; running the timers that are due; a vhost's creation and destruction (its listen sockets, tls contexts, dns) |
 | `lib/io/client/`: `connect.c`, `connect2.c`, `connect3.c`, `transport.c`, `sort-dns.c`, `conmon.c` | IO | dns, connect, happy eyeballs; address selection for connect (RFC 6724 sorting of the resolved addresses); the connection-monitoring report of what the transport did |
 | `lib/tls/*` record layer: `lws_ssl_capable_read/write`, bio, session cache, handshake driving | IO | sansIO sees plaintext |
 | `lib/sansio/quic` packet and frame layer, `lib/sansio/h3`, qpack | sansIO | quic is a sansIO part with a datagram interface instead of a stream one |
 | `lib/io/listen`, `netlink`, `pipe`, `raw-file`, `dbus`, `cgi` | IO | transport adapters wearing the role interface: they accept sockets, read pipes, fds and the kernel's routing; nothing on the wire is theirs |
 | `lib/plat/*`, `lib/event-libs/*` | IO | |
 | `lib/core/*`, `lib/misc/*`, `lib/system/*` | neither | context, logging, utilities: shared by both halves, used by both |
-| `lib/core-net/roles.c`, `async-queue.c`, `client/client.c`, the generic crypto in `lib/tls` (`lws-gen*`) | neither | the role registry both halves dispatch through (sansIO roles and IO's adapters), the worker pool, the client's proxy settings and header stash that both halves call, crypto primitives |
+| `lib/core-net/roles.c`, `async-queue.c`, `client/client.c`, `sorted-usec-list.c`, `wsi-timeout.c`, the generic crypto in `lib/tls` (`lws-gen*`) | neither | the role registry both halves dispatch through (sansIO roles and IO's adapters), the worker pool, the client's proxy settings and header stash that both halves call, the timer lists both halves schedule into and a connection's timeouts on them (a new earliest deadline is announced to IO through the `deadline` op), crypto primitives |
 | `lib/io/lejp-conf.c` | IO | lwsws' config: it makes the vhosts and mounts it describes |
 
 Of the files that had both, `connect4.c` is whole in sansIO as

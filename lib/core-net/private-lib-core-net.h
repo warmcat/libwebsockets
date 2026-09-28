@@ -65,10 +65,15 @@ struct lws_muxable {
 extern "C" {
 #endif
 
-#define __lws_sul_insert_us(owner, sul, _us) \
+/*
+ * Schedule sul on the pt's timer list idx (LWSSULLI_...) _us from now.  An IO
+ * that wants to hear of a new earliest deadline (lws-io-ops.h deadline) does,
+ * from __lws_sul_insert_pt(), as it does for lws_sul2_schedule()
+ */
+#define __lws_sul_insert_us(pt, idx, sul, _us) \
 	do { \
 		(sul)->us = lws_now_usecs() + (lws_usec_t)(_us); \
-		__lws_sul_insert(owner, sul); \
+		__lws_sul_insert_pt(pt, idx, sul); \
 	} while (0)
 
 
@@ -1523,6 +1528,19 @@ void
 lws_wsi_mux_client_idle_check(struct lws *nwsi);
 #endif
 
+
+/*
+ * Insert sul, its us already set, on the pt's timer list idx
+ * (LWSSULLI_...), and if it became the earliest deadline there, tell an IO
+ * that wants to know (lws-io-ops.h deadline).  Needs the pt lock.
+ */
+void
+__lws_sul_insert_pt(struct lws_context_per_thread *pt, int idx,
+		    lws_sorted_usec_list_t *sul);
+
+/* lws_set_timeout(), for callers holding the service thread lock */
+void
+__lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 
 /*
  * The requests sansIO makes of IO (lws-io-ops.h), as sansIO code spells
