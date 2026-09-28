@@ -116,9 +116,6 @@ int
 lws_service_flag_pending(struct lws_context *context, int tsi);
 
 void
-lws_sa46_copy_address(lws_sockaddr46 *sa46a, const void *in, int af);
-
-void
 lws_libuv_closehandle(struct lws *wsi);
 
 int
@@ -332,12 +329,6 @@ lws_netdev_wifi_redo_last(lws_netdev_instance_wifi_t *wnd);
 
 void
 lws_netdev_wifi_scan(lws_sorted_usec_list_t *sul);
-
-void
-lws_4to6(uint8_t *v6addr, const uint8_t *v4addr);
-
-void
-lws_sa46_4to6(lws_sockaddr46 *sa46, const uint8_t *v4addr, uint16_t port);
 
 #if (defined(LWS_WITH_CLIENT))
 void

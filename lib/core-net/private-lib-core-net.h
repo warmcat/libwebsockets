@@ -1539,6 +1539,14 @@ void
 __lws_sul_insert_pt(struct lws_context_per_thread *pt, int idx,
 		    lws_sorted_usec_list_t *sul);
 
+/* addresses as data (core-net/address.c) */
+void
+lws_sa46_copy_address(lws_sockaddr46 *sa46a, const void *in, int af);
+void
+lws_4to6(uint8_t *v6addr, const uint8_t *v4addr);
+void
+lws_sa46_4to6(lws_sockaddr46 *sa46, const uint8_t *v4addr, uint16_t port);
+
 /* lws_set_timeout(), for callers holding the service thread lock */
 void
 __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
