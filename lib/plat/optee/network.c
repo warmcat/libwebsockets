@@ -57,9 +57,9 @@ lws_plat_pipe_is_fd_assocated(struct lws_context *cx, int tsi, lws_sockfd_type f
 }
 
 /*
- * io_ops tx_choked (lws-io-ops.h): would the socket under wsi, the
- * connection owning it, block a write now.  What sansIO holds itself,
- * lws_send_pipe_choked() has already answered for.
+ * would the socket under wsi, the connection owning it, block a write now.
+ * Asked by IO's lws_io_tx_choked_pollfd() only for a valid socket that is
+ * not under a transport.
  */
 int
 lws_plat_tx_choked(struct lws *wsi)

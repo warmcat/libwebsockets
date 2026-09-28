@@ -458,7 +458,9 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len);
 void
 lws_io_tx_now(struct lws *wsi);
 #endif
-/* the platform's answer: would the transport under wsi block a write now */
+/* would the transport under wsi block a write now: IO's, then the socket's */
+int
+lws_io_tx_choked_pollfd(struct lws *wsi);
 int
 lws_plat_tx_choked(struct lws *wsi);
 

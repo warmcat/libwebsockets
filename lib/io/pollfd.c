@@ -875,7 +875,7 @@ const lws_io_ops_t lws_io_ops_default = {
 #if defined(LWS_WITH_UDP)
 	.tx_now		= lws_io_tx_now,
 #endif
-	.tx_choked	= lws_plat_tx_choked,
+	.tx_choked	= lws_io_tx_choked_pollfd,
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_FILE_OPS)
 	.tx_file	= lws_serve_http_file_fragment,
 #endif

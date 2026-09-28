@@ -441,6 +441,30 @@ do_err:
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
+/*
+ * io_ops tx_choked (lws-io-ops.h): would the transport under wsi, the
+ * connection owning it, block a write now.  What sansIO holds itself,
+ * lws_send_pipe_choked() has already answered for.
+ *
+ * A connection on a transport (lws_set_transport()) is written through the
+ * transport, not its fd, which is only its place in the poll set: the fd's
+ * writability says nothing about it.  The transport takes what it can and
+ * a short write leaves the rest buffered, which sansIO answers for, so it
+ * is not choked here.  A connection with no socket (yet, or any more) has
+ * nothing to take a write.  Otherwise the platform asks the socket.
+ */
+int
+lws_io_tx_choked_pollfd(struct lws *wsi)
+{
+	if (wsi->io->transport)
+		return 0;
+
+	if (!lws_socket_is_valid(wsi->io->desc.sockfd))
+		return 1;
+
+	return lws_plat_tx_choked(wsi);
+}
+
 int
 lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 {

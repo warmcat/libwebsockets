@@ -22,9 +22,14 @@
  * Client half: we check the bytes the client sends and feed the bytes a
  * server would answer with: an h1 GET and its response body, then a ws
  * upgrade, the client's first frame, and a frame to it.
+ *
+ * Then whether the transport would take a write: a connection on the test's
+ * transport is asked of the transport, never of the fd that is its place in
+ * the poll set, even when that fd could not take a byte.
  */
 
 #include <libwebsockets.h>
+#include <fcntl.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -424,6 +429,58 @@ server_half(struct lws_context *cx)
 	return 0;
 }
 
+/*
+ * 7: lws_send_pipe_choked() on a connection over the test transport.  Its
+ * fd is only its place in the poll set, so an fd that could not take a
+ * write must not make the connection choked: the transport takes the bytes.
+ */
+static int
+choked_half(struct lws_context *cx)
+{
+	static const uint8_t fill[4096];
+	struct lws *wsi;
+	int sv[2], e = 1;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+
+	/* nobody reads sv[1]: sv[0] takes writes until its buffer is full */
+	if (fcntl(sv[0], F_SETFL, O_NONBLOCK) < 0) {
+		lwsl_err("case 7: nonblocking failed\n");
+		close(sv[0]);
+		goto bail;
+	}
+	while (write(sv[0], fill, sizeof(fill)) > 0)
+		;
+
+	wsi = lws_adopt_socket(cx, sv[0]);
+	if (!wsi) {
+		lwsl_err("case 7: adopt failed\n");
+		goto bail;
+	}
+
+	/* on its socket, the full fd is the connection's: it is choked */
+	if (!lws_send_pipe_choked(wsi)) {
+		lwsl_err("case 7: full socket not choked\n");
+		goto bail;
+	}
+
+	lws_set_transport(wsi, &tops, NULL);
+	if (lws_send_pipe_choked(wsi)) {
+		lwsl_err("case 7: transport choked by its poll fd\n");
+		goto bail;
+	}
+	lwsl_user("case 7: a transport is not choked by its poll fd: PASS\n");
+	e = 0;
+
+bail:
+	close(sv[1]);
+
+	return e;
+}
+
 #if defined(LWS_WITH_CLIENT)
 
 static struct lws *
@@ -608,6 +665,8 @@ main(int argc, const char **argv)
 #else
 	(void)vh;
 #endif
+	if (choked_half(cx))
+		goto bail;
 
 	result = 0;
 

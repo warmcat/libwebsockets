@@ -217,7 +217,7 @@ embedder carries nothing that needs it.
 | tls | `tls_quic_aead`, `tls_quic_alert`, `tls_quic_alpn` | what quic's handshake settled | `lws_tls_quic_aead_type()`, `_alert()`, `_alpn()` |
 | tx | `tx_push` | take these framed bytes now (the push) | `lws_io_tx_push()` |
 | tx | `tx_now` (optional) | pull a datagram connection's tx now | `lws_io_tx_now()` |
-| tx | `tx_choked` | would the transport block a write now | `lws_plat_tx_choked()` |
+| tx | `tx_choked` | would the transport block a write now | `lws_io_tx_choked_pollfd()` (a transport connection is not choked by its poll fd; a socket asks `lws_plat_tx_choked()`) |
 | tx | `tx_file` (optional) | drive a served file into the transport | `lws_serve_http_file_fragment()` |
 | service | `service_writable` | want_write served now | `lws_service_wsi_as_writable()` |
 | service | `service_now` | rx served now | `lws_io_service_now()` |
@@ -585,7 +585,7 @@ on and marked done here, like the staging above.
    (`LWS_WITH_SANSIO_LINK_TEST`, and ctest runs `api-test-sansio-link`)
    and runs `scripts/sans-io-link-check.sh`; `scripts/sans-io-check.sh`
    is not run there, since the build fails on the same calls).
-2. The harness covers only h1 and ws (six cases).  It needs h2, h3
+2. The harness covers only h1 and ws (seven cases).  It needs h2, h3
    through the datagram edge (`recv_dgram` / `send_dgram` in the
    transport ops), mqtt, and a case under tls.
 3. Behaviour left over from the split:
