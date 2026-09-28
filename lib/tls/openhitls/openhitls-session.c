@@ -397,12 +397,15 @@ lws_tls_session_dump_save(struct lws_vhost *vh, const char *host, uint16_t port,
 				lws_tls_sess_cb_t cb_save, void *opq)
 {
 	struct lws_tls_session_dump d;
+	uint32_t len = 0, used = 0;
 	lws_tls_sco_t *ts;
 	int ret = 1;
 
 	if (vh->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE)
 		return 1;
 
+	memset(&d, 0, sizeof(d));
+	d.opaque = opq;
 	lws_tls_session_tag_discrete(vh->name, host, port, d.tag, sizeof(d.tag));
 
 	lws_context_lock(vh->context, __func__); /* -------------- cx { */
@@ -412,32 +415,31 @@ lws_tls_session_dump_save(struct lws_vhost *vh, const char *host, uint16_t port,
 	if (!ts)
 		goto bail;
 
-	uint32_t used_len = 0; HITLS_SESS_Encode(ts->session, NULL, 0, &used_len); d.blob_len = used_len;
-	if (!d.blob_len || d.blob_len > UINT32_MAX)
+	/*
+	 * openHiTLS serializes its own native session format here.  These
+	 * blobs are intentionally backend-private and are not compatible with
+	 * OpenSSL SSL_SESSION DER.  With no buffer, it tells us the length.
+	 */
+
+	if (HITLS_SESS_Encode(ts->session, NULL, 0, &len) != HITLS_SUCCESS ||
+	    !len)
 		goto bail;
 
-	d.blob = lws_malloc(d.blob_len, __func__);
-	if (d.blob) {
-		uint32_t used_len = 0;
-		/*
-		 * openHiTLS serializes its own native session format here.
-		 * These blobs are intentionally backend-private and are not
-		 * compatible with OpenSSL SSL_SESSION DER.
-		 */
-		if (HITLS_SESS_Encode(ts->session, d.blob,
-				      (uint32_t)d.blob_len,
-				      &used_len) == HITLS_SUCCESS &&
-		    used_len && used_len <= d.blob_len) {
-			d.opaque = opq;
-			d.blob_len = used_len;
-			if (cb_save(vh->context, &d))
-				lwsl_notice("%s: save failed\n", __func__);
-			else
-				ret = 0;
-		}
+	d.blob = lws_malloc(len, __func__);
+	if (!d.blob)
+		goto bail;
 
-		lws_free(d.blob);
+	if (HITLS_SESS_Encode(ts->session, d.blob, len, &used) ==
+								HITLS_SUCCESS &&
+	    used && used <= len) {
+		d.blob_len = used;
+		if (cb_save(vh->context, &d))
+			lwsl_notice("%s: save failed\n", __func__);
+		else
+			ret = 0;
 	}
+
+	lws_free(d.blob);
 
 bail:
 	lws_vhost_unlock(vh); /* } vh --------------  */
