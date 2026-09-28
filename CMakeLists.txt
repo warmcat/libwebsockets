@@ -464,6 +464,7 @@ option(LWS_WITH_SUL_DEBUGGING "Enable zombie lws_sul checking on object deletion
 option(LWS_WITH_STATE_TRACE "Diagnostic only: append every distinct wsi role/state transition seen by the process to $LWS_STATE_TRACE_FILE (stderr if unset), to derive the transition tables. Off by default." OFF)
 option(LWS_WITH_STATE_CHECK "Debug only: check every wsi role/state transition against the per-machine transition tables in lib/sansio/wsi-state.c and abort on one that is not listed. Off by default." OFF)
 option(LWS_WITH_SERVBUF_CHECK "Debug only: track which code owns which range of the per-thread pt->serv_buf scratch buffer, abort on an overlapping claim or on a claim held across a service pass. Off by default." OFF)
+option(LWS_WITH_SANSIO_LINK_TEST "Also link the sansIO half alone as a shared library (websockets-sansio), with only the substrate neither half owns and the platform's injected clock, random source and file access, and every unresolved symbol an error: it links only when sansIO needs nothing of IO's but the io_ops (READMEs/README.sans-io-split.md).  Not on MSVC.  Off by default." OFF)
 option(LWS_WITH_PLUGINS_API "Build generic lws_plugins apis (see LWS_WITH_PLUGINS to also build protocol plugins)" OFF)
 
 # both dlopened and builtin protocol plugins need the generic plugin apis at

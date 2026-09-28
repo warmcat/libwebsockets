@@ -166,6 +166,8 @@ a call to an IO function declared in a header both halves include,
 `scripts/sans-io-link-check.sh <build-dir>` finds in the built objects:
 every symbol the sansIO objects reference that only an IO object defines
 and that is neither public api nor in the seam, with the files using it.
+It is the inventory; the strict form is the links-alone test ("The
+contract").
 
 **The four requests sansIO makes of IO** (want_write, deadline, want_read,
 close) are spelled `lws_callback_on_writable()`, `lws_set_timeout()` /
@@ -233,6 +235,32 @@ dependencies rather than requests: `lws_now_usecs()`, the clock, and
 else sansIO links with is the substrate neither half owns (`lib/core`,
 `lib/misc`, the neither-half files of `lib/core-net`, the generic crypto),
 which a port translates along with it.
+
+**The links-alone test** is the contract checked by the linker, the C
+tree's form of the boundary between a sansIO crate and an IO crate.  With
+`-DLWS_WITH_SANSIO_LINK_TEST=1` (not on MSVC) the build also links
+`libwebsockets-sansio`, a shared library of the sources under `lib/sansio`,
+the substrate they need (listed in `lib/CMakeLists.txt`: the allocator,
+buflist, dll2, logs, region, vfs and utilities of `lib/core`, the address,
+client stash, role registry, timer list and timeout files of
+`lib/core-net`, base64, sha-1, lwsac and the cache of `lib/misc`, the
+generic crypto) and the platform's injected clock, random source and file
+access (`lib/plat/unix/unix-misc.c`, `unix-file.c`), with every
+unresolved symbol an error (`-Wl,--no-undefined`, `-Wl,-undefined,error`
+on Apple).  It links only when sansIO needs nothing of IO's but the ops.
+`api-test-sansio-link` links a program against it alone and runs it, and
+the sai configuration `sansio` turns it on.
+
+What sansIO still takes from outside the ops, the substrate and the
+platform is an explicit allow-list in `lib/CMakeLists.txt`, provided to
+the link by a generated stub library so the rest stays strict; each entry
+waits on a design decision rather than a move:
+
+| symbols | why they are not settled |
+|---|---|
+| `lws_ss_event_helper()`, `lws_ss_backoff()`, `lws_ss_destroy()`, `lws_ss_server_accept_bind()`, `lws_ss_tag()`, `lws_conmon_ss_json()`, `protocol_secstream_ws` | secure streams is a layer over both halves, but sansIO calls into it directly: the close tells a stream it disconnected or was unreachable, an h2 or ws server upgrade binds one, the h1 client reports its conmon to one.  Whether that becomes callbacks the stream layer registers like any protocol is open |
+| `lws_smd_msg_printf()` | the system state manager announces its transitions as SMD messages; SMD wakes the loop and talks to secure streams itself, so it is not substrate as it stands |
+| `lws_async_queue_submit()` | the worker pool takes the file server's reads off the service thread, but also runs IO's tls accepts and wakes IO's loop itself; its jobs would need to carry their own work, and its wake to be a request of IO, before it is substrate |
 
 How the calls sansIO made into IO were placed, when the contract was
 written down (2026-09-28): the timer lists and a connection's timeouts
@@ -533,9 +561,10 @@ can be live).
    seam; with the link-level check, the objects need nothing private of
    IO's; and with the struct split both halves compile the same
    `struct lws`, so the library the byte-level harness runs against is
-   the one whose sansIO objects were compiled that way).  These are the
-   test of "technically complete"; the static checks above are
-   inferences until they pass.
+   the one whose sansIO objects were compiled that way), and linked alone
+   (done: the links-alone test, "The contract", with the allow-list it
+   states).  These are the test of "technically complete"; the static
+   checks above are inferences until they pass.
 10. When every role is converted, the IO half is a replaceable component,
    and the sansIO half is what a port translates.
 
@@ -551,9 +580,10 @@ on and marked done here, like the staging above.
    checks on (done: the compile check is part of every build, on every
    platform and configuration CI builds; the sai configuration `sansio`,
    on one Linux gcc builder with the optional features that reach across
-   the split on, also runs `scripts/sans-io-link-check.sh`;
-   `scripts/sans-io-check.sh` is not run there, since the build fails on
-   the same calls).
+   the split on, also links the sansIO half alone
+   (`LWS_WITH_SANSIO_LINK_TEST`, and ctest runs `api-test-sansio-link`)
+   and runs `scripts/sans-io-link-check.sh`; `scripts/sans-io-check.sh`
+   is not run there, since the build fails on the same calls).
 2. The harness covers only h1 and ws (six cases).  It needs h2, h3
    through the datagram edge (`recv_dgram` / `send_dgram` in the
    transport ops), mqtt, and a case under tls.

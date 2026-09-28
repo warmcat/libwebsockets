@@ -12,6 +12,13 @@
 #
 # -v also lists the public and seam symbols sansIO takes from IO.
 # Needs nm.  Exit 0 when nothing private is referenced.
+#
+# This is the inventory.  The strict test is the links-alone one, cmake
+# -DLWS_WITH_SANSIO_LINK_TEST=1: it links the sansIO half as
+# libwebsockets-sansio with only the substrate and the platform's injected
+# clock, random source and file access, every unresolved symbol an error,
+# so any reference to IO beyond the io_ops fails the build.  The end of the
+# output says whether this build has it.
 
 cd "$(dirname "$0")/.." || exit 1
 B=${1:?build dir}
@@ -64,4 +71,9 @@ while read -r s; do
 done < "$T/priv"
 
 echo "sansIO -> IO symbols: $N private, $S seam, $P public"
+if ls "$B"/lib/libwebsockets-sansio.* >/dev/null 2>&1; then
+	echo "strict: this build has the links-alone test (LWS_WITH_SANSIO_LINK_TEST), libwebsockets-sansio linked"
+else
+	echo "strict: the links-alone test is -DLWS_WITH_SANSIO_LINK_TEST=1 (libwebsockets-sansio, every unresolved symbol an error); not in this build"
+fi
 [ "$N" -eq 0 ]
