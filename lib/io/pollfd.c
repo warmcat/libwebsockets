@@ -844,9 +844,6 @@ const lws_io_ops_t lws_io_ops_default = {
 #if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
 	.transport_failed	= lws_client_transport_failed,
 #endif
-#if defined(LWS_WITH_TLS_JIT_TRUST)
-	.transport_rebind	= lws_client_transport_rebind,
-#endif
 	.client_connect		= lws_client_connect_via_info,
 #endif
 #if !defined(LWS_PLAT_OPTEE)
@@ -892,8 +889,20 @@ const lws_io_ops_t lws_io_ops_default = {
 
 	.finalize_startup = lws_finalize_startup,
 	.vhost_destroy	= __lws_vhost_destroy2,
+};
+
+/*
+ * IO's plumbing (private-lib-core-net.h): what sansIO asks of IO's own
+ * features, a context's whatever io_ops it was given
+ */
+const lws_io_plumbing_t lws_io_plumbing_default = {
+#if defined(LWS_WITH_TLS_JIT_TRUST) && defined(LWS_WITH_CLIENT)
+	.transport_rebind	= lws_client_transport_rebind,
+#else
+	.transport_rebind	= NULL, /* so the initializer is never empty */
+#endif
 #if defined(LWS_WITH_TLS_JIT_TRUST)
-	.vhost_jit_grace = lws_tls_jit_trust_vh_start_grace,
+	.vhost_jit_grace	= lws_tls_jit_trust_vh_start_grace,
 #endif
 
 #if defined(LWS_WITH_CGI)

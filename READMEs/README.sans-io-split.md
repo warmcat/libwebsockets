@@ -204,7 +204,6 @@ embedder carries nothing that needs it.
 | transport | `transport_connected` | the socks / CONNECT tunnel is up | `lws_client_transport_connected()` |
 | transport | `transport_established` | quic made its transport, it won the race | `lws_client_transport_established()` |
 | transport | `transport_failed` (optional) | quic's transport failed: retarget if possible | `lws_client_transport_failed()` |
-| transport | `transport_rebind` (optional) | a restarted client may belong on a jit-trust vhost | `lws_client_transport_rebind()` |
 | transport | `client_connect` (optional) | a new client connection, a proxied transaction's onward leg | `lws_client_connect_via_info()` |
 | transport | `peer_address` (optional) | the peer's address as text | `lws_get_peer_simple()` |
 | tls | `tls_session` (optional) | the library's session object | `lws_tls_session_ptr()` |
@@ -226,11 +225,23 @@ embedder carries nothing that needs it.
 | rx | `http_client_read` (optional) | the app pulls its response body | `lws_http_client_read()` |
 | vhost | `finalize_startup` (optional) | the protocols are initialized: the process may drop its privileges | `lws_finalize_startup()` |
 | vhost | `vhost_destroy` | a going vhost's last connection went | `__lws_vhost_destroy2()` |
-| vhost | `vhost_jit_grace` (optional) | a jit-trust vhost's last connection went | `lws_tls_jit_trust_vh_start_grace()` |
-| cgi | `cgi_start`, `cgi_stdout_tx`, `cgi_stdin_write`, `cgi_stdin_body_end`, `cgi_stderr_read`, `cgi_remove_and_kill`, `cgi_release` | an http transaction's child process | `lws_cgi_via_info()`, `lws_cgi_write_split_stdout_headers()`, `lws_cgi_stdin_write()`, ... |
 
-The tls members exist in a build with tls, the cgi ones in a build with
-cgi, since the types they name do.  The platform functions are injected
+A member marked optional is checked before it is called, and a NULL one
+answers as though the request could not be done (no file can be sent, no
+onward connection made, no fallback taken, no session or certificate
+information), so leaving one NULL in a build that has the feature fails
+that feature, not the process.
+
+What sansIO asks of features only lws' own IO has is not in the contract:
+a restarted client's rebind onto a jit-trust vhost and a jit-trust vhost's
+grace period, and an http transaction's cgi child process (its start, its
+stdout relayed as the response, its stdin fed the request body and closed,
+its stderr read, its kill and release).  No other IO supplies them, so they
+are IO's plumbing, `lws_io_plumbing_t` in `private-lib-core-net.h`: the
+seam reaches them the same way, through the context, so the sansIO objects
+still take nothing of IO's for them, but the table is private, IO fills it
+in (`lws_io_plumbing_default`) whatever `io_ops` the context was given, and
+its members are NULL, and checked, in a build without their feature.  The platform functions are injected
 dependencies rather than requests: `lws_now_usecs()`, the clock, and
 `lws_get_random()`, the random source.  A port passes them in; everything
 else sansIO links with is the substrate neither half owns (`lib/core`,

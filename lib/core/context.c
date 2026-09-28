@@ -1344,6 +1344,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->options = info->options;
 #if defined(LWS_WITH_NETWORK)
 	context->io_ops = info->io_ops ? info->io_ops : &lws_io_ops_default;
+	context->io_plumbing = &lws_io_plumbing_default;
 #else
 	context->io_ops = info->io_ops;
 #endif

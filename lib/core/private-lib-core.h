@@ -491,6 +491,9 @@ typedef struct {
 
 struct lws_context {
 	const lws_io_ops_t		*io_ops; /* the requests of IO */
+	const struct lws_io_plumbing	*io_plumbing;
+	/**< requests of lws' own IO's features (the cgi, jit trust), which
+	 * are not part of io_ops' contract */
 	size_t				wsi_io_size;
 	/**< IO's half of each wsi, allocated after it: the adjunct and the
 	 * event library's per-wsi block */

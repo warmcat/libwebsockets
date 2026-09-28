@@ -26,6 +26,10 @@
  * call through the context's lws_io_ops_t (include/libwebsockets/lws-io-ops.h),
  * which IO fills in with lws_io_ops_default and an embedder of the sansIO half
  * with its own, so the sansIO objects reference nothing of IO's for them.
+ * The requests of lws' own IO's features (the cgi, jit trust) go the same
+ * way through the context's lws_io_plumbing_t (private-lib-core-net.h),
+ * which is not part of that contract.  A member that may be NULL is checked
+ * here, and the request answered as though it could not be done.
  *
  * The wrappers are for the sansIO sources, which compile with
  * LWS_SANSIO_CHECK: they keep the names the requests always had, so the call
@@ -84,14 +88,17 @@ lws_io_tx_choked(struct lws *wsi)
 static LWS_INLINE int
 lws_io_tx_file(struct lws *wsi)
 {
+	if (!wsi->a.context->io_ops->tx_file)
+		return -1; /* nothing can send it: close */
+
 	return wsi->a.context->io_ops->tx_file(wsi);
 }
 #endif
 
 /*
  * the transport (lws_io_ops_t transport_start, transport_connected,
- * transport_established, transport_failed, transport_rebind, client_connect,
- * peer_address)
+ * transport_established, transport_failed, client_connect, peer_address;
+ * IO's plumbing's transport_rebind)
  */
 
 #if defined(LWS_WITH_CLIENT)
@@ -135,6 +142,9 @@ lws_client_transport_established(struct lws *wsi)
 static LWS_INLINE int
 lws_client_transport_failed(struct lws *wsi)
 {
+	if (!wsi->a.context->io_ops->transport_failed)
+		return 0; /* nowhere else to go: the close goes on */
+
 	return wsi->a.context->io_ops->transport_failed(wsi);
 }
 #endif
@@ -142,12 +152,13 @@ lws_client_transport_failed(struct lws *wsi)
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 /*
  * a restarted client may belong on another vhost now, the one whose trust
- * store (jit trust) is for its new address: IO rebinds it
+ * store (jit trust) is for its new address: IO rebinds it (IO's plumbing)
  */
 static LWS_INLINE void
 lws_client_transport_rebind(struct lws *wsi)
 {
-	wsi->a.context->io_ops->transport_rebind(wsi);
+	if (wsi->a.context->io_plumbing->transport_rebind)
+		wsi->a.context->io_plumbing->transport_rebind(wsi);
 }
 #endif
 
@@ -159,6 +170,9 @@ lws_client_transport_rebind(struct lws *wsi)
 static LWS_INLINE struct lws *
 lws_io_client_connect(const struct lws_client_connect_info *i)
 {
+	if (!i->context->io_ops->client_connect)
+		return NULL; /* no onward leg can be made */
+
 	return i->context->io_ops->client_connect(i);
 }
 #endif
@@ -328,13 +342,16 @@ lws_io_wake(struct lws *wsi)
 static LWS_INLINE int
 lws_io_http_client_read(struct lws *wsi, char **buf, int *len)
 {
+	if (!wsi->a.context->io_ops->http_client_read)
+		return -1;
+
 	return wsi->a.context->io_ops->http_client_read(wsi, buf, len);
 }
 #endif
 
 /*
- * the vhost and the context (lws_io_ops_t vhost_destroy, vhost_jit_grace,
- * finalize_startup): a vhost's creation and destruction are IO's, and so is
+ * the vhost and the context (lws_io_ops_t vhost_destroy, finalize_startup;
+ * IO's plumbing's vhost_jit_grace): a vhost's creation and destruction are IO's, and so is
  * the process the context runs in
  */
 
@@ -364,18 +381,19 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 /*
  * a vhost made for a jit-trusted peer lost its last connection: IO keeps it
- * a grace period in case another comes, then destroys it
+ * a grace period in case another comes, then destroys it (IO's plumbing)
  */
 static LWS_INLINE void
 lws_tls_jit_trust_vh_start_grace(struct lws_vhost *vh)
 {
-	vh->context->io_ops->vhost_jit_grace(vh);
+	if (vh->context->io_plumbing->vhost_jit_grace)
+		vh->context->io_plumbing->vhost_jit_grace(vh);
 }
 #endif
 
 #if defined(LWS_WITH_CGI)
 /*
- * the cgi (lws_io_ops_t cgi_...): an http transaction's cgi is a child
+ * the cgi (IO's plumbing, cgi_...): an http transaction's cgi is a child
  * process IO runs for it
  */
 
@@ -383,7 +401,12 @@ lws_tls_jit_trust_vh_start_grace(struct lws_vhost *vh)
 static LWS_INLINE int
 lws_io_cgi_start(struct lws_cgi_info *info)
 {
-	return info->wsi->a.context->io_ops->cgi_start(info);
+	const lws_io_plumbing_t *p = info->wsi->a.context->io_plumbing;
+
+	if (!p->cgi_start)
+		return -1;
+
+	return p->cgi_start(info);
 }
 
 /*
@@ -393,7 +416,12 @@ lws_io_cgi_start(struct lws_cgi_info *info)
 static LWS_INLINE int
 lws_io_cgi_stdout_tx(struct lws *wsi)
 {
-	return wsi->a.context->io_ops->cgi_stdout_tx(wsi);
+	const lws_io_plumbing_t *p = wsi->a.context->io_plumbing;
+
+	if (!p->cgi_stdout_tx)
+		return -1;
+
+	return p->cgi_stdout_tx(wsi);
 }
 
 /* the request body to the child's stdin, as much as its pipe takes now */
@@ -402,41 +430,45 @@ lws_cgi_stdin_write(struct lws_cgi_args *args)
 {
 	struct lws *siwsi = args->stdwsi[LWS_STDIN];
 
-	if (!siwsi)
+	if (!siwsi || !siwsi->a.context->io_plumbing->cgi_stdin_write)
 		return -1; /* the stdin is gone */
 
-	return siwsi->a.context->io_ops->cgi_stdin_write(args);
+	return siwsi->a.context->io_plumbing->cgi_stdin_write(args);
 }
 
 /* the request body is complete: the child's stdin is closed */
 static LWS_INLINE void
 lws_cgi_stdin_body_end(struct lws *wsi)
 {
-	wsi->a.context->io_ops->cgi_stdin_body_end(wsi);
+	if (wsi->a.context->io_plumbing->cgi_stdin_body_end)
+		wsi->a.context->io_plumbing->cgi_stdin_body_end(wsi);
 }
 
 /* what the child wrote on its stderr, from its stderr pipe wsi, into buf */
 static LWS_INLINE int
 lws_cgi_stderr_read(struct lws *stdwsi, char *buf, size_t len)
 {
-	if (!stdwsi)
+	if (!stdwsi || !stdwsi->a.context->io_plumbing->cgi_stderr_read)
 		return -1;
 
-	return stdwsi->a.context->io_ops->cgi_stderr_read(stdwsi, buf, len);
+	return stdwsi->a.context->io_plumbing->cgi_stderr_read(stdwsi, buf,
+							       len);
 }
 
 /* the transaction is going: the child is killed */
 static LWS_INLINE void
 lws_cgi_remove_and_kill(struct lws *wsi)
 {
-	wsi->a.context->io_ops->cgi_remove_and_kill(wsi);
+	if (wsi->a.context->io_plumbing->cgi_remove_and_kill)
+		wsi->a.context->io_plumbing->cgi_remove_and_kill(wsi);
 }
 
 /* the transaction is done with its cgi: it and its pipes are released */
 static LWS_INLINE void
 lws_cgi_release(struct lws *wsi)
 {
-	wsi->a.context->io_ops->cgi_release(wsi);
+	if (wsi->a.context->io_plumbing->cgi_release)
+		wsi->a.context->io_plumbing->cgi_release(wsi);
 }
 #endif
 

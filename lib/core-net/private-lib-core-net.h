@@ -1558,6 +1558,67 @@ __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
  */
 extern const lws_io_ops_t lws_io_ops_default;
 
+struct lws_cgi_info;
+struct lws_cgi_args;
+
+/*
+ * IO's plumbing: requests sansIO makes of features lws' own IO implements
+ * for it, a cgi child process and a jit-trust vhost, that are not requests
+ * of a transport and that no other IO supplies.  They go through this
+ * table, not lws_io_ops_t, so the sansIO objects still reference nothing
+ * of IO's, but they are not part of the contract a port implements
+ * (README.sans-io-split.md, "The contract").  IO fills it in with
+ * lws_io_plumbing_default whatever io_ops the context was given.  Every
+ * member is declared in every build and is NULL in a build without its
+ * feature; sansIO checks before calling.
+ */
+typedef struct lws_io_plumbing {
+	void (*transport_rebind)(struct lws *wsi);
+	/**< the client wsi is restarting on a new address and may belong on
+	 * another vhost now, the one whose trust store (jit trust) is for it:
+	 * rebind it.  IO's is lws_client_transport_rebind(). */
+	void (*vhost_jit_grace)(struct lws_vhost *vh);
+	/**< vh, made for a peer trusted just in time, lost its last
+	 * connection: keep it a grace period in case another comes, then
+	 * destroy it.  Called with the context and vhost locks held.  IO's
+	 * is lws_tls_jit_trust_vh_start_grace(). */
+
+	/*
+	 * the cgi: an http transaction's cgi is a child process IO runs for
+	 * it, its stdio pipes watched by IO's cgi adapter role
+	 */
+
+	int (*cgi_start)(struct lws_cgi_info *info);
+	/**< start the child info describes for the transaction info->wsi, its
+	 * stdio on pipes, as the public lws_cgi_via_info(), which is IO's.
+	 * 0 ok, nonzero it could not be started. */
+	int (*cgi_stdout_tx)(struct lws *wsi);
+	/**< the transaction wsi is writeable and its child has stdout: relay
+	 * what it wrote, the response headers it wrote first as headers, as
+	 * the public lws_cgi_write_split_stdout_headers(), which is IO's.
+	 * <0 the transaction should be closed. */
+	int (*cgi_stdin_write)(struct lws_cgi_args *args);
+	/**< write args->data of args->len, request body, to the child's stdin
+	 * (args->stdwsi[LWS_STDIN], which sansIO knows is there): as much as
+	 * the pipe takes now, returning that; 0 when it is full, and the
+	 * transaction's rx is let go again when it drains; -1 when it failed. */
+	void (*cgi_stdin_body_end)(struct lws *wsi);
+	/**< the transaction wsi's request body is complete: close the child's
+	 * stdin so it sees the end, leaving the rest of the cgi up. */
+	int (*cgi_stderr_read)(struct lws *stdwsi, char *buf, size_t len);
+	/**< read what the child wrote on its stderr from its stderr pipe
+	 * stdwsi into buf of len, for the log.  Returns what was read, 0 or
+	 * -1 as read() does. */
+	void (*cgi_remove_and_kill)(struct lws *wsi);
+	/**< the transaction wsi is closing with its child still running:
+	 * kill the child. */
+	void (*cgi_release)(struct lws *wsi);
+	/**< the transaction wsi is done with its cgi: release the child, its
+	 * pipes and the cgi object. */
+} lws_io_plumbing_t;
+
+extern const lws_io_plumbing_t lws_io_plumbing_default;
+
 int
 __lws_io_want_write(struct lws *wsi);
 int
