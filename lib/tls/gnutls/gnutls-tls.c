@@ -148,6 +148,74 @@ lws_gnutls_priority_init(gnutls_priority_t *pr, const char *cipher_list,
 	return 0;
 }
 
+#if defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER)
+/*
+ * Set a cert + key pair from memory images into gnutls credentials.
+ *
+ * Like the other backends, the images may each be PEM or DER... Secure
+ * Streams policy certs and keys are DER, for example.  gnutls takes one
+ * format for both, so if both are PEM we pass them as they are (which keeps
+ * any intermediates following the leaf cert), otherwise we bring them both
+ * to DER.
+ */
+
+static int
+lws_gnutls_set_x509_key_mem(struct lws_context *cx,
+			    gnutls_certificate_credentials_t creds,
+			    const void *cert, size_t cert_len,
+			    const void *key, size_t key_len)
+{
+	lws_filepos_t dc_len = 0, dk_len = 0;
+	uint8_t *dc = NULL, *dk = NULL;
+	gnutls_datum_t c, k;
+	int n = -1;
+
+	/*
+	 * gnutls_datum_t data lacks const, so has to alias the caller's const
+	 * buffers via a cast that doesn't drop it
+	 */
+
+	if (cert_len >= 5 && !strncmp((const char *)cert, "-----", 5) &&
+	    key_len >= 5 && !strncmp((const char *)key, "-----", 5)) {
+		c.data = (unsigned char *)(uintptr_t)cert;
+		c.size = (unsigned int)cert_len;
+		k.data = (unsigned char *)(uintptr_t)key;
+		k.size = (unsigned int)key_len;
+
+		return gnutls_certificate_set_x509_key_mem(creds, &c, &k,
+							   GNUTLS_X509_FMT_PEM);
+	}
+
+	if (lws_tls_alloc_pem_to_der_file(cx, NULL, (const char *)cert,
+					  (lws_filepos_t)cert_len,
+					  &dc, &dc_len) ||
+	    lws_tls_alloc_pem_to_der_file(cx, NULL, (const char *)key,
+					  (lws_filepos_t)key_len,
+					  &dk, &dk_len)) {
+		lwsl_cx_err(cx, "unable to take cert / key to DER");
+		goto bail;
+	}
+
+	c.data = dc;
+	c.size = (unsigned int)dc_len;
+	k.data = dk;
+	k.size = (unsigned int)dk_len;
+
+	n = gnutls_certificate_set_x509_key_mem(creds, &c, &k,
+						GNUTLS_X509_FMT_DER);
+
+bail:
+	if (dk) {
+		/* our DER copy of the private key is a secret too */
+		lws_explicit_bzero(dk, (size_t)dk_len);
+		lws_free(dk);
+	}
+	lws_free(dc);
+
+	return n;
+}
+#endif
+
 int
 lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 {
@@ -389,23 +457,15 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		lwsl_notice("%s: vh %s: loaded client cert %s\n", __func__,
 			    vh->name, cert_filepath);
 	} else if (cert_mem && cert_mem_len && key_mem && key_mem_len) {
-		gnutls_datum_t dcert, dkey;
-
-		/* gnutls_datum_t data lacks const, so has to alias the
-		 * caller's const buffers via a cast that doesn't drop it
-		 */
-		dcert.data = (unsigned char *)(uintptr_t)cert_mem;
-		dcert.size = (unsigned)cert_mem_len;
-		dkey.data = (unsigned char *)(uintptr_t)key_mem;
-		dkey.size = (unsigned)key_mem_len;
-
-		if (gnutls_certificate_set_x509_key_mem(
+		if (lws_gnutls_set_x509_key_mem(vh->context,
 				vh->tls.ssl_client_ctx->creds,
-				&dcert, &dkey, GNUTLS_X509_FMT_PEM) < 0) {
+				cert_mem, cert_mem_len,
+				key_mem, key_mem_len) < 0) {
 			lwsl_err("%s: unable to load client cert from mem\n",
 				 __func__);
 			goto bail;
 		}
+		vh->tls.ssl_client_ctx->has_client_cert = 1;
 	}
 
 	if (lws_gnutls_priority_init(&vh->tls.ssl_client_ctx->priority,
@@ -1009,15 +1069,10 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	int n;
 
 	if (mem_cert && mem_privkey) {
-		gnutls_datum_t c, k;
-
-		c.data = (uint8_t *)mem_cert;
-		c.size = (unsigned int)len_mem_cert;
-		k.data = (uint8_t *)mem_privkey;
-		k.size = (unsigned int)mem_privkey_len;
-
-		n = gnutls_certificate_set_x509_key_mem(vhost->tls.ssl_ctx->creds,
-						       &c, &k, GNUTLS_X509_FMT_PEM);
+		n = lws_gnutls_set_x509_key_mem(vhost->context,
+						vhost->tls.ssl_ctx->creds,
+						mem_cert, len_mem_cert,
+						mem_privkey, mem_privkey_len);
 	} else if (cert && private_key) {
 		lwsl_notice("%s: loading cert %s, key %s\n", __func__, cert, private_key);
 		n = gnutls_certificate_set_x509_key_file(vhost->tls.ssl_ctx->creds,
