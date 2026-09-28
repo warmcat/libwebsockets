@@ -222,6 +222,7 @@ enum stub_req_paths_enum {
 struct stub_req_args {
 	struct vhd_cert_dist_server         *vhd;
 	struct lws                          *wsi;
+	char                                complete; /* all of it arrived */
 	char                                secret[129];
 	char                                subdomain[128];
 	char                                domain[128];
@@ -250,8 +251,10 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 		}
 	}
 
-	if (reason == LEJPCB_OBJECT_END)
+	if (reason == LEJPCB_OBJECT_END) {
+		a->complete = 1;
 		lws_callback_on_writable(a->wsi);
+	}
 
 	return 0;
 }
@@ -264,6 +267,28 @@ struct pss_stub_server {
 	int                             response_len;
 	int                             response_pos;
 };
+
+/*
+ * Forget one request, so the connection is ready for the next: the parent
+ * sends the next one on the same connection once it has had our answer
+ */
+static void
+cds_stub_req_release(struct pss_stub_server *pss)
+{
+	if (pss->parser_valid)
+		lejp_destruct(&pss->jctx);
+	pss->parser_valid = 0;
+
+	if (pss->response) {
+		/* it may be holding a private key */
+		lws_explicit_bzero(pss->response + LWS_PRE,
+				   (size_t)pss->response_len);
+		free(pss->response);
+		pss->response = NULL;
+	}
+
+	lws_explicit_bzero(&pss->args, sizeof(pss->args));
+}
 
 static int
 callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason,
@@ -281,6 +306,15 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 
 	case LWS_CALLBACK_RAW_RX:
 		lwsl_notice("%s: Stub received %d bytes\n", __func__, (int)len);
+		if (pss->args.complete) {
+			/*
+			 * The parent waits for our answer before it sends
+			 * anything else
+			 */
+			lwsl_err("%s: request while one is being answered\n",
+				 __func__);
+			return -1;
+		}
 		if (!pss->parser_valid) {
 			memset(&pss->args, 0, sizeof(pss->args));
 			pss->args.vhd = vhd;
@@ -306,12 +340,14 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 			if (pss->response_pos < pss->response_len)
 				lws_callback_on_writable(wsi);
 			else
-				return -1; /* Done */
+				/* answered, ready for the next */
+				cds_stub_req_release(pss);
 			break;
 		}
 
 		/* We need to generate the response */
-		if (!pss->parser_valid) break;
+		if (!pss->parser_valid || !pss->args.complete)
+			break;
 
 		if (strlen(pss->args.secret) != strlen(vhd->secret) || lws_timingsafe_bcmp(pss->args.secret, vhd->secret, (uint32_t)strlen(vhd->secret))) {
 			lwsl_err("%s: Secret mismatch (received secret len %d, expected len %d)\n", __func__, (int)strlen(pss->args.secret), (int)strlen(vhd->secret));
@@ -450,10 +486,8 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 
 	case LWS_CALLBACK_RAW_CLOSE:
 	case LWS_CALLBACK_CLOSED:
-		if (pss) {
-			if (pss->parser_valid) lejp_destruct(&pss->jctx);
-			if (pss->response) free(pss->response);
-		}
+		if (pss)
+			cds_stub_req_release(pss);
 		break;
 
 	default:

@@ -751,6 +751,39 @@ bail:
 	return 0;
 }
 
+/*
+ * Forget one request, so the connection is ready for the next: the parent
+ * sends them one after another on the same connection, and does not wait for
+ * the ones it expects no reply to
+ */
+static void
+cdc_stub_req_release(struct stub_req_args *a)
+{
+	if (a->parser_valid)
+		lejp_destruct(&a->jctx);
+
+	/* it may be holding a private key */
+	if (a->fullchain) {
+		lws_explicit_bzero(a->fullchain, (size_t)a->fc_len);
+		free(a->fullchain);
+	}
+	if (a->privkey) {
+		lws_explicit_bzero(a->privkey, (size_t)a->pk_len);
+		free(a->privkey);
+	}
+	free(a->response);
+	lws_explicit_bzero(a->secret, sizeof(a->secret));
+
+	a->parser_valid	= 0;
+	a->fullchain	= NULL;
+	a->privkey	= NULL;
+	a->fc_len	= 0;
+	a->pk_len	= 0;
+	a->response	= NULL;
+	a->get_hash	= 0;
+	a->subdomain[0]	= '\0';
+}
+
 /* UDS Protocol for Stub <-> Client communication */
 static int
 callback_cert_dist_stub(struct lws *wsi, enum lws_callback_reasons reason,
@@ -758,59 +791,81 @@ callback_cert_dist_stub(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct vhd_cert_dist_client *vhd = cdc_stub;
 	struct stub_req_args *a = (struct stub_req_args *)user;
+	const uint8_t *p = (const uint8_t *)in;
+	int m;
 
 	if (!vhd) return -1;
 
 	switch (reason) {
 	case LWS_CALLBACK_RAW_ADOPT:
 		lwsl_notice("%s: UDS connection established\n", __func__);
-		if (a) {
-			memset(a, 0, sizeof(*a));
-			a->vhd = vhd;
-			a->wsi = wsi;
-			lejp_construct(&a->jctx, stub_req_cb, a, stub_req_paths, LWS_ARRAY_SIZE(stub_req_paths));
-			a->parser_valid = 1;
-		}
+		memset(a, 0, sizeof(*a));
+		a->vhd = vhd;
+		a->wsi = wsi;
 		break;
+
 	case LWS_CALLBACK_RAW_RX:
-		if (a && a->parser_valid) {
-			lwsl_notice("%s: Parsing %d bytes of JSON\n", __func__, (int)len);
-			int m = lejp_parse(&a->jctx, (uint8_t *)in, (int)len);
-			if (m < 0 && m != LEJP_CONTINUE) {
-				lwsl_err("%s: lejp parse failed: %d\n", __func__, m);
-				a->parser_valid = 0;
+		while (len) {
+			if (a->response) {
+				/*
+				 * The parent waits for our answer before it
+				 * sends anything else
+				 */
+				lwsl_err("%s: request while one is being "
+					 "answered\n", __func__);
 				return -1;
-			} else if (m == 0) {
-				if (!a->get_hash) {
-					lwsl_info("%s: lejp parse completed successfully (no hash requested)\n", __func__);
-					return -1; /* Close connection after successful processing */
-				}
-				/* Write response back */
-				lwsl_info("%s: hash computed, waiting for writable\n", __func__);
 			}
+
+			if (!a->parser_valid) {
+				lejp_construct(&a->jctx, stub_req_cb, a,
+					       stub_req_paths,
+					       LWS_ARRAY_SIZE(stub_req_paths));
+				a->parser_valid = 1;
+			}
+
+			/* acts on the request as it completes */
+			m = lejp_parse(&a->jctx, p, (int)len);
+			if (m == LEJP_CONTINUE)
+				break;
+			if (m < 0) {
+				lwsl_err("%s: lejp parse failed: %d\n",
+					 __func__, m);
+				return -1;
+			}
+
+			/* m is what is left after the completed request */
+			p += len - (size_t)m;
+			len = (size_t)m;
+
+			if (!a->response)
+				/* nothing to answer, ready for the next */
+				cdc_stub_req_release(a);
 		}
 		break;
+
 	case LWS_CALLBACK_RAW_WRITEABLE:
-		if (!a || !a->response)
-                        break;
-		int m = lws_write(wsi, (unsigned char *)a->response + LWS_PRE + a->response_pos,
-                                  (size_t)(a->response_len - a->response_pos), LWS_WRITE_RAW);
+		if (!a->response)
+			break;
+		m = lws_write(wsi, (unsigned char *)a->response + LWS_PRE +
+					a->response_pos,
+			      (size_t)(a->response_len - a->response_pos),
+			      LWS_WRITE_RAW);
 		if (m < 0)
-                        return -1;
+			return -1;
 		a->response_pos += m;
-		if (a->response_pos >= a->response_len)
-                        return -1;
-		lws_callback_on_writable(wsi);
+		if (a->response_pos < a->response_len) {
+			lws_callback_on_writable(wsi);
+			break;
+		}
+
+		/* answered, ready for the next */
+		cdc_stub_req_release(a);
 		break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
-		if (!a)
-                        break;
-		if (a->parser_valid) lejp_destruct(&a->jctx);
-		if (a->fullchain) free(a->fullchain);
-		if (a->privkey) free(a->privkey);
-		if (a->response) free(a->response);
+		cdc_stub_req_release(a);
 		break;
+
 	default:
 		break;
 	}
