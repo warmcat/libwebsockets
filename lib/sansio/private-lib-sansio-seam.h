@@ -326,9 +326,23 @@ lws_io_http_client_read(struct lws *wsi, char **buf, int *len)
 #endif
 
 /*
- * the vhost (lws_io_ops_t vhost_destroy, vhost_jit_grace): a vhost's
- * creation and destruction are IO's
+ * the vhost and the context (lws_io_ops_t vhost_destroy, vhost_jit_grace,
+ * finalize_startup): a vhost's creation and destruction are IO's, and so is
+ * the process the context runs in
  */
+
+/*
+ * every vhost's protocols had their first init: IO may drop the process's
+ * privileges now, IO's lws_finalize_startup()
+ */
+static LWS_INLINE int
+lws_io_finalize_startup(struct lws_context *cx, const char *where)
+{
+	if (!cx->io_ops->finalize_startup)
+		return 0;
+
+	return cx->io_ops->finalize_startup(cx, where);
+}
 
 /*
  * the last connection bound to a vhost that is being destroyed went: IO

@@ -889,6 +889,7 @@ const lws_io_ops_t lws_io_ops_default = {
 	.http_client_read = lws_http_client_read,
 #endif
 
+	.finalize_startup = lws_finalize_startup,
 	.vhost_destroy	= __lws_vhost_destroy2,
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	.vhost_jit_grace = lws_tls_jit_trust_vh_start_grace,

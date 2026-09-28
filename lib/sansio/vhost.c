@@ -534,7 +534,7 @@ next:
 
 		context->protocol_init_done = 1;
 		if (!spd)
-			lws_finalize_startup(context, __func__);
+			lws_io_finalize_startup(context, __func__);
 
 		return 0;
 	}

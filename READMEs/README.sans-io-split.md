@@ -221,6 +221,7 @@ embedder carries nothing that needs it.
 | service | `service_now` | rx served now | `lws_io_service_now()` |
 | service | `wake` | come round the loop soon | `lws_cancel_service_pt()` |
 | rx | `http_client_read` (optional) | the app pulls its response body | `lws_http_client_read()` |
+| vhost | `finalize_startup` (optional) | the protocols are initialized: the process may drop its privileges | `lws_finalize_startup()` |
 | vhost | `vhost_destroy` | a going vhost's last connection went | `__lws_vhost_destroy2()` |
 | vhost | `vhost_jit_grace` (optional) | a jit-trust vhost's last connection went | `lws_tls_jit_trust_vh_start_grace()` |
 | cgi | `cgi_start`, `cgi_stdout_tx`, `cgi_stdin_write`, `cgi_stdin_body_end`, `cgi_stderr_read`, `cgi_remove_and_kill`, `cgi_release` | an http transaction's child process | `lws_cgi_via_info()`, `lws_cgi_write_split_stdout_headers()`, `lws_cgi_stdin_write()`, ... |

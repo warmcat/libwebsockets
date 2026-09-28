@@ -302,8 +302,17 @@ typedef struct lws_io_ops {
 	 * client. */
 
 	/*
-	 * the vhost: its creation and destruction are IO's
+	 * the vhost and the context: a vhost's creation and destruction are
+	 * IO's, and so is the process the context runs in
 	 */
+
+	int (*finalize_startup)(struct lws_context *cx, const char *where);
+	/**< every vhost's protocols have had their first init and none asked
+	 * to keep them (LWS_SERVER_OPTION_VH_SKIP_PRIV_DROP): the process may
+	 * drop its initial privileges now, as the public
+	 * lws_finalize_startup(), which is IO's, does.  where names the
+	 * caller for the log.  0 ok, nonzero failed.  May be NULL: there are
+	 * no privileges to drop. */
 
 	void (*vhost_destroy)(struct lws_vhost *vh);
 	/**< the last connection bound to vh, which is being destroyed, went:
