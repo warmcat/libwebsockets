@@ -1435,7 +1435,7 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 		   i.address, i.port, i.path, i.ssl_connection,
 		   i.uri_replace_from, i.uri_replace_to);
 
-	if (!lws_client_connect_via_info(&i)) {
+	if (!lws_io_client_connect(&i)) {
 		lwsl_err("proxy connect fail\n");
 
 		/*
@@ -1540,7 +1540,7 @@ lws_http_redirect_hit(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		*h = 1;
 
-		lws_get_peer_simple(wsi, peer_buf, sizeof(peer_buf));
+		lws_io_peer_address(wsi, peer_buf, sizeof(peer_buf));
 
 		// lwsl_notice("Doing 301 '%s' (vhost port %d, peer %s) org %s\n", s,
 		//	    wsi->a.vhost->listen_port, peer_buf, hit->origin);
@@ -1786,7 +1786,7 @@ lws_http_action(struct lws *wsi)
 	if (meth >= (int)LWS_ARRAY_SIZE(method_names)) {
 #if (_LWS_ENABLED_LOGS & LLL_WARN)
 		char name[48];
-		lwsl_wsi_warn(wsi, "invalid method %d: %s", meth, lws_get_peer_simple(wsi, name, sizeof(name)));
+		lwsl_wsi_warn(wsi, "invalid method %d: %s", meth, lws_io_peer_address(wsi, name, sizeof(name)));
 #endif
 		goto bail_nuke_ah;
 	}
@@ -1813,7 +1813,7 @@ lws_http_action(struct lws *wsi)
 		char name[48];
 		lwsl_wsi_warn(wsi, "missing or non-absolute uri_ptr (meth=%d, uri_len=%d, uri_ptr=%p): peer %s",
 				meth, (int)uri_len, (void *)uri_ptr,
-				lws_get_peer_simple(wsi, name, sizeof(name)));
+				lws_io_peer_address(wsi, name, sizeof(name)));
 #endif
 		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 
@@ -2095,7 +2095,7 @@ lws_http_action(struct lws *wsi)
 		char name[64];
 
 		lwsl_notice("User code denied HTTP connection: protocol=%s, peer=%s, uri=%s\n",
-			    wsi->a.protocol->name, lws_get_peer_simple(wsi, name, sizeof(name)), uri_ptr);
+			    wsi->a.protocol->name, lws_io_peer_address(wsi, name, sizeof(name)), uri_ptr);
 #endif
 
 		return 1;
@@ -2654,7 +2654,7 @@ lws_http_to_fallback(struct lws *wsi, unsigned char *obuf, size_t olen)
 
 	ipbuf[0] = '\0';
 #if !defined(LWS_PLAT_OPTEE)
-	lws_get_peer_simple(wsi, ipbuf, sizeof(ipbuf));
+	lws_io_peer_address(wsi, ipbuf, sizeof(ipbuf));
 #endif
 
 	lwsl_notice("%s: vh %s, peer: %s, role %s, "
@@ -3192,7 +3192,7 @@ lws_http_transaction_completed(struct lws *wsi)
 		char peer[64];
 
 #if !defined(LWS_PLAT_OPTEE)
-		lws_get_peer_simple(wsi, peer, sizeof(peer) - 1);
+		lws_io_peer_address(wsi, peer, sizeof(peer) - 1);
 #else
 		peer[0] = '\0';
 #endif

@@ -742,6 +742,22 @@ const lws_io_ops_t lws_io_ops_default = {
 	.created	= lws_io_adjunct_init,
 	.transfer	= lws_io_transfer_pollfd,
 
+#if defined(LWS_WITH_CLIENT)
+	.transport_start	= lws_client_transport_start,
+	.transport_connected	= lws_client_transport_connected,
+	.transport_established	= lws_client_transport_established,
+#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
+	.transport_failed	= lws_client_transport_failed,
+#endif
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	.transport_rebind	= lws_client_transport_rebind,
+#endif
+	.client_connect		= lws_client_connect_via_info,
+#endif
+#if !defined(LWS_PLAT_OPTEE)
+	.peer_address		= lws_get_peer_simple,
+#endif
+
 	.tx_push	= lws_io_tx_push,
 #if defined(LWS_WITH_UDP)
 	.tx_now		= lws_io_tx_now,

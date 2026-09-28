@@ -73,6 +73,8 @@ enum lws_io_path_op {
 				 * the old; the reported peer is unchanged */
 };
 
+struct lws_client_connect_info;
+
 typedef struct lws_io_ops {
 	int (*want_write)(struct lws *wsi);
 	/**< the wsi's transport connection should be written when it can take
@@ -125,6 +127,45 @@ typedef struct lws_io_ops {
 	 * its tls session move to to.  Called with or without the service
 	 * thread lock.  0 = ok, nonzero when to could not take them: what
 	 * could be handed on is to's, and goes when to is closed. */
+
+	/*
+	 * the transport: a client's, as its protocol decides about it, and
+	 * what IO knows of a connection's peer
+	 */
+
+	struct lws *(*transport_start)(struct lws *wsi);
+	/**< the client wsi's request is ready to go (it waited for its header
+	 * table and has it): start its transport, dns first.  Returns wsi, or
+	 * NULL when it failed and wsi was closed and freed. */
+	int (*transport_connected)(struct lws *wsi);
+	/**< the socks or http CONNECT leg the client wsi's role ran over the
+	 * raw transport is done, the tunnel is up: carry on with the
+	 * transport (tls, if it has it, then the role hears the transport is
+	 * up).  0 ok, -1 failed and the wsi should be closed. */
+	void (*transport_established)(struct lws *wsi);
+	/**< the client wsi's role made its transport inside its own protocol
+	 * (quic's handshake completed): it won any race for the connection,
+	 * so drop what else was trying to be it (the tcp connects racing it,
+	 * their timers, the h3 grace). */
+	int (*transport_failed)(struct lws *wsi);
+	/**< such a role's transport failed before it was up: retarget the
+	 * connection if possible (the next dns result, then tcp instead of
+	 * udp) and return 1, else 0 and the close goes on.  May be NULL when
+	 * no such role is carried. */
+	void (*transport_rebind)(struct lws *wsi);
+	/**< the client wsi is restarting on a new address and may belong on
+	 * another vhost now, the one whose trust store (jit trust) is for it:
+	 * rebind it.  May be NULL without jit trust. */
+	struct lws *(*client_connect)(const struct lws_client_connect_info *i);
+	/**< make a new client connection, as the public
+	 * lws_client_connect_via_info() does, which is IO's: the http server
+	 * asks for the onward leg of a proxied transaction.  Returns the new
+	 * wsi or NULL.  May be NULL without http proxying. */
+	const char *(*peer_address)(struct lws *wsi, char *buf, size_t len);
+	/**< the address of wsi's peer, as numeric text into buf of len
+	 * (a mux stream's is its network connection's), returning buf.  IO's
+	 * is lws_get_peer_simple().  May be NULL: sansIO then says
+	 * "unknown". */
 
 	/*
 	 * tx: the transport taking sansIO's bytes

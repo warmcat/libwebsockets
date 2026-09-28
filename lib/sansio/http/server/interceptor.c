@@ -258,7 +258,7 @@ lws_interceptor_issue_cookie(struct lws *wsi, const char *redirect_uri)
 	if (!vhd)
 		return 1;
 
-	lws_get_peer_simple(wsi, ip, sizeof(ip));
+	lws_io_peer_address(wsi, ip, sizeof(ip));
 
 	lwsl_vhost_notice(vhd->vhost, "%s: %s minting cookie '%s' for peer %s",
 			  __func__,
@@ -372,7 +372,7 @@ lws_interceptor_check(struct lws *wsi, const struct lws_protocols *prot)
 	memcpy(sub_claim, cp, claim_len);
 	sub_claim[claim_len] = '\0';
 
-	lws_get_peer_simple(wsi, ip, sizeof(ip));
+	lws_io_peer_address(wsi, ip, sizeof(ip));
 	if (strcmp(sub_claim, ip)) {
 		struct lws_interceptor_cidr *cidr = vhd->cidr_head;
 		lws_sockaddr46 sa46, sa46_sub;
@@ -461,7 +461,7 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 		return 1;
 	}
 
-	lws_get_peer_simple(wsi, ip, sizeof(ip));
+	lws_io_peer_address(wsi, ip, sizeof(ip));
 
 
 	if (lws_get_urlarg_by_name(wsi, "lws_interceptor_ok", junk, sizeof(junk))) {

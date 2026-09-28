@@ -89,6 +89,97 @@ lws_io_tx_file(struct lws *wsi)
 #endif
 
 /*
+ * the transport (lws_io_ops_t transport_start, transport_connected,
+ * transport_established, transport_failed, transport_rebind, client_connect,
+ * peer_address)
+ */
+
+#if defined(LWS_WITH_CLIENT)
+/*
+ * the client's request is ready to go (it got its header table): IO starts
+ * its transport, dns first.  Returns the wsi, or NULL when it was closed and
+ * freed
+ */
+static LWS_INLINE struct lws *
+lws_client_transport_start(struct lws *wsi)
+{
+	return wsi->a.context->io_ops->transport_start(wsi);
+}
+
+/*
+ * the socks or CONNECT leg a client role ran over the raw transport is done,
+ * the tunnel is up; IO carries on (tls, then transport up)
+ */
+static LWS_INLINE int
+lws_client_transport_connected(struct lws *wsi)
+{
+	return wsi->a.context->io_ops->transport_connected(wsi);
+}
+
+/*
+ * a role that makes its transport inside its own protocol (quic's handshake)
+ * has made it; it won any race for the connection, and IO drops what else it
+ * had trying to be it
+ */
+static LWS_INLINE void
+lws_client_transport_established(struct lws *wsi)
+{
+	wsi->a.context->io_ops->transport_established(wsi);
+}
+
+#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
+/*
+ * such a role's transport failed before it was up; IO retargets the
+ * connection if it can (the next address, then tcp) and returns 1, else 0
+ */
+static LWS_INLINE int
+lws_client_transport_failed(struct lws *wsi)
+{
+	return wsi->a.context->io_ops->transport_failed(wsi);
+}
+#endif
+
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+/*
+ * a restarted client may belong on another vhost now, the one whose trust
+ * store (jit trust) is for its new address: IO rebinds it
+ */
+static LWS_INLINE void
+lws_client_transport_rebind(struct lws *wsi)
+{
+	wsi->a.context->io_ops->transport_rebind(wsi);
+}
+#endif
+
+#if defined(LWS_WITH_HTTP_PROXY)
+/*
+ * a new client connection, the onward leg of a proxied http transaction:
+ * lws_io_ops_t.client_connect, IO's lws_client_connect_via_info()
+ */
+static LWS_INLINE struct lws *
+lws_io_client_connect(const struct lws_client_connect_info *i)
+{
+	return i->context->io_ops->client_connect(i);
+}
+#endif
+#endif
+
+/*
+ * the connection's peer address as text, into buf: lws_io_ops_t.peer_address,
+ * IO's lws_io_peer_address().  Returns buf.
+ */
+static LWS_INLINE const char *
+lws_io_peer_address(struct lws *wsi, char *buf, size_t len)
+{
+	if (!wsi->a.context->io_ops->peer_address) {
+		lws_strncpy(buf, "unknown", len);
+		return buf;
+	}
+
+	return wsi->a.context->io_ops->peer_address(wsi, buf, len);
+}
+
+/*
  * service (lws_io_ops_t service_writable, service_now, wake) and the app's
  * rx pull (http_client_read)
  */
@@ -151,10 +242,6 @@ void
 lws_cgi_release(struct lws *wsi);
 #endif
 
-/* the connection's peer, as IO knows it, as text ("unknown" if none) */
-void
-lws_io_peer_address(struct lws *wsi, char *buf, size_t len);
-
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 /*
  * a vhost made for a jit-trusted peer lost its last connection: IO keeps it
@@ -198,44 +285,6 @@ int
 lws_tls_quic_alert(struct lws *wsi);
 int
 lws_tls_quic_alpn(struct lws *wsi, char *buf, size_t len);
-#endif
-#endif
-#if defined(LWS_WITH_CLIENT)
-/*
- * transport: the socks or CONNECT leg a client role ran over the raw
- * transport is done, the tunnel is up; IO carries on (tls, then transport up)
- */
-int
-lws_client_transport_connected(struct lws *wsi);
-/*
- * transport: the client's request is ready to go (it got its header table):
- * IO starts its transport, dns first.  Returns the wsi, or NULL when it was
- * closed and freed
- */
-struct lws *
-lws_client_transport_start(struct lws *wsi);
-#if defined(LWS_WITH_TLS_JIT_TRUST)
-/*
- * transport: a restarted client may belong on another vhost now, the one
- * whose trust store (jit trust) is for its new address: IO rebinds it
- */
-void
-lws_client_transport_rebind(struct lws *wsi);
-#endif
-/*
- * transport: a role that makes its transport inside its own protocol (quic's
- * handshake) has made it; it won any race for the connection, and IO drops
- * what else it had trying to be it
- */
-void
-lws_client_transport_established(struct lws *wsi);
-#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
-/*
- * transport: such a role's transport failed before it was up; IO retargets
- * the connection if it can (the next address, then tcp) and returns 1, else 0
- */
-int
-lws_client_transport_failed(struct lws *wsi);
 #endif
 #endif
 

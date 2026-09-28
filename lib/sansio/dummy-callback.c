@@ -389,7 +389,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		 * handler never reads the parent's ah (C-460).
 		 */
 
-		lws_get_peer_simple(wsi->parent, peer, sizeof(peer));
+		lws_io_peer_address(wsi->parent, peer, sizeof(peer));
 
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_X_FORWARDED_FOR,
 						 (uint8_t *)peer, (int)strlen(peer), p, end))
@@ -1129,7 +1129,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		proxy_extra_onward_headers(wsi, p, end);
 
 		buf[0] = '\0';
-		lws_get_peer_simple(parent, buf, sizeof(buf));
+		lws_io_peer_address(parent, buf, sizeof(buf));
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_X_FORWARDED_FOR,
 				(unsigned char *)buf, (int)strlen(buf), p, end))
 			return -1;

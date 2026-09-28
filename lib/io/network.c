@@ -1019,17 +1019,6 @@ lws_io_peer(struct lws *wsi)
 	return &lws_get_network_wsi(wsi)->io->sa46_peer;
 }
 
-void
-lws_io_peer_address(struct lws *wsi, char *buf, size_t len)
-{
-	lws_sockaddr46 *peer = lws_io_peer(wsi);
-
-	if (peer->sa4.sin_family)
-		lws_sa46_write_numeric_address(peer, buf, len);
-	else
-		lws_strncpy(buf, "unknown", len);
-}
-
 #if defined(LWS_WITH_UDP)
 /*
  * The datagram socket under a datagram role (README.sans-io-split.md: quic is

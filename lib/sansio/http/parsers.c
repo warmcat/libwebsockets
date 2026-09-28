@@ -1212,7 +1212,7 @@ lws_parse_fail_diag(struct lws *wsi, const unsigned char *buf, int consumed,
 
 	peer[0] = '\0';
 #if !defined(LWS_PLAT_OPTEE)
-	lws_get_peer_simple(wsi, peer, sizeof(peer));
+	lws_io_peer_address(wsi, peer, sizeof(peer));
 #endif
 
 	if (consumed < 1)

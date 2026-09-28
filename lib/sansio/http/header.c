@@ -1074,7 +1074,7 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 		wsi = ah->wsi;
 		buf[0] = '\0';
 #if !defined(LWS_PLAT_OPTEE)
-		lws_get_peer_simple(wsi, buf, sizeof(buf));
+		lws_io_peer_address(wsi, buf, sizeof(buf));
 #else
 		buf[0] = '\0';
 #endif

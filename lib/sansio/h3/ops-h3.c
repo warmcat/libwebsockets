@@ -2409,7 +2409,7 @@ rops_check_upgrades_h3(struct lws *wsi)
 			char name[64];
 			lwsl_warn("User code denied wt connection: protocol=%s, peer=%s\n",
 				  prot ? prot->name : "(none)",
-				  lws_get_peer_simple(wsi, name, sizeof(name)));
+				  lws_io_peer_address(wsi, name, sizeof(name)));
 #endif
 			if (lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL))
 				return LWS_UPG_RET_BAIL;

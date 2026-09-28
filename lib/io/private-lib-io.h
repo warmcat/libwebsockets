@@ -460,4 +460,22 @@ lws_service_wsi_as_writable(struct lws *wsi);
 int
 lws_io_service_now(struct lws *wsi);
 
+/* the transport */
+#if defined(LWS_WITH_CLIENT)
+struct lws *
+lws_client_transport_start(struct lws *wsi);
+int
+lws_client_transport_connected(struct lws *wsi);
+void
+lws_client_transport_established(struct lws *wsi);
+#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
+int
+lws_client_transport_failed(struct lws *wsi);
+#endif
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+void
+lws_client_transport_rebind(struct lws *wsi);
+#endif
+#endif
+
 #endif /* __LWS_PRIVATE_LIB_IO_H__ */

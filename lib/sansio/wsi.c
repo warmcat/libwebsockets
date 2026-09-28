@@ -2613,7 +2613,7 @@ lws_validity_cb(lws_sorted_usec_list_t *sul)
 	if (wsi->validity_hup) {
 		char buf[128];
 		buf[0] = '\0';
-		lws_get_peer_simple(wsi, buf, sizeof(buf));
+		lws_io_peer_address(wsi, buf, sizeof(buf));
 
 		lwsl_wsi_notice(wsi, "VALIDITY TIMEOUT EXPIRED ON (protocol %s, peer %s)! Server is closing connection. (ping=%d, hangup=%d)\n",
 			    wsi->a.protocol ? wsi->a.protocol->name : "none", buf,
