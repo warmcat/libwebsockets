@@ -454,4 +454,10 @@ lws_io_tx_now(struct lws *wsi);
 int
 lws_plat_tx_choked(struct lws *wsi);
 
+/* service */
+int
+lws_service_wsi_as_writable(struct lws *wsi);
+int
+lws_io_service_now(struct lws *wsi);
+
 #endif /* __LWS_PRIVATE_LIB_IO_H__ */

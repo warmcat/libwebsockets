@@ -160,6 +160,40 @@ typedef struct lws_io_ops {
 	 * completion delivered, 0 more is to be sent on a later writeable
 	 * pass.  IO's is lws_serve_http_file_fragment().  May be NULL in a
 	 * build without files (LWS_WITH_FILE_OPS) or server. */
+
+	/*
+	 * service: sansIO's handling of a connection, run now
+	 */
+
+	int (*service_writable)(struct lws *wsi);
+	/**< want_write served now rather than on the next turn of the loop:
+	 * service wsi as though its transport had just said it can take
+	 * bytes, so a role gets its first protocol write out in the same call
+	 * that saw the transport come up.  0 ok, -1 failed, 1 the wsi was
+	 * closed in the service. */
+	int (*service_now)(struct lws *wsi);
+	/**< service wsi now as though its transport had rx pending, for a
+	 * role that already holds bytes for it (a pipelined request that got
+	 * its header table).  <0 failed, 1 the wsi was closed in the service,
+	 * 0 otherwise; a wsi with no transport yet gets 0. */
+	void (*wake)(struct lws *wsi);
+	/**< make sure wsi's service thread comes round its loop soon, without
+	 * waiting for its transport or a deadline: sansIO left work for the
+	 * pass that runs at the top of each turn for connections holding
+	 * buffered rx.  Callable with the service thread lock held. */
+
+	/*
+	 * rx at the app's pace
+	 */
+
+	int (*http_client_read)(struct lws *wsi, char **buf, int *len);
+	/**< the app pulls its client response body: read from wsi's
+	 * transport what fits the app's buffer, *buf of *len (or, with *buf
+	 * NULL, IO's own), and hand it to sansIO's body rx, which delivers
+	 * the payload to the app; *buf and *len are left describing what was
+	 * read.  0 ok, -1 the connection failed.  IO's is
+	 * lws_http_client_read().  May be NULL in a build without an http
+	 * client. */
 } lws_io_ops_t;
 
 /*

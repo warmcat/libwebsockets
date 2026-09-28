@@ -750,6 +750,15 @@ const lws_io_ops_t lws_io_ops_default = {
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_FILE_OPS)
 	.tx_file	= lws_serve_http_file_fragment,
 #endif
+
+	.service_writable = lws_service_wsi_as_writable,
+	.service_now	= lws_io_service_now,
+	.wake		= lws_cancel_service_pt,
+
+#if defined(LWS_WITH_CLIENT) && \
+    (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
+	.http_client_read = lws_http_client_read,
+#endif
 };
 
 

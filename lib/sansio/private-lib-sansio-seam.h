@@ -88,6 +88,49 @@ lws_io_tx_file(struct lws *wsi)
 }
 #endif
 
+/*
+ * service (lws_io_ops_t service_writable, service_now, wake) and the app's
+ * rx pull (http_client_read)
+ */
+
+/* want_write, served now rather than on the next turn of the loop */
+static LWS_INLINE int
+lws_service_wsi_as_writable(struct lws *wsi)
+{
+	return wsi->a.context->io_ops->service_writable(wsi);
+}
+
+/* rx now: the header table's autoservice, for a wsi that was waiting on one */
+static LWS_INLINE int
+lws_io_service_now(struct lws *wsi)
+{
+	return wsi->a.context->io_ops->service_now(wsi);
+}
+
+/*
+ * make sure the wsi's service thread comes round its loop soon, for work
+ * left to its forced-service pass: lws_io_ops_t.wake, IO's
+ * lws_cancel_service_pt()
+ */
+static LWS_INLINE void
+lws_io_wake(struct lws *wsi)
+{
+	wsi->a.context->io_ops->wake(wsi);
+}
+
+#if defined(LWS_WITH_CLIENT) && \
+    (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
+/*
+ * the app's pull of a client response body: lws_io_ops_t.http_client_read,
+ * IO's lws_http_client_read()
+ */
+static LWS_INLINE int
+lws_io_http_client_read(struct lws *wsi, char **buf, int *len)
+{
+	return wsi->a.context->io_ops->http_client_read(wsi, buf, len);
+}
+#endif
+
 #endif /* LWS_SANSIO_CHECK */
 
 #if defined(LWS_WITH_CGI)
@@ -128,13 +171,7 @@ lws_tls_jit_trust_vh_start_grace(struct lws_vhost *vh);
 void
 __lws_vhost_destroy2(struct lws_vhost *vh);
 
-/* want_write, served now rather than on the next turn of the loop */
-int
-lws_service_wsi_as_writable(struct lws *wsi);
 
-/* rx now: the header table's autoservice, for a wsi that was waiting on one */
-int
-lws_io_service_now(struct lws *wsi);
 
 #if defined(LWS_WITH_TLS)
 /*

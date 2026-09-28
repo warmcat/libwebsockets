@@ -145,7 +145,7 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 		 */
 		if (pt->http.ah_autoservice_depth) {
 			lwsl_info("%s: deferring nested service\n", __func__);
-			lws_cancel_service_pt(wsi);
+			lws_io_wake(wsi);
 
 			return 0;
 		}

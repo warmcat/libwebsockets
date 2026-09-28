@@ -788,8 +788,8 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 #endif
 
 			/* this causes LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ */
-			if (lws_http_client_read(lws_get_child(wsi), &px,
-						 &lenx) < 0) {
+			if (lws_io_http_client_read(lws_get_child(wsi),
+						    &px, &lenx) < 0) {
 				lwsl_wsi_info(wsi, "LWS_CB_REASON_AUX_BF__PROXY: "
 					   "client closed");
 
