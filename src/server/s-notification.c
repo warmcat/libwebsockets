@@ -1140,6 +1140,14 @@ sai_notification_file_upload_cb(void *data, const char *name,
 		lwsl_notice("%s: notification inserted into db\n", __func__);
 
 		/*
+		 * Let sai-web know the event exists now, the same as for an
+		 * ad-hoc event: otherwise it only hears about it once its
+		 * state first changes, when the tasks start building.
+		 */
+		sais_eventchange(pss->vhd->h_ss_websrv, pss->sn.e.uuid,
+				 SAIES_WAITING);
+
+		/*
 		 * The tasks are all in there but set to state
 		 * NOT_READY_FOR_BUILD, the periodic central scan
 		 * switch them over to WAITING when they have been like that
