@@ -3171,22 +3171,3 @@ lws_system_context_from_system_mgr(lws_state_manager_t *mgr)
 #endif
 }
 #endif
-
-void
-lws_log_prepend_context(struct lws_log_cx *cx, void *obj, char **p, char *e)
-{
-	struct lws_context *lcx = (struct lws_context *)obj;
-
-	if (lcx->name)
-		*p += lws_snprintf(*p, lws_ptr_diff_size_t(e, (*p)), "%s: ",
-				   lcx->name);
-}
-
-struct lws_log_cx *
-lwsl_context_get_cx(struct lws_context *cx)
-{
-	if (!cx)
-		return NULL;
-
-	return cx->log_cx;
-}
