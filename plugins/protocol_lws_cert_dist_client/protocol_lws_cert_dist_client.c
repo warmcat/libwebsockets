@@ -1579,7 +1579,17 @@ cert_dist_client_deinit(struct lws_context *cx)
 	cdc_stub = NULL;
 }
 
-LWS_VISIBLE const lws_plugin_protocol_t lws_cert_dist_client = {
+/*
+ * An application composing us into itself (LWS_PLUGIN_STATIC) gets the same
+ * export, private to it, to list in its context creation info->plugins
+ */
+#if defined(LWS_PLUGIN_STATIC)
+#define LWS_CDC_EXPORT static
+#else
+#define LWS_CDC_EXPORT LWS_VISIBLE
+#endif
+
+LWS_CDC_EXPORT const lws_plugin_protocol_t lws_cert_dist_client = {
 	.hdr = {
 		.name           = "cert dist client",
 		._class         = "lws_protocol_plugin",
