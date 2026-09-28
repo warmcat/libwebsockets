@@ -311,9 +311,15 @@ lws_dir_notify_create(struct lws_context *ctx, const char *path,
 		goto bail;
 	}
 
+	/*
+	 * Darwin's kqueue fd refuses O_NONBLOCK, and it doesn't need it: we
+	 * only ever drain it with kevent() and a zero timeout
+	 */
 	sock.filefd = dn->fd;
-	dn->wsi = lws_adopt_descriptor_vhost(vh, LWS_ADOPT_RAW_FILE_DESC, sock,
-					     protocol_lws_dir_notify.name, NULL);
+	dn->wsi = lws_adopt_descriptor_vhost(vh, LWS_ADOPT_RAW_FILE_DESC |
+						 LWS_ADOPT_FLAG_NO_NONBLOCK,
+					     sock, protocol_lws_dir_notify.name,
+					     NULL);
 	if (!dn->wsi) {
 		close(dn->dir_fd);
 		close(dn->fd);

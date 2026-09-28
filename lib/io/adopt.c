@@ -250,7 +250,8 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 	}
 #if !defined(WIN32)
 	else
-		if (lws_plat_set_nonblocking(fd.filefd)) {
+		if (!(type & LWS_ADOPT_FLAG_NO_NONBLOCK) &&
+		    lws_plat_set_nonblocking(fd.filefd)) {
 			lwsl_wsi_err(new_wsi, "unable to set filefd nonblocking");
 			goto fail;
 		}
