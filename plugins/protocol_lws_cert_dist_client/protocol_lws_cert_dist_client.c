@@ -1017,6 +1017,22 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_callback_on_writable(wsi);
 		break;
 
+	case LWS_CALLBACK_WSI_DESTROY:
+		{
+			/*
+			 * lws only wrote conn->wsi at connect time, forget it
+			 * as the wsi goes.  We are the protocols[0] of the
+			 * conn's vhost, so we hear about this however the wsi
+			 * ended, even during context destroy.
+			 */
+			struct dist_client_conn *conn = (struct dist_client_conn *)
+						lws_get_opaque_user_data(wsi);
+
+			if (conn && conn->wsi == wsi)
+				conn->wsi = NULL;
+		}
+		break;
+
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		{
 			struct dist_client_conn *conn = (struct dist_client_conn *)lws_get_opaque_user_data(wsi);
@@ -1366,7 +1382,13 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				struct lws_vhost *cvh = conn->vh;
 
 				conn->vh = NULL;
-				lws_vhost_destroy(cvh);
+				/*
+				 * If the whole context is going down, it
+				 * destroys every vhost itself, and may already
+				 * have freed this one
+				 */
+				if (!lws_context_is_being_destroyed(vhd->cx))
+					lws_vhost_destroy(cvh);
 			}
 
 			lws_dll2_remove(&conn->list);
