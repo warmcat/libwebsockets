@@ -919,6 +919,14 @@ have come from the upgraded protocol.  To allow separation of rx and tx
 handling between http and ws, there's a ss api `lws_ss_change_handlers()`
 which allows dynamically setting SS handlers.
 
+Each incoming connection (or h2 stream) gets its own accepted stream created
+from the server streamtype, and it's that accepted stream that sees
+`LWSSSCS_SERVER_UPGRADE`, over h1 and h2 alike... the server stream you created
+to bring up the listening vhost never does.  An accepted stream that is
+upgraded without an http transaction first sees `LWSSSCS_CREATING`,
+`LWSSSCS_CONNECTING`, `LWSSSCS_SERVER_UPGRADE`, then `LWSSSCS_CONNECTED` when
+the ws connection is established.
+
 Since the http and ws upgrade identity is encapsulated in one streamtype, the
 user object for the server streamtype should contain related user data for both
 http and ws underlying protocol identity.

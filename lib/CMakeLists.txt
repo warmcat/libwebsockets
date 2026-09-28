@@ -547,7 +547,9 @@ if (LWS_WITH_SANSIO_LINK_TEST AND LWS_WITH_NETWORK AND SOURCES_SANSIO)
 		# or was unreachable (lws_ss_event_helper(), lws_ss_backoff(),
 		# lws_ss_destroy()), an h2 or ws server upgrade binds a stream
 		# (lws_ss_server_accept_bind(), protocol_secstream_ws,
-		# lws_ss_tag() in its logs), and the h1 client reports its
+		# lws_ss_tag() in its logs) and tells it of the upgrade, acting
+		# on its answer (_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE()),
+		# and the h1 client reports its
 		# conmon to one (lws_conmon_ss_json()).  Whether that becomes
 		# callbacks the stream layer registers, as any other protocol,
 		# or something else, is open.
@@ -567,6 +569,7 @@ if (LWS_WITH_SANSIO_LINK_TEST AND LWS_WITH_NETWORK AND SOURCES_SANSIO)
 		set(LWS_SANSIO_LINK_ALLOW_FUNCS
 			lws_ss_event_helper lws_ss_backoff lws_ss_destroy
 			lws_ss_server_accept_bind lws_ss_tag lws_conmon_ss_json
+			_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE
 			lws_smd_msg_printf
 			lws_async_queue_submit)
 		set(LWS_SANSIO_LINK_ALLOW_DATA

@@ -4024,6 +4024,7 @@ lws_h2_ws_handshake(struct lws *wsi)
 		    wsi->a.vhost->ss_handle->policy->u.http.u.ws.subprotocol) {
 			lws_ss_handle_t *h =
 				(lws_ss_handle_t *)wsi->a.opaque_user_data;
+			lws_ss_state_return_t r;
 
 			lwsl_notice("%s: Server SS %s .wsi %s switching to ws protocol\n",
 					__func__, lws_ss_tag(h), lws_wsi_tag(h->wsi));
@@ -4036,7 +4037,12 @@ lws_h2_ws_handshake(struct lws *wsi)
 			 * want to treat subsequent payloads differently
 			 */
 
-			lws_ss_event_helper(h, LWSSSCS_SERVER_UPGRADE);
+			r = lws_ss_event_helper(h, LWSSSCS_SERVER_UPGRADE);
+			if (r != LWSSSSRET_OK) {
+				_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r,
+								wsi, &h);
+				return -1;
+			}
 
 			lws_mux_mark_immortal(wsi);
 
