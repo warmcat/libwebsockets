@@ -437,6 +437,25 @@ lws_cgi_stdwsi_quiesce(struct lws *wsi);
 #endif
 
 /*
+ * IO's transport adapter roles that the context brings up on each thread
+ * (lib/io/roles.c), beside sansIO's in available_roles; IO walks both
+ */
+extern const struct lws_role_ops *lws_io_roles[];
+
+#define LWS_FOR_EVERY_ROLE_START(xx) { \
+		const struct lws_role_ops **ppxx = available_roles; \
+		int _io_list = 0; \
+		while (*ppxx || (!_io_list++ && *(ppxx = lws_io_roles))) { \
+			const struct lws_role_ops *xx = *ppxx++;
+
+#define LWS_FOR_EVERY_ROLE_END }}
+
+const struct lws_role_ops *
+lws_io_role_by_name(const char *name);
+int
+lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot);
+
+/*
  * IO's implementations of the requests sansIO makes of it, the members of
  * lws_io_ops_default (lws-io-ops.h).  The sansIO sources call the same names
  * through the ops, as private-lib-sansio-seam.h spells them; everything else

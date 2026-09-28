@@ -241,13 +241,13 @@ lws_create_vhost(struct lws_context *context,
 	vh->fo_listen_queue		= info->fo_listen_queue;
 	vh->max_http_body_size		= info->max_http_body_size;
 
-	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
+	LWS_FOR_EVERY_ROLE_START(ar)
 	if (lws_rops_fidx(ar, LWS_ROPS_init_vhost) &&
 	    (lws_rops_func_fidx(ar, LWS_ROPS_init_vhost)).init_vhost(vh, info))
 		/* not "return NULL"... that leaks the vhost and leaves its
 		 * lifecycle group node pointing at it forever */
 		goto bail;
-	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+	LWS_FOR_EVERY_ROLE_END;
 
 
 	if (info->keepalive_timeout)
@@ -1132,11 +1132,11 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	    vh->allocated_vhost_protocols)
 		lws_free((void *)vh->protocols);
 #if defined(LWS_WITH_NETWORK)
-	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
+	LWS_FOR_EVERY_ROLE_START(ar)
 	if (lws_rops_fidx(ar, LWS_ROPS_destroy_vhost))
 		lws_rops_func_fidx(ar, LWS_ROPS_destroy_vhost).
 							destroy_vhost(vh);
-	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+	LWS_FOR_EVERY_ROLE_END;
 #endif
 
 #ifdef LWS_WITH_ACCESS_LOG

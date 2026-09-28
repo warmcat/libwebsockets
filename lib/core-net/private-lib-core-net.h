@@ -83,7 +83,11 @@ extern "C" {
  *
  */
 
-/* null-terminated array of pointers to roles lws built with */
+/*
+ * null-terminated array of pointers to the protocol roles lws was built with,
+ * sansIO's (lib/core-net/roles.c); IO's transport adapter roles are its own
+ * list, lws_io_roles, and IO walks both (LWS_FOR_EVERY_ROLE_START)
+ */
 extern const struct lws_role_ops *available_roles[];
 #if defined(LWS_WITH_SECURE_STREAMS)
 extern const struct lws_protocols *available_secstream_protocols[];

@@ -897,9 +897,6 @@ extern const struct lws_role_ops role_ops_raw_skt, role_ops_raw_file,
 
 #define LWS_CONNECT_COMPLETION_GOOD (-99)
 
-int
-lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot);
-
 struct lws *
 lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 				 ssize_t plen);

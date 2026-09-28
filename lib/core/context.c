@@ -1436,7 +1436,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		char *lim = context->tls.alpn_discovered +
 			    sizeof(context->tls.alpn_discovered) - 2;
 
-		LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
+		LWS_FOR_EVERY_ROLE_START(ar) {
 			if (ar->alpn) {
 				/*
 				 * lws_snprintf() returns the size it was
@@ -1452,7 +1452,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 						  "%s", ar->alpn);
 				first = 0;
 			}
-		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+		} LWS_FOR_EVERY_ROLE_END;
 
 		context->tls.alpn_default = context->tls.alpn_discovered;
 	}
@@ -1759,12 +1759,12 @@ lws_create_context(const struct lws_context_creation_info *info)
 		goto bail_libuv_aware;
 
 	for (n = 0; n < context->count_threads; n++) {
-		LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
+		LWS_FOR_EVERY_ROLE_START(ar) {
 			if (lws_rops_fidx(ar, LWS_ROPS_pt_init_destroy))
 				(lws_rops_func_fidx(ar, LWS_ROPS_pt_init_destroy)).
 					pt_init_destroy(context, info,
 							&context->pt[n], 0);
-		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+		} LWS_FOR_EVERY_ROLE_END;
 	}
 #endif
 
@@ -2831,11 +2831,11 @@ next_l:
 
 			(void)pt;
 
-			LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
+			LWS_FOR_EVERY_ROLE_START(ar) {
 				if (lws_rops_fidx(ar, LWS_ROPS_pt_init_destroy))
 					(lws_rops_func_fidx(ar, LWS_ROPS_pt_init_destroy)).
 						pt_init_destroy(context, NULL, pt, 1);
-			} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+			} LWS_FOR_EVERY_ROLE_END;
 
 #if defined(LWS_WITH_CGI)
 			lws_rops_func_fidx(&role_ops_cgi,
@@ -2926,11 +2926,11 @@ next_l:
 			 * Destroy the pt-roles
 			 */
 
-			LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
+			LWS_FOR_EVERY_ROLE_START(ar) {
 				if (lws_rops_fidx(ar, LWS_ROPS_pt_init_destroy))
 					(lws_rops_func_fidx(ar, LWS_ROPS_pt_init_destroy)).
 							pt_init_destroy(context, NULL, pt, 1);
-			} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+			} LWS_FOR_EVERY_ROLE_END;
 
 		#if defined(LWS_WITH_CGI)
 			lws_rops_func_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy).

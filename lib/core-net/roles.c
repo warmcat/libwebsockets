@@ -21,10 +21,11 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- * roles.c: the role registry: every role the build has, sansIO's and the
- * transport adapters IO wears the role interface for, found by name, and
- * offered a socket or file being adopted in turn.  Neither half's (see
- * READMEs/README.sans-io-split.md): both halves dispatch through it.
+ * roles.c: the registry of the protocol roles the build has, sansIO's,
+ * found by name and asked in turn (an alpn, a client's bind).  Neither
+ * half's (see READMEs/README.sans-io-split.md): sansIO dispatches through
+ * it, and IO too, which adds its own transport adapter roles
+ * (lib/io/roles.c).
  */
 
 #include "private-lib-core.h"
@@ -48,17 +49,11 @@ const struct lws_role_ops *available_roles[] = {
 #if defined(LWS_ROLE_WS)
 	&role_ops_ws,
 #endif
-#if defined(LWS_ROLE_DBUS)
-	&role_ops_dbus,
-#endif
 #if defined(LWS_ROLE_RAW_PROXY)
 	&role_ops_raw_proxy,
 #endif
 #if defined(LWS_ROLE_MQTT) && defined(LWS_WITH_CLIENT)
 	&role_ops_mqtt,
-#endif
-#if defined(LWS_WITH_NETLINK)
-	&role_ops_netlink,
 #endif
 	NULL
 };
@@ -74,89 +69,5 @@ lws_role_by_name(const char *name)
 	if (!strcmp(name, role_ops_raw_skt.name))
 		return &role_ops_raw_skt;
 
-#if defined(LWS_ROLE_RAW_FILE)
-	if (!strcmp(name, role_ops_raw_file.name))
-		return &role_ops_raw_file;
-#endif
-
 	return NULL;
-}
-
-int
-lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
-{
-	int n;
-
-	/*
-	 * if the vhost is told to bind accepted sockets to a given role,
-	 * then look it up by name and try to bind to the specific role.
-	 */
-	if (lws_check_opt(wsi->a.vhost->options,
-			  LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG) &&
-	    wsi->a.vhost->listen_accept_role) {
-		const struct lws_role_ops *role =
-			lws_role_by_name(wsi->a.vhost->listen_accept_role);
-
-		if (!prot)
-			prot = wsi->a.vhost->listen_accept_protocol;
-
-		if (!role)
-			lwsl_wsi_err(wsi, "can't find role '%s'",
-					  wsi->a.vhost->listen_accept_role);
-
-		if (!strcmp(wsi->a.vhost->listen_accept_role, "raw-proxy"))
-			type |= LWS_ADOPT_FLAG_RAW_PROXY;
-
-		if (role && lws_rops_fidx(role, LWS_ROPS_adoption_bind)) {
-			n = (lws_rops_func_fidx(role, LWS_ROPS_adoption_bind)).
-						adoption_bind(wsi, type, prot);
-			if (n < 0)
-				return -1;
-			if (n) /* did the bind */
-				return 0;
-		}
-
-		if (type & _LWS_ADOPT_FINISH) {
-			lwsl_wsi_debug(wsi, "leaving bound to role %s",
-					    wsi->role_ops->name);
-			return 0;
-		}
-
-		lwsl_wsi_warn(wsi, "adoption bind to role '%s', "
-			  "protocol '%s', type 0x%x, failed",
-			  wsi->a.vhost->listen_accept_role, prot, type);
-	}
-
-	/*
-	 * Otherwise ask each of the roles in order of preference if they
-	 * want to bind to this accepted socket
-	 */
-
-	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
-		if (lws_rops_fidx(ar, LWS_ROPS_adoption_bind) &&
-		    (lws_rops_func_fidx(ar, LWS_ROPS_adoption_bind)).
-					    adoption_bind(wsi, type, prot))
-			return 0;
-	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
-
-	/* fall back to raw socket role if, eg, h1 not configured */
-
-	if (lws_rops_fidx(&role_ops_raw_skt, LWS_ROPS_adoption_bind) &&
-	    (lws_rops_func_fidx(&role_ops_raw_skt, LWS_ROPS_adoption_bind)).
-				    adoption_bind(wsi, type, prot))
-		return 0;
-
-#if defined(LWS_ROLE_RAW_FILE)
-
-	lwsl_wsi_info(wsi, "falling back to raw file role bind");
-
-	/* fall back to raw file role if, eg, h1 not configured */
-
-	if (lws_rops_fidx(&role_ops_raw_file, LWS_ROPS_adoption_bind) &&
-	    (lws_rops_func_fidx(&role_ops_raw_file, LWS_ROPS_adoption_bind)).
-				    adoption_bind(wsi, type, prot))
-		return 0;
-#endif
-
-	return 1;
 }
