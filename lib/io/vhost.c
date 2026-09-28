@@ -1101,6 +1101,23 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	lws_stub_destroy_all_on_vhost(vh);
 #endif
 
+#if defined(LWS_WITH_TLS_SESSIONS) && defined(LWS_WITH_TLS)
+	/*
+	 * lws_context_destroy() only takes vhosts through destroy1, which
+	 * normally empties the session cache, once protocol init has been
+	 * done; a context destroyed before it was ever serviced still has
+	 * any sessions loaded from cold storage here.  Same lock order as
+	 * destroy1, pts then vh.
+	 */
+	for (n = 0; n < vh->context->count_threads; n++)
+		lws_pt_lock((&vh->context->pt[n]), __func__);
+	lws_vhost_lock(vh); /* -------------- vh { */
+	lws_tls_session_vh_destroy(vh);
+	lws_vhost_unlock(vh); /* } vh --------------  */
+	for (n = 0; n < vh->context->count_threads; n++)
+		lws_pt_unlock((&vh->context->pt[n]));
+#endif
+
 	/*
 	 * remove vhost from context list of vhosts
 	 */
