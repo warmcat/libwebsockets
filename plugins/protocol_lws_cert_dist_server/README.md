@@ -6,7 +6,7 @@ This is the server-side protocol plugin for the certificate distribution system.
 
 - Distributes certificates directly to verified clients over a secure WebSocket connection.
 - Relies on Mutual TLS (mTLS) to authenticate clients. The Common Name (CN) of the client certificate is used to identify the subdomain.
-- Actively watches the local Public Key Infrastructure (PKI) directory (if `LWS_WITH_DIR` is enabled) and automatically pushes updated certificates to connected clients when changes occur on disk.
+- Watches the cert and key dirs of each provisioned domain (if `LWS_WITH_DIR` is enabled) and pushes renewed certificates to the connected clients for that domain when they change on disk.
 
 ## Configuration PVOs (Per-VHost Options)
 
@@ -28,7 +28,13 @@ mTLS says only that *some* certificate the vhost's CA chain accepts was presente
 
 as a regular file.  If it is not there the request is refused and the stub connection is dropped: the check fails closed.  Provisioning a distribution client therefore means placing its issued certificate at that path as well as issuing it.
 
-If authorized, it reads the newest `.crt` and `.key` under `<pki-root>/domains/<domain>/certs/production/`, encodes them in a JSON payload, and sends them to the client.  A client may send `{"hash":"<sha1-hex>"}` first (bounded to 40 hex digits, anything else is ignored); if it matches the hash of the current cert, an empty payload is returned instead.  If file system watching is enabled (`LWS_WITH_DIR`), the server automatically triggers updates to connected clients whenever the respective files are modified.
+If authorized, it reads the newest (by name) `.crt` in `<pki-root>/domains/<domain>/certs/production/crt/` and `.key` in `.../key/`, encodes them in a JSON payload, and sends them to the client.  A client may send `{"hash":"<sha1-hex>"}` first (bounded to 40 hex digits, anything else is ignored); if it matches the hash of the current cert, an empty payload is returned instead.
+
+### Renewals
+
+With `LWS_WITH_DIR`, at vhost init the server starts watching the `crt/` and `key/` dirs of every domain under `<pki-root>/domains/` that has a `dist-client/` dir, and when a `.crt` or `.key` appears or changes in them, it sends the current cert and key to every client connected for that domain.  Changes are allowed 500ms to settle first, so a renewal written as a new cert and a new key goes out as one update.
+
+The watches are made at vhost init because under lwsws that is before privileges are dropped; they keep working afterwards.  A domain provisioned after that is only watched from the next reload; until then its clients get the current cert whenever they reconnect.
 
 ### Privileged stub
 

@@ -13,7 +13,7 @@ struct vhd_cert_dist_server {
 	char                                pki_root[256];
 	struct lws_dll2_owner               connections;
 #if defined(LWS_WITH_DIR)
-	struct lws_dir_notify               *dn;
+	struct lws_dll2_owner               watches; /* struct cds_watch */
 #endif
 
 	struct lws_dll2                     list_vhd;
@@ -526,6 +526,9 @@ cert_dist_server_raw_cb(const char *in, size_t len, void *user)
 
 	if (!in) {
 		pss->stub_req = 0;
+		/* the cert changed again while we were asking */
+		if (pss->needs_cert_update)
+			lws_callback_on_writable(pss->wsi);
 		return;
 	}
 
@@ -546,20 +549,141 @@ cert_dist_server_raw_cb(const char *in, size_t len, void *user)
 /* --- MAIN SERVER IMPLEMENTATION --- */
 
 #if defined(LWS_WITH_DIR)
+/*
+ * We push a renewed cert and key to the links for its domain as soon as they
+ * change on disk.  Directory monitors are not recursive and only name the
+ * entry that changed, so each provisioned domain gets one on each of the two
+ * dirs the stub reads its cert and key from.
+ */
+
+struct cds_watch {
+	struct lws_dll2			list;	/* vhd->watches */
+	lws_sorted_usec_list_t		sul;	/* debounce */
+	struct vhd_cert_dist_server	*vhd;
+	struct lws_dir_notify		*dn_crt;
+	struct lws_dir_notify		*dn_key;
+	char				domain[128];
+};
+
+/*
+ * A renewal arrives as a new cert and a new key: let it finish landing before
+ * we push, so a link is not handed the new cert with the old key
+ */
+#define CDS_WATCH_SETTLE_US	(500 * LWS_US_PER_MS)
+
 static void
-dist_server_dir_notify_cb(const char *path, int is_file, void *user)
+cds_watch_settled(lws_sorted_usec_list_t *sul)
+{
+	struct cds_watch *w = lws_container_of(sul, struct cds_watch, sul);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&w->vhd->connections)) {
+		struct pss_cert_dist_server *pss = lws_container_of(d,
+					struct pss_cert_dist_server, list);
+
+		if (!strcmp(pss->domain, w->domain)) {
+			lwsl_notice("%s: %s changed, updating %s\n", __func__,
+				    w->domain, pss->subdomain);
+			pss->needs_cert_update = 1;
+			lws_callback_on_writable(pss->wsi);
+		}
+	} lws_end_foreach_dll(d);
+}
+
+static int
+cds_suffix(const char *name, const char *suffix)
+{
+	size_t n = strlen(name), sl = strlen(suffix);
+
+	return n > sl && !strcmp(name + n - sl, suffix);
+}
+
+/*
+ * The monitors give us the name of the entry that changed in their dir, or
+ * where the platform cannot say (kqueue), an empty name for "something in it"
+ */
+
+static void
+cds_watch_changed(struct cds_watch *w, const char *name, int is_file,
+		  const char *suffix)
+{
+	/* the stub only ever reads *<suffix> from there */
+	if (!name[0] || (is_file && cds_suffix(name, suffix)))
+		lws_sul_schedule(w->vhd->cx, 0, &w->sul, cds_watch_settled,
+				 CDS_WATCH_SETTLE_US);
+}
+
+static void
+cds_watch_crt_cb(const char *name, int is_file, void *user)
+{
+	cds_watch_changed((struct cds_watch *)user, name, is_file, ".crt");
+}
+
+static void
+cds_watch_key_cb(const char *name, int is_file, void *user)
+{
+	cds_watch_changed((struct cds_watch *)user, name, is_file, ".key");
+}
+
+static void
+cds_watch_destroy(struct cds_watch *w)
+{
+	lws_sul_cancel(&w->sul);
+	/*
+	 * The monitors are adopted on the system vhost, not ours, so they
+	 * outlive the vhd they point at unless we take them down here
+	 */
+	if (w->dn_crt)
+		lws_dir_notify_destroy(&w->dn_crt);
+	if (w->dn_key)
+		lws_dir_notify_destroy(&w->dn_key);
+	lws_dll2_remove(&w->list);
+	free(w);
+}
+
+/*
+ * lws_dir() callback over <pki_root>/domains: watch each domain that is
+ * provisioned to be distributed, ie, that has a dist-client dir
+ */
+
+static int
+cds_watch_domain(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
 	struct vhd_cert_dist_server *vhd = (struct vhd_cert_dist_server *)user;
+	char path[512];
+	struct cds_watch *w;
+	struct stat s;
 
-	if ((char *)strstr(path, "fullchain.pem") || (char *)strstr(path, "privkey.pem") || (char *)strstr(path, "crt") || (char *)strstr(path, "key")) {
-		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->connections)) {
-			struct pss_cert_dist_server *pss = lws_container_of(d, struct pss_cert_dist_server, list);
-			if ((char *)strstr(path, pss->domain)) {
-				pss->needs_cert_update = 1;
-				lws_callback_on_writable(pss->wsi);
-			}
-		} lws_end_foreach_dll(d);
-	}
+	if (lde->type != LDOT_DIR ||
+	    !cert_dist_valid_name(lde->name, sizeof(w->domain)))
+		return 0; /* includes . and .. */
+
+	lws_snprintf(path, sizeof(path), "%s/%s/dist-client", dirpath,
+		     lde->name);
+	if (stat(path, &s) || !S_ISDIR(s.st_mode))
+		return 0; /* nobody gets this one */
+
+	w = calloc(1, sizeof(*w));
+	if (!w)
+		return 1;
+
+	w->vhd = vhd;
+	lws_strncpy(w->domain, lde->name, sizeof(w->domain));
+	lws_dll2_add_tail(&w->list, &vhd->watches);
+
+	lws_snprintf(path, sizeof(path), "%s/%s/certs/production/crt",
+		     dirpath, lde->name);
+	w->dn_crt = lws_dir_notify_create(vhd->cx, path, cds_watch_crt_cb, w);
+	lws_snprintf(path, sizeof(path), "%s/%s/certs/production/key",
+		     dirpath, lde->name);
+	w->dn_key = lws_dir_notify_create(vhd->cx, path, cds_watch_key_cb, w);
+
+	if (!w->dn_crt || !w->dn_key)
+		lwsl_vhost_warn(vhd->vh, "%s: unable to watch %s, its "
+				"renewals will only reach links made after "
+				"them\n", __func__, lde->name);
+
+	return 0;
 }
 #endif
 
@@ -653,9 +777,17 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_dll2_add_tail(&vhd->list_vhd, &active_server_vhds);
 
 #if defined(LWS_WITH_DIR)
-		char scan_path[512];
-		lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->pki_root);
-		vhd->dn = lws_dir_notify_create(vhd->cx, scan_path, dist_server_dir_notify_cb, vhd);
+		{
+			/*
+			 * Under lwsws we are still privileged here, and the
+			 * monitors keep working after privileges are dropped
+			 */
+			char scan_path[512];
+
+			lws_snprintf(scan_path, sizeof(scan_path), "%s/domains",
+				     vhd->pki_root);
+			lws_dir(scan_path, vhd, cds_watch_domain);
+		}
 #endif
 		break;
 	}
@@ -664,13 +796,11 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		if (vhd) {
 			lws_dll2_remove(&vhd->list_vhd);
 #if defined(LWS_WITH_DIR)
-			/*
-			 * The monitor is adopted on the system vhost, not
-			 * ours, so it outlives the vhd it points at unless we
-			 * take it down here
-			 */
-			if (vhd->dn)
-				lws_dir_notify_destroy(&vhd->dn);
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					lws_dll2_get_head(&vhd->watches)) {
+				cds_watch_destroy(lws_container_of(d,
+						struct cds_watch, list));
+			} lws_end_foreach_dll_safe(d, d1);
 #endif
 			/*
 			 * Every ws connection is gone by now, so it already
@@ -770,7 +900,12 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		if (vhd && pss && pss->established) {
 			lws_dll2_remove(&pss->list);
 			if (pss->uds_tx) free(pss->uds_tx);
-			if (pss->uds_rx) free(pss->uds_rx);
+			if (pss->uds_rx) {
+				/* it may hold the private key */
+				lws_explicit_bzero(pss->uds_rx + LWS_PRE,
+						   (size_t)pss->uds_rx_len);
+				free(pss->uds_rx);
+			}
 
 			/*
 			 * lws is about to free the pss: a stub request we
@@ -798,9 +933,15 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_callback_on_writable(wsi);
 			else {
 				lwsl_notice("%s: Sent complete cert update to WSS client for %s\n", __func__, pss->domain);
+				/* it holds the private key */
+				lws_explicit_bzero(pss->uds_rx + LWS_PRE,
+						   (size_t)pss->uds_rx_len);
 				free(pss->uds_rx);
 				pss->uds_rx = NULL;
 				/* Keep connection open for future updates */
+				if (pss->needs_cert_update && !pss->stub_req)
+					/* it changed again meanwhile */
+					lws_callback_on_writable(wsi);
 			}
 			break;
 		}

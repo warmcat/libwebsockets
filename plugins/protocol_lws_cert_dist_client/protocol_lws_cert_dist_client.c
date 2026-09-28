@@ -110,7 +110,6 @@ cdc_payload_cb(struct lejp_ctx *ctx, char reason)
 struct pss_cert_dist_client {
 	lws_sorted_usec_list_t          sul;
 	struct lws                      *wsi;
-	struct lws                      *wsi_uds;
 	char                            subdomain[128];
 	char                            domain[128];
 	struct lws_vhost                *vh_client;
@@ -957,11 +956,8 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				break;
 			}
 
-			// lwsl_notice("%s: [DEBUG] WRITEABLE fired on wsi %p (pss->wsi=%p, cert=%p, key=%p, wsi_uds=%p)\n",
-			//	    __func__, wsi, pss->wsi, pss->cert, pss->key, pss->wsi_uds);
-
 			if (pss->wsi == wsi && pss->cert && pss->key &&
-			    pss->cert_len && pss->key_len && !pss->wsi_uds) {
+			    pss->cert_len && pss->key_len) {
 				size_t est_len;
 				const char *sec;
 
@@ -1042,22 +1038,38 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 				lwsl_notice("%s: JSON payload built, pushing to UDS stub for %s\n", __func__, conn->name);
 
+				/*
+				 * The server pushes every renewal down the same
+				 * link: an older install of ours that is still
+				 * queued is superseded by this one
+				 */
+				lws_stub_request_cancel(vhd->stub_mgr,
+							pss->stub_req);
 				pss->stub_req = lws_stub_request_h(vhd->stub_mgr,
 						pss->uds_tx + LWS_PRE, NULL, 0,
 						NULL, NULL, pss);
-				if (!pss->stub_req) {
+				if (!pss->stub_req)
 					lwsl_err("%s: Failed pushing to UDS stub\n", __func__);
-				} else {
-					pss->wsi_uds = (struct lws *)1;
+				else
 					lwsl_notice("%s: Sent complete cert update to local UDS stub for %s\n", __func__, conn->name);
-				}
 
+				/*
+				 * The stub request took its own copy.  Clear
+				 * ours, it holds the private key, and so we
+				 * don't save it twice
+				 */
+				lws_explicit_bzero(pss->uds_tx + LWS_PRE,
+						   (size_t)pss->uds_tx_len);
 				free(pss->uds_tx);
 				pss->uds_tx = NULL;
 
-				/* Clear the memory so we don't save it twice */
-				free(pss->cert); pss->cert = NULL;
-				free(pss->key); pss->key = NULL;
+				free(pss->cert);
+				pss->cert = NULL;
+				pss->cert_len = 0;
+				lws_explicit_bzero(pss->key, (size_t)pss->key_len);
+				free(pss->key);
+				pss->key = NULL;
+				pss->key_len = 0;
 			}
 		}
 		break;
@@ -1133,8 +1145,6 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 
 					pss->wsi = NULL;
-				} else if (pss->wsi_uds == wsi) {
-					pss->wsi_uds = NULL;
 				}
 			}
 		}
