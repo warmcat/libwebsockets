@@ -56,7 +56,7 @@ struct lws_muxable {
 	uint8_t			requested_POLLOUT;
 };
 
-#include "private-lib-roles.h"
+#include "private-lib-sansio.h"
 #if defined(LWS_ROLE_WT)
 #include "wt/private-lib-roles-wt.h"
 #endif

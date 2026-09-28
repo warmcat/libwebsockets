@@ -77,13 +77,13 @@ a target whose option is off is skipped, not an error.
 |---|---|---|
 | `fuzz-lejp` | lejp JSON parser (`lib/misc/lejp.c`) | policy, JOSE, RPC JSON; fed in two chunks to cover partial-input states |
 | `fuzz-lecp` | lecp CBOR parser (`lib/misc/lecp.c`) | needs `-DLWS_WITH_CBOR=ON` |
-| `fuzz-qpack` | native QPACK decoders (`lib/roles/h3/qpack.c`) | first byte selects encoder-stream vs header-block decode; needs h3 (`LWS_WITH_HTTP3` + gnutls) |
+| `fuzz-qpack` | native QPACK decoders (`lib/sansio/h3/qpack.c`) | first byte selects encoder-stream vs header-block decode; needs h3 (`LWS_WITH_HTTP3` + gnutls) |
 | `fuzz-upng` | stateful PNG decoder (`lib/misc/upng.c`) | seeds from `test-apps/*.png` |
 | `fuzz-lhp` | HTML5 + CSS parser (`lib/misc/lhp.c`) | builds a dlo document per input and destroys it; leaks and heap errors in teardown are caught |
-| `fuzz-h1` | h1 server header/body parser (`lib/roles/http/`) | evil-peer target, see below |
-| `fuzz-h2` | h2 framing + hpack (`lib/roles/h2/`) | evil-peer: the fuzz input is h2 frames after a canned h2c upgrade + connection preface |
-| `fuzz-ws` | ws server frame parser (`lib/roles/ws/`) | evil-peer: the fuzz input is client frames after a canned upgrade handshake |
-| `fuzz-ws-pmd` | ws rx through permessage-deflate (`lib/roles/ws/ext/`) | evil-peer: as `fuzz-ws` but the canned handshake negotiates the extension, so RSV1 frames reach the inflater; needs zlib (`LWS_WITHOUT_EXTENSIONS=OFF`) |
+| `fuzz-h1` | h1 server header/body parser (`lib/sansio/http/`) | evil-peer target, see below |
+| `fuzz-h2` | h2 framing + hpack (`lib/sansio/h2/`) | evil-peer: the fuzz input is h2 frames after a canned h2c upgrade + connection preface |
+| `fuzz-ws` | ws server frame parser (`lib/sansio/ws/`) | evil-peer: the fuzz input is client frames after a canned upgrade handshake |
+| `fuzz-ws-pmd` | ws rx through permessage-deflate (`lib/sansio/ws/ext/`) | evil-peer: as `fuzz-ws` but the canned handshake negotiates the extension, so RSV1 frames reach the inflater; needs zlib (`LWS_WITHOUT_EXTENSIONS=OFF`) |
 | `fuzz-jpeg` | stateful JPEG decoder (`lib/misc/jpeg.c`) | same shape as `fuzz-upng`; needs `LWS_WITH_JPEG` |
 | `fuzz-svg` | svg scene parser + linewise rasterizer (`lib/misc/svg.c`, `svg-raster.c`) | parses into the retained vector scene then renders every line to a sink; first byte selects hold-at-metadata, the chunk stride, antialiasing and the raster size; needs `LWS_WITH_SVG` |
 | `fuzz-gif` | stateful GIF decoder (`lib/misc/gif.c`) | same shape as `fuzz-jpeg`, then a second pass after `lws_gif_restart()` like the dlo interlace flow; needs `LWS_WITH_GIF` |
@@ -115,8 +115,8 @@ helpers, JOSE, COSE, async-dns) directly.  The remaining untrusted-input
 surfaces, easiest first:
 
  - the parsers that take bytes from a malicious *server*: mqtt rx
-   (`lib/roles/mqtt/mqtt.c`), h1 client response, ws client frames
-   (`client-parser-ws.c`), Set-Cookie (`lib/roles/http/cookie.c`).  These
+   (`lib/sansio/mqtt/mqtt.c`), h1 client response, ws client frames
+   (`client-parser-ws.c`), Set-Cookie (`lib/sansio/http/cookie.c`).  These
    need a client-mode variant of `peer.h` (lws connects out to the
    harness's socketpair end instead of adopting it); one helper unlocks
    all four

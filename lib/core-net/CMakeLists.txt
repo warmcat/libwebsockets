@@ -24,37 +24,13 @@
 
 include_directories(.)
 
-# the sansIO half's (READMEs/README.sans-io-split.md)
-lws_sansio_sources(
-	core-net/dummy-callback.c
-	core-net/close.c
-	core-net/vhost.c
-	core-net/wsi.c
-	core-net/wsi-state.c
-)
-
-# IO's, and what neither half owns
+# what neither half owns (READMEs/README.sans-io-split.md): the halves are
+# lib/sansio and lib/io
 list(APPEND SOURCES
-	core-net/IO/output.c
-	core-net/IO/network.c
-	core-net/IO/vhost.c
-	core-net/IO/pollfd.c
-	core-net/IO/service.c
-	core-net/IO/sorted-usec-list.c
-	core-net/IO/wsi-timeout.c
-	core-net/IO/adopt.c
 	core-net/txpacer.c
 	core-net/async-queue.c
 	core-net/roles.c
-	roles/pipe/ops-pipe.c
 )
-
-# lwsws' config: the vhosts and mounts it describes are made here
-if (LWS_WITH_LEJP_CONF AND LWS_WITH_NETWORK AND NOT LWS_PLAT_OPTEE)
-	list(APPEND SOURCES
-		core-net/IO/lejp-conf.c
-	)
-endif()
 
 if (LWS_WITH_LATENCY)
 	list(APPEND SOURCES
@@ -82,18 +58,6 @@ if (LWS_WITH_TRANSPORT_SEQUENCER)
 endif()
 
 
-if (LWS_WITH_SYS_STATE)
-	lws_sansio_sources(
-		core-net/state.c
-	)
-endif()
-
-if (LWS_WITH_ROUTING)
-	list(APPEND SOURCES
-		core-net/IO/route.c
-	)
-endif()
-
 if (LWS_WITH_LWS_DSH)
 	list(APPEND SOURCES
 		core-net/lws-dsh.c)
@@ -107,10 +71,6 @@ endif()
 if (LWS_WITH_CLIENT)
 	list(APPEND SOURCES
 		core-net/client/client.c
-		core-net/IO/client/connect.c
-		core-net/IO/client/connect2.c
-		core-net/IO/client/connect3.c
-		core-net/IO/client/transport.c
 		core-net/client/connect4.c
 		core-net/client/sort-dns.c
 		)
@@ -119,11 +79,6 @@ if (LWS_WITH_CLIENT)
 			core-net/client/conmon.c
 		)
 	endif()
-endif()
-
-if (LWS_WITH_SOCKS5 AND NOT LWS_WITHOUT_CLIENT)
-	lws_sansio_sources(
-		core-net/socks5-client.c)
 endif()
 
 if (LWS_WITH_WEBRTC)

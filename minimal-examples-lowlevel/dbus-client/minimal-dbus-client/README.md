@@ -5,7 +5,7 @@ This demonstrates nonblocking, asynchronous dbus method calls as the client.
 ## build
 
 Using libdbus requires additional non-default include paths setting, same as
-is necessary for lws build described in ./lib/roles/dbus/README.md
+is necessary for lws build described in ./lib/io/dbus/README.md
 
 CMake can guess one path and the library name usually, see the README above
 for details of how to override for custom libdbus and cross build.

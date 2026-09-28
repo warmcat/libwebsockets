@@ -129,15 +129,15 @@ poll fd and lock ones): one C enum cannot live in two headers, so they stay
 there, marked.
 
 The private headers are tiered the same way, by the file that defines each
-prototype: `lib/core-net/IO/private-lib-io.h` holds the IO half's (defined
-under `lib/core-net/IO`, `lib/plat`, `lib/tls`, `lib/event-libs`,
+prototype: `lib/io/private-lib-io.h` holds the IO half's (defined
+under `lib/io`, `lib/plat`, `lib/tls`, `lib/event-libs`,
 `lib/drivers`, the async dns), and `private-lib-core.h` includes it unless
 `LWS_SANSIO_CHECK` is defined.  The requests sansIO makes of IO in their
 private spellings (`lws_io_tx_push()` as tx's push form,
 `lws_service_wsi_as_writable()`, `lws_io_tx_now()` and
 `lws_io_service_now()` as want_write served now,
 `lws_client_transport_connected()` as the tunnel legs' "the transport is
-up" and `lws_client_transport_established()` as quic's) are in `lib/core-net/private-lib-sansio-seam.h`, which
+up" and `lws_client_transport_established()` as quic's) are in `lib/sansio/private-lib-sansio-seam.h`, which
 stays visible: the seam is the interface, and what the check reports is
 exactly the calls that are not it.  `scripts/sans-io-check.sh <build-dir>`
 compiles every sansIO source that way, from the build's
@@ -147,8 +147,9 @@ number of files calling them, and the totals (the compiler reports a
 callee once per file, so the count is of file-and-callee pairs, and
 clearing one site can reveal the next in the same file).  That list is
 the remaining work on the rx and tx plumbing, and the compiler keeps it,
-not a grep.  The same check is a build target: each sansIO directory's
-`CMakeLists.txt` declares its sources with `lws_sansio_sources()`, and with
+not a grep.  The same check is a build target: every source under
+`lib/sansio` is a sansIO source (`lib/sansio/CMakeLists.txt` collects what
+its directory added as `SOURCES_SANSIO`), and with
 `-DLWS_WITH_SANSIO_BUILD=ON` the target `websockets-sansio` builds just
 those, the IO prototypes hidden and an implicit declaration an error, so
 a call past the seam fails the build at its line.  (The tls private prototypes are not yet
@@ -206,7 +207,7 @@ has its own things to remember about the same connection, which sansIO
 never reads: the socket, its place in the fd table, the poll bookkeeping,
 the event-library handle, what kind of socket it is.  Those live in
 `struct lws_io_adjunct`, which `struct lws` holds by pointer, `wsi->io`,
-and nothing under the sansIO directories names a member of it.
+and nothing under `lib/sansio` names a member of it.
 
 The adjunct is allocated with the wsi, after it, so a connection is still
 one allocation: the wsi's constructor asks for `sizeof(struct lws)` plus
@@ -241,22 +242,25 @@ before it says the transport is up.
 
 ## What goes where in the tree
 
-The directories are the halves.  Placement by directory is the whole rule.
+The directories are the halves.  Placement by directory is the whole rule:
+`lib/sansio` is the sansIO half and `lib/io` the IO half, and the build
+(`SOURCES_SANSIO`), the checks and the lint take the half from the
+directory.
 
 | directory | half | notes |
 |---|---|---|
-| `lib/roles/*` | sansIO | every role: state machine, parser, framer, scheduler |
-| `lib/core-net/wsi.c`, `wsi-state.c`, `close.c`, `state.c`, `vhost.c`, `socks5-client.c`, `dummy-callback.c` | sansIO | the wsi state, the event table, connection lifecycle decisions, the vhost's protocols and roles, the socks handshake |
+| `lib/sansio/*` | sansIO | every role that speaks a wire protocol (`h1`, `h2`, `h3`, `http`, `ws`, `wt`, `quic`, `mqtt`, `raw-skt`, `raw-proxy`): state machine, parser, framer, scheduler; `private-lib-sansio.h`, the role ops and the wsi state; `private-lib-sansio-seam.h`, the seam |
+| `lib/sansio/wsi.c`, `wsi-state.c`, `close.c`, `state.c`, `vhost.c`, `socks5-client.c`, `dummy-callback.c` | sansIO | the wsi state, the event table, connection lifecycle decisions, the vhost's protocols and roles, the socks handshake |
 | `lib/core-net/client/connect4.c` proxy CONNECT composition | sansIO | it composes protocol bytes |
-| `lib/core-net/IO/`: `output.c`, `pollfd.c`, `service.c`, `adopt.c`, `network.c`, `route.c`, `wsi-timeout.c`, `sorted-usec-list.c`, `vhost.c` | IO | moving bytes, fds, poll, timers; a vhost's creation and destruction (its listen sockets, tls contexts, dns) |
-| `lib/core-net/IO/client/`: `connect.c`, `connect2.c`, `connect3.c` | IO | dns, connect, happy eyeballs |
+| `lib/io/`: `output.c`, `pollfd.c`, `service.c`, `adopt.c`, `network.c`, `route.c`, `wsi-timeout.c`, `sorted-usec-list.c`, `vhost.c` | IO | moving bytes, fds, poll, timers; a vhost's creation and destruction (its listen sockets, tls contexts, dns) |
+| `lib/io/client/`: `connect.c`, `connect2.c`, `connect3.c` | IO | dns, connect, happy eyeballs |
 | `lib/tls/*` record layer: `lws_ssl_capable_read/write`, bio, session cache, handshake driving | IO | sansIO sees plaintext |
-| `lib/roles/quic` packet and frame layer, `lib/roles/h3`, qpack | sansIO | quic is a sansIO part with a datagram interface instead of a stream one |
-| `lib/roles/listen`, `netlink`, `pipe`, `raw-file`, `dbus`, `cgi` | IO | transport adapters wearing the role interface: they accept sockets, read pipes, fds and the kernel's routing; nothing on the wire is theirs |
+| `lib/sansio/quic` packet and frame layer, `lib/sansio/h3`, qpack | sansIO | quic is a sansIO part with a datagram interface instead of a stream one |
+| `lib/io/listen`, `netlink`, `pipe`, `raw-file`, `dbus`, `cgi` | IO | transport adapters wearing the role interface: they accept sockets, read pipes, fds and the kernel's routing; nothing on the wire is theirs |
 | `lib/plat/*`, `lib/event-libs/*` | IO | |
 | `lib/core/*`, `lib/misc/*`, `lib/system/*` | neither | context, logging, utilities: shared by both halves, used by both |
 | `lib/core-net/roles.c`, `async-queue.c`, the generic crypto in `lib/tls` (`lws-gen*`) | neither | the role registry both halves dispatch through (sansIO roles and IO's adapters), the worker pool, crypto primitives |
-| `lib/core-net/IO/lejp-conf.c` | IO | lwsws' config: it makes the vhosts and mounts it describes |
+| `lib/io/lejp-conf.c` | IO | lwsws' config: it makes the vhosts and mounts it describes |
 
 Where a file has both today (`connect4.c`, `ops-quic.c`), the split is
 inside the file until it is moved; the decision rule still says which half
@@ -265,13 +269,13 @@ each function is in.
 ## Rules from now on
 
 1. New code goes on the side the test puts it.  A change that adds a
-   socket, poll or TLS-library reference under `lib/roles` or the sansIO
-   files above is wrong, whatever else it does.
+   socket, poll or TLS-library reference under `lib/sansio` is wrong,
+   whatever else it does.
 2. The interface calls are the only way across.  Adding one is a design
    change, not a convenience.
 3. The state trace (`LWS_STATE_TRACE_FILE`) is the oracle: a split step is
    done when the gate's edge set is unchanged.
-4. `scripts/sans-io-lint.sh` greps the sansIO directories for the forbidden
+4. `scripts/sans-io-lint.sh` greps `lib/sansio` for the forbidden
    identifiers and compares the total with `scripts/sans-io-lint.baseline`.
    More than the baseline fails; a step that brings it down re-baselines
    with `--update`.  The count only goes down.
@@ -356,7 +360,9 @@ can be live).
    first measure; 213 once it counted transport reads and stopped counting
    the handler's pollfd).
 3. Move the IO files of `lib/core-net` into `lib/core-net/IO/`, no code
-   change, so the directory says what the file is (done).
+   change, so the directory says what the file is (done; then both halves
+   became directories, `lib/sansio` and `lib/io`, the roles going to the
+   half each is in).
 4. Convert one role's rx to take bytes instead of reading them (h1 or ws),
    with the trace unchanged.  This is the pattern for the rest (done:
    `lws_rx_pump()` feeds the `rx` op of h1 both sides, raw-skt, raw-proxy,
@@ -376,7 +382,7 @@ can be live).
    between POLLIN and POLLOUT).  The pass's POLLOUT is IO's dispatcher's
    (done: every role's writeable is its `handle_POLLOUT` op).  A client's
    dns, connect and tls passes are IO's client transport machine
-   (done: `IO/client/transport.c`; the role hears the transport is up
+   (done: `lib/io/client/transport.c`; the role hears the transport is up
    through its `client_transport_up` op and starts its protocol; the socks
    and CONNECT legs stay the role's rx and tell IO when the tunnel is up
    with `lws_client_transport_connected()`).
@@ -389,7 +395,7 @@ can be live).
    POLLOUT clears, the pump calls from the roles' own handlers, and
    `lws_issue_raw`, now `lws_io_tx_push()`, as today's spelling of tx).
 7. The four requests through `lws_io_ops_t` (done: `lws-io-ops.h`,
-   `lws_io_ops_default` in IO/pollfd.c, `lws_context_creation_info.io_ops`).
+   `lws_io_ops_default` in `lib/io/pollfd.c`, `lws_context_creation_info.io_ops`).
    Then quic's datagram socket, the largest group left in the check: its
    path is a request (`path`), a connection moving to another wsi is one
    (`transfer`, shared with the keep-warm join), the handshake ending the
@@ -442,8 +448,8 @@ can be live).
    `lws_io_ops_default` (done: `api-test-sansio`, both halves; a client
    with a transport skips dns and connect and starts on it as connected,
    `lws_client_connect_transport()`).  Then a sansIO-only build target
-   (done as a compile: `websockets-sansio`, above, builds only what the
-   sansIO directories declare, and fails on a call into IO past the
+   (done as a compile: `websockets-sansio`, above, builds only what is
+   under `lib/sansio`, and fails on a call into IO past the
    seam; with the link-level check, the objects need nothing private of
    IO's), and as a link (done: with the struct split both halves compile
    the same `struct lws`, so `websockets-split` links those objects with

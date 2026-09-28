@@ -462,7 +462,7 @@ option(LWS_WITH_FANALYZER "Enable gcc -fanalyzer if compiler supports" OFF)
 option(LWS_HTTP_HEADERS_ALL "Override header reduction optimization and include all like older lws versions" OFF)
 option(LWS_WITH_SUL_DEBUGGING "Enable zombie lws_sul checking on object deletion" OFF)
 option(LWS_WITH_STATE_TRACE "Diagnostic only: append every distinct wsi role/state transition seen by the process to $LWS_STATE_TRACE_FILE (stderr if unset), to derive the transition tables. Off by default." OFF)
-option(LWS_WITH_STATE_CHECK "Debug only: check every wsi role/state transition against the per-machine transition tables in lib/core-net/wsi-state.c and abort on one that is not listed. Off by default." OFF)
+option(LWS_WITH_STATE_CHECK "Debug only: check every wsi role/state transition against the per-machine transition tables in lib/sansio/wsi-state.c and abort on one that is not listed. Off by default." OFF)
 option(LWS_WITH_SERVBUF_CHECK "Debug only: track which code owns which range of the per-thread pt->serv_buf scratch buffer, abort on an overlapping claim or on a claim held across a service pass. Off by default." OFF)
 option(LWS_WITH_SANSIO_BUILD "Also build the sansIO half of the library alone (target websockets-sansio, see READMEs/README.sans-io-split.md), with the IO half's prototypes hidden: a sansIO call into IO past the interface fails the build.  Off by default." OFF)
 option(LWS_WITH_PLUGINS_API "Build generic lws_plugins apis (see LWS_WITH_PLUGINS to also build protocol plugins)" OFF)
@@ -577,20 +577,8 @@ macro(add_subdir_include_directories_local_end)
 endmacro()
 
 
-#
-# A sansIO directory (READMEs/README.sans-io-split.md, "What goes where in the
-# tree") lists its sources with this instead of appending them to SOURCES:
-# they go into the library as ever, and into SOURCES_SANSIO, from which the
-# sansIO half is also built alone (LWS_WITH_SANSIO_BUILD)
-#
-macro(lws_sansio_sources)
-	list(APPEND SOURCES ${ARGN})
-	list(APPEND SOURCES_SANSIO ${ARGN})
-endmacro()
-
 macro(exports_to_parent_scope)
 	set(SOURCES ${SOURCES} PARENT_SCOPE)
-	set(SOURCES_SANSIO ${SOURCES_SANSIO} PARENT_SCOPE)
 	if (LIB_LIST)
 		set(LIB_LIST ${LIB_LIST} PARENT_SCOPE)
 	endif()
@@ -606,7 +594,6 @@ endmacro()
 
 macro(export_to_parent_intermediate)
 	set(SOURCES ${SOURCES} PARENT_SCOPE)
-	set(SOURCES_SANSIO ${SOURCES_SANSIO} PARENT_SCOPE)
 	if (LIB_LIST)
 		set(LIB_LIST ${LIB_LIST} PARENT_SCOPE)
 	endif()

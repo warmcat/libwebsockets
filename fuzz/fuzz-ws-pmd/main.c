@@ -23,7 +23,7 @@
  *
  * Same as fuzz-ws, but the canned upgrade handshake negotiates
  * permessage-deflate, so the fuzz input (client frames) reaches the RSV1
- * inflate path in lib/roles/ws/ext/extension-permessage-deflate.c on its
+ * inflate path in lib/sansio/ws/ext/extension-permessage-deflate.c on its
  * way to the ws frame parser.  Compressed frames, fragmented compressed
  * messages, control frames interleaved with them, and zip-bomb-shaped
  * payloads all live here.

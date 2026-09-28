@@ -4,13 +4,14 @@ include_directories(../../../core
 		    ../../../plat/freertos
 		    ../../../tls
 		    ../../../event-libs
-		    ../../../roles
-		    ../../../roles/http
-		    ../../../roles/h1
-		    ../../../roles/h2
-		    ../../../roles/ws
-		    ../../../roles/mqtt
-		    ../../../roles/raw
+		    ../../../sansio
+		    ../../../io
+		    ../../../sansio/http
+		    ../../../sansio/h1
+		    ../../../sansio/h2
+		    ../../../sansio/ws
+		    ../../../sansio/mqtt
+		    ../../../sansio/raw
 
 		    ../../../system
 		    ../../../system/smd

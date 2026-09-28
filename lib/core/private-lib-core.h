@@ -359,7 +359,7 @@ struct lws_foreign_thread_pollfd {
  */
 #include "private-lib-sansio-seam.h"
 #if !defined(LWS_SANSIO_CHECK)
-#include "IO/private-lib-io.h"
+#include "private-lib-io.h"
 #endif
 #endif /* network */
 

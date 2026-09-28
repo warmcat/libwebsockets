@@ -2,7 +2,7 @@
 #
 # sans-io-check.sh: compile the sansIO sources with the IO half's private
 # prototypes hidden (LWS_SANSIO_CHECK), so every place sansIO code calls into
-# IO past the seam (lib/core-net/private-lib-sansio-seam.h, the requests in
+# IO past the seam (lib/sansio/private-lib-sansio-seam.h, the requests in
 # their private spellings) fails to compile and names its line.  See
 # READMEs/README.sans-io-split.md.
 #
@@ -21,8 +21,8 @@ B=${1:?build dir}
 CC=$B/compile_commands.json
 [ -f "$CC" ] || { echo "no $CC (configure with -DCMAKE_EXPORT_COMPILE_COMMANDS=1)"; exit 2; }
 
-# the sansIO sources, as scripts/sans-io-lint.sh lists them
-FILTER='/lib/roles/(h1|h2|h3|http|ws|wt|quic|mqtt|raw-skt|raw-proxy)/|/lib/core-net/(wsi|wsi-state|close|state|vhost|socks5-client|dummy-callback)\.c'
+# the sansIO sources: everything under lib/sansio
+FILTER='/lib/sansio/'
 
 LOG=$(mktemp)
 python3 - "$CC" "$FILTER" <<'PY' | while IFS= read -r cmd; do

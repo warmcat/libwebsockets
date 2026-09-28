@@ -27,7 +27,7 @@ into another.
 The machines now each own their own bits of the word, are set only through
 their own setters, and are listed in per-machine transition tables that a
 debug build asserts against.  This document is the specification of those
-machines.  The tables in `lib/core-net/wsi-state.c` are authoritative; this
+machines.  The tables in `lib/sansio/wsi-state.c` are authoritative; this
 describes what they mean.
 
 ## The state word

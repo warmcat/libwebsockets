@@ -26,17 +26,18 @@ if (requirements)
 		${CMAKE_SOURCE_DIR}/lib/jose
 		${CMAKE_SOURCE_DIR}/lib/jose/jwe
 		${CMAKE_SOURCE_DIR}/lib/cose
-		${CMAKE_SOURCE_DIR}/lib/roles
-		${CMAKE_SOURCE_DIR}/lib/roles/dbus
-		${CMAKE_SOURCE_DIR}/lib/roles/http
-		${CMAKE_SOURCE_DIR}/lib/roles/http/compression
-		${CMAKE_SOURCE_DIR}/lib/roles/h1
-		${CMAKE_SOURCE_DIR}/lib/roles/h2
-		${CMAKE_SOURCE_DIR}/lib/roles/ws
-		${CMAKE_SOURCE_DIR}/lib/roles/mqtt
-		${CMAKE_SOURCE_DIR}/lib/roles/cgi
-		${CMAKE_SOURCE_DIR}/lib/roles/raw-proxy
-		${CMAKE_SOURCE_DIR}/lib/roles/listen
+		${CMAKE_SOURCE_DIR}/lib/sansio
+		${CMAKE_SOURCE_DIR}/lib/io
+		${CMAKE_SOURCE_DIR}/lib/io/dbus
+		${CMAKE_SOURCE_DIR}/lib/sansio/http
+		${CMAKE_SOURCE_DIR}/lib/sansio/http/compression
+		${CMAKE_SOURCE_DIR}/lib/sansio/h1
+		${CMAKE_SOURCE_DIR}/lib/sansio/h2
+		${CMAKE_SOURCE_DIR}/lib/sansio/ws
+		${CMAKE_SOURCE_DIR}/lib/sansio/mqtt
+		${CMAKE_SOURCE_DIR}/lib/io/cgi
+		${CMAKE_SOURCE_DIR}/lib/sansio/raw-proxy
+		${CMAKE_SOURCE_DIR}/lib/io/listen
 		${CMAKE_SOURCE_DIR}/lib/secure-streams
 		${CMAKE_SOURCE_DIR}/lib/secure-streams/serialized/client
 		${CMAKE_SOURCE_DIR}/lib/system/metrics

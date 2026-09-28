@@ -3,9 +3,9 @@
 # sans-io-lint.sh: count the places where sansIO code names something that
 # belongs to IO.  See READMEs/README.sans-io-split.md for the rule.
 #
-# The sansIO directories and files are listed below, from that document.
-# The listen, netlink, pipe, raw-file, dbus and cgi roles are transport
-# adapters wearing the role interface: IO's, and not listed.
+# The sansIO half is the lib/sansio directory.  The listen, netlink, pipe,
+# raw-file, dbus and cgi roles are transport adapters wearing the role
+# interface: IO's, under lib/io, and not looked at.
 # The forbidden identifiers are its corollary: a socket or fd, a poll flag
 # asked for by name, a TLS library object, an event-loop handle; and the
 # transport read and write calls themselves, which a converted role leaves
@@ -25,11 +25,7 @@
 
 cd "$(dirname "$0")/.." || exit 1
 
-SANSIO="lib/roles/h1 lib/roles/h2 lib/roles/h3 lib/roles/http lib/roles/ws lib/roles/wt \
-	lib/roles/quic lib/roles/mqtt lib/roles/raw-skt lib/roles/raw-proxy lib/roles/*.c lib/roles/*.h \
-	lib/core-net/wsi.c lib/core-net/wsi-state.c lib/core-net/close.c \
-	lib/core-net/state.c lib/core-net/vhost.c lib/core-net/socks5-client.c \
-	lib/core-net/dummy-callback.c"
+SANSIO="lib/sansio"
 
 # one alternation, extended regex
 FORBIDDEN='desc\.sockfd|\bsend\(|\brecv\(|\bsendto\(|\brecvfrom\(|\brecvmsg\(|\bCMSG_[A-Z]+\(|\blws_ssl_capable_(read|write)\(|\blws_buflist_aware_read\(|\blws_ssl_pending\(|\bLWS_POLL(IN|OUT|HUP)\b|\bSSL_[A-Za-z_]+\(|\bgnutls_[a-z_]+\(|\bmbedtls_[a-z_]+\(|\bbr_ssl_[a-z_]+\(|\bwolfSSL_[A-Za-z_]+\(|\buv_[a-z_]+\(|\bev_io_[a-z_]+\(|\bevent_base_[a-z_]+\(|\bg_main_[a-z_]+\(|\bsd_event_[a-z_]+\('

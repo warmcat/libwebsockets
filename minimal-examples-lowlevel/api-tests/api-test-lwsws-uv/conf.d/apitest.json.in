@@ -7,7 +7,7 @@
 #
 #  - the tls one on @LWSWS_UV_PORT_TLS@ serves h1 and h2 over TCP, and because
 #    its "alpn" names h3, lws also binds a QUIC UDP listener on the same port
-#    number (lib/roles/http/server/server.c, "check_quic:"), so h3 and h1/h2
+#    number (lib/sansio/http/server/server.c, "check_quic:"), so h3 and h1/h2
 #    are reachable at the same host:port exactly like warmcat.com;
 #
 #  - the cleartext one on @LWSWS_UV_PORT_PLAIN@ is both the h1 pipelining

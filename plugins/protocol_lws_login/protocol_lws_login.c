@@ -1816,7 +1816,7 @@ lws_login_snip_headers(struct lws *wsi)
  * app" should instead check `state >= LWS_LOGIN_STATE_APP_ADMIN` or read
  * x-lws-login-grant-level.
  *
- * Mirrors lib/roles/http/server/interceptor.c lws_interceptor_inject_header:
+ * Mirrors lib/sansio/http/server/interceptor.c lws_interceptor_inject_header:
  * append "Name: value\r\n" lines to wsi->http.extra_onward_headers, each
  * zapping the client-supplied copy of its name first (done inside
  * lws_http_add_onward_header(), and again for every path by
@@ -3552,7 +3552,7 @@ anon:
 		 * expiry sul it left scheduled on the context), spa, buflist
 		 * and silent_update_jwt -- an unbounded leak driven by nothing
 		 * more exotic than the widget polling .lws-login-status.
-		 * Mirrors lib/roles/http/server/interceptor.c.
+		 * Mirrors lib/sansio/http/server/interceptor.c.
 		 */
 		case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
 			lws_login_pss_reset(pss);

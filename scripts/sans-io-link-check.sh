@@ -6,7 +6,7 @@
 # that is also declared in a header both halves include.  This looks at what
 # the built objects actually reference: every symbol the sansIO objects need
 # that only an IO object defines, and is neither public api (declared under
-# include/) nor in the seam (lib/core-net/private-lib-sansio-seam.h).
+# include/) nor in the seam (lib/sansio/private-lib-sansio-seam.h).
 #
 # Usage: scripts/sans-io-link-check.sh <build-dir> [-v]
 #
@@ -19,9 +19,10 @@ OBJ=$B/lib/CMakeFiles/websockets.dir
 [ -d "$OBJ" ] || OBJ=$B/lib/CMakeFiles/websockets_shared.dir
 [ -d "$OBJ" ] || { echo "no library objects under $B/lib/CMakeFiles"; exit 2; }
 
-# the halves, as the README places them (sans-io-check.sh's sansIO filter)
-SANSIO='/roles/(h1|h2|h3|http|ws|wt|quic|mqtt|raw-skt|raw-proxy)/|/core-net/(wsi|wsi-state|close|state|vhost|socks5-client|dummy-callback)\.c\.o'
-IO='/core-net/IO/|/plat/|/tls/|/event-libs/|/roles/(listen|netlink|pipe|raw-file|dbus|cgi)/|/system/async-dns/'
+# the halves, by directory, as the README places them: lib/sansio, and
+# lib/io with the other directories that are IO's
+SANSIO='\.dir/sansio/'
+IO='\.dir/(io|plat|tls|event-libs|system/async-dns)/'
 # the generic crypto in lib/tls is not the transport's: neither half's
 NEITHER='/tls/(.*/)?lws-gen|/tls/(chacha|poly1305)\.c\.o'
 
@@ -39,7 +40,7 @@ done < "$T/s.lst" | sort -u > "$T/uses"
 
 awk '{print $1}' "$T/uses" | sort -u | comm -23 - "$T/s.def" | comm -12 - "$T/io.def" > "$T/fromio"
 
-grep -ohE '\b[_a-z][a-z0-9_]*\b' lib/core-net/private-lib-sansio-seam.h | sort -u > "$T/seam"
+grep -ohE '\b[_a-z][a-z0-9_]*\b' lib/sansio/private-lib-sansio-seam.h | sort -u > "$T/seam"
 P=0; S=0; N=0
 : > "$T/priv"
 while read -r s; do

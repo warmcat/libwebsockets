@@ -208,8 +208,10 @@ endif()
 if (LWS_WITH_NETWORK)
 	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/core-net)
 	add_subdirectory(core-net)
-	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles)
-	add_subdirectory(roles)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/sansio)
+	add_subdirectory(sansio)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/io)
+	add_subdirectory(io)
 endif()
 
 if (LWS_WITH_JOSE)
@@ -223,48 +225,48 @@ if (LWS_WITH_COSE)
 endif()
 
 if (LWS_ROLE_MQTT)
-	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/mqtt)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/sansio/mqtt)
 endif()
 
 if (LWS_ROLE_DBUS AND NOT LWS_PLAT_FREERTOS)
-	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/dbus)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/io/dbus)
 endif()
 
 if (LWS_ROLE_H1 OR LWS_ROLE_H2 OR LWS_ROLE_H3)
-	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/http)
-	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/http/compression)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/sansio/http)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/sansio/http/compression)
 endif()
 
 if (LWS_ROLE_H1)
-	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/h1)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/sansio/h1)
 endif()
 
 if (LWS_ROLE_H2)
-	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/h2)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/sansio/h2)
 endif()
 
 if (LWS_ROLE_WS)
-	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/ws)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/sansio/ws)
 endif()
 
 if (LWS_ROLE_RAW)
-	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/raw-skt)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/sansio/raw-skt)
 endif()
 
 if (LWS_ROLE_RAW_FILE)
-	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/raw-file)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/io/raw-file)
 endif()
 
 if (LWS_WITH_CGI)
-	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/cgi)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/io/cgi)
 endif()
 
 if (LWS_ROLE_RAW_PROXY)
-	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/raw-proxy)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/sansio/raw-proxy)
 endif()
 
 if (NOT LWS_WITHOUT_SERVER OR LWS_WITH_SECURE_STREAMS_PROCESS_API)
-	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/listen)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/io/listen)
 endif()
 
 if (LWS_WITH_SECURE_STREAMS)
@@ -371,8 +373,8 @@ if (LWS_WITH_SHARED)
 endif()
 
 #
-# The sansIO half alone (READMEs/README.sans-io-split.md): the sources its
-# directories declared with lws_sansio_sources(), built with LWS_SANSIO_CHECK
+# The sansIO half alone (READMEs/README.sans-io-split.md): the sources under
+# lib/sansio (SOURCES_SANSIO), built with LWS_SANSIO_CHECK
 # so the IO half's private prototypes are hidden and only the interface (the
 # seam, lws-io-ops.h and the public api) is visible.  A call into IO past it
 # is an implicit declaration, made an error here, naming the file and line.

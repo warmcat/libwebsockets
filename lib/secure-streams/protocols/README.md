@@ -31,7 +31,7 @@ are not exported to user code)
  - a struct ss_pcols describing how secure_streams should use, including
    a pointer to the related connect_munge helper.
 
-In ./lib/core-net/vhost.c, enabled protocols are added to vhost protcols
+In ./lib/sansio/vhost.c, enabled protocols are added to vhost protcols
 lists so they may be used.  And in ./lib/secure-streams/secure-streams.c,
 enabled struct ss_pcols are listed and checked for matches when the user
 creates a new Secure Stream.
