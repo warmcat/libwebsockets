@@ -132,13 +132,17 @@ The private headers are tiered the same way, by the file that defines each
 prototype: `lib/io/private-lib-io.h` holds the IO half's (defined
 under `lib/io`, `lib/plat`, `lib/tls`, `lib/event-libs`,
 `lib/drivers`, the async dns), and `private-lib-core.h` includes it unless
-`LWS_SANSIO_CHECK` is defined.  The requests sansIO makes of IO in their
-private spellings (`lws_io_tx_push()` as tx's push form,
-`lws_service_wsi_as_writable()`, `lws_io_tx_now()` and
-`lws_io_service_now()` as want_write served now,
-`lws_client_transport_connected()` as the tunnel legs' "the transport is
-up" and `lws_client_transport_established()` as quic's) are in `lib/sansio/private-lib-sansio-seam.h`, which
-stays visible: the seam is the interface, and what the check reports is
+`LWS_SANSIO_CHECK` is defined.  sansIO's requests of IO are spelled in
+`lib/sansio/private-lib-sansio-seam.h`: for the sansIO sources it defines
+each as a static inline call through the context's `lws_io_ops_t`, keeping
+the name the request always had (`lws_io_tx_push()`,
+`lws_client_transport_start()`, `lws_tls_session_ptr()`, ...) or, where
+IO's implementation is public api, an `lws_io_...()` name
+(`lws_io_peer_address()` for `lws_get_peer_simple()`,
+`lws_io_tx_file()` for `lws_serve_http_file_fragment()`); every other
+source sees IO's own functions of those names, whose prototypes are in
+`private-lib-io.h`, and they are what `lws_io_ops_default` points to.  So
+the seam is the interface, and what the check reports is
 exactly the calls that are not it.  `scripts/sans-io-check.sh <build-dir>`
 compiles every sansIO source that way, from the build's
 `compile_commands.json`, so each place sansIO code calls into IO past the
@@ -164,15 +168,81 @@ every symbol the sansIO objects reference that only an IO object defines
 and that is neither public api nor in the seam, with the files using it.
 
 **The four requests sansIO makes of IO** (want_write, deadline, want_read,
-close) are calls into IO today, spelled `lws_callback_on_writable()`,
-`lws_set_timeout()` / `lws_sul_schedule()`, `lws_rx_flow_control()` and
-`lws_close_free_wsi()`.  Those names stay, as sansIO's api: what the tiering
-adds is that at the bottom of each, where the request reaches the transport,
-it goes through one struct of four function pointers, `lws_io_ops_t`, that
-IO fills in for the normal build and an embedder of the sansIO half fills in
-for theirs.  A port that returns its requests as polled outputs, the way a
-Rust sans-IO crate does, implements the same four.  The struct is the seam;
-the rest of the two halves never see each other.
+close) are spelled `lws_callback_on_writable()`, `lws_set_timeout()` /
+`lws_sul_schedule()`, `lws_rx_flow_control()` and `lws_close_free_wsi()`.
+Those names stay, as sansIO's api: at the bottom of each, where the request
+reaches the transport, it goes through one struct of function pointers,
+`lws_io_ops_t`, that IO fills in for the normal build and an embedder of the
+sansIO half fills in for theirs.  The deadline is the exception that proves
+the shape: the timer lists are neither half's (below), sansIO schedules into
+them, and IO hears a new earliest deadline through the `deadline` op.  The
+rest of sansIO's requests go through the same struct: see "The contract".
+A port that returns its requests as polled outputs, the way a Rust sans-IO
+crate does, implements the same.  The struct is the seam; the rest of the
+two halves never see each other.
+
+## The contract
+
+What a port of the sansIO half implements, or an embedder of it supplies,
+is `lws_io_ops_t` (`include/libwebsockets/lws-io-ops.h`, every member
+documented there) and two platform functions.  IO's implementation of each
+member is named beside it; a member marked optional may be NULL where the
+embedder carries nothing that needs it.
+
+| theme | member | the request | IO's implementation |
+|---|---|---|---|
+| loop | `want_write` | call my tx when the transport can take bytes | `lws_io_want_write_pollfd()` |
+| loop | `want_read` | feed / stop feeding my rx | `lws_io_want_read_pollfd()` |
+| loop | `deadline` (optional) | the earliest deadline on a thread moved | NULL: the built-in loops ask each turn |
+| loop | `close` | the close, by phase: quiesce, unwatch, shutdown, stage, release | `lws_io_close_pollfd()` |
+| object | `path` (optional) | a datagram connection's peer moved, or wants a new socket | `lws_io_path_dgram()` |
+| object | `created` (optional) | a connection object was made | `lws_io_adjunct_init()` |
+| object | `transfer` | the connection goes on as another object | `lws_io_transfer_pollfd()` |
+| transport | `transport_start` | a client's request is ready: start its transport | `lws_client_transport_start()` |
+| transport | `transport_connected` | the socks / CONNECT tunnel is up | `lws_client_transport_connected()` |
+| transport | `transport_established` | quic made its transport, it won the race | `lws_client_transport_established()` |
+| transport | `transport_failed` (optional) | quic's transport failed: retarget if possible | `lws_client_transport_failed()` |
+| transport | `transport_rebind` (optional) | a restarted client may belong on a jit-trust vhost | `lws_client_transport_rebind()` |
+| transport | `client_connect` (optional) | a new client connection, a proxied transaction's onward leg | `lws_client_connect_via_info()` |
+| transport | `peer_address` (optional) | the peer's address as text | `lws_get_peer_simple()` |
+| tls | `tls_session` (optional) | the library's session object | `lws_tls_session_ptr()` |
+| tls | `tls_hs_ca_id` (optional) | which CA verified the peer | `lws_tls_wsi_hs_ca_id()` |
+| tls | `tls_peer_cert_info` (optional) | the peer certificate's information | `lws_tls_peer_cert_info()` |
+| tls | `tls_quic_session` | make quic's session | `lws_tls_quic_session()` |
+| tls | `tls_quic_handshake` | feed quic's CRYPTO bytes to the handshake | `lws_tls_quic_advance_handshake()` |
+| tls | `tls_quic_set_tp`, `tls_quic_get_tp` | quic's transport parameters | `lws_tls_quic_set/get_transport_parameters()` |
+| tls | `tls_confirm_peer_cert` | is the server's certificate acceptable | `lws_tls_client_confirm_peer_cert()` |
+| tls | `tls_quic_aead`, `tls_quic_alert`, `tls_quic_alpn` | what quic's handshake settled | `lws_tls_quic_aead_type()`, `_alert()`, `_alpn()` |
+| tx | `tx_push` | take these framed bytes now (the push) | `lws_io_tx_push()` |
+| tx | `tx_now` (optional) | pull a datagram connection's tx now | `lws_io_tx_now()` |
+| tx | `tx_choked` | would the transport block a write now | `lws_plat_tx_choked()` |
+| tx | `tx_file` (optional) | drive a served file into the transport | `lws_serve_http_file_fragment()` |
+| service | `service_writable` | want_write served now | `lws_service_wsi_as_writable()` |
+| service | `service_now` | rx served now | `lws_io_service_now()` |
+| service | `wake` | come round the loop soon | `lws_cancel_service_pt()` |
+| rx | `http_client_read` (optional) | the app pulls its response body | `lws_http_client_read()` |
+| vhost | `vhost_destroy` | a going vhost's last connection went | `__lws_vhost_destroy2()` |
+| vhost | `vhost_jit_grace` (optional) | a jit-trust vhost's last connection went | `lws_tls_jit_trust_vh_start_grace()` |
+| cgi | `cgi_start`, `cgi_stdout_tx`, `cgi_stdin_write`, `cgi_stdin_body_end`, `cgi_stderr_read`, `cgi_remove_and_kill`, `cgi_release` | an http transaction's child process | `lws_cgi_via_info()`, `lws_cgi_write_split_stdout_headers()`, `lws_cgi_stdin_write()`, ... |
+
+The tls members exist in a build with tls, the cgi ones in a build with
+cgi, since the types they name do.  The platform functions are injected
+dependencies rather than requests: `lws_now_usecs()`, the clock, and
+`lws_get_random()`, the random source.  A port passes them in; everything
+else sansIO links with is the substrate neither half owns (`lib/core`,
+`lib/misc`, the neither-half files of `lib/core-net`, the generic crypto),
+which a port translates along with it.
+
+How the calls sansIO made into IO were placed, when the contract was
+written down (2026-09-28): the timer lists and a connection's timeouts
+(`__lws_sul_insert()`, `lws_sul_cancel()`, `lws_sul_schedule()`,
+`lws_set_timeout()`), the address text helpers (`lws_sa46_*`) and the
+freeing of a conmon record are neither half's and moved to
+`lib/core-net`; `lws_write()` and the sansIO part of
+`lws_send_pipe_choked()` were sansIO code in IO's files and moved to
+`lib/sansio/output.c`; the app apis that call every connection of a
+protocol walk IO's fd table and moved to `lib/io/pollfd.c`; everything
+else became the members above.
 
 **Who calls rx.**  The end state of the rx side is that IO's service reads
 and calls rx itself, and no role has a `handle_POLLIN` of its own.  What
@@ -253,7 +323,7 @@ directory.
 | directory | half | notes |
 |---|---|---|
 | `lib/sansio/*` | sansIO | every role that speaks a wire protocol (`h1`, `h2`, `h3`, `http`, `ws`, `wt`, `quic`, `mqtt`, `raw-skt`, `raw-proxy`): state machine, parser, framer, scheduler; `private-lib-sansio.h`, the role ops and the wsi state; `private-lib-sansio-seam.h`, the seam |
-| `lib/sansio/wsi.c`, `wsi-state.c`, `close.c`, `state.c`, `vhost.c`, `socks5-client.c`, `dummy-callback.c` | sansIO | the wsi state, the event table, connection lifecycle decisions, the vhost's protocols and roles, the socks handshake |
+| `lib/sansio/wsi.c`, `wsi-state.c`, `close.c`, `state.c`, `vhost.c`, `output.c`, `socks5-client.c`, `dummy-callback.c` | sansIO | the wsi state, the event table, connection lifecycle decisions, the vhost's protocols and roles, the app's write (`lws_write()`, `lws_send_pipe_choked()`), the socks handshake |
 | `lib/sansio/client-connect4.c` | sansIO | a client's step once its socket is connected (`lws_client_connect_4_established()`): it composes the http proxy CONNECT, runs the socks greeting, queues a pipelined connection behind its leader, and otherwise asks IO for the transport |
 | `lib/io/`: `output.c`, `pollfd.c`, `service.c`, `adopt.c`, `network.c`, `route.c`, `sorted-usec-list.c`, `vhost.c` | IO | moving bytes, fds, poll; running the timers that are due; a vhost's creation and destruction (its listen sockets, tls contexts, dns) |
 | `lib/io/client/`: `connect.c`, `connect2.c`, `connect3.c`, `transport.c`, `sort-dns.c`, `conmon.c` | IO | dns, connect, happy eyeballs; address selection for connect (RFC 6724 sorting of the resolved addresses); the connection-monitoring report of what the transport did |
@@ -512,8 +582,13 @@ on and marked done here, like the staging above.
    IO wants an explicit accessor set, and cgi its own state.
 7. Locks and the fd table: sansIO takes the pt, context and vhost locks
    about 38 times, and walks IO's fd table to enumerate connections in
-   three places in wsi.c.  A port has neither.
+   three places in wsi.c.  A port has neither.  (The fd table walks are
+   done: they were app apis over every connection of a protocol, and
+   moved to IO.  The locks are not.)
 8. The interface is about twenty calls, not the four requests above:
    the transport machine's five, seven tls session queries, the cgi's
    four and the served-now variants.  "The interface" is to state the
-   real contract, since that is what a port implements.
+   real contract, since that is what a port implements (done: every
+   request is an `lws_io_ops_t` member, "The contract" above lists them,
+   and the sansIO objects take nothing else of IO's but the clock and the
+   random source).

@@ -24,15 +24,18 @@
  * lws-io-ops.h: the requests the sansIO half of lws makes of the IO half.
  * See READMEs/README.sans-io-split.md, "The interface" and "The headers".
  *
- * sansIO asks IO for exactly these: call my tx when the transport can take
- * bytes, feed or stop feeding my rx, wake me at this deadline, and release
- * my transport.  It asks through the names it always has (
- * lws_callback_on_writable(), lws_rx_flow_control(), lws_set_timeout() and
- * lws_sul_schedule(), lws_close_free_wsi()); at the bottom of each, where
- * the request reaches the transport, it goes through this struct.  The rest
- * are about the transport and its object themselves: a datagram
- * connection's path moved, a connection object was made, and a connection
- * moved to another object.
+ * sansIO asks IO for exactly these, and nothing else: the four requests
+ * of the loop (call my tx when the transport can take bytes, feed or stop
+ * feeding my rx, the earliest deadline moved, release my transport), which
+ * it spells as it always has (lws_callback_on_writable(),
+ * lws_rx_flow_control(), lws_set_timeout() and lws_sul_schedule(),
+ * lws_close_free_wsi()) and which reach this struct at the bottom; the
+ * connection object's (made, moved to another object, its datagram path);
+ * and, grouped below by theme, the client transport, the tls session, tx,
+ * service, the app's rx pull, the vhost and the cgi.  The platform's clock
+ * and random source, lws_now_usecs() and lws_get_random(), are dependencies
+ * rather than requests.  README.sans-io-split.md, "The contract", lists
+ * them.
  *
  * IO fills it in for the normal build (lws_io_ops_default).  An embedder of
  * the sansIO half alone supplies its own in

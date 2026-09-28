@@ -34,10 +34,10 @@
  * what lws_io_ops_default points to.  A request whose IO implementation is
  * public api is spelled lws_io_...() here.
  *
- * Requests not yet converted are still plain prototypes below, visible to
- * both halves.  The public spellings of the others (lws_callback_on_writable(),
- * lws_set_timeout(), lws_sul_schedule(), lws_rx_flow_control(),
- * lws_close_free_wsi(), lws_write()) are visible as public api.
+ * The four requests sansIO has always spelled as public api
+ * (lws_callback_on_writable(), lws_rx_flow_control(), lws_close_free_wsi(),
+ * and the deadlines of lws_set_timeout() / lws_sul_schedule()) reach the
+ * same struct inside sansIO and the neither half's timer lists.
  */
 
 #if !defined(__LWS_PRIVATE_LIB_SANSIO_SEAM_H__)
