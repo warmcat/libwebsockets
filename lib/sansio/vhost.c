@@ -24,27 +24,6 @@
 
 #include "private-lib-core.h"
 
-
-#if defined(LWS_WITH_SECURE_STREAMS)
-const struct lws_protocols *available_secstream_protocols[] = {
-#if defined(LWS_ROLE_H1)
-	&protocol_secstream_h1,
-#endif
-#if defined(LWS_ROLE_H2)
-	&protocol_secstream_h2,
-#endif
-#if defined(LWS_ROLE_WS)
-	&protocol_secstream_ws,
-#endif
-#if defined(LWS_ROLE_MQTT)
-	&protocol_secstream_mqtt,
-#endif
-	&protocol_secstream_raw,
-	NULL
-};
-#endif
-
-
 int
 lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 {

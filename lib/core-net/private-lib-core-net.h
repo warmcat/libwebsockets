@@ -89,9 +89,6 @@ extern "C" {
  * list, lws_io_roles, and IO walks both (LWS_FOR_EVERY_ROLE_START)
  */
 extern const struct lws_role_ops *available_roles[];
-#if defined(LWS_WITH_SECURE_STREAMS)
-extern const struct lws_protocols *available_secstream_protocols[];
-#endif
 
 #define LWS_FOR_EVERY_AVAILABLE_ROLE_START(xx) { \
 		const struct lws_role_ops **ppxx = available_roles; \

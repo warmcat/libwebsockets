@@ -33,6 +33,26 @@
 void
 lws_tls_session_vh_destroy(struct lws_vhost *vh);
 
+/* the secure streams protocols a vhost is made with, when it has them */
+#if defined(LWS_WITH_SECURE_STREAMS)
+static const struct lws_protocols *available_secstream_protocols[] = {
+#if defined(LWS_ROLE_H1)
+	&protocol_secstream_h1,
+#endif
+#if defined(LWS_ROLE_H2)
+	&protocol_secstream_h2,
+#endif
+#if defined(LWS_ROLE_WS)
+	&protocol_secstream_ws,
+#endif
+#if defined(LWS_ROLE_MQTT)
+	&protocol_secstream_mqtt,
+#endif
+	&protocol_secstream_raw,
+	NULL
+};
+#endif
+
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 static const char * const mount_protocols[] = {
 	"http://",
