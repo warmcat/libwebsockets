@@ -169,6 +169,188 @@ static const char * const jig_conf =
 extern int test2(void);
 
 /*
+ * Sibling lists: a list element holding three lists and a scalar after them,
+ * whose middle list's elements each hold two lists and a scalar again, one
+ * level further down, with the members in different orders in different
+ * elements, and an empty list.
+ *
+ * lejp used to leave the parser pushed for a list's elements in place after
+ * that list's ']' anywhere but at the top level, so everything after the
+ * first list in a list element (further lists, and scalars) was matched
+ * against the first list's element paths and silently dropped, and which
+ * member survived depended only on the order they came in.
+ */
+
+typedef struct {
+	lws_dll2_t		list;
+	const char		*v;
+} sl_leaf_t;
+
+typedef struct {
+	lws_dll2_t		list;
+	const char		*name;
+	lws_dll2_owner_t	p;	/* sl_leaf_t */
+	lws_dll2_owner_t	q;	/* sl_leaf_t */
+	int			after;
+} sl_mid_t;
+
+typedef struct {
+	lws_dll2_t		list;
+	const char		*name;
+	lws_dll2_owner_t	a;	/* sl_leaf_t */
+	lws_dll2_owner_t	b;	/* sl_mid_t */
+	lws_dll2_owner_t	c;	/* sl_leaf_t */
+	int			tail;
+} sl_elem_t;
+
+typedef struct {
+	lws_dll2_owner_t	elems;	/* sl_elem_t */
+	int			end;
+} sl_top_t;
+
+static const lws_struct_map_t lsm_sl_leaf[] = {
+	LSM_STRING_PTR	(sl_leaf_t, v,				"v"),
+};
+
+static const lws_struct_map_t lsm_sl_mid[] = {
+	LSM_STRING_PTR	(sl_mid_t, name,			"name"),
+	LSM_LIST	(sl_mid_t, p, sl_leaf_t, list, NULL, lsm_sl_leaf, "p"),
+	LSM_LIST	(sl_mid_t, q, sl_leaf_t, list, NULL, lsm_sl_leaf, "q"),
+	LSM_SIGNED	(sl_mid_t, after,			"after"),
+};
+
+static const lws_struct_map_t lsm_sl_elem[] = {
+	LSM_STRING_PTR	(sl_elem_t, name,			"name"),
+	LSM_LIST	(sl_elem_t, a, sl_leaf_t, list, NULL, lsm_sl_leaf, "a"),
+	LSM_LIST	(sl_elem_t, b, sl_mid_t, list, NULL, lsm_sl_mid, "b"),
+	LSM_LIST	(sl_elem_t, c, sl_leaf_t, list, NULL, lsm_sl_leaf, "c"),
+	LSM_SIGNED	(sl_elem_t, tail,			"tail"),
+};
+
+static const lws_struct_map_t lsm_sl_top[] = {
+	LSM_LIST	(sl_top_t, elems, sl_elem_t, list, NULL, lsm_sl_elem,
+								"elems"),
+	LSM_SIGNED	(sl_top_t, end,				"end"),
+};
+
+static const lws_struct_map_t lsm_sl_schema[] = {
+	LSM_SCHEMA	(sl_top_t, NULL, lsm_sl_top,		"siblings"),
+};
+
+static const char * const sl_json =
+"{\"schema\":\"siblings\",\"elems\":["
+	/* three lists and a scalar, the middle list's elements with two */
+	"{\"name\":\"e1\","
+		"\"a\":[{\"v\":\"a1\"},{\"v\":\"a2\"}],"
+		"\"b\":["
+			"{\"name\":\"m1\","
+				"\"p\":[{\"v\":\"p1\"}],"
+				"\"q\":[{\"v\":\"q1\"},{\"v\":\"q2\"}],"
+				"\"after\":7},"
+			/* the same members in another order */
+			"{\"name\":\"m2\","
+				"\"q\":[{\"v\":\"q3\"}],"
+				"\"after\":8,"
+				"\"p\":[{\"v\":\"p2\"},{\"v\":\"p3\"},"
+					"{\"v\":\"p4\"}]}"
+		"],"
+		"\"c\":[{\"v\":\"c1\"},{\"v\":\"c2\"},{\"v\":\"c3\"}],"
+		"\"tail\":42},"
+	/* shuffled again, with an empty list */
+	"{\"name\":\"e2\","
+		"\"c\":[{\"v\":\"c4\"}],"
+		"\"tail\":43,"
+		"\"b\":[],"
+		"\"a\":[{\"v\":\"a3\"}]}"
+"],\"end\":99}";
+
+/* what the parse must produce, rendered by sl_render() */
+
+static const char * const sl_expected =
+	"e1{a:a1,a2;b:m1{p:p1;q:q1,q2;7}m2{p:p2,p3,p4;q:q3;8};c:c1,c2,c3;42}"
+	"e2{a:a3;b:;c:c4;43}99";
+
+static void
+sl_render_leaves(char **p, char *end, const lws_dll2_owner_t *o)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d, o->head) {
+		*p += lws_snprintf(*p, lws_ptr_diff_size_t(end, *p), "%s%s",
+				   d == o->head ? "" : ",",
+				   lws_container_of(d, sl_leaf_t, list)->v);
+	} lws_end_foreach_dll(d);
+}
+
+static void
+sl_render(char *buf, size_t len, const sl_top_t *t)
+{
+	char *p = buf, *end = buf + len;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, t->elems.head) {
+		sl_elem_t *e = lws_container_of(d, sl_elem_t, list);
+
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s{a:",
+				  e->name);
+		sl_render_leaves(&p, end, &e->a);
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ";b:");
+		lws_start_foreach_dll(struct lws_dll2 *, dm, e->b.head) {
+			sl_mid_t *m = lws_container_of(dm, sl_mid_t, list);
+
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+					  "%s{p:", m->name);
+			sl_render_leaves(&p, end, &m->p);
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ";q:");
+			sl_render_leaves(&p, end, &m->q);
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+					  ";%d}", m->after);
+		} lws_end_foreach_dll(dm);
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ";c:");
+		sl_render_leaves(&p, end, &e->c);
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ";%d}",
+				  e->tail);
+	} lws_end_foreach_dll(d);
+
+	lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%d", t->end);
+}
+
+static int
+test_sibling_lists(void)
+{
+	lws_struct_args_t a;
+	struct lejp_ctx ctx;
+	char got[512];
+	int m;
+
+	lwsl_user("%s\n", __func__);
+
+	memset(&a, 0, sizeof(a));
+	a.map_st[0]		= lsm_sl_schema;
+	a.map_entries_st[0]	= LWS_ARRAY_SIZE(lsm_sl_schema);
+	a.ac_block_size		= 512;
+
+	lws_struct_json_init_parse(&ctx, NULL, &a);
+	m = lejp_parse(&ctx, (uint8_t *)sl_json, (int)strlen(sl_json));
+	if (m < 0 || !a.dest) {
+		lwsl_err("%s: JSON decode failed '%s'\n", __func__,
+			 lejp_error_to_string(m));
+		lwsac_free(&a.ac);
+
+		return 1;
+	}
+
+	sl_render(got, sizeof(got), (sl_top_t *)a.dest);
+	lwsac_free(&a.ac);
+
+	if (strcmp(got, sl_expected)) {
+		lwsl_err("%s: got      %s\n", __func__, got);
+		lwsl_err("%s: expected %s\n", __func__, sl_expected);
+
+		return 1;
+	}
+
+	return 0;
+}
+
+/*
  * in this example, the JSON is for one "builder" object, which may specify
  * a child list "targets" of zero or more "target" objects.
  */
@@ -809,7 +991,53 @@ done:
 				    __func__, ctx.line, lejp_error_to_string(m));
 			goto bail;
 		}
+
+		/*
+		 * Both of the target's lists must be there, and each sequence's
+		 * own list.  The parser for a list element's first list used to
+		 * stay pushed after its array ended, so a second list in the
+		 * same element ("sequences" after "gpios") was matched against
+		 * the first list's element paths and silently dropped.
+		 */
+		{
+			sai_jig_t *jig = (sai_jig_t *)a.dest;
+			static const int seq_len[] = { 4, 6 };
+			sai_jig_target_t *t;
+			int i = 0;
+
+			if (jig->target_owner.count != 1) {
+				lwsl_err("%s: jig: %d targets\n", __func__,
+					 (int)jig->target_owner.count);
+				goto bail;
+			}
+			t = lws_container_of(jig->target_owner.head,
+					     sai_jig_target_t, list);
+			if (t->gpio_owner.count != 2 ||
+			    t->seq_owner.count != 2) {
+				lwsl_err("%s: jig: %d gpios, %d sequences\n",
+					 __func__, (int)t->gpio_owner.count,
+					 (int)t->seq_owner.count);
+				goto bail;
+			}
+			lws_start_foreach_dll(struct lws_dll2 *, p,
+					      t->seq_owner.head) {
+				sai_jig_sequence_t *sq = lws_container_of(p,
+						sai_jig_sequence_t, list);
+
+				if ((int)sq->seq_owner.count != seq_len[i++]) {
+					lwsl_err("%s: jig: sequence %s has %d "
+						 "steps\n", __func__, sq->name,
+						 (int)sq->seq_owner.count);
+					goto bail;
+				}
+			} lws_end_foreach_dll(p);
+		}
+
+		lwsac_free(&a.ac);
 	}
+
+	if (test_sibling_lists())
+		goto bail;
 
 	{
 		const char *inp = "{\"schema\":\"com.warmcat.sai.internal.taskinfo_auth\","

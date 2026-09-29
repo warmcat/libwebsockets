@@ -250,6 +250,13 @@ struct _lejp_parsing_stack {
 	uint8_t			count_paths;
 	uint8_t			ppos;
 	uint8_t			path_match;
+	/*
+	 * ctx->sp when this level was pushed, and if it was pushed by the
+	 * ARRAY_START callback, in which case the ']' closing that array pops
+	 * it (these fit in what was padding before)
+	 */
+	uint8_t			sp;
+	uint8_t			pushed_at_array;
 };
 
 typedef struct lejp_string_piece {

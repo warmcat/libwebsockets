@@ -708,8 +708,17 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
 				if (ctx->flags & LEJP_FLAG_FEAT_LEADING_WC)
 					lejp_check_path_match(ctx);
+				n = ctx->pst_sp;
 				if (ctx->pst[ctx->pst_sp].callback(ctx, LEJPCB_ARRAY_START))
 					goto reject_callback;
+				if (ctx->pst_sp > n)
+					/*
+					 * The callback pushed a parser for
+					 * the array's elements (eg, lws_struct
+					 * for an LSM_LIST): it's done with at
+					 * this array's ']', see there
+					 */
+					ctx->pst[ctx->pst_sp].pushed_at_array = 1;
 				/*
 				 * The first element's path is now x[], just as
 				 * every later element's is after its ','; match
@@ -751,8 +760,20 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					 * smaller than the matching point
 					 */
 					ctx->path_match = 0;
-				if (ctx->pst_sp && !ctx->sp)
-					lejp_parser_pop(ctx);
+				/*
+				 * An empty array: a parser the ARRAY_START
+				 * callback pushed for its elements goes when
+				 * it closes, after the ARRAY_END callback, the
+				 * same as for a non-empty one (see there)
+				 */
+				if (ctx->pst_sp) {
+					if (ctx->pst[ctx->pst_sp].pushed_at_array) {
+						if (ctx->sp ==
+						    ctx->pst[ctx->pst_sp].sp)
+							defer = 1;
+					} else if (!ctx->sp)
+						lejp_parser_pop(ctx);
+				}
 				if (ctx->flags & LEJP_FLAG_FEAT_LEADING_WC)
 					lejp_check_path_match(ctx);
 				if (ctx->outer_array && !ctx->sp) { /* ended on ] */
@@ -960,7 +981,20 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					goto completed_l;
 				}
 
-				if (ctx->pst_sp && !ctx->sp)
+				/*
+				 * A parser the ARRAY_START callback pushed for
+				 * this array's elements is done with when the
+				 * array closes, back at the depth it was pushed
+				 * at.  It must go now, not at some later object
+				 * end: until it does, a sibling member after
+				 * the array (eg, a second LSM_LIST in the same
+				 * list element) is matched against the element
+				 * parser's paths, and silently dropped.
+				 */
+				if (ctx->pst_sp &&
+				    (ctx->pst[ctx->pst_sp].pushed_at_array ?
+					ctx->sp == ctx->pst[ctx->pst_sp].sp :
+					!ctx->sp))
 					defer = 1;
 
 				/* do LEJP_MP_ARRAY_END processing */
@@ -1142,6 +1176,8 @@ lejp_parser_push(struct lejp_ctx *ctx, void *user, const char * const *paths,
 	p->paths = paths;
 	p->count_paths = paths_count;
 	p->ppos = 0;
+	p->sp = ctx->sp;
+	p->pushed_at_array = 0;
 
 	ctx->path_match = 0;
 	lejp_check_path_match(ctx);
