@@ -1279,25 +1279,24 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
                                 while (p && *p) {
                                         char chunk[128];
                                         const char *comma = strchr(p, ',');
-                                        size_t len = comma ? (size_t)(comma - p) : strlen(p);
-                                        if (len >= sizeof(chunk)) len = sizeof(chunk) - 1;
-                                        memcpy(chunk, p, len);
-                                        chunk[len] = '\0';
+                                        size_t clen = comma ? (size_t)(comma - p) : strlen(p);
+                                        if (clen >= sizeof(chunk)) clen = sizeof(chunk) - 1;
+                                        memcpy(chunk, p, clen);
+                                        chunk[clen] = '\0';
                                         
                                         char *colon = strrchr(chunk, ':');
+                                        const char *rb = strchr(chunk, ']');
                                         int port = 443;
-                                        if (colon && colon > strchr(chunk, ']')) {
-                                                port = atoi(colon + 1);
-                                                *colon = '\0';
-                                        } else if (colon && !strchr(chunk, ']') &&
-                                                   strchr(chunk, ':') == colon) {
-                                                /*
-                                                 * No brackets: an "addr:port"
-                                                 * has exactly one colon.
-                                                 * More than one colon is a
-                                                 * bare IPv6 literal, which
-                                                 * takes the default port.
-                                                 */
+                                        /*
+                                         * "[v6]:port" has its port after the
+                                         * bracket.  No brackets: an
+                                         * "addr:port" has exactly one colon,
+                                         * more than one is a bare IPv6
+                                         * literal, which takes the default
+                                         * port.
+                                         */
+                                        if (colon && (rb ? colon > rb :
+                                                      strchr(chunk, ':') == colon)) {
                                                 port = atoi(colon + 1);
                                                 *colon = '\0';
                                         }
