@@ -1729,6 +1729,13 @@ callback_raw_h2c(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 			o += 9 + flen;
 		}
+		/*
+		 * Only whole frames that fit were consumed, so o can't be past
+		 * what we buffered... but o is built from peer lengths, bound
+		 * it directly before it sizes the memmove
+		 */
+		if (o > cn->h2c_len)
+			return -1;
 		if (o) {
 			cn->h2c_len -= o;
 			memmove(cn->h2c_buf, cn->h2c_buf + o, cn->h2c_len);
