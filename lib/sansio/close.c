@@ -670,8 +670,6 @@ just_kill_connection:
 				   LWS_ROPS_close_kill_connection).
 					    close_kill_connection(wsi, reason);
 
-	n = 0;
-
 	if (!lws_wsi_close_cb_waived(wsi) && wsi->user_space &&
 	    wsi->protocol_bind_balance && wsi->a.protocol) {
 		lwsl_debug("%s: %s: DROP_PROTOCOL %s\n", __func__, lws_wsi_tag(wsi),

@@ -185,7 +185,7 @@ lws_create_vhost(struct lws_context *context,
 		if (info->iface)
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "|%s", info->iface);
 		if (info->port && !(info->port & 0xffff))
-			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "|%u", info->port);
+			lws_snprintf(p, lws_ptr_diff_size_t(end, p), "|%u", info->port);
 	}
 
 	__lws_lc_tag(context, &context->lcg[LWSLCG_VHOST], &vh->lc, "%s|%s|%d",
