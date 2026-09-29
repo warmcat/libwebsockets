@@ -271,8 +271,9 @@ tree's form of the boundary between a sansIO crate and an IO crate.  With
 the substrate they need (listed in `lib/CMakeLists.txt`: the allocator,
 buflist, dll2, logs, region, vfs and utilities of `lib/core`, the address,
 client stash, role registry, timer list and timeout files of
-`lib/core-net`, base64, sha-1, lwsac and the cache of `lib/misc`, the
-generic crypto) and the platform's injected clock, random source and file
+`lib/core-net`, base64, sha-1, lwsac, the PRNG and the cache of
+`lib/misc`, the decisions of fault injection when it is built, the generic
+crypto) and the platform's injected clock, random source and file
 access (`lib/plat/unix/unix-misc.c`, `unix-file.c`), with every
 unresolved symbol an error (`-Wl,--no-undefined`, `-Wl,-undefined,error`
 on Apple).  It links only when sansIO needs nothing of IO's but the ops.

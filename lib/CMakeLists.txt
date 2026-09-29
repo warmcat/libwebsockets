@@ -510,7 +510,11 @@ if (LWS_WITH_SANSIO_LINK_TEST AND LWS_WITH_NETWORK AND SOURCES_SANSIO)
 			misc/base64-decode.c
 			misc/cache-ttl/lws-cache-ttl.c
 			misc/lwsac/lwsac.c
+			misc/prng.c
 			misc/sha-1.c
+			# fault injection's decisions are data, both halves
+			# ask them
+			system/fault-injection/fault-injection.c
 			# the platform's clock, random source and file
 			# access: injected dependencies, not requests
 			plat/unix/unix-misc.c
