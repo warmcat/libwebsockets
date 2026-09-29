@@ -748,6 +748,59 @@ seed_exec(sqlite3 *db, const char *sql)
 }
 
 /*
+ * lwsws binds its listen sockets as it creates the vhosts, but the auth server
+ * plugin only creates its schema later, at PROTOCOL_INIT, and does it as a run
+ * of separate write transactions.  So the port being up, which is all the
+ * fixture start step waits for, does not mean the tables are there, and on
+ * slow storage the schema is still being written, holding the db's write
+ * lock, when this step starts.
+ *
+ * Give the connection a busy timeout so contention waits instead of failing
+ * with "database is locked", and poll, up to a deadline inside the ctest
+ * TIMEOUT, for every table the seed writes into to exist.
+ */
+
+#define SEED_SCHEMA_WAIT_S	45
+#define SEED_BUSY_TIMEOUT_MS	10000
+#define SEED_POLL_MS		100
+
+static int
+seed_wait_schema(sqlite3 *db)
+{
+	static const char *q = "SELECT count(*) FROM sqlite_master "
+			       "WHERE type = 'table' AND name IN "
+			       "('users', 'services', 'grants', "
+			       "'oauth_clients')";
+	lws_usec_t deadline = lws_now_usecs() +
+			      (SEED_SCHEMA_WAIT_S * LWS_US_PER_SEC);
+	sqlite3_stmt *stmt;
+	int n, count;
+
+	do {
+		count = -1;
+		if (sqlite3_prepare_v2(db, q, -1, &stmt, NULL) != SQLITE_OK) {
+			lwsl_err("%s: %s\n", __func__, sqlite3_errmsg(db));
+
+			return 1;
+		}
+		n = sqlite3_step(stmt);
+		if (n == SQLITE_ROW)
+			count = sqlite3_column_int(stmt, 0);
+		sqlite3_finalize(stmt);
+
+		if (count == 4)
+			return 0;
+
+		if (n != SQLITE_ROW && n != SQLITE_BUSY && n != SQLITE_LOCKED)
+			lwsl_warn("%s: %s\n", __func__, sqlite3_errmsg(db));
+
+		sqlite3_sleep(SEED_POLL_MS);
+	} while (lws_now_usecs() < deadline);
+
+	return 1;
+}
+
+/*
  * Put verified accounts, their service grant, and the oauth client straight
  * into the auth server's db.
  *
@@ -773,20 +826,26 @@ scenario_seed(void)
 		return fail("seed", "unable to open %s: %s", db_path,
 			    sqlite3_errmsg(db));
 
+	sqlite3_busy_timeout(db, SEED_BUSY_TIMEOUT_MS);
+
 	/*
-	 * The tables must already exist: if they do not, lwsws has not got as
-	 * far as initialising the auth server vhost and seeding into a db we
-	 * created ourselves would test nothing.
+	 * The tables must be made by the plugin: if they never appear, lwsws
+	 * has not got as far as initialising the auth server vhost, and
+	 * seeding into a db we created ourselves would test nothing.
 	 */
-	lws_snprintf(sql, sizeof(sql),
-		     "SELECT uid FROM users LIMIT 1");
-	if (seed_exec(db, sql)) {
-		fail("seed", "the auth server's schema is not in %s yet: "
-			     "lwsws has not initialised its vhost", db_path);
+	if (seed_wait_schema(db)) {
+		fail("seed", "the auth server's schema did not appear in %s "
+			     "within %ds: lwsws has not initialised its vhost",
+			     db_path, SEED_SCHEMA_WAIT_S);
 		goto bail;
 	}
 
-	if (seed_exec(db, "BEGIN"))
+	/*
+	 * IMMEDIATE takes the write lock up front, so the busy timeout covers
+	 * it: a deferred transaction that only finds the lock taken when its
+	 * first insert tries to upgrade gets SQLITE_BUSY without waiting.
+	 */
+	if (seed_exec(db, "BEGIN IMMEDIATE"))
 		goto bail;
 
 	/* the service the interceptor's pmo asks for a grant on */
