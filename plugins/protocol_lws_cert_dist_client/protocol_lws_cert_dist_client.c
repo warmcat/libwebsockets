@@ -1123,7 +1123,6 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 			}
 
-			lwsl_notice("%s: [DEBUG] CLOSE event fired on wsi %p (pss=%p, reason=%d)\n", __func__, wsi, pss, reason);
 			if (pss) {
 				if (pss->wsi == wsi) {
 					if (pss->cert) { free(pss->cert); pss->cert = NULL; }
