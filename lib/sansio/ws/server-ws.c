@@ -27,17 +27,32 @@
 #define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
+
+/*
+ * Would sep + s fit in what is left of the response's extension list?  Ask
+ * before taking anything on for this connection: whatever we accept has to
+ * go in the list, or the client does not know we accepted it.  Truncating
+ * it used to leave the two ends disagreeing about, eg, which of them resets
+ * its compression context, and lws_snprintf() returning the whole size on
+ * truncation left ep past the NUL it wrote, which then went out in the
+ * header value.
+ */
+static int
+ext_resp_fits(int ep, size_t ev_size, const char *sep, const char *s)
+{
+	return (size_t)ep + strlen(sep) + strlen(s) < ev_size;
+}
+
 int
 lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	char ext_name[64], ev[64], *args, *end = (*p) + budget - 1;
+	char ext_name[64], ev[128], *args, *end = (*p) + budget - 1;
 	const struct lws_ext_options *opts, *po;
 	const struct lws_extension *ext;
 	struct lws_ext_option_arg oa;
 	int n, m, more = 1, ep = 0;
-	int ext_count = 0;
 	char ignore;
 	char *c;
 
@@ -160,9 +175,11 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 				return 1;
 			}
 
-			/* apply it */
-
-			ext_count++;
+			if (!ext_resp_fits(ep, sizeof(ev), ep ? "," : "",
+					   ext_name)) {
+				lwsl_info("ext response too long\n");
+				return 1;
+			}
 
 			/* instantiate the extension on this conn */
 
@@ -177,16 +194,13 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 					  (void *)&opts, 0)) {
 				lwsl_info("ext %s failed construction\n",
 					    ext_name);
-				ext_count--;
 				ext++;
 
 				continue;
 			}
 
-			if (ext_count > 1)
-				ev[ep++] = ',';
-
-			ep += lws_snprintf(ev + ep, (size_t)((int)sizeof(ev) - 1 - ep), "%s", ext_name);
+			ep += lws_snprintf(ev + ep, sizeof(ev) - (size_t)ep, "%s%s",
+					   ep ? "," : "", ext_name);
 
 			/*
 			 * The client may send a bunch of different option
@@ -215,6 +229,18 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 						po++;
 						continue;
 					}
+					if (!ext_resp_fits(ep, sizeof(ev), "; ",
+							   po->name)) {
+						lwsl_info("ext response too "
+							  "long\n");
+						ext->callback(lws_get_context(wsi),
+							ext, wsi,
+							LWS_EXT_CB_DESTROY,
+							wsi->ws->act_ext_user[
+							wsi->ws->count_act_ext],
+							NULL, 0);
+						return 1;
+					}
 					oa.option_name = NULL;
 					oa.option_index = (int)(po - opts);
 					oa.start = NULL;
@@ -225,11 +251,12 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 						LWS_EXT_CB_OPTION_SET,
 						wsi->ws->act_ext_user[
 							wsi->ws->count_act_ext],
-							  &oa, (size_t)((int)sizeof(ev) - 1 - ep))) {
+							  &oa, sizeof(ev) -
+							  (size_t)ep)) {
 
 						ep += lws_snprintf(ev + ep,
-								   (size_t)((int)sizeof(ev) - 1 - ep),
-							      "; %s", po->name);
+							sizeof(ev) - (size_t)ep,
+							"; %s", po->name);
 						lwsl_debug("adding option %s\n",
 							   po->name);
 					}
