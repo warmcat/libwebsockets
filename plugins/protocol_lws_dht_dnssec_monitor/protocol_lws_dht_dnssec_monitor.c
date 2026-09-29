@@ -70,10 +70,13 @@ struct cert_check_info {
 	char domain[128];
 	int port;
 	int starttls_state; /* 0=none, 1=wait 220, 2=sent EHLO, 3=wait 250, 4=sent STARTTLS, 5=wait 220 */
+	/* as for acme_profiles_fetch_info */
+	char err[128];
+	char in_connect;
+	char failed_early;
 };
 
 struct cert_check_result {
-	lws_dll2_t list;
 	char fqdn[128];
 	int port;
 	int status_err;
@@ -2342,6 +2345,21 @@ acme_profiles_finish(struct vhd *vhd, struct lws *wsi,
 	size_t room;
 	int found = 0, n;
 
+	if (afi->in_connect) {
+		/*
+		 * Still inside lws_client_connect_via_info(), which may yet
+		 * return NULL: leave the fetch for its caller to finish
+		 */
+		if (err != afi->err)
+			lws_strncpy(afi->err, err ? err : "connection failed",
+				    sizeof(afi->err));
+		afi->failed_early = 1;
+		if (wsi)
+			lws_set_opaque_user_data(wsi, NULL);
+
+		return;
+	}
+
 	if (vhd) {
 		lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&vhd->clients)) {
 			if (lws_container_of(p, struct pss, list) == wpss)
@@ -2753,11 +2771,6 @@ fill_local_cert_status(struct vhd *vhd, const char *domain, const char *fqdn,
 						if (use_local_issuer &&
 						    !lws_x509_info(x509, LWS_TLS_CERT_INFO_ISSUER_NAME, &lci, 0)) {
 							lws_strncpy(cr->issuer, lci.ns.name, sizeof(cr->issuer));
-							for (int i = 0; cr->issuer[i]; i++) {
-								if (cr->issuer[i] == '\n' || cr->issuer[i] == '\r') cr->issuer[i] = ' ';
-								if (cr->issuer[i] == '"') cr->issuer[i] = '\'';
-								if (cr->issuer[i] == '\\') cr->issuer[i] = '/';
-							}
 						}
 						if (!lws_x509_info(x509, LWS_TLS_CERT_INFO_VALIDITY_TO, &lci, 0)) {
 							time_t now;
@@ -2783,6 +2796,122 @@ fill_local_cert_status(struct vhd *vhd, const char *domain, const char *fqdn,
 	close(fd);
 }
 
+/*
+ * Queue a cert_status line for every connected client.  The fqdn came from a
+ * browser and the issuer from a remote peer's certificate, so every string is
+ * escaped on the way out.
+ */
+
+static void
+cert_check_report(struct vhd *vhd, const struct cert_check_info *cci,
+		  int status_err, const char *msg, const char *issuer,
+		  int use_local_issuer)
+{
+	char e_fqdn[256], e_msg[384], e_local[192], e_issuer[256], json[1280];
+	struct cert_check_result cr;
+	char *colon;
+	int n;
+
+	memset(&cr, 0, sizeof(cr));
+	lws_strncpy(cr.fqdn, cci->fqdn, sizeof(cr.fqdn));
+	colon = strchr(cr.fqdn, ':');
+	if (colon)
+		*colon = '\0';
+	cr.port = cci->port;
+	lws_strncpy(cr.issuer, issuer ? issuer : "Unknown", sizeof(cr.issuer));
+	fill_local_cert_status(vhd, cci->domain, cr.fqdn, &cr, use_local_issuer);
+
+	lws_json_purify(e_fqdn, cr.fqdn, (int)sizeof(e_fqdn), NULL);
+	lws_json_purify(e_msg, msg, (int)sizeof(e_msg), NULL);
+	lws_json_purify(e_local, cr.local_msg, (int)sizeof(e_local), NULL);
+	lws_json_purify(e_issuer, cr.issuer, (int)sizeof(e_issuer), NULL);
+
+	n = lws_snprintf(json, sizeof(json), "{\"req\":\"cert_status\","
+			 "\"subdomain\":\"%s\",\"port\":%d,\"status\":\"%s\","
+			 "\"msg\":\"%s\",\"local_msg\":\"%s\",\"issuer\":\"%s\"}\n",
+			 e_fqdn, cr.port, status_err ? "error" : "ok", e_msg,
+			 e_local, e_issuer);
+	if ((size_t)n >= sizeof(json) - 1)
+		/* only a whole line may be queued */
+		return;
+
+	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&vhd->clients)) {
+		struct pss *wpss = lws_container_of(p, struct pss, list);
+
+		if (wpss->tx_len + (size_t)n < sizeof(wpss->tx) - LWS_PRE) {
+			memcpy(&wpss->tx[LWS_PRE + wpss->tx_len], json, (size_t)n);
+			wpss->tx_len += (size_t)n;
+			lws_callback_on_writable(wpss->wsi);
+		}
+	} lws_end_foreach_dll(p);
+}
+
+/* report the certificate the peer presented on the probe wsi */
+
+static void
+cert_check_report_peer(struct vhd *vhd, struct lws *wsi,
+		       const struct cert_check_info *cci)
+{
+	union lws_tls_cert_info_results ci;
+	char msg[64], issuer[128];
+	time_t now;
+
+	if (lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VALIDITY_TO, &ci, 0)) {
+		cert_check_report(vhd, cci, 1, "No cert info", NULL, 0);
+		return;
+	}
+
+	time(&now);
+	if (now > ci.time)
+		lws_strncpy(msg, "Expired", sizeof(msg));
+	else
+		lws_snprintf(msg, sizeof(msg), "%d days",
+			     (int)((ci.time - now) / (24 * 3600)));
+
+	issuer[0] = '\0';
+	if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_ISSUER_NAME, &ci, 0))
+		lws_strncpy(issuer, ci.ns.name, sizeof(issuer));
+
+	cert_check_report(vhd, cci, 0, msg, issuer[0] ? issuer : NULL, 0);
+}
+
+/*
+ * Every way a probe ends comes here: report the peer's certificate, or @err,
+ * and destroy the probe.
+ */
+
+static void
+cert_check_finish(struct vhd *vhd, struct lws *wsi,
+		  struct cert_check_info *cci, const char *err)
+{
+	if (cci->in_connect) {
+		/*
+		 * Still inside lws_client_connect_via_info(), which may yet
+		 * return NULL: leave the probe for its caller to finish
+		 */
+		if (err != cci->err)
+			lws_strncpy(cci->err, err ? err : "Connection failed",
+				    sizeof(cci->err));
+		cci->failed_early = 1;
+		if (wsi)
+			lws_set_opaque_user_data(wsi, NULL);
+
+		return;
+	}
+
+	if (vhd) {
+		if (err)
+			cert_check_report(vhd, cci, 1, err, NULL, 1);
+		else
+			cert_check_report_peer(vhd, wsi, cci);
+	}
+
+	cci->magic = 0;
+	free(cci);
+	if (wsi)
+		lws_set_opaque_user_data(wsi, NULL);
+}
+
 static void
 handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
@@ -2806,41 +2935,26 @@ handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	if (!starttls) i.ssl_connection |= LCCSCF_USE_SSL;
 	i.alpn = "http/1.1"; i.method = "RAW"; i.path = "/"; i.host = i.address; i.origin = i.address; i.protocol = "lws-dht-dnssec-monitor";
 	struct cert_check_info *cci = malloc(sizeof(*cci));
-	if (cci) {
-		memset(cci, 0, sizeof(*cci));
-		cci->magic = CERT_CHECK_MAGIC;
-		lws_strncpy(cci->fqdn, a->subdomain, sizeof(cci->fqdn));
-		lws_strncpy(cci->domain, a->domain, sizeof(cci->domain));
-		cci->port = a->port; cci->starttls_state = starttls ? 1 : 0;
-		i.opaque_user_data = cci;
-	}
-	if (!cci || !lws_client_connect_via_info(&i)) {
-		if (cci) free(cci);
-		struct cert_check_result *cr = malloc(sizeof(*cr));
-		if (cr) {
-			memset(cr, 0, sizeof(*cr));
-			lws_strncpy(cr->fqdn, a->subdomain, sizeof(cr->fqdn));
-			lws_strncpy(cr->msg, "Connection failed", sizeof(cr->msg));
-			lws_strncpy(cr->issuer, "Unknown", sizeof(cr->issuer));
-			fill_local_cert_status(vhd, a->domain, a->subdomain, cr, 1);
+	if (!cci)
+		return;
 
-			cr->port = a->port; cr->status_err = 1;
+	memset(cci, 0, sizeof(*cci));
+	cci->magic = CERT_CHECK_MAGIC;
+	lws_strncpy(cci->fqdn, a->subdomain, sizeof(cci->fqdn));
+	lws_strncpy(cci->domain, a->domain, sizeof(cci->domain));
+	cci->port = a->port;
+	cci->starttls_state = starttls ? 1 : 0;
+	i.opaque_user_data = cci;
 
-			char json[1024];
-			int n = lws_snprintf(json, sizeof(json), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"port\":%d,\"status\":\"error\",\"msg\":\"%s\",\"local_msg\":\"%s\",\"issuer\":\"%s\"}\n",
-				cr->fqdn, cr->port, cr->msg, cr->local_msg, cr->issuer);
+	cci->in_connect = 1;
+	struct lws *wsi = lws_client_connect_via_info(&i);
+	cci->in_connect = 0;
 
-			lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&vhd->clients)) {
-				struct pss *wpss = lws_container_of(p, struct pss, list);
-				if (wpss->tx_len + (size_t)n < sizeof(wpss->tx) - LWS_PRE) {
-					memcpy(&wpss->tx[LWS_PRE + wpss->tx_len], json, (size_t)n);
-					wpss->tx_len += (size_t)n;
-					lws_callback_on_writable(wpss->wsi);
-				}
-			} lws_end_foreach_dll(p);
-			free(cr);
-		}
-	}
+	if (cci->failed_early)
+		/* the wsi is gone or going, and no longer points to cci */
+		cert_check_finish(vhd, NULL, cci, cci->err);
+	else if (!wsi)
+		cert_check_finish(vhd, NULL, cci, "Connection failed");
 }
 
 static const struct monitor_req_map {
@@ -3087,62 +3201,6 @@ connect_retry_cb(lws_sorted_usec_list_t *sul)
 			lwsl_err("dnssec_monitor: %s: failed to connect UI WS proxy to UDS server after retries\n", __func__);
 			lws_wsi_close(pss->wsi, LWS_TO_KILL_ASYNC);
 		}
-	}
-}
-
-static void extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, struct cert_check_info *cci, const struct lws_protocols *protocol)
-{
-	union lws_tls_cert_info_results ci;
-	char msg[128];
-	int err = 0;
-	if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VALIDITY_TO, &ci, 0)) {
-		time_t now;
-		time(&now);
-		if (now > ci.time) {
-			lws_snprintf(msg, sizeof(msg), "Expired");
-		} else {
-			int days = (int)((ci.time - now) / (24 * 3600));
-			lws_snprintf(msg, sizeof(msg), "%d days", days);
-		}
-	} else {
-		lws_snprintf(msg, sizeof(msg), "No cert info");
-		err = 1;
-	}
-
-	struct cert_check_result *cr = malloc(sizeof(*cr));
-	if (cr) {
-		memset(cr, 0, sizeof(*cr));
-		lws_strncpy(cr->fqdn, cci->fqdn, sizeof(cr->fqdn));
-		char *colon = (char *)strchr(cr->fqdn, ':');
-		if (colon) *colon = '\0';
-		cr->port = cci->port;
-		lws_strncpy(cr->msg, msg, sizeof(cr->msg));
-		cr->status_err = err;
-
-		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_ISSUER_NAME, &ci, 0)) {
-			lws_strncpy(cr->issuer, ci.ns.name, sizeof(cr->issuer));
-			for (int i = 0; cr->issuer[i]; i++) {
-				if (cr->issuer[i] == '\n' || cr->issuer[i] == '\r') cr->issuer[i] = ' ';
-				if (cr->issuer[i] == '"') cr->issuer[i] = '\'';
-				if (cr->issuer[i] == '\\') cr->issuer[i] = '/';
-			}
-		} else {
-			lws_strncpy(cr->issuer, "Unknown", sizeof(cr->issuer));
-		}
-		fill_local_cert_status(vhd, cci->domain, cr->fqdn, cr, 0);
-		char json[1024];
-		int n = lws_snprintf(json, sizeof(json), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"port\":%d,\"status\":\"%s\",\"msg\":\"%s\",\"local_msg\":\"%s\",\"issuer\":\"%s\"}\n",
-			cr->fqdn, cr->port, cr->status_err ? "error" : "ok", cr->msg, cr->local_msg, cr->issuer);
-
-		lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&vhd->clients)) {
-			struct pss *wpss = lws_container_of(p, struct pss, list);
-			if (wpss->tx_len + (size_t)n < sizeof(wpss->tx) - LWS_PRE) {
-				memcpy(&wpss->tx[LWS_PRE + wpss->tx_len], json, (size_t)n);
-				wpss->tx_len += (size_t)n;
-				lws_callback_on_writable(wpss->wsi);
-			}
-		} lws_end_foreach_dll(p);
-		free(cr);
 	}
 }
 
@@ -3787,56 +3845,18 @@ fallback:
 		{
 			uint32_t *magic = (uint32_t *)lws_get_opaque_user_data(wsi);
 			if (magic && *magic == CERT_CHECK_MAGIC) {
-				struct cert_check_info *cci = (struct cert_check_info *)magic;
-				if (vhd) {
-					struct cert_check_result *cr = malloc(sizeof(*cr));
-					if (cr) {
-						memset(cr, 0, sizeof(*cr));
-						lws_strncpy(cr->fqdn, cci->fqdn, sizeof(cr->fqdn));
-						char *colon = (char *)strchr(cr->fqdn, ':');
-						if (colon) *colon = '\0';
-						cr->port = cci->port;
-						char *err_str = in ? (char *)in : "Connection failed";
-						lws_snprintf(cr->msg, sizeof(cr->msg), "Error: %s", err_str);
-						for (int i = 0; cr->msg[i]; i++) {
-							if (cr->msg[i] == '\n' || cr->msg[i] == '\r') cr->msg[i] = ' ';
-							if (cr->msg[i] == '"') cr->msg[i] = '\'';
-							if (cr->msg[i] == '\\') cr->msg[i] = '/';
-						}
-						cr->status_err = 1;
-						lws_strncpy(cr->issuer, "Unknown", sizeof(cr->issuer));
-						fill_local_cert_status(vhd, cci->domain, cr->fqdn, cr, 1);
+				char e[128];
 
-						char json[1024];
-						int n = lws_snprintf(json, sizeof(json), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"port\":%d,\"status\":\"error\",\"msg\":\"%s\",\"local_msg\":\"%s\",\"issuer\":\"%s\"}\n",
-							cr->fqdn, cr->port, cr->msg, cr->local_msg, cr->issuer);
-
-						lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&vhd->clients)) {
-							struct pss *wpss = lws_container_of(p, struct pss, list);
-							if (wpss->tx_len + (size_t)n < sizeof(wpss->tx) - LWS_PRE) {
-								memcpy(&wpss->tx[LWS_PRE + wpss->tx_len], json, (size_t)n);
-								wpss->tx_len += (size_t)n;
-								lws_callback_on_writable(wpss->wsi);
-							}
-						} lws_end_foreach_dll(p);
-						free(cr);
-					}
-				}
-				cci->magic = 0;
-				free(cci);
-				lws_set_opaque_user_data(wsi, NULL);
+				lws_snprintf(e, sizeof(e), "Error: %s", in ?
+					     (const char *)in : "Connection failed");
+				cert_check_finish(vhd, wsi,
+						  (struct cert_check_info *)magic, e);
 			} else if (magic && *magic == ACME_PROFILES_MAGIC) {
 				struct acme_profiles_fetch_info *afi =
 					(struct acme_profiles_fetch_info *)magic;
 
-				lws_strncpy(afi->err, in ? (const char *)in :
-					    "connection failed", sizeof(afi->err));
-				if (afi->in_connect) {
-					/* handle_req_get_acme_profiles() finishes it */
-					afi->failed_early = 1;
-					lws_set_opaque_user_data(wsi, NULL);
-				} else
-					acme_profiles_finish(vhd, wsi, afi, afi->err);
+				acme_profiles_finish(vhd, wsi, afi, in ?
+						(const char *)in : "connection failed");
 			} else if (magic && *magic == PSS_MAGIC) {
 				struct pss *wpss = (struct pss *)magic;
 				wpss->cwsi = NULL;
@@ -3977,13 +3997,10 @@ fallback:
 			uint32_t *magic = (uint32_t *)lws_get_opaque_user_data(wsi);
 			if (magic && *magic == CERT_CHECK_MAGIC) {
 				struct cert_check_info *cci = (struct cert_check_info *)magic;
-				if (vhd) {
-					lwsl_notice("[INSTRUMENT] Probe %s RAW_CONNECTED successfully!\n", cci->fqdn);
-					if (cci->starttls_state == 0 || cci->starttls_state == 4) {
-						extract_and_queue_cert_result(wsi, vhd, cci, protocol);
-						cci->magic = 0; free(cci); lws_set_opaque_user_data(wsi, NULL);
-						return -1;
-					}
+
+				if (cci->starttls_state == 0 || cci->starttls_state == 4) {
+					cert_check_finish(vhd, wsi, cci, NULL);
+					return -1;
 				}
 				/* Drop STARTTLS probe rx */
 				return 0;
@@ -4017,9 +4034,11 @@ fallback:
 			struct cert_check_info *cci = (struct cert_check_info *)opaque;
 			if (cci && cci->magic == CERT_CHECK_MAGIC) {
 				if (cci->starttls_state == 4 && lws_is_ssl(wsi)) {
-					if (vhd) extract_and_queue_cert_result(wsi, vhd, cci, protocol);
-					cci->magic = 0; free(cci); lws_set_opaque_user_data(wsi, NULL); return -1;
+					cert_check_finish(vhd, wsi, cci, NULL);
+					return -1;
 				}
+				if (len < 3)
+					return 0;
 				if (cci->starttls_state == 1 && !strncmp((const char *)in, "220", 3)) {
 					cci->starttls_state = 2; lws_callback_on_writable(wsi); return 0;
 				}
@@ -4127,8 +4146,8 @@ fallback:
 			struct cert_check_info *cci = (struct cert_check_info *)opaque;
 			if (cci && cci->magic == CERT_CHECK_MAGIC) {
 				if (cci->starttls_state == 4) {
-					if (vhd) extract_and_queue_cert_result(wsi, vhd, cci, protocol);
-					cci->magic = 0; free(cci); lws_set_opaque_user_data(wsi, NULL); return -1;
+					cert_check_finish(vhd, wsi, cci, NULL);
+					return -1;
 				}
 				char buf[256]; int n = 0;
 				if (cci->starttls_state == 2) n = lws_snprintf(buf, sizeof(buf), "EHLO %s\r\n", cci->fqdn);
@@ -4176,10 +4195,10 @@ fallback:
 		{
 			uint32_t *magic = (uint32_t *)lws_get_opaque_user_data(wsi);
 			if (magic && *magic == CERT_CHECK_MAGIC) {
-				struct cert_check_info *cci = (struct cert_check_info *)magic;
-				cci->magic = 0;
-				free(cci);
-				lws_set_opaque_user_data(wsi, NULL);
+				/* closed before we saw a certificate */
+				cert_check_finish(vhd, wsi,
+						  (struct cert_check_info *)magic,
+						  "Connection closed");
 			} else if (magic && *magic == PSS_MAGIC) {
 				struct pss *wpss = (struct pss *)magic;
 				wpss->cwsi = NULL;
