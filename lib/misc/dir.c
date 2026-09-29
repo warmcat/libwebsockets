@@ -362,6 +362,36 @@ lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	return 0;
 }
 
+#if !defined(WIN32) && !defined(_WIN32)
+/*
+ * Make the new link under a temp name and rename() it over \p path, so
+ * anything opening \p path meanwhile finds either the old or the new target,
+ * never nothing
+ */
+
+static int
+lws_dir_symlink_replace(const char *path, const char *target)
+{
+	char tmp[512];
+
+	if (strlen(path) + 5 > sizeof(tmp))
+		return -1;
+
+	lws_snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+
+	unlink(tmp); /* left over from an interrupted rotation */
+	if (symlink(target, tmp))
+		return -1;
+
+	if (rename(tmp, path)) {
+		unlink(tmp);
+		return -1;
+	}
+
+	return 0;
+}
+#endif
+
 int
 lws_dir_symlink_rotate(const char *cur, const char *target,
 		       const char *cur_tag, const char *prev_tag)
@@ -379,6 +409,11 @@ lws_dir_symlink_rotate(const char *cur, const char *target,
 	if (!p)
 		return -1;
 
+	/*
+	 * We only learn what's outgoing here, nothing is decided on it that
+	 * a change under us could exploit, and the replacement is atomic
+	 */
+	/* coverity[toctou] */
 	n = readlink(cur, old, sizeof(old) - 1);
 	if (n > 0) {
 		old[n] = '\0';
@@ -394,13 +429,11 @@ lws_dir_symlink_rotate(const char *cur, const char *target,
 			     (int)lws_ptr_diff_size_t(p, cur), cur, prev_tag,
 			     p + ct);
 
-		unlink(prev);
-		if (symlink(old, prev))
+		if (lws_dir_symlink_replace(prev, old))
 			lwsl_warn("%s: unable to link %s\n", __func__, prev);
 	}
 
-	unlink(cur);
-	if (symlink(target, cur)) {
+	if (lws_dir_symlink_replace(cur, target)) {
 		lwsl_err("%s: unable to link %s\n", __func__, cur);
 		return -1;
 	}

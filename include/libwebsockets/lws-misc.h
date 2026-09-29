@@ -1546,6 +1546,10 @@ lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde);
  * Then \p cur is made to point at \p target.  Re-pointing \p cur at what it
  * already points at leaves the previous link alone.
  *
+ * Each link is replaced atomically, via a temporary "<link>.tmp" renamed
+ * over it, so something opening \p cur during the rotation sees either the
+ * old or the new target, never a missing file.
+ *
  * Returns 0 if \p cur now points at \p target.  Platforms without symlinks
  * (Windows) return -1 without touching anything.
  */
