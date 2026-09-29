@@ -933,6 +933,22 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (n < 0)
 			return -1;
+
+		/*
+		 * The parent's transaction is still under way while the onward
+		 * response flows back through it, but nothing else refreshes
+		 * the content timeout the server put on the parent when the
+		 * request arrived.  So a long-lived response (a long poll, or
+		 * SSE, sending keepalives) was reaped timeout_secs after the
+		 * request, however much it was still sending.  Refresh it for
+		 * each piece we relay, so the parent only times out if the
+		 * response actually stalls that long.  Leave any other kind of
+		 * pending timeout alone.
+		 */
+		parent = lws_get_parent(wsi);
+		if (parent->pending_timeout == PENDING_TIMEOUT_HTTP_CONTENT)
+			lws_set_timeout(parent, PENDING_TIMEOUT_HTTP_CONTENT,
+					(int)wsi->a.context->timeout_secs);
 		break; }
 
 	/* h1 http proxying... */

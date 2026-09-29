@@ -53,6 +53,16 @@
  *    "/echo/The" and a decoded '&' split its value in two.  The backend
  *    must see the same decoded path and urlargs the proxy saw.
  *
+ *  - "http-long": a response that goes on for longer than the context
+ *    timeout_secs, but keeps sending (like a long poll or SSE sending
+ *    keepalives), must get through the proxy whole.  The backend answers
+ *    /long with no content-length, marks itself long-lived with
+ *    lws_http_mark_sse(), and sends a byte a second for LONG_TICKS seconds,
+ *    with timeout_secs set to LONG_TIMEOUT_S.  The proxy's parent wsi
+ *    kept the content timeout the server gave it when the request arrived,
+ *    and relaying the response never refreshed it, so the parent was reaped
+ *    LONG_TIMEOUT_S into the response however much was still flowing.
+ *
  * Both the proxied parent wsi and the http onward client connection bind
  * to vhost protocols[0]; that protocol must pass everything through to
  * lws_callback_http_dummy(), where the actual proxying lives.  lwsws
@@ -78,15 +88,21 @@
 			"?v=a%20b&w=x%26y%3Dz&p=1+2"
 #define REQ_PATH_DEC	"echo/The Something Something+x"
 
+/* http-long: the context timeout, and how long the response outlasts it */
+#define LONG_TIMEOUT_S	2
+#define LONG_TICKS	5
+
 enum test_state {
 	ST_HTTP_CONN,		/* http transaction through the proxy */
 	ST_WS_CONN,		/* ws upgrade through the proxy */
 	ST_POST0,		/* empty-body POST through the proxy */
+	ST_LONG,		/* long-lived response through the proxy */
 	ST_DONE,
 };
 
 struct pss {
 	int echoed;		/* backend: ws cookie echo sent */
+	int ticks;		/* backend: http-long bytes sent */
 };
 
 static struct lws_context *context;
@@ -116,6 +132,9 @@ start_ws_connection(void);
 
 static int
 start_post0_connection(void);
+
+static int
+start_long_connection(void);
 
 static void
 sul_watchdog_cb(lws_sorted_usec_list_t *sul)
@@ -323,11 +342,80 @@ callback_hdr_proxy_post0(struct lws *wsi, enum lws_callback_reasons reason,
 				 __func__, post0_status);
 			test_failures++;
 		}
-		state = ST_DONE;
+
+		/* on to the long-lived response */
+
+		if (start_long_connection()) {
+			test_failures++;
+			state = ST_DONE;
+		}
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("%s: http-post0: connection error: %s\n", __func__,
+			 in ? (const char *)in : "(none)");
+		test_failures++;
+		state = ST_DONE;
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+/*
+ * "http-long": the browser side of a long-lived response
+ */
+
+static char long_rx[LONG_TICKS + 16];
+static size_t long_rx_len;
+
+static int
+callback_hdr_proxy_long(struct lws *wsi, enum lws_callback_reasons reason,
+			void *user, void *in, size_t len)
+{
+	switch (reason) {
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP: {
+		static char buffer[1024 + LWS_PRE];
+		char *px = buffer + LWS_PRE;
+		int lenx = (int)sizeof(buffer) - LWS_PRE;
+
+		if (lws_http_client_read(wsi, &px, &lenx) < 0)
+			return -1;
+		break;
+	}
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		if (long_rx_len + len > sizeof(long_rx) - 1) {
+			lwsl_err("%s: http-long: too much body\n", __func__);
+			return -1;
+		}
+		memcpy(long_rx + long_rx_len, in, len);
+		long_rx_len += len;
+		long_rx[long_rx_len] = '\0';
+		break;
+
+	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if (state != ST_LONG)
+			break;
+
+		/* all of it, not cut off when the proxy timed out */
+
+		if (long_rx_len != LONG_TICKS ||
+		    strspn(long_rx, "x") != LONG_TICKS) {
+			lwsl_err("%s: http-long: got %zu of %d bytes\n",
+				 __func__, long_rx_len, LONG_TICKS);
+			test_failures++;
+		}
+		state = ST_DONE;
+		break;
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		lwsl_err("%s: http-long: connection error: %s\n", __func__,
 			 in ? (const char *)in : "(none)");
 		test_failures++;
 		state = ST_DONE;
@@ -361,6 +449,26 @@ callback_hdr_echo_backend(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 
 	case LWS_CALLBACK_HTTP:
+
+		if (in && !strcmp((const char *)in, "long")) {
+			/*
+			 * http-long: no content-length, one byte a second
+			 * for longer than the context timeout_secs
+			 */
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+					"text/plain",
+					LWS_ILLEGAL_HTTP_CONTENT_LEN, &p, end) ||
+			    lws_finalize_write_http_header(wsi, buf + LWS_PRE,
+							   &p, end))
+				return 1;
+
+			/* we are long-lived: lift our own http timeouts */
+			lws_http_mark_sse(wsi);
+			pss->ticks = 0;
+			lws_set_timer_usecs(wsi, LWS_US_PER_SEC);
+
+			return 0;
+		}
 
 		if (in && !strcmp((const char *)in, "post0")) {
 			/* http-post0: it must have arrived as a POST */
@@ -457,6 +565,34 @@ callback_hdr_echo_backend(struct lws *wsi, enum lws_callback_reasons reason,
 		/* http-post0: already answered at LWS_CALLBACK_HTTP */
 		return 0;
 
+	case LWS_CALLBACK_TIMER:
+		/* http-long: time for the next byte */
+		lws_callback_on_writable(wsi);
+		return 0;
+
+	case LWS_CALLBACK_HTTP_WRITEABLE:
+		if (!pss || pss->ticks >= LONG_TICKS)
+			return 0;
+
+		buf[LWS_PRE] = 'x';
+		if (lws_write(wsi, buf + LWS_PRE, 1,
+			      ++pss->ticks == LONG_TICKS ?
+					LWS_WRITE_HTTP_FINAL :
+					LWS_WRITE_HTTP) != 1)
+			return -1;
+
+		if (pss->ticks < LONG_TICKS) {
+			lws_set_timer_usecs(wsi, LWS_US_PER_SEC);
+
+			return 0;
+		}
+
+		/* close-delimited on h1 */
+		if (lws_http_transaction_completed(wsi))
+			return -1;
+
+		return 0;
+
 	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
 
 		/* the upgrade request headers are in the ah right now */
@@ -520,6 +656,7 @@ static const struct lws_protocols protocols[] = {
 	{ "hdr-echo", callback_hdr_echo_backend, sizeof(struct pss), 0, 0, NULL, 0 },
 	{ "hdr-proxy-client", callback_hdr_proxy_client, 0, 0, 0, NULL, 0 },
 	{ "hdr-proxy-post0", callback_hdr_proxy_post0, 0, 0, 0, NULL, 0 },
+	{ "hdr-proxy-long", callback_hdr_proxy_long, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -539,6 +676,26 @@ start_post0_connection(void)
 	i.local_protocol_name	= "hdr-proxy-post0";
 
 	state = ST_POST0;
+
+	return lws_client_connect_via_info(&i) ? 0 : -1;
+}
+
+static int
+start_long_connection(void)
+{
+	struct lws_client_connect_info i;
+
+	memset(&i, 0, sizeof(i));
+	i.context		= context;
+	i.vhost			= vh_proxy;
+	i.address		= "127.0.0.1";
+	i.port			= port_proxy;
+	i.path			= "/long";
+	i.host			= "127.0.0.1";
+	i.method		= "GET";
+	i.local_protocol_name	= "hdr-proxy-long";
+
+	state = ST_LONG;
 
 	return lws_client_connect_via_info(&i) ? 0 : -1;
 }
@@ -613,6 +770,8 @@ int main(int argc, const char **argv)
 	info.protocols = protocols;
 	/* the ahs on both sides must be able to hold the oversize headers */
 	info.max_http_header_data = 4096;
+	/* http-long: the response must outlast this */
+	info.timeout_secs = LONG_TIMEOUT_S;
 
 	context = lws_create_context(&info);
 	if (!context) {
