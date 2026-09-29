@@ -522,6 +522,8 @@ int main(int argc, const char **argv)
 		info.client_ssl_ca_filepath = "./wrong.cer";
 	else
 		info.client_ssl_ca_filepath = "./warmcat.com.cer";
+
+	lwsl_user("CA FILEPATH: %s\n", info.client_ssl_ca_filepath);
 #endif
 #if 0
 	n = open("./warmcat.com.cer", O_RDONLY);
@@ -533,7 +535,6 @@ int main(int argc, const char **argv)
 		memcert[info.client_ssl_ca_mem_len++] = '\0';
 	}
 #endif
-        lwsl_user("CA FILEPATH: %s\n", info.client_ssl_ca_filepath);
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
