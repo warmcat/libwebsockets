@@ -67,6 +67,13 @@ enum {
 	 * event for user observers (it is also rebroadcast to client processes
 	 * by the secure streams proxy)
 	 */
+	LWSSMDCL_CERTS						= (1 << 5),
+	/**<
+	 * Requests to, and events from, whatever manages the certificates,
+	 * eg, the ACME client.  The payload is JSON, eg, a request to reissue
+	 * every certificate of a domain regardless of its remaining validity
+	 * {"acme":"force-reissue","domain":"example.com"}
+	 */
 
 	LWSSMDCL_USER_BASE_BITNUM				= 24
 };
