@@ -413,10 +413,10 @@ lws_sspc_destroy_dll(struct lws_dll2 *d, void *user)
 }
 
 void
-lws_sspc_rxmetadata_destroy(lws_sspc_handle_t *h)
+lws_sspc_metadata_list_destroy(lws_dll2_owner_t *owner)
 {
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-			lws_dll2_get_head(&h->metadata_owner_rx)) {
+			lws_dll2_get_head(owner)) {
 		lws_sspc_metadata_t *md =
 				lws_container_of(d, lws_sspc_metadata_t, list);
 
@@ -475,19 +475,15 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 
 	h->txp_path.ops_onw->_close(h->txp_path.priv_onw);
 
-	/* clean out any pending metadata changes that didn't make it */
+	/*
+	 * clean out any pending metadata changes that didn't make it, the
+	 * copies we kept for recreating the proxy side stream, and what the
+	 * proxy told us
+	 */
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-			lws_dll2_get_head(&(*ph)->metadata_owner)) {
-		lws_sspc_metadata_t *md =
-				lws_container_of(d, lws_sspc_metadata_t, list);
-
-		lws_dll2_remove(&md->list);
-		lws_free(md);
-
-	} lws_end_foreach_dll_safe(d, d1);
-
-	lws_sspc_rxmetadata_destroy(h);
+	lws_sspc_metadata_list_destroy(&h->metadata_owner);
+	lws_sspc_metadata_list_destroy(&h->metadata_owner_synced);
+	lws_sspc_metadata_list_destroy(&h->metadata_owner_rx);
 
 	lws_sspc_event_helper(h, LWSSSCS_DESTROYING, 0);
 	*ph = NULL;
@@ -523,6 +519,7 @@ lws_sspc_request_tx(lws_sspc_handle_t *h)
 			(unsigned int)h->state,
 			(unsigned int)h->conn_req_state);
 
+	h->onward_wanted = 1;
 	if (h->state == LPCSCLI_LOCAL_CONNECTED &&
 	    h->conn_req_state == LWSSSPC_ONW_NONE)
 		h->conn_req_state = LWSSSPC_ONW_REQ;
@@ -572,6 +569,7 @@ lws_sspc_request_tx_len(lws_sspc_handle_t *h, unsigned long len)
 	if (!h->us_earliest_write_req)
 		h->us_earliest_write_req = lws_now_usecs();
 
+	h->onward_wanted = 1;
 	if (h->state == LPCSCLI_LOCAL_CONNECTED &&
 	    h->conn_req_state == LWSSSPC_ONW_NONE)
 		h->conn_req_state = LWSSSPC_ONW_REQ;
@@ -597,6 +595,7 @@ lws_sspc_client_connect(struct lws_sspc_handle *h)
 #endif
 
 	assert(h->state == LPCSCLI_LOCAL_CONNECTED);
+	h->onward_wanted = 1;
 	if (h->state == LPCSCLI_LOCAL_CONNECTED &&
 	    h->conn_req_state == LWSSSPC_ONW_NONE)
 		h->conn_req_state = LWSSSPC_ONW_REQ;
@@ -790,6 +789,9 @@ lws_sspc_start_timeout(struct lws_sspc_handle *h, unsigned int timeout_ms)
 #endif
 	h->timeout_ms = (uint32_t)timeout_ms;
 	h->pending_timeout_update = 1;
+	/* remember it so a recreated proxy side stream can get the rest */
+	h->us_timeout_set = lws_now_usecs();
+	h->timeout_armed = timeout_ms != (unsigned int)-1;
 
 	if (!h->txp_path.priv_onw)
 		/* we can't fulfil it yet */

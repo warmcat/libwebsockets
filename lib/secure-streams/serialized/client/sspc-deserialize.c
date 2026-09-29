@@ -905,20 +905,25 @@ payload_ff:
 							(struct lws *)NULL);
 #endif
 
-			if (!h->creating_cb_done) {
+			if (h->creating_cb_done) {
+				/*
+				 * We lost the proxy link and this is a new one
+				 * with a new stream at the proxy.  The user
+				 * code must not see CREATING again, so we
+				 * recreate the proxy stream's state for it.
+				 */
+				lws_sspc_relink_restore(h);
+			} else {
 				if (lws_ss_check_next_state_sspc(h,
 						&h->prev_ss_state,
 						LWSSSCS_CREATING))
 					return LWSSSSRET_DESTROY_ME;
 
-				h->prev_ss_state = (uint8_t)LWSSSCS_CREATING;
 				h->creating_cb_done = 1;
-			} else
-				h->prev_ss_state = LWSSSCS_DISCONNECTED;
 
-			if (ssi->state) {
-				n = ssi->state(client_pss_to_userdata(pss),
-					       NULL, h->prev_ss_state, 0);
+				n = ssi->state ? ssi->state(
+					client_pss_to_userdata(pss), NULL,
+					LWSSSCS_CREATING, 0) : LWSSSSRET_OK;
 				switch (n) {
 				case LWSSSSRET_OK:
 					break;
@@ -1058,11 +1063,27 @@ payload_ff:
 
 			switch (par->ctr) {
 			case LWSSSCS_DISCONNECTED:
+				if (h->ss_dangling_connected)
+					/*
+					 * A completed connection ended, if the
+					 * proxy stream is going to reconnect
+					 * we'll hear CONNECTING from it
+					 */
+					h->onward_wanted = 0;
+				/* fallthru */
 			case LWSSSCS_UNREACHABLE:
 			case LWSSSCS_AUTH_FAILED:
 				lws_ss_serialize_state_transition(h, state,
 						LPCSCLI_LOCAL_CONNECTED);
 				h->conn_req_state = LWSSSPC_ONW_NONE;
+				break;
+
+			case LWSSSCS_CONNECTING:
+				h->onward_wanted = 1;
+				break;
+
+			case LWSSSCS_ALL_RETRIES_FAILED:
+				h->onward_wanted = 0;
 				break;
 
 			case LWSSSCS_CONNECTED:
@@ -1081,6 +1102,8 @@ payload_ff:
 				h->conn_req_state = LWSSSPC_ONW_CONN;
 				break;
 			case LWSSSCS_TIMEOUT:
+				/* it's one-shot, don't restore it on relink */
+				h->timeout_armed = 0;
 				break;
 			default:
 				break;

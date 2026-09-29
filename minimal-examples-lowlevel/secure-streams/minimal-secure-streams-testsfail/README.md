@@ -24,6 +24,13 @@ retry budget; exhausting the policy retries on NXDOMAIN taking at least as long
 as the escalating backoff table; bulk payload; and tls failure by hostname
 mismatch and by untrusted CA.
 
+Every stream must see `LWSSSCS_CREATING` only once.  The proxied build
+(`-client`, run by the `sspc-minimaltf` ctest) additionally drops its link to
+the proxy while a bulk stream is connecting, by returning
+`LWSSSSRET_DISCONNECT_ME` from `LWSSSCS_CONNECTING`: the stream must recover on
+a new link and still receive the bulk payload, which is sized by metadata it
+only set in `LWSSSCS_CREATING`.
+
 ## build
 
 ```

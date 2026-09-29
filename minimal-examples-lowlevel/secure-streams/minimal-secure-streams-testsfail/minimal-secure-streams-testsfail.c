@@ -492,6 +492,15 @@ struct tests_seq {
 	 * could not be used.  -1 means don't check it.
 	 */
 	int8_t			unreach_ack;
+	/*
+	 * Return LWSSSSRET_DISCONNECT_ME the first time we see CONNECTING, and
+	 * set the stream's metadata only in CREATING.  When proxied, that
+	 * drops the link to the proxy and the stream must recover on a new
+	 * one, without seeing CREATING again and with the proxy side stream
+	 * still getting our metadata and being asked to connect.  Only used
+	 * with the proxied (-client) build.
+	 */
+	uint8_t			disconnect_once;
 } tests_seq[] = {
 
 	/*
@@ -505,21 +514,21 @@ struct tests_seq {
 		"t_h1", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0, -1
+		0, 0, -1, 0
 	},
 	{
 		"h1:443 just get 200",
 		"t_h1_tls", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0, -1
+		0, 0, -1, 0
 	},
 	{
 		"h2:443 just get 200",
 		"t_h2_tls", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0, -1
+		0, 0, -1, 0
 	},
 
 	/*
@@ -532,20 +541,20 @@ struct tests_seq {
 		"d_h1", 3 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0, -1
+		0, 0, -1, 0
 	},
 	{
 		"h1:443 timeout after connection",
 		"d_h1_tls", 3 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0, -1
+		0, 0, -1, 0
 	},
 	{
 		"h2:443 timeout after connection",
 		"d_h2_tls", 3 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
-		0, 0, -1
+		0, 0, -1, 0
 	},
 
 	/*
@@ -559,21 +568,21 @@ struct tests_seq {
 		"nxd_h1", 15 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0, 0
+		0, 0, 0, 0
 	},
 	{
 		"h1:443 NXDOMAIN",
 		"nxd_h1_tls", 15 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0, 0
+		0, 0, 0, 0
 	},
 	{
 		"h2:443 NXDOMAIN",
 		"nxd_h2_tls", 15 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0, 0
+		0, 0, 0, 0
 	},
 
 	/*
@@ -588,7 +597,7 @@ struct tests_seq {
 		"refused_h1", 20 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		0, 0, 1
+		0, 0, 1, 0
 	},
 
 	/*
@@ -600,19 +609,19 @@ struct tests_seq {
 		"h1:80 NXDOMAIN exhaust retries",
 		"nxd_h1", 15 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
-		0, MIN_BACKOFF_US, -1
+		0, MIN_BACKOFF_US, -1, 0
 	},
 	{
 		"h1:443 NXDOMAIN exhaust retries",
 		"nxd_h1_tls", 15 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
-		0, MIN_BACKOFF_US, -1
+		0, MIN_BACKOFF_US, -1, 0
 	},
 	{
 		"h2:443 NXDOMAIN exhaust retries",
 		"nxd_h2_tls", 15 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
-		0, MIN_BACKOFF_US, -1
+		0, MIN_BACKOFF_US, -1, 0
 	},
 
 	/*
@@ -624,22 +633,38 @@ struct tests_seq {
 		"bulk_h1", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		12345, 0, -1
+		12345, 0, -1, 0
 	},
 	{
 		"h1:443 read bulk",
 		"bulk_h1_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		12345, 0, -1
+		12345, 0, -1, 0
 	},
 	{
 		"h2:443 read bulk",
 		"bulk_h2_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		12345, 0, -1
+		12345, 0, -1, 0
 	},
+
+#if defined(LWS_SS_USE_SSPC)
+	/*
+	 * Disconnect the proxied stream ourselves as it starts connecting,
+	 * which drops the link to the proxy.  It must still complete the bulk
+	 * transfer, which is sized by the metadata we only set in CREATING.
+	 */
+
+	{
+		"h1:80 read bulk after proxy link loss",
+		"bulk_h1", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
+		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
+					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
+		12345, 0, -1, 1
+	},
+#endif
 
 	/*
 	 * Fail at the tls negotiation various ways: connect to the tls httpbin
@@ -652,13 +677,13 @@ struct tests_seq {
 		"h1:badcert_hostname",
 		"badcert_hostname", 15 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_NACK_REMOTE),
-		0, MIN_BACKOFF_US, -1
+		0, MIN_BACKOFF_US, -1, 0
 	},
 	{
 		"h1:badcert_selfsigned",
 		"badcert_selfsigned", 15 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_NACK_REMOTE),
-		0, MIN_BACKOFF_US, -1
+		0, MIN_BACKOFF_US, -1, 0
 	},
 };
 
@@ -669,6 +694,8 @@ typedef struct myss {
 	size_t				rx_seen;
 	lws_usec_t			start_us;
 	char				result_reported;
+	char				seen_creating;
+	char				did_disconnect;
 } myss_t;
 
 
@@ -711,6 +738,33 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	lwsl_info("%s: %s: %s, ord 0x%x\n", __func__, lws_ss_tag(m->ss),
 		  lws_ss_state_name(state), (unsigned int)ack);
+
+	if (state == LWSSSCS_CREATING) {
+		/*
+		 * A stream sees CREATING once in its life, even if it is
+		 * proxied and the link to the proxy is lost, since user code
+		 * may do one-time setup here
+		 */
+		if (m->seen_creating) {
+			lwsl_warn("%s: ======= FAILING ON SECOND CREATING\n",
+				  __func__);
+			m->result_reported = 1;
+			tests_fail++;
+			lws_sul_schedule(context, 0, &sul_next_test,
+					 tests_start_next, 1);
+			h = NULL;
+			return LWSSSSRET_DESTROY_ME;
+		}
+		m->seen_creating = 1;
+	}
+
+	if (state == LWSSSCS_CONNECTING && curr_test->disconnect_once &&
+	    !m->did_disconnect) {
+		lwsl_notice("%s: disconnecting at CONNECTING\n", __func__);
+		m->did_disconnect = 1;
+
+		return LWSSSSRET_DISCONNECT_ME;
+	}
 
 	if (curr_test->mask_unexpected & (1u << state)) {
 
@@ -845,7 +899,8 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 			lws_ss_start_timeout(m->ss, remaining);
 		}
 
-		if (curr_test->eom_pass) {
+		if (curr_test->eom_pass &&
+		    (state == LWSSSCS_CREATING || !curr_test->disconnect_once)) {
 			sl = (size_t)lws_snprintf(buf, sizeof(buf), "%u",
 					(unsigned int)curr_test->eom_pass);
 			if (lws_ss_set_metadata(m->ss, "amount", buf, sl))

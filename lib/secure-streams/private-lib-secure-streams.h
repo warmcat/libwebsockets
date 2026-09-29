@@ -404,6 +404,13 @@ typedef struct lws_sspc_handle {
 
 	lws_dll2_owner_t	metadata_owner;
 	lws_dll2_owner_t	metadata_owner_rx;
+	lws_dll2_owner_t	metadata_owner_synced;
+	/*
+	 * The last value of each named metadata that was sent to the proxy.
+	 * If the proxy link is lost, the proxy side stream goes with it, and
+	 * these are requeued to recreate its metadata on the new link, since
+	 * the user code only sees CREATING (where it may set them) once.
+	 */
 
 	struct lws_dll2		client_list;
 	struct lws_tx_credit	txc;
@@ -423,6 +430,7 @@ typedef struct lws_sspc_handle {
 
 	lws_usec_t		us_earliest_write_req;
 	lws_usec_t		us_start_upstream;
+	lws_usec_t		us_timeout_set;
 
 	unsigned long		writeable_len;
 
@@ -445,7 +453,14 @@ typedef struct lws_sspc_handle {
 	uint8_t			pending_timeout_update:1;
 	uint8_t			pending_writeable_len:1;
 	uint8_t			creating_cb_done:1;
+	/**< user code has seen CREATING, it only ever sees it once per handle
+	 * even if the proxy link is lost and the proxy side stream recreated */
 	uint8_t			ss_dangling_connected:1;
+	uint8_t			timeout_armed:1;
+	/**< user timeout is set and has not fired or been cancelled yet */
+	uint8_t			onward_wanted:1;
+	/**< the stream should be trying to have an onward connection, so a
+	 * recreated proxy side stream must be asked to connect again */
 } lws_sspc_handle_t;
 
 /*
@@ -579,7 +594,10 @@ int
 lws_sspc_destroy_dll(struct lws_dll2 *d, void *user);
 
 void
-lws_sspc_rxmetadata_destroy(lws_sspc_handle_t *h);
+lws_sspc_metadata_list_destroy(lws_dll2_owner_t *owner);
+
+void
+lws_sspc_relink_restore(lws_sspc_handle_t *h);
 
 int
 lws_ss_policy_set(struct lws_context *context, const char *name);

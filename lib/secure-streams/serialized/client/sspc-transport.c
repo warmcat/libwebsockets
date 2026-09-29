@@ -99,9 +99,95 @@ lws_sspc_serialize_metadata(lws_sspc_handle_t *h, lws_sspc_metadata_t *md,
 	}
 
 	lws_dll2_remove(&md->list);
-	lws_free(md);
+
+	if (md->name[0] == '\0') {
+		lws_free(md);
+
+		return n;
+	}
+
+	/*
+	 * Keep the latest value of each named metadata the proxy side stream
+	 * has been told about, so we can recreate it if the proxy link drops
+	 */
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			lws_dll2_get_head(&h->metadata_owner_synced)) {
+		lws_sspc_metadata_t *old = lws_container_of(d,
+						lws_sspc_metadata_t, list);
+
+		if (!strcmp(old->name, md->name)) {
+			lws_dll2_remove(&old->list);
+			lws_free(old);
+			break;
+		}
+	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_dll2_add_tail(&md->list, &h->metadata_owner_synced);
 
 	return n;
+}
+
+/*
+ * The proxy link was lost and we have linked up again, with a fresh stream
+ * created at the proxy.  The user code already had its one CREATING and
+ * whatever else happened since, so it's not going to set things up again...
+ * we have to recreate the proxy side stream's state for it.
+ */
+
+void
+lws_sspc_relink_restore(lws_sspc_handle_t *h)
+{
+	lws_sspc_metadata_t *md, *pend;
+	int found;
+
+	lwsl_sspc_notice(h, "restoring stream state on new proxy link");
+
+	/* requeue synced metadata unless a newer value is already pending */
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			lws_dll2_get_head(&h->metadata_owner_synced)) {
+		md = lws_container_of(d, lws_sspc_metadata_t, list);
+		found = 0;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d2,
+				lws_dll2_get_head(&h->metadata_owner)) {
+			pend = lws_container_of(d2, lws_sspc_metadata_t, list);
+			if (!strcmp(pend->name, md->name)) {
+				found = 1;
+				break;
+			}
+		} lws_end_foreach_dll(d2);
+
+		lws_dll2_remove(&md->list);
+		if (found)
+			lws_free(md);
+		else
+			lws_dll2_add_tail(&md->list, &h->metadata_owner);
+
+	} lws_end_foreach_dll_safe(d, d1);
+
+	/* a user timeout that didn't fire yet gets what's left of it */
+
+	if (h->timeout_armed) {
+		if (h->timeout_ms) {
+			/* 0 means "use the policy timeout", leave it as it is */
+			uint64_t el = (uint64_t)(lws_now_usecs() -
+					h->us_timeout_set) / LWS_US_PER_MS;
+
+			h->timeout_ms = el >= h->timeout_ms ? 1 :
+					(uint32_t)(h->timeout_ms - el);
+		}
+		h->us_timeout_set = lws_now_usecs();
+		h->pending_timeout_update = 1;
+	}
+
+	/* ask for the onward connection again if we were still after it */
+
+	if (h->onward_wanted)
+		h->conn_req_state = LWSSSPC_ONW_REQ;
+
+	h->txp_path.ops_onw->req_write(h->txp_path.priv_onw);
 }
 
 /*
@@ -191,7 +277,12 @@ lws_sspc_txp_event_closed(lws_transport_priv_t priv)
 		r = h->ssi.state(ss_to_userobj(h), NULL,
 					 LWSSSCS_DISCONNECTED, 0);
 	}
-	h->creating_cb_done = 0;
+	/*
+	 * The proxy side stream is gone with the link, but our stream isn't
+	 * and user code saw CREATING already: when we link up again we'll
+	 * recreate it without showing CREATING again, see
+	 * lws_sspc_relink_restore()
+	 */
 	if (r != LWSSSSRET_DESTROY_ME)
 		/*
 		 * schedule a reconnect in 1s
@@ -238,11 +329,14 @@ lws_sspc_txp_tx(lws_sspc_handle_t *h, size_t metadata_limit)
 	int flags;
 
 	/*
-	 * Management of ss timeout can happen any time and doesn't
-	 * depend on wsi existence or state
+	 * Management of ss timeout can happen any time and doesn't depend on
+	 * the onward connection state, but the proxy side stream must exist
+	 * to take it, so it waits pending until the proxy created it
 	 */
 
-	if (h->pending_timeout_update) {
+	if (h->pending_timeout_update &&
+	    (h->state == LPCSCLI_LOCAL_CONNECTED ||
+	     h->state == LPCSCLI_OPERATIONAL)) {
 		cp = s;
 		*s = LWSSS_SER_TXPRE_TIMEOUT_UPDATE;
 		*(s + 1) = 0;
