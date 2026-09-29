@@ -46,9 +46,9 @@ enum {
 
 static const struct lws_switches switches[] = {
 	[LWS_SW_BMP]	= { "--bmp",           "Render the whole document to the given .bmp file" },
-	[LWS_SW_W]	= { "--w",             "Surface width in px (default 600)" },
-	[LWS_SW_H]	= { "--h",             "Surface height in px (default 448)" },
-	[LWS_SW_DOC_H]	= { "--doc-h",         "Lay out the document this tall in px (default --h); with --gui, taller docs scroll" },
+	[LWS_SW_W]	= { "--w",             "Surface width in px, 1..16384 (default 600)" },
+	[LWS_SW_H]	= { "--h",             "Surface height in px, 1..16384 (default 448)" },
+	[LWS_SW_DOC_H]	= { "--doc-h",         "Lay out the document this tall in px, 1..16384 (default --h); with --gui, taller docs scroll" },
 	[LWS_SW_GUI]	= { "--gui",           "Show the render in a native window: scroll with wheel / keys, click reports the element under the pointer, resizing re-layouts" },
 	[LWS_SW_SHOT]	= { "--shot",          "With --gui: after the first render, dump the window framebuffer to this .bmp and exit" },
 	[LWS_SW_SCROLL]	= { "--scroll",        "With --gui: scroll the viewport to this y after the first render (before any --shot); with --bmp and --doc-h: write only the --h rows of the document from this y" },
@@ -1145,12 +1145,38 @@ render(lws_sorted_usec_list_t *sul)
 	lws_default_loop_exit(cx);
 }
 
+/*
+ * A surface dimension from the commandline, which sizes the line buffer and
+ * the window allocations: only 1..WIN_LAYOUT_H_MAX px is accepted.  Returns
+ * -1 if given but out of range, 0 if not given, else 1 with *dim set
+ */
+
+static int
+dim_opt(int argc, const char **argv, int sw, int *dim)
+{
+	const char *p = lws_cmdline_option(argc, argv, switches[sw].sw);
+	int v;
+
+	if (!p)
+		return 0;
+
+	v = atoi(p);
+	if (v < 1 || v > WIN_LAYOUT_H_MAX) {
+		lwsl_err("%s: %s must be 1..%d px\n", __func__,
+			 switches[sw].sw, WIN_LAYOUT_H_MAX);
+		return -1;
+	}
+	*dim = v;
+
+	return 1;
+}
+
 int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	const char *p;
-	int had_w = 0, had_h = 0;
+	int had_w = 0, had_h = 0, n, v;
 	(void)switches;
 
 	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
@@ -1165,12 +1191,16 @@ main(int argc, const char **argv)
 
 	lwsl_user("LWS LHP browser - %s <url> [--gui]\n", argv[0]);
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_W].sw))) {
-		ic.wh_px[0].whole = atoi(p);
+	if ((n = dim_opt(argc, argv, LWS_SW_W, &v)) < 0)
+		return 1;
+	if (n) {
+		ic.wh_px[0].whole = v;
 		had_w = 1;
 	}
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_H].sw))) {
-		ic.wh_px[1].whole = atoi(p);
+	if ((n = dim_opt(argc, argv, LWS_SW_H, &v)) < 0)
+		return 1;
+	if (n) {
+		ic.wh_px[1].whole = v;
 		had_h = 1;
 	}
 	bmp_h = ic.wh_px[1].whole;
@@ -1181,8 +1211,10 @@ main(int argc, const char **argv)
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_GUI].sw))
 		win.active = 1;
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_DOC_H].sw))) {
-		win.pin_h = atoi(p);
+	if ((n = dim_opt(argc, argv, LWS_SW_DOC_H, &v)) < 0)
+		return 1;
+	if (n) {
+		win.pin_h = v;
 		ic.wh_px[1].whole = win.pin_h;
 		had_h = 1;
 	}
