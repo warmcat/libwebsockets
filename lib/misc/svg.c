@@ -135,16 +135,14 @@ svg_atan2(int64_t y_e8, int64_t x_e8)
  * cursor) for a well-formed number.
  */
 
-/* skip whitespace and comma separators */
+/* advance *p over whitespace and comma separators */
 
-static const char *
-svg_ws(const char *p, const char *end)
+static void
+svg_ws(const char **p, const char *end)
 {
-	while (p < end && (*p == ' ' || *p == '\t' || *p == '\r' ||
-			   *p == '\n' || *p == ','))
-		p++;
-
-	return p;
+	while (*p < end && (**p == ' ' || **p == '\t' || **p == '\r' ||
+			    **p == '\n' || **p == ','))
+		(*p)++;
 }
 
 static const char *
@@ -262,7 +260,7 @@ svg_len(const char *s, size_t len, svg_c_t *r, char *pct)
 	const char *p = s, *end = s + len;
 	int64_t v;
 
-	p = svg_ws(p, end);
+	svg_ws(&p, end);
 	p = svg_num(p, end, &v);
 	if (!p)
 		return 1;
@@ -408,7 +406,7 @@ svg_colour(const char *s, size_t len, uint32_t *rgba)
 	uint32_t r, g, b, a = 255;
 	int i, h[8], n;
 
-	p = svg_ws(p, end);
+	svg_ws(&p, end);
 	if (p >= end)
 		return 1;
 
@@ -470,7 +468,7 @@ svg_colour(const char *s, size_t len, uint32_t *rgba)
 			int64_t v;
 			int pct = 0;
 
-			p = svg_ws(p, end);
+			svg_ws(&p, end);
 			p = svg_num(p, end, &v);
 			if (!p)
 				break;
@@ -490,7 +488,7 @@ svg_colour(const char *s, size_t len, uint32_t *rgba)
 					(int32_t)((v * 255 + 5ll * SVG_E8_1) /
 							100 / SVG_E8_1) :
 					(int32_t)((v + SVG_E8_1 / 2) / SVG_E8_1);
-			p = svg_ws(p, end);
+			svg_ws(&p, end);
 			if (p < end && *p == ',')
 				p++;
 		}
@@ -590,7 +588,7 @@ svg_transforms(const char *s, size_t len, svg_c_t out[6])
 	const char *p = s, *end = s + len;
 	int na, i;
 
-	p = svg_ws(p, end);
+	svg_ws(&p, end);
 
 	while (p < end) {
 		char fn[16];
@@ -603,7 +601,7 @@ svg_transforms(const char *s, size_t len, svg_c_t out[6])
 			fn[fl++] = *p++;
 		fn[fl] = '\0';
 
-		p = svg_ws(p, end);
+		svg_ws(&p, end);
 		if (p >= end)
 			break;
 		if (*p != '(') {
@@ -613,7 +611,7 @@ svg_transforms(const char *s, size_t len, svg_c_t out[6])
 		p++;
 
 		na = 0;
-		p = svg_ws(p, end);
+		svg_ws(&p, end);
 		while (p < end && na < 6) {
 			int64_t v;
 			const char *q = svg_num(p, end, &v);
@@ -622,7 +620,7 @@ svg_transforms(const char *s, size_t len, svg_c_t out[6])
 				break;
 			p = q;
 			arg[na++] = svg_e8_to_c(v);
-			p = svg_ws(p, end);
+			svg_ws(&p, end);
 		}
 		while (p < end && *p != ')')
 			p++;		/* skip anything extra leniently */
@@ -691,7 +689,7 @@ svg_transforms(const char *s, size_t len, svg_c_t out[6])
 
 		xf_comp(out, out, t);
 
-		p = svg_ws(p, end);
+		svg_ws(&p, end);
 	}
 
 	return 0;
@@ -1106,13 +1104,13 @@ parse_path(lws_svg_t *ctx)
 	while (p < end) {
 		int64_t v;
 
-		p = svg_ws(p, end);
+		svg_ws(&p, end);
 		if (p >= end)
 			break;
 
 		if ((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z')) {
 			cmd = *p++;
-			p = svg_ws(p, end);	/* separators after the letter */
+			svg_ws(&p, end);	/* separators after the letter */
 		} else
 			if (!cmd)
 				break;	/* numbers before any command */
@@ -1127,7 +1125,7 @@ parse_path(lws_svg_t *ctx)
 			p = svg_num(p, end, &vx);
 			if (!p)
 				return 0;
-			p = svg_ws(p, end);
+			svg_ws(&p, end);
 			p = svg_num(p, end, &vy);
 			if (!p)
 				return 0;
@@ -1163,7 +1161,7 @@ parse_path(lws_svg_t *ctx)
 			p = svg_num(p, end, &vx);
 			if (!p)
 				return 0;
-			p = svg_ws(p, end);
+			svg_ws(&p, end);
 			p = svg_num(p, end, &vy);
 			if (!p)
 				return 0;
@@ -1219,12 +1217,12 @@ parse_path(lws_svg_t *ctx)
 			int i;
 
 			for (i = 0; i < 3; i++) {
-				p = svg_ws(p, end);
+				svg_ws(&p, end);
 				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
 				a[i * 2] = svg_e8_to_c(v);
-				p = svg_ws(p, end);
+				svg_ws(&p, end);
 				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
@@ -1253,12 +1251,12 @@ parse_path(lws_svg_t *ctx)
 			int i;
 
 			for (i = 0; i < 2; i++) {
-				p = svg_ws(p, end);
+				svg_ws(&p, end);
 				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
 				a[i * 2] = svg_e8_to_c(v);
-				p = svg_ws(p, end);
+				svg_ws(&p, end);
 				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
@@ -1293,12 +1291,12 @@ parse_path(lws_svg_t *ctx)
 			int i;
 
 			for (i = 0; i < 2; i++) {
-				p = svg_ws(p, end);
+				svg_ws(&p, end);
 				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
 				a[i * 2] = svg_e8_to_c(v);
-				p = svg_ws(p, end);
+				svg_ws(&p, end);
 				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
@@ -1326,11 +1324,11 @@ parse_path(lws_svg_t *ctx)
 			svg_c_t x, y, x1, y1;
 			int64_t vx, vy;
 
-			p = svg_ws(p, end);
+			svg_ws(&p, end);
 			p = svg_num(p, end, &vx);
 			if (!p)
 				return 0;
-			p = svg_ws(p, end);
+			svg_ws(&p, end);
 			p = svg_num(p, end, &vy);
 			if (!p)
 				return 0;
@@ -1362,7 +1360,7 @@ parse_path(lws_svg_t *ctx)
 			int laf, sf, i;
 
 			for (i = 0; i < 3; i++) {	/* rx ry x-axis-rot */
-				p = svg_ws(p, end);
+				svg_ws(&p, end);
 				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
@@ -1375,17 +1373,17 @@ parse_path(lws_svg_t *ctx)
 
 			/* the flags are single digits, separators optional */
 
-			p = svg_ws(p, end);
+			svg_ws(&p, end);
 			if (p >= end || *p < '0' || *p > '1')
 				return 0;
 			laf = *p++ - '0';
-			p = svg_ws(p, end);
+			svg_ws(&p, end);
 			if (p >= end || *p < '0' || *p > '1')
 				return 0;
 			sf = *p++ - '0';
 
 			for (i = 0; i < 2; i++) {	/* x y */
-				p = svg_ws(p, end);
+				svg_ws(&p, end);
 				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
@@ -1446,14 +1444,14 @@ parse_points(lws_svg_t *ctx, char closed)
 	work_reset(ctx);
 
 	while (p < end) {
-		p = svg_ws(p, end);
+		svg_ws(&p, end);
 		if (p >= end)
 			break;
 		p = svg_num(p, end, &v);
 		if (!p)
 			break;
 		x = svg_e8_to_c(v);
-		p = svg_ws(p, end);
+		svg_ws(&p, end);
 		p = svg_num(p, end, &v);
 		if (!p)
 			break;
@@ -1719,10 +1717,11 @@ join_emit(lws_svg_t *ctx, svg_lvl_t *eff, svg_c_t tol,
 		 * mlq^2 passes int64 max for miterlimit values the number
 		 * parser accepts: ceil(a / b / c) == ceil(a / (b * c)), so
 		 * this is the same decision with no product (F-065).  mlq >= 1
-		 * because miterlimit is floored at 1 whole unit at apply time
+		 * because miterlimit is floored at 1 whole unit at apply time;
+		 * cos2 > 64 since dot is bounded away from -1 above
 		 */
 
-		if (cos2 > 0 && cos2 >= (thr + mlq - 1) / mlq) {
+		if (cos2 >= (thr + mlq - 1) / mlq) {
 			/*
 			 * apex = V + (s1 + s2) * hw / (1 + dot): the
 			 * intersection of the two outer offset lines
@@ -2351,7 +2350,9 @@ stroke_w_resolve(lws_svg_t *ctx, int64_t v_e8, char pct)
 		/* vb is already Q16.16 user units */
 
 		int64_t sw = ctx->vb[2], sh = ctx->vb[3];
-		uint64_t diag, pc = (uint64_t)vn;
+		/* vn is saturated and floored at 0 above: pc <= SVG_C_MAX */
+		uint32_t pc = (uint32_t)vn;
+		uint64_t diag;
 
 		/*
 		 * diag = sqrt((vw^2 + vh^2) / 2), halved before the sum so
@@ -2362,9 +2363,6 @@ stroke_w_resolve(lws_svg_t *ctx, int64_t v_e8, char pct)
 		diag = (uint64_t)svg_isqrt64(((sw * sw) >> 1) + ((sh * sh) >> 1));
 		if (diag > SVG_C_MAX)
 			diag = SVG_C_MAX;
-		if (pc > SVG_C_MAX)	/* already saturated: makes the bound
-					 * visible to the reader and to tools */
-			pc = SVG_C_MAX;
 
 		/*
 		 * vn is a percentage: width = vn / 100 * diag, all Q16.
@@ -3084,7 +3082,7 @@ attr_complete(lws_svg_t *ctx)
 			for (i = 0; i < 4; i++) {
 				int64_t v;
 
-				p = svg_ws(p, end);
+				svg_ws(&p, end);
 				p = svg_num(p, end, &v);
 				if (!p)
 					return 0;
@@ -3098,7 +3096,7 @@ attr_complete(lws_svg_t *ctx)
 			const char *p = ctx->vbuf,
 				   *end = ctx->vbuf + ctx->vlen;
 
-			p = svg_ws(p, end);
+			svg_ws(&p, end);
 
 			if ((size_t)(end - p) >= 4 &&
 			    !strncmp(p, "none", 4)) {
@@ -3126,7 +3124,8 @@ attr_complete(lws_svg_t *ctx)
 					 * length below wrap and strncmp read
 					 * beyond the attribute buffer
 					 */
-					p = svg_ws(p + 8, end);
+					p += 8;
+					svg_ws(&p, end);
 					if ((size_t)(end - p) >= 5 &&
 					    !strncmp(p, "slice", 5))
 						ctx->par_slice = 1;
