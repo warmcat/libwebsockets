@@ -48,7 +48,7 @@ extern "C" {
 #if defined(LWS_HAVE_NET_IF_ETHER_H)
 #include <net/if_ether.h>
 #endif
-#if defined(_WIN32) && !defined(ETHER_ADDR_LEN)
+#if (defined(_WIN32) || defined(__QNX__)) && !defined(ETHER_ADDR_LEN)
 #define ETHER_ADDR_LEN 6
 #endif
 #if defined (__sun)

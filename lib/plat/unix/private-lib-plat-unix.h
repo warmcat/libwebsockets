@@ -63,16 +63,25 @@
 #include <net/if.h>
 #endif
 #if defined(__QNX__)
+	/*
+	 * SDP8's io-sock <sys/param.h> provides the BSD 1234 / 4321 set.  Only
+	 * older SDPs, where it doesn't, need them made up from <gulliver.h>;
+	 * redefining them over SDP8's is a -Werror build break.
+	 */
+	#include <sys/param.h>
 	#include <gulliver.h>
-	#if defined(__LITTLEENDIAN__)
-		#define BYTE_ORDER __LITTLEENDIAN__
-		#define LITTLE_ENDIAN __LITTLEENDIAN__
-		#define BIG_ENDIAN 4321  /* to show byte order (taken from gcc); for suppres warning that BIG_ENDIAN is not defined. */
+	#if !defined(LITTLE_ENDIAN)
+		#define LITTLE_ENDIAN 1234
 	#endif
-	#if defined(__BIGENDIAN__)
-		#define BYTE_ORDER __BIGENDIAN__
-		#define LITTLE_ENDIAN 1234  /* to show byte order (taken from gcc); for suppres warning that LITTLE_ENDIAN is not defined. */
-		#define BIG_ENDIAN __BIGENDIAN__
+	#if !defined(BIG_ENDIAN)
+		#define BIG_ENDIAN 4321
+	#endif
+	#if !defined(BYTE_ORDER)
+		#if defined(__BIGENDIAN__)
+			#define BYTE_ORDER BIG_ENDIAN
+		#else
+			#define BYTE_ORDER LITTLE_ENDIAN
+		#endif
 	#endif
 #endif
 
@@ -126,7 +135,8 @@
 #include <sys/syslog.h>
 #endif
 
-#ifdef __QNX__
+#if defined(__QNX__) && !defined(TCP_KEEPIDLE)
+/* older io-pkt SDPs lack these in <netinet/tcp.h>, SDP8 io-sock has them */
 # include "netinet/tcp_var.h"
 # define TCP_KEEPINTVL TCPCTL_KEEPINTVL
 # define TCP_KEEPIDLE  TCPCTL_KEEPIDLE
