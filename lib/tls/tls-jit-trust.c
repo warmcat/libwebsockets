@@ -542,9 +542,13 @@ lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 	 * must not do a naked uint32_t load through it (unaligned trap on the
 	 * mcu-class targets this feature exists for, and strict-aliasing UB
 	 * everywhere).
+	 *
+	 * Only a SKID that came back with a CA is part of the name: the cache
+	 * entry records only those, and lws_tls_jit_trust_vhost_bind() looks
+	 * for the vhost it regenerates from them by the cached tag.
 	 */
 
-	if (skid_len >= 4)
+	if (der && skid_len >= 4)
 		inf->tag ^= lws_ser_ru32be(skid);
 
 	if (der && inf->ders < (int)LWS_ARRAY_SIZE(inf->der) && inf->refcount) {
@@ -618,7 +622,9 @@ lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 			lws_tls_kid_copy_kid(&jci.skids[jci.count_skids++],
 						&inf->kid[n]);
 
-	if (skid_len) {
+	/* ...the last result is only one of them if it came with a CA */
+
+	if (der && skid_len) {
 		if (skid_len > sizeof(inf->kid[0].kid))
 			skid_len = sizeof(inf->kid[0].kid);
 		jci.skids[jci.count_skids].kid_len = (uint8_t)skid_len;
