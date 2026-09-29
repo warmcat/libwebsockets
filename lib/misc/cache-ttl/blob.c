@@ -391,7 +391,7 @@ lws_cache_blob_get(struct lws_cache_ttl_lru *_c, const char *specific_key,
 
 	/* an expired item is not usable... drop the file so the space back */
 
-	if (expiry && expiry <= lws_now_usecs())
+	if (expiry && expiry <= lws_cx_now(_c->info.cx, _c->info.tsi))
 		goto bail;
 
 	/* an item bigger than we would store today cannot be loaded */

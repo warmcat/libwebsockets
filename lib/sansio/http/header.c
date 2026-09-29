@@ -1038,7 +1038,7 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 	time_t now;
 	int m;
 
-	now = time(NULL);
+	now = lws_pt_now_wall(pt);
 
 	lws_pt_lock(pt, __func__);
 

@@ -30,6 +30,10 @@
  * Before any of it, the io_ops table is checked at context creation: one
  * not stamped with the ABI version the test was built with, or missing a
  * member lws calls without checking, is refused.
+ *
+ * Time is ours too: the test says what the time is (lws_service_set_now())
+ * and lws takes it instead of the clock, so the bytes depend only on what
+ * the test feeds.  Last, lws' timers run by the test's clock.
  */
 
 #include <libwebsockets.h>
@@ -433,6 +437,64 @@ server_half(struct lws_context *cx)
 	return 0;
 }
 
+/* the test's clock: a fixed start, so a run is the same whenever it is */
+#define T0_US		((lws_usec_t)1000 * LWS_US_PER_SEC)
+#define T0_WALL		((time_t)1767225600) /* 2026-01-01 00:00:00 UTC */
+
+static int timer_fired;
+
+static void
+timer_cb(lws_sorted_usec_list_t *sul)
+{
+	timer_fired++;
+}
+
+/*
+ * 8: timers run by the time the test gives.  Scheduled while the time is
+ * T0 + 1s for 250ms, one is not due at T0 + 1.249s, which says 1ms is left,
+ * and fires once at T0 + 1.25s.  Time does not go back: a time before the
+ * last is taken as the last.
+ */
+static int
+time_half(struct lws_context *cx)
+{
+	lws_sorted_usec_list_t sul;
+	lws_usec_t left;
+
+	memset(&sul, 0, sizeof(sul));
+	lws_service_set_now(cx, 0, T0_US + LWS_US_PER_SEC, T0_WALL + 1);
+	lws_sul_schedule(cx, 0, &sul, timer_cb, 250 * LWS_US_PER_MS);
+
+	left = lws_service_set_now(cx, 0, T0_US + 1249 * LWS_US_PER_MS,
+				   T0_WALL + 1);
+	if (timer_fired || left <= 0 || left > LWS_US_PER_MS) {
+		lwsl_err("case 8: early: fired %d, %lld us left\n", timer_fired,
+			 (long long)left);
+		lws_sul_cancel(&sul);
+		return 1;
+	}
+
+	/* going back is ignored, so the timer is still 1ms away, not later */
+	left = lws_service_set_now(cx, 0, T0_US, T0_WALL);
+	if (timer_fired || left <= 0 || left > LWS_US_PER_MS) {
+		lwsl_err("case 8: time went back: %lld us left\n",
+			 (long long)left);
+		lws_sul_cancel(&sul);
+		return 1;
+	}
+
+	lws_service_set_now(cx, 0, T0_US + 1250 * LWS_US_PER_MS, T0_WALL + 1);
+	lws_service_set_now(cx, 0, T0_US + 2 * LWS_US_PER_SEC, T0_WALL + 2);
+	if (timer_fired != 1) {
+		lwsl_err("case 8: fired %d times\n", timer_fired);
+		lws_sul_cancel(&sul);
+		return 1;
+	}
+	lwsl_user("case 8: timers run by the test's clock: PASS\n");
+
+	return 0;
+}
+
 /*
  * 7: lws_send_pipe_choked() on a connection over the test transport.  Its
  * fd is only its place in the poll set, so an fd that could not take a
@@ -691,6 +753,9 @@ main(int argc, const char **argv)
 		lwsl_err("lws init failed\n");
 		return 1;
 	}
+	/* from here, the time is what we say */
+	lws_service_set_now(cx, 0, T0_US, T0_WALL);
+
 	info.vhost_name = "sansio";
 	vh = lws_create_vhost(cx, &info);
 	if (!vh) {
@@ -707,6 +772,8 @@ main(int argc, const char **argv)
 	(void)vh;
 #endif
 	if (choked_half(cx))
+		goto bail;
+	if (time_half(cx))
 		goto bail;
 
 	result = 0;

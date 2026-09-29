@@ -49,6 +49,20 @@
 
 #if defined(LWS_SANSIO_CHECK)
 
+#if !defined(LWS_WITH_LATENCY)
+/*
+ * Time is an input (README.sans-io-split.md, "Time"): sansIO asks the
+ * service thread's time, lws_wsi_now() / lws_wsi_now_wall() and friends,
+ * never the clock.  A read of lws' clock in a sansIO source fails to compile
+ * here, naming the line.  Only LWS_WITH_LATENCY's measurements of how long
+ * lws took read it, so the check is off in a build with them.  (libc's
+ * time() is not caught: a system header declaring it after this would
+ * break.)
+ */
+#define lws_now_usecs()	sansio_asks_lws_wsi_now_not_the_clock()
+#define lws_now_secs()	sansio_asks_lws_wsi_now_wall_not_the_clock()
+#endif
+
 /*
  * tx (lws_io_ops_t tx_push, tx_now, tx_choked, tx_file)
  */

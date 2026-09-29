@@ -189,7 +189,7 @@ lws_http_check_retry_after(struct lws *wsi, lws_usec_t *us_interval_in_out)
 		 * eliminating problems from server - client clock skew
 		 */
 
-		time(&td);
+		td = lws_wsi_now_wall(wsi);
 		len = (unsigned int)lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_DATE);
 		if (len) {
 			p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_DATE);

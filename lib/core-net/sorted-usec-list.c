@@ -124,7 +124,7 @@ lws_sul_schedule(struct lws_context *ctx, int tsi, lws_sorted_usec_list_t *sul,
 		lws_sul_cancel(sul);
 	else {
 		sul->cb = _cb;
-		sul->us = lws_now_usecs() + _us;
+		sul->us = lws_pt_now(_pt) + _us;
 		lws_sul2_schedule(ctx, tsi, LWSSULLI_MISS_IF_SUSPENDED, sul);
 	}
 
@@ -146,7 +146,7 @@ lws_sul_schedule_wakesuspend(struct lws_context *ctx, int tsi,
 		lws_sul_cancel(sul);
 	else {
 		sul->cb = _cb;
-		sul->us = lws_now_usecs() + _us;
+		sul->us = lws_pt_now(_pt) + _us;
 		lws_sul2_schedule(ctx, tsi, LWSSULLI_WAKE_IF_SUSPENDED, sul);
 	}
 

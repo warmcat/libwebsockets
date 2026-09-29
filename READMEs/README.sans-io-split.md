@@ -338,6 +338,42 @@ Time is an input: sansIO is told the deadline passed, it never reads the
 clock to decide anything.  Reading the clock for a log line or a metric
 is tolerated in sansIO until the split is done.
 
+## Time
+
+Time is an input to sansIO, as bytes are: what it decides by the clock
+(quic's loss detection, congestion control, pacing and ack delay, the
+header table lifetimes, cookie and Alt-Svc expiry, a JWT's age), what it
+writes of it (a ws or h2 ping payload, a retry token's timestamp, a JWT's
+`iat`, an access log line) and the timers it schedules all come from the
+service thread's time, never from the platform clock.  sansIO asks for it
+with `lws_wsi_now(wsi)` (monotonic, `lws_usec_t`) and `lws_wsi_now_wall(wsi)`
+(seconds since 1970), or `lws_pt_now()` / `lws_cx_now()` without a wsi,
+and `lws_sul_schedule()` schedules from it; they are neither half's, in
+`private-lib-core-net.h`.  Only a measurement of how long lws itself took
+(`LWS_WITH_LATENCY`) reads the clock directly: in a build without those,
+the seam makes `lws_now_usecs()` and `lws_now_secs()` in a sansIO source a
+compile error at its line (libc's `time()` is left to review, since a
+system header declaring it after the seam would break).
+
+An embedder that is the event loop gives the time with
+`lws_service_set_now(cx, tsi, now_us, now_wall)`: from then on it is the
+thread's time until the next call, for whoever asks, including a caller
+outside any service pass.  The call also runs the timers due by then and
+returns how long until the next, as lws' own loops do when they wake, so a
+harness or a replay advances time and services timers in one step, and the
+same inputs at the same times give the same outputs.  Wherever IO runs the
+timers that are due (`__lws_sul_service_ripe()`), a thread with the
+embedder's time uses it rather than the clock its caller read.  Monotonic time only
+moves forwards.  Without it, the time is the platform's clock, read when
+asked, so lws' own loops are unchanged.  A port has `now` as an argument of
+its entry points instead: what C keeps on the service thread between calls
+is what the port is handed with each one.
+
+With the seeded random source of fault injection (`lws_fi_random_seed()`,
+"The contract"), a run of the harness is a function of what it feeds and
+when; the tls library's own random and clock, inside its handshakes, are
+not lws' and are not covered.
+
 ## The object
 
 `struct lws` is the connection as sansIO knows it: the state word, the
@@ -621,7 +657,7 @@ on and marked done here, like the staging above.
    (`LWS_WITH_SANSIO_LINK_TEST`, and ctest runs `api-test-sansio-link`)
    and runs `scripts/sans-io-link-check.sh`; `scripts/sans-io-check.sh`
    is not run there, since the build fails on the same calls).
-2. The harness covers only h1 and ws (seven cases).  It needs h2, h3
+2. The harness covers only h1 and ws (nine cases, under the test's clock).  It needs h2, h3
    through the datagram edge (`recv_dgram` / `send_dgram` in the
    transport ops), mqtt, and a case under tls.
 3. Behaviour left over from the split:
@@ -642,7 +678,11 @@ on and marked done here, like the staging above.
 5. Time is not an input: sansIO reads the clock about 56 times, about 23
    of them decisions (quic congestion control, loss detection, pacing),
    and timer callbacks get no "now".  The pass's timestamp is to be
-   passed into the rx, tx and deadline entry points.
+   passed into the rx, tx and deadline entry points (done: see "Time";
+   sansIO asks the service thread's time, which an embedder gives with
+   `lws_service_set_now()` and which is otherwise the platform clock, and
+   timers schedule from it; timer callbacks still get no "now" argument,
+   they ask for it like everything else).
 6. What IO reads of the object is wide: about 85 members of `struct lws`,
    1674 uses.  Most are config reads through the vhost and context, but
    the cgi adapter reaches into the http role's state 132 times, and IO

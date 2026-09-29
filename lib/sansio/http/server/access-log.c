@@ -64,7 +64,7 @@ void
 lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int meth)
 {
 	char da[64], uri[256], ta[64];
-	time_t t = time(NULL);
+	time_t t = lws_wsi_now_wall(wsi);
 	struct lws *nwsi;
 	const char *me;
 #if defined(LWS_ROLE_H2)

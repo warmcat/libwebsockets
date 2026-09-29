@@ -1457,7 +1457,7 @@ ads_known:
 		 * it is not already running.
 		 */
 		if (!wsi->quic.quic_race_start_us)
-			wsi->quic.quic_race_start_us = lws_now_usecs();
+			wsi->quic.quic_race_start_us = lws_wsi_now(wsi);
 #endif
 		/*
 		 * A single lost Initial or Handshake packet needs at least one

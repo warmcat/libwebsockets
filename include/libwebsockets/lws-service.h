@@ -167,6 +167,34 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 LWS_VISIBLE LWS_EXTERN int
 lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi);
 
+/**
+ * lws_service_set_now() - the time is this, for an embedder running its own loop
+ * \param context:	lws context
+ * \param tsi:		thread service index
+ * \param now_us:	the monotonic time, in the same units as lws_now_usecs()
+ * \param now_wall:	the wall time, seconds since 1970
+ *
+ * Time is an input to lws' protocol half (READMEs/README.sans-io-split.md,
+ * "Time"): what it decides by the clock, the timers it schedules and the
+ * times it writes are taken from here once this has been called for the
+ * service thread, instead of from the platform's clock, and stay at what
+ * was given until the next call.  So an embedder that is the event loop
+ * (the sansIO harness, a replay of recorded traffic) says what the time is
+ * before each thing it hands lws, and the same inputs at the same times give
+ * the same outputs.
+ *
+ * It also runs the timers due by now_us, as lws' own loops do on waking, and
+ * returns the time from now_us until the next one is due, or 0 when none
+ * is scheduled.
+ *
+ * Time only moves forwards: a now_us earlier than the last is taken as the
+ * last.  Don't mix it with lws_service() on the same thread: lws' own loops
+ * keep the platform's clock.
+ */
+LWS_VISIBLE LWS_EXTERN lws_usec_t
+lws_service_set_now(struct lws_context *context, int tsi, lws_usec_t now_us,
+		    time_t now_wall);
+
 /* Backwards compatibility */
 #define lws_plat_service_tsi lws_service_tsi
 

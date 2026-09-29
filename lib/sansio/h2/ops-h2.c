@@ -1880,7 +1880,7 @@ rops_issue_keepalive_h2(struct lws *wsi, int isvalid)
 {
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	struct lws_h2_protocol_send *pps;
-	uint64_t us = (uint64_t)lws_now_usecs();
+	uint64_t us = (uint64_t)lws_wsi_now(wsi);
 
 	if (isvalid) {
 		_lws_validity_confirmed_role(nwsi);

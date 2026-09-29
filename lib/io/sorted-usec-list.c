@@ -51,6 +51,14 @@ __lws_sul_service_ripe(lws_dll2_owner_t *own, int own_len, lws_usec_t usnow)
 
 	lws_pt_assert_lock_held(pt);
 
+	/*
+	 * The deadlines were scheduled in the thread's time: when the
+	 * embedder gives it (lws_service_set_now()), it is due by that, not
+	 * by the clock whoever called us read
+	 */
+	if (pt->now_external)
+		usnow = pt->now_us;
+
 	/* must be at least 1 */
 	assert(own_len > 0);
 

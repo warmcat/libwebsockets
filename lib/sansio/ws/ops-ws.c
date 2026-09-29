@@ -2153,7 +2153,7 @@ rops_issue_keepalive_ws(struct lws *wsi, int isvalid)
 		lwsl_wsi_info(wsi, "confirming validity");
 		_lws_validity_confirmed_role(wsi);
 	} else {
-		us = (uint64_t)lws_now_usecs();
+		us = (uint64_t)lws_wsi_now(wsi);
 		memcpy(&wsi->ws->ping_payload_buf[LWS_PRE], &us, 8);
 		wsi->ws->send_check_ping = 1;
 		lwsl_wsi_info(wsi, "requesting send ping on ws");

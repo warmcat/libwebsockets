@@ -546,7 +546,7 @@ lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
         if (!qn) return;
 
         size_t total_bytes_lost = 0;
-        lws_usec_t now = lws_now_usecs();
+        lws_usec_t now = lws_wsi_now(nwsi);
         lws_usec_t loss_time = qn->smoothed_rtt ? (qn->smoothed_rtt * 9 / 8) : 50000;
         lws_usec_t oldest_lost = 0, newest_lost = 0;
 
@@ -648,7 +648,7 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t pn_lo,
 
 	size_t bytes_acked = 0;
 	lws_usec_t rtt = 0;
-	lws_usec_t now = lws_now_usecs();
+	lws_usec_t now = lws_wsi_now(nwsi);
 
 	int check_levels[] = { level, level == LWS_QUIC_LEVEL_APP ? LWS_QUIC_LEVEL_EARLY : -1 };
 	for (int i = 0; i < 2; i++) {
@@ -1157,7 +1157,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		nwsi->quic.qn->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 		nwsi->quic.qn->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 		nwsi->quic.qn->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
-		nwsi->quic.qn->last_rx_update_us = lws_now_usecs();
+		nwsi->quic.qn->last_rx_update_us = lws_wsi_now(nwsi);
 		nwsi->txc.peer_tx_cr_est = LWS_QUIC_DEFAULT_WINDOW; /* How much the peer can write to us */
 		/* tx_cr is strictly initialized when we parse the peer's initial_max_data parameter */
 
@@ -2278,7 +2278,7 @@ tp_ok:
 							delay = cap;
 
 						qn->rx_ack_eliciting_since_us =
-							lws_now_usecs();
+							lws_wsi_now(nwsi);
 						qn->ack_delay_armed = 1;
 						lws_sul_schedule(nwsi->a.context,
 								 0, &qn->ack_delay_sul,
@@ -2743,7 +2743,7 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 
 			if (pn_space == LWS_QUIC_LEVEL_APP &&
 			    qn->rx_ack_eliciting_since_us) {
-				lws_usec_t held = lws_now_usecs() -
+				lws_usec_t held = lws_wsi_now(wsi) -
 					qn->rx_ack_eliciting_since_us;
 				if (held > 0)
 					ack_delay_enc = (uint64_t)(held >> 3);
@@ -2918,7 +2918,7 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 				memcpy(f_sent->data, f->data, send_len);
 
 				f_sent->sent_in_pn = my_pn;
-				f_sent->sent_time_us = lws_now_usecs();
+				f_sent->sent_time_us = lws_wsi_now(wsi);
 				f_sent->wire_len = 0;
 
 				/* Clear the FIN bit from intermediate fragment */
@@ -2941,7 +2941,7 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 				/* Sent entirely */
 				lws_dll2_remove(&f->list);
 				f->sent_in_pn = my_pn;
-				f->sent_time_us = lws_now_usecs();
+				f->sent_time_us = lws_wsi_now(wsi);
 				f->wire_len = 0;
 				lws_dll2_add_tail(&f->list, &qn->in_flight[level]);
 
@@ -3208,7 +3208,7 @@ lws_quic_pto_sweep(struct lws *wsi)
 	struct lws_quic_netconn *qn = wsi->quic.qn;
 	int level;
 
-	lws_usec_t now = lws_now_usecs();
+	lws_usec_t now = lws_wsi_now(wsi);
 	size_t total_bytes_lost = 0;
 	uint64_t last_lost_pn = (uint64_t)-1;
 	for (level = 0; level < LWS_QUIC_LEVEL_COUNT; level++) {
@@ -3891,7 +3891,7 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 		wsi->quic.qn->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 		wsi->quic.qn->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 		wsi->quic.qn->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
-		wsi->quic.qn->last_rx_update_us = lws_now_usecs();
+		wsi->quic.qn->last_rx_update_us = lws_wsi_now(wsi);
 
 		/* Generate random CIDs */
 		dcid.len = 8;
@@ -4508,7 +4508,7 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 			wsi->txc.peer_tx_cr_est += add;
 			nwsi->txc.peer_tx_cr_est += add;
 
-			lws_usec_t now = lws_now_usecs();
+			lws_usec_t now = lws_wsi_now(wsi);
 
 			if (wsi->quic.qs) {
 				wsi->quic.qs->rx_credited += (uint64_t)(add > 0 ? add : 0);
@@ -4751,7 +4751,7 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 			wsi->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 			wsi->quic.qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 			wsi->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
-			wsi->quic.qs->last_rx_update_us = lws_now_usecs();
+			wsi->quic.qs->last_rx_update_us = lws_wsi_now(wsi);
 		} else {
 			/*
 			 * Q-15: wsi has been hollowed out above (tls.ssl and
@@ -4847,11 +4847,11 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 		if (wsi->a.context->h3_cap_cache && wsi->stash && wsi->stash->cis[CIS_HOST]) {
 			lws_h3_cap_info_t cap;
 			cap.state = LWS_H3_STATE_KNOWN_GOOD;
-			cap.latency_us = (uint32_t)(lws_now_usecs() - nwsi->quic.quic_race_start_us);
+			cap.latency_us = (uint32_t)(lws_wsi_now(wsi) - nwsi->quic.quic_race_start_us);
 
 			lws_cache_write_through(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_HOST],
 						(const uint8_t *)&cap, sizeof(cap),
-						lws_now_usecs() + (3600ll * LWS_US_PER_SEC), NULL);
+						lws_wsi_now(wsi) + (3600ll * LWS_US_PER_SEC), NULL);
 		}
 	}
 #endif

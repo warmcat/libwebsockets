@@ -179,7 +179,9 @@ expiry_cb(lws_sorted_usec_list_t *sul)
 {
 	lws_cache_ttl_lru_t_heap_t *cache = lws_container_of(sul,
 					lws_cache_ttl_lru_t_heap_t, cache.sul);
-	lws_usec_t now = lws_now_usecs();
+	/* expiries are in the service thread's time (lws_service_set_now()) */
+	lws_usec_t now = lws_cx_now(cache->cache.info.cx,
+				    cache->cache.info.tsi);
 
 	lwsl_cache("%s: %s\n", __func__, cache->cache.info.name);
 

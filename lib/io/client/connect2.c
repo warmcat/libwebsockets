@@ -487,7 +487,7 @@ solo:
 					wsi->tried_quic = 1;
 					wsi->quic_alt_port = alt_port;
 #if defined(LWS_ROLE_QUIC)
-					wsi->quic.quic_race_start_us = lws_now_usecs();
+					wsi->quic.quic_race_start_us = lws_wsi_now(wsi);
 #endif
 					memset(&i, 0, sizeof(i));
 					i.method = "QUIC";

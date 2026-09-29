@@ -404,7 +404,8 @@ lws_interceptor_check(struct lws *wsi, const struct lws_protocols *prot)
 	}
 
 	lwsl_vhost_notice(vhd->vhost, "valid JWT for %s: expires in %lds",
-			  sub_claim, (long)(ck.expiry_unix_time - lws_now_secs()));
+			  sub_claim, (long)(ck.expiry_unix_time -
+				  (unsigned long)lws_wsi_now_wall(wsi)));
 
 	if (lws_get_urlarg_by_name(wsi, "lws_interceptor_ok", junk, sizeof(junk))) {
 		lws_interceptor_inject_header(wsi, vhd, sub_claim);
@@ -657,7 +658,8 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 			/* RET_DELAYED falls through to timer setup */
 		}
 
-		if (lws_now_secs() < (unsigned long)iat + min_req_sec) {
+		if ((unsigned long)lws_wsi_now_wall(wsi) <
+					(unsigned long)iat + min_req_sec) {
 			lwsl_vhost_notice(vhd->vhost, "%s: POST: pre-delay not met", __func__);
 			return lws_interceptor_redirect(wsi, uri);
 		}

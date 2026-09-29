@@ -493,7 +493,7 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 								w->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 								w->quic.qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 								w->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
-								w->quic.qs->last_rx_update_us = lws_now_usecs();
+								w->quic.qs->last_rx_update_us = lws_wsi_now(w);
 							}
 						}
 
@@ -1338,7 +1338,7 @@ lws_quic_create_retry_token(struct lws *wsi,
         uint8_t pt[256];
         size_t pt_len = 0;
         uint8_t nonce[12];
-        uint64_t now = (uint64_t)lws_now_usecs();
+        uint64_t now = (uint64_t)lws_wsi_now(wsi);
 
         /* the AEAD nonce must never be reused or predictable */
         if (lws_get_random(wsi->a.context, nonce, 12) != 12)
@@ -1454,7 +1454,7 @@ lws_quic_validate_retry_token(struct lws *wsi, const uint8_t *token, size_t toke
                               ((uint64_t)pt[p+6] << 8) |
                               pt[p+7];
 
-        uint64_t now = (uint64_t)lws_now_usecs();
+        uint64_t now = (uint64_t)lws_wsi_now(wsi);
         if (now < token_time || now - token_time > 60ULL * 1000000ULL) {
                 lwsl_wsi_notice(wsi, "QUIC: Retry token expired. age = %lld us", (long long)(now - token_time));
                 return -1;

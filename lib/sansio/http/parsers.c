@@ -123,7 +123,7 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 	__lws_set_timeout(wsi, PENDING_TIMEOUT_HOLDING_AH,
 			  wsi->a.vhost->timeout_secs_ah_idle);
 
-	time(&ah->assigned);
+	ah->assigned = lws_wsi_now_wall(wsi);
 
 	if (lws_buflist_next_segment_len(&wsi->buflist, NULL) && autoservice) {
 		lwsl_debug("%s: service on readbuf ah\n", __func__);
@@ -357,7 +357,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 		  pt->http.ah_count_in_use);
 
 	/* we did have an ah attached */
-	time(&now);
+	now = lws_wsi_now_wall(wsi);
 	if (ah->assigned && now - ah->assigned > 3) {
 		/*
 		 * we're detaching the ah, but it was held an
@@ -2110,7 +2110,7 @@ jwt_sign_cookie_value(struct lws *wsi,
 	 */
 
 	lws_hex_random(wsi->a.context, csrf, sizeof(csrf));
-	ull = lws_now_secs();
+	ull = (unsigned long long)lws_wsi_now_wall(wsi);
 	if (lws_jwt_sign_compact(wsi->a.context, i->jwk, i->alg, plain, &pl,
 			         temp, sizeof(temp),
 			         "{\"iss\":\"%s\",\"aud\":\"%s\","

@@ -72,7 +72,7 @@ extern "C" {
  */
 #define __lws_sul_insert_us(pt, idx, sul, _us) \
 	do { \
-		(sul)->us = lws_now_usecs() + (lws_usec_t)(_us); \
+		(sul)->us = lws_pt_now(pt) + (lws_usec_t)(_us); \
 		__lws_sul_insert_pt(pt, idx, sul); \
 	} while (0)
 
@@ -542,6 +542,12 @@ struct lws_context_per_thread {
 	unsigned char event_loop_pt_unused:1;
 	unsigned char destroy_self:1;
 	unsigned char is_destroyed:1;
+	unsigned char now_external:1;
+	/**< the thread's time is the embedder's input (now_us, now_wall), set
+	 * with lws_service_set_now(), not the platform's clock */
+
+	lws_usec_t now_us;	/* now_external: the monotonic time, and */
+	time_t now_wall;	/* the wall time, the embedder last gave */
 
 #if defined(LWS_WITH_LATENCY)
 	lws_usec_t latency_last_cb_end;
@@ -550,6 +556,33 @@ struct lws_context_per_thread {
 	lws_latency_bucket_t latency_ring[LWS_LATENCY_RING_SIZE];
 #endif
 };
+
+/*
+ * Time is an input to sansIO (README.sans-io-split.md, "Time"): what it
+ * decides by the clock, or writes of it, it asks of these, never of the
+ * platform clock.  An embedder that runs its own loop gives the thread's
+ * time with lws_service_set_now(), and until it gives a newer one that is
+ * the time, for whoever asks.  Otherwise it is the platform's clock, read
+ * when asked.  Only a measurement of how long lws took (LWS_WITH_LATENCY)
+ * reads the clock itself.
+ */
+static LWS_INLINE lws_usec_t
+lws_pt_now(const struct lws_context_per_thread *pt)
+{
+	return pt->now_external ? pt->now_us : lws_now_usecs();
+}
+
+/* the wall time, seconds since 1970, for what is written or compared as it */
+static LWS_INLINE time_t
+lws_pt_now_wall(const struct lws_context_per_thread *pt)
+{
+	return pt->now_external ? pt->now_wall : (time_t)lws_now_secs();
+}
+
+#define lws_wsi_pt(_wsi)	(&(_wsi)->a.context->pt[(int)(_wsi)->tsi])
+#define lws_cx_now(_cx, _tsi)	lws_pt_now(&(_cx)->pt[_tsi])
+#define lws_wsi_now(_wsi)	lws_pt_now(lws_wsi_pt(_wsi))
+#define lws_wsi_now_wall(_wsi)	lws_pt_now_wall(lws_wsi_pt(_wsi))
 
 /*
  * pt->serv_buf is one scratch buffer per service thread that everything

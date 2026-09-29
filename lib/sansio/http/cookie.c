@@ -348,7 +348,7 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 	size_t size = 6 + 20 + 10 + 1, cnl;
 	time_t expires = 0;
 	lws_usec_t expiry_us = 0;
-	time_t now_s = time(NULL);
+	time_t now_s = lws_wsi_now_wall(wsi);
 
 	int ret = 0;
 
@@ -459,7 +459,7 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 	 * expires == 0 is a session cookie (no expiry).
 	 */
 	if (expires) {
-		expiry_us = lws_now_usecs() +
+		expiry_us = lws_wsi_now(wsi) +
 				(lws_usec_t)(expires - now_s) *
 				(lws_usec_t)LWS_US_PER_SEC;
 	}

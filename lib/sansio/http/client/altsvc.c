@@ -300,7 +300,7 @@ lws_client_alt_svc_learn(struct lws *wsi)
 		return;
 	}
 
-	expiry = lws_now_usecs() + ((lws_usec_t)alt.ma_secs * LWS_US_PER_SEC);
+	expiry = lws_wsi_now(wsi) + ((lws_usec_t)alt.ma_secs * LWS_US_PER_SEC);
 
 	payload[0] = (uint8_t)(alt.port >> 8);
 	payload[1] = (uint8_t)alt.port;

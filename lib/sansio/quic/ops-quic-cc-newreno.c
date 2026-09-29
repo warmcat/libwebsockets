@@ -41,7 +41,7 @@ newreno_init(struct lws *nwsi)
 	st->ssthresh = (size_t)-1; /* Infinity */
 	st->bytes_in_flight = 0;
 	st->congestion_recovery_start_time = 0;
-	st->last_pacing_time = lws_now_usecs();
+	st->last_pacing_time = lws_wsi_now(nwsi);
 	st->pacing_credit = st->cwnd; /* initial burst allowed */
 
 	// lwsl_notice("QUIC NewReno: init cwnd=%zu, mtu=%u", st->cwnd, mtu);
@@ -127,7 +127,7 @@ newreno_on_loss(struct lws *nwsi, size_t bytes_lost)
 	struct lws_quic_cc_newreno *st = (struct lws_quic_cc_newreno *)qn->cc_state;
 	uint32_t mtu = vh->quic_mtu ? vh->quic_mtu : 1280;
 	size_t min_cwnd = 2 * mtu;
-	lws_usec_t now = lws_now_usecs();
+	lws_usec_t now = lws_wsi_now(nwsi);
 
 	if (!st) return;
 
@@ -165,7 +165,7 @@ newreno_on_persistent_congestion(struct lws *nwsi)
 
 	st->cwnd = 2 * mtu;
 	st->ssthresh = 2 * mtu;
-	st->congestion_recovery_start_time = lws_now_usecs();
+	st->congestion_recovery_start_time = lws_wsi_now(nwsi);
 
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
 	LWS_RATELIMIT_DEFINE_STATIC(rl2);
@@ -197,7 +197,7 @@ newreno_get_pacing_delay(struct lws *nwsi, size_t bytes_to_send)
 	if (rtt < 1000)
 		rtt = 1000; /* Minimum 1ms for pacing math */
 
-	lws_usec_t now = lws_now_usecs();
+	lws_usec_t now = lws_wsi_now(nwsi);
 	lws_usec_t elapsed = now - st->last_pacing_time;
 
 	/* Replenish credit based on elapsed time: R = cwnd / srtt */

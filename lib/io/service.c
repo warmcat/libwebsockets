@@ -331,6 +331,29 @@ lws_wsi_can_consume_parked_rx(struct lws *wsi)
 	}
 }
 
+lws_usec_t
+lws_service_set_now(struct lws_context *context, int tsi, lws_usec_t now_us,
+		    time_t now_wall)
+{
+	struct lws_context_per_thread *pt = &context->pt[tsi];
+	lws_usec_t us;
+
+	lws_pt_lock(pt, __func__);
+
+	if (pt->now_external && now_us < pt->now_us)
+		now_us = pt->now_us; /* time only moves forwards */
+
+	pt->now_us = now_us;
+	pt->now_wall = now_wall;
+	pt->now_external = 1;
+
+	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
+				    now_us);
+	lws_pt_unlock(pt);
+
+	return us;
+}
+
 int
 lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 {

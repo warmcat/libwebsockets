@@ -439,7 +439,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 				/* Overwrite h3 entry with h2 */
 				lws_cache_write_through(wsi->a.context->alpn_cache, key,
 							(const uint8_t *)"h2", 3,
-							lws_now_usecs() + (lws_usec_t)(3600ULL * 1000000ULL), &p);
+							lws_wsi_now(wsi) + (lws_usec_t)(3600ULL * 1000000ULL), &p);
 				lwsl_wsi_notice(wsi, "H3 WS not supported by peer, downgrading ALPN cache to h2 for %s", key);
 			}
 			return -1;
@@ -1069,7 +1069,7 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 	cwsi->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 	cwsi->quic.qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 	cwsi->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
-	cwsi->quic.qs->last_rx_update_us = lws_now_usecs();
+	cwsi->quic.qs->last_rx_update_us = lws_wsi_now(cwsi);
 
 	/* We're doing client unidi streams */
 	lws_wsi_mux_insert(cwsi, nwsi, (unsigned int)qn->next_stream_id_unidi_local);
@@ -2629,7 +2629,7 @@ lws_wsi_h3_adopt(struct lws *parent_wsi, struct lws *wsi)
 	wsi->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 	wsi->quic.qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 	wsi->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
-	wsi->quic.qs->last_rx_update_us = lws_now_usecs();
+	wsi->quic.qs->last_rx_update_us = lws_wsi_now(wsi);
 
 	wsi->mux_substream = 1;
 

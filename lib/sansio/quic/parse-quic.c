@@ -1540,7 +1540,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						wsi_child->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 						wsi_child->quic.qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 		wsi_child->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
-						wsi_child->quic.qs->last_rx_update_us = lws_now_usecs();
+						wsi_child->quic.qs->last_rx_update_us = lws_wsi_now(wsi_child);
 					} else {
 						lws_close_free_wsi(wsi_child, LWS_CLOSE_STATUS_NOSTATUS, "quic stream oom");
 						return -1;
