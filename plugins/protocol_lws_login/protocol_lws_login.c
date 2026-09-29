@@ -3255,6 +3255,22 @@ anon:
 		} lws_end_foreach_dll_safe(d, d1);
 
 		if (ps) {
+			/*
+			 * Only the side channel's own end (COMPLETED /
+			 * CONNECTION_ERROR / CLOSED, each of which detaches
+			 * ps->wsi_client before waking us) or the sul timeout
+			 * may settle the parked request.  lws is free to hand
+			 * us WRITEABLE for other reasons while the exchange is
+			 * still in flight -- over h3 the parked quic stream
+			 * gets one promptly -- and treating that as the
+			 * completion killed the live exchange and answered 401
+			 * "no auth server response (connection failed)" within
+			 * the same second as the kick, so every silent renewal
+			 * failed and the session died with its first JWT.
+			 */
+			if (ps->wsi_client)
+				return 0;
+
 			if (ps->mode == LWS_LOGIN_REFRESH_COLDLOAD) {
 				/*
 				 * Cold-load renewal completion.  On success we

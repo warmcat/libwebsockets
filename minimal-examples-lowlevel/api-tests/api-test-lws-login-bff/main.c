@@ -37,6 +37,13 @@
  *    the minted pair really did arrive matching, so the self-heal cannot
  *    regress into submitting an inconsistent pair;
  *
+ *  - "writeable-in-flight": paired jar, but while the mock auth server holds
+ *    its answer back the parked browser leg is sent an unsolicited
+ *    WRITEABLE (over h3 the quic stream gets one) -> it must stay parked
+ *    and still complete 200 + rotated cookies.  Taking that WRITEABLE as the
+ *    exchange's end killed every silent renewal on the sai deployment with
+ *    an instant 401 "no auth server response (connection failed)";
+ *
  *  - "anonymous": no auth cookies at all -> still denied with 401 (an
  *    anonymous visitor's renewal probe must never start an exchange);
  *
@@ -145,6 +152,9 @@ struct scenario {
 					 * lws-login is configured with only a
 					 * relative auth-server-url (no
 					 * auth-api-url PVO) */
+	int		poke;		/* 1 = while the mock holds the exchange
+					 * open, send the parked browser leg
+					 * an unsolicited WRITEABLE */
 };
 
 /* minted in main() once the context and allocated ports exist */
@@ -165,49 +175,59 @@ static const struct scenario scenarios[] = {
 	{ "paired-jar", "/.lws-login-refresh", NULL, NULL, NULL,
 	  "auth_refresh_session=0123456789abcdef0123456789abcdef; "
 	  "auth_csrf=fedcba9876543210fedcba9876543210", 200u, 1, 1, 0,
-	  "POST", 0, 0, 0 },
+	  "POST", 0, 0, 0, 0 },
 	{ "self-heal", "/.lws-login-refresh", NULL, NULL, NULL,
 	  "auth_refresh_session=0123456789abcdef0123456789abcdef", 200u, 1, 1, 0,
-	  "POST", 0, 0, 0 },
+	  "POST", 0, 0, 0, 0 },
+	/* a WRITEABLE the parked browser leg gets while the exchange is
+	 * still in flight (over h3 the quic stream gets one) must not be
+	 * taken as the exchange's end: that killed every silent renewal
+	 * with an instant 401 "no auth server response" on the sai
+	 * deployment */
+	{ "writeable-in-flight", "/.lws-login-refresh", NULL, NULL, NULL,
+	  "auth_refresh_session=0123456789abcdef0123456789abcdef; "
+	  "auth_csrf=fedcba9876543210fedcba9876543210", 200u, 1, 1, 0,
+	  "POST", 0, 0, 0, 1 },
 	{ "anonymous", "/.lws-login-refresh", NULL, NULL, NULL, NULL, 401u, 0, 0, 0,
-	  "POST", 0, 0, 0 },
+	  "POST", 0, 0, 0, 0 },
 
 	/* F-027: an auth_session cookie holding a compact JWT whose JOSE
 	 * header has no "alg" member must be cleanly rejected by the
 	 * per-request session gate, not kill the server process */
 	{ "alg-less-session-jwt", "/", NULL, NULL, NULL,
-	  "auth_session=eyJ0eXAiOiJKV1QifQ.e30.AQ", 303u, 0, 0, 0, "GET", 0, 0, 0 },
+	  "auth_session=eyJ0eXAiOiJKV1QifQ.e30.AQ", 303u, 0, 0, 0,
+	  "GET", 0, 0, 0, 0 },
 
 	/* F-020: the token below is genuinely signed by the plugin's own JWK
 	 * (the throwaway key carries its private member), so these scenarios
 	 * exercise the origin/referer gate and nothing else */
 	{ "sso-nohdrs", "/.lws-login-sso", sso_body, NULL, NULL, NULL,
-	  403u, 0, 0, -1, "POST", 0, 0, 0 },
+	  403u, 0, 0, -1, "POST", 0, 0, 0, 0 },
 	{ "sso-origin-null", "/.lws-login-sso", sso_body, "null", NULL, NULL,
-	  403u, 0, 0, -1, "POST", 0, 0, 0 },
+	  403u, 0, 0, -1, "POST", 0, 0, 0, 0 },
 	{ "sso-origin-good", "/.lws-login-sso", sso_body, o_origin_good, NULL,
-	  NULL, 302u, 0, 0, 1, "POST", 0, 0, 0 },
+	  NULL, 302u, 0, 0, 1, "POST", 0, 0, 0, 0 },
 	{ "sso-origin-evil", "/.lws-login-sso", sso_body, o_origin_evil, NULL,
-	  NULL, 403u, 0, 0, -1, "POST", 0, 0, 0 },
+	  NULL, 403u, 0, 0, -1, "POST", 0, 0, 0, 0 },
 	{ "sso-referer-good", "/.lws-login-sso", sso_body, NULL, o_referer_good,
-	  NULL, 302u, 0, 0, 1, "POST", 0, 0, 0 },
+	  NULL, 302u, 0, 0, 1, "POST", 0, 0, 0, 0 },
 
 	/* F-021: the widget JS served to (admin) pages must HTML-escape every
 	 * dynamic string at its innerHTML render boundary */
 	{ "widget-js-fence", "/lws-login.js", NULL, NULL, NULL, NULL, 200u, 0, 0,
-	  0, "GET", 1, 0, 0 },
+	  0, "GET", 1, 0, 0, 0 },
 
 	/* the widget CSS served to pages must assert a complete, self-contained
 	 * colour scheme (see the css fence in step_advance) */
 	{ "widget-css-fence", "/lws-login.css", NULL, NULL, NULL, NULL, 200u, 0,
-	  0, 0, "GET", 0, 1, 0 },
+	  0, 0, "GET", 0, 1, 0, 0 },
 
 	/* refusal must be immediate and legible: no exchange started against
 	 * the empty host the relative URL parses to (second app vhost) */
 	{ "relative-authapi", "/.lws-login-refresh", NULL, NULL, NULL,
 	  "auth_refresh_session=0123456789abcdef0123456789abcdef; "
 	  "auth_csrf=fedcba9876543210fedcba9876543210", 401u, 0, 0, 0,
-	  "POST", 0, 0, 1 },
+	  "POST", 0, 0, 1, 0 },
 };
 
 #define N_SCENARIOS  (int)LWS_ARRAY_SIZE(scenarios)
@@ -217,7 +237,7 @@ static const struct scenario scenarios[] = {
 static struct lws_context *context;
 
 static int	g_port_app, g_port_auth, g_port_app2;
-static struct lws_vhost *g_vh_cli;
+static struct lws_vhost *g_vh_cli, *g_vh_app;
 
 static int	step;
 static int	step_done;		/* 1 = completed, -1 = failed */
@@ -391,6 +411,22 @@ callback_authmock(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_notice("%s: mock exchange validated: refresh=%d "
 			    "pair=%d\n", __func__, mock_got_refresh,
 			    mock_pair_ok);
+
+		if (scenarios[step].poke) {
+			/*
+			 * Hold the answer back and meanwhile wake every
+			 * lws-login wsi on the app vhost, ie, the browser leg
+			 * parked on this exchange: it must stay parked until
+			 * the exchange really ends.
+			 */
+			lws_callback_on_writable_all_protocol_vhost(g_vh_app,
+				lws_vhost_name_to_protocol(g_vh_app,
+							   "lws-login"));
+			lws_sul_schedule(lws_get_context(wsi), 0,
+					 &pss->sul_resp, sul_respond_cb,
+					 250 * LWS_US_PER_MS);
+			return 0;
+		}
 
 		lws_sul_schedule(lws_get_context(wsi), 0, &pss->sul_resp,
 				 sul_respond_cb, 10 * LWS_US_PER_MS);
@@ -1226,7 +1262,8 @@ int main(int argc, const char **argv)
 	info.mounts		= &mount_app;
 	info.pvo		= &pvo_login;
 
-	if (!lws_create_vhost(context, &info)) {
+	g_vh_app = lws_create_vhost(context, &info);
+	if (!g_vh_app) {
 		lwsl_err("Failed to create app vhost\n");
 		goto bail;
 	}
