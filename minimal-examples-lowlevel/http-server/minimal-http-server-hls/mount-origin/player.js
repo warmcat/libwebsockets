@@ -1151,7 +1151,16 @@ document.addEventListener('DOMContentLoaded', function() {
         // For Safari, which natively supports HLS
         else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             logMsg('native HLS supported');
-            video.src = videoSrc;
+            /*
+             * the browser fetches this itself: only ever hand it our own
+             * origin, whatever the ?v= checks above missed
+             */
+            var nativeSrc = new URL(videoSrc, window.location.href);
+            if (nativeSrc.origin !== window.location.origin) {
+                alert("Video source must be on this site.");
+                return;
+            }
+            video.src = nativeSrc.href;
             video.addEventListener('loadedmetadata', function() {
                 if (startPos > 0 && !autoplayDone) {
                     video.currentTime = startPos;
