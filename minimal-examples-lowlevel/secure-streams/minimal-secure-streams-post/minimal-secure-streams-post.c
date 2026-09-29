@@ -431,10 +431,10 @@ static int
 app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		    int current, int target)
 {
-	struct lws_context *context = lws_system_context_from_system_mgr(mgr);
+	struct lws_context *cx = lws_system_context_from_system_mgr(mgr);
 #if !defined(LWS_SS_USE_SSPC)
 
-	lws_system_blob_t *ab = lws_system_get_blob(context,
+	lws_system_blob_t *ab = lws_system_get_blob(cx,
 				LWS_SYSBLOB_TYPE_AUTH, 1 /* AUTH_IDX_ROOT */);
 	size_t size;
 #endif
@@ -477,7 +477,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			ssi.user_alloc = sizeof(myss_t);
 			ssi.streamtype = "minpost";
 
-			if (lws_ss_create(context, 0, &ssi, NULL, NULL,
+			if (lws_ss_create(cx, 0, &ssi, NULL, NULL,
 					  NULL, NULL)) {
 				lwsl_err("%s: failed to create secure stream\n",
 					 __func__);

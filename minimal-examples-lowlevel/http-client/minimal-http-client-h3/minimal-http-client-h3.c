@@ -148,7 +148,7 @@ static int
 system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		   int current, int target)
 {
-	struct lws_context *context = mgr->parent;
+	struct lws_context *cx = mgr->parent;
 
 	const char *p;
 
@@ -158,7 +158,7 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	lwsl_info("%s: operational\n", __func__);
 
 	memset(&ci, 0, sizeof ci);
-	ci.context = context;
+	ci.context = cx;
 	ci.port = 443;
 	ci.address = "libwebsockets.org";
 	if ((p = lws_cmdline_option(_argc, _argv, "--server")))

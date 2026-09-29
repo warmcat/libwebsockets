@@ -438,10 +438,10 @@ static int
 app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		    int current, int target)
 {
-	struct lws_context *context = lws_system_context_from_system_mgr(mgr);
+	struct lws_context *cx = lws_system_context_from_system_mgr(mgr);
 #if !defined(LWS_SS_USE_SSPC)
 
-	lws_system_blob_t *ab = lws_system_get_blob(context,
+	lws_system_blob_t *ab = lws_system_get_blob(cx,
 				LWS_SYSBLOB_TYPE_AUTH, 1 /* AUTH_IDX_ROOT */);
 	size_t size;
 #endif
@@ -471,7 +471,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			/* this makes it look like we're behind a captive portal
 			 * because the overriden address does a redirect */
 
-			lws_ss_policy_overlay(context,
+			lws_ss_policy_overlay(cx,
 				      "{\"s\": [{\"captive_portal_detect\": {"
 				         "\"endpoint\": \"google.com\","
 					 "\"http_url\": \"/\","
@@ -483,7 +483,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			/* this looks like no internet, because the overridden
 			 * port doesn't have anything that will connect to us */
 
-			lws_ss_policy_overlay(context,
+			lws_ss_policy_overlay(cx,
 				      "{\"s\": [{\"captive_portal_detect\": {"
 					 "\"endpoint\": \"warmcat.com\","
 					 "\"http_url\": \"/\","
@@ -526,12 +526,12 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 					  (test_local ? "mintest_local" :
 					  "mintest"));
 
-			if (lws_ss_create(context, 0, &ssi, NULL, NULL,
+			if (lws_ss_create(cx, 0, &ssi, NULL, NULL,
 					  NULL, NULL)) {
 				lwsl_err("%s: failed to create secure stream\n",
 					 __func__);
-				lws_default_loop_exit(context);
-				lws_cancel_service(context);
+				lws_default_loop_exit(cx);
+				lws_cancel_service(cx);
 				return -1;
 			}
 		}

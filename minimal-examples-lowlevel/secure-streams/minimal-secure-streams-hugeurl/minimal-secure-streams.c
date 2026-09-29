@@ -333,7 +333,7 @@ static int
 app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		    int current, int target)
 {
-	struct lws_context *context = lws_system_context_from_system_mgr(mgr);
+	struct lws_context *cx = lws_system_context_from_system_mgr(mgr);
 
 
 	/*
@@ -347,7 +347,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	if (current != LWS_SYSTATE_OPERATIONAL)
 		return 0;
 
-	if (!lws_ss_create(context, 0, &ssi, NULL, NULL, NULL, NULL))
+	if (!lws_ss_create(cx, 0, &ssi, NULL, NULL, NULL, NULL))
 		return 0;
 
 	lwsl_err("%s: failed to create secure stream\n", __func__);

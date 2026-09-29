@@ -288,9 +288,9 @@ static int
 system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		   int current, int target)
 {
-	struct lws_context *context = mgr->parent;
+	struct lws_context *cx = mgr->parent;
 	struct lws_client_connect_info i;
-	struct args *a = lws_context_user(context);
+	struct args *a = lws_context_user(cx);
 	const char *p;
 
 	if (current != LWS_SYSTATE_OPERATIONAL || target != LWS_SYSTATE_OPERATIONAL)
@@ -299,7 +299,7 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	lwsl_info("%s: operational\n", __func__);
 
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
-	i.context = context;
+	i.context = cx;
 	if (!lws_cmdline_option(a->argc, a->argv, "-n")) {
 		i.ssl_connection = LCCSCF_USE_SSL;
 #if defined(LWS_WITH_HTTP2)
@@ -422,10 +422,10 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 	if (!lws_client_connect_via_info(&i)) {
 		lwsl_err("Client creation failed\n");
-		lws_default_loop_exit(context);
+		lws_default_loop_exit(cx);
 		if (bad != 3)
 			bad = 3; /* synchronous connection/creation failure */
-		lws_cancel_service(context);
+		lws_cancel_service(cx);
 
 		return 1;
 	}
