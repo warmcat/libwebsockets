@@ -415,13 +415,15 @@ callback_monitor_ctl(struct lws *wsi, enum lws_callback_reasons reason,
 	struct vhd *vhd = (struct vhd *)lws_get_opaque_user_data(wsi);
 	char buf[512];
 	ssize_t n;
+	int fd;
 
 	switch (reason) {
 	case LWS_CALLBACK_RAW_RX_FILE:
-		if (!vhd)
+		fd = (int)(intptr_t)lws_get_socket_fd(wsi);
+		if (!vhd || fd < 0)
 			return -1;
 
-		n = read((int)(intptr_t)lws_get_socket_fd(wsi), buf, sizeof(buf));
+		n = read(fd, buf, sizeof(buf));
 		if (n <= 0) {
 			/* the proxy end is gone */
 			lwsl_notice("%s: proxy control channel closed\n",
