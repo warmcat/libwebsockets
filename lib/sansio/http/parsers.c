@@ -93,6 +93,8 @@ _lws_header_table_reset(struct allocated_headers *ah)
 	ah->http_response = 0;
 	ah->parser_state = WSI_TOKEN_NAME_PART;
 	ah->lextable_pos = 0;
+	/* no stale limit from the ah's last user for h2 / h3 :path */
+	ah->current_token_limit = 0;
 	ah->unk_pos = 0;
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 	ah->unk_value_pos = 0;
@@ -909,38 +911,37 @@ lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s)
 #define lwsl_parse_fail(_w, ...) do {} while (0)
 #endif
 
+/*
+ * Store one byte of the current header, or its terminating NUL.  Returns 0,
+ * or -1 if the header will not fit.
+ *
+ * A value longer than its token limit fails the whole request, the same as
+ * one that does not fit in the ah at all.  It used to be cut at the limit
+ * and the request carried on with it, so the app acted on a different URI,
+ * Host, cookie or credential than the peer sent; and the rest of an over-
+ * long URI, including the HTTP version, was skipped as if it was not there.
+ */
 static int LWS_WARN_UNUSED_RESULT
 issue_char(struct lws *wsi, unsigned char c)
 {
-	unsigned short frag_len;
+	struct allocated_headers *ah = wsi->stream.ah;
 
 	if (lws_pos_in_bounds(wsi))
 		return -1;
 
-	frag_len = wsi->stream.ah->frags[wsi->stream.ah->nfrag].len;
-	/*
-	 * If we haven't hit the token limit, just copy the character into
-	 * the header
-	 */
-	if (!wsi->stream.ah->current_token_limit ||
-	    frag_len < wsi->stream.ah->current_token_limit) {
-		wsi->stream.ah->data[wsi->stream.ah->pos++] = (char)c;
-		wsi->stream.ah->frags[wsi->stream.ah->nfrag].len++;
-		return 0;
-	}
-
-	/* Insert a null character when we *hit* the limit: */
-	if (frag_len == wsi->stream.ah->current_token_limit) {
-		if (lws_pos_in_bounds(wsi))
-			return -1;
-
-		wsi->stream.ah->data[wsi->stream.ah->pos++] = '\0';
+	/* the value can have up to the limit, then its NUL */
+	if (c && ah->current_token_limit &&
+	    ah->frags[ah->nfrag].len >= ah->current_token_limit) {
 		lwsl_parse_fail(wsi, "header %li exceeds limit %ld",
-				(long)wsi->stream.ah->parser_state,
-				(long)wsi->stream.ah->current_token_limit);
+				(long)ah->parser_state,
+				(long)ah->current_token_limit);
+		return -1;
 	}
 
-	return 1;
+	ah->data[ah->pos++] = (char)c;
+	ah->frags[ah->nfrag].len++;
+
+	return 0;
 }
 
 int
@@ -1078,8 +1079,11 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 		if (c == '=' && !enc)
 			ah->post_literal_equal = 1;
 
-		/* + to space */
-		if (c == '+' && !enc) {
+		/*
+		 * + to space, but only in the query: it is form encoding's
+		 * space, in the path it is just a +
+		 */
+		if (c == '+' && !enc && ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS]) {
 			c = ' ';
 			*_c = c;
 		}
@@ -1109,6 +1113,14 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 			ah->ups = URIPS_SEEN_SLASH;
 			goto swallow;
 		}
+		/*
+		 * /.? is the path ending in /. the same as /.[End of URI],
+		 * so drop the . and let the ? start the args below
+		 */
+		if (c == '?' && !enc) {
+			ah->ups = URIPS_SEEN_SLASH;
+			break;
+		}
 		/* it was like /.dir ... regurgitate the . */
 		ah->ups = URIPS_IDLE;
 		if (issue_char(wsi, '.') < 0)
@@ -1134,7 +1146,12 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 					 ah->data[ah->pos] != '/');
 			}
 			ah->ups = URIPS_SEEN_SLASH;
-			if (ah->frags[ah->nfrag].len > 1)
+			/*
+			 * The / we backed up to is still there to stand for
+			 * a / in c, but a ? must go on to start the args
+			 * below: swallowing it made the args part of the path
+			 */
+			if (ah->frags[ah->nfrag].len > 1 || c == '?')
 				break;
 			goto swallow;
 		}
@@ -1420,22 +1437,16 @@ check_eol:
 				lwsl_parser("*\n");
 			}
 
-			n = (unsigned int)issue_char(wsi, c);
-			if ((int)n < 0)
+			if (issue_char(wsi, c) < 0)
 				return LPR_FAIL;
-			if (n > 0)
-				ah->parser_state = WSI_TOKEN_SKIPPING;
-			else {
-				/*
-				 * Explicit zeroes are legal in URI ARGS.
-				 * They can only exist as a safety terminator
-				 * after the valid part of the token contents
-				 * for other types.
-				 */
-				if (!c && ah->parser_state != WSI_TOKEN_HTTP_URI_ARGS)
-					/* don't account for safety terminator */
-					wsi->stream.ah->frags[wsi->stream.ah->nfrag].len--;
-			}
+			/*
+			 * Explicit zeroes are legal in URI ARGS.  They can
+			 * only exist as a safety terminator after the valid
+			 * part of the token contents for other types.
+			 */
+			if (!c && ah->parser_state != WSI_TOKEN_HTTP_URI_ARGS)
+				/* don't account for safety terminator */
+				wsi->stream.ah->frags[wsi->stream.ah->nfrag].len--;
 
 swallow:
 			/* per-protocol end of headers management */

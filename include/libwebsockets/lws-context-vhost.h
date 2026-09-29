@@ -383,7 +383,9 @@ struct lws_context_creation_info {
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 	const struct lws_token_limits *token_limits;
 	/**< CONTEXT: NULL or struct lws_token_limits pointer which is
-	 * initialized with a token length limit for each possible WSI_TOKEN_ */
+	 * initialized with a token length limit for each possible WSI_TOKEN_,
+	 * 0 meaning no limit but the ah size.  A header value longer than its
+	 * limit fails the whole request or response, it is not truncated */
 	const char *http_proxy_address;
 	/**< VHOST: If non-NULL, attempts to proxy via the given address.
 	 * If proxy auth is required, use format
