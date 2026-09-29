@@ -260,9 +260,9 @@ Lws rejects by default protocol downgrades (https -> http) on redirects, the
 example used a context option `LCCSCF_ACCEPT_TLS_DOWNGRADE_REDIRECTS` to
 override this.
 
-## Works out of the box on recent mbedtls and openssl
+## Works out of the box on recent mbedtls, openssl and gnutls
 
-No modifications are needed to either tls library.
+No modifications are needed to any of these tls libraries.
 
 ## Compatibility Testing
 

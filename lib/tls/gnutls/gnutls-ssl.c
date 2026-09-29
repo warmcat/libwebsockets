@@ -419,6 +419,77 @@ lws_tls_server_abort_connection(struct lws *wsi)
 #endif
 
 #if defined(LWS_WITH_CLIENT)
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+/*
+ * gnutls_x509_crt_get_{subject,authority}_key_id() want the whole KID to fit;
+ * like the other backends we take any KID, and treat only the start of one
+ * that is longer than lws_tls_kid_t can hold as significant
+ */
+
+static void
+lws_gnutls_kid(int r, const uint8_t *kid, size_t len, lws_tls_kid_t *dest)
+{
+	if (r < 0)
+		return;
+
+	if (len > sizeof(dest->kid))
+		len = sizeof(dest->kid);
+
+	memcpy(dest->kid, kid, len);
+	dest->kid_len = (uint8_t)len;
+}
+
+/*
+ * Collect the SKID and AKID of each cert the peer sent into the wsi's
+ * kid_chain for JIT Trust, which sorts them out and asks the system for the
+ * CA that the top of the chain names.  None of these certs are trusted by
+ * being seen here, even if a misconfigured server sends us its root.
+ */
+
+static void
+lws_gnutls_collect_peer_kids(struct lws *wsi, gnutls_session_t session)
+{
+	lws_tls_kid_chain_t *ch = &wsi->io->tls.kid_chain;
+	const gnutls_datum_t *certs;
+	unsigned int n, count = 0;
+	gnutls_x509_crt_t crt;
+	uint8_t kid[64];
+	size_t len;
+	int r;
+
+	/* only the chain we are looking at now counts */
+	memset(ch, 0, sizeof(*ch));
+
+	certs = gnutls_certificate_get_peers(session, &count);
+	if (!certs)
+		return;
+
+	for (n = 0; n < count &&
+		    (size_t)ch->count < LWS_ARRAY_SIZE(ch->akid); n++) {
+
+		if (gnutls_x509_crt_init(&crt) < 0)
+			return;
+
+		if (gnutls_x509_crt_import(crt, &certs[n],
+					   GNUTLS_X509_FMT_DER) < 0) {
+			gnutls_x509_crt_deinit(crt);
+			continue;
+		}
+
+		len = sizeof(kid);
+		r = gnutls_x509_crt_get_subject_key_id(crt, kid, &len, NULL);
+		lws_gnutls_kid(r, kid, len, &ch->skid[ch->count]);
+
+		len = sizeof(kid);
+		r = gnutls_x509_crt_get_authority_key_id(crt, kid, &len, NULL);
+		lws_gnutls_kid(r, kid, len, &ch->akid[ch->count]);
+
+		gnutls_x509_crt_deinit(crt);
+		ch->count++;
+	}
+}
+#endif
+
 int
 lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 {
@@ -506,6 +577,19 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	}
 
 	lwsl_notice("%s: %s\n", __func__, ebuf);
+
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	/*
+	 * We did not have the CA to validate the chain.  Hand the key
+	 * identifiers of the peer's certs to JIT trust, which asks the system
+	 * for the CA and, if it gets it, makes a vhost trusting it for the
+	 * retry.
+	 */
+	if (status & GNUTLS_CERT_SIGNER_NOT_FOUND) {
+		lws_gnutls_collect_peer_kids(wsi, session);
+		lws_tls_jit_trust_sort_kids(wsi, &wsi->io->tls.kid_chain);
+	}
+#endif
 
 	return -1;
 }
