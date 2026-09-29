@@ -668,9 +668,15 @@ spew_ring_push(lws_log_spew_ring_t *r, int level, const char *line, size_t len)
 	/*
 	 * len is at most LWS_LOG_LINE_MAX, which the ring is checked at
 	 * compile time to hold along with its header, and is never sized
-	 * smaller than that at runtime; make room by forgetting the oldest
-	 * lines
+	 * smaller than that at runtime.  Still hold that against the ring we
+	 * actually have: a line it can't hold would never fit however many
+	 * old lines we forget below, and would overrun it if written.
 	 */
+
+	if (len + SPEW_HDR > r->size)
+		return;
+
+	/* make room by forgetting the oldest lines */
 
 	while (r->lines >= r->max_lines ||
 	       r->size - r->used < len + SPEW_HDR) {
@@ -736,7 +742,8 @@ spew_track(lws_usec_t now, int level, const char *line, size_t len,
 				spew.r.size = (size_t)spew.tail_lines *
 						LWS_LOG_SPEW_LINE_BUDGET;
 		}
-		spew.r.buf = malloc(spew.r.size);
+		/* zeroed, so no stale heap content can ever be read out of it */
+		spew.r.buf = calloc(1, spew.r.size);
 		spew_entering = 0;
 		if (!spew.r.buf)
 			/* no memory to retain anything: keep emitting */
