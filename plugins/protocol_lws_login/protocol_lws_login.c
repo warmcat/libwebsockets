@@ -1362,7 +1362,7 @@ callback_lws_login_client(struct lws *wsi, enum lws_callback_reasons reason,
 				if (e == LWS_TOKZE_QUOTED_STRING) {
 					ps->tok_state = 3;
 					if (!ps->tok_overflow)
-						lwsl_wsi_notice(wsi, "Extracted "
+						lwsl_wsi_info(wsi, "Extracted "
 							"OAuth token natively "
 							"via BFF (%llu bytes)",
 							(unsigned long long)
@@ -3479,7 +3479,7 @@ anon:
 				lws_write(wsi, ubuf + LWS_PRE, lws_ptr_diff_size_t(up, ubuf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
 				if (lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)"{\"success\":1}", 13) < 0) return -1;
 				pss->tx_remaining = 13;
-				lwsl_wsi_notice(wsi, "Successfully issued refreshed token to browser via BFF");
+				lwsl_wsi_info(wsi, "Successfully issued refreshed token to browser via BFF");
 			} else {
 				if (lws_add_http_common_headers(wsi, HTTP_STATUS_UNAUTHORIZED, "application/json", 13, (unsigned char **)&up, (unsigned char *)uend)) return 1;
 				if (lws_finalize_http_header(wsi, (unsigned char **)&up, (unsigned char *)uend)) return 1;

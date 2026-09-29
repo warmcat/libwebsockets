@@ -1229,7 +1229,7 @@ auth_check_csrf(struct lws *wsi, struct per_vhost_data__auth_server *vhd, struct
 	char csrf_ck[64] = {0};
 	size_t csrf_len = sizeof(csrf_ck);
 
-	lwsl_wsi_notice(wsi, "sso_exchange: Cookie header is %d bytes",
+	lwsl_wsi_debug(wsi, "sso_exchange: Cookie header is %d bytes",
 				lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE));
 
 	lws_http_cookie_get(wsi, "auth_csrf", csrf_ck, &csrf_len);
