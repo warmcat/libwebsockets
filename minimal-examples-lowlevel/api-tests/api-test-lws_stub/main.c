@@ -30,7 +30,7 @@
 #define dup2 _dup2
 #endif
 
-static struct lws_context *cx;
+static struct lws_context *sig_cx; /* main()'s, for the SIGINT handler */
 static int done;
 int is_stub = 0;
 
@@ -353,7 +353,7 @@ parent_rx_cb(struct lejp_ctx *ctx, char reason)
 	if (reason == LEJPCB_OBJECT_END) {
 		lwsl_user("Success: Parent finished communicating with stub.\n");
 		done = 1;
-		lws_default_loop_exit(cx); /* end the event loop safely */
+		lws_default_loop_exit(ps->cx); /* end the event loop safely */
 	}
 
 	return 0;
@@ -402,7 +402,7 @@ parent_cancelled_rx_cb(struct lejp_ctx *ctx, char reason)
 
 static void sigint_handler(int sig)
 {
-	lws_default_loop_exit(cx);
+	lws_default_loop_exit(sig_cx);
 }
 
 /*
@@ -858,6 +858,7 @@ bail:
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
+	struct lws_context *cx;
 	const char *p;
 	int result = 0;
 
@@ -900,6 +901,7 @@ int main(int argc, const char **argv)
 		lwsl_err("lws_create_context failed\n");
 		return 1;
 	}
+	sig_cx = cx;
 
 	info.vhost_name = "api-test-vhost";
 	struct lws_vhost *vh = lws_create_vhost(cx, &info);
