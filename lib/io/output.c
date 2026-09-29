@@ -144,7 +144,11 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 	if ((int)m < 0)
 		m = 0;
 
-	if (m > n) {
+	/*
+	 * n is never more than real_len, but the remainder below is taken from
+	 * real_len, so check against that as well
+	 */
+	if (m > n || m > real_len) {
 		/* a tls backend claiming more than we offered it is broken */
 		lwsl_wsi_err(wsi, "wrote %u of %u", m, n);
 		lwsi_set_skt_unusable(wsi, 1);
