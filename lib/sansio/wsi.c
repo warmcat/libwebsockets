@@ -720,6 +720,7 @@ struct lws *__lws_wsi_create_with_role(struct lws_context *context, int tsi,
 	wsi->a.vhost = NULL;
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	wsi->fic.name = "wsi";
 	lws_xos_init(&wsi->fic.xos, lws_xos(&context->fic.xos));
 #endif
 

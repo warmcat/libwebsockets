@@ -130,7 +130,6 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 #endif
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	wsi->fic.name = "wsi";
 	if (lws_dll2_count(&i->fic.fi_owner))
 		/*
 		 * This moves all the lws_fi_t from i->fi to the vhost fi,
