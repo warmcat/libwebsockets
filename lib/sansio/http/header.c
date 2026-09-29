@@ -524,6 +524,10 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 			description = err400[code - 400];
 		if (code >= 500 && code < (500 + LWS_ARRAY_SIZE(err500)))
 			description = err500[code - 500];
+		if (code == HTTP_STATUS_UPGRADE_REQUIRED)
+			description = "Upgrade Required";
+		if (code == HTTP_STATUS_REQ_HEADER_FIELDS_TOO_LARGE)
+			description = "Request Header Fields Too Large";
 
 		if (code == 100)
 			description = "Continue";

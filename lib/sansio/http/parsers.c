@@ -1214,7 +1214,7 @@ excessive:
  * ate before failing, so buf[consumed - 1] is the byte it refused.  Same
  * role-keyed level as lwsl_parse_fail().
  *
- * Callers do this for LPR_FAIL; the LPR_FORBIDDEN path does it itself
+ * Callers do this for LPR_FAIL; the LPR_REFUSED paths do it themselves
  * before the 403 it issues on the server side overwrites the request in
  * pt->serv_buf.
  */
@@ -1317,7 +1317,7 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 			    (c != ' ' && c != '\t')) {
 
 				if (lws_pos_in_bounds(wsi))
-					return LPR_FAIL;
+					goto too_large;
 
 				ah->data[ah->pos++] = (char)c;
 			}
@@ -1374,7 +1374,7 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 				/* enforce starting with / */
 				if (!ah->frags[ah->nfrag].len)
 					if (issue_char(wsi, '/') < 0)
-						return LPR_FAIL;
+						goto too_large;
 
 				if (ah->ups == URIPS_SEEN_SLASH_DOT_DOT) {
 					/*
@@ -1396,7 +1396,7 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 
 				/* begin parsing HTTP version: */
 				if (issue_char(wsi, '\0') < 0)
-					return LPR_FAIL;
+					goto too_large;
 				/* don't account for it */
 				wsi->stream.ah->frags[wsi->stream.ah->nfrag].len--;
 				ah->parser_state = WSI_TOKEN_HTTP;
@@ -1416,7 +1416,7 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 			default:
 				lwsl_parse_fail(wsi, "urldecode failed (state %d)",
 						ah->parser_state);
-				return LPR_FAIL;
+				goto too_large;
 			}
 check_eol:
 			/* bail at EOL */
@@ -1438,7 +1438,7 @@ check_eol:
 			}
 
 			if (issue_char(wsi, c) < 0)
-				return LPR_FAIL;
+				goto too_large;
 			/*
 			 * Explicit zeroes are legal in URI ARGS.  They can
 			 * only exist as a safety terminator after the valid
@@ -1500,7 +1500,7 @@ swallow:
 			 */
 			if (!wsi->mux_substream) {
 				if (lws_pos_in_bounds(wsi))
-					return LPR_FAIL;
+					goto too_large;
 
 				ah->data[ah->pos++] = (char)c;
 			}
@@ -1746,7 +1746,7 @@ excessive:
 				lwsl_parse_fail(wsi, "more hdr frags than we can "
 						     "deal with (state %d)",
 						     ah->parser_state);
-				return LPR_FAIL;
+				goto too_large;
 			}
 
 			ah->frags[ah->nfrag].offset = ah->pos;
@@ -1766,7 +1766,7 @@ excessive:
 			ah->frags[n].nfrag = ah->nfrag;
 
 			if (issue_char(wsi, ' ') < 0)
-				return LPR_FAIL;
+				goto too_large;
 			break;
 
 			/* skipping arg part of a name we didn't recognize */
@@ -1823,7 +1823,57 @@ forbid:
 	lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 #endif
 
-	return LPR_FORBIDDEN;
+	return LPR_REFUSED;
+
+too_large:
+	/*
+	 * The request line, or a header, is longer than its token limit or
+	 * than the ah can hold, or has more pieces than it can track.  A
+	 * server says which (RFC 9110 15.5.15, RFC 6585 5), rather than just
+	 * hanging up.
+	 */
+	lwsl_parse_fail(wsi, "request too large (state %d)", ah->parser_state);
+#if defined(LWS_WITH_SERVER)
+	/*
+	 * Not on an h2 stream, whose name bytes hpack feeds us mid-block: it
+	 * fails the stream itself on LPR_FAIL
+	 */
+	if (lwsi_role_server(wsi) && !wsi->mux_substream) {
+		unsigned int code = HTTP_STATUS_REQ_HEADER_FIELDS_TOO_LARGE;
+
+		for (m = 0; m < LWS_ARRAY_SIZE(methods); m++)
+			if (ah->parser_state == methods[m])
+				code = HTTP_STATUS_REQ_URI_TOO_LONG;
+
+		/*
+		 * We may not have got as far as the version on the request
+		 * line: then answer as the highest we speak
+		 */
+		wsi->stream.request_version =
+			lws_hdr_total_length(wsi, WSI_TOKEN_HTTP) ?
+				lws_h1_request_version(wsi) : HTTP_VERSION_1_1;
+
+		lws_parse_fail_diag(wsi, start, lws_ptr_diff(buf, start), total);
+		lws_return_http_status(wsi, code, NULL);
+
+		return LPR_REFUSED;
+	}
+#endif
+
+	return LPR_FAIL;
+}
+
+enum http_version
+lws_h1_request_version(struct lws *wsi)
+{
+	char v[12];
+
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP) > 7 &&
+	    lws_hdr_copy(wsi, v, sizeof(v) - 1, WSI_TOKEN_HTTP) > 0 &&
+	    v[5] == '1' && v[7] == '1')
+		return HTTP_VERSION_1_1;
+
+	return HTTP_VERSION_1_0;
 }
 
 static const char * const cookie_prefixes[] = { "", "__Host-", "__Secure-" };

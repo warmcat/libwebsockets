@@ -604,6 +604,13 @@ int
 lws_http_string_to_known_header(const char *s, size_t slen);
 
 /*
+ * The version on an h1 request line: 1.0 unless it says 1.1 (single digit
+ * versions only)
+ */
+enum http_version
+lws_h1_request_version(struct lws *wsi);
+
+/*
  * Returns nonzero if the header token can carry peer credentials
  * (Authorization, Cookie, Set-Cookie, x-auth-token, Proxy-Authorization
  * where the build has it).  Debug header dumps use this to log presence

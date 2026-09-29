@@ -173,7 +173,7 @@ enum {
 };
 
 typedef enum lws_parser_return {
-	LPR_FORBIDDEN	= -2,
+	LPR_REFUSED	= -2, /* on a server, already answered with a status */
 	LPR_FAIL	= -1,
 	LPR_OK		= 0,
 	LPR_DO_FALLBACK = 2,
