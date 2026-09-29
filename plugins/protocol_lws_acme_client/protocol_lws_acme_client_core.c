@@ -182,6 +182,9 @@ struct per_vhost_data__lws_acme_client {
 	char aging_global_email[128];
 	char aging_global_profile[128];
 	struct lws_acme_cert_aging_args aging_caa;
+#if defined(LWS_WITH_SYS_SMD)
+	struct lws_smd_peer *smd_peer;
+#endif
 };
 
 static void
@@ -1475,6 +1478,96 @@ lws_acme_timer_cb(lws_sorted_usec_list_t *sul)
     lws_sul_schedule(vhd->context, 0, &vhd->sul_aging, lws_acme_timer_cb, 3600 * LWS_US_PER_SEC);
 }
 
+#if defined(LWS_WITH_SYS_SMD)
+
+/*
+ * {"acme":"force-reissue","domain":"example.com"} on LWSSMDCL_CERTS marks
+ * every cert we manage for that domain to be reissued however much validity
+ * it has left, and brings the next evaluation forward to now
+ */
+
+static const char * const acme_smd_paths[] = {
+	"acme",
+	"domain",
+};
+
+struct acme_smd_req {
+	char acme[32];
+	char domain[128];
+};
+
+static signed char
+acme_smd_req_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct acme_smd_req *r = (struct acme_smd_req *)ctx->user;
+
+	if (reason != LEJPCB_VAL_STR_END || !ctx->path_match)
+		return 0;
+
+	switch (ctx->path_match - 1) {
+	case 0:
+		lws_strncpy(r->acme, ctx->buf, sizeof(r->acme));
+		break;
+	case 1:
+		lws_strncpy(r->domain, ctx->buf, sizeof(r->domain));
+		break;
+	}
+
+	return 0;
+}
+
+static int
+acme_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
+	    void *buf, size_t len)
+{
+	struct per_vhost_data__lws_acme_client *vhd =
+			(struct per_vhost_data__lws_acme_client *)opaque;
+	struct acme_smd_req r;
+	struct lejp_ctx ctx;
+	int m, count = 0;
+
+	memset(&r, 0, sizeof(r));
+	lejp_construct(&ctx, acme_smd_req_cb, &r, acme_smd_paths,
+		       LWS_ARRAY_SIZE(acme_smd_paths));
+	m = lejp_parse(&ctx, (const uint8_t *)buf, (int)len);
+	lejp_destruct(&ctx);
+
+	if (m < 0 || strcmp(r.acme, "force-reissue") || !r.domain[0])
+		return 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->cert_configs)) {
+		struct lws_acme_cert_config *cfg = lws_container_of(d,
+					struct lws_acme_cert_config, list);
+		/* the same notion of a cert's domain that aging uses */
+		const char *domain = cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] ?
+				cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] :
+				cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
+
+		if (domain && !strcmp(domain, r.domain)) {
+			cfg->force_reissue = 1;
+			count++;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (!count)
+		return 0;
+
+	/* it matched one of our domains, so it's fine to log */
+	lwsl_vhost_notice(vhd->vhost, "acme: reissue of %d cert(s) for %s forced",
+			  count, r.domain);
+
+	/*
+	 * Evaluate now, the timer puts itself back to hourly after.  If an
+	 * evaluation or acquisition is already running this one declines, and
+	 * the flags wait for the next
+	 */
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_aging, lws_acme_timer_cb, 1);
+
+	return 0;
+}
+#endif
+
 static int
 acme_ipc_cb(const struct lws_async_ipc_cb_args *args)
 {
@@ -1523,7 +1616,8 @@ acme_ipc_cb(const struct lws_async_ipc_cb_args *args)
 				total_days = atoi(p + 13);
 
 			struct lws_acme_cert_config *cfg = lws_container_of(vhd->aging_current_cert, struct lws_acme_cert_config, list);
-			if ((char *)strstr(safe_buf, "\"status\":\"error\"") || (total_days && days_left <= (total_days / 4))) {
+			if (cfg->force_reissue ||
+			    (char *)strstr(safe_buf, "\"status\":\"error\"") || (total_days && days_left <= (total_days / 4))) {
 				lws_usec_t now = lws_now_usecs();
 
 				if (now < vhd->acme_retry_not_before) {
@@ -1541,11 +1635,14 @@ acme_ipc_cb(const struct lws_async_ipc_cb_args *args)
 					break;
 				}
 
-				if ((char *)strstr(safe_buf, "\"status\":\"error\""))
+				if (cfg->force_reissue)
+					lwsl_vhost_notice(vhd->vhost, "acme_aging: cert %s has %d days left (total %d). Forced reissue!", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], days_left, total_days);
+				else if ((char *)strstr(safe_buf, "\"status\":\"error\""))
 					lwsl_notice("acme_aging: triggering acquisition for %s: root daemon could not read cert\n", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
 				else
 					lwsl_vhost_notice(vhd->vhost, "acme_aging: cert %s has %d days left (total %d). Triggering renewal!", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], days_left, total_days);
 
+				cfg->force_reissue = 0;
 				vhd->active_cert = cfg;
 				for (int n = 0; n < LWS_TLS_TOTAL_COUNT; n++) {
 					if (vhd->aging_caa.element_overrides[n])
@@ -1674,6 +1771,12 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 
         /* Start polling domain cert lifetimes */
         lws_sul_schedule(vhd->context, 0, &vhd->sul_aging, lws_acme_timer_cb, 5 * LWS_US_PER_SEC);
+
+#if defined(LWS_WITH_SYS_SMD)
+		if (!vhd->smd_peer)
+			vhd->smd_peer = lws_smd_register(vhd->context, vhd, 0,
+							 LWSSMDCL_CERTS, acme_smd_cb);
+#endif
 
 		break;
 
@@ -2628,6 +2731,12 @@ lws_acme_core_destroy_vhost(struct per_vhost_data__lws_acme_client *vhd)
 	if (vhd) {
 		lws_sul_cancel(&vhd->sul_aging);
 		lws_sul_cancel(&vhd->sul_acquisition);
+#if defined(LWS_WITH_SYS_SMD)
+		if (vhd->smd_peer) {
+			lws_smd_unregister(vhd->smd_peer);
+			vhd->smd_peer = NULL;
+		}
+#endif
 		lws_acme_finished(vhd);
 
 		if (vhd->dns_base_dir) {

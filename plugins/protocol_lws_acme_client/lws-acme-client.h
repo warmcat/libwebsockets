@@ -58,6 +58,10 @@ struct lws_acme_cert_config {
 	const char *challenge_type_str;
 	const char *profile;
 	struct lws_acme_cert_config_acme *acme;
+
+	/* reissue on the next evaluation however much validity is left: set
+	 * by an LWSSMDCL_CERTS force-reissue, cleared as acquisition starts */
+	char force_reissue;
 };
 
 struct lws_acme_challenge_ops {

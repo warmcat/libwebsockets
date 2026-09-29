@@ -17,6 +17,17 @@ The plugin includes a set of HTML/JS/CSS assets for a modern, Web-based manageme
 
 These UI assets do not contain any inline scripts or styles, ensuring they are strictly Content-Security-Policy (CSP) compliant. The `assets/` directory must be manually mounted by the administrator in the `lwsws` JSON configuration if Web UI management is desired. To prevent unauthenticated users from even loading the UI files, configure the mount to use the `lws-login` interceptor protocol, requiring the `domain-admin` service grant (which aligns identically with the WebSocket backend verification).
 
+#### Force cert reissue
+
+Next to a domain's "ACME Enabled" checkbox, "Force cert reissue" has the ACME
+client reissue every certificate it manages for the domain now, however much
+validity they have left, for example to move them onto a newly chosen
+certificate profile at once rather than at the next renewal.  The ACME client
+runs in the lwsws process rather than the root process, so the proxy answers
+this request itself, sending `{"acme":"force-reissue","domain":"..."}` on SMD
+class `LWSSMDCL_CERTS`.  The usual backoff after failed acquisitions still
+applies, and Let's Encrypt allows only 5 identical certificates per week.
+
 #### Server IP Inventory
 
 The Domains tab also carries a Server IP Inventory table below the domain list. It lists unique network interfaces rather than DNS names: a name binding both an A and an AAAA record is evidence that those two addresses live on the same interface of one server, so addresses are grouped into interfaces by the names that bind them together, and every name pointing at any of an interface's addresses is listed once as evidence on that row instead of once per name. Each name links into the zonefile editor for the zonefile(s) it was found in, and carries any LOC record written for it.

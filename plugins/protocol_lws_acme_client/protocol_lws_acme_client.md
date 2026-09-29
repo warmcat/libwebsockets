@@ -91,6 +91,23 @@ Here is an example of configuring `lwsws` to enable the ACME client plugin on a 
 
 *Note: The acquisition sequence triggers automatically when `lws-acme-client-core` receives the `LWS_CALLBACK_VHOST_CERT_AGING` event on startup or when the certificate gets close to expiration. There is no manual trigger command required.*
 
+### Forcing a reissue
+
+Certificates are evaluated at startup and hourly after that, and renewed once
+a quarter or less of their validity is left.  To reissue a domain's
+certificates before then, eg, to move them to a different `profile` straight
+away, send on SMD class `LWSSMDCL_CERTS`
+
+```json
+{"acme":"force-reissue","domain":"example.com"}
+```
+
+Every certificate managed for that domain is then reissued at its next
+evaluation however much validity it has left, and the evaluation is brought
+forward to now (or the next one, if an evaluation or acquisition is already
+running).  The backoff after failed acquisitions still applies.  The
+`lws-dht-dnssec-monitor` UI sends this from its "Force cert reissue" button.
+
 ## Example Certificate JSON Configurations (`$dns_base_dir/domains/<domain-name>/conf.d/*.json`)
 
 ### Example: DNS-01 Challenge

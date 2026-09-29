@@ -311,4 +311,15 @@ inv_geo_dl_complete(struct inv_geo_dl *g);
 void
 inv_geo_dl_fail(struct inv_geo_dl *g);
 
+/* monitor-acme.c */
+
+/*
+ * If the browser's request is one the proxy answers itself, answer it into
+ * reply and return the length of the whole line put there (0 if it didn't
+ * fit).  -1 means it is for the root process.
+ */
+int
+monitor_ui_local_req(struct lws_context *cx, const void *in, size_t len,
+		     char *reply, size_t reply_len);
+
 #endif

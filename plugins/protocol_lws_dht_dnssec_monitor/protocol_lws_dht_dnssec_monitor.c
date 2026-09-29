@@ -3755,6 +3755,20 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_err("%s: WS UI request too large\n", __func__);
 				return -1;
 			}
+			{
+				int r = monitor_ui_local_req(lws_get_context(wsi),
+						in, len,
+						(char *)&pss->rx[LWS_PRE + pss->rx_len],
+						sizeof(pss->rx) - LWS_PRE - pss->rx_len);
+
+				if (r >= 0) {
+					/* answered here, not by the root process */
+					pss->rx_len += (size_t)r;
+					if (r)
+						lws_callback_on_writable(wsi);
+					break;
+				}
+			}
 			char jwt_buf[1024];
 			size_t jwt_len = sizeof(jwt_buf);
 			unsigned long long now = (unsigned long long)lws_now_secs();
