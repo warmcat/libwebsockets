@@ -409,6 +409,7 @@ _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 
 		/* unlink the entire original hole object at s.best */
 		lws_dll2_remove(&s.best->list);
+		assert(s.dsh->locally_free >= s.best->asize);
 		s.dsh->locally_free -= s.best->asize;
 		s.dsh->locally_in_use += asize;
 
@@ -453,7 +454,6 @@ _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 				(sizeof(int *) - 1)));
 		lws_dll2_add_tail(&s.best->list, &dsh->oha[kind].owner);
 
-		assert(s.dsh->locally_free >= asize);
 		dsh->oha[kind].total_size += asize;
 		assert(s.dsh->locally_in_use <= s.dsh->buffer_size);
 	}
@@ -540,7 +540,10 @@ lws_dsh_consume(struct lws_dsh *dsh, int kind, size_t len)
 	assert(len <= h->size);
 
 	if (len >= h->size) {
-		lws_dsh_free((void **)&h);
+		/* lws_dsh_free() takes the payload pointer, not the header */
+		void *p = (void *)&h[1];
+
+		lws_dsh_free(&p);
 
 		return;
 	}
