@@ -2494,7 +2494,8 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 #endif
 
 	lwsl_notice("%s: REDIRECT %d: %s %s:%d, path='%s', ssl = %d, alpn='%s'\n",
-		    __func__, r, cisin[CIS_METHOD], address,
+		    __func__, r,
+		    cisin[CIS_METHOD] ? cisin[CIS_METHOD] : "(null)", address,
 		    port, path, ssl, cisin[CIS_ALPN]);
 
 	{

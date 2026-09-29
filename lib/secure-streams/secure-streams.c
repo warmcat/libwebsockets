@@ -1093,8 +1093,10 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 
 	i.pwsi = &h->wsi;
 
-	lwsl_info("%s: connecting %s, '%s' '%s' %s\n", __func__, i.method,
-			i.alpn, i.address, i.path);
+	lwsl_info("%s: connecting %s, '%s' '%s' %s\n", __func__,
+			i.method ? i.method : "(null)",
+			i.alpn ? i.alpn : "(null)", i.address,
+			i.path ? i.path : "(null)");
 
 #if defined(LWS_WITH_SYS_METRICS)
 	/* possibly already hanging connect retry... */

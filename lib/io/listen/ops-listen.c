@@ -753,7 +753,7 @@ done_list:
 		else
 #endif
 			lwsl_info(" Listening on %s:%d\n",
-					a->vhost->iface,
+					a->vhost->iface ? a->vhost->iface : "*",
 					a->vhost->listen_port);
         }
 

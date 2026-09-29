@@ -758,7 +758,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
 	ld_env = getenv("LD_LIBRARY_PATH");
 	lwsl_info("%s: ev lib path %s, '%s'\n", __func__,
-			LWS_INSTALL_LIBDIR, ld_env);
+			LWS_INSTALL_LIBDIR, ld_env ? ld_env : "");
 #endif
 
 #if defined(LWS_WITH_PLUGINS)
