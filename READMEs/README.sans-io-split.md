@@ -351,8 +351,9 @@ service thread's time, never from the platform clock.  sansIO asks for it
 with `lws_wsi_now(wsi)` (monotonic, `lws_usec_t`) and `lws_wsi_now_wall(wsi)`
 (seconds since 1970), or `lws_pt_now()` / `lws_cx_now()` without a wsi,
 and `lws_sul_schedule()` schedules from it; they are neither half's, in
-`private-lib-core-net.h`.  Only a measurement of how long lws itself took
-(`LWS_WITH_LATENCY`) reads the clock directly: in a build without those,
+`private-lib-core-net.h`.  Only a measurement of how long lws itself
+really took (`LWS_WITH_LATENCY`, and the metrics calipers of
+`LWS_WITH_SYS_METRICS`) reads the clock directly: in a build with neither,
 the seam makes `lws_now_usecs()` and `lws_now_secs()` in a sansIO source a
 compile error at its line (libc's `time()` is left to review, since a
 system header declaring it after the seam would break).
