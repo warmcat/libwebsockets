@@ -46,8 +46,8 @@ static const char * const offers[] = {
 	"permessage-deflate",
 	"permessage-deflate; server_no_context_takeover",
 	"permessage-deflate; client_no_context_takeover",
-	"permessage-deflate; server_no_context_takeover; "
-		"client_no_context_takeover",
+	("permessage-deflate; server_no_context_takeover; "
+		"client_no_context_takeover"),
 };
 
 static struct lws_context *context;
