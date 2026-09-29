@@ -34,13 +34,260 @@
  * Time is ours too: the test says what the time is (lws_service_set_now())
  * and lws takes it instead of the clock, so the bytes depend only on what
  * the test feeds.  Last, lws' timers run by the test's clock.
+ *
+ * Each connection's life is a transcript (transcripts/README.md): with
+ * --transcripts <dir> what this run produces must be what is recorded
+ * there, and --record <dir> writes them.
  */
 
 #include <libwebsockets.h>
 #include <fcntl.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+/* the test's clock: a fixed start, so a run is the same whenever it is */
+#define T0_US		((lws_usec_t)1000 * LWS_US_PER_SEC)
+#define T0_WALL		((time_t)1767225600) /* 2026-01-01 00:00:00 UTC */
+/* each thing that happens at a transport happens 1ms after the last */
+#define TICK_US		((lws_usec_t)LWS_US_PER_MS)
+/* the seed of lws' random, in a build that can seed it */
+#define SEED		1
+
+static lws_usec_t now_us = T0_US;
+
+/* the time moves on a tick, and lws is told, running what fell due */
+static void
+tick(struct lws_context *cx)
+{
+	now_us += TICK_US;
+	lws_service_set_now(cx, 0, now_us,
+			    T0_WALL + (time_t)((now_us - T0_US) / LWS_US_PER_SEC));
+}
+
+/*
+ * The transcripts (transcripts/README.md): each connection's life as data,
+ * the times, the bytes its peer sent, the bytes lws wrote, what lws gave
+ * the app and its close, for a port to replay and for this test to check
+ * lws against.  With --record <dir> they are written there; with
+ * --transcripts <dir> what this run produces must be what is there.
+ */
+static struct {
+	char		*js;
+	size_t		len, size;
+	const char	*name;
+	int		open;
+	lws_usec_t	last_t;		/* the time and kind of the last step */
+	const char	*last_kind;
+	int		random;	/* its bytes depend on lws' random */
+	int		steps;
+	int		fails;
+} tr;
+
+static const char *record_dir, *check_dir;
+
+/* append to the transcript, growing it as needed */
+static void
+tr_append(const char *fmt, ...)
+{
+	va_list ap;
+	size_t n;
+	char *p;
+	int m;
+
+	if (tr.fails)
+		return;
+
+	for (n = 0; n < 2; n++) {
+		va_start(ap, fmt);
+		m = vsnprintf(tr.js ? tr.js + tr.len : NULL,
+			      tr.js ? tr.size - tr.len : 0, fmt, ap);
+		va_end(ap);
+		if (m < 0)
+			goto oom;
+		if (tr.js && tr.len + (size_t)m < tr.size) {
+			tr.len += (size_t)m;
+			return;
+		}
+		p = realloc(tr.js, tr.size + (size_t)m + 4096);
+		if (!p)
+			goto oom;
+		tr.js = p;
+		tr.size += (size_t)m + 4096;
+	}
+
+oom:
+	lwsl_err("transcript: OOM\n");
+	tr.fails++;
+}
+
+/* a connection's transcript starts; side is "server" or "client" */
+static void
+tr_begin(const char *name, const char *side, int random)
+{
+	tr.len = 0;
+	tr.name = name;
+	tr.random = random;
+	tr.open = 1;
+	tr.steps = 0;
+	tr.last_kind = NULL;
+
+	tr_append("{\n \"format\": \"lws-transcript/1\",\n"
+		  " \"case\": \"%s\",\n \"side\": \"%s\",\n"
+		  " \"t0_us\": %lld,\n \"t0_wall\": %lld,\n"
+		  " \"seed\": %d,\n \"steps\": [", name, side,
+		  (long long)T0_US, (long long)T0_WALL, random ? SEED : 0);
+}
+
+/*
+ * One thing that happened: kind is rx, tx, app_rx or close.  Bytes lws
+ * wrote in several writes at the same time are one tx step: how many writes
+ * it takes is lws' business, not the transcript's.
+ */
+static void
+tr_step(const char *kind, const uint8_t *buf, size_t len)
+{
+	size_t n;
+
+	if (!tr.open)
+		return;
+
+	if (tr.last_kind && !strcmp(kind, "tx") &&
+	    !strcmp(tr.last_kind, "tx") && tr.last_t == now_us)
+		tr.len -= 2; /* reopen the last step's hex, before its "} */
+	else
+		tr_append("%s\n  {\"t\": %lld, \"%s\": \"",
+			  tr.steps++ ? "," : "", (long long)(now_us - T0_US),
+			  kind);
+	for (n = 0; n < len; n++)
+		tr_append("%02x", buf[n]);
+	tr_append("\"}");
+
+	tr.last_kind = kind;
+	tr.last_t = now_us;
+}
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+#define RANDOM_SEEDED 1 /* lws_fi_random_seed() exists */
+#else
+#define RANDOM_SEEDED 0
+#endif
+
+/* how much at p to show: up to the end of its line, at most 100 */
+static int
+line_len(const char *p, size_t max)
+{
+	size_t n = 0;
+
+	while (n < max && n < 100 && p[n] != '\n')
+		n++;
+
+	return (int)n;
+}
+
+/*
+ * The connection's transcript ends: written to record_dir, or compared with
+ * the one in check_dir.  A transcript whose bytes depend on lws' random can
+ * only be reproduced in a build that seeds it.  Returns nonzero on failure.
+ */
+static int
+tr_end(void)
+{
+	char path[256], *exp = NULL;
+	size_t elen = 0, esize = 0, n, line = 1, ls = 0;
+	ssize_t r;
+	int fd, e = 1;
+
+	tr_append("\n ]\n}\n");
+	tr.open = 0;
+	if (tr.fails)
+		return 1;
+
+	if (!record_dir && !check_dir)
+		return 0;
+
+	if (tr.random && !RANDOM_SEEDED) {
+		if (record_dir) {
+			lwsl_err("%s: not recorded: its bytes depend on lws' "
+				 "random, which only a build with fault "
+				 "injection seeds\n", tr.name);
+			return 1;
+		}
+		lwsl_user("transcript %s: not checked, it needs lws' random "
+			  "seeded (fault injection)\n", tr.name);
+		return 0;
+	}
+
+	lws_snprintf(path, sizeof(path), "%s/%s.json",
+		     record_dir ? record_dir : check_dir, tr.name);
+
+	if (record_dir) {
+		fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+		if (fd < 0 || write(fd, tr.js, tr.len) != (ssize_t)tr.len) {
+			lwsl_err("%s: unable to write\n", path);
+			if (fd >= 0)
+				close(fd);
+			return 1;
+		}
+		close(fd);
+		lwsl_user("transcript %s: recorded\n", path);
+
+		return 0;
+	}
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		lwsl_err("%s: missing\n", path);
+		return 1;
+	}
+	do {
+		if (elen + 4096 > esize) {
+			char *p = realloc(exp, esize + 16384);
+
+			if (!p)
+				goto bail;
+			exp = p;
+			esize += 16384;
+		}
+		r = read(fd, exp + elen, esize - elen);
+		if (r > 0)
+			elen += (size_t)r;
+	} while (r > 0);
+	if (r < 0)
+		goto bail;
+
+	if (elen == tr.len && !memcmp(exp, tr.js, elen)) {
+		lwsl_user("transcript %s: matches\n", tr.name);
+		e = 0;
+		goto bail;
+	}
+
+	/* say where it went different, by line */
+	for (n = 0; n < elen && n < tr.len && exp[n] == tr.js[n]; n++)
+		if (exp[n] == '\n') {
+			line++;
+			ls = n + 1;
+		}
+	lwsl_err("transcript %s: differs from %s at line %d, column %d:\n",
+		 tr.name, path, (int)line, (int)(n - ls + 1));
+
+	/* show from a little before where they part, within the line */
+	if (n - ls > 40)
+		ls = n - 40;
+	lwsl_err("  expected: ...%.*s\n", line_len(exp + ls, elen - ls),
+		 exp + ls);
+	lwsl_err("  got:      ...%.*s\n", line_len(tr.js + ls, tr.len - ls),
+		 tr.js + ls);
+
+bail:
+	close(fd);
+	free(exp);
+
+	return e;
+}
 
 /*
  * A transport: the bytes the peer sent, waiting to be read, and the bytes
@@ -86,6 +333,7 @@ tp_write(struct lws *wsi, void *opaque, const uint8_t *buf, size_t len)
 		return LWS_SSL_CAPABLE_ERROR;
 	memcpy(t->tx + t->tx_len, buf, len);
 	t->tx_len += len;
+	tr_step("tx", buf, len);
 
 	return (int)len;
 }
@@ -132,6 +380,16 @@ tp_want_read(struct lws *wsi, int on)
 		t->want_read = on;
 
 	return lws_io_ops_default.want_read(wsi, on);
+}
+
+/* lws releasing a transport of ours is the connection's close */
+static int
+tp_close(struct lws *wsi, int phase)
+{
+	if (phase == LWS_IOCLOSE_RELEASE && tp_of(wsi))
+		tr_step("close", NULL, 0);
+
+	return lws_io_ops_default.close(wsi, phase);
 }
 
 static lws_io_ops_t io_ops;
@@ -195,10 +453,16 @@ pump(struct lws_context *cx, struct transport *t)
 	}
 }
 
-/* what the peer sent arrives; returns nonzero if it was not all taken */
+/*
+ * what the peer sent arrives, a tick after the last thing; returns nonzero
+ * if it was not all taken
+ */
 static int
 feed(struct lws_context *cx, struct transport *t, const void *s, size_t len)
 {
+	tick(cx);
+	tr_step("rx", (const uint8_t *)s, len);
+
 	t->rx = (const uint8_t *)s;
 	t->rx_len = len;
 	t->rx_pos = 0;
@@ -262,6 +526,7 @@ callback_echo(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	switch (reason) {
 	case LWS_CALLBACK_RECEIVE:
+		tr_step("app_rx", in, len);
 		if (len > sizeof(buf) - LWS_PRE)
 			return -1;
 		memcpy(buf + LWS_PRE, in, len);
@@ -319,6 +584,7 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 	case LWS_CALLBACK_CLIENT_RECEIVE:
+		tr_step("app_rx", in, len);
 		if (cli.rx_len + len > sizeof(cli.rx))
 			return -1;
 		memcpy(cli.rx + cli.rx_len, in, len);
@@ -393,6 +659,7 @@ server_half(struct lws_context *cx)
 		return 1;
 	}
 	lws_set_transport(wsi, &tops, &tp);
+	tr_begin("h1-ws-server", "server", 0);
 
 	/* 1: an h1 GET, answered by the http callback */
 	if (feed(cx, &tp, req_get, sizeof(req_get) - 1)) {
@@ -434,12 +701,8 @@ server_half(struct lws_context *cx)
 	}
 	lwsl_user("case 3: ws echo over the test transport: PASS\n");
 
-	return 0;
+	return tr_end();
 }
-
-/* the test's clock: a fixed start, so a run is the same whenever it is */
-#define T0_US		((lws_usec_t)1000 * LWS_US_PER_SEC)
-#define T0_WALL		((time_t)1767225600) /* 2026-01-01 00:00:00 UTC */
 
 static int timer_fired;
 
@@ -581,6 +844,8 @@ client_connect(struct lws_context *cx, struct lws_vhost *vh,
 	ci.transport_opaque	= tp;
 	ci.transport_fd		= sv[0];
 
+	tick(cx);
+
 	return lws_client_connect_via_info(&ci);
 }
 
@@ -602,6 +867,7 @@ client_half(struct lws_context *cx, struct lws_vhost *vh)
 	int n;
 
 	/* 4: an h1 GET: the client's request, then its response body */
+	tr_begin("h1-client-get", "client", 0);
 	if (!client_connect(cx, vh, &tp, "/x", "GET", NULL)) {
 		lwsl_err("case 4: connect failed\n");
 		return 1;
@@ -625,8 +891,11 @@ client_half(struct lws_context *cx, struct lws_vhost *vh)
 		return 1;
 	}
 	lwsl_user("case 4: h1 client GET over the test transport: PASS\n");
+	if (tr_end())
+		return 1;
 
 	/* 5: the ws upgrade: its key answered, the client's first frame */
+	tr_begin("ws-client", "client", 1);
 	if (!client_connect(cx, vh, &tp, "/echo", NULL, "echo")) {
 		lwsl_err("case 5: connect failed\n");
 		return 1;
@@ -682,7 +951,7 @@ client_half(struct lws_context *cx, struct lws_vhost *vh)
 	}
 	lwsl_user("case 6: ws client rx over the test transport: PASS\n");
 
-	return 0;
+	return tr_end();
 }
 #endif
 
@@ -730,6 +999,9 @@ main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
 		logs = atoi(p);
+	/* write the transcripts to this dir, or check them against these */
+	record_dir = lws_cmdline_option(argc, argv, "--record");
+	check_dir = lws_cmdline_option(argc, argv, "--transcripts");
 	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS API selftest: the sansIO half over a test transport\n");
 
@@ -737,6 +1009,7 @@ main(int argc, const char **argv)
 	lws_io_ops_init(&io_ops);
 	io_ops.want_write = tp_want_write;
 	io_ops.want_read = tp_want_read;
+	io_ops.close = tp_close;
 
 	memset(&info, 0, sizeof(info));
 	info.port = CONTEXT_PORT_NO_LISTEN;
@@ -755,6 +1028,10 @@ main(int argc, const char **argv)
 	}
 	/* from here, the time is what we say */
 	lws_service_set_now(cx, 0, T0_US, T0_WALL);
+#if RANDOM_SEEDED
+	/* and lws' random is a seeded stream, so its bytes are the same */
+	lws_fi_random_seed(cx, SEED);
+#endif
 
 	info.vhost_name = "sansio";
 	vh = lws_create_vhost(cx, &info);
@@ -780,6 +1057,7 @@ main(int argc, const char **argv)
 
 bail:
 	lws_context_destroy(cx);
+	free(tr.js);
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");
 
 	return result;

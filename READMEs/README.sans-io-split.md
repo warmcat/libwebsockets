@@ -657,7 +657,13 @@ on and marked done here, like the staging above.
    (`LWS_WITH_SANSIO_LINK_TEST`, and ctest runs `api-test-sansio-link`)
    and runs `scripts/sans-io-link-check.sh`; `scripts/sans-io-check.sh`
    is not run there, since the build fails on the same calls).
-2. The harness covers only h1 and ws (nine cases, under the test's clock).  It needs h2, h3
+2. The harness covers only h1 and ws (nine cases, under the test's clock;
+   each connection is also a transcript, the times and bytes in and out
+   and what the app was given, in
+   `minimal-examples-lowlevel/api-tests/api-test-sansio/transcripts/`,
+   which ctest checks lws against in every build and which a port
+   replays; the one whose bytes depend on lws' random is checked only in
+   a build with fault injection, which seeds it).  It needs h2, h3
    through the datagram edge (`recv_dgram` / `send_dgram` in the
    transport ops), mqtt, and a case under tls.
 3. Behaviour left over from the split:

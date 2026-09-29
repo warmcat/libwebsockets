@@ -19,7 +19,9 @@ if (requirements AND NOT WIN32)
 
 	add_executable(${SAMP} ${SRCS})
 
-	add_test(NAME api-test-sansio COMMAND lws-api-test-sansio)
+	# what lws does must still be what transcripts/ records
+	add_test(NAME api-test-sansio COMMAND lws-api-test-sansio
+		 --transcripts transcripts)
 	set_tests_properties(api-test-sansio PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-sansio
 			     TIMEOUT 20)
