@@ -30,7 +30,7 @@
 
 #include "private-lib-core.h"
 
-const struct lws_role_ops *available_roles[] = {
+const struct lws_role_ops * const available_roles[] = {
 #if defined(LWS_ROLE_H2)
 	&role_ops_h2,
 #endif

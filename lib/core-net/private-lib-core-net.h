@@ -88,10 +88,10 @@ extern "C" {
  * sansIO's (lib/core-net/roles.c); IO's transport adapter roles are its own
  * list, lws_io_roles, and IO walks both (LWS_FOR_EVERY_ROLE_START)
  */
-extern const struct lws_role_ops *available_roles[];
+extern const struct lws_role_ops * const available_roles[];
 
 #define LWS_FOR_EVERY_AVAILABLE_ROLE_START(xx) { \
-		const struct lws_role_ops **ppxx = available_roles; \
+		const struct lws_role_ops * const *ppxx = available_roles; \
 		while (*ppxx) { \
 			const struct lws_role_ops *xx = *ppxx++;
 

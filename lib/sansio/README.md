@@ -119,7 +119,7 @@ Edit the NULL-terminated array `available_roles` at the top of `./lib/core/conte
 a pointer to your new role's ops struct, following the style already there.
 
 ```
-const struct lws_role_ops * available_roles[] = {
+const struct lws_role_ops * const available_roles[] = {
 #if defined(LWS_ROLE_H2)
 	&role_ops_h2,
 #endif

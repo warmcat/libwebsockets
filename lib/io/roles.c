@@ -29,7 +29,7 @@
 
 #include "private-lib-core.h"
 
-const struct lws_role_ops *lws_io_roles[] = {
+const struct lws_role_ops * const lws_io_roles[] = {
 #if defined(LWS_ROLE_DBUS)
 	&role_ops_dbus,
 #endif
@@ -43,7 +43,7 @@ const struct lws_role_ops *lws_io_roles[] = {
 const struct lws_role_ops *
 lws_io_role_by_name(const char *name)
 {
-	const struct lws_role_ops *r = lws_role_by_name(name), **pr;
+	const struct lws_role_ops *r = lws_role_by_name(name), * const *pr;
 
 	if (r)
 		return r;
