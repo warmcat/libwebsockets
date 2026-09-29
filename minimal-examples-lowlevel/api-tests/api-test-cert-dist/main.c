@@ -510,9 +510,10 @@ main(int argc, const char **argv)
 
 	/*
 	 * Everything we make lives in a private dir of our own, short enough
-	 * for the stub socket paths in it to fit in a sockaddr_un
+	 * for the stub socket paths in it to fit in a sockaddr_un; mkdtemp
+	 * makes it unique and 0700, so the shared /tmp it sits in is safe
 	 */
-	lws_strncpy(work, "/tmp/lws-cd-XXXXXX", sizeof(work));
+	lws_strncpy(work, "/tmp/lws-cd-XXXXXX", sizeof(work)); // NOSONAR
 	if (!mkdtemp(work)) {
 		lwsl_err("unable to create work dir\n");
 		goto bail;

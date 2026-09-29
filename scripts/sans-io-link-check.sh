@@ -74,6 +74,6 @@ echo "sansIO -> IO symbols: $N private, $S seam, $P public"
 if ls "$B"/lib/libwebsockets-sansio.* >/dev/null 2>&1; then
 	echo "strict: this build has the links-alone test (LWS_WITH_SANSIO_LINK_TEST), libwebsockets-sansio linked"
 else
-	echo "strict: the links-alone test is -DLWS_WITH_SANSIO_LINK_TEST=1 (libwebsockets-sansio, every unresolved symbol an error); not in this build"
+	echo "strict: the links-alone test is -DLWS_WITH_SANSIO_LINK_TEST=1 (libwebsockets-sansio, every unresolved symbol fatal to the link); not in this build"
 fi
 [ "$N" -eq 0 ]

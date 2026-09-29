@@ -97,6 +97,9 @@ struct lws_context *context;
  * what was wrong with it.
  */
 static int
+fail(const char *step, const char *fmt, ...) LWS_FORMAT(2);
+
+static int
 fail(const char *step, const char *fmt, ...)
 {
 	char s[512];
