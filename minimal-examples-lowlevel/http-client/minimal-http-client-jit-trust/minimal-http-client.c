@@ -200,7 +200,7 @@ try_connect(struct lws_context *cx)
 	if (!lws_client_connect_via_info(&i)) {
 		lwsl_err("Client creation failed\n");
 		lws_default_loop_exit(context);
-		bad = 2; /* could not even start client connection */
+		bad = 3; /* synchronous connection/creation failure */
 		lws_cancel_service(cx);
 
 		return 1;
