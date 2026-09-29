@@ -4,6 +4,8 @@ lws is being divided into two halves with one narrow interface between
 them.  This document is the rule for deciding which half a piece of code
 belongs to, the interface, and the directories.  It is written so that a
 reader, human or otherwise, can place any function in a few seconds.
+READMEs/README.sans-io-port.md is the guide for porting the sansIO half
+to another language.
 
 ## The two halves
 
@@ -675,6 +677,9 @@ on and marked done here, like the staging above.
    - the keep-warm join's status at ESTABLISHED (parked).
 
 ### Before it is the port's source
+
+(What a port translates, redesigns and leaves behind, and how it is checked
+against C, is READMEs/README.sans-io-port.md.)
 
 4. tx is a push where the app's data is concerned: `lws_write()` reaches
    `lws_io_tx_push()` from sansIO (15 files, about 60 call sites), and
