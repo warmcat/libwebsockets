@@ -23,10 +23,11 @@
  * server would answer with: an h1 GET and its response body, then a ws
  * upgrade, the client's first frame, and a frame to it.
  *
- * Then what either side must refuse: a ws upgrade that is not for version
- * 13, frames with RSV bits nothing negotiated gives a meaning, with and
- * without permessage-deflate, and one longer than lws takes; and what the
- * h1 server makes of a request line (dot segments, '+', token limits).
+ * Then what either side must refuse, and how it says so: ws upgrades lws
+ * will not do, frames with RSV bits nothing negotiated gives a meaning,
+ * with and without permessage-deflate, and one longer than lws takes; and
+ * what the h1 server makes of a request line (dot segments, '+', token
+ * limits).
  *
  * Then whether the transport would take a write: a connection on the test's
  * transport is asked of the transport, never of the fd that is its place in
@@ -817,31 +818,38 @@ server_half(struct lws_context *cx)
 }
 
 /*
- * 9: a ws upgrade that is not for version 13, the only one there is, or
- * that does not say its version, is refused (RFC 6455 4.2.1): no 101,
- * nothing written, and the connection shut down
+ * 9: a ws upgrade lws will not do is answered with why, before the
+ * connection is shut down: a version other than 13, the only one there is,
+ * gets 426 saying 13 (RFC 6455 4.2.2); no version, a Connection header
+ * without the upgrade token, or only subprotocols lws does not have, 400
  */
 static int
-bad_version_half(struct lws_context *cx)
+upgrade_refusals_half(struct lws_context *cx)
 {
-	static const char req_v8[] =
-		"GET /echo HTTP/1.1\r\nHost: sansio\r\nUpgrade: websocket\r\n"
-		"Connection: Upgrade\r\nSec-WebSocket-Version: 8\r\n"
-		"Sec-WebSocket-Protocol: echo\r\n"
-		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
-	static const char req_nov[] =
-		"GET /echo HTTP/1.1\r\nHost: sansio\r\nUpgrade: websocket\r\n"
-		"Connection: Upgrade\r\n"
-		"Sec-WebSocket-Protocol: echo\r\n"
-		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+#define UPG_REQ(conn, ver, pcol) \
+	"GET /echo HTTP/1.1\r\nHost: sansio\r\nUpgrade: websocket\r\n" \
+	"Connection: " conn "\r\n" ver \
+	"Sec-WebSocket-Protocol: " pcol "\r\n" \
+	"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
 	static const struct {
 		const char	*name;
 		const char	*req;
-		size_t		len;
+		const char	*status;
+		const char	*hdr;	/* a header the refusal must have */
 	} c[] = {
-		{ "ws-server-version-8", req_v8, sizeof(req_v8) - 1 },
-		{ "ws-server-no-version", req_nov, sizeof(req_nov) - 1 },
+		{ "ws-server-version-8",
+		  UPG_REQ("Upgrade", "Sec-WebSocket-Version: 8\r\n", "echo"),
+		  "HTTP/1.1 426 ", "\r\nsec-websocket-version: 13\r\n" },
+		{ "ws-server-no-version",
+		  UPG_REQ("Upgrade", "", "echo"), "HTTP/1.1 400 ", NULL },
+		{ "ws-server-conn-no-upgrade",
+		  UPG_REQ("up", "Sec-WebSocket-Version: 13\r\n", "echo"),
+		  "HTTP/1.1 400 ", NULL },
+		{ "ws-server-no-subprotocol",
+		  UPG_REQ("Upgrade", "Sec-WebSocket-Version: 13\r\n", "chat"),
+		  "HTTP/1.1 400 ", NULL },
 	};
+#undef UPG_REQ
 	static struct transport tp;
 	struct lws *wsi;
 	size_t n;
@@ -863,16 +871,19 @@ bad_version_half(struct lws_context *cx)
 		lws_set_transport(wsi, &tops, &tp);
 		tr_begin(c[n].name, "server", 0);
 
-		feed(cx, &tp, c[n].req, c[n].len);
-		if (!tp.shutdown || tp.tx_len) {
-			lwsl_err("case 9: %s: not refused\n", c[n].name);
+		feed(cx, &tp, c[n].req, strlen(c[n].req));
+		if (!tp.shutdown || tp.tx_len < 13 ||
+		    memcmp(tp.tx, c[n].status, 13) ||
+		    (c[n].hdr && !find_bytes(tp.tx, tp.tx_len, c[n].hdr))) {
+			lwsl_err("case 9: %s: not refused as expected\n",
+				 c[n].name);
 			lwsl_hexdump_err(tp.tx, tp.tx_len);
 			return 1;
 		}
 		if (tr_end())
 			return 1;
 	}
-	lwsl_user("case 9: ws upgrade without version 13 refused: PASS\n");
+	lwsl_user("case 9: refused ws upgrades say why: PASS\n");
 
 	return 0;
 }
@@ -882,7 +893,7 @@ bad_version_half(struct lws_context *cx)
  * app answers with the path and args lws gave it.  The path's dot segments
  * go, even just before the args; '+' is a space in the args, but itself in
  * the path; and a request line or a header past its token limit fails the
- * request, rather than being cut short and served.
+ * request with 414 or 431, rather than being cut short and served.
  */
 static int
 uri_half(struct lws_context *cx, struct lws_vhost *vh)
@@ -890,22 +901,25 @@ uri_half(struct lws_context *cx, struct lws_vhost *vh)
 	static const struct {
 		const char	*name;
 		const char	*req;
-		const char	*body; /* NULL: refused */
+		const char	*body; /* NULL: refused with status */
+		const char	*status;
 	} c[] = {
 		{ "h1-uri-dotdot-args", "GET /x/..?a=b HTTP/1.1\r\n"
-			"Host: sansio-uri\r\n\r\n", "/\na=b" },
+			"Host: sansio-uri\r\n\r\n", "/\na=b", NULL },
 		{ "h1-uri-dot-args", "GET /x/.?a=b HTTP/1.1\r\n"
-			"Host: sansio-uri\r\n\r\n", "/x/\na=b" },
+			"Host: sansio-uri\r\n\r\n", "/x/\na=b", NULL },
 		{ "h1-uri-plus", "GET /a+b?c+d=e+f HTTP/1.1\r\n"
-			"Host: sansio-uri\r\n\r\n", "/a+b\nc d=e f" },
+			"Host: sansio-uri\r\n\r\n", "/a+b\nc d=e f", NULL },
 		{ "h1-uri-at-limit", "GET /23456789012345678901234567890123 "
 			"HTTP/1.1\r\nHost: sansio-uri\r\n\r\n",
-			"/23456789012345678901234567890123\n" },
+			"/23456789012345678901234567890123\n", NULL },
 		{ "h1-uri-past-limit", "GET /234567890123456789012345678901234 "
-			"HTTP/1.1\r\nHost: sansio-uri\r\n\r\n", NULL },
+			"HTTP/1.1\r\nHost: sansio-uri\r\n\r\n", NULL,
+			"HTTP/1.1 414 " },
 		{ "h1-header-past-limit", "GET / HTTP/1.1\r\n"
 			"Host: sansio-uri\r\n"
-			"User-Agent: 12345678901234567\r\n\r\n", NULL },
+			"User-Agent: 12345678901234567\r\n\r\n", NULL,
+			"HTTP/1.1 431 " },
 	};
 	static struct transport tp;
 	const uint8_t *b;
@@ -931,8 +945,8 @@ uri_half(struct lws_context *cx, struct lws_vhost *vh)
 
 		feed(cx, &tp, c[n].req, strlen(c[n].req));
 		if (!c[n].body) {
-			if ((!tp.shutdown && !tp.closed) ||
-			    find_bytes(tp.tx, tp.tx_len, "HTTP/1.1 200 ")) {
+			if ((!tp.shutdown && !tp.closed) || tp.tx_len < 13 ||
+			    memcmp(tp.tx, c[n].status, 13)) {
 				lwsl_err("case 13: %s: not refused\n",
 					 c[n].name);
 				lwsl_hexdump_err(tp.tx, tp.tx_len);
@@ -955,6 +969,58 @@ uri_half(struct lws_context *cx, struct lws_vhost *vh)
 	lwsl_user("case 13: h1 request line and header handling: PASS\n");
 
 	return 0;
+}
+
+/*
+ * 14: a ws server given a frame longer than lws takes (256MiB) closes with
+ * 1009 saying so, the same as a client does
+ */
+static int
+server_refused_frames_half(struct lws_context *cx)
+{
+	static const char req_ws[] =
+		"GET /echo HTTP/1.1\r\nHost: sansio\r\nUpgrade: websocket\r\n"
+		"Connection: Upgrade\r\nSec-WebSocket-Version: 13\r\n"
+		"Sec-WebSocket-Protocol: echo\r\n"
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+	/* FIN, BINARY, masked, 64-bit length 256MiB + 1 */
+	static const char frame[] =
+		"\x82\xff\x00\x00\x00\x00\x10\x00\x00\x01\x00\x00\x00\x00";
+	static const char refusal[] = "\x88\x0c\x03\xf1huge frame";
+	static struct transport tp;
+	struct lws *wsi;
+	int sv[2];
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket(cx, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	tr_begin("ws-server-huge-frame", "server", 0);
+
+	if (feed(cx, &tp, req_ws, sizeof(req_ws) - 1) ||
+	    tp.tx_len < 13 || memcmp(tp.tx, "HTTP/1.1 101 ", 13)) {
+		lwsl_err("case 14: no upgrade\n");
+		return 1;
+	}
+	feed(cx, &tp, frame, sizeof(frame) - 1);
+	if (tp.tx_len != sizeof(refusal) - 1 ||
+	    memcmp(tp.tx, refusal, sizeof(refusal) - 1)) {
+		lwsl_err("case 14: huge frame not refused\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	lwsl_user("case 14: ws server refuses a huge frame with 1009: PASS\n");
+
+	return tr_end();
 }
 
 static int timer_fired;
@@ -1241,6 +1307,7 @@ struct refused_frame {
 	const char	*frames;
 	size_t		len;
 	const char	*rx; /* what the app gets before the bad frame */
+	unsigned int	status; /* the close status it fails it with */
 };
 
 static int
@@ -1250,6 +1317,7 @@ client_refuses(struct lws_context *cx, struct lws_vhost *vh, int cn,
 {
 	static const char close_ack[] = "\x88\x02\x03\xe8";
 	static struct transport tp;
+	unsigned int st;
 	size_t n, rxl;
 
 	for (n = 0; n < count; n++) {
@@ -1260,10 +1328,16 @@ client_refuses(struct lws_context *cx, struct lws_vhost *vh, int cn,
 			return 1;
 		}
 		feed(cx, &tp, c[n].frames, c[n].len);
-		if (tp.tx_len != 8 || tp.tx[0] != 0x88 || tp.tx[1] != 0x82 ||
-		    cli.rx_len != rxl || memcmp(cli.rx, c[n].rx, rxl)) {
-			lwsl_err("case %d: %s: taken: rx %d\n", cn, c[n].name,
-				 (int)cli.rx_len);
+		/* one masked close, its payload the status and a reason */
+		st = tp.tx_len >= 8 && tp.tx[0] == 0x88 &&
+		     (tp.tx[1] & 0x80) && (tp.tx[1] & 0x7f) >= 2 &&
+		     tp.tx_len == 6u + (tp.tx[1] & 0x7fu) ?
+			(unsigned int)(((tp.tx[6] ^ tp.tx[2]) << 8) |
+				       (tp.tx[7] ^ tp.tx[3])) : 0;
+		if (st != c[n].status || cli.rx_len != rxl ||
+		    memcmp(cli.rx, c[n].rx, rxl)) {
+			lwsl_err("case %d: %s: close %u, rx %d\n", cn,
+				 c[n].name, st, (int)cli.rx_len);
 			lwsl_hexdump_err(tp.tx, tp.tx_len);
 			return 1;
 		}
@@ -1289,12 +1363,13 @@ client_refused_frames_half(struct lws_context *cx, struct lws_vhost *vh)
 {
 	static const struct refused_frame c[] = {
 		/* FIN, RSV1, TEXT: RSV1 without permessage-deflate */
-		{ "ws-client-rsv1-no-ext", "\xc1\x05Hello", 7, "" },
+		{ "ws-client-rsv1-no-ext", "\xc1\x05Hello", 7, "", 1002 },
 		/* FIN, RSV2, TEXT */
-		{ "ws-client-rsv2", "\xa1\x05Hello", 7, "" },
+		{ "ws-client-rsv2", "\xa1\x05Hello", 7, "", 1002 },
 		/* FIN, BINARY, 64-bit length 256MiB + 1 */
 		{ "ws-client-huge-frame",
-		  "\x82\x7f\x00\x00\x00\x00\x10\x00\x00\x01Hello", 15, "" },
+		  "\x82\x7f\x00\x00\x00\x00\x10\x00\x00\x01Hello", 15, "",
+		  1009 },
 	};
 
 	if (client_refuses(cx, vh, 10, "", 0, c, LWS_ARRAY_SIZE(c)))
@@ -1315,12 +1390,12 @@ client_pmd_refused_frames_half(struct lws_context *cx, struct lws_vhost *vh)
 {
 	static const struct refused_frame c[] = {
 		/* FIN, RSV2, TEXT */
-		{ "ws-client-pmd-rsv2", "\xa1\x05Hello", 7, "" },
+		{ "ws-client-pmd-rsv2", "\xa1\x05Hello", 7, "", 1002 },
 		/* TEXT "He" uncompressed, then FIN, RSV1, CONTINUATION */
 		{ "ws-client-pmd-rsv1-continuation",
-		  "\x01\x02He\xc0\x03llo", 9, "He" },
+		  "\x01\x02He\xc0\x03llo", 9, "He", 1002 },
 		/* FIN, RSV1, PING */
-		{ "ws-client-pmd-rsv1-ping", "\xc9\x00", 2, "" },
+		{ "ws-client-pmd-rsv1-ping", "\xc9\x00", 2, "", 1002 },
 	};
 
 	/*
@@ -1518,7 +1593,7 @@ main(int argc, const char **argv)
 	 */
 
 	at(cx, 3000);
-	if (bad_version_half(cx))
+	if (upgrade_refusals_half(cx))
 		goto bail;
 
 	info.vhost_name = "sansio-uri";
@@ -1530,6 +1605,10 @@ main(int argc, const char **argv)
 	}
 	at(cx, 3100);
 	if (uri_half(cx, vh_uri))
+		goto bail;
+
+	at(cx, 3150);
+	if (server_refused_frames_half(cx))
 		goto bail;
 
 #if defined(LWS_WITH_CLIENT)
