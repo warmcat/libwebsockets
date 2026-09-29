@@ -470,6 +470,15 @@ static const char * const default_ss_policy =
 
 #define MIN_BACKOFF_US (2500 * LWS_US_PER_MS)
 
+/*
+ * Ask to connect in CREATING, but then return LWSSSSRET_DISCONNECT_ME from
+ * it.  The stream must come back and connect again by itself, still using the
+ * metadata we set in CREATING.  When proxied, the disconnect drops the link to
+ * the proxy, and the stream must not see CREATING again, and the proxy side
+ * stream must still get our metadata.
+ */
+#define TSF_DISCONNECT_IN_CREATING	(1 << 0)
+
 struct tests_seq {
 	const char		*name;
 	const char		*streamtype;
@@ -492,15 +501,7 @@ struct tests_seq {
 	 * could not be used.  -1 means don't check it.
 	 */
 	int8_t			unreach_ack;
-	/*
-	 * Return LWSSSSRET_DISCONNECT_ME the first time we see CONNECTING, and
-	 * set the stream's metadata only in CREATING.  When proxied, that
-	 * drops the link to the proxy and the stream must recover on a new
-	 * one, without seeing CREATING again and with the proxy side stream
-	 * still getting our metadata and being asked to connect.  Only used
-	 * with the proxied (-client) build.
-	 */
-	uint8_t			disconnect_once;
+	uint8_t			flags; /* TSF_ */
 } tests_seq[] = {
 
 	/*
@@ -650,21 +651,20 @@ struct tests_seq {
 		12345, 0, -1, 0
 	},
 
-#if defined(LWS_SS_USE_SSPC)
 	/*
-	 * Disconnect the proxied stream ourselves as it starts connecting,
-	 * which drops the link to the proxy.  It must still complete the bulk
-	 * transfer, which is sized by the metadata we only set in CREATING.
+	 * Disconnect the stream ourselves right after asking it to connect,
+	 * when proxied that also drops the link to the proxy.  It must still
+	 * complete the bulk transfer, which is sized by the metadata we only
+	 * set in CREATING.
 	 */
 
 	{
-		"h1:80 read bulk after proxy link loss",
+		"h1:80 read bulk after disconnect in CREATING",
 		"bulk_h1", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
-		12345, 0, -1, 1
+		12345, 0, -1, TSF_DISCONNECT_IN_CREATING
 	},
-#endif
 
 	/*
 	 * Fail at the tls negotiation various ways: connect to the tls httpbin
@@ -695,7 +695,7 @@ typedef struct myss {
 	lws_usec_t			start_us;
 	char				result_reported;
 	char				seen_creating;
-	char				did_disconnect;
+	char				seen_connecting;
 } myss_t;
 
 
@@ -758,13 +758,8 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		m->seen_creating = 1;
 	}
 
-	if (state == LWSSSCS_CONNECTING && curr_test->disconnect_once &&
-	    !m->did_disconnect) {
-		lwsl_notice("%s: disconnecting at CONNECTING\n", __func__);
-		m->did_disconnect = 1;
-
-		return LWSSSSRET_DISCONNECT_ME;
-	}
+	if (state == LWSSSCS_CONNECTING && m->seen_connecting < 2)
+		m->seen_connecting++;
 
 	if (curr_test->mask_unexpected & (1u << state)) {
 
@@ -785,6 +780,26 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	}
 
 	if (state == curr_test->must_see) {
+
+#if !defined(LWS_SS_USE_SSPC)
+		/*
+		 * The connection we asked for in CREATING must really have
+		 * been disconnected, and another one made.  (When proxied, the
+		 * connection request does not get as far as the proxy before
+		 * we drop the link to it.)
+		 */
+		if ((curr_test->flags & TSF_DISCONNECT_IN_CREATING) &&
+		    m->seen_connecting < 2) {
+			lwsl_notice("%s: failing, first connection was not "
+				    "disconnected\n", __func__);
+			m->result_reported = 1;
+			tests_fail++;
+			lws_sul_schedule(context, 0, &sul_next_test,
+					 tests_start_next, 1);
+			h = NULL;
+			return LWSSSSRET_DESTROY_ME;
+		}
+#endif
 
 		if (curr_test->eom_pass != m->rx_seen) {
 			lwsl_notice("%s: failing on rx %d, expected %d\n",
@@ -899,15 +914,30 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 			lws_ss_start_timeout(m->ss, remaining);
 		}
 
-		if (curr_test->eom_pass &&
-		    (state == LWSSSCS_CREATING || !curr_test->disconnect_once)) {
-			sl = (size_t)lws_snprintf(buf, sizeof(buf), "%u",
+		if (state == LWSSSCS_CREATING) {
+			lws_ss_state_return_t r;
+
+			if (curr_test->eom_pass) {
+				/*
+				 * Set it once, it must be used for every
+				 * connection attempt after.  buf is going out
+				 * of scope, so the stream must have a copy.
+				 */
+				sl = (size_t)lws_snprintf(buf, sizeof(buf), "%u",
 					(unsigned int)curr_test->eom_pass);
-			if (lws_ss_set_metadata(m->ss, "amount", buf, sl))
-				return LWSSSSRET_DISCONNECT_ME;
+				if (lws_ss_alloc_set_metadata(m->ss, "amount",
+							      buf, sl))
+					return LWSSSSRET_DESTROY_ME;
+			}
+
+			r = lws_ss_client_connect(m->ss);
+			if (r || !(curr_test->flags & TSF_DISCONNECT_IN_CREATING))
+				return r;
+
+			lwsl_notice("%s: disconnecting in CREATING\n", __func__);
+
+			return LWSSSSRET_DISCONNECT_ME;
 		}
-		if (state == LWSSSCS_CREATING)
-			return lws_ss_client_connect(m->ss);
 		break;
 
 	case LWSSSCS_DESTROYING:

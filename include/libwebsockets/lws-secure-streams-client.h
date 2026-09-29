@@ -64,6 +64,8 @@ struct lws_sspc_handle;
 #define lws_ss_get_context		lws_sspc_get_context
 #define lws_ss_rideshare		lws_sspc_rideshare
 #define lws_ss_set_metadata		lws_sspc_set_metadata
+/* sspc always takes a copy of the metadata value */
+#define lws_ss_alloc_set_metadata	lws_sspc_set_metadata
 #define lws_ss_get_metadata		lws_sspc_get_metadata
 #define lws_ss_add_peer_tx_credit	lws_sspc_add_peer_tx_credit
 #define lws_ss_get_est_peer_tx_credit	lws_sspc_get_est_peer_tx_credit

@@ -519,7 +519,18 @@ _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(lws_ss_state_return_t r, struct lws 
 
 		(*ph)->wsi = NULL;
 		lws_ss_destroy(ph);
+
+		return -1; /* close connection */
 	}
+
+	if (r == LWSSSSRET_DISCONNECT_ME && !wsi && (*ph)->wsi)
+		/*
+		 * We're not being called from a wsi callback that will close
+		 * its wsi on our -1 return, eg, it's from a sul or stream
+		 * creation... but the stream has a connection, so we must
+		 * start disconnecting it ourselves
+		 */
+		lws_set_timeout((*ph)->wsi, 1, LWS_TO_KILL_ASYNC);
 
 	return -1; /* close connection */
 }
@@ -1689,6 +1700,10 @@ extant:
 	if (r == LWSSSSRET_DESTROY_ME ||
 	    lws_fi(&h->fic, "ss_create_destroy_me"))
 		goto fail_creation;
+
+	if (r == LWSSSSRET_DISCONNECT_ME)
+		/* if he connected in CREATING, disconnect it again */
+		_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, NULL, &h);
 
 	n = 0;
 #if defined(LWS_WITH_SYS_SMD)
