@@ -353,12 +353,7 @@ lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 				break;
 			}
 			wsi->ws->rsv = (c & 0x70);
-			/* revisit if an extension wants them... */
-			if (
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-				!wsi->ws->count_act_ext &&
-#endif
-				wsi->ws->rsv && !wsi->ws->allow_reserved_bits) {
+			if (!lws_ws_rsv_valid(wsi)) {
 				lwsl_wsi_info(wsi, "illegal rsv bits set");
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
@@ -531,6 +526,10 @@ huge_frame:
 #endif
 	case LWS_RXPS_04_FRAME_HDR_LEN64_1:
 		wsi->ws->rx_packet_length |= (size_t)c;
+		if (wsi->ws->rx_packet_length > LWS_WS_MAX_RX_FRAME_LEN) {
+			lwsl_wsi_warn(wsi, "huge ws frame");
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
 		if (wsi->ws->this_frame_masked)
 			wsi->lws_rx_parse_state =
 					LWS_RXPS_07_COLLECT_FRAME_KEY_1;

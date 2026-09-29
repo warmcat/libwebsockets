@@ -207,6 +207,15 @@ LWS_EXTERN int
 lws_extension_server_handshake(struct lws *wsi, char **p, int budget);
 #endif
 
+/*
+ * We deliver ws payload as it arrives, so this is not about buffering; it
+ * bounds what a peer can make us sit in one frame for, the same in both roles
+ */
+#define LWS_WS_MAX_RX_FRAME_LEN 0x10000000ull /* 256MiB */
+
+int
+lws_ws_rsv_valid(struct lws *wsi);
+
 int
 handshake_0405(struct lws_context *context, struct lws *wsi);
 int

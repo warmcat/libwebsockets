@@ -48,6 +48,33 @@ lws_ws_proxy_est_cb(lws_sorted_usec_list_t *sul)
 #define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
 
 /*
+ * Common to the server and client rx parsers: are the RSV bits of the frame
+ * header just parsed into wsi->ws->rsv / opcode something we agreed to?
+ *
+ * No RSV bit has a meaning unless an extension we negotiated gives it one.
+ * The only one we have, permessage-deflate, uses RSV1 alone, and only on the
+ * first frame of a data message (RFC7692 6.1): never on a continuation or a
+ * control frame.  A client may opt out of all of this for testing with
+ * allow_reserved_bits.
+ */
+
+int
+lws_ws_rsv_valid(struct lws *wsi)
+{
+	if (!wsi->ws->rsv || wsi->ws->allow_reserved_bits)
+		return 1;
+
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	return wsi->ws->count_act_ext &&
+	       wsi->ws->rsv == 0x40 &&
+	       (wsi->ws->opcode == LWSWSOPC_TEXT_FRAME ||
+		wsi->ws->opcode == LWSWSOPC_BINARY_FRAME);
+#else
+	return 0;
+#endif
+}
+
+/*
  * client-parser.c: lws_ws_client_rx_sm() needs to be roughly kept in
  *   sync with changes here, esp related to ext draining
  *
@@ -251,12 +278,7 @@ handle_first:
 			wsi->ws->owed_a_fin = 1;
 
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN;
-		if (wsi->ws->rsv &&
-		    (
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-				    !wsi->ws->count_act_ext ||
-#endif
-				    (wsi->ws->rsv & ~0x40))) {
+		if (!lws_ws_rsv_valid(wsi)) {
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_PROTOCOL_ERR,
 					 (uint8_t *)"rsv bits", 8);
 			goto ret_asking_close;
@@ -396,13 +418,13 @@ huge_frame:
 		lwsl_err("ws frame length exceeds size_t\n");
 		goto ret_asking_close;
 #endif
-        case LWS_RXPS_04_FRAME_HDR_LEN64_1:
-                wsi->ws->rx_packet_length |= ((size_t)c);
-                if (wsi->ws->rx_packet_length > 0x10000000ull) {
-                        lwsl_err("huge ws frame\n");
-                        goto ret_asking_close;
-                }
-                if (wsi->ws->this_frame_masked)
+	case LWS_RXPS_04_FRAME_HDR_LEN64_1:
+		wsi->ws->rx_packet_length |= ((size_t)c);
+		if (wsi->ws->rx_packet_length > LWS_WS_MAX_RX_FRAME_LEN) {
+			lwsl_err("huge ws frame\n");
+			goto ret_asking_close;
+		}
+		if (wsi->ws->this_frame_masked)
 			wsi->lws_rx_parse_state =
 					LWS_RXPS_07_COLLECT_FRAME_KEY_1;
 		else
