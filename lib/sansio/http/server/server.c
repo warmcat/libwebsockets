@@ -1760,13 +1760,12 @@ int
 lws_http_action(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	int uri_len = 0, meth, m, http_version_len, ha;
+	int uri_len = 0, meth, m, ha;
 	const struct lws_http_mount *hit = NULL;
 	enum http_version request_version;
 	struct lws_process_html_args args;
 	enum http_conn_type conn_type;
 	char content_length_str[32];
-	char http_version_str[12];
 	char http_conn_str[20];
 	char *uri_ptr = NULL;
 #if defined(LWS_WITH_FILE_OPS)
@@ -2054,18 +2053,7 @@ lws_http_action(struct lws *wsi)
 	if (wsi->mux_substream) {
 		wsi->stream.request_version = HTTP_VERSION_2;
 	} else {
-		/* http_version? Default to 1.0, override with token: */
-		request_version = HTTP_VERSION_1_0;
-
-		/* Works for single digit HTTP versions. : */
-		http_version_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP);
-		if (http_version_len > 7 &&
-		    lws_hdr_copy(wsi, http_version_str,
-				 sizeof(http_version_str) - 1,
-				 WSI_TOKEN_HTTP) > 0 &&
-		    http_version_str[5] == '1' && http_version_str[7] == '1')
-			request_version = HTTP_VERSION_1_1;
-
+		request_version = lws_h1_request_version(wsi);
 		wsi->stream.request_version = request_version;
 
 		/* HTTP/1.1 defaults to "keep-alive", 1.0 to "close" */
@@ -3050,6 +3038,12 @@ upgrade_h2c:
 #endif
 #if defined(LWS_ROLE_WS)
 upgrade_ws:
+		/*
+		 * lws_http_action() would have said, but we don't go there:
+		 * whatever status we may answer the upgrade with speaks the
+		 * version it was asked in
+		 */
+		wsi->stream.request_version = lws_h1_request_version(wsi);
 		if (lws_process_ws_upgrade(wsi))
 			goto bail_nuke_ah;
 

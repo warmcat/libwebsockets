@@ -485,6 +485,26 @@ lws_process_ws_upgrade2(struct lws *wsi)
 	return 0;
 }
 
+/*
+ * Refuse the upgrade with an http status the client can act on, rather
+ * than just dropping it: 426 with the version we speak for a version we
+ * don't (RFC 6455 4.2.2 / 4.4), else 400.  Returns 1 for the caller to
+ * return, which closes the connection (h1) or stream (h2 / h3) after it.
+ */
+static int
+ws_upgrade_refuse(struct lws *wsi, unsigned int code, const char *why)
+{
+	lwsl_wsi_info(wsi, "refusing ws upgrade: %s", why);
+
+	if (code == HTTP_STATUS_UPGRADE_REQUIRED)
+		_lws_return_http_status(wsi, code, NULL, WSI_TOKEN_VERSION,
+					"13");
+	else
+		lws_return_http_status(wsi, code, NULL);
+
+	return 1;
+}
+
 int
 lws_process_ws_upgrade(struct lws *wsi)
 {
@@ -498,34 +518,31 @@ lws_process_ws_upgrade(struct lws *wsi)
 		lwsl_err("NULL protocol at lws_read\n");
 
 	/*
-	 * It's either websocket or h2->websocket
+	 * It's either websocket, or websocket over an h2 / h3 stream
 	 *
 	 * If we are on h1, confirm we got the required "connection: upgrade"
-	 * header.  h2 / ws-over-h2 does not have this.
+	 * header, and the key we must answer.  A stream has neither
+	 * (RFC 8441 5, RFC 9220 3).
 	 */
 
-#if defined(LWS_WITH_HTTP2)
 	if (!wsi->mux_substream) {
-#endif
-
 		lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |
 					    LWS_TOKENIZE_F_DOT_NONTERM |
 					    LWS_TOKENIZE_F_RFC7230_DELIMS |
 					    LWS_TOKENIZE_F_MINUS_NONTERM);
 		n = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_CONNECTION);
-		if (n <= 0) {
-			lwsl_err("%s: malformed or absent conn hdr\n",
-				 __func__);
-
-			return 1;
-		}
+		if (n <= 0)
+			return ws_upgrade_refuse(wsi, HTTP_STATUS_BAD_REQUEST,
+						 "malformed or absent conn hdr");
 		ts.len = (unsigned int)n;
 
 		do {
 			e = lws_tokenize(&ts);
 			switch (e) {
 			case LWS_TOKZE_TOKEN:
-				if (!strncasecmp(ts.token, "upgrade", ts.token_len))
+				/* the whole token, not a prefix of it */
+				if (ts.token_len == 7 &&
+				    !strncasecmp(ts.token, "upgrade", 7))
 					e = LWS_TOKZE_ENDED;
 				break;
 
@@ -533,29 +550,32 @@ lws_process_ws_upgrade(struct lws *wsi)
 				break;
 
 			default: /* includes ENDED */
-				lwsl_err("%s: malformed or absent conn hdr\n",
-					 __func__);
-
-				return 1;
+				return ws_upgrade_refuse(wsi,
+						HTTP_STATUS_BAD_REQUEST,
+						"no upgrade in conn hdr");
 			}
 		} while (e > 0);
 
-#if defined(LWS_WITH_HTTP2)
+		n = lws_hdr_total_length(wsi, WSI_TOKEN_KEY);
+		if (!n || n >= MAX_WEBSOCKET_04_KEY_LEN ||
+		    !lws_hdr_total_length(wsi, WSI_TOKEN_HOST))
+			return ws_upgrade_refuse(wsi, HTTP_STATUS_BAD_REQUEST,
+						 "missing or bad key or host");
 	}
-#endif
 
 	/*
 	 * RFC6455 4.2.1 / RFC8441 5: the client must say it speaks version
-	 * 13, which is the only one there is.  Anything else, including no
-	 * header, is not a ws client we can talk to.
+	 * 13, which is the only one there is.  No header at all is a broken
+	 * handshake; another version gets told the one we speak (4.2.2).
 	 */
 
 	n = lws_hdr_copy(wsi, buf, sizeof(buf), WSI_TOKEN_VERSION);
-	if (n != 2 || strcmp(buf, "13")) {
-		lwsl_wsi_notice(wsi, "unsupported or missing ws version");
-
-		return 1;
-	}
+	if (!n)
+		return ws_upgrade_refuse(wsi, HTTP_STATUS_BAD_REQUEST,
+					 "no version");
+	if (n != 2 || strcmp(buf, "13"))
+		return ws_upgrade_refuse(wsi, HTTP_STATUS_UPGRADE_REQUIRED,
+					 "unsupported version");
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	{
@@ -597,10 +617,9 @@ lws_process_ws_upgrade(struct lws *wsi)
 				    LWS_TOKENIZE_F_PLUS_NONTERM |
 				    LWS_TOKENIZE_F_RFC7230_DELIMS);
 	n = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_PROTOCOL);
-	if (n < 0) {
-		lwsl_err("%s: protocol list too long\n", __func__);
-		return 1;
-	}
+	if (n < 0)
+		return ws_upgrade_refuse(wsi, HTTP_STATUS_BAD_REQUEST,
+					 "protocol list too long");
 	ts.len = (unsigned int)n;
 	if (!ts.len) {
 		int n = wsi->a.vhost->default_protocol_index;
@@ -614,12 +633,9 @@ lws_process_ws_upgrade(struct lws *wsi)
 		 * these "no protocol" ws connections to be rejected.
 		 */
 
-		if (n >= wsi->a.vhost->count_protocols) {
-			lwsl_notice("%s: rejecting ws upg with no protocol\n",
-				    __func__);
-
-			return 1;
-		}
+		if (n >= wsi->a.vhost->count_protocols)
+			return ws_upgrade_refuse(wsi, HTTP_STATUS_BAD_REQUEST,
+						 "no protocol");
 
 		lwsl_info("%s: defaulting to prot handler %d\n", __func__, n);
 
@@ -663,11 +679,10 @@ lws_process_ws_upgrade(struct lws *wsi)
 		switch (e) {
 		case LWS_TOKZE_TOKEN:
 
-			if (lws_tokenize_cstr(&ts, name, sizeof(name))) {
-				lwsl_err("%s: pcol name too long\n", __func__);
-
-				return 1;
-			}
+			if (lws_tokenize_cstr(&ts, name, sizeof(name)))
+				return ws_upgrade_refuse(wsi,
+						HTTP_STATUS_BAD_REQUEST,
+						"protocol name too long");
 			lwsl_debug("checking %s\n", name);
 			pcol = lws_vhost_name_to_protocol(wsi->a.vhost, name);
 			if (pcol) {
@@ -682,19 +697,16 @@ lws_process_ws_upgrade(struct lws *wsi)
 			break;
 
 		default:
-			lwsl_err("%s: malformatted protocol list", __func__);
-
-			return 1;
+			return ws_upgrade_refuse(wsi, HTTP_STATUS_BAD_REQUEST,
+						 "malformed protocol list");
 		}
 	} while (e > 0);
 
 	/* we didn't find a protocol he wanted? */
 
-	if (!pcol) {
-		lwsl_wsi_notice(wsi, "No supported protocol \"%s\"\n", buf);
-
-		return 1;
-	}
+	if (!pcol)
+		return ws_upgrade_refuse(wsi, HTTP_STATUS_BAD_REQUEST,
+					 "no supported protocol");
 
 alloc_ws:
 
