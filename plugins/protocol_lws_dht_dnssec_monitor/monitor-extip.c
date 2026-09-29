@@ -96,7 +96,7 @@ monitor_extip_apply_suffix(char *out, size_t outlen, const char *ip6,
 			   const char *suffix)
 {
 	unsigned char ad[16], iid[2];
-	size_t sl = strlen(suffix);
+	size_t sl = strlen(suffix), n;
 	char grp[5];
 
 	out[0] = '\0';
@@ -105,10 +105,14 @@ monitor_extip_apply_suffix(char *out, size_t outlen, const char *ip6,
 		return 1;
 
 	if (sl) {
-		/* one hex group, as the UI's suffix field takes it */
+		/*
+		 * one hex group, as the UI's suffix field takes it: pad it to
+		 * four digits with leading '0's
+		 */
 		if (sl <= 4) {
-			memset(grp, '0', 4 - sl);
-			memcpy(grp + 4 - sl, suffix, sl + 1);
+			for (n = 0; n < 4; n++)
+				grp[n] = n < 4 - sl ? '0' : suffix[n - (4 - sl)];
+			grp[4] = '\0';
 		}
 		if (sl <= 4 && lws_hex_len_to_byte_array(grp, 4, iid, 2) == 2)
 			memcpy(&ad[14], iid, sizeof(iid));
