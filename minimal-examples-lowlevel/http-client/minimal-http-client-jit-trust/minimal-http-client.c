@@ -37,6 +37,14 @@ static const char *ba_user, *ba_password;
 static int budget = 6;
 
 /*
+ * Set when a jit trust lookup found a CA we trust for the server's chain since
+ * our last connection attempt, meaning a retry can bind to a JIT vhost with
+ * that CA trusted.  A connection error without that is not a trust problem
+ * (dns, connect, the peer...) and retrying won't fix it.
+ */
+static char learned_trust;
+
+/*
  * For this example, we import the C-formatted array version of the trust blob
  * directly.  This is produced by running scripts/mozilla-trust-gen.sh and can
  * be found in ./_trust after that.
@@ -197,6 +205,8 @@ try_connect(struct lws_context *cx)
 	i.pwsi = &client_wsi;
 	i.fi_wsi_name = "user";
 
+	learned_trust = 0;
+
 	if (!lws_client_connect_via_info(&i)) {
 		lwsl_err("Client creation failed\n");
 		lws_default_loop_exit(context);
@@ -225,7 +235,14 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
 
-		if (budget--) {
+		/*
+		 * The first connection to a server whose CA we don't trust yet
+		 * fails, but in failing, JIT Trust looked up the CA it needs.
+		 * If it found one, retry to use it.  The budget also stops us
+		 * following a chain of redirects to new servers forever.
+		 */
+
+		if (learned_trust && budget--) {
 			try_connect(lws_get_context(wsi));
 			break;
 		}
@@ -406,9 +423,10 @@ jit_trust_query(struct lws_context *cx, const uint8_t *skid,
 					   sizeof(jit_trust_blob), skid,
 					   skid_len, &der, &der_len);
 
-	if (der)
+	if (der) {
 		lwsl_info("%s: found len %d\n", __func__, (int)der_len);
-	else
+		learned_trust = 1;
+	} else
 		lwsl_info("%s: not trusted\n", __func__);
 
 	/* Once we have a result, pass it to the completion helper */

@@ -4,6 +4,11 @@ This example turns off any existing trusted CAs and then tries to connect to a s
 
 It validates the remote certificates using trusted CAs from a JIT Trust blob compiled into the code.
 
+The first connection to a server whose CA is not trusted yet fails, but JIT
+Trust looks up the CA it needs while failing; the example retries only when
+that lookup found a CA it trusts.  Any other connection failure (DNS, connect,
+the peer...) is final and exits 3.
+
 ## build
 
 ```
