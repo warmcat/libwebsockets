@@ -322,6 +322,9 @@ lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 			case LWSWSOPC_CONTINUATION:
 				if (!wsi->ws->continuation_possible) {
 					lwsl_wsi_info(wsi, "disordered continuation");
+					lws_close_reason(wsi,
+						LWS_CLOSE_STATUS_PROTOCOL_ERR,
+						(uint8_t *)"bad cont", 8);
 					return LWS_HPI_RET_PLEASE_CLOSE_ME;
 				}
 				wsi->ws->first_fragment = 0;
@@ -347,6 +350,9 @@ lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 				if (wsi->ws->allow_unknown_opcode)
 					break;
 				lwsl_wsi_info(wsi, "illegal opcode");
+				lws_close_reason(wsi,
+					LWS_CLOSE_STATUS_PROTOCOL_ERR,
+					(uint8_t *)"bad opc", 7);
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			default:
 				wsi->ws->defeat_check_utf8 = 1;
@@ -355,6 +361,9 @@ lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 			wsi->ws->rsv = (c & 0x70);
 			if (!lws_ws_rsv_valid(wsi)) {
 				lwsl_wsi_info(wsi, "illegal rsv bits set");
+				lws_close_reason(wsi,
+					LWS_CLOSE_STATUS_PROTOCOL_ERR,
+					(uint8_t *)"rsv bits", 8);
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
 			wsi->ws->final = !!((c >> 7) & 1);
@@ -365,6 +374,9 @@ lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 			    (wsi->ws->opcode == LWSWSOPC_TEXT_FRAME ||
 			     wsi->ws->opcode == LWSWSOPC_BINARY_FRAME)) {
 				lwsl_wsi_info(wsi, "hey you owed us a FIN");
+				lws_close_reason(wsi,
+					LWS_CLOSE_STATUS_PROTOCOL_ERR,
+					(uint8_t *)"bad fin", 7);
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
 			if ((!(wsi->ws->opcode & 8)) && wsi->ws->final) {
@@ -374,6 +386,9 @@ lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 
 			if ((wsi->ws->opcode & 8) && !wsi->ws->final) {
 				lwsl_wsi_info(wsi, "control msg can't be fragmented");
+				lws_close_reason(wsi,
+					LWS_CLOSE_STATUS_PROTOCOL_ERR,
+					(uint8_t *)"frag ctl", 8);
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
 			if (!wsi->ws->final)
@@ -456,7 +471,8 @@ lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 	case LWS_RXPS_04_FRAME_HDR_LEN64_8:
 		if (c & 0x80) {
 			lwsl_wsi_warn(wsi, "b63 of length must be zero");
-			/* kill the connection */
+			lws_close_reason(wsi, LWS_CLOSE_STATUS_PROTOCOL_ERR,
+					 (uint8_t *)"bad len", 7);
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 #if defined __LP64__
@@ -522,12 +538,16 @@ lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 #if !defined __LP64__
 huge_frame:
 		lwsl_wsi_warn(wsi, "ws frame length exceeds size_t");
+		lws_close_reason(wsi, LWS_CLOSE_STATUS_MESSAGE_TOO_LARGE,
+				 (uint8_t *)"huge frame", 10);
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 #endif
 	case LWS_RXPS_04_FRAME_HDR_LEN64_1:
 		wsi->ws->rx_packet_length |= (size_t)c;
 		if (wsi->ws->rx_packet_length > LWS_WS_MAX_RX_FRAME_LEN) {
 			lwsl_wsi_warn(wsi, "huge ws frame");
+			lws_close_reason(wsi, LWS_CLOSE_STATUS_MESSAGE_TOO_LARGE,
+					 (uint8_t *)"huge frame", 10);
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 		if (wsi->ws->this_frame_masked)
@@ -951,8 +971,9 @@ already_done:
 
 illegal_ctl_length:
 	lwsl_wsi_warn(wsi, "Control frame asking for extended length is illegal");
+	lws_close_reason(wsi, LWS_CLOSE_STATUS_PROTOCOL_ERR,
+			 (uint8_t *)"ctl len", 7);
 
-	/* kill the connection */
 	return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 server_cannot_mask:

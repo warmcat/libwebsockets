@@ -350,7 +350,8 @@ handle_first:
 	case LWS_RXPS_04_FRAME_HDR_LEN64_8:
 		if (c & 0x80) {
 			lwsl_warn("b63 of length must be zero\n");
-			/* kill the connection */
+			lws_close_reason(wsi, LWS_CLOSE_STATUS_PROTOCOL_ERR,
+					 (uint8_t *)"bad len", 7);
 			goto ret_asking_close;
 		}
 #if defined __LP64__
@@ -416,12 +417,16 @@ handle_first:
 #if !defined __LP64__
 huge_frame:
 		lwsl_err("ws frame length exceeds size_t\n");
+		lws_close_reason(wsi, LWS_CLOSE_STATUS_MESSAGE_TOO_LARGE,
+				 (uint8_t *)"huge frame", 10);
 		goto ret_asking_close;
 #endif
 	case LWS_RXPS_04_FRAME_HDR_LEN64_1:
 		wsi->ws->rx_packet_length |= ((size_t)c);
 		if (wsi->ws->rx_packet_length > LWS_WS_MAX_RX_FRAME_LEN) {
 			lwsl_err("huge ws frame\n");
+			lws_close_reason(wsi, LWS_CLOSE_STATUS_MESSAGE_TOO_LARGE,
+					 (uint8_t *)"huge frame", 10);
 			goto ret_asking_close;
 		}
 		if (wsi->ws->this_frame_masked)
@@ -864,6 +869,8 @@ already_done:
 illegal_ctl_length:
 
 	lwsl_warn("Control frame with xtended length is illegal\n");
+	lws_close_reason(wsi, LWS_CLOSE_STATUS_PROTOCOL_ERR,
+			 (uint8_t *)"ctl len", 7);
 
 ret_asking_close:
 
