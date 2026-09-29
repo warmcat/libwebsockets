@@ -1799,15 +1799,6 @@ set_parsing_complete:
 	if (ah->ues != URIES_IDLE)
 		goto forbid;
 
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
-#if defined(LWS_ROLE_WS)
-		const char *pv = lws_hdr_simple_ptr(wsi, WSI_TOKEN_VERSION);
-		if (pv)
-			wsi->rx_frame_type = (char)atoi(pv);
-
-		lwsl_parser("v%02d hdrs done\n", wsi->rx_frame_type);
-#endif
-	}
 	ah->parser_state = WSI_PARSING_COMPLETE;
 
 	return LPR_OK;

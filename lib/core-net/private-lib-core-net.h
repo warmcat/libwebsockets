@@ -1303,7 +1303,6 @@ struct lws {
 	/* chars */
 
 	char lws_rx_parse_state; /* enum lws_rx_parse_state */
-	char rx_frame_type; /* enum lws_write_protocol */
 	char pending_timeout; /* enum pending_timeout */
 	char tsi; /* thread service index we belong to */
 	char protocol_interpret_idx;

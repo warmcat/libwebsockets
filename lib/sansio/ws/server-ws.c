@@ -380,9 +380,8 @@ lws_process_ws_upgrade2(struct lws *wsi)
 		return 1;
 	}
 
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_VERSION))
-		wsi->ws->ietf_spec_revision = (uint8_t)
-			       atoi(lws_hdr_simple_ptr(wsi, WSI_TOKEN_VERSION));
+	/* lws_process_ws_upgrade() only lets through version 13 */
+	wsi->ws->ietf_spec_revision = 13;
 
 	/* allocate wsi->user storage */
 	if (lws_ensure_user_space(wsi)) {
@@ -406,65 +405,46 @@ lws_process_ws_upgrade2(struct lws *wsi)
 		return 1;
 	}
 
-	/*
-	 * Perform the handshake according to the protocol version the
-	 * client announced
-	 */
-
-	switch (wsi->ws->ietf_spec_revision) {
-	default:
-		lwsl_notice("Unknown client spec version %d\n",
-			  wsi->ws->ietf_spec_revision);
-		wsi->ws->ietf_spec_revision = 13;
-		//return 1;
-		/* fallthru */
-	case 13:
 #if defined(LWS_WITH_HTTP2)
-		if (wsi->h23_stream_carries_ws) {
-			if (lws_h2_ws_handshake(wsi)) {
-				lwsl_notice("h2 ws handshake failed\n");
-				return 1;
-			}
-			lws_wsi_event(wsi, LWS_WSIEV_WS_UPGRADED);
-
-
-		} else
+	if (wsi->h23_stream_carries_ws) {
+		if (lws_h2_ws_handshake(wsi)) {
+			lwsl_notice("h2 ws handshake failed\n");
+			return 1;
+		}
+		lws_wsi_event(wsi, LWS_WSIEV_WS_UPGRADED);
+	} else
 #endif
-		{
-			lwsl_parser("lws_parse calling handshake_04\n");
-			if (handshake_0405(wsi->a.context, wsi)) {
-				lwsl_notice("hs0405 has failed the connection\n");
-				return 1;
-			}
+	{
+		lwsl_parser("lws_parse calling handshake_04\n");
+		if (handshake_0405(wsi->a.context, wsi)) {
+			lwsl_notice("hs0405 has failed the connection\n");
+			return 1;
+		}
 
 #if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
-			if (ss_upgrade) {
-				lws_ss_handle_t *h = (lws_ss_handle_t *)
-						wsi->a.opaque_user_data;
-				lws_ss_state_return_t r;
+		if (ss_upgrade) {
+			lws_ss_handle_t *h = (lws_ss_handle_t *)
+					wsi->a.opaque_user_data;
+			lws_ss_state_return_t r;
 
-				/*
-				 * Inform the SS user code that this has done a
-				 * one-way upgrade to some other protocol... it
-				 * will likely want to treat subsequent payloads
-				 * differently.  It's the accepted stream bound
-				 * to this connection that is upgrading, not the
-				 * server's template stream on the vhost.  This
-				 * is the same point that h2 tells it, in
-				 * lws_h2_ws_handshake().
-				 */
+			/*
+			 * Inform the SS user code that this has done a
+			 * one-way upgrade to some other protocol... it will
+			 * likely want to treat subsequent payloads
+			 * differently.  It's the accepted stream bound to this
+			 * connection that is upgrading, not the server's
+			 * template stream on the vhost.  This is the same
+			 * point that h2 tells it, in lws_h2_ws_handshake().
+			 */
 
-				r = lws_ss_event_helper(h,
-							LWSSSCS_SERVER_UPGRADE);
-				if (r != LWSSSSRET_OK) {
-					_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(
-								r, wsi, &h);
-					return 1;
-				}
+			r = lws_ss_event_helper(h, LWSSSCS_SERVER_UPGRADE);
+			if (r != LWSSSSRET_OK) {
+				_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(
+							r, wsi, &h);
+				return 1;
 			}
-#endif
 		}
-		break;
+#endif
 	}
 
 	if (lws_server_init_wsi_for_ws(wsi)) {
@@ -563,6 +543,19 @@ lws_process_ws_upgrade(struct lws *wsi)
 #if defined(LWS_WITH_HTTP2)
 	}
 #endif
+
+	/*
+	 * RFC6455 4.2.1 / RFC8441 5: the client must say it speaks version
+	 * 13, which is the only one there is.  Anything else, including no
+	 * header, is not a ws client we can talk to.
+	 */
+
+	n = lws_hdr_copy(wsi, buf, sizeof(buf), WSI_TOKEN_VERSION);
+	if (n != 2 || strcmp(buf, "13")) {
+		lwsl_wsi_notice(wsi, "unsupported or missing ws version");
+
+		return 1;
+	}
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	{
