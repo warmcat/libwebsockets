@@ -1023,6 +1023,171 @@ server_refused_frames_half(struct lws_context *cx)
 	return tr_end();
 }
 
+#if defined(LWS_WITH_HTTP2)
+
+/* just enough HPACK (RFC 7541) and h2 framing to say what case 15 needs */
+
+static uint8_t *
+hp_int(uint8_t *p, uint8_t flags, int bits, uint32_t v)
+{
+	uint32_t max = (1u << bits) - 1;
+
+	if (v < max) {
+		*p++ = (uint8_t)(flags | v);
+		return p;
+	}
+	*p++ = (uint8_t)(flags | max);
+	v -= max;
+	while (v >= 0x80) {
+		*p++ = (uint8_t)(0x80 | (v & 0x7f));
+		v >>= 7;
+	}
+	*p++ = (uint8_t)v;
+
+	return p;
+}
+
+/* a string literal, not huffman coded: len copies of c, or s */
+static uint8_t *
+hp_str(uint8_t *p, const char *s, size_t len, char c)
+{
+	p = hp_int(p, 0, 7, (uint32_t)len);
+	if (s)
+		memcpy(p, s, len);
+	else
+		memset(p, c, len);
+
+	return p + len;
+}
+
+static uint8_t *
+h2_frame_hdr(uint8_t *p, size_t len, uint8_t type, uint8_t flags,
+	     uint32_t sid)
+{
+	*p++ = (uint8_t)(len >> 16);
+	*p++ = (uint8_t)(len >> 8);
+	*p++ = (uint8_t)len;
+	*p++ = type;
+	*p++ = flags;
+	lws_ser_wu32be(p, sid);
+
+	return p + 4;
+}
+
+/* a HEADERS frame with END_STREAM | END_HEADERS, block from b to e */
+static size_t
+h2_headers(uint8_t *out, uint32_t sid, const uint8_t *b, const uint8_t *e)
+{
+	uint8_t *p = h2_frame_hdr(out, (size_t)(e - b), 1, 0x05, sid);
+
+	memcpy(p, b, (size_t)(e - b));
+
+	return (size_t)(p - out) + (size_t)(e - b);
+}
+
+/*
+ * 15: an h2 request whose header block does not fit the ah is answered 431
+ * "Oversized headers", and the connection goes on.  The rest of the block
+ * is still decoded, which keeps the connection's hpack state in step: a
+ * field it put in the dynamic table before the ah filled is still there for
+ * later requests, but one it put there afterwards could not be kept, so a
+ * later request that refers to it is answered 431 too, rather than served
+ * as if the peer had not sent it.
+ */
+static int
+h2_oversized_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char preface[] =
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+		/* SETTINGS, then the ack of the server's */
+		"\x00\x00\x00\x04\x00\x00\x00\x00\x00"
+		"\x00\x00\x00\x04\x01\x00\x00\x00\x00";
+	static uint8_t blk[6000], fr[6100];
+	static struct transport tp;
+	struct lws *wsi;
+	uint8_t *p;
+	size_t n;
+	int sv[2];
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	tr_begin("h2-oversized-headers", "server", 0);
+
+	feed(cx, &tp, preface, sizeof(preface) - 1);
+
+	/*
+	 * sid 1: GET / with :authority entered in the dynamic table, then
+	 * 5000 bytes of user-agent and referer, not indexed, that the 4096
+	 * byte ah cannot hold, then accept, entered in the dynamic table
+	 * after the ah filled.  The table is then accept (62), :authority (63)
+	 */
+	p = blk;
+	*p++ = 0x82; /* :method GET */
+	*p++ = 0x86; /* :scheme http */
+	*p++ = 0x84; /* :path / */
+	p = hp_int(p, 0x40, 6, 1); /* :authority, incremental */
+	p = hp_str(p, "sansio-h2", 9, 0);
+	p = hp_int(p, 0x00, 4, 58); /* user-agent, not indexed */
+	p = hp_str(p, NULL, 3000, 'u');
+	p = hp_int(p, 0x00, 4, 51); /* referer, not indexed */
+	p = hp_str(p, NULL, 2000, 'r');
+	p = hp_int(p, 0x40, 6, 19); /* accept, incremental */
+	p = hp_str(p, "x", 1, 0);
+	n = h2_headers(fr, 1, blk, p);
+	feed(cx, &tp, fr, n);
+	if (!find_bytes(tp.tx, tp.tx_len, "Oversized headers")) {
+		lwsl_err("case 15: oversized block not answered\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+
+	/* sid 3: GET / referring to accept, which could not be kept */
+	p = blk;
+	*p++ = 0x82;
+	*p++ = 0x86;
+	*p++ = 0x84;
+	*p++ = 0x80 | 63; /* :authority */
+	*p++ = 0x80 | 62; /* accept */
+	n = h2_headers(fr, 3, blk, p);
+	feed(cx, &tp, fr, n);
+	if (!find_bytes(tp.tx, tp.tx_len, "Oversized headers")) {
+		lwsl_err("case 15: lost entry not refused\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+
+	/* sid 5: GET / with only :authority from the table, served */
+	p = blk;
+	*p++ = 0x82;
+	*p++ = 0x86;
+	*p++ = 0x84;
+	*p++ = 0x80 | 63; /* :authority */
+	n = h2_headers(fr, 5, blk, p);
+	feed(cx, &tp, fr, n);
+	if (tp.closed || tp.shutdown ||
+	    find_bytes(tp.tx, tp.tx_len, "Oversized headers") ||
+	    !find_bytes(tp.tx, tp.tx_len, "/\n")) {
+		lwsl_err("case 15: connection did not go on\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	lwsl_user("case 15: h2 oversized headers answered 431: PASS\n");
+
+	return tr_end();
+}
+#endif
+
 static int timer_fired;
 
 static void
@@ -1524,6 +1689,9 @@ main(int argc, const char **argv)
 	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE, result = 1;
 	struct lws_context_creation_info info;
 	struct lws_vhost *vh, *vh_uri;
+#if defined(LWS_WITH_HTTP2)
+	struct lws_vhost *vh_h2;
+#endif
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_vhost *vh_pmd;
 #endif
@@ -1610,6 +1778,21 @@ main(int argc, const char **argv)
 	at(cx, 3150);
 	if (server_refused_frames_half(cx))
 		goto bail;
+
+#if defined(LWS_WITH_HTTP2)
+	info.vhost_name = "sansio-h2";
+	info.protocols = protocols_uri;
+	info.options |= LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
+	vh_h2 = lws_create_vhost(cx, &info);
+	info.options &= ~(uint64_t)LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
+	if (!vh_h2) {
+		lwsl_err("h2 vhost failed\n");
+		goto bail;
+	}
+	at(cx, 3500);
+	if (h2_oversized_half(cx, vh_h2))
+		goto bail;
+#endif
 
 #if defined(LWS_WITH_CLIENT)
 	at(cx, 3200);
