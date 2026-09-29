@@ -9,10 +9,12 @@
  * client over SMD rather than forwarding it to the root process:
  *
  *  - any other request is left for the root process, whatever it carries
- *  - a valid request, with its members in either order, is answered ok and
- *    reaches an LWSSMDCL_CERTS subscriber as the documented message
- *  - a missing, malformed or non-DNS-name domain is answered with an error
- *    and sends nothing, so nothing from the browser can shape the SMD JSON
+ *  - a valid request for one cert, with its members in either order, is
+ *    answered ok and reaches an LWSSMDCL_CERTS subscriber as the documented
+ *    message
+ *  - a missing, malformed or non-DNS-name domain or fqdn, or an fqdn not
+ *    inside the domain, is answered with an error and sends nothing, so
+ *    nothing from the browser can shape the SMD JSON or reach past one cert
  *  - an answer that would not fit whole in the reply space is not sent,
  *    and then the ACME client is not asked either
  */
@@ -122,47 +124,82 @@ main(int argc, const char **argv)
 				reply, sizeof(reply)) == -1,
 			  "no req goes to root");
 
-	/* a valid request */
+	/* a valid request names one cert, inside its domain */
 
 	n = t_req("{\"req\":\"force_cert_reissue\",\"domain\":"
-		  "\"selfdns.org\"}", reply, sizeof(reply));
+		  "\"selfdns.org\",\"fqdn\":\"www.selfdns.org\"}",
+		  reply, sizeof(reply));
 	fails += t_expect(n > 0 && (size_t)n == strlen(reply) &&
 			  !strcmp(reply, "{\"req\":\"force_cert_reissue\","
-				  "\"status\":\"ok\",\"domain\":\"selfdns.org\"}\n"),
+				  "\"status\":\"ok\",\"domain\":\"selfdns.org\","
+				  "\"fqdn\":\"www.selfdns.org\"}\n"),
 			  "valid request answered ok");
 	t_wait_smd(1, 3 * LWS_US_PER_SEC);
 	fails += t_expect(smd_count == 1 &&
 			  !strcmp(smd_rx, "{\"acme\":\"force-reissue\","
-				  "\"domain\":\"selfdns.org\"}"),
+				  "\"domain\":\"selfdns.org\","
+				  "\"common-name\":\"www.selfdns.org\"}"),
 			  "ACME client asked over SMD");
 
-	n = t_req("{\"domain\":\"Sub-1.example.com\",\"req\":"
-		  "\"force_cert_reissue\"}", reply, sizeof(reply));
+	n = t_req("{\"fqdn\":\"*.Sub-1.example.com\",\"domain\":"
+		  "\"Sub-1.example.com\",\"req\":\"force_cert_reissue\"}",
+		  reply, sizeof(reply));
 	fails += t_expect(n > 0 && strstr(reply, "\"status\":\"ok\""),
-			  "members in the other order");
+			  "members in the other order, wildcard cert");
 	t_wait_smd(2, 3 * LWS_US_PER_SEC);
 	fails += t_expect(smd_count == 2 &&
 			  !strcmp(smd_rx, "{\"acme\":\"force-reissue\","
-				  "\"domain\":\"Sub-1.example.com\"}"),
+				  "\"domain\":\"Sub-1.example.com\","
+				  "\"common-name\":\"*.Sub-1.example.com\"}"),
 			  "second request reaches SMD");
+
+	n = t_req("{\"req\":\"force_cert_reissue\",\"domain\":\"x.org\","
+		  "\"fqdn\":\"x.org\"}", reply, sizeof(reply));
+	fails += t_expect(n > 0 && strstr(reply, "\"status\":\"ok\""),
+			  "cert for the domain itself");
+	t_wait_smd(3, 3 * LWS_US_PER_SEC);
+	fails += t_expect(smd_count == 3, "third request reaches SMD");
 
 	/* refused: answered with an error, nothing sent */
 
-	n = t_req("{\"req\":\"force_cert_reissue\"}", reply, sizeof(reply));
-	fails += t_expect(n > 0 && strstr(reply, "\"msg\":\"Missing domain\""),
-			  "missing domain");
-	n = t_req("{\"req\":\"force_cert_reissue\",\"domain\":\".x.org\"}",
+	n = t_req("{\"req\":\"force_cert_reissue\",\"fqdn\":\"x.org\"}",
 		  reply, sizeof(reply));
 	fails += t_expect(n > 0 && strstr(reply, "\"msg\":\"Missing domain\""),
+			  "missing domain");
+	n = t_req("{\"req\":\"force_cert_reissue\",\"domain\":\".x.org\","
+		  "\"fqdn\":\"a.x.org\"}", reply, sizeof(reply));
+	fails += t_expect(n > 0 && strstr(reply, "\"msg\":\"Missing domain\""),
 			  "leading dot");
+	n = t_req("{\"req\":\"force_cert_reissue\",\"domain\":\"x.org\"}",
+		  reply, sizeof(reply));
+	fails += t_expect(n > 0 && strstr(reply, "\"msg\":\"Missing fqdn\""),
+			  "missing fqdn: never the whole domain");
 	n = t_req("{\"req\":\"force_cert_reissue\",\"domain\":"
-		  "\"a\\\",\\\"x\\\":\\\"b.org\"}", reply, sizeof(reply));
+		  "\"a\\\",\\\"x\\\":\\\"b.org\",\"fqdn\":\"b.org\"}",
+		  reply, sizeof(reply));
 	fails += t_expect(n > 0 && strstr(reply, "\"msg\":\"Invalid domain\""),
-			  "quote injection refused");
-	n = t_req("{\"req\":\"force_cert_reissue\",\"domain\":"
-		  "\"a\\nb.org\"}", reply, sizeof(reply));
+			  "quote injection in domain refused");
+	n = t_req("{\"req\":\"force_cert_reissue\",\"domain\":\"*.x.org\","
+		  "\"fqdn\":\"*.x.org\"}", reply, sizeof(reply));
 	fails += t_expect(n > 0 && strstr(reply, "\"msg\":\"Invalid domain\""),
+			  "wildcard domain refused");
+	n = t_req("{\"req\":\"force_cert_reissue\",\"domain\":\"b.org\","
+		  "\"fqdn\":\"a\\\",\\\"x\\\":\\\"b.org\"}",
+		  reply, sizeof(reply));
+	fails += t_expect(n > 0 && strstr(reply, "\"msg\":\"Invalid fqdn\""),
+			  "quote injection in fqdn refused");
+	n = t_req("{\"req\":\"force_cert_reissue\",\"domain\":\"b.org\","
+		  "\"fqdn\":\"a\\nb.org\"}", reply, sizeof(reply));
+	fails += t_expect(n > 0 && strstr(reply, "\"msg\":\"Invalid fqdn\""),
 			  "newline refused");
+	n = t_req("{\"req\":\"force_cert_reissue\",\"domain\":\"x.org\","
+		  "\"fqdn\":\"www.y.org\"}", reply, sizeof(reply));
+	fails += t_expect(n > 0 && strstr(reply, "\"msg\":\"fqdn not in domain\""),
+			  "fqdn of another domain");
+	n = t_req("{\"req\":\"force_cert_reissue\",\"domain\":\"x.org\","
+		  "\"fqdn\":\"evilx.org\"}", reply, sizeof(reply));
+	fails += t_expect(n > 0 && strstr(reply, "\"msg\":\"fqdn not in domain\""),
+			  "fqdn only sharing a suffix");
 	n = t_req("{\"req\":\"force_cert_reissue\",\"domain\":\"x.org\"",
 		  reply, sizeof(reply));
 	fails += t_expect(n > 0 && strstr(reply, "\"msg\":\"Malformed request\""),
@@ -170,13 +207,13 @@ main(int argc, const char **argv)
 
 	/* no room for the whole answer: nothing queued */
 
-	n = t_req("{\"req\":\"force_cert_reissue\",\"domain\":\"x.org\"}",
-		  tiny, sizeof(tiny));
+	n = t_req("{\"req\":\"force_cert_reissue\",\"domain\":\"x.org\","
+		  "\"fqdn\":\"x.org\"}", tiny, sizeof(tiny));
 	fails += t_expect(n == 0, "answer that doesn't fit is not sent");
 
-	/* only the two answered valid requests went out */
-	t_wait_smd(3, LWS_US_PER_SEC);
-	fails += t_expect(smd_count == 2, "no SMD for refused requests");
+	/* only the three answered valid requests went out */
+	t_wait_smd(4, LWS_US_PER_SEC);
+	fails += t_expect(smd_count == 3, "no SMD for refused requests");
 
 	lws_smd_unregister(peer);
 	lws_context_destroy(cx);

@@ -185,17 +185,18 @@ doubleclick|The button activity resulted in a classification as a double-click
 
 Class: `LWSSMDCL_CERTS`
 
-Asks the ACME client to reissue every certificate it manages for a domain on
-its next evaluation, however much validity is left, and to start that
-evaluation now.  The dnssec monitor issues it from its "Force cert reissue"
-button.
+Asks the ACME client to reissue one certificate it manages, the one with that
+common name in that domain, on its next evaluation, however much validity is
+left, and to start that evaluation now.  The dnssec monitor issues it from the
+"Force reissue" button on each row of its TLS certificates table.
 
 Schema:
 
 ```
 	{
-	  "acme":    "force-reissue",
-	  "domain":  "<domain>"
+	  "acme":        "force-reissue",
+	  "domain":      "<domain>",
+	  "common-name": "<certificate common name>"
 	}
 ```
 

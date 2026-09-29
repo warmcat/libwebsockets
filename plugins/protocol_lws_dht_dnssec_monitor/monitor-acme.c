@@ -40,11 +40,13 @@
 static const char * const ui_local_paths[] = {
 	"req",
 	"domain",
+	"fqdn",
 };
 
 struct ui_local_req {
 	char req[32];
 	char domain[128];
+	char fqdn[128];
 };
 
 static signed char
@@ -64,9 +66,32 @@ ui_local_req_cb(struct lejp_ctx *ctx, char reason)
 	case 1:
 		lws_strncpy(r->domain, ctx->buf, sizeof(r->domain));
 		break;
+	case 2:
+		lws_strncpy(r->fqdn, ctx->buf, sizeof(r->fqdn));
+		break;
 	}
 
 	return 0;
+}
+
+/*
+ * A DNS name, then it can go in the SMD JSON and the reply as it is.  The
+ * ACME client's cert names may also be wildcards, or carry '_'
+ */
+
+static int
+ui_valid_name(const char *p, int cert_name)
+{
+	if (!*p || *p == '.')
+		return 0;
+
+	for (; *p; p++)
+		if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+		      (*p >= '0' && *p <= '9') || *p == '.' || *p == '-' ||
+		      (cert_name && (*p == '_' || *p == '*'))))
+			return 0;
+
+	return 1;
 }
 
 int
@@ -76,6 +101,7 @@ monitor_ui_local_req(struct lws_context *cx, const void *in, size_t len,
 	struct ui_local_req r;
 	struct lejp_ctx ctx;
 	const char *err = NULL;
+	size_t dl, fl;
 	int n;
 
 	memset(&r, 0, sizeof(r));
@@ -91,18 +117,23 @@ monitor_ui_local_req(struct lws_context *cx, const void *in, size_t len,
 		/* no room to answer, so don't act on it either */
 		return 0;
 
+	dl = strlen(r.domain);
+	fl = strlen(r.fqdn);
+
 	if (n < 0)
 		err = "Malformed request";
 	else if (!r.domain[0] || r.domain[0] == '.')
 		err = "Missing domain";
-	else
-		/* a DNS name: then it can go in the SMD JSON and the reply */
-		for (n = 0; r.domain[n] && !err; n++)
-			if (!((r.domain[n] >= 'a' && r.domain[n] <= 'z') ||
-			      (r.domain[n] >= 'A' && r.domain[n] <= 'Z') ||
-			      (r.domain[n] >= '0' && r.domain[n] <= '9') ||
-			      r.domain[n] == '.' || r.domain[n] == '-'))
-				err = "Invalid domain";
+	else if (!r.fqdn[0])
+		err = "Missing fqdn";
+	else if (!ui_valid_name(r.domain, 0))
+		err = "Invalid domain";
+	else if (!ui_valid_name(r.fqdn, 1))
+		err = "Invalid fqdn";
+	else if (fl < dl || strcmp(r.fqdn + fl - dl, r.domain) ||
+		 (fl > dl && r.fqdn[fl - dl - 1] != '.'))
+		/* the cert must be one of the domain's own */
+		err = "fqdn not in domain";
 
 	/*
 	 * Say it only if the whole answer fits: we must not ask for a reissue
@@ -110,8 +141,8 @@ monitor_ui_local_req(struct lws_context *cx, const void *in, size_t len,
 	 */
 	if (!err)
 		n = lws_snprintf(reply, reply_len, "{\"req\":\"force_cert_reissue\","
-				 "\"status\":\"ok\",\"domain\":\"%s\"}\n",
-				 r.domain);
+				 "\"status\":\"ok\",\"domain\":\"%s\","
+				 "\"fqdn\":\"%s\"}\n", r.domain, r.fqdn);
 	else
 		n = lws_snprintf(reply, reply_len, "{\"req\":\"force_cert_reissue\","
 				 "\"status\":\"error\",\"msg\":\"%s\"}\n", err);
@@ -126,7 +157,8 @@ monitor_ui_local_req(struct lws_context *cx, const void *in, size_t len,
 	 * message just goes nowhere
 	 */
 	if (lws_smd_msg_printf(cx, LWSSMDCL_CERTS, "{\"acme\":\"force-reissue\","
-			       "\"domain\":\"%s\"}", r.domain)) {
+			       "\"domain\":\"%s\",\"common-name\":\"%s\"}",
+			       r.domain, r.fqdn)) {
 		n = lws_snprintf(reply, reply_len, "{\"req\":\"force_cert_reissue\","
 				 "\"status\":\"error\",\"msg\":\"Unable to "
 				 "reach the ACME client\"}\n");
@@ -136,8 +168,8 @@ monitor_ui_local_req(struct lws_context *cx, const void *in, size_t len,
 		return n;
 	}
 
-	lwsl_notice("%s: forced cert reissue requested for %s\n", __func__,
-		    r.domain);
+	lwsl_notice("%s: forced cert reissue requested for %s (%s)\n",
+		    __func__, r.fqdn, r.domain);
 
 	return n;
 }

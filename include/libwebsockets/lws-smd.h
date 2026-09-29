@@ -71,8 +71,9 @@ enum {
 	/**<
 	 * Requests to, and events from, whatever manages the certificates,
 	 * eg, the ACME client.  The payload is JSON, eg, a request to reissue
-	 * every certificate of a domain regardless of its remaining validity
-	 * {"acme":"force-reissue","domain":"example.com"}
+	 * one certificate regardless of its remaining validity
+	 * {"acme":"force-reissue","domain":"example.com",
+	 *  "common-name":"www.example.com"}
 	 */
 
 	LWSSMDCL_USER_BASE_BITNUM				= 24

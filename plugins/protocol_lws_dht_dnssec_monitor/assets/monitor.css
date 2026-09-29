@@ -431,6 +431,10 @@ table.table-nowrap {
   white-space: nowrap;
 }
 
+.tls-actions .btn + .btn {
+  margin-left: 0.5rem;
+}
+
 .form-group label {
   display: block;
   margin-bottom: 0.5rem;

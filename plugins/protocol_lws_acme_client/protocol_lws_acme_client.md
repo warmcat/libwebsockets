@@ -94,19 +94,21 @@ Here is an example of configuring `lwsws` to enable the ACME client plugin on a 
 ### Forcing a reissue
 
 Certificates are evaluated at startup and hourly after that, and renewed once
-a quarter or less of their validity is left.  To reissue a domain's
-certificates before then, eg, to move them to a different `profile` straight
-away, send on SMD class `LWSSMDCL_CERTS`
+a quarter or less of their validity is left.  To reissue a certificate
+before then, eg, to move it to a different `profile` straight away, send on
+SMD class `LWSSMDCL_CERTS`
 
 ```json
-{"acme":"force-reissue","domain":"example.com"}
+{"acme":"force-reissue","domain":"example.com","common-name":"www.example.com"}
 ```
 
-Every certificate managed for that domain is then reissued at its next
-evaluation however much validity it has left, and the evaluation is brought
-forward to now (or the next one, if an evaluation or acquisition is already
-running).  The backoff after failed acquisitions still applies.  The
-`lws-dht-dnssec-monitor` UI sends this from its "Force cert reissue" button.
+`domain` is the directory under `$dns_base_dir/domains/` the certificate's
+config was loaded from, and `common-name` its config's `common-name`.  That
+certificate is then reissued at its next evaluation however much validity it
+has left, and the evaluation is brought forward to now (or the next one, if an
+evaluation or acquisition is already running).  The backoff after failed
+acquisitions still applies.  The `lws-dht-dnssec-monitor` UI sends this from
+the "Force reissue" button on each row of its TLS certificates table.
 
 ## Example Certificate JSON Configurations (`$dns_base_dir/domains/<domain-name>/conf.d/*.json`)
 

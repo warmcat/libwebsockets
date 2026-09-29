@@ -19,14 +19,17 @@ These UI assets do not contain any inline scripts or styles, ensuring they are s
 
 #### Force cert reissue
 
-Next to a domain's "ACME Enabled" checkbox, "Force cert reissue" has the ACME
-client reissue every certificate it manages for the domain now, however much
-validity they have left, for example to move them onto a newly chosen
-certificate profile at once rather than at the next renewal.  The ACME client
-runs in the lwsws process rather than the root process, so the proxy answers
-this request itself, sending `{"acme":"force-reissue","domain":"..."}` on SMD
-class `LWSSMDCL_CERTS`.  The usual backoff after failed acquisitions still
-applies, and Let's Encrypt allows only 5 identical certificates per week.
+Each row of the TLS tab's "Cross-Domain TLS Certificates" table ends with a
+"Force reissue" button, which has the ACME client reissue that row's
+certificate now, however much validity it has left, for example to move it
+onto a newly chosen certificate profile at once rather than at the next
+renewal.  The buttons are only enabled while the "ACME Enabled" checkbox of the
+certificate's toplevel domain is set.  The ACME client runs in the lwsws
+process rather than the root process, so the proxy answers this request itself,
+checking the row's FQDN lies inside its domain and sending
+`{"acme":"force-reissue","domain":"...","common-name":"..."}` on SMD class
+`LWSSMDCL_CERTS`.  The usual backoff after failed acquisitions still applies,
+and Let's Encrypt allows only 5 identical certificates per week.
 
 #### Server IP Inventory
 

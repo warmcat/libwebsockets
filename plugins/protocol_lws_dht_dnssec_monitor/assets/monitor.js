@@ -593,7 +593,10 @@ function handleResponse(data) {
             showToast('Domain ACME preference saved');
             break;
         case 'force_cert_reissue':
-            showToast('Certificate reissue requested for ' + data.domain);
+            if (data.status === 'ok')
+                showToast('Certificate reissue requested for ' + data.fqdn);
+            else
+                showToast('Certificate reissue failed: ' + data.msg, true);
             break;
         case 'get_acme_log':
             if (data.log) {
@@ -1554,23 +1557,18 @@ function selectDomain(domain) {
     console.log('[DEBUG] currentDomainObj set to:', currentDomainObj);
     
     const cbAcme = document.getElementById('cb-domain-acme-enable');
-    const btnReissue = document.getElementById('btn-force-reissue');
     if (cbAcme && currentDomainObj) {
         cbAcme.checked = currentDomainObj.acme_enabled === true;
-        if (btnReissue)
-            btnReissue.disabled = !cbAcme.checked;
         cbAcme.onchange = function() {
             sendReq({ req: 'set_domain_acme', domain: currentDomain, enabled: this.checked });
-            if (btnReissue)
-                btnReissue.disabled = !this.checked;
-        };
-    }
-    if (btnReissue) {
-        btnReissue.onclick = function() {
-            if (confirm('Reissue the certificates for ' + currentDomain +
-                        ' now, however long they have left?\n\n' +
-                        'Let\'s Encrypt allows only 5 identical certificates per week.'))
-                sendReq({ req: 'force_cert_reissue', domain: currentDomain });
+            /*
+             * the TLS table's reissue buttons follow the domain's ACME
+             * state: the cache may have been refetched since selection
+             */
+            const domObj = window.domainsCache ? window.domainsCache.find(d => d.name === currentDomain) : null;
+            if (domObj)
+                domObj.acme_enabled = this.checked;
+            updateGlobalTlsTable();
         };
     }
 
@@ -1828,10 +1826,21 @@ function updateGlobalTlsTable() {
             <td>${locExp}</td>
             <td>${remExp}</td>
             <td>${issuer}</td>
-            <td><button class="btn btn-sm secondary btn-provision">Provision</button></td>
+            <td class="tls-actions"><button class="btn btn-sm secondary btn-provision">Provision</button><button class="btn btn-sm secondary btn-reissue" title="Have the ACME client reissue this certificate now, however long it has left">Force reissue</button></td>
         `;
         const btn = tr.querySelector('.btn-provision');
         if (btn) btn.addEventListener('click', () => document.getElementById('tab-btn-dist').click());
+
+        /* only while ACME is enabled for the cert's toplevel domain */
+        const btnReissue = tr.querySelector('.btn-reissue');
+        const domObj = window.domainsCache ? window.domainsCache.find(d => d.name === t.domain) : null;
+        btnReissue.disabled = !(domObj && domObj.acme_enabled === true);
+        btnReissue.addEventListener('click', () => {
+            if (confirm('Reissue the certificate for ' + t.fqdn +
+                        ' now, however long it has left?\n\n' +
+                        'Let\'s Encrypt allows only 5 identical certificates per week.'))
+                sendReq({ req: 'force_cert_reissue', domain: t.domain, fqdn: t.fqdn });
+        });
         tbody.appendChild(tr);
     });
 

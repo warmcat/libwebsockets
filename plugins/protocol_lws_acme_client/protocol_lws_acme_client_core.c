@@ -1481,19 +1481,22 @@ lws_acme_timer_cb(lws_sorted_usec_list_t *sul)
 #if defined(LWS_WITH_SYS_SMD)
 
 /*
- * {"acme":"force-reissue","domain":"example.com"} on LWSSMDCL_CERTS marks
- * every cert we manage for that domain to be reissued however much validity
- * it has left, and brings the next evaluation forward to now
+ * {"acme":"force-reissue","domain":"example.com",
+ *  "common-name":"www.example.com"} on LWSSMDCL_CERTS marks the cert we
+ * manage for that common-name in that domain to be reissued however much
+ * validity it has left, and brings the next evaluation forward to now
  */
 
 static const char * const acme_smd_paths[] = {
 	"acme",
 	"domain",
+	"common-name",
 };
 
 struct acme_smd_req {
 	char acme[32];
 	char domain[128];
+	char cn[128];
 };
 
 static signed char
@@ -1511,6 +1514,9 @@ acme_smd_req_cb(struct lejp_ctx *ctx, char reason)
 	case 1:
 		lws_strncpy(r->domain, ctx->buf, sizeof(r->domain));
 		break;
+	case 2:
+		lws_strncpy(r->cn, ctx->buf, sizeof(r->cn));
+		break;
 	}
 
 	return 0;
@@ -1524,7 +1530,7 @@ acme_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 			(struct per_vhost_data__lws_acme_client *)opaque;
 	struct acme_smd_req r;
 	struct lejp_ctx ctx;
-	int m, count = 0;
+	int m, matched = 0;
 
 	memset(&r, 0, sizeof(r));
 	lejp_construct(&ctx, acme_smd_req_cb, &r, acme_smd_paths,
@@ -1532,7 +1538,8 @@ acme_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 	m = lejp_parse(&ctx, (const uint8_t *)buf, (int)len);
 	lejp_destruct(&ctx);
 
-	if (m < 0 || strcmp(r.acme, "force-reissue") || !r.domain[0])
+	if (m < 0 || strcmp(r.acme, "force-reissue") || !r.domain[0] ||
+	    !r.cn[0])
 		return 0;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
@@ -1543,19 +1550,21 @@ acme_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 		const char *domain = cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] ?
 				cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] :
 				cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
+		const char *cn = cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
 
-		if (domain && !strcmp(domain, r.domain)) {
+		if (domain && cn && !strcmp(domain, r.domain) &&
+		    !strcmp(cn, r.cn)) {
 			cfg->force_reissue = 1;
-			count++;
+			matched = 1;
 		}
 	} lws_end_foreach_dll(d);
 
-	if (!count)
+	if (!matched)
 		return 0;
 
-	/* it matched one of our domains, so it's fine to log */
-	lwsl_vhost_notice(vhd->vhost, "acme: reissue of %d cert(s) for %s forced",
-			  count, r.domain);
+	/* it matched one of our certs, so it's fine to log */
+	lwsl_vhost_notice(vhd->vhost, "acme: reissue of %s (%s) forced",
+			  r.cn, r.domain);
 
 	/*
 	 * Evaluate now, the timer puts itself back to hourly after.  If an
