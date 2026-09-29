@@ -29,7 +29,7 @@
 
 #if defined(LWS_WITH_SYS_SMD)
 const lws_ss_policy_t pol_smd = {
-	.flags			= 0, /* have to set something for windows */
+	.streamtype		= LWS_SMD_STREAMTYPENAME,
 };
 #endif
 
