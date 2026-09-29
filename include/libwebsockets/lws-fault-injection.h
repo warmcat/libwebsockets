@@ -211,6 +211,31 @@ lws_fi_destroy(const lws_fi_ctx_t *fic);
 LWS_VISIBLE LWS_EXTERN void
 lws_fi_deserialize(lws_fi_ctx_t *fic, const char *sers);
 
+/**
+ * lws_fi_random_seed() - make lws_get_random() a seeded PRNG
+ *
+ * \param cx: the lws context
+ * \param seed: the seed
+ *
+ * From now on, lws_get_random() on \p cx returns bytes from a xoshiro256
+ * stream seeded with \p seed instead of the platform's random source, so a
+ * run that makes the same calls in the same order gets the same bytes: for
+ * reproducible tests.  Calling it again reseeds.  The stream is its own, so
+ * other faults using the fault context's PRNG do not move it.
+ *
+ * The bytes are predictable, and are handed to everything that draws random
+ * from lws, including key generation: never use it outside a test.  A
+ * warning is logged when it is set.  The tls library's own random source,
+ * used inside its handshakes, is not affected.
+ *
+ * Set it before any other thread services the context.  To have it from
+ * the start of context creation, add the fault "random_prng" to the
+ * creation info's fic (eg, --fault-injection random_prng): the stream is
+ * then seeded from the fic's PRNG, ie, from --fault-seed.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_fi_random_seed(struct lws_context *cx, uint64_t seed);
+
 LWS_VISIBLE LWS_EXTERN int
 _lws_fi_user_wsi_fi(struct lws *wsi, const char *name);
 LWS_VISIBLE LWS_EXTERN int

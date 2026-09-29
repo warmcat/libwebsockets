@@ -131,7 +131,7 @@ lws_plat_random_resolve(void)
 }
 
 size_t
-lws_get_random(struct lws_context *context, void *buf, size_t len)
+lws_plat_get_random(struct lws_context *context, void *buf, size_t len)
 {
 	uint8_t *p = (uint8_t *)buf;
 	size_t done = 0;

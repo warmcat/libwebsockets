@@ -205,6 +205,81 @@ lws_hex_from_byte_array(const uint8_t *src, size_t slen, char *dest, size_t len)
 	*dest = '\0';
 }
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+/*
+ * Fault injection can put a seeded PRNG in place of the platform's random
+ * source, so a test run is reproducible from its seed (the sansIO harness
+ * records byte transcripts that way).  It is its own xoshiro256 stream,
+ * context->random_xos, not the fault context's, so faults that consume
+ * fic.xos do not move it.  The bytes are predictable: nothing drawn while it
+ * is on is fit for keys.
+ */
+void
+lws_fi_random_seed(struct lws_context *cx, uint64_t seed)
+{
+	if (!cx->random_prng) {
+#if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
+		pthread_mutex_init(&cx->random_lock, NULL);
+#endif
+		cx->random_prng = 1;
+	}
+
+	lws_xos_init(&cx->random_xos, seed);
+
+	lwsl_cx_warn(cx, "random is a seeded PRNG, NOT random: never use "
+			 "this for real keys");
+}
+
+void
+lws_fi_random_destroy(struct lws_context *cx)
+{
+	if (!cx->random_prng)
+		return;
+
+#if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
+	pthread_mutex_destroy(&cx->random_lock);
+#endif
+	cx->random_prng = 0;
+}
+
+static size_t
+lws_fi_random(struct lws_context *cx, void *buf, size_t len)
+{
+	uint8_t *p = (uint8_t *)buf;
+	size_t n = len;
+
+#if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
+	pthread_mutex_lock(&cx->random_lock); /* leaf lock */
+#endif
+	while (n) {
+		uint64_t r = lws_xos(&cx->random_xos);
+		int b = 8;
+
+		while (n && b--) {
+			*p++ = (uint8_t)r;
+			r >>= 8;
+			n--;
+		}
+	}
+#if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
+	pthread_mutex_unlock(&cx->random_lock);
+#endif
+
+	return len;
+}
+#endif
+
+size_t
+lws_get_random(struct lws_context *context, void *buf, size_t len)
+{
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	if (context->random_prng)
+		return lws_fi_random(context, buf, len);
+#endif
+
+	return lws_plat_get_random(context, buf, len);
+}
+
 int
 lws_hex_random(struct lws_context *context, char *dest, size_t len)
 {

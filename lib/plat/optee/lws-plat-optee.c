@@ -82,7 +82,7 @@ lws_now_usecs(void)
 #endif
 
 size_t
-lws_get_random(struct lws_context *context, void *buf, size_t len)
+lws_plat_get_random(struct lws_context *context, void *buf, size_t len)
 {
 	/*
 	 * Callers are entitled to believe a return of len means len good

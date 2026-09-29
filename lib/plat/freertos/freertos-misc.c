@@ -45,7 +45,7 @@ lws_now_usecs(void)
 }
 
 size_t
-lws_get_random(struct lws_context *context, void *buf, size_t len)
+lws_plat_get_random(struct lws_context *context, void *buf, size_t len)
 {
 #if defined(LWS_WITH_ESP32)
 	uint8_t *pb = buf;

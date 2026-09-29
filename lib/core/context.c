@@ -1002,6 +1002,15 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	/*
+	 * random_prng: lws_get_random() is a PRNG seeded from the creation
+	 * info's fault PRNG (--fault-seed), before the import below draws on
+	 * it, so the context's random is reproducible from the start
+	 */
+	if (lws_fi(&info->fic, "random_prng"))
+		lws_fi_random_seed(context,
+				   lws_xos((lws_xos_t *)&info->fic.xos));
+
 	context->fic.name = "ctx";
 	if (lws_dll2_count(&info->fic.fi_owner))
 		/*
@@ -2278,6 +2287,9 @@ free_context_fail2:
 			lws_dll2_remove(lws_dll2_get_head(&context->mgr_system.notify_list));
 #endif
 		lws_fi_destroy(&context->fic);
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		lws_fi_random_destroy(context);
+#endif
 	}
 	lws_fi_destroy(&info->fic);
 	if (context) {
@@ -3058,6 +3070,9 @@ next_l:
 
 #if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
 		lws_mutex_refcount_destroy(&context->mr);
+#endif
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		lws_fi_random_destroy(context);
 #endif
 
 #if defined(LWS_WITH_SYS_METRICS) && defined(LWS_WITH_NETWORK)

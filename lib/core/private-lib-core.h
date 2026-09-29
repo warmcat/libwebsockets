@@ -649,6 +649,15 @@ struct lws_context {
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	lws_fi_ctx_t			fic;
 	/**< Toplevel Fault Injection ctx */
+	struct lws_xos			random_xos;
+	/**< lws_get_random()'s seeded PRNG, when random_prng is set: its own
+	 * stream, so other faults consuming fic.xos do not move it */
+#if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
+	pthread_mutex_t			random_lock;
+	/**< a leaf lock for random_xos: callers may hold any other */
+#endif
+	uint8_t				random_prng;
+	/**< lws_get_random() comes from random_xos, not the platform */
 #endif
 
 #if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
@@ -1290,6 +1299,14 @@ lws_vfs_select_fops(const struct lws_plat_file_ops *fops, const char *vfs_path,
 
 /* lws_plat_ */
 
+/* the platform's random source, behind lws_get_random() */
+size_t
+lws_plat_get_random(struct lws_context *context, void *buf, size_t len);
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+/* the seeded PRNG in place of it goes with the context */
+void
+lws_fi_random_destroy(struct lws_context *cx);
+#endif
 int
 lws_plat_context_early_init(void);
 void

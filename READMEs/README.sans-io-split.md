@@ -257,12 +257,20 @@ are IO's plumbing, `lws_io_plumbing_t` in `private-lib-core-net.h`: the
 seam reaches them the same way, through the context, so the sansIO objects
 still take nothing of IO's for them, but the table is private, IO fills it
 in (`lws_io_plumbing_default`) whatever `io_ops` the context was given, and
-its members are NULL, and checked, in a build without their feature.  The platform functions are injected
-dependencies rather than requests: `lws_now_usecs()`, the clock, and
-`lws_get_random()`, the random source.  A port passes them in; everything
-else sansIO links with is the substrate neither half owns (`lib/core`,
-`lib/misc`, the neither-half files of `lib/core-net`, the generic crypto),
-which a port translates along with it.
+its members are NULL, and checked, in a build without their feature.
+
+The platform functions are injected dependencies rather than requests:
+`lws_now_usecs()`, the clock, and `lws_get_random()`, the random source.  A
+port passes them in; everything else sansIO links with is the substrate
+neither half owns (`lib/core`, `lib/misc`, the neither-half files of
+`lib/core-net`, the generic crypto), which a port translates along with it.
+`lws_get_random()` is in `lib/core` and asks the platform
+(`lws_plat_get_random()`), unless fault injection put a seeded PRNG in its
+place for the context (`lws_fi_random_seed()`, or the fault `random_prng`
+seeded from `--fault-seed`): then a run making the same calls in the same
+order draws the same bytes, which is what lets a harness record a byte
+transcript and a port replay it.  The tls library's own random, inside its
+handshakes, is not lws' and stays random.
 
 **The links-alone test** is the contract checked by the linker, the C
 tree's form of the boundary between a sansIO crate and an IO crate.  With
