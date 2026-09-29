@@ -406,6 +406,18 @@ rops_handle_POLLOUT_h2(struct lws *wsi)
 	if (lws_wsi_is_mux_nwsi(wsi) && wsi->h2.h2n->pps_tx_pass) {
 		wsi->h2.h2n->pps_tx_pass = 0;
 
+		/*
+		 * The pass was the protocol packets', but more of them, or a
+		 * stream, may still want to write.  A poll() loop's POLLOUT
+		 * is still on for them, but a writeable is one per ask
+		 * (io_ops want_write), so ask for the next one: otherwise,
+		 * with a transport that takes it at its word, a stream that
+		 * asked while its parent's ask was pending is never served.
+		 */
+		if (!lws_dll2_is_empty(&wsi->h2.h2n->pps_owner) ||
+		    wsi->mux.requested_POLLOUT)
+			(void)__lws_io_want_write(wsi);
+
 		if (!lws_dll2_is_empty(&wsi->h2.h2n->pps_owner))
 			return LWS_HP_RET_BAIL_OK;
 
