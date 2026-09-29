@@ -1069,23 +1069,30 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			if (!consumed) return -1;
 			pos += consumed;
 			if (reason_len > payload_len - pos) return -1;
-			lwsl_wsi_notice(nwsi, "QUIC RX: CONNECTION_CLOSE (err=%llu, frame_type=%llu, reason_len=%llu)", 
-				(unsigned long long)err_code, (unsigned long long)frame_type, (unsigned long long)reason_len);
-			
-			if (reason_len) {
-				char chunk[128];
-				size_t printed = 0;
-				while (printed < reason_len) {
-					size_t chunk_len = reason_len - printed;
-					if (chunk_len > sizeof(chunk) - 1)
-						chunk_len = sizeof(chunk) - 1;
-					memcpy(chunk, &payload[pos + printed], chunk_len);
-					chunk[chunk_len] = '\0';
-					lwsl_wsi_notice(nwsi, "QUIC RX REASON: %s", chunk);
-					printed += chunk_len;
-				}
+#if (_LWS_ENABLED_LOGS & (LLL_NOTICE | LLL_INFO))
+			{
+				/* the reason phrase is the peer's to choose */
+				char reason[128];
+				int in = (int)reason_len;
+
+				reason[0] = '\0';
+				if (in)
+					lws_json_purify(reason, (const char *)&payload[pos],
+							(int)sizeof(reason), &in);
+
+				/* NO_ERROR is how a peer ends a connection normally */
+				if (err_code)
+					lwsl_wsi_notice(nwsi, "QUIC RX: CONNECTION_CLOSE "
+						"(err=%llu, frame_type=%llu) \"%s\"",
+						(unsigned long long)err_code,
+						(unsigned long long)frame_type, reason);
+				else
+					lwsl_wsi_info(nwsi, "QUIC RX: CONNECTION_CLOSE "
+						"(frame_type=%llu) \"%s\"",
+						(unsigned long long)frame_type, reason);
 			}
-			
+#endif
+
 			pos += (size_t)reason_len;
 			(void)pos;
 			return -3; /* Terminate parsing and connection cleanly (Peer closed) */
@@ -1170,7 +1177,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
 				return -1;
 			}
-			lwsl_wsi_notice(nwsi, "QUIC RX: Parsed MAX/BLOCKED STREAMS! max_streams %llu", (unsigned long long)max_streams);
+			lwsl_wsi_debug(nwsi, "QUIC RX: MAX/BLOCKED STREAMS max_streams %llu", (unsigned long long)max_streams);
 			if (qn) {
 				if (type == LWS_QUIC_FT_MAX_STREAMS_BIDI) {
 					if (max_streams > qn->max_streams_bidi_remote) {

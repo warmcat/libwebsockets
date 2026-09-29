@@ -240,7 +240,7 @@ lws_h3_client_handshake_composed(struct lws *wsi)
 		m |= LWS_WRITE_H2_STREAM_END;
 #endif
 
-	lwsl_notice("%s: calling lws_write with m=0x%x (body_pending=%d, buffered_out=%d)\n", 
+	lwsl_debug("%s: calling lws_write with m=0x%x (body_pending=%d, buffered_out=%d)\n", 
 		__func__, m, wsi->client_http_body_pending, lws_has_buffered_out(wsi));
 
 	n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start), (enum lws_write_protocol)m);

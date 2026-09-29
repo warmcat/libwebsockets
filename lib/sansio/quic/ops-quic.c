@@ -2192,10 +2192,9 @@ tp_ok:
 				lws_quic_server_idle_check(nwsi);
 
 			if (parse_res < 0) {
-				lwsl_wsi_notice(wsi, "QUIC RX: Frame parsing aborted");
 			if (parse_res == -3) {
 				/* Peer closed the connection via CONNECTION_CLOSE. Drop silently without replying. */
-				lwsl_wsi_notice(nwsi ? nwsi : wsi, "QUIC RX: Peer closed connection. Dropping silently.");
+				lwsl_wsi_info(nwsi ? nwsi : wsi, "QUIC RX: peer closed connection");
 				/* draining: RFC 9000 10.2.2, nothing may be sent back */
 				if (nwsi && nwsi->quic.qn)
 					nwsi->quic.qn->is_closing = 1;
@@ -2217,6 +2216,7 @@ tp_ok:
 				return LWS_RX_CLOSE;
 			}
 			/* We found an error and queued a CONNECTION_CLOSE frame */
+			lwsl_wsi_notice(wsi, "QUIC RX: frame parsing aborted (%d)", parse_res);
 			if (nwsi) {
 				lws_quic_enter_closing_state(nwsi, parse_res == -2 ? LWS_QUIC_ERR_PROTOCOL_VIOLATION : LWS_QUIC_ERR_FRAME_ENCODING_ERROR, 0, 0);
 				lws_callback_on_writable(nwsi);
