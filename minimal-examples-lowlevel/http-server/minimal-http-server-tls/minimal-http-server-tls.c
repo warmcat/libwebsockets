@@ -69,10 +69,11 @@ static const struct lws_http_mount
 };
 
 #if !defined(WIN32)
-void sigint_handler(int sig, siginfo_t *siginfo, void *context)
+void sigint_handler(int sig, siginfo_t *siginfo, void *uc)
 {
 	pid_t sender_pid = siginfo->si_pid;
 	lwsl_err("%s: sig %d from pid %lu\n", __func__, sig, (unsigned long)sender_pid);
+	/* uc is the interrupted ucontext_t, not ours: stop our lws_context */
 	lws_default_loop_exit(context);
 }
 #else
