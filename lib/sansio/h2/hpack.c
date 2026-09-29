@@ -203,6 +203,12 @@ static int huftable_decode(int pos, char c)
 	return pos + (lextable[q] << 1);
 }
 
+/*
+ * What the frag helpers return when the ah has no room left for the header
+ * block, as opposed to 1, the peer did something we fail the connection for
+ */
+#define LWS_H2_FRAG_NO_ROOM 2
+
 static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 {
 	struct allocated_headers *ah = wsi->stream.ah;
@@ -223,8 +229,8 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 	}
 
 	if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frag_index)) {
-		lwsl_err("%s: frag index %d too big\n", __func__, ah->nfrag);
-		return 1;
+		lwsl_info("%s: frag index %d too big\n", __func__, ah->nfrag);
+		return LWS_H2_FRAG_NO_ROOM;
 	}
 
 	if ((hdr_token_idx == WSI_TOKEN_HTTP_COLON_AUTHORITY ||
@@ -282,12 +288,13 @@ static int lws_frag_append(struct lws *wsi, unsigned char c)
 	struct allocated_headers *ah = wsi->stream.ah;
 
 	if ((unsigned int)ah->pos >= wsi->a.context->max_http_header_data)
-		return 1;
+		return LWS_H2_FRAG_NO_ROOM;
 
 	ah->data[ah->pos++] = (char)c;
 	ah->frags[ah->nfrag].len++;
 
-	return (unsigned int)ah->pos >= wsi->a.context->max_http_header_data;
+	return (unsigned int)ah->pos >= wsi->a.context->max_http_header_data ?
+			LWS_H2_FRAG_NO_ROOM : 0;
 }
 
 static int lws_frag_end(struct lws *wsi)
@@ -301,10 +308,10 @@ static int lws_frag_end(struct lws *wsi)
 	 * can be ended, and both of those bound ah->nfrag
 	 */
 	if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frags))
-		return 1;
+		return LWS_H2_FRAG_NO_ROOM;
 
 	if (lws_frag_append(wsi, 0))
-		return 1;
+		return LWS_H2_FRAG_NO_ROOM;
 
 	/* don't account for the terminating NUL in the logical length */
 	wsi->stream.ah->frags[wsi->stream.ah->nfrag].len--;
@@ -376,6 +383,7 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 		     uint32_t *hdr_len)
 {
 	struct hpack_dynamic_table *dyn;
+	struct lws *swsi = wsi;
 
 	if (index == LWS_HPACK_IGNORE_ENTRY)
 		return LWS_HPACK_IGNORE_ENTRY;
@@ -443,6 +451,19 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 	if (hdr_len)
 		*hdr_len = dyn->entries[index].hdr_len;
 
+	if (dyn->entries[index].lws_hdr_idx == LWS_HPACK_LOST_ENTRY) {
+		/*
+		 * A field from an oversized block that we could not keep: the
+		 * request referring to it can't be served as it was sent
+		 * either (when we are sinking a block for a stream we don't
+		 * have, there is no request to refuse)
+		 */
+		if (swsi != wsi && lws_h2_hdrs_oversize(swsi))
+			return -1;
+
+		return LWS_HPACK_IGNORE_ENTRY;
+	}
+
 	return dyn->entries[index].lws_hdr_idx;
 }
 
@@ -469,7 +490,9 @@ lws_h2_dynamic_table_dump(struct lws *wsi)
 		m = lws_safe_modulo(dyn->pos - 1 - n, dyn->num_entries);
 		if (m < 0)
 			m += dyn->num_entries;
-		if (dyn->entries[m].lws_hdr_idx != LWS_HPACK_IGNORE_ENTRY)
+		if (dyn->entries[m].lws_hdr_idx == LWS_HPACK_LOST_ENTRY)
+			p = "(lost)";
+		else if (dyn->entries[m].lws_hdr_idx != LWS_HPACK_IGNORE_ENTRY)
 			p = (const char *)lws_token_to_string(
 					dyn->entries[m].lws_hdr_idx);
 		else
@@ -573,7 +596,8 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 
 	dyn->entries[new_index].value_len = 0;
 
-	if (lws_hdr_index != LWS_HPACK_IGNORE_ENTRY) {
+	if (lws_hdr_index != LWS_HPACK_IGNORE_ENTRY &&
+	    lws_hdr_index != LWS_HPACK_LOST_ENTRY) {
 		if (dyn->entries[new_index].value)
 			lws_free_set_NULL(dyn->entries[new_index].value);
 		dyn->entries[new_index].value =
@@ -594,6 +618,7 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 					(unsigned int)hdr_len + len);
 
 	if (lws_hdr_index != LWS_HPACK_IGNORE_ENTRY &&
+	    lws_hdr_index != LWS_HPACK_LOST_ENTRY &&
 	    lws_hdr_token_is_credential((enum lws_token_indexes)lws_hdr_index))
 		/* keep the diagnostic, lose the credential */
 		lwsl_info("%s: index %ld: lws_hdr_index 0x%x, hdr len %d, "
@@ -858,7 +883,12 @@ lws_h2_hpack_sinking(struct lws *wsi)
 {
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 
-	return nwsi->h2.h2n && nwsi->h2.h2n->hpack_no_store;
+	/*
+	 * ... or the rest of a stream's header block that did not fit, which
+	 * we sink the same way (see lws_h2_hdrs_oversize())
+	 */
+	return (nwsi->h2.h2n && nwsi->h2.h2n->hpack_no_store) ||
+	       (wsi != nwsi && wsi->h2.hdrs_oversized);
 }
 
 /*
@@ -917,6 +947,38 @@ lws_h2_hpack_sink_start(struct lws *wsi)
 	return 0;
 }
 
+/*
+ * The stream's header block does not fit its ah.  Rather than fail the whole
+ * connection, sink the rest of the block: it is still decoded, which keeps
+ * the connection's hpack state in step with the peer's, but nothing more is
+ * kept, and once the block is done the request is answered with 431.
+ *
+ * Nothing already in the ah is any use without the rest, so it is emptied
+ * now.  Returns nonzero only if the connection is failing anyway.
+ */
+int
+lws_h2_hdrs_oversize(struct lws *wsi)
+{
+	if (wsi->h2.hdrs_oversized)
+		return 0;
+
+	lwsl_wsi_info(wsi, "header block oversized, will answer 431");
+
+	if (!lws_h2_hpack_sink_ah(wsi)) {
+		if (lws_h2_goaway(lws_get_network_wsi(wsi),
+				  H2_ERR_INTERNAL_ERROR, "OOM"))
+			lwsl_info("%s: GOAWAY not queued\n", __func__);
+
+		return 1;
+	}
+
+	if (wsi->stream.ah)
+		_lws_header_table_reset(wsi->stream.ah);
+	wsi->h2.hdrs_oversized = 1;
+
+	return 0;
+}
+
 void
 lws_h2_hpack_sink_destroy(struct lws *wsi)
 {
@@ -931,7 +993,7 @@ static int
 lws_hpack_use_idx_hdr(struct lws *wsi, int idx, int known_token)
 {
 	const char *arg = NULL;
-	int len = 0;
+	int len = 0, n;
 	const char *p = NULL;
 	int tok = lws_token_from_index(wsi, idx, &arg, &len, NULL);
 
@@ -983,16 +1045,19 @@ lws_hpack_use_idx_hdr(struct lws *wsi, int idx, int known_token)
 	if (idx < (int)LWS_ARRAY_SIZE(http2_canned))
 		p = http2_canned[idx];
 
-	if (lws_frag_start(wsi, tok))
+	n = lws_frag_start(wsi, tok);
+	if (n == LWS_H2_FRAG_NO_ROOM)
+		return lws_h2_hdrs_oversize(wsi);
+	if (n)
 		return 1;
 
 	if (p)
 		while (*p && len--)
 			if (lws_frag_append(wsi, (unsigned char)*p++))
-				return 1;
+				return lws_h2_hdrs_oversize(wsi);
 
 	if (lws_frag_end(wsi))
-		return 1;
+		return lws_h2_hdrs_oversize(wsi);
 
 	lws_dump_header(wsi, tok);
 
@@ -1081,15 +1146,25 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 	if (!h2n)
 		return -1;
 
-	ah = h2n->hpack_no_store ? h2n->hpack_sink : wsi->stream.ah;
+	ah = lws_h2_hpack_sinking(wsi) ? h2n->hpack_sink : wsi->stream.ah;
 	if (!ah)
 		return -1;
 
 	h2n->hpack_total_hdr_len++;
 	if (h2n->hpack_total_hdr_len >
 	    h2n->our_set.s[H2SET_MAX_HEADER_LIST_SIZE]) {
-		return lws_h2_goaway(nwsi, H2_ERR_ENHANCE_YOUR_CALM,
-			      "Header list size limit exceeded");
+		/*
+		 * Past the header list size we told the peer: a request we
+		 * can refuse on its own, the way RFC 9113 10.5.1 suggests
+		 * (the CONTINUATION flood limit still bounds the block);
+		 * sinking a block for no stream, there's none to refuse
+		 */
+		if (wsi == nwsi)
+			return lws_h2_goaway(nwsi, H2_ERR_ENHANCE_YOUR_CALM,
+				      "Header list size limit exceeded");
+		if (lws_h2_hdrs_oversize(wsi))
+			return 1;
+		ah = h2n->hpack_sink;
 	}
 
 	/*
@@ -1351,9 +1426,14 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				 * custom-header collection (name bytes, value
 				 * bytes and the UHO list linkage) for it
 				 */
-				if (!lws_h2_hpack_no_store(wsi) &&
-				    ah->pos + UHO_NAME <
-				    wsi->a.context->max_http_header_data) {
+				if (!lws_h2_hpack_no_store(wsi)) {
+					if (ah->pos + UHO_NAME >= wsi->a.context->
+							max_http_header_data) {
+						if (lws_h2_hdrs_oversize(wsi))
+							return 1;
+						ah = h2n->hpack_sink;
+						break;
+					}
 					ah->unk_pos = ah->pos;
 					for (n = 0; n < UHO_NAME; n++)
 						ah->data[ah->pos++] = 0;
@@ -1379,6 +1459,9 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				   (unsigned int)h2n->hdr_idx, n);
 		}
 
+		/* a reference to a lost entry makes us sink the rest */
+		ah = lws_h2_hpack_sinking(wsi) ? h2n->hpack_sink : wsi->stream.ah;
+
 		if (n == LWS_HPACK_IGNORE_ENTRY || n == -1)
 			h2n->hdr_idx = LWS_HPACK_IGNORE_ENTRY;
 
@@ -1395,11 +1478,17 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 			break;
 		default:
 			if (n != -1 && n != LWS_HPACK_IGNORE_ENTRY &&
-			    !lws_h2_hpack_no_store(wsi) &&
-			    lws_frag_start(wsi, n)) {
-				lwsl_header("%s: frag start failed\n",
-					    __func__);
-				return 1;
+			    !lws_h2_hpack_no_store(wsi)) {
+				m = lws_frag_start(wsi, n);
+				if (m == LWS_H2_FRAG_NO_ROOM) {
+					if (lws_h2_hdrs_oversize(wsi))
+						return 1;
+					ah = h2n->hpack_sink;
+				} else if (m) {
+					lwsl_header("%s: frag start failed\n",
+						    __func__);
+					return 1;
+				}
 			}
 			break;
 		}
@@ -1485,19 +1574,14 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 						}
 					}
 					if (lws_frag_append(wsi, c1)) {
-						lwsl_notice(
-							"%s: header data overflowed ah "
-							"(max_http_header_data %u)\n",
-								__func__,
-							(unsigned int)wsi->a.context->
-								max_http_header_data);
-						return 1;
+						if (lws_h2_hdrs_oversize(wsi))
+							return 1;
+						ah = h2n->hpack_sink;
 					}
 				}
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 				else if (wsi->mux_substream && ah->unk_pos &&
-					 ah->unk_value_pos && ah->pos + 1 <
-					 wsi->a.context->max_http_header_data) {
+					 ah->unk_value_pos) {
 					/*
 					 * RFC 9113 8.2.1 applies to the values
 					 * of headers lws does not know as well:
@@ -1510,8 +1594,17 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 							H2_ERR_PROTOCOL_ERROR,
 							"CR/LF/NUL in header value");
 					}
-					/* collect unknown-header value byte */
-					ah->data[ah->pos++] = (char)c1;
+					/*
+					 * collect unknown-header value byte,
+					 * all of it or none
+					 */
+					if (ah->pos + 1 >= wsi->a.context->
+							max_http_header_data) {
+						if (lws_h2_hdrs_oversize(wsi))
+							return 1;
+						ah = h2n->hpack_sink;
+					} else
+						ah->data[ah->pos++] = (char)c1;
 				}
 #endif
 			} else {
@@ -1545,9 +1638,16 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				 * current ah->pos, which has to already point
 				 * past the name we are stashing here.
 				 */
-				if (ah->unk_pos &&
-				    ah->pos + 1 < wsi->a.context->max_http_header_data)
-					ah->data[ah->pos++] = (char)c1;
+				if (ah->unk_pos) {
+					/* all of the name or none of it */
+					if (ah->pos + 1 >= wsi->a.context->
+							max_http_header_data) {
+						if (lws_h2_hdrs_oversize(wsi))
+							return 1;
+						ah = h2n->hpack_sink;
+					} else
+						ah->data[ah->pos++] = (char)c1;
+				}
 #endif
 				plen = 1;
 				/*
@@ -1560,9 +1660,16 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				 * the field to the ignored-entry handling
 				 */
 				if (!h2n->unknown_header &&
-				    !lws_h2_hpack_no_store(wsi) &&
-				    lws_parse(wsi, &c1, &plen))
-					h2n->unknown_header = 1;
+				    !lws_h2_hpack_no_store(wsi)) {
+					m = lws_parse(wsi, &c1, &plen);
+					if (m == LPR_TOO_LARGE) {
+						/* a known header, no room */
+						if (lws_h2_hdrs_oversize(wsi))
+							return 1;
+						ah = h2n->hpack_sink;
+					} else if (m)
+						h2n->unknown_header = 1;
+				}
 			}
 swallow_l:
 			(void)n;
@@ -1615,8 +1722,11 @@ fin:
 				/* h2 headers come without the colon */
 				c1 = ':';
 				plen = 1;
-				n = lws_parse(wsi, &c1, &plen);
-				(void)n;
+				if (lws_parse(wsi, &c1, &plen) == LPR_TOO_LARGE) {
+					if (lws_h2_hdrs_oversize(wsi))
+						return 1;
+					ah = h2n->hpack_sink;
+				}
 			}
 
 			if (ah->parser_state == WSI_TOKEN_NAME_PART ||
@@ -1643,7 +1753,11 @@ fin:
 		 */
 		if (wsi->mux_substream && ah->unk_pos && !h2n->value) {
 			if (h2n->unknown_header &&
-			    ah->pos + 1 < wsi->a.context->max_http_header_data) {
+			    ah->pos + 1 >= wsi->a.context->max_http_header_data) {
+				if (lws_h2_hdrs_oversize(wsi))
+					return 1;
+				ah = h2n->hpack_sink;
+			} else if (h2n->unknown_header) {
 				ah->data[ah->pos++] = ':';
 				lws_ser_wu16be((uint8_t *)&ah->data[ah->unk_pos +
 								    UHO_NLEN],
@@ -1658,7 +1772,7 @@ fin:
 				ah->unk_ll_tail = ah->unk_pos;
 				ah->unk_value_pos = ah->pos;
 			} else
-				/* known header, or no room: drop capture */
+				/* known header: drop capture */
 				ah->unk_pos = 0;
 		}
 #endif
@@ -1694,6 +1808,8 @@ fin:
 				 * dynamic index that we can't succeed to look up
 				 */
 				return 1;
+			ah = lws_h2_hpack_sinking(wsi) ? h2n->hpack_sink :
+							 wsi->stream.ah;
 			goto add_it;
 		/* NEW literal hdr with value */
 		case HPKT_LITERAL_HDR_VALUE_INCR:
@@ -1719,6 +1835,19 @@ fin:
 				m = LWS_HPACK_IGNORE_ENTRY;
 			}
 add_it:
+			/*
+			 * The fragment was started by lws_frag_start() or by
+			 * lws_parse(), both of which bound ah->nfrag... if the
+			 * header just used the last slot, it's all it could
+			 */
+			if (!lws_h2_hpack_no_store(wsi) &&
+			    m != LWS_HPACK_IGNORE_ENTRY &&
+			    ah->nfrag >= LWS_ARRAY_SIZE(ah->frags)) {
+				if (lws_h2_hdrs_oversize(wsi))
+					return 1;
+				ah = h2n->hpack_sink;
+			}
+
 			if (m == LWS_HPACK_IGNORE_ENTRY ||
 			    lws_h2_hpack_no_store(wsi)) {
 				/*
@@ -1735,7 +1864,10 @@ add_it:
 				 */
 				if (lws_dynamic_token_insert(wsi,
 						(int)h2n->hpack_hdr_len,
-						LWS_HPACK_IGNORE_ENTRY,
+						wsi != nwsi &&
+						wsi->h2.hdrs_oversized ?
+							LWS_HPACK_LOST_ENTRY :
+							LWS_HPACK_IGNORE_ENTRY,
 						NULL, 0)) {
 					lwsl_notice("%s: tok_insert fail\n",
 						    __func__);
@@ -1743,13 +1875,6 @@ add_it:
 				}
 				break;
 			}
-
-			/*
-			 * The fragment was started by lws_frag_start() or by
-			 * lws_parse(), both of which bound ah->nfrag
-			 */
-			if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frags))
-				return 1;
 
 			/*
 			 * mark us as having been set at the time of dynamic
@@ -1781,6 +1906,9 @@ add_it:
 				m = lws_token_from_index(wsi, (int)h2n->hdr_idx,
 							 NULL, NULL, NULL);
 		}
+
+		/* a reference to a lost entry makes us sink the rest */
+		ah = lws_h2_hpack_sinking(wsi) ? h2n->hpack_sink : wsi->stream.ah;
 
 		if (m == WSI_TOKEN_HTTP_COLON_PATH &&
 		    h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&
@@ -1829,11 +1957,19 @@ add_it:
 						      "CR/LF/NUL in header value");
 				}
 
-			if (lws_frag_end(wsi))
-				return 1;
+			if (lws_frag_end(wsi)) {
+				if (lws_h2_hdrs_oversize(wsi))
+					return 1;
+				ah = h2n->hpack_sink;
+			}
 		}
 
-		if (m != -1 && m != LWS_HPACK_IGNORE_ENTRY)
+		/*
+		 * Nothing decoded into the sink was stored, and its
+		 * parser_state is no token index to look one up by
+		 */
+		if (m != -1 && m != LWS_HPACK_IGNORE_ENTRY &&
+		    !lws_h2_hpack_no_store(wsi))
 			lws_dump_header(wsi, m);
 
 		if (!lws_h2_hpack_sinking(wsi) &&

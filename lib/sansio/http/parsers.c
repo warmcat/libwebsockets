@@ -832,7 +832,8 @@ lws_pos_in_bounds(struct lws *wsi)
 		return 0;
 
 	if ((int)wsi->stream.ah->pos >= (int)wsi->a.context->max_http_header_data - 1) {
-		lwsl_wsi_err(wsi, "Ran out of header data space");
+		/* the peer's doing: the request is refused for it */
+		lwsl_wsi_info(wsi, "Ran out of header data space");
 		return 1;
 	}
 
@@ -1854,13 +1855,20 @@ too_large:
 				lws_h1_request_version(wsi) : HTTP_VERSION_1_1;
 
 		lws_parse_fail_diag(wsi, start, lws_ptr_diff(buf, start), total);
-		lws_return_http_status(wsi, code, NULL);
+		lws_return_http_status(wsi, code,
+				       code == HTTP_STATUS_REQ_URI_TOO_LONG ?
+					"Oversized request URI" :
+					"Oversized headers");
 
 		return LPR_REFUSED;
 	}
 #endif
 
-	return LPR_FAIL;
+	/*
+	 * A client fails the response, and hpack refuses the whole h2 request
+	 * once its header block is done
+	 */
+	return LPR_TOO_LARGE;
 }
 
 enum http_version

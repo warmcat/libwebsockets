@@ -310,6 +310,67 @@ static int test_qpack_varint_limits(void)
 }
 
 /*
+ * A field line in a header block whose value is too big for the decoder to
+ * keep is consumed and reported as LWS_QPACK_FIELD_TOO_LARGE, once, and the
+ * field after it still decodes: it's for the caller to refuse the request,
+ * not for the decoder to fail the connection.
+ */
+
+struct too_large_seen {
+	int	too_large;
+	int	path;
+	int	other;
+};
+
+static int
+test_too_large_cb(void *user, int name_idx, const char *name, size_t name_len,
+		  const char *value, size_t value_len)
+{
+	struct too_large_seen *s = (struct too_large_seen *)user;
+
+	if (name_idx == LWS_QPACK_FIELD_TOO_LARGE && !name && !value)
+		s->too_large++;
+	else if (name_idx == WSI_TOKEN_HTTP_COLON_PATH && value &&
+		 value_len == 1 && value[0] == '/')
+		s->path++;
+	else
+		s->other++;
+
+	return 0;
+}
+
+static int test_qpack_field_too_large(void)
+{
+	static uint8_t blk[5100];
+	struct lws_qpack_stream_state state;
+	struct too_large_seen seen;
+	uint8_t *p = blk;
+
+	*p++ = 0x00;	/* header block prefix: RIC=0 */
+	*p++ = 0x00;	/* Base=0 */
+	*p++ = 0x55;	/* 01|0|1|0101: literal, static name ref 5, cookie */
+	*p++ = 0x7f;	/* 0|1111111: value length 127 + ... */
+	*p++ = 0x89;	/* ... 4873 = 0x09 | 0x26 << 7: 5000 in all */
+	*p++ = 0x26;
+	memset(p, 'c', 5000);
+	p += 5000;
+	*p++ = 0xc1;	/* 11|000001: indexed, static 1, :path / */
+
+	memset(&state, 0, sizeof(state));
+	memset(&seen, 0, sizeof(seen));
+	if (lws_qpack_decode_header_block(&state, NULL, blk,
+					  lws_ptr_diff_size_t(p, blk),
+					  test_too_large_cb, &seen) ||
+	    seen.too_large != 1 || seen.path != 1 || seen.other) {
+		lwsl_err("%s: too large %d, path %d, other %d\n", __func__,
+			 seen.too_large, seen.path, seen.other);
+		return 1;
+	}
+
+	return 0;
+}
+
+/*
  * A peer can Set Capacity such that the kept entries exactly fill the
  * shrunken table.  The next-write ring slot must wrap to 0 then, not point
  * one past the end of the entries array for the next insert to write
@@ -1083,6 +1144,7 @@ int main(int argc, const char **argv)
 	fails += test_qpack_varint_limits();
 	fails += test_qpack_shrink_ring_bounds();
 	fails += test_qpack_browser_shape();
+	fails += test_qpack_field_too_large();
 
 	if (fails) {
 		lwsl_err("Failed %d tests\n", fails);

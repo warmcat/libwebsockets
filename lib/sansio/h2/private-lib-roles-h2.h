@@ -165,6 +165,13 @@ enum http2_hpack_type {
 };
 
 #define LWS_HPACK_IGNORE_ENTRY 0xffff
+/*
+ * A dynamic table entry added while decoding an oversized header block (see
+ * hdrs_oversized): we could not keep its value.  Unlike an ignored entry it
+ * may be a header lws knows, so a later block that refers to it cannot be
+ * served as if the peer had not sent it, and is answered with 431 too.
+ */
+#define LWS_HPACK_LOST_ENTRY 0xfffe
 
 
 struct hpack_dt_entry {
@@ -348,6 +355,12 @@ struct _lws_h2_related {
 	uint8_t			long_poll:1;
 	uint8_t			initialized:1;
 	/*
+	 * The request's header block did not fit: the rest of it is decoded
+	 * into the sink, to keep the connection's hpack state in step, and
+	 * the request is answered with 431 instead of being acted on
+	 */
+	uint8_t			hdrs_oversized:1;
+	/*
 	 * Transmit-side duplicate-pseudoheader detection.  Reset to 0 at the
 	 * start of each HEADERS block build; each pseudo-header add sets its
 	 * bit.  If a bit is already set on add, we are emitting a duplicate
@@ -421,6 +434,8 @@ int
 lws_h2_hpack_sink_start(struct lws *wsi);
 void
 lws_h2_hpack_sink_destroy(struct lws *wsi);
+int
+lws_h2_hdrs_oversize(struct lws *wsi);
 int
 lws_h2_tx_cr_get(struct lws *wsi);
 void

@@ -116,7 +116,16 @@ struct lws_qpack_stream_state {
 	size_t name_pos;
 	char val_buf[4096];
 	size_t val_pos;
+	uint8_t skip; /* this field's name or value is too big to keep */
 };
+
+/*
+ * The name_idx a header block's field line is reported with when its name or
+ * value is too big for the decoder to keep (name_buf / val_buf): name and
+ * value are NULL.  The field line was consumed, so the rest of the block
+ * still decodes; what to do about the field is the callback's decision.
+ */
+#define LWS_QPACK_FIELD_TOO_LARGE (-2)
 
 typedef int (*lws_qpack_header_cb)(void *user, int name_idx, const char *name, size_t name_len, const char *value, size_t value_len);
 

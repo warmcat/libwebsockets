@@ -129,6 +129,8 @@ struct _lws_h3_related {
 	uint8_t seen_pseudo_path:1;
 	uint8_t seen_pseudo_status:1;
 	uint8_t seen_pseudo_protocol:1;
+	/* the request's headers did not fit: answer 431 (see h2's) */
+	uint8_t hdrs_oversized:1;
 
 	/* H3 Frame parsing state */
 	uint8_t rx_frame_state; /* 0: type, 1: length, 2: payload */

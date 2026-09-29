@@ -162,7 +162,7 @@ lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 	m = lws_parse(wsi, (unsigned char *)buf, &n);
 	if (m) {
 		lwsl_wsi_warn(wsi, "problems parsing header");
-		if (m == LPR_FAIL)
+		if (m == LPR_FAIL || m == LPR_TOO_LARGE)
 			lws_parse_fail_diag(wsi, buf, (int)len - n, (int)len);
 		cce = "problems parsing header";
 		goto fail;

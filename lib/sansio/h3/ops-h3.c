@@ -762,6 +762,44 @@ lws_h3_parse_path(struct lws *wsi, const char *value, size_t value_len)
 	return 0;
 }
 
+/*
+ * Is there room in the ah for another field of need bytes (a fragment, the
+ * bytes and a NUL)?  Checked before anything is stored, so a field is kept
+ * whole or not at all.
+ */
+static int
+lws_h3_hdr_room(struct lws *wsi, size_t need)
+{
+	struct allocated_headers *ah = wsi->stream.ah;
+
+	return ah->nfrag + 1 < (int)LWS_ARRAY_SIZE(ah->frags) &&
+	       (size_t)ah->pos + need + 2 <
+			(size_t)wsi->a.context->max_http_header_data;
+}
+
+/*
+ * The request's header block does not fit: keep none of it, and once the
+ * block is done, answer 431 rather than act on part of it.  qpack keeps its
+ * own dynamic table, so there is nothing else to keep in step.  There is no
+ * one to answer for trailers, whose request is already under way: those
+ * still fail it.
+ */
+static int
+lws_h3_hdrs_oversize(struct lws *wsi)
+{
+	/* a client has nobody to answer, it fails the response */
+	if (!lwsi_role_server(wsi) || !lwsi_hdrs_pending(wsi))
+		return -1;
+
+	if (!wsi->h3.hdrs_oversized) {
+		lwsl_wsi_info(wsi, "header block oversized, will answer 431");
+		_lws_header_table_reset(wsi->stream.ah);
+		wsi->h3.hdrs_oversized = 1;
+	}
+
+	return 0;
+}
+
 static int
 lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_len, const char *value, size_t value_len)
 {
@@ -789,6 +827,10 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 			return -1;
 		}
 	}
+
+	/* a field qpack could not keep for us, name and value */
+	if (name_idx == LWS_QPACK_FIELD_TOO_LARGE)
+		return lws_h3_hdrs_oversize(wsi);
 
 	if (name) {
 		/* It's an unknown header, or string-based. We need to match it. */
@@ -884,8 +926,14 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 		wsi->h3.seen_regular_header = 1;
 	}
 
+	/* the rest of a block that did not fit: validated, but not kept */
+	if (wsi->h3.hdrs_oversized)
+		return 0;
+
 	if (tok >= 0 && tok < WSI_TOKEN_COUNT) {
 		/* Known token */
+		if (!lws_h3_hdr_room(wsi, value_len))
+			return lws_h3_hdrs_oversize(wsi);
 		if (tok == WSI_TOKEN_HTTP_COLON_STATUS) {
 			wsi->stream.ah->http_response = (uint32_t)atoi(value);
 		}
@@ -899,9 +947,14 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 	} else {
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 		struct allocated_headers *ah = wsi->stream.ah;
-		if (ah && name && name_len > 0 && ah->pos + 8 + name_len + 1 + value_len < (unsigned int)wsi->a.context->max_http_header_data) {
+		if (ah && name && name_len > 0) {
 			uint32_t unk_pos = ah->pos;
 			size_t k;
+
+			/* all of it or none of it */
+			if (ah->pos + 8 + name_len + 1 + value_len >=
+				(unsigned int)wsi->a.context->max_http_header_data)
+				return lws_h3_hdrs_oversize(wsi);
 
 			/*
 			 * RFC 9114 4.2: CR, LF and NUL are malformed in any
@@ -1840,7 +1893,9 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						 */
 						if (!lws_hdr_extant(wsi, WSI_TOKEN_HOST) &&
 						    lws_hdr_alias(wsi, WSI_TOKEN_HOST,
-								  WSI_TOKEN_HTTP_COLON_AUTHORITY)) {
+								  WSI_TOKEN_HTTP_COLON_AUTHORITY) &&
+						    /* only fails with no frag left */
+						    lws_h3_hdrs_oversize(wsi)) {
 							lws_quic_enter_closing_state(nwsi, LWS_H3_INTERNAL_ERROR, 0, 1);
 							return 1;
 						}

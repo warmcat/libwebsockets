@@ -573,9 +573,9 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					state->str_pos = 0;
 					state->huff_pos = 0;
 					if (state->str_len && lws_qpack_str_len_fits(state)) {
-						lwsl_notice("QPACK name len %llu exceeds buffer\n",
-							    (unsigned long long)state->str_len);
-						return 1;
+						lwsl_info("QPACK name len %llu exceeds buffer\n",
+							  (unsigned long long)state->str_len);
+						state->skip = 1;
 					}
 					state->state = state->str_len ? LQP_DEC_STR_DATA : LQP_DEC_STR_LEN;
 				}
@@ -623,10 +623,10 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 								goto do_emit;
 							}
 						} else if (lws_qpack_str_len_fits(state)) {
-							lwsl_notice("QPACK %s len %llu exceeds buffer\n",
-								    state->is_name ? "name" : "value",
-								    (unsigned long long)state->str_len);
-							return 1;
+							lwsl_info("QPACK %s len %llu exceeds buffer\n",
+								  state->is_name ? "name" : "value",
+								  (unsigned long long)state->str_len);
+							state->skip = 1;
 						}
 					} else if (state->state == LQP_DEC_STR_LEN) {
 					state->hdr_idx = (int)state->int_val;
@@ -675,9 +675,9 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					goto do_emit;
 				} else {
 					if (lws_qpack_str_len_fits(state)) {
-						lwsl_notice("QPACK value len %llu exceeds buffer\n",
-							    (unsigned long long)state->str_len);
-						return 1;
+						lwsl_info("QPACK value len %llu exceeds buffer\n",
+							  (unsigned long long)state->str_len);
+						state->skip = 1;
 					}
 					state->state = LQP_DEC_STR_DATA;
 				}
@@ -685,7 +685,13 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 			break;
 
 		case LQP_DEC_STR_DATA:
-			if (state->huff) {
+			if (state->skip)
+				/*
+				 * a string too big to keep: consume it, the
+				 * field is reported as too large at emit
+				 */
+				;
+			else if (state->huff) {
 				char b;
 				int n;
 				for (n = 0; n < 8; n++) {
@@ -753,7 +759,7 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 			}
 			
 			if (++state->str_pos >= state->str_len) {
-				if (state->huff &&
+				if (!state->skip && state->huff &&
 				    (state->huff_pad > 7 ||
 				     (state->huff_pad_zero && state->huff_pad))) {
 					lwsl_notice("Huffman bad padding\n");
@@ -775,7 +781,17 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 				int idx = -1;
 				const char *name = NULL;
 				const char *val = NULL;
-				
+
+				if (state->skip) {
+					/* we kept none of it: say so */
+					state->skip = 0;
+					if (cb && cb(user, LWS_QPACK_FIELD_TOO_LARGE,
+						     NULL, 0, NULL, 0))
+						return 1;
+					state->state = LQP_DEC_INSTRUCTION;
+					break;
+				}
+
 				if ((state->opcode & 0xc0) == 0xc0) {
 					if (lws_qpack_get_static_token((int)state->int_val, &idx, &val)) return 1;
 				} else if ((state->opcode & 0xc0) == 0x80) {

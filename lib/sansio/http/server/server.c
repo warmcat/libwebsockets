@@ -1756,6 +1756,26 @@ lws_http_expect_is_continue(struct lws *wsi)
 	return e - p == 12 && !strncasecmp(p, "100-continue", 12);
 }
 
+/*
+ * Did the h2 / h3 request's header block not fit, so it is to be answered
+ * with 431?
+ */
+static int
+lws_http_hdrs_oversized(struct lws *wsi)
+{
+#if defined(LWS_WITH_HTTP2)
+	if (lws_wsi_is_h2(wsi) && wsi->h2.hdrs_oversized)
+		return 1;
+#endif
+#if defined(LWS_ROLE_H3)
+	if (lws_wsi_is_h3(wsi) && wsi->h3.hdrs_oversized)
+		return 1;
+#endif
+	(void)wsi;
+
+	return 0;
+}
+
 int
 lws_http_action(struct lws *wsi)
 {
@@ -1775,6 +1795,19 @@ lws_http_action(struct lws *wsi)
 
 	lwsl_debug("H3_TRACE: lws_http_action entered for wsi %p. vhost=%s, mux_substream=%d\n", 
 		wsi, wsi->a.vhost ? wsi->a.vhost->name : "none", wsi->mux_substream);
+
+	/*
+	 * An h2 / h3 request whose headers did not fit was decoded to the end
+	 * without keeping them, so there is nothing here to act on: say why.
+	 * (h1 answers the same from its parser, since it cannot get this far
+	 * without the whole request line and headers.)
+	 */
+	if (lws_http_hdrs_oversized(wsi)) {
+		lws_return_http_status(wsi,
+				HTTP_STATUS_REQ_HEADER_FIELDS_TOO_LARGE,
+				"Oversized headers");
+		goto bail_nuke_ah;
+	}
 
 	meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
 	if (meth < 0) {

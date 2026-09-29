@@ -2338,7 +2338,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		 */
 		if (!lws_hdr_extant(h2n->swsi, WSI_TOKEN_HOST) &&
 		    lws_hdr_alias(h2n->swsi, WSI_TOKEN_HOST,
-				  WSI_TOKEN_HTTP_COLON_AUTHORITY))
+				  WSI_TOKEN_HTTP_COLON_AUTHORITY) &&
+		    /* the only way it fails: no frag left for it */
+		    lws_h2_hdrs_oversize(h2n->swsi))
 			return 1;
 
 		switch (h2n->swsi->h2.h2_state) {
@@ -2636,6 +2638,16 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			break;
 		}
 #endif
+
+		if (h2n->swsi->h2.hdrs_oversized) {
+			/*
+			 * The block did not fit and we kept none of it: there
+			 * is nothing to check, just let the action answer 431
+			 */
+			lws_wsi_event(h2n->swsi, LWS_WSIEV_REQ_HDRS_COMPLETE);
+			lws_callback_on_writable(h2n->swsi);
+			break;
+		}
 
 		if (!lws_hdr_total_length(h2n->swsi, WSI_TOKEN_HTTP_COLON_PATH) ||
 		    !lws_hdr_total_length(h2n->swsi, WSI_TOKEN_HTTP_COLON_METHOD) ||

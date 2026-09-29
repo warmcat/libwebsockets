@@ -173,6 +173,7 @@ enum {
 };
 
 typedef enum lws_parser_return {
+	LPR_TOO_LARGE	= -3, /* didn't fit, and nobody has answered it yet */
 	LPR_REFUSED	= -2, /* on a server, already answered with a status */
 	LPR_FAIL	= -1,
 	LPR_OK		= 0,
