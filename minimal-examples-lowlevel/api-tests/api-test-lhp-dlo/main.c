@@ -43,6 +43,7 @@ static const struct lws_switches switches[] = {
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <signal.h>
@@ -140,10 +141,54 @@ static int reclaim_lines;
  * result for a given html can be compared against a golden file by ctest.
  */
 
+typedef struct {
+	int		fd;
+	char		err;	/* any write failed or line would truncate */
+} dump_t;
+
 static void
-dump_dlo(FILE *f, lws_dlo_t *dlo, int depth)
+dump_raw(dump_t *d, const char *p, size_t len)
+{
+	while (len && !d->err) {
+		ssize_t n = write(d->fd, p, LWS_POSIX_LENGTH_CAST(len));
+
+		if (n <= 0) {
+			d->err = 1;
+			return;
+		}
+		p += n;
+		len -= (size_t)n;
+	}
+}
+
+static void
+dump_printf(dump_t *d, const char *fmt, ...) LWS_FORMAT(2);
+
+static void
+dump_printf(dump_t *d, const char *fmt, ...)
+{
+	char buf[256];
+	va_list ap;
+	int n;
+
+	va_start(ap, fmt);
+	n = vsnprintf(buf, sizeof(buf), fmt, ap);
+	va_end(ap);
+
+	/* a truncated line would just be a confusing golden mismatch */
+	if (n < 0 || (size_t)n >= sizeof(buf)) {
+		d->err = 1;
+		return;
+	}
+
+	dump_raw(d, buf, (size_t)n);
+}
+
+static void
+dump_dlo(dump_t *f, lws_dlo_t *dlo, int depth)
 {
 	char b[4][22];
+	int i;
 
 	while (dlo) {
 		lws_fx_string(&dlo->box.x, b[0], sizeof(b[0]));
@@ -151,17 +196,20 @@ dump_dlo(FILE *f, lws_dlo_t *dlo, int depth)
 		lws_fx_string(&dlo->box.w, b[2], sizeof(b[2]));
 		lws_fx_string(&dlo->box.h, b[3], sizeof(b[3]));
 
-		fprintf(f, "%*s", depth, "");
+		for (i = 0; i < depth; i++)
+			dump_raw(f, " ", 1);
 
 		if (dlo->_destroy == lws_display_dlo_text_destroy) {
 			lws_dlo_text_t *t = lws_container_of(dlo,
 							lws_dlo_text_t, dlo);
 
-			fprintf(f, "text (%s,%s) [%s x %s] rgba=%08X f=%u/%u \"%.*s\"\n",
+			dump_printf(f, "text (%s,%s) [%s x %s] rgba=%08X f=%u/%u \"",
 				b[0], b[1], b[2], b[3], (unsigned int)dlo->dc,
 				(unsigned int)t->font->choice.fixed_height,
-				(unsigned int)t->font->choice.weight,
-				(int)t->text_len, t->text ? t->text : "");
+				(unsigned int)t->font->choice.weight);
+			if (t->text)
+				dump_raw(f, t->text, t->text_len);
+			dump_raw(f, "\"\n", 2);
 		} else
 		if (dlo->render == lws_display_render_hit) {
 			lws_dlo_hit_t *h = lws_container_of(dlo,
@@ -172,33 +220,35 @@ dump_dlo(FILE *f, lws_dlo_t *dlo, int depth)
 				"move", "wait", "help", "not-allowed", "none"
 			};
 
-			fprintf(f, "hit (%s,%s) [%s x %s]%s %s \"%s\"\n",
+			dump_printf(f, "hit (%s,%s) [%s x %s]%s %s \"",
 				b[0], b[1], b[2], b[3], h->fill ? " fill" : "",
 				h->cursor < LWS_ARRAY_SIZE(cur) ?
-					cur[h->cursor] : "?",
-				h->url ? h->url : "");
+					cur[h->cursor] : "?");
+			if (h->url)
+				dump_raw(f, h->url, strlen(h->url));
+			dump_raw(f, "\"\n", 2);
 		} else
 #if defined(LWS_WITH_UPNG)
 		if (dlo->_destroy == lws_display_dlo_png_destroy)
-			fprintf(f, "png (%s,%s) [%s x %s]\n",
+			dump_printf(f, "png (%s,%s) [%s x %s]\n",
 				b[0], b[1], b[2], b[3]);
 		else
 #endif
 #if defined(LWS_WITH_JPEG)
 		if (dlo->_destroy == lws_display_dlo_jpeg_destroy)
-			fprintf(f, "jpeg (%s,%s) [%s x %s]\n",
+			dump_printf(f, "jpeg (%s,%s) [%s x %s]\n",
 				b[0], b[1], b[2], b[3]);
 		else
 #endif
 #if defined(LWS_WITH_SVG)
 		if (dlo->_destroy == lws_display_dlo_svg_destroy)
-			fprintf(f, "svg (%s,%s) [%s x %s]\n",
+			dump_printf(f, "svg (%s,%s) [%s x %s]\n",
 				b[0], b[1], b[2], b[3]);
 		else
 #endif
 #if defined(LWS_WITH_GIF)
 		if (dlo->_destroy == lws_display_dlo_gif_destroy)
-			fprintf(f, "gif (%s,%s) [%s x %s]\n",
+			dump_printf(f, "gif (%s,%s) [%s x %s]\n",
 				b[0], b[1], b[2], b[3]);
 		else
 #endif
@@ -210,17 +260,17 @@ dump_dlo(FILE *f, lws_dlo_t *dlo, int depth)
 			for (n = 0; n < 4; n++)
 				rad |= r->c[n].r.whole || r->c[n].r.frac;
 
-			fprintf(f, "rect (%s,%s) [%s x %s] rgba=%08X",
+			dump_printf(f, "rect (%s,%s) [%s x %s] rgba=%08X",
 				b[0], b[1], b[2], b[3], (unsigned int)dlo->dc);
 			if (rad) {
-				fprintf(f, " radii=");
+				dump_raw(f, " radii=", 7);
 				for (n = 0; n < 4; n++) {
 					lws_fx_string(&r->c[n].r, b[0],
 						      sizeof(b[0]));
-					fprintf(f, "%s%s", n ? "," : "", b[0]);
+					dump_printf(f, "%s%s", n ? "," : "", b[0]);
 				}
 			}
-			fprintf(f, "\n");
+			dump_raw(f, "\n", 1);
 		}
 
 		if (lws_dll2_get_head(&dlo->children))
@@ -239,21 +289,26 @@ dump_dlo(FILE *f, lws_dlo_t *dlo, int depth)
 static int
 dump_displaylist(const char *path, lws_displaylist_t *dl)
 {
-	FILE *f = fopen(path, "w");
+	dump_t f;
 	lws_dll2_t *d;
 
-	if (!f) {
+	memset(&f, 0, sizeof(f));
+	f.fd = lws_open(path, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0644);
+	if (f.fd < 0) {
 		lwsl_err("%s: unable to open %s\n", __func__, path);
 		return 1;
 	}
 
 	d = lws_dll2_get_head(&dl->dl);
 	if (d)
-		dump_dlo(f, lws_container_of(d, lws_dlo_t, list), 0);
+		dump_dlo(&f, lws_container_of(d, lws_dlo_t, list), 0);
 
-	fclose(f);
+	close(f.fd);
 
-	return 0;
+	if (f.err)
+		lwsl_err("%s: unable to write all of %s\n", __func__, path);
+
+	return f.err;
 }
 
 static void
