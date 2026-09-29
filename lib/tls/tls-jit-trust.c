@@ -71,19 +71,106 @@ lws_tls_kid_cmp(const lws_tls_kid_t *a, const lws_tls_kid_t *b)
 /*
  * We have the SKID and AKID for every peer cert captured, but they may be
  * in any order, and eg, falsely have sent the root CA, or an attacker may
- * send unresolveable self-referencing loops of KIDs.
+ * send unresolveable self-referencing loops of KIDs.  Certs are also not
+ * obliged to carry an SKID at all: Let's Encrypt leaf certs, for one, don't.
  *
  * Let's sort them into the SKID -> AKID hierarchy, so the last entry is the
  * server cert and the first entry is the highest parent that the server sent.
  * Normally the top one will be an intermediate, and its AKID is the ID of the
- * root CA cert we would need to trust to validate the chain.
+ * root CA cert we would need to trust to validate the chain.  Anything that
+ * is not on the path up from the server cert (eg, an alternative cross-signed
+ * intermediate) is kept, ahead of the path.
  *
- * It's not unknown the server is misconfigured to also send the root CA, if so
- * the top slot's AKID is empty and we should look for its SKID in the trust
- * blob.
- *
- * If we return 0, we succeeded and the AKID of ch[0] is the SKID we want to see
- * try to import from the trust blob.
+ * This doesn't decide what we query, since we query every AKID anyway, so it
+ * is not trying to be clever about hostile input, just to always end in a
+ * bounded number of steps, whatever order and relationships we were given.
+ */
+
+static void
+lws_tls_jit_trust_order_chain(lws_tls_kid_chain_t *ch)
+{
+	int n, m, leaf = -1, next, depth = 0;
+	lws_tls_kid_chain_t o;
+	uint8_t path[LWS_ARRAY_SIZE(ch->akid)];
+	unsigned int used = 0;
+
+	/*
+	 * The server cert is the one that no other cert names as its
+	 * issuer... one with no SKID can't be anybody's issuer.  If every cert
+	 * is somebody's issuer, it's a loop, just start from the first.
+	 */
+
+	for (n = 0; n < ch->count && leaf < 0; n++) {
+		for (m = 0; m < ch->count; m++)
+			if (m != n && ch->skid[n].kid_len &&
+			    !lws_tls_kid_cmp(&ch->skid[n], &ch->akid[m]))
+				break;
+		if (m == ch->count)
+			leaf = n;
+	}
+
+	if (leaf < 0)
+		leaf = 0;
+
+	/* walk up from it, following AKID -> SKID, using each cert once */
+
+	next = leaf;
+	while (next >= 0) {
+		used |= 1u << next;
+		path[depth++] = (uint8_t)next;
+		n = next;
+		next = -1;
+
+		if (!ch->akid[n].kid_len)
+			break;
+
+		for (m = 0; m < ch->count; m++)
+			if (!(used & (1u << m)) &&
+			    !lws_tls_kid_cmp(&ch->akid[n], &ch->skid[m])) {
+				next = m;
+				break;
+			}
+	}
+
+	/* the certs off the path first, then the path from the top down */
+
+	memset(&o, 0, sizeof(o));
+
+	for (n = 0; n < ch->count; n++)
+		if (!(used & (1u << n))) {
+			o.akid[o.count] = ch->akid[n];
+			o.skid[o.count++] = ch->skid[n];
+		}
+
+	while (depth--) {
+		o.akid[o.count] = ch->akid[path[depth]];
+		o.skid[o.count++] = ch->skid[path[depth]];
+	}
+
+	*ch = o;
+}
+
+/*
+ * Two certs in the chain may name the same issuer, eg, the same intermediate
+ * sent twice.  It's only worth asking for it once, and a CA that came back
+ * twice would also cancel itself out of the xor vhost tag.
+ */
+
+static int
+lws_tls_jit_trust_akid_is_repeat(const lws_tls_kid_chain_t *ch, int n)
+{
+	int m;
+
+	for (m = 0; m < n; m++)
+		if (!lws_tls_kid_cmp(&ch->akid[m], &ch->akid[n]))
+			return 1;
+
+	return 0;
+}
+
+/*
+ * If we return 0, we succeeded and have queried the system for every CA that
+ * a cert in the chain named as its issuer.
  *
  * If we return nonzero, we can't identify what we want and should abandon the
  * connection.
@@ -93,9 +180,8 @@ int
 lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 {
 	lws_tls_jit_inflight_t *inf;
-	int n, m, q = 0, sanity = 10;
+	int n, q = 0;
 	const char *host;
-	char more = 1;
 	size_t hl;
 
 	lwsl_info("%s\n", __func__);
@@ -120,67 +206,10 @@ lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 
 	/* something to work with? */
 
-	if (!ch->count)
+	if (!ch->count || (size_t)ch->count > LWS_ARRAY_SIZE(ch->akid))
 		return 1;
 
-	/* do we need to sort? */
-
-	if (ch->count > 1) {
-
-		/* okie... */
-
-		while (more) {
-
-			if (!sanity--)
-				/* let's not get fooled into spinning */
-				return 1;
-
-			more = 0;
-			for (n = 0; n < ch->count - 1; n++) {
-
-				if (!lws_tls_kid_cmp(&ch->skid[n],
-						     &ch->akid[n + 1]))
-					/* next belongs with this one */
-					continue;
-
-				/*
-				 * next doesn't belong with this one, let's
-				 * try to figure out where this one does belong
-				 * then
-				 */
-
-				for (m = 0; m < ch->count; m++) {
-					if (n == m)
-						continue;
-					if (!lws_tls_kid_cmp(&ch->skid[n],
-							     &ch->akid[m])) {
-						lws_tls_kid_t t;
-
-						/*
-						 * m references us, so we
-						 * need to go one step above m,
-						 * swap m and n
-						 */
-
-						more = 1;
-						t = ch->akid[m];
-						ch->akid[m] = ch->akid[n];
-						ch->akid[n] = t;
-						t = ch->skid[m];
-						ch->skid[m] = ch->skid[n];
-						ch->skid[n] = t;
-
-						break;
-					}
-				}
-
-				if (more)
-					break;
-			}
-		}
-
-		/* then we should be sorted */
-	}
+	lws_tls_jit_trust_order_chain(ch);
 
 	for (n = 0; n < ch->count; n++) {
 		lwsl_info("%s: AKID[%d]\n", __func__, n);
@@ -223,7 +252,8 @@ lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 	 */
 
 	for (n = 0; n < ch->count; n++)
-		if (ch->akid[n].kid_len)
+		if (ch->akid[n].kid_len &&
+		    !lws_tls_jit_trust_akid_is_repeat(ch, n))
 			q++;
 
 	if (!q) {
@@ -252,7 +282,8 @@ lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 	 */
 
 	for (n = 0; n < ch->count; n++) {
-		if (!ch->akid[n].kid_len)
+		if (!ch->akid[n].kid_len ||
+		    lws_tls_jit_trust_akid_is_repeat(ch, n))
 			continue;
 		wsi->a.context->system_ops->jit_trust_query(wsi->a.context,
 			ch->akid[n].kid, (size_t)ch->akid[n].kid_len,

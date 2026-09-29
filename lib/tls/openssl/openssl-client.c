@@ -154,6 +154,15 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 		union lws_tls_cert_info_results ci;
 		STACK_OF(X509) *x509_stack;
 
+		/*
+		 * The wsi may be having another try at the connection, eg,
+		 * after a redirect... only the chain we are looking at now
+		 * counts, and not every cert has both KIDs to overwrite the
+		 * last attempt's
+		 */
+		memset(&wsi->io->tls.kid_chain, 0,
+		       sizeof(wsi->io->tls.kid_chain));
+
 		x509_stack = X509_STORE_CTX_get1_chain(x509_ctx);
 		if (x509_stack) {
 
