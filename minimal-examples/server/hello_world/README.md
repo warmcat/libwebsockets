@@ -37,7 +37,7 @@ Commandline option|Meaning
 [2024/12/18 07:22:29:3192] N: [wsiSScli|0|myserver]: lws_ss_check_next_state_ss: (unset) -> LWSSSCS_CREATING
 [2024/12/18 07:22:29:3192] N: lws_ss_create: created server myserver
 [2024/12/18 07:22:34:3232] N: [vh|2|myserver||7681]: lws_tls_check_cert_lifetime:    vhost myserver: cert expiry: 727994d
-[2024/12/18 07:22:35:6162] N: __lws_lc_tag:  ++ [wsisrv|0|myserver|(null)] (1)
+[2024/12/18 07:22:35:6162] N: __lws_lc_tag:  ++ [wsisrv|0|myserver|adopted] (1)
 [2024/12/18 07:22:35:6163] N: __lws_lc_tag:  ++ [wsiSScli|1|myserver] (2)
 [2024/12/18 07:22:35:6164] N: [wsiSScli|1|myserver]: lws_ss_check_next_state_ss: (unset) -> LWSSSCS_CREATING
 [2024/12/18 07:22:35:6164] N: [wsiSScli|1|myserver]: lws_ss_check_next_state_ss: LWSSSCS_CREATING -> LWSSSCS_CONNECTING
@@ -53,7 +53,7 @@ Commandline option|Meaning
 [2024/12/18 07:22:35:6332] N: __lws_lc_untag:  -- [wsiSScli|2|myserver] (2) 200μs
 [2024/12/18 07:22:35:6332] N: __lws_lc_untag:  -- [mux|0|myserver|h2_sid3_(wsisrv|0|myserver)] (0) 229μs
 ^C[2024/12/18 07:22:39:8479] N: __lws_lc_untag:  -- [wsi|0|pipe] (2) 10.637s
-[2024/12/18 07:22:39:8481] N: __lws_lc_untag:  -- [wsisrv|0|myserver|(null)] (0) 4.231s
+[2024/12/18 07:22:39:8481] N: __lws_lc_untag:  -- [wsisrv|0|myserver|adopted] (0) 4.231s
 [2024/12/18 07:22:39:8481] N: __lws_lc_untag:  -- [wsi|2|listen|myserver||7681] (1) 10.528s
 [2024/12/18 07:22:39:8482] N: __lws_lc_untag:  -- [vh|2|myserver||7681] (2) 10.529s
 [2024/12/18 07:22:39:8482] N: __lws_lc_untag:  -- [wsi|1|listen|myserver||7681] (0) 10.529s

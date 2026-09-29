@@ -2703,8 +2703,13 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, int group,
 
 	lws_wsi_fault_timedclose(new_wsi);
 
+	/*
+	 * Adoption passes its optional fi_wsi_name as desc, usually NULL...
+	 * glibc prints a NULL %s as "(null)", but eg, QNX libc faults on it
+	 */
 	__lws_lc_tag(vhost->context, &vhost->context->lcg[group],
-			&new_wsi->lc, "%s|%s", vhost->name, desc);
+			&new_wsi->lc, "%s|%s", vhost->name,
+			desc ? desc : "adopted");
 
 	lws_wsi_event(new_wsi, LWS_WSIEV_SERVER_SIDE);
 	new_wsi->tsi = (char)n;
