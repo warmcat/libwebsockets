@@ -109,6 +109,26 @@ lws_extension_pmdeflate_restrict_args(struct lws *wsi,
 	}
 }
 
+/*
+ * RFC7692 names its params after the endpoint they constrain, not after the
+ * endpoint holding them: server_* govern the server's compressor and so the
+ * client's decompressor, client_* the other way round.  So which arg applies
+ * to our inflater (peer's params) or our deflater (our own params) depends
+ * on which role we are in.
+ */
+
+static int
+pmd_arg_own(struct lws *wsi, int server_idx, int client_idx)
+{
+	return lwsi_role_client(wsi) ? client_idx : server_idx;
+}
+
+static int
+pmd_arg_peer(struct lws *wsi, int server_idx, int client_idx)
+{
+	return lwsi_role_client(wsi) ? server_idx : client_idx;
+}
+
 static unsigned char trail[] = { 0, 0, 0xff, 0xff };
 
 LWS_VISIBLE int
@@ -302,8 +322,11 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		/* if needed, initialize the inflator */
 
 		if (!priv->rx_init) {
+			/* the window the peer compresses with bounds ours */
 			if (inflateInit2(&priv->rx,
-			     -priv->args[PMD_SERVER_MAX_WINDOW_BITS]) != Z_OK) {
+			     -priv->args[pmd_arg_peer(wsi,
+					     PMD_SERVER_MAX_WINDOW_BITS,
+					     PMD_CLIENT_MAX_WINDOW_BITS)]) != Z_OK) {
 				lwsl_wsi_err(wsi, "iniflateInit failed");
 				return PMDR_FAILED;
 			}
@@ -529,8 +552,16 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		if (was_fin) {
 			lwsl_wsi_ext(wsi, "was_fin");
 			priv->count_rx_between_fin = 0;
-			if (priv->args[PMD_SERVER_NO_CONTEXT_TAKEOVER]) {
-				lwsl_wsi_ext(wsi, "PMD_SERVER_NO_CONTEXT_TAKEOVER");
+			/*
+			 * Only the peer giving up context takeover lets us
+			 * drop our inflate context: if it was only us that
+			 * agreed to it, the peer may still refer back into
+			 * the previous message
+			 */
+			if (priv->args[pmd_arg_peer(wsi,
+					PMD_SERVER_NO_CONTEXT_TAKEOVER,
+					PMD_CLIENT_NO_CONTEXT_TAKEOVER)]) {
+				lwsl_wsi_ext(wsi, "peer no context takeover");
 				(void)inflateEnd(&priv->rx);
 				priv->rx_init = 0;
 				/*
@@ -562,8 +593,9 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		if (!priv->tx_init) {
 			n = deflateInit2(&priv->tx, priv->args[PMD_COMP_LEVEL],
 					 Z_DEFLATED,
-					 -priv->args[PMD_SERVER_MAX_WINDOW_BITS +
-						(wsi->a.vhost->listen_port <= 0)],
+					 -priv->args[pmd_arg_own(wsi,
+						PMD_SERVER_MAX_WINDOW_BITS,
+						PMD_CLIENT_MAX_WINDOW_BITS)],
 					 priv->args[PMD_MEM_LEVEL],
 					 Z_DEFAULT_STRATEGY);
 			if (n != Z_OK) {
@@ -756,9 +788,12 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			    ((*pmdrx->eb_in.token) & 0xff),
 			    pmdrx->eb_in.len);
 
+		/* we agreed not to refer back into this message later */
 		if (((*pmdrx->eb_in.token) & 0x80) &&	/* fin */
-		    priv->args[PMD_CLIENT_NO_CONTEXT_TAKEOVER]) {
-			lwsl_wsi_debug(wsi, "PMD_CLIENT_NO_CONTEXT_TAKEOVER");
+		    priv->args[pmd_arg_own(wsi,
+				PMD_SERVER_NO_CONTEXT_TAKEOVER,
+				PMD_CLIENT_NO_CONTEXT_TAKEOVER)]) {
+			lwsl_wsi_debug(wsi, "own no context takeover");
 			(void)deflateEnd(&priv->tx);
 			priv->tx_init = 0;
 		}
