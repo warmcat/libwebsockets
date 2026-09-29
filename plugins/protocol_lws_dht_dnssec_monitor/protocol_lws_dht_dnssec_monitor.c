@@ -51,9 +51,16 @@
 struct acme_profiles_fetch_info {
 	uint32_t magic;
 	struct pss *root_pss;
-	char *json;
-	size_t json_len;
-	size_t json_alloc;
+	struct lejp_ctx jctx;
+	/* members of the compact "profiles" object we reply with */
+	char profiles[1024];
+	size_t profiles_len;
+	/* a CONNECTION_ERROR can arrive while we are still inside
+	 * lws_client_connect_via_info(): it's held for the caller then */
+	char err[128];
+	char in_connect;
+	char failed_early;
+	char parse_ok;
 };
 
 #define CERT_CHECK_MAGIC 0xCE670001
@@ -2272,6 +2279,120 @@ handle_req_regen_keys(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
+/*
+ * The CA's directory object advertises the profiles it offers as the keys of
+ * meta.profiles (the values are just links to documentation).  We parse it as
+ * it streams in, and collect the names into a compact object of our own:
+ * our replies are one JSON object per line, so the CA's formatting must not
+ * reach the browser.
+ */
+
+static const char * const acme_dir_paths[] = {
+	"meta.profiles.*",
+};
+
+static signed char
+acme_dir_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct acme_profiles_fetch_info *afi =
+			(struct acme_profiles_fetch_info *)ctx->user;
+	char name[64], esc[128];
+	size_t room;
+	int n;
+
+	if (reason == LEJPCB_COMPLETE) {
+		afi->parse_ok = 1;
+		return 0;
+	}
+
+	if (reason != LEJPCB_VAL_STR_END || !ctx->path_match)
+		return 0;
+
+	lejp_get_wildcard(ctx, 0, name, (int)sizeof(name));
+	if (!name[0] || strlen(name) >= sizeof(name) - 1)
+		/* nothing, or too long to be sure we have all of it */
+		return 0;
+
+	lws_json_purify(esc, name, (int)sizeof(esc), NULL);
+
+	room = sizeof(afi->profiles) - afi->profiles_len;
+	n = lws_snprintf(afi->profiles + afi->profiles_len, room, "%s\"%s\":true",
+			 afi->profiles_len ? "," : "", esc);
+	if ((size_t)n >= room - 1) {
+		/* doesn't fit: drop the partial member, keep what we had */
+		afi->profiles[afi->profiles_len] = '\0';
+		return 0;
+	}
+	afi->profiles_len += (size_t)n;
+
+	return 0;
+}
+
+/*
+ * Send the browser that asked the outcome of the directory fetch, if it is
+ * still connected, and destroy the fetch.  @err is NULL on success.
+ */
+
+static void
+acme_profiles_finish(struct vhd *vhd, struct lws *wsi,
+		     struct acme_profiles_fetch_info *afi, const char *err)
+{
+	struct pss *wpss = afi->root_pss;
+	char esc[192];
+	size_t room;
+	int found = 0, n;
+
+	if (vhd) {
+		lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&vhd->clients)) {
+			if (lws_container_of(p, struct pss, list) == wpss)
+				found = 1;
+		} lws_end_foreach_dll(p);
+		lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&vhd->ui_clients)) {
+			if (lws_container_of(p, struct pss, list) == wpss)
+				found = 1;
+		} lws_end_foreach_dll(p);
+	}
+
+	if (err)
+		lws_json_purify(esc, err, (int)sizeof(esc), NULL);
+
+	if (!err)
+		lwsl_notice("%s: ACME directory offers profiles {%s}\n",
+			    __func__, afi->profiles);
+	else
+		lwsl_notice("%s: ACME directory fetch failed: %s\n",
+			    __func__, esc);
+
+	if (found) {
+		room = sizeof(wpss->tx) - LWS_PRE - wpss->tx_len;
+		if (err)
+			n = lws_snprintf((char *)&wpss->tx[LWS_PRE + wpss->tx_len],
+					 room, "{\"req\":\"get_acme_profiles\","
+					 "\"status\":\"error\",\"msg\":\"Unable to "
+					 "list ACME profiles: %s\"}\n", esc);
+		else
+			n = lws_snprintf((char *)&wpss->tx[LWS_PRE + wpss->tx_len],
+					 room, "{\"req\":\"get_acme_profiles\","
+					 "\"status\":\"ok\",\"profiles\":{%s}}\n",
+					 afi->profiles);
+
+		/* only a whole line may be queued */
+		if ((size_t)n < room - 1) {
+			wpss->tx_len += (size_t)n;
+			if (wpss->cwsi)
+				lws_callback_on_writable(wpss->cwsi);
+			if (wpss->wsi)
+				lws_callback_on_writable(wpss->wsi);
+		}
+	}
+
+	lejp_destruct(&afi->jctx);
+	afi->magic = 0;
+	free(afi);
+	if (wsi)
+		lws_set_opaque_user_data(wsi, NULL);
+}
+
 struct lws * handle_req_get_acme_profiles(struct vhd *vhd, struct pss *root_pss, const char *directory_url)
 {
 	struct lws_client_connect_info i;
@@ -2295,23 +2416,28 @@ struct lws * handle_req_get_acme_profiles(struct vhd *vhd, struct pss *root_pss,
 	i.protocol = "lws-dht-dnssec-monitor";
 
 	struct acme_profiles_fetch_info *afi = malloc(sizeof(*afi));
-	if (afi) {
-		memset(afi, 0, sizeof(*afi));
-		afi->magic = ACME_PROFILES_MAGIC;
-		afi->root_pss = root_pss;
-		i.opaque_user_data = afi;
-	}
+	if (!afi)
+		return NULL;
+
+	memset(afi, 0, sizeof(*afi));
+	afi->magic = ACME_PROFILES_MAGIC;
+	afi->root_pss = root_pss;
+	lejp_construct(&afi->jctx, acme_dir_cb, afi, acme_dir_paths,
+		       LWS_ARRAY_SIZE(acme_dir_paths));
+	i.opaque_user_data = afi;
 
 	lwsl_notice("%s: Fetching ACME directory from %s\n", __func__, url);
+
+	afi->in_connect = 1;
 	struct lws *wsi = lws_client_connect_via_info(&i);
-	if (!wsi && afi) {
-		free(afi);
-		char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-		char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
-		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_profiles\",\"status\":\"error\",\"msg\":\"Failed to connect to ACME directory\"}\n");
-		root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
-		lws_callback_on_writable_all_protocol(vhd->context, lws_get_protocol(root_pss->wsi));
-	}
+	afi->in_connect = 0;
+
+	if (afi->failed_early)
+		/* the wsi is gone or going, and no longer points to afi */
+		acme_profiles_finish(vhd, NULL, afi, afi->err);
+	else if (!wsi)
+		acme_profiles_finish(vhd, NULL, afi, "connection failed");
+
 	return wsi;
 }
 
@@ -3699,6 +3825,18 @@ fallback:
 				cci->magic = 0;
 				free(cci);
 				lws_set_opaque_user_data(wsi, NULL);
+			} else if (magic && *magic == ACME_PROFILES_MAGIC) {
+				struct acme_profiles_fetch_info *afi =
+					(struct acme_profiles_fetch_info *)magic;
+
+				lws_strncpy(afi->err, in ? (const char *)in :
+					    "connection failed", sizeof(afi->err));
+				if (afi->in_connect) {
+					/* handle_req_get_acme_profiles() finishes it */
+					afi->failed_early = 1;
+					lws_set_opaque_user_data(wsi, NULL);
+				} else
+					acme_profiles_finish(vhd, wsi, afi, afi->err);
 			} else if (magic && *magic == PSS_MAGIC) {
 				struct pss *wpss = (struct pss *)magic;
 				wpss->cwsi = NULL;
@@ -3714,8 +3852,16 @@ fallback:
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		{
 			struct acme_profiles_fetch_info *afi = (struct acme_profiles_fetch_info *)lws_get_opaque_user_data(wsi);
-			if (afi && afi->magic == ACME_PROFILES_MAGIC) {
-				lwsl_notice("%s: Connected to ACME directory\n", __func__);
+			unsigned int st;
+
+			if (afi && afi->magic == ACME_PROFILES_MAGIC &&
+			    (st = lws_http_client_http_response(wsi)) != 200) {
+				char e[48];
+
+				lws_snprintf(e, sizeof(e), "HTTP %u", st);
+				acme_profiles_finish(vhd, wsi, afi, e);
+
+				return -1;
 			}
 		}
 		{
@@ -3775,26 +3921,16 @@ fallback:
 		}
 		{
 			struct acme_profiles_fetch_info *afi = (struct acme_profiles_fetch_info *)lws_get_opaque_user_data(wsi);
-			if (afi && afi->magic == ACME_PROFILES_MAGIC) {
-				lwsl_notice("%s: Received %zu bytes for ACME directory\n", __func__, len);
+			int m;
 
-				if (!afi->json) {
-					afi->json_alloc = 8192;
-					afi->json = malloc(afi->json_alloc);
-				}
-				if (afi->json) {
-					if (afi->json_len + len >= afi->json_alloc) {
-						afi->json_alloc *= 2;
-						char *nb = realloc(afi->json, afi->json_alloc);
-						if (nb) afi->json = nb;
-					}
-					if (afi->json_len + len < afi->json_alloc) {
-						memcpy(&afi->json[afi->json_len], in, len);
-						afi->json_len += len;
-						afi->json[afi->json_len] = '\0';
-					} else {
-						lwsl_err("%s: ACME directory JSON too large!\n", __func__);
-					}
+			if (afi && afi->magic == ACME_PROFILES_MAGIC &&
+			    !afi->parse_ok) {
+				m = lejp_parse(&afi->jctx, (const uint8_t *)in, (int)len);
+				if (m < 0 && m != LEJP_CONTINUE) {
+					acme_profiles_finish(vhd, wsi, afi,
+						lejp_error_to_string(m));
+
+					return -1;
 				}
 			}
 		}
@@ -3812,79 +3948,20 @@ fallback:
 		}
 		{
 			struct acme_profiles_fetch_info *afi = (struct acme_profiles_fetch_info *)lws_get_opaque_user_data(wsi);
-			if (afi && afi->magic == ACME_PROFILES_MAGIC) {
-				lwsl_notice("%s: Completed ACME directory fetch (%zu bytes)\n", __func__, afi->json_len);
 
-				int found = 0;
-				if (vhd) {
-					lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&vhd->clients)) {
-						if (lws_container_of(p, struct pss, list) == afi->root_pss) found = 1;
-					} lws_end_foreach_dll(p);
-					lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&vhd->ui_clients)) {
-						if (lws_container_of(p, struct pss, list) == afi->root_pss) found = 1;
-					} lws_end_foreach_dll(p);
-				}
-
-				if (found) {
-					struct pss *wpss = afi->root_pss;
-					size_t existing_len = wpss->tx_len;
-					if (existing_len + afi->json_len + 128 < sizeof(wpss->tx) - LWS_PRE) {
-						int n = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], sizeof(wpss->tx) - LWS_PRE - existing_len,
-							"{\"req\":\"get_acme_profiles\",\"status\":\"ok\",\"profiles\":");
-						existing_len += (size_t)n;
-
-						char *profiles_start = afi->json ? (char *)strstr(afi->json, "\"profiles\"") : NULL;
-						if (profiles_start) {
-							profiles_start += 10;
-							while (*profiles_start && (*profiles_start == ' ' || *profiles_start == ':')) profiles_start++;
-							char *profiles_end = profiles_start;
-							int braces = 0;
-							while (*profiles_end) {
-								if (*profiles_end == '{') braces++;
-								else if (*profiles_end == '}') {
-									braces--;
-									if (braces == 0) { profiles_end++; break; }
-								}
-								profiles_end++;
-							}
-							if (braces == 0 && profiles_end > profiles_start) {
-								size_t plen = lws_ptr_diff_size_t(profiles_end, profiles_start);
-								memcpy(&wpss->tx[LWS_PRE + existing_len], profiles_start, plen);
-								existing_len += plen;
-							} else {
-								int k = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], sizeof(wpss->tx) - LWS_PRE - existing_len, "{}");
-								existing_len += (size_t)k;
-							}
-						} else {
-							int k = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], sizeof(wpss->tx) - LWS_PRE - existing_len, "{}");
-							existing_len += (size_t)k;
-						}
-
-						int k = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], sizeof(wpss->tx) - LWS_PRE - existing_len, "}\n");
-						wpss->tx_len = existing_len + (size_t)k;
-						if (wpss->cwsi) lws_callback_on_writable(wpss->cwsi);
-						if (wpss->wsi) lws_callback_on_writable(wpss->wsi);
-					}
-				}
-
-				afi->magic = 0;
-				if (afi->json) free(afi->json);
-				free(afi);
-				lws_set_opaque_user_data(wsi, NULL);
-			}
+			if (afi && afi->magic == ACME_PROFILES_MAGIC)
+				acme_profiles_finish(vhd, wsi, afi, afi->parse_ok ?
+						NULL : "truncated directory");
 		}
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		{
 			struct acme_profiles_fetch_info *afi = (struct acme_profiles_fetch_info *)lws_get_opaque_user_data(wsi);
-			if (afi && afi->magic == ACME_PROFILES_MAGIC) {
-				lwsl_err("%s: ACME directory HTTP client connection closed before completion\n", __func__);
-				afi->magic = 0;
-				if (afi->json) free(afi->json);
-				free(afi);
-				lws_set_opaque_user_data(wsi, NULL);
-			} else {
+			if (afi && afi->magic == ACME_PROFILES_MAGIC)
+				acme_profiles_finish(vhd, wsi, afi,
+						"connection closed early");
+			else {
 				struct inv_geo_dl *g = (struct inv_geo_dl *)
 						lws_get_opaque_user_data(wsi);
 				if (g && g->magic == INV_GEO_DL_MAGIC) {
