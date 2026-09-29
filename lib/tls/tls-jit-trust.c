@@ -752,13 +752,16 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 				   const uint8_t **prpder, size_t *prder_len)
 {
 	const uint8_t *pskidlen, *pskids, *pder, *blob = (uint8_t *)_blob;
+	size_t siz, ofs_derlen, ofs_skidlen, ofs_skid;
 	const uint16_t *pderlen;
-	size_t siz;
 	int certs;
 
-	/* sanity check blob length and magic */
+	/*
+	 * Sanity check blob length and magic... a blob may be as small as the
+	 * few CAs a device trusts, it just has to hold its own header
+	 */
 
-	if (blen < 32768 ||
+	if (blen < LJT_OFS_DER ||
 	   lws_ser_ru32be(blob) != LWS_JIT_TRUST_MAGIC_BE ||
 	   lws_ser_ru32be(blob + LJT_OFS_END) != blen) {
 		lwsl_err("%s: blob not sane\n", __func__);
@@ -769,16 +772,31 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 	if (!skid_len)
 		return 1;
 
-	/* point into the various sub-tables */
+	/*
+	 * The sub-tables follow the DERs, and must lie inside the blob: a
+	 * 16-bit DER length and an 8-bit SKID length per cert, then the SKIDs
+	 */
 
 	certs		= (int)lws_ser_ru16be(blob + LJT_OFS_32_COUNT_CERTS);
+	ofs_derlen	= lws_ser_ru32be(blob + LJT_OFS_32_DERLEN);
+	ofs_skidlen	= lws_ser_ru32be(blob + LJT_OFS_32_SKIDLEN);
+	ofs_skid	= lws_ser_ru32be(blob + LJT_OFS_32_SKID);
 
-	pderlen		= (uint16_t *)(blob + lws_ser_ru32be(blob +
-							LJT_OFS_32_DERLEN));
-	if (pderlen >= (const uint16_t *)(blob + blen))
-		return 1;
-	pskidlen	= blob + lws_ser_ru32be(blob + LJT_OFS_32_SKIDLEN);
-	pskids		= blob + lws_ser_ru32be(blob + LJT_OFS_32_SKID);
+	if (ofs_derlen < LJT_OFS_DER || ofs_derlen > blen ||
+	    (blen - ofs_derlen) / 2 < (size_t)certs ||
+	    ofs_skidlen < LJT_OFS_DER || ofs_skidlen > blen ||
+	    blen - ofs_skidlen < (size_t)certs ||
+	    ofs_skid < LJT_OFS_DER || ofs_skid > blen) {
+		lwsl_err("%s: blob tables not sane\n", __func__);
+
+		return -1;
+	}
+
+	/* point into the various sub-tables */
+
+	pderlen		= (uint16_t *)(blob + ofs_derlen);
+	pskidlen	= blob + ofs_skidlen;
+	pskids		= blob + ofs_skid;
 	pder		= blob + LJT_OFS_DER;
 
 	/* check each cert SKID in turn, return the DER if found */
