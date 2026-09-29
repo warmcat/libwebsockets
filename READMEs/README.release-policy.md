@@ -21,14 +21,35 @@ should build into your planning that you will follow lws release upgrades.
 If you find problems and create fixes, please upstream them, simplifying your
 life so you can just directly consume the upstream tree with no private changes.
 
+## The Great 2026 AI Bug Apocolypse
+
+AI has become hugely better than one overworked human at finding bugs...
+before this we had apocolypses eg, when introducing Coverity in 2014, but
+these happened slower: 700 Coverity reports, but over 12 years.  Since I
+paid for frontier (currently Fable 5.1) models to audit and fix lws, we
+are over 600 reports and fixed in the space of a few months.
+
+There are a lot of lessons from this but the main two are 1) any lws
+version before the current stable release has a huge amount of known bugs
+that are fixed in main, and mostly fixed in the stable release.  It's
+insane to continue to use older lws unless security just doesn't matter
+to you.  2) There's a choice when new bugfinding technolgies are available,
+ignore them or get ahead of the problem.  Lws has been getting ahead of
+the problem of removing what is ultimately a finite number of bugs, and
+improving processes by introducing fuzzing to the complex exposed parsers.
+But to reap this dividend, you should use main branch at the moment.
+
 ## Development
 
-Master branch is the default and all new work happens there.  It's unstable and
+Main branch is the default and all new work happens there.  It's unstable and
 subject to history rewrites, patches moving about and being squashed etc.  In
 terms of it working, it is subject to passing CI tests including a battery of
 runtime tests, so if it is passing CI as it usually is then it's probably in
 usable shape.  See "Why no history on development" below for why it's managed like
 that.
+
+Since Sept 2026 development pushes go through main-dev first, and those that
+pass the CI are automatically promoted to main.
 
 ![all work happens on main](../doc-assets/lws-relpol-1.svg)
 
