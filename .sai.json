@@ -390,10 +390,13 @@
 		# the link check fails on a private IO symbol the sansIO objects
 		# need.  The optional features that reach across the split (cgi,
 		# access log, proxy, socks, jit trust, mqtt, raw proxy) are on
-		# so the checks see them.
+		# so the checks see them.  Fault injection is on so lws' random
+		# can be seeded, which the ws-client transcript in
+		# api-test-sansio/transcripts/ needs to be checked rather than
+		# skipped.
 
 		"sansio": {
-			"cmake":	"-DLWS_WITH_SANSIO_LINK_TEST=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_CGI=1 -DLWS_WITH_ACCESS_LOG=1 -DLWS_WITH_HTTP_PROXY=1 -DLWS_WITH_SOCKS5=1 -DLWS_WITH_TLS_JIT_TRUST=1 -DLWS_ROLE_MQTT=1 -DLWS_ROLE_RAW_PROXY=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DCMAKE_BUILD_TYPE=DEBUG && make -j$SAI_PARALLEL && ../scripts/sans-io-link-check.sh $PWD",
+			"cmake":	"-DLWS_WITH_SANSIO_LINK_TEST=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_CGI=1 -DLWS_WITH_ACCESS_LOG=1 -DLWS_WITH_HTTP_PROXY=1 -DLWS_WITH_SOCKS5=1 -DLWS_WITH_TLS_JIT_TRUST=1 -DLWS_ROLE_MQTT=1 -DLWS_ROLE_RAW_PROXY=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_SYS_FAULT_INJECTION=1 -DCMAKE_BUILD_TYPE=DEBUG && make -j$SAI_PARALLEL && ../scripts/sans-io-link-check.sh $PWD",
 			"platforms":	"none, linux-fedora44/x86_64-amd/gcc"
 		}
 		,
