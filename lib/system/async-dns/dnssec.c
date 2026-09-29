@@ -763,16 +763,20 @@ static int
 lws_dnssec_rrs_next(const lws_dnssec_rrs_t *r, size_t *pos, uint16_t *type,
 		    const uint8_t **rd, uint16_t *rdlen)
 {
+	uint16_t l;
+
 	if (*pos + 4 > r->len)
 		return 0;
 
-	*type = lws_ser_ru16be(r->buf + *pos);
-	*rdlen = lws_ser_ru16be(r->buf + *pos + 2);
-	if (*pos + 4 + *rdlen > r->len)
+	/* bound the length itself, not a sum, so it's clean when we return */
+	l = lws_ser_ru16be(r->buf + *pos + 2);
+	if (l > r->len - *pos - 4)
 		return 0;
 
+	*type = lws_ser_ru16be(r->buf + *pos);
+	*rdlen = l;
 	*rd = r->buf + *pos + 4;
-	*pos += 4u + *rdlen;
+	*pos += 4u + l;
 
 	return 1;
 }
