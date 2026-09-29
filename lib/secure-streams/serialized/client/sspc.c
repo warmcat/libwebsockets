@@ -657,20 +657,22 @@ _lws_sspc_set_metadata(struct lws_sspc_handle *h, const char *name,
 	 * efficient to do this but user code can do what it likes... let's
 	 * optimize away the old one.
 	 *
-	 * Tx credit adjust always has name ""
+	 * Tx credit adjust always has name "", but they are cumulative and
+	 * must each be sent, they don't replace one another.
 	 */
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   lws_dll2_get_head(&h->metadata_owner)) {
-		md = lws_container_of(d, lws_sspc_metadata_t, list);
+	if (name[0])
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				lws_dll2_get_head(&h->metadata_owner)) {
+			md = lws_container_of(d, lws_sspc_metadata_t, list);
 
-		if (!strcmp(name, md->name)) {
-			lws_dll2_remove(&md->list);
-			lws_free(md);
-			break;
-		}
+			if (!strcmp(name, md->name)) {
+				lws_dll2_remove(&md->list);
+				lws_free(md);
+				break;
+			}
 
-	} lws_end_foreach_dll_safe(d, d1);
+		} lws_end_foreach_dll_safe(d, d1);
 
 	/*
 	 * We have to stash the metadata and pass it to the proxy

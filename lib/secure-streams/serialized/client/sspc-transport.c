@@ -383,6 +383,24 @@ lws_sspc_txp_tx(lws_sspc_handle_t *h, size_t metadata_limit)
 
 		txl = strlen(h->ssi.streamtype) + 1 + 4 + 4;
 
+		/*
+		 * The new proxy side stream takes its initial peer tx credit
+		 * from the estimate we send here, which already includes any
+		 * tx credit adjustments still queued... they must not be sent
+		 * again on top of it
+		 */
+
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				lws_dll2_get_head(&h->metadata_owner)) {
+			lws_sspc_metadata_t *md = lws_container_of(d,
+						lws_sspc_metadata_t, list);
+
+			if (!md->name[0]) {
+				lws_dll2_remove(&md->list);
+				lws_free(md);
+			}
+		} lws_end_foreach_dll_safe(d, d1);
+
 		cp = s;
 		*s = LWSSS_SER_TXPRE_STREAMTYPE;
 		lws_ser_wu16be(s + 1, (uint16_t)txl);
