@@ -1654,10 +1654,14 @@ oom4:
 		 */
 		sanity_assert_no_wsi_traces(vhost->context, wsi);
 
+		/*
+		 * the free unbinds the vhost, under the context lock; no path
+		 * here holds the pt lock, and the context lock nests
+		 */
+		lws_context_lock(vhost->context, __func__);
 		__lws_io_close_transport(wsi, LWS_IOCLOSE_RELEASE);
-		//lws_vhost_lock(vhost);
 		__lws_free_wsi(wsi); /* acquires vhost lock in wsi reset */
-		//lws_vhost_unlock(vhost);
+		lws_context_unlock(vhost->context);
 
 		sanity_assert_no_sockfd_traces(vhost->context, sfd);
 	}

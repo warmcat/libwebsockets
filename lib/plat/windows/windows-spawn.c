@@ -978,9 +978,13 @@ bail3:
 	 */
 
 bail2:
+	/* __lws_free_wsi() unbinds the vhost, under the context lock */
+
+	lws_context_lock(context, __func__);
 	for (n = 0; n < 3; n++)
 		if (lsp->stdwsi[n])
 			__lws_free_wsi(lsp->stdwsi[n]);
+	lws_context_unlock(context);
 
 bail1:
 	/*
