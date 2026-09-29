@@ -291,9 +291,12 @@ lws_tls_server_accept(struct lws *wsi)
 
 	/*
 	 * The handshake failed for good: say why, and if it was about the
-	 * peer certificate, render the verification status in human terms
+	 * peer certificate, render the verification status in human terms.
+	 *
+	 * An SNI name we refused has already been reported, with the name, by
+	 * the server name hook... don't say it again with less information.
 	 */
-	{
+	if (n != GNUTLS_E_UNRECOGNIZED_NAME) {
 		unsigned int status = 0;
 		char rbuf[160];
 

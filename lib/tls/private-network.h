@@ -367,6 +367,13 @@ lws_tls_server_send_alert(struct lws *wsi, const uint8_t *ver, uint8_t desc);
 int
 lws_tls_server_sni_select(struct lws *wsi, const char *servername);
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+void
+lws_tls_server_sni_refused(int port, const char *servername);
+#else
+#define lws_tls_server_sni_refused(_port, _servername)
+#endif
+
 #endif
 
 enum lws_ssl_capable_status

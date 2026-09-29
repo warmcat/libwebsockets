@@ -269,6 +269,29 @@ lws_tls_server_send_alert(struct lws *wsi, const uint8_t *ver, uint8_t desc)
 		   MSG_NOSIGNAL);
 }
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+/*
+ * Every backend refuses a client whose SNI name matches no vhost on the
+ * listener when none of them there is the sni-fallback: this is the one line
+ * that reports it.  The name is his to choose, so it is escaped and bounded
+ * before it gets near the log.
+ */
+
+void
+lws_tls_server_sni_refused(int port, const char *servername)
+{
+	LWS_RATELIMIT_DEFINE_STATIC(rl);
+	char esc[96];
+
+	lws_json_purify(esc, servername, (int)sizeof(esc), NULL);
+
+	lwsl_ratelimit_notice(&rl, 10 * LWS_US_PER_SEC, "refused tls "
+			      "connection on port %d: its SNI name \"%s\" "
+			      "matches no vhost there and none is the "
+			      "sni-fallback\n", port, esc);
+}
+#endif
+
 /*
  * Apply the SNI name a backend dug out of the ClientHello itself.
  *
@@ -284,9 +307,6 @@ lws_tls_server_send_alert(struct lws *wsi, const uint8_t *ver, uint8_t desc)
 int
 lws_tls_server_sni_select(struct lws *wsi, const char *servername)
 {
-#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
-	LWS_RATELIMIT_DEFINE_STATIC(rl);
-#endif
 	struct lws_vhost *vhost;
 
 	if (!servername)
@@ -300,24 +320,14 @@ lws_tls_server_sni_select(struct lws *wsi, const char *servername)
 	vhost = lws_select_vhost_sni(wsi->a.context, wsi->a.vhost->listen_port,
 				     servername);
 	if (!vhost) {
-		lwsl_info("SNI: none: %s:%d\n", servername,
-			  wsi->a.vhost->listen_port);
-
 		/*
 		 * He named something that is not served on this listener, and
 		 * no vhost there is the nominated sni-fallback.  Refuse him
 		 * rather than let him pick an arbitrary vhost's certificate
 		 * and client-certificate policy with an unknown name (C-424).
-		 *
-		 * The name is his to choose, so it stays out of the notice
-		 * level line; it is logged just above at info level.
 		 */
 
-		lwsl_ratelimit_notice(&rl, 10 * LWS_US_PER_SEC, "%s: refused "
-				      "tls connection on port %d, its SNI name "
-				      "matches no vhost there and none is the "
-				      "sni-fallback\n", __func__,
-				      wsi->a.vhost->listen_port);
+		lws_tls_server_sni_refused(wsi->a.vhost->listen_port, servername);
 
 		return 1;
 	}
