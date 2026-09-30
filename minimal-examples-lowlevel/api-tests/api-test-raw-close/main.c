@@ -16,6 +16,10 @@
  * close has to wait until the buffered remainder has drained, and the
  * client must still see every byte before the close arrives.
  *
+ * Last, a server that closes at once, with its write still partly queued,
+ * and then says the transaction is completed from its close callback: the
+ * close already under way is not taken back to waiting for a flush.
+ *
  * The test fails if a case does not complete inside the watchdog period.
  */
 
@@ -36,11 +40,15 @@ struct xcase {
 	const char	*name;
 	size_t		len;		/* bytes the server writes at once */
 	int		shrink;		/* shrink the accepted socket's sndbuf */
+	int		close_first;	/* close with the write partial, then
+					 * say completed from the close cb */
 };
 
 static const struct xcase cases[] = {
-	{ "write fits, close at once",			100,	0 },
-	{ "write goes partial, close after the drain",	600000,	1 },
+	{ "write fits, close at once",			100,	0, 0 },
+	{ "write goes partial, close after the drain",	600000,	1, 0 },
+	{ "write goes partial, closed, then completed from the close",
+							600000,	1, 1 },
 };
 
 /* client side view of the current case */
@@ -116,6 +124,16 @@ case_evaluate(void)
 		return;
 	}
 
+	if (c->close_first) {
+		/* what went before the close is all that goes */
+		if (!cli.closed || cli.rx_len >= c->len) {
+			case_finish(0, "not closed with the write cut short");
+			return;
+		}
+		case_finish(1, NULL);
+		return;
+	}
+
 	if (cli.rx_len != c->len || cli.rx_sum != sum_pat(c->len)) {
 		lwsl_err("received %u bytes sum %08x, expected %u sum %08x\n",
 			 (unsigned int)cli.rx_len, cli.rx_sum,
@@ -186,6 +204,10 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			  (unsigned int)c->len,
 			  lws_partial_buffered(wsi));
 
+		if (c->close_first)
+			/* close now, whatever is still queued */
+			return -1;
+
 		/*
 		 * We are done with him: close now, or once the partial that
 		 * the write left behind has drained
@@ -194,6 +216,14 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_CLOSE:
 		lwsl_user("%s: server: closed\n", __func__);
+		if (cur >= 0 && cur < ncases && CASE(cur)->close_first &&
+		    /*
+		     * too late, and it must not take the close back to
+		     * waiting for the queue to drain
+		     */
+		    lws_raw_transaction_completed(wsi))
+			lwsl_user("%s: server: completed after close\n",
+				  __func__);
 		break;
 
 	default:

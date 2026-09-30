@@ -320,17 +320,21 @@ extern const enum lwsi_state lws_lrs_of_carrier[16];
  * only by lws_role_transition(), ie, the redirect / fallback restart.
  */
 
+/*
+ * In order: the machine only goes forwards (lws_wsi_event() refuses a
+ * later phase giving way to an earlier one)
+ */
 enum lws_close_phase {
 	LCS_NONE,
-	LCS_WAITING_TO_SEND_CLOSE,	/* ws: we have a CLOSE frame to send */
-	LCS_RETURNED_CLOSE,		/* ws: peer's CLOSE seen, we answered */
-	LCS_AWAITING_CLOSE_ACK,		/* ws: we sent CLOSE, waiting for his */
+	LCS_CLOSE_WHEN_FLUSHED,		/* a live connection is to close once
+					 * its buffered tx has drained */
 	LCS_CLOSING,			/* __lws_close_free_wsi() entered, with
 					 * nothing yet to wait for: lwsi_state()
 					 * still reports the live state */
+	LCS_WAITING_TO_SEND_CLOSE,	/* ws: we have a CLOSE frame to send */
+	LCS_RETURNED_CLOSE,		/* ws: peer's CLOSE seen, we answered */
+	LCS_AWAITING_CLOSE_ACK,		/* ws: we sent CLOSE, waiting for his */
 	LCS_FLUSHING_BEFORE_CLOSE,	/* the close drains buffered tx first */
-	LCS_CLOSE_WHEN_FLUSHED,		/* a live connection is to close once
-					 * its buffered tx has drained */
 	LCS_SHUTDOWN,			/* half-closed, waiting for his FIN */
 	LCS_DEAD_SOCKET,		/* out of the fd table, being freed */
 	LCS_USER_TOLD			/* dead, and the user has had CLOSED */

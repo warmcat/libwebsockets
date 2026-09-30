@@ -640,6 +640,20 @@ lws_wsi_event_x(struct lws *wsi, enum lws_wsi_event ev,
 		}
 
 		if (e->to & 0x4000) {
+			/*
+			 * The close machine only goes forwards: a later phase
+			 * never gives way to an earlier one, which would also
+			 * defeat the close's own re-entry guards
+			 */
+			if ((enum lws_close_phase)(e->to & 0xff) <
+							lwsi_close(wsi)) {
+				lws_wsi_state_fmt(wsi->role_ops, wsi->wsistate,
+						  a, sizeof(a));
+				lwsl_wsi_err(wsi, "event %s would take the "
+					     "close back from %s",
+					     lws_wsi_event_names[ev], a);
+				goto bad;
+			}
 			lws_wsi_set_close_ev(wsi, (enum lws_close_phase)
 					     (e->to & 0xff),
 					     lws_wsi_event_names[ev]);

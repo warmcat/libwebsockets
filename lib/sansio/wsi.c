@@ -1917,7 +1917,12 @@ int LWS_WARN_UNUSED_RESULT lws_raw_transaction_completed(struct lws *wsi) {
 		 */
 
 		lwsl_wsi_debug(wsi, "deferring due to partial");
-		lws_wsi_event(wsi, LWS_WSIEV_CLOSE_WHEN_FLUSHED);
+		/*
+		 * Only a live connection is to close later: one whose close
+		 * is already under way flushes as part of it
+		 */
+		if (lwsi_close(wsi) == LCS_NONE)
+			lws_wsi_event(wsi, LWS_WSIEV_CLOSE_WHEN_FLUSHED);
 		lws_set_timeout(wsi, PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE, 5);
 		lws_callback_on_writable(wsi);
 

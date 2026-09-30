@@ -241,10 +241,19 @@ The close machine runs on top of the others without disturbing them.
 - `DEAD_SOCKET`: out of the fd table, being freed.  `USER_TOLD` is the same
   state after the user's CLOSED callback ran.
 
+The phases are numbered `CLOSE_WHEN_FLUSHED`, `CLOSING`,
+`WAITING_TO_SEND_CLOSE`, `RETURNED_CLOSE`, `AWAITING_CLOSE_ACK`,
+`FLUSHING_BEFORE_CLOSE`, `SHUTDOWN`, `DEAD_SOCKET`, `USER_TOLD`, and the
+machine only goes forwards: an event that would take a wsi to an
+earlier phase than the one it is in has no row, even from a row that
+accepts any source state.  So a late `lws_raw_transaction_completed()` on a
+connection whose close already went further cannot start it again, and a
+check like `lwsi_close(wsi) >= LCS_DEAD_SOCKET` stays true once it is.
+
 Invariants the checker enforces: an unusable socket never enters
 `WAITING_TO_SEND_CLOSE`, `RETURNED_CLOSE`, `AWAITING_CLOSE_ACK` or
 `SHUTDOWN`; `RETURNED_CLOSE` only on a ws role; `SHUTDOWN` only on a server
-wsi with a socket.
+wsi with a socket; the close phase never goes backwards.
 
 ## Role changes
 
