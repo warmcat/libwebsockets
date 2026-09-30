@@ -70,6 +70,9 @@ lws_genchacha_destroy(struct lws_genchacha_ctx *ctx)
 #elif defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_CHACHAPOLY_C) && !defined(LWS_HAVE_MBEDTLS_V4)
 	mbedtls_chachapoly_free(&ctx->u.cp);
 #endif
+	/* the native fallback always holds a copy of the raw key */
+	lws_explicit_bzero(&ctx->native_ctx, sizeof(ctx->native_ctx));
+
 	return 0;
 }
 
@@ -174,6 +177,7 @@ lws_genchacha_crypt(struct lws_genchacha_ctx *ctx,
 
 	lws_poly1305_auth(computed_tag, mac_buf, total, poly_key);
 	lws_free(mac_buf);
+	lws_explicit_bzero(poly_key, sizeof(poly_key));
 
 	if (ctx->op == LWS_GAESO_DEC) {
 		if (lws_timingsafe_bcmp(computed_tag, tag, 16)) {

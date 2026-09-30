@@ -843,10 +843,14 @@ lws_genhkdf_expand(enum lws_genhmac_types type, const uint8_t *prk,
 		count++;
 	}
 
+	lws_explicit_bzero(t, sizeof(t));
+
 	return 0;
 
 bail:
 	lws_genhmac_destroy(&ctx, NULL);
+	lws_explicit_bzero(t, sizeof(t));
+
 	return ret;
 }
 
