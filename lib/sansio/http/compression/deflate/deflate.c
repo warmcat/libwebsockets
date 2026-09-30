@@ -37,8 +37,13 @@ lcs_init_compression_deflate(lws_comp_ctx_t *ctx, int decomp)
 
 	memset(ctx->u.deflate, 0, sizeof(*ctx->u.deflate));
 
+	/*
+	 * The "deflate" content coding is the zlib format (RFC 9110 8.4.1.2,
+	 * RFC 1950), ie, windowBits 15, not raw deflate (-15), which only
+	 * some clients cope with
+	 */
 	if (!decomp &&
-	    (n = deflateInit2(ctx->u.deflate, 1, Z_DEFLATED, -15, 8,
+	    (n = deflateInit2(ctx->u.deflate, 1, Z_DEFLATED, 15, 8,
 			 Z_DEFAULT_STRATEGY)) != Z_OK) {
 		lwsl_err("deflate init failed: %d\n", n);
 		lws_free_set_NULL(ctx->u.deflate);
@@ -47,7 +52,7 @@ lcs_init_compression_deflate(lws_comp_ctx_t *ctx, int decomp)
 	}
 
 	if (decomp &&
-	    inflateInit2(ctx->u.deflate, 16 + 15) != Z_OK) {
+	    inflateInit2(ctx->u.deflate, 15) != Z_OK) {
 		lws_free_set_NULL(ctx->u.deflate);
 		return 1;
 	}

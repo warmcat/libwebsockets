@@ -32,7 +32,7 @@
 
 enum dec {
 	DEC_IDENTITY,
-	DEC_DEFLATE,		/* lws sends raw deflate, windowBits -15 */
+	DEC_DEFLATE,		/* zlib format (RFC 9110), windowBits 15 */
 	DEC_BR,
 };
 
@@ -191,7 +191,7 @@ conn_decoder_init(struct conn *cn, const struct xcase *c)
 	switch (c->dec) {
 	case DEC_DEFLATE:
 		memset(&cn->zs, 0, sizeof(cn->zs));
-		if (inflateInit2(&cn->zs, -15) != Z_OK)
+		if (inflateInit2(&cn->zs, 15) != Z_OK)
 			return 1;
 		break;
 #if defined(LWS_WITH_HTTP_BROTLI)
