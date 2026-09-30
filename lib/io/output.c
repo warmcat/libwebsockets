@@ -320,6 +320,21 @@ lws_serve_http_file_fragment(struct lws *wsi)
 				goto had_it;
 			}
 		} else {
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+			/*
+			 * Nothing more of the file (or it was empty): but a
+			 * compressed body only ends when the compressor is
+			 * told it has, which flushes it and, on h1, sends the
+			 * last chunk.  If no lump went to it as final, the end
+			 * goes on its own now.
+			 */
+			if (wsi->http.lcs &&
+			    !wsi->http.comp_ctx.final_on_input_side &&
+			    lws_write(wsi, buf, 0, LWS_WRITE_HTTP_FINAL) < 0) {
+				lws_servbuf_release(pt, sb);
+				goto had_it;
+			}
+#endif
 			lws_servbuf_release(pt, sb);
 			last = 1;
 		}

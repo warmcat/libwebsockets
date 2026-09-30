@@ -61,15 +61,25 @@ lcs_process_brotli(lws_comp_ctx_t *ctx, const void *in, size_t *ilen_iused,
 
 	if (!ctx->is_decompression) {
 
-		if (!a_in && !BrotliEncoderHasMoreOutput(ctx->u.br_en)) {
+		n = BROTLI_OPERATION_PROCESS;
+		if (ctx->final_on_input_side && !ctx->buflist_comp)
+			n = BROTLI_OPERATION_FINISH;
+
+		/*
+		 * Nothing in and nothing held back is nothing to do... unless
+		 * it's the end, which brotli has to be told to finish even with
+		 * no more input: PROCESS may be holding output back that
+		 * HasMoreOutput() doesn't count, and there's the end of the
+		 * stream still to emit.  Otherwise a body ending with an empty
+		 * final write, or an empty body, never ends.
+		 */
+		if (!a_in && !BrotliEncoderHasMoreOutput(ctx->u.br_en) &&
+		    (n != BROTLI_OPERATION_FINISH ||
+		     BrotliEncoderIsFinished(ctx->u.br_en))) {
 			*olen_oused = 0;
 
 			goto bail;
 		}
-
-		n = BROTLI_OPERATION_PROCESS;
-		if (ctx->final_on_input_side && !ctx->buflist_comp)
-			n = BROTLI_OPERATION_FINISH;
 
 		if (BrotliEncoderCompressStream(ctx->u.br_en, n, &a_in, &n_in,
 						&a_out, &n_out, &t_out) ==

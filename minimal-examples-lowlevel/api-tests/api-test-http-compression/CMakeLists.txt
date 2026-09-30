@@ -49,6 +49,21 @@ if (requirements AND NOT WIN32)
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 			     TIMEOUT 120)
 
+	#
+	# an empty file: nothing for the compressor but the end of the
+	# stream, which must still end the body (the last chunk on h1)
+	#
+	lws_get_free_port(PORT_HTTP_COMP_E_H1)
+	lws_get_free_port(PORT_HTTP_COMP_E_H2)
+
+	add_test(NAME api-test-http-compression-empty
+		 COMMAND lws-api-test-http-compression -p ${PORT_HTTP_COMP_E_H1}
+			 --h2-port ${PORT_HTTP_COMP_E_H2} --size 0
+			 --tmpdir ${CMAKE_CURRENT_BINARY_DIR})
+	set_tests_properties(api-test-http-compression-empty PROPERTIES
+			     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+			     TIMEOUT 120)
+
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared
 				      ${LIBWEBSOCKETS_DEP_LIBS} ${EXTRA_LIBS})

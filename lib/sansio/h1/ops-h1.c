@@ -976,10 +976,20 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 			   lws_wsi_tag(wsi), (int)len,
 			   (int)o, (int)*wp, wsi->http.comp_ctx.may_have_more);
 
-		if (!o)
-			return (int)olen;
+		if (!o) {
+			if (!wsi->http.comp_ctx.chunking ||
+			    ((*wp) & 0x1f) != LWS_WRITE_HTTP_FINAL)
+				return (int)olen;
 
-		if (wsi->http.comp_ctx.chunking) {
+			/*
+			 * The compressor had nothing more for the end of the
+			 * stream, but the body still has to end: the last
+			 * chunk alone, or the peer keeps waiting for it, and
+			 * on keep-alive reads the next response as a chunk
+			 */
+			memcpy(out, "0\x0d\x0a\x0d\x0a", 5);
+			o = 5;
+		} else if (wsi->http.comp_ctx.chunking) {
 			char c[LWS_HTTP_CHUNK_HDR_MAX_SIZE + 2];
 			/*
 			 * this only needs dealing with on http/1.1 to allow

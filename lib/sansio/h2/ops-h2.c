@@ -512,7 +512,11 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 		len = o;
 		base = (*wp) & 0x1f;
 
-		if (!len)
+		/*
+		 * Nothing to send... unless it's the end of the stream, which
+		 * must still go, as an empty DATA with END_STREAM (as h3 does)
+		 */
+		if (!len && base != LWS_WRITE_HTTP_FINAL)
 			return (int)olen;
 	}
 #endif
