@@ -169,6 +169,60 @@ lws_tls_jit_trust_akid_is_repeat(const lws_tls_kid_chain_t *ch, int n)
 }
 
 /*
+ * The trust cache and the inflights are keyed on the endpoint the trust was
+ * learned from.  Another port on the same address, or another name served
+ * from it, is another server, that may be validated another way... eg, by the
+ * app's own CA on the vhost that a JIT Trust vhost would displace for it.
+ *
+ * The host is the name the server is validated as, and defaults to the
+ * address like it does for the tls session cache.  The address length leads,
+ * so no address and host pair can spell the key of another.
+ *
+ * Returns 0 with the key in key[], or nonzero if there is none that fits.
+ */
+
+static int
+lws_tls_jit_trust_key(char *key, size_t len, const char *address,
+		      uint16_t port, const char *host)
+{
+	int n;
+
+	if (!address || !*address)
+		return 1;
+
+	if (!host || !*host || !strcmp(host, address))
+		n = lws_snprintf(key, len, "%u:%u:%s", (unsigned int)port,
+				 (unsigned int)strlen(address), address);
+	else
+		n = lws_snprintf(key, len, "%u:%u:%s:%s", (unsigned int)port,
+				 (unsigned int)strlen(address), address, host);
+
+	return n >= (int)len;
+}
+
+/*
+ * A client wsi's own endpoint key, from the same connect info that
+ * lws_tls_jit_trust_vhost_bind() is given at connect (and redirect) time.
+ */
+
+static int
+lws_tls_jit_trust_wsi_key(struct lws *wsi, char *key, size_t len)
+{
+	return lws_tls_jit_trust_key(key, len,
+			lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
+					_WSI_TOKEN_CLIENT_PEER_ADDRESS),
+			wsi->c_port,
+			lws_wsi_client_stash_item(wsi, CIS_HOST,
+					_WSI_TOKEN_CLIENT_HOST));
+}
+
+static void
+tag_to_vh_name(char *result, size_t max, uint32_t tag)
+{
+	lws_snprintf(result, max, "jitt-%08X", (unsigned int)tag);
+}
+
+/*
  * If we return 0, we succeeded and have queried the system for every CA that
  * a cert in the chain named as its issuer.
  *
@@ -179,30 +233,26 @@ lws_tls_jit_trust_akid_is_repeat(const lws_tls_kid_chain_t *ch, int n)
 int
 lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 {
+	char key[LWS_JIT_TRUST_KEY_MAX];
 	lws_tls_jit_inflight_t *inf;
 	int n, q = 0;
-	const char *host;
-	size_t hl;
+	size_t kl;
 
 	lwsl_info("%s\n", __func__);
 
 	/*
 	 * The trust cache entry we are going to write below is read back by
-	 * lws_tls_jit_trust_vhost_bind() using the *connect address*.  So we
-	 * have to key it on that too... the Host: header (which is what
-	 * wsi->cli_hostname_copy holds) is a different identity as soon as the
-	 * app sets .host itself, goes via a proxy, or connects to a literal IP.
+	 * lws_tls_jit_trust_vhost_bind() using the endpoint the connection
+	 * was asked for, so we have to key it on that too.
 	 *
 	 * lws_wsi_client_stash_item() also takes care of the case there is no
 	 * stash, and of builds with neither H1 nor H2.
 	 */
 
-	host = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
-					 _WSI_TOKEN_CLIENT_PEER_ADDRESS);
-	if (!host)
+	if (lws_tls_jit_trust_wsi_key(wsi, key, sizeof(key)))
 		return 1;
 
-	hl = strlen(host);
+	kl = strlen(key);
 
 	/* something to work with? */
 
@@ -234,7 +284,7 @@ lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 			      lws_dll2_get_head(&wsi->a.context->jit_inflight)) {
 		inf = lws_container_of(d, lws_tls_jit_inflight_t, list);
 
-		if (!strcmp((const char *)&inf[1], host))
+		if (!strcmp((const char *)&inf[1], key))
 			/* already being handled */
 			return 1;
 
@@ -266,11 +316,11 @@ lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 	 * No... let's make an inflight entry for this host, then
 	 */
 
-	inf = lws_zalloc(sizeof(*inf) + hl + 1, __func__);
+	inf = lws_zalloc(sizeof(*inf) + kl + 1, __func__);
 	if (!inf)
 		return 1;
 
-	memcpy(&inf[1], host, hl + 1);
+	memcpy(&inf[1], key, kl + 1);
 	inf->refcount = (char)q;
 	lws_dll2_add_tail(&inf->list, &wsi->a.context->jit_inflight);
 
@@ -293,24 +343,22 @@ lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 	return 0;
 }
 
-static void
-tag_to_vh_name(char *result, size_t max, uint32_t tag)
-{
-	lws_snprintf(result, max, "jitt-%08X", (unsigned int)tag);
-}
-
 int
 lws_tls_jit_trust_vhost_bind(struct lws_context *cx, const char *address,
+			     uint16_t port, const char *host,
 			     struct lws_vhost **pvh)
 {
+	char key[LWS_JIT_TRUST_KEY_MAX], vhtag[32];
 	lws_tls_jit_cache_item_t *ci, jci;
 	lws_tls_jit_inflight_t *inf;
-	char vhtag[32];
 	size_t size;
 	int n;
 
-	if (lws_cache_item_get(cx->trust_cache, address, (const void **)&ci,
-									&size))
+	if (!cx->trust_cache ||
+	    lws_tls_jit_trust_key(key, sizeof(key), address, port, host) ||
+	    lws_cache_item_get(cx->trust_cache, key, (const void **)&ci,
+									&size) ||
+	    size != sizeof(jci))
 		/*
 		 * There's no cached info, we have to start from scratch on
 		 * this one
@@ -320,7 +368,7 @@ lws_tls_jit_trust_vhost_bind(struct lws_context *cx, const char *address,
 	/* gotten cache item may be evicted by jit_trust_query */
 	jci = *ci;
 
-	if (size != sizeof(jci) || jci.count_skids <= 0 ||
+	if (jci.count_skids <= 0 ||
 	    jci.count_skids > (int)LWS_ARRAY_SIZE(jci.skids))
 		/*
 		 * Not something we wrote, or nothing we can query with...
@@ -342,7 +390,7 @@ lws_tls_jit_trust_vhost_bind(struct lws_context *cx, const char *address,
 
 	*pvh = lws_get_vhost_by_name(cx, vhtag);
 	if (*pvh) {
-		lwsl_info("%s: %s -> existing %s\n", __func__, address, vhtag);
+		lwsl_info("%s: %s -> existing %s\n", __func__, key, vhtag);
 		/* hit, let's just use that then */
 		return 0;
 	}
@@ -359,13 +407,15 @@ lws_tls_jit_trust_vhost_bind(struct lws_context *cx, const char *address,
 	 * queries use the cb to succeed or fail.
 	 */
 
-	size = strlen(address);
+	size = strlen(key);
 	inf = lws_zalloc(sizeof(*inf) + size + 1, __func__);
 	if (!inf)
 		return 1;
 
-	memcpy(&inf[1], address, size + 1);
+	memcpy(&inf[1], key, size + 1);
 	inf->refcount = (char)jci.count_skids;
+	/* what we regenerate is only good for as long as what we learned */
+	inf->expires = jci.expires;
 	lws_dll2_add_tail(&inf->list, &cx->jit_inflight);
 
 	/*
@@ -393,6 +443,44 @@ lws_tls_jit_trust_vhost_bind(struct lws_context *cx, const char *address,
 	/* right now, nothing to offer */
 
 	return 1;
+}
+
+/*
+ * The server did not validate against the trust of the JIT Trust vhost that
+ * the cache bound this connection to.  Whatever the reason (the server has
+ * another chain now, or what we learned came from a handshake that was not
+ * with it), that cache entry is wrong about this server: drop it, so the next
+ * attempt goes back to the vhost it would have had without JIT Trust, and
+ * starts over from there if that can't validate it either.  Otherwise the
+ * entry would keep binding every later connection to a vhost that can't.
+ *
+ * If this failed handshake already taught us a new entry for the endpoint, it
+ * names another vhost, and we leave it.
+ */
+
+void
+lws_tls_jit_trust_peer_rejected(struct lws *wsi)
+{
+	struct lws_context *cx = wsi->a.context;
+	char key[LWS_JIT_TRUST_KEY_MAX], vhtag[32];
+	lws_tls_jit_cache_item_t *ci;
+	size_t size;
+
+	if (!cx->trust_cache || !wsi->a.vhost || !wsi->a.vhost->name ||
+	    lws_tls_jit_trust_wsi_key(wsi, key, sizeof(key)) ||
+	    lws_cache_item_get(cx->trust_cache, key, (const void **)&ci,
+			       &size) ||
+	    size != sizeof(*ci))
+		return;
+
+	tag_to_vh_name(vhtag, sizeof(vhtag), ci->xor_tag);
+	if (strcmp(vhtag, wsi->a.vhost->name))
+		return;
+
+	lwsl_wsi_notice(wsi, "%s did not validate on %s, forgetting it",
+			key, vhtag);
+
+	lws_cache_item_remove(cx->trust_cache, key);
 }
 
 void
@@ -589,6 +677,15 @@ lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 	if (!der && !inf->ders) {
 		lwsl_warn("%s: no trusted CA certs matching\n", __func__);
 
+		/*
+		 * If we were regenerating a vhost from a cache entry, and none
+		 * of the CAs it names can be had any more, the entry can't
+		 * make a vhost: forget it rather than try again each time
+		 */
+		if (inf->expires)
+			lws_cache_item_remove(cx->trust_cache,
+					      (const char *)&inf[1]);
+
 		goto destroy_inf;
 	}
 
@@ -599,7 +696,7 @@ lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 	 * or that we can handle.  So we have to process and drop the inf.
 	 *
 	 * First let's make a cache entry with a shortish ttl, mapping the
-	 * hostname we were trying to connect to, to the SKIDs that actually
+	 * endpoint we were trying to connect to, to the SKIDs that actually
 	 * had trust results.  This may come in handy later when we want to
 	 * connect to the same host again, but any vhost from before has been
 	 * removed... we can just ask for the specific CAs to regenerate the
@@ -614,6 +711,16 @@ lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 	memset(&jci, 0, sizeof(jci));
 
 	jci.xor_tag = inf->tag;
+
+	/*
+	 * The ttl runs from when we learned it from a failed connection.  A
+	 * vhost regenerated from the entry keeps the entry's expiry, so it
+	 * can't be kept alive by using it: only by the server showing us its
+	 * chain again.
+	 */
+
+	jci.expires = inf->expires ? inf->expires :
+				     lws_now_usecs() + LWS_JIT_TRUST_CACHE_TTL_US;
 
 	/* copy the SKIDs from the inflight and params into the cache item */
 
@@ -634,10 +741,10 @@ lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 	lwsl_info("%s: adding cache mapping %s -> %s\n", __func__,
 			(const char *)&inf[1], vhtag);
 
-	if (lws_cache_write_through(cx->trust_cache, (const char *)&inf[1],
+	if (jci.expires > lws_now_usecs() &&
+	    lws_cache_write_through(cx->trust_cache, (const char *)&inf[1],
 				    (const uint8_t *)&jci, sizeof(jci),
-				    lws_now_usecs() + (3600ll *LWS_US_PER_SEC),
-				    NULL))
+				    jci.expires, NULL))
 		lwsl_warn("%s: add to cache failed\n", __func__);
 
 	/* is there already a vhost for this commutative-xor SKID trust? */

@@ -182,14 +182,27 @@ trust mozilla blob, so the system helper is small in the typical case, just
 calling lws helpers.
 
 The results (up to three CA certs to account for cross-signing scenarios) are
-collected and a 1hr TTL cache entry made for the hostname and the SKIDs of the
+collected and a 1hr TTL cache entry made for the endpoint and the SKIDs of the
 matched CAs, if there is no existing JIT vhost with its tls context configured
 with the needed trusted CAs, one is created.
 
-When the connection is retried, lws checks the cache for the hostname having
+The endpoint is the port, the address and the host name the server is
+validated as, so what was learned about one server is never applied to another
+one on the same address, eg, on another port.
+
+When the connection is retried, lws checks the cache for the endpoint having
 a binding to an existing JIT vhost, if that exists the connection proceeds
 bound to that.  If there is a cache entry but no JIT vhost, one is created using
-the information in the cache entry.
+the information in the cache entry.  That doesn't extend the cache entry's TTL,
+which runs from when it was learned from a failed connection.
+
+A JIT vhost trusts only the CAs from the trust store, it replaces the trust of
+the vhost the connection would have had otherwise.  So if a connection bound to
+a JIT vhost by the cache fails to validate the server, eg, because the server
+changed its certificate, the cache entry is forgotten, and the next attempt is
+made on the vhost the connection would have without JIT Trust.  That's also
+what keeps a server the app trusts by its own CA on its default vhost
+reachable, if a JIT Trust entry was ever made for it.
 
 ## Efficiency considerations
 
@@ -199,17 +212,17 @@ From cold, the JIT Trust flow is
 2. Query the JIT Trust database for AKIDs mentioned in the certs (this may be
 done asynchronously)
 3. Create a temporary vhost with the appropriate trusted certs enabled in it,
-   and add an entry in the cache for this hostname to the SKIDs of the CAs
+   and add an entry in the cache for this endpoint to the SKIDs of the CAs
    enabled on this temporary vhost
 4. Retry, querying the cache to bind the connection to the right temporary vhost
 
-An lws_cache in heap is maintained so step 1 can be skipped while hostname->
+An lws_cache in heap is maintained so step 1 can be skipped while endpoint->
 SKID items exist in the cache.  If the items expire or are evicted, it just
 means we have to do step 1 again.
 
 For a short time, the vhost created in step 3 is allowed to exist when idle, ie
 when no connections are actively using it.  In the case the vhost exists and
-the cache entry exists for the hostname, the connection can proceed successfully
+the cache entry exists for the endpoint, the connection can proceed successfully
 right away without steps 1 through 3.
 
 ## APIs related to JIT Trust 
@@ -237,7 +250,7 @@ be called with its results as shown in the minimal example.
 The context creation info struct has a couple of runtime-tunable settings
 related to JIT Trust.
 
-`.jitt_cache_max_footprint`: default 0 means no limit, otherwise the hostname->
+`.jitt_cache_max_footprint`: default 0 means no limit, otherwise the endpoint->
 SKID cache is kept below this many bytes in heap, by evicting LRU entries.
 
 `.vh_idle_grace_ms`: default 0 means 5000ms, otherwise sets the length of time

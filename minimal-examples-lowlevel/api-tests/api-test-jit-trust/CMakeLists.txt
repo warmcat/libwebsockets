@@ -34,10 +34,12 @@ if (requirements)
 
 	lws_get_free_port(PORT_JIT_TRUST)
 	lws_get_free_port(PORT_JIT_UNTRUSTED)
+	lws_get_free_port(PORT_JIT_APPCA)
 
 	add_test(NAME api-test-jit-trust
 		 COMMAND lws-api-test-jit-trust -p ${PORT_JIT_TRUST}
-			 --untrusted-port ${PORT_JIT_UNTRUSTED})
+			 --untrusted-port ${PORT_JIT_UNTRUSTED}
+			 --appca-port ${PORT_JIT_APPCA})
 	set_tests_properties(api-test-jit-trust PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 			     TIMEOUT 120)

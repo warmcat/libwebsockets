@@ -123,6 +123,9 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 		lws_tls_restrict_return_handshake(wsi);
 
 		if (lws_tls_client_confirm_peer_cert(wsi, errbuf, len)) {
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+			lws_tls_jit_trust_peer_rejected(wsi);
+#endif
 			lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
 			return -1;
 		}
@@ -142,6 +145,9 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 	lws_tls_restrict_return_handshake(wsi);
 
 	if (lws_tls_client_confirm_peer_cert(wsi, errbuf, len)) {
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+		lws_tls_jit_trust_peer_rejected(wsi);
+#endif
 		lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
 		return -1;
 	}

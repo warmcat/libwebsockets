@@ -102,7 +102,9 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	vh = i->vhost;
 	if (!vh) {
 #if defined(LWS_WITH_TLS_JIT_TRUST)
-		if (lws_tls_jit_trust_vhost_bind(i->context, i->address, &vh))
+		if (lws_tls_jit_trust_vhost_bind(i->context, i->address,
+						 (uint16_t)(unsigned int)i->port,
+						 i->host, &vh))
 #endif
 		{
 			vh = lws_get_vhost_by_name(i->context, "default");

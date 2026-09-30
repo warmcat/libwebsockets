@@ -6,10 +6,11 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * An lws JIT Trust client and two lws tls servers in one process confirm the
- * real JIT Trust flow end to end, with no internet and no self-signed
- * allowances: the client trusts nothing to start with, and has a trust blob
- * holding one test root CA to answer its jit_trust_query() from.
+ * An lws JIT Trust client and three lws tls servers in one process confirm
+ * the real JIT Trust flow end to end, with no internet and no self-signed
+ * allowances: the client's own vhost trusts only the app's own CA, and it has
+ * a trust blob holding one other test root CA to answer its jit_trust_query()
+ * from.
  *
  * The servers' chains are shaped like real ones:
  *
@@ -21,6 +22,9 @@
  *
  *  - "untrusted" serves a leaf of the same shape issued directly by a root
  *    that is not in the trust blob
+ *
+ *  - "app CA" serves a leaf of the same shape issued directly by the app's
+ *    own CA, which the client's vhost trusts and the trust blob doesn't have
  *
  * The steps, each a client GET, retried from CLIENT_CONNECTION_ERROR up to
  * MAX_ATTEMPTS as an app using JIT Trust does:
@@ -36,8 +40,21 @@
  *    and completes, with no queries
  *
  *  - cached: the JIT Trust vhost has idled out, but the trust cache still
- *    knows which CA the address needs: the first attempt regenerates the
+ *    knows which CA the endpoint needs: the first attempt regenerates the
  *    vhost from the cache, asking only for that CA, and completes
+ *
+ *  - other port: "app CA", on the same address as "trusted" but another
+ *    port, completes on the client's own vhost at the first attempt.  What
+ *    JIT Trust learned about "trusted" is not about this server, and must not
+ *    move its connections to a vhost that trusts only the blob's root
+ *
+ *  - rotated: "trusted" now serves the "app CA" leaf.  The first attempt
+ *    is bound to the JIT Trust vhost by the cache, and fails.  That forgets
+ *    the cache entry, so the retry is on the client's own vhost and completes
+ *
+ *  - rotated, later: after the JIT Trust vhost idled out, the first attempt
+ *    completes on the client's own vhost, with no queries: there was nothing
+ *    left in the cache to regenerate the JIT Trust vhost from
  *
  * The JIT Trust vhost is named after the CAs it trusts, which here is just the
  * test root, so the test can also check it by name.
@@ -56,35 +73,53 @@
 #define VH_GRACE_MS	1500	/* comfortably longer than warm step takes */
 #define POLL_MS		100
 
+#define ANY		-1	/* the count depends on the timing or tls lib */
+
 enum {
 	SRV_TRUSTED,
 	SRV_UNTRUSTED,
+	SRV_APPCA,
 
 	SRV_COUNT
+};
+
+enum {
+	ON_JITT,	/* completes on the JIT Trust vhost */
+	ON_DEFAULT,	/* completes on the client's own vhost */
 };
 
 static const struct step {
 	const char	*name;
 	int		srv;
 	char		completes;	/* else all attempts fail */
+	char		on;		/* ON_JITT or ON_DEFAULT */
 	int		failed;		/* attempts that failed */
 	int		queries;	/* jit_trust_query() calls */
 	int		found;		/* ...that the trust blob answered */
 	char		vh_gone_first;	/* wait for the jitt vhost to idle out */
+	char		rotate_first;	/* "trusted" serves the app CA leaf */
 } steps[] = {
-	{ "untrusted root: never trusted",	SRV_UNTRUSTED,	0,
-	  MAX_ATTEMPTS, MAX_ATTEMPTS, 0, 0 },
+	{ "untrusted root: never trusted",	SRV_UNTRUSTED,	0, ON_JITT,
+	  MAX_ATTEMPTS, MAX_ATTEMPTS, 0, 0, 0 },
 	{ "cold: sacrificial attempt, then JIT Trust vhost",
-						SRV_TRUSTED,	1, 1, 4, 1, 0 },
-	{ "warm: JIT Trust vhost still there",	SRV_TRUSTED,	1, 0, 0, 0, 0 },
+				SRV_TRUSTED,	1, ON_JITT,	1, 4, 1, 0, 0 },
+	{ "warm: JIT Trust vhost still there",
+				SRV_TRUSTED,	1, ON_JITT,	0, 0, 0, 0, 0 },
 	{ "cached: JIT Trust vhost regenerated from the trust cache",
-						SRV_TRUSTED,	1, 0, 1, 1, 1 },
+				SRV_TRUSTED,	1, ON_JITT,	0, 1, 1, 1, 0 },
+	{ "other port: app CA server on the same address keeps its own trust",
+				SRV_APPCA,	1, ON_DEFAULT,	0, 0, 0, 0, 0 },
+	{ "rotated: JIT Trust vhost fails once, its cache entry is forgotten",
+				SRV_TRUSTED,	1, ON_DEFAULT,	1, ANY, ANY, 0, 1 },
+	{ "rotated, later: nothing left to regenerate a JIT Trust vhost from",
+				SRV_TRUSTED,	1, ON_DEFAULT,	0, 0, 0, 1, 0 },
 };
 
 /*
  * The test PKI, made with openssl as README.md describes.  The servers' certs
  * and keys are files in this directory, the client only knows the DER of the
- * trusted root, and its SKID, which is what the trust blob indexes it by.
+ * trusted root, and its SKID, which is what the trust blob indexes it by, and
+ * the DER of the app's own CA.
  */
 
 static const uint8_t root_der[] = {
@@ -134,9 +169,57 @@ static const uint8_t root_skid[] = {
 	0x12, 0x79, 0xb6, 0xa8, 0x48, 0x68, 0x3d, 0x05, 0xea, 0x94
 };
 
+/*
+ * The app's own CA, that the client's vhost trusts itself, the way an app
+ * trusts its own backend's private CA.  It is not in the trust blob.
+ */
+
+static const uint8_t app_root_der[] = {
+	0x30, 0x82, 0x01, 0xcc, 0x30, 0x82, 0x01, 0x72, 0xa0, 0x03, 0x02, 0x01,
+	0x02, 0x02, 0x14, 0x6d, 0x76, 0x3f, 0x78, 0x80, 0xa6, 0xe7, 0xc5, 0x32,
+	0xaa, 0xdf, 0xb7, 0x62, 0x4d, 0x85, 0xea, 0x46, 0x2d, 0x1c, 0x72, 0x30,
+	0x0a, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x02, 0x30,
+	0x43, 0x31, 0x1b, 0x30, 0x19, 0x06, 0x03, 0x55, 0x04, 0x0a, 0x0c, 0x12,
+	0x6c, 0x69, 0x62, 0x77, 0x65, 0x62, 0x73, 0x6f, 0x63, 0x6b, 0x65, 0x74,
+	0x73, 0x2d, 0x74, 0x65, 0x73, 0x74, 0x31, 0x24, 0x30, 0x22, 0x06, 0x03,
+	0x55, 0x04, 0x03, 0x0c, 0x1b, 0x6c, 0x77, 0x73, 0x20, 0x6a, 0x69, 0x74,
+	0x20, 0x74, 0x72, 0x75, 0x73, 0x74, 0x20, 0x74, 0x65, 0x73, 0x74, 0x20,
+	0x61, 0x70, 0x70, 0x20, 0x72, 0x6f, 0x6f, 0x74, 0x30, 0x20, 0x17, 0x0d,
+	0x32, 0x36, 0x30, 0x31, 0x30, 0x31, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30,
+	0x5a, 0x18, 0x0f, 0x32, 0x31, 0x32, 0x35, 0x31, 0x32, 0x33, 0x31, 0x32,
+	0x33, 0x35, 0x39, 0x35, 0x39, 0x5a, 0x30, 0x43, 0x31, 0x1b, 0x30, 0x19,
+	0x06, 0x03, 0x55, 0x04, 0x0a, 0x0c, 0x12, 0x6c, 0x69, 0x62, 0x77, 0x65,
+	0x62, 0x73, 0x6f, 0x63, 0x6b, 0x65, 0x74, 0x73, 0x2d, 0x74, 0x65, 0x73,
+	0x74, 0x31, 0x24, 0x30, 0x22, 0x06, 0x03, 0x55, 0x04, 0x03, 0x0c, 0x1b,
+	0x6c, 0x77, 0x73, 0x20, 0x6a, 0x69, 0x74, 0x20, 0x74, 0x72, 0x75, 0x73,
+	0x74, 0x20, 0x74, 0x65, 0x73, 0x74, 0x20, 0x61, 0x70, 0x70, 0x20, 0x72,
+	0x6f, 0x6f, 0x74, 0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48,
+	0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03,
+	0x01, 0x07, 0x03, 0x42, 0x00, 0x04, 0x29, 0x80, 0x50, 0x68, 0x6d, 0x46,
+	0xac, 0x87, 0x05, 0x44, 0x99, 0x95, 0xad, 0x16, 0xf5, 0x99, 0xd9, 0xd5,
+	0xb6, 0x3a, 0x40, 0x79, 0xc1, 0x1b, 0xd7, 0x4c, 0x5e, 0xa4, 0x5c, 0xcc,
+	0xa8, 0x45, 0x5a, 0x23, 0x9b, 0xa6, 0x0c, 0x1d, 0x5e, 0x85, 0xa6, 0x72,
+	0x7b, 0x8c, 0xeb, 0x76, 0xdf, 0x15, 0xbd, 0x72, 0x99, 0x1d, 0x37, 0x81,
+	0xf2, 0x17, 0xad, 0x71, 0x03, 0x5d, 0xed, 0x0d, 0xc1, 0x91, 0xa3, 0x42,
+	0x30, 0x40, 0x30, 0x0f, 0x06, 0x03, 0x55, 0x1d, 0x13, 0x01, 0x01, 0xff,
+	0x04, 0x05, 0x30, 0x03, 0x01, 0x01, 0xff, 0x30, 0x0e, 0x06, 0x03, 0x55,
+	0x1d, 0x0f, 0x01, 0x01, 0xff, 0x04, 0x04, 0x03, 0x02, 0x01, 0x06, 0x30,
+	0x1d, 0x06, 0x03, 0x55, 0x1d, 0x0e, 0x04, 0x16, 0x04, 0x14, 0xa9, 0xdf,
+	0xe7, 0x90, 0xa7, 0x1a, 0x16, 0x05, 0x97, 0x41, 0xf7, 0xb9, 0x98, 0x3e,
+	0x1b, 0xc6, 0xef, 0xdd, 0xfc, 0x67, 0x30, 0x0a, 0x06, 0x08, 0x2a, 0x86,
+	0x48, 0xce, 0x3d, 0x04, 0x03, 0x02, 0x03, 0x48, 0x00, 0x30, 0x45, 0x02,
+	0x21, 0x00, 0x93, 0x7d, 0x5b, 0x7f, 0x14, 0xf2, 0xff, 0xc0, 0xd8, 0x86,
+	0x7b, 0xe1, 0x23, 0xb0, 0xe1, 0xe4, 0x8f, 0x9b, 0xb6, 0xe9, 0xdb, 0xe7,
+	0x1c, 0x07, 0xd4, 0x70, 0x6c, 0x72, 0xb4, 0x27, 0xbf, 0xa2, 0x02, 0x20,
+	0x61, 0x88, 0xbb, 0x5d, 0xd1, 0x11, 0xcd, 0xdb, 0xcc, 0x5c, 0xbd, 0xb9,
+	0xd2, 0x93, 0x64, 0x68, 0xe2, 0x94, 0xeb, 0xf6, 0x36, 0x22, 0x10, 0xb9,
+	0xf9, 0x8f, 0xbd, 0xe7, 0xfe, 0xaa, 0xb2, 0xb9
+};
+
 static const char * const srv_certs[SRV_COUNT][2] = {
 	[SRV_TRUSTED]	= { "trusted-chain.pem",	"trusted-leaf.key" },
 	[SRV_UNTRUSTED]	= { "untrusted-leaf.pem",	"untrusted-leaf.key" },
+	[SRV_APPCA]	= { "app-leaf.pem",		"app-leaf.key" },
 };
 
 static struct lws_context *context;
@@ -145,7 +228,8 @@ static uint8_t *blob;
 static size_t blob_len;
 static const char *server_addr = "127.0.0.1";
 static char jitt_vh_name[32];
-static int ports[SRV_COUNT] = { 7681, 7682 }, cur = -1, result = 1, failures;
+static int ports[SRV_COUNT] = { 7681, 7682, 7683 }, cur = -1, result = 1,
+	   failures;
 
 static struct {
 	int		attempts;
@@ -154,7 +238,7 @@ static struct {
 	int		found;
 	int		status;
 	char		completed;
-	char		via_jitt;	/* the completing attempt was on it */
+	char		on;		/* the vhost the completing attempt was on */
 } st;
 
 /*
@@ -238,9 +322,9 @@ check_step(void)
 		lwsl_err("%s: http status %d\n", s->name, st.status);
 		bad = 1;
 	}
-	if (st.completed && !st.via_jitt) {
-		lwsl_err("%s: did not complete on the JIT Trust vhost\n",
-			 s->name);
+	if (st.completed && st.on != s->on) {
+		lwsl_err("%s: did not complete on the %s vhost\n", s->name,
+			 s->on == ON_JITT ? "JIT Trust" : "client's own");
 		bad = 1;
 	}
 	if (st.failed != s->failed) {
@@ -248,12 +332,14 @@ check_step(void)
 			 st.failed, s->failed);
 		bad = 1;
 	}
-	if (st.queries != s->queries || st.found != s->found) {
+	if ((s->queries != ANY && st.queries != s->queries) ||
+	    (s->found != ANY && st.found != s->found)) {
 		lwsl_err("%s: %d queries, %d trusted, expected %d, %d\n",
 			 s->name, st.queries, st.found, s->queries, s->found);
 		bad = 1;
 	}
-	if (s->completes && !lws_get_vhost_by_name(context, jitt_vh_name)) {
+	if (s->completes && s->on == ON_JITT &&
+	    !lws_get_vhost_by_name(context, jitt_vh_name)) {
 		lwsl_err("%s: no JIT Trust vhost %s\n", s->name, jitt_vh_name);
 		bad = 1;
 	}
@@ -313,6 +399,31 @@ try_connect(lws_sorted_usec_list_t *sul)
 	}
 }
 
+/*
+ * "trusted" renews its certificate, from the app's own CA this time, the way
+ * a server's certificate changes under a client that learned its trust
+ */
+
+static int
+rotate_trusted(void)
+{
+	static char cert[2048], key[512];
+	int cl, kl;
+
+	cl = lws_plat_read_file(srv_certs[SRV_APPCA][0], cert, sizeof(cert) - 1);
+	kl = lws_plat_read_file(srv_certs[SRV_APPCA][1], key, sizeof(key) - 1);
+	if (cl <= 0 || kl <= 0) {
+		lwsl_err("%s: unable to read the app CA leaf\n", __func__);
+		return 1;
+	}
+	cert[cl] = '\0';
+	key[kl] = '\0';
+
+	return lws_tls_cert_updated(context, srv_certs[SRV_TRUSTED][0],
+				    srv_certs[SRV_TRUSTED][1],
+				    cert, (size_t)cl, key, (size_t)kl);
+}
+
 static void
 next_step(lws_sorted_usec_list_t *sul)
 {
@@ -344,6 +455,12 @@ next_step(lws_sorted_usec_list_t *sul)
 	memset(&st, 0, sizeof(st));
 	lwsl_user("%s: step %d: %s\n", __func__, cur, steps[cur].name);
 
+	if (steps[cur].rotate_first && rotate_trusted()) {
+		failures++;
+		lws_default_loop_exit(context);
+		return;
+	}
+
 	lws_sul_schedule(context, 0, &sul_watchdog, watchdog,
 			 STEP_TIMEOUT_S * LWS_US_PER_SEC);
 	try_connect(NULL);
@@ -369,7 +486,8 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		st.status = (int)lws_http_client_http_response(wsi);
 		vhn = lws_get_vhost_name(lws_get_vhost(wsi));
-		st.via_jitt = vhn && !strcmp(vhn, jitt_vh_name);
+		st.on = vhn && !strcmp(vhn, jitt_vh_name) ? ON_JITT :
+			(vhn && !strcmp(vhn, "default") ? ON_DEFAULT : -1);
 		lwsl_user("%s: attempt %d: http %d on vhost %s\n", __func__,
 			  st.attempts, st.status, vhn ? vhn : "?");
 		break;
@@ -474,13 +592,15 @@ int main(int argc, const char **argv)
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
-	/* two listeners (v4 + v6 each), and both ends of the connections */
+	/* three listeners (v4 + v6 each), and both ends of the connections */
 	info.fd_limit_per_thread = 0;
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		ports[SRV_TRUSTED] = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--untrusted-port")))
 		ports[SRV_UNTRUSTED] = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--appca-port")))
+		ports[SRV_APPCA] = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		server_addr = p;
 
@@ -496,9 +616,10 @@ int main(int argc, const char **argv)
 		     (unsigned int)lws_ser_ru32be(root_skid));
 
 	/*
-	 * The context's default vhost is the client one.  It trusts nothing,
-	 * and the JIT Trust vhosts inherit the context options, so they don't
-	 * resume a session instead of validating the server chain either.
+	 * The context's default vhost is the client one.  It trusts only the
+	 * app's own CA, and the JIT Trust vhosts inherit the context options,
+	 * so they don't resume a session instead of validating the server
+	 * chain either.
 	 */
 
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
@@ -508,12 +629,17 @@ int main(int argc, const char **argv)
 	info.protocols = protocols_cli;
 	info.system_ops = &system_ops;
 	info.vh_idle_grace_ms = VH_GRACE_MS;
+	info.client_ssl_ca_mem = app_root_der;
+	info.client_ssl_ca_mem_len = (unsigned int)sizeof(app_root_der);
 
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
 		goto bail;
 	}
+
+	info.client_ssl_ca_mem = NULL;
+	info.client_ssl_ca_mem_len = 0;
 
 	/*
 	 * The servers.  Their alpn leaves out h3, so they do not also listen
@@ -525,8 +651,13 @@ int main(int argc, const char **argv)
 	info.alpn = "http/1.1";
 
 	for (n = 0; n < SRV_COUNT; n++) {
-		info.vhost_name = n == SRV_TRUSTED ? "srv-trusted" :
-						     "srv-untrusted";
+		static const char * const srv_names[SRV_COUNT] = {
+			[SRV_TRUSTED]	= "srv-trusted",
+			[SRV_UNTRUSTED]	= "srv-untrusted",
+			[SRV_APPCA]	= "srv-appca",
+		};
+
+		info.vhost_name = srv_names[n];
 		info.port = ports[n];
 		info.ssl_cert_filepath = srv_certs[n][0];
 		info.ssl_private_key_filepath = srv_certs[n][1];

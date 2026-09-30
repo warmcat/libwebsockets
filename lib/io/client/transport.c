@@ -295,7 +295,7 @@ lws_client_transport_failed(struct lws *wsi)
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 /*
  * A restarted client may belong on another vhost now: the one jit trust
- * keeps for its new address, whose trust store knows that peer.
+ * keeps for its new endpoint, whose trust store knows that peer.
  */
 void
 lws_client_transport_rebind(struct lws *wsi)
@@ -306,7 +306,8 @@ lws_client_transport_rebind(struct lws *wsi)
 		return;
 
 	lws_tls_jit_trust_vhost_bind(wsi->a.context,
-				     wsi->stash->cis[CIS_ADDRESS], &vh);
+				     wsi->stash->cis[CIS_ADDRESS], wsi->c_port,
+				     wsi->stash->cis[CIS_HOST], &vh);
 	/*
 	 * Rebind through the proper helper: it unbinds the old vhost itself
 	 * (unbinding here first would clear wsi->a.vhost and disarm its

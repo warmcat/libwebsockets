@@ -63,6 +63,20 @@ enum {
  */
 #define LWS_JIT_TRUST_MAX_DER	((size_t)16384)
 
+/*
+ * What we learn about a server's trust is only true of that server, so it is
+ * keyed on the endpoint: the port, the address and the host name the server
+ * is validated as.  A key that doesn't fit is not cached (JIT Trust then
+ * starts over from a failed connection each time, as for a cache miss).
+ */
+#define LWS_JIT_TRUST_KEY_MAX	320
+
+/*
+ * How long what we learned about a server's trust is kept, from when we
+ * learned it.  Regenerating the vhost from the cache does not extend it.
+ */
+#define LWS_JIT_TRUST_CACHE_TTL_US	(3600ll * LWS_US_PER_SEC)
+
 typedef struct {
 	uint8_t				kid[20];
 	uint8_t				kid_len;
@@ -112,22 +126,29 @@ typedef struct {
 	 */
 	size_t				der_len[2];
 
+	lws_usec_t			expires; /* 0, or the expiry of the
+						  * cache entry we are
+						  * regenerating a vhost from
+						  */
+
 	char				refcount; /* expected results left */
 
-	/* hostname overcommitted */
+	/* cache key (see lws_tls_jit_trust_key()) overcommitted */
 } lws_tls_jit_inflight_t;
 
 /*
- * These are the items in the jit trust cache, the cache tag is the hostname
- * and it resolves to one of these if present.  It describes 1 - 3 SKIDs
- * of trusted CAs needed to validate that host, and a 32-bit tag that is
+ * These are the items in the jit trust cache, the cache tag is the endpoint
+ * key and it resolves to one of these if present.  It describes 1 - 3 SKIDs
+ * of trusted CAs needed to validate that server, and a 32-bit tag that is
  * the first 4 bytes of each valid SKID xor'd together, so you can find any
  * existing vhost that already has the required trust (independent of the
- * order they are checked in due to commutative xor).
+ * order they are checked in due to commutative xor).  It also carries its
+ * own expiry, so a vhost regenerated from it doesn't keep it alive.
  */
 
 typedef struct {
 	lws_tls_kid_t			skids[3];
+	lws_usec_t			expires;
 	int				count_skids;
 	uint32_t			xor_tag;
 } lws_tls_jit_cache_item_t;
@@ -151,7 +172,11 @@ lws_tls_jit_trust_inflight_destroy_all(struct lws_context *cx);
 
 int
 lws_tls_jit_trust_vhost_bind(struct lws_context *cx, const char *address,
+			     uint16_t port, const char *host,
 			     struct lws_vhost **pvh);
+
+void
+lws_tls_jit_trust_peer_rejected(struct lws *wsi);
 
 
 #endif
