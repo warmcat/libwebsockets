@@ -871,6 +871,7 @@ static const struct lws_role_edge lws_role_edges[] = {
 	{ "(none)", "-", 0, "netlink", "-", LRS_UNCONNECTED },
 	{ "(none)", "-", 0, "pipe", "-", LRS_UNCONNECTED },
 	{ "(none)", "-", 0, "raw-file", "-", LRS_UNCONNECTED },
+	{ "(none)", "-", 0, "cgi", "-", LRS_UNCONNECTED },
 };
 
 /* a live-state edge must be one some event row produces */
