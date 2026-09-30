@@ -848,14 +848,27 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 					&wsi->a.context->pt[(int)wsi->tsi];
 			struct lws *par = lws_get_parent(wsi);
 			size_t max = wsi->a.context->pt_serv_buf_size - LWS_PRE;
-			unsigned char *buf;
-			size_t len;
+			unsigned char *buf, *o = pt->serv_buf + LWS_PRE;
+			size_t len, hl = 0, fr = 0;
 			int n;
 
 			if (!par) {
 				lwsl_wsi_info(wsi, "proxy body: parent gone");
 
 				return LWS_HP_RET_BAIL_DIE;
+			}
+
+			/*
+			 * A body of no known length goes onward chunked
+			 * (lws_http_proxy_start()): leave room for the chunk
+			 * header and its CRLF, and keep the chunk size inside
+			 * what the header has room to say
+			 */
+			if (par->http.proxy_body_chunked) {
+				fr = LWS_HTTP_CHUNK_HDR_MAX_SIZE + 2;
+				max -= fr;
+				if (max > 0xffffff)
+					max = 0xffffff;
 			}
 
 			len = lws_buflist_next_segment_len(
@@ -865,11 +878,19 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 				len = max;
 
 			if (len) {
-				int sb = lws_servbuf_claim(pt,
-						pt->serv_buf + LWS_PRE, len,
-						"h1 proxy body");
+				int sb = lws_servbuf_claim(pt, o, len + fr,
+							   "h1 proxy body");
 
-				memcpy(pt->serv_buf + LWS_PRE, buf, len);
+				if (fr)
+					hl = (size_t)lws_snprintf((char *)o,
+						LWS_HTTP_CHUNK_HDR_MAX_SIZE + 1,
+						"%X\x0d\x0a", (unsigned int)len);
+
+				memcpy(o + hl, buf, len);
+				if (fr) {
+					o[hl + len] = '\x0d';
+					o[hl + len + 1] = '\x0a';
+				}
 
 				lwsl_debug("%s: %s: proxying body %d %d %d %d %d\n",
 						__func__, lws_wsi_tag(wsi), (int)len,
@@ -879,7 +900,7 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 						(int)wsi->http.rx_content_remain
 						);
 
-				n = lws_write(wsi, pt->serv_buf + LWS_PRE, len,
+				n = lws_write(wsi, o, hl + len + (fr ? 2 : 0),
 					      LWS_WRITE_HTTP);
 				lws_servbuf_release(pt, sb);
 				if (n < 0) {
@@ -910,6 +931,32 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 
 			par->http.buflist_post_body_len = 0;
 			lws_rx_flow_control(par, 1);
+
+			/*
+			 * A chunked onward body ends with its last-chunk, once
+			 * the parent's body is complete and all of it went.
+			 * One write per POLLOUT: if we wrote a chunk just now,
+			 * the last-chunk goes on the next one
+			 */
+			if (par->http.proxy_body_chunked &&
+			    par->http.proxy_body_complete &&
+			    !par->http.proxy_body_ended) {
+				if (len)
+					lws_callback_on_writable(wsi);
+				else {
+					uint8_t lc[LWS_PRE + 5];
+
+					memcpy(&lc[LWS_PRE], "0\x0d\x0a\x0d\x0a", 5);
+					if (lws_write(wsi, &lc[LWS_PRE], 5,
+						      LWS_WRITE_HTTP) < 0) {
+						lwsl_wsi_err(wsi, "PROXY_BODY: "
+							"last-chunk failed");
+
+						return LWS_HP_RET_BAIL_DIE;
+					}
+					par->http.proxy_body_ended = 1;
+				}
+			}
 
 			/*
 			 * Only the end of the body we were forwarding is news:

@@ -63,6 +63,10 @@
  * stream that is still open, and be nothing on one a Content-Length already
  * ended.  On h1 a response the relay frames as chunked is ended by its own
  * last-chunk, the second one on a kept-alive connection as much as the first.
+ * A request body the proxy has no length for (h1 chunked, h2 without
+ * content-length) goes onward chunked and must arrive whole; a POST with no
+ * body goes onward saying Content-Length: 0; an h3 body with no length,
+ * which the proxy could not end onward, is refused.
  *
  * On an h3 stream, a response write lws took whole is in quic's hands: it
  * must not be reported back to the app as a partial or a choked pipe just
@@ -389,6 +393,19 @@ static const struct xcase cases[] = {
 	{ "h1 POST Content-Length 20KB, no-length response, via the http proxy mount",
 	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 0, 0, 200, 20000, XG_NONE, 0, 1, 0, 0, 0 },
 	/*
+	 * A request body whose length is not a Content-Length goes onward
+	 * chunked, ended by a last-chunk when the body completes: the server
+	 * behind the proxy must see all of it, not a bodyless request.  An h1
+	 * POST with neither header has an empty body, and goes onward saying
+	 * so, or the server behind would wait for the body to the close.
+	 */
+	{ "h1 POST chunked 30KB, 4KB writes, via the http proxy mount",
+	  "POST", "/echo-cl", XR_CHUNKED, 30000, 0, 4096, 0, 0, 200, 30000, XG_NONE, 0, 1, 0, 0, 0 },
+	{ "h1 POST chunked 2KB with extensions and trailers, via the http proxy mount",
+	  "POST", "/echo-chunked", XR_CHUNKED_EXT, 2000, 0, 512, 0, 0, 200, 2000, XG_NONE, 0, 1, 0, 0, 0 },
+	{ "h1 POST with neither header via the http proxy mount: empty body",
+	  "POST", "/echo-cl", XR_NOLEN, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0, 1, 0, 0, 0 },
+	/*
 	 * The relay frames a response without a Content-Length as chunked on
 	 * h1.  When the onward response ended by its own framing (not by the
 	 * onward server's close, which ends the parent connection too) the
@@ -416,6 +433,11 @@ static const struct xcase cases[] = {
 	  "POST", "/echo-cl", XR_CL, 20000, 0, 8192, 1, 0, 200, 20000, XG_NONE, 0, 1, 0, 0, 0 },
 	{ "h2 POST Content-Length 20KB, no-length response, via the http proxy mount",
 	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 1, 0, 200, 20000, XG_NONE, 0, 1, 0, 0, 0 },
+	{ "h2 POST no Content-Length 20KB (END_STREAM delimited) via the http "
+	  "proxy mount",
+	  "POST", "/echo-cl", XR_BODY_NOHDR, 20000, 0, 4096, 1, 0, 200, 20000, XG_NONE, 0, 1, 0, 0, 0 },
+	{ "h2 POST with neither header via the http proxy mount: empty body",
+	  "POST", "/echo-cl", XR_NOLEN, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0, 1, 0, 0, 0 },
 #endif
 	{ "h3 GET via the http proxy mount",
 	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 2, 0, 200, 0, XG_NONE, 0, 1, 0, 0, 0 },
@@ -423,6 +445,13 @@ static const struct xcase cases[] = {
 	  "POST", "/echo-cl", XR_CL, 20000, 0, 8192, 2, 0, 200, 20000, XG_NONE, 0, 1, 0, 0, 0 },
 	{ "h3 POST Content-Length 20KB, no-length response, via the http proxy mount",
 	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 2, 0, 200, 20000, XG_NONE, 0, 1, 0, 0, 0 },
+	/*
+	 * An h3 body with no content-length is ended by the FIN alone, which
+	 * the proxy could not end the onward body at: the request is refused
+	 * (the stream is reset) and nothing of it reaches the server behind
+	 */
+	{ "h3 POST no Content-Length via the http proxy mount is refused",
+	  "POST", "/echo-cl", XR_BODY_NOHDR, 2000, 0, 8192, 2, 0, -1, 0, XG_NONE, 0, 1, 0, 0, 0 },
 #endif
 #endif
 #if defined(LWS_WITH_HTTP2)

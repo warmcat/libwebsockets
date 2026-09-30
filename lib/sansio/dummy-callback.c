@@ -599,6 +599,8 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_get_child(wsi)) {
 			lwsl_wsi_info(wsi, "HTTP_BODY_COMPLETION: %d",
 					   (int)len);
+			/* a chunked onward body can have its last-chunk now */
+			wsi->http.proxy_body_complete = 1;
 			lws_callback_on_writable(lws_get_child(wsi));
 			break;
 		}
@@ -650,6 +652,21 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			 */
 			if (!len)
 				break;
+
+			/*
+			 * The onward request was framed for the body when it
+			 * was set up (lws_http_proxy_start()): by the
+			 * Content-Length we forwarded, or chunked.  Body bytes
+			 * for a request framed as having none (eg, an h2 GET
+			 * whose DATA we did not expect) must not follow it
+			 * onward raw, where the backend would take them for
+			 * its next request (C-698)
+			 */
+			if (!wsi->http.content_length_given &&
+			    !wsi->http.proxy_body_chunked) {
+				lwsl_wsi_notice(wsi, "proxy: unframed body");
+				return -1;
+			}
 
 			lwsl_wsi_info(wsi, "HTTP_BODY: stashing %d", (int)len);
 			if (lws_buflist_append_segment(

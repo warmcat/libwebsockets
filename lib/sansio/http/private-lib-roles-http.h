@@ -433,6 +433,15 @@ struct _lws_http_mode_related {
 	unsigned int perform_rewrite:1;
 	unsigned int proxy_clientside:1;
 	unsigned int proxy_parent_chunked:1;
+	unsigned int proxy_body_chunked:1;
+	/**< on the client-facing wsi of an http proxy: the request body has
+	 * no length we can tell the backend up front (h1 chunked, h2 without
+	 * content-length), so the onward h1 request says Transfer-Encoding:
+	 * chunked and the body is chunk-encoded on the way out */
+	unsigned int proxy_body_complete:1;
+	/**< ... and all of the request body has arrived */
+	unsigned int proxy_body_ended:1;
+	/**< ... and the onward request's last-chunk has been sent */
 #endif
 	uint8_t pipeline_count;
 #if defined(LWS_ROLE_H3)

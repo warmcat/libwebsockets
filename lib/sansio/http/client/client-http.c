@@ -30,6 +30,23 @@ lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
 	wsi->client_http_body_pending = !!something_left_to_send;
 }
 
+#if defined(LWS_WITH_HTTP_PROXY)
+/*
+ * The onward leg of an http proxy has request body it can send now: some of
+ * the parent's body is stashed for it, or the parent's body is complete and
+ * the chunked onward body still owes its last-chunk
+ */
+static int
+lws_http_proxy_onward_body_ready(struct lws *wsi)
+{
+	return wsi->http.proxy_clientside && wsi->parent &&
+	       (wsi->parent->http.buflist_post_body ||
+		(wsi->parent->http.proxy_body_chunked &&
+		 wsi->parent->http.proxy_body_complete &&
+		 !wsi->parent->http.proxy_body_ended));
+}
+#endif
+
 /*
  * A "+path" address is a unix socket, and only the app may choose one.  A
  * connection retargeted by what a server said (a redirect, a digest auth
@@ -303,8 +320,7 @@ lws_h1_client_issue_handshake(struct lws *wsi)
 		if (wsi->flags & LCCSCF_HTTP_X_WWW_FORM_URLENCODED)
 			lws_callback_on_writable(wsi);
 #if defined(LWS_WITH_HTTP_PROXY)
-		if (wsi->http.proxy_clientside && wsi->parent &&
-		    wsi->parent->http.buflist_post_body)
+		if (lws_http_proxy_onward_body_ready(wsi))
 			lws_callback_on_writable(wsi);
 #endif
 		/* user code must ask for writable callback */
@@ -358,8 +374,7 @@ lws_h1_client_body_done_check(struct lws *wsi)
 		return;
 
 #if defined(LWS_WITH_HTTP_PROXY)
-	if (wsi->http.proxy_clientside && wsi->parent &&
-	    wsi->parent->http.buflist_post_body)
+	if (lws_http_proxy_onward_body_ready(wsi))
 		lws_callback_on_writable(wsi);
 #endif
 	if (wsi->client_http_body_pending || lws_has_buffered_out(wsi))

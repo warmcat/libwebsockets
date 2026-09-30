@@ -1198,7 +1198,7 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 		     char *uri_ptr, char ws)
 {
 	const char *pcolon, *pslash;
-	char ads[96], host[96], unix_skt = 0;
+	char ads[96], host[96], unix_skt = 0, zero_body = 0;
 	struct lws_client_connect_info i;
 	struct lws *cwsi;
 	int n, na;
@@ -1468,16 +1468,78 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	i.pwsi = &cwsi;
 
 	/*
+	 * How the onward request, which is always h1, frames the body (C-698).
+	 * A validated Content-Length is forwarded as it is.  A body with no
+	 * length must not follow the onward request raw: without framing the
+	 * backend takes the request as bodyless, and the body as whatever the
+	 * client wants the next request on that connection to be, one the
+	 * mount's interceptors never saw.
+	 *
+	 *  - h1 chunked, or an h2 stream with no content-length: the length is
+	 *    only known when the body ends, so the onward request is chunked,
+	 *    the body chunk-encoded as it goes and ended by a last-chunk at
+	 *    the body completion
+	 *
+	 *  - an h1 POST / PUT / PATCH with neither header has a zero-length
+	 *    body (RFC 9112 6.3): forward it as that, and what follows on the
+	 *    connection is not this request's body
+	 *
+	 *  - an h3 stream with no content-length ends its body with the FIN,
+	 *    which gives us no body completion, so we could never end the
+	 *    onward body: refuse it rather than hang both legs
+	 *
+	 * A POST / PUT / PATCH going onward with an empty body says so with a
+	 * Content-Length of zero: an h1 backend that, like lws, reads such a
+	 * body to the close would otherwise wait for one for ever.
+	 */
+
+	wsi->http.proxy_body_chunked = 0;
+	wsi->http.proxy_body_complete = 0;
+	wsi->http.proxy_body_ended = 0;
+
+	if (!ws && !wsi->http.content_length_given &&
+	    wsi->http.rx_content_length) {
+		if (wsi->http.rx_chunked ||
+		    (lwsi_role_h2(wsi) && wsi->mux_substream))
+			wsi->http.proxy_body_chunked = 1;
+		else if (!wsi->mux_substream) {
+			wsi->http.rx_content_length = 0;
+			wsi->http.rx_content_remain = 0;
+			wsi->http.content_length_given = 1;
+		} else {
+			lwsl_wsi_notice(wsi, "proxy: request body has no length");
+			lws_free(rpath);
+			lws_return_http_status(wsi, HTTP_STATUS_LENGTH_REQUIRED,
+					       NULL);
+
+			return 1;
+		}
+	}
+
+	if (!ws && !wsi->http.proxy_body_chunked &&
+	    !wsi->http.rx_content_length &&
+	    !lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
+	    (!strcmp(i.method, "POST") || !strcmp(i.method, "PUT") ||
+	     !strcmp(i.method, "PATCH")))
+		zero_body = 1;
+
+	/*
 	 * Snapshot the request headers the onward leg forwards NOW, while the
 	 * ah is certainly attached, onto the extra onward headers that both
 	 * legs replay when they compose their handshake.  The composer runs
 	 * asynchronously, arbitrarily far from LWS_CALLBACK_HTTP, and must not
 	 * depend on the ah still being there (C-460).  This runs after the
 	 * mount's interceptors, so anything they zapped is already gone and
-	 * anything they injected is already in the list.
+	 * anything they injected is already in the list.  The body framing
+	 * decided above goes with them.
 	 */
 
-	if (lws_http_proxy_snapshot_onward(wsi, ws)) {
+	if (lws_http_proxy_snapshot_onward(wsi, ws) ||
+	    (wsi->http.proxy_body_chunked &&
+	     lws_http_onward_header_append(wsi, "transfer-encoding",
+					   "chunked")) ||
+	    (zero_body &&
+	     lws_http_onward_header_append(wsi, "content-length", "0"))) {
 		lws_free(rpath);
 
 		return 1;
