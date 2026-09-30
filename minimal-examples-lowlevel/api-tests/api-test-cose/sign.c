@@ -692,18 +692,45 @@ xcb(lws_cose_sig_ext_pay_t *x)
 }
 
 /*
+ * Optionally checks that the payload the validator reports is exactly ref
+ */
+
+struct pay_check {
+	const uint8_t		*ref;
+	size_t			len;
+	size_t			pos;
+	char			bad;
+};
+
+static int
+pay_check_cb(struct lws_cose_validate_context *cps, void *opaque,
+	     const uint8_t *paychunk, size_t paychunk_len)
+{
+	struct pay_check *pc = (struct pay_check *)opaque;
+
+	(void)cps;
+
+	if (paychunk_len > pc->len - pc->pos ||
+	    memcmp(pc->ref + pc->pos, paychunk, paychunk_len))
+		pc->bad = 1;
+	else
+		pc->pos += paychunk_len;
+
+	return 0;
+}
+
+/*
  * Validates in against set, returning 0 only if the object produced exactly
- * one result, and that result is a pass
+ * want results, and all of them are a pass
  */
 
 static int
-validate_one_pass(struct lws_context *cx, lws_dll2_owner_t *set,
+validate_all_pass(struct lws_context *cx, lws_dll2_owner_t *set,
 		  enum lws_cose_sig_types sigtype, const uint8_t *in,
-		  size_t in_len)
+		  size_t in_len, uint32_t want, struct pay_check *pc)
 {
 	lws_cose_validate_create_info_t info;
 	struct lws_cose_validate_context *cps;
-	lws_cose_validate_res_t *res;
 	lws_dll2_owner_t *o;
 	int n = 1;
 
@@ -711,6 +738,10 @@ validate_one_pass(struct lws_context *cx, lws_dll2_owner_t *set,
 	info.cx		= cx;
 	info.keyset	= set;
 	info.sigtype	= sigtype;
+	if (pc) {
+		info.pay_cb	= pay_check_cb;
+		info.pay_opaque	= pc;
+	}
 
 	cps = lws_cose_validate_create(&info);
 	if (!cps)
@@ -722,17 +753,26 @@ validate_one_pass(struct lws_context *cx, lws_dll2_owner_t *set,
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (lws_dll2_count(o) != 1) {
+	if (lws_dll2_count(o) != want) {
 		lwsl_err("%s: %d results\n", __func__, lws_dll2_count(o));
 		goto bail;
 	}
 
-	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t,
-			       list);
-	if (res->result)
-		lwsl_err("%s: result %d\n", __func__, res->result);
-	else
-		n = 0;
+	n = 0;
+	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(o)) {
+		lws_cose_validate_res_t *res = lws_container_of(p,
+						lws_cose_validate_res_t, list);
+
+		if (res->result) {
+			lwsl_err("%s: result %d\n", __func__, res->result);
+			n = 1;
+		}
+	} lws_end_foreach_dll(p);
+
+	if (pc && (pc->bad || pc->pos != pc->len)) {
+		lwsl_err("%s: payload differs\n", __func__);
+		n = 1;
+	}
 
 bail:
 	lws_cose_validate_destroy(&cps);
@@ -766,8 +806,8 @@ splice_validate(struct lws_context *cx, lws_dll2_owner_t *set,
 	memcpy(obj + ofs, bucket, bucket_len);
 	memcpy(obj + ofs + bucket_len, in + ofs + old_len, tail);
 
-	return validate_one_pass(cx, set, sigtype, obj,
-				 ofs + bucket_len + tail);
+	return validate_all_pass(cx, set, sigtype, obj,
+				 ofs + bucket_len + tail, 1, NULL);
 }
 
 /* where the signer's unprotected {4: '11'} is in sign_pass_01 */
@@ -865,6 +905,211 @@ test_cose_nested_unprotected(struct lws_context *cx)
 		lwsl_err("%s: failed cases 0x%x\n", __func__, n);
 
 	return !!n;
+}
+
+/*
+ * Signs pay into obj the way a streaming application does: the payload is
+ * passed in seg-sized chunks, and the object comes out through an output
+ * buffer of only out_room bytes, drained whenever the signer says AGAIN
+ */
+
+static int
+sign_streamed(struct lws_context *cx, lws_dll2_owner_t *set,
+	      enum lws_cose_sig_types sigtype, const cose_param_t *algs,
+	      const lws_cose_key_t * const *keys, int nkeys,
+	      const uint8_t *pay, size_t pay_len, size_t seg, size_t out_room,
+	      uint8_t *obj, size_t obj_max, size_t *obj_len)
+{
+	struct lws_cose_sign_context *csc;
+	lws_cose_sign_create_info_t i;
+	enum lws_lec_pctx_ret r;
+	size_t ofs = 0, s;
+	lws_lec_pctx_t lec;
+	uint8_t out[128];
+	int k;
+
+	if (out_room > sizeof(out))
+		return 1;
+
+	memset(&i, 0, sizeof(i));
+	i.cx			= cx;
+	i.keyset		= set;
+	i.lec			= &lec;
+	i.sigtype		= sigtype;
+	i.inline_payload_len	= pay_len;
+	i.flags			= LCSC_FL_ADD_CBOR_TAG;
+
+	lws_lec_init(&lec, out, out_room);
+
+	csc = lws_cose_sign_create(&i);
+	if (!csc)
+		return 1;
+
+	for (k = 0; k < nkeys; k++)
+		if (lws_cose_sign_add(csc, algs[k], keys[k]))
+			goto bail;
+
+	*obj_len = 0;
+
+	do {
+		s = pay_len - ofs;
+		if (s > seg)
+			s = seg;
+
+		do {
+			r = lws_cose_sign_payload_chunk(csc, pay + ofs, s);
+			if (r == LWS_LECPCTX_RET_FAIL)
+				goto bail;
+
+			if (lec.used > obj_max - *obj_len ||
+			    (r == LWS_LECPCTX_RET_AGAIN && !lec.used))
+				/* too big, or no progress */
+				goto bail;
+
+			memcpy(obj + *obj_len, out, lec.used);
+			*obj_len += lec.used;
+			lws_lec_setbuf(&lec, out, out_room);
+
+		} while (r == LWS_LECPCTX_RET_AGAIN);
+
+		ofs += s;
+	} while (ofs < pay_len);
+
+	lws_cose_sign_destroy(&csc);
+
+	return 0;
+
+bail:
+	lws_cose_sign_destroy(&csc);
+
+	return 1;
+}
+
+/*
+ * A payload much bigger than the output buffer, passed in chunks that are
+ * bigger or smaller than the output buffer, or all at once, through output
+ * windows of every size from 1 to 80 bytes: the object must carry the payload
+ * exactly once, in order, with one good signature over it per signer, for
+ * COSE_Sign1, COSE_Mac0 and a two-signer COSE_Sign
+ */
+
+static int
+test_cose_sign_streamed(struct lws_context *cx)
+{
+	static const size_t segs[] = { 7, 256, 1000 };
+	const lws_cose_key_t *keys[2], *hkey[1];
+	uint8_t pay[1000], obj[1400];
+	struct pay_check pc;
+	lws_dll2_owner_t set;
+	cose_param_t algs[2];
+	lws_cose_key_t *ck;
+	size_t n, ol, room;
+	int ret = 1;
+
+	lwsl_user("%s: streamed payload bigger than the output\n", __func__);
+
+	for (n = 0; n < sizeof(pay); n++)
+		pay[n] = (uint8_t)(n * 7 + 3);
+
+	lws_dll2_owner_clear(&set);
+	if (!lws_cose_key_import(&set, NULL, NULL, keyset1.set, keyset1.len)) {
+		lwsl_notice("%s: key import fail\n", __func__);
+		return 1;
+	}
+
+	/* a second signing key, of another curve, for the COSE_Sign */
+
+	ck = lws_cose_key_generate(cx, LWSCOSE_WKKTV_EC2,
+				   (1 << LWSCOSE_WKKO_SIGN) |
+				   (1 << LWSCOSE_WKKO_VERIFY),
+				   0, "P-384", (const uint8_t *)"p384", 4);
+	if (!ck) {
+		lwsl_err("%s: P-384 keygen fail\n", __func__);
+		goto bail;
+	}
+	lws_dll2_add_tail(&ck->list, &set);
+
+	keys[0] = lws_cose_key_from_set(&set, (const uint8_t *)"11", 2);
+	keys[1] = ck;
+	hkey[0] = lws_cose_key_from_set(&set, (const uint8_t *)"our-secret",
+					10);
+	if (!keys[0] || !hkey[0])
+		goto bail;
+
+	for (room = 1; room <= 80; room++) {
+		size_t seg = segs[room % LWS_ARRAY_SIZE(segs)];
+
+		/* COSE_Sign1, ES256 */
+
+		algs[0] = LWSCOSE_WKAECDSA_ALG_ES256;
+		if (sign_streamed(cx, &set, SIGTYPE_SINGLE, algs, keys, 1,
+				  pay, sizeof(pay), seg, room, obj,
+				  sizeof(obj), &ol)) {
+			lwsl_err("%s: sign1 room %d fail\n", __func__,
+				 (int)room);
+			goto bail;
+		}
+
+		memset(&pc, 0, sizeof(pc));
+		pc.ref = pay;
+		pc.len = sizeof(pay);
+		if (validate_all_pass(cx, &set, SIGTYPE_SINGLE, obj, ol, 1,
+				      &pc)) {
+			lwsl_err("%s: sign1 room %d invalid\n", __func__,
+				 (int)room);
+			goto bail;
+		}
+
+		/* COSE_Mac0, HMAC 256/256 */
+
+		algs[0] = LWSCOSE_WKAHMAC_256_256;
+		if (sign_streamed(cx, &set, SIGTYPE_MAC0, algs, hkey, 1,
+				  pay, sizeof(pay), seg, room, obj,
+				  sizeof(obj), &ol)) {
+			lwsl_err("%s: mac0 room %d fail\n", __func__,
+				 (int)room);
+			goto bail;
+		}
+
+		memset(&pc, 0, sizeof(pc));
+		pc.ref = pay;
+		pc.len = sizeof(pay);
+		if (validate_all_pass(cx, &set, SIGTYPE_MAC0, obj, ol, 1,
+				      &pc)) {
+			lwsl_err("%s: mac0 room %d invalid\n", __func__,
+				 (int)room);
+			goto bail;
+		}
+
+		/* COSE_Sign, ES256 + ES384 */
+
+		algs[0] = LWSCOSE_WKAECDSA_ALG_ES256;
+		algs[1] = LWSCOSE_WKAECDSA_ALG_ES384;
+		if (sign_streamed(cx, &set, SIGTYPE_MULTI, algs, keys, 2,
+				  pay, sizeof(pay), seg, room, obj,
+				  sizeof(obj), &ol)) {
+			lwsl_err("%s: sign room %d fail\n", __func__,
+				 (int)room);
+			goto bail;
+		}
+
+		memset(&pc, 0, sizeof(pc));
+		pc.ref = pay;
+		pc.len = sizeof(pay);
+		if (validate_all_pass(cx, &set, SIGTYPE_MULTI, obj, ol, 2,
+				      &pc)) {
+			lwsl_err("%s: sign room %d invalid\n", __func__,
+				 (int)room);
+			goto bail;
+		}
+	}
+
+	ret = 0;
+
+bail:
+	lws_cose_key_set_destroy(&set);
+
+	return ret;
 }
 
 
@@ -2053,6 +2298,9 @@ test_cose_sign(struct lws_context *context)
 	lws_cose_key_set_destroy(&set);
 
 	if (test_cose_nested_unprotected(context))
+		return 1;
+
+	if (test_cose_sign_streamed(context))
 		return 1;
 
 #if 0

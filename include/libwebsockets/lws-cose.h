@@ -508,6 +508,27 @@ LWS_VISIBLE LWS_EXTERN int
 lws_cose_sign_add(struct lws_cose_sign_context *csc, cose_param_t alg,
 		  const lws_cose_key_t *ck);
 
+/**
+ * lws_cose_sign_payload_chunk() - pass inline payload in, get the signed object out
+ *
+ * \param csc: the signing context
+ * \param in: the current chunk of the inline payload
+ * \param in_len: number of bytes available at \p in
+ *
+ * The payload may be passed in any number of chunks of any size, adding up to
+ * exactly the create info's inline_payload_len.  The signed object is emitted
+ * into the create info's lec output context, which may be much smaller than
+ * the payload.
+ *
+ * Returns LWS_LECPCTX_RET_AGAIN if the output filled: drain lec.used bytes
+ * from it, reset it with lws_lec_setbuf(), and call again with the *same*
+ * \p in and \p in_len, the signing context tracks how much of that chunk it
+ * already took.  Returns LWS_LECPCTX_RET_FINISHED when all of \p in was used:
+ * drain the output, then either call again with the next payload chunk, or,
+ * if that was the last chunk, the object is complete.
+ * LWS_LECPCTX_RET_FAIL means the signing failed, or the chunks exceeded
+ * inline_payload_len, and the object must not be used.
+ */
 LWS_VISIBLE LWS_EXTERN enum lws_lec_pctx_ret
 lws_cose_sign_payload_chunk(struct lws_cose_sign_context *csc,
 			    const uint8_t *in, size_t in_len);

@@ -18,6 +18,10 @@ Selftests for the COSE key, validation and signing apis
      protected bucket) must still validate, since the end of an item of a
      nested array is not the end of the bucket
 
+   - COSE_Sign1, COSE_Mac0 and two-signer COSE_Sign signing of a payload
+     much bigger than the output buffer, passed in chunks bigger and smaller
+     than it, must validate and carry exactly the payload that was signed
+
    - EdDSA COSE_Sign1 signing and validation, where the TLS backend has EdDSA
 
 ## build
