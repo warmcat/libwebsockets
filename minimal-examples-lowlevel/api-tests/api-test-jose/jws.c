@@ -1198,6 +1198,71 @@ bail:
 	return ret;
 }
 
+/*
+ * C-634: RFC7517 4 says members of a JWK that are not understood are ignored.
+ * In a JOSE header "jwk", one that followed a known member used to be taken
+ * as that member, replacing its value (or failing the parse if not a string).
+ */
+
+#define JWK_UNK_X "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4"
+#define JWK_UNK_Y "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"
+
+static const char * const jwk_unknown_member_hdrs[] = {
+	"{\"alg\":\"ES256\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\","
+		"\"x\":\"" JWK_UNK_X "\",\"ext\":\"Zm9v\","
+		"\"y\":\"" JWK_UNK_Y "\"}}",
+	"{\"alg\":\"ES256\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\","
+		"\"x\":\"" JWK_UNK_X "\",\"ext\":1,"
+		"\"y\":\"" JWK_UNK_Y "\"}}",
+	"{\"alg\":\"ES256\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\","
+		"\"x\":\"" JWK_UNK_X "\",\"ext\":{\"x\":\"Zm9v\"},"
+		"\"y\":\"" JWK_UNK_Y "\"}}",
+};
+
+static int
+test_jws_jwk_unknown_member(void)
+{
+	char temp[2048], ex[512];
+	struct lws_jose jose;
+	int temp_len, l;
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(jwk_unknown_member_hdrs); n++) {
+		lws_jose_init(&jose);
+		temp_len = sizeof(temp);
+
+		if (lws_jws_parse_jose(&jose, jwk_unknown_member_hdrs[n],
+				       (int)strlen(jwk_unknown_member_hdrs[n]),
+				       temp, &temp_len) < 0) {
+			lwsl_err("%s: hdr %d: JOSE parse failed\n", __func__,
+				 (int)n);
+			goto bail;
+		}
+
+		l = (int)sizeof(ex);
+		if (lws_jwk_export(&jose.recipient[0].jwk,
+				   LWSJWKF_EXPORT_NOCRLF, ex, &l) < 0 ||
+		    !strstr(ex, "\"x\":\"" JWK_UNK_X "\"") ||
+		    !strstr(ex, "\"y\":\"" JWK_UNK_Y "\"")) {
+			lwsl_err("%s: hdr %d: jwk members wrong\n", __func__,
+				 (int)n);
+			goto bail;
+		}
+
+		lws_jose_destroy(&jose);
+	}
+
+	lwsl_notice("%s: selftest OK\n", __func__);
+
+	return 0;
+
+bail:
+	lws_jose_destroy(&jose);
+	lwsl_err("%s: selftest failed ++++++++++++++++++++\n", __func__);
+
+	return 1;
+}
+
 int
 test_jws(struct lws_context *context)
 {
@@ -1211,6 +1276,7 @@ test_jws(struct lws_context *context)
 	n |= test_jws_ES512(context);
 	n |= test_jws_EdDSA(context);
 	n |= test_jwt_RS256(context);
+	n |= test_jws_jwk_unknown_member();
 
 	return n;
 }

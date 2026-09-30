@@ -157,6 +157,19 @@ struct jose_cb_args {
  * either the "unprotected" member or the "header" member, or in both.
  */
 
+/*
+ * Is path the matched token path itself, or something nested inside it?
+ */
+
+static int
+lws_jose_path_inside(const char *path, const char *matched)
+{
+	size_t n = strlen(matched);
+
+	return !strncmp(path, matched, n) &&
+	       (!path[n] || path[n] == '.' || path[n] == '[');
+}
+
 static signed char
 lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 {
@@ -213,7 +226,22 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 		memcpy(args->jwk_jctx.buf, ctx->buf, ctx->npos);
 		args->jwk_jctx.npos = ctx->npos;
 
-		if (!ctx->path_match)
+		/*
+		 * lejp_check_path_match() leaves an existing match alone when
+		 * nothing matches the new path; in a real parse it is lejp
+		 * that lets go of a match, as the path shrinks back past it.
+		 * Nothing drives this sub-context's path that way, and the
+		 * outer context's match, which we used to go by, is "jwk" /
+		 * "epk" itself from the second member on (lejp matches the
+		 * object's own path again at each ','), so a member matching
+		 * no token inherited the previous member's match and cb_jwk()
+		 * stored its value as that member's.  Like lejp, keep a match
+		 * only while the path is still inside what it matched.
+		 */
+
+		if (args->jwk_jctx.path_match &&
+		    !lws_jose_path_inside(args->jwk_jctx.path,
+				jwk_tok[args->jwk_jctx.path_match - 1]))
 			args->jwk_jctx.path_match = 0;
 		lejp_check_path_match(&args->jwk_jctx);
 
