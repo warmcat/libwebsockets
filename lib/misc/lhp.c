@@ -4615,14 +4615,13 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 					ctx->npos = 0;
 				}
 
-				ctx->u.s = 0;
-				ctx->u.f.first = 1;
-
-				ctx->tag = NULL;
-				ctx->tag_len = 0;
-
-				ctx->state = LHPS_TAG;
-
+				/*
+				 * Everything that can fail comes before we
+				 * change any state for the new tag: whoever
+				 * feeds us next (another stylesheet stream on
+				 * the same ctx, or the html after it) must not
+				 * find us inside a tag with no level for it
+				 */
 				if (lws_dll2_count(&ctx->stack) == LHP_MAX_ELEMS_NEST /* sanity */) {
 					lwsl_err("%s: MAX_ELEMS_NEST\n", __func__);
 					ps->cb(ctx, LHPCB_FAILED);
@@ -4633,6 +4632,14 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 				ps1 = lws_zalloc(sizeof(*ps1), __func__);
 				if (!ps1)
 					goto oom;
+
+				ctx->u.s = 0;
+				ctx->u.f.first = 1;
+
+				ctx->tag = NULL;
+				ctx->tag_len = 0;
+
+				ctx->state = LHPS_TAG;
 
 				/* inherit user and cb to start with */
 				ps1->user	= ps->user;
