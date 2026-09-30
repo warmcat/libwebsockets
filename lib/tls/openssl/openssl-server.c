@@ -176,6 +176,91 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 #if !defined(SSL_AD_INTERNAL_ERROR)
 #define SSL_AD_INTERNAL_ERROR 80
 #endif
+#if !defined(SSL_AD_HANDSHAKE_FAILURE)
+#define SSL_AD_HANDSHAKE_FAILURE 40
+#endif
+
+/*
+ * OpenSSL decides a resumption, TLS 1.3 tickets included, while the SSL is
+ * still on the accepting vhost's ctx, before the SNI callback below runs.
+ * Tickets are sealed with the accepting ctx's keys whichever vhost served the
+ * handshake that made them, and a session's id context is fixed when the
+ * session is made, which is also before the SNI switch: neither tells the SNI
+ * vhosts on one listener apart.  And a resumed handshake asks for no client
+ * cert: the one in the session, and its verify result, are whatever the
+ * handshake that made the session verified, under that vhost's CA store.
+ *
+ * So a new session is stamped with the client CA identity of the vhost whose
+ * policy its handshake runs under, as ticket app data (which OpenSSL carries
+ * in the ticket, and in cached or duplicated sessions), and a resumption is
+ * only allowed onto a vhost with the same identity.  Otherwise a cert that
+ * vhost A's CA vouched for is served by vhost S, requiring certs from another
+ * CA, just by naming S when resuming a session made on A (C-658).
+ *
+ * Returns 0 if the handshake may go on under vh's client-cert policy.
+ */
+
+static int
+lws_tls_openssl_session_policy(SSL *ssl, struct lws_vhost *vh)
+{
+	uint8_t zero[LWS_TLS_CA_ID_LEN];
+	SSL_SESSION *sess;
+#if defined(LWS_HAVE_SSL_SESSION_set1_ticket_appdata)
+	void *stamp = NULL;
+	size_t stamp_len = 0;
+#endif
+
+	sess = SSL_get_session(ssl);
+	if (!sess)
+		return 0;
+
+	memset(zero, 0, sizeof(zero));
+
+#if defined(LWS_HAVE_SSL_SESSION_set1_ticket_appdata)
+	if (!SSL_session_reused(ssl)) {
+		/*
+		 * If the stamp can't be applied, a resumption of the session
+		 * is only allowed onto a vhost without a client CA
+		 */
+		if (SSL_SESSION_set1_ticket_appdata(sess, vh->tls.client_ca_id,
+					sizeof(vh->tls.client_ca_id)) != 1)
+			lwsl_vhost_warn(vh, "unable to stamp the session");
+
+		return 0;
+	}
+
+	if (SSL_SESSION_get0_ticket_appdata(sess, &stamp, &stamp_len) != 1 ||
+	    !stamp || !stamp_len) {
+		/* unstamped: it was made under no client CA we know of */
+		stamp = zero;
+		stamp_len = sizeof(zero);
+	}
+
+	if (stamp_len == sizeof(vh->tls.client_ca_id) &&
+	    !memcmp(stamp, vh->tls.client_ca_id, stamp_len))
+		return 0;
+#else
+	/*
+	 * Without ticket app data there's no telling which vhost made the
+	 * session.  A TLS <= 1.2 resumption is set up under the session's own
+	 * SNI name, so comes back to the vhost that made it; a TLS 1.3 one
+	 * onto a vhost with a client CA has to be refused.
+	 */
+	if (!SSL_session_reused(ssl))
+		return 0;
+#if defined(TLS1_3_VERSION)
+	if (SSL_version(ssl) < TLS1_3_VERSION)
+		return 0;
+#endif
+	if (!memcmp(zero, vh->tls.client_ca_id, sizeof(zero)))
+		return 0;
+#endif
+
+	lwsl_vhost_info(vh, "refusing to resume a session made under another "
+			    "client CA");
+
+	return 1;
+}
 
 static int
 lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
@@ -210,7 +295,7 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 		/* the client doesn't know what hostname it wants */
 		lwsl_info("SNI: Unknown ServerName\n");
 
-		return SSL_TLSEXT_ERR_OK;
+		goto stay;
 	}
 
 	vhost = lws_select_vhost_sni(context, vh->listen_port, servername);
@@ -233,7 +318,14 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 
 	if (!vhost->tls.ssl_ctx) {
 		lwsl_info("SNI: %s has no tls ctx yet\n", servername);
-		return SSL_TLSEXT_ERR_OK;
+
+		goto stay;
+	}
+
+	if (lws_tls_openssl_session_policy(ssl, vhost)) {
+		*ad = SSL_AD_HANDSHAKE_FAILURE;
+
+		return SSL_TLSEXT_ERR_ALERT_FATAL;
 	}
 
 	/* select the ssl ctx from the selected vhost for this conn */
@@ -249,6 +341,16 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 
 	if (SSL_CTX_get_client_CA_list(vhost->tls.ssl_ctx))
 		SSL_set_client_CA_list(ssl, SSL_dup_CA_list(SSL_CTX_get_client_CA_list(vhost->tls.ssl_ctx)));
+
+	return SSL_TLSEXT_ERR_OK;
+
+stay:
+	/* the handshake stays under the accepting vhost's policy */
+	if (lws_tls_openssl_session_policy(ssl, vh)) {
+		*ad = SSL_AD_HANDSHAKE_FAILURE;
+
+		return SSL_TLSEXT_ERR_ALERT_FATAL;
+	}
 
 	return SSL_TLSEXT_ERR_OK;
 }
