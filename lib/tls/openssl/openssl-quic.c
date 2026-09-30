@@ -547,6 +547,16 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		return -1;
 	}
 
+	/*
+	 * A client offering 0-RTT gets 1 back from BoringSSL / AWS-LC as soon
+	 * as the early data keys are in place, before any ServerHello: the
+	 * "early return".  The handshake is not complete, and saying so would
+	 * run the caller's handshake-done checks with no peer transport
+	 * parameters yet.
+	 */
+	if (!SSL_is_init_finished(ssl))
+		return 1;
+
 	return 0;
 }
 int
