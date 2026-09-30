@@ -839,6 +839,41 @@ lws_genrsa_psa_crypt_alg(const struct lws_genrsa_ctx *ctx)
 	}
 }
 
+/*
+ * RFC7518 3.3 / 3.5: RS* is RSASSA-PKCS1-v1_5, PS* is RSASSA-PSS with MGF1
+ * over the signature hash and a salt as long as the hash, ie,
+ * PSA_ALG_RSA_PSS(); the _ANY_SALT form would verify something weaker than
+ * the alg that was declared (C-361 for the mbedtls 3 backend).  The key
+ * policy allows the scheme with any hash, each operation names the hash.
+ */
+
+static psa_algorithm_t
+lws_genrsa_psa_sign_policy(enum enum_genrsa_mode mode)
+{
+	return mode == LGRSAM_PKCS1_1_5 ?
+			PSA_ALG_RSA_PKCS1V15_SIGN(PSA_ALG_ANY_HASH) :
+			PSA_ALG_RSA_PSS(PSA_ALG_ANY_HASH);
+}
+
+static psa_algorithm_t
+lws_genrsa_psa_sign_alg(const struct lws_genrsa_ctx *ctx,
+			enum lws_genhash_types hash_type)
+{
+	psa_algorithm_t h = lws_genhash_to_psa_alg(hash_type);
+
+	if (!h)
+		return 0;
+
+	switch (ctx->mode) {
+	case LGRSAM_PKCS1_1_5:
+		return PSA_ALG_RSA_PKCS1V15_SIGN(h);
+	case LGRSAM_PKCS1_OAEP_PSS:
+		return PSA_ALG_RSA_PSS(h);
+	default:
+		return 0;
+	}
+}
+
 static int
 lws_genrsa_psa_import_crypt(struct lws_genrsa_ctx *ctx, const uint8_t *der,
 			    size_t der_len, int priv)
@@ -905,12 +940,7 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 		psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_VERIFY_HASH);
 	}
 
-	/* Determine algorithm based on mode */
-	if (mode == LGRSAM_PKCS1_1_5)
-		psa_set_key_algorithm(&attr, PSA_ALG_RSA_PKCS1V15_SIGN_RAW);
-	else
-		psa_set_key_algorithm(&attr,
-				PSA_ALG_RSA_PSS_ANY_SALT(PSA_ALG_ANY_HASH));
+	psa_set_key_algorithm(&attr, lws_genrsa_psa_sign_policy(mode));
 
 	if (psa_import_key(&attr, der, der_len, &ctx->key_id) != PSA_SUCCESS) {
 		lwsl_notice("%s: psa_import_key failed\n", __func__);
@@ -960,11 +990,7 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 				       PSA_KEY_USAGE_VERIFY_HASH |
 				       PSA_KEY_USAGE_EXPORT);
 
-	if (mode == LGRSAM_PKCS1_1_5) {
-		psa_set_key_algorithm(&attr, PSA_ALG_RSA_PKCS1V15_SIGN_RAW);
-	} else if (mode == LGRSAM_PKCS1_OAEP_PSS) {
-		psa_set_key_algorithm(&attr, PSA_ALG_RSA_PSS_ANY_SALT(PSA_ALG_ANY_HASH));
-	}
+	psa_set_key_algorithm(&attr, lws_genrsa_psa_sign_policy(mode));
 
 	if (psa_generate_key(&attr, &ctx->key_id) != PSA_SUCCESS)
 		return -1;
@@ -1111,14 +1137,15 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			 enum lws_genhash_types hash_type, const uint8_t *sig,
 			 size_t sig_len)
 {
-	psa_algorithm_t alg;
-	if (ctx->mode == LGRSAM_PKCS1_1_5) {
-		alg = PSA_ALG_RSA_PKCS1V15_SIGN(PSA_ALG_ANY_HASH); /* We'll use specific if needed */
-	} else {
-		alg = PSA_ALG_RSA_PSS_ANY_SALT(PSA_ALG_ANY_HASH);
-	}
-	if (psa_verify_hash(ctx->key_id, alg, in, lws_genhash_size(hash_type), sig, sig_len) != PSA_SUCCESS)
+	psa_algorithm_t alg = lws_genrsa_psa_sign_alg(ctx, hash_type);
+
+	/* PSA also refuses a signature that is not modulus-sized */
+
+	if (!alg || psa_verify_hash(ctx->key_id, alg, in,
+				    lws_genhash_size(hash_type), sig,
+				    sig_len) != PSA_SUCCESS)
 		return -1;
+
 	return 0;
 }
 
@@ -1127,15 +1154,14 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		       enum lws_genhash_types hash_type, uint8_t *sig,
 		       size_t sig_len)
 {
+	psa_algorithm_t alg = lws_genrsa_psa_sign_alg(ctx, hash_type);
 	size_t olen;
-	psa_algorithm_t alg;
-	if (ctx->mode == LGRSAM_PKCS1_1_5) {
-		alg = PSA_ALG_RSA_PKCS1V15_SIGN(PSA_ALG_ANY_HASH);
-	} else {
-		alg = PSA_ALG_RSA_PSS_ANY_SALT(PSA_ALG_ANY_HASH);
-	}
-	if (psa_sign_hash(ctx->key_id, alg, in, lws_genhash_size(hash_type), sig, sig_len, &olen) != PSA_SUCCESS)
+
+	if (!alg || psa_sign_hash(ctx->key_id, alg, in,
+				  lws_genhash_size(hash_type), sig, sig_len,
+				  &olen) != PSA_SUCCESS)
 		return -1;
+
 	return (int)olen;
 }
 
