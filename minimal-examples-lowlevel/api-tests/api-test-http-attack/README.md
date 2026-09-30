@@ -90,7 +90,12 @@ the server closes with that unread, the kernel resets the connection and what
 the server still had to send, the GOAWAY included, is lost: there the
 connection just ending with nothing served passes too.
 
-h3, lws client: a `get ` field smuggling a path is refused.
+h3, lws client, with one field of its own added:
+
+|request|expected|
+|---|---|
+|a `get ` field smuggling a path|connection closed|
+|CR LF in a field value|connection closed|
 
 h1s, h1 over tls with a raw client: headers never finished, or trickled in a
 byte at a time, are dropped within the header timeout, as on h1.  The tls

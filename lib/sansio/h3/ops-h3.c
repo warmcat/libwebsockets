@@ -903,6 +903,26 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 	if (name_idx == LWS_QPACK_FIELD_TOO_LARGE)
 		return lws_h3_hdrs_oversize(wsi);
 
+	/*
+	 * RFC 9114 4.2 (via RFC 9113 8.2.1): CR, LF and NUL are malformed in
+	 * any field value, whichever way it goes on to be stored, as hpack
+	 * refuses them for h2.  lws_hdr_simple_create() copies what it is
+	 * given, :path is checked again after its urldecode, and a field
+	 * that does not fit or comes after one that did not is still a
+	 * malformed message.
+	 */
+	if (value) {
+		size_t k;
+
+		for (k = 0; k < value_len; k++)
+			if (value[k] == '\r' || value[k] == '\n' || !value[k]) {
+				lwsl_wsi_notice(wsi, "CR, LF or NUL in field value");
+				lws_quic_enter_closing_state(nwsi,
+						LWS_H3_MESSAGE_ERROR, 0, 1);
+				return -1;
+			}
+	}
+
 	if (name) {
 		size_t k;
 
@@ -1031,26 +1051,11 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 		struct allocated_headers *ah = wsi->stream.ah;
 		if (ah && name && name_len > 0) {
 			uint32_t unk_pos = ah->pos;
-			size_t k;
 
 			/* all of it or none of it */
 			if (ah->pos + 8 + name_len + 1 + value_len >=
 				(unsigned int)wsi->a.context->max_http_header_data)
 				return lws_h3_hdrs_oversize(wsi);
-
-			/*
-			 * RFC 9114 4.2: CR, LF and NUL are malformed in any
-			 * field value, including ones lws does not know;
-			 * the known-token path polices them in
-			 * lws_hdr_simple_create(), do the same here
-			 */
-			for (k = 0; k < value_len; k++)
-				if (value[k] == '\r' || value[k] == '\n' ||
-				    !value[k]) {
-					lws_quic_enter_closing_state(nwsi,
-						LWS_H3_MESSAGE_ERROR, 0, 1);
-					return -1;
-				}
 
 			/*
 			 * Store the name with a trailing ':' to match the
