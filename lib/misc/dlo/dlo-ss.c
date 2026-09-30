@@ -1176,13 +1176,16 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 
 	/*
 	 * Only a stylesheet <link> can consume css... if the document asked for
-	 * a stylesheet as an image, there is no dlo we can hand back, and our
-	 * success return would leave the caller with a NULL one
+	 * a stylesheet as an image, or as a background-image of any element,
+	 * there is no dlo we can hand back, and our success return would leave
+	 * the caller with a NULL one.  Worse, nothing would be awaiting the
+	 * stylesheet, whose bytes would still be parsed into the document's
+	 * parse context in whatever state the html had it
 	 */
 
-	if (type == LWSDLOSS_TYPE_CSS && i->lhp->npos == 3 &&
-	    !strncmp(i->lhp->buf, "img", 3)) {
-		lwsl_warn("%s: css asset requested as an image\n", __func__);
+	if (type == LWSDLOSS_TYPE_CSS && (i->lhp->npos != 4 ||
+	    strncmp(i->lhp->buf, "link", 4))) {
+		lwsl_warn("%s: css asset not for a <link>\n", __func__);
 		return 1;
 	}
 
