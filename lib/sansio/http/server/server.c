@@ -1770,11 +1770,25 @@ lws_http_redirect_hit(struct lws_context_per_thread *pt, struct lws *wsi,
 		/* > at start indicates deal with by redirect */
 		if (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
 		    hit->origin_protocol == LWSMPRO_REDIR_HTTPS) {
-			if (hit->append_path)
-				n = lws_snprintf((char *)end, 256, "%s%s%s",
+			if (hit->append_path) {
+				size_t ol = strlen(hit->origin);
+
+				/*
+				 * What follows the mountpoint is a path of
+				 * its own after the origin.  A mountpoint of
+				 * "/" leaves it without its leading '/', and
+				 * appended straight on to an origin that has
+				 * no trailing '/', it would carry on the
+				 * origin's host name instead (/.x.example,
+				 * /@x.example)
+				 */
+				n = lws_snprintf((char *)end, 256, "%s%s%s%s",
 					    oprot[hit->origin_protocol & 1],
-					    hit->origin, s);
-			else
+					    hit->origin,
+					    *s && *s != '/' && (!ol ||
+					      hit->origin[ol - 1] != '/') ?
+								"/" : "", s);
+			} else
 				n = lws_snprintf((char *)end, 256, "%s%s",
 					    oprot[hit->origin_protocol & 1],
 					    hit->origin);

@@ -571,7 +571,7 @@ authenticated username.
 ```
 
 - `"exact-match": "1"` forces the mount to only match if the request URL is exactly the `mountpoint` (no directory prefix matching).
-- `"append-path": "1"` can be used with HTTP/HTTPS redirects (`>http://` or `>https://`). By default, redirects strictly redirect to the `origin` without appending the trailing path of the URL. Setting this flag will append the remainder of the request URL to the redirect destination.
+- `"append-path": "1"` can be used with HTTP/HTTPS redirects (`>http://` or `>https://`). By default, redirects strictly redirect to the `origin` without appending the trailing path of the URL. Setting this flag will append the remainder of the request URL to the redirect destination, always as a path after the origin: a `/` is put between them if neither has one.
 - `"no-ws-upgrades": "1"` instructs the router to ignore this mount if the incoming HTTP request is a WebSocket upgrade request (contains an `Upgrade:` header). This is useful to prevent WSS connections from being accidentally swallowed by a broad alias or redirect mount (e.g. `/`) when they were intended for a different, overlapping protocol.
 
 In the case you want to also protect being able to connect to a ws protocol on
