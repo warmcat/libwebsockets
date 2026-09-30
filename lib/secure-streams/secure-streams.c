@@ -1324,6 +1324,22 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 #endif
 
 #if defined(LWS_WITH_SERVER)
+	if ((ssi->flags & LWSSSINFLAGS_PROXIED) &&
+	    (pol->flags & LWSSSPOLF_SERVER)) {
+		/*
+		 * A serialized ss proxy client can only drive client streams.
+		 * The serialization has no way to represent a server's
+		 * accepted connections to the client, and the server ss
+		 * becomes the vhost's ss_handle, which must not be something
+		 * a local client process can create, or take over for an
+		 * existing "!vhost".
+		 */
+		lwsl_cx_err(context, "proxied %s is a server streamtype",
+			    ssi->streamtype);
+
+		return 1;
+	}
+
 	if (ssi->flags & LWSSSINFLAGS_REGISTER_SINK) {
 
 		/*
@@ -1893,8 +1909,19 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	 */
 
 #if defined(LWS_WITH_SERVER)
-	if (h->policy && (h->policy->flags & LWSSSPOLF_SERVER))
+	if (h->policy && (h->policy->flags & LWSSSPOLF_SERVER)) {
+		/*
+		 * Whichever vhost we are the server ss for, the one we made or
+		 * an existing one we bound to with "!vhost", must not keep
+		 * pointing to us for its next accepted connection
+		 */
+		lws_start_foreach_vhost(vh, h->context) {
+			if (vh->ss_handle == h)
+				vh->ss_handle = NULL;
+		} lws_end_foreach_vhost(vh);
+
 		v = lws_get_vhost_by_name(h->context, h->policy->streamtype);
+	}
 #endif
 
 	/*
