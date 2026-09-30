@@ -51,6 +51,9 @@
  * the request's own version, and the kept-alive connection goes on to the
  * next request.
  *
+ * And a CONNECT from a user agent the context turns away: it is refused as
+ * any other request of its would be, not given to the fallback role first.
+ *
  * Then whether the transport would take a write: a connection on the test's
  * transport is asked of the transport, never of the fd that is its place in
  * the poll set, even when that fd could not take a byte.
@@ -891,6 +894,13 @@ static const struct lws_http_mount mount_404_files = {
  */
 static struct lws_token_limits token_limits;
 
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
+/* a user agent the context turns away, whatever it asks for */
+static const struct lws_protocol_vhost_options reject_badbot = {
+	NULL, NULL, "badbot", "403 Go away"
+};
+#endif
+
 static int
 server_half(struct lws_context *cx)
 {
@@ -1253,7 +1263,7 @@ ws_server_peer_close_half(struct lws_context *cx)
 	return 0;
 }
 
-#if defined(LWS_WITH_FILE_OPS)
+#if defined(LWS_WITH_FILE_OPS) || defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 /*
  * An h1 server connection as a series of requests, each answered with the
  * status (the first 13 bytes of the response) and, if has is set, carrying
@@ -1309,6 +1319,33 @@ h1_steps(struct lws_context *cx, struct lws_vhost *vh, const char *name,
 	return tr_end();
 }
 
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
+/*
+ * 23: a CONNECT from a user agent the context rejects is refused with the
+ * rejection's status, as any other request from it is, rather than taken
+ * to the fallback role first
+ */
+static int
+h1_connect_rejected_ua_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const struct h1_step st[] = {
+		{ "CONNECT example.com:443 HTTP/1.1\r\n"
+		  "Host: example.com:443\r\nUser-Agent: badbot/1\r\n\r\n",
+		  "HTTP/1.1 403 ", NULL, 1 },
+	};
+
+	if (h1_steps(cx, vh, "h1-connect-rejected-ua", "case 23", st,
+		     LWS_ARRAY_SIZE(st)))
+		return 1;
+	lwsl_user("case 23: a rejected user agent's CONNECT is refused: "
+		  "PASS\n");
+
+	return 0;
+}
+#endif
+#endif
+
+#if defined(LWS_WITH_FILE_OPS)
 /*
  * 16: one keep-alive connection to a vhost whose 404 document is
  * /404.html.  A request nothing serves is redirected there; the 404
@@ -2349,6 +2386,9 @@ main(int argc, const char **argv)
 		return 1;
 
 	info.io_ops = &io_ops;
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
+	info.reject_service_keywords = &reject_badbot;
+#endif
 	token_limits.token_limit[WSI_TOKEN_GET_URI] = 33;
 	token_limits.token_limit[WSI_TOKEN_HTTP_USER_AGENT] = 16;
 	info.token_limits = &token_limits;
@@ -2480,6 +2520,12 @@ main(int argc, const char **argv)
 #if defined(LWS_WITH_CLIENT)
 	at(cx, 3900);
 	if (ws_client_peer_close_half(cx, vh))
+		goto bail;
+#endif
+
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
+	at(cx, 4100);
+	if (h1_connect_rejected_ua_half(cx, vh_uri))
 		goto bail;
 #endif
 

@@ -2819,6 +2819,56 @@ raw_transition:
 			wsi->conn_stat_done = 1;
 
 		/*
+		 * check for unwelcome guests, before anything else, even a
+		 * CONNECT, is done for them
+		 */
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
+		if (wsi->a.context->reject_service_keywords) {
+			const struct lws_protocol_vhost_options *rej =
+					wsi->a.context->reject_service_keywords;
+			char ua[384];
+			const char *msg = NULL;
+
+			if (lws_hdr_copy(wsi, ua, sizeof(ua) - 1,
+					 WSI_TOKEN_HTTP_USER_AGENT) > 0) {
+#ifdef LWS_WITH_ACCESS_LOG
+				char *uri_ptr = NULL;
+				int meth, uri_len;
+#endif
+				ua[sizeof(ua) - 1] = '\0';
+				while (rej) {
+					if (!(char *)strstr(ua, rej->name)) {
+						rej = rej->next;
+						continue;
+					}
+
+					msg = (char *)strchr(rej->value, ' ');
+					if (msg)
+						msg++;
+					lws_return_http_status(wsi,
+						(unsigned int)atoi(rej->value), msg);
+#ifdef LWS_WITH_ACCESS_LOG
+					meth = lws_http_get_uri_and_method(wsi,
+							&uri_ptr, &uri_len);
+					if (meth >= 0)
+						lws_prepare_access_log_info(wsi,
+							uri_ptr, uri_len, meth);
+
+					/* wsi close will do the log */
+#endif
+					/*
+					 * We don't want anything from
+					 * this rejected guy.  Follow
+					 * the close flow, not the
+					 * transaction complete flow.
+					 */
+					goto bail_nuke_ah;
+				}
+			}
+		}
+#endif
+
+		/*
 		 * A CONNECT goes to the fallback role with the whole read,
 		 * headers and all, so it is decided before anything of the
 		 * read is parked
@@ -2872,52 +2922,6 @@ raw_transition:
 		 */
 		lws_servbuf_release_containing(pt, *buf);
 
-		/* check for unwelcome guests */
-#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
-		if (wsi->a.context->reject_service_keywords) {
-			const struct lws_protocol_vhost_options *rej =
-					wsi->a.context->reject_service_keywords;
-			char ua[384];
-			const char *msg = NULL;
-
-			if (lws_hdr_copy(wsi, ua, sizeof(ua) - 1,
-					 WSI_TOKEN_HTTP_USER_AGENT) > 0) {
-#ifdef LWS_WITH_ACCESS_LOG
-				char *uri_ptr = NULL;
-				int meth, uri_len;
-#endif
-				ua[sizeof(ua) - 1] = '\0';
-				while (rej) {
-					if (!(char *)strstr(ua, rej->name)) {
-						rej = rej->next;
-						continue;
-					}
-
-					msg = (char *)strchr(rej->value, ' ');
-					if (msg)
-						msg++;
-					lws_return_http_status(wsi,
-						(unsigned int)atoi(rej->value), msg);
-#ifdef LWS_WITH_ACCESS_LOG
-					meth = lws_http_get_uri_and_method(wsi,
-							&uri_ptr, &uri_len);
-					if (meth >= 0)
-						lws_prepare_access_log_info(wsi,
-							uri_ptr, uri_len, meth);
-
-					/* wsi close will do the log */
-#endif
-					/*
-					 * We don't want anything from
-					 * this rejected guy.  Follow
-					 * the close flow, not the
-					 * transaction complete flow.
-					 */
-					goto bail_nuke_ah;
-				}
-			}
-		}
-#endif
 		/*
 		 * The request's headers are complete: whatever acts on it from
 		 * here, the mount's redirect included, completes a transaction

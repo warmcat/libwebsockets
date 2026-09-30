@@ -100,6 +100,7 @@ does only this:
 |`ws-server-ping-close`, `ws-server-close-partial`|server|as `h1-ws-server`: after the upgrade, the peer sends, masked, in one read, a ping `p` and then a close with status 1000; or a text frame `Hello` and then the close, while the connection takes at most 4 bytes a write.  lws answers the ping with its pong before it answers the close, with the peer's own 1000; the echo of `Hello`, left partly unwritten, goes out whole before the answer to the close, rather than the connection being dropped.  After its answer lws reads nothing more, and shuts the connection down|
 |`ws-server-huge-frame`|server|as `h1-ws-server`: after the upgrade, the peer sends a masked frame whose length is 256MiB + 1.  lws closes with status 1009, `huge frame`|
 |`ws-server-pmd-rsv1-continuation`|server|as `h1-ws-server`, on a second vhost, `sansio-pmd`, with `permessage-deflate` (no parameters).  The peer asks for a ws upgrade to it offering `permessage-deflate`, which is accepted, then sends an unfinished text frame `He` and a continuation with RSV1: lws closes with status 1002, `rsv bits`, and once the peer answers the close, shuts the connection down|
+|`h1-connect-rejected-ua`|server|as `h1-reqline-*`, on `sansio-uri`, in a context that turns away a user agent containing `badbot` with `403 Go away`.  The peer sends a CONNECT for `example.com:443` saying it is `badbot/1`: it is refused like any other request of its, 403 with the status page, and the connection shut down, rather than handed to the fallback role first|
 
 ## Recording
 
