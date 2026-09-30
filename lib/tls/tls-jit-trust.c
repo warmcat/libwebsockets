@@ -230,8 +230,20 @@ tag_to_vh_name(char *result, size_t max, uint32_t tag)
  * connection.
  */
 
-int
-lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
+/*
+ * Locking: with LWS_MAX_SMP > 1, the tls verify paths that end up here and
+ * connection attempts binding to a JIT Trust vhost run on every service
+ * thread, and an async jit_trust_query() may complete on a thread of the
+ * app's.  So the context's inflight list and trust cache are only touched
+ * under the context lock, by the locked entry points below; their __ bodies
+ * expect it held.  It is recursive, so a synchronous jit_trust_query()
+ * completing into lws_tls_jit_trust_got_cert_cb() inside the query loop is
+ * fine, and it keeps any other thread's completion of the same inflight out
+ * until the loop is done with it.
+ */
+
+static int
+__lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 {
 	char key[LWS_JIT_TRUST_KEY_MAX];
 	lws_tls_jit_inflight_t *inf;
@@ -344,9 +356,22 @@ lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 }
 
 int
-lws_tls_jit_trust_vhost_bind(struct lws_context *cx, const char *address,
-			     uint16_t port, const char *host,
-			     struct lws_vhost **pvh)
+lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
+{
+	struct lws_context *cx = wsi->a.context;
+	int n;
+
+	lws_context_lock(cx, __func__); /* ------------------------- cx { */
+	n = __lws_tls_jit_trust_sort_kids(wsi, ch);
+	lws_context_unlock(cx); /* ------------------------------------ } cx */
+
+	return n;
+}
+
+static int
+__lws_tls_jit_trust_vhost_bind(struct lws_context *cx, const char *address,
+			       uint16_t port, const char *host,
+			       struct lws_vhost **pvh)
 {
 	char key[LWS_JIT_TRUST_KEY_MAX], vhtag[32];
 	lws_tls_jit_cache_item_t *ci, jci;
@@ -445,6 +470,20 @@ lws_tls_jit_trust_vhost_bind(struct lws_context *cx, const char *address,
 	return 1;
 }
 
+int
+lws_tls_jit_trust_vhost_bind(struct lws_context *cx, const char *address,
+			     uint16_t port, const char *host,
+			     struct lws_vhost **pvh)
+{
+	int n;
+
+	lws_context_lock(cx, __func__); /* ------------------------- cx { */
+	n = __lws_tls_jit_trust_vhost_bind(cx, address, port, host, pvh);
+	lws_context_unlock(cx); /* ------------------------------------ } cx */
+
+	return n;
+}
+
 /*
  * The server did not validate against the trust of the JIT Trust vhost that
  * the cache bound this connection to.  Whatever the reason (the server has
@@ -458,8 +497,8 @@ lws_tls_jit_trust_vhost_bind(struct lws_context *cx, const char *address,
  * names another vhost, and we leave it.
  */
 
-void
-lws_tls_jit_trust_peer_rejected(struct lws *wsi)
+static void
+__lws_tls_jit_trust_peer_rejected(struct lws *wsi)
 {
 	struct lws_context *cx = wsi->a.context;
 	char key[LWS_JIT_TRUST_KEY_MAX], vhtag[32];
@@ -481,6 +520,16 @@ lws_tls_jit_trust_peer_rejected(struct lws *wsi)
 			key, vhtag);
 
 	lws_cache_item_remove(cx->trust_cache, key);
+}
+
+void
+lws_tls_jit_trust_peer_rejected(struct lws *wsi)
+{
+	struct lws_context *cx = wsi->a.context;
+
+	lws_context_lock(cx, __func__); /* ------------------------- cx { */
+	__lws_tls_jit_trust_peer_rejected(wsi);
+	lws_context_unlock(cx); /* ------------------------------------ } cx */
 }
 
 void
@@ -573,10 +622,10 @@ lws_tls_jit_trust_cert_info(const uint8_t *der, size_t der_len)
  * This processes the JIT Trust lookup results independent of the tls backend.
  */
 
-int
-lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
-			      const uint8_t *skid, size_t skid_len,
-			      const uint8_t *der, size_t der_len)
+static int
+__lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
+				const uint8_t *skid, size_t skid_len,
+				const uint8_t *der, size_t der_len)
 {
 	lws_tls_jit_inflight_t *inf = (lws_tls_jit_inflight_t *)got_opaque;
 	struct lws_context_creation_info info;
@@ -849,6 +898,21 @@ destroy_inf:
 	lws_tls_jit_trust_inflight_destroy(inf);
 
 	return 0;
+}
+
+int
+lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
+			      const uint8_t *skid, size_t skid_len,
+			      const uint8_t *der, size_t der_len)
+{
+	int n;
+
+	lws_context_lock(cx, __func__); /* ------------------------- cx { */
+	n = __lws_tls_jit_trust_got_cert_cb(cx, got_opaque, skid, skid_len,
+					    der, der_len);
+	lws_context_unlock(cx); /* ------------------------------------ } cx */
+
+	return n;
 }
 
 /*
