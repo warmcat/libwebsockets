@@ -691,6 +691,182 @@ xcb(lws_cose_sig_ext_pay_t *x)
 	return LCOSESIGEXTCB_RET_FINISHED;
 }
 
+/*
+ * Validates in against set, returning 0 only if the object produced exactly
+ * one result, and that result is a pass
+ */
+
+static int
+validate_one_pass(struct lws_context *cx, lws_dll2_owner_t *set,
+		  enum lws_cose_sig_types sigtype, const uint8_t *in,
+		  size_t in_len)
+{
+	lws_cose_validate_create_info_t info;
+	struct lws_cose_validate_context *cps;
+	lws_cose_validate_res_t *res;
+	lws_dll2_owner_t *o;
+	int n = 1;
+
+	memset(&info, 0, sizeof(info));
+	info.cx		= cx;
+	info.keyset	= set;
+	info.sigtype	= sigtype;
+
+	cps = lws_cose_validate_create(&info);
+	if (!cps)
+		return 1;
+
+	if (lws_cose_validate_chunk(cps, in, in_len, NULL)) {
+		lwsl_err("%s: validate_chunk failed\n", __func__);
+		goto bail;
+	}
+
+	o = lws_cose_validate_results(cps);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_err("%s: %d results\n", __func__, lws_dll2_count(o));
+		goto bail;
+	}
+
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t,
+			       list);
+	if (res->result)
+		lwsl_err("%s: result %d\n", __func__, res->result);
+	else
+		n = 0;
+
+bail:
+	lws_cose_validate_destroy(&cps);
+
+	return n;
+}
+
+/*
+ * Arrays in the unprotected bucket of a cose_signature or a COSE_recipient,
+ * like an RFC9360 x5chain (label 33), are just header values: the end of one
+ * of their items is not the end of the bucket.  The unprotected bucket is not
+ * covered by the signature or MAC, so a cose-wg example with such a bucket
+ * spliced in instead of its own must still validate.
+ *
+ * in[ofs] is the start of the old bucket, which is old_len long.
+ */
+
+static int
+splice_validate(struct lws_context *cx, lws_dll2_owner_t *set,
+		enum lws_cose_sig_types sigtype, const uint8_t *in,
+		size_t in_len, size_t ofs, size_t old_len,
+		const uint8_t *bucket, size_t bucket_len)
+{
+	uint8_t obj[640];
+	size_t tail = in_len - ofs - old_len;
+
+	if (ofs + bucket_len + tail > sizeof(obj))
+		return 1;
+
+	memcpy(obj, in, ofs);
+	memcpy(obj + ofs, bucket, bucket_len);
+	memcpy(obj + ofs + bucket_len, in + ofs + old_len, tail);
+
+	return validate_one_pass(cx, set, sigtype, obj,
+				 ofs + bucket_len + tail);
+}
+
+/* where the signer's unprotected {4: '11'} is in sign_pass_01 */
+#define SP01_UNPROT_OFS		33
+#define SP01_UNPROT_LEN		5
+/* where the recipient's unprotected {1: -6, 4: 'our-secret'} is in
+ * sign_hmac_01 */
+#define SH01_UNPROT_OFS		66
+#define SH01_UNPROT_LEN		15
+
+static const uint8_t
+	/* {33: [h'01020304', h'05060708'], 4: '11'} */
+	unprot_x5c2_kid[] = {
+		0xa2, 0x18, 0x21, 0x82, 0x44, 0x01, 0x02, 0x03,
+		0x04, 0x44, 0x05, 0x06, 0x07, 0x08, 0x04, 0x42,
+		0x31, 0x31 },
+	/* {4: '11', 33: [h'01020304', h'05060708']} */
+	unprot_kid_x5c2[] = {
+		0xa2, 0x04, 0x42, 0x31, 0x31, 0x18, 0x21, 0x82,
+		0x44, 0x01, 0x02, 0x03, 0x04, 0x44, 0x05, 0x06,
+		0x07, 0x08 },
+	/* {33: [h'01020304'], 4: '11'} */
+	unprot_x5c1_kid[] = {
+		0xa2, 0x18, 0x21, 0x81, 0x44, 0x01, 0x02, 0x03,
+		0x04, 0x04, 0x42, 0x31, 0x31 },
+	/* {1: -6, 4: 'our-secret', 33: [h'01020304', h'05060708']} */
+	unprot_rcpt_x5c2[] = {
+		0xa3, 0x01, 0x25, 0x04, 0x4a, 0x6f, 0x75, 0x72,
+		0x2d, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x18,
+		0x21, 0x82, 0x44, 0x01, 0x02, 0x03, 0x04, 0x44,
+		0x05, 0x06, 0x07, 0x08 };
+
+static int
+test_cose_nested_unprotected(struct lws_context *cx)
+{
+	uint8_t big[512], *p = big;
+	lws_dll2_owner_t set;
+	int n;
+
+	lwsl_user("%s: arrays in signer / recipient unprotected buckets\n",
+		  __func__);
+
+	lws_dll2_owner_clear(&set);
+	if (!lws_cose_key_import(&set, NULL, NULL, keyset1.set, keyset1.len)) {
+		lwsl_notice("%s: key import fail\n", __func__);
+		return 1;
+	}
+
+	/*
+	 * An x5chain whose two certificates, like real ones, are much bigger
+	 * than any protected bucket: {33: [h'30...', h'31...'], 4: '11'}
+	 */
+
+	*p++ = 0xa2;
+	*p++ = 0x18;
+	*p++ = 0x21;
+	*p++ = 0x82;
+	for (n = 0; n < 2; n++) {
+		*p++ = 0x58;
+		*p++ = 200;
+		memset(p, 0x30 + n, 200);
+		p += 200;
+	}
+	*p++ = 0x04;
+	*p++ = 0x42;
+	*p++ = 0x31;
+	*p++ = 0x31;
+
+	/* the cases are independent, run and report them all */
+
+	n = splice_validate(cx, &set, SIGTYPE_MULTI, sign_pass_01,
+			    sizeof(sign_pass_01), SP01_UNPROT_OFS,
+			    SP01_UNPROT_LEN, unprot_x5c2_kid,
+			    sizeof(unprot_x5c2_kid));
+	n |= splice_validate(cx, &set, SIGTYPE_MULTI, sign_pass_01,
+			     sizeof(sign_pass_01), SP01_UNPROT_OFS,
+			     SP01_UNPROT_LEN, unprot_kid_x5c2,
+			     sizeof(unprot_kid_x5c2)) << 1;
+	n |= splice_validate(cx, &set, SIGTYPE_MULTI, sign_pass_01,
+			     sizeof(sign_pass_01), SP01_UNPROT_OFS,
+			     SP01_UNPROT_LEN, unprot_x5c1_kid,
+			     sizeof(unprot_x5c1_kid)) << 2;
+	n |= splice_validate(cx, &set, SIGTYPE_MULTI, sign_pass_01,
+			     sizeof(sign_pass_01), SP01_UNPROT_OFS,
+			     SP01_UNPROT_LEN, big,
+			     lws_ptr_diff_size_t(p, big)) << 3;
+	n |= splice_validate(cx, &set, SIGTYPE_MAC, sign_hmac_01,
+			     sizeof(sign_hmac_01), SH01_UNPROT_OFS,
+			     SH01_UNPROT_LEN, unprot_rcpt_x5c2,
+			     sizeof(unprot_rcpt_x5c2)) << 4;
+
+	lws_cose_key_set_destroy(&set);
+
+	if (n)
+		lwsl_err("%s: failed cases 0x%x\n", __func__, n);
+
+	return !!n;
+}
+
 
 
 int
@@ -1875,6 +2051,10 @@ test_cose_sign(struct lws_context *context)
 
 	lws_cose_validate_destroy(&cps);
 	lws_cose_key_set_destroy(&set);
+
+	if (test_cose_nested_unprotected(context))
+		return 1;
+
 #if 0
 	/*
 	 * valid Ed25519 signature with countersignature from same key + alg

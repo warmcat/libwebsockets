@@ -498,8 +498,8 @@ no_key_or_alg:
 	 */
 
 	if (cps->info.sigtype == SIGTYPE_MULTI) {
-		s = (size_t)sl->ph_pos[2];
-		p = sig_bucket(sl->ph[2] + 3, &s);
+		s = (size_t)sl->ph_pos[1];
+		p = sig_bucket(sl->ph[1] + 3, &s);
 
 		if (lws_cose_val_alg_hash(alg, p, s))
 			goto bail;
@@ -579,18 +579,22 @@ static const char * const reason_names[] = {
 };
 #endif
 
+/*
+ * Only the protected buckets are captured: they go into the Sig_structure
+ * exactly as they were serialized.  The unprotected ones are not signed and
+ * are parsed inline like the rest of the object, there is nothing to keep of
+ * them... capturing them anyway capped them at MAX_BLOBBED_PARAMS, which an
+ * honest x5chain in an unprotected bucket is far larger than.
+ */
+
 static int
 ph_index(struct lws_cose_validate_context *cps)
 {
 	switch (cps->tli) {
 	case ST_OUTER_PROTECTED:
 		return 0;
-	case ST_OUTER_UNPROTECTED:
-		return 1;
 	case ST_INNER_PROTECTED:
-		return 2;
-	case ST_INNER_UNPROTECTED:
-		return 3;
+		return 1;
 	}
 
 	assert(0);
@@ -697,46 +701,69 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 		if (cps->sub)
 			break;
 
-		if (ctx->pst[ctx->pst_sp].ppos == 4 ||
-		    ctx->pst[ctx->pst_sp].ppos == 6) {
+		/*
+		 * The cose_signatures / recipients are the items at ppos 4
+		 * ([][]), and their own items, the protected bucket, the
+		 * unprotected bucket and the signature / ciphertext, are at
+		 * exactly ppos 6 ([][][]).  Items of arrays nested anywhere
+		 * inside those, eg, an x5chain in the unprotected bucket, are
+		 * deeper and are nothing to do with the bucket state.
+		 */
 
-			if (ctx->pst[ctx->pst_sp].ppos == 4) {
-				/*
-				 * A new cose_signature is starting.  Rearm the
-				 * signer state: without this only the first
-				 * signature of a cose_sign was ever parsed
-				 * (tli stuck at ST_INNER_EXCESS), and each
-				 * signature must use its own alg and kid
-				 * rather than inherit the previous one's.
-				 */
-				if (cps->tli == ST_INNER_EXCESS)
-					cps->tli = ST_INNER_PROTECTED;
+		if (ctx->pst[ctx->pst_sp].ppos == 4) {
+			/*
+			 * A new cose_signature is starting.  Rearm the signer
+			 * state: without this only the first signature of a
+			 * cose_sign was ever parsed (tli stuck at
+			 * ST_INNER_EXCESS), and each signature must use its
+			 * own alg and kid rather than inherit the previous
+			 * one's.
+			 */
+			if (cps->tli == ST_INNER_EXCESS)
+				cps->tli = ST_INNER_PROTECTED;
 
-				if (cps->tli == ST_INNER_PROTECTED) {
-					sl = &cps->st[cps->sp];
-					sl->alg = 0;
-					sl->alg_prot = 0;
-					/* nor may a previous map key linger */
-					cps->map_key = 0;
-					if (sl->kid.buf) {
-						lws_free(sl->kid.buf);
-						sl->kid.buf = NULL;
-						sl->kid.len = 0;
-					}
-				}
+			if (cps->tli != ST_INNER_PROTECTED)
+				break;
+
+			sl = &cps->st[cps->sp];
+			sl->alg = 0;
+			sl->alg_prot = 0;
+			/* nor may a previous map key linger */
+			cps->map_key = 0;
+			if (sl->kid.buf) {
+				lws_free(sl->kid.buf);
+				sl->kid.buf = NULL;
+				sl->kid.len = 0;
 			}
 
-			switch (cps->tli) {
-			case ST_INNER_UNPROTECTED:
-			case ST_INNER_PROTECTED:
-				hi = ph_index(cps);
-				sl = &cps->st[cps->sp];
-				sl->ph_pos[hi] = 0;
-				lecp_parse_report_raw(ctx, 1);
+			/*
+			 * Start the raw capture of the element's protected
+			 * bucket already: the bucket's first byte is consumed
+			 * before its own ARRAY_ITEM_START below
+			 */
+			lecp_parse_report_raw(ctx, 1);
+			break;
+		}
+
+		if (ctx->pst[ctx->pst_sp].ppos == 6) {
+			if (cps->tli != ST_INNER_PROTECTED)
 				break;
-			default:
-				break;
+
+			/*
+			 * The element's protected bucket is starting.  The
+			 * capture also holds a long-form element array's count
+			 * byte(s) ahead of the bucket's first byte: only the
+			 * bucket's own first byte belongs, as for the outer
+			 * protected bucket below.
+			 */
+			if (ctx->cbor_pos > 1) {
+				ctx->cbor[0] = ctx->cbor[ctx->cbor_pos - 1];
+				ctx->cbor_pos = 1;
 			}
+
+			sl = &cps->st[cps->sp];
+			sl->ph_pos[ph_index(cps)] = 0;
+			lecp_parse_report_raw(ctx, 1);
 			break;
 		}
 
@@ -744,7 +771,6 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 			break;
 
 		switch (cps->tli) {
-		case ST_OUTER_UNPROTECTED:
 		case ST_OUTER_PROTECTED:
 			/*
 			 * Holy type confusion, Batman... this is a CBOR bstr
@@ -761,7 +787,7 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 			 * were hashed as bucket content and re-parsed as its
 			 * first item.  Only this item's opcode byte belongs.
 			 */
-			if (cps->tli == ST_OUTER_PROTECTED && ctx->cbor_pos > 1) {
+			if (ctx->cbor_pos > 1) {
 				ctx->cbor[0] = ctx->cbor[ctx->cbor_pos - 1];
 				ctx->cbor_pos = 1;
 			}
@@ -792,14 +818,7 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 			sl = &cps->st[cps->sp];
 			switch (cps->tli) {
 			case ST_OUTER_UNPROTECTED:
-				/*
-				 * The outer unprotected map is parsed inline,
-				 * we don't want to reparse the raw capture of
-				 * it... but we must still stop capturing, or
-				 * every later byte (the payload!) keeps being
-				 * appended into the protected header buffers
-				 */
-				lecp_parse_report_raw(ctx, 0);
+				/* parsed inline, and not captured */
 				break;
 
 			case ST_OUTER_PROTECTED:
@@ -846,55 +865,73 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 				cps->tli--; /* so no change */
 				break;
 			}
-			if (!cps->sub)
-				cps->tli++;
+			cps->tli++;
+			break;
 		}
 
-		if (ctx->pst[ctx->pst_sp].ppos >= 4) {
-
-			switch (cps->tli) {
-			case ST_INNER_UNPROTECTED:
-			case ST_INNER_PROTECTED:
-
-				hi = ph_index(cps);
-				sl = &cps->st[cps->sp];
-				lecp_parse_report_raw(ctx, 0);
-
-				if (!sl->ph_pos[hi] || cps->sub) {
-					if (!cps->sub)
-						cps->tli++;
-					break;
-				}
-
-				/*
-				 * The capture holds the bucket as it was
-				 * serialized, ie, including its own bstr
-				 * header... parse_bucket() takes the header
-				 * off again to get at the map inside, we must
-				 * leave the capture itself alone since it is
-				 * also the Sig_structure piece
-				 */
-
-				if (parse_bucket(cps, sl->ph[hi] + 3,
-						 (size_t)sl->ph_pos[hi]))
-					goto bail;
-
-				cps->tli++;
-				break;
-
-			case ST_INNER_SIGNATURE:
-				if (cps->info.sigtype == SIGTYPE_MAC) {
-					// lwsl_err("Y: alg %d\n", (int)cps->alg);
-					if (create_alg(ctx, cps))
-						goto bail;
-				}
-				cps->tli++;
-				break;
-			default:
-				break;
+		if (ctx->pst[ctx->pst_sp].ppos == 4) {
+			/*
+			 * A whole cose_signature / recipient has ended.  If it
+			 * did not get as far as the end of its third item, it
+			 * was not [ protected, unprotected, signature ], and
+			 * the next one must not start from where it left off
+			 */
+			if (cps->tli >= ST_INNER_PROTECTED &&
+			    cps->tli <= ST_INNER_SIGNATURE) {
+				lwsl_notice("%s: short cose_signature\n",
+					    __func__);
+				goto bail;
 			}
+			break;
 		}
 
+		if (ctx->pst[ctx->pst_sp].ppos != 6)
+			/*
+			 * The end of an item of an array nested inside one of
+			 * the element's items, eg, an x5chain certificate in
+			 * the unprotected bucket, is not the end of the bucket
+			 * it is in
+			 */
+			break;
+
+		switch (cps->tli) {
+		case ST_INNER_PROTECTED:
+			sl = &cps->st[cps->sp];
+			hi = ph_index(cps);
+			lecp_parse_report_raw(ctx, 0);
+
+			/*
+			 * The capture holds the bucket as it was serialized,
+			 * ie, including its own bstr header... parse_bucket()
+			 * takes the header off again to get at the map inside,
+			 * we must leave the capture itself alone since it is
+			 * also the Sig_structure piece
+			 */
+
+			if (sl->ph_pos[hi] &&
+			    parse_bucket(cps, sl->ph[hi] + 3,
+					 (size_t)sl->ph_pos[hi]))
+				goto bail;
+
+			cps->tli++;
+			break;
+
+		case ST_INNER_UNPROTECTED:
+			/* parsed inline, and not captured */
+			cps->tli++;
+			break;
+
+		case ST_INNER_SIGNATURE:
+			if (cps->info.sigtype == SIGTYPE_MAC &&
+			    create_alg(ctx, cps))
+				goto bail;
+
+			cps->tli++;
+			break;
+
+		default:
+			break;
+		}
 		break;
 
 	case LECPCB_VAL_NUM_INT:
@@ -1153,8 +1190,6 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 		switch (cps->tli) {
 		case ST_INNER_PROTECTED:
 		case ST_OUTER_PROTECTED:
-		case ST_INNER_UNPROTECTED:
-		case ST_OUTER_UNPROTECTED:
 			sl = &cps->st[cps->sp];
 			hi = ph_index(cps);
 			if (sl->ph_pos[hi] + 3 + ctx->cbor_len >

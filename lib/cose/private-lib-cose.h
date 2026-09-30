@@ -92,8 +92,10 @@ typedef struct lws_cose_sig_alg {
 } lws_cose_sig_alg_t;
 
 typedef struct lws_cose_validate_param_stack {
-	uint8_t				ph[4][MAX_BLOBBED_PARAMS];
-	int				ph_pos[4];
+	uint8_t				ph[2][MAX_BLOBBED_PARAMS];
+	int				ph_pos[2];
+	/**< raw captures of the body ([0]) and signer / recipient ([1])
+	 * protected buckets, which go into the Sig_structure as serialized */
 	struct lws_gencrypto_keyelem	kid;
 	cose_param_t			alg;
 	char				alg_prot;
