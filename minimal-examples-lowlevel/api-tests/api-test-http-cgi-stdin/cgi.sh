@@ -12,6 +12,23 @@
 # style), so the test can check the stamped value got here and the
 # client's own attempt at the same header did not.
 
+# Some paths ask for a script that misbehaves instead:
+#
+#  /nohdr: exits without writing anything, not even its headers
+#  /big:   answers with 32KB of 'x', and is gone before much of that can
+#          have been sent on
+
+case "$PATH_INFO" in
+nohdr)
+	exit 0 ;;
+big)
+	printf 'content-type: text/plain\r\n'
+	printf 'content-length: 32768\r\n'
+	printf '\r\n'
+	dd if=/dev/zero bs=1024 count=32 2>/dev/null | tr '\000' x
+	exit 0 ;;
+esac
+
 # A request without a body has nothing on stdin to count.
 
 case "$REQUEST_METHOD" in

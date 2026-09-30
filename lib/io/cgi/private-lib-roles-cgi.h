@@ -74,6 +74,9 @@ struct lws_cgi {
 	unsigned char explicitly_chunked:1;
 	unsigned char cgi_transaction_over:1;
 	unsigned char implied_chunked:1;
+	unsigned char stdout_hup:1; /* the child let go of its stdout: what
+				     * the pipe holds is final, and it is no
+				     * longer polled */
 
 	unsigned char chunked_grace;
 };

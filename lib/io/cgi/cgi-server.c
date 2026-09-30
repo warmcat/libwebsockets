@@ -617,6 +617,29 @@ enum header_recode {
 	HR_CRLF,
 };
 
+/*
+ * The stdout relay took what there was and wants more of what the child
+ * writes: arrange to be called again when there is some.  While the child
+ * holds its end of the pipe, that is POLLIN on the pipe.  Once it has let go
+ * (stdout_hup), the pipe holds all there will ever be, readable to its end
+ * at once, and is not polled any more: it is the transaction's writeable.
+ */
+static void
+lws_cgi_stdout_want_more(struct lws *wsi)
+{
+	struct lws *sowsi = lws_cgi_get_stdwsi(wsi, LWS_STDOUT);
+
+	if (wsi->http.cgi->stdout_hup) {
+		wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI;
+		lws_callback_on_writable(wsi);
+
+		return;
+	}
+
+	if (sowsi)
+		lws_rx_flow_control(sowsi, 1);
+}
+
 int
 lws_cgi_write_split_stdout_headers(struct lws *wsi)
 {
@@ -803,6 +826,9 @@ post_hpack_recode:
 					lws_callback_on_writable(wsi);
 				}
 
+				/* on to the payload, as the child writes it */
+				lws_cgi_stdout_want_more(wsi);
+
 			} else {
 				wsi->reason_bf |=
 					LWS_CB_REASON_AUX_BF__CGI_HEADERS;
@@ -858,11 +884,22 @@ post_hpack_recode:
 				lwsl_wsi_debug(wsi, "read says %d", n);
 				return -1;
 			}
-			else
-				n = 0;
+
+			/* ran out of input for now */
+			lws_cgi_stdout_want_more(wsi);
+
+			return 0;
 		}
-		if (!n)
-			goto agin;
+		if (!n) {
+			/*
+			 * The child closed its stdout before it finished its
+			 * headers: there is no response to relay, it is a
+			 * failed cgi
+			 */
+			lwsl_wsi_notice(wsi, "cgi stdout ended in its headers");
+
+			return -1;
+		}
 
 		lwsl_wsi_debug(wsi, "-- 0x%02X %c %d %d", (unsigned char)c, c,
 				    wsi->http.cgi->match[1], wsi->io->hdr_state);
@@ -986,11 +1023,6 @@ post_hpack_recode:
 			if (!reprocess)
 				break;
 		} while (1);
-
-agin:
-		/* ran out of input, ended the hdrs, or filled up the hdrs buf */
-		if (!n || wsi->io->hdr_state == LHCS_PAYLOAD)
-			return 0;
 	}
 
 	/* payload processing */
@@ -1003,7 +1035,15 @@ agin:
 
 	lws_fileofs_t wa = lws_get_peer_write_allowance(wsi);
 	if (wa == 0) {
-		/* HTTP/2 flow control window is exhausted; yield and wait for WINDOW_UPDATE */
+		/*
+		 * The h2 peer's window is shut: nothing can go until its
+		 * WINDOW_UPDATE, which makes the stream writeable again.
+		 * Keep our reason for then, but neither ask for a writeable
+		 * nor watch stdout meanwhile: either would only spin until
+		 * the window opens.
+		 */
+		wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI;
+
 		return 0;
 	}
 
@@ -1020,6 +1060,8 @@ agin:
 
 	if (n < 0 && errno == EAGAIN) {
 		lwsl_wsi_notice(wsi, "CGI stdout EAGAIN... yielding instead of EOF");
+		lws_cgi_stdout_want_more(wsi);
+
 		return 0;
 	}
 
@@ -1062,6 +1104,7 @@ agin:
 			return -1;
 		}
 		wsi->http.cgi->content_length_seen += (unsigned int)n;
+		lws_cgi_stdout_want_more(wsi);
 	} else {
 
 		lwsl_wsi_info(wsi, "CGI stdout reached EOF (n=%d)", n);
@@ -1092,6 +1135,7 @@ agin:
 			return 1;
 		}
 		wsi->cgi_stdout_zero_length = 1;
+		lws_cgi_stdout_want_more(wsi);
 	}
 	return 0;
 }

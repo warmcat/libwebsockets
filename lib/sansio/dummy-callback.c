@@ -733,21 +733,20 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 #ifdef LWS_WITH_CGI
 		if (wsi->reason_bf & (LWS_CB_REASON_AUX_BF__CGI_HEADERS |
 				      LWS_CB_REASON_AUX_BF__CGI)) {
+			/*
+			 * The relay arranges whatever it needs next itself:
+			 * another writeable, the child's stdout watched
+			 * again, or nothing until an h2 peer opens its
+			 * window.  So what brought us here is cleared first.
+			 */
+			wsi->reason_bf &= (char)~(LWS_CB_REASON_AUX_BF__CGI_HEADERS |
+						  LWS_CB_REASON_AUX_BF__CGI);
+
 			n = lws_io_cgi_stdout_tx(wsi);
 			if (n < 0) {
 				lwsl_wsi_debug(wsi, "AUX_BF__CGI forcing close");
 				return -1;
 			}
-			if (!n && wsi->http.cgi && wsi->http.cgi->lsp &&
-			    wsi->http.cgi->lsp->stdwsi[LWS_STDOUT])
-				lws_rx_flow_control(
-					wsi->http.cgi->lsp->stdwsi[LWS_STDOUT], 1);
-
-			if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI_HEADERS)
-				wsi->reason_bf &=
-					(char)~LWS_CB_REASON_AUX_BF__CGI_HEADERS;
-			else
-				wsi->reason_bf &= (char)~LWS_CB_REASON_AUX_BF__CGI;
 
 			if (wsi->http.cgi && wsi->http.cgi->cgi_transaction_over) {
 				lwsl_wsi_info(wsi, "txn over");

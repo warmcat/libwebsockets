@@ -27,6 +27,17 @@
  * decode it, hand the CGI only the payload, and close the CGI's stdin at the
  * last-chunk so the script's read sees EOF.
  *
+ * With --no-headers, the script exits without writing anything: the
+ * transaction must fail at once, not after the cgi timeout, and without the
+ * service loop spinning on the hangup of the script's stdout meanwhile.
+ *
+ * With --h2-starve, an h2 client GETs a 32KB answer from the script, but
+ * opens its stream window only 1KB wide, and only opens it the rest of the
+ * way a second after the answer started.  The script has long finished and
+ * gone by then, its answer waiting in the stdout pipe: that wait must be
+ * spent sleeping in poll(), not spinning, and all of the answer must arrive
+ * once the window opens.
+ *
  * With --fd-budget, the client GETs the script over and over, each time in a
  * new context with one less place in its fds table, starting from a budget
  * with room for everything.  The cgi's three stdio pipes each need a place
@@ -43,11 +54,13 @@
  * peer's own copy never does.
  *
  * The test fails if
- *  - the client connection or transaction errors out,
+ *  - the client connection or transaction errors out (except where it is
+ *    what is expected),
  *  - the response status is not the one expected,
  *  - the CGI does not report receiving every byte of the POST body,
  *  - (JOSE) the CGI did not see the interceptor's stamped header value,
- *  - no completion is seen inside the watchdog period.
+ *  - no completion is seen inside the watchdog period,
+ *  - the service loop went around more than MAX_PASSES times, ie, it spun.
  */
 
 #include <libwebsockets.h>
@@ -66,10 +79,29 @@
 /* the fds budget --fd-budget starts from, with room for everything */
 #define FD_BUDGET_START	16
 
+/* what the script answers /big with, and the h2 window we open at first */
+#define BIG_BODY	32768
+#define STARVE_WINDOW	1024
+
+/*
+ * A transaction here takes some tens of trips around the service loop, or
+ * some hundreds when a timer comes due inside the millisecond granularity of
+ * the poll() wait.  One whose wait spins instead of sleeping takes tens of
+ * thousands a second.
+ */
+#define MAX_PASSES	5000
+
 enum body_type {
 	BODY_NONE,
 	BODY_CONTENT_LENGTH,
 	BODY_CHUNKED,
+};
+
+enum expect {
+	EXPECT_BODY_COUNT,	/* 200, and the script counted our body */
+	EXPECT_FD_BUDGET,	/* 200s, then a 500 as the budget shrinks */
+	EXPECT_NO_ANSWER,	/* the connection goes, with no response */
+	EXPECT_BIG_BODY,	/* 200 and all of the script's /big answer */
 };
 
 struct tcase {
@@ -77,14 +109,19 @@ struct tcase {
 	const char	*method;
 	const char	*path;
 	enum body_type	body;
-	int		expect_status;
-	int		fd_budget;	/* sweep the fds table budget down */
+	enum expect	expect;
+	int		h2;		/* h2 with prior knowledge */
+	int		starve;		/* hold the h2 stream window shut */
 };
 
 static const struct tcase cases[] = {
-	{ "post", "POST", "/", BODY_CONTENT_LENGTH, 200, 0 },
-	{ "chunked", "POST", "/", BODY_CHUNKED, 200, 0 },
-	{ "fd-budget", "GET", "/", BODY_NONE, 200, 1 },
+	{ "post", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT, 0, 0 },
+	{ "chunked", "POST", "/", BODY_CHUNKED, EXPECT_BODY_COUNT, 0, 0 },
+	{ "fd-budget", "GET", "/", BODY_NONE, EXPECT_FD_BUDGET, 0, 0 },
+	{ "no-headers", "GET", "/nohdr", BODY_NONE, EXPECT_NO_ANSWER, 0, 0 },
+#if defined(LWS_ROLE_H2)
+	{ "h2-starve", "GET", "/big", BODY_NONE, EXPECT_BIG_BODY, 1, 1 },
+#endif
 };
 
 /* what one client transaction came to */
@@ -92,8 +129,14 @@ static const struct tcase cases[] = {
 struct run {
 	char		rx[128];
 	size_t		rx_len;
+	size_t		rx_total;
+	lws_usec_t	us_start;
+	lws_usec_t	us_end;
+	struct lws	*cli;
+	int		passes;
 	int		status;
 	int		completed;
+	int		not_x;
 	int		done;
 };
 
@@ -102,7 +145,7 @@ static struct lws_context *context;
 static struct run run;
 static int port_tcp = 7681;
 static const char *server = "127.0.0.1";
-static lws_sorted_usec_list_t sul_timeout;
+static lws_sorted_usec_list_t sul_timeout, sul_grant;
 
 static uint8_t body[LWS_PRE + CHUNK];
 
@@ -139,9 +182,25 @@ struct pss {
 static void
 run_done(void)
 {
+	if (!run.done)
+		run.us_end = lws_now_usecs();
 	run.done = 1;
 	lws_cancel_service(context);
 }
+
+#if defined(LWS_ROLE_H2)
+/* --h2-starve: open the stream window the rest of the way */
+
+static void
+sul_grant_cb(lws_sorted_usec_list_t *sul)
+{
+	lwsl_user("%s: opening the window after %d service passes\n",
+		  __func__, run.passes);
+
+	if (run.cli && lws_wsi_tx_credit(run.cli, LWSTXCR_PEER_TO_US, BIG_BODY))
+		lwsl_err("%s: unable to open the window\n", __func__);
+}
+#endif
 
 static void
 sul_timeout_cb(lws_sorted_usec_list_t *sul)
@@ -207,6 +266,13 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		run.status = (int)lws_http_client_http_response(wsi);
 		lwsl_user("%s: client established, response status %d\n",
 			  __func__, run.status);
+#if defined(LWS_ROLE_H2)
+		if (tc->starve) {
+			run.cli = wsi;
+			lws_sul_schedule(context, 0, &sul_grant, sul_grant_cb,
+					 LWS_US_PER_SEC);
+		}
+#endif
 		break;
 
 	/* ...callbacks related to generating the POST body... */
@@ -304,10 +370,16 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ: {
 		size_t o = 0;
 
-		/* accumulate the tiny cgi response body */
+		/* accumulate the start of the cgi response body */
 		while (o < len && run.rx_len + 1 < sizeof(run.rx))
 			run.rx[run.rx_len++] = ((const char *)in)[o++];
 		run.rx[run.rx_len] = '\0';
+
+		/* ... and count all of it, and what is not 'x' in it */
+		for (o = 0; o < len; o++)
+			if (((const char *)in)[o] != 'x')
+				run.not_x++;
+		run.rx_total += len;
 
 		lwsl_user("%s: read %d\n", __func__, (int)len);
 
@@ -408,8 +480,15 @@ run_one(struct lws_context_creation_info *info, unsigned int fd_limit)
 	info->vhost_name = "srv";
 	info->protocols = protocols_srv;
 	info->mounts = &mount;
+#if defined(LWS_ROLE_H2)
+	if (tc->h2)
+		info->options |= LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
+#endif
 
 	vh = lws_create_vhost(context, info);
+#if defined(LWS_ROLE_H2)
+	info->options &= ~(uint64_t)LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
+#endif
 	if (!vh) {
 		lwsl_err("Failed to create server vhost\n");
 		goto bail;
@@ -438,9 +517,19 @@ run_one(struct lws_context_creation_info *info, unsigned int fd_limit)
 	i.origin = server;
 	i.method = tc->method;
 	i.protocol = protocols_cli[0].name;
+#if defined(LWS_ROLE_H2)
+	if (tc->h2)
+		i.ssl_connection |= LCCSCF_H2_PRIOR_KNOWLEDGE;
+	if (tc->starve) {
+		i.ssl_connection |= LCCSCF_H2_MANUAL_RXFLOW;
+		i.manual_initial_tx_credit = STARVE_WINDOW;
+	}
+#endif
 
 	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
 			 20 * LWS_US_PER_SEC);
+
+	run.us_start = lws_now_usecs();
 
 	if (!lws_client_connect_via_info(&i)) {
 		lwsl_err("client connect failed\n");
@@ -448,12 +537,18 @@ run_one(struct lws_context_creation_info *info, unsigned int fd_limit)
 	}
 
 	while (!run.done && lws_service(context, 0) >= 0)
-		;
+		run.passes++;
 
-	ret = 0;
+	lwsl_user("--- %d service passes in %dms ---\n", run.passes,
+		  (int)((run.us_end - run.us_start) / LWS_US_PER_MS));
+
+	ret = run.passes > MAX_PASSES;
+	if (ret)
+		lwsl_err("--- the service loop spun ---\n");
 
 bail:
 	lws_sul_cancel(&sul_timeout);
+	lws_sul_cancel(&sul_grant);
 	lws_context_destroy(context);
 	context = NULL;
 
@@ -500,21 +595,56 @@ int main(int argc, const char **argv)
 	info.pt_serv_buf_size = SERV_BUF_SIZE;
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 
-	if (!tc->fd_budget) {
+	switch (tc->expect) {
+	case EXPECT_BODY_COUNT:
+	case EXPECT_BIG_BODY:
 		if (run_one(&info, info.fd_limit_per_thread) || !run.completed)
 			goto done;
 
-		if (run.status != tc->expect_status) {
-			lwsl_err("--- response status %d, expected %d ---\n",
-				 run.status, tc->expect_status);
+		if (run.status != 200) {
+			lwsl_err("--- response status %d ---\n", run.status);
 			goto done;
 		}
 
-		if (tc->body != BODY_NONE && check_body_count())
-			goto done;
+		if (tc->expect == EXPECT_BODY_COUNT) {
+			if (check_body_count())
+				goto done;
+		} else
+			if (run.rx_total != BIG_BODY || run.not_x) {
+				lwsl_err("--- got %u bytes (%d wrong), "
+					 "expected %u ---\n",
+					 (unsigned int)run.rx_total, run.not_x,
+					 (unsigned int)BIG_BODY);
+				goto done;
+			}
 
 		result = 0;
 		goto done;
+
+	case EXPECT_NO_ANSWER:
+		/*
+		 * The script is gone at once: so must the transaction be,
+		 * well inside the mount's cgi timeout (5s), with no response
+		 */
+		if (run_one(&info, info.fd_limit_per_thread))
+			goto done;
+
+		if (run.completed || run.status) {
+			lwsl_err("--- a response (%d) with no cgi headers ---\n",
+				 run.status);
+			goto done;
+		}
+
+		if (run.us_end - run.us_start > 3 * LWS_US_PER_SEC) {
+			lwsl_err("--- the transaction outlived its script ---\n");
+			goto done;
+		}
+
+		result = 0;
+		goto done;
+
+	case EXPECT_FD_BUDGET:
+		break;
 	}
 
 	/*

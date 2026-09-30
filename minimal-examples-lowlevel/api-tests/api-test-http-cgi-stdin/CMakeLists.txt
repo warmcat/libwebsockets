@@ -53,6 +53,28 @@ if (requirements)
 				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 				     TIMEOUT 60)
 
+		lws_get_free_port(PORT_HTTP_CGI_NO_HEADERS)
+
+		add_test(NAME api-test-http-cgi-no-headers
+			 COMMAND lws-api-test-http-cgi-stdin --no-headers
+				 -p ${PORT_HTTP_CGI_NO_HEADERS})
+		set_tests_properties(api-test-http-cgi-no-headers PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+				     TIMEOUT 60)
+
+		set(has_h2 1)
+		require_lws_config(LWS_ROLE_H2 1 has_h2)
+		if (has_h2)
+			lws_get_free_port(PORT_HTTP_CGI_H2_STARVE)
+
+			add_test(NAME api-test-http-cgi-h2-starve
+				 COMMAND lws-api-test-http-cgi-stdin --h2-starve
+					 -p ${PORT_HTTP_CGI_H2_STARVE})
+			set_tests_properties(api-test-http-cgi-h2-starve PROPERTIES
+					     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+					     TIMEOUT 60)
+		endif()
+
 		lws_get_free_port(PORT_HTTP_CGI_FD_BUDGET)
 
 		add_test(NAME api-test-http-cgi-fd-budget

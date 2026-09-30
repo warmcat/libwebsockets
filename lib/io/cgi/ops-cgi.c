@@ -29,6 +29,7 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
 	struct lws_cgi_args args;
+	int hup = 0;
 
 	assert(wsi->role_ops == &role_ops_cgi);
 
@@ -51,6 +52,31 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 		if (wsi->io->lsp_channel != LWS_STDOUT ||
 		    !(pollfd->revents & LWS_POLLHUP))
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	}
+
+	if (wsi->io->lsp_channel == LWS_STDOUT &&
+	    (pollfd->revents & LWS_POLLHUP)) {
+		/*
+		 * The child let go of its stdout.  The hangup is level-
+		 * triggered and no events mask hides it: poll() reports it
+		 * every time until the pipe is closed, so while the drain
+		 * cannot go on (the transaction not writeable, an h2 peer's
+		 * window shut, headers that will never end) the service
+		 * thread would spin on it.
+		 *
+		 * But what the pipe holds now is final, and readable to its
+		 * end without waiting: the hangup is taken once, the pipe
+		 * leaves the poll set, and the drain reads it to its EOF on
+		 * the transaction's writeable from here on.  With nobody
+		 * left to drain it, it is just closed.
+		 */
+		if (!wsi->parent || !wsi->parent->http.cgi ||
+		    !wsi->parent->http.cgi->lsp)
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+
+		wsi->parent->http.cgi->stdout_hup = 1;
+		lws_io_unwatch(wsi);
+		hup = 1;
 	}
 
 	if (wsi->io->lsp_channel == LWS_STDIN &&
@@ -106,7 +132,13 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 					(void *)&args, 0))
 		return 1;
 
-	return LWS_HPI_RET_HANDLED;
+	/*
+	 * Leaving the poll set moved another wsi's entry into our place in
+	 * it, where pollfd points: the caller must not touch that one, nor
+	 * go on with us, just as if we had closed
+	 */
+
+	return hup ? LWS_HPI_RET_WSI_ALREADY_DIED : LWS_HPI_RET_HANDLED;
 }
 
 static lws_handling_result_t
