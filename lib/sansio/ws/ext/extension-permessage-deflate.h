@@ -68,5 +68,6 @@ struct lws_ext_pm_deflate_priv {
 	unsigned char rx_init:1;
 	unsigned char compressed_out:1;
 	unsigned char rx_trailer_pending:1;
+	unsigned char rx_stream_ended:1; /* peer's BFINAL, until message end */
 };
 

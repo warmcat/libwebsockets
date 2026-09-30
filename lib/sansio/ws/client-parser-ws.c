@@ -40,6 +40,9 @@ _lws_ws_client_rx_payload_passthrough(struct lws *wsi, const uint8_t *buf,
 {
 	struct lws_ext_pm_deflate_rx_ebufs pmdrx;
 	int n, m;
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	int lin;
+#endif
 
 	/*
 	 * Once a close is under way nothing more reaches the user: the
@@ -65,6 +68,7 @@ _lws_ws_client_rx_payload_passthrough(struct lws *wsi, const uint8_t *buf,
 		n = PMDR_DID_NOTHING;
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
+		lin = pmdrx.eb_in.len;
 		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &pmdrx, 0);
 		if (n < 0) {
 			lwsi_set_skt_unusable(wsi, 1);
@@ -72,6 +76,17 @@ _lws_ws_client_rx_payload_passthrough(struct lws *wsi, const uint8_t *buf,
 		}
 		if (n == PMDR_DID_NOTHING)
 			break;
+
+		/*
+		 * We only go round again for input the ext did not take yet:
+		 * if it took none and gave nothing, it never will here.  What
+		 * it holds is left to the drain.
+		 */
+		if (n == PMDR_HAS_PENDING && pmdrx.eb_in.len == lin &&
+		    !pmdrx.eb_out.len) {
+			lws_add_wsi_to_draining_ext_list(wsi);
+			break;
+		}
 
 		/*
 		 * We want the user callback done with the draining state set

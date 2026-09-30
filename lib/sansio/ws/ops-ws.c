@@ -553,7 +553,16 @@ huge_frame:
 		}
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 		if (wsi->ws->rx_draining_ext) {
+			/*
+			 * As the drain entry at LWS_RXPS_NEW: off the list
+			 * unless the ext says it still has more, so a drain
+			 * that gives nothing ends instead of coming back for
+			 * ever while the frame can never complete
+			 */
 			lwsl_debug("%s: UNTIL_EXHAUSTED draining\n", __func__);
+			lws_remove_wsi_from_draining_ext_list(wsi);
+			rx_draining_ext = 1;
+
 			goto drain_extension;
 		}
 #endif

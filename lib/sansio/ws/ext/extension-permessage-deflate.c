@@ -131,6 +131,22 @@ pmd_arg_peer(struct lws *wsi, int server_idx, int client_idx)
 
 static unsigned char trail[] = { 0, 0, 0xff, 0xff };
 
+/*
+ * A sender may end its deflate stream with a block that has BFINAL set (RFC
+ * 7692 7.2.3.4).  All that can follow it in the message is the padding octet
+ * of the empty stored block it flushed with: anything else would be data for
+ * a stream that has ended, which is a protocol error.
+ */
+static int
+lws_pmd_rx_is_padding(const uint8_t *p, size_t len)
+{
+	while (len--)
+		if (*p++)
+			return 0;
+
+	return 1;
+}
+
 LWS_VISIBLE int
 lws_extension_callback_pm_deflate(struct lws_context *context,
 				  const struct lws_extension *ext,
@@ -145,6 +161,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 	struct lws_ext_option_arg *oa;
 	int n, ret = 0, was_fin = 0, m;
 	unsigned int pen = 0;
+	uLong total_in = 0;
 	int penbits = 0;
 
 	switch (reason) {
@@ -364,6 +381,31 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		pmdrx->eb_out.token = priv->rx.next_out;
 		priv->rx.avail_out = (uInt)(1 << priv->args[PMD_RX_BUF_PWR2]);
 
+		if (priv->rx_stream_ended) {
+			/*
+			 * The peer's deflate stream ended earlier in this
+			 * message: zlib would take nothing more on it, so
+			 * there is nothing to inflate until the message ends
+			 */
+			if (pmdrx->eb_in.token && pmdrx->eb_in.len) {
+				if (!lws_pmd_rx_is_padding(pmdrx->eb_in.token,
+						(size_t)pmdrx->eb_in.len)) {
+					lwsl_wsi_notice(wsi, "data after the "
+						"end of the deflate stream");
+					return PMDR_FAILED;
+				}
+				pmdrx->eb_in.token += pmdrx->eb_in.len;
+				pmdrx->eb_in.len = 0;
+			}
+			if (wsi->ws->final && !wsi->ws->rx_packet_length &&
+			    wsi->ws->pmd_trailer_application) {
+				wsi->ws->pmd_trailer_application = 0;
+				was_fin = 1;
+			}
+
+			goto rx_out;
+		}
+
 		/* so... if...
 		 *
 		 *  - he has no remaining input content for this message, and
@@ -394,6 +436,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		if (!priv->rx.avail_in)
 			return PMDR_DID_NOTHING;
 
+		total_in = priv->rx.total_in;
 		n = inflate(&priv->rx, priv->rx_trailer_pending ? Z_SYNC_FLUSH :
 								  Z_NO_FLUSH);
 		lwsl_wsi_ext(wsi, "inflate ret %d, avi %d, avo %d, wsifinal %d", n,
@@ -406,6 +449,27 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			lwsl_wsi_err(wsi, "zlib error inflate %d: \"%s\"",
 				  n, priv->rx.msg);
 			return PMDR_FAILED;
+		}
+
+		if (n == Z_STREAM_END) {
+			/*
+			 * The peer ended its deflate stream in this message.
+			 * zlib takes nothing more on it, so what it left is
+			 * either our own trailer, and the message is over, or
+			 * the peer's padding, dropped here.  The inflater
+			 * restarts when the message ends.
+			 */
+			priv->rx_stream_ended = 1;
+			if (priv->rx_trailer_pending) {
+				priv->rx_trailer_pending = 0;
+				was_fin = 1;
+			} else if (!lws_pmd_rx_is_padding(priv->rx.next_in,
+							  priv->rx.avail_in)) {
+				lwsl_wsi_notice(wsi, "data after the end of the "
+						     "deflate stream");
+				return PMDR_FAILED;
+			}
+			priv->rx.avail_in = 0;
 		}
 
 		/*
@@ -494,6 +558,17 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		    wsi->ws->final &&
 		    !wsi->ws->rx_packet_length &&
 		    !was_fin &&
+		    wsi->ws->pmd_trailer_application &&
+		    priv->rx_stream_ended) {
+			/* the stream already ended: there is nothing to flush */
+			wsi->ws->pmd_trailer_application = 0;
+			was_fin = 1;
+		}
+
+		if (!priv->rx.avail_in &&
+		    wsi->ws->final &&
+		    !wsi->ws->rx_packet_length &&
+		    !was_fin &&
 		    wsi->ws->pmd_trailer_application) {
 			lwsl_wsi_ext(wsi, "RX trailer apply 2");
 
@@ -530,12 +605,19 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			 * output buffer.
 			 */
 
+			if (n == Z_STREAM_END) {
+				/* the trailer completed the peer's last block */
+				priv->rx_stream_ended = 1;
+				priv->rx.avail_in = 0;
+			}
+
 			if (!priv->rx.avail_in) {
 				priv->rx_trailer_pending = 0;
 				was_fin = 1;
 			}
 		}
 
+rx_out:
 		pmdrx->eb_out.len = lws_ptr_diff(priv->rx.next_out,
 						 pmdrx->eb_out.token);
 		priv->count_rx_between_fin = priv->count_rx_between_fin + (size_t)pmdrx->eb_out.len;
@@ -558,10 +640,13 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			 * agreed to it, the peer may still refer back into
 			 * the previous message
 			 */
-			if (priv->args[pmd_arg_peer(wsi,
+			if (priv->rx_stream_ended ||
+			    priv->args[pmd_arg_peer(wsi,
 					PMD_SERVER_NO_CONTEXT_TAKEOVER,
 					PMD_CLIENT_NO_CONTEXT_TAKEOVER)]) {
-				lwsl_wsi_ext(wsi, "peer no context takeover");
+				lwsl_wsi_ext(wsi, "peer no context takeover, "
+						  "or its stream ended");
+				priv->rx_stream_ended = 0;
 				(void)inflateEnd(&priv->rx);
 				priv->rx_init = 0;
 				/*
@@ -577,8 +662,20 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			return PMDR_EMPTY_FINAL;
 		}
 
-		if (priv->rx.avail_in)
+		if (priv->rx.avail_in) {
+			/*
+			 * Saying we have more is a promise the caller acts on
+			 * by coming back for it, without new input: if this
+			 * call took nothing and gave nothing, neither will the
+			 * next, and the caller would never be done with us
+			 */
+			if (!pmdrx->eb_out.len && priv->rx.total_in == total_in) {
+				lwsl_wsi_err(wsi, "inflate made no progress");
+				return PMDR_FAILED;
+			}
+
 			return PMDR_HAS_PENDING;
+		}
 
 		return PMDR_EMPTY_NONFINAL;
 
