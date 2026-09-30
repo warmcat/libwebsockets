@@ -484,6 +484,38 @@ scan_dir_cb_expiry(const char *dirpath, void *user, struct lws_dir_entry *lde)
 }
 
 /*
+ * Everything under <base-dir>/domains is made by the root process, but the
+ * lwsws process has to get into the domain directories too: it publishes
+ * each domain's signed zone JWS to the DHT, and its ACME client reads the
+ * domain's conf.d.  So what we create there gets the group lwsws runs as,
+ * which it gave us in --uds-perms.  The private keys inside stay 0600.
+ */
+
+static int
+monitor_mkdir_domain(struct vhd *vhd, const char *path)
+{
+	if (mkdir(path, 0750) < 0)
+		/* an existing one keeps whatever the admin gave it */
+		return errno != EEXIST;
+
+	if (vhd->proxy_gid != (gid_t)-1 &&
+	    chown(path, (uid_t)-1, vhd->proxy_gid))
+		lwsl_warn("%s: unable to give %s to gid %u: %d\n", __func__,
+			  path, (unsigned int)vhd->proxy_gid, errno);
+
+	return 0;
+}
+
+static void
+monitor_share_fd(struct vhd *vhd, int fd)
+{
+	if (vhd->proxy_gid != (gid_t)-1 &&
+	    fchown(fd, (uid_t)-1, vhd->proxy_gid))
+		lwsl_warn("%s: fchown to gid %u failed: %d\n", __func__,
+			  (unsigned int)vhd->proxy_gid, errno);
+}
+
+/*
  * One resign walk over every domain.  Once every zone has been checked
  * against the current external addresses, only a zone edit or a further
  * change of address makes them look again; a failed dynamic resign keeps
@@ -526,7 +558,15 @@ parent_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	lws_snprintf(jws_path, sizeof(jws_path), "%s/domains/%s/%s.zone.signed.jws", vhd->base_dir, lde->name, lde->name);
 
 	struct stat st_jws;
-	if (stat(jws_path, &st_jws) == 0) {
+	int sr = stat(jws_path, &st_jws);
+
+	if (sr && errno == EACCES && !vhd->initial_parent_scan_done)
+		/* say it once, at startup, rather than every scan */
+		lwsl_warn("%s: can't see into %s/domains/%s, so it can't be "
+			  "published: it needs to be accessible to our group\n",
+			  __func__, vhd->base_dir, lde->name);
+
+	if (!sr) {
 		int needs_pub = 1;
 		struct pub_state *ps = NULL;
 
@@ -1234,13 +1274,13 @@ handle_req_create_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_r
 	int r = 0;
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s", vhd->base_dir, a->domain);
-	if (mkdir(d_path, 0700) < 0 && errno != EEXIST) {
+	if (monitor_mkdir_domain(vhd, d_path)) {
 		lwsl_notice("%s: Failed to create domain dir\n", __func__);
 		r = -1;
 	}
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d", vhd->base_dir, a->domain);
-	if (mkdir(d_path, 0700) < 0 && errno != EEXIST) {
+	if (monitor_mkdir_domain(vhd, d_path)) {
 		lwsl_notice("%s: Failed to create conf.d dir\n", __func__);
 		r = -1;
 	}
@@ -1256,8 +1296,9 @@ handle_req_create_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_r
 		 * exists must not wipe out its config or zone
 		 */
 		lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d/%s.json", vhd->base_dir, a->domain, a->domain);
-		fd = open(d_path, O_CREAT | O_WRONLY | O_EXCL, 0600);
+		fd = open(d_path, O_CREAT | O_WRONLY | O_EXCL, 0640);
 		if (fd >= 0) {
+			monitor_share_fd(vhd, fd);
 			n = lws_snprintf(buf, sizeof(buf), "{\n  \"common-name\": \"%s\"\n}\n", a->domain);
 			if (write(fd, buf, (size_t)n) < 0) {
 				lwsl_err("%s: Failed to write conf.d\n", __func__);
@@ -1665,16 +1706,18 @@ handle_req_create_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	int n, fd;
 
 	lws_snprintf(p1, sizeof(p1), "%s/domains/%s", vhd->base_dir, a->domain);
-	if (mkdir(p1, 0750) < 0 && errno != EEXIST)
+	if (monitor_mkdir_domain(vhd, p1))
 		lwsl_notice("%s: Failed to create domain dir\n", __func__);
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d", vhd->base_dir, a->domain);
-	if (mkdir(d_path, 0750) < 0 && errno != EEXIST)
+	if (monitor_mkdir_domain(vhd, d_path))
 		lwsl_notice("%s: Failed to create conf.d dir\n", __func__);
 
+	/* the ACME client, in lwsws, reads this */
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d/%s.json", vhd->base_dir, a->domain, a->subdomain);
-	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0640);
 	if (fd >= 0) {
+		monitor_share_fd(vhd, fd);
 		n = lws_snprintf(buf, sizeof(buf),
 			"{\n  \"common-name\": \"%s\",\n  \"challenge-type\": \"dns-01\",\n"
 			"  \"email\": \"%s\",\n  \"acme\": {\n"
@@ -1756,7 +1799,7 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 	}
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s", vhd->base_dir, a->domain);
-	if (mkdir(d_path, 0750) < 0 && errno != EEXIST) {
+	if (monitor_mkdir_domain(vhd, d_path)) {
 		lwsl_notice("%s: mkdir %s failed: %d\n", __func__, d_path, errno);
 	}
 
@@ -1768,14 +1811,14 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 		while ((slash = (char *)strchr(p, '/')) != NULL) {
 			*slash = '\0';
 			lws_snprintf(p1 + strlen(p1), sizeof(p1) - strlen(p1), "/%s", p);
-			if (mkdir(p1, 0750) < 0 && errno != EEXIST) {
+			if (monitor_mkdir_domain(vhd, p1)) {
 				lwsl_notice("%s: mkdir %s failed: %d\n", __func__, p1, errno);
 			}
 			*slash = '/';
 			p = slash + 1;
 		}
 		lws_snprintf(p1 + strlen(p1), sizeof(p1) - strlen(p1), "/%s", p);
-		if (mkdir(p1, 0750) < 0 && errno != EEXIST) {
+		if (monitor_mkdir_domain(vhd, p1)) {
 			lwsl_notice("%s: mkdir %s failed: %d\n", __func__, p1, errno);
 		}
 	}
@@ -2092,8 +2135,7 @@ handle_req_set_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor
 	lws_snprintf(d_path, sizeof(d_path), "%s/acme_config.json", vhd->base_dir);
 	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0640);
 	if (fd >= 0) {
-		if (vhd->proxy_uid != (uid_t)-1 || vhd->proxy_gid != (gid_t)-1)
-			fchown(fd, vhd->proxy_uid, vhd->proxy_gid);
+		monitor_share_fd(vhd, fd);
 		n = lws_snprintf(buf, sizeof(buf),
 			"{\n  \"enabled\": %s,\n  \"production\": %s,\n  \"email\": \"%s\",\n"
 			"  \"organization\": \"%s\",\n  \"country\": \"%s\",\n  \"state\": \"%s\",\n"
@@ -2137,8 +2179,7 @@ handle_req_set_domain_acme(struct vhd *vhd, struct pss *root_pss, struct monitor
 	} else {
 		int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0640);
 		if (fd >= 0) {
-			if (vhd->proxy_uid != (uid_t)-1 || vhd->proxy_gid != (gid_t)-1)
-				fchown(fd, vhd->proxy_uid, vhd->proxy_gid);
+			monitor_share_fd(vhd, fd);
 			close(fd);
 		}
 	}
@@ -2244,8 +2285,7 @@ handle_req_update_whois(struct vhd *vhd, struct pss *root_pss, struct monitor_re
 		lws_snprintf(path, sizeof(path), "%s/domains/%s/whois.json", vhd->base_dir, a->domain);
 		fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0640);
 		if (fd >= 0) {
-			if (vhd->proxy_uid != (uid_t)-1 || vhd->proxy_gid != (gid_t)-1)
-				fchown(fd, vhd->proxy_uid, vhd->proxy_gid);
+			monitor_share_fd(vhd, fd);
 			if (write(fd, canon, (size_t)m) < 0)
 				lwsl_err("%s: Failed to write whois.json\n", __func__);
 			close(fd);
@@ -3311,6 +3351,22 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 
 								vhd->uds_path = uds_path;
 								vhd->signature_duration = 31536000;
+
+								/*
+								 * --uds-perms is "<our uid>:<lwsws gid>",
+								 * the group lwsws needs to get into the
+								 * domain dirs with, see monitor_mkdir_domain()
+								 */
+								vhd->proxy_uid = (uid_t)-1;
+								vhd->proxy_gid = (gid_t)-1;
+								{
+									const char *col = uds_perms ? strchr(uds_perms, ':') : NULL;
+
+									if (!col || lws_plat_group_to_gid(col + 1, &vhd->proxy_gid)) {
+										lwsl_warn("%s: no lwsws group in --uds-perms, lwsws will not see new domains\n", __func__);
+										vhd->proxy_gid = (gid_t)-1;
+									}
+								}
 
 								/*
 								 * stdin is the proxy's control channel, see

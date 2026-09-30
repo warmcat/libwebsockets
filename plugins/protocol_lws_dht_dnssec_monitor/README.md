@@ -172,6 +172,25 @@ Based on the global `/etc/lwsws/policy` `dns_base_dir` usage (e.g. `/var/lib/lws
     └── example.com.ksk.private.jwk <-- (Generated automatically if missing)
 ```
 
+The root process creates these, but lwsws has to get into each domain's
+directory and `conf.d` too: it publishes the signed zone's `.jws` to the DHT,
+and its ACME client reads `conf.d`.  So directories the monitor creates there
+are mode 0750 with the group lwsws runs as (the gid after the `:` in the root
+process' `--uds-perms=<uid>:<gid>`, which is lwsws' own group, eg, `apache`,
+not necessarily one called `lwsws`), and the `conf.d` JSON is 0640; the
+`.private.jwk` keys stay 0600.  A domain directory lwsws can't get into is
+never published, and lwsws warns about it at startup.  One made by hand, or by
+an older version of the monitor, needs the same group and modes, eg, as root:
+
+```
+chgrp -R <group> domains/example.com
+chmod 0750 domains/example.com domains/example.com/conf.d
+find domains/example.com/conf.d -name '*.json' -exec chmod 0640 {} +
+```
+
+(`find` rather than a `conf.d/*.json` glob: under sudo, the glob is expanded
+by the calling shell, which can't read `conf.d`.)
+
 A domain created from the UI starts with an empty `example.com.zone`.  When
 the zone is empty, the editor fills in a starter zone to edit (an SOA, two
 nameservers, and example `@` records on the documentation addresses), but
