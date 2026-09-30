@@ -76,6 +76,20 @@ bail:
 }
 #endif
 
+/*
+ * The EVP_PKEY the ctx was created around, to make per-call EVP_PKEY_CTX from
+ * (wolfSSL has no EVP_PKEY_CTX_get0_pkey())
+ */
+static EVP_PKEY *
+rsa_ctx_pkey(struct lws_genrsa_ctx *ctx)
+{
+#if defined(USE_WOLFSSL)
+	return ctx->ctx->pkey;
+#else
+	return EVP_PKEY_CTX_get0_pkey(ctx->ctx);
+#endif
+}
+
 int
 lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 		  const struct lws_gencrypto_keyelem *el,
@@ -543,60 +557,76 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 #endif
 }
 
+/*
+ * Verify a signature over the digest `in` with a per-call EVP_PKEY_CTX, since
+ * the padding mode, digest and PSS salt length can only be selected after the
+ * verify operation has been initialized on it.
+ *
+ * This is also the only PSS verify path on the legacy (pre-OpenSSL 3)
+ * backends: the RSA_* level RSA_verify_PKCS1_PSS[_mgf1]() only decode an EM
+ * that was already recovered from the signature with the public key, they do
+ * no RSA operation themselves.
+ *
+ * Salt length -1 (= digest length) matches what lws_genrsa_hash_sign() uses.
+ *
+ * Returns 1 if the signature is good, else 0.
+ */
+static int
+rsa_evp_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+			enum lws_genhash_types hash_type, const uint8_t *sig,
+			size_t sig_len)
+{
+	const EVP_MD *md = lws_gencrypto_openssl_hash_to_EVP_MD(hash_type);
+	EVP_PKEY *pkey = rsa_ctx_pkey(ctx);
+	EVP_PKEY_CTX *pctx;
+	int ok;
+
+	/* RFC8017 8.1.2 / 8.2.2 step 1: the signature must be exactly k bytes */
+
+	if (!md || !pkey || sig_len != (size_t)EVP_PKEY_size(pkey))
+		return 0;
+
+	pctx = EVP_PKEY_CTX_new(pkey, NULL);
+	if (!pctx)
+		return 0;
+
+	/* Care: these apis return 1 for success */
+
+	ok = EVP_PKEY_verify_init(pctx) > 0 &&
+	     EVP_PKEY_CTX_set_rsa_padding(pctx, mode_map_sig[ctx->mode]) > 0 &&
+	     EVP_PKEY_CTX_set_signature_md(pctx, md) > 0 &&
+	     (ctx->mode != LGRSAM_PKCS1_OAEP_PSS ||
+	      EVP_PKEY_CTX_set_rsa_pss_saltlen(pctx, -1) > 0) &&
+	     EVP_PKEY_verify(pctx, sig, sig_len, in,
+			     lws_genhash_size(hash_type)) == 1;
+
+	EVP_PKEY_CTX_free(pctx);
+
+	return ok;
+}
+
 int
 lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			 enum lws_genhash_types hash_type, const uint8_t *sig,
 			 size_t sig_len)
 {
-	int n = lws_gencrypto_openssl_hash_to_NID(hash_type),
-	    h = (int)lws_genhash_size(hash_type);
-	const EVP_MD *md = NULL;
+	int n = lws_gencrypto_openssl_hash_to_NID(hash_type);
 
 	if (n < 0)
 		return -1;
 
 	switch(ctx->mode) {
+	case LGRSAM_PKCS1_1_5:
 #if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
-	case LGRSAM_PKCS1_1_5:
-	case LGRSAM_PKCS1_OAEP_PSS:
-		{
-			EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new(EVP_PKEY_CTX_get0_pkey(ctx->ctx), NULL);
-			md = lws_gencrypto_openssl_hash_to_EVP_MD(hash_type);
-			if (!pctx || !md) {
-				if (pctx) EVP_PKEY_CTX_free(pctx);
-				return -1;
-			}
-			if (EVP_PKEY_verify_init(pctx) <= 0 ||
-			    EVP_PKEY_CTX_set_rsa_padding(pctx, mode_map_sig[ctx->mode]) <= 0 ||
-			    EVP_PKEY_CTX_set_signature_md(pctx, md) <= 0 ||
-			    (ctx->mode == LGRSAM_PKCS1_OAEP_PSS && EVP_PKEY_CTX_set_rsa_pss_saltlen(pctx, -1) <= 0) ||
-			    EVP_PKEY_verify(pctx, sig, sig_len, in, (size_t)h) <= 0) {
-				n = 0;
-			} else {
-				n = 1;
-			}
-			EVP_PKEY_CTX_free(pctx);
-		}
-		break;
+		n = rsa_evp_hash_sig_verify(ctx, in, hash_type, sig, sig_len);
 #else
-	case LGRSAM_PKCS1_1_5:
-		n = RSA_verify(n, in, (unsigned int)h, (uint8_t *)sig,
-			       (unsigned int)sig_len, ctx->rsa);
-		break;
-	case LGRSAM_PKCS1_OAEP_PSS:
-		md = lws_gencrypto_openssl_hash_to_EVP_MD(hash_type);
-		if (!md)
-			return -1;
-
-#if defined(LWS_HAVE_RSA_verify_pss_mgf1) || defined(OPENSSL_IS_BORINGSSL) || defined(OPENSSL_IS_AWSLC)
-		n = RSA_verify_pss_mgf1(ctx->rsa, in, SSL_SIZE_T_CAST(h), md, NULL, -1,
-					(uint8_t *)sig, (size_t)sig_len);
-#else
-		n = RSA_verify_PKCS1_PSS(ctx->rsa, in, md, (uint8_t *)sig,
-			(int)sig_len);
+		n = RSA_verify(n, in, (unsigned int)lws_genhash_size(hash_type),
+			       (uint8_t *)sig, (unsigned int)sig_len, ctx->rsa);
 #endif
 		break;
-#endif
+	case LGRSAM_PKCS1_OAEP_PSS:
+		n = rsa_evp_hash_sig_verify(ctx, in, hash_type, sig, sig_len);
+		break;
 	default:
 		return -1;
 	}
@@ -669,12 +699,7 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			 * Care: these apis return 1 for success.
 			 */
 			EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new(
-#if defined(USE_WOLFSSL)
-					ctx->ctx->pkey,
-#else
-					EVP_PKEY_CTX_get0_pkey(ctx->ctx),
-#endif
-					NULL);
+						rsa_ctx_pkey(ctx), NULL);
 			size_t slen = sig_len;
 
 			md = lws_gencrypto_openssl_hash_to_EVP_MD(hash_type);
