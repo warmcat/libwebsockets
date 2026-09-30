@@ -43,6 +43,15 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 int
 _lws_jwk_set_el_jwk(struct lws_gencrypto_keyelem *e, char *in, size_t len);
 
+/*
+ * Serializes only the members RFC7638 3.2 requires for the key type, in its
+ * lexicographic order and without whitespace, for computing the thumbprint.
+ * For an oct key that includes the secret k, so the output must be treated
+ * as secret and never be published.
+ */
+int
+lws_jwk_export_rfc7638(struct lws_jwk *jwk, char *p, int *len);
+
 void
 lws_jwk_init_jps(struct lws_jwk_parse_state *jps,
 		 struct lws_jwk *jwk, lws_jwk_key_import_callback cb,

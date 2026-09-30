@@ -113,54 +113,68 @@ static const uint16_t jwk_meta_limit[LWS_COUNT_JWK_ELEMENTS] = {
 	[JWK_META_ALG]		= 32,	/* JWA alg name */
 };
 
+/*
+ * lexico[].meta bits
+ *
+ * LEX_META:	a JWK metadata member (kept in jwk->meta[]), not key material
+ * LEX_PRIV:	key material that is only exported with LWSJWKF_EXPORT_PRIVATE
+ * LEX_THUMB:	a required member for the kty, ie, one of the members the
+ *		RFC7638 thumbprint is computed over (RFC7638 3.2, RFC8037 2)
+ */
+
+#define LEX_META	1
+#define LEX_PRIV	2
+#define LEX_THUMB	4
+
 struct lexico {
 	const char *name;
 	int idx;
 	char meta;
 } lexico_ec[] =  {
-	{ "alg",	JWK_META_ALG,			1 },
-	{ "crv",	LWS_GENCRYPTO_EC_KEYEL_CRV,	0 },
-	{ "d",		LWS_GENCRYPTO_EC_KEYEL_D,	2 | 0 },
-	{ "key_ops",	JWK_META_KEY_OPS,		1 },
-	{ "kid",	JWK_META_KID,			1 },
-	{ "kty",	JWK_META_KTY,			1 },
-	{ "use",	JWK_META_USE,			1 },
-	{ "x",		LWS_GENCRYPTO_EC_KEYEL_X,	0 },
-	{ "x5c",	JWK_META_X5C,			1 },
-	{ "y",		LWS_GENCRYPTO_EC_KEYEL_Y,	0 }
+	{ "alg",	JWK_META_ALG,			LEX_META },
+	{ "crv",	LWS_GENCRYPTO_EC_KEYEL_CRV,	LEX_THUMB },
+	{ "d",		LWS_GENCRYPTO_EC_KEYEL_D,	LEX_PRIV },
+	{ "key_ops",	JWK_META_KEY_OPS,		LEX_META },
+	{ "kid",	JWK_META_KID,			LEX_META },
+	{ "kty",	JWK_META_KTY,			LEX_META | LEX_THUMB },
+	{ "use",	JWK_META_USE,			LEX_META },
+	{ "x",		LWS_GENCRYPTO_EC_KEYEL_X,	LEX_THUMB },
+	{ "x5c",	JWK_META_X5C,			LEX_META },
+	{ "y",		LWS_GENCRYPTO_EC_KEYEL_Y,	LEX_THUMB }
 }, lexico_okp[] =  {
-	{ "alg",	JWK_META_ALG,			1 },
-	{ "crv",	LWS_GENCRYPTO_OKP_KEYEL_CRV,	0 },
-	{ "d",		LWS_GENCRYPTO_OKP_KEYEL_D,	2 | 0 },
-	{ "key_ops",	JWK_META_KEY_OPS,		1 },
-	{ "kid",	JWK_META_KID,			1 },
-	{ "kty",	JWK_META_KTY,			1 },
-	{ "use",	JWK_META_USE,			1 },
-	{ "x",		LWS_GENCRYPTO_OKP_KEYEL_X,	0 },
-	{ "x5c",	JWK_META_X5C,			1 }
+	{ "alg",	JWK_META_ALG,			LEX_META },
+	{ "crv",	LWS_GENCRYPTO_OKP_KEYEL_CRV,	LEX_THUMB },
+	{ "d",		LWS_GENCRYPTO_OKP_KEYEL_D,	LEX_PRIV },
+	{ "key_ops",	JWK_META_KEY_OPS,		LEX_META },
+	{ "kid",	JWK_META_KID,			LEX_META },
+	{ "kty",	JWK_META_KTY,			LEX_META | LEX_THUMB },
+	{ "use",	JWK_META_USE,			LEX_META },
+	{ "x",		LWS_GENCRYPTO_OKP_KEYEL_X,	LEX_THUMB },
+	{ "x5c",	JWK_META_X5C,			LEX_META }
 }, lexico_oct[] =  {
-	{ "alg",	JWK_META_ALG,			1 },
-	{ "k",		LWS_GENCRYPTO_OCT_KEYEL_K,	0 },
-	{ "key_ops",	JWK_META_KEY_OPS,		1 },
-	{ "kid",	JWK_META_KID,			1 },
-	{ "kty",	JWK_META_KTY,			1 },
-	{ "use",	JWK_META_USE,			1 },
-	{ "x5c",	JWK_META_X5C,			1 }
+	/* the only key material of a symmetric key is the secret itself */
+	{ "alg",	JWK_META_ALG,			LEX_META },
+	{ "k",		LWS_GENCRYPTO_OCT_KEYEL_K,	LEX_PRIV | LEX_THUMB },
+	{ "key_ops",	JWK_META_KEY_OPS,		LEX_META },
+	{ "kid",	JWK_META_KID,			LEX_META },
+	{ "kty",	JWK_META_KTY,			LEX_META | LEX_THUMB },
+	{ "use",	JWK_META_USE,			LEX_META },
+	{ "x5c",	JWK_META_X5C,			LEX_META }
 }, lexico_rsa[] =  {
-	{ "alg",	JWK_META_ALG,			1 },
-	{ "d",		LWS_GENCRYPTO_RSA_KEYEL_D,	2 | 0 },
-	{ "dp",		LWS_GENCRYPTO_RSA_KEYEL_DP,	2 | 0 },
-	{ "dq",		LWS_GENCRYPTO_RSA_KEYEL_DQ,	2 | 0 },
-	{ "e",		LWS_GENCRYPTO_RSA_KEYEL_E,	0 },
-	{ "key_ops",	JWK_META_KEY_OPS,		1 },
-	{ "kid",	JWK_META_KID,			1 },
-	{ "kty",	JWK_META_KTY,			1 },
-	{ "n",		LWS_GENCRYPTO_RSA_KEYEL_N,	0 },
-	{ "p",		LWS_GENCRYPTO_RSA_KEYEL_P,	2 | 0 },
-	{ "q",		LWS_GENCRYPTO_RSA_KEYEL_Q,	2 | 0 },
-	{ "qi",		LWS_GENCRYPTO_RSA_KEYEL_QI,	2 | 0 },
-	{ "use",	JWK_META_USE,			1 },
-	{ "x5c",	JWK_META_X5C,			1 }
+	{ "alg",	JWK_META_ALG,			LEX_META },
+	{ "d",		LWS_GENCRYPTO_RSA_KEYEL_D,	LEX_PRIV },
+	{ "dp",		LWS_GENCRYPTO_RSA_KEYEL_DP,	LEX_PRIV },
+	{ "dq",		LWS_GENCRYPTO_RSA_KEYEL_DQ,	LEX_PRIV },
+	{ "e",		LWS_GENCRYPTO_RSA_KEYEL_E,	LEX_THUMB },
+	{ "key_ops",	JWK_META_KEY_OPS,		LEX_META },
+	{ "kid",	JWK_META_KID,			LEX_META },
+	{ "kty",	JWK_META_KTY,			LEX_META | LEX_THUMB },
+	{ "n",		LWS_GENCRYPTO_RSA_KEYEL_N,	LEX_THUMB },
+	{ "p",		LWS_GENCRYPTO_RSA_KEYEL_P,	LEX_PRIV },
+	{ "q",		LWS_GENCRYPTO_RSA_KEYEL_Q,	LEX_PRIV },
+	{ "qi",		LWS_GENCRYPTO_RSA_KEYEL_QI,	LEX_PRIV },
+	{ "use",	JWK_META_USE,			LEX_META },
+	{ "x5c",	JWK_META_X5C,			LEX_META }
 };
 
 /*
@@ -626,8 +640,14 @@ _jwk_ex_putn(char **pp, char *end, const void *src, size_t srclen)
 	return 0;
 }
 
-int
-lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
+/*
+ * With thumb set, only the members RFC7638 3.2 requires for the kty are
+ * emitted, private or not (the thumbprint of a symmetric key is computed over
+ * its secret), and flags other than the NOCRLF one make no difference
+ */
+
+static int
+_lws_jwk_export(struct lws_jwk *jwk, int flags, int thumb, char *p, int *len)
 {
 	char *start = p, *end;
 	int n, m, limit, first = 1, asym = 0;
@@ -673,13 +693,16 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 		return -1;
 	}
 
-	for (n = 0; n < limit; n++) {
+	for (n = 0; n < limit; n++, l++) {
 		const char *q, *q_end;
 		char tok[12];
 		int pos = 0, f = 1;
 
-		if ((l->meta & 1) && (jwk->meta[l->idx].buf ||
-				      l->idx == (int)JWK_META_KTY)) {
+		if (thumb && !(l->meta & LEX_THUMB))
+			continue;
+
+		if ((l->meta & LEX_META) && (jwk->meta[l->idx].buf ||
+					     l->idx == (int)JWK_META_KTY)) {
 
 			switch (l->idx) {
 			case JWK_META_KTY:
@@ -755,8 +778,9 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 			}
 		}
 
-		if ((!(l->meta & 1)) && jwk->e[l->idx].buf &&
-		    ((flags & LWSJWKF_EXPORT_PRIVATE) || !(l->meta & 2))) {
+		if (!(l->meta & LEX_META) && jwk->e[l->idx].buf &&
+		    (thumb || (flags & LWSJWKF_EXPORT_PRIVATE) ||
+		     !(l->meta & LEX_PRIV))) {
 			if (!first && _jwk_ex_putc(&p, end, ','))
 				goto trunc;
 			first = 0;
@@ -790,8 +814,6 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 			if (_jwk_ex_printf(&p, end, "\""))
 				goto trunc;
 		}
-
-		l++;
 	}
 
 	if (_jwk_ex_printf(&p, end,
@@ -810,6 +832,37 @@ trunc:
 	lwsl_notice("%s: buffer too small\n", __func__);
 
 	return -1;
+}
+
+int
+lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
+{
+	/*
+	 * The only key material of a symmetric key IS the secret, so there is
+	 * no public part of it to export.  This used to emit k regardless of
+	 * the flags, ie, anything publishing "the public part" of an oct key,
+	 * eg, a JOSE header "jwk" or a JWKS, published the secret itself.
+	 */
+
+	if (jwk->kty == LWS_GENCRYPTO_KTY_OCT &&
+	    !(flags & LWSJWKF_EXPORT_PRIVATE)) {
+		lwsl_err("%s: symmetric key has no public part to export\n",
+			 __func__);
+		if (p && len && *len > 0) {
+			*p = '\0';
+			*len = 0;
+		}
+
+		return -1;
+	}
+
+	return _lws_jwk_export(jwk, flags, 0, p, len);
+}
+
+int
+lws_jwk_export_rfc7638(struct lws_jwk *jwk, char *p, int *len)
+{
+	return _lws_jwk_export(jwk, LWSJWKF_EXPORT_NOCRLF, 1, p, len);
 }
 
 int

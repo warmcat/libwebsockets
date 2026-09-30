@@ -3121,8 +3121,19 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 
-		/* Export public key strictly for downstream distribution */
-		{
+		/*
+		 * Export public key strictly for downstream distribution.
+		 *
+		 * A symmetric (HS*) key has no public part, it is the signing
+		 * secret itself, so it is never published: validators must be
+		 * given it out of band, and the JWKS stays an empty key set
+		 */
+		lws_strncpy(vhd->jwks_json, "{\"keys\":[]}",
+			    sizeof(vhd->jwks_json));
+		if (vhd->jwk.kty == LWS_GENCRYPTO_KTY_OCT)
+			lwsl_vhost_notice(vhd->vhost, "symmetric jwk: not "
+					  "published in the JWKS\n");
+		else {
 			char pub[LWS_SSO_MAX_COOKIE];
 			int plen = sizeof(pub);
 			if (lws_jwk_export(&vhd->jwk, 0, pub, &plen) > 0) {

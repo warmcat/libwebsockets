@@ -662,6 +662,15 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 			if (!jwk || !jwk->kty)
 				break;
 
+			/*
+			 * A symmetric key (eg, the A*KW key-encryption key or
+			 * a "dir" CEK) has no public part, it is entirely the
+			 * secret, and the recipient must already hold it...
+			 * it must never appear in a header
+			 */
+			if (jwk->kty == LWS_GENCRYPTO_KTY_OCT)
+				break;
+
 			out += lws_snprintf(out, lws_ptr_diff_size_t(end, out), "%s\"%s\":",
 					    sub ? ",\n" : "", jws_jose[n]);
 			sub = 1;

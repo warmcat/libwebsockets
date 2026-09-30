@@ -266,6 +266,122 @@ lws_jwe_ex_c1_plaintext[] = {
 	125 } */
 ;
 
+/*
+ * RFC7638 3.1's example key and its thumbprint... the key carries alg and kid,
+ * which are not part of the thumbprint input
+ */
+
+static const char *rfc7638_ex_jwk =
+	"{\"kty\":\"RSA\","
+	 "\"n\":\"0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx"
+	"4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMs"
+	"tn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2"
+	"QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbI"
+	"SD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqb"
+	"w0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw\","
+	 "\"e\":\"AQAB\","
+	 "\"alg\":\"RS256\","
+	 "\"kid\":\"2011-04-29\"}";
+
+/* base64url "NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs" */
+static const uint8_t rfc7638_ex_thumbprint[] = {
+	0x37, 0x36, 0xcb, 0xb1, 0x78, 0x7c, 0xb8, 0x30,
+	0x9c, 0x77, 0xee, 0x8c, 0x37, 0x05, 0xc5, 0xe1,
+	0x6f, 0xfb, 0x9e, 0x85, 0x97, 0x15, 0x90, 0x1f,
+	0x1e, 0x4c, 0x59, 0xb1, 0x11, 0x82, 0xf5, 0x7b
+};
+
+static const char *oct_ex_jwk =
+	"{\"kty\":\"oct\",\"k\":\"GawgguFyGrWKav7AX4VKUg\","
+	 "\"kid\":\"oct-1\",\"alg\":\"A128KW\"}";
+
+/* SHA-256 of {"k":"GawgguFyGrWKav7AX4VKUg","kty":"oct"} */
+static const uint8_t oct_ex_thumbprint[] = {
+	0x93, 0x52, 0x67, 0x59, 0x17, 0xc2, 0xfb, 0x9c,
+	0xf3, 0x98, 0xbe, 0xf6, 0xbd, 0x72, 0x2e, 0x06,
+	0x04, 0xcb, 0x7d, 0x54, 0x4e, 0x5c, 0x16, 0xa4,
+	0x4b, 0x83, 0xa6, 0x19, 0xca, 0xcc, 0x0a, 0x87
+};
+
+/*
+ * C-633: a symmetric key has no public part, so an export of an oct key
+ * without LWSJWKF_EXPORT_PRIVATE must fail without writing k anywhere, while
+ * the RFC7638 thumbprint, which is defined over k for an oct key, still works
+ * and covers only the required members
+ */
+
+static int
+test_jwk_oct_public_and_thumbprint(void)
+{
+	char ex[512], digest[32];
+	struct lws_jwk jwk;
+	int l;
+
+	if (lws_jwk_import(&jwk, NULL, NULL, oct_ex_jwk, strlen(oct_ex_jwk))) {
+		lwsl_err("%s: oct import failed\n", __func__);
+		return 1;
+	}
+
+	/* refused, NUL-terminated, and nothing else written */
+
+	memset(ex, 'x', sizeof(ex));
+	l = (int)sizeof(ex);
+	if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF, ex, &l) != -1 ||
+	    ex[0] || l) {
+		lwsl_err("%s: public export of oct key not refused\n",
+			 __func__);
+		goto bail;
+	}
+	for (l = 1; l < (int)sizeof(ex); l++)
+		if (ex[l] != 'x') {
+			lwsl_err("%s: refused oct export wrote output\n",
+				 __func__);
+			goto bail;
+		}
+
+	/* the private export is still the whole key */
+
+	l = (int)sizeof(ex);
+	if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF |
+				 LWSJWKF_EXPORT_PRIVATE, ex, &l) < 0 ||
+	    !strstr(ex, "\"k\":\"GawgguFyGrWKav7AX4VKUg\"")) {
+		lwsl_err("%s: private export of oct key lost k\n", __func__);
+		goto bail;
+	}
+
+	if (lws_jwk_rfc7638_fingerprint(&jwk, digest) ||
+	    memcmp(digest, oct_ex_thumbprint, sizeof(digest))) {
+		lwsl_err("%s: oct thumbprint mismatch\n", __func__);
+		lwsl_hexdump_err(digest, sizeof(digest));
+		goto bail;
+	}
+
+	lws_jwk_destroy(&jwk);
+
+	if (lws_jwk_import(&jwk, NULL, NULL, rfc7638_ex_jwk,
+			   strlen(rfc7638_ex_jwk))) {
+		lwsl_err("%s: RFC7638 example import failed\n", __func__);
+		return 1;
+	}
+
+	if (lws_jwk_rfc7638_fingerprint(&jwk, digest) ||
+	    memcmp(digest, rfc7638_ex_thumbprint, sizeof(digest))) {
+		lwsl_err("%s: RFC7638 example thumbprint mismatch\n",
+			 __func__);
+		lwsl_hexdump_err(digest, sizeof(digest));
+		goto bail;
+	}
+
+	lws_jwk_destroy(&jwk);
+
+	return 0;
+
+bail:
+	lws_jwk_destroy(&jwk);
+
+	return 1;
+}
+
 static int
 key_import_callback(struct lws_jwk *s, void *user)
 {
@@ -380,8 +496,14 @@ test_jwk(struct lws_context *context)
 
 		/* the whole export fits comfortably in big[] */
 
+		/*
+		 * An oct key has no public part (C-633), so the bounds are
+		 * exercised on its private export
+		 */
+
 		m = (int)sizeof(big);
-		n = lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF, big, &m);
+		n = lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF |
+					 LWSJWKF_EXPORT_PRIVATE, big, &m);
 		if (n < 0 || (size_t)n >= sizeof(big)) {
 			lwsl_notice("%s: export of test key failed\n", __func__);
 			lws_jwk_destroy(&jwk);
@@ -404,7 +526,8 @@ test_jwk(struct lws_context *context)
 
 		memset(ex, 0xa5, (size_t)n + 2 + 8);
 		l = n + 2;
-		if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF, ex, &l) != n ||
+		if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF |
+					 LWSJWKF_EXPORT_PRIVATE, ex, &l) != n ||
 		    memcmp(ex, big, (size_t)n) ||
 		    memcmp(ex + n + 2, "\xa5\xa5\xa5\xa5\xa5\xa5\xa5\xa5", 8)) {
 			lwsl_notice("%s: exact-fit export misbehaved\n", __func__);
@@ -416,7 +539,8 @@ test_jwk(struct lws_context *context)
 		for (l = 3; l <= n + 1; l++) {
 			m = l;
 			memset(ex, 0xa5, (size_t)n + 2 + 8);
-			if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF, ex,
+			if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF |
+						 LWSJWKF_EXPORT_PRIVATE, ex,
 					   &m) != -1 ||
 			    !memchr(ex, 0, (size_t)l) ||
 			    memcmp(ex + l, "\xa5\xa5\xa5\xa5\xa5\xa5\xa5\xa5", 8)) {
@@ -431,6 +555,9 @@ test_jwk(struct lws_context *context)
 		free(ex);
 		lws_jwk_destroy(&jwk);
 	}
+
+	if (test_jwk_oct_public_and_thumbprint())
+		goto bail1;
 
 	/* end */
 

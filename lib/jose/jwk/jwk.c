@@ -313,8 +313,17 @@ lws_jwk_rfc7638_fingerprint(struct lws_jwk *jwk, char *digest32)
 	int n, m = (int)tmpsize;
 
 	tmp = lws_malloc(tmpsize, "rfc7638 tmp");
+	if (!tmp)
+		return -1;
 
-	n = lws_jwk_export(jwk, LWSJWKF_EXPORT_NOCRLF, tmp, &m);
+	/*
+	 * RFC7638 3.2: the hash input is only the required members for the
+	 * kty... using the general export here used to fold in alg, kid,
+	 * key_ops, x5c etc, so the thumbprint of a key carrying any of them
+	 * did not match anybody else's for the same key
+	 */
+
+	n = lws_jwk_export_rfc7638(jwk, tmp, &m);
 	if (n < 0)
 		goto bail;
 
@@ -326,6 +335,9 @@ lws_jwk_rfc7638_fingerprint(struct lws_jwk *jwk, char *digest32)
 
 		goto bail;
 	}
+
+	/* for an oct key, tmp holds the secret */
+	lws_explicit_bzero(tmp, tmpsize);
 	lws_free(tmp);
 
 	if (lws_genhash_destroy(&hash_ctx, digest32))
@@ -334,6 +346,7 @@ lws_jwk_rfc7638_fingerprint(struct lws_jwk *jwk, char *digest32)
 	return 0;
 
 bail:
+	lws_explicit_bzero(tmp, tmpsize);
 	lws_free(tmp);
 
 	return -1;

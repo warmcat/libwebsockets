@@ -136,7 +136,9 @@ lws_jwk_dup_oct(struct lws_jwk *jwk, const void *key, int len);
  * \p flags can be OR-ed together
  *
  * LWSJWKF_EXPORT_PRIVATE: default is only public part, set this to also export
- *			   the private part
+ *			   the private part.  A symmetric (oct) key has no
+ *			   public part, its only key material is the secret,
+ *			   so exporting one without this flag fails with -1
  *
  * LWSJWKF_EXPORT_NOCRLF: normally adds a CRLF at the end of the export, if
  *			  you need to suppress it, set this flag
@@ -186,6 +188,10 @@ lws_jwk_save(struct lws_jwk *jwk, const char *filename);
  * \param digest32: buffer to take 32-byte digest
  *
  * Returns 0 for OK or -1 for failure
+ *
+ * The SHA-256 is computed over only the members RFC7638 3.2 requires for the
+ * key type (eg, e, kty, n for RSA), so metadata like kid or alg does not
+ * change it.  For an oct key the thumbprint is computed over the secret.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_jwk_rfc7638_fingerprint(struct lws_jwk *jwk, char *digest32);

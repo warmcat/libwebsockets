@@ -2576,7 +2576,7 @@ test_akw_encrypt(struct lws_context *context, const char *test_name,
 		 const char *key, char *compact, int compact_len)
 {
 	struct lws_jwe jwe;
-	char temp[4096];
+	char temp[4096], flat[2048];
 	int ret = -1, n, temp_len = sizeof(temp);
 
 	lws_jwe_init(&jwe, context);
@@ -2636,6 +2636,23 @@ test_akw_encrypt(struct lws_context *context, const char *test_name,
 	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_encrypt failed\n", __func__);
+		goto bail;
+	}
+
+	/*
+	 * C-633: the flattened serialization's unprotected header must not
+	 * carry the key-encryption key, which is all a symmetric jwk is
+	 */
+
+	n = lws_jwe_render_flattened(&jwe, flat, sizeof(flat));
+	if (n < 0) {
+		lwsl_err("%s: lws_jwe_render_flattened failed: %d\n",
+			 __func__, n);
+		goto bail;
+	}
+	if (strstr(flat, "\"jwk\"") || strstr(flat, "\"k\"")) {
+		lwsl_err("%s: flattened JWE header carries the KEK\n",
+			 __func__);
 		goto bail;
 	}
 
