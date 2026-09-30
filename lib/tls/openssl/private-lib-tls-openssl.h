@@ -92,6 +92,7 @@ typedef int (*next_proto_cb)(SSL *, const unsigned char **out,
 
 struct lws_x509_cert {
 	X509 *cert; /* X509 is opaque, this has to be a pointer */
+	STACK_OF(X509) *chain; /* NULL, or any further certs from the PEM */
 };
 
 int

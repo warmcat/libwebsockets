@@ -181,6 +181,9 @@ lws_x509_parse_from_pem(struct lws_x509_cert *x509, const void *pem, size_t len)
  * Returns 0 if the cert or certs in \p x509 represent a complete chain that is
  * ultimately signed by the cert in \p trusted.  Returns nonzero if that's not
  * the case.
+ *
+ * Every signature on the way to \p trusted is checked, and the certs in \p x509
+ * must also be within their validity period at the current time.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted,

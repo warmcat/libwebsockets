@@ -134,6 +134,69 @@ lws_tls_openssl_asn1time_to_unix(ASN1_TIME *as)
 #endif
 }
 
+/*
+ * Copy the subject Common Name into \p out, NUL-terminated, with its length
+ * in \p *olen.  The CN is found by its OID in the subject, not by parsing a
+ * rendered DN string, where another attribute's value may contain text that
+ * looks like a CN.
+ *
+ * The CN is used to make identity decisions, so anything we cannot represent
+ * exactly is refused rather than truncated or reinterpreted: no CN, more than
+ * one CN, a value that won't convert to UTF-8, an empty value, a value with an
+ * embedded NUL (which would end a C string compare early) or other control
+ * character, or one that does not fit \p out.
+ */
+
+static int
+lws_tls_openssl_x509_cn(X509 *x509, char *out, size_t out_len, size_t *olen)
+{
+	const X509_NAME_ENTRY *ne;
+	const X509_NAME *xn;
+	unsigned char *u = NULL;
+	int i, n, m, ret = -1;
+
+	xn = X509_get_subject_name(x509);
+	if (!xn || !out_len)
+		return -1;
+
+	i = X509_NAME_get_index_by_NID((X509_NAME *)xn, NID_commonName, -1);
+	if (i < 0) {
+		lwsl_info("%s: subject has no CN\n", __func__);
+		return -1;
+	}
+	if (X509_NAME_get_index_by_NID((X509_NAME *)xn, NID_commonName, i) >= 0) {
+		lwsl_notice("%s: subject has more than one CN\n", __func__);
+		return -1;
+	}
+
+	ne = X509_NAME_get_entry((X509_NAME *)xn, i);
+	if (!ne)
+		return -1;
+
+	n = ASN1_STRING_to_UTF8(&u, (ASN1_STRING *)
+			X509_NAME_ENTRY_get_data((X509_NAME_ENTRY *)ne));
+	if (n <= 0 || !u || (size_t)n >= out_len)
+		goto bail;
+
+	for (m = 0; m < n; m++)
+		if (u[m] < 0x20 || u[m] == 0x7f) {
+			lwsl_notice("%s: CN has control characters\n",
+				    __func__);
+			goto bail;
+		}
+
+	memcpy(out, u, (size_t)n);
+	out[n] = '\0';
+	*olen = (size_t)n;
+	ret = 0;
+
+bail:
+	if (u)
+		OPENSSL_free(u);
+
+	return ret;
+}
+
 #if defined(USE_WOLFSSL)
 #define AUTHORITY_KEYID WOLFSSL_AUTHORITY_KEYID
 #endif
@@ -546,61 +609,169 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 int
 lws_x509_create(struct lws_x509_cert **x509)
 {
-	*x509 = lws_malloc(sizeof(**x509), __func__);
-	if (*x509)
-		(*x509)->cert = NULL;
+	*x509 = lws_zalloc(sizeof(**x509), __func__);
 
 	return !(*x509);
 }
 
+static void
+lws_x509_openssl_reset(struct lws_x509_cert *x509)
+{
+	if (x509->cert) {
+		X509_free(x509->cert);
+		x509->cert = NULL;
+	}
+	if (x509->chain) {
+		sk_X509_pop_free(x509->chain, X509_free);
+		x509->chain = NULL;
+	}
+}
+
+/*
+ * The first PEM cert is the one the object represents, eg, the leaf.  Any
+ * further ones are kept in order as the rest of its chain, to be offered as
+ * untrusted intermediates by lws_x509_verify().
+ */
+
 int
 lws_x509_parse_from_pem(struct lws_x509_cert *x509, const void *pem, size_t len)
 {
-	BIO* bio = BIO_new(BIO_s_mem());
+	static const char begin[] = "-----BEGIN CERTIFICATE-----";
+	BIO *bio;
+	char *p;
+	X509 *x;
+	long r;
 
-	BIO_write(bio, pem, (int)len);
-	x509->cert = PEM_read_bio_X509(bio, NULL, NULL, NULL);
-	BIO_free(bio);
-	if (!x509->cert) {
-		lwsl_err("%s: unable to parse PEM cert\n", __func__);
-		lws_tls_err_describe_clear();
+	lws_x509_openssl_reset(x509);
 
+	if (!len || len > INT_MAX)
 		return -1;
+
+	bio = BIO_new(BIO_s_mem());
+	if (!bio)
+		return -1;
+
+	if (BIO_write(bio, pem, (int)len) != (int)len)
+		goto bail;
+
+	x509->cert = PEM_read_bio_X509(bio, NULL, NULL, NULL);
+	if (!x509->cert)
+		goto bail;
+
+	/*
+	 * Stop when no further cert block remains in what we have not read
+	 * yet, but a block that is there and does not parse fails the whole
+	 * thing, rather than silently leaving us a shorter chain
+	 */
+
+	while (1) {
+		r = BIO_get_mem_data(bio, &p);
+		if (r <= 0 || !lws_nstrstr(p, (size_t)r, begin,
+					   sizeof(begin) - 1))
+			break;
+
+		x = PEM_read_bio_X509(bio, NULL, NULL, NULL);
+		if (!x)
+			goto bail;
+
+		if (!x509->chain)
+			x509->chain = sk_X509_new_null();
+		if (!x509->chain || !sk_X509_push(x509->chain, x)) {
+			X509_free(x);
+			goto bail;
+		}
 	}
 
+	BIO_free(bio);
+
 	return 0;
+
+bail:
+	BIO_free(bio);
+	lws_x509_openssl_reset(x509);
+	lwsl_err("%s: unable to parse PEM cert\n", __func__);
+	lws_tls_err_describe_clear();
+
+	return -1;
 }
 
 int
 lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted,
 		const char *common_name)
 {
-	char c[128];
-	int ret;
+	X509_STORE_CTX *xctx = NULL;
+	X509_STORE *store = NULL;
+	char cn[256];
+	size_t cnl;
+	int ret = -1, e;
 
-	if (common_name) {
-		const X509_NAME *xn = X509_get_subject_name(x509->cert);
-		if (!xn)
-			return -1;
-		
-		if (X509_NAME_get_text_by_NID((X509_NAME *)xn, NID_commonName, c, sizeof(c)) < 0)
-			return -1;
+	if (!x509 || !x509->cert || !trusted || !trusted->cert)
+		return -1;
 
-		if (strcmp(c, common_name)) {
-			lwsl_err("%s: common name mismatch\n", __func__);
-			return -1;
-		}
-	}
+	/*
+	 * The CN must match exactly, by length and content... the cert's CN
+	 * may not end a C string compare early with an embedded NUL
+	 */
 
-	ret = X509_check_issued(trusted->cert, x509->cert);
-	if (ret != X509_V_OK) {
-		lwsl_err("%s: unable to verify cert relationship\n", __func__);
-		lws_tls_err_describe_clear();
+	if (common_name &&
+	    (lws_tls_openssl_x509_cn(x509->cert, cn, sizeof(cn), &cnl) ||
+	     cnl != strlen(common_name) || memcmp(cn, common_name, cnl))) {
+		lwsl_err("%s: common name mismatch\n", __func__);
 
 		return -1;
 	}
 
-	return 0;
+	/*
+	 * Have openssl do a real chain verification: every signature from
+	 * the leaf up to the trusted cert, plus the validity period of each
+	 * cert against the current time and the CA constraints of the
+	 * issuers, as the mbedtls and gnutls backends do.  Any further certs
+	 * that came in the PEM with the leaf are offered as untrusted
+	 * intermediates.
+	 */
+
+	store = X509_STORE_new();
+	if (!store)
+		goto bail;
+
+	/* the store takes its own reference on the trusted cert */
+	if (X509_STORE_add_cert(store, trusted->cert) != 1)
+		goto bail;
+
+#if defined(X509_V_FLAG_PARTIAL_CHAIN)
+	/*
+	 * As with mbedtls and gnutls, the cert we were told to trust is the
+	 * trust anchor, whether or not it is a self-signed root
+	 */
+	X509_STORE_set_flags(store, X509_V_FLAG_PARTIAL_CHAIN);
+#endif
+
+	xctx = X509_STORE_CTX_new();
+	if (!xctx)
+		goto bail;
+
+	if (X509_STORE_CTX_init(xctx, store, x509->cert, x509->chain) != 1)
+		goto bail;
+
+	if (X509_verify_cert(xctx) != 1) {
+		e = X509_STORE_CTX_get_error(xctx);
+		lwsl_err("%s: unable to verify cert: %s (depth %d)\n",
+			 __func__, X509_verify_cert_error_string(e),
+			 X509_STORE_CTX_get_error_depth(xctx));
+		goto bail;
+	}
+
+	ret = 0;
+
+bail:
+	if (ret)
+		lws_tls_err_describe_clear();
+	if (xctx)
+		X509_STORE_CTX_free(xctx);
+	if (store)
+		X509_STORE_free(store);
+
+	return ret;
 }
 
 #if defined(LWS_WITH_JOSE)
@@ -1189,10 +1360,7 @@ lws_x509_destroy(struct lws_x509_cert **x509)
 	if (!*x509)
 		return;
 
-	if ((*x509)->cert) {
-		X509_free((*x509)->cert);
-		(*x509)->cert = NULL;
-	}
+	lws_x509_openssl_reset(*x509);
 
 	lws_free_set_NULL(*x509);
 }

@@ -132,6 +132,55 @@ int main(int argc, const char **argv)
 			.common_name = NULL,
 			.expected_result = -1
 		},
+		/*
+		 * same-dn-ca-cert.crt is an unrelated CA with its own key that
+		 * has the same subject DN as ca-cert.crt, and no key
+		 * identifier.  Only checking the signature can tell the two
+		 * CAs apart.
+		 */
+		{
+			.name = "Certificate against a different CA with the same DN",
+			.cert_path = "server-cert.crt",
+			.trusted_path = "same-dn-ca-cert.crt",
+			.common_name = NULL,
+			.expected_result = -1
+		},
+		{
+			.name = "Valid certificate signed by the same-DN CA",
+			.cert_path = "same-dn-leaf-cert.crt",
+			.trusted_path = "same-dn-ca-cert.crt",
+			.common_name = "other.example.com",
+			.expected_result = 0
+		},
+		{
+			.name = "Same-DN CA's certificate against the original CA",
+			.cert_path = "same-dn-leaf-cert.crt",
+			.trusted_path = "ca-cert.crt",
+			.common_name = NULL,
+			.expected_result = -1
+		},
+		{
+			.name = "Expired certificate signed by trusted CA",
+			.cert_path = "expired-cert.crt",
+			.trusted_path = "same-dn-ca-cert.crt",
+			.common_name = NULL,
+			.expected_result = -1
+		},
+#if !defined(LWS_WITH_GNUTLS) && !defined(LWS_WITH_BEARSSL) && \
+    !defined(LWS_WITH_SCHANNEL) && !defined(LWS_WITH_OPENHITLS)
+		/*
+		 * Only for the backends whose lws_x509_parse_from_pem() keeps
+		 * the further certs of a multi-cert PEM as the chain: the
+		 * leaf is followed by its intermediate CA in the PEM
+		 */
+		{
+			.name = "Chain with its intermediate CA in the PEM",
+			.cert_path = "same-dn-chain-cert.crt",
+			.trusted_path = "same-dn-ca-cert.crt",
+			.common_name = "chain.example.com",
+			.expected_result = 0
+		},
+#endif
 	};
 	const char *cert_dir = ".";
 	const char *p;
