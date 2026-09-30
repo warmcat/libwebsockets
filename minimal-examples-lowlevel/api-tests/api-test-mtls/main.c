@@ -434,8 +434,13 @@ int main(int argc, const char **argv)
 	info.ssl_cert_filepath		= NULL;
 	info.ssl_private_key_filepath	= NULL;
 	info.ssl_ca_filepath		= NULL;
-	info.options			&= ~(uint64_t)
-			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT;
+	/*
+	 * Not "&= ~LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT": that
+	 * option includes the LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT bit, and
+	 * a vhost without that one gets no client tls ctx
+	 */
+	info.options			= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
+					  LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
 	/* a client vhost per identity, no listener */
 
