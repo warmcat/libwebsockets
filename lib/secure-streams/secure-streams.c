@@ -295,10 +295,13 @@ lws_conmon_ss_json(lws_ss_handle_t *h)
 	if (h->proxy_onward) {
 
 		/*
-		 * ask to forward it on the proxy link
+		 * ask to forward it on the proxy link, if the client is still
+		 * there to take it
 		 */
 
-		h->conn_if_sspc_onw->txp_path.ops_onw->proxy_req_write(
+		if (h->conn_if_sspc_onw &&
+		    h->conn_if_sspc_onw->txp_path.priv_onw)
+			h->conn_if_sspc_onw->txp_path.ops_onw->proxy_req_write(
 				h->conn_if_sspc_onw->txp_path.priv_onw);
 
 		return LWSSSSRET_OK;
@@ -1021,6 +1024,14 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 
 	i.ssl_connection |= LCCSCF_SECSTREAM_CLIENT;
 
+	/*
+	 * A proxied stream's onward connection may also start from
+	 * _lws_ss_request_tx(), a retry, or a nailed-up create, which don't
+	 * pass the conn; it's the same conn for all of them
+	 */
+	if (!conn_if_sspc_onw)
+		conn_if_sspc_onw = h->conn_if_sspc_onw;
+
 	if (conn_if_sspc_onw) {
 		i.ssl_connection |= LCCSCF_SECSTREAM_PROXY_ONWARD;
 		h->conn_if_sspc_onw = conn_if_sspc_onw;
@@ -1491,8 +1502,16 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	h->context = context;
 	h->tsi = (uint8_t)tsi;
 
-	if (h->info.flags & LWSSSINFLAGS_PROXIED)
+	if (h->info.flags & LWSSSINFLAGS_PROXIED) {
+		/*
+		 * The proxy creates us with its conn for the client as our
+		 * opaque user data, bind it now so it's there however our
+		 * first onward connect comes
+		 */
 		h->proxy_onward = 1;
+		h->conn_if_sspc_onw = (struct lws_sss_proxy_conn *)
+							opaque_user_data;
+	}
 
 	/* start of overallocated area */
 	p = (char *)ss_to_userobj(h);
