@@ -162,7 +162,9 @@
 /* the html layout engine renders into the display list: it lives with it */
 #include <libwebsockets/lws-html.h>
 
+#if defined(LWS_WITH_EMAIL)
 #include <libwebsockets/lws-smtp-client.h>
+#endif
 
 #if defined(LWS_WITH_DIR)
 #include <libwebsockets/lws-dir-notify.h>

@@ -132,6 +132,9 @@ lws_create_vhost(struct lws_context *context,
 #if defined(LWS_WITH_CLIENT)
 	extern const struct lws_protocols lws_async_ipc_protocol;
 #endif
+#if defined(LWS_WITH_EMAIL)
+	extern const struct lws_protocols lws_smtpc_protocol;
+#endif
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 	extern const struct lws_protocols lws_sspc_protocols[];
 #endif
@@ -406,6 +409,9 @@ lws_create_vhost(struct lws_context *context,
 #if defined(LWS_WITH_CLIENT)
 				   1 +
 #endif
+#if defined(LWS_WITH_EMAIL)
+				   1 +
+#endif
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 				   1 +
 #endif
@@ -465,6 +471,13 @@ lws_create_vhost(struct lws_context *context,
 
 #if defined(LWS_WITH_CLIENT)
 	memcpy(&lwsp[m], &lws_async_ipc_protocol, sizeof(*lwsp));
+	m++;
+	vh->count_protocols++;
+#endif
+
+#if defined(LWS_WITH_EMAIL)
+	/* lws_smtpc's connections, on whichever vhost the client is made */
+	memcpy(&lwsp[m], &lws_smtpc_protocol, sizeof(*lwsp));
 	m++;
 	vh->count_protocols++;
 #endif
@@ -1070,6 +1083,9 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 
 #if defined(LWS_WITH_DHT)
 	lws_dht_destroy_all_on_vhost(vh);
+#endif
+#if defined(LWS_WITH_EMAIL)
+	lws_smtpc_destroy_all_on_vhost(vh);
 #endif
 
 	protocol = vh->protocols;

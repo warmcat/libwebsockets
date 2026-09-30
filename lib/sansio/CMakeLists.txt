@@ -64,6 +64,11 @@ if (LWS_WITH_SOCKS5 AND NOT LWS_WITHOUT_CLIENT)
 		sansio/socks5-client.c)
 endif()
 
+if (LWS_WITH_EMAIL)
+	list(APPEND SOURCES
+		sansio/smtp/smtp-session.c)
+endif()
+
 if (LWS_ROLE_MQTT)
 	add_subdir_include_directories(mqtt)
 endif()

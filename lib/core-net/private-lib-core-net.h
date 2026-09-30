@@ -840,6 +840,10 @@ struct lws_vhost {
 #if defined(LWS_WITH_DHT)
 	lws_dll2_owner_t	dht_owner;
 #endif
+#if defined(LWS_WITH_EMAIL)
+	lws_dll2_owner_t	smtpc_owner;	/* every lws_smtpc on the vhost */
+	struct lws_smtpc	*smtpc;		/* the vhost's own, if made */
+#endif
 
 	uint64_t max_http_body_size;
 };
@@ -847,6 +851,11 @@ struct lws_vhost {
 #if defined(LWS_WITH_DHT)
 void
 lws_dht_destroy_all_on_vhost(struct lws_vhost *vh);
+#endif
+
+#if defined(LWS_WITH_EMAIL)
+void
+lws_smtpc_destroy_all_on_vhost(struct lws_vhost *vh);
 #endif
 
 #if defined(LWS_WITH_STUB)
