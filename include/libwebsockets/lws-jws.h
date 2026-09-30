@@ -557,10 +557,14 @@ struct lws_jwt_sign_set_cookie {
 	const char			*cookie_name;
 	/**< entry: the name of the cookie */
 	char				sub[65];
-	/**< sign-entry, validate-exit: subject */
+	/**< sign-entry, validate-exit: subject.  It's JSON-escaped into the
+	 * JWT, so may come from a user; a subject with bytes that need escaping
+	 * comes back from validation in its escaped form */
 	const char			*extra_json;
 	/**< sign-entry, validate-exit:
-	 * optional "ext" JSON object contents for the JWT */
+	 * optional "ext" JSON object contents for the JWT.  On signing it goes
+	 * in as it is: it must be JSON the application composed, with any
+	 * strings from elsewhere in it escaped, eg with lws_json_purify() */
 	size_t				extra_json_len;
 	/**< validate-exit:
 	 * length of optional "ext" JSON object contents for the JWT */

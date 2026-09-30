@@ -2622,10 +2622,27 @@ jwt_sign_cookie_value(struct lws *wsi,
 		      const struct lws_jwt_sign_set_cookie *i,
 		      char *val, size_t val_len)
 {
-	char plain[MAX_JWT_SIZE + 1], temp[MAX_JWT_SIZE * 2], csrf[17];
+	char plain[MAX_JWT_SIZE + 1], temp[MAX_JWT_SIZE * 2], csrf[17],
+	     esub[(sizeof(i->sub) * 6) + 8];
+	int n, used = (int)sizeof(i->sub) - 1;
 	size_t pl = sizeof(plain);
 	unsigned long long ull;
-	int n;
+
+	/*
+	 * The subject goes into the JWT as a JSON string, and may have come
+	 * from a user, eg a username.  Unescaped, a '"' in it ended the string
+	 * early and what followed became claims of its own, eg another "ext"
+	 * that the validator would find first.  esub has room for every byte
+	 * of sub to escape to 6: if the escaped copy still didn't reach sub's
+	 * NUL, sub is unterminated, refuse it rather than sign part of it.
+	 */
+
+	lws_json_purify(esub, i->sub, (int)sizeof(esub), &used);
+	if (i->sub[used]) {
+		lwsl_err("%s: unterminated sub\n", __func__);
+
+		return -1;
+	}
 
 	/*
 	 * Create a 16-char random csrf token with the same lifetime as the JWT
@@ -2640,7 +2657,7 @@ jwt_sign_cookie_value(struct lws *wsi,
 			          "\"csrf\":\"%s\",\"sub\":\"%s\"%s%s%s}",
 			         i->iss, i->aud, ull, ull - 60,
 			         ull + i->expiry_unix_time,
-			         csrf, i->sub,
+			         csrf, esub,
 			         i->extra_json ? ",\"ext\":{" : "",
 			         i->extra_json ? i->extra_json : "",
 			         i->extra_json ? "}" : "")) {
