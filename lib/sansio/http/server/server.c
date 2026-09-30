@@ -289,6 +289,27 @@ lws_vfs_prepare_flags(struct lws *wsi)
 	return f;
 }
 
+/*
+ * Does the path have a component that is exactly ".."?  "..." or "..x" are
+ * ordinary names, only a whole ".." component walks up a directory.
+ */
+
+static int
+lws_path_has_dotdot(const char *p)
+{
+	const char *seg = p;
+
+	do {
+		if (*p == '/' || !*p) {
+			if (p - seg == 2 && seg[0] == '.' && seg[1] == '.')
+				return 1;
+			seg = p + 1;
+		}
+	} while (*p++);
+
+	return 0;
+}
+
 static int
 lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	       const struct lws_http_mount *m)
@@ -318,6 +339,20 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	wsi->handling_404 = 0;
 	if (!wsi->a.vhost)
 		return -1;
+
+	/*
+	 * The URI parsers normalise ".." components away before a request URI
+	 * reaches here, but this is the last stop before the path is opened
+	 * under the mount origin, so it must not rely on every route here
+	 * having been through them.  A ".." left in the path at this point
+	 * is an attempt to reach outside the mount, refuse it.
+	 */
+	if (lws_path_has_dotdot(uri)) {
+		lwsl_wsi_notice(wsi, "refusing \"..\" in served path");
+		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+
+		return -1;
+	}
 
 #if defined(WIN32)
 	/*
