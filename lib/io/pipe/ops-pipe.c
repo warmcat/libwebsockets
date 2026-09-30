@@ -101,6 +101,11 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	lws_threadpool_tsi_context(pt->context, pt->tid);
 #endif
 
+#if defined(LWS_WITH_SERVER) && LWS_MAX_SMP > 1
+	/* another pt's fds table filled or made room: see to our listeners */
+	lws_accept_modulation_recheck(pt);
+#endif
+
 #if defined(LWS_WITH_ASYNC_QUEUE)
 	{
 		struct lws_dll2_owner handled;

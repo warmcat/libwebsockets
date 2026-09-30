@@ -226,35 +226,117 @@ bail:
 
 #if defined(LWS_WITH_SERVER)
 /*
- * Enable or disable listen sockets on this pt globally...
- * it's modulated according to the pt having space for a new accept.
+ * Listeners are paused while no pt has room for another connection, since an
+ * accept is adopted onto the idlest pt (lws_get_idlest_tsi()), whichever pt
+ * the listener itself is on.
  *
- * Returns how many listen sockets it acted on.
+ * Only a listener's own pt changes its poll entry.  A pt's table filling up,
+ * or making room again, changes the answer for every pt's listeners, but it
+ * happens under that pt's lock (insert / remove), and taking another pt's lock
+ * from under ours is an AB-BA with that pt doing the same towards us.  So the
+ * other pts are flagged and woken through their event pipe, and each decides
+ * again for its own listeners on its own service thread
+ * (lws_accept_modulation_recheck()).
+ *
+ * Call with the pt lock held.
  */
-static int
-lws_accept_modulation(struct lws_context *context,
-		      struct lws_context_per_thread *pt, int allow)
+static void
+lws_accept_modulation(struct lws_context_per_thread *pt)
 {
-	struct lws_vhost *vh = lws_vhost_first(context);
+	struct lws_context *cx = pt->context;
+	struct lws_vhost *vh;
 	struct lws_pollargs pa1;
-	int n = 0;
+	int n, allow = 0, acted = 0;
 
-	while (vh) {
+	for (n = 0; n < cx->count_threads; n++)
+		if (!cx->pt[n].accept_full) {
+			allow = 1;
+			break;
+		}
+
+	for (vh = lws_vhost_first(cx); vh; vh = lws_vhost_next(vh)) {
 		lws_start_foreach_dll(struct lws_dll2 *, d,
 				      lws_dll2_get_head(&vh->listen_wsi)) {
 			struct lws *wsi = lws_container_of(d, struct lws,
 							   listen_list);
 
-			_lws_change_pollfd(wsi, allow ? 0 : LWS_POLLIN,
-						allow ? LWS_POLLIN : 0, &pa1);
-			n++;
+			if (wsi->tsi == pt->tid) {
+				_lws_change_pollfd(wsi, allow ? 0 : LWS_POLLIN,
+						   allow ? LWS_POLLIN : 0, &pa1);
+				acted = 1;
+			}
 		} lws_end_foreach_dll(d);
-
-		vh = lws_vhost_next(vh);
 	}
 
-	return n;
+	if (!allow && acted && !pt->accept_pause_warned) {
+		/*
+		 * Until a connection closes, nothing more is accepted on any
+		 * listener.  That is by design, but a budget this small is
+		 * usually an accident (eg, lws_context_info_defaults() sizes
+		 * it for a client) and it is otherwise silent: say so, once.
+		 */
+		pt->accept_pause_warned = 1;
+		lwsl_cx_warn(cx, "tsi %d: fds tables full (%u fds here), "
+			     "listeners paused until a connection closes: "
+			     "raise info->fd_limit_per_thread (0 = process "
+			     "limit) if this server should take more",
+			     (int)pt->tid, (unsigned int)pt->fds_count);
+	}
 }
+
+/* the pt's fds table was changed, with its lock held */
+static void
+lws_accept_room_changed(struct lws_context_per_thread *pt)
+{
+	struct lws_context *cx = pt->context;
+	unsigned char full = (unsigned int)pt->fds_count >=
+					cx->fd_limit_per_thread - 1;
+#if LWS_MAX_SMP > 1
+	int n;
+#endif
+
+	if (cx->being_destroyed || pt->accept_full == full)
+		return;
+
+	pt->accept_full = full;
+
+#if LWS_MAX_SMP > 1
+	/*
+	 * Our accept_full must be visible before any pt we flag clears its
+	 * flag and looks at the others' (lws_accept_modulation_recheck())
+	 */
+	lws_memory_barrier();
+
+	for (n = 0; n < cx->count_threads; n++)
+		if (n != pt->tid && cx->pt[n].pipe_wsi) {
+			cx->pt[n].accept_recheck = 1;
+			lws_plat_pipe_signal(cx, n);
+		}
+#endif
+
+	lws_accept_modulation(pt);
+}
+
+#if LWS_MAX_SMP > 1
+/* on the pt's service thread, when its event pipe was signalled */
+void
+lws_accept_modulation_recheck(struct lws_context_per_thread *pt)
+{
+	if (!pt->accept_recheck)
+		return;
+
+	/* a change after this point flags us, and wakes us, again */
+	pt->accept_recheck = 0;
+	lws_memory_barrier();
+
+	if (pt->context->being_destroyed)
+		return;
+
+	lws_pt_lock(pt, __func__);
+	lws_accept_modulation(pt);
+	lws_pt_unlock(pt);
+}
+#endif
 #endif
 
 #if _LWS_ENABLED_LOGS & LLL_WARN
@@ -354,22 +436,8 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 		ret =  -1;
 #endif
 #if defined(LWS_WITH_SERVER)
-	/* if no more room, defeat accepts on this service thread */
-	if ((unsigned int)pt->fds_count == context->fd_limit_per_thread - 1 &&
-	    lws_accept_modulation(context, pt, 0) && !pt->accept_pause_warned) {
-		/*
-		 * Until a connection closes, nothing more is accepted on any
-		 * listener.  That is by design, but a budget this small is
-		 * usually an accident (eg, lws_context_info_defaults() sizes
-		 * it for a client) and it is otherwise silent: say so, once.
-		 */
-		pt->accept_pause_warned = 1;
-		lwsl_cx_warn(context, "tsi %d: fds table full (%u fds), "
-			     "listeners paused until a connection closes: "
-			     "raise info->fd_limit_per_thread (0 = process "
-			     "limit) if this server should take more",
-			     (int)pt->tid, (unsigned int)pt->fds_count);
-	}
+	/* if that was the last room, listeners may have to stop accepting */
+	lws_accept_room_changed(pt);
 #endif
 
 #if defined(LWS_WITH_EXTERNAL_POLL)
@@ -496,10 +564,8 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 	}
 
 #if defined(LWS_WITH_SERVER)
-	if (!context->being_destroyed &&
-	    /* if this made some room, accept connects on this thread */
-	    (unsigned int)pt->fds_count < context->fd_limit_per_thread - 1)
-		lws_accept_modulation(context, pt, 1);
+	/* if this made some room, listeners may accept again */
+	lws_accept_room_changed(pt);
 #endif
 
 #if defined(LWS_WITH_EXTERNAL_POLL)

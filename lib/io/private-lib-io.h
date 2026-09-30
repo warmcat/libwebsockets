@@ -191,6 +191,11 @@ lws_plat_pipe_create(struct lws *wsi);
 int
 lws_plat_pipe_signal(struct lws_context *ctx, int tsi);
 
+#if defined(LWS_WITH_SERVER) && LWS_MAX_SMP > 1
+void
+lws_accept_modulation_recheck(struct lws_context_per_thread *pt);
+#endif
+
 void
 lws_plat_pipe_close(struct lws *wsi);
 

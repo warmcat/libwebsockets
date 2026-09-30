@@ -540,6 +540,16 @@ struct lws_context_per_thread {
 
 	volatile unsigned char inside_poll;
 	volatile unsigned char foreign_spinlock;
+#if defined(LWS_WITH_SERVER)
+	volatile unsigned char accept_full;
+	/**< our fds table has no room for another accept: written with our
+	 * lock held, read by every pt deciding for its listeners */
+#if LWS_MAX_SMP > 1
+	volatile unsigned char accept_recheck;
+	/**< another pt's accept_full changed: decide for our listeners again
+	 * (set by that pt, cleared by us) */
+#endif
+#endif
 
 	unsigned char tid;
 
