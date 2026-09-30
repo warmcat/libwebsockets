@@ -61,6 +61,11 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **lsp);
 int
 lws_spawn_reap(struct lws_spawn_piped *lsp);
 
+#if !defined(WIN32)
+void
+lws_spawn_note_reaped(struct lws_spawn_piped *lsp, const int *status);
+#endif
+
 #endif
 void
 lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt);

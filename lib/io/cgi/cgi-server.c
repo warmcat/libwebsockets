@@ -1185,7 +1185,7 @@ lws_cgi_kill(struct lws *wsi)
 int
 lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 {
-	int status, n = 1, found;
+	int status, n = 1;
 
 	while (n > 0) {
 		/* find finished guys but don't reap yet */
@@ -1194,15 +1194,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			continue;
 		lwsl_cx_debug(pt->context, "observed PID %d terminated", n);
 
-		/*
-		 * Set by the walk below if one of our cgis owns the pid.  It
-		 * is deliberately a flag and not the cgi pointer: the walk can
-		 * end having just closed and freed that cgi.
-		 */
-
-		found = 0;
-
-		/* check all the subprocesses on the cgi list */
+		/* is it one of the subprocesses on the cgi list? */
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				lws_dll2_get_head(&pt->http.cgi_owner)) {
 			struct lws_cgi *cgi = lws_container_of(d,
@@ -1213,16 +1205,25 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			 * stays on our list, so it must be checked here too
 			 */
 
-			if (!cgi->lsp || cgi->lsp->child_pid <= 0)
+			if (!cgi->lsp || cgi->lsp->child_pid != n)
 				continue;
+
+			/*
+			 * It is this cgi's child we just collected.  Whatever
+			 * we do about it now, his pid may be anybody's from
+			 * here on: the lsp must know he went, or a later kill
+			 * of the cgi signals the pid, and the pass below never
+			 * sees him go
+			 */
+			lws_spawn_note_reaped(cgi->lsp, &status);
 
 			/* finish sending cached headers */
 			if (cgi->headers_buf)
-				continue;
+				break;
 
 			/* wait for stdout to be drained */
 			if (cgi->content_length > cgi->content_length_seen)
-				continue;
+				break;
 
 			if (cgi->content_length) {
 				lwsl_cx_debug(pt->context, "expected content "
@@ -1232,39 +1233,28 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 
 			lwsl_cx_info(pt->context, "reaping cgi pid %d (content len %d, clen seen %d)", (int)n, (int)cgi->content_length, (int)cgi->content_length_seen);
 
-			/* reap it */
-			waitpid(n, &status, WNOHANG);
 			/*
 			 * he's already terminated so no need for kill()
 			 * but we should do the terminated cgi callback
 			 * and close him if he's not already closing
 			 */
-			if (n == cgi->lsp->child_pid) {
 
-				if (!cgi->content_length) {
-					/*
-					 * well, if he sends chunked...
-					 * give him 2s after the
-					 * cgi terminated to send buffered
-					 */
-					cgi->chunked_grace++;
-					found = 1;
-					continue;
-				}
-
-				/* defeat kill() */
-				cgi->lsp->child_pid = 0;
-				found = 1;
-				lws_cgi_kill(cgi->wsi);
-
+			if (!cgi->content_length) {
+				/*
+				 * well, if he sends chunked...
+				 * give him 2s after the
+				 * cgi terminated to send buffered
+				 */
+				cgi->chunked_grace++;
 				break;
 			}
+
+			/* we are done with him */
+			cgi->lsp->child_pid = 0;
+			lws_cgi_kill(cgi->wsi);
+
+			break;
 		} lws_end_foreach_dll_safe(d, d1);
-
-		/* if not found on the cgi list, as he's one of ours, reap */
-		if (!found)
-			waitpid(n, &status, WNOHANG);
-
 	}
 
 	/* check all the subprocesses on the cgi list */
@@ -1296,8 +1286,12 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			lwsl_wsi_debug(cgi->wsi, "expected cont len seen: %lld",
 				  (unsigned long long)cgi->content_length_seen);
 
-		/* reap it */
-		if (do_finish || waitpid(cgi->lsp->child_pid, &status, WNOHANG) > 0) {
+		/* reap it, if nobody did yet */
+		if (!do_finish && !cgi->lsp->reaped &&
+		    waitpid(cgi->lsp->child_pid, &status, WNOHANG) > 0)
+			lws_spawn_note_reaped(cgi->lsp, &status);
+
+		if (do_finish || cgi->lsp->reaped) {
 
 			if (!do_finish && !cgi->content_length) {
 				/*
@@ -1311,7 +1305,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			lwsl_cx_debug(pt->context, "found PID %d on cgi list",
 						   cgi->lsp->child_pid);
 
-			/* defeat kill() */
+			/* we are done with him */
 			cgi->lsp->child_pid = 0;
 			lws_cgi_kill(cgi->wsi);
 

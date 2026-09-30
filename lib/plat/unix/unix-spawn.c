@@ -204,6 +204,49 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 	lws_free(lsp);
 }
 
+/*
+ * The child was collected, by us, or by a waitpid() elsewhere that knew his
+ * pid: note how he went, the first time.  status NULL is collected with no
+ * word to us of how.  From now on his pid, and the id of the process group
+ * he led, may be anybody's: nothing may signal or wait on them any more.
+ */
+void
+lws_spawn_note_reaped(struct lws_spawn_piped *lsp, const int *status)
+{
+	if (lsp->reaped)
+		return;
+
+	memset(&lsp->si, 0, sizeof(lsp->si));
+
+	if (!status) {
+		lsp->si.si_code = 0;
+		lsp->si.si_status = -1;
+	} else if (WIFEXITED(*status)) {
+		lsp->si.si_code = 1;
+		lsp->si.si_status = WEXITSTATUS(*status);
+	} else {
+		/*
+		 * He was killed by a signal (perhaps by us, on timeout)...
+		 * report it the way a shell does, so it can never be mistaken
+		 * for a clean exit 0
+		 */
+		lsp->si.si_code = 0;
+		lsp->si.si_status = WIFSIGNALED(*status) ?
+					128 + WTERMSIG(*status) : -1;
+	}
+
+	/* mark the earliest time we knew he had gone */
+	lsp->reaped = lws_now_usecs();
+
+	/*
+	 * Switch the timeout to restrict the amount of grace time to drain
+	 * stdwsi
+	 */
+
+	lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi, &lsp->sul,
+			 lws_spawn_timeout, 5 * LWS_US_PER_SEC);
+}
+
 int
 lws_spawn_reap(struct lws_spawn_piped *lsp)
 {
@@ -214,7 +257,8 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	siginfo_t si;
 	int n, status;
 
-	if (lsp->child_pid < 1)
+	/* an owner may take the pid away once he noted the child went */
+	if (lsp->child_pid < 1 && !lsp->reaped)
 		return 0;
 
 	/*
@@ -228,7 +272,6 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 
 	if (!lsp->reaped) {
 		memset(&ru, 0, sizeof(ru));
-		memset(&lsp->si, 0, sizeof(lsp->si));
 
 		n = wait4(lsp->child_pid, &status, WNOHANG, &ru);
 		if (!n)
@@ -242,19 +285,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 		}
 
 		if (n > 0) {
-			if (WIFEXITED(status)) {
-				lsp->si.si_code = 1;
-				lsp->si.si_status = WEXITSTATUS(status);
-			} else {
-				/*
-				 * He was killed by a signal (perhaps by us, on
-				 * timeout)... report it the way a shell does, so
-				 * it can never be mistaken for a clean exit 0
-				 */
-				lsp->si.si_code = 0;
-				lsp->si.si_status = WIFSIGNALED(status) ?
-					128 + WTERMSIG(status) : -1;
-			}
+			lws_spawn_note_reaped(lsp, &status);
 
 			lsp->res.us_cpu_user = ((uint64_t)ru.ru_utime.tv_sec *
 					LWS_US_PER_SEC) +
@@ -277,21 +308,8 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 			lwsl_info("%s: child %d was reaped elsewhere\n",
 				  __func__, lsp->child_pid);
 
-			lsp->si.si_code = 0;
-			lsp->si.si_status = -1;
+			lws_spawn_note_reaped(lsp, NULL);
 		}
-
-		/* mark the earliest time we knew he had gone */
-		lsp->reaped = lws_now_usecs();
-
-		/*
-		 * Switch the timeout to restrict the amount of grace time
-		 * to drain stdwsi
-		 */
-
-		lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi,
-				 &lsp->sul, lws_spawn_timeout,
-				 5 * LWS_US_PER_SEC);
 	}
 
 	/*
@@ -371,6 +389,13 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 
 	lsp->ungraceful = 1; /* don't wait for flushing, just kill it */
 
+	if (lsp->reaped)
+		/*
+		 * He went and was collected already: his pid, and the id of
+		 * his process group, may be somebody else's by now
+		 */
+		return 1;
+
 	/* kill the process group */
 	n = kill(-lsp->child_pid, SIGTERM);
 	lwsl_debug("%s: SIGTERM child PID %d says %d (errno %d)\n", __func__,
@@ -401,13 +426,12 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 	n = 1;
 	while (n > 0) {
 		n = waitpid(-lsp->child_pid, &status, WNOHANG);
+		if (n <= 0 && !lsp->reaped)
+			n = waitpid(lsp->child_pid, &status, WNOHANG);
 		if (n > 0)
 			lwsl_debug("%s: reaped PID %d\n", __func__, n);
-		if (n <= 0) {
-			n = waitpid(lsp->child_pid, &status, WNOHANG);
-			if (n > 0)
-				lwsl_debug("%s: reaped PID %d\n", __func__, n);
-		}
+		if (n == lsp->child_pid)
+			lws_spawn_note_reaped(lsp, &status);
 	}
 
 	return 0;
