@@ -666,16 +666,28 @@ lws_http_date_render_from_unix(char *buf, size_t len, const time_t *t);
  * rather than hanging the stream forever.  Idempotent: only acts on the first
  * response-headers write of the transaction.
  *
- * The h2/h3 write paths that call this are shared between client and server
- * builds, so when LWS_WITH_SERVER is off it collapses to a no-op stub -- the
- * watchdog it arms lives in lib/sansio/http/server/server.c which is server-only.
+ * The watchdog bounds how long the response may go without sending anything,
+ * not how long it may take: lws_http_response_progress(), from the same write
+ * paths, renews it whenever more of the response is sent.
+ *
+ * The h2/h3 write paths that call these are shared between client and server
+ * builds, so when LWS_WITH_SERVER is off they collapse to no-op stubs -- the
+ * watchdog they arm lives in lib/sansio/http/server/server.c which is
+ * server-only.
  */
 #if defined(LWS_WITH_SERVER)
 void
 lws_http_response_started(struct lws *wsi);
+void
+lws_http_response_progress(struct lws *wsi);
 #else
 static inline void
 lws_http_response_started(struct lws *wsi)
+{
+	(void)wsi;
+}
+static inline void
+lws_http_response_progress(struct lws *wsi)
 {
 	(void)wsi;
 }

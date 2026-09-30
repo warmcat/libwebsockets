@@ -47,8 +47,10 @@
  * completes at once has the rest of its body discarded as it comes, and its
  * stream ended once the answer has gone; and one the app answers with a
  * file likewise, the file all going.  Last, since it moves the time on, a
- * file stalled on the stream's window is still closed by the response's
- * watchdog, though the body arrived and completed meanwhile.
+ * file stalled on the stream's window is still closed by its timeout,
+ * though the body arrived and completed meanwhile; but an answer
+ * the app writes a piece at a time that is only slow, each piece going
+ * before the watchdog expires, all goes.
  *
  * And a request the mount redirects before any app sees it, likewise only
  * partly written: the transaction completes when it has gone, answered in
@@ -640,7 +642,12 @@ struct pss_uri {
 	char		body[256];
 	int		len;
 	int		completed;
+	int		slow;	/* /slow: pieces still to write */
 };
+
+/* /slow's answer: SLOW_PIECES of 100 bytes, one every SLOW_GAP_US */
+#define SLOW_PIECES	5
+#define SLOW_GAP_US	(8 * LWS_US_PER_SEC)
 
 /* what the uri vhost's app saw of transactions it completed */
 static int uri_late_writeable, uri_closed;
@@ -695,6 +702,18 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return 0;
 		}
 #endif
+		if (in && !strcmp((const char *)in, "/slow")) {
+			/* answered a piece at a time, as the app has them */
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+						"text/plain", SLOW_PIECES * 100,
+						&p, end) ||
+			    lws_finalize_write_http_header(wsi, buf + LWS_PRE,
+							   &p, end))
+				return 1;
+			pss->slow = SLOW_PIECES;
+			lws_set_timer_usecs(wsi, SLOW_GAP_US);
+			return 0;
+		}
 		n = lws_hdr_copy(wsi, pss->body, (int)sizeof(pss->body) - 1,
 				 WSI_TOKEN_GET_URI);
 		if (n < 0)
@@ -713,10 +732,30 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lws_callback_on_writable(wsi);
 		return 0;
 
+	case LWS_CALLBACK_TIMER:
+		/* /slow has its next piece */
+		lws_callback_on_writable(wsi);
+		return 0;
+
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 		if (pss->completed) {
 			/* nothing is ours to write after we completed it */
 			uri_late_writeable++;
+			return 0;
+		}
+		if (pss->slow) {
+			memset(p, 's', 100);
+			if (lws_write(wsi, p, 100, --pss->slow ?
+				      LWS_WRITE_HTTP : LWS_WRITE_HTTP_FINAL) !=
+									100)
+				return 1;
+			if (pss->slow) {
+				lws_set_timer_usecs(wsi, SLOW_GAP_US);
+				return 0;
+			}
+			pss->completed = 1;
+			if (lws_http_transaction_completed(wsi))
+				return -1;
 			return 0;
 		}
 		memcpy(p, pss->body, (size_t)pss->len);
@@ -1999,10 +2038,10 @@ h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh,
  * 24: an h2 POST the app answers with a file, where the peer gave the
  * stream a window of only 100 bytes and never opens it further, while it
  * sends the request's body and keeps the connection alive with PINGs.  The
- * body, discarded as it comes, completing does not take the response's
- * watchdog with it: that closes the stream once it expires, and the
- * connection goes on.  It moves the time on past the watchdog, so it goes
- * last, and it has no transcript.
+ * body, discarded as it comes, completing does not take the file's timeout
+ * (the file sender renews it as it sends) with it: that closes the stream
+ * once it expires, and the connection goes on.  It moves the time on past
+ * it, so it goes last, and it has no transcript.
  */
 static int
 h2_file_stalled_half(struct lws_context *cx, struct lws_vhost *vh)
@@ -2074,7 +2113,106 @@ h2_file_stalled_half(struct lws_context *cx, struct lws_vhost *vh)
 		return 1;
 	}
 	lwsl_user("case 24: a file stalled on its window, the body complete, "
-		  "is closed by the response watchdog: PASS\n");
+		  "is closed by its timeout: PASS\n");
+
+	return 0;
+}
+
+/*
+ * What one exchange's tx, whole h2 frames, did on sid 1: the DATA it sent,
+ * whether it ended the stream, and whether it reset it
+ */
+static void
+h2_sid1_tally(const struct transport *tp, size_t *body, int *ended, int *rst)
+{
+	size_t o, f;
+
+	for (o = 0; o + 9 <= tp->tx_len; o += 9 + f) {
+		f = ((size_t)tp->tx[o] << 16) | ((size_t)tp->tx[o + 1] << 8) |
+		    tp->tx[o + 2];
+		if ((lws_ser_ru32be(&tp->tx[o + 5]) & 0x7fffffff) != 1)
+			continue;
+		if (tp->tx[o + 3] == 3)
+			*rst = 1;
+		if (!tp->tx[o + 3]) {
+			*body += f;
+			if (tp->tx[o + 4] & 1)
+				*ended = 1;
+		}
+	}
+}
+
+/*
+ * 25: an h2 GET the app answers a piece at a time, 100 bytes every 8s, while
+ * PINGs keep the connection from being idle: it takes longer than the
+ * response's watchdog, but is never stalled for that long, since each piece
+ * that goes renews it.  The whole answer goes, ending the stream.  It moves
+ * the time on too, so it goes last, and it has no transcript.
+ */
+static int
+h2_slow_answer_half(struct lws_context *cx, struct lws_vhost *vh, int start_ms)
+{
+	static const char preface[] =
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+		"\x00\x00\x00\x04\x00\x00\x00\x00\x00"
+		"\x00\x00\x00\x04\x01\x00\x00\x00\x00";
+	static const char ping[] = "\x00\x00\x08\x06\x00\x00\x00\x00\x00"
+				   "12345678";
+	static uint8_t blk[128], fr[256];
+	static struct transport tp;
+	int sv[2], s, ended = 0, rst = 0;
+	size_t n, body = 0;
+	struct lws *wsi;
+	uint8_t *p;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	uri_late_writeable = uri_closed = 0;
+
+	feed(cx, &tp, preface, sizeof(preface) - 1);
+
+	/* GET /slow */
+	p = blk;
+	*p++ = 0x82; /* :method GET */
+	*p++ = 0x86; /* :scheme http */
+	p = hp_int(p, 0x00, 4, 4); /* :path, not indexed */
+	p = hp_str(p, "/slow", 5, 0);
+	p = hp_int(p, 0x00, 4, 1); /* :authority, not indexed */
+	p = hp_str(p, "sansio-h2", 9, 0);
+	n = h2_headers(fr, 1, blk, p);
+	feed(cx, &tp, fr, n);
+	h2_sid1_tally(&tp, &body, &ended, &rst);
+
+	/* a PING every 4s, until the answer is done or it is much too late */
+	for (s = 4; !uri_closed && s <= 8 * (SLOW_PIECES + 2); s += 4) {
+		at(cx, start_ms + s * 1000);
+		feed(cx, &tp, ping, sizeof(ping) - 1);
+		h2_sid1_tally(&tp, &body, &ended, &rst);
+		if (tp.closed || tp.shutdown) {
+			lwsl_err("case 25: connection ended at %ds\n", s);
+			return 1;
+		}
+	}
+
+	/* sid 1: the whole answer in DATA, ending the stream, and no reset */
+	if (rst || !ended || body != SLOW_PIECES * 100 || uri_closed != 1) {
+		lwsl_err("case 25: rst %d, ended %d, body %d, closed %d\n",
+			 rst, ended, (int)body, uri_closed);
+		return 1;
+	}
+	lwsl_user("case 25: an answer slower than the response watchdog, but "
+		  "never stalled, all goes: PASS\n");
 
 	return 0;
 }
@@ -2866,9 +3004,12 @@ main(int argc, const char **argv)
 #endif
 
 #if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_FILE_OPS)
-	/* last, since it moves the time on past the response watchdog */
+	/* last, since they move the time on past the answers' timeouts */
 	at(cx, 4200);
 	if (h2_file_stalled_half(cx, vh_h2))
+		goto bail;
+	at(cx, 40000);
+	if (h2_slow_answer_half(cx, vh_h2, 40000))
 		goto bail;
 #endif
 

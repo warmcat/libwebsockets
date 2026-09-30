@@ -2410,6 +2410,9 @@ rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 				 * response-completion watchdog (no-op for immortal
 				 * streams, idempotent). */
 				lws_http_response_started(wsi);
+			else
+				/* more of it has gone: it is not stalled */
+				lws_http_response_progress(wsi);
 
 			if (is_http && wsi->http.tx_content_length) {
 				wsi->http.tx_content_remain -= olen;

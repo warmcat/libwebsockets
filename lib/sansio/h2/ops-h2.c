@@ -591,6 +591,10 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 	if (n < 0)
 		return n;
 
+	/* more of a response has gone: it is not stalled */
+	if (base != LWS_WRITE_HTTP_HEADERS)
+		lws_http_response_progress(wsi);
+
 	/* hide it may have been compressed... */
 
 	return (int)olen;

@@ -69,10 +69,11 @@ lws_h1_answer_going(struct lws *wsi)
 
 /*
  * The body's own timeout: renewed as it arrives, and cleared once it is all
- * here.  But not while the answer is already going: the response's watchdog,
- * armed when its headers went, is what bounds the stream then, and body the
- * peer is still sending must neither replace it nor, completing, clear it and
- * leave an answer the peer never takes waiting for ever.
+ * here.  But not while the answer is already going: the answer's own timeout
+ * (the response's watchdog, or the file sender's, renewed as it sends) is
+ * what bounds the stream then, and body the peer is still sending must
+ * neither replace it nor, completing, clear it and leave an answer the peer
+ * never takes waiting for ever.
  */
 static void
 lws_h1_body_timeout(struct lws *wsi, int arm)

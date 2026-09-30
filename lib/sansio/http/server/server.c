@@ -3119,11 +3119,20 @@ bail_nuke_ah:
 }
 #endif
 
+static void
+lws_http_response_watchdog(struct lws *wsi)
+{
+	unsigned int secs = wsi->a.context->timeout_secs;
+
+	if (secs < 30)
+		secs = 30;
+
+	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_RESPONSE, (int)secs);
+}
+
 void
 lws_http_response_started(struct lws *wsi)
 {
-	unsigned int secs;
-
 	if (!wsi || wsi->http.sent_response_headers)
 		return;
 
@@ -3138,11 +3147,20 @@ lws_http_response_started(struct lws *wsi)
 	if (wsi->mux_stream_immortal)
 		return;
 
-	secs = wsi->a.context->timeout_secs;
-	if (secs < 30)
-		secs = 30;
+	lws_http_response_watchdog(wsi);
+}
 
-	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_RESPONSE, (int)secs);
+/*
+ * More of the response was sent: it is not stalled, however long the whole
+ * of it takes, so its watchdog starts again.  Only while that is the
+ * timeout the wsi is under: another one armed since (eg, a close's flush)
+ * is left alone.
+ */
+void
+lws_http_response_progress(struct lws *wsi)
+{
+	if (wsi->pending_timeout == PENDING_TIMEOUT_HTTP_RESPONSE)
+		lws_http_response_watchdog(wsi);
 }
 
 int LWS_WARN_UNUSED_RESULT
