@@ -267,6 +267,19 @@ lws_h3_client_handshake(struct lws *wsi)
 }
 #endif
 
+/*
+ * What a stream can send now: the quic stream's own flow control, and the
+ * pending tx throttle, as the transport's tx_credit op sees them
+ */
+static int32_t
+lws_h3_usable_tx_cr(struct lws *wsi)
+{
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_tx_credit))
+		return lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_tx_credit).
+					tx_credit(wsi, LWSTXCR_US_TO_PEER, 0);
+
+	return wsi->txc.tx_cr;
+}
 
 static int
 rops_perform_user_POLLOUT_h3(struct lws *wsi)
@@ -340,6 +353,16 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 	    wsi->http.comp_ctx.may_have_more) {
 		enum lws_write_protocol wp = LWS_WRITE_HTTP;
 
+		/*
+		 * Nothing can go until the peer gives us credit: wait to be
+		 * woken for it, as the file sender does, not spin here
+		 */
+		if (lws_wsi_txc_check_skint(&wsi->txc,
+					    lws_h3_usable_tx_cr(wsi))) {
+			lws_callback_on_writable(wsi);
+			return 0;
+		}
+
 		lwsl_wsi_info(wsi, "completing comp partial (buflist %p, may %d)",
 			   wsi->http.comp_ctx.buflist_comp,
 			   wsi->http.comp_ctx.may_have_more);
@@ -383,12 +406,9 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 #if defined(LWS_WITH_FILE_OPS)
 	if (lwsi_state(wsi) == LRS_ISSUING_FILE) {
 		int n;
-		int32_t usable_credit = wsi->txc.tx_cr;
-		if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_tx_credit)) {
-			usable_credit = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_tx_credit).
-						tx_credit(wsi, LWSTXCR_US_TO_PEER, 0);
-		}
-		if (lws_wsi_txc_check_skint(&wsi->txc, usable_credit)) {
+
+		if (lws_wsi_txc_check_skint(&wsi->txc,
+					    lws_h3_usable_tx_cr(wsi))) {
 			/*
 			 * No TX credit — either QUIC peer flow control is
 			 * exhausted, or the pending_tx buffer throttle (64KB cap
@@ -2214,20 +2234,23 @@ rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 	
 	if (is_http && wsi->http.lcs) {
 		struct lws *nwsi = lws_get_quic_network_wsi(wsi);
-		int32_t cr = wsi->txc.tx_cr;
+		int32_t cr = lws_h3_usable_tx_cr(wsi);
+
 		if (nwsi && nwsi->txc.tx_cr < cr)
 			cr = nwsi->txc.tx_cr;
-		
-		/* If there's no tx credit, or it's too small to hold even a tiny frame, return 0 now so 
-		 * the application buffers the *uncompressed* data and retries later, instead of
-		 * us consuming it and QUIC rejecting it. */
-		if (cr <= 16) {
-			lwsl_info("%s: delaying compression due to tx_cr %d\n", __func__, cr);
-			return 0;
-		}
-		
-		cr -= 16; /* Leave room for H3 DATA frame overhead */
-		if (cr > 0 && cr < max_out)
+
+		/*
+		 * The compressor may produce no more than the credit allows,
+		 * less room for the h3 DATA frame header.  If that's nothing,
+		 * it produces nothing: the input it can't take goes on
+		 * buflist_comp, to be drained when credit comes, the same as
+		 * when its output buffer is full.  Refusing the write instead
+		 * reads to our caller as the stream failing.
+		 */
+		cr -= 16;
+		if (cr < 0)
+			cr = 0;
+		if (cr < max_out)
 			max_out = cr;
 	}
 #endif
