@@ -283,6 +283,16 @@ ltm_ch_opens(lws_transport_mux_ch_t *tmc, int determination)
 		 */
 		return -1;
 
+	if (determination)
+		/*
+		 * The peer refused the channel we asked for, the mux destroys
+		 * it after this.  The handle goes back to retrying (or is
+		 * destroyed, if the user code gives up) without it... it must
+		 * not be told again that the channel closed, nor be left
+		 * pointed to by the channel
+		 */
+		tmc->priv = NULL;
+
 	lwsl_sspc_err(h, "%d", determination);
 
        	if (lws_txp_inside_sspc.event_connect_disposition(h, determination))

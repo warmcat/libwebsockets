@@ -232,8 +232,24 @@ lws_sspc_txp_connect_disposition(lws_sspc_handle_t *h, int disposition)
 	r = h->ssi.state(lws_sspc_to_user_object(h), NULL,
 			 LWSSSCS_UPSTREAM_LINK_RETRY, (uint32_t)i);
 
-	if (r == LWSSSSRET_DESTROY_ME)
-		lws_sspc_destroy(&h);
+	if (r == LWSSSSRET_DESTROY_ME) {
+		/*
+		 * The user code gave up on the link... but we can't destroy
+		 * the handle from here.  Whoever reported the failure is still
+		 * using it after we return: the transport's retry_connect(),
+		 * perhaps from inside lws_client_connect_via_info() that
+		 * delivered the connection error synchronously, then the retry
+		 * sul that called that, which reschedules h->sul_retry, and
+		 * lws_sspc_create() that called that; or the mux, destroying
+		 * the channel the peer refused.  Destroying it here used to
+		 * leave all of those using the freed handle.
+		 *
+		 * So destroy it from the retry sul, when nothing else holds it.
+		 */
+		h->destroy_pending = 1;
+		lws_sul_schedule(h->context, 0, &h->sul_retry,
+				 lws_sspc_sul_retry_cb, 1);
+	}
 
 	return LWSSSSRET_OK;
 }
@@ -244,7 +260,15 @@ lws_sspc_sul_retry_cb(lws_sorted_usec_list_t *sul)
 	lws_sspc_handle_t *h = lws_container_of(sul, lws_sspc_handle_t,
 						sul_retry);
 
-	if (h->txp_path.ops_onw->event_retry_connect(&h->txp_path, h))
+	if (h->destroy_pending) {
+		lws_sspc_destroy(&h);
+
+		return;
+	}
+
+	if (h->txp_path.ops_onw->event_retry_connect(&h->txp_path, h) &&
+	    !h->destroy_pending)
+		/* ... if it's pending, the destroy is scheduled already */
 		lws_sul_schedule(h->context, 0, &h->sul_retry,
 				 lws_sspc_sul_retry_cb, LWS_US_PER_SEC);
 }

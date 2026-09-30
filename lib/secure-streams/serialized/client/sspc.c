@@ -396,6 +396,19 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 
 	lws_sspc_sul_retry_cb(&h->sul_retry);
 
+	if (h->destroy_pending) {
+		/*
+		 * The first attempt failed at once and the user code gave up
+		 * on it in its UPSTREAM_LINK_RETRY handler... the create
+		 * failed
+		 */
+		lws_sspc_destroy(&h);
+		if (ppss)
+			*ppss = NULL;
+
+		return 1;
+	}
+
 	return 0;
 }
 
