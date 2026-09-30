@@ -262,9 +262,26 @@ bail:
 		}
 	}
 
-#if !defined(USE_WOLFSSL)
+#if defined(USE_WOLFSSL)
+	/*
+	 * On wolfSSL the key is assembled by setting its point directly and
+	 * EC_KEY_check_key() is not used on it.  A peer's point (eg, a JWE
+	 * epk) must still be proven on the curve before any ECDH with it, or
+	 * an invalid-curve attack can recover our private key, so a wolfSSL
+	 * too old to have EC_POINT_is_on_curve() can't import EC keys.
+	 */
+#if defined(LWS_HAVE_EC_POINT_is_on_curve)
+	if (wolfSSL_EC_POINT_is_on_curve(ec->group, ec->pub_key, NULL) != 1) {
+		lwsl_err("%s: EC point not on curve\n", __func__);
+		goto bail;
+	}
+#else
+	lwsl_err("%s: wolfSSL lacks EC_POINT_is_on_curve()\n", __func__);
+	goto bail;
+#endif
+#else
 	if (EC_KEY_check_key(ec) != 1) {
-		lwsl_err("%s: EC_KEY_set_private_key fail\n", __func__);
+		lwsl_err("%s: EC_KEY_check_key fail\n", __func__);
 		goto bail;
 	}
 #endif
