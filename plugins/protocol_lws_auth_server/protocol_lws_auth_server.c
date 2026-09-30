@@ -2133,10 +2133,24 @@ lws_auth_api_forgot_password(struct lws *wsi, struct per_vhost_data__auth_server
 		}
 
 		if (!pending) {
-			char token[64];
+			char token[64], token_b64[64];
+			int tl;
+
 			lws_get_random(vhd->context, token, 32);
-			char token_b64[64];
-			lws_b64_encode_string(token, 32, token_b64, sizeof(token_b64));
+			/*
+			 * The token travels as a query argument of the mailed
+			 * link: standard base64's '+' comes back from
+			 * URLSearchParams as a space and '/' is not safe there
+			 * either, so about half the links could never work.
+			 * base64url, without the '=' padding, needs no escaping
+			 */
+			tl = lws_b64_encode_string_url(token, 32, token_b64,
+						       sizeof(token_b64));
+			lws_explicit_bzero(token, sizeof(token));
+			if (tl <= 0)
+				goto done_mail;
+			while (tl && token_b64[tl - 1] == '=')
+				token_b64[--tl] = '\0';
 
 			uint64_t expires = (uint64_t)time(NULL) + (15 * 60);
 
@@ -2147,7 +2161,8 @@ lws_auth_api_forgot_password(struct lws *wsi, struct per_vhost_data__auth_server
 				if (sqlite3_step(stmt) == SQLITE_DONE) {
 					if (vhd->smtp) {
 						char url[512], mbody[1024];
-						lws_snprintf(url, sizeof(url), "https://%s/login?reset_token=%s", lws_get_vhost_name(vhd->vhost), token_b64);
+						/* the UI lives at the root of the auth vhost */
+						lws_snprintf(url, sizeof(url), "https://%s/?reset_token=%s", lws_get_vhost_name(vhd->vhost), token_b64);
 						lws_snprintf(mbody, sizeof(mbody), "To reset your password, click this link within 15 minutes:\n%s\nIf you did not request this, please ignore it.", url);
 						lws_smtp_email_t payload;
 						memset(&payload, 0, sizeof(payload));
@@ -2166,6 +2181,7 @@ lws_auth_api_forgot_password(struct lws *wsi, struct per_vhost_data__auth_server
 		}
 	}
 
+done_mail:
 	pss->http_response_code = HTTP_STATUS_OK;
 	len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"status\":\"If an account exists, a recovery link has been sent.\"}");
 

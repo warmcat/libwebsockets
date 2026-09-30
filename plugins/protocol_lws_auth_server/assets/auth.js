@@ -561,7 +561,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (response.ok) {
                     showNotif('success', 'Password reset successfully. Please log in.');
                     setTimeout(() => {
-                        window.location.href = '/login';
+                        /* back to the login form: the UI is at the root */
+                        window.location.href = '/';
                     }, 2000);
                 } else {
                     let errMsg = 'Reset failed.';
