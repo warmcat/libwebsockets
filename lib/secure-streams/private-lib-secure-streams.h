@@ -690,6 +690,15 @@ _lws_ss_request_tx(lws_ss_handle_t *h);
 int
 __lws_ss_proxy_bind_ss_to_conn_wsi(void *parconn, size_t dsh_size);
 
+/*
+ * The size of the dsh the proxy keeps for a proxied stream of policy _pol,
+ * which buffers what is passing through in both directions
+ */
+#define LWS_SS_PROXY_DSH_DEFAULT_SIZE	32768
+#define lws_ss_proxy_dsh_size(_pol) ((_pol)->proxy_buflen ? \
+		(size_t)(_pol)->proxy_buflen : \
+		(size_t)LWS_SS_PROXY_DSH_DEFAULT_SIZE)
+
 struct lws_vhost *
 lws_ss_policy_ref_trust_store(struct lws_context *context,
 			      const lws_ss_policy_t *pol, char doref);

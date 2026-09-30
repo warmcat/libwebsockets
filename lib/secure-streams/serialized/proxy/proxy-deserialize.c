@@ -119,6 +119,20 @@ ser_acc32(int32_t acc, uint8_t c)
 	return (int32_t)(((uint32_t)acc << 8) | c);
 }
 
+/*
+ * Tx credit is how much the onward peer may send us before we give it more,
+ * and all of it can end up waiting in the proxied stream's dsh for the
+ * client to take it.  So we never let the client grant the peer more
+ * outstanding credit than the dsh can hold.
+ */
+static int32_t
+proxy_txcr_cap(const lws_ss_policy_t *pol)
+{
+	size_t s = lws_ss_proxy_dsh_size(pol);
+
+	return s > INT32_MAX ? INT32_MAX : (int32_t)s;
+}
+
 /* convert userdata ptr _pss to handle pointer, allowing for any layout in
  * userdata.  handle_offset is a *byte* offset (that's how lws_sspc_create()
  * stores the handle), so the addition must be done on the uint8_t * */
@@ -566,6 +580,8 @@ payload_ff_l:
 			if (--par->rem)
 				goto hangup;
 
+			par->ps = RPAR_TYPE;
+
 			/*
 			 * We're the proxy, being told by the client
 			 * that it wants to allow more tx from the peer
@@ -574,20 +590,38 @@ payload_ff_l:
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
 			if (proxy_pss_to_ss_h(pss) &&
 			    proxy_pss_to_ss_h(pss)->wsi) {
-				lws_wsi_tx_credit(
-					proxy_pss_to_ss_h(pss)->wsi,
-						  LWSTXCR_PEER_TO_US,
+				lws_ss_handle_t *h = proxy_pss_to_ss_h(pss);
+				int32_t cap = proxy_txcr_cap(h->policy),
+					est = h->wsi->txc.peer_tx_cr_est;
+
+				/*
+				 * Credit can only be added.  The peer's
+				 * outstanding credit on this stream must stay
+				 * within what we can buffer for it, which also
+				 * bounds what this stream adds to a shared h2
+				 * connection's window (it is bumped by the
+				 * same amount)
+				 */
+				if (par->temp32 <= 0 || est >= cap) {
+					lwsl_notice("%s: ignoring TXCR %d "
+						    "(est %d, cap %d)\n",
+						    __func__, par->temp32,
+						    est, cap);
+					break;
+				}
+				if (par->temp32 > cap - est)
+					par->temp32 = cap - est;
+
+				lws_wsi_tx_credit(h->wsi, LWSTXCR_PEER_TO_US,
 						  par->temp32);
 				lwsl_notice("%s: proxy RX_PEER_TXCR: +%d (est %d)\n",
 					 __func__, par->temp32,
-					 proxy_pss_to_ss_h(pss)->wsi->
-						 txc.peer_tx_cr_est);
-				_lws_ss_request_tx(proxy_pss_to_ss_h(pss));
+					 h->wsi->txc.peer_tx_cr_est);
+				_lws_ss_request_tx(h);
 			} else
 #endif
 				lwsl_info("%s: dropping TXCR\n", __func__);
 
-			par->ps = RPAR_TYPE;
 			break;
 
 		case RPAR_TIMEOUT0:
@@ -842,7 +876,32 @@ payload_ff_l:
 				    par->protocol_version, par->txcr_out);
 
 			ssi->streamtype = par->streamtype;
-			if (par->txcr_out) // !!!
+
+			/*
+			 * Except for _lws_smd, where it is the class mask, the
+			 * initial tx credit from the client is what the onward
+			 * peer may send before the client grants more, so it's
+			 * bound by what we can buffer for the stream, as in
+			 * RPAR_TXCR0.  Anything negative means no manual
+			 * credit.
+			 */
+			{
+				const lws_ss_policy_t *pol = lws_ss_policy_lookup(
+						context, par->streamtype);
+
+				if (pol
+#if defined(LWS_WITH_SYS_SMD)
+				    && pol != &pol_smd
+#endif
+				) {
+					if (par->txcr_out < 0)
+						par->txcr_out = 0;
+					if (par->txcr_out > proxy_txcr_cap(pol))
+						par->txcr_out = proxy_txcr_cap(pol);
+				}
+			}
+
+			if (par->txcr_out)
 				ssi->manual_initial_tx_credit = par->txcr_out;
 
 			/*

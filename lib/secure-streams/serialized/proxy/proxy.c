@@ -374,8 +374,7 @@ lws_sss_proxy_onward_state(void *userobj, void *sh, lws_ss_constate_t state,
 		 * can find out the policy about it for the streamtype.
 		 */
 
-		dsh_size = m->ss->policy->proxy_buflen ?
-				m->ss->policy->proxy_buflen : 32768;
+		dsh_size = lws_ss_proxy_dsh_size(m->ss->policy);
 
 		lwsl_notice("%s: %s: initializing dsh max len %lu\n",
 				__func__, lws_ss_tag(m->ss),
