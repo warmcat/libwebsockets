@@ -305,6 +305,60 @@ dloss_drop_lhp(dloss_t *m)
 }
 
 /*
+ * The stylesheet isn't coming (or stopped early).  If the html parse is
+ * waiting on it, it must still count as finished, so the page after the
+ * <link> gets laid out.
+ */
+
+static void
+dloss_css_given_up(dloss_t *m)
+{
+	const uint8_t *b = NULL;
+	size_t l = 0;
+
+	if (!m->lhp || m->lhp->cancelled || !m->lhp->await_css_done ||
+	    strcmp(m->url, m->lhp->await_css_url))
+		return;
+
+	lwsl_warn("%s: css %s failed, resuming html\n", __func__, m->url);
+	lws_dll2_remove(&m->active_asset_list);
+	m->lhp->finish_css = 1;
+	m->lhp->is_css = 1;
+	lws_lhp_parse(m->lhp, &b, &l);
+	m->lhp->is_css = 0;
+	lws_sul_schedule(m->cx, 0, m->lhp->sshtmlevsul, m->lhp->sshtmlevcb, 1);
+
+	/* off the lists now: see dloss_drop_lhp() */
+	dloss_drop_lhp(m);
+}
+
+/*
+ * A stylesheet's stream is only ever connected from here, from the event
+ * loop.  Its rx is parsed into the document's lhp ctx, and some assets (eg,
+ * file:) can deliver everything inside lws_ss_client_connect(): connected
+ * from inside the html parse, as the <link> or an asset kick is, that would
+ * reenter lws_lhp_parse(), before the <link> had even set up its await.
+ */
+
+static void
+dloss_css_connect_cb(lws_sorted_usec_list_t *sul)
+{
+	dloss_t *m = lws_container_of(sul, dloss_t, sul);
+	struct lws_ss_handle *h = m->ss;
+
+	if (!lws_ss_client_connect(h) || m->retrying)
+		/* on its way, or in its backoff wait coming back by itself */
+		return;
+
+	lwsl_warn("%s: unable to connect css %s\n", __func__, m->url);
+	dloss_css_given_up(m);
+
+	/* destroying it passes through DESTROYING, which re-kicks */
+	lws_dll2_remove(&m->active_asset_list);
+	lws_ss_destroy(&h);
+}
+
+/*
  * How many assets may be actually fetching at once.  Each one holds a
  * connection, an fd, for its lifetime, so the ceiling adapts to the fd budget
  * of the context, leaving room for the document connection and the event
@@ -448,6 +502,12 @@ dlo_assets_kick(struct lws_context *cx)
 		ds->inflight = 1;
 
 		lwsl_notice("%s: kick %s\n", __func__, ds->url);
+
+		if (ds->type == LWSDLOSS_TYPE_CSS) {
+			lws_sul_schedule(cx, 0, &ds->sul,
+					 dloss_css_connect_cb, 1);
+			continue;
+		}
 
 		if (!lws_ss_client_connect(ds->ss))
 			continue;
@@ -730,11 +790,24 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		}
 #endif
 
-		if (awaited)
+		/*
+		 * Only the stylesheet the html parse is stopped at, awaiting,
+		 * may be parsed into the document's lhp ctx: at any other time
+		 * that ctx is in some html state, which css bytes must not be
+		 * fed into.  The html waits at each <link> until its stylesheet
+		 * has all arrived, so nothing else should come; if it does,
+		 * it's dropped rather than parsed.
+		 */
+		r = LWS_SRET_OK;
+		if (awaited) {
 			m->lhp->finish_css = !!(flags & LWSSS_FLAG_EOM);
-		m->lhp->is_css = 1;
-		r = lws_lhp_parse(m->lhp, &buf, &len);
-		m->lhp->is_css = 0;
+			m->lhp->is_css = 1;
+			r = lws_lhp_parse(m->lhp, &buf, &len);
+			m->lhp->is_css = 0;
+		} else if (len)
+			lwsl_warn("%s: dropping %u bytes of css %s nobody "
+				  "awaits\n", __func__, (unsigned int)len,
+				  m->url);
 
 		if (flags & LWSSS_FLAG_EOM) {
 			lws_dll2_remove(&m->active_asset_list);
@@ -955,26 +1028,7 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		 * laid out, and an image that never arrives has no dims.
 		 */
 		if (m->type == LWSDLOSS_TYPE_CSS) {
-			if (m->lhp && !m->lhp->cancelled &&
-			    m->lhp->await_css_done &&
-			    !strcmp(m->url, m->lhp->await_css_url)) {
-				const uint8_t *b = NULL;
-				size_t l = 0;
-
-				lwsl_warn("%s: css %s failed, resuming html\n",
-					  __func__, m->url);
-				lws_dll2_remove(&m->active_asset_list);
-				m->lhp->finish_css = 1;
-				m->lhp->is_css = 1;
-				lws_lhp_parse(m->lhp, &b, &l);
-				m->lhp->is_css = 0;
-				lws_sul_schedule(lws_ss_get_context(m->ss), 0,
-						 m->lhp->sshtmlevsul,
-						 m->lhp->sshtmlevcb, 1);
-
-				/* off the lists now: see dloss_drop_lhp() */
-				dloss_drop_lhp(m);
-			}
+			dloss_css_given_up(m);
 			break;
 		}
 
@@ -1464,7 +1518,11 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 		dloss->inflight = 1;
 		lwsl_notice("%s: starting %s (dlo %p)\n", __func__, rebased_url, dlo);
 
-		if (lws_ss_client_connect(dloss->ss)) {
+		if (type == LWSDLOSS_TYPE_CSS)
+			/* see dloss_css_connect_cb() */
+			lws_sul_schedule(i->cx, 0, &dloss->sul,
+					 dloss_css_connect_cb, 1);
+		else if (lws_ss_client_connect(dloss->ss)) {
 			lws_dll2_remove(&dloss->active_asset_list);
 			lwsl_err("%s: unable to do client conn '%s'\n",
 				 __func__, rebased_url);
