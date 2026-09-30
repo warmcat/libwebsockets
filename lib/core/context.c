@@ -3003,7 +3003,7 @@ next_l:
 						pt_init_destroy(context, NULL, pt, 1);
 		#endif
 
-			lws_pt_mutex_destroy(pt);
+			/* the pt lock itself goes at the very end, see there */
 			assert(!pt->is_destroyed);
 			pt->destroy_self = 0;
 			pt->is_destroyed = 1;
@@ -3127,6 +3127,15 @@ next_l:
 		lws_context_unlock(context);
 
 #if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
+		/*
+		 * The pt locks go with the context lock, after everything
+		 * above: tearing down the caches, adns, dhcpc and the rest can
+		 * still take a pt lock, eg, a cache item destroy reschedules
+		 * the cache's sul on its pt while items with an expiry remain
+		 */
+		for (n = 0; n < context->count_threads; n++)
+			lws_pt_mutex_destroy(&context->pt[n]);
+
 		lws_mutex_refcount_destroy(&context->mr);
 #endif
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
