@@ -6625,6 +6625,22 @@ issue_post:
 				ctx->u.f.first = 0;
 				break;
 			}
+			if (ctx->is_css) {
+				/*
+				 * A linked stylesheet has no tags, so no </
+				 * that ends it: that's only the </style> of
+				 * an inline one.  Letting it leave css here
+				 * ended the <link>'s await with the rest of
+				 * the stylesheet still to come, to be parsed
+				 * into the html after it.  It's just a bad '<'
+				 * in the css: carry on with this char as we
+				 * were
+				 */
+				ctx->state = ctx->state_css_comm;
+				(*buf)--;
+				(*len)++;
+				break;
+			}
 			if (ctx->state_css_comm == LCSPS_CSS_OUTER &&
 			    c == '/' && ctx->u.f.first) {
 				r = ctx->await_css_done;
