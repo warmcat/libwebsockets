@@ -195,6 +195,22 @@
       }
     },
     {
+      "empty_ep_h1": {
+        "endpoint": "${ep}",
+        "port": 80,
+        "protocol": "h1",
+        "http_method": "GET",
+        "http_url": "/status/200",
+        "metadata": [
+          {
+            "ep": ""
+          }
+        ],
+        "timeout_ms": 15000,
+        "retry": "default"
+      }
+    },
+    {
       "bulk_h1": {
         "endpoint": "hbin.sstf.test",
         "port": @PORT_TF_SRV@,

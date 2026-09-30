@@ -626,6 +626,21 @@ struct tests_seq {
 	},
 
 	/*
+	 * The endpoint is all ${ep} metadata, which is never set, so there is
+	 * nothing to connect to.  Each attempt must still go the legal way,
+	 * CONNECTING then UNREACHABLE, and the policy retries run out as
+	 * they do for a name that doesn't exist.
+	 */
+
+	{
+		"h1 empty endpoint exhaust retries",
+		"empty_ep_h1", 15 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
+		(1 << LWSSSCS_CONNECTED),
+		0, MIN_BACKOFF_US, -1, 0
+	},
+
+	/*
 	 * Request some bulk data, the amount is patched in from --amount.
 	 */
 

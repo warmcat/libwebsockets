@@ -892,8 +892,16 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 			 * to, and handing "" to DNS asks for the root zone...
 			 * treat it as unreachable so the retry policy has
 			 * another go later, by which time it may be set.
+			 *
+			 * UNREACHABLE is only legal after CONNECTING, so as
+			 * with a file:// that won't open, the attempt starts
+			 * and fails
 			 */
 			lwsl_ss_warn(h, "empty endpoint after substitution");
+			r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);
+			if (r)
+				return r;
+
 			goto fail_out;
 		}
 	}
