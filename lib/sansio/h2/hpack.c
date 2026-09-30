@@ -908,22 +908,30 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 		min = dyn->used_entries;
 
 	if (dyn->entries) {
+		/*
+		 * Keep the newest min entries, still oldest first: HPACK
+		 * evicts from the oldest end, so they are the ones the peer
+		 * may still refer to.  We account an entry lws ignores as
+		 * its name alone, so we can be holding more entries than
+		 * the peer does even when the usage loop above had nothing
+		 * to evict... but the peer counts at least 32 bytes each, so
+		 * all of his fit in the size / 8 slots we keep.
+		 */
 		for (n = 0; n < min; n++) {
-			m = (dyn->pos - dyn->used_entries + n) %
-						dyn->num_entries;
+			m = (dyn->pos - min + n) % dyn->num_entries;
 			if (m < 0)
 				m += dyn->num_entries;
 			dte[n] = dyn->entries[m];
 		}
 
 		/*
-		 * Entries that did not fit the smaller table are evicted...
-		 * ownership of the kept ones moved into dte[], but the
-		 * dropped ones' heap storage has to be freed here, or it is
-		 * lost with the old entries array
+		 * The older entries that did not fit the smaller table are
+		 * evicted... ownership of the kept ones moved into dte[], but
+		 * the dropped ones' heap storage has to be freed here, or it
+		 * is lost with the old entries array
 		 */
 
-		for (n = min; n < dyn->used_entries; n++) {
+		for (n = 0; n < dyn->used_entries - min; n++) {
 			m = (dyn->pos - dyn->used_entries + n) %
 						dyn->num_entries;
 			if (m < 0)

@@ -77,6 +77,7 @@ h2, raw frames:
 |CONTINUATION on another stream, stream id going down, even stream id, WINDOW_UPDATE of 0, DATA on stream 0 or on an idle stream|GOAWAY PROTOCOL_ERROR|
 |hpack index past both tables, huffman EOS|GOAWAY COMPRESSION_ERROR|
 |hpack table size over the limit|clamped, served|
+|hpack table shrunk below the number of entries lws holds, then its newest entry referred to|served|
 |frame over SETTINGS_MAX_FRAME_SIZE|GOAWAY FRAME_SIZE_ERROR|
 |WINDOW_UPDATE past 2^31 - 1|GOAWAY FLOW_CONTROL_ERROR|
 |a `get ` field smuggling a path, an uppercase field name|GOAWAY PROTOCOL_ERROR|

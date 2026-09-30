@@ -1316,6 +1316,22 @@ hp_lit_indexing(uint8_t *p, unsigned int name_idx, const char *v, size_t vl)
 	return p + vl;
 }
 
+/* literal with incremental indexing, with a literal name */
+
+static uint8_t *
+hp_lit_indexing_name(uint8_t *p, const char *n, const char *v)
+{
+	size_t nl = strlen(n), vl = strlen(v);
+
+	*p++ = 0x40;
+	p = hp_int(p, 0, 7, (uint32_t)nl);
+	memcpy(p, n, nl);
+	p = hp_int(p + nl, 0, 7, (uint32_t)vl);
+	memcpy(p, v, vl);
+
+	return p + vl;
+}
+
 /* literal without indexing, with a literal name */
 
 static uint8_t *
@@ -1792,6 +1808,39 @@ b_trailers_lost_entry(struct txb *t)
 	return 3;
 }
 
+/*
+ * A dynamic table size update that shrinks the table.  The peer counts at
+ * least 32 bytes an entry, lws counts a field it ignores as its name alone,
+ * so lws can hold more entries than the peer: the ones it keeps must be the
+ * newest, the ones the peer still has.  Here the peer keeps only the :path
+ * of stream 3, and stream 5 asks for it again by index.
+ */
+
+static uint32_t
+b_hpack_table_shrink(struct txb *t)
+{
+	uint8_t hb[512], *p = hp_request(hb, HP_METHOD_GET, "/alive");
+	int n;
+
+	for (n = 0; n < 30; n++)
+		p = hp_lit_indexing_name(p, "x-f", "v");
+	h2_preface(t);
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 1, hb,
+		 lws_ptr_diff_size_t(p, hb));
+
+	h2_get_indexing(t, 3, "/alive");
+
+	p = hp_int(hb, 0x20, 5, 64);
+	*p++ = HP_METHOD_GET;
+	*p++ = HP_SCHEME_HTTP;
+	p = hp_lit(p, HP_IDX_AUTHORITY, "localhost", 9);
+	p = hp_int(p, 0x80, 7, HP_IDX_DYN_NEWEST);
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 5, hb,
+		 lws_ptr_diff_size_t(p, hb));
+
+	return 5;
+}
+
 static const struct h2_attack h2_attacks[] = {
 	{ "bad preface", b_bad_preface, V_NO_2XX, 0, 0 },
 	{ "CONTINUATION flood", b_continuation_flood, V_GOAWAY,
@@ -1813,6 +1862,8 @@ static const struct h2_attack h2_attacks[] = {
 	 */
 	{ "hpack table size over the limit (clamped)", b_hpack_table_size,
 	  V_ECHO, 200, 0 },
+	{ "hpack table shrunk below the entries lws holds",
+	  b_hpack_table_shrink, V_ECHO, 200, 0 },
 	{ "huffman EOS in :path", b_huffman_eos, V_GOAWAY,
 	  H2_ERR_COMPRESSION_ERROR, 0 },
 	{ "frame over SETTINGS_MAX_FRAME_SIZE", b_oversize_frame, V_GOAWAY,
