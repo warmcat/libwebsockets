@@ -204,6 +204,7 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out)
 {
 	gnutls_datum_t v_in, v_out;
+	unsigned int bits = 0;
 	int n;
 
 	v_in.data = (uint8_t *)in;
@@ -219,6 +220,11 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		return -1;
 	}
 
+	/* the room the api has the caller provide at out: the modulus size */
+	if (gnutls_pubkey_get_pk_algorithm(ctx->pub, &bits) != GNUTLS_PK_RSA ||
+	    !bits)
+		return -1;
+
 	n = gnutls_pubkey_encrypt_data(ctx->pub, 0, &v_in, &v_out);
 
 	if (n < 0) {
@@ -229,6 +235,16 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		    0)
 			return -2;
 		lwsl_err("%s: gnutls_pubkey_encrypt_data failed: %s\n", __func__, gnutls_strerror(n));
+		return -1;
+	}
+
+	/*
+	 * An RSA ciphertext is exactly the modulus size, as the other
+	 * backends write it... gnutls has no reason to give us more, but
+	 * nothing but the api contract bounds out, so don't take its word
+	 */
+	if (v_out.size > (bits + 7) / 8) {
+		gnutls_free(v_out.data);
 		return -1;
 	}
 

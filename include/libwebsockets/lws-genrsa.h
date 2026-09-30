@@ -169,11 +169,14 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
  * \param ctx: your struct lws_genrsa_ctx
  * \param in: plaintext input
  * \param in_len: length of plaintext input
- * \param out: encrypted output
+ * \param out: encrypted output, with room for the key's modulus size
  *
  * Performs PKCS1 v1.5 Encryption
  *
- * Returns <0 for error, or length of decrypted data.
+ * The encrypted output is always the size of the key's modulus, eg, 256 bytes
+ * for a 2048-bit key, and \p out must have room for that much.
+ *
+ * Returns <0 for error, or length of encrypted data.
  *
  * This and related APIs operate identically with OpenSSL or mbedTLS backends.
  */
@@ -186,11 +189,14 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
  * \param ctx: your struct lws_genrsa_ctx
  * \param in: plaintext input
  * \param in_len: length of plaintext input
- * \param out: encrypted output
+ * \param out: encrypted output, with room for the key's modulus size
  *
  * Performs PKCS1 v1.5 Encryption
  *
- * Returns <0 for error, or length of decrypted data.
+ * The encrypted output is always the size of the key's modulus, eg, 256 bytes
+ * for a 2048-bit key, and \p out must have room for that much.
+ *
+ * Returns <0 for error, or length of encrypted data.
  *
  * This and related APIs operate identically with OpenSSL or mbedTLS backends.
  */

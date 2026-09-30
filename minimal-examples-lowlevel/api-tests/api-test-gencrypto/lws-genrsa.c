@@ -31,6 +31,14 @@
 #endif
 
 /*
+ * PKCS#1 v1.5 public encrypt / private decrypt alone: the data-op backends,
+ * and GnuTLS, which has these two but not their sign-like counterparts
+ */
+#if defined(GENRSA_HAS_PKCS1_DATAOPS) || defined(LWS_WITH_GNUTLS)
+#define GENRSA_HAS_PKCS1_ENCRYPT
+#endif
+
+/*
  * Every backend apart from GnuTLS and mbedTLS v3 can generate keypairs and
  * drive the sign / verify apis the ctx liveness fence probes with
  */
@@ -887,6 +895,73 @@ test_genrsa_pss_key_elements(struct lws_gencrypto_keyelem *priv)
 #undef genrsa_pss_el
 }
 
+#if defined(GENRSA_HAS_PKCS1_ENCRYPT)
+/*
+ * lws_genrsa_public_encrypt() takes no size for out: the ciphertext is the
+ * key's modulus size, and that is the room the api has the caller provide.
+ * A backend must write exactly that much, nothing past it, and it must
+ * decrypt back.
+ */
+static int
+test_genrsa_encrypt_size(struct lws_context *context)
+{
+	struct lws_gencrypto_keyelem priv[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
+	struct lws_gencrypto_keyelem pub[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
+	uint8_t cipher[sizeof(genrsa_pss_n) + 16], back[sizeof(genrsa_pss_n)];
+	static const char plain[] = "the ciphertext is the modulus size";
+	struct lws_genrsa_ctx priv_ctx, pub_ctx;
+	int n, ret = 1;
+	size_t m;
+
+	memset(&priv_ctx, 0, sizeof(priv_ctx));
+	memset(&pub_ctx, 0, sizeof(pub_ctx));
+
+	test_genrsa_pss_key_elements(priv);
+	test_genrsa_prepare_public_elements(pub, priv);
+
+	if (lws_genrsa_create(&priv_ctx, priv, context, LGRSAM_PKCS1_1_5,
+			      LWS_GENHASH_TYPE_UNKNOWN) ||
+	    lws_genrsa_create(&pub_ctx, pub, context, LGRSAM_PKCS1_1_5,
+			      LWS_GENHASH_TYPE_UNKNOWN)) {
+		lwsl_err("%s: lws_genrsa_create failed\n", __func__);
+		goto bail;
+	}
+
+	memset(cipher, 0xa5, sizeof(cipher));
+
+	n = lws_genrsa_public_encrypt(&pub_ctx, (const uint8_t *)plain,
+				      sizeof(plain) - 1, cipher);
+	if (n != (int)sizeof(genrsa_pss_n)) {
+		lwsl_err("%s: ciphertext %d, not the modulus size %d\n",
+			 __func__, n, (int)sizeof(genrsa_pss_n));
+		goto bail;
+	}
+
+	for (m = sizeof(genrsa_pss_n); m < sizeof(cipher); m++)
+		if (cipher[m] != 0xa5) {
+			lwsl_err("%s: written past the modulus size\n",
+				 __func__);
+			goto bail;
+		}
+
+	n = lws_genrsa_private_decrypt(&priv_ctx, cipher,
+				       sizeof(genrsa_pss_n), back, sizeof(back));
+	if (n != (int)(sizeof(plain) - 1) ||
+	    lws_timingsafe_bcmp(back, plain, sizeof(plain) - 1)) {
+		lwsl_err("%s: roundtrip mismatch\n", __func__);
+		goto bail;
+	}
+
+	ret = 0;
+
+bail:
+	lws_genrsa_destroy(&priv_ctx);
+	lws_genrsa_destroy(&pub_ctx);
+
+	return ret;
+}
+#endif
+
 static int
 test_genrsa_pss_hash(enum lws_genhash_types type, const void *in, size_t len,
 		     uint8_t *hash)
@@ -1182,6 +1257,11 @@ test_genrsa(struct lws_context *context)
 
 	if (test_genrsa_pss(context))
 		goto bail;
+
+#if defined(GENRSA_HAS_PKCS1_ENCRYPT)
+	if (test_genrsa_encrypt_size(context))
+		goto bail;
+#endif
 
 	lwsl_notice("%s: selftest OK\n", __func__);
 
