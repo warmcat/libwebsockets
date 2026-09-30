@@ -94,6 +94,7 @@ struct lws_spa {
 	char **params;
 	char *storage;
 	char *end;
+	size_t ac_stored; /* what the values kept in the lwsac take */
 };
 
 static struct lws_urldecode_stateful *
@@ -676,6 +677,16 @@ lws_urldecode_spa_cb(struct lws_spa *spa, const char *name, char **buf, int len,
 
 		spa->s->out_len -= len + 1;
 	} else {
+		/*
+		 * max_storage is the total the values we keep may take,
+		 * copied into the lwsac as much as in our own storage
+		 */
+		if (spa->ac_stored + (size_t)len + 1 >
+					(size_t)spa->i.max_storage) {
+			lwsl_info("%s: exceeded storage\n", __func__);
+			return -1;
+		}
+
 		spa->params[n] = lwsac_use(spa->i.ac, (unsigned int)len + 1,
 					   spa->i.ac_chunk_size);
 		if (!spa->params[n])
@@ -683,6 +694,7 @@ lws_urldecode_spa_cb(struct lws_spa *spa, const char *name, char **buf, int len,
 
 		memcpy(spa->params[n], *buf, (unsigned int)len);
 		spa->params[n][len] = '\0';
+		spa->ac_stored += (size_t)len + 1;
 	}
 
 	spa->param_length[n] += len;

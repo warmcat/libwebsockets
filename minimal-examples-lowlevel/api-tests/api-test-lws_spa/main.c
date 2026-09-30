@@ -58,6 +58,8 @@ struct spa_case {
 	const char	*pipelined;	/* sent after the body, with held */
 	const char	*expect;	/* the answers' bodies, '|' between */
 	uint8_t		framing;
+	uint8_t		refused;	/* the server must close, answering
+					 * nothing */
 };
 
 #define MP_TEXT_HELLO \
@@ -66,6 +68,14 @@ struct spa_case {
 	"\r\n" \
 	"hello\r\n" \
 	"--XyZ--\r\n"
+/* eleven 100-byte values: more than the 1024 bytes the server keeps */
+#define V100		"0123456789012345678901234567890123456789" \
+			"0123456789012345678901234567890123456789" \
+			"01234567890123456789"
+#define A_V100		"a=" V100 "&"
+#define PAST_MAX	A_V100 A_V100 A_V100 A_V100 A_V100 A_V100 A_V100 \
+			A_V100 A_V100 A_V100 A_V100
+
 #define EPILOGUE	"This is the epilogue.\r\n"
 #define GET_FORM	"GET /form HTTP/1.1\r\nHost: localhost\r\n\r\n"
 #define ANS_HELLO	"a=NULL b=NULL c=NULL text='hello'/5 up=0/0/0"
@@ -92,6 +102,14 @@ static const struct spa_case cases[] = {
 	{ .name = "urlencoded empty values, lwsac", .path = "/form-ac",
 	  .ctype = URLENC, .body = "a=&b=1&c=",
 	  .expect = "a=''/0 b='1'/1 c=''/0 text=NULL up=0/0/0" },
+
+	/* the values the spa keeps may not take more than its max_storage */
+
+	{ .name = "urlencoded values past max_storage", .path = "/form",
+	  .ctype = URLENC, .body = PAST_MAX, .expect = "", .refused = 1 },
+	{ .name = "urlencoded values past max_storage, lwsac",
+	  .path = "/form-ac", .ctype = URLENC, .body = PAST_MAX,
+	  .expect = "", .refused = 1 },
 
 	/* multipart */
 
@@ -553,6 +571,10 @@ callback_raw_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		memcpy(cn.rx + cn.rx_len, in, len);
 		cn.rx_len += len;
+		if (cases[case_idx].refused) {
+			case_done("answered a form it had to refuse");
+			return -1;
+		}
 		if (!rx_responses())
 			break;
 		case_done(strcmp(cn.got, cases[case_idx].expect) ?
@@ -560,7 +582,11 @@ callback_raw_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		return -1;
 
 	case LWS_CALLBACK_RAW_CLOSE:
-		if (wsi == cn.wsi)
+		if (wsi != cn.wsi)
+			break;
+		if (cases[case_idx].refused && !cn.rx_len)
+			case_done(NULL);
+		else
 			case_done("closed before the answers");
 		break;
 

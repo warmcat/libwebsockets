@@ -21,6 +21,7 @@ in two reads.
 |urlencoded `a=1&b=two&c=x%20y+z`|the decoded values|
 |urlencoded `a&b=1&c`|`a` and `c` present with empty values|
 |urlencoded `a=&b=1&c=`|the same|
+|urlencoded values taking more than the spa's `max_storage`|refused: the connection closes with no answer|
 |multipart fields|the part contents|
 |multipart, two file parts around a field|the upload callback hears each file open once, before its content, and end once|
 |multipart, a part header the spa does not know, with dashes in it|skipped, the form goes on|
