@@ -1322,7 +1322,11 @@ lws_lec_setbuf(lws_lec_pctx_t *ctx, uint8_t *buf, size_t len)
 	ctx->start = ctx->buf = buf;
 	ctx->end = ctx->start + len;
 	ctx->used = 0;
-	ctx->vaa_pos = 0;
+	/*
+	 * vaa_pos is how many va_args the format being resumed has already
+	 * consumed, it must survive to the next call so they are skipped...
+	 * it is reset when a format finishes or fails
+	 */
 }
 
 enum lws_lec_pctx_ret
@@ -1688,16 +1692,18 @@ lws_lec_vsprintf(lws_lec_pctx_t *ctx, const char *fmt, va_list args)
 			(void)va_arg(args, double);
 			break;
 		}
-		if (ctx->state == CBPS_STRING_BODY)
-			/*
-			 * when copying out text or binary strings, we reload
-			 * the %s or %.*s pointer on subsequent calls, in case
-			 * it was on the stack.  The length and contents should
-			 * not change between calls, but it's OK if the source
-			 * address does.
-			 */
-			ctx->ongoing_src = va_arg(args, uint8_t *);
 	}
+
+	if (ctx->state == CBPS_STRING_BODY)
+		/*
+		 * when copying out text or binary strings, we reload the %s or
+		 * %.*s pointer on subsequent calls, in case it was on the
+		 * stack.  The length and contents should not change between
+		 * calls, but it's OK if the source address does.  Its vaa is
+		 * only recorded when the body is done, so it is the next arg
+		 * after the ones skipped above.
+		 */
+		ctx->ongoing_src = va_arg(args, uint8_t *);
 
 	while (ctx->buf != ctx->end) {
 
@@ -2101,6 +2107,7 @@ fail:
 	lwsl_notice("%s: failed\n", __func__);
 
 	ctx->fmt_pos = 0;
+	ctx->vaa_pos = 0;
 
 	return LWS_LECPCTX_RET_FAIL;
 }

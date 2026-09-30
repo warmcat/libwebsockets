@@ -5203,6 +5203,9 @@ static const char * const lec_chunk_names[] = {
 	"tagged bstr, 2-byte heads",
 	"map of wide literal ints",
 	"long tstr literal and indefinite tstr",
+	"map of %d keys, %.*b and %s values",
+	"array of %u, %lld and a %t tagged %.*s",
+	"lone %s",
 };
 
 static enum lws_lec_pctx_ret
@@ -5220,6 +5223,22 @@ lec_chunk_emit(lws_lec_pctx_t *ctx, int which)
 	case 3:
 		return lws_lec_printf(ctx, "['abcdefghijklmnopqrstuvwxyz',"
 					   "<t'hello'>]");
+	/*
+	 * Resuming a format has to skip the args conversions before the
+	 * current one already consumed, whichever of them the window ended
+	 * after, and pick up the right pointer for a string it is inside
+	 */
+	case 4:
+		return lws_lec_printf(ctx, "{%d:%.*b,%d:%s}", 4,
+				      (int)sizeof(lec_blob), lec_blob, -70000,
+				      "a text string of 32 characters..");
+	case 5:
+		return lws_lec_printf(ctx, "[%u,%lld,%t(%.*s)]", 65536u,
+				      -0x123456789ll, 1234, 26,
+				      "abcdefghijklmnopqrstuvwxyz");
+	case 6:
+		return lws_lec_printf(ctx, "%s",
+				      "a text string of 32 characters..");
 	}
 
 	return LWS_LECPCTX_RET_FAIL;
