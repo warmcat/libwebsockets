@@ -67,6 +67,25 @@ extern const struct lws_role_ops role_ops_quic;
 #define LWS_QUIC_RX_CHUNK_FRAG_UNIT	256
 #define LWS_QUIC_RX_CHUNK_MERGE		1024
 
+/*
+ * A server connection is created by an Initial from an address nothing has
+ * validated, and holds no fd, so max_fds does not bound how many there are
+ * (RFC 9000 8.1, 21.1).  Until their handshakes complete, a service thread
+ * holds at most LWS_QUIC_HALFOPEN_MAX, evicting the oldest to make room for a
+ * new one: a legitimate handshake takes a few round trips, so under a flood
+ * of spoofed Initials it still completes unless the flood replaces the whole
+ * set in that time.  At most LWS_QUIC_HALFOPEN_PER_PREFIX come from any one
+ * IPv4 /24 or IPv6 /64, further Initials from there are dropped, so a sender
+ * using its real addresses cannot evict everyone else's.
+ */
+#if defined(LWS_WITH_FREERTOS)
+#define LWS_QUIC_HALFOPEN_MAX		4
+#define LWS_QUIC_HALFOPEN_PER_PREFIX	2
+#else
+#define LWS_QUIC_HALFOPEN_MAX		1024
+#define LWS_QUIC_HALFOPEN_PER_PREFIX	64
+#endif
+
 struct lws_quic_cid {
 	uint8_t		id[LWS_QUIC_MAX_CID_LEN];
 	uint8_t		len;
@@ -343,6 +362,8 @@ struct lws_quic_reply {
 
 struct lws_quic_netconn {
 	struct lws		*nwsi; /* the parent UDP network wsi */
+	/* on the pt's quic_halfopen while a server's handshake is not done */
+	lws_dll2_t		halfopen_list;
 
 	/* this tx pass (IO's, README.sans-io-split.md "Sending is a pull") */
 	struct lws_quic_tx_pkt	tx_pkt;	/* the one IO is sending */

@@ -886,6 +886,76 @@ lws_quic_queue_reply(struct lws *lwsi, const uint8_t *buf, size_t len,
 
 	lws_callback_on_writable(lwsi);
 }
+
+/*
+ * Do two addresses share an IPv4 /24 or IPv6 /64 (an IPv4-mapped one counts
+ * as the IPv4 address it maps)?
+ */
+static int
+lws_quic_same_prefix(const lws_sockaddr46 *a, const lws_sockaddr46 *b)
+{
+	if (a->sa4.sin_family != b->sa4.sin_family)
+		return 0;
+
+	if (a->sa4.sin_family == AF_INET)
+		return !memcmp(&a->sa4.sin_addr, &b->sa4.sin_addr, 3);
+
+#if defined(LWS_WITH_IPV6)
+	if (a->sa4.sin_family == AF_INET6) {
+		int mapped = lws_sa46_is_ipv4_mapped(a);
+
+		if (mapped != lws_sa46_is_ipv4_mapped(b))
+			return 0;
+
+		/* ::ffff:a.b.c.d: the /24 is the first 15 bytes */
+		return !memcmp(&a->sa6.sin6_addr, &b->sa6.sin6_addr,
+			       mapped ? 15 : 8);
+	}
+#endif
+
+	return 0;
+}
+
+/*
+ * May an unvalidated Initial from sa46 have a new server connection?  See
+ * LWS_QUIC_HALFOPEN_MAX.  Returns nonzero if it is to be dropped.
+ */
+static int
+lws_quic_halfopen_admit(struct lws *lwsi, const lws_sockaddr46 *sa46)
+{
+	struct lws_context_per_thread *pt = &lwsi->a.context->pt[(int)lwsi->tsi];
+	struct lws_quic_netconn *oldest;
+	unsigned int same = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&pt->quic_halfopen)) {
+		struct lws_quic_netconn *qn = lws_container_of(d,
+				struct lws_quic_netconn, halfopen_list);
+
+		if (lws_quic_same_prefix(&qn->path_sa46, sa46) &&
+		    ++same >= LWS_QUIC_HALFOPEN_PER_PREFIX) {
+			lwsl_wsi_info(lwsi, "too many handshakes from one "
+					    "network, dropping Initial");
+			return 1;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (pt->quic_halfopen.count < LWS_QUIC_HALFOPEN_MAX)
+		return 0;
+
+	/*
+	 * Full: the oldest goes.  It never completed a handshake, so the
+	 * close sends it nothing (a spoofed source would be the target).
+	 */
+	oldest = lws_container_of(lws_dll2_get_head(&pt->quic_halfopen),
+				  struct lws_quic_netconn, halfopen_list);
+	lwsl_wsi_info(lwsi, "handshakes in progress at limit, evicting oldest");
+	lws_dll2_remove(&oldest->halfopen_list);
+	lws_close_free_wsi(oldest->nwsi, LWS_CLOSE_STATUS_NOSTATUS,
+			   "quic halfopen evicted");
+
+	return 0;
+}
 #endif
 
 static void
@@ -1108,6 +1178,9 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 				}
 			}
 		}
+
+		if (lws_quic_halfopen_admit(wsi, &sa46))
+			return LWS_HPI_RET_HANDLED;
 
 		/* 1.5 Instantiate new QUIC network connection */
 		nwsi = lws_create_new_server_wsi(wsi->a.vhost, wsi->tsi, 0, "quic child");
@@ -1406,6 +1479,10 @@ tp_ok:
 		 */
 		lws_set_timeout(nwsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
 				(int)wsi->a.context->timeout_secs);
+
+		/* ... and count it against the half-open limits until then */
+		lws_dll2_add_tail(&nwsi->quic.qn->halfopen_list,
+				  &wsi->a.context->pt[(int)wsi->tsi].quic_halfopen);
 
 		lwsl_wsi_info(wsi, "QUIC RX: Created new connection! (loc_cid len %d)", nwsi->quic.qn->loc_cid.len);
 	}
@@ -4355,7 +4432,13 @@ lws_quic_server_idle_check(struct lws *nwsi)
 {
 	struct lws_quic_netconn *qn = nwsi->quic.qn;
 
-	if (!qn || !qn->is_server || !qn->handshake_done || qn->is_closing)
+	if (!qn || !qn->is_server || !qn->handshake_done)
+		return;
+
+	/* the handshake is done, it no longer counts as half-open */
+	lws_dll2_remove(&qn->halfopen_list);
+
+	if (qn->is_closing)
 		return;
 
 	if (nwsi->pending_timeout != NO_PENDING_TIMEOUT &&
@@ -4396,6 +4479,8 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 
 	if (!qn)
 		return;
+
+	lws_dll2_remove(&qn->halfopen_list);
 
 	for (i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
 		/* Free keys */

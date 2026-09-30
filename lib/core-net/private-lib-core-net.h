@@ -513,6 +513,10 @@ struct lws_context_per_thread {
 #if defined(LWS_ROLE_DBUS)
 	struct lws_pt_role_dbus dbus;
 #endif
+#if defined(LWS_ROLE_QUIC) && defined(LWS_WITH_SERVER)
+	/* server quic connections still in their handshake, oldest first */
+	lws_dll2_owner_t	quic_halfopen;
+#endif
 	/* --- event library based members --- */
 
 	void		*evlib_pt; /* overallocated */
