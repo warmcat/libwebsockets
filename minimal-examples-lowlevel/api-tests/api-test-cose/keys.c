@@ -1229,7 +1229,53 @@ test_cose_keys(struct lws_context *context)
 		goto bail;
 	}
 
-	lws_cose_key_destroy(&ck);
+	/*
+	 * An import into a set that already holds keys adds to it, and one
+	 * that fails or is empty has to leave the keys already there alone,
+	 * since the application may hold pointers to them.  Importing the
+	 * same set twice fails the second time, on its kids already being in
+	 * the set.
+	 */
+
+	lwsl_user("%s: imports into a set already holding a key\n", __func__);
+
+	{
+		static const uint8_t empty_set[] = { 0x80 }; /* [] */
+
+		lws_dll2_owner_clear(&set);
+		lws_dll2_add_tail(&ck->list, &set);
+
+		if (!lws_cose_key_import(&set, NULL, NULL, cose_key_set1,
+					 sizeof(cose_key_set1)) ||
+		    lws_dll2_count(&set) != 10 ||
+		    lws_cose_key_import(&set, NULL, NULL, cose_key_set1,
+					sizeof(cose_key_set1)) ||
+		    lws_cose_key_import(&set, NULL, NULL, empty_set,
+					sizeof(empty_set)) ||
+		    lws_cose_key_import(&set, NULL, NULL, cose_key_set1,
+					sizeof(cose_key_set1) - 8) ||
+		    lws_dll2_count(&set) != 10 ||
+		    lws_container_of(lws_dll2_get_head(&set),
+				     struct lws_cose_key, list) != ck ||
+		    lws_cose_key_from_set(&set, (const uint8_t *)"the-keyid",
+					  9) != ck) {
+			lwsl_err("%s: failed import disturbed the set\n",
+				 __func__);
+			lws_cose_key_set_destroy(&set);
+			goto bail;
+		}
+
+		/* the key the application kept is still intact */
+
+		lws_lec_init(&wc, buf, sizeof(buf));
+		n = (int)lws_cose_key_export(ck, &wc, LWSJWKF_EXPORT_PRIVATE);
+		lws_cose_key_set_destroy(&set); /* ck goes with it */
+		ck = NULL;
+		if (n != LWS_LECPCTX_RET_FINISHED) {
+			lwsl_err("%s: kept key export fail\n", __func__);
+			goto bail;
+		}
+	}
 
 	/*
 	 * Some TLS backends, eg GnuTLS, do not implement EdDSA at all...

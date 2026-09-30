@@ -40,6 +40,8 @@ struct lws_cose_key_parse_state {
 	lws_cose_key_import_callback	per_key_cb;
 	lws_dll2_owner_t		*pkey_set;
 	/**< if non-NULL, expects a [ key set ], else single key */
+	lws_dll2_owner_t		import_set;
+	/**< this import's keys, only moved to *pkey_set if it succeeds */
 	void				*user;
 	size_t				pos;
 	int				cose_state;
@@ -401,6 +403,30 @@ static signed char wk_alg_indexes[] = {
 	LWSCOSE_WKAECDSA_ALG_ES512,
 };
 
+/*
+ * Is there another key in the set with the same kid as ck?
+ */
+
+static int
+lws_cose_key_kid_in_set(lws_dll2_owner_t *set, lws_cose_key_t *ck)
+{
+	struct lws_gencrypto_keyelem *k1 = &ck->meta[COSEKEY_META_KID];
+
+	if (!k1->buf)
+		return 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(set)) {
+		lws_cose_key_t *o = lws_container_of(d, lws_cose_key_t, list);
+		struct lws_gencrypto_keyelem *k2 = &o->meta[COSEKEY_META_KID];
+
+		if (o != ck && k2->buf && k1->len == k2->len &&
+		    !memcmp(k1->buf, k2->buf, k1->len))
+			return 1;
+	} lws_end_foreach_dll(d);
+
+	return 0;
+}
+
 static signed char
 cb_cose_key(struct lecp_ctx *ctx, char reason)
 {
@@ -449,7 +475,7 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 		cps->seen_count = 0;
 
 		if (cps->pkey_set)
-			lws_dll2_add_tail(&cps->ck->list, cps->pkey_set);
+			lws_dll2_add_tail(&cps->ck->list, &cps->import_set);
 		break;
 	case LECPCB_ARRAY_ITEM_START:
 		if (cps->pkey_set && ctx->pst[ctx->pst_sp].ppos == 2) {
@@ -467,7 +493,7 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 			cps->seen_count = 0;
 
 			if (cps->pkey_set)
-				lws_dll2_add_tail(&cps->ck->list, cps->pkey_set);
+				lws_dll2_add_tail(&cps->ck->list, &cps->import_set);
 		}
 		break;
 	case LECPCB_ARRAY_ITEM_END:
@@ -496,27 +522,17 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 			 * take the first match, so a later member with a
 			 * colliding kid (a usable key of the attacker's own)
 			 * would shadow nothing, but an earlier one shadows
-			 * the genuine key for every signature naming it
+			 * the genuine key for every signature naming it.  The
+			 * set it joins is the keys the caller already had and
+			 * the ones this import made so far.
 			 */
-			{
-				struct lws_gencrypto_keyelem *k1 =
-					&cps->ck->meta[COSEKEY_META_KID];
 
-				lws_start_foreach_dll(struct lws_dll2 *, d,
-					      lws_dll2_get_head(cps->pkey_set)) {
-					lws_cose_key_t *o = lws_container_of(d,
-							lws_cose_key_t, list);
-					struct lws_gencrypto_keyelem *k2 =
-						&o->meta[COSEKEY_META_KID];
-
-					if (o != cps->ck && k1->buf && k2->buf &&
-					    k1->len == k2->len &&
-					    !memcmp(k1->buf, k2->buf, k1->len)) {
-						lwsl_warn("%s: duplicate kid in key set\n",
-							  __func__);
-						goto bail;
-					}
-				} lws_end_foreach_dll(d);
+			if (lws_cose_key_kid_in_set(cps->pkey_set, cps->ck) ||
+			    lws_cose_key_kid_in_set(&cps->import_set,
+						    cps->ck)) {
+				lwsl_warn("%s: duplicate kid in key set\n",
+					  __func__);
+				goto bail;
 			}
 
 			if (cps->per_key_cb)
@@ -1008,11 +1024,8 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 bail:
 	lwsl_warn("%s: bail\n", __func__);
 	lws_cose_key_destroy(&cps->ck);
-
-	if (cps->pkey_set) {
-		lws_cose_key_set_destroy(cps->pkey_set);
-		cps->pkey_set = NULL;
-	}
+	/* only what this import made, never the caller's existing keys */
+	lws_cose_key_set_destroy(&cps->import_set);
 
 	return -1;
 }
@@ -1057,6 +1070,15 @@ lws_cose_key_set_memb_remove(struct lws_dll2 *d, void *user)
 
 	lws_dll2_remove(d);
 	lws_cose_key_destroy(&ck);
+
+	return 0;
+}
+
+static int
+lws_cose_key_set_memb_move(struct lws_dll2 *d, void *user)
+{
+	lws_dll2_remove(d);
+	lws_dll2_add_tail(d, (lws_dll2_owner_t *)user);
 
 	return 0;
 }
@@ -1260,8 +1282,7 @@ lws_cose_key_import(lws_dll2_owner_t *pkey_set, lws_cose_key_import_callback cb,
 		 * partially-created key here
 		 */
 		lws_cose_key_destroy(&cps.ck);
-		if (cps.pkey_set)
-			lws_cose_key_set_destroy(cps.pkey_set);
+		lws_cose_key_set_destroy(&cps.import_set);
 
 		return NULL;
 	}
@@ -1274,8 +1295,7 @@ lws_cose_key_import(lws_dll2_owner_t *pkey_set, lws_cose_key_import_callback cb,
 
 	if (!cps.ck) {
 		lwsl_notice("%s: no key map in input\n", __func__);
-		if (cps.pkey_set)
-			lws_cose_key_set_destroy(cps.pkey_set);
+		lws_cose_key_set_destroy(&cps.import_set);
 
 		return NULL;
 	}
@@ -1288,10 +1308,22 @@ lws_cose_key_import(lws_dll2_owner_t *pkey_set, lws_cose_key_import_callback cb,
 		break;
 	}
 
+	/*
+	 * The import is good: only now do its keys join the caller's set,
+	 * after any keys it already had.  A failed import frees just what
+	 * it made, so keys the caller holds pointers to stay valid.
+	 */
+
+	if (cps.pkey_set)
+		lws_dll2_foreach_safe(&cps.import_set, cps.pkey_set,
+				      lws_cose_key_set_memb_move);
+
 	return cps.ck;
 
 bail:
 	lws_cose_key_destroy(&cps.ck);
+	lws_cose_key_set_destroy(&cps.import_set);
+
 	return NULL;
 }
 

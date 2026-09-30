@@ -298,6 +298,12 @@ typedef int (*lws_cose_key_import_callback)(struct lws_cose_key *s, void *user);
  * zero or more cose_key CBOR, and adds each to the \p pkey_set
  * lws_dll2_owner_t struct.  Created lws_cose_key_t are filled with data from
  * the COSE representation and can be used with other COSE crypto ops.
+ *
+ * \p pkey_set may already hold keys, eg, from an earlier import: the imported
+ * keys are added after them, and a key whose kid is already in the set fails
+ * the import.  The import is all or nothing... if it fails, or the set is
+ * empty, none of its keys are added and the keys already in \p pkey_set are
+ * left as they were.
  */
 LWS_VISIBLE LWS_EXTERN lws_cose_key_t *
 lws_cose_key_import(lws_dll2_owner_t *pkey_set, lws_cose_key_import_callback cb,
