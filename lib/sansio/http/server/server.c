@@ -591,6 +591,13 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 			if (!wsi->mux_substream)
 				wsi->sending_chunked = 1;
 
+			/*
+			 * What goes out is the interpreter's output, not the
+			 * file: byte ranges of the file mean nothing in it,
+			 * and the range framing doesn't survive the transform
+			 */
+			wsi->stream.ah->frag_index[WSI_TOKEN_HTTP_RANGE] = 0;
+
 			wsi->protocol_interpret_idx = (char)(
 				lws_vhost_name_to_protocol(wsi->a.vhost,
 							   pvo->value) -
