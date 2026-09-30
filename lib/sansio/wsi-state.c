@@ -327,6 +327,8 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	{ "h3", "C", LRS_H2_WAITING_TO_SEND_HEADERS, LWS_WSIEV_REQ_HDRS_SENT_BODY, NULL, NULL, LRS_ISSUE_HTTP_BODY },
 	{ "*",  "C", LRS_ISSUE_HTTP_BODY,	LWS_WSIEV_REQ_BODY_SENT, NULL, NULL, LRS_WAITING_SERVER_REPLY },
 	{ "h1", "C", LRS_ESTABLISHED,		LWS_WSIEV_RESP_INTERIM, NULL, NULL, LRS_WAITING_SERVER_REPLY },
+	/* a ws client takes no response headers but the 101's: it is still waiting */
+	{ "h1", "C", LRS_WAITING_SERVER_REPLY,	LWS_WSIEV_RESP_INTERIM, NULL, NULL, LRS_WAITING_SERVER_REPLY },
 
 	/* the response is done: idle, or an idle connection is picked up */
 	{ "h1", "C", LRS_ESTABLISHED,		LWS_WSIEV_TXN_COMPLETED, NULL, NULL, LRS_IDLING },

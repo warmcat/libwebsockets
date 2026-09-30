@@ -1324,7 +1324,11 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		lwsl_wsi_info(wsi, "%d interim response, awaiting the final one",
 			      n);
 		lws_header_table_rx_rewind(wsi);
-		/* the role transition above already moved us to ESTABLISHED */
+		/*
+		 * back to waiting: from ESTABLISHED, where the response
+		 * headers took us above, or for a ws client, which takes only
+		 * the 101's, still waiting
+		 */
 		lws_wsi_event(wsi, LWS_WSIEV_RESP_INTERIM);
 		lws_validity_confirmed(wsi);
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,

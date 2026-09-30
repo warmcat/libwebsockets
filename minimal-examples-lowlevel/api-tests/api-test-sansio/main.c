@@ -82,6 +82,9 @@
  * going: it reads nothing until the body has gone, and does not ask to hear
  * of what it is not reading meanwhile, then it reads the answer.
  *
+ * And a ws client told "100 Continue" ahead of its 101: it waits on for the
+ * 101, and is established by it.
+ *
  * Then whether the transport would take a write: a connection on the test's
  * transport is asked of the transport, never of the fd that is its place in
  * the poll set, even when that fd could not take a byte.
@@ -2674,19 +2677,21 @@ client_connect(struct lws_context *cx, struct lws_vhost *vh,
 
 /*
  * A ws client connection over tp, its upgrade request checked and answered
- * with the accept value of the key it chose, and resp_hdrs.  Unless quiet,
- * the client sends "Hello" once it is established.  Returns nonzero unless
- * it is established (and, unless quiet, sent it).
+ * with pre (interim responses ahead of the 101, or ""), then the 101 with the
+ * accept value of the key it chose, and resp_hdrs.  Unless quiet, the client
+ * sends "Hello" once it is established.  Returns nonzero unless it is
+ * established (and, unless quiet, sent it).
  */
 static int
-ws_client_up(struct lws_context *cx, struct lws_vhost *vh,
-	     struct transport *tp, const char *resp_hdrs, int quiet)
+ws_client_up_pre(struct lws_context *cx, struct lws_vhost *vh,
+		 struct transport *tp, const char *pre, const char *resp_hdrs,
+		 int quiet)
 {
 	static const char resp_ws[] =
 		"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
 		"Connection: Upgrade\r\nSec-WebSocket-Protocol: echo\r\n"
 		"Sec-WebSocket-Accept: ";
-	char key[24 + 36 + 1], accept[32], resp[256];
+	char key[24 + 36 + 1], accept[32], resp[384];
 	uint8_t sha[20];
 	const uint8_t *k;
 	int n;
@@ -2712,8 +2717,8 @@ ws_client_up(struct lws_context *cx, struct lws_vhost *vh,
 	memcpy(key + 24, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11", 37);
 	lws_SHA1((const uint8_t *)key, 24 + 36, sha);
 	lws_b64_encode_string((const char *)sha, 20, accept, sizeof(accept));
-	n = lws_snprintf(resp, sizeof(resp), "%s%s\r\n%s\r\n", resp_ws, accept,
-			 resp_hdrs);
+	n = lws_snprintf(resp, sizeof(resp), "%s%s%s\r\n%s\r\n", pre, resp_ws,
+			 accept, resp_hdrs);
 
 	if (feed(cx, tp, resp, (size_t)n)) {
 		lwsl_err("ws upgrade response not consumed\n");
@@ -2726,6 +2731,35 @@ ws_client_up(struct lws_context *cx, struct lws_vhost *vh,
 	}
 
 	return 0;
+}
+
+static int
+ws_client_up(struct lws_context *cx, struct lws_vhost *vh,
+	     struct transport *tp, const char *resp_hdrs, int quiet)
+{
+	return ws_client_up_pre(cx, vh, tp, "", resp_hdrs, quiet);
+}
+
+/*
+ * 31: a ws client the server tells "100 Continue" ahead of its 101.  An
+ * interim response is none of its business: it waits on for the 101, and is
+ * established by that as usual.
+ */
+static int
+ws_client_interim_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static struct transport tp;
+
+	tr_begin("ws-client-interim", "client", 1);
+	if (ws_client_up_pre(cx, vh, &tp, "HTTP/1.1 100 Continue\r\n\r\n",
+			     "", 0)) {
+		lwsl_err("case 31: failed\n");
+		return 1;
+	}
+	lwsl_user("case 31: a ws client waits on past an interim response "
+		  "for its 101: PASS\n");
+
+	return tr_end();
 }
 
 static int
@@ -3389,6 +3423,9 @@ main(int argc, const char **argv)
 #if defined(LWS_WITH_CLIENT)
 	at(cx, 4170);
 	if (h1_client_early_answer_half(cx, vh))
+		goto bail;
+	at(cx, 4180);
+	if (ws_client_interim_half(cx, vh))
 		goto bail;
 #endif
 
