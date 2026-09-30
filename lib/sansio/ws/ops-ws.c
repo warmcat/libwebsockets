@@ -1214,26 +1214,40 @@ rops_rx_policy_ws(struct lws *wsi, int *flags, size_t *max)
 	}
 
 	/*
-	 * After the peer's CLOSE, nothing it sends means anything, whichever
-	 * role we are: only our answer to it is left to do, from the
-	 * writeable
+	 * In these close phases nothing more is read until our own tx has
+	 * gone, which needs the socket writeable, and may never happen if the
+	 * peer does not read: a level-armed POLLIN would spin meanwhile, so
+	 * each drops it.
+	 *
+	 *  - after the peer's CLOSE, nothing it sends means anything, whichever
+	 *    role we are: only our answer to it is left to do, from the
+	 *    writeable (lws_ws_answer_peer_close() already stopped reading)
+	 *
+	 *  - our CLOSE frame is waiting to go out: it goes before we take more
+	 *    in, else the peer's CLOSE read first ends the connection without
+	 *    ours ever being sent.  Sending it reads again, for the ack.
+	 *
+	 *  - the close waits for our buffered tx to drain: lws_read_h1() takes
+	 *    nothing meanwhile, what was read would only be parked
+	 *
+	 * We stopped caring about anything except control frames: tx
+	 * draining is defeated.
 	 */
-	if (lwsi_close(wsi) == LCS_RETURNED_CLOSE) {
+	switch (lwsi_close(wsi)) {
+	case LCS_RETURNED_CLOSE:
+	case LCS_WAITING_TO_SEND_CLOSE:
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 		wsi->ws->tx_draining_ext = 0;
 #endif
-		return LWS_RXPOL_HOLD;
-	}
+		/* fallthru */
+	case LCS_FLUSHING_BEFORE_CLOSE:
+	case LCS_CLOSE_WHEN_FLUSHED:
+		if (__lws_io_want_read(wsi, 0))
+			return LWS_RXPOL_CLOSE;
 
-	if (lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE) {
-		/*
-		 * we stopped caring about anything except control packets.
-		 * Force flow control off, defeat tx draining.
-		 */
-		lws_rx_flow_control(wsi, 1);
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-		wsi->ws->tx_draining_ext = 0;
-#endif
+		return LWS_RXPOL_HOLD;
+	default:
+		break;
 	}
 
 	if (lws_is_flowcontrolled(wsi)) {
@@ -1243,13 +1257,6 @@ rops_rx_policy_ws(struct lws *wsi, int *flags, size_t *max)
 
 		return LWS_RXPOL_ROLE;
 	}
-	/*
-	 * Our CLOSE frame is waiting to go out: it goes before we take more
-	 * in, else the peer's CLOSE read first ends the connection without
-	 * ours ever being sent
-	 */
-	if (lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE)
-		return LWS_RXPOL_HOLD;
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	if (wsi->ws->tx_draining_ext) {
@@ -1354,6 +1361,14 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 			/* we initiated it: wait for his ack */
 			lws_wsi_event(wsi, LWS_WSIEV_WS_CLOSE_SENT);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK, 5);
+			/*
+			 * His ack is all that is left to read, whatever rx
+			 * flow control the app had on: the rx policy stopped
+			 * our reading while our CLOSE waited, read again
+			 */
+			lws_rx_flow_control(wsi, 1);
+			if (lws_io_read_after_drain(wsi))
+				return LWS_HP_RET_BAIL_DIE;
 			lwsl_debug("sent close, await ack\n");
 
 			return LWS_HP_RET_BAIL_OK;

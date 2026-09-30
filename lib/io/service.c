@@ -330,9 +330,10 @@ lws_io_read_after_drain(struct lws *wsi)
  * While it is holding the next request off until a clean POLLOUT, has a
  * deferred http action, is serving a file (synchronously or on a worker), is
  * in the middle of a callback-driven transaction, is waiting for an async
- * tls accept, or is flushing before close, it stashes or ignores rx without
+ * tls accept, is flushing before close, or has a ws CLOSE frame (its own, or
+ * its answer to the peer's) still to send, it stashes or ignores rx without
  * consuming it.  Each of those phases ends with our tx (the response, the
- * handshake, the flush), not with anything the peer sends.
+ * handshake, the flush, the CLOSE), not with anything the peer sends.
  */
 int
 lws_wsi_state_parks_rx(struct lws *wsi)
@@ -348,6 +349,8 @@ lws_wsi_state_parks_rx(struct lws *wsi)
 	case LRS_DOING_TRANSACTION:
 	case LRS_AWAITING_SSL_ACCEPT:
 	case LRS_FLUSHING_BEFORE_CLOSE:
+	case LRS_WAITING_TO_SEND_CLOSE:
+	case LRS_RETURNED_CLOSE:
 		return 1;
 	default:
 		return 0;

@@ -26,11 +26,13 @@
  * through, the ordinary case of an app refusing a message it has only seen
  * the start of.
  *
- * A leg has the client stop reading (rx flow control) while the server
- * fills the connection, then send the server more than it reads at once:
- * the server sending a big message with pmd (it may not read until that
- * has gone).  The server must wait quietly until the client reads again,
- * then finish.
+ * Three legs have the client stop reading (rx flow control) while the
+ * server fills the connection, then send the server more than it reads at
+ * once: the server sending a big message with pmd (it may not read until
+ * that has gone), and the server closing on the first part of the client's
+ * data with its tx still buffered, or with its socket full so its Close
+ * frame has to wait (it reads nothing more either way).  The server must
+ * wait quietly until the client reads again, then finish.
  *
  * Every leg must finish its close promptly and without the service loop
  * spinning meanwhile: a close handshake that only ends at its timeout, or
@@ -85,6 +87,10 @@ static const struct leg legs[] = {
 	{ "h1, pmd, server closes mid-message",	"cli-pmd", "http/1.1", 0, 1, 0, 1, 0 },
 	{ "h1, pmd, server sends to a client not reading", "cli-pmd", "http/1.1",
 							0, 1, 0, 0, STALL_TX_DRAIN },
+	{ "h1, server closes with tx buffered, client not reading", "cli",
+					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FLUSH },
+	{ "h1, server closes on a full socket, client not reading", "cli",
+					"http/1.1", 0, 1, 0, 0, STALL_CLOSE_FULL },
 };
 
 #define CLI_CODE	LWS_CLOSE_STATUS_GOINGAWAY	/* 1001 */
