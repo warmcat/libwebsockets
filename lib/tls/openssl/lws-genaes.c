@@ -67,7 +67,7 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 #else
 			lwsl_err("%s: your OpenSSL lacks AES wrap apis, update it\n",
 				 __func__);
-			return -1;
+			goto bail;
 #endif
 		case LWS_GAESM_CBC:
 			ctx->cipher = EVP_aes_128_cbc();
@@ -121,9 +121,9 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 			ctx->cipher = EVP_aes_192_wrap();
 			break;
 #else
-                        lwsl_err("%s: your OpenSSL lacks AES wrap apis, update it\n",
-                                 __func__);
-                        return -1;
+			lwsl_err("%s: your OpenSSL lacks AES wrap apis, update it\n",
+				 __func__);
+			goto bail;
 #endif
 		case LWS_GAESM_CBC:
 			ctx->cipher = EVP_aes_192_cbc();
@@ -175,9 +175,9 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 			ctx->cipher = EVP_aes_256_wrap();
 			break;
 #else
-                        lwsl_err("%s: your OpenSSL lacks AES wrap apis, update it\n",
-                                 __func__);
-                        return -1;
+			lwsl_err("%s: your OpenSSL lacks AES wrap apis, update it\n",
+				 __func__);
+			goto bail;
 #endif
 		case LWS_GAESM_CBC:
 			ctx->cipher = EVP_aes_256_cbc();
