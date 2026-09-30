@@ -50,7 +50,10 @@
  * file stalled on the stream's window is still closed by its timeout,
  * though the body arrived and completed meanwhile; but an answer
  * the app writes a piece at a time that is only slow, each piece going
- * before the watchdog expires, all goes.
+ * before the watchdog expires, all goes.  And an answer the app starts
+ * from the body's first piece, then cannot finish for want of window, is
+ * closed by the response's watchdog too, though the body went on arriving
+ * after the answer started, and completed.
  *
  * And a request the mount redirects before any app sees it, likewise only
  * partly written: the transaction completes when it has gone, answered in
@@ -689,6 +692,7 @@ struct pss_uri {
 	int		len;
 	int		completed;
 	int		slow;	/* /slow: pieces still to write */
+	int		in_body; /* /in-body: 1 body awaited, 2 answer started */
 };
 
 /* /slow's answer: SLOW_PIECES of 100 bytes, one every SLOW_GAP_US */
@@ -748,6 +752,11 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return 0;
 		}
 #endif
+		if (in && !strcmp((const char *)in, "/in-body")) {
+			/* answered from the body's first piece, see below */
+			pss->in_body = 1;
+			return 0;
+		}
 		if (in && !strcmp((const char *)in, "/slow")) {
 			/* answered a piece at a time, as the app has them */
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
@@ -783,10 +792,57 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lws_callback_on_writable(wsi);
 		return 0;
 
+	case LWS_CALLBACK_HTTP_BODY:
+		if (pss->in_body == 1) {
+			/*
+			 * /in-body: the answer starts now, while the rest of
+			 * the body is still to come, as an app relaying a
+			 * request would start it
+			 */
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+							"text/plain", 200,
+							&p, end) ||
+			    lws_finalize_write_http_header(wsi, buf + LWS_PRE,
+							   &p, end))
+				return 1;
+			pss->in_body = 2;
+			return 0;
+		}
+		break;
+
+	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
+		/*
+		 * The answer is under way, from LWS_CALLBACK_HTTP or from the
+		 * body's first piece: the body's end changes nothing, the
+		 * answer goes on from the writeable (the dummy would answer
+		 * again here, or complete the transaction from under it)
+		 */
+		if (pss->in_body)
+			lws_callback_on_writable(wsi);
+		return 0;
+
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 		if (pss->completed) {
 			/* nothing is ours to write after we completed it */
 			uri_late_writeable++;
+			return 0;
+		}
+		if (pss->in_body) {
+			/*
+			 * /in-body: as much of the answer as the peer's
+			 * window takes, up to half of it; the rest waits
+			 * for a window that never comes
+			 */
+			n = (int)lws_get_peer_write_allowance(wsi);
+			if (n < 0 || n > 100)
+				n = 100;
+			if (n) {
+				memset(p, 'b', (size_t)n);
+				if (lws_write(wsi, p, (size_t)n,
+					      LWS_WRITE_HTTP) != n)
+					return 1;
+			}
+			lws_callback_on_writable(wsi);
 			return 0;
 		}
 		if (pss->slow) {
@@ -813,7 +869,7 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		return 0;
 
 	case LWS_CALLBACK_CLOSED_HTTP:
-		if (pss && pss->completed)
+		if (pss && (pss->completed || pss->in_body))
 			uri_closed++;
 		break;
 
@@ -2529,6 +2585,124 @@ h2_slow_answer_half(struct lws_context *cx, struct lws_vhost *vh, int start_ms)
 
 	return 0;
 }
+
+/*
+ * 33: an h2 POST the app starts answering from the first piece of its body,
+ * where the peer gave the stream a window of only 100 bytes and never opens
+ * it further, then sends the rest of the body, which completes, and keeps
+ * the connection alive with PINGs.  The body's own timeout, renewed by each
+ * piece and cleared once it is all here, must not take the response's
+ * watchdog with it: the answer, stalled on the window after its first 100
+ * bytes, is closed by the watchdog.  It moves the time on past it, so it
+ * goes last, and it has no transcript.
+ */
+static int
+h2_answer_in_body_half(struct lws_context *cx, struct lws_vhost *vh,
+		       int start_ms)
+{
+	static const char preface[] =
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+		/* SETTINGS: INITIAL_WINDOW_SIZE 100, then the server's ack */
+		"\x00\x00\x06\x04\x00\x00\x00\x00\x00"
+		"\x00\x04\x00\x00\x00\x64"
+		"\x00\x00\x00\x04\x01\x00\x00\x00\x00";
+	/* DATA, sid 1: the body's first 3 bytes; then its last 3, END_STREAM */
+	static const char data1[] = "\x00\x00\x03\x00\x00\x00\x00\x00\x01"
+				    "abc";
+	static const char data2[] = "\x00\x00\x03\x00\x01\x00\x00\x00\x01"
+				    "def";
+	static const char ping[] = "\x00\x00\x08\x06\x00\x00\x00\x00\x00"
+				   "12345678";
+	static uint8_t blk[128], fr[256];
+	static struct transport tp;
+	int sv[2], s, ended = 0, rst = 0;
+	size_t n, f, body = 0;
+	struct lws *wsi;
+	uint8_t *p;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	uri_late_writeable = uri_closed = 0;
+
+	feed(cx, &tp, preface, sizeof(preface) - 1);
+
+	/* POST /in-body, content-length 6, the body to follow */
+	p = blk;
+	*p++ = 0x83; /* :method POST */
+	*p++ = 0x86; /* :scheme http */
+	p = hp_int(p, 0x00, 4, 4); /* :path, not indexed */
+	p = hp_str(p, "/in-body", 8, 0);
+	p = hp_int(p, 0x00, 4, 1); /* :authority, not indexed */
+	p = hp_str(p, "sansio-h2", 9, 0);
+	p = hp_int(p, 0x00, 4, 28); /* content-length, not indexed */
+	p = hp_str(p, "6", 1, 0);
+	n = h2_headers(fr, 1, blk, p);
+	fr[4] = 0x04; /* END_HEADERS alone: the body follows */
+	feed(cx, &tp, fr, n);
+
+	/* the body's first piece: the answer's HEADERS go, from the callback */
+	feed(cx, &tp, data1, sizeof(data1) - 1);
+	for (n = 0; n + 9 <= tp.tx_len; n += 9 + f) {
+		f = ((size_t)tp.tx[n] << 16) | ((size_t)tp.tx[n + 1] << 8) |
+		    tp.tx[n + 2];
+		if (tp.tx[n + 3] == 1 &&
+		    (lws_ser_ru32be(&tp.tx[n + 5]) & 0x7fffffff) == 1)
+			break;
+	}
+	if (n + 9 > tp.tx_len) {
+		lwsl_err("case 33: the answer did not start with the body\n");
+		return 1;
+	}
+
+	/*
+	 * the rest of the body: it completes, and the answer's first 100
+	 * bytes go, all the window takes
+	 */
+	feed(cx, &tp, data2, sizeof(data2) - 1);
+	h2_sid1_tally(&tp, &body, &ended, &rst);
+	if (body != 100 || ended || rst) {
+		lwsl_err("case 33: %d of the answer went, ended %d, rst %d\n",
+			 (int)body, ended, rst);
+		return 1;
+	}
+
+	/* a PING every 4s keeps the connection from being idle */
+	for (s = 4; s <= 36; s += 4) {
+		at(cx, start_ms + s * 1000);
+		feed(cx, &tp, ping, sizeof(ping) - 1);
+		h2_sid1_tally(&tp, &body, &ended, &rst);
+		if (tp.closed || tp.shutdown) {
+			lwsl_err("case 33: connection ended at %ds\n", s);
+			return 1;
+		}
+		/* the watchdog is 30s from the last piece that went */
+		if (s <= 28 && uri_closed) {
+			lwsl_err("case 33: the stream was closed at %ds\n", s);
+			return 1;
+		}
+	}
+
+	if (uri_closed != 1 || body != 100 || uri_late_writeable) {
+		lwsl_err("case 33: closed %d, body %d, late wr %d\n",
+			 uri_closed, (int)body, uri_late_writeable);
+		return 1;
+	}
+	lwsl_user("case 33: an answer started during the body, then stalled, "
+		  "is closed by the response's watchdog: PASS\n");
+
+	return 0;
+}
 #endif
 #endif
 
@@ -3494,6 +3668,13 @@ main(int argc, const char **argv)
 	/* last, since it moves the time on past the close timeout */
 	if (ws_hangup_behind_flowcontrol_half(cx, 100000))
 		goto bail;
+
+#if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_FILE_OPS)
+	/* and this moves it on past the response watchdog */
+	at(cx, 150000);
+	if (h2_answer_in_body_half(cx, vh_h2, 150000))
+		goto bail;
+#endif
 
 	result = 0;
 

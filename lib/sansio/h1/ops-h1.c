@@ -73,12 +73,16 @@ lws_h1_answer_going(struct lws *wsi)
  * (the response's watchdog, or the file sender's, renewed as it sends) is
  * what bounds the stream then, and body the peer is still sending must
  * neither replace it nor, completing, clear it and leave an answer the peer
- * never takes waiting for ever.
+ * never takes waiting for ever.  The same once the app has started its
+ * answer during the body (its response headers went out, arming the
+ * watchdog) while still taking the body: the rest of its answer is under the
+ * watchdog, and the body must not take that away from it either.
  */
 static void
 lws_h1_body_timeout(struct lws *wsi, int arm)
 {
-	if (lws_h1_answer_going(wsi))
+	if (lws_h1_answer_going(wsi) ||
+	    (!lwsi_role_client(wsi) && wsi->http.sent_response_headers))
 		return;
 
 	if (arm)
