@@ -995,7 +995,7 @@ static int
 lws_hpack_handle_pseudo_rules(struct lws *nwsi, struct lws *wsi, int m);
 
 static int
-lws_hpack_use_idx_hdr(struct lws *wsi, int idx, int known_token)
+lws_hpack_use_idx_hdr(struct lws *wsi, int idx)
 {
 	const char *arg = NULL;
 	int len = 0, n;
@@ -1012,13 +1012,11 @@ lws_hpack_use_idx_hdr(struct lws *wsi, int idx, int known_token)
 		return 1;
 	}
 
-	if (arg) {
+	if (arg)
 		/* dynamic result */
-		if (known_token > 0)
-			tok = known_token;
 		lwsl_header("%s: dyn: idx %d '%s' tok %d\n", __func__, idx, arg,
 			   tok);
-	} else
+	else
 		lwsl_header("writing indexed hdr %d (tok %d '%s')\n", idx, tok,
 				lws_token_to_string((enum lws_token_indexes)tok));
 
@@ -1218,7 +1216,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				return 1;
 
 			lwsl_header("HPKT_INDEXED_HDR_7: hdr %d\n", c & 0x7f);
-			if (lws_hpack_use_idx_hdr(wsi, c & 0x7f, -1)) {
+			if (lws_hpack_use_idx_hdr(wsi, c & 0x7f)) {
 				lwsl_header("%s: idx hdr wr fail\n", __func__);
 				return 1;
 			}
@@ -1340,8 +1338,17 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 
 		switch (h2n->hpack_type) {
 		case HPKT_INDEXED_HDR_7:
-			if (lws_hpack_use_idx_hdr(wsi, (int)h2n->hpack_len,
-						  (int)h2n->hdr_idx)) {
+			/*
+			 * As for the one-byte index above.  h2n->hdr_idx is only
+			 * the 0x7f prefix here: the index is h2n->hpack_len
+			 */
+			m = lws_token_from_index(wsi, (int)h2n->hpack_len,
+						 NULL, NULL, NULL);
+			if (!lws_h2_hpack_sinking(wsi) &&
+			    lws_hpack_handle_pseudo_rules(nwsi, wsi, m))
+				return 1;
+
+			if (lws_hpack_use_idx_hdr(wsi, (int)h2n->hpack_len)) {
 				lwsl_notice("%s: hd7 use fail\n", __func__);
 				return 1;
 			}
