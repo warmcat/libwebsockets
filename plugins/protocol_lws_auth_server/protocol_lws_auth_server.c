@@ -3323,25 +3323,55 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		 */
 		lws_strncpy(vhd->jwks_json, "{\"keys\":[]}",
 			    sizeof(vhd->jwks_json));
-		if (vhd->jwk.kty == LWS_GENCRYPTO_KTY_OCT)
-			lwsl_vhost_notice(vhd->vhost, "symmetric jwk: not "
-					  "published in the JWKS\n");
-		else {
-			char pub[LWS_SSO_MAX_COOKIE];
-			int plen = sizeof(pub);
-			if (lws_jwk_export(&vhd->jwk, 0, pub, &plen) > 0) {
-				char pub_path[300];
-				FILE *f;
+		{
+			char pub_path[300];
 
-				lws_snprintf(pub_path, sizeof(pub_path), "%s.pub", vhd->jwk_path);
-				f = fopen(pub_path, "w");
-				if (f) {
-					fwrite(pub, 1, strlen(pub), f);
-					fclose(f);
+			lws_snprintf(pub_path, sizeof(pub_path), "%s.pub",
+				     vhd->jwk_path);
+
+			if (vhd->jwk.kty == LWS_GENCRYPTO_KTY_OCT) {
+				struct lws_jwk stale;
+
+				lwsl_vhost_notice(vhd->vhost, "symmetric jwk: "
+						  "not published in the JWKS");
+
+				/*
+				 * Before C-633, an oct key's export here
+				 * included its secret k, and it was written to
+				 * the .pub "for downstream distribution" and
+				 * served as the JWKS.  Nothing written now
+				 * replaces that file, so say what it means if
+				 * one is still there holding a symmetric key
+				 */
+				memset(&stale, 0, sizeof(stale));
+				if (!lws_jwk_load(&stale, pub_path, NULL, NULL) &&
+				    stale.kty == LWS_GENCRYPTO_KTY_OCT)
+					lwsl_vhost_warn(vhd->vhost, "%s holds a "
+						"symmetric key, as written by "
+						"versions that published the "
+						"HS* signing secret: treat the "
+						"key at %s as disclosed, "
+						"replace it and delete %s",
+						pub_path, vhd->jwk_path,
+						pub_path);
+				lws_jwk_destroy(&stale);
+			} else {
+				char pub[LWS_SSO_MAX_COOKIE];
+				int plen = sizeof(pub);
+
+				if (lws_jwk_export(&vhd->jwk, 0, pub, &plen) > 0) {
+					/* for downstream distribution */
+					if (lws_plat_write_file(pub_path, pub,
+								strlen(pub)))
+						lwsl_vhost_warn(vhd->vhost,
+							"unable to write %s",
+							pub_path);
+
+					/* Cache the JWKS JSON response natively */
+					lws_snprintf(vhd->jwks_json,
+						     sizeof(vhd->jwks_json),
+						     "{\"keys\":[%s]}", pub);
 				}
-
-				/* Cache the JWKS JSON response natively */
-				lws_snprintf(vhd->jwks_json, sizeof(vhd->jwks_json), "{\"keys\":[%s]}", pub);
 			}
 		}
 
