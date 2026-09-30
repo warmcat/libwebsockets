@@ -22,7 +22,9 @@
  *    once, and the GET wait parked for the answer without keeping the event
  *    loop busy, then be served (direct, and through the http proxy mount);
  *    and two GETs the same way to a callback mount naming its protocol as
- *    its origin, where the second must be dispatched as itself, once
+ *    its origin, where the second must be dispatched as itself, once, and
+ *    to a mount with a body limit, where the first, bodyless, must not
+ *    take the second as its body
  *  - refusals: an unsupported Transfer-Encoding (501), Transfer-Encoding
  *    together with Content-Length (400), a chunked body over the mount's
  *    body limit (connection dropped), a Content-Length over it (413)
@@ -226,6 +228,15 @@ static const struct xcase cases[] = {
 	  "write, to a callback mount",
 	  "GET", "/cb/echo-cl-later", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE,
 	  0, 0, 0, 4, 0 },
+	/*
+	 * The same to /small, whose mount has a body limit: a GET with no
+	 * body still has none, not one of the limit's size, which would take
+	 * the GET behind it as its body
+	 */
+	{ "h1 GET with no body to a mount with a body limit, answered some "
+	  "time later, and a GET pipelined in the same write",
+	  "GET", "/small/echo-cl-later", XR_NONE, 0, 0, 8192, 0, 0, 200, 0,
+	  XG_NONE, 0, 0, 0, 4, 0 },
 	/*
 	 * A chunked response that also carries a Content-Length is framed by
 	 * its chunks: the client must read the body to its last-chunk, not

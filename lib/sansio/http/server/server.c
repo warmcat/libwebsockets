@@ -2410,8 +2410,14 @@ lws_http_action(struct lws *wsi)
 				lws_return_http_status(wsi, HTTP_STATUS_REQ_ENTITY_TOO_LARGE, NULL);
 				return 1;
 			}
-		} else {
-			/* Unbounded stream, use max_http_body_size as a countdown limit */
+		} else if (wsi->http.rx_content_length >
+						hit->max_http_body_size) {
+			/*
+			 * A body with no length up front (chunked, or a POST
+			 * with neither header): the mount's limit is its
+			 * countdown.  A request with no body has none to
+			 * limit, and must not be given one to wait for.
+			 */
 			wsi->http.rx_content_length = hit->max_http_body_size;
 			wsi->http.rx_content_remain = hit->max_http_body_size;
 		}

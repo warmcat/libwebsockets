@@ -12,7 +12,9 @@ write, answered some time after its body completed, where the body must complete
 exactly once and the GET wait parked for the answer, without keeping the event
 loop busy, before it is served (direct and through the http proxy mount), and
 the same with two GETs to a callback mount that names its protocol as its
-origin, where the second must then be dispatched as itself, once; and the
+origin, where the second must then be dispatched as itself, once, and to a
+mount with a body limit, where the first, which has no body, must not take the
+second as one; and the
 refusals (an unsupported
 Transfer-Encoding gets 501, Transfer-Encoding with Content-Length gets 400, a
 chunked body over the mount limit drops the connection, a Content-Length over it
