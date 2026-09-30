@@ -621,13 +621,13 @@ t_nsec3_has_type(const uint8_t *w, size_t len, uint16_t type)
 
 	while (o + 2 <= len) {
 		uint8_t win = w[o], blen = w[o + 1];
+		size_t byte = ((size_t)type & 0xff) / 8;
 
 		if (o + 2 + blen > len)
 			return 0;
 		if (win == type >> 8)
-			return (type & 0xff) / 8 < blen &&
-			       (w[o + 2 + (type & 0xff) / 8] &
-					(0x80 >> (type & 7)));
+			return byte < blen &&
+			       (w[o + 2 + byte] & (0x80 >> (type & 7)));
 		o += 2u + blen;
 	}
 
