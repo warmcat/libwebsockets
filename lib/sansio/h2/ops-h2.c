@@ -498,6 +498,16 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 	if (wsi->http.lcs) {
 		unsigned char *out = mtubuf + LWS_PRE;
 		size_t o = sizeof(mtubuf) - LWS_PRE;
+		int cr = lws_h2_tx_cr_get(wsi);
+
+		/*
+		 * What the compressor produces is DATA, which must fit the
+		 * peer's window like any other: let it produce no more than
+		 * that.  Input it can't take for want of room is kept on
+		 * buflist_comp for when a WINDOW_UPDATE lets us go on.
+		 */
+		if ((size_t)cr < o)
+			o = (size_t)cr;
 
 		n = lws_http_compression_transform(wsi, buf, len, wp, &out, &o);
 		if (n)
@@ -1452,6 +1462,14 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		if (w->http.comp_ctx.buflist_comp ||
 		    w->http.comp_ctx.may_have_more) {
 			enum lws_write_protocol wp = LWS_WRITE_HTTP;
+
+			/*
+			 * No window, no DATA: the WINDOW_UPDATE handler
+			 * re-arms every child, rather than us spinning here
+			 */
+			if (lws_wsi_txc_check_skint(&w->txc,
+						    lws_h2_tx_cr_get(w)))
+				continue;
 
 			lwsl_info("%s: completing comp partial"
 				   "(buflist_comp %p, may %d)\n",
