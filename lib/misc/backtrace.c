@@ -259,10 +259,13 @@ lws_alloc_metadata_gen(size_t size, uint8_t *comp, size_t comp_len,
 		/* compression buf contents amount */
 		*cl = q;
 	} else {
-		/* put an explicit zero-length prepend for want of anything else */
+		/*
+		 * An empty record, just the 16-bit length, which counts
+		 * itself like the full one does: _lws_alloc_metadata_trim()
+		 * works adj out from it, so it must agree with the adj below
+		 */
 nope:
-		c.comp[0] = 0;
-		c.comp[1] = 0;
+		lws_ser_wu16be(c.comp, 2);
 		c.pos = 16; /* bits */
 		*cl = 2;
 		*adj = sizeof(lws_dll2_t) + sizeof(void *);

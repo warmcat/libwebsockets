@@ -197,15 +197,23 @@ _realloc(void *ptr, size_t size, const char *reason)
 {
 #if defined(LWS_WITH_ALLOC_METADATA_LWS)
 	uint8_t comp[16 * LWS_ARRAY_SIZE(((lws_backtrace_info_t *)NULL)->st)];
-	size_t complen;
-	size_t adj = 0;
+	size_t complen, user_size = size;
+	size_t adj = 0, old_adj = 0;
 #endif
 	void *v;
 
 	if (size) {
 #if defined(LWS_WITH_ALLOC_METADATA_LWS)
+		/*
+		 * Any metadata, old or new, is at most a dll2 and a comp
+		 * buffer's worth: a size so close to the top of size_t that
+		 * adding that wraps must fail like the plain allocation would,
+		 * not wrap into a tiny block the caller then overruns
+		 */
+		if (size > (size_t)-1 - sizeof(lws_dll2_t) - sizeof(comp))
+			return NULL;
+
 		lws_alloc_metadata_gen(size, comp, sizeof(comp), &adj, &complen);
-		size += adj;
 
 		/*
 		 * The pointer we handed the caller last time points into the
@@ -214,8 +222,22 @@ _realloc(void *ptr, size_t size, const char *reason)
 		 * metadata node from "active") before realloc() may see it
 		 */
 
-		if (ptr)
+		if (ptr) {
+			uint8_t *u = (uint8_t *)ptr;
+
 			_lws_alloc_metadata_trim(&ptr, NULL, NULL);
+			old_adj = lws_ptr_diff_size_t(u, ptr);
+		}
+
+		/*
+		 * The metadata size depends on this call's backtrace and size,
+		 * so it generally differs from the old one: realloc() keeps the
+		 * caller's data at old_adj, but it must end up at adj.  Get
+		 * room for it at whichever offset is further in, and move it
+		 * across once we have the new block.
+		 */
+
+		size += adj > old_adj ? adj : old_adj;
 #endif
 
 #if defined(LWS_PLAT_FREERTOS)
@@ -262,6 +284,13 @@ _realloc(void *ptr, size_t size, const char *reason)
 				if (ptr)
 					allocated += malloc_usable_size(ptr);
 #endif
+#if defined(LWS_WITH_ALLOC_METADATA_LWS)
+				/* ... and still live: list it again */
+				if (ptr)
+					lws_dll2_add_tail((lws_dll2_t *)
+						((uint8_t *)ptr + old_adj -
+						 sizeof(lws_dll2_t)), &active);
+#endif
 				return NULL;
 			}
 		}
@@ -271,6 +300,16 @@ _realloc(void *ptr, size_t size, const char *reason)
 #endif
 
 #if defined(LWS_WITH_ALLOC_METADATA_LWS)
+		/*
+		 * Before the new metadata goes in, since with adj > old_adj it
+		 * overlaps where the data was.  user_size is in bounds at both
+		 * offsets; on a grow the part past the old data is garbage
+		 * either way.
+		 */
+		if (old_adj && old_adj != adj)
+			memmove((uint8_t *)v + adj, (uint8_t *)v + old_adj,
+				user_size);
+
 		_lws_alloc_metadata_adjust(&active, &v, adj, comp, (unsigned int)complen);
 #endif
 
