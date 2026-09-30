@@ -39,11 +39,12 @@
  */
 
 /*
- * caller_closes: the h2 / h3 frame parsers call us with the framing
- * stripped, for the stream the frame belongs to.  When that read fails, it
- * is the whole connection that comes down, and the outer parser does that
- * close itself: we must not close the stream out from under it.  Every
- * other caller expects us to have closed the wsi when we return -1.
+ * caller_closes: the caller closes the wsi when we return -1, rather than
+ * us.  The h2 / h3 frame parsers call us with the framing stripped, for the
+ * stream the frame belongs to: when that read fails, it is the whole
+ * connection that comes down, and the outer parser does that close itself.
+ * The roles' sansIO rx asks IO to close it.  Other callers expect us to have
+ * closed the wsi when we return -1.
  */
 
 int
@@ -494,14 +495,17 @@ bail:
  * parser's: lws_h1_client_rx() in client-http.c.  A server connection's
  * (which may have become h2 or ws by now: the parsers decide) is below.
  */
-static int
-rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
+static lws_handling_result_t
+rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport,
+	   size_t *used)
 {
 	int n;
 
+	*used = 0;
+
 #if defined(LWS_WITH_CLIENT)
 	if (lwsi_role_client(wsi))
-		return lws_h1_client_rx(wsi, buf, len, from_transport);
+		return lws_h1_client_rx(wsi, buf, len, from_transport, used);
 #endif
 #if defined(LWS_WITH_SERVER)
 	if (!len) {
@@ -512,10 +516,10 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 		 */
 		if (wsi->ws &&
 		    (wsi->ws->rx_draining_ext || wsi->ws->tx_draining_ext))
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 #endif
 		/* normally, we respond to close by logically closing our side */
-		return LWS_RX_CLOSE;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
 	/*
@@ -525,7 +529,7 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 	 */
 	if (wsi->http_carries_sse) {
 		lwsl_wsi_info(wsi, "rx on an SSE stream");
-		return LWS_RX_CLOSE;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
 	/*
@@ -551,7 +555,9 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 	if (lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE) {
 		lwsl_notice("%s: just ignoring\n", __func__);
 		/* what the transport brought is dropped, what was parked stays */
-		return from_transport ? (int)len : 0;
+		*used = from_transport ? len : 0;
+
+		return LWS_HPI_RET_HANDLED;
 	}
 
 	if (lwsi_state(wsi) == LRS_ISSUING_FILE) {
@@ -567,10 +573,13 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 			lws_rx_flow_control(wsi,
 					LWS_RXFLOW_REASON_APPLIES_DISABLE |
 					LWS_RXFLOW_REASON_HTTP_RXBUFFER);
-		return 0;
+		return LWS_HPI_RET_HANDLED;
 	}
 
-	/* give it to whoever wants it according to the connection state */
+	/*
+	 * give it to whoever wants it according to the connection state; if
+	 * that fails, IO closes the wsi
+	 */
 	{
 #if defined(LWS_WITH_LATENCY)
 		lws_usec_t _h1_read_start = lws_now_usecs();
@@ -582,7 +591,7 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 		else
 #endif
 			n = lws_read_h1(wsi, (unsigned char *)buf,
-					(unsigned int)len, 0);
+					(unsigned int)len, 1);
 #if defined(LWS_WITH_LATENCY)
 		{
 			unsigned int ms = (unsigned int)((lws_now_usecs() -
@@ -594,8 +603,8 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 		}
 #endif
 	}
-	if (n < 0) /* we closed wsi */
-		return LWS_RX_DIED;
+	if (n < 0)
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 	/*
 	 * during the parsing our role changed to something non-http,
@@ -605,11 +614,13 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 	    !lwsi_role_h1(wsi) && !lwsi_role_h2(wsi) && !lwsi_role_cgi(wsi))
 		lws_header_table_detach(wsi, 0);
 
-	return n;
+	*used = (size_t)n;
+
+	return LWS_HPI_RET_HANDLED;
 #else
 	(void)n;
 
-	return LWS_RX_CLOSE;
+	return LWS_HPI_RET_PLEASE_CLOSE_ME;
 #endif
 }
 #endif
@@ -766,14 +777,14 @@ rops_rx_policy_h1(struct lws *wsi, int *flags, size_t *max)
  * client acts on the response headers it completed, or tells the app the
  * body it can pull is there
  */
-static int
+static lws_handling_result_t
 rops_rx_done_h1(struct lws *wsi)
 {
 #if defined(LWS_WITH_CLIENT)
 	if (lwsi_role_client(wsi))
 		return lws_h1_client_rx_done(wsi);
 #endif
-	return 0;
+	return LWS_HPI_RET_HANDLED;
 }
 
 static lws_handling_result_t

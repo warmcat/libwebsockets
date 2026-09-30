@@ -48,11 +48,14 @@ lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
  * the remainder has been parked.  A parse failure, or the peer closing
  * before responding, is a connection failure for the user.
  */
-int
+lws_handling_result_t
 lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
-		 int from_transport)
+		 int from_transport, size_t *used)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+#if defined(LWS_CLIENT_HTTP_PROXYING) || defined(LWS_WITH_SOCKS5)
+	lws_handling_result_t hr;
+#endif
 	const char *cce;
 	int n, m;
 #if defined(LWS_CLIENT_HTTP_PROXYING)
@@ -60,6 +63,7 @@ lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 #endif
 
 	(void)from_transport;
+	*used = 0;
 	(void)pt;
 
 #if defined(LWS_CLIENT_HTTP_PROXYING)
@@ -101,18 +105,19 @@ lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 		 * connecting, and IO goes on from here as for a direct
 		 * connection (tls, then our handshake)
 		 */
-		if (lws_client_transport_connected(wsi))
-			return LWS_RX_DIED;
+		hr = lws_client_transport_connected(wsi);
+		if (hr != LWS_HPI_RET_HANDLED)
+			return hr;
 
-		return (int)len;
+		*used = len;
+
+		return LWS_HPI_RET_HANDLED;
 	}
 #endif
 
 #if defined(LWS_WITH_SOCKS5)
 	if (lwsi_in_socks5_leg(wsi)) {
-		size_t used;
-
-		switch (lws_socks5c_rx(wsi, buf, len, &cce, &used)) {
+		switch (lws_socks5c_rx(wsi, buf, len, &cce, used)) {
 		case LW5CHS_RET_BAIL3:
 			goto fail;
 		case LW5CHS_RET_STARTHS:
@@ -121,15 +126,16 @@ lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 			 * socket connecting, and IO goes on from here as for
 			 * a direct connection (tls, then our handshake)
 			 */
-			if (lws_client_transport_connected(wsi))
-				return LWS_RX_DIED;
+			hr = lws_client_transport_connected(wsi);
+			if (hr != LWS_HPI_RET_HANDLED)
+				return hr;
 			break;
 		default:
 			break;
 		}
 
 		/* what followed the reply is the peer's, left for the protocol */
-		return (int)used;
+		return LWS_HPI_RET_HANDLED;
 	}
 #endif
 
@@ -143,14 +149,14 @@ lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 		lwsl_wsi_info(wsi, "peer %s while idle",
 			      len ? "sent" : "closed");
 
-		return LWS_RX_CLOSE;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
 	if (lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY || !wsi->stream.ah) {
 		lwsl_wsi_err(wsi, "%s: rx in state 0x%x", __func__,
 			     lwsi_state(wsi));
 
-		return LWS_RX_CLOSE;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
 	if (!len) {
@@ -191,16 +197,17 @@ lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 	} while (0);
 #endif
 
-	return m;
+	*used = (size_t)m;
+
+	return LWS_HPI_RET_HANDLED;
 
 fail:
-	lwsl_info("%s: closing conn at LWS_CONNMODE...SERVER_REPLY, %s, state 0x%x\n",
+	lwsl_info("%s: failing conn at LWS_CONNMODE...SERVER_REPLY, %s, state 0x%x\n",
 		  __func__, lws_wsi_tag(wsi), lwsi_state(wsi));
 	lwsl_info("reason: %s\n", cce);
 	lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cbail3");
 
-	return LWS_RX_DIED;
+	return LWS_HPI_RET_PLEASE_CLOSE_ME;
 }
 #endif
 
@@ -226,8 +233,8 @@ lws_h1_client_request_sent(struct lws *wsi)
 
 /*
  * The transport is up and it is our turn on it: compose and send the
- * request (or ws upgrade) headers.  Returns 0, or 1 when the wsi was closed
- * and freed here.
+ * request (or ws upgrade) headers.  Returns 0, or -1 when that failed and
+ * the caller should close the wsi.
  */
 int
 lws_h1_client_issue_handshake(struct lws *wsi)
@@ -244,9 +251,8 @@ lws_h1_client_issue_handshake(struct lws *wsi)
 	if (p == NULL) {
 		lws_servbuf_release(pt, sbc);
 		lwsl_err("Failed to generate handshake for client\n");
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "chs");
 
-		return 1;
+		return -1;
 	}
 
 	/* send our request to the server */
@@ -260,9 +266,8 @@ lws_h1_client_issue_handshake(struct lws *wsi)
 	lws_servbuf_release(pt, sbc);
 	if (n < 0) {
 		lwsl_debug("ERROR writing to client socket\n");
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cws");
 
-		return 1;
+		return -1;
 	}
 
 	if (wsi->client_http_body_pending || lws_has_buffered_out(wsi)) {
@@ -299,7 +304,7 @@ lws_h1_client_issue_handshake(struct lws *wsi)
  * connection, by alpn or prior knowledge, sends its preface; an h1 one its
  * request.  The client_transport_up op.
  */
-int
+lws_handling_result_t
 lws_h1_client_transport_up(struct lws *wsi, const lws_sockaddr46 *peer)
 {
 #if defined(LWS_ROLE_H2)
@@ -312,7 +317,8 @@ lws_h1_client_transport_up(struct lws *wsi, const lws_sockaddr46 *peer)
 		return lws_h2_client_transport_up(wsi, peer);
 #endif
 
-	return lws_h1_client_issue_handshake(wsi);
+	return lws_h1_client_issue_handshake(wsi) ? LWS_HPI_RET_PLEASE_CLOSE_ME :
+						    LWS_HPI_RET_HANDLED;
 }
 
 /*
@@ -347,11 +353,11 @@ lws_h1_client_body_done_check(struct lws *wsi)
  * body at its own pace (lws_http_client_read()): reading stops and the app
  * hears there is something to pull.
  */
-int
+lws_handling_result_t
 lws_h1_client_rx_done(struct lws *wsi)
 {
 	if (lws_is_flowcontrolled(wsi))
-		return 0;
+		return LWS_HPI_RET_HANDLED;
 
 	lws_h1_client_body_done_check(wsi);
 
@@ -359,18 +365,15 @@ lws_h1_client_rx_done(struct lws *wsi)
 		if (!wsi->stream.ah ||
 		    wsi->stream.ah->parser_state != WSI_PARSING_COMPLETE)
 			/* the block is not complete yet; the timeout guards */
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 
 		/*
 		 * The peer may coalesce what follows the block: the parser
 		 * stopped at its end and the pump parked the rest for the
-		 * next phase.  Interpret the handshake; nonzero means the wsi
-		 * was closed (or restarted) in there and is not ours to touch
+		 * next phase.  Interpret the handshake: it may close the wsi,
+		 * or restart it, and says which
 		 */
-		if (lws_client_interpret_server_handshake(wsi))
-			return LWS_RX_DIED;
-
-		return 0;
+		return lws_client_interpret_server_handshake(wsi);
 	}
 
 	if (!lwsi_hdrs_pending(wsi) && lwsi_close(wsi) != LCS_USER_TOLD) {
@@ -382,17 +385,17 @@ lws_h1_client_rx_done(struct lws *wsi)
 		 * re-enables from there
 		 */
 		if (lws_io_want_read(wsi, 0))
-			return LWS_RX_CLOSE;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 		if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 					       LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
 						wsi->user_space, NULL, 0)) {
 			lwsl_info("RECEIVE_CLIENT_HTTP closed it\n");
-			return LWS_RX_CLOSE;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 	}
 
-	return 0;
+	return LWS_HPI_RET_HANDLED;
 }
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
@@ -1010,9 +1013,16 @@ lws_http_client_response_is_interim(struct lws *wsi)
 	return n >= 100 && n < 200 && n != 101;
 }
 
-int
+/*
+ * Returns LWS_HPI_RET_HANDLED, or when the response ended the wsi's part in
+ * this pass, what the close of it said: LWS_HPI_RET_WSI_ALREADY_DIED, it was
+ * freed, or LWS_HPI_RET_CLOSING, it lives on, in its close or restarted to
+ * follow a redirect or answer a digest auth challenge
+ */
+lws_handling_result_t
 lws_client_interpret_server_handshake(struct lws *wsi)
 {
+	lws_handling_result_t hr;
 	int n, port = 0, ssl = 0;
 	int close_reason = LWS_CLOSE_STATUS_PROTOCOL_ERR;
 	const char *prot, *ads = NULL, *path, *cce = NULL;
@@ -1200,7 +1210,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			wsi->stream.ah->ues = URIES_IDLE;
 			lws_wsi_event(wsi, LWS_WSIEV_REQ_ISSUE);
 			lws_callback_on_writable(wsi);
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 		}
 
 		if (auth_res)
@@ -1211,9 +1221,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * (close.c leaves the ss binding alone for a restart), or
 		 * fails and frees it: nothing may be written to it after
 		 */
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "digest_auth_step2");
-
-		return -1;
+		return _lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "digest_auth_step2");
 	}
 
     ah = wsi->stream.ah;
@@ -1252,7 +1261,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 				(int)wsi->a.context->timeout_secs);
 
-		return 0;
+		return LWS_HPI_RET_HANDLED;
 	}
 
 	if (!wsi->client_no_follow_redirect &&
@@ -1455,12 +1464,12 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 */
 
 		/* restarts the wsi, or fails and frees it: no write after */
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "redir");
+		hr = _lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "redir");
 
 		if (puri)
 			lws_parse_uri_destroy(&puri);
 
-		return LWS_HPI_RET_WSI_ALREADY_DIED;
+		return hr;
 	}
 
 	/* if h1 KA is allowed, enable the queued pipeline guys */
@@ -1667,19 +1676,16 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 				(!wsi->http.rx_content_length ||
 				(simp && !strcmp(simp,"HEAD")))))) {
 			if (!lws_http_transaction_completed_client(wsi))
-				return 0;
+				return LWS_HPI_RET_HANDLED;
 
 			/*
 			 * The user callback asked us to close from
 			 * LWS_CALLBACK_COMPLETED_CLIENT_HTTP... nothing did the
-			 * close for us, and our caller only understands 0 or
-			 * LWS_HPI_RET_WSI_ALREADY_DIED, so do it here
+			 * close for us, so we do it here
 			 */
 
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+			return _lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "client txn completed close");
-
-			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
 
 		/*
@@ -1697,7 +1703,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * issue it when we see the peer has hung up on us.
 		 */
 
-		return 0;
+		return LWS_HPI_RET_HANDLED;
 	}
 
 #if defined(LWS_ROLE_WS)
@@ -1708,7 +1714,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		goto bail3_l;
 	}
 
-	return 0;
+	return LWS_HPI_RET_HANDLED;
 #endif
 
 bail3_l:
@@ -1728,12 +1734,13 @@ bail2:
 				  wsi->a.protocol->name : "unknown", cce);
 
 	/* closing will free up his parsing allocations */
-	lws_close_free_wsi(wsi, (enum lws_close_status)close_reason, "c hs interp");
+	hr = _lws_close_free_wsi(wsi, (enum lws_close_status)close_reason,
+				 "c hs interp");
 
 	if (puri)
 		lws_parse_uri_destroy(&puri);
 
-	return LWS_HPI_RET_WSI_ALREADY_DIED;
+	return hr;
 }
 #endif
 
@@ -2332,7 +2339,7 @@ int lws_http_basic_auth_gen(const char *user, const char *pw, char *buf, size_t 
  * chunked framing, delivers the payload to the app in
  * LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ (a callback per chunk block), keeps
  * the content accounting and completes the transaction when the body is
- * done.  Returns the bytes taken, or LWS_RX_CLOSE.
+ * done.  Returns the bytes taken, or -1: the caller closes the wsi.
  */
 int
 lws_h1_client_body_rx(struct lws *wsi, uint8_t *buf, size_t len)
@@ -2352,10 +2359,10 @@ lws_h1_client_body_rx(struct lws *wsi, uint8_t *buf, size_t len)
 			lwsl_wsi_info(wsi, "body ended with the stream");
 			if (lws_http_transaction_completed_client(wsi))
 				/* closing anyway, the api has warn_unused_result */
-				return LWS_RX_CLOSE;
+				return -1;
 		}
 
-		return LWS_RX_CLOSE;
+		return -1;
 	}
 
 	/*
@@ -2375,7 +2382,7 @@ spin_chunks:
 		rem = (int)l;
 
 		if (n < 0)
-			return LWS_RX_CLOSE;
+			return -1;
 
 		if (n > 0)
 			/* that was the terminating chunk */
@@ -2416,7 +2423,7 @@ spin_chunks:
 					wsi->user_space, p, (unsigned int)n)) {
 				lwsl_wsi_info(wsi, "RECEIVE_CLIENT_HTTP_READ refused");
 
-				return LWS_RX_CLOSE;
+				return -1;
 			}
 		} else
 			lwsl_wsi_notice(wsi, "swallowed read (%d)", n);
@@ -2449,7 +2456,7 @@ completed:
 	if (lws_http_transaction_completed_client(wsi)) {
 		lwsl_wsi_info(wsi, "transaction completed says -1");
 
-		return LWS_RX_CLOSE;
+		return -1;
 	}
 
 	return consumed;

@@ -561,25 +561,25 @@ buflist_material:
  * Returns LWS_HPI_RET_HANDLED when the caller can carry on to its POLLOUT
  * side, with *nothing set when there was no rx for the role to act on (and
  * *consumed the count it took), or the usual PLEASE_CLOSE_ME /
- * WSI_ALREADY_DIED.
+ * WSI_ALREADY_DIED, or CLOSING when the role closed or restarted the wsi and
+ * it lives on: nothing more of this pass is to be done with it.
  */
 /* the peer closed its side: stop reading, tell the role */
 static lws_handling_result_t
 rx_pump_peer_closed(struct lws *wsi, int *nothing)
 {
-	int n;
+	lws_handling_result_t hr;
+	size_t used;
 
 	wsi->seen_zero_length_recv = 1;
 	if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
-	n = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx).rx(wsi, NULL, 0, 1);
-	if (n == LWS_RX_DIED)
-		return LWS_HPI_RET_WSI_ALREADY_DIED;
-	if (n == LWS_RX_CLOSE)
-		return LWS_HPI_RET_PLEASE_CLOSE_ME;
-	*nothing = 1;
+	hr = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx).rx(wsi, NULL, 0, 1,
+								&used);
+	if (hr == LWS_HPI_RET_HANDLED)
+		*nothing = 1;
 
-	return LWS_HPI_RET_HANDLED;
+	return hr;
 }
 
 lws_handling_result_t
@@ -594,7 +594,9 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 	 * length is clamped
 	 */
 	struct lws_tokens ebuf = { max ? pt->serv_buf + LWS_PRE : NULL, (int)max };
-	int buffered, n, sb;
+	lws_handling_result_t hr;
+	int buffered, sb;
+	size_t used;
 
 	*nothing = 0;
 	*consumed = 0;
@@ -654,9 +656,12 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 			 * connection error rather than a bare close, and then
 			 * the wsi is closed regardless of what it answered.
 			 */
-			if (rx_pump_peer_closed(wsi, nothing) ==
-						LWS_HPI_RET_WSI_ALREADY_DIED)
-				return LWS_HPI_RET_WSI_ALREADY_DIED;
+			lws_handling_result_t hr =
+					rx_pump_peer_closed(wsi, nothing);
+
+			if (hr == LWS_HPI_RET_WSI_ALREADY_DIED ||
+			    hr == LWS_HPI_RET_CLOSING)
+				return hr;
 
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
@@ -667,17 +672,19 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 
 	sb = lws_servbuf_claim(pt, ebuf.token, (size_t)ebuf.len, "rx pump");
-	n = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx).
-			rx(wsi, ebuf.token, (size_t)ebuf.len, !buffered);
+	hr = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx).
+			rx(wsi, ebuf.token, (size_t)ebuf.len, !buffered, &used);
 	lws_servbuf_release(pt, sb);
-	if (n == LWS_RX_DIED)
-		return LWS_HPI_RET_WSI_ALREADY_DIED;
-	if (n == LWS_RX_CLOSE)
+	if (hr != LWS_HPI_RET_HANDLED)
+		return hr;
+
+	/* a role taking more than it was given is broken */
+	if (used > (size_t)ebuf.len)
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
-	*consumed = n;
-	if (lws_buflist_aware_finished_consuming(wsi, &ebuf, n, buffered,
-						 __func__))
+	*consumed = (int)used;
+	if (lws_buflist_aware_finished_consuming(wsi, &ebuf, (int)used,
+						 buffered, __func__))
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 	return LWS_HPI_RET_HANDLED;
@@ -749,6 +756,7 @@ lws_handling_result_t
 lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 		  struct lws_pollfd *pollfd, int *nothing)
 {
+	lws_handling_result_t hr;
 	lws_sockaddr46 sa46;
 	socklen_t slen = sizeof(sa46);
 	uint8_t ecn = 0;
@@ -834,15 +842,11 @@ lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 #endif
 
 	sb = lws_servbuf_claim(pt, pt->serv_buf, (size_t)n, "rx dgram pump");
-	n = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx_dgram).
+	hr = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx_dgram).
 			rx_dgram(wsi, pt->serv_buf, (size_t)n, &sa46, ecn);
 	lws_servbuf_release(pt, sb);
-	if (n == LWS_RX_DIED)
-		return LWS_HPI_RET_WSI_ALREADY_DIED;
-	if (n == LWS_RX_CLOSE)
-		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
-	return LWS_HPI_RET_HANDLED;
+	return hr;
 }
 #endif
 
@@ -1033,6 +1037,7 @@ lws_rx_stage(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		switch (lws_rx_pump_dgram(pt, wsi, pollfd, &nothing)) {
 		case LWS_HPI_RET_WSI_ALREADY_DIED:
+		case LWS_HPI_RET_CLOSING:
 			return 1;
 		case LWS_HPI_RET_PLEASE_CLOSE_ME:
 			return -1;
@@ -1055,6 +1060,7 @@ lws_rx_stage(struct lws_context_per_thread *pt, struct lws *wsi,
 					    flags & LWS_RXPOL_RXP_MASK, max,
 					    &nothing, &consumed)) {
 			case LWS_HPI_RET_WSI_ALREADY_DIED:
+			case LWS_HPI_RET_CLOSING:
 				return 1;
 			case LWS_HPI_RET_PLEASE_CLOSE_ME:
 				return -1;
@@ -1103,13 +1109,16 @@ lws_rx_stage(struct lws_context_per_thread *pt, struct lws *wsi,
 	 * the role acts on what it holds
 	 */
 	if (in && lws_rops_fidx(wsi->role_ops, LWS_ROPS_rx_done)) {
-		int n = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx_done).
-								rx_done(wsi);
-
-		if (n == LWS_RX_DIED)
+		switch (lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_rx_done).
+								rx_done(wsi)) {
+		case LWS_HPI_RET_WSI_ALREADY_DIED:
+		case LWS_HPI_RET_CLOSING:
 			return 1;
-		if (n == LWS_RX_CLOSE)
+		case LWS_HPI_RET_PLEASE_CLOSE_ME:
 			return -1;
+		default:
+			break;
+		}
 	}
 
 	/*

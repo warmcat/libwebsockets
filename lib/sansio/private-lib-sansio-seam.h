@@ -130,12 +130,25 @@ lws_client_transport_start(struct lws *wsi)
 
 /*
  * the socks or CONNECT leg a client role ran over the raw transport is done,
- * the tunnel is up; IO carries on (tls, then transport up)
+ * the tunnel is up; IO carries on (tls, then transport up).
+ * LWS_HPI_RET_HANDLED, or when the connection could not go on: IO's close of
+ * it freed it (LWS_HPI_RET_WSI_ALREADY_DIED) or it lives on in its close
+ * (LWS_HPI_RET_CLOSING), or it is for the caller to close
+ * (LWS_HPI_RET_PLEASE_CLOSE_ME)
  */
-static LWS_INLINE int
+static LWS_INLINE lws_handling_result_t
 lws_client_transport_connected(struct lws *wsi)
 {
-	return wsi->a.context->io_ops->transport_connected(wsi);
+	switch (wsi->a.context->io_ops->transport_connected(wsi)) {
+	case 0:
+		return LWS_HPI_RET_HANDLED;
+	case 1:
+		return LWS_HPI_RET_WSI_ALREADY_DIED;
+	case 2:
+		return LWS_HPI_RET_CLOSING;
+	default:
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	}
 }
 
 /*

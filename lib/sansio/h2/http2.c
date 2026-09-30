@@ -550,7 +550,7 @@ bail1:
  * legitimizes it (transitions us to LRS_H2_WAITING_TO_SEND_HEADERS).  The
  * client_transport_up op.
  */
-int
+lws_handling_result_t
 lws_h2_client_transport_up(struct lws *wsi, const lws_sockaddr46 *peer)
 {
 	lwsl_wsi_info(wsi, "doing h2 hello path");
@@ -558,13 +558,13 @@ lws_h2_client_transport_up(struct lws *wsi, const lws_sockaddr46 *peer)
 	if (lws_h2_issue_preface(wsi)) {
 		lwsl_wsi_info(wsi, "error sending h2 preface");
 
-		return -1;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
 	lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
 			(int)wsi->a.context->timeout_secs);
 
-	return 0;
+	return LWS_HPI_RET_HANDLED;
 }
 #endif
 
@@ -2484,7 +2484,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		}
 
 		if (h2n->swsi->client_mux_substream &&
-		    lws_client_interpret_server_handshake(h2n->swsi)) {
+		    lws_client_interpret_server_handshake(h2n->swsi) !=
+							LWS_HPI_RET_HANDLED) {
 			/*
 			 * This is more complicated than it looks, one exit from
 			 * interpret_server_handshake() is to do a close that
@@ -4234,9 +4235,8 @@ lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			body_chunk_len = len;
 
 		if (m && m != 2) {
+			/* the connection is finished with: the caller closes it */
 			lwsl_debug("%s: http2_parser bail: %d\n", __func__, m);
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
-					   "lws_read_h2 bail");
 
 			return -1;
 		}

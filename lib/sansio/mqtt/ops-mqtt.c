@@ -30,21 +30,22 @@
  * client awaits its CONNACK is reported to the user as a connection
  * failure; any other failure closes.  len 0 is the peer closing.
  */
-static int
+static lws_handling_result_t
 rops_rx_mqtt(struct lws *wsi, const uint8_t *buf, size_t len,
-	     int from_transport)
+	     int from_transport, size_t *used)
 {
 	(void)from_transport;
+	*used = 0;
 
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SOCKS5)
 	if (lwsi_in_socks5_leg(wsi))
-		return lws_mqtt_client_socks_rx(wsi, buf, len);
+		return lws_mqtt_client_socks_rx(wsi, buf, len, used);
 #endif
 
 	if (!len) {
 		lwsl_wsi_info(wsi, "zero length read");
 
-		return LWS_RX_CLOSE;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
 	if (lws_read_mqtt(wsi, (unsigned char *)buf, len) < 0) {
@@ -55,10 +56,12 @@ rops_rx_mqtt(struct lws *wsi, const uint8_t *buf, size_t len,
 #endif
 		lwsl_wsi_notice(wsi, "lws_read_mqtt failed");
 
-		return LWS_RX_CLOSE;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
-	return (int)len;
+	*used = len;
+
+	return LWS_HPI_RET_HANDLED;
 }
 
 /*
@@ -85,13 +88,13 @@ rops_rx_policy_mqtt(struct lws *wsi, int *flags, size_t *max)
 }
 
 /* the pass's reading is done: nothing parked means a pending rx flow change can go */
-static int
+static lws_handling_result_t
 rops_rx_done_mqtt(struct lws *wsi)
 {
 	if (!lws_buflist_next_segment_len(&wsi->buflist, NULL))
 		__lws_rx_flow_control(wsi);
 
-	return 0;
+	return LWS_HPI_RET_HANDLED;
 }
 #if 0 /* defined(LWS_WITH_SERVER) */
 
@@ -563,7 +566,7 @@ rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 }
 
 #if defined(LWS_WITH_CLIENT)
-static int
+static lws_handling_result_t
 rops_client_transport_up_mqtt(struct lws *wsi, const lws_sockaddr46 *peer)
 {
 	int n;
@@ -575,15 +578,15 @@ rops_client_transport_up_mqtt(struct lws *wsi, const lws_sockaddr46 *peer)
 			(enum lws_callback_reasons)wsi->role_ops->adoption_cb[0],
 			wsi->user_space, NULL, 0);
 	if (n < 0)
-		return -1;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 	/* IO's connect and tls are done: the CONNECT is due */
 	lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
-	/* get the CONNECT out now rather than next time round the loop */
 	lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
 			(int)wsi->a.context->timeout_secs);
+	lws_callback_on_writable(wsi);
 
-	return lws_service_wsi_as_writable(wsi);
+	return LWS_HPI_RET_HANDLED;
 }
 #endif
 

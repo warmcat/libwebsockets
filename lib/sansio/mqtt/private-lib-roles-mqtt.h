@@ -439,10 +439,11 @@ int
 _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 		    const uint8_t *buf, size_t len);
 
-int
+lws_handling_result_t
 lws_mqtt_client_connack_failed(struct lws *wsi);
-int
-lws_mqtt_client_socks_rx(struct lws *wsi, const uint8_t *buf, size_t len);
+lws_handling_result_t
+lws_mqtt_client_socks_rx(struct lws *wsi, const uint8_t *buf, size_t len,
+			 size_t *used);
 
 int
 lws_create_client_mqtt_object(const struct lws_client_connect_info *i,

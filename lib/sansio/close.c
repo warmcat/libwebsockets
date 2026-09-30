@@ -422,10 +422,17 @@ lws_async_worker_wait_and_reap(struct lws *wsi)
 
 /* requires cx and pt lock */
 
-void
+/*
+ * Returns LWS_HPI_RET_WSI_ALREADY_DIED when the wsi was freed, or
+ * LWS_HPI_RET_CLOSING when it lives on in its close: flushing, a polite ws
+ * close, a staged shutdown, an event library finishing it later, a restart,
+ * or a close an outer stack frame is already making
+ */
+lws_handling_result_t
 __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		     const char *caller)
 {
+	lws_handling_result_t hr;
 	int est_at_entry;
 	struct lws_context_per_thread *pt;
 	const struct lws_protocols *pro;
@@ -438,7 +445,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	int n, ccb, owed;
 
 	if (!wsi)
-		return;
+		return LWS_HPI_RET_WSI_ALREADY_DIED;
 
 	lwsl_wsi_info(wsi, "caller: %s", caller);
 
@@ -454,7 +461,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		 * The generic child-close loop below relies on this bail to
 		 * detect and break re-entrant closes.
 		 */
-		return;
+		return LWS_HPI_RET_CLOSING;
 
 	lws_access_log(wsi);
 
@@ -575,7 +582,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #endif
 
 	if (lwsi_close(wsi) >= LCS_DEAD_SOCKET)
-		return;
+		return LWS_HPI_RET_CLOSING;
 
 	if (lwsi_skt_unusable(wsi) ||
 	    reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY ||
@@ -597,7 +604,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #endif
 		 ) {
 			lws_callback_on_writable(wsi);
-			return;
+			return LWS_HPI_RET_CLOSING;
 		}
 		lwsl_wsi_info(wsi, " end LRS_FLUSHING_BEFORE_CLOSE");
 		goto just_kill_connection;
@@ -612,7 +619,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 			lws_wsi_event(wsi, LWS_WSIEV_CLOSE_FLUSH);
 			__lws_set_timeout(wsi,
 				PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE, 5);
-			return;
+			return LWS_HPI_RET_CLOSING;
 		}
 		break;
 	}
@@ -647,7 +654,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	    lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_via_role_protocol).
 					 close_via_role_protocol(wsi, reason)) {
 		lwsl_wsi_info(wsi, "close_via_role took over");
-		return;
+		return LWS_HPI_RET_CLOSING;
 	}
 
 just_kill_connection:
@@ -759,7 +766,7 @@ just_kill_connection:
 			__lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
 					  (int)context->timeout_secs);
 
-			return;
+			return LWS_HPI_RET_CLOSING;
 		}
 #endif
 	}
@@ -953,9 +960,9 @@ async_close:
 
 	if (wsi->a.context->event_loop_ops->wsi_logical_close)
 		if (wsi->a.context->event_loop_ops->wsi_logical_close(wsi))
-			return;
+			return LWS_HPI_RET_CLOSING;
 
-	__lws_close_free_wsi_final(wsi);
+	hr = _lws_close_free_wsi_final(wsi);
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 	if (hh && hh->ss_dangling_connected &&
@@ -969,13 +976,19 @@ async_close:
 			lws_ss_destroy(&hh);
 	}
 #endif
+
+	return hr;
 }
 
 
 /* cx + vh lock */
 
-void
-__lws_close_free_wsi_final(struct lws *wsi)
+/*
+ * Returns LWS_HPI_RET_WSI_ALREADY_DIED when the wsi was freed, or
+ * LWS_HPI_RET_CLOSING when it was picked up by a restart and lives on
+ */
+lws_handling_result_t
+_lws_close_free_wsi_final(struct lws *wsi)
 {
 
 #if defined(LWS_WITH_ASYNC_QUEUE)
@@ -1053,10 +1066,10 @@ __lws_close_free_wsi_final(struct lws *wsi)
 			break;
 		case LWS_AH_ATTACH_WSI_GONE:
 			/* do not touch wsi */
-			return;
+			return LWS_HPI_RET_CLOSING;
 		default:
 			lwsl_wsi_err(wsi, "failed to get ah");
-			return;
+			return LWS_HPI_RET_CLOSING;
 		}
 //		}
 		//_lws_header_table_reset(wsi->stream.ah);
@@ -1065,7 +1078,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 		lws_client_transport_rebind(wsi);
 #endif
 
-		return;
+		return LWS_HPI_RET_CLOSING;
 	}
 #endif
 
@@ -1084,23 +1097,46 @@ __lws_close_free_wsi_final(struct lws *wsi)
 
 	__lws_wsi_remove_from_sul(wsi);
 	__lws_free_wsi(wsi);
+
+	return LWS_HPI_RET_WSI_ALREADY_DIED;
+}
+
+void
+__lws_close_free_wsi_final(struct lws *wsi)
+{
+	(void)_lws_close_free_wsi_final(wsi);
 }
 
 
-void
-lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *caller)
+/*
+ * As lws_close_free_wsi(), saying whether the wsi was freed
+ * (LWS_HPI_RET_WSI_ALREADY_DIED) or lives on in its close
+ * (LWS_HPI_RET_CLOSING)
+ */
+lws_handling_result_t
+_lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
+		    const char *caller)
 {
 	struct lws_context *cx = wsi->a.context;
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	lws_handling_result_t hr;
 
 	lws_context_lock(cx, __func__);
 
 	lws_pt_lock(pt, __func__);
 	/* may destroy vhost, cannot hold vhost lock outside it */
-	__lws_close_free_wsi(wsi, reason, caller);
+	hr = __lws_close_free_wsi(wsi, reason, caller);
 	lws_pt_unlock(pt);
 
 	lws_context_unlock(cx);
+
+	return hr;
+}
+
+void
+lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *caller)
+{
+	(void)_lws_close_free_wsi(wsi, reason, caller);
 }
 
 

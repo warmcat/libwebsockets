@@ -48,10 +48,22 @@ lws_client_is_quic(struct lws *wsi)
 #endif
 
 /*
+ * The client wsi's connection could not go on, and was closed: 1 when the
+ * close freed it, 2 when it lives on in its close (a restart, a staged
+ * close).  Either way it is not to be touched further in this pass.
+ */
+static int
+lws_client_transport_closed(lws_handling_result_t hr)
+{
+	return hr == LWS_HPI_RET_WSI_ALREADY_DIED ? 1 : 2;
+}
+
+/*
  * The transport the role asked for is up.  A role that starts its own
  * protocol from here says so with client_transport_up; otherwise the user
  * hears the connection exists and the role's state machine takes it from
- * there.  Returns 0, or 1 when the wsi is closed and freed.
+ * there.  Returns 0, or what lws_client_transport_closed() says when the
+ * connection could not go on.
  */
 static int
 lws_client_transport_up(struct lws *wsi)
@@ -71,15 +83,21 @@ lws_client_transport_up(struct lws *wsi)
 #endif
 
 	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_client_transport_up)) {
-		n = lws_rops_func_fidx(wsi->role_ops,
+		lws_handling_result_t hr = lws_rops_func_fidx(wsi->role_ops,
 				       LWS_ROPS_client_transport_up).
 					client_transport_up(wsi, peer);
-		if (n < 0) {
+
+		switch (hr) {
+		case LWS_HPI_RET_HANDLED:
+			return 0;
+		case LWS_HPI_RET_WSI_ALREADY_DIED:
+		case LWS_HPI_RET_CLOSING:
+			/* the role closed it itself */
+			return lws_client_transport_closed(hr);
+		default:
 			cce = "role transport up failed";
 			goto failed;
 		}
-
-		return !!n; /* 1: the role closed it already */
 	}
 
 	/* clear his established timeout */
@@ -108,16 +126,17 @@ lws_client_transport_up(struct lws *wsi)
 
 failed:
 	lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "client transport up");
 
-	return 1;
+	return lws_client_transport_closed(_lws_close_free_wsi(wsi,
+			LWS_CLOSE_STATUS_NOSTATUS, "client transport up"));
 }
 
 /*
  * The socket is connected to the peer, or to the proxy and the tunnel through
  * it is up: start tls if the connection asked for it, else the transport is
  * up now.  Returns 0 (the transport is up, or its tls handshake is under way
- * and the transport stage finishes it), or 1 when the wsi is closed and freed.
+ * and the transport stage finishes it), or what lws_client_transport_closed()
+ * says when the connection could not go on.
  */
 int
 lws_client_transport_connected(struct lws *wsi)
@@ -153,10 +172,10 @@ lws_client_transport_connected(struct lws *wsi)
 		default:
 			lws_inform_client_conn_fail(wsi, (void *)cce,
 						    strlen(cce));
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
-					   "client create tls");
 
-			return 1;
+			return lws_client_transport_closed(_lws_close_free_wsi(
+					wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					"client create tls"));
 		}
 	}
 #endif

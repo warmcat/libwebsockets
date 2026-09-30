@@ -29,7 +29,7 @@
  * The client's transport is up (IO's connect and tls are done): the user
  * hears the connection exists.  The client_transport_up op.
  */
-static int
+static lws_handling_result_t
 rops_client_transport_up_raw_skt(struct lws *wsi, const lws_sockaddr46 *peer)
 {
 	/* whether the user has already been told: TRANSPORT_UP below tells */
@@ -44,15 +44,15 @@ rops_client_transport_up_raw_skt(struct lws *wsi, const lws_sockaddr46 *peer)
 	lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 
 	if (told)
-		return 0;
+		return LWS_HPI_RET_HANDLED;
 
 	n = user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 			wsi->role_ops->adoption_cb[lwsi_role_server(wsi)],
 			wsi->user_space, NULL, 0);
 	if (n)
-		return -1;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
-	return 0;
+	return LWS_HPI_RET_HANDLED;
 }
 #endif
 
@@ -60,51 +60,54 @@ rops_client_transport_up_raw_skt(struct lws *wsi, const lws_sockaddr46 *peer)
  * sansIO rx for a raw socket: every byte goes to the user as RAW_RX, so
  * everything is consumed.  len 0 is the peer closing.
  */
-static int
+static lws_handling_result_t
 rops_rx_raw_skt(struct lws *wsi, const uint8_t *buf, size_t len,
-		int from_transport)
+		int from_transport, size_t *used)
 {
 	int n;
 
 	(void)from_transport;
+	*used = 0;
 
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SOCKS5)
 	if (lwsi_in_socks5_leg(wsi)) {
 		const char *cce = NULL;
-		size_t used;
+		lws_handling_result_t hr;
 
-		switch (lws_socks5c_rx(wsi, buf, len, &cce, &used)) {
+		switch (lws_socks5c_rx(wsi, buf, len, &cce, used)) {
 		case LW5CHS_RET_BAIL3:
 			lws_inform_client_conn_fail(wsi, (void *)cce,
 						    strlen(cce));
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
-					   "raw skt socks fail");
 
-			return LWS_RX_DIED;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		case LW5CHS_RET_STARTHS:
 			/*
 			 * The socks leg is done: IO finishes the connection
 			 * the way a direct one finishes, tls first if that was
 			 * asked for
 			 */
-			if (lws_client_transport_connected(wsi))
-				return LWS_RX_DIED;
+			hr = lws_client_transport_connected(wsi);
+			if (hr != LWS_HPI_RET_HANDLED)
+				return hr;
 			break;
 		default:
 			break;
 		}
 
 		/* what followed the reply is the peer's: left for us as raw */
-		return (int)used;
+		return LWS_HPI_RET_HANDLED;
 	}
 #endif
 
 	if (!len)
-		return LWS_RX_CLOSE;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 #if defined(LWS_WITH_UDP)
-	if (lws_fi(&wsi->fic, "udp_rx_loss"))
-		return (int)len;
+	if (lws_fi(&wsi->fic, "udp_rx_loss")) {
+		*used = len;
+
+		return LWS_HPI_RET_HANDLED;
+	}
 #endif
 
 	n = user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
@@ -113,10 +116,12 @@ rops_rx_raw_skt(struct lws *wsi, const uint8_t *buf, size_t len,
 	if (n < 0) {
 		lwsl_wsi_info(wsi, "LWS_CALLBACK_RAW_RX_fail");
 
-		return LWS_RX_CLOSE;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
-	return (int)len;
+	*used = len;
+
+	return LWS_HPI_RET_HANDLED;
 }
 
 /*

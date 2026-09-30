@@ -205,13 +205,13 @@ oom:
 
 /*
  * The CONNACK did not come, or said no: tell the user why, as a connection
- * failure, and close.  The parser may have replaced or removed wsi->mqtt on
+ * failure; the caller closes.  The parser may have replaced or removed wsi->mqtt on
  * its way out: at CONNACK the struct holding the client id is handed to the
  * new sid 1 child and we get a fresh, zeroed one instead (or, if that
  * allocation failed, none at all).  So neither wsi->mqtt nor c->id may be
  * assumed here.
  */
-int
+lws_handling_result_t
 lws_mqtt_client_connack_failed(struct lws *wsi)
 {
 	int n;
@@ -241,9 +241,8 @@ lws_mqtt_client_connack_failed(struct lws *wsi)
 	}
 
 	lws_inform_client_conn_fail(wsi, (void *)msg, (size_t)n);
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, __func__);
 
-	return LWS_RX_DIED;
+	return LWS_HPI_RET_PLEASE_CLOSE_ME;
 }
 
 #if defined(LWS_WITH_SOCKS5)
@@ -252,13 +251,14 @@ lws_mqtt_client_connack_failed(struct lws *wsi)
  * the connection goes on as a direct one does: tls first if that was asked
  * for, else the transport is up and the CONNECT is due.
  */
-int
-lws_mqtt_client_socks_rx(struct lws *wsi, const uint8_t *buf, size_t len)
+lws_handling_result_t
+lws_mqtt_client_socks_rx(struct lws *wsi, const uint8_t *buf, size_t len,
+			 size_t *used)
 {
+	lws_handling_result_t hr;
 	const char *cce = NULL;
-	size_t used;
 
-	switch (lws_socks5c_rx(wsi, buf, len, &cce, &used)) {
+	switch (lws_socks5c_rx(wsi, buf, len, &cce, used)) {
 	case LW5CHS_RET_BAIL3:
 		goto bail;
 	case LW5CHS_RET_STARTHS:
@@ -266,22 +266,22 @@ lws_mqtt_client_socks_rx(struct lws *wsi, const uint8_t *buf, size_t len)
 		 * The tunnel is up: IO goes on from here as for a direct
 		 * connection (tls if asked for, then our transport_up)
 		 */
-		if (lws_client_transport_connected(wsi))
-			return LWS_RX_DIED;
+		hr = lws_client_transport_connected(wsi);
+		if (hr != LWS_HPI_RET_HANDLED)
+			return hr;
 		break;
 	default:
 		break;
 	}
 
 	/* what followed the reply is the broker's, left for the protocol */
-	return (int)used;
+	return LWS_HPI_RET_HANDLED;
 
 bail:
 	lwsl_wsi_info(wsi, "socks leg failed: %s", cce);
 	lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cbail3");
 
-	return LWS_RX_DIED;
+	return LWS_HPI_RET_PLEASE_CLOSE_ME;
 }
 #endif
 

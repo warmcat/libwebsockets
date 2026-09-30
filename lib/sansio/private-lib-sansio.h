@@ -513,9 +513,12 @@ typedef enum lws_handling_result {
 	LWS_HP_RET_USER_SERVICE,
 	LWS_HP_RET_DROP_POLLOUT,
 
-	LWS_HPI_RET_WSI_ALREADY_DIED,	/* we closed it */
+	LWS_HPI_RET_WSI_ALREADY_DIED,	/* it was freed: do not touch it */
 	LWS_HPI_RET_HANDLED,		/* no probs */
 	LWS_HPI_RET_PLEASE_CLOSE_ME,	/* close it for us */
+	LWS_HPI_RET_CLOSING,		/* its close, or a restart, is under
+					 * way: it lives, but nothing more of
+					 * this pass is to be done with it */
 
 	LWS_UPG_RET_DONE,
 	LWS_UPG_RET_CONTINUE,
@@ -618,38 +621,43 @@ typedef int (*lws_rops_issue_keepalive_t)(struct lws *wsi, int isvalid);
  * its protocol from here.  A role without this op gets the default: its
  * adoption callback to the user and TRANSPORT_UP.  peer is the address the
  * transport reached (the proxy's, when it went through one).
- * ret 0 = ok, -1 = failed, the caller closes the wsi; 1 = the role already
- * closed the wsi
+ * Returns LWS_HPI_RET_HANDLED, LWS_HPI_RET_PLEASE_CLOSE_ME for the caller to
+ * close the wsi, or what the role's own close of it said (see rx)
  */
-typedef int (*lws_rops_client_transport_up_t)(struct lws *wsi,
-					      const lws_sockaddr46 *peer);
+typedef lws_handling_result_t (*lws_rops_client_transport_up_t)(
+				struct lws *wsi, const lws_sockaddr46 *peer);
 /*
  * sansIO rx: bytes for this wsi.  Either what the transport just delivered
  * (from_transport) or the parked remainder of an earlier delivery being
  * offered again.  len 0 with from_transport: the peer closed its side.
- * Returns how many bytes were consumed; the rest is parked and offered
- * again when the wsi can take it.  LWS_RX_CLOSE asks IO to close the wsi,
- * LWS_RX_DIED says the role closed it already: do not touch it.
+ *
+ * Returns LWS_HPI_RET_HANDLED with *used set to how many bytes were taken:
+ * the rest is parked and offered again when the wsi can take it.
+ * LWS_HPI_RET_PLEASE_CLOSE_ME asks IO to close the wsi.  A role that closed
+ * the wsi itself returns what the close said: LWS_HPI_RET_WSI_ALREADY_DIED,
+ * it was freed, do not touch it; or LWS_HPI_RET_CLOSING, it lives on in its
+ * close or in a restart, and nothing more of the pass is to be done with
+ * it.  *used is only looked at with LWS_HPI_RET_HANDLED.
  */
-#define LWS_RX_DIED	(-1)
-#define LWS_RX_CLOSE	(-2)
 /*
  * sansIO tx of a content source (README.sans-io-split.md, "A content
  * source's tx"): bytes produced, 0 when finished, or one of these
  */
 #define LWS_TX_FAIL	(-1)	/* the source failed and cleaned up */
 #define LWS_TX_WAIT	(-2)	/* nothing now; want_write asked for later */
-typedef int (*lws_rops_rx_t)(struct lws *wsi, const uint8_t *buf, size_t len,
-			     int from_transport);
+typedef lws_handling_result_t (*lws_rops_rx_t)(struct lws *wsi,
+		const uint8_t *buf, size_t len, int from_transport,
+		size_t *used);
 /*
  * sansIO rx, datagram spelling: one datagram for this wsi, from peer, with
  * the ECN bits it arrived with (0 where the transport does not report them).
  * peer is in the socket's family.  The datagram is taken whole and the buffer
  * is the role's to work in for the duration of the call; nothing is parked.
- * Returns 0, or LWS_RX_CLOSE / LWS_RX_DIED as rx does.
+ * Returns what rx does, but for *used.
  */
-typedef int (*lws_rops_rx_dgram_t)(struct lws *wsi, uint8_t *buf, size_t len,
-				   const lws_sockaddr46 *peer, uint8_t ecn);
+typedef lws_handling_result_t (*lws_rops_rx_dgram_t)(struct lws *wsi,
+		uint8_t *buf, size_t len, const lws_sockaddr46 *peer,
+		uint8_t ecn);
 /*
  * sansIO tx (README.sans-io-split.md, "Sending is a pull"): the transport
  * wsi owns can take bytes.  Produce the next of them into buf, at most max.
@@ -701,10 +709,9 @@ typedef int (*lws_rops_rx_policy_t)(struct lws *wsi, int *flags, size_t *max);
  * the transport was readable.  The role acts on what it holds now: an h1
  * client interprets the response headers it just completed, or tells the
  * app a body is there to pull; a role that parked rx re-arms its reading
- * once the parked bytes are gone.  Returns 0, or LWS_RX_CLOSE / LWS_RX_DIED
- * as rx does.
+ * once the parked bytes are gone.  Returns what rx does, but for *used.
  */
-typedef int (*lws_rops_rx_done_t)(struct lws *wsi);
+typedef lws_handling_result_t (*lws_rops_rx_done_t)(struct lws *wsi);
 /*
  * IO has sent everything it had buffered for the wsi's transport: the role
  * acts on what was waiting for its output to be gone, a transaction

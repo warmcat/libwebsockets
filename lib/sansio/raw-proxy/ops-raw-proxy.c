@@ -29,16 +29,17 @@
  * side's RAW_PROXY_*_RX, so everything is consumed.  len 0 is the peer
  * closing.
  */
-static int
+static lws_handling_result_t
 rops_rx_raw_proxy(struct lws *wsi, const uint8_t *buf, size_t len,
-		  int from_transport)
+		  int from_transport, size_t *used)
 {
 	int n;
 
 	(void)from_transport;
+	*used = 0;
 
 	if (!len)
-		return LWS_RX_CLOSE;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 	n = user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 					lwsi_role_client(wsi) ?
@@ -48,10 +49,12 @@ rops_rx_raw_proxy(struct lws *wsi, const uint8_t *buf, size_t len,
 	if (n < 0) {
 		lwsl_info("LWS_CALLBACK_RAW_PROXY_*_RX fail\n");
 
-		return LWS_RX_CLOSE;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
-	return (int)len;
+	*used = len;
+
+	return LWS_HPI_RET_HANDLED;
 }
 
 /* as raw-skt: hold behind a partial, not during the transport phases */

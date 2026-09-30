@@ -1462,7 +1462,9 @@ lws_wsi_fault_timedclose(struct lws *wsi);
 
 void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status, const char *caller);
-void
+lws_handling_result_t
+_lws_close_free_wsi(struct lws *wsi, enum lws_close_status, const char *caller);
+lws_handling_result_t
 __lws_close_free_wsi(struct lws *wsi, enum lws_close_status, const char *caller);
 
 void
@@ -1513,7 +1515,7 @@ lws_pt_stats_unlock(struct lws_context_per_thread *pt)
 #define lws_context_init_extensions(_a, _b)
 #endif
 
-int LWS_WARN_UNUSED_RESULT
+lws_handling_result_t LWS_WARN_UNUSED_RESULT
 lws_client_interpret_server_handshake(struct lws *wsi);
 
 lws_handling_result_t LWS_WARN_UNUSED_RESULT
@@ -1857,6 +1859,8 @@ lws_http_action(struct lws *wsi);
 
 void
 __lws_close_free_wsi_final(struct lws *wsi);
+lws_handling_result_t
+_lws_close_free_wsi_final(struct lws *wsi);
 
 #if defined(LWS_WITH_EVLIB_PLUGINS) || defined(LWS_WITH_PLUGINS) || \
     defined(LWS_WITH_PLUGINS_API)
@@ -1960,9 +1964,9 @@ lws_client_hdr_append_room_bad(struct lws *wsi, unsigned char **p, size_t len);
 #if defined(LWS_WITH_CLIENT)
 int
 lws_h1_client_body_rx(struct lws *wsi, uint8_t *buf, size_t len);
-int
+lws_handling_result_t
 lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
-		 int from_transport);
+		 int from_transport, size_t *used);
 
 void
 lws_client_alt_svc_learn(struct lws *wsi);

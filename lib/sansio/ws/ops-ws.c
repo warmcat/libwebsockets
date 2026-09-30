@@ -1096,17 +1096,19 @@ lws_close_reason(struct lws *wsi, enum lws_close_status status,
  * sansIO rx for a ws connection: the h1 (ws) or h2 parser takes what it can,
  * extensions included, and says how much.  len 0 is the peer closing.
  */
-static int
-rops_rx_ws(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
+static lws_handling_result_t
+rops_rx_ws(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport,
+	   size_t *used)
 {
 	int n;
 
 	(void)from_transport;
+	*used = 0;
 
 	if (!len) {
 		lwsl_wsi_info(wsi, "zero length read");
 
-		return LWS_RX_CLOSE;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
 	{
@@ -1121,7 +1123,7 @@ rops_rx_ws(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 		else
 #endif
 			n = lws_read_h1(wsi, (unsigned char *)buf,
-					(unsigned int)len, 0);
+					(unsigned int)len, 1);
 #if defined(LWS_WITH_LATENCY)
 		{
 			unsigned int ms = (unsigned int)((lws_now_usecs() -
@@ -1133,8 +1135,8 @@ rops_rx_ws(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 		}
 #endif
 	}
-	if (n < 0) /* we closed wsi */
-		return LWS_RX_DIED;
+	if (n < 0) /* the read failed: IO closes it */
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 	/*
 	 * Bytes taken as ws: the handshake's header table is done with.  A
@@ -1146,7 +1148,9 @@ rops_rx_ws(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 		lws_header_table_detach(wsi, 0);
 	}
 
-	return n;
+	*used = (size_t)n;
+
+	return LWS_HPI_RET_HANDLED;
 }
 
 /*
@@ -1497,7 +1501,7 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 }
 
 /* the pass's reading is done: nothing parked means a pending rx flow change can go */
-static int
+static lws_handling_result_t
 rops_rx_done_ws(struct lws *wsi)
 {
 	if (!lws_buflist_next_segment_len(&wsi->buflist, NULL))
@@ -1507,7 +1511,7 @@ rops_rx_done_ws(struct lws *wsi)
 		 */
 		__lws_rx_flow_control(wsi);
 
-	return 0;
+	return LWS_HPI_RET_HANDLED;
 }
 
 static int

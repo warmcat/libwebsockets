@@ -911,7 +911,7 @@ lws_quic_replies_destroy(struct lws *lwsi)
  * parsed.  wsi is the socket's wsi: on a server the listening one, where the
  * packet's DCID finds the connection it belongs to.
  */
-static int
+static lws_handling_result_t
 rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		   const lws_sockaddr46 *peer, uint8_t ecn)
 {
@@ -923,7 +923,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 	struct lws_quic_cid dcid, scid;
 
 	if (n < 2)
-		return 0;
+		return LWS_HPI_RET_HANDLED;
 
 	p = buf;
 
@@ -934,7 +934,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		dcid_len = p[5];
 		if (dcid_len > LWS_QUIC_MAX_CID_LEN || n < 6 + dcid_len) {
 			lwsl_wsi_notice(wsi, "QUIC RX: Invalid DCID length");
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 		}
 
 		dcid.len = dcid_len;
@@ -943,13 +943,13 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		int scid_pos = 6 + dcid_len;
 		if (n < scid_pos + 1) {
 			lwsl_wsi_notice(wsi, "QUIC RX: Truncated before SCID");
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 		}
 
 		scid_len = p[scid_pos];
 		if (scid_len > LWS_QUIC_MAX_CID_LEN || n < scid_pos + 1 + scid_len) {
 			lwsl_wsi_notice(wsi, "QUIC RX: Invalid SCID length");
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 		}
 
 		scid.len = scid_len;
@@ -958,7 +958,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		dcid_len = 8;
 		if (n < 1 + dcid_len) {
 			lwsl_wsi_notice(wsi, "QUIC RX: dropping, short header too short");
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 		}
 
 		dcid.len = dcid_len;
@@ -1017,7 +1017,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 	if (!nwsi) {
 		if (!(p[0] & 0x80) || ((p[0] & 0x30) >> 4) != 0) {
 			// lwsl_wsi_notice(wsi, "QUIC RX: Unknown DCID and not Initial, dropping");
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 		}
 
 		uint32_t pkt_version = ((uint32_t)p[1] << 24) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 8) | p[4];
@@ -1032,7 +1032,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 			 * one-liner makes us a reflector
 			 */
 			if (orig_n < 1200)
-				return 0;
+				return LWS_HPI_RET_HANDLED;
 
 			lwsl_wsi_notice(wsi, "QUIC RX: Unsupported version 0x%08X, sending VN packet", pkt_version);
 			uint8_t *vp = vn;
@@ -1050,13 +1050,13 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 			*vp++ = (uint8_t)(LWS_QUIC_VERSION_2 >> 8); *vp++ = (uint8_t)(LWS_QUIC_VERSION_2);
 
 			lws_quic_queue_reply(wsi, vn, (size_t)(vp - vn), &sa46);
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 		}
 
 		/* Enforce 1200-byte padding for client-to-server Initial packets (RFC 9000 Section 14.1) */
 		if (n < 1200) {
 			lwsl_wsi_notice(wsi, "QUIC RX: Dropping under-padded Initial packet (len %d)", n);
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 		}
 
 		struct lws_quic_cid valid_retry_scid;
@@ -1066,7 +1066,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 			size_t t_off = (size_t)scid_pos_tmp + 1 + scid.len;
 			uint64_t t_len = 0;
 			size_t t_cons = lws_quic_parse_varint(&p[t_off], (size_t)n - t_off, &t_len);
-			if (!t_cons) return 0;
+			if (!t_cons) return LWS_HPI_RET_HANDLED;
 
 			uint8_t peer_ip[16] = {0};
 			size_t peer_ip_len = 0;
@@ -1090,7 +1090,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 				if (scid.len) { memcpy(rp, scid.id, scid.len); rp += scid.len; }
 				struct lws_quic_cid retry_scid;
 				retry_scid.len = 8;
-				if (lws_get_random(wsi->a.context, retry_scid.id, 8) != 8) return 0;
+				if (lws_get_random(wsi->a.context, retry_scid.id, 8) != 8) return LWS_HPI_RET_HANDLED;
 				*rp++ = retry_scid.len;
 				memcpy(rp, retry_scid.id, retry_scid.len); rp += retry_scid.len;
 				size_t tok_out_len = 0;
@@ -1103,12 +1103,12 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 						lws_quic_queue_reply(wsi, retry_pkt, (size_t)(rp - retry_pkt), &sa46);
 					}
 				}
-				return 0;
+				return LWS_HPI_RET_HANDLED;
 
 			} else {
 				if (lws_quic_validate_retry_token(wsi, &p[t_off + t_cons], (size_t)t_len, peer_ip, peer_ip_len, &dcid, &valid_retry_scid)) {
 					lwsl_wsi_notice(wsi, "QUIC RX: Invalid Retry Token, dropping Initial packet");
-					return 0;
+					return LWS_HPI_RET_HANDLED;
 				}
 			}
 		}
@@ -1117,7 +1117,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		nwsi = lws_create_new_server_wsi(wsi->a.vhost, wsi->tsi, 0, "quic child");
 		if (!nwsi) {
 			lwsl_wsi_notice(wsi, "QUIC RX: failed to create server wsi");
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 		}
 
 		lws_wsi_event_role(nwsi, LWS_WSIEV_ADOPTED_TLS, &role_ops_quic);
@@ -1125,7 +1125,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		nwsi->quic.qn = lws_zalloc(sizeof(*nwsi->quic.qn), "quic_netconn");
 		if (!nwsi->quic.qn) {
 			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "oom");
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 		}
 
 		nwsi->quic.qn->nwsi = nwsi;
@@ -1169,7 +1169,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		nwsi->use_ssl = (unsigned int)wsi->a.vhost->tls.use_ssl;
 		if (lws_tls_quic_session(nwsi, quic_secret_cb)) {
 			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "ssl fail");
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 		}
 #endif
 
@@ -1185,7 +1185,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 		nwsi->quic.qn->loc_cid.len = 8;
 		if (lws_get_random(wsi->a.context, nwsi->quic.qn->loc_cid.id, 8) != 8) {
 			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "random fail");
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 		}
 
 		{
@@ -1201,7 +1201,7 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 				lwsl_wsi_err(wsi, "OOM allocating tp scratch buffer");
 				lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS,
 						   "tp scratch oom");
-				return 0;
+				return LWS_HPI_RET_HANDLED;
 			}
 			uint8_t *tp = local_tp_buf;
 			uint8_t *tp_end = tp + 4096;
@@ -1379,7 +1379,7 @@ tp_overflow:
 			lws_free(local_tp_buf);
 			lwsl_wsi_err(wsi, "QUIC TX: tp buffer overflow");
 			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "tp overflow");
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 tp_ok:
 			;
 #undef LWS_QUIC_WRITE_TP_VARINT
@@ -1395,7 +1395,7 @@ tp_ok:
 		if (lws_quic_derive_initial_keys(nwsi, &dcid)) {
 			lwsl_wsi_err(wsi, "QUIC RX: Initial key derivation failed");
 			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "keys failed");
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 		}
 
 		/*
@@ -1415,7 +1415,7 @@ tp_ok:
 #else
 	if (!nwsi) {
 		lwsl_wsi_notice(wsi, "QUIC RX: Unknown DCID and no server support, dropping");
-		return 0;
+		return LWS_HPI_RET_HANDLED;
 	}
 #endif
 
@@ -1719,7 +1719,7 @@ tp_ok:
 					 */
 					if (nwsi != wsi)
 						goto next_packet;
-					return LWS_RX_CLOSE;
+					return LWS_HPI_RET_PLEASE_CLOSE_ME;
 				}
 			}
 
@@ -1742,7 +1742,7 @@ tp_ok:
 						nwsi = NULL;
 						goto next_packet;
 					}
-					return LWS_RX_CLOSE;
+					return LWS_HPI_RET_PLEASE_CLOSE_ME;
 				}
 			}
 			goto next_packet;
@@ -1757,7 +1757,7 @@ tp_ok:
 					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
 					goto next_packet;
 				}
-				return LWS_RX_CLOSE;
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
 		} else {
 			/* Short header: Bits 0x18 MUST be zero */
@@ -1767,7 +1767,7 @@ tp_ok:
 					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
 					goto next_packet;
 				}
-				return LWS_RX_CLOSE;
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
 		}
 
@@ -1984,7 +1984,7 @@ tp_ok:
 							if (lws_get_random(wsi->a.context,
 									   f_pc->data, 8) != 8) {
 								lws_free(f_pc);
-								return 0;
+								return LWS_HPI_RET_HANDLED;
 							}
 							memcpy(nwsi->quic.qn->path_challenge,
 							       f_pc->data, 8);
@@ -2060,7 +2060,7 @@ tp_ok:
 						f_pc->data = (uint8_t *)&f_pc[1];
 						if (lws_get_random(wsi->a.context, f_pc->data, 8) != 8) {
 							lws_free(f_pc);
-							return 0;
+							return LWS_HPI_RET_HANDLED;
 						}
 						memcpy(nwsi->quic.qn->path_challenge, f_pc->data, 8);
 						nwsi->quic.qn->path_challenge_pending = 1;
@@ -2079,7 +2079,7 @@ tp_ok:
 					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
 					goto next_packet;
 				}
-				return LWS_RX_CLOSE;
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
 
 			int parse_res = lws_quic_parse_frames(nwsi, pn_space, &p[pn_offset + (size_t)pn_len], (size_t)dec_len, &sa46);
@@ -2213,7 +2213,7 @@ tp_ok:
 					nwsi = NULL;
 					goto next_packet;
 				}
-				return LWS_RX_CLOSE;
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
 			/* We found an error and queued a CONNECTION_CLOSE frame */
 			lwsl_wsi_notice(wsi, "QUIC RX: frame parsing aborted (%d)", parse_res);
@@ -2293,7 +2293,7 @@ next_packet:
 		p += packet_size;
 	}
 
-	return 0;
+	return LWS_HPI_RET_HANDLED;
 }
 
 /* a quic socket is read one datagram at a time, to rx_dgram */
@@ -4920,7 +4920,7 @@ rops_destroy_role_quic(struct lws *wsi)
 }
 
 #if defined(LWS_WITH_CLIENT)
-static int
+static lws_handling_result_t
 rops_client_transport_up_quic(struct lws *wsi, const lws_sockaddr46 *peer)
 {
 	/*
@@ -4940,7 +4940,7 @@ rops_client_transport_up_quic(struct lws *wsi, const lws_sockaddr46 *peer)
 		wsi->quic.initialized = 1;
 
 		if (lws_tls_quic_session(wsi, quic_secret_cb))
-			return -1;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		/* the ClientHello, queued as our first CRYPTO frames */
 		lws_tls_quic_rx_crypto(wsi, LWS_QUIC_LEVEL_INITIAL, NULL, 0);
 	}
@@ -4949,7 +4949,7 @@ rops_client_transport_up_quic(struct lws *wsi, const lws_sockaddr46 *peer)
 	/* the first tx sends them */
 	lws_callback_on_writable(wsi);
 
-	return 0;
+	return LWS_HPI_RET_HANDLED;
 }
 #endif
 

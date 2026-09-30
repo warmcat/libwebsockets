@@ -449,13 +449,15 @@ extern const struct http2_settings lws_h2_defaults;
 int
 lws_h2_ws_handshake(struct lws *wsi);
 int lws_h2_issue_preface(struct lws *wsi);
-int lws_h2_client_transport_up(struct lws *wsi, const lws_sockaddr46 *peer);
+lws_handling_result_t
+lws_h2_client_transport_up(struct lws *wsi, const lws_sockaddr46 *peer);
 int
 lws_h2_client_handshake(struct lws *wsi);
 struct lws *
 lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi);
 int
 lws_handle_POLLOUT_event_h2(struct lws *wsi);
+/* returns how much of buf was used, or -1: the caller closes the wsi */
 int
 lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
 struct lws_h2_protocol_send *

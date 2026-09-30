@@ -165,7 +165,11 @@ typedef struct lws_io_ops {
 	/**< the socks or http CONNECT leg the client wsi's role ran over the
 	 * raw transport is done, the tunnel is up: carry on with the
 	 * transport (tls, if it has it, then the role hears the transport is
-	 * up).  0 ok, -1 failed and the wsi should be closed. */
+	 * up).  0 ok.  When the connection cannot go on, the wsi is closed
+	 * here: 1 when that freed it, 2 when it lives on in its close (a
+	 * restart, a staged close); either way the caller touches it no
+	 * more.  -1, failed and the caller should close the wsi, is also
+	 * understood. */
 	void (*transport_established)(struct lws *wsi);
 	/**< the client wsi's role made its transport inside its own protocol
 	 * (quic's handshake completed): it won any race for the connection,

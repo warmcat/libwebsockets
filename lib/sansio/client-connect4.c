@@ -206,8 +206,17 @@ send_hs:
 		 * IO starts tls if it was asked for and brings the transport
 		 * up, and the role starts its protocol from there
 		 */
-		if (lws_client_transport_connected(wsi))
+		switch (lws_client_transport_connected(wsi)) {
+		case LWS_HPI_RET_HANDLED:
+			break;
+		case LWS_HPI_RET_PLEASE_CLOSE_ME:
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "client transport connected");
 			return NULL;
+		default:
+			/* closed on the way: freed, or living on in its close */
+			return NULL;
+		}
 	}
 
 	return wsi;

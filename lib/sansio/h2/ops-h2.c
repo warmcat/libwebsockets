@@ -108,15 +108,18 @@ const struct http2_settings lws_h2_stock_settings = { {
  * parked body is the user's to read with lws_http_client_read(), so it is
  * told and the bytes stay where they are.  len 0 is the peer closing.
  */
-static int
-rops_rx_h2(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
+static lws_handling_result_t
+rops_rx_h2(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport,
+	   size_t *used)
 {
 	int n;
+
+	*used = 0;
 
 	if (!len) {
 		lwsl_wsi_info(wsi, "zero length read");
 
-		return LWS_RX_CLOSE;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
 	/* bytes from the peer are activity worth extending the timeout for */
@@ -137,16 +140,16 @@ rops_rx_h2(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 		 * drains / re-enables from there
 		 */
 		if (lws_io_want_read(wsi, 0))
-			return LWS_RX_CLOSE;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 						LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
 						wsi->user_space, NULL, 0)) {
 			lwsl_info("RECEIVE_CLIENT_HTTP closed it\n");
 
-			return LWS_RX_CLOSE;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 
-		return 0;
+		return LWS_HPI_RET_HANDLED;
 	}
 #endif
 
@@ -160,7 +163,7 @@ rops_rx_h2(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 					(unsigned int)len);
 		else
 			n = lws_read_h1(wsi, (unsigned char *)buf,
-					(unsigned int)len, 0);
+					(unsigned int)len, 1);
 #if defined(LWS_WITH_LATENCY)
 		{
 			unsigned int ms = (unsigned int)((lws_now_usecs() -
@@ -172,10 +175,12 @@ rops_rx_h2(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport)
 		}
 #endif
 	}
-	if (n < 0) /* we closed wsi */
-		return LWS_RX_DIED;
+	if (n < 0) /* the read failed: IO closes it */
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
-	return n;
+	*used = (size_t)n;
+
+	return LWS_HPI_RET_HANDLED;
 }
 
 /*

@@ -2018,7 +2018,8 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						return 1;
 					}
 					if (wsi->client_mux_substream) {
-						if (lws_client_interpret_server_handshake(wsi)) {
+						if (lws_client_interpret_server_handshake(wsi) !=
+							LWS_HPI_RET_HANDLED) {
 							lwsl_info("cli int serv hs closed, or redir\n");
 							return 1;
 						}
