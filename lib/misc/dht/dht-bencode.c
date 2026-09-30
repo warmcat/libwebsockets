@@ -1105,7 +1105,8 @@ skip_ip_tracking:
 		}
 		if (mp.tid_len == 16) {
 #if defined(LWS_WITH_DHT_BACKEND)
-			lws_dht_clear_pending_notify(ctx, mp.tid, mp.tid_len);
+			lws_dht_clear_pending_notify(ctx, mp.tid, mp.tid_len,
+						     from);
 #endif
 			break;
 		}

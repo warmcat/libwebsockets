@@ -518,7 +518,7 @@ int token_match(struct lws_dht_ctx *ctx, const uint8_t *token, size_t token_len,
 int send_find_node(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, const uint8_t *tid, size_t tid_len, const lws_dht_hash_t *target, int want, int confirm);
 int send_closest_nodes(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, struct lws_dht_mparams *mp, const lws_dht_hash_t *id, int af, struct storage *st);
 int send_error(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, const uint8_t *tid, size_t tid_len, int code, const char *message);
-void lws_dht_clear_pending_notify(struct lws_dht_ctx *ctx, const uint8_t *tid, size_t tid_len);
+void lws_dht_clear_pending_notify(struct lws_dht_ctx *ctx, const uint8_t *tid, size_t tid_len, const struct sockaddr *from);
 void lws_dht_capture_announce(struct lws_dht_ctx *ctx, lws_dht_hash_t *hash, const struct sockaddr *fromaddr, unsigned short prt);
 #endif
 int is_martian(const struct sockaddr *sa);

@@ -1429,12 +1429,20 @@ lws_dht_notify_subscribers(struct lws_dht_ctx *ctx, const lws_dht_hash_t *hash, 
 #endif
 }
 
+/*
+ * A notify ack clears the pending notification it answers: the one sent
+ * under that tid, to the endpoint the ack comes from.  The tid is the
+ * subscriber's choice, not a secret, so it alone would let anyone who
+ * learned it acknowledge (and so suppress) a notification it never got.
+ */
+
 void
-lws_dht_clear_pending_notify(struct lws_dht_ctx *ctx, const uint8_t *tid, size_t tid_len)
+lws_dht_clear_pending_notify(struct lws_dht_ctx *ctx, const uint8_t *tid,
+			     size_t tid_len, const struct sockaddr *from)
 {
 #if defined(LWS_WITH_DHT_BACKEND)
 
-	if (!ctx || !tid || tid_len != 16)
+	if (!ctx || !tid || tid_len != 16 || !from)
 		return;
 
 	lws_start_foreach_dll(struct lws_dll2 *, dt, lws_dll2_get_head(&ctx->storage)) {
@@ -1444,7 +1452,9 @@ lws_dht_clear_pending_notify(struct lws_dht_ctx *ctx, const uint8_t *tid, size_t
 			struct subscriber *sub = lws_container_of(d, struct subscriber, list);
 
 			if (sub->pending_notify && sub->tid_len == tid_len &&
-			    !memcmp(sub->tid, tid, tid_len)) {
+			    !memcmp(sub->tid, tid, tid_len) &&
+			    dht_sa_same_peer((const struct sockaddr *)&sub->ss,
+					     from)) {
 				/* ACK received! */
 				sub->pending_notify = 0;
 				sub->notify_retries = 0;
