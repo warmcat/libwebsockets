@@ -18,6 +18,8 @@ require_lws_config(LWS_WITH_NETWORK 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITHOUT_SERVER 0 requirements)
 require_lws_config(LWS_WITH_TLS 1 requirements)
+# BearSSL's server has no client cert verification: it refuses mTLS vhosts
+require_lws_config(LWS_WITH_BEARSSL 0 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
