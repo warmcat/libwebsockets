@@ -682,57 +682,169 @@ lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
 #include "private-lib-tls-mbedtls.h"
 #include <psa/crypto.h>
 
-static int write_asn1_integer(uint8_t **p, uint8_t *end, const struct lws_gencrypto_keyelem *el)
+/*
+ * PSA imports RSA keys as DER: RFC8017 A.1.2 RSAPrivateKey
+ *
+ *   SEQUENCE { version, n, e, d, p, q, dP, dQ, qInv }
+ *
+ * or A.1.1 RSAPublicKey, SEQUENCE { n, e }.  Our key elements are in
+ * enum lws_gencrypto_rsa_tok order, which is not DER order, and also has
+ * JWK-only members (oth, r, d, t) that have no place in either.
+ */
+
+static const uint8_t rsa_der_order[] = {
+	LWS_GENCRYPTO_RSA_KEYEL_N,  LWS_GENCRYPTO_RSA_KEYEL_E,
+	LWS_GENCRYPTO_RSA_KEYEL_D,  LWS_GENCRYPTO_RSA_KEYEL_P,
+	LWS_GENCRYPTO_RSA_KEYEL_Q,  LWS_GENCRYPTO_RSA_KEYEL_DP,
+	LWS_GENCRYPTO_RSA_KEYEL_DQ, LWS_GENCRYPTO_RSA_KEYEL_QI,
+};
+
+static size_t
+asn1_len_size(size_t len)
 {
-	size_t len = el->len;
-	int leading_zero = 0;
-	if (!len || !el->buf) {
-		if (*p + 3 > end) return -1;
-		*(*p)++ = 0x02;
-		*(*p)++ = 0x01;
-		*(*p)++ = 0x00;
-		return 0;
-	}
-	if (el->buf[0] & 0x80) {
-		leading_zero = 1;
-		len++;
-	}
-	if (*p + 2 + (len >= 128 ? (len >= 256 ? 3 : 2) : 1) + len > end)
+	return len < 128 ? 1 : (len < 256 ? 2 : 3);
+}
+
+static size_t
+asn1_integer_size(const struct lws_gencrypto_keyelem *el)
+{
+	size_t len;
+
+	if (!el->len || !el->buf)
+		return 3; /* INTEGER 0 */
+
+	len = el->len + !!(el->buf[0] & 0x80);
+
+	return 1 + asn1_len_size(len) + len;
+}
+
+static int
+write_asn1_len(uint8_t **p, uint8_t *end, size_t len)
+{
+	size_t n = asn1_len_size(len);
+
+	if (len > 0xffff || (size_t)(end - *p) < n)
 		return -1;
 
-	*(*p)++ = 0x02;
-	if (len < 128) {
-		*(*p)++ = (uint8_t)len;
-	} else if (len < 256) {
-		*(*p)++ = 0x81;
-		*(*p)++ = (uint8_t)len;
-	} else {
-		*(*p)++ = 0x82;
+	if (n > 1)
+		*(*p)++ = (uint8_t)(0x80 | (n - 1));
+	if (n > 2)
 		*(*p)++ = (uint8_t)(len >> 8);
-		*(*p)++ = (uint8_t)(len & 0xFF);
-	}
-	if (leading_zero)
-		*(*p)++ = 0x00;
-	memcpy(*p, el->buf, el->len);
-	*p += el->len;
+	*(*p)++ = (uint8_t)len;
+
 	return 0;
 }
 
-static int write_asn1_len(uint8_t **p, uint8_t *end, size_t len)
+static int
+write_asn1_integer(uint8_t **p, uint8_t *end,
+		   const struct lws_gencrypto_keyelem *el)
 {
-	if (len < 128) {
-		if (*p + 1 > end) return -1;
-		*(*p)++ = (uint8_t)len;
-	} else if (len < 256) {
-		if (*p + 2 > end) return -1;
-		*(*p)++ = 0x81;
-		*(*p)++ = (uint8_t)len;
-	} else {
-		if (*p + 3 > end) return -1;
-		*(*p)++ = 0x82;
-		*(*p)++ = (uint8_t)(len >> 8);
-		*(*p)++ = (uint8_t)(len & 0xFF);
+	size_t len;
+	int lz;
+
+	if (!el->len || !el->buf) {
+		if (end - *p < 3)
+			return -1;
+		*(*p)++ = 0x02;
+		*(*p)++ = 0x01;
+		*(*p)++ = 0x00;
+
+		return 0;
 	}
+
+	/* a leading zero keeps a top-bit-set magnitude positive */
+	lz = !!(el->buf[0] & 0x80);
+	len = el->len + (size_t)lz;
+
+	if (*p >= end)
+		return -1;
+	*(*p)++ = 0x02;
+	if (write_asn1_len(p, end, len) || (size_t)(end - *p) < len)
+		return -1;
+	if (lz)
+		*(*p)++ = 0x00;
+	memcpy(*p, el->buf, el->len);
+	*p += el->len;
+
+	return 0;
+}
+
+/*
+ * RSAPrivateKey if we were given the private exponent, else RSAPublicKey
+ */
+
+static int
+lws_genrsa_psa_der(const struct lws_gencrypto_keyelem *el, uint8_t *der,
+		   size_t der_max, size_t *der_len, int *priv)
+{
+	static const struct lws_gencrypto_keyelem zero = { NULL, 0 };
+	uint8_t *p = der, *end = der + der_max;
+	size_t payload = 0, count, i;
+
+	if (!el[LWS_GENCRYPTO_RSA_KEYEL_N].len ||
+	    !el[LWS_GENCRYPTO_RSA_KEYEL_N].buf ||
+	    !el[LWS_GENCRYPTO_RSA_KEYEL_E].len ||
+	    !el[LWS_GENCRYPTO_RSA_KEYEL_E].buf)
+		return -1;
+
+	*priv = el[LWS_GENCRYPTO_RSA_KEYEL_D].len &&
+		el[LWS_GENCRYPTO_RSA_KEYEL_D].buf;
+	count = *priv ? LWS_ARRAY_SIZE(rsa_der_order) : 2;
+
+	if (*priv)
+		payload += asn1_integer_size(&zero); /* version 0 */
+	for (i = 0; i < count; i++)
+		payload += asn1_integer_size(&el[rsa_der_order[i]]);
+
+	if (p >= end)
+		return -1;
+	*p++ = 0x30; /* SEQUENCE */
+	if (write_asn1_len(&p, end, payload))
+		return -1;
+
+	if (*priv && write_asn1_integer(&p, end, &zero))
+		return -1;
+	for (i = 0; i < count; i++)
+		if (write_asn1_integer(&p, end, &el[rsa_der_order[i]]))
+			return -1;
+
+	*der_len = (size_t)(p - der);
+
+	return 0;
+}
+
+/*
+ * Reads an ASN.1 tag + definite length, and confirms the content fits in
+ * what is left
+ */
+
+static int
+asn1_read_hdr(const uint8_t **p, const uint8_t *end, uint8_t tag, size_t *len)
+{
+	size_t l;
+	int nb;
+
+	if (*p >= end || *(*p)++ != tag || *p >= end)
+		return -1;
+
+	l = *(*p)++;
+	if (l & 0x80) {
+		nb = (int)(l & 0x7f);
+		if (!nb || nb > 3)
+			return -1;
+		l = 0;
+		while (nb--) {
+			if (*p >= end)
+				return -1;
+			l = (l << 8) | *(*p)++;
+		}
+	}
+
+	if (l > (size_t)(end - *p))
+		return -1;
+
+	*len = l;
+
 	return 0;
 }
 
@@ -742,14 +854,13 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 		  struct lws_context *context, enum enum_genrsa_mode mode,
 		  enum lws_genhash_types oaep_hashid)
 {
-	uint8_t der[4096];
-	uint8_t *p = der;
-	uint8_t *end = der + sizeof(der);
-	size_t payload_len = 0;
-	int i;
-	struct lws_gencrypto_keyelem zero = { NULL, 0 };
-	struct lws_gencrypto_keyelem version = { (uint8_t *)"\0", 1 };
 	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+	uint8_t der[4096];
+	size_t der_len;
+	int priv, ret = -1;
+
+	if (mode >= LGRSAM_COUNT)
+		return -1;
 
 	/* the caller must hand us a zeroed ctx; a still-live ctx is a misuse */
 	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
@@ -759,41 +870,42 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	ctx->context = context;
 	ctx->mode = mode;
 
-	/* Calculate payload size */
-	for (i = -1; i < LWS_GENCRYPTO_RSA_KEYEL_COUNT; i++) {
-		const struct lws_gencrypto_keyelem *e = (i == -1) ? &version : &el[i];
-		size_t len = e->len;
-		if (len && (e->buf[0] & 0x80)) len++;
-		payload_len += 1 + (size_t)(len >= 128 ? (len >= 256 ? 3 : 2) : 1) + len;
-		if (!len && i != -1) payload_len += 3; /* zero int */
+	if (lws_genrsa_psa_der(el, der, sizeof(der), &der_len, &priv)) {
+		lwsl_notice("%s: unable to render key\n", __func__);
+		goto bail;
 	}
 
-	if (p + 1 > end) return -1;
-	*p++ = 0x30; /* SEQUENCE */
-	if (write_asn1_len(&p, end, payload_len)) return -1;
-
-	if (write_asn1_integer(&p, end, &version)) return -1;
-	for (i = 0; i < LWS_GENCRYPTO_RSA_KEYEL_COUNT; i++) {
-		if (write_asn1_integer(&p, end, el[i].len ? &el[i] : &zero)) return -1;
+	if (priv) {
+		psa_set_key_type(&attr, PSA_KEY_TYPE_RSA_KEY_PAIR);
+		psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_HASH |
+					       PSA_KEY_USAGE_VERIFY_HASH |
+					       PSA_KEY_USAGE_DECRYPT |
+					       PSA_KEY_USAGE_ENCRYPT);
+	} else {
+		psa_set_key_type(&attr, PSA_KEY_TYPE_RSA_PUBLIC_KEY);
+		psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_VERIFY_HASH |
+					       PSA_KEY_USAGE_ENCRYPT);
 	}
-
-	psa_set_key_type(&attr, PSA_KEY_TYPE_RSA_KEY_PAIR);
-	psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_VERIFY_HASH |
-					PSA_KEY_USAGE_DECRYPT | PSA_KEY_USAGE_ENCRYPT);
 
 	/* Determine algorithm based on mode */
-	if (mode == LGRSAM_PKCS1_1_5) {
+	if (mode == LGRSAM_PKCS1_1_5)
 		psa_set_key_algorithm(&attr, PSA_ALG_RSA_PKCS1V15_SIGN_RAW);
-	} else if (mode == LGRSAM_PKCS1_OAEP_PSS) {
-		psa_set_key_algorithm(&attr, PSA_ALG_RSA_PSS_ANY_SALT(PSA_ALG_ANY_HASH));
+	else
+		psa_set_key_algorithm(&attr,
+				PSA_ALG_RSA_PSS_ANY_SALT(PSA_ALG_ANY_HASH));
+
+	if (psa_import_key(&attr, der, der_len, &ctx->key_id) != PSA_SUCCESS) {
+		lwsl_notice("%s: psa_import_key failed\n", __func__);
+		goto bail;
 	}
 
-	if (psa_import_key(&attr, der, (size_t)(p - der), &ctx->key_id) != PSA_SUCCESS)
-		return -1;
-
 	ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
+	ret = 0;
 
-	return 0;
+bail:
+	lws_explicit_bzero(der, sizeof(der));
+
+	return ret;
 }
 
 int
@@ -802,8 +914,13 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		       int bits)
 {
 	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+	const uint8_t *p, *end;
 	uint8_t der[4096];
-	size_t der_len;
+	size_t der_len, len;
+	unsigned int i;
+
+	if (mode >= LGRSAM_COUNT || bits <= 0)
+		return -1;
 
 	/* the caller must hand us a zeroed ctx; a still-live ctx is a misuse */
 	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
@@ -827,70 +944,56 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	if (psa_generate_key(&attr, &ctx->key_id) != PSA_SUCCESS)
 		return -1;
 
-	if (psa_export_key(ctx->key_id, der, sizeof(der), &der_len) != PSA_SUCCESS) {
-		psa_destroy_key(ctx->key_id);
-		ctx->key_id = 0;
-		return -1;
-	}
+	if (psa_export_key(ctx->key_id, der, sizeof(der), &der_len) != PSA_SUCCESS)
+		goto cleanup_der;
 
-	{
-		uint8_t *p = der;
-		uint8_t *end = der + der_len;
-		int i;
+	/*
+	 * PSA exports the key pair as RSAPrivateKey (see above)... hand the
+	 * elements back to the caller in lws order
+	 */
 
-		if (p >= end || *p++ != 0x30) return -1;
-		/* Skip length */
-		if (p >= end) return -1;
-		if (*p & 0x80) {
-			int l = *p++ & 0x7F;
-			p += l;
-		} else {
+	p = der;
+	end = der + der_len;
+
+	if (asn1_read_hdr(&p, end, 0x30, &len))
+		goto cleanup_der;
+	end = p + len;
+
+	if (asn1_read_hdr(&p, end, 0x02, &len)) /* version */
+		goto cleanup_der;
+	p += len;
+
+	for (i = 0; i < LWS_ARRAY_SIZE(rsa_der_order); i++) {
+		struct lws_gencrypto_keyelem *e = &el[rsa_der_order[i]];
+
+		if (asn1_read_hdr(&p, end, 0x02, &len) || !len)
+			goto cleanup_der;
+
+		/* drop the leading zero that only keeps it positive */
+		if (len > 1 && !p[0]) {
 			p++;
+			len--;
 		}
 
-		/* Skip version integer */
-		if (p >= end || *p++ != 0x02) return -1;
-		if (p >= end) return -1;
-		if (*p & 0x80) {
-			int l = *p++ & 0x7F;
-			p += l;
-		} else {
-			p += 1 + *p;
-		}
-
-		for (i = 0; i < LWS_GENCRYPTO_RSA_KEYEL_COUNT; i++) {
-			int len;
-			if (p >= end || *p++ != 0x02) goto cleanup_der;
-			if (p >= end) goto cleanup_der;
-			if (*p & 0x80) {
-				int l = *p++ & 0x7F;
-				len = 0;
-				while (l--) len = (len << 8) | *p++;
-			} else {
-				len = *p++;
-			}
-			if (p + len > end) goto cleanup_der;
-			/* Skip leading zero if present */
-			if (len > 1 && p[0] == 0x00) {
-				p++;
-				len--;
-			}
-			el[i].buf = lws_malloc((size_t)len, "genrsakey");
-			if (!el[i].buf) goto cleanup_der;
-			memcpy(el[i].buf, p, (size_t)len);
-			el[i].len = (uint32_t)len;
-			p += len;
-		}
+		e->buf = lws_malloc(len, "genrsakey");
+		if (!e->buf)
+			goto cleanup_der;
+		memcpy(e->buf, p, len);
+		e->len = (uint32_t)len;
+		p += len;
 	}
 
+	lws_explicit_bzero(der, sizeof(der));
 	ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
 
 	return 0;
 
 cleanup_der:
+	lws_explicit_bzero(der, sizeof(der));
 	lws_genrsa_destroy_elements(el);
 	psa_destroy_key(ctx->key_id);
 	ctx->key_id = 0;
+
 	return -1;
 }
 
