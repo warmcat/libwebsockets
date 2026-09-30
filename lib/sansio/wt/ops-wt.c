@@ -237,6 +237,7 @@ lws_wt_create_stream(struct lws *wsi_session, int unidi)
 	 */
 
 	cwsi->wt.session_wsi = wsi_session;
+	cwsi->wt.is_stream = 1;
 
 	/*
 	 * Bind the protocol the normal way rather than just assigning
@@ -301,14 +302,18 @@ lws_wt_get_session_wsi(struct lws *wsi)
 	if (wsi->wt.is_session)
 		return wsi;
 
-	/* the association recorded when the stream was created / adopted */
+	/*
+	 * The association recorded when the stream was created / adopted.
+	 * It is NULL once the session closed: the stream is an orphan being
+	 * reaped, and it has no session, even if another one exists.
+	 */
 
-	if (wsi->wt.session_wsi)
+	if (wsi->wt.is_stream)
 		return wsi->wt.session_wsi;
 
 	/*
-	 * Nothing was recorded for this stream.  A peer may have more than one
-	 * WebTransport session on the same H3 connection, and answering with
+	 * Not a WT stream, so nothing was recorded.  A peer may have more than
+	 * one WebTransport session on the same H3 connection, and answering with
 	 * whichever session happens to come first in the sibling list would
 	 * attribute the stream to the wrong session, ie, to the wrong
 	 * authorization context.  So only answer when it is unambiguous.

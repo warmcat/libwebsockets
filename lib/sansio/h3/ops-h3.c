@@ -1396,6 +1396,7 @@ lws_h3_wt_stream_bind(struct lws *wsi, struct lws *nwsi, const uint8_t *buf,
 	wsi->wt.is_session = 0;
 	/* the session this stream belongs to (C-068) */
 	wsi->wt.session_wsi = session_wsi;
+	wsi->wt.is_stream = 1;
 
 	/*
 	 * The stream was already bound to its protocol (and the adoption

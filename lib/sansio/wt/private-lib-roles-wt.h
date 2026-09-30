@@ -44,6 +44,11 @@ struct _lws_wt_related {
 	struct lws *session_wsi;
 	uint8_t is_session:1;
 	uint8_t is_unidi:1;
+	/*
+	 * set with session_wsi and never cleared: a WT stream whose session
+	 * closed has no session, it must not be matched to another one
+	 */
+	uint8_t is_stream:1;
 };
 
 #endif /* _PRIVATE_LIB_ROLES_WT_H_ */
