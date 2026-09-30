@@ -65,6 +65,7 @@ rops_rx_policy_raw_proxy(struct lws *wsi, int *flags, size_t *max)
 		/*
 		 * Nothing is read until the partial send drains, so a
 		 * level-armed POLLIN would spin: drop it, the drain restores it
+		 * (rops_tx_drained_raw_proxy())
 		 */
 		if (lws_io_want_read(wsi, 0))
 			return LWS_RXPOL_CLOSE;
@@ -143,6 +144,13 @@ rops_handle_POLLOUT_raw_proxy(struct lws *wsi)
 	return LWS_HP_RET_BAIL_OK;
 }
 
+/* the partial send our rx policy held reading behind has gone */
+static int
+rops_tx_drained_raw_proxy(struct lws *wsi)
+{
+	return lws_io_read_after_drain(wsi) ? -1 : 0;
+}
+
 static const lws_rops_t rops_table_raw_proxy[] = {
 	/*  1 */ { .handle_POLLIN	= NULL }, /* a sansIO role has none */
 	/*  2 */ { .handle_POLLOUT	= rops_handle_POLLOUT_raw_proxy },
@@ -150,6 +158,7 @@ static const lws_rops_t rops_table_raw_proxy[] = {
 	/*  4 */ { .client_bind		= rops_client_bind_raw_proxy },
 	/*  5 */ { .rx			= rops_rx_raw_proxy },
 	/*  6 */ { .rx_policy		= rops_rx_policy_raw_proxy },
+	/*  7 */ { .tx_drained		= rops_tx_drained_raw_proxy },
 };
 
 
@@ -183,6 +192,10 @@ const struct lws_role_ops role_ops_raw_proxy = {
 	  /* LWS_ROPS_rx */				0x00, 0x05,
 	  /* LWS_ROPS_rx_dgram */
 	  /* LWS_ROPS_rx_policy */			0x00, 0x06,
+	  /* LWS_ROPS_rx_done */			0x00,
+	  /* LWS_ROPS_tx */
+	  /* LWS_ROPS_tx_sent */			0x00, 0x00,
+	  /* LWS_ROPS_tx_drained */			0x07,
 					},
 
 	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_RAW_PROXY_CLI_ADOPT,

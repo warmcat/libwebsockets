@@ -264,8 +264,8 @@ rops_rx_policy_h2(struct lws *wsi, int *flags, size_t *max)
 				/*
 				 * Nothing will consume the rx until the
 				 * partial send drains: drop POLLIN on the
-				 * network wsi; lws_handle_POLLOUT_event()
-				 * restores it once the buffered output is gone
+				 * network wsi; rops_tx_drained_h2() restores
+				 * it once the buffered output is gone
 				 */
 				if (lws_io_want_read(wsi1, 0))
 					return LWS_RXPOL_CLOSE;
@@ -2040,15 +2040,19 @@ rops_issue_keepalive_h2(struct lws *wsi, int isvalid)
 /*
  * What IO had queued for the wsi's transport has gone.  A stream's own
  * compression partial ends a transaction deferred behind it.  On the
- * network connection it is its streams' output that has gone: the ones
- * whose completion waited for it are asked for a writeable, and the walk
- * of the connection's children completes them.
+ * network connection it is its streams' output that has gone: a server
+ * connection, which stopped reading behind it (rops_rx_policy_h2()), reads
+ * again, and the streams whose completion waited for it are asked for a
+ * writeable, so the walk of the connection's children completes them.
  */
 static int
 rops_tx_drained_h2(struct lws *wsi)
 {
 	if (!lws_wsi_is_mux_nwsi(wsi))
 		return lws_http_tx_drained(wsi);
+
+	if (!lwsi_role_client(wsi) && lws_io_read_after_drain(wsi))
+		return -1;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&wsi->mux.child_list_owner)) {

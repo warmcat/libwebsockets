@@ -1683,6 +1683,8 @@ lws_io_want_write(struct lws *wsi);
 int
 lws_io_want_read(struct lws *wsi, int on);
 int
+lws_io_read_after_drain(struct lws *wsi);
+int
 lws_io_path(struct lws *wsi, int op, const lws_sockaddr46 *peer);
 int
 lws_io_transfer(struct lws *from, struct lws *to);

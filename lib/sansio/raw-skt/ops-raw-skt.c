@@ -143,6 +143,7 @@ rops_rx_policy_raw_skt(struct lws *wsi, int *flags, size_t *max)
 		/*
 		 * Nothing is read until the partial send drains, so a
 		 * level-armed POLLIN would spin: drop it, the drain restores it
+		 * (rops_tx_drained_raw_skt())
 		 */
 		if (lws_io_want_read(wsi, 0))
 			return LWS_RXPOL_CLOSE;
@@ -233,6 +234,13 @@ rops_client_bind_raw_skt(struct lws *wsi,
 }
 #endif
 
+/* the partial send our rx policy held reading behind has gone */
+static int
+rops_tx_drained_raw_skt(struct lws *wsi)
+{
+	return lws_io_read_after_drain(wsi) ? -1 : 0;
+}
+
 static const lws_rops_t rops_table_raw_skt[] = {
 	/*  1 */ { .handle_POLLIN	  = NULL }, /* a sansIO role has none */
 	/*  2 */ { .adoption_bind	  = rops_adoption_bind_raw_skt },
@@ -247,6 +255,8 @@ static const lws_rops_t rops_table_raw_skt[] = {
 #if defined(LWS_WITH_CLIENT)
 	/*  7 */ { .client_transport_up	  = rops_client_transport_up_raw_skt },
 #endif
+	/*  8, or 6 with no client */
+	{ .tx_drained			  = rops_tx_drained_raw_skt },
 };
 const struct lws_role_ops role_ops_raw_skt = {
 	/* role name */			"raw-skt",
@@ -279,6 +289,10 @@ const struct lws_role_ops role_ops_raw_skt = {
 	  /* LWS_ROPS_rx */				0x07, 0x05,
 	  /* LWS_ROPS_rx_dgram */
 	  /* LWS_ROPS_rx_policy */			0x00, 0x06,
+	  /* LWS_ROPS_rx_done */			0x00,
+	  /* LWS_ROPS_tx */
+	  /* LWS_ROPS_tx_sent */			0x00, 0x00,
+	  /* LWS_ROPS_tx_drained */			0x08,
 #else
 	  /* LWS_ROPS_client_bind */
 	  /* LWS_ROPS_issue_keepalive */		0x00, 0x00,
@@ -286,6 +300,10 @@ const struct lws_role_ops role_ops_raw_skt = {
 	  /* LWS_ROPS_rx */				0x00, 0x04,
 	  /* LWS_ROPS_rx_dgram */
 	  /* LWS_ROPS_rx_policy */			0x00, 0x05,
+	  /* LWS_ROPS_rx_done */			0x00,
+	  /* LWS_ROPS_tx */
+	  /* LWS_ROPS_tx_sent */			0x00, 0x00,
+	  /* LWS_ROPS_tx_drained */			0x06,
 #endif
 					},
 

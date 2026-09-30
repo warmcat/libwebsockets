@@ -351,7 +351,8 @@ bail:
  * A transport: the bytes the peer sent, waiting to be read, and the bytes
  * the connection wrote.  fd is the connection's place in lws's poll set;
  * want_read and want_write are what lws asked of the transport, as the
- * test heard them through the io_ops.
+ * test heard them through the io_ops; read_resumed counts the times lws
+ * asked to read again after it had stopped.
  */
 struct transport {
 	const uint8_t	*rx;
@@ -363,6 +364,7 @@ struct transport {
 					 * more, -1: no end */
 	int		fd;
 	int		want_read;
+	int		read_resumed;
 	int		want_write;
 	int		shutdown;
 	int		closed;
@@ -456,8 +458,11 @@ tp_want_read(struct lws *wsi, int on)
 {
 	struct transport *t = tp_of(wsi);
 
-	if (t)
+	if (t) {
+		if (on && !t->want_read)
+			t->read_resumed++;
 		t->want_read = on;
+	}
 
 	return lws_io_ops_default.want_read(wsi, on);
 }
@@ -1227,6 +1232,9 @@ ws_frame_at(const struct transport *tp, size_t *pos, uint8_t op, int masked,
  * last echo has gone (lws_raw_transaction_completed() with the echo partly
  * written), is not answered: the echo still all goes, and then the
  * connection ends.
+ *
+ * Having had the peer's close, the server reads nothing more, even when an
+ * echo still partly written drains after it.
  */
 static int
 ws_server_peer_close_half(struct lws_context *cx)
@@ -1289,7 +1297,13 @@ ws_server_peer_close_half(struct lws_context *cx)
 		}
 
 		tp.tx_limit = c[n].tx_limit;
+		tp.read_resumed = 0;
 		feed(cx, &tp, c[n].frames, c[n].len);
+		if (tp.read_resumed) {
+			lwsl_err("case 18: %s: read again after the close\n",
+				 c[n].name);
+			return 1;
+		}
 		pos = 0;
 		if (!ws_frame_at(&tp, &pos, c[n].op, 0, c[n].pl,
 				 strlen(c[n].pl)) ||

@@ -110,20 +110,16 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	 */
 
 	if (lws_has_buffered_out(wsi)) {
+		/*
+		 * If that drains it, the role hears so (its tx_drained): one
+		 * whose rx policy held its reading behind the partial reads
+		 * again from there (lws_io_read_after_drain()).  Only the role
+		 * knows why it stopped reading, so IO does not start it again.
+		 */
 		if (lws_io_tx_push(wsi, NULL, 0) < 0) {
 			lwsl_wsi_info(wsi, "signalling to close");
 			goto bail_die;
 		}
-		/*
-		 * A role whose rx policy holds behind a partial send drops
-		 * POLLIN meanwhile (h2 server network wsi, raw), through the
-		 * io_ops; if that just drained, let it read again the same way,
-		 * so whatever is behind the io_ops hears it too (rx flow
-		 * control, if the role has any on, still keeps it off)
-		 */
-		if (!lws_has_buffered_out(wsi) && !lws_is_flowcontrolled(wsi) &&
-		    lws_io_want_read(wsi, 1))
-			goto bail_die;
 		/* leave POLLOUT active either way */
 		goto bail_ok;
 	} else
@@ -317,6 +313,22 @@ bail_die:
  * consuming it, so forcing a zero wait would only spin the event loop until
  * the state change at the end of that phase brings it back here.
  */
+
+/*
+ * For a role's tx_drained, when its rx policy stopped its reading because a
+ * partial send was pending (so nothing is generated behind it, and a
+ * level-armed POLLIN does not spin): that has all gone, so it reads again.
+ * It asks through the io_ops, as the hold did, so an embedder behind them
+ * hears it too.  Rx flow control, if the app has it on, keeps it off.
+ */
+int
+lws_io_read_after_drain(struct lws *wsi)
+{
+	if (lws_is_flowcontrolled(wsi))
+		return 0;
+
+	return lws_io_want_read(wsi, 1);
+}
 
 int
 lws_wsi_can_consume_parked_rx(struct lws *wsi)
