@@ -20,7 +20,9 @@
  *  - a Content-Length POST with a GET pipelined behind it in the same write,
  *    answered some time after its body completed: the body must complete
  *    once, and the GET wait parked for the answer without keeping the event
- *    loop busy, then be served (direct, and through the http proxy mount)
+ *    loop busy, then be served (direct, and through the http proxy mount);
+ *    and two GETs the same way to a callback mount naming its protocol as
+ *    its origin, where the second must be dispatched as itself, once
  *  - refusals: an unsupported Transfer-Encoding (501), Transfer-Encoding
  *    together with Content-Length (400), a chunked body over the mount's
  *    body limit (connection dropped), a Content-Length over it (413)
@@ -101,7 +103,8 @@
 #define CASE_TIMEOUT_S	30
 
 /*
- * The "later" POSTs are answered this long after their body completed.  A
+ * The "later" requests are answered this long after they were dispatched,
+ * or after their body completed if they have one.  A
  * connection waiting for that answer with a pipelined request parked must
  * not keep the event loop busy meanwhile: the case fails if the loop turned
  * more than RAW3_MAX_TURNS times in the wait.  Waiting properly takes a
@@ -166,7 +169,8 @@ struct xcase {
 					 * chunked responses; 3: a raw client
 					 * sends a POST with its Content-Length
 					 * body and a GET in one write, and
-					 * reads the two responses */
+					 * reads the two responses; 4: the
+					 * same with two GETs */
 	int		conn_close;	/* every request the server sees must
 					 * say "connection: close" */
 };
@@ -212,6 +216,16 @@ static const struct xcase cases[] = {
 	  "answered some time after the body",
 	  "POST", "/echo-cl-later", XR_CL, 100, 0, 8192, 0, 0, 200, 100, XG_NONE,
 	  0, 0, 0, 3, 0 },
+	/*
+	 * The same with two GETs to /cb, a callback mount that names its
+	 * protocol as its origin: the first is answered some time later, and
+	 * the second must wait parked for that, then be dispatched as itself,
+	 * not have the first dispatched again in its place
+	 */
+	{ "h1 GET answered some time later and a GET pipelined in the same "
+	  "write, to a callback mount",
+	  "GET", "/cb/echo-cl-later", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE,
+	  0, 0, 0, 4, 0 },
 	/*
 	 * A chunked response that also carries a Content-Length is framed by
 	 * its chunks: the client must read the body to its last-chunk, not
@@ -636,7 +650,7 @@ struct pss_srv {
 	int			responding;
 	int			redir307;	/* 307 once the body is read */
 	int			later;		/* answer RAW3_LATER_MS after
-						 * the body completed */
+						 * the request, or its body */
 };
 
 /* server-side view of the current case */
@@ -655,9 +669,10 @@ static struct {
 					 * one the case sent */
 	int		held;		/* whole h3 writes reported as held back */
 	int		body_completions; /* HTTP_BODY_COMPLETION deliveries */
-	unsigned int	turns_body_done; /* event loop turns when a "later"
-					  * body completed... */
+	unsigned int	turns_wait_start; /* event loop turns when a "later"
+					   * answer began to wait... */
 	unsigned int	turns_waited;	/* ... and until it was answered */
+	char		paths[2][48];	/* the first requests, as dispatched */
 } srv;
 
 static struct lws_context *context;
@@ -1042,6 +1057,17 @@ srv_writeable(struct lws *wsi, struct pss_srv *pss)
 	return 0;
 }
 
+/* the way an app waiting on something else answers: some time later */
+
+static int
+srv_answer_later(struct lws *wsi)
+{
+	srv.turns_wait_start = turns;
+	lws_set_timer_usecs(wsi, RAW3_LATER_MS * LWS_US_PER_MS);
+
+	return 0;
+}
+
 static int
 callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
@@ -1088,6 +1114,9 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 #endif
 
 	case LWS_CALLBACK_HTTP:
+		if (srv.http_cbs < (int)LWS_ARRAY_SIZE(srv.paths))
+			lws_strncpy(srv.paths[srv.http_cbs], path ? path : "",
+				    sizeof(srv.paths[0]));
 		srv.http_cbs++;
 		memset(pss, 0, sizeof(*pss));
 
@@ -1163,12 +1192,16 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			return 0;
 		}
 
+		pss->later = path && !!strstr(path, "later");
+
 		if (lws_http_get_uri_and_method(wsi, &uri, &n) == LWSHUMETH_POST) {
 			/* the body decides the response, wait for it */
 			pss->redir307 = path && !!strstr(path, "redir307");
-			pss->later = path && !!strstr(path, "later");
 			return 0;
 		}
+
+		if (pss->later)
+			return srv_answer_later(wsi);
 
 		/* answer now, whether or not a body is on its way */
 		return srv_start_response(wsi, pss);
@@ -1200,16 +1233,13 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 				return -1;
 			return 0;
 		}
-		if (pss->later) {
-			/* the way an app waiting on something else answers */
-			srv.turns_body_done = turns;
-			lws_set_timer_usecs(wsi, RAW3_LATER_MS * LWS_US_PER_MS);
-			return 0;
-		}
+		if (pss->later)
+			return srv_answer_later(wsi);
+
 		return srv_start_response(wsi, pss);
 
 	case LWS_CALLBACK_TIMER:
-		srv.turns_waited = turns - srv.turns_body_done;
+		srv.turns_waited = turns - srv.turns_wait_start;
 		return srv_start_response(wsi, pss);
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
@@ -1470,12 +1500,23 @@ case_evaluate(void)
 		goto next;
 	}
 
-	if (c->raw == 3) {
-		if (srv.http_cbs != 2 || srv.body_completions != 1) {
+	if (c->raw >= 3) {
+		int bc = c->raw == 3; /* only the POST has a body */
+
+		if (srv.http_cbs != 2 || srv.body_completions != bc) {
 			lwsl_err("server saw %d requests, %d body completions, "
-				 "expected 2 and 1\n", srv.http_cbs,
-				 srv.body_completions);
-			case_finish(0, "pipelined request behind a body");
+				 "expected 2 and %d\n", srv.http_cbs,
+				 srv.body_completions, bc);
+			case_finish(0, "pipelined request count");
+			goto next;
+		}
+		/* the first, then the one pipelined behind it */
+		if (!strstr(srv.paths[0], "later") ||
+		    strstr(srv.paths[1], "later")) {
+			lwsl_err("server was dispatched '%s', then '%s'\n",
+				 srv.paths[0], srv.paths[1]);
+			case_finish(0, "the pipelined request was not the "
+				       "second one dispatched");
 			goto next;
 		}
 		lwsl_user("%u event loop turns while the answer was awaited\n",
@@ -2226,9 +2267,11 @@ static const struct lws_protocols protocols_srv[] = {
  * for keep-alive, and a server that goes on reading must frame whatever it
  * answers.
  *
- * raw 3 sends a POST with its Content-Length body and a GET behind it.
- * Both responses have a Content-Length, and each body starts with the
- * summary line of what the server decoded for that request.
+ * raw 3 sends a POST with its Content-Length body and a GET behind it, raw 4
+ * two GETs.  The second request asks for the case's path without its
+ * "-later", so it is answered at once.  Both responses have a
+ * Content-Length, and each body starts with the summary line of what the
+ * server decoded for that request.
  */
 
 #define RAW3_BODY_MAX 256
@@ -2331,6 +2374,7 @@ callback_raw_h1(struct lws *wsi, enum lws_callback_reasons reason,
 	struct conn *cn = (struct conn *)lws_get_opaque_user_data(wsi);
 	uint8_t buf[LWS_PRE + 256 + RAW3_BODY_MAX];
 	const uint8_t *body[2];
+	char path2[48], *q;
 	size_t o, blen[2];
 	int n;
 
@@ -2347,21 +2391,32 @@ callback_raw_h1(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RAW_CONNECTED:
-		if (cn->c->raw == 3) {
-			/* the POST, its whole body, and the GET behind it */
+		if (cn->c->raw >= 3) {
+			/* the first request, and the GET behind it */
 			if (cn->c->body_len > RAW3_BODY_MAX)
 				return -1;
+			lws_strncpy(path2, cn->c->path, sizeof(path2));
+			q = strstr(path2, "-later");
+			if (q)
+				*q = '\0';
 			n = lws_snprintf((char *)buf + LWS_PRE, 256,
-					 "POST %s HTTP/1.1\r\nHost: %s\r\n"
-					 "Content-Length: %u\r\n\r\n",
-					 cn->c->path, server_addr,
-					 (unsigned int)cn->c->body_len);
+					 "%s %s HTTP/1.1\r\nHost: %s\r\n",
+					 cn->c->method, cn->c->path,
+					 server_addr);
+			if (cn->c->req == XR_CL)
+				n += lws_snprintf((char *)buf + LWS_PRE + n,
+						  (size_t)(256 - n),
+						  "Content-Length: %u\r\n",
+						  (unsigned int)
+							cn->c->body_len);
+			n += lws_snprintf((char *)buf + LWS_PRE + n,
+					  (size_t)(256 - n), "\r\n");
 			for (o = 0; o < cn->c->body_len; o++)
 				buf[LWS_PRE + (size_t)n++] = pat(o);
 			n += lws_snprintf((char *)buf + LWS_PRE + n,
 					  sizeof(buf) - LWS_PRE - (size_t)n,
 					  "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n",
-					  cn->c->path, server_addr);
+					  path2, server_addr);
 		} else
 			n = lws_snprintf((char *)buf + LWS_PRE,
 					 sizeof(buf) - LWS_PRE,
@@ -2384,7 +2439,7 @@ callback_raw_h1(struct lws *wsi, enum lws_callback_reasons reason,
 		memcpy(cn->raw_buf + cn->raw_len, in, len);
 		cn->raw_len += len;
 
-		if (cn->c->raw == 3) {
+		if (cn->c->raw >= 3) {
 			n = raw3_responses(cn->raw_buf, cn->raw_len, body,
 					   blen);
 			if (n < 0) {
@@ -2396,7 +2451,7 @@ callback_raw_h1(struct lws *wsi, enum lws_callback_reasons reason,
 			if (n < 2)
 				break;
 
-			/* the POST's body, then the GET's nothing */
+			/* the first request's body if any, then nothing */
 			if (!raw3_summary_ok(body[0], blen[0],
 					     cn->c->body_len) ||
 			    !raw3_summary_ok(body[1], blen[1], 0)) {
@@ -2528,6 +2583,21 @@ static const struct lws_http_mount mount_file = {
 #undef MOUNT_LIST
 #define MOUNT_LIST (&mount_file)
 #endif
+
+/*
+ * /cb is a callback mount written the other way, naming its protocol as its
+ * origin, which reaches the protocol by another path in lws
+ */
+
+static const struct lws_http_mount mount_cb = {
+	.mount_next		= MOUNT_LIST,
+	.mountpoint		= "/cb",
+	.origin			= "http-xfer",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 3,
+};
+#undef MOUNT_LIST
+#define MOUNT_LIST (&mount_cb)
 
 #if defined(LWS_WITH_HTTP_PROXY)
 /* the proxy vhost forwards everything to the h1 server vhost */

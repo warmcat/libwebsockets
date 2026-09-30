@@ -2429,6 +2429,8 @@ lws_http_action(struct lws *wsi)
 			return 1;
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
+			lws_wsi_event(wsi, LWS_WSIEV_ACTION_BEGIN);
+
 			m = wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP,
 					    wsi->user_space,
 					    uri_ptr + hit->mountpoint_len,
@@ -2514,9 +2516,12 @@ lws_http_action(struct lws *wsi)
 					 wsi->user_space,
 					 uri_ptr + hit->mountpoint_len,
 					 (size_t)(uri_len - hit->mountpoint_len));
-		} else
+		} else {
+			lws_wsi_event(wsi, LWS_WSIEV_ACTION_BEGIN);
+
 			m = wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP,
 				    wsi->user_space, uri_ptr, (size_t)uri_len);
+		}
 	}
 
 after:
