@@ -157,6 +157,11 @@ typedef struct lws_cache_match {
  * get operations on each item in its desired order, that will bring the items
  * to the head of the LRU list and occupy L1 cache.
  *
+ * The results pointer is only valid until the next call on the cache: getting
+ * a listed item that is not in L1 writes it there, which may evict the result
+ * set itself, or an item it names, which also destroys the result set.  So
+ * copy the results before getting the items they list.
+ *
  * Returns 0 if proceeded alright, or nonzero if error.  If there was an error,
  * any partial results set has been deallocated cleanly before returning.
  */
