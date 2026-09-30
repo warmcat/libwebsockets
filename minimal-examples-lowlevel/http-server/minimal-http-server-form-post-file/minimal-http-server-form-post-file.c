@@ -42,9 +42,9 @@ static const struct lws_switches switches[] = {
  */
 struct pss {
 	struct lws_spa *spa;		/* lws helper decodes multipart form */
-	char filename[128];		/* the filename of the uploaded file */
+	char filename[128];		/* the file being saved, while it is */
 	unsigned long long file_length; /* the amount of bytes uploaded */
-	int fd;				/* fd on file being saved */
+	int fd;				/* fd on file being saved, or -1 */
 };
 
 static struct lws_context *context;
@@ -59,6 +59,26 @@ enum enum_param_names {
 	EPN_SEND,
 };
 
+/*
+ * An upload that did not complete: close its file and remove what it wrote,
+ * so it leaves neither an fd nor a partial file behind
+ */
+
+static void
+file_upload_abandon(struct pss *pss)
+{
+	if (pss->fd != -1) {
+		close(pss->fd);
+		pss->fd = -1;
+	}
+	if (pss->filename[0]) {
+		if (unlink(pss->filename) < 0)
+			lwsl_notice("%s: unlink %s failed: %d\n", __func__,
+				    pss->filename, errno);
+		pss->filename[0] = '\0';
+	}
+}
+
 static int
 file_upload_cb(void *data, const char *name, const char *filename,
 	       char *buf, int len, enum lws_spa_fileupload_states state)
@@ -67,6 +87,12 @@ file_upload_cb(void *data, const char *name, const char *filename,
 
 	switch (state) {
 	case LWS_UFS_OPEN:
+		/*
+		 * One file at a time: one still open here did not complete,
+		 * and the open below would otherwise leak it
+		 */
+		file_upload_abandon(pss);
+
 		/* take a copy of the provided filename */
 		lws_strncpy(pss->filename, filename, sizeof(pss->filename) - 1);
 		/* remove any scary things like .. */
@@ -76,11 +102,14 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		if (pss->fd == -1) {
 			lwsl_notice("Failed to open output file %s\n",
 				    pss->filename);
-			return 1;
+			pss->filename[0] = '\0';
+			return -1;
 		}
 		break;
 	case LWS_UFS_FINAL_CONTENT:
 	case LWS_UFS_CONTENT:
+		if (pss->fd == -1)
+			break;
 		if (len) {
 			int n;
 
@@ -100,10 +129,14 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		lwsl_user("%s: upload done, written %lld to %s\n", __func__,
 			  pss->file_length, pss->filename);
 
+		/* it's complete: keep it */
 		close(pss->fd);
 		pss->fd = -1;
+		pss->filename[0] = '\0';
 		break;
 	case LWS_UFS_CLOSE:
+		/* the form ended, or the client went, mid-file */
+		file_upload_abandon(pss);
 		break;
 	}
 
@@ -188,19 +221,14 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
-		/* called when our wsi user_space is going to be destroyed */
+		/*
+		 * called when our wsi user_space is going to be destroyed...
+		 * a spa not finalized yet gives the upload callback its
+		 * LWS_UFS_CLOSE here, which cleans up an incomplete file
+		 */
 		if (pss->spa) {
 			lws_spa_destroy(pss->spa);
 			pss->spa = NULL;
-		}
-		if (pss->fd != -1) {
-			close(pss->fd);
-			pss->fd = -1;
-		}
-		if (pss->filename[0]) {
-			if (unlink(pss->filename) < 0)
-				lwsl_notice("%s: unlink %s failed: %d\n", __func__, pss->filename, errno);
-			pss->filename[0] = '\0';
 		}
 		break;
 

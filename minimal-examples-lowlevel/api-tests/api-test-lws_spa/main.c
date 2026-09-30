@@ -16,9 +16,11 @@
  *
  * The answer to a form lists every parameter the spa was asked for, as
  * name=NULL when the form did not have it, else name='value'/length, and
- * then what the file upload callback saw as up=opens/finals/bytes.  A GET to
- * either mount is answered "get", so a case can follow its form with a
- * pipelined request and see that request answered as itself.
+ * then what the file upload callback saw as up=opens/finals/bytes, with
+ * MISORDERED added if it was told of a file opening while one was open, or
+ * of content with none open.  A GET to either mount is answered "get", so a
+ * case can follow its form with a pipelined request and see that request
+ * answered as itself.
  *
  * A case can hold back the end of its request body and send it with
  * whatever follows it after a pause, the way a slow client or a proxy
@@ -125,6 +127,30 @@ static const struct spa_case cases[] = {
 	  .expect = "a='one'/3 b='two'/3 c=NULL text=NULL up=0/0/0" },
 
 	/*
+	 * Each file part is announced to the upload callback once, before
+	 * its content, and ended once
+	 */
+	{ .name = "multipart two files and a field", .path = "/form",
+	  .ctype = MPART,
+	  .body = "--XyZ\r\n"
+		  "Content-Disposition: form-data; name=\"up\"; "
+			"filename=\"one.txt\"\r\n"
+		  "Content-Type: text/plain\r\n"
+		  "\r\n"
+		  "0123456789\r\n"
+		  "--XyZ\r\n"
+		  "Content-Disposition: form-data; name=\"text\"\r\n"
+		  "\r\n"
+		  "between\r\n"
+		  "--XyZ\r\n"
+		  "Content-Disposition: form-data; name=\"up\"; "
+			"filename=\"two.txt\"\r\n"
+		  "\r\n"
+		  "abc\r\n"
+		  "--XyZ--\r\n",
+	  .expect = "a=NULL b=NULL c=NULL text='between'/7 up=2/2/13" },
+
+	/*
 	 * RFC 2046 lets a multipart body go on after its close delimiter
 	 * (the epilogue).  It is still part of the request body its framing
 	 * declares: the request pipelined after the body must be served as
@@ -174,6 +200,9 @@ struct pss_srv {
 	int			opens;
 	int			finals;
 	int			bytes;
+	char			file_open;	/* between OPEN and FINAL */
+	char			misordered;	/* OPEN while open, or content
+						 * with none open */
 };
 
 static int
@@ -184,13 +213,19 @@ upload_cb(void *data, const char *name, const char *filename, char *buf,
 
 	switch (state) {
 	case LWS_UFS_OPEN:
+		if (pss->file_open)
+			pss->misordered = 1;
+		pss->file_open = 1;
 		pss->opens++;
 		break;
 	case LWS_UFS_CONTENT:
-		pss->bytes += len;
-		break;
 	case LWS_UFS_FINAL_CONTENT:
+		if (!pss->file_open)
+			pss->misordered = 1;
 		pss->bytes += len;
+		if (state == LWS_UFS_CONTENT)
+			break;
+		pss->file_open = 0;
 		pss->finals++;
 		break;
 	case LWS_UFS_CLOSE:
@@ -234,8 +269,9 @@ srv_describe(struct pss_srv *pss)
 					  lws_spa_get_length(pss->spa, n));
 	}
 
-	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "up=%d/%d/%d",
-			  pss->opens, pss->finals, pss->bytes);
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "up=%d/%d/%d%s",
+			  pss->opens, pss->finals, pss->bytes,
+			  pss->misordered ? " MISORDERED" : "");
 
 	pss->resp_len = lws_ptr_diff(p, pss->resp);
 }
@@ -252,6 +288,7 @@ callback_spa(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 		pss->opens = pss->finals = pss->bytes = 0;
+		pss->file_open = pss->misordered = 0;
 
 		if (lws_hdr_copy(wsi, uri, sizeof(uri),
 				 WSI_TOKEN_POST_URI) <= 0) {

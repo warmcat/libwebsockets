@@ -79,6 +79,7 @@ struct lws_urldecode_stateful {
 	uint8_t inside_quote:1;
 	uint8_t subname:1;
 	uint8_t boundary_real_crlf:1;
+	uint8_t disp_seen:1; /* this part had its Content-Disposition */
 
 	enum urldecode_stateful state;
 
@@ -357,6 +358,7 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in,
 					s->name[0] = '\0';
 					s->content_disp_filename[0] = '\0';
 					s->boundary_real_crlf = 1;
+					s->disp_seen = 0;
 				}
 				continue;
 			}
@@ -413,6 +415,18 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in,
 				continue;
 
 			/* we matched the one in hit */
+
+			if (hit == 0) { /* content-disposition */
+				/*
+				 * A part has one Content-Disposition.  A
+				 * second one would announce its file again
+				 * (LWS_UFS_OPEN) with nothing to close the
+				 * first
+				 */
+				if (s->disp_seen)
+					return -1;
+				s->disp_seen = 1;
+			}
 
 			s->mp = 0;
 			s->temp[0] = '\0';

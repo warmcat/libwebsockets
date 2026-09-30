@@ -521,6 +521,23 @@ deaddrop_scan_upload_dir(struct vhd_deaddrop *vhd)
 	return 0;
 }
 
+/*
+ * An upload that did not complete: close its file and remove the partial
+ * temp file, so it leaves neither an fd nor a file behind
+ */
+
+static void
+deaddrop_upload_abandon(struct pss_deaddrop *pss)
+{
+	if (pss->fd == LWS_INVALID_FILE)
+		return;
+
+	close((int)(lws_intptr_t)pss->fd);
+	pss->fd = LWS_INVALID_FILE;
+	if (pss->filename[0])
+		unlink(pss->filename);
+}
+
 static int
 deaddrop_file_upload_cb(void *data, const char *name, const char *filename,
 	       char *buf, int _len, enum lws_spa_fileupload_states state)
@@ -537,6 +554,12 @@ deaddrop_file_upload_cb(void *data, const char *name, const char *filename,
 
 	switch (state) {
 	case LWS_UFS_OPEN:
+		/*
+		 * One file at a time: a file still open here did not
+		 * complete, and would otherwise be leaked by the open below
+		 */
+		deaddrop_upload_abandon(pss);
+
 		/*
 		 * We can be bound to the protocol by a POST that never
 		 * matched our "/upload/" path (eg, straight to the
@@ -602,9 +625,7 @@ deaddrop_file_upload_cb(void *data, const char *name, const char *filename,
 			if (pss->file_length > pss->vhd->max_size) {
 				pss->response_code =
 					HTTP_STATUS_REQ_ENTITY_TOO_LARGE;
-				close((int)(lws_intptr_t)pss->fd);
-				pss->fd = LWS_INVALID_FILE;
-				unlink(pss->filename);
+				deaddrop_upload_abandon(pss);
 
 				return -1;
 			}
@@ -643,12 +664,7 @@ deaddrop_file_upload_cb(void *data, const char *name, const char *filename,
 		 * disk.  Without cleaning both up here, every aborted upload
 		 * leaks an fd and a file for the life of the process.
 		 */
-		if (pss->fd != LWS_INVALID_FILE) {
-			close((int)(lws_intptr_t)pss->fd);
-			pss->fd = LWS_INVALID_FILE;
-			if (pss->filename[0])
-				unlink(pss->filename);
-		}
+		deaddrop_upload_abandon(pss);
 		break;
 	}
 
