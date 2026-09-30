@@ -21,6 +21,8 @@ It checks that
 - when the owner of a channel is given a write opportunity and says the
   channel must close, the mux closes that channel with a FIN and nothing is
   sent from the caller's buffer for that write opportunity
+- when the owner of a channel can't go on with DATA that came on it, the mux
+  closes just that channel with a FIN, and the link stays up
 
 ## Build
 

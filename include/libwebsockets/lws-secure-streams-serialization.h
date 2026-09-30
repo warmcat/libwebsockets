@@ -576,6 +576,8 @@ lws_transport_path_proxy_dump(lws_txp_path_proxy_t *path, const char *ctx);
 typedef struct lws_txp_mux_parse_cbs {
 	int (*payload)(lws_transport_mux_ch_t *tmc, const uint8_t *buf,
 			size_t len);
+	/**< len bytes of DATA arrived on the channel; nonzero means what is
+	 * bound to the channel can't go on, and the mux closes the channel */
 	int (*ch_opens)(lws_transport_mux_ch_t *tmc, int determination);
 	int (*ch_closes)(lws_transport_mux_ch_t *tmc);
 	void (*txp_req_write)(lws_transport_mux_t *tm);

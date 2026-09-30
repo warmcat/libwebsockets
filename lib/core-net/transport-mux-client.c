@@ -235,6 +235,7 @@ lws_transport_mux_stream_up(lws_transport_priv_t priv)
 static int
 ltm_ch_payload(lws_transport_mux_ch_t *tmc, const uint8_t *buf, size_t len)
 {
+	struct lws_sspc_handle *h;
 	lws_ss_state_return_t r;
 
 //	lwsl_notice("%s: len %d\n", __func__, (int)len);
@@ -252,11 +253,24 @@ ltm_ch_payload(lws_transport_mux_ch_t *tmc, const uint8_t *buf, size_t len)
 	}
 
 	r = lws_txp_inside_sspc.event_read(tmc->priv, buf, len);
-	if (r) {
+	switch (r) {
+	case LWSSSSRET_OK:
+		break;
+
+	case LWSSSSRET_DESTROY_ME:
 		/*
-		 * Basically the sspc parser rejected it as malformed... we
-		 * lost something somewhere
-		 *
+		 * The user code wants the stream destroyed... that closes its
+		 * channel as well
+		 */
+		h = (struct lws_sspc_handle *)tmc->priv;
+		lws_sspc_destroy(&h);
+		break;
+
+	default:
+		/*
+		 * The sspc parser hung up on what came on this channel... the
+		 * mux closes the channel, and the handle hears that its link
+		 * closed and retries
 		 */
 		lwsl_notice("%s: r %d\n", __func__, r);
 
@@ -385,8 +399,18 @@ lws_transport_mux_event_closed(lws_transport_priv_t priv)
 	assert_is_tmch(tmc);
 
 	if (tmc->priv) {
+		struct lws_sspc_handle *h = (struct lws_sspc_handle *)tmc->priv;
+
 		lwsl_notice("%s: calling sspc event closed\n", __func__);
-		lws_txp_inside_sspc.event_closed(tmc->priv);
+		tmc->priv = NULL;
+		if (lws_txp_inside_sspc.event_closed(h) == LWSSSSRET_DESTROY_ME)
+			/*
+			 * The user code gave up on the stream when it heard
+			 * its link closed... it's up to us to destroy it, and
+			 * nothing else is holding it here, the channel is
+			 * going
+			 */
+			lws_sspc_destroy(&h);
 	}
 
 	return 0;

@@ -24,6 +24,9 @@ static struct {
 	int		can_write_unbound;
 	int		payload;
 
+	int		payload_verdict;
+	/**< what the owner says about DATA on the channel, nonzero means it
+	 * can't go on with the channel */
 	int		can_write_verdict;
 	/**< what the owner says when asked to write on the channel, nonzero
 	 * means it wants the channel closed */
@@ -47,7 +50,7 @@ cb_payload(lws_transport_mux_ch_t *tmc, const uint8_t *buf, size_t len)
 {
 	t.payload++;
 
-	return 0;
+	return t.payload_verdict;
 }
 
 static int
@@ -173,7 +176,9 @@ main(int argc, const char **argv)
 		req_255[]	= { LWSSSS_LLM_CHANNEL_REQ, 255 },
 		ack_255[]	= { LWSSSS_LLM_CHANNEL_ACK, 255 },
 		data_255[]	= { LWSSSS_LLM_MUX, 255, 0, 1, 'x' },
-		nack_255[]	= { LWSSSS_LLM_CHANNEL_NACK, 255 };
+		nack_255[]	= { LWSSSS_LLM_CHANNEL_NACK, 255 },
+		data_11[]	= { LWSSSS_LLM_MUX, 11, 0, 1, 'y' },
+		nack_11[]	= { LWSSSS_LLM_CHANNEL_NACK, 11 };
 	struct lws_context_creation_info info;
 	lws_transport_info_t tinfo;
 	lws_txp_path_client_t path;
@@ -296,6 +301,21 @@ main(int argc, const char **argv)
 	expect_count("payload after close", t.payload, 1);
 	expect_tx(tm, "FIN again for data on closed ch", nack_255,
 		  sizeof(nack_255));
+
+	/*
+	 * The owner of channel 11 can't go on with DATA that came on it: the
+	 * mux closes that channel with a FIN, and the link stays up
+	 */
+
+	t.payload_verdict = 1;
+	feed(tm, "data owner rejects", data_11, sizeof(data_11));
+	expect_count("payload rejected", t.payload, 2);
+	expect_count("ch_closes after payload verdict", t.ch_closes, 4);
+	if (tm->link_state != LWSTM_OPERATIONAL) {
+		lwsl_err("%s: link went down for one channel\n", __func__);
+		fails++;
+	}
+	expect_tx(tm, "FIN for rejected ch", nack_11, sizeof(nack_11));
 
 	lws_transport_mux_destroy(&tm);
 	lws_context_destroy(cx);

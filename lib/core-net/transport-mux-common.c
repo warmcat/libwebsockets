@@ -732,15 +732,23 @@ lws_transport_mux_rx_parse(lws_transport_mux_t *tm,
 					(1u << (tm->mp_idx & 31))))
 				/* it was closed under us mid-frame */
 				mc = NULL;
-			if (mc) {
-				if (cbs->payload(mc, buf, av)) {
-					/*
-					 * indication of broken framing...
-					 * other outcomes handled at SSPC layer
-					 */
-
-					goto fail_transport;
-				}
+			if (mc && cbs->payload(mc, buf, av)) {
+				/*
+				 * What is bound to the channel can't go on with
+				 * what came on it, eg, the SS serialization
+				 * parser inside it hung up.  That's about this
+				 * channel, the mux framing is fine... close
+				 * just this channel, like the wsi transport
+				 * closes just that connection.  This used to
+				 * take the whole link down, with every channel
+				 * on it.
+				 *
+				 * The callback may have closed the channel
+				 * already, so look it up again.
+				 */
+				mc = lws_transport_mux_get_channel(tm, tm->mp_idx);
+				if (mc)
+					lws_transport_mux_fin_channel(tm, &mc, cbs);
 			}
 			buf += av;
 			// lwsl_notice("%s: mp_pay %d -> %d\n", __func__,

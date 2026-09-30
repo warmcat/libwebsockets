@@ -198,7 +198,13 @@ ltm_ch_payload(lws_transport_mux_ch_t *tmc, const uint8_t *buf, size_t len)
 		return 0;
 	}
 
-	lws_txp_inside_proxy.proxy_read(tmc->priv, buf, len);
+	if (lws_txp_inside_proxy.proxy_read(tmc->priv, buf, len))
+		/*
+		 * The proxy's parser for this client stream hung up, which on
+		 * the wsi transport closes that client connection... the mux
+		 * closes this channel, and with it the conn
+		 */
+		return 1;
 
 	return 0;
 }
