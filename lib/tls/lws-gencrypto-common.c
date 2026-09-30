@@ -435,11 +435,17 @@ static const struct lws_jose_jwe_alg lws_gencrypto_jwe_alg_map[] = {
 	 * value resulting from the key encryption operation.  This Header
 	 * Parameter MUST be present and MUST be understood and processed by
 	 * implementations when these algorithms are used.
+	 *
+	 * lws does not implement GCM key wrapping.  These are typed as GCM,
+	 * which nothing in the JWE dispatch handles, so they are refused as an
+	 * unsupported alg... typing them as AES_ECB like A*KW would process
+	 * them silently as RFC3394 key wrap, a different algorithm to the one
+	 * the header declares.
 	 */
 	{	/* optional: Key wrapping with AES GCM using 128-bit key  */
 		LWS_GENHASH_TYPE_UNKNOWN,
 		LWS_GENHMAC_TYPE_UNKNOWN,
-		LWS_JOSE_ENCTYPE_AES_ECB,
+		LWS_JOSE_ENCTYPE_AES_GCM,
 		LWS_JOSE_ENCTYPE_NONE,
 		"A128GCMKW", NULL, 128, 128, 96
 	},
@@ -447,7 +453,7 @@ static const struct lws_jose_jwe_alg lws_gencrypto_jwe_alg_map[] = {
 	{	/* optional: Key wrapping with AES GCM using 192-bit key */
 		LWS_GENHASH_TYPE_UNKNOWN,
 		LWS_GENHMAC_TYPE_UNKNOWN,
-		LWS_JOSE_ENCTYPE_AES_ECB,
+		LWS_JOSE_ENCTYPE_AES_GCM,
 		LWS_JOSE_ENCTYPE_NONE,
 		"A192GCMKW", NULL, 192, 192, 96
 	},
@@ -455,7 +461,7 @@ static const struct lws_jose_jwe_alg lws_gencrypto_jwe_alg_map[] = {
 	{	/* optional: Key wrapping with AES GCM using 256-bit key */
 		LWS_GENHASH_TYPE_UNKNOWN,
 		LWS_GENHMAC_TYPE_UNKNOWN,
-		LWS_JOSE_ENCTYPE_AES_ECB,
+		LWS_JOSE_ENCTYPE_AES_GCM,
 		LWS_JOSE_ENCTYPE_NONE,
 		"A256GCMKW", NULL, 256, 256, 96
 	},
