@@ -128,11 +128,19 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
  * handshake, so a "choose" hook could not move the connection onto a vhost
  * whose key is of the other type.
  *
- * So we take the name out of the ClientHello ourselves (peeking at the
- * socket, the engine still reads the same bytes afterwards) and select the
- * vhost before the engine is initialized at all.  Then the chain, the key,
- * the suite profile, the client-cert policy, the ALPN list and the session
- * cache are all the selected vhost's from the start.
+ * So we take the name out of the ClientHello ourselves and select the vhost
+ * before the engine is initialized at all.  Then the chain, the key, the
+ * suite profile, the client-cert policy, the ALPN list and the session cache
+ * are all the selected vhost's from the start.
+ *
+ * The ClientHello's first record is read, not peeked (C-653): bytes left in
+ * the socket keep a level-triggered POLLIN firing, so waiting for the rest of
+ * a partial one would spin the service thread until the accept timeout.  They
+ * are kept in the connection's record output buffer, which nothing owns until
+ * the engine is initialized and is big enough for the largest record, and
+ * given to the engine as soon as it is (lws_bearssl_server_feed_hello()).
+ * Only the first record is taken: the name has to be in it, and the engine
+ * cannot write its reply into that buffer before it has had all of it.
  *
  * Returns 0 if the handshake may proceed on wsi's (possibly just changed)
  * vhost, 1 if we need more bytes from him first, or -1 if he has been refused
@@ -144,51 +152,55 @@ lws_bearssl_server_sni(struct lws *wsi)
 {
 	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->io->tls.ssl;
 	struct lws_vhost *vh = wsi->a.vhost;
+	uint8_t *hello = conn->iobuf_out;
 	struct lws_tls_ctx_ref *ref;
+	size_t want;
 	char name[256];
 	uint8_t ver[2];
 	int s, n;
 
-	/*
-	 * Peek: we must not consume anything, the engine is going to read the
-	 * ClientHello from the socket itself in the usual way.
-	 *
-	 * We peek into the connection's own record input buffer: the engine
-	 * is not initialized yet, so nothing owns it, and it is by definition
-	 * big enough for the largest record TLS can send us.  (Using the pt
-	 * serv buf instead would not be safe on the async accept worker.)
-	 */
-
-	s = (int)recv(wsi->io->desc.sockfd, (char *)conn->iobuf_in,
-		      LWS_POSIX_LENGTH_CAST(sizeof(conn->iobuf_in)), MSG_PEEK);
-	if (s <= 0) {
-		if (s < 0 && (LWS_ERRNO == LWS_EAGAIN ||
-			      LWS_ERRNO == LWS_EWOULDBLOCK))
-			return 1;
+	do {
+		n = lws_tls_client_hello_sni(hello, conn->hello_len, name,
+					     sizeof(name));
+		if (n != LWS_TLS_CH_SNI_MORE)
+			break;
 
 		/*
-		 * He hung up, or the socket is broken... nothing to decide,
-		 * let the engine discover it the same way it did before
+		 * Read no further than the end of the header, or of the
+		 * record the header announces (the parser only asks for more
+		 * of a record whose length TLS allows)
 		 */
 
-		return 0;
-	}
+		want = 5;
+		if (conn->hello_len >= 5)
+			want += ((size_t)hello[3] << 8) | hello[4];
+		if (want > sizeof(conn->iobuf_out)) {
+			/*
+			 * Can't happen, BearSSL's output record buffer is big
+			 * enough for any record... but if it were not, there
+			 * would be no name we could find
+			 */
+			n = LWS_TLS_CH_SNI_NONE;
+			break;
+		}
 
-	n = lws_tls_client_hello_sni(conn->iobuf_in, (size_t)s, name,
-				     sizeof(name));
-
-	if (n == LWS_TLS_CH_SNI_MORE) {
-		if ((size_t)s < sizeof(conn->iobuf_in))
+		s = (int)recv(wsi->io->desc.sockfd,
+			      (char *)hello + conn->hello_len,
+			      LWS_POSIX_LENGTH_CAST(want - conn->hello_len), 0);
+		if (s < 0 && (LWS_ERRNO == LWS_EAGAIN ||
+			      LWS_ERRNO == LWS_EWOULDBLOCK))
 			/* the rest of his ClientHello is still coming */
 			return 1;
 
-		/*
-		 * He filled the record buffer without completing a
-		 * ClientHello, so there is no name in there to find
-		 */
+		if (s <= 0)
+			/*
+			 * He hung up, or the socket is broken... nothing to
+			 * decide, let the engine discover it
+			 */
+			return 0;
 
-		n = LWS_TLS_CH_SNI_NONE;
-	}
+		conn->hello_len += (size_t)s;
+	} while (1);
 
 	if (n == LWS_TLS_CH_SNI_NONE)
 		/* he named nothing: he is served by the vhost that accepted him */
@@ -221,14 +233,41 @@ lws_bearssl_server_sni(struct lws *wsi)
 	 * echo the record version he used so he can parse it.
 	 */
 
-	ver[0] = conn->iobuf_in[1];
-	ver[1] = conn->iobuf_in[2];
+	ver[0] = hello[1];
+	ver[1] = hello[2];
 
 	lws_tls_server_send_alert(wsi, ver, LWS_TLS_ALERT_UNRECOGNIZED_NAME);
 
 	lwsi_set_skt_unusable(wsi, 1);
 
 	return -1;
+}
+
+/*
+ * The engine was just initialized: give it the ClientHello bytes
+ * lws_bearssl_server_sni() already read from the socket, as it would have
+ * read them itself
+ */
+
+static void
+lws_bearssl_server_feed_hello(struct lws_tls_conn *conn)
+{
+	size_t off = 0, len;
+	uint8_t *buf;
+
+	while (off < conn->hello_len) {
+		buf = br_ssl_engine_recvrec_buf(&conn->u.server.eng, &len);
+		if (!buf || !len)
+			/* he failed already, the engine says so next */
+			break;
+		if (len > conn->hello_len - off)
+			len = conn->hello_len - off;
+		memcpy(buf, conn->iobuf_out + off, len);
+		br_ssl_engine_recvrec_ack(&conn->u.server.eng, len);
+		off += len;
+	}
+
+	conn->hello_len = 0;
 }
 
 enum lws_ssl_capable_status
@@ -296,6 +335,8 @@ lws_tls_server_accept(struct lws *wsi)
 
 		br_ssl_server_reset(&conn->u.server);
 		conn->initialized = 1;
+
+		lws_bearssl_server_feed_hello(conn);
 	}
 
 	st = br_ssl_engine_current_state(&conn->u.server.eng);

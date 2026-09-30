@@ -73,6 +73,13 @@ struct lws_tls_conn {
 	unsigned char iobuf_in[BR_SSL_BUFSIZE_INPUT];
 	unsigned char iobuf_out[BR_SSL_BUFSIZE_OUTPUT];
 
+	/*
+	 * A server reads the first record of the ClientHello itself, into
+	 * iobuf_out, to find the SNI before the engine exists: how much of it
+	 * it has so far
+	 */
+	size_t hello_len;
+
 	int is_client;
 	char initialized;
 
