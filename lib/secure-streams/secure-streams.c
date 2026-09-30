@@ -1659,8 +1659,15 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 
 #if defined(LWS_WITH_TLS)
 		if (h->policy->flags & LWSSSPOLF_TLS) {
-			if (!h->policy->trust.server.cert) {
-				lwsl_ss_err(h, "Policy lacks tls cert");
+			/*
+			 * With no cert or key DER, the vhost would quietly
+			 * come up listening without tls
+			 */
+			if (!h->policy->trust.server.cert ||
+			    !h->policy->trust.server.key ||
+			    !h->policy->trust.server.cert->ca_der ||
+			    !h->policy->trust.server.key->ca_der) {
+				lwsl_ss_err(h, "Policy lacks tls cert or key");
 				goto fail_creation;
 			}
 			i.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;

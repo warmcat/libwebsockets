@@ -555,6 +555,13 @@ struct policy_cb_args {
 	 * started, so we can put it back if the new one does not parse
 	 */
 	const lws_ss_policy_t *prev_pss_policies;
+	/*
+	 * context->server_der_list as it was when we started.  Server certs
+	 * this parse keeps are added in front of it, so everything before
+	 * it on the list is ours, and it and everything after belongs to
+	 * the policy that was in force.
+	 */
+	lws_ss_x509_t *prev_server_der_list;
 
 	int count;
 	int pvosp;

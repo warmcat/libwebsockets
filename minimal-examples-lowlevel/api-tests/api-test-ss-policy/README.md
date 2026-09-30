@@ -12,6 +12,7 @@ key come from the policy.
 |fetched|documents the parser must reject, each defining a cert before the part that is rejected (unknown trust store cert, trust store stack before its name, unknown server cert, a kept server cert followed by an unknown trust store cert), fed the way the fetch_policy system stream feeds a policy from the network|each is rejected, `polt_cli` still exists and no streamtype from the rejected document does|
 |truncated|a document that stops partway through a cert, then abandoned twice, as a fetch that disconnects and is then destroyed does|the original policy is still in force|
 |overlay|the same rejected documents as `lws_ss_policy_overlay()` on the live policy|each is rejected and the live policy is still usable|
+|server|creating `polt_srv`, after all the rejected documents above, some of which kept server certs of their own before failing|it comes up with the original policy's cert and key|
 |valid|a valid document, then abandoned|it parses, and abandoning it puts the original policy back|
 
 Build lws with `-DLWS_WITH_ASAN=1` to see the teardown of the rejected

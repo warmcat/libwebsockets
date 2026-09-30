@@ -415,8 +415,8 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 #if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 	struct policy_cb_args *args = (struct policy_cb_args *)context->pol_args;
 	const lws_ss_policy_t *pol;
+	lws_ss_x509_t *x, **px;
 	struct lws_vhost *v;
-	lws_ss_x509_t *x;
 	char buf[16];
 	int m;
 
@@ -429,6 +429,25 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 		return 1;
 
 	lejp_destruct(&args->jctx);
+
+	/*
+	 * The server certs the old policy kept are on server_der_list behind
+	 * the ones the new policy kept, and the objects are in the old
+	 * policy's lwsac that we are about to free... unlink them and free
+	 * their DER, so the list only holds the new policy's
+	 */
+
+	px = &context->server_der_list;
+	while (*px && *px != args->prev_server_der_list)
+		px = &(*px)->next;
+	x = *px;
+	*px = NULL;
+	while (x) {
+		lws_free((void *)x->ca_der);
+		x->ca_der = NULL;
+
+		x = x->next;
+	}
 
 	if (context->ac_policy) {
 		int n;

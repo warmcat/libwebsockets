@@ -14,8 +14,9 @@
  * policy from the network, and as overlays.  Each one defines at least one
  * cert before the part that gets it rejected, since the X.509 objects are
  * what the abandon path walks.  After each one, the original streamtypes must
- * still be there and nothing from the rejected document may be.  A valid
- * document must still parse after all that.
+ * still be there and nothing from the rejected document may be.  The
+ * original tls server streamtype must still come up with its cert and key
+ * after all that, and a valid document must still parse.
  *
  * Build with ASan to see the teardown is clean.
  */
@@ -230,6 +231,18 @@ main(int argc, const char **argv)
 		}
 		if (!original_in_force(cx, "overlay"))
 			goto bail;
+	}
+
+	/*
+	 * Some of the rejected documents kept server certs before failing.
+	 * Throwing those away must not have taken the DER of the original
+	 * policy's server cert and key with it: its tls server streamtype
+	 * must still come up
+	 */
+
+	if (!streamtype_exists(cx, "polt_srv")) {
+		lwsl_err("server: original tls server streamtype unusable\n");
+		goto bail;
 	}
 
 	/* after all that, a valid document must still parse */

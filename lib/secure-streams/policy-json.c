@@ -1290,6 +1290,7 @@ lws_ss_policy_parse_begin(struct lws_context *context, int overlay)
 		context->pss_policies = NULL;
 	}
 
+	args->prev_server_der_list = context->server_der_list;
 	context->pol_args = args;
 	args->context = context;
 	p = lwsac_use(&args->ac, 1, POL_AC_INITIAL);
@@ -1344,12 +1345,22 @@ lws_ss_policy_parse_abandon(struct lws_context *context)
 		x = x->next;
 	}
 
-	x = context->server_der_list;
-	while (x) {
-		lws_free((void *)x->ca_der);
-		x->ca_der = NULL;
+	if (!args->overlay) {
+		/*
+		 * Only free the DER of the server certs this parse kept, which
+		 * are in front of the ones the policy we are going back to kept
+		 * and still needs to bring its servers up.  (An overlay's are
+		 * in the live lwsac and the live policy may already point to
+		 * them, so they stay listed until the policy goes away.)
+		 */
+		x = context->server_der_list;
+		while (x && x != args->prev_server_der_list) {
+			lws_free((void *)x->ca_der);
+			x->ca_der = NULL;
 
-		x = x->next;
+			x = x->next;
+		}
+		context->server_der_list = args->prev_server_der_list;
 	}
 
 	/* a parse that failed partway through a certs[] entry */
@@ -1371,8 +1382,6 @@ lws_ss_policy_parse_abandon(struct lws_context *context)
 
 	lwsac_free(&args->ac);
 	lws_free_set_NULL(context->pol_args);
-
-	context->server_der_list = NULL;
 
 	return 0;
 }
