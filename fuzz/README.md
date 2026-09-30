@@ -71,6 +71,15 @@ anything turns up.
 host (gnutls for h3 / JOSE / COSE / DNSSEC, zlib for permessage-deflate);
 a target whose option is off is skipped, not an error.
 
+The same configuration also asks sai for idle tasks, which keep fuzzing the
+latest completed push in time the builders would otherwise spend idle, if
+their conf gives them a share of it (see sai's `READMEs/README-idle.md`).
+sai tells an idle task how long its slice is in `SAI_IDLE_SECS`, and then
+`run.sh` goes by that instead of the seconds argument: whatever time is left
+after the build goes to as many targets as can each have at least two
+minutes, taking turns in order across slices so every target is covered.
+Whose turn it is is kept in `<corpus>/.idle-next`.
+
 ## Targets
 
 | target | parser under test | notes |

@@ -18,6 +18,13 @@
 # seeded from the committed inputs in fuzz/fuzz-<name>/seeds/.  <corpus>
 # defaults to <build>/fuzz; point CORPUS somewhere persistent when <build>
 # is disposable (eg, a CI job dir) so coverage keeps advancing between jobs.
+# Under a sai idle task (sai's READMEs/README-idle.md), sai sets SAI_IDLE_SECS
+# to the length of the slice, which is the whole time we have, build included.
+# Then that decides the time per target instead of the seconds argument: the
+# time left after the build goes to as many targets as can each have at least
+# IDLE_MIN_TARGET_SECS, taking turns in order across slices, so all of them
+# are covered over a few slices.  Any target names given still limit the choice.
+#
 # Finding artifacts (crash-*, leak-*, timeout-*, oom-*) are written into
 # <build>/fuzz/ along with each target's full output in log-<name>.txt; any
 # findings produced by this run are listed by absolute path at the end and
@@ -40,6 +47,19 @@ if [ "$#" -gt 0 ]; then
 else
 	TARGETS="lejp lecp qpack upng jpeg gif lhp hl md tokenize jose cose adns h1 h2 ws ws-pmd"
 fi
+
+START=$(date +%s)
+IDLE_SECS="${SAI_IDLE_SECS:-}"
+case "$IDLE_SECS" in
+	''|*[!0-9]*) IDLE_SECS="" ;;
+esac
+# least time a target gets in an idle slice, since each run begins by
+# replaying the target's whole corpus
+IDLE_MIN_TARGET_SECS=120
+# time an idle slice keeps back for the fuzzer runs starting and stopping,
+# and reporting at the end
+IDLE_MARGIN_SECS=30
+IDLE_PER_TARGET_OVERHEAD_SECS=5
 
 if [ -z "$CC" ]; then
 	for c in clang clang-19 clang-18 clang-17; do
@@ -83,6 +103,54 @@ CC="$CC" cmake -S "$REPO" -B "$BUILD" --fresh -DCMAKE_BUILD_TYPE=Debug \
 cmake --build "$BUILD" --parallel
 
 mkdir -p "$BUILD/fuzz" "$CORPUS"
+
+if [ -n "$IDLE_SECS" ]; then
+	# only the targets that got built can take a turn
+	avail=""
+	for t in $TARGETS; do
+		if [ -x "$BUILD/bin/fuzz-$t" ]; then
+			avail="$avail $t"
+		fi
+	done
+	set -- $avail
+	n=$#
+	if [ "$n" -eq 0 ]; then
+		echo "no fuzz targets built" >&2
+		exit 1
+	fi
+
+	left=$(( IDLE_SECS - ($(date +%s) - START) - IDLE_MARGIN_SECS ))
+	count=$(( left / (IDLE_MIN_TARGET_SECS + IDLE_PER_TARGET_OVERHEAD_SECS) ))
+	if [ "$count" -gt "$n" ]; then
+		count=$n
+	fi
+	if [ "$count" -lt 1 ]; then
+		echo "idle slice of ${IDLE_SECS}s has no time left after the build"
+		exit 0
+	fi
+	SECS=$(( left / count - IDLE_PER_TARGET_OVERHEAD_SECS ))
+
+	# whose turn it is, kept with the corpora so it lasts between slices
+	next=0
+	if [ -r "$CORPUS/.idle-next" ]; then
+		read -r next < "$CORPUS/.idle-next" || next=0
+		case "$next" in
+			''|*[!0-9]*) next=0 ;;
+		esac
+	fi
+	next=$(( next % n ))
+	echo $(( (next + count) % n )) > "$CORPUS/.idle-next"
+
+	TARGETS=""
+	i=0
+	while [ "$i" -lt "$count" ]; do
+		k=$(( (next + i) % n + 1 ))
+		eval "TARGETS=\"\$TARGETS \${$k}\""
+		i=$(( i + 1 ))
+	done
+
+	echo "idle slice of ${IDLE_SECS}s: ${SECS}s each for$TARGETS"
+fi
 
 # so we can tell this run's findings apart from any earlier ones in $BUILD
 STAMP="$BUILD/fuzz/.run-stamp"
