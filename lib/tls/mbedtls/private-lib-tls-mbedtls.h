@@ -69,6 +69,18 @@ struct lws_tls_conn {
 	 * mbedtls_ssl_config_free()).
 	 */
 	mbedtls_ssl_config conf;
+#if defined(LWS_WITH_SERVER)
+	/*
+	 * A server connection whose ClientHello named a vhost in SNI: our
+	 * reference on the ctx of that vhost, whose cert, key and client CA
+	 * chain the handshake uses.  mbedtls only takes them as per-handshake
+	 * overrides by pointer (ssl->conf stays the listening vhost's), so the
+	 * reference is what stops a cert renewal of that vhost freeing them
+	 * under the handshake.  Held until the session is freed, see
+	 * lws_mbedtls_conn_destroy().
+	 */
+	struct lws_tls_ctx_ref *sni_ref;
+#endif
 	uint8_t own_conf;
 #if defined(LWS_WITH_CLIENT)
 	char alpn_strings[128];
@@ -97,6 +109,7 @@ int
 lws_gencrypto_mbedtls_rngf(void *context, unsigned char *buf, size_t len);
 
 void mbedtls_quic_bio_free(struct lws *wsi);
+void lws_mbedtls_conn_destroy(struct lws *wsi);
 void lws_mbedtls_set_alpn(struct lws_tls_ctx *ctx, const char *alpn_comma);
 
 void

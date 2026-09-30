@@ -261,6 +261,28 @@ lws_tls_conn_set_wsi(struct lws *wsi)
 }
 
 
+/*
+ * Free the wsi's tls session.  The ctx the SNI callback selected goes only
+ * after the ssl: until mbedtls_ssl_free() the handshake may still point into
+ * it
+ */
+
+void
+lws_mbedtls_conn_destroy(struct lws *wsi)
+{
+	struct lws_tls_conn *conn = wsi->io->tls.ssl;
+
+	if (!conn)
+		return;
+
+	mbedtls_ssl_free(&conn->ssl);
+#if defined(LWS_WITH_SERVER)
+	lws_tls_ctx_ref_unref(conn->sni_ref);
+#endif
+	lws_free(conn);
+	wsi->io->tls.ssl = NULL;
+}
+
 int
 lws_ssl_close(struct lws *wsi)
 {
@@ -294,9 +316,7 @@ lws_ssl_close(struct lws *wsi)
 #if defined(LWS_ROLE_QUIC)
 	mbedtls_quic_bio_free(wsi);
 #endif
-	mbedtls_ssl_free(&wsi->io->tls.ssl->ssl);
-	lws_free(wsi->io->tls.ssl);
-	wsi->io->tls.ssl = NULL;
+	lws_mbedtls_conn_destroy(wsi);
 
 	lws_tls_restrict_return(wsi);
 

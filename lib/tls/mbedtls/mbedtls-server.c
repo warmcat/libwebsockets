@@ -155,8 +155,12 @@ static int
 lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 		   const unsigned char *servername, size_t len)
 {
+	struct lws_tls_conn *conn = lws_container_of(mbedtls_ctx,
+						struct lws_tls_conn, ssl);
 	struct lws_context *context = (struct lws_context *)arg;
 	struct lws_vhost *vhost, *vh;
+	struct lws_tls_ctx_ref *ref;
+	struct lws_tls_ctx *ctx;
 	char sn_str[128];
 
 	/*
@@ -207,13 +211,46 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 	lwsl_info("SNI: Found: %s:%d at vhost '%s'\n", sn_str,
 					vh->listen_port, vhost->name);
 
-	if (!vhost->tls.ssl_ctx) {
+	/*
+	 * The handshake is going to use this vhost's cert, key and client CA
+	 * chain, which mbedtls only takes as pointers: hold a reference on
+	 * the ctx they belong to for as long as the session exists, or a
+	 * renewal of this vhost's cert while the peer sits on the handshake
+	 * frees them under it (C-674).  The listener's own ctx is held by
+	 * wsi->io->tls.ctx_ref, but this one may be another vhost's, or a
+	 * newer ctx of the listener than the session was set up with.
+	 *
+	 * The callback can come again for the same session, for the second
+	 * ClientHello after a HelloRetryRequest (or a renegotiation, if the
+	 * app enabled it).  The earlier selection's cert may still be on the
+	 * handshake's list then, so keep that reference, and refuse a client
+	 * that names another vhost this time: RFC 8446 4.1.2 does not let
+	 * the second ClientHello change the server_name anyway.
+	 */
+
+	ref = conn->sni_ref;
+	if (ref) {
+		if (ref->vh != vhost) {
+			lwsl_notice("%s: SNI changed within the handshake\n",
+				    __func__);
+			return -1;
+		}
+	} else
+		ref = lws_tls_ctx_ref_get(vhost);
+
+	ctx = ref ? ref->ctx : NULL;
+	if (!ctx || !ctx->chain || !ctx->key) {
 		lwsl_err("%s: vhost %s matches SNI but no valid cert\n",
-				__func__, vh->name);
+				__func__, vhost->name);
+		if (ref != conn->sni_ref)
+			lws_tls_ctx_ref_unref(ref);
+
 		return -1;
 	}
 
-	mbedtls_ssl_set_hs_own_cert(mbedtls_ctx, vhost->tls.ssl_ctx->chain, vhost->tls.ssl_ctx->key);
+	conn->sni_ref = ref;
+
+	mbedtls_ssl_set_hs_own_cert(mbedtls_ctx, ctx->chain, ctx->key);
 
 	/*
 	 * Unlike openssl's SSL_set_SSL_CTX(), ssl->conf still points at the
@@ -227,9 +264,9 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 	 * anywhere, so NULL is what the non-SNI path uses too.)
 	 */
 
-	mbedtls_ssl_set_hs_ca_chain(mbedtls_ctx, vhost->tls.ssl_ctx->ca_chain,
-				    NULL);
-	mbedtls_ssl_set_hs_authmode(mbedtls_ctx, vhost->tls.ssl_ctx->conf.MBEDTLS_PRIVATE(authmode));
+	mbedtls_ssl_set_hs_ca_chain(mbedtls_ctx, ctx->ca_chain, NULL);
+	mbedtls_ssl_set_hs_authmode(mbedtls_ctx,
+				    ctx->conf.MBEDTLS_PRIVATE(authmode));
 
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03020000
 	{
@@ -543,11 +580,7 @@ lws_tls_server_abort_connection(struct lws *wsi)
 	mbedtls_quic_bio_free(wsi);
 #endif
 
-	if (wsi->io->tls.ssl) {
-		mbedtls_ssl_free(&wsi->io->tls.ssl->ssl);
-		lws_free(wsi->io->tls.ssl);
-		wsi->io->tls.ssl = NULL;
-	}
+	lws_mbedtls_conn_destroy(wsi);
 
 	return 0;
 }
