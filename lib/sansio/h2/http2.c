@@ -3102,6 +3102,20 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 							wsi : h2n->swsi, c)) {
 					lwsl_info("%s: hpack failed\n",
 						  __func__);
+					/*
+					 * If it failed by deciding the
+					 * connection is dead, it queued the
+					 * GOAWAY telling the peer why.  Ignore
+					 * the rest of what he sent while that
+					 * goes out: the pps handler closes us
+					 * once it has.  Failing out here closed
+					 * the connection before it was sent.
+					 */
+					if (h2n->goaway_queued) {
+						h2n->type =
+						    LWS_H2_FRAME_TYPE_COUNT;
+						break;
+					}
 					goto fail;
 				}
 				break;
