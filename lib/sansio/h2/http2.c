@@ -1603,9 +1603,6 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			break;
 		}
 
-		if (h2n->length == 0)
-			lws_h2_parse_end_of_frame(wsi);
-
 		break;
 
 	case LWS_H2_FRAME_TYPE_PRIORITY:
@@ -2011,18 +2008,12 @@ cleanup_wsi_l:
 		lwsl_info("LWS_H2_FRAME_TYPE_WINDOW_UPDATE\n");
 		break;
 	case LWS_H2_FRAME_TYPE_COUNT:
-		if (h2n->length == 0)
-			lws_h2_parse_end_of_frame(wsi);
-		else
-			lwsl_debug("%s: going on to deal with unknown frame remaining len %d\n", __func__, (unsigned int)h2n->length);
 		break;
 	default:
 		lwsl_info("%s: ILLEGAL FRAME TYPE %d\n", __func__, h2n->type);
 		h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
 		break;
 	}
-	if (h2n->length == 0)
-		h2n->frame_state = 0;
 
 	return 0;
 }
@@ -3590,8 +3581,30 @@ try_frame_start:
 				}
 			}
 
-			if (h2n->frame_state == LWS_H2_FRAME_HEADER_LENGTH &&
-			    lws_h2_parse_frame_header(wsi))
+			if (h2n->frame_state != LWS_H2_FRAME_HEADER_LENGTH)
+				break;
+
+			if (lws_h2_parse_frame_header(wsi))
+				goto fail;
+
+			if (h2n->length)
+				break;
+
+			/*
+			 * No payload byte is coming to take a frame with none
+			 * to frame_end above, so it ends here.  Every type
+			 * must get its end of frame: an empty HEADERS or
+			 * CONTINUATION ending the block, an empty SETTINGS...
+			 * only DATA and ignored frames used to, which left an
+			 * empty HEADERS' stream holding its ah, never served.
+			 */
+			n = lws_h2_parse_end_of_frame(wsi);
+			if (n == 2) {
+				*inused = (lws_filepos_t)lws_ptr_diff_size_t(in, oldin);
+
+				return 2;
+			}
+			if (n)
 				goto fail;
 			break;
 
