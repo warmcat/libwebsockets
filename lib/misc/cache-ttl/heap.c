@@ -33,9 +33,6 @@ static void
 update_sul(lws_cache_ttl_lru_t_heap_t *cache);
 
 static int
-lws_cache_heap_invalidate(struct lws_cache_ttl_lru *_c, const char *key);
-
-static int
 sort_expiry(const lws_dll2_t *a, const lws_dll2_t *b)
 {
 	const lws_cache_ttl_item_heap_t
@@ -365,33 +362,19 @@ lws_cache_heap_write(struct lws_cache_ttl_lru *_c, const char *specific_key,
 	lwsl_cache("%s: %s: len %d\n", __func__, _c->info.name, (int)size);
 
 	/*
-	 * Is this new tag going to invalidate any existing cached meta-results?
+	 * Cached lookup results the new item belongs in are not our business
+	 * here: this is also how an outer level fills L1 with an item it
+	 * already had, and how lookup results themselves are stored, and
+	 * neither changes what a lookup finds.  A new item is written by
+	 * lws_cache_write_through(), which invalidates them first.
 	 *
-	 * If so, let's destroy any of those first to recover the heap
+	 * Remove any existing entry of the same key (and so the lookup results
+	 * that named it)
 	 */
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   lws_dll2_get_head(&cache->items_lru)) {
-		lws_cache_ttl_item_heap_t *i = lws_container_of(d,
-						lws_cache_ttl_item_heap_t,
-						list_lru);
-		const char *iname = ((const char *)&i[1]) + i->size;
-
-		if (*iname == META_ITEM_LEADING) {
-
-			/*
-			 * If the item about to be added would match any cached
-			 * results from before it was added, we have to
-			 * invalidate them.  To check this, we have to use the
-			 * matching rules at the backing store level
-			 */
-
-			if (!strcmp(iname + 1, specific_key))
-				_lws_cache_heap_item_destroy(cache, i);
-		}
-
-	} lws_end_foreach_dll_safe(d, d1);
-
+	item = lws_cache_heap_specific(cache, specific_key);
+	if (item)
+		lws_cache_heap_item_destroy(cache, item, 0);
 
 	/*
 	 * Keep us under the limit if possible... note this will always allow
@@ -405,10 +388,6 @@ lws_cache_heap_write(struct lws_cache_ttl_lru *_c, const char *specific_key,
 		lws_dll2_count(&cache->items_lru) + 1 > cache->cache.info.max_items)) &&
 	       lws_dll2_get_head(&cache->items_lru))
 		lws_cache_item_evict_lru(cache);
-
-	/* remove any existing entry of the same key */
-
-	lws_cache_heap_invalidate(&cache->cache, specific_key);
 
 	item = lws_fi(&_c->info.cx->fic, "cache_write_oom") ? NULL :
 			lws_malloc(sizeof(*item) + kl + 1u + size, __func__);
@@ -491,19 +470,15 @@ lws_cache_heap_invalidate(struct lws_cache_ttl_lru *_c, const char *specific_key
 	lws_cache_ttl_lru_t_heap_t *cache = (lws_cache_ttl_lru_t_heap_t *)_c;
 	struct lws_cache_ttl_lru *backing = _c;
 	lws_cache_ttl_item_heap_t *item;
-	const void *user;
-	size_t size;
-
-	if (lws_cache_heap_get(_c, specific_key, &user, &size))
-		return 0;
 
 	if (backing->info.parent)
 		backing = backing->info.parent;
 
-	item = (lws_cache_ttl_item_heap_t *)(((uint8_t *)user) - sizeof(*item));
-
 	/*
-	 * We must invalidate any cached results that would have included this
+	 * We must invalidate any cached lookup results that include, or would
+	 * include, an item with this key, whether or not we hold the item
+	 * itself: it may only be in an outer level, or be about to be written
+	 * by lws_cache_write_through()
 	 */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -529,7 +504,11 @@ lws_cache_heap_invalidate(struct lws_cache_ttl_lru *_c, const char *specific_key
 
 	} lws_end_foreach_dll_safe(d, d1);
 
-	lws_cache_heap_item_destroy(cache, item, 0);
+	/* even if it has expired: the expiry sweep may not have run yet */
+
+	item = lws_cache_heap_specific(cache, specific_key);
+	if (item)
+		lws_cache_heap_item_destroy(cache, item, 0);
 
 	return 0;
 }

@@ -646,6 +646,22 @@ test_nsc_lookup_get_destroy(void)
 	if (found != 1)
 		goto cdone;
 
+	/*
+	 * A new cookie the cached lookup result would list must not leave the
+	 * stale result set there: the next lookup lists both
+	 */
+
+	if (lws_cache_write_through(l1, tag_cookie3,
+				    (const uint8_t *)cookie3, strlen(cookie3),
+				    lws_now_usecs() + LWS_US_PER_SEC * 10, NULL))
+		goto cdone;
+
+	if (lws_cache_lookup(l1, "host.com|/|*", (const void **)&cr.ptr,
+			     &cr.size) || cr.size != 53) {
+		lwsl_err("%s: stale lookup result\n", __func__);
+		goto cdone;
+	}
+
 	ret = 0;
 
 cdone:
