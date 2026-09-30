@@ -4615,10 +4615,298 @@ test_cb(struct lecp_ctx *ctx, char reason)
 	return 0;
 }
 
+/*
+ * Structural conformance
+ *
+ * The vectors above pin exact event sequences.  These instead check, for any
+ * well-formed input, invariants the event stream must keep whatever the
+ * input is:
+ *
+ *  - every ARRAY / OBJECT / TAG / STR / BLOB START has its END, properly
+ *    nested, and string chunks only arrive inside an open string of their
+ *    own kind
+ *  - ARRAY_ITEM_START / ARRAY_ITEM_END only appear directly inside an array,
+ *    and bracket exactly one item each
+ *  - a tag encloses exactly one item
+ *  - inside a map, items alternate key, value, key, value... and
+ *    lecp_parse_map_is_key() says so to the callback for each of them
+ *
+ * The model of what is open is built from the events alone, so it is
+ * independent of the parser's own stack.
+ */
+
+enum {
+	SC_ROOT,
+	SC_ARRAY,
+	SC_MAP,
+	SC_TAG,
+	SC_STR,
+	SC_BLOB,
+};
+
+struct sc_frame {
+	uint8_t			kind;
+	uint8_t			item;	/* array: 0 idle, 1 ITEM_START, 2 item */
+	uint8_t			key;	/* this frame is a map key */
+	uint32_t		count;	/* completed child items */
+};
+
+struct sc_priv {
+	struct sc_frame		st[LECP_MAX_DEPTH + 1];
+	int			sp;
+	int			fail;
+};
+
+static int
+sc_fail(struct sc_priv *pr, const char *why)
+{
+	lwsl_warn("%s: sp %d: %s\n", __func__, pr->sp, why);
+	pr->fail = 1;
+
+	return 1;
+}
+
+/* a new item is starting in the innermost open frame */
+
+static int
+sc_item_start(struct lecp_ctx *ctx, struct sc_priv *pr, uint8_t *is_key)
+{
+	struct sc_frame *f = &pr->st[pr->sp];
+
+	*is_key = 0;
+
+	switch (f->kind) {
+	case SC_STR:
+	case SC_BLOB:
+		return sc_fail(pr, "item inside a string");
+	case SC_ARRAY:
+		if (f->item != 1)
+			return sc_fail(pr, "array item without ITEM_START");
+		f->item = 2;
+		break;
+	case SC_MAP:
+		*is_key = !(f->count & 1);
+		break;
+	case SC_TAG:
+		if (f->count)
+			return sc_fail(pr, "second item inside a tag");
+		break;
+	}
+
+	if (lecp_parse_map_is_key(ctx) != *is_key)
+		return sc_fail(pr, *is_key ? "key reported as a value" :
+					     "value reported as a key");
+
+	return 0;
+}
+
+static int
+sc_open(struct lecp_ctx *ctx, struct sc_priv *pr, uint8_t kind)
+{
+	uint8_t is_key;
+
+	if (sc_item_start(ctx, pr, &is_key))
+		return 1;
+
+	if (pr->sp + 1 >= (int)LWS_ARRAY_SIZE(pr->st))
+		return sc_fail(pr, "too deep");
+
+	pr->sp++;
+	memset(&pr->st[pr->sp], 0, sizeof(pr->st[pr->sp]));
+	pr->st[pr->sp].kind	= kind;
+	pr->st[pr->sp].key	= is_key;
+
+	return 0;
+}
+
+static int
+sc_close(struct sc_priv *pr, uint8_t kind)
+{
+	struct sc_frame *f = &pr->st[pr->sp];
+
+	if (!pr->sp || f->kind != kind)
+		return sc_fail(pr, "END does not match the open START");
+	if (kind == SC_ARRAY && f->item)
+		return sc_fail(pr, "ARRAY_END inside an unfinished item");
+	if (kind == SC_TAG && f->count != 1)
+		return sc_fail(pr, "tag did not enclose exactly one item");
+
+	pr->sp--;
+	pr->st[pr->sp].count++;
+
+	return 0;
+}
+
+static signed char
+sc_cb(struct lecp_ctx *ctx, char reason)
+{
+	struct sc_priv *pr = (struct sc_priv *)ctx->user;
+	struct sc_frame *f = &pr->st[pr->sp];
+	uint8_t is_key;
+
+	if (pr->fail)
+		return 1;
+
+	switch (reason) {
+	case LECPCB_CONSTRUCTED:
+	case LECPCB_DESTRUCTED:
+	case LECPCB_LITERAL_CBOR:
+		return 0;
+
+	case LECPCB_FAILED:
+		return (signed char)sc_fail(pr, "parse failed");
+
+	case LECPCB_VAL_TRUE:
+	case LECPCB_VAL_FALSE:
+	case LECPCB_VAL_NULL:
+	case LECPCB_VAL_NUM_INT:
+	case LECPCB_VAL_NUM_UINT:
+	case LECPCB_VAL_UNDEFINED:
+	case LECPCB_VAL_FLOAT16:
+	case LECPCB_VAL_FLOAT32:
+	case LECPCB_VAL_FLOAT64:
+	case LECPCB_VAL_SIMPLE:
+		if (sc_item_start(ctx, pr, &is_key))
+			return 1;
+		pr->st[pr->sp].count++;
+		return 0;
+
+	case LECPCB_ARRAY_START:
+		return (signed char)sc_open(ctx, pr, SC_ARRAY);
+	case LECPCB_ARRAY_END:
+		return (signed char)sc_close(pr, SC_ARRAY);
+	case LECPCB_OBJECT_START:
+		return (signed char)sc_open(ctx, pr, SC_MAP);
+	case LECPCB_OBJECT_END:
+		if (f->kind == SC_MAP && (f->count & 1))
+			return (signed char)sc_fail(pr, "map ended on a key");
+		return (signed char)sc_close(pr, SC_MAP);
+	case LECPCB_TAG_START:
+		return (signed char)sc_open(ctx, pr, SC_TAG);
+	case LECPCB_TAG_END:
+		return (signed char)sc_close(pr, SC_TAG);
+
+	case LECPCB_VAL_STR_START:
+		return (signed char)sc_open(ctx, pr, SC_STR);
+	case LECPCB_VAL_STR_CHUNK:
+		if (f->kind != SC_STR)
+			return (signed char)sc_fail(pr, "STR_CHUNK outside a string");
+		return 0;
+	case LECPCB_VAL_STR_END:
+		return (signed char)sc_close(pr, SC_STR);
+
+	case LECPCB_VAL_BLOB_START:
+		return (signed char)sc_open(ctx, pr, SC_BLOB);
+	case LECPCB_VAL_BLOB_CHUNK:
+		if (f->kind != SC_BLOB)
+			return (signed char)sc_fail(pr, "BLOB_CHUNK outside a blob");
+		return 0;
+	case LECPCB_VAL_BLOB_END:
+		return (signed char)sc_close(pr, SC_BLOB);
+
+	case LECPCB_ARRAY_ITEM_START:
+		if (f->kind != SC_ARRAY)
+			return (signed char)sc_fail(pr, "ITEM_START outside an array");
+		if (f->item)
+			return (signed char)sc_fail(pr, "ITEM_START inside an item");
+		f->item = 1;
+		return 0;
+	case LECPCB_ARRAY_ITEM_END:
+		if (f->kind != SC_ARRAY)
+			return (signed char)sc_fail(pr, "ITEM_END outside an array");
+		if (f->item != 2)
+			return (signed char)sc_fail(pr, "ITEM_END without an item");
+		f->item = 0;
+		return 0;
+	}
+
+	return (signed char)sc_fail(pr, "unexpected callback reason");
+}
+
+/*
+ * Returns 0 if the whole of cbor parsed and the event stream kept every
+ * invariant
+ */
+
+static int
+sc_run(const char *name, const uint8_t *cbor, size_t len)
+{
+	struct lecp_ctx ctx;
+	struct sc_priv pr;
+	int n;
+
+	memset(&pr, 0, sizeof(pr));
+
+	lecp_construct(&ctx, sc_cb, &pr, NULL, 0);
+	n = lecp_parse(&ctx, cbor, len);
+	lecp_destruct(&ctx);
+
+	if (n || pr.fail || pr.sp) {
+		lwsl_err("%s: %s: structure check failed (parse %d, fail %d, "
+			 "sp %d)\n", __func__, name, n, pr.fail, pr.sp);
+		lwsl_hexdump_notice(cbor, len);
+
+		return 1;
+	}
+
+	return 0;
+}
+
+/*
+ * Conformance vectors that put two containers of different kinds, or of
+ * different length encodings, side by side at the same level
+ */
+
+static const uint8_t
+	/* [{_ "a": 1}, {"b": 2}]: an indefinite map, then a definite one */
+	sc1[] = { 0x82, 0xbf, 0x61, 0x61, 0x01, 0xff,
+			0xa1, 0x61, 0x62, 0x02 },
+	/* [[1], {"b": 2}]: an odd-length array, then a map */
+	sc2[] = { 0x82, 0x81, 0x01, 0xa1, 0x61, 0x62, 0x02 },
+	/* [[1], {1: 2}]: an array, then a map with int labels */
+	sc3[] = { 0x82, 0x81, 0x01, 0xa1, 0x01, 0x02 },
+	/* [(_ h'01'), [h'02']]: an indefinite bstr, then an array of bstr */
+	sc4[] = { 0x82, 0x5f, 0x41, 0x01, 0xff, 0x81, 0x41, 0x02 },
+	/* [1(0), {"b": 2}]: a tag, then a map */
+	sc5[] = { 0x82, 0xc1, 0x00, 0xa1, 0x61, 0x62, 0x02 },
+	/* [[1], 1(2)]: an array, then a tag */
+	sc6[] = { 0x82, 0x81, 0x01, 0xc1, 0x02 },
+	/* [{"a": 1}, {"b": 2}]: two definite maps */
+	sc7[] = { 0x82, 0xa1, 0x61, 0x61, 0x01, 0xa1, 0x61, 0x62, 0x02 },
+	/* [[_ 1], {1: [h'02']}]: indefinite array, then map holding an array */
+	sc8[] = { 0x82, 0x9f, 0x01, 0xff, 0xa1, 0x01, 0x81, 0x41, 0x02 },
+	/* {1: (_ "A"), 2: [h'aabbcc']}: a keyed indefinite tstr, then array */
+	sc9[] = { 0xa2, 0x01, 0x7f, 0x61, 0x41, 0xff,
+			0x02, 0x81, 0x43, 0xaa, 0xbb, 0xcc },
+	/* [[{1: 2}], 1({3: 4})]: tag body map after a nested map */
+	sc10[] = { 0x82, 0x81, 0xa1, 0x01, 0x02, 0xc1, 0xa1, 0x03, 0x04 };
+
+struct sc_vec {
+	const char		*name;
+	const uint8_t		*b;
+	size_t			blen;
+};
+
+static const struct sc_vec sc_vecs[] = {
+	{ "indef map then map",		sc1,  sizeof(sc1) },
+	{ "array then map",		sc2,  sizeof(sc2) },
+	{ "array then int map",		sc3,  sizeof(sc3) },
+	{ "indef bstr then array",	sc4,  sizeof(sc4) },
+	{ "tag then map",		sc5,  sizeof(sc5) },
+	{ "array then tag",		sc6,  sizeof(sc6) },
+	{ "map then map",		sc7,  sizeof(sc7) },
+	{ "indef array then map",	sc8,  sizeof(sc8) },
+	{ "indef tstr value then array", sc9, sizeof(sc9) },
+	{ "nested map then tagged map",	sc10, sizeof(sc10) },
+};
+
 int main(int argc, const char **argv)
 {
 	int n, m, e = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE,
 			expected = (int)LWS_ARRAY_SIZE(cbor_tests) +
+				   /* structure check of the same vectors */
+				   (int)LWS_ARRAY_SIZE(cbor_tests) - 1 +
+				   (int)LWS_ARRAY_SIZE(sc_vecs) +
 					33 /* <-- how many write tests */;
 	struct lecp_ctx ctx;
 	const char *p;
@@ -4674,6 +4962,31 @@ int main(int argc, const char **argv)
 					lecp_error_to_string(n));
 			e++;
 		}
+	}
+
+	/*
+	 * The same vectors again, this time only checking the structure of
+	 * the event stream (46 is the one that is expected to fail)
+	 */
+
+	for (m = 0; m < (int)LWS_ARRAY_SIZE(cbor_tests); m++) {
+		char name[32];
+
+		if (m + 1 == 46)
+			continue;
+
+		lws_snprintf(name, sizeof(name), "test %d", m + 1);
+		if (sc_run(name, cbor_tests[m].b, cbor_tests[m].blen))
+			e++;
+		else
+			pass++;
+	}
+
+	for (m = 0; m < (int)LWS_ARRAY_SIZE(sc_vecs); m++) {
+		if (sc_run(sc_vecs[m].name, sc_vecs[m].b, sc_vecs[m].blen))
+			e++;
+		else
+			pass++;
 	}
 
 	{

@@ -488,6 +488,23 @@ lecp_parse(struct lecp_ctx *ctx, const uint8_t *cbor, size_t len)
 			 */
 			st->indet = 0;
 
+			/*
+			 * The same goes for the fields this level keeps about
+			 * the children of the container it opened last: they
+			 * are written by the items one level down, and
+			 * lecp_push() only ever resets the new child level.
+			 * Carried over into the next container at this level,
+			 * a stale ordinal inverts that map's key / value
+			 * parity, a stale intermediate suppresses the START of
+			 * its first string, and a stale send_new_array_item
+			 * issues an ARRAY_ITEM_START inside something that is
+			 * not an array.  The ARRAY opcode sets
+			 * send_new_array_item again when it needs it
+			 */
+			st->ordinal		= 0;
+			st->intermediate	= 0;
+			st->send_new_array_item	= 0;
+
 			lwsl_lecp("%s: %d: OPC %d|%d\n", __func__, ctx->sp,
 					c >> 5, sm);
 
