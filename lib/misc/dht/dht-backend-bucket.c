@@ -199,8 +199,16 @@ node_good(struct lws_dht_ctx *ctx, struct node *node)
 }
 
 /*
- * The internal blacklist is an LRU cache of nodes that have sent
+ * The internal blacklist is an LRU cache of endpoints that have sent
  * incorrect messages.
+ *
+ * It is the endpoint that is punished.  The id is only what the sender
+ * claimed, so the routing table entry and search nodes holding that id are
+ * only discarded if they live at that endpoint: otherwise anyone naming a
+ * victim's id would get the victim dropped.  And since a datagram's source
+ * address can be spoofed, only use this for a source that has proved it is
+ * there (for example by answering a request we sent it); a malformed
+ * unsolicited datagram is to be dropped, not blacklisted.
  */
 void
 blacklist_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen)
@@ -214,7 +222,7 @@ blacklist_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct s
 
 		/* Make the node easy to discard. */
 		n = find_node(ctx, id, sa->sa_family);
-		if (n) {
+		if (n && dht_sa_same_peer((const struct sockaddr *)&n->ss, sa)) {
 			n->pinged = LWS_DHT_MAX_PING_FAILURES;
 			mark_as_pinged(ctx, n, NULL);
 		}
@@ -224,7 +232,9 @@ blacklist_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct s
 			struct search *sr = lws_container_of(d, struct search, list);
 
 			for (i = 0; i < sr->numnodes; i++)
-				if (id_cmp(sr->nodes[i].id, id) == 0)
+				if (id_cmp(sr->nodes[i].id, id) == 0 &&
+				    dht_sa_same_peer((const struct sockaddr *)
+						     &sr->nodes[i].ss, sa))
 					flush_search_node(&sr->nodes[i], sr);
 		} lws_end_foreach_dll(d);
 	}

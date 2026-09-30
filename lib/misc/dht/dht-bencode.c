@@ -581,10 +581,13 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 
 	if (ctx->legacy && (mp->nodes_len % LWS_DHT_NODE_INFO_LEGACY_IP4_VLEN != 0 ||
 			    mp->nodes6_len % LWS_DHT_NODE_INFO_LEGACY_IP6_VLEN != 0)) {
+		/*
+		 * Dropped, not blacklisted: a reply's source is unverified,
+		 * so blacklisting it would let a spoofer have any node he
+		 * names evicted and refused (the sibling sites were fixed
+		 * the same way in C-496)
+		 */
 		lwsl_dht_rx_warn("%s: Unexpected length for node info\n", __func__);
-#if defined(LWS_WITH_DHT_BACKEND)
-		blacklist_node(ctx, mp->id, from, fromlen);
-#endif
 		return;
 	}
 

@@ -792,6 +792,11 @@ lws_dht_create(const lws_dht_info_t *info)
 	}
 	ctx->hash_cb			= info->hash_cb;
 	ctx->capture_announce_cb	= info->capture_announce_cb;
+	/*
+	 * info->legacy is not applied: lwsws sets it by default for every
+	 * "dht" config block, so honouring it would switch those
+	 * deployments to the legacy 20-byte id wire encoding.
+	 */
 	lws_dll2_owner_clear(&ctx->ts_owner);
 	lws_dll2_owner_clear(&ctx->verb_owner);
 
