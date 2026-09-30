@@ -397,6 +397,11 @@ promote_parallel_fd(struct lws *wsi, int pidx)
 {
 	wsi->io->desc.sockfd = wsi->io->parallel_conns[pidx].desc.sockfd;
 	wsi->io->position_in_fds_table = wsi->io->parallel_conns[pidx].position_in_fds_table;
+	/* the attempt on desc is the racer's now, and so is its peer */
+	wsi->io->sa46_primary = wsi->io->parallel_conns[pidx].sa46_peer;
+#if defined(LWS_WITH_ROUTING)
+	wsi->io->primary_route_uidx = wsi->io->parallel_conns[pidx].route_uidx;
+#endif
 	wsi->io->parallel_conns[pidx].is_valid = 0;
 }
 #endif
@@ -1217,7 +1222,28 @@ ads_known:
 #if defined(LWS_WITH_UNIX_SOCK)
 	if (!wsi->io->unix_skt)
 #endif
+	{
 		memmove(&wsi->io->sa46_peer, psa, (unsigned int)n);
+
+		/*
+		 * ... and one that stays with this attempt's socket, since a
+		 * later racer overwrites sa46_peer: whichever attempt wins,
+		 * its own peer becomes the connection's at conn_good
+		 */
+		if (is_parallel) {
+			wsi->io->parallel_conns[pidx].sa46_peer =
+							wsi->io->sa46_peer;
+#if defined(LWS_WITH_ROUTING)
+			wsi->io->parallel_conns[pidx].route_uidx =
+						wsi->io->peer_route_uidx;
+#endif
+		} else {
+			wsi->io->sa46_primary = wsi->io->sa46_peer;
+#if defined(LWS_WITH_ROUTING)
+			wsi->io->primary_route_uidx = wsi->io->peer_route_uidx;
+#endif
+		}
+	}
 
 	/*
 	 * Finally, make the actual connection attempt
@@ -1551,8 +1577,21 @@ conn_good:
 #endif
 
 	/*
-	 * The connection has happened
+	 * The connection has happened.  Its peer is the one the winning
+	 * attempt connected to, not whichever attempt was started last: the
+	 * route checks, conmon, metrics, the role and the scope check below
+	 * all go by it.
 	 */
+
+#if defined(LWS_WITH_UNIX_SOCK)
+	if (!wsi->io->unix_skt)
+#endif
+	{
+		wsi->io->sa46_peer = wsi->io->sa46_primary;
+#if defined(LWS_WITH_ROUTING)
+		wsi->io->peer_route_uidx = wsi->io->primary_route_uidx;
+#endif
+	}
 
 #if defined(LWS_WITH_CONMON)
 	wsi->conmon.ciu_sockconn = (lws_conmon_interval_us_t)

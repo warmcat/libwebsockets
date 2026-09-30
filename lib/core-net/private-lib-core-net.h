@@ -308,8 +308,11 @@ struct client_info_stash {
 struct lws_client_parallel_conn {
 	lws_sock_file_fd_type	desc;
 	int			position_in_fds_table;
-	lws_sockaddr46		sa46_peer;
+	lws_sockaddr46		sa46_peer; /* who this racer is connecting to */
 	lws_usec_t		connect_start;
+#if defined(LWS_WITH_ROUTING)
+	lws_route_uidx_t	route_uidx; /* ... and its route */
+#endif
 	uint8_t			is_valid;
 };
 #endif
@@ -1041,6 +1044,14 @@ struct lws_io_adjunct {
 #endif
 #if defined(LWS_WITH_CLIENT)
 	lws_dll2_owner_t		dns_sorted_list;
+	/*
+	 * While racers run, sa46_peer is the latest attempt's: the address
+	 * (and route) the attempt on desc is connecting to is kept here
+	 */
+	lws_sockaddr46			sa46_primary;
+#if defined(LWS_WITH_ROUTING)
+	lws_route_uidx_t		primary_route_uidx;
+#endif
 	struct lws_client_parallel_conn *parallel_conns;
 	lws_sorted_usec_list_t		sul_happy_eyeballs;
 	lws_sorted_usec_list_t		sul_h3_grace;
