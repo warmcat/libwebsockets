@@ -123,6 +123,28 @@ lws_openhitls_aki_issuer_name(union lws_tls_cert_info_results *buf,
 	return buf->ns.len ? 0 : 1;
 }
 
+/*
+ * openHiTLS gives us a name's raw value bytes, whatever its string type.  We
+ * hand it out as a C string, so it has to be all of it: with an embedded NUL,
+ * every string consumer would act on just the part before it, eg, a cert-dist
+ * client cert with CN "victim.example.com\0.x" would be taken for
+ * "victim.example.com".  Other control characters (and so UCS-2 / UCS-4
+ * string types) have no place in a name either: refuse the name, as the
+ * openssl backend does.
+ */
+
+static int
+lws_openhitls_name_unsafe(const uint8_t *p, uint32_t len)
+{
+	uint32_t n;
+
+	for (n = 0; n < len; n++)
+		if (p[n] < 0x20 || p[n] == 0x7f)
+			return 1;
+
+	return 0;
+}
+
 int
 lws_tls_openhitls_cert_info(HITLS_X509_Cert *x509, enum lws_tls_cert_info type,
 			     union lws_tls_cert_info_results *buf, size_t len)
@@ -173,6 +195,13 @@ lws_tls_openhitls_cert_info(HITLS_X509_Cert *x509, enum lws_tls_cert_info type,
 			lwsl_err("%s: HITLS_X509_GET_SUBJECT_CN_STR failed, ret=0x%x\n", __func__, ret);
 			return -1;
 		}
+		if (!encode.dataLen ||
+		    lws_openhitls_name_unsafe(encode.data, encode.dataLen)) {
+			lwsl_notice("%s: CN is empty or has control characters\n",
+				    __func__);
+			BSL_SAL_Free(encode.data);
+			return -1;
+		}
 		if (encode.dataLen + 1 > len) {
 			BSL_SAL_Free(encode.data);
 			return -1;
@@ -187,6 +216,12 @@ lws_tls_openhitls_cert_info(HITLS_X509_Cert *x509, enum lws_tls_cert_info type,
 		ret = HITLS_X509_CertCtrl(x509, HITLS_X509_GET_ISSUER_DN_STR, &encode, sizeof(BSL_Buffer));
 		if (ret != HITLS_PKI_SUCCESS) {
 			lwsl_err("%s: HITLS_X509_GET_ISSUER_DN_STR failed, ret=0x%x\n", __func__, ret);
+			return -1;
+		}
+		if (lws_openhitls_name_unsafe(encode.data, encode.dataLen)) {
+			lwsl_notice("%s: issuer DN has control characters\n",
+				    __func__);
+			BSL_SAL_Free(encode.data);
 			return -1;
 		}
 		if (encode.dataLen + 1 > len) {
