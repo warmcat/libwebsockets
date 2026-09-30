@@ -139,6 +139,22 @@ struct auth_dns_rdata_scratch {
 #define WCHK(_n) do { if (wl + (size_t)(_n) > sizeof(sc->w)) goto fail; } while (0)
 
 /*
+ * Decode a hex presentation field into exactly len bytes at w, or fail.
+ *
+ * The callers size the RDATA from the length of the text and then copy all of
+ * it out of the (not cleared) scratch, so a field that stops decoding part of
+ * the way through, or has an odd digit left over, must fail the RR rather
+ * than leave the tail of its bytes holding whatever the scratch held before.
+ */
+
+static int
+hex_to_wire(const char *hex, uint8_t *w, size_t len)
+{
+	return strlen(hex) != len * 2 ||
+	       lws_hex_to_byte_array(hex, w, (int)len) != (int)len;
+}
+
+/*
  * LOC (RFC 1876) helpers
  *
  * The presentation format spells an angle as up to three numeric tokens
@@ -320,13 +336,11 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		for (int i = 1; i < num_toks; i++) {
 			strncat(sc->accum, toks[i], sizeof(sc->accum) - strlen(sc->accum) - 1);
 		}
-		size_t hlen = strlen(sc->accum) / 2;
-		if (hlen != (size_t)gen_len) {
-			lwsl_err("generic RDATA length mismatch: expected %d, got %zu\n", gen_len, hlen);
+		WCHK(gen_len);
+		if (hex_to_wire(sc->accum, w, (size_t)gen_len)) {
+			lwsl_err("generic RDATA is not %d bytes of hex\n", gen_len);
 			goto fail;
 		}
-		WCHK(gen_len);
-		lws_hex_to_byte_array(sc->accum, w, gen_len);
 		wl = (size_t)gen_len;
 
 		goto done;
@@ -446,7 +460,8 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		}
 		size_t hlen = strlen(sc->accum) / 2;
 		WCHK(hlen);
-		lws_hex_to_byte_array(sc->accum, w + wl, (int)hlen);
+		if (hex_to_wire(sc->accum, w + wl, hlen))
+			goto fail;
 		wl += hlen;
 	} else if (type == 50 && num_toks >= 5) { // NSEC3
 		int tidx = 0;
@@ -471,7 +486,8 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 			if (slen > 255) goto fail;
 			WCHK(1 + slen);
 			w[wl++] = (uint8_t)slen;
-			lws_hex_to_byte_array(toks[tidx + 3], w + wl, (int)slen);
+			if (hex_to_wire(toks[tidx + 3], w + wl, slen))
+				goto fail;
 			wl += slen;
 		}
 
@@ -553,7 +569,8 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 			if (slen > 255) goto fail;
 			WCHK(1 + slen);
 			w[wl++] = (uint8_t)slen;
-			lws_hex_to_byte_array(toks[tidx + 3], w + wl, (int)slen);
+			if (hex_to_wire(toks[tidx + 3], w + wl, slen))
+				goto fail;
 			wl += slen;
 		}
 	} else if (type == 48 && num_toks >= 4) { // DNSKEY
