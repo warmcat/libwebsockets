@@ -813,41 +813,6 @@ lws_genrsa_psa_der(const struct lws_gencrypto_keyelem *el, uint8_t *der,
 	return 0;
 }
 
-/*
- * Reads an ASN.1 tag + definite length, and confirms the content fits in
- * what is left
- */
-
-static int
-asn1_read_hdr(const uint8_t **p, const uint8_t *end, uint8_t tag, size_t *len)
-{
-	size_t l;
-	int nb;
-
-	if (*p >= end || *(*p)++ != tag || *p >= end)
-		return -1;
-
-	l = *(*p)++;
-	if (l & 0x80) {
-		nb = (int)(l & 0x7f);
-		if (!nb || nb > 3)
-			return -1;
-		l = 0;
-		while (nb--) {
-			if (*p >= end)
-				return -1;
-			l = (l << 8) | *(*p)++;
-		}
-	}
-
-	if (l > (size_t)(end - *p))
-		return -1;
-
-	*len = l;
-
-	return 0;
-}
-
 int
 lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 		  const struct lws_gencrypto_keyelem *el,
@@ -914,8 +879,7 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		       int bits)
 {
 	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
-	const uint8_t *p, *end;
-	uint8_t der[4096];
+	uint8_t der[4096], *p, *end;
 	size_t der_len, len;
 	unsigned int i;
 
@@ -949,24 +913,28 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 
 	/*
 	 * PSA exports the key pair as RSAPrivateKey (see above)... hand the
-	 * elements back to the caller in lws order
+	 * elements back to the caller in lws order.  mbedtls_asn1_get_tag()
+	 * confirms each length fits in what is left.
 	 */
 
 	p = der;
 	end = der + der_len;
 
-	if (asn1_read_hdr(&p, end, 0x30, &len))
+	if (mbedtls_asn1_get_tag(&p, end, &len, MBEDTLS_ASN1_CONSTRUCTED |
+						 MBEDTLS_ASN1_SEQUENCE))
 		goto cleanup_der;
 	end = p + len;
 
-	if (asn1_read_hdr(&p, end, 0x02, &len)) /* version */
+	/* version */
+	if (mbedtls_asn1_get_tag(&p, end, &len, MBEDTLS_ASN1_INTEGER))
 		goto cleanup_der;
 	p += len;
 
 	for (i = 0; i < LWS_ARRAY_SIZE(rsa_der_order); i++) {
 		struct lws_gencrypto_keyelem *e = &el[rsa_der_order[i]];
 
-		if (asn1_read_hdr(&p, end, 0x02, &len) || !len)
+		if (mbedtls_asn1_get_tag(&p, end, &len, MBEDTLS_ASN1_INTEGER) ||
+		    !len)
 			goto cleanup_der;
 
 		/* drop the leading zero that only keeps it positive */
