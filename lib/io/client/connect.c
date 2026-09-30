@@ -608,8 +608,8 @@ bail:
 		compatible_close(wsi->io->desc.sockfd);
 
 #if defined(LWS_WITH_TLS)
-	if (wsi->io->tls.ssl)
-		lws_tls_restrict_return(wsi);
+	/* whether or not a session was made, it follows what was borrowed */
+	lws_tls_restrict_return(wsi);
 #endif
 
 	lws_metrics_caliper_cancel(wsi->cal_conn);

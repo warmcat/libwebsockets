@@ -661,8 +661,20 @@ lws_io_close_pollfd(struct lws *wsi, int phase)
 
 	lws_io_quiesce_pollfd(wsi);
 
-	if (!wsi->io->shadow)
+	if (!wsi->io->shadow) {
 		ssl_handled = lws_ssl_close(wsi);
+#if defined(LWS_WITH_TLS)
+		/*
+		 * A tls restriction slot the connection borrowed goes back
+		 * with it, whatever its backend's lws_ssl_close() did: some
+		 * only return it when there is a session, some never do, and
+		 * a connection can hold one with no session, eg, when making
+		 * the session failed (C-655).  It is a no-op if nothing is
+		 * borrowed, or it was returned already.
+		 */
+		lws_tls_restrict_return(wsi);
+#endif
+	}
 
 	if (!wsi->io->shadow &&
 	    lws_socket_is_valid(wsi->io->desc.sockfd) && !ssl_handled) {

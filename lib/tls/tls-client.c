@@ -318,6 +318,15 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 			}
 #endif
 			if (lws_ssl_client_bio_create(wsi) < 0) {
+				/*
+				 * It may have failed before there was any
+				 * session, eg, refusing a hostname it can't
+				 * check (C-408): the slot we just took must
+				 * not wait for one to be closed (C-655)
+				 */
+#if defined(LWS_WITH_TLS)
+				lws_tls_restrict_return(wsi);
+#endif
 				*pcce = "bio_create failed";
 				return CCTLS_RETURN_ERROR;
 			}
