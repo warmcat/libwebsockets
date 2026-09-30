@@ -79,8 +79,8 @@ lws_ws_answer_peer_close(struct lws *wsi, const uint8_t *pp, size_t len)
 	wsi->ws->close_in_ping_buffer_len = (uint8_t)len;
 
 	__lws_io_want_read(wsi, 0);
-	lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 5);
 	lws_wsi_event(wsi, LWS_WSIEV_WS_PEER_CLOSE);
+	lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 5);
 	lws_callback_on_writable(wsi);
 
 	return 0;

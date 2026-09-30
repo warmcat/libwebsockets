@@ -52,7 +52,7 @@
  * next request.
  *
  * And ws over h2: the peer's close is answered, nothing it sends after it is
- * acted on.
+ * acted on, and the stream, which was processed, is not refused.
  *
  * And a CONNECT from a user agent the context turns away: it is refused as
  * any other request of its would be, not given to the fallback role first.
@@ -1676,7 +1676,8 @@ h2_oversized_half(struct lws_context *cx, struct lws_vhost *vh)
  * 22: ws over h2 (RFC 8441), the peer's CLOSE and then a PING in one DATA
  * frame: the close is answered, with the peer's own status and END_STREAM,
  * and nothing after it is acted on, the PING getting no pong (RFC 6455
- * 5.5.2)
+ * 5.5.2).  The stream was processed, so it is not reset as REFUSED_STREAM,
+ * as a refused upgrade is: at most NO_ERROR, to stop the peer sending
  */
 static int
 h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh)
@@ -1691,7 +1692,7 @@ h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh)
 				   "\x89\x81\x00\x00\x00\x00p";
 	static uint8_t blk[256], fr[300];
 	static struct transport tp;
-	int sv[2], closed = 0, pong = 0;
+	int sv[2], closed = 0, pong = 0, rst = 0;
 	struct lws *wsi;
 	uint8_t *p;
 	size_t n, o, f;
@@ -1743,8 +1744,13 @@ h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh)
 		    tp.tx[o + 2];
 		if (o + 9 + f > tp.tx_len)
 			break;
-		if (tp.tx[o + 3] ||
-		    (lws_ser_ru32be(&tp.tx[o + 5]) & 0x7fffffff) != 1)
+		if ((lws_ser_ru32be(&tp.tx[o + 5]) & 0x7fffffff) != 1)
+			continue;
+		/* RST_STREAM: the stream was processed, only NO_ERROR */
+		if (tp.tx[o + 3] == 3 && f == 4 &&
+		    lws_ser_ru32be(&tp.tx[o + 9]))
+			rst = (int)lws_ser_ru32be(&tp.tx[o + 9]);
+		if (tp.tx[o + 3])
 			continue;
 		if (f >= 4 && !memcmp(&tp.tx[o + 9], "\x88\x02\x03\xe8", 4) &&
 		    (tp.tx[o + 4] & 1))
@@ -1752,8 +1758,9 @@ h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh)
 		if (f && tp.tx[o + 9] == 0x8a)
 			pong = 1;
 	}
-	if (!closed || pong) {
-		lwsl_err("case 22: close answered %d, pong %d\n", closed, pong);
+	if (!closed || pong || rst) {
+		lwsl_err("case 22: close answered %d, pong %d, rst %d\n",
+			 closed, pong, rst);
 		lwsl_hexdump_err(tp.tx, tp.tx_len);
 		return 1;
 	}

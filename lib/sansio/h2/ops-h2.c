@@ -762,20 +762,47 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 	}
 #endif
 
-	if (wsi->mux_substream && wsi->h23_stream_carries_ws)
+	if (wsi->mux_substream && wsi->h23_stream_carries_ws) {
 		/*
-		 * We reach here only while the stream is still in the h2 role
-		 * and the RFC 8441 extended-CONNECT ws upgrade it was carrying
-		 * has failed (a successful upgrade transitions to the ws role
-		 * at server-ws.c, so established streams take a different path).
+		 * The ws role delegates its close here too, so this is either
+		 * an RFC 8441 extended-CONNECT upgrade that failed while the
+		 * stream was still in the h2 role, or an established ws stream.
+		 *
 		 * RFC 8441 section 5 says a rejected extended-CONNECT must be
 		 * failed with REFUSED_STREAM so the peer knows the stream was
 		 * never processed and may safely retry it elsewhere.
+		 *
+		 * An established ws stream was processed, so REFUSED_STREAM
+		 * would be a lie.  If both sides ended the stream there is
+		 * nothing to say; if only we did (eg, we answered the peer's
+		 * CLOSE with END_STREAM), NO_ERROR tells the peer to stop
+		 * sending, RFC 9113 section 8.1; otherwise we are abandoning
+		 * it and it's CANCEL.
 		 */
-		if (lws_h2_rst_stream(wsi, H2_ERR_REFUSED_STREAM,
-				      "ws-over-h2 handshake refused"))
+		uint32_t err = H2_ERR_REFUSED_STREAM;
+		const char *why = "ws-over-h2 handshake refused";
+
+		if (lwsi_role_ws(wsi)) {
+			err = H2_ERR_CANCEL;
+			why = "ws-over-h2 stream abandoned";
+			/*
+			 * send_END_STREAM is set as the END_STREAM goes out,
+			 * h2_state only catches up after the writeable
+			 * callback returns, which the close may not wait for
+			 */
+			if (wsi->h2.send_END_STREAM) {
+				err = H2_ERR_NO_ERROR;
+				why = "ws-over-h2 closed";
+			}
+		}
+
+		if (wsi->h2.h2_state != LWS_H2_STATE_CLOSED &&
+		    !(wsi->h2.send_END_STREAM &&
+		      wsi->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_REMOTE) &&
+		    lws_h2_rst_stream(wsi, err, why))
 			lwsl_wsi_info(wsi, "%s: couldn't queue RST_STREAM",
 				      __func__);
+	}
 /*	else
 		if (wsi->mux_substream)
 			lws_h2_rst_stream(wsi, H2_ERR_STREAM_CLOSED, "swsi got closed");

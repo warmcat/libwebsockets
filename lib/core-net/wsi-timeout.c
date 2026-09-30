@@ -198,7 +198,12 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 			return;
 		}
 	}
-	if (secs && wsi->mux_stream_immortal)
+	/*
+	 * An immortal stream (eg, ws over h2) must not be timed out for being
+	 * idle, but once its close has started, bounding how long the close
+	 * may take is exactly right
+	 */
+	if (secs && wsi->mux_stream_immortal && lwsi_close(wsi) == LCS_NONE)
 		lwsl_wsi_err(wsi, "on immortal stream %d %d", reason, secs);
 
 	lws_pt_lock(pt, __func__);
