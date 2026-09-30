@@ -3,7 +3,7 @@ require_lws_config(LWS_WITH_ACME 1 requirements)
 
 if (requirements)
 	create_plugin(protocol_lws_acme_client_core ""
-		      "protocol_lws_acme_client_core.c" "" "")
+		      "protocol_lws_acme_client_core.c;acme-json.c" "" "")
 	if (NOT LWS_WITH_PLUGINS_BUILTIN)
 		target_compile_definitions(protocol_lws_acme_client_core PRIVATE LWS_BUILDING_SHARED)
 	endif()

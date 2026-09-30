@@ -50,19 +50,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
-typedef enum {
-	ACME_STATE_DIRECTORY,	/* get the directory JSON using GET + parse */
-	ACME_STATE_NEW_NONCE,	/* get the replay nonce */
-	ACME_STATE_NEW_ACCOUNT,	/* register a new RSA key + email combo */
-	ACME_STATE_NEW_ORDER,	/* start the process to request a cert */
-	ACME_STATE_AUTHZ,	/* */
-	ACME_STATE_START_CHALL, /* notify server ready for one challenge */
-	ACME_STATE_POLLING,	/* he should be trying our challenge */
-	ACME_STATE_POLLING_CSR, /* sent CSR, checking result */
-	ACME_STATE_DOWNLOAD_CERT,
-
-	ACME_STATE_FINISHED
-} lws_acme_state;
+#include "private-acme-client.h"
 
 static const char *
 acme_state_name(lws_acme_state s)
@@ -76,116 +64,6 @@ acme_state_name(lws_acme_state s)
 	return s <= ACME_STATE_FINISHED ? n[s] : "unknown";
 }
 
-struct acme_connection {
-	char buf[4096];
-	char replay_nonce[64];
-	char chall_token[64];
-	char challenge_uri[256];
-	char detail[64];
-	char status[16];
-	char key_auth[256];
-	char urls[6][256]; /* directory contents */
-	char active_url[256];
-	char authz_url[256];
-	char order_url[256];
-	char finalize_url[256];
-	char cert_url[256];
-	char acct_id[256];
-	char *kid;
-	lws_acme_state state;
-	struct lws_client_connect_info i;
-	struct lejp_ctx jctx;
-	struct lws_vhost *vhost;
-
-	struct lws *cwsi;
-
-	const char *real_vh_name;
-	const char *real_vh_iface;
-
-	char *alloc_privkey_pem;
-
-	char *dest;
-	int pos;
-	int len;
-	int resp;
-	int cpos;
-
-	int real_vh_port;
-	int goes_around;
-
-	size_t len_privkey_pem;
-
-	unsigned int yes;
-	unsigned int use:1;
-	unsigned int is_sni_02:1;
-};
-
-struct per_vhost_data__lws_acme_client {
-	struct lws_context *context;
-	struct lws_vhost *vhost;
-	const struct lws_protocols *protocol;
-	const struct lws_acme_challenge_ops *ops;
-	void *challenge_priv;
-
-	/*
-	 * the vhd is allocated for every vhost using the plugin.
-	 * But ac is only allocated when we are doing the server auth.
-	 */
-	struct acme_connection *ac;
-
-	struct lws_jwk jwk;
-	char *dns_base_dir;
-
-	/*
-	 * State owned by the temporary http-01 challenge vhost.
-	 *
-	 * lws_vhost_destroy() is asynchronous while wsi are still bound, so the
-	 * temp vhost (and the mount matching that walks its mount list) can
-	 * outlive the acquisition that created it.  Everything the temp vhost
-	 * points at must therefore live here in the vhd, which lasts as long as
-	 * the parent vhost, and not in the ac we free at the end of each
-	 * attempt
-	 */
-	struct lws_context_creation_info chall_ci;
-	struct lws_http_mount chall_mount;
-	char chall_mountpoint[256];
-	char chall_key_auth[256];
-
-	lws_dll2_owner_t cert_configs;
-    struct lws_acme_cert_config *active_cert;
-    lws_sorted_usec_list_t sul_aging;
-    lws_sorted_usec_list_t sul_acquisition;
-    lws_sorted_usec_list_t sul_watchdog;
-    lws_usec_t last_acme_failure;
-    /*
-     * LE allows 5 duplicate certs / 7 days: repeated acquisition attempts
-     * for an unchanged cert must back off exponentially or we can be
-     * locked out of ordering for the rest of the week
-     */
-    int acme_fail_count;
-    lws_usec_t acme_retry_not_before;
-
-	int count_live_pss;
-	char *dest;
-	int pos;
-	int len;
-	#if !defined(LWS_WITH_ESP32)
-	/* removed persistent fd_updated_cert/key handles since they are opened dynamically per cert */
-	/* we allocate memory here because we drop root too early */
-#endif
-	const char *uds_path;
-	struct lws_async_ipc *ipc;
-	int ipc_pending_saves;
-
-	struct lws_dll2 *aging_current_cert;
-	int aging_is_production;
-	char aging_global_email[128];
-	char aging_global_profile[128];
-	struct lws_acme_cert_aging_args aging_caa;
-#if defined(LWS_WITH_SYS_SMD)
-	struct lws_smd_peer *smd_peer;
-#endif
-};
 
 static void
 acme_aging_next_cert(struct per_vhost_data__lws_acme_client *vhd);
@@ -572,296 +450,6 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 	0, (void *)&acme_core_ops, 0 \
 }
 
-/* directory JSON parsing */
-
-static const char * const jdir_tok[] = {
-	"keyChange",
-	"meta.termsOfService",
-	"newAccount",
-	"newNonce",
-	"newOrder",
-	"revokeCert",
-};
-
-enum enum_jdir_tok {
-	JAD_KEY_CHANGE_URL,
-	JAD_TOS_URL,
-	JAD_NEW_ACCOUNT_URL,
-	JAD_NEW_NONCE_URL,
-	JAD_NEW_ORDER_URL,
-	JAD_REVOKE_CERT_URL,
-};
-
-static signed char
-cb_dir(struct lejp_ctx *ctx, char reason)
-{
-	struct per_vhost_data__lws_acme_client *s =
-		(struct per_vhost_data__lws_acme_client *)ctx->user;
-
-	/*
-	 * The accumulator state lives in the vhd, but s->dest points into the
-	 * per-acquisition ac, which is freed at the end of each attempt.  Make
-	 * sure no pointer from a previous parse survives into this one
-	 */
-	if (reason == LEJPCB_CONSTRUCTED) {
-		s->dest = NULL;
-		s->pos = 0;
-		s->len = 0;
-
-		return 0;
-	}
-
-	if (reason == LEJPCB_VAL_STR_START && ctx->path_match) {
-		s->pos = 0;
-		s->len = sizeof(s->ac->urls[0]) - 1;
-		s->dest = s->ac->urls[ctx->path_match - 1];
-		return 0;
-	}
-
-	/*
-	 * LEJP_FLAG_CB_IS_VALUE is also set for true / false / null and for
-	 * numbers, none of which passed through LEJPCB_VAL_STR_START above.
-	 * Only accumulate string pieces, and only into a dest we actually set:
-	 * otherwise a directory like { "newNonce": null } writes through a NULL
-	 * or stale dest
-	 */
-	if ((reason != LEJPCB_VAL_STR_CHUNK && reason != LEJPCB_VAL_STR_END) ||
-	    !ctx->path_match || !s->dest)
-		return 0;
-
-	if (s->pos + ctx->npos > s->len) {
-		lwsl_notice("url too long\n");
-		return -1;
-	}
-
-	memcpy(s->dest + s->pos, ctx->buf, ctx->npos);
-	s->pos += ctx->npos;
-	s->dest[s->pos] = '\0';
-
-	return 0;
-}
-
-
-/*
- * lejp delivers a string value longer than LEJP_STRING_CHUNK as a series of
- * LEJPCB_VAL_STR_CHUNK callbacks with only that piece in ctx->buf, ending with
- * LEJPCB_VAL_STR_END.  The callbacks below each copy ctx->buf straight into a
- * fixed field, so without this an over-long value would silently leave the
- * *tail* of the value there (eg, a URL with no scheme or host).  None of the
- * fields we care about can legitimately be this long, so fail the parse rather
- * than act on a fragment
- */
-static signed char
-acme_reject_long_value(struct lejp_ctx *ctx)
-{
-	lwsl_notice("%s: over-long JSON value for %s\n", __func__, ctx->path);
-
-	return -1;
-}
-
-/* order JSON parsing */
-
-static const char * const jorder_tok[] = {
-	"status",
-	"expires",
-	"identifiers[].type",
-	"identifiers[].value",
-	"authorizations",
-	"finalize",
-	"certificate"
-};
-
-enum enum_jorder_tok {
-	JAO_STATUS,
-	JAO_EXPIRES,
-	JAO_IDENTIFIERS_TYPE,
-	JAO_IDENTIFIERS_VALUE,
-	JAO_AUTHORIZATIONS,
-	JAO_FINALIZE,
-	JAO_CERT
-};
-
-static signed char
-cb_order(struct lejp_ctx *ctx, char reason)
-{
-	struct acme_connection *s = (struct acme_connection *)ctx->user;
-
-	if (reason == LEJPCB_CONSTRUCTED)
-		s->authz_url[0] = '\0';
-
-	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
-		return 0;
-
-	if (reason == LEJPCB_VAL_STR_CHUNK)
-		return acme_reject_long_value(ctx);
-
-	switch (ctx->path_match - 1) {
-	case JAO_STATUS:
-		lws_strncpy(s->status, ctx->buf, sizeof(s->status));
-		break;
-	case JAO_EXPIRES:
-		break;
-	case JAO_IDENTIFIERS_TYPE:
-		break;
-	case JAO_IDENTIFIERS_VALUE:
-		break;
-	case JAO_AUTHORIZATIONS:
-		lws_snprintf(s->authz_url, sizeof(s->authz_url), "%s",
-			     ctx->buf);
-		break;
-	case JAO_FINALIZE:
-		lws_snprintf(s->finalize_url, sizeof(s->finalize_url), "%s",
-				ctx->buf);
-		break;
-	case JAO_CERT:
-		lws_snprintf(s->cert_url, sizeof(s->cert_url), "%s", ctx->buf);
-		break;
-	}
-
-	return 0;
-}
-
-/* authz JSON parsing */
-
-static const char * const jauthz_tok[] = {
-	"identifier.type",
-	"identifier.value",
-	"status",
-	"expires",
-	"challenges[].type",
-	"challenges[].status",
-	"challenges[].url",
-	"challenges[].token",
-	"detail"
-};
-
-enum enum_jauthz_tok {
-	JAAZ_ID_TYPE,
-	JAAZ_ID_VALUE,
-	JAAZ_STATUS,
-	JAAZ_EXPIRES,
-	JAAZ_CHALLENGES_TYPE,
-	JAAZ_CHALLENGES_STATUS,
-	JAAZ_CHALLENGES_URL,
-	JAAZ_CHALLENGES_TOKEN,
-	JAAZ_DETAIL,
-};
-
-static signed char
-cb_authz(struct lejp_ctx *ctx, char reason)
-{
-	struct per_vhost_data__lws_acme_client *vhd = (struct per_vhost_data__lws_acme_client *)ctx->user;
-	struct acme_connection *s = vhd->ac;
-
-	if (reason == LEJPCB_CONSTRUCTED) {
-		s->yes = 0;
-		s->use = 0;
-		s->chall_token[0] = '\0';
-	}
-
-	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
-		return 0;
-
-	if (reason == LEJPCB_VAL_STR_CHUNK)
-		return acme_reject_long_value(ctx);
-
-	switch (ctx->path_match - 1) {
-	case JAAZ_ID_TYPE:
-		break;
-	case JAAZ_ID_VALUE:
-		break;
-	case JAAZ_STATUS:
-		break;
-	case JAAZ_EXPIRES:
-		break;
-	case JAAZ_DETAIL:
-		lws_snprintf(s->detail, sizeof(s->detail), "%s", ctx->buf);
-		break;
-	case JAAZ_CHALLENGES_TYPE:
-		lwsl_notice("JAAZ_CHALLENGES_TYPE: %s\n", ctx->buf);
-		lws_acme_challenge_type expected_challenge = vhd->active_cert ? vhd->active_cert->challenge_type : LWS_ACME_CHALLENGE_TYPE_HTTP_01;
-		s->use = !strcmp(ctx->buf, expected_challenge == LWS_ACME_CHALLENGE_TYPE_DNS_01 ? "dns-01" : "http-01");
-		break;
-	case JAAZ_CHALLENGES_STATUS:
-		lws_strncpy(s->status, ctx->buf, sizeof(s->status));
-		break;
-	case JAAZ_CHALLENGES_URL:
-		lwsl_notice("JAAZ_CHALLENGES_URL: %s %d\n", ctx->buf, s->use);
-		if (s->use) {
-			lws_strncpy(s->challenge_uri, ctx->buf,
-				    sizeof(s->challenge_uri));
-			s->yes = s->yes | 2;
-		}
-		break;
-	case JAAZ_CHALLENGES_TOKEN:
-		lwsl_notice("JAAZ_CHALLENGES_TOKEN: %s %d\n", ctx->buf, s->use);
-		if (s->use) {
-			lws_strncpy(s->chall_token, ctx->buf,
-				    sizeof(s->chall_token));
-			s->yes = s->yes | 1;
-		}
-		break;
-	}
-
-	return 0;
-}
-
-/* challenge accepted JSON parsing */
-
-static const char * const jchac_tok[] = {
-	"type",
-	"status",
-	"uri",
-	"token",
-	"error.detail"
-};
-
-enum enum_jchac_tok {
-	JCAC_TYPE,
-	JCAC_STATUS,
-	JCAC_URI,
-	JCAC_TOKEN,
-	JCAC_DETAIL,
-};
-
-static signed char
-cb_chac(struct lejp_ctx *ctx, char reason)
-{
-	struct acme_connection *s = (struct acme_connection *)ctx->user;
-
-	if (reason == LEJPCB_CONSTRUCTED) {
-		s->yes = 0;
-		s->use = 0;
-	}
-
-	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
-		return 0;
-
-	if (reason == LEJPCB_VAL_STR_CHUNK)
-		return acme_reject_long_value(ctx);
-
-	switch (ctx->path_match - 1) {
-	case JCAC_TYPE:
-		if (strcmp(ctx->buf, "http-01"))
-			return 1;
-		break;
-	case JCAC_STATUS:
-		lws_strncpy(s->status, ctx->buf, sizeof(s->status));
-		break;
-	case JCAC_URI:
-		s->yes = s->yes | 2;
-		break;
-	case JCAC_TOKEN:
-		lws_strncpy(s->chall_token, ctx->buf, sizeof(s->chall_token));
-		s->yes = s->yes | 1;
-		break;
-	case JCAC_DETAIL:
-		lws_snprintf(s->detail, sizeof(s->detail), "%s", ctx->buf);
-		break;
-	}
-
-	return 0;
-}
 
 static int
 lws_acme_report_status(struct lws_vhost *v, int state, const char *json)
@@ -980,7 +568,7 @@ lws_acme_finished(struct per_vhost_data__lws_acme_client *vhd)
 		free(vhd->ac);
 	}
 
-	/* cb_dir's accumulator pointed into the ac we just freed */
+	/* acme_cb_dir's accumulator pointed into the ac we just freed */
 
 	vhd->dest = NULL;
 	vhd->pos = 0;
@@ -1831,8 +1419,8 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		switch (ac->state) {
 		case ACME_STATE_DIRECTORY:
-			lejp_construct(&ac->jctx, cb_dir, vhd, jdir_tok,
-					LWS_ARRAY_SIZE(jdir_tok));
+			lejp_construct(&ac->jctx, acme_cb_dir, vhd, acme_jdir_tok,
+					LWS_ARRAY_SIZE(acme_jdir_tok));
 			break;
 
 		case ACME_STATE_NEW_NONCE:
@@ -1885,24 +1473,24 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 				goto failed;
 			}
 
-			lejp_construct(&ac->jctx, cb_order, ac, jorder_tok,
-					LWS_ARRAY_SIZE(jorder_tok));
+			lejp_construct(&ac->jctx, acme_cb_order, ac, acme_jorder_tok,
+					LWS_ARRAY_SIZE(acme_jorder_tok));
 			break;
 
 		case ACME_STATE_AUTHZ:
-			lejp_construct(&ac->jctx, cb_authz, vhd, jauthz_tok,
-					LWS_ARRAY_SIZE(jauthz_tok));
+			lejp_construct(&ac->jctx, acme_cb_authz, vhd, acme_jauthz_tok,
+					LWS_ARRAY_SIZE(acme_jauthz_tok));
 			break;
 
 		case ACME_STATE_START_CHALL:
-			lejp_construct(&ac->jctx, cb_chac, ac, jchac_tok,
-					LWS_ARRAY_SIZE(jchac_tok));
+			lejp_construct(&ac->jctx, acme_cb_chac, ac, acme_jchac_tok,
+					LWS_ARRAY_SIZE(acme_jchac_tok));
 			break;
 
 		case ACME_STATE_POLLING:
 		case ACME_STATE_POLLING_CSR:
-			lejp_construct(&ac->jctx, cb_order, ac, jorder_tok,
-					LWS_ARRAY_SIZE(jorder_tok));
+			lejp_construct(&ac->jctx, acme_cb_order, ac, acme_jorder_tok,
+					LWS_ARRAY_SIZE(acme_jorder_tok));
 			break;
 
 		case ACME_STATE_DOWNLOAD_CERT:
