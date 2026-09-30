@@ -1247,9 +1247,16 @@ string1:
 	return 0;
 
 oom:
-	lwsl_err("%s: OOM\n", __func__);
+	/*
+	 * Despite the name, most ways here are the policy content being
+	 * rejected, not OOM.  Either way the parse fails and the caller
+	 * abandons it, which owns tearing down the lwsac: the X.509 objects
+	 * whose DER it frees live in there, and for an overlay the lwsac is
+	 * the live policy and must not be freed at all.  So just drop what
+	 * we allocated outside the lwsac.
+	 */
+	lwsl_err("%s: OOM or policy rejected\n", __func__);
 	lws_free_set_NULL(a->p);
-	lwsac_free(&a->ac);
 
 	return -1;
 }
@@ -1288,6 +1295,9 @@ lws_ss_policy_parse_begin(struct lws_context *context, int overlay)
 	p = lwsac_use(&args->ac, 1, POL_AC_INITIAL);
 	if (!p) {
 		lwsl_err("%s: OOM\n", __func__);
+		if (!overlay)
+			/* put back the policy we hid above */
+			context->pss_policies = args->prev_pss_policies;
 		lws_free_set_NULL(context->pol_args);
 
 		return -1;
@@ -1341,6 +1351,9 @@ lws_ss_policy_parse_abandon(struct lws_context *context)
 
 		x = x->next;
 	}
+
+	/* a parse that failed partway through a certs[] entry */
+	lws_free_set_NULL(args->p);
 
 	lejp_destruct(&args->jctx);
 
@@ -1438,7 +1451,6 @@ lws_ss_policy_parse(struct lws_context *context, const uint8_t *buf, size_t len)
 	lwsl_err("%s: parse failed line %u: %d: %s\n", __func__,
 		 (unsigned int)args->jctx.line, m, lejp_error_to_string(m));
 	lws_ss_policy_parse_abandon(context);
-	assert(0);
 
 	return m;
 }
