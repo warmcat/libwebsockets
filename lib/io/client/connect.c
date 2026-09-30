@@ -51,6 +51,18 @@ lws_client_transport_start(struct lws *wsi)
 	return lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(wsi);
 }
 
+/*
+ * A transport's fd is the connection's from the connect call on and is
+ * closed with it (lws-client.h): if we fail before there is a wsi to take
+ * it, it is closed here
+ */
+static void
+lws_client_transport_fd_drop(const struct lws_client_connect_info *i)
+{
+	if (i->transport && lws_socket_is_valid(i->transport_fd))
+		compatible_close(i->transport_fd);
+}
+
 struct lws *
 lws_client_connect_via_info(const struct lws_client_connect_info *i)
 {
@@ -70,12 +82,16 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	else if (i->context->options & LWS_SERVER_OPTION_CMDLINE_FORCE_H1)
 		alpn = "http/1.1";
 
-	if (i->context->requested_stop_internal_loops)
+	if (i->context->requested_stop_internal_loops) {
+		lws_client_transport_fd_drop(i);
 		return NULL;
+	}
 
 	if (!i->context->protocol_init_done)
-		if (lws_protocol_init(i->context))
+		if (lws_protocol_init(i->context)) {
+			lws_client_transport_fd_drop(i);
 			return NULL;
+		}
 
 	/*
 	 * If we have .local_protocol_name, use it to select the local protocol
@@ -96,8 +112,21 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	wsi = __lws_wsi_create_with_role(i->context, tsi, NULL, i->log_cx);
 	lws_context_unlock(i->context);
-	if (wsi == NULL)
+	if (wsi == NULL) {
+		lws_client_transport_fd_drop(i);
 		return NULL;
+	}
+
+	/*
+	 * A connection with a transport under it (lws_set_transport()) has
+	 * its bytes carried by the transport and its place in the poll set
+	 * given: the connect machine skips dns and connect for it.  The fd is
+	 * the wsi's from here, so every bail below closes it with the wsi.
+	 */
+	if (i->transport) {
+		wsi->io->desc.sockfd = i->transport_fd;
+		lws_set_transport(wsi, i->transport, i->transport_opaque);
+	}
 
 	vh = i->vhost;
 	if (!vh) {
@@ -176,16 +205,6 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		wsi->flags |= LCCSCF_ALLOW_EARLY_DATA;
 
 	wsi->io->c_pri = i->priority;
-
-	/*
-	 * A connection with a transport under it (lws_set_transport()) has
-	 * its bytes carried by the transport and its place in the poll set
-	 * given: the connect machine skips dns and connect for it
-	 */
-	if (i->transport) {
-		wsi->io->desc.sockfd = i->transport_fd;
-		lws_set_transport(wsi, i->transport, i->transport_opaque);
-	}
 
 	if (i->retry_and_idle_policy)
 		wsi->retry_policy = i->retry_and_idle_policy;
@@ -603,9 +622,18 @@ bail:
 	lws_dll2_remove(&wsi->sibling_list);
 	wsi->parent = NULL;
 
-	/* a transport's fd became ours at the call: it goes with the wsi */
-	if (i->transport && lws_socket_is_valid(wsi->io->desc.sockfd))
+	/*
+	 * A transport's fd became ours at the call and goes with the wsi,
+	 * once.  If the transport started, the fd is in the poll set and the
+	 * RELEASE below takes it out and closes it.  If not, it is closed
+	 * and forgotten here: the RELEASE would otherwise ask the event lib
+	 * to stop watching an fd it was never given.
+	 */
+	if (i->transport && lws_socket_is_valid(wsi->io->desc.sockfd) &&
+	    wsi->io->position_in_fds_table == LWS_NO_FDS_POS) {
 		compatible_close(wsi->io->desc.sockfd);
+		wsi->io->desc.sockfd = LWS_SOCK_INVALID;
+	}
 
 #if defined(LWS_WITH_TLS)
 	/* whether or not a session was made, it follows what was borrowed */
@@ -632,7 +660,10 @@ bail:
 			     wsi->a.vhost ? wsi->a.vhost->name : "novh",
 			     i->address ? i->address : "");
 
+	/* the fds table is the pt's: context lock, then pt lock, as close does */
+	lws_pt_lock(&i->context->pt[(int)wsi->tsi], __func__);
 	__lws_io_close_transport(wsi, LWS_IOCLOSE_RELEASE);
+	lws_pt_unlock(&i->context->pt[(int)wsi->tsi]);
 	__lws_free_wsi(wsi); /* acquires vhost lock in wsi reset */
 	lws_context_unlock(i->context);
 
