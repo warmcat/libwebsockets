@@ -116,6 +116,297 @@ lws_cookie_is_ip_literal(const char *host, size_t len)
 	return 1;
 }
 
+/*
+ * The cookie's domain, path and name go into the jar as its first, third and
+ * sixth TAB-separated columns and into the "domain|path|name" cache tag, and
+ * the backends treat '*' and '?' in a tag as wildcards and a jar line starting
+ * with '#' as a comment.  So nothing a server sends may carry CTLs (TAB, CR,
+ * LF, NUL ...), whitespace, '|', '*', '?' or '#' into those fields, even
+ * where the RFC grammar would allow it.
+ */
+
+/* RFC 6265 4.1.1 cookie-name, which is an RFC 2616 token */
+static int
+lws_cookie_name_ok(const char *s, size_t len)
+{
+	unsigned char ch;
+
+	if (!len)
+		return 0;
+
+	while (len--) {
+		ch = (unsigned char)*s++;
+		if (ch <= 0x20 || ch >= 0x7f ||
+		    strchr("()<>@,;:\\\"/[]?={}#*|", ch))
+			return 0;
+	}
+
+	return 1;
+}
+
+/* RFC 6265 4.1.1 cookie-octet, the value with any DQUOTEs already taken off */
+static int
+lws_cookie_value_ok(const char *s, size_t len)
+{
+	unsigned char ch;
+
+	while (len--) {
+		ch = (unsigned char)*s++;
+		if (ch <= 0x20 || ch >= 0x7f || ch == '\"' || ch == ',' ||
+		    ch == ';' || ch == '\\')
+			return 0;
+	}
+
+	return 1;
+}
+
+/*
+ * RFC 6265 4.1.1 path-value is any CHAR except CTLs or ';'.  It must also be
+ * an absolute path (5.2.4), and we additionally refuse what the jar cannot
+ * carry safely, and ',' and whitespace, which have no business there.
+ */
+static int
+lws_cookie_path_ok(const char *s, size_t len)
+{
+	unsigned char ch;
+
+	if (!len || *s != '/')
+		return 0;
+
+	while (len--) {
+		ch = (unsigned char)*s++;
+		if (ch <= 0x20 || ch >= 0x7f || strchr(";,*?#|", ch))
+			return 0;
+	}
+
+	return 1;
+}
+
+/*
+ * A host name: dot-separated, non-empty labels of letters, digits, '-' and
+ * '_' (the last is not in RFC 1123 but real DNS names carry it).  No leading,
+ * trailing or doubled dots.
+ */
+static int
+lws_cookie_hostname_ok(const char *s, size_t len)
+{
+	size_t label = 0;
+	char ch;
+
+	if (!len)
+		return 0;
+
+	while (len--) {
+		ch = *s++;
+		if (ch == '.') {
+			if (!label)
+				return 0;
+			label = 0;
+			continue;
+		}
+		if ((ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') &&
+		    (ch < '0' || ch > '9') && ch != '-' && ch != '_')
+			return 0;
+		label++;
+	}
+
+	return !!label;
+}
+
+/*
+ * The request host, as the cookie code sees it (without any :port): a host
+ * name, a dotted IPv4 address (which passes the host name test) or a
+ * bracketed IPv6 literal.  It becomes the domain of host-only cookies and the
+ * domain part of the attach lookups, so it gets policed like a Domain= value.
+ */
+static int
+lws_cookie_request_host_ok(const char *s, size_t len)
+{
+	size_t n;
+
+	if (len < 3 || s[0] != '[')
+		return lws_cookie_hostname_ok(s, len);
+
+	if (s[len - 1] != ']')
+		return 0;
+
+	for (n = 1; n < len - 1; n++)
+		if ((s[n] < '0' || s[n] > '9') && (s[n] < 'a' || s[n] > 'f') &&
+		    (s[n] < 'A' || s[n] > 'F') && s[n] != ':' && s[n] != '.')
+			return 0;
+
+	return 1;
+}
+
+static int
+lws_cookie_iequal(const char *a, const char *b, size_t len)
+{
+	while (len--)
+		if (lws_tolower(a[len]) != lws_tolower(b[len]))
+			return 0;
+
+	return 1;
+}
+
+/*
+ * RFC 6265 5.1.3 domain-match: the host equals the domain, or the host is a
+ * host name that ends with "." + the domain.
+ */
+static int
+lws_cookie_domain_match(const char *host, size_t hl, const char *dom, size_t dl)
+{
+	if (!dl || dl > hl || !lws_cookie_iequal(host + hl - dl, dom, dl))
+		return 0;
+
+	if (hl == dl)
+		return 1;
+
+	return host[hl - dl - 1] == '.' && !lws_cookie_is_ip_literal(host, hl);
+}
+
+static void
+lws_cookie_lower(char *p, size_t len)
+{
+	while (len--) {
+		*p = lws_tolower(*p);
+		p++;
+	}
+}
+
+/*
+ * RFC 6265 5.1.4 default-path: the request path up to, but not including, its
+ * right-most '/', or "/" if that would be empty or the request path is not
+ * absolute.  It is always a prefix of the request path, or "/".
+ */
+static void
+lws_cookie_default_path(struct lws_cookie *c, const char *path)
+{
+	size_t len = strcspn(path, "?#"), n;
+
+	c->f[CE_PATH] = "/";
+	c->l[CE_PATH] = 1;
+
+	if (!len || path[0] != '/')
+		return;
+
+	for (n = len - 1; n; n--)
+		if (path[n] == '/') {
+			c->f[CE_PATH] = path;
+			c->l[CE_PATH] = n;
+			return;
+		}
+}
+
+/*
+ * Decide the scope of a cookie a server sent us in response to a request to
+ * host ads (with any :port still on it) and path, the way RFC 6265 5.3 steps
+ * 5 - 7 and 5.2.3 / 5.2.4 say, and fill in c's domain, host-only flag and
+ * path.  Returns 0 if the cookie may be stored, nonzero if it must be ignored.
+ *
+ * lws has no Public Suffix List, so the public suffix test of 5.3 step 5 is
+ * reduced to refusing a Domain with no interior dot (a TLD, or "localhost"
+ * style single label) unless it is the request host itself, in which case the
+ * cookie becomes host-only as that step says.  A Domain like "co.uk" is not
+ * caught by this.
+ */
+static int
+lws_cookie_scope(struct lws *wsi, struct lws_cookie *c, const char *ads,
+		 const char *path)
+{
+	size_t al = lws_cookie_domain_len(ads);
+	int secure = !!(wsi->flags & LCCSCF_USE_SSL);
+
+	if (!lws_cookie_request_host_ok(ads, al)) {
+		lwsl_cookie("%s: unusable request host\n", __func__);
+		return 1;
+	}
+
+	if (!lws_cookie_name_ok(c->f[CE_NAME], c->l[CE_NAME]) ||
+	    !lws_cookie_value_ok(c->f[CE_VALUE], c->l[CE_VALUE])) {
+		lwsl_notice("%s: dropping cookie with illegal name or value\n",
+			    __func__);
+		return 1;
+	}
+
+	/* RFC 6265bis 5.7: a Secure cookie can only be set over tls */
+	if (c->f[CE_SECURE] && !secure) {
+		lwsl_notice("%s: dropping Secure cookie set over plaintext\n",
+			    __func__);
+		return 1;
+	}
+
+	/* RFC 6265 5.2.3: an empty Domain attribute is ignored */
+	if (c->f[CE_DOMAIN] && !c->l[CE_DOMAIN])
+		c->f[CE_DOMAIN] = NULL;
+
+	if (c->f[CE_DOMAIN]) {
+		if (!lws_cookie_hostname_ok(c->f[CE_DOMAIN], c->l[CE_DOMAIN])) {
+			lwsl_notice("%s: dropping cookie with illegal Domain\n",
+				    __func__);
+			return 1;
+		}
+
+		/*
+		 * From here, Domain is known to be printable.
+		 *
+		 * It must domain-match the request host (5.3 step 6), or any
+		 * server could set, replace or delete cookies for any other.
+		 *
+		 * And reject cookies scoped by Domain= to something that is not
+		 * a domain name (a numeric / IP-literal host).  Cookies for IP
+		 * hosts are host-only, for the exact host only, so a numeric
+		 * Domain= is never a legitimate scope and would only feed the
+		 * suffix walk cross-host replays.
+		 */
+		if (lws_cookie_is_ip_literal(c->f[CE_DOMAIN], c->l[CE_DOMAIN]) ||
+		    !lws_cookie_domain_match(ads, al, c->f[CE_DOMAIN],
+					     c->l[CE_DOMAIN])) {
+			lwsl_notice("%s: dropping cookie with Domain=%.*s "
+				    "not covering the request host\n", __func__,
+				    (int)c->l[CE_DOMAIN], c->f[CE_DOMAIN]);
+			return 1;
+		}
+
+		/*
+		 * No interior dot: a TLD or single label.  It domain-matched,
+		 * so it is either the request host itself, which makes it a
+		 * host-only cookie (5.3 step 5), or a suffix of it, which is
+		 * too wide a scope.
+		 */
+		if (!memchr(c->f[CE_DOMAIN], '.', c->l[CE_DOMAIN])) {
+			if (c->l[CE_DOMAIN] != al) {
+				lwsl_notice("%s: dropping cookie with top-level "
+					    "Domain=%.*s\n", __func__,
+					    (int)c->l[CE_DOMAIN],
+					    c->f[CE_DOMAIN]);
+				return 1;
+			}
+			c->f[CE_DOMAIN] = NULL;
+		}
+	}
+
+	if (!c->f[CE_DOMAIN]) {
+		c->f[CE_HOSTONLY] = "T";
+		c->l[CE_HOSTONLY] = 1;
+		c->f[CE_DOMAIN] = ads;
+		c->l[CE_DOMAIN] = al;
+	} else {
+		c->f[CE_HOSTONLY] = NULL;
+		c->l[CE_HOSTONLY] = 0;
+	}
+
+	/* RFC 6265 5.2.4: a Path that is empty or not absolute is ignored */
+	if (!c->f[CE_PATH] || !c->l[CE_PATH] || c->f[CE_PATH][0] != '/')
+		lws_cookie_default_path(c, path);
+
+	if (!lws_cookie_path_ok(c->f[CE_PATH], c->l[CE_PATH])) {
+		lwsl_notice("%s: dropping cookie with illegal path\n", __func__);
+		return 1;
+	}
+
+	return 0;
+}
+
 static int
 lws_cookie_parse_date(const char *d, size_t len, time_t *t)
 {
@@ -343,9 +634,10 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 	struct lws_cache_ttl_lru *l1;
 	struct client_info_stash *stash;
 	char *cookie_string = NULL, *cache_name = NULL;
-	const char *dl;
+	struct lws_cookie old;
+	const char *po;
 	 /* 6 tabs + 20 for max time_t + 2 * TRUE/FALSE + null */
-	size_t size = 6 + 20 + 10 + 1, cnl;
+	size_t size = 6 + 20 + 10 + 1, cnl, psize;
 	time_t expires = 0, now_s;
 	lws_usec_t expiry_us = 0;
 	int ret = 0;
@@ -378,22 +670,9 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 		return -1;
 	}
 
-
-
-	if (!c->f[CE_DOMAIN]) {
-		c->f[CE_HOSTONLY] = "T";
-		c->l[CE_HOSTONLY] = 1;
-		c->f[CE_DOMAIN] = ads;
-		c->l[CE_DOMAIN] = lws_cookie_domain_len(ads);
-	}
-
-	if (!c->f[CE_PATH]) {
-		c->f[CE_PATH] = path;
-		c->l[CE_PATH] = strlen(path);
-		dl = (char *)memchr(c->f[CE_PATH], '?', c->l[CE_PATH]);
-		if (dl)
-			c->l[CE_PATH] = (size_t)(dl - c->f[CE_PATH]);
-	}
+	/* not for us to store: ignored, like RFC 6265 says, not an error */
+	if (lws_cookie_scope(wsi, c, ads, path))
+		return 0;
 
 	cnl = c->l[CE_DOMAIN] + c->l[CE_PATH] + c->l[CE_NAME] + 6;
 	cache_name = lws_malloc(cnl, __func__);
@@ -402,6 +681,21 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 
 	if (lws_cookie_compile_cache_name(cache_name, cnl, c)) {
 		ret = -1;
+		goto exit;
+	}
+
+	/* domains are case-insensitive: the jar holds them in lower case */
+	lws_cookie_lower(cache_name, c->l[CE_DOMAIN]);
+
+	/*
+	 * RFC 6265bis 5.7: a plaintext response may not replace, or delete, a
+	 * Secure cookie of the same name, domain and path
+	 */
+	if (!(wsi->flags & LCCSCF_USE_SSL) &&
+	    !lws_cache_item_get(l1, cache_name, (const void **)&po, &psize) &&
+	    !lws_cookie_parse_nsc(&old, po, psize) && old.f[CE_SECURE]) {
+		lwsl_notice("%s: plaintext may not overwrite Secure cookie\n",
+			    __func__);
 		goto exit;
 	}
 
@@ -450,6 +744,7 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 			(unsigned long long)expires,
 			(int)c->l[CE_NAME], c->f[CE_NAME],
 			(int)c->l[CE_VALUE], c->f[CE_VALUE]);
+	lws_cookie_lower(cookie_string, c->l[CE_DOMAIN]);
 
 	lwsl_cookie("%s: name %s\n", __func__, cache_name);
 	lwsl_cookie("%s: c %s\n", __func__, cookie_string);
@@ -504,12 +799,13 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 	struct client_info_stash *stash;
 	lws_cache_results_t cr;
 	struct lws_cookie c;
-	int hostdomain = 1;
-	int ip_host;
+	int hostdomain = 1, ip_host, secure;
 	char *p, *p1, *cache_name;
 
 	if (!wsi)
 		return -1;
+
+	secure = !!(wsi->flags & LCCSCF_USE_SSL);
 
 	/*
 	 * stash is only guaranteed during the connect phase; lws frees it
@@ -551,7 +847,14 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 
 	memset(&c, 0, sizeof(c));
 
-
+	/*
+	 * The request host and path form the "host|path|*" lookup key.  A host
+	 * that is not a host name or IP literal, or a path with the tag
+	 * separator in it, can't be expressed as that key without changing
+	 * what it matches, and no cookie was ever stored for it: send none.
+	 */
+	if (!lws_cookie_request_host_ok(domain, lws_cookie_domain_len(domain)))
+		return 0;
 
 	path_len = strlen(path);
 
@@ -559,6 +862,9 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 	dl_path = (char *)memchr(path, '?', path_len);
 	if (dl_path)
 		path_len = lws_ptr_diff_size_t(dl_path,  path);
+
+	if (memchr(path, '|', path_len))
+		return 0;
 
 	/* remove last slash if exist */
 	if (path_len != 1 && path[path_len - 1] == '/')
@@ -613,6 +919,9 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 		p1++;
 		*p1 = '\0';
 
+		/* the jar holds domains in lower case */
+		lws_cookie_lower(cache_name, domain_len);
+
 		lwsl_cookie("%s: looking for %s\n", __func__, cache_name);
 
 		if (!lws_cache_lookup(l1, cache_name,
@@ -632,6 +941,13 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 
 				if (c.f[CE_HOSTONLY] && !hostdomain){
 					lwsl_cookie("%s: not sending this\n",
+							__func__);
+					continue;
+				}
+
+				/* RFC 6265 5.4: Secure cookies only go over tls */
+				if (c.f[CE_SECURE] && !secure) {
+					lwsl_cookie("%s: not sending Secure\n",
 							__func__);
 					continue;
 				}
@@ -799,7 +1115,8 @@ lws_parse_set_cookie(struct lws *wsi)
 						   c.f[CE_VALUE]) + 1;
 
 			lws_cookie_rm_sws(&c.f[CE_VALUE], &c.l[CE_VALUE]);
-			if (c.l[CE_VALUE] >= 2 && c.f[CE_VALUE][0] == '\"') {
+			if (c.l[CE_VALUE] >= 2 && c.f[CE_VALUE][0] == '\"' &&
+			    c.f[CE_VALUE][c.l[CE_VALUE] - 1] == '\"') {
 				c.f[CE_VALUE]++;
 				c.l[CE_VALUE] -= 2;
 			}
@@ -858,21 +1175,7 @@ parse_av:
 
 		} while (tk_end != buf_end);
 
-		/*
-		 * RFC 6265: reject cookies scoped by Domain= to something that
-		 * is not a domain name (a numeric / IP-literal host).  Cookies
-		 * for IP hosts are host-only, for the exact host only, so a
-		 * numeric Domain= is never a legitimate scope and would only
-		 * feed the suffix walk cross-host replays.
-		 */
-		if (c.f[CE_DOMAIN] &&
-		    lws_cookie_is_ip_literal(c.f[CE_DOMAIN], c.l[CE_DOMAIN])) {
-			lwsl_notice("%s: dropping cookie with non-domain "
-				    "Domain=%.*s\n", __func__,
-				    (int)c.l[CE_DOMAIN], c.f[CE_DOMAIN]);
-			continue;
-		}
-
+		/* lws_cookie_scope() decides if the request may set it */
 		if (lws_cookie_write_nsc(wsi, &c))
 			lwsl_err("%s:failed to write nsc\n", __func__);
 	}
