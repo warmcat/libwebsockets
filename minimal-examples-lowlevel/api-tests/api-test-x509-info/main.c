@@ -209,6 +209,91 @@ test_multi_aki_issuer(const char *cert_dir)
 }
 #endif
 
+/*
+ * The subject Common Name is found by its OID, not by looking for "/CN=" in a
+ * rendering of the whole DN.  The first cert's subject has an OU, ordered
+ * before the CN, whose value contains a slash and text that looks like another
+ * CN ("OU=Dept/CN=Unit"): the CN must still come back as exactly
+ * "cn.example.com".  The second cert's subject has no CN at all, which must be
+ * an error rather than some other part of the DN.
+ */
+
+static const char pem_cn_after_ou[] =
+	"-----BEGIN CERTIFICATE-----\n"
+	"MIIB8jCCAZmgAwIBAgIULSC8CHHLXX5zYKWoSAuQEX4rPNQwCgYIKoZIzj0EAwIw\n"
+	"TzELMAkGA1UEBhMCQ04xEDAOBgNVBAoMB1Rlc3RPcmcxFTATBgNVBAsMDERlcHQv\n"
+	"Q049VW5pdDEXMBUGA1UEAwwOY24uZXhhbXBsZS5jb20wHhcNMjYwOTMwMTU0NzI1\n"
+	"WhcNMzYwOTI3MTU0NzI1WjBPMQswCQYDVQQGEwJDTjEQMA4GA1UECgwHVGVzdE9y\n"
+	"ZzEVMBMGA1UECwwMRGVwdC9DTj1Vbml0MRcwFQYDVQQDDA5jbi5leGFtcGxlLmNv\n"
+	"bTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABBTON+F3UnmsgAr4fkQMxcDY/yex\n"
+	"h7TLe1uhNl1XF1YHnxTTJdU/TX3hSwZeArS31u6uh/WNywK4OaxzVQrGyx2jUzBR\n"
+	"MB0GA1UdDgQWBBS9FqmH41T+U02n+XuVqUKYVFnnlTAfBgNVHSMEGDAWgBS9FqmH\n"
+	"41T+U02n+XuVqUKYVFnnlTAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0cA\n"
+	"MEQCIGtbb7wnZfiUCWC9T07DD4lttMeKPrmgnvGipJML5BL6AiACSXUiUDBxkkCs\n"
+	"FPdn6YVLAglg019qKKSuuIzWxb5L3Q==\n"
+	"-----END CERTIFICATE-----\n";
+
+static const char pem_no_cn[] =
+	"-----BEGIN CERTIFICATE-----\n"
+	"MIIBxDCCAWugAwIBAgIUEO6aPCZE0XEv8bfr3nFHKtG+fsIwCgYIKoZIzj0EAwIw\n"
+	"ODELMAkGA1UEBhMCQ04xEDAOBgNVBAoMB1Rlc3RPcmcxFzAVBgNVBAsMDk5vIENv\n"
+	"bW1vbiBOYW1lMB4XDTI2MDkzMDE1NDcyNVoXDTM2MDkyNzE1NDcyNVowODELMAkG\n"
+	"A1UEBhMCQ04xEDAOBgNVBAoMB1Rlc3RPcmcxFzAVBgNVBAsMDk5vIENvbW1vbiBO\n"
+	"YW1lMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEq/2hiCmTU0+xeeArctLCO4wj\n"
+	"q3GHViup6Z/UEaBesnIvS/WZbW7gK99kpK5s8ZlBH2lBHLEQiA88yOYzFBtIs6NT\n"
+	"MFEwHQYDVR0OBBYEFGizYejN3my/22uWuXT9/TO+gKNQMB8GA1UdIwQYMBaAFGiz\n"
+	"YejN3my/22uWuXT9/TO+gKNQMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwID\n"
+	"RwAwRAIgDrP/y4dEXyRmmmlNtRrduo4e7NCFUmFkEWVaWDmwR+ACIEffANVM6dZk\n"
+	"/3SwjQ12e+QP/PgFu+KOrqpKdBfTnGGt\n"
+	"-----END CERTIFICATE-----\n";
+
+static int
+test_cn_by_oid(const char *pem, size_t pem_len, const char *expected)
+{
+	char big[256];
+	union lws_tls_cert_info_results *buf =
+			(union lws_tls_cert_info_results *)big;
+	struct lws_x509_cert *x509 = NULL;
+	int ret, fail = 0;
+
+	if (lws_x509_create(&x509)) {
+		lwsl_err("%s: lws_x509_create failed", __func__);
+		return 1;
+	}
+
+	if (lws_x509_parse_from_pem(x509, pem, pem_len)) {
+		lwsl_err("%s: lws_x509_parse_from_pem failed", __func__);
+		lws_x509_destroy(&x509);
+		return 1;
+	}
+
+	lws_explicit_bzero(big, sizeof(big));
+	ret = lws_x509_info(x509, LWS_TLS_CERT_INFO_COMMON_NAME, buf,
+			    sizeof(big) - sizeof(*buf) + sizeof(buf->ns.name));
+
+	lwsl_user("\n=== COMMON_NAME by OID, expecting %s ===\n"
+		  "Return: %d", expected ? expected : "none", ret);
+
+	if (!expected) {
+		if (!ret) {
+			lwsl_err("%s: no CN, but got '%s'", __func__,
+				 buf->ns.name);
+			fail = 1;
+		}
+	} else
+		if (ret || buf->ns.len != (int)strlen(expected) ||
+		    strcmp(buf->ns.name, expected)) {
+			lwsl_err("%s: CN '%s' (%d), expected '%s'", __func__,
+				 ret ? "" : buf->ns.name, buf->ns.len,
+				 expected);
+			fail = 1;
+		}
+
+	lws_x509_destroy(&x509);
+
+	return fail;
+}
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
@@ -288,6 +373,9 @@ int main(int argc, const char **argv)
 #if defined(LWS_WITH_MBEDTLS)
 	fail |= test_multi_aki_issuer(cert_dir);
 #endif
+	fail |= test_cn_by_oid(pem_cn_after_ou, sizeof(pem_cn_after_ou),
+			       "cn.example.com");
+	fail |= test_cn_by_oid(pem_no_cn, sizeof(pem_no_cn), NULL);
 	lws_x509_destroy(&x509);
 	lwsl_user("\n---");
 	lwsl_user("Completed: %s", fail ? "FAIL" : "PASS");

@@ -215,10 +215,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 	long xlen, loc;
 #endif
 	const X509_NAME *xn;
-#if !defined(LWS_PLAT_OPTEE)
-	char *p, *p1;
 	size_t rl;
-#endif
 
 	buf->ns.len = 0;
 
@@ -248,36 +245,16 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 		break;
 
 	case LWS_TLS_CERT_INFO_COMMON_NAME:
-#if defined(LWS_PLAT_OPTEE)
-		return -1;
-#else
-		xn = X509_get_subject_name(x509);
-		if (!xn)
-			return -1;
 		/*
-		 * X509_NAME_oneline() writes nothing at all if the size it is
-		 * given is not positive, leaving the caller's buffer as it
-		 * found it... the scan below would then run on uninitialised
-		 * memory.  We take off 2 for the "/CN=" trim, so we need 3
+		 * By OID, not by looking for "/CN=" in an X509_NAME_oneline()
+		 * rendering of the subject, where an earlier attribute's value
+		 * may contain that text.  No CN is a failure, not the whole DN.
 		 */
-		if (len < 3)
+		if (lws_tls_openssl_x509_cn(x509, buf->ns.name, len, &rl))
 			return -1;
-		buf->ns.name[0] = '\0';
-		X509_NAME_oneline((X509_NAME *)xn, buf->ns.name, (int)len - 2);
-		p = (char *)strstr(buf->ns.name, "/CN=");
-		if (p) {
-			p += 4;
-			p1 = (char *)strchr(p, '/');
-			if (p1)
-				rl = lws_ptr_diff_size_t(p1, p);
-			else
-				rl = strlen(p);
-			memmove(buf->ns.name, p, rl);
-			buf->ns.name[rl] = '\0';
-		}
-		buf->ns.len = (int)strlen(buf->ns.name);
+		buf->ns.len = (int)rl;
 		return 0;
-#endif
+
 	case LWS_TLS_CERT_INFO_ISSUER_NAME:
 		xn = X509_get_issuer_name(x509);
 		if (!xn)
