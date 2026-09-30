@@ -1669,8 +1669,34 @@ function renderWhoisHeader() {
         dsStatusHTML += `<br><b class="dns-fg-red text-sm">⚠ Registrar DNSSEC key differs</b>`;
     }
 
-    if (currentDomainObj.alg) {
-        dsStatusHTML += `<br><span class="dns-fg-gray text-sm">Key: ${escapeHtml(currentDomainObj.alg)} &nbsp; <a href="#" id="link-regen-keys" class="ext-link">replace</a> &nbsp; <a href="#" id="link-info-keys" class="ext-link">info</a></span>`;
+    const dnssecAlgNames = { 8: 'RSASHA256', 13: 'ECDSAP256SHA256', 14: 'ECDSAP384SHA384' };
+    const dsDigestNames = { 2: 'SHA-256', 4: 'SHA-384' };
+
+    if (currentDomainObj.ksk_alg)
+        dsStatusHTML += `<br><span class="text-sm"><a href="#" id="link-regen-keys" class="ext-link">replace</a></span>`;
+
+    /* what the registrar needs to publish our DS, all of it public */
+    let registrarHTML = '';
+    const dsParts = localDs.split(/\s+/);
+
+    if (dsParts.length === 4) {
+        const regRow = (label, value, note) => `
+            <span class="reg-ds-lbl">${label}</span>
+            <span class="reg-ds-val">${escapeHtml(value)}${note ? ` <span class="dns-fg-gray">(${escapeHtml(note)})</span>` : ''}</span>
+            <button class="btn hollow btn-sm reg-ds-copy" data-copy="${escapeHtml(value)}">Copy</button>`;
+
+        registrarHTML = `
+            <tr>
+                <td class="dns-layout-lbl">Registrar:</td>
+                <td colspan="2">
+                    <div class="reg-ds-grid">
+                        ${regRow('Key tag', dsParts[0])}
+                        ${regRow('Algorithm', dsParts[1], dnssecAlgNames[dsParts[1]])}
+                        ${regRow('Digest type', dsParts[2], dsDigestNames[dsParts[2]])}
+                        ${regRow('Digest', dsParts[3])}
+                    </div>
+                </td>
+            </tr>`;
     }
 
     let overallSigned = isSigned && !localMismatch && !globalMismatch;
@@ -1705,6 +1731,7 @@ function renderWhoisHeader() {
                     ${dsStatusHTML}
 		</td>
             </tr>
+            ${registrarHTML}
             ${dnssecLookupsHTML}
             <tr id="tls-summary-row" class="hide">
                 <td class="dns-layout-lbl">TLS:</td>
@@ -1732,41 +1759,26 @@ function renderWhoisHeader() {
         };
     }
 
-    const lnkInfo = document.getElementById('link-info-keys');
-    if (lnkInfo) {
-        lnkInfo.onclick = (e) => {
-            e.preventDefault();
-            let ds = currentDomainObj.local_ds || '';
-            let dsText = '';
-            if (ds) {
-                let parts = ds.trim().split(/\s+/);
-                if (parts.length >= 4) {
-                    let keyId = parts[0];
-                    let alg = parts[1];
-                    let digestType = parts[2];
-                    let digest = parts.slice(3).join('');
+    hdr.querySelectorAll('.reg-ds-copy').forEach(btn => {
+        btn.onclick = () => {
+            const done = () => {
+                btn.textContent = 'Copied';
+                setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+            };
 
-                    let algName = alg;
-                    if (alg === '8') algName = '8 (RSA/SHA256)';
-                    else if (alg === '13') algName = '13 (ECDSA Curve P-256 with SHA-256)';
-                    else if (alg === '14') algName = '14 (ECDSA Curve P-384 with SHA-384)';
-
-                    let dTypeName = digestType;
-                    if (digestType === '1') dTypeName = '1 (SHA-1)';
-                    else if (digestType === '2') dTypeName = '2 (SHA-256)';
-                    else if (digestType === '4') dTypeName = '4 (SHA-384)';
-
-                    dsText = `DS KeyID: ${keyId},  Alg: ${algName}, Digest Type: ${dTypeName}, Digest: ${digest}`;
-                } else {
-                    dsText = ds;
-                }
-            } else {
-                dsText = "DS record not available yet.";
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(btn.dataset.copy).then(done);
+                return;
             }
-            document.getElementById('textarea-dnssec-info').value = dsText;
-            document.getElementById('modal-dnssec-info').classList.add('show');
+
+            /* no clipboard api: select the value, for ctrl-c */
+            const range = document.createRange();
+            range.selectNodeContents(btn.previousElementSibling);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
         };
-    }
+    });
 
     const lnkDetails = document.getElementById('link-tls-details');
     if (lnkDetails) {
@@ -2414,7 +2426,6 @@ function initApp() {
     };
 
     document.getElementById('btn-regen-cancel').onclick = () => closeModal('modal-regen-keys');
-    document.getElementById('btn-dnssec-info-close').onclick = () => closeModal('modal-dnssec-info');
     let btnTlsClose = document.getElementById('btn-tls-details-close');
     if (btnTlsClose) btnTlsClose.onclick = () => closeModal('modal-tls-details');
     // Legacy modal close handlers removed

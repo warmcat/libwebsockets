@@ -853,7 +853,15 @@ body.is-disconnected .app-container {
 .btn-replace-danger:hover { background: #aa1111 !important; border-color: #aa1111 !important; }
 .modal-content-medium { max-width: 600px; }
 .modal-help-text { color: #aaa; font-size: 0.9em; }
-.dnssec-info-textarea { width: 100%; background: #222; color: #0f0; border: 1px solid #444; padding: 10px; font-family: monospace; resize: none; }
+.reg-ds-grid {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 2px 10px;
+    align-items: baseline;
+    margin-top: 4px;
+}
+.reg-ds-lbl { color: var(--text-secondary); white-space: nowrap; }
+.reg-ds-val { font-family: monospace; word-break: break-all; }
 
 #table-zone td { font-family: monospace; }
 #table-zone td:not(.ext-mono):not(.ext-value) { font-size: 0.85em; }

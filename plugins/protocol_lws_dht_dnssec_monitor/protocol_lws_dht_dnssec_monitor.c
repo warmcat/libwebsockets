@@ -1143,8 +1143,10 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 				char whois_path[1024], whois_buf[LWS_WHOIS_CANON_MAX];
 				char whois_canon[LWS_WHOIS_CANON_MAX + 1] = "{}";
 				char dns_path[1024], dns_buf[1024] = "{}";
-				char ds_path[1024], ds_buf[256] = "";
+				char ksk_path[1024];
+				struct lws_auth_dns_key_records kr;
 				char esc_name[MON_ESC_DOMAIN_SZ], esc_ds[MON_ESC_FIELD_SZ];
+				struct lws_jwk ksk;
 				char disabled_path[1024];
 				int acme_enabled = 1;
 				int fd;
@@ -1183,15 +1185,17 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 						lws_strncpy(dns_buf, "{}", sizeof(dns_buf));
 				}
 
-				lws_snprintf(ds_path, sizeof(ds_path), "%s/domains/%s/dns_ds.txt", vhd->base_dir, de->d_name);
-				if ((fd = open(ds_path, O_RDONLY)) >= 0) {
-					ssize_t nw = read(fd, ds_buf, sizeof(ds_buf) - 1);
-					if (nw > 0) {
-						ds_buf[nw] = '\0';
-						char *nl = (char *)strchr(ds_buf, '\n');
-						if (nl) *nl = '\0';
-					}
-					close(fd);
+				/*
+				 * The KSK's DS, exactly as the signer logs it, for
+				 * the registrar.  It is public, but only we can read
+				 * the key file
+				 */
+				memset(&kr, 0, sizeof(kr));
+				lws_snprintf(ksk_path, sizeof(ksk_path), "%s/domains/%s/%s.ksk.private.jwk", vhd->base_dir, de->d_name, de->d_name);
+				if (!lws_jwk_load(&ksk, ksk_path, NULL, NULL)) {
+					if (lws_auth_dns_key_records(&ksk, de->d_name, 257, &kr))
+						memset(&kr, 0, sizeof(kr));
+					lws_jwk_destroy(&ksk);
 				}
 
 				lws_snprintf(disabled_path, sizeof(disabled_path), "%s/domains/%s/acme_disabled", vhd->base_dir, de->d_name);
@@ -1205,11 +1209,12 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 
 				if (!first) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
 				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx),
-					"{\"name\":\"%s\",\"whois\":%s,\"dns\":%s,\"local_ds\":\"%s\",\"acme_enabled\":%s}",
+					"{\"name\":\"%s\",\"whois\":%s,\"dns\":%s,\"local_ds\":\"%s\",\"ksk_alg\":%u,\"acme_enabled\":%s}",
 					json_escape(esc_name, sizeof(esc_name), de->d_name),
 					whois_canon,
 					dns_buf,
-					json_escape(esc_ds, sizeof(esc_ds), ds_buf),
+					json_escape(esc_ds, sizeof(esc_ds), kr.ds),
+					kr.alg,
 					acme_enabled ? "true" : "false");
 				first = 0;
 			}

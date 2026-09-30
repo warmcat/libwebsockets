@@ -31,6 +31,15 @@ checking the row's FQDN lies inside its domain and sending
 `LWSSMDCL_CERTS`.  The usual backoff after failed acquisitions still applies,
 and Let's Encrypt allows only 5 identical certificates per week.
 
+#### Registrar DS record
+
+For the domain's DNSSEC chain to reach the root, the parent zone must publish
+a DS record for the domain's KSK, which you give your registrar.  The domain's
+header's Registrar row shows the DS fields registrars ask for, each with a
+Copy button: the key tag, algorithm, digest type and digest.  The root process
+computes them from the KSK with `lws_auth_dns_key_records()`, the same way the
+signer does when it logs the DS.  They are all public.
+
 #### Registry WHOIS
 
 Each domain's header shows the registry's expiry date, the nameservers the
