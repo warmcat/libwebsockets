@@ -7,6 +7,9 @@
  * Universal Public Domain Dedication.
  *
  * This demonstrates a WebTransport client.
+ *
+ * It opens a session to lws-minimal-webtransport-server, opens a bidi stream
+ * on it and sends one message, then ends the session and exits.
  */
 
 #include <libwebsockets.h>
@@ -14,58 +17,102 @@
 #include <string.h>
 #include <signal.h>
 
+struct pss {
+	int		sent;	/* our message went out on this stream */
+};
+
 static struct lws_context *context;
+static struct lws *session;
+static int interrupted;
 
 static int
 callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		 void *user, void *in, size_t len)
 {
+	struct pss *pss = (struct pss *)user;
+	uint8_t buf[LWS_PRE + 64];
+	struct lws *cwsi;
+	int n;
+
 	switch (reason) {
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
+		interrupted = 1;
 		lws_default_loop_exit(context);
 		break;
 
-	case LWS_CALLBACK_CLIENT_ESTABLISHED:
-		lwsl_user("LWS_CALLBACK_CLIENT_ESTABLISHED (wsi: %p)\n", wsi);
-		if (lws_wt_is_session(wsi)) {
-			lwsl_user("  WebTransport Session Established. Spawning bidi stream.\n");
-			struct lws *cwsi = lws_wt_create_stream(wsi, 0);
-			if (cwsi) {
-				lwsl_user("  Created Bidi Stream: %p\n", cwsi);
-				/* request to write some data */
-				lws_callback_on_writable(cwsi);
-			}
-		} else {
-			lwsl_user("  WebTransport Stream Established\n");
-			lws_callback_on_writable(wsi);
+	/*
+	 * The server's 200 to our extended CONNECT: like any other h3 client
+	 * stream, it is announced with ESTABLISHED_CLIENT_HTTP (not the ws
+	 * CLIENT_ESTABLISHED), and the wsi is now the WebTransport session.
+	 */
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		if (!lws_wt_is_session(wsi))
+			break;
+
+		lwsl_user("WebTransport session established\n");
+		session = wsi;
+
+		cwsi = lws_wt_create_stream(wsi, 0);
+		if (!cwsi) {
+			lwsl_err("Failed to create bidi stream\n");
+			return -1;
 		}
+
+		/* a stream we created is not announced, ask to write on it */
+		lws_callback_on_writable(cwsi);
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
-		if (!lws_wt_is_session(wsi)) {
-			uint8_t buf[LWS_PRE + 32];
-			uint8_t *p = &buf[LWS_PRE];
-			int n = lws_snprintf((char *)p, 32, "Hello from WebTransport Stream!");
-			lws_write(wsi, p, (unsigned int)n, LWS_WRITE_BINARY);
-			lwsl_user("  Sent message on stream %p\n", wsi);
-		} else {
-			/* We could write datagrams here */
-		}
+		if (lws_wt_is_session(wsi))
+			/* a write on the session wsi goes out as a datagram */
+			break;
+
+		/* WRITEABLE can come again without being asked for */
+		if (!pss || pss->sent)
+			break;
+		pss->sent = 1;
+
+		n = lws_snprintf((char *)&buf[LWS_PRE], sizeof(buf) - LWS_PRE,
+				 "Hello from WebTransport Stream!");
+
+		/*
+		 * Finish our side of the stream with the message: ending the
+		 * session resets any stream still open, discarding whatever it
+		 * had not sent yet
+		 */
+		if (lws_write(wsi, &buf[LWS_PRE], (unsigned int)n,
+			      LWS_WRITE_BINARY | LWS_WRITE_H2_STREAM_END) < n)
+			return -1;
+
+		lwsl_user("Sent message on stream, ending the session\n");
+
+		/*
+		 * Closing the session wsi ends the WebTransport session: the
+		 * server sees it close, and every stream of the session goes
+		 * with it on both sides
+		 */
+		if (session)
+			lws_set_timeout(session, PENDING_TIMEOUT_USER_OK,
+					LWS_TO_KILL_ASYNC);
 		break;
 
-	case LWS_CALLBACK_CLIENT_RECEIVE:
-		lwsl_user("LWS_CALLBACK_CLIENT_RECEIVE (wsi: %p, len: %zu)\n", wsi, len);
+	case LWS_CALLBACK_RECEIVE:
+		/* datagrams arrive on the session wsi, stream data on the stream */
+		lwsl_user("RECEIVE on %s (len: %zu)\n",
+			  lws_wt_is_session(wsi) ? "session" : "stream", len);
 		lwsl_hexdump_notice(in, len);
 		break;
 
-	case LWS_CALLBACK_CLIENT_CLOSED:
-		lwsl_user("LWS_CALLBACK_CLIENT_CLOSED\n");
-		if (lws_wt_is_session(wsi)) {
-			lws_default_loop_exit(context);
-		}
+	case LWS_CALLBACK_CLOSED:
+		if (!lws_wt_is_session(wsi))
+			break;
+
+		lwsl_user("WebTransport session closed\n");
+		session = NULL;
+		lws_default_loop_exit(context);
 		break;
 
 	default:
@@ -76,13 +123,14 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 static const struct lws_protocols protocols[] = {
-	{ "webtransport", callback_minimal, 0, 1024, 0, NULL, 0 },
+	{ "webtransport", callback_minimal, sizeof(struct pss), 1024, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
 static void
 sigint_handler(int sig)
 {
+	interrupted = 1;
 	lws_default_loop_exit(context);
 }
 
@@ -121,6 +169,7 @@ int main(int argc, const char **argv)
 
 	if (!lws_client_connect_via_info(&i)) {
 		lwsl_err("Client connect failed\n");
+		interrupted = 1;
 		lws_default_loop_exit(context);
 	}
 
@@ -128,7 +177,7 @@ int main(int argc, const char **argv)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);
-	lwsl_user("Completed\n");
+	lwsl_user("Completed: %s\n", interrupted ? "FAIL" : "OK");
 
-	return 0;
+	return interrupted;
 }

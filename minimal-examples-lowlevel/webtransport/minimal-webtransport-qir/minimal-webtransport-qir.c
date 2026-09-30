@@ -1498,12 +1498,10 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_ESTABLISHED:
 	case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
-	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
 	case LWS_CALLBACK_RECEIVE:
 	case LWS_CALLBACK_CLOSED:
-	case LWS_CALLBACK_CLIENT_CLOSED:
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		if (pss)
 			init_pss(pss);
@@ -1639,8 +1637,11 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		break;
 
+	/*
+	 * The 200 to our CONNECT arrives like any h3 client response, the ws
+	 * LWS_CALLBACK_CLIENT_ESTABLISHED is never issued for WebTransport
+	 */
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
-	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 		if (is_server)
 			break;
 		pss->wsi = wsi;
@@ -2226,7 +2227,6 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED:
-	case LWS_CALLBACK_CLIENT_CLOSED:
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 	{
 		int had_out = pss->fd_out >= 0;
