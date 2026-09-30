@@ -186,6 +186,28 @@ acme_cb_order(struct lejp_ctx *ctx, char reason)
 	return 0;
 }
 
+/*
+ * RFC 8555 8.1: a challenge token is base64url, no padding.  It goes into the
+ * http-01 mountpoint and the key authorization we serve or publish, so take
+ * nothing else, and nothing we would have to truncate
+ */
+
+static int
+acme_token_valid(const char *t, size_t room)
+{
+	size_t n;
+
+	for (n = 0; t[n]; n++)
+		if (n == room - 1 ||
+		    !((t[n] >= 'A' && t[n] <= 'Z') ||
+		      (t[n] >= 'a' && t[n] <= 'z') ||
+		      (t[n] >= '0' && t[n] <= '9') ||
+		      t[n] == '-' || t[n] == '_'))
+			return 0;
+
+	return n > 0;
+}
+
 /* authz JSON parsing */
 
 const char * const acme_jauthz_tok[9] = {
@@ -262,8 +284,13 @@ acme_cb_authz(struct lejp_ctx *ctx, char reason)
 		}
 		break;
 	case JAAZ_CHALLENGES_TOKEN:
-		lwsl_notice("JAAZ_CHALLENGES_TOKEN: %s %d\n", ctx->buf, s->use);
 		if (s->use) {
+			if (!acme_token_valid(ctx->buf, sizeof(s->chall_token))) {
+				lwsl_warn("%s: challenge token is not base64url\n",
+					  __func__);
+				return -1;
+			}
+			lwsl_notice("JAAZ_CHALLENGES_TOKEN: %s\n", ctx->buf);
 			lws_strncpy(s->chall_token, ctx->buf,
 				    sizeof(s->chall_token));
 			s->yes = s->yes | 1;
@@ -329,6 +356,8 @@ acme_cb_chac(struct lejp_ctx *ctx, char reason)
 		s->yes = s->yes | 2;
 		break;
 	case JCAC_TOKEN:
+		if (!acme_token_valid(ctx->buf, sizeof(s->chall_token)))
+			return -1;
 		lws_strncpy(s->chall_token, ctx->buf, sizeof(s->chall_token));
 		s->yes = s->yes | 1;
 		break;

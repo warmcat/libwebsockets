@@ -19,6 +19,8 @@
  *    it once insisted on http-01, failing every dns-01 acquisition
  *  - ...but an answer about a different type of challenge is refused
  *  - an error body's detail is kept
+ *  - a challenge token that is not base64url is refused, but only for the
+ *    challenge we take up
  *
  * It also runs the plugin's framing of the root daemon's answers on the IPC
  * stream, fed in one read and a byte at a time:
@@ -151,6 +153,28 @@ struct ajt_ipc_got {
 	struct acme_ipc_reply	r[LWS_ARRAY_SIZE(ajt_ipc_want) + 1];
 	size_t			count;
 };
+
+/* the http-01 challenge's token is not base64url */
+
+static const char *ajt_authz_bad_token =
+	"{\n"
+	"  \"identifier\": {\n    \"type\": \"dns\",\n    \"value\": \"npro.rs\"\n  },\n"
+	"  \"status\": \"pending\",\n"
+	"  \"challenges\": [\n"
+	"    {\n"
+	"      \"type\": \"http-01\",\n"
+	"      \"url\": \"" AJT_LE "chall/3809481706/790409035666/XrNd8A\",\n"
+	"      \"status\": \"pending\",\n"
+	"      \"token\": \"not a token\"\n"
+	"    },\n"
+	"    {\n"
+	"      \"type\": \"dns-01\",\n"
+	"      \"url\": \"" AJT_LE "chall/3809481706/790409035666/dLFlkw\",\n"
+	"      \"status\": \"pending\",\n"
+	"      \"token\": \"Ub6D315kflFKV8LXKceqovfdGeC0hvGNxO-zf9J9GkI\"\n"
+	"    }\n"
+	"  ]\n"
+	"}";
 
 static struct per_vhost_data__lws_acme_client vhd;
 static struct lws_acme_cert_config cert;
@@ -308,6 +332,38 @@ ajt_error(int bw)
 }
 
 static int
+ajt_bad_token(int bw)
+{
+	int bad = 0;
+
+	/* taking up http-01, its token is refused... */
+
+	memset(&ac, 0, sizeof(ac));
+	cert.challenge_type = LWS_ACME_CHALLENGE_TYPE_HTTP_01;
+	if (ajt_parse(acme_cb_authz, &vhd, acme_jauthz_tok,
+		      LWS_ARRAY_SIZE(acme_jauthz_tok), ajt_authz_bad_token,
+		      bw) != LEJP_REJECT_CALLBACK) {
+		lwsl_err("bad token (%d): accepted\n", bw);
+		bad = 1;
+	}
+	bad |= ajt_expect("bad token", bw, ac.chall_token, "");
+
+	/* ...but it's nothing to do with us when we take up dns-01 */
+
+	memset(&ac, 0, sizeof(ac));
+	cert.challenge_type = LWS_ACME_CHALLENGE_TYPE_DNS_01;
+	if (ajt_parse(acme_cb_authz, &vhd, acme_jauthz_tok,
+		      LWS_ARRAY_SIZE(acme_jauthz_tok), ajt_authz_bad_token,
+		      bw) < 0) {
+		lwsl_err("bad token, other type (%d): refused\n", bw);
+		return 1;
+	}
+
+	return bad | ajt_expect("other token", bw, ac.chall_token,
+				"Ub6D315kflFKV8LXKceqovfdGeC0hvGNxO-zf9J9GkI");
+}
+
+static int
 ajt_ipc_line(void *opaque, const char *line, size_t len)
 {
 	struct ajt_ipc_got *g = (struct ajt_ipc_got *)opaque;
@@ -401,6 +457,7 @@ main(int argc, const char **argv)
 		ajt_result("dns-01", ajt_challenge(LWS_ACME_CHALLENGE_TYPE_DNS_01, bw));
 		ajt_result("http-01", ajt_challenge(LWS_ACME_CHALLENGE_TYPE_HTTP_01, bw));
 		ajt_result("error", ajt_error(bw));
+		ajt_result("bad token", ajt_bad_token(bw));
 		ajt_result("ipc", ajt_ipc(bw));
 	}
 
