@@ -3459,7 +3459,7 @@ lws_serve_http_file_composed(struct lws *wsi, const char *file, const char *cont
 #if defined(LWS_WITH_RANGES)
 	struct lws_range_parsing *rp = &wsi->http.range;
 #endif
-	int ret = 0, cclen = 8, n = HTTP_STATUS_OK;
+	int ret = 0, cclen = 8, n = HTTP_STATUS_OK, no_body;
 	char cache_control[50], *cc = "no-store";
 #if defined(LWS_WITH_RANGES)
 	char mp_ct[64];
@@ -3873,9 +3873,21 @@ lws_serve_http_file_composed(struct lws *wsi, const char *file, const char *cont
 	 * at this point, so on h2 / h3 the headers write must also carry
 	 * END_STREAM.  Otherwise the stream is left half-closed locally with
 	 * the peer waiting for a body that will never come.
+	 *
+	 * The same for an empty file sent as it is: there is nothing for the
+	 * file sender to write, so nothing it writes can end the stream (a
+	 * compressed or chunked one still has bytes to send for its end)
 	 */
+	no_body = wsi->http.method_head;
+	if (!wsi->http.filelen && !wsi->sending_chunked
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	    && !wsi->http.lcs
+#endif
+	   )
+		no_body = 1;
+
 	n = LWS_WRITE_HTTP_HEADERS;
-	if (wsi->http.method_head)
+	if (no_body)
 		n |= LWS_WRITE_H2_STREAM_END;
 
 	ret = lws_write(wsi, response, lws_ptr_diff_size_t(p, response),
@@ -3889,7 +3901,7 @@ lws_serve_http_file_composed(struct lws *wsi, const char *file, const char *cont
 	wsi->http.filepos = 0;
 	lws_wsi_event(wsi, LWS_WSIEV_FILE_BEGIN);
 
-	if (wsi->http.method_head) {
+	if (no_body) {
 		/* we do not emit the body */
 		lws_vfs_file_close(&wsi->http.fop_fd);
 
