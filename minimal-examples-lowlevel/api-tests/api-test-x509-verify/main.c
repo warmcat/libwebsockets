@@ -94,6 +94,13 @@ run_test_case(const struct test_case *tc, const char *cert_dir)
 }
 
 /*
+ * openHiTLS has no lws_x509_create_cert(), so the generated-chain cases are
+ * only built on the backends that implement it.
+ */
+
+#if !defined(LWS_WITH_OPENHITLS)
+
+/*
  * lws_x509_create_cert() produces DER, the parse and CA-signing apis take PEM
  */
 
@@ -222,6 +229,8 @@ bail:
 	return ret;
 }
 
+#endif /* !LWS_WITH_OPENHITLS */
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
@@ -344,12 +353,14 @@ int main(int argc, const char **argv)
 			passed++;
 		}
 	}
+#if !defined(LWS_WITH_OPENHITLS)
 	total++;
 	if (!test_generated_chain(context, "gen.example.com", 1))
 		passed++;
 	total++;
 	if (!test_generated_chain(context, "127.0.0.1", 0))
 		passed++;
+#endif
 	lwsl_user("\n---");
 	lwsl_user("Results: %d/%d tests passed", passed, total);
 	if (passed == total) {
