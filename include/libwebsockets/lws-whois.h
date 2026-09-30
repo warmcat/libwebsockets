@@ -43,8 +43,12 @@ struct lws_whois_results {
 	lws_usec_t		expiry_date;
 	lws_usec_t		updated_date;
 	char			nameservers[256];
+	/**< the nameservers, as "a, b, c" */
 	char			dnssec[64];
 	char			ds_data[512];
+	uint8_t			nameservers_dropped;
+	/**< nonzero if there were nameservers that did not fit in
+	 * nameservers[]: only whole names are listed there */
 };
 
 typedef void (*lws_whois_cb_t)(void *opaque, const struct lws_whois_results *res);
@@ -133,7 +137,9 @@ lws_whois_json_purify(char *out, size_t out_len, const char *in,
  * \param res: the results, as delivered to an lws_whois_cb_t
  * \param problems: if non-NULL, set nonzero if anything in \p res could
  *		    not be expressed and was left out, as
- *		    lws_whois_json_purify() would drop it
+ *		    lws_whois_json_purify() would drop it, or if \p res
+ *		    says the whois client already had to leave out some
+ *		    nameservers
  *
  * Produces the same canonical form as lws_whois_json_purify(), with the
  * same validation: members with zero or empty values are absent, and the

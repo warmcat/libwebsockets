@@ -46,10 +46,15 @@ struct wct_case {
 
 	/* ...and lws_whois_results_to_json() of that */
 	const char	*json;
+	char		ns_dropped;	/* nameservers[] couldn't hold them all */
 
 	uint32_t	timeout_ms;	/* 0 = the default deadline */
 	char		fails;		/* the query must fail */
 };
+
+/* 33 chars: seven of them, comma-separated, fit in nameservers[256] */
+#define WCT_LONG_NS(_n)		"ns" _n ".long-nameserver-name.example"
+
 
 static const struct wct_case cases[] = {
 	{
@@ -96,6 +101,8 @@ static const struct wct_case cases[] = {
 		"\"nameservers\":[\"ns1.example.com\",\"ns2.example.rs\"],"
 		"\"dnssec\":\"yes\"}",
 
+		0,
+
 		0, 0
 	},
 	{
@@ -125,6 +132,8 @@ static const struct wct_case cases[] = {
 		"\"dnssec\":\"signedDelegation\","
 		"\"ds_data\":\"370 13 2 BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A86764247C\"}",
 
+		0,
+
 		0, 0
 	},
 	{
@@ -147,6 +156,8 @@ static const struct wct_case cases[] = {
 		"{\"creation_date\":1582934400,\"expiry_date\":1930003200,"
 		"\"nameservers\":[\"ns1.example.de\",\"ns3.example.de\"]}",
 
+		0,
+
 		0, 0
 	},
 	{
@@ -158,9 +169,39 @@ static const struct wct_case cases[] = {
 
 		0, 0, 0, NULL, NULL, NULL,
 
-		NULL,
+		NULL, 0,
 
 		WCT_SHORT_DEADLINE_MS, 1
+	},
+	{
+		/*
+		 * More nameservers than fit in the results: only whole names
+		 * are listed, and the rest are reported as left out
+		 */
+		"manyns.example",
+		"Domain Name: manyns.example\r\n"
+		"Name Server: " WCT_LONG_NS("01") "\r\n"
+		"Name Server: " WCT_LONG_NS("02") "\r\n"
+		"Name Server: " WCT_LONG_NS("03") "\r\n"
+		"Name Server: " WCT_LONG_NS("04") "\r\n"
+		"Name Server: " WCT_LONG_NS("05") "\r\n"
+		"Name Server: " WCT_LONG_NS("06") "\r\n"
+		"Name Server: " WCT_LONG_NS("07") "\r\n"
+		"Name Server: " WCT_LONG_NS("08") "\r\n"
+		"Name Server: " WCT_LONG_NS("09") "\r\n",
+
+		0, 0, 0,
+		WCT_LONG_NS("01") ", " WCT_LONG_NS("02") ", "
+		WCT_LONG_NS("03") ", " WCT_LONG_NS("04") ", "
+		WCT_LONG_NS("05") ", " WCT_LONG_NS("06") ", "
+		WCT_LONG_NS("07"), "", "",
+
+		"{\"nameservers\":[\"" WCT_LONG_NS("01") "\",\""
+		WCT_LONG_NS("02") "\",\"" WCT_LONG_NS("03") "\",\""
+		WCT_LONG_NS("04") "\",\"" WCT_LONG_NS("05") "\",\""
+		WCT_LONG_NS("06") "\",\"" WCT_LONG_NS("07") "\"]}", 1,
+
+		0, 0
 	},
 };
 
@@ -343,9 +384,15 @@ wct_check(const struct lws_whois_results *res)
 	bad |= wct_check_str("nameservers", res->nameservers, c->nameservers);
 	bad |= wct_check_str("dnssec", res->dnssec, c->dnssec);
 	bad |= wct_check_str("ds_data", res->ds_data, c->ds_data);
+	if (!res->nameservers_dropped != !c->ns_dropped) {
+		lwsl_err("%s: %s: nameservers_dropped %d\n", __func__,
+			 c->domain, res->nameservers_dropped);
+		bad = 1;
+	}
 
+	/* ...leaving nameservers out is a problem for the JSON too */
 	n = lws_whois_results_to_json(json, sizeof(json), res, &problems);
-	if (n < 0 || problems) {
+	if (n < 0 || !problems != !c->ns_dropped) {
 		lwsl_err("%s: %s: results_to_json %d, problems %d\n", __func__,
 			 c->domain, n, problems);
 		return 1;

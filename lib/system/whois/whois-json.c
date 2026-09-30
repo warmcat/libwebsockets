@@ -483,6 +483,10 @@ lws_whois_results_to_json(char *out, size_t out_len,
 
 	/* the whois client collects the nameservers as "a, b, c" */
 
+	if (res->nameservers_dropped)
+		/* ...and could not fit them all */
+		c.problems = 1;
+
 	p = res->nameservers;
 	while (*p) {
 		while (*p == ',' || *p == ' ')

@@ -348,18 +348,23 @@ lws_whois_eval_line(struct lws_whois *w)
 		if (!w->vv_first_len)
 			break;
 
-		/* room for the ", " plus at least one nameserver character */
-		if (ol && room > 2) {
-			w->res.nameservers[ol++] = ',';
-			w->res.nameservers[ol++] = ' ';
-			room -= 2;
+		/*
+		 * Whole names only: a cut-off one, or one run into the
+		 * previous one, reads as a real, different nameserver.  One
+		 * that doesn't fit is left out, and that is flagged.
+		 */
+		if ((ol ? 2 : 0) + w->vv_first_len > room) {
+			w->res.nameservers_dropped = 1;
+			break;
 		}
 
-		if (w->vv_first_len < room)
-			room = w->vv_first_len;
+		if (ol) {
+			w->res.nameservers[ol++] = ',';
+			w->res.nameservers[ol++] = ' ';
+		}
 
-		memcpy(w->res.nameservers + ol, w->vv, room);
-		w->res.nameservers[ol + room] = '\0';
+		memcpy(w->res.nameservers + ol, w->vv, w->vv_first_len);
+		w->res.nameservers[ol + w->vv_first_len] = '\0';
 		break;
 	}
 	case WHS_M_DNSSEC:
