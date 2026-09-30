@@ -51,6 +51,13 @@
 #define LWS_QPACK_ENCODER_STREAM_ERROR	0x0201
 #define LWS_QPACK_DECODER_STREAM_ERROR	0x0202
 
+/*
+ * The most field lines one HEADERS frame's section may have: far above any
+ * real request or response, even one with each cookie crumb sent as its own
+ * field, but it stops a 64KiB section of one-byte field lines
+ */
+#define LWS_H3_MAX_FIELD_LINES		1024
+
 int
 lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len);
 
@@ -150,7 +157,12 @@ struct _lws_h3_related {
 		 * frame-body budget.
 		 */
 		uint16_t rx_setting_count;
-	
+	/*
+	 * field lines in this HEADERS frame's section: the frame is bounded,
+	 * but a field line can be a single byte
+	 */
+	uint16_t rx_field_count;
+
 	uint8_t rx_dec_instr_buf[16];
 	uint8_t rx_dec_instr_len;
 };

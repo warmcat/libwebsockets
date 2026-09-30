@@ -97,6 +97,7 @@ h3, lws client, with one field of its own added:
 |a `get ` field smuggling a path|connection closed|
 |CR LF in a field value|connection closed|
 |a NUL in a literal's name or value, not Huffman coded|connection closed|
+|1100 field lines of one byte each|connection closed|
 
 h1s, h1 over tls with a raw client: headers never finished, or trickled in a
 byte at a time, are dropped within the header timeout, as on h1.  The tls

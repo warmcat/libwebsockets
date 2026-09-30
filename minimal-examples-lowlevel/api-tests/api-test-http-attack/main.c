@@ -609,6 +609,11 @@ struct h3_attack {
 	 */
 	size_t		hdr_name_len;
 	size_t		hdr_value_len;
+	/*
+	 * nonzero: add this many field lines instead, each a one-byte
+	 * reference to static table row 29, an accept field
+	 */
+	unsigned int	static_fields;
 	uint8_t		v;
 };
 
@@ -618,13 +623,15 @@ struct h3_attack {
 static const struct h3_attack h3_attacks[] = {
 	/* a field named "get " once smuggled an unnormalized request path */
 	{ "\"get \" field smuggling a path", "/alive", "get ",
-	  "/f/../secret.txt", 0, 0, V_REFUSED },
+	  "/f/../secret.txt", 0, 0, 0, V_REFUSED },
 	{ "CR LF in a field value", "/alive",
-	  H3_LIT("user-agent", "a\r\nb"), V_REFUSED },
+	  H3_LIT("user-agent", "a\r\nb"), 0, V_REFUSED },
 	{ "NUL in a raw literal value", "/alive",
-	  H3_LIT("user-agent", "a\0b"), V_REFUSED },
+	  H3_LIT("user-agent", "a\0b"), 0, V_REFUSED },
 	{ "NUL in a raw literal name", "/alive",
-	  H3_LIT("user-agent\0x", "a"), V_REFUSED },
+	  H3_LIT("user-agent\0x", "a"), 0, V_REFUSED },
+	/* far more fields than any request has, for almost no bytes */
+	{ "1100 field lines", "/alive", NULL, NULL, 0, 0, 1100, V_REFUSED },
 };
 
 static struct lws_context *context;
@@ -2108,7 +2115,24 @@ callback_h3(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
 		unsigned char **p = (unsigned char **)in, *end = (*p) + len;
 
-		if (!tc.h3a || !tc.h3a->hdr_name)
+		if (!tc.h3a)
+			break;
+
+		if (tc.h3a->static_fields) {
+			unsigned int n;
+
+			if ((size_t)lws_ptr_diff(end, *p) <
+						tc.h3a->static_fields)
+				return -1;
+			for (n = 0; n < tc.h3a->static_fields; n++) {
+				if (lws_qpack_encode_static(*p, 1, 29) != 1)
+					return -1;
+				(*p)++;
+			}
+			break;
+		}
+
+		if (!tc.h3a->hdr_name)
 			break;
 
 		if (tc.h3a->hdr_value_len) {

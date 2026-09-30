@@ -879,6 +879,18 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 	int is_pseudo = 0;
 
+	/*
+	 * No real request or response has anywhere near this many fields,
+	 * and each one costs us more than the byte or two it can take on
+	 * the wire
+	 */
+	if (++wsi->h3.rx_field_count > LWS_H3_MAX_FIELD_LINES) {
+		lwsl_wsi_notice(wsi, "more than %d field lines",
+				LWS_H3_MAX_FIELD_LINES);
+		lws_quic_enter_closing_state(nwsi, LWS_H3_EXCESSIVE_LOAD, 0, 1);
+		return -1;
+	}
+
 	/* If we haven't attached an ah, do it now */
 	if (!wsi->stream.ah) {
 		lws_ah_attach_result_t ar = lws_header_table_attach(wsi, 0);
@@ -940,8 +952,14 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 		 * name of a dynamic entry inserted with a reference to it,
 		 * comes with that row's token.  Only a name the peer spelled
 		 * out, or one lws has no token for, needs matching.
+		 *
+		 * Once the block is known not to fit, a regular field is
+		 * only validated, not kept, so its name need not be matched
+		 * either.  A pseudo-header's still is, for the order and
+		 * repeat checks below.
 		 */
-		if (name_idx < 0 || name_idx >= WSI_TOKEN_COUNT) {
+		if ((name_idx < 0 || name_idx >= WSI_TOKEN_COUNT) &&
+		    (!wsi->h3.hdrs_oversized || (name_len && name[0] == ':'))) {
 			tok = lws_http_string_to_known_header(name, name_len);
 			/*
 			 * That lookup is a prefix match over the lextable
@@ -1651,6 +1669,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				wsi->h3.rx_frame_state = 2;
 				wsi->h3.rx_frame_payload_read = 0;
 				wsi->h3.rx_setting_count = 0; /* Q-2: per-frame */
+				wsi->h3.rx_field_count = 0;
 				lwsl_wsi_info(wsi, "H3 RX: Frame Type %llu, Len %llu on stream type %d (unidi=%d)", 
 					(unsigned long long)wsi->h3.rx_frame_type, (unsigned long long)wsi->h3.rx_frame_len,
 					wsi->h3.stream_type, wsi->quic.qs ? wsi->quic.qs->is_unidirectional : 0);
