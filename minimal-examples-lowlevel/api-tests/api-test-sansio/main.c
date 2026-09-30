@@ -28,7 +28,9 @@
  * with and without permessage-deflate, and one longer than lws takes; and
  * what the h1 server makes of a request line (dot segments, '+', token
  * limits, no version, no request line at all, versions it does and does
- * not speak).
+ * not speak), and what the h1 client makes of a response's body framing
+ * (a Content-Length that is not only digits, or given twice, and a
+ * Transfer-Encoding that is more than "chunked").
  *
  * Then state that belongs to one transaction and not to the connection it
  * came on: serving the vhost's 404 document is one request's business, the
@@ -327,7 +329,7 @@ struct transport {
 	int		closed;
 };
 
-static struct transport *transports[8];
+static struct transport *transports[16];
 static int ntransports;
 
 static int
@@ -1675,6 +1677,55 @@ client_refuses(struct lws_context *cx, struct lws_vhost *vh, int cn,
  * with no extension negotiated to give them a meaning, and a frame longer
  * than lws will sit in one frame for (256MiB), the same as a server does
  */
+/*
+ * 17: an h1 response whose body the client cannot frame is not read: a
+ * Content-Length that is not only digits, two of them, or a second
+ * Transfer-Encoding after "chunked", which makes it a list of codings.  The
+ * client fails the connection, the app told of it and given none of the
+ * body.
+ */
+static int
+client_refused_heads_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const struct {
+		const char	*name;
+		const char	*resp;
+	} c[] = {
+		{ "h1-client-cl-junk", "HTTP/1.1 200 OK\r\n"
+			"Content-Length: 10abc\r\n\r\nsansio ok\n" },
+		{ "h1-client-cl-twice", "HTTP/1.1 200 OK\r\n"
+			"Content-Length: 10\r\nContent-Length: 5\r\n\r\n"
+			"sansio ok\n" },
+		{ "h1-client-te-list", "HTTP/1.1 200 OK\r\n"
+			"Transfer-Encoding: chunked\r\n"
+			"Transfer-Encoding: gzip\r\n\r\n"
+			"a\r\nsansio ok\n\r\n0\r\n\r\n" },
+	};
+	static struct transport tp;
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(c); n++) {
+		tr_begin(c[n].name, "client", 0);
+		if (!client_connect(cx, vh, &tp, "/x", "GET", NULL)) {
+			lwsl_err("case 17: %s: connect failed\n", c[n].name);
+			return 1;
+		}
+		pump(cx, &tp);
+		feed(cx, &tp, c[n].resp, strlen(c[n].resp));
+		if (!cli.error || cli.completed || cli.rx_len || !tp.closed) {
+			lwsl_err("case 17: %s: err %d comp %d rx %d closed %d\n",
+				 c[n].name, cli.error, cli.completed,
+				 (int)cli.rx_len, tp.closed);
+			return 1;
+		}
+		if (tr_end())
+			return 1;
+	}
+	lwsl_user("case 17: h1 client refuses bad body framing: PASS\n");
+
+	return 0;
+}
+
 static int
 client_refused_frames_half(struct lws_context *cx, struct lws_vhost *vh)
 {
@@ -1990,6 +2041,12 @@ main(int argc, const char **argv)
 	}
 	at(cx, 3600);
 	if (h1_404_half(cx, vh_404))
+		goto bail;
+#endif
+
+#if defined(LWS_WITH_CLIENT)
+	at(cx, 3700);
+	if (client_refused_heads_half(cx, vh))
 		goto bail;
 #endif
 

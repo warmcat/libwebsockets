@@ -2091,6 +2091,74 @@ lws_h1_request_version(struct lws *wsi)
 	return HTTP_VERSION_1_0;
 }
 
+/*
+ * RFC 9110 8.6 defines Content-Length as 1*DIGIT.  strtoull() is no good for
+ * it: it skips leading whitespace, accepts a leading '+' or '-', and for '-'
+ * returns the negation modulo 2^64, so eg "-18446744073709551615" arrives as
+ * 1 and no "is it negative" test downstream can see it.  Parse it ourselves,
+ * rejecting anything that is not digits (trailing spaces are tolerated, as
+ * they always have been here) and refusing to wrap.
+ *
+ * Returns 0 and sets *result if the value is a valid Content-Length.
+ */
+
+int
+lws_http_parse_content_length(const char *in, uint64_t *result)
+{
+	uint64_t v = 0, lim = (uint64_t)-1;
+
+	if (*in < '0' || *in > '9')
+		return 1;
+
+	while (*in >= '0' && *in <= '9') {
+		if (v > (lim - (uint64_t)(*in - '0')) / 10)
+			return 1;
+
+		v = (v * 10) + (uint64_t)(*in++ - '0');
+	}
+
+	while (*in == ' ')
+		in++;
+
+	if (*in)
+		return 1;
+
+	*result = v;
+
+	return 0;
+}
+
+/*
+ * Is the message's Transfer-Encoding exactly one "chunked" coding?
+ *
+ * Only a single instance of the header whose value is "chunked" (case-
+ * insensitive, surrounding whitespace ignored) qualifies.  A list of codings
+ * would need each of them applied in turn, which we do not do, and a second
+ * instance of the header is a list however the sender split it.
+ */
+
+int
+lws_http_te_is_chunked(struct lws *wsi)
+{
+	char te[32], *p = te, *e;
+
+	if (lws_hdr_copy_fragment(wsi, te, sizeof(te) - 1,
+				  WSI_TOKEN_HTTP_TRANSFER_ENCODING, 1) != -1)
+		return 0;
+
+	if (lws_hdr_copy(wsi, te, sizeof(te) - 1,
+			 WSI_TOKEN_HTTP_TRANSFER_ENCODING) <= 0)
+		return 0;
+
+	while (*p == ' ' || *p == '\t')
+		p++;
+	e = p + strlen(p);
+	while (e > p && (e[-1] == ' ' || e[-1] == '\t'))
+		e--;
+
+	return e - p == 7 && !strncasecmp(p, "chunked", 7);
+}
+
 static const char * const cookie_prefixes[] = { "", "__Host-", "__Secure-" };
 
 /*

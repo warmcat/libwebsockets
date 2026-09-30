@@ -868,10 +868,23 @@ str_val:
 		 * Fall back to the close/reconnect path if any doubt exists.
 		 */
 		{
-			const char *cl401 = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH);
-			const char *te401 = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING);
 			const char *conn = lws_hdr_simple_ptr(wsi, WSI_TOKEN_CONNECTION);
-			int keep_alive = 1;
+			int keep_alive = 1, empty_body;
+			uint64_t cl401;
+			char cl[32];
+
+			/*
+			 * The body is known to be empty only with no
+			 * Transfer-Encoding, and one Content-Length of 0
+			 */
+			empty_body = !lws_hdr_total_length(wsi,
+					WSI_TOKEN_HTTP_TRANSFER_ENCODING) &&
+				lws_hdr_copy_fragment(wsi, cl, sizeof(cl) - 1,
+					WSI_TOKEN_HTTP_CONTENT_LENGTH, 1) == -1 &&
+				lws_hdr_copy(wsi, cl, sizeof(cl) - 1,
+					WSI_TOKEN_HTTP_CONTENT_LENGTH) > 0 &&
+				!lws_http_parse_content_length(cl, &cl401) &&
+				!cl401;
 
 			if (conn) {
 				struct lws_tokenize ts;
@@ -896,9 +909,7 @@ str_val:
 			 */
 			if (!wsi->client_mux_substream &&
 			    wsi->http.conn_type == HTTP_CONNECTION_KEEP_ALIVE &&
-			    keep_alive &&
-			    (!te401 || strncasecmp(te401, "chunked", 7)) &&
-			    cl401 && atoi(cl401) == 0) {
+			    keep_alive && empty_body) {
 				/*
 				 * Bounded as the reconnecting retry below is
 				 * by lws_client_reset(): a server answering
@@ -1525,18 +1536,17 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	wsi->http.chunk_remaining = 0; /* ie, next thing is chunk size */
 	wsi->http.chunk_skip = 0;
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
-		simp = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING);
-
-		/* cannot be NULL, since it has nonzero length... coverity */
-		if (!simp)
-			goto bail2;
-		if (!strcasecmp(simp, "chunked")) {
-			wsi->http.rx_chunked = 1;
-		} else {
-			lwsl_err("%s: unsupported TE %s\n", __func__, simp);
+		/*
+		 * All of it, not just its first header: "chunked" followed by
+		 * a second Transfer-Encoding header is a list of codings, and
+		 * we do not know where a body framed by it ends
+		 */
+		if (!lws_http_te_is_chunked(wsi)) {
+			lwsl_wsi_err(wsi, "unsupported TE");
 			cce = "HS: unsupported TE";
 			goto bail2;
 		}
+		wsi->http.rx_chunked = 1;
 		/* first thing is hex, after payload there is crlf */
 		wsi->http.chunk_parser = ELCP_HEX;
 	}
@@ -1556,18 +1566,24 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		wsi->http.rx_content_length = 0;
 		wsi->http.rx_content_remain = 0;
 	} else if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
-		simp = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH);
+		char cl[32];
+		uint64_t cl_val;
 
-		/* cannot be NULL, since it has nonzero length... coverity */
-		if (!simp)
+		/*
+		 * As a server takes a request's: one Content-Length, that is
+		 * only digits.  atoll() took "12abc" as 12, a second header
+		 * went unseen, and past LLONG_MAX it gave whatever it gave
+		 */
+		if (lws_hdr_copy_fragment(wsi, cl, sizeof(cl) - 1,
+					  WSI_TOKEN_HTTP_CONTENT_LENGTH, 1) != -1 ||
+		    lws_hdr_copy(wsi, cl, sizeof(cl) - 1,
+				 WSI_TOKEN_HTTP_CONTENT_LENGTH) <= 0 ||
+		    lws_http_parse_content_length(cl, &cl_val)) {
+			lwsl_wsi_err(wsi, "bad Content-Length");
+			cce = "HS: bad Content-Length";
 			goto bail2;
-
-		{
-			long long cl_val = atoll(simp);
-			if (cl_val < 0)
-				goto bail2;
-			wsi->http.rx_content_length = (lws_filepos_t)cl_val;
 		}
+		wsi->http.rx_content_length = (lws_filepos_t)cl_val;
 		lwsl_info("%s: incoming content length %llu\n",
 			    __func__, (unsigned long long)
 				    wsi->http.rx_content_length);

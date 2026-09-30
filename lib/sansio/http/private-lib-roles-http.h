@@ -629,6 +629,17 @@ enum http_version
 lws_h1_request_version(struct lws *wsi);
 
 /*
+ * A Content-Length value, strictly 1*DIGIT (RFC 9110 8.6) and not wrapping:
+ * returns 0 and sets *result if it is one
+ */
+int
+lws_http_parse_content_length(const char *in, uint64_t *result);
+
+/* nonzero if the one Transfer-Encoding header is exactly "chunked" */
+int
+lws_http_te_is_chunked(struct lws *wsi);
+
+/*
  * Returns nonzero if the header token can carry peer credentials
  * (Authorization, Cookie, Set-Cookie, x-auth-token, Proxy-Authorization
  * where the build has it).  Debug header dumps use this to log presence
