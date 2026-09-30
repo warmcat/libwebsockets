@@ -807,7 +807,7 @@ lws_unauthorised_basic_auth_composed(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	unsigned char *start = pt->compose_buf + LWS_PRE, *p = start,
-		      *end = pt->serv_buf + wsi->a.context->pt_serv_buf_size;
+		      *end = start + wsi->a.context->pt_serv_buf_size - LWS_PRE;
 	char buf[64];
 	int n;
 
