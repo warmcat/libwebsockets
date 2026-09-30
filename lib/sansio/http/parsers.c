@@ -1294,6 +1294,50 @@ static const unsigned char methods[] = {
 };
 
 /*
+ * The ':' ending the name of an h1 header lws doesn't know
+ */
+
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+static void
+lws_h1_unknown_name_ended(struct lws *wsi)
+{
+	struct allocated_headers *ah = wsi->stream.ah;
+#if defined(_DEBUG)
+	char dotstar[64];
+	int uhlen;
+#endif
+
+	/* register us in the unknown hdr ll */
+
+	if (!ah->unk_ll_head)
+		ah->unk_ll_head = ah->unk_pos;
+
+	if (ah->unk_ll_tail)
+		lws_ser_wu32be((uint8_t *)&ah->data[ah->unk_ll_tail + UHO_LL],
+			       ah->unk_pos);
+
+	ah->unk_ll_tail = ah->unk_pos;
+
+#if defined(_DEBUG)
+	uhlen = (int)(ah->pos - (ah->unk_pos + UHO_NAME));
+	lws_strnncpy(dotstar, &ah->data[ah->unk_pos + UHO_NAME], uhlen,
+		     sizeof(dotstar));
+	lwsl_debug("%s: unk header %d '%s'\n", __func__, uhlen, dotstar);
+#endif
+
+	/* set the unknown header name part length */
+
+	lws_ser_wu16be((uint8_t *)&ah->data[ah->unk_pos],
+		       (uint16_t)((ah->pos - ah->unk_pos) - UHO_NAME));
+
+	ah->unk_value_pos = ah->pos;
+
+	/* collect whatever's coming for its value until the next CRLF */
+	ah->parser_state = WSI_TOKEN_UNKNOWN_VALUE_PART;
+}
+#endif
+
+/*
  * possible returns:, -1 fail, 0 ok or 2, transition to raw
  */
 
@@ -1537,51 +1581,13 @@ swallow:
 			pos = ah->lextable_pos;
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
-			if (!wsi->mux_substream && pos < 0 && c == ':') {
-#if defined(_DEBUG)
-				char dotstar[64];
-				int uhlen;
-#endif
-
-				/*
-				 * process unknown headers
-				 *
-				 * register us in the unknown hdr ll
-				 */
-
-				if (!ah->unk_ll_head)
-					ah->unk_ll_head = ah->unk_pos;
-
-				if (ah->unk_ll_tail)
-					lws_ser_wu32be(
-				(uint8_t *)&ah->data[ah->unk_ll_tail + UHO_LL],
-						       ah->unk_pos);
-
-				ah->unk_ll_tail = ah->unk_pos;
-
-#if defined(_DEBUG)
-				uhlen = (int)(ah->pos - (ah->unk_pos + UHO_NAME));
-				lws_strnncpy(dotstar,
-					&ah->data[ah->unk_pos + UHO_NAME],
-					uhlen, sizeof(dotstar));
-				lwsl_debug("%s: unk header %d '%s'\n",
-					    __func__,
-					    (int)(ah->pos - (ah->unk_pos + UHO_NAME)),
-					    dotstar);
-#endif
-
-				/* set the unknown header name part length */
-
-				lws_ser_wu16be((uint8_t *)&ah->data[ah->unk_pos],
-					       (uint16_t)((ah->pos - ah->unk_pos) - UHO_NAME));
-
-				ah->unk_value_pos = ah->pos;
-
-				/*
-				 * collect whatever's coming for the unknown header
-				 * argument until the next CRLF
-				 */
-				ah->parser_state = WSI_TOKEN_UNKNOWN_VALUE_PART;
+			/*
+			 * The rest of the name of a header we don't know: it
+			 * ends at its ':'
+			 */
+			if (pos < 0 && !wsi->mux_substream) {
+				if (c == ':')
+					lws_h1_unknown_name_ended(wsi);
 				break;
 			}
 #endif
@@ -1665,15 +1671,16 @@ nope:
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 					/*
 					 * We have the method, this is just an
-					 * unknown header then
+					 * unknown header then.  c is where its
+					 * name stopped matching any we know:
+					 * if that's the ':' of a name that is
+					 * the start of one we know, like
+					 * "accept-lang:", the name ends here
 					 */
-					if (!wsi->mux_substream)
-						goto unknown_hdr;
-					else
-						break;
-#else
-					break;
+					if (!wsi->mux_substream && c == ':')
+						lws_h1_unknown_name_ended(wsi);
 #endif
+					break;
 				}
 				/*
 				 * ...it's an unknown http method from a client
@@ -1698,8 +1705,12 @@ nope:
 				 * It's not a header that lws knows about...
 				 */
 #if defined(LWS_WITH_CUSTOM_HEADERS)
-				if (!wsi->mux_substream)
-					goto unknown_hdr;
+				if (!wsi->mux_substream) {
+					/* ...collect its name, to its ':' */
+					if (c == ':')
+						lws_h1_unknown_name_ended(wsi);
+					break;
+				}
 #endif
 				/*
 				 * ...otherwise for a client, let him ignore
@@ -1760,14 +1771,6 @@ nope:
 				goto start_fragment;
 			}
 			break;
-
-#if defined(LWS_WITH_CUSTOM_HEADERS)
-unknown_hdr:
-			//ah->parser_state = WSI_TOKEN_SKIPPING;
-			//break;
-			if (!wsi->mux_substream)
-				break;
-#endif
 
 start_fragment:
 			/*
