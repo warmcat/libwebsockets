@@ -1298,9 +1298,6 @@ discard_and_close:
 static int
 rops_perform_user_POLLOUT_h2(struct lws *wsi)
 {
-#if defined(LWS_ROLE_WS)
-	int write_type = LWS_WRITE_PONG;
-#endif
 	int n;
 
 	wsi = lws_get_network_wsi(wsi);
@@ -1700,42 +1697,43 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			continue;
 		}
 
-		if ((lwsi_role_ws(w) && w->ws->pong_pending_flag) ||
-		    (lwsi_close(w) == LCS_RETURNED_CLOSE &&
-		     w->ws->payload_is_close)) {
-
-			/*
-			 * per child: the close-responder's write type must
-			 * not leak into the next child's PONG on this pass
-			 */
-			write_type = LWS_WRITE_PONG;
-			if (w->ws->payload_is_close)
-				write_type = LWS_WRITE_CLOSE |
-					     LWS_WRITE_H2_STREAM_END;
-
-			n = lws_write(w, &w->ws->pong_payload_buf[LWS_PRE],
-				      w->ws->pong_payload_len, (enum lws_write_protocol)write_type);
-			if (n < 0)
-				return -1;
-
-			/* well he is sent, mark him done */
+		/*
+		 * A pong owed for a ping that came before any close of the
+		 * peer's goes first, then our answer to that close, as on h1
+		 */
+		if (lwsi_role_ws(w) && w->ws->pong_pending_flag) {
 			w->ws->pong_pending_flag = 0;
-			if (w->ws->payload_is_close) {
-				/*
-				 * our answer to his CLOSE went (we have been in
-				 * RETURNED_CLOSE since it was parsed): done
-				 */
-				lwsl_debug("Ack'd peer's close packet\n");
-				w->ws->payload_is_close = 0;
-				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
-						   "returned close packet");
-				continue;
+			if (!lwsi_close_started(w) ||
+			    lwsi_close(w) == LCS_RETURNED_CLOSE) {
+				n = lws_write(w, &w->ws->pong_payload_buf[LWS_PRE],
+					      w->ws->pong_payload_len,
+					      LWS_WRITE_PONG);
+				if (n < 0)
+					return -1;
 			}
 
 			lws_callback_on_writable(w);
 			(w)->mux.requested_POLLOUT = 1;
 
 			/* otherwise for PING, leave POLLOUT active both ways */
+			continue;
+		}
+
+		if (lwsi_role_ws(w) && lwsi_close(w) == LCS_RETURNED_CLOSE) {
+			/*
+			 * our answer to his CLOSE, his own payload, which
+			 * lws_ws_answer_peer_close() kept where our own close
+			 * would be: after it, we are done
+			 */
+			n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
+				      w->ws->close_in_ping_buffer_len,
+				      LWS_WRITE_CLOSE | LWS_WRITE_H2_STREAM_END);
+			if (n < 0)
+				return -1;
+
+			lwsl_debug("Ack'd peer's close packet\n");
+			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
+					   "returned close packet");
 			continue;
 		}
 #endif

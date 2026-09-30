@@ -129,7 +129,6 @@ struct _lws_websocket_related {
 	unsigned int this_frame_masked:1;
 	unsigned int inside_frame:1; /* next write will be more of frame */
 	unsigned int clean_buffer:1; /* buffer not rewritten by extension */
-	unsigned int payload_is_close:1; /* process as PONG, but it is close */
 	unsigned int pong_pending_flag:1;
 	unsigned int continuation_possible:1;
 	unsigned int owed_a_fin:1;
@@ -138,7 +137,6 @@ struct _lws_websocket_related {
 	unsigned int stashed_write_pending:1;
 	unsigned int send_check_ping:1;
 	unsigned int first_fragment:1;
-	unsigned int peer_has_sent_close:1;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	unsigned int extension_data_pending:1;
 	unsigned int rx_draining_ext:1;
@@ -161,7 +159,10 @@ struct _lws_websocket_related {
 	uint8_t opcode;
 	uint8_t rsv;
 	uint8_t rsv_first_msg;
-	/* zero if no info, or length including 2-byte close code */
+	/*
+	 * zero if no info, or length including 2-byte close code: the close we
+	 * send, whether we start the close or answer the peer's
+	 */
 	uint8_t close_in_ping_buffer_len;
 	uint8_t utf8;
 	uint8_t stashed_write_type;
@@ -215,6 +216,9 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget);
 
 int
 lws_ws_rsv_valid(struct lws *wsi);
+
+int
+lws_ws_answer_peer_close(struct lws *wsi, const uint8_t *pp, size_t len);
 
 int
 handshake_0405(struct lws_context *context, struct lws *wsi);

@@ -32,6 +32,11 @@
  * (a Content-Length that is not only digits, or given twice, and a
  * Transfer-Encoding that is more than "chunked").
  *
+ * Then a ws close the peer starts, in either role: a pong it is owed for a
+ * ping sent before its close still goes, ahead of the answer to the close,
+ * and a close that comes while a frame of ours is still partly unsent is
+ * answered once the frame has gone.
+ *
  * Then state that belongs to one transaction and not to the connection it
  * came on: serving the vhost's 404 document is one request's business, the
  * next request on the kept-alive connection gets its own 404 redirect.
@@ -322,6 +327,7 @@ struct transport {
 	size_t		rx_len, rx_pos;
 	uint8_t		tx[65536];
 	size_t		tx_len;
+	size_t		tx_limit;	/* the most one write takes, 0: all */
 	int		fd;
 	int		want_read;
 	int		want_write;
@@ -353,6 +359,9 @@ tp_write(struct lws *wsi, void *opaque, const uint8_t *buf, size_t len)
 {
 	struct transport *t = (struct transport *)opaque;
 
+	/* a transport that takes only some of it: lws keeps the rest */
+	if (t->tx_limit && len > t->tx_limit)
+		len = t->tx_limit;
 	if (t->tx_len + len > sizeof(t->tx))
 		return LWS_SSL_CAPABLE_ERROR;
 	memcpy(t->tx + t->tx_len, buf, len);
@@ -1042,6 +1051,110 @@ uri_half(struct lws_context *cx, struct lws_vhost *vh)
 	return 0;
 }
 
+/*
+ * Is there a ws frame at *pos in tx, FIN and opcode op with payload pl, and
+ * masked or not?  If so, moves *pos past it.
+ */
+static int
+ws_frame_at(const struct transport *tp, size_t *pos, uint8_t op, int masked,
+	    const char *pl, size_t plen)
+{
+	const uint8_t *f = tp->tx + *pos, *m = f + 2;
+	size_t n, hl = 2 + (masked ? 4u : 0u);
+
+	if (*pos + hl + plen > tp->tx_len || f[0] != (0x80 | op) ||
+	    f[1] != ((masked ? 0x80 : 0) | plen))
+		return 0;
+	for (n = 0; n < plen; n++)
+		if ((f[hl + n] ^ (masked ? m[n & 3] : 0)) != (uint8_t)pl[n])
+			return 0;
+	*pos += hl + plen;
+
+	return 1;
+}
+
+/*
+ * 18: the ws peer starts the close.  A ping it sent first still gets its
+ * pong, ahead of the answer to the close, which carries its own status
+ * back; and a close that comes while the echo of a frame just before it
+ * is only partly written is answered once the echo has all gone, rather
+ * than the connection dropped.  Then the connection is shut down, or
+ * released.
+ */
+static int
+ws_server_peer_close_half(struct lws_context *cx)
+{
+	static const char req_ws[] =
+		"GET /echo HTTP/1.1\r\nHost: sansio\r\nUpgrade: websocket\r\n"
+		"Connection: Upgrade\r\nSec-WebSocket-Version: 13\r\n"
+		"Sec-WebSocket-Protocol: echo\r\n"
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+	/* masked, zero key: PING "p", then CLOSE 1000 */
+	static const char ping_close[] = "\x89\x81\x00\x00\x00\x00p"
+					 "\x88\x82\x00\x00\x00\x00\x03\xe8";
+	/* masked, zero key: TEXT "Hello", then CLOSE 1000 */
+	static const char text_close[] = "\x81\x85\x00\x00\x00\x00Hello"
+					 "\x88\x82\x00\x00\x00\x00\x03\xe8";
+	static const struct {
+		const char	*name;
+		const char	*frames;
+		size_t		len;
+		size_t		tx_limit;
+		uint8_t		op;	/* what goes before the close */
+		const char	*pl;
+	} c[] = {
+		{ "ws-server-ping-close", ping_close, sizeof(ping_close) - 1,
+		  0, 0xa, "p" },
+		{ "ws-server-close-partial", text_close, sizeof(text_close) - 1,
+		  4, 0x1, "Hello" },
+	};
+	static struct transport tp;
+	struct lws *wsi;
+	size_t n, pos;
+	int sv[2];
+
+	for (n = 0; n < LWS_ARRAY_SIZE(c); n++) {
+		if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+			lwsl_err("socketpair failed\n");
+			return 1;
+		}
+		close(sv[1]);
+		if (tp_register(&tp, sv[0]))
+			return 1;
+		wsi = lws_adopt_socket(cx, sv[0]);
+		if (!wsi) {
+			lwsl_err("adopt failed\n");
+			return 1;
+		}
+		lws_set_transport(wsi, &tops, &tp);
+		tr_begin(c[n].name, "server", 0);
+
+		if (feed(cx, &tp, req_ws, sizeof(req_ws) - 1) ||
+		    tp.tx_len < 13 || memcmp(tp.tx, "HTTP/1.1 101 ", 13)) {
+			lwsl_err("case 18: %s: no upgrade\n", c[n].name);
+			return 1;
+		}
+
+		tp.tx_limit = c[n].tx_limit;
+		feed(cx, &tp, c[n].frames, c[n].len);
+		pos = 0;
+		if (!ws_frame_at(&tp, &pos, c[n].op, 0, c[n].pl,
+				 strlen(c[n].pl)) ||
+		    !ws_frame_at(&tp, &pos, 0x8, 0, "\x03\xe8", 2) ||
+		    pos != tp.tx_len || (!tp.closed && !tp.shutdown)) {
+			lwsl_err("case 18: %s: closed %d\n", c[n].name,
+				 tp.closed);
+			lwsl_hexdump_err(tp.tx, tp.tx_len);
+			return 1;
+		}
+		if (tr_end())
+			return 1;
+	}
+	lwsl_user("case 18: ws server answers the peer's close: PASS\n");
+
+	return 0;
+}
+
 #if defined(LWS_WITH_FILE_OPS)
 /*
  * An h1 server connection as a series of requests, each answered with the
@@ -1726,6 +1839,35 @@ client_refused_heads_half(struct lws_context *cx, struct lws_vhost *vh)
 	return 0;
 }
 
+/*
+ * 19: as 18, the ws client: the server's ping, then its close, in one read,
+ * get the masked pong and then the masked answer to the close
+ */
+static int
+ws_client_peer_close_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char ping_close[] = "\x89\x01p\x88\x02\x03\xe8";
+	static struct transport tp;
+	size_t pos = 0;
+
+	tr_begin("ws-client-ping-close", "client", 1);
+	if (ws_client_up(cx, vh, &tp, "", 1)) {
+		lwsl_err("case 19: failed\n");
+		return 1;
+	}
+	feed(cx, &tp, ping_close, sizeof(ping_close) - 1);
+	if (!ws_frame_at(&tp, &pos, 0xa, 1, "p", 1) ||
+	    !ws_frame_at(&tp, &pos, 0x8, 1, "\x03\xe8", 2) ||
+	    pos != tp.tx_len || (!tp.closed && !tp.shutdown)) {
+		lwsl_err("case 19: closed %d\n", tp.closed);
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	lwsl_user("case 19: ws client answers the peer's close: PASS\n");
+
+	return tr_end();
+}
+
 static int
 client_refused_frames_half(struct lws_context *cx, struct lws_vhost *vh)
 {
@@ -2047,6 +2189,15 @@ main(int argc, const char **argv)
 #if defined(LWS_WITH_CLIENT)
 	at(cx, 3700);
 	if (client_refused_heads_half(cx, vh))
+		goto bail;
+#endif
+
+	at(cx, 3800);
+	if (ws_server_peer_close_half(cx))
+		goto bail;
+#if defined(LWS_WITH_CLIENT)
+	at(cx, 3900);
+	if (ws_client_peer_close_half(cx, vh))
 		goto bail;
 #endif
 

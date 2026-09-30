@@ -58,6 +58,34 @@ lws_ws_proxy_est_cb(lws_sorted_usec_list_t *sul)
  * allow_reserved_bits.
  */
 
+/*
+ * The peer sent a CLOSE that we answer, with its own payload (RFC 6455
+ * 5.5.1), either role.  The answer is kept where a close we start keeps
+ * its payload, not with a pong the peer may still be owed.  Nothing the
+ * peer sends after its CLOSE means anything, so we stop reading, and give
+ * the answer as long to go out as a close we start gets.
+ *
+ * Returns nonzero if the connection should just be closed.
+ */
+
+int
+lws_ws_answer_peer_close(struct lws *wsi, const uint8_t *pp, size_t len)
+{
+	/* the parsers only take a control frame up to 125 bytes */
+	if (len > sizeof(wsi->ws->ping_payload_buf) - LWS_PRE)
+		return 1;
+
+	memcpy(&wsi->ws->ping_payload_buf[LWS_PRE], pp, len);
+	wsi->ws->close_in_ping_buffer_len = (uint8_t)len;
+
+	__lws_io_want_read(wsi, 0);
+	lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 5);
+	lws_wsi_event(wsi, LWS_WSIEV_WS_PEER_CLOSE);
+	lws_callback_on_writable(wsi);
+
+	return 0;
+}
+
 int
 lws_ws_rsv_valid(struct lws *wsi)
 {
@@ -526,7 +554,8 @@ spill:
 		switch (wsi->ws->opcode) {
 		case LWSWSOPC_CLOSE:
 
-			if (wsi->ws->peer_has_sent_close)
+			/* a second CLOSE from him changes nothing */
+			if (lwsi_close(wsi) == LCS_RETURNED_CLOSE)
 				break;
 
 			/*
@@ -539,8 +568,6 @@ spill:
 			if (lwsi_skt_unusable(wsi) ||
 			    lwsi_close(wsi) >= LCS_FLUSHING_BEFORE_CLOSE)
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
-
-			wsi->ws->peer_has_sent_close = 1;
 
 			pp = &wsi->ws->rx_ubuf[LWS_PRE];
 			if (lws_check_opt(wsi->a.context->options,
@@ -561,22 +588,6 @@ spill:
 				lwsl_parser("seen client close ack\n");
 				goto ret_asking_close;
 			}
-			if (lwsi_close(wsi) == LCS_RETURNED_CLOSE)
-				/* if he sends us 2 CLOSE, kill him */
-				goto ret_asking_close;
-
-			if (lws_partial_buffered(wsi)) {
-				/*
-				 * if we're in the middle of something,
-				 * we can't do a normal close response and
-				 * have to just close our end.
-				 */
-				lwsi_set_skt_unusable(wsi, 1);
-				lwsl_parser("Closing on peer close "
-					    "due to pending tx\n");
-				goto ret_asking_close;
-			}
-
 			if (wsi->ws->rx_ubuf_head >= 2) {
 				close_code = (unsigned short)((pp[0] << 8) | pp[1]);
 				if (close_code < 1000 ||
@@ -603,10 +614,12 @@ spill:
 				goto ret_asking_close;
 
 			lwsl_parser("server sees client close packet\n");
-			lws_wsi_event(wsi, LWS_WSIEV_WS_PEER_CLOSE);
-			/* deal with the close packet contents as a PONG */
-			wsi->ws->payload_is_close = 1;
-			goto process_as_ping;
+			if (lws_ws_answer_peer_close(wsi, pp,
+						     wsi->ws->rx_ubuf_head))
+				goto ret_asking_close;
+			wsi->ws->rx_ubuf_head = 0;
+
+			return LWS_HPI_RET_HANDLED;
 
 		case LWSWSOPC_PING:
 			lwsl_info("received %d byte ping, sending pong\n",
@@ -620,7 +633,6 @@ spill:
 				lwsl_parser("DROP PING since one pending\n");
 				goto ping_drop;
 			}
-process_as_ping:
 			/* control packets can only be < 128 bytes long */
 			if (wsi->ws->rx_ubuf_head > 128 - 3) {
 				lwsl_parser("DROP PING payload too large\n");
@@ -1168,8 +1180,19 @@ rops_rx_policy_ws(struct lws *wsi, int *flags, size_t *max)
 		return LWS_RXPOL_CLOSE;
 	}
 
-	if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
-	    lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE) {
+	/*
+	 * After the peer's CLOSE, nothing it sends means anything, whichever
+	 * role we are: only our answer to it is left to do, from the
+	 * writeable
+	 */
+	if (lwsi_close(wsi) == LCS_RETURNED_CLOSE) {
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+		wsi->ws->tx_draining_ext = 0;
+#endif
+		return LWS_RXPOL_HOLD;
+	}
+
+	if (lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE) {
 		/*
 		 * we stopped caring about anything except control packets.
 		 * Force flow control off, defeat tx draining.
@@ -1264,7 +1287,6 @@ rops_rx_policy_ws(struct lws *wsi, int *flags, size_t *max)
 lws_handling_result_t
 rops_handle_POLLOUT_ws(struct lws *wsi)
 {
-	int write_type = LWS_WRITE_PONG;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_ext_pm_deflate_rx_ebufs pmdrx;
 	int ret, m;
@@ -1300,39 +1322,45 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 		return LWS_HP_RET_BAIL_DIE;
 	}
 
-	/* else, the send failed and we should just hang up */
+	/*
+	 * 3b: a pong owed for a ping the peer sent.  It goes even when the
+	 * peer has closed since, as long as the ping came first (RFC 6455
+	 * 5.5.2), ahead of our answer to the close; if we started the close,
+	 * it is forgotten
+	 */
 
-	if ((lwsi_role_ws(wsi) && wsi->ws->pong_pending_flag) ||
-	    (lwsi_close(wsi) == LCS_RETURNED_CLOSE &&
-	     wsi->ws->payload_is_close)) {
+	if (lwsi_role_ws(wsi) && wsi->ws->pong_pending_flag) {
+		wsi->ws->pong_pending_flag = 0;
+		if (lwsi_close_started(wsi) &&
+		    lwsi_close(wsi) != LCS_RETURNED_CLOSE)
+			return LWS_HP_RET_BAIL_OK;
 
-		if (wsi->ws->payload_is_close)
-			write_type = LWS_WRITE_CLOSE;
-		else {
-			if (lwsi_close_started(wsi)) {
-				/* we started close flow, forget pong */
-				wsi->ws->pong_pending_flag = 0;
-				return LWS_HP_RET_BAIL_OK;
-			}
-			lwsl_info("issuing pong %d on %s\n",
-				  wsi->ws->pong_payload_len, lws_wsi_tag(wsi));
-		}
-
+		lwsl_info("issuing pong %d on %s\n",
+			  wsi->ws->pong_payload_len, lws_wsi_tag(wsi));
 		n = lws_write(wsi, &wsi->ws->pong_payload_buf[LWS_PRE],
-			      wsi->ws->pong_payload_len, (enum lws_write_protocol)write_type);
+			      wsi->ws->pong_payload_len, LWS_WRITE_PONG);
 		if (n < 0)
 			return LWS_HP_RET_BAIL_DIE;
 
-		/* well he is sent, mark him done */
-		wsi->ws->pong_pending_flag = 0;
-		if (wsi->ws->payload_is_close) {
-			// assert(0);
-			/* oh... a close frame was it... then we are done */
-			return LWS_HP_RET_BAIL_DIE;
-		}
+		/* the close answer, if any, on the next writeable */
+		if (lwsi_close(wsi) == LCS_RETURNED_CLOSE)
+			lws_callback_on_writable(wsi);
 
 		/* otherwise for PING, leave POLLOUT active either way */
 		return LWS_HP_RET_BAIL_OK;
+	}
+
+	/*
+	 * 3c: our answer to the peer's close, with its own payload, which
+	 * lws_ws_answer_peer_close() put where our own close would be.  After
+	 * it, we are done.
+	 */
+
+	if (lwsi_close(wsi) == LCS_RETURNED_CLOSE) {
+		lws_write(wsi, &wsi->ws->ping_payload_buf[LWS_PRE],
+			  wsi->ws->close_in_ping_buffer_len, LWS_WRITE_CLOSE);
+
+		return LWS_HP_RET_BAIL_DIE;
 	}
 
 	if (!lwsi_skt_unusable(wsi) &&
