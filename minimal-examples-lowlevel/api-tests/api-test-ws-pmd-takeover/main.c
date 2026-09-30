@@ -27,6 +27,10 @@
  * same way, if the peer relies on it.  lws does rely on it: it drops its
  * inflate context whenever the peer agreed not to take it over.
  *
+ * Each connection ends with an empty message each way.  Straight after a
+ * whole message, zlib refuses to sync flush again with nothing new, and the
+ * sender must still produce a valid empty compressed message.
+ *
  * The test fails if
  *  - the offer does not reach the server as sent,
  *  - any message in either direction was not compressed (RSV1),
@@ -40,6 +44,8 @@
 
 #define MSG_LEN		2048
 #define MSG_COUNT	4
+/* ...and then one empty message */
+#define MSG_TOTAL	(MSG_COUNT + 1)
 
 /* what the client offers on each connection, in turn */
 static const char * const offers[] = {
@@ -183,13 +189,15 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_WRITEABLE: {
 		uint8_t buf[LWS_PRE + MSG_LEN];
 
+		size_t n = pcs->sent < MSG_COUNT ? MSG_LEN : 0;
+
 		/* one message at a time: the next once the last is echoed */
-		if (pcs->sent != pcs->echoed || pcs->sent == MSG_COUNT)
+		if (pcs->sent != pcs->echoed || pcs->sent == MSG_TOTAL)
 			break;
 
-		memcpy(buf + LWS_PRE, msg, MSG_LEN);
-		if (lws_write(wsi, buf + LWS_PRE, MSG_LEN,
-			      LWS_WRITE_BINARY) < MSG_LEN) {
+		memcpy(buf + LWS_PRE, msg, n);
+		if (lws_write(wsi, buf + LWS_PRE, n,
+			      LWS_WRITE_BINARY) < (int)n) {
 			fail("client write failed");
 			return -1;
 		}
@@ -217,17 +225,18 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 
-		if (pcs->rx_len != MSG_LEN || memcmp(pcs->rx, msg, MSG_LEN)) {
+		if (pcs->rx_len != (pcs->echoed < MSG_COUNT ? MSG_LEN : 0) ||
+		    memcmp(pcs->rx, msg, pcs->rx_len)) {
 			fail("echo differs");
 			return -1;
 		}
-		if (++pcs->echoed < MSG_COUNT) {
+		if (++pcs->echoed < MSG_TOTAL) {
 			lws_callback_on_writable(wsi);
 			break;
 		}
 
-		lwsl_user("offer %d: %d messages each way intact\n",
-			  (int)scenario, MSG_COUNT);
+		lwsl_user("offer %d: %d messages and an empty one each way "
+			  "intact\n", (int)scenario, MSG_COUNT);
 		if (++scenario == LWS_ARRAY_SIZE(offers)) {
 			lwsl_user("--- all offers passed ---\n");
 			result = 0;
@@ -244,7 +253,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		/* we close it ourselves once it's done; any other close fails */
-		if (!pcs || pcs->echoed != MSG_COUNT)
+		if (!pcs || pcs->echoed != MSG_TOTAL)
 			fail("connection closed early");
 		break;
 

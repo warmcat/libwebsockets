@@ -768,26 +768,41 @@ rx_out:
 		pmdrx->eb_out.len = lws_ptr_diff(priv->tx.next_out,
 						 pmdrx->eb_out.token);
 
-		if (m == Z_SYNC_FLUSH && !(len & LWS_WRITE_NO_FIN) && !pen &&
-		    pmdrx->eb_out.len < 4) {
-			lwsl_wsi_err(wsi, "FAIL want to trim out length %d",
-					(int)pmdrx->eb_out.len);
-			assert(0);
-		}
-
-		if (!(len & LWS_WRITE_NO_FIN) &&
-		    m == Z_SYNC_FLUSH &&
-		    !pen &&
-		    pmdrx->eb_out.len >= 4) {
-			// lwsl_wsi_err(wsi, "Trimming 4 from end of write");
-			priv->tx.next_out -= 4;
-			priv->tx.avail_out += 4;
+		if (m == Z_SYNC_FLUSH && !pen) {
+			if (n == Z_BUF_ERROR && !pmdrx->eb_out.len &&
+			    !priv->tx.avail_in) {
+				/*
+				 * zlib refuses a second sync flush with nothing
+				 * new since the last: an empty message straight
+				 * after a whole one.  The stream is byte
+				 * aligned after that flush, so the message is
+				 * the empty stored block's header octet, whose
+				 * LEN / NLEN are the 00 00 ff ff the receiver
+				 * appends (RFC 7692 7.2.2), just what zlib
+				 * sends for an empty first message.
+				 */
+				*priv->tx.next_out++ = 0x00;
+				priv->tx.avail_out--;
+			} else {
+				/*
+				 * A completed sync flush ends with the empty
+				 * stored block, whose 00 00 ff ff RFC 7692
+				 * 7.2.1 has us remove
+				 */
+				if (pmdrx->eb_out.len < 4 ||
+				    priv->tx.next_out[-4] != 0x00 ||
+				    priv->tx.next_out[-3] != 0x00 ||
+				    priv->tx.next_out[-2] != 0xff ||
+				    priv->tx.next_out[-1] != 0xff) {
+					lwsl_wsi_err(wsi, "deflate flush did "
+						"not end as expected (%d)",
+						(int)pmdrx->eb_out.len);
+					return PMDR_FAILED;
+				}
+				priv->tx.next_out -= 4;
+				priv->tx.avail_out += 4;
+			}
 			priv->count_tx_between_fin = 0;
-
-			assert(priv->tx.next_out[0] == 0x00 &&
-			       priv->tx.next_out[1] == 0x00 &&
-			       priv->tx.next_out[2] == 0xff &&
-			       priv->tx.next_out[3] == 0xff);
 		}
 
 
