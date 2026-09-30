@@ -29,6 +29,10 @@
  * what the h1 server makes of a request line (dot segments, '+', token
  * limits).
  *
+ * Then state that belongs to one transaction and not to the connection it
+ * came on: serving the vhost's 404 document is one request's business, the
+ * next request on the kept-alive connection gets its own 404 redirect.
+ *
  * Then whether the transport would take a write: a connection on the test's
  * transport is asked of the transport, never of the fd that is its place in
  * the poll set, even when that fd could not take a byte.
@@ -735,6 +739,55 @@ static const struct lws_protocols protocols_uri[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
+#if defined(LWS_WITH_FILE_OPS)
+
+/*
+ * The 404 vhost's http protocol: whatever reaches it is not found, and
+ * lws_return_http_status() decides how to say so: a redirect to the vhost's
+ * 404 document, or, for the 404 document itself, the status page
+ */
+static int
+callback_404(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	     void *in, size_t len)
+{
+	switch (reason) {
+	case LWS_CALLBACK_HTTP:
+		if (lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL) ||
+		    lws_http_transaction_completed(wsi))
+			return -1;
+		return 0;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
+static const struct lws_protocols protocols_404[] = {
+	{ "http", callback_404, 0, 0, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
+};
+
+/* /cb goes to the protocol directly */
+static const struct lws_http_mount mount_404_cb = {
+	.mountpoint		= "/cb",
+	.origin			= "http",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 3,
+};
+
+/* the rest are files in a dir that is not there, falling back to it */
+static const struct lws_http_mount mount_404_files = {
+	.mount_next		= &mount_404_cb,
+	.mountpoint		= "/",
+	.origin			= "/nonexistent-lws-sansio",
+	.protocol		= "http",
+	.origin_protocol	= LWSMPRO_FILE,
+	.mountpoint_len		= 1,
+};
+#endif
+
 /*
  * The context's header limits: only two of them, for the h1 cases that
  * go past them.  Nothing else any other case sends comes near them.
@@ -970,6 +1023,89 @@ uri_half(struct lws_context *cx, struct lws_vhost *vh)
 
 	return 0;
 }
+
+#if defined(LWS_WITH_FILE_OPS)
+/*
+ * An h1 server connection as a series of requests, each answered with the
+ * status (the first 13 bytes of the response) and, if has is set, carrying
+ * those bytes too.  Unless the step says the connection ends, it must still
+ * be open for the next request.
+ */
+struct h1_step {
+	const char	*req;
+	const char	*status;
+	const char	*has;
+	int		ends;
+};
+
+static int
+h1_steps(struct lws_context *cx, struct lws_vhost *vh, const char *name,
+	 const char *label, const struct h1_step *st, size_t count)
+{
+	static struct transport tp;
+	struct lws *wsi;
+	size_t n;
+	int sv[2];
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	tr_begin(name, "server", 0);
+
+	for (n = 0; n < count; n++) {
+		feed(cx, &tp, st[n].req, strlen(st[n].req));
+		if (tp.tx_len < 13 || memcmp(tp.tx, st[n].status, 13) ||
+		    (st[n].has && !find_bytes(tp.tx, tp.tx_len, st[n].has)) ||
+		    (!st[n].ends && (tp.shutdown || tp.closed)) ||
+		    (st[n].ends && !tp.shutdown && !tp.closed)) {
+			lwsl_err("%s: %s: request %d: wanted '%.13s'%s%s\n",
+				 label, name, (int)n, st[n].status,
+				 st[n].ends ? ", then the end" : "",
+				 (tp.shutdown || tp.closed) ? ", ended" : "");
+			lwsl_hexdump_err(tp.tx, tp.tx_len);
+			return 1;
+		}
+	}
+
+	return tr_end();
+}
+
+/*
+ * 16: one keep-alive connection to a vhost whose 404 document is
+ * /404.html.  A request nothing serves is redirected there; the 404
+ * document, not being there either, is the status page; and the next
+ * request nothing serves is redirected again, as the first was
+ */
+static int
+h1_404_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const struct h1_step st[] = {
+		{ "GET /x HTTP/1.1\r\nHost: sansio-404\r\n\r\n",
+		  "HTTP/1.1 302 ", "/404.html\r\n", 0 },
+		{ "GET /404.html HTTP/1.1\r\nHost: sansio-404\r\n\r\n",
+		  "HTTP/1.1 404 ", NULL, 0 },
+		{ "GET /cb/y HTTP/1.1\r\nHost: sansio-404\r\n\r\n",
+		  "HTTP/1.1 302 ", "/404.html\r\n", 0 },
+	};
+
+	if (h1_steps(cx, vh, "h1-404-keepalive", "case 16", st,
+		     LWS_ARRAY_SIZE(st)))
+		return 1;
+	lwsl_user("case 16: the 404 redirect is per transaction: PASS\n");
+
+	return 0;
+}
+#endif
 
 /*
  * 14: a ws server given a frame longer than lws takes (256MiB) closes with
@@ -1689,6 +1825,9 @@ main(int argc, const char **argv)
 	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE, result = 1;
 	struct lws_context_creation_info info;
 	struct lws_vhost *vh, *vh_uri;
+#if defined(LWS_WITH_FILE_OPS)
+	struct lws_vhost *vh_404;
+#endif
 #if defined(LWS_WITH_HTTP2)
 	struct lws_vhost *vh_h2;
 #endif
@@ -1818,6 +1957,24 @@ main(int argc, const char **argv)
 	if (client_pmd_refused_frames_half(cx, vh_pmd))
 		goto bail;
 #endif
+#endif
+
+#if defined(LWS_WITH_FILE_OPS)
+	info.vhost_name = "sansio-404";
+	info.protocols = protocols_404;
+	info.extensions = NULL;
+	info.mounts = &mount_404_files;
+	info.error_document_404 = "/404.html";
+	vh_404 = lws_create_vhost(cx, &info);
+	info.mounts = NULL;
+	info.error_document_404 = NULL;
+	if (!vh_404) {
+		lwsl_err("404 vhost failed\n");
+		goto bail;
+	}
+	at(cx, 3600);
+	if (h1_404_half(cx, vh_404))
+		goto bail;
 #endif
 
 	result = 0;
