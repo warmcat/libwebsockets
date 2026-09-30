@@ -32,8 +32,13 @@
 static lws_handling_result_t
 rops_client_transport_up_raw_skt(struct lws *wsi, const lws_sockaddr46 *peer)
 {
-	/* whether the user has already been told: TRANSPORT_UP below tells */
-	int told = lwsi_carrier(wsi) == LCR_ESTABLISHED, n;
+	/*
+	 * whether the user has already been told: TRANSPORT_UP below tells.
+	 * A STARTTLS upgrade is told again: that is how the user hears the
+	 * tls it asked for with lws_tls_client_upgrade() is up
+	 */
+	int told = lwsi_carrier(wsi) == LCR_ESTABLISHED &&
+		   !lwsi_tls_upgrading(wsi), n;
 
 	/*
 	 * The transport is up before the user hears of it: a callback that

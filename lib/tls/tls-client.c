@@ -348,15 +348,49 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 	return CCTLS_RETURN_DONE; /* OK */
 }
 
+/*
+ * STARTTLS: an established raw client connection starts tls inside its own
+ * protocol.  The first handshake step is taken here; the rest is the
+ * transport machine's, the same as for a connection that asked for tls from
+ * the start (LTS_WAITING_SSL, under the handshake timeout), and when it
+ * completes the user is told the connection is up again.
+ */
 int
 lws_tls_client_upgrade(struct lws *wsi, int ssl_flags)
 {
-	const char *cce = NULL;
+	const char *cce = "tls upgrade failed";
+
+	if (!lwsi_role_client(wsi) || wsi->role_ops != &role_ops_raw_skt ||
+	    lwsi_state(wsi) != LRS_ESTABLISHED || wsi->io->tls.ssl ||
+	    !(ssl_flags & LCCSCF_USE_SSL)) {
+		lwsl_wsi_err(wsi, "only an established raw client without tls "
+				  "can start it");
+
+		return -1;
+	}
+
+	if (!wsi->a.vhost->tls.ssl_client_ctx) {
+		lwsl_wsi_err(wsi, "vhost %s has no client tls context",
+			     wsi->a.vhost->name);
+
+		return -1;
+	}
 
 	wsi->use_ssl = (unsigned int)ssl_flags;
 
-	if (lws_client_create_tls(wsi, &cce, 1) == CCTLS_RETURN_ERROR)
-		return -1;
+	switch (lws_client_create_tls(wsi, &cce, 1)) {
+	case CCTLS_RETURN_DONE:
+		/* it completed at once: no connected callback is coming */
+		return 1;
+	case CCTLS_RETURN_RETRY:
+		/* the transport stage carries it on (LTS_WAITING_SSL) */
+		lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
+				(int)wsi->a.context->timeout_secs);
 
-	return 0;
+		return 0;
+	default:
+		lwsl_wsi_err(wsi, "%s", cce);
+
+		return -1;
+	}
 }

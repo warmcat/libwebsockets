@@ -309,6 +309,14 @@ read as what happened on the wire or in the close flow: `DNS_START`,
 `RETARGET`; `WS_CLOSE_INITIATED`, `WS_CLOSE_SENT`, `WS_PEER_CLOSE`,
 `CLOSE_FLUSH`, `CLOSE_STAGED`, `SOCKET_GONE`, `USER_TOLD`.
 
+An established raw client whose own protocol starts tls on it (STARTTLS,
+`lws_tls_client_upgrade()`) goes back into the transport machine: `TLS_START`
+from `ESTABLISHED` sets `WAITING_SSL` over the established carrier, and
+`TRANSPORT_UP` returns it to `ESTABLISHED`.  That combination,
+`lwsi_tls_upgrading()`, is how the rest of lws knows the user was already
+told the connection is up: he is told again when the tls is up, and a
+handshake that fails is his close, not a failure to connect.
+
 The events, with the states they lead to:
 
 |event|h1 server|h2 / h3 server stream|h1 client|h2 / h3 client stream|

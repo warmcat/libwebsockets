@@ -305,6 +305,14 @@ extern const enum lwsi_state lws_lrs_of_carrier[16];
 /* handshake in progress, ie, neither not started nor done */
 #define lwsi_carrier_handshaking(wsi) \
 	(lwsi_carrier(wsi) != LCR_NONE && lwsi_carrier(wsi) != LCR_ESTABLISHED)
+/*
+ * an established client connection is having tls started on it by its own
+ * protocol (STARTTLS, lws_tls_client_upgrade()): the user has been told it
+ * is connected already, so the handshake failing is its close, not a failure
+ * to connect
+ */
+#define lwsi_tls_upgrading(wsi) (lwsi_transport(wsi) == LTS_WAITING_SSL && \
+				 lwsi_carrier(wsi) == LCR_ESTABLISHED)
 
 /*
  * The close machine.  Entered from any live state; once set, the live state

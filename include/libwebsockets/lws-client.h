@@ -557,12 +557,27 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len);
 /**
  * lws_tls_client_upgrade() - upgrade a non-TLS client connection to TLS
  *
- * \param wsi: client connection
- * \param ssl_flags: LCCSCF_ flags to apply
+ * \param wsi: established raw client connection with no tls yet
+ * \param ssl_flags: LCCSCF_ flags to apply, including LCCSCF_USE_SSL
  *
  * For STARTTLS type protocols, this can be called to transition a RAW
- * connection to TLS. It handles structure initialization and starts the
- * handshake.
+ * connection to TLS, eg, from LWS_CALLBACK_RAW_RX once the peer has agreed
+ * to it.  The peer certificate is checked against the connection's vhost
+ * client tls context and the host the connection was made to, according to
+ * \p ssl_flags, as for a connection that used tls from the start.
+ *
+ * The first step of the handshake is taken inside this call, and lws carries
+ * on with the rest.  When it has completed, the connection's protocol
+ * receives LWS_CALLBACK_RAW_CONNECTED again, and from then on its rx and tx
+ * are over the tls.  A handshake that fails or times out closes the
+ * connection with LWS_CALLBACK_RAW_CLOSE, since it was already connected.
+ *
+ * Any plaintext the peer sent after agreeing to start tls must be discarded,
+ * not acted on: it was not protected by the tls.
+ *
+ * Returns 0 if the handshake is under way, 1 if it completed already inside
+ * this call (no LWS_CALLBACK_RAW_CONNECTED will follow), or -1 if tls could
+ * not be started, in which case the caller should close the connection.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_tls_client_upgrade(struct lws *wsi, int ssl_flags);

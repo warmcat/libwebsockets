@@ -375,6 +375,13 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 	if (lwsi_transport(wsi) >= LTS_FAILED)
 		return;
 
+	/*
+	 * a STARTTLS upgrade failing: the user was told the connection is up,
+	 * so what he hears is its close
+	 */
+	if (lwsi_tls_upgrading(wsi))
+		return;
+
 #if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
 	/* a quic attempt IO can retarget: the next address, or tcp */
 	if (wsi->tried_quic && wsi->role_ops &&
@@ -547,9 +554,10 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	 * below is judged as we come in here, the same as the pre-close
 	 * snapshot used to do: a staged close re-entering from SHUTDOWN or
 	 * FLUSHING counts, a connection that never got past its transport
-	 * setup does not
+	 * setup does not, but one whose STARTTLS upgrade is in its transport
+	 * setup again was established before it began
 	 */
-	est_at_entry = lwsi_state_est(wsi);
+	est_at_entry = lwsi_state_est(wsi) || lwsi_tls_upgrading(wsi);
 	/* the close machine says the close has begun */
 	if (lwsi_close(wsi) == LCS_NONE ||
 	    lwsi_close(wsi) == LCS_CLOSE_WHEN_FLUSHED)
