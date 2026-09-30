@@ -176,6 +176,32 @@ int main(int argc, const char **argv)
 		fails++;
 	}
 
+	/*
+	 * ...including binary: every value of the first payload byte, alone
+	 * and after whitespace, must leave the fields parsed and the payload
+	 * intact (the tokenizer must not look into it)
+	 */
+
+	for (n = 0; n < 256 * 2; n++) {
+		static const char hdr[] = "PUT a1b2c3d4 0 3 ";
+		char dg[sizeof(hdr) + 4];
+		size_t pl = 3, hlen = sizeof(hdr) - 1;
+
+		memcpy(dg, hdr, hlen);
+		dg[hlen] = n < 256 ? (char)n : ' ';
+		dg[hlen + 1] = n < 256 ? 'y' : '\n';
+		dg[hlen + 2] = n < 256 ? 'z' : (char)(n - 256);
+
+		if (lws_dht_msg_parse(dg, hlen + pl, &m) ||
+		    strcmp(m.verb, "PUT") || strcmp(m.hash, "a1b2c3d4") ||
+		    m.len != 3 || m.payload_len != pl ||
+		    memcmp(m.payload, dg + hlen, pl)) {
+			lwsl_err("%s: binary payload %d mishandled\n",
+				 __func__, n);
+			fails++;
+		}
+	}
+
 	/* roundtrip through the generator must still parse */
 
 	n = lws_dht_msg_gen(overlong, sizeof(overlong), "ACK",

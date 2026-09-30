@@ -1255,7 +1255,11 @@ lws_dht_valid_domain_name(const char *domain)
  *
  * `in` points into the received datagram and is not NUL-terminated, so
  * everything here is bounded by `len` alone; lws_tokenize() is given the
- * explicit length and never reads past it.  It extracts the fields with
+ * explicit length of the four fields and never reads past it.  It must not
+ * see the payload: after a token's terminating whitespace it reads on for
+ * a following '=', UTF-8 checking the byte it finds, and a binary payload
+ * starting with '=' or a byte that can't lead UTF-8 then failed the whole
+ * message.  It extracts the fields with
  * its own integer validation, while the gap checks below insist the
  * fields were separated by exactly one space, the only shape the
  * generator emits: without them a datagram with a missing or empty field
@@ -1269,15 +1273,22 @@ lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out)
 	char tmp[32];
 	lws_tokenize_t ts;
 	const char *cur = in, *end = in + len;
-	size_t i;
+	size_t i, hl;
+	int sp = 0;
 
 	if (!in || !out || len < 10)
 		return -1;
 
 	memset(out, 0, sizeof(*out));
 
+	/* the fields end at the fourth space, if any */
+
+	for (hl = 0; hl < len; hl++)
+		if (in[hl] == ' ' && ++sp == 4)
+			break;
+
 	lws_tokenize_init(&ts, in, 0);
-	ts.len = len;
+	ts.len = hl;
 
 	for (i = 0; i < 4; i++) {
 		size_t tl;
