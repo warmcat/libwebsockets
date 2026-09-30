@@ -2139,9 +2139,18 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	 * opaque on the floor, so it never heard back and, for the DNSSEC
 	 * DNSKEY sub-lookup, leaked its validation context.  A standalone
 	 * requester gets a separate query with its own tid instead.
+	 *
+	 * Like the cache above, a requester that has to validate can't be
+	 * served by a query that doesn't, eg, one made with
+	 * LWS_ADNS_INDICATE_LACKS_DNSSEC: it would be handed the unvalidated
+	 * answer as plain FOUND, which the connect path takes as good.
 	 */
 
 	q = lws_adns_get_query(dns, qtype, 0, name);
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	if (q && validates && !lws_adns_q_validates(q))
+		q = NULL;
+#endif
 	if (q && wsi) {
 		lwsl_cx_debug(context, "dns piggybacking: %d:%s",
 				qtype, name);
