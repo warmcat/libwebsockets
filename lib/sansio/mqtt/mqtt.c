@@ -388,29 +388,73 @@ lws_mqtt_create_sub(struct _lws_mqtt_related *mqtt, const char *topic)
 	return mysub;
 }
 
-static int
-lws_mqtt_client_remove_subs(struct _lws_mqtt_related *mqtt)
+/*
+ * Subscription bookkeeping.  Each stream lists the topic filters it
+ * subscribed to, one entry per subscribe, which is what PUBLISH delivery
+ * matches against.  The connection (nwsi) lists each filter any of its
+ * streams holds once, with ref_count the number of those stream entries: it
+ * exists exactly while ref_count is nonzero, and is what decides whether a
+ * SUBSCRIBE / UNSUBSCRIBE has to go to the broker at all.
+ *
+ * The filters are compared as strings here, not matched as a PUBLISH topic
+ * the way lws_mqtt_find_sub() does.
+ */
+
+static lws_mqtt_subs_t *
+lws_mqtt_find_filter(struct _lws_mqtt_related *mqtt, const char *filter)
 {
-	lwsl_info("%s: Called to remove subs from wsi->mqtt %p\n",
-		  __func__, mqtt);
+	lws_start_foreach_dll(struct lws_dll2 *, p,
+			      lws_dll2_get_head(&mqtt->subs_owner)) {
+		lws_mqtt_subs_t *s = lws_container_of(p, lws_mqtt_subs_t, list);
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
-				   lws_dll2_get_head(&mqtt->subs_owner)) {
-		lws_mqtt_subs_t *s = lws_container_of(p,
-						lws_mqtt_subs_t, list);
+		if (!strcmp(s->topic, filter))
+			return s;
+	} lws_end_foreach_dll(p);
 
-		if (!s->ref_count) {
-			/* remove the first unreferenced subscription */
-			lwsl_info("%s: Removing sub %p from wsi->mqtt %p\n",
-				  __func__, s, mqtt);
-			lws_dll2_remove(p);
-			lws_free(s);
+	return NULL;
+}
 
-			return 0;
-		}
-	} lws_end_foreach_dll_safe(p, tp);
+/* returns 1 if that was the connection's last hold on the filter */
+
+static int
+lws_mqtt_nwsi_filter_release(struct lws *nwsi, const char *filter)
+{
+	lws_mqtt_subs_t *s;
+
+	if (!nwsi || !nwsi->mqtt)
+		return 0;
+
+	s = lws_mqtt_find_filter(nwsi->mqtt, filter);
+	if (!s || --s->ref_count)
+		return 0;
+
+	lws_dll2_remove(&s->list);
+	lws_free(s);
 
 	return 1;
+}
+
+/*
+ * The stream is going: its subscriptions stop holding the connection's.
+ * Called while the stream is still a child of the connection.
+ */
+
+void
+lws_mqtt_client_release_subs(struct lws *wsi)
+{
+	struct lws *nwsi = lws_get_network_wsi(wsi);
+
+	if (!wsi->mqtt || nwsi == wsi)
+		return;
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
+				   lws_dll2_get_head(&wsi->mqtt->subs_owner)) {
+		lws_mqtt_subs_t *s = lws_container_of(p, lws_mqtt_subs_t, list);
+
+		lws_mqtt_nwsi_filter_release(nwsi, s->topic);
+		lws_dll2_remove(p);
+		lws_free(s);
+	} lws_end_foreach_dll_safe(p, tp);
 }
 
 /*
@@ -1920,14 +1964,11 @@ cmd_completion:
 				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 					if (w->mqtt->inside_unsubscribe &&
 					    w->mqtt->ack_pkt_id == par->cpkt_id) {
-						struct lws *nwsi = lws_get_network_wsi(w);
-
 						/*
-						 * No more subscribers left,
-						 * remove the topic from nwsi
+						 * The connection let go of the
+						 * topics when the UNSUBSCRIBE
+						 * was sent
 						 */
-						lws_mqtt_client_remove_subs(nwsi->mqtt);
-
 						w->mqtt->inside_unsubscribe = 0;
 						if (user_callback_handle_rxflow(
 							    w->a.protocol->callback,
@@ -2584,24 +2625,46 @@ lws_mqtt_client_send_subcribe_composed(struct lws *wsi, lws_mqtt_subscribe_param
 		 * are new to the wsi.
 		 */
 
+		/* the nwsi validates the topics it holds the same way */
+		nwsi->mqtt->client.aws_iot = wsi->mqtt->client.aws_iot;
+
 		extant = 0;
 		memset(&exists, 0, sizeof(exists));
 		for (n = 0; n < sub->num_topics; n++) {
 			lwsl_info("%s: Subscribing to topic[%d] = \"%s\"\n",
 				  __func__, (int)n, sub->topic[n].name);
 
-			mysub = lws_mqtt_find_sub(nwsi->mqtt, sub->topic[n].name);
-			if (mysub && mysub->ref_count) {
+			/*
+			 * The stream's entry and the connection's hold on the
+			 * filter are taken together, so whatever happens next
+			 * they are given up together, by unsubscribe or when
+			 * the stream closes
+			 */
+
+			mysub = lws_mqtt_find_filter(nwsi->mqtt,
+						     sub->topic[n].name);
+			if (mysub) {
+				if (mysub->ref_count == 0xff) {
+					lwsl_err("%s: too many subscribers\n",
+						 __func__);
+					return 1;
+				}
 				mysub->ref_count++; /* another stream using it */
 				exists[n] = 1;
 				extant++;
-			}
+			} else
+				/* new to the connection: ask the broker */
+				if (!lws_mqtt_create_sub(nwsi->mqtt,
+							 sub->topic[n].name)) {
+					lwsl_err("%s: create sub fail\n",
+						 __func__);
+					return 1;
+				}
 
-			/*
-			 * Attach the topic we're subscribing to, to wsi->mqtt
-			 */
 			if (!lws_mqtt_create_sub(wsi->mqtt, sub->topic[n].name)) {
 				lwsl_err("%s: create sub fail\n", __func__);
+				lws_mqtt_nwsi_filter_release(nwsi,
+							     sub->topic[n].name);
 				return 1;
 			}
 		}
@@ -2676,8 +2739,6 @@ lws_mqtt_client_send_subcribe_composed(struct lws *wsi, lws_mqtt_subscribe_param
 			   (int)sub->packet_id);
 		lws_ser_wu16be(p, wsi->mqtt->ack_pkt_id);
 
-		nwsi->mqtt->client.aws_iot = wsi->mqtt->client.aws_iot;
-
 		if (lws_mqtt_str_advance(&mqtt_vh_payload, 2))
 			return 1;
 
@@ -2693,14 +2754,6 @@ lws_mqtt_client_send_subcribe_composed(struct lws *wsi, lws_mqtt_subscribe_param
 					    __func__, (int)n, sub->topic[n].name);
 				continue;
 			}
-
-			/*
-			 * Attach the topic we're subscribing to, to nwsi->mqtt
-			 * so we know the nwsi itself has a subscription to it
-			 */
-
-			if (!lws_mqtt_create_sub(nwsi->mqtt, sub->topic[n].name))
-				return 1;
 
 			/* Topic's Len */
 			lws_ser_wu16be(p, (uint16_t)strlen(sub->topic[n].name));
@@ -2791,17 +2844,21 @@ lws_mqtt_client_send_unsubcribe_composed(struct lws *wsi,
 		orphaned = 0;
 		memset(&send_unsub, 0, sizeof(send_unsub));
 		for (n = 0; n < unsub->num_topics; n++) {
-			mysub = lws_mqtt_find_sub(nwsi->mqtt,
-						  unsub->topic[n].name);
-			//assert(mysub);
+			/* only a filter this stream holds is its to give up */
+			mysub = lws_mqtt_find_filter(wsi->mqtt,
+						     unsub->topic[n].name);
+			if (!mysub)
+				continue;
 
-			if (mysub) {
-				mysub->ref_count--;
-				if (mysub->ref_count == 0) {
-					lwsl_notice("%s: Need to send UNSUB\n", __func__);
-					send_unsub[n] = 1;
-					orphaned++;
-				}
+			lws_dll2_remove(&mysub->list);
+			lws_free(mysub);
+
+			if (lws_mqtt_nwsi_filter_release(nwsi,
+						unsub->topic[n].name)) {
+				/* nobody else on the connection holds it */
+				lwsl_notice("%s: Need to send UNSUB\n", __func__);
+				send_unsub[n] = 1;
+				orphaned++;
 			}
 		}
 
@@ -2881,8 +2938,6 @@ lws_mqtt_client_send_unsubcribe_composed(struct lws *wsi,
 		lwsl_debug("%s: pkt_id = %d\n", __func__,
 			   (int)wsi->mqtt->ack_pkt_id);
 		lws_ser_wu16be(p, wsi->mqtt->ack_pkt_id);
-
-		nwsi->mqtt->client.aws_iot = wsi->mqtt->client.aws_iot;
 
 		if (lws_mqtt_str_advance(&mqtt_vh_payload, 2))
 			return 1;

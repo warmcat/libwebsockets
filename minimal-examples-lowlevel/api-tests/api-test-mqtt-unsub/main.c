@@ -15,6 +15,11 @@
  * connects the real lws mqtt client to it over loopback, so the fence
  * exercises the actual ESTABLISHED-state tx paths rather than a refusal
  * that fires early on connection state.
+ *
+ * The real subscription is to two topics, a wildcard filter and a short one,
+ * and the boundary unsubscribe gives both up in one UNSUBSCRIBE, which the
+ * broker acks with one UNSUBACK: the connection must be left holding neither,
+ * and its streams must give up what they held cleanly, when it closes.
  */
 
 #include <libwebsockets.h>
@@ -24,11 +29,11 @@
 
 static int port = 7681;
 static int fails, completed;
-static unsigned int guard_hits;
+static unsigned int guard_hits, broker_unsub_topics;
 static struct lws_context *cx;
 
 /*
- * The one topic we really subscribe to, so the unsubscribe legs find an
+ * The two topics we really subscribe to, so the unsubscribe legs find an
  * existing subscription and go through the composition path
  */
 
@@ -43,13 +48,13 @@ static const char *const dummy_names[LWS_MQTT_MAX_TOPICS] = {
 	"lws/api-test-mqtt-unsub/d7",
 };
 
-static lws_mqtt_topic_elem_t	 topic_real;
+static lws_mqtt_topic_elem_t	 topics_real[2];
 static lws_mqtt_topic_elem_t	 topics_overwide[LWS_MQTT_MAX_TOPICS + 1];
 static lws_mqtt_topic_elem_t	 topics_boundary[LWS_MQTT_MAX_TOPICS];
 
 static lws_mqtt_subscribe_param_t sub_real = {
-	.topic					= &topic_real,
-	.num_topics				= 1,
+	.topic					= topics_real,
+	.num_topics				= LWS_ARRAY_SIZE(topics_real),
 };
 
 static lws_mqtt_subscribe_param_t sub_overwide = {
@@ -221,6 +226,16 @@ callback_fake_broker(struct lws *wsi, enum lws_callback_reasons reason,
 				if (remlen < 2)
 					return -1;
 				pkt_id = (uint16_t)((pay[0] << 8) | pay[1]);
+				/* count the topic filters it gives up */
+				for (p = 2; p < remlen; p += (size_t)tlen + 2) {
+					if (p + 2 > remlen)
+						return -1;
+					tlen = (uint16_t)((pay[p] << 8) |
+							  pay[p + 1]);
+					broker_unsub_topics++;
+				}
+				if (p != remlen)
+					return -1;
 				if (broker_tx(pss, (const uint8_t[]){
 						0xb0, 0x02,
 						(uint8_t)(pkt_id >> 8),
@@ -347,6 +362,12 @@ callback_mqtt(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_MQTT_UNSUBSCRIBED:
 		lwsl_user("%s: MQTT_UNSUBSCRIBED\n", __func__);
+		/* both real topics went to the broker, none of the dummies */
+		if (broker_unsub_topics != LWS_ARRAY_SIZE(topics_real)) {
+			lwsl_err("%s: broker saw %u unsubscribed topics\n",
+				 __func__, broker_unsub_topics);
+			fails++;
+		}
 		pss->state = MQST_DONE;
 		completed = 1;
 		lws_default_loop_exit(cx);
@@ -382,9 +403,9 @@ callback_mqtt(struct lws *wsi, enum lws_callback_reasons reason,
 
 			/*
 			 * Boundary leg: the widest legal unsubscribe must
-			 * still work end-to-end (it carries the one real
-			 * topic, so a real UNSUBSCRIBE goes out and is
-			 * UNSUBACKed)
+			 * still work end-to-end (it carries both real
+			 * topics, so a real UNSUBSCRIBE goes out for them and
+			 * is UNSUBACKed)
 			 */
 
 			{
@@ -470,18 +491,23 @@ int main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		port = atoi(p);
 
-	topic_real.name = "lws/api-test-mqtt-unsub/real";
-	topic_real.qos = QOS0;
+	/* a wildcard filter, and a short one, like applications use */
+	topics_real[0].name = "+/api-test-mqtt-unsub";
+	topics_real[0].qos = QOS0;
+	topics_real[1].name = "a/b";
+	topics_real[1].qos = QOS0;
 
-	/* [0] is the real subscribed topic, the rest are dummies */
-	topics_overwide[0] = topic_real;
+	/* [0] is a real subscribed topic, the rest are dummies */
+	topics_overwide[0] = topics_real[0];
 	for (n = 1; n < LWS_ARRAY_SIZE(topics_overwide); n++) {
 		topics_overwide[n].name = dummy_names[n - 1];
 		topics_overwide[n].qos = QOS0;
 	}
-	topics_boundary[0] = topic_real;
-	for (n = 1; n < LWS_ARRAY_SIZE(topics_boundary); n++) {
-		topics_boundary[n].name = dummy_names[n - 1];
+	/* [0] and [1] are the real subscribed topics, the rest are dummies */
+	topics_boundary[0] = topics_real[0];
+	topics_boundary[1] = topics_real[1];
+	for (n = 2; n < LWS_ARRAY_SIZE(topics_boundary); n++) {
+		topics_boundary[n].name = dummy_names[n - 2];
 		topics_boundary[n].qos = QOS0;
 	}
 

@@ -491,6 +491,9 @@ lws_mqtt_fill_fixed_header(uint8_t *p, lws_mqtt_control_packet_t ctrl_pkt_type,
 struct lws *
 lws_wsi_mqtt_adopt(struct lws *parent_wsi, struct lws *wsi);
 
+void
+lws_mqtt_client_release_subs(struct lws *wsi);
+
 lws_mqtt_subs_t *
 lws_mqtt_find_sub(struct _lws_mqtt_related *mqtt, const char *topic);
 

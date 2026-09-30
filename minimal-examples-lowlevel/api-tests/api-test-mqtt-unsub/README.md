@@ -7,7 +7,8 @@ The test runs a fake in-process MQTT broker on an `LWS_SERVER_OPTION_ONLY_RAW`
 vhost and connects the real lws mqtt client to it over loopback, so the
 established-state tx composition paths are the ones exercised.
 
-After a genuine one-topic subscribe / SUBACK, the fence legs are:
+After a genuine two-topic subscribe / SUBACK (a wildcard filter and a short
+topic), the fence legs are:
 
  - an unsubscribe with `LWS_MQTT_MAX_TOPICS + 1` topics (the first one real)
    must be refused with a nonzero return and exactly one loud `lwsl_err`,
@@ -15,9 +16,13 @@ After a genuine one-topic subscribe / SUBACK, the fence legs are:
  - an unsubscribe with zero topics must be refused the same way;
  - a subscribe with `LWS_MQTT_MAX_TOPICS + 1` topics must be refused the
    same way (the subscribe-side twin of the same guard);
- - the boundary leg: a `LWS_MQTT_MAX_TOPICS`-topic unsubscribe (first topic
-   real) is the widest legal call and must still work end-to-end, producing
-   a real UNSUBSCRIBE / UNSUBACK exchange and `LWS_CALLBACK_MQTT_UNSUBSCRIBED`.
+ - the boundary leg: a `LWS_MQTT_MAX_TOPICS`-topic unsubscribe (the first two
+   topics real) is the widest legal call and must still work end-to-end,
+   producing a real UNSUBSCRIBE carrying just the two real topics, its
+   UNSUBACK and `LWS_CALLBACK_MQTT_UNSUBSCRIBED`.  The connection then closes
+   holding no subscriptions (C-061: one UNSUBACK for two topics used to leave
+   one behind, and the close accounting looked the filters up from the wrong
+   offset, reading past a short one when matching the wildcard).
 
 ## Usage
 

@@ -394,8 +394,6 @@ rops_issue_keepalive_mqtt(struct lws *wsi, int isvalid)
 static int
 rops_close_role_mqtt(struct lws_context_per_thread *pt, struct lws *wsi)
 {
-	struct lws *nwsi = lws_get_network_wsi(wsi);
-	lws_mqtt_subs_t	*s, *mysub;
 	lws_mqttc_t *c;
 
 	if (!wsi->mqtt)
@@ -420,23 +418,16 @@ rops_close_role_mqtt(struct lws_context_per_thread *pt, struct lws *wsi)
 	lws_mqtt_str_free(&c->will.topic);
 	lws_mqtt_str_free(&c->id);
 
-	/* clean up any subscription allocations */
+	/*
+	 * Free any subscription entries left.  A stream's were given back
+	 * to its connection when it left it, in close_kill_connection; the
+	 * connection's own are just its record of what it holds.
+	 */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
 				   lws_dll2_get_head(&wsi->mqtt->subs_owner)) {
-		s = lws_container_of(p, lws_mqtt_subs_t, list);
-
-		/*
-		 * Account for children no longer using nwsi subscription
-		 */
-		mysub = lws_mqtt_find_sub(nwsi->mqtt, (const char *)&s[1]);
-//		assert(mysub); /* if child subscribed, nwsi must feel the same */
-		if (mysub) {
-			assert(mysub->ref_count);
-			mysub->ref_count--;
-		}
 		lws_dll2_remove(p);
-		lws_free(s);
+		lws_free(lws_container_of(p, lws_mqtt_subs_t, list));
 	} lws_end_foreach_dll_safe(p, tp);
 
 	/* clean up QoS2 rx list */
@@ -561,6 +552,11 @@ rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 #endif
 			wsi->mux_substream) &&
 	     wsi->mux.parent_wsi) {
+		/*
+		 * While we can still find the connection, give back its hold
+		 * on the topics we subscribed to
+		 */
+		lws_mqtt_client_release_subs(wsi);
 		lws_wsi_mux_sibling_disconnect(wsi);
 	}
 
