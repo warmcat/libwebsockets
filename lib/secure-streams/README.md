@@ -97,6 +97,20 @@ response there may look like
 		lws_ss_request_tx_len(m->ss, 128);
 ```
 
+For http servers, when `LWSSSCS_SERVER_TXN` is signalled, lws has set some of
+the stream's metadata from the request, if the policy declares it:
+
+ - `path`, `method` and `auth` (the Authorization header) are set from the
+   request itself
+
+ - metadata without an http header association, eg `{ "my_arg": "" }`, is set
+   from a URL argument of the same name, if the request has one.  A URL argument
+   can't set `path`, `method` or `auth`, or metadata associated with a header,
+   which the server emits as that response header (eg, `"mime": "Content-Type:"`)
+
+All of these are unset at the start of each request, so on a keep-alive
+connection nothing a previous request provided is seen as part of the next one.
+
 Otherwise the general api usage is very similar to client usage.
 
 ## Convention for rx and tx callback return

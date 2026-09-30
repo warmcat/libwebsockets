@@ -541,6 +541,95 @@ ss_h1_redirect_leaks_identity(lws_ss_handle_t *h, struct lws *wsi,
 	return bad;
 }
 
+#if defined(LWS_WITH_SERVER)
+
+/*
+ * On a server stream, these metadata names are set by lws from the request
+ * itself (the request line or :method / :path, and the Authorization header)
+ */
+
+static const char * const ss_srv_req_md[] = { "path", "method", "auth" };
+
+static int
+ss_srv_md_is_request_derived(const char *name)
+{
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(ss_srv_req_md); n++)
+		if (!strcmp(name, ss_srv_req_md[n]))
+			return 1;
+
+	return 0;
+}
+
+/*
+ * Metadata the policy associates with an http header is what the server
+ * emits as that response header (see lws_apply_metadata())
+ */
+
+static int
+ss_srv_md_is_header(const lws_ss_metadata_t *polmd)
+{
+	return polmd->value__may_own_heap &&
+	       ((const uint8_t *)polmd->value__may_own_heap)[0];
+}
+
+/*
+ * Every server request starts with what lws fills from the request unset,
+ * so nothing an earlier request on the same connection provided, eg, its
+ * Authorization, can be mistaken for part of this one.  That's path, method,
+ * auth, and the metadata without a header association, which the request's
+ * URL arguments fill.
+ */
+
+static void
+ss_srv_request_metadata_reset(lws_ss_handle_t *h)
+{
+	lws_ss_metadata_t *polmd = h->policy->metadata;
+	int m = 0;
+
+	while (polmd && m < h->policy->metadata_count) {
+		if (ss_srv_md_is_request_derived(polmd->name) ||
+		    !ss_srv_md_is_header(polmd))
+			_lws_ss_set_metadata(&h->metadata[m],
+					     h->metadata[m].name, NULL, 0);
+		polmd = polmd->next;
+		m++;
+	}
+}
+
+/*
+ * A URL argument may only fill metadata without a header association, and
+ * never what lws set from the request itself.  Otherwise ?path=/admin or
+ * ?auth=... would replace what the request really said before the user code
+ * sees it, and ?mime=... would choose our response header's value.
+ */
+
+static int
+ss_srv_request_urlargs_to_metadata(lws_ss_handle_t *h, struct lws *wsi)
+{
+	lws_ss_metadata_t *polmd = h->policy->metadata;
+	char buf[1024];
+	int n;
+
+	while (polmd) {
+		if (!ss_srv_md_is_request_derived(polmd->name) &&
+		    !ss_srv_md_is_header(polmd)) {
+			n = lws_get_urlarg_by_name_safe(wsi, polmd->name, buf,
+							sizeof(buf));
+			if (n >= 0 && lws_ss_alloc_set_metadata(h, polmd->name,
+							buf, (unsigned int)n))
+				return -1;
+		}
+
+		polmd = polmd->next;
+	}
+
+	return 0;
+}
+
+#endif
+
 int
 secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	     void *in, size_t len)
@@ -1341,6 +1430,7 @@ malformed_l:
 
 		lwsl_info("%s: LWS_CALLBACK_HTTP\n", __func__);
 		{
+			ss_srv_request_metadata_reset(h);
 
 			h->txn_resp_set = 0;
 			h->txn_resp_pending = 1;
@@ -1426,30 +1516,11 @@ malformed_l:
 		}
 
 		/*
-		 * Check if any of the metadata defined in the policy correspond
-		 * to urlargs that we can see... if so, adopt them as the
-		 * metadata values
+		 * Adopt urlargs named like metadata defined in the policy as
+		 * the metadata values, where that's allowed
 		 */
-		{
-			lws_ss_metadata_t *polmd;
-
-			if (h->policy) {
-				polmd = h->policy->metadata;
-				while (polmd) {
-					char buf[1024];
-					int n = lws_get_urlarg_by_name_safe(wsi,
-							polmd->name, buf,
-							sizeof(buf));
-					if (n >= 0)
-						if (lws_ss_alloc_set_metadata(h,
-							polmd->name, buf,
-							(unsigned int)n))
-							return -1;
-
-					polmd = polmd->next;
-				}
-			}
-		}
+		if (ss_srv_request_urlargs_to_metadata(h, wsi))
+			return -1;
 
 		r = lws_ss_event_helper(h, LWSSSCS_SERVER_TXN);
 		if (r)
