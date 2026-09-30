@@ -6,6 +6,11 @@
  * client makes of them, and that its results serialize to canonical JSON
  * that lws_whois_json_purify() accepts unchanged.
  *
+ * The fake registry also has a domain it takes the query for and then
+ * never answers: the query's deadline must fail it.  Finally two of those
+ * are left in flight, one connected and one just started, when the context
+ * is destroyed: both callers must still hear the query failed.
+ *
  * Copyright (c) 2026 Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
@@ -22,6 +27,10 @@
  * client sees it in pieces, including ones splitting UTF-8 chars
  */
 #define WCT_WRITE_CHUNK		5
+/* the deadline given to queries the fake registry never answers */
+#define WCT_SHORT_DEADLINE_MS	500
+/* what the fake registry sits on without answering */
+#define WCT_SILENT_DOMAIN	"silent.example"
 
 struct wct_case {
 	const char	*domain;
@@ -37,6 +46,9 @@ struct wct_case {
 
 	/* ...and lws_whois_results_to_json() of that */
 	const char	*json;
+
+	uint32_t	timeout_ms;	/* 0 = the default deadline */
+	char		fails;		/* the query must fail */
 };
 
 static const struct wct_case cases[] = {
@@ -82,7 +94,9 @@ static const struct wct_case cases[] = {
 		"{\"creation_date\":1790777077,\"expiry_date\":1885471477,"
 		"\"updated_date\":1790778073,"
 		"\"nameservers\":[\"ns1.example.com\",\"ns2.example.rs\"],"
-		"\"dnssec\":\"yes\"}"
+		"\"dnssec\":\"yes\"}",
+
+		0, 0
 	},
 	{
 		/*
@@ -109,7 +123,9 @@ static const struct wct_case cases[] = {
 		"\"updated_date\":1768588010,"
 		"\"nameservers\":[\"A.IANA-SERVERS.NET\",\"B.IANA-SERVERS.NET\"],"
 		"\"dnssec\":\"signedDelegation\","
-		"\"ds_data\":\"370 13 2 BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A86764247C\"}"
+		"\"ds_data\":\"370 13 2 BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A86764247C\"}",
+
+		0, 0
 	},
 	{
 		/*
@@ -129,7 +145,22 @@ static const struct wct_case cases[] = {
 		"ns1.example.de, ns3.example.de", "", "",
 
 		"{\"creation_date\":1582934400,\"expiry_date\":1930003200,"
-		"\"nameservers\":[\"ns1.example.de\",\"ns3.example.de\"]}"
+		"\"nameservers\":[\"ns1.example.de\",\"ns3.example.de\"]}",
+
+		0, 0
+	},
+	{
+		/*
+		 * The connection is up and the query taken, but the registry
+		 * neither answers nor closes: only the deadline ends it
+		 */
+		WCT_SILENT_DOMAIN, NULL,
+
+		0, 0, 0, NULL, NULL, NULL,
+
+		NULL,
+
+		WCT_SHORT_DEADLINE_MS, 1
 	},
 };
 
@@ -139,12 +170,18 @@ struct wct_pss {
 	const char	*answer;
 	size_t		answer_len;
 	size_t		sent;
+	char		silent;
 };
 
 static struct lws_context *cx;
 static lws_sorted_usec_list_t sul_timeout;
-static int port = 7043, fails, oks, interrupted;
+static int port = 7043, fails, oks, interrupted, reaped;
 static size_t case_idx;
+
+static int
+wct_query(const char *domain, uint32_t timeout_ms, lws_whois_cb_t cb);
+static void
+wct_reap_cb(void *opaque, const struct lws_whois_results *res);
 
 static const struct wct_case *
 wct_find_case(const char *domain)
@@ -170,7 +207,7 @@ callback_fake_registry(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_RAW_RX:
-		if (pss->answer)
+		if (pss->answer || pss->silent)
 			break;
 
 		for (n = 0; n < len; n++) {
@@ -188,6 +225,25 @@ callback_fake_registry(struct lws *wsi, enum lws_callback_reasons reason,
 						 __func__, pss->query);
 					fails++;
 					return -1;
+				}
+				if (!c->answer) {
+					/* take the query, and sit on it */
+					pss->silent = 1;
+					if (case_idx != LWS_ARRAY_SIZE(cases))
+						break;
+
+					/*
+					 * The first of the queries left in
+					 * flight is connected: start the
+					 * second, and destroy the context
+					 * straight away
+					 */
+					if (wct_query(WCT_SILENT_DOMAIN, 0,
+						      wct_reap_cb))
+						fails++;
+					interrupted = 1;
+					lws_cancel_service(cx);
+					break;
 				}
 				pss->answer = c->answer;
 				pss->answer_len = strlen(c->answer);
@@ -266,6 +322,14 @@ wct_check(const struct lws_whois_results *res)
 	char json[LWS_WHOIS_CANON_MAX + 1], again[LWS_WHOIS_CANON_MAX + 1];
 	int bad = 0, problems, n;
 
+	if (c->fails) {
+		if (!res)
+			return 0;
+
+		lwsl_err("%s: %s: should have failed\n", __func__, c->domain);
+		return 1;
+	}
+
 	if (!res) {
 		lwsl_err("%s: %s: no results\n", __func__, c->domain);
 		return 1;
@@ -321,26 +385,62 @@ wct_whois_cb(void *opaque, const struct lws_whois_results *res)
 	wct_next();
 }
 
+/* the queries in flight when the context is destroyed end up here */
+
 static void
-wct_next(void)
+wct_reap_cb(void *opaque, const struct lws_whois_results *res)
+{
+	(void)opaque;
+
+	if (res) {
+		lwsl_err("%s: results from a query that can't have any\n",
+			 __func__);
+		fails++;
+	}
+
+	reaped++;
+}
+
+static int
+wct_query(const char *domain, uint32_t timeout_ms, lws_whois_cb_t cb)
 {
 	struct lws_whois_args a;
 
+	memset(&a, 0, sizeof(a));
+	a.context	= cx;
+	a.domain	= domain;
+	a.server	= "127.0.0.1";
+	a.port		= (uint16_t)port;
+	a.cb		= cb;
+	a.timeout_ms	= timeout_ms;
+
+	if (!lws_whois_query(&a))
+		return 0;
+
+	lwsl_err("%s: %s: query failed to start\n", __func__, domain);
+
+	return 1;
+}
+
+static void
+wct_next(void)
+{
 	if (case_idx == LWS_ARRAY_SIZE(cases)) {
-		interrupted = 1;
-		lws_cancel_service(cx);
+		/*
+		 * Leave queries in flight for the context destroy... the
+		 * fake registry starts the second and ends the test when it
+		 * has this one's query
+		 */
+		if (wct_query(WCT_SILENT_DOMAIN, 0, wct_reap_cb)) {
+			fails++;
+			interrupted = 1;
+			lws_cancel_service(cx);
+		}
 		return;
 	}
 
-	memset(&a, 0, sizeof(a));
-	a.context	= cx;
-	a.domain	= cases[case_idx].domain;
-	a.server	= "127.0.0.1";
-	a.port		= (uint16_t)port;
-	a.cb		= wct_whois_cb;
-
-	if (lws_whois_query(&a)) {
-		lwsl_err("%s: %s: query failed to start\n", __func__, a.domain);
+	if (wct_query(cases[case_idx].domain, cases[case_idx].timeout_ms,
+		      wct_whois_cb)) {
 		fails++;
 		interrupted = 1;
 		lws_cancel_service(cx);
@@ -411,6 +511,13 @@ main(int argc, const char **argv)
 
 bail:
 	lws_context_destroy(cx);
+
+	/* both queries left in flight must have been told they failed */
+	if (!fails && reaped != 2) {
+		lwsl_err("%s: %d in-flight queries completed at destroy, "
+			 "want 2\n", __func__, reaped);
+		fails++;
+	}
 
 	lwsl_user("Completed: PASS: %d, FAIL: %d\n", oks, fails);
 

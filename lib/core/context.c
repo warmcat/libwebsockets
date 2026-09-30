@@ -2793,6 +2793,16 @@ next_l:
 	lws_state_transition(&context->mgr_system, LWS_SYSTATE_POLICY_INVALID);
 #endif
 
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_SYS_WHOIS)
+		/*
+		 * whois queries still in flight can only fail now.  Their
+		 * callers hear it before the vhosts go, while whatever the
+		 * callback refers to, in a plugin's per-vhost state, say, is
+		 * still there
+		 */
+		lws_whois_destroy_all(context);
+#endif
+
 #if defined(LWS_WITH_NETWORK)
 		/*
 		 * free all the per-vhost allocations

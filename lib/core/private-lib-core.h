@@ -698,6 +698,10 @@ struct lws_context {
 	lws_dll2_owner_t		dhcpc_owner;
 					/**< list of ifaces with dhcpc */
 #endif
+#if defined(LWS_WITH_SYS_WHOIS)
+	lws_dll2_owner_t		whois_owner;
+					/**< whois queries in flight */
+#endif
 
 	/* pointers */
 
@@ -1354,6 +1358,11 @@ void lws_msleep(unsigned int);
 
 void
 lws_context_destroy2(struct lws_context *context);
+
+#if defined(LWS_WITH_SYS_WHOIS)
+void
+lws_whois_destroy_all(struct lws_context *cx);
+#endif
 
 /* it's public extern const lws_transport_client_ops_t lws_txp_inside_sspc; */
 

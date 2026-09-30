@@ -27,7 +27,8 @@
 #define LWS_WHS_DOMAIN_MAX 256
 
 struct lws_whois {
-	struct lws_dll2		        list;
+	struct lws_dll2		        list; /* on cx->whois_owner */
+	lws_sorted_usec_list_t	        sul_deadline; /* the whole query */
 	struct lws_whois_args	        args;
 	struct lws		        *wsi;
 
@@ -42,6 +43,7 @@ struct lws_whois {
 	size_t			        vk_len;
 	size_t			        vv_len;
 	size_t			        vv_first_len; /* first value token */
+	size_t			        rx_total; /* this server's answer so far */
 
 	int			        state; /* 0 = IANA / initial, 1 = authoritative, 2 = error */
 	int			        last_effline;
@@ -56,8 +58,83 @@ lws_whois_destroy(struct lws_whois *w)
 	if (!w)
 		return;
 
+	lws_sul_cancel(&w->sul_deadline);
 	lws_dll2_remove(&w->list);
 	lws_free(w);
+}
+
+/*
+ * The one way a query that was started ends: the caller hears about it
+ * exactly once, and w is gone afterwards.  w must already be detached from
+ * any wsi, so nothing can find it again.
+ */
+
+static void
+lws_whois_complete(struct lws_whois *w, const struct lws_whois_results *res)
+{
+	if (w->args.cb)
+		w->args.cb(w->args.opaque, res);
+
+	lws_whois_destroy(w);
+}
+
+/*
+ * Give up on the query while its connection is still up: once detached,
+ * whatever the connection does before it's gone can't reach w.  The caller
+ * sees the connection closed.
+ */
+
+static void
+lws_whois_fail(struct lws_whois *w)
+{
+	if (w->wsi) {
+		lws_set_opaque_user_data(w->wsi, NULL);
+		w->wsi = NULL;
+	}
+
+	lws_whois_complete(w, NULL);
+}
+
+/*
+ * Whois servers answer once and close, and after sending the query we have
+ * nothing more to send, so nothing else notices one that accepts the
+ * connection and then says nothing (or trickles bytes), nor a flow that was
+ * silently dropped on the way... lws's own connect timeout stops applying
+ * as soon as the TCP connection is up.
+ */
+
+static void
+lws_whois_deadline_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_whois *w = lws_container_of(sul, struct lws_whois,
+					       sul_deadline);
+	struct lws *wsi = w->wsi;
+
+	lwsl_cx_notice(w->args.context, "whois for %s timed out", w->domain);
+
+	lws_whois_fail(w);
+	if (wsi)
+		lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);
+}
+
+/*
+ * The context is going away: every wsi is already closed.  Queries still
+ * in flight can only fail, but their callers must still hear it.  A
+ * connection that was still being set up is dropped without a callback to
+ * us, so w->wsi may be stale here and must not be touched.
+ */
+
+void
+lws_whois_destroy_all(struct lws_context *cx)
+{
+	struct lws_whois *w;
+
+	while (lws_dll2_get_head(&cx->whois_owner)) {
+		w = lws_container_of(lws_dll2_get_head(&cx->whois_owner),
+				     struct lws_whois, list);
+		w->wsi = NULL;
+		lws_whois_complete(w, NULL);
+	}
 }
 
 static int
@@ -96,6 +173,7 @@ lws_whois_trigger(struct lws_whois *w, const char *server)
 	w->is_value             = 0;
 	w->last_effline         = 0;
 	w->bad_line             = 0;
+	w->rx_total             = 0;
 
 	/*
 	 * The connect can fail synchronously in here, and if it does, it can
@@ -407,9 +485,7 @@ callback_whois(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 */
 			break;
 
-		if (w->args.cb)
-			w->args.cb(w->args.opaque, NULL);
-		lws_whois_destroy(w);
+		lws_whois_complete(w, NULL);
 		break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
@@ -421,6 +497,15 @@ callback_whois(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		 * destroy w, or hand it on to a referral connection
 		 */
 		lws_set_opaque_user_data(wsi, NULL);
+
+		if (lws_context_is_being_destroyed(w->args.context)) {
+			/*
+			 * Our close, not the server's: the answer may be cut
+			 * off, and a referral can't be followed any more
+			 */
+			lws_whois_complete(w, NULL);
+			break;
+		}
 
 		/* finish loose ends tokenizing */
 		w->ts.flags &= (uint16_t)~LWS_TOKENIZE_F_EXPECT_MORE;
@@ -438,26 +523,31 @@ callback_whois(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				w->state = 1;
 				if (lws_whois_trigger(w, w->server)) {
 					lwsl_notice("%s: Failed triggering referral\n", __func__);
-					if (w->args.cb)
-						w->args.cb(w->args.opaque, NULL);
-					lws_whois_destroy(w);
+					lws_whois_complete(w, NULL);
 				}
 			} else {
 				lwsl_wsi_notice(wsi, "No referral found for %s", w->args.domain);
-				if (w->args.cb)
-					w->args.cb(w->args.opaque, NULL);
-				lws_whois_destroy(w);
+				lws_whois_complete(w, NULL);
 			}
-		} else {
-			if (w->args.cb)
-				w->args.cb(w->args.opaque, &w->res);
-			lws_whois_destroy(w);
-		}
+		} else
+			lws_whois_complete(w, &w->res);
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
 		if (!w)
 			break;
+
+		/*
+		 * Real answers are a few KB... one that goes on and on, even
+		 * one line at a time, isn't one
+		 */
+		w->rx_total += len;
+		if (w->rx_total > LWS_WHOIS_ANSWER_MAX) {
+			lwsl_wsi_notice(wsi, "whois answer for %s too large",
+					w->domain);
+			lws_whois_fail(w);
+			return -1;
+		}
 
 		w->ts.start = (const char *)in;
 		w->ts.len = len;
@@ -490,7 +580,8 @@ lws_whois_query(const struct lws_whois_args *args)
 {
 	struct lws_whois *w;
 
-	if (!args || !args->context || !args->domain)
+	if (!args || !args->context || !args->domain ||
+	    lws_context_is_being_destroyed(args->context))
 		return 1;
 
 	w = lws_zalloc(sizeof(*w), "whois_query");
@@ -501,19 +592,26 @@ lws_whois_query(const struct lws_whois_args *args)
 	lws_strncpy(w->domain, args->domain, sizeof(w->domain));
 	w->args.domain = w->domain;
 
+	/* so it can't outlive the context */
+	lws_dll2_add_tail(&w->list, &args->context->whois_owner);
+
+	/* one deadline for the whole query, including any referral */
+	lws_sul_schedule(args->context, 0, &w->sul_deadline,
+			 lws_whois_deadline_cb, (lws_usec_t)(args->timeout_ms ?
+				args->timeout_ms : LWS_WHOIS_TIMEOUT_DEFAULT_MS) *
+				LWS_US_PER_MS);
+
 	if (args->server) {
 		lws_strncpy(w->server, args->server, sizeof(w->server));
 		w->args.server = w->server;
 		w->state = 1; /* Skip IANA if server provided */
-		if (lws_whois_trigger(w, w->server)) {
-			lws_free(w);
-			return 1;
-		}
-	} else
-		if (lws_whois_trigger(w, "whois.iana.org")) {
-			lws_free(w);
-			return 1;
-		}
+	}
+
+	if (lws_whois_trigger(w, args->server ? w->server : "whois.iana.org")) {
+		/* no callback when we return failure */
+		lws_whois_destroy(w);
+		return 1;
+	}
 
 	return 0;
 }

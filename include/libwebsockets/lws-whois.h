@@ -33,6 +33,11 @@
 /* hard cap on the size of lws_whois_json_purify() canonical output */
 #define LWS_WHOIS_CANON_MAX	4096
 
+/* the deadline for a whole query, if lws_whois_args.timeout_ms is 0 */
+#define LWS_WHOIS_TIMEOUT_DEFAULT_MS	(20 * 1000)
+/* an answer from one whois server larger than this fails the query */
+#define LWS_WHOIS_ANSWER_MAX		(64 * 1024)
+
 struct lws_whois_results {
 	lws_usec_t		creation_date;
 	lws_usec_t		expiry_date;
@@ -53,12 +58,21 @@ struct lws_whois_args {
 	/**< Optional: The WHOIS server to query directly. If NULL, recursive
 	 * lookup starting from whois.iana.org is performed. */
 	lws_whois_cb_t		cb;
-	/**< Callback to receive results. Called once when query completes or fails. */
+	/**< Callback to receive results.  Called exactly once, when the
+	 * query completes, or with NULL results when it fails: a failed
+	 * connection, no referral, the deadline passing, an answer larger
+	 * than LWS_WHOIS_ANSWER_MAX, or the context being destroyed with
+	 * the query in flight. */
 	void			*opaque;
 	/**< User-supplied pointer passed to the callback */
 	uint16_t		port;
 	/**< Optional: TCP port for every connection of the query, or 0 for
 	 * the standard whois port 43 */
+	uint32_t		timeout_ms;
+	/**< Optional: deadline for the whole query, including any referral,
+	 * in ms, or 0 for LWS_WHOIS_TIMEOUT_DEFAULT_MS.  Whois servers only
+	 * answer once and close, so nothing else notices one that accepts
+	 * the connection and never does either. */
 };
 
 /**
@@ -67,7 +81,8 @@ struct lws_whois_args {
  * \param args: struct containing query parameters
  *
  * Returns 0 if the query was successfully initiated, or nonzero if failed.
- * The results are delivered asynchronously via the callback in args.
+ * The results are delivered asynchronously via the callback in args, which
+ * is only called if this returned 0.
  */
 #if defined(LWS_WITH_SYS_WHOIS)
 LWS_VISIBLE LWS_EXTERN int
