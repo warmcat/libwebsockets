@@ -333,12 +333,27 @@ lws_transport_mux_pending(lws_transport_mux_t *tm, uint8_t *buf, size_t *len,
 			break;
 
 		case LWSTMC_PENDING_CREATE_CHANNEL_ACK:
+			/*
+			 * Something must be bound to our side of the channel
+			 * before we tell the peer it is open, otherwise his
+			 * DATA has nowhere to go and the channel is passed up
+			 * with a NULL priv.  If it can't be (eg, the proxy
+			 * can't allocate the conn, or we are the client, who
+			 * has nothing to bind a channel he didn't ask for to),
+			 * refuse it instead.
+			 */
+			if (cbs->ch_opens(mc, 0) || !mc->priv) {
+				*p++ = LWSSSS_LLM_CHANNEL_NACK;
+				*p++ = mc->ch_idx;
+				cbs->ch_closes(mc);
+				lws_transport_mux_destroy_channel(tm, &mc);
+				break;
+			}
 			*p++ = LWSSSS_LLM_CHANNEL_ACK;
 			*p++ = mc->ch_idx;
 			tm->_open[mc->ch_idx >> 5] = (uint32_t)(
 					tm->_open[mc->ch_idx >> 5] |
 						(1u << (mc->ch_idx & 31)));
-			cbs->ch_opens(mc, 0);
 			/* mc->state is an LWSTMC_ state... it only worked
 			 * before because LPCSPROX_OPERATIONAL happens to have
 			 * the same value */
@@ -394,6 +409,10 @@ lws_transport_mux_pending(lws_transport_mux_t *tm, uint8_t *buf, size_t *len,
 				lws_dll2_remove(&mc->list_pending_tx);
 				// lwsl_notice("%s: passing up  event_can_write\n",
 				//		__func__);
+
+				if (!mc->priv)
+					/* nothing bound to it that could write */
+					break;
 
 				if (cbs->txp_can_write(mc))
 					return -1;
@@ -514,6 +533,35 @@ lws_transport_mux_rx_parse(lws_transport_mux_t *tm,
 						cbs->ch_closes(mc);
 						lws_transport_mux_destroy_channel(tm, &mc);
 					}
+					break;
+				}
+
+				if (mc->state != LWSTMC_AWAITING_CREATE_CHANNEL_ACK) {
+					/*
+					 * We did not send a CHANNEL_REQ for this
+					 * channel (yet), so there is nothing for
+					 * him to answer.  In particular the
+					 * placeholder we made for his own
+					 * CHANNEL_REQ has nothing bound to it
+					 * until we ACK it ourselves: taking his
+					 * ACK for it used to make it OPERATIONAL
+					 * with a NULL priv, that the next write
+					 * opportunity then passed up.
+					 *
+					 * An unsolicited NACK is a FIN though...
+					 * on his own placeholder, it withdraws
+					 * his request.
+					 */
+					if (tm->mp_cmd == LWSSSS_LLM_CHANNEL_NACK &&
+					    mc->state == LWSTMC_PENDING_CREATE_CHANNEL_ACK) {
+						cbs->ch_closes(mc);
+						lws_transport_mux_destroy_channel(tm, &mc);
+						break;
+					}
+
+					lwsl_warn("%s: (N)ACK for ch %u we did "
+						  "not ask for\n", __func__,
+						  tm->mp_idx);
 					break;
 				}
 

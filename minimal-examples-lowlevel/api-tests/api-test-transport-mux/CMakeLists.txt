@@ -1,0 +1,25 @@
+project(lws-api-test-transport-mux C)
+cmake_minimum_required(VERSION 3.10)
+find_package(libwebsockets CONFIG REQUIRED)
+list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
+include(CheckCSourceCompiles)
+include(LwsCheckRequirements)
+
+set(SAMP lws-api-test-transport-mux)
+set(SRCS main.c)
+
+set(requirements 1)
+require_lws_config(LWS_WITH_SECURE_STREAMS_PROXY_API 1 requirements)
+
+# The transport mux apis are for custom transports, which link the static
+# library, like minimal-secure-streams-custom-client-transport does
+
+if (requirements AND TARGET websockets)
+
+	add_executable(${SAMP} ${SRCS})
+	add_test(NAME api-test-transport-mux COMMAND lws-api-test-transport-mux)
+	set_tests_properties(api-test-transport-mux PROPERTIES TIMEOUT 20)
+
+	target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
+	add_dependencies(${SAMP} websockets)
+endif()

@@ -276,6 +276,13 @@ ltm_ch_opens(lws_transport_mux_ch_t *tmc, int determination)
 
 //	lws_transport_path_client_dump(&tm->info.txp_cpath, __func__);
 
+	if (!h)
+		/*
+		 * It's not a channel we asked for, so there is no sspc handle
+		 * to bind it to... we can't accept it
+		 */
+		return -1;
+
 	lwsl_sspc_err(h, "%d", determination);
 
        	if (lws_txp_inside_sspc.event_connect_disposition(h, determination))
@@ -301,6 +308,11 @@ static int
 ltm_txp_can_write(lws_transport_mux_ch_t *tmc)
 {
 	assert_is_tmch(tmc);
+
+	if (!tmc->priv)
+		/* no sspc handle bound to this channel... nothing to write */
+		return 0;
+
 	return lws_txp_inside_sspc.event_can_write(
 			(struct lws_sspc_handle *)tmc->priv, 2048);
 }

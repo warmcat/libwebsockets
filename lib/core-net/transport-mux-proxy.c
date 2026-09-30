@@ -251,6 +251,11 @@ static int
 ltm_txp_can_write(lws_transport_mux_ch_t *tmc)
 {
 	assert_is_tmch(tmc);
+
+	if (!tmc->priv)
+		/* no conn bound to this channel... nothing to write */
+		return 0;
+
 	return lws_txp_inside_proxy.event_proxy_can_write(tmc->priv
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 			, NULL

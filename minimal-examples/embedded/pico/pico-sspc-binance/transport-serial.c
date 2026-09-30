@@ -81,10 +81,17 @@ ltm_ch_opens_serial(lws_transport_mux_ch_t *tmc, int determination)
 
 	assert_is_tm(tm);
 
+	if (!h)
+		/*
+		 * The proxy asked for this channel, we have no sspc handle to
+		 * bind it to: refuse it
+		 */
+		return -1;
+
 	lwsl_sspc_err(h, "%d", determination);
 
-       	if (tm->info.txp_cpath.ops_in->event_connect_disposition(h, determination))
-        		return -1;
+	if (lws_txp_inside_sspc.event_connect_disposition(h, determination))
+		return -1;
 
 	return 0;
 }
@@ -106,6 +113,11 @@ static int
 ltm_txp_can_write(lws_transport_mux_ch_t *tmc)
 {
 	assert_is_tmch(tmc);
+
+	if (!tmc->priv)
+		/* no sspc handle bound to this channel... nothing to write */
+		return 0;
+
 	return lws_txp_inside_sspc.event_can_write(
 			(struct lws_sspc_handle *)tmc->priv, 2048);
 }
