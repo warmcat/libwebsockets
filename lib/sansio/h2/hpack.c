@@ -287,7 +287,12 @@ static int lws_frag_append(struct lws *wsi, unsigned char c)
 {
 	struct allocated_headers *ah = wsi->stream.ah;
 
-	if ((unsigned int)ah->pos >= wsi->a.context->max_http_header_data)
+	/*
+	 * lws_parse() leaves ah->nfrag one past the end of ah->frags[] when it
+	 * runs out of fragment slots, so never trust it to name a slot here
+	 */
+	if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frags) ||
+	    (unsigned int)ah->pos >= wsi->a.context->max_http_header_data)
 		return LWS_H2_FRAG_NO_ROOM;
 
 	ah->data[ah->pos++] = (char)c;
@@ -1722,14 +1727,24 @@ fin:
 				/* h2 headers come without the colon */
 				c1 = ':';
 				plen = 1;
-				if (lws_parse(wsi, &c1, &plen) == LPR_TOO_LARGE) {
+				m = lws_parse(wsi, &c1, &plen);
+				if (m == LPR_TOO_LARGE) {
 					if (lws_h2_hdrs_oversize(wsi))
 						return 1;
 					ah = h2n->hpack_sink;
-				}
+				} else if (m)
+					h2n->unknown_header = 1;
 			}
 
-			if (ah->parser_state == WSI_TOKEN_NAME_PART ||
+			/*
+			 * If lws_parse() failed the name, its parser_state may
+			 * still be the token it matched before it failed, with
+			 * no fragment started for it.  The value must not be
+			 * stored against that token, so it is unknown whatever
+			 * parser_state says.
+			 */
+			if (h2n->unknown_header ||
+			    ah->parser_state == WSI_TOKEN_NAME_PART ||
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 			    ah->parser_state == WSI_TOKEN_UNKNOWN_VALUE_PART ||
 #endif
