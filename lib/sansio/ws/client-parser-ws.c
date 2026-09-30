@@ -124,6 +124,18 @@ lws_ws_client_rx_parser_block(struct lws *wsi, const uint8_t **buf, size_t *len)
 	while (*len) {
 
 		/*
+		 * After the peer's CLOSE nothing it sends means anything: an
+		 * h2 stream is given its DATA as it comes, and what follows
+		 * the CLOSE in the same read would still be acted on
+		 */
+		if (lwsi_close(wsi) == LCS_RETURNED_CLOSE) {
+			*buf += *len;
+			*len = 0;
+
+			return LWS_HPI_RET_HANDLED;
+		}
+
+		/*
 		 * The user code may have asked us to stop accepting rx, eg,
 		 * from inside the RECEIVE callback we just returned from...
 		 * cache what is left and stop delivering it to him.

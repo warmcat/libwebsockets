@@ -1112,6 +1112,18 @@ lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 
 	while (len) {
 		/*
+		 * After the peer's CLOSE nothing it sends means anything.  An
+		 * h1 connection stops reading then, but an h2 stream is given
+		 * its DATA as it comes, and what follows the CLOSE in the same
+		 * read would still be acted on, a PING answered
+		 */
+		if (lwsi_close(wsi) == LCS_RETURNED_CLOSE) {
+			*buf += len;
+
+			return 0;
+		}
+
+		/*
 		 * we were accepting input but now we stopped doing so
 		 */
 		if (wsi->rxflow_bitmap) {

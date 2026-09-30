@@ -51,6 +51,9 @@
  * the request's own version, and the kept-alive connection goes on to the
  * next request.
  *
+ * And ws over h2: the peer's close is answered, nothing it sends after it is
+ * acted on.
+ *
  * And a CONNECT from a user agent the context turns away: it is refused as
  * any other request of its would be, not given to the fallback role first.
  *
@@ -417,6 +420,13 @@ static struct transport *
 tp_of(struct lws *wsi)
 {
 	int fd = (int)lws_get_socket_fd(wsi), n;
+
+	/*
+	 * A mux stream has no socket of its own, nor a transport: it must not
+	 * be taken for a transport that has lost its fd
+	 */
+	if (fd < 0)
+		return NULL;
 
 	for (n = 0; n < ntransports; n++)
 		if (transports[n]->fd == fd)
@@ -1663,6 +1673,97 @@ h2_oversized_half(struct lws_context *cx, struct lws_vhost *vh)
 }
 
 /*
+ * 22: ws over h2 (RFC 8441), the peer's CLOSE and then a PING in one DATA
+ * frame: the close is answered, with the peer's own status and END_STREAM,
+ * and nothing after it is acted on, the PING getting no pong (RFC 6455
+ * 5.5.2)
+ */
+static int
+h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char preface[] =
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+		"\x00\x00\x00\x04\x00\x00\x00\x00\x00"
+		"\x00\x00\x00\x04\x01\x00\x00\x00\x00";
+	/* DATA, sid 1: masked, zero key, CLOSE 1000 then PING "p" */
+	static const char data[] = "\x00\x00\x0f\x00\x00\x00\x00\x00\x01"
+				   "\x88\x82\x00\x00\x00\x00\x03\xe8"
+				   "\x89\x81\x00\x00\x00\x00p";
+	static uint8_t blk[256], fr[300];
+	static struct transport tp;
+	int sv[2], closed = 0, pong = 0;
+	struct lws *wsi;
+	uint8_t *p;
+	size_t n, o, f;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	tr_begin("h2-ws-peer-close", "server", 0);
+
+	feed(cx, &tp, preface, sizeof(preface) - 1);
+
+	/* the extended CONNECT for a ws stream to echo */
+	p = blk;
+	p = hp_int(p, 0x00, 4, 2); /* :method, not indexed */
+	p = hp_str(p, "CONNECT", 7, 0);
+	*p++ = 0x00; /* :protocol, a new name, not indexed */
+	p = hp_str(p, ":protocol", 9, 0);
+	p = hp_str(p, "websocket", 9, 0);
+	*p++ = 0x86; /* :scheme http */
+	p = hp_int(p, 0x00, 4, 4); /* :path, not indexed */
+	p = hp_str(p, "/echo", 5, 0);
+	p = hp_int(p, 0x00, 4, 1); /* :authority, not indexed */
+	p = hp_str(p, "sansio-h2ws", 11, 0);
+	*p++ = 0x00;
+	p = hp_str(p, "sec-websocket-version", 21, 0);
+	p = hp_str(p, "13", 2, 0);
+	*p++ = 0x00;
+	p = hp_str(p, "sec-websocket-protocol", 22, 0);
+	p = hp_str(p, "echo", 4, 0);
+	n = h2_headers(fr, 1, blk, p);
+	fr[4] = 0x04; /* END_HEADERS alone: the stream carries the ws */
+	feed(cx, &tp, fr, n);
+
+	feed(cx, &tp, data, sizeof(data) - 1);
+
+	/* sid 1's DATA: the answer to the close, ending it, and no pong */
+	for (o = 0; o + 9 <= tp.tx_len; o += 9 + f) {
+		f = ((size_t)tp.tx[o] << 16) | ((size_t)tp.tx[o + 1] << 8) |
+		    tp.tx[o + 2];
+		if (o + 9 + f > tp.tx_len)
+			break;
+		if (tp.tx[o + 3] ||
+		    (lws_ser_ru32be(&tp.tx[o + 5]) & 0x7fffffff) != 1)
+			continue;
+		if (f >= 4 && !memcmp(&tp.tx[o + 9], "\x88\x02\x03\xe8", 4) &&
+		    (tp.tx[o + 4] & 1))
+			closed = 1;
+		if (f && tp.tx[o + 9] == 0x8a)
+			pong = 1;
+	}
+	if (!closed || pong) {
+		lwsl_err("case 22: close answered %d, pong %d\n", closed, pong);
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	lwsl_user("case 22: ws over h2 answers the close, then nothing: "
+		  "PASS\n");
+
+	return tr_end();
+}
+
+/*
  * 20: an h2 POST the app answers and completes as soon as it arrives, while
  * the transport is taking only a few bytes: the completion waits for the
  * queued response.  The request's body arriving meanwhile is discarded, not
@@ -2352,7 +2453,7 @@ main(int argc, const char **argv)
 	struct lws_vhost *vh_404;
 #endif
 #if defined(LWS_WITH_HTTP2)
-	struct lws_vhost *vh_h2;
+	struct lws_vhost *vh_h2, *vh_h2ws;
 #endif
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_vhost *vh_pmd;
@@ -2520,6 +2621,23 @@ main(int argc, const char **argv)
 #if defined(LWS_WITH_CLIENT)
 	at(cx, 3900);
 	if (ws_client_peer_close_half(cx, vh))
+		goto bail;
+#endif
+
+#if defined(LWS_WITH_HTTP2)
+	/* ws over h2 needs a vhost with the ws protocol */
+	info.vhost_name = "sansio-h2ws";
+	info.protocols = protocols;
+	info.extensions = NULL;
+	info.options |= LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
+	vh_h2ws = lws_create_vhost(cx, &info);
+	info.options &= ~(uint64_t)LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
+	if (!vh_h2ws) {
+		lwsl_err("h2 ws vhost failed\n");
+		goto bail;
+	}
+	at(cx, 4000);
+	if (h2_ws_peer_close_half(cx, vh_h2ws))
 		goto bail;
 #endif
 
