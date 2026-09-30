@@ -86,8 +86,8 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 		plen = lws_snprintf((char *)pt->compose_buf, room,
 			"CONNECT %s:%u HTTP/1.1\x0d\x0a"
 			"Host: %s:%u\x0d\x0a"
-			"User-agent: lws\x0d\x0a", cpa, wsi->ocport,
-						   cpa, wsi->ocport);
+			"User-agent: lws\x0d\x0a", cpa, wsi->c_port,
+						   cpa, wsi->c_port);
 
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
 		if ((size_t)plen < room &&
@@ -116,19 +116,11 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 		/* lwsl_hexdump_notice(pt->compose_buf, plen); */
 
 		/*
-		 * OK from now on we talk via the proxy, so connect to that
+		 * The stash / ah go on naming the origin, not the proxy: a
+		 * relative redirect, a digest auth retry or any reconnect is
+		 * to the origin, and connect2 takes the proxy's endpoint from
+		 * the vhost each time it connects
 		 */
-		if (wsi->stash)
-			wsi->stash->cis[CIS_ADDRESS] =
-				wsi->a.vhost->http.http_proxy_address;
-		else
-			if (lws_hdr_simple_create(wsi,
-					_WSI_TOKEN_CLIENT_PEER_ADDRESS,
-					wsi->a.vhost->http.http_proxy_address)) {
-			lws_servbuf_release(pt, sb);
-			goto failed;
-		}
-		wsi->c_port = (uint16_t)wsi->a.vhost->http.http_proxy_port;
 
 		n = lws_io_tx_push(wsi, pt->compose_buf, (size_t)plen);
 		lws_servbuf_release(pt, sb);

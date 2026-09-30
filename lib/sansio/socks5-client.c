@@ -409,18 +409,12 @@ lws_socks5c_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 		    buf[1] != SOCKS_REQUEST_REPLY_SUCCESS)
 			goto socks_reply_fail_l;
 
+		/*
+		 * The peer address and c_port go on naming the origin, not the
+		 * proxy: a relative redirect or a digest auth retry is to the
+		 * origin, and connect2 finds the proxy from the vhost again
+		 */
 		lwsl_wsi_client(wsi, "socks connect OK");
-
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-		if (lwsi_role_http(wsi) &&
-		    lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS,
-					  wsi->a.vhost->socks_proxy_address)) {
-			*pcce = "socks connect fail";
-			return LW5CHS_RET_BAIL3;
-		}
-#endif
-
-		wsi->c_port = (uint16_t)wsi->a.vhost->socks_proxy_port;
 
 		/*
 		 * What follows the reply is the peer's, and is left for a raw

@@ -261,7 +261,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi->user_space = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->io->position_in_fds_table = LWS_NO_FDS_POS;
-	wsi->ocport = wsi->c_port = (uint16_t)(unsigned int)i->port;
+	wsi->c_port = (uint16_t)(unsigned int)i->port;
 	wsi->io->sys_tls_client_cert = i->sys_tls_client_cert;
 
 #if defined(LWS_ROLE_H2)

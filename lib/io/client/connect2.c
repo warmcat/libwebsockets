@@ -405,7 +405,21 @@ solo:
 #endif
 
 #if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
-	if (wsi->use_ssl && !wsi->tried_quic) {
+	/*
+	 * A vhost with an http or socks proxy reaches origins only through
+	 * it, and QUIC cannot go through either: what the cache knows about
+	 * an origin's h3 (the stash names the origin, not the proxy) must not
+	 * take a proxied connection past its proxy
+	 */
+	if (wsi->use_ssl && !wsi->tried_quic &&
+#if defined(LWS_CLIENT_HTTP_PROXYING) && \
+	(defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
+	    !wsi->a.vhost->http.http_proxy_port &&
+#endif
+#if defined(LWS_WITH_SOCKS5)
+	    !wsi->a.vhost->socks_proxy_port &&
+#endif
+	    1) {
 		const char *my_alpn = lws_wsi_client_stash_item(wsi, CIS_ALPN,
 						_WSI_TOKEN_CLIENT_ALPN);
 		int try_quic = 0, pinned = 0;
