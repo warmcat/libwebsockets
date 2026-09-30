@@ -31,6 +31,30 @@ lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
 }
 
 /*
+ * A "+path" address is a unix socket, and only the app may choose one.  A
+ * connection retargeted by what a server said (a redirect, a digest auth
+ * retry) must never move into the unix socket namespace, out of it, or to
+ * another socket in it: an http origin could otherwise send our request,
+ * method, body and all, to any local socket we can reach, eg, a container
+ * runtime's api, or any linux abstract socket.
+ *
+ * The leading '+' is what the connect path acts on, so that is what is
+ * judged here, rather than how the Location happened to be spelled.
+ */
+static int
+lws_client_retarget_allowed(struct lws *wsi, const char *address)
+{
+	const char *cur = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
+					_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+	int cur_uds = cur && cur[0] == '+';
+
+	if (address[0] != '+')
+		return !cur_uds;
+
+	return cur_uds && !strcmp(cur, address);
+}
+
+/*
  * Returns 0 for wsi survived OK, or LWS_HPI_RET_WSI_ALREADY_DIED
  * meaning the wsi was destroyed by us before return.
  */
@@ -1449,6 +1473,11 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			goto bail3_l;
 		}
 
+		if (!lws_client_retarget_allowed(wsi, ads)) {
+			cce = "HS: Redirect to or from a unix socket refused";
+			goto bail3_l;
+		}
+
 		if (!lws_client_reset(&wsi, ssl, ads, port, path, ads, 1)) {
 			lwsl_err("Redirect failed\n");
 			cce = "HS: Redirect failed";
@@ -2498,6 +2527,14 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		return NULL;
 
 	wsi = *pwsi;
+
+	if (!address)
+		return NULL;
+
+	if (!lws_client_retarget_allowed(wsi, address)) {
+		lwsl_wsi_err(wsi, "refusing retarget to or from a unix socket");
+		return NULL;
+	}
 
 	/*
 	 * A server that refused keep-alive is still refusing it if we are

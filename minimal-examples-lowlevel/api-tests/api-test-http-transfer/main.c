@@ -47,6 +47,11 @@
  * that did not ask to pipeline still says "connection: close", and a
  * multipart POST sent again after a 307 starts again at its first boundary.
  *
+ * A redirect may not take the client into the unix socket namespace: only
+ * the app can name a unix socket ("+path") to connect to.  The server
+ * redirects to its own unix socket vhost, which would answer the request;
+ * the client must refuse to follow it, over h1 and from an h2 stream.
+ *
  * The server echoes what it decoded: a summary line "len=<n> sum=<x>\n"
  * followed by n bytes of the same deterministic pattern the client sent,
  * so the client can confirm the server saw exactly the payload it sent, and
@@ -77,6 +82,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <signal.h>
+#if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
+#include <unistd.h>
+#endif
 
 #define CASE_TIMEOUT_S	30
 
@@ -188,6 +196,16 @@ static const struct xcase cases[] = {
 	{ "h1 GET 302 without pipelining, both requests say connection: close",
 	  "GET", "/redir-cl", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0, 0,
 	  0, 0, 1 },
+#if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
+	/*
+	 * The server answers /redir-uds with a 302 to "http://+<path>:80/..."
+	 * naming its own unix socket vhost, which would answer it with a 200:
+	 * the client must refuse to follow a redirect to a unix socket
+	 */
+	{ "h1 GET 302 to a unix socket is refused",
+	  "GET", "/redir-uds", XR_NONE, 0, 0, 8192, 0, 0, 0, 0, XG_NONE, 0, 0,
+	  0, 0, 0 },
+#endif
 	/*
 	 * The server takes the whole multipart body of /redir307-cl, then
 	 * answers 307 to /echo-cl: the client must send the body again, from
@@ -418,6 +436,10 @@ static const struct xcase cases[] = {
 	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0, 0, 0, 0, 0 },
 	{ "h2 GET 302, redirect followed on the same wsi",
 	  "GET", "/redir-cl", XR_NONE, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0, 0, 0, 0, 0 },
+#if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
+	{ "h2 GET 302 to a unix socket is refused",
+	  "GET", "/redir-uds", XR_NONE, 0, 0, 8192, 1, 0, 0, 0, XG_NONE, 0, 0, 0, 0, 0 },
+#endif
 	{ "h2 POST with neither header: zero-length body",
 	  "POST", "/echo-cl", XR_NOLEN, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0, 0, 0, 0, 0 },
 	/*
@@ -531,6 +553,11 @@ static int result, cur = -1, failures, port_h1 = 7681,
 	   port_h2 = 7682, port_proxy = 7683, only_case = -1, case_done;
 
 static const char *server_addr = "127.0.0.1";
+
+#if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
+/* the unix socket vhost, and the redirect aimed at it */
+static char uds_path[64], uds_location[96];
+#endif
 
 #if defined(LWS_ROLE_H3)
 /* the h3 server vhost: quic needs tls, a self-signed test cert does */
@@ -942,6 +969,19 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			pss->mode = RM_ONESHOT;
 
 		lwsl_user("%s: server: HTTP %s\n", __func__, path ? path : "");
+
+#if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
+		if (path && strstr(path, "redir-uds")) {
+			/* send him to our unix socket vhost: he must refuse */
+			if (lws_http_redirect(wsi, HTTP_STATUS_FOUND,
+					      (const unsigned char *)uds_location,
+					      (int)strlen(uds_location),
+					      &hp, hend) < 0 ||
+			    lws_http_transaction_completed(wsi))
+				return -1;
+			return 0;
+		}
+#endif
 
 		if (path && strstr(path, "redir-cl")) {
 			/* send him to the echo path, no body */
@@ -2196,6 +2236,37 @@ int main(int argc, const char **argv)
 		lwsl_err("Failed to create h1 server vhost\n");
 		goto bail;
 	}
+
+#if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
+	/*
+	 * The same server on a unix socket, only ever named by the redirect
+	 * the client must refuse.  It's named after our h1 port so parallel
+	 * runs do not collide; on linux it's abstract, leaving no file
+	 */
+#if defined(__linux__)
+	lws_snprintf(uds_path, sizeof(uds_path), "@lws-api-test-http-xfer-%d",
+		     port_h1);
+#else
+	lws_snprintf(uds_path, sizeof(uds_path), "lws-api-test-http-xfer-%d.sock",
+		     port_h1);
+	unlink(uds_path);
+#endif
+	lws_snprintf(uds_location, sizeof(uds_location), "http://+%s:80/echo-cl",
+		     uds_path);
+
+	info.port = 0;
+	info.iface = uds_path;
+	info.vhost_name = "srv-uds";
+	info.options |= LWS_SERVER_OPTION_UNIX_SOCK;
+
+	if (!lws_create_vhost(context, &info)) {
+		lwsl_err("Failed to create unix socket server vhost\n");
+		goto bail;
+	}
+
+	info.options &= ~(uint64_t)LWS_SERVER_OPTION_UNIX_SOCK;
+	info.iface = NULL;
+#endif
 
 #if defined(LWS_WITH_HTTP2)
 	/* h2 server vhost, cleartext with prior knowledge */

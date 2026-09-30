@@ -29,6 +29,11 @@ A file mount serves only what it has a mimetype for: a file whose extension
 neither the mount's `extra_mimetypes` nor the server's own table knows is
 refused with 415 over h1 and h2, rather than sent as `application/octet-stream`.
 
+A 302 is followed on the same wsi, over h1 and from an h2 stream, but never
+into the unix socket namespace: the server also listens on a unix socket
+(abstract on linux) and redirects to it (`http://+<path>:80/...`), and the client
+must refuse to follow that, since only the app may name a unix socket.
+
 The server answers each request with `len=<n> sum=<x>` describing the decoded
 payload it received, followed by n bytes of the same pattern, so the client can
 check both directions byte-exactly.
