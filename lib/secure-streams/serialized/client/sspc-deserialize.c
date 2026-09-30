@@ -143,6 +143,19 @@ lws_sspc_txcr_add(struct lws_tx_credit *txc, int32_t bump)
 	txc->tx_cr = (int32_t)n;
 }
 
+/*
+ * The 32-bit fields arrive MSB first, a byte at a time, from the proxy.
+ * Accumulate them unsigned: shifting proxy bits into (or a negative leftover
+ * from the last field through) the sign bit of an int32_t is undefined
+ * behaviour.  The proxy side's parser does the same.
+ */
+
+static int32_t
+ser_acc32(int32_t acc, uint8_t c)
+{
+	return (int32_t)(((uint32_t)acc << 8) | c);
+}
+
 int
 lws_sspc_deserialize_parse(lws_sspc_handle_t *hh, const uint8_t *cp, size_t len,
 			   lws_ss_handle_t **pss)
@@ -603,7 +616,7 @@ payload_ff:
 				goto hangup;
 			}
 
-			par->temp32 = (par->temp32 << 8) | *cp++;
+			par->temp32 = ser_acc32(par->temp32, *cp++);
 			if (++par->ctr < 4)
 				break;
 
@@ -654,7 +667,7 @@ payload_ff:
 				goto hangup;
 			}
 
-			par->temp32 = (par->temp32 << 8) | *cp++;
+			par->temp32 = ser_acc32(par->temp32, *cp++);
 			if (++par->ctr < 4)
 				break;
 
@@ -669,7 +682,7 @@ payload_ff:
 				goto hangup;
 			}
 
-			par->temp32 = (par->temp32 << 8) | *cp++;
+			par->temp32 = ser_acc32(par->temp32, *cp++);
 			if (++par->ctr < 4)
 				break;
 
@@ -685,7 +698,7 @@ payload_ff:
 
 		case RPAR_TXCR0:
 
-			par->temp32 = (par->temp32 << 8) | *cp++;
+			par->temp32 = ser_acc32(par->temp32, *cp++);
 			if (++par->ctr < 4) {
 				if (!--par->rem) {
 					lwsl_info("TXCR0\n");
@@ -883,7 +896,7 @@ payload_ff:
 
 		case RPAR_RESULT_CREATION_DSH:
 
-			par->temp32 = (par->temp32 << 8) | (*cp++);
+			par->temp32 = ser_acc32(par->temp32, *cp++);
 			if (!par->rem--) {
 				lwsl_info("CDSH\n");
 				goto hangup;
@@ -1059,13 +1072,15 @@ payload_ff:
 			break;
 
 		case RPAR_STATEINDEX:
-			par->ctr = (par->ctr << 8) | (*cp++);
+			/* the enum's integer type is up to the compiler */
+			par->ctr = (lws_ss_constate_t)
+				(((uint32_t)par->ctr << 8) | (*cp++));
 			if (--par->rem == 4)
 				par->ps = RPAR_ORD3;
 			break;
 
 		case RPAR_ORD3:
-			par->flags = (uint32_t)((*cp++) << 24);
+			par->flags = (uint32_t)(*cp++) << 24;
 			par->ps++;
 			break;
 
