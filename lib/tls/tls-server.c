@@ -629,6 +629,12 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 	/* continue establishment */
 	wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 
+	/* what the accept took the POLLOUT from is given it back */
+	if (wsi->io->tls.want_write_after_accept) {
+		wsi->io->tls.want_write_after_accept = 0;
+		lws_callback_on_writable(wsi);
+	}
+
 	return 0;
 }
 

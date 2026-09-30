@@ -206,6 +206,8 @@ struct lws_lws_tls {
 
 	unsigned int		ssl_accept_in_bg:1;
 	unsigned int		hs_ca_id_valid:1;
+	/* a writeable was asked for while the server tls accept had POLLOUT */
+	unsigned int		want_write_after_accept:1;
 };
 
 

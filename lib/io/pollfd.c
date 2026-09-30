@@ -554,6 +554,19 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 static int
 lws_io_want_write_pollfd(struct lws *wsi)
 {
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_TLS)
+	/*
+	 * A server's tls accept has the POLLOUT until it is done, and clears
+	 * it as it goes: a writeable asked for meanwhile, eg, from the
+	 * adoption callback of a protocol whose server speaks first, is kept
+	 * for when the accept completes
+	 */
+	if (!lwsi_role_client(wsi) && (lwsi_state(wsi) == LRS_SSL_INIT ||
+				       lwsi_state(wsi) == LRS_SSL_ACK_PENDING ||
+				       lwsi_state(wsi) == LRS_AWAITING_SSL_ACCEPT))
+		wsi->io->tls.want_write_after_accept = 1;
+#endif
+
 	return __lws_change_pollfd(wsi, 0, LWS_POLLOUT);
 }
 
