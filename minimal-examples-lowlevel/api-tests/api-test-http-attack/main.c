@@ -486,6 +486,19 @@ static const struct h1_attack h1_attacks[] = {
 
 	{ "1000 headers", ATK_L(ATK_GET_ALIVE), "Accept: x\r\n", 1000,
 	  ATK_L("\r\n"), 1, 0, V_NO_2XX, 0, NULL },
+	/*
+	 * Each urlarg takes one of the ah's header fragments.  A long query
+	 * string that fits them is served; one with more args than the ah
+	 * has fragments for is a 414, and the ah is free for the request
+	 * after it.  Neither is hostile, the second just too many.
+	 */
+	{ "40 urlargs", ATK_L("GET /alive?"), "a=1&", 40,
+	  ATK_L("a=1 HTTP/1.1\r\nHost: localhost\r\n"
+		"Connection: close\r\n\r\n"), 1, 0, V_STATUS, 200,
+	  "echo:/alive?a=1&a=1&" },
+	{ "120 urlargs", ATK_L("GET /alive?"), "a=1&", 120,
+	  ATK_L("a=1 HTTP/1.1\r\nHost: localhost\r\n\r\n"), 1, 0,
+	  V_STATUS, HTTP_STATUS_REQ_URI_TOO_LONG, NULL },
 	{ "headers never finished",
 	  ATK_L("GET /alive HTTP/1.1\r\nHost: x\r\n"), NULL, 0, ATK_NONE, 1, 0,
 	  V_DROPPED, 0, NULL },

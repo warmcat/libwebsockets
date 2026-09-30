@@ -269,12 +269,12 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 	 */
 
 	if (ah->frag_index[hdr_token_idx]) {
-		int n;
+		int n, nx;
 
 		/* find the last fragment for this header... */
 		n = ah->frag_index[hdr_token_idx];
-		while (ah->frags[n].nfrag)
-			n = ah->frags[n].nfrag;
+		while ((nx = lws_ah_frag_next(ah, n)))
+			n = nx;
 		/* and point it to continue in our continuation fragment */
 		ah->frags[n].nfrag = ah->nfrag;
 	} else

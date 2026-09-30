@@ -52,6 +52,8 @@ h1, raw:
 |8 pipelined requests|all 9 served, in order|
 |two different Content-Length, Content-Length with chunked, chunk size overflow, two Host|nothing served|
 |NUL or a bare CR in a header value, 1000 headers|nothing served|
+|40 urlargs|served|
+|120 urlargs, more than the ah has header fragments for|414|
 |a bare LF ending the request line, a header, or a chunked body's trailer|nothing served|
 |headers never finished, or trickled in a byte at a time|dropped within the header timeout|
 

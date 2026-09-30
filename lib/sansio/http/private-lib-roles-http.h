@@ -279,6 +279,24 @@ lws_pt_next_ah(struct allocated_headers *ah)
 }
 
 /*
+ * The fragment after n in its header's chain, or 0 at the end of it.
+ *
+ * Every link is made from a fragment to one taken after it (a continuation
+ * or the next urlarg always gets a fresh slot, lws_hdr_alias() a fresh
+ * descriptor, a removal or a rewind only drops links), so a link that does
+ * not go forward is a corrupted chain.  End the walk there: without this, a
+ * link back to itself or an earlier fragment had every walker going round
+ * it forever, with whatever lock its caller holds.
+ */
+static LWS_INLINE int
+lws_ah_frag_next(const struct allocated_headers *ah, int n)
+{
+	int nx = ah->frags[n].nfrag;
+
+	return nx > n && nx < (int)LWS_ARRAY_SIZE(ah->frags) ? nx : 0;
+}
+
+/*
  * One byte of an h2 / h3 field name (RFC 9113 8.2.1, RFC 9114 4.2): no
  * controls, SP, uppercase or non-ASCII, and a ':' only to lead a pseudo-header.
  *

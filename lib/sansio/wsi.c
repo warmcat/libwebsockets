@@ -1557,7 +1557,7 @@ int lws_get_urlarg_by_name_safe(struct lws *wsi, const char *name, char *buf,
 
 			return ol;
 		}
-		fi = f->nfrag;
+		fi = lws_ah_frag_next(ah, fi);
 	}
 
 	return -1;

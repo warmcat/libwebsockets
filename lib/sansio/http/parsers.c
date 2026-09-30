@@ -561,7 +561,7 @@ lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx)
 	do {
 		if (!frag_idx)
 			return wsi->stream.ah->frags[n].len;
-		n = wsi->stream.ah->frags[n].nfrag;
+		n = lws_ah_frag_next(wsi->stream.ah, n);
 	} while (frag_idx-- && n);
 
 	return 0;
@@ -596,7 +596,7 @@ int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 		return 0;
 	do {
 		len += wsi->stream.ah->frags[n].len;
-		n = wsi->stream.ah->frags[n].nfrag;
+		n = lws_ah_frag_next(wsi->stream.ah, n);
 
 		if (n)
 			len++;
@@ -621,7 +621,7 @@ int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
 		return -1;
 
 	while (n < frag_idx) {
-		f = wsi->stream.ah->frags[f].nfrag;
+		f = lws_ah_frag_next(wsi->stream.ah, f);
 		if (!f)
 			return -1;
 		n++;
@@ -640,7 +640,7 @@ int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
 int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 			     enum lws_token_indexes h)
 {
-	int toklen = lws_hdr_total_length(wsi, h), n, comma;
+	int toklen = lws_hdr_total_length(wsi, h), n, next, comma;
 
 	*dst = '\0';
 	if (!toklen)
@@ -656,7 +656,9 @@ int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 	if (!n)
 		return 0;
 	do {
-		comma = (wsi->stream.ah->frags[n].nfrag) ? 1 : 0;
+		/* the same walk as lws_hdr_total_length(), so the same length */
+		next = lws_ah_frag_next(wsi->stream.ah, n);
+		comma = next ? 1 : 0;
 
 /*		if (h == WSI_TOKEN_HTTP_URI_ARGS)
 			lwsl_notice("%s: WSI_TOKEN_HTTP_URI_ARGS '%.*s'\n",
@@ -672,7 +674,7 @@ int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 		        wsi->stream.ah->frags[n].len);
 		dst += wsi->stream.ah->frags[n].len;
 		len -= wsi->stream.ah->frags[n].len;
-		n = wsi->stream.ah->frags[n].nfrag;
+		n = next;
 
 		/*
 		 * Note if you change this logic, take care about updating len
@@ -886,9 +888,10 @@ lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s)
 	if (!wsi->stream.ah->frag_index[h]) {
 		wsi->stream.ah->frag_index[h] = wsi->stream.ah->nfrag;
 	} else {
-		int n = wsi->stream.ah->frag_index[h];
-		while (wsi->stream.ah->frags[n].nfrag)
-			n = wsi->stream.ah->frags[n].nfrag;
+		int n = wsi->stream.ah->frag_index[h], nx;
+
+		while ((nx = lws_ah_frag_next(wsi->stream.ah, n)))
+			n = nx;
 		wsi->stream.ah->frags[n].nfrag = wsi->stream.ah->nfrag;
 	}
 
@@ -1058,10 +1061,13 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 			/* don't account for it */
 			wsi->stream.ah->frags[wsi->stream.ah->nfrag].len--;
 			/*
-			 * link to next fragment... if there is one: check
-			 * before linking to it or moving nfrag on to it
+			 * link to next fragment... if there is one, and room
+			 * for it: check before linking to it or moving nfrag
+			 * on to it, so a failure leaves the chain as it was
 			 */
-			if (ah->nfrag + 1 >= (int)LWS_ARRAY_SIZE(ah->frags))
+			if (ah->nfrag + 1 >= (int)LWS_ARRAY_SIZE(ah->frags) ||
+			    (unsigned int)ah->pos >=
+					wsi->a.context->max_http_header_data)
 				goto excessive;
 			ah->frags[ah->nfrag].nfrag = (uint8_t)(ah->nfrag + 1);
 			ah->nfrag++;
@@ -1079,9 +1085,6 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 			 */
 			ah->post_literal_equal = 0;
 			ah->frags[ah->nfrag].offset = ah->pos;
-			if ((unsigned int)ah->pos >=
-					wsi->a.context->max_http_header_data)
-				goto excessive;
 			ah->frags[ah->nfrag].len = 0;
 			ah->frags[ah->nfrag].nfrag = 0;
 			goto swallow;
@@ -1205,15 +1208,17 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 		/* don't account for it */
 		wsi->stream.ah->frags[wsi->stream.ah->nfrag].len--;
 
-		/* move to using WSI_TOKEN_HTTP_URI_ARGS, if there's a slot */
-		if (ah->nfrag + 1 >= (int)LWS_ARRAY_SIZE(ah->frags))
+		/*
+		 * move to using WSI_TOKEN_HTTP_URI_ARGS, if there's a slot and
+		 * room for it
+		 */
+		if (ah->nfrag + 1 >= (int)LWS_ARRAY_SIZE(ah->frags) ||
+		    (unsigned int)ah->pos + 1 >=
+				wsi->a.context->max_http_header_data)
 			goto excessive;
 		ah->nfrag++;
 
 		ah->frags[ah->nfrag].offset = ++ah->pos;
-		if ((unsigned int)ah->pos >= wsi->a.context->max_http_header_data)
-			goto excessive;
-
 		ah->frags[ah->nfrag].len = 0;
 		ah->frags[ah->nfrag].nfrag = 0;
 
@@ -1604,7 +1609,14 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 			case LPUR_FORBID:
 				goto forbid;
 			case LPUR_EXCESSIVE:
-				goto excessive;
+				/*
+				 * Out of fragments, or of room, for the next
+				 * urlarg: lws_parse_urldecode() took neither
+				 */
+				lwsl_parse_fail(wsi, "uri args too many or too "
+						     "large (state %d)",
+						     ah->parser_state);
+				goto too_large;
 			default:
 				lwsl_parse_fail(wsi, "urldecode failed (state %d)",
 						ah->parser_state);
@@ -1963,13 +1975,6 @@ start_fragment:
 				goto too_large;
 			}
 			ah->nfrag++;
-excessive:
-			if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frags)) {
-				lwsl_parse_fail(wsi, "more hdr frags than we can "
-						     "deal with (state %d)",
-						     ah->parser_state);
-				goto too_large;
-			}
 
 			ah->frags[ah->nfrag].offset = ah->pos;
 			ah->frags[ah->nfrag].len = 0;
@@ -1983,8 +1988,8 @@ excessive:
 				break;
 			}
 			/* continuation */
-			while (ah->frags[n].nfrag)
-				n = ah->frags[n].nfrag;
+			while ((r = lws_ah_frag_next(ah, (int)n)))
+				n = (unsigned int)r;
 			ah->frags[n].nfrag = ah->nfrag;
 
 			if (issue_char(wsi, ' ') < 0)
@@ -2303,7 +2308,7 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
 								pe, buf, max_len);
 					vp++;
 				}
-				f = wsi->stream.ah->frags[f].nfrag;
+				f = lws_ah_frag_next(wsi->stream.ah, f);
 			}
 		}
 	}
@@ -2364,7 +2369,7 @@ lws_http_cookie_get_nth(struct lws *wsi, const char *name, int n,
 						   pe, buf, max);
 				vp++;
 			}
-			f = wsi->stream.ah->frags[f].nfrag;
+			f = lws_ah_frag_next(wsi->stream.ah, f);
 		}
 	}
 
@@ -2622,15 +2627,17 @@ lws_http_remove_urlarg(struct lws *wsi, const char *name)
 		struct lws_fragments *f = &ah->frags[fi];
 		if (f->len >= sl && !strncmp(&ah->data[f->offset], name, (size_t)sl)) {
 			/* matches... remove this fragment from the chain */
+			uint8_t nx = (uint8_t)lws_ah_frag_next(ah, fi);
+
 			if (pf)
-				ah->frags[pf].nfrag = f->nfrag;
+				ah->frags[pf].nfrag = nx;
 			else
-				ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] = f->nfrag;
+				ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] = nx;
 
 			return 0;
 		}
 		pf = fi;
-		fi = f->nfrag;
+		fi = lws_ah_frag_next(ah, fi);
 	}
 
 	return 1;
