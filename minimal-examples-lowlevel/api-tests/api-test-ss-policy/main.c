@@ -70,6 +70,16 @@ static const char * const rejected[] = {
 	 "\"s\": [{\"t_srv\": {\"server\": true, \"server_cert\": \"t_a\","
 				"\"server_key\": \"t_b\"}}],"
 	 "\"trust_stores\": [{\"name\": \"t_ts\", \"stack\": [\"t_nope\"]}]}",
+
+	/* a trust store naming only the start of a cert name */
+
+	"{\"certs\": [{\"t_abc\": \"AAAA\"}],"
+	 "\"trust_stores\": [{\"name\": \"t_ts\", \"stack\": [\"t_a\"]}]}",
+
+	/* a trust store naming an empty cert name */
+
+	"{\"certs\": [{\"t_abc\": \"AAAA\"}],"
+	 "\"trust_stores\": [{\"name\": \"t_ts\", \"stack\": [\"\"]}]}",
 };
 
 /* a document that ends partway through a cert, the connection dropped */

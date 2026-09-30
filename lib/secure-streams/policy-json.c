@@ -271,6 +271,18 @@ static const char * const protonames[] = {
 	"raw",		/* LWSSSP_RAW */
 };
 
+/*
+ * Policy objects refer to each other by name, and the reference must match
+ * the whole name: a strncmp() on the reference length alone would let "a"
+ * pick "abc", and "" pick whatever is first on the list
+ */
+
+static int
+lws_ss_policy_name_is(const char *name, const char *ref, size_t len)
+{
+	return name && strlen(name) == len && !strncmp(name, ref, len);
+}
+
 static const lws_ss_auth_t *
 lws_ss_policy_find_auth_by_name(struct policy_cb_args *a,
 				const char *name, size_t len)
@@ -278,9 +290,7 @@ lws_ss_policy_find_auth_by_name(struct policy_cb_args *a,
 	const lws_ss_auth_t *auth = a->heads[LTY_AUTH].a;
 
 	while (auth) {
-		if (auth->name &&
-		    len == strlen(auth->name) &&
-		    !strncmp(auth->name, name, len))
+		if (lws_ss_policy_name_is(auth->name, name, len))
 			return auth;
 
 		auth = auth->next;
@@ -464,9 +474,9 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 			p2 = (lws_ss_policy_t *)a->context->pss_policies;
 
 			while (p2) {
-				if (!strncmp(p2->streamtype,
+				if (lws_ss_policy_name_is(p2->streamtype,
 					     ctx->path + ctx->st[ctx->sp].p,
-					     (unsigned int)(ctx->path_match_len -
+					     (size_t)(ctx->path_match_len -
 						          ctx->st[ctx->sp].p))) {
 					lwsl_info("%s: overriding s[] %s\n",
 						  __func__, p2->streamtype);
@@ -623,7 +633,8 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 			   ctx->npos, ctx->buf);
 		x = a->heads[LTY_X509].x;
 		while (x) {
-			if (!strncmp(x->vhost_name, ctx->buf, ctx->npos)) {
+			if (lws_ss_policy_name_is(x->vhost_name, ctx->buf,
+						  ctx->npos)) {
 				a->curr[LTY_TRUSTSTORE].t->ssx509[a->count++] = x;
 				a->curr[LTY_TRUSTSTORE].t->count++;
 
@@ -716,8 +727,8 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		py = &a->heads[LTY_X509].x;
 		x = a->heads[LTY_X509].x;
 		while (x) {
-			if (!strncmp(x->vhost_name, ctx->buf, ctx->npos) &&
-					!x->vhost_name[ctx->npos]) {
+			if (lws_ss_policy_name_is(x->vhost_name, ctx->buf,
+						  ctx->npos)) {
 				if ((ctx->path_match - 1) == LSSPPT_SERVER_CERT)
 					a->curr[LTY_POLICY].p->trust.server.cert = x;
 				else
@@ -933,7 +944,8 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	case LSSPPT_RETRYPTR:
 		bot = a->heads[LTY_BACKOFF].b;
 		while (bot) {
-			if (!strncmp(ctx->buf, bot->name, ctx->npos)) {
+			if (lws_ss_policy_name_is(bot->name, ctx->buf,
+						  ctx->npos)) {
 				a->curr[LTY_POLICY].p->retry_bo = &bot->r;
 
 				return 0;
@@ -947,7 +959,8 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	case LSSPPT_TRUST:
 		ts = a->heads[LTY_TRUSTSTORE].t;
 		while (ts) {
-			if (!strncmp(ctx->buf, ts->name, ctx->npos)) {
+			if (lws_ss_policy_name_is(ts->name, ctx->buf,
+						  ctx->npos)) {
 				a->curr[LTY_POLICY].p->trust.store = ts;
 				return 0;
 			}
