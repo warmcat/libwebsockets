@@ -516,6 +516,8 @@ struct lws_context_per_thread {
 #if defined(LWS_ROLE_QUIC) && defined(LWS_WITH_SERVER)
 	/* server quic connections still in their handshake, oldest first */
 	lws_dll2_owner_t	quic_halfopen;
+	/* ... and those whose handshake completed */
+	lws_dll2_owner_t	quic_established;
 #endif
 	/* --- event library based members --- */
 

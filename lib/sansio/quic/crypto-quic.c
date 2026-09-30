@@ -1174,6 +1174,20 @@ error_handling:
 		}
 #endif
 
+#if defined(LWS_WITH_SERVER)
+		/*
+		 * A completed server connection takes its place among the
+		 * thread's and its peer's, or is refused (C-771)
+		 */
+		if (wsi->quic.qn->is_server && wsi->quic.qn->nwsi &&
+		    lws_quic_server_admit_established(wsi->quic.qn->nwsi)) {
+			lws_quic_enter_closing_state(wsi,
+					LWS_QUIC_ERR_CONNECTION_REFUSED, 0, 0);
+
+			return -1;
+		}
+#endif
+
 		wsi->quic.qn->handshake_done = 1;
 
 		/*

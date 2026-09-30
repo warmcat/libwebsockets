@@ -989,7 +989,8 @@ struct lws_context_creation_info {
 	 * connection is being dropped because of peer limits.
 	 *
 	 * The callback provides the context, and an lws_sockaddr46 with the
-	 * peer address and port.
+	 * peer address and port.  The sockfd is LWS_SOCK_INVALID for a QUIC
+	 * connection, which has no socket of its own.
 	 */
 	unsigned short ip_limit_ah;
 	/**< CONTEXT: max number of ah a single IP may use simultaneously
@@ -1004,7 +1005,9 @@ struct lws_context_creation_info {
 	 *	      0 is no limit.  This is a hard limit, connections from
 	 *	      the same IP will simply be dropped once it acquires the
 	 *	      amount of simultaneous wsi / accepted connections
-	 *	      given here.
+	 *	      given here.  A QUIC server connection counts as one
+	 *	      when its handshake completes, and one completing beyond
+	 *	      the limit is closed with CONNECTION_REFUSED.
 	 */
 
 #endif /* PEER_LIMITS */

@@ -941,7 +941,7 @@ lws_quic_halfopen_admit(struct lws *lwsi, const lws_sockaddr46 *sa46)
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&pt->quic_halfopen)) {
 		struct lws_quic_netconn *qn = lws_container_of(d,
-				struct lws_quic_netconn, halfopen_list);
+				struct lws_quic_netconn, pt_list);
 
 		if (lws_quic_same_prefix(&qn->path_sa46, sa46) &&
 		    ++same >= LWS_QUIC_HALFOPEN_PER_PREFIX) {
@@ -951,6 +951,12 @@ lws_quic_halfopen_admit(struct lws *lwsi, const lws_sockaddr46 *sa46)
 		}
 	} lws_end_foreach_dll(d);
 
+	/* it could not complete: see lws_quic_server_admit_established() */
+	if (pt->quic_established.count >= lwsi->a.context->fd_limit_per_thread) {
+		lwsl_wsi_info(lwsi, "QUIC connections at limit, dropping Initial");
+		return 1;
+	}
+
 	if (pt->quic_halfopen.count < LWS_QUIC_HALFOPEN_MAX)
 		return 0;
 
@@ -959,11 +965,58 @@ lws_quic_halfopen_admit(struct lws *lwsi, const lws_sockaddr46 *sa46)
 	 * close sends it nothing (a spoofed source would be the target).
 	 */
 	oldest = lws_container_of(lws_dll2_get_head(&pt->quic_halfopen),
-				  struct lws_quic_netconn, halfopen_list);
+				  struct lws_quic_netconn, pt_list);
 	lwsl_wsi_info(lwsi, "handshakes in progress at limit, evicting oldest");
-	lws_dll2_remove(&oldest->halfopen_list);
+	lws_dll2_remove(&oldest->pt_list);
 	lws_close_free_wsi(oldest->nwsi, LWS_CLOSE_STATUS_NOSTATUS,
 			   "quic halfopen evicted");
+
+	return 0;
+}
+
+/*
+ * A server connection's handshake is completing.  Completed connections hold
+ * no fd either, and a peer keeps one up as long as it likes (a PING refreshes
+ * the idle timeout), so they are bounded here: a service thread keeps at most
+ * as many as it has fd slots (fd_limit_per_thread), the bound TCP connections
+ * have, and with LWS_WITH_PEER_LIMITS each counts as one wsi of its peer's
+ * address against ip_limit_wsi, as a TCP connection does.  Beyond either, the
+ * newest, this one, is refused.  Returns nonzero if it is to be closed.
+ */
+int
+lws_quic_server_admit_established(struct lws *nwsi)
+{
+	struct lws_context *cx = nwsi->a.context;
+	struct lws_context_per_thread *pt = &cx->pt[(int)nwsi->tsi];
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
+#if defined(LWS_WITH_PEER_LIMITS)
+	struct lws_peer *peer = NULL;
+#endif
+
+	if (pt->quic_established.count >= cx->fd_limit_per_thread) {
+		lwsl_wsi_notice(nwsi, "QUIC connections at limit (%u), "
+				      "refusing", cx->fd_limit_per_thread);
+		return 1;
+	}
+
+#if defined(LWS_WITH_PEER_LIMITS)
+	if (nwsi->a.vhost)
+		peer = lws_get_or_create_peer_sa46(nwsi->a.vhost,
+						   &qn->path_sa46);
+	if (peer && cx->ip_limit_wsi && peer->count_wsi >= cx->ip_limit_wsi) {
+		lwsl_wsi_info(nwsi, "Peer reached wsi limit %d",
+			      cx->ip_limit_wsi);
+		if (cx->pl_notify_cb)
+			cx->pl_notify_cb(cx, LWS_SOCK_INVALID, &peer->sa46);
+		return 1;
+	}
+	/* the connection gives it back, lws_quic_netconn_destroy() */
+	lws_peer_add_wsi(cx, peer, NULL);
+	qn->peer = peer;
+#endif
+
+	lws_dll2_remove(&qn->pt_list);
+	lws_dll2_add_tail(&qn->pt_list, &pt->quic_established);
 
 	return 0;
 }
@@ -1542,7 +1595,7 @@ tp_ok:
 				(int)wsi->a.context->timeout_secs);
 
 		/* ... and count it against the half-open limits until then */
-		lws_dll2_add_tail(&nwsi->quic.qn->halfopen_list,
+		lws_dll2_add_tail(&nwsi->quic.qn->pt_list,
 				  &wsi->a.context->pt[(int)wsi->tsi].quic_halfopen);
 
 		lwsl_wsi_info(wsi, "QUIC RX: Created new connection! (loc_cid len %d)", nwsi->quic.qn->loc_cid.len);
@@ -4588,9 +4641,6 @@ lws_quic_server_idle_check(struct lws *nwsi)
 	if (!qn || !qn->is_server || !qn->handshake_done)
 		return;
 
-	/* the handshake is done, it no longer counts as half-open */
-	lws_dll2_remove(&qn->halfopen_list);
-
 	if (qn->is_closing)
 		return;
 
@@ -4633,7 +4683,12 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 	if (!qn)
 		return;
 
-	lws_dll2_remove(&qn->halfopen_list);
+	lws_dll2_remove(&qn->pt_list);
+#if defined(LWS_WITH_PEER_LIMITS)
+	if (qn->peer && qn->nwsi)
+		lws_peer_track_wsi_close(qn->nwsi->a.context, qn->peer);
+	qn->peer = NULL;
+#endif
 
 	for (i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
 		/* Free keys */

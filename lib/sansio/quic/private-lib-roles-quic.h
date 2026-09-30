@@ -362,8 +362,15 @@ struct lws_quic_reply {
 
 struct lws_quic_netconn {
 	struct lws		*nwsi; /* the parent UDP network wsi */
-	/* on the pt's quic_halfopen while a server's handshake is not done */
-	lws_dll2_t		halfopen_list;
+	/*
+	 * a server connection is on the pt's quic_halfopen while its handshake
+	 * is not done, then on its quic_established
+	 */
+	lws_dll2_t		pt_list;
+#if defined(LWS_WITH_PEER_LIMITS)
+	/* a server connection counts against its peer once established */
+	struct lws_peer		*peer;
+#endif
 
 	/* this tx pass (IO's, README.sans-io-split.md "Sending is a pull") */
 	struct lws_quic_tx_pkt	tx_pkt;	/* the one IO is sending */
@@ -732,6 +739,10 @@ lws_quic_enter_closing_state(struct lws *wsi, uint64_t err_code, uint64_t frame_
 
 void
 lws_quic_server_idle_check(struct lws *nwsi);
+#if defined(LWS_WITH_SERVER)
+int
+lws_quic_server_admit_established(struct lws *nwsi);
+#endif
 
 int
 lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t len);
