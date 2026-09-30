@@ -115,15 +115,17 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 
 /*
  * mbedtls has no SSL_get_SSL_CTX(), so identify the listening vhost this
- * handshake belongs to by its config.  A vhost whose cert was hot-reloaded
- * keeps the retired ctx alive for the connections still using it, so those
- * have to be searched too... otherwise the caller cannot tell which listener
- * the connection arrived on.
+ * handshake belongs to by the ctx its session was made from.  Not by the
+ * ssl's conf: a quic session runs on a private copy of the ctx's conf
+ * (lws_tls_quic_init()), which is no vhost's.  A vhost whose cert was
+ * hot-reloaded keeps the retired ctx alive for the connections still using
+ * it, so those have to be searched too... otherwise the caller cannot tell
+ * which listener the connection arrived on.
  */
 
 static struct lws_vhost *
-lws_mbedtls_vhost_from_conf(struct lws_context *context,
-			    const mbedtls_ssl_config *conf)
+lws_mbedtls_vhost_from_ctx(struct lws_context *context,
+			   const struct lws_tls_ctx *ctx)
 {
 	struct lws_vhost *vh = lws_vhost_first(context);
 
@@ -133,7 +135,7 @@ lws_mbedtls_vhost_from_conf(struct lws_context *context,
 			continue;
 		}
 
-		if (vh->tls.ssl_ctx && &vh->tls.ssl_ctx->conf == conf)
+		if (ctx && vh->tls.ssl_ctx == ctx)
 			return vh;
 
 		lws_start_foreach_dll(struct lws_dll2 *, d,
@@ -141,7 +143,7 @@ lws_mbedtls_vhost_from_conf(struct lws_context *context,
 			struct lws_tls_ctx_ref *r = lws_container_of(d,
 						struct lws_tls_ctx_ref, list);
 
-			if (r->ctx && &r->ctx->conf == conf)
+			if (ctx && r->ctx == ctx)
 				return vh;
 		} lws_end_foreach_dll(d);
 
@@ -178,8 +180,7 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 	 * the same port.
 	 */
 
-	vh = lws_mbedtls_vhost_from_conf(context,
-					 mbedtls_ctx->MBEDTLS_PRIVATE(conf));
+	vh = lws_mbedtls_vhost_from_ctx(context, conn->ctx);
 	if (!vh) {
 		/*
 		 * We can't tell which listener this is... we must not borrow
@@ -187,7 +188,7 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 		 * would let SNI select a vhost belonging to a different
 		 * listener.  Leave him on the vhost he arrived on.
 		 */
-		lwsl_info("%s: no vhost owns this tls conf\n", __func__);
+		lwsl_info("%s: no vhost owns this tls ctx\n", __func__);
 
 		return 0;
 	}
