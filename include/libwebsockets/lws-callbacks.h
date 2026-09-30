@@ -883,9 +883,9 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_MQTT_CLIENT_CLOSED				= 208,
 	LWS_CALLBACK_MQTT_ACK					= 209,
 	/**< When a message is fully sent, if QoS0 this callback is generated
-	 * to locally "acknowledge" it.  For QoS1, this callback is only
-	 * generated when the matching PUBACK is received.  Return nonzero to
-	 * close the wsi.
+	 * to locally "acknowledge" it, from the event loop after the send
+	 * call returned.  For QoS1, this callback is only generated when the
+	 * matching PUBACK is received.  Return nonzero to close the wsi.
 	 */
 	LWS_CALLBACK_MQTT_RESEND				= 210,
 	/**< In QoS1 or QoS2, this callback is generated instead of the _ACK one

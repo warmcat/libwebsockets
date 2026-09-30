@@ -808,6 +808,9 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		return 0; /* don't passthru */
 
 	case LWS_CALLBACK_MQTT_SUBSCRIBED:
+		if (!h)
+			/* the stream let go of this connection already */
+			break;
 		if (wsi->mqtt->inside_shadow) {
 			wsi->mqtt->done_shadow_subscribe = 1;
 			lws_callback_on_writable(wsi);
@@ -829,6 +832,8 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_MQTT_ACK:
+		if (!h)
+			break;
 		lws_sul_cancel(&h->sul_timeout);
 		if (h->u.mqtt.send_unacked) {
 			lws_buflist_destroy_all_segments(&h->u.mqtt.buflist_unacked);
@@ -854,6 +859,8 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_MQTT_RESEND:
+		if (!h)
+			break;
 		lws_sul_cancel(&h->sul_timeout);
 		if (h->u.mqtt.retry_count++ < LWS_MQTT_MAX_PUBLISH_RETRY) {
 			h->u.mqtt.unacked_size =

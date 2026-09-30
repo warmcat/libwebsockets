@@ -361,6 +361,10 @@ lws_mqtt_str_free(lws_mqtt_str_t **s);
  * up into 1 or 2- mtu sized chunks and send that.
  *
  * Final should be set when you're calling with the last part of the payload.
+ *
+ * A QoS0 PUBLISH has no PUBACK, lws acknowledges it locally with
+ * LWS_CALLBACK_MQTT_ACK once the last part is sent.  Like a real PUBACK for
+ * QoS1, that comes afterwards from the event loop, never from inside this call.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
@@ -375,7 +379,8 @@ lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
  * For topics other child streams have not already subscribed to, send a packet
  * to the server asking to subscribe to them.  If all topics listed are already
  * subscribed to be the shared network connection, just trigger the
- * LWS_CALLBACK_MQTT_SUBSCRIBED callback as if a SUBACK had come.
+ * LWS_CALLBACK_MQTT_SUBSCRIBED callback as if a SUBACK had come: like a real
+ * SUBACK, it comes afterwards from the event loop, not from inside this call.
  *
  * \p sub doesn't need to exist after the return from this function.
  */
@@ -392,7 +397,8 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub);
  * to the server asking to unsubscribe from them.  If all topics
  * listed are already subscribed by other child streams on the shared
  * network connection, just trigger the LWS_CALLBACK_MQTT_UNSUBSCRIBED
- * callback as if a UNSUBACK had come.
+ * callback as if a UNSUBACK had come: like a real UNSUBACK, it comes
+ * afterwards from the event loop, not from inside this call.
  *
  * \p unsub doesn't need to exist after the return from this function.
  */

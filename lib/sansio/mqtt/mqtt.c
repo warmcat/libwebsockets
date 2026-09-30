@@ -459,6 +459,64 @@ lws_mqtt_shadow_timeout(struct lws_sorted_usec_list *sul)
 		lws_set_timeout(mqtt->wsi, 1, LWS_TO_KILL_ASYNC);
 }
 
+/*
+ * The acks we make up ourselves: MQTT_ACK for a QoS0 PUBLISH, which has no
+ * PUBACK, and SUBSCRIBED / UNSUBSCRIBED when the connection already satisfies
+ * a SUBSCRIBE / UNSUBSCRIBE without the broker.  The composers only note they
+ * are owed, and they are told from here, from the event loop, like the real
+ * ones are told from rx.
+ *
+ * The user callback may close or destroy anything, eg, a Secure Streams state
+ * handler returning DESTROY_ME frees the SS handle.  Told from inside the
+ * composer, its caller then carried on using what the callback had freed.
+ */
+
+static void
+lws_mqtt_local_ack_cb(lws_sorted_usec_list_t *sul)
+{
+	struct _lws_mqtt_related *mqtt = lws_container_of(sul,
+			struct _lws_mqtt_related, sul_local_ack);
+	struct lws *wsi = mqtt->wsi;
+
+	if (mqtt->local_subscribed) {
+		mqtt->local_subscribed = 0;
+		if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
+						LWS_CALLBACK_MQTT_SUBSCRIBED,
+						wsi->user_space, NULL, 0) < 0)
+			goto bail;
+	}
+
+	while (mqtt->local_acks) {
+		mqtt->local_acks--;
+		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_MQTT_ACK,
+					      wsi->user_space, NULL, 0))
+			goto bail;
+	}
+
+	if (mqtt->local_unsubscribed) {
+		mqtt->local_unsubscribed = 0;
+		if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
+						LWS_CALLBACK_MQTT_UNSUBSCRIBED,
+						wsi->user_space, NULL, 0) < 0)
+			goto bail;
+	}
+
+	return;
+
+bail:
+	/* the user asked to close: nothing else owed is told */
+	mqtt->local_acks = 0;
+	mqtt->local_subscribed = mqtt->local_unsubscribed = 0;
+	lws_set_timeout(wsi, 1, LWS_TO_KILL_ASYNC);
+}
+
+static void
+lws_mqtt_local_ack_schedule(struct lws *wsi)
+{
+	lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->mqtt->sul_local_ack,
+			 lws_mqtt_local_ack_cb, 1);
+}
+
 void
 lws_mqttc_state_transition(lws_mqttc_t *c, lwsgs_mqtt_states_t s)
 {
@@ -2380,13 +2438,12 @@ do_write:
 		/*
 		 * There won't be any real PUBACK, act like we got one
 		 * so the user callback logic is the same for QoS0 or
-		 * QoS1
+		 * QoS1... and like a real one, it comes afterwards from
+		 * the event loop, not from inside this call
 		 */
-		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_MQTT_ACK,
-					    wsi->user_space, NULL, 0)) {
-			lwsl_err("%s: ACK callback exited\n", __func__);
-			return 1;
-		}
+		if (wsi->mqtt->local_acks < 0xffff)
+			wsi->mqtt->local_acks++;
+		lws_mqtt_local_ack_schedule(wsi);
 	} else if (pub->qos == QOS1 || pub->qos == QOS2) {
 		/* For QoS1 or QoS2, if no PUBACK or PUBREC coming after 3s,
 		 * we must RETRY the publish
@@ -2497,17 +2554,12 @@ lws_mqtt_client_send_subcribe_composed(struct lws *wsi, lws_mqtt_subscribe_param
 			/*
 			 * It turns out there's nothing to do here, the nwsi has
 			 * already subscribed to all the topics this stream
-			 * wanted.  Just tell it it can have them.
+			 * wanted.  Tell it it can have them, from the event
+			 * loop as if the SUBACK had come.
 			 */
 			lwsl_notice("%s: all topics already subscribed\n", __func__);
-			if (user_callback_handle_rxflow(
-				    wsi->a.protocol->callback,
-				    wsi, LWS_CALLBACK_MQTT_SUBSCRIBED,
-				    wsi->user_space, NULL, 0) < 0) {
-				lwsl_err("%s: MQTT_SUBSCRIBE failed\n",
-					 __func__);
-				return -1;
-			}
+			wsi->mqtt->local_subscribed = 1;
+			lws_mqtt_local_ack_schedule(wsi);
 
 			return 0;
 		}
@@ -2703,21 +2755,12 @@ lws_mqtt_client_send_unsubcribe_composed(struct lws *wsi,
 			 * topics.
 			 *
 			 * So, don't send UNSUB to server, and just fake the
-			 * UNSUB ACK event for the guy going away.
+			 * UNSUB ACK event for the guy going away, from the
+			 * event loop as if the UNSUBACK had come.
 			 */
 			lwsl_notice("%s: unsubscribed!\n", __func__);
-			if (user_callback_handle_rxflow(
-				    wsi->a.protocol->callback,
-				    wsi, LWS_CALLBACK_MQTT_UNSUBSCRIBED,
-				    wsi->user_space, NULL, 0) < 0) {
-				/*
-				 * We can't directly close here, because the
-				 * caller still has the wsi.  Inform the
-				 * caller that we want to close
-				 */
-
-				return 1;
-			}
+			wsi->mqtt->local_unsubscribed = 1;
+			lws_mqtt_local_ack_schedule(wsi);
 
 			return 0;
 		}

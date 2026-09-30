@@ -374,6 +374,7 @@ struct _lws_mqtt_related {
 	lws_sorted_usec_list_t	sul_unsuback_wait; /* unsuback wait TO */
 	lws_sorted_usec_list_t	sul_qos2_pubrec_wait; /* QoS2 pubrec wait TO */
 	lws_sorted_usec_list_t	sul_shadow_wait; /* Device Shadow wait TO */
+	lws_sorted_usec_list_t	sul_local_ack; /* tells acks we made up */
 	struct lws_dll2_owner	qos2_rx_list;
 	struct lws		*wsi; /**< so sul can use lws_container_of */
 	lws_dll2_owner_t	subs_owner; /**< heap-allocated subscription objects */
@@ -384,6 +385,8 @@ struct _lws_mqtt_related {
 	/* packet id from the PUBREL we still owe a PUBCOMP for */
 	uint16_t		pubcomp_pkt_id;
 	uint16_t		sub_size;
+	/* QoS0 PUBLISHes sent, still owed their local MQTT_ACK */
+	uint16_t		local_acks;
 	uint32_t		peer_max_packet_size;
 
 #if defined(LWS_WITH_CLIENT)
@@ -409,6 +412,10 @@ struct _lws_mqtt_related {
 	uint8_t			inside_shadow:1;
 	uint8_t			done_shadow_subscribe:1;
 	uint8_t			send_shadow_unsubscribe:1;
+	/* the connection already had these topics, owed local SUBSCRIBED */
+	uint8_t			local_subscribed:1;
+	/* others still use these topics, owed local UNSUBSCRIBED */
+	uint8_t			local_unsubscribed:1;
 };
 
 /*

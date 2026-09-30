@@ -411,6 +411,7 @@ rops_close_role_mqtt(struct lws_context_per_thread *pt, struct lws *wsi)
 	lws_sul_cancel(&wsi->mqtt->sul_qos_puback_pubrec_wait);
 	lws_sul_cancel(&wsi->mqtt->sul_unsuback_wait);
 	lws_sul_cancel(&wsi->mqtt->sul_shadow_wait);
+	lws_sul_cancel(&wsi->mqtt->sul_local_ack);
 
 	lws_mqtt_str_free(&c->username);
 	lws_mqtt_str_free(&c->password);
