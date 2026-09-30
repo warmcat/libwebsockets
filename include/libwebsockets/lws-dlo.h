@@ -342,6 +342,8 @@ typedef struct lws_dlo_jpeg {
 	lws_reclaimable_t		rc; /* payload + decoder, once complete */
 	uint8_t				evicted; /* renew from the asset cache
 						  * before the next render */
+	uint8_t				failed; /* the decoder returned FATAL:
+						 * nothing more from it */
 } lws_dlo_jpeg_t;
 
 typedef struct lws_dlo_svg {

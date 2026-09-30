@@ -305,6 +305,14 @@ struct lws_jpeg {
 	uint8_t			is_progressive_tiny;
 	uint8_t			Ss, Se, Ah, Al;
 
+	/*
+	 * Nonzero once any FATAL has been returned, and it is that FATAL:
+	 * every later call returns it again without touching anything.
+	 * Every fine state above is only meaningful on the path it was
+	 * interrupted on, so a failed call leaves the decoder in a state
+	 * nothing can safely resume from.
+	 */
+	lws_stateful_ret_t	failed;
 };
 
 static const int8_t ZAG[] = { 0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
@@ -944,12 +952,14 @@ process_markers(lws_jpeg_t *j, uint8_t *pMarker)
 		}
 
 		switch (j->fs_pm_c) {
+		/*
+		 * Only report the marker: what kind of frame it starts is the
+		 * caller's business, since only one caller is expecting a
+		 * frame header
+		 */
 		case PJM_SOF0:
 		case PJM_SOF1:
 		case PJM_SOF2:
-			if (j->fs_pm_c == PJM_SOF2)
-				j->is_progressive_tiny = 1;
-			/* fallthru */
 		case PJM_SOF3:
 		case PJM_SOF5:
 		case PJM_SOF6:
@@ -1427,6 +1437,12 @@ init_scan(lws_jpeg_t *j)
 
 			return LWS_SRET_FATAL + 23;
 		}
+
+		/*
+		 * This includes a second SOFn: the frame geometry and mode
+		 * were fixed by init_frame() at the first one, and the band
+		 * sizing and the blit depend on them staying fixed
+		 */
 
 		if (c != PJM_SOS) {
 			lwsl_jpeg("%s: not SOS\n", __func__);
@@ -2730,6 +2746,9 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 	lws_stateful_ret_t r = 0;
 	size_t mcu_buf_len;
 
+	if (j->failed)
+		return j->failed;
+
 	j->inbuf = *buf;
 	j->insize = *size;
 	j->hold_at_metadata = hold_at_metadata;
@@ -2773,8 +2792,8 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 				if (--j->fs_emit_budget == 0) {
 					lwsl_jpeg("%s: SOI emit budget gone\n",
 								__func__);
-
-					return LWS_SRET_FATAL + 28;
+					r = LWS_SRET_FATAL + 28;
+					goto fin;
 				}
 	
 				if (j->fs_emit_lc == 0xFF) {
@@ -2783,8 +2802,8 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 					if (j->fs_emit_tc == PJM_EOI) {
 						lwsl_jpeg("%s: SOI reached EOI\n",
 								__func__);
-
-						return LWS_SRET_FATAL + 29;
+						r = LWS_SRET_FATAL + 29;
+						goto fin;
 					}
 					lwsl_jpeg("%s: skipping 0x%02x\n", __func__, j->fs_emit_lc);
 				}
@@ -2800,8 +2819,8 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 	
 			if (j->fs_emit_tc != 0xFF) {
 				lwsl_jpeg("%s: not marker\n", __func__);
-
-				return LWS_SRET_FATAL + 30;
+				r = LWS_SRET_FATAL + 30;
+				goto fin;
 			}
 			
 			j->dstate = LWSJDS_FIND_SOF1;
@@ -2816,10 +2835,19 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 			
 			if (j->fs_emit_c != PJM_SOF0 && j->fs_emit_c != PJM_SOF2) {
 				lwsl_jpeg("%s: not SOF0/2 (%d)\n", __func__, (int)j->fs_emit_c);
-
-				return LWS_SRET_FATAL + 31;
+				r = LWS_SRET_FATAL + 31;
+				goto fin;
 			}
-			
+
+			/*
+			 * The frame mode is decided here and only here, before
+			 * read_sof_marker() and init_frame() size everything
+			 * for it
+			 */
+
+			if (j->fs_emit_c == PJM_SOF2)
+				j->is_progressive_tiny = 1;
+
 			j->dstate++;
 	
 			/* fallthru */
@@ -2918,7 +2946,8 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 				lwsl_jpeg("%s: OOM (%d x %d)\n", __func__,
 					  (int)j->mcu_max_size_y + 8,
 					  (int)mcu_buf_len);
-				return LWS_SRET_FATAL + 32;
+				r = LWS_SRET_FATAL + 32;
+				goto fin;
 			}
 
 			j->dstate++;
@@ -2993,6 +3022,10 @@ intra:
 fin:
 	*buf = j->inbuf;
 	*size = j->insize;
+
+	if (r & LWS_SRET_FATAL)
+		/* see ->failed: there is no coming back from it */
+		j->failed = r;
 
 	return r;
 }

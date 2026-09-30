@@ -256,6 +256,57 @@ bail:
 	return e;
 }
 
+/*
+ * A decoder that has failed stays failed: every later call gives the same
+ * FATAL and takes none of the input it is offered.  Something that is not a
+ * JPEG at all fails when the decoder gives up looking for the SOI.
+ */
+
+static int
+selftest_sticky(void)
+{
+	lws_stateful_ret_t r, r1;
+	const uint8_t *p, *pix;
+	uint8_t junk[5000];
+	lws_jpeg_t *j;
+	size_t ps;
+	int e = 0, n;
+
+	memset(junk, 0, sizeof(junk));
+
+	j = lws_jpeg_new();
+	if (!j)
+		return 1;
+
+	p = junk;
+	ps = sizeof(junk);
+	r = lws_jpeg_emit_next_line(j, &pix, &p, &ps, 0);
+	if (!(r & LWS_SRET_FATAL)) {
+		lwsl_err("%s: junk accepted: 0x%x\n", __func__, (unsigned int)r);
+		e++;
+		goto bail;
+	}
+
+	for (n = 0; n < 3; n++) {
+		/* even offered a real JPEG, it is over */
+		p = jpg_gray;
+		ps = sizeof(jpg_gray);
+		r1 = lws_jpeg_emit_next_line(j, &pix, &p, &ps, 0);
+		if (r1 != r || p != jpg_gray || ps != sizeof(jpg_gray)) {
+			lwsl_err("%s: after FATAL 0x%x: 0x%x, took %u\n",
+				 __func__, (unsigned int)r, (unsigned int)r1,
+				 (unsigned int)(sizeof(jpg_gray) - ps));
+			e++;
+			break;
+		}
+	}
+
+bail:
+	lws_jpeg_free(&j);
+
+	return e;
+}
+
 static int
 selftest(void)
 {
@@ -268,6 +319,11 @@ selftest(void)
 		lwsl_user("%s: %s: %s\n", __func__, test_imgs[n].name,
 			  e1 ? "FAIL" : "PASS");
 		e += e1;
+	}
+
+	if (selftest_sticky()) {
+		lwsl_user("%s: FATAL is not sticky\n", __func__);
+		e++;
 	}
 
 	return e;
