@@ -22,4 +22,25 @@ if (requirements)
 	else()
 		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
+
+	# built-in images, cut up every way
+	add_test(NAME api-test-jpeg COMMAND lws-api-test-jpeg --selftest)
+
+	#
+	# The in-tree JPEGs must decode completely: one of each MCU layout,
+	# 4:4:4, 4:2:2 (leaf.jpg, big), 4:2:0 and grayscale
+	#
+
+	set(LWS_JPEG_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../..)
+	foreach(J	doc-assets/lhp-example-g4.jpg
+			test-apps/leaf.jpg
+			plugins/protocol_lws_captcha_ratelimit/captcha-assets/scrapers-1.jpg
+			fuzz/fuzz-jpeg/seeds/splash-128-64.jpg)
+		if (EXISTS ${LWS_JPEG_ROOT}/${J})
+			get_filename_component(JN ${J} NAME_WE)
+			add_test(NAME api-test-jpeg-${JN}
+				 COMMAND lws-api-test-jpeg --no-output
+					--stdin ${LWS_JPEG_ROOT}/${J})
+		endif()
+	endforeach()
 endif()

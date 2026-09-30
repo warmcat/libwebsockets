@@ -272,6 +272,7 @@ struct lws_jpeg {
 	uint16_t		fs_sos_left;
 	uint16_t		fs_sof_left;
 	uint16_t		fs_ir_i;
+	uint16_t		fs_gb16_ret; /* get_bits16() */
 	uint8_t			fs_gb16; /* get_bits16() */
 	uint8_t			fs_hd;   /* huff_decode() */
 	uint8_t			fs_hd_i; /* huff_decode() */
@@ -418,9 +419,18 @@ get_bits16(lws_jpeg_t *j, uint16_t *v, uint8_t numBits, uint8_t ffcheck)
 		j->bits = (uint16_t)(j->bits << j->bits_left);
 		j->bits = (uint16_t)(j->bits | c);
 		j->bits = (uint16_t)(j->bits << (8 - j->bits_left));
+
+		/*
+		 * The result's top byte is what j->bits held before the
+		 * shift above: if the second part below has to wait for
+		 * input, a retry skips to it with j->bits already shifted,
+		 * so keep the result for it rather than recompute it
+		 */
+
+		j->fs_gb16_ret = (uint16_t)((ret & 0xff00) | (j->bits >> 8));
 	}
 
-	ret = (uint16_t)((ret & 0xff00) | (j->bits >> 8));
+	ret = j->fs_gb16_ret;
 
 	if (j->bits_left < numBits) {
 		
