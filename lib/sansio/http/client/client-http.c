@@ -557,6 +557,21 @@ static const char *digest_toks[] = {
 #define PEND_NAME_EQ -1
 #define PEND_DELIM -2
 
+/*
+ * Is the server's challenge one we can answer with digest auth?  Only if it
+ * leads with the Digest scheme, which is also all lws_http_digest_auth()
+ * takes.  Any other one, like Basic, is the user code's to see as the 401
+ * it is.
+ */
+static int
+lws_http_challenge_is_digest(struct lws *wsi)
+{
+	const char *wa = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_WWW_AUTHENTICATE);
+
+	return wa && !strncasecmp(wa, "Digest", 6) &&
+	       (!wa[6] || wa[6] == ' ' || wa[6] == '\t');
+}
+
 enum lws_check_basic_auth_results
 lws_http_digest_auth(struct lws* wsi)
 {
@@ -1211,7 +1226,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	n = atoi(p);
 
 #if defined(LWS_WITH_HTTP_DIGEST_AUTH) && defined(LWS_WITH_TLS)
-	if (n == 401 && lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_WWW_AUTHENTICATE)) {
+	if (n == 401 && lws_http_challenge_is_digest(wsi)) {
 		if (!(wsi->stash && wsi->stash->cis[CIS_USERNAME] &&
                 		    wsi->stash->cis[CIS_PASSWORD])) {
 			/*
