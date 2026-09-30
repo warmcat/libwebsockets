@@ -45,6 +45,37 @@ They are only about the logical binding of the session or stream `wsi` to your p
 - the drop is where those allocations must be destroyed, and where anything pointing into the pss (eg, a `lws_dll2_t` list node living inside it) must be removed. The pss may be freed immediately afterwards, either because the `wsi` is closing or because it is being rebound
 - a `wsi` that was bound while still in the `h3` role, and then transitioned into `wt` (the session `wsi` after the `CONNECT`, and any peer stream that had to be rebound), saw `LWS_CALLBACK_HTTP_BIND_PROTOCOL` for that original bind. A protocol that can be reached both ways should handle both drop reasons.
 
+### Client sessions
+
+A client opens a session with `lws_client_connect_via_info()`, with `alpn`
+`"h3"` and `protocol` `"webtransport"`.  It is sent as an extended `CONNECT`
+only once the server's SETTINGS enabled WebTransport and HTTP Datagrams,
+otherwise the attempt fails with `LWS_CALLBACK_CLIENT_CONNECTION_ERROR`.
+
+The server's 200 is announced like any other h3 client response, with
+`LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP`; `lws_wt_is_session(wsi)` is true from
+then on.  It is not the ws `LWS_CALLBACK_CLIENT_ESTABLISHED`, which a
+WebTransport client never gets.  Streams and the session are then handled as
+on the server: `LWS_CALLBACK_RECEIVE`, `LWS_CALLBACK_CLIENT_WRITEABLE` and
+`LWS_CALLBACK_CLOSED`.
+
+### Ending a session
+
+Either end ends the session by closing its session `wsi`, eg, with
+`lws_set_timeout(wsi, PENDING_TIMEOUT_USER_OK, LWS_TO_KILL_ASYNC)`.  lws
+finishes its side of the `CONNECT`
+stream with a FIN, which means error code 0 and no message.  When the peer's
+FIN arrives, or the peer resets the stream, lws closes its end of the session
+too.  Either way, both ends get `LWS_CALLBACK_CLOSED` for the session.
+
+Every stream of the session is closed with it, on both sides.  A stream whose
+sending side we had not finished is reset, discarding anything it had not
+sent yet, so finish a stream's last write with `LWS_WRITE_H2_STREAM_END` if
+it must arrive.
+
+Sending or acting on a `CLOSE_WEBTRANSPORT_SESSION` capsule, to carry an error
+code or message, is not supported yet.
+
 ### Filtering the CONNECT
 
 Before the server answers the `CONNECT` with a 200 and the stream leaves the

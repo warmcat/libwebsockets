@@ -8,11 +8,18 @@
  *
  * An lws WebTransport client and two lws h3 servers in one process confirm
  * the client only opens a WebTransport session with a peer whose SETTINGS
- * enabled it (draft-ietf-webtrans-http3).
+ * enabled it, and that either end closing its session wsi ends the session
+ * on both (draft-ietf-webtrans-http3).
  *
  *  - the "wt" server advertises SETTINGS_ENABLE_WEBTRANSPORT and
  *    SETTINGS_H3_DATAGRAM, and the client's session is established.  The
- *    server then ends the session, so nothing outlives the case.
+ *    server then ends the session, and the client must see its own end of
+ *    the session close.
+ *
+ *  - the client opens a session with the "wt" server and a bidi stream on
+ *    it, and sends a message on the stream.  When the server has received
+ *    it, the client ends the session.  The server must see both its session
+ *    and its end of the stream close.
  *
  *  - the "nowt" server is a vhost with the h3_settings_no_wt fault, so its
  *    SETTINGS enable neither.  The client must fail the attempt with a
@@ -29,16 +36,32 @@
 #include <signal.h>
 
 #define CASE_TIMEOUT_S 10
+/*
+ * The peer must see a session end promptly: it is told on the wire.  Some
+ * timeout closing it seconds later instead means it was not told.
+ */
+#define PEER_CLOSE_BOUND_US (1 * LWS_US_PER_SEC)
+
+#define STREAM_MSG "wt-stream-msg"
+
+enum {
+	WTAT_SERVER_ENDS,	/* the server closes the session */
+	WTAT_CLIENT_ENDS,	/* the client opens a stream, then closes */
+	WTAT_NOWT,		/* connect to the server without wt */
+};
 
 struct xcase {
 	const char	*name;
-	int		nowt;		/* connect to the server without wt */
+	int		type;
 };
 
 static const struct xcase cases[] = {
-	{ "peer enables WebTransport: session established", 0 },
+	{ "server ends the session: client sees it close", WTAT_SERVER_ENDS },
+	{ "client ends the session: server sees it and its stream close",
+							WTAT_CLIENT_ENDS },
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	{ "peer SETTINGS without WebTransport: refused before CONNECT", 1 },
+	{ "peer SETTINGS without WebTransport: refused before CONNECT",
+							WTAT_NOWT },
 #endif
 };
 
@@ -48,17 +71,24 @@ static lws_sorted_usec_list_t sul_next, sul_watchdog;
 static const char *server_addr = "127.0.0.1";
 static int port_wt = 7681, port_nowt = 7682, cur = -1, failures, ran,
 	   case_done;
+static lws_usec_t us_close;	/* when one end closed its session wsi */
 
 /* what the servers' protocol saw during the case */
 static struct {
 	struct lws	*session;	/* the server's end of the session */
+	struct lws	*stream;	/* the server's end of the stream */
 	int		wt_requests;	/* CONNECTs offered to the protocol */
 	int		sessions_closed;
+	int		stream_msgs;	/* STREAM_MSG received on a stream */
+	int		streams_closed;
 } srv;
 
 /* what the client saw during the case */
 static struct {
+	struct lws	*session;	/* the client's end of the session */
 	int		established;
+	int		stream_msg_sent;
+	int		sessions_closed;
 	int		conn_error;
 	char		conn_error_reason[128];
 } cli;
@@ -181,9 +211,17 @@ case_finish(int pass, const char *why)
 static void
 case_evaluate(void)
 {
-	const struct xcase *c = &cases[cur];
+	const struct xcase *c;
 
-	if (!c->nowt) {
+	/* closes during context destroy, after the last case */
+	if (cur < 0 || cur >= (int)LWS_ARRAY_SIZE(cases) || case_done)
+		return;
+
+	c = &cases[cur];
+
+	switch (c->type) {
+	case WTAT_SERVER_ENDS:
+	case WTAT_CLIENT_ENDS:
 		if (!cli.established) {
 			case_finish(0, "session not established");
 			return;
@@ -192,10 +230,31 @@ case_evaluate(void)
 			case_finish(0, "server did not see exactly one CONNECT");
 			return;
 		}
-		/* done when the server's end of the session has closed */
-		if (srv.sessions_closed)
-			case_finish(1, NULL);
+		if (c->type == WTAT_CLIENT_ENDS && srv.stream_msgs != 1) {
+			case_finish(0, "server did not get the stream message");
+			return;
+		}
+
+		/*
+		 * Done when both ends of the session have closed, and for the
+		 * client closing, when the server's end of the stream has too.
+		 * Whichever end did not close its session wsi itself only
+		 * learns of it from the wire.
+		 */
+		if (!srv.sessions_closed || !cli.sessions_closed ||
+		    (c->type == WTAT_CLIENT_ENDS && !srv.streams_closed))
+			return;
+
+		if (lws_now_usecs() - us_close > PEER_CLOSE_BOUND_US) {
+			case_finish(0, "peer saw the session end too late");
+			return;
+		}
+
+		case_finish(1, NULL);
 		return;
+
+	default:
+		break;
 	}
 
 	if (cli.established) {
@@ -235,15 +294,46 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			srv.session = wsi;
 		break;
 
-	case LWS_CALLBACK_CLOSED:
-		if (!lws_wt_is_session(wsi))
+	case LWS_CALLBACK_RECEIVE:
+		/* session rx is a datagram, we only expect the stream's */
+		if (lws_wt_is_session(wsi))
 			break;
+		if (len != strlen(STREAM_MSG) || memcmp(in, STREAM_MSG, len)) {
+			case_finish(0, "server got unexpected stream data");
+			break;
+		}
+		lwsl_user("%s: server: stream message received\n", __func__);
+		srv.stream = wsi;
+		srv.stream_msgs++;
+
+		/* the client may end the session now */
+		if (cli.session) {
+			us_close = lws_now_usecs();
+			lws_set_timeout(cli.session, PENDING_TIMEOUT_USER_OK,
+					LWS_TO_KILL_ASYNC);
+		} else
+			case_finish(0, "client has no session");
+		break;
+
+	case LWS_CALLBACK_CLOSED:
+		if (!lws_wt_is_session(wsi)) {
+			/*
+			 * The quic connection and listener wsi are bound to
+			 * the first protocol too, only count our stream
+			 */
+			if (wsi != srv.stream)
+				break;
+			lwsl_user("%s: server: stream closed\n", __func__);
+			srv.stream = NULL;
+			srv.streams_closed++;
+			case_evaluate();
+			break;
+		}
 		lwsl_user("%s: server: session closed\n", __func__);
 		if (wsi == srv.session)
 			srv.session = NULL;
 		srv.sessions_closed++;
-		if (cur >= 0)
-			case_evaluate();
+		case_evaluate();
 		break;
 
 	default:
@@ -257,6 +347,9 @@ static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
+	uint8_t buf[LWS_PRE + sizeof(STREAM_MSG)];
+	struct lws *cwsi;
+
 	switch (reason) {
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_user("%s: client: CONNECTION_ERROR: %s\n", __func__,
@@ -274,12 +367,55 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		lwsl_user("%s: client: session established\n", __func__);
 		cli.established++;
-		/* that is all we wanted from it: the server ends it */
-		if (srv.session)
-			lws_set_timeout(srv.session, PENDING_TIMEOUT_USER_OK,
-					LWS_TO_KILL_ASYNC);
+		cli.session = wsi;
+
+		if (cases[cur].type == WTAT_SERVER_ENDS) {
+			/* that is all we wanted from it: the server ends it */
+			if (srv.session) {
+				us_close = lws_now_usecs();
+				lws_set_timeout(srv.session,
+						PENDING_TIMEOUT_USER_OK,
+						LWS_TO_KILL_ASYNC);
+			} else
+				case_finish(0, "server has no session");
+			break;
+		}
+
+		/* the client ends it after the server has seen a stream */
+		cwsi = lws_wt_create_stream(wsi, 0);
+		if (!cwsi) {
+			case_finish(0, "client could not create a stream");
+			break;
+		}
+		lws_callback_on_writable(cwsi);
+		break;
+
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		/* WRITEABLE may come again unasked, there is one message */
+		if (lws_wt_is_session(wsi) || cli.stream_msg_sent)
+			break;
+		cli.stream_msg_sent = 1;
+
+		/*
+		 * The stream stays open after the message, so it is still
+		 * open on both sides when the session ends
+		 */
+		memcpy(&buf[LWS_PRE], STREAM_MSG, strlen(STREAM_MSG));
+		if (lws_write(wsi, &buf[LWS_PRE], strlen(STREAM_MSG),
+			      LWS_WRITE_BINARY) != (int)strlen(STREAM_MSG))
+			case_finish(0, "client stream write failed");
 		else
-			case_finish(0, "server has no session");
+			lwsl_user("%s: client: stream message sent\n", __func__);
+		break;
+
+	case LWS_CALLBACK_CLOSED:
+		if (!lws_wt_is_session(wsi))
+			break;
+		lwsl_user("%s: client: session closed\n", __func__);
+		if (wsi == cli.session)
+			cli.session = NULL;
+		cli.sessions_closed++;
+		case_evaluate();
 		break;
 
 	default:
@@ -323,7 +459,7 @@ next_case(lws_sorted_usec_list_t *sul)
 	i.address = server_addr;
 	i.host = server_addr;
 	i.origin = server_addr;
-	i.port = c->nowt ? port_nowt : port_wt;
+	i.port = c->type == WTAT_NOWT ? port_nowt : port_wt;
 	i.path = "/";
 	i.protocol = "webtransport";
 	i.alpn = "h3";
@@ -391,7 +527,7 @@ int main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	lwsl_user("LWS API selftest: WebTransport needs the peer's SETTINGS\n");
+	lwsl_user("LWS API selftest: WebTransport session setup and close\n");
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;

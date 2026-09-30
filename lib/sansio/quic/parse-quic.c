@@ -287,6 +287,33 @@ lws_quic_rx_deliver_h3(struct lws *nwsi, struct lws *wsi_child,
 #endif
 
 /*
+ * The peer's FIN has been delivered on a stream owned by a raw quic or a
+ * WebTransport protocol.  Only the peer's half is finished: a unidi stream,
+ * or a bidi stream whose own half we already finished, is done and closes,
+ * otherwise the bidi stream stays open until we finish ours.
+ *
+ * The exception is a WebTransport session's CONNECT stream: its FIN ends the
+ * session (draft-ietf-webtrans-http3, "Session Termination"), whether or not
+ * we finished ours.  Closing it sends our own FIN and takes the session's
+ * streams with it.
+ */
+static void
+lws_quic_rx_fin_raw(struct lws *wsi, struct lws_quic_stream *qs)
+{
+	if (!qs->is_unidirectional && !qs->sent_fin
+#if defined(LWS_ROLE_WT)
+	    && !wsi->wt.is_session
+#endif
+	) {
+		lwsl_wsi_info(wsi, "peer finished its half, staying open");
+		return;
+	}
+
+	lwsl_wsi_info(wsi, "stream finished, closing after rx");
+	qs->close_after_rx = 1;
+}
+
+/*
  * QUIC RX Reassembly Engine
  *
  * Takes an incoming chunk of data, buffers it if it's out of order, or
@@ -391,19 +418,8 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
                                         }
                                 }
 #endif
-				if (wsi_child && wsi_child->role_ops && (!strcmp(wsi_child->role_ops->name, "wt") || !strcmp(wsi_child->role_ops->name, "quic"))) {
-					if (qs->is_unidirectional) {
-						lwsl_wsi_notice(wsi_child, "QUIC/WT unidirectional stream received FIN. Flagging close_after_rx");
-						qs->close_after_rx = 1;
-					} else {
-						if (qs->sent_fin) {
-							lwsl_wsi_notice(wsi_child, "QUIC/WT bidi stream received FIN (sent_fin=1). Flagging close_after_rx");
-							qs->close_after_rx = 1;
-						} else {
-							lwsl_wsi_notice(wsi_child, "QUIC/WT bidi stream received FIN but sent_fin=0. Keeping open.");
-						}
-					}
-				}
+				if (wsi_child && wsi_child->role_ops && (!strcmp(wsi_child->role_ops->name, "wt") || !strcmp(wsi_child->role_ops->name, "quic")))
+					lws_quic_rx_fin_raw(wsi_child, qs);
                         }
 		}
 
@@ -490,19 +506,8 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 								}
 							}
 #endif
-							if (wsi_child && wsi_child->role_ops && (!strcmp(wsi_child->role_ops->name, "wt") || !strcmp(wsi_child->role_ops->name, "quic"))) {
-								if (qs->is_unidirectional) {
-									lwsl_wsi_notice(wsi_child, "QUIC/WT unidirectional stream received FIN (flushed). Flagging close_after_rx");
-									qs->close_after_rx = 1;
-								} else {
-									if (qs->sent_fin) {
-										lwsl_wsi_notice(wsi_child, "QUIC/WT bidi stream received FIN (flushed, sent_fin=1). Flagging close_after_rx");
-										qs->close_after_rx = 1;
-									} else {
-										lwsl_wsi_notice(wsi_child, "QUIC/WT bidi stream received FIN (flushed) but sent_fin=0. Keeping open.");
-									}
-								}
-							}
+							if (wsi_child && wsi_child->role_ops && (!strcmp(wsi_child->role_ops->name, "wt") || !strcmp(wsi_child->role_ops->name, "quic")))
+								lws_quic_rx_fin_raw(wsi_child, qs);
 						}
 					}
 

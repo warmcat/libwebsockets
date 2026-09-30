@@ -84,6 +84,32 @@ rops_write_role_protocol_wt(struct lws *wsi, unsigned char *buf, size_t len,
 		write_role_protocol(wsi, buf, len, wp);
 }
 
+/*
+ * Finish our half of the session's CONNECT stream.  That is how a session is
+ * ended cleanly (draft-ietf-webtrans-http3, "Session Termination"): a FIN
+ * without a CLOSE_WEBTRANSPORT_SESSION capsule means error code 0 and no
+ * message, and the peer ends the session on its side when it sees it.
+ */
+static void
+lws_wt_session_send_fin(struct lws *wsi)
+{
+	enum lws_write_protocol wp = LWS_WRITE_BINARY | LWS_WRITE_H2_STREAM_END;
+	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+	uint8_t none[1];
+
+	if (!nwsi || !nwsi->quic.qn || nwsi->quic.qn->is_closing ||
+	    !wsi->quic.qs || wsi->quic.qs->sent_fin)
+		/* the connection is going, or we already finished our half */
+		return;
+
+	if (lws_rops_func_fidx(nwsi->role_ops, LWS_ROPS_write_role_protocol).
+				write_role_protocol(wsi, none, 0, &wp) < 0)
+		/* the stream cleanup resets the stream instead */
+		return;
+
+	lws_callback_on_writable(nwsi);
+}
+
 static int
 rops_close_kill_connection_wt(struct lws *wsi, enum lws_close_status reason)
 {
@@ -109,7 +135,18 @@ rops_close_kill_connection_wt(struct lws *wsi, enum lws_close_status reason)
 			child->wt.session_wsi = NULL;
 			lws_wsi_close(child, LWS_TO_KILL_ASYNC);
 		} lws_end_foreach_dll_safe(d, d1);
+
+		lws_wt_session_send_fin(wsi);
 	}
+
+	/*
+	 * While the stream is still attached to its connection, tell the peer
+	 * what became of it: RESET_STREAM if we did not finish sending (a
+	 * session we could FIN above has), STOP_SENDING if it had not.
+	 * Nothing does it once we are detached, and until the peer hears it,
+	 * it keeps its end, which for a session is immortal.
+	 */
+	lws_quic_stream_cleanup(wsi);
 
 	if (wsi->wt.wtn) {
 		lws_free_set_NULL(wsi->wt.wtn);
