@@ -8,6 +8,7 @@
  */
 
 #include <libwebsockets.h>
+#include <stdio.h>
 
 static struct lws_context *cx;
 static int tests, fail;
@@ -559,8 +560,8 @@ cdone:
  */
 
 static int
-nsc_pair_create(const char *filepath, int fresh, struct lws_cache_ttl_lru **pnsc,
-		struct lws_cache_ttl_lru **pl1)
+nsc_pair_create(const char *filepath, int fresh, size_t jar_max_lines,
+		struct lws_cache_ttl_lru **pnsc, struct lws_cache_ttl_lru **pl1)
 {
 	struct lws_cache_creation_info ci;
 
@@ -569,6 +570,7 @@ nsc_pair_create(const char *filepath, int fresh, struct lws_cache_ttl_lru **pnsc
 	ci.ops = &lws_cache_ops_nscookiejar;
 	ci.name = "NSC";
 	ci.u.nscookiejar.filepath = filepath;
+	ci.max_items = jar_max_lines; /* 0 = the jar's default */
 
 	*pnsc = lws_cache_create(&ci);
 	if (!*pnsc)
@@ -581,6 +583,7 @@ nsc_pair_create(const char *filepath, int fresh, struct lws_cache_ttl_lru **pnsc
 	ci.ops = &lws_cache_ops_heap;
 	ci.name = "L1";
 	ci.parent = *pnsc;
+	ci.max_items = 0;
 
 	*pl1 = lws_cache_create(&ci);
 	if (!*pl1) {
@@ -620,7 +623,7 @@ test_nsc_lookup_get_destroy(void)
 	lwsl_user("%s\n", __func__);
 	tests++;
 
-	if (nsc_pair_create("./cookies-lgd.txt", 1, &nsc, &l1))
+	if (nsc_pair_create("./cookies-lgd.txt", 1, 0, &nsc, &l1))
 		goto cdone;
 
 	if (lws_cache_write_through(l1, tag_cookie1,
@@ -675,7 +678,7 @@ test_nsc_literal_keys(void)
 	lwsl_user("%s\n", __func__);
 	tests++;
 
-	if (nsc_pair_create("./cookies-lit.txt", 1, &nsc, &l1))
+	if (nsc_pair_create("./cookies-lit.txt", 1, 0, &nsc, &l1))
 		goto cdone;
 
 	if (lws_cache_write_through(l1, tag_cookie1,
@@ -795,7 +798,7 @@ test_nsc_foreign_jar(void)
 
 	/* creating the jar level regenerates the file from the walk */
 
-	if (nsc_pair_create("./cookies-foreign.txt", 0, &nsc, &l1))
+	if (nsc_pair_create("./cookies-foreign.txt", 0, 0, &nsc, &l1))
 		goto cdone;
 
 	for (n = 0; n < LWS_ARRAY_SIZE(jar_foreign_tags); n++) {
@@ -847,7 +850,7 @@ test_nsc_long_fields(void)
 		     "4000000000\tlongpathcookie\tlongpathvalue", path);
 	lws_snprintf(key, sizeof(key), "host.com|%s|longpathcookie", path);
 
-	if (nsc_pair_create("./cookies-long.txt", 1, &nsc, &l1))
+	if (nsc_pair_create("./cookies-long.txt", 1, 0, &nsc, &l1))
 		goto cdone;
 
 	if (lws_cache_write_through(l1, key, (const uint8_t *)line,
@@ -868,6 +871,125 @@ test_nsc_long_fields(void)
 		lwsl_err("%s: long path cookie not removed\n", __func__);
 		goto cdone;
 	}
+
+	ret = 0;
+
+cdone:
+	nsc_pair_destroy(&nsc, &l1);
+
+	if (ret)
+		lwsl_warn("%s: fail\n", __func__);
+
+	return ret;
+}
+
+/*
+ * The jar is rewritten and scanned synchronously on the event loop, so it is
+ * bounded: a host keeps at most 50 cookies and the jar at most its max_items
+ * lines, the oldest going first.  And the event loop never waits for the jar
+ * lock: if another process holds it, the operation just fails.
+ */
+
+static int
+nsc_jar_write(struct lws_cache_ttl_lru *l1, const char *host, const char *name)
+{
+	char line[128], key[96];
+
+	lws_snprintf(line, sizeof(line), "%s\tFALSE\t/\tTRUE\t4000000000\t"
+		     "%s\tvalue", host, name);
+	lws_snprintf(key, sizeof(key), "%s|/|%s", host, name);
+
+	return lws_cache_write_through(l1, key, (const uint8_t *)line,
+				       strlen(line),
+				       lws_now_usecs() + LWS_US_PER_SEC * 10,
+				       NULL);
+}
+
+static int
+nsc_jar_has(struct lws_cache_ttl_lru *nsc, const char *host, const char *name)
+{
+	char key[96];
+	size_t size;
+	char *po;
+
+	lws_snprintf(key, sizeof(key), "%s|/|%s", host, name);
+
+	return !lws_cache_item_get(nsc, key, (const void **)&po, &size);
+}
+
+static int
+test_nsc_limits(void)
+{
+	struct lws_cache_ttl_lru *l1 = NULL, *nsc = NULL;
+	char name[16], host[16];
+	lws_usec_t t;
+	int ret = 1, n;
+
+	lwsl_user("%s\n", __func__);
+	tests++;
+
+	/* a host with more than 50 cookies loses its oldest ones */
+
+	if (nsc_pair_create("./cookies-cap.txt", 1, 0, &nsc, &l1) ||
+	    nsc_jar_write(l1, "other.com", "o"))
+		goto cdone;
+
+	for (n = 0; n < 60; n++) {
+		lws_snprintf(name, sizeof(name), "c%d", n);
+		if (nsc_jar_write(l1, "host.com", name))
+			goto cdone;
+	}
+
+	if (!nsc_jar_has(nsc, "other.com", "o") ||
+	    !nsc_jar_has(nsc, "host.com", "c59") ||
+	    !nsc_jar_has(nsc, "host.com", "c10") ||
+	    nsc_jar_has(nsc, "host.com", "c9")) {
+		lwsl_err("%s: per-host limit\n", __func__);
+		goto cdone;
+	}
+
+	nsc_pair_destroy(&nsc, &l1);
+
+	/* the jar as a whole keeps its newest max_items lines */
+
+	if (nsc_pair_create("./cookies-cap.txt", 1, 5, &nsc, &l1))
+		goto cdone;
+
+	for (n = 0; n < 8; n++) {
+		lws_snprintf(host, sizeof(host), "h%d.com", n);
+		if (nsc_jar_write(l1, host, "c"))
+			goto cdone;
+	}
+
+	if (!nsc_jar_has(nsc, "h7.com", "c") ||
+	    !nsc_jar_has(nsc, "h3.com", "c") ||
+	    nsc_jar_has(nsc, "h2.com", "c")) {
+		lwsl_err("%s: jar limit\n", __func__);
+		goto cdone;
+	}
+
+	nsc_pair_destroy(&nsc, &l1);
+
+	/* somebody else holds the jar lock: fail, don't wait */
+
+	if (lws_plat_write_file("./cookies-busy.txt.LCK", "x", 1) ||
+	    nsc_pair_create("./cookies-busy.txt", 0, 0, &nsc, &l1))
+		goto cdone;
+
+	t = lws_now_usecs();
+	n = nsc_jar_write(l1, "host.com", "busy");
+	if (!n || lws_now_usecs() - t > LWS_US_PER_SEC) {
+		lwsl_err("%s: busy jar: %d, %dms\n", __func__, n,
+			 (int)((lws_now_usecs() - t) / LWS_US_PER_MS));
+		remove("./cookies-busy.txt.LCK");
+		goto cdone;
+	}
+
+	remove("./cookies-busy.txt.LCK");
+
+	if (nsc_jar_write(l1, "host.com", "notbusy") ||
+	    !nsc_jar_has(nsc, "host.com", "notbusy"))
+		goto cdone;
 
 	ret = 0;
 
@@ -913,6 +1035,8 @@ int main(int argc, const char **argv)
 	if (test_nsc_foreign_jar())
 		fail++;
 	if (test_nsc_long_fields())
+		fail++;
+	if (test_nsc_limits())
 		fail++;
 #endif
 

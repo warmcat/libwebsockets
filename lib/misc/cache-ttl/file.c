@@ -59,6 +59,8 @@
 #include <private-lib-core.h>
 #include "private-lib-misc-cache-ttl.h"
 
+#include <sys/stat.h>
+
 typedef enum nsc_iterator_ret {
 	NIR_CONTINUE		= 0,
 	NIR_FINISH_OK		= 1,
@@ -91,40 +93,70 @@ enum {
 	NSC_LTT_TOO_LONG,	/* well-formed, but we cannot index it */
 };
 
+/*
+ * Every write or remove rewrites the whole jar, and lookups and gets that
+ * miss L1 read it, all synchronously on the event loop.  So the jar is kept
+ * bounded, like RFC 6265 6.1 expects of a user agent: these apply when the
+ * creation info does not give max_items / max_footprint / max_payload.  When
+ * over, the oldest lines go: we add new lines at the start of the file.
+ */
+#define NSC_DEFAULT_MAX_LINES		3000
+#define NSC_DEFAULT_MAX_BYTES		(1024 * 1024)
+#define NSC_DEFAULT_MAX_PAYLOAD		8192
+#define NSC_MAX_LINES_PER_HOST		50
+
+/*
+ * Nothing holds the jar lock for longer than one rewrite, so a lock file
+ * older than this was left by a process that died holding it
+ */
+#define NSC_LOCK_STALE_SECS		30
+
 static void
 expiry_cb(lws_sorted_usec_list_t *sul);
+
+/*
+ * We are on the event loop, so we never wait for another process to finish
+ * with the jar: if it has the lock, this operation fails like any other jar
+ * error would (the caller still has L1, and the expiry sweep comes again).
+ */
+
+static int
+nsc_lock(const char *lock)
+{
+	struct stat s;
+	int fd_lock;
+
+	fd_lock = open(lock, LWS_O_CREAT | O_EXCL, 0600);
+	if (fd_lock < 0 && errno == EEXIST && !stat(lock, &s) &&
+	    time(NULL) - s.st_mtime > NSC_LOCK_STALE_SECS) {
+		lwsl_notice("%s: removing stale %s\n", __func__, lock);
+		unlink(lock);
+		fd_lock = open(lock, LWS_O_CREAT | O_EXCL, 0600);
+	}
+
+	if (fd_lock < 0)
+		return 1;
+
+	close(fd_lock);
+
+	return 0;
+}
 
 static int
 nsc_backing_open_lock(lws_cache_nscookiejar_t *cache, int mode, const char *par)
 {
-	int sanity = 50;
 	char lock[128];
-	int fd_lock, fd;
+	int fd;
 
 	lwsl_debug("%s: %s\n", __func__, par);
 
 	lws_snprintf(lock, sizeof(lock), "%s.LCK",
 			cache->cache.info.u.nscookiejar.filepath);
 
-	do {
-		fd_lock = open(lock, LWS_O_CREAT | O_EXCL, 0600);
-		if (fd_lock >= 0) {
-			close(fd_lock);
-			break;
-		}
-
-		if (!sanity--) {
-			lwsl_warn("%s: unable to lock %s: errno %d\n", __func__,
-					lock, errno);
-			return -1;
-		}
-
-#if defined(WIN32)
-		Sleep(100);
-#else
-		usleep(100000);
-#endif
-	} while (1);
+	if (nsc_lock(lock)) {
+		lwsl_info("%s: %s: jar busy, errno %d\n", __func__, par, errno);
+		return -1;
+	}
 
 	fd = open(cache->cache.info.u.nscookiejar.filepath,
 		      LWS_O_CREAT | mode, 0600);
@@ -588,9 +620,13 @@ lws_cache_nscookiejar_lookup(struct lws_cache_ttl_lru *_c,
 
 struct nsc_regen_ctx {
 	const char		*specific_key_delete;
-	const void		*add_data;
+	const char		*add_host; /* host column of the added line */
 	lws_usec_t		curr;
-	size_t			add_size;
+	size_t			add_host_len;
+	size_t			lines; /* lines kept so far */
+	size_t			max_lines;
+	size_t			max_bytes;
+	size_t			host_lines; /* kept for add_host so far */
 	int			fdt;
 	char			drop;
 };
@@ -616,9 +652,10 @@ nsc_regen_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 		case NSC_LTT_TOO_LONG:
 			/*
 			 * Somebody else's line we cannot index: it is not ours
-			 * to delete, keep it as it is
+			 * to delete, keep it as it is (within the limits)
 			 */
-			goto keep;
+			expiry = 0;
+			goto limits;
 		default:
 			/* filter it out if it is unparseable */
 			goto drop;
@@ -636,6 +673,25 @@ nsc_regen_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 			goto drop;
 		}
 
+		/*
+		 * The line we are adding went first, so a host that has too
+		 * many already loses its oldest ones
+		 */
+
+		if (ctx->add_host &&
+		    !strncmp(tag, ctx->add_host, ctx->add_host_len) &&
+		    tag[ctx->add_host_len] == LWSCTAG_SEP &&
+		    ++ctx->host_lines > NSC_MAX_LINES_PER_HOST)
+			goto drop;
+
+limits:
+		/* newest lines are first, so the oldest go past the limits */
+
+		if (ctx->lines >= ctx->max_lines ||
+		    cache->cache.current_footprint >= ctx->max_bytes)
+			goto drop;
+		ctx->lines++;
+
 		/* track the earliest expiry of what we keep */
 
 		if (expiry && (!cache->earliest_expiry ||
@@ -643,7 +699,6 @@ nsc_regen_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 			cache->earliest_expiry = expiry;
 	}
 
-keep:
 	if (ctx->drop)
 		return 0;
 
@@ -671,6 +726,9 @@ nsc_regen(lws_cache_nscookiejar_t *cache, const char *specific_key_delete,
 	struct nsc_regen_ctx ctx;
 	char filepath[128];
 	int fd, ret = 1;
+
+	memset(&ctx, 0, sizeof(ctx));
+	ctx.fdt = -1;
 
 	fd = nsc_backing_open_lock(cache, LWS_O_RDONLY, __func__);
 	if (fd < 0)
@@ -703,13 +761,24 @@ nsc_regen(lws_cache_nscookiejar_t *cache, const char *specific_key_delete,
 	if (pay && write(ctx.fdt, "\n", 1u) != (ssize_t)1)
 		goto bail1;
 
-	cache->cache.current_footprint = 0;
+	cache->cache.current_footprint = pay ? (uint64_t)pay_size + 1u : 0u;
 
 	ctx.specific_key_delete = specific_key_delete;
-	ctx.add_data = pay;
-	ctx.add_size = pay_size;
 	ctx.curr = nsc_now(cache);
-	ctx.drop = 0;
+	ctx.max_lines = cache->cache.info.max_items ?
+			cache->cache.info.max_items : NSC_DEFAULT_MAX_LINES;
+	ctx.max_bytes = cache->cache.info.max_footprint ?
+			cache->cache.info.max_footprint : NSC_DEFAULT_MAX_BYTES;
+
+	if (pay) {
+		const char *tab = memchr(pay, '\t', pay_size);
+
+		/* write() only lets well-formed lines through */
+		ctx.add_host = (const char *)pay;
+		ctx.add_host_len = tab ? lws_ptr_diff_size_t(tab, pay) : 0;
+		ctx.host_lines = 1; /* the one we are adding */
+		ctx.lines = 1;
+	}
 
 	cache->earliest_expiry = 0;
 
@@ -823,6 +892,13 @@ lws_cache_nscookiejar_write(struct lws_cache_ttl_lru *_c,
 
 	assert(source);
 
+	if (size > (_c->info.max_payload ? _c->info.max_payload :
+					   NSC_DEFAULT_MAX_PAYLOAD)) {
+		lwsl_info("%s: refusing %u byte jar line\n", __func__,
+			  (unsigned int)size);
+		return 1;
+	}
+
 	/*
 	 * Parse it the way it will be seen when read back, so we only store
 	 * lines we will be able to find and remove again
@@ -843,7 +919,7 @@ lws_cache_nscookiejar_write(struct lws_cache_ttl_lru *_c,
 		*ppvoid = NULL;
 
 	if (nsc_regen(cache, tag, source, size)) {
-		lwsl_err("%s: regen failed\n", __func__);
+		lwsl_warn("%s: regen failed\n", __func__);
 
 		return 1;
 	}

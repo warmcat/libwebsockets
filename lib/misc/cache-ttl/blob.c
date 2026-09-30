@@ -319,6 +319,8 @@ again:
 
 		close(fd);
 		unlink(path);
+		if (bc->cache.current_footprint >= (uint64_t)extant)
+			bc->cache.current_footprint -= (uint64_t)extant;
 		if (tries++)
 			return 1;
 		goto again;

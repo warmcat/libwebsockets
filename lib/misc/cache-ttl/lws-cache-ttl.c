@@ -170,7 +170,15 @@ lws_cache_write_through(struct lws_cache_ttl_lru *cache,
 
 	lws_cache_lock(cache); /* ------------------------------ cache { */
 
-	lws_cache_item_remove(cache, specific_key);
+	/*
+	 * Each level's write replaces any item it already has with this key,
+	 * so only the innermost level, which also holds the cached lookup
+	 * results that the new item may change, needs an explicit remove.
+	 * Removing it from the outer levels first too would mean, eg, the
+	 * cookie jar being rewritten twice for every cookie.
+	 */
+
+	cache->info.ops->invalidate(cache, specific_key);
 
 	/* starting from L1 */
 
@@ -188,8 +196,19 @@ lws_cache_write_through(struct lws_cache_ttl_lru *cache,
 		 * refused the item (eg, a backing store payload size cap) is
 		 * not hidden by an inner level that accepted it
 		 */
-		r |= levels[n]->info.ops->write(levels[n], specific_key,
-						source, size, expiry, ppay);
+		if (!levels[n]->info.ops->write(levels[n], specific_key,
+						source, size, expiry, ppay))
+			continue;
+
+		r = 1;
+
+		/*
+		 * This level refused the new item, but it must not keep
+		 * serving the old one either
+		 */
+		if (levels[n] != cache)
+			levels[n]->info.ops->invalidate(levels[n],
+							specific_key);
 	}
 
 	lws_cache_unlock(cache); /* ----------------------------- } cache */

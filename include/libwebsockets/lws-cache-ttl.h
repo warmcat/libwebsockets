@@ -285,7 +285,12 @@ struct lws_cache_creation_info {
 	/**< 0, or the max number of items allowed in the cache before
 	 *   destroying lru items to keep it under the limit */
 	size_t				max_payload;
-	/**< 0, or the max allowed payload size for one item */
+	/**< 0, or the max allowed payload size for one item.  For
+	 *   lws_cache_ops_nscookiejar, max_footprint (bytes), max_items (lines)
+	 *   and max_payload (line length) of 0 mean the jar's own defaults
+	 *   (1MiB, 3000, 8192) rather than no limit, and a host may have at
+	 *   most 50 lines: the jar is rewritten on the event loop for each
+	 *   change, so it must stay bounded.  The oldest lines go first. */
 	int				tsi;
 	/**< 0 unless using SMP, then tsi to bind sul to */
 };
