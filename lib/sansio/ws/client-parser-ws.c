@@ -293,7 +293,7 @@ lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 	unsigned char *pp;
 	int handled, m, n;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-	int rx_draining_ext = 0;
+	int rx_draining_ext = 0, lin;
 #endif
 
 	pmdrx.eb_in.token = NULL;
@@ -854,6 +854,7 @@ drain_extension:
 			lwsl_wsi_ext(wsi, "+++ passing %d %p to ext",
 				 pmdrx.eb_in.len, pmdrx.eb_in.token);
 
+			lin = pmdrx.eb_in.len;
 			n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX,
 					      &pmdrx, 0);
 			lwsl_wsi_ext(wsi, "Ext RX returned %d", n);
@@ -976,6 +977,16 @@ utf8_fail:
 			/* if user code wants to close, let caller know */
 			if (m)
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+			/*
+			 * A drain gives one chunk per call, as on the server:
+			 * the caller's budget counts calls, and the peer
+			 * decides how many chunks its message inflates to
+			 */
+			if (!lin)
+				break;
+#endif
 
 		} while (pmdrx.eb_in.len
 #if !defined(LWS_WITHOUT_EXTENSIONS)
