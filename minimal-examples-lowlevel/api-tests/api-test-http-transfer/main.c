@@ -28,8 +28,9 @@
  * Content-Length (END_STREAM delimited), and no body at all.
  *
  * Response bodies (server -> client): Content-Length; hand-framed chunked
- * with extensions and trailers; unknown length (h1: delimited by the
- * close, h2: by END_STREAM)... each also split across many writes.
+ * with extensions and trailers, also with a Content-Length it overrides;
+ * unknown length (h1: delimited by the close, h2: by END_STREAM)... each
+ * also split across many writes.
  *
  * Mount interceptors (LWS_WITH_JOSE): a mount with an interceptor_path hands
  * every request to the interceptor protocol first, which either lets it
@@ -179,6 +180,15 @@ static const struct xcase cases[] = {
 	  "GET", "/echo-cl", XR_CHUNKED, 1000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0, 0, 0, 0, 0 },
 	{ "h1 GET with a Content-Length body, two requests pipelined",
 	  "GET", "/echo-cl", XR_CL, 1000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0, 0, 0, 0, 0 },
+	/*
+	 * A chunked response that also carries a Content-Length is framed by
+	 * its chunks: the client must read the body to its last-chunk, not
+	 * take the response as ended at its headers and hand the connection,
+	 * body and all, to the second request pipelined on it
+	 */
+	{ "h1 POST 3KB, chunked response also carrying a Content-Length, two "
+	  "requests pipelined",
+	  "POST", "/echo-chunked-cl", XR_CL, 3000, 0, 8192, 0, 1, 200, -1, XG_NONE, 0, 0, 0, 0, 0 },
 	/*
 	 * No h1 "POST with neither header" case: by lws convention such a body
 	 * is delimited by the multipart closing boundary (lws_spa) or the
@@ -548,6 +558,7 @@ struct conn {
 enum resp_mode {
 	RM_CL,
 	RM_CHUNKED,	/* hand-framed, h1 only */
+	RM_CHUNKED_CL,	/* the same, with a Content-Length that it overrides */
 	RM_NOLEN,	/* h1: close-delimited; h2: END_STREAM */
 	RM_ONESHOT,	/* CL, whole body in one write, completed at once */
 };
@@ -831,6 +842,7 @@ srv_start_response(struct lws *wsi, struct pss_srv *pss)
 			return 1;
 		break;
 	case RM_CHUNKED:
+	case RM_CHUNKED_CL:
 		/* h1 only: we frame the chunks ourselves */
 		if (lws_add_http_header_status(wsi, HTTP_STATUS_OK, &p, end) ||
 		    lws_add_http_header_by_token(wsi,
@@ -841,6 +853,16 @@ srv_start_response(struct lws *wsi, struct pss_srv *pss)
 					WSI_TOKEN_HTTP_TRANSFER_ENCODING,
 					(const uint8_t *)"chunked", 7,
 					&p, end))
+			return 1;
+		/*
+		 * RFC 9112 6.3: with both, Transfer-Encoding overrides the
+		 * Content-Length, whatever it says... the recipient must go by
+		 * the chunks, and an intermediary must not pass it on
+		 */
+		if (pss->mode == RM_CHUNKED_CL &&
+		    lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_CONTENT_LENGTH,
+					(const uint8_t *)"1", 1, &p, end))
 			return 1;
 		break;
 	}
@@ -902,7 +924,7 @@ srv_writeable(struct lws *wsi, struct pss_srv *pss)
 		return 0;
 	}
 
-	if (pss->mode == RM_CHUNKED) {
+	if (pss->mode == RM_CHUNKED || pss->mode == RM_CHUNKED_CL) {
 		n = chunk_sizes[(size_t)pss->chunk_idx++ %
 					LWS_ARRAY_SIZE(chunk_sizes)];
 		if (n > rem)
@@ -1048,6 +1070,8 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		pss->mode = RM_CL;
 		if (path && strstr(path, "echo-chunked"))
 			pss->mode = RM_CHUNKED;
+		if (path && strstr(path, "echo-chunked-cl"))
+			pss->mode = RM_CHUNKED_CL;
 		if (path && strstr(path, "echo-nolen"))
 			pss->mode = RM_NOLEN;
 		if (path && strstr(path, "echo-oneshot"))

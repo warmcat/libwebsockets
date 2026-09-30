@@ -1711,13 +1711,21 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * We also completed it if the request method is HEAD which as
 		 * no content leftover.
 		 * Or if the response status code is 204 : No Content
+		 *
+		 * A chunked response's Content-Length was ignored above, and
+		 * rx_content_length zeroed with it: that is not a length of
+		 * zero, the body is still to come and ends at its last-chunk.
+		 * Completing it here handed a kept-alive connection to the
+		 * next queued request with the body still on it, to be read
+		 * as that request's response (C-701)
 		 */
 		simp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
 		if (!wsi->mux_substream &&
 		    !wsi->client_mux_substream &&
 			(204 == lws_http_client_http_response(wsi) ||
 			 (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
-				(!wsi->http.rx_content_length ||
+				((!wsi->http.rx_chunked &&
+				  !wsi->http.rx_content_length) ||
 				(simp && !strcmp(simp,"HEAD")))))) {
 			if (!lws_http_transaction_completed_client(wsi))
 				return LWS_HPI_RET_HANDLED;
