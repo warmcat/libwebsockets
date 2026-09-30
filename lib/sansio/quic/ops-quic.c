@@ -5048,6 +5048,7 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 static int
 rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 {
+	struct lws_quic_stream *qs;
 	struct lws *nwsi;
 	const struct lws_role_ops *role;
 
@@ -5083,10 +5084,22 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	if (!wsi->quic.qn || wsi->quic.qn->alpn_migrated)
 		return 0;
 
+	/*
+	 * This wsi goes on as stream 0 with a stream of its own.  Get that
+	 * first: failing it after the connection moved to the new network wsi
+	 * left the connection half way between the two, its netconn leaked
+	 * and still on the pt's lists naming a freed wsi.
+	 */
+	qs = lws_zalloc(sizeof(*qs), "quic stream");
+	if (!qs)
+		return 1;
+
 	/* Create the new network WSI */
 	nwsi = lws_create_new_server_wsi(wsi->a.vhost, wsi->tsi, 0, "quic_nwsi");
-	if (!nwsi)
+	if (!nwsi) {
+		lws_free(qs);
 		return 1;
+	}
 
 #if defined(LWS_WITH_CLIENT)
 	if (wsi->cli_hostname_copy)
@@ -5098,6 +5111,7 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 
 	/* the socket, its place in the poll set and its watcher move over */
 	if (lws_io_transfer(wsi, nwsi)) {
+		lws_free(qs);
 		lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS,
 				   "transfer fail");
 		return 1;
@@ -5111,28 +5125,11 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	nwsi->use_ssl = wsi->use_ssl;
 #endif
 	memset(&wsi->quic, 0, sizeof(wsi->quic));
-	if (!wsi->quic.qs) {
-		wsi->quic.qs = lws_zalloc(sizeof(*wsi->quic.qs), "quic stream");
-		if (wsi->quic.qs) {
-			wsi->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-			wsi->quic.qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-			wsi->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
-			wsi->quic.qs->last_rx_update_us = lws_wsi_now(wsi);
-		} else {
-			/*
-			 * Q-15: wsi has been hollowed out above (tls.ssl and
-			 * quic.qs both NULL, its state migrated into nwsi).
-			 * Closing only nwsi leaves wsi behind to be touched
-			 * with NULL tls.ssl/quic.qs.  Close wsi too so the
-			 * whole failed migration is torn down consistently.
-			 */
-			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS,
-					   "quic stream oom");
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
-					   "quic migration oom");
-			return 1;
-		}
-	}
+	wsi->quic.qs = qs;
+	qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
+	qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
+	qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
+	qs->last_rx_update_us = lws_wsi_now(wsi);
 
 	/* Initialize flow control credits for the new child stream */
 	int32_t init_cr = nwsi->txc.manual_initial_tx_credit;
