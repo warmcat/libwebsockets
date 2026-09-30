@@ -255,7 +255,10 @@ lws_async_dns_server_reload(struct lws_context *context);
  * \param context: the lws_context
  * \param mode: the requested DNSSEC mode (off, tolerate, or require)
  *
- * Configures how the asynchronous DNS handles DNSSEC validation.
+ * Configures how the asynchronous DNS handles DNSSEC validation.  It replaces
+ * the default taken from lws_system_ops_t .async_dns_dnssec_mode at context
+ * creation for the life of the context: reloading the nameservers, eg, when
+ * the platform's DNS configuration changes, doesn't reset it.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_async_dns_dnssec_set_mode(struct lws_context *context, lws_async_dns_dnssec_mode_t mode);

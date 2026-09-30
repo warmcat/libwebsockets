@@ -27,6 +27,10 @@ It checks that
    would validate
  - a validated address answer's cache entry holds only the A RRset, not the
    RRSIG that came with it
+ - with the context mode set to `LWS_ADNS_DNSSEC_REQUIRE` by
+   `lws_async_dns_dnssec_set_mode()`, a lookup that doesn't ask with
+   `LWS_ADNS_WANT_DNSSEC` is validated anyway, also after the nameservers were
+   reloaded
  - each zone's keys were only fetched once for all of that
  - after the trust anchor is replaced by one that matches no root key, the
    chain is walked again from the root and nothing validates

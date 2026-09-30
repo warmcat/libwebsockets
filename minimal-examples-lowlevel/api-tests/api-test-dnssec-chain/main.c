@@ -35,6 +35,9 @@
  *    points at would,
  *  - a validated answer's cache entry holds only the RRset that was
  *    validated, not the RRSIG that came with it,
+ *  - with the context mode set to REQUIRE by lws_async_dns_dnssec_set_mode(),
+ *    a lookup that doesn't ask for validation is validated anyway, also
+ *    after the nameservers were reloaded,
  *  - each zone's keys were only fetched once for all of that,
  *  - once the trust anchor is replaced by one that matches no root key,
  *    nothing validates any more,
@@ -614,6 +617,7 @@ struct tstep {
 	int		check_a;
 	int		from_cache;	/* must be answered from the cache */
 	int		bogus_anchor;	/* set a wrong trust anchor first */
+	int		require;	/* REQUIRE mode instead of WANT_DNSSEC */
 };
 
 static const struct tstep steps[] = {
@@ -622,23 +626,36 @@ static const struct tstep steps[] = {
 	 * the CNAME has to wait for the walk down to zone.tld before we may
 	 * follow it
 	 */
-	{ "alias.zone.tld",	RR_A,		1, 1, 0, 0 },
+	{ .name = "alias.zone.tld",	.qtype = RR_A,
+	  .expect_valid = 1,		.check_a = 1 },
 	/* what the DHT DNSSEC plugin asks: DS from the parent */
-	{ "zone.tld",		RR_DS,		1, 0, 0, 0 },
+	{ .name = "zone.tld",		.qtype = RR_DS,
+	  .expect_valid = 1 },
 	/* data signed by the zone's ZSK */
-	{ "www.zone.tld",	RR_A,		1, 1, 0, 0 },
+	{ .name = "www.zone.tld",	.qtype = RR_A,
+	  .expect_valid = 1,		.check_a = 1 },
 	/* the zone's own keys, of mixed lengths, as an answer */
-	{ "zone.tld",		RR_DNSKEY,	1, 0, 0, 0 },
+	{ .name = "zone.tld",		.qtype = RR_DNSKEY,
+	  .expect_valid = 1 },
 	/* the same DS again: from the cache, and still validated */
-	{ "zone.tld",		RR_DS,		1, 0, 1, 0 },
+	{ .name = "zone.tld",		.qtype = RR_DS,
+	  .expect_valid = 1,		.from_cache = 1 },
 	/* the tld's signature over bad.tld's DS is spoiled */
-	{ "www.bad.tld",	RR_A,		0, 0, 0, 0 },
+	{ .name = "www.bad.tld",	.qtype = RR_A },
 	/* rogue.tld's DNSKEY RRset isn't signed by the key its DS names */
-	{ "www.rogue.tld",	RR_A,		0, 0, 0, 0 },
+	{ .name = "www.rogue.tld",	.qtype = RR_A },
 	/* an unsigned CNAME to it isn't believed */
-	{ "plain.zone.tld",	RR_A,		0, 0, 0, 0 },
+	{ .name = "plain.zone.tld",	.qtype = RR_A },
+	/*
+	 * Validated because the context mode is REQUIRE, set with the
+	 * setter: it must survive the nameserver reload done first
+	 */
+	{ .name = "www.zone.tld",	.qtype = RR_A | LWS_ADNS_NOCACHE,
+	  .expect_valid = 1,		.check_a = 1,
+	  .require = 1 },
 	/* after the anchor is replaced by one that matches no root key */
-	{ "www.zone.tld",	RR_A | LWS_ADNS_NOCACHE, 0, 0, 0, 1 },
+	{ .name = "www.zone.tld",	.qtype = RR_A | LWS_ADNS_NOCACHE,
+	  .bogus_anchor = 1 },
 };
 
 static struct lws *
@@ -788,13 +805,23 @@ step_start(void)
 		}
 	}
 
+	if (t->require) {
+		/*
+		 * A reload asks the platform for its nameservers again (ours
+		 * is pinned, so it stays the only one), as happens when the
+		 * DNS configuration changes: the mode we set must survive it
+		 */
+		lws_async_dns_dnssec_set_mode(cx, LWS_ADNS_DNSSEC_REQUIRE);
+		lws_async_dns_server_reload(cx);
+	}
+
 	step_done = 0;
 	step_result = LADNS_RET_FAILED;
 	step_www_asked = times_asked("www.zone.tld", RR_A);
 
 	n = lws_async_dns_query(cx, 0, t->name, (adns_query_type_t)(t->qtype |
-					LWS_ADNS_WANT_DNSSEC |
-					LWS_ADNS_IGNORE_HOSTS_FILE),
+				(t->require ? 0 : LWS_ADNS_WANT_DNSSEC) |
+				LWS_ADNS_IGNORE_HOSTS_FILE),
 				query_cb, NULL, NULL, NULL);
 
 	if (t->from_cache) {
@@ -895,6 +922,8 @@ sul_tick_cb(lws_sorted_usec_list_t *sul)
 	}
 
 	if (step_done) {
+		if (steps[step].require)
+			lws_async_dns_dnssec_set_mode(cx, LWS_ADNS_DNSSEC_OFF);
 		step_check();
 		step_started = 0;
 		if (++step == (int)LWS_ARRAY_SIZE(steps))

@@ -933,13 +933,23 @@ lws_async_dns_init(struct lws_context *context)
 	lws_async_dns_t *dns = &context->async_dns;
 	int n;
 
-	dns->cx = context;
-	const lws_system_ops_t *ops = lws_system_get_ops(context);
-	if (ops) {
-		dns->dnssec_mode = ops->async_dns_dnssec_mode;
-	} else {
-		dns->dnssec_mode = 0;
+	/*
+	 * The lws_system_ops mode is only the default, taken the first time
+	 * we are initialized, which is during lws_create_context(), before
+	 * anyone can have called lws_async_dns_dnssec_set_mode().  We are
+	 * called again for every nameserver reload, including the one the
+	 * SMD watcher triggers on the first service pass, and one a peer can
+	 * provoke by making the servers look dead: taking the ops value again
+	 * then silently put a mode set with the setter, eg, REQUIRE, back to
+	 * OFF.
+	 */
+	if (!dns->cx) {
+		const lws_system_ops_t *ops = lws_system_get_ops(context);
+
+		dns->dnssec_mode = ops ? ops->async_dns_dnssec_mode : 0;
 	}
+
+	dns->cx = context;
 
 #if defined(LWS_WITH_SYS_SMD)
 	/*
@@ -2369,6 +2379,7 @@ void
 lws_async_dns_dnssec_set_mode(struct lws_context *context,
 			      lws_async_dns_dnssec_mode_t mode)
 {
+	/* nameserver reloads keep it, see lws_async_dns_init() */
 	context->async_dns.dnssec_mode = (uint8_t)mode;
 }
 
