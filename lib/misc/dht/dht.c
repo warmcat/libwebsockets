@@ -152,6 +152,36 @@ dht_source_key(const struct sockaddr *sa, uint8_t key[16])
  * the total.
  */
 
+/*
+ * Is `from` a good node of our routing table, at the endpoint we hold for
+ * it?  Since C-594 nobody else can move that endpoint while the node is
+ * alive, so this is as close as an unauthenticated DHT gets to knowing the
+ * source address is genuine.
+ */
+
+int
+lws_dht_peer_known(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
+		   const struct sockaddr *from)
+{
+#if defined(LWS_WITH_DHT_BACKEND)
+	struct node *n;
+
+	if (!id)
+		return 0;
+
+	n = find_node(ctx, id, from->sa_family);
+
+	return n && node_good(ctx, n) &&
+	       dht_sa_same_peer((const struct sockaddr *)&n->ss, from);
+#else
+	(void)ctx;
+	(void)id;
+	(void)from;
+
+	return 0;
+#endif
+}
+
 int
 lws_dht_admit_request(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 		      const struct sockaddr *from)
@@ -188,17 +218,8 @@ lws_dht_admit_request(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 			 LWS_DHT_RL_SRC_BURST))
 		return 0;
 
-#if defined(LWS_WITH_DHT_BACKEND)
-	if (id) {
-		struct node *nd = find_node(ctx, id, from->sa_family);
-
-		if (nd && node_good(ctx, nd) &&
-		    dht_sa_same_peer((const struct sockaddr *)&nd->ss, from))
-			pool = &ctx->rl_known;
-	}
-#else
-	(void)id;
-#endif
+	if (lws_dht_peer_known(ctx, id, from))
+		pool = &ctx->rl_known;
 
 	return dht_tb_take(ctx, pool, LWS_DHT_RL_POOL_RATE,
 			   LWS_DHT_RL_POOL_BURST);
@@ -301,9 +322,23 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 	if (!parse_ret) {
 		if (!strcmp(msg.verb, "CAP_REQ")) {
 			char ack[512], json[384];
-			int n = lws_snprintf(json, sizeof(json), "{\"protocols\":[");
-			int first = 1;
+			int n, first = 1;
 			const char *last_proto = NULL;
+
+			/*
+			 * Anyone can send this, from any source address, and
+			 * the answer is bigger than the question: it is a
+			 * request like any other, and costs a token.  (If the
+			 * source never acknowledges the answer, the sequencer
+			 * does not repeat it: see dht_ts_create().)
+			 */
+			if (!lws_dht_admit_request(dts->ctx, NULL,
+					(const struct sockaddr *)&dts->sa)) {
+				dts->ctx->stats_current.rx_drops++;
+				return 0;
+			}
+
+			n = lws_snprintf(json, sizeof(json), "{\"protocols\":[");
 
 			/* Gather protocols (dumb uniqueness since they are added consecutively by register_verbs) */
 			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&dts->ctx->verb_owner)) {
@@ -452,6 +487,73 @@ static const lws_retry_bo_t dht_retry_policy = {
 	.conceal_count		= 10, /* Increased from 5 to 10 */
 };
 
+/*
+ * A sequencer costs ~160KB of dsh up front, and a single unsolicited (and
+ * trivially spoofable) inbound 'data' datagram is enough to make one for a
+ * source address we have never spoken to.  Bound how many can exist at once,
+ * recycling the least-recently-used, so that a flood churns a fixed-size
+ * table instead of growing the heap without limit; it also bounds the cost
+ * of the linear lookup in lws_dht_get_ts().
+ *
+ * `unproven` is set when the peer spoke first and is not a node we know at
+ * that endpoint: then the sequencer sends it each chunk once and repeats
+ * nothing until it has acknowledged something, so a forged source address
+ * cannot turn a small request into a stream of retransmitted replies.
+ */
+
+static struct lws_transport_sequencer *
+dht_ts_create(struct lws_dht_ctx *ctx, const struct sockaddr *dest,
+	      size_t salen, int unproven)
+{
+	lws_dht_ts_t *dts;
+
+	if (dest->sa_family != AF_INET && dest->sa_family != AF_INET6)
+		return NULL;
+
+	if ((dest->sa_family == AF_INET && salen < sizeof(struct sockaddr_in)) ||
+	    (dest->sa_family == AF_INET6 && salen < sizeof(struct sockaddr_in6)))
+		return NULL;
+
+	while (lws_dll2_count(&ctx->ts_owner) >= LWS_DHT_MAX_TS) {
+		lws_dll2_t *lru = lws_dll2_get_head(&ctx->ts_owner);
+
+		if (!lru)
+			break;
+
+		lwsl_dht_warn("%s: sequencer table full, evicting LRU\n",
+			      __func__);
+		lws_dht_ts_destroy(lws_container_of(lru, lws_dht_ts_t, list));
+	}
+
+	dts = lws_zalloc(sizeof(*dts), "dht ts");
+	if (!dts)
+		return NULL;
+
+	lws_transport_sequencer_info_t tsi = {
+		.cx		= ctx->vhost->context,
+		.ops		= &dht_seq_ops,
+		.retry_policy	= &dht_retry_policy,
+		.user_data	= dts,
+		.window_size	= 65536, /* 64KB - safe for broadside uploader */
+		.unproven_peer	= !!unproven,
+	};
+
+	dts->ctx = ctx;
+	dts->salen = salen;
+	memcpy(&dts->sa, dest, salen);
+	dts->ts = lws_transport_sequencer_create(&tsi);
+
+	if (!dts->ts) {
+		lws_free(dts);
+		return NULL;
+	}
+
+	lws_dll2_add_tail(&dts->list, &ctx->ts_owner);
+	lws_sul_schedule(ctx->vhost->context, 0, &dts->sul_idle, lws_dht_ts_idle_cb, 30 * LWS_US_PER_SEC);
+
+	return dts->ts;
+}
+
 LWS_VISIBLE struct lws_transport_sequencer *
 lws_dht_get_ts(struct lws_dht_ctx *ctx, const struct sockaddr *dest, size_t salen, int create)
 {
@@ -479,58 +581,35 @@ lws_dht_get_ts(struct lws_dht_ctx *ctx, const struct sockaddr *dest, size_t sale
 	if (!create)
 		return NULL;
 
-	if (dest->sa_family != AF_INET && dest->sa_family != AF_INET6)
-		return NULL;
+	/* we are sending to an address the caller chose */
 
-	if ((dest->sa_family == AF_INET && salen < sizeof(struct sockaddr_in)) ||
-	    (dest->sa_family == AF_INET6 && salen < sizeof(struct sockaddr_in6)))
-		return NULL;
+	return dht_ts_create(ctx, dest, salen, 0);
+}
 
-	/*
-	 * A sequencer costs ~160KB of dsh up front, and a single unsolicited
-	 * (and trivially spoofable) inbound 'data' datagram is enough to make
-	 * one for a source address we have never spoken to.  Bound how many can
-	 * exist at once, recycling the least-recently-used, so that a flood
-	 * churns a fixed-size table instead of growing the heap without limit;
-	 * it also bounds the cost of the linear lookup above.
-	 */
-	while (lws_dll2_count(&ctx->ts_owner) >= LWS_DHT_MAX_TS) {
-		lws_dll2_t *lru = lws_dll2_get_head(&ctx->ts_owner);
+/*
+ * The sequencer an inbound data chunk from `from` belongs to.  Chunks for a
+ * transfer already in progress stay outside the limiter, but making a
+ * sequencer for a source we have no sequencer for is a request like any
+ * other (C-497), in every build.
+ */
 
-		if (!lru)
-			break;
+struct lws_transport_sequencer *
+lws_dht_ts_rx(struct lws_dht_ctx *ctx, const struct sockaddr *from,
+	      size_t fromlen, const lws_dht_hash_t *id)
+{
+	struct lws_transport_sequencer *ts = lws_dht_get_ts(ctx, from,
+							    fromlen, 0);
 
-		lwsl_dht_warn("%s: sequencer table full, evicting LRU\n",
-			      __func__);
-		lws_dht_ts_destroy(lws_container_of(lru, lws_dht_ts_t, list));
-	}
+	if (ts)
+		return ts;
 
-	lws_dht_ts_t *dts = lws_zalloc(sizeof(*dts), "dht ts");
-	if (!dts)
-		return NULL;
-
-	lws_transport_sequencer_info_t tsi = {
-		.cx		= ctx->vhost->context,
-		.ops		= &dht_seq_ops,
-		.retry_policy	= &dht_retry_policy,
-		.user_data	= dts,
-		.window_size	= 65536, /* 64KB - safe for broadside uploader */
-	};
-
-	dts->ctx = ctx;
-	dts->salen = salen;
-	memcpy(&dts->sa, dest, salen);
-	dts->ts = lws_transport_sequencer_create(&tsi);
-
-	if (!dts->ts) {
-		lws_free(dts);
+	if (!lws_dht_admit_request(ctx, id, from)) {
+		ctx->stats_current.rx_drops++;
 		return NULL;
 	}
 
-	lws_dll2_add_tail(&dts->list, &ctx->ts_owner);
-	lws_sul_schedule(ctx->vhost->context, 0, &dts->sul_idle, lws_dht_ts_idle_cb, 30 * LWS_US_PER_SEC);
-
-	return dts->ts;
+	return dht_ts_create(ctx, from, fromlen,
+			     !lws_dht_peer_known(ctx, id, from));
 }
 
 int

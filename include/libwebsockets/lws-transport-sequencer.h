@@ -91,6 +91,13 @@ typedef struct lws_transport_sequencer_info {
 
 	uint32_t window_size;
 	/**< Maximum unacknowledged data in flight (bytes). */
+
+	uint8_t unproven_peer:1;
+	/**< The peer's address is not known to be genuine: it spoke to us
+	 * first, over a transport where the source address can be forged.
+	 * Nothing is retransmitted to it until it has acknowledged data we
+	 * sent, so a forged source gets at most one copy of anything we
+	 * send in reply, not one per retry. */
 } lws_transport_sequencer_info_t;
 
 /**

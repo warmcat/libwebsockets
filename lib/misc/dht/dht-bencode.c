@@ -883,13 +883,12 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 	    message == DHT_GET_PEERS || message == DHT_ANNOUNCE_PEER ||
 	    message == DHT_SUBSCRIBE || message == DHT_SUBSCRIBE_CONFIRM ||
 	    message == DHT_NOTIFY) {
-#if defined(LWS_WITH_DHT_BACKEND)
+		/* in every build: a frontend-only one still acks notify */
 		if (!lws_dht_admit_request(ctx, mp.id, from)) {
 			ctx->stats_current.rx_drops++;
 			lwsl_dht_warn("%s: Dropping request due to rate limiting\n", __func__);
 			goto done;
 		}
-#endif
 	} else if (message == DHT_REPLY && mp.sender_ip_len) {
 		/*
 		 * A reply to our external-address probe, telling us what our
@@ -1356,22 +1355,14 @@ skip_ip_tracking:
 			struct lws_transport_sequencer *ts;
 			lwsl_dht_rx("%s: Received reliable data payload (%d bytes, offset %llu)\n",
 				    __func__, (int)mp.data_len, (unsigned long long)mp.offset);
-			ts = lws_dht_get_ts(ctx, from, fromlen, 0);
-#if defined(LWS_WITH_DHT_BACKEND)
 			/*
-			 * Chunks for a transfer already in progress stay
-			 * outside the limiter, but making a sequencer for a
-			 * source we have never heard from costs ~160KB of
-			 * allocation and an ACK to an unverified address per
-			 * datagram: that creation is a request like any other
+			 * Making a sequencer for a source we have never heard
+			 * from costs ~160KB of allocation and an ACK to an
+			 * unverified address: that is rate limited, and the
+			 * sequencer won't repeat anything to such a source
+			 * until it has acknowledged it
 			 */
-			if (!ts && !lws_dht_admit_request(ctx, mp.id, from)) {
-				ctx->stats_current.rx_drops++;
-				goto done;
-			}
-#endif
-			if (!ts)
-				ts = lws_dht_get_ts(ctx, from, fromlen, 1);
+			ts = lws_dht_ts_rx(ctx, from, fromlen, mp.id);
 			if (ts)
 				lws_transport_sequencer_rx(ts, mp.offset, mp.data, mp.data_len);
 		}

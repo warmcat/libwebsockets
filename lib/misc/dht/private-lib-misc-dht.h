@@ -523,7 +523,9 @@ void lws_dht_capture_announce(struct lws_dht_ctx *ctx, lws_dht_hash_t *hash, con
 #endif
 int is_martian(const struct sockaddr *sa);
 int dht_source_key(const struct sockaddr *sa, uint8_t key[16]);
+int lws_dht_peer_known(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *from);
 int lws_dht_admit_request(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *from);
+struct lws_transport_sequencer * lws_dht_ts_rx(struct lws_dht_ctx *ctx, const struct sockaddr *from, size_t fromlen, const lws_dht_hash_t *id);
 int lws_dht_get_external_addr(struct lws_dht_ctx *ctx, struct sockaddr_storage *ss, size_t *sslen);
 struct lws_dht_ctx * lws_dht_create(const lws_dht_info_t *info);
 void * lws_dht_get_closure(struct lws_dht_ctx *ctx);

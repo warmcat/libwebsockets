@@ -80,6 +80,7 @@ struct lws_transport_sequencer {
 	uint16_t			active_len;
 
 	uint8_t				completed:1;
+	uint8_t				peer_proven:1; /* acked our data */
 	lws_transport_sequencer_stats_t	stats;
 };
 
@@ -110,11 +111,19 @@ sul_retry_cb(lws_sorted_usec_list_t *sul)
 	}
 
 	ts->retry_count++;
-	ts->stats.tx_retries++;
 
-	/* Call protocol-specific TX hook with data after the offset prefix */
-	ts->info.ops->tx_chunk(ts, *p_off, (uint8_t *)obj + sizeof(uint64_t),
-				len - sizeof(uint64_t));
+	/*
+	 * A peer that has never acknowledged anything may be a forged source:
+	 * the retry still counts, so the session fails on schedule, but the
+	 * copy only goes out once the peer has shown it receives from us.
+	 */
+	if (ts->peer_proven) {
+		ts->stats.tx_retries++;
+
+		/* Call protocol-specific TX hook with data after the offset prefix */
+		ts->info.ops->tx_chunk(ts, *p_off, (uint8_t *)obj + sizeof(uint64_t),
+					len - sizeof(uint64_t));
+	}
 
 	/* Schedule next timeout */
 	lws_retry_sul_schedule(ts->info.cx, 0, &ts->sul_retry,
@@ -131,6 +140,7 @@ lws_transport_sequencer_create(const lws_transport_sequencer_info_t *i)
 		return NULL;
 
 	ts->info = *i;
+	ts->peer_proven = !i->unproven_peer;
 
 	/* Create DSH for buffering unacknowledged packets (TX kind 0, RX kind 1) */
 	ts->dsh = lws_dsh_create(NULL, i->window_size * 2 + 32768, 2);
@@ -261,6 +271,12 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&ts->scoreboard)) {
 		r = lws_container_of(d, struct lws_transport_sequencer_range, list);
 		if (r->offset + r->len <= cumulative_offset) {
+			/*
+			 * The peer acknowledged data we really sent, so it
+			 * receives at the address we are sending to
+			 */
+			if (cumulative_offset <= ts->next_tx_offset)
+				ts->peer_proven = 1;
 			r->acked = 1;
 			if (r->dsh_obj)
 				lws_dsh_free(&r->dsh_obj);

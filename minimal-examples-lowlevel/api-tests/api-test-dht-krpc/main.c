@@ -20,6 +20,8 @@
  *    within a few seconds (tx_find_node on A, rx_find_node on B)
  *  - a reliable-transport data datagram from A is reassembled by B's
  *    sequencer and delivered verbatim to B's event callback
+ *  - a CAP_REQ from A over the same transport is answered by B's CAP_RSP,
+ *    sent back over the sequencer B made for A when A spoke first
  *  - once B is a good node for A, A probes it for A's external address:
  *    the probe's nonce survives the round trip, and in a two-node network
  *    the one other node is the quorum, so A learns 127.0.0.1:port-a from B
@@ -51,6 +53,7 @@ static lws_sorted_usec_list_t sul_poll, sul_deadline;
 static struct sockaddr_in sa_a, sa_b, sa_c;
 
 static const char *data_msg = "PUT 0102030405 0 5 hello";
+static const char *cap_req = "CAP_REQ 0102030405 0 0 ";
 static size_t data_msg_len;
 
 static uint8_t token[40];
@@ -67,6 +70,7 @@ struct seen {
 	unsigned char ping_sent:1;
 	unsigned char searched:1;
 	unsigned char data_sent:1;
+	unsigned char cap_ok:1;		/* A got B's CAP_RSP */
 	unsigned char probed:1;		/* A asked B for its external address */
 	unsigned char extip_ok:1;	/* ...and learnt it */
 	unsigned char extip_bad:1;	/* ...or learnt something else */
@@ -99,6 +103,11 @@ cb_a(void *closure, int event, const lws_dht_hash_t *info_hash,
 		break;
 	case LWS_DHT_EVENT_NOTIFY:
 		sv.notify_ok = 1;
+		break;
+	case LWS_DHT_EVENT_DATA:
+		/* A registered no verbs, so B's CAP_RSP comes to us whole */
+		if (data_len > 8 && !memcmp(data, "CAP_RSP ", 8))
+			sv.cap_ok = 1;
 		break;
 	case LWS_DHT_EVENT_EXTERNAL_ADDR: {
 		const struct lws_dht_consensus_info *ci =
@@ -304,6 +313,8 @@ poll_cb(lws_sorted_usec_list_t *sul)
 		sv.data_sent = 1;
 		lws_dht_send_data(dht_a, (struct sockaddr *)&sa_b,
 				  data_msg, data_msg_len);
+		lws_dht_send_data(dht_a, (struct sockaddr *)&sa_b,
+				  cap_req, strlen(cap_req));
 	}
 
 	subscription_step();
@@ -332,7 +343,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	 * did not move B's entry in A's table.
 	 */
 
-	if (sv.token_ok && sv.acked && !sv.dup_sub && sv.data_ok &&
+	if (sv.token_ok && sv.acked && !sv.dup_sub && sv.data_ok && sv.cap_ok &&
 	    sv.extip_ok && !sv.extip_bad &&
 	    sv.samid_ok && !sv.samid_bad &&
 	    sa.tx_find_node && sb.rx_find_node &&
@@ -511,6 +522,10 @@ int main(int argc, const char **argv)
 			}
 			if (!sv.data_ok) {
 				lwsl_err("B never received the data payload verbatim\n");
+				fails++;
+			}
+			if (!sv.cap_ok) {
+				lwsl_err("B never answered A's CAP_REQ\n");
 				fails++;
 			}
 			if (!sa.tx_find_node || !sb.rx_find_node) {
