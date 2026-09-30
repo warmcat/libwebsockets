@@ -217,11 +217,18 @@ __lws_reset_wsi(struct lws *wsi)
 	if (wsi->mux_stream_immortal)
 		lws_http_close_immortal(wsi);
 
-	lwsi_set_skt_unusable(wsi, 0);
 	wsi->mux_substream = wsi->mux_stream_immortal =
 	wsi->h2_acked_settings = wsi->seen_nonpseudoheader =
-	wsi->parent_pending_cb_on_writable = wsi->seen_zero_length_recv = 0;
+	wsi->parent_pending_cb_on_writable = 0;
 #endif
+
+	/*
+	 * What we knew of the old connection's socket, that it could not be
+	 * used or that the peer had half-closed it, is not true of the next
+	 * one, whatever the role
+	 */
+	lwsi_set_skt_unusable(wsi, 0);
+	wsi->seen_zero_length_recv = 0;
 
 #if defined(LWS_ROLE_QUIC)
 	lws_quic_stream_cleanup(wsi);
@@ -240,7 +247,7 @@ __lws_reset_wsi(struct lws *wsi)
 	wsi->client_http_body_pending = wsi->transaction_from_pipeline_queue =
 	wsi->keepalive_rejected =
 	wsi->redirected_to_get = wsi->client_pipeline =
-	wsi->client_mux_substream =
+	wsi->client_mux_substream = wsi->client_subsequent_mime_part =
 	wsi->tls_session_reused = wsi->perf_done =
 		wsi->tried_quic = 0;
 

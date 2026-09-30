@@ -1730,16 +1730,21 @@ bail2:
 uint8_t *
 lws_http_multipart_headers(struct lws *wsi, uint8_t *p, uint8_t *end)
 {
-	char buf[10], arg[48];
+	/*
+	 * 9 random bytes are 12 base64 characters with no padding, which
+	 * with the terminating NUL fit the 16 the boundary has room for
+	 */
+	char buf[9], arg[48];
 	int n;
 
 	if (lws_get_random(wsi->a.context, (uint8_t *)buf, sizeof(buf)) !=
 			sizeof(buf))
 		return NULL;
 
-	lws_b64_encode_string(buf, sizeof(buf),
-			       wsi->http.multipart_boundary,
-			       sizeof(wsi->http.multipart_boundary));
+	if (lws_b64_encode_string(buf, sizeof(buf),
+				  wsi->http.multipart_boundary,
+				  sizeof(wsi->http.multipart_boundary)) < 0)
+		return NULL;
 
 	n = lws_snprintf(arg, sizeof(arg), "multipart/form-data; boundary=\"%s\"",
 			 wsi->http.multipart_boundary);
@@ -2461,6 +2466,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	struct _lws_websocket_related *ws;
 #endif
 	const char *cisin[CIS_COUNT];
+	unsigned int keepalive_rejected;
 	struct lws *wsi;
 	size_t o;
 	int n, r;
@@ -2469,6 +2475,16 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		return NULL;
 
 	wsi = *pwsi;
+
+	/*
+	 * A server that refused keep-alive is still refusing it if we are
+	 * going back to it (a digest auth retry, or a redirect to itself):
+	 * the retargeted request must not try to share a connection with it
+	 */
+	keepalive_rejected = wsi->keepalive_rejected && wsi->stash &&
+			     wsi->c_port == port &&
+			     wsi->stash->cis[CIS_ADDRESS] &&
+			     !strcmp(wsi->stash->cis[CIS_ADDRESS], address);
 
 	lwsl_debug("%s: %s: redir %d: %s\n", __func__, lws_wsi_tag(wsi),
 			wsi->redirects, address);
@@ -2573,7 +2589,10 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	if (weak)
 		wsi->ws = ws;
 #endif
-	wsi->client_pipeline = 1;
+	/* the retargeted request pipelines only if the user said it may */
+	wsi->keepalive_rejected = !!keepalive_rejected;
+	wsi->client_pipeline = !!(wsi->flags & LCCSCF_PIPELINE) &&
+			       !keepalive_rejected;
 
 	/*
 	 * We could be a redirect before, or after the POST was done.
