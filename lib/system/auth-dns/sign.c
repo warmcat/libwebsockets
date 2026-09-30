@@ -1019,7 +1019,32 @@ lws_auth_dns_nsec3_hash(const uint8_t *wire, size_t wire_len,
  * DNSSEC key) must not be allowed to run off the end of the caller's buffer.
  */
 
-#define LWS_AUTH_DNS_DNSKEY_WIRE 1040 /* 4 + 3 + e + 8192-bit n */
+#define LWS_AUTH_DNS_DNSKEY_WIRE LWS_AUTH_DNS_DNSKEY_WIRE_MAX
+
+/*
+ * The DNSSEC algorithm number for a JWK, or 0 if it has none.  P-521 has no
+ * DNSSEC algorithm: 15 is Ed25519.
+ */
+
+static int
+lws_auth_dns_jwk_alg(const struct lws_jwk *jwk)
+{
+	const char *crv;
+
+	if (jwk->kty == LWS_GENCRYPTO_KTY_RSA)
+		return 8; /* RSASHA256 */
+
+	if (jwk->kty != LWS_GENCRYPTO_KTY_EC)
+		return 0;
+
+	crv = (const char *)jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf;
+	if (!crv || !strncmp(crv, "P-256", 5))
+		return 13; /* ECDSAP256SHA256 */
+	if (!strncmp(crv, "P-384", 5))
+		return 14; /* ECDSAP384SHA384 */
+
+	return 0;
+}
 
 static size_t
 lws_auth_dns_dnskey_wire(struct lws_jwk *jwk, int flags, int dnssec_alg,
@@ -1097,6 +1122,77 @@ lws_auth_dns_dnskey_wire(struct lws_jwk *jwk, int flags, int dnssec_alg,
 	return 0;
 }
 
+int
+lws_auth_dns_key_records(struct lws_jwk *jwk, const char *origin, int flags,
+			 struct lws_auth_dns_key_records *r)
+{
+	uint8_t wire[LWS_AUTH_DNS_DNSKEY_WIRE], owner[256], hash[48];
+	enum lws_genhash_types ht;
+	struct lws_genhash_ctx hctx;
+	size_t wl, ol = sizeof(owner), hl, n;
+	uint32_t ac = 0;
+	char *p;
+	int m;
+
+	memset(r, 0, sizeof(*r));
+
+	r->alg = (uint8_t)lws_auth_dns_jwk_alg(jwk);
+	if (!r->alg)
+		return 1;
+
+	wl = lws_auth_dns_dnskey_wire(jwk, flags, r->alg, wire, sizeof(wire));
+	if (!wl)
+		return 1;
+
+	/* RFC 4034 Appendix B */
+	for (n = 0; n < wl; n++)
+		ac += (n & 1) ? (uint32_t)wire[n] : (uint32_t)wire[n] << 8;
+	ac += (ac >> 16) & 0xffff;
+	r->keytag = (uint16_t)(ac & 0xffff);
+
+	/* DNSKEY presentation RDATA */
+
+	m = lws_snprintf(r->dnskey, sizeof(r->dnskey), "%d 3 %d ", flags,
+			 r->alg);
+	if (lws_b64_encode_string((const char *)wire + 4, (int)wl - 4,
+				  r->dnskey + m, (int)(sizeof(r->dnskey) -
+							(size_t)m)) < 0)
+		return 1;
+
+	/* DS (RFC 4034 5.1.4): the digest of owner name | DNSKEY RDATA */
+
+	if (r->alg == 14) {
+		r->digest_type = 4;
+		ht = LWS_GENHASH_TYPE_SHA384;
+		hl = 48;
+	} else {
+		r->digest_type = 2;
+		ht = LWS_GENHASH_TYPE_SHA256;
+		hl = 32;
+	}
+
+	if (name_to_wire(origin, "", owner, &ol) ||
+	    lws_genhash_init(&hctx, ht))
+		return 1;
+	if (lws_genhash_update(&hctx, owner, ol) ||
+	    lws_genhash_update(&hctx, wire, wl)) {
+		lws_genhash_destroy(&hctx, NULL);
+		return 1;
+	}
+	if (lws_genhash_destroy(&hctx, hash))
+		return 1;
+
+	lws_hex_from_byte_array(hash, hl, r->digest, sizeof(r->digest));
+	/* DS digests are conventionally shown in uppercase */
+	for (p = r->digest; *p; p++)
+		*p = (char)toupper(*p);
+
+	lws_snprintf(r->ds, sizeof(r->ds), "%u %u %u %s", r->keytag, r->alg,
+		     r->digest_type, r->digest);
+
+	return 0;
+}
+
 static int
 lws_auth_dns_add_dnskey(struct auth_dns_zone *z, const char *jwk_path, int flags)
 {
@@ -1147,21 +1243,13 @@ lws_auth_dns_add_dnskey(struct auth_dns_zone *z, const char *jwk_path, int flags
 		goto bail;
 	}
 
-	if (jwk.kty != LWS_GENCRYPTO_KTY_EC && jwk.kty != LWS_GENCRYPTO_KTY_RSA) {
-		lwsl_err("%s: Unsupported key type %d\n", __func__, jwk.kty);
+	int dnssec_alg = lws_auth_dns_jwk_alg(&jwk);
+
+	if (!dnssec_alg) {
+		lwsl_err("%s: %s: key has no DNSSEC algorithm\n", __func__,
+			 jwk_path);
 		lws_jwk_destroy(&jwk);
 		goto bail;
-	}
-
-	int dnssec_alg = 8; /* RSASHA256 Default */
-
-	if (jwk.kty == LWS_GENCRYPTO_KTY_EC) {
-		dnssec_alg = 13; /* ECDSAP256SHA256 Default */
-		if (jwk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) {
-			const char *crv = (const char *)jwk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf;
-			if (!strncmp(crv, "P-384", 5)) dnssec_alg = 14;
-			else if (!strncmp(crv, "P-521", 5)) dnssec_alg = 15;
-		}
 	}
 
 	wl = lws_auth_dns_dnskey_wire(&jwk, flags, dnssec_alg, wire, sizeof(wire));
@@ -1544,34 +1632,9 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 						}
 
 						if (has_ksk) {
-						/* Determine DNSSEC Algorithm from the JWK Curve */
-						int digest_type = 2; /* SHA256 */
-						const char *alg_name = "ECDSAP256SHA256";
-						const char *digest_name = "SHA256";
-						dnssec_alg = 13;
-						if (ksk.kty == LWS_GENCRYPTO_KTY_EC) {
-							if (ksk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) {
-								const char *crv = (const char *)ksk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf;
-								if (!strncmp(crv, "P-384", 5)) {
-									dnssec_alg = 14; digest_type = 4;
-									alg_name = "ECDSAP384SHA384"; digest_name = "SHA384";
-								}
-								else if (!strncmp(crv, "P-521", 5)) {
-									dnssec_alg = 15; digest_type = 4; /* SHA384 used for P-521 per RFC 6605 */
-									alg_name = "ECDSAP521SHA512";
-								}
-							}
-						} else {
-							dnssec_alg = 8; /* RSASHA256 */
-							alg_name = "RSASHA256"; digest_name = "SHA256";
-						}
+						struct lws_auth_dns_key_records kr;
 
-						/* Create the wire format of the KSK to compute Keytag and DS hash */
-						uint8_t wire[LWS_AUTH_DNS_DNSKEY_WIRE];
-						size_t wl = lws_auth_dns_dnskey_wire(&ksk, 257,
-									dnssec_alg, wire, sizeof(wire));
-
-						if (!wl) {
+						if (lws_auth_dns_key_records(&ksk, z->origin, 257, &kr)) {
 							/*
 							 * we cannot express this key as DNSKEY
 							 * RDATA, so we cannot compute a valid
@@ -1580,38 +1643,17 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 							 */
 							lwsl_err("%s: KSK unusable as DNSKEY RDATA\n", __func__);
 							has_ksk = 0;
-						}
+						} else {
+							dnssec_alg = kr.alg;
+							keytag_ksk = kr.keytag;
 
-						/* Compute keytag (RFC4034 Appendix B) */
-						uint32_t ac = 0;
-						for (size_t i = 0; i < wl; ++i) ac += (i & 1) ? (uint32_t)wire[i] : (uint32_t)wire[i] << 8;
-						ac += (ac >> 16) & 0xffff;
-						keytag_ksk = (uint16_t)(ac & 0xffff);
-
-						lwsl_notice("== KSK DS Information ==\n");
-						lwsl_notice("Please provide these parameters to your registrar:\n");
-						lwsl_notice("Keytag: %u, Algorithm: %d (%s), Digest Type: %d (%s)\n", keytag_ksk, dnssec_alg, alg_name, digest_type, digest_name);
-
-						struct lws_genhash_ctx hctx;
-						uint8_t hash[64];
-						enum lws_genhash_types hash_type = (digest_type == 4) ? LWS_GENHASH_TYPE_SHA384 : LWS_GENHASH_TYPE_SHA256;
-						int hash_len = (digest_type == 4) ? 48 : 32;
-
-						if (lws_genhash_init(&hctx, hash_type) == 0) {
-							/* To compute DS, hash the wire format: owner + key data */
-							uint8_t dspre[512]; size_t dl = 0; size_t al = sizeof(dspre);
-							name_to_wire(z->origin, "", dspre, &al); dl += al;
-							if (lws_genhash_update(&hctx, dspre, dl) == 0 &&
-								lws_genhash_update(&hctx, wire, wl) == 0) {
-								lws_genhash_destroy(&hctx, hash);
-
-								char hex[256];
-								lws_hex_from_byte_array(hash, (size_t)hash_len, hex, sizeof(hex));
-								lwsl_notice("Digest: %s\n", hex);
-								lwsl_notice("========================\n");
-							} else {
-								lws_genhash_destroy(&hctx, NULL);
-							}
+							lwsl_notice("== KSK DS Information ==\n");
+							lwsl_notice("Please provide these parameters to your registrar:\n");
+							lwsl_notice("Keytag: %u, Algorithm: %u, Digest Type: %u\n",
+								    kr.keytag, kr.alg, kr.digest_type);
+							lwsl_notice("Digest: %s\n", kr.digest);
+							lwsl_notice("DNSKEY: %s\n", kr.dnskey);
+							lwsl_notice("========================\n");
 						}
 					}
 					if (buf_ksk) {

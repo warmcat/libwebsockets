@@ -586,6 +586,104 @@ bail:
 	return r;
 }
 
+/*
+ * What the registrar is told must be what the signer publishes: check
+ * lws_auth_dns_key_records() against the RFC 6605 example DNSKEY / DS pairs
+ * (from public-only JWKs), and that the KSK DNSKEY it describes is the one
+ * the zone signed above actually carries.
+ */
+
+static int
+test_key_records(void)
+{
+	static const struct {
+		const char *jwk, *dnskey, *ds;
+	} kat[] = {
+		{ /* RFC 6605 6.1 */
+			"{\"kty\":\"EC\",\"crv\":\"P-256\","
+			"\"x\":\"GojIhhXUN_u4v54ZQqGSnyhWJwaubCvTmeexv7bR6ec\","
+			"\"y\":\"W5K0qkKReuHGG3Ae8DXD_nvjAJy6_lovcTFskC3PDQA\"}",
+			"257 3 13 GojIhhXUN/u4v54ZQqGSnyhWJwaubCvTmeexv7bR6edbkrSq"
+			"QpF64cYbcB7wNcP+e+MAnLr+Wi9xMWyQLc8NAA==",
+			"55648 13 2 B4C8C1FE2E7477127B27115656AD6256F424625BF5C1E27"
+			"70CE6D6E37DF61D17"
+		},
+		{ /* RFC 6605 6.2 */
+			"{\"kty\":\"EC\",\"crv\":\"P-384\","
+			"\"x\":\"xKYaNhWdGOfJ-nPrL8_arkwf2EY3MDJ-SErKivBVSum1w_eg"
+			"sXvSADtNJhyem5RC\","
+			"\"y\":\"OpgQ6K8X1DRSEkrbYQ-OB-v8_uX45NBwY8rp65F6Glur8I_m"
+			"lVNgF6W_qTI37m40\"}",
+			"257 3 14 xKYaNhWdGOfJ+nPrL8/arkwf2EY3MDJ+SErKivBVSum1w/eg"
+			"sXvSADtNJhyem5RCOpgQ6K8X1DRSEkrbYQ+OB+v8/uX45NBwY8rp65F6"
+			"Glur8I/mlVNgF6W/qTI37m40",
+			"10771 14 4 72D7B62976CE06438E9C0BF319013CF801F09ECC84B8D7E"
+			"9495F27E305C6A9B0563A9B5F4D288405C3008A946DF983D6"
+		},
+	};
+	struct lws_auth_dns_key_records kr;
+	struct auth_dns_zone z;
+	struct lws_jwk jwk;
+	int found = 0;
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(kat); n++) {
+		if (lws_jwk_import(&jwk, NULL, NULL, kat[n].jwk,
+				   strlen(kat[n].jwk))) {
+			lwsl_err("%s: kat %d: jwk import failed\n", __func__,
+				 (int)n);
+			return 1;
+		}
+		if (lws_auth_dns_key_records(&jwk, "example.net.", 257, &kr) ||
+		    strcmp(kr.dnskey, kat[n].dnskey) || strcmp(kr.ds, kat[n].ds)) {
+			lwsl_err("%s: kat %d: got DNSKEY '%s' DS '%s'\n",
+				 __func__, (int)n, kr.dnskey, kr.ds);
+			lws_jwk_destroy(&jwk);
+			return 1;
+		}
+		lws_jwk_destroy(&jwk);
+	}
+
+	if (lws_jwk_load(&jwk, "./ksk.jwk", NULL, NULL))
+		return 1;
+	n = (size_t)lws_auth_dns_key_records(&jwk, "warmcat.com.", 257, &kr);
+	lws_jwk_destroy(&jwk);
+	if (n || load_zone(&z, "./test.zone.signed")) {
+		lwsl_err("%s: unable to describe ksk.jwk or load zone\n",
+			 __func__);
+		return 1;
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z.rrset_list)) {
+		struct auth_dns_rrset *s = lws_container_of(d,
+					struct auth_dns_rrset, list);
+
+		if (s->type != 48)
+			continue;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d1,
+				      lws_dll2_get_head(&s->rr_list)) {
+			struct auth_dns_rr *rr = lws_container_of(d1,
+						struct auth_dns_rr, list);
+
+			if (!strcmp(rr->rdata, kr.dnskey))
+				found = 1;
+		} lws_end_foreach_dll(d1);
+	} lws_end_foreach_dll(d);
+
+	lws_auth_dns_free_zone(&z);
+
+	if (!found) {
+		lwsl_err("%s: signed zone does not carry DNSKEY %s\n",
+			 __func__, kr.dnskey);
+		return 1;
+	}
+
+	lwsl_user("%s: ok (KSK DS %s)\n", __func__, kr.ds);
+
+	return 0;
+}
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info cx_info;
@@ -692,6 +790,9 @@ int main(int argc, const char **argv)
 		goto bail;
 
 	if (test_nsec3())
+		goto bail;
+
+	if (test_key_records())
 		goto bail;
 
 	res = 0;
