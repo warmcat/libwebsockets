@@ -68,13 +68,12 @@ typedef enum {
 	 * Proxied connection setup result
 	 *
 	 *   -  0: LWSSS_SER_RXPRE_CREATE_RESULT
-	 *   -  1: 2 byte MSB-first rest-of-frame length (usually 00, 03)
-	 *   -  3: 1 byte result, 0 = success.  On failure, proxy will close
-	 *   		connection.
-	 *   -  4: 4 byte client dsh allocation recommended for stream type,
-	 *   		from policy (introduced in SSSv1)
-	 *   -  8: 2 byte MSB-first initial tx credit
-	 *   - 10: if present, comma-sep list of rideshare types from policy
+	 *   -  1: 2 byte MSB-first rest-of-frame length (at least 00, 05)
+	 *   -  3: 1 byte result, 0 = success.  On failure, the client closes
+	 *   		the connection.
+	 *   -  4: 4 byte MSB-first client dsh allocation recommended for the
+	 *   		stream type, from policy (introduced in SSSv1)
+	 *   -  8: if present, comma-sep list of rideshare types from policy
 	 */
 	LWSSS_SER_RXPRE_CONNSTATE,
 	/*
