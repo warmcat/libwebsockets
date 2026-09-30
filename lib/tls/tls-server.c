@@ -544,9 +544,10 @@ lws_tls_server_handshake_policy(struct lws *wsi)
 	 * Adapt our vhost to match the SNI SSL_CTX that was chosen.
 	 *
 	 * Backends whose SNI callback binds the wsi itself have already done
-	 * this authoritatively (and on mbedtls the ctx does not even follow
-	 * the SNI selection, so looking it up here would move him back to the
-	 * listening vhost).  Leave those alone.
+	 * this authoritatively, leave those alone.  (mbedtls is one: its
+	 * session's conf stays the listening vhost's, and its
+	 * lws_tls_ctx_from_wsi() gives the SNI-selected ctx only because the
+	 * callback keeps a reference on it.)
 	 */
 
 	if (wsi->io->tls.ssl && !wsi->sni_vh_bound) {

@@ -120,6 +120,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	}
 
 	wsi->io->tls.ssl = (lws_tls_conn *)conn;
+	conn->wsi = wsi;
 	conn->ctx = wsi->a.vhost->tls.ssl_client_ctx;
 	if (!conn->ctx) {
 		lwsl_err("%s: vhost has no client tls ctx\n", __func__);

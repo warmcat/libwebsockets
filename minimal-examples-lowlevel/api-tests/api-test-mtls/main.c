@@ -6,24 +6,36 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * An lws server vhost requiring a valid client certificate, and lws clients
- * presenting different ones, in one process, confirm the vhost's policy
- * holds on every transport it is served over.
+ * Two lws server vhosts on one listener, each requiring a valid client
+ * certificate from its own CA, and lws clients presenting different ones, in
+ * one process, confirm each vhost's policy holds on every transport it is
+ * served over, and that a client cert one vhost's CA vouches for gets nobody
+ * into the other.
  *
- * The server vhost has the build's default alpn, so beside its tcp listener
- * it opens a quic one on the same port, the same as any tls vhost with h3 in
- * its alpn does.  It trusts client certs signed by ca.crt, and answers a
- * request with the CN of the client cert it was served under.
+ * The server vhosts have the build's default alpn, so beside their tcp
+ * listener they open a quic one on the same port, the same as any tls vhost
+ * with h3 in its alpn does.  "srv" trusts client certs signed by ca.crt and
+ * takes any SNI name not on the listener.  "tenant.example.com" trusts client
+ * certs signed by tenant-ca.crt, and has its own server cert for that name.
+ * Both answer a request with their name and the CN of the client cert it was
+ * served under.
  *
- * Three client vhosts connect to it:
+ * Client vhosts, one per client cert, connect:
  *
- *  - "none", presenting no client cert: refused
- *  - "self", presenting a self-signed cert ca.crt did not sign: refused.  It
- *    is under the CA's own name, since a client presents only a cert whose
- *    issuer is one the server said it trusts... this one says so, and the
- *    server has to find out it is not
- *  - "node1", presenting node1.crt, which ca.crt signed: served, and the
- *    response carries its CN
+ *  - "none", presenting no client cert, to srv: refused
+ *  - "self", presenting a self-signed cert ca.crt did not sign, to srv:
+ *    refused.  It is under the CA's own name, since a client presents only a
+ *    cert whose issuer is one the server said it trusts... this one says so,
+ *    and the server has to find out it is not
+ *  - "node2", presenting node2.crt, which tenant-ca.crt signed, to srv:
+ *    refused, the tenant's CA is not srv's
+ *  - "node1", presenting node1.crt, which ca.crt signed, naming the tenant in
+ *    SNI: refused, srv's CA is not the tenant's
+ *  - "node2", naming the tenant: served by the tenant as node2.  This is the
+ *    one that shows the connection was bound to the vhost its SNI chose, and
+ *    that vhost's CA recorded as the one that verified him: had srv's been
+ *    recorded, the tenant would refuse him with a 421
+ *  - "node1", to srv: served by srv as node1
  *
  * over h1 and h2 over tls, and h3 over quic (--transport picks one).  For
  * each case the server has to have seen a connection of the case's
@@ -31,9 +43,13 @@
  * wrong transport cannot pass, and the h3 client does not fall back to tcp.
  * The refused ones must end without any request being served, when the
  * server's connection for them has gone (the client is not always told when
- * a connection it has not made a stream on yet goes away); node1 is last, so
- * no alt-svc its response teaches the client can move the refused ones to
- * another transport.
+ * a connection it has not made a stream on yet goes away); the served ones
+ * are last, so no alt-svc their responses teach the client can move the
+ * refused ones to another transport.
+ *
+ * The clients naming the tenant check its cert is for that name: mbedtls
+ * clients send no SNI at all when that check is skipped.  The others skip it,
+ * since they dial the server by address.
  */
 
 #include <libwebsockets.h>
@@ -54,10 +70,15 @@ enum {
 static const char * const xport_names[] = { "h1", "h2", "h3" };
 static const char * const xport_alpn[] = { "http/1.1", "h2", "h3" };
 
+#define VH_TENANT	"tenant.example.com"
+
+/* the client certs, a client vhost each */
+
 enum {
 	ID_NONE,
 	ID_SELF,
 	ID_NODE1,
+	ID_NODE2,
 	ID_COUNT
 };
 
@@ -65,12 +86,27 @@ static const struct {
 	const char	*name;
 	const char	*cert;
 	const char	*key;
-	char		served;
 } idents[] = {
-	{ "none",  NULL,			NULL,			0 },
-	{ "self",  "self-signed.crt",		"self-signed.key",	0 },
-	{ "node1", "node1.crt",		"node1.key",		1 },
+	{ "none",  NULL,			NULL },
+	{ "self",  "self-signed.crt",		"self-signed.key" },
+	{ "node1", "node1.crt",		"node1.key" },
+	{ "node2", "node2.crt",		"node2.key" },
 };
+
+static const struct {
+	int		id;
+	const char	*sni;		/* NULL: dial the server address */
+	const char	*served_by;	/* NULL: must be refused */
+} cases[] = {
+	{ ID_NONE,	NULL,		NULL },
+	{ ID_SELF,	NULL,		NULL },
+	{ ID_NODE2,	NULL,		NULL },
+	{ ID_NODE1,	VH_TENANT,	NULL },
+	{ ID_NODE2,	VH_TENANT,	VH_TENANT },
+	{ ID_NODE1,	NULL,		"srv" },
+};
+
+#define CASE_COUNT ((int)LWS_ARRAY_SIZE(cases))
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli[ID_COUNT];
@@ -108,8 +144,11 @@ static void next_case(lws_sorted_usec_list_t *sul);
 static void
 case_finish(const char *why)
 {
-	int want_served = idents[cur].served, saw;
-	char cn[80];
+	const char *name = idents[cases[cur].id].name,
+		   *to = cases[cur].sni ? cases[cur].sni : "srv",
+		   *want = cases[cur].served_by;
+	char exp[128];
+	int saw;
 
 	if (case_over)
 		return;
@@ -117,35 +156,36 @@ case_finish(const char *why)
 	lws_sul_cancel(&sul_watchdog);
 
 	saw = xport == XP_H3 ? srv.quic_accepted : srv.tcp_accepted;
-	lws_snprintf(cn, sizeof(cn), "cn=%s.example.com", idents[cur].name);
+	lws_snprintf(exp, sizeof(exp), "vh=%s cn=%s.example.com",
+		     want ? want : "", name);
 
 	if (why) {
-		lwsl_err("%s %s: FAIL: %s\n", xport_names[xport],
-			 idents[cur].name, why);
+		lwsl_err("%s %s -> %s: FAIL: %s\n", xport_names[xport], name,
+			 to, why);
 		failures++;
 	} else if (!saw) {
-		lwsl_err("%s %s: FAIL: the server saw no %s connection\n",
-			 xport_names[xport], idents[cur].name,
+		lwsl_err("%s %s -> %s: FAIL: the server saw no %s connection\n",
+			 xport_names[xport], name, to,
 			 xport == XP_H3 ? "quic" : "tcp");
 		failures++;
-	} else if (want_served &&
+	} else if (want &&
 		   (cli.status != 200 || !cli.completed || srv.served != 1 ||
-		    cli.body_len != strlen(cn) ||
-		    memcmp(cli.body, cn, cli.body_len))) {
-		lwsl_err("%s %s: FAIL: expected to be served as %s: status "
-			 "%d, completed %d, served %d, body '%.*s'\n",
-			 xport_names[xport], idents[cur].name, cn, cli.status,
+		    cli.body_len != strlen(exp) ||
+		    memcmp(cli.body, exp, cli.body_len))) {
+		lwsl_err("%s %s -> %s: FAIL: expected to be served as '%s': "
+			 "status %d, completed %d, served %d, body '%.*s'\n",
+			 xport_names[xport], name, to, exp, cli.status,
 			 cli.completed, srv.served, (int)cli.body_len,
 			 cli.body);
 		failures++;
-	} else if (!want_served && (srv.served || cli.status)) {
-		lwsl_err("%s %s: FAIL: expected to be refused, but served %d, "
-			 "status %d\n", xport_names[xport], idents[cur].name,
+	} else if (!want && (srv.served || cli.status)) {
+		lwsl_err("%s %s -> %s: FAIL: expected to be refused, but served "
+			 "%d, status %d\n", xport_names[xport], name, to,
 			 srv.served, cli.status);
 		failures++;
 	} else
-		lwsl_user("%s %s: PASS (%s)\n", xport_names[xport],
-			  idents[cur].name, want_served ? "served" : "refused");
+		lwsl_user("%s %s -> %s: PASS (%s)\n", xport_names[xport], name,
+			  to, want ? "served" : "refused");
 
 	lws_sul_schedule(context, 0, &sul_next, next_case, 1);
 }
@@ -190,7 +230,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		if (wsi != srv.conn)
 			break;
 		srv.conn = NULL;
-		if (cur >= 0 && cur < ID_COUNT && !idents[cur].served)
+		if (cur >= 0 && cur < CASE_COUNT && !cases[cur].served_by)
 			case_finish(NULL);
 		break;
 
@@ -204,8 +244,9 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_strncpy(ir.ns.name, "(none)", sizeof(ir.ns.name));
 
 		pss->resp_len = (size_t)lws_snprintf(&pss->resp[LWS_PRE],
-					sizeof(pss->resp) - LWS_PRE, "cn=%s",
-					ir.ns.name);
+				sizeof(pss->resp) - LWS_PRE, "vh=%s cn=%s",
+				lws_get_vhost_name(lws_get_vhost(wsi)),
+				ir.ns.name);
 
 		lwsl_user("%s: server: serving %s\n", __func__,
 			  &pss->resp[LWS_PRE]);
@@ -300,14 +341,15 @@ next_case(lws_sorted_usec_list_t *sul)
 {
 	struct lws_client_connect_info i;
 
-	if (++cur >= ID_COUNT) {
+	if (++cur >= CASE_COUNT) {
 		result = !!failures;
 		lws_default_loop_exit(context);
 		return;
 	}
 
-	lwsl_user("=== %s: client cert %s ===\n", xport_names[xport],
-		  idents[cur].name);
+	lwsl_user("=== %s: client cert %s to %s ===\n", xport_names[xport],
+		  idents[cases[cur].id].name,
+		  cases[cur].sni ? cases[cur].sni : "srv");
 
 	memset(&srv, 0, sizeof(srv));
 	memset(&cli, 0, sizeof(cli));
@@ -318,19 +360,23 @@ next_case(lws_sorted_usec_list_t *sul)
 
 	memset(&i, 0, sizeof(i));
 	i.context		= context;
-	i.vhost			= vh_cli[cur];
+	i.vhost			= vh_cli[cases[cur].id];
 	i.address		= server_addr;
-	i.host			= server_addr;
-	i.origin		= server_addr;
+	i.host			= cases[cur].sni ? cases[cur].sni : server_addr;
+	i.origin		= i.host;
 	i.port			= port;
 	i.path			= "/";
 	i.method		= "GET";
 	i.protocol		= "mtls";
 	i.opaque_user_data	= (void *)(intptr_t)(cur + 1);
 	i.alpn			= xport_alpn[xport];
-	/* the server's own cert is not what is under test here */
-	i.ssl_connection	= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
-				  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+	/*
+	 * The server certs are self-signed.  Naming a vhost, check the cert is
+	 * for the name: mbedtls clients send SNI only when they do
+	 */
+	i.ssl_connection	= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED;
+	if (!cases[cur].sni)
+		i.ssl_connection |= LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	/* an h3 case must be decided on h3, not by a fallback to tcp */
 	i.disable_h3_fallback	= 1;
 
@@ -408,8 +454,9 @@ int main(int argc, const char **argv)
 	}
 
 	/*
-	 * The mTLS server vhost.  Its alpn is the build's default, so it
-	 * listens for quic on the same port too, when the build has h3
+	 * The mTLS server vhosts.  Their alpn is the build's default, so they
+	 * listen for quic on the same port too, when the build has h3.  srv
+	 * takes any SNI name that is not the tenant's.
 	 */
 
 	lws_snprintf(srv_cert, sizeof(srv_cert), "%s/localhost-100y.cert",
@@ -424,10 +471,24 @@ int main(int argc, const char **argv)
 	info.ssl_private_key_filepath	= srv_key;
 	info.ssl_ca_filepath		= ca;
 	info.options			|=
-			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT;
+			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT |
+			LWS_SERVER_OPTION_SNI_FALLBACK;
 
 	if (!lws_create_vhost(context, &info)) {
 		lwsl_err("Failed to create the server vhost\n");
+		goto bail;
+	}
+
+	lws_snprintf(srv_cert, sizeof(srv_cert), "%s/tenant.crt", certs);
+	lws_snprintf(srv_key, sizeof(srv_key), "%s/tenant.key", certs);
+	lws_snprintf(ca, sizeof(ca), "%s/tenant-ca.crt", certs);
+
+	info.vhost_name			= VH_TENANT;
+	info.options			&= ~(uint64_t)
+					LWS_SERVER_OPTION_SNI_FALLBACK;
+
+	if (!lws_create_vhost(context, &info)) {
+		lwsl_err("Failed to create the tenant vhost\n");
 		goto bail;
 	}
 
@@ -479,7 +540,7 @@ bail:
 	lws_context_destroy(context);
 
 	lwsl_user("Completed: %s (%d of %d cases failed)\n",
-		  result ? "FAIL" : "PASS", failures, ID_COUNT);
+		  result ? "FAIL" : "PASS", failures, CASE_COUNT);
 
 	return result;
 }

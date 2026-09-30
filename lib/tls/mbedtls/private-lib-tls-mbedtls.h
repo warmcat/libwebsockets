@@ -56,9 +56,16 @@ struct lws_tls_ctx {
 };
 
 struct lws_tls_conn {
-	mbedtls_ssl_context ssl;
+	mbedtls_ssl_context ssl; /* first: callbacks given &ssl find the conn */
 	mbedtls_net_context net;
 	struct lws_tls_ctx *ctx;
+	/*
+	 * The wsi the session belongs to, for our mbedtls callbacks that are
+	 * only given the ssl context (lws_container_of() gets the conn from
+	 * that).  mbedtls' own user data pointer is 3.2+ only.  Kept current
+	 * across a hand-off by lws_tls_conn_set_wsi().
+	 */
+	struct lws *wsi;
 	/*
 	 * Some things mbedtls only takes on the ssl config are actually
 	 * per-connection: the client ALPN list (which it stores by pointer,

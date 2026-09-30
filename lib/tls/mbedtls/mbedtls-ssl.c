@@ -242,13 +242,15 @@ lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret)
 
 /*
  * The conn now belongs to wsi (lws_tls_transfer_wsi()).  The bio context is
- * the conn's own net member, which moves with it; the ssl user data is how
- * the server SNI callback and the quic callbacks find the wsi, and a client's
- * jit trust verify callback is given the wsi to collect the peer chain into
+ * the conn's own net member, which moves with it; conn->wsi is how the server
+ * SNI callback finds the wsi, the ssl user data is how the quic callbacks do,
+ * and a client's jit trust verify callback is given the wsi to collect the
+ * peer chain into
  */
 void
 lws_tls_conn_set_wsi(struct lws *wsi)
 {
+	wsi->io->tls.ssl->wsi = wsi;
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03020000
 	mbedtls_ssl_set_user_data_p(&wsi->io->tls.ssl->ssl, wsi);
 #endif
@@ -348,11 +350,22 @@ lws_ssl_context_destroy(struct lws_context *context)
 	 * nothing per-context global */
 }
 
+/*
+ * The ctx whose cert and client cert policy the handshake ran under: the one
+ * the SNI callback selected, if it did, since ssl->conf and conn->ctx stay
+ * the listening vhost's either way
+ */
+
 lws_tls_ctx *
 lws_tls_ctx_from_wsi(struct lws *wsi)
 {
 	if (!wsi->io->tls.ssl)
 		return NULL;
+
+#if defined(LWS_WITH_SERVER)
+	if (wsi->io->tls.ssl->sni_ref)
+		return wsi->io->tls.ssl->sni_ref->ctx;
+#endif
 
 	return wsi->io->tls.ssl->ctx;
 }
