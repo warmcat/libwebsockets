@@ -298,28 +298,6 @@ bail_die:
 	return 1;
 }
 
-
-/* this is used by the platform service code to stop us waiting for network
- * activity in poll() when we have something that already needs service
- */
-
-/*
- * For a role whose rx policy stopped its reading while its tx was going, a
- * partial send pending (its tx_drained) or an h1 client's request and body
- * (so nothing is generated behind it, and a level-armed POLLIN does not
- * spin): that has all gone, so it reads again.
- * It asks through the io_ops, as the hold did, so an embedder behind them
- * hears it too.  Rx flow control, if the app has it on, keeps it off.
- */
-int
-lws_io_read_after_drain(struct lws *wsi)
-{
-	if (lws_is_flowcontrolled(wsi))
-		return 0;
-
-	return lws_io_want_read(wsi, 1);
-}
-
 /*
  * Does this wsi's state park its rx until the phase in progress ends?
  *
@@ -1482,16 +1460,21 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 			if (bare_hangup && wsi->buflist_out) {
 				/*
 				 * The partial send reading was held behind can
-				 * never go now: drop it, and read again (unless
-				 * the app holds rx off itself).  The next poll
-				 * reports what the peer sent, if anything, and
-				 * then its end, which the rx sees as the peer
-				 * closing, and closes on; if that does not come
-				 * soon, the timeout closes it anyway.
+				 * never go now: drop it, and tell the role its
+				 * output has gone, as it would hear had it
+				 * drained.  A role whose rx policy held its
+				 * reading behind the partial reads again from
+				 * there, if it still wants to: only it knows
+				 * why it stopped, so IO does not decide that.
+				 * The next poll reports what the peer sent, if
+				 * anything, and then its end, which the rx
+				 * sees as the peer closing, and closes on; if
+				 * that does not come soon, the timeout closes
+				 * it anyway.
 				 */
 				lws_buflist_destroy_all_segments(
 							&wsi->buflist_out);
-				if (lws_io_read_after_drain(wsi))
+				if (lws_io_tx_drained(wsi) < 0)
 					goto close_and_handled_l;
 				if (wsi->pending_timeout !=
 						PENDING_TIMEOUT_CLOSE_ACK)

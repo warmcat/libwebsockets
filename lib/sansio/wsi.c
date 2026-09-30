@@ -970,6 +970,25 @@ lws_io_want_read(struct lws *wsi, int on)
 	return n;
 }
 
+/*
+ * For a role whose rx policy stopped its reading while its tx was going, a
+ * partial send pending (its tx_drained) or an h1 client's request and body
+ * (so nothing is generated behind it, and a level-armed POLLIN does not
+ * spin): that has all gone, so it reads again.
+ * It asks through the io_ops, as the hold did, so an embedder behind them
+ * hears it too.  Rx flow control, if the app has it on, keeps it off.
+ * Only roles call this, from their own events: IO's service does not know
+ * why a role stopped reading, so never starts it again itself.
+ */
+int
+lws_io_read_after_drain(struct lws *wsi)
+{
+	if (lws_is_flowcontrolled(wsi))
+		return 0;
+
+	return lws_io_want_read(wsi, 1);
+}
+
 /* a datagram connection's path moved (enum lws_io_path_op) */
 int
 lws_io_path(struct lws *wsi, int op, const lws_sockaddr46 *peer)
