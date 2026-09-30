@@ -2113,6 +2113,8 @@ callback_h3(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
+#if defined(LWS_ROLE_H3)
+		/* the qpack encoders only exist in a build with the h3 role */
 		unsigned char **p = (unsigned char **)in, *end = (*p) + len;
 
 		if (!tc.h3a)
@@ -2154,6 +2156,7 @@ callback_h3(struct lws *wsi, enum lws_callback_reasons reason,
 				(const unsigned char *)tc.h3a->hdr_value,
 				(int)strlen(tc.h3a->hdr_value), p, end))
 			return -1;
+#endif
 		break;
 	}
 
