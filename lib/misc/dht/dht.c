@@ -495,72 +495,73 @@ lws_dht_stats_periodic(lws_sorted_usec_list_t *sul)
 }
 
 #if defined(LWS_WITH_DHT_BACKEND)
-static void
-lws_dht_sul_ip_monitor_cb(lws_sorted_usec_list_t *sul)
-{
-	struct lws_dht_ctx *ctx = lws_container_of(sul, struct lws_dht_ctx, sul_ip_monitor);
-	int sent = 0;
-	uint8_t tid[4];
+/*
+ * Ask one node what our address looks like from where it is.  Each probe
+ * gets its own random nonce, recorded with the node it went to: a nonce
+ * shared by the round would be learnt by every probed node from its own
+ * probe, and let it answer in the name of all the others.
+ */
 
-	/*
-	 * A fresh random nonce per round, and a note of who we asked: the
-	 * old incrementing counter was predictable and unbound to any peer,
-	 * so one forged reply set what we believed our public address was.
-	 */
-	lws_get_random(ctx->vhost->context, &ctx->ip_monitor_seqno,
-		       sizeof(ctx->ip_monitor_seqno));
-	ctx->ip_probe_count = 0;
+static void
+lws_dht_ip_probe(struct lws_dht_ctx *ctx, const struct node *n)
+{
+	uint8_t tid[LWS_DHT_IP_PROBE_TID_LEN];
+	int j = ctx->ip_probe_count;
+
+	if (j >= (int)LWS_ARRAY_SIZE(ctx->ip_probes))
+		return;
+
+	ctx->ip_probes[j].ss		= n->ss;
+	ctx->ip_probes[j].sslen		= n->sslen;
+	ctx->ip_probes[j].answered	= 0;
+	lws_get_random(ctx->vhost->context, ctx->ip_probes[j].nonce,
+		       sizeof(ctx->ip_probes[j].nonce));
+
 	tid[0] = 'i';
 	tid[1] = 'p';
-	memcpy(tid + 2, &ctx->ip_monitor_seqno, 2);
+	memcpy(tid + 2, ctx->ip_probes[j].nonce, LWS_DHT_IP_PROBE_NONCE_LEN);
 
-	lws_start_foreach_dll(struct lws_dll2 *, db, lws_dll2_get_head(&ctx->buckets)) {
+	ctx->ip_probe_count++;
+
+	send_ping(ctx, (const struct sockaddr *)&n->ss, n->sslen, tid,
+		  sizeof(tid));
+}
+
+static void
+lws_dht_ip_probe_family(struct lws_dht_ctx *ctx, lws_dll2_owner_t *buckets)
+{
+	int sent = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, db, lws_dll2_get_head(buckets)) {
 		struct bucket *b = lws_container_of(db, struct bucket, list);
 
 		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&b->nodes)) {
 			struct node *n = lws_container_of(d, struct node, list);
 
 			if (sent >= 8)
-				break;
+				return;
 
 			if (node_good(ctx, n)) {
-				send_ping(ctx, (struct sockaddr *)&n->ss, n->sslen, tid, 4);
-				if (ctx->ip_probe_count <
-				    (int)LWS_ARRAY_SIZE(ctx->ip_probes)) {
-					ctx->ip_probes[ctx->ip_probe_count].ss = n->ss;
-					ctx->ip_probes[ctx->ip_probe_count].sslen = n->sslen;
-					ctx->ip_probes[ctx->ip_probe_count].answered = 0;
-					ctx->ip_probe_count++;
-				}
+				lws_dht_ip_probe(ctx, n);
 				sent++;
 			}
 		} lws_end_foreach_dll(d);
 	} lws_end_foreach_dll(db);
+}
 
-	sent = 0;
+static void
+lws_dht_sul_ip_monitor_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_dht_ctx *ctx = lws_container_of(sul, struct lws_dht_ctx, sul_ip_monitor);
 
-	lws_start_foreach_dll(struct lws_dll2 *, db6, lws_dll2_get_head(&ctx->buckets6)) {
-		struct bucket *b = lws_container_of(db6, struct bucket, list);
+	/*
+	 * A new round forgets who we asked last time: replies to the old
+	 * probes no longer match anything.
+	 */
+	ctx->ip_probe_count = 0;
 
-		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&b->nodes)) {
-			struct node *n = lws_container_of(d, struct node, list);
-
-			if (sent >= 8)
-				break;
-
-			if (node_good(ctx, n)) {
-				send_ping(ctx, (struct sockaddr *)&n->ss, n->sslen, tid, 4);
-				if (ctx->ip_probe_count <
-				    (int)LWS_ARRAY_SIZE(ctx->ip_probes)) {
-					ctx->ip_probes[ctx->ip_probe_count].ss = n->ss;
-					ctx->ip_probes[ctx->ip_probe_count].sslen = n->sslen;
-					ctx->ip_probes[ctx->ip_probe_count].answered = 0;
-					ctx->ip_probe_count++;
-				}
-				sent++;
-			}
-		} lws_end_foreach_dll(d);
-	} lws_end_foreach_dll(db6);
+	lws_dht_ip_probe_family(ctx, &ctx->buckets);
+	lws_dht_ip_probe_family(ctx, &ctx->buckets6);
 
 	lws_sul_schedule(ctx->vhost->context, 0, &ctx->sul_ip_monitor,
 			 lws_dht_sul_ip_monitor_cb, 600 * LWS_US_PER_SEC);

@@ -70,6 +70,14 @@
 /* per storage object: cap subscribers, and peers announced by one source ip */
 #define LWS_DHT_MAX_SUBSCRIBERS		32
 #define LWS_DHT_MAX_PEERS_PER_SRC	8
+/*
+ * An external-address probe's tid is "ip" followed by a random nonce of its
+ * own, so a probed node learns nothing that would let it answer for another
+ * one, and the nonce is too wide to guess.  The length also keeps these
+ * replies apart from the 4-byte request tids and the 16-byte notify tids.
+ */
+#define LWS_DHT_IP_PROBE_NONCE_LEN	8
+#define LWS_DHT_IP_PROBE_TID_LEN	(2 + LWS_DHT_IP_PROBE_NONCE_LEN)
 
 /* Serialization Field Sizes */
 #define LWS_DHT_IPV4_VLEN                  4
@@ -238,8 +246,8 @@ struct lws_dht_ctx {
 		size_t			sslen;
 		int			count;
 		int			num_peers;
-		struct sockaddr_storage peer_ss[8];
-		uint8_t			confirmed; /* reached the 3-peer quorum */
+		struct sockaddr_storage peer_ss[8]; /* one per voting IP */
+		uint8_t			confirmed; /* reached the quorum */
 	} reported_ads[8];
 
 	int			num_reported_ads;
@@ -248,11 +256,12 @@ struct lws_dht_ctx {
 	/*
 	 * The nodes the current external-address probe round was sent to: a
 	 * reply about our address counts only from one of these, once each,
-	 * and only with this round's random nonce in its tid.
+	 * and only carrying the random nonce that was sent to that node.
 	 */
 	struct {
 		struct sockaddr_storage ss;
 		size_t			sslen;
+		uint8_t			nonce[LWS_DHT_IP_PROBE_NONCE_LEN];
 		uint8_t			answered;
 	} ip_probes[16];
 	int			ip_probe_count;
@@ -274,7 +283,6 @@ struct lws_dht_ctx {
 	int			stats_history_head;
 	lws_sorted_usec_list_t	sul_stats;
 	lws_sorted_usec_list_t	sul_ip_monitor;
-	uint16_t		ip_monitor_seqno;
 
 	time_t			now;
 

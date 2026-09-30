@@ -19,6 +19,9 @@
  *    within a few seconds (tx_find_node on A, rx_find_node on B)
  *  - a reliable-transport data datagram from A is reassembled by B's
  *    sequencer and delivered verbatim to B's event callback
+ *  - once B is a good node for A, A probes it for A's external address:
+ *    the probe's nonce survives the round trip, and in a two-node network
+ *    the one other node is the quorum, so A learns 127.0.0.1:port-a from B
  *
  * The two UDP ports are allocated uniquely at build time and passed in
  * on the command line, so parallel ctest instances do not collide.
@@ -59,6 +62,9 @@ struct seen {
 	unsigned char ping_sent:1;
 	unsigned char searched:1;
 	unsigned char data_sent:1;
+	unsigned char probed:1;		/* A asked B for its external address */
+	unsigned char extip_ok:1;	/* ...and learnt it */
+	unsigned char extip_bad:1;	/* ...or learnt something else */
 };
 
 static struct seen sv;
@@ -86,6 +92,28 @@ cb_a(void *closure, int event, const lws_dht_hash_t *info_hash,
 	case LWS_DHT_EVENT_NOTIFY:
 		sv.notify_ok = 1;
 		break;
+	case LWS_DHT_EVENT_EXTERNAL_ADDR: {
+		const struct lws_dht_consensus_info *ci =
+				(const struct lws_dht_consensus_info *)data;
+		const struct sockaddr_in *sin;
+
+		/* B sees us at our loopback address and port, and says so */
+		if (!ci || data_len != sizeof(*ci)) {
+			sv.extip_bad = 1;
+			break;
+		}
+		sin = (const struct sockaddr_in *)&ci->ss;
+		if (sin->sin_family == AF_INET &&
+		    sin->sin_addr.s_addr == htonl(INADDR_LOOPBACK) &&
+		    sin->sin_port == sa_a.sin_port && ci->num_peers == 1)
+			sv.extip_ok = 1;
+		else {
+			lwsl_err("%s: unexpected external address report\n",
+				 __func__);
+			sv.extip_bad = 1;
+		}
+		break;
+	}
 	default:
 		break;
 	}
@@ -225,13 +253,29 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	subscription_step();
 
 	/*
+	 * A only probes nodes it holds as good, and B becomes good by
+	 * answering A's maintenance find_node
+	 */
+
+	if (!sv.probed) {
+		int good = 0;
+
+		lws_dht_nodes(dht_a, AF_INET, &good, NULL, NULL, NULL);
+		if (good) {
+			sv.probed = 1;
+			lws_dht_test_external_ips(dht_a);
+		}
+	}
+
+	/*
 	 * Everything observable has been seen: B answered the ping, the
 	 * subscribe round trip produced a token, the notify was acked, the
-	 * data payload arrived verbatim, and A's maintenance find_node probe
-	 * reached B.
+	 * data payload arrived verbatim, A's maintenance find_node probe
+	 * reached B, and B told A its external address.
 	 */
 
 	if (sv.token_ok && sv.acked && sv.data_ok &&
+	    sv.extip_ok && !sv.extip_bad &&
 	    sa.tx_find_node && sb.rx_find_node &&
 	    sb.rx_ping && !sa.rx_drops && !sb.rx_drops) {
 		retcode = 0;
@@ -385,6 +429,11 @@ int main(int argc, const char **argv)
 			}
 			if (!sa.tx_find_node || !sb.rx_find_node) {
 				lwsl_err("A's find_node maintenance probe never reached B\n");
+				fails++;
+			}
+			if (!sv.extip_ok || sv.extip_bad) {
+				lwsl_err("A did not learn its external address "
+					 "from B\n");
 				fails++;
 			}
 		}

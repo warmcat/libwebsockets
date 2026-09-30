@@ -849,40 +849,35 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 		/*
 		 * A reply to our external-address probe, telling us what our
 		 * address looks like from outside.  It counts only if it
-		 * carries this round's random nonce and comes from a node the
-		 * round was actually sent to, once per node; and nothing is
-		 * believed until a quorum of distinct nodes agree.  The old code
-		 * accepted a predictable counter from anyone and acted on the
-		 * first report, so one forged datagram set, and a second one
-		 * flipped, what we announced as our public address.
+		 * carries the random nonce we sent to that very node and comes
+		 * from where we sent it, once per probe; each host (IP address)
+		 * gets one vote however many ports it answers from, and nothing
+		 * is believed until a quorum of distinct hosts agree.
 		 */
 		struct sockaddr_storage ss;
 		size_t sslen;
 		int found = -1, j, k, flag, probe = -1, quorum;
-		uint16_t decoded_seq;
 
-		if (!tid_match(mp.tid, "ip", NULL))
+		if (mp.tid_len != LWS_DHT_IP_PROBE_TID_LEN ||
+		    !tid_match(mp.tid, "ip", NULL))
 			goto skip_ip_tracking;
-
-		memcpy(&decoded_seq, mp.tid + 2, 2);
-		if (decoded_seq != ctx->ip_monitor_seqno) {
-			lwsl_dht_warn("%s: Spurious IP tracking reply dropped!\n", __func__);
-			goto skip_ip_tracking;
-		}
 
 		for (j = 0; j < ctx->ip_probe_count; j++)
 			if (!ctx->ip_probes[j].answered &&
 			    ctx->ip_probes[j].sslen == fromlen &&
-			    !memcmp(&ctx->ip_probes[j].ss, from, fromlen)) {
+			    dht_sa_same_peer((const struct sockaddr *)
+					     &ctx->ip_probes[j].ss, from) &&
+			    !lws_timingsafe_bcmp(ctx->ip_probes[j].nonce,
+						 mp.tid + 2,
+						 LWS_DHT_IP_PROBE_NONCE_LEN)) {
 				probe = j;
 				break;
 			}
 
 		if (probe < 0) {
-			lwsl_dht_warn("%s: IP tracking reply from a node we did not probe, dropped\n", __func__);
+			lwsl_dht_warn("%s: IP tracking reply matches no probe, dropped\n", __func__);
 			goto skip_ip_tracking;
 		}
-		ctx->ip_probes[probe].answered = 1;
 
 		memset(&ss, 0, sizeof(ss));
 		if (mp.sender_ip_len == 4) {
@@ -908,6 +903,7 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 			lwsl_dht_warn("%s: IP tracking reply family mismatch, dropped\n", __func__);
 			goto skip_ip_tracking;
 		}
+		ctx->ip_probes[probe].answered = 1;
 		flag = (ss.ss_family == AF_INET) ? 1 : 2;
 
 		for (j = 0; j < ctx->num_reported_ads; j++)
@@ -929,8 +925,15 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 		{
 			int peer_found = 0;
 
+			/*
+			 * One vote per host: a host that holds several routing
+			 * table entries on different ports was probed on each,
+			 * but it is still one witness
+			 */
 			for (k = 0; k < ctx->reported_ads[found].num_peers; k++)
-				if (!memcmp(&ctx->reported_ads[found].peer_ss[k], from, fromlen)) {
+				if (!lws_sa46_compare_ads((const lws_sockaddr46 *)
+						&ctx->reported_ads[found].peer_ss[k],
+						(const lws_sockaddr46 *)from)) {
 					peer_found = 1;
 					break;
 				}
@@ -944,17 +947,29 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 		}
 
 		/*
-		 * Three distinct probed nodes agreeing is what we want, but a
-		 * small network may not contain three nodes to ask: then the
-		 * quorum is every node of this family the round could be sent
+		 * Three distinct probed hosts agreeing is what we want, but a
+		 * small network may not contain three hosts to ask: then the
+		 * quorum is every host of this family the round could be sent
 		 * to, which is all the confirmation that exists.  ip_probes[]
-		 * is what we sent, so a peer can neither inflate nor deflate
-		 * it, and a two-node network still learns its address.
+		 * is what we sent, so a peer cannot deflate it, and since it
+		 * is counted by IP address, a host cannot inflate it with
+		 * extra ports either.  A two-node network still learns its
+		 * address.
 		 */
 		quorum = 0;
-		for (j = 0; j < ctx->ip_probe_count; j++)
-			if (ctx->ip_probes[j].ss.ss_family == ss.ss_family)
+		for (j = 0; j < ctx->ip_probe_count; j++) {
+			if (ctx->ip_probes[j].ss.ss_family != ss.ss_family)
+				continue;
+
+			for (k = 0; k < j; k++)
+				if (!lws_sa46_compare_ads((const lws_sockaddr46 *)
+						&ctx->ip_probes[k].ss,
+						(const lws_sockaddr46 *)
+						&ctx->ip_probes[j].ss))
+					break;
+			if (k == j) /* first probe to this host */
 				quorum++;
+		}
 		if (quorum > 3)
 			quorum = 3;
 		if (quorum < 1)
@@ -982,9 +997,10 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 					ctx->external_ads_set |= flag;
 				} else {
 					/*
-					 * Three probed nodes agree on a different
-					 * address than the one confirmed before:
-					 * the network shifted.  Forget the old one.
+					 * A quorum of probed hosts agree on a
+					 * different address than the one
+					 * confirmed before: the network
+					 * shifted.  Forget the old one.
 					 */
 					lwsl_notice("%s: consensus on new external address, shift!\n", __func__);
 					marker = "SHIFT";
@@ -1025,6 +1041,13 @@ skip_ip_tracking:
 
 	switch(message) {
 	case DHT_REPLY:
+		if (mp.tid_len == LWS_DHT_IP_PROBE_TID_LEN &&
+		    tid_match(mp.tid, "ip", NULL)) {
+			/* the pong to an external-address probe */
+			ctx->stats_current.rx_pong++;
+			lws_dht_reply_pong(ctx, &mp, from, fromlen);
+			break;
+		}
 		if (mp.tid_len != 4 && mp.tid_len != 16) {
 			/*
 			 * Not blacklisted: a reply's source is unverified, so a
@@ -1040,7 +1063,7 @@ skip_ip_tracking:
 #endif
 			break;
 		}
-		if (tid_match(mp.tid, "pn", NULL) || tid_match(mp.tid, "nt", NULL) || tid_match(mp.tid, "ip", NULL)) {
+		if (tid_match(mp.tid, "pn", NULL) || tid_match(mp.tid, "nt", NULL)) {
 			ctx->stats_current.rx_pong++;
 			lws_dht_reply_pong(ctx, &mp, from, fromlen);
 			break;
