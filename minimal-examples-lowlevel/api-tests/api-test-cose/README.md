@@ -22,6 +22,9 @@ Selftests for the COSE key, validation and signing apis
      much bigger than the output buffer, passed in chunks bigger and smaller
      than it, must validate and carry exactly the payload that was signed
 
+   - signing with an RSA key that has only its public elements must fail,
+     not emit an object with an empty signature
+
    - EdDSA COSE_Sign1 signing and validation, where the TLS backend has EdDSA
 
 ## build

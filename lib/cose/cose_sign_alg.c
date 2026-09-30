@@ -197,7 +197,7 @@ lws_cose_sign_alg_create(struct lws_context *cx, const lws_cose_key_t *ck,
 		if (lws_genrsa_create(&alg->u.rsactx, ck->e, cx,
 				      LGRSAM_PKCS1_1_5, gh)) {
 			lwsl_notice("%s: lws_genrsa_create fail\n", __func__);
-			goto bail_hmac;
+			goto bail_ecdsa1; /* the hash ctx exists */
 		}
 		break;
 	}
@@ -256,6 +256,10 @@ lws_cose_sign_alg_hash(lws_cose_sig_alg_t *alg, const uint8_t *in, size_t in_len
  * We fill up alg-> rhash and rhash_len with the results, and destroy the
  * crypto pieces cleanly.  Call lws_cose_sign_alg_destroy() afterwards to
  * clean up the alg itself.
+ *
+ * Every way the signature or MAC cannot be produced must set alg->failed,
+ * which is the only thing the emitter checks: otherwise it emits whatever is
+ * in rhash / rhash_len (nothing, or a zero tag) as a good one.
  */
 
 void
@@ -275,7 +279,8 @@ lws_cose_sign_alg_complete(lws_cose_sig_alg_t *alg)
 	case LWSCOSE_WKAECDSA_ALG_ES512: /* ECDSA w/ SHA-512 */
 		hs = lws_genhash_size(alg->hash_ctx.type);
 		bytes = (unsigned int)lws_gencrypto_bits_to_bytes(alg->keybits);
-		lws_genhash_destroy(&alg->hash_ctx, digest);
+		if (lws_genhash_destroy(&alg->hash_ctx, digest))
+			alg->failed = 1;
 		alg->rhash_len = 0;
 		lwsl_notice("alg keybits %d hs %d\n", (int)alg->keybits, (int)hs);
 		if (!alg->failed &&
@@ -320,7 +325,9 @@ lws_cose_sign_alg_complete(lws_cose_sig_alg_t *alg)
 
 		if (lws_genhmac_destroy(&alg->u.hmacctx, alg->rhash)) {
 			lwsl_err("%s: destroy failed\n", __func__);
-			break;
+			memset(alg->rhash, 0, sizeof(alg->rhash));
+			alg->rhash_len = 0;
+			alg->failed = 1;
 		}
 		break;
 
@@ -335,8 +342,10 @@ lws_cose_sign_alg_complete(lws_cose_sig_alg_t *alg)
 		    lws_genrsa_hash_sign(&alg->u.rsactx, digest, htype,
 					 alg->rhash, bytes) >= 0)
 			alg->rhash_len = (int)bytes;
-		else
+		else {
 			lwsl_err("%s: lws_genrsa_hash_sign\n", __func__);
+			alg->failed = 1;
+		}
 
 		lws_genrsa_destroy(&alg->u.rsactx);
 		break;

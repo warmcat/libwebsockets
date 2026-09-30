@@ -1112,6 +1112,92 @@ bail:
 	return ret;
 }
 
+/*
+ * An RSA key with only its public elements cannot sign: that must be an
+ * error from the signing api, never an object carrying an empty signature
+ */
+
+static int
+test_cose_sign_rsa_public_only(struct lws_context *cx)
+{
+	struct lws_cose_sign_context *csc;
+	lws_cose_sign_create_info_t i;
+	static const uint8_t pay[] = "payload";
+	enum lws_lec_pctx_ret r;
+	lws_cose_key_t *ck;
+	lws_dll2_owner_t set;
+	uint8_t kb[600], out[800];
+	lws_lec_pctx_t lec;
+	int ret = 1;
+
+	lwsl_user("%s: sign with a public-only RSA key\n", __func__);
+
+	ck = lws_cose_key_generate(cx, LWSCOSE_WKKTV_RSA,
+				   (1 << LWSCOSE_WKKO_SIGN) |
+				   (1 << LWSCOSE_WKKO_VERIFY),
+				   2048, NULL, (const uint8_t *)"rsa", 3);
+	if (!ck) {
+		lwsl_err("%s: RSA keygen fail\n", __func__);
+		return 1;
+	}
+
+	/* export and reimport only the public elements */
+
+	lws_lec_init(&lec, kb, sizeof(kb));
+	r = lws_cose_key_export(ck, &lec, 0);
+	lws_cose_key_destroy(&ck);
+	if (r != LWS_LECPCTX_RET_FINISHED) {
+		lwsl_err("%s: RSA key export fail\n", __func__);
+		return 1;
+	}
+
+	ck = lws_cose_key_import(NULL, NULL, NULL, kb, lec.used);
+	if (!ck) {
+		lwsl_err("%s: RSA public key import fail\n", __func__);
+		return 1;
+	}
+
+	lws_dll2_owner_clear(&set);
+	lws_dll2_add_tail(&ck->list, &set);
+
+	memset(&i, 0, sizeof(i));
+	i.cx			= cx;
+	i.keyset		= &set;
+	i.lec			= &lec;
+	i.sigtype		= SIGTYPE_SINGLE;
+	i.inline_payload_len	= sizeof(pay) - 1;
+
+	lws_lec_init(&lec, out, sizeof(out));
+
+	csc = lws_cose_sign_create(&i);
+	if (!csc)
+		goto bail;
+
+	if (lws_cose_sign_add(csc, LWSCOSE_WKARSA_ALG_RS256, ck)) {
+		/* refusing the key up front is also fine */
+		ret = 0;
+		goto bail1;
+	}
+
+	do {
+		r = lws_cose_sign_payload_chunk(csc, pay, sizeof(pay) - 1);
+		lws_lec_setbuf(&lec, out, sizeof(out));
+	} while (r == LWS_LECPCTX_RET_AGAIN);
+
+	if (r == LWS_LECPCTX_RET_FAIL)
+		ret = 0;
+	else
+		lwsl_err("%s: signing with no private key succeeded\n",
+			 __func__);
+
+bail1:
+	lws_cose_sign_destroy(&csc);
+bail:
+	lws_cose_key_set_destroy(&set);
+
+	return ret;
+}
+
 
 
 int
@@ -2301,6 +2387,9 @@ test_cose_sign(struct lws_context *context)
 		return 1;
 
 	if (test_cose_sign_streamed(context))
+		return 1;
+
+	if (test_cose_sign_rsa_public_only(context))
 		return 1;
 
 #if 0
