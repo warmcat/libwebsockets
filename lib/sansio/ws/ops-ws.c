@@ -976,6 +976,36 @@ lws_remove_wsi_from_draining_ext_list(struct lws *wsi)
 #endif
 }
 
+/*
+ * The tx extension drain is over, or will never be done: the flag and the
+ * pt's list go together, a wsi still on the list once it is freed would be
+ * walked by the next removal
+ */
+void
+lws_remove_wsi_from_tx_draining_ext_list(struct lws *wsi)
+{
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws **w = &pt->ws.tx_draining_ext_list;
+
+	if (!wsi->ws || !wsi->ws->tx_draining_ext)
+		return;
+
+	lwsl_ext("%s: CLEARING tx_draining_ext\n", __func__);
+
+	wsi->ws->tx_draining_ext = 0;
+
+	while (*w) {
+		if (*w == wsi) {
+			*w = wsi->ws->tx_draining_ext_list;
+			break;
+		}
+		w = &((*w)->ws->tx_draining_ext_list);
+	}
+	wsi->ws->tx_draining_ext_list = NULL;
+#endif
+}
+
 static int
 lws_0405_frame_mask_generate(struct lws *wsi)
 {
@@ -1236,9 +1266,7 @@ rops_rx_policy_ws(struct lws *wsi, int *flags, size_t *max)
 	switch (lwsi_close(wsi)) {
 	case LCS_RETURNED_CLOSE:
 	case LCS_WAITING_TO_SEND_CLOSE:
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-		wsi->ws->tx_draining_ext = 0;
-#endif
+		lws_remove_wsi_from_tx_draining_ext_list(wsi);
 		/* fallthru */
 	case LCS_FLUSHING_BEFORE_CLOSE:
 	case LCS_CLOSE_WHEN_FLUSHED:
@@ -1644,9 +1672,11 @@ rops_close_via_role_protocol_ws(struct lws *wsi, enum lws_close_status reason)
 	 * Once the close has started, no more rx reaches the user, so an rx
 	 * extension drain left pending (eg, the user callback closing on the
 	 * first part of a compressed message) will never be done: forget it,
-	 * or its list keeps the loop from waiting until the close times out
+	 * or its list keeps the loop from waiting until the close times out.
+	 * No more data frames go out either, so a tx drain is over too.
 	 */
 	lws_remove_wsi_from_draining_ext_list(wsi);
+	lws_remove_wsi_from_tx_draining_ext_list(wsi);
 
 	lws_wsi_event(wsi, LWS_WSIEV_WS_CLOSE_INITIATED);
 	__lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 5);
@@ -1662,38 +1692,10 @@ rops_close_role_ws(struct lws_context_per_thread *pt, struct lws *wsi)
 	if (!wsi->ws)
 		return 0;
 
-#if !defined(LWS_WITHOUT_EXTENSIONS)
+	(void)pt;
+	lws_remove_wsi_from_draining_ext_list(wsi);
+	lws_remove_wsi_from_tx_draining_ext_list(wsi);
 
-	if (wsi->ws->rx_draining_ext) {
-		struct lws **w = &pt->ws.rx_draining_ext_list;
-
-		wsi->ws->rx_draining_ext = 0;
-		/* remove us from context draining ext list */
-		while (*w) {
-			if (*w == wsi) {
-				*w = wsi->ws->rx_draining_ext_list;
-				break;
-			}
-			w = &((*w)->ws->rx_draining_ext_list);
-		}
-		wsi->ws->rx_draining_ext_list = NULL;
-	}
-
-	if (wsi->ws->tx_draining_ext) {
-		struct lws **w = &pt->ws.tx_draining_ext_list;
-		lwsl_ext("%s: CLEARING tx_draining_ext\n", __func__);
-		wsi->ws->tx_draining_ext = 0;
-		/* remove us from context draining ext list */
-		while (*w) {
-			if (*w == wsi) {
-				*w = wsi->ws->tx_draining_ext_list;
-				break;
-			}
-			w = &((*w)->ws->tx_draining_ext_list);
-		}
-		wsi->ws->tx_draining_ext_list = NULL;
-	}
-#endif
 	lws_free_set_NULL(wsi->ws->rx_ubuf);
 
 	wsi->ws->pong_payload_len = 0;
@@ -1733,20 +1735,7 @@ rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 	// lwsl_err("%s: wp 0x%x len %d\n", __func__, *wp, (int)len);
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	if (wsi->ws->tx_draining_ext) {
-		/* remove us from the list */
-		struct lws **w = &pt->ws.tx_draining_ext_list;
-
-		lwsl_ext("%s: CLEARING tx_draining_ext\n", __func__);
-		wsi->ws->tx_draining_ext = 0;
-		/* remove us from context draining ext list */
-		while (*w) {
-			if (*w == wsi) {
-				*w = wsi->ws->tx_draining_ext_list;
-				break;
-			}
-			w = &((*w)->ws->tx_draining_ext_list);
-		}
-		wsi->ws->tx_draining_ext_list = NULL;
+		lws_remove_wsi_from_tx_draining_ext_list(wsi);
 
 		wpt = *wp;
 		*wp = (wsi->ws->tx_draining_stashed_wp & 0xc0) |

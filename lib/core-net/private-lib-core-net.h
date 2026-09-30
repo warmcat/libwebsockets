@@ -2070,6 +2070,8 @@ void
 lws_add_wsi_to_draining_ext_list(struct lws *wsi);
 void
 lws_remove_wsi_from_draining_ext_list(struct lws *wsi);
+void
+lws_remove_wsi_from_tx_draining_ext_list(struct lws *wsi);
 
 int
 lws_pthread_self_to_tsi(struct lws_context *context);

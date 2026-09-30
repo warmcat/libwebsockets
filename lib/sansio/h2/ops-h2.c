@@ -246,9 +246,9 @@ rops_rx_policy_h2(struct lws *wsi, int *flags, size_t *max)
 		 * Force flow control off, defeat tx draining.
 		 */
 		lws_rx_flow_control(wsi, 1);
-#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
-		if (wsi->ws)
-			wsi->ws->tx_draining_ext = 0;
+#if defined(LWS_ROLE_WS)
+		/* the flag and the pt's list go together */
+		lws_remove_wsi_from_tx_draining_ext_list(wsi);
 #endif
 	}
 
