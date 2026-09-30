@@ -22,4 +22,6 @@ if (requirements)
 	else()
 		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
+
+	add_test(NAME api-test-upng COMMAND lws-api-test-upng --selftest)
 endif()

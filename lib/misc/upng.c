@@ -375,18 +375,14 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 	lws_stateful_ret_t r = LWS_SRET_FATAL + 60;
 	size_t m;
 
-	if (u->of == UOF_INSIDE && !u->inf.in) {
-		u->inf.inpos = 0;
-		u->inf.in = pos;
-		u->inf.bp = 0;
-		m = lws_ptr_diff_size_t(end, pos);
-		if (m > u->chunklen)
-			m = u->chunklen;
-		u->inf.inlen = m;
-	}
+	/*
+	 * Once we are into the deflate data, the inflater may still have
+	 * output to give (eg, the rest of a back-reference) even when there
+	 * is no new input, so we let it run then as well
+	 */
 
 	while (!u->no_more_input &&
-	       ((u->of == UOF_INSIDE && _pos == NULL) || pos < end)) {
+	       (pos < end || (u->of == UOF_INSIDE && u->inf.subsequent))) {
 		switch (u->of) {
 		case UOF_MAGIC:
 			if (*pos++ != magic[u->sctr++])
@@ -576,82 +572,86 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 
 			/* it's a usable IDAT */
 
-			if (!u->inf.subsequent)
-				u->inf.inpos = 2;
-			else
-				u->inf.inpos = 0;
-
-			m = lws_ptr_diff_size_t(end, pos);
-			if (m > u->chunklen)
-				m = u->chunklen;
-
-			u->inf.in = pos;
-			u->inf.inlen = m;
-			u->inf.bp = 0;
 			u->of++;
 			break;
 
 		case UOF_INSIDE:
 			if (!u->inf.subsequent) {
+				/*
+				 * The first IDAT starts with the 2-byte zlib
+				 * header, which may come split over any number
+				 * of calls.  Collect and check it before the
+				 * inflater sees any of the chunk.  The IDAT is
+				 * at least 2 bytes, checked above.
+				 */
 
-				switch (u->sctr) {
-				case 0:
-					if (!pos) goto bail;
-					u->acc = (uint32_t)((*pos++) << 8);
-					u->sctr++;
-					continue;
-
-				case 1:
-					if (!pos) goto bail;
-					u->acc |= *pos++;
-
-					if (u->acc % 31)
-						return LWS_SRET_FATAL + 31;
-
-					if (((u->acc >> 8) & 15) != 8 ||
-					    ((u->acc >> 12) & 15) > 7)
-						return LWS_SRET_FATAL + 31;
-
-					if ((u->acc >> 5) & 1)
-						return LWS_SRET_FATAL + 31;
-
-					u->inf.subsequent = 1;
+				u->acc = (u->acc << 8) | *pos++;
+				u->chunklen--;
+				if (++u->sctr != 2)
 					break;
-				}
+
+				u->sctr = 0;
+				u->acc &= 0xffff;
+
+				if (u->acc % 31)
+					return LWS_SRET_FATAL + 31;
+
+				if (((u->acc >> 8) & 15) != 8 ||
+				    ((u->acc >> 12) & 15) > 7)
+					return LWS_SRET_FATAL + 31;
+
+				if ((u->acc >> 5) & 1)
+					return LWS_SRET_FATAL + 31;
+
+				u->inf.subsequent = 1;
+				break;
 			}
+
+			/*
+			 * Lend the inflater what the caller gave us of this
+			 * IDAT's data.  It must not keep a pointer into the
+			 * caller's buffer after we return, so afterwards we
+			 * take back the whole bytes it is finished with, and
+			 * keep only its bit offset into the next byte, which
+			 * the caller will present again at *_pos
+			 */
+
+			m = lws_ptr_diff_size_t(end, pos);
+			if (m > u->chunklen)
+				m = u->chunklen;
+
+			u->inf.in	= pos;
+			u->inf.inpos	= 0;
+			u->inf.inlen	= m;
 
 			r = _lws_upng_inflate_data(&u->inf);
-			switch (r) {
 
-			case LWS_SRET_WANT_INPUT:
+			m = u->inf.bp >> 3;
+			if (m > u->inf.inlen)
+				m = u->inf.inlen;
+			if (m)
+				pos += m;
+			u->chunklen	= u->chunklen - (uint32_t)m;
+			u->inf.bp	-= m << 3;
+			u->inf.in	= NULL;
+			u->inf.inlen	= 0;
 
-				/* indicate no existing to drain */
-				u->inf.in = NULL;
-
-				pos += u->inf.inlen - u->inf.inpos;
-				u->chunklen = u->chunklen -
-						(unsigned int)(u->inf.inlen);
-
-				if (!u->chunklen) {
-					u->chunklen = 4; /* skip the 32-bit CRC */
-
-					u->of = UOF_SKIP_CHUNK_LEN;
-					break;
-				}
-				if (pos != end) {
-					u->inf.inpos = 0;
-					u->inf.in = pos;
-					m = lws_ptr_diff_size_t(end, pos);
-					if (m > u->chunklen)
-						m = u->chunklen;
-					u->inf.inlen = m;
-					continue;
-				}
+			if (r != LWS_SRET_WANT_INPUT)
+				/* eg, WANT_OUTPUT, or FATAL */
 				goto bail;
-			default:
-				goto bail;
+
+			/*
+			 * It used all we lent it: either the IDAT or the
+			 * caller's buffer is finished (or both)
+			 */
+
+			if (!u->chunklen) {
+				u->chunklen = 4; /* skip the 32-bit CRC */
+				u->of = UOF_SKIP_CHUNK_LEN;
+				break;
 			}
-			break;
+
+			goto bail;
 
 		case UOF_SKIP_CHUNK_LEN:
 			pos++;
