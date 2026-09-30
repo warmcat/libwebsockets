@@ -1518,23 +1518,29 @@ lws_h2_parse_frame_header(struct lws *wsi)
 				lwsl_info("%s: received %d bytes data for unknown sid %d, highest known %d\n",
 						__func__, (int)h2n->length, (int)h2n->sid, (int)h2n->highest_sid_opened);
 
-//				if (h2n->sid > h2n->highest_sid_opened) {
-				if (lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED,
-				      "Data for nonexistent sid"))
+				/* idle (never opened): see below */
+				if (lws_h2_goaway(wsi,
+					h2n->sid > h2n->highest_sid_opened ?
+						H2_ERR_PROTOCOL_ERROR :
+						H2_ERR_STREAM_CLOSED,
+					"Data for nonexistent sid"))
 					return 1;
 				return 0;
-//				}
 			}
 		}
-		/* if the sid is credible, treat as wsi for it closed */
+		/*
+		 * A sid above any we opened is idle, where only HEADERS or
+		 * PRIORITY may arrive: anything else is a connection error of
+		 * type PROTOCOL_ERROR (RFC 9113 5.1).  It's not STREAM_CLOSED,
+		 * the stream never existed to be closed.
+		 */
 		if (h2n->sid > h2n->highest_sid_opened &&
 		    h2n->type != LWS_H2_FRAME_TYPE_HEADERS &&
 		    h2n->type != LWS_H2_FRAME_TYPE_PRIORITY) {
-			/* if not credible, reject it */
 			lwsl_info("%s: %s, No child for sid %d, rxcmd %d\n",
 			  __func__, lws_wsi_tag(h2n->swsi), (unsigned int)h2n->sid, h2n->type);
-			if (lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED,
-				     "Data for nonexistent sid"))
+			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				     "Frame for idle sid"))
 				return 1;
 			return 0;
 		}
