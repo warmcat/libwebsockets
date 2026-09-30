@@ -11,6 +11,7 @@ set(SRCS
 	s-ws-builder.c
 	s-task.c
 	s-task-helpers.c
+	s-idle.c
 	s-central.c
 	s-ws-web.c
 	s-webops.c

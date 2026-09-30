@@ -358,6 +358,13 @@ w_callback_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				     NULL, NULL, &err);
 			if (err)
 				sqlite3_free(err);
+
+			err = NULL;
+			sqlite3_exec(vhd->pdb,
+				     "ALTER TABLE events ADD COLUMN idle integer default 0;",
+				     NULL, NULL, &err);
+			if (err)
+				sqlite3_free(err);
 		}
 
 		sai_sqlite3_statement(vhd->pdb, "CREATE UNIQUE INDEX IF NOT EXISTS idx_event_uuid ON events(uuid);", "create event index");

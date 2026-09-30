@@ -44,7 +44,7 @@ sais_event_check_for_plat_tasks(struct vhd *vhd, const char *event_uuid,
 		return 0;
 
 	lws_snprintf(query, sizeof(query),
-		     "select count(state) from tasks where platform = '%s'",
+		     "select count(state) from tasks where platform = '%s' and idle=0",
 		     platform);
 
 	if (sqlite3_exec(check_pdb, query, sql3_get_integer_cb, &count,
@@ -113,7 +113,8 @@ sais_is_task_inflight(struct vhd *vhd, sai_plat_t *build, const char *uuid,
 }
 
 int
-sais_add_to_inflight_list_if_absent(struct vhd *vhd, sai_plat_t *sp, const char *uuid)
+sais_add_to_inflight_list_if_absent(struct vhd *vhd, sai_plat_t *sp,
+				    const char *uuid, int idle)
 {
 	sai_uuid_list_t *uuid_list;
 
@@ -127,6 +128,7 @@ sais_add_to_inflight_list_if_absent(struct vhd *vhd, sai_plat_t *sp, const char 
 	memset(uuid_list, 0, sizeof(*uuid_list));
 	lws_strncpy(uuid_list->uuid, uuid, sizeof(uuid_list->uuid));
 	uuid_list->us_time_listed = lws_now_usecs();
+	uuid_list->idle = (char)!!idle;
 
 	lws_dll2_add_tail(&uuid_list->list, &sp->inflight_owner);
 
@@ -257,7 +259,7 @@ sais_task_pending(struct vhd *vhd, struct pss *pss, sai_plat_t *cb,
 		 */
 
 		lws_snprintf(query, sizeof(query), "select count(state) from tasks t1 where "
-						   "state IN(0,9) and platform='%s' and "
+						   "state IN(0,9) and idle=0 and platform='%s' and "
 						   "(builder_name IS NULL or builder_name IN('','%s'))"
 						   " and run = (select max(run) from tasks t2 where t1.uuid = t2.uuid)",
 						   esc_plat, esc_bname);
@@ -337,7 +339,7 @@ sais_task_pending(struct vhd *vhd, struct pss *pss, sai_plat_t *cb,
 
 			lws_snprintf(query, sizeof(query),
 				     "select taskname from tasks t1 where "
-				     "state = 4 and platform = ?"
+				     "state = 4 and idle=0 and platform = ?"
 				     " and run = (select max(run) from tasks t2 where t1.uuid = t2.uuid)");
 
 			if (sqlite3_prepare_v2(prev_pdb, query, -1, &sm, NULL) == SQLITE_OK) {
@@ -392,7 +394,7 @@ sais_task_pending(struct vhd *vhd, struct pss *pss, sai_plat_t *cb,
 
 			lws_sql_purify(esc_taskname, fti->taskname, sizeof(esc_taskname));
 			lws_snprintf(pf, sizeof(pf),
-				     " and state IN(0,9) and platform='%s' and taskname='%s' and "
+				     " and state IN(0,9) and idle=0 and platform='%s' and taskname='%s' and "
 				     "(builder_name IS NULL or builder_name IN('','%s'))"
 				     " and run = (select max(run) from tasks t2 where tasks.uuid = t2.uuid)",
 				     esc_plat, esc_taskname, esc_bname);
@@ -432,7 +434,7 @@ next1: ;
 		/* We have fallen back to doing tasks earliest-first */
 
 		lws_snprintf(pf, sizeof(pf),
-			     " and state IN(0,9) and platform='%s' and "
+			     " and state IN(0,9) and idle=0 and platform='%s' and "
 			     "(builder_name IS NULL or builder_name IN('','%s'))"
 			     " and run = (select max(run) from tasks t2 where tasks.uuid = t2.uuid)",
 			     esc_plat, esc_bname);
@@ -515,6 +517,12 @@ sais_find_or_add_pending_plat(struct vhd *vhd, const char *name, int count, int 
 	return 0;
 }
 
+void
+sais_add_pending_plat(struct vhd *vhd, const char *name, int count, int unmet)
+{
+	sais_find_or_add_pending_plat(vhd, name, count, unmet);
+}
+
 static void
 sais_destroy_pending_plat_list(struct vhd *vhd)
 {
@@ -561,10 +569,14 @@ sais_platforms_with_tasks_pending(struct vhd *vhd)
 	n = lws_struct_sq3_deserialize(vhd->server.pdb, pf, "created desc ",
 				       lsm_schema_sq3_map_event, &o, &ac, 0, 20);
 
-	if (n < 0 || !o.head) {
-		/* error, or there are no events that aren't complete */
+	if (n < 0)
 		goto bail;
-	}
+
+	/*
+	 * If there are no events that aren't complete, we carry on: idle
+	 * tasks live on completed events, and sai-power still needs telling
+	 * that nothing is pending any more
+	 */
 
 	/*
 	 * Iterate through the events looking at his event-specific database
@@ -582,7 +594,7 @@ sais_platforms_with_tasks_pending(struct vhd *vhd)
 
 			if (sqlite3_prepare_v2(pdb, "select platform, count(*), "
 						    "sum(case when (state = 0 or state = 9) and (builder_name IS NULL or builder_name = '') then 1 else 0 end) "
-						    "from tasks t1 where "
+						    "from tasks t1 where idle=0 and "
 						    "run = (select max(run) from tasks t2 where t1.uuid = t2.uuid) and "
 						    "(state = 0 or state = 1 or state = 2 or state = 9) group by platform", -1, &sm,
 							   NULL) != SQLITE_OK) {
@@ -617,6 +629,12 @@ sais_platforms_with_tasks_pending(struct vhd *vhd)
 		}
 
 	} lws_end_foreach_dll(p);
+
+	/*
+	 * Idle tasks that builders are due to be working on count as pending
+	 * too, so sai-power brings those builders up for them
+	 */
+	sais_idle_add_pending_plats(vhd);
 
 	/*
 	 * Also account for any in-memory interactive shell sessions
@@ -678,7 +696,11 @@ sais_allocate_task(struct vhd *vhd, struct pss *pss, sai_plat_t *sp,
 	if (!task_template) {
 		lwsl_info("%s: %s: can't identify pending task\n",
 			    __func__, sp->name);
-		return 1;
+		/*
+		 * Nothing real for this builder platform to do... it may
+		 * be willing to spend the time on an idle task
+		 */
+		return sais_idle_allocate(vhd, pss, sp);
 	}
 
 	/*
@@ -888,6 +910,16 @@ sais_create_and_offer_task_step(struct vhd *vhd, const char *task_uuid)
 
 	task_template = lws_container_of(o.head, sai_task_t, list);
 
+	if (task_template->state == SAIES_YIELDED) {
+		/*
+		 * The builder stopped this idle task's slice, it has no
+		 * more steps to offer until s-idle.c starts a new slice
+		 */
+		sai_event_db_close(&vhd->sqlite3_cache, &pdb);
+		lwsac_free(&ac);
+		return 0;
+	}
+
 	/*
 	 * Make a copy of the lws_struct allocation in the lwsac,
 	 * but we must retain the lwsac because the copied task_template
@@ -940,7 +972,8 @@ sais_create_and_offer_task_step(struct vhd *vhd, const char *task_uuid)
 	}
 
 	if (!inflight) {
-		if (sais_add_to_inflight_list_if_absent(vhd, sp, task_uuid)) {
+		if (sais_add_to_inflight_list_if_absent(vhd, sp, task_uuid,
+							temp_task->idle)) {
 			lwsl_warn("%s: bailing as can't add to inflight %s\n", __func__, task_uuid);
 			sais_task_clear_build_and_logs(vhd, task_uuid, 0);
 			goto bail;
@@ -1047,7 +1080,8 @@ sais_create_and_offer_task_step(struct vhd *vhd, const char *task_uuid)
 	temp_task->server_name = pss->server_name;
 
 	if (!inflight) {
-		if (sais_add_to_inflight_list_if_absent(vhd, sp, temp_task->uuid)) {
+		if (sais_add_to_inflight_list_if_absent(vhd, sp, temp_task->uuid,
+							temp_task->idle)) {
 			lwsl_warn("%s: bailing as can't add to inflight %s\n", __func__, task_uuid);
 			sais_task_clear_build_and_logs(vhd, temp_task->uuid, 0);
 			goto bail;

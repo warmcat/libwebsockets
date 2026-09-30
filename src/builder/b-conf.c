@@ -81,6 +81,15 @@ static const char * const paths[] = {
 	"platforms[].env[]",
 	"platforms[].servers",
 	"platforms[].job-limit",
+	/*
+	 * Listed so the "idle" object itself matches this, rather than the
+	 * "platforms[]" it's in: that would start another platform
+	 */
+	"platforms[].idle",
+	"platforms[].idle.share",
+	"platforms[].idle.instances",
+	"platforms[].idle.slice-secs",
+	"platforms[].idle.settle-secs",
 	"platforms[]",
 };
 
@@ -91,6 +100,11 @@ enum enum_paths {
 	LEJPM_PLATFORMS_ENV,
 	LEJPM_PLATFORMS_SERVERS,
 	LEJPM_PLATFORMS_JOB_LIMIT,
+	LEJPM_PLATFORMS_IDLE,
+	LEJPM_PLATFORMS_IDLE_SHARE,
+	LEJPM_PLATFORMS_IDLE_INSTANCES,
+	LEJPM_PLATFORMS_IDLE_SLICE_SECS,
+	LEJPM_PLATFORMS_IDLE_SETTLE_SECS,
 	LEJPM_PLATFORMS,
 };
 
@@ -128,6 +142,9 @@ saib_conf_cb(struct lejp_ctx *ctx, char reason)
 				    sizeof(a->sai_plat->lws_hash));
 
 			a->sai_plat->job_limit = 0;
+			a->sai_plat->idle_instances = 1;
+			a->sai_plat->idle_slice_secs = SAIB_IDLE_DEF_SLICE_SECS;
+			a->sai_plat->idle_settle_secs = SAIB_IDLE_DEF_SETTLE_SECS;
 
 			lws_dll2_add_tail(&a->sai_plat->sai_plat_list,
 					  &a->builder->sai_plat_owner);
@@ -148,6 +165,29 @@ saib_conf_cb(struct lejp_ctx *ctx, char reason)
 	if (ctx->path_match - 1 == LEJPM_PLATFORMS_JOB_LIMIT) {
 		a->sai_plat->job_limit = (unsigned int)atoi(ctx->buf);
 		lwsl_err("%s: LEJPM_PLATFORMS_JOB_LIMIT %u\n", __func__, a->sai_plat->job_limit);
+	}
+
+	/*
+	 * What the platform should do with its idle time, see README-idle.md
+	 */
+
+	switch (ctx->path_match - 1) {
+	case LEJPM_PLATFORMS_IDLE_SHARE:
+		n = atoi(ctx->buf);
+		a->sai_plat->idle_share = n < 0 ? 0 : (n > 100 ? 100 : (unsigned int)n);
+		break;
+	case LEJPM_PLATFORMS_IDLE_INSTANCES:
+		n = atoi(ctx->buf);
+		a->sai_plat->idle_instances = n < 1 ? 1 : (unsigned int)n;
+		break;
+	case LEJPM_PLATFORMS_IDLE_SLICE_SECS:
+		n = atoi(ctx->buf);
+		a->sai_plat->idle_slice_secs = n < 60 ? 60 : (unsigned int)n;
+		break;
+	case LEJPM_PLATFORMS_IDLE_SETTLE_SECS:
+		n = atoi(ctx->buf);
+		a->sai_plat->idle_settle_secs = n < 0 ? 0 : (unsigned int)n;
+		break;
 	}
 
 	if (reason != LEJPCB_VAL_STR_END)

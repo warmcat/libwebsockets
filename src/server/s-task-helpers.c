@@ -235,6 +235,7 @@ sais_set_task_state(struct vhd *vhd, const char *task_uuid,
 	char update[512], esc1[96], esc2[96], esc3[32], esc4[32], event_uuid[33];
 	sai_event_state_t oes, sta, task_ostate;
 	unsigned int count = 0, count_good = 0, count_bad = 0;
+	int idle = 0;
 	uint64_t started_orig = started;
 	struct lwsac *ac = NULL;
 	sai_event_t *e = NULL;
@@ -292,6 +293,12 @@ sais_set_task_state(struct vhd *vhd, const char *task_uuid,
 		goto bail;
 	}
 
+	lws_snprintf(update, sizeof(update),
+		     "select idle from tasks where uuid='%s' order by run desc limit 1", esc2);
+	if (sqlite3_exec((sqlite3 *)e->pdb, update,
+			 sql3_get_integer_cb, &idle, NULL) != SQLITE_OK)
+		idle = 0;
+
 	if (task_ostate == SAIES_PAUSED &&
 	    (state == SAIES_BEING_BUILT || state == SAIES_PASSED_TO_BUILDER ||
 	     state == SAIES_STEP_SUCCESS || state == SAIES_FAIL ||
@@ -347,18 +354,31 @@ sais_set_task_state(struct vhd *vhd, const char *task_uuid,
 		sais_taskchange(vhd->h_ss_websrv, task_uuid, state);
 
 		if (state == SAIES_SUCCESS || state == SAIES_FAIL ||
-		    state == SAIES_CANCELLED)
+		    state == SAIES_CANCELLED || state == SAIES_YIELDED)
 			lws_sul_schedule(vhd->context, 0, &vhd->sul_central,
 					 sais_central_cb, 1);
 
 		if (state != SAIES_STEP_SUCCESS)
 			sais_platforms_with_tasks_pending(vhd);
 
+		if (idle) {
+			/*
+			 * Idle tasks have no say in their event's state, it
+			 * was decided by the real tasks.  But the end of a
+			 * slice is when its builder starts to owe rest.
+			 */
+			if (state == SAIES_SUCCESS || state == SAIES_FAIL ||
+			    state == SAIES_CANCELLED || state == SAIES_YIELDED)
+				sais_idle_slice_ended(vhd, (sqlite3 *)e->pdb,
+						      task_uuid);
+			goto done;
+		}
+
 		/*
 		 * So, how many tasks for this event?
 		 */
 
-		if (sqlite3_exec((sqlite3 *)e->pdb, "select count(*) from (select max(run) from tasks group by uuid)",
+		if (sqlite3_exec((sqlite3 *)e->pdb, "select count(*) from (select max(run) from tasks where idle=0 group by uuid)",
 				 sql3_get_integer_cb, &count, NULL) != SQLITE_OK) {
 			lwsl_err("%s: %s: %s: fail\n", __func__, update,
 				 sqlite3_errmsg(vhd->server.pdb));
@@ -369,7 +389,7 @@ sais_set_task_state(struct vhd *vhd, const char *task_uuid,
 		 * ... how many completed well?
 		 */
 
-		if (sqlite3_exec((sqlite3 *)e->pdb, "select count(*) from (select max(run) as mx, state from tasks group by uuid) where state == 3",
+		if (sqlite3_exec((sqlite3 *)e->pdb, "select count(*) from (select max(run) as mx, state from tasks where idle=0 group by uuid) where state == 3",
 				 sql3_get_integer_cb, &count_good, NULL) != SQLITE_OK) {
 			lwsl_err("%s: %s: %s: fail\n", __func__, update,
 				 sqlite3_errmsg(vhd->server.pdb));
@@ -380,7 +400,7 @@ sais_set_task_state(struct vhd *vhd, const char *task_uuid,
 		 * ... how many failed?
 		 */
 
-		if (sqlite3_exec((sqlite3 *)e->pdb, "select count(*) from (select max(run) as mx, state from tasks group by uuid) where state == 4",
+		if (sqlite3_exec((sqlite3 *)e->pdb, "select count(*) from (select max(run) as mx, state from tasks where idle=0 group by uuid) where state == 4",
 				 sql3_get_integer_cb, &count_bad, NULL) != SQLITE_OK) {
 			lwsl_err("%s: %s: %s: fail\n", __func__, update,
 				 sqlite3_errmsg(vhd->server.pdb));
@@ -432,6 +452,7 @@ sais_set_task_state(struct vhd *vhd, const char *task_uuid,
 		}
 	}
 
+done:
 	sai_event_db_close(&vhd->sqlite3_cache, (sqlite3 **)&e->pdb);
 	lwsac_free(&ac);
 

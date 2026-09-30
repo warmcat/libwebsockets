@@ -137,6 +137,17 @@ struct saib_opaque_spawn {
 #define SAI_CLOCK_WAIT_MAX_SECS			(5 * 60)
 
 
+/*
+ * Idle tasks, when the platform's conf "idle" object doesn't say: how long one
+ * slice of an idle task runs for, and how long after the last real work we
+ * wait before we count as idle again (tasks tend to arrive in bursts, and the
+ * server offers a task's steps one at a time with gaps between)
+ */
+#define SAIB_IDLE_DEF_SLICE_SECS		(15 * 60)
+#define SAIB_IDLE_DEF_SETTLE_SECS		120
+/* how much longer than its slice an idle task step may run before we stop it */
+#define SAIB_IDLE_SLICE_GRACE_SECS		120
+
 struct saib_ws_pss;
 
 enum nsstate {
@@ -289,6 +300,12 @@ struct sai_builder {
 	 * step already used means those rows are never delivered.
 	 */
 	lws_usec_t		last_log_us;
+
+	/*
+	 * When we were last offered, or last finished, a step of a real task
+	 * (not an idle one), for the idle task settle time
+	 */
+	lws_usec_t		last_real_us;
 
 	uint16_t		wrap14;
 	unsigned int		build_timeout_secs;

@@ -347,6 +347,13 @@ s_callback_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				     NULL, NULL, &err);
 			if (err)
 				sqlite3_free(err);
+
+			err = NULL;
+			sqlite3_exec(vhd->server.pdb,
+				     "ALTER TABLE events ADD COLUMN idle integer default 0;",
+				     NULL, NULL, &err);
+			if (err)
+				sqlite3_free(err);
 		}
 
 		sai_sqlite3_statement(vhd->server.pdb, "CREATE UNIQUE INDEX IF NOT EXISTS idx_event_uuid ON events(uuid);", "create event index");
@@ -432,6 +439,7 @@ s_callback_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (vhd && vhd->vhost == sais_link_vhost)
 			sais_link_vhost = NULL;
 		sais_server_destroy(vhd, &vhd->server);
+		sais_idle_destroy(vhd);
 		goto passthru;
 
 	/*

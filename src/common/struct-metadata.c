@@ -107,6 +107,9 @@ const lws_struct_map_t lsm_plat[] = {
 	LSM_UNSIGNED	(sai_plat_t, windows,		"windows"),
 	LSM_UNSIGNED	(sai_plat_t, power_managed,	"power_managed"),
 	LSM_UNSIGNED	(sai_plat_t, stay_on,		"stay_on"),
+	LSM_JO_UNSIGNED	(sai_plat_t, idle_share,	"idle_share"),
+	LSM_JO_UNSIGNED	(sai_plat_t, idle_instances,	"idle_instances"),
+	LSM_JO_UNSIGNED	(sai_plat_t, idle_slice_secs,	"idle_slice_secs"),
 };
 
 const lws_struct_map_t lsm_schema_map_plat_simple[] = {
@@ -142,6 +145,7 @@ const lws_struct_map_t lsm_event[] = {
 	LSM_UNSIGNED	(sai_event_t, last_updated,	"last_updated"),
 	LSM_UNSIGNED	(sai_event_t, sec,		"sec"),
 	LSM_UNSIGNED	(sai_event_t, adhoc,		"adhoc"),
+	LSM_UNSIGNED	(sai_event_t, idle,		"idle"),
 	LSM_JO_LIST	(sai_event_t, watcher_owner, sai_watcher_t, list,
 			 NULL, lsm_watcher,		"watchers"),
 };
@@ -225,6 +229,7 @@ const lws_struct_map_t lsm_task[] = {
 	LSM_SIGNED	(sai_task_t, parallel,		"parallel"),
 	LSM_SIGNED	(sai_task_t, rebuildable,	"rebuildable"),
 	LSM_SIGNED	(sai_task_t, run,		"run"),
+	LSM_SIGNED	(sai_task_t, idle,		"idle"),
 };
 
 const lws_struct_map_t lsm_schema_json_map_task[] = {

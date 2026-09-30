@@ -367,7 +367,32 @@ sai_lsp_reap_cb(void *opaque, const lws_spawn_resource_us_t *res, siginfo_t *si,
 		goto fail;
 	}
 
+	if (ns->idle_yield) {
+		/* we stopped this idle task to make way for real work */
+		saib_task_logf(ns->spm, ns, NULL,
+			       "Idle task stopped to make way for real work");
+		exit_code = -1;
+		ns->retcode = SAISPRF_TERMINATED;
+		ns->retcode_set = 1;
+		goto fail;
+	}
+
 #if !defined(WIN32)
+
+	if ((we_killed_him & 1) && ns->task->idle) {
+		/*
+		 * An idle task that ran over its slice: it's not a failure,
+		 * the slice is just over
+		 */
+		saib_task_logf(ns->spm, ns, NULL,
+			       "Idle task step ran past its %us slice, stopping it",
+			       ns->sp->idle_slice_secs);
+		ns->idle_yield = 1;
+		exit_code = -1;
+		ns->retcode = SAISPRF_TERMINATED;
+		ns->retcode_set = 1;
+		goto fail;
+	}
 
 	if (we_killed_him & 1) {
 		lwsl_notice("%s: Process TIMED OUT by Sai\n", __func__);
@@ -558,9 +583,11 @@ skip:
 	return;
 
 fail:
-	n = lws_snprintf(s, sizeof(s), "Build step %d FAILED, exit code: %d\n",
-			 ns->task->build_step + 1, exit_code);
-	saib_log_chunk_create(ns, s, (size_t)n, 3);
+	if (!ns->idle_yield) {
+		n = lws_snprintf(s, sizeof(s), "Build step %d FAILED, exit code: %d\n",
+				 ns->task->build_step + 1, exit_code);
+		saib_log_chunk_create(ns, s, (size_t)n, 3);
+	}
 
 	saib_task_grace(ns);
 	saib_set_ns_state(ns, NSSTATE_FAILED);
@@ -585,6 +612,7 @@ static const char * const runscript_win_first =
 	"set SAI_LOGPROXY=%s\n"
 	"set SAI_LOGPROXY_TTY0=%s\n"
 	"set SAI_LOGPROXY_TTY1=%s\n"
+	"%s"
 	"set HOME=%s\n"
 	"set CI=true\n"
 	"set BUILDKIT_PROGRESS=plain\n"
@@ -601,6 +629,7 @@ static const char * const runscript_win_next =
 	"set SAI_LOGPROXY=%s\n"
 	"set SAI_LOGPROXY_TTY0=%s\n"
 	"set SAI_LOGPROXY_TTY1=%s\n"
+	"%s"
 	"set HOME=%s\n"
 	"set CI=true\n"
 	"set BUILDKIT_PROGRESS=plain\n"
@@ -629,6 +658,7 @@ static const char * const runscript_first =
 	"export SAI_LOGPROXY=%s\n"
 	"export SAI_LOGPROXY_TTY0=%s\n"
 	"export SAI_LOGPROXY_TTY1=%s\n"
+	"%s"
 	"export CI=true\n"
 	"export BUILDKIT_PROGRESS=plain\n"
 	"set -e\n"
@@ -657,6 +687,7 @@ static const char * const runscript_next =
 	"export SAI_LOGPROXY=%s\n"
 	"export SAI_LOGPROXY_TTY0=%s\n"
 	"export SAI_LOGPROXY_TTY1=%s\n"
+	"%s"
 	"export CI=true\n"
 	"export BUILDKIT_PROGRESS=plain\n"
 	"set -e\n"
@@ -684,6 +715,7 @@ static const char * const runscript_build =
 	"export SAI_LOGPROXY=%s\n"
 	"export SAI_LOGPROXY_TTY0=%s\n"
 	"export SAI_LOGPROXY_TTY1=%s\n"
+	"%s"
 	"export CI=true\n"
 	"export BUILDKIT_PROGRESS=plain\n"
 	"set -e\n"
@@ -715,8 +747,9 @@ saib_spawn_script(struct sai_nspawn *ns)
 		NULL
 	};
 #endif
-	char one_step[4096];
+	char one_step[4096], idle_env[64];
 	char st[2048];
+	unsigned int timeout_secs;
 	int fd, n;
 #if defined(__linux__)
 	int in_cgroup = 1;
@@ -765,13 +798,35 @@ saib_spawn_script(struct sai_nspawn *ns)
 	}
 	builder.wrap14 = (builder.wrap14 + 8) & 0x3fff;
 
+	/*
+	 * An idle task is told how long its slice is, so it can aim to fit
+	 * whatever it does in the time.  We stop it anyway if it goes on much
+	 * longer than that.
+	 */
+	idle_env[0] = '\0';
+	timeout_secs = builder.build_timeout_secs;
+	if (ns->task->idle) {
+		lws_snprintf(idle_env, sizeof(idle_env),
+#if defined(WIN32)
+			     "set SAI_IDLE_SECS=%u\n",
+#else
+			     "export SAI_IDLE_SECS=%u\n",
+#endif
+			     ns->sp->idle_slice_secs);
+		if (ns->sp->idle_slice_secs + SAIB_IDLE_SLICE_GRACE_SECS <
+								timeout_secs)
+			timeout_secs = ns->sp->idle_slice_secs +
+						SAIB_IDLE_SLICE_GRACE_SECS;
+	}
+
 #if defined(WIN32)
 	n = lws_snprintf(st, sizeof(st),
 			 ns->task->build_step ? runscript_win_next : runscript_win_first,
 			 ns->instance_ordinal + 1, builder.wrap14,
 			 ns->task->parallel ? ns->task->parallel : 1,
 			 respath, ns->slp_control.sockpath,
-			 ns->slp[0].sockpath, ns->slp[1].sockpath, builder.home,
+			 ns->slp[0].sockpath, ns->slp[1].sockpath, idle_env,
+			 builder.home,
                         ns->inp, ns->task->build_step > 1 ? "\\src" : "",
                         one_step);
 #else
@@ -794,7 +849,7 @@ saib_spawn_script(struct sai_nspawn *ns)
 			 builder.wrap14,
 			 ns->task->parallel ? ns->task->parallel : 1,
 			 respath, ns->slp_control.sockpath,
-			 ns->slp[0].sockpath, ns->slp[1].sockpath,
+			 ns->slp[0].sockpath, ns->slp[1].sockpath, idle_env,
 			 builder.home, one_step);
 #endif
 
@@ -835,7 +890,7 @@ saib_spawn_script(struct sai_nspawn *ns)
 	info.exec_array		= cmd;
 	info.protocol_name	= "sai-stdxxx";
 	info.max_log_lines	= 10000;
-	info.timeout_us		= (lws_usec_t)((uint64_t)builder.build_timeout_secs * LWS_US_PER_SEC);
+	info.timeout_us		= (lws_usec_t)((uint64_t)timeout_secs * LWS_US_PER_SEC);
 	info.reap_cb		= sai_lsp_reap_cb;
 #if defined(WIN32)
 	info.pty_mode		= 0;

@@ -250,8 +250,8 @@ sais_central_gc_deleted_events_cb(lws_sorted_usec_list_t *sul)
 		return;
 
 	/* Pick 1 task that is stopped to garbage collect */
-	/* 0=WAITING, 3=SUCCESS, 4=FAIL, 5=CANCELLED, 8=NOT_READY, 9=STEP_SUCCESS, 10=PAUSED */
-	lws_snprintf(q, sizeof(q), "SELECT uuid FROM tasks WHERE state IN (0, 3, 4, 5, 8, 9, 10) "
+	/* 0=WAITING, 3=SUCCESS, 4=FAIL, 5=CANCELLED, 8=NOT_READY, 9=STEP_SUCCESS, 10=PAUSED, 11=YIELDED */
+	lws_snprintf(q, sizeof(q), "SELECT uuid FROM tasks WHERE state IN (0, 3, 4, 5, 8, 9, 10, 11) "
 				   "AND run=(SELECT max(run) FROM tasks t2 WHERE t2.uuid = tasks.uuid) LIMIT 1");
 
 	if (sqlite3_prepare_v2(pdb, q, -1, &tsm, NULL) == SQLITE_OK) {

@@ -576,7 +576,7 @@ sais_event_delete(struct vhd *vhd, const char *event_uuid)
 	/* 3. Drop active builders gracefully without loading huge JSON objects */
 	if (sai_event_db_ensure_open(vhd->context, &vhd->sqlite3_cache,
 			      vhd->sqlite3_path_lhs, event_uuid, 0, &pdb) == 0) {
-		lws_snprintf(qu, sizeof(qu), "SELECT uuid FROM tasks WHERE state != 0 AND state != 3 AND state != 4 AND state != 5 "
+		lws_snprintf(qu, sizeof(qu), "SELECT uuid FROM tasks WHERE state != 0 AND state != 3 AND state != 4 AND state != 5 AND state != 11 "
 					     "AND run=(SELECT max(run) FROM tasks t2 WHERE t2.uuid = tasks.uuid)");
 		if (sqlite3_prepare_v2(pdb, qu, -1, &sm, NULL) == SQLITE_OK) {
 			while (sqlite3_step(sm) == SQLITE_ROW) {

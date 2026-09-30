@@ -1342,6 +1342,8 @@ function summarize_build_situation(event_uuid)
 
 		for (var uid in run_max) {
 			var t = run_max[uid];
+			if (t.idle)
+				continue;
 			total++;
 			switch (t.state) {
 				case 0: pending++; break;
@@ -1358,28 +1360,28 @@ function summarize_build_situation(event_uuid)
 		if (!roo)
 			return { text: "" };
 
-		var same = roo.querySelectorAll(".taskstate:not(.run-decal)");
+		var same = roo.querySelectorAll(".taskstate:not(.run-decal):not(.idle-lane)");
 		if (same)
 			total = same.length;
-		same = roo.querySelectorAll(".taskstate0:not(.run-decal)");
+		same = roo.querySelectorAll(".taskstate0:not(.run-decal):not(.idle-lane)");
 		if (same)
 			pending = same.length;
-		same = roo.querySelectorAll(".taskstate1:not(.run-decal)");
+		same = roo.querySelectorAll(".taskstate1:not(.run-decal):not(.idle-lane)");
 		if (same)
 			ongoing += same.length;
-		same = roo.querySelectorAll(".taskstate2:not(.run-decal)");
+		same = roo.querySelectorAll(".taskstate2:not(.run-decal):not(.idle-lane)");
 		if (same)
 			ongoing += same.length;
-		same = roo.querySelectorAll(".taskstate3:not(.run-decal)");
+		same = roo.querySelectorAll(".taskstate3:not(.run-decal):not(.idle-lane)");
 		if (same)
 			good = same.length;
-		same = roo.querySelectorAll(".taskstate4:not(.run-decal)");
+		same = roo.querySelectorAll(".taskstate4:not(.run-decal):not(.idle-lane)");
 		if (same)
 			bad += same.length;
-		same = roo.querySelectorAll(".taskstate5:not(.run-decal)");
+		same = roo.querySelectorAll(".taskstate5:not(.run-decal):not(.idle-lane)");
 		if (same)
 			bad += same.length;
-		same = roo.querySelectorAll(".taskstate6:not(.run-decal)");
+		same = roo.querySelectorAll(".taskstate6:not(.run-decal):not(.idle-lane)");
 		if (same)
 			ongoing += same.length;
 	}
@@ -1947,6 +1949,7 @@ function sai_tt_state_rank(state)
 	case 3:  return 6; /* passed */
 	case 4:  return 7; /* failed */
 	case 5:  return 8; /* cancelled */
+	case 11: return 8; /* yielded (idle task) */
 	case 7:  return 9; /* deleted */
 	}
 	return 10;
@@ -1997,6 +2000,23 @@ function sai_tt_mark_header(tab)
 		if (th.dataset.key === so.key)
 			th.classList.add(so.dir > 0 ? "sort-asc" : "sort-desc");
 	});
+}
+
+/*
+ * Idle tasks ("lanes") only run in time builders would otherwise spend idle,
+ * and aren't part of their event's result.  They're shown after the real
+ * tasks, in their own group per task name.
+ */
+function sai_task_group_name(t)
+{
+	return (t.idle ? "idle: " : "") + t.taskname;
+}
+
+/* the event's tasks, real ones first, then the idle ones */
+function sai_tasks_real_then_idle(tasks)
+{
+	return tasks.filter(function(t) { return !t.idle; }).concat(
+	       tasks.filter(function(t) { return !!t.idle; }));
 }
 
 /* the latest run of each task uuid, keyed by uuid */
@@ -2097,6 +2117,7 @@ function sai_tt_step_html(t)
 	case 7:  return "deleted";
 	case 8:  return "not ready";
 	case 10: return "paused" + at;
+	case 11: return "yielded";
 	}
 
 	return "state " + t.state;
@@ -2111,7 +2132,7 @@ function sai_tt_row_keys(t)
 	return {
 		run:	 typeof t.run !== 'undefined' ? t.run : 0,
 		state:	 t.state,
-		name:	 t.taskname,
+		name:	 sai_task_group_name(t),
 		plat:	 t.platform,
 		started: t.started ? t.started : 0,
 		dur:	 t.duration ? t.duration : 0,
@@ -2131,6 +2152,7 @@ function sai_tt_row_set_keys(tr, t)
 function sai_tt_row_html(t, e, now_ut)
 {
 	var s = "<tr id=\"tt_" + san(t.uuid) + "\" class=\"tt-row taskstate" + t.state +
+		(t.idle ? " idle-lane" : "") +
 		(t.uuid === selected_task_uuid ? " selected" : "") + "\"" +
 		" data-task-uuid=\"" + san(t.uuid) + "\"" +
 		" data-event-uuid=\"" + san(e.uuid) + "\"" +
@@ -2142,7 +2164,7 @@ function sai_tt_row_html(t, e, now_ut)
 		s += " data-" + n + "=\"" + san(k[n]) + "\"";
 	s += ">";
 
-	s += "<td class=\"tt-name\">" + san(t.taskname) + "</td>";
+	s += "<td class=\"tt-name\">" + san(sai_task_group_name(t)) + "</td>";
 	s += "<td class=\"tt-plat\">" + sai_plat_icon(t.platform, 0) + " " +
 	     san(t.platform) + "</td>";
 	s += "<td class=\"tt-started\">" +
@@ -2554,13 +2576,14 @@ function render_selected_event_tasks(o) {
 
 		var ctn = "";
 		var s1 = "";
-		for (var q = 0; q < o.t.length; q++) {
-			var t = o.t[q];
+		var ordered = sai_tasks_real_then_idle(o.t);
+		for (var q = 0; q < ordered.length; q++) {
+			var t = ordered[q];
 
 			if (t !== run_max[t.uuid])
 				continue;
 
-			if (t.taskname !== ctn) {
+			if (sai_task_group_name(t) !== ctn) {
 				if (ctn !== "") {
 					s += "<div class=\"ib\"><table class=\"nomar\">" +
 					     "<tr><td class=\"tn\">" + hsanitize(ctn) +
@@ -2568,10 +2591,11 @@ function render_selected_event_tasks(o) {
 					     "</td></tr></table></div>";
 					s1 = "";
 				}
-				ctn = t.taskname;
+				ctn = sai_task_group_name(t);
 			}
 
 			s1 += "<div id=\"taskstate_" + t.uuid + "\" class=\"taskstate taskstate" + t.state +
+				(t.idle ? " idle-lane" : "") +
 				(run_list[t.uuid].length > 1 ? " has_runs" : "") +
 				"\" data-task-uuid=\"" + san(t.uuid) +
 				"\" data-event-uuid=\"" + san(e.uuid) + "\" data-platform=\"" + san(t.platform) +
@@ -2817,24 +2841,26 @@ function sai_event_render(o, now_ut, reset_all_icon)
 			run_list[uid].sort(function(a, b) { var ar = typeof a.run !== 'undefined' ? a.run : 0; var br = typeof b.run !== 'undefined' ? b.run : 0; return ar - br; });
 		}
 
-		for (q = 0; q < o.t.length; q++) {
-			var t = o.t[q];
+		var ordered = sai_tasks_real_then_idle(o.t);
+		for (q = 0; q < ordered.length; q++) {
+			var t = ordered[q];
 
 			if (t !== run_max[t.uuid])
 				continue;
 
-			if (t.taskname !== ctn) {
+			if (sai_task_group_name(t) !== ctn) {
 				if (ctn !== "") {
 					s += "<div class=\"ib\"><table class=\"nomar\">" +
-					     "<tr><td class=\"tn\">" + ctn +
+					     "<tr><td class=\"tn\">" + hsanitize(ctn) +
 					     "</td><td class=\"keepline\">" + s1 +
 					     "</td></tr></table></div>";
 					s1 = "";
 				}
-				ctn = t.taskname;
+				ctn = sai_task_group_name(t);
 			}
 
 			s1 += "<div id=\"taskstate_" + t.uuid + "\" class=\"taskstate taskstate" + t.state +
+				(t.idle ? " idle-lane" : "") +
 				(run_list[t.uuid].length > 1 ? " has_runs" : "") +
 				"\" data-event-uuid=\"" + san(e.uuid) + "\" data-platform=\"" + san(t.platform) +
 				"\" data-rebuildable=\"" + t.rebuildable + "\">";
@@ -2856,7 +2882,7 @@ function sai_event_render(o, now_ut, reset_all_icon)
 
 		if (ctn !== "") {
 			s += "<div class=\"ib\"><table class=\"nomar\">" +
-				"<tr><td class=\"tn\">" + ctn +
+				"<tr><td class=\"tn\">" + hsanitize(ctn) +
 				"<td class=\"keepline\">" + s1 +
 				"</td></tr></table></div>";
 		}
@@ -2928,7 +2954,10 @@ function refresh_state(t)
 		tsi.classList.remove("taskstate5");
 		tsi.classList.remove("taskstate6");
 		tsi.classList.remove("taskstate7");
+		tsi.classList.remove("taskstate8");
+		tsi.classList.remove("taskstate9");
 		tsi.classList.remove("taskstate10");
+		tsi.classList.remove("taskstate11");
 		tsi.classList.add("taskstate" + task_state);
 
 		var toRemove = [];
@@ -2939,7 +2968,12 @@ function refresh_state(t)
 		}
 		toRemove.forEach(function(cls) { tsi.classList.remove(cls); });
 
-		if (task_state === 1 || task_state === 2 || task_state === 6) {
+		/*
+		 * An idle task's slice isn't progress towards anything, it
+		 * shows it's running differently (see .idle-lane in sai.css)
+		 */
+		if (!tsi.classList.contains("idle-lane") &&
+		    (task_state === 1 || task_state === 2 || task_state === 6)) {
 			var total = typeof t.total_steps !== 'undefined' ? t.total_steps : t.build_step_count;
 			if (typeof t.build_step !== 'undefined' && typeof total !== 'undefined' && total >= 0) {
 				var pct = Math.round((t.build_step + 1) * 100 / (total + 2));
@@ -5374,7 +5408,7 @@ window.addEventListener("load", function() {
 				}
 			];
 
-			const isFinalState = ["taskstate3", "taskstate4", "taskstate5", "taskstate7"].some(s => taskDiv.classList.contains(s));
+			const isFinalState = ["taskstate3", "taskstate4", "taskstate5", "taskstate7", "taskstate11"].some(s => taskDiv.classList.contains(s));
 
 			if (!isFinalState) {
 				if (taskDiv.classList.contains("taskstate10")) {

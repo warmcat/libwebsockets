@@ -212,10 +212,40 @@ saib_refusal_loggable(const char *task_uuid)
 	return 1;
 }
 
+/*
+ * What the idle slices we are stopping still have reserved: it's as good as
+ * free for the real work that we are stopping them for
+ */
+
+static void
+saib_idletask_yielding_res(uint64_t *ram_kib, uint64_t *disk_kib)
+{
+	*ram_kib = *disk_kib = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, mp, builder.sai_plat_owner.head) {
+		struct sai_plat *xsp = lws_container_of(mp, struct sai_plat,
+							sai_plat_list);
+
+		lws_start_foreach_dll(struct lws_dll2 *, p, xsp->nspawn_owner.head) {
+			struct sai_nspawn *xns = lws_container_of(p,
+						struct sai_nspawn, list);
+
+			if (xns->idle_yield) {
+				*ram_kib += xns->res_ram_kib;
+				*disk_kib += xns->res_disk_kib;
+			}
+
+		} lws_end_foreach_dll(p);
+
+	} lws_end_foreach_dll(mp);
+}
+
 static int
 saib_can_accept_task(struct sai_plat_server *spm, sai_task_t *task,
 		     sai_plat_t *sp)
 {
+	uint64_t yield_ram_kib, yield_disk_kib, ram_reserved_kib,
+		 disk_reserved_kib;
 	unsigned int tc = sp->job_limit ? sp->job_limit : 6u;
 #if 0
 	unsigned int free_ram = saib_get_free_ram_kib();
@@ -259,11 +289,17 @@ saib_can_accept_task(struct sai_plat_server *spm, sai_task_t *task,
 		}
 	}
 
+	saib_idletask_yielding_res(&yield_ram_kib, &yield_disk_kib);
+	ram_reserved_kib = builder.ram_reserved_kib > yield_ram_kib ?
+				builder.ram_reserved_kib - yield_ram_kib : 0;
+	disk_reserved_kib = builder.disk_reserved_kib > yield_disk_kib ?
+				builder.disk_reserved_kib - yield_disk_kib : 0;
+
 	{
 		uint64_t budget = (builder.ram_limit_kib * 4) / 3;
 
-		budget = builder.ram_reserved_kib > budget ? 0 :
-					budget - builder.ram_reserved_kib;
+		budget = ram_reserved_kib > budget ? 0 :
+					budget - ram_reserved_kib;
 
 		if (budget < task->est_peak_mem_kib) {
 			if (saib_refusal_loggable(task->uuid))
@@ -281,7 +317,7 @@ saib_can_accept_task(struct sai_plat_server *spm, sai_task_t *task,
 	{
 		uint64_t free_disk = saib_get_free_disk_kib(builder.home);
 		uint64_t needed_disk = (uint64_t)task->est_disk_kib +
-						builder.disk_reserved_kib;
+						disk_reserved_kib;
 		char vn[16];
 
 		/* leave 12.5% of free space as a safety margin */
@@ -296,7 +332,7 @@ saib_can_accept_task(struct sai_plat_server *spm, sai_task_t *task,
 					"free on %s", sp->name,
 					(unsigned long long)(needed_disk / 1024),
 					(unsigned int)(task->est_disk_kib / 1024),
-					(unsigned long long)(builder.disk_reserved_kib / 1024),
+					(unsigned long long)(disk_reserved_kib / 1024),
 					(unsigned long long)(free_disk / 1024),
 					builder.home);
 
@@ -319,9 +355,10 @@ saib_can_accept_task(struct sai_plat_server *spm, sai_task_t *task,
 
 	lws_start_foreach_dll(struct lws_dll2 *, p, sp->nspawn_owner.head) {
 		struct sai_nspawn *xns = lws_container_of(p, struct sai_nspawn, list);
-		if (xns->state == NSSTATE_INIT ||
-		    xns->state == NSSTATE_MOUNTING ||
-		    xns->state == NSSTATE_EXECUTING_STEPS)
+		if (!xns->idle_yield && /* going away to make room */
+		    (xns->state == NSSTATE_INIT ||
+		     xns->state == NSSTATE_MOUNTING ||
+		     xns->state == NSSTATE_EXECUTING_STEPS))
 			executing++;
 	} lws_end_foreach_dll(p);
 
@@ -332,6 +369,112 @@ saib_can_accept_task(struct sai_plat_server *spm, sai_task_t *task,
 	}
 
 	return 0; /* acceptable */
+}
+
+/*
+ * Idle tasks
+ *
+ * The server only offers us idle tasks for a platform when it has nothing real
+ * for that platform, and when the platform's conf share of idle time allows.
+ * But "idle" is about this whole builder: we don't take idle work while any of
+ * our platforms has real work, or had it within the settle time, and when real
+ * work is offered to any of them, we stop all our idle slices to make way.
+ */
+
+static int
+saib_idletask_should_decline(sai_plat_t *sp)
+{
+	lws_usec_t now = lws_now_usecs();
+	unsigned int ours = 0;
+
+	if (!sp->idle_share) {
+		lwsl_notice("%s: %s: no idle share\n", __func__, sp->name);
+		return 1;
+	}
+
+	/* these modes are for a builder that exists for one real thing */
+	if (builder.one_shot_active || builder.event_affinity_active)
+		return 1;
+
+	if (builder.last_real_us &&
+	    now - builder.last_real_us <
+			(lws_usec_t)sp->idle_settle_secs * LWS_US_PER_SEC) {
+		lwsl_notice("%s: %s: real work too recently\n", __func__,
+			    sp->name);
+		return 1;
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, mp, builder.sai_plat_owner.head) {
+		struct sai_plat *xsp = lws_container_of(mp, struct sai_plat,
+							sai_plat_list);
+
+		lws_start_foreach_dll(struct lws_dll2 *, p, xsp->nspawn_owner.head) {
+			struct sai_nspawn *xns = lws_container_of(p,
+						struct sai_nspawn, list);
+
+			if (!xns->task)
+				continue;
+
+			if (!xns->task->idle) {
+				lwsl_notice("%s: %s: has real work\n",
+					    __func__, sp->name);
+				return 1;
+			}
+
+			if (xsp == sp && !xns->idle_yield)
+				ours++;
+
+		} lws_end_foreach_dll(p);
+
+	} lws_end_foreach_dll(mp);
+
+	if (ours >= sp->idle_instances) {
+		lwsl_notice("%s: %s: already running %u idle tasks\n",
+			    __func__, sp->name, ours);
+		return 1;
+	}
+
+	return 0;
+}
+
+/* real work is coming... stop every idle slice we have to make way for it */
+
+static void
+saib_idletask_yield_all(void)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, mp, builder.sai_plat_owner.head) {
+		struct sai_plat *xsp = lws_container_of(mp, struct sai_plat,
+							sai_plat_list);
+
+		lws_start_foreach_dll(struct lws_dll2 *, p, xsp->nspawn_owner.head) {
+			struct sai_nspawn *xns = lws_container_of(p,
+						struct sai_nspawn, list);
+
+			if (!xns->task || !xns->task->idle || xns->idle_yield)
+				continue;
+
+			lwsl_notice("%s: yielding idle task %s\n", __func__,
+				    xns->task->uuid);
+
+			xns->idle_yield = 1;
+
+			if (!xns->op || !xns->op->lsp)
+				/*
+				 * Nothing running to stop, eg, between
+				 * spawning and uploading; it reports as
+				 * yielded when it's destroyed
+				 */
+				continue;
+
+			xns->user_cancel = 1;
+			xns->term_budget = 5;
+			lws_sul_schedule(builder.context, 0,
+					 &xns->sul_task_cancel,
+					 saib_sul_task_cancel, 1);
+
+		} lws_end_foreach_dll(p);
+
+	} lws_end_foreach_dll(mp);
 }
 
 #if !defined(WIN32)
@@ -532,9 +675,21 @@ saib_task_destroy(struct sai_nspawn *ns)
 	}
 
 	if (ns->task) {
+		unsigned int ecode = (unsigned int)ns->retcode;
+
+		if (ns->idle_yield)
+			/*
+			 * We stopped this idle slice, it's not a failure
+			 * whatever the process had to say about it
+			 */
+			ecode = SAISPRF_TERMINATED | SAISPRF_YIELDED;
+
+		if (!ns->task->idle)
+			/* real work idles us only after the settle time */
+			builder.last_real_us = lws_now_usecs();
+
 		saib_queue_task_status_update(ns->sp, ns->spm, ns->task->uuid,
-					      (unsigned int)ns->retcode,
-					      SAI_TASK_REASON_DESTROYED);
+					      ecode, SAI_TASK_REASON_DESTROYED);
 
 		/*
 		 * Only ever give back what this ns took.  Giving back the
@@ -982,7 +1137,10 @@ saib_sul_task_cancel(struct lws_sorted_usec_list *sul)
 	if (ns->user_killed)
 		n = lws_snprintf(s, sizeof(s), "\xe2\x96\xa0 >saib> Build was manually killed\n");
 	else
-		n = lws_snprintf(s, sizeof(s), ">saib> Cancelling...\n");
+		if (ns->idle_yield)
+			n = lws_snprintf(s, sizeof(s), ">saib> Stopping idle task...\n");
+		else
+			n = lws_snprintf(s, sizeof(s), ">saib> Cancelling...\n");
 	saib_log_chunk_create(ns, s, (size_t)n, 3);
 
 	lws_spawn_piped_kill_child_process(ns->op->lsp);
@@ -1089,7 +1247,22 @@ saib_consider_allocating_task(struct sai_plat_server *spm, lws_struct_args_t *a,
 	 * We're not already running it, let's consider accepting it
 	 */
 
+	if (task->idle) {
+		if (saib_idletask_should_decline(sp))
+			goto idle_decline;
+	} else {
+		/*
+		 * Real work has been offered, so we're not idle: make way for
+		 * it by stopping any idle tasks, whatever platform they're on
+		 */
+		builder.last_real_us = lws_now_usecs();
+		saib_idletask_yield_all();
+	}
+
 	if (saib_can_accept_task(spm, task, sp)) {
+		if (task->idle)
+			goto idle_decline;
+
 		lwsl_warn("%s: builder rejects offered task\n", __func__);
 		if (saib_queue_task_status_update(sp, spm, task->uuid, 0,
 						  SAI_TASK_REASON_BUSY)) {
@@ -1393,6 +1566,18 @@ saib_consider_allocating_task(struct sai_plat_server *spm, lws_struct_args_t *a,
 #if defined(__APPLE__)
 	saib_wakelock();
 #endif
+
+	return 0;
+
+idle_decline:
+	/*
+	 * Unlike BUSY, this doesn't tell the server we can't take real tasks
+	 */
+	lwsl_notice("%s: declining idle task %s\n", __func__, task->uuid);
+	if (saib_queue_task_status_update(sp, spm, task->uuid, 0,
+					  SAI_TASK_REASON_IDLE_DECLINED))
+		return -1;
+	saib_reassess_idle_situation();
 
 	return 0;
 

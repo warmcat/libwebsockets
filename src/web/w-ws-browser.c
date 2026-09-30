@@ -1687,9 +1687,11 @@ saiw_event_summary_string(sqlite3 *pdb_event, const char *event_uuid,
 	 * tasks holds one row per (task, run); the browser summarises on the
 	 * latest (max) run per task uuid.  Pick exactly that row per uuid using
 	 * a correlated max-run subquery, so we count each task once.
+	 *
+	 * Idle tasks don't count, they're not part of the event's result.
 	 */
 	lws_snprintf(q, sizeof(q),
-			"SELECT state FROM tasks t WHERE rowid = ("
+			"SELECT state FROM tasks t WHERE idle=0 AND rowid = ("
 			"SELECT rowid FROM tasks t2 WHERE t2.uuid = t.uuid "
 			"ORDER BY t2.run DESC LIMIT 1)");
 

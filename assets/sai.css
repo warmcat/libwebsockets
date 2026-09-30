@@ -223,6 +223,7 @@ div.taskinfo {
 #sai_task_logs_container div.taskinfo.taskstate5, div.taskinfo.taskstate5 { background: #808080; border-color: #808080; transition: background-color 500ms linear; }
 #sai_task_logs_container div.taskinfo.taskstate6, div.taskinfo.taskstate6 { background: #df3030; border-color: #df3030; transition: background-color 500ms linear; }
 #sai_task_logs_container div.taskinfo.taskstate10, div.taskinfo.taskstate10 { background: #ffdc00; border-color: #ffdc00; transition: background-color 500ms linear; }
+#sai_task_logs_container div.taskinfo.taskstate11, div.taskinfo.taskstate11 { background: #b0c4de; border-color: #b0c4de; transition: background-color 500ms linear; }
 
 #sai_task_logs_container div.taskinfo.taskstate6, #sai_task_logs_container div.taskinfo.taskstate6 span.ti1, #sai_task_logs_container div.taskinfo.taskstate6 span.ti5, #sai_task_logs_container div.taskinfo.taskstate6 div.sai_arts,
 div.taskinfo.taskstate6, div.taskinfo.taskstate6 span.ti1, div.taskinfo.taskstate6 span.ti5, div.taskinfo.taskstate6 div.sai_arts {
@@ -401,6 +402,53 @@ img.bico {
 	color:#302000;
 	opacity:1;
 	transition: background-color 500ms linear;
+}
+
+/* an idle task's slice that the builder stopped, eg, for real work */
+.taskstate11 {
+	background:#b0c4de;
+	color:#202830;
+	opacity:1;
+	transition: background-color 500ms linear;
+}
+
+/*
+ * Idle tasks ("lanes") run in time the builders would otherwise spend idle.
+ * While a slice runs they are shown at full strength, gently breathing; the
+ * rest of the time, including when real work makes them yield, they fade back.
+ */
+div.taskstate.idle-lane, tr.tt-row.idle-lane {
+	opacity: 0.35;
+	transition: opacity 1.5s ease-in-out, background-color 500ms linear;
+}
+
+div.taskstate.idle-lane.taskstate1, div.taskstate.idle-lane.taskstate2,
+div.taskstate.idle-lane.taskstate9,
+tr.tt-row.idle-lane.taskstate1, tr.tt-row.idle-lane.taskstate2,
+tr.tt-row.idle-lane.taskstate9 {
+	opacity: 1;
+}
+
+div.taskstate.idle-lane.taskstate1, div.taskstate.idle-lane.taskstate2,
+div.taskstate.idle-lane.taskstate9 {
+	background: #9fd8b8;
+	animation: idle-breathe 4s ease-in-out infinite;
+}
+
+@keyframes idle-breathe {
+	0%, 100% {
+		filter: brightness(1);
+	}
+	50% {
+		filter: brightness(1.25);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	div.taskstate.idle-lane.taskstate1, div.taskstate.idle-lane.taskstate2,
+	div.taskstate.idle-lane.taskstate9 {
+		animation: none;
+	}
 }
 
 div.stats_hidden {

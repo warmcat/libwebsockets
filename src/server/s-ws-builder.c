@@ -592,6 +592,9 @@ sais_builder_disconnected(struct vhd *vhd, struct lws *wsi)
 				lwsac_free(&ac);
 			}
 
+			/* ... and any idle tasks it had */
+			sais_idle_builder_gone(vhd, sp);
+
 			/* drop any inflight task information for this builder */
 
 			lws_start_foreach_dll_safe(struct lws_dll2 *, pif, pif1,
@@ -730,11 +733,27 @@ sais_process_rej(struct vhd *vhd, struct pss *pss,
 		sais_plat_busy(sp, 1);
 		break;
 
+	case SAI_TASK_REASON_IDLE_DECLINED:
+		lwsl_notice("%s: SAI_TASK_REASON_IDLE_DECLINED: %s\n",
+				__func__, rej->task_uuid);
+		do_remove_uuid = 1;
+		sais_idle_declined(vhd, sp, rej->task_uuid);
+		break;
+
 	case SAI_TASK_REASON_DESTROYED:
 		lwsl_notice("%s: SAI_TASK_REASON_DESTROYED: Clear busy: %s\n",
 				__func__, rej->task_uuid);
 		do_remove_uuid = 1;
 
+		if (rej->ecode & SAISPRF_YIELDED) {
+			/*
+			 * The builder stopped an idle task's slice, to make
+			 * way for real work or because its time was up
+			 */
+			n = SAIES_YIELDED;
+			lwsl_notice("%s: |||| SAIES_YIELDED: %s\n",
+					__func__, rej->task_uuid);
+		} else
 		if (rej->ecode & SAISPRF_EXIT) {
 			if ((rej->ecode & 0xff) == 0) {
 				n = SAIES_STEP_SUCCESS;
@@ -1104,6 +1123,9 @@ sais_ws_json_rx_builder(struct vhd *vhd, struct pss *pss, uint8_t *buf, size_t b
 
 					lws_dll2_add_tail(&live_sp->sai_plat_list, &vhd->server.builder_owner);
 				}
+
+				/* and what it wants to do with its idle time */
+				sais_idle_plat_update(vhd, build);
 
 				lws_sul_schedule(live_sp->cx, 0, &live_sp->sul_find_jobs,
 						 sais_plat_find_jobs_cb, 500 * LWS_US_PER_MS);

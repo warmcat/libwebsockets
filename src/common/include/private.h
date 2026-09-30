@@ -97,6 +97,12 @@ typedef enum {
 	SAIES_NOT_READY_FOR_BUILD		= 8,
 	SAIES_STEP_SUCCESS			= 9,
 	SAIES_PAUSED				= 10,
+	/*
+	 * An idle task's slice that was stopped by the builder, either to make
+	 * way for real work or because the slice ran its length.  It's not a
+	 * failure, the lane just rests until the next slice.
+	 */
+	SAIES_YIELDED				= 11,
 } sai_event_state_t;
 
 enum {
@@ -104,6 +110,8 @@ enum {
 	SAISPRF_TERMINATED		= 0x2000,
 	SAISPRF_EXIT			= 0x8000,
 	SAISPRF_SIGNALLED		= 0x4000,
+	/* with SAISPRF_TERMINATED: the builder stopped an idle task's slice */
+	SAISPRF_YIELDED			= 0x10000,
 };
 
 typedef enum {
@@ -278,6 +286,12 @@ typedef struct {
 
 	char				rebuildable;
 	int				run;
+	/*
+	 * Nonzero for an idle task: a "lane" that only runs in time builders
+	 * would otherwise spend idle, one slice (run) at a time, and that
+	 * does not count towards its event's state.  See README-idle.md.
+	 */
+	int				idle;
 } sai_task_t;
 
 struct saib_logproxy {
@@ -364,6 +378,7 @@ struct sai_nspawn {
 	uint8_t				term_budget;
 
 	uint8_t				retcode_set:1;
+	uint8_t				idle_yield:1; /* we stopped this idle slice */
 	uint8_t				state_changed:1;
 	uint8_t				user_cancel:1;
 	uint8_t				user_killed:1;
@@ -382,6 +397,12 @@ enum {
  	SAI_TASK_REASON_DUPE	  = 1,
 	SAI_TASK_REASON_BUSY	  = 2,
 	SAI_TASK_REASON_DESTROYED = 3,
+	/*
+	 * Builder won't take the offered idle task right now, eg, because it
+	 * has real work, or recently had.  Unlike BUSY, this says nothing
+	 * about whether it can take real tasks.
+	 */
+	SAI_TASK_REASON_IDLE_DECLINED = 4,
 };
 
 typedef struct sai_rejection {
@@ -482,6 +503,8 @@ typedef struct sai_event {
 	 * branch".
 	 */
 	int				adhoc;
+	/* how many idle tasks ("lanes") the event has, see sai_task_t .idle */
+	int				idle;
 
 	lws_dll2_owner_t		watcher_owner; /* sai_watcher_t */
 } sai_event_t;
@@ -681,6 +704,7 @@ typedef struct sai_uuid_list {
 	lws_usec_t			us_time_listed;
 	char				uuid[65];
 	char				started;
+	char				idle; /* server: it's an idle task */
 } sai_uuid_list_t;
 
 /*
@@ -758,11 +782,23 @@ typedef struct sai_plat {
 	int				powering_down;
 	unsigned int			job_limit;
 
+	/*
+	 * Idle tasks: from the builder conf "idle" object on the platform,
+	 * and told to the server with the platform.  A zero share means the
+	 * platform takes no idle tasks.
+	 */
+	unsigned int			idle_share; /* % of idle time to fill */
+	unsigned int			idle_instances; /* concurrent idle tasks */
+	unsigned int			idle_slice_secs; /* length of one slice */
+	unsigned int			idle_settle_secs; /* builder only */
+
 	/* server side only: builder resource tracking */
 	lws_dll2_owner_t		inflight_owner; /* sai_uuid_list_t */
 	int				avail_slots;
 	unsigned int			avail_mem_kib;
 	unsigned int			avail_sto_kib;
+	/* server: don't offer idle tasks before this, after a decline */
+	lws_usec_t			idle_backoff_until;
 
 	unsigned int			windows;
 	unsigned int			power_managed;
@@ -1015,8 +1051,8 @@ extern const lws_struct_map_t
 	lsm_schema_sq3_map_artifact[1],
 	lsm_schema_map_ta[1],
 	lsm_schema_map_plat_simple[1],
-	lsm_event[14],
-	lsm_task[32],
+	lsm_event[15],
+	lsm_task[33],
 	lsm_log[8],
 	lsm_artifact[9],
 	lsm_plat_list[1],
@@ -1048,7 +1084,7 @@ extern const lws_struct_map_t
 	lsm_stay_state_update[2],
 	lsm_schema_stay_state_update[1],
 	lsm_build_metric[14],
-	lsm_plat[14], /* +1 for pcon */
+	lsm_plat[17], /* +1 for pcon */
 	lsm_builder_platform[1],
 	lsm_builder_registration[10],
 	lsm_schema_sq3_map_power_controller[1],

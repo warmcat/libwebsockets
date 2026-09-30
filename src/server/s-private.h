@@ -34,6 +34,12 @@
  */
 #define SAI_SHELLID_LEN 32
 
+/*
+ * The most idle tasks ("lanes") a .sai.json configuration can ask for on each
+ * platform
+ */
+#define SAI_IDLE_LANES_MAX 16
+
 struct sai_plat;
 
 /* lws_wsmsg_ array for different sources */
@@ -117,6 +123,7 @@ typedef struct {
 	char				explicit_platforms[2048];
 
 	int				event_task_index;
+	int				idle_lanes; /* per platform, this config */
 
 	struct lws_b64state		b64;
 	char				*saifile;
@@ -229,6 +236,30 @@ typedef struct sais_plat {
 	int		unmet_count;
 } sais_plat_t;
 
+/*
+ * Server's record of a builder platform's idle task budget, see s-idle.c.  It's
+ * kept by name, since it has to outlive the builder being disconnected.
+ */
+typedef struct sais_idle_budget {
+	lws_dll2_t	list;		/* vhd->idle_budgets */
+	lws_usec_t	debt_us;	/* rest owed before the next slice */
+	lws_usec_t	last_tick;
+	lws_usec_t	period_start;	/* 0, or when its slices began */
+	unsigned int	share;		/* % of idle time for idle tasks */
+	unsigned int	instances;	/* concurrent idle tasks */
+	unsigned int	slice_secs;
+	char		name[96];	/* builder.platform, as sai_plat_t .name */
+	char		platform[96];
+} sais_idle_budget_t;
+
+/* a platform on an event whose lanes are the ones to run for its ref */
+typedef struct sais_idle_host {
+	lws_dll2_t	list;		/* vhd->idle_hosts */
+	char		event_uuid[33];
+	char		platform[96];
+	int		free_lanes;	/* lanes not running a slice */
+} sais_idle_host_t;
+
 typedef struct sai_shell_session {
 	lws_dll2_t	list;
 	char		task_uuid[65];
@@ -265,6 +296,13 @@ struct vhd {
 	lws_sorted_usec_list_t	sul_watcher; /* generic async service watcher sul */
  
 	lws_dll2_owner_t	watcher_services; /* sai_watcher_service_t from config */
+
+	/* idle tasks, see s-idle.c */
+	lws_dll2_owner_t	idle_budgets; /* sais_idle_budget_t */
+	lws_dll2_owner_t	idle_hosts; /* sais_idle_host_t in ac_idle_hosts */
+	struct lwsac		*ac_idle_hosts;
+	lws_usec_t		idle_hosts_refreshed;
+	char			idle_hosts_stale;
 
 	lws_usec_t		last_check_abandoned_tasks;
 
@@ -412,6 +450,30 @@ sais_resource_rr_destroy(sai_resource_requisition_t *rr);
 int
 sais_platforms_with_tasks_pending(struct vhd *vhd);
 
+void
+sais_add_pending_plat(struct vhd *vhd, const char *name, int count, int unmet);
+
+void
+sais_idle_plat_update(struct vhd *vhd, const sai_plat_t *build);
+
+void
+sais_idle_destroy(struct vhd *vhd);
+
+void
+sais_idle_add_pending_plats(struct vhd *vhd);
+
+int
+sais_idle_allocate(struct vhd *vhd, struct pss *pss, sai_plat_t *sp);
+
+void
+sais_idle_slice_ended(struct vhd *vhd, sqlite3 *pdb, const char *task_uuid);
+
+void
+sais_idle_declined(struct vhd *vhd, sai_plat_t *sp, const char *task_uuid);
+
+void
+sais_idle_builder_gone(struct vhd *vhd, sai_plat_t *sp);
+
 sai_plat_t *
 sais_builder_from_uuid(struct vhd *vhd, const char *hostname);
 sai_plat_t *
@@ -431,7 +493,8 @@ sais_is_task_inflight(struct vhd *vhd, sai_plat_t *build, const char *uuid,
 		      sai_uuid_list_t **hit);
 
 int
-sais_add_to_inflight_list_if_absent(struct vhd *vhd, sai_plat_t *sp, const char *uuid);
+sais_add_to_inflight_list_if_absent(struct vhd *vhd, sai_plat_t *sp,
+				    const char *uuid, int idle);
 
 void
 sais_inflight_entry_destroy(sai_uuid_list_t *ul);

@@ -92,6 +92,7 @@ static const char * const saifile_paths[] = {
 	"configurations.*.cpack",
 	"configurations.*.branches",
 	"configurations.*.task_log_limit",
+	"configurations.*.idle",
 	"configurations.*",
 };
 
@@ -110,6 +111,7 @@ enum enum_saifile_paths {
 	LEJPNSAIF_CONFIGURATIONS_CPACK,
 	LEJPNSAIF_CONFIGURATIONS_BRANCHES,
 	LEJPNSAIF_CONFIGURATIONS_TASK_LOG_LIMIT,
+	LEJPNSAIF_CONFIGURATIONS_IDLE,
 	LEJPNSAIF_CONFIGURATIONS_NAME,
 };
 
@@ -293,6 +295,7 @@ sai_saifile_lejp_cb(struct lejp_ctx *ctx, char reason)
 		sn->t.artifacts[0]		= '\0';
 		sn->t.branches[0]		= '\0';
 		sn->explicit_platforms[0]	= '\0';
+		sn->idle_lanes			= 0;
 		return 0;
 	}
 
@@ -555,17 +558,28 @@ next_plat: ;
 				 * Mint the uuids / nonces and create the task
 				 * in the event-specific database
 				 */
+				pss->sn.t.idle = 0;
 				if (sais_task_insert(lws_get_context(pss->wsi),
 						     pdb, &pss->sn.e, &pss->sn.t,
-						     pss->sn.event_task_index++) < 0) {
-					lwsl_err("%s: task insert failed\n",
-						 __func__);
-					sqlite3_exec(pdb, "END TRANSACTION", NULL, NULL, &err);
-					if (err)
-						sqlite3_free(err);
-					sai_event_db_close(&pss->vhd->sqlite3_cache, &pdb);
-					return -1;
+						     pss->sn.event_task_index++) < 0)
+					goto insert_fail;
+
+				/*
+				 * ... and the idle tasks ("lanes") the
+				 * configuration asks for on this platform, if
+				 * any.  They are the same task, but only run
+				 * later in idle time, see s-idle.c
+				 */
+
+				for (n = 0; n < sn->idle_lanes; n++) {
+					pss->sn.t.idle = 1;
+					if (sais_task_insert(lws_get_context(pss->wsi),
+							     pdb, &pss->sn.e, &pss->sn.t,
+							     pss->sn.event_task_index++) < 0)
+						goto insert_fail;
+					sn->e.idle++;
 				}
+				pss->sn.t.idle = 0;
 			}
 
 		} lws_end_foreach_dll(p);
@@ -582,11 +596,18 @@ next_plat: ;
 		 */
 		sais_platforms_with_tasks_pending(pss->vhd);
 
-//		lwsl_notice("%s: New test '%s', '%s', '%s'\n", __func__,
-//			    sn->t.taskname, sn->t.cmake, sn->t.packages);
-
 		sn->t.taskname[0] = '\0';
 		return 0;
+
+insert_fail:
+		lwsl_err("%s: task insert failed\n", __func__);
+		pss->sn.t.idle = 0;
+		sqlite3_exec(pdb, "END TRANSACTION", NULL, NULL, &err);
+		if (err)
+			sqlite3_free(err);
+		sai_event_db_close(&pss->vhd->sqlite3_cache, &pdb);
+
+		return -1;
 	}
 
 	if (reason == LEJPCB_OBJECT_START &&
@@ -740,6 +761,20 @@ next_plat: ;
 
 	case LEJPNSAIF_CONFIGURATIONS_TASK_LOG_LIMIT:
 		sn->t.task_log_limit = (unsigned int)atoi(ctx->buf);
+		break;
+
+	case LEJPNSAIF_CONFIGURATIONS_IDLE:
+		/*
+		 * How many idle tasks ("lanes") to create for this
+		 * configuration on each platform it runs on, in addition to
+		 * the normal task.  Each lane can have an idle builder
+		 * working on it at the same time.
+		 */
+		sn->idle_lanes = atoi(ctx->buf);
+		if (sn->idle_lanes < 0)
+			sn->idle_lanes = 0;
+		if (sn->idle_lanes > SAI_IDLE_LANES_MAX)
+			sn->idle_lanes = SAI_IDLE_LANES_MAX;
 		break;
 
 	case LEJPNSAIF_PLAT_BUILD:
@@ -1120,6 +1155,7 @@ sai_notification_file_upload_cb(void *data, const char *name,
 		 */
 
 		pss->dry = 0;
+		pss->sn.e.idle = 0;
 		lejp_construct(&saictx, sai_saifile_lejp_cb, pss, saifile_paths,
 			       LWS_ARRAY_SIZE(saifile_paths));
 		sai_lejp_enable_comments(&saictx);
@@ -1138,6 +1174,21 @@ sai_notification_file_upload_cb(void *data, const char *name,
 		pss->sn.saifile = NULL;
 
 		lwsl_notice("%s: notification inserted into db\n", __func__);
+
+		if (pss->sn.e.idle) {
+			char q[128], esc[96];
+
+			/*
+			 * The event row went in before we knew how many idle
+			 * tasks the configurations would create
+			 */
+			lws_sql_purify(esc, pss->sn.e.uuid, sizeof(esc));
+			lws_snprintf(q, sizeof(q),
+				     "update events set idle=%d where uuid='%s'",
+				     pss->sn.e.idle, esc);
+			sai_sqlite3_statement(pss->vhd->server.pdb, q,
+					      "set event idle count");
+		}
 
 		/*
 		 * Let sai-web know the event exists now, the same as for an

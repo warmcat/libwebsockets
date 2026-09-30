@@ -94,3 +94,17 @@ or to disable all default platforms and just use the specified ones:
 You can also give a comma-separated list of build artifacts, these are
 arbitrary binary files which will be uploaded to sai-server and made available
 for download over https.
+
+#### idle
+
+A configuration can also ask for idle tasks, eg for long-running fuzzing, with
+the number of them to create on each platform it applies to:
+
+```
+		"idle":		4
+```
+
+Besides the configuration's normal task, each event then has that many idle
+tasks ("lanes") for it on each platform.  They do not count towards the
+event's result, and only run in time builders would otherwise spend idle,
+when the builder conf allows it.  See [README-idle.md](README-idle.md).

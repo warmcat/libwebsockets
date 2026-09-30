@@ -21,6 +21,17 @@
                 {
                         "name":         "linux-ubuntu-1804/x86_64-amd/gcc",
                         "instances":    3,
+
+			# optional: spend up to half this platform's idle time on
+			# idle tasks (eg, fuzzing), two at a time, in 15 minute
+			# slices.  See READMEs/README-idle.md
+			"idle": {
+				"share":	50,
+				"instances":	2,
+				"slice-secs":	900,
+				"settle-secs":	120
+			},
+
                         "servers": [ "wss://libwebsockets.org:4444/sai/builder" ]
                 },
 		{
