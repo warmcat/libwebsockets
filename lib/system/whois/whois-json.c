@@ -322,19 +322,81 @@ emit_date(struct canon_emit *e, const char *name, unsigned long long v)
 	emit(e, b, (size_t)n);
 }
 
+/* emit the validated members of c as the canonical JSON object */
+
+static int
+canon_emit_all(struct canon *c, char *out, int *problems)
+{
+	struct canon_emit e;
+	size_t i;
+
+	memset(&e, 0, sizeof(e));
+	e.buf = out;
+
+	emit(&e, "{", 1);
+	if (c->seen_mask & SEEN_CREATION)
+		emit_date(&e, "creation_date", c->creation_date);
+	if (c->seen_mask & SEEN_EXPIRY)
+		emit_date(&e, "expiry_date", c->expiry_date);
+	if (c->seen_mask & SEEN_UPDATED)
+		emit_date(&e, "updated_date", c->updated_date);
+	if (c->seen_mask & SEEN_NS) {
+		emit(&e, "\"nameservers\":[", 15);
+		for (i = 0; i < (size_t)c->ns_count; i++) {
+			if (i)
+				emit(&e, ",", 1);
+			emit_str(&e, c->ns[i]);
+		}
+		emit(&e, "],", 2);
+	}
+	if (c->seen_mask & SEEN_DNSSEC) {
+		emit(&e, "\"dnssec\":", 9);
+		emit_str(&e, c->dnssec);
+		emit(&e, ",", 1);
+	}
+	if (c->seen_mask & SEEN_DSDATA) {
+		emit(&e, "\"ds_data\":", 10);
+		emit_str(&e, c->ds_data);
+		emit(&e, ",", 1);
+	}
+
+	/*
+	 * If we ran out of canonical space the partial object is not valid
+	 * JSON; fall back to the empty canonical object.
+	 */
+	if (e.truncated) {
+		out[0] = '{';
+		out[1] = '}';
+		out[2] = '\0';
+		e.len = 2;
+		c->problems = 1;
+	} else {
+		/*
+		 * Trim the trailing member comma if we emitted any members;
+		 * if nothing was emitted this is just "{}".
+		 */
+		if (e.len > 1)
+			e.len--;
+
+		emit(&e, "}", 1);
+		out[e.len] = '\0';
+	}
+
+	if (problems)
+		*problems = c->problems;
+
+	return (int)e.len;
+}
+
 int
 lws_whois_json_purify(char *out, size_t out_len, const char *in,
 		      size_t in_len, int *problems)
 {
 	struct canon c;
 	struct lejp_ctx jctx;
-	struct canon_emit e;
 	int r;
-	size_t i;
 
 	memset(&c, 0, sizeof(c));
-	memset(&e, 0, sizeof(e));
-	e.buf = out;
 
 	if (problems)
 		*problems = 0;
@@ -359,57 +421,91 @@ lws_whois_json_purify(char *out, size_t out_len, const char *in,
 	if ((r < 0) || !in_len || !c.complete)
 		return -1;
 
-	emit(&e, "{", 1);
-	if (c.seen_mask & SEEN_CREATION)
-		emit_date(&e, "creation_date", c.creation_date);
-	if (c.seen_mask & SEEN_EXPIRY)
-		emit_date(&e, "expiry_date", c.expiry_date);
-	if (c.seen_mask & SEEN_UPDATED)
-		emit_date(&e, "updated_date", c.updated_date);
-	if (c.seen_mask & SEEN_NS) {
-		emit(&e, "\"nameservers\":[", 15);
-		for (i = 0; i < (size_t)c.ns_count; i++) {
-			if (i)
-				emit(&e, ",", 1);
-			emit_str(&e, c.ns[i]);
-		}
-		emit(&e, "],", 2);
-	}
-	if (c.seen_mask & SEEN_DNSSEC) {
-		emit(&e, "\"dnssec\":", 9);
-		emit_str(&e, c.dnssec);
-		emit(&e, ",", 1);
-	}
-	if (c.seen_mask & SEEN_DSDATA) {
-		emit(&e, "\"ds_data\":", 10);
-		emit_str(&e, c.ds_data);
-		emit(&e, ",", 1);
+	return canon_emit_all(&c, out, problems);
+}
+
+static void
+canon_date(struct canon *c, lws_usec_t v, unsigned long long *dest,
+	   unsigned char bit)
+{
+	if (!v)
+		return;
+
+	if (v < 0 || (unsigned long long)v > MAX_DATE_S) {
+		c->problems = 1;
+		return;
 	}
 
-	/*
-	 * If we ran out of canonical space the partial object is not valid
-	 * JSON; fall back to the empty canonical object.
-	 */
-	if (e.truncated) {
-		out[0] = '{';
-		out[1] = '}';
-		out[2] = '\0';
-		e.len = 2;
-		c.problems = 1;
-	} else {
-		/*
-		 * Trim the trailing member comma if we emitted any members;
-		 * if nothing was emitted this is just "{}".
-		 */
-		if (e.len > 1)
-			e.len--;
+	*dest = (unsigned long long)v;
+	member_seen(c, bit);
+}
 
-		emit(&e, "}", 1);
-		out[e.len] = '\0';
+static void
+canon_string(struct canon *c, const char *s, char *dest, size_t max,
+	     unsigned char bit)
+{
+	size_t len = strlen(s);
+
+	if (!len)
+		return;
+
+	if (len > max || !printable_ok(s, len)) {
+		c->problems = 1;
+		return;
 	}
+
+	memcpy(dest, s, len + 1);
+	member_seen(c, bit);
+}
+
+int
+lws_whois_results_to_json(char *out, size_t out_len,
+			  const struct lws_whois_results *res, int *problems)
+{
+	struct canon c;
+	const char *p, *q;
+	size_t len;
 
 	if (problems)
-		*problems = c.problems;
+		*problems = 0;
 
-	return (int)e.len;
+	if (!out || !res || out_len < WJP_CANON_MAX + 1) {
+		if (problems)
+			*problems = 1;
+		return -1;
+	}
+
+	memset(&c, 0, sizeof(c));
+
+	canon_date(&c, res->creation_date, &c.creation_date, SEEN_CREATION);
+	canon_date(&c, res->expiry_date, &c.expiry_date, SEEN_EXPIRY);
+	canon_date(&c, res->updated_date, &c.updated_date, SEEN_UPDATED);
+
+	/* the whois client collects the nameservers as "a, b, c" */
+
+	p = res->nameservers;
+	while (*p) {
+		while (*p == ',' || *p == ' ')
+			p++;
+		q = p;
+		while (*q && *q != ',' && *q != ' ')
+			q++;
+		len = lws_ptr_diff_size_t(q, p);
+		if (len) {
+			if (c.ns_count >= MAX_NS || len > MAX_NS_LEN ||
+			    !charset_ok(p, len))
+				c.problems = 1;
+			else {
+				memcpy(c.ns[c.ns_count], p, len);
+				c.ns[c.ns_count++][len] = '\0';
+				member_seen(&c, SEEN_NS);
+			}
+		}
+		p = q;
+	}
+
+	canon_string(&c, res->dnssec, c.dnssec, MAX_DNSSEC_LEN, SEEN_DNSSEC);
+	canon_string(&c, res->ds_data, c.ds_data, MAX_DS_LEN, SEEN_DSDATA);
+
+	return canon_emit_all(&c, out, problems);
 }

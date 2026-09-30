@@ -56,6 +56,9 @@ struct lws_whois_args {
 	/**< Callback to receive results. Called once when query completes or fails. */
 	void			*opaque;
 	/**< User-supplied pointer passed to the callback */
+	uint16_t		port;
+	/**< Optional: TCP port for every connection of the query, or 0 for
+	 * the standard whois port 43 */
 };
 
 /**
@@ -104,6 +107,33 @@ lws_whois_json_purify(char *out, size_t out_len, const char *in,
 		      size_t in_len, int *problems);
 #else
 #define lws_whois_json_purify(_o, _ol, _i, _il, _p) ((void)(_o), -1)
+#endif
+
+/**
+ * lws_whois_results_to_json() - express whois results as canonical JSON
+ *
+ * \param out: buffer to receive the canonical JSON; must be at least
+ *	       4097 bytes
+ * \param out_len: size of \p out in bytes
+ * \param res: the results, as delivered to an lws_whois_cb_t
+ * \param problems: if non-NULL, set nonzero if anything in \p res could
+ *		    not be expressed and was left out, as
+ *		    lws_whois_json_purify() would drop it
+ *
+ * Produces the same canonical form as lws_whois_json_purify(), with the
+ * same validation: members with zero or empty values are absent, and the
+ * comma-separated nameservers become an array.  So the output can be
+ * handed to something that purifies it again, and pass cleanly.
+ *
+ * Returns the length of the NUL-terminated canonical JSON written to
+ * \p out, or -1 if \p out is too small.
+ */
+#if defined(LWS_WITH_SYS_WHOIS)
+LWS_VISIBLE LWS_EXTERN int
+lws_whois_results_to_json(char *out, size_t out_len,
+			  const struct lws_whois_results *res, int *problems);
+#else
+#define lws_whois_results_to_json(_o, _ol, _r, _p) ((void)(_o), -1)
 #endif
 
 ///@}

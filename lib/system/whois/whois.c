@@ -41,9 +41,11 @@ struct lws_whois {
 	char			        vv[LWS_WHS_DOMAIN_MAX + 1];
 	size_t			        vk_len;
 	size_t			        vv_len;
+	size_t			        vv_first_len; /* first value token */
 
 	int			        state; /* 0 = IANA / initial, 1 = authoritative, 2 = error */
 	int			        last_effline;
+	int			        bad_line; /* 1 + tokenizer line with bad content, or 0 */
 	uint8_t			        is_value;
 	uint8_t			        in_trigger; /* inside the connect call */
 };
@@ -67,7 +69,7 @@ lws_whois_trigger(struct lws_whois *w, const char *server)
 	i.context               = w->args.context;
 	i.vhost                 = w->args.context->vhost_system;
 	i.address               = server;
-	i.port                  = 43;
+	i.port                  = w->args.port ? w->args.port : 43;
 	i.path                  = "";
 	i.host                  = i.address;
 	i.origin                = i.address;
@@ -90,8 +92,10 @@ lws_whois_trigger(struct lws_whois *w, const char *server)
 				  LWS_TOKENIZE_F_NO_INTEGERS;
 	w->vk_len               = 0;
 	w->vv_len               = 0;
+	w->vv_first_len         = 0;
 	w->is_value             = 0;
 	w->last_effline         = 0;
+	w->bad_line             = 0;
 
 	/*
 	 * The connect can fail synchronously in here, and if it does, it can
@@ -119,32 +123,90 @@ enum whois_match {
 	WHS_M_WHOIS,
 	WHS_M_CREATION_DATE,
 	WHS_M_CREATED_ON,
+	WHS_M_REGISTRATION_DATE,
 	WHS_M_REGISTRY_EXPIRY,
 	WHS_M_EXPIRY_DATE,
 	WHS_M_EXPIRATION_DATE,
 	WHS_M_UPDATED_DATE,
 	WHS_M_LAST_UPDATED,
+	WHS_M_MODIFICATION_DATE,
 	WHS_M_NAME_SERVER,
 	WHS_M_NSERVER,
+	WHS_M_DNS,
 	WHS_M_DNSSEC,
+	WHS_M_DNSSEC_SIGNED,
 	WHS_M_DNSSEC_DS_DATA,
 };
+
+/*
+ * Registries don't agree on the capitalization of these, so they are
+ * matched case-insensitively.  The RNIDS (.rs) forms are
+ * "Registration date:", "Modification date:", "DNS:" and "DNSSEC signed:".
+ */
 
 static const char * const whois_key_strings[] = {
 	/* WHS_M_REFER */		"refer:",
 	/* WHS_M_WHOIS */		"whois:",
 	/* WHS_M_CREATION_DATE */	"Creation Date:",
 	/* WHS_M_CREATED_ON */		"Created On:",
+	/* WHS_M_REGISTRATION_DATE */	"Registration Date:",
 	/* WHS_M_REGISTRY_EXPIRY */	"Registry Expiry Date:",
 	/* WHS_M_EXPIRY_DATE */		"Expiry Date:",
 	/* WHS_M_EXPIRATION_DATE */	"Expiration Date:",
 	/* WHS_M_UPDATED_DATE */	"Updated Date:",
 	/* WHS_M_LAST_UPDATED */	"Last Updated:",
+	/* WHS_M_MODIFICATION_DATE */	"Modification Date:",
 	/* WHS_M_NAME_SERVER */		"Name Server:",
 	/* WHS_M_NSERVER */		"nserver:",
+	/* WHS_M_DNS */			"DNS:",
 	/* WHS_M_DNSSEC */		"DNSSEC:",
+	/* WHS_M_DNSSEC_SIGNED */	"DNSSEC signed:",
 	/* WHS_M_DNSSEC_DS_DATA */	"DNSSEC DS Data:",
 };
+
+/*
+ * Most registries give ISO 8601 dates, but some (eg, RNIDS for .rs) give
+ * "DD.MM.YYYY HH:MM:SS".  That form is reordered into ISO 8601 so it gets
+ * the same strict validation.  The registry's timezone is only stated in
+ * free text, if at all, so like ISO 8601 without a zone it is taken as UTC.
+ *
+ * Returns the unixtime, or 0 if the date is not in a form we understand.
+ */
+
+static lws_usec_t
+lws_whois_parse_date(const char *s)
+{
+	char iso[32];
+	size_t n, len;
+
+	if (!s)
+		return 0;
+
+	len = strlen(s);
+	if (len >= 10 && s[4] == '-')
+		return lws_parse_iso8601(s);
+
+	/* "DD.MM.YYYY" and an optional time part */
+
+	if (len < 10 || len - 10 >= sizeof(iso) - 10 ||
+	    s[2] != '.' || s[5] != '.')
+		return 0;
+
+	for (n = 0; n < 10; n++)
+		if (n != 2 && n != 5 && (s[n] < '0' || s[n] > '9'))
+			return 0;
+
+	memcpy(iso, s + 6, 4);
+	iso[4] = '-';
+	memcpy(iso + 5, s + 3, 2);
+	iso[7] = '-';
+	memcpy(iso + 8, s, 2);
+	/* the time part, if any, is validated by lws_parse_iso8601() */
+	memcpy(iso + 10, s + 10, len - 10);
+	iso[len] = '\0';
+
+	return lws_parse_iso8601(iso);
+}
 
 static void
 lws_whois_eval_line(struct lws_whois *w)
@@ -155,7 +217,7 @@ lws_whois_eval_line(struct lws_whois *w)
 		return;
 
 	for (n = 0; n < LWS_ARRAY_SIZE(whois_key_strings); n++)
-		if (!strcmp(w->vk, whois_key_strings[n]))
+		if (!strcasecmp(w->vk, whois_key_strings[n]))
 			break;
 
 	if (n == LWS_ARRAY_SIZE(whois_key_strings))
@@ -173,19 +235,22 @@ lws_whois_eval_line(struct lws_whois *w)
 	switch (n) {
 	case WHS_M_CREATION_DATE:
 	case WHS_M_CREATED_ON:
-		w->res.creation_date = lws_parse_iso8601(w->vv);
+	case WHS_M_REGISTRATION_DATE:
+		w->res.creation_date = lws_whois_parse_date(w->vv);
 		break;
 	case WHS_M_REGISTRY_EXPIRY:
 	case WHS_M_EXPIRY_DATE:
 	case WHS_M_EXPIRATION_DATE:
-		w->res.expiry_date = lws_parse_iso8601(w->vv);
+		w->res.expiry_date = lws_whois_parse_date(w->vv);
 		break;
 	case WHS_M_UPDATED_DATE:
 	case WHS_M_LAST_UPDATED:
-		w->res.updated_date = lws_parse_iso8601(w->vv);
+	case WHS_M_MODIFICATION_DATE:
+		w->res.updated_date = lws_whois_parse_date(w->vv);
 		break;
 	case WHS_M_NAME_SERVER:
 	case WHS_M_NSERVER:
+	case WHS_M_DNS:
 	{
 		/*
 		 * Append with explicit bounds rather than strncat(): gcc 14
@@ -197,6 +262,14 @@ lws_whois_eval_line(struct lws_whois *w)
 		size_t ol = strlen(w->res.nameservers);
 		size_t room = sizeof(w->res.nameservers) - 1 - ol;
 
+		/*
+		 * Only the name is wanted: some registries follow it on the
+		 * same line with glue addresses, or with a "-" placeholder
+		 * where there are none (RNIDS)
+		 */
+		if (!w->vv_first_len)
+			break;
+
 		/* room for the ", " plus at least one nameserver character */
 		if (ol && room > 2) {
 			w->res.nameservers[ol++] = ',';
@@ -204,20 +277,97 @@ lws_whois_eval_line(struct lws_whois *w)
 			room -= 2;
 		}
 
-		if (w->vv_len < room)
-			room = w->vv_len;
+		if (w->vv_first_len < room)
+			room = w->vv_first_len;
 
 		memcpy(w->res.nameservers + ol, w->vv, room);
 		w->res.nameservers[ol + room] = '\0';
 		break;
 	}
 	case WHS_M_DNSSEC:
+	case WHS_M_DNSSEC_SIGNED:
 		lws_strncpy(w->res.dnssec, w->vv, sizeof(w->res.dnssec));
 		break;
 	case WHS_M_DNSSEC_DS_DATA:
 		lws_strncpy(w->res.ds_data, w->vv, sizeof(w->res.ds_data));
 		break;
 	}
+}
+
+/*
+ * Assemble "key: value" lines from whatever is in w->ts, evaluating each
+ * completed line.  The server's text is untrusted and not necessarily even
+ * UTF-8: a line with content the tokenizer rejects is dropped, but the
+ * lines around it are still used.
+ */
+
+static void
+lws_whois_tokenize(struct lws_whois *w)
+{
+	size_t left;
+
+	do {
+		left = w->ts.len;
+		w->ts.e = (int8_t)lws_tokenize(&w->ts);
+		if (w->ts.e == LWS_TOKZE_WANT_READ)
+			break;
+
+		if (w->ts.effline != w->last_effline) {
+			if (w->bad_line != w->last_effline + 1)
+				lws_whois_eval_line(w);
+			w->vk_len = 0;
+			w->vv_len = 0;
+			w->vv_first_len = 0;
+			w->vk[0] = '\0';
+			w->vv[0] = '\0';
+			w->is_value = 0;
+			w->last_effline = w->ts.effline;
+		}
+
+		if (w->ts.e < 0) {
+			/*
+			 * The tokenizer has consumed the bad content, we can
+			 * carry on after it.  The token it was in may have
+			 * begun on an earlier line, but the bad byte is on
+			 * the current one
+			 */
+			w->bad_line = w->ts.line + 1;
+			if (w->ts.len == left)
+				/*
+				 * ...unless it consumed nothing, eg, an
+				 * unterminated quote at the end
+				 */
+				break;
+			continue;
+		}
+
+		if (w->ts.e != LWS_TOKZE_TOKEN)
+			continue;
+
+		if (!w->is_value) {
+			if (w->vk_len + w->ts.token_len + 2 < sizeof(w->vk)) {
+				if (w->vk_len)
+					w->vk[w->vk_len++] = ' ';
+				memcpy(&w->vk[w->vk_len], w->ts.token, w->ts.token_len);
+				w->vk_len += w->ts.token_len;
+				w->vk[w->vk_len] = '\0';
+
+				if (w->vk[w->vk_len - 1] == ':')
+					w->is_value = 1;
+			}
+			continue;
+		}
+
+		if (w->vv_len + w->ts.token_len + 2 < sizeof(w->vv)) {
+			if (w->vv_len)
+				w->vv[w->vv_len++] = ' ';
+			memcpy(&w->vv[w->vv_len], w->ts.token, w->ts.token_len);
+			w->vv_len += w->ts.token_len;
+			w->vv[w->vv_len] = '\0';
+			if (!w->vv_first_len)
+				w->vv_first_len = w->vv_len;
+		}
+	} while (w->ts.e != LWS_TOKZE_ENDED);
 }
 
 static int
@@ -276,11 +426,11 @@ callback_whois(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		w->ts.flags &= (uint16_t)~LWS_TOKENIZE_F_EXPECT_MORE;
 		w->ts.start = NULL;
 		w->ts.len = 0;
-		do {
-			w->ts.e = (int8_t)lws_tokenize(&w->ts);
-		} while (w->ts.e > 0);
+		lws_whois_tokenize(w);
 
-		if (w->vk_len || w->vv_len)
+		/* the last line, which had no following line to flush it */
+		if ((w->vk_len || w->vv_len) &&
+		    w->bad_line != w->last_effline + 1)
 			lws_whois_eval_line(w);
 
 		if (w->state == 0) {
@@ -311,45 +461,7 @@ callback_whois(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		w->ts.start = (const char *)in;
 		w->ts.len = len;
-
-		do {
-			w->ts.e = (int8_t)lws_tokenize(&w->ts);
-			if (w->ts.e == LWS_TOKZE_WANT_READ)
-				break;
-
-			if (w->ts.effline != w->last_effline) {
-				lws_whois_eval_line(w);
-				w->vk_len = 0;
-				w->vv_len = 0;
-				w->vk[0] = '\0';
-				w->vv[0] = '\0';
-				w->is_value = 0;
-				w->last_effline = w->ts.effline;
-			}
-
-			if (w->ts.e == LWS_TOKZE_TOKEN) {
-				if (!w->is_value) {
-					if (w->vk_len + w->ts.token_len + 2 < sizeof(w->vk)) {
-						if (w->vk_len)
-							w->vk[w->vk_len++] = ' ';
-						memcpy(&w->vk[w->vk_len], w->ts.token, w->ts.token_len);
-						w->vk_len += w->ts.token_len;
-						w->vk[w->vk_len] = '\0';
-
-						if (w->vk[w->vk_len - 1] == ':')
-							w->is_value = 1;
-					}
-				} else {
-					if (w->vv_len + w->ts.token_len + 2 < sizeof(w->vv)) {
-						if (w->vv_len)
-							w->vv[w->vv_len++] = ' ';
-						memcpy(&w->vv[w->vv_len], w->ts.token, w->ts.token_len);
-						w->vv_len += w->ts.token_len;
-						w->vv[w->vv_len] = '\0';
-					}
-				}
-			}
-		} while (w->ts.e > 0);
+		lws_whois_tokenize(w);
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
