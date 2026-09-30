@@ -299,6 +299,33 @@ lws_ssl_server_name_cb(HITLS_Ctx *ssl, int *alert, void *arg)
 		return HITLS_ACCEPT_SNI_ERR_OK;
 	}
 
+	/*
+	 * openHiTLS decides a resumption, TLS 1.3 tickets included, under the
+	 * accepting vhost's config before calling us, and a resumed handshake
+	 * asks for no client cert: the one in the session, and its verify
+	 * result, are what the handshake that made the session verified.
+	 * Tickets are sealed with the keys of the config they were sent under,
+	 * so one that got this far was made under the accepting vhost's
+	 * client-cert policy... it can't be carried onto a vhost whose client
+	 * CA store is another, or a cert verified under vh's CA would be served
+	 * by a vhost requiring certs from a different one (C-658).
+	 */
+
+	if (vhost != vh) {
+		bool reused = false;
+
+		if (HITLS_IsSessionReused(ssl, &reused) != HITLS_SUCCESS ||
+		    (reused && memcmp(vh->tls.client_ca_id,
+				      vhost->tls.client_ca_id,
+				      sizeof(vh->tls.client_ca_id)))) {
+			lwsl_vhost_notice(vhost, "refusing resumption of a "
+				      "session made under another client CA");
+			*alert = 40; /* RFC 8446 handshake_failure */
+
+			return HITLS_ACCEPT_SNI_ERR_ALERT_FATAL;
+		}
+	}
+
 	if (!HITLS_SetNewConfig(ssl, target_ctx)) {
 		return HITLS_ACCEPT_SNI_ERR_ALERT_FATAL;
 	}
