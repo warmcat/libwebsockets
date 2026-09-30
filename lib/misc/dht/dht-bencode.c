@@ -465,7 +465,8 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 #if defined(LWS_WITH_DHT_BACKEND)
 /*
  * Did we send this node something it could be replying to?  A known node
- * with a ping outstanding qualifies; an address we never spoke to does not.
+ * with a ping outstanding qualifies, if the reply comes from the endpoint we
+ * sent it to; an address we never spoke to does not, whatever id it claims.
  */
 static int
 lws_dht_reply_solicited(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
@@ -473,7 +474,8 @@ lws_dht_reply_solicited(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 {
 	struct node *n = id ? find_node(ctx, id, from->sa_family) : NULL;
 
-	return n && n->pinged;
+	return n && n->pinged &&
+	       dht_sa_same_peer((const struct sockaddr *)&n->ss, from);
 }
 #endif
 
