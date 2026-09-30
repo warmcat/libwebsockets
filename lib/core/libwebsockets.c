@@ -1948,7 +1948,7 @@ static const struct lws_switches builtins[] = {
 	{ "--quic-force-retry", "Force QUIC to always send a Retry packet" },
 	{ "--0rtt", "Allow QUIC 0-RTT early data" },
 	{ "--quic-initial-cwnd", "Initial QUIC congestion window (cwnd) in bytes" },
-	{ "--0rtt-max-size", "Max QUIC 0-RTT early data size in bytes" },
+	{ "--0rtt-max-size", "Max tls over tcp 0-RTT early data size in bytes (QUIC is flow controlled)" },
 	{ "--uv", "Run on a libuv event loop (if built in)" },
 	{ "--event", "Run on a libevent event loop (if built in)" },
 	{ "--ev", "Run on a libev event loop (if built in)" },

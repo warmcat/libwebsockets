@@ -273,13 +273,18 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 #define LWS_GNUTLS_AR_MAX_ENTRIES 4096
 
 /*
- * What we tell a peer it may send as 0-RTT before the handshake completes,
- * when the app didn't pick a size.  RFC9001 only wants 0xFFFFFFFF for QUIC,
- * where flow control provides the real limit; for TCP TLS this is just how
- * much we let an unauthenticated peer make us buffer
+ * What we tell a tls over tcp peer it may send as 0-RTT before the handshake
+ * completes, when the app didn't pick a size: how much we let an
+ * unauthenticated peer make us buffer.
+ *
+ * QUIC is different: RFC 9001 4.6.1 has the server send exactly 0xffffffff,
+ * and a client treat anything else as a PROTOCOL_VIOLATION.  Its 0-RTT is
+ * bounded by the connection's flow control, and never passes through the tls
+ * record layer, so there is nothing for gnutls to buffer.
  */
 
-#define LWS_GNUTLS_MAX_EARLY_DATA_DEFAULT 16384
+#define LWS_GNUTLS_MAX_EARLY_DATA_DEFAULT	16384
+#define LWS_GNUTLS_MAX_EARLY_DATA_QUIC		0xffffffffu
 
 struct lws_gnutls_ar_entry {
         lws_dll2_t list;
@@ -596,6 +601,11 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	gnutls_session_t session;
 	/* lws' sockets never block, nor may gnutls on them (C-664) */
 	unsigned int flags = GNUTLS_SERVER | GNUTLS_NONBLOCK;
+#if GNUTLS_VERSION_NUMBER >= 0x030605
+	size_t max_early = wsi->a.context->quic_0rtt_max_size ?
+				wsi->a.context->quic_0rtt_max_size :
+				LWS_GNUTLS_MAX_EARLY_DATA_DEFAULT;
+#endif
 
 	if (!wsi->a.vhost) {
 		lwsl_err("%s: NULL vhost\n", __func__);
@@ -612,14 +622,15 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	    !lws_check_opt(wsi->a.vhost->options,
 			   LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)) {
                 flags |= GNUTLS_ENABLE_EARLY_DATA;
-#if defined(LWS_ROLE_QUIC) && GNUTLS_VERSION_NUMBER >= 0x030702
-                extern const struct lws_role_ops role_ops_quic;
-                if (wsi->role_ops == &role_ops_quic) {
-                        flags |= GNUTLS_NO_END_OF_EARLY_DATA;
-                        lwsl_notice("gnutls_init: enabling server 0-RTT with GNUTLS_NO_END_OF_EARLY_DATA\n");
-                } else
+#if defined(LWS_ROLE_QUIC)
+		if (wsi->role_ops == &role_ops_quic) {
+			max_early = LWS_GNUTLS_MAX_EARLY_DATA_QUIC;
+#if GNUTLS_VERSION_NUMBER >= 0x030702
+			flags |= GNUTLS_NO_END_OF_EARLY_DATA;
 #endif
-                lwsl_notice("gnutls_init: enabling server 0-RTT/early data\n");
+		}
+#endif
+		lwsl_notice("gnutls_init: enabling server 0-RTT/early data\n");
         }
 #endif
 	if (gnutls_init(&session, flags) < 0)
@@ -632,15 +643,13 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 #if GNUTLS_VERSION_NUMBER >= 0x030605
         if (flags & GNUTLS_ENABLE_EARLY_DATA) {
 		/*
-		 * Whatever we advertise here, the peer may send before the
-		 * handshake completed and gnutls has to buffer... an
-		 * unconfigured 0xFFFFFFFF is an invitation to make us hold
-		 * 4GB for an unauthenticated connection
+		 * On tcp, whatever we advertise here, the peer may send
+		 * before the handshake completed and gnutls has to buffer...
+		 * an unconfigured 0xFFFFFFFF is an invitation to make us hold
+		 * 4GB for an unauthenticated connection.  On quic it must be
+		 * exactly that (C-668), see LWS_GNUTLS_MAX_EARLY_DATA_QUIC.
 		 */
-                gnutls_record_set_max_early_data_size(session,
-			wsi->a.context->quic_0rtt_max_size ?
-				wsi->a.context->quic_0rtt_max_size :
-				LWS_GNUTLS_MAX_EARLY_DATA_DEFAULT);
+                gnutls_record_set_max_early_data_size(session, max_early);
                 if (wsi->a.vhost->tls.anti_replay)
                         gnutls_anti_replay_enable(session, (gnutls_anti_replay_t)wsi->a.vhost->tls.anti_replay);
         }

@@ -1190,7 +1190,10 @@ struct lws_context_creation_info {
 	/**< CONTEXT: 0 for default (10 * MTU), or the desired initial congestion window in bytes */
 
 	uint32_t			quic_0rtt_max_size;
-	/**< CONTEXT: 0 for default (4096), or the desired max 0-RTT early data size */
+	/**< CONTEXT: 0 for default (16384), or the most early data a tls over
+	 * tcp server lets a client send as 0-RTT (gnutls).  A QUIC server
+	 * always advertises 0xffffffff, as RFC 9001 requires: QUIC's 0-RTT is
+	 * bounded by its flow control instead */
 
 	uint64_t			max_http_body_size;
 	/**< VHOST: 0 for default (100MB), or the desired max HTTP body size */
