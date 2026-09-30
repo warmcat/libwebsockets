@@ -1315,15 +1315,87 @@ lws_quic_parse_varint_prefix(const uint8_t *buf, size_t len, int prefix_len, uin
 	return 0; /* Need more data */
 }
 
+#if defined(LWS_ROLE_WT)
+/*
+ * The rest of a WebTransport stream's header is the session ID (its CONNECT
+ * stream's ID / 4), which may itself arrive split.  Once it is all here,
+ * move the stream to the session's protocol as a WT stream and give the
+ * protocol whatever followed the header.
+ */
+static int
+lws_h3_wt_stream_bind(struct lws *wsi, struct lws *nwsi, const uint8_t *buf,
+		      size_t len)
+{
+	struct lws *session_wsi = NULL;
+	int unidi = wsi->quic.qs->is_unidirectional;
+	uint64_t session_id;
+
+	if (!lws_h3_parse_varint_accum(wsi, &buf, &len, &session_id))
+		return 0;
+
+	wsi->h3.wt_sid_pending = 0;
+
+	if (nwsi) {
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
+			struct lws *child = lws_container_of(d,
+					struct lws, mux.sibling_list);
+			if (child->wt.is_session &&
+			    (child->mux.my_sid / 4 == session_id)) {
+				session_wsi = child;
+				break;
+			}
+		}
+		lws_end_foreach_dll(d);
+	}
+
+	if (!session_wsi) {
+		lwsl_err("WT session WSI not found for session ID %llu\n",
+			 (unsigned long long)session_id);
+		return 1;
+	}
+
+	lwsl_notice("Transitioning client-initiated %s stream to WT (session ID %llu)\n",
+		    unidi ? "uni" : "bidi", (unsigned long long)session_id);
+	lws_wsi_event(wsi, LWS_WSIEV_WT_STREAM);
+	wsi->wt.is_unidi = unidi ? 1u : 0u;
+	wsi->wt.is_session = 0;
+	/* the session this stream belongs to (C-068) */
+	wsi->wt.session_wsi = session_wsi;
+
+	/*
+	 * The stream was already bound to its protocol (and the adoption
+	 * callback delivered) when the QUIC layer created it.  Only rebind
+	 * (which replaces the user space, after letting the old protocol
+	 * unbind) when the target protocol is actually different.
+	 */
+	if (wsi->a.protocol != session_wsi->a.protocol) {
+		if (lws_bind_protocol(wsi, session_wsi->a.protocol, __func__))
+			return 1;
+
+		if (wsi->a.protocol && wsi->a.protocol->callback)
+			wsi->a.protocol->callback(wsi,
+				LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
+				wsi->user_space, NULL, 0);
+	} else if (!wsi->user_space && lws_ensure_user_space(wsi))
+		return 1;
+
+	if (len && wsi->a.protocol && wsi->a.protocol->callback &&
+	    wsi->a.protocol->callback(wsi, LWS_CALLBACK_RECEIVE,
+				      wsi->user_space, (void *)buf, len))
+		return 1; /* the protocol wants the stream closed */
+
+	return 0;
+}
+#endif
+
 int
 lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 {
-	// lwsl_notice("H3 RX: %d bytes\n", (int)len);
-	// lwsl_hexdump_notice(buf, len);
-
 #if defined(LWS_ROLE_WT)
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 	int has_wt_session = 0;
+
 	if (nwsi) {
 		lws_start_foreach_dll(struct lws_dll2 *, d,
 				lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
@@ -1336,156 +1408,28 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 		}
 		lws_end_foreach_dll(d);
 	}
-
-	if (has_wt_session) {
-		if (wsi->quic.qs && wsi->quic.qs->is_unidirectional) {
-			uint64_t type = 0;
-			size_t consumed_type = 0;
-			
-			if (!wsi->h3.type_set) {
-				consumed_type = lws_quic_parse_varint(buf, len, &type);
-				if (!consumed_type) return 0; /* Need more data */
-				
-				if (type == 0x54) {
-					wsi->h3.stream_type = 0x54;
-					wsi->h3.type_set = 1;
-				}
-			} else if (wsi->h3.stream_type == 0x54) {
-				type = 0x54;
-			}
-			
-			if (type == 0x54) {
-				/* We need to parse the Session ID next */
-				uint64_t session_id = 0;
-				size_t consumed_sid = lws_quic_parse_varint(buf + consumed_type, len - consumed_type, &session_id);
-				if (!consumed_sid) return 0; /* Need more data */
-				
-				/* Find matching WT session */
-				struct lws *session_wsi = NULL;
-				if (nwsi) {
-					lws_start_foreach_dll(struct lws_dll2 *, d,
-							lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
-						struct lws *child = lws_container_of(d,
-								struct lws, mux.sibling_list);
-						if (child->wt.is_session && (child->mux.my_sid / 4 == session_id)) {
-							session_wsi = child;
-							break;
-						}
-					}
-					lws_end_foreach_dll(d);
-				}
-				
-				if (session_wsi) {
-					lwsl_notice("Transitioning client-initiated uni stream to WT (session ID %llu)\n", (unsigned long long)session_id);
-					lws_wsi_event(wsi, LWS_WSIEV_WT_STREAM);
-					wsi->wt.is_unidi = 1;
-					wsi->wt.is_session = 0;
-					/* the session this stream belongs to (C-068) */
-					wsi->wt.session_wsi = session_wsi;
-
-					/*
-					 * The stream was already bound to its
-					 * protocol (and the adoption callback
-					 * delivered) when the QUIC layer created
-					 * it.  Only rebind (which replaces the
-					 * user space, after letting the old
-					 * protocol unbind) when the target
-					 * protocol is actually different.
-					 */
-					if (wsi->a.protocol != session_wsi->a.protocol) {
-						if (lws_bind_protocol(wsi, session_wsi->a.protocol, __func__))
-							return 1;
-
-						if (wsi->a.protocol && wsi->a.protocol->callback) {
-							wsi->a.protocol->callback(wsi, LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, wsi->user_space, NULL, 0);
-						}
-					} else if (!wsi->user_space &&
-						   lws_ensure_user_space(wsi))
-						return 1;
-
-					size_t total_consumed = consumed_type + consumed_sid;
-					if (len > total_consumed && wsi->a.protocol && wsi->a.protocol->callback) {
-						wsi->a.protocol->callback(wsi, LWS_CALLBACK_RECEIVE, wsi->user_space, (void *)(buf + total_consumed), len - total_consumed);
-					}
-					return 0;
-				} else {
-					lwsl_err("WT session WSI not found for session ID %llu\n", (unsigned long long)session_id);
-					return 1;
-				}
-			}
-		} else if (wsi->quic.qs && !wsi->quic.qs->is_unidirectional && !wsi->h3.type_set) {
-			uint64_t type = 0;
-			size_t consumed_type = lws_quic_parse_varint(buf, len, &type);
-			if (!consumed_type) return 0; /* Need more data */
-			
-			if (type == 0x41) {
-				uint64_t session_id = 0;
-				size_t consumed_sid = lws_quic_parse_varint(buf + consumed_type, len - consumed_type, &session_id);
-				if (!consumed_sid) return 0; /* Need more data */
-				
-				/* Check if it matches an active WT session */
-				struct lws *session_wsi = NULL;
-				if (nwsi) {
-					lws_start_foreach_dll(struct lws_dll2 *, d,
-							lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
-						struct lws *child = lws_container_of(d,
-								struct lws, mux.sibling_list);
-						if (child->wt.is_session && (child->mux.my_sid / 4 == session_id)) {
-							session_wsi = child;
-							break;
-						}
-					}
-					lws_end_foreach_dll(d);
-				}
-				
-				if (session_wsi) {
-					lwsl_notice("Transitioning client-initiated bidi stream to WT (session ID %llu)\n", (unsigned long long)session_id);
-					lws_wsi_event(wsi, LWS_WSIEV_WT_STREAM);
-					wsi->wt.is_unidi = 0;
-					wsi->wt.is_session = 0;
-					wsi->wt.session_wsi = session_wsi;
-
-					/*
-					 * Ditto, only rebind when the target
-					 * protocol differs from the one the
-					 * stream was created with.
-					 */
-					if (wsi->a.protocol != session_wsi->a.protocol) {
-						if (lws_bind_protocol(wsi, session_wsi->a.protocol, __func__))
-							return 1;
-
-						if (wsi->a.protocol && wsi->a.protocol->callback) {
-							wsi->a.protocol->callback(wsi, LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, wsi->user_space, NULL, 0);
-						}
-					} else if (!wsi->user_space &&
-						   lws_ensure_user_space(wsi))
-						return 1;
-
-					size_t total_consumed = consumed_type + consumed_sid;
-					if (len > total_consumed && wsi->a.protocol && wsi->a.protocol->callback) {
-						wsi->a.protocol->callback(wsi, LWS_CALLBACK_RECEIVE, wsi->user_space, (void *)(buf + total_consumed), len - total_consumed);
-					}
-					return 0;
-				} else {
-					lwsl_err("WT session WSI not found for session ID %llu\n", (unsigned long long)session_id);
-					return 1;
-				}
-			} else {
-				/* Not a WT stream, mark type_set to avoid parsing again */
-				wsi->h3.type_set = 1;
-			}
-		}
-	}
 #endif
 
-	/* If it's unidirectional and we don't know the type yet */
+	/*
+	 * The prefixes a stream starts with, a unidirectional stream's type,
+	 * and a WebTransport stream's type and session ID, are varints that
+	 * may arrive split over several STREAM frames.  The quic layer has
+	 * delivered, and is done with, every byte it gives us, so partial
+	 * varints are accumulated here (lws_h3_parse_varint_accum()) and a
+	 * return of 0 means only that there is nothing more to do yet.
+	 */
+
 	if (wsi->quic.qs && wsi->quic.qs->is_unidirectional && !wsi->h3.type_set) {
 		uint64_t type;
-		size_t consumed = lws_quic_parse_varint(buf, len, &type);
-		
-		if (!consumed) return 0; /* Need more data */
-		
-		wsi->h3.stream_type = (uint8_t)type;
+
+		if (!lws_h3_parse_varint_accum(wsi, &buf, &len, &type))
+			return 0;
+
+		/*
+		 * Types we do not know are ignored (RFC 9114 6.2), keep a
+		 * large reserved one from aliasing a known one in the uint8_t
+		 */
+		wsi->h3.stream_type = type > 0xff ? 0xff : (uint8_t)type;
 		wsi->h3.type_set = 1;
 		if (type == 0x02) {
 			if (!wsi->h3.qpack_dec_state) {
@@ -1495,8 +1439,6 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 			}
 			wsi->h3.qpack_dec_state->state = LQP_DEC_INSTRUCTION;
 		}
-		buf += consumed;
-		len -= consumed;
 
 		lwsl_wsi_info(wsi, "H3 RX: Unidi stream type %llu", (unsigned long long)type);
 
@@ -1504,6 +1446,38 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 		if (wsi->h3.h3n && type == 0x00)
 			wsi->h3.h3n->peer_control = wsi;
 	}
+
+#if defined(LWS_ROLE_WT)
+	if (wsi->quic.qs && !wsi->quic.qs->is_unidirectional &&
+	    !wsi->h3.type_set && !wsi->h3.wt_sid_pending) {
+		/*
+		 * Only a bidi stream starting while the connection has a
+		 * WebTransport session may be one of its streams: then it
+		 * starts with the WT stream type instead of an h3 frame type.
+		 * Either way this is only decided at the start of the stream.
+		 */
+		if (!has_wt_session)
+			wsi->h3.type_set = 1;
+		else {
+			if (!lws_h3_parse_varint_accum(wsi, &buf, &len,
+						       &wsi->h3.rx_frame_type))
+				return 0;
+
+			wsi->h3.type_set = 1;
+			if (wsi->h3.rx_frame_type == LWS_WT_STREAM_TYPE_BIDI)
+				wsi->h3.wt_sid_pending = 1;
+			else
+				/* an h3 request stream, its first frame type */
+				wsi->h3.rx_frame_state = 1;
+		}
+	}
+
+	if (wsi->quic.qs &&
+	    ((has_wt_session && wsi->quic.qs->is_unidirectional &&
+	      wsi->h3.stream_type == LWS_WT_STREAM_TYPE_UNIDI) ||
+	     wsi->h3.wt_sid_pending))
+		return lws_h3_wt_stream_bind(wsi, nwsi, buf, len);
+#endif
 
 	if (!len)
 		return 0;
