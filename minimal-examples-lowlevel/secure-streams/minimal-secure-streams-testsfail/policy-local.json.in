@@ -184,6 +184,15 @@
       }
     },
     {
+      "nxd_raw": {
+        "endpoint": "nxd.sstf.test",
+        "port": 80,
+        "protocol": "raw",
+        "timeout_ms": 5000,
+        "retry": "default"
+      }
+    },
+    {
       "refused_h1": {
         "endpoint": "bogus.nope",
         "port": 80,

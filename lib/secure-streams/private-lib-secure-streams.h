@@ -229,6 +229,10 @@ typedef struct lws_ss_handle {
 	uint8_t			inside_connect:1; /* set if we are currently
 						   * creating the onward
 						   * connect */
+	uint8_t			destroy_pending:1; /* the user code gave up
+						    * on us inside the connect
+						    * call, we are destroyed
+						    * once it returns */
 } lws_ss_handle_t;
 
 /* connection helper that doesn't need to hang around after connection starts */

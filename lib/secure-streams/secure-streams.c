@@ -457,7 +457,7 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 		h->txn_resp_pending = 0;
 		h->hanging_som = 0;
 		h->inside_msg = 0;
-		h->inside_connect = 0;
+		/* inside_connect belongs to the connect call, not the state */
 		h->proxy_onward = 0;
 		h->wsi = NULL;
 		h->u.http.good_respcode = 0;
@@ -465,11 +465,19 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 	}
 
 	if (h->info.state) {
+		/*
+		 * The user code may cause another event on this handle from
+		 * inside its callback, eg, connect from CREATING.  When that
+		 * returns, we are still inside the outer callback, and must
+		 * still refuse to destroy the handle under it.
+		 */
+		lws_ss_handle_t *h_in_svc_prev = h->h_in_svc;
+
 		h->h_in_svc = h;
 		r = h->info.state(ss_to_userobj(h), NULL, cs,
 			cs == LWSSSCS_UNREACHABLE &&
 			h->wsi && h->wsi->io->dns_reachability);
-		h->h_in_svc = NULL;
+		h->h_in_svc = h_in_svc_prev;
 
 #if defined(LWS_WITH_SERVER)
 		if ((h->info.flags & LWSSSINFLAGS_ACCEPTED) &&
@@ -481,6 +489,9 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 
 	return LWSSSSRET_OK;
 }
+
+static void
+lws_ss_timeout_sul_check_cb(lws_sorted_usec_list_t *sul);
 
 int
 _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(lws_ss_state_return_t r, struct lws *wsi,
@@ -523,6 +534,27 @@ _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(lws_ss_state_return_t r, struct lws 
 		}
 
 		(*ph)->wsi = NULL;
+
+		if ((*ph)->inside_connect) {
+			/*
+			 * The connection attempt failed inside
+			 * _lws_ss_client_connect() for this handle, eg, a
+			 * CONNECTION_ERROR for a name cached as NXDOMAIN.
+			 * That, and its callers, still use the handle when the
+			 * connect call returns: it hands DESTROY_ME up to
+			 * whoever asked for the connection, who destroys it.
+			 * In case they can't, the retry sul does it next time
+			 * around the event loop.
+			 */
+			(*ph)->pending_ret = LWSSSSRET_DESTROY_ME;
+			(*ph)->destroy_pending = 1;
+			lws_sul_schedule((*ph)->context, (*ph)->tsi,
+					 &(*ph)->sul,
+					 lws_ss_timeout_sul_check_cb, 1);
+
+			return -1; /* close connection */
+		}
+
 		lws_ss_destroy(ph);
 
 		return -1; /* close connection */
@@ -545,6 +577,15 @@ lws_ss_timeout_sul_check_cb(lws_sorted_usec_list_t *sul)
 {
 	lws_ss_state_return_t r;
 	lws_ss_handle_t *h = lws_container_of(sul, lws_ss_handle_t, sul);
+
+	if (h->destroy_pending) {
+		/*
+		 * The user code gave up on us inside a connect call, and
+		 * whoever made that call did not destroy us
+		 */
+		lws_ss_destroy(&h);
+		return;
+	}
 
 	lwsl_info("%s: retrying %s after backoff\n", __func__, lws_ss_tag(h));
 	/* we want to retry... */
@@ -799,9 +840,14 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	int port, tls, subst;
 	char *path, ep[LHP_URL_LEN];
 	lws_strexp_t exp;
+	char inside_connect_prev;
 	struct lws *wsi;
 
 	lws_service_assert_loop_thread(h->context, h->tsi);
+
+	if (h->destroy_pending)
+		/* the user code already gave up on this stream */
+		return LWSSSSRET_DESTROY_ME;
 
 	if (!h->policy) {
 		lwsl_err("%s: ss with no policy\n", __func__);
@@ -1149,11 +1195,27 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 		return r;
 	}
 
+	/*
+	 * The user code may connect again from a state callback we issue
+	 * from inside this connect call: we are still inside it after the
+	 * inner one returns
+	 */
+	inside_connect_prev = (char)h->inside_connect;
 	h->inside_connect = 1;
-	h->pending_ret = LWSSSSRET_OK;
+	if (!inside_connect_prev)
+		h->pending_ret = LWSSSSRET_OK;
 	wsi = lws_client_connect_via_info(&i);
-	h->inside_connect = 0;
+	h->inside_connect = (uint8_t)(inside_connect_prev & 1);
 	lws_free(path);
+
+	if (h->destroy_pending) {
+		/* the user code gave up on us inside the connect call */
+		if (puri)
+			lws_parse_uri_destroy(&puri);
+
+		return LWSSSSRET_DESTROY_ME;
+	}
+
 	if (!wsi) {
 		/*
 		 * We already found that we could not connect, without even
@@ -2193,6 +2255,10 @@ _lws_ss_request_tx(lws_ss_handle_t *h)
 	// lwsl_notice("%s: h %p, wsi %p\n", __func__, h, h->wsi);
 
 	lws_service_assert_loop_thread(h->context, h->tsi);
+
+	if (h->destroy_pending)
+		/* the user code already gave up on this stream */
+		return LWSSSSRET_DESTROY_ME;
 
 	if (h->wsi) {
 		lws_callback_on_writable(h->wsi);

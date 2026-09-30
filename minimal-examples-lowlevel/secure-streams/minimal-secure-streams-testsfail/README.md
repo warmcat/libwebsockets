@@ -21,7 +21,9 @@ The tests cover: plain success on h1, h1+tls and h2+tls; stream timeouts while
 the server delays; NXDOMAIN reported as UNREACHABLE with the ack arg clear;
 resolver REFUSED reported as UNREACHABLE with the ack arg set, after the dns
 retry budget; exhausting the policy retries on NXDOMAIN taking at least as long
-as the escalating backoff table; the same for an endpoint that is all
+as the escalating backoff table, including for a raw stream, whose attempts
+fail inside the connect call once the NXDOMAIN is cached and which we destroy
+from `LWSSSCS_ALL_RETRIES_FAILED`; the same for an endpoint that is all
 `${metadata}` nobody set, each attempt going `LWSSSCS_CONNECTING` then
 `LWSSSCS_UNREACHABLE`; bulk payload; and tls failure by hostname mismatch and
 by untrusted CA.

@@ -626,6 +626,21 @@ struct tests_seq {
 	},
 
 	/*
+	 * The same for a raw stream.  The NXDOMAIN is cached by now, so every
+	 * attempt fails inside the connect call itself, and when the retries
+	 * run out we destroy the stream from ALL_RETRIES_FAILED while still
+	 * inside it.
+	 */
+
+	{
+		"raw:80 NXDOMAIN exhaust retries",
+		"nxd_raw", 15 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
+		(1 << LWSSSCS_CONNECTED),
+		0, MIN_BACKOFF_US, -1, 0
+	},
+
+	/*
 	 * The endpoint is all ${ep} metadata, which is never set, so there is
 	 * nothing to connect to.  Each attempt must still go the legal way,
 	 * CONNECTING then UNREACHABLE, and the policy retries run out as
