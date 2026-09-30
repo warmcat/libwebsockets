@@ -33,6 +33,7 @@ doubled, misaligned, or seeked to the wrong place cannot pass by accident.
 |`If-Range:` matching the etag / not matching|206 / 200|
 |the same on an empty file|200 for no range, 416 for any range|
 |the peer hanging up inside a multipart part|the server lets go of everything|
+|a deflated file inside a zip (`LWS_WITH_ZIP_FOPS`): no range, one range, parts further on, a part before the one served last, ten one-byte ranges|the same as for the plain file|
 
 A `multipart/byteranges` body is parsed the way a client has to parse it: the
 boundary comes from the `Content-Type` parameter, and the body must be the
@@ -45,6 +46,12 @@ The files are a small one (1000 bytes, so a response fits one `lws_write()`),
 a big one (200000 bytes, so every part spans many, putting the producer's
 resumption and the h2 frame and tx credit clamps in play) and an empty one,
 which has no satisfiable byte-range at all.
+
+With `LWS_WITH_ZIP_FOPS`, `big.zip` holds the big file's content as a deflated
+entry, served as `big.zip/big.bin`.  The client does not offer gzip, so lws
+inflates the entry as it serves it, and a range means inflating up to where it
+starts: the zip fops carry on from where they were for a range further on, and
+start again from the start of the entry, once, for a range before.
 
 ## build
 

@@ -26,6 +26,12 @@
  * a big one (every part spans many, so the producer's resumption and the
  * h2 frame and tx credit clamps are in play) and an empty one, which has
  * no satisfiable range at all.
+ *
+ * With LWS_WITH_ZIP_FOPS there is also a zip holding the big file's content
+ * deflated.  The client doesn't offer gzip, so lws serves that entry by
+ * inflating it as it reads it, and a range means inflating up to where the
+ * range starts: the zip fops carry on from where they were for a range
+ * further on, and start again from the start of the entry for one before.
  */
 
 #include <libwebsockets.h>
@@ -41,6 +47,9 @@ enum {
 	F_SMALL,
 	F_BIG,
 	F_EMPTY,
+#if defined(LWS_WITH_ZIP_FOPS)
+	F_ZIPPED,	/* big.bin's content, deflated inside big.zip */
+#endif
 
 	F_COUNT
 };
@@ -48,10 +57,23 @@ enum {
 #define SMALL_LEN	1000
 #define BIG_LEN		200000
 
+/* the url path each is served at, below the mount */
 static const char * const file_name[F_COUNT] = {
-	"small.bin", "big.bin", "empty.bin"
+	"small.bin", "big.bin", "empty.bin",
+#if defined(LWS_WITH_ZIP_FOPS)
+	"big.zip/big.bin",
+#endif
 };
-static const size_t file_len[F_COUNT] = { SMALL_LEN, BIG_LEN, 0 };
+static const size_t file_len[F_COUNT] = { SMALL_LEN, BIG_LEN, 0,
+#if defined(LWS_WITH_ZIP_FOPS)
+	BIG_LEN,
+#endif
+};
+
+#if defined(LWS_WITH_ZIP_FOPS)
+#define ZIP_NAME	"big.zip"
+#define ZIP_ENTRY	"big.bin"
+#endif
 
 /* what the mount declares the served files to be */
 static const char * const octet = "application/octet-stream";
@@ -205,6 +227,27 @@ static const struct xcase cases[] = {
 	  .status = 206, .nexp = 2,
 	  .exp = { { 150000, BIG_LEN - 1 }, { 0, 49999 } } },
 
+#if defined(LWS_WITH_ZIP_FOPS)
+	/* the same, from inside a zip, inflated as it is served */
+
+	{ .name = "h1 zipped file, no Range",
+	  .file = F_ZIPPED, .status = 200 },
+	{ .name = "h1 zipped file, a range spanning many writes",
+	  .file = F_ZIPPED, .range = "bytes=1000-150000", .status = 206,
+	  .nexp = 1, .exp = { { 1000, 150000 } } },
+	{ .name = "h1 zipped file, three parts, each further on",
+	  .file = F_ZIPPED,
+	  .range = "bytes=0-49999,60000-109999,150000-199999",
+	  .status = 206, .nexp = 3,
+	  .exp = { { 0, 49999 }, { 60000, 109999 }, { 150000, BIG_LEN - 1 } } },
+	{ .name = "h1 zipped file, the part at the end of the file first",
+	  .file = F_ZIPPED, .range = "bytes=150000-199999,0-49999",
+	  .status = 206, .nexp = 2,
+	  .exp = { { 150000, BIG_LEN - 1 }, { 0, 49999 } } },
+	{ .name = "h1 zipped file, ten one-byte ranges",
+	  .file = F_ZIPPED, .gen_n = 10, .status = 206 },
+#endif
+
 	/*
 	 * The peer walking away in the middle: the server is inside a part,
 	 * with the rest of the ranges still to come, when its wsi is torn
@@ -265,6 +308,12 @@ static const struct xcase cases[] = {
 	  .range = "bytes=0-49999,60000-109999,150000-199999",
 	  .status = 206, .nexp = 3,
 	  .exp = { { 0, 49999 }, { 60000, 109999 }, { 150000, BIG_LEN - 1 } } },
+#if defined(LWS_WITH_ZIP_FOPS)
+	{ .name = "h2 zipped file, the part at the end of the file first",
+	  .file = F_ZIPPED, .h2 = 1, .range = "bytes=150000-199999,0-49999",
+	  .status = 206, .nexp = 2,
+	  .exp = { { 150000, BIG_LEN - 1 }, { 0, 49999 } } },
+#endif
 #endif
 };
 
@@ -314,6 +363,131 @@ pat(size_t i)
 	return (uint8_t)(x ^ (x >> 8) ^ (x >> 16));
 }
 
+#if defined(LWS_WITH_ZIP_FOPS)
+
+static void
+le16(uint8_t *p, uint32_t v)
+{
+	p[0] = (uint8_t)v;
+	p[1] = (uint8_t)(v >> 8);
+}
+
+static void
+le32(uint8_t *p, uint32_t v)
+{
+	le16(p, v);
+	le16(p + 2, v >> 16);
+}
+
+static uint32_t
+crc32_pat(size_t len)
+{
+	uint32_t crc = 0xffffffffu;
+	size_t n;
+	int b;
+
+	for (n = 0; n < len; n++) {
+		crc ^= pat(n);
+		for (b = 0; b < 8; b++)
+			crc = (crc >> 1) ^ (0xedb88320u & (0u - (crc & 1)));
+	}
+
+	return ~crc;
+}
+
+/*
+ * A zip with one entry, ZIP_ENTRY, holding BIG_LEN bytes of pat() stored as
+ * deflate (method 8).  The deflate stream is made of stored blocks, which
+ * needs no compressor here, but is inflated like any other: what the zip fops
+ * do to serve it, and to seek in it, is the same.
+ */
+
+static int
+generate_zip(void)
+{
+	size_t nl = strlen(ZIP_ENTRY), blocks = (BIG_LEN + 65534) / 65535,
+	       comp = BIG_LEN + blocks * 5, cd, len, n, done = 0;
+	uint32_t crc = crc32_pat(BIG_LEN);
+	uint8_t *z, *p;
+	FILE *f;
+	int ret = 1;
+
+	len = 30 + nl + comp + 46 + nl + 22;
+	z = malloc(len);
+	if (!z)
+		return 1;
+	memset(z, 0, len);
+
+	/* local file header */
+	p = z;
+	le32(p, 0x04034b50);
+	le16(p + 4, 20);			/* version needed */
+	le16(p + 8, 8);				/* deflate */
+	le16(p + 12, 0x21);			/* 1980-01-01 */
+	le32(p + 14, crc);
+	le32(p + 18, (uint32_t)comp);
+	le32(p + 22, BIG_LEN);
+	le16(p + 26, (uint32_t)nl);
+	memcpy(p + 30, ZIP_ENTRY, nl);
+	p += 30 + nl;
+
+	/* the deflate stream: stored blocks, the last one flagged final */
+	while (done < BIG_LEN) {
+		size_t bl = BIG_LEN - done;
+
+		if (bl > 65535)
+			bl = 65535;
+		*p++ = done + bl == BIG_LEN;	/* BFINAL, BTYPE 00 */
+		le16(p, (uint32_t)bl);
+		le16(p + 2, (uint32_t)(~bl & 0xffff));
+		p += 4;
+		for (n = 0; n < bl; n++)
+			*p++ = pat(done + n);
+		done += bl;
+	}
+
+	/* central directory header */
+	cd = lws_ptr_diff_size_t(p, z);
+	le32(p, 0x02014b50);
+	le16(p + 4, 20);			/* version made by */
+	le16(p + 6, 20);			/* version needed */
+	le16(p + 10, 8);			/* deflate */
+	le16(p + 14, 0x21);
+	le32(p + 16, crc);
+	le32(p + 20, (uint32_t)comp);
+	le32(p + 24, BIG_LEN);
+	le16(p + 28, (uint32_t)nl);
+	/* local header at offset 0 */
+	memcpy(p + 46, ZIP_ENTRY, nl);
+	p += 46 + nl;
+
+	/* end of central directory record */
+	le32(p, 0x06054b50);
+	le16(p + 8, 1);
+	le16(p + 10, 1);
+	le32(p + 12, (uint32_t)(46 + nl));
+	le32(p + 16, (uint32_t)cd);
+	p += 22;
+
+	lws_snprintf(path, sizeof(path), "%s/%s", tmpdir, ZIP_NAME);
+	f = fopen(path, "wb");
+	if (!f) {
+		lwsl_err("%s: cannot create %s\n", __func__, path);
+		goto bail;
+	}
+	if (fwrite(z, 1, len, f) != len)
+		lwsl_err("%s: write failed\n", __func__);
+	else
+		ret = 0;
+	fclose(f);
+
+bail:
+	free(z);
+
+	return ret;
+}
+#endif
+
 static int
 generate_files(void)
 {
@@ -333,6 +507,13 @@ generate_files(void)
 	for (n = 0; n < F_COUNT; n++) {
 		size_t done = 0;
 
+#if defined(LWS_WITH_ZIP_FOPS)
+		if (n == F_ZIPPED) {
+			if (generate_zip())
+				return 1;
+			continue;
+		}
+#endif
 		lws_snprintf(path, sizeof(path), "%s/%s", tmpdir,
 			     file_name[n]);
 		f = fopen(path, "wb");
@@ -374,6 +555,14 @@ cleanup_files(void)
 		return;
 
 	for (n = 0; n < F_COUNT; n++) {
+#if defined(LWS_WITH_ZIP_FOPS)
+		if (n == F_ZIPPED) {
+			lws_snprintf(path, sizeof(path), "%s/%s", tmpdir,
+				     ZIP_NAME);
+			unlink(path);
+			continue;
+		}
+#endif
 		lws_snprintf(path, sizeof(path), "%s/%s", tmpdir,
 			     file_name[n]);
 		unlink(path);

@@ -48,6 +48,18 @@
  * Linux zip produces such zipfiles by default, eg
  *
  *  $ zip ../myzip.zip file1 file2 file3
+ *
+ * A deflated entry served to a client that can't take it gzipped is inflated
+ * as it is read, and deflate can only be entered at its start: a seek means
+ * inflating, and discarding, up to the new position.  These reads are done on
+ * the service thread (they don't go to the async file read queue), so the
+ * cost of seeking is bounded per open: a seek forward carries on inflating
+ * from where it was, and only a seek back starts again from the start of the
+ * entry, which is allowed once.  So one request, however its Range: orders
+ * its ranges, inflates at most about three times the entry (twice up to a
+ * seek point, once for what it serves, which the range rules keep within the
+ * entry's size), where serving it whole inflates it once; a request needing a
+ * second seek back gets its response cut short instead.
  */
 
 #define ZIP_COMPRESSION_METHOD_STORE 0
@@ -84,6 +96,7 @@ typedef struct {
 
 	unsigned int		decompress:1; /* 0 = direct from file */
 	unsigned int		add_gzip_container:1;
+	unsigned int		restarted:1; /* inflate went back to the start */
 } *lws_fops_zip_t;
 
 struct lws_plat_file_ops fops_zip;
@@ -592,9 +605,8 @@ lws_fops_zip_seek_cur(lws_fop_fd_t fd, lws_fileofs_t offset_from_cur_pos)
 		 *
 		 * Deflated entries served by inflating them cannot be
 		 * repositioned cheaply... the next read notices the virtual
-		 * position moved and recovers by re-inflating from the start
-		 * of the entry, discarding output until it reaches the new
-		 * position.
+		 * position moved and inflates up to it, discarding the
+		 * output (see the top of this file for what that may cost)
 		 */
 		lws_filepos_t payload = np;
 
@@ -664,15 +676,27 @@ lws_fops_zip_read(lws_fop_fd_t fd, lws_filepos_t *amount, uint8_t *buf,
 
 		if (priv->exp_uncomp_pos != fd->pos) {
 			/*
-			 * there has been a seek in the uncompressed fop_fd,
-			 * we have to restart the decompression and loop eating
-			 * the decompressed data up to the seek point, using
-			 * the caller's buffer as scratch to discard it into
+			 * There has been a seek in the uncompressed fop_fd:
+			 * inflate up to the seek point, using the caller's
+			 * buffer as scratch to discard it into.  Seeking
+			 * forward carries on from where the inflate is; only
+			 * seeking back has to restart from the entry start,
+			 * and that is allowed once per open
 			 */
 			lwsl_info("seek in decompressed\n");
 
-			if (lws_fops_zip_reset_inflate(priv))
-				return -1;
+			if (fd->pos < priv->exp_uncomp_pos) {
+				if (priv->restarted) {
+					lwsl_notice("%s: refusing a second "
+						    "seek back in a deflated "
+						    "entry\n", __func__);
+					return -1;
+				}
+				priv->restarted = 1;
+
+				if (lws_fops_zip_reset_inflate(priv))
+					return -1;
+			}
 
 			while (priv->exp_uncomp_pos < fd->pos) {
 				rlen = fd->pos - priv->exp_uncomp_pos;
