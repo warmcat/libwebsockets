@@ -188,7 +188,7 @@ they land:
 |C|meaning|
 |---|---|
 |`wsi`|a connection object, `struct lws`; also a mux stream, a listener, a pipe|
-|network wsi (`nwsi`)|the connection that owns the transport under mux streams|
+|network wsi (`nwsi`)|the connection that owns the transport under mux streams; a server quic connection is itself a mux child of its udp listener, and the walk up to the nwsi stops below a listener (`mux_listener`, sansIO's own record, set when quic hangs a connection off it)|
 |mux|h2, h3 and mqtt streams multiplexed on one network connection|
 |`pt`|a service thread's state: its timers, its scratch buffers, its poll set|
 |vhost|a virtual host: listen sockets, protocols, tls config|

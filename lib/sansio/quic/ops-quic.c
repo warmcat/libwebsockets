@@ -1390,6 +1390,7 @@ tp_ok:
 		/* Link it to the UDP listening socket */
 		lws_mux_mark_immortal(nwsi);
 		nwsi->mux_substream = 1;
+		wsi->mux_listener = 1;
 		lws_wsi_mux_insert(nwsi, wsi, nwsi->mux.my_sid);
 
 		/* Derive the Initial keys using the client's initial DCID */

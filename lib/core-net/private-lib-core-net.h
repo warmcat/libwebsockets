@@ -1282,6 +1282,12 @@ struct lws {
 	unsigned int			redirect_to_https:1;
 	unsigned int			sni_vh_bound:1; /* the SNI callback bound us to the vhost serving the handshake */
 	unsigned int			tried_quic:1;
+#if defined(LWS_WITH_SERVER) && defined(LWS_ROLE_QUIC)
+	unsigned int			mux_listener:1;
+	/**< our mux children are connections sharing our socket, not our
+	 * streams: we are not their network wsi.  sansIO's own record of it,
+	 * since the listen_list goes before the children at teardown */
+#endif
 
 #ifdef LWS_WITH_ACCESS_LOG
 	unsigned int			access_log_pending:1;

@@ -532,10 +532,13 @@ struct lws *lws_get_network_wsi(struct lws *wsi) {
 	 * the listener is the connection's parent but not its network
 	 * connection, and stamping or closing "the network wsi" of an h3
 	 * stream must land on the connection.  Stop below a listener.
+	 *
+	 * The listener's listen_list can't tell us: a vhost or context
+	 * destroy takes it off the vhost's list before its children close.
 	 */
 	while (wsi->mux.parent_wsi
-#if defined(LWS_WITH_SERVER)
-	       && lws_dll2_is_detached(&wsi->mux.parent_wsi->listen_list)
+#if defined(LWS_WITH_SERVER) && defined(LWS_ROLE_QUIC)
+	       && !wsi->mux.parent_wsi->mux_listener
 #endif
 	      )
 		wsi = wsi->mux.parent_wsi;
@@ -605,8 +608,7 @@ lws_wsi_socket_owner(struct lws *wsi)
 	 * datagrams leave by the udp listener it hangs off, and POLLOUT for
 	 * it is asked of the listener's fd
 	 */
-	if (wsi && wsi->mux.parent_wsi &&
-	    !lws_dll2_is_detached(&wsi->mux.parent_wsi->listen_list))
+	if (wsi && wsi->mux.parent_wsi && wsi->mux.parent_wsi->mux_listener)
 		return wsi->mux.parent_wsi;
 #endif
 	return wsi;
