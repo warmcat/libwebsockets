@@ -915,7 +915,7 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 
 	int state = 0;
 
-	while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
+	while (lws_tokenize(&ts) > LWS_TOKZE_ENDED) {
 		/* debug: one line per token of every candidate a client sends */
 		lwsl_debug("%s: Token: '%.*s' (len %d, type %d), state %d\n", __func__, (int)ts.token_len, ts.token, (int)ts.token_len, ts.e, state);
 		if (state == 0 && ts.token_len == 3 && !strncasecmp(ts.token, "udp", 3)) {
@@ -1080,7 +1080,7 @@ lws_webrtc_parse_sdp_codecs(struct pss_webrtc *pss, const char *sdp_clean)
 
 				/* Skip "a=rtpmap:" part by finding first integer */
 				int pt = -1;
-				while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
+				while (lws_tokenize(&ts) > LWS_TOKZE_ENDED) {
 					if (ts.token_len > 0 && isdigit(ts.token[0])) {
 						pt = webrtc_sdtoi(ts.token, ts.token_len, 127);
 						break; /* Found PT */
@@ -1133,7 +1133,7 @@ lws_webrtc_parse_sdp_codecs(struct pss_webrtc *pss, const char *sdp_clean)
 
 				/* Skip "a=rtpmap:" part by finding first integer */
 				int pt = -1;
-				while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
+				while (lws_tokenize(&ts) > LWS_TOKZE_ENDED) {
 					if (ts.token_len > 0 && isdigit(ts.token[0])) {
 						pt = webrtc_sdtoi(ts.token, ts.token_len, 127);
 						break; /* Found PT */
@@ -1163,7 +1163,7 @@ lws_webrtc_parse_sdp_codecs(struct pss_webrtc *pss, const char *sdp_clean)
 
 				int pt = -1;
 				/* Find PT first */
-				while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
+				while (lws_tokenize(&ts) > LWS_TOKZE_ENDED) {
 					if (ts.token_len > 0 && isdigit(ts.token[0])) {
 						pt = webrtc_sdtoi(ts.token, ts.token_len, 127);
 						break;
@@ -1174,7 +1174,7 @@ lws_webrtc_parse_sdp_codecs(struct pss_webrtc *pss, const char *sdp_clean)
 					/* Check if this is H264 Mode 1 */
 					if (!pss->media->pt_video_h264) {
 						int is_mode_1 = 0;
-						while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
+						while (lws_tokenize(&ts) > LWS_TOKZE_ENDED) {
 							if (ts.token_len == 18 && !strncmp(ts.token, "packetization-mode", 18)) {
 								/* Next token should be = then 1 */
 								if (lws_tokenize(&ts) == LWS_TOKZE_DELIMITER && ts.token[0] == '=') {
@@ -1414,7 +1414,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 
 				/* Skip "a=rtpmap:" part by finding first integer */
 				int pt = -1;
-				while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
+				while (lws_tokenize(&ts) > LWS_TOKZE_ENDED) {
 					if (ts.token_len > 0 && isdigit(ts.token[0])) {
 						pt = webrtc_sdtoi(ts.token, ts.token_len, 127);
 						break; /* Found PT */
@@ -1469,7 +1469,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 
 				/* Skip "a=rtpmap:" part by finding first integer */
 				int pt = -1;
-				while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
+				while (lws_tokenize(&ts) > LWS_TOKZE_ENDED) {
 					if (ts.token_len > 0 && isdigit(ts.token[0])) {
 						pt = webrtc_sdtoi(ts.token, ts.token_len, 127);
 						break; /* Found PT */
@@ -1503,7 +1503,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 
 				int pt = -1;
 				/* Find PT first */
-				while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
+				while (lws_tokenize(&ts) > LWS_TOKZE_ENDED) {
 					if (ts.token_len > 0 && isdigit(ts.token[0])) {
 						pt = webrtc_sdtoi(ts.token, ts.token_len, 127);
 						break;
@@ -1514,7 +1514,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 					/* Check if this is H264 Mode 1 */
 					if (!pss->media->pt_video_h264) {
 						int is_mode_1 = 0;
-						while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
+						while (lws_tokenize(&ts) > LWS_TOKZE_ENDED) {
 							if (ts.token_len == 18 && !strncmp(ts.token, "packetization-mode", 18)) {
 								/* Next token should be = then 1 */
 								if (lws_tokenize(&ts) == LWS_TOKZE_DELIMITER && ts.token[0] == '=') {
