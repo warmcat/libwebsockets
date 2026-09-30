@@ -180,7 +180,8 @@ lws_jwe_auth_and_decrypt_rsa_aes_gcm(struct lws_jwe *jwe)
 	lws_genrsa_destroy(&rsactx);
 	if (n < 0) {
 		lwsl_err("%s: decrypt cek fail: \n", __func__);
-		return n < -1 ? n : -1;
+		n = n < -1 ? n : -1;
+		goto bail;
 	}
 
 	/*
@@ -192,13 +193,15 @@ lws_jwe_auth_and_decrypt_rsa_aes_gcm(struct lws_jwe *jwe)
 
 	if (n != (int)jwe->jose.enc_alg->keybits_fixed / 8) {
 		lwsl_err("%s: unexpected CEK len %d\n", __func__, n);
-
-		return -1;
+		n = -1;
+		goto bail;
 	}
 
 	n = lws_jwe_auth_and_decrypt_gcm(jwe, enc_cek,
 			(uint8_t *)jwe->jws.map_b64.buf[LJWE_JOSE],
 				(int)jwe->jws.map_b64.len[LJWE_JOSE]);
+	/* the recovered CEK must not outlive us on any path (cf. C-093) */
+	lws_explicit_bzero(enc_cek, sizeof(enc_cek));
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt_gcm_hs failed\n",
 			 __func__);
@@ -214,4 +217,9 @@ lws_jwe_auth_and_decrypt_rsa_aes_gcm(struct lws_jwe *jwe)
 	 */
 
 	return (int)jwe->jws.map.len[LJWE_CTXT];
+
+bail:
+	lws_explicit_bzero(enc_cek, sizeof(enc_cek));
+
+	return n;
 }

@@ -168,11 +168,11 @@ lws_jwe_auth_and_decrypt_aeskw_cbc_hs(struct lws_jwe *jwe)
 	m = lws_genaes_destroy(&aesctx, NULL, 0);
 	if (n < 0) {
 		lwsl_err("%s: decrypt CEK fail\n", __func__);
-		return -1;
+		goto bail;
 	}
 	if (m < 0) {
 		lwsl_err("%s: lws_genaes_destroy fail\n", __func__);
-		return -1;
+		goto bail;
 	}
 
 	/* 2) Decrypt the payload */
@@ -183,10 +183,18 @@ lws_jwe_auth_and_decrypt_aeskw_cbc_hs(struct lws_jwe *jwe)
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt_cbc_hs failed\n",
 				__func__);
-		return -1;
+		goto bail;
 	}
 
+	lws_explicit_bzero(enc_cek, sizeof(enc_cek));
+
 	return (int)jwe->jws.map.len[LJWE_CTXT];
+
+bail:
+	/* the unwrapped CEK must not outlive us on any path (cf. C-093) */
+	lws_explicit_bzero(enc_cek, sizeof(enc_cek));
+
+	return -1;
 }
 
 
