@@ -440,10 +440,22 @@ lws_cose_validate_create(const lws_cose_validate_create_info_t *info);
  * \param cps: the validation context
  * \param in: the chunk of CBOR (does not have to be logically complete)
  * \param in_len: number of bytes available at \p in
+ * \param used_in: NULL, or set to how much of \p in was used
  *
  * Parses signature CBOR to produce a list of result objects.
  *
+ * Returns 0 when the COSE object is complete and produced at least one result
+ * object, which you then assess via lws_cose_validate_results().
  *
+ * Returns LECP_CONTINUE (-1) when the object is not complete yet: pass the next
+ * chunk.  If your input ends while this is the last return, the object was
+ * truncated: the results list only holds whatever results were produced
+ * before the input ran out, which may already include passing ones, and the
+ * object must be treated as not validated.
+ *
+ * Any other return (one of the LECP_REJECT_ codes) means the object could not
+ * be validated, including LECP_REJECT_CALLBACK for a complete object that did
+ * not produce a single result.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_cose_validate_chunk(struct lws_cose_validate_context *cps,

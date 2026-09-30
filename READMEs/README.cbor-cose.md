@@ -172,8 +172,17 @@ lws_cose_validate_chunk(struct lws_cose_validate_context *cps,
 The parsing of the signature yields a list of result objects indicating
 information about each signature it encountered and whether it was validated or
 not.  The parsing itself only fails if there is an unrecoverable error, the
-completion of parsing does not indicate validation, it may yield zero or more
+completion of parsing does not indicate validation, it may yield one or more
 result objects indicating the validation failed.
+
+`lws_cose_validate_chunk()` returns 0 when the object is complete and produced
+at least one result.  It returns `LECP_CONTINUE` (-1) while the object is not
+complete yet and wants the next chunk: if your input ends while that is the
+last thing it returned, the object was truncated, and the results list only
+holds whatever results were produced before the input ran out, which may
+already include passing ones.  Treat that as a failed validation.  Any other
+return is one of the `LECP_REJECT_` codes, including `LECP_REJECT_CALLBACK`
+for a complete object that did not produce a single result.
 
 ```
 lws_dll2_owner_t *
@@ -249,13 +258,18 @@ lws_cose_sign_add(struct lws_cose_sign_context *csc, cose_param_t alg,
 ```
 
 The payload does not have to be provided all at once and can be passed in chunk
-by chunk over time via `lws_cose_sign_payload_chunk()`.
+by chunk over time via `lws_cose_sign_payload_chunk()`, in chunks of any size
+adding up to exactly `inline_payload_len`.
 
 Output is mediated via an lws CBOR output context provided in the info at
 creation-time, it's only emitted during the `lws_cose_sign_payload_chunk()`
-phase.  If it returns `LWS_LECPCTX_RET_AGAIN`, you must call that api again
-after using the CBOR output context data and resetting its buffer by
-`lws_lec_setbuf()`, so it can continue to output.
+phase, and the output buffer may be much smaller than the payload.  If it
+returns `LWS_LECPCTX_RET_AGAIN`, you must call that api again with the *same*
+chunk after using the CBOR output context data and resetting its buffer by
+`lws_lec_setbuf()`, so it can continue to output.  When it returns
+`LWS_LECPCTX_RET_FINISHED`, the chunk was all used: use the output, then pass
+the next chunk, or if that was the last one, the signed object is complete.
+`LWS_LECPCTX_RET_FAIL` means the object must not be used.
 
 ```
 enum lws_lec_pctx_ret
