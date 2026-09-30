@@ -108,6 +108,17 @@ lws_ss_deserialize_tx_payload(struct lws_dsh *dsh, struct lws *wsi,
  *	LWSSSSRET_DESTROY_ME
  */
 
+/*
+ * The 32-bit fields arrive MSB first, a byte at a time, from the client.
+ * Accumulate them unsigned: shifting client bits into the sign bit of an
+ * int32_t is undefined behaviour.
+ */
+static int32_t
+ser_acc32(int32_t acc, uint8_t c)
+{
+	return (int32_t)(((uint32_t)acc << 8) | c);
+}
+
 /* convert userdata ptr _pss to handle pointer, allowing for any layout in
  * userdata.  handle_offset is a *byte* offset (that's how lws_sspc_create()
  * stores the handle), so the addition must be done on the uint8_t * */
@@ -516,7 +527,7 @@ payload_ff_l:
 			if (!--par->rem)
 				goto hangup;
 
-			par->temp32 = (par->temp32 << 8) | *cp++;
+			par->temp32 = ser_acc32(par->temp32, *cp++);
 			if (++par->ctr < 4)
 				break;
 
@@ -529,7 +540,7 @@ payload_ff_l:
 			if (!--par->rem)
 				goto hangup;
 
-			par->temp32 = (par->temp32 << 8) | *cp++;
+			par->temp32 = ser_acc32(par->temp32, *cp++);
 			if (++par->ctr < 4)
 				break;
 
@@ -545,7 +556,7 @@ payload_ff_l:
 
 		case RPAR_TXCR0:
 
-			par->temp32 = (par->temp32 << 8) | *cp++;
+			par->temp32 = ser_acc32(par->temp32, *cp++);
 			if (++par->ctr < 4) {
 				if (!--par->rem)
 					goto hangup;
@@ -581,7 +592,7 @@ payload_ff_l:
 
 		case RPAR_TIMEOUT0:
 
-			par->temp32 = (par->temp32 << 8) | *cp++;
+			par->temp32 = ser_acc32(par->temp32, *cp++);
 			if (++par->ctr < 4) {
 				if (!--par->rem)
 					goto hangup;
@@ -628,7 +639,7 @@ payload_ff_l:
 			 * It's the length from lws_ss_request_tx_len() being
 			 * passed up to the proxy
 			 */
-			par->temp32 = (par->temp32 << 8) | *cp++;
+			par->temp32 = ser_acc32(par->temp32, *cp++);
 			if (++par->ctr < 4) {
 				if (!--par->rem)
 					goto hangup;
