@@ -137,6 +137,17 @@ lws_ssl_pending(struct lws *wsi)
 }
 #endif
 
+/*
+ * The session now belongs to wsi (lws_tls_transfer_wsi()): the session ptr is
+ * how our callbacks (keylog, server name, quic) find the wsi, so it must
+ * follow the session
+ */
+void
+lws_tls_conn_set_wsi(struct lws *wsi)
+{
+	gnutls_session_set_ptr((gnutls_session_t)wsi->io->tls.ssl, wsi);
+}
+
 int
 lws_ssl_close(struct lws *wsi)
 {

@@ -223,6 +223,20 @@ typedef X509 lws_tls_x509;
 
 #if defined(LWS_WITH_NETWORK)
 #include "private-network.h"
+
+/*
+ * The connection's tls session moves from one wsi to another, which takes it
+ * over (keep-warm hand-off, quic netconn re-homing)
+ */
+void
+lws_tls_transfer_wsi(struct lws *from, struct lws *to);
+
+/*
+ * Backend: the session at wsi->io->tls.ssl belongs to wsi now, re-point
+ * whatever the tls library holds for its callbacks to find the wsi
+ */
+void
+lws_tls_conn_set_wsi(struct lws *wsi);
 #endif
 
 #if defined(LWS_ROLE_QUIC) && defined(LWS_WITH_TLS) && !defined(LWS_WITH_WOLFSSL) && !defined(LWS_WITH_SCHANNEL) && !defined(LWS_WITH_GNUTLS) && !defined(LWS_WITH_BEARSSL)

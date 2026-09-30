@@ -536,6 +536,18 @@ lws_ssl_info_callback(const SSL *ssl, int where, int ret)
 }
 
 
+/*
+ * The SSL now belongs to wsi (lws_tls_transfer_wsi()): the lws ex_data slot
+ * is how our callbacks, eg, lws_tls_session_new_cb() when a TLS 1.3
+ * NewSessionTicket arrives, find the wsi, so it must follow the SSL
+ */
+void
+lws_tls_conn_set_wsi(struct lws *wsi)
+{
+	SSL_set_ex_data(wsi->io->tls.ssl, openssl_websocket_private_data_index,
+			wsi);
+}
+
 int
 lws_ssl_close(struct lws *wsi)
 {

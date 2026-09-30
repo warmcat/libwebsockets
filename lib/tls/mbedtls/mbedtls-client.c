@@ -73,6 +73,17 @@ lws_mbedtls_client_verify_cb(void *opaque, mbedtls_x509_crt *x509, int depth,
 
 	return 0;
 }
+
+/*
+ * The verify callback's opaque is the wsi whose kid_chain it fills: set it at
+ * creation, and again when the conn moves to another wsi (keep-warm hand-off)
+ */
+void
+lws_mbedtls_client_set_verify(struct lws *wsi)
+{
+	mbedtls_ssl_set_verify(&wsi->io->tls.ssl->ssl,
+			       lws_mbedtls_client_verify_cb, wsi);
+}
 #endif
 
 int ERR_get_error(void)
@@ -172,7 +183,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	 * per-wsi opaque.  Start each connection with an empty chain.
 	 */
 	memset(&wsi->io->tls.kid_chain, 0, sizeof(wsi->io->tls.kid_chain));
-	mbedtls_ssl_set_verify(&conn->ssl, lws_mbedtls_client_verify_cb, wsi);
+	lws_mbedtls_client_set_verify(wsi);
 #endif
 
 #if defined(LWS_WITH_TLS_SESSIONS)

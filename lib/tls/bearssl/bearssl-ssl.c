@@ -323,6 +323,20 @@ void lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret)
 	/* bearssl has no openssl-style info callback hook */
 }
 
+/*
+ * The conn now belongs to wsi (lws_tls_transfer_wsi()): jit trust collects
+ * the peer chain's key ids into the wsi the conn points at
+ */
+void
+lws_tls_conn_set_wsi(struct lws *wsi)
+{
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	wsi->io->tls.ssl->wsi = wsi;
+#else
+	(void)wsi;
+#endif
+}
+
 int lws_ssl_close(struct lws *wsi)
 {
 	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->io->tls.ssl;

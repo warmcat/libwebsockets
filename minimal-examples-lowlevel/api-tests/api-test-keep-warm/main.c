@@ -52,6 +52,10 @@
  * connection: close, the server closes after answering, and a second
  * request inside the keep-warm time necessarily opens a new connection.
  *
+ * Where the tls library can do it (OpenSSL 3), the tls server sends a TLS 1.3
+ * session ticket ahead of every response, so tickets also arrive on an h1
+ * connection after it was handed on to a new wsi.
+ *
  * The test fails if any case does not complete as expected inside the
  * watchdog period.
  *
@@ -71,6 +75,23 @@
 #include <signal.h>
 #if !defined(WIN32) && !defined(_WIN32)
 #include <sys/socket.h>
+#endif
+
+/*
+ * With OpenSSL 3 the tls server can send a TLS 1.3 NewSessionTicket whenever
+ * it likes after the handshake, as RFC 8446 4.6.1 allows.  The server here
+ * asks for one ahead of every response, so on h1 the ticket that comes with
+ * the answer to a later request arrives after the connection was handed from
+ * the idle wsi to the new one: the client's session cache callback must find
+ * the wsi that has the connection now, not the one that was freed.
+ */
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && \
+    !defined(LWS_WITH_GNUTLS) && !defined(LWS_WITH_BEARSSL) && \
+    !defined(LWS_WITH_OPENHITLS) && !defined(LWS_WITH_SCHANNEL) && \
+    !defined(USE_WOLFSSL) && !defined(LWS_WITH_BORINGSSL) && \
+    !defined(LWS_WITH_AWSLC) && !defined(LIBRESSL_VERSION_NUMBER) && \
+    OPENSSL_VERSION_NUMBER >= 0x30000000L
+#define KW_LATE_TICKETS
 #endif
 
 #define CASE_TIMEOUT_S	30
@@ -374,6 +395,14 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lwsl_user("%s: server: HTTP %s on connection %d\n", __func__,
 			  path ? path : "", id);
+
+#if defined(KW_LATE_TICKETS)
+		/* a fresh session ticket goes out ahead of the response */
+		if (lws_is_ssl(nwsi) &&
+		    SSL_new_session_ticket(lws_get_ssl(nwsi)) != 1)
+			lwsl_user("%s: server: no late ticket on connection %d\n",
+				  __func__, id);
+#endif
 
 		if (path && !strcmp(path, "/redir")) {
 			if (lws_http_redirect(wsi, HTTP_STATUS_FOUND,

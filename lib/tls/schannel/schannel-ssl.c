@@ -1578,6 +1578,16 @@ lws_ssl_pending(struct lws *wsi)
 	return 0;
 }
 
+/*
+ * The conn now belongs to wsi (lws_tls_transfer_wsi()): schannel's conn keeps
+ * no reference to its wsi, so there is nothing to re-point
+ */
+void
+lws_tls_conn_set_wsi(struct lws *wsi)
+{
+	(void)wsi;
+}
+
 	int
 lws_ssl_close(struct lws *wsi)
 {

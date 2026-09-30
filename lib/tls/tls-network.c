@@ -82,6 +82,63 @@ lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 	lws_pt_unlock(pt);
 }
 
+/*
+ * The connection goes on as another wsi (the h1 keep-warm hand-off, a quic
+ * netconn re-homing): its tls session moves from `from` to `to`.
+ *
+ * The session outlives `from`, which is freed shortly after, and the tls
+ * library can call back into lws on it at any time, eg, a TLS 1.3
+ * NewSessionTicket arriving long after the handshake makes openssl call the
+ * session cache callback with whatever wsi the SSL was told about.  So every
+ * reference the backend holds to the owning wsi must follow the session, and
+ * `from` must be left with no tls state at all, so that its close cannot
+ * touch what is now `to`'s.
+ */
+void
+lws_tls_transfer_wsi(struct lws *from, struct lws *to)
+{
+	struct lws_context_per_thread *pt = &from->a.context->pt[(int)from->tsi];
+	lws_dll2_owner_t *own;
+
+#if defined(LWS_TLS_SYNTHESIZE_CB)
+	/*
+	 * A synthetic session harvest still pending belongs to `from`'s timer
+	 * list: take it off that and do the harvest now, while the session
+	 * still has the wsi it was made for, rather than copy a linked sul
+	 */
+	if (!lws_dll2_is_detached(&from->io->tls.sul_cb_synth.list)) {
+		lws_sul_cancel(&from->io->tls.sul_cb_synth);
+		if (from->io->tls.ssl)
+			lws_sess_cache_synth_cb(&from->io->tls.sul_cb_synth);
+	}
+#endif
+
+	/*
+	 * The struct copy would take the pending-tls list node with it by
+	 * value: if `from` is on the pt's list (the tls layer holds more
+	 * decrypted bytes than the last read took), both would claim the
+	 * same slot and the list would hold a node inside a wsi about to be
+	 * freed.  Move the membership, not the node.
+	 */
+
+	lws_pt_lock(pt, __func__);
+
+	own = lws_dll2_owner(&from->io->tls.dll_pending_tls);
+	__lws_ssl_remove_wsi_from_buffered_list(from);
+
+	to->io->tls = from->io->tls;
+	memset(&from->io->tls, 0, sizeof(from->io->tls));
+	lws_dll2_clear(&to->io->tls.dll_pending_tls);
+
+	if (own)
+		lws_dll2_add_head(&to->io->tls.dll_pending_tls, own);
+
+	lws_pt_unlock(pt);
+
+	if (to->io->tls.ssl)
+		lws_tls_conn_set_wsi(to);
+}
+
 struct lws_tls_ctx_ref *
 lws_tls_ctx_ref_create(struct lws_vhost *vh, lws_tls_ctx *ctx)
 {

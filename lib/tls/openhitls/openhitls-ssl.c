@@ -482,6 +482,17 @@ lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret)
 	}
 }
 
+/*
+ * The HITLS_Ctx now belongs to wsi (lws_tls_transfer_wsi()): its user data is
+ * how our callbacks, eg, the session cache's new session callback when a TLS
+ * 1.3 NewSessionTicket arrives, find the wsi, so it must follow the ctx
+ */
+void
+lws_tls_conn_set_wsi(struct lws *wsi)
+{
+	HITLS_SetUserData(wsi->io->tls.ssl, wsi);
+}
+
 int
 lws_ssl_close(struct lws *wsi)
 {

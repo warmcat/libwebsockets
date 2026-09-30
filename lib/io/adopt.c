@@ -1602,40 +1602,8 @@ if (__insert_wsi_socket_into_fds(wsi->a.context, wnew)) {
 }
 
 #if defined(LWS_WITH_TLS)
-/* pass on the tls */
-
-#if defined(LWS_TLS_SYNTHESIZE_CB)
-lws_sul_cancel(&wsi->io->tls.sul_cb_synth);
-/*
- * ...but only if there is a tls session to harvest: a cleartext
- * keepalive handover has no tls.ssl for the backend to look inside
- */
-if (wsi->io->tls.ssl)
-	lws_sess_cache_synth_cb(&wsi->io->tls.sul_cb_synth);
-#endif
-
-/*
- * The struct copy takes the pending-tls list node with it by value: if the
- * old wsi was on the pt's list (the tls layer holds more decrypted bytes than
- * the last read took), both now claim the same slot and the list holds a node
- * inside a wsi about to be freed.  Move the membership, not the node.
- */
-{
-	int pending = !lws_dll2_is_detached(&wsi->io->tls.dll_pending_tls);
-	lws_dll2_owner_t *own = lws_dll2_owner(&wsi->io->tls.dll_pending_tls);
-
-	if (pending)
-		lws_dll2_remove(&wsi->io->tls.dll_pending_tls);
-
-	wnew->io->tls = wsi->io->tls;
-	lws_dll2_clear(&wnew->io->tls.dll_pending_tls);
-	lws_dll2_clear(&wsi->io->tls.dll_pending_tls);
-
-	if (pending && own)
-		lws_dll2_add_head(&wnew->io->tls.dll_pending_tls, own);
-}
-wsi->io->tls.client_bio = NULL;
-wsi->io->tls.ssl = NULL;
+/* pass on the tls, and everything in the tls library that leads to a wsi */
+lws_tls_transfer_wsi(wsi, wnew);
 wsi->use_ssl = 0;
 #endif
 
