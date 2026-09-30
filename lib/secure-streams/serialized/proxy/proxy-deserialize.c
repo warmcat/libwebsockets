@@ -717,38 +717,32 @@ payload_ff_l:
 				goto hangup;
 			}
 
-			par->ssmd = lws_ss_get_handle_metadata(
-					proxy_pss_to_ss_h(pss),
-					par->metadata_name);
+			/*
+			 * The value arrives a byte at a time, maybe over
+			 * several rx callbacks, and meanwhile the onward stream
+			 * may use, or replace, its metadata item (eg, from a
+			 * response header, or the mqtt shadow topic swap).  So
+			 * we must not hold a pointer to the item, or write into
+			 * its value, across rx callbacks: stage the value in a
+			 * buffer of our own, and install it on the item only
+			 * when it has all arrived.  Until then the item keeps
+			 * whatever complete value it had.
+			 */
 
-			if (par->ssmd) {
+			lws_free_set_NULL(par->mdstage);
 
-				if (par->ssmd->value_on_lws_heap)
-					lws_free_set_NULL(par->ssmd->value__may_own_heap);
-				par->ssmd->value_on_lws_heap = 0;
+			if (lws_ss_get_handle_metadata(proxy_pss_to_ss_h(pss),
+						       par->metadata_name)) {
+				if (!lws_fi(&proxy_pss_to_ss_h(pss)->fic,
+					    "ssproxy_rx_metadata_oom"))
+					par->mdstage = lws_zalloc(
+						(unsigned int)par->rem + 1,
+						"metadata");
 
-				if (proxy_pss_to_ss_h(pss) &&
-				    lws_fi(&proxy_pss_to_ss_h(pss)->fic, "ssproxy_rx_metadata_oom"))
-					par->ssmd->value__may_own_heap = NULL;
-				else
-					/*
-					 * The value arrives a byte at a time,
-					 * maybe over several rx callbacks, and
-					 * the onward stream may use its
-					 * metadata meanwhile: until it's all
-					 * here it's an empty, terminated
-					 * string, never our old heap contents
-					 */
-					par->ssmd->value__may_own_heap =
-						lws_zalloc((unsigned int)par->rem + 1, "metadata");
-
-				if (!par->ssmd->value__may_own_heap) {
+				if (!par->mdstage) {
 					lwsl_err("%s: OOM mdv\n", __func__);
 					goto hangup;
 				}
-				par->ssmd->length = 0;
-				/* mark it as needing cleanup */
-				par->ssmd->value_on_lws_heap = 1;
 			}
 			par->ctr = 0;
 			break;
@@ -757,19 +751,17 @@ payload_ff_l:
 			/* both client and proxy */
 
 			/*
-			 * par->ssmd points into the onward ss handle's metadata
-			 * and was taken in RPAR_METADATA_NAME, possibly in an
-			 * earlier rx callback... *pss may have gone away
-			 * asynchronously inbetweentimes, taking par->ssmd with
-			 * it, so confirm the handle is still there
+			 * *pss may have gone away asynchronously since
+			 * RPAR_METADATA_NAME, possibly in an earlier rx
+			 * callback, so confirm the handle is still there
 			 */
 
 			if (!proxy_pss_to_ss_h(pss)) {
-				par->ssmd = NULL;
+				lws_free_set_NULL(par->mdstage);
 				goto hangup;
 			}
 
-			if (!par->ssmd) {
+			if (!par->mdstage) {
 				/* we don't recognize the name */
 
 				cp++;
@@ -781,24 +773,41 @@ payload_ff_l:
 				break;
 			}
 
-			((uint8_t *)(par->ssmd->value__may_own_heap))[par->ctr++] = *cp++;
+			/*
+			 * mdstage has room for the rem that was left after the
+			 * name, and we count rem down for each byte we store
+			 */
+			par->mdstage[par->ctr++] = *cp++;
 
 			if (--par->rem)
 				break;
 
-			/* we think we got all the value */
+			par->ps = RPAR_TYPE;
 
-			par->ssmd->length = (size_t)par->ctr;
+			/*
+			 * We got all the value: look the item up afresh and
+			 * give it the completed value, freeing any heap value
+			 * it had before
+			 */
+
+			pm = lws_ss_get_handle_metadata(proxy_pss_to_ss_h(pss),
+							par->metadata_name);
+			if (!pm) {
+				lws_free_set_NULL(par->mdstage);
+				break;
+			}
+
+			_lws_ss_set_metadata(pm, pm->name, par->mdstage,
+					     (size_t)par->ctr);
+			pm->value_on_lws_heap = 1;
+			par->mdstage = NULL;
 
 			lwsl_ss_info(proxy_pss_to_ss_h(pss),
 				     "RPAR_METADATA_VALUE for %s (len %d)",
-				     par->ssmd->name,
-				     (int)par->ssmd->length);
+				     pm->name, (int)pm->length);
 			lwsl_hexdump_ss_info(proxy_pss_to_ss_h(pss),
-					par->ssmd->value__may_own_heap,
-					par->ssmd->length);
-
-			par->ps = RPAR_TYPE;
+					     pm->value__may_own_heap,
+					     pm->length);
 			break;
 
 		case RPAR_STREAMTYPE:

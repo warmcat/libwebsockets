@@ -405,7 +405,8 @@ lws_sss_proxy_onward_state(void *userobj, void *sh, lws_ss_constate_t state,
 			lws_dsh_empty(m->conn->dsh);
 			if (!m->conn->ss) {
 				lws_dsh_destroy(&m->conn->dsh);
-				free(m->conn);
+				lws_free_set_NULL(m->conn->parser.mdstage);
+				lws_free(m->conn);
 				m->conn = NULL;
 			}
 			return 0;

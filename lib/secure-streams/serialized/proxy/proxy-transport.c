@@ -142,6 +142,7 @@ lws_ssproxy_txp_close_conn(struct lws_sss_proxy_conn *conn)
 		 * connection is closing.  Destroy the conn.
 		 */
 		lws_dsh_destroy(&conn->dsh);
+		lws_free_set_NULL(conn->parser.mdstage);
 		lws_free(conn);
 	} else
 		lwsl_debug("%s: CLOSE; %s\n", __func__, lws_ss_tag(conn->ss));

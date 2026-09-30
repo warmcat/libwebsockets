@@ -339,7 +339,12 @@ struct lws_ss_serialization_parser {
 
 	uint64_t		ust_pwait;
 
-	lws_ss_metadata_t	*ssmd;
+	/*
+	 * proxy: a client metadata value being received, staged here until
+	 * all of it has arrived and it can be installed on the onward handle
+	 */
+	uint8_t			*mdstage;
+	/* client: where the next byte of an rx metadata value goes */
 	uint8_t			*rxmetaval;
 
 	int			ps;
