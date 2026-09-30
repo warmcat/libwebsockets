@@ -528,6 +528,13 @@ lws_jwk_import(struct lws_jwk *jwk, lws_jwk_key_import_callback cb, void *user,
 	m = lejp_parse(&jctx, (uint8_t *)in, (int)len);
 	lejp_destruct(&jctx);
 
+	/*
+	 * The collation buffer and lejp's string buffer still hold the text
+	 * of the last members parsed, eg, a private d, qi or k
+	 */
+	lws_explicit_bzero(jps.b64, sizeof(jps.b64));
+	lws_explicit_bzero(jctx.buf, sizeof(jctx.buf));
+
 	if (m < 0) {
 		lwsl_notice("%s: parse got %d\n", __func__, m);
 		lws_jwk_destroy(jwk);
@@ -881,10 +888,14 @@ lws_jwk_load(struct lws_jwk *jwk, const char *filename,
 		goto bail;
 
 	n = lws_jwk_import(jwk, cb, user, buf, (unsigned int)n);
+
+	/* the file text includes any private key members */
+	lws_explicit_bzero(buf, buflen);
 	lws_free(buf);
 
 	return n;
 bail:
+	lws_explicit_bzero(buf, buflen);
 	lws_free(buf);
 
 	return -1;
@@ -893,19 +904,22 @@ bail:
 int
 lws_jwk_save(struct lws_jwk *jwk, const char *filename)
 {
-	int buflen = 4096;
-	char *buf = lws_malloc((unsigned int)buflen, "jwk-save");
-	int n, m;
+	const size_t bufsize = 4096;
+	char *buf = lws_malloc(bufsize, "jwk-save");
+	int buflen = (int)bufsize, n, m;
 
 	if (!buf)
 		return -1;
 
+	/* the export reduces buflen by what it used */
 	n = lws_jwk_export(jwk, LWSJWKF_EXPORT_PRIVATE, buf, &buflen);
 	if (n < 0)
 		goto bail;
 
 	m = lws_plat_write_file(filename, buf, (size_t)n);
 
+	/* it is the private export */
+	lws_explicit_bzero(buf, bufsize);
 	lws_free(buf);
 	if (m)
 		return -1;
@@ -913,6 +927,7 @@ lws_jwk_save(struct lws_jwk *jwk, const char *filename)
 	return 0;
 
 bail:
+	lws_explicit_bzero(buf, bufsize);
 	lws_free(buf);
 
 	return -1;
