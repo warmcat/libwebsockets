@@ -755,6 +755,16 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 						    state->is_name ? "name" : "value");
 					return 1;
 				}
+				/*
+				 * a NUL is not allowed in a field name or value
+				 * (RFC 9114 4.2 via RFC 9113 8.2.1), as on the
+				 * Huffman path: kept, it would cut the string
+				 * short for anything reading it as a C string
+				 */
+				if (!c) {
+					lwsl_notice("QPACK NUL in field\n");
+					return 1;
+				}
 				dst[(*pos)++] = (char)c;
 			}
 			
@@ -778,9 +788,10 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 		do_emit:
 		case LQP_DEC_EMIT:
 			{
-				int idx = -1;
+				size_t name_len = 0, val_len = 0;
 				const char *name = NULL;
 				const char *val = NULL;
+				int idx = -1;
 
 				if (state->skip) {
 					/* we kept none of it: say so */
@@ -794,6 +805,7 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 
 				if ((state->opcode & 0xc0) == 0xc0) {
 					if (lws_qpack_get_static_token((int)state->int_val, &idx, &val)) return 1;
+					val_len = strlen(val);
 				} else if ((state->opcode & 0xc0) == 0x80) {
 					int absolute_idx = (int)(state->base - (uint64_t)state->int_val - 1);
 					int relative_idx = ctx ? (int)(ctx->dyn_table.insert_count - 1 - (uint32_t)absolute_idx) : -1;
@@ -807,10 +819,11 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					struct lws_qpack_dynamic_table_entry *dte = 
 						lws_qpack_get_dynamic_entry(ctx, relative_idx);
 					if (dte && dte->value) {
-						size_t name_len = (size_t)(dte->hdr_len - dte->value_len - 32);
+						name_len = (size_t)(dte->hdr_len - dte->value_len - 32);
 						idx = dte->lws_hdr_idx;
 						name = dte->value;
 						val = dte->value + name_len + 1;
+						val_len = dte->value_len;
 					} else {
 						lwsl_notice("%s: indexed dyn ref rel %d "
 							    "unresolvable\n", __func__,
@@ -821,6 +834,7 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					if (lws_qpack_get_static_token((int)state->hdr_idx, &idx, NULL)) return 1;
 					state->val_buf[state->val_pos] = '\0';
 					val = state->val_buf;
+					val_len = state->val_pos;
 				} else if ((state->opcode & 0xf0) == 0x40 || (state->opcode & 0xf0) == 0x60) {
 					int absolute_idx = (int)(state->base - (uint64_t)(unsigned int)state->hdr_idx - 1);
 					if (ctx && (uint32_t)absolute_idx >= ctx->dyn_table.insert_count) {
@@ -831,6 +845,7 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					struct lws_qpack_dynamic_table_entry *dte = 
 						lws_qpack_get_dynamic_entry(ctx, relative_idx);
 					if (dte && dte->value) {
+						name_len = (size_t)(dte->hdr_len - dte->value_len - 32);
 						idx = dte->lws_hdr_idx;
 						name = dte->value;
 					} else {
@@ -841,11 +856,14 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					}
 					state->val_buf[state->val_pos] = '\0';
 					val = state->val_buf;
+					val_len = state->val_pos;
 				} else if ((state->opcode & 0xf0) == 0x20 || (state->opcode & 0xf0) == 0x30) {
 					state->name_buf[state->name_pos] = '\0';
 					state->val_buf[state->val_pos] = '\0';
 					name = state->name_buf;
+					name_len = state->name_pos;
 					val = state->val_buf;
+					val_len = state->val_pos;
 				} else if ((state->opcode & 0xf0) == 0x10) {
 					int absolute_idx = (int)(state->base + state->int_val);
 					if (ctx && (uint32_t)absolute_idx >= ctx->dyn_table.insert_count) {
@@ -856,10 +874,11 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					struct lws_qpack_dynamic_table_entry *dte = 
 						lws_qpack_get_dynamic_entry(ctx, relative_idx);
 					if (dte && dte->value) {
-						size_t name_len = (size_t)(dte->hdr_len - dte->value_len - 32);
+						name_len = (size_t)(dte->hdr_len - dte->value_len - 32);
 						idx = dte->lws_hdr_idx;
 						name = dte->value;
 						val = dte->value + name_len + 1;
+						val_len = dte->value_len;
 					} else {
 						lwsl_notice("%s: post-base indexed ref "
 							    "rel %d unresolvable\n",
@@ -875,25 +894,30 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					int relative_idx = ctx ? (int)(ctx->dyn_table.insert_count - 1 - (uint32_t)absolute_idx) : -1;
 					struct lws_qpack_dynamic_table_entry *dte = 
 						lws_qpack_get_dynamic_entry(ctx, relative_idx);
-						if (dte && dte->value) {
-							idx = dte->lws_hdr_idx;
-							name = dte->value;
-						} else {
-							lwsl_notice("%s: post-base name ref "
-								    "rel %d unresolvable\n",
-								    __func__, relative_idx);
-							return 1;
-						}
-						state->val_buf[state->val_pos] = '\0';
-						val = state->val_buf;
+					if (dte && dte->value) {
+						name_len = (size_t)(dte->hdr_len - dte->value_len - 32);
+						idx = dte->lws_hdr_idx;
+						name = dte->value;
+					} else {
+						lwsl_notice("%s: post-base name ref "
+							    "rel %d unresolvable\n",
+							    __func__, relative_idx);
+						return 1;
 					}
-				
+					state->val_buf[state->val_pos] = '\0';
+					val = state->val_buf;
+					val_len = state->val_pos;
+				}
+
 				/* lwsl_user("EMIT: opcode=%02x idx=%d name=%s val=%s val_len=%d\n", state->opcode, idx, name ? name : "null", val ? val : "null", val ? (int)strlen(val) : 0); */
 				
-				if (cb) {
-					if (cb(user, idx, name, name ? strlen(name) : 0, val, val ? strlen(val) : 0))
-						return 1;
-				}				
+				/*
+				 * the lengths are what was decoded or stored,
+				 * never strlen(): nothing may be read short
+				 */
+				if (cb && cb(user, idx, name, name_len, val, val_len))
+					return 1;
+
 				state->state = LQP_DEC_INSTRUCTION;
 			}
 			break;
@@ -1203,6 +1227,16 @@ lws_qpack_decode_encoder_stream(struct lws_qpack_stream_state *state,
 				if (*pos >= capm1) {
 					lwsl_notice("QPACK %s overflow at decode\n",
 						    state->is_name ? "name" : "value");
+					return 1;
+				}
+				/*
+				 * a NUL is not allowed in a field name or value
+				 * (RFC 9114 4.2 via RFC 9113 8.2.1), as on the
+				 * Huffman path: kept, it would cut the string
+				 * short for anything reading it as a C string
+				 */
+				if (!c) {
+					lwsl_notice("QPACK NUL in field\n");
 					return 1;
 				}
 				dst[(*pos)++] = (char)c;

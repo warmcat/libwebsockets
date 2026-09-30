@@ -603,20 +603,28 @@ struct h3_attack {
 	const char	*hdr_name;
 	const char	*hdr_value;
 	/*
-	 * nonzero: the value is this many bytes, and goes into the field
-	 * section as a literal as it is, not through
+	 * nonzero: the name and value are these many bytes, and go into the
+	 * field section as a literal as they are, not through
 	 * lws_add_http_header_by_name(), which refuses control bytes itself
 	 */
+	size_t		hdr_name_len;
 	size_t		hdr_value_len;
 	uint8_t		v;
 };
 
+/* a field sent as a raw literal, name and value exactly these bytes */
+#define H3_LIT(n, v)	n, v, sizeof(n) - 1, sizeof(v) - 1
+
 static const struct h3_attack h3_attacks[] = {
 	/* a field named "get " once smuggled an unnormalized request path */
 	{ "\"get \" field smuggling a path", "/alive", "get ",
-	  "/f/../secret.txt", 0, V_REFUSED },
-	{ "CR LF in a field value", "/alive", "user-agent", "a\r\nb", 4,
-	  V_REFUSED },
+	  "/f/../secret.txt", 0, 0, V_REFUSED },
+	{ "CR LF in a field value", "/alive",
+	  H3_LIT("user-agent", "a\r\nb"), V_REFUSED },
+	{ "NUL in a raw literal value", "/alive",
+	  H3_LIT("user-agent", "a\0b"), V_REFUSED },
+	{ "NUL in a raw literal name", "/alive",
+	  H3_LIT("user-agent\0x", "a"), V_REFUSED },
 };
 
 static struct lws_context *context;
@@ -2107,7 +2115,7 @@ callback_h3(struct lws *wsi, enum lws_callback_reasons reason,
 			int n = lws_qpack_encode_literal_with_literal_name(*p,
 					lws_ptr_diff_size_t(end, *p),
 					tc.h3a->hdr_name,
-					strlen(tc.h3a->hdr_name),
+					tc.h3a->hdr_name_len,
 					tc.h3a->hdr_value,
 					tc.h3a->hdr_value_len);
 
