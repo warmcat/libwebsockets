@@ -1221,48 +1221,139 @@ auth_admin_ws_origin_ok(struct lws *wsi)
 	return !!strcasecmp(p, host);
 }
 
+/*
+ * The browser resolves the redirect_uri it is sent to by the WHATWG URL
+ * rules: in the path, "%2e" in any case is a '.', a '\' is a '/' for http(s),
+ * and tab / CR / LF are dropped.  Read the path the way it will, and refuse
+ * one with a ".." segment, which would leave the registered path prefix;
+ * anything that would need its bytes dropped is refused outright.  An
+ * escaped '/' ("%2f") is taken as a '/' as well, since the page it reaches
+ * may decode it.
+ */
+static int
+auth_redirect_uri_unsafe(const char *uri)
+{
+	const char *p = strstr(uri, "://");
+	int dots = 0, seg = 1; /* dots so far in a segment that is all dots */
+
+	/*
+	 * The authority is compared with the registration as it is.  A "://"
+	 * after the first '/', '?' or '#' is not the scheme's, and then there
+	 * is no authority: all of it is read as a path
+	 */
+	if (p && lws_ptr_diff_size_t(p, uri) == strcspn(uri, "/?#")) {
+		p += 3;
+		while (*p && *p != '/' && *p != '\\' && *p != '?' && *p != '#') {
+			if ((unsigned char)*p <= ' ' || *p == 0x7f)
+				return 1;
+			p++;
+		}
+	} else
+		p = uri;
+
+	while (1) {
+		char c = *p;
+
+		if (c && ((unsigned char)c <= ' ' || c == 0x7f))
+			return 1;
+
+		if (c == '%' && p[1] == '2' && (p[2] == 'e' || p[2] == 'E')) {
+			c = '.';
+			p += 2;
+		} else if (c == '%' && p[1] == '2' && (p[2] == 'f' || p[2] == 'F')) {
+			c = '/';
+			p += 2;
+		} else if (c == '\\')
+			c = '/';
+
+		if (!c || c == '/' || c == '?' || c == '#') {
+			/* the segment that just ended */
+			if (seg && dots == 2)
+				return 1;
+			if (!c || c == '?' || c == '#')
+				return 0;
+
+			dots = 0;
+			seg = 1;
+		} else if (c == '.')
+			dots++;
+		else
+			seg = 0;
+
+		p++;
+	}
+}
+
+/*
+ * Is redirect_uri under one of the comma-separated registered uris?  The
+ * scheme and authority compare case-insensitively, the path exactly, and
+ * the registered part must end at a path, query or fragment boundary of
+ * redirect_uri.
+ */
+static int
+auth_redirect_uri_listed(const char *redirect_uri, const char *uris)
+{
+	const char *p = uris;
+
+	while (p && *p) {
+		const char *comma, *ps;
+		size_t len, alen;
+		char next;
+
+		while (*p == ' ' || *p == '\r' || *p == '\n')
+			p++;
+		comma = strchr(p, ',');
+		len = comma ? lws_ptr_diff_size_t(comma, p) : strlen(p);
+		while (len && (p[len - 1] == ' ' || p[len - 1] == '\r' ||
+			       p[len - 1] == '\n'))
+			len--;
+		while (len && p[len - 1] == '/')
+			len--;
+
+		if (len) {
+			/* where the registration's path starts, if it has one */
+			ps = strstr(p, "://");
+			ps = ps && ps < p + len ? ps + 3 : p;
+			while (ps < p + len && *ps != '/' && *ps != '?' &&
+			       *ps != '#')
+				ps++;
+			alen = lws_ptr_diff_size_t(ps, p);
+
+			if (!strncasecmp(redirect_uri, p, alen) &&
+			    !strncmp(redirect_uri + alen, ps, len - alen)) {
+				next = redirect_uri[len];
+				if (next == '\0' || next == '/' || next == '?' ||
+				    next == '#')
+					return 1;
+			}
+		}
+
+		p = comma ? comma + 1 : NULL;
+	}
+
+	return 0;
+}
+
 static int
 auth_verify_redirect_uri(struct per_vhost_data__auth_server *vhd,
 			 const char *client_id, const char *redirect_uri)
 {
+	const char *uris;
 	sqlite3_stmt *stmt;
 	int valid = 0;
 
-	if (!redirect_uri || !redirect_uri[0])
-		return 0;
-
-	if ((char *)strstr(redirect_uri, "../") || (char *)strstr(redirect_uri, "..%2F") ||
-	    (char *)strstr(redirect_uri, "..%2f"))
+	if (!redirect_uri || !redirect_uri[0] ||
+	    auth_redirect_uri_unsafe(redirect_uri))
 		return 0;
 
 	if (client_id && client_id[0]) {
 		if (sqlite3_prepare_v2(vhd->db, "SELECT redirect_uris FROM oauth_clients WHERE client_id = ?", -1, &stmt, NULL) == SQLITE_OK) {
 			sqlite3_bind_text(stmt, 1, client_id, -1, SQLITE_STATIC);
 			if (sqlite3_step(stmt) == SQLITE_ROW) {
-				const char *uris = (const char *)sqlite3_column_text(stmt, 0);
-				// lwsl_notice("%s: client_id='%s' redirect_uri='%s' registered='%s'\n",
-				//	    __func__, client_id, redirect_uri,
-				//	    uris ? uris : "(null)");
-				if (uris) {
-					const char *p = uris;
-					while (p && *p) {
-						while (*p == ' ' || *p == '\r' || *p == '\n') p++;
-						const char *comma = strchr(p, ',');
-						size_t len = comma ? lws_ptr_diff_size_t(comma, p) : strlen(p);
-						while (len > 0 && (p[len - 1] == ' ' || p[len - 1] == '\r' || p[len - 1] == '\n')) len--;
-						while (len > 0 && p[len - 1] == '/') len--;
-						if (len > 0) {
-							if (!strncasecmp(redirect_uri, p, len)) {
-								char next = redirect_uri[len];
-								if (next == '\0' || next == '/' || next == '?' || next == '#') {
-									valid = 1;
-									break;
-								}
-							}
-						}
-						p = comma ? comma + 1 : NULL;
-					}
-				}
+				uris = (const char *)sqlite3_column_text(stmt, 0);
+				if (uris)
+					valid = auth_redirect_uri_listed(
+							redirect_uri, uris);
 			} else {
 				lwsl_info("%s: no oauth_clients row for client_id='%s'\n",
 					  __func__, client_id);
@@ -1272,27 +1363,10 @@ auth_verify_redirect_uri(struct per_vhost_data__auth_server *vhd,
 	} else {
 		if (sqlite3_prepare_v2(vhd->db, "SELECT redirect_uris FROM oauth_clients", -1, &stmt, NULL) == SQLITE_OK) {
 			while (!valid && sqlite3_step(stmt) == SQLITE_ROW) {
-				const char *uris = (const char *)sqlite3_column_text(stmt, 0);
-				if (uris) {
-					const char *p = uris;
-					while (p && *p) {
-						while (*p == ' ' || *p == '\r' || *p == '\n') p++;
-						const char *comma = strchr(p, ',');
-						size_t len = comma ? lws_ptr_diff_size_t(comma, p) : strlen(p);
-						while (len > 0 && (p[len - 1] == ' ' || p[len - 1] == '\r' || p[len - 1] == '\n')) len--;
-						while (len > 0 && p[len - 1] == '/') len--;
-						if (len > 0) {
-							if (!strncasecmp(redirect_uri, p, len)) {
-								char next = redirect_uri[len];
-								if (next == '\0' || next == '/' || next == '?' || next == '#') {
-									valid = 1;
-									break;
-								}
-							}
-						}
-						p = comma ? comma + 1 : NULL;
-					}
-				}
+				uris = (const char *)sqlite3_column_text(stmt, 0);
+				if (uris)
+					valid = auth_redirect_uri_listed(
+							redirect_uri, uris);
 			}
 			sqlite3_finalize(stmt);
 		}

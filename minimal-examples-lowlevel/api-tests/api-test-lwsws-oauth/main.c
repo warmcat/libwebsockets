@@ -1240,6 +1240,61 @@ scenario_login(void)
 		return fail("login", "/api/status set no auth_csrf cookie, so "
 				     "the double-submit cannot be satisfied");
 
+	/*
+	 * (3a) the same credentials with a redirect_uri the browser would
+	 * resolve outside the registered /oauth/callback: dot-segments
+	 * spelled with %2e (sent as %252e so the form decode leaves %2e),
+	 * a '\' the browser reads as '/', and the registered path in another
+	 * case.  Each must be refused before any code is minted for it.
+	 */
+
+	{
+		static const char * const hostile[] = {
+			"/../x", "/..", "/%252e%252e/x", "/.%252E/x",
+			"/%252E./x", "/..%5Cx", "/..%252fx"
+		};
+		char bad[640], *cb;
+		size_t n;
+
+		for (n = 0; n <= LWS_ARRAY_SIZE(hostile); n++) {
+			if (n < LWS_ARRAY_SIZE(hostile))
+				lws_snprintf(bad, sizeof(bad), "%s%s", ruri,
+					     hostile[n]);
+			else {
+				/* the path compares case-sensitively */
+				lws_strncpy(bad, ruri, sizeof(bad));
+				cb = strstr(bad, "callback");
+				if (!cb)
+					return fail("login", "no callback path "
+						    "in redirect_uri '%s'", ruri);
+				memcpy(cb, "CALLBACK", 8);
+			}
+
+			lws_snprintf(body_buf, sizeof(body_buf),
+				     "username=%s&password=%s&csrf_token=%s"
+				     "&client_id=%s&redirect_uri=%s&state=%s"
+				     "&code_challenge=%s"
+				     "&code_challenge_method=S256"
+				     "&service_name=%s",
+				     SEED_USER, SEED_PASSWORD, csrf, client_id,
+				     bad, state, chal, service_name);
+
+			if (req_full(JAR_AUTH, port_auth, "/api/login",
+				     body_buf))
+				return fail("login", "unable to POST /api/login");
+
+			if (status != 400 || strstr(body, "code="))
+				return fail("login", "/api/login answered %u "
+					    "for redirect_uri '%s', wanted a "
+					    "400: body '%s'", status, bad,
+					    body);
+		}
+
+		lwsl_user("login: %d redirect_uris escaping the registered "
+			  "path refused\n",
+			  (int)LWS_ARRAY_SIZE(hostile) + 1);
+	}
+
 	/* (3) the credentials, with the BFF's PKCE parameters carried through */
 
 	lws_snprintf(body_buf, sizeof(body_buf),
