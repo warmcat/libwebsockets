@@ -317,6 +317,33 @@ lwcp_is_indet_string(struct lecp_ctx *ctx)
 	return 0;
 }
 
+/*
+ * Returns the stack level of the map key whose content we are collecting, or
+ * 0 if what we are collecting is not a map key.  The fragments of an
+ * indefinite-length string are one level below the string itself, it is the
+ * string that is (or isn't) the key.
+ */
+
+static int
+lecp_collating_key_level(struct lecp_ctx *ctx)
+{
+	int sp = ctx->sp;
+
+	if (sp && !ctx->st[sp].barrier && ctx->st[sp - 1].indet &&
+	    (ctx->st[sp - 1].opcode == LWS_CBOR_MAJTYP_BSTR ||
+	     ctx->st[sp - 1].opcode == LWS_CBOR_MAJTYP_TSTR))
+		sp--;
+
+	if (!sp || ctx->st[sp].barrier)
+		return 0;
+
+	if (ctx->st[sp - 1].opcode != LWS_CBOR_MAJTYP_MAP ||
+	    (ctx->st[sp - 1].ordinal & 1))
+		return 0;
+
+	return sp;
+}
+
 static int
 report_raw_cbor(struct lecp_ctx *ctx)
 {
@@ -445,6 +472,7 @@ lecp_parse(struct lecp_ctx *ctx, const uint8_t *cbor, size_t len)
 		struct _lecp_parsing_stack *pst = &ctx->pst[ctx->pst_sp];
 		struct _lecp_stack *st = &ctx->st[ctx->sp];
 		uint8_t c, sm, o;
+		int kl;
 		char to;
 
 		len--;
@@ -514,6 +542,19 @@ lecp_parse(struct lecp_ctx *ctx, const uint8_t *cbor, size_t len)
 				if (ctx->pst[ctx->pst_sp].cb(ctx,
 						LECPCB_ARRAY_ITEM_START))
 					goto reject_callback;
+			}
+
+			if (c != 0xff && lecp_parse_map_is_key(ctx)) {
+				/*
+				 * A new map key replaces the previous key's
+				 * name on the path, whatever type either of
+				 * them is: go back to just after the map's own
+				 * '.', whose position the MAP opcode left in
+				 * the map level's p.  A string key's content
+				 * is appended as it is collected.
+				 */
+				pst->ppos = (uint8_t)(lwcp_st_parent(ctx)->p + 1);
+				ctx->path[pst->ppos] = '\0';
 			}
 
 			switch (st->opcode) {
@@ -1033,16 +1074,21 @@ push_m:
 			/* spill */
 			ctx->buf[ctx->npos] = '\0';
 
-			/* if it's a map name, deal with the path */
-			if (ctx->sp && lecp_parse_map_is_key(ctx)) {
-				if (lwcp_st_parent(ctx)->ordinal)
-					pst->ppos = st->p;
-				st->p = pst->ppos;
+			/*
+			 * If it's (a piece of) a map key, add it to the path...
+			 * the key's start already took the path back to the
+			 * map's '.'.  When the key is an indefinite-length
+			 * string, the pop at its BREAK restores the path to the
+			 * key level's p, so keep that at the end of the key.
+			 */
+			kl = lecp_collating_key_level(ctx);
+			if (kl) {
 				if (pst->ppos + ctx->npos >= sizeof(ctx->path))
 					goto reject_overflow;
 				memcpy(&ctx->path[pst->ppos], ctx->buf,
 				       (size_t)(ctx->npos + 1));
 				pst->ppos = (uint8_t)(pst->ppos + ctx->npos);
+				ctx->st[kl].p = pst->ppos;
 				lecp_check_path_match(ctx);
 			}
 

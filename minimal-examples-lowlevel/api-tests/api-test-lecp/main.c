@@ -4630,6 +4630,9 @@ test_cb(struct lecp_ctx *ctx, char reason)
  *  - a tag encloses exactly one item
  *  - inside a map, items alternate key, value, key, value... and
  *    lecp_parse_map_is_key() says so to the callback for each of them
+ *  - ctx->path is what the enclosing containers and the current keys say it
+ *    should be: "[]" per array, "." per map followed by the name of the key
+ *    the map is on (empty for a key that is not a text string)
  *
  * The model of what is open is built from the events alone, so it is
  * independent of the parser's own stack.
@@ -4644,10 +4647,19 @@ enum {
 	SC_BLOB,
 };
 
+enum {
+	SC_KEY_NAMED,		/* map: name[] is the current key, maybe "" */
+	SC_KEY_COLLECTING,	/* map: a tstr key is arriving into name[] */
+	SC_KEY_UNKNOWN,		/* map: a bstr key, can't compare it */
+};
+
 struct sc_frame {
+	char			name[48]; /* map: current text key */
 	uint8_t			kind;
 	uint8_t			item;	/* array: 0 idle, 1 ITEM_START, 2 item */
 	uint8_t			key;	/* this frame is a map key */
+	uint8_t			key_state; /* map: SC_KEY_... */
+	uint8_t			name_len;
 	uint32_t		count;	/* completed child items */
 };
 
@@ -4664,6 +4676,58 @@ sc_fail(struct sc_priv *pr, const char *why)
 	pr->fail = 1;
 
 	return 1;
+}
+
+/*
+ * Compose the path the open frames say we should be at, plus the suffix of an
+ * item that is just opening.  Returns nonzero if we can't know it.
+ */
+
+static int
+sc_path(struct sc_priv *pr, const char *suffix, char *path, size_t len)
+{
+	char *p = path, *end = path + len;
+	int n;
+
+	*p = '\0';
+
+	for (n = 1; n <= pr->sp; n++) {
+		const struct sc_frame *f = &pr->st[n];
+
+		switch (f->kind) {
+		case SC_ARRAY:
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "[]");
+			break;
+		case SC_MAP:
+			if (f->key_state != SC_KEY_NAMED)
+				return 1;
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ".%s",
+					  f->name);
+			break;
+		}
+	}
+
+	lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s", suffix);
+
+	return 0;
+}
+
+static int
+sc_check_path(struct lecp_ctx *ctx, struct sc_priv *pr, const char *suffix)
+{
+	char path[LECP_MAX_PATH + 16];
+
+	if (sc_path(pr, suffix, path, sizeof(path)))
+		return 0;
+
+	if (strcmp(path, ctx->path)) {
+		lwsl_warn("%s: path '%s', expected '%s'\n", __func__,
+			  ctx->path, path);
+
+		return sc_fail(pr, "wrong path");
+	}
+
+	return 0;
 }
 
 /* a new item is starting in the innermost open frame */
@@ -4686,6 +4750,12 @@ sc_item_start(struct lecp_ctx *ctx, struct sc_priv *pr, uint8_t *is_key)
 		break;
 	case SC_MAP:
 		*is_key = !(f->count & 1);
+		if (*is_key) {
+			/* the path loses the previous key's name */
+			f->key_state	= SC_KEY_NAMED;
+			f->name_len	= 0;
+			f->name[0]	= '\0';
+		}
 		break;
 	case SC_TAG:
 		if (f->count)
@@ -4703,10 +4773,20 @@ sc_item_start(struct lecp_ctx *ctx, struct sc_priv *pr, uint8_t *is_key)
 static int
 sc_open(struct lecp_ctx *ctx, struct sc_priv *pr, uint8_t kind)
 {
+	static const char * const sfx[] = { "", "[]", ".", "", "", "" };
+	struct sc_frame *f = &pr->st[pr->sp];
 	uint8_t is_key;
 
 	if (sc_item_start(ctx, pr, &is_key))
 		return 1;
+
+	if (sc_check_path(ctx, pr, sfx[kind]))
+		return 1;
+
+	if (is_key && kind == SC_STR)
+		f->key_state = SC_KEY_COLLECTING;
+	if (is_key && kind == SC_BLOB)
+		f->key_state = SC_KEY_UNKNOWN;
 
 	if (pr->sp + 1 >= (int)LWS_ARRAY_SIZE(pr->st))
 		return sc_fail(pr, "too deep");
@@ -4715,6 +4795,27 @@ sc_open(struct lecp_ctx *ctx, struct sc_priv *pr, uint8_t kind)
 	memset(&pr->st[pr->sp], 0, sizeof(pr->st[pr->sp]));
 	pr->st[pr->sp].kind	= kind;
 	pr->st[pr->sp].key	= is_key;
+
+	return 0;
+}
+
+/* a text key's content arrives in one or more pieces */
+
+static int
+sc_key_text(struct lecp_ctx *ctx, struct sc_priv *pr)
+{
+	struct sc_frame *m;
+
+	if (!pr->st[pr->sp].key || pr->st[pr->sp].kind != SC_STR)
+		return 0;
+
+	m = &pr->st[pr->sp - 1];
+	if ((size_t)m->name_len + ctx->npos >= sizeof(m->name))
+		return sc_fail(pr, "test key too long");
+
+	memcpy(m->name + m->name_len, ctx->buf, ctx->npos);
+	m->name_len = (uint8_t)(m->name_len + ctx->npos);
+	m->name[m->name_len] = '\0';
 
 	return 0;
 }
@@ -4766,7 +4867,8 @@ sc_cb(struct lecp_ctx *ctx, char reason)
 	case LECPCB_VAL_FLOAT32:
 	case LECPCB_VAL_FLOAT64:
 	case LECPCB_VAL_SIMPLE:
-		if (sc_item_start(ctx, pr, &is_key))
+		if (sc_item_start(ctx, pr, &is_key) ||
+		    sc_check_path(ctx, pr, ""))
 			return 1;
 		pr->st[pr->sp].count++;
 		return 0;
@@ -4791,8 +4893,18 @@ sc_cb(struct lecp_ctx *ctx, char reason)
 	case LECPCB_VAL_STR_CHUNK:
 		if (f->kind != SC_STR)
 			return (signed char)sc_fail(pr, "STR_CHUNK outside a string");
-		return 0;
+		return (signed char)sc_key_text(ctx, pr);
 	case LECPCB_VAL_STR_END:
+		if (f->kind != SC_STR)
+			return (signed char)sc_fail(pr, "STR_END outside a string");
+		if (sc_key_text(ctx, pr))
+			return 1;
+		if (f->key) {
+			/* the whole key is on the path now */
+			pr->st[pr->sp - 1].key_state = SC_KEY_NAMED;
+			if (sc_check_path(ctx, pr, ""))
+				return 1;
+		}
 		return (signed char)sc_close(pr, SC_STR);
 
 	case LECPCB_VAL_BLOB_START:
@@ -4879,7 +4991,27 @@ static const uint8_t
 	sc9[] = { 0xa2, 0x01, 0x7f, 0x61, 0x41, 0xff,
 			0x02, 0x81, 0x43, 0xaa, 0xbb, 0xcc },
 	/* [[{1: 2}], 1({3: 4})]: tag body map after a nested map */
-	sc10[] = { 0x82, 0x81, 0xa1, 0x01, 0x02, 0xc1, 0xa1, 0x03, 0x04 };
+	sc10[] = { 0x82, 0x81, 0xa1, 0x01, 0x02, 0xc1, 0xa1, 0x03, 0x04 },
+	/* {"a": [], "b": 1}: a keyed empty array, then another key */
+	sc11[] = { 0xa2, 0x61, 0x61, 0x80, 0x61, 0x62, 0x01 },
+	/* {"a": {}, "b": 1}: a keyed empty map, then another key */
+	sc12[] = { 0xa2, 0x61, 0x61, 0xa0, 0x61, 0x62, 0x01 },
+	/* {"a": [1], "b": {"c": 2}, "d": 3}: keyed containers in a row */
+	sc13[] = { 0xa3, 0x61, 0x61, 0x81, 0x01, 0x61, 0x62, 0xa1,
+			0x61, 0x63, 0x02, 0x61, 0x64, 0x03 },
+	/* {"a": 1, "": 2}: an empty key replaces a named one */
+	sc14[] = { 0xa2, 0x61, 0x61, 0x01, 0x60, 0x02 },
+	/* {"a": 1, 2: 3}: an int key replaces a named one */
+	sc15[] = { 0xa2, 0x61, 0x61, 0x01, 0x02, 0x03 },
+	/* {(_ "k", "ey"): [], "b": 1}: an indefinite-length key */
+	sc16[] = { 0xa2, 0x7f, 0x61, 0x6b, 0x62, 0x65, 0x79, 0xff,
+			0x80, 0x61, 0x62, 0x01 },
+	/* {"a": (_ "x"), "b": 1}: an indefinite-length value */
+	sc17[] = { 0xa2, 0x61, 0x61, 0x7f, 0x61, 0x78, 0xff,
+			0x61, 0x62, 0x01 },
+	/* [{"a": [1]}, {"b": 2}]: keyed container, then the next map */
+	sc18[] = { 0x82, 0xa1, 0x61, 0x61, 0x81, 0x01,
+			0xa1, 0x61, 0x62, 0x02 };
 
 struct sc_vec {
 	const char		*name;
@@ -4898,7 +5030,42 @@ static const struct sc_vec sc_vecs[] = {
 	{ "indef array then map",	sc8,  sizeof(sc8) },
 	{ "indef tstr value then array", sc9, sizeof(sc9) },
 	{ "nested map then tagged map",	sc10, sizeof(sc10) },
+	{ "keyed empty array, next key", sc11, sizeof(sc11) },
+	{ "keyed empty map, next key",	sc12, sizeof(sc12) },
+	{ "keyed containers in a row",	sc13, sizeof(sc13) },
+	{ "empty key after named key",	sc14, sizeof(sc14) },
+	{ "int key after named key",	sc15, sizeof(sc15) },
+	{ "indefinite key",		sc16, sizeof(sc16) },
+	{ "indefinite value, next key",	sc17, sizeof(sc17) },
+	{ "keyed container, next map",	sc18, sizeof(sc18) },
 };
+
+/*
+ * A map of 16 ten-character keys, each holding an empty array: the path
+ * never needs more than one key's worth of room, however many keys there are
+ */
+
+static size_t
+sc_many_keyed_arrays(uint8_t *buf, size_t len)
+{
+	uint8_t *p = buf;
+	int n;
+
+	if (len < 1 + 16 * 12)
+		return 0;
+
+	*p++ = 0xb0; /* map of 16 pairs */
+	for (n = 0; n < 16; n++) {
+		*p++ = 0x6a; /* tstr, 10 */
+		memcpy(p, "key-", 4);
+		p += 4;
+		lws_snprintf((char *)p, 7, "%06d", n);
+		p += 6;
+		*p++ = 0x80; /* [] */
+	}
+
+	return lws_ptr_diff_size_t(p, buf);
+}
 
 int main(int argc, const char **argv)
 {
@@ -4906,7 +5073,7 @@ int main(int argc, const char **argv)
 			expected = (int)LWS_ARRAY_SIZE(cbor_tests) +
 				   /* structure check of the same vectors */
 				   (int)LWS_ARRAY_SIZE(cbor_tests) - 1 +
-				   (int)LWS_ARRAY_SIZE(sc_vecs) +
+				   (int)LWS_ARRAY_SIZE(sc_vecs) + 1 +
 					33 /* <-- how many write tests */;
 	struct lecp_ctx ctx;
 	const char *p;
@@ -4984,6 +5151,16 @@ int main(int argc, const char **argv)
 
 	for (m = 0; m < (int)LWS_ARRAY_SIZE(sc_vecs); m++) {
 		if (sc_run(sc_vecs[m].name, sc_vecs[m].b, sc_vecs[m].blen))
+			e++;
+		else
+			pass++;
+	}
+
+	{
+		uint8_t many[1 + 16 * 12];
+		size_t ml = sc_many_keyed_arrays(many, sizeof(many));
+
+		if (!ml || sc_run("many keyed arrays", many, ml))
 			e++;
 		else
 			pass++;
