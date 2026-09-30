@@ -403,6 +403,14 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			       const uint8_t *in, size_t in_len,
 			       uint8_t *out, size_t *out_len)
 {
+	/*
+	 * Take the session once: SSL_do_handshake() runs our secret
+	 * callbacks, and the CLIENT_EARLY one moves the connection, session
+	 * and all, to a new network wsi (lws_io_transfer() -> the old wsi's
+	 * io->tls is zeroed).  The SSL itself lives on, but reading it back
+	 * from wsi afterwards gets NULL.
+	 */
+	SSL *ssl = wsi->io->tls.ssl;
 #if defined(USE_WOLFSSL)
 	enum wolfssl_encryption_level_t bssl_level;
 #else
@@ -437,11 +445,11 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 						break;
 
 #if defined(USE_WOLFSSL)
-					if (wolfSSL_provide_quic_data(wsi->io->tls.ssl, chunk_level, in + chunk_offset + 3, chunk_len) == 1) {
-						wolfSSL_quic_do_handshake(wsi->io->tls.ssl);
+					if (wolfSSL_provide_quic_data(ssl, chunk_level, in + chunk_offset + 3, chunk_len) == 1) {
+						wolfSSL_quic_do_handshake(ssl);
 #else
-					if (SSL_provide_quic_data(wsi->io->tls.ssl, chunk_level, in + chunk_offset + 3, chunk_len) == 1) {
-						SSL_do_handshake(wsi->io->tls.ssl);
+					if (SSL_provide_quic_data(ssl, chunk_level, in + chunk_offset + 3, chunk_len) == 1) {
+						SSL_do_handshake(ssl);
 #endif
 						fed_any = 1;
 						offset = chunk_offset + 3 + chunk_len;
@@ -467,9 +475,9 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			}
 
 #if defined(USE_WOLFSSL)
-			if (wolfSSL_provide_quic_data(wsi->io->tls.ssl, bssl_level, in, in_len) != 1)
+			if (wolfSSL_provide_quic_data(ssl, bssl_level, in, in_len) != 1)
 #else
-			if (SSL_provide_quic_data(wsi->io->tls.ssl, bssl_level, in, in_len) != 1)
+			if (SSL_provide_quic_data(ssl, bssl_level, in, in_len) != 1)
 #endif
 				return -1;
 		}
@@ -488,11 +496,11 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 	 * TLS error, so tear the connection down.
 	 */
 	if (wsi->io->tls.quic_secret_cb != test_secret_cb &&
-	    SSL_is_init_finished(wsi->io->tls.ssl)) {
+	    SSL_is_init_finished(ssl)) {
 #if defined(USE_WOLFSSL)
-		if (wolfSSL_process_quic_post_handshake(wsi->io->tls.ssl) != 1) {
+		if (wolfSSL_process_quic_post_handshake(ssl) != 1) {
 #else
-		if (SSL_process_quic_post_handshake(wsi->io->tls.ssl) != 1) {
+		if (SSL_process_quic_post_handshake(ssl) != 1) {
 #endif
 			unsigned long pe = ERR_get_error();
 
@@ -507,9 +515,9 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 	}
 
 #if defined(USE_WOLFSSL)
-	hs_n = wolfSSL_quic_do_handshake(wsi->io->tls.ssl);
+	hs_n = wolfSSL_quic_do_handshake(ssl);
 #else
-	hs_n = SSL_do_handshake(wsi->io->tls.ssl);
+	hs_n = SSL_do_handshake(ssl);
 #endif
 
 	if (wsi->io->tls.quic_secret_cb == test_secret_cb) {
@@ -517,7 +525,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 	}
 
 	if (hs_n <= 0) {
-		int err = SSL_get_error(wsi->io->tls.ssl, hs_n);
+		int err = SSL_get_error(ssl, hs_n);
 		if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
 			return 1;
 
