@@ -535,8 +535,19 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 				goto bail;
 			}
 
-			if (cps->per_key_cb)
-				cps->per_key_cb(cps->ck, cps->user);
+			/*
+			 * The application may refuse the key by returning
+			 * nonzero, which halts the import like the JWK one
+			 * does: it used to be ignored, so a key an admission
+			 * filter rejected stayed in the set
+			 */
+
+			if (cps->per_key_cb &&
+			    cps->per_key_cb(cps->ck, cps->user)) {
+				lwsl_notice("%s: user cb halts import\n",
+					    __func__);
+				goto bail;
+			}
 		}
 		break;
 	case LECPCB_TAG_START:

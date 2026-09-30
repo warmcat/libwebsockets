@@ -286,8 +286,9 @@ typedef int (*lws_cose_key_import_callback)(struct lws_cose_key *s, void *user);
 /** lws_cose_jwk_import() - Create an lws_cose_key_t object from cose_key CBOR
  *
  * \param pkey_set: NULL, or a pointer to an lws_dll2_owner_t for a cose_key set
- * \param cb: callback for each jwk-processed key, or NULL if importing a single
- *	      key with no parent "keys" JSON
+ * \param cb: NULL, or a callback for each key of a key set as it is imported.
+ *	      It must not unlink or destroy the key; returning nonzero halts
+ *	      the import, which then fails as a whole.
  * \param user: pointer to be passed to the callback, otherwise ignored by lws.
  *		NULL if importing a single key with no parent "keys" JSON
  * \param in: a single cose_key

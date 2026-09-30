@@ -24,6 +24,19 @@ key_import_cb(struct lws_cose_key *s, void *user)
 }
 
 /*
+ * Counts the set members it sees in *user, and refuses the second one, the
+ * way an application's key admission policy would
+ */
+
+static int
+key_import_refuse_second_cb(struct lws_cose_key *s, void *user)
+{
+	int *count = (int *)user;
+
+	return ++(*count) == 2;
+}
+
+/*
  * Exporting a key through output buffers of every size from 1 to 80 bytes,
  * refilling on LWS_LECPCTX_RET_AGAIN, has to give the same CBOR as exporting
  * it in one go.  Small buffers end inside the item heads the writer keeps in
@@ -1113,6 +1126,27 @@ test_cose_keys(struct lws_context *context)
 	}
 
 	lws_cose_key_set_destroy(&set);
+
+	/*
+	 * A nonzero return from the per-key callback halts the import, which
+	 * then fails as a whole: none of its keys are left in the set
+	 */
+
+	lwsl_user("%s: key_set1 refused by per-key callback\n", __func__);
+
+	{
+		int count = 0;
+
+		lws_dll2_owner_clear(&set);
+		ck = lws_cose_key_import(&set, key_import_refuse_second_cb,
+					 &count, cose_key_set1,
+					 sizeof(cose_key_set1));
+		if (ck || count != 2 || lws_dll2_count(&set)) {
+			lwsl_err("%s: callback refusal ignored\n", __func__);
+			lws_cose_key_set_destroy(&set);
+			goto bail;
+		}
+	}
 
 	/*
 	 * Degenerate and malformed inputs must be rejected with NULL rather
