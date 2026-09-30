@@ -720,15 +720,22 @@ payload_ff_l:
 				    lws_fi(&proxy_pss_to_ss_h(pss)->fic, "ssproxy_rx_metadata_oom"))
 					par->ssmd->value__may_own_heap = NULL;
 				else
+					/*
+					 * The value arrives a byte at a time,
+					 * maybe over several rx callbacks, and
+					 * the onward stream may use its
+					 * metadata meanwhile: until it's all
+					 * here it's an empty, terminated
+					 * string, never our old heap contents
+					 */
 					par->ssmd->value__may_own_heap =
-						lws_malloc((unsigned int)par->rem + 1, "metadata");
+						lws_zalloc((unsigned int)par->rem + 1, "metadata");
 
 				if (!par->ssmd->value__may_own_heap) {
 					lwsl_err("%s: OOM mdv\n", __func__);
 					goto hangup;
 				}
-				par->ssmd->length = par->rem;
-				((uint8_t *)par->ssmd->value__may_own_heap)[par->rem] = '\0';
+				par->ssmd->length = 0;
 				/* mark it as needing cleanup */
 				par->ssmd->value_on_lws_heap = 1;
 			}
@@ -769,6 +776,8 @@ payload_ff_l:
 				break;
 
 			/* we think we got all the value */
+
+			par->ssmd->length = (size_t)par->ctr;
 
 			lwsl_ss_info(proxy_pss_to_ss_h(pss),
 				     "RPAR_METADATA_VALUE for %s (len %d)",
