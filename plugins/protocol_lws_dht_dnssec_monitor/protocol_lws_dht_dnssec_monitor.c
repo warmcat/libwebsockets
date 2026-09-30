@@ -38,6 +38,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 
 #include "../../lib/tls/private-lib-tls.h"
 
@@ -361,14 +362,14 @@ scan_dir_cb_fast(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			 * restart does not briefly publish without it.
 			 */
 			if (dyn && !vhd->extip4[0] && !vhd->extip6[0]) {
-				lwsl_info("%s: deferring %s until the external addresses are known\n",
-					  __func__, pc.common_name);
+				lwsl_notice("%s: deferring %s until the external addresses are known\n",
+					    __func__, pc.common_name);
 				needs_resign = 0;
 			} else if ((((dyn & MON_EXTIP_USES_4) && !vhd->extip4[0]) ||
 				    ((dyn & MON_EXTIP_USES_6) && !vhd->extip6[0])) &&
 				   lws_now_usecs() - vhd->extip_since < MON_EXTIP_SETTLE_US) {
-				lwsl_info("%s: deferring %s while the external addresses settle\n",
-					  __func__, pc.common_name);
+				lwsl_notice("%s: deferring %s while the external addresses settle\n",
+					    __func__, pc.common_name);
 				needs_resign = 0;
 				vhd->extip_retry = 1;
 			}
@@ -514,6 +515,29 @@ monitor_share_fd(struct vhd *vhd, int fd)
 	    fchown(fd, (uid_t)-1, vhd->proxy_gid))
 		lwsl_warn("%s: fchown to gid %u failed: %d\n", __func__,
 			  (unsigned int)vhd->proxy_gid, errno);
+}
+
+/*
+ * Have the resign walk sign the domain's zone again, eg, to merge in or drop
+ * an ACME dns-01 challenge.  The signed zone is made to look older than the
+ * zone rather than removed, so the last good one stays until the new one is
+ * made... signing can be deferred, eg, until the external addresses are
+ * known, and there must not be no signed zone meanwhile
+ */
+
+static void
+monitor_zone_needs_resign(struct vhd *vhd, const char *domain)
+{
+	struct timeval tv[2];
+	char path[1024];
+
+	lws_snprintf(path, sizeof(path), "%s/domains/%s/%s.zone.signed",
+		     vhd->base_dir, domain, domain);
+
+	memset(tv, 0, sizeof(tv));
+	if (utimes(path, tv) && errno != ENOENT)
+		lwsl_warn("%s: unable to mark %s stale: %d\n", __func__, path,
+			  errno);
 }
 
 /*
@@ -1942,13 +1966,8 @@ handle_req_save_dns_challenge(struct vhd *vhd, struct pss *root_pss, struct moni
 		}
 		close(fd);
 
-		/*
-		 * Remove the signed zone so the resign scanner notices it is
-		 * missing and re-signs with the .acme challenge TXT merged in
-		 */
-		char zone_path[512];
-		lws_snprintf(zone_path, sizeof(zone_path), "%s/domains/%s/%s.zone.signed", vhd->base_dir, a->domain, a->domain);
-		unlink(zone_path);
+		/* re-sign with the .acme challenge TXT merged in */
+		monitor_zone_needs_resign(vhd, a->domain);
 
 		char trigger_path[512];
 		lws_snprintf(trigger_path, sizeof(trigger_path), "%s/domains/.acme_trigger_%s", vhd->base_dir, a->domain);
@@ -1983,10 +2002,8 @@ handle_req_cleanup_dns_challenge(struct vhd *vhd, struct pss *root_pss, struct m
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s.zone.acme", vhd->base_dir, a->domain, a->domain);
 	unlink(d_path);
 
-	/* Remove the signed zone so the resign scanner produces a clean one */
-	char zone_path[512];
-	lws_snprintf(zone_path, sizeof(zone_path), "%s/domains/%s/%s.zone.signed", vhd->base_dir, a->domain, a->domain);
-	unlink(zone_path);
+	/* re-sign without the challenge */
+	monitor_zone_needs_resign(vhd, a->domain);
 
 	char trigger_path[512];
 	lws_snprintf(trigger_path, sizeof(trigger_path), "%s/domains/.acme_trigger_%s", vhd->base_dir, a->domain);
