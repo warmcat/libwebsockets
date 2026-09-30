@@ -446,9 +446,17 @@ payload_ff:
 			 * If the transport is passing up little pieces, use the
 			 * dsh to coalesce them to whole datagrams before giving
 			 * them to the application.
+			 *
+			 * A zero-length payload (only flags for the app) has
+			 * nothing to stash... stashing it used to leave a 0-byte
+			 * object at the head of the dsh that was taken for "no
+			 * stashed data" and never freed, so the earlier pieces
+			 * of every later payload that came in more than one
+			 * read were stashed behind it and lost.
 			 */
 
-			if (par->frag1 || n != par->rem) {
+			r = 0;
+			if (n && (par->frag1 || n != par->rem)) {
 //				lwsl_notice("%s: coalescing %d (par->rem %d)\n",
 //					__func__, n, (int)par->rem);
 				r = lws_dsh_alloc_tail(h->dsh, 0, cp, (size_t)n,
@@ -513,11 +521,12 @@ payload_ff:
 				size_t size;
 				int ret;
 
-				if (lws_dsh_get_head(h->dsh, 0, &vb, &size))
-					size = 0;
-				// lwsl_notice("%s: flush head says %d\n", __func__, (int)size);
+				/*
+				 * Whether anything is stashed is whether there
+				 * is a head object, not what size it is
+				 */
 
-				if (!size)
+				if (lws_dsh_get_head(h->dsh, 0, &vb, &size))
 					/* did not go through dsh */
 					ret = ssi->rx(client_pss_to_userdata(pss),
 					      (uint8_t *)cp, (unsigned int)n,
@@ -531,9 +540,8 @@ payload_ff:
 								(uint8_t *)vb, (unsigned int)size,
 								(int)flags);
 						lws_dsh_free(&vb);
-						if (lws_dsh_get_head(h->dsh, 0, &vb, &size))
-							size = 0;
-					} while (!ret && size);
+					} while (!ret && !lws_dsh_get_head(h->dsh, 0,
+								&vb, &size));
 
 					lws_dsh_empty(h->dsh);
 
