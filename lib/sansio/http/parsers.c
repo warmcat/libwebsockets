@@ -1402,12 +1402,18 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 		case WSI_TOKEN_UNKNOWN_VALUE_PART:
 
-			if (c == '\r')
-				break;
-			if (c == '\n') {
+			/*
+			 * The value ends at the CR, whose LF is then checked
+			 * for like any other header's.  A CR used to be dropped
+			 * wherever it came, joining what was either side of a
+			 * bare CR into the value.
+			 */
+			if (c == '\r' || c == '\n') {
 				lws_ser_wu16be((uint8_t *)&ah->data[ah->unk_pos + 2],
 					       (uint16_t)(ah->pos - ah->unk_value_pos));
-				ah->parser_state = WSI_TOKEN_NAME_PART;
+				ah->parser_state = c == '\r' ?
+						WSI_TOKEN_SKIPPING_SAW_CR :
+						WSI_TOKEN_NAME_PART;
 				ah->unk_pos = 0;
 				ah->lextable_pos = 0;
 				break;
@@ -1870,8 +1876,20 @@ excessive:
 				ah->parser_state = WSI_TOKEN_NAME_PART;
 				ah->unk_pos = 0;
 				ah->lextable_pos = 0;
-			} else
-				ah->parser_state = WSI_TOKEN_SKIPPING;
+				break;
+			}
+			/*
+			 * A bare CR: RFC 9112 2.2 has a recipient treat the
+			 * element as invalid (or the CR as SP).  Something in
+			 * front of us may have taken it as a line end, and
+			 * seen what follows it as another header that we'd
+			 * skip, so a server refuses the request
+			 */
+			if (lwsi_role_server(wsi) && !wsi->mux_substream) {
+				lwsl_parse_fail(wsi, "bare CR in request head");
+				return LPR_FAIL;
+			}
+			ah->parser_state = WSI_TOKEN_SKIPPING;
 			break;
 			/* we're done, ignore anything else */
 
