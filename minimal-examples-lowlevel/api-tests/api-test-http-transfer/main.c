@@ -69,7 +69,8 @@
  * body goes onward saying Content-Length: 0; an h3 body with no length,
  * which the proxy could not end onward, is refused.  Every request the proxy
  * sends on carries its X-Forwarded-For, alongside a Cookie it forwards for
- * the client intact.
+ * the client intact.  A server response that is chunked and also says
+ * Content-Length is relayed by its chunks, without that Content-Length.
  *
  * On an h3 stream, a response write lws took whole is in quic's hands: it
  * must not be reported back to the app as a partial or a choked pipe just
@@ -434,6 +435,15 @@ static const struct xcase cases[] = {
 	 * parent connection is kept, and a second request pipelined on it
 	 * must get its last-chunk as well
 	 */
+	/*
+	 * The server's chunked response also says Content-Length, which the
+	 * chunks override: the proxy must relay the body its onward client
+	 * read by the chunks, framed its own way, and not pass that
+	 * Content-Length on to a client that would go by it
+	 */
+	{ "h1 POST 3KB via the http proxy mount, chunked response also "
+	  "carrying a Content-Length",
+	  "POST", "/echo-chunked-cl", XR_CL, 3000, 0, 8192, 0, 0, 200, 3000, XG_NONE, 0, 1, 0, 0, 0 },
 	{ "h1 two GETs pipelined via the http proxy mount, chunked "
 	  "responses, each one ends",
 	  "GET", "/echo-chunked", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0, 1,
@@ -460,6 +470,9 @@ static const struct xcase cases[] = {
 	  "POST", "/echo-cl", XR_BODY_NOHDR, 20000, 0, 4096, 1, 0, 200, 20000, XG_NONE, 0, 1, 0, 0, 0 },
 	{ "h2 POST with neither header via the http proxy mount: empty body",
 	  "POST", "/echo-cl", XR_NOLEN, 0, 0, 8192, 1, 0, 200, 0, XG_NONE, 0, 1, 0, 0, 0 },
+	{ "h2 POST 3KB via the http proxy mount, chunked response also "
+	  "carrying a Content-Length",
+	  "POST", "/echo-chunked-cl", XR_CL, 3000, 0, 8192, 1, 0, 200, 3000, XG_NONE, 0, 1, 0, 0, 0 },
 #endif
 	{ "h3 GET via the http proxy mount",
 	  "GET", "/echo-cl", XR_NONE, 0, 0, 8192, 2, 0, 200, 0, XG_NONE, 0, 1, 0, 0, 0 },

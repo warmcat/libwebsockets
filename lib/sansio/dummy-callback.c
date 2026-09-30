@@ -1002,6 +1002,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: {
 		unsigned char *start, *p, *end;
+		char cl;
 
 		/*
 		 * We want to proxy these headers, but we are being called
@@ -1050,13 +1051,31 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		/*
+		 * The body we relay is framed the way the onward client reads
+		 * it.  It validated a Content-Length it goes by, and ignored
+		 * one that came with Transfer-Encoding: chunked (RFC 9112 6.3,
+		 * C-508), which then says nothing about the body and must not
+		 * be passed on to our client either (C-700).  Its length is
+		 * the client's parsed one, not a second, laxer parse of the
+		 * header here.
+		 */
+
+		cl = !wsi->http.rx_chunked && wsi->http.content_length_given;
+		if (cl && wsi->http.rx_content_length >=
+					(lws_filepos_t)(size_t)-1) {
+			lwsl_wsi_notice(wsi, "upstream content-length too large");
+
+			return -1;
+		}
+
+		/*
 		 * Any of these failing has left the header cursor mid-header,
 		 * so the response we would produce is mangled: fail the
 		 * transaction instead of sending it
 		 */
 
-		if (proxy_header(parent, wsi, end, MAXHDRVAL,
-			     WSI_TOKEN_HTTP_CONTENT_LENGTH, &p, end) ||
+		if ((cl && proxy_header(parent, wsi, end, MAXHDRVAL,
+			     WSI_TOKEN_HTTP_CONTENT_LENGTH, &p, end)) ||
 		    proxy_header(parent, wsi, end, MAXHDRVAL,
 			     WSI_TOKEN_HTTP_CONTENT_TYPE, &p, end) ||
 		    proxy_header(parent, wsi, end, MAXHDRVAL,
@@ -1087,7 +1106,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		 * our own chunking since we still don't know the size.
 		 */
 
-		if (!parent->mux_substream && n < 1) {
+		if (!parent->mux_substream && !cl) {
 			lwsl_wsi_debug(wsi, "downstream parent chunked");
 			if (lws_add_http_header_by_token(parent,
 					WSI_TOKEN_HTTP_TRANSFER_ENCODING,
@@ -1108,10 +1127,9 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		 */
 
 		parent->http.prh_content_length = (size_t)-1;
-		if (n > 0)
-			parent->http.prh_content_length = (size_t)atoll(
-				lws_hdr_simple_ptr(wsi,
-						WSI_TOKEN_HTTP_CONTENT_LENGTH));
+		if (cl)
+			parent->http.prh_content_length =
+					(size_t)wsi->http.rx_content_length;
 
 		parent->http.pending_return_headers_len = lws_ptr_diff_size_t(p, start);
 		parent->http.pending_return_headers =
