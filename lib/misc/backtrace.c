@@ -67,6 +67,14 @@ lws_backtrace_compression_stream(lws_backtrace_comp_t *c, uintptr_t v,
 {
 	int nbits = (int)bits;
 
+	/*
+	 * Each field is its bits MSB-first, then one trailing pad bit.  The
+	 * pad bit used to come from shifting by -1, which is undefined (and
+	 * traps under UBSan) but gave 0 for any value that fits in bits.  It
+	 * is written as an explicit 0 so blobs, and decoders, stay as they
+	 * were.
+	 */
+
 	while (nbits-- >= 0) {
 		/* the bound check must happen before the writes, not after */
 
@@ -78,7 +86,7 @@ lws_backtrace_compression_stream(lws_backtrace_comp_t *c, uintptr_t v,
 
 		if (!(c->pos & 7))
 			c->comp[c->pos >> 3] = 0;
-		if (v & (((uintptr_t)1) << nbits))
+		if (nbits >= 0 && (v & (((uintptr_t)1) << nbits)))
 			c->comp[c->pos >> 3] |= (uint8_t)(1 << (7 - (c->pos & 7)));
 
 		c->pos++;
@@ -94,10 +102,12 @@ lws_backtrace_compression_destream(lws_backtrace_comp_t *c, uintptr_t *_v,
 	int nbits = (int)bits;
 	uintptr_t v = 0;
 
+	/* bits MSB-first, then the pad bit, which carries nothing */
+
 	while (nbits-- >= 0) {
 		if ((c->pos >> 3) >= c->len)
 			return 1;
-		if (c->comp[c->pos >> 3] & (1 << (7 - (c->pos & 7))))
+		if (nbits >= 0 && (c->comp[c->pos >> 3] & (1 << (7 - (c->pos & 7)))))
 			v |= ((uintptr_t)1) << nbits;
 		c->pos++;
 	}
