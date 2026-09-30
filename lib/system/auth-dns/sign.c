@@ -1822,16 +1822,16 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 							}
 
 							if (zsk_ready) {
-								/* Determine DNSSEC Algorithm from the ZSK Curve */
-								int zsk_alg = 13; /* Default */
-								if (zsk.kty == LWS_GENCRYPTO_KTY_EC) {
-									if (zsk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) {
-										const char *crv = (const char *)zsk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf;
-										if (!strncmp(crv, "P-384", 5)) zsk_alg = 14;
-										else if (!strncmp(crv, "P-521", 5)) zsk_alg = 15;
-									}
-								} else {
-									zsk_alg = 8; /* RSASHA256 */
+								/*
+								 * the same algorithm add_dnskey()
+								 * published the ZSK DNSKEY with, or
+								 * none if it could not publish one
+								 */
+								int zsk_alg = lws_auth_dns_jwk_alg(&zsk);
+
+								if (!zsk_alg) {
+									lwsl_err("%s: ZSK has no DNSSEC algorithm\n", __func__);
+									goto zsk_done;
 								}
 
 								/* Compute ZSK Keytag dynamically */
@@ -2321,12 +2321,7 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 							uint16_t sig_keytag = (uint16_t)atoi(keytag_s);
 
 							/* Determine DNSSEC Algorithm from the verification KSK Curve */
-							int ver_ksk_alg = 13;
-							if (ksk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) {
-								const char *crv = (const char *)ksk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf;
-								if (!strncmp(crv, "P-384", 5)) ver_ksk_alg = 14;
-								else if (!strncmp(crv, "P-521", 5)) ver_ksk_alg = 15;
-							}
+							int ver_ksk_alg = lws_auth_dns_jwk_alg(&ksk);
 
 							/* We must extract the actual keytag from our KSK to compare */
 							uint8_t wire_ksk[512]; size_t wl_ksk = 0;
