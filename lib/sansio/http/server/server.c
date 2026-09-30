@@ -3134,14 +3134,6 @@ lws_http_transaction_completed(struct lws *wsi)
 	lws_rx_flow_control(wsi, LWS_RXFLOW_REASON_APPLIES_ENABLE |
 				 LWS_RXFLOW_REASON_HTTP_RXBUFFER);
 
-	wsi->http.sent_response_headers = 0;
-	/*
-	 * Whether an interceptor took the request is a property of the
-	 * transaction, not the connection: the next request on a keepalive
-	 * connection re-evaluates the chain from scratch
-	 */
-	wsi->http.interceptor_diverted = 0;
-
 	if (wsi->http.cgi_transaction_complete)
 		return 0;
 
@@ -3199,6 +3191,17 @@ lws_http_transaction_completed(struct lws *wsi)
 
 		return 0;
 	}
+
+	/*
+	 * Nothing defers the completion any more.  Only now is the response
+	 * of the transaction behind us: while it was deferred, its headers
+	 * had still been sent.  Whether an interceptor took the request is
+	 * as much a property of the transaction, not the connection: the
+	 * next request on a keepalive connection re-evaluates the chain from
+	 * scratch.
+	 */
+	wsi->http.sent_response_headers = 0;
+	wsi->http.interceptor_diverted = 0;
 
 #if defined(LWS_WITH_SYS_METRICS)
 	{
