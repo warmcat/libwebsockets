@@ -562,13 +562,18 @@ lws_urldecode_spa_cb(struct lws_spa *spa, const char *name, char **buf, int len,
 		return 0;
 
 	if (!spa->i.ac) {
-		if (!spa->params[n])
-			spa->params[n] = *buf;
-
+		/*
+		 * Refuse it before publishing it: the app reads params[n] as a
+		 * C string once the spa is finalized, whether or not this
+		 * failed, and it is not terminated until the '\0' below
+		 */
 		if ((*buf) + len >= spa->end) {
 			lwsl_info("%s: exceeded storage\n", __func__);
 			return -1;
 		}
+
+		if (!spa->params[n])
+			spa->params[n] = *buf;
 
 		/* move it on inside storage */
 		(*buf) += len;
