@@ -887,7 +887,15 @@ str_val:
 				} while (ts.e > 0);
 			}
 
-			if (wsi->http.conn_type == HTTP_CONNECTION_KEEP_ALIVE &&
+			/*
+			 * Only an h1 connection carries the retry itself: an
+			 * h2 / h3 stream's conn_type says KEEP_ALIVE too, but
+			 * the stream was ended by the 401 and can't take
+			 * another request.  They restart the way a redirect
+			 * does, below.
+			 */
+			if (!wsi->client_mux_substream &&
+			    wsi->http.conn_type == HTTP_CONNECTION_KEEP_ALIVE &&
 			    keep_alive &&
 			    (!te401 || strncasecmp(te401, "chunked", 7)) &&
 			    cl401 && atoi(cl401) == 0) {
