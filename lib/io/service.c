@@ -24,6 +24,17 @@
 
 #include "private-lib-core.h"
 
+/*
+ * The hangup alone, without the POLLERR that LWS_POLLHUP also carries on
+ * unix.  The small platforms number poll events lws' own way, so it is all
+ * of LWS_POLLHUP there.
+ */
+#if defined(POLLHUP) && !defined(LWS_PLAT_FREERTOS)
+#define LWS_POLL_HANGUP		(POLLHUP)
+#else
+#define LWS_POLL_HANGUP		(LWS_POLLHUP)
+#endif
+
 #if defined(_DEBUG)
 void
 lws_service_assert_loop_thread(struct lws_context *cx, int tsi)
@@ -1347,9 +1358,19 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	 * and-buffered rx going to be handled before we want to acknowledge the
 	 * socket is gone, any sign of HUP always immediately means no more tx
 	 * is possible.
+	 *
+	 * On unix LWS_POLLHUP is POLLHUP and POLLERR together, but OSX reports
+	 * a reset connection as POLLHUP alone, and never with POLLOUT: a wsi
+	 * that asked for POLLOUT, to drain a partial send, and is told POLLHUP
+	 * instead can send nothing more, and if that is not acted on here,
+	 * nothing else will act on it while poll() keeps reporting it.  A bare
+	 * POLLERR is not enough, a udp socket gets that for an icmp error.
 	 */
 
-	if ((pollfd->revents & LWS_POLLHUP) == LWS_POLLHUP) {
+	if ((pollfd->revents & LWS_POLLHUP) == LWS_POLLHUP ||
+	    ((pollfd->revents & LWS_POLL_HANGUP) &&
+	     (pollfd->events & LWS_POLLOUT) &&
+	     !(pollfd->revents & LWS_POLLOUT))) {
 #if defined(LWS_WITH_CLIENT)
 		if (lwsi_transport(wsi) == LTS_WAITING_CONNECT) {
 			if (lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd))
