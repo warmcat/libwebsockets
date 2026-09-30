@@ -20,6 +20,16 @@ and `PS512` algs, which runs on every tls backend.  For each alg it
  - checks that a PKCS#1 v1.5 signature over the same hash is *rejected* by
    the PSS verify.
 
+## RSA-OAEP known-answer vectors
+
+On the backends that do RSA-OAEP data encryption, `lws-genrsa.c` also
+decrypts fixed RSAES-OAEP ciphertexts made outside lws to the public half of
+the RSA-PSS key, one with SHA-1 (JWE `RSA-OAEP`) and one with SHA-256 (JWE
+`RSA-OAEP-256`), OAEP and MGF1 on the same hash.  Each must decrypt with a ctx
+created for its own OAEP hash and fail with the other one: OAEP encryption is
+randomized, so a round trip alone can't catch a backend that ignores the OAEP
+hash it was given and uses SHA-1 on both sides.
+
 ## mbedtls cipher list mapping
 
 On the mbedtls backend only, `lws-mbedtls-cipherlist.c` creates vhosts with

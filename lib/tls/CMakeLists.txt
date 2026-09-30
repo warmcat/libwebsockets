@@ -628,12 +628,15 @@ CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { OPENSSL_STAC
 CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { SSL_CTX *ctx = NULL; return SSL_CTX_set_ecdh_auto(ctx, 1); }\n" LWS_HAVE_SSL_CTX_SET_ECDH_AUTO)
 CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { SSL_CTX *ctx = NULL; return (int)SSL_CTX_set1_groups_list(ctx, \"prime256v1\"); }\n" LWS_HAVE_SSL_CTX_set1_groups_list)
 CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { SSL *ssl = NULL; return (int)SSL_set_tlsext_host_name(ssl, \"hello\"); }\n" LWS_HAVE_SSL_set_tlsext_host_name)
+# a macro before OpenSSL 3, so it can't be found by CHECK_FUNCTION_EXISTS
+CHECK_C_SOURCE_COMPILES("#include <openssl/evp.h>\n#include <openssl/rsa.h>\nint main(void) { return EVP_PKEY_CTX_set_rsa_oaep_md(NULL, EVP_sha256()); }\n" LWS_HAVE_EVP_PKEY_CTX_set_rsa_oaep_md)
 
 set(LWS_HAVE_SSL_set_tlsext_host_name 1 CACHE BOOL "" FORCE)
 set(LWS_HAVE_SSL_EXTRA_CHAIN_CERTS ${LWS_HAVE_SSL_EXTRA_CHAIN_CERTS} PARENT_SCOPE)
 set(LWS_HAVE_EVP_MD_CTX_free ${LWS_HAVE_EVP_MD_CTX_free} PARENT_SCOPE)
 set(LWS_HAVE_SSL_CTX_SET_ECDH_AUTO ${LWS_HAVE_SSL_CTX_SET_ECDH_AUTO} PARENT_SCOPE)
 set(LWS_HAVE_SSL_CTX_set1_groups_list ${LWS_HAVE_SSL_CTX_set1_groups_list} PARENT_SCOPE)
+set(LWS_HAVE_EVP_PKEY_CTX_set_rsa_oaep_md ${LWS_HAVE_EVP_PKEY_CTX_set_rsa_oaep_md} PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}ECDSA_SIG_set0 LWS_HAVE_ECDSA_SIG_set0 PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}BN_bn2binpad LWS_HAVE_BN_bn2binpad PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}EVP_aes_128_wrap LWS_HAVE_EVP_aes_128_wrap PARENT_SCOPE)

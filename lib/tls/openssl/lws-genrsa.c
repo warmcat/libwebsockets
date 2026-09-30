@@ -375,7 +375,38 @@ cleanup_1:
  * based padding modes
  */
 
-#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+/*
+ * The legacy RSA_public_encrypt() / RSA_private_decrypt() with
+ * RSA_PKCS1_OAEP_PADDING fix both the OAEP and the MGF1 digest to SHA-1, so
+ * they can only serve PKCS#1 v1.5 and SHA-1 OAEP.  Any other OAEP hash, eg,
+ * for JWE "RSA-OAEP-256", has to be selected on an EVP_PKEY_CTX, the only
+ * path used on OpenSSL 3.  A backend that can't select it there must fail
+ * the operation rather than quietly use SHA-1.
+ */
+
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM) || \
+    defined(LWS_HAVE_EVP_PKEY_CTX_set_rsa_oaep_md)
+#define LWS_GENRSA_EVP_CRYPT
+#endif
+
+#if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+static int
+rsa_legacy_crypt_ok(struct lws_genrsa_ctx *ctx)
+{
+	if (ctx->mode != LGRSAM_PKCS1_OAEP_PSS ||
+	    ctx->oaep_hashid == LWS_GENHASH_TYPE_SHA1)
+		return 1;
+
+#if !defined(LWS_GENRSA_EVP_CRYPT)
+	lwsl_err("%s: this tls library can only do OAEP with SHA-1\n",
+		 __func__);
+#endif
+
+	return 0;
+}
+#endif
+
+#if defined(LWS_GENRSA_EVP_CRYPT)
 /*
  * For OAEP mode, the EVP_PKEY_CTX digest selection is reset by the per-call
  * operation init, so the OAEP and MGF1 digests must be (re)set on it each
@@ -401,28 +432,38 @@ int
 lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out)
 {
-#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
-	size_t out_len = (size_t)EVP_PKEY_size(EVP_PKEY_CTX_get0_pkey(ctx->ctx));
-	if (EVP_PKEY_encrypt_init(ctx->ctx) <= 0 ||
-	    EVP_PKEY_CTX_set_rsa_padding(ctx->ctx, mode_map_crypt[ctx->mode]) <= 0 ||
-	    (ctx->mode == LGRSAM_PKCS1_OAEP_PSS &&
-	     rsa_oaep_set_md(ctx->ctx, ctx->oaep_hashid) < 0) ||
-	    EVP_PKEY_encrypt(ctx->ctx, out, &out_len, in, in_len) <= 0) {
-		lwsl_err("%s: EVP_PKEY_encrypt failed\n", __func__);
-		lws_tls_err_describe_clear();
-		return -1;
-	}
-	return (int)out_len;
-#else
-	int n = RSA_public_encrypt(SSL_SIZE_T_CAST(in_len), in, out, ctx->rsa,
-				   mode_map_crypt[ctx->mode]);
-	if (n < 0) {
-		lwsl_err("%s: RSA_public_encrypt failed\n", __func__);
-		lws_tls_err_describe_clear();
-		return -1;
-	}
+#if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	if (rsa_legacy_crypt_ok(ctx)) {
+		int n = RSA_public_encrypt(SSL_SIZE_T_CAST(in_len), in, out,
+					   ctx->rsa, mode_map_crypt[ctx->mode]);
+		if (n < 0) {
+			lwsl_err("%s: RSA_public_encrypt failed\n", __func__);
+			lws_tls_err_describe_clear();
+			return -1;
+		}
 
-	return n;
+		return n;
+	}
+#endif
+#if defined(LWS_GENRSA_EVP_CRYPT)
+	{
+		size_t out_len = (size_t)EVP_PKEY_size(rsa_ctx_pkey(ctx));
+
+		if (EVP_PKEY_encrypt_init(ctx->ctx) <= 0 ||
+		    EVP_PKEY_CTX_set_rsa_padding(ctx->ctx,
+					mode_map_crypt[ctx->mode]) <= 0 ||
+		    (ctx->mode == LGRSAM_PKCS1_OAEP_PSS &&
+		     rsa_oaep_set_md(ctx->ctx, ctx->oaep_hashid) < 0) ||
+		    EVP_PKEY_encrypt(ctx->ctx, out, &out_len, in, in_len) <= 0) {
+			lwsl_err("%s: EVP_PKEY_encrypt failed\n", __func__);
+			lws_tls_err_describe_clear();
+			return -1;
+		}
+
+		return (int)out_len;
+	}
+#else
+	return -1;
 #endif
 }
 
@@ -507,53 +548,65 @@ int
 lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			   size_t in_len, uint8_t *out, size_t out_max)
 {
-#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
-	size_t out_len = out_max;
+#if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	if (rsa_legacy_crypt_ok(ctx)) {
+		int n;
 
-	/*
-	 * For the v1.5 padding modes OpenSSL bounds the plaintext by the
-	 * modulus size and not by the `outsize` it was given, so lws must
-	 * enforce the caller's buffer size itself
-	 */
+		/*
+		 * RSA_private_decrypt() bounds `out` by the modulus size, not
+		 * out_max
+		 */
 
-	if (out_max < (size_t)EVP_PKEY_size(EVP_PKEY_CTX_get0_pkey(ctx->ctx))) {
-		lwsl_err("%s: out_max %d too small for key\n", __func__,
-			 (int)out_max);
+		if (out_max < (size_t)RSA_size(ctx->rsa)) {
+			lwsl_err("%s: out_max %d too small for key\n",
+				 __func__, (int)out_max);
 
-		return -1;
+			return -1;
+		}
+
+		n = RSA_private_decrypt(SSL_SIZE_T_CAST(in_len), in, out,
+					ctx->rsa, mode_map_crypt[ctx->mode]);
+		if (n < 0) {
+			lwsl_err("%s: RSA_private_decrypt failed\n", __func__);
+			lws_tls_err_describe_clear();
+			return -1;
+		}
+
+		return n;
 	}
+#endif
+#if defined(LWS_GENRSA_EVP_CRYPT)
+	{
+		size_t out_len = out_max;
 
-	if (EVP_PKEY_decrypt_init(ctx->ctx) <= 0 ||
-	    EVP_PKEY_CTX_set_rsa_padding(ctx->ctx, mode_map_crypt[ctx->mode]) <= 0 ||
-	    (ctx->mode == LGRSAM_PKCS1_OAEP_PSS &&
-	     rsa_oaep_set_md(ctx->ctx, ctx->oaep_hashid) < 0) ||
-	    EVP_PKEY_decrypt(ctx->ctx, out, &out_len, in, in_len) <= 0) {
-		lwsl_err("%s: EVP_PKEY_decrypt failed\n", __func__);
-		lws_tls_err_describe_clear();
-		return -1;
+		/*
+		 * For the v1.5 padding modes OpenSSL bounds the plaintext by
+		 * the modulus size and not by the `outsize` it was given, so
+		 * lws must enforce the caller's buffer size itself
+		 */
+
+		if (out_max < (size_t)EVP_PKEY_size(rsa_ctx_pkey(ctx))) {
+			lwsl_err("%s: out_max %d too small for key\n",
+				 __func__, (int)out_max);
+
+			return -1;
+		}
+
+		if (EVP_PKEY_decrypt_init(ctx->ctx) <= 0 ||
+		    EVP_PKEY_CTX_set_rsa_padding(ctx->ctx,
+					mode_map_crypt[ctx->mode]) <= 0 ||
+		    (ctx->mode == LGRSAM_PKCS1_OAEP_PSS &&
+		     rsa_oaep_set_md(ctx->ctx, ctx->oaep_hashid) < 0) ||
+		    EVP_PKEY_decrypt(ctx->ctx, out, &out_len, in, in_len) <= 0) {
+			lwsl_err("%s: EVP_PKEY_decrypt failed\n", __func__);
+			lws_tls_err_describe_clear();
+			return -1;
+		}
+
+		return (int)out_len;
 	}
-	return (int)out_len;
 #else
-	int n;
-
-	/* RSA_private_decrypt() bounds `out` by the modulus size, not out_max */
-
-	if (out_max < (size_t)RSA_size(ctx->rsa)) {
-		lwsl_err("%s: out_max %d too small for key\n", __func__,
-			 (int)out_max);
-
-		return -1;
-	}
-
-	n = RSA_private_decrypt(SSL_SIZE_T_CAST(in_len), in, out, ctx->rsa,
-			        mode_map_crypt[ctx->mode]);
-	if (n < 0) {
-		lwsl_err("%s: RSA_private_decrypt failed\n", __func__);
-		lws_tls_err_describe_clear();
-		return -1;
-	}
-
-	return n;
+	return -1;
 #endif
 }
 
