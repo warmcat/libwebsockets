@@ -100,13 +100,28 @@ lws_ss_serialize_state_transition(lws_sspc_handle_t *h,
 #define LWS_SSPC_RX_METADATA_MAX_TOTAL	(64 * 1024)
 
 /*
+ * The largest piece of rx payload we pass up, or stash in the dsh to
+ * reassemble, at once
+ */
+
+#define LWS_SSPC_RX_FRAG_MAX		1380
+
+/*
  * The proxy recommends our dsh allocation in its CREATE_RESULT, as a signed
  * be32 straight off the wire.  Bound what we will act on: 0 means "you
- * choose", and anything negative or absurdly large is a hostile proxy.  The
- * low end is left to lws_dsh_create(), which knows its own overheads.
+ * choose", and anything negative or absurdly large is a hostile proxy.
+ *
+ * At the low end, when a fragment doesn't fit in what is stashed already, we
+ * flush the dsh and stash the fragment in the empty dsh, so it must be able
+ * to hold the largest fragment: that costs the dsh an object header for the
+ * free space and one for the object, and the object length is aligned.  A
+ * smaller recommendation is raised to that.
  */
 
 #define LWS_SSPC_DSH_MAX		(4 * 1024 * 1024)
+#define LWS_SSPC_DSH_MIN		(LWS_SSPC_RX_FRAG_MAX + \
+					 (2 * sizeof(lws_dsh_obj_t)) + \
+					 sizeof(void *))
 #define LWS_SSPC_DSH_DEFAULT		32768
 
 /*
@@ -422,8 +437,8 @@ payload_ff:
 
 			if (n > par->rem)
 				n = par->rem;
-			if (n > 1380)
-				n = 1380;
+			if (n > LWS_SSPC_RX_FRAG_MAX)
+				n = LWS_SSPC_RX_FRAG_MAX;
 
 			h = lws_container_of(par, lws_sspc_handle_t, parser);
 
@@ -526,11 +541,18 @@ payload_ff:
 						/*
 						 * Deal with stashing the new
 						 * data we couldn't fit before,
-						 * now we flushed the dsh
+						 * now we flushed the dsh...
+						 * the empty dsh is at least
+						 * LWS_SSPC_DSH_MIN, so this
+						 * can't fail, but if it does,
+						 * don't silently drop it
 						 */
 						r = lws_dsh_alloc_tail(h->dsh, 0, cp, (size_t)n,
 								       NULL, 0);
-						assert(!r);
+						if (r) {
+							lwsl_sspc_err(h, "unable to stash rx");
+							goto hangup;
+						}
 					}
 				}
 
@@ -962,6 +984,12 @@ payload_ff:
 
 				dsh_size = (size_t)(par->temp32 ? par->temp32 :
 							LWS_SSPC_DSH_DEFAULT);
+				if (dsh_size < LWS_SSPC_DSH_MIN) {
+					lwsl_sspc_notice(h, "proxy dsh size %u "
+						"raised to %u", (unsigned int)dsh_size,
+						(unsigned int)LWS_SSPC_DSH_MIN);
+					dsh_size = LWS_SSPC_DSH_MIN;
+				}
 #endif
 				h->dsh = lws_dsh_create(NULL, dsh_size,
 					(int)(hh->txp_path.ops_onw->flags | 1u));
