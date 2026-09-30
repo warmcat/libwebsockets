@@ -691,13 +691,49 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 }
 
 #if defined(LWS_WITH_DHT_BACKEND)
+/*
+ * The search node an announce_peer reply acknowledges, or NULL if we have no
+ * announce outstanding to that node at that address.
+ *
+ * search_step() only sends announce_peer to nodes that already answered the
+ * search's get_peers, and only on a search with a port to announce; the
+ * request time it stamps then is cleared again by the ack.  So the node must
+ * have replied, not yet acked, have been sent the announce recently, and be
+ * both the id and the endpoint we sent it to: the 16-bit tid alone goes out
+ * in every get_peers of the search and proves nothing about the sender.
+ */
+static struct search_node *
+search_announce_awaiting_ack(struct lws_dht_ctx *ctx, struct search *sr,
+			     const lws_dht_hash_t *id,
+			     const struct sockaddr *from)
+{
+	int i;
+
+	if (!sr->port)
+		return NULL;
+
+	for (i = 0; i < sr->numnodes; i++) {
+		struct search_node *n = &sr->nodes[i];
+
+		if (!n->replied || n->acked || !n->request_time ||
+		    n->request_time < ctx->now - LWS_DHT_PING_TIMEOUT_SECS)
+			continue;
+
+		if (!id_cmp(n->id, id) &&
+		    dht_sa_same_peer((const struct sockaddr *)&n->ss, from))
+			return n;
+	}
+
+	return NULL;
+}
+
 static void
 lws_dht_reply_announce(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 		       const struct sockaddr *from, size_t fromlen)
 {
+	struct search_node *n;
 	struct search *sr;
 	unsigned short ttid;
-	size_t i;
 
 	if (!tid_match(mp->tid, "ap", &ttid))
 		return;
@@ -708,18 +744,29 @@ lws_dht_reply_announce(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 		return;
 	}
 
+	/*
+	 * Like the get_peers reply, only an ack from the node we sent the
+	 * announce to, at the address we sent it to, may touch the search or
+	 * confirm the sender: otherwise anyone who learns the tid can mark
+	 * our announcement stored without it being sent, and promote himself
+	 * (or relocate a known node id to his address) to a good node without
+	 * ever answering a ping.
+	 */
+	n = search_announce_awaiting_ack(ctx, sr, mp->id, from);
+	if (!n) {
+		lwsl_dht_rx_warn("%s: announce reply from a node with no "
+				 "announce outstanding\n", __func__);
+		return;
+	}
+
 	lwsl_dht_rx("%s: Announce peer reply!\n", __func__);
 
 	maybe_new_node(ctx, mp->id, from, fromlen, 2);
 
-	for (i = 0; i < (size_t)sr->numnodes; i++)
-		if (id_cmp(sr->nodes[i].id, mp->id) == 0) {
-			sr->nodes[i].request_time = 0;
-			sr->nodes[i].reply_time = (time_t)lws_now_secs();
-			sr->nodes[i].acked = 1;
-			sr->nodes[i].pinged = 0;
-			break;
-		}
+	n->request_time	= 0;
+	n->reply_time	= ctx->now;
+	n->acked	= 1;
+	n->pinged	= 0;
 
 	search_send_get_peers(ctx, sr, NULL);
 }
