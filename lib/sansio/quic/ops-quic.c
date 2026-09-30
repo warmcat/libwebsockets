@@ -158,6 +158,19 @@ lws_quic_sa46_same_path(const lws_sockaddr46 *a, const lws_sockaddr46 *b)
 	       a->sa4.sin_addr.s_addr == b->sa4.sin_addr.s_addr;
 }
 
+/*
+ * Frames that are not sent again when the packet carrying them is lost:
+ * DATAGRAM (RFC 9221 5), and PATH_RESPONSE (RFC 9000 13.3), which answers one
+ * PATH_CHALLENGE on the path it came from; a peer still waiting for the answer
+ * sends a new challenge.
+ */
+static int
+lws_quic_frame_not_retransmitted(const struct lws_quic_tx_frame *f)
+{
+	return (f->type & 0xfe) == LWS_QUIC_FT_DATAGRAM ||
+	       f->type == LWS_QUIC_FT_PATH_RESPONSE;
+}
+
 void
 lws_quic_path_probe_abandon(struct lws *nwsi)
 {
@@ -576,13 +589,11 @@ lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
 				if (curlvl == LWS_QUIC_LEVEL_EARLY)
 					pending_lvl = LWS_QUIC_LEVEL_APP;
 
-				if ((f->type & 0xfe) == LWS_QUIC_FT_DATAGRAM) {
+				if (lws_quic_frame_not_retransmitted(f)) {
 					/*
-					 * RFC 9221: DATAGRAM frames are
-					 * never retransmitted.  The lost
-					 * bytes still count for cc, but the
-					 * frame itself is freed, the same
-					 * as the PTO sweep path.
+					 * The lost bytes still count for cc,
+					 * but the frame itself is freed, the
+					 * same as the PTO sweep path.
 					 */
 					lws_free(f);
 				} else {
@@ -3047,6 +3058,22 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 					continue;
 				}
 			} else if (f->has_dest) {
+				/*
+				 * A frame with its own destination only ever
+				 * starts a packet, where the probe path clamp
+				 * above sized the whole packet for that
+				 * destination.  One that lost its place at the
+				 * head (requeued after loss, or behind frames
+				 * added at the head) waits until it is back
+				 * there: otherwise the frames bundled ahead of
+				 * it would go with it to an address that may
+				 * not be validated, uncharged against its 3x
+				 * allowance (RFC 9000 9.3.1, 21.1.1.1).
+				 */
+				if ((size_t)(p - buf) != header_len) {
+					d = d1;
+					continue;
+				}
 				packet_dest_sa46 = f->dest_sa46;
 				has_packet_dest = 1;
 			}
@@ -3473,7 +3500,7 @@ lws_quic_pto_sweep(struct lws *wsi)
 				/* Packet lost! */
 				lws_dll2_remove(&f->list);
 				total_bytes_lost += f->wire_len;
-				if ((f->type & 0xfe) == LWS_QUIC_FT_DATAGRAM) {
+				if (lws_quic_frame_not_retransmitted(f)) {
 					lws_free(f);
 				} else {
 					lws_dll2_add_head(&f->list, &qn->pending_tx[level]);
