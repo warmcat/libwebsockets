@@ -43,38 +43,43 @@ LLVMFuzzerInitialize(int *argc, char ***argv)
 
 #define MAX_LINES (100000)
 
-int
-LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
+static void
+run(const uint8_t *data, size_t size, char hold)
 {
-	const uint8_t *buf, *pix, *before;
+	const uint8_t *buf = data, *pix, *before;
+	size_t len = size;
 	lws_stateful_ret_t r;
 	lws_jpeg_t *j;
-	size_t len;
 	int n = 0;
-
-	if (!size)
-		return 0;
 
 	j = lws_jpeg_new();
 	if (!j)
-		return 0;
-
-	buf = data + 1;
-	len = size - 1;
+		return;
 
 	while (n++ < MAX_LINES) {
 		before = buf;
-		r = lws_jpeg_emit_next_line(j, &pix, &buf, &len, data[0] & 1);
+		r = lws_jpeg_emit_next_line(j, &pix, &buf, &len, hold);
 
 		if (r & LWS_SRET_FATAL || r == LWS_SRET_OK)
 			break;
 
 		/* stalled with nothing consumed and nothing left? */
+
 		if (r == LWS_SRET_WANT_INPUT && (!len || buf == before))
 			break;
 	}
 
 	lws_jpeg_free(&j);
+}
+
+int
+LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
+{
+	if (!size)
+		return 0;
+
+	run(data, size, 0);
+	run(data, size, 1);
 
 	return 0;
 }

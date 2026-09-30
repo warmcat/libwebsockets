@@ -6,9 +6,12 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * The first input byte's LSB is used as the hold_at_metadata flag and the
- * rest is fed to the stateful decoder until it completes, fails, or stops
- * making progress.  This covers the chunked IDAT inflate path as well as
+ * The whole input is fed to the stateful decoder, once with hold_at_metadata
+ * clear and once with it set, until it completes, fails, or stops making
+ * progress.  (Taking the flag from the first input byte, as this used to,
+ * meant every seed's signature byte set the flag and the decoder was fed
+ * from byte 1, so it failed the signature check at once and nothing past it
+ * was ever exercised.)  This covers the chunked IDAT inflate path as well as
  * the PNG framing itself.
  */
 
@@ -35,28 +38,22 @@ LLVMFuzzerInitialize(int *argc, char ***argv)
 
 #define MAX_LINES (100000)
 
-int
-LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
+static void
+run(const uint8_t *data, size_t size, char hold)
 {
-	const uint8_t *buf, *pix, *before;
-	size_t len;
-	lws_upng_t *u;
+	const uint8_t *buf = data, *pix, *before;
+	size_t len = size;
 	lws_stateful_ret_t r;
+	lws_upng_t *u;
 	int n = 0;
-
-	if (!size)
-		return 0;
 
 	u = lws_upng_new();
 	if (!u)
-		return 0;
-
-	buf = data + 1;
-	len = size - 1;
+		return;
 
 	while (n++ < MAX_LINES) {
 		before = buf;
-		r = lws_upng_emit_next_line(u, &pix, &buf, &len, data[0] & 1);
+		r = lws_upng_emit_next_line(u, &pix, &buf, &len, hold);
 
 		if (r & LWS_SRET_FATAL || r == LWS_SRET_OK)
 			break;
@@ -68,6 +65,16 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	}
 
 	lws_upng_free(&u);
+}
+
+int
+LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
+{
+	if (!size)
+		return 0;
+
+	run(data, size, 0);
+	run(data, size, 1);
 
 	return 0;
 }
