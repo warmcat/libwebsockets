@@ -40,12 +40,14 @@ const char *lws_wsi_tag(struct lws *wsi) {
 				do { (void)(fo); (void)(f); (void)(ev); } while (0)
 #endif
 
-const enum lwsi_state lws_lrs_of_close[8] = {
+const enum lwsi_state lws_lrs_of_close[16] = {
 	[LCS_NONE]			= LRS_UNCONNECTED, /* not used */
 	[LCS_WAITING_TO_SEND_CLOSE]	= LRS_WAITING_TO_SEND_CLOSE,
 	[LCS_RETURNED_CLOSE]		= LRS_RETURNED_CLOSE,
 	[LCS_AWAITING_CLOSE_ACK]	= LRS_AWAITING_CLOSE_ACK,
+	[LCS_CLOSING]			= LRS_UNCONNECTED, /* not used */
 	[LCS_FLUSHING_BEFORE_CLOSE]	= LRS_FLUSHING_BEFORE_CLOSE,
+	[LCS_CLOSE_WHEN_FLUSHED]	= LRS_FLUSHING_BEFORE_CLOSE,
 	[LCS_SHUTDOWN]			= LRS_SHUTDOWN,
 	[LCS_DEAD_SOCKET]		= LRS_DEAD_SOCKET,
 	[LCS_USER_TOLD]			= LRS_DEAD_SOCKET,
@@ -1237,8 +1239,7 @@ void lws_wsi_role_transition_ev(struct lws *wsi, enum lwsi_role role,
 	 */
 	if (lts != LTS_NONE || lcr != LCR_NONE ||
 	    ((unsigned int)state & LRS_MASK) != LRS_UNCONNECTED)
-		wsi->wsistate |= old & (LWSIFS_ATTR_MASK | LWSI_CLOSE_MASK |
-					LWSIFS_CLOSE_STARTED);
+		wsi->wsistate |= old & (LWSIFS_ATTR_MASK | LWSI_CLOSE_MASK);
 	/*
 	 * ...and neither is the close machine: a role change row that can
 	 * fire from a close phase (the ANY-from ALPN and webtransport rows)
@@ -1916,7 +1917,7 @@ int LWS_WARN_UNUSED_RESULT lws_raw_transaction_completed(struct lws *wsi) {
 		 */
 
 		lwsl_wsi_debug(wsi, "deferring due to partial");
-		lws_wsi_event(wsi, LWS_WSIEV_CLOSE_FLUSH);
+		lws_wsi_event(wsi, LWS_WSIEV_CLOSE_WHEN_FLUSHED);
 		lws_set_timeout(wsi, PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE, 5);
 		lws_callback_on_writable(wsi);
 

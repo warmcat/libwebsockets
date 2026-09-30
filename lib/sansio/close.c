@@ -543,7 +543,10 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	 * setup does not
 	 */
 	est_at_entry = lwsi_state_est(wsi);
-	lwsi_set_close_started(wsi);
+	/* the close machine says the close has begun */
+	if (lwsi_close(wsi) == LCS_NONE ||
+	    lwsi_close(wsi) == LCS_CLOSE_WHEN_FLUSHED)
+		lws_wsi_event(wsi, LWS_WSIEV_CLOSE_ENTERED);
 
 #ifdef LWS_WITH_CGI
 	if (lwsi_role_cgi(wsi)) {

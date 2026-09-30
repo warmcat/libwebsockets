@@ -338,7 +338,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 	}
 #endif
 
-	if (lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE) {
+	if (lwsi_flushing_to_close(wsi)) {
 		if (!lws_has_buffered_out(wsi)) {
 			lwsi_set_skt_unusable(wsi, 1);
 			return -1;
@@ -534,7 +534,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 #endif
 		) {
 			lwsl_wsi_notice(wsi, "closing stream after h3 action completed (%d)", n);
-			lws_wsi_event(wsi, LWS_WSIEV_CLOSE_FLUSH);
+			lws_wsi_event(wsi, LWS_WSIEV_CLOSE_WHEN_FLUSHED);
 			return 0;
 		}
 		lwsl_debug("H3_TRACE: wsi %p lws_http_action returned 0 (success)\n", wsi);

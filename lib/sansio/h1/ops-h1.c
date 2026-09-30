@@ -552,7 +552,7 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport,
 				(int)wsi->a.context->timeout_secs);
 
 	/* just ignore incoming if waiting for close */
-	if (lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE) {
+	if (lwsi_flushing_to_close(wsi)) {
 		lwsl_notice("%s: just ignoring\n", __func__);
 		/* what the transport brought is dropped, what was parked stays */
 		*used = from_transport ? len : 0;

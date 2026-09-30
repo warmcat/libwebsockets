@@ -317,22 +317,36 @@ enum lws_close_phase {
 	LCS_WAITING_TO_SEND_CLOSE,	/* ws: we have a CLOSE frame to send */
 	LCS_RETURNED_CLOSE,		/* ws: peer's CLOSE seen, we answered */
 	LCS_AWAITING_CLOSE_ACK,		/* ws: we sent CLOSE, waiting for his */
-	LCS_FLUSHING_BEFORE_CLOSE,	/* draining buffered tx, then close */
+	LCS_CLOSING,			/* __lws_close_free_wsi() entered, with
+					 * nothing yet to wait for: lwsi_state()
+					 * still reports the live state */
+	LCS_FLUSHING_BEFORE_CLOSE,	/* the close drains buffered tx first */
+	LCS_CLOSE_WHEN_FLUSHED,		/* a live connection is to close once
+					 * its buffered tx has drained */
 	LCS_SHUTDOWN,			/* half-closed, waiting for his FIN */
 	LCS_DEAD_SOCKET,		/* out of the fd table, being freed */
 	LCS_USER_TOLD			/* dead, and the user has had CLOSED */
 };
 
 #define LWSI_CLOSE_SHIFT	12
-#define LWSI_CLOSE_MASK		(0x7u << LWSI_CLOSE_SHIFT)
-#define LWSIFS_CLOSE_STARTED	0x8000u	/* __lws_close_free_wsi() entered */
+#define LWSI_CLOSE_MASK		(0xfu << LWSI_CLOSE_SHIFT)
 
-extern const enum lwsi_state lws_lrs_of_close[8];
+extern const enum lwsi_state lws_lrs_of_close[16];
 
 #define lwsi_close(wsi) ((enum lws_close_phase) \
 		((wsi->wsistate & LWSI_CLOSE_MASK) >> LWSI_CLOSE_SHIFT))
-#define lwsi_close_started(wsi) (!!(wsi->wsistate & LWSIFS_CLOSE_STARTED))
-#define lwsi_set_close_started(wsi) wsi->wsistate |= LWSIFS_CLOSE_STARTED
+/*
+ * __lws_close_free_wsi() has been entered: every close phase says so, but
+ * the peer's close we are still to answer, and a live connection's flush
+ * before its close
+ */
+#define lwsi_close_started(wsi) (lwsi_close(wsi) != LCS_NONE && \
+				 lwsi_close(wsi) != LCS_RETURNED_CLOSE && \
+				 lwsi_close(wsi) != LCS_CLOSE_WHEN_FLUSHED)
+/* draining buffered tx, and closing when it has gone */
+#define lwsi_flushing_to_close(wsi) \
+		(lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE || \
+		 lwsi_close(wsi) == LCS_CLOSE_WHEN_FLUSHED)
 
 void
 lws_wsi_set_close_ev(struct lws *wsi, enum lws_close_phase phase,
@@ -340,12 +354,15 @@ lws_wsi_set_close_ev(struct lws *wsi, enum lws_close_phase phase,
 
 /*
  * The state as readers have always seen it: a close in progress overrides
- * everything, transport setup in progress overrides the live state
+ * everything, but a close that has nothing to wait for yet, transport setup
+ * in progress overrides the live state
  */
 static inline enum lwsi_state
 lwsi_state_of_word(lws_wsi_state_t w)
 {
-	if (w & LWSI_CLOSE_MASK)
+	if ((w & LWSI_CLOSE_MASK) &&
+	    (w & LWSI_CLOSE_MASK) != ((lws_wsi_state_t)LCS_CLOSING <<
+							LWSI_CLOSE_SHIFT))
 		return lws_lrs_of_close[(w & LWSI_CLOSE_MASK) >> LWSI_CLOSE_SHIFT];
 	if (w & LWSI_TRANSPORT_MASK)
 		return lws_lrs_of_transport[(w & LWSI_TRANSPORT_MASK) >>
@@ -478,7 +495,10 @@ enum lws_wsi_event {
 	LWS_WSIEV_WS_CLOSE_INITIATED,	/* we have a CLOSE frame to send */
 	LWS_WSIEV_WS_CLOSE_SENT,	/* ... it went, await the peer's */
 	LWS_WSIEV_WS_PEER_CLOSE,	/* the peer's CLOSE came first */
+	LWS_WSIEV_CLOSE_ENTERED,	/* __lws_close_free_wsi() came in */
 	LWS_WSIEV_CLOSE_FLUSH,		/* drain buffered tx, then close */
+	LWS_WSIEV_CLOSE_WHEN_FLUSHED,	/* a live connection is to close once
+					 * its buffered tx has gone */
 	LWS_WSIEV_CLOSE_STAGED,		/* half-closed, waiting for the FIN */
 	LWS_WSIEV_SOCKET_GONE,		/* out of the fd table */
 	LWS_WSIEV_USER_TOLD,		/* the CLOSED callback ran */

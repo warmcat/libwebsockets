@@ -115,7 +115,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		/* leave POLLOUT active either way */
 		goto bail_ok;
 	} else
-		if (lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE) {
+		if (lwsi_flushing_to_close(wsi)) {
 			lwsi_set_skt_unusable(wsi, 1);
 			goto bail_die; /* retry closing now */
 		}

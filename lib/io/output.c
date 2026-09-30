@@ -62,11 +62,12 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 
 	/*
 	 * just ignore sends after we cleared the truncation buffer... of a
-	 * close that has started: the flushing phase is also entered from
-	 * outside by lws_raw_transaction_completed(), on a live connection
+	 * close that has started.  A live connection that is to close once
+	 * flushed (LCS_CLOSE_WHEN_FLUSHED, lws_raw_transaction_completed()) is
+	 * not in a close yet, and what it sends still goes.
 	 */
 	if (lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE &&
-	    lwsi_close_started(wsi) && !lws_has_buffered_out(wsi)
+	    !lws_has_buffered_out(wsi)
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	    && !wsi->http.comp_ctx.may_have_more
 #endif
@@ -186,7 +187,7 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 			lwsl_wsi_info(wsi, "buflist_out flushed");
 
 			m = (unsigned int)real_len;
-			if (lwsi_close(wsi) == LCS_FLUSHING_BEFORE_CLOSE) {
+			if (lwsi_flushing_to_close(wsi)) {
 				lwsl_wsi_info(wsi, "*signalling to close now");
 				return -1; /* retry closing now */
 			}

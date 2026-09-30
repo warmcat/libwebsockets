@@ -33,15 +33,14 @@ describes what they mean.
 ## The state word
 
 ```
- 31 30   24 23    20 19    16 15 14  12 11 10   9    8   7      0
- [u][role ][carrier][transp] [cs][close][- - ][nest][pocb][ state ]
+ 31 30   24 23    20 19    16 15      12 11 10   9    8   7      0
+ [u][role ][carrier][transp] [ close  ][- - ][nest][pocb][ state ]
 ```
 
 |bits|holds|read with|set with|
 |---|---|---|---|
 |0-9|the live state: the transaction machine's `LRS_` value with its `LWSIFS_POCB` / `LWSIFS_NOT_EST` qualifiers|`lwsi_state_live()`|`lws_wsi_event()`|
-|12-14|close machine, `enum lws_close_phase` `LCS_*`|`lwsi_close()`|`lws_wsi_event()`, a row to a close phase|
-|15|`LWSIFS_CLOSE_STARTED`: `__lws_close_free_wsi()` has been entered|||
+|12-15|close machine, `enum lws_close_phase` `LCS_*`|`lwsi_close()`, and `lwsi_close_started()` for "`__lws_close_free_wsi()` has been entered"|`lws_wsi_event()`, a row to a close phase|
 |16-19|transport machine, `enum lws_transport_phase` `LTS_*`|`lwsi_transport()`|`lws_wsi_event()`, a row to a transport phase|
 |20-23|carrier machine, `enum lws_carrier_phase` `LCR_*`|`lwsi_carrier()`|`lws_wsi_event()` routes handshake states here|
 |24-29|role flags: client / server side, h2 encapsulation|`lwsi_role_*()`|`lws_wsi_event()`, a row that names a side|
@@ -217,7 +216,9 @@ The close machine runs on top of the others without disturbing them.
                 |                                                   v
 (ws, peer closed) --> RETURNED_CLOSE --> FLUSHING_BEFORE_CLOSE --> [SHUTDOWN] --> DEAD_SOCKET --> USER_TOLD
                                              ^
-(anything else) -----------------------------+
+(anything else) --> CLOSING -----------------+
+                                             ^
+(live, raw / h3) --> CLOSE_WHEN_FLUSHED -----+
 ```
 
 - `WAITING_TO_SEND_CLOSE`: we initiated a ws close and have a CLOSE frame
@@ -225,9 +226,15 @@ The close machine runs on top of the others without disturbing them.
 - `AWAITING_CLOSE_ACK`: our CLOSE was sent, waiting for the peer's.
 - `RETURNED_CLOSE`: the peer's CLOSE arrived first; we answer it as a PONG
   would be, then close.  One encoding on both sides.
-- `FLUSHING_BEFORE_CLOSE`: drain buffered tx, then close.  Entered from any
-  state by `lws_close_free_wsi()` when a partial is outstanding, or from
-  outside by `lws_raw_transaction_completed()` on a raw socket.
+- `CLOSING`: `__lws_close_free_wsi()` has been entered with nothing yet to
+  wait for.  `lwsi_state()` goes on reporting the live state underneath.
+- `FLUSHING_BEFORE_CLOSE`: the close drains buffered tx first.  Entered from
+  any state by `lws_close_free_wsi()` when a partial is outstanding.
+- `CLOSE_WHEN_FLUSHED`: a live connection is to be closed once its buffered
+  tx has drained: `lws_raw_transaction_completed()` on a raw socket, an h3
+  stream whose action completed.  Until the close is entered what it sends
+  still goes; entering the close makes the flush the close's own.
+  `lwsi_state()` reports it as `FLUSHING_BEFORE_CLOSE`.
 - `SHUTDOWN`: server side only, tcp half-close sent, waiting for the peer's
   FIN so the close is not seen as abortive; never on a raw socket or without
   a socket.
@@ -261,7 +268,7 @@ live state, or a live state with the carrier marked established.
 
 |option|effect|
 |---|---|
-|`LWS_WITH_STATE_TRACE`|append each distinct `(role, state) -> (role, state)` edge the process performs, once, to `$LWS_STATE_TRACE_FILE` (stderr if unset), as `LRS h1/S:HEADERS -> h1/S:ESTABLISHED set_state <wsi tag>`.  Attributes show as `+unusable`, `+failed`, `+restarting`, `+told`.|
+|`LWS_WITH_STATE_TRACE`|append each distinct `(role, state) -> (role, state)` edge the process performs, once, to `$LWS_STATE_TRACE_FILE` (stderr if unset), as `LRS h1/S:HEADERS -> h1/S:ESTABLISHED set_state <wsi tag>`.  Attributes show as `+unusable`, `+failed`, `+restarting`, `+closing`, `+told`.|
 |`LWS_WITH_STATE_CHECK`|look every edge up: a live-state edge must be one the event table produces, a phase or role change must carry an event's name (the engine made it from a row) or be a birth; `abort()` on one that is not, or that breaks an invariant, logging `unlisted wsi state edge ...` or `invariant broken on wsi state edge ...`; an event with no row aborts too|
 
 Both are off by default and change nothing about what any transition does.

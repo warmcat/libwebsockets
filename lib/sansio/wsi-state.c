@@ -124,7 +124,7 @@ lws_wsi_state_fmt(const struct lws_role_ops *ops, lws_wsi_state_t s,
 		name = tmp;
 	}
 
-	lws_snprintf(buf, len, "%s/%c%s:%s%s%s%s%s", ops ? ops->name : "(none)",
+	lws_snprintf(buf, len, "%s/%c%s:%s%s%s%s%s%s", ops ? ops->name : "(none)",
 		     (s & LWSIFR_CLIENT) ? 'C' : ((s & LWSIFR_SERVER) ? 'S' : '-'),
 		     (s & LWSI_ROLE_ENCAP_MASK) ? "e" : "", name,
 		     ((w & LWSI_TRANSPORT_MASK) >> LWSI_TRANSPORT_SHIFT) ==
@@ -133,6 +133,8 @@ lws_wsi_state_fmt(const struct lws_role_ops *ops, lws_wsi_state_t s,
 						LTS_RESTARTING ? "+restarting" : "",
 		     ((w & LWSI_CLOSE_MASK) >> LWSI_CLOSE_SHIFT) ==
 						LCS_USER_TOLD ? "+told" : "",
+		     ((w & LWSI_CLOSE_MASK) >> LWSI_CLOSE_SHIFT) ==
+						LCS_CLOSING ? "+closing" : "",
 		     (w & LWSIFS_SKT_UNUSABLE) ? "+unusable" : "");
 }
 
@@ -199,7 +201,9 @@ const char * const lws_wsi_event_names[LWS_WSIEV_COUNT] = {
 	[LWS_WSIEV_WS_CLOSE_INITIATED]	= "WS_CLOSE_INITIATED",
 	[LWS_WSIEV_WS_CLOSE_SENT]	= "WS_CLOSE_SENT",
 	[LWS_WSIEV_WS_PEER_CLOSE]	= "WS_PEER_CLOSE",
+	[LWS_WSIEV_CLOSE_ENTERED]	= "CLOSE_ENTERED",
 	[LWS_WSIEV_CLOSE_FLUSH]		= "CLOSE_FLUSH",
+	[LWS_WSIEV_CLOSE_WHEN_FLUSHED]	= "CLOSE_WHEN_FLUSHED",
 	[LWS_WSIEV_CLOSE_STAGED]	= "CLOSE_STAGED",
 	[LWS_WSIEV_SOCKET_GONE]		= "SOCKET_GONE",
 	[LWS_WSIEV_USER_TOLD]		= "USER_TOLD",
@@ -561,7 +565,14 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	{ "ws", "*", LRS_ESTABLISHED,		LWS_WSIEV_WS_PEER_CLOSE, NULL, NULL, XC(LCS_RETURNED_CLOSE) },
 	/* his CLOSE beat the one we were about to send: answer his and drop ours */
 	{ "ws", "*", LRS_WAITING_TO_SEND_CLOSE,	LWS_WSIEV_WS_PEER_CLOSE, NULL, NULL, XC(LCS_RETURNED_CLOSE) },
+	/*
+	 * the close is entered: a flush the live connection had begun is now
+	 * the close's own, else the close has begun with nothing to wait for
+	 */
+	{ "*", "*", LRS_FLUSHING_BEFORE_CLOSE,	LWS_WSIEV_CLOSE_ENTERED, NULL, NULL, XC(LCS_FLUSHING_BEFORE_CLOSE) },
+	{ "*", "*", ANY,			LWS_WSIEV_CLOSE_ENTERED, NULL, NULL, XC(LCS_CLOSING) },
 	{ "*", "*", ANY,			LWS_WSIEV_CLOSE_FLUSH, NULL, NULL, XC(LCS_FLUSHING_BEFORE_CLOSE) },
+	{ "*", "*", ANY,			LWS_WSIEV_CLOSE_WHEN_FLUSHED, NULL, NULL, XC(LCS_CLOSE_WHEN_FLUSHED) },
 	{ "*", "S", ANY,			LWS_WSIEV_CLOSE_STAGED, NULL, NULL, XC(LCS_SHUTDOWN) },
 	{ "*", "*", ANY,			LWS_WSIEV_SOCKET_GONE, NULL, NULL, XC(LCS_DEAD_SOCKET) },
 	{ "*", "*", LRS_DEAD_SOCKET,		LWS_WSIEV_USER_TOLD, NULL, NULL, XC(LCS_USER_TOLD) },

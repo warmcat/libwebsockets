@@ -1491,7 +1491,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 		/* priority 3: if no buffered out and waiting for that... */
 
-		if (lwsi_close(w) == LCS_FLUSHING_BEFORE_CLOSE) {
+		if (lwsi_flushing_to_close(w)) {
 			lwsi_set_skt_unusable(w, 1);
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "h2 end stream 1");
