@@ -226,6 +226,7 @@ lws_peer_add_wsi(struct lws_context *context, struct lws_peer *peer,
 	lws_context_lock(context, "peer add"); /* <========================== */
 
 	peer->count_wsi++;
+	peer->total_wsi++;
 	wsi->peer = peer;
 	__lws_peer_remove_from_peer_wait_list(context, peer);
 

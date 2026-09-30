@@ -296,8 +296,10 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 #if defined(LWS_WITH_PEER_LIMITS) && (defined(LWS_ROLE_H1) || \
     defined(LWS_ROLE_H2))
 	lws_context_lock(context, "ah attach"); /* <========================= */
-	if (wsi->peer)
+	if (wsi->peer) {
 		wsi->peer->http.count_ah++;
+		wsi->peer->http.total_ah++;
+	}
 	lws_context_unlock(context); /* ====================================> */
 #endif
 
@@ -458,8 +460,10 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 #if defined(LWS_WITH_PEER_LIMITS) && (defined(LWS_ROLE_H1) || \
     defined(LWS_ROLE_H2))
 	lws_context_lock(context, "ah detach"); /* <========================= */
-	if (wsi->peer)
+	if (wsi->peer) {
 		wsi->peer->http.count_ah++;
+		wsi->peer->http.total_ah++;
+	}
 	lws_context_unlock(context); /* ====================================> */
 #endif
 

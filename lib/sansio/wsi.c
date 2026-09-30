@@ -1714,12 +1714,15 @@ void lws_set_opaque_user_data(struct lws *wsi, void *data) {
 	wsi->a.opaque_user_data = data;
 }
 
+/* nothing has been pending on a parent for its child since 2018 */
 int lws_get_child_pending_on_writable(const struct lws *wsi) {
-	return wsi->parent_pending_cb_on_writable;
+	(void)wsi;
+
+	return 0;
 }
 
 void lws_clear_child_pending_on_writable(struct lws *wsi) {
-	wsi->parent_pending_cb_on_writable = 0;
+	(void)wsi;
 }
 
 const char *lws_get_vhost_name(struct lws_vhost *vhost) { return vhost->name; }
@@ -2136,6 +2139,7 @@ void lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi,
 		wsi->peer = parent_wsi->peer;
 		lws_context_lock(wsi->a.context, "mux peer child adopt");
 		wsi->peer->count_wsi++;
+		wsi->peer->total_wsi++;
 		lws_context_unlock(wsi->a.context);
 	}
 #endif
