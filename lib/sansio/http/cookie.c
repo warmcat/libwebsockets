@@ -1084,7 +1084,7 @@ lws_parse_set_cookie(struct lws *wsi)
 	while (f) {
 		cookiep = wsi->stream.ah->data + wsi->stream.ah->frags[f].offset;
 		fl = wsi->stream.ah->frags[f].len;
-		f = wsi->stream.ah->frags[f].nfrag;
+		f = lws_ah_frag_next(wsi->stream.ah, f);
 
 		if (!cookiep || !fl)
 			continue;
