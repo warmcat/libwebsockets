@@ -229,7 +229,7 @@ option(LWS_WITH_TRANSCODE "Enable video transcoding support (requires ffmpeg)" O
 option(LWS_WITH_V4L2 "Enable V4L2 support (Linux only)" OFF)
 option(LWS_WITH_LIBV4L2 "Link against libv4l2 if available" OFF)
 option(LWS_WITH_AUTH_SERVER "Include auth server plugin and its assets" OFF)
-option(LWS_WITH_EMAIL "Include async SMTP client plugin" OFF)
+option(LWS_WITH_EMAIL "Include the async SMTP client, lws_smtpc" OFF)
 option(LWS_WITH_QRCODEGEN "Include qrcodegen library natively" OFF)
 option(LWS_WITH_MEDIA_RK_MPI "Compile with Rockchip MPI hardware pipelines" OFF)
 

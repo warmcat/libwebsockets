@@ -22,3 +22,4 @@ api-test-http-attack|Hostile requests (what scripts/attack.sh did, h1 smuggling 
 api-test-oversized-headers|A request whose headers don't fit the server's header table gets 431 "Oversized headers" over h1, h2 (prior knowledge and tls) and h3, and a normal one after it is served
 api-test-ws-pmd-takeover|permessage-deflate context takeover in both directions for each client offer of server_ / client_no_context_takeover: each end resets only what the negotiation says, by role, and the server's reply carries every option it took on
 api-test-ss-server-upgrade|Secure Streams server ws upgrade over h1 and h2: the accepted stream, not the server template stream, hears LWSSSCS_SERVER_UPGRADE and then carries the ws tx
+api-test-smtp-client|The sansIO SMTP session byte for byte, then lws_smtpc end to end against a fake relay: plaintext, implicit tls and STARTTLS, refusals, deferrals, timeouts, and clients and vhosts destroyed with mail queued (`-DLWS_WITH_EMAIL=1`)

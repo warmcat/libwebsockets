@@ -182,7 +182,7 @@ struct per_vhost_data__auth_server {
 	char				email_from[128];
 	char				email_subject[256];
 	char				email_body[1024];
-	const lws_smtp_client_ops_t	*smtp;
+	struct lws_smtpc		*smtp;
 	lws_dll2_owner_t		ip_strikes;
 	lws_dll2_owner_t		ip_bans;
 	char				jwks_json[8192];
@@ -2009,7 +2009,7 @@ lws_auth_api_forgot_password(struct lws *wsi, struct per_vhost_data__auth_server
 				sqlite3_bind_int(stmt, 2, (int)uid);
 				sqlite3_bind_int64(stmt, 3, (sqlite_int64)expires);
 				if (sqlite3_step(stmt) == SQLITE_DONE) {
-					if (vhd->smtp && vhd->smtp->send_email) {
+					if (vhd->smtp) {
 						char url[512], mbody[1024];
 						lws_snprintf(url, sizeof(url), "https://%s/login?reset_token=%s", lws_get_vhost_name(vhd->vhost), token_b64);
 						lws_snprintf(mbody, sizeof(mbody), "To reset your password, click this link within 15 minutes:\n%s\nIf you did not request this, please ignore it.", url);
@@ -2019,7 +2019,10 @@ lws_auth_api_forgot_password(struct lws *wsi, struct per_vhost_data__auth_server
 						payload.to = email;
 						payload.subject = "Password Recovery";
 						payload.body = mbody;
-						vhd->smtp->send_email(vhd->context, vhd->vhost, &payload);
+						if (lws_smtpc_queue(vhd->smtp, &payload,
+								    NULL, NULL))
+							lwsl_vhost_err(vhd->vhost,
+								"failed to queue recovery mail");
 					}
 				}
 				sqlite3_finalize(stmt);
@@ -2928,7 +2931,7 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
                         goto send;
                 }
 
-                if (vhd->smtp && vhd->smtp->send_email) {
+                if (vhd->smtp) {
                         char url[512], mbody[1024];
 
                         lws_snprintf(url, sizeof(url), "https://%s/api/verify?h=%s",
@@ -2942,7 +2945,7 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
                         payload.subject = vhd->email_subject;
                         payload.body = mbody;
 
-                        if (vhd->smtp->send_email(vhd->context, vhd->vhost, &payload)) {
+                        if (lws_smtpc_queue(vhd->smtp, &payload, NULL, NULL)) {
                                 lwsl_err("Failed to queue verification email\n");
                                 pss->http_response_code = HTTP_STATUS_INTERNAL_SERVER_ERROR;
                                 len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Email Delivery Failed\"}");
@@ -3244,12 +3247,14 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 
-		{
-			const struct lws_protocols *pp = lws_vhost_name_to_protocol(vhd->vhost, "lws-smtp-client");
-			if (pp) {
-				vhd->smtp = (const lws_smtp_client_ops_t *)pp->user;
-			}
-		}
+		/*
+		 * the vhost's smtp client, as its "lws-smtp-client" pvos say:
+		 * a local relay on 127.0.0.1:25 if they say nothing
+		 */
+		vhd->smtp = lws_smtpc_vhost(vhd->vhost);
+		if (!vhd->smtp)
+			lwsl_vhost_err(vhd->vhost, "no smtp client: no mail "
+				       "can be sent");
 
 		break;
 

@@ -61,6 +61,9 @@ union lws_sockaddr46;
 #include <libwebsockets/lws-spa.h>
 #include <libwebsockets/lws-write.h>
 #include <libwebsockets/lws-writeable.h>
+#if defined(LWS_WITH_EMAIL)
+#include <libwebsockets/lws-smtp.h>
+#endif
 #endif
 /* quic's tls vocabulary: lws_io_ops_t names it in every build */
 #include <libwebsockets/lws-quic.h>
