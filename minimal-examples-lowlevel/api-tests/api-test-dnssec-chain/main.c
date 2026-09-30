@@ -28,6 +28,11 @@
  *    so this also checks the canonical RRset order is by RDATA,
  *  - the DS asked for again is answered from the cache, still validated,
  *  - answers from bad.tld and rogue.tld don't validate,
+ *  - a name whose signed CNAME points at a signed name validates, with the
+ *    target's address, and the target is asked about on its own even though
+ *    the CNAME answer brought its records along,
+ *  - a name whose CNAME is unsigned doesn't validate, although the name it
+ *    points at would,
  *  - each zone's keys were only fetched once for all of that,
  *  - once the trust anchor is replaced by one that matches no root key,
  *    nothing validates any more,
@@ -55,6 +60,7 @@
 #define ALG_P384		14
 
 #define RR_A			1
+#define RR_CNAME		5
 #define RR_DS			43
 #define RR_RRSIG		46
 #define RR_DNSKEY		48
@@ -102,10 +108,12 @@ struct trrset {
 	const char	*owner;		/* "" for the root */
 	const char	*signer;
 	uint16_t	type;
-	int		signing_key;
+	int		signing_key;	/* -1: unsigned */
 	int		rd_keys[MAX_RDATA];	/* DNSKEY: the keys, DS: key */
 	int		rd_count;
 	int		corrupt;	/* spoil the signature */
+	const char	*target;	/* CNAME: where it points */
+	int		with_target;	/* CNAME: answer for the target too */
 
 	/* made at startup */
 	uint8_t		owner_wire[64];
@@ -124,6 +132,11 @@ static const uint8_t a_www[] = { 127, 0, 0, 7 };
 	{ .owner = _owner, .signer = _signer, .type = _type, \
 	  .signing_key = _key, .corrupt = _corrupt, .rd_count = _count, \
 	  .rd_keys = { __VA_ARGS__ } }
+
+#define CNAME(_owner, _target, _key, _with_target) \
+	{ .owner = _owner, .signer = "zone.tld", .type = RR_CNAME, \
+	  .signing_key = _key, .rd_count = 1, .target = _target, \
+	  .with_target = _with_target }
 
 static struct trrset rrsets[] = {
 	RRSET("",		"",		RR_DNSKEY, K_ROOT_KSK,	0,
@@ -153,13 +166,21 @@ static struct trrset rrsets[] = {
 		2, K_ROGUE_KSK, K_ROGUE_ZSK),
 	RRSET("www.rogue.tld",	"rogue.tld",	RR_A,	   K_ROGUE_ZSK,	0,
 		1, -1),
+
+	/*
+	 * A signed CNAME to a signed name, answered with the target's records
+	 * as a recursive resolver would, and an unsigned CNAME to the same
+	 * name, answered without them, so the target has to be asked about
+	 */
+	CNAME("alias.zone.tld",	"www.zone.tld",	K_ZONE_ZSK,	1),
+	CNAME("plain.zone.tld",	"www.zone.tld",	-1,		0),
 };
 
 static struct lws_context *cx;
 static lws_sorted_usec_list_t sul_tick;
 static lws_usec_t deadline;
 static int ns_fd = -1, step, step_started, step_result, step_done, fails;
-static int ns_drop_root, teardown_ticks;
+static int ns_drop_root, teardown_ticks, step_www_asked;
 static uint8_t step_ads[4];
 
 static int
@@ -281,14 +302,22 @@ rd_cmp(const void *a, const void *b)
 static int
 sign_rrset(struct trrset *s)
 {
-	const struct tkey *k = &keys[s->signing_key];
-	enum lws_genhash_types ht = k->alg == ALG_P256 ?
-			LWS_GENHASH_TYPE_SHA256 : LWS_GENHASH_TYPE_SHA384;
+	const struct tkey *k;
+	enum lws_genhash_types ht;
 	uint32_t now = (uint32_t)lws_now_secs();
-	int order[MAX_RDATA], i, sl, kb = k->alg == ALG_P256 ? 256 : 384;
+	int order[MAX_RDATA], i, sl, kb;
 	uint8_t hash[64], hdr[10], *p = s->rrsig;
 	struct lws_genhash_ctx hc;
-	size_t siglen = (size_t)kb / 4;
+	size_t siglen;
+
+	if (s->signing_key < 0)
+		return 0; /* served without an RRSIG */
+
+	k = &keys[s->signing_key];
+	ht = k->alg == ALG_P256 ? LWS_GENHASH_TYPE_SHA256 :
+				  LWS_GENHASH_TYPE_SHA384;
+	kb = k->alg == ALG_P256 ? 256 : 384;
+	siglen = (size_t)kb / 4;
 
 	p[0] = (uint8_t)(s->type >> 8);
 	p[1] = (uint8_t)s->type;
@@ -373,6 +402,13 @@ make_hierarchy(void)
 					    s->rdata[i], &s->rdlen[i]))
 					return -1;
 				break;
+			case RR_CNAME:
+				wl = name_wire(s->target, s->rdata[i],
+					       sizeof(s->rdata[i]));
+				if (wl < 0)
+					return -1;
+				s->rdlen[i] = (uint16_t)wl;
+				break;
 			default:
 				memcpy(s->rdata[i], a_www, sizeof(a_www));
 				s->rdlen[i] = sizeof(a_www);
@@ -391,6 +427,18 @@ make_hierarchy(void)
 }
 
 /* ---- the fake nameserver ---- */
+
+static struct trrset *
+find_rrset(const char *owner, uint16_t type)
+{
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(rrsets); n++)
+		if (!strcmp(rrsets[n].owner, owner) && rrsets[n].type == type)
+			return &rrsets[n];
+
+	return NULL;
+}
 
 static int
 ns_socket(uint16_t *port)
@@ -418,18 +466,51 @@ ns_socket(uint16_t *port)
 	return fd;
 }
 
-static size_t
-put_rr(uint8_t *o, uint16_t type, const uint8_t *rd, uint16_t rdlen)
-{
-	o[0] = 0xc0; /* the owner is always the qname */
-	o[1] = 12;
-	lws_ser_wu16be(o + 2, type);
-	lws_ser_wu16be(o + 4, 1);
-	lws_ser_wu32be(o + 6, T_TTL);
-	lws_ser_wu16be(o + 10, rdlen);
-	memcpy(o + 12, rd, rdlen);
+/*
+ * One RR with owner \p ow, or if that's NULL, a pointer to the qname... the
+ * caller made sure there's room
+ */
 
-	return 12u + rdlen;
+static size_t
+put_rr(uint8_t *o, const struct trrset *ow, uint16_t type, const uint8_t *rd,
+       uint16_t rdlen)
+{
+	size_t n = 2;
+
+	if (ow) {
+		memcpy(o, ow->owner_wire, ow->owner_wire_len);
+		n = ow->owner_wire_len;
+	} else {
+		o[0] = 0xc0;
+		o[1] = 12;
+	}
+
+	lws_ser_wu16be(o + n, type);
+	lws_ser_wu16be(o + n + 2, 1);
+	lws_ser_wu32be(o + n + 4, T_TTL);
+	lws_ser_wu16be(o + n + 8, rdlen);
+	memcpy(o + n + 10, rd, rdlen);
+
+	return n + 10u + rdlen;
+}
+
+/* the RRset and its RRSIG, if it has one; returns the count of RRs */
+
+static int
+put_rrset(uint8_t *resp, size_t *o, const struct trrset *s,
+	  const struct trrset *ow)
+{
+	int i;
+
+	for (i = 0; i < s->rd_count; i++)
+		*o += put_rr(resp + *o, ow, s->type, s->rdata[i], s->rdlen[i]);
+
+	if (!s->rrsig_len)
+		return s->rd_count;
+
+	*o += put_rr(resp + *o, ow, RR_RRSIG, s->rrsig, s->rrsig_len);
+
+	return s->rd_count + 1;
 }
 
 static void
@@ -438,8 +519,8 @@ ns_answer(const uint8_t *q, size_t ql, const struct sockaddr *peer,
 {
 	uint8_t resp[1024], qn[64];
 	size_t o = 12, qe, n;
-	struct trrset *s = NULL;
-	int known = 0, i;
+	struct trrset *s = NULL, *t = NULL;
+	int known = 0, ans = 0;
 	uint16_t qtype;
 
 	/* the qname, lowercased; a query has no compression pointers */
@@ -461,7 +542,8 @@ ns_answer(const uint8_t *q, size_t ql, const struct sockaddr *peer,
 		if (rrsets[n].owner_wire_len == o - 12 + 1 &&
 		    !memcmp(rrsets[n].owner_wire, qn, o - 12 + 1)) {
 			known = 1;
-			if (rrsets[n].type == qtype)
+			if (rrsets[n].type == qtype ||
+			    rrsets[n].type == RR_CNAME)
 				s = &rrsets[n];
 		}
 
@@ -478,11 +560,18 @@ ns_answer(const uint8_t *q, size_t ql, const struct sockaddr *peer,
 		s->asked++;
 		if (ns_drop_root && !*s->owner)
 			return; /* never answered */
-		for (i = 0; i < s->rd_count; i++)
-			o += put_rr(resp + o, s->type, s->rdata[i],
-				    s->rdlen[i]);
-		o += put_rr(resp + o, RR_RRSIG, s->rrsig, s->rrsig_len);
-		lws_ser_wu16be(resp + 6, (uint16_t)(s->rd_count + 1));
+		ans = put_rrset(resp, &o, s, NULL);
+
+		/*
+		 * Like a recursive resolver, answer for the CNAME's target
+		 * too, if we have what was asked for there
+		 */
+		if (s->type == RR_CNAME && s->with_target && qtype != RR_CNAME)
+			t = find_rrset(s->target, qtype);
+		if (t)
+			ans += put_rrset(resp, &o, t, t);
+
+		lws_ser_wu16be(resp + 6, (uint16_t)ans);
 	}
 
 	if (sendto(ns_fd, (const char *)resp, o, 0, peer, peer_len) < 0)
@@ -506,18 +595,6 @@ ns_service(void)
 	}
 }
 
-static struct trrset *
-find_rrset(const char *owner, uint16_t type)
-{
-	size_t n;
-
-	for (n = 0; n < LWS_ARRAY_SIZE(rrsets); n++)
-		if (!strcmp(rrsets[n].owner, owner) && rrsets[n].type == type)
-			return &rrsets[n];
-
-	return NULL;
-}
-
 static int
 times_asked(const char *owner, uint16_t type)
 {
@@ -533,23 +610,33 @@ struct tstep {
 	uint32_t	qtype;
 	int		expect_valid;
 	int		check_a;
+	int		from_cache;	/* must be answered from the cache */
+	int		bogus_anchor;	/* set a wrong trust anchor first */
 };
 
 static const struct tstep steps[] = {
+	/*
+	 * A signed CNAME to www.zone.tld: nothing is authenticated yet, so
+	 * the CNAME has to wait for the walk down to zone.tld before we may
+	 * follow it
+	 */
+	{ "alias.zone.tld",	RR_A,		1, 1, 0, 0 },
 	/* what the DHT DNSSEC plugin asks: DS from the parent */
-	{ "zone.tld",		RR_DS,		1, 0 },
+	{ "zone.tld",		RR_DS,		1, 0, 0, 0 },
 	/* data signed by the zone's ZSK */
-	{ "www.zone.tld",	RR_A,		1, 1 },
+	{ "www.zone.tld",	RR_A,		1, 1, 0, 0 },
 	/* the zone's own keys, of mixed lengths, as an answer */
-	{ "zone.tld",		RR_DNSKEY,	1, 0 },
+	{ "zone.tld",		RR_DNSKEY,	1, 0, 0, 0 },
 	/* the same DS again: from the cache, and still validated */
-	{ "zone.tld",		RR_DS,		1, 0 },
+	{ "zone.tld",		RR_DS,		1, 0, 1, 0 },
 	/* the tld's signature over bad.tld's DS is spoiled */
-	{ "www.bad.tld",	RR_A,		0, 0 },
+	{ "www.bad.tld",	RR_A,		0, 0, 0, 0 },
 	/* rogue.tld's DNSKEY RRset isn't signed by the key its DS names */
-	{ "www.rogue.tld",	RR_A,		0, 0 },
+	{ "www.rogue.tld",	RR_A,		0, 0, 0, 0 },
+	/* an unsigned CNAME to it isn't believed */
+	{ "plain.zone.tld",	RR_A,		0, 0, 0, 0 },
 	/* after the anchor is replaced by one that matches no root key */
-	{ "www.zone.tld",	RR_A | LWS_ADNS_NOCACHE, 0, 0 },
+	{ "www.zone.tld",	RR_A | LWS_ADNS_NOCACHE, 0, 0, 0, 1 },
 };
 
 static struct lws *
@@ -618,6 +705,18 @@ step_check(void)
 		return;
 	}
 
+	if (!strcmp(t->name, "alias.zone.tld") &&
+	    times_asked("www.zone.tld", RR_A) != step_www_asked + 1) {
+		/*
+		 * The target's records came with the CNAME, but they are
+		 * only good once the target's own answer validated
+		 */
+		lwsl_err("step %d: the CNAME target wasn't asked about\n",
+			 step);
+		fails++;
+		return;
+	}
+
 	if ((t->qtype & 0xffff) == RR_DS && valid) {
 		const struct trrset *s = find_rrset(t->name, RR_DS);
 		uint16_t pl = 0;
@@ -656,7 +755,7 @@ step_start(void)
 	const struct tstep *t = &steps[step];
 	int n, ds_asked = times_asked("zone.tld", RR_DS);
 
-	if (step == 6) {
+	if (t->bogus_anchor) {
 		/*
 		 * Each zone's keys were only fetched once for everything so
 		 * far; zone.tld's DS and DNSKEY RRsets were also each asked
@@ -676,13 +775,14 @@ step_start(void)
 
 	step_done = 0;
 	step_result = LADNS_RET_FAILED;
+	step_www_asked = times_asked("www.zone.tld", RR_A);
 
 	n = lws_async_dns_query(cx, 0, t->name, (adns_query_type_t)(t->qtype |
 					LWS_ADNS_WANT_DNSSEC |
 					LWS_ADNS_IGNORE_HOSTS_FILE),
 				query_cb, NULL, NULL, NULL);
 
-	if (step == 3) {
+	if (t->from_cache) {
 		/* this one must have been answered from the cache */
 		if (n == LADNS_RET_CONTINUING || !step_done ||
 		    times_asked("zone.tld", RR_DS) != ds_asked) {

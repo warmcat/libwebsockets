@@ -196,7 +196,7 @@ typedef struct lws_adns_q {
 	uint8_t			dnssec_need_mask; /* responses that must validate */
 
 	uint8_t			dnssec_valid:1;  /* results are verified */
-	uint8_t			dnssec_chk_cname:1; /* currently checking a CNAME */
+	uint8_t			dnssec_chk_cname:1; /* validating the CNAME we chase */
 	uint8_t			lacks_dnssec:1; /* per-query DNSSEC override */
 #endif
 
@@ -281,6 +281,16 @@ int
 lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 		       uint8_t resp);
 
+/*
+ * The response at \p pkt answers the queried name with a CNAME to \p target:
+ * validate the CNAME, and only if it validates, restart q for the target.
+ * Returns < 0 if q must be failed, else q was restarted, or is waiting on the
+ * CNAME's zone and will be restarted or failed when that settles.
+ */
+int
+lws_adns_dnssec_cname(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
+		      uint8_t resp, const char *target);
+
 /* destroy the authenticated zone store and the trust anchors */
 void
 lws_adns_dnssec_deinit(lws_async_dns_t *dns);
@@ -288,7 +298,11 @@ lws_adns_dnssec_deinit(lws_async_dns_t *dns);
 
 int
 lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
-		 const char *expname, lws_async_dns_find_t cb, void *opaque);
+		 const char *expname, lws_async_dns_find_t cb, void *opaque,
+		 char *cname);
+
+int
+lws_adns_q_cname_restart(lws_adns_q_t *q, const char *target);
 
 #if defined(LWS_WITH_SYS_SMD)
 /*

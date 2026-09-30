@@ -20,6 +20,11 @@ It checks that
  - the DS asked for again is served from the cache and is still reported
    `LWS_ADNS_DNSSEC_VALID`
  - answers from `bad.tld.` and `rogue.tld.` are refused
+ - a name whose signed CNAME points at a signed name validates with the
+   target's address, and the target is asked about on its own although the
+   CNAME answer brought its records along, like a recursive resolver's does
+ - a name whose CNAME is unsigned is refused, although the name it points at
+   would validate
  - each zone's keys were only fetched once for all of that
  - after the trust anchor is replaced by one that matches no root key, the
    chain is walked again from the root and nothing validates

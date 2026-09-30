@@ -198,18 +198,30 @@ lws_adns_name_cmp(const char *a, const char *b)
  *
  * Able to recurse using an explicit non-CPU stack to resolve CNAME usages
  *
+ * A query that validates doesn't follow a CNAME inside the packet: the
+ * target's records are signed, if at all, by the target's zone, and would be
+ * taken on the strength of a CNAME nothing checked.  Only the queried name's
+ * own records are walked, and a CNAME of the queried name is reported to the
+ * caller as one to chase, like one whose target isn't in the packet.
+ *
+ * If \p cname is not NULL, it is a DNS_MAX buffer, and when the answer is a
+ * CNAME whose resolution we have to ask for separately, the target is copied
+ * there and we return 2.
+ *
  * Return -1: unexpectedly failed
  *         0: found
  *         1: didn't find anything matching
+ *         2: a CNAME has to be chased, the target is in \p cname
  */
 
 int
 lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
-		 const char *expname, lws_async_dns_find_t cb, void *opaque)
+		 const char *expname, lws_async_dns_find_t cb, void *opaque,
+		 char *cname)
 {
 	uint16_t rrtype, rrpaylen, expqtype, expqtype2;
 	const uint8_t *e = pkt + len, *p, *pay;
-	int n = 0, m, stp = 0, ansc, found = 0;
+	int n = 0, m, stp = 0, ansc, found = 0, follow = 1, cname_seen = 0;
 	char rrname[DNS_MAX + 10];
 	struct label_stack stack[8];
 	char *sp, inq;
@@ -217,6 +229,10 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 
 	if (len < DHO_SIZEOF || len > LWS_ADNS_MAX_PAYLOAD)
 		return -1;
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	follow = !lws_adns_q_validates(q);
+#endif
 
 	/*
 	 * stack[0].name holds the name we are looking for and is never used as
@@ -419,16 +435,23 @@ do_cb:
 			 * stack level buffer for it.
 			 */
 
-			if (++stp == (int)LWS_ARRAY_SIZE(stack)) {
+			if (!follow && cname_seen) {
+				/* RFC 2181 10.1: a name has only one CNAME */
+				lwsl_notice("%s: more than one CNAME\n",
+					    __func__);
+
+				return -1;
+			}
+
+			if (stp + 1 == (int)LWS_ARRAY_SIZE(stack)) {
 				lwsl_notice("%s: CNAMEs too deep\n", __func__);
 
 				return -1;
 			}
-			sp = stack[stp].name;
+			sp = stack[stp + 1].name;
 			/* get the cname alias */
 			n = lws_adns_parse_label(pkt, len, p, rrpaylen, &sp,
-						 sizeof(stack[stp].name) -
-						 lws_ptr_diff_size_t(sp, stack[stp].name));
+						 sizeof(stack[stp + 1].name));
 			/* includes case name won't fit */
 			if (n < 0)
 				return -1;
@@ -442,8 +465,8 @@ do_cb:
 			 * name we were asked for in the first place.
 			 */
 
-			m = (int)strlen(stack[stp].name);
-			if (m && stack[stp].name[m - 1] == '.')
+			m = (int)strlen(stack[stp + 1].name);
+			if (m && stack[stp + 1].name[m - 1] == '.')
 				m--;
 			if (m >= DNS_MAX - 1) {
 				lwsl_notice("%s: CNAME target too long\n",
@@ -452,6 +475,20 @@ do_cb:
 				return -1;
 			}
 
+			if (!follow) {
+				/*
+				 * Validating: note where the queried name
+				 * points, but look no further in this packet.
+				 * The CNAME is itself an RRset that has to be
+				 * validated before we act on it, so it's
+				 * passed to the callback like the others.
+				 */
+				cb(rrname, opaque, ttl, rrtype, rrpaylen, p);
+				cname_seen = 1;
+				goto skip; /* p is still at the RDATA */
+			}
+
+			stp++;
 			p += n;
 
 			if (p > e)
@@ -513,12 +550,12 @@ skip:
 	if (found)
 		return 0; /* resolved from inside this response */
 
-	if (!stp || cb != lws_async_dns_estimate)
-		return 1; /* we didn't find anything, but we didn't error */
+	if (!follow && cname_seen)
+		/* the CNAME of the queried name, at stack[1] */
+		stp = 1;
 
-	lwsl_info("%s: '%s' -> CNAME '%s' resolution not provided, recursing\n",
-			__func__, ((const char *)&q[1]) + DNS_MAX,
-			stack[stp].name);
+	if (!stp || !cname)
+		return 1; /* we didn't find anything, but we didn't error */
 
 	/*
 	 * This implies there wasn't any usable definition for the
@@ -530,9 +567,37 @@ skip:
 	 * told us just the CNAME and left it to us to find out its resolution
 	 * separately.
 	 *
-	 * Reset this request to be for the CNAME, and restart the request
-	 * action with a new tid.
+	 * The target was held to less than DNS_MAX - 1 chars, not counting
+	 * a final '.', when it was decoded, so it fits.
 	 */
+
+	lwsl_info("%s: '%s' -> CNAME '%s' resolution not provided\n",
+			__func__, ((const char *)&q[1]) + DNS_MAX,
+			stack[stp].name);
+
+	lws_strncpy(cname, stack[stp].name, DNS_MAX);
+
+	return 2;
+}
+
+/*
+ * Reset q to be a query for the CNAME target \p target, and restart the
+ * request action with a new tid.  Answers still to come for the old name
+ * don't match the new tid, and are dropped.
+ *
+ * Returns 0 if the query was restarted, or nonzero if it must be failed.
+ */
+
+int
+lws_adns_q_cname_restart(lws_adns_q_t *q, const char *target)
+{
+	int n = 0;
+
+	if (++q->recursion >= DNS_RECURSION_LIMIT) {
+		lwsl_err("%s: recursion overflow\n", __func__);
+
+		return -1;
+	}
 
 	if (lws_async_dns_get_new_tid(q->context, q))
 		return -1;
@@ -544,17 +609,26 @@ skip:
 #endif
 	q->sent[0] = 0;
 	q->is_synthetic = 0;
-	q->recursion++;
-	if (q->recursion == DNS_RECURSION_LIMIT) {
-		lwsl_err("%s: recursion overflow\n", __func__);
-
-		return -1;
-	}
 
 	if (q->firstcache)
 		lws_adns_cache_destroy(q->firstcache);
 	q->firstcache = NULL;
 	q->last = NULL; /* it pointed into the cache we just freed */
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	/*
+	 * Nothing validated, or being validated, for the old name has
+	 * anything to say about the new one: its answers have to validate
+	 * on their own account.  A validation still pending for the other
+	 * half of an address pair would otherwise complete the new query
+	 * with the new name's records when it settled.
+	 */
+	lws_adns_dnssec_q_destroy(q);
+	q->dnssec_verify_rrsig = 0;
+	q->dnssec_valid_mask = 0;
+	q->dnssec_need_mask = 0;
+	q->dnssec_chk_cname = 0;
+#endif
 
 	/*
 	 * Overwrite the query name with the CNAME... the region behind q is
@@ -566,14 +640,13 @@ skip:
 	 * this is just belt-and-braces on the actual destination.
 	 */
 
-	n = 0;
 	{
 		char *cp = (char *)&q[1], *cpe = cp + DNS_MAX - 1;
 
-		while (stack[stp].name[n] && cp < cpe)
-			*cp++ = (char)tolower((uint8_t)stack[stp].name[n++]);
+		while (target[n] && cp < cpe)
+			*cp++ = (char)tolower((uint8_t)target[n++]);
 
-		if (stack[stp].name[n]) {
+		if (target[n]) {
 			lwsl_notice("%s: CNAME target too long\n", __func__);
 
 			return -1;
@@ -588,7 +661,7 @@ skip:
 	if (q->dsrv && q->dsrv->wsi)
 		lws_callback_on_writable(q->dsrv->wsi);
 
-	return 2;
+	return 0;
 }
 
 /*
@@ -839,6 +912,16 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 			(LADNS_MOST_RECENT_TID(q) & 0xfffe))
 		return;
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	if (q->dnssec_chk_cname)
+		/*
+		 * The queried name is a CNAME, and we are only waiting for
+		 * the CNAME to validate before we ask about its target: what
+		 * else is answered about the old name no longer matters
+		 */
+		return;
+#endif
+
 	if (q->qtype == LWS_ADNS_RECORD_A || q->qtype == LWS_ADNS_RECORD_AAAA)
 		rn = 1 << (lws_ser_ru16be(pkt + DHO_TID) & 1);
 	else
@@ -929,13 +1012,32 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	est.ai = 0;
 	est.rr = 0;
 	if (lws_ser_ru16be(pkt + DHO_NANSWERS) || lws_ser_ru16be(pkt + DHO_NAUTH)) {
+		char cname[DNS_MAX];
 		int ir = lws_adns_iterate(q, pkt, (int)len, nmcname,
-					  lws_async_dns_estimate, &est);
+					  lws_async_dns_estimate, &est, cname);
 		if (ir < 0)
 			goto fail_out;
 
-		if (ir == 2) /* CNAME recursive resolution */
+		if (ir == 2) { /* CNAME recursive resolution */
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+			if (lws_adns_q_validates(q)) {
+				/*
+				 * The CNAME itself has to validate before we
+				 * believe it and go and ask about its target
+				 */
+				if (lws_adns_dnssec_cname(q, pkt, len,
+							  (uint8_t)rn, cname) < 0)
+					goto fail_out;
+
+				/* restarted, or waiting on the CNAME's zone */
+				return;
+			}
+#endif
+			if (lws_adns_q_cname_restart(q, cname))
+				goto fail_out;
+
 			return;
+		}
 	}
 
 	alloc = sizeof(lws_adns_cache_t) + est.ai + est.rr + (unsigned int)n;
@@ -977,7 +1079,8 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	 */
 
 	if ((lws_ser_ru16be(pkt + DHO_NANSWERS) || lws_ser_ru16be(pkt + DHO_NAUTH)) &&
-	    lws_adns_iterate(q, pkt, (int)len, nmcname, lws_async_dns_store, &adst) < 0) {
+	    lws_adns_iterate(q, pkt, (int)len, nmcname, lws_async_dns_store,
+			     &adst, NULL) < 0) {
 		lws_free(c);
 		goto fail_out;
 	}

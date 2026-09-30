@@ -133,6 +133,12 @@ struct lws_dnssec_val_ctx {
 	uint8_t			sig_buf[512];
 
 	uint8_t			hash[64];
+
+	/*
+	 * If we are validating the queried name's CNAME, where it points:
+	 * the query is restarted for it once the CNAME validated.  Else "".
+	 */
+	char			cname[DNS_MAX];
 };
 
 struct rrsig_search {
@@ -158,6 +164,8 @@ struct rr_canonical {
 };
 
 struct rrset_search {
+	const uint8_t *pkt; /* the response, to expand names in RDATA with */
+	int pkt_len;
 	uint16_t type_covered;
 	const char *name; /* From query or RRSIG */
 	uint32_t original_ttl;
@@ -168,6 +176,9 @@ struct rrset_search {
 
 static void
 lws_dnssec_zone_sul_cb(lws_sorted_usec_list_t *sul);
+
+static int
+lws_dnssec_name_wire(const char *name, uint8_t *wire, size_t wire_len);
 
 static int
 name_to_wire(const char *name, int rrsig_labels, uint8_t *wire)
@@ -288,7 +299,27 @@ lws_dnssec_rrset_cb(const char *name, void *opaque, uint32_t ttl,
 
 	r->rd_off = (size_t)(p - r->data);
 
-	if (rrpaylen) {
+	if (type == LWS_ADNS_RECORD_CNAME) {
+		/*
+		 * RFC 4034 6.2: the name in a CNAME's RDATA is hashed in
+		 * its canonical form, uncompressed and lowercased, whatever
+		 * form it took in the packet.  It's decoded the same way
+		 * lws_adns_iterate() decoded the target we would chase.
+		 */
+		char tn[DNS_MAX + 10], *sp = tn;
+		int n = lws_adns_parse_label(s->pkt, s->pkt_len, payload,
+					     rrpaylen, &sp, sizeof(tn));
+
+		if (n < 0)
+			return -1;
+
+		n = lws_dnssec_name_wire(tn, p, sizeof(r->data) - r->rd_off);
+		if (n < 0)
+			return -1;
+
+		lws_ser_wu16be(p - 2, (uint16_t)n);
+		p += n;
+	} else if (rrpaylen) {
 		memcpy(p, payload, rrpaylen);
 		p += rrpaylen;
 	}
@@ -1467,10 +1498,25 @@ lws_dnssec_vctx_settled(lws_dnssec_zone_waiter_t *w, lws_dnssec_zone_t *z)
 	lws_adns_q_t *q = vctx->original_q;
 	uint8_t rb = vctx->resp_bit;
 	int valid = !lws_dnssec_vctx_check(vctx, z, q->context);
+	char target[DNS_MAX];
 
+	/* restarting q frees any vctx it still has, so take a copy */
+	lws_strncpy(target, vctx->cname, sizeof(target));
 	lws_dnssec_vctx_free(vctx);
 
 	q->dnssec_verify_rrsig = (uint8_t)(q->dnssec_verify_rrsig & ~rb);
+
+	if (*target) {
+		/*
+		 * It was the queried name's CNAME that we validated: only
+		 * now may we go and ask about where it points
+		 */
+		q->dnssec_chk_cname = 0;
+		if (valid && !lws_adns_q_cname_restart(q, target))
+			return;
+
+		goto fail;
+	}
 
 	if (valid) {
 		q->dnssec_valid_mask = (uint8_t)(q->dnssec_valid_mask | rb);
@@ -1500,6 +1546,7 @@ lws_dnssec_vctx_settled(lws_dnssec_zone_waiter_t *w, lws_dnssec_zone_t *z)
 		lwsl_notice("%s: not all responses validated\n", __func__);
 	}
 
+fail:
 	q->go_nogo = METRES_NOGO;
 	lws_async_dns_complete(q, NULL);
 	if (q->firstcache) {
@@ -1524,48 +1571,37 @@ lws_adns_dnssec_q_destroy(lws_adns_q_t *q)
 			lws_dnssec_vctx_free(q->dnssec_vctx_waiting[n]);
 }
 
-int
-lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
-		       uint8_t resp)
+/*
+ * Validate the \p want_type RRset of the queried name in the response at
+ * \p pkt, which is response \p resp of q.  If \p cname is given, the RRset is
+ * the queried name's CNAME, pointing to \p cname.
+ *
+ * Returning > 0 means validation is in progress (the signer's zone is
+ * still being authenticated).
+ * Returning 0 means validation succeeded.
+ * Returning < 0 means validation failed.
+ */
+
+static int
+lws_dnssec_verify_rrset(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
+			uint8_t resp, uint16_t want_type, const char *cname)
 {
 	struct rrsig_search s;
-
-	/*
-	 * This is the entry point called from async-dns-parse.c
-	 * when an A or AAAA response with an RRSIG is received (or generally
-	 * any type we want to validate).
-	 *
-	 * Returning > 0 means validation is in progress (the signer's zone is
-	 * still being authenticated).
-	 * Returning 0 means validation succeeded or DNSSEC is off/tolerate.
-	 * Returning < 0 means validation failed.
-	 */
-
-	/*
-	 * A query that must validate (REQUIRE, or asked with WANT_DNSSEC)
-	 * goes through the whole process whatever the context mode: under
-	 * OFF this used to return 0 at once, which the caller took as
-	 * "validated" and reported as LWS_ADNS_DNSSEC_VALID.
-	 */
-	if (!lws_adns_q_validates(q))
-		return 0;
 
 	/* Find RRSIGs in the packet relating to the question */
 	memset(&s, 0, sizeof(s));
 	s.q = q;
-	if (q->qtype == LWS_ADNS_RECORD_A || q->qtype == LWS_ADNS_RECORD_AAAA)
-		/* response bit 1 is the A half of the pair, bit 2 the AAAA */
-		s.want_type = (resp & 2) ? LWS_ADNS_RECORD_AAAA :
-					   LWS_ADNS_RECORD_A;
-	else
-		s.want_type = (uint16_t)q->qtype;
+	s.want_type = want_type;
 
-	/* The query name is at &q[1] (with CNAME overwrites possible, but original
-	 * query name is what we asked for).
+	/*
+	 * The name we asked about in the query this responds to: after a
+	 * CNAME was chased, that's the CNAME target, and it's that name's
+	 * records that have to validate
 	 */
 	const char *nmcname = ((const char *)&q[1]);
 
-	lws_adns_iterate(q, pkt, (int)len, nmcname, lws_dnssec_rrsig_cb, &s);
+	lws_adns_iterate(q, pkt, (int)len, nmcname, lws_dnssec_rrsig_cb, &s,
+			 NULL);
 
 	if (!s.found) {
 		/* No RRSIG found. If we REQUIRE DNSSEC, this is a failure if the zone should be signed.
@@ -1655,11 +1691,25 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 
 		struct rrset_search rs;
 		memset(&rs, 0, sizeof(rs));
+		rs.pkt = pkt;
+		rs.pkt_len = (int)len;
 		rs.type_covered = s.type_covered;
 		rs.name = nmcname;
 		rs.original_ttl = s.original_ttl;
 
-		lws_adns_iterate(q, pkt, (int)len, nmcname, lws_dnssec_rrset_cb, &rs);
+		lws_adns_iterate(q, pkt, (int)len, nmcname, lws_dnssec_rrset_cb,
+				 &rs, NULL);
+
+		/*
+		 * RFC 2181 10.1: a CNAME RRset is the one record, and it's
+		 * the one lws_adns_iterate() gave us the target of
+		 */
+		if (cname && rs.count != 1) {
+			lwsl_notice("%s: CNAME RRset of %d\n", __func__,
+				    rs.count);
+			lws_genhash_destroy(&hash_ctx, NULL);
+			return -1;
+		}
 
 		qsort(rs.records, (size_t)rs.count, sizeof(struct rr_canonical), cmp_rr);
 
@@ -1684,6 +1734,8 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 		vctx->resp_bit		= resp;
 		vctx->algorithm		= s.algorithm;
 		vctx->key_tag		= s.key_tag;
+		if (cname)
+			lws_strncpy(vctx->cname, cname, sizeof(vctx->cname));
 
 		if (sig_len > (int)sizeof(vctx->sig_buf)) {
 			lwsl_err("%s: signature too large for buffer\n", __func__);
@@ -1729,6 +1781,76 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 	}
 
 	return 0;
+}
+
+int
+lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
+		       uint8_t resp)
+{
+	uint16_t want_type;
+
+	/*
+	 * This is the entry point called from async-dns-parse.c
+	 * when an A or AAAA response with an RRSIG is received (or generally
+	 * any type we want to validate).
+	 *
+	 * Returning > 0 means validation is in progress (the signer's zone is
+	 * still being authenticated).
+	 * Returning 0 means validation succeeded or DNSSEC is off/tolerate.
+	 * Returning < 0 means validation failed.
+	 */
+
+	/*
+	 * A query that must validate (REQUIRE, or asked with WANT_DNSSEC)
+	 * goes through the whole process whatever the context mode: under
+	 * OFF this used to return 0 at once, which the caller took as
+	 * "validated" and reported as LWS_ADNS_DNSSEC_VALID.
+	 */
+	if (!lws_adns_q_validates(q))
+		return 0;
+
+	if (q->qtype == LWS_ADNS_RECORD_A || q->qtype == LWS_ADNS_RECORD_AAAA)
+		/* response bit 1 is the A half of the pair, bit 2 the AAAA */
+		want_type = (resp & 2) ? LWS_ADNS_RECORD_AAAA :
+					 LWS_ADNS_RECORD_A;
+	else
+		want_type = (uint16_t)q->qtype;
+
+	return lws_dnssec_verify_rrset(q, pkt, len, resp, want_type, NULL);
+}
+
+int
+lws_adns_dnssec_cname(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
+		      uint8_t resp, const char *target)
+{
+	/*
+	 * An unsigned CNAME, or one signed by a zone that isn't the queried
+	 * name's, would let whoever answered point a validating lookup at a
+	 * name of his choosing... whose own answers he can then sign
+	 * perfectly well.  So the CNAME RRset of the queried name has to
+	 * validate before we ask about the target, and then the target's
+	 * answers have to validate on their own (lws_adns_q_cname_restart()
+	 * forgets all validation state).
+	 */
+	int n = lws_dnssec_verify_rrset(q, pkt, len, resp,
+					LWS_ADNS_RECORD_CNAME, target);
+
+	if (n < 0)
+		return -1;
+
+	if (n) {
+		/*
+		 * Waiting for the CNAME's zone to be authenticated: the
+		 * vctx restarts or fails q when it settles.  Meanwhile the
+		 * old name's answers are ignored, so stop retrying it.
+		 */
+		q->dnssec_chk_cname = 1;
+		lws_sul_cancel(&q->sul);
+
+		return 0;
+	}
+
+	return lws_adns_q_cname_restart(q, target) ? -1 : 0;
 }
 
 void
