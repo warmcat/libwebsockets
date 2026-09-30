@@ -229,6 +229,12 @@ lws_tls_quic_session(struct lws *wsi, lws_tls_quic_secret_cb cb)
 int
 lws_tls_quic_confirm_peer(struct lws *wsi, char *ebuf, size_t ebuf_len)
 {
+	/*
+	 * The handshake is over either way: its part of the tls restriction
+	 * goes back, as tcp's does in lws_ssl_client_connect2()
+	 */
+	lws_tls_restrict_return_handshake(wsi);
+
 #if defined(LWS_WITH_CLIENT)
 	if (lwsi_role_client(wsi))
 		return lws_tls_client_confirm_peer_cert(wsi, ebuf, ebuf_len);

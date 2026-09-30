@@ -135,6 +135,21 @@ lws_tls_transfer_wsi(struct lws *from, struct lws *to)
 
 	lws_pt_unlock(pt);
 
+	/*
+	 * The simultaneous tls restriction counts the session, so its slot
+	 * goes with it: the backends give it back when the session is closed,
+	 * which is now on `to`, and `from` must not try to (C-688).  If `to`
+	 * somehow holds a slot of his own already, one session needs only one.
+	 */
+	if (to->io->tls_borrowed || to->io->tls_borrowed_hs)
+		lws_tls_restrict_return(from);
+	else {
+		to->io->tls_borrowed = from->io->tls_borrowed;
+		to->io->tls_borrowed_hs = from->io->tls_borrowed_hs;
+		from->io->tls_borrowed = 0;
+		from->io->tls_borrowed_hs = 0;
+	}
+
 	if (to->io->tls.ssl)
 		lws_tls_conn_set_wsi(to);
 }

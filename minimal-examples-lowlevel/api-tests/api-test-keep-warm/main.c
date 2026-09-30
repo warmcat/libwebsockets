@@ -54,7 +54,9 @@
  *
  * Where the tls library can do it (OpenSSL 3), the tls server sends a TLS 1.3
  * session ticket ahead of every response, so tickets also arrive on an h1
- * connection after it was handed on to a new wsi.
+ * connection after it was handed on to a new wsi.  The context limits the
+ * simultaneous tls connections to a few more than the cases ever have open,
+ * so a slot that does not go with a handed-on connection soon fails a case.
  *
  * The test fails if any case does not complete as expected inside the
  * watchdog period.
@@ -95,6 +97,7 @@
 #endif
 
 #define CASE_TIMEOUT_S	30
+#define KW_TLS_LIMIT	4	/* simultaneous tls connections, both ends */
 #define KEEP_WARM_S	1
 #define INSIDE_MS	200	/* well inside KEEP_WARM_S */
 #define OUTSIDE_MS	2000	/* well outside it */
@@ -876,6 +879,17 @@ int main(int argc, const char **argv)
 	 * connection.  Past the budget lws stops servicing the listeners.
 	 */
 	info.fd_limit_per_thread = 0;
+#if defined(LWS_WITH_TLS)
+	/*
+	 * Client and server share the context, and so its limit on
+	 * simultaneous tls connections: a case never has more than the two
+	 * ends of its connection and one more starting open at once.  The
+	 * tls session is handed on with the connection, and its slot has to
+	 * go with it, or the limit fills up with slots of connections long
+	 * gone and later connections are refused.
+	 */
+	info.simultaneous_ssl_restriction = KW_TLS_LIMIT;
+#endif
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		port_h1 = atoi(p);
