@@ -114,10 +114,24 @@ lws_tls_mbedtls_get_x509_rdn(mbedtls_x509_name *name, const char *oid,
 		    name->MBEDTLS_PRIVATE_V30_ONLY(oid).MBEDTLS_PRIVATE_V30_ONLY(p) &&
 		    !memcmp(name->MBEDTLS_PRIVATE_V30_ONLY(oid).MBEDTLS_PRIVATE_V30_ONLY(p),
 			    oid, oid_len)) {
-			lws_strnncpy(buf->ns.name,
-				     (const char *)name->MBEDTLS_PRIVATE_V30_ONLY(val).MBEDTLS_PRIVATE_V30_ONLY(p),
-				     name->MBEDTLS_PRIVATE_V30_ONLY(val).MBEDTLS_PRIVATE_V30_ONLY(len),
-				     len);
+			const unsigned char *vp = name->MBEDTLS_PRIVATE_V30_ONLY(val).MBEDTLS_PRIVATE_V30_ONLY(p);
+			size_t vl = name->MBEDTLS_PRIVATE_V30_ONLY(val).MBEDTLS_PRIVATE_V30_ONLY(len);
+
+			/*
+			 * The copy below stops at a NUL and at the caller's
+			 * buffer size, either of which would hand back a
+			 * prefix of the real value as if it were all of it:
+			 * "victim.example\0.attacker.example" must not read
+			 * as "victim.example".  An empty value, one with an
+			 * embedded NUL (which is also how a BMPString or
+			 * UniversalString CN looks here), or one too big for
+			 * the buffer is no CN at all, as on openssl.
+			 */
+
+			if (!vp || !vl || vl >= len || memchr(vp, 0, vl))
+				return -1;
+
+			lws_strnncpy(buf->ns.name, (const char *)vp, vl, len);
 
 			/*
 			 * The value is attacker-chosen and ends up in logs and
