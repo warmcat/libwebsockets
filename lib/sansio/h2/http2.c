@@ -1759,6 +1759,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		h2n->hpack_total_hdr_len = 0;
 		h2n->cont_count = 0;
 		h2n->hpack_no_store = 0;
+		h2n->hpack_trailers_oversized = 0;
 		lwsl_info("HEADERS: frame header: sid = %u\n",
 				(unsigned int)h2n->sid);
 
@@ -2380,6 +2381,22 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			 * trailer cannot smuggle in the 'connection' or 'te'
 			 * headers we refused in the first block.
 			 */
+
+			/*
+			 * Trailers bigger than the header list size we told
+			 * the peer: hpack decoded them to the end to stay in
+			 * step, keeping none of them, and left the request's
+			 * own headers alone.  Fail the stream now the block
+			 * is done, the way a request block that size is
+			 * refused.
+			 */
+			if (h2n->hpack_trailers_oversized) {
+				if (lws_h2_rst_stream(h2n->swsi,
+						  H2_ERR_ENHANCE_YOUR_CALM,
+						  "Trailers over list size"))
+					return 1;
+				break;
+			}
 
 			if (lws_hdr_extant(h2n->swsi, WSI_TOKEN_CONNECTION)) {
 				if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,

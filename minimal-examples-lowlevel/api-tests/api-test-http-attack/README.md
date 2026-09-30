@@ -82,6 +82,7 @@ h2, raw frames:
 |a `get ` field smuggling a path, an uppercase field name|GOAWAY PROTOCOL_ERROR|
 |a pseudo-header repeated with a literal name, or after one added to the dynamic table|GOAWAY PROTOCOL_ERROR|
 |CR LF in a value, no or two `:path`, pseudo-header after a regular one, `connection`, `transfer-encoding`, 1500 fields|nothing served|
+|a POST whose trailers refer to a dynamic table entry lws could not keep|served|
 
 Where the client sends more than the server reads before it gives up on it,
 the server closes with that unread, the kernel resets the connection and what

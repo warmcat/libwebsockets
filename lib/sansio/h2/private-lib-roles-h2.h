@@ -293,6 +293,8 @@ struct lws_h2_netconn {
 	unsigned int we_told_goaway:1;
 	unsigned int goaway_queued:1;
 	unsigned int hpack_no_store:1;
+	/* the trailer block being decoded is over MAX_HEADER_LIST_SIZE */
+	unsigned int hpack_trailers_oversized:1;
 	unsigned int pad_length:1;
 	unsigned int collected_priority:1;
 	unsigned int is_first_header_char:1;

@@ -534,6 +534,9 @@ static void lws_dump_header(struct lws *wsi, int hdr)
  * returns nonzero token index if actually static token
  */
 static int
+lws_h2_hdrs_are_trailers(struct lws *wsi);
+
+static int
 lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 		     uint32_t *hdr_len)
 {
@@ -611,9 +614,14 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 		 * A field from an oversized block that we could not keep: the
 		 * request referring to it can't be served as it was sent
 		 * either (when we are sinking a block for a stream we don't
-		 * have, there is no request to refuse)
+		 * have, there is no request to refuse).
+		 *
+		 * But a trailer block keeps none of its fields anyway, so for
+		 * one it's no loss: the request it trails was dispatched on
+		 * the headers of its first block, which must stay as they were
 		 */
-		if (swsi != wsi && lws_h2_hdrs_oversize(swsi))
+		if (swsi != wsi && !lws_h2_hdrs_are_trailers(swsi) &&
+		    lws_h2_hdrs_oversize(swsi))
 			return -1;
 
 		return LWS_HPACK_IGNORE_ENTRY;
@@ -1339,9 +1347,20 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 		if (wsi == nwsi)
 			return lws_h2_goaway(nwsi, H2_ERR_ENHANCE_YOUR_CALM,
 				      "Header list size limit exceeded");
-		if (lws_h2_hdrs_oversize(wsi))
-			return 1;
-		ah = h2n->hpack_sink;
+		if (lws_h2_hdrs_are_trailers(wsi))
+			/*
+			 * ... but not by emptying the headers of the request
+			 * a trailer block belongs to, which was dispatched
+			 * on them.  Nothing of the trailers is kept, so keep
+			 * decoding them, and http2.c fails the stream once
+			 * the block is complete
+			 */
+			h2n->hpack_trailers_oversized = 1;
+		else {
+			if (lws_h2_hdrs_oversize(wsi))
+				return 1;
+			ah = h2n->hpack_sink;
+		}
 	}
 
 	/*

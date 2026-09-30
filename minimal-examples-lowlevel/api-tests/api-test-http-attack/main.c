@@ -1762,6 +1762,36 @@ b_many_fields(struct txb *t)
 	return 1;
 }
 
+/*
+ * A field sent with incremental indexing in a request too big for the ah
+ * becomes a dynamic table entry lws could not keep, and a later request that
+ * refers to it is refused with 431 too.  But trailers keep nothing anyway, so
+ * a POST whose trailers refer to it must still be served.  Only the final
+ * stream's body is kept, so the first one's 431 doesn't mix with it.
+ */
+
+static uint32_t
+b_trailers_lost_entry(struct txb *t)
+{
+	static char v[5000];
+	uint8_t hb[5200], *p = hp_request(hb, HP_METHOD_GET, "/alive"),
+		tr = 0x80 | HP_IDX_DYN_NEWEST;
+
+	memset(v, 'a', sizeof(v) - 1);
+	p = hp_lit_indexing(p, HP_IDX_USER_AGENT, v, strlen(v));
+	h2_preface(t);
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 1, hb,
+		 lws_ptr_diff_size_t(p, hb));
+
+	p = hp_request(hb, HP_METHOD_POST, "/alive");
+	h2_frame(t, H2_HEADERS, H2F_END_HEADERS, 3, hb,
+		 lws_ptr_diff_size_t(p, hb));
+	h2_frame(t, H2_DATA, 0, 3, "x", 1);
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 3, &tr, 1);
+
+	return 3;
+}
+
 static const struct h2_attack h2_attacks[] = {
 	{ "bad preface", b_bad_preface, V_NO_2XX, 0, 0 },
 	{ "CONTINUATION flood", b_continuation_flood, V_GOAWAY,
@@ -1811,6 +1841,8 @@ static const struct h2_attack h2_attacks[] = {
 	{ "connection-specific field", b_connection_header, V_NO_2XX, 0, 0 },
 	{ "transfer-encoding field", b_transfer_encoding, V_NO_2XX, 0, 0 },
 	{ "1500 fields", b_many_fields, V_NO_2XX, 0, 0 },
+	{ "trailers referring to an entry lws could not keep",
+	  b_trailers_lost_entry, V_ECHO, 200, 0 },
 };
 
 /*
@@ -1891,7 +1923,8 @@ h2_rx(struct lws *wsi, const uint8_t *in, size_t len)
 					cn.first_ended = 1;
 				break;
 			}
-			rx_keep(p, flen);
+			if (sid == cn.final_sid)
+				rx_keep(p, flen);
 			if (sid == cn.final_sid && (flags & H2F_END_STREAM))
 				cn.ended = 1;
 			break;
