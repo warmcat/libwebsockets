@@ -697,7 +697,10 @@ typedef int (*lws_rops_tx_sent_t)(struct lws *wsi, int n);
 
 /*
  * sansIO rx policy: how IO should feed this wsi's rx this pass, given the
- * connection's state (README.sans-io-split.md, "Who calls rx").  Fill *flags
+ * connection's state (README.sans-io-split.md, "Who calls rx").  It is not
+ * only a question: the role applies its policy to the connection for the
+ * pass as it answers, asking for a writeable, changing its flow control or
+ * its want of reads, delivering what an extension still holds.  Fill *flags
  * (LWS_RXP_*) and *max (0: IO's buffer) and return one of LWS_RXPOL_*.
  * LWS_RXPOL_ROLE leaves the pass to the role's own handle_POLLIN, for what
  * is not converted yet.

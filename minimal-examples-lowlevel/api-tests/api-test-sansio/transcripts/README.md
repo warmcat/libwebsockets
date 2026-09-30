@@ -44,7 +44,7 @@ Each step has `t`, microseconds since `t0_us`, and one of:
 |---|---|
 |`rx`|the peer sent these bytes, and they are handed to lws at `t`|
 |`tx`|lws wrote these bytes to the peer at `t`.  Bytes written in several writes at the same time are one step: how many writes it took is not part of the behaviour|
-|`app_rx`|lws delivered this payload to the application: a response body, or a ws message's payload|
+|`app_rx`|lws delivered this payload to the application: a response body, or a ws message's payload.  How a message or a body was split into deliveries follows how much lws was handed at a time, and is not behaviour: what a replay must match is the concatenation of the `app_rx` steps of each ws message, and of each response body, and where each of those ends relative to the other steps|
 |`close`|lws released the connection's transport.  The value is empty|
 
 Bytes are lowercase hex.  A replay hands lws each `rx` at its `t`, telling

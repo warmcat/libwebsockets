@@ -322,7 +322,10 @@ during the transport phases of a client the bytes are not the role's at
 all.  That knowledge is one small op, `rx_policy(wsi, &flags, &max)`,
 answering for this pass: pump once, pump while there is more (tls holds
 decrypted bytes, or a parked remainder), hold (do not read now), or "the
-role reads on its own terms" (an h1 client whose body the app pulls).
+role reads on its own terms" (an h1 client whose body the app pulls).  It
+applies the policy as it answers: it may ask for a writeable, change the
+connection's flow control or its want of reads, or deliver what the ws
+extension still holds, before the pass reads anything new.
 IO's service asks it, does the reading it was told to, then tells the
 role the pass's reading is done through `rx_done(wsi)`, where the role
 acts on what it now holds: an h1 client interprets the response headers
