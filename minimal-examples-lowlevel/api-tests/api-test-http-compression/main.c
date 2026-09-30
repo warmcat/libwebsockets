@@ -48,6 +48,11 @@ static const struct xcase cases[] = {
 	{ "h1 no accept-encoding",	NULL,	   NULL,      DEC_IDENTITY, 0 },
 	{ "h1 accept gzip (not offered)", "gzip",  NULL,      DEC_IDENTITY, 0 },
 	{ "h1 accept deflate",		"deflate", "deflate", DEC_DEFLATE,  0 },
+	/* q=0 is "not this one", and a coding is matched whole */
+	{ "h1 accept deflate;q=0",	"deflate;q=0", NULL,  DEC_IDENTITY, 0 },
+	{ "h1 accept xdeflate",		"xdeflate", NULL,     DEC_IDENTITY, 0 },
+	{ "h1 accept gzip, deflate;q=0.5", "gzip, deflate;q=0.5", "deflate",
+							      DEC_DEFLATE,  0 },
 #if defined(LWS_WITH_HTTP_BROTLI)
 	{ "h1 accept br",		"br",	   "br",      DEC_BR,	    0 },
 #endif

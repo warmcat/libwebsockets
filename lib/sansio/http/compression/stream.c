@@ -35,9 +35,26 @@ struct lws_compression_support *lcs_available[] = {
 
 /* compute acceptable compression encodings while we still have an ah */
 
+/*
+ * Accept-Encoding (RFC 9110 12.5.3) is a list of codings, each maybe with
+ * ;q=, where a q of zero means "not this one".  A coding is acceptable if it
+ * is named, as a whole token, without q=0.
+ */
+
+static void
+lws_http_compression_accept(struct lws *wsi, int cur, int refused)
+{
+	if (cur >= 0 && !refused)
+		wsi->http.comp_accept_mask = (uint8_t)
+				(wsi->http.comp_accept_mask | (1 << cur));
+}
+
 int
 lws_http_compression_validate(struct lws *wsi)
 {
+	int cur = -1, named = 0, refused = 0, val = 0, is_q = 0, k;
+	struct lws_tokenize ts;
+	lws_tokenize_elem e;
 	const char *a;
 	size_t n;
 
@@ -50,9 +67,70 @@ lws_http_compression_validate(struct lws *wsi)
 	if (!a)
 		return 0;
 
-	for (n = 0; n < LWS_ARRAY_SIZE(lcs_available); n++)
-		if ((char *)strstr(a, lcs_available[n]->encoding_name))
-			wsi->http.comp_accept_mask = (uint8_t)(wsi->http.comp_accept_mask | (1 << n));
+	/* not COMMA_SEP_LIST: the list elements carry ;params */
+	lws_tokenize_init(&ts, a, LWS_TOKENIZE_F_RFC7230_DELIMS |
+				  LWS_TOKENIZE_F_MINUS_NONTERM |
+				  LWS_TOKENIZE_F_DOT_NONTERM |
+				  LWS_TOKENIZE_F_NO_INTEGERS |
+				  LWS_TOKENIZE_F_NO_FLOATS);
+
+	do {
+		e = lws_tokenize(&ts);
+		switch (e) {
+		case LWS_TOKZE_TOKEN:
+			if (val) {
+				/* a param value: only q's matters */
+				if (is_q) {
+					for (k = 0; k < (int)ts.token_len; k++)
+						if (ts.token[k] != '0' &&
+						    ts.token[k] != '.')
+							break;
+					if (k == (int)ts.token_len)
+						refused = 1;
+				}
+				val = 0;
+				break;
+			}
+			if (named)
+				break;
+			named = 1;
+			for (n = 0; n < LWS_ARRAY_SIZE(lcs_available); n++)
+				if (strlen(lcs_available[n]->encoding_name) ==
+						ts.token_len &&
+				    !strncasecmp(ts.token,
+					lcs_available[n]->encoding_name,
+					ts.token_len))
+					cur = (int)n;
+			break;
+
+		case LWS_TOKZE_TOKEN_NAME_EQUALS:
+			val = 1;
+			is_q = ts.token_len == 1 &&
+			       (ts.token[0] == 'q' || ts.token[0] == 'Q');
+			break;
+
+		case LWS_TOKZE_QUOTED_STRING:
+			val = 0;
+			break;
+
+		case LWS_TOKZE_DELIMITER:
+			if (*ts.token != ',')
+				break;
+			lws_http_compression_accept(wsi, cur, refused);
+			cur = -1;
+			named = refused = val = 0;
+			break;
+
+		case LWS_TOKZE_ENDED:
+			lws_http_compression_accept(wsi, cur, refused);
+			break;
+
+		default:
+			/* malformed from here: keep what we had before it */
+			e = LWS_TOKZE_ENDED;
+			break;
+		}
+	} while (e > 0);
 
 	return 0;
 }
@@ -237,6 +315,7 @@ lws_http_compression_transform(struct lws *wsi, unsigned char *buf,
 		lwsl_debug("%s: buffering %d unused comp input\n", __func__,
 			   (int)(len - ilen_iused));
 	}
+
 	/*
 	 * The compressors only FINISH on the final input when nothing is
 	 * buffered, but the last buffered segment is still on the buflist
