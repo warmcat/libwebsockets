@@ -105,6 +105,56 @@ lws_openhitls_client_hostname(struct lws *wsi, char *buf, size_t len)
 	return !buf[0];
 }
 
+/*
+ * The client ctx fingerprint: vhosts whose fingerprints match share one
+ * HITLS_Config, so it has to cover everything that makes the configs differ.
+ *
+ * Each input goes in behind its own tag and length, so different inputs can
+ * never hash alike by where one ends and the next begins, eg, an options_set
+ * of X like an options_clear of X, or ca "a" + cert "bc" like ca "ab" + cert
+ * "c".
+ */
+
+enum {
+	LWS_OHFP_CIPHERS = 1,
+	LWS_OHFP_OPTS_SET,
+	LWS_OHFP_OPTS_CLEAR,
+	LWS_OHFP_PROTOCOL0,
+	LWS_OHFP_OS_CAS,
+	LWS_OHFP_CA_PATH,
+	LWS_OHFP_CERT_PATH,
+	LWS_OHFP_KEY_PATH,
+	LWS_OHFP_CA_MEM,
+	LWS_OHFP_CERT_MEM,
+	LWS_OHFP_KEY_MEM,
+	LWS_OHFP_KEY_PASSWORD,
+};
+
+static int
+lws_openhitls_fp_add(struct lws_genhash_ctx *hash_ctx, uint8_t tag,
+		     const void *p, size_t len)
+{
+	uint8_t hdr[5];
+
+	hdr[0] = tag;
+	lws_ser_wu32be(&hdr[1], (uint32_t)len);
+
+	if (lws_genhash_update(hash_ctx, hdr, sizeof(hdr)))
+		return 1;
+
+	return len && lws_genhash_update(hash_ctx, p, len);
+}
+
+static int
+lws_openhitls_fp_add_str(struct lws_genhash_ctx *hash_ctx, uint8_t tag,
+			 const char *s)
+{
+	if (!s)
+		return 0;
+
+	return lws_openhitls_fp_add(hash_ctx, tag, s, strlen(s));
+}
+
 static int lws_openhitls_client_ctx_fingerprint(
     struct lws_vhost *vh,
     const struct lws_context_creation_info *info,
@@ -120,27 +170,27 @@ static int lws_openhitls_client_ctx_fingerprint(
     uint8_t hash[32])
 {
 	struct lws_genhash_ctx hash_ctx;
-	char c = 1;
 
 	if (lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256)) {
 			return -1;
 	}
 
-	if (info->client_tls_ciphers_iana &&
-	    lws_genhash_update(&hash_ctx, info->client_tls_ciphers_iana,
-			       strlen(info->client_tls_ciphers_iana))) {
+	if (lws_openhitls_fp_add_str(&hash_ctx, LWS_OHFP_CIPHERS,
+				     info->client_tls_ciphers_iana)) {
 		goto bail_hash;
 	}
 
 	if (info->ssl_client_options_set &&
-	    lws_genhash_update(&hash_ctx, &info->ssl_client_options_set,
-			       sizeof(info->ssl_client_options_set))) {
+	    lws_openhitls_fp_add(&hash_ctx, LWS_OHFP_OPTS_SET,
+				 &info->ssl_client_options_set,
+				 sizeof(info->ssl_client_options_set))) {
 		goto bail_hash;
 	}
 
 	if (info->ssl_client_options_clear &&
-	    lws_genhash_update(&hash_ctx, &info->ssl_client_options_clear,
-			       sizeof(info->ssl_client_options_clear))) {
+	    lws_openhitls_fp_add(&hash_ctx, LWS_OHFP_OPTS_CLEAR,
+				 &info->ssl_client_options_clear,
+				 sizeof(info->ssl_client_options_clear))) {
 		goto bail_hash;
 	}
 
@@ -154,40 +204,46 @@ static int lws_openhitls_client_ctx_fingerprint(
 	 */
 
 	if (vh->protocols &&
-	    lws_genhash_update(&hash_ctx, &vh->protocols[0].callback,
-			       sizeof(vh->protocols[0].callback))) {
+	    lws_openhitls_fp_add(&hash_ctx, LWS_OHFP_PROTOCOL0,
+				 &vh->protocols[0].callback,
+				 sizeof(vh->protocols[0].callback))) {
 		goto bail_hash;
 	}
 
+	/*
+	 * Whether the OS trust store is in the config, exactly as
+	 * lws_tls_client_create_vhost_context() decides to load it: whatever
+	 * CA the vhost gives besides.  Otherwise a vhost that pins its own CA
+	 * with LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS could be handed the
+	 * config of one with the same CA that also trusts every OS root (C-677)
+	 */
+
+#if defined(LWS_SSL_CLIENT_USE_OS_CA_CERTS)
 	if (!lws_check_opt(vh->options,
 			   LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS) &&
-	    (!ca_mem || !ca_mem_len) && lws_genhash_update(&hash_ctx, &c, 1)) {
+	    lws_openhitls_fp_add(&hash_ctx, LWS_OHFP_OS_CAS, NULL, 0)) {
 		goto bail_hash;
 	}
+#endif
 
-	if (ca_filepath &&
-	    lws_genhash_update(&hash_ctx, ca_filepath, strlen(ca_filepath))) {
-		goto bail_hash;
-	}
-
-	if (cert_filepath && lws_genhash_update(&hash_ctx, cert_filepath,
-						strlen(cert_filepath))) {
-		goto bail_hash;
-	}
-
-	if (private_key_filepath &&
-	    lws_genhash_update(&hash_ctx, private_key_filepath,
-			       strlen(private_key_filepath))) {
+	if (lws_openhitls_fp_add_str(&hash_ctx, LWS_OHFP_CA_PATH,
+				     ca_filepath) ||
+	    lws_openhitls_fp_add_str(&hash_ctx, LWS_OHFP_CERT_PATH,
+				     cert_filepath) ||
+	    lws_openhitls_fp_add_str(&hash_ctx, LWS_OHFP_KEY_PATH,
+				     private_key_filepath)) {
 		goto bail_hash;
 	}
 
 	if (ca_mem && ca_mem_len &&
-	    lws_genhash_update(&hash_ctx, ca_mem, ca_mem_len)) {
+	    lws_openhitls_fp_add(&hash_ctx, LWS_OHFP_CA_MEM, ca_mem,
+				 ca_mem_len)) {
 		goto bail_hash;
 	}
 
 	if (cert_mem && cert_mem_len &&
-	    lws_genhash_update(&hash_ctx, cert_mem, cert_mem_len)) {
+	    lws_openhitls_fp_add(&hash_ctx, LWS_OHFP_CERT_MEM, cert_mem,
+				 cert_mem_len)) {
 		goto bail_hash;
 	}
 
@@ -199,13 +255,13 @@ static int lws_openhitls_client_ctx_fingerprint(
 	 */
 
 	if (key_mem && key_mem_len &&
-	    lws_genhash_update(&hash_ctx, key_mem, key_mem_len)) {
+	    lws_openhitls_fp_add(&hash_ctx, LWS_OHFP_KEY_MEM, key_mem,
+				 key_mem_len)) {
 		goto bail_hash;
 	}
 
-	if (info->client_ssl_private_key_password &&
-	    lws_genhash_update(&hash_ctx, info->client_ssl_private_key_password,
-			       strlen(info->client_ssl_private_key_password))) {
+	if (lws_openhitls_fp_add_str(&hash_ctx, LWS_OHFP_KEY_PASSWORD,
+				     info->client_ssl_private_key_password)) {
 		goto bail_hash;
 	}
 
