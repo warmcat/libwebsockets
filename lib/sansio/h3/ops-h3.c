@@ -1362,7 +1362,7 @@ lws_h3_wt_stream_bind(struct lws *wsi, struct lws *nwsi, const uint8_t *buf,
 {
 	struct lws *session_wsi = NULL;
 	int unidi = wsi->quic.qs->is_unidirectional;
-	uint64_t session_id;
+	uint64_t session_id, sid = wsi->quic.qs->stream_id;
 
 	if (!lws_h3_parse_varint_accum(wsi, &buf, &len, &session_id))
 		return 0;
@@ -1408,10 +1408,21 @@ lws_h3_wt_stream_bind(struct lws *wsi, struct lws *nwsi, const uint8_t *buf,
 		if (lws_bind_protocol(wsi, session_wsi->a.protocol, __func__))
 			return 1;
 
-		if (wsi->a.protocol && wsi->a.protocol->callback)
-			wsi->a.protocol->callback(wsi,
+		/*
+		 * Nonzero refuses the stream, as it does for the session.
+		 * Either way, the stream must still exist before we look at
+		 * it again: the callback may have closed it synchronously,
+		 * freeing it and its qs, as lws_quic_rx_deliver_protocol()
+		 * also allows for.
+		 */
+		if (wsi->a.protocol && wsi->a.protocol->callback &&
+		    wsi->a.protocol->callback(wsi,
 				LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
-				wsi->user_space, NULL, 0);
+				wsi->user_space, NULL, 0))
+			return 1;
+
+		if (lws_quic_stream_find(nwsi, sid) != wsi)
+			return 1;
 	} else if (!wsi->user_space && lws_ensure_user_space(wsi))
 		return 1;
 
@@ -1419,6 +1430,11 @@ lws_h3_wt_stream_bind(struct lws *wsi, struct lws *nwsi, const uint8_t *buf,
 	    wsi->a.protocol->callback(wsi, LWS_CALLBACK_RECEIVE,
 				      wsi->user_space, (void *)buf, len))
 		return 1; /* the protocol wants the stream closed */
+
+	/* the caller goes on to use the stream and its qs */
+
+	if (len && lws_quic_stream_find(nwsi, sid) != wsi)
+		return 1;
 
 	return 0;
 }
