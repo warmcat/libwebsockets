@@ -31,170 +31,187 @@
 #endif
 
 #if defined(LWS_WITH_SS_RIDESHARE)
+
+/*
+ * Issue q[from] up to q[to] of the current part to the app, adding SOM if it
+ * is the first piece of the part.  Nothing is issued for an empty range
+ * unless it carries the EOM.
+ *
+ * If it doesn't return LWSSSSRET_OK, h may have been destroyed.
+ */
+
+static lws_ss_state_return_t
+ss_http_multipart_issue(lws_ss_handle_t *h, const uint8_t *q, size_t from,
+			size_t to, int flags)
+{
+	size_t len = to > from ? to - from : 0;
+
+	if (!len && !(flags & LWSSS_FLAG_EOM))
+		return LWSSSSRET_OK;
+
+	if (!h->u.http.som) {
+		flags |= LWSSS_FLAG_SOM;
+		h->u.http.som = 1;
+	}
+	if (flags & LWSSS_FLAG_EOM)
+		h->u.http.som = 0; /* the next part gets a SOM */
+
+	return h->info.rx(ss_to_userobj(h), len ? q + from : NULL, len, flags);
+}
+
+/*
+ * Deframe an incoming multipart body (RFC 2046 5.1.1) into one SOM .. EOM
+ * message per part, the part's own headers included.  The group of parts is
+ * bracketed by zero-length RELATED_START and RELATED_END messages.  The
+ * preamble before the first delimiter and the epilogue after the close
+ * delimiter are discarded.
+ *
+ * The body comes to us in pieces split wherever the peer likes, eg, at each
+ * chunk of an h1 chunked body or each h2 / h3 DATA frame, so a delimiter may
+ * straddle any number of calls.  We never keep pointers into an earlier
+ * call's buffer: the bytes we are holding back because they may be the start
+ * of a delimiter are by definition the first boundary_seq bytes of
+ * u.http.boundary, so if the match fails, they can be issued from there.
+ *
+ * "held" is how many of the matched bytes came from earlier calls.  Once a
+ * match fails, held is zero and any matched bytes are all in q[] after s.
+ */
+
 static int
 ss_http_multipart_parser(lws_ss_handle_t *h, struct lws *wsi, void *in,
 			 size_t len)
 {
-	uint8_t *q = (uint8_t *)in;
-	int pending_issue = 0, n = 0;
+	const uint8_t *q = (const uint8_t *)in;
+	uint8_t held = h->u.http.boundary_seq;
 	lws_ss_state_return_t r;
+	size_t n, s = 0; /* q[s] is the first part byte not yet issued */
 
+	for (n = 0; n < len; n++) {
 
-	/* let's stick it in the boundary state machine first */
-	while (n < (int)len) {
-		if (h->u.http.boundary_seq != h->u.http.boundary_len) {
-			if (q[n] == h->u.http.boundary[h->u.http.boundary_seq])
-				h->u.http.boundary_seq++;
-			else {
-				h->u.http.boundary_seq = 0;
-				h->u.http.boundary_dashes = 0;
-				h->u.http.boundary_post = 0;
+		switch (h->u.http.mp_state) {
+		case LWSSS_MP_PREAMBLE:
+		case LWSSS_MP_PART:
+			if (q[n] != (uint8_t)
+				   h->u.http.boundary[h->u.http.boundary_seq]) {
+				if (!h->u.http.boundary_seq)
+					break;
+
+				/*
+				 * It wasn't a delimiter after all, so what we
+				 * held back from earlier calls is part content
+				 */
+				if (held && h->u.http.mp_state == LWSSS_MP_PART) {
+					r = ss_http_multipart_issue(h,
+						(const uint8_t *)h->u.http.boundary,
+						0, held, 0);
+					if (r != LWSSSSRET_OK)
+						return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(
+								r, wsi, &h);
+				}
+				held = 0;
+
+				/*
+				 * The CR the delimiter starts with appears
+				 * nowhere else in it (lws_tokenize never gives
+				 * us a boundary token containing whitespace),
+				 * so this byte is the only place a new match
+				 * can start
+				 */
+				h->u.http.boundary_seq =
+					q[n] == (uint8_t)h->u.http.boundary[0];
+				break;
 			}
-			goto around;
-		}
 
-		/*
-		 * We already matched the boundary string, now we're
-		 * looking if there's a -- afterwards
-		 */
-		if (h->u.http.boundary_dashes < 2) {
-			if (q[n] == '-') {
-				h->u.http.boundary_dashes++;
-				goto around;
-			}
-			/* there was no final -- ... */
-		}
+			if (++h->u.http.boundary_seq != h->u.http.boundary_len)
+				break;
 
-		if (h->u.http.boundary_dashes == 2) {
 			/*
-			 * It's an EOM boundary: issue pending + multipart EOP
+			 * A complete CRLF--boundary.  Any part we were in
+			 * ended where it started: that's in q[] unless it
+			 * started in an earlier call, when this call has none
+			 * of the part and it is complete with what we already
+			 * issued.
 			 */
-			lwsl_debug("%s: seen EOP, n %d pi %d\n",
-				    __func__, n, pending_issue);
-			/*
-			 * It's possible we already started the decode before
-			 * the end of the last packet.  Then there is no
-			 * remainder to send.
-			 */
-			if (n >= pending_issue + h->u.http.boundary_len +
-			    (h->u.http.any ? 2 : 0) + 1) {
-				r = h->info.rx(ss_to_userobj(h),
-					   &q[pending_issue],
-					   (unsigned int)(n - pending_issue -
-					   h->u.http.boundary_len - 1 -
-					   (h->u.http.any ? 2 : 0) /* crlf */),
-				   (!h->u.http.som ? LWSSS_FLAG_SOM : 0) |
-				   LWSSS_FLAG_EOM | LWSSS_FLAG_RELATED_END);
+			if (h->u.http.mp_state == LWSSS_MP_PART) {
+				r = ss_http_multipart_issue(h, q, s, held ? s :
+					n + 1 - h->u.http.boundary_len,
+					LWSSS_FLAG_EOM);
 				if (r != LWSSSSRET_OK)
 					return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(
 								r, wsi, &h);
-				h->u.http.eom = 1;
 			}
+			held = 0;
+			h->u.http.boundary_seq = 0;
+			h->u.http.mp_state = LWSSS_MP_TAIL;
+			break;
+
+		case LWSSS_MP_TAIL:
+		case LWSSS_MP_TAIL_LWSP:
+			/*
+			 * After the boundary, either "--" for the close
+			 * delimiter, or optional linear whitespace and CRLF
+			 */
+			if (q[n] == '-' && h->u.http.mp_state == LWSSS_MP_TAIL)
+				h->u.http.mp_state = LWSSS_MP_TAIL_DASH;
+			else if (q[n] == ' ' || q[n] == '\t')
+				h->u.http.mp_state = LWSSS_MP_TAIL_LWSP;
+			else if (q[n] == '\r')
+				h->u.http.mp_state = LWSSS_MP_TAIL_CR;
+			else
+				goto malformed;
+			break;
+
+		case LWSSS_MP_TAIL_CR:
+			if (q[n] != '\n')
+				goto malformed;
+
+			/* the next part starts with the next byte */
+			h->u.http.mp_state = LWSSS_MP_PART;
+			s = n + 1;
+			break;
+
+		case LWSSS_MP_TAIL_DASH:
+			if (q[n] != '-')
+				goto malformed;
+
+			/* the close delimiter: the group is complete */
+			h->u.http.mp_state = LWSSS_MP_EPILOGUE;
+			r = h->info.rx(ss_to_userobj(h), NULL, 0,
+				       LWSSS_FLAG_RELATED_END);
+			if (r != LWSSSSRET_OK)
+				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(
+								r, wsi, &h);
 
 			/*
 			 * Peer may not END_STREAM us
 			 */
 			return 0;
-			//return -1;
+
+		default: /* LWSSS_MP_EPILOGUE */
+			return 0;
 		}
-
-		/* how about --boundaryCRLF */
-
-		if (h->u.http.boundary_post < 2) {
-			if ((!h->u.http.boundary_post && q[n] == '\x0d') ||
-			    (h->u.http.boundary_post && q[n] == '\x0a')) {
-				h->u.http.boundary_post++;
-				goto around;
-			}
-			/* there was no final CRLF ... it's wrong */
-
-			return -1;
-		}
-		if (h->u.http.boundary_post != 2)
-			goto around;
-
-		/*
-		 * We have a starting "--boundaryCRLF" or intermediate
-		 * "CRLF--boundaryCRLF" boundary
-		 */
-		lwsl_debug("%s: b_post = 2 (pi %d)\n", __func__, pending_issue);
-		h->u.http.boundary_seq = 0;
-		h->u.http.boundary_post = 0;
-
-		if (n >= pending_issue && (h->u.http.any || !h->u.http.som)) {
-			/* Intermediate... do the EOM */
-			lwsl_debug("%s: seen interm EOP n %d pi %d\n", __func__,
-				   n, pending_issue);
-			/*
-			 * It's possible we already started the decode before
-			 * the end of the last packet.  Then there is no
-			 * remainder to send.
-			 */
-			if (n >= pending_issue + h->u.http.boundary_len +
-			    (h->u.http.any ? 2 : 0)) {
-				r = h->info.rx(ss_to_userobj(h), &q[pending_issue],
-					   (unsigned int)(n - pending_issue -
-					       h->u.http.boundary_len -
-					       (h->u.http.any ? 2 /* crlf */ : 0)),
-					   (!h->u.http.som ? LWSSS_FLAG_SOM : 0) |
-					   LWSSS_FLAG_EOM);
-				if (r != LWSSSSRET_OK)
-					return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(
-								r, wsi, &h);
-				h->u.http.eom = 1;
-			}
-		}
-
-		/* Next message starts after this boundary */
-
-		pending_issue = n;
-		if (h->u.http.eom) {
-			/* reset only if we have sent eom */
-			h->u.http.som = 0;
-			h->u.http.eom = 0;
-		}
-
-around:
-		n++;
 	}
 
-	if (pending_issue != n) {
-		uint8_t oh = 0;
+	if (h->u.http.mp_state != LWSSS_MP_PART)
+		return 0;
 
-		/*
-		 * handle the first or last "--boundaryCRLF" case which is not captured in the
-		 * previous loop, on the Bob downchannel (/directive)
-		 *
-		 * probably does not cover the case that one boundary term is separated in multipile
-		 * one callbacks though never see such case
-		 */
+	/*
+	 * Issue what we have of the part, less the end of q[] we are holding
+	 * back because it may be the start of a delimiter
+	 */
 
-		if ((n >= h->u.http.boundary_len) &&
-			h->u.http.boundary_seq == h->u.http.boundary_len &&
-			h->u.http.boundary_post == 2) {
-
-			oh = 1;
-		}
-
-		r = h->info.rx(ss_to_userobj(h), &q[pending_issue],
-				(unsigned int)(oh ?
-				(n - pending_issue - h->u.http.boundary_len -
-					(h->u.http.any ? 2 : 0)) :
-				(n - pending_issue)),
-			   (!h->u.http.som ? LWSSS_FLAG_SOM : 0) |
-			     (oh && h->u.http.any ? LWSSS_FLAG_EOM : 0));
-		if (r != LWSSSSRET_OK)
-			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r,
-								wsi, &h);
-
-		if (oh && h->u.http.any)
-			h->u.http.eom = 1;
-
-		h->u.http.any = 1;
-		h->u.http.som = 1;
-	}
+	r = ss_http_multipart_issue(h, q, s,
+				    len - (size_t)(h->u.http.boundary_seq - held),
+				    0);
+	if (r != LWSSSSRET_OK)
+		return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
 	return 0;
+
+malformed:
+	lwsl_ss_notice(h, "malformed multipart delimiter");
+
+	return -1;
 }
 #endif
 
@@ -838,7 +855,16 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		 * a helping hand for learning the boundary), and the other
 		 * is to deframe it and provide basically submessages in the
 		 * different parts.
+		 *
+		 * Either way, nothing about the last response's multipart
+		 * framing, if any, applies to this one.
 		 */
+
+		h->u.http.boundary[0] = '\0';
+		h->u.http.boundary_len = 0;
+		h->u.http.boundary_seq = 0;
+		h->u.http.mp_state = LWSSS_MP_PREAMBLE;
+		h->u.http.som = 0;
 
 		if (lws_hdr_copy(wsi, (char *)buf, sizeof(buf),
 				 WSI_TOKEN_HTTP_CONTENT_TYPE) > 0 &&
@@ -859,7 +885,6 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					LWS_TOKENIZE_F_SLASH_NONTERM |
 					LWS_TOKENIZE_F_MINUS_NONTERM;
 
-			h->u.http.boundary[0] = '\0';
 			do {
 				e = lws_tokenize(&ts);
 				if (e == LWS_TOKZE_TOKEN_NAME_EQUALS &&
@@ -887,8 +912,11 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					 */
 					h->u.http.boundary_len = (uint8_t)
 						strlen(h->u.http.boundary);
+					/*
+					 * The first delimiter may start the
+					 * body without the CRLF
+					 */
 					h->u.http.boundary_seq = 2;
-					h->u.http.boundary_dashes = 0;
 				}
 			} while (e > 0);
 			lwsl_info("%s: multipart boundary '%s' len %d\n", __func__,

@@ -47,6 +47,22 @@ typedef enum {
 	SSSEQ_CONNECTED,
 } lws_ss_seq_state_t;
 
+/*
+ * Where the client's incoming multipart parser is in the response body.  The
+ * delimiter is matched against u.http.boundary, which is CRLF--boundary, in
+ * the PREAMBLE and PART states.
+ */
+
+enum lws_ss_multipart_state {
+	LWSSS_MP_PREAMBLE,	/* before the first delimiter, discarded */
+	LWSSS_MP_PART,		/* inside a part, issued to the app */
+	LWSSS_MP_TAIL,		/* matched a delimiter, what follows it? */
+	LWSSS_MP_TAIL_DASH,	/* seen one '-' after the delimiter */
+	LWSSS_MP_TAIL_LWSP,	/* transport padding before the CRLF */
+	LWSSS_MP_TAIL_CR,	/* seen the CR of the delimiter line CRLF */
+	LWSSS_MP_EPILOGUE,	/* after the close delimiter, discarded */
+};
+
 struct lws_sss_proxy_conn;
 
 /**
@@ -115,17 +131,17 @@ typedef struct lws_ss_handle {
 
 			/* common to all http-related protocols */
 
-			/* incoming multipart parsing */
+			/*
+			 * incoming multipart parsing, reset at the start of
+			 * each response
+			 */
 
-			char boundary[24];	/* --boundary from headers */
-			uint8_t boundary_len;	/* length of --boundary */
+			char boundary[24];	/* CRLF--boundary from headers */
+			uint8_t boundary_len;	/* length of CRLF--boundary */
 			uint8_t boundary_seq;	/* current match amount */
-			uint8_t boundary_dashes; /* check for -- after */
-			uint8_t boundary_post; /* swallow post CRLF */
+			uint8_t mp_state;	/* enum lws_ss_multipart_state */
 
-			uint8_t som:1;	/* SOM has been sent */
-			uint8_t eom:1;  /* EOM has been sent */
-			uint8_t any:1;	/* any content has been sent */
+			uint8_t som:1;	/* SOM sent for the current part */
 
 
 			uint8_t good_respcode:1; /* 200 type response code */
@@ -461,6 +477,9 @@ typedef struct lws_sspc_handle {
 	uint8_t			onward_wanted:1;
 	/**< the stream should be trying to have an onward connection, so a
 	 * recreated proxy side stream must be asked to connect again */
+	uint8_t			destroy_pending:1;
+	/**< user code returned DESTROY_ME for a link retry, the handle is
+	 * destroyed from sul_retry when nothing else is using it */
 } lws_sspc_handle_t;
 
 /*
