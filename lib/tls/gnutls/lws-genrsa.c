@@ -214,6 +214,11 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		return -2;
 	}
 
+	if (!ctx->pub) {
+		lwsl_err("%s: no public key\n", __func__);
+		return -1;
+	}
+
 	n = gnutls_pubkey_encrypt_data(ctx->pub, 0, &v_in, &v_out);
 
 	if (n < 0) {
@@ -247,6 +252,12 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	if (ctx->mode == LGRSAM_PKCS1_OAEP_PSS) {
 		lwsl_err("%s: GnuTLS does not support RSA OAEP\n", __func__);
 		return -2;
+	}
+
+	if (!ctx->priv) {
+		/* the key had only public elements */
+		lwsl_err("%s: no private key\n", __func__);
+		return -1;
 	}
 
 	n = gnutls_privkey_decrypt_data(ctx->priv, 0, &v_in, &v_out);
@@ -335,7 +346,7 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	gnutls_datum_t v_hash, v_sig;
 	gnutls_sign_algorithm_t alg;
 
-	if (lws_genrsa_sign_alg(ctx, hash_type, &alg))
+	if (!ctx->pub || lws_genrsa_sign_alg(ctx, hash_type, &alg))
 		return -1;
 
 	v_hash.data = (uint8_t *)in;
@@ -356,6 +367,12 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 {
 	gnutls_datum_t v_hash, v_sig;
 	gnutls_sign_algorithm_t alg;
+
+	if (!ctx->priv) {
+		/* the key had only public elements */
+		lwsl_err("%s: no private key\n", __func__);
+		return -1;
+	}
 
 	if (lws_genrsa_sign_alg(ctx, hash_type, &alg))
 		return -1;
