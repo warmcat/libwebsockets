@@ -89,6 +89,7 @@ _lws_header_table_reset(struct allocated_headers *ah)
 	ah->rx_snap_pos = 0;
 	ah->rx_snap_nfrag = 0;
 	ah->rx_interims = 0;
+	ah->leading_empty_lines = 0;
 	ah->pos = 0;
 	ah->http_response = 0;
 	ah->parser_state = WSI_TOKEN_NAME_PART;
@@ -1359,6 +1360,33 @@ lws_h1_srv_bad_name_char(struct lws *wsi, unsigned char c)
 }
 
 /*
+ * An h1 server's request head that has not had its request line yet
+ */
+
+static int
+lws_h1_srv_awaits_request_line(struct lws *wsi)
+{
+	struct allocated_headers *ah = wsi->stream.ah;
+	unsigned int m;
+
+	if (wsi->mux_substream || !lwsi_role_server(wsi) || !lwsi_role_h1(wsi))
+		return 0;
+
+	for (m = 0; m < LWS_ARRAY_SIZE(methods); m++)
+		if (ah->frag_index[methods[m]])
+			return 0;
+
+	return 1;
+}
+
+/*
+ * RFC 9112 2.2: a server ignores at least one empty line before a request
+ * line (a client may send a CRLF after a POST body).  We ignore up to this
+ * many; past them there is no request coming.
+ */
+#define LWS_H1_MAX_LEADING_EMPTY_LINES 8
+
+/*
  * The ':' ending the name of an h1 header lws doesn't know
  */
 
@@ -1647,6 +1675,20 @@ swallow:
 				goto set_parsing_complete;
 			}
 
+			/*
+			 * An empty line where a request line should start,
+			 * before anything else of the head: skipped, its LF
+			 * checked as any other's, a few of them
+			 */
+			if (c == '\x0d' && !ah->lextable_pos && !ah->nfrag &&
+			    lws_h1_srv_awaits_request_line(wsi)) {
+				if (++ah->leading_empty_lines >
+					    LWS_H1_MAX_LEADING_EMPTY_LINES)
+					goto bad_request_line;
+				ah->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
+				break;
+			}
+
 			if (c >= 'A' && c <= 'Z')
 				c = (unsigned char)(c + 'a' - 'A');
 			/*
@@ -1691,6 +1733,20 @@ swallow:
 			 * ends at its ':'
 			 */
 			if (pos < 0 && !wsi->mux_substream) {
+				if (lws_h1_srv_awaits_request_line(wsi)) {
+					/*
+					 * A first token we don't know: it
+					 * ends at a SP if it was a method
+					 */
+					if (c == ' ') {
+						refusal = HTTP_STATUS_NOT_IMPLEMENTED;
+						goto bad_request_line;
+					}
+					if (c == ':' ||
+					    !lws_http_field_name_char_valid(c, 0))
+						goto bad_request_line;
+					break;
+				}
 				if (lws_h1_srv_bad_name_char(wsi, c))
 					goto bad_name;
 				if (c == ':')
@@ -1802,8 +1858,21 @@ nope:
 					return LPR_DO_FALLBACK;
 				}
 
-				lwsl_parse_fail(wsi, "unknown method - dropping");
-				goto forbid;
+				/*
+				 * A method we don't implement, if the token
+				 * ends at a SP (RFC 9110 9.1: 501), or no
+				 * request line at all, if the head starts with
+				 * a header we don't know.  Collect the rest of
+				 * the token to see which.
+				 */
+				if (c == ' ') {
+					refusal = HTTP_STATUS_NOT_IMPLEMENTED;
+					goto bad_request_line;
+				}
+				if (c == ':' ||
+				    !lws_http_field_name_char_valid(c, 0))
+					goto bad_request_line;
+				break;
 			}
 			if (ah->lextable_pos < 0) {
 				/*
@@ -1988,13 +2057,8 @@ set_parsing_complete:
 	 * head without one (headers alone, or an empty line) is no request
 	 * we can act on
 	 */
-	if (lwsi_role_server(wsi) && !wsi->mux_substream) {
-		for (m = 0; m < LWS_ARRAY_SIZE(methods); m++)
-			if (ah->frag_index[methods[m]])
-				break;
-		if (m == LWS_ARRAY_SIZE(methods))
-			goto bad_request_line;
-	}
+	if (lws_h1_srv_awaits_request_line(wsi))
+		goto bad_request_line;
 
 	ah->parser_state = WSI_PARSING_COMPLETE;
 
@@ -2015,7 +2079,8 @@ bad_request_line:
 	/*
 	 * No request line, or one that is not method, target and an HTTP
 	 * version: 400, or 505 for a version that is not 1.x (RFC 9112 3,
-	 * RFC 9110 15.6.6)
+	 * RFC 9110 15.6.6), or 501 for a method we do not implement (RFC 9110
+	 * 9.1)
 	 */
 	lwsl_parse_fail(wsi, "bad request line (state %d): %u",
 			ah->parser_state, refusal);

@@ -28,7 +28,7 @@
  * with and without permessage-deflate, and one longer than lws takes; and
  * what the h1 server makes of a request line (dot segments, '+', token
  * limits, no version, no request line at all, versions it does and does
- * not speak), and what the h1 client makes of a response's body framing
+ * not speak, methods it does not know, empty lines before it), and what the h1 client makes of a response's body framing
  * (a Content-Length that is not only digits, or given twice, and a
  * Transfer-Encoding that is more than "chunked").
  *
@@ -961,7 +961,10 @@ upgrade_refusals_half(struct lws_context *cx)
  * request with 414 or 431, rather than being cut short and served.  A
  * request line without a version (HTTP/0.9), a head without a request line,
  * or a version that is not "HTTP/" digit "." digit is refused with 400, and
- * a major version other than 1 with 505; HTTP/1.2 is served as 1.1.
+ * a major version other than 1 with 505; HTTP/1.2 is served as 1.1.  A
+ * method lws does not know is refused with 501, a head starting with a
+ * header rather than a request line with 400; up to eight empty lines
+ * before the request line are ignored, more are 400.
  */
 static int
 uri_half(struct lws_context *cx, struct lws_vhost *vh)
@@ -1000,6 +1003,16 @@ uri_half(struct lws_context *cx, struct lws_vhost *vh)
 			"Host: sansio-uri\r\n\r\n", NULL, "HTTP/1.1 400 " },
 		{ "h1-reqline-version-1-2", "GET /x HTTP/1.2\r\n"
 			"Host: sansio-uri\r\n\r\n", "/x\n", NULL },
+		{ "h1-reqline-unknown-method", "FOO /x HTTP/1.1\r\n"
+			"Host: sansio-uri\r\n\r\n", NULL, "HTTP/1.1 501 " },
+		{ "h1-reqline-unknown-header-first", "X-Foo: bar\r\n"
+			"Host: sansio-uri\r\n\r\n", NULL, "HTTP/1.1 400 " },
+		/* a few empty lines before the request line are ignored */
+		{ "h1-reqline-leading-empty", "\r\n\r\nGET /x HTTP/1.1\r\n"
+			"Host: sansio-uri\r\n\r\n", "/x\n", NULL },
+		{ "h1-reqline-leading-empty-many", "\r\n\r\n\r\n\r\n\r\n\r\n"
+			"\r\n\r\n\r\nGET /x HTTP/1.1\r\n"
+			"Host: sansio-uri\r\n\r\n", NULL, "HTTP/1.1 400 " },
 	};
 	static struct transport tp;
 	const uint8_t *b;

@@ -225,6 +225,8 @@ struct allocated_headers {
 	uint8_t nfrag;
 	uint8_t rx_snap_nfrag;
 	uint8_t rx_interims; /* 1xx seen since the snapshot */
+	uint8_t leading_empty_lines; /* h1 server: skipped before the request
+				      * line */
 	char /*enum uri_path_states */ ups;
 	char /*enum uri_esc_states */ ues;
 
