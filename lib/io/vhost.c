@@ -875,10 +875,24 @@ __lws_vhost_destroy_pt_wsi_dieback_start(struct lws_vhost *vh)
 
 #if defined(LWS_WITH_NETWORK)
 
-/* returns nonzero if v1 and v2 can share listen sockets */
+/*
+ * returns nonzero if v1 and v2 can share listen sockets
+ *
+ * Only vhosts that make their own listen sockets from their iface and port
+ * share them.  A vhost with no listen port makes none: any listener it has
+ * was bound for it by the user (eg, a quic-only vhost's udp listener from
+ * lws_create_adopt_udp()), on a port its listen_port knows nothing about,
+ * and it is nobody else's.
+ */
 int
 lws_vhost_compare_listen(struct lws_vhost *v1, struct lws_vhost *v2)
 {
+	if (v1->listen_port == CONTEXT_PORT_NO_LISTEN ||
+	    v1->listen_port == CONTEXT_PORT_NO_LISTEN_SERVER ||
+	    v2->listen_port == CONTEXT_PORT_NO_LISTEN ||
+	    v2->listen_port == CONTEXT_PORT_NO_LISTEN_SERVER)
+		return 0;
+
 	return ((!v1->iface && !v2->iface) ||
 		 (v1->iface && v2->iface && !strcmp(v1->iface, v2->iface))) &&
 		v1->listen_port == v2->listen_port;
@@ -961,6 +975,7 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 			      lws_dll2_get_head(&vh->listen_wsi)) {
 		struct lws *wsi = lws_container_of(d, struct lws, listen_list);
+		const struct lws_protocols *pr;
 
 		/*
 		 * For each of our listen sockets, check every other vhost to
@@ -974,10 +989,11 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 			    lws_vhost_compare_listen(v, vh)) {
 				/*
 				 * this can only be a listen wsi, which is
-				 * restricted... it has no protocol or other
-				 * bindings or states.  So we can simply
-				 * swap it to a vhost that has the same
-				 * iface + port, but is not closing.
+				 * restricted... it has no other bindings or
+				 * states.  So we can simply swap it to a
+				 * vhost that has the same iface + port, but
+				 * is not closing.  Its protocol is one of
+				 * ours, which go with us: it takes v's.
 				 */
 
 				lwsl_vhost_notice(vh, "listen skt migrate -> %s",
@@ -999,6 +1015,11 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 				v->count_bound_wsi++;
 				__lws_vhost_unbind_wsi(wsi);
 				lws_vhost_bind_wsi(v, wsi);
+				pr = NULL;
+				if (wsi->a.protocol && wsi->a.protocol->name)
+					pr = lws_vhost_name_to_protocol(v,
+							wsi->a.protocol->name);
+				wsi->a.protocol = pr ? pr : v->protocols;
 				/*
 				 * ... remove the fake wsi bind
 				 */
