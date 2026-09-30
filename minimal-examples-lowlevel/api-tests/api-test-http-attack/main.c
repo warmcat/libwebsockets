@@ -46,7 +46,18 @@
 #define ATK_TX_CHUNK	(16 * 1024)
 /* server: time to send all of the request headers */
 #define ATK_AH_IDLE_SECS	3
-#define ATK_CASE_TIMEOUT_S	10
+/*
+ * server: the context's timeout_secs, set explicitly because the case
+ * timeout depends on it.  Having refused a request, an h1 server shuts
+ * down its side and waits up to this long for the peer's FIN, ignoring
+ * what else it sends: a peer still sending, as the noise cases are, may
+ * only see the connection end then.  That is a correct refusal, so a case
+ * may take this long, and its watchdog must be longer.
+ */
+#define ATK_TIMEOUT_SECS	15
+#define ATK_CASE_TIMEOUT_S	(ATK_TIMEOUT_SECS + 10)
+/* a case taking longer than this says so in the log, pass or fail */
+#define ATK_SLOW_CASE_MS	2000
 
 enum xport {
 	XP_H1,
@@ -938,9 +949,16 @@ static struct lws *trickle_wsi;
 static void
 case_done(const char *why)
 {
+	lws_usec_t us = lws_now_usecs() - cn.start;
+
 	lws_sul_cancel(&sul_watchdog);
 	lws_sul_cancel(&sul_trickle);
 	trickle_wsi = NULL;
+
+	/* the dropped cases take the header timeout by design */
+	if (tc.v != V_DROPPED && us > ATK_SLOW_CASE_MS * LWS_US_PER_MS)
+		lwsl_user("%s: %s: took %dms\n", xport_names[tc.xport],
+			  tc.name, (int)(us / LWS_US_PER_MS));
 
 	if (why) {
 		lwsl_err("%s: %s: FAIL: %s\n", xport_names[tc.xport], tc.name,
@@ -2016,6 +2034,7 @@ next_case(lws_sorted_usec_list_t *sul)
 		return;
 	}
 	cn.seq = ++tc.seq;
+	cn.start = lws_now_usecs();
 
 	memset(&i, 0, sizeof(i));
 	i.context		= context;
@@ -2052,7 +2071,6 @@ next_case(lws_sorted_usec_list_t *sul)
 		break;
 	}
 
-	cn.start = lws_now_usecs();
 	lws_sul_schedule(context, 0, &sul_watchdog, watchdog_cb,
 			 ATK_CASE_TIMEOUT_S * LWS_US_PER_SEC);
 
@@ -2219,6 +2237,8 @@ main(int argc, const char **argv)
 #if defined(LWS_WITH_TLS)
 	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 #endif
+
+	info.timeout_secs = ATK_TIMEOUT_SECS;
 
 	context = lws_create_context(&info);
 	if (!context) {
