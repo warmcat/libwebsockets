@@ -70,13 +70,21 @@ lws_system_stdin_complete(struct lws_context *cx)
 		if (!cx->stdin_linear_size)
 			/* empty stdin (/dev/null): nothing to append */
 			goto done;
-		cx->stdin_linear = lws_malloc(cx->stdin_linear_size, __func__);
+		/*
+		 * +1: the tokens below are handed out as C strings.  Delimited
+		 * ones get their '\0' written over the delimiter, but a last
+		 * token with no trailing newline or space ends at the end of
+		 * the data, so the buffer needs a terminator of its own there.
+		 * The size is bounded by the buflist OOM limit, so no wrap.
+		 */
+		cx->stdin_linear = lws_malloc(cx->stdin_linear_size + 1, __func__);
 		if (!cx->stdin_linear) {
 			lws_buflist_destroy_all_segments(&cx->stdin_buflist);
 			return -1;
 		}
 		lws_buflist_linear_use(&cx->stdin_buflist, (uint8_t *)cx->stdin_linear,
 				       cx->stdin_linear_size);
+		cx->stdin_linear[cx->stdin_linear_size] = '\0';
 
 		/*
 		 * segment the linear buffer
