@@ -11,9 +11,7 @@ set(SRCS main.c)
 #
 # A tls client and server in one process, and the client's session cache
 # looked at through lws_tls_session_dump_save(), which mbedtls and schannel
-# do not implement.  gnutls' tcp client does not cache a TLS 1.3 session
-# (it looks for one when the handshake completes, before any ticket came),
-# so there is nothing there to see either.
+# do not implement.
 #
 set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
@@ -24,7 +22,6 @@ require_lws_config(LWS_WITH_TLS 1 requirements)
 require_lws_config(LWS_WITH_TLS_SESSIONS 1 requirements)
 require_lws_config(LWS_WITH_MBEDTLS 0 requirements)
 require_lws_config(LWS_WITH_SCHANNEL 0 requirements)
-require_lws_config(LWS_WITH_GNUTLS 0 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})

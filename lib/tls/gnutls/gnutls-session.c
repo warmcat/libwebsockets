@@ -168,23 +168,49 @@ lws_tls_session_expiry_cb(lws_sorted_usec_list_t *sul)
 }
 
 /*
- * Called after gnutls_handshake finishes successfully on client wsi
+ * Offer the client connection's session to the cache, once there is one to
+ * resume from.  We are asked whenever the session may have become resumable:
+ * after each client read (a TLS 1.3 ticket comes after the handshake, and
+ * gnutls takes it in inside gnutls_record_recv()), as quic handles its
+ * post-handshake CRYPTO, and at close.  The first time it is there, it is
+ * cached, and later asks do nothing.
  */
 
 int
 lws_tls_session_new_gnutls(struct lws *wsi)
 {
 	char buf[LWS_SESSION_TAG_LEN];
+	gnutls_session_t session;
 	struct lws_vhost *vh;
 	lws_tls_scm_t *ts;
 	size_t nl;
 	gnutls_datum_t gd = { NULL, 0 };
+	int ret;
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
 	const char *disposition = "reuse";
 #endif
 
-	if (!wsi || !wsi->io->tls.ssl || !wsi->a.vhost)
+	if (!wsi || !wsi->io->tls.ssl || !wsi->a.vhost ||
+	    wsi->io->tls.sess_cached)
 		return 0;
+
+	session = (gnutls_session_t)wsi->io->tls.ssl;
+
+#if GNUTLS_VERSION_NUMBER >= 0x030605
+	/*
+	 * A TLS 1.3 session can only be resumed with a ticket, which the
+	 * server sends when it likes after the handshake, if at all.  Until
+	 * it has come, there is nothing to cache: gnutls_session_get_data2()
+	 * would give us a 4-byte stub.  Worse, a session not made with
+	 * GNUTLS_NONBLOCK on gnutls' own socket pull waits in poll() for the
+	 * ticket there, for half the handshake time plus 60ms, on the service
+	 * thread (C-664).  We make every session with GNUTLS_NONBLOCK, and
+	 * don't ask before the ticket is in.
+	 */
+	if (gnutls_protocol_get_version(session) == GNUTLS_TLS1_3 &&
+	    !(gnutls_session_get_flags(session) & GNUTLS_SFLAGS_SESSION_TICKET))
+		return 0;
+#endif
 
 	vh = wsi->a.vhost;
 	if ((vh->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE) ||
@@ -198,14 +224,7 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 
 	nl = strlen(buf);
 
-#if (_LWS_ENABLED_LOGS & LLL_INFO)
-	/* Check if a session ticket has actually been received (TLS 1.3 requirement) */
-	unsigned sess_flags = gnutls_session_get_flags((gnutls_session_t)wsi->io->tls.ssl);
-	lwsl_info("%s: QUIC session ticket check: flags=0x%x, has_ticket=%d\n", __func__,
-		    sess_flags, !!(sess_flags & GNUTLS_SFLAGS_SESSION_TICKET));
-#endif
-
-	int ret = gnutls_session_get_data2((gnutls_session_t)wsi->io->tls.ssl, &gd);
+	ret = gnutls_session_get_data2(session, &gd);
 	lwsl_info("%s: gnutls_session_get_data2 ret=%d, len=%u\n", __func__, ret, gd.size);
 	if (ret != GNUTLS_E_SUCCESS) {
 		if (ret == GNUTLS_E_INTERNAL_ERROR)
@@ -327,6 +346,8 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 
 	lws_vhost_unlock(vh); /* } vh --------------  */
 	lws_context_unlock(vh->context); /* } cx --------------  */
+
+	wsi->io->tls.sess_cached = 1;
 
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
 	lwsl_tlssess("%s: %s %s, (%s:%u)\n", __func__, disposition, buf, vh->name,

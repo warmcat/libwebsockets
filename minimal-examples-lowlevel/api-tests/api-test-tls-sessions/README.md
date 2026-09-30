@@ -20,8 +20,9 @@ verified connection to each, by name, and then asks
 |`short.example`|a session is cached for it, so the cache is in play|
 |the 99-character name|no session is cached for it, and none for another name with the same first 91 characters either|
 
-It is not built with mbedtls or schannel, which have no session dump, nor
-with gnutls, whose tcp client caches no TLS 1.3 session.
+It is not built with mbedtls or schannel, which have no session dump.  With
+gnutls, the server is held to TLS 1.2: a gnutls tls server issues no TLS 1.3
+session tickets, so a TLS 1.3 client of it would have no session to cache.
 
 ## The PKI
 

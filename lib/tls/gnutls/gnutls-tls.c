@@ -594,7 +594,8 @@ int
 lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 {
 	gnutls_session_t session;
-	unsigned int flags = GNUTLS_SERVER;
+	/* lws' sockets never block, nor may gnutls on them (C-664) */
+	unsigned int flags = GNUTLS_SERVER | GNUTLS_NONBLOCK;
 
 	if (!wsi->a.vhost) {
 		lwsl_err("%s: NULL vhost\n", __func__);
@@ -742,7 +743,13 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		return -1;
 	}
 
-	unsigned int flags = GNUTLS_CLIENT;
+	/*
+	 * lws' sockets never block, and gnutls must not either: without
+	 * GNUTLS_NONBLOCK, eg, gnutls_session_get_data2() on a TLS 1.3
+	 * session with no ticket yet sits in poll() on the socket for one, on
+	 * the service thread (C-664)
+	 */
+	unsigned int flags = GNUTLS_CLIENT | GNUTLS_NONBLOCK;
 #if GNUTLS_VERSION_NUMBER >= 0x030605
 	if (wsi->flags & LCCSCF_ALLOW_EARLY_DATA) {
 		flags |= GNUTLS_ENABLE_EARLY_DATA;

@@ -284,6 +284,14 @@ int main(int argc, const char **argv)
 	info.ssl_cert_filepath		= srv_cert;
 	info.ssl_private_key_filepath	= srv_key;
 	info.alpn			= "http/1.1";
+#if defined(LWS_WITH_GNUTLS)
+	/*
+	 * A gnutls tls server issues no TLS 1.3 session tickets, so a TLS 1.3
+	 * client of it has no session to cache: hold it to TLS 1.2, whose
+	 * session the client can cache from the handshake
+	 */
+	info.ssl_cipher_list		= "NORMAL:-VERS-TLS1.3";
+#endif
 
 	if (!lws_create_vhost(context, &info)) {
 		lwsl_err("Failed to create the server vhost\n");
@@ -292,6 +300,7 @@ int main(int argc, const char **argv)
 
 	info.ssl_cert_filepath		= NULL;
 	info.ssl_private_key_filepath	= NULL;
+	info.ssl_cipher_list		= NULL;
 	info.alpn			= NULL;
 
 	/* the client vhost, trusting ca.crt, no listener */

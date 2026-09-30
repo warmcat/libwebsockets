@@ -50,6 +50,16 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	if (!wsi->io->tls.ssl)
 		return LWS_SSL_CAPABLE_ERROR;
 
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_TLS_SESSIONS)
+	/*
+	 * A TLS 1.3 server sends its session ticket after the handshake, and
+	 * gnutls took it in in there if it came: the session may only now be
+	 * one we can resume
+	 */
+	if (lwsi_role_client(wsi))
+		lws_tls_session_new_gnutls(wsi);
+#endif
+
 	if (n > 0) {
 		struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
@@ -355,9 +365,10 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 #if defined(LWS_WITH_CLIENT)
 		wsi->tls_session_reused = gnutls_session_is_resumed((gnutls_session_t)wsi->io->tls.ssl) ? 1 : 0;
 #endif
-#if defined(LWS_WITH_TLS_SESSIONS)
-		lws_tls_session_new_gnutls(wsi);
-#endif
+		/*
+		 * Nothing is cached here: under TLS 1.3 the ticket is still to
+		 * come, it is cached from the reads (lws_ssl_capable_read())
+		 */
 		return LWS_SSL_CAPABLE_DONE;
 	}
 
