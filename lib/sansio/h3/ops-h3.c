@@ -682,12 +682,12 @@ lws_h3_parse_path(struct lws *wsi, const char *value, size_t value_len)
 	if (!ah)
 		return -1;
 
-	/* Start fragment for WSI_TOKEN_HTTP_COLON_PATH */
-	ah->nfrag++;
-	if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frag_index)) {
+	/* Start fragment for WSI_TOKEN_HTTP_COLON_PATH, if there's a slot */
+	if (ah->nfrag + 1 >= (int)LWS_ARRAY_SIZE(ah->frags)) {
 		lwsl_wsi_err(wsi, "frag index too big");
 		return -1;
 	}
+	ah->nfrag++;
 
 	ah->frags[ah->nfrag].offset = ah->pos;
 	ah->frags[ah->nfrag].len = 0;

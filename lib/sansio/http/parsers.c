@@ -871,11 +871,12 @@ lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s)
 		return 0;
 	}
 
-	wsi->stream.ah->nfrag++;
-	if (wsi->stream.ah->nfrag >= LWS_ARRAY_SIZE(wsi->stream.ah->frags)) {
+	/* check before moving nfrag on: never leave it naming no slot */
+	if (wsi->stream.ah->nfrag + 1 >= (int)LWS_ARRAY_SIZE(wsi->stream.ah->frags)) {
 		lwsl_warn("More hdr frags than we can deal with, dropping\n");
 		return -1;
 	}
+	wsi->stream.ah->nfrag++;
 
 	if (!wsi->stream.ah->frag_index[h]) {
 		wsi->stream.ah->frag_index[h] = wsi->stream.ah->nfrag;
@@ -1051,11 +1052,14 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 				return -1;
 			/* don't account for it */
 			wsi->stream.ah->frags[wsi->stream.ah->nfrag].len--;
-			/* link to next fragment */
+			/*
+			 * link to next fragment... if there is one: check
+			 * before linking to it or moving nfrag on to it
+			 */
+			if (ah->nfrag + 1 >= (int)LWS_ARRAY_SIZE(ah->frags))
+				goto excessive;
 			ah->frags[ah->nfrag].nfrag = (uint8_t)(ah->nfrag + 1);
 			ah->nfrag++;
-			if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frags))
-				goto excessive;
 			/*
 			 * Start the next fragment on the byte directly after
 			 * the safety NUL issue_char() just wrote.
@@ -1188,10 +1192,10 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 		/* don't account for it */
 		wsi->stream.ah->frags[wsi->stream.ah->nfrag].len--;
 
-		/* move to using WSI_TOKEN_HTTP_URI_ARGS */
-		ah->nfrag++;
-		if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frags))
+		/* move to using WSI_TOKEN_HTTP_URI_ARGS, if there's a slot */
+		if (ah->nfrag + 1 >= (int)LWS_ARRAY_SIZE(ah->frags))
 			goto excessive;
+		ah->nfrag++;
 
 		ah->frags[ah->nfrag].offset = ++ah->pos;
 		if ((unsigned int)ah->pos >= wsi->a.context->max_http_header_data)
@@ -1750,6 +1754,17 @@ unknown_hdr:
 #endif
 
 start_fragment:
+			/*
+			 * Check before moving nfrag on: a caller that doesn't
+			 * stop at our failure (hpack did) must not find nfrag
+			 * naming a slot past the end of frags[]
+			 */
+			if (ah->nfrag + 1 >= (int)LWS_ARRAY_SIZE(ah->frags)) {
+				lwsl_parse_fail(wsi, "more hdr frags than we can "
+						     "deal with (state %d)",
+						     ah->parser_state);
+				goto too_large;
+			}
 			ah->nfrag++;
 excessive:
 			if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frags)) {
