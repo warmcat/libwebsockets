@@ -1002,6 +1002,17 @@ sais_ws_json_rx_builder(struct vhd *vhd, struct pss *pss, uint8_t *buf, size_t b
 				     esc_pcon[192], esc_sai_hash[192],
 				     esc_lws_hash[192], esc_peer_ip[96];
 
+				/*
+				 * A platform the builder couldn't name (eg,
+				 * from a conf it misread) is no use to us,
+				 * and everything below needs the names
+				 */
+				if (!build->name || !build->platform) {
+					lwsl_notice("%s: ignoring builder plat "
+						    "with no name\n", __func__);
+					continue;
+				}
+
 				if (sai_str_has_shell_metachars(build->name)	||
 				    sai_str_has_shell_metachars(build->platform) ||
 				    (build->pcon &&
