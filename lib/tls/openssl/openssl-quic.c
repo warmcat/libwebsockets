@@ -375,6 +375,20 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 			lwsl_wsi_info(wsi, "LWS_SERVER_OPTION_ALLOW_EARLY_DATA "
 					   "ignored: no 0-RTT replay mitigation");
 
+		/*
+		 * ...and turn it off explicitly rather than rely on the
+		 * library default, which is not the same decision in every
+		 * backend and version.  On wolfSSL this must follow the quic
+		 * method being set.
+		 */
+#if defined(USE_WOLFSSL)
+#if defined(WOLFSSL_EARLY_DATA)
+		wolfSSL_set_quic_early_data_enabled(wsi->io->tls.ssl, 0);
+#endif
+#else
+		SSL_set_early_data_enabled(wsi->io->tls.ssl, 0);
+#endif
+
 		SSL_set_accept_state(wsi->io->tls.ssl);
 	}
 
