@@ -2824,3 +2824,28 @@ lws_http_dechunk_framing(struct lws *wsi, unsigned char **buf, size_t *len)
 
 	return 0;
 }
+
+/*
+ * Everything buffered for the wsi's output, by the transport or by the
+ * compressor, has gone: a transaction completion deferred until then
+ * happens now (see lws_http_transaction_completed())
+ */
+int
+lws_http_tx_drained(struct lws *wsi)
+{
+#if defined(LWS_WITH_SERVER)
+	if (!lwsi_txn_completing(wsi) || lws_has_buffered_out(wsi)
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	    || wsi->http.comp_ctx.buflist_comp || wsi->http.comp_ctx.may_have_more
+#endif
+	)
+		return 0;
+
+	lwsl_wsi_info(wsi, "output gone, doing deferred transaction completed");
+	lwsi_set_txn_completing(wsi, 0);
+
+	return lws_http_transaction_completed(wsi) ? -1 : 1;
+#else
+	return 0;
+#endif
+}

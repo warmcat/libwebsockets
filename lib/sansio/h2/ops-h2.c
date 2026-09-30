@@ -1968,8 +1968,9 @@ static const lws_rops_t rops_table_h2[] = {
 	/* 16 */ { .rx_policy		  = rops_rx_policy_h2 },
 	/* 17 */ { .tx			  = rops_tx_h2 },
 	/* 18 */ { .tx_sent		  = rops_tx_sent_h2 },
+	/* 19 */ { .tx_drained		  = lws_http_tx_drained },
 #if defined(LWS_WITH_CLIENT)
-	/* 19 */ { .client_transport_up	  = lws_h2_client_transport_up },
+	/* 20 */ { .client_transport_up	  = lws_h2_client_transport_up },
 #endif
 };
 
@@ -2006,7 +2007,7 @@ const struct lws_role_ops role_ops_h2 = {
 	  /* LWS_ROPS_issue_keepalive */		0x00, 0x0E,
 #if defined(LWS_WITH_CLIENT)
 	  /* LWS_ROPS_client_transport_up */
-	  /* LWS_ROPS_rx */				0x13, 0x0F,
+	  /* LWS_ROPS_rx */				0x14, 0x0F,
 #else
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x00, 0x0F,
@@ -2016,6 +2017,7 @@ const struct lws_role_ops role_ops_h2 = {
 	  /* LWS_ROPS_rx_done */			0x00,
 	  /* LWS_ROPS_tx */				0x11,
 	  /* LWS_ROPS_tx_sent */			0x12,
+	  /* LWS_ROPS_tx_drained */			0x13,
 					},
 	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
 					  LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED },

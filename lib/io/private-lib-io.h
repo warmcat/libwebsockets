@@ -85,6 +85,9 @@ lws_handling_result_t
 lws_rx_pump_dgram(struct lws_context_per_thread *pt, struct lws *wsi,
 		  struct lws_pollfd *pollfd, int *nothing);
 
+int
+lws_io_tx_drained(struct lws *wsi);
+
 #endif
 int
 lws_wsi_can_consume_parked_rx(struct lws *wsi);

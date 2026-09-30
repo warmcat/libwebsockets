@@ -2221,6 +2221,20 @@ rops_issue_keepalive_ws(struct lws *wsi, int isvalid)
 	return 0;
 }
 
+/*
+ * What IO buffered of our last write has all gone: whatever frame that was
+ * the start of has been sent as far as it was given to us, and the next
+ * write starts a new one
+ */
+static int
+rops_tx_drained_ws(struct lws *wsi)
+{
+	if (wsi->ws)
+		wsi->ws->inside_frame = 0;
+
+	return 0;
+}
+
 static const lws_rops_t rops_table_ws[] = {
 	/*  1 */ { .init_vhost		    = rops_init_vhost_ws },
 	/*  2 */ { .destroy_vhost	    = rops_destroy_vhost_ws },
@@ -2237,6 +2251,7 @@ static const lws_rops_t rops_table_ws[] = {
 	/* 13 */ { .tx_credit		    = rops_tx_credit_ws },
 	/* 14 */ { .rx			    = rops_rx_ws },
 	/* 15 */ { .rx_policy		    = rops_rx_policy_ws },
+	/* 16 */ { .tx_drained		    = rops_tx_drained_ws },
 };
 
 const struct lws_role_ops role_ops_ws = {
@@ -2270,6 +2285,9 @@ const struct lws_role_ops role_ops_ws = {
 	  /* LWS_ROPS_rx_dgram */
 	  /* LWS_ROPS_rx_policy */			0x00, 0x0F,
 	  /* LWS_ROPS_rx_done */			0x04,
+	  /* LWS_ROPS_tx */
+	  /* LWS_ROPS_tx_sent */			0x00, 0x00,
+	  /* LWS_ROPS_tx_drained */			0x10,
 					},
 	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
 					  LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED },

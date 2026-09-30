@@ -139,14 +139,9 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		}
 		lws_callback_on_writable(wsi);
 
-		/* the partial was the end of the transaction: it completes */
-		if (!wsi->http.comp_ctx.buflist_comp &&
-		    !wsi->http.comp_ctx.may_have_more &&
-		    lwsi_txn_completing(wsi)) {
-			lwsi_set_txn_completing(wsi, 0);
-			if (lws_http_transaction_completed(wsi))
-				goto bail_die;
-		}
+		/* if that was the end of the output, the role hears so */
+		if (lws_io_tx_drained(wsi) < 0)
+			goto bail_die;
 		goto bail_ok;
 	}
 #endif

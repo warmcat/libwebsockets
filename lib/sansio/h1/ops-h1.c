@@ -1331,6 +1331,8 @@ static const lws_rops_t rops_table_h1[] = {
 	/* 12 with server, 11 without */
 	{ .client_transport_up		  = lws_h1_client_transport_up },
 #endif
+	/* 13 with server and client, 12 client, 11 server, 10 neither */
+	{ .tx_drained			  = lws_http_tx_drained },
 };
 
 const struct lws_role_ops role_ops_h1 = {
@@ -1369,6 +1371,9 @@ const struct lws_role_ops role_ops_h1 = {
 	  /* LWS_ROPS_rx_dgram */			0x00,
 	  /* LWS_ROPS_rx_policy */			0x0B,
 	  /* LWS_ROPS_rx_done */			0x02,
+	  /* LWS_ROPS_tx */
+	  /* LWS_ROPS_tx_sent */			0x00, 0x00,
+	  /* LWS_ROPS_tx_drained */			0x0D,
 #else
 	  /* LWS_ROPS_issue_keepalive */		0x08, 0x00,
 	  /* LWS_ROPS_client_transport_up */
@@ -1376,6 +1381,9 @@ const struct lws_role_ops role_ops_h1 = {
 	  /* LWS_ROPS_rx_dgram */			0x00,
 	  /* LWS_ROPS_rx_policy */			0x0A,
 	  /* LWS_ROPS_rx_done */			0x02,
+	  /* LWS_ROPS_tx */
+	  /* LWS_ROPS_tx_sent */			0x00, 0x00,
+	  /* LWS_ROPS_tx_drained */			0x0C,
 #endif
 #else
 	  /* LWS_ROPS_issue_keepalive */		0x00, 0x00,
@@ -1385,12 +1393,18 @@ const struct lws_role_ops role_ops_h1 = {
 	  /* LWS_ROPS_rx_dgram */			0x00,
 	  /* LWS_ROPS_rx_policy */			0x0A,
 	  /* LWS_ROPS_rx_done */			0x02,
+	  /* LWS_ROPS_tx */
+	  /* LWS_ROPS_tx_sent */			0x00, 0x00,
+	  /* LWS_ROPS_tx_drained */			0x0B,
 #else
 	  /* LWS_ROPS_client_transport_up */
 	  /* LWS_ROPS_rx */				0x00, 0x08,
 	  /* LWS_ROPS_rx_dgram */			0x00,
 	  /* LWS_ROPS_rx_policy */			0x09,
 	  /* LWS_ROPS_rx_done */			0x02,
+	  /* LWS_ROPS_tx */
+	  /* LWS_ROPS_tx_sent */			0x00, 0x00,
+	  /* LWS_ROPS_tx_drained */			0x0A,
 #endif
 #endif
 					},

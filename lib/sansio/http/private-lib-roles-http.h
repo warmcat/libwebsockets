@@ -639,6 +639,10 @@ lws_http_parse_content_length(const char *in, uint64_t *result);
 int
 lws_http_te_is_chunked(struct lws *wsi);
 
+/* the h1 and h2 tx_drained role op: a deferred completion completes */
+int
+lws_http_tx_drained(struct lws *wsi);
+
 /*
  * Returns nonzero if the header token can carry peer credentials
  * (Authorization, Cookie, Set-Cookie, x-auth-token, Proxy-Authorization

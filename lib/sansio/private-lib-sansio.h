@@ -705,8 +705,16 @@ typedef int (*lws_rops_rx_policy_t)(struct lws *wsi, int *flags, size_t *max);
  * as rx does.
  */
 typedef int (*lws_rops_rx_done_t)(struct lws *wsi);
+/*
+ * IO has sent everything it had buffered for the wsi's transport: the role
+ * acts on what was waiting for its output to be gone, a transaction
+ * completion it deferred, or its record of a frame half written.  Returns
+ * 0 to go on, 1 when it acted and wants nothing more of the pass (no
+ * writeable is asked for on its behalf), or -1 when the wsi must be closed.
+ */
+typedef int (*lws_rops_tx_drained_t)(struct lws *wsi);
 
-#define LWS_COUNT_ROLE_OPS			27
+#define LWS_COUNT_ROLE_OPS			28
 
 typedef union lws_rops {
 	lws_rops_check_upgrades_t		check_upgrades;
@@ -736,6 +744,7 @@ typedef union lws_rops {
 	lws_rops_rx_done_t			rx_done;
 	lws_rops_tx_t				tx;
 	lws_rops_tx_sent_t			tx_sent;
+	lws_rops_tx_drained_t			tx_drained;
 } lws_rops_t;
 
 typedef enum {
@@ -766,6 +775,7 @@ typedef enum {
 	LWS_ROPS_rx_done,
 	LWS_ROPS_tx,
 	LWS_ROPS_tx_sent,
+	LWS_ROPS_tx_drained,
 } lws_rops_func_idx_t;
 
 struct lws_context_per_thread;

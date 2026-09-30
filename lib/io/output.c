@@ -25,6 +25,21 @@
 #include "private-lib-core.h"
 
 /*
+ * Tell the role that everything IO buffered for the wsi's transport has gone
+ * out.  Returns what its tx_drained op says, 0 for a role without one.
+ */
+int
+lws_io_tx_drained(struct lws *wsi)
+{
+	if (!wsi->role_ops ||
+	    !lws_rops_fidx(wsi->role_ops, LWS_ROPS_tx_drained))
+		return 0;
+
+	return lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_tx_drained).
+							tx_drained(wsi);
+}
+
+/*
  * notice this returns number of bytes consumed, or -1
  */
 int
@@ -176,22 +191,15 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 				return -1; /* retry closing now */
 			}
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-#if defined(LWS_WITH_SERVER)
-			if (lwsi_txn_completing(wsi)) {
-				lwsl_wsi_notice(wsi, "partial completed, doing "
-					    "deferred transaction completed");
-				lwsi_set_txn_completing(wsi, 0);
-				return lws_http_transaction_completed(wsi) ?
-							-1 : (queued ? queued : (int)real_len);
+			/* what waited for the output to be gone is the role's */
+			switch (lws_io_tx_drained(wsi)) {
+			case -1:
+				return -1;
+			case 1:
+				return queued ? queued : (int)real_len;
+			default:
+				break;
 			}
-#endif
-#endif
-#if defined(LWS_ROLE_WS)
-			/* Since buflist_out flushed, we're not inside a frame any more */
-			if (wsi->ws)
-				wsi->ws->inside_frame = 0;
-#endif
 		}
 		/* always callback on writeable */
 		lws_callback_on_writable(wsi);
