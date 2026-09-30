@@ -3848,6 +3848,24 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 		return 0;
 	}
 
+	if (((*wp) & 0x1f) == LWS_WRITE_QUIC_DATAGRAM) {
+		uint8_t vb[8];
+		size_t flen = 1 + lws_quic_write_varint(vb, sizeof(vb), len) + len;
+
+		/*
+		 * RFC 9221 3: DATAGRAM frames only go to a peer that
+		 * advertised max_datagram_frame_size, and no bigger than that
+		 * (the frame's type and length count), else it is a
+		 * PROTOCOL_VIOLATION on its side
+		 */
+		if (flen > qn->peer_max_datagram_frame_size) {
+			lwsl_wsi_notice(wsi, "DATAGRAM frame of %u exceeds peer's max %llu",
+					(unsigned int)flen,
+					(unsigned long long)qn->peer_max_datagram_frame_size);
+			return -1;
+		}
+	}
+
 	/*
 	 * Nothing can follow the FIN on a stream: data past the final size
 	 * (or a second FIN at a different size) is a connection-level
