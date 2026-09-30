@@ -19,6 +19,12 @@
  *    isn't in the policy, and sends payload after the failed result.  The
  *    proxy must hang up, and must not try to queue the payload.
  *
+ *  - "sink-full-chunk": the client's stream is fulfilled by a local sink
+ *    registered in this process, and it sends a payload of exactly the
+ *    1380-byte chunk size the proxy queues client payload in, which is also
+ *    the size of the buffer a local sink's source is asked to fill.  The
+ *    sink must get all of it.
+ *
  *  - "sink-goes-first": the client's stream is fulfilled by a local sink
  *    registered in this process.  The sink takes the client's payload and
  *    then destroys itself, which takes the proxied source stream with it
@@ -91,7 +97,7 @@ typedef struct leg {
 	size_t			payload_len;	/* sent after the result */
 	char			expect_create_ok;
 	char			until;
-	char			sink_destroys;	/* on rx */
+	char			sink_destroys;	/* on rx of the EOM */
 	char			expect_refused;	/* dropped before the result */
 
 	/* results */
@@ -106,6 +112,9 @@ static leg_t legs_main[] = {
 	  .until = UNTIL_HANGUP },
 	{ .name = "create-fail-then-payload", .streamtype = "nonexistent",
 	  .payload_len = 100, .until = UNTIL_HANGUP },
+	{ .name = "sink-full-chunk",	.streamtype = "sink",
+	  .expect_create_ok = 1, .payload_len = 1380,
+	  .sink_destroys = 1, .until = UNTIL_DESTROYING },
 	{ .name = "sink-goes-first",	.streamtype = "sink",
 	  .expect_create_ok = 1, .payload_len = 100,
 	  .sink_destroys = 1, .until = UNTIL_DESTROYING },
@@ -412,7 +421,7 @@ sink_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	lwsl_user("%s: leg %s: %u (total %u)\n", __func__, l->name,
 		  (unsigned int)len, (unsigned int)l->sink_rx);
 
-	if (l->sink_destroys)
+	if (l->sink_destroys && (flags & LWSSS_FLAG_EOM))
 		/* the sink goes away before the proxied stream does */
 		return LWSSSSRET_DESTROY_ME;
 

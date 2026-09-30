@@ -11,6 +11,7 @@ the way an sspc client process would.  Each connection is one "leg":
 |---|---|---|
 |server|asks for `srv`, a server streamtype bound to an existing vhost|the proxy refuses to create it (a proxy client can only drive client streams) and hangs up|
 |create-fail-then-payload|asks for a streamtype that isn't in the policy, and sends payload after the failed result|the proxy hangs up after the result, without trying to queue the payload|
+|sink-full-chunk|asks for `sink` and sends it 1380 bytes, the proxy's chunk size and the size of a local sink's buffer|the sink gets all of it (then destroys itself, as below)|
 |sink-goes-first|asks for `sink`, fulfilled by a local sink registered in the process, and sends it 100 bytes; the sink destroys itself on rx, taking the proxied stream with it|the sink gets the payload, the proxy tells the client DESTROYING and does not touch the stream afterwards|
 
 The clients run as the same user as the proxy, which by default may use it.

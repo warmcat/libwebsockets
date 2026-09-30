@@ -50,14 +50,29 @@ lws_ss_deserialize_tx_payload(struct lws_dsh *dsh, struct lws *wsi,
 	 * and strip it so we just forward the payload
 	 */
 
-	if (*len <= si - 23 || si < 23) {
+	if (si < 23) {
+		/* everything we queue has the 23-byte header */
+		assert(0);
+		return 1;
+	}
+
+	if (si - 23 > *len) {
 		/*
 		 * What comes out of the dsh needs to fit in the tx buffer...
 		 * we have arrangements at the proxy rx of the client UDS to
-		 * chop chunks larger than 1380 into seuqential lumps of 1380
+		 * chop chunks larger than 1380 into sequential lumps of 1380,
+		 * which fit onward protocols and local sinks exactly.  But a
+		 * consumer with a smaller buffer, eg, _lws_smd with its
+		 * 400-byte messages, can still meet a bigger chunk from the
+		 * client.  That's the client's doing, so drop the chunk.
 		 */
-		lwsl_err("%s: *len = %d, si = %d\n", __func__, (int)*len, (int)si);
-		assert(0);
+		lwsl_warn("%s: dropping %d-byte chunk, too big for %d\n",
+			  __func__, (int)(si - 23), (int)*len);
+#if !defined(__COVERITY__)
+		lws_dsh_free((void **)&p);
+#endif
+		*len = 0;
+
 		return 1;
 	}
 	if (p[0] != LWSSS_SER_TXPRE_TX_PAYLOAD) {

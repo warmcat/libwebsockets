@@ -283,8 +283,14 @@ lws_sss_proxy_onward_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 	 */
 
 	if (lws_ss_deserialize_tx_payload(m->conn->dsh, m->ss->wsi,
-					  ord, buf, len, flags))
+					  ord, buf, len, flags)) {
+		/* if it dropped a chunk, anything after it still wants to go */
+		if (!lws_dsh_get_head(m->conn->dsh, KIND_C_TO_P, (void **)&p,
+				      &si))
+			_lws_ss_request_tx(m->conn->ss);
+
 		return LWSSSSRET_TX_DONT_SEND;
+	}
 
 	/* ... there's more we want to send? */
 	if (!lws_dsh_get_head(m->conn->dsh, KIND_C_TO_P, (void **)&p, &si))
