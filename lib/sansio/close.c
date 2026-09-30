@@ -218,8 +218,7 @@ __lws_reset_wsi(struct lws *wsi)
 		lws_http_close_immortal(wsi);
 
 	wsi->mux_substream = wsi->mux_stream_immortal =
-	wsi->h2_acked_settings = wsi->seen_nonpseudoheader =
-	wsi->parent_pending_cb_on_writable = 0;
+	wsi->h2_acked_settings = wsi->seen_nonpseudoheader = 0;
 #endif
 
 	/*

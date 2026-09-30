@@ -551,7 +551,6 @@ struct lws_context_per_thread {
 	time_t now_wall;	/* the wall time, the embedder last gave */
 
 #if defined(LWS_WITH_LATENCY)
-	lws_usec_t latency_last_cb_end;
 	lws_usec_t latency_cb_start;
 	uint32_t latency_idx;
 	lws_latency_bucket_t latency_ring[LWS_LATENCY_RING_SIZE];
@@ -1001,7 +1000,6 @@ struct lws_io_adjunct {
 
 	unsigned int			favoured_pollin:1;
 	unsigned int			event_pipe:1;
-	unsigned int			file_desc:1;
 	unsigned int			shadow:1; /* we do not control fd lifecycle at all */
 	unsigned int			pf_packet:1;
 	unsigned int			do_broadcast:1;
@@ -1042,15 +1040,12 @@ struct lws_io_adjunct {
 	lws_sorted_usec_list_t		win32_sul_connect_async_check;
 #endif
 #if defined(LWS_WITH_CLIENT)
-	lws_dll2_t			speculative_list;
-	lws_dll2_owner_t		speculative_connect_owner;
 	lws_dll2_owner_t		dns_sorted_list;
 	struct lws_client_parallel_conn *parallel_conns;
 	lws_sorted_usec_list_t		sul_happy_eyeballs;
 	lws_sorted_usec_list_t		sul_h3_grace;
 	uint16_t			retry;
 	uint8_t				parallel_count;
-	uint8_t				addrinfo_idx;
 #endif
 
 	/* a transport under IO in place of the socket (lws_set_transport) */
@@ -1261,7 +1256,6 @@ struct lws {
 	unsigned int			cache_no:1;
 	unsigned int			sending_chunked:1;
 	unsigned int			interpreting:1;
-	unsigned int			parent_pending_cb_on_writable:1;
 	unsigned int			cgi_stdout_zero_length:1;
 	unsigned int			seen_zero_length_recv:1;
 	unsigned int			rxflow_will_be_applied:1;
@@ -1326,7 +1320,6 @@ struct lws {
 #if defined(LWS_WITH_CLIENT)
 #endif
 	uint8_t rxflow_bitmap;
-	uint8_t bound_vhost_index;
 #if defined(LWS_WITH_CGI) || defined(LWS_WITH_CLIENT)
 	char reason_bf; /* internal writeable callback reason bitfield */
 #endif

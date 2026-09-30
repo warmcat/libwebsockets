@@ -242,7 +242,6 @@ struct lws_rewrite {
 	hubbub_parser *parser;
 	hubbub_parser_optparams params;
 	const char *from, *to;
-	int from_len, to_len;
 	unsigned char *p, *end;
 	struct lws *wsi;
 };
@@ -469,8 +468,6 @@ struct _lws_http_mode_related {
 	 * a user-code bug we want to warn about).  Cleared on transaction
 	 * rearm. */
 
-	char auth_username[64];
-	char auth_password[64];
 	char *digest_auth_hdr;
 	char *extra_onward_headers;
 };

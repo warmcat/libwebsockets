@@ -732,7 +732,6 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 			continue;
 
 		lsp->stdwsi[n]->io->desc.filefd = lsp->pipe_fds[n][!n];
-		lsp->stdwsi[n]->io->file_desc = 1;
 
 		lws_dll2_remove(&lsp->stdwsi[n]->pre_natal);
 

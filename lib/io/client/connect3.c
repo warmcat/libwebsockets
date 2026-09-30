@@ -526,8 +526,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 	if (n < 0 &&  /* calling back with a problem */
 	    !lws_dll2_count(&wsi->io->dns_sorted_list) && /* there's no results */
-	    !lws_socket_is_valid(wsi->io->desc.sockfd) && /* no attempt ongoing */
-	    !lws_dll2_count(&wsi->io->speculative_connect_owner) /* no spec attempt */ ) {
+	    !lws_socket_is_valid(wsi->io->desc.sockfd) /* no attempt ongoing */) {
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 		/* the blocking resolver path reports NXDOMAIN itself (connect2.c) */

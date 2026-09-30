@@ -19,9 +19,7 @@ lws_rewrite_create(struct lws *wsi, hubbub_callback_t cb, const char *from,
 		return NULL;
 	}
 	r->from = from;
-	r->from_len = strlen(from);
 	r->to = to;
-	r->to_len = strlen(to);
 	r->params.token_handler.handler = cb;
 	r->wsi = wsi;
 	r->params.token_handler.pw = (void *)r;

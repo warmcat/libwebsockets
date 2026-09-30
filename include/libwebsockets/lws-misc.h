@@ -1244,11 +1244,27 @@ lws_get_opaque_user_data(const struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN void
 lws_set_opaque_user_data(struct lws *wsi, void *data);
 
+/**
+ * lws_get_child_pending_on_writable() - deprecated, always 0
+ *
+ * \param wsi: ignored
+ *
+ * \deprecated A child whose io its parent carried marked the parent as
+ * having a writeable pending for it; nothing has done that since the parent
+ * stopped carrying children's io, so this always returns 0.
+ */
 LWS_VISIBLE LWS_EXTERN int
-lws_get_child_pending_on_writable(const struct lws *wsi);
+lws_get_child_pending_on_writable(const struct lws *wsi) LWS_WARN_DEPRECATED;
 
+/**
+ * lws_clear_child_pending_on_writable() - deprecated, does nothing
+ *
+ * \param wsi: ignored
+ *
+ * \deprecated See lws_get_child_pending_on_writable()
+ */
 LWS_VISIBLE LWS_EXTERN void
-lws_clear_child_pending_on_writable(struct lws *wsi);
+lws_clear_child_pending_on_writable(struct lws *wsi) LWS_WARN_DEPRECATED;
 
 LWS_VISIBLE LWS_EXTERN int
 lws_get_close_length(struct lws *wsi);

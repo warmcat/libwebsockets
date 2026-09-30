@@ -915,8 +915,6 @@ lws_same_vh_protocol_insert(struct lws *wsi, int n)
 	lws_dll2_add_head(&wsi->same_vh_protocol,
 			  &wsi->a.vhost->same_vh_protocol_owner[n]);
 
-	wsi->bound_vhost_index = (uint8_t)n;
-
 	lws_vhost_unlock(wsi->a.vhost);
 	lws_context_unlock(wsi->a.context);
 }

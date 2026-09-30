@@ -53,7 +53,6 @@ lws_latency_cb_end(struct lws_context_per_thread *pt, const char *pn)
 
 	lat_us = (uint32_t)(now - pt->latency_cb_start);
 
-	pt->latency_last_cb_end = now;
 	bs = (uint64_t)now / LWS_LATENCY_BUCKET_US;
 
 	if (pt->latency_ring[pt->latency_idx].bucket_start_us != bs) {
