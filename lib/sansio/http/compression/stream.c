@@ -90,17 +90,24 @@ lws_http_compression_apply(struct lws *wsi, const char *name,
 		return 1;
 	}
 
+	/*
+	 * Only compress what we have said we are compressing: if the header
+	 * doesn't fit, the body must go as it is, so there's no lcs until it
+	 * is in
+	 */
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING,
+			(unsigned char *)lcs_available[n]->encoding_name,
+			(int)strlen(lcs_available[n]->encoding_name), p, end)) {
+		lcs_available[n]->destroy(&wsi->http.comp_ctx);
+		return -1;
+	}
+
 	wsi->http.lcs = lcs_available[n];
 	wsi->http.comp_ctx.wsi = wsi;
 	wsi->http.comp_ctx.may_have_more = 0;
 	wsi->http.comp_ctx.final_on_input_side = 0;
 	wsi->http.comp_ctx.chunking = 0;
 	wsi->http.comp_ctx.is_decompression = !!decomp;
-
-	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING,
-			(unsigned char *)lcs_available[n]->encoding_name,
-			(int)strlen(lcs_available[n]->encoding_name), p, end))
-		return -1;
 
 	lwsl_info("%s: %s: applied %s content-encoding\n", __func__,
 		    lws_wsi_tag(wsi), lcs_available[n]->encoding_name);
