@@ -67,13 +67,26 @@ rops_rx_mqtt(struct lws *wsi, const uint8_t *buf, size_t len,
 /*
  * How an mqtt connection is read: not until it is established (the client's
  * transport phases and CONNACK wait are its handler's), then while tls holds
- * more.
+ * more, and not at all once its close is draining our tx.
  */
 static int
 rops_rx_policy_mqtt(struct lws *wsi, int *flags, size_t *max)
 {
 	*flags = 0;
 	*max = 0;
+
+	/*
+	 * The close waits for our buffered tx to drain, which needs the
+	 * socket writeable and may never happen if the broker does not read.
+	 * Nothing it sends matters any more, and nothing reads it: a
+	 * level-armed POLLIN would spin meanwhile, so drop it.
+	 */
+	if (lwsi_flushing_to_close(wsi)) {
+		if (__lws_io_want_read(wsi, 0))
+			return LWS_RXPOL_CLOSE;
+
+		return LWS_RXPOL_HOLD;
+	}
 
 	/* the broker's CONNACK, and everything after it, come through rx */
 	if (lwsi_state(wsi) == LRS_ESTABLISHED ||
