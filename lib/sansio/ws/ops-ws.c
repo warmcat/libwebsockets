@@ -1446,6 +1446,10 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 		return LWS_HP_RET_BAIL_DIE;
 	}
 
+	/* a ping asked for before a close began is not sent after it */
+	if (wsi->ws->send_check_ping && lwsi_close(wsi) != LCS_NONE)
+		wsi->ws->send_check_ping = 0;
+
 	if (!lwsi_skt_unusable(wsi) &&
 	    wsi->ws->send_check_ping) {
 
@@ -2266,6 +2270,14 @@ rops_issue_keepalive_ws(struct lws *wsi, int isvalid)
 		lwsl_wsi_info(wsi, "confirming validity");
 		_lws_validity_confirmed_role(wsi);
 	} else {
+		/*
+		 * Once a close has begun, the CLOSE we send (ours, or our
+		 * answer to the peer's) is kept where the ping payload goes,
+		 * and nothing but that CLOSE may go out: no validity ping
+		 */
+		if (lwsi_close(wsi) != LCS_NONE)
+			return 0;
+
 		us = (uint64_t)lws_wsi_now(wsi);
 		memcpy(&wsi->ws->ping_payload_buf[LWS_PRE], &us, 8);
 		wsi->ws->send_check_ping = 1;
