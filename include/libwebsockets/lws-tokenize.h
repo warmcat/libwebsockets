@@ -131,6 +131,9 @@ typedef struct lws_tokenize {
 	uint8_t delim;
 
 	int8_t e; /**< convenient for storing lws_tokenize return */
+	uint8_t utf8; /**< private: UTF-8 decode state carried between
+			   LWS_TOKENIZE_F_EXPECT_MORE calls, for a multibyte
+			   character split across two pieces of input */
 	uint8_t reset_token:1;
 	uint8_t crlf:1;
 	uint8_t dry:1;

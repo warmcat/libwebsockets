@@ -1214,6 +1214,70 @@ int main(int argc, const char **argv)
 			ok++;
 	}
 
+	/*
+	 * UTF-8 without LWS_TOKENIZE_F_RFC7230_DELIMS: the last byte of a
+	 * multibyte char must not be taken for a delimiter.
+	 *
+	 * And with LWS_TOKENIZE_F_EXPECT_MORE, input arriving in pieces may
+	 * split a multibyte char between two calls.  The decode state has to
+	 * survive to the next call, or the continuation bytes look like
+	 * broken UTF-8.  Feed it one byte at a time to hit every split.
+	 */
+	{
+		/* "Miloša Žunjića x" */
+		static const char split_in[] = "Milo\xc5\xa1" "a \xc5\xbdunji\xc4\x87" "a x";
+		static const struct expected split_exp[] = {
+			{ LWS_TOKZE_TOKEN, "Milo\xc5\xa1" "a", 7 },
+			{ LWS_TOKZE_TOKEN, "\xc5\xbdunji\xc4\x87" "a", 9 },
+			{ LWS_TOKZE_TOKEN, "x", 1 },
+			{ LWS_TOKZE_ENDED, NULL, 0 },
+		};
+		int in_fail = fail;
+		size_t pos = 0, sx = 0;
+
+		memset(&ts, 0, sizeof(ts));
+		ts.flags = LWS_TOKENIZE_F_EXPECT_MORE;
+
+		while (sx < LWS_ARRAY_SIZE(split_exp) && fail == in_fail) {
+			if (pos == sizeof(split_in) - 1) {
+				/* all delivered, now we can say it's the end */
+				ts.flags &= (uint16_t)~LWS_TOKENIZE_F_EXPECT_MORE;
+				ts.len = 0;
+			} else {
+				ts.start = split_in + pos++;
+				ts.len = 1;
+			}
+
+			do {
+				e = lws_tokenize(&ts);
+				if (e == LWS_TOKZE_WANT_READ)
+					break;
+
+				if (e != split_exp[sx].e ||
+				    (e > 0 && (ts.token_len != split_exp[sx].len ||
+					       memcmp(ts.token, split_exp[sx].value,
+						      split_exp[sx].len)))) {
+					lws_strnncpy(dotstar, e > 0 ? ts.token : "",
+						     e > 0 ? ts.token_len : 0,
+						     sizeof(dotstar));
+					lwsl_notice("fail: split utf8 elem %d: "
+						    "got %s '%s', expected %s\n",
+						    (int)sx,
+						    element_names[e + LWS_TOKZE_ERRS],
+						    dotstar,
+						    element_names[split_exp[sx].e +
+								LWS_TOKZE_ERRS]);
+					fail++;
+					break;
+				}
+				sx++;
+			} while (e > 0 && sx < LWS_ARRAY_SIZE(split_exp));
+		}
+
+		if (fail == in_fail)
+			ok++;
+	}
+
 	if (p) {
 		ts.start = p;
 		ts.len = strlen(p);

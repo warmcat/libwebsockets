@@ -1107,7 +1107,7 @@ lws_tokenize(struct lws_tokenize *ts)
 	char c, flo = 0, d_minus = '-', d_dot = '.', d_star = '*', s_minus = '\0',
 	     s_dot = '\0', s_star = '\0', d_eq = '=', s_eq = '\0', d_plus = '+', s_plus = '\0', skipping = 0;
 	signed char num = (ts->flags & LWS_TOKENIZE_F_NO_INTEGERS) ? 0 : -1;
-	int utf8 = 0;
+	int utf8 = ts->utf8;
 
 	/* for speed, compute the effect of the flags outside the loop */
 
@@ -1153,6 +1153,9 @@ lws_tokenize(struct lws_tokenize *ts)
 		ts->token_len = (ts->flags & LWS_TOKENIZE_F_CHUNK) ?
 					0 : LWS_TOKENIZE_DISCARDING;
 	}
+
+	/* any carried UTF-8 decode state is ours now */
+	ts->utf8 = 0;
 
 	while (ts->len) {
 		c = *ts->start++;
@@ -1306,7 +1309,7 @@ lws_tokenize(struct lws_tokenize *ts)
 		 *
 		 *  - isn't matched earlier, or
 		 *  - is [A-Z, a-z, 0-9, _], and
-		 *  - is not a partial utf8 char
+		 *  - is not part of a (by now validated) utf8 char
 		 *
 		 * is a "delimiter", it marks the end of a token and is itself
 		 * reported as a single LWS_TOKZE_DELIMITER each time.
@@ -1317,7 +1320,7 @@ lws_tokenize(struct lws_tokenize *ts)
 		 * as delimiters.
 		 */
 
-		if (!utf8 &&
+		if (!((unsigned char)c & 0x80) &&
 		     ((ts->flags & LWS_TOKENIZE_F_RFC7230_DELIMS &&
 		       (char *)strchr(rfc7230_delims, c) && c > 32) ||
 		       ((!(ts->flags & LWS_TOKENIZE_F_RFC7230_DELIMS) &&
@@ -1355,6 +1358,8 @@ agg_l:
 					continue;
 				ts->collect[ts->token_len++] = c;
 				if (ts->token_len == sizeof(ts->collect) - 1) {
+					/* the token, maybe a multibyte char, goes on */
+					ts->utf8 = (uint8_t)utf8;
 					if (ts->flags & LWS_TOKENIZE_F_CHUNK) {
 						ts->collect[ts->token_len] = '\0';
 						return (ts->state == LWS_TOKZS_QUOTED_STRING) ?
@@ -1414,6 +1419,8 @@ agg_l:
 				continue;
 			ts->collect[ts->token_len++] = c;
 			if (ts->token_len == sizeof(ts->collect) - 1) {
+				/* the token, maybe a multibyte char, goes on */
+				ts->utf8 = (uint8_t)utf8;
 				if (ts->flags & LWS_TOKENIZE_F_CHUNK) {
 					ts->collect[ts->token_len] = '\0';
 					return (ts->state == LWS_TOKZS_QUOTED_STRING) ?
@@ -1454,6 +1461,8 @@ checknum_l:
 	if (ts->flags & LWS_TOKENIZE_F_EXPECT_MORE) {
 		ts->reset_token = 0;
 		ts->dry = 1;
+		/* we may be partway through a multibyte char */
+		ts->utf8 = (uint8_t)utf8;
 		return LWS_TOKZE_WANT_READ;
 	}
 
@@ -1527,6 +1536,7 @@ lws_tokenize_init(struct lws_tokenize *ts, const char *start, int flags)
 	ts->dry = 0;
 	ts->reset_token = 0;
 	ts->crlf = 0;
+	ts->utf8 = 0;
 	ts->state = LWS_TOKZS_LEADING_WHITESPACE;
 }
 
