@@ -40,6 +40,11 @@ On every transport:
 Refused means a 403 on h1, a GOAWAY PROTOCOL_ERROR on h2 and the connection
 closed on h3.
 
+On h2 each path is asked for twice on one connection, the way an encoder that
+indexes `:path` repeats a request: first as a literal the server adds to its
+hpack dynamic table, then by its index there.  The second is judged as above,
+and must also have been answered exactly as the first was.
+
 h1, raw:
 
 |request|expected|

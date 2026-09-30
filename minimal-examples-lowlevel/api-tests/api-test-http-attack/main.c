@@ -43,6 +43,7 @@
 /* what we keep of the server's reply */
 #define ATK_RX_MAX		(64 * 1024)
 #define ATK_H2_FRAME_MAX	(32 * 1024)	/* h2 frame reassembly */
+#define ATK_FIRST_RX_MAX	4096		/* h2: the first of two answers */
 #define ATK_TX_CHUNK	(16 * 1024)
 /* server: time to send all of the request headers */
 #define ATK_AH_IDLE_SECS	3
@@ -664,6 +665,13 @@ static struct {
 	size_t		fr_len;
 	uint32_t	final_sid;
 	int		status;		/* h2 / h3: of the final request */
+
+	/* h2: a path case's first request, when the final one repeats it */
+	uint8_t		first_rx[ATK_FIRST_RX_MAX];
+	size_t		first_rx_len;
+	uint32_t	first_sid;
+	int		first_status;
+	uint8_t		first_ended;
 	int		goaway;		/* h2: -1, or the GOAWAY error code */
 	int		rst;		/* h2: -1, or the final stream's RST */
 
@@ -1022,6 +1030,25 @@ evaluate(void)
 		break;
 	}
 
+	/*
+	 * An h2 path case asks for the path twice, the second time by the
+	 * index of the first's :path in the server's dynamic table: whatever
+	 * the verdict, the two must have been answered alike
+	 */
+	if (tc.xport == XP_H2 && cn.first_sid && cn.goaway < 0 &&
+	    (cn.first_status != status || cn.first_rx_len != bl ||
+	     (bl && memcmp(cn.first_rx, b, bl)))) {
+		lws_snprintf(why, sizeof(why),
+			     "indexed :path got %d '%.*s', literal got %d "
+			     "'%.*s'", status, (int)(bl > 50 ? 50 : bl),
+			     b ? (const char *)b : "", cn.first_status,
+			     (int)(cn.first_rx_len > 50 ? 50 :
+				   cn.first_rx_len),
+			     (const char *)cn.first_rx);
+		case_done(why);
+		return;
+	}
+
 	case_done(NULL);
 }
 
@@ -1065,6 +1092,15 @@ rx_keep(const void *in, size_t len)
 	cn.rx_len += len;
 
 	return 0;
+}
+
+static void
+first_keep(const void *in, size_t len)
+{
+	if (cn.first_rx_len + len > sizeof(cn.first_rx))
+		len = sizeof(cn.first_rx) - cn.first_rx_len;
+	memcpy(cn.first_rx + cn.first_rx_len, in, len);
+	cn.first_rx_len += len;
 }
 
 /* only callbacks for the current case's connection are of interest */
@@ -1259,6 +1295,18 @@ hp_lit(uint8_t *p, unsigned int name_idx, const char *v, size_t vl)
 	return p + vl;
 }
 
+/* literal with incremental indexing, name from the static table */
+
+static uint8_t *
+hp_lit_indexing(uint8_t *p, unsigned int name_idx, const char *v, size_t vl)
+{
+	p = hp_int(p, 0x40, 6, name_idx);
+	p = hp_int(p, 0, 7, (uint32_t)vl);
+	memcpy(p, v, vl);
+
+	return p + vl;
+}
+
 /* literal without indexing, with a literal name */
 
 static uint8_t *
@@ -1282,6 +1330,7 @@ hp_lit_name(uint8_t *p, const char *n, const char *v)
 #define HP_IDX_PATH		4
 #define HP_IDX_ACCEPT_ENCODING	0x90	/* accept-encoding: gzip, deflate */
 #define HP_IDX_USER_AGENT	58
+#define HP_IDX_DYN_NEWEST	62	/* the last dynamic table insert */
 
 static uint8_t *
 hp_request(uint8_t *p, uint8_t method, const char *path)
@@ -1298,6 +1347,38 @@ h2_get(struct txb *t, uint32_t sid, const char *path)
 {
 	uint8_t hb[512], *p = hp_request(hb, HP_METHOD_GET, path);
 
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, sid, hb,
+		 lws_ptr_diff_size_t(p, hb));
+}
+
+/*
+ * The same GET, but with :path added to the server's dynamic table, and one
+ * asking for that path again by its index there: what an encoder that
+ * indexes :path sends when a request is repeated
+ */
+
+static void
+h2_get_indexing(struct txb *t, uint32_t sid, const char *path)
+{
+	uint8_t hb[512], *p = hb;
+
+	*p++ = HP_METHOD_GET;
+	*p++ = HP_SCHEME_HTTP;
+	p = hp_lit(p, HP_IDX_AUTHORITY, "localhost", 9);
+	p = hp_lit_indexing(p, HP_IDX_PATH, path, strlen(path));
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, sid, hb,
+		 lws_ptr_diff_size_t(p, hb));
+}
+
+static void
+h2_get_indexed(struct txb *t, uint32_t sid)
+{
+	uint8_t hb[64], *p = hb;
+
+	*p++ = HP_METHOD_GET;
+	*p++ = HP_SCHEME_HTTP;
+	p = hp_lit(p, HP_IDX_AUTHORITY, "localhost", 9);
+	p = hp_int(p, 0x80, 7, HP_IDX_DYN_NEWEST);
 	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, sid, hb,
 		 lws_ptr_diff_size_t(p, hb));
 }
@@ -1752,8 +1833,19 @@ h2_rx(struct lws *wsi, const uint8_t *in, size_t len)
 				cn.status = h2_status(p, flen);
 			if (sid == cn.final_sid && (flags & H2F_END_STREAM))
 				cn.ended = 1;
+			if (cn.first_sid && sid == cn.first_sid) {
+				cn.first_status = h2_status(p, flen);
+				if (flags & H2F_END_STREAM)
+					cn.first_ended = 1;
+			}
 			break;
 		case H2_DATA:
+			if (cn.first_sid && sid == cn.first_sid) {
+				first_keep(p, flen);
+				if (flags & H2F_END_STREAM)
+					cn.first_ended = 1;
+				break;
+			}
 			rx_keep(p, flen);
 			if (sid == cn.final_sid && (flags & H2F_END_STREAM))
 				cn.ended = 1;
@@ -1763,6 +1855,8 @@ h2_rx(struct lws *wsi, const uint8_t *in, size_t len)
 				cn.rst = (int)lws_ser_ru32be(p);
 				cn.ended = 1;
 			}
+			if (cn.first_sid && sid == cn.first_sid)
+				cn.first_ended = 1;
 			break;
 		case H2_GOAWAY:
 			if (flen >= 8)
@@ -1777,7 +1871,8 @@ h2_rx(struct lws *wsi, const uint8_t *in, size_t len)
 	cn.fr_len -= o;
 	memmove(cn.fr, cn.fr + o, cn.fr_len);
 
-	if (cn.ended || cn.goaway >= 0) {
+	if ((cn.ended && (!cn.first_sid || cn.first_ended)) ||
+	    cn.goaway >= 0) {
 		evaluate();
 		return -1;
 	}
@@ -1973,9 +2068,17 @@ h2_compose(const struct h2_attack *a, const char *path)
 	struct txb t = { NULL, 0, 0 };
 
 	if (path) {
+		/*
+		 * Twice on one connection: the first time the server adds
+		 * the :path to its dynamic table, the second time we ask for
+		 * it by its index there.  The second one decides the case,
+		 * and must be answered as the first was.
+		 */
 		h2_preface(&t);
-		h2_get(&t, 1, path);
-		cn.final_sid = 1;
+		h2_get_indexing(&t, 1, path);
+		h2_get_indexed(&t, 3);
+		cn.first_sid = 1;
+		cn.final_sid = 3;
 	} else
 		cn.final_sid = a->build(&t);
 

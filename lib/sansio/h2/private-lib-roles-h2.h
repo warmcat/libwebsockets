@@ -273,6 +273,18 @@ struct lws_h2_netconn {
 	 */
 	struct allocated_headers *hpack_sink;
 
+	/*
+	 * The value of a :path field line that is being added to the dynamic
+	 * table, as the peer sent it: what the ah gets is percent-decoded,
+	 * normalised and split into urlargs, which is not the field value
+	 * the peer's table holds (see lws_hpack_path_raw_start())
+	 */
+	char *path_raw;
+	uint16_t path_raw_len;
+	uint16_t path_raw_max;
+
+	unsigned int path_raw_on:1;
+	unsigned int path_raw_lost:1;
 	unsigned int huff:1;
 	unsigned int value:1;
 	unsigned int unknown_header:1;

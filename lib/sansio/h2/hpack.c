@@ -326,6 +326,136 @@ static int lws_frag_end(struct lws *wsi)
 	return 0;
 }
 
+/*
+ * A :path value goes into the ah through lws_parse_urldecode(), the same as
+ * the h1 request URI: percent-decoded, its dot-segments and // normalised, and
+ * its query split off into WSI_TOKEN_HTTP_URI_ARGS fragments.  Returns 0,
+ * LWS_H2_FRAG_NO_ROOM, or 1 if the connection is failing.
+ */
+static int
+lws_hpack_path_char(struct lws *wsi, uint8_t c)
+{
+	switch (lws_parse_urldecode(wsi, &c)) {
+	case LPUR_CONTINUE:
+		return lws_frag_append(wsi, c);
+	case LPUR_SWALLOW:
+		return 0;
+	case LPUR_EXCESSIVE:
+	case LPUR_FORBID:
+		if (lws_h2_goaway(lws_get_network_wsi(wsi),
+				  H2_ERR_PROTOCOL_ERROR, "Evil URI"))
+			lwsl_info("%s: GOAWAY not queued\n", __func__);
+		return 1;
+	default:
+		return 1;
+	}
+}
+
+/*
+ * The :path value is complete, and its last fragment is still open
+ */
+static int
+lws_hpack_path_end(struct lws *wsi)
+{
+	struct allocated_headers *ah = wsi->stream.ah;
+
+	/* a :path may not end partway through a %XX, as on h1 */
+	if (ah->ues != URIES_IDLE) {
+		if (lws_h2_goaway(lws_get_network_wsi(wsi),
+				  H2_ERR_PROTOCOL_ERROR,
+				  "Unterminated escape in :path"))
+			lwsl_info("%s: GOAWAY not queued\n", __func__);
+		return 1;
+	}
+
+	if (ah->ups != URIPS_SEEN_SLASH_DOT_DOT)
+		return 0;
+
+	/*
+	 * :path ended in "/..": back up one dir level if possible, the same
+	 * as the h1 parser does at the end of the request URI.  This has to
+	 * act on the still-open fragment, before lws_frag_end() terminates it
+	 * and moves ah->nfrag on to the next slot (which is one past the end
+	 * of ah->frags[] when all the slots are in use).  There is no query
+	 * then: a ? moves the state on from URIPS_SEEN_SLASH_DOT_DOT, so the
+	 * open fragment is the path's.
+	 */
+	if (ah->frags[ah->nfrag].len > 2) {
+		ah->pos--;
+		ah->frags[ah->nfrag].len--;
+		do {
+			ah->pos--;
+			ah->frags[ah->nfrag].len--;
+		} while (ah->frags[ah->nfrag].len > 1 &&
+			 ah->data[ah->pos] != '/');
+	}
+
+	return 0;
+}
+
+/*
+ * The dynamic table holds field values as the peer sent them, and a field line
+ * that refers to an entry by index must come out of the decoder exactly as the
+ * literal that made the entry did.
+ *
+ * What lws_hpack_path_char() leaves in the ah is not the :path value that was
+ * sent, and it leaves ah->nfrag on the last urlarg of a query, not on the path.
+ * So for a :path with incremental indexing, the value is also collected here
+ * as it arrives, and it is this copy that is inserted.  lws_hpack_use_idx_hdr()
+ * then feeds an indexed :path through lws_hpack_path_char() the same way.
+ *
+ * An entry bigger than the whole table can't be in the peer's table (RFC 7541
+ * 4.4), so no more than that is collected: a value that overflows it is kept
+ * as a lost entry, which the peer has no business referring to.
+ */
+static void
+lws_hpack_path_raw_release(struct lws_h2_netconn *h2n)
+{
+	if (h2n->path_raw)
+		lws_free_set_NULL(h2n->path_raw);
+	h2n->path_raw_on = 0;
+}
+
+static int
+lws_hpack_path_raw_start(struct lws_h2_netconn *h2n)
+{
+	uint32_t max = h2n->hpack_dyn_table.virtual_payload_max;
+	uint64_t bound = h2n->hpack_len;
+
+	lws_hpack_path_raw_release(h2n);
+
+	/* a huffman code is at least 5 bits */
+	if (h2n->huff)
+		bound = (bound * 8) / 5;
+	if (max > 0xffff) /* hpack_dt_entry value_len */
+		max = 0xffff;
+	if (bound < max)
+		max = (uint32_t)bound;
+
+	h2n->path_raw = lws_malloc(max + 1, "hpack path");
+	if (!h2n->path_raw)
+		return 1;
+
+	h2n->path_raw_max = (uint16_t)max;
+	h2n->path_raw_len = 0;
+	h2n->path_raw_lost = 0;
+	h2n->path_raw_on = 1;
+
+	return 0;
+}
+
+static void
+lws_hpack_path_raw_char(struct lws_h2_netconn *h2n, uint8_t c)
+{
+	if (h2n->path_raw_len >= h2n->path_raw_max) {
+		h2n->path_raw_lost = 1;
+		return;
+	}
+
+	h2n->path_raw[h2n->path_raw_len] = (char)c;
+	h2n->path_raw_len = (uint16_t)(h2n->path_raw_len + 1);
+}
+
 
 static void lws_dump_header(struct lws *wsi, int hdr)
 {
@@ -987,8 +1117,14 @@ lws_h2_hdrs_oversize(struct lws *wsi)
 void
 lws_h2_hpack_sink_destroy(struct lws *wsi)
 {
-	if (wsi->h2.h2n && wsi->h2.h2n->hpack_sink)
+	if (!wsi->h2.h2n)
+		return;
+
+	if (wsi->h2.h2n->hpack_sink)
 		lws_free_set_NULL(wsi->h2.h2n->hpack_sink);
+
+	/* a connection that died partway through a :path value */
+	lws_hpack_path_raw_release(wsi->h2.h2n);
 }
 
 static int
@@ -1054,10 +1190,28 @@ lws_hpack_use_idx_hdr(struct lws *wsi, int idx)
 	if (n)
 		return 1;
 
-	if (p)
-		while (*p && len--)
-			if (lws_frag_append(wsi, (unsigned char)*p++))
-				return lws_h2_hdrs_oversize(wsi);
+	if (tok == WSI_TOKEN_HTTP_COLON_PATH) {
+		/*
+		 * The entry is the :path as it was sent: it's decoded into the
+		 * ah exactly as a literal :path is, see
+		 * lws_hpack_path_raw_start()
+		 */
+		if (p)
+			while (*p && len--) {
+				n = lws_hpack_path_char(wsi, (uint8_t)*p++);
+				if (n == LWS_H2_FRAG_NO_ROOM)
+					return lws_h2_hdrs_oversize(wsi);
+				if (n)
+					return 1;
+			}
+
+		if (lws_hpack_path_end(wsi))
+			return 1;
+	} else
+		if (p)
+			while (*p && len--)
+				if (lws_frag_append(wsi, (unsigned char)*p++))
+					return lws_h2_hdrs_oversize(wsi);
 
 	if (lws_frag_end(wsi))
 		return lws_h2_hdrs_oversize(wsi);
@@ -1505,6 +1659,19 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 			break;
 		}
 
+		/*
+		 * A :path we are going to add to the dynamic table: keep it as
+		 * it is sent, as well as decoding it into the ah
+		 */
+		if ((h2n->hpack_type == HPKT_INDEXED_HDR_6_VALUE_INCR ||
+		     h2n->hpack_type == HPKT_LITERAL_HDR_VALUE_INCR) &&
+		    h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&
+		    !lws_h2_hpack_no_store(wsi) &&
+		    ah->hdr_token_idx == WSI_TOKEN_HTTP_COLON_PATH &&
+		    lws_hpack_path_raw_start(h2n))
+			return lws_h2_goaway(nwsi, H2_ERR_INTERNAL_ERROR,
+					     "OOM");
+
 		if (!h2n->hpack_len) {
 			/*
 			 * Zero-length value: no HPKS_DATA bytes are coming and
@@ -1568,28 +1735,19 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 
 					if (ah->hdr_token_idx ==
 					    WSI_TOKEN_HTTP_COLON_PATH) {
+						if (h2n->path_raw_on)
+							lws_hpack_path_raw_char(
+								h2n, c1);
+						m = lws_hpack_path_char(wsi, c1);
+					} else
+						m = lws_frag_append(wsi, c1);
 
-						switch (lws_parse_urldecode(
-								    wsi, &c1)) {
-						case LPUR_CONTINUE:
-							break;
-						case LPUR_SWALLOW:
-							goto swallow_l;
-						case LPUR_EXCESSIVE:
-						case LPUR_FORBID:
-							return lws_h2_goaway(nwsi,
-							  H2_ERR_PROTOCOL_ERROR,
-							  "Evil URI");
-
-						default:
-							return -1;
-						}
-					}
-					if (lws_frag_append(wsi, c1)) {
+					if (m == LWS_H2_FRAG_NO_ROOM) {
 						if (lws_h2_hdrs_oversize(wsi))
 							return 1;
 						ah = h2n->hpack_sink;
-					}
+					} else if (m)
+						return 1;
 				}
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 				else if (wsi->mux_substream && ah->unk_pos &&
@@ -1682,8 +1840,6 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 						h2n->unknown_header = 1;
 				}
 			}
-swallow_l:
-			(void)n;
 		} // for n
 
 		if (--h2n->hpack_len)
@@ -1903,9 +2059,24 @@ add_it:
 			 */
 			ah->frags[ah->nfrag].flags |= 1;
 
-			if (lws_dynamic_token_insert(wsi, (int)h2n->hpack_hdr_len, m,
+			if (h2n->path_raw_on) {
+				/*
+				 * A :path: not what is in the ah, but what was
+				 * sent, see lws_hpack_path_raw_start()
+				 */
+				n = lws_dynamic_token_insert(wsi,
+						(int)h2n->hpack_hdr_len,
+						h2n->path_raw_lost ?
+							LWS_HPACK_LOST_ENTRY : m,
+						h2n->path_raw,
+						h2n->path_raw_lost ? 0 :
+							h2n->path_raw_len);
+			} else
+				n = lws_dynamic_token_insert(wsi,
+					(int)h2n->hpack_hdr_len, m,
 					&ah->data[ah->frags[ah->nfrag].offset],
-					ah->frags[ah->nfrag].len)) {
+					ah->frags[ah->nfrag].len);
+			if (n) {
 				lwsl_notice("%s: tok_insert fail\n", __func__);
 				return 1;
 			}
@@ -1914,6 +2085,9 @@ add_it:
 		default:
 			break;
 		}
+
+		/* inserted, or not wanted after all if we are sinking now */
+		lws_hpack_path_raw_release(h2n);
 
 		if (h2n->hpack_type != HPKT_INDEXED_HDR_6_VALUE_INCR) {
 
@@ -1931,37 +2105,11 @@ add_it:
 		/* a reference to a lost entry makes us sink the rest */
 		ah = lws_h2_hpack_sinking(wsi) ? h2n->hpack_sink : wsi->stream.ah;
 
-		/* a :path may not end partway through a %XX, as on h1 */
 		if (m == WSI_TOKEN_HTTP_COLON_PATH &&
 		    h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&
 		    !lws_h2_hpack_no_store(wsi) &&
-		    ah->ues != URIES_IDLE)
-			return lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
-					     "Unterminated escape in :path");
-
-		if (m == WSI_TOKEN_HTTP_COLON_PATH &&
-		    h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&
-		    !lws_h2_hpack_no_store(wsi) &&
-		    ah->ups == URIPS_SEEN_SLASH_DOT_DOT) {
-			/*
-			 * :path ended in "/..": back up one dir level if
-			 * possible, the same as the h1 parser does at the end
-			 * of the request URI.  This has to act on the
-			 * still-open fragment, before lws_frag_end() below
-			 * terminates it and moves ah->nfrag on to the next
-			 * slot (which is one past the end of ah->frags[] when
-			 * all the slots are in use).
-			 */
-			if (ah->frags[ah->nfrag].len > 2) {
-				ah->pos--;
-				ah->frags[ah->nfrag].len--;
-				do {
-					ah->pos--;
-					ah->frags[ah->nfrag].len--;
-				} while (ah->frags[ah->nfrag].len > 1 &&
-					 ah->data[ah->pos] != '/');
-			}
-		}
+		    lws_hpack_path_end(wsi))
+			return 1;
 
 		if (h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&
 		    !lws_h2_hpack_no_store(wsi)) {
