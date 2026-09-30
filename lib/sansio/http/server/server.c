@@ -4133,6 +4133,7 @@ lws_http_file_tx(struct lws *wsi, unsigned char *buf, size_t max,
 		return LWS_TX_FAIL;
 	}
 
+again:
 	/*
 	 * Without ranges, the end of the file is the end of the response.
 	 * With them, only the end of the last range is: the parts can come in
@@ -4421,6 +4422,18 @@ lws_http_file_tx(struct lws *wsi, unsigned char *buf, size_t max,
 			goto file_had_it;
 		n = args.len;
 		p = (unsigned char *)args.p;
+
+		if (!n && !args.final) {
+			/*
+			 * The interpreter holds all of this lump back until
+			 * it sees more (it ends in what may be the start of
+			 * a variable): nothing is to go yet, but it is not
+			 * the end of the file either, which is what nothing
+			 * to send means to our caller.  Read on.
+			 */
+			wsi->http.filepos += amount;
+			goto again;
+		}
 	} else
 		p = pstart;
 
@@ -4574,116 +4587,127 @@ lws_server_get_canonical_hostname(struct lws_context *context,
 }
 #endif
 
+/*
+ * Substitute the variables in one lump of a file being interpreted, in place,
+ * and frame it as an h1 chunk if asked to.
+ *
+ * A variable may start in one lump and end in the next.  What of one the lump
+ * ends with is held back in s->swallow, and put in front of the next lump
+ * before that is looked at, so a variable is only ever matched, and replaced,
+ * whole inside the buffer.  The last lump of the file has nothing after it:
+ * there, it is just text.
+ *
+ * The content grows in place, up to args->max_len from args->p, keeping back
+ * the 7 bytes the chunk trailers need.  A chunk's size line goes in front of
+ * args->p, where the caller leaves room for it.  A lump that is all held back
+ * leaves args->len 0: nothing goes, not even a chunk, since an empty chunk
+ * would end the body.
+ */
 int
 lws_chunked_html_process(struct lws_process_html_args *args,
 			 struct lws_process_html_state *s)
 {
-	char *sp, buffer[32];
+	int len = args->len, i = 0, hit = 0, hits, m, n, k, vl;
+	char *p = args->p, buffer[16];
 	const char *pc;
-	int old_len, n;
 
-	/* do replacements */
-	sp = args->p;
-	old_len = args->len;
-	args->len = 0;
-	s->start = sp;
-	while (sp < args->p + old_len) {
+	if (len < 0 || s->pos < 0 || s->pos >= (int)sizeof(s->swallow))
+		return -1;
 
-		if (args->len + 7 >= args->max_len) {
+	if (len + s->pos + 7 >= args->max_len) {
+		lwsl_err("Used up interpret padding\n");
+		return -1;
+	}
+
+	if (s->pos) {
+		/* the start of a variable the last lump ended with goes first */
+		memmove(p + s->pos, p, (size_t)len);
+		memcpy(p, s->swallow, (size_t)s->pos);
+		len += s->pos;
+		s->pos = 0;
+	}
+
+	while (i < len) {
+		if (p[i] != '$') {
+			i++;
+			continue;
+		}
+
+		/*
+		 * Match a character more at a time, until exactly one variable
+		 * is matched whole, or none can be, or the lump runs out first
+		 */
+		hits = 0;
+		for (m = 1; m < (int)sizeof(s->swallow) - 1 && i + m <= len;
+		     m++) {
+			hits = 0;
+			for (k = 0; k < s->count_vars; k++) {
+				vl = (int)strlen(s->vars[k]);
+				if (vl >= m && !memcmp(p + i, s->vars[k],
+						       (size_t)m)) {
+					hits++;
+					hit = k;
+				}
+			}
+			if (!hits || (hits == 1 &&
+				      m == (int)strlen(s->vars[hit])))
+				break;
+		}
+
+		if (hits && i + m > len && m < (int)sizeof(s->swallow) - 1 &&
+		    !args->final) {
+			/* it may still be a variable: that is up to what follows */
+			s->pos = len - i;
+			memcpy(s->swallow, p + i, (size_t)s->pos);
+			s->swallow[s->pos] = '\0';
+			len = i;
+			break;
+		}
+
+		if (hits != 1 || i + m > len ||
+		    m == (int)sizeof(s->swallow) - 1 ||
+		    m != (int)strlen(s->vars[hit])) {
+			/* the '$' was just text: look again after it */
+			i++;
+			continue;
+		}
+
+		pc = s->replace(s->data, hit);
+		if (!pc)
+			pc = "NULL";
+		n = (int)strlen(pc);
+
+		if (len - m + n + 7 >= args->max_len) {
 			lwsl_err("Used up interpret padding\n");
 			return -1;
 		}
 
-		if ((!s->pos && *sp == '$') || s->pos) {
-			int hits = 0, hit = 0;
+		memmove(p + i + n, p + i + m, (size_t)(len - i - m));
+		memcpy(p + i, pc, (size_t)n);
+		len += n - m;
 
-			if (!s->pos)
-				s->start = sp;
-			s->swallow[s->pos++] = *sp;
-			if (s->pos == sizeof(s->swallow) - 1)
-				goto skip;
-			for (n = 0; n < s->count_vars; n++)
-				if (!strncmp(s->swallow, s->vars[n], (unsigned int)s->pos)) {
-					hits++;
-					hit = n;
-				}
-			if (!hits) {
-skip:
-				s->swallow[s->pos] = '\0';
-				memcpy(s->start, s->swallow, (unsigned int)s->pos);
-				args->len++;
-				s->pos = 0;
-				sp = s->start + 1;
-				continue;
-			}
-			if (hits == 1 && s->pos == (int)strlen(s->vars[hit])) {
-				pc = s->replace(s->data, hit);
-				if (!pc)
-					pc = "NULL";
-				n = (int)strlen(pc);
-				s->swallow[s->pos] = '\0';
-				if (n != s->pos) {
-					/*
-					 * The guard at the top of the loop
-					 * bounds the output cursor, not the
-					 * content, which every expanding
-					 * substitution grows in place by
-					 * (n - pos) + 1: bound the content too,
-					 * keeping the 7 bytes the chunk trailer
-					 * needs, or the memmove walks past the
-					 * buffer
-					 */
-					if (n > s->pos &&
-					    old_len + (n - s->pos) + 1 + 7 >=
-							    args->max_len) {
-						lwsl_err("Used up interpret padding\n");
-						return -1;
-					}
-					memmove(s->start + n, s->start + s->pos,
-						(unsigned int)(old_len - (sp - args->p) - 1));
-					old_len += (n - s->pos) + 1;
-				}
-				memcpy(s->start, pc, (unsigned int)n);
-				args->len++;
-				sp = s->start + 1;
-
-				s->pos = 0;
-			}
-			sp++;
-			continue;
-		}
-
-		args->len++;
-		sp++;
+		/* what we put in is not looked at for variables again */
+		i += n;
 	}
 
-	if (args->chunked) {
-		/* no space left for final chunk trailer */
-		if (args->final && args->len + 7 >= args->max_len)
-			return -1;
+	args->len = len;
 
-		n = lws_snprintf(buffer, sizeof(buffer), "%X\x0d\x0a", args->len);
+	if (!args->chunked || (!len && !args->final))
+		return 0;
 
+	if (len) {
+		n = lws_snprintf(buffer, sizeof(buffer), "%X\x0d\x0a", len);
 		args->p -= n;
-		memcpy(args->p, buffer, (unsigned int)n);
+		memcpy(args->p, buffer, (size_t)n);
 		args->len += n;
+		memcpy(args->p + args->len, "\x0d\x0a", 2);
+		args->len += 2;
+	}
 
-		if (args->final) {
-			sp = args->p + args->len;
-			*sp++ = '\x0d';
-			*sp++ = '\x0a';
-			*sp++ = '0';
-			*sp++ = '\x0d';
-			*sp++ = '\x0a';
-			*sp++ = '\x0d';
-			*sp++ = '\x0a';
-			args->len += 7;
-		} else {
-			sp = args->p + args->len;
-			*sp++ = '\x0d';
-			*sp++ = '\x0a';
-			args->len += 2;
-		}
+	if (args->final) {
+		/* the last-chunk, with no trailers */
+		memcpy(args->p + args->len, "0\x0d\x0a\x0d\x0a", 5);
+		args->len += 5;
 	}
 
 	return 0;

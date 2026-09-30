@@ -314,7 +314,9 @@ enum lws_callback_reasons {
 	 * HTML.  `in` points to a `struct lws_process_html_args`
 	 * which describes the buffer containing outgoing HTML.
 	 * The buffer may grow up to `.max_len` (currently +128
-	 * bytes per buffer).
+	 * bytes per buffer).  Setting `.len` to 0 for a buffer that
+	 * is not `.final` sends nothing for it yet, and the next
+	 * buffer of the file follows.
 	 */
 
 	LWS_CALLBACK_HTTP_BIND_PROTOCOL				= 49,

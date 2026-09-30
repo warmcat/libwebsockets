@@ -158,9 +158,10 @@ struct lws_process_html_args {
 typedef const char *(*lws_process_html_state_cb)(void *data, int index);
 
 struct lws_process_html_state {
-	char *start; /**< pointer to start of match */
-	char swallow[16]; /**< matched character buffer */
-	int pos; /**< position in match */
+	char *start; /**< unused */
+	char swallow[16]; /**< the start of a variable the last lump ended
+			   * with, held back for the next */
+	int pos; /**< how much is held back in swallow; start at 0 */
 	void *data; /**< opaque pointer */
 	const char * const *vars; /**< list of variable names */
 	int count_vars; /**< count of variable names */
@@ -172,6 +173,13 @@ struct lws_process_html_state {
 /*! lws_chunked_html_process() - generic chunked substitution
  * \param args: buffer to process using chunked encoding
  * \param s: current processing state
+ *
+ * Replaces the variables named in \p s in one lump of the file, in place,
+ * and adds the chunk framing when \p args->chunked.  Variables can be up to
+ * 14 characters, and one may be split across two lumps: the part at the end
+ * of a lump is held back in \p s and processed with the next one, so
+ * \p args->len can come back 0 for a lump that is not the last.  Returns 0,
+ * or -1 if the content would outgrow \p args->max_len.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_chunked_html_process(struct lws_process_html_args *args,
