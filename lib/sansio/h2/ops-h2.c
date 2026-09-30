@@ -1128,6 +1128,33 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		 */
 		return 2;
 
+	if (lwsi_state(wsi) == LRS_TXN_COMPLETING) {
+		size_t sl;
+
+		/*
+		 * The dispatch answered the request and completed it, but its
+		 * answer is still queued: the stream ends once that has gone
+		 * (the walk of the children sees to it).  Until then the body
+		 * is nothing to anyone: what is stashed of it goes now, and
+		 * what is still to come is discarded as it arrives
+		 * (lws_read_h1()), so it is counted from here
+		 */
+		wsi->http.rx_content_remain = wsi->http.content_length_given ?
+				wsi->http.rx_content_length :
+				(wsi->a.vhost->max_http_body_size ?
+					wsi->a.vhost->max_http_body_size :
+					100 * 1024 * 1024);
+		while ((sl = lws_buflist_next_segment_len(&wsi->buflist, NULL))) {
+			lws_buflist_use_segment(&wsi->buflist, sl);
+			wsi->http.rx_content_remain =
+				wsi->http.rx_content_remain > sl ?
+					wsi->http.rx_content_remain - sl : 0;
+		}
+		lws_dll2_remove(&wsi->dll_buflist);
+
+		return 1;
+	}
+
 	if (lwsi_state(wsi) == LRS_DISCARD_BODY)
 		/*
 		 * The dispatch answered the request without consuming the
@@ -1497,6 +1524,21 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 					   "h2 end stream 1");
 			continue;
 		}
+
+#if defined(LWS_WITH_SERVER)
+		/*
+		 * ...or completion: the user completed the transaction while
+		 * its output was queued.  Once none is, it completes, which
+		 * ends the stream; until then there is nothing for the user
+		 * to write
+		 */
+		if (lwsi_state_live(w) == LRS_TXN_COMPLETING) {
+			if (lws_http_tx_drained(w) < 0)
+				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
+						   "h2 deferred completion");
+			continue;
+		}
+#endif
 
 #if defined(LWS_WITH_SERVER)
 		if (w->h2.pending_status_code) {
@@ -1950,6 +1992,31 @@ rops_issue_keepalive_h2(struct lws *wsi, int isvalid)
 	return 0;
 }
 
+/*
+ * What IO had queued for the wsi's transport has gone.  A stream's own
+ * compression partial ends a transaction deferred behind it.  On the
+ * network connection it is its streams' output that has gone: the ones
+ * whose completion waited for it are asked for a writeable, and the walk
+ * of the connection's children completes them.
+ */
+static int
+rops_tx_drained_h2(struct lws *wsi)
+{
+	if (!lws_wsi_is_mux_nwsi(wsi))
+		return lws_http_tx_drained(wsi);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&wsi->mux.child_list_owner)) {
+		struct lws *w = lws_container_of(d, struct lws,
+						 mux.sibling_list);
+
+		if (lwsi_state_live(w) == LRS_TXN_COMPLETING)
+			lws_callback_on_writable(w);
+	} lws_end_foreach_dll(d);
+
+	return 0;
+}
+
 static const lws_rops_t rops_table_h2[] = {
 #if defined(LWS_WITH_SERVER)
 	/*  1 */ { .check_upgrades	  = rops_check_upgrades_h2 },
@@ -1973,7 +2040,7 @@ static const lws_rops_t rops_table_h2[] = {
 	/* 16 */ { .rx_policy		  = rops_rx_policy_h2 },
 	/* 17 */ { .tx			  = rops_tx_h2 },
 	/* 18 */ { .tx_sent		  = rops_tx_sent_h2 },
-	/* 19 */ { .tx_drained		  = lws_http_tx_drained },
+	/* 19 */ { .tx_drained		  = rops_tx_drained_h2 },
 #if defined(LWS_WITH_CLIENT)
 	/* 20 */ { .client_transport_up	  = lws_h2_client_transport_up },
 #endif

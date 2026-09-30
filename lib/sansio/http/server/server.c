@@ -2480,7 +2480,13 @@ deal_body:
 	    wsi->http.rx_content_length == LWS_ILLEGAL_HTTP_CONTENT_LEN)
 		return 0;
 
-	if (lwsi_state(wsi) != LRS_DISCARD_BODY) {
+	/*
+	 * Not if the app refused or answered the request and completed it,
+	 * even while the answer is still queued: the body is then discarded
+	 * as it comes
+	 */
+	if (lwsi_state(wsi) != LRS_DISCARD_BODY &&
+	    lwsi_state(wsi) != LRS_TXN_COMPLETING) {
 		lws_wsi_event(wsi, LWS_WSIEV_BODY_BEGIN);
 		lwsl_info("%s: %s: LRS_BODY state set (0x%x)\n", __func__,
 			  lws_wsi_tag(wsi), (int)wsi->wsistate);

@@ -41,6 +41,11 @@
  * came on: serving the vhost's 404 document is one request's business, the
  * next request on the kept-alive connection gets its own 404 redirect.
  *
+ * Then transactions completed while their answer is still queued, the
+ * transport taking only a few bytes a write: an h2 POST the app answers and
+ * completes at once has the rest of its body discarded as it comes, and its
+ * stream ended once the answer has gone.
+ *
  * Then whether the transport would take a write: a connection on the test's
  * transport is asked of the transport, never of the fd that is its place in
  * the poll set, even when that fd could not take a byte.
@@ -338,6 +343,8 @@ struct transport {
 	uint8_t		tx[65536];
 	size_t		tx_len;
 	size_t		tx_limit;	/* the most one write takes, 0: all */
+	long		tx_budget;	/* bytes it takes before it takes no
+					 * more, -1: no end */
 	int		fd;
 	int		want_read;
 	int		want_write;
@@ -372,6 +379,13 @@ tp_write(struct lws *wsi, void *opaque, const uint8_t *buf, size_t len)
 	/* a transport that takes only some of it: lws keeps the rest */
 	if (t->tx_limit && len > t->tx_limit)
 		len = t->tx_limit;
+	if (t->tx_budget >= 0) {
+		if (!t->tx_budget)
+			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+		if (len > (size_t)t->tx_budget)
+			len = (size_t)t->tx_budget;
+		t->tx_budget -= (long)len;
+	}
 	if (t->tx_len + len > sizeof(t->tx))
 		return LWS_SSL_CAPABLE_ERROR;
 	memcpy(t->tx + t->tx_len, buf, len);
@@ -453,6 +467,7 @@ tp_register(struct transport *t, int fd)
 	memset(t, 0, sizeof(*t));
 	t->fd = fd;
 	t->want_read = 1;
+	t->tx_budget = -1;
 
 	/* an earlier transport's fd was closed and is reused now: not his */
 	for (n = 0; n < ntransports; n++)
@@ -489,16 +504,24 @@ pump(struct lws_context *cx, struct transport *t)
 		struct lws_pollfd pfd;
 		size_t rpos = t->rx_pos, tlen = t->tx_len;
 		int held = !lws_service_adjust_timeout(cx, 1, 0);
-		int in = t->want_read && (t->rx_pos < t->rx_len || held);
+		int in = t->want_read && (t->rx_pos < t->rx_len || held),
+		    out = t->want_write && t->tx_budget; /* can take some */
 
 		pfd.fd = t->fd;
 		pfd.events = (short)(LWS_POLLIN |
 				     (t->want_write ? LWS_POLLOUT : 0));
 		pfd.revents = (short)((in ? LWS_POLLIN : 0) |
-				      (t->want_write ? LWS_POLLOUT : 0));
+				      (out ? LWS_POLLOUT : 0));
 		if (!pfd.revents)
 			return;
-		t->want_write = 0;
+		/*
+		 * Offered, lws asks again if it still wants it... but a pass
+		 * that also reads leaves POLLOUT for the next one (IO's
+		 * fairness), and a real poll, level-triggered, would report it
+		 * again then
+		 */
+		if (out && !in)
+			t->want_write = 0;
 
 		/*
 		 * a nonzero return is not the connection gone: failing it,
@@ -588,7 +611,13 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 struct pss_uri {
 	char		body[256];
 	int		len;
+	int		completed;
 };
+
+/* what the uri vhost's app saw of transactions it completed */
+static int uri_late_writeable, uri_closed;
+/* a transport that is to take only a little of the /early response */
+static struct transport *early_tp;
 
 static int
 callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
@@ -600,6 +629,28 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
+		if (in && !strcmp((const char *)in, "/early")) {
+			/*
+			 * Answered, whole, before any body, and completed
+			 * at once, the way a naive app does
+			 */
+			if (early_tp)
+				/* the transport takes 4 bytes of it */
+				early_tp->tx_budget = 4;
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+						"text/plain", 3, &p, end) ||
+			    lws_finalize_write_http_header(wsi, buf + LWS_PRE,
+							   &p, end))
+				return 1;
+			p = buf + LWS_PRE;
+			memcpy(p, "ok\n", 3);
+			if (lws_write(wsi, p, 3, LWS_WRITE_HTTP_FINAL) != 3)
+				return 1;
+			pss->completed = 1;
+			if (lws_http_transaction_completed(wsi))
+				return -1;
+			return 0;
+		}
 		n = lws_hdr_copy(wsi, pss->body, (int)sizeof(pss->body) - 1,
 				 WSI_TOKEN_GET_URI);
 		if (n < 0)
@@ -619,6 +670,11 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		return 0;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
+		if (pss->completed) {
+			/* nothing is ours to write after we completed it */
+			uri_late_writeable++;
+			return 0;
+		}
 		memcpy(p, pss->body, (size_t)pss->len);
 		if (lws_write(wsi, p, (size_t)pss->len, LWS_WRITE_HTTP_FINAL) !=
 								pss->len)
@@ -626,6 +682,11 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (lws_http_transaction_completed(wsi))
 			return -1;
 		return 0;
+
+	case LWS_CALLBACK_CLOSED_HTTP:
+		if (pss && pss->completed)
+			uri_closed++;
+		break;
 
 	default:
 		break;
@@ -1476,6 +1537,112 @@ h2_oversized_half(struct lws_context *cx, struct lws_vhost *vh)
 
 	return tr_end();
 }
+
+/*
+ * 20: an h2 POST the app answers and completes as soon as it arrives, while
+ * the transport is taking only a few bytes: the completion waits for the
+ * queued response.  The request's body arriving meanwhile is discarded, not
+ * a reason to reset the stream, and once the transport has taken the rest
+ * the stream completes and ends, without the app being given a writeable
+ * for a transaction it had completed.  What the transport takes and when
+ * is not part of a transcript, so this case has none.
+ */
+static int
+h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char preface[] =
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+		"\x00\x00\x00\x04\x00\x00\x00\x00\x00"
+		"\x00\x00\x00\x04\x01\x00\x00\x00\x00";
+	/* DATA, sid 1, END_STREAM: the 3 byte body */
+	static const char data[] = "\x00\x00\x03\x00\x01\x00\x00\x00\x01"
+				   "abc";
+	static uint8_t blk[128], fr[256], out[1024];
+	static struct transport tp;
+	int sv[2], ended = 0, rst = 0;
+	size_t n, o, outl;
+	struct lws *wsi;
+	uint8_t *p;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	uri_late_writeable = uri_closed = 0;
+
+	feed(cx, &tp, preface, sizeof(preface) - 1);
+
+	/* POST /early, content-length 3, the body to follow */
+	p = blk;
+	*p++ = 0x83; /* :method POST */
+	*p++ = 0x86; /* :scheme http */
+	p = hp_int(p, 0x00, 4, 4); /* :path, not indexed */
+	p = hp_str(p, "/early", 6, 0);
+	p = hp_int(p, 0x00, 4, 1); /* :authority, not indexed */
+	p = hp_str(p, "sansio-h2", 9, 0);
+	p = hp_int(p, 0x00, 4, 28); /* content-length, not indexed */
+	p = hp_str(p, "3", 1, 0);
+	n = h2_headers(fr, 1, blk, p);
+	fr[4] = 0x04; /* END_HEADERS alone: the body follows */
+
+	/* the app has the transport take 4 bytes of its response */
+	early_tp = &tp;
+	feed(cx, &tp, fr, n);
+	early_tp = NULL;
+	/* what went, from here, is frames whole as far as they went */
+	outl = tp.tx_len;
+	memcpy(out, tp.tx, outl);
+	feed(cx, &tp, data, sizeof(data) - 1);
+	if (tp.closed || tp.shutdown) {
+		lwsl_err("case 20: connection ended\n");
+		return 1;
+	}
+
+	/* the transport takes everything again */
+	tp.tx_budget = -1;
+	tp.tx_len = 0;
+	tick(cx);
+	pump(cx, &tp);
+	if (outl + tp.tx_len > sizeof(out)) {
+		lwsl_err("case 20: too much output\n");
+		return 1;
+	}
+	memcpy(out + outl, tp.tx, tp.tx_len);
+	outl += tp.tx_len;
+
+	/* frames: the response ends sid 1, which is not reset */
+	for (o = 0; o + 9 <= outl; o += 9 + n) {
+		n = ((size_t)out[o] << 16) | ((size_t)out[o + 1] << 8) |
+		    out[o + 2];
+		if ((lws_ser_ru32be(&out[o + 5]) & 0x7fffffff) != 1)
+			continue;
+		if (out[o + 3] == 3)
+			rst = 1;
+		if (!out[o + 3] && (out[o + 4] & 1))
+			ended = 1;
+	}
+	if (rst || !ended || uri_closed != 1 || uri_late_writeable ||
+	    tp.closed || tp.shutdown) {
+		lwsl_err("case 20: rst %d, ended %d, closed %d, late wr %d, "
+			 "rx %d / %d, want read %d\n", rst, ended, uri_closed,
+			 uri_late_writeable, (int)tp.rx_pos, (int)tp.rx_len,
+			 tp.want_read);
+		lwsl_hexdump_err(out, outl);
+		return 1;
+	}
+	lwsl_user("case 20: h2 completion waits for queued output: PASS\n");
+
+	return 0;
+}
 #endif
 
 static int timer_fired;
@@ -2071,6 +2238,9 @@ main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
 		logs = atoi(p);
+	/* how much of a burst of logs to keep, rather than a small tail */
+	if ((p = lws_cmdline_option(argc, argv, "--log-spew-tail")))
+		lws_log_spew_tail_lines((unsigned int)atoi(p));
 	/* write the transcripts to this dir, or check them against these */
 	record_dir = lws_cmdline_option(argc, argv, "--record");
 	check_dir = lws_cmdline_option(argc, argv, "--transcripts");
@@ -2160,6 +2330,8 @@ main(int argc, const char **argv)
 	}
 	at(cx, 3500);
 	if (h2_oversized_half(cx, vh_h2))
+		goto bail;
+	if (h2_early_answer_half(cx, vh_h2))
 		goto bail;
 #endif
 

@@ -161,6 +161,12 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len,
 
 	case LRS_DISCARD_BODY:
 	case LRS_BODY:
+	/*
+	 * An h1 connection's rx policy holds rx while its completion waits
+	 * for queued output, but an h2 or h3 stream's DATA is fed to us as
+	 * it comes: the transaction is complete, so the body is discarded
+	 */
+	case LRS_TXN_COMPLETING:
 http_postbody:
 		lwsl_info("%s: http post body: cl set %d, remain %d, len %d\n", __func__,
 			    (int)wsi->http.content_length_given,
@@ -274,7 +280,8 @@ http_postbody:
 							body_chunk_len - n;
 			} else {
 #endif
-				if (lwsi_state(wsi) != LRS_DISCARD_BODY) {
+				if (lwsi_state(wsi) != LRS_DISCARD_BODY &&
+				    lwsi_state(wsi) != LRS_TXN_COMPLETING) {
 					lwsl_info("%s: HTTP_BODY %d\n", __func__, (int)body_chunk_len);
 					n = (unsigned int)wsi->a.protocol->callback(wsi,
 						LWS_CALLBACK_HTTP_BODY, wsi->user_space,
@@ -403,6 +410,12 @@ postbody_completion:
 					}
 					break;
 				}
+				/*
+				 * the transaction was completed already, and
+				 * completes when its queued output has gone
+				 */
+				if (lwsi_state(wsi) == LRS_TXN_COMPLETING)
+					break;
 #endif
 				lwsl_info("HTTP_BODY_COMPLETION: %s (%s)\n",
 					  lws_wsi_tag(wsi), wsi->a.protocol->name);
