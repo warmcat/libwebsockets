@@ -111,9 +111,11 @@ static int server_requests_count;
 #define DGR_CHUNK		1024
 /*
  * Datagrams must fit inside a single QUIC packet.  At the smallest MTU
- * we use (1280), ops-quic leaves ~1180 bytes for a DATAGRAM frame
- * payload; DATAGRAM frames cannot be fragmented, and lws silently wedges
- * one that can never fit, so every composed datagram is kept under this.
+ * we use (1280), ops-quic leaves 1180 bytes less the peer's CID length
+ * (1172 with the usual 8-byte CIDs) for a DATAGRAM frame payload, which
+ * also carries the WebTransport quarter stream ID.  DATAGRAM frames cannot
+ * be fragmented, and lws_write() refuses one that no packet on the path
+ * can carry, so every composed datagram is kept under this.
  */
 #define DGR_MAX_DGRAM		1180
 #define DGR_NAME_LEN		128	/* max filename on the wire */

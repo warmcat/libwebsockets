@@ -171,6 +171,25 @@ lws_quic_frame_not_retransmitted(const struct lws_quic_tx_frame *f)
 	       f->type == LWS_QUIC_FT_PATH_RESPONSE;
 }
 
+/*
+ * The most DATAGRAM payload one packet can carry on the connection's path as
+ * it is now: a short header packet with nothing else in it, fitted the way
+ * lws_quic_packet_tx() fits frames
+ */
+static size_t
+lws_quic_datagram_max(const struct lws_quic_netconn *qn)
+{
+	uint32_t mtu = qn->current_mtu ? qn->current_mtu : 1280;
+	size_t room = mtu > 48 ? mtu - 48 : 1200,
+	       over = 1u + qn->rem_cid.len + 2u + LWS_QUIC_FRAME_HDR_MAX +
+		      LWS_QUIC_FIT_SLACK;
+
+	if (room > 1200 && !qn->handshake_done)
+		room = 1200;
+
+	return room > over ? room - over : 0;
+}
+
 void
 lws_quic_path_probe_abandon(struct lws *nwsi)
 {
@@ -3145,6 +3164,19 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 			if ((size_t)(p - buf) + frame_header_max_len + send_len + LWS_QUIC_FIT_SLACK > max_udp_payload) {
 				if ((f->type & 0xf8) == LWS_QUIC_FT_STREAM || f->type == LWS_QUIC_FT_CRYPTO) {
 					send_len = max_udp_payload - (size_t)(p - buf) - frame_header_max_len - LWS_QUIC_FIT_SLACK;
+				} else if ((f->type & 0xfe) == LWS_QUIC_FT_DATAGRAM &&
+					   f->len > lws_quic_datagram_max(qn)) {
+					/*
+					 * The path MTU fell since it was
+					 * queued: no packet can carry it now,
+					 * and it must not hold up what is
+					 * behind it.  RFC 9221 5 lets a
+					 * DATAGRAM be dropped.
+					 */
+					lws_dll2_remove(&f->list);
+					lws_free(f);
+					d = d1;
+					continue;
 				} else {
 					break; /* Non-fragmentable frame doesn't fit */
 				}
@@ -4034,6 +4066,18 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 			lwsl_wsi_notice(wsi, "DATAGRAM frame of %u exceeds peer's max %llu",
 					(unsigned int)flen,
 					(unsigned long long)qn->peer_max_datagram_frame_size);
+			return -1;
+		}
+
+		/*
+		 * ... and it cannot be split: one no packet on the path can
+		 * carry would never be sent, and hold up everything queued
+		 * behind it
+		 */
+		if (len > lws_quic_datagram_max(qn)) {
+			lwsl_wsi_notice(wsi, "DATAGRAM of %u exceeds the %u the "
+					     "path can carry", (unsigned int)len,
+					(unsigned int)lws_quic_datagram_max(qn));
 			return -1;
 		}
 	}
