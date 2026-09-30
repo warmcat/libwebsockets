@@ -27,9 +27,9 @@
  */
 
 /*
- * Parsers for the JSON the ACME server answers with.  They live apart from
- * the rest of the plugin so api-test-acme-json can run them on canned
- * responses.
+ * Parsers for the JSON the ACME server answers with, and for the root
+ * daemon's answer lines on the IPC stream.  They live apart from the rest of
+ * the plugin so api-test-acme-json can run them on canned responses.
  */
 
 #if !defined(LWS_PLUGIN_STATIC)
@@ -338,4 +338,116 @@ acme_cb_chac(struct lejp_ctx *ctx, char reason)
 	}
 
 	return 0;
+}
+
+/*
+ * The root daemon's answers on the IPC stream, see private-acme-client.h
+ */
+
+int
+acme_ipc_rx(struct acme_ipc_rx *rx, const char *in, size_t len,
+	    acme_ipc_line_cb_t cb, void *opaque)
+{
+	size_t n;
+
+	while (len--) {
+		char c = *in++;
+
+		if (c != '\n') {
+			if (rx->len < sizeof(rx->buf) - 1)
+				rx->buf[rx->len] = c;
+			/* an overlong line is not an answer of ours, drop it */
+			if (rx->len < sizeof(rx->buf))
+				rx->len++;
+			continue;
+		}
+
+		n = rx->len;
+		rx->len = 0;
+		if (!n || n == sizeof(rx->buf))
+			continue;
+
+		rx->buf[n] = '\0';
+		if (cb(opaque, rx->buf, n))
+			return 1;
+	}
+
+	return 0;
+}
+
+/* an integer member, eg "days_left":12; 0 if missing or not a number */
+
+static int
+acme_ipc_int(const char *line, size_t len, const char *name)
+{
+	const char *p;
+	size_t al, n = 0, d;
+	int v = 0, neg = 0;
+
+	p = lws_json_simple_find(line, len, name, &al);
+	if (!p)
+		return 0;
+
+	if (al && *p == '-') {
+		neg = 1;
+		n++;
+	}
+
+	/* nine digits cannot overflow an int */
+	for (d = 0; n < al && d < 9 && p[n] >= '0' && p[n] <= '9'; n++, d++)
+		v = (v * 10) + (p[n] - '0');
+
+	return neg ? -v : v;
+}
+
+static const char * const acme_ipc_save_reqs[] = {
+	"save_cert",			/* the first two store the cert */
+	"save_key",
+	"save_auth_key",
+	"save_dns_challenge",
+	"cleanup_dns_challenge",
+	"trigger_resign",
+};
+
+void
+acme_ipc_classify(const char *line, size_t len, struct acme_ipc_reply *r)
+{
+	const char *req;
+	size_t rl, n;
+
+	memset(r, 0, sizeof(*r));
+
+	r->ok = !lws_json_simple_strcmp(line, len, "\"status\":", "ok");
+
+	req = lws_json_simple_find(line, len, "\"req\":", &rl);
+	if (!req || (rl == 7 && !strncmp(req, "unknown", 7))) {
+		/*
+		 * Refused before it knew the request (bad JSON, missing req,
+		 * authentication), so it answers one of ours but we can't
+		 * say which
+		 */
+		if (!lws_json_simple_strcmp(line, len, "\"status\":", "error"))
+			r->type = ACME_IPC_LINE_REFUSED;
+
+		return;
+	}
+
+	if (rl == 17 && !strncmp(req, "get_cert_validity", 17)) {
+		r->type = ACME_IPC_LINE_VALIDITY;
+		r->days_left = acme_ipc_int(line, len, "\"days_left\":");
+		r->total_days = acme_ipc_int(line, len, "\"total_days\":");
+
+		return;
+	}
+
+	for (n = 0; n < LWS_ARRAY_SIZE(acme_ipc_save_reqs); n++)
+		if (rl == strlen(acme_ipc_save_reqs[n]) &&
+		    !strncmp(req, acme_ipc_save_reqs[n], rl)) {
+			r->type = ACME_IPC_LINE_SAVE;
+			r->stores_cert = n < 2;
+
+			return;
+		}
+
+	/* eg, "cert_status" sent to every client: not ours */
 }

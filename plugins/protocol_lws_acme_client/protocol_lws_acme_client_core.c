@@ -67,6 +67,8 @@ acme_state_name(lws_acme_state s)
 
 static void
 acme_aging_next_cert(struct per_vhost_data__lws_acme_client *vhd);
+static void
+acme_ipc_arm(struct per_vhost_data__lws_acme_client *vhd);
 
 /*
  * Point a -latest[-fullchain].crt / -latest.key symlink at the newly
@@ -217,13 +219,14 @@ acme_ipc_save_payload(struct per_vhost_data__lws_acme_client *vhd, const char *r
 	}
 	dyn_buf[pos++] = '"'; dyn_buf[pos++] = '}'; dyn_buf[pos++] = '\n';
 
-	if (!vhd->ipc) {
+	if (!vhd->ipc || lws_async_ipc_queue_payload(vhd->ipc, dyn_buf, pos)) {
 		free(dyn_buf);
 		return 1;
 	}
 
-	lws_async_ipc_queue_payload(vhd->ipc, dyn_buf, pos);
+	/* each request is answered by exactly one line, see acme_ipc_line() */
 	vhd->ipc_pending_saves++;
+	acme_ipc_arm(vhd);
 	free(dyn_buf);
 
 	return 0;
@@ -673,6 +676,127 @@ acme_note_failure(struct per_vhost_data__lws_acme_client *vhd)
 				    LWS_USEC_PER_SEC));
 }
 
+/* end the acquisition in progress as a failure, and back off */
+
+static void
+acme_fail_acquisition(struct per_vhost_data__lws_acme_client *vhd,
+		      const char *reason)
+{
+	if (vhd->ops && vhd->ops->challenge_cleanup)
+		vhd->ops->challenge_cleanup(vhd->vhost, vhd->challenge_priv);
+
+	lws_acme_report_status(vhd->vhost, LWS_CUS_FAILED, reason);
+	lws_acme_finished(vhd);
+	vhd->last_acme_failure = lws_now_usecs();
+	acme_note_failure(vhd);
+}
+
+/*
+ * IPC with the root daemon
+ *
+ * Every request we send is answered by one line (see acme_ipc_line()), and
+ * we must never take one request's answer for another's.  So when anything
+ * goes wrong with the connection, or an answer does not come in time, we
+ * drop the connection with everything outstanding on it, and treat each
+ * outstanding request as failed: late answers on the old connection can't
+ * reach us, and a fresh connection starts with nothing outstanding.
+ */
+
+#define ACME_IPC_REPLY_TIMEOUT_US (30 * LWS_US_PER_SEC)
+
+static int
+acme_ipc_cb(const struct lws_async_ipc_cb_args *args);
+static void
+acme_ipc_fail_cb(lws_sorted_usec_list_t *sul);
+
+static int
+acme_ipc_open(struct per_vhost_data__lws_acme_client *vhd)
+{
+	struct lws_async_ipc_info ipc_info;
+
+	memset(&ipc_info, 0, sizeof(ipc_info));
+	ipc_info.cx		= vhd->context;
+	ipc_info.uds_path	= vhd->ipc_uds_path;
+	ipc_info.cb		= acme_ipc_cb;
+	ipc_info.opaque		= vhd;
+
+	vhd->ipc = lws_async_ipc_create(&ipc_info);
+
+	return !vhd->ipc;
+}
+
+/* (re)start the reply timeout if anything is outstanding, else stop it */
+
+static void
+acme_ipc_arm(struct per_vhost_data__lws_acme_client *vhd)
+{
+	if (vhd->ipc_failing)
+		return; /* the failure handling is already scheduled */
+
+	if (vhd->ipc_pending_saves || vhd->aging_current_cert)
+		lws_sul_schedule(vhd->context, 0, &vhd->sul_ipc,
+				 acme_ipc_fail_cb, ACME_IPC_REPLY_TIMEOUT_US);
+	else
+		lws_sul_cancel(&vhd->sul_ipc);
+}
+
+/*
+ * Handled from the event loop rather than from inside the async ipc callback
+ * that reports it: the connection can fail synchronously inside
+ * lws_async_ipc_queue_payload(), ie, while a caller is still using the state
+ * the failure handling would free
+ */
+
+static void
+acme_ipc_fail(struct per_vhost_data__lws_acme_client *vhd)
+{
+	vhd->ipc_failing = 1;
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_ipc, acme_ipc_fail_cb, 1);
+}
+
+/*
+ * Drop the connection and everything outstanding on it.  An aging validity
+ * check that was waiting counts as failed, and aging moves on to the next
+ * cert, on a new connection
+ */
+
+static void
+acme_ipc_abandon(struct per_vhost_data__lws_acme_client *vhd)
+{
+	lws_sul_cancel(&vhd->sul_ipc);
+	vhd->ipc_failing = 0;
+	vhd->ipc_pending_saves = 0;
+	vhd->ipc_rx.len = 0;
+
+	lws_async_ipc_destroy(&vhd->ipc);
+	if (acme_ipc_open(vhd))
+		lwsl_vhost_err(vhd->vhost, "acme: unable to recreate IPC");
+
+	if (vhd->aging_current_cert) {
+		lwsl_vhost_warn(vhd->vhost, "acme_aging: validity check abandoned");
+		vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
+		acme_aging_next_cert(vhd);
+	}
+}
+
+static void
+acme_ipc_fail_cb(lws_sorted_usec_list_t *sul)
+{
+	struct per_vhost_data__lws_acme_client *vhd = lws_container_of(sul,
+			struct per_vhost_data__lws_acme_client, sul_ipc);
+	int had_saves = vhd->ipc_pending_saves;
+
+	lwsl_vhost_warn(vhd->vhost, "acme: IPC with the root daemon failed or "
+			"stalled with %d save(s)%s outstanding", had_saves,
+			vhd->aging_current_cert ? " and a validity check" : "");
+
+	acme_ipc_abandon(vhd);
+
+	/* what this acquisition asked the daemon to store may not be stored */
+	if (had_saves && vhd->ac)
+		acme_fail_acquisition(vhd, "IPC with the root daemon failed");
+}
+
 /*
  * If any single acquisition attempt wedges (eg, the CA connection stops
  * responding, or a connection error is not noticed), the busy marker vhd->ac
@@ -696,14 +820,14 @@ lws_acme_watchdog_cb(lws_sorted_usec_list_t *sul)
 				acme_state_name(vhd->ac->state));
 	}
 
-	if (vhd->ops && vhd->ops->challenge_cleanup)
-		vhd->ops->challenge_cleanup(vhd->vhost, vhd->challenge_priv);
+	/*
+	 * Answers still owed to this attempt must not be counted against
+	 * anything later, so they go with it
+	 */
+	if (vhd->ipc_pending_saves)
+		acme_ipc_abandon(vhd);
 
-	lws_acme_report_status(vhd->vhost, LWS_CUS_FAILED,
-			       "ACME transaction watchdog timeout");
-	lws_acme_finished(vhd);
-	vhd->last_acme_failure = lws_now_usecs();
-	acme_note_failure(vhd);
+	acme_fail_acquisition(vhd, "ACME transaction watchdog timeout");
 }
 
 
@@ -1236,6 +1360,135 @@ acme_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 }
 #endif
 
+/* the cert was fetched, and every save we asked the daemon for is answered */
+
+static void
+acme_ipc_saves_done(struct per_vhost_data__lws_acme_client *vhd)
+{
+	if (vhd->ac->save_refused) {
+		acme_fail_acquisition(vhd, "root daemon could not store the cert");
+		return;
+	}
+
+	lws_acme_finished(vhd);
+	lws_acme_report_status(vhd->vhost, LWS_CUS_SUCCESS, NULL);
+	/* cert fetched AND stored: clear the acquisition failure backoff */
+	vhd->acme_fail_count = 0;
+	vhd->acme_retry_not_before = 0;
+}
+
+/* the answer to the aging validity check for vhd->aging_current_cert */
+
+static void
+acme_ipc_validity(struct per_vhost_data__lws_acme_client *vhd,
+		  const struct acme_ipc_reply *r)
+{
+	struct lws_acme_cert_config *cfg = lws_container_of(
+			vhd->aging_current_cert, struct lws_acme_cert_config, list);
+	lws_usec_t now;
+
+	if (!cfg->force_reissue && r->ok &&
+	    !(r->total_days && r->days_left <= (r->total_days / 4))) {
+		lwsl_vhost_notice(vhd->vhost, "acme: cert %s: %d days left, total %d (skip renewal)", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], r->days_left, r->total_days);
+		vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
+		acme_aging_next_cert(vhd);
+		return;
+	}
+
+	now = lws_now_usecs();
+	if (now < vhd->acme_retry_not_before) {
+		/* a recent acquisition for this failed:
+		 * don't hammer the CA with repeated
+		 * orders for the same cert (LE allows
+		 * 5 duplicates / 7 days) */
+		lwsl_vhost_notice(vhd->vhost, "acme_aging: %s still needs a cert "
+			"but backing off, next attempt in %llds",
+			cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME],
+			(long long)((vhd->acme_retry_not_before - now) /
+				    LWS_USEC_PER_SEC));
+		vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
+		acme_aging_next_cert(vhd);
+		return;
+	}
+
+	if (cfg->force_reissue)
+		lwsl_vhost_notice(vhd->vhost, "acme_aging: cert %s has %d days left (total %d). Forced reissue!", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], r->days_left, r->total_days);
+	else if (!r->ok)
+		lwsl_notice("acme_aging: triggering acquisition for %s: root daemon could not read cert\n", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
+	else
+		lwsl_vhost_notice(vhd->vhost, "acme_aging: cert %s has %d days left (total %d). Triggering renewal!", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], r->days_left, r->total_days);
+
+	cfg->force_reissue = 0;
+	vhd->active_cert = cfg;
+	for (int n = 0; n < LWS_TLS_TOTAL_COUNT; n++) {
+		if (vhd->aging_caa.element_overrides[n])
+			vhd->active_cert->pvop[n] = vhd->aging_caa.element_overrides[n];
+	}
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_acquisition,
+			 lws_acme_start_acquisition_cb, 100 * LWS_US_PER_MS);
+	vhd->aging_current_cert = NULL;
+}
+
+/*
+ * One complete line from the daemon.  Each of our requests gets exactly one
+ * answer line, but lines that answer nothing of ours come too, so match them
+ * by what they answer, not by arrival
+ */
+
+static int
+acme_ipc_line(void *opaque, const char *line, size_t len)
+{
+	struct per_vhost_data__lws_acme_client *vhd =
+			(struct per_vhost_data__lws_acme_client *)opaque;
+	struct acme_ipc_reply r;
+
+	acme_ipc_classify(line, len, &r);
+
+	switch (r.type) {
+	case ACME_IPC_LINE_SAVE:
+		if (!vhd->ipc_pending_saves)
+			break; /* not ours */
+		vhd->ipc_pending_saves--;
+
+		if (!r.ok) {
+			lwsl_vhost_warn(vhd->vhost, "acme: root daemon refused "
+					"a save: %.*s", (int)len, line);
+			if (r.stores_cert && vhd->ac)
+				vhd->ac->save_refused = 1;
+		}
+
+		acme_ipc_arm(vhd);
+
+		if (!vhd->ipc_pending_saves && vhd->ac && vhd->ac->saves_awaited)
+			acme_ipc_saves_done(vhd);
+		break;
+
+	case ACME_IPC_LINE_VALIDITY:
+		if (!vhd->aging_current_cert)
+			break; /* not ours */
+
+		acme_ipc_validity(vhd, &r);
+		acme_ipc_arm(vhd);
+		break;
+
+	case ACME_IPC_LINE_REFUSED:
+		if (!vhd->ipc_pending_saves && !vhd->aging_current_cert)
+			break;
+
+		/* it was one of ours, but which?  Everything outstanding fails */
+		lwsl_vhost_warn(vhd->vhost, "acme: root daemon refused a request: "
+				"%.*s", (int)len, line);
+		acme_ipc_fail(vhd);
+
+		return 1; /* nothing more on this connection is taken as an answer */
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 static int
 acme_ipc_cb(const struct lws_async_ipc_cb_args *args)
 {
@@ -1244,93 +1497,27 @@ acme_ipc_cb(const struct lws_async_ipc_cb_args *args)
 	switch (args->state) {
 	case LWS_ASYNC_IPC_STATE_TIMEOUT:
 	case LWS_ASYNC_IPC_STATE_ERROR:
-		if (vhd->aging_current_cert) {
-			lwsl_vhost_err(vhd->vhost, "ACME IPC aging check failed!");
-			vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
-			acme_aging_next_cert(vhd);
-		} else {
-			lwsl_vhost_err(vhd->vhost, "ACME IPC failed! Retrying acquisition from scratch...");
-			if (vhd->ac)
-				lws_acme_finished(vhd);
-			vhd->last_acme_failure = lws_now_usecs();
-			lws_sul_schedule(vhd->context, 0, &vhd->sul_acquisition, lws_acme_start_acquisition_cb, 5 * LWS_US_PER_SEC);
-		}
+		/* the connection and its queue are gone, and anything owed on it */
+		lwsl_vhost_err(vhd->vhost, "acme: IPC with the root daemon %s",
+			       args->state == LWS_ASYNC_IPC_STATE_TIMEOUT ?
+					"timed out" : "failed");
+		acme_ipc_fail(vhd);
 		break;
+
+	case LWS_ASYNC_IPC_STATE_CONNECTED:
+		vhd->ipc_rx.len = 0;
+		break;
+
 	case LWS_ASYNC_IPC_STATE_RX:
-		lwsl_vhost_notice(vhd->vhost, "ACME IPC RX successfully received!");
-		if (vhd->ipc_pending_saves > 0) {
-			vhd->ipc_pending_saves--;
-			if (vhd->ipc_pending_saves == 0) {
-				if (vhd->ac && vhd->ac->state == ACME_STATE_DOWNLOAD_CERT) {
-					lws_acme_finished(vhd);
-					lws_acme_report_status(vhd->vhost, LWS_CUS_SUCCESS, NULL);
-					/* cert fetched AND stored: clear the
-					 * acquisition failure backoff */
-					vhd->acme_fail_count = 0;
-					vhd->acme_retry_not_before = 0;
-				}
-			}
-		} else if (vhd->aging_current_cert) {
-			int days_left = 0, total_days = 0;
-			const char *p;
-			char safe_buf[2048];
-			size_t copy_len = args->len < sizeof(safe_buf) - 1 ? args->len : sizeof(safe_buf) - 1;
-			memcpy(safe_buf, args->data, copy_len);
-			safe_buf[copy_len] = '\0';
-
-			if ((p = (char *)strstr(safe_buf, "\"days_left\":")))
-				days_left = atoi(p + 12);
-			if ((p = (char *)strstr(safe_buf, "\"total_days\":")))
-				total_days = atoi(p + 13);
-
-			struct lws_acme_cert_config *cfg = lws_container_of(vhd->aging_current_cert, struct lws_acme_cert_config, list);
-			if (cfg->force_reissue ||
-			    (char *)strstr(safe_buf, "\"status\":\"error\"") || (total_days && days_left <= (total_days / 4))) {
-				lws_usec_t now = lws_now_usecs();
-
-				if (now < vhd->acme_retry_not_before) {
-					/* a recent acquisition for this failed:
-					 * don't hammer the CA with repeated
-					 * orders for the same cert (LE allows
-					 * 5 duplicates / 7 days) */
-					lwsl_vhost_notice(vhd->vhost, "acme_aging: %s still needs a cert "
-						"but backing off, next attempt in %llds",
-						cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME],
-						(long long)((vhd->acme_retry_not_before - now) /
-							    LWS_USEC_PER_SEC));
-					vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
-					acme_aging_next_cert(vhd);
-					break;
-				}
-
-				if (cfg->force_reissue)
-					lwsl_vhost_notice(vhd->vhost, "acme_aging: cert %s has %d days left (total %d). Forced reissue!", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], days_left, total_days);
-				else if ((char *)strstr(safe_buf, "\"status\":\"error\""))
-					lwsl_notice("acme_aging: triggering acquisition for %s: root daemon could not read cert\n", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
-				else
-					lwsl_vhost_notice(vhd->vhost, "acme_aging: cert %s has %d days left (total %d). Triggering renewal!", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], days_left, total_days);
-
-				cfg->force_reissue = 0;
-				vhd->active_cert = cfg;
-				for (int n = 0; n < LWS_TLS_TOTAL_COUNT; n++) {
-					if (vhd->aging_caa.element_overrides[n])
-						vhd->active_cert->pvop[n] = vhd->aging_caa.element_overrides[n];
-				}
-				lws_sul_schedule(vhd->context, 0, &vhd->sul_acquisition,
-								 lws_acme_start_acquisition_cb, 100 * LWS_US_PER_MS);
-				vhd->aging_current_cert = NULL;
-			} else {
-				lwsl_vhost_notice(vhd->vhost, "acme: cert %s: %d days left, total %d (skip renewal)", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], days_left, total_days);
-				vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
-				acme_aging_next_cert(vhd);
-			}
-		}
+		if (!vhd->ipc_failing)
+			acme_ipc_rx(&vhd->ipc_rx, (const char *)args->data,
+				    args->len, acme_ipc_line, vhd);
 		break;
-	case LWS_ASYNC_IPC_STATE_DESTROYED:
-		break;
+
 	default:
 		break;
 	}
+
 	return 0;
 }
 
@@ -1401,18 +1588,14 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 				pvo = pvo->next;
 			}
 
-			const char *uds = vhd->uds_path;
-			if (!uds) uds = lws_cmdline_option_cx(vhd->context, "--uds-path");
-			if (!uds) uds = "/var/run/lws-dnssec-monitor.sock";
+			vhd->ipc_uds_path = vhd->uds_path;
+			if (!vhd->ipc_uds_path)
+				vhd->ipc_uds_path = lws_cmdline_option_cx(
+						vhd->context, "--uds-path");
+			if (!vhd->ipc_uds_path)
+				vhd->ipc_uds_path = "/var/run/lws-dnssec-monitor.sock";
 
-			struct lws_async_ipc_info ipc_info;
-			memset(&ipc_info, 0, sizeof(ipc_info));
-			ipc_info.cx         = vhd->context;
-			ipc_info.uds_path   = uds;
-			ipc_info.cb         = acme_ipc_cb;
-			ipc_info.opaque     = vhd;
-
-			vhd->ipc = lws_async_ipc_create(&ipc_info);
+			acme_ipc_open(vhd);
 		}
 
         {
@@ -2307,6 +2490,8 @@ poll_again:
 
 			if (vhd->ipc_pending_saves > 0) {
 				lwsl_vhost_notice(vhd->vhost, "Waiting for %d IPC saves to complete...", vhd->ipc_pending_saves);
+				/* the last answer finishes it, acme_ipc_line() */
+				ac->saves_awaited = 1;
 			} else {
 				lws_acme_finished(vhd);
 				lws_acme_report_status(vhd->vhost,
@@ -2369,14 +2554,8 @@ poll_again:
 	return 0;
 
 failed:
-	if (vhd->ops && vhd->ops->challenge_cleanup)
-		vhd->ops->challenge_cleanup(vhd->vhost, vhd->challenge_priv);
-
 	lwsl_vhost_warn(vhd->vhost, "Failed out");
-	lws_acme_report_status(vhd->vhost, LWS_CUS_FAILED, failreason);
-	lws_acme_finished(vhd);
-	vhd->last_acme_failure = lws_now_usecs();
-	acme_note_failure(vhd);
+	acme_fail_acquisition(vhd, failreason);
 
 	return -1;
 }
@@ -2418,6 +2597,7 @@ lws_acme_core_destroy_vhost(struct per_vhost_data__lws_acme_client *vhd)
 	if (vhd) {
 		lws_sul_cancel(&vhd->sul_aging);
 		lws_sul_cancel(&vhd->sul_acquisition);
+		lws_sul_cancel(&vhd->sul_ipc);
 #if defined(LWS_WITH_SYS_SMD)
 		if (vhd->smd_peer) {
 			lws_smd_unregister(vhd->smd_peer);
@@ -2524,9 +2704,10 @@ acme_aging_next_cert(struct per_vhost_data__lws_acme_client *vhd)
 		int len = lws_snprintf(req_buf, sizeof(req_buf), "{\"req\":\"get_cert_validity\",\"jwt\":\"%s\",\"domain\":\"%s\",\"subdomain\":\"%s\"}\n",
 				jwt, esc_domain, esc_cn);
 
-		if (vhd->ipc) {
-			lws_async_ipc_queue_payload(vhd->ipc, req_buf, (size_t)len);
-			/* Return here! We will continue iteration in the IPC callback. */
+		if (vhd->ipc && !lws_async_ipc_queue_payload(vhd->ipc, req_buf,
+							     (size_t)len)) {
+			/* we continue iterating when it is answered, or fails */
+			acme_ipc_arm(vhd);
 			return;
 		} else {
 			lwsl_vhost_err(vhd->vhost, "acme_aging: async IPC not available");

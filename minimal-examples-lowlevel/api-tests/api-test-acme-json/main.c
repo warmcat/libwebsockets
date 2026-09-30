@@ -19,6 +19,17 @@
  *    it once insisted on http-01, failing every dns-01 acquisition
  *  - ...but an answer about a different type of challenge is refused
  *  - an error body's detail is kept
+ *
+ * It also runs the plugin's framing of the root daemon's answers on the IPC
+ * stream, fed in one read and a byte at a time:
+ *
+ *  - two answers arriving in one read are two answers... they were once
+ *    counted as one, leaving a save forever outstanding
+ *  - a line sent to every client ("cert_status") answers nothing of ours
+ *  - a refusal with no "req" (eg, authentication failed) is told apart
+ *  - a validity answer gives its days, and a refused save that stores the
+ *    cert is flagged
+ *  - an overlong line is dropped without losing the line after it
  */
 
 #include <libwebsockets.h>
@@ -113,6 +124,33 @@ static const char *ajt_authz_error =
 	"  \"detail\": \"Account is not authorized\",\n"
 	"  \"status\": 403\n"
 	"}";
+
+/*
+ * The daemon's answers to a cert fetch saved over IPC, with a line for every
+ * client in between, then the answer to an aging check, and a refusal
+ */
+
+static const char *ajt_ipc_lines =
+	"{\"req\":\"save_cert\",\"status\":\"ok\"}\n"
+	"{\"req\":\"save_key\",\"status\":\"error\",\"msg\":\"Could not open file for writing\"}\n"
+	"{\"req\":\"cert_status\",\"subdomain\":\"www.npro.rs\",\"port\":443,\"status\":\"ok\",\"msg\":\"\",\"local_msg\":\"\",\"issuer\":\"R11\"}\n"
+	"{\"req\":\"save_cert\",\"status\":\"ok\"}\n"
+	"{\"req\":\"get_cert_validity\",\"status\":\"ok\",\"days_left\":4,\"total_days\":6}\n"
+	"{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n";
+
+static const struct acme_ipc_reply ajt_ipc_want[] = {
+	{ ACME_IPC_LINE_SAVE,		0, 0, 1, 1 },
+	{ ACME_IPC_LINE_SAVE,		0, 0, 0, 1 },
+	{ ACME_IPC_LINE_UNRELATED,	0, 0, 1, 0 },
+	{ ACME_IPC_LINE_SAVE,		0, 0, 1, 1 },
+	{ ACME_IPC_LINE_VALIDITY,	4, 6, 1, 0 },
+	{ ACME_IPC_LINE_REFUSED,	0, 0, 0, 0 },
+};
+
+struct ajt_ipc_got {
+	struct acme_ipc_reply	r[LWS_ARRAY_SIZE(ajt_ipc_want) + 1];
+	size_t			count;
+};
 
 static struct per_vhost_data__lws_acme_client vhd;
 static struct lws_acme_cert_config cert;
@@ -269,6 +307,73 @@ ajt_error(int bw)
 	       ajt_expect("error chall token", bw, ac.chall_token, "");
 }
 
+static int
+ajt_ipc_line(void *opaque, const char *line, size_t len)
+{
+	struct ajt_ipc_got *g = (struct ajt_ipc_got *)opaque;
+
+	if (strlen(line) != len) {
+		lwsl_err("ipc line: length %d but NUL at %d\n", (int)len,
+			 (int)strlen(line));
+		g->count = LWS_ARRAY_SIZE(g->r); /* fails the count check */
+		return 1;
+	}
+
+	if (g->count < LWS_ARRAY_SIZE(g->r))
+		acme_ipc_classify(line, len, &g->r[g->count++]);
+
+	return 0;
+}
+
+static int
+ajt_ipc(int bw)
+{
+	struct acme_ipc_rx rx;
+	struct ajt_ipc_got g;
+	char longline[sizeof(rx.buf) + 64];
+	size_t n, len = strlen(ajt_ipc_lines);
+	int bad = 0;
+
+	memset(&rx, 0, sizeof(rx));
+	memset(&g, 0, sizeof(g));
+
+	/* a line longer than the reassembly buffer, answering nothing */
+	memset(longline, 'x', sizeof(longline) - 1);
+	longline[sizeof(longline) - 2] = '\n';
+	longline[sizeof(longline) - 1] = '\0';
+	acme_ipc_rx(&rx, longline, strlen(longline), ajt_ipc_line, &g);
+
+	if (!bw)
+		acme_ipc_rx(&rx, ajt_ipc_lines, len, ajt_ipc_line, &g);
+	else
+		for (n = 0; n < len; n++)
+			acme_ipc_rx(&rx, ajt_ipc_lines + n, 1, ajt_ipc_line, &g);
+
+	if (g.count != LWS_ARRAY_SIZE(ajt_ipc_want)) {
+		lwsl_err("ipc (%d): %d lines, want %d\n", bw, (int)g.count,
+			 (int)LWS_ARRAY_SIZE(ajt_ipc_want));
+		return 1;
+	}
+
+	for (n = 0; n < g.count; n++) {
+		const struct acme_ipc_reply *w = &ajt_ipc_want[n], *r = &g.r[n];
+
+		if (r->type != w->type || r->ok != w->ok ||
+		    r->stores_cert != w->stores_cert ||
+		    r->days_left != w->days_left ||
+		    r->total_days != w->total_days) {
+			lwsl_err("ipc (%d): line %d: type %d ok %d cert %d "
+				 "days %d/%d, want %d %d %d %d/%d\n", bw, (int)n,
+				 r->type, r->ok, r->stores_cert, r->days_left,
+				 r->total_days, w->type, w->ok, w->stores_cert,
+				 w->days_left, w->total_days);
+			bad = 1;
+		}
+	}
+
+	return bad;
+}
+
 static void
 ajt_result(const char *name, int bad)
 {
@@ -296,6 +401,7 @@ main(int argc, const char **argv)
 		ajt_result("dns-01", ajt_challenge(LWS_ACME_CHALLENGE_TYPE_DNS_01, bw));
 		ajt_result("http-01", ajt_challenge(LWS_ACME_CHALLENGE_TYPE_HTTP_01, bw));
 		ajt_result("error", ajt_error(bw));
+		ajt_result("ipc", ajt_ipc(bw));
 	}
 
 	lwsl_user("Completed: PASS: %d, FAIL: %d\n", oks, fails);

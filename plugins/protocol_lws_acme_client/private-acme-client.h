@@ -51,6 +51,37 @@ typedef enum {
 	ACME_STATE_FINISHED
 } lws_acme_state;
 
+/*
+ * The root daemon answers each request on the IPC stream with one JSON line,
+ * {"req":"<the request's name>","status":"ok"|"error",...}\n, but a read can
+ * carry several lines or part of one, and it also sends every client lines
+ * that answer nothing we asked (eg, "cert_status").  A refusal before it
+ * knew what we asked for (eg, authentication failed) has no "req".
+ */
+
+typedef enum {
+	ACME_IPC_LINE_UNRELATED,	/* not an answer to a request of ours */
+	ACME_IPC_LINE_SAVE,		/* answers one of our save-type requests */
+	ACME_IPC_LINE_VALIDITY,		/* answers get_cert_validity */
+	ACME_IPC_LINE_REFUSED,		/* refuses a request of ours, unknown which */
+} acme_ipc_line_t;
+
+struct acme_ipc_reply {
+	acme_ipc_line_t		type;
+	int			days_left;	/* VALIDITY */
+	int			total_days;	/* VALIDITY */
+	unsigned int		ok:1;		/* "status":"ok" */
+	unsigned int		stores_cert:1;	/* SAVE of the cert or its key */
+};
+
+/* reassembles the daemon's lines across reads */
+struct acme_ipc_rx {
+	char			buf[2048];
+	size_t			len;	/* sizeof(buf): overlong line, dropped */
+};
+
+typedef int (*acme_ipc_line_cb_t)(void *opaque, const char *line, size_t len);
+
 struct acme_connection {
 	char buf[4096];
 	char replay_nonce[64];
@@ -94,6 +125,8 @@ struct acme_connection {
 	unsigned int yes;
 	unsigned int use:1;
 	unsigned int is_sni_02:1;
+	unsigned int saves_awaited:1;	/* cert fetched, waiting on IPC saves */
+	unsigned int save_refused:1;	/* the daemon refused to store cert / key */
 };
 
 struct per_vhost_data__lws_acme_client {
@@ -150,8 +183,18 @@ struct per_vhost_data__lws_acme_client {
 	/* we allocate memory here because we drop root too early */
 #endif
 	const char *uds_path;
+	const char *ipc_uds_path;	/* what vhd->ipc connects to */
 	struct lws_async_ipc *ipc;
+	struct acme_ipc_rx ipc_rx;
+	/* reply timeout, and the deferred handling of an IPC failure */
+	lws_sorted_usec_list_t sul_ipc;
+	/*
+	 * Save-type requests on the current IPC connection still waiting for
+	 * their answer line.  An aging validity request is outstanding while
+	 * aging_current_cert is set.  Both go when the connection does.
+	 */
 	int ipc_pending_saves;
+	char ipc_failing;
 
 	struct lws_dll2 *aging_current_cert;
 	int aging_is_production;
@@ -192,5 +235,17 @@ signed char
 acme_cb_authz(struct lejp_ctx *ctx, char reason);
 signed char
 acme_cb_chac(struct lejp_ctx *ctx, char reason);
+
+/*
+ * Feed bytes read from the root daemon's IPC stream: cb is called with each
+ * complete line, NUL-terminated, without its '\n'.  Stops and returns 1 if
+ * cb returns nonzero, else returns 0.
+ */
+int
+acme_ipc_rx(struct acme_ipc_rx *rx, const char *in, size_t len,
+	    acme_ipc_line_cb_t cb, void *opaque);
+
+void
+acme_ipc_classify(const char *line, size_t len, struct acme_ipc_reply *r);
 
 #endif
