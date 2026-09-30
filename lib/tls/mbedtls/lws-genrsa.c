@@ -813,6 +813,58 @@ lws_genrsa_psa_der(const struct lws_gencrypto_keyelem *el, uint8_t *der,
 	return 0;
 }
 
+/*
+ * A PSA key has a single algorithm policy, so a ctx holds its key twice:
+ * key_id with the signing policy for the mode, and key_id_crypt whose
+ * policy is exactly the encryption scheme the mode (and, for OAEP, the
+ * hash) selects.  Every encrypt / decrypt asks for that same scheme, and
+ * PSA refuses any other on that key, so eg, a ctx created for RSA-OAEP can
+ * never be driven as RSAES-PKCS1-v1_5.
+ */
+
+static psa_algorithm_t
+lws_genrsa_psa_crypt_alg(const struct lws_genrsa_ctx *ctx)
+{
+	psa_algorithm_t h;
+
+	switch (ctx->mode) {
+	case LGRSAM_PKCS1_1_5:
+		return PSA_ALG_RSA_PKCS1V15_CRYPT;
+	case LGRSAM_PKCS1_OAEP_PSS:
+		h = lws_genhash_to_psa_alg(ctx->oaep_hashid);
+
+		return h ? PSA_ALG_RSA_OAEP(h) : 0;
+	default:
+		return 0;
+	}
+}
+
+static int
+lws_genrsa_psa_import_crypt(struct lws_genrsa_ctx *ctx, const uint8_t *der,
+			    size_t der_len, int priv)
+{
+	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+	psa_algorithm_t alg = lws_genrsa_psa_crypt_alg(ctx);
+
+	if (!alg)
+		return -1;
+
+	psa_set_key_type(&attr, priv ? PSA_KEY_TYPE_RSA_KEY_PAIR :
+				       PSA_KEY_TYPE_RSA_PUBLIC_KEY);
+	psa_set_key_usage_flags(&attr, priv ? PSA_KEY_USAGE_ENCRYPT |
+					      PSA_KEY_USAGE_DECRYPT :
+					      PSA_KEY_USAGE_ENCRYPT);
+	psa_set_key_algorithm(&attr, alg);
+
+	if (psa_import_key(&attr, der, der_len, &ctx->key_id_crypt) !=
+								PSA_SUCCESS) {
+		lwsl_notice("%s: psa_import_key failed\n", __func__);
+		return -1;
+	}
+
+	return 0;
+}
+
 int
 lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 		  const struct lws_gencrypto_keyelem *el,
@@ -835,6 +887,10 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	ctx->context = context;
 	ctx->mode = mode;
 
+	/* as the other backends, OAEP with no preference is RFC8017's SHA-1 */
+	ctx->oaep_hashid = oaep_hashid == LWS_GENHASH_TYPE_UNKNOWN ?
+					LWS_GENHASH_TYPE_SHA1 : oaep_hashid;
+
 	if (lws_genrsa_psa_der(el, der, sizeof(der), &der_len, &priv)) {
 		lwsl_notice("%s: unable to render key\n", __func__);
 		goto bail;
@@ -843,13 +899,10 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	if (priv) {
 		psa_set_key_type(&attr, PSA_KEY_TYPE_RSA_KEY_PAIR);
 		psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_HASH |
-					       PSA_KEY_USAGE_VERIFY_HASH |
-					       PSA_KEY_USAGE_DECRYPT |
-					       PSA_KEY_USAGE_ENCRYPT);
+					       PSA_KEY_USAGE_VERIFY_HASH);
 	} else {
 		psa_set_key_type(&attr, PSA_KEY_TYPE_RSA_PUBLIC_KEY);
-		psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_VERIFY_HASH |
-					       PSA_KEY_USAGE_ENCRYPT);
+		psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_VERIFY_HASH);
 	}
 
 	/* Determine algorithm based on mode */
@@ -861,6 +914,12 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 
 	if (psa_import_key(&attr, der, der_len, &ctx->key_id) != PSA_SUCCESS) {
 		lwsl_notice("%s: psa_import_key failed\n", __func__);
+		goto bail;
+	}
+
+	if (lws_genrsa_psa_import_crypt(ctx, der, der_len, priv)) {
+		psa_destroy_key(ctx->key_id);
+		ctx->key_id = 0;
 		goto bail;
 	}
 
@@ -893,11 +952,13 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
 	ctx->mode = mode;
+	ctx->oaep_hashid = LWS_GENHASH_TYPE_SHA1;
 
 	psa_set_key_type(&attr, PSA_KEY_TYPE_RSA_KEY_PAIR);
 	psa_set_key_bits(&attr, (size_t)bits);
-	psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_VERIFY_HASH |
-					PSA_KEY_USAGE_DECRYPT | PSA_KEY_USAGE_ENCRYPT | PSA_KEY_USAGE_EXPORT);
+	psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_HASH |
+				       PSA_KEY_USAGE_VERIFY_HASH |
+				       PSA_KEY_USAGE_EXPORT);
 
 	if (mode == LGRSAM_PKCS1_1_5) {
 		psa_set_key_algorithm(&attr, PSA_ALG_RSA_PKCS1V15_SIGN_RAW);
@@ -908,7 +969,8 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	if (psa_generate_key(&attr, &ctx->key_id) != PSA_SUCCESS)
 		return -1;
 
-	if (psa_export_key(ctx->key_id, der, sizeof(der), &der_len) != PSA_SUCCESS)
+	if (psa_export_key(ctx->key_id, der, sizeof(der), &der_len) != PSA_SUCCESS ||
+	    lws_genrsa_psa_import_crypt(ctx, der, der_len, 1))
 		goto cleanup_der;
 
 	/*
@@ -960,53 +1022,75 @@ cleanup_der:
 	lws_explicit_bzero(der, sizeof(der));
 	lws_genrsa_destroy_elements(el);
 	psa_destroy_key(ctx->key_id);
+	psa_destroy_key(ctx->key_id_crypt);
 	ctx->key_id = 0;
+	ctx->key_id_crypt = 0;
 
 	return -1;
+}
+
+/*
+ * PSA only has the private-key decrypt and public-key encrypt primitives,
+ * which is also what the mbedtls 3 backend does for the public_decrypt /
+ * private_encrypt variants
+ */
+
+static int
+lws_genrsa_psa_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+		       size_t in_len, uint8_t *out, size_t out_max)
+{
+	psa_algorithm_t alg = lws_genrsa_psa_crypt_alg(ctx);
+	size_t olen;
+
+	if (!alg || psa_asymmetric_decrypt(ctx->key_id_crypt, alg, in, in_len,
+					   NULL, 0, out, out_max, &olen) !=
+								PSA_SUCCESS)
+		return -1;
+
+	return (int)olen;
+}
+
+static int
+lws_genrsa_psa_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+		       size_t in_len, uint8_t *out)
+{
+	psa_algorithm_t alg = lws_genrsa_psa_crypt_alg(ctx);
+	size_t olen;
+
+	if (!alg || psa_asymmetric_encrypt(ctx->key_id_crypt, alg, in, in_len,
+					   NULL, 0, out, 4096, &olen) !=
+								PSA_SUCCESS)
+		return -1;
+
+	return (int)olen;
 }
 
 int
 lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out, size_t out_max)
 {
-	size_t olen;
-	if (psa_asymmetric_decrypt(ctx->key_id, PSA_ALG_RSA_PKCS1V15_CRYPT,
-				   in, in_len, NULL, 0, out, out_max, &olen) != PSA_SUCCESS)
-		return -1;
-	return (int)olen;
+	return lws_genrsa_psa_decrypt(ctx, in, in_len, out, out_max);
 }
 
 int
 lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			   size_t in_len, uint8_t *out, size_t out_max)
 {
-	size_t olen;
-	if (psa_asymmetric_decrypt(ctx->key_id, PSA_ALG_RSA_PKCS1V15_CRYPT,
-				   in, in_len, NULL, 0, out, out_max, &olen) != PSA_SUCCESS)
-		return -1;
-	return (int)olen;
+	return lws_genrsa_psa_decrypt(ctx, in, in_len, out, out_max);
 }
 
 int
 lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out)
 {
-	size_t olen;
-	if (psa_asymmetric_encrypt(ctx->key_id, PSA_ALG_RSA_PKCS1V15_CRYPT,
-				   in, in_len, NULL, 0, out, 4096, &olen) != PSA_SUCCESS)
-		return -1;
-	return (int)olen;
+	return lws_genrsa_psa_encrypt(ctx, in, in_len, out);
 }
 
 int
 lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			   size_t in_len, uint8_t *out)
 {
-	size_t olen;
-	if (psa_asymmetric_encrypt(ctx->key_id, PSA_ALG_RSA_PKCS1V15_CRYPT,
-				   in, in_len, NULL, 0, out, 4096, &olen) != PSA_SUCCESS)
-		return -1;
-	return (int)olen;
+	return lws_genrsa_psa_encrypt(ctx, in, in_len, out);
 }
 
 int
@@ -1056,7 +1140,9 @@ void
 lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
 {
 	psa_destroy_key(ctx->key_id);
+	psa_destroy_key(ctx->key_id_crypt);
 	ctx->key_id = 0;
+	ctx->key_id_crypt = 0;
 	ctx->created_mark = 0;
 }
 

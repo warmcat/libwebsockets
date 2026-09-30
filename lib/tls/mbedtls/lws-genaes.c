@@ -572,7 +572,14 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 	psa_set_key_type(&attr, PSA_KEY_TYPE_AES);
 	psa_set_key_bits(&attr, el->len * 8);
 	psa_set_key_usage_flags(&attr, usage);
-	psa_set_key_algorithm(&attr, alg);
+	/*
+	 * The GCM tag length only arrives with the first lws_genaes_crypt(),
+	 * so let the key be used with any tag length from the 4 byte floor
+	 * the other backends enforce (C-362)
+	 */
+	psa_set_key_algorithm(&attr, alg == PSA_ALG_GCM ?
+			PSA_ALG_AEAD_WITH_AT_LEAST_THIS_LENGTH_TAG(PSA_ALG_GCM, 4) :
+			alg);
 
 	if (psa_import_key(&attr, el->buf, el->len, &ctx->key_id) != PSA_SUCCESS) {
 		lwsl_err("%s: psa_import_key failed\n", __func__);
@@ -589,15 +596,36 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 
 	if (ctx->mode == LWS_GAESM_GCM) {
 		if (ctx->underway) {
-			size_t olen;
+			size_t olen, tl;
+
+			/*
+			 * As for the other backends, "tag" is an out buffer in
+			 * both directions.  On decrypt, what we verify against
+			 * is the peer's tag that lws_genaes_crypt() was given
+			 * on its first call, never whatever is in "tag".
+			 */
+
 			if (ctx->op == LWS_GAESO_ENC) {
-				if (psa_aead_finish(&ctx->aead_ctx, NULL, 0, &olen, tag, tlen, &olen) != PSA_SUCCESS)
+				if (!tag || tlen < (size_t)ctx->taglen ||
+				    psa_aead_finish(&ctx->aead_ctx, NULL, 0,
+						    &olen, tag, tlen, &tl) !=
+								PSA_SUCCESS)
 					ret = -1;
 			} else {
-				if (psa_aead_verify(&ctx->aead_ctx, NULL, 0, &olen, tag, tlen) != PSA_SUCCESS)
+				if (psa_aead_verify(&ctx->aead_ctx, NULL, 0,
+						    &olen, ctx->tag,
+						    (size_t)ctx->taglen) !=
+								PSA_SUCCESS) {
+					lwsl_info("%s: tag mismatch\n",
+						  __func__);
 					ret = -1;
+				} else if (tag && tlen)
+					memcpy(tag, ctx->tag,
+					       tlen < (size_t)ctx->taglen ?
+					       tlen : (size_t)ctx->taglen);
 			}
 			psa_aead_abort(&ctx->aead_ctx);
+			lws_explicit_bzero(ctx->tag, sizeof(ctx->tag));
 		}
 	} else {
 		psa_cipher_abort(&ctx->cipher_ctx);
@@ -685,14 +713,42 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 
 	case LWS_GAESM_GCM:
 		if (!ctx->underway) {
+			psa_algorithm_t alg;
+
+			/*
+			 * ctx->tag is a fixed 16 bytes, and 4 is the floor the
+			 * other backends apply (C-362).  On decrypt,
+			 * stream_block_16 is the tag the peer sent: keep it,
+			 * it is what lws_genaes_destroy() verifies against.
+			 */
+
+			if (taglen < 4 || (size_t)taglen > sizeof(ctx->tag) ||
+			    !iv_or_nonce_ctr_or_data_unit_16 || !nc_or_iv_off ||
+			    (ctx->op == LWS_GAESO_DEC && !stream_block_16)) {
+				lwsl_err("%s: bad GCM args, taglen %d\n",
+					 __func__, taglen);
+
+				return -1;
+			}
+
+			if (ctx->op == LWS_GAESO_DEC)
+				memcpy(ctx->tag, stream_block_16,
+				       (size_t)taglen);
+
 			ctx->underway = 1;
 			ctx->taglen = taglen;
 
+			alg = taglen == 16 ? PSA_ALG_GCM :
+				PSA_ALG_AEAD_WITH_SHORTENED_TAG(PSA_ALG_GCM,
+							(size_t)taglen);
+
 			if (ctx->op == LWS_GAESO_ENC)
-				status = psa_aead_encrypt_setup(&ctx->aead_ctx, ctx->key_id, ctx->alg);
+				status = psa_aead_encrypt_setup(&ctx->aead_ctx,
+							ctx->key_id, alg);
 			else
-				status = psa_aead_decrypt_setup(&ctx->aead_ctx, ctx->key_id, ctx->alg);
-			
+				status = psa_aead_decrypt_setup(&ctx->aead_ctx,
+							ctx->key_id, alg);
+
 			if (status != PSA_SUCCESS) return -1;
 
 			status = psa_aead_set_nonce(&ctx->aead_ctx, iv_or_nonce_ctr_or_data_unit_16, *nc_or_iv_off);

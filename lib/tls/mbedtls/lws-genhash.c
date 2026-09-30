@@ -49,7 +49,7 @@
  */
 
 #if defined(LWS_HAVE_MBEDTLS_V4)
-static psa_algorithm_t
+psa_algorithm_t
 lws_genhash_to_psa_alg(enum lws_genhash_types type)
 {
 	switch (type) {

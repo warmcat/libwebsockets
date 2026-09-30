@@ -61,7 +61,8 @@ struct lws_genrsa_ctx {
 #if !defined(LWS_HAVE_MBEDTLS_V4)
 	mbedtls_rsa_context *ctx;
 #else
-	psa_key_id_t key_id;
+	psa_key_id_t key_id;		/* signing policy for the mode */
+	psa_key_id_t key_id_crypt;	/* encryption policy for the mode */
 #endif
 #elif defined(LWS_WITH_SCHANNEL)
 	struct {

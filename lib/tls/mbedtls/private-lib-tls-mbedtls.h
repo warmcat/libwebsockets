@@ -157,6 +157,10 @@ int mbedtls_asn1_get_tag(unsigned char **p, const unsigned char *end, size_t *le
 int mbedtls_asn1_get_bool(unsigned char **p, const unsigned char *end, int *val);
 int mbedtls_asn1_get_int(unsigned char **p, const unsigned char *end, int *val);
 int mbedtls_asn1_get_bitstring_null(unsigned char **p, const unsigned char *end, size_t *len);
+
+/* 0 if PSA has no such hash */
+psa_algorithm_t
+lws_genhash_to_psa_alg(enum lws_genhash_types type);
 #endif
 
 #if defined(LWS_HAVE_MBEDTLS_V4) || ((MBEDTLS_VERSION_MAJOR == 3) && (MBEDTLS_VERSION_MINOR >= 5))
