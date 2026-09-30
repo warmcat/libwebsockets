@@ -24,6 +24,9 @@ static struct {
 	int		can_write_unbound;
 	int		payload;
 
+	int		can_write_verdict;
+	/**< what the owner says when asked to write on the channel, nonzero
+	 * means it wants the channel closed */
 	int		bind_peer_channels;
 	/**< like the proxy, bind channels the peer asks for... the client
 	 * has nothing to bind them to */
@@ -86,7 +89,7 @@ cb_txp_can_write(lws_transport_mux_ch_t *tmc)
 	if (!tmc->priv)
 		t.can_write_unbound++;
 
-	return 0;
+	return t.can_write_verdict;
 }
 
 static const lws_txp_mux_parse_cbs_t cbs = {
@@ -169,7 +172,8 @@ main(int argc, const char **argv)
 		ack_11[]	= { LWSSSS_LLM_CHANNEL_ACK, 11 },
 		req_255[]	= { LWSSSS_LLM_CHANNEL_REQ, 255 },
 		ack_255[]	= { LWSSSS_LLM_CHANNEL_ACK, 255 },
-		data_255[]	= { LWSSSS_LLM_MUX, 255, 0, 1, 'x' };
+		data_255[]	= { LWSSSS_LLM_MUX, 255, 0, 1, 'x' },
+		nack_255[]	= { LWSSSS_LLM_CHANNEL_NACK, 255 };
 	struct lws_context_creation_info info;
 	lws_transport_info_t tinfo;
 	lws_txp_path_client_t path;
@@ -262,6 +266,36 @@ main(int argc, const char **argv)
 	expect_count("ch_opens failed", t.ch_opens_failed, 0);
 	feed(tm, "data on own ch", data_255, sizeof(data_255));
 	expect_count("payload", t.payload, 1);
+
+	/*
+	 * The owner is offered the write opportunity it asked for, it had
+	 * nothing to say to the mux itself, so nothing is sent from buf
+	 */
+
+	lws_transport_mux_client_ops.req_write(path.priv_onw);
+	expect_tx(tm, "owner writes", NULL, 0);
+	expect_count("can_write", t.can_write, 1);
+
+	/*
+	 * The owner says the channel must close: the mux closes that channel
+	 * itself with a FIN, and nothing is sent from buf for the write
+	 * opportunity that produced the verdict
+	 */
+
+	t.can_write_verdict = -1;
+	lws_transport_mux_client_ops.req_write(path.priv_onw);
+	expect_tx(tm, "owner verdict", NULL, 0);
+	expect_count("can_write", t.can_write, 2);
+	expect_count("ch_closes after verdict", t.ch_closes, 3);
+	expect_tx(tm, "FIN for closed ch", nack_255, sizeof(nack_255));
+	expect_tx(tm, "nothing after FIN", NULL, 0);
+
+	/* DATA the peer sent before he saw the FIN goes nowhere */
+
+	feed(tm, "data on closed ch", data_255, sizeof(data_255));
+	expect_count("payload after close", t.payload, 1);
+	expect_tx(tm, "FIN again for data on closed ch", nack_255,
+		  sizeof(nack_255));
 
 	lws_transport_mux_destroy(&tm);
 	lws_context_destroy(cx);

@@ -206,9 +206,32 @@ get_us_timeofday(void)
 #endif
 
 /*
+ * Close a channel from our side at once: the peer is sent a NACK, which on an
+ * open channel he takes as a FIN, and our side of it is destroyed now
+ */
+
+static void
+lws_transport_mux_fin_channel(lws_transport_mux_t *tm,
+			      lws_transport_mux_ch_t **mc,
+			      const lws_txp_mux_parse_cbs_t *cbs)
+{
+	lws_mux_ch_idx_t i = (*mc)->ch_idx;
+
+	tm->fin[i >> 5] |= 1u << (i & 31);
+	cbs->ch_closes(*mc);
+	lws_transport_mux_destroy_channel(tm, mc);
+
+	/* get the FIN out */
+	cbs->txp_req_write(tm);
+}
+
+/*
  * If the mux channel wants to do something, pack together as much as will
  * fit and return nonzero to announce that the mux layer has commandeered this
  * write opportunity
+ *
+ * *len is always set to what was packed in buf, and it's only nonzero (and
+ * we only return nonzero) if there is something to send
  *
  * Caution, this is called by both client and proxy mux sides
  */
@@ -415,7 +438,21 @@ lws_transport_mux_pending(lws_transport_mux_t *tm, uint8_t *buf, size_t *len,
 					break;
 
 				if (cbs->txp_can_write(mc))
-					return -1;
+					/*
+					 * What is bound to the channel says it
+					 * must be closed (on the wsi transport,
+					 * the same verdict closes the
+					 * connection)... close just this
+					 * channel.
+					 *
+					 * This used to return -1 without
+					 * setting *len, which callers took as
+					 * "send *len bytes of buf", putting
+					 * the whole, uninitialised, buf on the
+					 * link.
+					 */
+					lws_transport_mux_fin_channel(tm, &mc,
+								      cbs);
 
 				break;
 			}

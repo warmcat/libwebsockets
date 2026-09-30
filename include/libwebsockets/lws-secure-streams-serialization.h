@@ -586,7 +586,13 @@ int
 lws_transport_mux_rx_parse(lws_transport_mux_t *tm, const uint8_t *buf,
 			   size_t len, const lws_txp_mux_parse_cbs_t *cbs);
 
-int /* nonzero if the transport mux has filled buf and wants to write it */
+/*
+ * Returns nonzero if the transport mux has put something in buf and wants this
+ * write opportunity to send it; *len is always set to the amount to send, and
+ * is only nonzero when this returns nonzero.  A channel whose owner's
+ * txp_can_write() verdict is nonzero is closed by the mux itself.
+ */
+int
 lws_transport_mux_pending(lws_transport_mux_t *tm, uint8_t *buf, size_t *len,
 			  const lws_txp_mux_parse_cbs_t *cbs);
 

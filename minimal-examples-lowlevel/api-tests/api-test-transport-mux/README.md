@@ -18,6 +18,9 @@ It checks that
   later ACK from him for it changes nothing
 - our own channel is requested with CHANNEL_REQ, the peer's ACK opens it and
   DATA on it reaches the owner
+- when the owner of a channel is given a write opportunity and says the
+  channel must close, the mux closes that channel with a FIN and nothing is
+  sent from the caller's buffer for that write opportunity
 
 ## Build
 
