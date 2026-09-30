@@ -1294,6 +1294,21 @@ static const unsigned char methods[] = {
 };
 
 /*
+ * An h1 server is strict about the request head's line ends: CRLF only, a
+ * bare CR or bare LF refuses the request.  RFC 9112 2.2 lets a recipient
+ * take a bare LF as a line end, but whatever is in front of us may not, and
+ * then sees what follows it as part of the line where we see another header
+ * line, eg a Content-Length: a request smuggling desync.  A client stays
+ * tolerant of the servers it talks to.
+ */
+
+static int
+lws_h1_srv_strict(struct lws *wsi)
+{
+	return lwsi_role_server(wsi) && !wsi->mux_substream;
+}
+
+/*
  * A byte of an h1 request header's name that lws didn't recognize as a
  * header it knows (those only match valid names).  RFC 9112 5.1 / RFC 9110
  * 5.1: a field name is a token, so no controls, no SP / HT, nothing
@@ -1408,6 +1423,8 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 			 * wherever it came, joining what was either side of a
 			 * bare CR into the value.
 			 */
+			if (c == '\n' && lws_h1_srv_strict(wsi))
+				goto bare_lf;
 			if (c == '\r' || c == '\n') {
 				lws_ser_wu16be((uint8_t *)&ah->data[ah->unk_pos + 2],
 					       (uint16_t)(ah->pos - ah->unk_value_pos));
@@ -1541,6 +1558,8 @@ check_eol:
 					goto forbid;
 
 				if (c == '\x0a') {
+					if (lws_h1_srv_strict(wsi))
+						goto bare_lf;
 					/* broken peer */
 					ah->parser_state = WSI_TOKEN_NAME_PART;
 					ah->unk_pos = 0;
@@ -1578,9 +1597,12 @@ swallow:
 				    (unsigned long)lwsi_role(wsi),
 				    ah->lextable_pos);
 
-			if (!ah->unk_pos && c == '\x0a')
+			if (!ah->unk_pos && c == '\x0a') {
+				if (lws_h1_srv_strict(wsi))
+					goto bare_lf;
 				/* broken peer */
 				goto set_parsing_complete;
+			}
 
 			if (c >= 'A' && c <= 'Z')
 				c = (unsigned char)(c + 'a' - 'A');
@@ -1858,6 +1880,8 @@ excessive:
 			lwsl_parser("WSI_TOKEN_SKIPPING '%c'\n", c);
 
 			if (c == '\x0a') {
+				if (lws_h1_srv_strict(wsi))
+					goto bare_lf;
 				/* broken peer */
 				ah->parser_state = WSI_TOKEN_NAME_PART;
 				ah->unk_pos = 0;
@@ -1885,7 +1909,7 @@ excessive:
 			 * seen what follows it as another header that we'd
 			 * skip, so a server refuses the request
 			 */
-			if (lwsi_role_server(wsi) && !wsi->mux_substream) {
+			if (lws_h1_srv_strict(wsi)) {
 				lwsl_parse_fail(wsi, "bare CR in request head");
 				return LPR_FAIL;
 			}
@@ -1904,6 +1928,11 @@ excessive:
 
 bad_name:
 	lwsl_parse_fail(wsi, "invalid byte 0x%02X in header name", c);
+
+	return LPR_FAIL;
+
+bare_lf:
+	lwsl_parse_fail(wsi, "bare LF in request head");
 
 	return LPR_FAIL;
 
@@ -2548,6 +2577,10 @@ lws_http_dechunk_framing(struct lws *wsi, unsigned char **buf, size_t *len)
 				wsi->http.chunk_parser = ELCP_CR;
 				break;
 			}
+			if (c == '\x0a') {
+				lwsl_wsi_notice(wsi, "chunk extension: bare LF");
+				return -1;
+			}
 			if (++wsi->http.chunk_skip > LWS_HTTP_CHUNK_SKIP_MAX) {
 				lwsl_wsi_notice(wsi, "chunk extension too long");
 				return -1;
@@ -2604,8 +2637,25 @@ lws_http_dechunk_framing(struct lws *wsi, unsigned char **buf, size_t *len)
 				lwsl_wsi_notice(wsi, "chunk trailers too long");
 				return -1;
 			}
-			if (c == '\x0a')
-				wsi->http.chunk_parser = ELCP_TRAILER_CR;
+			/*
+			 * A trailer line ends with CRLF, like the rest of the
+			 * framing: a bare LF or CR is where something else
+			 * framing this body may disagree with us
+			 */
+			if (c == '\x0a') {
+				lwsl_wsi_notice(wsi, "chunk trailer: bare LF");
+				return -1;
+			}
+			if (c == '\x0d')
+				wsi->http.chunk_parser = ELCP_TRAILER_SKIP_LF;
+			break;
+
+		case ELCP_TRAILER_SKIP_LF:
+			if (c != '\x0a') {
+				lwsl_wsi_notice(wsi, "chunk trailer: bare CR");
+				return -1;
+			}
+			wsi->http.chunk_parser = ELCP_TRAILER_CR;
 			break;
 
 		case ELCP_TRAILER_LF:

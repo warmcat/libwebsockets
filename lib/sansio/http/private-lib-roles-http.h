@@ -489,7 +489,8 @@ enum lws_chunk_parser {
 	ELCP_POST_CR,
 	ELCP_POST_LF,
 	ELCP_TRAILER_CR,	/* CR ends the trailers, else a field line */
-	ELCP_TRAILER_SKIP,	/* skipping a trailer field line up to LF */
+	ELCP_TRAILER_SKIP,	/* skipping a trailer field line up to CR */
+	ELCP_TRAILER_SKIP_LF,	/* the LF ending a trailer field line */
 	ELCP_TRAILER_LF
 };
 

@@ -648,7 +648,9 @@ frame_chunked(uint8_t *out, size_t out_max, size_t len, int ext)
 	}
 
 	o += (size_t)lws_snprintf((char *)out + o, out_max - o, ext ?
-			"0\x0d\x0ax-trailer: yes\x0d\x0aanother: one\x0d\x0a\x0d\x0a" :
+			/* "\x0a" "a": a hex escape takes all the hex digits */
+			"0\x0d\x0ax-trailer: yes\x0d\x0a"
+			"another: one\x0d\x0a\x0d\x0a" :
 			"0\x0d\x0a\x0d\x0a");
 
 	return o;

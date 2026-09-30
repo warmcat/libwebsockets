@@ -18,6 +18,7 @@ api-test-auth-dns-zonedir|auth-dns plugin local zone-dir trust policy (F-055): m
 api-test-sshd-userauth|sshd plugin USERAUTH pubkey/sig blob walks (F-056): malformed blobs must be rejected bounded, genuine signatures still authenticate
 api-test-sspc-streamtype|serialized client streamtype length cap (F-057): over-long streamtypes refused at sspc create, boundary-length still accepted
 api-test-mqtt-unsub|mqtt subscribe/unsubscribe topic count cap (F-058): over-wide or zero topic lists loudly refused at the established-state tx paths, boundary-width unsubscribe still works end-to-end
+api-test-http-attack|Hostile requests (what scripts/attack.sh did, h1 smuggling and slow headers, h2 framing / hpack / flood abuse, traversal out of a file mount) over h1, h2 and h3 are refused, and the server still serves after each
 api-test-oversized-headers|A request whose headers don't fit the server's header table gets 431 "Oversized headers" over h1, h2 (prior knowledge and tls) and h3, and a normal one after it is served
 api-test-ws-pmd-takeover|permessage-deflate context takeover in both directions for each client offer of server_ / client_no_context_takeover: each end resets only what the negotiation says, by role, and the server's reply carries every option it took on
 api-test-ss-server-upgrade|Secure Streams server ws upgrade over h1 and h2: the accepted stream, not the server template stream, hears LWSSSCS_SERVER_UPGRADE and then carries the ws tx

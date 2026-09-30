@@ -549,18 +549,8 @@ Testing with h2spec (https://github.com/summerwind/h2spec)
 
 @section coverage Automated Coverage Testing
 
-./test-apps/attack.sh contains scripted tests that are the basis
-of the automated test coverage assessment available for gcc and clang.
-
-To reproduce
-
- $ cd build
- $ cmake .. -DLWS_WITH_GCOV=1 -DCMAKE_BUILD_TYPE=DEBUG
- $ ../scripts/build-gcov.sh
- $ ../test-apps/attack.sh
- $ ../scripts/gcov.sh
-...
-Lines executed:51.24% of 8279
+Coverage is measured over the ctest selftests, see
+[README.coverage.md](README.coverage.md).
 
 @section windowsprebuilt Using Windows binary builds on Appveyor
 

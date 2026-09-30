@@ -31,6 +31,6 @@ builder that enables it.
 
 ### additional test scripts
 
-`./scripts/h2spec.sh`, `./scripts/attack.sh` and friends are standalone
+`./scripts/h2spec.sh` and friends are standalone
 scripts that can be run from a build directory against an installed
 build; they are not part of the default ctest run.
