@@ -1450,11 +1450,8 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 		lwsl_wsi_info(wsi, "H3 RX: Unidi stream type %llu", (unsigned long long)type);
 
 		/* Link it to peer's control streams if applicable */
-		if (wsi->h3.h3n) {
-			if (type == 0x00) wsi->h3.h3n->peer_control = wsi;
-			else if (type == 0x02) wsi->h3.h3n->peer_qpack_enc = wsi;
-			else if (type == 0x03) wsi->h3.h3n->peer_qpack_dec = wsi;
-		}
+		if (wsi->h3.h3n && type == 0x00)
+			wsi->h3.h3n->peer_control = wsi;
 	}
 
 	if (!len)

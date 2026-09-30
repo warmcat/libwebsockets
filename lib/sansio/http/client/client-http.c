@@ -1776,7 +1776,7 @@ lws_http_multipart_headers(struct lws *wsi, uint8_t *p, uint8_t *end)
 					 (uint8_t *)arg, n, &p, end))
 		return NULL;
 
-	wsi->http.multipart = wsi->http.multipart_issue_boundary = 1;
+	wsi->http.multipart = 1;
 	lws_client_http_body_pending(wsi, 1);
 
 	return p;

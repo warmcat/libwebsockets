@@ -375,8 +375,6 @@ struct _lws_stream_related {
 };
 
 struct _lws_http_mode_related {
-	struct lws *new_wsi_list;
-
 	unsigned char *pending_return_headers;
 	size_t pending_return_headers_len;
 	size_t prh_content_length;
@@ -449,16 +447,12 @@ struct _lws_http_mode_related {
 	 * time by lws_http_action(), because the file-serve path decides
 	 * whether to emit a body long after the request headers were released
 	 * (C-460).  Re-decided for every request on the connection. */
-	unsigned int method_post:1;
-	/**< the request being served is a POST.  Same snapshot, same reason:
-	 * the body framing decisions below run after the ah is gone. */
 	unsigned int content_length_explicitly_zero:1;
 	unsigned int content_length_given:1;
 	unsigned int rx_chunked:1; /* rx body uses chunked transfer-coding */
 	unsigned int did_stream_close:1;
 	unsigned int multipart:1;
 	unsigned int cgi_transaction_complete:1;
-	unsigned int multipart_issue_boundary:1;
 	unsigned int interceptor_diverted:1;
 	/**< set by lws_http_evaluate_interceptors() for the duration of this
 	 * transaction when a mount interceptor took the request away from the

@@ -1841,7 +1841,6 @@ rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 				assert(0);
 			}
 			wsi->ws->last_valid = 1;
-			wsi->ws->last_opcode = (uint8_t)n;
 			wsi->ws->last_fin = !((*wp) & LWS_WRITE_NO_FIN);
 			break;
 		case LWS_WRITE_BINARY:
@@ -1851,7 +1850,6 @@ rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 				assert(0);
 			}
 			wsi->ws->last_valid = 1;
-			wsi->ws->last_opcode = (uint8_t)n;
 			wsi->ws->last_fin = !((*wp) & LWS_WRITE_NO_FIN);
 			break;
 		case LWS_WRITE_CONTINUATION:
@@ -1865,7 +1863,6 @@ rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 				assert(0);
 			}
 			wsi->ws->last_valid = 1;
-			wsi->ws->last_opcode = (uint8_t)n;
 			wsi->ws->last_fin = !((*wp) & LWS_WRITE_NO_FIN);
 			break;
 

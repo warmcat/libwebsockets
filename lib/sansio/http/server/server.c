@@ -1848,13 +1848,11 @@ lws_http_action(struct lws *wsi)
 	 * Snapshot what the method was, while the ah is certainly still
 	 * attached: the request headers are released once the request has been
 	 * dispatched (C-460), but the file-serve path still has to know not to
-	 * emit a body for a HEAD, and the body framing below still has to know
-	 * the method was a POST.  Re-decided for every request, so a keepalive
+	 * emit a body for a HEAD.  Re-decided for every request, so a keepalive
 	 * connection cannot carry a stale answer into the next one.
 	 */
 
 	wsi->http.method_head = methods[meth] == WSI_TOKEN_HEAD_URI;
-	wsi->http.method_post = methods[meth] == WSI_TOKEN_POST_URI;
 
 	lws_metrics_tag_wsi_add(wsi, "vh", wsi->a.vhost->name);
 	lws_metrics_tag_wsi_add(wsi, "meth", method_names[meth]);

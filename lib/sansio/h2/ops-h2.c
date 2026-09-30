@@ -1014,7 +1014,6 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 	 * (C-460): from here on nothing may consult the ah for the method
 	 */
 
-	wsi->http.method_post = 1;
 	wsi->http.method_head = 0;
 
 	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH) ||
