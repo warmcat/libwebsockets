@@ -1908,6 +1908,15 @@ h2_compose(const struct h2_attack *a, const char *path)
 static void
 watchdog_cb(lws_sorted_usec_list_t *sul)
 {
+	/*
+	 * Where the connection was: still sending means the server stopped
+	 * reading, everything sent means the client never saw it end
+	 */
+	lwsl_err("%s: %s: timed out having sent %llu of %llu, received %llu\n",
+		 xport_names[tc.xport], tc.name, (unsigned long long)cn.tx_pos,
+		 (unsigned long long)cn.tx_len,
+		 (unsigned long long)cn.rx_len);
+
 	cn.done = 1;
 	case_done("timed out");
 }
