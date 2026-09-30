@@ -91,9 +91,9 @@ static const test_img_t test_imgs[] = {
  * all of it, so under ASan any read outside what it was given, or through a
  * pointer it kept after returning, is caught.
  *
- * The first h rows are copied into out.  Returns 0 if the decode completed
- * with at least h rows, and never handed back anything in *buf / *size
- * except the tail of what it was given.
+ * The rows are copied into out.  Returns 0 if the decode completed with
+ * exactly h rows, and never handed back anything in *buf / *size except the
+ * tail of what it was given.
  */
 
 static int
@@ -152,9 +152,13 @@ decode_split(const test_img_t *ti, size_t split, size_t chunk, uint8_t *out)
 					free(seg);
 					goto bail;
 				}
-				if (rows < ti->h)
-					memcpy(out + rows * row_len, pix,
-					       row_len);
+				if (rows == ti->h) {
+					lwsl_err("%s: %s: more than %u rows\n",
+						 __func__, ti->name, ti->h);
+					free(seg);
+					goto bail;
+				}
+				memcpy(out + rows * row_len, pix, row_len);
 				rows++;
 			}
 
@@ -177,7 +181,7 @@ decode_split(const test_img_t *ti, size_t split, size_t chunk, uint8_t *out)
 		goto bail;
 	}
 
-	if (rows < ti->h) {
+	if (rows != ti->h) {
 		lwsl_err("%s: %s: only %u rows\n", __func__, ti->name, rows);
 		goto bail;
 	}
@@ -195,7 +199,7 @@ selftest_img(const test_img_t *ti)
 {
 	size_t sz = (size_t)ti->w * ti->h * ti->comps, n, sum = 0;
 	uint8_t *ref, *out;
-	unsigned int x, y, c;
+	unsigned int x, y, c, bx, by;
 	int e = 0;
 
 	ref = malloc(sz);
@@ -214,24 +218,38 @@ selftest_img(const test_img_t *ti)
 
 	/*
 	 * It is lossy, so it can only be close to the pattern.  Something
-	 * that has lost its place in the entropy-coded data is nowhere near.
+	 * that has lost its place in the entropy-coded data is nowhere near,
+	 * and nor is a block that was never decoded.  So the mean error is
+	 * checked for every 8 x 8 block on its own, including the partial
+	 * ones at the right and bottom edges, and the last one of all.
 	 */
 
-	for (y = 0; y < ti->h; y++)
-		for (x = 0; x < ti->w; x++)
-			for (c = 0; c < ti->comps; c++) {
-				int d = (int)ref[(y * ti->w + x) * ti->comps + c] -
-					(int)test_pix(x, y, ti->comps == 1 ?
-							2 : c, ti->w, ti->h);
+	for (by = 0; by < ti->h; by += 8)
+		for (bx = 0; bx < ti->w; bx += 8) {
+			size_t count = 0;
 
-				sum += (size_t)(d < 0 ? -d : d);
+			sum = 0;
+			for (y = by; y < by + 8 && y < ti->h; y++)
+				for (x = bx; x < bx + 8 && x < ti->w; x++)
+					for (c = 0; c < ti->comps; c++) {
+						int d = (int)ref[(y * ti->w + x) *
+								 ti->comps + c] -
+							(int)test_pix(x, y,
+								ti->comps == 1 ? 2 : c,
+								ti->w, ti->h);
+
+						sum += (size_t)(d < 0 ? -d : d);
+						count++;
+					}
+
+			if (sum > count * 8) {
+				lwsl_err("%s: %s: block %u, %u: mean error "
+					 "%u / 8 is too large\n", __func__,
+					 ti->name, bx, by,
+					 (unsigned int)(sum / count));
+				e++;
 			}
-
-	if (sum > sz * 8) {
-		lwsl_err("%s: %s: mean error %u / 8 is too large\n", __func__,
-			 ti->name, (unsigned int)(sum / sz));
-		e++;
-	}
+		}
 
 	/*
 	 * However it is cut up, the result must be identical: fixed-size
@@ -364,7 +382,7 @@ selftest(void)
 
 /*
  * Decode what comes on fdin, writing the rows to fdout if it is not -1.  The
- * decode must complete, with at least as many rows as the image is high.
+ * decode must complete, with exactly as many rows as the image is high.
  */
 
 static int
@@ -432,7 +450,7 @@ decode_fd(int fdin, int fdout, size_t *total)
 
 	} while (r != LWS_SRET_OK);
 
-	if (rows < lws_jpeg_get_height(j)) {
+	if (rows != lws_jpeg_get_height(j)) {
 		lwsl_err("%s: %u rows of %u\n", __func__, rows,
 			 lws_jpeg_get_height(j));
 		goto bail;

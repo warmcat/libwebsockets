@@ -50,6 +50,14 @@
 #define MARKER_SCAN_LIMIT	1536
 
 /*
+ * When the bit reader's lookahead meets the EOI, the bits it already holds
+ * are still to be decoded: at most 16 of them (the octet being consumed and
+ * one more), and every MCU takes at least one bit.  So this many MCUs after
+ * the EOI is seen are enough to decode everything the image really has.
+ */
+#define EOI_GRACE_MCUS		16
+
+/*
  * Set to 1 if right shifts on signed ints are always unsigned (logical) shifts
  * When 1, arithmetic right shifts will be emulated by using a logical shift
  * with special case code to ensure the sign bit is replicated.
@@ -215,6 +223,8 @@ struct lws_jpeg {
 	uint16_t		mcu_ofs_x;
 	uint16_t		mcu_ofs_y;
 
+	uint16_t		rows_out; /* rows issued, up to image_height */
+
 	uint16_t		mcu_count_left_x;
 	uint16_t		mcu_count_left_y;
 
@@ -255,6 +265,7 @@ struct lws_jpeg {
 	uint8_t			quant_valid;
 
 	uint8_t			seen_eoi;
+	uint8_t			eoi_mcus; /* MCUs still allowed after EOI */
 
 	uint8_t			bits_left;
 
@@ -347,6 +358,18 @@ get_octet(lws_jpeg_t *j, uint8_t *c, uint8_t ffcheck)
 	lws_stateful_ret_t r;
 	uint8_t c1;
 
+	if (j->seen_eoi) {
+		/*
+		 * Past the EOI there is no more image, and whatever follows
+		 * it is not ours to read: pad with 1 bits, as the encoder
+		 * did, while the last MCUs are decoded from the bits already
+		 * taken
+		 */
+		*c = 0xff;
+
+		return LWS_SRET_OK;
+	}
+
 	if (!j->ff_skip) {
 		r = get_char(j, c);
 		if (r)
@@ -361,7 +384,10 @@ get_octet(lws_jpeg_t *j, uint8_t *c, uint8_t ffcheck)
 		j->ff_skip = 0;
 		if (c1) {
 			if (c1 == PJM_EOI) {
+				/* *c is the 0xff: the first of the padding */
 				j->seen_eoi = 1;
+				j->eoi_mcus = EOI_GRACE_MCUS;
+
 				return LWS_SRET_OK;
 			}
 
@@ -543,8 +569,6 @@ huff_decode(lws_jpeg_t *j, uint8_t *v, const huff_table_t *ht, const uint8_t *p)
 		r = get_bit(j, &j->fs_hd_code);
 		if (r)
 			return r;
-		if (j->seen_eoi)
-			return LWS_SRET_OK;
 		j->fs_hd = 1;
 		j->fs_hd_i = 0;
 	}
@@ -565,9 +589,6 @@ huff_decode(lws_jpeg_t *j, uint8_t *v, const huff_table_t *ht, const uint8_t *p)
 		r = get_bit(j, &c);
 		if (r)
 			return r;
-
-		if (j->seen_eoi)
-			return LWS_SRET_OK;
 
 		j->fs_hd_i++;
 		j->fs_hd_code = (uint16_t)((j->fs_hd_code << 1) | c);
@@ -715,7 +736,7 @@ read_sof_marker(lws_jpeg_t *j)
 			return LWS_SRET_FATAL + 4;
 		}
 
-		lwsl_warn("%s: %d x %d\n", __func__, j->image_width, j->image_height);
+		lwsl_info("%s: %d x %d\n", __func__, j->image_width, j->image_height);
 
 		j->fs_sof_phase++;
 		
@@ -2472,7 +2493,11 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 	lws_stateful_ret_t r;
 
 	if (!j->fs_mcu_phase) {
-		if (j->restart_interval) {
+		/*
+		 * After the EOI there are no more markers to find: the last
+		 * MCUs come from the bits already taken and the padding
+		 */
+		if (j->restart_interval && !j->seen_eoi) {
 			/*
 			 * A restart is due before this MCU when the last
 			 * interval has used up its MCUs, or a restart was
@@ -2531,9 +2556,6 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 				return r;
 			}
 
-			if (j->seen_eoi)
-				return LWS_SRET_OK;
-
 			j->fs_mcu_phase++;
 			
 			/* fallthru */
@@ -2579,8 +2601,6 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 							&j->huff_tab3 : &j->huff_tab2,
 								compACTab ?
 							j->huff_val3 : j->huff_val2);
-						if (j->seen_eoi)
-							return LWS_SRET_OK;
 						if (r)
 							return r;
 
@@ -3000,32 +3020,30 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 				return LWS_SRET_OK;
 
 			/*
-			 * EOI means no more MCUs are coming.  Retire the MCU
-			 * budget, then emit the band we already prepared; when
-			 * the ring realigns, the check above returns OK and we
-			 * stop.  Without retiring the budget these paths never
-			 * decrement the counters, so we re-emitted the last
-			 * band as WANT_OUTPUT for ever -- which is what every
-			 * well-formed image does, since its last MCU is
-			 * followed directly by EOI.
+			 * The bit reader sees the EOI up to two octets before
+			 * the decode has used the bits in front of it, so the
+			 * MCUs in progress and following still decode, from
+			 * those bits and then 1-bit padding.  A well-formed
+			 * image runs out of MCUs first.  One whose EOI came
+			 * early gets EOI_GRACE_MCUS, which covers every real
+			 * bit, and then no more MCUs are coming: retire the
+			 * MCU budget and emit the band we prepared; when the
+			 * ring realigns, the check above returns OK and we
+			 * stop.
 			 */
 
-			if (j->seen_eoi) {
-				j->mcu_count_left_x = 0;
-				j->mcu_count_left_y = 0;
-				r = LWS_SRET_OK;
-				goto intra;
-			}
+			if (j->seen_eoi && !j->eoi_mcus)
+				goto retire;
 
 			r = lws_jpeg_mcu_next(j);
-			if (j->seen_eoi) {
-				j->mcu_count_left_x = 0;
-				j->mcu_count_left_y = 0;
-				r = LWS_SRET_OK;
-				goto intra;
-			}
+			if (r && j->seen_eoi)
+				/* failing on the padding is just the end */
+				goto retire;
 			if (r)
 				goto fin;
+
+			if (j->seen_eoi)
+				j->eoi_mcus--;
 
 			if (j->mcu_count_left_x)
 				j->mcu_count_left_x--;
@@ -3046,7 +3064,27 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 		}
 	} while (1);
 
+retire:
+	j->mcu_count_left_x = 0;
+	j->mcu_count_left_y = 0;
+	r = LWS_SRET_OK;
+
 intra:
+	/*
+	 * The last band is a whole MCU high, but the image may end partway
+	 * down it: the rows below image_height were never written, and are
+	 * not part of the image
+	 */
+
+	if (j->rows_out == j->image_height) {
+		j->mcu_count_left_x = 0;
+		j->mcu_count_left_y = 0;
+		r = LWS_SRET_OK;
+
+		goto fin;
+	}
+
+	j->rows_out++;
 	*ppix = lws_fragbuf_unit(j->lines,
 				 (j->ringy++) & (j->mcu_max_size_y - 1u));
 
