@@ -453,6 +453,17 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 	}
 
 	m = lws_ssl_get_error(wsi, n);
+
+	/*
+	 * As on the read side (C-417): 99 is what lws_ssl_get_error() says
+	 * when wsi->io->tls.ssl went away under us, ie, a callback openssl
+	 * made from inside SSL_write() closed the wsi.  The want tests below
+	 * must not be given the stale handle.
+	 */
+
+	if (m == 99 || !wsi->io->tls.ssl)
+		return LWS_SSL_CAPABLE_ERROR;
+
 	if (m != SSL_ERROR_SYSCALL) {
 		if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->io->tls.ssl)) {
 			lwsl_notice("%s: want read\n", __func__);
