@@ -519,20 +519,22 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 	info.chroot_path = cgiinfo->chroot_path;
 	info.wd = cgiinfo->wd;
 
-	/*
-	 * Actually having made the env, as a cgi we don't need the ah
-	 * any more
-	 */
-	if (cgiinfo->script_uri_path_len >= 0) {
-		lws_header_table_detach(cgiinfo->wsi, 0);
+	if (cgiinfo->script_uri_path_len >= 0)
 		info.disable_ctrlc = 1;
-	}
 
 	cgiinfo->wsi->http.cgi->lsp = lws_spawn_piped(&info);
 	if (!cgiinfo->wsi->http.cgi->lsp) {
 		lwsl_err("%s: spawn failed\n", __func__);
 		goto bail;
 	}
+
+	/*
+	 * Actually having made the env and the child, as a cgi we don't need
+	 * the ah any more.  Until the child exists, the request may still
+	 * have to be answered with a failure.
+	 */
+	if (cgiinfo->script_uri_path_len >= 0)
+		lws_header_table_detach(cgiinfo->wsi, 0);
 
 	cgiinfo->wsi->http.cgi->pi = cgiinfo->wsi->http.cgi->lsp->child_pid;
 

@@ -752,13 +752,6 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 #endif
 	}
 
-	for (n = 0; n < 3; n++)
-		if (i->opt_parent) {
-			lsp->stdwsi[n]->parent = i->opt_parent;
-			lws_dll2_add_head(&lsp->stdwsi[n]->sibling_list,
-					  &i->opt_parent->child_list_owner);
-		}
-
 	// lwsl_notice("%s: pipe handles in %p, out %p, err %p\n", __func__,
 	//	   lsp->stdwsi[LWS_STDIN]->io->desc.sockfd,
 	//	   lsp->stdwsi[LWS_STDOUT]->io->desc.sockfd,
@@ -922,6 +915,20 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	if (envb)
 		lws_free_set_NULL(envb);
 
+	/*
+	 * Only now there is a child can the stdwsi become children of the
+	 * opt_parent wsi: the unwinding below frees them directly, and so must
+	 * never find them on its list of children, where its close would walk
+	 * over them after they were freed.
+	 */
+
+	if (i->opt_parent)
+		for (n = 0; n < 3; n++) {
+			lsp->stdwsi[n]->parent = i->opt_parent;
+			lws_dll2_add_head(&lsp->stdwsi[n]->sibling_list,
+					  &i->opt_parent->child_list_owner);
+		}
+
 	lsp->child_pid = pi.hProcess;
 	lsp->hJob = CreateJobObjectW(NULL, NULL);
 	if (lsp->hJob) {
@@ -977,7 +984,11 @@ bail3:
 	 */
 
 bail2:
-	/* __lws_free_wsi() unbinds the vhost, under the context lock */
+	/*
+	 * __lws_free_wsi() unbinds the vhost, under the context lock.  The
+	 * stdwsi are nobody's children yet, that waits for the process to
+	 * have been created, so nothing else can be holding on to them.
+	 */
 
 	lws_context_lock(context, __func__);
 	for (n = 0; n < 3; n++)

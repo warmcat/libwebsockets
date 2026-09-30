@@ -12,7 +12,14 @@
 # style), so the test can check the stamped value got here and the
 # client's own attempt at the same header did not.
 
-n=$(wc -c | tr -d ' \t\r\n')
+# A request without a body has nothing on stdin to count.
+
+case "$REQUEST_METHOD" in
+GET|HEAD)
+	n=0 ;;
+*)
+	n=$(wc -c | tr -d ' \t\r\n') ;;
+esac
 b="bytes=$n
 stamp=$HTTP_X_TEST_STAMP"
 

@@ -124,16 +124,12 @@ static struct lws *
 lws_create_stdwsi(struct lws_context *context, int tsi,
 		     const struct lws_role_ops *ops)
 {
-	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws *new_wsi;
 
 	if(lws_dll2_is_empty(&context->vhost_list_owner))
 		return NULL;
 
-	if ((unsigned int)pt->fds_count == context->fd_limit_per_thread - 1) {
-		lwsl_err("no space for new conn\n");
-		return NULL;
-	}
+	/* lws_spawn_piped() made sure the pt's fds table has room for us */
 
 	lws_context_lock(context, __func__);
 	new_wsi = __lws_wsi_create_with_role(context, tsi, ops, NULL);
@@ -618,6 +614,23 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	 * bound to them
 	 */
 
+	/*
+	 * Each pipe end we keep is a wsi with a place in the pt's fds table.
+	 * Make sure they all fit before making any of them, rather than
+	 * finding out one insert at a time part of the way through.
+	 */
+
+	for (n = 0, m = 0; n < 3; n++)
+		if (lsp->pipe_fds[n][n == 0] != -1)
+			m++;
+
+	if ((unsigned int)pt->fds_count + (unsigned int)m >
+					context->fd_limit_per_thread) {
+		lwsl_err("%s: no room in fds table for %d stdio pipes\n",
+			 __func__, m);
+		goto bail1;
+	}
+
 	/* create wsis for each stdin/out/err fd */
 
 	for (n = 0; n < 3; n++) {
@@ -679,12 +692,6 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 			goto bail3_unlock;
 
 		lws_dll2_remove(&lsp->stdwsi[n]->pre_natal);
-
-		if (i->opt_parent) {
-			lsp->stdwsi[n]->parent = i->opt_parent;
-			lws_dll2_add_head(&lsp->stdwsi[n]->sibling_list,
-					  &i->opt_parent->child_list_owner);
-		}
 	}
 
 	if (lsp->stdwsi[LWS_STDIN]) {
@@ -791,9 +798,28 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	if (lsp->child_pid) {
 
 		/*
-		 * We are the parent process.  We can close our copy of the
-		 * "other" side of the pipe fds, ie, rd for stdin and wr for
-		 * stdout / stderr.
+		 * We are the parent process.  Only now there is a child can
+		 * the stdwsi become children of the opt_parent wsi: the
+		 * unwinding below frees them directly, and so must never find
+		 * them on its list of children, where its close would walk
+		 * over them after they were freed.
+		 */
+
+		if (i->opt_parent) {
+			lws_pt_lock(pt, __func__);
+			for (n = 0; n < 3; n++) {
+				if (!lsp->stdwsi[n])
+					continue;
+				lsp->stdwsi[n]->parent = i->opt_parent;
+				lws_dll2_add_head(&lsp->stdwsi[n]->sibling_list,
+					&i->opt_parent->child_list_owner);
+			}
+			lws_pt_unlock(pt);
+		}
+
+		/*
+		 * We can close our copy of the "other" side of the pipe fds,
+		 * ie, rd for stdin and wr for stdout / stderr.
 		 */
 		for (n = 0; n < 3; n++) {
 			/* these guys didn't have any wsi footprint */
@@ -978,7 +1004,11 @@ bail3:
 	lws_pt_unlock(pt);
 
 bail2:
-	/* __lws_free_wsi() unbinds the vhost, under the context lock */
+	/*
+	 * __lws_free_wsi() unbinds the vhost, under the context lock.  The
+	 * stdwsi are nobody's children yet, that waits for the fork to have
+	 * worked, so nothing else can be holding on to them.
+	 */
 
 	lws_context_lock(context, __func__);
 	for (n = 0; n < 3; n++)

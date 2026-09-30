@@ -27,17 +27,24 @@
  * decode it, hand the CGI only the payload, and close the CGI's stdin at the
  * last-chunk so the script's read sees EOF.
  *
+ * With --fd-budget, the client GETs the script over and over, each time in a
+ * new context with one less place in its fds table, starting from a budget
+ * with room for everything.  The cgi's three stdio pipes each need a place
+ * as well as the connection: the first budget that does not answer 200 must
+ * be one that still took the connection but had no room for all the pipes,
+ * and it must answer 500, with nothing left behind by the failed spawn.
+ *
  * With JOSE in the build, the CGI mount is also gated by a tiny mount
  * interceptor that lets every request through but stamps an onward header
  * on it, the way lws-login stamps its login state; the client sends its
  * own copy of the same header.  The script reports the header as it
  * reached its env, and it must be the interceptor's value: stamped headers
  * go to CGI scripts as they go to a reverse-proxied backend, and the
- * peer's copy never does.
+ * peer's own copy never does.
  *
  * The test fails if
  *  - the client connection or transaction errors out,
- *  - the response status is not 200,
+ *  - the response status is not the one expected,
  *  - the CGI does not report receiving every byte of the POST body,
  *  - (JOSE) the CGI did not see the interceptor's stamped header value,
  *  - no completion is seen inside the watchdog period.
@@ -56,16 +63,46 @@
 #define CHUNK		(SERV_BUF_SIZE - LWS_PRE)
 #define CHUNKS		4
 
-static struct lws_context *context;
-static int done;
-static int chunked;
-static int result = 1;
-static int status;
-static int port_tcp = 7681;
-static lws_sorted_usec_list_t sul_timeout;
+/* the fds budget --fd-budget starts from, with room for everything */
+#define FD_BUDGET_START	16
 
-static char rx[128];
-static size_t rx_len;
+enum body_type {
+	BODY_NONE,
+	BODY_CONTENT_LENGTH,
+	BODY_CHUNKED,
+};
+
+struct tcase {
+	const char	*name;
+	const char	*method;
+	const char	*path;
+	enum body_type	body;
+	int		expect_status;
+	int		fd_budget;	/* sweep the fds table budget down */
+};
+
+static const struct tcase cases[] = {
+	{ "post", "POST", "/", BODY_CONTENT_LENGTH, 200, 0 },
+	{ "chunked", "POST", "/", BODY_CHUNKED, 200, 0 },
+	{ "fd-budget", "GET", "/", BODY_NONE, 200, 1 },
+};
+
+/* what one client transaction came to */
+
+struct run {
+	char		rx[128];
+	size_t		rx_len;
+	int		status;
+	int		completed;
+	int		done;
+};
+
+static const struct tcase *tc;
+static struct lws_context *context;
+static struct run run;
+static int port_tcp = 7681;
+static const char *server = "127.0.0.1";
+static lws_sorted_usec_list_t sul_timeout;
 
 static uint8_t body[LWS_PRE + CHUNK];
 
@@ -100,28 +137,30 @@ struct pss {
 };
 
 static void
-sul_timeout_cb(lws_sorted_usec_list_t *sul)
+run_done(void)
 {
-	if (!done)
-		lwsl_err("--- watchdog: cgi stdin roundtrip did not complete ---\n");
-	done = 1;
-	lws_default_loop_exit(context);
+	run.done = 1;
+	lws_cancel_service(context);
 }
 
 static void
-evaluate_response(void)
+sul_timeout_cb(lws_sorted_usec_list_t *sul)
 {
-	const char *p = strstr(rx, "bytes=");
+	lwsl_err("--- watchdog: cgi transaction did not complete ---\n");
+	run_done();
+}
+
+/* the script's answer to a POST: did it get the whole body? */
+
+static int
+check_body_count(void)
+{
+	const char *p = strstr(run.rx, "bytes=");
 	unsigned long expect = (unsigned long)CHUNKS * CHUNK, seen = 0;
 
-	if (status != 200) {
-		lwsl_err("--- response status %d, expected 200 ---\n", status);
-		goto fail;
-	}
-
 	if (!p) {
-		lwsl_err("--- no byte count in response, rx '%s' ---\n", rx);
-		goto fail;
+		lwsl_err("--- no byte count in response, rx '%s' ---\n", run.rx);
+		return 1;
 	}
 
 	for (p += 6; *p >= '0' && *p <= '9'; p++)
@@ -130,30 +169,21 @@ evaluate_response(void)
 	if (seen != expect) {
 		lwsl_err("--- cgi received %lu bytes, expected %lu ---\n",
 			 seen, expect);
-		goto fail;
+		return 1;
 	}
 
 #if defined(LWS_WITH_JOSE)
-	p = strstr(rx, "stamp=");
+	p = strstr(run.rx, "stamp=");
 	if (!p || strncmp(p + 6, STAMP_VAL "\n", strlen(STAMP_VAL) + 1)) {
 		lwsl_err("--- cgi env lacks the stamped header, rx '%s' ---\n",
-			 rx);
-		goto fail;
+			 run.rx);
+		return 1;
 	}
 #endif
 
-	lwsl_user("--- cgi stdin received all %lu bytes.  Test passed. ---\n",
-		  seen);
-	result = 0;
-	done = 1;
-	lws_default_loop_exit(context);
+	lwsl_user("--- cgi stdin received all %lu bytes ---\n", seen);
 
-	return;
-
-fail:
-	result = 1;
-	done = 1;
-	lws_default_loop_exit(context);
+	return 0;
 }
 
 static int
@@ -168,15 +198,15 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		lwsl_err("--- client: connection error: %s ---\n",
-			 in ? (const char *)in : "(null)");
-		lws_default_loop_exit(context);
+		lwsl_user("%s: client: connection error: %s\n", __func__,
+			  in ? (const char *)in : "(null)");
+		run_done();
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
-		status = (int)lws_http_client_http_response(wsi);
+		run.status = (int)lws_http_client_http_response(wsi);
 		lwsl_user("%s: client established, response status %d\n",
-			  __func__, status);
+			  __func__, run.status);
 		break;
 
 	/* ...callbacks related to generating the POST body... */
@@ -194,12 +224,16 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 				(const uint8_t *)"evil", 4, pp, end))
 			return -1;
 
-		if (chunked) {
+		switch (tc->body) {
+		case BODY_NONE:
+			return 0;
+		case BODY_CHUNKED:
 			if (lws_add_http_header_by_token(wsi,
 					WSI_TOKEN_HTTP_TRANSFER_ENCODING,
 					(const uint8_t *)"chunked", 7, pp, end))
 				return -1;
-		} else
+			break;
+		case BODY_CONTENT_LENGTH:
 			/*
 			 * Give the exact body size, so the server side takes
 			 * the bounded content-length path through LRS_BODY
@@ -208,6 +242,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 						(lws_filepos_t)CHUNKS * CHUNK,
 						pp, end))
 				return -1;
+			break;
+		}
 
 		/* ... we are going to send the body next ... */
 		lws_client_http_body_pending(wsi, 1);
@@ -215,7 +251,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
-		if (pss->chunks_done >= CHUNKS)
+		if (tc->body == BODY_NONE || pss->chunks_done >= CHUNKS)
 			return 0;
 
 		/*
@@ -230,7 +266,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			n = LWS_WRITE_HTTP_FINAL;
 		}
 
-		if (chunked) {
+		if (tc->body == BODY_CHUNKED) {
 			/*
 			 * Frame this piece as one chunk, with the last-chunk
 			 * and trailer terminator after the final piece
@@ -269,9 +305,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		size_t o = 0;
 
 		/* accumulate the tiny cgi response body */
-		while (o < len && rx_len + 1 < sizeof(rx))
-			rx[rx_len++] = ((const char *)in)[o++];
-		rx[rx_len] = '\0';
+		while (o < len && run.rx_len + 1 < sizeof(run.rx))
+			run.rx[run.rx_len++] = ((const char *)in)[o++];
+		run.rx[run.rx_len] = '\0';
 
 		lwsl_user("%s: read %d\n", __func__, (int)len);
 
@@ -286,13 +322,12 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0; /* don't passthru */
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
-		evaluate_response();
+		run.completed = 1;
+		run_done();
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
-		if (!done)
-			lwsl_err("--- client: closed before completion ---\n");
-		lws_default_loop_exit(context);
+		run_done();
 		break;
 
 	default:
@@ -337,30 +372,122 @@ static const struct lws_protocols protocols_cli[] = {
 
 void sigint_handler(int sig)
 {
-	lws_default_loop_exit(context);
+	run_done();
+}
+
+/*
+ * One client transaction against the cgi mount, in a context of its own
+ * whose fds table has fd_limit places (0 = the process limit).  Returns
+ * nonzero if the context or its vhosts could not be created.
+ */
+
+static int
+run_one(struct lws_context_creation_info *info, unsigned int fd_limit)
+{
+	struct lws_client_connect_info i;
+	struct lws_vhost *vh;
+	int ret = 1;
+
+	memset(&run, 0, sizeof(run));
+
+	info->port = CONTEXT_PORT_NO_LISTEN;
+	info->vhost_name = NULL;
+	info->protocols = NULL;
+	info->mounts = NULL;
+	info->fd_limit_per_thread = fd_limit;
+
+	context = lws_create_context(info);
+	if (!context) {
+		lwsl_err("lws init failed\n");
+		return 1;
+	}
+
+	/* server vhost serving the cgi script at / */
+
+	info->port = port_tcp;
+	info->vhost_name = "srv";
+	info->protocols = protocols_srv;
+	info->mounts = &mount;
+
+	vh = lws_create_vhost(context, info);
+	if (!vh) {
+		lwsl_err("Failed to create server vhost\n");
+		goto bail;
+	}
+
+	/* client vhost, no listener */
+
+	info->port = CONTEXT_PORT_NO_LISTEN;
+	info->vhost_name = "cli";
+	info->protocols = protocols_cli;
+	info->mounts = NULL;
+
+	vh = lws_create_vhost(context, info);
+	if (!vh) {
+		lwsl_err("Failed to create client vhost\n");
+		goto bail;
+	}
+
+	memset(&i, 0, sizeof(i));
+	i.context = context;
+	i.vhost = vh;
+	i.address = server;
+	i.port = port_tcp;
+	i.path = tc->path;
+	i.host = server;
+	i.origin = server;
+	i.method = tc->method;
+	i.protocol = protocols_cli[0].name;
+
+	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
+			 20 * LWS_US_PER_SEC);
+
+	if (!lws_client_connect_via_info(&i)) {
+		lwsl_err("client connect failed\n");
+		goto bail;
+	}
+
+	while (!run.done && lws_service(context, 0) >= 0)
+		;
+
+	ret = 0;
+
+bail:
+	lws_sul_cancel(&sul_timeout);
+	lws_context_destroy(context);
+	context = NULL;
+
+	return ret;
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_client_connect_info i;
-	struct lws_vhost *vh;
+	unsigned int budget;
+	int result = 1;
 	const char *p;
 	size_t n;
-	int n_int = 0;
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		port_tcp = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--server")))
+		server = p;
 
-	chunked = !!lws_cmdline_option(argc, argv, "--chunked");
+	tc = &cases[0];
+	for (n = 1; n < LWS_ARRAY_SIZE(cases); n++) {
+		char opt[32];
+
+		lws_snprintf(opt, sizeof(opt), "--%s", cases[n].name);
+		if (lws_cmdline_option(argc, argv, opt))
+			tc = &cases[n];
+	}
 
 	signal(SIGINT, sigint_handler);
 
-	lwsl_user("LWS API selftest: POST body -> CGI stdin at serv_buf "
-		  "boundary%s\n", chunked ? " (chunked)" : "");
+	lwsl_user("LWS API selftest: CGI (%s)\n", tc->name);
 
 	/* deterministic body content */
 	for (n = 0; n < CHUNK; n++)
@@ -373,69 +500,53 @@ int main(int argc, const char **argv)
 	info.pt_serv_buf_size = SERV_BUF_SIZE;
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 
-	context = lws_create_context(&info);
-	if (!context) {
-		lwsl_err("lws init failed\n");
-		return 1;
+	if (!tc->fd_budget) {
+		if (run_one(&info, info.fd_limit_per_thread) || !run.completed)
+			goto done;
+
+		if (run.status != tc->expect_status) {
+			lwsl_err("--- response status %d, expected %d ---\n",
+				 run.status, tc->expect_status);
+			goto done;
+		}
+
+		if (tc->body != BODY_NONE && check_body_count())
+			goto done;
+
+		result = 0;
+		goto done;
 	}
 
-	/* server vhost serving the cgi script at / */
+	/*
+	 * Take one place away from the fds table each time, until the cgi
+	 * no longer gets its 200: that budget has room for the connection
+	 * but not for all three of the cgi's stdio pipes, and must be told
+	 * so with a 500
+	 */
 
-	info.port = port_tcp;
-	info.vhost_name = "srv";
-	info.protocols = protocols_srv;
-	info.mounts = &mount;
+	for (budget = FD_BUDGET_START; budget > 1; budget--) {
+		if (run_one(&info, budget) || !run.completed) {
+			lwsl_err("--- budget %u: no answer ---\n", budget);
+			goto done;
+		}
 
-	vh = lws_create_vhost(context, &info);
-	if (!vh) {
-		lwsl_err("Failed to create server vhost\n");
-		goto bail;
+		lwsl_user("--- budget %u: status %d ---\n", budget, run.status);
+
+		if (run.status == 200)
+			continue;
+
+		if (budget == FD_BUDGET_START)
+			lwsl_err("--- no room for the cgi at the start ---\n");
+		else if (run.status != 500)
+			lwsl_err("--- failed spawn answered %d, not 500 ---\n",
+				 run.status);
+		else
+			result = 0;
+
+		break;
 	}
 
-	/* client vhost, no listener */
-
-	info.port = CONTEXT_PORT_NO_LISTEN;
-	info.vhost_name = "cli";
-	info.protocols = protocols_cli;
-	info.mounts = NULL;
-
-	vh = lws_create_vhost(context, &info);
-	if (!vh) {
-		lwsl_err("Failed to create client vhost\n");
-		goto bail;
-	}
-
-	memset(&i, 0, sizeof(i));
-	i.context = context;
-	i.vhost = vh;
-	p = "127.0.0.1";
-	{
-		const char *cs = lws_cmdline_option(argc, argv, "--server");
-		if (cs)
-			p = cs;
-	}
-	i.address = p;
-	i.port = port_tcp;
-	i.path = "/";
-	i.host = p;
-	i.origin = p;
-	i.method = "POST";
-	i.protocol = protocols_cli[0].name;
-
-	if (!lws_client_connect_via_info(&i)) {
-		lwsl_err("client connect failed\n");
-		goto bail;
-	}
-
-	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
-			 20 * LWS_US_PER_SEC);
-
-	while (n_int >= 0)
-		n_int = lws_service(context, 0);
-
-bail:
-	lws_context_destroy(context);
-
+done:
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");
 
 	return result;

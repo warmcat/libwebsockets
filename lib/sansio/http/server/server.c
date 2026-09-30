@@ -2566,7 +2566,14 @@ lws_http_action(struct lws *wsi)
 
 		n = (unsigned int)lws_io_cgi_start(&cgiinfo);
 		if (n) {
+			/*
+			 * No child: nothing else is going to answer this
+			 * request, eg, the fds table had no room for its
+			 * stdio pipes
+			 */
 			lwsl_err("%s: cgi failed\n", __func__);
+			lws_return_http_status(wsi,
+				HTTP_STATUS_INTERNAL_SERVER_ERROR, NULL);
 			goto bail_nuke_ah;
 		}
 
