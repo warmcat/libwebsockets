@@ -510,6 +510,41 @@ bail:
 	lws_set_timeout(wsi, 1, LWS_TO_KILL_ASYNC);
 }
 
+void
+lws_mqtt_child_snap(struct lws *nwsi, lws_mqtt_child_snap_t *snap)
+{
+	snap->count = 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
+		/* lws_wsi_mqtt_adopt() keeps us inside LWS_MQTT_MAX_CHILDREN */
+		if (snap->count == LWS_ARRAY_SIZE(snap->w)) {
+			lwsl_wsi_err(nwsi, "too many children");
+			break;
+		}
+		snap->w[snap->count++] = lws_container_of(d, struct lws,
+							  mux.sibling_list);
+	} lws_end_foreach_dll(d);
+}
+
+/* snap's child n if it is still one of nwsi's children, else NULL */
+
+struct lws *
+lws_mqtt_child_snap_get(struct lws *nwsi, const lws_mqtt_child_snap_t *snap,
+			unsigned int n)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
+		struct lws *w = lws_container_of(d, struct lws,
+						 mux.sibling_list);
+
+		if (w == snap->w[n])
+			return w;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
 static void
 lws_mqtt_local_ack_schedule(struct lws *wsi)
 {
@@ -1715,10 +1750,19 @@ cmd_completion:
 				 */
 
 				if (known) {
-					lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-					                           lws_dll2_get_head(&wsi->mux.child_list_owner)) {
-					   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
+					lws_mqtt_child_snap_t snap;
+					unsigned int m;
+
+					/* each callback may close other streams */
+					lws_mqtt_child_snap(wsi, &snap);
+					for (m = 0; m < snap.count; m++) {
+						struct lws *w = lws_mqtt_child_snap_get(
+								wsi, &snap, m);
 						uint16_t pid = par->cpkt_id;
+
+						if (!w)
+							continue;
+
 						if (w->a.protocol->callback(w,
 							    LWS_CALLBACK_MQTT_QOS2_RX_COMPLETE,
 							    w->user_space,
@@ -1732,7 +1776,7 @@ cmd_completion:
 							 */
 							return -1;
 						}
-					} lws_end_foreach_dll_safe(d, d1);
+					}
 				} else
 					lwsl_notice("%s: PUBREL for unknown "
 						    "pkt id %d\n", __func__,
@@ -1949,30 +1993,42 @@ cmd_completion:
 				lws_servbuf_trim(&wsi->a.context->pt[(int)wsi->tsi],
 						 buf);
 
-				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				                           lws_dll2_get_head(&wsi->mux.child_list_owner)) {
-				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
-					if (!wsi->mqtt->qos2_duplicate &&
-					    lws_mqtt_find_sub(w->mqtt,
-							      pub->topic))
+				if (!wsi->mqtt->qos2_duplicate) {
+					lws_mqtt_child_snap_t snap;
+					unsigned int m;
+
+					/*
+					 * Each subscriber's rx callback may
+					 * close other streams on the connection
+					 */
+					lws_mqtt_child_snap(wsi, &snap);
+					for (m = 0; m < snap.count; m++) {
+						struct lws *w = lws_mqtt_child_snap_get(
+								wsi, &snap, m);
+
+						if (!w || !lws_mqtt_find_sub(w->mqtt,
+								      pub->topic))
+							continue;
+
 						if (w->a.protocol->callback(
 							    w, (enum lws_callback_reasons)n,
 							    w->user_space,
 							    (void *)pub,
 							    chunk)) {
-								par->payload_consumed = 0;
-								lws_free_set_NULL(pub->topic);
-								lws_free_set_NULL(wsi->mqtt->rx_cpkt_param);
-								/*
-								 * user asked to
-								 * close: callers
-								 * only act on
-								 * < 0, and we
-								 * are mid-payload
-								 */
-								return -1;
-							}
-				} lws_end_foreach_dll_safe(d, d1);
+							par->payload_consumed = 0;
+							lws_free_set_NULL(pub->topic);
+							lws_free_set_NULL(wsi->mqtt->rx_cpkt_param);
+							/*
+							 * user asked to
+							 * close: callers
+							 * only act on
+							 * < 0, and we
+							 * are mid-payload
+							 */
+							return -1;
+						}
+					}
+				}
 
 
 				pub->payload_pos += (uint32_t)chunk;

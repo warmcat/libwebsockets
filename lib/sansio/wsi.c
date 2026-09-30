@@ -2446,6 +2446,35 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 	lws_context_lock(wsi->a.context, __func__); /* -------------- cx { */
 	lws_vhost_lock(wsi->a.vhost);
 
+#if defined(LWS_ROLE_MQTT)
+	if (lwsi_role_mqtt(wsi)) {
+		struct lws_dll2 *d;
+
+		/*
+		 * An adopted mqtt stream hears ESTABLISHED from inside
+		 * lws_wsi_mqtt_adopt(), and its user code may close any other
+		 * stream still queued here (eg, lws_ss_destroy() closes and
+		 * frees its wsi inline).  So nothing is held across it: each
+		 * pass takes the queue's head, which it removes, so this ends.
+		 */
+		while (lwsi_state(wsi) == LRS_ESTABLISHED &&
+		       (d = lws_dll2_get_head(&wsi->dll2_cli_txn_queue_owner))) {
+			struct lws *w = lws_container_of(d, struct lws,
+							 dll2_cli_txn_queue);
+
+			lwsl_wsi_info(w, "cli pipeq to be mqtt");
+
+			/* remove ourselves from client queue */
+			lws_dll2_remove(&w->dll2_cli_txn_queue);
+
+			/* attach ourselves as an mqtt stream */
+			lws_wsi_mqtt_adopt(wsi, w);
+		}
+
+		goto bail;
+	}
+#endif
+
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 			lws_dll2_get_head(&wsi->dll2_cli_txn_queue_owner)) {
 		struct lws *w = lws_container_of(d, struct lws, dll2_cli_txn_queue);
@@ -2501,21 +2530,12 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 			lws_wsi_h3_adopt(wsi, w);
 		}
 #endif
-
-#if defined(LWS_ROLE_MQTT)
-		if (lwsi_role_mqtt(wsi) && lwsi_state(wsi) == LRS_ESTABLISHED) {
-			lwsl_wsi_info(w, "cli pipeq to be mqtt\n");
-
-			/* remove ourselves from client queue */
-			lws_dll2_remove(&w->dll2_cli_txn_queue);
-
-			/* attach ourselves as an h2 stream */
-			lws_wsi_mqtt_adopt(wsi, w);
-		}
-#endif
 	}
 	lws_end_foreach_dll_safe(d, d1);
 
+#if defined(LWS_ROLE_MQTT)
+bail:
+#endif
 	lws_vhost_unlock(wsi->a.vhost);
 	lws_context_unlock(wsi->a.context); /* } cx --------------  */
 

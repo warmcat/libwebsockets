@@ -431,6 +431,27 @@ struct _lws_mqtt_related {
 
 struct lws_mqtt_endpoint_st;
 
+/*
+ * The children of an mqtt connection that a walk calling user callbacks will
+ * visit, taken before the first callback.  A callback may close any stream on
+ * the connection, not just its own (eg, lws_ss_destroy() of another stream
+ * closes and frees that stream's child inline), so a walk can't hold a pointer
+ * into the child list across a callback.  Instead each child is looked for in
+ * the live list just before its turn, comparing pointers only.
+ */
+
+typedef struct lws_mqtt_child_snap {
+	struct lws		*w[LWS_MQTT_MAX_CHILDREN];
+	unsigned int		count;
+} lws_mqtt_child_snap_t;
+
+void
+lws_mqtt_child_snap(struct lws *nwsi, lws_mqtt_child_snap_t *snap);
+
+struct lws *
+lws_mqtt_child_snap_get(struct lws *nwsi, const lws_mqtt_child_snap_t *snap,
+			unsigned int n);
+
 typedef struct lws_mqtts_session_st {
 	struct lws_dll2 session_list;
 

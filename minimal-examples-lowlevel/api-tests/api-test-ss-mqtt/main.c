@@ -15,6 +15,11 @@
  *    PUBLISH has no PUBACK, and a SUBSCRIBE to a topic the connection
  *    already has is not sent to the broker at all
  *
+ *  - destroy another stream on the same connection while lws is walking
+ *    the connection's streams to tell each of them something: adopting the
+ *    streams queued on a new connection, delivering a PUBLISH to every
+ *    subscriber, giving each stream that asked for it a WRITEABLE
+ *
  * The streams must hear each state once, in order, be destroyed once, and
  * nothing must be left using them afterwards (run it under ASan).
  */
@@ -292,7 +297,7 @@ static const struct lws_protocols protocols_broker[] = {
 };
 
 /*
- * The streams.  Each leg uses up to two, in slots[], and the slot keeps what
+ * The streams.  Each leg uses up to three, in slots[], and the slot keeps what
  * its stream heard after the stream is gone
  */
 
@@ -303,7 +308,9 @@ typedef struct slot {
 	unsigned int		connected;
 	unsigned int		acked;
 	unsigned int		nacked;
+	unsigned int		rx;
 	unsigned int		destroying;
+	unsigned int		destroyed_sibling;
 	char			sent;
 } slot_t;
 
@@ -313,18 +320,24 @@ typedef struct tst {
 } tst_t;
 
 enum {
+	LEG_QUEUE_DESTROY,	/* adopted from the queue, destroys a queued one */
 	LEG_QOS0_ACK_DESTROY,	/* DESTROY_ME from the QoS0 local ack */
 	LEG_SUBSCRIBED_DESTROY,	/* DESTROY_ME from a local SUBSCRIBED */
+	LEG_RX_DESTROY,		/* one subscriber's rx destroys the other */
+	LEG_TX_DESTROY,		/* one stream's tx destroys the other */
 
 	LEG_COUNT
 };
 
 static const char * const leg_names[] = {
+	"queue destroy",
 	"qos0 ack destroy",
 	"local subscribed destroy",
+	"rx destroys sibling",
+	"tx destroys sibling",
 };
 
-static slot_t slots[2];
+static slot_t slots[3];
 static int leg = -1;
 static unsigned int subscribes_at_second;
 
@@ -357,21 +370,66 @@ leg_done(void)
 	lws_sul_schedule(context, 0, &sul_leg, leg_sul_cb, 1);
 }
 
+/*
+ * The other stream of a two-stream leg is destroyed from inside this one's
+ * callback, while lws is walking the streams of the shared connection to
+ * deliver to each of them
+ */
+
+static void
+destroy_sibling(slot_t *s)
+{
+	slot_t *o = s == &slots[0] ? &slots[1] : &slots[0];
+
+	if (!o->h)
+		return;
+
+	lws_ss_destroy(&o->h);
+	s->destroyed_sibling++;
+	leg_done();
+}
+
+static lws_ss_state_return_t
+tst_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
+{
+	slot_t *s = (slot_t *)((tst_t *)userobj)->opaque_data;
+
+	s->rx++;
+	if (leg == LEG_RX_DESTROY)
+		destroy_sibling(s);
+
+	return LWSSSSRET_OK;
+}
+
 static lws_ss_state_return_t
 tst_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
        int *flags)
 {
 	slot_t *s = (slot_t *)((tst_t *)userobj)->opaque_data;
 
-	if (leg != LEG_QOS0_ACK_DESTROY || s->sent || *len < 7)
-		return LWSSSSRET_TX_DONT_SEND;
+	switch (leg) {
+	case LEG_QOS0_ACK_DESTROY:
+	case LEG_RX_DESTROY:
+		/* the first stream just waits for the second's message */
+		if ((leg == LEG_RX_DESTROY && s != &slots[1]) || s->sent ||
+		    *len < 4)
+			break;
 
-	memcpy(buf, "q0 once", 7);
-	*len = 7;
-	*flags = LWSSS_FLAG_SOM | LWSSS_FLAG_EOM;
-	s->sent = 1;
+		memcpy(buf, "once", 4);
+		*len = 4;
+		*flags = LWSSS_FLAG_SOM | LWSSS_FLAG_EOM;
+		s->sent = 1;
 
-	return LWSSSSRET_OK;
+		return LWSSSSRET_OK;
+
+	case LEG_TX_DESTROY:
+		/* both streams asked to write, the first to get to destroys */
+		if (slots[0].connected && slots[1].connected)
+			destroy_sibling(s);
+		break;
+	}
+
+	return LWSSSSRET_TX_DONT_SEND;
 }
 
 static lws_ss_state_return_t
@@ -380,6 +438,7 @@ tst_state(void *userobj, void *sh, lws_ss_constate_t state,
 {
 	tst_t *t = (tst_t *)userobj;
 	slot_t *s = (slot_t *)t->opaque_data;
+	unsigned int n;
 
 	lwsl_ss_user(t->ss, "%s: %s", s->name, lws_ss_state_name(state));
 
@@ -391,10 +450,27 @@ tst_state(void *userobj, void *sh, lws_ss_constate_t state,
 		s->connected++;
 
 		switch (leg) {
+		case LEG_QUEUE_DESTROY:
+			/*
+			 * The first stream made the connection, the other two
+			 * queued on it and are adopted when it is up.  The
+			 * first adopted one destroys the one still queued.
+			 */
+			if (s != &slots[1])
+				break;
+			for (n = 0; n < LWS_ARRAY_SIZE(slots); n++)
+				if (slots[n].h && !slots[n].connected) {
+					lws_ss_destroy(&slots[n].h);
+					s->destroyed_sibling++;
+				}
+			leg_done();
+			break;
+
 		case LEG_QOS0_ACK_DESTROY:
 			return lws_ss_request_tx(t->ss);
 
 		case LEG_SUBSCRIBED_DESTROY:
+		case LEG_RX_DESTROY:
 			if (s == &slots[0]) {
 				/* the connection has the topic, now join it */
 				lws_sul_schedule(context, 0, &sul_second,
@@ -402,8 +478,26 @@ tst_state(void *userobj, void *sh, lws_ss_constate_t state,
 				break;
 			}
 
+			if (leg == LEG_RX_DESTROY)
+				/* publish to the topic both subscribed to */
+				return lws_ss_request_tx(t->ss);
+
 			/* the second stream gives up as soon as it is up */
 			return LWSSSSRET_DESTROY_ME;
+
+		case LEG_TX_DESTROY:
+			/*
+			 * Once both are up, both ask to write in the same
+			 * pass of the event loop
+			 */
+			if (s == &slots[1] && slots[0].h) {
+				if (lws_ss_request_tx(slots[0].h)) {
+					leg_fail("request tx failed");
+					break;
+				}
+				return lws_ss_request_tx(t->ss);
+			}
+			break;
 		}
 		break;
 
@@ -447,6 +541,7 @@ stream_create(slot_t *s, const char *name, const char *streamtype)
 	memset(&ssi, 0, sizeof(ssi));
 	ssi.handle_offset		= offsetof(tst_t, ss);
 	ssi.opaque_user_data_offset	= offsetof(tst_t, opaque_data);
+	ssi.rx				= tst_rx;
 	ssi.tx				= tst_tx;
 	ssi.state			= tst_state;
 	ssi.user_alloc			= sizeof(tst_t);
@@ -468,14 +563,48 @@ second_sul_cb(lws_sorted_usec_list_t *sul)
 {
 	subscribes_at_second = broker_subscribes;
 
-	if (stream_create(&slots[1], "second", "subsh"))
+	if (stream_create(&slots[1], "second",
+			  leg == LEG_RX_DESTROY ? "subrx" : "subsh"))
 		finish(1);
+}
+
+/* each of the two streams lost the other, or heard it, exactly once */
+
+static int
+leg_check_pair(void)
+{
+	unsigned int rx = slots[0].rx + slots[1].rx,
+		     by = slots[0].destroyed_sibling +
+			  slots[1].destroyed_sibling,
+		     gone = slots[0].destroying + slots[1].destroying;
+
+	if (!slots[0].connected || !slots[1].connected || by != 1 ||
+	    gone != 1 || (leg == LEG_RX_DESTROY && rx != 1)) {
+		lwsl_err("%s: conn %u / %u, rx %u, destroyed by sibling %u, "
+			 "destroying %u\n", __func__, slots[0].connected,
+			 slots[1].connected, rx, by, gone);
+		return 1;
+	}
+
+	return 0;
 }
 
 static int
 leg_check(void)
 {
 	switch (leg) {
+	case LEG_QUEUE_DESTROY:
+		if (slots[0].connected != 1 || slots[1].connected != 1 ||
+		    slots[2].connected || slots[2].destroying != 1 ||
+		    slots[1].destroyed_sibling != 1) {
+			lwsl_err("%s: conn %u / %u / %u, destroying %u\n",
+				 __func__, slots[0].connected,
+				 slots[1].connected, slots[2].connected,
+				 slots[2].destroying);
+			return 1;
+		}
+		break;
+
 	case LEG_QOS0_ACK_DESTROY:
 		if (slots[0].connected != 1 || slots[0].acked != 1 ||
 		    slots[0].nacked || slots[0].destroying != 1) {
@@ -501,6 +630,10 @@ leg_check(void)
 			return 1;
 		}
 		break;
+
+	case LEG_RX_DESTROY:
+	case LEG_TX_DESTROY:
+		return leg_check_pair();
 	}
 
 	return 0;
@@ -533,6 +666,17 @@ leg_sul_cb(lws_sorted_usec_list_t *sul)
 	memset(slots, 0, sizeof(slots));
 
 	switch (leg) {
+	case LEG_QUEUE_DESTROY:
+		/*
+		 * Nothing is connected yet: the first makes the connection,
+		 * the other two queue on it
+		 */
+		if (stream_create(&slots[0], "first", "plain") ||
+		    stream_create(&slots[1], "second", "plain") ||
+		    stream_create(&slots[2], "third", "plain"))
+			finish(1);
+		break;
+
 	case LEG_QOS0_ACK_DESTROY:
 		if (stream_create(&slots[0], "q0", "pubq0"))
 			finish(1);
@@ -540,6 +684,17 @@ leg_sul_cb(lws_sorted_usec_list_t *sul)
 
 	case LEG_SUBSCRIBED_DESTROY:
 		if (stream_create(&slots[0], "first", "subsh"))
+			finish(1);
+		break;
+
+	case LEG_RX_DESTROY:
+		if (stream_create(&slots[0], "first", "subrx"))
+			finish(1);
+		break;
+
+	case LEG_TX_DESTROY:
+		if (stream_create(&slots[0], "first", "plain") ||
+		    stream_create(&slots[1], "second", "plain"))
 			finish(1);
 		break;
 	}
@@ -616,9 +771,15 @@ main(int argc, const char **argv)
 			"\"mqtt_topic\":\"lws/api-test-ss-mqtt/q0\"}},"
 		  "{\"subsh\":{" ST_COMMON
 			"\"mqtt_topic\":\"lws/api-test-ss-mqtt/shared\","
-			"\"mqtt_subscribe\":\"lws/api-test-ss-mqtt/shared\"}}"
+			"\"mqtt_subscribe\":\"lws/api-test-ss-mqtt/shared\"}},"
+		  "{\"subrx\":{" ST_COMMON
+			"\"mqtt_topic\":\"lws/api-test-ss-mqtt/rx\","
+			"\"mqtt_subscribe\":\"lws/api-test-ss-mqtt/rx\"}},"
+		  "{\"plain\":{" ST_COMMON
+			"\"mqtt_topic\":\"lws/api-test-ss-mqtt/plain\"}}"
 		 "]}",
-		 server_ads, port, server_ads, port);
+		 server_ads, port, server_ads, port, server_ads, port,
+		 server_ads, port);
 
 	nl.name				= "app";
 	nl.notify_cb			= app_system_state_nf;

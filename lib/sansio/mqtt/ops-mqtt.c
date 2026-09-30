@@ -268,22 +268,25 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 
 	/*
 	 * Fair-share POLLOUT service via a forward walk; see
-	 * rops_perform_user_POLLOUT_h2() for the rationale.  _safe caches
-	 * next before the body so relocating/closing the current child is
-	 * safe; the walk is bounded to the count of children present at
-	 * entry, since the rotation alone lets two children that re-arm on
-	 * every visit alternate forever (see ops-h2.c).  The choke test is
-	 * post-tested (first iteration skips it) so a pipe that already
-	 * looks choked on entry cannot starve every child.
+	 * rops_perform_user_POLLOUT_h2() for the rationale.  The walk visits
+	 * the children present at entry once each, since the rotation alone
+	 * lets two children that re-arm on every visit alternate forever (see
+	 * ops-h2.c).  It works from a snapshot and looks for each child again
+	 * before its turn, since a WRITEABLE callback may close any stream on
+	 * the connection, not only its own.  The choke test is post-tested
+	 * (first iteration skips it) so a pipe that already looks choked on
+	 * entry cannot starve every child.
 	 */
-	int first_iteration = 1,
-	    remaining = (int)wsi->mux.child_list_owner.count;
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-			lws_dll2_get_head(&wsi->mux.child_list_owner)) {
-		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
+	lws_mqtt_child_snap_t snap;
+	int first_iteration = 1;
+	unsigned int m;
 
-		if (remaining-- <= 0)
-			break;
+	lws_mqtt_child_snap(wsi, &snap);
+	for (m = 0; m < snap.count; m++) {
+		struct lws *w = lws_mqtt_child_snap_get(wsi, &snap, m);
+
+		if (!w)
+			continue;
 
 		if (!first_iteration && lws_send_pipe_choked(wsi))
 			break;
@@ -304,8 +307,7 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 
 		/*
 		 * we're going to do writable callback for this child.
-		 * move him to be the last child (fair share); cached d1
-		 * stays valid across the relocate.
+		 * move him to be the last child (fair share)
 		 */
 		lws_dll2_remove(&w->mux.sibling_list);
 		lws_dll2_add_tail(&w->mux.sibling_list,
@@ -355,8 +357,7 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "mqtt pollout handle");
 		}
-
-	} lws_end_foreach_dll_safe(d, d1);
+	}
 
 	// lws_wsi_mux_dump_waiting_children(wsi);
 
