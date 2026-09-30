@@ -3980,7 +3980,17 @@ lws_http_file_tx(struct lws *wsi, unsigned char *buf, size_t max,
 		return LWS_TX_FAIL;
 	}
 
-	if (wsi->http.filepos == wsi->http.filelen)
+	/*
+	 * Without ranges, the end of the file is the end of the response.
+	 * With them, only the end of the last range is: the parts can come in
+	 * any order, so an earlier one may end at the end of the file with
+	 * more still to go, which starts by seeking back for it below
+	 */
+	if (wsi->http.filepos == wsi->http.filelen
+#if defined(LWS_WITH_RANGES)
+	    && (!wsi->http.range.count_ranges || wsi->http.range.inside)
+#endif
+	)
 		return 0;
 
 #if defined(LWS_WITH_RANGES)
@@ -4293,7 +4303,7 @@ lws_http_file_tx(struct lws *wsi, unsigned char *buf, size_t max,
 			if (lws_ranges_next(&wsi->http.range) < 1)
 				*last = 1;
 		}
-	}
+	} else
 #endif
 	if (wsi->http.filepos >= wsi->http.filelen)
 		*last = 1;

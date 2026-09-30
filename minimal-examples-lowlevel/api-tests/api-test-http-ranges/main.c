@@ -172,6 +172,9 @@ static const struct xcase cases[] = {
 	{ .name = "h1 ranges out of order",
 	  .file = F_SMALL, .range = "bytes=800-899,100-199", .status = 206,
 	  .nexp = 2, .exp = { { 800, 899 }, { 100, 199 } } },
+	{ .name = "h1 a part ending at the end of the file, then an earlier one",
+	  .file = F_SMALL, .range = "bytes=990-999,0-9", .status = 206,
+	  .nexp = 2, .exp = { { 990, SMALL_LEN - 1 }, { 0, 9 } } },
 	{ .name = "h1 ten one-byte ranges",
 	  .file = F_SMALL, .gen_n = 10, .status = 206 },
 	{ .name = "h1 as many ranges as we will compose",
@@ -197,6 +200,10 @@ static const struct xcase cases[] = {
 	{ .name = "h1 big file, a one-byte part beside a huge one",
 	  .file = F_BIG, .range = "bytes=0-0,1000-190000", .status = 206,
 	  .nexp = 2, .exp = { { 0, 0 }, { 1000, 190000 } } },
+	{ .name = "h1 big file, the part at the end of the file first",
+	  .file = F_BIG, .range = "bytes=150000-199999,0-49999",
+	  .status = 206, .nexp = 2,
+	  .exp = { { 150000, BIG_LEN - 1 }, { 0, 49999 } } },
 
 	/*
 	 * The peer walking away in the middle: the server is inside a part,
