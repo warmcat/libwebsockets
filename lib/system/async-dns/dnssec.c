@@ -171,7 +171,8 @@ struct rrset_search {
 	uint32_t original_ttl;
 
 	int count;
-	struct rr_canonical records[16];
+	int bad; /* a record of the RRset couldn't be hashed */
+	struct rr_canonical records[LWS_DNSSEC_MAX_RRSET];
 };
 
 static void
@@ -260,6 +261,8 @@ lws_dnssec_rrset_cb(const char *name, void *opaque, uint32_t ttl,
 	struct rrset_search *s = (struct rrset_search *)opaque;
 	int nl = (int)strlen(name);
 	int sl = (int)strlen(s->name);
+	struct rr_canonical *r;
+	uint8_t *p;
 
 	if (type != s->type_covered)
 		return 0;
@@ -269,14 +272,28 @@ lws_dnssec_rrset_cb(const char *name, void *opaque, uint32_t ttl,
 	if (sl && s->name[sl - 1] == '.')
 		sl--;
 
-	if (nl != sl || strncmp(name, s->name, (size_t)nl))
+	/*
+	 * Owner names compare case-insensitively (RFC 4343), as
+	 * lws_adns_iterate() matched them when it stored the records: a
+	 * record we stored but left out of the hash here would be published
+	 * as validated without the signature covering it.
+	 */
+	if (nl != sl || strncasecmp(name, s->name, (size_t)nl))
 		return 0;
 
-	if (s->count >= 16)
-		return 0;
+	/*
+	 * Every record of the RRset we store goes into the hash, or the
+	 * validation fails: skipping one that won't fit would leave it
+	 * published as validated beside the ones the signature covers
+	 */
 
-	struct rr_canonical *r = &s->records[s->count++];
-	uint8_t *p = r->data;
+	if (s->count >= LWS_DNSSEC_MAX_RRSET) {
+		s->bad = 1;
+		return -1;
+	}
+
+	r = &s->records[s->count];
+	p = r->data;
 
 	p += name_to_wire(name, 255, p);
 
@@ -294,8 +311,10 @@ lws_dnssec_rrset_cb(const char *name, void *opaque, uint32_t ttl,
 	*p++ = (uint8_t)(rrpaylen >> 8);
 	*p++ = (uint8_t)rrpaylen;
 
-	if ((size_t)(p - r->data) + rrpaylen > sizeof(r->data))
+	if ((size_t)(p - r->data) + rrpaylen > sizeof(r->data)) {
+		s->bad = 1;
 		return -1;
+	}
 
 	r->rd_off = (size_t)(p - r->data);
 
@@ -310,12 +329,13 @@ lws_dnssec_rrset_cb(const char *name, void *opaque, uint32_t ttl,
 		int n = lws_adns_parse_label(s->pkt, s->pkt_len, payload,
 					     rrpaylen, &sp, sizeof(tn));
 
-		if (n < 0)
+		if (n >= 0)
+			n = lws_dnssec_name_wire(tn, p,
+						 sizeof(r->data) - r->rd_off);
+		if (n < 0) {
+			s->bad = 1;
 			return -1;
-
-		n = lws_dnssec_name_wire(tn, p, sizeof(r->data) - r->rd_off);
-		if (n < 0)
-			return -1;
+		}
 
 		lws_ser_wu16be(p - 2, (uint16_t)n);
 		p += n;
@@ -325,6 +345,8 @@ lws_dnssec_rrset_cb(const char *name, void *opaque, uint32_t ttl,
 	}
 
 	r->len = (size_t)(p - r->data);
+	s->count++; /* only now is it part of the RRset we hash */
+
 	return 0;
 }
 
@@ -1576,6 +1598,9 @@ lws_adns_dnssec_q_destroy(lws_adns_q_t *q)
  * \p pkt, which is response \p resp of q.  If \p cname is given, the RRset is
  * the queried name's CNAME, pointing to \p cname.
  *
+ * \p stored is the count of records of the RRset we act on: the RRset we
+ * hash must be exactly those, no more and no fewer.
+ *
  * Returning > 0 means validation is in progress (the signer's zone is
  * still being authenticated).
  * Returning 0 means validation succeeded.
@@ -1584,7 +1609,8 @@ lws_adns_dnssec_q_destroy(lws_adns_q_t *q)
 
 static int
 lws_dnssec_verify_rrset(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
-			uint8_t resp, uint16_t want_type, const char *cname)
+			uint8_t resp, uint16_t want_type, int stored,
+			const char *cname)
 {
 	struct rrsig_search s;
 
@@ -1701,12 +1727,14 @@ lws_dnssec_verify_rrset(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 				 &rs, NULL);
 
 		/*
-		 * RFC 2181 10.1: a CNAME RRset is the one record, and it's
-		 * the one lws_adns_iterate() gave us the target of
+		 * What the signature covers must be exactly what we act on:
+		 * the records we stored, or for a CNAME, the one record
+		 * (RFC 2181 10.1) that lws_adns_iterate() gave us the target
+		 * of.  A record we couldn't hash fails it.
 		 */
-		if (cname && rs.count != 1) {
-			lwsl_notice("%s: CNAME RRset of %d\n", __func__,
-				    rs.count);
+		if (rs.bad || rs.count != stored) {
+			lwsl_notice("%s: RRset of %d (%d stored)%s\n", __func__,
+				    rs.count, stored, rs.bad ? ", unhashable" : "");
 			lws_genhash_destroy(&hash_ctx, NULL);
 			return -1;
 		}
@@ -1785,10 +1813,8 @@ lws_dnssec_verify_rrset(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 
 int
 lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
-		       uint8_t resp)
+		       uint8_t resp, int stored)
 {
-	uint16_t want_type;
-
 	/*
 	 * This is the entry point called from async-dns-parse.c
 	 * when an A or AAAA response with an RRSIG is received (or generally
@@ -1809,14 +1835,9 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 	if (!lws_adns_q_validates(q))
 		return 0;
 
-	if (q->qtype == LWS_ADNS_RECORD_A || q->qtype == LWS_ADNS_RECORD_AAAA)
-		/* response bit 1 is the A half of the pair, bit 2 the AAAA */
-		want_type = (resp & 2) ? LWS_ADNS_RECORD_AAAA :
-					 LWS_ADNS_RECORD_A;
-	else
-		want_type = (uint16_t)q->qtype;
-
-	return lws_dnssec_verify_rrset(q, pkt, len, resp, want_type, NULL);
+	return lws_dnssec_verify_rrset(q, pkt, len, resp,
+				       lws_adns_q_resp_type(q, resp), stored,
+				       NULL);
 }
 
 int
@@ -1833,7 +1854,7 @@ lws_adns_dnssec_cname(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 	 * forgets all validation state).
 	 */
 	int n = lws_dnssec_verify_rrset(q, pkt, len, resp,
-					LWS_ADNS_RECORD_CNAME, target);
+					LWS_ADNS_RECORD_CNAME, 1, target);
 
 	if (n < 0)
 		return -1;

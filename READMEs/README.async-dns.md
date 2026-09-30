@@ -103,6 +103,12 @@ and restarts it.  It allows this to happen for 3 CNAME deep.
 At the end, either way, the cached result is set using the original
 query name and the results from the last CNAME in the chain.
 
+A lookup that validates DNSSEC (see below) doesn't use the target's records
+from the packet that brought the CNAME, since they are signed, if at all, by
+the target's zone.  It first validates the CNAME itself, as an RRset of the
+queried name, and only then restarts the query for the target, whose answers
+have to validate on their own.  An unsigned CNAME fails a validating lookup.
+
 ## DNSSEC Support
 
 Async DNS supports DNSSEC validation of responses. This is optional and provides robust protection against DNS spoofing or injection of forged results.
@@ -121,6 +127,12 @@ ORing `LWS_ADNS_WANT_DNSSEC` into its `qtype`.  Only a lookup that validated
 reports `LWS_ADNS_DNSSEC_VALID` in the callback's `n`, including when a later
 lookup is served the same records from the cache; a lookup that has to validate
 is never served records that were cached by one that didn't.
+
+A lookup that validates keeps only the records of the type it asked for, which
+are exactly the RRset its RRSIG covers: other records the response carried,
+including the RRSIGs themselves, are not cached, so they can't be found later,
+eg, with `lws_async_dns_get_rr_cache()`, as if they had been validated.  An
+RRset of more than 16 records fails to validate.
 
 ### Chain of trust
 

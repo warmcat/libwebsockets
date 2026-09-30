@@ -25,6 +25,8 @@ It checks that
    CNAME answer brought its records along, like a recursive resolver's does
  - a name whose CNAME is unsigned is refused, although the name it points at
    would validate
+ - a validated address answer's cache entry holds only the A RRset, not the
+   RRSIG that came with it
  - each zone's keys were only fetched once for all of that
  - after the trust anchor is replaced by one that matches no root key, the
    chain is walked again from the root and nothing validates

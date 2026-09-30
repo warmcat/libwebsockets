@@ -33,6 +33,8 @@
  *    the CNAME answer brought its records along,
  *  - a name whose CNAME is unsigned doesn't validate, although the name it
  *    points at would,
+ *  - a validated answer's cache entry holds only the RRset that was
+ *    validated, not the RRSIG that came with it,
  *  - each zone's keys were only fetched once for all of that,
  *  - once the trust anchor is replaced by one that matches no root key,
  *    nothing validates any more,
@@ -701,6 +703,19 @@ step_check(void)
 
 	if (t->check_a && memcmp(step_ads, a_www, sizeof(a_www))) {
 		lwsl_err("step %d: wrong address\n", step);
+		fails++;
+		return;
+	}
+
+	if (t->check_a && valid &&
+	    lws_async_dns_get_rr_cache(cx, t->name, LWS_ADNS_RECORD_RRSIG,
+				       NULL)) {
+		/*
+		 * Only the RRset the RRSIG covers is kept from a validated
+		 * answer, not whatever else came with it
+		 */
+		lwsl_err("step %d: validated entry holds more than the A\n",
+			 step);
 		fails++;
 		return;
 	}

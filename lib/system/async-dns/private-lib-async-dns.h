@@ -90,6 +90,7 @@ typedef struct lws_adns_rr {
 typedef struct lws_adns_est {
 	size_t			ai;	/* bytes of addrinfo + sockaddr */
 	size_t			rr;	/* bytes of lws_adns_rr_t + rdata */
+	uint16_t		only_type; /* if nonzero, the only type kept */
 } lws_adns_est_t;
 
 typedef struct lws_adns_cache {
@@ -275,11 +276,13 @@ __lws_async_dns_server_remove(lws_async_dns_t *dns, const lws_sockaddr46 *sa46);
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
 /*
  * \p resp is the bit in q->responded belonging to the response at \p pkt, so
- * the validation state can be tracked per-response
+ * the validation state can be tracked per-response.  \p stored is how many
+ * records we kept from the response: they must be exactly the RRset that the
+ * RRSIG covers.
  */
 int
 lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
-		       uint8_t resp);
+		       uint8_t resp, int stored);
 
 /*
  * The response at \p pkt answers the queried name with a CNAME to \p target:
@@ -371,6 +374,19 @@ lws_adns_q_validates(const lws_adns_q_t *q)
 {
 	return (q->dns->dnssec_mode == LWS_ADNS_DNSSEC_REQUIRE ||
 		q->want_dnssec) && !q->lacks_dnssec;
+}
+
+/*
+ * The RR type response \p resp of q asked for: an address lookup is a pair of
+ * queries, response bit 1 is the A half of the pair, bit 2 the AAAA
+ */
+static inline uint16_t
+lws_adns_q_resp_type(const lws_adns_q_t *q, int resp)
+{
+	if (q->qtype == LWS_ADNS_RECORD_A || q->qtype == LWS_ADNS_RECORD_AAAA)
+		return (resp & 2) ? LWS_ADNS_RECORD_AAAA : LWS_ADNS_RECORD_A;
+
+	return q->qtype;
 }
 #endif
 

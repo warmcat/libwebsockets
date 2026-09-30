@@ -682,6 +682,9 @@ lws_async_dns_estimate(const char *name, void *opaque, uint32_t ttl,
 {
 	lws_adns_est_t *est = (lws_adns_est_t *)opaque;
 
+	if (est->only_type && type != est->only_type)
+		return 0; /* lws_async_dns_store() won't keep it either */
+
 	switch (type) {
 	case LWS_ADNS_RECORD_AAAA:
 		est->ai += adns_align_len(sizeof(struct addrinfo) +
@@ -716,8 +719,10 @@ struct adstore {
 	const uint8_t *rr_end;		/* end of the rr region */
 	lws_adns_rr_t *rr_first;
 	lws_adns_rr_t *rr_pos;
-	int ctr;
+	int ctr;			/* addrinfos we stored */
+	int rr_ctr;			/* other RRs we stored */
 	uint32_t smallest_ttl;
+	uint16_t only_type;		/* if nonzero, the only type kept */
 	uint8_t flags;
 };
 
@@ -735,6 +740,15 @@ lws_async_dns_store(const char *name, void *opaque, uint32_t ttl,
 	char buf[48];
 #endif
 	size_t i;
+
+	/*
+	 * A query that validates only keeps the records of the type it asked
+	 * for, which are the ones the RRSIG it validates with covers: anything
+	 * else in the response isn't signed by it, and must not be published,
+	 * or served from the cache, as validated.
+	 */
+	if (adst->only_type && type != adst->only_type)
+		return 0;
 
 	/*
 	 * DNSSEC records do not produce IPv4/IPv6 address entries.
@@ -768,6 +782,7 @@ lws_async_dns_store(const char *name, void *opaque, uint32_t ttl,
 		adst->rr_pos = rr;
 
 		adst->rr_free += stride;
+		adst->rr_ctr++;
 
 		return 0;
 	}
@@ -1011,6 +1026,11 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 
 	est.ai = 0;
 	est.rr = 0;
+	est.only_type = 0;
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	if (lws_adns_q_validates(q))
+		est.only_type = lws_adns_q_resp_type(q, rn);
+#endif
 	if (lws_ser_ru16be(pkt + DHO_NANSWERS) || lws_ser_ru16be(pkt + DHO_NAUTH)) {
 		char cname[DNS_MAX];
 		int ir = lws_adns_iterate(q, pkt, (int)len, nmcname,
@@ -1070,7 +1090,9 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	adst.rr_first = NULL;
 	adst.rr_pos = NULL;
 	adst.ctr = 0;
+	adst.rr_ctr = 0;
 	adst.smallest_ttl = 3600;
+	adst.only_type = est.only_type;
 	adst.flags = 0;
 
 	/*
@@ -1166,7 +1188,8 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 			if (!(q->dnssec_valid_mask & rn) &&
 			    !(q->dnssec_verify_rrsig & rn)) {
 				n = lws_adns_dnssec_verify(q, pkt, len,
-							   (uint8_t)rn);
+							   (uint8_t)rn,
+							   adst.ctr + adst.rr_ctr);
 				if (n < 0) {
 					q->go_nogo = METRES_NOGO;
 					goto fail_out;
