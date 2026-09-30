@@ -41,6 +41,19 @@ _lws_ws_client_rx_payload_passthrough(struct lws *wsi, const uint8_t *buf,
 	struct lws_ext_pm_deflate_rx_ebufs pmdrx;
 	int n, m;
 
+	/*
+	 * Once a close is under way nothing more reaches the user: the
+	 * payload is not inflated, and no drain is left to come back for
+	 * (staying on the drain list would keep the loop from waiting)
+	 */
+	if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
+	    lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE ||
+	    lwsi_close(wsi) == LCS_AWAITING_CLOSE_ACK) {
+		lws_remove_wsi_from_draining_ext_list(wsi);
+
+		return LWS_HPI_RET_HANDLED;
+	}
+
 	pmdrx.eb_in.token = (uint8_t *)buf;
 	pmdrx.eb_in.len = (int)len;
 
@@ -83,11 +96,6 @@ _lws_ws_client_rx_payload_passthrough(struct lws *wsi, const uint8_t *buf,
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
 		}
-
-		if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
-		    lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE ||
-		    lwsi_close(wsi) == LCS_AWAITING_CLOSE_ACK)
-			return LWS_HPI_RET_HANDLED;
 
 		if (n == PMDR_DID_NOTHING
 #if !defined(LWS_WITHOUT_EXTENSIONS)
@@ -812,6 +820,19 @@ drain_extension:
 		//	lwsl_wsi_notice("pmdrx.eb_in.len: %d",
 		//		    (int)pmdrx.eb_in.len);
 
+			/*
+			 * Once a close is under way nothing more reaches the
+			 * user, so there is nothing to inflate it for, and no
+			 * drain to come back for: the drain entry took us off
+			 * the list, a mid-message close must too
+			 */
+			if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
+			    lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE ||
+			    lwsi_close(wsi) == LCS_AWAITING_CLOSE_ACK) {
+				lws_remove_wsi_from_draining_ext_list(wsi);
+				goto already_done;
+			}
+
 			n = PMDR_DID_NOTHING;
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
@@ -915,11 +936,6 @@ utf8_fail:
 			else
 				lws_remove_wsi_from_draining_ext_list(wsi);
 #endif
-
-			if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
-			    lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE ||
-			    lwsi_close(wsi) == LCS_AWAITING_CLOSE_ACK)
-				goto already_done;
 
 			/* if pmd not enabled, in == out */
 
