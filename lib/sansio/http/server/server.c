@@ -3587,6 +3587,21 @@ lws_serve_http_file_composed(struct lws *wsi, const char *file, const char *cont
 
 		return 0; /* == 0 means we did the transaction complete */
 	}
+
+	/*
+	 * Every part of a multipart/byteranges repeats the content type, from
+	 * a copy of bounded size.  One that doesn't fit can't be repeated as
+	 * it is, and the Content-Length computed from it would not match the
+	 * parts sent: ignore the Range and send the whole representation,
+	 * which a server may always do (RFC 9110 14.2)
+	 */
+	if (ranges >= 2 && (!content_type ||
+	    strlen(content_type) >= sizeof(wsi->http.multipart_content_type))) {
+		lwsl_wsi_info(wsi, "mimetype too long for multipart, sending all");
+		lws_ranges_destroy(rp);
+		ranges = 0;
+	}
+
 	if (ranges)
 		n = HTTP_STATUS_PARTIAL_CONTENT;
 #endif
