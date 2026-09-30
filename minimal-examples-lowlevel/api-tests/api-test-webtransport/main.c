@@ -31,8 +31,12 @@
  *    names it in wt-available-protocols, or whose :path is its mount, is
  *    refused with a 404, and plain-ws never sees the request.
  *
- * The "nowt" case needs LWS_WITH_SYS_FAULT_INJECTION and the named protocol
- * case LWS_WITH_CUSTOM_HEADERS: without them those cases are skipped.
+ *  - a CONNECT to a mount with basic auth, sent without credentials, is
+ *    refused with a 401 before its protocol sees the request.
+ *
+ * The "nowt" case needs LWS_WITH_SYS_FAULT_INJECTION, the named protocol
+ * case LWS_WITH_CUSTOM_HEADERS, and the basic auth case
+ * LWS_WITH_HTTP_BASIC_AUTH: without them those cases are skipped.
  */
 
 #include <libwebsockets.h>
@@ -55,6 +59,7 @@ enum {
 	WTAT_NOWT,		/* connect to the server without wt */
 	WTAT_NAMED_NOT_WT,	/* offer only a protocol that takes no wt */
 	WTAT_MOUNT_NOT_WT,	/* :path is the mount of a non-wt protocol */
+	WTAT_BASIC_AUTH,	/* :path is a basic auth mount, no credentials */
 };
 
 struct xcase {
@@ -79,6 +84,10 @@ static const struct xcase cases[] = {
 #endif
 	{ "path is a non-wt protocol's mount: refused", "/not-wt",
 		"WT CONNECT refused 404", WTAT_MOUNT_NOT_WT },
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+	{ "basic auth mount without credentials: refused", "/auth",
+		"WT CONNECT refused 401", WTAT_BASIC_AUTH },
+#endif
 };
 
 static struct lws_context *context;
@@ -547,7 +556,21 @@ static const struct lws_protocol_vhost_options pvo_srv = {
 	NULL, &pvo_wt_opt, "webtransport", ""
 };
 
+/*
+ * The client sends no credentials, so the login file is never opened: the
+ * CONNECT is refused for the missing Authorization header alone
+ */
+
+static const struct lws_http_mount mount_auth = {
+	.mountpoint		= "/auth",
+	.origin			= "webtransport",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 5,
+	.basic_auth_login_file	= "./wt-api-test-no-such-login-file",
+};
+
 static const struct lws_http_mount mount_srv = {
+	.mount_next		= &mount_auth,
 	.mountpoint		= "/not-wt",
 	.origin			= "plain-ws",
 	.origin_protocol	= LWSMPRO_CALLBACK,

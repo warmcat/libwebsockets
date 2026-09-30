@@ -2500,6 +2500,32 @@ lws_h3_wt_refuse(struct lws *wsi, unsigned int status, const char *why)
 	return LWS_UPG_RET_DONE;
 }
 
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+/*
+ * Returns 0 if the CONNECT may proceed, else 1 with *r set to how it was
+ * answered
+ */
+static int
+lws_h3_wt_basic_auth(struct lws *wsi, const char *login_file,
+		     unsigned int auth_mode, lws_handling_result_t *r)
+{
+	switch (lws_check_basic_auth(wsi, login_file, auth_mode)) {
+	case LCBA_CONTINUE:
+	case LCBA_AUTH_RETRY_KEEPALIVE:
+		return 0;
+	case LCBA_FAILED_AUTH:
+		*r = lws_unauthorised_basic_auth(wsi) ? LWS_UPG_RET_BAIL :
+							LWS_UPG_RET_DONE;
+		return 1;
+	case LCBA_END_TRANSACTION:
+		break;
+	}
+
+	*r = lws_h3_wt_refuse(wsi, HTTP_STATUS_FORBIDDEN, "basic auth");
+
+	return 1;
+}
+#endif
 #endif
 
 static int
@@ -2541,16 +2567,32 @@ rops_check_upgrades_h3(struct lws *wsi)
 		struct lws_vhost *vh = wsi->a.vhost;
 		const struct lws_http_mount *hit = NULL;
 		const struct lws_protocols *prot = NULL;
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+		const struct lws_protocol_vhost_options *pvos;
+		const char *prot_basic_auth;
+		lws_handling_result_t r;
+#endif
 		char *uri_ptr;
 		int uri_len;
 
 		lwsl_info("Upgrade h3 to wt\n");
 
-		/* a mount the :path lands in that names a protocol decides */
+		/*
+		 * The mount the :path lands in is checked first, as for any
+		 * other request to it: its interceptor chain already ran
+		 * before check_upgrades, its basic auth applies here.
+		 */
 		uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);
 		uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
 		if (uri_ptr && uri_len > 0)
 			hit = lws_find_mount(wsi, uri_ptr, uri_len);
+
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+		if (hit && lws_h3_wt_basic_auth(wsi, hit->basic_auth_login_file,
+						hit->auth_mask & AUTH_MODE_MASK,
+						&r))
+			return r;
+#endif
 
 		if (hit && (hit->protocol ||
 			    hit->origin_protocol == LWSMPRO_CALLBACK)) {
@@ -2619,6 +2661,20 @@ rops_check_upgrades_h3(struct lws *wsi)
 						HTTP_STATUS_NOT_FOUND,
 						"no default wt protocol");
 		}
+
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+		/*
+		 * The protocol's own "basic-auth" pvo, as for a ws upgrade to
+		 * it, before it is bound, so a refused peer never reaches it
+		 */
+		pvos = lws_vhost_protocol_options(vh, prot->name);
+		if (pvos && pvos->options &&
+		    !lws_pvo_get_str((void *)pvos->options, "basic-auth",
+				     &prot_basic_auth) &&
+		    lws_h3_wt_basic_auth(wsi, prot_basic_auth,
+					 LWSAUTHM_DEFAULT, &r))
+			return r;
+#endif
 
 		if (lws_bind_protocol(wsi, prot, __func__))
 			return LWS_UPG_RET_BAIL;

@@ -111,6 +111,14 @@ not take WebTransport, the `CONNECT` is refused with a 404:
    protocol list.  Setting `default_protocol_index` out of range refuses
    these, as it does for ws.
 
+The `CONNECT` is subject to the same gates as a ws upgrade to that path: a
+mount interceptor chain like lws-login that would not let the request through
+refuses it with a 401, as does the mount's basic auth or a `"basic-auth"` pvo
+on the protocol, when the client did not send valid credentials.  Note the
+browser WebTransport API sends neither cookies nor credentials, so a browser
+can not pass these gates; check a token in the urlargs from
+`LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION` instead, below.
+
 ### Filtering the CONNECT
 
 Before the server answers the `CONNECT` with a 200 and the stream leaves the

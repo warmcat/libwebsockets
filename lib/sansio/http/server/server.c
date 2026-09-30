@@ -2266,6 +2266,9 @@ lws_http_action(struct lws *wsi)
 	 * answer to an upgrade; do the same here.  Only for the upgrades
 	 * check_upgrades will actually take, so a request that falls through
 	 * to the http path below is not evaluated (and injected into) twice.
+	 *
+	 * A WebTransport CONNECT on h3 is taken by check_upgrades the same
+	 * way and must be gated the same way.
 	 */
 	{
 		const struct lws_http_mount *uh;
@@ -2276,7 +2279,11 @@ lws_http_action(struct lws *wsi)
 		    (cp = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD)) &&
 		    !strcmp(cp, "CONNECT") &&
 		    (cp = lws_hdr_simple_ptr(wsi, WSI_TOKEN_COLON_PROTOCOL)) &&
-		    !strcmp(cp, "websocket")) {
+		    (!strcmp(cp, "websocket")
+#if defined(LWS_ROLE_WT)
+		     || (lwsi_role_h3(wsi) && !strcmp(cp, "webtransport"))
+#endif
+		    )) {
 			uh = lws_find_mount(wsi, uri_ptr, uri_len);
 			if (uh && lws_http_evaluate_interceptors(wsi, uh,
 						&uri_ptr, &uri_len) != uh) {
