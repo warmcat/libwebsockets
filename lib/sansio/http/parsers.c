@@ -1185,6 +1185,14 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 		if (ah->ues != URIES_IDLE)
 			goto forbid;
 
+		/*
+		 * The path can't be empty: on h1 the request target must
+		 * start with it ("GET ?a" is no origin-form), on h2 / h3
+		 * :path must be one
+		 */
+		if (!ah->frags[ah->nfrag].len)
+			goto forbid;
+
 		/* seal off uri header */
 		if (issue_char(wsi, '\0') < 0)
 			return -1;
@@ -1385,8 +1393,16 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 			/* special URI processing... end at space */
 
 			if (c == ' ') {
-				/* enforce starting with / */
-				if (!ah->frags[ah->nfrag].len)
+				/*
+				 * enforce starting with /... but only while
+				 * the current fragment is still the path.
+				 * After a '?' it is the urlargs, and an empty
+				 * query there ("/a?") must stay empty, not
+				 * become a "/" urlarg.  A '?' can't start the
+				 * path, lws_parse_urldecode() refuses that.
+				 */
+				if (!ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] &&
+				    !ah->frags[ah->nfrag].len)
 					if (issue_char(wsi, '/') < 0)
 						goto too_large;
 
