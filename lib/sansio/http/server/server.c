@@ -3427,6 +3427,20 @@ lws_http_transaction_completed(struct lws *wsi)
 {
 	lws_free_set_NULL(wsi->http.extra_onward_headers);
 
+#if defined(LWS_WITH_ASYNC_QUEUE) && defined(LWS_WITH_FILE_OPS)
+	/*
+	 * A file the app abandoned while a read of it was out on a worker
+	 * (completing from LRS_AWAITING_FILE_READ, or from LRS_ISSUING_FILE
+	 * with the read back but not yet sent): the read is finished with
+	 * before the file is closed under it at the completion, and its
+	 * result, wanted by nobody, is not left for the next file served on
+	 * the connection to take as its own first fragment
+	 */
+	if (wsi->async_worker_job &&
+	    wsi->async_worker_job->type == LWS_AQ_FILE_READ)
+		lws_async_worker_wait_and_reap(wsi);
+#endif
+
 	/* rx parked behind a file transfer may be read again now */
 	lws_rx_flow_control(wsi, LWS_RXFLOW_REASON_APPLIES_ENABLE |
 				 LWS_RXFLOW_REASON_HTTP_RXBUFFER);

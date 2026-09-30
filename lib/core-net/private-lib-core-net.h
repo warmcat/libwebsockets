@@ -951,6 +951,8 @@ void *
 lws_async_worker_worker(void *d);
 int
 lws_async_queue_submit(struct lws_context *cx, struct lws_async_job *job);
+void
+lws_async_worker_wait_and_reap(struct lws *wsi);
 #endif
 
 

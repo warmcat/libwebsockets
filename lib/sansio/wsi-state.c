@@ -436,6 +436,14 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	{ "h3", "S", LRS_DISCARD_BODY,		LWS_WSIEV_TXN_COMPLETING, NULL, NULL, LRS_TXN_COMPLETING },
 	{ "h3", "S", LRS_ISSUING_FILE,		LWS_WSIEV_TXN_COMPLETING, NULL, NULL, LRS_TXN_COMPLETING },
 	{ "h3", "S", LRS_TXN_COMPLETING,	LWS_WSIEV_TXN_COMPLETING, NULL, NULL, LRS_TXN_COMPLETING },
+	/*
+	 * a file being served, a read of it out on a worker, that the app
+	 * completed from under (an h2 / h3 body completion, its own timer):
+	 * the completion waits for the answer queued so far as any other
+	 */
+	{ "h1", "S", LRS_AWAITING_FILE_READ,	LWS_WSIEV_TXN_COMPLETING, NULL, NULL, LRS_TXN_COMPLETING },
+	{ "h2", "S", LRS_AWAITING_FILE_READ,	LWS_WSIEV_TXN_COMPLETING, NULL, NULL, LRS_TXN_COMPLETING },
+	{ "h3", "S", LRS_AWAITING_FILE_READ,	LWS_WSIEV_TXN_COMPLETING, NULL, NULL, LRS_TXN_COMPLETING },
 	/* ...and once it has, it completes, or first discards an unread body */
 	{ "h1", "S", LRS_TXN_COMPLETING,	LWS_WSIEV_TXN_COMPLETED, NULL, NULL, LRS_TXN_COMPLETED },
 	{ "h1", "S", LRS_TXN_COMPLETING,	LWS_WSIEV_BODY_DISCARD, NULL, NULL, LRS_DISCARD_BODY },
@@ -449,6 +457,7 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	{ "h1", "S", LRS_H1_UPGRADE,		LWS_WSIEV_TXN_COMPLETED, NULL, NULL, LRS_TXN_COMPLETED }, /* upgrade refused */
 	{ "h1", "S", LRS_TXN_COMPLETED,		LWS_WSIEV_TXN_COMPLETED, NULL, NULL, LRS_TXN_COMPLETED },
 	{ "h1", "S", LRS_ISSUING_FILE,		LWS_WSIEV_TXN_COMPLETED, NULL, NULL, LRS_TXN_COMPLETED }, /* completed from the file-complete callback */
+	{ "h1", "S", LRS_AWAITING_FILE_READ,	LWS_WSIEV_TXN_COMPLETED, NULL, NULL, LRS_TXN_COMPLETED }, /* or abandoned with a read out on a worker */
 	{ "h1", "S", LRS_TXN_COMPLETED,		LWS_WSIEV_TXN_DRAINED, NULL, NULL, LRS_HEADERS },
 
 	/* serving a file */

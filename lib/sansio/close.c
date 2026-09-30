@@ -423,7 +423,13 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 #endif
 
 #if defined(LWS_WITH_ASYNC_QUEUE)
-static void
+/*
+ * The job the wsi has out on the worker pool, if any, is finished with: one
+ * waiting or finished is taken off the pool and freed, one running is waited
+ * for first (briefly: one read, or one tls accept step), so nothing of the
+ * wsi's is touched by a worker after this returns
+ */
+void
 lws_async_worker_wait_and_reap(struct lws *wsi)
 {
 
