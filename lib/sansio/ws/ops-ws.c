@@ -729,8 +729,18 @@ drain_extension:
 //					(int)pmdrx.eb_in.len);
 
 			if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
-			    lwsi_close(wsi) == LCS_AWAITING_CLOSE_ACK)
+			    lwsi_close(wsi) == LCS_AWAITING_CLOSE_ACK) {
+				/*
+				 * Nobody takes what the inflater still holds
+				 * any more, so there is no drain to come back
+				 * for: a drain entered mid-frame did not take
+				 * us off the list, and staying on it has the
+				 * loop fake our POLLIN and not wait, while the
+				 * rx policy drains nothing and reads nothing
+				 */
+				lws_remove_wsi_from_draining_ext_list(wsi);
 				goto already_done;
+			}
 
 			n = PMDR_DID_NOTHING;
 
@@ -1600,6 +1610,14 @@ rops_close_via_role_protocol_ws(struct lws *wsi, enum lws_close_status reason)
 		wsi->ws->ping_payload_buf[LWS_PRE] = (reason >> 8) & 0xff;
 		wsi->ws->ping_payload_buf[LWS_PRE + 1] = reason & 0xff;
 	}
+
+	/*
+	 * Once the close has started, no more rx reaches the user, so an rx
+	 * extension drain left pending (eg, the user callback closing on the
+	 * first part of a compressed message) will never be done: forget it,
+	 * or its list keeps the loop from waiting until the close times out
+	 */
+	lws_remove_wsi_from_draining_ext_list(wsi);
 
 	lws_wsi_event(wsi, LWS_WSIEV_WS_CLOSE_INITIATED);
 	__lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 5);

@@ -20,9 +20,19 @@
  * connection in the suite ended by dropping the socket, so the close
  * handshake states (LRS_WAITING_TO_SEND_CLOSE, LRS_RETURNED_CLOSE,
  * LRS_AWAITING_CLOSE_ACK) and the proxy connect states were never reached.
+ *
+ * With permessage-deflate built in, a leg also has the server close while
+ * the inflater still holds output of a compressed message it is partway
+ * through, the ordinary case of an app refusing a message it has only seen
+ * the start of.
+ *
+ * Every leg must finish its close promptly and without the service loop
+ * spinning meanwhile: a close handshake that only ends at its timeout, or
+ * a service loop that goes around without waiting, fails the leg.
  */
 
 #include <libwebsockets.h>
+#include <stdlib.h>
 #include <string.h>
 #include <signal.h>
 
@@ -33,20 +43,23 @@ struct leg {
 	uint8_t		h2;
 	uint8_t		server_initiates;
 	uint8_t		default_reason;	/* close without lws_close_reason() */
+	uint8_t		pmd_mid_drain;	/* server closes on a compressed
+					 * message it is partway through */
 };
 
 static const struct leg legs[] = {
-	{ "h1, client-initiated",		"cli",	   "http/1.1", 0, 0, 0 },
-	{ "h1, server-initiated",		"cli",	   "http/1.1", 0, 1, 0 },
-	{ "h2, client-initiated",		"cli",	   "h2",       1, 0, 0 },
-	{ "h2, server-initiated",		"cli",	   "h2",       1, 1, 0 },
-	{ "h1, client-initiated, default reason", "cli",  "http/1.1", 0, 0, 1 },
-	{ "h1, server-initiated, default reason", "cli",  "http/1.1", 0, 1, 1 },
-	{ "h2, client-initiated, default reason", "cli",  "h2",       1, 0, 1 },
-	{ "h2, server-initiated, default reason", "cli",  "h2",       1, 1, 1 },
-	{ "h1 via http CONNECT proxy",		"cli-hp",  "http/1.1", 0, 0, 0 },
-	{ "h1 via socks5, no auth",		"cli-s5",  "http/1.1", 0, 0, 0 },
-	{ "h1 via socks5, username/password",	"cli-s5a", "http/1.1", 0, 0, 0 },
+	{ "h1, client-initiated",		"cli",	   "http/1.1", 0, 0, 0, 0 },
+	{ "h1, server-initiated",		"cli",	   "http/1.1", 0, 1, 0, 0 },
+	{ "h2, client-initiated",		"cli",	   "h2",       1, 0, 0, 0 },
+	{ "h2, server-initiated",		"cli",	   "h2",       1, 1, 0, 0 },
+	{ "h1, client-initiated, default reason", "cli",  "http/1.1", 0, 0, 1, 0 },
+	{ "h1, server-initiated, default reason", "cli",  "http/1.1", 0, 1, 1, 0 },
+	{ "h2, client-initiated, default reason", "cli",  "h2",       1, 0, 1, 0 },
+	{ "h2, server-initiated, default reason", "cli",  "h2",       1, 1, 1, 0 },
+	{ "h1 via http CONNECT proxy",		"cli-hp",  "http/1.1", 0, 0, 0, 0 },
+	{ "h1 via socks5, no auth",		"cli-s5",  "http/1.1", 0, 0, 0, 0 },
+	{ "h1 via socks5, username/password",	"cli-s5a", "http/1.1", 0, 0, 0, 0 },
+	{ "h1, pmd, server closes mid-message",	"cli-pmd", "http/1.1", 0, 1, 0, 1 },
 };
 
 #define CLI_CODE	LWS_CLOSE_STATUS_GOINGAWAY	/* 1001 */
@@ -54,15 +67,30 @@ static const struct leg legs[] = {
 #define SRV_CODE	LWS_CLOSE_STATUS_NORMAL		/* 1000 */
 #define SRV_REASON	"srv"
 
+/*
+ * A close handshake on loopback takes a few ms and a few dozen trips around
+ * the service loop.  One that only ends at the 5s close timeout, or a loop
+ * that spins meanwhile, is far outside these.
+ */
+#define LEG_MAX_US	(3 * LWS_US_PER_SEC)
+#define LEG_MAX_TURNS	2000
+
+/* the compressible message the pmd leg's client sends */
+#define PMD_MSG_LEN	(16 * 1024)
+
 static struct lws_context *context;
-static struct lws_vhost *vh_cli[4];
-static const char *vh_cli_names[4] = { "cli", "cli-hp", "cli-s5", "cli-s5a" };
+static struct lws_vhost *vh_cli[5];
+static const char *vh_cli_names[5] = { "cli", "cli-hp", "cli-s5", "cli-s5a",
+				       "cli-pmd" };
 static lws_sorted_usec_list_t sul_next, sul_timeout;
 static const char *server_ads = "127.0.0.1";
 static int port_tcp = 7681, cur = -1, result = 1, legs_run;
+static unsigned long turns, leg_turns;
+static lws_usec_t leg_start;
 
 /* per-leg state */
-static int cli_closed, srv_closed, peer_close_seen, peer_close_ok, sent_close;
+static int cli_closed, srv_closed, peer_close_seen, peer_close_ok, sent_close,
+	   sent_msg;
 
 static void
 fail_leg(const char *why)
@@ -89,6 +117,8 @@ start_leg(lws_sorted_usec_list_t *sul);
 static void
 leg_done_check(void)
 {
+	lws_usec_t us;
+
 	if (!cli_closed || !srv_closed)
 		return;
 
@@ -100,8 +130,17 @@ leg_done_check(void)
 		fail_leg("close code / reason did not survive");
 		return;
 	}
+	us = lws_now_usecs() - leg_start;
+	if (us > LEG_MAX_US || turns - leg_turns > LEG_MAX_TURNS) {
+		lwsl_err("%dms, %lu service turns\n", (int)(us / LWS_US_PER_MS),
+			 turns - leg_turns);
+		fail_leg(us > LEG_MAX_US ? "close took too long" :
+					   "service loop spun during the close");
+		return;
+	}
 
-	lwsl_user("--- leg %d (%s): OK ---\n", cur, legs[cur].name);
+	lwsl_user("--- leg %d (%s): OK (%dms, %lu service turns) ---\n", cur,
+		  legs[cur].name, (int)(us / LWS_US_PER_MS), turns - leg_turns);
 	legs_run++;
 
 	/* leave the close path before reconnecting */
@@ -157,12 +196,32 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("%s: server: established\n", __func__);
 		if (check_encap(wsi))
 			return -1;
-		if (legs[cur].server_initiates)
+		if (legs[cur].server_initiates && !legs[cur].pmd_mid_drain)
 			lws_callback_on_writable(wsi);
 		break;
 
+	case LWS_CALLBACK_RECEIVE:
+		if (!legs[cur].pmd_mid_drain || sent_close)
+			break;
+		/*
+		 * The first inflated chunk of the client's message: the rest
+		 * of the compressed frame is still to come, and the inflater
+		 * holds more output from what came so far.  We have seen
+		 * enough, and close.
+		 */
+		if (!lws_remaining_packet_payload(wsi)) {
+			fail_leg("pmd message not partway through a frame");
+			return -1;
+		}
+		sent_close = 1;
+		lwsl_user("%s: server: closing mid-message\n", __func__);
+		lws_close_reason(wsi, SRV_CODE, (unsigned char *)SRV_REASON,
+				 strlen(SRV_REASON));
+		return -1;
+
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		if (!legs[cur].server_initiates || sent_close)
+		if (!legs[cur].server_initiates || legs[cur].pmd_mid_drain ||
+		    sent_close)
 			break;
 		sent_close = 1;
 		lwsl_user("%s: server: initiating close\n", __func__);
@@ -211,11 +270,33 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("%s: client: established\n", __func__);
 		if (check_encap(wsi))
 			return -1;
-		if (!legs[cur].server_initiates)
+		if (!legs[cur].server_initiates || legs[cur].pmd_mid_drain)
 			lws_callback_on_writable(wsi);
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		if (legs[cur].pmd_mid_drain) {
+			uint8_t *buf;
+			int n;
+
+			if (sent_msg)
+				break;
+			sent_msg = 1;
+
+			buf = malloc(LWS_PRE + PMD_MSG_LEN);
+			if (!buf)
+				return -1;
+			/* compresses, but not to nothing */
+			for (n = 0; n < PMD_MSG_LEN; n++)
+				buf[LWS_PRE + n] = (uint8_t)('a' + ((n * 7) % 13) +
+							     ((n >> 9) & 7));
+			n = lws_write(wsi, buf + LWS_PRE, PMD_MSG_LEN,
+				      LWS_WRITE_TEXT);
+			free(buf);
+			if (n < 0)
+				return -1;
+			break;
+		}
 		if (legs[cur].server_initiates || sent_close)
 			break;
 		sent_close = 1;
@@ -269,6 +350,28 @@ static const struct lws_protocols protocols_cli[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+/*
+ * The pmd client deflates into frames of up to 4KB, so each is larger than
+ * the server's 256-byte rx buffer, and one message spans several
+ */
+static const struct lws_protocols protocols_cli_pmd[] = {
+	{ "wsclose", callback_cli, 0, 4096, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
+};
+
+static const struct lws_extension extensions[] = {
+	{
+		"permessage-deflate",
+		lws_extension_callback_pm_deflate,
+		"permessage-deflate"
+		 "; client_no_context_takeover"
+		 "; client_max_window_bits"
+	},
+	{ NULL, NULL, NULL /* terminator */ }
+};
+#endif
+
 static void
 start_leg(lws_sorted_usec_list_t *sul)
 {
@@ -292,7 +395,9 @@ start_leg(lws_sorted_usec_list_t *sul)
 	lwsl_user("--- leg %d (%s): starting ---\n", cur, legs[cur].name);
 
 	cli_closed = srv_closed = peer_close_seen = peer_close_ok =
-							sent_close = 0;
+						sent_close = sent_msg = 0;
+	leg_start = lws_now_usecs();
+	leg_turns = turns;
 
 	memset(&i, 0, sizeof(i));
 	i.context = context;
@@ -377,11 +482,16 @@ int main(int argc, const char **argv)
 	info.protocols = protocols_srv;
 	info.ssl_cert_filepath = "localhost-100y.cert";
 	info.ssl_private_key_filepath = "localhost-100y.key";
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	/* only a client that asks for it gets pmd */
+	info.extensions = extensions;
+#endif
 
 	if (!lws_create_vhost(context, &info)) {
 		lwsl_err("Failed to create server vhost\n");
 		goto bail;
 	}
+	info.extensions = NULL;
 
 	/* direct client vhost */
 	info.port = CONTEXT_PORT_NO_LISTEN;
@@ -447,12 +557,27 @@ int main(int argc, const char **argv)
 	(void)socks_auth;
 #endif
 
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	/* client vhost offering permessage-deflate */
+	info.vhost_name = vh_cli_names[4];
+	info.protocols = protocols_cli_pmd;
+	info.extensions = extensions;
+	vh_cli[4] = lws_create_vhost(context, &info);
+	info.extensions = NULL;
+	if (!vh_cli[4]) {
+		lwsl_err("Failed to create pmd client vhost\n");
+		goto bail;
+	}
+#endif
+
 	lws_sul_schedule(context, 0, &sul_next, start_leg, 1);
 	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
 			 30 * LWS_US_PER_SEC);
 
-	while (n >= 0)
+	while (n >= 0) {
 		n = lws_service(context, 0);
+		turns++;
+	}
 
 bail:
 	lws_context_destroy(context);
