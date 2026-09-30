@@ -1243,7 +1243,11 @@ skip_ip_tracking:
 		{
 			struct storage *st = find_storage(ctx, mp.info_hash);
 			struct subscriber *sub = NULL;
-			int found = 0;
+			uint8_t key[16], skey[16];
+			int found = 0, from_src = 0;
+
+			if (dht_source_key(from, key))
+				goto fail;
 
 			if (!st) {
 				if (lws_dll2_count(&ctx->storage) >= DHT_MAX_HASHES)
@@ -1259,25 +1263,40 @@ skip_ip_tracking:
 				lws_dll2_add_head(&st->list, &ctx->storage);
 			}
 
+			/*
+			 * A subscriber is an endpoint: a renewed confirm from
+			 * it, whatever tid it now wants its notifies under,
+			 * refreshes its one entry.  Keying on (endpoint, tid)
+			 * let one source take a slot per tid it made up, so
+			 * with 32 datagrams an hour it held every slot of a
+			 * hash and real subscribers were refused.  New
+			 * endpoints also get only a small share per source,
+			 * like announced peers (C-073).
+			 */
 			lws_start_foreach_dll(struct lws_dll2 *, d,
 					      lws_dll2_get_head(&st->subscribers)) {
 				sub = lws_container_of(d, struct subscriber, list);
 
-				if (sub->sslen == fromlen && !memcmp(&sub->ss, from, fromlen) &&
-				    sub->tid_len == mp.tid_len && !memcmp(sub->tid, mp.tid, mp.tid_len)) {
+				if (dht_sa_same_peer((const struct sockaddr *)
+						     &sub->ss, from)) {
 					found = 1;
 					break;
 				}
+				if (!dht_source_key((const struct sockaddr *)
+						    &sub->ss, skey) &&
+				    sub->ss.ss_family == from->sa_family &&
+				    !memcmp(skey, key, sizeof(key)))
+					from_src++;
 			} lws_end_foreach_dll(d);
 
 			if (!found) {
-				/*
-				 * The dedup above keys on (source address, tid)
-				 * and the tid is up to 16 attacker-chosen bytes,
-				 * so one source can otherwise create unlimited
-				 * subscribers on a hash it keeps alive; the scan
-				 * itself then costs O(n) per packet.  Cap it.
-				 */
+				if (from_src >= LWS_DHT_MAX_SUBSCRIBERS_PER_SRC) {
+					lwsl_dht_rx_warn("%s: source subscriber "
+							 "limit reached\n",
+							 __func__);
+					goto fail;
+				}
+				/* the scan above is O(n) per packet: cap n */
 				if (lws_dll2_count(&st->subscribers) >=
 						    LWS_DHT_MAX_SUBSCRIBERS) {
 					lwsl_dht_rx_warn("%s: subscriber limit "
@@ -1289,11 +1308,12 @@ skip_ip_tracking:
 				if (!sub) goto fail;
 				memcpy(&sub->ss, from, fromlen);
 				sub->sslen = fromlen;
-				memcpy(sub->tid, mp.tid, mp.tid_len);
-				sub->tid_len = mp.tid_len;
 				lws_dll2_add_head(&sub->list, &st->subscribers);
 			}
 
+			/* notifies go out under the tid it asked for last */
+			memcpy(sub->tid, mp.tid, mp.tid_len);
+			sub->tid_len = mp.tid_len;
 			sub->expire = ctx->now + 3600; /* 1 hour TTL */
 			memcpy(sub->current_sha256, mp.sha256, 32);
 

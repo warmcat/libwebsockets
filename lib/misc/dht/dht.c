@@ -103,16 +103,42 @@ dht_tb_take(struct lws_dht_ctx *ctx, lws_dht_tb_t *tb, int rate, int burst)
 }
 
 /*
+ * What a per-source share is accounted to: the IPv4 address, or the IPv6
+ * /64, so one host is one source however many ports, or addresses in its
+ * prefix, it uses.  Fills a 16-byte key; -1 for a family we don't handle.
+ */
+
+int
+dht_source_key(const struct sockaddr *sa, uint8_t key[16])
+{
+	const lws_sockaddr46 *sa46 = (const lws_sockaddr46 *)sa;
+
+	memset(key, 0, 16);
+
+	switch (sa->sa_family) {
+	case AF_INET:
+		memcpy(key, &sa46->sa4.sin_addr, 4);
+		return 0;
+#if defined(LWS_WITH_IPV6)
+	case AF_INET6:
+		memcpy(key, &sa46->sa6.sin6_addr, 8);
+		return 0;
+#endif
+	default:
+		return -1;
+	}
+}
+
+/*
  * Every request costs us a reply, so requests are rate limited (C-071).  A
  * single bucket for all of them let one source, sending ~100 pings/s, take
  * every token, and we then dropped every other peer's requests, including
  * those of the nodes we actually work with.  So a request is admitted in
  * two stages:
  *
- *  - its source address (the IPv4 address, or the IPv6 /64, so one host is
- *    one source however many ports or addresses in its prefix it uses) has
- *    a small bucket of its own, in a fixed table recycled in LRU order, and
- *    no source gets more than that share of what follows;
+ *  - its source (dht_source_key()) has a small bucket of its own, in a
+ *    fixed table recycled in LRU order, and no source gets more than that
+ *    share of what follows;
  *
  *  - it then draws from one of two pools: requests from a good node of our
  *    routing table, from the endpoint we hold for it (which C-594 stops
@@ -130,25 +156,12 @@ int
 lws_dht_admit_request(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 		      const struct sockaddr *from)
 {
-	const lws_sockaddr46 *sa46 = (const lws_sockaddr46 *)from;
 	lws_dht_tb_t *pool = &ctx->rl_general;
 	uint8_t key[16];
 	int n, victim = 0;
 
-	memset(key, 0, sizeof(key));
-
-	switch (from->sa_family) {
-	case AF_INET:
-		memcpy(key, &sa46->sa4.sin_addr, 4);
-		break;
-#if defined(LWS_WITH_IPV6)
-	case AF_INET6:
-		memcpy(key, &sa46->sa6.sin6_addr, 8);
-		break;
-#endif
-	default:
+	if (dht_source_key(from, key))
 		return 0;
-	}
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(ctx->rl_src); n++) {
 		if (ctx->rl_src[n].af == from->sa_family &&

@@ -14,7 +14,8 @@
  *  - A returns that token in a subscribe_confirm with a 16-byte tid, so B
  *    registers A as a subscriber; B's notify reaches A, and A's ack (which
  *    echoes the 16-byte tid) clears B's pending notification, so notifying
- *    the same content again finds nothing to send
+ *    the same content again finds nothing to send.  A confirms twice, with
+ *    different tids: that renews its one subscription, so B notifies once
  *  - A's neighbourhood maintenance issues a find_node to its only node
  *    within a few seconds (tx_find_node on A, rx_find_node on B)
  *  - a reliable-transport data datagram from A is reassembled by B's
@@ -61,6 +62,7 @@ struct seen {
 	unsigned char notified:1;	/* B sent A a notify */
 	unsigned char notify_ok:1;	/* A got B's notify */
 	unsigned char acked:1;		/* A's ack cleared B's pending notify */
+	unsigned char dup_sub:1;	/* B notified A more than once */
 	unsigned char data_ok:1;	/* B got A's data payload verbatim */
 	unsigned char ping_sent:1;
 	unsigned char searched:1;
@@ -203,6 +205,10 @@ sub_hash(void)
  * Subscribe, notify, ack: A confirms the subscription with the token B
  * gave it, B notifies A of new content, and A's ack must find the pending
  * notification by its 16-byte tid so B commits the content as delivered.
+ *
+ * A confirms twice with different tids, as a subscriber renewing does: B
+ * must hold one subscription for A's endpoint, under the latest tid, not
+ * one per tid.
  */
 
 static void
@@ -224,10 +230,13 @@ subscription_step(void)
 
 	if (!sv.confirmed) {
 		sv.confirmed = 1;
-		lws_get_random(cx, tid, sizeof(tid));
-		lws_dht_send_subscribe_confirm(dht_a, (struct sockaddr *)&sa_b,
-					       sizeof(sa_b), tid, sizeof(tid),
-					       ih, token, token_len, sha_old, 1);
+		for (n = 0; n < 2; n++) {
+			lws_get_random(cx, tid, sizeof(tid));
+			lws_dht_send_subscribe_confirm(dht_a,
+					(struct sockaddr *)&sa_b, sizeof(sa_b),
+					tid, sizeof(tid), ih, token, token_len,
+					sha_old, 1);
+		}
 		goto bail;
 	}
 
@@ -238,6 +247,10 @@ subscription_step(void)
 	 */
 
 	n = lws_dht_notify_subscribers(dht_b, ih, sha_new, NULL, 0);
+	if (n > 1) {
+		lwsl_err("%s: B holds %d subscriptions for A\n", __func__, n);
+		sv.dup_sub = 1;
+	}
 	if (n > 0)
 		sv.notified = 1;
 	else if (!n && sv.notified && sv.notify_ok)
@@ -319,7 +332,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	 * did not move B's entry in A's table.
 	 */
 
-	if (sv.token_ok && sv.acked && sv.data_ok &&
+	if (sv.token_ok && sv.acked && !sv.dup_sub && sv.data_ok &&
 	    sv.extip_ok && !sv.extip_bad &&
 	    sv.samid_ok && !sv.samid_bad &&
 	    sa.tx_find_node && sb.rx_find_node &&
@@ -475,6 +488,11 @@ int main(int argc, const char **argv)
 			}
 			if (!sv.token_ok) {
 				lwsl_err("A never received B's subscription token\n");
+				fails++;
+			}
+			if (sv.dup_sub) {
+				lwsl_err("A's renewed subscription took a second "
+					 "slot on B\n");
 				fails++;
 			}
 			if (!sv.notified || !sv.notify_ok) {

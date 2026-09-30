@@ -78,8 +78,12 @@
  * can create one, so this is what bounds that memory.
  */
 #define LWS_DHT_MAX_TS			64
-/* per storage object: cap subscribers, and peers announced by one source ip */
+/*
+ * per storage object: cap subscribers, the subscribers from one source (see
+ * dht_source_key()), and peers announced by one source ip
+ */
 #define LWS_DHT_MAX_SUBSCRIBERS		32
+#define LWS_DHT_MAX_SUBSCRIBERS_PER_SRC	4
 #define LWS_DHT_MAX_PEERS_PER_SRC	8
 /*
  * An external-address probe's tid is "ip" followed by a random nonce of its
@@ -518,6 +522,7 @@ void lws_dht_clear_pending_notify(struct lws_dht_ctx *ctx, const uint8_t *tid, s
 void lws_dht_capture_announce(struct lws_dht_ctx *ctx, lws_dht_hash_t *hash, const struct sockaddr *fromaddr, unsigned short prt);
 #endif
 int is_martian(const struct sockaddr *sa);
+int dht_source_key(const struct sockaddr *sa, uint8_t key[16]);
 int lws_dht_admit_request(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *from);
 int lws_dht_get_external_addr(struct lws_dht_ctx *ctx, struct sockaddr_storage *ss, size_t *sslen);
 struct lws_dht_ctx * lws_dht_create(const lws_dht_info_t *info);
