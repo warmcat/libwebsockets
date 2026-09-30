@@ -858,29 +858,38 @@ lws_css_compute_cascaded_length(lhp_ctx_t *ctx, int ref, lhp_pstack_t *ps,
 static void
 lhp_fx_parse(lws_fx_t *fx, const char *str, size_t len)
 {
-	const char *dot = NULL;
-	int i;
+	const char *p = str, *end = str + len;
+	int32_t w = 0;
+	int neg = 0, i;
 
-	for (i = 0; i < (int)len; i++)
-		if (str[i] == '.') {
-			dot = &str[i];
-			break;
-		}
+	/*
+	 * The page's text: stay inside len (atoi() only stopped at a
+	 * non-digit, wherever that was), and stop accumulating the whole
+	 * part before it can overflow, as the css number parser does
+	 */
 
-	if (!dot) {
-		fx->whole = atoi(str);
-		fx->frac = 0;
-		return;
-	}
-
-	fx->whole = atoi(str);
+	fx->whole = 0;
 	fx->frac = 0;
 
-	dot++;
-	len -= (size_t)(dot - str);
+	while (p < end && (*p == ' ' || *p == '\t'))
+		p++;
+	if (p < end && (*p == '-' || *p == '+'))
+		neg = *p++ == '-';
+
+	while (p < end && *p >= '0' && *p <= '9') {
+		if (w < LHP_CSS_MAX_WHOLE)
+			w = (w * 10) + (*p - '0');
+		p++;
+	}
+	fx->whole = neg ? -w : w;
+
+	if (p == end || *p != '.')
+		return;
+
+	p++;
 	i = 10000000;
-	while (len-- && *dot >= '0' && *dot <= '9' && i) {
-		fx->frac += ((*dot++) - '0') * i;
+	while (p < end && *p >= '0' && *p <= '9' && i) {
+		fx->frac += ((*p++) - '0') * i;
 		i /= 10;
 	}
 }
@@ -5273,12 +5282,24 @@ elem_start:
 				}
 
 				{
+					/*
+					 * bounded like any css number, and a
+					 * negative size is no size, ie, auto
+					 */
 					const char *p = lws_html_get_atr(ps, "width", 5);
-					if (p)
-						u.u.dlo_png->dlo.box.w.whole = atoi(p);
+					lws_fx_t t;
+
+					if (p) {
+						lhp_fx_parse(&t, p, strlen(p));
+						u.u.dlo_png->dlo.box.w.whole =
+							t.whole < 0 ? 0 : t.whole;
+					}
 					p = lws_html_get_atr(ps, "height", 6);
-					if (p)
-						u.u.dlo_png->dlo.box.h.whole = atoi(p);
+					if (p) {
+						lhp_fx_parse(&t, p, strlen(p));
+						u.u.dlo_png->dlo.box.h.whole =
+							t.whole < 0 ? 0 : t.whole;
+					}
 				}
 
 				if (u.u.dlo_png->dlo.box.w.whole &&
