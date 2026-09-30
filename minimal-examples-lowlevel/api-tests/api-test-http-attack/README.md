@@ -48,6 +48,8 @@ h1, raw:
 |malformed, missing and relative uri, repeated method, 8000-byte uri|nothing served|
 |a 2000-byte header name, a header line with no colon, whitespace before a colon, obs-fold|nothing served|
 |an unknown header named as the start of a known one (`Accept-Lang:`)|served, and the header after it still seen|
+|an h2 pseudo-header (`:method: POST`), a header name starting with `:`|nothing served|
+|a header named as lws' urlargs slot (`Uri-Args:`) or starting as a method (`Put-Id:`)|served, as an unknown header, with no urlargs and the header after it still seen|
 |a request followed by junk|the request served, the junk not|
 |8 pipelined requests|all 9 served, in order|
 |two different Content-Length, Content-Length with chunked, chunk size overflow, two Host|nothing served|

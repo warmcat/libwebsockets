@@ -1339,27 +1339,14 @@ lws_h1_srv_strict(struct lws *wsi)
 }
 
 /*
- * A byte of an h1 request header's name that lws didn't recognize as a
- * header it knows (those only match valid names).  RFC 9112 5.1 / RFC 9110
- * 5.1: a field name is a token, so no controls, no SP / HT, nothing
- * non-ASCII: whitespace between the name and the colon is a request
- * smuggling vector, as whoever is in front of us may see a different name.
- * The name has already been lowercased.
- *
- * The request line's method arrives in the name state too, and "get " is a
- * token with a space in it: this is only for a server's header names, after
- * the method.
+ * Whether the head has had its first line's method token, ie, on a server,
+ * whether we are past the request line and on the header lines
  */
 
 static int
-lws_h1_srv_bad_name_char(struct lws *wsi, unsigned char c)
+lws_h1_method_seen(const struct allocated_headers *ah)
 {
-	struct allocated_headers *ah = wsi->stream.ah;
 	unsigned int m;
-
-	if (wsi->mux_substream || !lwsi_role_server(wsi) || c == ':' ||
-	    lws_http_field_name_char_valid(c, 0))
-		return 0;
 
 	for (m = 0; m < LWS_ARRAY_SIZE(methods); m++)
 		if (ah->frag_index[methods[m]])
@@ -1369,20 +1356,100 @@ lws_h1_srv_bad_name_char(struct lws *wsi, unsigned char c)
 }
 
 /*
+ * A byte of an h1 request header's name that lws didn't recognize as a
+ * header it knows (those only match valid names, see
+ * lws_h1_token_usable()).  RFC 9112 5.1 / RFC 9110 5.1: a field name is a
+ * token, so no controls, no SP / HT, nothing non-ASCII: whitespace between
+ * the name and the colon is a request smuggling vector, as whoever is in
+ * front of us may see a different name.  The name has already been
+ * lowercased.
+ *
+ * The request line's method arrives in the name state too, and "get " is a
+ * token with a space in it: this is only for a server's header names, after
+ * the method.
+ */
+
+static int
+lws_h1_srv_bad_name_char(struct lws *wsi, unsigned char c)
+{
+	if (wsi->mux_substream || !lwsi_role_server(wsi) || c == ':' ||
+	    lws_http_field_name_char_valid(c, 0))
+		return 0;
+
+	return lws_h1_method_seen(wsi->stream.ah);
+}
+
+/*
  * An h1 server's request head that has not had its request line yet
  */
 
 static int
 lws_h1_srv_awaits_request_line(struct lws *wsi)
 {
-	struct allocated_headers *ah = wsi->stream.ah;
-	unsigned int m;
-
 	if (wsi->mux_substream || !lwsi_role_server(wsi) || !lwsi_role_h1(wsi))
 		return 0;
 
+	return !lws_h1_method_seen(wsi->stream.ah);
+}
+
+/*
+ * The h1 lextable is also hpack's and qpack's name table, and lws' own token
+ * store.  So besides the h1 field names, which it matches through their ':'
+ * ("host:"), and the tokens that start the first line of an h1 head ("get ",
+ * "http/1.1 "), it knows names that are neither, and matches them with
+ * nothing after them: the h2 / h3 pseudo-headers (":method"), "uri-args",
+ * where lws keeps the request's urlargs, and the methods with no SP of their
+ * own ("put").  On h1, "uri-args" on a header line added urlargs no request
+ * line carried, and ":methodpost" set a :method different from the one the
+ * request line routed on, both past the checks for header names.
+ *
+ * Nonzero if the lextable's token n can be taken where it was matched in an
+ * h1 head: a field name, the empty line ending the head, or on a server a
+ * method starting the request line, on a client the status line's version.
+ */
+
+static int
+lws_h1_token_usable(struct lws *wsi, unsigned int n)
+{
+	const char *s = (const char *)lws_token_to_string(
+					(enum lws_token_indexes)n);
+	size_t l = s ? strlen(s) : 0;
+	unsigned int m;
+
+	if (n == WSI_TOKEN_CHALLENGE || (l && s[l - 1] == ':'))
+		return 1;
+
+	if (!lwsi_role_server(wsi))
+		return n == WSI_TOKEN_HTTP || n == WSI_TOKEN_HTTP1_0;
+
+	if (lws_h1_method_seen(wsi->stream.ah))
+		return 0;
+
 	for (m = 0; m < LWS_ARRAY_SIZE(methods); m++)
-		if (ah->frag_index[methods[m]])
+		if (n == methods[m])
+			return 1;
+
+	return 0;
+}
+
+/*
+ * Nonzero if the lextable's token n is spelled only with bytes a field name
+ * may have: then as a name on an h1 header line, it's just a name lws doesn't
+ * know ("uri-args", "put").  The pseudo-headers' ':' and the SP after a
+ * method can't be in one.
+ */
+
+static int
+lws_h1_token_spelling_is_name(unsigned int n)
+{
+	const char *s = (const char *)lws_token_to_string(
+					(enum lws_token_indexes)n);
+
+	if (!s || !*s)
+		return 0;
+
+	while (*s)
+		if (!lws_http_field_name_char_valid((unsigned char)*s++, 0))
 			return 0;
 
 	return 1;
@@ -1705,6 +1772,16 @@ swallow:
 				break;
 			}
 
+			/*
+			 * A field name is a token, so it isn't empty: no ':'
+			 * starts one.  The lextable would take it as the
+			 * start of an h2 / h3 pseudo-header, and what
+			 * followed as the rest of a name lws doesn't know
+			 */
+			if (c == ':' && !ah->lextable_pos &&
+			    lws_h1_srv_strict(wsi) && lws_h1_method_seen(ah))
+				goto bad_name;
+
 			if (c >= 'A' && c <= 'Z')
 				c = (unsigned char)(c + 'a' - 'A');
 			/*
@@ -1832,12 +1909,7 @@ nope:
 				 * we get a valid method (GET, POST etc)
 				 * already, or is this the bogus method?
 				 */
-				for (m = 0; m < LWS_ARRAY_SIZE(methods); m++)
-					if (ah->frag_index[methods[m]])
-						/* already had the method */
-						break;
-
-				if (m != LWS_ARRAY_SIZE(methods)) {
+				if (lws_h1_method_seen(ah)) {
 					/*
 					 * We have the method, this is just an
 					 * unknown header then
@@ -1923,6 +1995,47 @@ nope:
 						lwsl_parse_fail(wsi, "duplicated method");
 						return LPR_FAIL;
 					}
+
+				if (!wsi->mux_substream &&
+				    !lws_h1_token_usable(wsi, n)) {
+					/*
+					 * No h1 field name, nor where a first
+					 * line's token may be.  A server's
+					 * head must start with its request
+					 * line...
+					 */
+					if (lws_h1_srv_awaits_request_line(wsi))
+						goto bad_request_line;
+					/*
+					 * ...and a server refuses a name with
+					 * a ':' or SP in it, as any other; a
+					 * client ignores the line, and drops
+					 * the name kept for it
+					 */
+					if (!lws_h1_token_spelling_is_name(n)) {
+						if (lws_h1_srv_strict(wsi)) {
+							lwsl_parse_fail(wsi,
+								"'%s' is no h1 "
+								"field name",
+								(const char *)
+								lws_token_to_string(
+						(enum lws_token_indexes)n));
+							return LPR_FAIL;
+						}
+						ah->pos = ah->unk_pos;
+						ah->unk_pos = 0;
+						ah->parser_state =
+							WSI_TOKEN_SKIPPING;
+						break;
+					}
+					/*
+					 * Otherwise it's a name we don't know,
+					 * kept from its first byte and going
+					 * on to its ':'
+					 */
+					ah->lextable_pos = -1;
+					break;
+				}
 
 				if (!wsi->mux_substream) {
 					/*

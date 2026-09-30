@@ -458,6 +458,20 @@ static const struct h1_attack h1_attacks[] = {
 		      ATK_GET_ALIVE "X-Unknown\r\n\r\n"),
 	ATK_H1_NO_2XX("obs-fold continuation line",
 		      ATK_GET_ALIVE "User-Agent: a\r\n b\r\n\r\n"),
+	/*
+	 * lws knows names that are no h1 field name: the h2 pseudo-headers,
+	 * which aren't tokens, and its own slot for the urlargs and the
+	 * methods, which are only names on h1 like any other
+	 */
+	ATK_H1_NO_2XX("h2 pseudo-header", ATK_GET_ALIVE ":method: POST\r\n\r\n"),
+	ATK_H1_NO_2XX("header name starting with a colon",
+		      ATK_GET_ALIVE ":x: a\r\n\r\n"),
+	ATK_H1_ECHO("header named as lws' urlargs",
+		    ATK_GET_ALIVE "Uri-Args: a=1\r\nUser-Agent: b\r\n\r\n",
+		    "/alive ua=b"),
+	ATK_H1_ECHO("header named as the start of a method",
+		    ATK_GET_ALIVE "Put-Id: 1\r\nUser-Agent: b\r\n\r\n",
+		    "/alive ua=b"),
 
 	/*
 	 * line ends: CRLF only.  Something in front of us may not take a
