@@ -163,8 +163,9 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 				: lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
 		const char *host = wsi->stash ? wsi->stash->cis[CIS_HOST]
 				: lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
-		const char *ads = wsi->stash ? wsi->stash->cis[CIS_ADDRESS]
-				: wsi->cli_hostname_copy;
+		/* the header table has the address once the stash is gone */
+		const char *ads = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
+					_WSI_TOKEN_CLIENT_PEER_ADDRESS);
 
 #if defined(LWS_WITH_TLS)
 		/*

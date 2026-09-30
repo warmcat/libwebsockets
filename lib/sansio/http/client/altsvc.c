@@ -286,10 +286,14 @@ lws_client_alt_svc_learn(struct lws *wsi)
 		return;
 	}
 
-	/* the connect path looks it up by address, matching the ALPN cache
-	 * key convention */
-	ads = (nwsi->stash && nwsi->stash->cis[CIS_ADDRESS]) ?
-			nwsi->stash->cis[CIS_ADDRESS] : nwsi->cli_hostname_copy;
+	/*
+	 * the connect path looks it up by address (the header table has it
+	 * once the stash is gone, wsi->cli_hostname_copy is the Host:)
+	 */
+	ads = lws_wsi_client_stash_item(nwsi, CIS_ADDRESS,
+					_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+	if (!ads)
+		ads = nwsi->cli_hostname_copy;
 
 	lws_snprintf(key, sizeof(key), "altsvc_%s_%u", ads, nwsi->c_port);
 
@@ -345,8 +349,10 @@ lws_client_alt_svc_forget(struct lws *wsi)
 	if (!wsi->a.context->altsvc_cache || !wsi->c_port)
 		return;
 
-	ads = (wsi->stash && wsi->stash->cis[CIS_ADDRESS]) ?
-			wsi->stash->cis[CIS_ADDRESS] : wsi->cli_hostname_copy;
+	ads = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
+					_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+	if (!ads)
+		ads = wsi->cli_hostname_copy;
 
 	if (!ads)
 		return;

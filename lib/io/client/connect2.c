@@ -256,8 +256,23 @@ lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 	 */
 
 	if (!wsi->cli_hostname_copy) {
+		/*
+		 * It is the Host:, which the active-conns list is keyed on
+		 * (below) and the tls session cache tags a session with
+		 * (lws_tls_session_tag_from_wsi()).  A build with SOCKS5 freed
+		 * the stash before dns, and the Host: is in the header table by
+		 * then: falling back to the peer address header there keyed
+		 * both on the connect address instead, so every host name
+		 * reached through one address shared a session, resumed with
+		 * no certificate check (C-654).  The address is only for a
+		 * connection that gave no Host: at all.
+		 */
 		const char *pa = lws_wsi_client_stash_item(wsi, CIS_HOST,
-					_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+						_WSI_TOKEN_CLIENT_HOST);
+
+		if (!pa)
+			pa = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
+						_WSI_TOKEN_CLIENT_PEER_ADDRESS);
 
 		if (pa)
 			wsi->cli_hostname_copy = lws_strdup(pa);
