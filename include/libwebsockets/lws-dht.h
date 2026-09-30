@@ -177,9 +177,11 @@ struct lws_dht_verb_dispatch_args {
  * \param confirm: unused
  *
  * The node answers like a get_peers, with nodes and a token.  The library
- * chooses the transaction id itself so it can route that reply: the token
- * surfaces as LWS_DHT_EVENT_TOKEN, to be returned in
- * lws_dht_send_subscribe_confirm().
+ * chooses the transaction id itself and remembers it with \p sa, so it can
+ * route that reply: the token surfaces as LWS_DHT_EVENT_TOKEN, to be
+ * returned in lws_dht_send_subscribe_confirm().  Only the one reply to this
+ * request, from \p sa and within the ping timeout, produces the event; a
+ * token in any other reply is not reported.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dht_send_subscribe(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
@@ -341,7 +343,9 @@ typedef enum {
 	LWS_DHT_EVENT_WRITE_COMPLETED,	/**< Reliable write successful */
 	LWS_DHT_EVENT_WRITE_FAILED,	/**< Reliable write failed */
 	LWS_DHT_EVENT_NOTIFY,		/**< Notification received */
-	LWS_DHT_EVENT_TOKEN,		/**< Security token received from a peer */
+	LWS_DHT_EVENT_TOKEN,		/**< Security token received from a peer,
+					  * in reply to our subscribe or get_peers
+					  * request to it */
 } lws_dht_event_t;
 
 /**

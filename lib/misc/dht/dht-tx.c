@@ -414,6 +414,39 @@ fail:
 	return -1;
 }
 
+/*
+ * Remember that we sent a subscribe with this seq to this node, so its
+ * reply can be told apart from anything else claiming to be one.  A full
+ * table gives up the oldest entry: its reply is long overdue.
+ */
+
+static void
+lws_dht_sb_pending_add(struct lws_dht_ctx *ctx, unsigned short seq,
+		       const struct sockaddr *sa, size_t salen)
+{
+	time_t now = (time_t)lws_now_secs();
+	int n, slot = 0;
+
+	if (salen > sizeof(ctx->sb_pending[0].ss))
+		return;
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(ctx->sb_pending); n++) {
+		if (!ctx->sb_pending[n].sslen ||
+		    ctx->sb_pending[n].sent < now - LWS_DHT_PING_TIMEOUT_SECS) {
+			slot = n;
+			break;
+		}
+		if (ctx->sb_pending[n].sent < ctx->sb_pending[slot].sent)
+			slot = n;
+	}
+
+	memset(&ctx->sb_pending[slot].ss, 0, sizeof(ctx->sb_pending[slot].ss));
+	memcpy(&ctx->sb_pending[slot].ss, sa, salen);
+	ctx->sb_pending[slot].sslen	= salen;
+	ctx->sb_pending[slot].sent	= now;
+	ctx->sb_pending[slot].seq	= seq;
+}
+
 /* args: id, info_hash[, want] */
 
 LWS_VISIBLE int
@@ -424,10 +457,12 @@ lws_dht_send_subscribe(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_
 	dht_txbuf_t t = { .buf = buf, .size = sizeof(buf) };
 	unsigned short seq;
 	uint8_t tid[4];
+	int n;
 
 	/*
-	 * Our own "sb" tid, so the nodes + token reply is routed to the
-	 * token handling; any other tid lands as an unexpected reply
+	 * Our own "sb" tid with a random seq, recorded with the node we send
+	 * it to, so the nodes + token reply is routed to the token handling
+	 * only if it answers this request
 	 */
 	lws_get_random(ctx->vhost->context, &seq, sizeof(seq));
 	make_tid(tid, "sb", seq);
@@ -443,7 +478,11 @@ lws_dht_send_subscribe(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_
 	    dht_tx_lit(&t, "1:y1:qe"))
 		goto fail;
 
-	return dht_send(ctx, buf, t.len, sa, salen);
+	n = dht_send(ctx, buf, t.len, sa, salen);
+	if (n >= 0)
+		lws_dht_sb_pending_add(ctx, seq, sa, salen);
+
+	return n;
 
 fail:
 	errno = ENOSPC;

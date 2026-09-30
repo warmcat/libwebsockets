@@ -78,6 +78,8 @@
  */
 #define LWS_DHT_IP_PROBE_NONCE_LEN	8
 #define LWS_DHT_IP_PROBE_TID_LEN	(2 + LWS_DHT_IP_PROBE_NONCE_LEN)
+/* subscribes we sent whose reply we are still waiting for */
+#define LWS_DHT_MAX_PENDING_SUBSCRIBES	8
 
 /* Serialization Field Sizes */
 #define LWS_DHT_IPV4_VLEN                  4
@@ -265,6 +267,18 @@ struct lws_dht_ctx {
 		uint8_t			answered;
 	} ip_probes[16];
 	int			ip_probe_count;
+
+	/*
+	 * The subscribes we sent and have had no reply to: a reply surfaces
+	 * its token only if it answers one of these, from the node it went
+	 * to, so nobody can make us react to a token we never asked for.
+	 */
+	struct {
+		struct sockaddr_storage ss;
+		size_t			sslen;	/* 0 = free */
+		time_t			sent;
+		unsigned short		seq;
+	} sb_pending[LWS_DHT_MAX_PENDING_SUBSCRIBES];
 
 #if defined(LWS_WITH_DHT_BACKEND)
 	time_t			search_time;

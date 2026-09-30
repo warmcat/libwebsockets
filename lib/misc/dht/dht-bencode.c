@@ -494,18 +494,55 @@ lws_dht_reply_pong(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 #endif
 }
 
+/*
+ * Is this "sb" reply the answer to a subscribe we sent, from the node we
+ * sent it to?  Each pending subscribe is answered once.
+ */
+
+static int
+lws_dht_sb_pending_take(struct lws_dht_ctx *ctx, unsigned short seq,
+			const struct sockaddr *from)
+{
+	int n;
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(ctx->sb_pending); n++)
+		if (ctx->sb_pending[n].sslen &&
+		    ctx->sb_pending[n].seq == seq &&
+		    ctx->sb_pending[n].sent >=
+				ctx->now - LWS_DHT_PING_TIMEOUT_SECS &&
+		    dht_sa_same_peer((const struct sockaddr *)
+				     &ctx->sb_pending[n].ss, from)) {
+			ctx->sb_pending[n].sslen = 0;
+
+			return 1;
+		}
+
+	return 0;
+}
+
 static void
 lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 		    const struct sockaddr *from, size_t fromlen)
 {
-	int gp = 0;
+	int gp = 0, bound = 0;
 #if defined(LWS_WITH_DHT_BACKEND)
 	struct search *sr = NULL;
 #endif
 	unsigned short ttid;
 	size_t offset;
 
-	if (tid_match(mp->tid, "gp", &ttid)) {
+	if (tid_match(mp->tid, "sb", &ttid)) {
+		/*
+		 * Replies are free and unlimited, and the dnssec plugin
+		 * answers a subscription token with a larger datagram to the
+		 * sender: only a reply to a subscribe of ours, from where we
+		 * sent it, may surface one
+		 */
+		bound = lws_dht_sb_pending_take(ctx, ttid, from);
+		if (!bound)
+			lwsl_dht_rx_warn("%s: subscribe reply with no subscribe "
+					 "outstanding\n", __func__);
+	} else if (tid_match(mp->tid, "gp", &ttid)) {
 		gp = 1;
 #if defined(LWS_WITH_DHT_BACKEND)
 		sr = find_search(ctx, ttid, from->sa_family);
@@ -522,6 +559,7 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 					 __func__);
 			sr = NULL;
 		}
+		bound = !!sr;
 #endif
 	}
 
@@ -532,11 +570,13 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 #if defined(LWS_WITH_DHT_BACKEND)
 	/*
 	 * Credit the sender for replying so their pinged count resets to 0,
-	 * but only if we actually asked them (a search of ours had this tid
-	 * outstanding to this address, or we pinged the node): see the pong
+	 * but only if we actually asked them (a search or subscribe of ours
+	 * had this tid outstanding to this address, or we pinged the node):
+	 * see the pong
 	 */
 	maybe_new_node(ctx, mp->id, from, fromlen,
-		       (sr || lws_dht_reply_solicited(ctx, mp->id, from)) ? 2 : 1);
+		       (bound || lws_dht_reply_solicited(ctx, mp->id, from)) ?
+									2 : 1);
 #endif
 
 	if (ctx->legacy && (mp->nodes_len % LWS_DHT_NODE_INFO_LEGACY_IP4_VLEN != 0 ||
@@ -661,11 +701,13 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 	}
 #endif
 
-	if (mp->token_len > 0) {
-		if (ctx->cb) {
-			(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_TOKEN, mp->id, mp->token, mp->token_len, from, fromlen);
-		}
-	}
+	/*
+	 * Only a token in reply to a request of ours to this node is news
+	 * for the app, the same as the values below
+	 */
+	if (bound && mp->token_len > 0 && ctx->cb)
+		(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_TOKEN, mp->id, mp->token,
+			   mp->token_len, from, fromlen);
 
 	if (mp->values_len > 0 || mp->values6_len > 0) {
 		lwsl_dht_rx("%s: Got values (%d+%d)\n", __func__, (int)(mp->values_len / LWS_DHT_NODE_INFO_IP4_VLEN), (int)(mp->values6_len / LWS_DHT_NODE_INFO_IP6_VLEN));
