@@ -180,7 +180,11 @@ lws_ss_proxy_deserialize_parse(struct lws_ss_serialization_parser *par,
 
 			case LWSSS_SER_TXPRE_TX_PAYLOAD:
 
-				if (*state != LPCSPROX_OPERATIONAL)
+				/*
+				 * Payload is only for a created stream, whose
+				 * dsh we queue it on
+				 */
+				if (*state != LPCSPROX_OPERATIONAL || !dsh)
 					goto hangup;
 
 				par->ps = RPAR_FLAG_B3;

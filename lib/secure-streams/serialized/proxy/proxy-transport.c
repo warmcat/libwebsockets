@@ -286,8 +286,17 @@ lws_ssproxy_txp_proxy_can_write(lws_transport_priv_t priv
 		}
 
 		*(s + 2) = (char)(n - 3);
-		conn->state = LPCSPROX_OPERATIONAL;
-		conn->txp_path.ops_onw->event_client_up(conn->txp_path.priv_onw);
+
+		/*
+		 * If we're reporting failure, we stay in REPORTING_FAIL so we
+		 * hang up once it's written: there's no onward stream or dsh
+		 * for anything the client might send after it
+		 */
+		if (conn->state == LPCSPROX_REPORTING_OK) {
+			conn->state = LPCSPROX_OPERATIONAL;
+			conn->txp_path.ops_onw->event_client_up(
+						conn->txp_path.priv_onw);
+		}
 		break;
 
 	case LPCSPROX_OPERATIONAL:

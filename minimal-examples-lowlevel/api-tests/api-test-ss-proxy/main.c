@@ -13,7 +13,11 @@
  *
  *  - "server": the client asks for a streamtype the policy describes as a
  *    server, bound to an existing vhost.  A proxy client can only drive
- *    client streams, so the proxy must refuse to create it.
+ *    client streams, so the proxy must refuse to create it, and hang up.
+ *
+ *  - "create-fail-then-payload": the client asks for a streamtype that
+ *    isn't in the policy, and sends payload after the failed result.  The
+ *    proxy must hang up, and must not try to queue the payload.
  *
  *  - "sink-goes-first": the client's stream is fulfilled by a local sink
  *    registered in this process.  The sink takes the client's payload and
@@ -78,12 +82,13 @@ static const char * const policy =
 enum {
 	UNTIL_RESULT,		/* we close as soon as we have the result */
 	UNTIL_DESTROYING,	/* we close once the proxy says DESTROYING */
+	UNTIL_HANGUP,		/* the proxy must close after the result */
 };
 
 typedef struct leg {
 	const char		*name;
 	const char		*streamtype;
-	size_t			payload_len;	/* sent after a good result */
+	size_t			payload_len;	/* sent after the result */
 	char			expect_create_ok;
 	char			until;
 	char			sink_destroys;	/* on rx */
@@ -98,7 +103,9 @@ typedef struct leg {
 
 static leg_t legs_main[] = {
 	{ .name = "server",		.streamtype = "srv",
-	  .until = UNTIL_RESULT },
+	  .until = UNTIL_HANGUP },
+	{ .name = "create-fail-then-payload", .streamtype = "nonexistent",
+	  .payload_len = 100, .until = UNTIL_HANGUP },
 	{ .name = "sink-goes-first",	.streamtype = "sink",
 	  .expect_create_ok = 1, .payload_len = 100,
 	  .sink_destroys = 1, .until = UNTIL_DESTROYING },
@@ -125,6 +132,7 @@ static lws_sorted_usec_list_t sul_timeout, sul_next_leg;
 static char proxy_bind[64], proxy_ads[66];
 static unsigned int cur_leg;
 static int failed;
+static char we_closed;
 
 static void
 finish(int fail)
@@ -209,6 +217,12 @@ leg_done(void)
 		fail = 1;
 	}
 
+	if (l->until == UNTIL_HANGUP && we_closed) {
+		lwsl_err("%s: leg %s: proxy didn't hang up\n", __func__,
+			 l->name);
+		fail = 1;
+	}
+
 	if (fail) {
 		finish(1);
 		return;
@@ -245,7 +259,8 @@ proxy_frame(struct lws *wsi, struct pss *pss, uint8_t type,
 		lwsl_user("%s: leg %s: CREATE_RESULT %u\n", __func__,
 			  l->name, l->result);
 
-		if (l->until == UNTIL_RESULT || l->result)
+		if (l->until == UNTIL_RESULT ||
+		    (l->result && l->until != UNTIL_HANGUP))
 			/* we've seen what we wanted, close the link */
 			return 1;
 
@@ -299,6 +314,7 @@ callback_sspx_cli(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_CONNECTED:
 		memset(pss, 0, sizeof(*pss));
+		we_closed = 0;
 		lws_callback_on_writable(wsi);
 		break;
 
@@ -357,8 +373,10 @@ callback_sspx_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			fl = lws_ser_ru16be(&pss->rx[1]);
 			if (pss->rx_len < 3 + fl)
 				break;
-			if (proxy_frame(wsi, pss, pss->rx[0], &pss->rx[3], fl))
+			if (proxy_frame(wsi, pss, pss->rx[0], &pss->rx[3], fl)) {
+				we_closed = 1;
 				return -1;
+			}
 			pss->rx_len -= 3 + fl;
 			memmove(pss->rx, pss->rx + 3 + fl, pss->rx_len);
 		}
