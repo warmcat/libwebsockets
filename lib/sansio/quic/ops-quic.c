@@ -972,6 +972,66 @@ lws_quic_replies_destroy(struct lws *lwsi)
 }
 
 /*
+ * The DCID and SCID of the long header packet at p (RFC 9000 17.2), or -1 if
+ * the header does not fit in len or a CID is longer than QUIC allows
+ */
+static int
+lws_quic_long_hdr_cids(const uint8_t *p, size_t len, struct lws_quic_cid *dcid,
+		       struct lws_quic_cid *scid)
+{
+	size_t pos = 6;
+
+	if (len < pos + 1 || p[5] > LWS_QUIC_MAX_CID_LEN ||
+	    len < pos + p[5] + 1u)
+		return -1;
+	dcid->len = p[5];
+	memcpy(dcid->id, &p[pos], dcid->len);
+	pos += dcid->len;
+
+	if (p[pos] > LWS_QUIC_MAX_CID_LEN || len < pos + 1u + p[pos])
+		return -1;
+	scid->len = p[pos];
+	memcpy(scid->id, &p[pos + 1], scid->len);
+
+	return 0;
+}
+
+/*
+ * A client is only sent long headers by its server, which puts the SCID we
+ * chose in them as their DCID (RFC 9000 7.2), and uses the version we are on,
+ * or v2 if we offered it in version_information (RFC 9368).  Once one of the
+ * server's Initials authenticated, the server's SCID is fixed as well (RFC
+ * 9000 7.2).  Nothing in a long header is authenticated before the AEAD, so a
+ * packet failing any of these belongs to some other connection, or to a
+ * spoofer, and must be dropped before it changes anything.
+ *
+ * Returns nonzero if the packet is not for this connection.
+ */
+static int
+lws_quic_client_long_hdr_foreign(struct lws *nwsi,
+				 const struct lws_quic_cid *dcid,
+				 const struct lws_quic_cid *scid,
+				 uint32_t version)
+{
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
+
+	if (dcid->len != qn->loc_cid.len ||
+	    memcmp(dcid->id, qn->loc_cid.id, dcid->len))
+		return 1;
+
+	if (version != qn->version &&
+	    (version != LWS_QUIC_VERSION_2 ||
+	     qn->version != qn->original_version ||
+	     !(nwsi->a.context->options &
+			     LWS_SERVER_OPTION_QUIC_LATEST_VERSION)))
+		return 1;
+
+	return qn->peer_iscid_set &&
+	       (scid->len != qn->peer_iscid.len ||
+		memcmp(scid->id, qn->peer_iscid.id, scid->len));
+}
+
+/*
  * sansIO rx for quic: one datagram, from peer, with its ECN bits.  It may
  * carry several coalesced packets; each is decrypted in place and its frames
  * parsed.  wsi is the socket's wsi: on a server the listening one, where the
@@ -1033,25 +1093,13 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 
 	struct lws *nwsi = NULL;
 	if (wsi->quic.qn && !wsi->quic.qn->is_server) {
-		/* Client connection: the wsi itself is the connection */
+		/*
+		 * Client connection: the wsi itself is the connection.  What
+		 * the server's long headers tell us (its SCID, a v2 upgrade)
+		 * is only taken from a packet that authenticates, see
+		 * lws_quic_client_long_hdr_foreign() and after the AEAD below
+		 */
 		nwsi = wsi;
-
-		/* The client MUST update its remote CID to the server's SCID from the first response */
-		if ((p[0] & 0x80) && scid.len) {
-			uint8_t type = (uint8_t)((p[0] & 0x30) >> 4);
-			if (type != LWS_QUIC_PT_RETRY) {
-				if (nwsi->quic.qn->rem_cid.len != scid.len || memcmp(nwsi->quic.qn->rem_cid.id, scid.id, scid.len)) {
-					nwsi->quic.qn->rem_cid = scid;
-				}
-
-				/* Check if the server upgraded the version (Compatible Version Negotiation) */
-				uint32_t pkt_version = ((uint32_t)p[1] << 24) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 8) | p[4];
-				if (pkt_version != nwsi->quic.qn->version && pkt_version == LWS_QUIC_VERSION_2) {
-					nwsi->quic.qn->version = pkt_version;
-					lwsl_wsi_notice(wsi, "QUIC RX: Upgraded to QUIC v2 via Compatible Version Negotiation");
-				}
-			}
-		}
 	} else {
 		/* Server listener: search children */
 		nwsi = lws_quic_find_child_by_dcid(wsi, &dcid);
@@ -1523,7 +1571,12 @@ tp_ok:
 	}
 
 	int valid_datagram_bytes = 0;
-	
+	struct lws_quic_cid pdcid, pscid; /* this long header packet's CIDs */
+	uint32_t pkt_version = 0;
+
+	memset(&pdcid, 0, sizeof(pdcid));
+	memset(&pscid, 0, sizeof(pscid));
+
 	/* F-69: bytes_received is no longer unconditionally incremented here */
 
 	while (n > 0) {
@@ -1575,11 +1628,31 @@ tp_ok:
 			break;
 		}
 		if (p[0] & 0x80) {
-			                        uint8_t type = (uint8_t)((p[0] & 0x30) >> 4);
-                        uint32_t parsed_pkt_version = (uint32_t)((p[1] << 24) | (p[2] << 16) | (p[3] << 8) | p[4]);
-                        int is_v2 = (parsed_pkt_version == LWS_QUIC_VERSION_2) || 
-                                    (nwsi && nwsi->quic.qn && nwsi->quic.qn->version == LWS_QUIC_VERSION_2);
-                        
+			uint8_t type = (uint8_t)((p[0] & 0x30) >> 4);
+
+			if (lws_quic_long_hdr_cids(p, (size_t)n, &pdcid, &pscid)) {
+				lwsl_wsi_notice(wsi, "QUIC RX: truncated long header");
+				break;
+			}
+			pkt_version = ((uint32_t)p[1] << 24) |
+				      ((uint32_t)p[2] << 16) |
+				      ((uint32_t)p[3] << 8) | p[4];
+
+			if (!nwsi->quic.qn->is_server &&
+			    lws_quic_client_long_hdr_foreign(nwsi, &pdcid,
+							     &pscid, pkt_version)) {
+				lwsl_wsi_info(wsi, "QUIC RX: long header not for "
+						   "this connection, dropping");
+				break;
+			}
+
+			/*
+			 * The type bits mean what the packet's own version
+			 * says they mean (RFC 9369 3.2), as when its length
+			 * is parsed (lws_quic_get_pn_offset())
+			 */
+			int is_v2 = pkt_version == LWS_QUIC_VERSION_2;
+
                         uint8_t v1_type = type;
                         if (is_v2) {
                                 switch (type) {
@@ -1594,14 +1667,21 @@ tp_ok:
                         else if (v1_type == LWS_QUIC_PT_HANDSHAKE) level = LWS_QUIC_LEVEL_HANDSHAKE;
                         else if (v1_type == LWS_QUIC_PT_0RTT) level = LWS_QUIC_LEVEL_EARLY;
                         else if (v1_type == LWS_QUIC_PT_RETRY) {
-				if (nwsi && nwsi->quic.qn && !nwsi->quic.qn->is_server) {
+				/*
+				 * A client takes at most one Retry, and none
+				 * once it processed an Initial (RFC 9000
+				 * 17.2.5.2), so rem_cid here is still the DCID
+				 * of the Initial the Retry answers
+				 */
+				if (nwsi && nwsi->quic.qn && !nwsi->quic.qn->is_server &&
+				    !nwsi->quic.qn->peer_iscid_set &&
+				    !nwsi->quic.qn->retry_scid.len) {
 					size_t tag_pos = (size_t)n - 16;
-					int client_scid_pos = 6 + dcid_len;
-					size_t tok_pos = (size_t)client_scid_pos + 1 + scid.len;
+					size_t tok_pos = 7u + pdcid.len + pscid.len;
 					if (n >= 16 && tag_pos >= tok_pos) {
 						if (!lws_quic_validate_retry_tag(nwsi->quic.qn, nwsi->quic.qn->rem_cid.id, nwsi->quic.qn->rem_cid.len, p, tag_pos, &p[tag_pos])) {
-							nwsi->quic.qn->retry_scid = scid;
-							nwsi->quic.qn->rem_cid = scid;
+							nwsi->quic.qn->retry_scid = pscid;
+							nwsi->quic.qn->rem_cid = pscid;
 							/*
 							 * Check the token fits before
 							 * committing anything: a
@@ -1924,15 +2004,27 @@ tp_ok:
 		}
 
 		/*
-		 * A client notes the SCID of the server's first Initial it
-		 * could decrypt: the server's initial_source_connection_id
-		 * transport parameter must match it (RFC 9000 7.3)
+		 * A client takes the SCID of the server's first Initial that
+		 * authenticated as the DCID of everything it sends from now
+		 * on (RFC 9000 7.2), and the server's
+		 * initial_source_connection_id transport parameter must match
+		 * it (RFC 9000 7.3).  A server's long header in v2, which we
+		 * offered, moves us to v2 (RFC 9368 2.3), again only once it
+		 * authenticated.
 		 */
 		if (nwsi->quic.qn && !nwsi->quic.qn->is_server &&
-		    level == LWS_QUIC_LEVEL_INITIAL &&
-		    !nwsi->quic.qn->peer_iscid_set) {
-			nwsi->quic.qn->peer_iscid = scid;
-			nwsi->quic.qn->peer_iscid_set = 1;
+		    (p[0] & 0x80)) {
+			if (level == LWS_QUIC_LEVEL_INITIAL &&
+			    !nwsi->quic.qn->peer_iscid_set) {
+				nwsi->quic.qn->peer_iscid = pscid;
+				nwsi->quic.qn->peer_iscid_set = 1;
+				nwsi->quic.qn->rem_cid = pscid;
+			}
+			if (pkt_version != nwsi->quic.qn->version) {
+				nwsi->quic.qn->version = pkt_version;
+				lwsl_wsi_notice(wsi, "QUIC RX: server moved us "
+						     "to QUIC v2 (RFC 9368)");
+			}
 		}
 
 		if (level == LWS_QUIC_LEVEL_HANDSHAKE) {

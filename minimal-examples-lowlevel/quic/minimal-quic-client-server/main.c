@@ -14,7 +14,9 @@
  * this process that sends each direction's datagrams on in batches, last
  * first, so both ends see the handshake and the stream data out of order and
  * have to reassemble it.  --write-size sets how much each lws_write() sends,
- * so small values make many small STREAM frames.
+ * so small values make many small STREAM frames.  With --stray as well,
+ * the relay also sends the client, now and then, a datagram that belongs to
+ * some other QUIC connection, which the client must ignore.
  */
 
 #include <libwebsockets.h>
@@ -139,6 +141,17 @@ static const char * const test_key =
 #define RELAY_HOLD_US	(2 * LWS_US_PER_MS)
 #define RELAY_DGRAM_MAX	2048
 
+/*
+ * With --stray, ahead of every RELAY_STRAY_EVERY-th batch to the client,
+ * starting with the first, which carries the server's first Initial, the relay
+ * sends the client a stray long header packet (RFC 9000 17.2) of some other
+ * connection: connection IDs that are not the client's, alternately in QUIC
+ * v2 and v1, and a payload nobody has keys for.  Packets like that are an
+ * ordinary network event; the client must drop them without them changing
+ * anything about its own connection, before or after its handshake.
+ */
+#define RELAY_STRAY_EVERY	8
+
 struct relay_dgram {
 	size_t			len;
 	uint8_t			buf[RELAY_DGRAM_MAX];
@@ -155,7 +168,52 @@ struct relay_dir {
 static struct {
 	struct lws		*wsi;
 	struct relay_dir	dir[2]; /* to the server, to the client */
+	unsigned int		batches_to_client;
+	unsigned int		strays;
+	char			stray;
 } relay;
+
+static void
+relay_send(lws_sockfd_type fd, const uint8_t *buf, size_t len,
+	   const lws_sockaddr46 *dest)
+{
+	/* UDP send failures are losses QUIC recovers from */
+	if (sendto(fd,
+#if defined(WIN32)
+		   (const char *)
+#endif
+		   buf,
+#if defined(WIN32)
+		   (int)
+#endif
+		   len, 0, sa46_sockaddr(dest), sa46_socklen(dest)) < 0)
+		lwsl_info("relay: sendto failed\n");
+}
+
+static void
+relay_send_stray(struct lws *wsi, lws_sockfd_type fd,
+		 const lws_sockaddr46 *dest)
+{
+	uint8_t d[57];
+	int v2 = !(relay.strays++ & 1);
+
+	/* random CIDs, packet number and payload... */
+	if (lws_get_random(lws_get_context(wsi), d, sizeof(d)) != sizeof(d))
+		return;
+
+	/* ... in a Handshake packet's long header */
+	d[0] = v2 ? 0xf1 : 0xe1;
+	d[1] = v2 ? 0x6b : 0x00;
+	d[2] = v2 ? 0x33 : 0x00;
+	d[3] = v2 ? 0x43 : 0x00;
+	d[4] = v2 ? 0xcf : 0x01;
+	d[5] = 8;	/* DCID length, 8 random bytes follow */
+	d[14] = 8;	/* SCID length, 8 random bytes follow */
+	d[23] = 0x40;	/* 2-byte varint Length: the 32 bytes after it */
+	d[24] = 32;
+
+	relay_send(fd, d, sizeof(d), dest);
+}
 
 static void
 relay_due(struct relay_dir *d)
@@ -227,20 +285,13 @@ callback_relay(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!d->due)
 				continue;
 
-			/* UDP send failures are losses QUIC recovers from */
+			if (n == 1 && relay.stray &&
+			    !(relay.batches_to_client++ % RELAY_STRAY_EVERY))
+				relay_send_stray(wsi, fd, &d->dest);
+
 			for (m = d->count - 1; m >= 0; m--)
-				if (sendto(fd,
-#if defined(WIN32)
-					   (const char *)
-#endif
-					   d->q[m].buf,
-#if defined(WIN32)
-					   (int)
-#endif
-					   d->q[m].len, 0,
-					   sa46_sockaddr(&d->dest),
-					   sa46_socklen(&d->dest)) < 0)
-					lwsl_info("relay: sendto failed\n");
+				relay_send(fd, d->q[m].buf, d->q[m].len,
+					   &d->dest);
 			d->count = 0;
 			d->due = 0;
 		}
@@ -476,6 +527,7 @@ enum {
 	LWS_SW_SERVER_ONLY,
 	LWS_SW_SERVER,
 	LWS_SW_RELAY,
+	LWS_SW_STRAY,
 	LWS_SW_WRITE_SIZE,
 };
 
@@ -486,6 +538,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_SERVER_ONLY] = { "-s",	"Server only mode (do not launch client, do not send data unprompted)" },
 	[LWS_SW_SERVER]	= { "--server",	"Server address to connect to (default 127.0.0.1)" },
 	[LWS_SW_RELAY]	= { "--relay",	"Connect via a relay on this port that reorders datagrams (needs a numeric --server)" },
+	[LWS_SW_STRAY] = { "--stray",	"The relay also sends the client stray packets of another connection (needs --relay)" },
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
 };
 
@@ -571,6 +624,12 @@ int main(int argc, const char **argv)
 		}
 	}
 
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_STRAY].sw) &&
+	    !relay_port) {
+		lwsl_err("--stray needs --relay\n");
+		return 1;
+	}
+
 	p = lws_cmdline_option(argc, argv, "-u");
 	if (p) {
 		lws_strncpy(url_buf, p, sizeof(url_buf));
@@ -648,6 +707,8 @@ int main(int argc, const char **argv)
 
 		/* the relay sends to the server at the client's address */
 		memset(&relay, 0, sizeof(relay));
+		relay.stray = !!lws_cmdline_option(argc, argv,
+					switches[LWS_SW_STRAY].sw);
 		if (lws_sa46_parse_numeric_address(ads, &relay.dir[0].dest)) {
 			lwsl_err("--relay needs a numeric --server address\n");
 			goto bail;

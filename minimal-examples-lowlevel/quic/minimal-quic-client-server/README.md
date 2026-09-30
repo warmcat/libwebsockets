@@ -24,6 +24,7 @@ arrived.
 |-s|Server only: no client, and the server does not send data unprompted|
 |-u <url>|Connect the client to the server at this url instead of running one here|
 |--relay <port>|The client connects through a relay on this port, see below|
+|--stray|With `--relay`, the relay also sends the client stray packets of another connection, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 
 ```
@@ -47,6 +48,21 @@ The relay needs the server address to be numeric, eg
 ```
 
 Small `--write-size` values make each packet carry many small STREAM frames.
+
+With `--stray` as well, the relay also sends the client, ahead of the first
+and every eighth batch it passes on to it, a long header packet of some other
+QUIC connection: connection IDs that are not the client's, alternately in
+QUIC v2 and v1, and a payload nobody has keys for.  Stray packets like this
+are an ordinary network event.  The first one arrives before the server's
+first Initial, during the handshake, and the rest after it; the client must
+drop all of them without any of them changing its connection (RFC 9000 7.2:
+the server's connection ID is taken only from its first Initial that
+authenticates, and RFC 9368: the version only from a packet that
+authenticates), and the transfer must complete.
+
+```
+ $ ./lws-minimal-quic-client-server --server 127.0.0.1 -p 7681 --relay 7682 --stray
+```
 
 ## Retry
 

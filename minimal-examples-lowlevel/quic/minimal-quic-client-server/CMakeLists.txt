@@ -79,6 +79,21 @@ if (requirements)
 					     TIMEOUT 60)
 
 		#
+		# Through the relay with stray long header packets of another
+		# connection sent to the client during and after the handshake:
+		# the client must drop them without them changing its
+		# connection (RFC 9000 7.2, RFC 9368)
+		#
+		lws_get_free_port(PORT_QCS_STRAY)
+		lws_get_free_port(PORT_QCS_STRAY_RELAY)
+		add_test(NAME ${SAMP}-stray COMMAND ${SAMP}
+				--server ${QCS_RELAY_ADS} -p ${PORT_QCS_STRAY}
+				--relay ${PORT_QCS_STRAY_RELAY} --stray)
+		set_tests_properties(${SAMP}-stray PROPERTIES
+					     WORKING_DIRECTORY .
+					     TIMEOUT 60)
+
+		#
 		# The same with the server sending a Retry before it accepts the
 		# client (RFC 9000 8.1.2): the client must see the connection
 		# IDs of the Retry exchange repeated in the server's transport
