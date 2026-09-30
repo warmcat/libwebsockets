@@ -63,8 +63,14 @@ rsa_pkey_wrap(struct lws_genrsa_ctx *ctx, RSA *rsa)
 	ctx->ctx = EVP_PKEY_CTX_new(pkey, NULL);
 	EVP_PKEY_free(pkey);
 	pkey = NULL;
-	if (!ctx->ctx)
+	if (!ctx->ctx) {
+		/*
+		 * The PKEY owned the RSA, so freeing the PKEY freed it too:
+		 * don't leave the caller a dangling ctx->rsa to free again
+		 */
+		ctx->rsa = NULL;
 		goto bail;
+	}
 
 	return 0;
 
@@ -212,6 +218,11 @@ bail_mpi:
 		goto bail;
 	}
 
+	/*
+	 * Once the RSA owns a BIGNUM, it is freed with the RSA, so our
+	 * ctx->bn[] copy of it is NULLed to stop bail: freeing it again
+	 */
+
 #if (defined(LWS_HAVE_RSA_SET0_KEY) || defined(OPENSSL_IS_BORINGSSL) || defined(OPENSSL_IS_AWSLC)) && !defined(USE_WOLFSSL)
 	if (RSA_set0_key(ctx->rsa, ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_N],
 			 ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_E],
@@ -219,15 +230,27 @@ bail_mpi:
 		lwsl_notice("RSA_set0_key failed\n");
 		goto bail;
 	}
-	RSA_set0_factors(ctx->rsa, ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_P],
-				   ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_Q]);
+	ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_N] = NULL;
+	ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_E] = NULL;
+	ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_D] = NULL;
+
+	if (RSA_set0_factors(ctx->rsa, ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_P],
+				       ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_Q]) != 1) {
+		lwsl_notice("RSA_set0_factors failed\n");
+		goto bail;
+	}
 #else
 	ctx->rsa->e = ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_E];
 	ctx->rsa->n = ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_N];
 	ctx->rsa->d = ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_D];
 	ctx->rsa->p = ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_P];
 	ctx->rsa->q = ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_Q];
+	ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_N] = NULL;
+	ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_E] = NULL;
+	ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_D] = NULL;
 #endif
+	ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_P] = NULL;
+	ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_Q] = NULL;
 
 	if (!rsa_pkey_wrap(ctx, ctx->rsa)) {
 		ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
