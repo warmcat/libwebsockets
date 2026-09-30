@@ -99,7 +99,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	struct lws_tls_conn *conn;
 	char hostname[128];
 	char temp_alpn[128];
-	const char *alpn_comma = wsi->a.context->tls.alpn_default;
+	const char *alpn_comma = NULL;
 
 	if (wsi->stash)
 		lws_strncpy(hostname, wsi->stash->cis[CIS_HOST], sizeof(hostname));
@@ -133,8 +133,14 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	mbedtls_ssl_init(&conn->ssl);
 	mbedtls_net_init(&conn->net);
 
-	if (wsi->a.vhost->tls.alpn)
-		alpn_comma = wsi->a.vhost->tls.alpn;
+	/*
+	 * Offer only the ALPN the connection asked for: its client connect
+	 * info's (as the openssl, openhitls and bearssl backends also do), or
+	 * its ALPN header.  The vhost or context default list names every
+	 * role in the build: offered by a raw or STARTTLS client (eg,
+	 * lws_smtpc), which asks for none, it let the server pick "h2" and
+	 * have lws set up h2 state on a connection that stays raw.
+	 */
 
 	if (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
 		/*
@@ -150,8 +156,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		alpn_comma = wsi->alpn[0] ? wsi->alpn : "h3";
 	} else
 	if (wsi->stash) {
-		if (wsi->stash->cis[CIS_ALPN])
-			alpn_comma = wsi->stash->cis[CIS_ALPN];
+		alpn_comma = wsi->stash->cis[CIS_ALPN];
 	} else {
 		if (lws_hdr_copy(wsi, temp_alpn, sizeof(temp_alpn),
 				_WSI_TOKEN_CLIENT_ALPN) > 0)
