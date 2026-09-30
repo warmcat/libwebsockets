@@ -28,7 +28,19 @@ function connect() {
         if (data.op === 'list_reply') renderTable(data.users);
         else if (data.op === 'clients_list_reply') renderClientsTable(data.clients);
     };
-    ws.onclose = () => { setTimeout(connect, 2000); };
+    ws.onclose = (ev) => {
+        /*
+         * 1008 is the server ending the console because the session
+         * behind it is no longer an admin one (expired, reset, deleted
+         * or demoted): reconnecting cannot succeed, so reload and let
+         * the page's own gate say so.  Anything else, try again.
+         */
+        if (ev.code === 1008) {
+            window.location.reload();
+            return;
+        }
+        setTimeout(connect, 2000);
+    };
 }
 
 let isClientCreate = false;

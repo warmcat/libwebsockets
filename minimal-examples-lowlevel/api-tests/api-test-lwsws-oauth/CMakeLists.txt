@@ -263,7 +263,17 @@ if (requirements)
 		endif()
 
 		#
-		# (d) the auth server's mount on vhosts where the plugin has no
+		# (d) the admin console ws of the auth server: its Origin
+		# check, and that revoking or demoting the session behind an
+		# open console closes it.  Once only, over h1: it logs in and
+		# demotes the one seeded admin, so two could not run at once.
+		#
+		add_test(NAME lwsws-oauth-adminws
+			 COMMAND ${SAMP} -t adminws ${ARGS_COMMON})
+		list(APPEND mytests lwsws-oauth-adminws)
+
+		#
+		# (e) the auth server's mount on vhosts where the plugin has no
 		# per-vhost state: one names it with no options, one points
 		# jwk_path where the key cannot be saved so its init fails.
 		# Both must answer 503, and the process that carries every

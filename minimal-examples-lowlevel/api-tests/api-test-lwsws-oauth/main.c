@@ -27,6 +27,13 @@
  *          state, code_challenge + S256 and service_name, plus the
  *          auth_oauth_state binding cookie that RFC 6749 s10.12 wants.
  *
+ *  adminws: the auth server's admin console ws, opened by the seeded '*'
+ *          holder logged in on the auth server itself.  It must refuse an
+ *          upgrade from any Origin but its own, and once the account is
+ *          demoted by an edit (which revokes its sessions the way a password
+ *          reset does), close both the console that did it and an idle one,
+ *          and refuse the old cookie.
+ *
  *  uninit: the auth server's mount on two vhosts where the plugin has no
  *          per-vhost state (named with no options; init failed because the
  *          key cannot be saved).  Both must answer 503, and the process must
@@ -81,6 +88,9 @@ static int send_host_hdr;
  */
 #define SEED_USER		"apitest-user"
 #define SEED_USER_TOTP		"apitest-totp-user"
+/* holds the '*' grant, for the admin console: only adminws uses it */
+#define SEED_USER_ADMIN		"apitest-admin"
+#define SEED_UID_ADMIN		3
 #define SEED_PASSWORD		"apitest-password"
 #define SEED_SALT		"0123456789abcdef0123456789abcdef"
 /* base32, as the column holds it and as lws_b32_decode_string_len() wants */
@@ -550,8 +560,13 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+static int
+callback_admin_ws(struct lws *wsi, enum lws_callback_reasons reason,
+		  void *user, void *in, size_t len);
+
 static const struct lws_protocols protocols[] = {
 	{ "http", callback_http, 0, 0, 0, NULL, 0 },
+	{ "admin-ws", callback_admin_ws, 0, 1024, 0, NULL, 0 },
 	{ NULL, NULL, 0, 0, 0, NULL, 0 }
 };
 
@@ -877,6 +892,32 @@ scenario_seed(void)
 		     "password_hash, salt, totp_secret, session_epoch, "
 		     "totp_last) VALUES (2, '%s', '%s', '%s', '%s', 0, 0)",
 		     SEED_USER_TOTP, hex, SEED_SALT, SEED_TOTP_SECRET);
+	if (seed_exec(db, sql))
+		goto bail;
+
+	lws_snprintf(sql, sizeof(sql),
+		     "INSERT OR REPLACE INTO users(uid, username, "
+		     "password_hash, salt, totp_secret, session_epoch, "
+		     "totp_last) VALUES (%d, '%s', '%s', '%s', '', 0, 0)",
+		     SEED_UID_ADMIN, SEED_USER_ADMIN, hex, SEED_SALT);
+	if (seed_exec(db, sql))
+		goto bail;
+
+	/*
+	 * The admin holds only '*'.  adminws demotes him, so put that back as
+	 * it was whatever an earlier run of the fixture left
+	 */
+
+	lws_snprintf(sql, sizeof(sql), "DELETE FROM grants WHERE uid = %d",
+		     SEED_UID_ADMIN);
+	if (seed_exec(db, "INSERT OR IGNORE INTO services(name) VALUES ('*')") ||
+	    seed_exec(db, sql))
+		goto bail;
+
+	lws_snprintf(sql, sizeof(sql),
+		     "INSERT INTO grants(uid, service_id, grant_level) "
+		     "VALUES (%d, (SELECT service_id FROM services WHERE "
+		     "name = '*'), 2)", SEED_UID_ADMIN);
 	if (seed_exec(db, sql))
 		goto bail;
 
@@ -1357,6 +1398,291 @@ scenario_uninit(void)
 	return 0;
 }
 
+/* ----------------------------------------------------------- admin console */
+
+/*
+ * The auth server's admin console is a ws on its api mount, subprotocol
+ * "lws-auth-server", authorised by the auth_session cookie it planted at
+ * login.  Each socket we open keeps its state in one of these, found from
+ * the wsi by its opaque user data.
+ */
+
+struct aws {
+	struct lws	*wsi;
+	const char	*tx;		/* to send when writeable, or NULL */
+	char		origin[160];
+	int		established;
+	int		refused;
+	int		closed;
+	int		list_replies;
+	unsigned int	close_code;	/* the peer's close status, if any */
+	/*
+	 * set by this socket's own events only: the shared "interrupted" is
+	 * also set by the http client's idle keepalive closes
+	 */
+	int		event;
+};
+
+static int
+callback_admin_ws(struct lws *wsi, enum lws_callback_reasons reason,
+		  void *user, void *in, size_t len)
+{
+	struct aws *a = (struct aws *)lws_get_opaque_user_data(wsi);
+	uint8_t buf[LWS_PRE + 256];
+	char first[64];
+	size_t n;
+
+	if (!a)
+		return 0;
+
+	switch (reason) {
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		lwsl_user("%s: upgrade refused / failed: %s\n", __func__,
+			  in ? (char *)in : "(none)");
+		a->refused = 1;
+		a->event = 1;
+		break;
+
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+		{
+			unsigned char **pp = (unsigned char **)in,
+				      *pend = (*pp) + len;
+			char ck[4096];
+			int cl = jar_header(JAR_AUTH, ck, sizeof(ck));
+
+			if (cl && lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_COOKIE,
+					(unsigned char *)ck, cl, pp, pend))
+				return -1;
+		}
+		break;
+
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+		a->established = 1;
+		a->event = 1;
+		break;
+
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		if (!a->tx)
+			break;
+		n = strlen(a->tx);
+		if (n > sizeof(buf) - LWS_PRE)
+			return -1;
+		memcpy(buf + LWS_PRE, a->tx, n);
+		a->tx = NULL;
+		if (lws_write(wsi, buf + LWS_PRE, n, LWS_WRITE_TEXT) != (int)n)
+			return -1;
+		break;
+
+	case LWS_CALLBACK_CLIENT_RECEIVE:
+		/* only the start of a message says what it is */
+		if (!lws_is_first_fragment(wsi))
+			break;
+		n = len < sizeof(first) - 1 ? len : sizeof(first) - 1;
+		memcpy(first, in, n);
+		first[n] = '\0';
+		if (strstr(first, "\"op\":\"list_reply\"")) {
+			a->list_replies++;
+			a->event = 1;
+		}
+		break;
+
+	case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
+		if (len >= 2)
+			a->close_code = (unsigned int)
+				((((const uint8_t *)in)[0] << 8) |
+				 ((const uint8_t *)in)[1]);
+		break;
+
+	case LWS_CALLBACK_CLIENT_CLOSED:
+		a->closed = 1;
+		a->event = 1;
+		a->wsi = NULL;
+		lws_set_opaque_user_data(wsi, NULL);
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+/*
+ * Run the loop until \p a flags an event, or give up.  The caller clears
+ * a->event before starting whatever it waits for, so an event that already
+ * happened (a socket the server closed while we looked at another) counts.
+ */
+static int
+aws_wait(struct aws *a)
+{
+	lws_usec_t deadline = lws_now_usecs() + (15 * LWS_US_PER_SEC);
+
+	while (!a->event && lws_service(context, 0) >= 0)
+		if (lws_now_usecs() > deadline)
+			return 1;
+
+	return 0;
+}
+
+/*
+ * Open a console ws presenting \p origin, which is the authority part only:
+ * the client composes "https://" + it into the Origin header.  0 if it came
+ * up, else 1 (a->refused says if it was refused rather than unanswered).
+ */
+static int
+aws_open(struct aws *a, const char *origin)
+{
+	struct lws_client_connect_info i;
+	char hostport[128];
+
+	memset(a, 0, sizeof(*a));
+	lws_strncpy(a->origin, origin, sizeof(a->origin));
+	lws_snprintf(hostport, sizeof(hostport), "%s:%d", server, port_auth);
+
+	memset(&i, 0, sizeof(i));
+	i.context		= context;
+	i.port			= port_auth;
+	i.address		= server;
+	i.path			= "/api";
+	i.host			= hostport;
+	i.origin		= a->origin;
+	i.protocol		= "lws-auth-server";
+	i.local_protocol_name	= "admin-ws";
+	i.alpn			= "http/1.1";
+	i.opaque_user_data	= a;
+	i.pwsi			= &a->wsi;
+	i.ssl_connection	= LCCSCF_USE_SSL |
+				  LCCSCF_ALLOW_SELFSIGNED |
+				  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK |
+				  LCCSCF_ALLOW_INSECURE;
+
+	if (!lws_client_connect_via_info(&i)) {
+		a->refused = 1;
+		return 1;
+	}
+
+	/* it comes up, or it is refused: either way, an answer */
+	if (aws_wait(a)) {
+		lwsl_err("%s: no answer to the upgrade\n", __func__);
+		return 1;
+	}
+
+	return !a->established;
+}
+
+/*
+ * Send one op; 0 if a list_reply came back, 1 if the socket closed instead,
+ * 2 if nothing happened
+ */
+static int
+aws_op(struct aws *a, const char *msg)
+{
+	int replies = a->list_replies;
+
+	if (!a->wsi)
+		return 1;
+
+	a->tx = msg;
+	a->event = 0;
+	lws_callback_on_writable(a->wsi);
+
+	if (aws_wait(a))
+		return 2;
+
+	return a->list_replies > replies ? 0 : 1;
+}
+
+/* log the seeded admin in on the auth server, for its auth_session cookie */
+static int
+admin_login(void)
+{
+	char csrf[128], b[512];
+
+	if (req_full(JAR_AUTH, port_auth, "/api/status", NULL) ||
+	    status != 200 ||
+	    json_str(body, "csrf_token", csrf, sizeof(csrf)) || !csrf[0])
+		return fail("adminws", "/api/status answered %u with no csrf",
+			    status);
+
+	lws_snprintf(b, sizeof(b), "username=%s&password=%s&csrf_token=%s",
+		     SEED_USER_ADMIN, SEED_PASSWORD, csrf);
+
+	if (req_full(JAR_AUTH, port_auth, "/api/login", b) || status != 200)
+		return fail("adminws", "/api/login answered %u for the seeded "
+				       "admin: '%s'", status, body);
+
+	if (!jar_value(JAR_AUTH, "auth_session"))
+		return fail("adminws", "the auth server planted no "
+				       "auth_session cookie at login");
+
+	return 0;
+}
+
+static int
+scenario_adminws(void)
+{
+	char origin[160], op[256];
+	struct aws a, b;
+
+	/* as the console page served from this vhost would send it */
+	lws_snprintf(origin, sizeof(origin), "%s:%d", server, port_auth);
+
+	if (admin_login())
+		return 1;
+
+	/* (1) a page on any other origin gets no console */
+
+	if (!aws_open(&a, "elsewhere.invalid") || !a.refused)
+		return fail("adminws", "the console did not refuse a foreign "
+				       "Origin");
+
+	/* (2) our own origin does, twice over, and both work */
+
+	if (aws_open(&a, origin) || aws_open(&b, origin))
+		return fail("adminws", "the console refused the admin from "
+				       "its own origin");
+
+	if (aws_op(&a, "{\"op\":\"list\"}") || aws_op(&b, "{\"op\":\"list\"}"))
+		return fail("adminws", "no list_reply on a live console");
+
+	/*
+	 * (3) demote ourselves from console a: the edit moves the account's
+	 * session epoch on, as a password reset does, and removes '*'.  The
+	 * socket that did it closes instead of answering, and so does b,
+	 * which sends nothing: the server has to find it and close it
+	 */
+
+	lws_snprintf(op, sizeof(op), "{\"op\":\"edit\",\"uid\":%d,"
+		     "\"grants\":\"%s:1\"}", SEED_UID_ADMIN, service_name);
+	b.event = 0;
+	if (aws_op(&a, op) != 1 || !a.closed)
+		return fail("adminws", "the console of a demoted admin stayed "
+				       "open");
+
+	if (aws_wait(&b) || !b.closed)
+		return fail("adminws", "an idle console of the demoted admin "
+				       "stayed open");
+
+	if (a.close_code != LWS_CLOSE_STATUS_POLICY_VIOLATION ||
+	    b.close_code != LWS_CLOSE_STATUS_POLICY_VIOLATION)
+		return fail("adminws", "the consoles closed with %u / %u, "
+				       "wanted %u", a.close_code, b.close_code,
+			    LWS_CLOSE_STATUS_POLICY_VIOLATION);
+
+	/* (4) and his cookie, minted when he held '*', opens nothing now */
+
+	if (!aws_open(&a, origin) || !a.refused)
+		return fail("adminws", "a token minted before the demotion "
+				       "was not refused the console");
+
+	lwsl_user("PASS: adminws: foreign Origin refused, a demotion closes "
+		  "the console that did it and an idle one\n");
+
+	return 0;
+}
+
 /* ---------------------------------------------------------------------- main */
 
 int
@@ -1435,6 +1761,8 @@ main(int argc, const char **argv)
 		bad = scenario_login();
 	else if (!strcmp(test, "dualhost"))
 		bad = scenario_dualhost();
+	else if (!strcmp(test, "adminws"))
+		bad = scenario_adminws();
 	else if (!strcmp(test, "uninit")) {
 		if (!port_uninit || !port_failinit) {
 			lwsl_err("%s: uninit needs --uninit-port and "

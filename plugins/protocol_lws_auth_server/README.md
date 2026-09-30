@@ -112,6 +112,24 @@ The very first user promoted into an empty `users` table (i.e. the one whose ver
 ### Web Administration Dashboard
 Users holding the `*` wildcard grant can gain access to the built-in JSON Web UI natively mounted at `/admin` **(Note: This path is relative to wherever you mounted the `callback://lws-auth-server` endpoint for the API itself, e.g. `https://auth.warmcat.com/api/admin` or `https://auth.warmcat.com/auth/api/admin`)**! This dashboard utilizes a bi-directional WebSocket backend to allow you to easily edit user grants, list accounts, or purge identities without manually writing raw SQL queries.  *(Note: For security reasons, the underlying system intrinsically prohibits anyone from deleting identities holding the `*` wildcard through the `/admin` UI to prevent irreversible lockout scenarios).*
 
+The dashboard's WebSocket is only accepted from a page on the auth vhost's own
+origin (its `Origin` must be `https://` plus the host the request was sent
+to), since `SameSite=Lax` does not stop a page on a same-site host (a sibling
+subdomain, or the apps on the parent domain) from sending the session cookie
+with an upgrade.  It is authorised by the session at the upgrade, and that
+session is checked again before every operation, before every message it
+sends and every 10s while idle: once the session has expired or been revoked
+(a password reset, the account deleted), or the account no longer holds `*`
+in the grants table, the socket is closed with status 1008 and the page
+reloads.
+
+Editing an account's grants moves that account's session epoch on, so the
+tokens it holds, which carry the old grants in their `grants` claim, stop
+being accepted at once rather than when they expire; with refresh sessions
+enabled the next renewal mints one with the grants as edited, otherwise the
+user logs in again.  This includes editing your own account from the
+dashboard, which ends your own session.
+
 ### Complete Server Wipe Recovery
 If you catastrophically lose access to the single TOFU administrator account or severely corrupt the grants table to the point of a hard lockout, you can safely trigger a pristine reboot. Stop the server, delete the SQLite `db_path` file entirely (and optionally, the `jwk_path` to forcibly rotate all deployed cryptographic signatures downstream), and restart `libwebsockets`. A brand-new database schema will be generated, and the TOFU bootstrap registration will be accepted again from any interface — provided email delivery is functional so you can complete the verification step.
 

@@ -121,6 +121,12 @@ enum enum_param_names {
 	 (AUTH_SERVER_CLEAR_COOKIES * AUTH_SERVER_CLEAR_COOKIE_SZ) + 1024)
 
 /*
+ * How often an idle admin ws re-checks the session it was opened with, so an
+ * expiry or a revocation nobody announced still closes it
+ */
+#define AUTH_ADMIN_WS_RECHECK_US	(10 * LWS_US_PER_SEC)
+
+/*
  * Add one response header, saying exactly what did not fit when it does not.
  * Returns 0 if it was added, 1 if it would not fit (the caller must fail the
  * response: a truncated header block is not recoverable).
@@ -246,6 +252,15 @@ struct per_session_data__auth_server {
 	unsigned int                    http_response_code;
 	int                             totp_required;
 	struct lws_buflist              *tx_buflist;
+
+	/*
+	 * admin ws only: the session it was authorised with at the upgrade,
+	 * since the cookie is gone by the time the ops arrive
+	 */
+	char				ws_did[128];
+	uint64_t			ws_exp;
+	uint32_t			ws_uid;
+	uint32_t			ws_sec;
 };
 
 static const char *schema_init =
@@ -989,6 +1004,68 @@ auth_sanitise_host(char *host, size_t host_len, const char *fallback)
 }
 
 /*
+ * Is the session described by these token claims still live?  0 if so, or 1
+ * if it expired or was revoked.  The checks auth_session_jwt() applies to a
+ * presented token, split out so the admin ws can repeat them for as long as
+ * it is open, from the claims it kept at the upgrade.
+ */
+
+static int
+auth_session_claims_live(struct lws *wsi,
+			 struct per_vhost_data__auth_server *vhd,
+			 uint32_t uid, uint32_t sec, uint64_t exp,
+			 const char *did)
+{
+	sqlite3_stmt *stmt;
+	int ok = 0;
+
+	if (exp <= (uint64_t)time(NULL)) {
+		lwsl_wsi_info(wsi, "%s: session JWT expired", __func__);
+		return 1;
+	}
+
+	if (!uid)
+		return 1;
+
+	if (sqlite3_prepare_v2(vhd->db, "SELECT session_epoch FROM users "
+			       "WHERE uid = ?", -1, &stmt, NULL) == SQLITE_OK) {
+		sqlite3_bind_int(stmt, 1, (int)uid);
+		if (sqlite3_step(stmt) == SQLITE_ROW &&
+		    (uint32_t)sqlite3_column_int(stmt, 0) == sec)
+			ok = 1;
+		sqlite3_finalize(stmt);
+	}
+
+	if (!ok) {
+		lwsl_wsi_notice(wsi, "%s: uid %u session epoch stale, or user "
+				"gone: token revoked", __func__, uid);
+		return 1;
+	}
+
+	if (!did || !did[0])
+		return 0;
+
+	ok = 0;
+	if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM devices WHERE "
+			       "device_id = ? AND uid = ?", -1, &stmt,
+			       NULL) == SQLITE_OK) {
+		sqlite3_bind_text(stmt, 1, did, -1, SQLITE_TRANSIENT);
+		sqlite3_bind_int(stmt, 2, (int)uid);
+		if (sqlite3_step(stmt) == SQLITE_ROW)
+			ok = 1;
+		sqlite3_finalize(stmt);
+	}
+
+	if (!ok) {
+		lwsl_wsi_notice(wsi, "%s: device token for a device row that "
+				"no longer exists: revoked", __func__);
+		return 1;
+	}
+
+	return 0;
+}
+
+/*
  * Resolve the session JWT presented on wsi, or NULL if there is no *usable*
  * one.  Every lws_jwt_auth_create() in this plugin must come through here.
  *
@@ -1016,12 +1093,7 @@ auth_sanitise_host(char *host, size_t host_len, const char *fallback)
 static struct lws_jwt_auth *
 auth_session_jwt(struct lws *wsi, struct per_vhost_data__auth_server *vhd)
 {
-	uint64_t now = (uint64_t)time(NULL);
 	struct lws_jwt_auth *ja;
-	sqlite3_stmt *stmt;
-	const char *did;
-	uint32_t uid;
-	int ok = 0;
 
 	if (!vhd->cookie_name[0])
 		return NULL;
@@ -1031,58 +1103,122 @@ auth_session_jwt(struct lws *wsi, struct per_vhost_data__auth_server *vhd)
 	if (!ja)
 		return NULL;
 
-	if (lws_jwt_auth_get_exp(ja) <= now) {
-		lwsl_wsi_info(wsi, "%s: session JWT expired", __func__);
-		goto reject;
-	}
+	if (auth_session_claims_live(wsi, vhd, lws_jwt_auth_get_uid(ja),
+				     lws_jwt_auth_get_sec(ja),
+				     lws_jwt_auth_get_exp(ja),
+				     lws_jwt_auth_get_did(ja))) {
+		lws_jwt_auth_destroy(&ja);
 
-	uid = lws_jwt_auth_get_uid(ja);
-	if (!uid)
-		goto reject;
-
-	if (sqlite3_prepare_v2(vhd->db, "SELECT session_epoch FROM users "
-			       "WHERE uid = ?", -1, &stmt, NULL) == SQLITE_OK) {
-		sqlite3_bind_int(stmt, 1, (int)uid);
-		if (sqlite3_step(stmt) == SQLITE_ROW &&
-		    (uint32_t)sqlite3_column_int(stmt, 0) ==
-						lws_jwt_auth_get_sec(ja))
-			ok = 1;
-		sqlite3_finalize(stmt);
-	}
-
-	if (!ok) {
-		lwsl_wsi_notice(wsi, "%s: uid %u session epoch stale, or user "
-				"gone: token revoked", __func__, uid);
-		goto reject;
-	}
-
-	did = lws_jwt_auth_get_did(ja);
-	if (did) {
-		ok = 0;
-		if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM devices WHERE "
-				       "device_id = ? AND uid = ?", -1, &stmt,
-				       NULL) == SQLITE_OK) {
-			sqlite3_bind_text(stmt, 1, did, -1, SQLITE_TRANSIENT);
-			sqlite3_bind_int(stmt, 2, (int)uid);
-			if (sqlite3_step(stmt) == SQLITE_ROW)
-				ok = 1;
-			sqlite3_finalize(stmt);
-		}
-
-		if (!ok) {
-			lwsl_wsi_notice(wsi, "%s: device token for a device "
-					"row that no longer exists: revoked",
-					__func__);
-			goto reject;
-		}
+		return NULL;
 	}
 
 	return ja;
+}
 
-reject:
-	lws_jwt_auth_destroy(&ja);
+/* does uid hold the '*' grant in the grants table now? */
 
-	return NULL;
+static int
+auth_uid_is_admin(struct per_vhost_data__auth_server *vhd, uint32_t uid)
+{
+	sqlite3_stmt *stmt;
+	int r = 0;
+
+	if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM grants g JOIN services "
+			       "s ON g.service_id = s.service_id WHERE "
+			       "g.uid = ? AND s.name = '*' AND "
+			       "g.grant_level >= 1", -1, &stmt,
+			       NULL) != SQLITE_OK)
+		return 0;
+
+	sqlite3_bind_int(stmt, 1, (int)uid);
+	r = sqlite3_step(stmt) == SQLITE_ROW;
+	sqlite3_finalize(stmt);
+
+	return r;
+}
+
+/*
+ * The admin ws is authorised by the session cookie at the upgrade, but lives
+ * on after it: a password reset, the account's deletion or demotion, or the
+ * token simply expiring, must end it too.  So every admin op, every write and
+ * a periodic timer come back here with the claims kept at the upgrade.
+ * Returns 0 if the socket may carry on, else sets the close reason and returns
+ * 1, the caller then returns -1 to close it.
+ */
+
+static int
+auth_admin_ws_revoked(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
+		      struct per_session_data__auth_server *pss)
+{
+	static const char reason[] = "admin session ended";
+
+	if (!auth_session_claims_live(wsi, vhd, pss->ws_uid, pss->ws_sec,
+				      pss->ws_exp, pss->ws_did) &&
+	    auth_uid_is_admin(vhd, pss->ws_uid))
+		return 0;
+
+	lwsl_wsi_notice(wsi, "%s: closing admin ws of uid %u", __func__,
+			pss->ws_uid);
+	lws_close_reason(wsi, LWS_CLOSE_STATUS_POLICY_VIOLATION,
+			 (uint8_t *)reason, sizeof(reason) - 1);
+
+	return 1;
+}
+
+/*
+ * A session was just revoked or an account's grants changed: have every admin
+ * ws on the vhost re-check itself now (in SERVER_WRITEABLE), rather than at
+ * its next op or timer
+ */
+
+static void
+auth_admin_ws_recheck_all(struct per_vhost_data__auth_server *vhd)
+{
+	lws_callback_on_writable_all_protocol_vhost(vhd->vhost, vhd->protocol);
+}
+
+/*
+ * Cross-site WebSocket hijacking: a ws upgrade is not subject to the
+ * same-origin policy and carries the ambient session cookie, and SameSite=Lax
+ * does not stop a page on a *same-site* host (a sibling subdomain, or the
+ * apps on the parent domain) from sending it.  The only legitimate client of
+ * the admin ws is the console page this vhost serves, so the Origin must be
+ * this vhost's own: https://<the Host / :authority the request was sent to>.
+ * A browser always sends Origin on a ws upgrade, and "null" never matches.
+ * 0 if it is ours, 1 to refuse.
+ */
+
+static int
+auth_admin_ws_origin_ok(struct lws *wsi)
+{
+	char origin[256], host[256];
+	const char *p;
+
+	if (lws_hdr_copy(wsi, origin, sizeof(origin),
+			 WSI_TOKEN_ORIGIN) <= 0 || !origin[0])
+		return 1;
+
+	/* h2 and h3 carry the authority in :authority, h1 in Host */
+
+	if (lws_hdr_copy(wsi, host, sizeof(host),
+			 WSI_TOKEN_HTTP_COLON_AUTHORITY) <= 0 &&
+	    lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST) <= 0)
+		return 1;
+
+	if (!strncmp(origin, "https://", 8))
+		p = origin + 8;
+	else if (!lws_is_ssl(wsi) && !strncmp(origin, "http://", 7))
+		/*
+		 * Not the TLS terminator ourselves, so an https deployment
+		 * behind a proxy looks the same as an http one: accept our
+		 * own host over either scheme then.  A vhost doing its own
+		 * TLS only ever accepts https.
+		 */
+		p = origin + 7;
+	else
+		return 1;
+
+	return !!strcasecmp(p, host);
 }
 
 static int
@@ -2098,6 +2234,11 @@ lws_auth_api_reset_password(struct lws *wsi, struct per_vhost_data__auth_server 
 			sqlite3_bind_int(stmt, 3, (int)uid);
 			if (sqlite3_step(stmt) == SQLITE_DONE) {
 				sqlite3_stmt *del_stmt;
+
+				sqlite3_finalize(stmt);
+				/* the epoch moved: an open admin ws of his closes */
+				auth_admin_ws_recheck_all(vhd);
+
 				if (sqlite3_prepare_v2(vhd->db, "DELETE FROM auth_sessions WHERE uid = ?", -1, &del_stmt, NULL) == SQLITE_OK) {
 					sqlite3_bind_int(del_stmt, 1, (int)uid);
 					sqlite3_step(del_stmt);
@@ -4486,6 +4627,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 	{
+		/* also where auth_admin_ws_recheck_all() lands */
+		if (!vhd || auth_admin_ws_revoked(wsi, vhd, pss))
+			return -1;
+
 		if (!pss->tx_buflist)
 			break;
 
@@ -4515,6 +4660,12 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			/* not initialized on this vhost, see HTTP above */
 			return 1;
 
+		if (auth_admin_ws_origin_ok(wsi)) {
+			lwsl_wsi_notice(wsi, "admin ws refused: Origin is not "
+					     "this vhost");
+			return 1;
+		}
+
 		ja = auth_session_jwt(wsi, vhd);
 		gl = ja ? lws_jwt_auth_query_grant(ja, "*") : -1;
 
@@ -4526,11 +4677,37 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_info("WS connection rejected: missing administrative wildcard grant\n");
 			return 1;
 		}
+
+		/*
+		 * Keep what the ops have to re-check the session against: the
+		 * cookie is not available to them
+		 */
+		pss->ws_uid = lws_jwt_auth_get_uid(ja);
+		pss->ws_sec = lws_jwt_auth_get_sec(ja);
+		pss->ws_exp = lws_jwt_auth_get_exp(ja);
+		lws_strncpy(pss->ws_did, lws_jwt_auth_get_did(ja) ?
+				lws_jwt_auth_get_did(ja) : "",
+			    sizeof(pss->ws_did));
 		lws_jwt_auth_destroy(&ja);
+
+		/* the token's grants claim, and the grants table now */
+		if (!auth_uid_is_admin(vhd, pss->ws_uid)) {
+			lwsl_wsi_notice(wsi, "admin ws refused: uid %u no "
+					"longer holds '*'", pss->ws_uid);
+			return 1;
+		}
+
 		return 0;
 	}
 
 	case LWS_CALLBACK_ESTABLISHED:
+		lws_set_timer_usecs(wsi, AUTH_ADMIN_WS_RECHECK_US);
+		break;
+
+	case LWS_CALLBACK_TIMER:
+		if (!vhd || auth_admin_ws_revoked(wsi, vhd, pss))
+			return -1;
+		lws_set_timer_usecs(wsi, AUTH_ADMIN_WS_RECHECK_US);
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
@@ -4543,6 +4720,17 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (!vhd)
 			return -1;
+
+		/* the session behind the socket must still be an admin one */
+		if (auth_admin_ws_revoked(wsi, vhd, pss))
+			return -1;
+
+		/*
+		 * The ws role NUL-terminates a non-empty message for us, an
+		 * empty one it does not, and there is nothing to do for it
+		 */
+		if (!len)
+			break;
 		if ((gp = (char *)strstr((const char *)in, "\"op\":\""))) {
 			gp += 6;
 			int i = 0;
@@ -4657,11 +4845,24 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_snprintf(dq, sizeof(dq), "DELETE FROM grants WHERE uid=%d", req_uid); sqlite3_exec(vhd->db, dq, NULL, NULL, NULL);
 				lws_snprintf(dq, sizeof(dq), "DELETE FROM users WHERE uid=%d", req_uid); sqlite3_exec(vhd->db, dq, NULL, NULL, NULL);
 				sqlite3_exec(vhd->db, "COMMIT;", NULL, NULL, NULL);
+				auth_admin_ws_recheck_all(vhd);
 			}
 		} else if (!strcmp(op, "edit") && req_uid > 0) {
 			sqlite3_exec(vhd->db, "BEGIN TRANSACTION;", NULL, NULL, NULL);
 			char eq[256];
 			lws_snprintf(eq, sizeof(eq), "DELETE FROM grants WHERE uid=%d", req_uid);
+			sqlite3_exec(vhd->db, eq, NULL, NULL, NULL);
+			/*
+			 * The account's live tokens carry its old grants in
+			 * their "grants" claim, which /admin, /device and this
+			 * ws gate on, so a demotion would not take effect
+			 * until they expired.  Move its session epoch on so
+			 * they stop being accepted: a refresh session mints a
+			 * new token with the grants as edited.
+			 */
+			lws_snprintf(eq, sizeof(eq), "UPDATE users SET "
+				     "session_epoch = session_epoch + 1 "
+				     "WHERE uid=%d", req_uid);
 			sqlite3_exec(vhd->db, eq, NULL, NULL, NULL);
 
 			char *p2 = new_grants;
@@ -4704,6 +4905,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				p2 = delim + 1;
 			}
 			sqlite3_exec(vhd->db, "COMMIT;", NULL, NULL, NULL);
+			auth_admin_ws_recheck_all(vhd);
 		}
 
 		size_t alloc_sz = 65536 + LWS_PRE;
