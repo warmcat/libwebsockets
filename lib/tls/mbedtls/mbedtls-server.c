@@ -30,10 +30,50 @@
 extern int lws_plat_mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len);
 extern int lws_plat_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len);
 
+/*
+ * The client cert authmode the vhost's options ask for.
+ *
+ * With LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE he wants
+ * the client cert collected and kept so he can decide about it himself after
+ * the handshake.  mbedtls only sends a CertificateRequest, and only parses and
+ * keeps what comes back, if the authmode is not VERIFY_NONE... and
+ * VERIFY_NONE is what mbedtls_ssl_config_defaults() leaves a server at.  So
+ * VERIFY_OPTIONAL is precisely what that option means: ask for the cert and
+ * keep it, but don't fail the handshake on it.
+ *
+ * The two options are orthogonal: asking to inspect the cert after the
+ * handshake must not quietly cancel an explicit "require a valid client
+ * cert".  VERIFY_REQUIRED keeps the peer cert around for inspection just the
+ * same, it only additionally refuses the ones that do not verify.
+ */
+
+static int
+lws_mbedtls_vhost_authmode(const struct lws_vhost *vh)
+{
+	int require = !!lws_check_opt(vh->options,
+			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT);
+
+	if (require &&
+	    !lws_check_opt(vh->options, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
+		return MBEDTLS_SSL_VERIFY_REQUIRED;
+
+	if (require || lws_check_opt(vh->options,
+		LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE))
+		return MBEDTLS_SSL_VERIFY_OPTIONAL;
+
+	return MBEDTLS_SSL_VERIFY_NONE;
+}
+
+/*
+ * lws_tls_vhost_backend_create_ctx() already applied the authmode to the
+ * ctx, so that a ctx remade on a cert update has it too; this is the vhost
+ * init's chance to say what it is.
+ */
+
 int
 lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 {
-	int verify_options = MBEDTLS_SSL_VERIFY_OPTIONAL, post_handshake, require;
+	int verify_options;
 
 	/*
 	 * The vhost may legitimately have no ctx, eg, it was created with
@@ -44,29 +84,16 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 	if (!vh->tls.ssl_ctx)
 		return 0;
 
-	post_handshake = !!lws_check_opt(vh->options,
-		LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE);
-	require = !!lws_check_opt(vh->options,
-		LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT);
+	verify_options = lws_mbedtls_vhost_authmode(vh);
 
-	if (!post_handshake && !require) {
+	if (verify_options == MBEDTLS_SSL_VERIFY_NONE) {
 		lwsl_notice("no client cert required\n");
 
 		return 0;
 	}
 
-	if (post_handshake) {
-		/*
-		 * He wants the client cert collected and kept so he can decide
-		 * about it himself after the handshake.  mbedtls only sends a
-		 * CertificateRequest, and only parses and keeps what comes
-		 * back, if the authmode is not VERIFY_NONE... and VERIFY_NONE
-		 * is what mbedtls_ssl_config_defaults() leaves a server at.
-		 * So VERIFY_OPTIONAL is precisely what this option means: ask
-		 * for the cert and keep it, but don't fail the handshake on
-		 * it.  Leaving it at the default made the option a silent
-		 * no-op, ie, there was never any client cert to inspect.
-		 */
+	if (lws_check_opt(vh->options,
+		LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE)) {
 		lwsl_notice("%s: vh %s can verify client cert post-handshake\n",
 				__func__, vh->name);
 
@@ -77,18 +104,6 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 			  "handshake\n", __func__);
 #endif
 	}
-
-	/*
-	 * The two options are orthogonal: asking to inspect the cert after the
-	 * handshake must not quietly cancel an explicit "require a valid
-	 * client cert".  VERIFY_REQUIRED keeps the peer cert around for
-	 * inspection just the same, it only additionally refuses the ones that
-	 * do not verify.
-	 */
-
-	if (require &&
-	    !lws_check_opt(vh->options, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
-		verify_options = MBEDTLS_SSL_VERIFY_REQUIRED;
 
 	lwsl_notice("%s: vh %s client cert authmode %d\n", __func__, vh->name,
 		    verify_options);
@@ -381,8 +396,13 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 	lws_mbedtls_conf_floor(&ctx->conf, vhost->tls.ssl_options_clear);
 
 	/*
-	 * Applied here rather than in lws_tls_server_vhost_backend_init(), so
-	 * a ctx recreated later (eg, on a cert update) also gets it
+	 * Everything the vhost's config asks of its ctx is applied here rather
+	 * than in lws_tls_server_vhost_backend_init() or the generic vhost
+	 * init, so a ctx remade later by lws_tls_cert_updated() also gets it:
+	 * a renewed ctx without the SNI callback would serve every name this
+	 * vhost's cert and never refuse an unknown one (C-424), and one
+	 * without the authmode or ALPN would stop asking for client certs or
+	 * offering h2
 	 */
 
 	if (lws_mbedtls_conf_ciphers(ctx, vhost->name,
@@ -390,6 +410,11 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 				     vhost->tls.cfg_ssl_cipher_list,
 				     vhost->tls.cfg_tls1_3_plus_cipher_list))
 		return 1;
+
+	mbedtls_ssl_conf_sni(&ctx->conf, lws_mbedtls_sni_cb, vhost->context);
+	mbedtls_ssl_conf_authmode(&ctx->conf, lws_mbedtls_vhost_authmode(vhost));
+	lws_mbedtls_set_alpn(ctx, vhost->tls.alpn ? vhost->tls.alpn :
+					vhost->context->tls.alpn_default);
 
 #if !defined(LWS_HAVE_MBEDTLS_V4)
 	mbedtls_ssl_conf_rng(&ctx->conf, lws_gencrypto_mbedtls_rngf, vhost->context);
@@ -432,16 +457,15 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 {
 	int n;
 
+	/*
+	 * The configured cipher lists, the SNI callback, the client cert
+	 * authmode and the ALPN list are all applied in
+	 * lws_tls_vhost_backend_create_ctx(), which fails if any cipher list
+	 * entry could not be mapped
+	 */
+
 	if (lws_tls_vhost_backend_create_ctx(vhost))
 		return 1;
-
-	mbedtls_ssl_conf_sni(&vhost->tls.ssl_ctx->conf, lws_mbedtls_sni_cb, vhost->context);
-
-	/*
-	 * The configured cipher lists were mapped to mbedtls ciphersuite ids
-	 * and applied in lws_tls_vhost_backend_create_ctx() above, which
-	 * fails if any entry could not be mapped
-	 */
 
 	if (!vhost->tls.use_ssl ||
 	    (!info->ssl_cert_filepath && !info->server_ssl_cert_mem))

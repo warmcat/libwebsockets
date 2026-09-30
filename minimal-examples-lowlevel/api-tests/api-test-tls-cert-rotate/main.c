@@ -19,6 +19,15 @@
  *    key file is still empty), since a failed rotation leaves the vhost on
  *    what it had
  *  - the first cert again, after a second rotation
+ *
+ * A second vhost, "localhost", shares the listener with its own cert, which
+ * is the first cert.  Renewing "srv" must not cost the listener its SNI: once
+ * "srv" is on the renewed cert, a client naming "localhost" must still be
+ * shown the "localhost" vhost's cert.  That client checks the cert is for the
+ * name it dialled, so a listener that lost its SNI callback, and showed him
+ * "srv"'s renewed cert, fails it.  (The other steps skip that check, since
+ * "srv" is shown both certs in turn; mbedtls clients then send no SNI at all,
+ * which is fine for them, "srv" is the vhost that owns the listener.)
  */
 
 #include <libwebsockets.h>
@@ -36,20 +45,24 @@ enum rotation {
 
 struct step {
 	const char	*name;
+	const char	*sni;		/* the vhost name the client dials */
 	const char	*cert;		/* in --certs dir, to write into LIVE_ */
 	const char	*key;
 	enum rotation	rot;
 	const char	*expect_cn;	/* the cert the client must be shown */
+	char		check_name;	/* ...and must find is for sni */
 };
 
 static const struct step steps[] = {
-	{ "initial cert", NULL, NULL, ROT_NONE, "localhost" },
-	{ "rotated", "wronghost.example.com.cert", "wronghost.example.com.key",
-	  ROT_OK, "wronghost.example.com" },
-	{ "rotation without a key keeps the cert", "localhost-100y.cert", NULL,
-	  ROT_NO_KEY, "wronghost.example.com" },
-	{ "rotated back", "localhost-100y.cert", "localhost-100y.key",
-	  ROT_OK, "localhost" },
+	{ "initial cert", "srv", NULL, NULL, ROT_NONE, "localhost", 0 },
+	{ "rotated", "srv", "wronghost.example.com.cert",
+	  "wronghost.example.com.key", ROT_OK, "wronghost.example.com", 0 },
+	{ "rotated, the other vhost by SNI", "localhost", NULL, NULL, ROT_NONE,
+	  "localhost", 1 },
+	{ "rotation without a key keeps the cert", "srv", "localhost-100y.cert",
+	  NULL, ROT_NO_KEY, "wronghost.example.com", 0 },
+	{ "rotated back", "srv", "localhost-100y.cert", "localhost-100y.key",
+	  ROT_OK, "localhost", 0 },
 };
 
 static struct lws_context *context;
@@ -64,6 +77,7 @@ static struct {
 	int		status;
 	int		done;
 	int		failed;
+	int		reported;	/* step_done() had its say */
 } cli;
 
 /* the server: 200 "ok" to anything */
@@ -134,6 +148,10 @@ next_step(lws_sorted_usec_list_t *sul);
 static void
 step_done(const char *why)
 {
+	if (cli.reported)
+		return;
+	cli.reported = 1;
+
 	if (why) {
 		lwsl_err("--- %s: FAIL: %s ---\n", steps[cur].name, why);
 		lws_default_loop_exit(context);
@@ -142,6 +160,8 @@ step_done(const char *why)
 
 	lwsl_user("--- %s: served under '%s': PASS ---\n", steps[cur].name,
 		  cli.cn);
+
+	lws_sul_schedule(context, 0, &sul_next, next_step, 1);
 }
 
 static int
@@ -192,13 +212,15 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		else if (strcmp(cli.cn, steps[cur].expect_cn))
 			why = "served under the wrong cert";
 
-		cli.failed = !!why;
-		step_done(why);
-
 		/*
-		 * Don't let the connection keep warm: the next step must make
-		 * a new tls connection, to see what the vhost serves then
+		 * The next step is started when this connection has closed:
+		 * don't let it keep warm, the next step must make a new tls
+		 * connection, to see what the vhost serves then
 		 */
+		cli.failed = !!why;
+		if (why)
+			step_done(why);
+
 		return -1;
 	}
 
@@ -218,7 +240,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		}
 		if (!cli.failed)
-			lws_sul_schedule(context, 0, &sul_next, next_step, 1);
+			step_done(NULL);
 		break;
 
 	default:
@@ -271,8 +293,8 @@ next_step(lws_sorted_usec_list_t *sul)
 	i.context		= context;
 	i.vhost			= vh_cli;
 	i.address		= server_addr;
-	i.host			= server_addr;
-	i.origin		= server_addr;
+	i.host			= s->sni;
+	i.origin		= s->sni;
 	i.port			= port;
 	i.path			= "/";
 	i.method		= "GET";
@@ -280,8 +302,9 @@ next_step(lws_sorted_usec_list_t *sul)
 	i.local_protocol_name	= "cli";
 	i.alpn			= "http/1.1";
 	/* both certs are self-signed, and neither is for server_addr */
-	i.ssl_connection	= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
-				  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+	i.ssl_connection	= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED;
+	if (!s->check_name)
+		i.ssl_connection |= LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	i.opaque_user_data	= (void *)s;
 
 	if (!lws_client_connect_via_info(&i))
@@ -305,6 +328,7 @@ int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
+	char other_cert[256], other_key[256];
 	const char *p;
 	int n = 0;
 
@@ -342,6 +366,18 @@ main(int argc, const char **argv)
 	info.vhost_name			= "srv";
 	info.ssl_cert_filepath		= LIVE_CERT;
 	info.ssl_private_key_filepath	= LIVE_KEY;
+	if (!lws_create_vhost(context, &info))
+		goto bail;
+
+	/* another vhost on the listener, its cert is never renewed */
+
+	lws_snprintf(other_cert, sizeof(other_cert), "%s/localhost-100y.cert",
+		     certs_dir);
+	lws_snprintf(other_key, sizeof(other_key), "%s/localhost-100y.key",
+		     certs_dir);
+	info.vhost_name			= "localhost";
+	info.ssl_cert_filepath		= other_cert;
+	info.ssl_private_key_filepath	= other_key;
 	if (!lws_create_vhost(context, &info))
 		goto bail;
 
