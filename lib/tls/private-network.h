@@ -78,9 +78,18 @@ struct alpn_ctx {
 	uint8_t len;
 };
 
+/*
+ * A tls ctx and who holds it: the vhost while it is the vhost's active one,
+ * and every connection that handshaked under it.  A connection can outlive
+ * the vhost, eg, after a Host: rebind onto another vhost, so a vhost's
+ * destruction leaves the refs connections still hold to the last of them,
+ * with vh NULLed: the ref's lifetime, and its lock, are not the vhost's
+ * (C-669).  Counted under the context lock.
+ */
 struct lws_tls_ctx_ref {
-	lws_dll2_t list;
-	struct lws_vhost *vh;
+	lws_dll2_t list;	/* on the vhost's retired_ctx_list, if retired */
+	struct lws_context *cx;
+	struct lws_vhost *vh;	/* whose ctx, NULL once that vhost is gone */
 	lws_tls_ctx *ctx;
 	int refcount;
 };

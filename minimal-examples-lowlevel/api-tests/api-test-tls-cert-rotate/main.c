@@ -28,6 +28,15 @@
  * "srv"'s renewed cert, fails it.  (The other steps skip that check, since
  * "srv" is shown both certs in turn; mbedtls clients then send no SNI at all,
  * which is fine for them, "srv" is the vhost that owns the listener.)
+ *
+ * Last, a connection outlives "srv" while holding its ctx.  A third vhost on
+ * the listener is named after the ipv4 loopback address, and a client dials
+ * that address: no SNI, so the handshake is under "srv"'s ctx, but its Host:
+ * header moves the connection to the third vhost.  While answering it, the
+ * server renews "srv"'s cert, so the ctx the connection holds is retired, and
+ * destroys "srv", which has nothing bound to it any more.  The connection is
+ * then answered and closed: the ctx it still holds must still be there, and
+ * be freed only then (under ASan, a ctx freed with "srv" is a use after free).
  */
 
 #include <libwebsockets.h>
@@ -51,23 +60,32 @@ struct step {
 	enum rotation	rot;
 	const char	*expect_cn;	/* the cert the client must be shown */
 	char		check_name;	/* ...and must find is for sni */
+	char		drop_srv;	/* renew and destroy srv while answering */
 };
 
+/* the third vhost's name, the address its client dials without SNI */
+#define REBIND_HOST	"127.0.0.1"
+
 static const struct step steps[] = {
-	{ "initial cert", "srv", NULL, NULL, ROT_NONE, "localhost", 0 },
+	{ "initial cert", "srv", NULL, NULL, ROT_NONE, "localhost", 0, 0 },
 	{ "rotated", "srv", "wronghost.example.com.cert",
-	  "wronghost.example.com.key", ROT_OK, "wronghost.example.com", 0 },
+	  "wronghost.example.com.key", ROT_OK, "wronghost.example.com", 0, 0 },
 	{ "rotated, the other vhost by SNI", "localhost", NULL, NULL, ROT_NONE,
-	  "localhost", 1 },
+	  "localhost", 1, 0 },
 	{ "rotation without a key keeps the cert", "srv", "localhost-100y.cert",
-	  NULL, ROT_NO_KEY, "wronghost.example.com", 0 },
+	  NULL, ROT_NO_KEY, "wronghost.example.com", 0, 0 },
 	{ "rotated back", "srv", "localhost-100y.cert", "localhost-100y.key",
-	  ROT_OK, "localhost", 0 },
+	  ROT_OK, "localhost", 0, 0 },
+	{ "rebound off srv, which goes while it holds srv's ctx", REBIND_HOST,
+	  "wronghost.example.com.cert", "wronghost.example.com.key", ROT_NONE,
+	  "localhost", 0, 1 },
 };
 
 static struct lws_context *context;
-static struct lws_vhost *vh_cli;
-static lws_sorted_usec_list_t sul_next, sul_watchdog;
+static struct lws_vhost *vh_cli, *vh_srv;
+static lws_sorted_usec_list_t sul_next, sul_watchdog, sul_drop;
+static struct lws *wsi_held;	/* the server connection srv goes under */
+static char answer_pending;
 static int result = 1, cur = -1, port = 7681;
 static const char *server_addr = "127.0.0.1", *certs_dir = ".";
 
@@ -80,6 +98,36 @@ static struct {
 	int		reported;	/* step_done() had its say */
 } cli;
 
+static int
+write_live(const char *live, const char *from);
+
+/*
+ * While the "drop_srv" step's connection waits for its answer: renew srv's
+ * cert, which retires the ctx the connection handshaked under, and destroy
+ * srv.  The connection was moved to the third vhost by its Host: header, so
+ * nothing is bound to srv and it goes at once.  Then answer.
+ */
+
+static void
+drop_srv_cb(lws_sorted_usec_list_t *sul)
+{
+	const struct step *s = &steps[cur];
+
+	if (write_live(LIVE_CERT, s->cert) || write_live(LIVE_KEY, s->key) ||
+	    lws_tls_cert_updated(context, LIVE_CERT, LIVE_KEY, NULL, 0,
+				 NULL, 0)) {
+		lwsl_err("%s: unable to renew srv's cert\n", __func__);
+		lws_default_loop_exit(context);
+		return;
+	}
+
+	lwsl_user("%s: srv renewed, destroying it\n", __func__);
+	lws_vhost_destroy(vh_srv);
+	vh_srv = NULL;
+
+	lws_callback_on_writable(wsi_held);
+}
+
 /* the server: 200 "ok" to anything */
 
 static int
@@ -91,6 +139,19 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
+		if (cur >= 0 && steps[cur].drop_srv) {
+			if (strcmp(lws_get_vhost_name(lws_get_vhost(wsi)),
+				   REBIND_HOST)) {
+				lwsl_err("%s: not moved to %s by Host:\n",
+					 __func__, REBIND_HOST);
+				return 1;
+			}
+			/* the answer waits until srv is gone */
+			wsi_held = wsi;
+			answer_pending = 1;
+			lws_sul_schedule(context, 0, &sul_drop, drop_srv_cb, 1);
+			return 0;
+		}
 		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
 				"text/plain", 2, &p, end) ||
 		    lws_finalize_write_http_header(wsi, start, &p, end))
@@ -99,12 +160,26 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
+		if (answer_pending) {
+			answer_pending = 0;
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+					"text/plain", 2, &p, end) ||
+			    lws_finalize_write_http_header(wsi, start, &p, end))
+				return 1;
+			lws_callback_on_writable(wsi);
+			return 0;
+		}
 		memcpy(start, "ok", 2);
 		if (lws_write(wsi, start, 2, LWS_WRITE_HTTP_FINAL) != 2)
 			return 1;
 		if (lws_http_transaction_completed(wsi))
 			return -1;
 		return 0;
+
+	case LWS_CALLBACK_CLOSED_HTTP:
+		if (wsi == wsi_held)
+			wsi_held = NULL;
+		break;
 
 	default:
 		break;
@@ -275,6 +350,13 @@ next_step(lws_sorted_usec_list_t *sul)
 	s = &steps[cur];
 	memset(&cli, 0, sizeof(cli));
 
+	if (s->drop_srv && strchr(server_addr, ':')) {
+		/* an ipv6-only build has no ipv4 loopback to dial */
+		lwsl_user("--- %s: skipped, needs ipv4 ---\n", s->name);
+		lws_sul_schedule(context, 0, &sul_next, next_step, 1);
+		return;
+	}
+
 	if (s->rot != ROT_NONE) {
 		if (write_live(LIVE_CERT, s->cert) ||
 		    write_live(LIVE_KEY, s->rot == ROT_OK ? s->key : NULL)) {
@@ -292,7 +374,8 @@ next_step(lws_sorted_usec_list_t *sul)
 	memset(&i, 0, sizeof(i));
 	i.context		= context;
 	i.vhost			= vh_cli;
-	i.address		= server_addr;
+	/* the drop_srv step dials the third vhost's address: no SNI */
+	i.address		= s->drop_srv ? REBIND_HOST : server_addr;
 	i.host			= s->sni;
 	i.origin		= s->sni;
 	i.port			= port;
@@ -366,7 +449,8 @@ main(int argc, const char **argv)
 	info.vhost_name			= "srv";
 	info.ssl_cert_filepath		= LIVE_CERT;
 	info.ssl_private_key_filepath	= LIVE_KEY;
-	if (!lws_create_vhost(context, &info))
+	vh_srv = lws_create_vhost(context, &info);
+	if (!vh_srv)
 		goto bail;
 
 	/* another vhost on the listener, its cert is never renewed */
@@ -378,6 +462,12 @@ main(int argc, const char **argv)
 	info.vhost_name			= "localhost";
 	info.ssl_cert_filepath		= other_cert;
 	info.ssl_private_key_filepath	= other_key;
+	if (!lws_create_vhost(context, &info))
+		goto bail;
+
+	/* and one a Host: header naming the loopback address moves him to */
+
+	info.vhost_name			= REBIND_HOST;
 	if (!lws_create_vhost(context, &info))
 		goto bail;
 
@@ -401,6 +491,7 @@ bail:
 	if (cur < 0)
 		lwsl_err("--- setup failed ---\n");
 	lws_sul_cancel(&sul_watchdog);
+	lws_sul_cancel(&sul_drop);
 	lws_context_destroy(context);
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");
 

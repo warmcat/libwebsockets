@@ -166,6 +166,7 @@ lws_tls_ctx_ref_create(struct lws_vhost *vh, lws_tls_ctx *ctx)
 	if (!ref)
 		return NULL;
 
+	ref->cx = vh->context;
 	ref->vh = vh;
 	ref->ctx = ctx;
 	ref->refcount = 1;
@@ -178,11 +179,11 @@ lws_tls_ctx_ref_get(struct lws_vhost *vh)
 {
 	struct lws_tls_ctx_ref *ref;
 
-	lws_vhost_lock(vh);
+	lws_context_lock(vh->context, __func__); /* ------------- cx { */
 	ref = vh->tls.active_ctx_ref;
 	if (ref)
 		ref->refcount++;
-	lws_vhost_unlock(vh);
+	lws_context_unlock(vh->context); /* } cx ------------- */
 
 	return ref;
 }
@@ -190,39 +191,56 @@ lws_tls_ctx_ref_get(struct lws_vhost *vh)
 void
 lws_tls_ctx_ref_unref(struct lws_tls_ctx_ref *ref)
 {
-	struct lws_vhost *vh;
+	struct lws_context *cx;
 
 	if (!ref)
 		return;
 
-	vh = ref->vh;
-	lws_vhost_lock(vh);
+	cx = ref->cx;
+	lws_context_lock(cx, __func__); /* ------------- cx { */
 	if (--ref->refcount == 0) {
+		/* off its vhost's retired list, if it is on one */
 		lws_dll2_remove(&ref->list);
 		lws_tls_vhost_backend_free_ctx(ref->ctx);
 		lws_free(ref);
 	}
-	lws_vhost_unlock(vh);
+	lws_context_unlock(cx); /* } cx ------------- */
 }
 
+/*
+ * The vhost is going: it lets go of its active ctx and of the retired ones.
+ * The vhost's destruction only waits for the connections bound to it, and a
+ * connection holding one of its ctx can be bound elsewhere by now (a Host:
+ * rebind), its session still using the ctx.  So a ref is only freed with its
+ * last holder: the ones connections still hold are left to them (C-669).
+ */
 void
 lws_tls_ctx_ref_destroy_all(struct lws_vhost *vhost)
 {
+	lws_context_lock(vhost->context, __func__); /* ------------- cx { */
+
 	if (vhost->tls.active_ctx_ref) {
+		/* the connections holding it, if any, no longer have a vhost */
+		vhost->tls.active_ctx_ref->vh = NULL;
 		lws_tls_ctx_ref_unref(vhost->tls.active_ctx_ref);
 		vhost->tls.active_ctx_ref = NULL;
 		vhost->tls.ssl_ctx = NULL;
 	}
 
+	/* a retired ref is only still listed while connections hold it */
+
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&vhost->tls.retired_ctx_list)) {
-		struct lws_tls_ctx_ref *r = lws_container_of(d, struct lws_tls_ctx_ref, list);
-		lwsl_vhost_err(vhost, "Retired ctx_ref %p leaked with refcount %d", r, r->refcount);
-		/* forcefully free it to avoid memory leak if WSI leaked */
+		struct lws_tls_ctx_ref *r = lws_container_of(d,
+						struct lws_tls_ctx_ref, list);
+
+		lwsl_vhost_info(vhost, "retired ctx still held by %d",
+				r->refcount);
 		lws_dll2_remove(&r->list);
-		lws_tls_vhost_backend_free_ctx(r->ctx);
-		lws_free(r);
+		r->vh = NULL;
 	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_context_unlock(vhost->context); /* } cx ------------- */
 }
 
 

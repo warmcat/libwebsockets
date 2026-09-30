@@ -13,6 +13,7 @@ the step expects.
 |rotated, the other vhost by SNI|localhost|nothing, the client checks the cert is for the name|localhost|
 |rotation without a key keeps the cert|srv|new cert written, key file still empty, so the load fails|wronghost.example.com|
 |rotated back|srv|first cert + key written again|localhost|
+|rebound off srv, which goes while it holds srv's ctx|127.0.0.1, no SNI|Host: moves it to the `127.0.0.1` vhost; while it waits for the answer, srv's cert is renewed and srv destroyed|localhost|
 
 A failed rotation must leave the vhost on the tls ctx it had, and each
 rotation must give the vhost a ctx of its own for the new cert, so the old one
@@ -25,6 +26,17 @@ a client naming `localhost` must still be shown the `localhost` vhost's cert.
 That client checks the cert it is shown is for the name it dialled, so a
 listener that lost its SNI, and shows it `srv`'s renewed cert, fails the step.
 The other steps skip that check, since `srv` is shown with both certs in turn.
+
+The last step checks a connection may outlive the vhost whose tls ctx it
+handshaked under.  A third vhost on the listener is named `127.0.0.1`, and a
+client dials that address, so it sends no SNI and the handshake is under
+`srv`'s ctx, but its `Host:` header moves the connection to the third vhost.
+While the server holds its answer back, it renews `srv`'s cert, which retires
+the ctx the connection is using, and destroys `srv`, which has nothing bound to
+it any more and goes at once.  The connection is then answered and closed: the
+retired ctx must only be freed then, with its last user (a ctx freed with the
+vhost is a use after free, which an ASan build shows).  An ipv6-only build
+skips this step.
 
 The live files `tls-cert-rotate-live.cert` / `.key` are written in the
 working directory (ctest runs it in the build dir); the certs copied into them
@@ -52,6 +64,8 @@ come from `--certs <dir>`.  Both certs are self-signed test certs.
 [2026/09/30 18:00:00:0000] U: --- rotated, the other vhost by SNI: served under 'localhost': PASS ---
 [2026/09/30 18:00:00:0000] U: --- rotation without a key keeps the cert: served under 'wronghost.example.com': PASS ---
 [2026/09/30 18:00:00:0000] U: --- rotated back: served under 'localhost': PASS ---
+[2026/09/30 18:00:00:0000] U: drop_srv_cb: srv renewed, destroying it
+[2026/09/30 18:00:00:0000] U: --- rebound off srv, which goes while it holds srv's ctx: served under 'localhost': PASS ---
 [2026/09/30 18:00:00:0000] U: --- all steps passed ---
 [2026/09/30 18:00:00:0000] U: Completed: PASS
 ```
