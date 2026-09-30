@@ -102,6 +102,20 @@ static struct lws_protocols protocols[] = {
 	{ NULL, NULL, 0, 0, 0, NULL, 0 } /* terminator */
 };
 
+/*
+ * A protocol is only given WebTransport sessions if its pvo on the vhost has
+ * a "webtransport" option.  With no mount and no protocol offered by the
+ * client, the vhost's default protocol (the first) takes the session.
+ */
+
+static const struct lws_protocol_vhost_options pvo_wt_opt = {
+	NULL, NULL, "webtransport", ""
+};
+
+static const struct lws_protocol_vhost_options pvo = {
+	NULL, &pvo_wt_opt, "webtransport", ""
+};
+
 static void
 sigint_handler(int sig)
 {
@@ -121,6 +135,7 @@ int main(int argc, const char **argv)
 	memset(&info, 0, sizeof info);
 	info.port = 7681;
 	info.protocols = protocols;
+	info.pvo = &pvo;
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 		       LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT;
 

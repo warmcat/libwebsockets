@@ -76,6 +76,41 @@ it must arrive.
 Sending or acting on a `CLOSE_WEBTRANSPORT_SESSION` capsule, to carry an error
 code or message, is not supported yet.
 
+### Which protocol gets the session
+
+The `wt` role drives its protocol with `LWS_CALLBACK_RECEIVE` and
+`LWS_CALLBACK_CLOSED`, the same reasons a ws server protocol gets, but a
+session is not a ws connection: there is no `LWS_CALLBACK_ESTABLISHED` and no
+ws framing state.  A protocol written for ws must never be given one, so a
+protocol only takes WebTransport sessions on a vhost where its pvo has a
+`"webtransport"` option, in the same way `"default"` or `"raw"` are given:
+
+```c
+static const struct lws_protocol_vhost_options pvo_wt_opt = {
+	NULL, NULL, "webtransport", ""
+};
+
+static const struct lws_protocol_vhost_options pvo = {
+	NULL, &pvo_wt_opt, "my-wt-protocol", ""
+};
+
+	info.pvo = &pvo;
+```
+
+or in lwsws JSON config, in the vhost's `"ws-protocols"` section,
+`"my-wt-protocol": { "webtransport": "1" }`.
+
+The protocol for a `CONNECT` is then chosen like this, and if the choice does
+not take WebTransport, the `CONNECT` is refused with a 404:
+
+ - if the `:path` is in a mount that names a protocol (`protocol`, or a
+   `callback://` origin), it is that protocol, whatever the client offered
+ - otherwise, if the client sent `wt-available-protocols`, the first protocol
+   it lists that takes WebTransport on the vhost
+ - otherwise the vhost's default protocol, as for a ws upgrade with no
+   protocol list.  Setting `default_protocol_index` out of range refuses
+   these, as it does for ws.
+
 ### Filtering the CONNECT
 
 Before the server answers the `CONNECT` with a 200 and the stream leaves the
@@ -105,6 +140,7 @@ info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 info.alpn = "h3"; /* Required for WebTransport */
 info.ssl_cert_filepath = "server.cert";
 info.ssl_private_key_filepath = "server.key";
+info.pvo = &pvo; /* the protocol's "webtransport" pvo option, see above */
 ```
 
 ### Handling the `wt` Protocol

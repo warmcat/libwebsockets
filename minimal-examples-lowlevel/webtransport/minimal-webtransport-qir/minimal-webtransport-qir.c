@@ -2434,6 +2434,40 @@ static void setup_dynamic_protocols(void)
 	/* Terminator is already zeroed out by memset */
 }
 
+/*
+ * A protocol is only given WebTransport sessions if its pvo on the vhost has a
+ * "webtransport" option.  Every protocol here is a WebTransport one, so give
+ * each of them a pvo with it.
+ */
+
+static const struct lws_protocol_vhost_options pvo_wt_opt = {
+	NULL, NULL, "webtransport", ""
+};
+
+static struct lws_protocol_vhost_options *wt_pvos;
+
+static const struct lws_protocol_vhost_options *
+setup_wt_pvos(const struct lws_protocols *pcols)
+{
+	int n, count = 0;
+
+	while (pcols[count].name)
+		count++;
+
+	wt_pvos = calloc((size_t)count, sizeof(*wt_pvos));
+	if (!wt_pvos)
+		return NULL;
+
+	for (n = 0; n < count; n++) {
+		wt_pvos[n].next = n + 1 < count ? &wt_pvos[n + 1] : NULL;
+		wt_pvos[n].options = &pvo_wt_opt;
+		wt_pvos[n].name = pcols[n].name;
+		wt_pvos[n].value = "";
+	}
+
+	return wt_pvos;
+}
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
@@ -2519,6 +2553,11 @@ int main(int argc, const char **argv)
 
 		info.ssl_cert_filepath = cert_path;
 		info.ssl_private_key_filepath = key_path;
+		info.pvo = setup_wt_pvos(info.protocols);
+		if (!info.pvo) {
+			lwsl_err("OOM allocating pvos\n");
+			return 1;
+		}
 		parse_server_requests();
 	} else {
 		parse_client_requests();
@@ -2630,6 +2669,8 @@ int main(int argc, const char **argv)
 	dgr_teardown();
 
 	lws_context_destroy(context);
+
+	free(wt_pvos);
 
 	if (dyn_protocols) {
 		int idx = 0;

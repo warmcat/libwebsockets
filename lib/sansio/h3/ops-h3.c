@@ -2456,6 +2456,52 @@ rops_callback_on_writable_h3(struct lws *wsi)
 extern int rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add);
 
 #if defined(LWS_ROLE_WS) && defined(LWS_WITH_SERVER)
+#if defined(LWS_ROLE_WT)
+/*
+ * A protocol takes WebTransport sessions only where the vhost says so, with a
+ * "webtransport" option in the protocol's pvo, like "default" or "raw".
+ *
+ * The wt role drives its protocol with the ws server reasons RECEIVE and
+ * CLOSED, but none of the ws lifecycle: there is no ESTABLISHED and no
+ * wsi->ws.  A protocol written for ws, that sets up its pss in ESTABLISHED or
+ * uses the ws frame accessors in RECEIVE, must never be given a session,
+ * however the peer names it or wherever it is mounted.
+ */
+static const struct lws_protocols *
+lws_h3_wt_protocol(struct lws_vhost *vh, const char *name)
+{
+	const struct lws_protocol_vhost_options *pvo;
+	const struct lws_protocols *prot;
+
+	if (!name)
+		return NULL;
+
+	prot = lws_vhost_name_to_protocol(vh, name);
+	if (!prot)
+		return NULL;
+
+	pvo = lws_vhost_protocol_options(vh, prot->name);
+	if (!pvo || !lws_pvo_search(pvo->options, "webtransport"))
+		return NULL;
+
+	return prot;
+}
+
+/* answer the CONNECT with status, instead of the 200 */
+
+static lws_handling_result_t
+lws_h3_wt_refuse(struct lws *wsi, unsigned int status, const char *why)
+{
+	lwsl_wsi_info(wsi, "WT CONNECT refused %u: %s", status, why);
+
+	if (lws_return_http_status(wsi, status, NULL))
+		return LWS_UPG_RET_BAIL;
+
+	return LWS_UPG_RET_DONE;
+}
+
+#endif
+
 static int
 rops_check_upgrades_h3(struct lws *wsi)
 {
@@ -2491,92 +2537,92 @@ rops_check_upgrades_h3(struct lws *wsi)
 		return LWS_UPG_RET_DONE;
 	} else if (!strcmp(p, "webtransport")) {
 #if defined(LWS_ROLE_WT)
-		lwsl_info("Upgrade h3 to wt\n");
 		unsigned char response_buf[LWS_PRE + 4096], *rp = response_buf + LWS_PRE, *end = response_buf + sizeof(response_buf);
-		char client_protos[256];
-		char negotiated[64] = "";
-		int cp_len;
+		struct lws_vhost *vh = wsi->a.vhost;
+		const struct lws_http_mount *hit = NULL;
+		const struct lws_protocols *prot = NULL;
+		char *uri_ptr;
+		int uri_len;
 
-		/*
-		 * Subprotocol negotiation: select the first protocol the client
-		 * offered in wt-available-protocols that is loaded on this vhost
-		 */
-		cp_len = lws_hdr_custom_copy(wsi, client_protos, sizeof(client_protos) - 1,
-					     "wt-available-protocols:", 23);
-		if (cp_len > 0) {
+		lwsl_info("Upgrade h3 to wt\n");
+
+		/* a mount the :path lands in that names a protocol decides */
+		uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);
+		uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
+		if (uri_ptr && uri_len > 0)
+			hit = lws_find_mount(wsi, uri_ptr, uri_len);
+
+		if (hit && (hit->protocol ||
+			    hit->origin_protocol == LWSMPRO_CALLBACK)) {
+			/*
+			 * The mount serves its path with a protocol: the
+			 * session can only be that protocol's, whatever the
+			 * peer offered
+			 */
+			prot = lws_h3_wt_protocol(vh, hit->protocol ?
+						  hit->protocol : hit->origin);
+			if (!prot)
+				return lws_h3_wt_refuse(wsi,
+						HTTP_STATUS_NOT_FOUND,
+						"mount protocol takes no wt");
+		} else if (lws_hdr_custom_length(wsi, "wt-available-protocols:",
+						 23) > 0) {
 			struct lws_tokenize ts;
+			char client_protos[256];
 			lws_tokenize_elem e;
+			int cp_len;
 
-			client_protos[cp_len] = '\0';
-			lws_tokenize_init(&ts, client_protos, LWS_TOKENIZE_F_COMMA_SEP_LIST |
-							      LWS_TOKENIZE_F_MINUS_NONTERM);
+			/*
+			 * Subprotocol negotiation: the first protocol the
+			 * client offered that takes WebTransport on this vhost
+			 */
+			cp_len = lws_hdr_custom_copy(wsi, client_protos,
+						     sizeof(client_protos),
+						     "wt-available-protocols:",
+						     23);
+			if (cp_len <= 0)
+				return lws_h3_wt_refuse(wsi,
+						HTTP_STATUS_BAD_REQUEST,
+						"protocol list too long");
+
+			lws_tokenize_init(&ts, client_protos,
+					  LWS_TOKENIZE_F_COMMA_SEP_LIST |
+					  LWS_TOKENIZE_F_MINUS_NONTERM);
 			ts.len = (unsigned int)cp_len;
 
 			do {
 				char name[64];
 
 				e = lws_tokenize(&ts);
-				if ((e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING) &&
-				    !lws_tokenize_cstr(&ts, name, sizeof(name)) &&
-				    lws_vhost_name_to_protocol(wsi->a.vhost, name)) {
-					lws_strncpy(negotiated, name, sizeof(negotiated));
-					break;
-				}
-			} while (e > 0);
-		}
+				if ((e == LWS_TOKZE_TOKEN ||
+				     e == LWS_TOKZE_QUOTED_STRING) &&
+				    !lws_tokenize_cstr(&ts, name, sizeof(name)))
+					prot = lws_h3_wt_protocol(vh, name);
+			} while (!prot && e > 0);
 
-		if (!negotiated[0]) {
-			char *uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);
-			int uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
-#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
-			char pbuf[128];
-			/* F-016: show the path, but not any query string */
-			lwsl_notice("H3 WT Upgrade: path '%s'\n",
-				    lws_h3_log_path_sans_urlargs(pbuf, sizeof(pbuf),
-								 uri_ptr));
-#endif
-			if (uri_ptr && uri_len > 0) {
-				const struct lws_http_mount *hit = lws_find_mount(wsi, uri_ptr, uri_len);
-				if (hit) {
-					lwsl_notice("H3 WT Upgrade: matched mount '%s', origin '%s', protocol '%s'\n",
-						    hit->mountpoint, hit->origin ? hit->origin : "NULL",
-						    hit->protocol ? hit->protocol : "NULL");
-					const char *name = hit->origin;
-					if (hit->protocol)
-						name = hit->protocol;
-					else if (!name) {
-						/* a mount may legitimately have no origin */
-						lwsl_notice("H3 WT Upgrade: mount has no protocol or origin\n");
-						negotiated[0] = '\0';
-					} else if (!strncmp(name, "callback://", 11))
-						name += 11;
-
-					if (name)
-						lws_strncpy(negotiated, name, sizeof(negotiated));
-				} else {
-					lwsl_notice("H3 WT Upgrade: no mount matched path\n");
-				}
-			}
-		}
-
-		const struct lws_protocols *prot = NULL;
-		if (negotiated[0]) {
-			prot = lws_vhost_name_to_protocol(wsi->a.vhost, negotiated);
-		}
-		if (!prot) {
-			int n = wsi->a.vhost->default_protocol_index;
-			if (n < wsi->a.vhost->count_protocols) {
-				prot = &wsi->a.vhost->protocols[n];
-			}
-		}
-
-		if (prot) {
-			if (lws_bind_protocol(wsi, prot, __func__))
-				return LWS_UPG_RET_BAIL;
-			lwsl_notice("H3 WT Upgrade: bound to protocol '%s'\n", prot->name);
+			if (!prot)
+				return lws_h3_wt_refuse(wsi,
+						HTTP_STATUS_NOT_FOUND,
+						"no offered protocol takes wt");
 		} else {
-			lwsl_notice("H3 WT Upgrade: no WebTransport protocol found on vhost\n");
+			/*
+			 * No protocol offered, as a ws upgrade with no
+			 * protocol list: the vhost's default protocol, if it
+			 * takes WebTransport.  A default_protocol_index out of
+			 * range refuses these, as it does for ws.
+			 */
+			if (vh->default_protocol_index < vh->count_protocols)
+				prot = lws_h3_wt_protocol(vh,
+					vh->protocols[vh->default_protocol_index].name);
+			if (!prot)
+				return lws_h3_wt_refuse(wsi,
+						HTTP_STATUS_NOT_FOUND,
+						"no default wt protocol");
 		}
+
+		if (lws_bind_protocol(wsi, prot, __func__))
+			return LWS_UPG_RET_BAIL;
+		lwsl_info("H3 WT Upgrade: bound to protocol '%s'\n", prot->name);
 
 		/*
 		 * Give the user code a chance to study the CONNECT request (:path,
@@ -2588,11 +2634,11 @@ rops_check_upgrades_h3(struct lws *wsi)
 		    wsi->a.protocol->callback(wsi,
 					      LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 					      wsi->user_space,
-					      prot ? (void *)prot->name : NULL, 0)) {
+					      (void *)prot->name, 0)) {
 #if (_LWS_ENABLED_LOGS & LLL_WARN)
 			char name[64];
 			lwsl_warn("User code denied wt connection: protocol=%s, peer=%s\n",
-				  prot ? prot->name : "(none)",
+				  prot->name,
 				  lws_io_peer_address(wsi, name, sizeof(name)));
 #endif
 			if (lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL))
@@ -2620,7 +2666,7 @@ rops_check_upgrades_h3(struct lws *wsi)
 				(const unsigned char *)"draft02", 7, &rp, end))
 			return LWS_UPG_RET_BAIL;
 
-		if (prot) {
+		{
 			/*
 			 * Echo the protocol that got bound, so the client can
 			 * determine what was negotiated even if it offered no

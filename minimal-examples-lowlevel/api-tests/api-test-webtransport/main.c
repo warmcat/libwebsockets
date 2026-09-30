@@ -26,8 +26,13 @@
  *    CLIENT_CONNECTION_ERROR saying so, without ever sending the CONNECT:
  *    the server's protocol must not see a WebTransport request at all.
  *
- * The second case needs LWS_WITH_SYS_FAULT_INJECTION, without it only the
- * first case runs.
+ *  - the "wt" server only gives sessions to a protocol its pvo marks with
+ *    "webtransport".  Its "plain-ws" protocol is not marked: a CONNECT that
+ *    names it in wt-available-protocols, or whose :path is its mount, is
+ *    refused with a 404, and plain-ws never sees the request.
+ *
+ * The "nowt" case needs LWS_WITH_SYS_FAULT_INJECTION and the named protocol
+ * case LWS_WITH_CUSTOM_HEADERS: without them those cases are skipped.
  */
 
 #include <libwebsockets.h>
@@ -48,21 +53,32 @@ enum {
 	WTAT_SERVER_ENDS,	/* the server closes the session */
 	WTAT_CLIENT_ENDS,	/* the client opens a stream, then closes */
 	WTAT_NOWT,		/* connect to the server without wt */
+	WTAT_NAMED_NOT_WT,	/* offer only a protocol that takes no wt */
+	WTAT_MOUNT_NOT_WT,	/* :path is the mount of a non-wt protocol */
 };
 
 struct xcase {
 	const char	*name;
+	const char	*path;
+	const char	*refusal;	/* the CONNECT must be refused so */
 	int		type;
 };
 
 static const struct xcase cases[] = {
-	{ "server ends the session: client sees it close", WTAT_SERVER_ENDS },
-	{ "client ends the session: server sees it and its stream close",
-							WTAT_CLIENT_ENDS },
+	{ "server ends the session: client sees it close", "/", NULL,
+							WTAT_SERVER_ENDS },
+	{ "client ends the session: server sees it and its stream close", "/",
+						NULL, WTAT_CLIENT_ENDS },
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	{ "peer SETTINGS without WebTransport: refused before CONNECT",
-							WTAT_NOWT },
+	{ "peer SETTINGS without WebTransport: refused before CONNECT", "/",
+		"did not enable WebTransport", WTAT_NOWT },
 #endif
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	{ "only a non-wt protocol offered: refused", "/",
+		"WT CONNECT refused 404", WTAT_NAMED_NOT_WT },
+#endif
+	{ "path is a non-wt protocol's mount: refused", "/not-wt",
+		"WT CONNECT refused 404", WTAT_MOUNT_NOT_WT },
 };
 
 static struct lws_context *context;
@@ -81,6 +97,7 @@ static struct {
 	int		sessions_closed;
 	int		stream_msgs;	/* STREAM_MSG received on a stream */
 	int		streams_closed;
+	int		plain_requests;	/* anything reaching plain-ws */
 } srv;
 
 /* what the client saw during the case */
@@ -257,20 +274,26 @@ case_evaluate(void)
 		break;
 	}
 
+	/* the rest must be refused, without any protocol seeing it */
+
 	if (cli.established) {
-		case_finish(0, "session established with a peer without wt");
+		case_finish(0, "session established when it must be refused");
 		return;
 	}
 	if (!cli.conn_error) {
 		case_finish(0, "no CLIENT_CONNECTION_ERROR");
 		return;
 	}
-	if (!strstr(cli.conn_error_reason, "did not enable WebTransport")) {
+	if (!strstr(cli.conn_error_reason, c->refusal)) {
 		case_finish(0, "CLIENT_CONNECTION_ERROR for the wrong reason");
 		return;
 	}
 	if (srv.wt_requests) {
-		case_finish(0, "the CONNECT was sent to a peer without wt");
+		case_finish(0, "the wt protocol saw the refused CONNECT");
+		return;
+	}
+	if (srv.plain_requests) {
+		case_finish(0, "the non-wt protocol saw the CONNECT");
 		return;
 	}
 
@@ -343,6 +366,29 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	return 0;
 }
 
+/*
+ * A ws-style protocol on the wt server vhost that does not take WebTransport:
+ * nothing about a WebTransport CONNECT may reach it
+ */
+
+static int
+callback_plain(struct lws *wsi, enum lws_callback_reasons reason,
+	       void *user, void *in, size_t len)
+{
+	switch (reason) {
+	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
+	case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
+	case LWS_CALLBACK_RECEIVE:
+		lwsl_err("%s: plain-ws got reason %d\n", __func__, reason);
+		srv.plain_requests++;
+		break;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
@@ -351,6 +397,18 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	struct lws *cwsi;
 
 	switch (reason) {
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+		/* offer the server only its protocol that takes no wt */
+		if (cases[cur].type == WTAT_NAMED_NOT_WT &&
+		    lws_add_http_header_by_name(wsi,
+				(const unsigned char *)"wt-available-protocols:",
+				(const unsigned char *)"\"plain-ws\"", 10,
+				(unsigned char **)in, (unsigned char *)in + len))
+			return -1;
+		break;
+#endif
+
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_user("%s: client: CONNECTION_ERROR: %s\n", __func__,
 			  in ? (const char *)in : "(null)");
@@ -460,7 +518,7 @@ next_case(lws_sorted_usec_list_t *sul)
 	i.host = server_addr;
 	i.origin = server_addr;
 	i.port = c->type == WTAT_NOWT ? port_nowt : port_wt;
-	i.path = "/";
+	i.path = c->path;
 	i.protocol = "webtransport";
 	i.alpn = "h3";
 	i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
@@ -472,7 +530,28 @@ next_case(lws_sorted_usec_list_t *sul)
 
 static const struct lws_protocols protocols_srv[] = {
 	{ "webtransport", callback_srv, 0, 1024, 0, NULL, 0 },
+	{ "plain-ws", callback_plain, 0, 1024, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
+};
+
+/*
+ * Only a protocol whose pvo has "webtransport" can be given a WebTransport
+ * session: "webtransport" has it, "plain-ws" does not
+ */
+
+static const struct lws_protocol_vhost_options pvo_wt_opt = {
+	NULL, NULL, "webtransport", ""
+};
+
+static const struct lws_protocol_vhost_options pvo_srv = {
+	NULL, &pvo_wt_opt, "webtransport", ""
+};
+
+static const struct lws_http_mount mount_srv = {
+	.mountpoint		= "/not-wt",
+	.origin			= "plain-ws",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 7,
 };
 
 static const struct lws_protocols protocols_cli[] = {
@@ -541,6 +620,8 @@ int main(int argc, const char **argv)
 	/* both server vhosts share the test cert */
 
 	info.protocols = protocols_srv;
+	info.pvo = &pvo_srv;
+	info.mounts = &mount_srv;
 	info.server_ssl_cert_mem = test_cert;
 	info.server_ssl_cert_mem_len = (unsigned int)strlen(test_cert);
 	info.server_ssl_private_key_mem = test_key;
@@ -574,6 +655,8 @@ int main(int argc, const char **argv)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.vhost_name = "cli";
 	info.protocols = protocols_cli;
+	info.pvo = NULL;
+	info.mounts = NULL;
 
 	vh_cli = lws_create_vhost(context, &info);
 	if (!vh_cli) {

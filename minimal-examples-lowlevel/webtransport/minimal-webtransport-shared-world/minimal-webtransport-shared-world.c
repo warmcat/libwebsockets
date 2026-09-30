@@ -27,6 +27,20 @@ static const struct lws_http_mount mount = {
 
 extern const lws_plugin_protocol_t webtransport_shared_world;
 
+/*
+ * The browser offers "webtransport-shared-world" in wt-available-protocols,
+ * but a protocol is only given WebTransport sessions if its pvo on the vhost
+ * has a "webtransport" option
+ */
+
+static const struct lws_protocol_vhost_options pvo_wt_opt = {
+	NULL, NULL, "webtransport", ""
+};
+
+static const struct lws_protocol_vhost_options pvo = {
+	NULL, &pvo_wt_opt, "webtransport-shared-world", ""
+};
+
 static void
 sigint_handler(int sig)
 {
@@ -53,9 +67,8 @@ int main(int argc, const char **argv)
 	info.error_document_404 = "/404.html";
 	/*
 	 * The world protocol needs its vhost priv, which it can only create
-	 * from its own LWS_CALLBACK_PROTOCOL_INIT.  We give it no pvo, so ask
-	 * for every protocol on the vhost to be instantiated, otherwise the
-	 * protocol is only initialized if something happens to reference it.
+	 * from its own LWS_CALLBACK_PROTOCOL_INIT.  Ask for every protocol on
+	 * the vhost to be instantiated, so it does not depend on its pvo.
 	 */
 
 	info.options =
@@ -63,7 +76,7 @@ int main(int argc, const char **argv)
 		LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS |
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
-	info.pvo = NULL;
+	info.pvo = &pvo;
 	info.protocols = webtransport_shared_world.protocols;
 
 	info.ssl_cert_filepath = "localhost-100y.cert";
