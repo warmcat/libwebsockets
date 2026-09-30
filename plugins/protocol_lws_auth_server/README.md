@@ -12,7 +12,7 @@ It acts as a central identity provider and issues time-limited JWTs to outsource
 - **JWT Issuance**: Built-in `lws_jose` and `lws-genjwt` to issue cryptographically signed JWTs.
 - **Double Submit Cookie CSRF**: Natively protects the SPA API endpoints via a stateless `csrf_token` form payload and transparent `HttpOnly` validation pairing.
 - **Autonomous IP Rate Limiting**: Employs an internal LRU cache to natively track authentication strikes, issuing global 24-hour network bans dynamically to throttle arbitrary SMTP execution scripts or registration bot floods.
-- **Single-Use Verification Pipeline**: Ephemeral registration hashes operate as one-time read tokens: the first `/verify` visit is the one that creates the `users` row, and a replay of the link fails the same way an invalid one does (so the TOTP secret is shown once, and exactly one set of backup codes is ever minted).  The QR graphic fetch (`/totp_svg`) then reaps the record.
+- **Single-Use Verification Pipeline**: Ephemeral registration hashes operate as one-time tokens.  A GET of the mailed `/api/verify` link only shows a page asking to confirm, since mail gateways and link scanners fetch every link in a message before the user does; the page's POST (with the `auth_csrf` double submit) is what creates the `users` row, and a replay fails the same way an invalid link does (so the TOTP secret is shown once, and exactly one set of backup codes is ever minted).  The QR graphic (`/totp_svg`) is served only for an unexpired registration that has been confirmed, and that fetch then reaps the record.
 - **Decoupled SMTP Templating**: Administratively definable PVO overlays (`email-subject`, `email-body`) instantly decouple arbitrary verification alerts natively.
 - **Mobile Authenticator Deep-Linking**: Implicitly wraps the generated TOTP vector graphic explicitly into a tappable `otpauth://` deep-link anchor to seamlessly trigger iOS/Android 2FA applications organically.
 - **Refresh Token Support**: Supports stateful OAuth2 refresh tokens for silent session renewal, with configurable token lifetimes.  This is optional and disabled by default.
@@ -193,7 +193,7 @@ the plugin's own output escaping.
 
 Every state-changing endpoint (`/api/login`, `/api/register`,
 `/api/forgot_password`, `/api/reset_password`, `/api/device_approve`,
-`/api/sso_exchange`, `POST /api/logout`) requires a `csrf_token` form field
+`/api/sso_exchange`, `POST /api/logout`, `POST /api/verify`) requires a `csrf_token` form field
 matching the `auth_csrf` cookie, compared with `lws_timingsafe_bcmp()`.
 
 That cookie is `HttpOnly`, so the page cannot read it back out of

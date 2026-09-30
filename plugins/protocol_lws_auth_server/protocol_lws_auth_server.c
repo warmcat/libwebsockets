@@ -51,7 +51,8 @@ static const char * const param_names[] = {
 	"user_code",
 	"email",
 	"reset_token",
-	"new_password"
+	"new_password",
+	"h"
 };
 
 enum enum_param_names {
@@ -74,6 +75,7 @@ enum enum_param_names {
         EP_EMAIL,
         EP_RESET_TOKEN,
         EP_NEW_PASS,
+        EP_VERIFY_HASH,
         EP_COUNT
 };
 
@@ -3006,6 +3008,244 @@ send:
 	return send_auth_headers(wsi, pss, "application/json", NULL, NULL);
 }
 
+struct auth_registration {
+	char email[129], pass[129], salt[33], totp[65];
+};
+
+/*
+ * The registration verify_hash h names, if it has not expired.  Returns 0 and
+ * fills r if there is one.
+ */
+static int
+auth_registration_lookup(struct per_vhost_data__auth_server *vhd,
+			 const char *h, struct auth_registration *r)
+{
+	sqlite3_stmt *stmt;
+	int ret = 1;
+
+	/* the hash is the one-time registration credential: never log it */
+
+	if (sqlite3_prepare_v2(vhd->db, "SELECT email, password_hash, salt, "
+			       "totp_secret FROM registrations WHERE "
+			       "verify_hash = ? AND expires >= ?", -1, &stmt,
+			       NULL) != SQLITE_OK) {
+		lwsl_err("verify: db prepare failed: %s\n",
+			 sqlite3_errmsg(vhd->db));
+
+		return 1;
+	}
+
+	sqlite3_bind_text(stmt, 1, h, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_int64(stmt, 2, (sqlite_int64)time(NULL));
+
+	if (sqlite3_step(stmt) == SQLITE_ROW) {
+		lws_strncpy(r->email, (const char *)sqlite3_column_text(stmt, 0),
+			    sizeof(r->email));
+		lws_strncpy(r->pass, (const char *)sqlite3_column_text(stmt, 1),
+			    sizeof(r->pass));
+		lws_strncpy(r->salt, (const char *)sqlite3_column_text(stmt, 2),
+			    sizeof(r->salt));
+		lws_strncpy(r->totp, (const char *)sqlite3_column_text(stmt, 3),
+			    sizeof(r->totp));
+		ret = 0;
+	} else
+		lwsl_info("verify: no live registration for the hash\n");
+
+	sqlite3_finalize(stmt);
+
+	return ret;
+}
+
+static int
+auth_is_post(struct lws *wsi)
+{
+	char *uri;
+	int ulen;
+
+	return lws_http_get_uri_and_method(wsi, &uri, &ulen) == LWSHUMETH_POST;
+}
+
+/*
+ * POST /api/verify, from the page the mailed link shows: the registration
+ * becomes the account, and the TOTP seed and backup codes are shown, once.
+ */
+static int
+lws_auth_api_verify(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
+		    struct per_session_data__auth_server *pss)
+{
+	const char *h = lws_spa_get_string(pss->spa, EP_VERIFY_HASH);
+	struct auth_registration r;
+	sqlite3_stmt *stmt;
+	char hbuf[64], uri[256];
+	int ins_ok;
+
+	if (auth_check_csrf(wsi, vhd, pss)) {
+		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, "Forbidden");
+
+		return lws_http_transaction_completed(wsi);
+	}
+
+	if (!h || !h[0] || strlen(h) >= sizeof(hbuf)) {
+		lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Missing Hash");
+
+		return lws_http_transaction_completed(wsi);
+	}
+	lws_strncpy(hbuf, h, sizeof(hbuf));
+
+	if (auth_registration_lookup(vhd, hbuf, &r)) {
+		char peer[64];
+
+		lws_get_peer_simple(wsi, peer, sizeof(peer));
+		auth_record_strike(vhd, peer);
+
+		lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid or Expired Link");
+
+		return lws_http_transaction_completed(wsi);
+	}
+
+	/*
+	 * The registration is a one-time credential: everything below is gated
+	 * on the users INSERT succeeding.  A replay fails UNIQUE(username) and
+	 * gets the same answer as an invalid link, so the TOTP seed is shown,
+	 * and one set of ten backup codes is minted, exactly once.  It also
+	 * makes the users_count == 1 "first user gets the '*' grant" decision
+	 * below sound.
+	 */
+	ins_ok = 0;
+	if (sqlite3_prepare_v2(vhd->db, "INSERT INTO users (username, password_hash, salt, totp_secret) VALUES (?, ?, ?, ?)", -1, &stmt, NULL) == SQLITE_OK) {
+		sqlite3_bind_text(stmt, 1, r.email, -1, SQLITE_STATIC);
+		sqlite3_bind_text(stmt, 2, r.pass, -1, SQLITE_STATIC);
+		sqlite3_bind_text(stmt, 3, r.salt, -1, SQLITE_STATIC);
+		sqlite3_bind_text(stmt, 4, r.totp, -1, SQLITE_STATIC);
+		if (sqlite3_step(stmt) == SQLITE_DONE)
+			ins_ok = 1;
+		sqlite3_finalize(stmt);
+	}
+
+	if (!ins_ok) {
+		char peer[64];
+
+		lwsl_notice("verify: registration already "
+			    "consumed or user exists\n");
+		lws_get_peer_simple(wsi, peer, sizeof(peer));
+		auth_record_strike(vhd, peer);
+		lws_return_http_status(wsi,
+			HTTP_STATUS_BAD_REQUEST,
+			"Invalid or Expired Link");
+
+		return lws_http_transaction_completed(wsi);
+	}
+
+	int users_count = 0;
+	if (sqlite3_prepare_v2(vhd->db, "SELECT COUNT(*) FROM users", -1, &stmt, NULL) == SQLITE_OK) {
+		if (sqlite3_step(stmt) == SQLITE_ROW) users_count = sqlite3_column_int(stmt, 0);
+		sqlite3_finalize(stmt);
+	}
+
+	char backup_codes_html[2048] = "";
+	char *b_p = backup_codes_html;
+	char *b_end = backup_codes_html + sizeof(backup_codes_html);
+
+	for (int i = 0; i < 10; i++) {
+		uint8_t rand_bytes[4];
+		lws_get_random(vhd->context, rand_bytes, sizeof(rand_bytes));
+		uint32_t raw_code = (uint32_t)rand_bytes[0] | ((uint32_t)rand_bytes[1] << 8) | ((uint32_t)rand_bytes[2] << 16) | ((uint32_t)rand_bytes[3] << 24);
+		uint32_t bcode = raw_code % 1000000;
+
+		if (sqlite3_prepare_v2(vhd->db, "INSERT INTO backup_codes (uid, code) VALUES ((SELECT uid FROM users WHERE username=?), ?)", -1, &stmt, NULL) == SQLITE_OK) {
+			char bcode_str[16];
+			lws_snprintf(bcode_str, sizeof(bcode_str), "%06u", bcode);
+			sqlite3_bind_text(stmt, 1, r.email, -1, SQLITE_STATIC);
+			sqlite3_bind_text(stmt, 2, bcode_str, -1, SQLITE_STATIC);
+			sqlite3_step(stmt);
+			sqlite3_finalize(stmt);
+
+			b_p += lws_snprintf(b_p, lws_ptr_diff_size_t(b_end, b_p), "<span class=\"backup-code\">%06u</span>", bcode);
+		}
+	}
+
+	/* Always add public grant to newly minted users */
+	sqlite3_exec(vhd->db, "INSERT OR IGNORE INTO services (name) VALUES ('public')", NULL, NULL, NULL);
+	sqlite3_stmt *gstmt = NULL;
+	if (sqlite3_prepare_v2(vhd->db, "INSERT INTO grants (uid, service_id, grant_level) VALUES ((SELECT uid FROM users WHERE username=?), (SELECT service_id FROM services WHERE name='public'), 1)", -1, &gstmt, NULL) == SQLITE_OK) {
+		sqlite3_bind_text(gstmt, 1, r.email, -1, SQLITE_TRANSIENT);
+		sqlite3_step(gstmt);
+		sqlite3_finalize(gstmt);
+	}
+
+	if (users_count == 1) {
+		/*
+		 * First user gets the TOFU "god" wildcard grant
+		 * over the '*' service.  Insert the '*' service by
+		 * name only and let sqlite pick its service_id:
+		 * hardcoding service_id=1 collides with the
+		 * 'public' service created above (which also
+		 * autoincrements to 1), and INSERT OR IGNORE then
+		 * silently drops the '*' row, leaving the TOFU
+		 * user without superpowers.  Grant on whatever id
+		 * '*' actually got, the same way every other code
+		 * path looks up '*' by name.
+		 */
+		sqlite3_exec(vhd->db, "INSERT OR IGNORE INTO services (name) VALUES ('*')", NULL, NULL, NULL);
+		gstmt = NULL;
+		if (sqlite3_prepare_v2(vhd->db, "INSERT INTO grants (uid, service_id, grant_level) VALUES ((SELECT uid FROM users WHERE username=?), (SELECT service_id FROM services WHERE name='*'), 2)", -1, &gstmt, NULL) == SQLITE_OK) {
+			sqlite3_bind_text(gstmt, 1, r.email, -1, SQLITE_TRANSIENT);
+			sqlite3_step(gstmt);
+			sqlite3_finalize(gstmt);
+		}
+	}
+
+	lws_snprintf(uri, sizeof(uri), "otpauth://totp/%s:%s?secret=%s&issuer=%s",
+		vhd->auth_domain, r.email, r.totp, vhd->auth_domain);
+
+	size_t alloc_size = 32768 + LWS_PRE;  /* Plenty for verify HTML */
+	uint8_t *buf = malloc(alloc_size);
+	if (!buf) {
+		lwsl_info("verify OOM for HTML buffer\n");
+		lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "OOM");
+		return lws_http_transaction_completed(wsi);
+	}
+
+	uint8_t *body_start = buf + LWS_PRE;
+	uint8_t *body_end = buf + alloc_size - LWS_PRE - 1;
+	uint8_t *p = body_start;
+
+	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(body_end, p),
+		"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Account Confirmed</title>"
+		"<link rel=\"stylesheet\" href=\"../auth.css\">"
+		"%s%s%s"
+		"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+		"</head>"
+		"<body><div class=\"background-elements\"><div class=\"orb orb-1\"></div><div class=\"orb orb-2\"></div><div class=\"orb orb-3\"></div></div>"
+		"<div class=\"auth-container\"><div class=\"glass-panel totp-setup-box\"><div class=\"panel-header\"><h1>Account Confirmed</h1>"
+		"<p>Scan this into your Authenticator app within 5 minutes!</p>"
+		"<div class=\"qr-container\">"
+		"<p class=\"qr-hint\">(Or tap the QR code on mobile devices)</p></div>"
+		"</div>"
+		"<div class=\"qrcode-container\"><a href=\"%s\" title=\"Tap to open Authenticator App\">"
+		"<img src=\"totp_svg?h=%s\" width=\"200\" height=\"200\" alt=\"TOTP Setup QR\"></a></div>"
+		"<p class=\"totp-secret-text\">%s</p>"
+		"<hr class=\"auth-divider\">"
+		"<h3>Emergency Backup Codes</h3>"
+		"<p class=\"warning-text\">Save these codes in a secure place. This is the <b>ONLY</b> time they will be shown.</p>"
+		"<div class=\"backup-codes-container\">%s</div>"
+		"<div class=\"panel-footer\"><a href=\"../\" class=\"btn-link\">Proceed to Login</a></div>"
+		"</div></div></body></html>",
+		vhd->ui_css[0] ? "<link rel=\"stylesheet\" href=\"" : "",
+		vhd->ui_css[0] ? vhd->ui_css : "",
+		vhd->ui_css[0] ? "\">" : "",
+		uri, hbuf, r.totp, backup_codes_html);
+
+	size_t body_len = lws_ptr_diff_size_t(p, body_start);
+	if (lws_buflist_append_segment(&pss->tx_buflist, buf, body_len + LWS_PRE) < 0) {
+		free(buf);
+		return -1;
+	}
+	free(buf);
+
+	return send_auth_headers(wsi, pss, "text/html", NULL, NULL);
+}
+
 static int
 lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
@@ -3251,9 +3491,6 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 					lws_get_protocol(wsi));
 	const struct lws_protocol_vhost_options *pvo;
-        uint8_t tempBuffer[qrcodegen_BUFFER_LEN_MAX];
-        uint8_t qrcode[qrcodegen_BUFFER_LEN_MAX];
-        char uri[256];
 
         switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
@@ -4139,8 +4376,17 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			char totp[64];
 			char email[128];
 
-			if (sqlite3_prepare_v2(vhd->db, "SELECT email, totp_secret FROM registrations WHERE verify_hash = ?", -1, &stmt, NULL) == SQLITE_OK) {
+			/*
+			 * Only while the registration is live, and only once
+			 * the confirming POST made it the account: the image
+			 * is part of the page that answers that POST, and is
+			 * the seed itself.  Registrations are only swept at
+			 * init and by /api/register, so without the expiry the
+			 * seed stayed fetchable until the next restart.
+			 */
+			if (sqlite3_prepare_v2(vhd->db, "SELECT r.email, r.totp_secret FROM registrations r JOIN users u ON u.username = r.email WHERE r.verify_hash = ? AND r.expires >= ?", -1, &stmt, NULL) == SQLITE_OK) {
 				sqlite3_bind_text(stmt, 1, hbuf, -1, SQLITE_TRANSIENT);
+				sqlite3_bind_int64(stmt, 2, (sqlite_int64)time(NULL));
 				if (sqlite3_step(stmt) == SQLITE_ROW) {
 					found = 1;
 					lws_strncpy(email, (const char *)sqlite3_column_text(stmt, 0), sizeof(email));
@@ -4225,43 +4471,26 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			return 0;
 		}
 
-		if (!strncmp((const char *)in, "/verify", 7)) {
-			char hbuf[64];
+		if (!strncmp((const char *)in, "/verify", 7) &&
+		    !auth_is_post(wsi)) {
+			struct auth_registration r;
+			char hbuf[64], csrf[33], cookie_hdr[128], pl[4096 + LWS_PRE];
+			int has_csrf, n;
+
+			/*
+			 * The mailed link only finds the registration and asks
+			 * for a POST to confirm it: mail gateways and "safe
+			 * link" scanners GET every link in a message before
+			 * the user sees it, and a GET that created the account
+			 * handed them the TOTP seed and backup codes, locking
+			 * the real user out.  Nothing is consumed here.
+			 */
 			if (lws_get_urlarg_by_name_safe(wsi, "h=", hbuf, sizeof(hbuf)) < 0) {
 				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Missing Hash");
 				return lws_http_transaction_completed(wsi);
 			}
 
-			sqlite3_stmt *stmt;
-			int found = 0, ins_ok;
-			uint64_t now = (uint64_t)time(NULL);
-			char email[129], pass[129], salt[33], totp[65];
-			/* the hash is the one-time registration credential: never log it */
-			lwsl_info("verify: looking up registration by hash\n");
-
-			if (sqlite3_prepare_v2(vhd->db, "SELECT email, password_hash, salt, totp_secret, expires FROM registrations WHERE verify_hash = ?", -1, &stmt, NULL) == SQLITE_OK) {
-				sqlite3_bind_text(stmt, 1, hbuf, -1, SQLITE_TRANSIENT);
-				int s_res = sqlite3_step(stmt);
-				if (s_res == SQLITE_ROW) {
-					uint64_t exp = (uint64_t)sqlite3_column_int64(stmt, 4);
-					if (now <= exp) {
-						found = 1;
-						lws_strncpy(email, (const char *)sqlite3_column_text(stmt, 0), sizeof(email));
-						lws_strncpy(pass,  (const char *)sqlite3_column_text(stmt, 1), sizeof(pass));
-						lws_strncpy(salt,  (const char *)sqlite3_column_text(stmt, 2), sizeof(salt));
-						lws_strncpy(totp,  (const char *)sqlite3_column_text(stmt, 3), sizeof(totp));
-					} else {
-						lwsl_info("verify: link expired! now=%llu, exp=%llu\n", (unsigned long long)now, (unsigned long long)exp);
-					}
-				} else {
-					lwsl_info("verify: db step failed or no row: %d %s\n", s_res, sqlite3_errmsg(vhd->db));
-				}
-				sqlite3_finalize(stmt);
-			} else {
-				lwsl_err("verify: db prepare failed: %s\n", sqlite3_errmsg(vhd->db));
-			}
-
-			if (!found) {
+			if (auth_registration_lookup(vhd, hbuf, &r)) {
 				char peer[64];
 
 				lws_get_peer_simple(wsi, peer, sizeof(peer));
@@ -4271,162 +4500,46 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 				return lws_http_transaction_completed(wsi);
 			}
+			lws_explicit_bzero(&r, sizeof(r));
+
+			/* the confirming POST carries the auth_csrf double submit */
+			has_csrf = auth_csrf_get_or_make(wsi, vhd, csrf, sizeof(csrf));
 
 			/*
-			 * The link is documented as a one-time read token, but
-			 * nothing here consumed it -- only /totp_svg deletes
-			 * the registrations row, and only if the browser
-			 * actually fetches the QR image.  So the link could be
-			 * replayed until it expired, and each replay re-showed
-			 * the TOTP secret and minted *another* ten backup
-			 * codes (each a fresh random 6 digits, so each INSERT
-			 * succeeded), inflating the accepted second-factor set
-			 * from 10 towards hundreds of the 10^6 space.
-			 *
-			 * Gate everything below on the users INSERT actually
-			 * succeeding: on a replay it fails UNIQUE(username), so
-			 * the second visit gets the same answer as an invalid
-			 * link.  It also makes the users_count == 1 "first
-			 * user gets the '*' grant" decision below sound, which
-			 * a failed INSERT previously left unchanged.
+			 * hbuf matched a stored verify_hash, which is our own
+			 * hex, and csrf is 32 hex: neither can leave the
+			 * attribute they are composed into
 			 */
-			ins_ok = 0;
-			if (sqlite3_prepare_v2(vhd->db, "INSERT INTO users (username, password_hash, salt, totp_secret) VALUES (?, ?, ?, ?)", -1, &stmt, NULL) == SQLITE_OK) {
-				sqlite3_bind_text(stmt, 1, email, -1, SQLITE_STATIC);
-				sqlite3_bind_text(stmt, 2, pass, -1, SQLITE_STATIC);
-				sqlite3_bind_text(stmt, 3, salt, -1, SQLITE_STATIC);
-				sqlite3_bind_text(stmt, 4, totp, -1, SQLITE_STATIC);
-				if (sqlite3_step(stmt) == SQLITE_DONE)
-					ins_ok = 1;
-				sqlite3_finalize(stmt);
-			}
-
-			if (!ins_ok) {
-				char peer[64];
-
-				lwsl_notice("verify: registration already "
-					    "consumed or user exists\n");
-				lws_get_peer_simple(wsi, peer, sizeof(peer));
-				auth_record_strike(vhd, peer);
-				lws_return_http_status(wsi,
-					HTTP_STATUS_BAD_REQUEST,
-					"Invalid or Expired Link");
-
-				return lws_http_transaction_completed(wsi);
-			}
-
-
-			int users_count = 0;
-			if (sqlite3_prepare_v2(vhd->db, "SELECT COUNT(*) FROM users", -1, &stmt, NULL) == SQLITE_OK) {
-				if (sqlite3_step(stmt) == SQLITE_ROW) users_count = sqlite3_column_int(stmt, 0);
-				sqlite3_finalize(stmt);
-			}
-
-			char backup_codes_html[2048] = "";
-			char *b_p = backup_codes_html;
-			char *b_end = backup_codes_html + sizeof(backup_codes_html);
-
-			for (int i = 0; i < 10; i++) {
-				uint8_t rand_bytes[4];
-				lws_get_random(vhd->context, rand_bytes, sizeof(rand_bytes));
-				uint32_t raw_code = (uint32_t)rand_bytes[0] | ((uint32_t)rand_bytes[1] << 8) | ((uint32_t)rand_bytes[2] << 16) | ((uint32_t)rand_bytes[3] << 24);
-				uint32_t bcode = raw_code % 1000000;
-
-				if (sqlite3_prepare_v2(vhd->db, "INSERT INTO backup_codes (uid, code) VALUES ((SELECT uid FROM users WHERE username=?), ?)", -1, &stmt, NULL) == SQLITE_OK) {
-					char bcode_str[16];
-					lws_snprintf(bcode_str, sizeof(bcode_str), "%06u", bcode);
-					sqlite3_bind_text(stmt, 1, email, -1, SQLITE_STATIC);
-					sqlite3_bind_text(stmt, 2, bcode_str, -1, SQLITE_STATIC);
-					sqlite3_step(stmt);
-					sqlite3_finalize(stmt);
-
-					b_p += lws_snprintf(b_p, lws_ptr_diff_size_t(b_end, b_p), "<span class=\"backup-code\">%06u</span>", bcode);
-				}
-			}
-
-			/* Always add public grant to newly minted users */
-			sqlite3_exec(vhd->db, "INSERT OR IGNORE INTO services (name) VALUES ('public')", NULL, NULL, NULL);
-			sqlite3_stmt *gstmt = NULL;
-			if (sqlite3_prepare_v2(vhd->db, "INSERT INTO grants (uid, service_id, grant_level) VALUES ((SELECT uid FROM users WHERE username=?), (SELECT service_id FROM services WHERE name='public'), 1)", -1, &gstmt, NULL) == SQLITE_OK) {
-				sqlite3_bind_text(gstmt, 1, email, -1, SQLITE_TRANSIENT);
-				sqlite3_step(gstmt);
-				sqlite3_finalize(gstmt);
-			}
-
-			if (users_count == 1) {
-				/*
-				 * First user gets the TOFU "god" wildcard grant
-				 * over the '*' service.  Insert the '*' service by
-				 * name only and let sqlite pick its service_id:
-				 * hardcoding service_id=1 collides with the
-				 * 'public' service created above (which also
-				 * autoincrements to 1), and INSERT OR IGNORE then
-				 * silently drops the '*' row, leaving the TOFU
-				 * user without superpowers.  Grant on whatever id
-				 * '*' actually got, the same way every other code
-				 * path looks up '*' by name.
-				 */
-				sqlite3_exec(vhd->db, "INSERT OR IGNORE INTO services (name) VALUES ('*')", NULL, NULL, NULL);
-				gstmt = NULL;
-				if (sqlite3_prepare_v2(vhd->db, "INSERT INTO grants (uid, service_id, grant_level) VALUES ((SELECT uid FROM users WHERE username=?), (SELECT service_id FROM services WHERE name='*'), 2)", -1, &gstmt, NULL) == SQLITE_OK) {
-					sqlite3_bind_text(gstmt, 1, email, -1, SQLITE_TRANSIENT);
-					sqlite3_step(gstmt);
-					sqlite3_finalize(gstmt);
-				}
-			}
-
-			lws_snprintf(uri, sizeof(uri), "otpauth://totp/%s:%s?secret=%s&issuer=%s",
-				vhd->auth_domain, email, totp, vhd->auth_domain);
-
-			qrcodegen_encodeText(uri, tempBuffer, qrcode, qrcodegen_Ecc_MEDIUM,
-				qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX, qrcodegen_Mask_AUTO, true);
-
-			size_t alloc_size = 32768 + LWS_PRE;  /* Plenty for verify HTML */
-			uint8_t *buf = malloc(alloc_size);
-			if (!buf) {
-				lwsl_info("verify OOM for HTML buffer\n");
-				lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "OOM");
-				return lws_http_transaction_completed(wsi);
-			}
-
-			uint8_t *body_start = buf + LWS_PRE;
-			uint8_t *body_end = buf + alloc_size - LWS_PRE - 1;
-			uint8_t *p = body_start;
-
-			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(body_end, p),
-				"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Account Confirmed</title>"
+			n = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE,
+				"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Confirm Account</title>"
 				"<link rel=\"stylesheet\" href=\"../auth.css\">"
 				"%s%s%s"
 				"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
 				"</head>"
 				"<body><div class=\"background-elements\"><div class=\"orb orb-1\"></div><div class=\"orb orb-2\"></div><div class=\"orb orb-3\"></div></div>"
-				"<div class=\"auth-container\"><div class=\"glass-panel totp-setup-box\"><div class=\"panel-header\"><h1>Account Confirmed</h1>"
-				"<p>Scan this into your Authenticator app within 5 minutes!</p>"
-				"<div class=\"qr-container\">"
-				"<p class=\"qr-hint\">(Or tap the QR code on mobile devices)</p></div>"
-				"</div>"
-				"<div class=\"qrcode-container\"><a href=\"%s\" title=\"Tap to open Authenticator App\">"
-				"<img src=\"totp_svg?h=%s\" width=\"200\" height=\"200\" alt=\"TOTP Setup QR\"></a></div>"
-				"<p class=\"totp-secret-text\">%s</p>"
-				"<hr class=\"auth-divider\">"
-				"<h3>Emergency Backup Codes</h3>"
-				"<p class=\"warning-text\">Save these codes in a secure place. This is the <b>ONLY</b> time they will be shown.</p>"
-				"<div class=\"backup-codes-container\">%s</div>"
-				"<div class=\"panel-footer\"><a href=\"../\" class=\"btn-link\">Proceed to Login</a></div>"
-				"</div></div></body></html>",
+				"<div class=\"auth-container\"><div class=\"glass-panel\"><div class=\"panel-header\"><h1>Confirm Account</h1>"
+				"<p>Confirm to create your account.  The next page shows your authenticator setup and backup codes, once only.</p></div>"
+				"<form method=\"post\" action=\"verify\">"
+				"<input type=\"hidden\" name=\"h\" value=\"%s\">"
+				"<input type=\"hidden\" name=\"csrf_token\" value=\"%s\">"
+				"<button type=\"submit\" class=\"btn primary-btn\">Confirm Account</button>"
+				"</form></div></div></body></html>",
 				vhd->ui_css[0] ? "<link rel=\"stylesheet\" href=\"" : "",
 				vhd->ui_css[0] ? vhd->ui_css : "",
 				vhd->ui_css[0] ? "\">" : "",
-				uri, hbuf, totp, backup_codes_html);
+				hbuf, csrf);
 
-			size_t body_len = lws_ptr_diff_size_t(p, body_start);
-			if (lws_buflist_append_segment(&pss->tx_buflist, buf, body_len + LWS_PRE) < 0) {
-				free(buf);
+			pss->http_response_code = HTTP_STATUS_OK;
+			if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)n + LWS_PRE) < 0)
 				return -1;
-			}
-			free(buf);
 
-			return send_auth_headers(wsi, pss, "text/html", NULL, NULL);
+			if (has_csrf)
+				return send_auth_headers(wsi, pss, "text/html", NULL, NULL);
+
+			/* fixed shape, as for /api/status (F-048) */
+			lws_snprintf(cookie_hdr, sizeof(cookie_hdr), "auth_csrf=%s; Path=/; SameSite=Lax; HttpOnly; Secure", csrf);
+
+			return send_auth_headers(wsi, pss, "text/html", cookie_hdr, NULL);
 		}
 
 		if (!strncmp((const char *)in, "/authorize", 10)) {
@@ -4650,7 +4763,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				return lws_http_transaction_completed(wsi);
 			}
 
-		if (in && ((char *)strstr((const char *)in, "login") || (char *)strstr((const char *)in, "logout") || (char *)strstr((const char *)in, "register") || (char *)strstr((const char *)in, "forgot_password") || (char *)strstr((const char *)in, "reset_password") || (char *)strstr((const char *)in, "token") || (char *)strstr((const char *)in, "sso_exchange") || (char *)strstr((const char *)in, "device_auth") || (char *)strstr((const char *)in, "device_approve"))) {
+		if (in && ((char *)strstr((const char *)in, "login") || (char *)strstr((const char *)in, "logout") || (char *)strstr((const char *)in, "register") || (char *)strstr((const char *)in, "forgot_password") || (char *)strstr((const char *)in, "reset_password") || (char *)strstr((const char *)in, "token") || (char *)strstr((const char *)in, "sso_exchange") || (char *)strstr((const char *)in, "device_auth") || (char *)strstr((const char *)in, "device_approve") || !strncmp((const char *)in, "/verify", 7))) {
 			lws_strncpy(pss->requesting_url, (const char *)in, sizeof(pss->requesting_url));
 
 			lwsl_info("%s: Processing POST to '%s'\n", __func__, pss->requesting_url);
@@ -4714,6 +4827,8 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			return lws_auth_api_forgot_password(wsi, vhd, pss);
 		else if ((char *)strstr(pss->requesting_url, "reset_password"))
 			return lws_auth_api_reset_password(wsi, vhd, pss);
+		else if (!strncmp(pss->requesting_url, "/verify", 7))
+			return lws_auth_api_verify(wsi, vhd, pss);
 
 		lwsl_err("%s: Unknown requesting URL '%s'\n", __func__, pss->requesting_url);
 		break;

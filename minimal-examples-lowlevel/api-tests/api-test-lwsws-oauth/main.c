@@ -38,6 +38,12 @@
  *          per-vhost state (named with no options; init failed because the
  *          key cannot be saved).  Both must answer 503, and the process must
  *          still be serving the real auth vhost afterwards.
+ *
+ *  verify: the mailed registration link.  A GET of it, as a mail scanner
+ *          makes, only asks for confirmation; the TOTP seed and backup codes
+ *          come from the POST that page makes with the auth_csrf double
+ *          submit, once; the QR image of the seed is only served for a live
+ *          registration that became the account.
  */
 
 #include <libwebsockets.h>
@@ -95,6 +101,16 @@ static int send_host_hdr;
 #define SEED_SALT		"0123456789abcdef0123456789abcdef"
 /* base32, as the column holds it and as lws_b32_decode_string_len() wants */
 #define SEED_TOTP_SECRET	"JBSWY3DPEHPK3PXP"
+
+/*
+ * Registrations waiting on their mailed link, for the verify scenario: one
+ * live, and one expired for an account that exists (the seed recreates the
+ * live one's state, since the db outlives a ctest run)
+ */
+#define VERIFY_USER		"apitest-verify"
+#define VERIFY_HASH		"0123456789abcdef0123456789abcd01"
+#define VERIFY_TOTP_SECRET	"KRSXG5CTMVRXEZLU"
+#define VERIFY_HASH_EXPIRED	"0123456789abcdef0123456789abcd02"
 
 /* what the exchange under way is collecting */
 static char	loc[1024];		/* Location: of the last response */
@@ -946,6 +962,26 @@ scenario_seed(void)
 	if (seed_exec(db, sql))
 		goto bail;
 
+	if (seed_exec(db, "DELETE FROM backup_codes WHERE uid IN (SELECT uid "
+			  "FROM users WHERE username = '" VERIFY_USER "')") ||
+	    seed_exec(db, "DELETE FROM grants WHERE uid IN (SELECT uid "
+			  "FROM users WHERE username = '" VERIFY_USER "')") ||
+	    seed_exec(db, "DELETE FROM users WHERE username = '"
+			  VERIFY_USER "'"))
+		goto bail;
+
+	lws_snprintf(sql, sizeof(sql),
+		     "INSERT OR REPLACE INTO registrations(email, "
+		     "password_hash, salt, totp_secret, verify_hash, expires) "
+		     "VALUES ('%s', '%s', '%s', '%s', '%s', %llu), "
+		     "('%s', '%s', '%s', '%s', '%s', 1)",
+		     VERIFY_USER, hex, SEED_SALT, VERIFY_TOTP_SECRET,
+		     VERIFY_HASH, (unsigned long long)time(NULL) + 3600,
+		     SEED_USER, hex, SEED_SALT, VERIFY_TOTP_SECRET,
+		     VERIFY_HASH_EXPIRED);
+	if (seed_exec(db, sql))
+		goto bail;
+
 	if (seed_exec(db, "COMMIT"))
 		goto bail;
 
@@ -1738,6 +1774,108 @@ scenario_adminws(void)
 	return 0;
 }
 
+/*
+ * The auth vhost names an error-document-404, so lws_return_http_status()
+ * answers a 404 with a redirect to it
+ */
+static int
+not_found(void)
+{
+	return status == 404 || (status == 302 && strstr(loc, "404"));
+}
+
+/*
+ * verify: the mailed registration link, which mail gateways and "safe link"
+ * scanners GET before the user sees it.  The GET must only ask for
+ * confirmation; what creates the account and shows the second factor is the
+ * page's POST, which carries the auth_csrf double submit and works once.
+ */
+static int
+scenario_verify(void)
+{
+	static const char * const tok = "name=\"csrf_token\" value=\"";
+	char path[128], form[128], csrf[33];
+	const char *v;
+	int n;
+
+	lws_snprintf(path, sizeof(path), "/api/verify?h=%s", VERIFY_HASH);
+
+	/* (1) the scanner's GETs: a confirmation page, and nothing consumed */
+	for (n = 0; n < 2; n++) {
+		if (req_full(JAR_AUTH, port_auth, path, NULL) || status != 200)
+			return fail("verify", "GET %s answered %u, wanted the "
+				    "confirmation page", path, status);
+		if (!strstr(body, "action=\"verify\"") ||
+		    strstr(body, VERIFY_TOTP_SECRET) ||
+		    strstr(body, "backup-code"))
+			return fail("verify", "GET %s did more than ask for "
+				    "confirmation: '%s'", path, body);
+	}
+
+	/* the page's token, whose cookie the first GET planted in the jar */
+	v = strstr(body, tok);
+	if (!v || !jar_value(JAR_AUTH, "auth_csrf"))
+		return fail("verify", "the confirmation page carries no "
+			    "csrf_token, or set no auth_csrf cookie: '%s'",
+			    body);
+	lws_strnncpy(csrf, v + strlen(tok), 32, sizeof(csrf));
+
+	/* (2) the seed is no image before the registration is the account */
+	lws_snprintf(path, sizeof(path), "/api/totp_svg?h=%s", VERIFY_HASH);
+	if (req_full(JAR_AUTH, port_auth, path, NULL) || !not_found())
+		return fail("verify", "unconfirmed %s answered %u, wanted a 404",
+			    path, status);
+
+	/* (3) the confirming POST without the double submit */
+	lws_snprintf(form, sizeof(form), "h=%s", VERIFY_HASH);
+	if (req_full(JAR_AUTH, port_auth, "/api/verify", form) ||
+	    status != 403)
+		return fail("verify", "POST /api/verify without csrf_token "
+			    "answered %u, wanted 403", status);
+
+	/* (4) as the page makes it: the account, the seed and the codes */
+	lws_snprintf(form, sizeof(form), "h=%s&csrf_token=%s", VERIFY_HASH,
+		     csrf);
+	if (req_full(JAR_AUTH, port_auth, "/api/verify", form) ||
+	    status != 200 || !strstr(body, VERIFY_TOTP_SECRET) ||
+	    !strstr(body, "backup-code"))
+		return fail("verify", "the confirming POST answered %u, "
+			    "wanted the seed and backup codes: '%s'", status,
+			    body);
+
+	/* (5) once only */
+	if (req_full(JAR_AUTH, port_auth, "/api/verify", form) ||
+	    status != 400)
+		return fail("verify", "a replayed confirming POST answered "
+			    "%u, wanted 400", status);
+
+	/* (6) the image of the seed, for the page that showed it, once */
+	if (req_full(JAR_AUTH, port_auth, path, NULL) || status != 200 ||
+	    !strstr(body, "<svg"))
+		return fail("verify", "%s answered %u after confirmation, "
+			    "wanted the QR image", path, status);
+	if (req_full(JAR_AUTH, port_auth, path, NULL) || !not_found())
+		return fail("verify", "%s answered %u a second time, wanted "
+			    "404", path, status);
+
+	/* (7) an expired registration gives nothing, even for an account */
+	lws_snprintf(path, sizeof(path), "/api/totp_svg?h=%s",
+		     VERIFY_HASH_EXPIRED);
+	if (req_full(JAR_AUTH, port_auth, path, NULL) || !not_found())
+		return fail("verify", "expired %s answered %u, wanted a 404",
+			    path, status);
+	lws_snprintf(path, sizeof(path), "/api/verify?h=%s",
+		     VERIFY_HASH_EXPIRED);
+	if (req_full(JAR_AUTH, port_auth, path, NULL) || status != 400)
+		return fail("verify", "expired %s answered %u, wanted 400",
+			    path, status);
+
+	lwsl_user("PASS: verify: GET only asks, the POST confirms once, the "
+		  "QR follows it and expiry\n");
+
+	return 0;
+}
+
 /* ---------------------------------------------------------------------- main */
 
 int
@@ -1818,6 +1956,8 @@ main(int argc, const char **argv)
 		bad = scenario_dualhost();
 	else if (!strcmp(test, "adminws"))
 		bad = scenario_adminws();
+	else if (!strcmp(test, "verify"))
+		bad = scenario_verify();
 	else if (!strcmp(test, "uninit")) {
 		if (!port_uninit || !port_failinit) {
 			lwsl_err("%s: uninit needs --uninit-port and "

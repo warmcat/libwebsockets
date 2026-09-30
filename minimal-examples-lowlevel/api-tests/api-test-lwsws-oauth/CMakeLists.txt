@@ -273,6 +273,17 @@ if (requirements)
 		list(APPEND mytests lwsws-oauth-adminws)
 
 		#
+		# (d2) the mailed registration link: a GET only asks for
+		# confirmation, the page's POST creates the account and shows
+		# the second factor once, and the QR image of the seed needs
+		# a live, confirmed registration.  Once only, over h1: the
+		# seeded registration is consumed.
+		#
+		add_test(NAME lwsws-oauth-verify
+			 COMMAND ${SAMP} -t verify --h1 ${ARGS_COMMON})
+		list(APPEND mytests lwsws-oauth-verify)
+
+		#
 		# (e) the auth server's mount on vhosts where the plugin has no
 		# per-vhost state: one names it with no options, one points
 		# jwk_path where the key cannot be saved so its init fails.
