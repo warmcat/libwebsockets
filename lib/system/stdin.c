@@ -156,7 +156,9 @@ callback_system_stdin(struct lws *wsi, enum lws_callback_reasons reason, void *u
 			break;
 		}
 
-		if (n && lws_buflist_append_segment(&cx->stdin_buflist, (const uint8_t *)buf, (size_t)n))
+		/* 1 just means it was the first segment, only < 0 is failure */
+		if (n && lws_buflist_append_segment(&cx->stdin_buflist,
+					(const uint8_t *)buf, (size_t)n) < 0)
 			return -1;
 		break;
 
@@ -213,7 +215,7 @@ lws_system_adopt_stdin(struct lws_context *cx, unsigned int flags)
 				}
 				if (lws_buflist_append_segment(&cx->stdin_buflist,
 							       (const uint8_t *)buf,
-							       (size_t)n))
+							       (size_t)n) < 0)
 					return 1;
 			}
 

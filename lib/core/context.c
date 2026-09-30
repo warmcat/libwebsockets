@@ -3079,6 +3079,8 @@ next_l:
 #endif
 #endif
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL)
+		/* stdin still being collected, or collection failed */
+		lws_buflist_destroy_all_segments(&context->stdin_buflist);
 		lws_free(context->stdin_linear);
 #endif
 		/*
