@@ -166,9 +166,11 @@ lws_ssl_close(struct lws *wsi)
 #endif
 
 	if (wsi->io->tls.ssl) {
-#if defined(LWS_WITH_TLS_SESSIONS)
-		lws_tls_session_new_gnutls(wsi);
-#endif
+		/*
+		 * The session was offered to the client cache while the
+		 * connection was intact (LWS_IOCLOSE_QUIESCE): by now a quic
+		 * connection has lost the netconn its session tag is made from
+		 */
 		gnutls_deinit((gnutls_session_t)wsi->io->tls.ssl);
 		wsi->io->tls.ssl = NULL;
 	}
@@ -555,11 +557,11 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	if (n < 0) {
 		lws_snprintf(ebuf, ebuf_len,
 			     "gnutls_certificate_verify_peers failed");
-		return -1;
+		goto refused;
 	}
 
 	if (!status)
-		return 0;
+		goto accepted;
 
 	/*
 	 * The same flag semantics as the openssl backend: ALLOW_INSECURE and
@@ -589,7 +591,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 
 	if (!(status & ~allowed)) {
 		lwsl_info("%s: allowing anyway\n", __func__);
-		return 0;
+		goto accepted;
 	}
 
 	{
@@ -620,7 +622,26 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	}
 #endif
 
+refused:
+#if defined(LWS_WITH_TLS_SESSIONS)
+	/*
+	 * A resumed session carries the cert of the connection it came from,
+	 * which gnutls checked again above: if that no longer passes, nor will
+	 * the next connection offering it
+	 */
+	if (gnutls_session_is_resumed(session))
+		lws_tls_session_forget_gnutls(wsi);
+#endif
+
 	return -1;
+
+accepted:
+#if defined(LWS_WITH_TLS_SESSIONS)
+	/* the session may be cached now, under this connection's posture */
+	wsi->io->tls.peer_confirmed = 1;
+#endif
+
+	return 0;
 }
 #endif
 

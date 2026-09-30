@@ -349,6 +349,8 @@ lws_genec_confirm_curve_allowed_by_tls_id(const char *allowed, int id,
 #if defined(LWS_WITH_GNUTLS)
 int
 lws_tls_session_new_gnutls(struct lws *wsi);
+void
+lws_tls_session_forget_gnutls(struct lws *wsi);
 #endif
 
 int

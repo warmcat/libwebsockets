@@ -54,6 +54,10 @@ typedef int (*lws_tls_sess_cb_t)(struct lws_context *cx,
  * If a session matching the vhost/host/port exists in the vhost's session
  * cache, serialize it via the provided callback.
  *
+ * Only sessions of fully validated tls over tcp connections are visible here:
+ * those of connections with relaxed cert checks, and of quic connections, are
+ * kept apart in the cache and never saved or loaded.
+ *
  * \p opq is passed to the callback without being used by lws at all.
  */
 LWS_VISIBLE LWS_EXTERN int
@@ -70,7 +74,8 @@ lws_tls_session_dump_save(struct lws_vhost *vh, const char *host, uint16_t port,
  * \param opq: an opaque pointer passed into the callback
  *
  * Try to preload a session described by the first three parameters into the
- * client session cache, from the given callback.
+ * client session cache, from the given callback.  It is only offered to fully
+ * validated tls over tcp connections.
  *
  * \p opq is passed to the callback without being used by lws at all.
  */

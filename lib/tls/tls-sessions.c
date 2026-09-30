@@ -61,6 +61,8 @@ lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len)
 	const char *host = NULL;
 #if defined(LWS_WITH_CLIENT)
 	unsigned int relaxed;
+	char sfx[16];
+	size_t sl = 0;
 #endif
 
 	if (!wsi)
@@ -89,7 +91,20 @@ lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len)
 		return 1;
 
 #if defined(LWS_WITH_CLIENT)
-	if (relaxed) {
+#if defined(LWS_ROLE_QUIC)
+	if (wsi->quic.qn)
+		/*
+		 * A session from a quic connection is kept apart from tcp's
+		 * for the same host and port, and the other way around: a
+		 * client offers early data on whatever session it resumes,
+		 * and a ticket from tls over tcp was issued for another alpn
+		 * and carries none of the quic transport parameters 0-RTT has
+		 * to be sent under (RFC 9000 7.4.1)
+		 */
+		sl = (size_t)lws_snprintf(sfx, sizeof(sfx), "_q");
+#endif
+
+	if (relaxed)
 		/*
 		 * On resumption the server sends no Certificate, so the verify
 		 * callback and hostname check never run: whatever validation
@@ -100,18 +115,19 @@ lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len)
 		 *
 		 * Segregate them by suffixing the tag with the relaxation
 		 * flags: only a connection with the identical posture, to the
-		 * same vhost / host / port, can find and resume it.  The
-		 * plain vhost_host_port tag is reserved for fully validated
-		 * sessions, so the dump / load apis (which only know those
-		 * three things) never export a relaxed session, and a loaded
-		 * one is only ever offered to a strict connection.
+		 * same vhost / host / port, can find and resume it.
 		 */
-		char sfx[16];
-		size_t n = strlen(buf), sl;
+		sl += (size_t)lws_snprintf(sfx + sl, sizeof(sfx) - sl, "_r%x",
+					   relaxed);
 
-		sl = (size_t)lws_snprintf(sfx, sizeof(sfx), "_r%x", relaxed);
-
+	if (sl) {
 		/*
+		 * The plain vhost_host_port tag is reserved for fully
+		 * validated tcp sessions, so the dump / load apis (which only
+		 * know those three things) never export anything else, and a
+		 * loaded session is only ever offered to a strict tcp
+		 * connection.
+		 *
 		 * The suffix must not be truncated: "_r" alone, or a "_r1"
 		 * that lost its last nibble, makes every relaxed posture that
 		 * shares the prefix land in one cache slot, which is exactly
@@ -119,6 +135,7 @@ lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len)
 		 * not fit, refuse to produce a tag at all so nothing is
 		 * cached or resumed.
 		 */
+		size_t n = strlen(buf);
 
 		if (n + sl + 1 > len)
 			return 1;

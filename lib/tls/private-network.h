@@ -211,6 +211,8 @@ struct lws_lws_tls {
 #if defined(LWS_WITH_GNUTLS) && defined(LWS_WITH_TLS_SESSIONS)
 	/* the client cache has had this connection's session (gnutls) */
 	unsigned int		sess_cached:1;
+	/* the client accepted the server's cert, the session may be cached */
+	unsigned int		peer_confirmed:1;
 #endif
 };
 

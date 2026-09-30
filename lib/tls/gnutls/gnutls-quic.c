@@ -572,13 +572,13 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		}
 	}
 
-	if (n == GNUTLS_E_SUCCESS) {
-#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_TLS_SESSIONS)
-		if (lwsi_role_client(active_wsi))
-			lws_tls_session_new_gnutls(active_wsi);
-#endif
+	/*
+	 * A client's session is not cached here as the handshake completes:
+	 * the server cert is only confirmed after we return, and the ticket
+	 * comes later, in post-handshake CRYPTO (see above)
+	 */
+	if (n == GNUTLS_E_SUCCESS)
 		return 0;
-	}
 
 	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) {
 		return 1;

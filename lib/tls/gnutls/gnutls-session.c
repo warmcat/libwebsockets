@@ -153,6 +153,32 @@ lws_tls_session_vh_destroy(struct lws_vhost *vh)
 			      lws_tls_session_destroy_dll);
 }
 
+/*
+ * The connection resumed the session cached under its tag, and then did not
+ * accept the server's cert: stop offering the session, every connection that
+ * resumes it would be refused the same way
+ */
+
+void
+lws_tls_session_forget_gnutls(struct lws *wsi)
+{
+	char buf[LWS_SESSION_TAG_LEN];
+	lws_tls_scm_t *ts;
+
+	if (!wsi->a.vhost || lws_tls_session_tag_from_wsi(wsi, buf, sizeof(buf)))
+		return;
+
+	lws_context_lock(wsi->a.context, __func__); /* -------------- cx { */
+	lws_vhost_lock(wsi->a.vhost); /* -------------- vh { */
+
+	ts = __lws_tls_session_lookup_by_name(wsi->a.vhost, buf);
+	if (ts)
+		__lws_tls_session_destroy(ts);
+
+	lws_vhost_unlock(wsi->a.vhost); /* } vh --------------  */
+	lws_context_unlock(wsi->a.context); /* } cx --------------  */
+}
+
 static void
 lws_tls_session_expiry_cb(lws_sorted_usec_list_t *sul)
 {
@@ -190,8 +216,16 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 	const char *disposition = "reuse";
 #endif
 
+	/*
+	 * Only a session with a server whose cert this connection accepted
+	 * (lws_tls_client_confirm_peer_cert()) is cached.  The handshake
+	 * completes, and a ticket can arrive, whatever the cert was, and a
+	 * cached session is what a later connection to the same tag resumes,
+	 * and sends 0-RTT data under before that connection's own cert check
+	 * runs (C-666)
+	 */
 	if (!wsi || !wsi->io->tls.ssl || !wsi->a.vhost ||
-	    wsi->io->tls.sess_cached)
+	    !wsi->io->tls.peer_confirmed || wsi->io->tls.sess_cached)
 		return 0;
 
 	session = (gnutls_session_t)wsi->io->tls.ssl;
