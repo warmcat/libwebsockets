@@ -119,7 +119,7 @@ static const unsigned char qpack_static_token[99] = {
 	WSI_TOKEN_HTTP_AUTHORIZATION,
 	LWS_QPACK_IGNORE_ENTRY, /* content-security-policy */
 	LWS_QPACK_IGNORE_ENTRY, /* early-data */
-	WSI_TOKEN_HTTP_EXPECT,
+	LWS_QPACK_IGNORE_ENTRY, /* expect-ct */
 	LWS_QPACK_IGNORE_ENTRY, /* forwarded */
 	WSI_TOKEN_HTTP_IF_RANGE,
 	WSI_TOKEN_ORIGIN,
@@ -142,7 +142,7 @@ static const char * const qpack_canned[] = {
 	"text/html; charset=utf-8", "text/plain", "text/plain;charset=utf-8", "bytes=0-", "max-age=31536000", "max-age=31536000; includesubdomains", "max-age=31536000; includesubdomains; preload", "accept-encoding", "origin", "nosniff",
 	"1; mode=block", "100", "204", "206", "302", "400", "403", "421", "425", "500",
 	"", "FALSE", "TRUE", "*", "get", "get, post, options", "options", "content-length", "content-type", "get",
-	"post", "clear", "", "script-src 'none'; object-src 'none'; base-uri 'none'", "1", "100-continue", "", "", "", "prefetch",
+	"post", "clear", "", "script-src 'none'; object-src 'none'; base-uri 'none'", "1", "", "", "", "", "prefetch",
 	"", "*", "1", "", "", "deny", "sameorigin"
 };
 

@@ -980,10 +980,15 @@ int main(int argc, const char **argv)
 
 	if (!lws_qpack_get_static_token(99, &tok, &val)) { lwsl_err("1.7\n"); fails++; }
 
+	/* row 87 is expect-ct with no value, there is no Expect row */
+	if (lws_qpack_get_static_token(87, &tok, &val)) { lwsl_err("1.8\n"); fails++; }
+	if (tok != LWS_QPACK_IGNORE_ENTRY || strcmp(val, "")) { lwsl_err("1.9\n"); fails++; }
+
 	/* 2. lws_qpack_find_static_index returns the 0-based wire index */
 	if (lws_qpack_find_static_index(WSI_TOKEN_HTTP_COLON_METHOD, "GET", 3) != 17) { lwsl_err("2.1\n"); fails++; }
 	if (lws_qpack_find_static_index(WSI_TOKEN_HTTP_COLON_METHOD, "POST", 4) != 20) { lwsl_err("2.2\n"); fails++; }
 	if (lws_qpack_find_static_index(WSI_TOKEN_HTTP_COLON_STATUS, "200", 3) != 25) { lwsl_err("2.3\n"); fails++; }
+	if (lws_qpack_find_static_index(WSI_TOKEN_HTTP_EXPECT, "100-continue", 12) != -1) { lwsl_err("2.4\n"); fails++; }
 
 	/* 3. lws_qpack_encode_static */
 	len = lws_qpack_encode_static(buf, sizeof(buf), 0);
