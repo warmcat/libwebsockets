@@ -2062,7 +2062,7 @@ lhp_ws(char c)
 static int
 lhp_has_class(lws_dll2_owner_t *atr, const char *name, size_t name_len)
 {
-	const char *c = lhp_atr_get(atr, "class", 5, 1), *start = c;
+	const char *c = lhp_atr_get(atr, "class", 5, 1), *t;
 
 	if (!c)
 		return 0;
@@ -2072,15 +2072,21 @@ lhp_has_class(lws_dll2_owner_t *atr, const char *name, size_t name_len)
 	 * md:flex or w-[1312px] is one token, matched by an escaped selector
 	 * .md\:flex).  This is the hottest comparison in the cascade (every
 	 * class selector that survives the key prefilter, for every element),
-	 * so no tokenizer
+	 * so no tokenizer.
+	 *
+	 * The name is decoded selector text and may hold a NUL (an escaped
+	 * one), so compare by length and never index past the token
 	 */
 
 	while (*c) {
-		if ((c == start || lhp_ws(c[-1])) &&
-		    !strncmp(c, name, name_len) &&
-		    (!c[name_len] || lhp_ws(c[name_len])))
+		while (lhp_ws(*c))
+			c++;
+		t = c;
+		while (*c && !lhp_ws(*c))
+			c++;
+		if (c != t && (size_t)(c - t) == name_len &&
+		    !memcmp(t, name, name_len))
 			return 1;
-		c++;
 	}
 
 	return 0;
