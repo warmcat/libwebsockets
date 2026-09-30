@@ -30,6 +30,13 @@
 
 #if defined(LWS_WITH_TLS)
 
+/*
+ * The size of the buffers the client tls backends read the connection's host
+ * name into, for SNI and the server cert name check.  lws_client_create_tls()
+ * refuses a longer name, so no backend ever works with a truncated one (C-667)
+ */
+#define LWS_TLS_CLIENT_HOSTNAME_LEN 128
+
 #include "private-jit-trust.h"
 
 #if defined(WIN32) && defined(LWS_WITH_SCHANNEL)

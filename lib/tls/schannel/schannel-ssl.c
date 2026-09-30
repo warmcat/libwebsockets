@@ -105,7 +105,7 @@ int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
 	struct lws_tls_schannel_conn *conn;
-	char hostname[128];
+	char hostname[LWS_TLS_CLIENT_HOSTNAME_LEN];
 
 	conn = lws_zalloc(sizeof(*conn), "schannel_conn");
 	if (!conn) return -1;

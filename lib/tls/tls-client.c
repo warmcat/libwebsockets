@@ -305,6 +305,25 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	return 0;
 }
 
+/*
+ * The backends read the connection's host name, for SNI and the server cert
+ * name check, into LWS_TLS_CLIENT_HOSTNAME_LEN buffers.  A longer name must
+ * not reach them: cut short, both would be about another name, eg, for
+ * "<63 chars>.<54 chars>.evil.com.service.example", a name under evil.com,
+ * whose cert whoever controls the leading labels can have (C-667)
+ */
+static int
+lws_tls_client_hostname_fits(struct lws *wsi)
+{
+	const char *host = lws_wsi_client_stash_item(wsi, CIS_HOST,
+						     _WSI_TOKEN_CLIENT_HOST);
+
+	if (!host)
+		host = wsi->cli_hostname_copy;
+
+	return !host || strlen(host) < LWS_TLS_CLIENT_HOSTNAME_LEN;
+}
+
 int
 lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 {
@@ -315,6 +334,14 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 		int n;
 #endif
 		if (!wsi->io->tls.ssl) {
+
+			if (!lws_tls_client_hostname_fits(wsi)) {
+				lwsl_wsi_err(wsi, "host name longer than %d, "
+					     "refusing tls",
+					     LWS_TLS_CLIENT_HOSTNAME_LEN - 1);
+				*pcce = "tls host name too long";
+				return CCTLS_RETURN_ERROR;
+			}
 
 #if defined(LWS_WITH_TLS)
 			if (!wsi->transaction_from_pipeline_queue &&

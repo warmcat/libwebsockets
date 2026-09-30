@@ -717,7 +717,8 @@ lws_gnutls_client_hostname(struct lws *wsi, char *buf, size_t len)
 	if (!from)
 		from = wsi->cli_hostname_copy;
 
-	if (!from || !*from)
+	/* lws_client_create_tls() refused a name too long for us */
+	if (!from || !*from || strlen(from) >= len)
 		return 1;
 
 	lws_strncpy(buf, from, len);
@@ -734,7 +735,7 @@ lws_gnutls_client_hostname(struct lws *wsi, char *buf, size_t len)
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
-	char hostname[128];
+	char hostname[LWS_TLS_CLIENT_HOSTNAME_LEN];
 	gnutls_session_t session;
 
 	if (lws_gnutls_client_hostname(wsi, hostname, sizeof(hostname))) {

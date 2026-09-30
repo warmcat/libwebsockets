@@ -519,7 +519,7 @@ static int32_t OpenHiTLS_client_verify_callback(int32_t verify_code,
 
 int lws_ssl_client_bio_create(struct lws *wsi)
 {
-	char hostname[128];
+	char hostname[LWS_TLS_CLIENT_HOSTNAME_LEN];
 	char alpn_buf[128];
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	char temp_alpn[128];
@@ -817,7 +817,7 @@ lws_openhitls_recheck_skipped(struct lws *wsi, HITLS_X509_Cert *cert,
 			      char *ebuf, size_t ebuf_len)
 {
 	union lws_tls_cert_info_results ir;
-	char hostname[128];
+	char hostname[LWS_TLS_CLIENT_HOSTNAME_LEN];
 	time_t now;
 
 	if (!cert) {

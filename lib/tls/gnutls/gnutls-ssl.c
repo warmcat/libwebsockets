@@ -526,7 +526,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 {
 	gnutls_session_t session = (gnutls_session_t)wsi->io->tls.ssl;
 	unsigned int status = 0, allowed = 0;
-	char hostname[128];
+	char hostname[LWS_TLS_CLIENT_HOSTNAME_LEN];
 	int n;
 
 	if (!session)

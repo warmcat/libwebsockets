@@ -97,7 +97,7 @@ int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
 	struct lws_tls_conn *conn;
-	char hostname[128];
+	char hostname[LWS_TLS_CLIENT_HOSTNAME_LEN];
 	char temp_alpn[128];
 	const char *alpn_comma = NULL;
 

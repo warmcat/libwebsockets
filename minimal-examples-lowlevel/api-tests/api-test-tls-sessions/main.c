@@ -24,6 +24,10 @@
  *  - short.example: a session is cached for it, so the cache is in play
  *  - the long name: no session is cached for it, and none for another name
  *    with the same first 91 characters either
+ *
+ * Last, a connection to a name too long for the tls backends' host name
+ * buffers (128 characters here) must be refused before any tls, rather than
+ * go ahead with SNI and the cert check for a truncated name.
  */
 
 #include <libwebsockets.h>
@@ -37,14 +41,18 @@
 /* the first 91 characters of both long names, which is all a tag holds */
 #define LONG_PREFIX "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa." \
 		    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+/* 128 characters, one more than the backends' buffers hold */
+#define TOO_LONG_HOST LONG_PREFIX ".cccccccccccccccccccccccccccc.example"
 
 static const struct {
 	const char	*host;		/* the name the client connects to */
 	const char	*other;		/* another name that must not see it */
 	char		cached;		/* is a session expected to be cached */
+	char		refused;	/* must the connection be refused */
 } cases[] = {
-	{ "short.example",		NULL,			1 },
-	{ LONG_PREFIX ".example",	LONG_PREFIX ".sample",	0 },
+	{ "short.example",		NULL,			1, 0 },
+	{ LONG_PREFIX ".example",	LONG_PREFIX ".sample",	0, 0 },
+	{ TOO_LONG_HOST,		NULL,			0, 1 },
 };
 
 static struct lws_context *context;
@@ -166,11 +174,32 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+		if (cases[cur].refused) {
+			case_finish("a too long host name was connected to");
+			break;
+		}
 		completed = lws_http_client_http_response(wsi) == 200;
 		case_finish(completed ? NULL : "the server did not answer 200");
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		if (cases[cur].refused) {
+			/*
+			 * Refused, but it must be for the name's length: the
+			 * truncated name the server would otherwise have seen
+			 * in SNI is not one it serves, so it refuses that too
+			 */
+			if (!in || !strstr((const char *)in, "too long")) {
+				lwsl_err("%s: refused for: %s\n", __func__,
+					 in ? (const char *)in : "(null)");
+				case_finish("not refused for its length");
+				break;
+			}
+			/* nothing may have been cached either */
+			completed = 1;
+			case_finish(NULL);
+			break;
+		}
 		lwsl_err("%s: connection error: %s\n", __func__,
 			 in ? (const char *)in : "(null)");
 		case_finish("connection error");

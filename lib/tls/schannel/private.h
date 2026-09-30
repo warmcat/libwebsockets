@@ -167,7 +167,7 @@ struct lws_tls_schannel_conn {
 	size_t peer_der_len;
 
 	char alpn[64];
-    char hostname[128];
+	char hostname[LWS_TLS_CLIENT_HOSTNAME_LEN];
 	int quic_secret_type_count[5];
 	uint8_t quic_hs_secrets[2][48];
 	size_t quic_hs_secrets_len[2];

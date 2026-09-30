@@ -260,7 +260,7 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
-	char hostname[128];
+	char hostname[LWS_TLS_CLIENT_HOSTNAME_LEN];
 #if (defined(LWS_HAVE_SSL_set_alpn_protos) || defined(OPENSSL_IS_AWSLC)) && \
     (defined(LWS_HAVE_SSL_get0_alpn_selected) || defined(OPENSSL_IS_AWSLC))
 	uint8_t openssl_alpn[40];

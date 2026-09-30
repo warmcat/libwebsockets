@@ -19,6 +19,7 @@ verified connection to each, by name, and then asks
 |---|---|
 |`short.example`|a session is cached for it, so the cache is in play|
 |the 99-character name|no session is cached for it, and none for another name with the same first 91 characters either|
+|a 128-character name|the connection is refused before any tls: the tls backends read the host name into 128-byte buffers, and a truncated name would be what SNI and the server cert check are about|
 
 It is not built with mbedtls or schannel, which have no session dump.  With
 gnutls, the server is held to TLS 1.2: a gnutls tls server issues no TLS 1.3
