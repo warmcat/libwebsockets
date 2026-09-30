@@ -1176,9 +1176,11 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 				    lws_is_flowcontrolled(wsi),
 				    (unsigned long)wsi->wsistate);
 
-		if (!lws_is_flowcontrolled(wsi) &&
-		    lwsi_state(wsi) != LRS_TXN_COMPLETED &&
-		    lwsi_state(wsi) != LRS_DEFERRING_ACTION) {
+		/*
+		 * Not a wsi holding its parked rx back for now, eg, an h1
+		 * request pipelined behind the transaction in progress
+		 */
+		if (lws_wsi_can_consume_parked_rx(wsi)) {
 			pt->inside_lws_service = 1;
 
 			switch (lws_rx_stage(pt, wsi, &pfd)) {

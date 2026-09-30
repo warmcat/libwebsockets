@@ -56,7 +56,8 @@
  * clear and, on a tls vhost set up the way lwsws does it, to h2 and h3; the
  * relay's body-less FINAL at the end of the onward response must end a
  * stream that is still open, and be nothing on one a Content-Length already
- * ended.
+ * ended.  On h1 a response the relay frames as chunked is ended by its own
+ * last-chunk, the second one on a kept-alive connection as much as the first.
  *
  * On an h3 stream, a response write lws took whole is in quic's hands: it
  * must not be reported back to the app as a partial or a choked pipe just
@@ -126,8 +127,11 @@ struct xcase {
 					 * the first completed, on the kept-warm
 					 * connection; 2: it goes 1500ms later,
 					 * after the connection idled out (1s) */
-	int		h2c;		/* a raw client does an Upgrade: h2c and
-					 * reads stream 1's response as h2 frames */
+	int		raw;		/* 1: a raw client does an Upgrade: h2c
+					 * and reads stream 1's response as h2
+					 * frames; 2: a raw client sends two h1
+					 * requests in one write and reads the
+					 * chunked responses */
 	int		conn_close;	/* every request the server sees must
 					 * say "connection: close" */
 };
@@ -366,6 +370,17 @@ static const struct xcase cases[] = {
 	  "POST", "/echo-cl", XR_CL, 100000, 0, 8192, 0, 0, 200, 100000, XG_NONE, 0, 1, 0, 0, 0 },
 	{ "h1 POST Content-Length 20KB, no-length response, via the http proxy mount",
 	  "POST", "/echo-nolen", XR_CL, 20000, 0, 8192, 0, 0, 200, 20000, XG_NONE, 0, 1, 0, 0, 0 },
+	/*
+	 * The relay frames a response without a Content-Length as chunked on
+	 * h1.  When the onward response ended by its own framing (not by the
+	 * onward server's close, which ends the parent connection too) the
+	 * parent connection is kept, and a second request pipelined on it
+	 * must get its last-chunk as well
+	 */
+	{ "h1 two GETs pipelined via the http proxy mount, chunked "
+	  "responses, each one ends",
+	  "GET", "/echo-chunked", XR_NONE, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0, 1,
+	  0, 2, 0 },
 #if defined(LWS_ROLE_H3)
 	/*
 	 * The same proxy mount on a tls vhost whose alpn offers h3, as lwsws
@@ -438,6 +453,8 @@ static const struct xcase cases[] = {
 
 /* per client connection */
 
+#define RAW_BUF_MAX (64 * 1024)
+
 struct conn {
 	struct conn		*next;
 	const struct xcase	*c;
@@ -450,12 +467,12 @@ struct conn {
 	char			line[64];	/* response summary line */
 	size_t			line_len;
 	int			line_done;
-	uint8_t			*h2c_buf;	/* raw h2c client: rx so far */
+	uint8_t			*raw_buf;	/* raw clients: rx so far */
 	size_t			mp_len;		/* the multipart body last sent */
 	uint32_t		mp_sum;
 	int			mp_bad;		/* a body did not start at its
 						 * first boundary */
-	size_t			h2c_len;
+	size_t			raw_len;
 	int			h2c_phase;	/* 0: awaiting 101, 1: frames */
 	int			status;
 	int			completed;
@@ -1132,7 +1149,7 @@ case_evaluate(void)
 		if (c->expect_status != 200)
 			continue;
 
-		if (c->h2c) {
+		if (c->raw == 1) {
 			/* the file came as h2 DATA on stream 1, nothing to sum */
 			if (!cn->rx_len) {
 				case_finish(0, "no DATA on the h2c stream");
@@ -1140,6 +1157,10 @@ case_evaluate(void)
 			}
 			continue;
 		}
+
+		if (c->raw == 2)
+			/* it completed only once both responses had ended */
+			continue;
 
 		if (c->req == XR_MULTIPART) {
 			/* what the client made, not the test pattern */
@@ -1558,7 +1579,7 @@ conn_free(struct conn *cn)
 		*pp = cn->next;
 
 	free(cn->framed);
-	free(cn->h2c_buf);
+	free(cn->raw_buf);
 	free(cn);
 }
 
@@ -1657,10 +1678,17 @@ conn_start(const struct xcase *c)
 	 */
 	i.keep_warm_secs = 1;
 #if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_FILE_OPS)
-	if (c->h2c) {
+	if (c->raw == 1) {
 		/* a raw client that speaks the upgrade and the h2 frames itself */
 		i.method = "RAW";
 		i.local_protocol_name = "http-xfer-h2c";
+	}
+#endif
+#if defined(LWS_WITH_HTTP_PROXY)
+	if (c->raw == 2) {
+		/* a raw client that pipelines two h1 requests itself */
+		i.method = "RAW";
+		i.local_protocol_name = "http-xfer-raw-h1";
 	}
 #endif
 	if (c->pipeline)
@@ -1750,8 +1778,6 @@ next_case(lws_sorted_usec_list_t *sul)
  * :status first, as a literal name and value without indexing.
  */
 
-#define H2C_BUF_MAX (64 * 1024)
-
 static int
 callback_raw_h2c(struct lws *wsi, enum lws_callback_reasons reason,
 		 void *user, void *in, size_t len)
@@ -1790,34 +1816,34 @@ callback_raw_h2c(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
-		if (!cn->h2c_buf) {
-			cn->h2c_buf = malloc(H2C_BUF_MAX);
-			if (!cn->h2c_buf)
+		if (!cn->raw_buf) {
+			cn->raw_buf = malloc(RAW_BUF_MAX);
+			if (!cn->raw_buf)
 				return -1;
 		}
-		if (cn->h2c_len + len > H2C_BUF_MAX)
+		if (cn->raw_len + len > RAW_BUF_MAX)
 			return -1;
-		memcpy(cn->h2c_buf + cn->h2c_len, in, len);
-		cn->h2c_len += len;
+		memcpy(cn->raw_buf + cn->raw_len, in, len);
+		cn->raw_len += len;
 
 		if (!cn->h2c_phase) {
 			uint8_t *e = NULL;
 
-			for (o = 0; o + 4 <= cn->h2c_len; o++)
-				if (!memcmp(cn->h2c_buf + o, "\r\n\r\n", 4)) {
-					e = cn->h2c_buf + o + 4;
+			for (o = 0; o + 4 <= cn->raw_len; o++)
+				if (!memcmp(cn->raw_buf + o, "\r\n\r\n", 4)) {
+					e = cn->raw_buf + o + 4;
 					break;
 				}
 			if (!e)
 				break;
-			if (cn->h2c_len < 12 ||
-			    memcmp(cn->h2c_buf, "HTTP/1.1 101", 12)) {
+			if (cn->raw_len < 12 ||
+			    memcmp(cn->raw_buf, "HTTP/1.1 101", 12)) {
 				lwsl_user("%s: no 101: '%.*s'\n", __func__,
-					  (int)(e - cn->h2c_buf), (const char *)cn->h2c_buf);
+					  (int)(e - cn->raw_buf), (const char *)cn->raw_buf);
 				return -1;
 			}
-			cn->h2c_len -= (size_t)(e - cn->h2c_buf);
-			memmove(cn->h2c_buf, e, cn->h2c_len);
+			cn->raw_len -= (size_t)(e - cn->raw_buf);
+			memmove(cn->raw_buf, e, cn->raw_len);
 			cn->h2c_phase = 1;
 			memcpy(buf + LWS_PRE, preface, sizeof(preface) - 1);
 			if (lws_write(wsi, buf + LWS_PRE, sizeof(preface) - 1,
@@ -1827,14 +1853,14 @@ callback_raw_h2c(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/*
 		 * h2 frames: o is how far into the buffer whole frames were
-		 * consumed, cn->h2c_len stays what we buffered until the end
+		 * consumed, cn->raw_len stays what we buffered until the end
 		 */
 		o = 0;
-		while (o + 9 <= cn->h2c_len) {
+		while (o + 9 <= cn->raw_len) {
 			size_t flen;
 			uint8_t type, flags;
 
-			p = cn->h2c_buf + o;
+			p = cn->raw_buf + o;
 			flen = ((size_t)p[0] << 16) | ((size_t)p[1] << 8) | p[2];
 			type = p[3];
 			flags = p[4];
@@ -1843,12 +1869,12 @@ callback_raw_h2c(struct lws *wsi, enum lws_callback_reasons reason,
 			 * A frame bigger than our whole rx buffer can never
 			 * be assembled, so we'd stall here forever
 			 */
-			if (flen > H2C_BUF_MAX - 9) {
+			if (flen > RAW_BUF_MAX - 9) {
 				lwsl_err("%s: h2 frame len %u too big\n",
 					 __func__, (unsigned int)flen);
 				return -1;
 			}
-			if (cn->h2c_len - o < 9 + flen)
+			if (cn->raw_len - o < 9 + flen)
 				break;
 			switch (type) {
 			case 4: /* SETTINGS: ack theirs */
@@ -1887,11 +1913,11 @@ callback_raw_h2c(struct lws *wsi, enum lws_callback_reasons reason,
 		 * what we buffered... but o is built from peer lengths, bound
 		 * it directly before it sizes the memmove
 		 */
-		if (o > cn->h2c_len)
+		if (o > cn->raw_len)
 			return -1;
 		if (o) {
-			cn->h2c_len -= o;
-			memmove(cn->h2c_buf, cn->h2c_buf + o, cn->h2c_len);
+			cn->raw_len -= o;
+			memmove(cn->raw_buf, cn->raw_buf + o, cn->raw_len);
 		}
 		break;
 
@@ -1917,10 +1943,104 @@ static const struct lws_protocols protocols_srv[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
+#if defined(LWS_WITH_HTTP_PROXY)
+
+/*
+ * The raw client of the pipelined proxy case: two GETs in one write, then
+ * the responses are read until each has ended.  The proxy relays a
+ * response without a Content-Length as chunked, so each ends with a
+ * last-chunk; the proxy says "connection: close", but the requests asked
+ * for keep-alive, and a server that goes on reading must frame whatever it
+ * answers.
+ */
+
+static int
+callback_raw_h1(struct lws *wsi, enum lws_callback_reasons reason,
+		void *user, void *in, size_t len)
+{
+	struct conn *cn = (struct conn *)lws_get_opaque_user_data(wsi);
+	uint8_t buf[LWS_PRE + 256];
+	size_t o;
+	int n;
+
+	if (!cn)
+		return lws_callback_http_dummy(wsi, reason, user, in, len);
+
+	switch (reason) {
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		lwsl_user("%s: raw h1 client: connection error: %s\n",
+			  __func__, in ? (const char *)in : "(null)");
+		cn->error = 1;
+		if (cn->case_idx == cur)
+			case_check();
+		break;
+
+	case LWS_CALLBACK_RAW_CONNECTED:
+		n = lws_snprintf((char *)buf + LWS_PRE, sizeof(buf) - LWS_PRE,
+				 "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n"
+				 "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n",
+				 cn->c->path, server_addr,
+				 cn->c->path, server_addr);
+		if (lws_write(wsi, buf + LWS_PRE, (size_t)n, LWS_WRITE_RAW) != n)
+			return -1;
+		break;
+
+	case LWS_CALLBACK_RAW_RX:
+		if (!cn->raw_buf) {
+			cn->raw_buf = malloc(RAW_BUF_MAX);
+			if (!cn->raw_buf)
+				return -1;
+		}
+		if (cn->raw_len + len > RAW_BUF_MAX)
+			return -1;
+		memcpy(cn->raw_buf + cn->raw_len, in, len);
+		cn->raw_len += len;
+
+		/*
+		 * The body is only the summary line, so a last-chunk is the
+		 * only place "\r\n0\r\n\r\n" appears: count the responses
+		 * that ended
+		 */
+		n = 0;
+		for (o = 0; o + 7 <= cn->raw_len; o++)
+			if (!memcmp(cn->raw_buf + o, "\r\n0\r\n\r\n", 7))
+				n++;
+		cn->rx_len = (size_t)n;
+		if (n < 2)
+			break;
+
+		if (cn->raw_len < 12 || memcmp(cn->raw_buf, "HTTP/1.1 200", 12))
+			return -1;
+		cn->status = 200;
+		cn->completed = 1;
+		if (cn->case_idx == cur)
+			case_check();
+
+		return -1; /* done: close */
+
+	case LWS_CALLBACK_RAW_CLOSE:
+		lwsl_user("%s: raw h1 client: closed after %d responses ended\n",
+			  __func__, (int)cn->rx_len);
+		cn->closed = 1;
+		if (cn->case_idx == cur)
+			case_check();
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+#endif
+
 static const struct lws_protocols protocols_cli[] = {
 	{ "http-xfer", callback_cli, 0, 0, 0, NULL, 0 },
 #if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_FILE_OPS)
 	{ "http-xfer-h2c", callback_raw_h2c, 0, 0, 0, NULL, 0 },
+#endif
+#if defined(LWS_WITH_HTTP_PROXY)
+	{ "http-xfer-raw-h1", callback_raw_h1, 0, 0, 0, NULL, 0 },
 #endif
 	LWS_PROTOCOL_LIST_TERM
 };

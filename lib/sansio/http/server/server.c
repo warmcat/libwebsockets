@@ -2339,6 +2339,14 @@ lws_http_action(struct lws *wsi)
 
 	if (hit->origin_protocol == LWSMPRO_HTTPS ||
 	    hit->origin_protocol == LWSMPRO_HTTP) {
+		/*
+		 * The relayed response is this transaction, as much as one
+		 * a callback makes: on h1, a request pipelined behind it waits
+		 * for it to complete, rather than being parsed now and given a
+		 * second onward connection under the same parent
+		 */
+		lws_wsi_event(wsi, LWS_WSIEV_ACTION_BEGIN);
+
 		n = (unsigned int)lws_http_proxy_start(wsi, hit, uri_ptr, 0);
 		// lwsl_notice("proxy start says %d\n", n);
 		if (n)
@@ -3328,6 +3336,8 @@ lws_http_transaction_completed(struct lws *wsi)
 	wsi->sending_chunked = 0;
 	/* an SSE stream the app ended: the next request needs a table */
 	wsi->http_carries_sse = 0;
+	/* the next response a relay ends needs its own end of stream */
+	wsi->http.did_stream_close = 0;
 #ifdef LWS_WITH_ACCESS_LOG
 	wsi->stream.access_log.sent = 0;
 #endif
