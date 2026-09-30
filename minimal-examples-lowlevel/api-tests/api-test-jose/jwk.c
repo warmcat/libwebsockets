@@ -559,6 +559,25 @@ test_jwk(struct lws_context *context)
 	if (test_jwk_oct_public_and_thumbprint())
 		goto bail1;
 
+	/*
+	 * lws_jwk_strdup_meta() copies are NUL-terminated like imported meta
+	 * (lws_jwk_dump() prints them with %s), and replace any previous one
+	 */
+
+	if (lws_jwk_import(&jwk, NULL, NULL, oct_ex_jwk, strlen(oct_ex_jwk)))
+		goto bail1;
+
+	if (lws_jwk_strdup_meta(&jwk, JWK_META_KID, "abcdef", 6) ||
+	    lws_jwk_strdup_meta(&jwk, JWK_META_KID, "xyz", 3) ||
+	    jwk.meta[JWK_META_KID].len != 3 ||
+	    strcmp((const char *)jwk.meta[JWK_META_KID].buf, "xyz")) {
+		lwsl_notice("%s: strdup_meta result wrong\n", __func__);
+		lws_jwk_destroy(&jwk);
+		goto bail1;
+	}
+	lws_jwk_dump(&jwk);
+	lws_jwk_destroy(&jwk);
+
 	/* end */
 
 	lwsl_notice("%s: selftest OK\n", __func__);

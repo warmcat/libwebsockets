@@ -198,10 +198,12 @@ lws_jwk_rfc7638_fingerprint(struct lws_jwk *jwk, char *digest32);
 
 /** lws_jwk_strdup_meta() - allocate a duplicated string meta element
  *
- * \param jwk: the JWK object to fingerprint
+ * \param jwk: the JWK object to set the meta element on
  * \param idx: JWK_META_ element index
  * \param in: string to copy
  * \param len: length of string to copy
+ *
+ * Any previous value of the element is freed, the copy is NUL-terminated.
  *
  * Returns 0 for OK or nonzero for failure
  */

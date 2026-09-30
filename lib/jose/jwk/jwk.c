@@ -116,7 +116,8 @@ lws_jwk_dump(struct lws_jwk *jwk)
 }
 
 int
-_lws_jwk_set_el_jwk(struct lws_gencrypto_keyelem *e, char *in, size_t len)
+_lws_jwk_set_el_jwk(struct lws_gencrypto_keyelem *e, const char *in,
+		    size_t len)
 {
 	/*
 	 * JSON does not stop anybody sending the same member twice, and lejp
@@ -356,12 +357,16 @@ int
 lws_jwk_strdup_meta(struct lws_jwk *jwk, enum enum_jwk_meta_tok idx,
 		    const char *in, int len)
 {
-	jwk->meta[idx].buf = lws_malloc((unsigned int)len, __func__);
-	if (!jwk->meta[idx].buf)
+	if ((unsigned int)idx >= LWS_ARRAY_SIZE(jwk->meta) || len < 0)
 		return 1;
-	jwk->meta[idx].len = (uint32_t)(unsigned int)len;
-	memcpy(jwk->meta[idx].buf, in, (unsigned int)len);
 
-	return 0;
+	/*
+	 * Store it the same way an imported meta member is, in its own
+	 * NUL-terminated allocation, freeing any previous one: this used to
+	 * copy exactly len bytes, and lws_jwk_dump() prints non-base64 meta
+	 * with %s, reading past the end of the allocation
+	 */
+
+	return !!_lws_jwk_set_el_jwk(&jwk->meta[idx], in, (size_t)len);
 }
 

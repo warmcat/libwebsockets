@@ -41,7 +41,8 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 		char *out, size_t out_len);
 
 int
-_lws_jwk_set_el_jwk(struct lws_gencrypto_keyelem *e, char *in, size_t len);
+_lws_jwk_set_el_jwk(struct lws_gencrypto_keyelem *e, const char *in,
+		    size_t len);
 
 /*
  * Serializes only the members RFC7638 3.2 requires for the key type, in its
