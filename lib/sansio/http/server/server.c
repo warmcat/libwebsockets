@@ -1768,17 +1768,46 @@ lws_http_hdrs_oversized(struct lws *wsi)
 	return 0;
 }
 
+/*
+ * What an h1 request says of how it is to be answered: the version the
+ * answer speaks, and whether the connection is kept after it
+ */
+static void
+lws_h1_request_framing(struct lws *wsi)
+{
+	enum http_conn_type conn_type;
+	char http_conn_str[20];
+
+	wsi->stream.request_version = lws_h1_request_version(wsi);
+
+	/* HTTP/1.1 defaults to "keep-alive", 1.0 to "close" */
+	if (wsi->stream.request_version == HTTP_VERSION_1_1)
+		conn_type = HTTP_CONNECTION_KEEP_ALIVE;
+	else
+		conn_type = HTTP_CONNECTION_CLOSE;
+
+	/* Override default if http "Connection:" header: */
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION) &&
+	    lws_hdr_copy(wsi, http_conn_str, sizeof(http_conn_str) - 1,
+			 WSI_TOKEN_CONNECTION) > 0) {
+		http_conn_str[sizeof(http_conn_str) - 1] = '\0';
+		if (!strcasecmp(http_conn_str, "keep-alive"))
+			conn_type = HTTP_CONNECTION_KEEP_ALIVE;
+		else
+			if (!strcasecmp(http_conn_str, "close"))
+				conn_type = HTTP_CONNECTION_CLOSE;
+	}
+	wsi->http.conn_type = conn_type;
+}
+
 int
 lws_http_action(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	int uri_len = 0, meth, m, ha;
 	const struct lws_http_mount *hit = NULL;
-	enum http_version request_version;
 	struct lws_process_html_args args;
-	enum http_conn_type conn_type;
 	char content_length_str[32];
-	char http_conn_str[20];
 	char *uri_ptr = NULL;
 #if defined(LWS_WITH_FILE_OPS)
 	char *s;
@@ -2075,31 +2104,10 @@ lws_http_action(struct lws *wsi)
 #endif
 	}
 
-	if (wsi->mux_substream) {
+	if (wsi->mux_substream)
 		wsi->stream.request_version = HTTP_VERSION_2;
-	} else {
-		request_version = lws_h1_request_version(wsi);
-		wsi->stream.request_version = request_version;
-
-		/* HTTP/1.1 defaults to "keep-alive", 1.0 to "close" */
-		if (request_version == HTTP_VERSION_1_1)
-			conn_type = HTTP_CONNECTION_KEEP_ALIVE;
-		else
-			conn_type = HTTP_CONNECTION_CLOSE;
-
-		/* Override default if http "Connection:" header: */
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION) &&
-		    lws_hdr_copy(wsi, http_conn_str, sizeof(http_conn_str) - 1,
-				 WSI_TOKEN_CONNECTION) > 0) {
-			http_conn_str[sizeof(http_conn_str) - 1] = '\0';
-			if (!strcasecmp(http_conn_str, "keep-alive"))
-				conn_type = HTTP_CONNECTION_KEEP_ALIVE;
-			else
-				if (!strcasecmp(http_conn_str, "close"))
-					conn_type = HTTP_CONNECTION_CLOSE;
-		}
-		wsi->http.conn_type = conn_type;
-	}
+	else
+		lws_h1_request_framing(wsi);
 
 	n = (unsigned int)wsi->a.protocol->callback(wsi, LWS_CALLBACK_FILTER_HTTP_CONNECTION,
 				    wsi->user_space, uri_ptr, (unsigned int)uri_len);
@@ -2781,6 +2789,12 @@ raw_transition:
 
 		lwsl_parser("%s: lws_parse sees parsing complete\n", __func__);
 
+		/*
+		 * Whatever answers the request, a refusal included, speaks the
+		 * version it was asked in, and keeps the connection as it asked
+		 */
+		lws_h1_request_framing(wsi);
+
 		/* select vhost */
 
 		if (wsi->a.vhost->listen_port &&
@@ -2905,6 +2919,13 @@ raw_transition:
 		}
 #endif
 		/*
+		 * The request's headers are complete: whatever acts on it from
+		 * here, the mount's redirect included, completes a transaction
+		 */
+		lws_wsi_event(wsi, LWS_WSIEV_REQ_HDRS_COMPLETE);
+		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+		/*
 		 * So he may have come to us requesting one or another kind
 		 * of upgrade from http... but we may want to redirect him at
 		 * http level.  In that case, we need to check the redirect
@@ -2942,9 +2963,6 @@ raw_transition:
 				}
 			}
 		}
-
-		lws_wsi_event(wsi, LWS_WSIEV_REQ_HDRS_COMPLETE);
-		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
 
@@ -3082,12 +3100,6 @@ upgrade_h2c:
 #endif
 #if defined(LWS_ROLE_WS)
 upgrade_ws:
-		/*
-		 * lws_http_action() would have said, but we don't go there:
-		 * whatever status we may answer the upgrade with speaks the
-		 * version it was asked in
-		 */
-		wsi->stream.request_version = lws_h1_request_version(wsi);
 		if (lws_process_ws_upgrade(wsi))
 			goto bail_nuke_ah;
 

@@ -46,6 +46,11 @@
  * completes at once has the rest of its body discarded as it comes, and its
  * stream ended once the answer has gone.
  *
+ * And a request the mount redirects before any app sees it, likewise only
+ * partly written: the transaction completes when it has gone, answered in
+ * the request's own version, and the kept-alive connection goes on to the
+ * next request.
+ *
  * Then whether the transport would take a write: a connection on the test's
  * transport is asked of the transport, never of the fd that is its place in
  * the poll set, even when that fd could not take a byte.
@@ -860,9 +865,18 @@ static const struct lws_http_mount mount_404_cb = {
 	.mountpoint_len		= 3,
 };
 
+/* a directory mount: a request for /d itself is redirected to /d/ */
+static const struct lws_http_mount mount_404_dir = {
+	.mount_next		= &mount_404_cb,
+	.mountpoint		= "/d",
+	.origin			= "/nonexistent-lws-sansio",
+	.origin_protocol	= LWSMPRO_FILE,
+	.mountpoint_len		= 2,
+};
+
 /* the rest are files in a dir that is not there, falling back to it */
 static const struct lws_http_mount mount_404_files = {
-	.mount_next		= &mount_404_cb,
+	.mount_next		= &mount_404_dir,
 	.mountpoint		= "/",
 	.origin			= "/nonexistent-lws-sansio",
 	.protocol		= "http",
@@ -1317,6 +1331,79 @@ h1_404_half(struct lws_context *cx, struct lws_vhost *vh)
 		     LWS_ARRAY_SIZE(st)))
 		return 1;
 	lwsl_user("case 16: the 404 redirect is per transaction: PASS\n");
+
+	return 0;
+}
+
+/*
+ * 21: the mount's own redirect, for a directory asked for without its
+ * trailing '/', while the transport takes only a few bytes: the transaction
+ * completes once the redirect has all gone, and the kept-alive connection
+ * takes its next request.  What the transport takes and when is not part of
+ * a transcript, so this case has none.
+ */
+static int
+h1_redirect_queued_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char req_d[] =
+		"GET /d HTTP/1.1\r\nHost: sansio-404\r\n\r\n",
+			  req_cb[] =
+		"GET /cb/y HTTP/1.1\r\nHost: sansio-404\r\n\r\n";
+	static uint8_t out[1024];
+	static struct transport tp;
+	struct lws *wsi;
+	size_t outl;
+	int sv[2];
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+
+	/* the transport takes 8 bytes of the redirect, then no more */
+	tp.tx_budget = 8;
+	feed(cx, &tp, req_d, sizeof(req_d) - 1);
+	outl = tp.tx_len;
+	memcpy(out, tp.tx, outl);
+
+	/* ...and then the rest */
+	tp.tx_budget = -1;
+	tp.tx_len = 0;
+	tick(cx);
+	pump(cx, &tp);
+	if (outl + tp.tx_len > sizeof(out) - 1) {
+		lwsl_err("case 21: too much output\n");
+		return 1;
+	}
+	memcpy(out + outl, tp.tx, tp.tx_len);
+	outl += tp.tx_len;
+
+	if (tp.closed || tp.shutdown || outl < 13 ||
+	    memcmp(out, "HTTP/1.1 301 ", 13) ||
+	    !find_bytes(out, outl, "http://sansio-404/d/\r\n")) {
+		lwsl_err("case 21: redirect not whole, or connection ended\n");
+		lwsl_hexdump_err(out, outl);
+		return 1;
+	}
+
+	/* the connection goes on to the next request */
+	feed(cx, &tp, req_cb, sizeof(req_cb) - 1);
+	if (tp.closed || tp.shutdown || tp.tx_len < 13 ||
+	    memcmp(tp.tx, "HTTP/1.1 302 ", 13)) {
+		lwsl_err("case 21: next request not served\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+	lwsl_user("case 21: a queued mount redirect completes: PASS\n");
 
 	return 0;
 }
@@ -2376,6 +2463,8 @@ main(int argc, const char **argv)
 	}
 	at(cx, 3600);
 	if (h1_404_half(cx, vh_404))
+		goto bail;
+	if (h1_redirect_queued_half(cx, vh_404))
 		goto bail;
 #endif
 

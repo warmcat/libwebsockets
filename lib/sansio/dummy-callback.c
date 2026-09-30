@@ -604,6 +604,14 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 #endif
 		/*
+		 * A file is the response, still being served: its own
+		 * completion completes the transaction once it has all gone,
+		 * the end of the request body must not cut it short
+		 */
+		if (lwsi_state(wsi) == LRS_ISSUING_FILE ||
+		    lwsi_state(wsi) == LRS_AWAITING_FILE_READ)
+			break;
+		/*
 		 * If the user code already responded on this transaction (eg,
 		 * it answered the POST when the request headers arrived,
 		 * without draining the body first), a further response on the
