@@ -1097,6 +1097,20 @@ array_end_l:
 							   LEJPCB_ARRAY_END))
 				goto reject_callback;
 			if (defer) {
+				/*
+				 * The ']' dropped the path back to the
+				 * enclosing object's using an offset st[]
+				 * recorded below the push depth, ie, one in the
+				 * pushing parser's terms, but it applied it to
+				 * the element parser's ppos.  It's the pushing
+				 * parser that resumes, so its ppos must take
+				 * it.  At depth 0 the ']' leaves the path
+				 * alone, so the pushing parser resumes with the
+				 * path it pushed at.
+				 */
+				if (ctx->sp && ctx->pst_sp)
+					ctx->pst[ctx->pst_sp - 1].ppos =
+							ctx->st[ctx->sp - 1].p;
 				lejp_parser_pop(ctx);
 				defer = 0;
 			}
@@ -1180,9 +1194,25 @@ lejp_parser_push(struct lejp_ctx *ctx, void *user, const char * const *paths,
 		 unsigned char paths_count, lejp_callback lejp_cb)
 {
 	struct _lejp_parsing_stack *p;
+	unsigned int ofs = 0, len;
 
 	if (ctx->pst_sp + 1 == LEJP_MAX_PARSING_STACK_DEPTH)
 		return -1;
+
+	/*
+	 * The new parser writes its paths from ctx->path[0], over the top of
+	 * the path we have reached, which we will need again when it is
+	 * popped: eg, "o.n" after an array "o.l" whose elements the new
+	 * parser handles.  Keep a copy after the ones kept for the levels
+	 * below us.
+	 */
+	p = &ctx->pst[ctx->pst_sp];
+	if (ctx->pst_sp)
+		ofs = (unsigned int)p->path_save_ofs + p->path_save_len;
+	len = p->ppos;
+	if (ofs + len > sizeof(ctx->path_save))
+		return -1;
+	memcpy(ctx->path_save + ofs, ctx->path, len);
 
 	lejp_check_path_match(ctx);
 
@@ -1197,6 +1227,8 @@ lejp_parser_push(struct lejp_ctx *ctx, void *user, const char * const *paths,
 	p->ppos = 0;
 	p->sp = ctx->sp;
 	p->pushed_at_array = 0;
+	p->path_save_ofs = (uint8_t)ofs;
+	p->path_save_len = (uint8_t)len;
 
 	ctx->path_match = 0;
 	lejp_check_path_match(ctx);
@@ -1210,10 +1242,25 @@ lejp_parser_push(struct lejp_ctx *ctx, void *user, const char * const *paths,
 int
 lejp_parser_pop(struct lejp_ctx *ctx)
 {
+	const struct _lejp_parsing_stack *p;
+	struct _lejp_parsing_stack *pp;
+
 	if (!ctx->pst_sp)
 		return -1;
 
-	ctx->pst_sp--;
+	p = &ctx->pst[ctx->pst_sp--];
+	pp = &ctx->pst[ctx->pst_sp];
+
+	/*
+	 * The popped parser wrote its paths over ours from ctx->path[0]: put
+	 * back what we had reached when it was pushed, as far as our ppos,
+	 * which is never further than that
+	 */
+	if (pp->ppos > p->path_save_len)
+		pp->ppos = p->path_save_len;
+	memcpy(ctx->path, ctx->path_save + p->path_save_ofs, pp->ppos);
+	ctx->path[pp->ppos] = '\0';
+
 	lwsl_debug("%s: popped parser stack to %d\n", __func__, ctx->pst_sp);
 
 	ctx->path_match = 0; /* force it to check */

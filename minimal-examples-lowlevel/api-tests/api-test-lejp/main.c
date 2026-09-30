@@ -786,6 +786,94 @@ quiet_cb(struct lejp_ctx *ctx, char reason)
 	return 0;
 }
 
+/*
+ * Pushed parsers inside an object that did not itself push: the parent's
+ * path must be as it was when the pushed parser pops, or the parent's
+ * members after it never match.  We render every matched number as
+ * "path=value;" to compare with what the document says.
+ */
+
+struct push_render {
+	char		*p;
+	char		*end;
+	int		ends;	/* also render the pushing parser's OBJECT_END */
+};
+
+static const char * const push_paths_parent[] = { "o.l", "o.c", "o.n", "o.m" };
+static const char * const push_paths_child[] = { "k" };
+
+static void
+push_record(struct lejp_ctx *ctx)
+{
+	struct push_render *r = (struct push_render *)ctx->user;
+
+	r->p += lws_snprintf(r->p, lws_ptr_diff_size_t(r->end, r->p), "%s=%s;",
+			     ctx->path, ctx->buf);
+}
+
+/* the parser for the elements of "o.l", popped by lejp at the array's ']' */
+
+static signed char
+push_elem_cb(struct lejp_ctx *ctx, char reason)
+{
+	if (reason == LEJPCB_VAL_NUM_INT && ctx->path_match)
+		push_record(ctx);
+
+	return 0;
+}
+
+/* the parser for the object "o.c", which pops itself at its end */
+
+static signed char
+push_obj_cb(struct lejp_ctx *ctx, char reason)
+{
+	if (reason == LEJPCB_VAL_NUM_INT && ctx->path_match)
+		push_record(ctx);
+
+	if (reason == LEJPCB_OBJECT_END &&
+	    ctx->sp == ctx->pst[ctx->pst_sp].sp)
+		/* back at the depth we were pushed at, it's our own '}' */
+		lejp_parser_pop(ctx);
+
+	return 0;
+}
+
+static signed char
+push_parent_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct push_render *r;
+
+	switch (reason) {
+	case LEJPCB_ARRAY_START:
+		if (ctx->path_match == 1 && /* o.l */
+		    lejp_parser_push(ctx, NULL, push_paths_child,
+				     LWS_ARRAY_SIZE(push_paths_child),
+				     push_elem_cb))
+			return -1;
+		break;
+	case LEJPCB_OBJECT_START:
+		if (ctx->path_match == 2 && /* o.c */
+		    lejp_parser_push(ctx, NULL, push_paths_child,
+				     LWS_ARRAY_SIZE(push_paths_child),
+				     push_obj_cb))
+			return -1;
+		break;
+	case LEJPCB_VAL_NUM_INT:
+		if (ctx->path_match)
+			push_record(ctx);
+		break;
+	case LEJPCB_OBJECT_END:
+		r = (struct push_render *)ctx->user;
+		if (r->ends)
+			r->p += lws_snprintf(r->p,
+					     lws_ptr_diff_size_t(r->end, r->p),
+					     "}%s;", ctx->path);
+		break;
+	}
+
+	return 0;
+}
+
 
 
 static signed char
@@ -1000,6 +1088,67 @@ int main(int argc, const char **argv)
 				lwsl_err("%s: NUL case %d: got %d (%s), "
 					 "expected %d\n", __func__, (int)q, n,
 					 lejp_error_to_string(n), nt[q].expect);
+				e++;
+			}
+		}
+	}
+
+	/*
+	 * A pushed parser used to write its paths from ctx->path[0] over the
+	 * pushing parser's path, and leave it like that when popped: here the
+	 * pushing parser's "o.n" and "o.m" after "o.l" or "o.c" never matched
+	 */
+	{
+		static const struct {
+			const char	*j;
+			const char	*expect;
+			int		ends;
+		} pt[] = {
+			/* element parser popped at the array's ']' */
+			{ "{\"o\":{\"l\":[{\"k\":1},{\"k\":2}],\"n\":3}}",
+			  "k=1;k=2;o.n=3;", 0 },
+			/* ... also when the array is empty */
+			{ "{\"o\":{\"l\":[],\"n\":3}}",
+			  "o.n=3;", 0 },
+			/* ... with members before and after it */
+			{ "{\"o\":{\"n\":3,\"l\":[{\"k\":1}],\"m\":4}}",
+			  "o.n=3;k=1;o.m=4;", 0 },
+			/* object parser popped by itself at its '}' */
+			{ "{\"o\":{\"c\":{\"k\":5},\"n\":6,\"m\":7}}",
+			  "k=5;o.n=6;o.m=7;", 0 },
+			/* both, one after the other */
+			{ "{\"o\":{\"l\":[{\"k\":1}],\"c\":{\"k\":2},"
+			  "\"n\":3}}",
+			  "k=1;k=2;o.n=3;", 0 },
+			/*
+			 * an object ending straight after the array: the ']'
+			 * took the path back to "o", in the pushing parser's
+			 * terms, the same as for a parse that doesn't push
+			 */
+			{ "{\"o\":{\"n\":3,\"l\":[{\"k\":1}]}}",
+			  "o.n=3;k=1;}o;}o;", 1 },
+		};
+		struct push_render r;
+		char out[128];
+		size_t q;
+
+		for (q = 0; q < LWS_ARRAY_SIZE(pt); q++) {
+			out[0] = '\0';
+			r.p = out;
+			r.end = out + sizeof(out);
+			r.ends = pt[q].ends;
+
+			lejp_construct(&ctx, push_parent_cb, &r,
+				       push_paths_parent,
+				       LWS_ARRAY_SIZE(push_paths_parent));
+			n = lejp_parse(&ctx, (const unsigned char *)pt[q].j,
+				       (int)strlen(pt[q].j));
+			lejp_destruct(&ctx);
+
+			if (n < 0 || strcmp(out, pt[q].expect)) {
+				lwsl_err("%s: push case %d: %d, '%s' not '%s'\n",
+					 __func__, (int)q, n, out,
+					 pt[q].expect);
 				e++;
 			}
 		}

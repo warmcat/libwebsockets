@@ -257,6 +257,14 @@ struct _lejp_parsing_stack {
 	 */
 	uint8_t			sp;
 	uint8_t			pushed_at_array;
+	/*
+	 * Where in ctx->path_save the path of the level below this one was
+	 * kept when this level was pushed, and its length, so it can be put
+	 * back in ctx->path when this level is popped (also in what was
+	 * padding before)
+	 */
+	uint8_t			path_save_ofs;
+	uint8_t			path_save_len;
 };
 
 typedef struct lejp_string_piece {
@@ -288,6 +296,12 @@ struct lejp_ctx {
 	uint16_t i[LEJP_MAX_INDEX_DEPTH]; /* index array */
 	uint16_t wild[LEJP_MAX_INDEX_DEPTH]; /* index array */
 	char path[LEJP_MAX_PATH];
+	/*
+	 * A pushed parser writes its paths from path[0], over the top of the
+	 * paths of the levels below it: their paths as they were at each push
+	 * are kept here, one after the other, and put back at each pop
+	 */
+	char path_save[LEJP_MAX_PATH];
 	char buf[LEJP_STRING_CHUNK + 1];
 
 	lejp_string_unifier_t	su;
@@ -374,6 +388,12 @@ lejp_change_callback(struct lejp_ctx *ctx,
 /*
  * push the current paths / paths_count and lejp_cb to a stack in the ctx, and
  * start using the new ones
+ *
+ * The new parser sees paths relative to where it was pushed, starting from
+ * ctx->path[0]; the path the current parser had reached is kept and restored
+ * for it when the new one is popped.  Returns -1 without changing anything if
+ * the parsing stack is full, or if the paths kept for all the pushed levels
+ * would add up to more than LEJP_MAX_PATH.
  */
 LWS_VISIBLE LWS_EXTERN int
 lejp_parser_push(struct lejp_ctx *ctx, void *user, const char * const *paths,
@@ -381,7 +401,8 @@ lejp_parser_push(struct lejp_ctx *ctx, void *user, const char * const *paths,
 
 /*
  * pop the previously used paths / paths_count and lejp_cb, and continue
- * parsing using those as before
+ * parsing using those as before, with ctx->path back to what they had reached
+ * when the popped parser was pushed
  */
 LWS_VISIBLE LWS_EXTERN int
 lejp_parser_pop(struct lejp_ctx *ctx);
