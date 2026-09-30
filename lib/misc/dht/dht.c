@@ -72,6 +72,124 @@ is_martian(const struct sockaddr *sa)
 }
 
 
+/*
+ * Take a token from a bucket, refilling it first if it is empty.
+ *
+ * ->now is wall clock, so a backwards step (NTP, snapshot restore) can make
+ * the elapsed time negative.  Test <= 0 and clamp the refill at 0: with an
+ * "== 0" test a single negative refill left the counter negative forever,
+ * so the limiter silently never fired again for the life of the context.
+ */
+
+static int
+dht_tb_take(struct lws_dht_ctx *ctx, lws_dht_tb_t *tb, int rate, int burst)
+{
+	if (tb->tokens <= 0) {
+		long elapsed = (long)(ctx->now - tb->time);
+
+		if (elapsed < 0)
+			elapsed = 0;
+
+		tb->tokens = (int)MIN((long)burst, (long)rate * elapsed);
+		tb->time = ctx->now;
+	}
+
+	if (tb->tokens <= 0)
+		return 0;
+
+	tb->tokens--;
+
+	return 1;
+}
+
+/*
+ * Every request costs us a reply, so requests are rate limited (C-071).  A
+ * single bucket for all of them let one source, sending ~100 pings/s, take
+ * every token, and we then dropped every other peer's requests, including
+ * those of the nodes we actually work with.  So a request is admitted in
+ * two stages:
+ *
+ *  - its source address (the IPv4 address, or the IPv6 /64, so one host is
+ *    one source however many ports or addresses in its prefix it uses) has
+ *    a small bucket of its own, in a fixed table recycled in LRU order, and
+ *    no source gets more than that share of what follows;
+ *
+ *  - it then draws from one of two pools: requests from a good node of our
+ *    routing table, from the endpoint we hold for it (which C-594 stops
+ *    anyone else moving), use their own pool; everything else, including
+ *    anything from spoofed sources, uses the general pool.  A flood can
+ *    exhaust the general pool, but the nodes we already know keep being
+ *    answered.
+ *
+ * Losing a table slot only ever gives a source a full bucket again, so
+ * churning the table cannot starve anyone; the pools stay the hard cap on
+ * the total.
+ */
+
+int
+lws_dht_admit_request(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
+		      const struct sockaddr *from)
+{
+	const lws_sockaddr46 *sa46 = (const lws_sockaddr46 *)from;
+	lws_dht_tb_t *pool = &ctx->rl_general;
+	uint8_t key[16];
+	int n, victim = 0;
+
+	memset(key, 0, sizeof(key));
+
+	switch (from->sa_family) {
+	case AF_INET:
+		memcpy(key, &sa46->sa4.sin_addr, 4);
+		break;
+#if defined(LWS_WITH_IPV6)
+	case AF_INET6:
+		memcpy(key, &sa46->sa6.sin6_addr, 8);
+		break;
+#endif
+	default:
+		return 0;
+	}
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(ctx->rl_src); n++) {
+		if (ctx->rl_src[n].af == from->sa_family &&
+		    !memcmp(ctx->rl_src[n].key, key, sizeof(key)))
+			break;
+		/* remember a free slot, else the least recently used */
+		if (ctx->rl_src[victim].af &&
+		    (!ctx->rl_src[n].af ||
+		     ctx->rl_src[n].last < ctx->rl_src[victim].last))
+			victim = n;
+	}
+
+	if (n == (int)LWS_ARRAY_SIZE(ctx->rl_src)) {
+		n = victim;
+		memcpy(ctx->rl_src[n].key, key, sizeof(key));
+		ctx->rl_src[n].af		= (uint8_t)from->sa_family;
+		ctx->rl_src[n].tb.tokens	= LWS_DHT_RL_SRC_BURST;
+		ctx->rl_src[n].tb.time		= ctx->now;
+	}
+
+	ctx->rl_src[n].last = ctx->now;
+
+	if (!dht_tb_take(ctx, &ctx->rl_src[n].tb, LWS_DHT_RL_SRC_RATE,
+			 LWS_DHT_RL_SRC_BURST))
+		return 0;
+
+#if defined(LWS_WITH_DHT_BACKEND)
+	if (id) {
+		struct node *nd = find_node(ctx, id, from->sa_family);
+
+		if (nd && node_good(ctx, nd) &&
+		    dht_sa_same_peer((const struct sockaddr *)&nd->ss, from))
+			pool = &ctx->rl_known;
+	}
+#else
+	(void)id;
+#endif
+
+	return dht_tb_take(ctx, pool, LWS_DHT_RL_POOL_RATE,
+			   LWS_DHT_RL_POOL_BURST);
+}
 
 /* args: data, id, len, offset (alphabetical) */
 
@@ -701,10 +819,10 @@ lws_dht_create(const lws_dht_info_t *info)
 
 	ctx->next_blacklisted		= 0;
 
-#if defined(LWS_WITH_DHT_BACKEND)
-	ctx->token_bucket_time		= ctx->now;
-	ctx->token_bucket_tokens	= MAX_TOKEN_BUCKET_TOKENS;
-#endif
+	ctx->rl_known.time		= ctx->now;
+	ctx->rl_known.tokens		= LWS_DHT_RL_POOL_BURST;
+	ctx->rl_general.time		= ctx->now;
+	ctx->rl_general.tokens		= LWS_DHT_RL_POOL_BURST;
 
 	ctx->iface = info->iface;
 

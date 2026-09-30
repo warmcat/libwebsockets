@@ -881,7 +881,7 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 	    message == DHT_SUBSCRIBE || message == DHT_SUBSCRIBE_CONFIRM ||
 	    message == DHT_NOTIFY) {
 #if defined(LWS_WITH_DHT_BACKEND)
-		if (!token_bucket(ctx)) {
+		if (!lws_dht_admit_request(ctx, mp.id, from)) {
 			ctx->stats_current.rx_drops++;
 			lwsl_dht_warn("%s: Dropping request due to rate limiting\n", __func__);
 			goto done;
@@ -1342,7 +1342,7 @@ skip_ip_tracking:
 			 * allocation and an ACK to an unverified address per
 			 * datagram: that creation is a request like any other
 			 */
-			if (!ts && !token_bucket(ctx)) {
+			if (!ts && !lws_dht_admit_request(ctx, mp.id, from)) {
 				ctx->stats_current.rx_drops++;
 				goto done;
 			}

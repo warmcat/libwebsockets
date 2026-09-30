@@ -44,8 +44,19 @@
  * reason to increase this value.
  */
 #define DHT_MAX_BLACKLISTED		10
-#define MAX_TOKEN_BUCKET_TOKENS		400
 #define TOKEN_SIZE			8
+
+/*
+ * Request admission (see lws_dht_admit_request()): each pool admits
+ * LWS_DHT_RL_POOL_RATE requests/s with bursts of LWS_DHT_RL_POOL_BURST, and
+ * each source address, tracked in a table of LWS_DHT_RL_SOURCES, gets
+ * LWS_DHT_RL_SRC_RATE/s with bursts of LWS_DHT_RL_SRC_BURST of that.
+ */
+#define LWS_DHT_RL_POOL_RATE		100
+#define LWS_DHT_RL_POOL_BURST		400
+#define LWS_DHT_RL_SRC_RATE		10
+#define LWS_DHT_RL_SRC_BURST		40
+#define LWS_DHT_RL_SOURCES		64
 /*
  * When performing a search, we search for up to SEARCH_NODES closest nodes
  * to the destination, and use the additional ones to backtrack if any of
@@ -129,6 +140,12 @@
 #if !defined(MIN)
 #define MIN(x, y) ((x) <= (y) ? (x) : (y))
 #endif
+
+/* a token bucket, refilled lazily when found empty */
+typedef struct lws_dht_tb {
+	time_t			time;		/* last refill */
+	int			tokens;
+} lws_dht_tb_t;
 
 #if defined(LWS_WITH_DHT_BACKEND)
 
@@ -287,10 +304,21 @@ struct lws_dht_ctx {
 	time_t			mybucket_grow_time;
 	time_t			mybucket6_grow_time;
 	time_t			expire_stuff_time;
-
-	time_t			token_bucket_time;
-	int			token_bucket_tokens;
 #endif
+
+	/*
+	 * Request admission: a bucket per recent source address (IPv4
+	 * address, IPv6 /64), then one pool for the good nodes of our
+	 * routing table at their known endpoint and one for everybody else
+	 */
+	struct {
+		lws_dht_tb_t		tb;
+		time_t			last;	/* last request, for LRU */
+		uint8_t			key[16];
+		uint8_t			af;	/* 0 = free */
+	} rl_src[LWS_DHT_RL_SOURCES];
+	lws_dht_tb_t		rl_known;
+	lws_dht_tb_t		rl_general;
 
 	struct lws_dht_stats	stats_history[LWS_DHT_STAT_BUCKETS];
 	struct lws_dht_stats	stats_current;
@@ -487,10 +515,10 @@ int send_find_node(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t sa
 int send_closest_nodes(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, struct lws_dht_mparams *mp, const lws_dht_hash_t *id, int af, struct storage *st);
 int send_error(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, const uint8_t *tid, size_t tid_len, int code, const char *message);
 void lws_dht_clear_pending_notify(struct lws_dht_ctx *ctx, const uint8_t *tid, size_t tid_len);
-int token_bucket(struct lws_dht_ctx *ctx);
 void lws_dht_capture_announce(struct lws_dht_ctx *ctx, lws_dht_hash_t *hash, const struct sockaddr *fromaddr, unsigned short prt);
 #endif
 int is_martian(const struct sockaddr *sa);
+int lws_dht_admit_request(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *from);
 int lws_dht_get_external_addr(struct lws_dht_ctx *ctx, struct sockaddr_storage *ss, size_t *sslen);
 struct lws_dht_ctx * lws_dht_create(const lws_dht_info_t *info);
 void * lws_dht_get_closure(struct lws_dht_ctx *ctx);

@@ -445,31 +445,3 @@ fail:
 	errno = ENOSPC;
 	return -1;
 }
-
-int
-token_bucket(struct lws_dht_ctx *ctx)
-{
-	/*
-	 * ->now is wall clock, so a backwards step (NTP, snapshot
-	 * restore) can make the elapsed time negative.  Test <= 0 and clamp the
-	 * refill at 0: with the old "== 0" test a single negative refill left
-	 * the counter negative forever, so the limiter silently never fired
-	 * again for the life of the context.
-	 */
-	if (ctx->token_bucket_tokens <= 0) {
-		long elapsed = (long)(ctx->now - ctx->token_bucket_time);
-
-		if (elapsed < 0)
-			elapsed = 0;
-
-		ctx->token_bucket_tokens = (int)MIN(
-				(long)MAX_TOKEN_BUCKET_TOKENS, 100 * elapsed);
-		ctx->token_bucket_time = ctx->now;
-	}
-
-	if (ctx->token_bucket_tokens <= 0)
-		return 0;
-
-	ctx->token_bucket_tokens--;
-	return 1;
-}
