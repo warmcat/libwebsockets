@@ -3025,25 +3025,22 @@ lws_wsi_mqtt_adopt(struct lws *parent_wsi, struct lws *wsi)
 
 	lws_wsi_mux_insert(wsi, parent_wsi, wsi->mux.my_sid);
 
-	if (lws_ensure_user_space(wsi))
-		goto bail1;
+	/*
+	 * From here he is one of the connection's streams, and if he can't go
+	 * on (or his ESTABLISHED handler asks to close), he is closed as one.
+	 * Not now: our callers, his own connect or the walk adopting the
+	 * connection's queue, are still holding him.
+	 */
+	if (lws_ensure_user_space(wsi) ||
+	    lws_mqtt_set_client_established(wsi)) {
+		lws_set_timeout(wsi, 1, LWS_TO_KILL_ASYNC);
 
-	lws_mqtt_set_client_established(wsi);
+		return wsi;
+	}
+
 	lws_callback_on_writable(wsi);
 
 	return wsi;
-
-bail1:
-	/* undo the insert */
-	lws_wsi_mux_sibling_disconnect(wsi);
-
-	if (wsi->user_space)
-		lws_free_set_NULL(wsi->user_space);
-
-	wsi->a.protocol->callback(wsi, LWS_CALLBACK_WSI_DESTROY, NULL, NULL, 0);
-	lws_free(wsi);
-
-	return NULL;
 }
 
 int
