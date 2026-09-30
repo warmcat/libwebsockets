@@ -241,9 +241,15 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	 * compat path can only be applied when no explicit client TLS
 	 * config was given: some backends (eg, gnutls) create the server
 	 * ctx unconditionally for all vhosts, so testing vhost->tls.ssl_ctx
-	 * alone would wrongly discard explicit client_ssl_* config there
+	 * alone would wrongly discard explicit client_ssl_* config there.
+	 *
+	 * A server vhost still waiting for its cert
+	 * (LWS_SERVER_OPTION_IGNORE_MISSING_CERT, eg, before its first ACME
+	 * cert) has no server ctx yet, but those are its server cert paths
+	 * all the same: taken as a client cert, the missing files fail the
+	 * client ctx, and with it the vhost, on some backends (gnutls)
 	 */
-	if (vhost->tls.ssl_ctx &&
+	if ((vhost->tls.ssl_ctx || vhost->tls.skipped_certs) &&
 	    !info->client_ssl_cert_filepath &&
 	    !info->client_ssl_private_key_filepath &&
 	    !info->client_ssl_ca_filepath) {
