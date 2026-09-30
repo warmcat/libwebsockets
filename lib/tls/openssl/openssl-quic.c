@@ -33,7 +33,15 @@ extern int openssl_websocket_private_data_index;
 #define LWS_HAVE_BORINGSSL_QUIC_API
 #endif
 
-#if defined(LWS_HAVE_BORINGSSL_QUIC_API)
+/*
+ * The QUIC TLS API here is BoringSSL's (also in AWS-LC and wolfSSL): the
+ * QUIC role only builds against an OpenSSL-family library when it is one of
+ * those, the top-level CMakeLists.txt switches plain OpenSSL to GnuTLS for
+ * HTTP/3.
+ */
+#if !defined(LWS_HAVE_BORINGSSL_QUIC_API)
+#error "openssl-quic.c needs the BoringSSL QUIC TLS API"
+#endif
 
 /*
  * RFC 9001: the QUIC AEAD and header-protection ciphers are fixed by the
@@ -613,329 +621,6 @@ lws_tls_quic_get_transport_parameters(struct lws *wsi, const uint8_t **tp, size_
 	return 0;
 }
 
-#else
-
-static uint8_t
-from_hex(char c)
-{
-	if (c >= '0' && c <= '9') return (uint8_t)(c - '0');
-	if (c >= 'a' && c <= 'f') return (uint8_t)(c - 'a' + 10);
-	if (c >= 'A' && c <= 'F') return (uint8_t)(c - 'A' + 10);
-	return 0;
-}
-
-#define TLSEXT_TYPE_quic_transport_parameters 57
-
-/* RFC 9000 transport parameters are a few hundred bytes; cap what we copy */
-#define LWS_QUIC_TP_RECV_MAX 4096
-
-static int
-openssl_quic_ext_add_cb(SSL *ssl, unsigned int ext_type,
-			unsigned int context,
-			const unsigned char **out, size_t *outlen,
-			X509 *x, size_t chainidx,
-			int *al, void *add_arg)
-{
-	struct lws *wsi = (struct lws *)SSL_get_app_data(ssl);
-
-	if (!wsi || !wsi->io->tls.quic_tp_send)
-		return 0; /* do not add the extension if no params to send */
-
-	*out = wsi->io->tls.quic_tp_send;
-	*outlen = wsi->io->tls.quic_tp_send_len;
-
-	return 1;
-}
-
-static void
-openssl_quic_ext_free_cb(SSL *ssl, unsigned int ext_type,
-			 unsigned int context,
-			 const unsigned char *out, void *add_arg)
-{
-	/* nothing to free, memory is managed by LWS */
-}
-
-static int
-openssl_quic_ext_parse_cb(SSL *ssl, unsigned int ext_type,
-			  unsigned int context,
-			  const unsigned char *in, size_t inlen,
-			  X509 *x, size_t chainidx, int *al,
-			  void *parse_arg)
-{
-	struct lws *wsi = (struct lws *)SSL_get_app_data(ssl);
-
-	if (!wsi)
-		return 1;
-
-	lwsl_wsi_info(wsi, "%s: ext_type %u, inlen %zu", __func__, ext_type,
-		      inlen);
-
-	/*
-	 * A client can force a HelloRetryRequest just by offering a key_share
-	 * for a group we do not prefer, and then sends its transport parameters
-	 * again in the second ClientHello, so this callback can run more than
-	 * once on the same wsi.  Free any earlier allocation first, else it
-	 * becomes unreachable (openssl-ssl.c only frees the pointer still
-	 * stored), and bound the size: transport parameters are a few hundred
-	 * bytes, a TLS extension body can be 64KB.
-	 */
-
-	if (inlen > LWS_QUIC_TP_RECV_MAX) {
-		*al = SSL_AD_ILLEGAL_PARAMETER;
-		return 0;
-	}
-
-	lws_free_set_NULL(wsi->io->tls.quic_tp_recv);
-	wsi->io->tls.quic_tp_recv_len = 0;
-
-	wsi->io->tls.quic_tp_recv = lws_malloc(inlen, "quic_tp_recv");
-	if (!wsi->io->tls.quic_tp_recv) {
-		*al = SSL_AD_INTERNAL_ERROR;
-		return 0;
-	}
-
-	memcpy(wsi->io->tls.quic_tp_recv, in, inlen);
-	wsi->io->tls.quic_tp_recv_len = inlen;
-
-	return 1;
-}
-
-static void
-openssl_quic_keylog_cb(const SSL *ssl, const char *line)
-{
-	struct lws *wsi = (struct lws *)SSL_get_app_data(ssl);
-	enum lws_tls_quic_secret_type type = (enum lws_tls_quic_secret_type)-1;
-	const char *secret_hex = NULL;
-	uint8_t secret[64];
-	size_t len = 0;
-
-	if (!wsi || !wsi->io->tls.quic_secret_cb || !line)
-		return;
-
-	if (!strncmp(line, "CLIENT_EARLY_TRAFFIC_SECRET ", 28)) {
-		type = LWS_TLS_QUIC_SECRET_CLIENT_EARLY;
-		secret_hex = (char *)strchr(line + 28, ' ');
-	} else if (!strncmp(line, "CLIENT_HANDSHAKE_TRAFFIC_SECRET ", 32)) {
-		type = LWS_TLS_QUIC_SECRET_CLIENT_HANDSHAKE;
-		secret_hex = (char *)strchr(line + 32, ' ');
-	} else if (!strncmp(line, "SERVER_HANDSHAKE_TRAFFIC_SECRET ", 32)) {
-		type = LWS_TLS_QUIC_SECRET_SERVER_HANDSHAKE;
-		secret_hex = (char *)strchr(line + 32, ' ');
-	} else if (!strncmp(line, "CLIENT_TRAFFIC_SECRET_0 ", 24)) {
-		type = LWS_TLS_QUIC_SECRET_CLIENT_APPLICATION;
-		secret_hex = (char *)strchr(line + 24, ' ');
-	} else if (!strncmp(line, "SERVER_TRAFFIC_SECRET_0 ", 24)) {
-		type = LWS_TLS_QUIC_SECRET_SERVER_APPLICATION;
-		secret_hex = (char *)strchr(line + 24, ' ');
-	}
-
-	if (!secret_hex || (int)type == -1)
-		return;
-
-	secret_hex++; /* skip space */
-
-	while (*secret_hex && *(secret_hex + 1) && len < sizeof(secret)) {
-		secret[len++] = (uint8_t)((from_hex(secret_hex[0]) << 4) | from_hex(secret_hex[1]));
-		secret_hex += 2;
-	}
-
-	wsi->io->tls.quic_secret_cb(wsi, type, secret, len);
-	lws_explicit_bzero(secret, sizeof(secret));
-}
-
-int
-lws_tls_quic_vhost_init(SSL_CTX *ctx)
-{
-	/* Ignore failure if already added */
-	SSL_CTX_add_custom_ext(ctx, TLSEXT_TYPE_quic_transport_parameters,
-			       SSL_EXT_CLIENT_HELLO | SSL_EXT_TLS1_3_ENCRYPTED_EXTENSIONS,
-			       openssl_quic_ext_add_cb,
-			       openssl_quic_ext_free_cb, NULL,
-			       openssl_quic_ext_parse_cb, NULL);
-	return 0;
-}
-
-int
-lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
-{
-	BIO *rbio, *wbio;
-	SSL_CTX *ctx;
-
-	if (!wsi->io->tls.ssl)
-		return -1;
-
-	ctx = SSL_get_SSL_CTX(wsi->io->tls.ssl);
-
-	/*
-	 * RFC 9001 4.2: QUIC uses TLS 1.3 and nothing else.  The vhost ctx we
-	 * are borrowing is shared with the vhost's TLS-over-TCP connections and
-	 * only has the general TLS 1.2 floor from C-406, so pin this
-	 * connection, which is a per-SSL setting and does not affect them.
-	 */
-#if defined(TLS1_3_VERSION)
-	SSL_set_min_proto_version(wsi->io->tls.ssl, TLS1_3_VERSION);
-	SSL_set_max_proto_version(wsi->io->tls.ssl, TLS1_3_VERSION);
-#endif
-
-	rbio = BIO_new(BIO_s_mem());
-	wbio = BIO_new(BIO_s_mem());
-
-	if (!rbio || !wbio) {
-		if (rbio) BIO_free(rbio);
-		if (wbio) BIO_free(wbio);
-		return -1;
-	}
-
-	BIO_set_nbio(rbio, 1);
-	BIO_set_nbio(wbio, 1);
-
-	SSL_set_bio(wsi->io->tls.ssl, rbio, wbio);
-
-	wsi->io->tls.quic_secret_cb = cb;
-	SSL_set_app_data(wsi->io->tls.ssl, wsi);
-
-	if (lwsi_role_client(wsi)) {
-		SSL_set_connect_state(wsi->io->tls.ssl);
-	} else {
-		/*
-		 * See the note in the BoringSSL-API arm above: lws has no 0-RTT
-		 * replay mitigation, so server-side early data stays off rather
-		 * than defaulting to a 4GiB early-data budget.
-		 */
-		if (wsi->a.vhost &&
-		    (wsi->a.vhost->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA))
-			lwsl_wsi_info(wsi, "LWS_SERVER_OPTION_ALLOW_EARLY_DATA "
-					   "ignored: no 0-RTT replay mitigation");
-
-		SSL_set_max_early_data(wsi->io->tls.ssl, 0);
-		SSL_set_accept_state(wsi->io->tls.ssl);
-	}
-
-	SSL_CTX_set_keylog_callback(ctx, openssl_quic_keylog_cb);
-
-	return 0;
-}
-
-int
-lws_tls_quic_advance_handshake(struct lws *wsi, int level,
-			       const uint8_t *in, size_t in_len,
-			       uint8_t *out, size_t *out_len)
-{
-	BIO *rbio = SSL_get_rbio(wsi->io->tls.ssl);
-	BIO *wbio = SSL_get_wbio(wsi->io->tls.ssl);
-	int hs_n;
-	size_t written = 0;
-
-	/*
-	 * NOTE: this arm is unreachable in any configuration CMake can produce
-	 * today -- CMakeLists.txt clears LWS_ROLE_QUIC unless a backend with a
-	 * real QUIC TLS API is selected, so LWS_HAVE_BORINGSSL_QUIC_API is
-	 * always defined here -- and it must not be revived as it stands:
-	 *
-	 *  - every encryption level is merged into one memory BIO, whereas
-	 *    RFC 9001 4.1.3 requires per-level CRYPTO streams precisely so that
-	 *    handshake-level TLS messages cannot be injected inside an Initial
-	 *    packet, whose keys are derivable by anyone who sees the DCID;
-	 *  - outgoing crypto is attributed to the level of the packet that was
-	 *    last *received*, not the level it belongs to;
-	 *  - a flight larger than the caller's buffer is silently left in the
-	 *    BIO with no indication;
-	 *  - this frames raw TLS records while lws_tls_quic_rx_crypto() scans
-	 *    its input as bare TLS handshake messages, so the two ends of the
-	 *    same path disagree about the framing.
-	 *
-	 * It should be deleted, or rewritten against a real per-level API such
-	 * as OpenSSL 3.5's SSL_set_quic_tls_cbs(), before any backend without
-	 * the BoringSSL QUIC API is allowed to set LWS_ROLE_QUIC.
-	 */
-
-	if (!rbio || !wbio)
-		return -1;
-
-	if (in && in_len)
-		BIO_write(rbio, in, (int)in_len);
-	lwsl_info("QUIC TLS: SSL_do_handshake starting (in_len=%d)\n", (int)in_len);
-	hs_n = SSL_do_handshake(wsi->io->tls.ssl);
-	lwsl_info("QUIC TLS: SSL_do_handshake returned %d\n", hs_n);
-
-	if (out && out_len) {
-		int read_n = BIO_read(wbio, out, (int)*out_len);
-		if (read_n > 0)
-			written = (size_t)read_n;
-		*out_len = written;
-		lwsl_info("QUIC TLS: BIO_read extracted %d bytes of TX data\n", (int)written);
-	} else {
-		size_t pending = (size_t)BIO_ctrl_pending(wbio);
-		if (pending > 0) {
-			uint8_t *exact_buf = lws_malloc(pending, "quic tx exact");
-			if (exact_buf) {
-				int read_n = BIO_read(wbio, exact_buf, (int)pending);
-				if (read_n > 0) {
-					lws_tls_quic_tx_crypto_cb(wsi, level, exact_buf, (size_t)read_n);
-				}
-				lws_free(exact_buf);
-			}
-		}
-	}
-
-	if (hs_n <= 0) {
-		int err = SSL_get_error(wsi->io->tls.ssl, hs_n);
-		lwsl_info("QUIC TLS: SSL_get_error returned %d\n", err);
-		if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
-			return 1; /* In progress */
-
-		unsigned long e = ERR_get_error();
-
-		/*
-		 * Any unauthenticated peer can force a handshake failure, so
-		 * this is info-level, and the OpenSSL error queue is drained
-		 * through lwsl_ rather than written straight to stderr where
-		 * neither lws log control nor the app's log_cx can reach it.
-		 */
-		lwsl_wsi_info(wsi, "SSL_do_handshake failed: hs_n %d, err %d, "
-				   "openssl err %lu (%s)", hs_n, err, e,
-				   ERR_error_string((uint32_t)e, NULL));
-		while ((e = ERR_get_error()))
-			lwsl_wsi_debug(wsi, "  %s",
-				       ERR_error_string((uint32_t)e, NULL));
-
-		return -1;
-	}
-
-	return 0; /* Complete */
-}
-
-
-int
-lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t tp_len)
-{
-	if (wsi->io->tls.quic_tp_send) {
-		lws_free((void *)wsi->io->tls.quic_tp_send);
-		wsi->io->tls.quic_tp_send = NULL;
-	}
-
-	uint8_t *p = lws_malloc(tp_len, "quic tp");
-	if (!p)
-		return -1;
-	memcpy(p, tp, tp_len);
-	wsi->io->tls.quic_tp_send = p;
-	wsi->io->tls.quic_tp_send_len = tp_len;
-	return 0;
-}
-
-int
-lws_tls_quic_get_transport_parameters(struct lws *wsi, const uint8_t **tp, size_t *tp_len)
-{
-	if (!wsi->io->tls.quic_tp_recv)
-		return -1;
-
-	*tp = wsi->io->tls.quic_tp_recv;
-	*tp_len = wsi->io->tls.quic_tp_recv_len;
-	return 0;
-}
-
-#endif /* LWS_HAVE_BORINGSSL_QUIC_API */
-
 static int test_secrets_extracted = 0;
 
 static int
@@ -947,7 +632,6 @@ test_secret_cb(struct lws *wsi, enum lws_tls_quic_secret_type type,
 	return 0;
 }
 
-#if defined(LWS_HAVE_BORINGSSL_QUIC_API)
 static int
 test_alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *outlen,
                     const unsigned char *in, unsigned int inlen, void *arg)
@@ -956,7 +640,6 @@ test_alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *outlen,
 	*outlen = 4;
 	return SSL_TLSEXT_ERR_OK;
 }
-#endif
 
 int
 lws_tls_quic_api_test(void)
@@ -1041,10 +724,8 @@ lws_tls_quic_api_test(void)
 	SSL_set_connect_state(wsi_client.io->tls.ssl);
 	SSL_set_accept_state(wsi_server.io->tls.ssl);
 
-#if defined(LWS_HAVE_BORINGSSL_QUIC_API)
 	SSL_set_alpn_protos(wsi_client.io->tls.ssl, (const unsigned char *)"\x04test", 5);
 	SSL_CTX_set_alpn_select_cb(sctx, test_alpn_select_cb, NULL);
-#endif
 
 	if (lws_tls_quic_init(&wsi_client, test_secret_cb))
 		goto fail;
