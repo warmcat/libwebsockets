@@ -4633,6 +4633,9 @@ test_cb(struct lecp_ctx *ctx, char reason)
  *  - ctx->path is what the enclosing containers and the current keys say it
  *    should be: "[]" per array, "." per map followed by the name of the key
  *    the map is on (empty for a key that is not a text string)
+ *  - ctx->path_match is the first of the paths[] given to lecp_construct()
+ *    that the shortest matching prefix of that path matches, ie, a match
+ *    covers everything inside what it matched, and nothing else
  *
  * The model of what is open is built from the events alone, so it is
  * independent of the parser's own stack.
@@ -4665,6 +4668,8 @@ struct sc_frame {
 
 struct sc_priv {
 	struct sc_frame		st[LECP_MAX_DEPTH + 1];
+	const char * const	*paths;
+	int			count_paths;
 	int			sp;
 	int			fail;
 };
@@ -4678,18 +4683,36 @@ sc_fail(struct sc_priv *pr, const char *why)
 	return 1;
 }
 
+/* the first of paths[] that is exactly this, if any */
+
+static int
+sc_match(struct sc_priv *pr, const char *path)
+{
+	int n;
+
+	for (n = 0; n < pr->count_paths; n++)
+		if (!strcmp(pr->paths[n], path))
+			return n + 1;
+
+	return 0;
+}
+
 /*
  * Compose the path the open frames say we should be at, plus the suffix of an
- * item that is just opening.  Returns nonzero if we can't know it.
+ * item that is just opening, and the path_match we should see there: the
+ * match of the shortest prefix, at the points the path grows by, that has
+ * one.  Returns nonzero if we can't know them.
  */
 
 static int
-sc_path(struct sc_priv *pr, const char *suffix, char *path, size_t len)
+sc_path(struct sc_priv *pr, const char *suffix, char *path, size_t len,
+	int *match)
 {
 	char *p = path, *end = path + len;
 	int n;
 
 	*p = '\0';
+	*match = 0;
 
 	for (n = 1; n <= pr->sp; n++) {
 		const struct sc_frame *f = &pr->st[n];
@@ -4701,13 +4724,22 @@ sc_path(struct sc_priv *pr, const char *suffix, char *path, size_t len)
 		case SC_MAP:
 			if (f->key_state != SC_KEY_NAMED)
 				return 1;
-			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ".%s",
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ".");
+			if (!*match)
+				*match = sc_match(pr, path);
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s",
 					  f->name);
 			break;
+		default:
+			continue;
 		}
+		if (!*match)
+			*match = sc_match(pr, path);
 	}
 
 	lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s", suffix);
+	if (!*match)
+		*match = sc_match(pr, path);
 
 	return 0;
 }
@@ -4716,8 +4748,9 @@ static int
 sc_check_path(struct lecp_ctx *ctx, struct sc_priv *pr, const char *suffix)
 {
 	char path[LECP_MAX_PATH + 16];
+	int match;
 
-	if (sc_path(pr, suffix, path, sizeof(path)))
+	if (sc_path(pr, suffix, path, sizeof(path), &match))
 		return 0;
 
 	if (strcmp(path, ctx->path)) {
@@ -4725,6 +4758,13 @@ sc_check_path(struct lecp_ctx *ctx, struct sc_priv *pr, const char *suffix)
 			  ctx->path, path);
 
 		return sc_fail(pr, "wrong path");
+	}
+
+	if (ctx->path_match != match) {
+		lwsl_warn("%s: path '%s': path_match %d, expected %d\n",
+			  __func__, path, ctx->path_match, match);
+
+		return sc_fail(pr, "wrong path_match");
 	}
 
 	return 0;
@@ -4941,15 +4981,18 @@ sc_cb(struct lecp_ctx *ctx, char reason)
  */
 
 static int
-sc_run(const char *name, const uint8_t *cbor, size_t len)
+sc_run(const char *name, const uint8_t *cbor, size_t len,
+       const char * const *paths, int count_paths)
 {
 	struct lecp_ctx ctx;
 	struct sc_priv pr;
 	int n;
 
 	memset(&pr, 0, sizeof(pr));
+	pr.paths	= paths;
+	pr.count_paths	= count_paths;
 
-	lecp_construct(&ctx, sc_cb, &pr, NULL, 0);
+	lecp_construct(&ctx, sc_cb, &pr, paths, (unsigned char)count_paths);
 	n = lecp_parse(&ctx, cbor, len);
 	lecp_destruct(&ctx);
 
@@ -5011,33 +5054,77 @@ static const uint8_t
 			0x61, 0x62, 0x01 },
 	/* [{"a": [1]}, {"b": 2}]: keyed container, then the next map */
 	sc18[] = { 0x82, 0xa1, 0x61, 0x61, 0x81, 0x01,
-			0xa1, 0x61, 0x62, 0x02 };
+			0xa1, 0x61, 0x62, 0x02 },
+	/* {"a": 1, "b": 2} */
+	sc19[] = { 0xa2, 0x61, 0x61, 0x01, 0x61, 0x62, 0x02 },
+	/* {"a": 1, "c": 2} */
+	sc20[] = { 0xa2, 0x61, 0x61, 0x01, 0x61, 0x63, 0x02 },
+	/* {"a": {"x": 1}, "b": [2, 3], "c": 4} */
+	sc21[] = { 0xa3, 0x61, 0x61, 0xa1, 0x61, 0x78, 0x01,
+			0x61, 0x62, 0x82, 0x02, 0x03, 0x61, 0x63, 0x04 };
+
+static const char * const sc_p_ab[]	= { ".a", ".b" };
+static const char * const sc_p_a[]	= { ".a" };
+static const char * const sc_p_arr_a[]	= { "[].a" };
+static const char * const sc_p_nested[]	= { ".a", ".b[]" };
 
 struct sc_vec {
 	const char		*name;
 	const uint8_t		*b;
 	size_t			blen;
+	const char * const	*paths;
+	int			count_paths;
 };
 
 static const struct sc_vec sc_vecs[] = {
-	{ "indef map then map",		sc1,  sizeof(sc1) },
-	{ "array then map",		sc2,  sizeof(sc2) },
-	{ "array then int map",		sc3,  sizeof(sc3) },
-	{ "indef bstr then array",	sc4,  sizeof(sc4) },
-	{ "tag then map",		sc5,  sizeof(sc5) },
-	{ "array then tag",		sc6,  sizeof(sc6) },
-	{ "map then map",		sc7,  sizeof(sc7) },
-	{ "indef array then map",	sc8,  sizeof(sc8) },
-	{ "indef tstr value then array", sc9, sizeof(sc9) },
-	{ "nested map then tagged map",	sc10, sizeof(sc10) },
-	{ "keyed empty array, next key", sc11, sizeof(sc11) },
-	{ "keyed empty map, next key",	sc12, sizeof(sc12) },
-	{ "keyed containers in a row",	sc13, sizeof(sc13) },
-	{ "empty key after named key",	sc14, sizeof(sc14) },
-	{ "int key after named key",	sc15, sizeof(sc15) },
-	{ "indefinite key",		sc16, sizeof(sc16) },
-	{ "indefinite value, next key",	sc17, sizeof(sc17) },
-	{ "keyed container, next map",	sc18, sizeof(sc18) },
+	{ .name = "indef map then map",
+	  .b = sc1, .blen = sizeof(sc1) },
+	{ .name = "array then map",
+	  .b = sc2, .blen = sizeof(sc2) },
+	{ .name = "array then int map",
+	  .b = sc3, .blen = sizeof(sc3) },
+	{ .name = "indef bstr then array",
+	  .b = sc4, .blen = sizeof(sc4) },
+	{ .name = "tag then map",
+	  .b = sc5, .blen = sizeof(sc5) },
+	{ .name = "array then tag",
+	  .b = sc6, .blen = sizeof(sc6) },
+	{ .name = "map then map",
+	  .b = sc7, .blen = sizeof(sc7) },
+	{ .name = "indef array then map",
+	  .b = sc8, .blen = sizeof(sc8) },
+	{ .name = "indef tstr value then array",
+	  .b = sc9, .blen = sizeof(sc9) },
+	{ .name = "nested map then tagged map",
+	  .b = sc10, .blen = sizeof(sc10) },
+	{ .name = "keyed empty array, next key",
+	  .b = sc11, .blen = sizeof(sc11) },
+	{ .name = "keyed empty map, next key",
+	  .b = sc12, .blen = sizeof(sc12) },
+	{ .name = "keyed containers in a row",
+	  .b = sc13, .blen = sizeof(sc13) },
+	{ .name = "empty key after named key",
+	  .b = sc14, .blen = sizeof(sc14) },
+	{ .name = "int key after named key",
+	  .b = sc15, .blen = sizeof(sc15) },
+	{ .name = "indefinite key",
+	  .b = sc16, .blen = sizeof(sc16) },
+	{ .name = "indefinite value, next key",
+	  .b = sc17, .blen = sizeof(sc17) },
+	{ .name = "keyed container, next map",
+	  .b = sc18, .blen = sizeof(sc18) },
+	{ .name = "path match on 2nd value",
+	  .b = sc19, .blen = sizeof(sc19),
+	  .paths = sc_p_ab, .count_paths = LWS_ARRAY_SIZE(sc_p_ab) },
+	{ .name = "path match only on 1st value",
+	  .b = sc20, .blen = sizeof(sc20),
+	  .paths = sc_p_a, .count_paths = LWS_ARRAY_SIZE(sc_p_a) },
+	{ .name = "path match in 1st map only",
+	  .b = sc7, .blen = sizeof(sc7),
+	  .paths = sc_p_arr_a, .count_paths = LWS_ARRAY_SIZE(sc_p_arr_a) },
+	{ .name = "path match covers its insides",
+	  .b = sc21, .blen = sizeof(sc21),
+	  .paths = sc_p_nested, .count_paths = LWS_ARRAY_SIZE(sc_p_nested) },
 };
 
 /*
@@ -5143,14 +5230,15 @@ int main(int argc, const char **argv)
 			continue;
 
 		lws_snprintf(name, sizeof(name), "test %d", m + 1);
-		if (sc_run(name, cbor_tests[m].b, cbor_tests[m].blen))
+		if (sc_run(name, cbor_tests[m].b, cbor_tests[m].blen, NULL, 0))
 			e++;
 		else
 			pass++;
 	}
 
 	for (m = 0; m < (int)LWS_ARRAY_SIZE(sc_vecs); m++) {
-		if (sc_run(sc_vecs[m].name, sc_vecs[m].b, sc_vecs[m].blen))
+		if (sc_run(sc_vecs[m].name, sc_vecs[m].b, sc_vecs[m].blen,
+			   sc_vecs[m].paths, sc_vecs[m].count_paths))
 			e++;
 		else
 			pass++;
@@ -5160,7 +5248,7 @@ int main(int argc, const char **argv)
 		uint8_t many[1 + 16 * 12];
 		size_t ml = sc_many_keyed_arrays(many, sizeof(many));
 
-		if (!ml || sc_run("many keyed arrays", many, ml))
+		if (!ml || sc_run("many keyed arrays", many, ml, NULL, 0))
 			e++;
 		else
 			pass++;

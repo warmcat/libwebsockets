@@ -169,6 +169,25 @@ lecp_check_path_match(struct lecp_ctx *ctx)
 		ctx->wildcount = 0;
 }
 
+/*
+ * The path is going back to ppos.  lecp_check_path_match() only looks for a
+ * match while none is active, so a match found at or beyond this point, which
+ * no longer describes where we are, has to be let go of here, or it is
+ * reported for everything that follows.  A match on a shorter prefix of the
+ * path still covers us and stays.  Callers check again for a match on the
+ * shortened path afterwards.
+ */
+
+static void
+lecp_path_truncate(struct lecp_ctx *ctx, uint8_t ppos)
+{
+	ctx->pst[ctx->pst_sp].ppos	= ppos;
+	ctx->path[ppos]			= '\0';
+
+	if (ctx->path_match && ppos <= ctx->path_match_len)
+		ctx->path_match = 0;
+}
+
 int
 lecp_push(struct lecp_ctx *ctx, char s_start, char s_end, char state)
 {
@@ -217,8 +236,7 @@ lecp_pop(struct lecp_ctx *ctx)
 		ctx->ipos--;
 	}
 
-	ctx->pst[ctx->pst_sp].ppos = st->p;
-	ctx->path[st->p] = '\0';
+	lecp_path_truncate(ctx, st->p);
 	lecp_check_path_match(ctx);
 
 	lwsl_lecp("%s: popping to sp %d, parent "
@@ -395,6 +413,10 @@ lecp_parse_subtree(struct lecp_ctx *ctx, const uint8_t *in, size_t len)
 {
 	uint8_t sp = ctx->sp, ipos = ctx->ipos;
 	uint8_t ppos = ctx->pst[ctx->pst_sp].ppos;
+	uint8_t path_match = ctx->path_match,
+		path_match_len = ctx->path_match_len,
+		wildcount = ctx->wildcount;
+	uint16_t wild[LWS_ARRAY_SIZE(ctx->wild)];
 	struct _lecp_stack *st;
 	int n;
 
@@ -404,6 +426,8 @@ lecp_parse_subtree(struct lecp_ctx *ctx, const uint8_t *in, size_t len)
 	 */
 	if ((size_t)ctx->sp + 1u >= LWS_ARRAY_SIZE(ctx->st))
 		return LECP_STACK_OVERFLOW;
+
+	memcpy(wild, ctx->wild, sizeof(wild));
 
 	st = &ctx->st[++ctx->sp];
 
@@ -435,13 +459,18 @@ lecp_parse_subtree(struct lecp_ctx *ctx, const uint8_t *in, size_t len)
 		n = LECP_REJECT_BAD_CODING;
 
 	/*
-	 * Map keys inside the subtree append themselves to the shared path;
-	 * whatever they did to it, it belongs to the outer parse, put it back
+	 * Map keys inside the subtree append themselves to the shared path,
+	 * and path matching follows it; whatever they did to it, it belongs to
+	 * the outer parse, put it back
 	 */
 	ctx->sp = sp;
 	ctx->ipos = ipos;
 	ctx->pst[ctx->pst_sp].ppos = ppos;
 	ctx->path[ppos] = '\0';
+	ctx->path_match = path_match;
+	ctx->path_match_len = path_match_len;
+	ctx->wildcount = wildcount;
+	memcpy(ctx->wild, wild, sizeof(wild));
 
 	return n;
 }
@@ -553,8 +582,9 @@ lecp_parse(struct lecp_ctx *ctx, const uint8_t *cbor, size_t len)
 				 * the map level's p.  A string key's content
 				 * is appended as it is collected.
 				 */
-				pst->ppos = (uint8_t)(lwcp_st_parent(ctx)->p + 1);
-				ctx->path[pst->ppos] = '\0';
+				lecp_path_truncate(ctx,
+					(uint8_t)(lwcp_st_parent(ctx)->p + 1));
+				lecp_check_path_match(ctx);
 			}
 
 			switch (st->opcode) {
@@ -697,8 +727,7 @@ i2_l:
 				if (!sm) {
 					if (pst->cb(ctx, LECPCB_ARRAY_END))
 						goto reject_callback;
-					pst->ppos = st->p;
-					ctx->path[pst->ppos] = '\0';
+					lecp_path_truncate(ctx, st->p);
 					if (ctx->ipos) /* cov */
 						ctx->ipos--;
 					lecp_check_path_match(ctx);
@@ -748,8 +777,7 @@ push_a:
 				if (!sm) {
 					if (pst->cb(ctx, LECPCB_OBJECT_END))
 						goto reject_callback;
-					pst->ppos = st->p;
-					ctx->path[pst->ppos] = '\0';
+					lecp_path_truncate(ctx, st->p);
 					lecp_check_path_match(ctx);
 					if (lwcp_completed(ctx, 0))
 						goto reject_callback;
@@ -960,8 +988,7 @@ push_m:
 					 */
 					if (pst->cb(ctx, LECPCB_ARRAY_END))
 						goto reject_callback;
-					pst->ppos = st->p;
-					ctx->path[pst->ppos] = '\0';
+					lecp_path_truncate(ctx, st->p);
 					if (ctx->ipos) /* cov */
 						ctx->ipos--;
 					st->send_new_array_item = 0;
@@ -983,8 +1010,7 @@ push_m:
 					/* long-form map(0), same as above */
 					if (pst->cb(ctx, LECPCB_OBJECT_END))
 						goto reject_callback;
-					pst->ppos = st->p;
-					ctx->path[pst->ppos] = '\0';
+					lecp_path_truncate(ctx, st->p);
 					lecp_check_path_match(ctx);
 					if (lwcp_completed(ctx, 0))
 						goto reject_callback;
