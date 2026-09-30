@@ -441,6 +441,23 @@ _lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi, int tls_hs)
 			wsi->a.protocol = np;
 	}
 
+#if defined(LWS_WITH_CLIENT)
+	/*
+	 * His place in the old vhost's list of client connections others may
+	 * join is also inside the old vhost.  It offers a connection made,
+	 * and verified, under that vhost, so it is not carried over to the
+	 * new one: he just stops being offered.  Anyone already queued on him
+	 * stays queued, that list is his own.
+	 */
+	if (!lws_dll2_is_detached(&wsi->dll_cli_active_conns)) {
+		if (wsi->a.vhost)
+			lws_vhost_lock(wsi->a.vhost);
+		lws_dll2_remove(&wsi->dll_cli_active_conns);
+		if (wsi->a.vhost)
+			lws_vhost_unlock(wsi->a.vhost);
+	}
+#endif
+
 	if (wsi->a.vhost)
 		__lws_vhost_unbind_wsi(wsi); /* req cx lock, takes vh lock */
 

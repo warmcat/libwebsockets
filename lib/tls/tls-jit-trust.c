@@ -562,15 +562,52 @@ lws_tls_jit_trust_inflight_destroy_all(struct lws_context *cx)
 	lws_dll2_foreach_safe(&cx->jit_inflight, cx, inflight_destroy);
 }
 
+/* is any wsi still on one of the vhost's own lists? */
+static int
+lws_vhost_wsi_listed(struct lws_vhost *vh)
+{
+	int n;
+
+	if (vh->count_bound_wsi ||
+#if defined(LWS_WITH_CLIENT)
+	    !lws_dll2_is_empty(&vh->dll_cli_active_conns_owner) ||
+#endif
+	    !lws_dll2_is_empty(&vh->vh_awaiting_socket_owner))
+		return 1;
+
+	if (vh->same_vh_protocol_owner)
+		for (n = 0; n < vh->count_protocols; n++)
+			if (!lws_dll2_is_empty(&vh->same_vh_protocol_owner[n]))
+				return 1;
+
+	return 0;
+}
+
 static void
 unref_vh_grace_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws_vhost *vh = lws_container_of(sul, struct lws_vhost,
 						sul_unref);
 
+	struct lws_context *cx = vh->context;
+
 	lwsl_info("%s: %s\n", __func__, vh->lc.gutag);
 
-	lws_vhost_destroy(vh);
+	lws_context_lock(cx, __func__); /* ------ context { */
+
+	/*
+	 * Binding a wsi to the vhost cancels this, but a wsi that was moved
+	 * off it while still on one of its lists would be left pointing into
+	 * it.  That is a bug, but not one to turn into a use after free: keep
+	 * the vhost another grace period and look again.
+	 */
+	if (lws_vhost_wsi_listed(vh)) {
+		lwsl_vhost_err(vh, "unbound wsi still listed on it");
+		lws_tls_jit_trust_vh_start_grace(vh);
+	} else
+		lws_vhost_destroy(vh);
+
+	lws_context_unlock(cx); /* } context ------ */
 }
 
 void

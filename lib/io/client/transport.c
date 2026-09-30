@@ -300,6 +300,7 @@ lws_client_transport_failed(struct lws *wsi)
 void
 lws_client_transport_rebind(struct lws *wsi)
 {
+	const struct lws_protocols *pr = NULL;
 	struct lws_vhost *vh = NULL;
 
 	if (!wsi->stash || !wsi->stash->cis[CIS_ADDRESS])
@@ -308,13 +309,34 @@ lws_client_transport_rebind(struct lws *wsi)
 	lws_tls_jit_trust_vhost_bind(wsi->a.context,
 				     wsi->stash->cis[CIS_ADDRESS], wsi->c_port,
 				     wsi->stash->cis[CIS_HOST], &vh);
+	if (!vh || vh == wsi->a.vhost)
+		return;
+
+	/*
+	 * His protocol is an entry in the old vhost's own protocol table,
+	 * which goes when that vhost does: he must take the same protocol
+	 * from the new vhost's table.  If it has none, he stays where he is.
+	 */
+	if (wsi->a.protocol) {
+		if (wsi->a.protocol->name)
+			pr = lws_vhost_name_to_protocol(vh,
+							wsi->a.protocol->name);
+		if (!pr) {
+			lwsl_wsi_notice(wsi, "vh %s lacks protocol, not moved",
+					vh->name);
+			return;
+		}
+	}
+
 	/*
 	 * Rebind through the proper helper: it unbinds the old vhost itself
 	 * (unbinding here first would clear wsi->a.vhost and disarm its
 	 * dying-vhost and mTLS rebind refusals, which test that)
 	 */
-	if (vh && vh != wsi->a.vhost)
-		lws_vhost_bind_wsi(vh, wsi);
+	lws_vhost_bind_wsi(vh, wsi);
+
+	if (pr && wsi->a.vhost == vh)
+		wsi->a.protocol = pr;
 }
 #endif
 

@@ -1086,6 +1086,20 @@ _lws_close_free_wsi_final(struct lws *wsi)
 		wsi->use_ssl = (unsigned int)wsi->flags;
 #endif
 
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+		/*
+		 * His new endpoint may belong on another vhost, the one jit
+		 * trust keeps for it.  Move him now, before anything below
+		 * places him in the vhost he is on: the protocol bind, and the
+		 * ah attach, which runs the connect and can list him among the
+		 * vhost's client connections others may join.  Moved after
+		 * those, he was left in the old vhost's list and pointing into
+		 * its protocol table, and a jit trust vhost is destroyed once
+		 * nothing is bound to it for a while.
+		 */
+		lws_client_transport_rebind(wsi);
+#endif
+
 	//	wsi->a.protocol = NULL;
 		if (wsi->a.protocol)
 			lws_bind_protocol(wsi, wsi->a.protocol, "client_reset");
@@ -1117,10 +1131,6 @@ _lws_close_free_wsi_final(struct lws *wsi)
 		}
 //		}
 		//_lws_header_table_reset(wsi->stream.ah);
-
-#if defined(LWS_WITH_TLS_JIT_TRUST)
-		lws_client_transport_rebind(wsi);
-#endif
 
 		return LWS_HPI_RET_CLOSING;
 	}
