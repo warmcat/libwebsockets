@@ -1637,6 +1637,20 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 #endif
 
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_TLS)
+	if (lws_io_tls_on_worker(wsi)) {
+		/*
+		 * The SSL is the worker's until its accept step comes back on
+		 * the event pipe, which arms the poll set again as the accept
+		 * left it: nothing, rx or the user's WRITEABLE, may use it
+		 * from here meanwhile, and a level-triggered event nobody
+		 * takes would spin
+		 */
+		if (lws_change_pollfd(wsi, LWS_POLLIN | LWS_POLLOUT, 0))
+			goto close_and_handled_l;
+
+		goto handled;
+	}
+
 	/* a server's tls accept in progress is IO's alone */
 	if (!lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_SSL_ACK_PENDING) {
 		if (lws_server_socket_service_ssl(wsi, LWS_SOCK_INVALID,

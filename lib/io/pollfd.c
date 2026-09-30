@@ -593,15 +593,22 @@ lws_io_want_write_pollfd(struct lws *wsi)
 {
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_TLS)
 	/*
-	 * A server's tls accept has the POLLOUT until it is done, and clears
-	 * it as it goes: a writeable asked for meanwhile, eg, from the
-	 * adoption callback of a protocol whose server speaks first, is kept
-	 * for when the accept completes
+	 * A server's tls accept has the POLLOUT until it is done, and arms it
+	 * itself when the handshake wants to write: a writeable asked for
+	 * meanwhile, eg, from the adoption callback of a protocol whose server
+	 * speaks first, is kept for when the accept completes
+	 * (lws_tls_server_accept_completed() asks again).  Arming it now
+	 * would have the user write through an SSL that is not accepted yet,
+	 * and that, when the accept is on an async worker, the worker is
+	 * inside.
 	 */
 	if (!lwsi_role_client(wsi) && (lwsi_state(wsi) == LRS_SSL_INIT ||
 				       lwsi_state(wsi) == LRS_SSL_ACK_PENDING ||
-				       lwsi_state(wsi) == LRS_AWAITING_SSL_ACCEPT))
+				       lwsi_state(wsi) == LRS_AWAITING_SSL_ACCEPT)) {
 		wsi->io->tls.want_write_after_accept = 1;
+
+		return 0;
+	}
 #endif
 
 	return __lws_change_pollfd(wsi, 0, LWS_POLLOUT);
