@@ -287,6 +287,8 @@ lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
  int
  lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 			     struct lws_vhost *vhost);
+ int
+ lws_tls_server_vhost_ctx_setup(struct lws_vhost *vhost, struct lws *wsi);
  void
  lws_tls_acme_sni_cert_destroy(struct lws_vhost *vhost);
 #else

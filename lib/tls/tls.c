@@ -488,6 +488,14 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 					vhost->tls.alpn_ctx.data,
 					sizeof(vhost->tls.alpn_ctx.data) - 1);
 
+	/*
+	 * The rest goes on the vhost's ctx, which it may not have yet, eg,
+	 * with LWS_SERVER_OPTION_IGNORE_MISSING_CERT and no cert so far: the
+	 * ctx made when the cert arrives gets it then (lws_tls_cert_updated())
+	 */
+	if (!vhost->tls.ssl_ctx)
+		return;
+
 #if defined(LWS_WITH_GNUTLS)
 	/* GnuTLS ALPN is set per-session, nothing to do here for CTX */
 #elif defined(LWS_WITH_BEARSSL)

@@ -412,6 +412,18 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 				continue;
 			}
 
+			/*
+			 * The new ctx needs what the first one got after its
+			 * certs, or eg, on openssl, the vhost would lose its
+			 * client-cert policy and its alpn with the renewal
+			 */
+			if (lws_tls_server_vhost_ctx_setup(v, &wsi)) {
+				lws_tls_ctx_ref_unref(new_ref);
+				v->tls.ssl_ctx = old_ctx;
+				lwsl_vhost_err(v, "Failed to set up updated ctx");
+				continue;
+			}
+
 			/* Successfully loaded. Commit new ref and retire old ref */
 			v->tls.active_ctx_ref = new_ref;
 

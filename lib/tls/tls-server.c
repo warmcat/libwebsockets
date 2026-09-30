@@ -371,6 +371,56 @@ lws_sul_tls_cb(lws_sorted_usec_list_t *sul)
 			    (lws_usec_t)24 * 3600 * LWS_US_PER_SEC);
 }
 
+/*
+ * What a vhost's server tls ctx needs on top of its certs: the client-cert
+ * policy, whatever extra verification certs user code loads into it, and the
+ * alpn.  The backends keep all of it on the ctx, so every ctx the vhost gets
+ * needs it: its first one in lws_context_init_server_ssl(), and one made to
+ * replace it, eg, for a renewed cert, in lws_tls_cert_updated()... without
+ * it, on openssl, an mTLS vhost would ask no client for a cert, and h2 would
+ * no longer be negotiated.
+ *
+ * wsi is a fake one with the context and vhost set, for user code to use
+ * lws_get_context() on in the callback.  Returns 0, or -1 if the vhost must
+ * not be served with this ctx.
+ */
+
+int
+lws_tls_server_vhost_ctx_setup(struct lws_vhost *vhost, struct lws *wsi)
+{
+	/*
+	 * With LWS_SERVER_OPTION_IGNORE_MISSING_CERT and no cert yet, the
+	 * backend freed the ctx and NULLed it (mbedtls, openssl, bearssl,
+	 * gnutls and schannel all do).  There is nothing to set up on, and
+	 * user code given a NULL ssl_ctx has nothing it can load certs into
+	 * and would just dereference it: the ctx made when the cert arrives
+	 * gets all of this then.
+	 */
+
+	if (vhost->tls.ssl_ctx) {
+		/*
+		 * A backend that cannot enforce the vhost's client-cert
+		 * policy must be able to refuse the vhost here rather than
+		 * let it come up accepting anonymous peers
+		 */
+		if (lws_tls_server_client_cert_verify_config(vhost))
+			return -1;
+
+		/*
+		 * give user code a chance to load certs into the server
+		 * allowing it to verify incoming client certs
+		 */
+		if (vhost->protocols[0].callback(wsi,
+			    LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
+			    vhost->tls.ssl_ctx, vhost, 0))
+			return -1;
+	}
+
+	lws_context_init_alpn(vhost);
+
+	return 0;
+}
+
 int
 lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 			    struct lws_vhost *vhost)
@@ -426,10 +476,6 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 		/* Normally SSL listener rejects non-ssl, optionally allow */
 		vhost->tls.allow_non_ssl_on_ssl_port = 1;
 
-	/*
-	 * give user code a chance to load certs into the server
-	 * allowing it to verify incoming client certs
-	 */
 	if (vhost->tls.use_ssl) {
 		if (lws_tls_server_vhost_backend_init(info, vhost, (struct lws *)plwsa))
 			return -1;
@@ -437,33 +483,9 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 		if (vhost->tls.ssl_ctx && !vhost->tls.active_ctx_ref)
 			vhost->tls.active_ctx_ref = lws_tls_ctx_ref_create(vhost, vhost->tls.ssl_ctx);
 
-		/*
-		 * A backend that cannot enforce the vhost's client-cert
-		 * policy must be able to refuse the vhost here rather than
-		 * let it come up accepting anonymous peers
-		 */
-		if (vhost->tls.ssl_ctx &&
-		    lws_tls_server_client_cert_verify_config(vhost))
-			return -1;
-
-		/*
-		 * With LWS_SERVER_OPTION_IGNORE_MISSING_CERT and no cert yet,
-		 * the backend freed the ctx and NULLed it (mbedtls, openssl,
-		 * bearssl, gnutls and schannel all do).  User code given a
-		 * NULL ssl_ctx here has nothing it can load certs into and
-		 * would just dereference it, so hold the callback until the
-		 * cert arrives and the ctx is regenerated.
-		 */
-
-		if (vhost->tls.ssl_ctx &&
-		    vhost->protocols[0].callback((struct lws *)plwsa,
-			    LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
-			    vhost->tls.ssl_ctx, vhost, 0))
+		if (lws_tls_server_vhost_ctx_setup(vhost, (struct lws *)plwsa))
 			return -1;
 	}
-
-	if (vhost->tls.use_ssl)
-		lws_context_init_alpn(vhost);
 
 	/* check certs in a few seconds (after protocol init) and then once a day */
 
