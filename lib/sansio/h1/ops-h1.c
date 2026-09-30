@@ -418,6 +418,23 @@ postbody_completion:
 			} else
 #endif
 				lws_h1_body_timeout(wsi, 0);
+
+#if defined(LWS_WITH_SERVER)
+			/*
+			 * An h1 request's body is all here, but its answer
+			 * (the cgi's, the proxied one, or an app's from its
+			 * writeable) may still be to come.  Until that
+			 * completes the transaction, whatever the peer sent
+			 * after the body is the next pipelined request: it
+			 * must stay parked, not be offered back to us every
+			 * loop turn, only to run this completion again each
+			 * time.  So the body phase ends here, once.  A mux
+			 * stream says so after its completion callback below.
+			 */
+			if (!wsi->mux_substream && lwsi_role_server(wsi) &&
+			    lwsi_state(wsi) == LRS_BODY)
+				lws_wsi_event(wsi, LWS_WSIEV_BODY_COMPLETE);
+#endif
 #ifdef LWS_WITH_CGI
 			if (!wsi->http.cgi)
 #endif

@@ -7,7 +7,11 @@ Request bodies (client to server) on h1: Content-Length in one write and in
 many; Transfer-Encoding: chunked with chunks of assorted sizes, in one write, in
 many, and with the framing split across writes; chunked with chunk extensions
 and trailer fields; chunked on a GET followed by a pipelined request on the same
-connection; and the refusals (an unsupported
+connection; a Content-Length POST with a GET pipelined behind it in the same
+write, answered some time after its body completed, where the body must complete
+exactly once and the GET wait parked for the answer, without keeping the event
+loop busy, before it is served (direct and through the http proxy mount); and
+the refusals (an unsupported
 Transfer-Encoding gets 501, Transfer-Encoding with Content-Length gets 400, a
 chunked body over the mount limit drops the connection, a Content-Length over it
 gets 413); and `Expect: 100-continue` on Content-Length and chunked bodies, with

@@ -370,6 +370,11 @@ static const struct lws_wsi_event_edge lws_wsi_event_edges[] = {
 	{ "h3", "*", LRS_ESTABLISHED,		LWS_WSIEV_BODY_BEGIN, NULL, NULL, LRS_BODY },
 	{ "h3", "S", LRS_DOING_TRANSACTION,	LWS_WSIEV_BODY_BEGIN, NULL, NULL, LRS_BODY }, /* action ran, body follows: as h1 */
 	{ "h2", "S", LRS_DOING_TRANSACTION,	LWS_WSIEV_BODY_BEGIN, NULL, NULL, LRS_BODY }, /* same on h2 */
+	/*
+	 * an h1 body is complete before its answer is: the connection's next
+	 * request, pipelined behind it, waits parked for the transaction
+	 */
+	{ "h1", "S", LRS_BODY,			LWS_WSIEV_BODY_COMPLETE, NULL, NULL, LRS_DOING_TRANSACTION },
 	{ "h2", "S", LRS_BODY,			LWS_WSIEV_BODY_COMPLETE, NULL, NULL, LRS_ESTABLISHED },
 	{ "h3", "S", LRS_BODY,			LWS_WSIEV_BODY_COMPLETE, NULL, NULL, LRS_ESTABLISHED },
 	/* the body completion callback may itself have started serving a file (C-522) */

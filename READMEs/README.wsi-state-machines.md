@@ -118,9 +118,10 @@ response pending" is `lwsi_hdrs_pending()`.
 ### h1 server
 
 ```
-HEADERS ---(request parsed)---> ESTABLISHED ---> DOING_TRANSACTION
+HEADERS ---(request parsed)---> ESTABLISHED ---> DOING_TRANSACTION <------+
    ^                              |    |    \--> ISSUING_FILE <-> AWAITING_FILE_READ
-   |                              |    \-------> BODY --> DISCARD_BODY
+   |                              |    \-------> BODY ---(body complete)--+
+   |                              |                 |  \--> DISCARD_BODY
    |                              v                 |         |
    +-------------- TXN_COMPLETED <------------------+---------+
 ```
@@ -130,9 +131,13 @@ HEADERS ---(request parsed)---> ESTABLISHED ---> DOING_TRANSACTION
 - `ESTABLISHED`: acting on a parsed request; the user callback is being
   driven.  It also carries `H1_UPGRADE` out to the carrier when the request
   asked for one.
-- `DOING_TRANSACTION`: a mount action (cgi, proxy, file) is in progress.
+- `DOING_TRANSACTION`: a mount action (cgi, proxy, file) is in progress,
+  or the request body is complete and its answer is still to come.  What
+  the peer sent after the request is the next pipelined one: it stays
+  parked until the transaction completes.
 - `BODY` / `DISCARD_BODY`: a request body is being delivered, or drained
-  because the user finished before reading it.
+  because the user finished before reading it.  An h1 body that completes
+  goes on to `DOING_TRANSACTION`, whatever answers it.
 - `ISSUING_FILE` / `AWAITING_FILE_READ`: a file is being served, the latter
   while an async read is out on a worker.
 - `TXN_COMPLETING`: the user completed the transaction while its response
@@ -338,6 +343,7 @@ The events, with the states they lead to:
 |file read handed to a worker / returned|`AWAITING_FILE_READ` / `ISSUING_FILE`|same|||
 |file sent|`ESTABLISHED`|`ESTABLISHED`|||
 |body starts|`BODY`|`BODY`||`BODY`|
+|body complete|`DOING_TRANSACTION`|`ESTABLISHED`|||
 |user finished before the body|`DISCARD_BODY`||||
 |transaction completed|`TXN_COMPLETED`|(stream closes)|`IDLING`, or `H1C_ISSUE_HANDSHAKE2` with a pipelined next||
 |writable after completion, tx drained|`HEADERS`||||
