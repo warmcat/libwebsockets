@@ -47,6 +47,46 @@
  * closed the wsi when we return -1.
  */
 
+/*
+ * The request has its answer, and the answer is going: a file being served
+ * (its reads maybe on a worker), or an answer queued behind a transaction
+ * already completed.  An h1 connection's rx policy holds rx meanwhile, but
+ * an h2 or h3 stream's DATA is fed to us as it comes: it is the request's
+ * body, nothing to anyone now, and is discarded as it arrives.
+ */
+static int
+lws_h1_answer_going(struct lws *wsi)
+{
+	switch (lwsi_state(wsi)) {
+	case LRS_TXN_COMPLETING:
+	case LRS_ISSUING_FILE:
+	case LRS_AWAITING_FILE_READ:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+/*
+ * The body's own timeout: renewed as it arrives, and cleared once it is all
+ * here.  But not while the answer is already going: the response's watchdog,
+ * armed when its headers went, is what bounds the stream then, and body the
+ * peer is still sending must neither replace it nor, completing, clear it and
+ * leave an answer the peer never takes waiting for ever.
+ */
+static void
+lws_h1_body_timeout(struct lws *wsi, int arm)
+{
+	if (lws_h1_answer_going(wsi))
+		return;
+
+	if (arm)
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+				(int)wsi->a.context->timeout_secs);
+	else
+		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+}
+
 int
 lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len,
 	    int caller_closes)
@@ -61,7 +101,14 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len,
 	switch (lwsi_state(wsi)) {
 
 	case LRS_ISSUING_FILE:
-		return 0;
+	case LRS_AWAITING_FILE_READ:
+		/*
+		 * h1 reads nothing until the file has gone: what it reads
+		 * then is the next request's
+		 */
+		if (!wsi->mux_substream)
+			return 0;
+		goto http_postbody;
 
 	case LRS_ESTABLISHED:
 
@@ -161,12 +208,7 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len,
 
 	case LRS_DISCARD_BODY:
 	case LRS_BODY:
-	/*
-	 * An h1 connection's rx policy holds rx while its completion waits
-	 * for queued output, but an h2 or h3 stream's DATA is fed to us as
-	 * it comes: the transaction is complete, so the body is discarded
-	 */
-	case LRS_TXN_COMPLETING:
+	case LRS_TXN_COMPLETING: /* see lws_h1_answer_going() */
 http_postbody:
 		lwsl_info("%s: http post body: cl set %d, remain %d, len %d\n", __func__,
 			    (int)wsi->http.content_length_given,
@@ -210,9 +252,7 @@ http_postbody:
 				}
 				if (!len) {
 					/* need more bytes to reach payload */
-					lws_set_timeout(wsi,
-						PENDING_TIMEOUT_HTTP_CONTENT,
-						(int)wsi->a.context->timeout_secs);
+					lws_h1_body_timeout(wsi, 1);
 					break;
 				}
 				body_chunk_len = len;
@@ -281,7 +321,7 @@ http_postbody:
 			} else {
 #endif
 				if (lwsi_state(wsi) != LRS_DISCARD_BODY &&
-				    lwsi_state(wsi) != LRS_TXN_COMPLETING) {
+				    !lws_h1_answer_going(wsi)) {
 					lwsl_info("%s: HTTP_BODY %d\n", __func__, (int)body_chunk_len);
 					n = (unsigned int)wsi->a.protocol->callback(wsi,
 						LWS_CALLBACK_HTTP_BODY, wsi->user_space,
@@ -311,8 +351,7 @@ http_postbody:
 				if (!wsi->http.chunk_remaining)
 					wsi->http.chunk_parser = ELCP_POST_CR;
 
-				lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
-						(int)wsi->a.context->timeout_secs);
+				lws_h1_body_timeout(wsi, 1);
 
 				if ((lws_filepos_t)n != body_chunk_len)
 					break;
@@ -347,9 +386,7 @@ http_postbody:
 				if (!wsi->h2.END_STREAM ||
 				    (lws_filepos_t)n != body_chunk_len) {
 					lwsl_info("%s: h2, no cl, not END_STREAM, continuing\n", __func__);
-					lws_set_timeout(wsi,
-						PENDING_TIMEOUT_HTTP_CONTENT,
-						(int)wsi->a.context->timeout_secs);
+					lws_h1_body_timeout(wsi, 1);
 					break;
 				}
 				goto postbody_completion;
@@ -357,9 +394,7 @@ http_postbody:
 #endif
 
 			if (wsi->http.rx_content_remain)  {
-				lws_set_timeout(wsi,
-						PENDING_TIMEOUT_HTTP_CONTENT,
-						(int)wsi->a.context->timeout_secs);
+				lws_h1_body_timeout(wsi, 1);
 				break;
 			}
 			/* he sent all the content in time */
@@ -381,7 +416,7 @@ postbody_completion:
 					lws_cgi_stdin_body_end(wsi);
 			} else
 #endif
-				lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+				lws_h1_body_timeout(wsi, 0);
 #ifdef LWS_WITH_CGI
 			if (!wsi->http.cgi)
 #endif
@@ -411,10 +446,11 @@ postbody_completion:
 					break;
 				}
 				/*
-				 * the transaction was completed already, and
-				 * completes when its queued output has gone
+				 * the request was answered already: the body
+				 * that came meanwhile was nobody's, and has no
+				 * completion either
 				 */
-				if (lwsi_state(wsi) == LRS_TXN_COMPLETING)
+				if (lws_h1_answer_going(wsi))
 					break;
 #endif
 				lwsl_info("HTTP_BODY_COMPLETION: %s (%s)\n",

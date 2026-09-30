@@ -1154,16 +1154,18 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		 */
 		return 2;
 
-	if (lwsi_state(wsi) == LRS_TXN_COMPLETING) {
+	if (lwsi_state(wsi) == LRS_TXN_COMPLETING ||
+	    lwsi_state(wsi) == LRS_ISSUING_FILE) {
 		size_t sl;
 
 		/*
-		 * The dispatch answered the request and completed it, but its
-		 * answer is still queued: the stream ends once that has gone
-		 * (the walk of the children sees to it).  Until then the body
-		 * is nothing to anyone: what is stashed of it goes now, and
-		 * what is still to come is discarded as it arrives
-		 * (lws_read_h1()), so it is counted from here
+		 * The dispatch answered the request: it completed it with its
+		 * answer still queued, and the stream ends once that has gone
+		 * (the walk of the children sees to it), or it is serving a
+		 * file as the answer.  Either way the body is nothing to
+		 * anyone: what is stashed of it goes now, and what is still to
+		 * come is discarded as it arrives (lws_read_h1()), so it is
+		 * counted from here
 		 */
 		wsi->http.rx_content_remain = wsi->http.content_length_given ?
 				wsi->http.rx_content_length :

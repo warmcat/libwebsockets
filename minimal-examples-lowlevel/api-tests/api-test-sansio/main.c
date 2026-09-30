@@ -45,7 +45,10 @@
  * Then transactions completed while their answer is still queued, the
  * transport taking only a few bytes a write: an h2 POST the app answers and
  * completes at once has the rest of its body discarded as it comes, and its
- * stream ended once the answer has gone.
+ * stream ended once the answer has gone; and one the app answers with a
+ * file likewise, the file all going.  Last, since it moves the time on, a
+ * file stalled on the stream's window is still closed by the response's
+ * watchdog, though the body arrived and completed meanwhile.
  *
  * And a request the mount redirects before any app sees it, likewise only
  * partly written: the transaction completes when it has gone, answered in
@@ -637,6 +640,8 @@ struct pss_uri {
 static int uri_late_writeable, uri_closed;
 /* a transport that is to take only a little of the /early response */
 static struct transport *early_tp;
+/* what /file answers with, relative to where ctest runs us */
+#define EARLY_FILE "transcripts/README.md"
 
 static int
 callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
@@ -670,6 +675,20 @@ callback_uri(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				return -1;
 			return 0;
 		}
+#if defined(LWS_WITH_FILE_OPS)
+		if (in && !strcmp((const char *)in, "/file")) {
+			/* a file is the answer, before any body */
+			if (early_tp)
+				early_tp->tx_budget = 4;
+			pss->completed = 1;
+			n = lws_serve_http_file(wsi, EARLY_FILE, "text/plain",
+						NULL, 0);
+			if (n < 0 ||
+			    (n > 0 && lws_http_transaction_completed(wsi)))
+				return -1;
+			return 0;
+		}
+#endif
 		n = lws_hdr_copy(wsi, pss->body, (int)sizeof(pss->body) - 1,
 				 WSI_TOKEN_GET_URI);
 		if (n < 0)
@@ -1794,9 +1813,13 @@ h2_ws_peer_close_half(struct lws_context *cx, struct lws_vhost *vh)
  * the stream completes and ends, without the app being given a writeable
  * for a transaction it had completed.  What the transport takes and when
  * is not part of a transcript, so this case has none.
+ *
+ * The same when the app answers the POST by serving a file: the body that
+ * arrives while the file is going is discarded, and the file all goes.
  */
 static int
-h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh)
+h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh,
+		     const char *path)
 {
 	static const char preface[] =
 		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
@@ -1805,10 +1828,10 @@ h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh)
 	/* DATA, sid 1, END_STREAM: the 3 byte body */
 	static const char data[] = "\x00\x00\x03\x00\x01\x00\x00\x00\x01"
 				   "abc";
-	static uint8_t blk[128], fr[256], out[1024];
+	static uint8_t blk[128], fr[256], out[32768];
 	static struct transport tp;
-	int sv[2], ended = 0, rst = 0;
-	size_t n, o, outl;
+	int sv[2], ended = 0, rst = 0, m;
+	size_t n, o, outl, body = 0, want = 3; /* "ok\n" */
 	struct lws *wsi;
 	uint8_t *p;
 
@@ -1827,14 +1850,25 @@ h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh)
 	lws_set_transport(wsi, &tops, &tp);
 	uri_late_writeable = uri_closed = 0;
 
+	if (!strcmp(path, "/file")) {
+		/* the answer is all of the file */
+		m = open(EARLY_FILE, O_RDONLY);
+		if (m < 0) {
+			lwsl_err("case 20: no %s\n", EARLY_FILE);
+			return 1;
+		}
+		want = (size_t)lseek(m, 0, SEEK_END);
+		close(m);
+	}
+
 	feed(cx, &tp, preface, sizeof(preface) - 1);
 
-	/* POST /early, content-length 3, the body to follow */
+	/* POST to path, content-length 3, the body to follow */
 	p = blk;
 	*p++ = 0x83; /* :method POST */
 	*p++ = 0x86; /* :scheme http */
 	p = hp_int(p, 0x00, 4, 4); /* :path, not indexed */
-	p = hp_str(p, "/early", 6, 0);
+	p = hp_str(p, path, strlen(path), 0);
 	p = hp_int(p, 0x00, 4, 1); /* :authority, not indexed */
 	p = hp_str(p, "sansio-h2", 9, 0);
 	p = hp_int(p, 0x00, 4, 28); /* content-length, not indexed */
@@ -1851,21 +1885,25 @@ h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh)
 	memcpy(out, tp.tx, outl);
 	feed(cx, &tp, data, sizeof(data) - 1);
 	if (tp.closed || tp.shutdown) {
-		lwsl_err("case 20: connection ended\n");
+		lwsl_err("case 20: %s: connection ended\n", path);
 		return 1;
 	}
 
-	/* the transport takes everything again */
+	/* the transport takes everything again, until nothing more goes */
 	tp.tx_budget = -1;
-	tp.tx_len = 0;
-	tick(cx);
-	pump(cx, &tp);
-	if (outl + tp.tx_len > sizeof(out)) {
-		lwsl_err("case 20: too much output\n");
-		return 1;
+	for (m = 0; m < 16; m++) {
+		tp.tx_len = 0;
+		tick(cx);
+		pump(cx, &tp);
+		if (!tp.tx_len)
+			break;
+		if (outl + tp.tx_len > sizeof(out)) {
+			lwsl_err("case 20: %s: too much output\n", path);
+			return 1;
+		}
+		memcpy(out + outl, tp.tx, tp.tx_len);
+		outl += tp.tx_len;
 	}
-	memcpy(out + outl, tp.tx, tp.tx_len);
-	outl += tp.tx_len;
 
 	/* frames: the response ends sid 1, which is not reset */
 	for (o = 0; o + 9 <= outl; o += 9 + n) {
@@ -1875,22 +1913,114 @@ h2_early_answer_half(struct lws_context *cx, struct lws_vhost *vh)
 			continue;
 		if (out[o + 3] == 3)
 			rst = 1;
-		if (!out[o + 3] && (out[o + 4] & 1))
-			ended = 1;
+		if (!out[o + 3]) {
+			body += n;
+			if (out[o + 4] & 1)
+				ended = 1;
+		}
 	}
 	if (rst || !ended || uri_closed != 1 || uri_late_writeable ||
-	    tp.closed || tp.shutdown) {
-		lwsl_err("case 20: rst %d, ended %d, closed %d, late wr %d, "
-			 "rx %d / %d, want read %d\n", rst, ended, uri_closed,
-			 uri_late_writeable, (int)tp.rx_pos, (int)tp.rx_len,
-			 tp.want_read);
+	    tp.closed || tp.shutdown ||
+	    body != want) {
+		lwsl_err("case 20: %s: rst %d, ended %d, closed %d, late wr %d, "
+			 "body %d / %d, rx %d / %d, want read %d\n", path, rst,
+			 ended, uri_closed, uri_late_writeable, (int)body,
+			 (int)want,
+			 (int)tp.rx_pos, (int)tp.rx_len, tp.want_read);
 		lwsl_hexdump_err(out, outl);
 		return 1;
 	}
-	lwsl_user("case 20: h2 completion waits for queued output: PASS\n");
+	lwsl_user("case 20: %s: h2 answer goes whole, the body meanwhile "
+		  "discarded: PASS\n", path);
 
 	return 0;
 }
+
+#if defined(LWS_WITH_FILE_OPS)
+/*
+ * 24: an h2 POST the app answers with a file, where the peer gave the
+ * stream a window of only 100 bytes and never opens it further, while it
+ * sends the request's body and keeps the connection alive with PINGs.  The
+ * body, discarded as it comes, completing does not take the response's
+ * watchdog with it: that closes the stream once it expires, and the
+ * connection goes on.  It moves the time on past the watchdog, so it goes
+ * last, and it has no transcript.
+ */
+static int
+h2_file_stalled_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char preface[] =
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+		/* SETTINGS: INITIAL_WINDOW_SIZE 100, then the server's ack */
+		"\x00\x00\x06\x04\x00\x00\x00\x00\x00"
+		"\x00\x04\x00\x00\x00\x64"
+		"\x00\x00\x00\x04\x01\x00\x00\x00\x00";
+	/* DATA, sid 1, END_STREAM: the 3 byte body */
+	static const char data[] = "\x00\x00\x03\x00\x01\x00\x00\x00\x01"
+				   "abc";
+	static const char ping[] = "\x00\x00\x08\x06\x00\x00\x00\x00\x00"
+				   "12345678";
+	static uint8_t blk[128], fr[256];
+	static struct transport tp;
+	struct lws *wsi;
+	uint8_t *p;
+	int sv[2], s;
+	size_t n;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+	uri_late_writeable = uri_closed = 0;
+
+	feed(cx, &tp, preface, sizeof(preface) - 1);
+
+	/* POST /file, content-length 3, the body to follow */
+	p = blk;
+	*p++ = 0x83; /* :method POST */
+	*p++ = 0x86; /* :scheme http */
+	p = hp_int(p, 0x00, 4, 4); /* :path, not indexed */
+	p = hp_str(p, "/file", 5, 0);
+	p = hp_int(p, 0x00, 4, 1); /* :authority, not indexed */
+	p = hp_str(p, "sansio-h2", 9, 0);
+	p = hp_int(p, 0x00, 4, 28); /* content-length, not indexed */
+	p = hp_str(p, "3", 1, 0);
+	n = h2_headers(fr, 1, blk, p);
+	fr[4] = 0x04; /* END_HEADERS alone: the body follows */
+	feed(cx, &tp, fr, n);
+
+	/* the first 100 bytes of the file went; the body comes */
+	feed(cx, &tp, data, sizeof(data) - 1);
+
+	/* a PING every 4s keeps the connection from being idle */
+	for (s = 4; s <= 32; s += 4) {
+		at(cx, 4200 + s * 1000);
+		feed(cx, &tp, ping, sizeof(ping) - 1);
+		if (tp.closed || tp.shutdown) {
+			lwsl_err("case 24: connection ended at %ds\n", s);
+			return 1;
+		}
+	}
+
+	if (uri_closed != 1) {
+		lwsl_err("case 24: the stalled stream was not closed\n");
+		return 1;
+	}
+	lwsl_user("case 24: a file stalled on its window, the body complete, "
+		  "is closed by the response watchdog: PASS\n");
+
+	return 0;
+}
+#endif
 #endif
 
 static int timer_fired;
@@ -2582,8 +2712,12 @@ main(int argc, const char **argv)
 	at(cx, 3500);
 	if (h2_oversized_half(cx, vh_h2))
 		goto bail;
-	if (h2_early_answer_half(cx, vh_h2))
+	if (h2_early_answer_half(cx, vh_h2, "/early"))
 		goto bail;
+#if defined(LWS_WITH_FILE_OPS)
+	if (h2_early_answer_half(cx, vh_h2, "/file"))
+		goto bail;
+#endif
 #endif
 
 #if defined(LWS_WITH_CLIENT)
@@ -2667,6 +2801,13 @@ main(int argc, const char **argv)
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 	at(cx, 4100);
 	if (h1_connect_rejected_ua_half(cx, vh_uri))
+		goto bail;
+#endif
+
+#if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_FILE_OPS)
+	/* last, since it moves the time on past the response watchdog */
+	at(cx, 4200);
+	if (h2_file_stalled_half(cx, vh_h2))
 		goto bail;
 #endif
 
