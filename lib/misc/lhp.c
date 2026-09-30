@@ -5034,8 +5034,24 @@ elem_start:
 				/* decode percent-encoding in the URL */
 				{
 					char temp[LHP_URL_LEN];
+					const char *q;
+
 					lws_strncpy(temp, url, sizeof(temp));
 					lws_urldecode(url, temp, sizeof(url) - 1);
+
+					/*
+					 * ... which the page may have used to
+					 * put CR / LF or other controls in the
+					 * url we will put on the wire, in the
+					 * request line to whatever host it
+					 * names: no asset for it then
+					 */
+					for (q = url; *q; q++)
+						if ((unsigned char)*q < 0x20 ||
+						    *q == 0x7f)
+							break;
+					if (*q)
+						goto issue_elem_start;
 				}
 
 				/*
