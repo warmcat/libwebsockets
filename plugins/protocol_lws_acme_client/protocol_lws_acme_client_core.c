@@ -514,7 +514,14 @@ lws_acme_client_connect(struct lws_context *context, struct lws_vhost *vh,
 
 	i->context = context;
 	i->vhost = vh;
-	i->ssl_connection = LCCSCF_USE_SSL;
+	/*
+	 * The host check above is only applied to URLs we connect to
+	 * ourselves.  If lws followed a 3xx for us, it would go to whatever
+	 * host the Location names and the handshake would rebuild and send
+	 * our signed JWS (contact, order identifiers, CSR) there.  RFC 8555
+	 * has no step that redirects, so a 3xx is just a failed step
+	 */
+	i->ssl_connection = LCCSCF_USE_SSL | LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
 	i->host = i->address;
 	i->origin = i->address;
 	i->method = method;
@@ -543,6 +550,23 @@ lws_acme_client_connect(struct lws_context *context, struct lws_vhost *vh,
 	return wsi;
 }
 
+/*
+ * The private key for the cert we are asking for: scrub it before letting it
+ * go, whether the attempt is over or we are about to make another
+ */
+
+static void
+acme_privkey_discard(struct acme_connection *ac)
+{
+	if (!ac->alloc_privkey_pem)
+		return;
+
+	lws_explicit_bzero(ac->alloc_privkey_pem, ac->len_privkey_pem);
+	free(ac->alloc_privkey_pem);
+	ac->alloc_privkey_pem = NULL;
+	ac->len_privkey_pem = 0;
+}
+
 static void
 lws_acme_finished(struct per_vhost_data__lws_acme_client *vhd)
 {
@@ -563,8 +587,7 @@ lws_acme_finished(struct per_vhost_data__lws_acme_client *vhd)
 
 		if (vhd->ac->vhost)
 			lws_vhost_destroy(vhd->ac->vhost);
-		if (vhd->ac->alloc_privkey_pem)
-			free(vhd->ac->alloc_privkey_pem);
+		acme_privkey_discard(vhd->ac);
 		free(vhd->ac);
 	}
 
@@ -1407,6 +1430,14 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 		ac->resp = (int)lws_http_client_http_response(wsi);
         lwsl_vhost_notice(vhd->vhost, "ACME Received Response: [wsi=%p] HTTP %d (State %d)", wsi, ac->resp, ac->state);
 
+		/* we never follow a redirect, see lws_acme_client_connect() */
+		if (ac->resp >= 300 && ac->resp < 400) {
+			lwsl_vhost_warn(vhd->vhost, "acme: %s: HTTP %d redirect "
+					"refused", acme_state_name(ac->state),
+					ac->resp);
+			goto failed;
+		}
+
 		/* we get a new nonce each time */
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_REPLAY_NONCE) &&
 				lws_hdr_copy(wsi, ac->replay_nonce,
@@ -1610,6 +1641,8 @@ pkt_add_hdrs:
 				goto pkt_add_hdrs;
 			}
 			lwsl_vhost_notice(vhd->vhost, "Generating ACME CSR... may take a little while");
+			/* the CSR creator allocates a new key unconditionally */
+			acme_privkey_discard(ac);
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"csr\":\"");
 			n = lws_tls_acme_sni_csr_create_ecdsa(vhd->context,
 					&vhd->active_cert->pvop[0],
