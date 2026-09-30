@@ -736,6 +736,22 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 
 	/*
+	 * ... and a ceiling.  Each pt takes 2 x pt_serv_buf_size after the
+	 * context, and the carve-up below steps through it in the unsigned
+	 * int context->pt_serv_buf_size: from 2GiB that wraps and puts the
+	 * pt fake wsi and evlib part inside serv_buf, where network reads
+	 * land, and on 32-bit the allocation size wraps first.  Nothing uses
+	 * serv_buf in chunks anywhere near this size.
+	 */
+
+	if (s1 > LWS_PT_SERV_BUF_SIZE_MAX) {
+		lwsl_err("%s: pt_serv_buf_size %u too large, using %u\n",
+			 __func__, (unsigned int)s1,
+			 (unsigned int)LWS_PT_SERV_BUF_SIZE_MAX);
+		s1 = LWS_PT_SERV_BUF_SIZE_MAX;
+	}
+
+	/*
 	 * pt fakewsi and the pt serv buf allocations ride after the context.
 	 * Each pt gets two pt_serv_buf_size halves: serv_buf for IO's reads and
 	 * the tx pulls, compose_buf above it for the composers, which may be
@@ -1603,7 +1619,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	for (n = 0; n < context->count_threads; n++) {
 		context->pt[n].serv_buf = u;
 		context->pt[n].compose_buf = u + context->pt_serv_buf_size;
-		u += 2 * context->pt_serv_buf_size;
+		u += 2 * (size_t)context->pt_serv_buf_size;
 #if defined(LWS_WITH_SERVBUF_CHECK)
 		/* one region over both halves: an overrun of either is seen */
 		lws_region_init(&context->pt[n].servbuf_region, "serv_buf",

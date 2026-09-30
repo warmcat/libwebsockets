@@ -351,6 +351,12 @@ typedef int (*lws_peer_limits_notify_t)(struct lws_context *ctx,
 typedef uint64_t (*lws_quic_tx_credit_cb_t)(struct lws *wsi, uint64_t current_window,
                                             uint64_t consumed_bytes, uint64_t time_since_last_update_us);
 
+/*
+ * Largest info->pt_serv_buf_size lws accepts, bigger requests are clamped to
+ * it.  Each service thread takes twice this after the context allocation.
+ */
+#define LWS_PT_SERV_BUF_SIZE_MAX (16u * 1024u * 1024u)
+
 /** struct lws_context_creation_info - parameters to create context and /or vhost with
  *
  * This is also used to create vhosts.... if LWS_SERVER_OPTION_EXPLICIT_VHOSTS
@@ -820,7 +826,9 @@ struct lws_context_creation_info {
 	 * various service related features including file serving, it
 	 * defines the max chunk of file that can be sent at once.
 	 * At the risk of lws having to buffer failed large sends, it
-	 * can be increased to, eg, 128KiB to improve throughput. */
+	 * can be increased to, eg, 128KiB to improve throughput.  Values
+	 * below LWS_PRE + 1024 or above LWS_PT_SERV_BUF_SIZE_MAX (16MiB)
+	 * are clamped to those limits. */
 #if defined(LWS_WITH_FILE_OPS)
 	const struct lws_plat_file_ops *fops;
 	/**< CONTEXT: NULL, or pointer to an array of fops structs, terminated
