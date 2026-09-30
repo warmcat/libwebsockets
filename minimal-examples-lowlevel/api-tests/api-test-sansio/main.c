@@ -78,6 +78,10 @@
  * POLLHUP, the way BSD and OSX report it: it ends at once, or when the grace
  * is up if it still holds rx.
  *
+ * And an h1 client whose server answers while its request body is still
+ * going: it reads nothing until the body has gone, and does not ask to hear
+ * of what it is not reading meanwhile, then it reads the answer.
+ *
  * Then whether the transport would take a write: a connection on the test's
  * transport is asked of the transport, never of the fd that is its place in
  * the poll set, even when that fd could not take a byte.
@@ -558,7 +562,8 @@ pump(struct lws_context *cx, struct transport *t)
 	for (n = 0; n < 64; n++) {
 		struct lws_pollfd pfd;
 		size_t rpos = t->rx_pos, tlen = t->tx_len;
-		int held = !lws_service_adjust_timeout(cx, 1, 0);
+		int held = !lws_service_adjust_timeout(cx, 1, 0),
+		    reading = t->want_read;
 		int in = t->want_read &&
 			 (t->rx_pos < t->rx_len || held || t->fin || t->reset),
 		    /* can take some, and never reported with a bare hangup */
@@ -592,8 +597,13 @@ pump(struct lws_context *cx, struct transport *t)
 		if (lws_service_fd(cx, &pfd) && t->closed)
 			return;
 
-		/* the pass changed nothing we can see: it is waiting on us */
+		/*
+		 * the pass changed nothing we can see (asking to read again is
+		 * a change: a real poll() reports what is waiting next time):
+		 * it is waiting on us
+		 */
 		if (t->rx_pos == rpos && t->tx_len == tlen && !t->want_write &&
+		    t->want_read == reading &&
 		    held == !lws_service_adjust_timeout(cx, 1, 0))
 			return;
 	}
@@ -856,6 +866,9 @@ static struct {
 	int		error;
 } cli;
 
+/* a POST body of this many 16-byte pieces, which go while post_go is set */
+static int post_pieces, post_go;
+
 static int
 callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 		void *user, void *in, size_t len)
@@ -896,6 +909,37 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		cli.completed = 1;
+		break;
+
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+		/* a POST: say how much body, and that it follows */
+		if (post_pieces) {
+			unsigned char **pp = (unsigned char **)in, *end = *pp + len;
+			char cl[16];
+
+			lenx = lws_snprintf(cl, sizeof(cl), "%d",
+					    post_pieces * 16);
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_CONTENT_LENGTH,
+					(unsigned char *)cl, lenx, pp, end))
+				return -1;
+			lws_client_http_body_pending(wsi, 1);
+			lws_callback_on_writable(wsi);
+		}
+		break;
+
+	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+		/* a piece of the body a turn, while the test lets it go */
+		if (!post_pieces || !post_go)
+			break;
+		memset(buf + LWS_PRE, 'b', 16);
+		if (lws_write(wsi, buf + LWS_PRE, 16, --post_pieces ?
+			      LWS_WRITE_HTTP : LWS_WRITE_HTTP_FINAL) != 16)
+			return -1;
+		if (post_pieces)
+			lws_callback_on_writable(wsi);
+		else
+			lws_client_http_body_pending(wsi, 0);
 		break;
 
 	/* ws */
@@ -2757,6 +2801,69 @@ client_half(struct lws_context *cx, struct lws_vhost *vh)
 }
 
 /*
+ * 30: an h1 client POST whose body goes a piece at a time, and a server that
+ * answers before any of it has arrived.  The client reads nothing until its
+ * body has gone, so it must not ask to hear of what it is not reading
+ * meanwhile: a real poll() would report the answer on every call, a busy
+ * loop for as long as the body takes.  Once the body has gone, the answer
+ * is read, without anything else waking the connection.
+ */
+static int
+h1_client_early_answer_half(struct lws_context *cx, struct lws_vhost *vh)
+{
+	static const char resp[] =
+		"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
+		"Content-Length: 10\r\n\r\nsansio ok\n";
+	static struct transport tp;
+	struct lws *wsi;
+
+	post_pieces = 4;
+	post_go = 0;
+	wsi = client_connect(cx, vh, &tp, "/up", "POST", NULL);
+	if (!wsi) {
+		lwsl_err("case 30: connect failed\n");
+		return 1;
+	}
+	pump(cx, &tp);
+	if (tp.tx_len < 20 || memcmp(tp.tx, "POST /up HTTP/1.1\r\n", 19) ||
+	    !find_bytes(tp.tx, tp.tx_len, "\r\ncontent-length: 64\r\n") ||
+	    memcmp(tp.tx + tp.tx_len - 4, "\r\n\r\n", 4)) {
+		lwsl_err("case 30: bad request head\n");
+		lwsl_hexdump_err(tp.tx, tp.tx_len);
+		return 1;
+	}
+
+	/* the server answers before any of the body */
+	feed(cx, &tp, resp, sizeof(resp) - 1);
+	if (tp.closed || tp.rx_pos || tp.want_read || cli.completed) {
+		lwsl_err("case 30: closed %d, read %d, reading asked %d, "
+			 "completed %d\n", tp.closed, (int)tp.rx_pos,
+			 tp.want_read, cli.completed);
+		return 1;
+	}
+
+	/* the body goes, and then the answer is read */
+	post_go = 1;
+	tp.tx_len = 0;
+	lws_callback_on_writable(wsi);
+	tick(cx);
+	pump(cx, &tp);
+	post_pieces = post_go = 0;
+	if (tp.tx_len != 64 || tp.rx_pos != tp.rx_len || cli.error ||
+	    !cli.completed || cli.rx_len != 10 ||
+	    memcmp(cli.rx, "sansio ok\n", 10)) {
+		lwsl_err("case 30: body %d, read %d / %d, completed %d, rx %d\n",
+			 (int)tp.tx_len, (int)tp.rx_pos, (int)tp.rx_len,
+			 cli.completed, (int)cli.rx_len);
+		return 1;
+	}
+	lwsl_user("case 30: an h1 client answered early reads the answer once "
+		  "its body has gone, not before: PASS\n");
+
+	return 0;
+}
+
+/*
  * A ws connection the server sends a frame it must not take: the client
  * fails the connection, with a masked close and nothing of the bad frame
  * given to the app (what came before it, rx, is), and lets it go once the
@@ -3276,6 +3383,12 @@ main(int argc, const char **argv)
 #if defined(LWS_WITH_FILE_OPS)
 	at(cx, 4160);
 	if (h1_reset_behind_file_half(cx, vh_uri))
+		goto bail;
+#endif
+
+#if defined(LWS_WITH_CLIENT)
+	at(cx, 4170);
+	if (h1_client_early_answer_half(cx, vh))
 		goto bail;
 #endif
 

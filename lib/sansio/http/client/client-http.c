@@ -28,6 +28,18 @@ void
 lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
 {
 	wsi->client_http_body_pending = !!something_left_to_send;
+
+#if defined(LWS_ROLE_H1)
+	/*
+	 * An h1 client reads nothing while it sends its body (its rx policy),
+	 * so the end of the body, which only a service pass acts on, cannot
+	 * wait for the response to arrive to be noticed: a pass comes now
+	 */
+	if (!something_left_to_send && !wsi->mux_substream &&
+	    lwsi_role_client(wsi) && lwsi_role_h1(wsi) &&
+	    lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY)
+		lws_callback_on_writable(wsi);
+#endif
 }
 
 #if defined(LWS_WITH_HTTP_PROXY)
@@ -254,9 +266,11 @@ fail:
 
 /*
  * Our request headers went out (or the body that followed them): the
- * response is awaited.
+ * response is awaited, and read, which the rx policy held off until now
+ * (unless the app holds rx off itself).  Returns nonzero if the wsi must be
+ * closed.
  */
-void
+int
 lws_h1_client_request_sent(struct lws *wsi)
 {
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
@@ -270,6 +284,8 @@ lws_h1_client_request_sent(struct lws *wsi)
 		lws_wsi_event(wsi, LWS_WSIEV_REQ_BODY_SENT);
 	lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 			(int)wsi->a.context->timeout_secs);
+
+	return lws_io_read_after_drain(wsi);
 }
 
 /*
@@ -334,9 +350,7 @@ lws_h1_client_issue_handshake(struct lws *wsi)
 
 	lws_callback_on_writable(wsi);
 
-	lws_h1_client_request_sent(wsi);
-
-	return 0;
+	return lws_h1_client_request_sent(wsi) ? -1 : 0;
 }
 
 /*
@@ -367,11 +381,11 @@ lws_h1_client_transport_up(struct lws *wsi, const lws_sockaddr46 *peer)
  * the writeable and after the pass's reading, since the app clears the
  * pending flag from either.
  */
-void
+int
 lws_h1_client_body_done_check(struct lws *wsi)
 {
 	if (lwsi_state(wsi) != LRS_ISSUE_HTTP_BODY)
-		return;
+		return 0;
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	if (lws_http_proxy_onward_body_ready(wsi))
@@ -379,9 +393,9 @@ lws_h1_client_body_done_check(struct lws *wsi)
 #endif
 	if (wsi->client_http_body_pending || lws_has_buffered_out(wsi))
 		/* user code must ask for writable callback */
-		return;
+		return 0;
 
-	lws_h1_client_request_sent(wsi);
+	return lws_h1_client_request_sent(wsi);
 }
 
 /*
@@ -398,7 +412,8 @@ lws_h1_client_rx_done(struct lws *wsi)
 	if (lws_is_flowcontrolled(wsi))
 		return LWS_HPI_RET_HANDLED;
 
-	lws_h1_client_body_done_check(wsi);
+	if (lws_h1_client_body_done_check(wsi))
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 	if (lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY) {
 		if (!wsi->stream.ah ||

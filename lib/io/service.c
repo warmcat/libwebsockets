@@ -304,9 +304,10 @@ bail_die:
  */
 
 /*
- * For a role's tx_drained, when its rx policy stopped its reading because a
- * partial send was pending (so nothing is generated behind it, and a
- * level-armed POLLIN does not spin): that has all gone, so it reads again.
+ * For a role whose rx policy stopped its reading while its tx was going, a
+ * partial send pending (its tx_drained) or an h1 client's request and body
+ * (so nothing is generated behind it, and a level-armed POLLIN does not
+ * spin): that has all gone, so it reads again.
  * It asks through the io_ops, as the hold did, so an embedder behind them
  * hears it too.  Rx flow control, if the app has it on, keeps it off.
  */
@@ -322,6 +323,10 @@ lws_io_read_after_drain(struct lws *wsi)
 /*
  * Does this wsi's state park its rx until the phase in progress ends?
  *
+ * An h1 client sending its request (a queued one's turn on the connection)
+ * or its request body reads nothing until that has all gone, and then the
+ * response.
+ *
  * While it is holding the next request off until a clean POLLOUT, has a
  * deferred http action, is serving a file (synchronously or on a worker), is
  * in the middle of a callback-driven transaction, is waiting for an async
@@ -333,6 +338,8 @@ int
 lws_wsi_state_parks_rx(struct lws *wsi)
 {
 	switch (lwsi_state(wsi)) {
+	case LRS_H1C_ISSUE_HANDSHAKE2:
+	case LRS_ISSUE_HTTP_BODY:
 	case LRS_TXN_COMPLETED:
 	case LRS_TXN_COMPLETING:
 	case LRS_DEFERRING_ACTION:

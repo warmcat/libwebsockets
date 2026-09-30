@@ -723,13 +723,13 @@ lws_http_response_progress(struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 int
 lws_h1_client_issue_handshake(struct lws *wsi);
-void
+int
 lws_h1_client_request_sent(struct lws *wsi);
 lws_handling_result_t
 lws_h1_client_transport_up(struct lws *wsi, const lws_sockaddr46 *peer);
 lws_handling_result_t
 lws_h1_client_rx_done(struct lws *wsi);
-void
+int
 lws_h1_client_body_done_check(struct lws *wsi);
 #endif
 

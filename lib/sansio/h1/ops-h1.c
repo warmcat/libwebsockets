@@ -808,9 +808,24 @@ rops_rx_policy_h1(struct lws *wsi, int *flags, size_t *max)
 	*flags |= LWS_RXPOL_F_POLLOUT;
 
 	/* the body the app was writing may have all gone: then we await */
-	lws_h1_client_body_done_check(wsi);
+	if (lws_h1_client_body_done_check(wsi))
+		return LWS_RXPOL_CLOSE;
 
 	switch (lwsi_state(wsi)) {
+	case LRS_H1C_ISSUE_HANDSHAKE2:
+	case LRS_ISSUE_HTTP_BODY:
+		/*
+		 * Our request, or its body, is still going out.  Nothing reads
+		 * until it has all gone: lws_h1_client_request_sent() reads
+		 * again then.  A server that answers early must not leave
+		 * POLLIN armed meanwhile, level-triggered with nothing taking
+		 * what it reports, a spin until the body has gone.
+		 */
+		if (lws_io_want_read(wsi, 0))
+			return LWS_RXPOL_CLOSE;
+
+		return LWS_RXPOL_ROLE;
+
 #if defined(LWS_WITH_SOCKS5)
 	case LRS_WAITING_SOCKS_GREETING_REPLY:
 	case LRS_WAITING_SOCKS_AUTH_REPLY:
@@ -985,19 +1000,9 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 				return LWS_HP_RET_DROP_POLLOUT;
 
 			lwsl_wsi_info(wsi, "nothing to send");
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-			/* prepare ourselves to do the parsing */
-			wsi->stream.ah->parser_state = WSI_TOKEN_NAME_PART;
-			wsi->stream.ah->lextable_pos = 0;
-#if defined(LWS_WITH_CUSTOM_HEADERS)
-			wsi->stream.ah->unk_pos = 0;
-#endif
-			/* a 1xx interim rewinds to here */
-			lws_header_table_rx_snapshot(wsi);
-#endif
-			lws_wsi_event(wsi, LWS_WSIEV_REQ_BODY_SENT);
-			lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
-					(int)wsi->a.context->timeout_secs);
+			/* the response is awaited, and read */
+			if (lws_h1_client_request_sent(wsi))
+				return LWS_HP_RET_BAIL_DIE;
 
 			return LWS_HP_RET_DROP_POLLOUT;
 		}
@@ -1016,7 +1021,8 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 		}
 
 		/* the body the app was writing has all gone */
-		lws_h1_client_body_done_check(wsi);
+		if (lws_h1_client_body_done_check(wsi))
+			return LWS_HP_RET_BAIL_DIE;
 
 		return LWS_HP_RET_USER_SERVICE;
 	}
