@@ -293,6 +293,76 @@ split_bucket(struct lws_dht_ctx *ctx, struct bucket *b)
 }
 
 /*
+ * A node whose pings to its endpoint have all gone unanswered: its slot may
+ * go to somebody else.
+ */
+static int
+node_known_bad(struct lws_dht_ctx *ctx, const struct node *n)
+{
+	return n->pinged >= LWS_DHT_MAX_PING_FAILURES &&
+	       n->pinged_time < ctx->now - LWS_DHT_PING_TIMEOUT_SECS;
+}
+
+/*
+ * Something names a node we know, but from (or, with confirm 0, reported
+ * at) an endpoint other than the one we hold for it.
+ *
+ * Node ids are self-asserted and public (every reply carries the sender's,
+ * every nodes list carries a handful), so the claim proves nothing.
+ * Believing it let one datagram naming a live node's id point that node's
+ * entry, still good, at the sender: our searches, announces, maintenance
+ * and lws_dht_get_nodes() users then talked to him, and his replies passed
+ * the search reply binding, since they came from where we had sent.
+ *
+ * A node that really moved stops answering at its old endpoint, so the
+ * entry only moves once the old endpoint has failed our pings, the same
+ * known-bad state that already lets any other node take the slot.  Until
+ * then a direct claim just makes us ping the old endpoint (at most once per
+ * ping timeout), so a real move is noticed within a few timeouts.  The moved
+ * entry starts unconfirmed, like a new node: it is not good, and so not
+ * handed out or probed, until it answers a ping at the new endpoint, which
+ * we send it now.
+ */
+static struct node *
+node_endpoint_conflict(struct lws_dht_ctx *ctx, struct bucket *b,
+		       struct node *n, const struct sockaddr *sa, size_t salen,
+		       int confirm)
+{
+	uint8_t tid[4];
+
+	make_tid(tid, "pn", 0);
+
+	if (!node_known_bad(ctx, n)) {
+		if (confirm &&
+		    n->pinged_time < ctx->now - LWS_DHT_PING_TIMEOUT_SECS) {
+			lwsl_dht_info("%s: id claimed from a new endpoint, "
+				      "checking the old one\n", __func__);
+			send_ping(ctx, (struct sockaddr *)&n->ss, n->sslen,
+				  tid, sizeof(tid));
+			mark_as_pinged(ctx, n, b);
+		}
+
+		return NULL;
+	}
+
+	lwsl_dht_info("%s: old endpoint dead, moving node\n", __func__);
+
+	memcpy(&n->ss, sa, salen);
+	n->sslen	= salen;
+	n->time		= confirm ? ctx->now : 0;
+	n->reply_time	= 0;
+	n->pinged_time	= 0;
+	n->pinged	= 0;
+
+	if (confirm) {
+		send_ping(ctx, sa, salen, tid, sizeof(tid));
+		mark_as_pinged(ctx, n, b);
+	}
+
+	return n;
+}
+
+/*
  * We just learnt about a node, not necessarily a new one.  Confirm is 1 if
  * the node sent a message, 2 if it sent us a reply.
  */
@@ -329,29 +399,32 @@ maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 	mybucket = id_cmp(b->first, ctx->myid) <= 0 &&
 		   (nb == NULL || id_cmp(ctx->myid, nb->first) < 0);
 
-	if (confirm == 2)
-		b->time = ctx->now;
-
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&b->nodes)) {
 		n = lws_container_of(d, struct node, list);
 
 		if (!id_cmp(n->id, id)) {
-			if (confirm || n->time < ctx->now - LWS_DHT_NODE_MAX_IDLE_SECS) {
-				/* Known node.  Update stuff. */
-				memcpy((struct sockaddr*)&n->ss, sa, salen);
-				if (confirm)
-					n->time = ctx->now;
-				if (confirm >= 2) {
-					n->reply_time = ctx->now;
-					n->pinged = 0;
-					n->pinged_time = 0;
-				}
+			if (!dht_sa_same_peer((const struct sockaddr *)&n->ss,
+					      sa))
+				return node_endpoint_conflict(ctx, b, n, sa,
+							      salen, confirm);
+
+			/* Known node at its known endpoint.  Update stuff. */
+			if (confirm)
+				n->time = ctx->now;
+			if (confirm >= 2) {
+				b->time = ctx->now;
+				n->reply_time = ctx->now;
+				n->pinged = 0;
+				n->pinged_time = 0;
 			}
 			return n;
 		}
 	} lws_end_foreach_dll(d);
 
 	/* New node. */
+
+	if (confirm == 2)
+		b->time = ctx->now;
 
 	if (mybucket) {
 		if (sa->sa_family == AF_INET)
@@ -364,8 +437,7 @@ maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 	lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&b->nodes)) {
 		n = lws_container_of(d2, struct node, list);
 
-		if (n->pinged >= LWS_DHT_MAX_PING_FAILURES &&
-		    n->pinged_time < ctx->now - LWS_DHT_PING_TIMEOUT_SECS) {
+		if (node_known_bad(ctx, n)) {
 			lws_dht_hash_destroy(&n->id);
 			n->id = lws_dht_hash_dup(id);
 			if (!n->id) {

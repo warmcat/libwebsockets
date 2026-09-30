@@ -2,7 +2,7 @@
  * lws-api-test-dht-krpc
  *
  * Wire-level round-trip coverage for the DHT KRPC packet builders and
- * the bencode parser: two DHT contexts on separate vhosts in this one
+ * the bencode parser: DHT contexts on separate vhosts in this one
  * process exchange real datagrams over loopback UDP.
  *
  *  - a ping from A is answered by B's pong, so A's routing table gains B
@@ -22,8 +22,11 @@
  *  - once B is a good node for A, A probes it for A's external address:
  *    the probe's nonce survives the round trip, and in a two-node network
  *    the one other node is the quorum, so A learns 127.0.0.1:port-a from B
+ *  - a third context C that uses B's node id pings A from its own port once
+ *    B is good for A: A answers it, but B's entry keeps B's endpoint, so the
+ *    good node A hands out for that id is still B
  *
- * The two UDP ports are allocated uniquely at build time and passed in
+ * The three UDP ports are allocated uniquely at build time and passed in
  * on the command line, so parallel ctest instances do not collide.
  *
  * This file is made available under the Creative Commons CC0 1.0
@@ -40,11 +43,11 @@
 #define DEADLINE_US	(15 * LWS_US_PER_SEC)
 
 static struct lws_context *cx;
-static struct lws_vhost *vh_a, *vh_b;
-static struct lws_dht_ctx *dht_a, *dht_b;
+static struct lws_vhost *vh_a, *vh_b, *vh_c;
+static struct lws_dht_ctx *dht_a, *dht_b, *dht_c;
 static lws_sorted_usec_list_t sul_poll, sul_deadline;
 
-static struct sockaddr_in sa_a, sa_b;
+static struct sockaddr_in sa_a, sa_b, sa_c;
 
 static const char *data_msg = "PUT 0102030405 0 5 hello";
 static size_t data_msg_len;
@@ -65,6 +68,9 @@ struct seen {
 	unsigned char probed:1;		/* A asked B for its external address */
 	unsigned char extip_ok:1;	/* ...and learnt it */
 	unsigned char extip_bad:1;	/* ...or learnt something else */
+	unsigned char samid_sent:1;	/* C pinged A using B's id */
+	unsigned char samid_ok:1;	/* ...and A still has B at B */
+	unsigned char samid_bad:1;	/* ...or A moved B's entry */
 };
 
 static struct seen sv;
@@ -144,6 +150,43 @@ static int
 stats_of(struct lws_vhost *vh, struct lws_dht_stats *s)
 {
 	return lws_dht_get_stats(vh, s, NULL, NULL);
+}
+
+/*
+ * C shares B's node id but not its endpoint.  Once A has answered C's ping
+ * it has seen C's claim to that id; the one good node A knows must still be
+ * B at B's port.
+ */
+
+static void
+same_id_step(void)
+{
+	struct sockaddr_in sin[4];
+	struct sockaddr_in6 sin6[1];
+	struct lws_dht_stats sc;
+	int num = (int)LWS_ARRAY_SIZE(sin), num6 = 0;
+
+	if (!sv.extip_ok || sv.samid_ok || sv.samid_bad)
+		return;
+
+	if (!sv.samid_sent) {
+		sv.samid_sent = 1;
+		lws_dht_ping_node(dht_c, (struct sockaddr *)&sa_a,
+				  sizeof(sa_a));
+		return;
+	}
+
+	if (stats_of(vh_c, &sc) || !sc.rx_pong)
+		return;
+
+	lws_dht_get_nodes(dht_a, sin, &num, sin6, &num6);
+	if (num == 1 && sin[0].sin_port == sa_b.sin_port)
+		sv.samid_ok = 1;
+	else {
+		lwsl_err("%s: A's node for B's id moved (%d good)\n",
+			 __func__, num);
+		sv.samid_bad = 1;
+	}
 }
 
 static lws_dht_hash_t *
@@ -251,6 +294,7 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	}
 
 	subscription_step();
+	same_id_step();
 
 	/*
 	 * A only probes nodes it holds as good, and B becomes good by
@@ -271,11 +315,13 @@ poll_cb(lws_sorted_usec_list_t *sul)
 	 * Everything observable has been seen: B answered the ping, the
 	 * subscribe round trip produced a token, the notify was acked, the
 	 * data payload arrived verbatim, A's maintenance find_node probe
-	 * reached B, and B told A its external address.
+	 * reached B, B told A its external address, and C's use of B's id
+	 * did not move B's entry in A's table.
 	 */
 
 	if (sv.token_ok && sv.acked && sv.data_ok &&
 	    sv.extip_ok && !sv.extip_bad &&
+	    sv.samid_ok && !sv.samid_bad &&
 	    sa.tx_find_node && sb.rx_find_node &&
 	    sb.rx_ping && !sa.rx_drops && !sb.rx_drops) {
 		retcode = 0;
@@ -305,7 +351,7 @@ int main(int argc, const char **argv)
 	};
 	uint8_t ida[20], idb[20];
 	const char *p;
-	int port_a = 0, port_b = 0, n = 0;
+	int port_a = 0, port_b = 0, port_c = 0, n = 0;
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
@@ -314,10 +360,14 @@ int main(int argc, const char **argv)
 		port_a = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--port-b")))
 		port_b = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--port-c")))
+		port_c = atoi(p);
 
 	if (port_a < 1 || port_a > 65535 || port_b < 1 || port_b > 65535 ||
-	    port_a == port_b) {
-		lwsl_err("usage: --port-a <udp port> --port-b <udp port>\n");
+	    port_c < 1 || port_c > 65535 ||
+	    port_a == port_b || port_a == port_c || port_b == port_c) {
+		lwsl_err("usage: --port-a <udp port> --port-b <udp port> "
+			 "--port-c <udp port>\n");
 		return 1;
 	}
 
@@ -331,6 +381,8 @@ int main(int argc, const char **argv)
 
 	sa_b = sa_a;
 	sa_b.sin_port = htons((uint16_t)port_b);
+	sa_c = sa_a;
+	sa_c.sin_port = htons((uint16_t)port_c);
 
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = protocols;
@@ -345,7 +397,9 @@ int main(int argc, const char **argv)
 	vh_a = lws_create_vhost(cx, &info);
 	info.vhost_name = "dht-krpc-b";
 	vh_b = lws_create_vhost(cx, &info);
-	if (!vh_a || !vh_b) {
+	info.vhost_name = "dht-krpc-c";
+	vh_c = lws_create_vhost(cx, &info);
+	if (!vh_a || !vh_b || !vh_c) {
 		lwsl_err("vhost creation failed\n");
 		goto bail;
 	}
@@ -378,7 +432,21 @@ int main(int argc, const char **argv)
 		lws_dht_hash_destroy(&id);
 	}
 
-	if (!dht_a || !dht_b) {
+	/* C claims B's id from another endpoint */
+
+	di.vhost	= vh_c;
+	di.cb		= NULL;
+	di.name		= "krpc-c";
+	di.port		= port_c;
+	{
+		lws_dht_hash_t *id = lws_dht_hash_create(
+				LWS_DHT_HASH_TYPE_SHA1, 20, idb);
+		di.id = id;
+		dht_c = lws_dht_create(&di);
+		lws_dht_hash_destroy(&id);
+	}
+
+	if (!dht_a || !dht_b || !dht_c) {
 		lwsl_err("dht creation failed\n");
 		goto bail;
 	}
@@ -434,6 +502,11 @@ int main(int argc, const char **argv)
 			if (!sv.extip_ok || sv.extip_bad) {
 				lwsl_err("A did not learn its external address "
 					 "from B\n");
+				fails++;
+			}
+			if (!sv.samid_ok || sv.samid_bad) {
+				lwsl_err("C's use of B's id moved or hid B's "
+					 "entry in A\n");
 				fails++;
 			}
 		}

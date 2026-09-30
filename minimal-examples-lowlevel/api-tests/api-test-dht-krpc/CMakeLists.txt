@@ -30,11 +30,13 @@ if (requirements)
 		#
 		lws_get_free_port(PORT_DHT_KRPC_A)
 		lws_get_free_port(PORT_DHT_KRPC_B)
+		lws_get_free_port(PORT_DHT_KRPC_C)
 
 		add_test(NAME api-test-dht-krpc COMMAND
 			 $<TARGET_FILE:${SAMP}>
 			 --port-a ${PORT_DHT_KRPC_A}
-			 --port-b ${PORT_DHT_KRPC_B})
+			 --port-b ${PORT_DHT_KRPC_B}
+			 --port-c ${PORT_DHT_KRPC_C})
 		set_tests_properties(api-test-dht-krpc PROPERTIES
 			TIMEOUT 60
 			WORKING_DIRECTORY .
