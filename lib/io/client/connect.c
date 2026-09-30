@@ -378,6 +378,16 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 #endif
 
 	/*
+	 * The tls backends read and write the connection's fd themselves, so
+	 * over a transport their records would go to transport_fd, the poll
+	 * handle, past the transport's ops
+	 */
+	if (i->transport && (i->ssl_connection & LCCSCF_USE_SSL)) {
+		lwsl_wsi_err(wsi, "tls over a transport is not supported");
+		goto bail;
+	}
+
+	/*
 	 * PHASE 6: stash the things from connect_info that we can't process
 	 * right now, eg, if http binding, without an ah.  If h1 and no ah, we
 	 * will go on the ah waiting list and process those things later (after
