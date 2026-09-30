@@ -172,6 +172,12 @@ Based on the global `/etc/lwsws/policy` `dns_base_dir` usage (e.g. `/var/lib/lws
     └── example.com.ksk.private.jwk <-- (Generated automatically if missing)
 ```
 
+A domain created from the UI starts with an empty `example.com.zone`.  When
+the zone is empty, the editor fills in a starter zone to edit (an SOA, two
+nameservers, and example `@` records on the documentation addresses), but
+nothing is written, and so signed and published, until you save it.  Creating
+a domain that already exists leaves its zone and configuration alone.
+
 If you edit `example.com.zone`, the monitor will automatically detect the timestamp mismatch during its next periodic scan (every 5 minutes) and re-sign the zone, replacing the `.signed` and `.jws` outputs.
 
 ## Dynamic external addresses

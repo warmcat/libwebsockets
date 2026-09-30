@@ -1251,9 +1251,12 @@ handle_req_create_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_r
 		char buf[1024];
 		int fd, n;
 
-		/* Create minimal json */
+		/*
+		 * Create minimal json... but creating a domain that already
+		 * exists must not wipe out its config or zone
+		 */
 		lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d/%s.json", vhd->base_dir, a->domain, a->domain);
-		fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+		fd = open(d_path, O_CREAT | O_WRONLY | O_EXCL, 0600);
 		if (fd >= 0) {
 			n = lws_snprintf(buf, sizeof(buf), "{\n  \"common-name\": \"%s\"\n}\n", a->domain);
 			if (write(fd, buf, (size_t)n) < 0) {
@@ -1262,9 +1265,12 @@ handle_req_create_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_r
 			close(fd);
 		}
 
-		/* Touch empty zone */
+		/*
+		 * Touch empty zone: the UI offers a starter zone for it, but
+		 * nothing is signed and published until the user saves one
+		 */
 		lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s.zone", vhd->base_dir, a->domain, a->domain);
-		fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+		fd = open(d_path, O_CREAT | O_WRONLY | O_EXCL, 0600);
 		if (fd >= 0) close(fd);
 
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);

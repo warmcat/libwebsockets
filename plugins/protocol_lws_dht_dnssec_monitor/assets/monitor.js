@@ -526,9 +526,15 @@ function handleResponse(data) {
                 showPopup('Error: ' + (data.msg || 'Action failed'), true);
             }
             break;
-        case 'get_zone':
+        case 'get_zone': {
             console.log('[DEBUG] get_zone response received for zone length:', data.zone ? data.zone.length : 0);
-            currentZone = new ZoneFile(data.zone || '');
+            /*
+             * A new domain's zone is empty: offer a starter zone to edit.
+             * It is not saved, so not signed and published, until the
+             * user saves it
+             */
+            const isNewZone = !(data.zone || '').trim();
+            currentZone = new ZoneFile(isNewZone ? starterZone(currentDomain) : data.zone);
             console.log('[DEBUG] Parsed ZoneFile records:', currentZone.records.length);
             renderZoneTable();
             updateRawEditor();
@@ -536,8 +542,11 @@ function handleResponse(data) {
             // Sequence getting TLS after getting Zone to avoid UDS packet drops
             console.log('[DEBUG] Dispatching get_tls for domain:', currentDomain);
             sendReq({ req: 'get_tls', domain: currentDomain });
-            document.getElementById('btn-save-zonefile').disabled = true;
+            document.getElementById('btn-save-zonefile').disabled = !isNewZone;
+            if (isNewZone)
+                showToast('New zone: edit the example records, then save it');
             break;
+        }
         case 'update_zone':
             showToast('Zonefile updated successfully');
             document.getElementById('btn-save-zonefile').disabled = true;
@@ -1944,6 +1953,46 @@ function closeDetail() {
     document.getElementById('domain-panel').classList.remove('hidden-panel');
     document.getElementById('ip-inventory-panel')?.classList.remove('hidden-panel');
     document.getElementById('geo-panel')?.classList.remove('hidden-panel');
+}
+
+/*
+ * A minimal zone for a new domain, with example records for the apex and
+ * its nameservers on the documentation addresses, to be edited before it is
+ * first saved
+ */
+function starterZone(domain) {
+    const d = new Date();
+    const serial = String(d.getUTCFullYear()) +
+                   String(d.getUTCMonth() + 1).padStart(2, '0') +
+                   String(d.getUTCDate()).padStart(2, '0') + '01';
+
+    return [
+        `; ${domain}: replace the example records below with your own.`,
+        '; 192.0.2.x and 2001:db8:: are documentation addresses.  Records can',
+        "; also use the EXTIP4 / EXTIP6 macros for this host's external addresses.",
+        '',
+        `$ORIGIN ${domain}.`,
+        '$TTL 3600',
+        '',
+        `@	IN	SOA	ns1.${domain}. hostmaster.${domain}. (`,
+        `		${serial}	; serial`,
+        '		3600		; refresh',
+        '		900		; retry',
+        '		1209600		; expire',
+        '		3600 )		; negative caching TTL',
+        '',
+        `@	IN	NS	ns1.${domain}.`,
+        `@	IN	NS	ns2.${domain}.`,
+        '',
+        '@	IN	A	192.0.2.1',
+        '@	IN	AAAA	2001:db8::1',
+        '',
+        'ns1	IN	A	192.0.2.1',
+        'ns1	IN	AAAA	2001:db8::1',
+        'ns2	IN	A	192.0.2.2',
+        'ns2	IN	AAAA	2001:db8::2',
+        ''
+    ].join('\n');
 }
 
 function updateRawEditor() {
