@@ -514,6 +514,30 @@ bail:
 #endif
 
 #if defined(LWS_WITH_SERVER)
+/*
+ * Offer the vhost's alpn list on a server session, from the wire-format
+ * alpn_ctx lws_context_init_alpn() made for it
+ */
+static void
+lws_gnutls_server_alpn(gnutls_session_t session, struct lws_vhost *vh,
+		       unsigned int flags)
+{
+	unsigned int i = 0, p = 0;
+	gnutls_datum_t alpn[4];
+
+	if (!vh->tls.alpn_ctx.len)
+		return;
+
+	while (p < vh->tls.alpn_ctx.len && i < LWS_ARRAY_SIZE(alpn)) {
+		alpn[i].data = &vh->tls.alpn_ctx.data[p + 1];
+		alpn[i].size = vh->tls.alpn_ctx.data[p];
+		p += alpn[i].size + 1;
+		i++;
+	}
+
+	gnutls_alpn_set_protocols(session, alpn, i, flags);
+}
+
 static int
 lws_gnutls_server_name_cb(gnutls_session_t session)
 {
@@ -609,6 +633,16 @@ lws_gnutls_server_name_cb(gnutls_session_t session)
 			lws_check_opt(vhost->options,
 				      LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED) ?
 				GNUTLS_CERT_REQUEST : GNUTLS_CERT_REQUIRE);
+
+	/*
+	 * ...and its alpn list, or a vhost that keeps, eg, h2 off itself by
+	 * its alpn, gets it negotiated by anyone naming it on a listener whose
+	 * vhost allows it.  quic sessions keep their h3-only list.
+	 */
+#if defined(LWS_ROLE_QUIC)
+	if (wsi->role_ops != &role_ops_quic)
+#endif
+		lws_gnutls_server_alpn(session, vhost, 0);
 
 	/* And update wsi's bound vhost! */
 	lws_tls_sni_bind(vhost, wsi);
@@ -729,17 +763,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 
 	gnutls_handshake_set_post_client_hello_function(session, lws_gnutls_server_name_cb);
 
-	if (wsi->a.vhost->tls.alpn_ctx.len) {
-		gnutls_datum_t alpn[4];
-		unsigned int i = 0, p = 0;
-		while (p < wsi->a.vhost->tls.alpn_ctx.len && i < 4) {
-			alpn[i].data = &wsi->a.vhost->tls.alpn_ctx.data[p + 1];
-			alpn[i].size = wsi->a.vhost->tls.alpn_ctx.data[p];
-			p += alpn[i].size + 1;
-			i++;
-		}
-		gnutls_alpn_set_protocols(session, alpn, i, 0);
-	}
+	lws_gnutls_server_alpn(session, wsi->a.vhost, 0);
 
 	return 0;
 }

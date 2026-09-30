@@ -61,24 +61,40 @@ struct step {
 	const char	*expect_cn;	/* the cert the client must be shown */
 	char		check_name;	/* ...and must find is for sni */
 	char		drop_srv;	/* renew and destroy srv while answering */
+	char		h1_only;	/* offer h2 too, must still get http/1.1 */
 };
 
 /* the third vhost's name, the address its client dials without SNI */
 #define REBIND_HOST	"127.0.0.1"
 
+/*
+ * The tls libraries whose server takes the alpn list from the vhost SNI
+ * picked: mbedtls has it from the listener's config (and the others are not
+ * known to do better), so the alpn step is skipped for them
+ */
+#if defined(LWS_WITH_GNUTLS) || \
+    (!defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL) && \
+     !defined(LWS_WITH_SCHANNEL) && !defined(LWS_WITH_OPENHITLS))
+#define ALPN_FOLLOWS_SNI 1
+#else
+#define ALPN_FOLLOWS_SNI 0
+#endif
+
 static const struct step steps[] = {
-	{ "initial cert", "srv", NULL, NULL, ROT_NONE, "localhost", 0, 0 },
+	{ "initial cert", "srv", NULL, NULL, ROT_NONE, "localhost", 0, 0, 0 },
 	{ "rotated", "srv", "wronghost.example.com.cert",
-	  "wronghost.example.com.key", ROT_OK, "wronghost.example.com", 0, 0 },
+	  "wronghost.example.com.key", ROT_OK, "wronghost.example.com", 0, 0, 0 },
 	{ "rotated, the other vhost by SNI", "localhost", NULL, NULL, ROT_NONE,
-	  "localhost", 1, 0 },
+	  "localhost", 1, 0, 0 },
+	{ "the other vhost by SNI keeps its own alpn", "localhost", NULL, NULL,
+	  ROT_NONE, "localhost", 1, 0, 1 },
 	{ "rotation without a key keeps the cert", "srv", "localhost-100y.cert",
-	  NULL, ROT_NO_KEY, "wronghost.example.com", 0, 0 },
+	  NULL, ROT_NO_KEY, "wronghost.example.com", 0, 0, 0 },
 	{ "rotated back", "srv", "localhost-100y.cert", "localhost-100y.key",
-	  ROT_OK, "localhost", 0, 0 },
+	  ROT_OK, "localhost", 0, 0, 0 },
 	{ "rebound off srv, which goes while it holds srv's ctx", REBIND_HOST,
 	  "wronghost.example.com.cert", "wronghost.example.com.key", ROT_NONE,
-	  "localhost", 0, 1 },
+	  "localhost", 0, 1, 0 },
 };
 
 static struct lws_context *context;
@@ -265,6 +281,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		cli.status = (int)lws_http_client_http_response(wsi);
+		/* an h2 stream is not its own network connection */
+		if (steps[cur].h1_only && lws_get_network_wsi(wsi) != wsi)
+			cli.status = -1;
 		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME,
 					    &ir, sizeof(ir.ns.name)))
 			lws_strncpy(cli.cn, ir.ns.name, sizeof(cli.cn));
@@ -282,7 +301,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		cli.done = 1;
 
-		if (cli.status != HTTP_STATUS_OK)
+		if (cli.status == -1)
+			why = "h2 negotiated with a vhost that has only http/1.1";
+		else if (cli.status != HTTP_STATUS_OK)
 			why = "not served";
 		else if (strcmp(cli.cn, steps[cur].expect_cn))
 			why = "served under the wrong cert";
@@ -350,9 +371,13 @@ next_step(lws_sorted_usec_list_t *sul)
 	s = &steps[cur];
 	memset(&cli, 0, sizeof(cli));
 
-	if (s->drop_srv && strchr(server_addr, ':')) {
-		/* an ipv6-only build has no ipv4 loopback to dial */
-		lwsl_user("--- %s: skipped, needs ipv4 ---\n", s->name);
+	if ((s->drop_srv && strchr(server_addr, ':')) ||
+	    (s->h1_only && !ALPN_FOLLOWS_SNI)) {
+		/*
+		 * an ipv6-only build has no ipv4 loopback to dial, and some
+		 * tls libraries keep the listener's alpn whatever SNI picks
+		 */
+		lwsl_user("--- %s: skipped here ---\n", s->name);
 		lws_sul_schedule(context, 0, &sul_next, next_step, 1);
 		return;
 	}
@@ -383,7 +408,7 @@ next_step(lws_sorted_usec_list_t *sul)
 	i.method		= "GET";
 	i.protocol		= "cli";
 	i.local_protocol_name	= "cli";
-	i.alpn			= "http/1.1";
+	i.alpn			= s->h1_only ? "h2,http/1.1" : "http/1.1";
 	/* both certs are self-signed, and neither is for server_addr */
 	i.ssl_connection	= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED;
 	if (!s->check_name)
@@ -462,8 +487,11 @@ main(int argc, const char **argv)
 	info.vhost_name			= "localhost";
 	info.ssl_cert_filepath		= other_cert;
 	info.ssl_private_key_filepath	= other_key;
+	/* h2 is off on it, while srv, whose listener it is, has it */
+	info.alpn			= "http/1.1";
 	if (!lws_create_vhost(context, &info))
 		goto bail;
+	info.alpn			= NULL;
 
 	/* and one a Host: header naming the loopback address moves him to */
 

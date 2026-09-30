@@ -11,6 +11,7 @@ the step expects.
 |initial cert|srv|vhost as created|localhost|
 |rotated|srv|files rewritten with a second cert + key|wronghost.example.com|
 |rotated, the other vhost by SNI|localhost|nothing, the client checks the cert is for the name|localhost|
+|the other vhost by SNI keeps its own alpn|localhost|the client offers h2 and http/1.1, `localhost` only has http/1.1: it must not get h2 from `srv`'s list|localhost|
 |rotation without a key keeps the cert|srv|new cert written, key file still empty, so the load fails|wronghost.example.com|
 |rotated back|srv|first cert + key written again|localhost|
 |rebound off srv, which goes while it holds srv's ctx|127.0.0.1, no SNI|Host: moves it to the `127.0.0.1` vhost; while it waits for the answer, srv's cert is renewed and srv destroyed|localhost|
@@ -26,6 +27,13 @@ a client naming `localhost` must still be shown the `localhost` vhost's cert.
 That client checks the cert it is shown is for the name it dialled, so a
 listener that lost its SNI, and shows it `srv`'s renewed cert, fails the step.
 The other steps skip that check, since `srv` is shown with both certs in turn.
+
+The `localhost` vhost has only http/1.1 in its alpn, while `srv`, whose
+listener it shares, also has h2.  A client that names `localhost` in SNI and
+offers h2 must get the alpn of the vhost it named, http/1.1, not `srv`'s h2.
+mbedtls servers take the alpn list from the listener's config whatever SNI
+picks, so this step is skipped there (and with bearssl, schannel and
+openhitls, which are not known to do better).
 
 The last step checks a connection may outlive the vhost whose tls ctx it
 handshaked under.  A third vhost on the listener is named `127.0.0.1`, and a
