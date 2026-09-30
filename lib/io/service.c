@@ -622,6 +622,9 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 	lws_handling_result_t hr;
 	int buffered, sb;
 	size_t used;
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+	int plaintext = !wsi->io->tls.ssl;
+#endif
 
 	*nothing = 0;
 	*consumed = 0;
@@ -711,6 +714,21 @@ lws_rx_pump(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (lws_buflist_aware_finished_consuming(wsi, &ebuf, (int)used,
 						 buffered, __func__))
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+	/*
+	 * The rx started tls on a plaintext connection (STARTTLS, with
+	 * lws_tls_client_upgrade()): whatever is still parked was read
+	 * before it, unprotected, and must never be taken for what comes over
+	 * the tls.  The app can only see what it was given in this rx.
+	 */
+	if (plaintext && wsi->io->tls.ssl &&
+	    lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
+		lwsl_wsi_warn(wsi, "plaintext parked behind the start of tls");
+
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	}
+#endif
 
 	return LWS_HPI_RET_HANDLED;
 }

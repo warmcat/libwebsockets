@@ -41,6 +41,20 @@ rops_client_transport_up_raw_skt(struct lws *wsi, const lws_sockaddr46 *peer)
 		   !lwsi_tls_upgrading(wsi), n;
 
 	/*
+	 * Nothing reads the connection while its STARTTLS handshake goes on,
+	 * so whatever is parked now was read before the tls, unprotected: it
+	 * must not be given to the user as though it came over it.  An
+	 * upgrade started from RAW_RX was already checked after that rx (by
+	 * lws_rx_pump()), this is for one started from anywhere else.
+	 */
+	if (lwsi_tls_upgrading(wsi) &&
+	    lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
+		lwsl_wsi_warn(wsi, "plaintext parked behind the start of tls");
+
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	}
+
+	/*
 	 * The transport is up before the user hears of it: a callback that
 	 * completes the raw transaction, or closes, leaves the wsi in a close
 	 * phase, from which TRANSPORT_UP raised afterwards had no row

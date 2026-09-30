@@ -573,7 +573,10 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len);
  * connection with LWS_CALLBACK_RAW_CLOSE, since it was already connected.
  *
  * Any plaintext the peer sent after agreeing to start tls must be discarded,
- * not acted on: it was not protected by the tls.
+ * not acted on: it was not protected by the tls.  What the caller was given
+ * in the same RAW_RX, after the peer's agreement, is the caller's to refuse;
+ * lws refuses the connection if any more of it is buffered, rather than
+ * deliver it after the tls is up.
  *
  * Returns 0 if the handshake is under way, 1 if it completed already inside
  * this call (no LWS_CALLBACK_RAW_CONNECTED will follow), or -1 if tls could
