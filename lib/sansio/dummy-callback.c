@@ -158,22 +158,22 @@ proxy_header_each_frag(struct lws *wsi, struct lws *par, unsigned char *temp,
  * side) wsi has accumulated in ->http.extra_onward_headers onto the onward
  * (proxied-to-backend) request.
  *
- * This mirrors what the HTTP proxy path already does
- * (lib/sansio/http/client/client-http.c reads the same field verbatim).  The WS
- * handshake uses the *p/end cursor API, so we can't raw-append; we parse the
- * "Name: value\r\n" lines the injector wrote and feed each via
- * lws_add_http_header_by_name(), which is role-agnostic (h1/h2/h3).
+ * Both the ws and the http proxy handshakes use the *p/end cursor API, so we
+ * can't raw-append; we parse the "Name: value\r\n" lines the injector (and
+ * lws_http_proxy_start()'s snapshot of the forwarded request headers) wrote
+ * and feed each via lws_add_http_header_by_name(), which is role-agnostic
+ * (h1/h2/h3).
  *
  * The field is NULL-terminated and formatted one header per
  * "Name: value\r\n" line by the interceptor (see lws_interceptor_inject_header
  * and friends), so splitting on "\r\n" and the first ": " is safe.  Anti-spoof
  * handling (lws_http_zap_header before inject) is the interceptor's job.
  *
- * Only the ws proxy below uses it; it lives under the same guard so the
- * proxy-only, ws-less build dimension does not warn it is unused.
+ * Returns nonzero if any of them could not be added: the caller fails the
+ * onward handshake rather than send it without them.
  */
 #if defined(LWS_WITH_HTTP_PROXY)
-static void
+static int
 proxy_extra_onward_headers(struct lws *wsi, unsigned char **p,
 			   unsigned char *end)
 {
@@ -181,11 +181,11 @@ proxy_extra_onward_headers(struct lws *wsi, unsigned char **p,
 	char name[64];
 
 	if (!wsi->parent)
-		return;
+		return 0;
 
 	eoh = wsi->parent->http.extra_onward_headers;
 	if (!eoh)
-		return;
+		return 0;
 
 	line = eoh;
 	while (line && *line) {
@@ -212,24 +212,37 @@ proxy_extra_onward_headers(struct lws *wsi, unsigned char **p,
 			 * exactly the kind of failure the proxy must not
 			 * have.  Only the name needs NUL termination.
 			 */
-			if (nlen && nlen < sizeof(name) && vlen < INT_MAX) {
-				memcpy(name, line, nlen);
-				name[nlen] = '\0';
+			if (!nlen || nlen >= sizeof(name) || vlen >= INT_MAX)
+				goto bail;
 
-				if (lws_add_http_header_by_name(wsi,
-						(const unsigned char *)name,
-						(const unsigned char *)v,
-						(int)vlen, p, end))
-					lwsl_wsi_notice(wsi,
-						"unable to append extra hdr %s",
-						name);
-			}
+			memcpy(name, line, nlen);
+			name[nlen] = '\0';
+
+			/*
+			 * A header we were asked to forward and cannot is not
+			 * something to carry on past: the request would go on
+			 * without it (a Cookie, an interceptor's auth state),
+			 * so the onward request fails instead (C-699, and
+			 * C-290 before it)
+			 */
+			if (lws_add_http_header_by_name(wsi,
+					(const unsigned char *)name,
+					(const unsigned char *)v,
+					(int)vlen, p, end))
+				goto bail;
 		}
 
 		if (!next_line)
 			break;
 		line = next_line;
 	}
+
+	return 0;
+
+bail:
+	lwsl_wsi_notice(wsi, "unable to forward onward header");
+
+	return 1;
 }
 #endif
 
@@ -391,9 +404,17 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lws_io_peer_address(wsi->parent, peer, sizeof(peer));
 
+		/*
+		 * Our own X-Forwarded-For goes before the headers we replay
+		 * for the client, and failing either fails the handshake
+		 * (C-699)
+		 */
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_X_FORWARDED_FOR,
-						 (uint8_t *)peer, (int)strlen(peer), p, end))
-                	lwsl_wsi_notice(wsi, "unable to append forwarded_for");
+						 (uint8_t *)peer, (int)strlen(peer), p, end)) {
+			lwsl_wsi_notice(wsi, "unable to append forwarded_for");
+
+			return -1;
+		}
 
 		/*
 		 * Forward interceptor-injected headers (eg cooked auth state
@@ -401,7 +422,8 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		 * without doing its own auth.  Same field the HTTP proxy path
 		 * forwards verbatim.
 		 */
-		proxy_extra_onward_headers(wsi, p, end);
+		if (proxy_extra_onward_headers(wsi, p, end))
+			return -1;
 
 		break;
 	}
@@ -1167,12 +1189,19 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		 * previously only got them on h1.
 		 */
 
-		proxy_extra_onward_headers(wsi, p, end);
+		/*
+		 * Our own X-Forwarded-For goes first, as on the ws path, ahead
+		 * of the headers the client supplied: however those turn out,
+		 * they are not what decides whether it is on the request.  A
+		 * header we cannot forward fails the onward request, rather
+		 * than letting it go on without it (C-699)
+		 */
 
 		buf[0] = '\0';
 		lws_io_peer_address(parent, buf, sizeof(buf));
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_X_FORWARDED_FOR,
-				(unsigned char *)buf, (int)strlen(buf), p, end))
+				(unsigned char *)buf, (int)strlen(buf), p, end) ||
+		    proxy_extra_onward_headers(wsi, p, end))
 			return -1;
 
 		break;

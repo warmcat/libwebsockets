@@ -163,11 +163,15 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 			    const unsigned char *value, int length,
 			    unsigned char **p, unsigned char *end)
 {
-	if ((name && lws_hdr_add_value_bad(name,
+	unsigned char *start = *p;
+	char has_colon = 0;
+
+	if (length < 0 ||
+	    (name && lws_hdr_add_value_bad(name,
 				(int)strlen((const char *)name))) ||
 	    lws_hdr_add_value_bad(value, length)) {
-		lwsl_info("%s: refusing header with control bytes in "
-			  "name or value\n", __func__);
+		lwsl_info("%s: refusing header with bad length or control "
+			  "bytes in name or value\n", __func__);
 
 		return 1;
 	}
@@ -187,8 +191,11 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 			return 1;
 		}
 
-		return lws_add_http3_header_by_name(wsi, name,
-						    value, length, p, end);
+		if (lws_add_http3_header_by_name(wsi, name, value, length,
+						 p, end))
+			goto bail;
+
+		return 0;
 	}
 #endif
 #ifdef LWS_WITH_HTTP2
@@ -200,24 +207,26 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 			return 1;
 		}
 
-		return lws_add_http2_header_by_name(wsi, name,
-						    value, length, p, end);
+		if (lws_add_http2_header_by_name(wsi, name, value, length,
+						 p, end))
+			goto bail;
+
+		return 0;
 	}
 #endif
 	if (name) {
-		char has_colon = 0;
 		while (*p < end && *name) {
 			has_colon = has_colon || *name == ':';
 			*((*p)++) = *name++;
 		}
 		if (*p + (has_colon ? 1 : 2) >= end)
-			return 1;
+			goto bail;
 		if (!has_colon)
 			*((*p)++) = ':';
 		*((*p)++) = ' ';
 	}
 	if (*p + length + 3 >= end)
-		return 1;
+		goto bail;
 
 	if (value)
 		memcpy(*p, value, (unsigned int)length);
@@ -226,6 +235,17 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 	*((*p)++) = '\x0a';
 
 	return 0;
+
+bail:
+	/*
+	 * A header that does not fit leaves nothing of itself behind: the
+	 * cursor goes back to where it was.  Left after a name with no value
+	 * or CRLF, the next header the caller adds would become this one's
+	 * value (C-699)
+	 */
+	*p = start;
+
+	return 1;
 }
 
 int lws_finalize_http_header(struct lws *wsi, unsigned char **p,

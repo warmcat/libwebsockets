@@ -66,7 +66,9 @@
  * A request body the proxy has no length for (h1 chunked, h2 without
  * content-length) goes onward chunked and must arrive whole; a POST with no
  * body goes onward saying Content-Length: 0; an h3 body with no length,
- * which the proxy could not end onward, is refused.
+ * which the proxy could not end onward, is refused.  Every request the proxy
+ * sends on carries its X-Forwarded-For, alongside a Cookie it forwards for
+ * the client intact.
  *
  * On an h3 stream, a response write lws took whole is in quic's hands: it
  * must not be reported back to the app as a partial or a choked pipe just
@@ -406,6 +408,16 @@ static const struct xcase cases[] = {
 	{ "h1 POST with neither header via the http proxy mount: empty body",
 	  "POST", "/echo-cl", XR_NOLEN, 0, 0, 8192, 0, 0, 200, 0, XG_NONE, 0, 1, 0, 0, 0 },
 	/*
+	 * The proxy's own X-Forwarded-For is on every request it sends on (the
+	 * server checks that for every proxied case), with a Cookie it
+	 * forwards for the client, which must arrive intact, as much as
+	 * without one.  A path with "cookie" in it has the client send one of
+	 * COOKIE_LEN bytes.
+	 */
+	{ "h1 POST Content-Length 5KB with a 2KB Cookie via the http proxy "
+	  "mount, Cookie and X-Forwarded-For both arrive",
+	  "POST", "/echo-cl-cookie", XR_CL, 5000, 0, 8192, 0, 0, 200, 5000, XG_NONE, 0, 1, 0, 0, 0 },
+	/*
 	 * The relay frames a response without a Content-Length as chunked on
 	 * h1.  When the onward response ended by its own framing (not by the
 	 * onward server's close, which ends the parent connection too) the
@@ -571,6 +583,10 @@ static struct {
 					 * completed */
 	int		gate_blocks;	/* requests the mount interceptor took */
 	int		not_close;	/* requests without connection: close */
+	int		no_xff;		/* proxied requests without the
+					 * proxy's X-Forwarded-For */
+	int		bad_cookie;	/* requests whose Cookie was not the
+					 * one the case sent */
 	int		held;		/* whole h3 writes reported as held back */
 } srv;
 
@@ -755,6 +771,30 @@ frame_chunked(uint8_t *out, size_t out_max, size_t len, int ext)
 			"0\x0d\x0a\x0d\x0a");
 
 	return o;
+}
+
+/*
+ * A case whose path mentions "cookie" sends a Cookie of COOKIE_LEN bytes,
+ * "k=" and then letters, which the server must see intact
+ */
+
+#define COOKIE_LEN 2000
+
+static int
+case_cookie(void)
+{
+	return cur >= 0 && cur < (int)LWS_ARRAY_SIZE(cases) &&
+	       !!strstr(cases[cur].path, "cookie");
+}
+
+static void
+cookie_make(char *buf)
+{
+	size_t i;
+
+	for (i = 0; i < COOKIE_LEN; i++)
+		buf[i] = i == 0 ? 'k' : (i == 1 ? '=' : (char)('a' + (i % 26)));
+	buf[COOKIE_LEN] = '\0';
 }
 
 /* ---- server side ---- */
@@ -975,6 +1015,22 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 					 WSI_TOKEN_CONNECTION) <= 0 ||
 			    strcmp(conn, "close"))
 				srv.not_close++;
+		}
+
+		/* everything the proxy sends on says who it is for */
+		if (cur >= 0 && cur < (int)LWS_ARRAY_SIZE(cases) &&
+		    cases[cur].via_proxy &&
+		    lws_hdr_total_length(wsi, WSI_TOKEN_X_FORWARDED_FOR) <= 0)
+			srv.no_xff++;
+
+		if (case_cookie()) {
+			static char ck[COOKIE_LEN + 2], want[COOKIE_LEN + 1];
+
+			cookie_make(want);
+			if (lws_hdr_copy(wsi, ck, sizeof(ck),
+					 WSI_TOKEN_HTTP_COOKIE) != COOKIE_LEN ||
+			    strcmp(ck, want))
+				srv.bad_cookie++;
 		}
 
 		if (path && strstr(path, "nope")) {
@@ -1319,6 +1375,20 @@ case_evaluate(void)
 		goto next;
 	}
 
+	if (srv.no_xff) {
+		lwsl_err("%d proxied requests without X-Forwarded-For\n",
+			 srv.no_xff);
+		case_finish(0, "proxied request without X-Forwarded-For");
+		goto next;
+	}
+
+	if (srv.bad_cookie) {
+		lwsl_err("%d requests without the Cookie we sent\n",
+			 srv.bad_cookie);
+		case_finish(0, "Cookie did not arrive intact");
+		goto next;
+	}
+
 	if (c->conn_close && srv.not_close) {
 		lwsl_err("%d of %d requests did not say connection: close\n",
 			 srv.not_close, srv.http_cbs);
@@ -1517,6 +1587,17 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		default:
 			break;
+		}
+
+		if (case_cookie()) {
+			static char ck[COOKIE_LEN + 1];
+
+			cookie_make(ck);
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_COOKIE,
+					(const uint8_t *)ck, COOKIE_LEN,
+					pp, end))
+				return -1;
 		}
 
 		if (c->expect == 1 &&

@@ -831,6 +831,10 @@ lws_add_http_header_status(struct lws *wsi,
  * status line); h2/h3 have no such representation (the status is the
  * :status pseudo-header from the _status helpers), so over h2/h3 a NULL
  * name fails the add (returns 1, nothing emitted).
+ *
+ * A header that does not fit before \p end also fails the add, and leaves
+ * nothing of itself behind: *p is where it was before the call, so the
+ * caller may go on to add something smaller, or fail its own composition.
  */
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
