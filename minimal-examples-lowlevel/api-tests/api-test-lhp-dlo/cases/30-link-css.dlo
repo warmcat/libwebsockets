@@ -1,0 +1,7 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (0.0,0.0) [400.0 x 14.0] rgba=00000000
+  text (0.0,0.0) [103.0 x 14.0] rgba=FF0000FF f=12/400 "styled before the stray tag"
+ rect (0.0,14.0) [400.0 x 14.0] rgba=FF00FFFF
+  text (0.0,0.0) [96.0 x 14.0] rgba=FFFF0000 f=12/400 "styled after the stray tag"
+ rect (0.0,41.44) [400.0 x 14.0] rgba=00000000
+  text (0.0,0.0) [110.0 x 14.0] rgba=FF000000 f=12/400 "laid out after the stylesheet"

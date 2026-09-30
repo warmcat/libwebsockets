@@ -1,0 +1,10 @@
+/*
+ * A linked stylesheet, loaded as a local file asset.  The stray tag below
+ * is only bad css, a rule with a selector nothing matches: a linked
+ * stylesheet has no </style> to end it, so the rules after it still apply,
+ * and the html after the <link> is parsed as html, not as more of this.
+ */
+body { font-size: 12px; margin: 0; padding: 0 }
+.a { color: red }
+</div> { color: green }
+.b { color: blue; background-color: yellow }
