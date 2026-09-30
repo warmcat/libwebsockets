@@ -452,6 +452,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #if defined(LWS_WITH_SECURE_STREAMS)
 	lws_ss_handle_t *hh = NULL;
 	char hh_unannounced = 0;
+#if defined(LWS_WITH_SERVER)
+	char hh_accepted = 0;
+#endif
 #endif
 	struct lws_context *context;
 	struct lws *wsi2;
@@ -963,6 +966,16 @@ async_close:
 					    hh->prev_ss_state ==
 							LWSSSCS_CONNECTING)
 						hh_unannounced = 1;
+#if defined(LWS_WITH_SERVER)
+					/*
+					 * An accepted stream exists only for
+					 * the connection it was accepted on,
+					 * it never reconnects
+					 */
+					if (hh->info.flags &
+						    LWSSSINFLAGS_ACCEPTED)
+						hh_accepted = 1;
+#endif
 					hh->wsi = NULL;
 					wsi->a.opaque_user_data = NULL;
 				}
@@ -982,6 +995,20 @@ async_close:
 	hr = _lws_close_free_wsi_final(wsi);
 
 #if defined(LWS_WITH_SECURE_STREAMS)
+#if defined(LWS_WITH_SERVER)
+	if (hh && hh_accepted)
+		/*
+		 * Whatever state it reached, the accepted stream goes with its
+		 * connection.  The role's close handling can't be relied on to
+		 * do it: eg, an h1 connection closed before a whole request
+		 * header arrived, or the h2 network connection's own stream,
+		 * never got CONNECTED, so will never get the DISCONNECTED that
+		 * destroys it.  lws_ss_destroy() gives it DISCONNECTED first
+		 * if it did get CONNECTED.
+		 */
+		lws_ss_destroy(&hh);
+	else
+#endif
 	if (hh && hh->ss_dangling_connected &&
 	    lws_ss_event_helper(hh, LWSSSCS_DISCONNECTED) == LWSSSSRET_DESTROY_ME)
 		lws_ss_destroy(&hh);
