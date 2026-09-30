@@ -66,25 +66,23 @@ __lws_peer_add_to_peer_wait_list(struct lws_context *context,
 }
 
 
+/*
+ * The peer for the address in sa46 (its port is not part of it), created if
+ * this is the first we heard of it.  For connections that have no socket of
+ * their own to ask, such as QUIC ones, which share their listener's.
+ */
 struct lws_peer *
-lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
+lws_get_or_create_peer_sa46(struct lws_vhost *vhost,
+			    const lws_sockaddr46 *sa46in)
 {
 	struct lws_context *context = vhost->context;
+	lws_sockaddr46 sa46 = *sa46in;
 	struct lws_peer *peer;
-	lws_sockaddr46 sa46;
 	socklen_t rlen = 0;
 	uint32_t hash = 0;
 	uint8_t *q8;
 	void *q;
 	int n;
-
-	if (vhost->options & LWS_SERVER_OPTION_UNIX_SOCK)
-		return NULL;
-
-	rlen = sizeof(sa46);
-	if (getpeername(sockfd, (struct sockaddr*)&sa46, &rlen))
-		/* eg, udp doesn't have to have a peer */
-		return NULL;
 
 #ifdef LWS_WITH_IPV6
 	if (sa46.sa4.sin_family == AF_INET6) {
@@ -171,6 +169,23 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 	return peer;
 }
 
+struct lws_peer *
+lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
+{
+	lws_sockaddr46 sa46;
+	socklen_t rlen;
+
+	if (vhost->options & LWS_SERVER_OPTION_UNIX_SOCK)
+		return NULL;
+
+	rlen = sizeof(sa46);
+	if (getpeername(sockfd, (struct sockaddr*)&sa46, &rlen))
+		/* eg, udp doesn't have to have a peer */
+		return NULL;
+
+	return lws_get_or_create_peer_sa46(vhost, &sa46);
+}
+
 /* requires context->lock */
 static int
 __lws_peer_destroy(struct lws_context *context, struct lws_peer *peer)
@@ -216,6 +231,12 @@ lws_peer_cull_peer_wait_list(struct lws_context *context)
 	lws_context_unlock(context); /* ====================================> */
 }
 
+/*
+ * Count a connection against peer.  wsi is the one it belongs to, whose close
+ * gives it back, or NULL if the caller holds on to peer and gives it back
+ * itself with lws_peer_track_wsi_close(), as a QUIC connection, which moves
+ * between wsi in its life, does.
+ */
 void
 lws_peer_add_wsi(struct lws_context *context, struct lws_peer *peer,
 		 struct lws *wsi)
@@ -227,7 +248,8 @@ lws_peer_add_wsi(struct lws_context *context, struct lws_peer *peer,
 
 	peer->count_wsi++;
 	peer->total_wsi++;
-	wsi->peer = peer;
+	if (wsi)
+		wsi->peer = peer;
 	__lws_peer_remove_from_peer_wait_list(context, peer);
 
 	lws_context_unlock(context); /* ====================================> */

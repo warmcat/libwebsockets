@@ -2115,6 +2115,9 @@ void
 lws_peer_cull_peer_wait_list(struct lws_context *context);
 struct lws_peer *
 lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd);
+struct lws_peer *
+lws_get_or_create_peer_sa46(struct lws_vhost *vhost,
+			    const lws_sockaddr46 *sa46);
 void
 lws_peer_add_wsi(struct lws_context *context, struct lws_peer *peer,
 		 struct lws *wsi);
