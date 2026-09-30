@@ -53,6 +53,7 @@
 #include "private-lib-tls-mbedtls.h"
 #include <mbedtls/oid.h>
 #include <mbedtls/x509.h>
+#include <mbedtls/platform.h>
 
 /*
  * This section from mbedtls oid.c
@@ -213,9 +214,14 @@ lws_x509_clean_name(mbedtls_x509_name *name)
 
 	n1 = name->MBEDTLS_PRIVATE_V30_ONLY(next);
 
+	/*
+	 * mbedtls_x509_get_name() made these with mbedtls_calloc(), which is
+	 * not libc's allocator on a platform that gave mbedtls its own
+	 */
+
 	while (n1) {
 		name = n1->MBEDTLS_PRIVATE_V30_ONLY(next);
-		free(n1);
+		mbedtls_free(n1);
 		n1 = name;
 	}
 }
