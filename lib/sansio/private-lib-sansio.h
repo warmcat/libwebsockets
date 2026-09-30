@@ -951,11 +951,17 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 #if defined(LWS_WITH_CLIENT)
 /*
  * The client's transport phase is a tunnel leg: the proxy's reply to our
- * http CONNECT is awaited.  Its bytes are the proxy's, for
- * lws_client_tunnel_rx(), whatever the role.
+ * http CONNECT, or to one of our socks5 messages, is awaited.  Its bytes are
+ * the proxy's, for lws_client_tunnel_rx(), whatever the role.
  */
+#if defined(LWS_WITH_SOCKS5)
+#define lwsi_in_tunnel_leg(wsi) \
+	(lwsi_transport(wsi) == LTS_WAITING_PROXY_REPLY || \
+	 lwsi_in_socks5_leg(wsi))
+#else
 #define lwsi_in_tunnel_leg(wsi) \
 	(lwsi_transport(wsi) == LTS_WAITING_PROXY_REPLY)
+#endif
 
 lws_handling_result_t
 lws_client_tunnel_rx(struct lws *wsi, const uint8_t *buf, size_t len,

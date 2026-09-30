@@ -89,40 +89,15 @@ rops_rx_raw_skt(struct lws *wsi, const uint8_t *buf, size_t len,
 	*used = 0;
 
 #if defined(LWS_WITH_CLIENT)
-	/* the proxy's reply to our CONNECT: not RAW_RX, the tunnel rx's */
+	/*
+	 * The proxy's replies, CONNECT or socks: not RAW_RX, the tunnel
+	 * rx's.  What followed the reply that brought the tunnel up is the
+	 * peer's, left for us as raw.
+	 */
 	if (lwsi_in_tunnel_leg(wsi))
 		return lws_client_tunnel_rx(wsi, buf, len, used);
 #endif
 
-#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SOCKS5)
-	if (lwsi_in_socks5_leg(wsi)) {
-		const char *cce = NULL;
-		lws_handling_result_t hr;
-
-		switch (lws_socks5c_rx(wsi, buf, len, &cce, used)) {
-		case LW5CHS_RET_BAIL3:
-			lws_inform_client_conn_fail(wsi, (void *)cce,
-						    strlen(cce));
-
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		case LW5CHS_RET_STARTHS:
-			/*
-			 * The socks leg is done: IO finishes the connection
-			 * the way a direct one finishes, tls first if that was
-			 * asked for
-			 */
-			hr = lws_client_transport_connected(wsi);
-			if (hr != LWS_HPI_RET_HANDLED)
-				return hr;
-			break;
-		default:
-			break;
-		}
-
-		/* what followed the reply is the peer's: left for us as raw */
-		return LWS_HPI_RET_HANDLED;
-	}
-#endif
 
 	if (!len)
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
@@ -180,11 +155,7 @@ rops_rx_policy_raw_skt(struct lws *wsi, int *flags, size_t *max)
 #endif
 #if defined(LWS_WITH_CLIENT)
 	if (lwsi_role_client(wsi) && lwsi_transport(wsi) != LTS_NONE) {
-		if (!lwsi_in_tunnel_leg(wsi)
-#if defined(LWS_WITH_SOCKS5)
-		    && !lwsi_in_socks5_leg(wsi)
-#endif
-		    )
+		if (!lwsi_in_tunnel_leg(wsi))
 			return LWS_RXPOL_ROLE;
 
 		*flags = 0;

@@ -85,6 +85,10 @@ static const struct pcase {
 	{ "socks5: raw-skt client over tls",
 			"cli-s5",	NULL,		0, K_RAW_TLS },
 #endif
+#if defined(LWS_ROLE_RAW_PROXY)
+	{ "socks5: raw-proxy client",
+			"cli-s5",	NULL,		0, K_RAW_PROXY },
+#endif
 #endif
 };
 

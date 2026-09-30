@@ -39,7 +39,7 @@ rops_rx_raw_proxy(struct lws *wsi, const uint8_t *buf, size_t len,
 	*used = 0;
 
 #if defined(LWS_WITH_CLIENT)
-	/* the proxy's reply to our CONNECT: not CLI_RX, the tunnel rx's */
+	/* the proxy's replies, CONNECT or socks: not CLI_RX, the tunnel rx's */
 	if (lwsi_in_tunnel_leg(wsi))
 		return lws_client_tunnel_rx(wsi, buf, len, used);
 #endif

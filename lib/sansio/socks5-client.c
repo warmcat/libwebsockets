@@ -282,12 +282,13 @@ lws_socks5c_greet(struct lws *wsi, const char **pcce)
  * whichever of our messages is outstanding.  Every reply we act on is decided
  * by its first two bytes; a fragment shorter than the whole reply is not
  * worth reassembling and is a failure.  *used is how many bytes the reply
- * took: what follows it is the peer's, already relayed by the proxy when it
- * speaks first (a raw protocol's server banner can share the read with the
- * connect reply), and the caller leaves it for the role's own rx.  The role's
- * rx op calls this in the socks states and acts on the result: BAIL3 with
- * *pcce set, STARTHS when the tunnel is up and the role's own protocol
- * starts, NOTHING when the next reply is awaited.
+ * took: what follows the connect reply may be the peer's, already relayed by
+ * the proxy when it speaks first (a raw protocol's server banner can share
+ * the read with the connect reply).  lws_client_tunnel_rx(), which every
+ * client role's rx hands the socks states to, calls this and acts on the
+ * result: BAIL3 with *pcce set, STARTHS when the tunnel is up (it decides
+ * whether bytes after the reply can be the peer's), NOTHING when the next
+ * reply is awaited.
  */
 int
 lws_socks5c_rx(struct lws *wsi, const uint8_t *buf, size_t len,
@@ -417,27 +418,10 @@ lws_socks5c_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 		lwsl_wsi_client(wsi, "socks connect OK");
 
 		/*
-		 * What follows the reply is the peer's, and is left for a raw
-		 * protocol whose peer speaks first (an smtp banner, say).  For
-		 * the others the peer speaks second: bytes ahead of our
-		 * ClientHello or request can only be the proxy's, and if we
-		 * kept them they would be replayed into the stream after a
-		 * handshake that verified the real origin, as its response;
-		 * the request we compose next, at the start of the buffer the
-		 * read came into, would also compose over them first.
+		 * What follows the reply may be the peer's: the caller,
+		 * lws_client_tunnel_rx(), decides whether it can be, and
+		 * clears the proxy connection timeout
 		 */
-		if (*used < len && ((wsi->use_ssl & LCCSCF_USE_SSL) ||
-				    wsi->role_ops != &role_ops_raw_skt)) {
-			lwsl_wsi_err(wsi, "SOCKS: %d bytes after the reply "
-					  "with our side to speak next",
-					  (int)(len - *used));
-			*pcce = "socks trailing bytes";
-
-			return LW5CHS_RET_BAIL3;
-		}
-
-		/* clear his proxy connection timeout */
-		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 		return LW5CHS_RET_STARTHS;
 	default:
 		break;

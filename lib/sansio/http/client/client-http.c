@@ -106,9 +106,6 @@ lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 		 int from_transport, size_t *used)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-#if defined(LWS_WITH_SOCKS5)
-	lws_handling_result_t hr;
-#endif
 	const char *cce;
 	int n, m;
 
@@ -116,33 +113,9 @@ lws_h1_client_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 	*used = 0;
 	(void)pt;
 
-	/* the proxy's reply to our CONNECT is the shared tunnel rx's */
+	/* the proxy's replies, CONNECT or socks, are the shared tunnel rx's */
 	if (lwsi_in_tunnel_leg(wsi))
 		return lws_client_tunnel_rx(wsi, buf, len, used);
-
-#if defined(LWS_WITH_SOCKS5)
-	if (lwsi_in_socks5_leg(wsi)) {
-		switch (lws_socks5c_rx(wsi, buf, len, &cce, used)) {
-		case LW5CHS_RET_BAIL3:
-			goto fail;
-		case LW5CHS_RET_STARTHS:
-			/*
-			 * The tunnel is up: for the protocol this is the
-			 * socket connecting, and IO goes on from here as for
-			 * a direct connection (tls, then our handshake)
-			 */
-			hr = lws_client_transport_connected(wsi);
-			if (hr != LWS_HPI_RET_HANDLED)
-				return hr;
-			break;
-		default:
-			break;
-		}
-
-		/* what followed the reply is the peer's, left for the protocol */
-		return LWS_HPI_RET_HANDLED;
-	}
-#endif
 
 	if (lwsi_state(wsi) == LRS_IDLING) {
 		/*

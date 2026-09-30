@@ -327,14 +327,15 @@ lws_client_proxy_reply(struct lws *wsi, const uint8_t *buf, size_t len,
 
 /*
  * sansIO rx for a client's tunnel leg, for every client role: the proxy's
- * reply to the http CONNECT we sent.  Nothing in it is for the role or the
- * user: until the tunnel is up the bytes are the proxy's, and the connection
- * does not exist for the user yet.  When it comes up, IO carries on as for a
- * direct connection: tls first if that was asked for, else the transport is
- * up and the role hears so with its client_transport_up op, or the user with
- * the role's adoption callback (RAW_CONNECTED, say).  What followed the reply
- * in the read is left in *used for the role's own rx, when it can be the
- * peer's.
+ * reply to the http CONNECT we sent, or to our socks5 greeting, auth or
+ * CONNECT (lws_socks5c_rx(), which sends our next message itself).  Nothing
+ * in it is for the role or the user: until the tunnel is up the bytes are
+ * the proxy's, and the connection does not exist for the user yet.  When it
+ * comes up, IO carries on as for a direct connection: tls first if that was
+ * asked for, else the transport is up and the role hears so with its
+ * client_transport_up op, or the user with the role's adoption callback
+ * (RAW_CONNECTED, say).  What followed the reply in the read is left, by
+ * *used, for the role's own rx, when it can be the peer's.
  */
 lws_handling_result_t
 lws_client_tunnel_rx(struct lws *wsi, const uint8_t *buf, size_t len,
@@ -355,6 +356,21 @@ lws_client_tunnel_rx(struct lws *wsi, const uint8_t *buf, size_t len,
 	if (lwsi_transport(wsi) == LTS_WAITING_PROXY_REPLY)
 		r = lws_client_proxy_reply(wsi, buf, len, &cce, ebuf,
 					   sizeof(ebuf), used);
+#endif
+#if defined(LWS_WITH_SOCKS5)
+	if (lwsi_in_socks5_leg(wsi))
+		switch (lws_socks5c_rx(wsi, buf, len, &cce, used)) {
+		case LW5CHS_RET_STARTHS:
+			r = 1;
+			break;
+		case LW5CHS_RET_NOTHING:
+			/* our next message went, its reply is awaited */
+			r = 0;
+			break;
+		default:
+			r = -1;
+			break;
+		}
 #endif
 
 	switch (r) {
