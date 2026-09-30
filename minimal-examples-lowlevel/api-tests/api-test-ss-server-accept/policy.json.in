@@ -28,6 +28,23 @@
         "server_cert": "self_localhost",
         "server_key": "self_localhost_key"
       }
+    },
+    {
+      "accplain": {
+        "server": true,
+        "port": @PORT_SS_SRV_ACCEPT_PLAIN@,
+        "protocol": "h1",
+        "tls": false,
+        "metadata": [ { "path": "", "method": "" } ]
+      }
+    },
+    {
+      "accraw": {
+        "server": true,
+        "port": @PORT_SS_SRV_ACCEPT_RAW@,
+        "protocol": "raw",
+        "tls": false
+      }
     }
   ]
 }

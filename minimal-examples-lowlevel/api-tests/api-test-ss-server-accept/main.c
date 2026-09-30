@@ -14,16 +14,26 @@
  * goes: a server that keeps them leaks one stream object per connection, for
  * as long as the context lives.
  *
- * The user code here sees each accepted stream's LWSSSCS_CREATING and
+ * The policy has three server streamtypes: http over tls, http without tls,
+ * and raw.  The user code sees each accepted stream's LWSSSCS_CREATING and
  * LWSSSCS_DESTROYING, so it can count how many are alive.  A client in the
  * same process runs each phase a few times, and after each run all the
  * accepted streams must be gone again.
  *
- *  - tcp:        connect and close, without starting tls
+ *  - tcp:        connect to the tls server and close, without starting tls
+ *  - plain-txn:  a complete http/1.1 transaction with the plaintext server
+ *  - plain-refused: the user code refuses the plaintext server's accepted
+ *                stream in LWSSSCS_CREATING, the connection is closed
+ *  - raw:        connect to the raw server and close
+ *  - raw-refused: the user code refuses the raw server's accepted stream
  *  - h1-partial: tls with ALPN http/1.1, part of a request, close
  *  - h1-txn:     a complete http/1.1 transaction the server answers
+ *  - h1-refused: the user code refuses the connection's accepted stream in
+ *                LWSSSCS_CREATING, the connection is closed
  *  - h2-txn:     a complete h2 transaction the server answers: the h2
  *                network connection has an accepted stream of its own
+ *  - h2-refused: the user code accepts the h2 connection's stream but
+ *                refuses the one for the request's h2 stream
  */
 
 #include <libwebsockets.h>
@@ -33,14 +43,20 @@
 enum {
 	LWS_SW_POLICY,
 	LWS_SW_PORT,
+	LWS_SW_PORT_PLAIN,
+	LWS_SW_PORT_RAW,
 	LWS_SW_SERVER,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
 	[LWS_SW_POLICY]	= { "-c",	"Path to the JSON policy to use" },
-	[LWS_SW_PORT]	= { "-p",	"Port the client connects to, must be the "
-					"policy's server port (default 7681)" },
+	[LWS_SW_PORT]	= { "-p",	"Port of the policy's tls server "
+					"(default 7681)" },
+	[LWS_SW_PORT_PLAIN] = { "--port-plain", "Port of the policy's "
+					"plaintext server (default 7682)" },
+	[LWS_SW_PORT_RAW] = { "--port-raw", "Port of the policy's raw "
+					"server (default 7683)" },
 	[LWS_SW_SERVER]	= { "--server",	"Address the client connects to "
 					"(default 127.0.0.1)" },
 	[LWS_SW_HELP]	= { "--help",	"Show this help information" },
@@ -53,29 +69,49 @@ static const char h1_partial[] = "GET / HTTP/1.1\r\nHost: localhost\r\n";
 typedef struct phase {
 	const char		*name;
 	const char		*alpn;		/* NULL = no tls */
+	char			server;		/* SRV_ */
 	const char		*send;		/* raw: sent before closing */
 	size_t			send_len;
 	char			http;		/* a whole GET, answered */
+	char			refuse;		/* refuse the nth accepted
+						 * stream of the cycle in
+						 * CREATING, 0 = none */
 
 	/* results */
 	int			cycles_ok;
 } phase_t;
 
+enum {
+	SRV_TLS,
+	SRV_PLAIN,
+	SRV_RAW,
+};
+
 static phase_t phases[] = {
-	{ "tcp",	NULL,		NULL,		0,		0, 0 },
-	{ "h1-partial",	"http/1.1",	h1_partial,	sizeof(h1_partial) - 1,
-								0, 0 },
-	{ "h1-txn",	"http/1.1",	NULL,		0,		1, 0 },
-	{ "h2-txn",	"h2",		NULL,		0,		1, 0 },
+	{ "tcp",	NULL,	SRV_TLS,   NULL,	0,		0, 0, 0 },
+	{ "plain-txn",	NULL,	SRV_PLAIN, NULL,	0,		1, 0, 0 },
+	{ "plain-refused", NULL, SRV_PLAIN, NULL,	0,		1, 1, 0 },
+	{ "raw",	NULL,	SRV_RAW,   NULL,	0,		0, 0, 0 },
+	{ "raw-refused", NULL,	SRV_RAW,   NULL,	0,		0, 1, 0 },
+	{ "h1-partial",	"http/1.1", SRV_TLS, h1_partial, sizeof(h1_partial) - 1,
+								0, 0, 0 },
+	{ "h1-txn",	"http/1.1", SRV_TLS, NULL,	0,		1, 0, 0 },
+	{ "h1-refused",	"http/1.1", SRV_TLS, NULL,	0,		1, 1, 0 },
+	/*
+	 * once a client connection to the server negotiated h2, later ones
+	 * to the same place go h2, so the h2 phases come last
+	 */
+	{ "h2-txn",	"h2",	SRV_TLS,   NULL,	0,		1, 0, 0 },
+	{ "h2-refused",	"h2",	SRV_TLS,   NULL,	0,		1, 2, 0 },
 };
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
-static struct lws_ss_handle *srv_template;
 static lws_sorted_usec_list_t sul_timeout, sul_next, sul_check;
 static const char *server_ads = "127.0.0.1";
 static unsigned int cur_phase, cycle;
-static int port = 7681, failed;
+static int failed;
+static char creating_templates;
 
 /*
  * accepted streams: created, destroyed, how many had been created when the
@@ -104,10 +140,34 @@ typedef struct srv {
 	char			sent;
 } srv_t;
 
+/* one server template stream per streamtype in the policy */
+
+typedef struct server {
+	const char		*streamtype;
+	int			port;
+	struct lws_ss_handle	*template;
+} server_t;
+
+static server_t servers[] = {
+	[SRV_TLS]	= { "accsrv",	7681, NULL },
+	[SRV_PLAIN]	= { "accplain",	7682, NULL },
+	[SRV_RAW]	= { "accraw",	7683, NULL },
+};
+
 static int
 is_template(srv_t *m)
 {
-	return srv_template && m == lws_ss_to_user_object(srv_template);
+	unsigned int n;
+
+	if (creating_templates)
+		return 1;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(servers); n++)
+		if (servers[n].template &&
+		    m == lws_ss_to_user_object(servers[n].template))
+			return 1;
+
+	return 0;
 }
 
 static lws_ss_state_return_t
@@ -139,8 +199,7 @@ srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 {
 	srv_t *m = (srv_t *)userobj;
 
-	/* srv_template is not set yet when the template hears CREATING */
-	if (!srv_template || is_template(m)) {
+	if (is_template(m)) {
 		lwsl_ss_user(m->ss, "%s (template)", lws_ss_state_name(state));
 		return LWSSSSRET_OK;
 	}
@@ -150,6 +209,11 @@ srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 	switch (state) {
 	case LWSSSCS_CREATING:
 		acc_created++;
+		if (phases[cur_phase].refuse ==
+				acc_created - acc_created_at_start) {
+			lwsl_user("%s: refusing accepted stream\n", __func__);
+			return LWSSSSRET_DESTROY_ME;
+		}
 		break;
 
 	case LWSSSCS_DESTROYING:
@@ -169,15 +233,6 @@ srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 	return LWSSSSRET_OK;
 }
 
-static const lws_ss_info_t ssi_server = {
-	.handle_offset			= offsetof(srv_t, ss),
-	.opaque_user_data_offset	= offsetof(srv_t, opaque_data),
-	.streamtype			= "accsrv",
-	.rx				= srv_rx,
-	.tx				= srv_tx,
-	.state				= srv_state,
-	.user_alloc			= sizeof(srv_t),
-};
 
 /*
  * The client side: a raw socket for the phases that stop short of a request,
@@ -214,7 +269,7 @@ start_cycle(lws_sorted_usec_list_t *sul)
 	i.context		= context;
 	i.vhost			= vh_cli;
 	i.address		= server_ads;
-	i.port			= port;
+	i.port			= servers[(int)ph->server].port;
 	i.host			= server_ads;
 	i.origin		= server_ads;
 	i.local_protocol_name	= "acc-cli";
@@ -259,8 +314,14 @@ check_cycle(lws_sorted_usec_list_t *sul)
 	int live = acc_created - acc_destroyed - acc_left;
 
 	if (client_done && acc_created > acc_created_at_start && !live) {
-		if (ph->http && !client_rx_ok) {
+		if (ph->http && !ph->refuse && !client_rx_ok) {
 			lwsl_err("--- %s: no response ---\n", ph->name);
+			finish(1);
+			return;
+		}
+		if (ph->refuse && client_rx_ok) {
+			lwsl_err("--- %s: refused, but answered ---\n",
+				 ph->name);
 			finish(1);
 			return;
 		}
@@ -300,6 +361,13 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		if (ph->refuse) {
+			/* the server hung up on us, as it should */
+			lwsl_user("%s: %s: connection error: %s\n", __func__,
+				  ph->name, in ? (char *)in : "(null)");
+			client_done = 1;
+			break;
+		}
 		lwsl_err("--- %s: client connection error: %s ---\n", ph->name,
 			 in ? (char *)in : "(null)");
 		finish(1);
@@ -372,16 +440,35 @@ static const struct lws_protocols protocols_cli[] = {
 static int
 smd_cb(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t len)
 {
+	lws_ss_info_t ssi;
+	unsigned int n;
+
 	if (!(c & LWSSMDCL_SYSTEM_STATE) ||
 	    lws_json_simple_strcmp(buf, len, "\"state\":", "OPERATIONAL"))
 		return 0;
 
-	if (lws_ss_create(context, 0, &ssi_server, NULL, &srv_template,
-			  NULL, NULL)) {
-		lwsl_err("%s: failed to create server stream\n", __func__);
-		finish(1);
-		return -1;
+	memset(&ssi, 0, sizeof(ssi));
+	ssi.handle_offset		= offsetof(srv_t, ss);
+	ssi.opaque_user_data_offset	= offsetof(srv_t, opaque_data);
+	ssi.rx				= srv_rx;
+	ssi.tx				= srv_tx;
+	ssi.state			= srv_state;
+	ssi.user_alloc			= sizeof(srv_t);
+
+	/* the template streams' own states are not counted */
+	creating_templates = 1;
+	for (n = 0; n < LWS_ARRAY_SIZE(servers); n++) {
+		ssi.streamtype = servers[n].streamtype;
+		if (lws_ss_create(context, 0, &ssi, NULL, &servers[n].template,
+				  NULL, NULL)) {
+			creating_templates = 0;
+			lwsl_err("%s: failed to create server stream %s\n",
+				 __func__, servers[n].streamtype);
+			finish(1);
+			return -1;
+		}
 	}
+	creating_templates = 0;
 
 	lws_sul_schedule(context, 0, &sul_next, start_cycle, 1);
 
@@ -428,7 +515,12 @@ main(int argc, const char **argv)
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)))
-		port = atoi(p);
+		servers[SRV_TLS].port = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv,
+				    switches[LWS_SW_PORT_PLAIN].sw)))
+		servers[SRV_PLAIN].port = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT_RAW].sw)))
+		servers[SRV_RAW].port = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_SERVER].sw)))
 		server_ads = p;
 

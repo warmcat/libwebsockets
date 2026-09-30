@@ -31,6 +31,8 @@ if (requirements)
 	endif()
 
 	lws_get_free_port(PORT_SS_SRV_ACCEPT)
+	lws_get_free_port(PORT_SS_SRV_ACCEPT_PLAIN)
+	lws_get_free_port(PORT_SS_SRV_ACCEPT_RAW)
 
 	# the policy names the server port, so it's generated per-build
 	configure_file(policy.json.in policy.json @ONLY)
@@ -39,6 +41,8 @@ if (requirements)
 		 COMMAND lws-api-test-ss-server-accept
 			 -c ${CMAKE_CURRENT_BINARY_DIR}/policy.json
 			 -p ${PORT_SS_SRV_ACCEPT}
+			 --port-plain ${PORT_SS_SRV_ACCEPT_PLAIN}
+			 --port-raw ${PORT_SS_SRV_ACCEPT_RAW}
 			 --server ${LWS_CTEST_SERVER_RESOLVE})
 	set_tests_properties(api-test-ss-server-accept
 			     PROPERTIES

@@ -2477,7 +2477,9 @@ lws_ss_dump_extant(struct lws_context *cx, int tsi)
  * a mux connection): create the accepted ss from the server's pieces and
  * bind it to the wsi, giving it CREATING and CONNECTING; CONNECTED waits on
  * whether it upgrades.  Returns 0 (bound, or the vhost has no server ss),
- * 1 on failure.  The socket's options are IO's to apply.
+ * 1 on failure, eg, the user code refused it in CREATING or CONNECTING.  On
+ * failure no ss is bound to new_wsi any more, and it is still the caller's
+ * to close.  The socket's options are IO's to apply.
  */
 int
 lws_ss_server_accept_bind(struct lws *new_wsi)
@@ -2562,6 +2564,13 @@ lws_ss_server_accept_bind(struct lws *new_wsi)
 	return 0;
 
 fail:
+	/*
+	 * new_wsi belongs to our caller, who is going to close it.  Unbind
+	 * it first, or lws_ss_destroy() closes and frees it under him.
+	 */
+	h->wsi = NULL;
+	new_wsi->a.opaque_user_data = NULL;
+	new_wsi->for_ss = 0;
 	lws_ss_destroy(&h);
 fail1:
 	return 1;
