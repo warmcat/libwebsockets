@@ -15,6 +15,7 @@ key come from the policy.
 |server|creating `polt_srv`, after all the rejected documents above, some of which kept server certs of their own before failing|it comes up with the original policy's cert and key|
 |metadata|a streamtype with 256 metadata, and a metadata value of 256 bytes|both are rejected (a policy streamtype counts its metadata in a `uint8_t`, and the value length is a `uint8_t`), and one with 255 metadata is accepted with all 255|
 |valid|a valid document whose one metadata value is 255 bytes, longer than one lejp string chunk, then abandoned|it parses to one metadata item holding the whole value, and abandoning it puts the original policy back|
+|pending|a valid document left parsed but not set, as a fetched policy waiting to be applied is, when the context is destroyed|the context destroy frees it (no leak under ASan)|
 
 Build lws with `-DLWS_WITH_ASAN=1` to see the teardown of the rejected
 documents is clean.

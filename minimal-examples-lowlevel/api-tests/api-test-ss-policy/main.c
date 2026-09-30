@@ -19,7 +19,8 @@
  * after all that.  A streamtype with more metadata than the policy can count,
  * or a metadata value longer than the policy can hold, must be refused.  A
  * valid document must still parse, and its metadata value that is longer
- * than one lejp string chunk must still become one metadata item.
+ * than one lejp string chunk must still become one metadata item.  A parse
+ * still pending when the context is destroyed must be cleaned up by it.
  *
  * Build with ASan to see the teardown is clean.
  */
@@ -391,6 +392,18 @@ main(int argc, const char **argv)
 	if (lws_ss_policy_parse_abandon(cx) ||
 	    !original_in_force(cx, "valid abandoned"))
 		goto bail;
+
+	/*
+	 * Leave a valid parse pending, as a fetched policy waiting to be set
+	 * is, when the context is destroyed: the destroy must clean it up
+	 */
+
+	m = fetched(cx, doc_valid(1));
+	if (m == LEJP_CONTINUE || m < 0) {
+		lwsl_err("pending: not accepted (%d)\n", m);
+		lws_ss_policy_parse_abandon(cx);
+		goto bail;
+	}
 
 	result = 0;
 

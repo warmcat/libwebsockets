@@ -3045,6 +3045,14 @@ next_l:
 #if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_SECURE_STREAMS) && \
 	!defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 
+		/*
+		 * A policy parse may still be pending, eg, a fetched policy
+		 * waiting to be set, or an overlay... give it up first, so its
+		 * args and lwsac go, and the server DER list is only what the
+		 * policy in force kept
+		 */
+		lws_ss_policy_parse_abandon(context);
+
 		while (context->server_der_list) {
 			struct lws_ss_x509 *x = context->server_der_list;
 
