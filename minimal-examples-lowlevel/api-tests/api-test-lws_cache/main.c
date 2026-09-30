@@ -834,7 +834,7 @@ static int
 test_nsc_long_fields(void)
 {
 	struct lws_cache_ttl_lru *l1 = NULL, *nsc = NULL;
-	char line[384], key[256], path[128];
+	char line[1024], key[256], path[128], value[700];
 	int ret = 1;
 	size_t size;
 	char *po;
@@ -869,6 +869,29 @@ test_nsc_long_fields(void)
 
 	if (!lws_cache_item_get(nsc, key, (const void **)&po, &size)) {
 		lwsl_err("%s: long path cookie not removed\n", __func__);
+		goto cdone;
+	}
+
+	/*
+	 * A jar line longer than the jar's line buffer (here, from a long
+	 * value) is read back in several pieces, and must come back whole
+	 */
+
+	memset(value, 'v', sizeof(value) - 1);
+	value[sizeof(value) - 1] = '\0';
+	lws_snprintf(line, sizeof(line), "host.com\tFALSE\t/\tTRUE\t"
+		     "4000000000\tlongvalue\t%s", value);
+
+	if (lws_cache_write_through(l1, "host.com|/|longvalue",
+				    (const uint8_t *)line, strlen(line),
+				    lws_now_usecs() + LWS_US_PER_SEC * 10, NULL))
+		goto cdone;
+
+	if (lws_cache_item_get(nsc, "host.com|/|longvalue", (const void **)&po,
+			       &size) ||
+	    size != strlen(line) || memcmp(po, line, size)) {
+		lwsl_err("%s: long value cookie not read back whole\n",
+			 __func__);
 		goto cdone;
 	}
 

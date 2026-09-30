@@ -1015,11 +1015,12 @@ nsc_get_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 collect:
 	/*
 	 * it's bigger than one buffer-load, we have to stash what we're getting
-	 * on a buflist and create it when we have it all
+	 * on a buflist and create it when we have it all.  The append returns
+	 * 1 for the first segment on the list, only < 0 is a failure.
 	 */
 
-	if (lws_buflist_append_segment(&ctx->buflist, (const uint8_t *)buf,
-				       size))
+	if (size && lws_buflist_append_segment(&ctx->buflist,
+					       (const uint8_t *)buf, size) < 0)
 		goto cleanup;
 
 	if (!(flags & LCN_EOL))
@@ -1027,10 +1028,9 @@ collect:
 
 	/* we have all the payload, create the L1 entry without payload yet */
 
-	*ctx->psize = size;
+	*ctx->psize = lws_buflist_total_len(&ctx->buflist);
 	if (ctx->l1->info.ops->write(ctx->l1, ctx->specific_key, NULL,
-				     lws_buflist_total_len(&ctx->buflist),
-				     ctx->expiry, (void **)&q))
+				     *ctx->psize, ctx->expiry, (void **)&q))
 		goto cleanup;
 	*ctx->pdata = q;
 
