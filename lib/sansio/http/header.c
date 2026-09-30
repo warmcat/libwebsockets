@@ -1201,7 +1201,8 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 int
 lws_http_zap_header(struct lws *wsi, const char *name)
 {
-	int n = (int)strlen(name);
+	int n = (int)strlen(name), m;
+	char lc[64];
 	int index;
 
 	if (!wsi->stream.ah)
@@ -1213,10 +1214,24 @@ lws_http_zap_header(struct lws *wsi, const char *name)
 	 * lands it in the unknown-header chain).  Zap the known token if there
 	 * is one, but do not return here: this api's job is that the header is
 	 * gone afterwards, so we must always walk the custom headers too.
+	 *
+	 * Field names are case-insensitive, but the known token names are
+	 * held in lower case: look the name up lower-cased, so that a caller
+	 * naming "Authorization" zaps the peer's authorization header as
+	 * surely as one naming "authorization" does.  No known name is as long
+	 * as lc[].
 	 */
-	index = lws_http_string_to_known_header(name, (size_t)n);
-	if (index != LWS_HTTP_NO_KNOWN_HEADER && index < WSI_TOKEN_COUNT)
-		wsi->stream.ah->frag_index[index] = 0;
+	if (n < (int)sizeof(lc)) {
+		for (m = 0; m < n; m++)
+			lc[m] = (name[m] >= 'A' && name[m] <= 'Z') ?
+					(char)(name[m] + 'a' - 'A') : name[m];
+		lc[n] = '\0';
+
+		index = lws_http_string_to_known_header(lc, (size_t)n);
+		if (index != LWS_HTTP_NO_KNOWN_HEADER &&
+		    index < WSI_TOKEN_COUNT)
+			wsi->stream.ah->frag_index[index] = 0;
+	}
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 	{
