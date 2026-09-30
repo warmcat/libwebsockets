@@ -1294,14 +1294,44 @@ static const unsigned char methods[] = {
 };
 
 /*
+ * A byte of an h1 request header's name that lws didn't recognize as a
+ * header it knows (those only match valid names).  RFC 9112 5.1 / RFC 9110
+ * 5.1: a field name is a token, so no controls, no SP / HT, nothing
+ * non-ASCII: whitespace between the name and the colon is a request
+ * smuggling vector, as whoever is in front of us may see a different name.
+ * The name has already been lowercased.
+ *
+ * The request line's method arrives in the name state too, and "get " is a
+ * token with a space in it: this is only for a server's header names, after
+ * the method.
+ */
+
+static int
+lws_h1_srv_bad_name_char(struct lws *wsi, unsigned char c)
+{
+	struct allocated_headers *ah = wsi->stream.ah;
+	unsigned int m;
+
+	if (wsi->mux_substream || !lwsi_role_server(wsi) || c == ':' ||
+	    lws_http_field_name_char_valid(c, 0))
+		return 0;
+
+	for (m = 0; m < LWS_ARRAY_SIZE(methods); m++)
+		if (ah->frag_index[methods[m]])
+			return 1;
+
+	return 0;
+}
+
+/*
  * The ':' ending the name of an h1 header lws doesn't know
  */
 
-#if defined(LWS_WITH_CUSTOM_HEADERS)
 static void
 lws_h1_unknown_name_ended(struct lws *wsi)
 {
 	struct allocated_headers *ah = wsi->stream.ah;
+#if defined(LWS_WITH_CUSTOM_HEADERS)
 #if defined(_DEBUG)
 	char dotstar[64];
 	int uhlen;
@@ -1334,8 +1364,13 @@ lws_h1_unknown_name_ended(struct lws *wsi)
 
 	/* collect whatever's coming for its value until the next CRLF */
 	ah->parser_state = WSI_TOKEN_UNKNOWN_VALUE_PART;
-}
+#else
+	/* we don't keep headers we don't know: drop the name, skip the value */
+	ah->pos = ah->unk_pos;
+	ah->unk_pos = 0;
+	ah->parser_state = WSI_TOKEN_SKIPPING;
 #endif
+}
 
 /*
  * possible returns:, -1 fail, 0 ok or 2, transition to raw
@@ -1580,17 +1615,17 @@ swallow:
 			}
 			pos = ah->lextable_pos;
 
-#if defined(LWS_WITH_CUSTOM_HEADERS)
 			/*
 			 * The rest of the name of a header we don't know: it
 			 * ends at its ':'
 			 */
 			if (pos < 0 && !wsi->mux_substream) {
+				if (lws_h1_srv_bad_name_char(wsi, c))
+					goto bad_name;
 				if (c == ':')
 					lws_h1_unknown_name_ended(wsi);
 				break;
 			}
-#endif
 			if (pos < 0)
 				break;
 
@@ -1655,31 +1690,30 @@ nope:
 				 * already, or is this the bogus method?
 				 */
 				for (m = 0; m < LWS_ARRAY_SIZE(methods); m++)
-					if (ah->frag_index[methods[m]]) {
-						/*
-						 * already had the method
-						 */
-#if !defined(LWS_WITH_CUSTOM_HEADERS)
-						ah->parser_state = WSI_TOKEN_SKIPPING;
-#endif
-						if (wsi->mux_substream)
-							ah->parser_state = WSI_TOKEN_SKIPPING;
+					if (ah->frag_index[methods[m]])
+						/* already had the method */
 						break;
-					}
 
 				if (m != LWS_ARRAY_SIZE(methods)) {
-#if defined(LWS_WITH_CUSTOM_HEADERS)
 					/*
 					 * We have the method, this is just an
-					 * unknown header then.  c is where its
-					 * name stopped matching any we know:
-					 * if that's the ':' of a name that is
-					 * the start of one we know, like
-					 * "accept-lang:", the name ends here
+					 * unknown header then
 					 */
-					if (!wsi->mux_substream && c == ':')
+					if (wsi->mux_substream) {
+						ah->parser_state = WSI_TOKEN_SKIPPING;
+						break;
+					}
+					/*
+					 * c is where the name stopped matching
+					 * any we know: eg the SP of "host :",
+					 * or the ':' of a name that is the
+					 * start of one we know, "accept-lang:"
+					 */
+					if (lws_h1_srv_bad_name_char(wsi, c))
+						goto bad_name;
+					if (c == ':')
 						lws_h1_unknown_name_ended(wsi);
-#endif
+					/* else we go on collecting the name */
 					break;
 				}
 				/*
@@ -1849,6 +1883,11 @@ excessive:
 	} while (*len);
 
 	return LPR_OK;
+
+bad_name:
+	lwsl_parse_fail(wsi, "invalid byte 0x%02X in header name", c);
+
+	return LPR_FAIL;
 
 set_parsing_complete:
 	if (ah->ues != URIES_IDLE)
