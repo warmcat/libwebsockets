@@ -306,6 +306,7 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |vhost|`vh`|`vh_create_ssl_cli`|Fail client ssl_ctx init|
 |vhost|`vh`|`vh_create_srv_init`|Fail server init|
 |vhost|`vh`|`vh_create_protocol_init`|Fail late protocol init (for late vhost creation)|
+|srv vhost|`vh`|`h3_settings_no_wt`|h3 server SETTINGS do not enable WebTransport or HTTP Datagrams (LWS_ROLE_WT)|
 |srv vhost|`vh=xxx/wsi`|`listenskt`|Causes `socket()` allocation for vhost listen socket to fail|
 |cli wsi|`wsi`|`dnsfail`|Sync: `getaddrinfo()` is not called and a EAI_FAIL return synthesized, Async: request not started and immediate fail synthesized|
 |cli wsi|`wsi`|`sendfail`|Attempts to send data on the wsi socket fail|

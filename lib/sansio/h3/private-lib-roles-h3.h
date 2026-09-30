@@ -108,6 +108,7 @@ struct lws_h3_netconn {
 	uint8_t peer_supports_ws:1;
 	uint8_t peer_supports_webtransport:1;
 	uint8_t peer_supports_h3_datagram:1;
+	uint8_t peer_settings_done:1; /* the peer's whole SETTINGS is in */
 };
 
 struct _lws_h3_related {

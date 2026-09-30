@@ -86,6 +86,15 @@ lws_h3_log_path_sans_urlargs(char *buf, size_t len, const char *path)
 
 
 #if defined(LWS_WITH_CLIENT)
+#if defined(LWS_ROLE_WT)
+/* a client stream bound to "webtransport" asks for a WebTransport session */
+static int
+lws_h3_client_is_wt(const struct lws *wsi)
+{
+	return wsi->a.protocol && !strcmp(wsi->a.protocol->name, "webtransport");
+}
+#endif
+
 static int
 lws_h3_client_handshake_composed(struct lws *wsi)
 {
@@ -104,7 +113,7 @@ lws_h3_client_handshake_composed(struct lws *wsi)
 	if (wsi->do_ws)
 		meth = "CONNECT";
 #if defined(LWS_ROLE_WT)
-	else if (wsi->a.protocol && !strcmp(wsi->a.protocol->name, "webtransport"))
+	else if (lws_h3_client_is_wt(wsi))
 		meth = "CONNECT";
 #endif
 	/*
@@ -134,7 +143,7 @@ lws_h3_client_handshake_composed(struct lws *wsi)
 			return -1;
 	}
 #if defined(LWS_ROLE_WT)
-	else if (wsi->a.protocol && !strcmp(wsi->a.protocol->name, "webtransport")) {
+	else if (lws_h3_client_is_wt(wsi)) {
 		if (lws_add_http3_header_by_token(wsi, WSI_TOKEN_COLON_PROTOCOL,
 					(unsigned char *)"webtransport", 12, &p, end))
 			return -1;
@@ -466,6 +475,37 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 			}
 			return -1;
 		}
+#if defined(LWS_ROLE_WT)
+		if (lws_h3_client_is_wt(wsi)) {
+			static const char cce[] =
+					"HS: peer did not enable WebTransport";
+			struct lws_h3_netconn *h3n = nwsi ? nwsi->h3.h3n : NULL;
+
+			/*
+			 * draft-ietf-webtrans-http3: the client must not send
+			 * its WebTransport CONNECT until the server's SETTINGS
+			 * enabled both WebTransport and HTTP Datagrams (RFC
+			 * 9297).  So wait for the whole SETTINGS frame, even
+			 * if the peer's control stream has not opened yet, and
+			 * then insist on both.  There is no WebTransport over
+			 * h2 here, so unlike ws there is nothing to fall back
+			 * to: the attempt fails.
+			 */
+			if (h3n && !h3n->peer_settings_done)
+				return 0;
+
+			if (!h3n || !h3n->peer_supports_webtransport ||
+			    !h3n->peer_supports_h3_datagram) {
+				lwsl_wsi_notice(wsi, "peer SETTINGS: "
+					"ENABLE_WEBTRANSPORT %d, H3_DATAGRAM %d",
+					h3n ? h3n->peer_supports_webtransport : 0,
+					h3n ? h3n->peer_supports_h3_datagram : 0);
+				lws_inform_client_conn_fail(wsi, (void *)cce,
+							    sizeof(cce) - 1);
+				return -1;
+			}
+		}
+#endif
 		if (lws_h3_client_handshake(wsi)) {
 			lwsl_wsi_err(wsi, "lws_h3_client_handshake failed!");
 			return -1;
@@ -1190,27 +1230,38 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 			 * Table Capacity instruction.
 			 */
 
+			pre[LWS_PRE + 1] = 0x04; /* SETTINGS */
+			/* LWS_PRE + 2 is the length, filled in below */
+			pre[LWS_PRE + 3] = 0x01; /* SETTINGS_QPACK_MAX_TABLE_CAPACITY */
+			pre[LWS_PRE + 4] = LWS_QPACK_CAP_VARINT;
+			pre[LWS_PRE + 5] = 0x00;
+			send_len = 6;
+
 			if (nwsi->a.vhost->h2.set.s[H2SET_ENABLE_CONNECT_PROTOCOL]) {
-				pre[LWS_PRE + 1] = 0x04; /* SETTINGS */
-				pre[LWS_PRE + 2] = 0x0c; /* Length 12 */
-				pre[LWS_PRE + 3] = 0x01; /* SETTINGS_QPACK_MAX_TABLE_CAPACITY */
-				pre[LWS_PRE + 4] = LWS_QPACK_CAP_VARINT;
-				pre[LWS_PRE + 5] = 0x00;
-				pre[LWS_PRE + 6] = 0x08; /* SETTINGS_ENABLE_CONNECT_PROTOCOL */
-				pre[LWS_PRE + 7] = 0x01; /* 1 */
-				pre[LWS_PRE + 8] = 0x33; /* SETTINGS_H3_DATAGRAM */
-				pre[LWS_PRE + 9] = 0x01; /* 1 */
-				pre[LWS_PRE + 10] = 0xab; pre[LWS_PRE + 11] = 0x60; pre[LWS_PRE + 12] = 0x37; pre[LWS_PRE + 13] = 0x42; /* SETTINGS_ENABLE_WEBTRANSPORT */
-				pre[LWS_PRE + 14] = 0x01; /* 1 */
-				send_len = 15;
-			} else {
-				pre[LWS_PRE + 1] = 0x04; /* SETTINGS */
-				pre[LWS_PRE + 2] = 0x03; /* Length 3 */
-				pre[LWS_PRE + 3] = 0x01; /* SETTINGS_QPACK_MAX_TABLE_CAPACITY */
-				pre[LWS_PRE + 4] = LWS_QPACK_CAP_VARINT;
-				pre[LWS_PRE + 5] = 0x00;
-				send_len = 6;
+				pre[LWS_PRE + send_len++] = 0x08; /* SETTINGS_ENABLE_CONNECT_PROTOCOL */
+				pre[LWS_PRE + send_len++] = 0x01; /* 1 */
+#if defined(LWS_ROLE_WT)
+				/*
+				 * Only a build that can accept a WebTransport
+				 * session may tell the peer it can.  The
+				 * fault lets a test be a server that does not.
+				 */
+				if (!lws_fi(&nwsi->a.vhost->fic,
+					    "h3_settings_no_wt")) {
+					pre[LWS_PRE + send_len++] = 0x33; /* SETTINGS_H3_DATAGRAM */
+					pre[LWS_PRE + send_len++] = 0x01; /* 1 */
+					/* SETTINGS_ENABLE_WEBTRANSPORT, 4-byte varint */
+					pre[LWS_PRE + send_len++] = 0xab;
+					pre[LWS_PRE + send_len++] = 0x60;
+					pre[LWS_PRE + send_len++] = 0x37;
+					pre[LWS_PRE + send_len++] = 0x42;
+					pre[LWS_PRE + send_len++] = 0x01; /* 1 */
+				}
+#endif
 			}
+
+			/* the frame length: everything after type and length */
+			pre[LWS_PRE + 2] = (uint8_t)(send_len - 3);
 			
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
 			int n = lws_write(cwsi, &pre[LWS_PRE], send_len, LWS_WRITE_BINARY | LWS_WRITE_NO_FIN);
@@ -1819,12 +1870,22 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 								nwsi->h3.h3n->peer_supports_ws = 1;
 						} else if (id == LWS_H3_SETTINGS_H3_DATAGRAM) {
 							struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+
+							/* RFC 9297 2.1.1: 0 or 1, else a settings error */
+							if (val > 1) {
+								lwsl_wsi_notice(wsi, "H3 RX: SETTINGS_H3_DATAGRAM %llu",
+										(unsigned long long)val);
+								lws_quic_enter_closing_state(nwsi, LWS_H3_SETTINGS_ERROR, 0, 1);
+								return 1;
+							}
 							if (nwsi && nwsi->h3.h3n)
-								nwsi->h3.h3n->peer_supports_h3_datagram = 1;
+								nwsi->h3.h3n->peer_supports_h3_datagram = val == 1;
 						} else if (id == LWS_H3_SETTINGS_ENABLE_WEBTRANSPORT) {
 							struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+
+							/* the peer enables it by sending 1 */
 							if (nwsi && nwsi->h3.h3n)
-								nwsi->h3.h3n->peer_supports_webtransport = 1;
+								nwsi->h3.h3n->peer_supports_webtransport = val == 1;
 						}
 					}
 				}
@@ -1842,6 +1903,9 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				if (wsi->h3.stream_type == 0x00 && wsi->h3.rx_frame_type == 0x04) {
 					/* SETTINGS frame fully received, wake up children */
 					struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+
+					if (nwsi && nwsi->h3.h3n)
+						nwsi->h3.h3n->peer_settings_done = 1;
 					if (nwsi) {
 						lws_start_foreach_dll(struct lws_dll2 *, d,
 								lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
