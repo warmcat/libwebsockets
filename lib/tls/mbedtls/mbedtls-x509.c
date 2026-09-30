@@ -1094,7 +1094,13 @@ lws_x509_create_cert(struct lws_context *context,
 	mbedtls_pk_context issuer_key;
 	unsigned char buf[4096];
 	char name[128];
-	int len;
+	int len, n;
+
+	/*
+	 * ret stays 1 on every path until the cert and key have both been
+	 * handed to the caller: mbedtls results go in n, never in ret, so no
+	 * failure after an earlier successful mbedtls call can return 0
+	 */
 
 	if (!info || !info->san)
 		return 1;
@@ -1126,18 +1132,18 @@ lws_x509_create_cert(struct lws_context *context,
 			goto bail;
 		}
 
-		ret = mbedtls_pk_setup(&key, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY));
-		if (ret) goto bail;
+		if (mbedtls_pk_setup(&key, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY)))
+			goto bail;
 
-		ret = mbedtls_ecp_gen_key(grp_id, mbedtls_pk_ec(key), mbedtls_ctr_drbg_random, pdrbg);
-		if (ret) goto bail;
+		if (mbedtls_ecp_gen_key(grp_id, mbedtls_pk_ec(key), mbedtls_ctr_drbg_random, pdrbg))
+			goto bail;
 	} else {
-		ret = mbedtls_pk_setup(&key, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA));
-		if (ret) goto bail;
+		if (mbedtls_pk_setup(&key, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA)))
+			goto bail;
 
-		ret = mbedtls_rsa_gen_key(mbedtls_pk_rsa(key), mbedtls_ctr_drbg_random, pdrbg,
-					(unsigned int)(info->key_bits ? info->key_bits : 2048), 65537);
-		if (ret) goto bail;
+		if (mbedtls_rsa_gen_key(mbedtls_pk_rsa(key), mbedtls_ctr_drbg_random, pdrbg,
+					(unsigned int)(info->key_bits ? info->key_bits : 2048), 65537))
+			goto bail;
 	}
 
 	mbedtls_x509write_crt_set_version(&crt, MBEDTLS_X509_CRT_VERSION_3);
@@ -1175,20 +1181,21 @@ lws_x509_create_cert(struct lws_context *context,
 
 	if (info->ca_cert_pem && info->ca_key_pem) {
 		char issuer_name[256];
-		ret = mbedtls_x509_crt_parse(&issuer_crt, (const unsigned char *)info->ca_cert_pem, strlen(info->ca_cert_pem) + 1);
-		if (ret) goto bail;
+		if (mbedtls_x509_crt_parse(&issuer_crt, (const unsigned char *)info->ca_cert_pem, strlen(info->ca_cert_pem) + 1))
+			goto bail;
 
-		ret = mbedtls_pk_parse_key(&issuer_key, (const unsigned char *)info->ca_key_pem, strlen(info->ca_key_pem) + 1, NULL, 0
+		n = mbedtls_pk_parse_key(&issuer_key, (const unsigned char *)info->ca_key_pem, strlen(info->ca_key_pem) + 1, NULL, 0
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
 					, mbedtls_ctr_drbg_random, pdrbg
 #endif
 		);
-		if (ret) goto bail;
+		if (n)
+			goto bail;
 
 		mbedtls_x509write_crt_set_issuer_key(&crt, &issuer_key);
 
-		ret = mbedtls_x509_dn_gets(issuer_name, sizeof(issuer_name), &issuer_crt.MBEDTLS_PRIVATE_V30_ONLY(subject));
-		if (ret < 0) goto bail;
+		if (mbedtls_x509_dn_gets(issuer_name, sizeof(issuer_name), &issuer_crt.MBEDTLS_PRIVATE_V30_ONLY(subject)) < 0)
+			goto bail;
 		if (mbedtls_x509write_crt_set_issuer_name(&crt, issuer_name))
 			goto bail;
 	} else {
@@ -1210,6 +1217,8 @@ lws_x509_create_cert(struct lws_context *context,
 #else
 		tm = gmtime(&t);
 #endif
+		if (!tm)
+			goto bail;
 		lws_snprintf(not_before, sizeof(not_before), "%04d%02d%02d%02d%02d%02d",
 			tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
 			tm->tm_hour, tm->tm_min, tm->tm_sec);
@@ -1221,6 +1230,8 @@ lws_x509_create_cert(struct lws_context *context,
 #else
 		tm = gmtime(&t);
 #endif
+		if (!tm)
+			goto bail;
 		lws_snprintf(not_after, sizeof(not_after), "%04d%02d%02d%02d%02d%02d",
 			tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
 			tm->tm_hour, tm->tm_min, tm->tm_sec);
@@ -1232,18 +1243,21 @@ lws_x509_create_cert(struct lws_context *context,
 	mbedtls_x509write_crt_set_md_alg(&crt, MBEDTLS_MD_SHA256);
 
 	/* Extensions */
-	mbedtls_x509write_crt_set_basic_constraints(&crt, info->is_ca ? 1 : 0, -1);
+	if (mbedtls_x509write_crt_set_basic_constraints(&crt, info->is_ca ? 1 : 0, -1))
+		goto bail;
 
-	if (info->is_ca) {
-		mbedtls_x509write_crt_set_key_usage(&crt, MBEDTLS_X509_KU_KEY_CERT_SIGN | MBEDTLS_X509_KU_CRL_SIGN);
-	} else {
-		mbedtls_x509write_crt_set_key_usage(&crt, MBEDTLS_X509_KU_DIGITAL_SIGNATURE |
-							  MBEDTLS_X509_KU_KEY_ENCIPHERMENT);
-	}
+	if (info->is_ca)
+		n = mbedtls_x509write_crt_set_key_usage(&crt, MBEDTLS_X509_KU_KEY_CERT_SIGN |
+							      MBEDTLS_X509_KU_CRL_SIGN);
+	else
+		n = mbedtls_x509write_crt_set_key_usage(&crt, MBEDTLS_X509_KU_DIGITAL_SIGNATURE |
+							      MBEDTLS_X509_KU_KEY_ENCIPHERMENT);
+	if (n)
+		goto bail;
 
 	/* Cert Output */
 	len = mbedtls_x509write_crt_der(&crt, buf, sizeof(buf), mbedtls_ctr_drbg_random, pdrbg);
-	if (len < 0) {
+	if (len <= 0) {
 		lwsl_err("%s: crt_der failed %d\n", __func__, len);
 		goto bail;
 	}
@@ -1256,7 +1270,7 @@ lws_x509_create_cert(struct lws_context *context,
 
 	/* Key Output - writes to end of buffer */
 	len = mbedtls_pk_write_key_der(&key, buf, sizeof(buf));
-	if (len < 0) {
+	if (len <= 0) {
 		free(*cert_buf);
 		*cert_buf = NULL; /* we return failure: don't leave it dangling */
 		goto bail;
@@ -1274,6 +1288,8 @@ lws_x509_create_cert(struct lws_context *context,
 	ret = 0;
 
 bail:
+	/* the tail of buf may hold the private key DER */
+	lws_explicit_bzero(buf, sizeof(buf));
 	mbedtls_x509write_crt_free(&crt);
 	mbedtls_pk_free(&key);
 	mbedtls_mpi_free(&serial);
