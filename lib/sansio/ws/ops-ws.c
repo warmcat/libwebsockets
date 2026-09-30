@@ -738,14 +738,18 @@ drain_extension:
 //					(int)pmdrx.eb_in.len);
 
 			if (lwsi_close(wsi) == LCS_RETURNED_CLOSE ||
+			    lwsi_close(wsi) == LCS_WAITING_TO_SEND_CLOSE ||
 			    lwsi_close(wsi) == LCS_AWAITING_CLOSE_ACK) {
 				/*
-				 * Nobody takes what the inflater still holds
-				 * any more, so there is no drain to come back
-				 * for: a drain entered mid-frame did not take
-				 * us off the list, and staying on it has the
-				 * loop fake our POLLIN and not wait, while the
-				 * rx policy drains nothing and reads nothing
+				 * Once a close is under way (the peer's, or
+				 * ours: from a callback in this very loop,
+				 * maybe) nobody takes what the inflater still
+				 * holds any more, so there is no drain to come
+				 * back for: a drain entered mid-frame did not
+				 * take us off the list, and staying on it has
+				 * the loop fake our POLLIN and not wait, while
+				 * the rx policy drains nothing and reads
+				 * nothing.  The client's parser stops the same
 				 */
 				lws_remove_wsi_from_draining_ext_list(wsi);
 				goto already_done;
