@@ -277,6 +277,16 @@ __lws_free_wsi(struct lws *wsi)
 	lws_ranges_destroy(&wsi->http.range);
 #endif
 
+#if defined(LWS_WITH_HTTP2) && defined(LWS_WITH_SERVER)
+	/*
+	 * A status page on an h2 / h3 stream keeps its text until the
+	 * stream's next writeable sends the body.  The stream may go before
+	 * that (reset, connection closed, no credit): the text goes with it,
+	 * whichever role's close ran.
+	 */
+	lws_http_status_page_drop_pending(wsi);
+#endif
+
 #if defined(LWS_WITH_SECURE_STREAMS)
 	if (wsi->for_ss) {
 

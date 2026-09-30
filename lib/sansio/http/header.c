@@ -866,6 +866,10 @@ _lws_return_http_status_composed(struct lws *wsi, unsigned int code,
 
 		if (tl > LWS_STATUS_TEXT_MAX)
 			tl = LWS_STATUS_TEXT_MAX;
+
+		/* the stream owns at most one kept text */
+		lws_http_status_page_drop_pending(wsi);
+
 		if (tl) {
 			wsi->h2.pending_status_text = lws_malloc(tl + 1,
 							"pending status text");
@@ -879,17 +883,17 @@ _lws_return_http_status_composed(struct lws *wsi, unsigned int code,
 #endif
 
 	if (lws_add_http_header_status(wsi, code, &p, body))
-		return 1;
+		goto bail;
 
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
 					 (unsigned char *)"text/html", 9,
 					 &p, body))
-		return 1;
+		goto bail;
 
 	if (tok != WSI_TOKEN_COUNT && val &&
 	    lws_add_http_header_by_token(wsi, tok, (unsigned char *)val,
 					 (int)strlen(val), &p, body))
-		return 1;
+		goto bail;
 
 	len = lws_http_status_page_body(body, 510, code, html_body);
 
@@ -897,10 +901,10 @@ _lws_return_http_status_composed(struct lws *wsi, unsigned int code,
 	n = lws_snprintf(slen, 12, "%d", len);
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
 					 (unsigned char *)slen, n, &p, body))
-		return 1;
+		goto bail;
 
 	if (lws_finalize_http_header(wsi, &p, body))
-		return 1;
+		goto bail;
 
 #if defined(LWS_WITH_HTTP2)
 	if (wsi->mux_substream) {
@@ -919,10 +923,8 @@ _lws_return_http_status_composed(struct lws *wsi, unsigned int code,
 		 */
 		m = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
 			      LWS_WRITE_HTTP_HEADERS);
-		if (m != lws_ptr_diff(p, start)) {
-			lws_http_status_page_drop_pending(wsi);
-			return 1;
-		}
+		if (m != lws_ptr_diff(p, start))
+			goto bail;
 
 		/*
 		 * ... and send the body, regenerated from the code and the
@@ -968,6 +970,14 @@ _lws_return_http_status_composed(struct lws *wsi, unsigned int code,
 	}
 
 	return m != n;
+
+bail:
+#if defined(LWS_WITH_HTTP2)
+	/* nothing will send the deferred body now: the kept text goes too */
+	lws_http_status_page_drop_pending(wsi);
+#endif
+
+	return 1;
 }
 
 int
