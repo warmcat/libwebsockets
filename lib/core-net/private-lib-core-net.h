@@ -1318,7 +1318,7 @@ struct lws {
 #endif
 
 
-	uint16_t			ocport, c_port;
+	uint16_t			c_port; /* the origin's, whatever proxy */
 #if defined(LWS_WITH_CLIENT)
 	uint16_t			keep_warm_secs;
 #endif
@@ -1507,9 +1507,9 @@ lws_pt_mutex_destroy(struct lws_context_per_thread *pt)
 	lws_mutex_refcount_destroy(&pt->mr);
 }
 
-#define lws_pt_lock(pt, reason) lws_mutex_refcount_lock(&pt->mr, reason)
-#define lws_pt_unlock(pt) lws_mutex_refcount_unlock(&pt->mr)
-#define lws_pt_assert_lock_held(pt) lws_mutex_refcount_assert_held(&pt->mr)
+#define lws_pt_lock(pt, reason) lws_mutex_refcount_lock(&(pt)->mr, reason)
+#define lws_pt_unlock(pt) lws_mutex_refcount_unlock(&(pt)->mr)
+#define lws_pt_assert_lock_held(pt) lws_mutex_refcount_assert_held(&(pt)->mr)
 
 static LWS_INLINE void
 lws_pt_stats_lock(struct lws_context_per_thread *pt)
