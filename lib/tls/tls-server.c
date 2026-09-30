@@ -977,7 +977,19 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 		/* normal SSL connection processing path */
 
 #if defined(LWS_WITH_ASYNC_QUEUE)
-		if (lwsi_transport(wsi) != LTS_AWAITING_SSL_ACCEPT && context->count_async_threads) {
+		/*
+		 * The first accept step can go to a worker thread.  The tls
+		 * library's handshake callbacks run on it then, and the SNI
+		 * ones change shared lws state: they walk the vhosts, take and
+		 * drop tls ctx refs and move the connection to the vhost they
+		 * pick.  Those hold the context lock, which is only a lock
+		 * when LWS_MAX_SMP > 1: with one service thread nothing would
+		 * keep it off the same state on the worker, so there the
+		 * accept stays on the service thread.
+		 */
+		if (LWS_MAX_SMP > 1 &&
+		    lwsi_transport(wsi) != LTS_AWAITING_SSL_ACCEPT &&
+		    context->count_async_threads) {
 			struct lws_async_job *job;
 
 			if (lws_change_pollfd(wsi, LWS_POLLIN | LWS_POLLOUT, 0)) {

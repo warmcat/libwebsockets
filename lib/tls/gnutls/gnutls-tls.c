@@ -293,20 +293,29 @@ struct lws_gnutls_ar_entry {
         uint8_t key[128];
 };
 
+/*
+ * db_ptr is the vhost: its list is shared by the handshakes of every service
+ * thread, so it is only touched under the context lock
+ */
+
 static int
 lws_gnutls_anti_replay_db_add(void *db_ptr, time_t exp_time,
                               const gnutls_datum_t *key,
                               const gnutls_datum_t *data)
 {
-        lws_dll2_owner_t *owner = (lws_dll2_owner_t *)db_ptr;
-        struct lws_gnutls_ar_entry *e;
+	struct lws_vhost *vh = (struct lws_vhost *)db_ptr;
+	lws_dll2_owner_t *owner = (lws_dll2_owner_t *)vh->tls.anti_replay_owner;
+	struct lws_gnutls_ar_entry *e;
 	time_t now = time(NULL);
+	int ret = GNUTLS_E_DB_ENTRY_EXISTS;
+
+	lws_context_lock(vh->context, __func__); /* ------------- cx { */
 
 	/* drop anything that can no longer be replayed, and look for a hit */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(owner)) {
-                e = lws_container_of(d, struct lws_gnutls_ar_entry, list);
+		e = lws_container_of(d, struct lws_gnutls_ar_entry, list);
 
 		if (e->expires <= now) {
 			lws_dll2_remove(&e->list);
@@ -314,9 +323,10 @@ lws_gnutls_anti_replay_db_add(void *db_ptr, time_t exp_time,
 			continue;
 		}
 
-                if (e->size == key->size && !memcmp(e->key, key->data, key->size))
-                        return GNUTLS_E_DB_ENTRY_EXISTS;
-        } lws_end_foreach_dll_safe(d, d1);
+		if (e->size == key->size &&
+		    !memcmp(e->key, key->data, key->size))
+			goto bail;
+	} lws_end_foreach_dll_safe(d, d1);
 
 	/*
 	 * All the remaining entries are still inside their replay window, so
@@ -324,20 +334,27 @@ lws_gnutls_anti_replay_db_add(void *db_ptr, time_t exp_time,
 	 * than accept one we cannot promise is not a replay
 	 */
 
-        if (lws_dll2_count(owner) >= LWS_GNUTLS_AR_MAX_ENTRIES) {
+	if (lws_dll2_count(owner) >= LWS_GNUTLS_AR_MAX_ENTRIES) {
 		lwsl_warn("%s: anti-replay db full, rejecting 0-RTT\n",
 			  __func__);
+		goto bail;
+	}
 
-		return GNUTLS_E_DB_ENTRY_EXISTS;
-        }
-
-        e = lws_zalloc(sizeof(*e), "anti_replay");
-        if (!e) return GNUTLS_E_MEMORY_ERROR;
+	e = lws_zalloc(sizeof(*e), "anti_replay");
+	if (!e) {
+		ret = GNUTLS_E_MEMORY_ERROR;
+		goto bail;
+	}
 	e->expires = (time_t)exp_time;
-        e->size = key->size < sizeof(e->key) ? key->size : sizeof(e->key);
-        memcpy(e->key, key->data, e->size);
-        lws_dll2_add_tail(&e->list, owner);
-        return 0;
+	e->size = key->size < sizeof(e->key) ? key->size : sizeof(e->key);
+	memcpy(e->key, key->data, e->size);
+	lws_dll2_add_tail(&e->list, owner);
+	ret = 0;
+
+bail:
+	lws_context_unlock(vh->context); /* } cx ------------- */
+
+	return ret;
 }
 #endif
 
@@ -389,7 +406,7 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
         lws_dll2_owner_t *ar_owner = lws_zalloc(sizeof(*ar_owner), "anti_replay_owner");
         if (ar_owner) {
                 vhost->tls.anti_replay_owner = ar_owner;
-                gnutls_anti_replay_set_ptr((gnutls_anti_replay_t)vhost->tls.anti_replay, ar_owner);
+                gnutls_anti_replay_set_ptr((gnutls_anti_replay_t)vhost->tls.anti_replay, vhost);
                 gnutls_anti_replay_set_add_function((gnutls_anti_replay_t)vhost->tls.anti_replay,
                                                     lws_gnutls_anti_replay_db_add);
         }
@@ -516,9 +533,18 @@ lws_gnutls_server_name_cb(gnutls_session_t session)
 	}
 	servername[len] = '\0';
 
+	/*
+	 * The selection, the ctx ref handover and the bind change state other
+	 * threads can be changing: another service thread, or, when the
+	 * accept was handed to an async worker, the service thread
+	 */
+	lws_context_lock(wsi->a.context, __func__); /* ------------- cx { */
+
 	vhost = lws_select_vhost_sni(wsi->a.context, wsi->a.vhost->listen_port,
 				     servername);
 	if (!vhost) {
+		lws_context_unlock(wsi->a.context); /* } cx ------------- */
+
 		/*
 		 * He named something that is not served on this listener, and
 		 * no vhost there is the nominated sni-fallback.  Refuse him
@@ -542,12 +568,12 @@ lws_gnutls_server_name_cb(gnutls_session_t session)
 
 	if (!vhost->tls.ssl_ctx) {
 		lwsl_info("SNI: %s has no tls ctx yet\n", servername);
-		return 0;
+		goto bail;
 	}
 
 	if (vhost->being_destroyed) {
 		lwsl_info("SNI: %s is being destroyed\n", servername);
-		return 0;
+		goto bail;
 	}
 
 	/*
@@ -561,7 +587,7 @@ lws_gnutls_server_name_cb(gnutls_session_t session)
 	ref = lws_tls_ctx_ref_get(vhost);
 	if (!ref) {
 		lwsl_info("SNI: %s has no ctx ref\n", servername);
-		return 0;
+		goto bail;
 	}
 
 	if (wsi->io->tls.ctx_ref)
@@ -586,6 +612,9 @@ lws_gnutls_server_name_cb(gnutls_session_t session)
 
 	/* And update wsi's bound vhost! */
 	lws_tls_sni_bind(vhost, wsi);
+
+bail:
+	lws_context_unlock(wsi->a.context); /* } cx ------------- */
 
 	return 0;
 }
