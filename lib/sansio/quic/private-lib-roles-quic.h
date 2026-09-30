@@ -377,7 +377,14 @@ struct lws_quic_netconn {
 	struct lws_quic_cid	rem_cid; /* Remote peer's Connection ID */
 	uint64_t                highest_rx_cid_seq; /* F-55: Track NEW_CONNECTION_ID seq */
 	uint8_t                 rem_stateless_reset_token[16];
-	struct lws_quic_cid	orig_dcid; /* Original Destination Connection ID from client */
+	struct lws_quic_cid	orig_dcid; /* the client's first Initial's DCID */
+	/*
+	 * The SCID of the peer's first Initial, which its
+	 * initial_source_connection_id transport parameter must repeat
+	 * (RFC 9000 7.3)
+	 */
+	struct lws_quic_cid	peer_iscid;
+	uint8_t			peer_iscid_set;
 
 	/* Array of pointers to lazily allocated key material */
 	struct lws_quic_keys	*keys[LWS_QUIC_LEVEL_COUNT];

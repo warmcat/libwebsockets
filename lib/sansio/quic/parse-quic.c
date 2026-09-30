@@ -1925,7 +1925,7 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 	if (!qn)
 		return -1;
 
-	int seen_initial_source_cid = 0;
+	int seen_initial_source_cid = 0, seen_odcid = 0, seen_rscid = 0;
 
 	while (pos < len) {
 		consumed = lws_quic_parse_varint(&buf[pos], len - pos, &param_id);
@@ -1982,7 +1982,21 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 			}
 			break;
 		}
+		/*
+		 * RFC 9000 7.3: the connection IDs the handshake used are
+		 * repeated in the transport parameters, which the handshake
+		 * authenticates, so a peer (or anyone who injected or
+		 * rewrote Initials on the path) that disagrees with what we
+		 * saw is refused
+		 */
 		case 0x0f: /* initial_source_connection_id */
+			if (!qn->peer_iscid_set ||
+			    param_len != qn->peer_iscid.len ||
+			    (param_len && memcmp(&buf[pos], qn->peer_iscid.id,
+						 (size_t)param_len))) {
+				lwsl_wsi_err(wsi, "QUIC TP error: initial_source_connection_id mismatch");
+				return -1;
+			}
 			seen_initial_source_cid = 1;
 			break;
 		case 0x00: /* original_destination_connection_id */
@@ -1991,6 +2005,13 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 				lwsl_wsi_err(wsi, "QUIC TP error: Client sent original_destination_connection_id");
 				return -1;
 			}
+			if (param_len != qn->orig_dcid.len ||
+			    (param_len && memcmp(&buf[pos], qn->orig_dcid.id,
+						 (size_t)param_len))) {
+				lwsl_wsi_err(wsi, "QUIC TP error: original_destination_connection_id mismatch");
+				return -1;
+			}
+			seen_odcid = 1;
 			break;
 		case 0x03: /* max_udp_payload_size */
 			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
@@ -2101,12 +2122,14 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 				lwsl_wsi_err(wsi, "QUIC TP error: Client sent server-only parameter %llu", (unsigned long long)param_id);
 				return -1;
 			}
-			if (qn->retry_scid.len) {
-				if (param_len != qn->retry_scid.len || memcmp(&buf[pos], qn->retry_scid.id, param_len)) {
-					lwsl_wsi_err(wsi, "QUIC TP error: retry_source_connection_id mismatch");
-					return -1;
-				}
+			/* only present, and matching, if we followed a Retry */
+			if (!qn->retry_scid.len ||
+			    param_len != qn->retry_scid.len ||
+			    memcmp(&buf[pos], qn->retry_scid.id, (size_t)param_len)) {
+				lwsl_wsi_err(wsi, "QUIC TP error: retry_source_connection_id mismatch");
+				return -1;
 			}
+			seen_rscid = 1;
 			break;
 		case 0x02: /* stateless_reset_token */
 			if (qn->is_server) {
@@ -2226,6 +2249,16 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 
 	if (!seen_initial_source_cid) {
 		lwsl_wsi_err(wsi, "QUIC TP error: initial_source_connection_id is missing");
+		return -1;
+	}
+
+	if (!qn->is_server && !seen_odcid) {
+		lwsl_wsi_err(wsi, "QUIC TP error: original_destination_connection_id is missing");
+		return -1;
+	}
+
+	if (!qn->is_server && qn->retry_scid.len && !seen_rscid) {
+		lwsl_wsi_err(wsi, "QUIC TP error: retry_source_connection_id is missing after a Retry");
 		return -1;
 	}
 

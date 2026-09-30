@@ -47,3 +47,15 @@ The relay needs the server address to be numeric, eg
 ```
 
 Small `--write-size` values make each packet carry many small STREAM frames.
+
+## Retry
+
+With `LWS_QUIC_FORCE_RETRY` set in the environment, the lws QUIC server answers
+every Initial that has no token with a Retry, and only accepts the client's
+next Initial carrying the token (RFC 9000 8.1.2).  The client checks the
+server's transport parameters repeat the connection IDs of that exchange
+(RFC 9000 7.3).
+
+```
+ $ LWS_QUIC_FORCE_RETRY=1 ./lws-minimal-quic-client-server
+```

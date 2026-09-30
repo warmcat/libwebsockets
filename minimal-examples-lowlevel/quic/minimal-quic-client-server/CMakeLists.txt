@@ -77,5 +77,19 @@ if (requirements)
 		set_tests_properties(${SAMP}-reorder PROPERTIES
 					     WORKING_DIRECTORY .
 					     TIMEOUT 60)
+
+		#
+		# The same with the server sending a Retry before it accepts the
+		# client (RFC 9000 8.1.2): the client must see the connection
+		# IDs of the Retry exchange repeated in the server's transport
+		# parameters (RFC 9000 7.3)
+		#
+		lws_get_free_port(PORT_QCS_RETRY)
+		add_test(NAME ${SAMP}-retry COMMAND ${SAMP}
+				--server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_QCS_RETRY})
+		set_tests_properties(${SAMP}-retry PROPERTIES
+					     ENVIRONMENT "LWS_QUIC_FORCE_RETRY=1"
+					     WORKING_DIRECTORY .
+					     TIMEOUT 20)
 	endif()
 endif()

@@ -1244,6 +1244,8 @@ rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
 
 		/* The client's SCID becomes our Remote CID */
 		nwsi->quic.qn->rem_cid = scid;
+		nwsi->quic.qn->peer_iscid = scid;
+		nwsi->quic.qn->peer_iscid_set = 1;
 
 		/* Save the original DCID to route subsequent Initial packets */
 		nwsi->quic.qn->orig_dcid = dcid;
@@ -1919,6 +1921,18 @@ tp_ok:
 
 		if (nwsi->quic.qn && level == LWS_QUIC_LEVEL_HANDSHAKE) {
 			nwsi->quic.qn->address_validated = 1;
+		}
+
+		/*
+		 * A client notes the SCID of the server's first Initial it
+		 * could decrypt: the server's initial_source_connection_id
+		 * transport parameter must match it (RFC 9000 7.3)
+		 */
+		if (nwsi->quic.qn && !nwsi->quic.qn->is_server &&
+		    level == LWS_QUIC_LEVEL_INITIAL &&
+		    !nwsi->quic.qn->peer_iscid_set) {
+			nwsi->quic.qn->peer_iscid = scid;
+			nwsi->quic.qn->peer_iscid_set = 1;
 		}
 
 		if (level == LWS_QUIC_LEVEL_HANDSHAKE) {
@@ -4012,6 +4026,8 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 		dcid.len = 8;
 		if (lws_get_random(wsi->a.context, dcid.id, 8) != 8) return 1;
 		wsi->quic.qn->rem_cid = dcid;
+		/* the server's original_destination_connection_id must be it */
+		wsi->quic.qn->orig_dcid = dcid;
 
 		wsi->quic.qn->loc_cid.len = 8;
 		if (lws_get_random(wsi->a.context, wsi->quic.qn->loc_cid.id, 8) != 8) return 1;
