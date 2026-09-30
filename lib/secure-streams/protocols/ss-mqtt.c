@@ -1060,8 +1060,8 @@ secstream_connect_munge_mqtt(lws_ss_handle_t *h, char *buf, size_t len,
 			ct->ccp.client_id = NULL;
 		} else {
 			ct->ccp.client_id = (const char *)p;
-			lwsl_notice("%s - Client ID = %s\n",
-				    __func__, ct->ccp.client_id);
+			lwsl_info("%s - Client ID = %s\n",
+				  __func__, ct->ccp.client_id);
 		}
 	} else {
 		/* Default (Random) client ID */
@@ -1082,8 +1082,8 @@ secstream_connect_munge_mqtt(lws_ss_handle_t *h, char *buf, size_t len,
 			ct->ccp.username = NULL;
 		} else {
 			ct->ccp.username = (const char *)p;
-			lwsl_notice("%s - Username ID = %s\n",
-				    __func__, ct->ccp.username);
+			lwsl_info("%s - Username ID = %s\n",
+				  __func__, ct->ccp.username);
 		}
 	}
 
@@ -1101,8 +1101,9 @@ secstream_connect_munge_mqtt(lws_ss_handle_t *h, char *buf, size_t len,
 			ct->ccp.password = NULL;
 		} else {
 			ct->ccp.password = (const char *)p;
-			lwsl_notice("%s - Password ID = %s\n",
-				    __func__, ct->ccp.password);
+			/* it's a secret, never log it, just that we have it */
+			lwsl_info("%s - Password set (%u bytes)\n",
+				  __func__, (unsigned int)blen);
 		}
 	}
 
