@@ -582,6 +582,13 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		/* fallthru */
 
 		wsi = lws_client_transport_start(wsi);
+		if (!wsi && i->pwsi)
+			/*
+			 * It was closed and freed: the caller's copy we set
+			 * above must not outlive it, as on every other NULL
+			 * return
+			 */
+			*i->pwsi = NULL;
 	}
 
 	if (wsi)
