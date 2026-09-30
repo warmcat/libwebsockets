@@ -20,6 +20,10 @@
  *  - a cookie with no Path= gets the default-path of the request that set it
  *    ("/" for "/set"), and a Path= scopes the cookie to that path and below
  *
+ * With --l1-max-items, the jar's heap L1 is limited to that many items, so
+ * sending the cookies for a request keeps filling L1 from the jar file and
+ * evicting, while the result set of the lookup is being walked.
+ *
  * This file is made available under the Creative Commons CC0 1.0 Universal
  * Public Domain Dedication.
  */
@@ -382,6 +386,8 @@ main(int argc, const char **argv)
 		port = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--jar")))
 		jar = p;
+	if ((p = lws_cmdline_option(argc, argv, "--l1-max-items")))
+		info.http_nsc_heap_max_items = (size_t)atoi(p);
 
 	lwsl_user("LWS API selftest: http cookie jar scoping\n");
 

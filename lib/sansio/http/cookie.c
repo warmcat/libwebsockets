@@ -799,8 +799,9 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 	struct client_info_stash *stash;
 	lws_cache_results_t cr;
 	struct lws_cookie c;
-	int hostdomain = 1, ip_host, secure;
+	int hostdomain = 1, ip_host, secure, overflow = 0;
 	char *p, *p1, *cache_name;
+	uint8_t *results;
 
 	if (!wsi)
 		return -1;
@@ -924,8 +925,29 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 
 		lwsl_cookie("%s: looking for %s\n", __func__, cache_name);
 
+		/*
+		 * Another service thread may change the cache while we use
+		 * pointers into it, and the result set of the lookup lives in
+		 * L1 too: getting its items below may fill L1 and evict it, or
+		 * an item it names.  So hold the cache lock over the walk, and
+		 * walk a copy of the result set.
+		 */
+
+		lws_cache_lock(l1); /* ------------------------------ l1 { */
+
 		if (!lws_cache_lookup(l1, cache_name,
-				      (const void **)&cr.ptr, &cr.size)) {
+				      (const void **)&cr.ptr, &cr.size) &&
+		    cr.size) {
+
+			results = lws_malloc(cr.size, __func__);
+			if (!results) {
+				lws_cache_unlock(l1);
+				lws_free(cache_name);
+
+				return -1;
+			}
+			memcpy(results, cr.ptr, cr.size);
+			cr.ptr = results;
 
 			while (!lws_cache_results_walk(&cr)) {
 				lwsl_cookie(" %s (%d)\n", (const char *)cr.tag,
@@ -969,9 +991,8 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 					if (need > lws_ptr_diff_size_t(end, p)) {
 						lwsl_err("%s: cookie buf\n",
 							 __func__);
-						lws_free(cache_name);
-
-						return -1;
+						overflow = 1;
+						break;
 					}
 
 					if (ret) {
@@ -994,9 +1015,16 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 				ret += c.l[CE_NAME] + 1 + c.l[CE_VALUE];
 
 			}
+
+			lws_free(results);
 		}
 
+		lws_cache_unlock(l1); /* ----------------------------- } l1 */
+
 		lws_free(cache_name);
+
+		if (overflow)
+			return -1;
 
 		/* IP-literal hosts match on the exact host only */
 		if (ip_host)

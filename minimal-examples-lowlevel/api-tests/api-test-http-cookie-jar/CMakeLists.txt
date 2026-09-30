@@ -28,6 +28,18 @@ if (requirements)
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 			     TIMEOUT 60)
 
+	# the same with an L1 too small to hold the cookies of one request
+	lws_get_free_port(PORT_HTTP_COOKIE_JAR_SMALL_L1)
+
+	add_test(NAME api-test-http-cookie-jar-small-l1
+		 COMMAND lws-api-test-http-cookie-jar
+			 -p ${PORT_HTTP_COOKIE_JAR_SMALL_L1}
+			 --jar ${CMAKE_CURRENT_BINARY_DIR}/cookie-jar-test-l1.txt
+			 --l1-max-items 2)
+	set_tests_properties(api-test-http-cookie-jar-small-l1 PROPERTIES
+			     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+			     TIMEOUT 60)
+
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
 		add_dependencies(${SAMP} websockets_shared)

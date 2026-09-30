@@ -25,5 +25,8 @@ Needs `LWS_WITH_CACHE_NSCOOKIEJAR` (Linux), client and server support.
 |---|---|
 |-p <port>|Port for the server vhost (default 7700)|
 |--jar <path>|Cookie jar file, emptied at start and removed at the end (default ./cookie-jar-test.txt)|
+|--l1-max-items <n>|Limit the jar's heap L1 to n items (default no limit): with fewer than a request's cookies, sending them keeps refilling L1 from the jar while the lookup result is walked|
+
+ctest runs it twice, the second time with `--l1-max-items 2`.
 
 Run via ctest from a build with `-DLWS_WITH_MINIMAL_EXAMPLES=1`.
