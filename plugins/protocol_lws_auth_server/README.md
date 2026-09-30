@@ -21,6 +21,13 @@ It acts as a central identity provider and issues time-limited JWTs to outsource
 
 The plugin can be enabled on any vhost. Its behavior is customized using Per-Vhost Options (PVOs).
 
+If the plugin is not set up on a vhost, because the vhost names it with no
+options at all (`"lws-auth-server": {}`) or because its init failed (eg, the
+key at `jwk_path` could not be generated or saved, or the database at
+`db_path` could not be opened or given its schema; the reason is logged at
+startup), a `callback://lws-auth-server` mount on that vhost answers every
+request with `503` and its admin WebSocket upgrade is refused.
+
 | PVO Name | Description | Example |
 | --- | --- | --- |
 | `db_path` | Required: The absolute path to the SQLite3 database file. If the file is missing or empty, the plugin will automatically create it and initialize the schema. | `/var/db/lws-auth.sqlite3` |

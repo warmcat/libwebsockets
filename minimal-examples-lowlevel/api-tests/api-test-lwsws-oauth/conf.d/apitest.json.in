@@ -147,5 +147,49 @@
         "origin":                       "file://@OAUTH_APP_ORIGIN_DIR@",
         "default":                      "index.html"
        }]
+    }, {
+     # The auth server named with no options: its PROTOCOL_INIT sees no pvos
+     # and leaves the vhost without any per-vhost state, but the mount below
+     # still routes to it.  It must answer 503, not dereference the missing
+     # state
+     "name": "@OAUTH_VHOST_NAME@",
+     "port": "@OAUTH_PORT_UNINIT@",
+     "host-ssl-cert": "@OAUTH_CERT@",
+     "host-ssl-key": "@OAUTH_KEY@",
+     "alpn": "h2,http/1.1",
+     "disable-no-protocol-ws-upgrades": "on",
+
+     "ws-protocols": [{
+        "lws-auth-server": {}
+       }],
+
+     "mounts": [{
+        "mountpoint": "/api",
+        "origin": "callback://lws-auth-server"
+       }]
+    }, {
+     # The auth server whose PROTOCOL_INIT fails: the key it generates cannot
+     # be saved, so the library frees its per-vhost state and only warns.  The
+     # mount stays reachable, and again must answer 503
+     "name": "@OAUTH_VHOST_NAME@",
+     "port": "@OAUTH_PORT_FAILINIT@",
+     "host-ssl-cert": "@OAUTH_CERT@",
+     "host-ssl-key": "@OAUTH_KEY@",
+     "alpn": "h2,http/1.1",
+     "disable-no-protocol-ws-upgrades": "on",
+
+     "ws-protocols": [{
+        "lws-auth-server": {
+                "status":                       "ok",
+                "db_path":                      "@OAUTH_AUTH_DB@",
+                "auth-domain":                  "@OAUTH_VHOST_NAME@",
+                "jwk_path":                     "@OAUTH_JWK_PATH_BAD@"
+        }
+       }],
+
+     "mounts": [{
+        "mountpoint": "/api",
+        "origin": "callback://lws-auth-server"
+       }]
     }]
 }

@@ -2974,6 +2974,41 @@ send:
 	return send_auth_headers(wsi, pss, "application/json", NULL, NULL);
 }
 
+/*
+ * Releases what the vhd holds.  PROTOCOL_DESTROY uses it, and so does a
+ * PROTOCOL_INIT that fails part way: the library frees a failed protocol's
+ * vhd itself and never sends it PROTOCOL_DESTROY, so what init already
+ * opened (db, key) has to be released before returning the failure.
+ */
+
+static void
+auth_server_vhd_release(struct per_vhost_data__auth_server *vhd)
+{
+	if (vhd->db) {
+		sqlite3_close(vhd->db);
+		vhd->db = NULL;
+	}
+	lws_jwk_destroy(&vhd->jwk);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&vhd->ip_strikes)) {
+		auth_server_strike_t *s = lws_container_of(d,
+						auth_server_strike_t, list);
+
+		lws_dll2_remove(&s->list);
+		free(s);
+	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&vhd->ip_bans)) {
+		auth_server_ban_t *b = lws_container_of(d, auth_server_ban_t,
+							list);
+
+		lws_dll2_remove(&b->list);
+		free(b);
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
 static int
 callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		     void *user, void *in, size_t len)
@@ -3117,6 +3152,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			                     LWS_GENCRYPTO_KTY_EC, 256, "P-256") ||
 			    lws_jwk_save(&vhd->jwk, vhd->jwk_path)) {
 				lwsl_vhost_err(vhd->vhost, "Auth plugin failed to generate or save JWK\n");
+				auth_server_vhd_release(vhd);
 				return -1;
 			}
 		}
@@ -3155,12 +3191,14 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		/* Initialize sqlite database using lws_struct */
 		if (lws_struct_sq3_open(vhd->context, vhd->db_path, 1, &vhd->db)) {
 			lwsl_err("%s: could not open local database at %s. FATAL.\n", __func__, vhd->db_path);
+			auth_server_vhd_release(vhd);
 			return -1;
 		}
 
 		if (sqlite3_exec(vhd->db, schema_init, NULL, NULL, NULL) != SQLITE_OK) {
 			lwsl_vhost_err(vhd->vhost, "Auth plugin schema creation failed: %s\n",
 				 sqlite3_errmsg(vhd->db));
+			auth_server_vhd_release(vhd);
 			return -1;
 		}
 
@@ -3270,27 +3308,31 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		if (vhd) {
-			if (vhd->db)
-				sqlite3_close(vhd->db);
-			lws_jwk_destroy(&vhd->jwk);
-
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ip_strikes)) {
-				auth_server_strike_t *s = lws_container_of(d, auth_server_strike_t, list);
-				lws_dll2_remove(&s->list);
-				free(s);
-			} lws_end_foreach_dll_safe(d, d1);
-
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ip_bans)) {
-				auth_server_ban_t *b = lws_container_of(d, auth_server_ban_t, list);
-				lws_dll2_remove(&b->list);
-				free(b);
-			} lws_end_foreach_dll_safe(d, d1);
-		}
+		if (vhd)
+			auth_server_vhd_release(vhd);
 		break;
 
 	case LWS_CALLBACK_HTTP:
 		lwsl_info("HTTP: path='%s'\n", in ? (const char *)in : "NULL");
+
+		/*
+		 * No vhd means PROTOCOL_INIT did not set us up on this vhost:
+		 * either the vhost gave no options for us (init returns
+		 * without one) or init failed (unwritable key or db path,
+		 * schema failure), in which case the library frees the vhd,
+		 * warns and carries on.  The mount and the ws protocol stay
+		 * reachable regardless, so every entry that needs the vhd
+		 * refuses without it rather than dereferencing NULL.
+		 */
+		if (!vhd) {
+			lwsl_wsi_warn(wsi, "auth server not initialized on "
+					   "this vhost, 503");
+			if (lws_return_http_status(wsi,
+					HTTP_STATUS_SERVICE_UNAVAILABLE, NULL))
+				return -1;
+
+			return lws_http_transaction_completed(wsi);
+		}
 		{
 			char peer[64];
 			lws_get_peer_simple(wsi, peer, sizeof(peer));
@@ -4379,6 +4421,8 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
+		if (!vhd)
+			return -1;
 		lwsl_info("HTTP_BODY_COMPLETION: pss->spa=%p resolving "
 			  "for '%s'\n", pss->spa, pss->requesting_url);
 		if (!pss->spa) {
@@ -4464,8 +4508,15 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
 	{
-		struct lws_jwt_auth *ja = auth_session_jwt(wsi, vhd);
-		int gl = ja ? lws_jwt_auth_query_grant(ja, "*") : -1;
+		struct lws_jwt_auth *ja;
+		int gl;
+
+		if (!vhd)
+			/* not initialized on this vhost, see HTTP above */
+			return 1;
+
+		ja = auth_session_jwt(wsi, vhd);
+		gl = ja ? lws_jwt_auth_query_grant(ja, "*") : -1;
 
 		lwsl_notice("%s: FILTER_PROTOCOL_CONNECTION: ja=%p, wildcard grant level=%d\n",
 			    __func__, ja, gl);
@@ -4489,6 +4540,9 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		char new_grants[2048] = {0};
 
 		char *gp;
+
+		if (!vhd)
+			return -1;
 		if ((gp = (char *)strstr((const char *)in, "\"op\":\""))) {
 			gp += 6;
 			int i = 0;

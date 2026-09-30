@@ -63,12 +63,16 @@ if (requirements)
 	if (NOT WIN32 AND LWS_WITH_MINIMAL_EXAMPLES)
 
 		#
-		# Two ports: the auth vhost and the app vhost.  Each binds h1 +
+		# Four ports: the auth vhost and the app vhost, each binding h1 +
 		# h2 over TCP and, because its "alpn" names h3, a QUIC UDP
-		# listener on the same port number.
+		# listener on the same port number; and two h1 + h2 vhosts
+		# where the auth server's mount is present but the plugin never
+		# set itself up (no options / failed init), for the uninit case.
 		#
-		lws_get_free_ports(PORT_OAUTH 2)
+		lws_get_free_ports(PORT_OAUTH 4)
 		math(EXPR PORT_OAUTH_APP "${PORT_OAUTH} + 1")
+		math(EXPR PORT_OAUTH_UNINIT "${PORT_OAUTH} + 2")
+		math(EXPR PORT_OAUTH_FAILINIT "${PORT_OAUTH} + 3")
 
 		set(OAUTH_DIR		${CMAKE_CURRENT_BINARY_DIR})
 		set(OAUTH_CONF_DIR	${OAUTH_DIR}/lwsws-conf)
@@ -76,6 +80,8 @@ if (requirements)
 		set(OAUTH_VHOST_NAME	${LWS_CTEST_SERVER_RESOLVE})
 		set(OAUTH_PORT_AUTH	${PORT_OAUTH})
 		set(OAUTH_PORT_APP	${PORT_OAUTH_APP})
+		set(OAUTH_PORT_UNINIT	${PORT_OAUTH_UNINIT})
+		set(OAUTH_PORT_FAILINIT	${PORT_OAUTH_FAILINIT})
 
 		# CMAKE_BINARY_DIR, not PROJECT_BINARY_DIR: this file calls
 		# project() itself, so PROJECT_BINARY_DIR is this subdir
@@ -89,6 +95,9 @@ if (requirements)
 
 		set(OAUTH_AUTH_DB	${OAUTH_DIR}/apitest-oauth-auth.sqlite3)
 		set(OAUTH_JWK_PATH	${OAUTH_DIR}/apitest-oauth.jwk)
+		# a key path whose directory does not exist, so the key the
+		# plugin generates cannot be saved and its init fails
+		set(OAUTH_JWK_PATH_BAD	${OAUTH_DIR}/no-such-dir/apitest-oauth.jwk)
 
 		set(OAUTH_CLIENT_ID	"apitest-oauth-client")
 		set(OAUTH_SERVICE_NAME	"apitest-oauth-service")
@@ -251,6 +260,27 @@ if (requirements)
 			add_test(NAME lwsws-oauth-dualhost-h3
 				 COMMAND ${SAMP} -t dualhost --h3 ${ARGS_COMMON})
 			list(APPEND mytests lwsws-oauth-dualhost-h3)
+		endif()
+
+		#
+		# (d) the auth server's mount on vhosts where the plugin has no
+		# per-vhost state: one names it with no options, one points
+		# jwk_path where the key cannot be saved so its init fails.
+		# Both must answer 503, and the process that carries every
+		# other vhost must still be there afterwards.
+		#
+		add_test(NAME lwsws-oauth-uninit-h1
+			 COMMAND ${SAMP} -t uninit --h1 ${ARGS_COMMON}
+				 --uninit-port ${PORT_OAUTH_UNINIT}
+				 --failinit-port ${PORT_OAUTH_FAILINIT})
+		list(APPEND mytests lwsws-oauth-uninit-h1)
+
+		if (has_h2)
+			add_test(NAME lwsws-oauth-uninit-h2
+				 COMMAND ${SAMP} -t uninit --h2 ${ARGS_COMMON}
+					 --uninit-port ${PORT_OAUTH_UNINIT}
+					 --failinit-port ${PORT_OAUTH_FAILINIT})
+			list(APPEND mytests lwsws-oauth-uninit-h2)
 		endif()
 
 		foreach(t ${mytests})

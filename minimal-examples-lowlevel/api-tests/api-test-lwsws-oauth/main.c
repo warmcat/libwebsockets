@@ -26,6 +26,11 @@
  *          a PKCE redirect to the auth server carrying client_id, redirect_uri,
  *          state, code_challenge + S256 and service_name, plus the
  *          auth_oauth_state binding cookie that RFC 6749 s10.12 wants.
+ *
+ *  uninit: the auth server's mount on two vhosts where the plugin has no
+ *          per-vhost state (named with no options; init failed because the
+ *          key cannot be saved).  Both must answer 503, and the process must
+ *          still be serving the real auth vhost afterwards.
  */
 
 #include <libwebsockets.h>
@@ -37,7 +42,8 @@
 #include <sqlite3.h>
 #include <time.h>
 
-static int	interrupted, bad = 1, port_auth, port_app;
+static int	interrupted, bad = 1, port_auth, port_app, port_uninit,
+		port_failinit;
 /*
  * An earlier keepalive connection closing ("peer closed while idle") delivers
  * CLOSED_CLIENT_HTTP while a later request is still waiting for its response.
@@ -1317,6 +1323,40 @@ scenario_dualhost(void)
 	return 0;
 }
 
+/*
+ * The auth server's mount where the plugin never set itself up.  Before this
+ * was guarded, the first request of any kind dereferenced the missing
+ * per-vhost state and took down the whole lwsws, every vhost with it.
+ */
+static int
+scenario_uninit(void)
+{
+	const int ports[] = { port_uninit, port_failinit };
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(ports); n++) {
+		if (req_full(JAR_AUTH, ports[n], "/api/status", NULL))
+			return fail("uninit", "no response from the "
+					"uninitialized auth vhost on port %d",
+					ports[n]);
+		if (status != HTTP_STATUS_SERVICE_UNAVAILABLE)
+			return fail("uninit", "the uninitialized auth vhost on "
+					"port %d answered %u, wanted 503",
+					ports[n], status);
+	}
+
+	/* ... and the process, with every other vhost, is still up */
+
+	if (req_full(JAR_AUTH, port_auth, "/api/status", NULL) ||
+	    status != HTTP_STATUS_OK)
+		return fail("uninit", "the configured auth vhost answered %u "
+				      "afterwards, wanted 200", status);
+
+	lwsl_user("PASS: uninit: 503 from both, auth vhost still serving\n");
+
+	return 0;
+}
+
 /* ---------------------------------------------------------------------- main */
 
 int
@@ -1337,6 +1377,10 @@ main(int argc, const char **argv)
 		port_auth = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--app-port")))
 		port_app = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--uninit-port")))
+		port_uninit = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--failinit-port")))
+		port_failinit = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--client-id")))
 		client_id = p;
 	if ((p = lws_cmdline_option(argc, argv, "--service-name")))
@@ -1391,6 +1435,14 @@ main(int argc, const char **argv)
 		bad = scenario_login();
 	else if (!strcmp(test, "dualhost"))
 		bad = scenario_dualhost();
+	else if (!strcmp(test, "uninit")) {
+		if (!port_uninit || !port_failinit) {
+			lwsl_err("%s: uninit needs --uninit-port and "
+				 "--failinit-port\n", __func__);
+			bad = 1;
+		} else
+			bad = scenario_uninit();
+	}
 	else {
 		lwsl_err("%s: unknown scenario '%s'\n", __func__, test);
 		bad = 1;
