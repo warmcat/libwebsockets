@@ -258,7 +258,12 @@ hex_to_wire(const char *hex, uint8_t *w, size_t len)
  * milliarcseconds biased by 2^31 (the equator / prime meridian), and
  * altitude is a signed count of centimetres biased by 10000000m.  Size and
  * precision fields are centimetres compressed to one byte as a decimal
- * mantissa (0..9) and exponent (0..9).
+ * mantissa (0..9) and exponent (0..9), so they are at most 9e9cm.
+ *
+ * strtod() also accepts "nan", "inf" and values far past anything the wire
+ * can hold, so every value is checked finite and in range before it is
+ * converted, and the conversions are done in 64 bits: long is only 32 bits
+ * on some of our platforms.
  */
 
 /* parse one dms group, advancing *ti past it; returns the angle in degrees */
@@ -278,7 +283,7 @@ loc_dms(char (*toks)[1024], int *ti, int num_toks, double *degrees)
 			break;
 
 		v[n] = strtod(toks[*ti], &e);
-		if (e == toks[*ti] || *e || v[n] < 0.0)
+		if (e == toks[*ti] || *e || !isfinite(v[n]) || v[n] < 0.0)
 			return 1;
 		n++;
 		(*ti)++;
@@ -324,7 +329,7 @@ loc_metres(const char *t, double *m)
 	if (*e == 'm')
 		e++;
 
-	if (*e)
+	if (*e || !isfinite(d))
 		return 1;
 
 	*m = d;
@@ -332,17 +337,17 @@ loc_metres(const char *t, double *m)
 	return 0;
 }
 
-/* compress a centimetre count into the RFC 1876 mantissa / exponent byte */
+/*
+ * compress a centimetre count into the RFC 1876 mantissa / exponent byte,
+ * the caller has checked it is within 0 .. 9e9
+ */
 
 static uint8_t
 loc_encode_cm(double cm)
 {
-	int mant, e = 0;
+	uint64_t mant = (uint64_t)llround(cm);
+	uint8_t e = 0;
 
-	if (cm <= 0.0)
-		return 0;
-
-	mant = (int)lround(cm);
 	while (mant > 9) {
 		mant /= 10;
 		e++;
@@ -464,7 +469,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		static const double mas_bias = 2147483648.0;  /* 2^31 mas  */
 		static const double alt_bias = 1000000000.0;  /* 10000000m in cm */
 		double lat, lon, d, alt = 0, siz = 1, hp = 10000, vp = 10;
-		long latw, lonw, altw;
+		int64_t latw, lonw, altw;
 		int ti = 0;
 
 		if (loc_dms(toks, &ti, num_toks, &lat) ||
@@ -484,12 +489,22 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		if (ti != num_toks)
 			goto fail;
 
-		latw = lround(mas_bias + lat * 3600000.0);
-		lonw = lround(mas_bias + lon * 3600000.0);
-		altw = lround(alt_bias + alt * 100.0);
-		if (latw < 0 || latw > (long)0xffffffff ||
-		    lonw < 0 || lonw > (long)0xffffffff ||
-		    altw < 0 || altw > (long)0xffffffff)
+		/*
+		 * RFC 1876 limits altitude to -100000.00 .. 42849672.95m and
+		 * size and precisions to 0 .. 90000000.00m
+		 */
+		if (alt < -100000.0 || alt > 42849672.95 ||
+		    siz < 0.0 || siz > 90000000.0 ||
+		    hp  < 0.0 || hp  > 90000000.0 ||
+		    vp  < 0.0 || vp  > 90000000.0)
+			goto fail;
+
+		latw = (int64_t)llround(mas_bias + lat * 3600000.0);
+		lonw = (int64_t)llround(mas_bias + lon * 3600000.0);
+		altw = (int64_t)llround(alt_bias + alt * 100.0);
+		if (latw < 0 || latw > (int64_t)UINT32_MAX ||
+		    lonw < 0 || lonw > (int64_t)UINT32_MAX ||
+		    altw < 0 || altw > (int64_t)UINT32_MAX)
 			goto fail;
 
 		WCHK(16);

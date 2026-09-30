@@ -681,7 +681,6 @@ dnssec_monitor_fast_timer_cb(lws_sorted_usec_list_t *sul)
 
 #include <sys/stat.h>
 #include <dirent.h>
-#include <errno.h>
 
 /*
  * A raw file snippet is only interpolated into a response as a JSON value if
