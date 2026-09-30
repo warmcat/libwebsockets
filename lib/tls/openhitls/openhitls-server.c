@@ -182,17 +182,15 @@ OpenHiTLS_verify_callback(int32_t verify_code, HITLS_CERT_StoreCtx *store_ctx)
 	return 0;
 }
 
-int
-lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
+/*
+ * Apply the vhost's client-certificate posture to one of its configs: the
+ * one made at vhost creation, and every one a cert rotation makes afterwards
+ */
+
+static int
+lws_openhitls_server_client_cert_posture(struct lws_vhost *vh,
+					 HITLS_Config *ctx)
 {
-	lws_tls_ctx *ctx;
-
-	if (!vh || !vh->tls.ssl_ctx) {
-		return -1;
-	}
-
-	ctx = (lws_tls_ctx *)vh->tls.ssl_ctx;
-
 	if (!lws_check_opt(vh->options,
 			   LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)) {
 		return 0;
@@ -234,6 +232,16 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 	}
 
 	return 0;
+}
+
+int
+lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
+{
+	if (!vh || !vh->tls.ssl_ctx)
+		return -1;
+
+	return lws_openhitls_server_client_cert_posture(vh,
+					(HITLS_Config *)vh->tls.ssl_ctx);
 }
 
 static int32_t
@@ -507,34 +515,33 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	return 0;
 }
 
-int
-lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
-				  struct lws_vhost *vhost, struct lws *wsi)
-{
-	lws_tls_ctx *ctx;
-	HITLS_Config *config;
-	int ret;
+/*
+ * A new server config carrying everything the vhost's configuration asks for
+ * of it, short of the certificate and key: made once at vhost creation, and
+ * again for every cert rotation (lws_tls_vhost_backend_create_ctx()), so a
+ * rotated config is the same as the one it replaces apart from the cert.
+ *
+ * The config is only returned once it is complete, else it is freed.
+ */
 
-	(void)wsi;
+static HITLS_Config *
+lws_openhitls_server_config_create(struct lws_vhost *vhost)
+{
+	HITLS_Config *config;
 
 	config = HITLS_CFG_NewTLSConfig();
 	if (!config) {
 		lwsl_err("%s: HITLS_CFG_NewTLSConfig failed\n", __func__);
-		return 1;
+		return NULL;
 	}
 
-	if (lws_openhitls_apply_tls_version_by_ssl_options(
-			config, info->ssl_options_set,
-			info->ssl_options_clear, __func__)) {
+	if (lws_openhitls_apply_tls_version_by_ssl_options(config,
+			vhost->tls.ssl_options_set,
+			vhost->tls.ssl_options_clear, __func__)) {
 		lwsl_err("%s: unable to apply server TLS version options\n",
 			 __func__);
-		HITLS_CFG_FreeConfig(config);
-		return 1;
+		goto bail;
 	}
-
-	ctx = config;
-	/* Assign ctx to vhost immediately, so vhost destruction handles cleanup */
-	vhost->tls.ssl_ctx = ctx;
 
 #if defined(LWS_WITH_TLS_KEYLOG) && defined(LWS_WITH_TLS) && \
 		(!defined(LWS_WITHOUT_CLIENT) || !defined(LWS_WITHOUT_SERVER))
@@ -544,7 +551,7 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 
 	HITLS_CFG_SetConfigUserData(config, vhost->context);
 
-	if (lws_check_opt(info->options,
+	if (lws_check_opt(vhost->options,
 			  LWS_SERVER_OPTION_OPENSSL_AUTO_DH_PARAMETERS))
 		HITLS_CFG_SetDhAutoSupport(config, true);
 
@@ -554,15 +561,17 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 				       HITLS_MODE_ACCEPT_MOVING_WRITE_BUFFER |
 				       HITLS_MODE_RELEASE_BUFFERS);
 
-	if (info->tls_ciphers_iana && info->tls_ciphers_iana[0]) {
-		ret = lws_openhitls_apply_cipher_suites(
-			config, info->tls_ciphers_iana, __func__);
-		if (ret) {
+	if (vhost->tls.cfg_tls_ciphers_iana &&
+	    vhost->tls.cfg_tls_ciphers_iana[0]) {
+		if (lws_openhitls_apply_cipher_suites(config,
+					vhost->tls.cfg_tls_ciphers_iana,
+					__func__)) {
 			lwsl_err("%s: no valid IANA cipher from '%s'\n",
-				 __func__, info->tls_ciphers_iana);
-			return 1;
+				 __func__, vhost->tls.cfg_tls_ciphers_iana);
+			goto bail;
 		}
-	} else if (info->ssl_cipher_list || info->tls1_3_plus_cipher_list) {
+	} else if (vhost->tls.cfg_ssl_cipher_list ||
+		   vhost->tls.cfg_tls1_3_plus_cipher_list) {
 		lwsl_info("%s: openHiTLS ignores OpenSSL cipher-list fields; "
 			  "use tls_ciphers_iana\n", __func__);
 	}
@@ -577,21 +586,45 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 	 * silently losing the trust anchor.
 	 */
 
-	if (info->ssl_ca_filepath &&
-	    HITLS_CFG_LoadVerifyFile(config, info->ssl_ca_filepath) !=
+	if (vhost->tls.cfg_ssl_ca_filepath &&
+	    HITLS_CFG_LoadVerifyFile(config, vhost->tls.cfg_ssl_ca_filepath) !=
 			    HITLS_SUCCESS) {
 		lwsl_err("%s: HITLS_CFG_LoadVerifyFile '%s' failed\n",
-			 __func__, info->ssl_ca_filepath);
-
-		return 1;
+			 __func__, vhost->tls.cfg_ssl_ca_filepath);
+		goto bail;
 	}
+
+	return config;
+
+bail:
+	HITLS_CFG_FreeConfig(config);
+
+	return NULL;
+}
+
+int
+lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
+				  struct lws_vhost *vhost, struct lws *wsi)
+{
+	HITLS_Config *config;
+
+	config = lws_openhitls_server_config_create(vhost);
+	if (!config)
+		return 1;
+
+	vhost->tls.ssl_ctx = config;
+
+	/*
+	 * The client-cert posture and alpn are applied to this first config
+	 * by lws_context_init_server_ssl() after we return
+	 */
 
 	if (!vhost->tls.use_ssl ||
 	    (!info->ssl_cert_filepath && !info->server_ssl_cert_mem)) {
 		return 0;
 	}
 
-	lws_ssl_bind_passphrase(ctx, 0, info);
+	lws_ssl_bind_passphrase(config, 0, info);
 
 	return lws_tls_server_certs_load(vhost, wsi, info->ssl_cert_filepath,
 					 info->ssl_private_key_filepath,
@@ -1198,20 +1231,55 @@ bail:
 
 #endif
 
+/*
+ * A cert rotation (lws_tls_cert_updated()) wants a new, separate server config
+ * for the vhost, that the new cert and key are then loaded into.  The caller
+ * wraps it in its own ctx ref and retires the old config's ref only once the
+ * load succeeded, or drops the new one if the load failed... so it must be a
+ * config of its own: handing back the live one would have the two refs each
+ * free it.
+ *
+ * On success vhost->tls.ssl_ctx is the new config, with the same setup the
+ * vhost's first config was given, including what lws_context_init_server_ssl()
+ * adds after backend init (client-cert posture, alpn).  On failure it is left
+ * unchanged.
+ */
+
 int
 lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 {
-        return 0; /* no action */
+	HITLS_Config *config;
+
+	config = lws_openhitls_server_config_create(vhost);
+	if (!config)
+		return 1;
+
+	if (lws_openhitls_server_client_cert_posture(vhost, config)) {
+		HITLS_CFG_FreeConfig(config);
+
+		return 1;
+	}
+
+	/*
+	 * The key passphrase cannot be bound here, since the creation info
+	 * it lives in is long gone: a rotated key has to be unencrypted
+	 */
+
+	vhost->tls.ssl_ctx = config;
+
+	if (vhost->tls.use_ssl)
+		lws_context_init_alpn(vhost);
+
+	return 0;
 }
 
 /*
- * Called by the tls ctx ref system (lws_tls_ctx_ref_destroy_all) when the
- * server config's refcount drops to zero, and also from
- * lws_tls_cert_updated() when retiring an old context after a hot cert
- * update.  HITLS_Config is itself refcounted (HITLS_New up-refs it per
- * connection, HITLS_Free down-refs), so this is safe to call from both the
- * ref system and lws_ssl_SSL_CTX_destroy() like the OpenSSL backend does
- * with SSL_CTX_free().
+ * Called by the tls ctx ref system when a config's ref drops to zero: when
+ * the vhost's refs are destroyed, when lws_tls_cert_updated() retires the
+ * config a rotation replaced, or drops the new one of a rotation that failed.
+ * Each config has exactly one lws ref.  HITLS_Config is itself refcounted
+ * (HITLS_New() up-refs it per connection, HITLS_Free() down-refs), so a
+ * retired config lives on until its last connection is freed.
  */
 void
 lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
