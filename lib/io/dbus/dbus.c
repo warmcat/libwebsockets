@@ -46,7 +46,7 @@
  */
 
 static struct lws *
-__lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
+__lws_shadow_wsi(struct lws_dbus_ctx *ctx, int fd, int create_ok)
 {
 	struct lws *wsi;
 
@@ -86,7 +86,11 @@ __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 	wsi->a.protocol = ctx->vh->protocols;
 	wsi->io->shadow = 1;
 	wsi->opaque_parent_data = ctx;
-	ctx->w[0] = w;
+	/*
+	 * The watch goes in ctx->w[] in lws_dbus_add_watch(), in a free slot:
+	 * a ctx can have watches on more than one fd, and the one in w[0]
+	 * belongs to another shadow wsi still in the poll set
+	 */
 
 	__lws_lc_tag(ctx->vh->context, &ctx->vh->context->lcg[LWSLCG_WSI],
 		     &wsi->lc, "dbus|%s", ctx->vh->name);
@@ -160,7 +164,7 @@ lws_dbus_add_watch(DBusWatch *w, void *data)
 	lws_context_lock(pt->context, __func__);
 	lws_vhost_lock(ctx->vh);
 
-	wsi = __lws_shadow_wsi(ctx, w, dbus_watch_get_unix_fd(w), 1);
+	wsi = __lws_shadow_wsi(ctx, dbus_watch_get_unix_fd(w), 1);
 	lws_vhost_unlock(ctx->vh);
 	if (!wsi) {
 		lws_context_unlock(pt->context);
@@ -262,7 +266,7 @@ lws_dbus_remove_watch(DBusWatch *w, void *data)
 	lws_context_lock(pt->context, __func__);
 	lws_vhost_lock(ctx->vh);
 
-	wsi = __lws_shadow_wsi(ctx, w, dbus_watch_get_unix_fd(w), 0);
+	wsi = __lws_shadow_wsi(ctx, dbus_watch_get_unix_fd(w), 0);
 	lws_vhost_unlock(ctx->vh);
 	if (!wsi)
 		goto bail;
