@@ -44,6 +44,9 @@ LWS_SS_USER_TYPEDEF
 						* stalled on something (image
 						* dims, css): more document
 						* data can't move it on */
+	uint8_t				completed:1; /* the parse is over:
+						* m->sul belongs to
+						* htmlss_done() now */
 } htmlss_t;
 
 /*
@@ -72,8 +75,8 @@ lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul)
 	lws_stateful_ret_t r;
 	size_t zero = 0;
 
-	if (m->lhp.cancelled)
-		/* the document was torn down under us */
+	if (m->lhp.cancelled || m->completed)
+		/* the document was torn down under us, or is finished */
 		return;
 
 	m->awaiting_retry = 0;
@@ -202,6 +205,7 @@ cache_done:
 	 * from inside an asset stream's callback.
 	 */
 
+	m->completed = 1;
 	lws_sul_schedule(m->cx, 0, &m->sul, htmlss_done, 1);
 
 	/*
@@ -231,6 +235,17 @@ htmlss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
 	htmlss_t *m = (htmlss_t *)userobj;
 	lws_ss_state_return_t r = LWSSSSRET_OK;
+
+	if (m->completed)
+		/*
+		 * The parse ended while the stream was still delivering, eg,
+		 * it failed partway through the document.  There's nothing to
+		 * feed any more, and rescheduling m->sul onto the parse would
+		 * replace the pending htmlss_done(): the stream would live
+		 * on, and the parse re-run against a finished layout that the
+		 * render may already have consumed
+		 */
+		return LWSSSSRET_OK;
 
 	if (len &&
 	    lws_buflist_append_segment(&m->flow.bl, buf, len) < 0) {
