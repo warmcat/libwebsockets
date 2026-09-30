@@ -208,7 +208,83 @@ buffer_closest_nodes(struct lws_dht_ctx *ctx, struct node **nodes, int numnodes,
 	return numnodes;
 }
 
-/* reply: id, [nodes], [nodes6], [token], [values], ip */
+/* the size of one node's compact info in a nodes / nodes6 blob */
+
+static size_t
+node_info_len(struct lws_dht_ctx *ctx, const struct node *n, int af)
+{
+	if (ctx->legacy)
+		return af == AF_INET ?
+			(size_t)LWS_DHT_NODE_INFO_LEGACY_IP4_VLEN :
+			(size_t)LWS_DHT_NODE_INFO_LEGACY_IP6_VLEN;
+
+	return (size_t)LWS_DHT_NODE_INFO_HASH_HDR_VLEN + n->id->len +
+	       (af == AF_INET ? (size_t)LWS_DHT_NODE_INFO_IP4_VLEN :
+				(size_t)LWS_DHT_NODE_INFO_IP6_VLEN);
+}
+
+/*
+ * Emit key + the compact info of as many of the nodes (closest first) as
+ * fit in the cursor while leaving `reserve` bytes free.
+ */
+
+static int
+dht_tx_nodes(struct lws_dht_ctx *ctx, dht_txbuf_t *t, const char *key,
+	     struct node **nodes, int numnodes, int af, size_t reserve)
+{
+	size_t blob = 0;
+	char pre[12];
+	int n, k, rc = 0;
+
+	for (k = numnodes; k > 0; k--) {
+		blob = 0;
+		for (n = 0; n < k; n++)
+			blob += node_info_len(ctx, nodes[n], af);
+
+		rc = lws_snprintf(pre, sizeof(pre), "%zu:", blob);
+		if (strlen(key) + (size_t)rc + blob + reserve <= t->size - t->len)
+			break;
+	}
+
+	if (!k)
+		return 0;
+
+	if (dht_tx_lit(t, key) || dht_tx_raw(t, pre, (size_t)rc))
+		return -1;
+
+	for (n = 0; n < k; n++) {
+		const struct sockaddr_in *sin =
+				(const struct sockaddr_in *)&nodes[n]->ss;
+		const struct sockaddr_in6 *sin6 =
+				(const struct sockaddr_in6 *)&nodes[n]->ss;
+
+		if (dht_tx_id_raw(ctx, t, nodes[n]->id))
+			return -1;
+
+		if (af == AF_INET) {
+			if (dht_tx_raw(t, &sin->sin_addr, LWS_DHT_IPV4_VLEN) ||
+			    dht_tx_raw(t, &sin->sin_port, LWS_DHT_PORT_VLEN))
+				return -1;
+		} else
+			if (dht_tx_raw(t, &sin6->sin6_addr, LWS_DHT_IPV6_VLEN) ||
+			    dht_tx_raw(t, &sin6->sin6_port, LWS_DHT_PORT_VLEN))
+				return -1;
+	}
+
+	return 0;
+}
+
+/*
+ * reply: id, [nodes], [nodes6], [token], [values], ip
+ *
+ * dht_send() refuses anything over LWS_DHT_PACKET_SANITY_LIMIT, so the reply
+ * is composed to fit in that: a reply that did not fit was simply never sent,
+ * and ~40 IPv6 peers announced on a hash (5 source addresses' worth) with a
+ * full routing table was enough to make us answer nothing at all, not even
+ * the token, for that hash.  The tail and the token always go in; nodes are
+ * trimmed from the far end only if they cannot fit with those, and then as
+ * many values as fit, starting from a random one as before.
+ */
 
 static int
 send_nodes_peers(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
@@ -217,70 +293,35 @@ send_nodes_peers(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t sale
 		 struct node **nodes6, int numnodes6,
 		 int af, struct storage *st)
 {
-	char buf[2048];
-	dht_txbuf_t t = { .buf = buf, .size = sizeof(buf) };
-	int rc, j0, j, k, len, n_idx;
+	char buf[LWS_DHT_PACKET_SANITY_LIMIT], tail[128], pre[12];
+	dht_txbuf_t tt = { .buf = tail, .size = sizeof(tail) };
+	dht_txbuf_t t = { .buf = buf };
+	size_t reserve = 0;
+	int rc, j0, j, k, len;
 
-	if (dht_tx_lit(&t, "d1:rd2:id") ||
-	    dht_tx_id(ctx, &t, ctx->myid))
+	/* the fixed tail must fit whatever else is left out */
+
+	if (dht_tx_lit(&tt, "e1:t") ||
+	    dht_tx_str(&tt, mp->tid, mp->tid_len) ||
+	    dht_tx_ip(&tt, sa) ||
+	    dht_tx_v(ctx, &tt) ||
+	    dht_tx_lit(&tt, "1:y1:re"))
 		goto fail;
 
-	if (numnodes > 0) {
-		/* bencode needs the whole blob length up front */
-		char pre[12];
-		size_t nodes_len = 0;
+	t.size = sizeof(buf) - tt.len;
 
-		for (n_idx = 0; n_idx < numnodes; n_idx++)
-			nodes_len += ctx->legacy ?
-				(size_t)LWS_DHT_NODE_INFO_LEGACY_IP4_VLEN :
-				(size_t)(LWS_DHT_NODE_INFO_HASH_HDR_VLEN +
-					 nodes[n_idx]->id->len +
-					 LWS_DHT_NODE_INFO_IP4_VLEN);
-
-		rc = lws_snprintf(pre, sizeof(pre), "%zu:", nodes_len);
-		if (rc < 0 ||
-		    dht_tx_lit(&t, "5:nodes") ||
-		    dht_tx_raw(&t, pre, (size_t)rc))
-			goto fail;
-
-		for (n_idx = 0; n_idx < numnodes; n_idx++) {
-			struct node *n = nodes[n_idx];
-			struct sockaddr_in *sin = (struct sockaddr_in *)&n->ss;
-
-			if (dht_tx_id_raw(ctx, &t, n->id) ||
-			    dht_tx_raw(&t, &sin->sin_addr, LWS_DHT_IPV4_VLEN) ||
-			    dht_tx_raw(&t, &sin->sin_port, LWS_DHT_PORT_VLEN))
-				goto fail;
-		}
+	if (mp->token_len > 0) {
+		rc = lws_snprintf(pre, sizeof(pre), "%zu:", mp->token_len);
+		reserve = strlen("5:token") + (size_t)rc + mp->token_len;
 	}
 
-	if (numnodes6 > 0) {
-		char pre[12];
-		size_t nodes6_len = 0;
-
-		for (n_idx = 0; n_idx < numnodes6; n_idx++)
-			nodes6_len += ctx->legacy ?
-				(size_t)LWS_DHT_NODE_INFO_LEGACY_IP6_VLEN :
-				(size_t)(LWS_DHT_NODE_INFO_HASH_HDR_VLEN +
-					 nodes6[n_idx]->id->len +
-					 LWS_DHT_NODE_INFO_IP6_VLEN);
-
-		rc = lws_snprintf(pre, sizeof(pre), "%zu:", nodes6_len);
-		if (rc < 0 ||
-		    dht_tx_lit(&t, "6:nodes6") ||
-		    dht_tx_raw(&t, pre, (size_t)rc))
-			goto fail;
-
-		for (n_idx = 0; n_idx < numnodes6; n_idx++) {
-			struct node *n = nodes6[n_idx];
-			struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&n->ss;
-
-			if (dht_tx_id_raw(ctx, &t, n->id) ||
-			    dht_tx_raw(&t, &sin6->sin6_addr, LWS_DHT_IPV6_VLEN) ||
-			    dht_tx_raw(&t, &sin6->sin6_port, LWS_DHT_PORT_VLEN))
-				goto fail;
-		}
-	}
+	if (dht_tx_lit(&t, "d1:rd2:id") ||
+	    dht_tx_id(ctx, &t, ctx->myid) ||
+	    dht_tx_nodes(ctx, &t, "5:nodes", nodes, numnodes, AF_INET,
+			 reserve) ||
+	    dht_tx_nodes(ctx, &t, "6:nodes6", nodes6, numnodes6, AF_INET6,
+			 reserve))
+		goto fail;
 
 	if (mp->token_len > 0) {
 		if (dht_tx_lit(&t, "5:token") ||
@@ -288,10 +329,16 @@ send_nodes_peers(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t sale
 			goto fail;
 	}
 
-	if (st && st->numpeers > 0) {
+	len = af == AF_INET ? 4 : 16;
+	rc = lws_snprintf(pre, sizeof(pre), "%d:", len + 2);
+
+	/* only start the list if at least one value and its end fit */
+
+	if (st && st->numpeers > 0 &&
+	    strlen("6:valuesl") + (size_t)rc + (size_t)len + 2 + 1 <=
+							t.size - t.len) {
 		unsigned int r;
 
-		len = af == AF_INET ? 4 : 16;
 		lws_get_random(ctx->vhost->context, &r, sizeof(r));
 		j0 = (int)(r % (unsigned int)st->numpeers);
 		j = j0;
@@ -302,11 +349,13 @@ send_nodes_peers(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t sale
 		do {
 			if (st->peers[j].len == len) {
 				unsigned short swapped = htons(st->peers[j].port);
-				char pre[8];
 
-				rc = lws_snprintf(pre, sizeof(pre), "%d:", len + 2);
-				if (rc < 0 ||
-				    dht_tx_raw(&t, pre, (size_t)rc) ||
+				/* leave room for the list's closing 'e' */
+				if ((size_t)rc + (size_t)len + 2 + 1 >
+							t.size - t.len)
+					break;
+
+				if (dht_tx_raw(&t, pre, (size_t)rc) ||
 				    dht_tx_raw(&t, st->peers[j].ip, (size_t)len) ||
 				    dht_tx_raw(&t, &swapped, 2))
 					goto fail;
@@ -318,11 +367,8 @@ send_nodes_peers(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t sale
 			goto fail;
 	}
 
-	if (dht_tx_lit(&t, "e1:t") ||
-	    dht_tx_str(&t, mp->tid, mp->tid_len) ||
-	    dht_tx_ip(&t, sa) ||
-	    dht_tx_v(ctx, &t) ||
-	    dht_tx_lit(&t, "1:y1:re"))
+	t.size = sizeof(buf);
+	if (dht_tx_raw(&t, tail, tt.len))
 		goto fail;
 
 	return dht_send(ctx, buf, t.len, sa, salen);
