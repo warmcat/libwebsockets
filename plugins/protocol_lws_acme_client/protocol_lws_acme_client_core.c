@@ -185,6 +185,7 @@ acme_ipc_save_payload(struct per_vhost_data__lws_acme_client *vhd, const char *r
 	char header[3072];
 	char jwt[2048] = {0};
 	char esc_domain[512], esc_filename[512];
+	int n;
 
 	acme_ipc_sign_jwt(vhd, jwt, sizeof(jwt));
 
@@ -219,15 +220,18 @@ acme_ipc_save_payload(struct per_vhost_data__lws_acme_client *vhd, const char *r
 	}
 	dyn_buf[pos++] = '"'; dyn_buf[pos++] = '}'; dyn_buf[pos++] = '\n';
 
-	if (!vhd->ipc || lws_async_ipc_queue_payload(vhd->ipc, dyn_buf, pos)) {
-		free(dyn_buf);
+	n = !vhd->ipc || lws_async_ipc_queue_payload(vhd->ipc, dyn_buf, pos);
+
+	/* the payload may be a private key (save_key, save_auth_key) */
+	lws_explicit_bzero(dyn_buf, pos);
+	free(dyn_buf);
+
+	if (n)
 		return 1;
-	}
 
 	/* each request is answered by exactly one line, see acme_ipc_line() */
 	vhd->ipc_pending_saves++;
 	acme_ipc_arm(vhd);
-	free(dyn_buf);
 
 	return 0;
 }
