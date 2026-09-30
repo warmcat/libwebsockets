@@ -49,6 +49,11 @@
  * 2) wilcard - tags matched using optional wildcards
  * 3) wildcard + lookup - wildcard, but path part matches using cookie scope rules
  *
+ * Only lookups use wildcards.  Writes, gets and removes name one specific
+ * item and match it literally: the fields of the key are chosen by whoever
+ * set the cookie, and a '*' in them must not turn a remove into a mass
+ * delete.  Writes refuse lines whose tag fields could not be told apart from
+ * a wildcard or a separator.
  */
 
 #include <private-lib-core.h>
@@ -571,7 +576,7 @@ lws_cache_nscookiejar_lookup(struct lws_cache_ttl_lru *_c,
  */
 
 struct nsc_regen_ctx {
-	const char		*wildcard_key_delete;
+	const char		*specific_key_delete;
 	const void		*add_data;
 	lws_usec_t		curr;
 	size_t			add_size;
@@ -607,15 +612,11 @@ nsc_regen_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 			/* routinely strip anything beyond its expiry */
 			goto drop;
 
-		if (ctx->wildcard_key_delete)
-			lwsl_cache("%s: %s vs %s\n", __func__,
-					tag, ctx->wildcard_key_delete);
-		if (ctx->wildcard_key_delete &&
-		    !lws_cache_nscookiejar_tag_match(&cache->cache,
-						     ctx->wildcard_key_delete,
-						     tag, 0)) {
-			lwsl_cache("%s: %s matches wc delete %s\n", __func__,
-					tag, ctx->wildcard_key_delete);
+		/* a specific key is matched literally, never as a wildcard */
+
+		if (ctx->specific_key_delete &&
+		    !strcmp(ctx->specific_key_delete, tag)) {
+			lwsl_cache("%s: dropping %s\n", __func__, tag);
 			goto drop;
 		}
 	}
@@ -641,7 +642,7 @@ drop:
 }
 
 static int
-nsc_regen(lws_cache_nscookiejar_t *cache, const char *wc_delete,
+nsc_regen(lws_cache_nscookiejar_t *cache, const char *specific_key_delete,
 	  const void *pay, size_t pay_size)
 {
 	struct nsc_regen_ctx ctx;
@@ -681,7 +682,7 @@ nsc_regen(lws_cache_nscookiejar_t *cache, const char *wc_delete,
 
 	cache->cache.current_footprint = 0;
 
-	ctx.wildcard_key_delete = wc_delete;
+	ctx.specific_key_delete = specific_key_delete;
 	ctx.add_data = pay;
 	ctx.add_size = pay_size;
 	ctx.curr = lws_now_usecs();
@@ -751,7 +752,40 @@ expiry_cb(lws_sorted_usec_list_t *sul)
 }
 
 
-/* specific_key and expiry are ignored, since it must be encoded in payload */
+/*
+ * The jar is a line-oriented text file shared with other cookie consumers,
+ * and its lines are built from fields a server chose.  Only accept a line
+ * that stays one well-formed line, whose tag is exactly the key the upper
+ * levels know it by, and whose tag fields contain nothing that could be read
+ * back as a wildcard or a field separator.
+ */
+
+static int
+nsc_line_acceptable(const char *line, size_t size, const char *tag,
+		    const char *specific_key)
+{
+	int seps = 0;
+
+	if (!size || line[0] == '#' || memchr(line, '\n', size) ||
+	    memchr(line, '\r', size) || memchr(line, '\0', size))
+		return 0;
+
+	if (specific_key && strcmp(specific_key, tag))
+		/* eg, a TAB inside a field shifted the columns */
+		return 0;
+
+	while (*tag) {
+		if (*tag == '*' || *tag == '?')
+			return 0;
+		if (*tag == LWSCTAG_SEP)
+			seps++;
+		tag++;
+	}
+
+	return seps == 2;
+}
+
+/* expiry is ignored, since it must be encoded in payload */
 
 static int
 lws_cache_nscookiejar_write(struct lws_cache_ttl_lru *_c,
@@ -767,6 +801,12 @@ lws_cache_nscookiejar_write(struct lws_cache_ttl_lru *_c,
 
 	if (nsc_line_to_tag((const char *)source, size, tag, sizeof(tag), NULL))
 		return 1;
+
+	if (!nsc_line_acceptable((const char *)source, size, tag,
+				 specific_key)) {
+		lwsl_warn("%s: refusing unsafe jar line\n", __func__);
+		return 1;
+	}
 
 	if (ppvoid)
 		*ppvoid = NULL;
@@ -912,11 +952,11 @@ lws_cache_nscookiejar_get(struct lws_cache_ttl_lru *_c,
 
 static int
 lws_cache_nscookiejar_invalidate(struct lws_cache_ttl_lru *_c,
-				 const char *wc_key)
+				 const char *specific_key)
 {
 	lws_cache_nscookiejar_t *cache = (lws_cache_nscookiejar_t *)_c;
 
-	return nsc_regen(cache, wc_key, NULL, 0);
+	return nsc_regen(cache, specific_key, NULL, 0);
 }
 
 static struct lws_cache_ttl_lru *

@@ -157,16 +157,18 @@ lws_cache_item_get(struct lws_cache_ttl_lru *cache, const char *specific_key,
  * lws_cache_item_remove() - remove item from all cache levels
  *
  * \param cache: the cache to search for the key
- * \param wildcard_key: the item key string
+ * \param specific_key: the item key string
  *
- * Removes any copy of any item matching the \p wildcard_key from any cache
- * level in one step.
+ * Removes any copy of the item with the key \p specific_key from any cache
+ * level in one step.  The key is matched literally at every level: wildcard
+ * characters in it have no special meaning, only lws_cache_lookup() takes
+ * wildcards.
  *
  * Adding or removing cache items may cause invalidation of cached queries
  * that could refer to the removed item.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_cache_item_remove(struct lws_cache_ttl_lru *cache, const char *wildcard_key);
+lws_cache_item_remove(struct lws_cache_ttl_lru *cache, const char *specific_key);
 
 /**
  * lws_cache_footprint() - query the amount of storage used by the cache layer
@@ -287,8 +289,9 @@ struct lws_cache_ops {
 	/**+ add keys for search_key matches not already listed in the results
 	 * owner */
 	int
-	(*invalidate)(struct lws_cache_ttl_lru *cache, const char *wildcard_key);
-	/**< remove matching item(s) from cache level */
+	(*invalidate)(struct lws_cache_ttl_lru *cache, const char *specific_key);
+	/**< remove the item with this key from cache level, matching the key
+	 * literally (not as a wildcard) */
 
 	int
 	(*get)(struct lws_cache_ttl_lru *cache, const char *specific_key,

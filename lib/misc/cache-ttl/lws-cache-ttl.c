@@ -239,10 +239,10 @@ lws_cache_expunge(struct lws_cache_ttl_lru *cache)
 }
 
 int
-lws_cache_item_remove(struct lws_cache_ttl_lru *cache, const char *wildcard_key)
+lws_cache_item_remove(struct lws_cache_ttl_lru *cache, const char *specific_key)
 {
 	while (cache) {
-		if (cache->info.ops->invalidate(cache, wildcard_key))
+		if (cache->info.ops->invalidate(cache, specific_key))
 			return 1;
 
 		cache = cache->info.parent;

@@ -588,6 +588,81 @@ cdone:
 
 	return ret;
 }
+
+/*
+ * Removes and writes name one specific item, so the jar must match their key
+ * literally: a '*' in a key is just a character there, and only lookups take
+ * wildcards.  The jar also refuses to store a line whose tag fields carry a
+ * wildcard character, since that could not be told apart from a pattern.
+ */
+
+static int
+test_nsc_literal_keys(void)
+{
+	static const char *star_line =
+		"host.com\tFALSE\t/\tTRUE\t4000000000\t*\tstarvalue";
+	struct lws_cache_ttl_lru *l1 = NULL, *nsc = NULL;
+	lws_cache_results_t cr;
+	int ret = 1;
+	size_t size;
+	char *po;
+
+	lwsl_user("%s\n", __func__);
+	tests++;
+
+	if (nsc_pair_create("./cookies-lit.txt", &nsc, &l1))
+		goto cdone;
+
+	if (lws_cache_write_through(l1, tag_cookie1,
+				    (const uint8_t *)cookie1, strlen(cookie1),
+				    lws_now_usecs() + LWS_US_PER_SEC * 10, NULL) ||
+	    lws_cache_write_through(l1, tag_cookie3,
+				    (const uint8_t *)cookie3, strlen(cookie3),
+				    lws_now_usecs() + LWS_US_PER_SEC * 10, NULL))
+		goto cdone;
+
+	/* there is no item with this literal key, nothing may go */
+
+	if (lws_cache_item_remove(l1, "host.com|/|*"))
+		goto cdone;
+
+	/* the jar must refuse this one */
+
+	if (!lws_cache_write_through(l1, "host.com|/|*",
+				     (const uint8_t *)star_line,
+				     strlen(star_line),
+				     lws_now_usecs() + LWS_US_PER_SEC * 10,
+				     NULL)) {
+		lwsl_err("%s: jar accepted a wildcard name\n", __func__);
+		goto cdone;
+	}
+
+	/* both cookies must still be in the jar itself */
+
+	if (lws_cache_item_get(nsc, tag_cookie1, (const void **)&po, &size) ||
+	    size != strlen(cookie1) || memcmp(po, cookie1, size) ||
+	    lws_cache_item_get(nsc, tag_cookie3, (const void **)&po, &size) ||
+	    size != strlen(cookie3) || memcmp(po, cookie3, size)) {
+		lwsl_err("%s: jar lost a cookie\n", __func__);
+		goto cdone;
+	}
+
+	/* ...and a lookup, which does take wildcards, lists just those two */
+
+	if (lws_cache_lookup(l1, "host.com|/|*", (const void **)&cr.ptr,
+			     &cr.size) || cr.size != 53)
+		goto cdone;
+
+	ret = 0;
+
+cdone:
+	nsc_pair_destroy(&nsc, &l1);
+
+	if (ret)
+		lwsl_warn("%s: fail\n", __func__);
+
+	return ret;
+}
 #endif
 
 
@@ -616,6 +691,8 @@ int main(int argc, const char **argv)
 	if (test_nsc1())
 		fail++;
 	if (test_nsc_lookup_get_destroy())
+		fail++;
+	if (test_nsc_literal_keys())
 		fail++;
 #endif
 
