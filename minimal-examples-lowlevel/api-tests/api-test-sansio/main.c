@@ -73,7 +73,10 @@
  * until the close: an h1 request pipelined behind a file being served goes
  * with the connection at once, and a ws message held by rx flow control
  * gets the close timeout's grace, counted from the first time the reset is
- * seen, not from the last.
+ * seen, not from the last.  And a connection asking for nothing, its rx held
+ * by flow control and nothing to send, hears the peer's close as a bare
+ * POLLHUP, the way BSD and OSX report it: it ends at once, or when the grace
+ * is up if it still holds rx.
  *
  * Then whether the transport would take a write: a connection on the test's
  * transport is asked of the transport, never of the fd that is its place in
@@ -563,7 +566,8 @@ pump(struct lws_context *cx, struct transport *t)
 			  ((t->tx_budget && !t->fin) || t->reset);
 
 		pfd.fd = t->fd;
-		pfd.events = (short)(LWS_POLLIN |
+		/* what lws asked of the transport is what it polls for */
+		pfd.events = (short)((t->want_read ? LWS_POLLIN : 0) |
 				     (t->want_write ? LWS_POLLOUT : 0));
 		pfd.revents = (short)((in ? LWS_POLLIN : 0) |
 				      (out ? LWS_POLLOUT : 0) |
@@ -2204,9 +2208,15 @@ h1_reset_behind_file_half(struct lws_context *cx, struct lws_vhost *vh)
  * but the reset is reported on every poll until the connection is closed:
  * the grace is counted from the first poll that saw it, and the connection
  * goes when that is up however often the reset was seen meanwhile.
+ *
+ * 29: the same connection asks for nothing now, neither to read nor to
+ * write, and the peer's close is reported to it as a bare POLLHUP, the way
+ * BSD and OSX do (OSX for a FIN too), with no POLLERR: it is taken as the
+ * hangup it is, the connection going at once when nothing is parked, and
+ * when the grace is up when something is.
  */
 static int
-ws_reset_behind_flowcontrol_half(struct lws_context *cx, int ms)
+ws_hangup_behind_flowcontrol_half(struct lws_context *cx, int ms)
 {
 	static const char req_ws[] =
 		"GET /echo HTTP/1.1\r\nHost: sansio\r\nUpgrade: websocket\r\n"
@@ -2214,52 +2224,75 @@ ws_reset_behind_flowcontrol_half(struct lws_context *cx, int ms)
 		"Sec-WebSocket-Protocol: echo\r\n"
 		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
 	/* masked, zero key: TEXT "Hold", then TEXT "Hello" */
-	static const char frames[] = "\x81\x84\x00\x00\x00\x00Hold"
-				     "\x81\x85\x00\x00\x00\x00Hello";
+	static const char hold_hello[] = "\x81\x84\x00\x00\x00\x00Hold"
+					 "\x81\x85\x00\x00\x00\x00Hello";
+	static const struct {
+		int		cn;
+		const char	*name;
+		size_t		len;	/* of hold_hello: "Hold" alone, or both */
+		int		bare;	/* a bare POLLHUP, else a Linux reset */
+		int		grace;	/* rx parked: it goes when that is up */
+	} c[] = {
+		{ 28, "reset, rx parked", sizeof(hold_hello) - 1, 0, 1 },
+		{ 28, "reset, nothing parked", 10, 0, 0 },
+		{ 29, "bare POLLHUP, rx parked", sizeof(hold_hello) - 1, 1, 1 },
+		{ 29, "bare POLLHUP, nothing parked", 10, 1, 0 },
+	};
 	static struct transport tp;
 	struct lws *wsi;
-	int sv[2], s;
+	size_t n;
+	int sv[2], s, t;
 
-	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
-		lwsl_err("socketpair failed\n");
-		return 1;
-	}
-	close(sv[1]);
-	if (tp_register(&tp, sv[0]))
-		return 1;
-	wsi = lws_adopt_socket(cx, sv[0]);
-	if (!wsi) {
-		lwsl_err("adopt failed\n");
-		return 1;
-	}
-	lws_set_transport(wsi, &tops, &tp);
-
-	if (feed(cx, &tp, req_ws, sizeof(req_ws) - 1) ||
-	    tp.tx_len < 13 || memcmp(tp.tx, "HTTP/1.1 101 ", 13)) {
-		lwsl_err("case 28: no upgrade\n");
-		return 1;
-	}
-	feed(cx, &tp, frames, sizeof(frames) - 1);
-	if (tp.want_read || tp.tx_len) {
-		lwsl_err("case 28: rx not held: read %d, tx %d\n",
-			 tp.want_read, (int)tp.tx_len);
-		return 1;
-	}
-
-	/* the reset is seen at ms, and every 900ms after it */
-	at(cx, ms);
-	tp.reset = 1;
-	for (s = 0; s <= 4; s++) {
-		at(cx, ms + (s * 900));
-		pump(cx, &tp);
-		if (tp.closed != (s * 900 >= 3000)) {
-			lwsl_err("case 28: closed %d at %dms\n", tp.closed,
-				 s * 900);
+	for (n = 0; n < LWS_ARRAY_SIZE(c); n++) {
+		if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+			lwsl_err("socketpair failed\n");
 			return 1;
+		}
+		close(sv[1]);
+		if (tp_register(&tp, sv[0]))
+			return 1;
+		wsi = lws_adopt_socket(cx, sv[0]);
+		if (!wsi) {
+			lwsl_err("adopt failed\n");
+			return 1;
+		}
+		lws_set_transport(wsi, &tops, &tp);
+
+		if (feed(cx, &tp, req_ws, sizeof(req_ws) - 1) ||
+		    tp.tx_len < 13 || memcmp(tp.tx, "HTTP/1.1 101 ", 13)) {
+			lwsl_err("case %d: %s: no upgrade\n", c[n].cn,
+				 c[n].name);
+			return 1;
+		}
+		feed(cx, &tp, hold_hello, c[n].len);
+		if (tp.want_read || tp.want_write || tp.tx_len) {
+			lwsl_err("case %d: %s: rx not held, or tx: read %d, "
+				 "write %d, tx %d\n", c[n].cn, c[n].name,
+				 tp.want_read, tp.want_write, (int)tp.tx_len);
+			return 1;
+		}
+
+		/* the hangup is seen at t, and every 900ms after it */
+		t = ms + (int)n * 10000;
+		at(cx, t);
+		if (c[n].bare)
+			tp.fin = 1;
+		else
+			tp.reset = 1;
+		for (s = 0; s <= 4; s++) {
+			at(cx, t + (s * 900));
+			pump(cx, &tp);
+			if (tp.closed != (!c[n].grace || s * 900 >= 3000)) {
+				lwsl_err("case %d: %s: closed %d at %dms\n",
+					 c[n].cn, c[n].name, tp.closed, s * 900);
+				return 1;
+			}
 		}
 	}
 	lwsl_user("case 28: a reset behind rx flow control ends the "
 		  "connection when its grace is up: PASS\n");
+	lwsl_user("case 29: a bare POLLHUP to a connection asking for nothing "
+		  "ends it: PASS\n");
 
 	return 0;
 }
@@ -3257,7 +3290,7 @@ main(int argc, const char **argv)
 #endif
 
 	/* last, since it moves the time on past the close timeout */
-	if (ws_reset_behind_flowcontrol_half(cx, 100000))
+	if (ws_hangup_behind_flowcontrol_half(cx, 100000))
 		goto bail;
 
 	result = 0;

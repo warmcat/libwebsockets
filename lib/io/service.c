@@ -1410,12 +1410,24 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	 * only have finished sending, with what it sent before it (eg, why it
 	 * refused what we are sending) still unread, because reading was held
 	 * behind the partial.  That is read before the wsi goes, below.
+	 *
+	 * A wsi asking for neither POLLIN nor POLLOUT (waiting for a header
+	 * table, or rx flow-controlled with nothing to send) is only told of
+	 * the close by the bare POLLHUP: off Linux it asks for that alone
+	 * (pollfd.c), and on Linux a unix socket's peer closing is reported
+	 * that way too.  It can neither read nor write to find out any other
+	 * way, and poll() reports it again at once, so it is taken the same
+	 * way.  A transport adapter role (one that keeps a handle_POLLIN) is
+	 * given the revents and hears its hangup itself, eg, a cgi's stdout
+	 * pipe draining what the child wrote before it exited.
 	 */
 
 	bare_hangup = (pollfd->revents & LWS_POLL_HANGUP) &&
 		      (pollfd->revents & LWS_POLLHUP) != LWS_POLLHUP &&
-		      (pollfd->events & LWS_POLLOUT) &&
-		      !(pollfd->revents & LWS_POLLOUT);
+		      (((pollfd->events & LWS_POLLOUT) &&
+			!(pollfd->revents & LWS_POLLOUT)) ||
+		       (!(pollfd->events & (LWS_POLLIN | LWS_POLLOUT)) &&
+			!lws_rops_fidx(wsi->role_ops, LWS_ROPS_handle_POLLIN)));
 
 	if ((pollfd->revents & LWS_POLLHUP) == LWS_POLLHUP || bare_hangup) {
 #if defined(LWS_WITH_CLIENT)
