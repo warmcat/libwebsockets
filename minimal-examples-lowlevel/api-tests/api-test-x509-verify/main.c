@@ -11,6 +11,7 @@
 
 #include <libwebsockets.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 struct test_case {
@@ -90,6 +91,135 @@ run_test_case(const struct test_case *tc, const char *cert_dir)
 	lws_x509_destroy(&cert);
 	lws_x509_destroy(&trusted);
 	return result;
+}
+
+/*
+ * lws_x509_create_cert() produces DER, the parse and CA-signing apis take PEM
+ */
+
+static char *
+der_to_pem(const char *label, const uint8_t *der, size_t der_len)
+{
+	size_t b64_size = ((der_len + 2) / 3) * 4 + 2, pem_size, n, o;
+	char *b64, *pem;
+	int m;
+
+	b64 = malloc(b64_size);
+	if (!b64)
+		return NULL;
+
+	m = lws_b64_encode_string((const char *)der, (int)der_len, b64,
+				  (int)b64_size);
+	if (m < 0) {
+		free(b64);
+		return NULL;
+	}
+
+	/* 64 chars per line, plus the header and footer lines */
+	pem_size = (size_t)m + ((size_t)m / 64) + 2 + (2 * strlen(label)) + 64;
+	pem = malloc(pem_size);
+	if (!pem) {
+		free(b64);
+		return NULL;
+	}
+
+	o = (size_t)lws_snprintf(pem, pem_size, "-----BEGIN %s-----\n", label);
+	for (n = 0; n < (size_t)m; n += 64)
+		o += (size_t)lws_snprintf(pem + o, pem_size - o, "%.*s\n",
+					  (int)(((size_t)m - n) > 64 ? 64 :
+						(size_t)m - n), b64 + n);
+	lws_snprintf(pem + o, pem_size - o, "-----END %s-----\n", label);
+	free(b64);
+
+	return pem;
+}
+
+/*
+ * Generate a CA with lws_x509_create_cert(), and a server cert for \p san
+ * signed by it, then check lws_x509_verify() accepts the server cert against
+ * the generated CA, checking the CN is \p san if \p check_cn.
+ */
+
+static int
+test_generated_chain(struct lws_context *context, const char *san,
+		     int check_cn)
+{
+	struct lws_x509_cert *ca = NULL, *leaf = NULL;
+	struct lws_x509_cert_gen_info gi;
+	uint8_t *cert = NULL, *key = NULL;
+	char *ca_pem = NULL, *ca_key_pem = NULL, *leaf_pem = NULL;
+	size_t cert_len, key_len;
+	int ret = -1;
+
+	lwsl_user("\n=== Test: generated CA and server cert for %s ===", san);
+
+	memset(&gi, 0, sizeof(gi));
+	gi.san		= "Generated Test CA";
+	gi.curve_name	= "P-256";
+	gi.is_ca	= 1;
+	gi.validity_days = 1;
+
+	if (lws_x509_create_cert(context, &cert, &cert_len, &key, &key_len,
+				 &gi)) {
+		lwsl_user("FAILED: creating CA");
+		goto bail;
+	}
+
+	ca_pem = der_to_pem("CERTIFICATE", cert, cert_len);
+	ca_key_pem = der_to_pem("EC PRIVATE KEY", key, key_len);
+	free(cert);
+	free(key);
+	cert = key = NULL;
+	if (!ca_pem || !ca_key_pem) {
+		lwsl_user("FAILED: converting CA to PEM");
+		goto bail;
+	}
+
+	memset(&gi, 0, sizeof(gi));
+	gi.san		= san;
+	gi.ca_cert_pem	= ca_pem;
+	gi.ca_key_pem	= ca_key_pem;
+	gi.curve_name	= "P-256";
+	gi.is_server	= 1;
+	gi.validity_days = 1;
+
+	if (lws_x509_create_cert(context, &cert, &cert_len, &key, &key_len,
+				 &gi)) {
+		lwsl_user("FAILED: creating server cert");
+		goto bail;
+	}
+
+	leaf_pem = der_to_pem("CERTIFICATE", cert, cert_len);
+	if (!leaf_pem) {
+		lwsl_user("FAILED: converting server cert to PEM");
+		goto bail;
+	}
+
+	if (lws_x509_create(&ca) || lws_x509_create(&leaf) ||
+	    lws_x509_parse_from_pem(ca, ca_pem, strlen(ca_pem) + 1) ||
+	    lws_x509_parse_from_pem(leaf, leaf_pem, strlen(leaf_pem) + 1)) {
+		lwsl_user("FAILED: parsing the generated certs");
+		goto bail;
+	}
+
+	if (lws_x509_verify(leaf, ca, check_cn ? san : NULL)) {
+		lwsl_user("FAILED: generated server cert did not verify");
+		goto bail;
+	}
+
+	lwsl_user("PASSED");
+	ret = 0;
+
+bail:
+	lws_x509_destroy(&leaf);
+	lws_x509_destroy(&ca);
+	free(cert);
+	free(key);
+	free(leaf_pem);
+	free(ca_key_pem);
+	free(ca_pem);
+
+	return ret;
 }
 
 int main(int argc, const char **argv)
@@ -214,6 +344,12 @@ int main(int argc, const char **argv)
 			passed++;
 		}
 	}
+	total++;
+	if (!test_generated_chain(context, "gen.example.com", 1))
+		passed++;
+	total++;
+	if (!test_generated_chain(context, "127.0.0.1", 0))
+		passed++;
 	lwsl_user("\n---");
 	lwsl_user("Results: %d/%d tests passed", passed, total);
 	if (passed == total) {

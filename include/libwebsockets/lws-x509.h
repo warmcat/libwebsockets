@@ -120,7 +120,8 @@ lws_x509_create_self_signed(struct lws_context *context,
 			    const char *san, int key_bits);
 
 struct lws_x509_cert_gen_info {
-	const char *san;             /* Subject Alt Name / CN */
+	const char *san;             /* Subject Alt Name / CN: a single DNS
+				      * name or IP address literal */
 	const char *ca_cert_pem;     /* Optional CA cert to sign with */
 	const char *ca_key_pem;      /* Optional CA key to sign with */
 	const char *curve_name;      /* e.g., "P-521" or "P-384" for ECDSA */

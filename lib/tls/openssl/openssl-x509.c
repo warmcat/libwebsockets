@@ -1363,6 +1363,64 @@ X509_extension_helper(X509 *x, X509V3_CTX *ctx, int nid, const char *value)
 
 	return 0;
 }
+
+/*
+ * Add a subjectAltName with exactly one entry, the IP address or DNS name in
+ * \p san, built directly as a GENERAL_NAME.  It must not go through the
+ * X509V3 config string parser, where the text is a comma-separated list of
+ * type:value, so a comma in \p san would add further names of the caller's
+ * choosing to the signed cert.
+ */
+
+static int
+lws_x509_openssl_add_san(X509 *x509, const char *san)
+{
+	GENERAL_NAMES *gens = NULL;
+	GENERAL_NAME *gen = NULL;
+	ASN1_OCTET_STRING *ip;
+	ASN1_IA5STRING *dns;
+	size_t len = strlen(san);
+	int ret = 1;
+
+	/* 253 is the longest a DNS name can be */
+	if (!len || len > 253)
+		return 1;
+
+	gens = sk_GENERAL_NAME_new_null();
+	gen = GENERAL_NAME_new();
+	if (!gens || !gen)
+		goto bail;
+
+	ip = a2i_IPADDRESS(san);
+	if (ip)
+		GENERAL_NAME_set0_value(gen, GEN_IPADD, ip);
+	else {
+		dns = ASN1_IA5STRING_new();
+		if (!dns)
+			goto bail;
+		if (!ASN1_STRING_set(dns, san, (int)len)) {
+			ASN1_IA5STRING_free(dns);
+			goto bail;
+		}
+		GENERAL_NAME_set0_value(gen, GEN_DNS, dns);
+	}
+
+	if (!sk_GENERAL_NAME_push(gens, gen))
+		goto bail;
+	gen = NULL; /* gens owns it now */
+
+	if (X509_add1_ext_i2d(x509, NID_subject_alt_name, gens, 0,
+			      X509V3_ADD_DEFAULT) == 1)
+		ret = 0;
+
+bail:
+	if (gen)
+		GENERAL_NAME_free(gen);
+	if (gens)
+		GENERAL_NAMES_free(gens);
+
+	return ret;
+}
 #endif
 
 int
@@ -1531,12 +1589,10 @@ lws_x509_create_cert(struct lws_context *context,
 		else
 			X509_extension_helper(x509, &ctx, NID_authority_key_identifier, "keyid:always");
 
-		if (info->san && info->is_server) {
-			char alt[256];
-			int is_ip = (strspn(info->san, "0123456789.") == strlen(info->san)) ||
-				    (strspn(info->san, "0123456789abcdefABCDEF:") == strlen(info->san) && (char *)strchr(info->san, ':'));
-			lws_snprintf(alt, sizeof(alt), "%s:%s", is_ip ? "IP" : "DNS", info->san);
-			X509_extension_helper(x509, &ctx, NID_subject_alt_name, alt);
+		if (info->san && info->is_server &&
+		    lws_x509_openssl_add_san(x509, info->san)) {
+			lwsl_err("%s: unable to add SAN\n", __func__);
+			goto bail;
 		}
 	}
 #endif
