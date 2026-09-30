@@ -228,7 +228,13 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 
 	cps = lws_cose_validate_create(&info);
 	if (cps) {
-		if (!lws_cose_validate_chunk(cps, data + 2, half, &used))
+		/*
+		 * The object is split in two chunks to fuzz the parse
+		 * resuming across them: the first one only wants more while
+		 * it returns LECP_CONTINUE, any other return is a verdict
+		 */
+		if (lws_cose_validate_chunk(cps, data + 2, half, &used) ==
+								LECP_CONTINUE)
 			lws_cose_validate_chunk(cps, data + 2 + half,
 						len - half, &used);
 		lws_cose_validate_results(cps);
