@@ -443,14 +443,11 @@ __lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	return wsi;
 
 bail1:
-	/* undo the insert */
-	lws_wsi_mux_sibling_disconnect(wsi);
-
-	if (wsi->user_space)
-		lws_free_set_NULL(wsi->user_space);
-	vh->protocols[0].callback(wsi, LWS_CALLBACK_WSI_DESTROY, NULL, NULL, 0);
-	__lws_vhost_unbind_wsi(wsi);
-	lws_free(wsi);
+	/*
+	 * By now the stream is a mux child, tagged, bound to the vhost and
+	 * counted, with its user space: only the close path undoes all of it
+	 */
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "h2 new stream fail");
 
 	return NULL;
 }
@@ -532,13 +529,17 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 	return wsi;
 
 bail1:
-	/* undo the insert */
+	/*
+	 * wsi is not ours to free: the caller still owns it and treats NULL
+	 * like the stream limit, it waits to be adopted later.  Only undo
+	 * what we did to it here.
+	 */
 	lws_wsi_mux_sibling_disconnect(wsi);
-
-	if (wsi->user_space)
-		lws_free_set_NULL(wsi->user_space);
-	wsi->a.protocol->callback(wsi, LWS_CALLBACK_WSI_DESTROY, NULL, NULL, 0);
-	lws_free(wsi);
+	wsi->h2.initialized = 0;
+	wsi->mux_substream = 0;
+#if defined(LWS_WITH_CLIENT)
+	wsi->client_mux_substream = 0;
+#endif
 
 	return NULL;
 }
