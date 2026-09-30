@@ -2687,17 +2687,21 @@ lws_rxflow_cache(struct lws *wsi, unsigned char *buf, size_t n, size_t len)
 	blen = lws_buflist_next_segment_len(&wsi->buflist, &buffered);
 	if (blen) {
 		if (buf >= buffered && buf + len <= buffered + blen) {
-			if (blen != (size_t)len) {
-				/*
-				 * rxflow while we were spilling prev rxflow
-				 *
-				 * len indicates how much was unused, then... so trim
-				 * the head buflist to match that situation
-				 */
+			size_t used = lws_ptr_diff_size_t(buf, buffered);
 
-				lws_buflist_use_segment(&wsi->buflist, blen - len);
+			/*
+			 * rxflow while we were spilling prev rxflow
+			 *
+			 * What is before buf in the head segment was used, so
+			 * trim that much.  The caller may have been offered only
+			 * a slice of the segment (a role's rx policy bounds how
+			 * much it is given), so len, what is left of that slice,
+			 * does not say where the unused part starts.
+			 */
+			if (used) {
+				lws_buflist_use_segment(&wsi->buflist, used);
 				lwsl_wsi_debug(wsi, "trim existing rxflow %d -> %d",
-						    (int)blen, (int)len);
+					       (int)blen, (int)(blen - used));
 			}
 
 			return LWSRXFC_TRIMMED;
