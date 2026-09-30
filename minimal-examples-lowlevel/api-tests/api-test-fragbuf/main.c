@@ -32,6 +32,26 @@ fill_and_check(lws_fragbuf_t *fb, const char *hint, unsigned int exp_pieces)
 		e++;
 	}
 
+	/*
+	 * It starts zeroed... the previous pass filled and freed a buffer of
+	 * the same size, so a heap handing that back unzeroed shows up here
+	 */
+
+	for (n = 0; n < UNITS; n++) {
+		p = lws_fragbuf_unit(fb, n);
+		if (!p)
+			break;
+
+		for (m = 0; m < UNIT_SIZE; m++)
+			if (p[m]) {
+				lwsl_err("%s: %s: unit %u byte %u not zero\n",
+					 __func__, hint, (unsigned int)n,
+					 (unsigned int)m);
+
+				return e + 1;
+			}
+	}
+
 	for (n = 0; n < UNITS; n++) {
 		p = lws_fragbuf_unit(fb, n);
 		if (!p) {

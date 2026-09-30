@@ -61,6 +61,8 @@ struct lws_buflist;
  * unit_size is the granularity the consumer needs contiguous, eg, a row pitch
  * for image data: a unit is never split across allocations, so
  * lws_fragbuf_unit() always hands back unit_size contiguous bytes.
+ *
+ * Every unit starts zeroed, whether it came in one piece or many.
  */
 
 typedef struct lws_fragbuf lws_fragbuf_t;

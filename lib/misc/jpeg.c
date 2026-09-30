@@ -2934,6 +2934,11 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 			 * the band is tens of KB, which on a small target is
 			 * exactly the size that stops being available before
 			 * the heap is anywhere near full.
+			 *
+			 * The fragbuf starts zeroed, and that matters: an EOI
+			 * or a marker ends the decode early, and the band is
+			 * emitted with whatever MCUs were never blitted into
+			 * it.  Those must be black, not old heap.
 			 */
 
 			mcu_buf_len = (size_t)(j->image_width * j->frame_comps) +

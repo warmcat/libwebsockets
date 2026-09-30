@@ -111,7 +111,12 @@ lws_fragbuf_create_cap(size_t units, size_t unit_size, size_t cap)
 		size_t n;
 
 		while (take) {
-			q = lws_malloc(take * unit_size, __func__);
+			/*
+			 * Zeroed: the one allocation this stands in for
+			 * usually was, and whatever a consumer hands out
+			 * before it wrote it must not be old heap
+			 */
+			q = lws_zalloc(take * unit_size, __func__);
 			if (q)
 				break;
 
