@@ -877,6 +877,34 @@ test_cose_keys(struct lws_context *context)
 		goto bail;
 	}
 
+	/*
+	 * A curve name lws has no COSE int for goes out as the same tstr,
+	 * and that also has to survive small output buffers
+	 */
+
+	memcpy(buf, cose_key1_tstrcrv, sizeof(cose_key1_tstrcrv));
+	buf[16] = 'X'; /* "P-256" -> "P-25X" */
+	ck2 = lws_cose_key_import(NULL, NULL, NULL, buf,
+				  sizeof(cose_key1_tstrcrv));
+	if (!ck2) {
+		lwsl_err("%s: unknown-curve key import fail\n", __func__);
+		lws_cose_key_destroy(&ck);
+		goto bail;
+	}
+
+	lws_lec_init(&wc, buf, sizeof(buf));
+	n = (int)lws_cose_key_export(ck2, &wc, LWSJWKF_EXPORT_PRIVATE);
+	if (n != LWS_LECPCTX_RET_FINISHED || wc.used < 9 ||
+	    memcmp(buf, "\xa6\x01\x02\x20\x65P-25X", 9) ||
+	    key_export_chunked(ck2, LWSJWKF_EXPORT_PRIVATE)) {
+		lwsl_err("%s: unknown-curve key export fail\n", __func__);
+		lws_cose_key_destroy(&ck2);
+		lws_cose_key_destroy(&ck);
+		goto bail;
+	}
+
+	lws_cose_key_destroy(&ck2);
+
 	lws_lec_init(&wc, buf, sizeof(buf));
 	n = (int)lws_cose_key_export(ck, &wc, LWSJWKF_EXPORT_PRIVATE);
 	lws_cose_key_destroy(&ck);

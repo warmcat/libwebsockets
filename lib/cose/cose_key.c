@@ -1448,17 +1448,23 @@ lws_cose_key_export(lws_cose_key_t *ck, lws_lec_pctx_t *ctx, int flags)
 				goto fail;
 			}
 
+			/*
+			 * A curve we know goes out as its COSE int now.  A
+			 * curve name we don't know goes out as a tstr from the
+			 * COSEKEY_META_KTY step of the loop below, which can
+			 * resume it in the next output buffer... done here,
+			 * lws_lec_printf() returning AGAIN was lost, and so
+			 * was the rest of the curve and the kid after it.
+			 */
+
 			pa = lws_cose_curve_name_to_id((const char *)ke->buf);
-			lws_lec_signed(ctx, LWSCOSE_WKECKP_CRV);
-			if (pa)
+			if (pa) {
+				lws_lec_signed(ctx, LWSCOSE_WKECKP_CRV);
 				lws_lec_signed(ctx, pa);
-			else
-				lws_lec_printf(ctx, "%.*s",
-						(int)ke->len, ke->buf);
+			}
 		}
 
-
-		ctx->opaque[1] = COSEKEY_META_KID;
+		ctx->opaque[1] = COSEKEY_META_KTY;
 	}
 
 	/*
@@ -1493,6 +1499,20 @@ lws_cose_key_export(lws_cose_key_t *ck, lws_lec_pctx_t *ctx, int flags)
 		} else
 
 			switch (ctx->opaque[1]) {
+
+			case COSEKEY_META_KTY: /* kty went out above */
+				if (ck->gencrypto_kty != LWS_GENCRYPTO_KTY_EC &&
+				    ck->gencrypto_kty != LWS_GENCRYPTO_KTY_OKP)
+					break;
+				/* CRV has 0 index for both */
+				ke = &ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV];
+				if (lws_cose_curve_name_to_id(
+						(const char *)ke->buf)) {
+					ke = NULL; /* went out as an int above */
+					break;
+				}
+				cose_key_param = LWSCOSE_WKECKP_CRV;
+				break;
 
 			case COSEKEY_META_KID: /* bstr */
 				if (ck->meta[COSEKEY_META_KID].buf) {
@@ -1553,7 +1573,9 @@ lws_cose_key_export(lws_cose_key_t *ck, lws_lec_pctx_t *ctx, int flags)
 				break;
 			}
 
-		if (ke && ke->buf && ke->len) {
+		if (ke && ke->buf &&
+		    /* the curve pair is counted even if its tstr is empty */
+		    (ke->len || ctx->opaque[1] == COSEKEY_META_KTY)) {
 
 			if (!ctx->opaque[3])
 				lws_lec_signed(ctx, cose_key_param);
