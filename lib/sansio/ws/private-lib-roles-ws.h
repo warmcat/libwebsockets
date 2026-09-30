@@ -217,6 +217,9 @@ int
 lws_ws_rsv_valid(struct lws *wsi);
 
 int
+lws_ws_peer_close_answerable(struct lws *wsi);
+
+int
 lws_ws_answer_peer_close(struct lws *wsi, const uint8_t *pp, size_t len);
 
 int

@@ -35,7 +35,8 @@
  * Then a ws close the peer starts, in either role: a pong it is owed for a
  * ping sent before its close still goes, ahead of the answer to the close,
  * and a close that comes while a frame of ours is still partly unsent is
- * answered once the frame has gone.
+ * answered once the frame has gone; but one that comes when the server is
+ * to close once its last frame has gone is not answered.
  *
  * Then state that belongs to one transaction and not to the connection it
  * came on: serving the vhost's 404 document is one request's business, the
@@ -730,6 +731,9 @@ callback_echo(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		memcpy(buf + LWS_PRE, in, len);
 		if (lws_write(wsi, buf + LWS_PRE, len, LWS_WRITE_TEXT) != (int)len)
 			return -1;
+		/* "Bye" is the last: close once its echo has gone */
+		if (len == 3 && !memcmp(in, "Bye", 3))
+			return lws_raw_transaction_completed(wsi);
 		return 0;
 	default:
 		break;
@@ -1198,6 +1202,11 @@ ws_frame_at(const struct transport *tp, size_t *pos, uint8_t op, int masked,
  * is only partly written is answered once the echo has all gone, rather
  * than the connection dropped.  Then the connection is shut down, or
  * released.
+ *
+ * But a close that comes while the server is already closing, once its
+ * last echo has gone (lws_raw_transaction_completed() with the echo partly
+ * written), is not answered: the echo still all goes, and then the
+ * connection ends.
  */
 static int
 ws_server_peer_close_half(struct lws_context *cx)
@@ -1213,6 +1222,9 @@ ws_server_peer_close_half(struct lws_context *cx)
 	/* masked, zero key: TEXT "Hello", then CLOSE 1000 */
 	static const char text_close[] = "\x81\x85\x00\x00\x00\x00Hello"
 					 "\x88\x82\x00\x00\x00\x00\x03\xe8";
+	/* masked, zero key: TEXT "Bye", the last, then CLOSE 1000 */
+	static const char bye_close[] = "\x81\x83\x00\x00\x00\x00" "Bye"
+					"\x88\x82\x00\x00\x00\x00\x03\xe8";
 	static const struct {
 		const char	*name;
 		const char	*frames;
@@ -1220,11 +1232,14 @@ ws_server_peer_close_half(struct lws_context *cx)
 		size_t		tx_limit;
 		uint8_t		op;	/* what goes before the close */
 		const char	*pl;
+		int		answered; /* the close is answered */
 	} c[] = {
 		{ "ws-server-ping-close", ping_close, sizeof(ping_close) - 1,
-		  0, 0xa, "p" },
+		  0, 0xa, "p", 1 },
 		{ "ws-server-close-partial", text_close, sizeof(text_close) - 1,
-		  4, 0x1, "Hello" },
+		  4, 0x1, "Hello", 1 },
+		{ "ws-server-close-when-flushed", bye_close,
+		  sizeof(bye_close) - 1, 4, 0x1, "Bye", 0 },
 	};
 	static struct transport tp;
 	struct lws *wsi;
@@ -1258,7 +1273,8 @@ ws_server_peer_close_half(struct lws_context *cx)
 		pos = 0;
 		if (!ws_frame_at(&tp, &pos, c[n].op, 0, c[n].pl,
 				 strlen(c[n].pl)) ||
-		    !ws_frame_at(&tp, &pos, 0x8, 0, "\x03\xe8", 2) ||
+		    (c[n].answered &&
+		     !ws_frame_at(&tp, &pos, 0x8, 0, "\x03\xe8", 2)) ||
 		    pos != tp.tx_len || (!tp.closed && !tp.shutdown)) {
 			lwsl_err("case 18: %s: closed %d\n", c[n].name,
 				 tp.closed);

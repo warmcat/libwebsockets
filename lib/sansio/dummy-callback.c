@@ -333,10 +333,10 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		/*
-		 * If the parent has started to close, don't try to
-		 * upgrade it, just let it go.
+		 * If the parent has started to close, in any way, don't try
+		 * to upgrade it, just let it go.
 		 */
-		if (lwsi_close(wsi->parent) >= LCS_RETURNED_CLOSE)
+		if (lwsi_close(wsi->parent) != LCS_NONE)
 			return -1;
 
 		if (lws_process_ws_upgrade2(wsi->parent))

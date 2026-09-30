@@ -68,6 +68,33 @@ lws_ws_proxy_est_cb(lws_sorted_usec_list_t *sul)
  * Returns nonzero if the connection should just be closed.
  */
 
+/*
+ * A CLOSE that arrives while we are already past the polite phases (draining
+ * towards the close, either because the close drains first or because a live
+ * connection is to close once its tx has gone, staged shutdown, socket known
+ * dead) is not answered: there is no polite close to return to from there,
+ * and an unusable socket must not enter one.  The phases are named rather
+ * than compared by their order, so a phase added later is not answered until
+ * somebody decides it should be.
+ */
+int
+lws_ws_peer_close_answerable(struct lws *wsi)
+{
+	if (lwsi_skt_unusable(wsi))
+		return 0;
+
+	switch (lwsi_close(wsi)) {
+	case LCS_NONE:
+	case LCS_CLOSING:
+	case LCS_WAITING_TO_SEND_CLOSE:
+	case LCS_RETURNED_CLOSE:
+	case LCS_AWAITING_CLOSE_ACK:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
 int
 lws_ws_answer_peer_close(struct lws *wsi, const uint8_t *pp, size_t len)
 {
@@ -558,15 +585,7 @@ spill:
 			if (lwsi_close(wsi) == LCS_RETURNED_CLOSE)
 				break;
 
-			/*
-			 * A CLOSE that arrives while we are already past the
-			 * polite phases (draining, staged shutdown, socket
-			 * known dead) is not answered: there is no polite
-			 * close to return to from there, and an unusable
-			 * socket must not enter one
-			 */
-			if (lwsi_skt_unusable(wsi) ||
-			    lwsi_close(wsi) >= LCS_FLUSHING_BEFORE_CLOSE)
+			if (!lws_ws_peer_close_answerable(wsi))
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 			pp = &wsi->ws->rx_ubuf[LWS_PRE];
