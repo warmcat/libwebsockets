@@ -27,6 +27,10 @@
  * can send bytes no well-behaved client would.  For h3 it is the lws client,
  * so there only what that client composes can be sent.
  *
+ * "h1s" is h1 over tls, again with a raw client, for the cases about the
+ * request head's deadline: the tls accept must not trade it for a timeout
+ * of its own, which each header byte then renews.
+ *
  * lws is both ends here, in one process: a crash or memory error in the
  * server fails the test as well as a wrong answer does.
  */
@@ -64,11 +68,12 @@ enum xport {
 	XP_H1,
 	XP_H2,
 	XP_H3,
+	XP_H1S,		/* h1 over tls: the request head deadline cases */
 
 	XP_COUNT
 };
 
-static const char * const xport_names[] = { "h1", "h2", "h3" };
+static const char * const xport_names[] = { "h1", "h2", "h3", "h1s" };
 
 enum verdict {
 	V_ECHO,		  /* 200, and the body is exactly "echo:" + expect */
@@ -609,7 +614,8 @@ static const struct h3_attack h3_attacks[] = {
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_next, sul_watchdog, sul_trickle;
-static int port_h1 = 7681, port_h2 = 7682, port_h3 = 7683, fails;
+static int port_h1 = 7681, port_h2 = 7682, port_h3 = 7683, port_h1s = 7684,
+	   fails;
 static const char *server_addr = "127.0.0.1", *only;
 static unsigned int xport_mask = (1u << XP_H1)
 #if defined(LWS_WITH_HTTP2)
@@ -617,6 +623,9 @@ static unsigned int xport_mask = (1u << XP_H1)
 #endif
 #if defined(LWS_ROLE_H3)
 		| (1u << XP_H3)
+#endif
+#if defined(LWS_WITH_TLS)
+		| (1u << XP_H1S)
 #endif
 		;
 
@@ -886,7 +895,7 @@ evaluate(void)
 		return;
 	}
 
-	if (tc.xport == XP_H1) {
+	if (tc.xport == XP_H1 || tc.xport == XP_H1S) {
 		nr = h1_parse(cn.rx, cn.rx_len, r, (int)LWS_ARRAY_SIZE(r));
 		status = nr ? r[0].status : 0;
 		b = nr ? r[0].body : NULL;
@@ -2131,7 +2140,9 @@ case_pick(void)
 		if (tc.phase == PH_PATHS) {
 			const struct path_case *pc;
 
-			if (tc.idx >= (int)LWS_ARRAY_SIZE(path_cases)) {
+			/* h1 over tls parses paths as h1 does */
+			if (tc.xport == XP_H1S ||
+			    tc.idx >= (int)LWS_ARRAY_SIZE(path_cases)) {
 				tc.phase = PH_ATTACKS;
 				tc.idx = -1;
 				continue;
@@ -2156,6 +2167,12 @@ case_pick(void)
 		}
 
 		switch (tc.xport) {
+		case XP_H1S:
+			/* over tls, the cases about the request head deadline */
+			if (tc.idx < (int)LWS_ARRAY_SIZE(h1_attacks) &&
+			    h1_attacks[tc.idx].v != V_DROPPED)
+				continue;
+			/* fallthru */
 		case XP_H1:
 			if (tc.idx >= (int)LWS_ARRAY_SIZE(h1_attacks))
 				break;
@@ -2252,6 +2269,15 @@ next_case(lws_sorted_usec_list_t *sul)
 		i.method = "RAW";
 		i.local_protocol_name = "raw-h2";
 		break;
+	case XP_H1S:
+		if (h1_compose(tc.h1a, tc.path))
+			goto oom;
+		i.port = port_h1s;
+		i.method = "RAW";
+		i.local_protocol_name = "raw-h1";
+		i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
+				   LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+		break;
 	default:
 		i.port = port_h3;
 		i.path = tc.path;
@@ -2279,8 +2305,8 @@ oom:
 	case_done("OOM");
 }
 
-#if defined(LWS_ROLE_H3)
-/* a self-signed test cert does for the h3 server */
+#if defined(LWS_WITH_TLS)
+/* a self-signed test cert does for the h3 and h1s servers */
 
 static const char * const test_cert =
 "-----BEGIN CERTIFICATE-----\n"
@@ -2397,6 +2423,8 @@ main(int argc, const char **argv)
 		port_h2 = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--h3-port")))
 		port_h3 = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--h1s-port")))
+		port_h1s = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		server_addr = p;
 	only = lws_cmdline_option(argc, argv, "--only");
@@ -2418,6 +2446,12 @@ main(int argc, const char **argv)
 #if !defined(LWS_ROLE_H3)
 		if (xport_mask & (1u << XP_H3)) {
 			lwsl_err("h3 not in this build\n");
+			return 1;
+		}
+#endif
+#if !defined(LWS_WITH_TLS)
+		if (xport_mask & (1u << XP_H1S)) {
+			lwsl_err("tls not in this build\n");
 			return 1;
 		}
 #endif
@@ -2458,6 +2492,27 @@ main(int argc, const char **argv)
 		if (!lws_create_vhost(context, &info))
 			goto bail;
 		info.options &= ~(uint64_t)LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
+	}
+#endif
+
+#if defined(LWS_WITH_TLS)
+	if (xport_mask & (1u << XP_H1S)) {
+		/* the same server, on h1 over tls */
+		info.port = port_h1s;
+		info.vhost_name = "srv-h1s";
+		info.server_ssl_cert_mem = test_cert;
+		info.server_ssl_cert_mem_len = (unsigned int)strlen(test_cert);
+		info.server_ssl_private_key_mem = test_key;
+		info.server_ssl_private_key_mem_len =
+					(unsigned int)strlen(test_key);
+		info.alpn = "http/1.1";
+		if (!lws_create_vhost(context, &info))
+			goto bail;
+		info.alpn = NULL;
+		info.server_ssl_cert_mem = NULL;
+		info.server_ssl_cert_mem_len = 0;
+		info.server_ssl_private_key_mem = NULL;
+		info.server_ssl_private_key_mem_len = 0;
 	}
 #endif
 

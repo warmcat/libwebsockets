@@ -603,13 +603,16 @@ rops_rx_h1(struct lws *wsi, const uint8_t *buf, size_t len, int from_transport,
 	 * Only rx from the transport is peer activity worth extending the
 	 * timeout for: a replay of what was parked is not.
 	 *
-	 * Nor is the header table's hold: timeout_secs_ah_idle is how long
-	 * the peer has to send the whole of its request headers, not how
-	 * long it may pause between bytes.  Refreshed on every byte, a peer
-	 * trickling header bytes in keeps the connection and its ah (one of
-	 * a small pool) for as long as it likes: "slowloris".
+	 * Nor is anything while the request head is coming: the header
+	 * table's hold, timeout_secs_ah_idle, is how long the peer has to
+	 * send the whole of its request headers, not how long it may pause
+	 * between bytes.  Refreshed on every byte, a peer trickling header
+	 * bytes in keeps the connection and its ah (one of a small pool) for
+	 * as long as it likes: "slowloris".  Whatever timeout stands for the
+	 * head, it is a deadline, not a timeout to slide.
 	 */
 	if (from_transport && wsi->pending_timeout &&
+	    lwsi_state(wsi) != LRS_HEADERS &&
 	    wsi->pending_timeout != PENDING_TIMEOUT_SHUTDOWN_FLUSH &&
 	    wsi->pending_timeout != PENDING_TIMEOUT_HOLDING_AH)
 		lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,

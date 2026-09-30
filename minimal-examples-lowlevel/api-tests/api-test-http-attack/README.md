@@ -89,6 +89,11 @@ connection just ending with nothing served passes too.
 
 h3, lws client: a `get ` field smuggling a path is refused.
 
+h1s, h1 over tls with a raw client: headers never finished, or trickled in a
+byte at a time, are dropped within the header timeout, as on h1.  The tls
+accept completes after the connection took its header table, and must leave
+the table's deadline for the request head in place.
+
 ## running it
 
 ```
@@ -100,9 +105,10 @@ Run it with the test directory as the cwd, it serves `./docroot`.
 Option|Meaning
 ---|---
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
---transport h1\|h2\|h3|Only test this transport (default: all the build has)
+--transport h1\|h2\|h3\|h1s|Only test this transport (default: all the build has)
 -p <port>|Port for the h1 server vhost (default 7681)
 --h2-port <port>|Port for the h2 prior-knowledge server vhost (default 7682)
 --h3-port <port>|UDP port for the h3 server vhost (default 7683)
+--h1s-port <port>|Port for the h1 over tls server vhost (default 7684)
 --server <address>|Address the clients connect to (default 127.0.0.1)
 --only <text>|Only run the cases whose name contains text

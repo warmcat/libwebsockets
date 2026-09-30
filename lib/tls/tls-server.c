@@ -707,9 +707,18 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 		return 1;
 	}
 
-	/* OK, we are accepted... give him some time to negotiate */
-	lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
-			(int)context->timeout_secs);
+	/*
+	 * OK, we are accepted... give him some time to negotiate.  But not
+	 * if he already holds a header table: an http server attaches one
+	 * when it adopts the connection, usually before the tls accept has
+	 * completed, and its hold (timeout_secs_ah_idle) is the deadline for
+	 * the whole request head.  Traded for a fresh connect timeout here,
+	 * that deadline was lost for the first request on every tls
+	 * connection.
+	 */
+	if (wsi->pending_timeout != PENDING_TIMEOUT_HOLDING_AH)
+		lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
+				(int)context->timeout_secs);
 
 	lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 	if (lws_tls_server_conn_alpn(wsi)) {

@@ -36,6 +36,10 @@ if (requirements)
 	if (LWS_WITH_HTTP3)
 		list(APPEND ATK_XPORTS h3)
 	endif()
+	if (LWS_WITH_TLS)
+		# h1 over tls, for the request head deadline cases
+		list(APPEND ATK_XPORTS h1s)
+	endif()
 
 	foreach(ATK_XPORT ${ATK_XPORTS})
 		lws_get_free_port(PORT_ATK_${ATK_XPORT})
@@ -46,7 +50,8 @@ if (requirements)
 				 --transport ${ATK_XPORT}
 				 -p ${PORT_ATK_${ATK_XPORT}}
 				 --h2-port ${PORT_ATK_${ATK_XPORT}}
-				 --h3-port ${PORT_ATK_${ATK_XPORT}})
+				 --h3-port ${PORT_ATK_${ATK_XPORT}}
+				 --h1s-port ${PORT_ATK_${ATK_XPORT}})
 		set_tests_properties(api-test-http-attack-${ATK_XPORT} PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 				     TIMEOUT 300)
