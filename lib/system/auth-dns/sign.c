@@ -256,9 +256,10 @@ hex_to_wire(const char *hex, uint8_t *w, size_t len)
  * distance as a decimal count of metres with an optional 'm' suffix.  On the
  * wire, latitude and longitude are unsigned 32-bit counts of
  * milliarcseconds biased by 2^31 (the equator / prime meridian), and
- * altitude is a signed count of centimetres biased by 10000000m.  Size and
- * precision fields are centimetres compressed to one byte as a decimal
- * mantissa (0..9) and exponent (0..9), so they are at most 9e9cm.
+ * altitude is an unsigned 32-bit count of centimetres from 100000m below the
+ * reference spheroid, ie, biased by 10000000cm.  Size and precision fields
+ * are centimetres compressed to one byte as a decimal mantissa (0..9) and
+ * exponent (0..9), so they are at most 9e9cm.
  *
  * strtod() also accepts "nan", "inf" and values far past anything the wire
  * can hold, so every value is checked finite and in range before it is
@@ -467,7 +468,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		wl = av;
 	} else if (type == 29 && num_toks >= 4) { // LOC, RFC 1876
 		static const double mas_bias = 2147483648.0;  /* 2^31 mas  */
-		static const double alt_bias = 1000000000.0;  /* 10000000m in cm */
+		static const double alt_bias = 10000000.0;  /* 100000m in cm */
 		double lat, lon, d, alt = 0, siz = 1, hp = 10000, vp = 10;
 		int64_t latw, lonw, altw;
 		int ti = 0;

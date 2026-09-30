@@ -276,7 +276,7 @@ test_loc(struct lws_context *cx)
 	struct auth_dns_rr *rr;
 	uint32_t lat = 0x80000000u + (42u * 3600u + 21u * 60u + 54u) * 1000u;
 	uint32_t lon = 0x80000000u - (71u * 3600u + 6u * 60u + 18u) * 1000u;
-	uint32_t alt = 1000000000u - 2400u;
+	uint32_t alt = 10000000u - 2400u; /* RFC 1876: cm from -100000m */
 	int r = 1;
 
 	if (write_zone("./test-loc.zone.in", "$ORIGIN example.com.\n") ||
