@@ -168,8 +168,8 @@ lws_tls_sni_bind(struct lws_vhost *vh, struct lws *wsi)
  * A quic connection's tls session.  quic runs the handshake inside its own
  * packets, so the session is made when quic asks, the client's when its
  * transport is up, the server's when a connection's first Initial arrives,
- * and is set up for quic (lws_tls_quic_init()).  A server vhost without tls
- * has none to make.  Returns 0, or -1 when it could not be made.
+ * and is set up for quic (lws_tls_quic_init()).  Returns 0, or -1 when it
+ * could not be made.
  */
 int
 lws_tls_quic_session(struct lws *wsi, lws_tls_quic_secret_cb cb)
@@ -188,8 +188,19 @@ lws_tls_quic_session(struct lws *wsi, lws_tls_quic_secret_cb cb)
 #endif
 	{
 #if defined(LWS_WITH_SERVER)
-		if (!wsi->a.vhost || !wsi->a.vhost->tls.ssl_ctx)
-			return 0;
+		/*
+		 * quic has no mode without tls, so a server connection on a
+		 * vhost with no tls ctx must not come into being at all.  The
+		 * ctx can be missing on a listener that exists: a vhost with
+		 * LWS_SERVER_OPTION_IGNORE_MISSING_CERT and no cert yet (its
+		 * listener was made for use_ssl), or a quic listener adopted
+		 * onto a vhost without tls.  info, not err: any Initial reaches
+		 * here.
+		 */
+		if (!wsi->a.vhost || !wsi->a.vhost->tls.ssl_ctx) {
+			lwsl_wsi_info(wsi, "vhost has no tls ctx for quic");
+			return -1;
+		}
 
 		if (lws_tls_server_new_nonblocking(wsi, LWS_SOCK_INVALID)) {
 			lwsl_wsi_err(wsi, "no tls session");

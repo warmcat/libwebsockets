@@ -440,6 +440,13 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 #endif
 	int hs_n;
 
+	/*
+	 * No session, no handshake: the libraries do not check for a NULL SSL
+	 * and what we would feed it is the peer's.
+	 */
+	if (!ssl)
+		return -1;
+
 	if (wsi->io->tls.quic_secret_cb == test_secret_cb) {
 		wsi->io->tls.quic_tp_send = out;
 		wsi->io->tls.quic_tp_recv_len = out_len ? *out_len : 0;
@@ -611,6 +618,13 @@ lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t
 int
 lws_tls_quic_get_transport_parameters(struct lws *wsi, const uint8_t **tp, size_t *tp_len)
 {
+	if (!wsi->io->tls.ssl) {
+		*tp = NULL;
+		*tp_len = 0;
+
+		return -1;
+	}
+
 #if defined(USE_WOLFSSL)
 	wolfSSL_get_peer_quic_transport_params(wsi->io->tls.ssl, tp, tp_len);
 #else
