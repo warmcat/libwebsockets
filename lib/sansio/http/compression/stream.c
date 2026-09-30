@@ -230,6 +230,16 @@ lws_http_compression_transform(struct lws *wsi, unsigned char *buf,
 		lwsl_debug("%s: buffering %d unused comp input\n", __func__,
 			   (int)(len - ilen_iused));
 	}
+	/*
+	 * The compressors only FINISH on the final input when nothing is
+	 * buffered, but the last buffered segment is still on the buflist
+	 * while it is compressed: that pass flushed rather than finished.
+	 * Unless the compressor says it finished, go round once more, with no
+	 * input, which it will FINISH on.
+	 */
+	if (ctx->final_on_input_side && !ctx->buflist_comp && n != 1)
+		ctx->may_have_more = 1;
+
 	if (ctx->buflist_comp || ctx->may_have_more)
 		lws_callback_on_writable(wsi);
 
