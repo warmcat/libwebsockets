@@ -134,6 +134,9 @@ struct lws_dnssec_val_ctx {
 
 	uint8_t			hash[64];
 
+	/* unix time the RRSIG stops vouching for the RRset */
+	uint32_t		expires;
+
 	/*
 	 * If we are validating the queried name's CNAME, where it points:
 	 * the query is restarted for it once the CNAME validated.  Else "".
@@ -1507,6 +1510,22 @@ lws_dnssec_vctx_check(const struct lws_dnssec_val_ctx *vctx,
 }
 
 /*
+ * An RRset of q validated with an RRSIG good until \p expires and a key of
+ * zone \p z: the results can't be believed past either
+ */
+
+static void
+lws_dnssec_q_validated(lws_adns_q_t *q, uint32_t expires,
+		       const lws_dnssec_zone_t *z)
+{
+	if ((int32_t)(z->expires - expires) < 0)
+		expires = z->expires;
+
+	if (!q->dnssec_expires || (int32_t)(expires - q->dnssec_expires) < 0)
+		q->dnssec_expires = expires;
+}
+
+/*
  * The zone our RRSIG's signer names settled while our query was suspended
  * waiting on it: finish this response's validation, and if that was all the
  * query was waiting for, complete it.
@@ -1521,6 +1540,9 @@ lws_dnssec_vctx_settled(lws_dnssec_zone_waiter_t *w, lws_dnssec_zone_t *z)
 	uint8_t rb = vctx->resp_bit;
 	int valid = !lws_dnssec_vctx_check(vctx, z, q->context);
 	char target[DNS_MAX];
+
+	if (valid)
+		lws_dnssec_q_validated(q, vctx->expires, z);
 
 	/* restarting q frees any vctx it still has, so take a copy */
 	lws_strncpy(target, vctx->cname, sizeof(target));
@@ -1551,7 +1573,7 @@ lws_dnssec_vctx_settled(lws_dnssec_zone_waiter_t *w, lws_dnssec_zone_t *z)
 		if (q->responded != q->asked || q->dnssec_verify_rrsig)
 			return;
 
-		if (q->dnssec_need_mask &&
+		if (q->dnssec_need_mask && !q->dnssec_stale &&
 		    (q->dnssec_valid_mask & q->dnssec_need_mask) ==
 						q->dnssec_need_mask) {
 			q->dnssec_valid = 1;
@@ -1645,6 +1667,7 @@ lws_dnssec_verify_rrset(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 		const uint8_t *p = s.rrsig_payload + 18; /* After key tag */
 		struct lws_dnssec_val_ctx *vctx;
 		char *sp = s.signer_name;
+		uint32_t rrsig_expires;
 		lws_dnssec_zone_t *z;
 		int n = lws_adns_parse_label(pkt, (int)len, p,
 					     (int)(len - lws_ptr_diff_size_t(p, pkt)),
@@ -1703,6 +1726,18 @@ lws_dnssec_verify_rrset(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 					    __func__);
 				return -1;
 			}
+
+			/*
+			 * RFC 4035 5.3.3: an RRset validated with it is good
+			 * until the earlier of the signature's expiration
+			 * and its Original TTL from now; the TTL on the wire
+			 * isn't signed.  sig_expiration - now is positive,
+			 * we just checked.
+			 */
+			rrsig_expires = now + (s.original_ttl <
+					       s.sig_expiration - now ?
+						s.original_ttl :
+						s.sig_expiration - now);
 		}
 
 		if (lws_genhash_init(&hash_ctx, hashtype))
@@ -1762,6 +1797,7 @@ lws_dnssec_verify_rrset(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 		vctx->resp_bit		= resp;
 		vctx->algorithm		= s.algorithm;
 		vctx->key_tag		= s.key_tag;
+		vctx->expires		= rrsig_expires;
 		if (cname)
 			lws_strncpy(vctx->cname, cname, sizeof(vctx->cname));
 
@@ -1787,6 +1823,8 @@ lws_dnssec_verify_rrset(lws_adns_q_t *q, const uint8_t *pkt, size_t len,
 
 		if (lws_dnssec_zone_is_settled(z)) {
 			n = lws_dnssec_vctx_check(vctx, z, q->context);
+			if (!n)
+				lws_dnssec_q_validated(q, rrsig_expires, z);
 			lws_free(vctx);
 
 			return n ? -1 : 0;
@@ -1951,6 +1989,25 @@ lws_async_dns_dnssec_set_root_anchors(struct lws_context *context,
 			z->expires = (uint32_t)lws_now_secs();
 		else if (z->state != LDZ_IDLE)
 			z->stale = 1;
+	} lws_end_foreach_dll(d);
+
+	/*
+	 * ... and so does every answer we validated with them: cached ones
+	 * aren't reported, or served, as validated any more, and a query that
+	 * validated part of its answer already can't complete as validated
+	 */
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&dns->cached)) {
+		lws_container_of(d, lws_adns_cache_t, list)->dnssec_valid = 0;
+	} lws_end_foreach_dll(d);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&dns->waiting)) {
+		lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t, list);
+
+		if (q->dnssec_expires)
+			q->dnssec_stale = 1;
 	} lws_end_foreach_dll(d);
 
 	return 0;

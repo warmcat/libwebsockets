@@ -33,7 +33,8 @@ It checks that
    reloaded
  - each zone's keys were only fetched once for all of that
  - after the trust anchor is replaced by one that matches no root key, the
-   chain is walked again from the root and nothing validates
+   chain is walked again from the root and nothing validates, not even what
+   was cached as validated under the old anchor
  - the context can be destroyed while a query is parked on a chain walk that
    is still in flight (the nameserver never answers the root's DNSKEY), which
    is meaningful when run under ASan

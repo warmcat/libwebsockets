@@ -134,6 +134,13 @@ including the RRSIGs themselves, are not cached, so they can't be found later,
 eg, with `lws_async_dns_get_rr_cache()`, as if they had been validated.  An
 RRset of more than 16 records fails to validate.
 
+The TTLs on the wire aren't covered by the signatures, so a validated answer
+is only cached, and served as validated, until the earliest of its RRSIG's
+expiration, its RRSIG's Original TTL from when it was validated, and the
+expiry of the signer zone's authenticated keys (for an answer reached through
+a CNAME, the CNAME's too).  Any answer, validated or not, is cached for at
+most a day whatever TTL it came with.
+
 ### Chain of trust
 
 An answer's RRSIG is only checked with a key of the signer's zone once that
@@ -164,7 +171,8 @@ replaced, eg, for a private DNS hierarchy, with
 lws_async_dns_dnssec_set_root_anchors(context, anchors, count);
 ```
 
-which also forgets any keys authenticated under the previous anchors;
+which also forgets any keys authenticated under the previous anchors, and
+stops cached answers validated with them being served as validated;
 `minimal-examples-lowlevel/api-tests/api-test-dnssec-chain` does this to test
 the validator against a signed hierarchy of its own.
 

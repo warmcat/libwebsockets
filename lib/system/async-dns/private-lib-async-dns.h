@@ -31,6 +31,11 @@
 #define MAX_CACHE_ENTRIES	10	/* Dont cache more than that	*/
 #define DNS_QUERY_TIMEOUT	30	/* Query timeout, seconds	*/
 #define LWS_ADNS_MAX_PAYLOAD	1500	/* Maximum TCP payload size    */
+/*
+ * The TTL on the wire isn't covered by any signature, so it's the answerer's
+ * choice: cap how long we will keep any answer, as resolvers usually do
+ */
+#define LWS_ADNS_CACHE_MAX_TTL	86400
 
 /*
  * The overallocated results area behind lws_adns_cache_t is walked with a
@@ -196,9 +201,19 @@ typedef struct lws_adns_q {
 	uint8_t			dnssec_valid_mask; /* responses that validated */
 	uint8_t			dnssec_need_mask; /* responses that must validate */
 
+	/*
+	 * Unix time the records validated for this query stop being valid:
+	 * the earliest, over every RRset we validated (a CNAME we followed
+	 * too), of its RRSIG's expiration, its Original TTL from when we
+	 * validated it, and the key expiry of the zone that signed it.
+	 * 0 until something validated.
+	 */
+	uint32_t		dnssec_expires;
+
 	uint8_t			dnssec_valid:1;  /* results are verified */
 	uint8_t			dnssec_chk_cname:1; /* validating the CNAME we chase */
 	uint8_t			lacks_dnssec:1; /* per-query DNSSEC override */
+	uint8_t			dnssec_stale:1; /* validated with replaced anchors */
 #endif
 
 	struct lws		*wsi_tcp;

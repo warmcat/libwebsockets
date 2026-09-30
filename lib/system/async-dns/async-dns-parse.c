@@ -1097,7 +1097,8 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 
 	/*
 	 * smallest_ttl applies as it is to empty results (NXDOMAIN), or is
-	 * set to the minimum ttl seen in all the results.
+	 * set to the minimum ttl seen in all the results, up to
+	 * LWS_ADNS_CACHE_MAX_TTL.
 	 */
 
 	if ((lws_ser_ru16be(pkt + DHO_NANSWERS) || lws_ser_ru16be(pkt + DHO_NAUTH)) &&
@@ -1160,6 +1161,8 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 
 		c->flags = adst.flags;
 		lws_dll2_add_head(&c->list, &dns->cached);
+		if (adst.smallest_ttl > LWS_ADNS_CACHE_MAX_TTL)
+			adst.smallest_ttl = LWS_ADNS_CACHE_MAX_TTL;
 		lwsl_info("%s: added %s to cache, rr_results = %p, ttl = %u\n", __func__, c->name, c->rr_results, (unsigned int)adst.smallest_ttl);
 		/* lws_sul_schedule() takes a delay, it adds now itself */
 		lws_sul_schedule(q->context, 0, &c->sul, sul_cb_expire,
@@ -1213,7 +1216,7 @@ lws_adns_parse_udp_inner(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		return;
 
 	if (lws_adns_q_validates(q)) {
-		if (!q->dnssec_need_mask ||
+		if (!q->dnssec_need_mask || q->dnssec_stale ||
 		    (q->dnssec_valid_mask & q->dnssec_need_mask) !=
 						q->dnssec_need_mask) {
 			q->go_nogo = METRES_NOGO;

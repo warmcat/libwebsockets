@@ -173,8 +173,24 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 	if (rc >= 0 && q->dnssec_valid) {
 		rc |= LWS_ADNS_DNSSEC_VALID;
 		/* so a later requester served from the cache is told too */
-		if (c)
+		if (c) {
+			uint32_t now = (uint32_t)lws_now_secs();
+			lws_usec_t until = 0;
+
 			c->dnssec_valid = 1;
+
+			/*
+			 * ... but only for as long as what we validated is
+			 * valid: the entry's life so far came from the TTL on
+			 * the wire, which no signature covers
+			 */
+			if ((int32_t)(q->dnssec_expires - now) > 0)
+				until = (lws_usec_t)(q->dnssec_expires - now) *
+								LWS_US_PER_SEC;
+			if (c->sul.us - lws_now_usecs() > until)
+				lws_sul_schedule(q->context, 0, &c->sul,
+						 sul_cb_expire, until);
+		}
 	}
 #endif
 

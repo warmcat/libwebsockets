@@ -40,7 +40,8 @@
  *    after the nameservers were reloaded,
  *  - each zone's keys were only fetched once for all of that,
  *  - once the trust anchor is replaced by one that matches no root key,
- *    nothing validates any more,
+ *    nothing validates any more, including what was cached as validated
+ *    under the old one,
  *  - the context can be destroyed while a chain walk is in flight.
  *
  * Nothing leaves the machine.
@@ -656,6 +657,11 @@ static const struct tstep steps[] = {
 	/* after the anchor is replaced by one that matches no root key */
 	{ .name = "www.zone.tld",	.qtype = RR_A | LWS_ADNS_NOCACHE,
 	  .bogus_anchor = 1 },
+	/*
+	 * The DS validated under the old anchor is still in the cache, but
+	 * not as validated any more
+	 */
+	{ .name = "zone.tld",		.qtype = RR_DS },
 };
 
 static struct lws *
