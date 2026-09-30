@@ -534,7 +534,14 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 					lwsl_notice("%s: inf malloc %u OOM\n",
 						__func__, (unsigned int)ims);
 
-					return LWS_SRET_YIELD;
+					/*
+					 * As above, publish what we consumed.
+					 * The caller may call again later,
+					 * when we retry the allocation before
+					 * eating any more
+					 */
+					r = LWS_SRET_YIELD;
+					goto bail;
 				}
 				u->u.lines = u->inf.out + u->inf.info_size;
 				u->u.in		= u->inf.out;

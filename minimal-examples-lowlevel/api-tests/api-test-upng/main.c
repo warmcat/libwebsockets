@@ -51,6 +51,10 @@ int fdin = 0, fdout = 1;
  * was given is caught.  We also check that what it hands back in *buf and
  * *size is always the tail of what we gave it.
  *
+ * Where lws accounts its heap, the one-piece, fixed-size chunk and two-way
+ * split decodes are also done with the decoder's window allocation failing
+ * the first time, to check it recovers when retried as dlo does.
+ *
  * The images were made with a normal PNG encoder, using zlib at level 9
  * and at level 0 (huffman-coded and stored deflate blocks), with a tEXt
  * chunk before the image data, the zlib stream spread over three IDATs and
@@ -168,10 +172,15 @@ seg_dup(const uint8_t *p, size_t len)
  * Decode test image ti presented as segments, each ending at the next of
  * cuts[], and the last one at the end of the image.  Returns 0 if every
  * row came out exactly right.
+ *
+ * If oom is set, the heap is limited so the decoder can't get its window
+ * allocation the first time it tries.  It has to return LWS_SRET_YIELD
+ * having told us what it consumed, and then carry on correctly when we
+ * lift the limit and call again with what it left, the way dlo retries.
  */
 
 static int
-decode_cut(size_t ti, const size_t *cuts, size_t ncuts)
+decode_cut(size_t ti, const size_t *cuts, size_t ncuts, int oom)
 {
 	unsigned int w = test_images[ti].w, h = test_images[ti].h,
 		     bypp = test_images[ti].bypp, rows = 0, x, j;
@@ -181,11 +190,21 @@ decode_cut(size_t ti, const size_t *cuts, size_t ncuts)
 	uint8_t *seg = NULL, *moved;
 	lws_stateful_ret_t r;
 	lws_upng_t *u;
-	int ret = 1;
+	int ret = 1, yields = 0;
 
 	u = lws_upng_new();
 	if (!u)
 		return 1;
+
+	/*
+	 * Only possible where lws accounts its heap.  The decoder object is
+	 * already allocated, the window it needs next is > 32KB
+	 */
+
+	if (oom && lws_get_allocated_heap())
+		lws_heap_limit_set(lws_get_allocated_heap() + 4096);
+	else
+		oom = 0;
 
 	while (rows < h) {
 
@@ -218,6 +237,15 @@ decode_cut(size_t ti, const size_t *cuts, size_t ncuts)
 			lwsl_err("%s: FATAL %d at row %u\n", __func__,
 				 (int)(r & 0xff), rows);
 			goto bail;
+		}
+
+		if (r & LWS_SRET_YIELD) {
+			if (!oom || yields++) {
+				lwsl_err("%s: unexpected YIELD\n", __func__);
+				goto bail;
+			}
+			/* the heap is back: it can retry the allocation */
+			lws_heap_limit_set(0);
 		}
 
 		/* what's left must be the tail of what we gave it */
@@ -270,9 +298,16 @@ decode_cut(size_t ti, const size_t *cuts, size_t ncuts)
 		p = seg;
 	}
 
+	if (oom && !yields) {
+		lwsl_err("%s: the allocation never failed\n", __func__);
+		goto bail;
+	}
+
 	ret = 0;
 
 bail:
+	if (oom)
+		lws_heap_limit_set(0);
 	free(seg);
 	lws_upng_free(&u);
 
@@ -294,7 +329,9 @@ selftest(void)
 		/* in one piece */
 
 		runs++;
-		fails += !!decode_cut(ti, NULL, 0);
+		fails += !!decode_cut(ti, NULL, 0, 0);
+		runs++;
+		fails += !!decode_cut(ti, NULL, 0, 1);
 
 		/* in fixed-size chunks, however they fall */
 
@@ -308,9 +345,20 @@ selftest(void)
 				pc[nc++] = o;
 
 			runs++;
-			if (decode_cut(ti, pc, nc)) {
+			if (decode_cut(ti, pc, nc, 0)) {
 				lwsl_err("%s: %s: %u-byte chunks failed\n",
 					 __func__, test_images[ti].name,
+					 (unsigned int)chunks[k]);
+				fails++;
+			}
+
+			/* ...and with the window allocation failing once */
+
+			runs++;
+			if (decode_cut(ti, pc, nc, 1)) {
+				lwsl_err("%s: %s: %u-byte chunks, OOM "
+					 "failed\n", __func__,
+					 test_images[ti].name,
 					 (unsigned int)chunks[k]);
 				fails++;
 			}
@@ -323,8 +371,18 @@ selftest(void)
 
 			cuts[0] = i;
 			runs++;
-			if (decode_cut(ti, cuts, 1)) {
+			if (decode_cut(ti, cuts, 1, 0)) {
 				lwsl_err("%s: %s: split at %u failed\n",
+					 __func__, test_images[ti].name,
+					 (unsigned int)i);
+				fails++;
+			}
+
+			/* ...also with the window allocation failing once */
+
+			runs++;
+			if (decode_cut(ti, cuts, 1, 1)) {
+				lwsl_err("%s: %s: split at %u, OOM failed\n",
 					 __func__, test_images[ti].name,
 					 (unsigned int)i);
 				fails++;
@@ -335,7 +393,7 @@ selftest(void)
 			for (k = 1; k <= 2 && i + k < len; k++) {
 				cuts[1] = i + k;
 				runs++;
-				if (decode_cut(ti, cuts, 2)) {
+				if (decode_cut(ti, cuts, 2, 0)) {
 					lwsl_err("%s: %s: split at %u + %u "
 						 "failed\n", __func__,
 						 test_images[ti].name,
