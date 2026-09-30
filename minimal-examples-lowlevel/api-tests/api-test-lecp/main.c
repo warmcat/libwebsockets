@@ -5299,7 +5299,7 @@ int main(int argc, const char **argv)
 				   /* structure check of the same vectors */
 				   (int)LWS_ARRAY_SIZE(cbor_tests) - 1 +
 				   (int)LWS_ARRAY_SIZE(sc_vecs) + 1 +
-					33 /* <-- how many write tests */ +
+					34 /* <-- how many write tests */ +
 				   (int)LWS_ARRAY_SIZE(lec_chunk_names);
 	struct lecp_ctx ctx;
 	const char *p;
@@ -5782,6 +5782,31 @@ int main(int argc, const char **argv)
 			e++;
 		} else
 			pass++;
+
+		/*
+		 * A format that fails part-way must not leave the context
+		 * part-way through it: the next format on the same context
+		 * has to start from its own beginning, in the idle state
+		 */
+
+		lwsl_user("%s: test34\n", __func__);
+		lws_lec_setbuf(&ctx, buf, sizeof(buf));
+
+		if (lws_lec_printf(&ctx, "[1,2]]") != LWS_LECPCTX_RET_FAIL ||
+		    lws_lec_printf(&ctx, "<x") != LWS_LECPCTX_RET_FAIL) {
+			e++;
+		} else {
+			lws_lec_setbuf(&ctx, buf, sizeof(buf));
+
+			if (lws_lec_printf(&ctx, "'hello'") !=
+					LWS_LECPCTX_RET_FINISHED ||
+			    ctx.used != sizeof(w1) ||
+			    memcmp(w1, buf, ctx.used)) {
+				lwsl_hexdump_notice(ctx.start, ctx.used);
+				e++;
+			} else
+				pass++;
+		}
 	}
 
 	for (m = 0; m < (int)LWS_ARRAY_SIZE(lec_chunk_names); m++) {

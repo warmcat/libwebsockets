@@ -1737,14 +1737,14 @@ lws_lec_vsprintf(lws_lec_pctx_t *ctx, const char *fmt, va_list args)
 			case '[':
 				n = format_scan(&fmt[ctx->fmt_pos]);
 				if (n == -2)
-					return LWS_LECPCTX_RET_FAIL;
+					goto fail;
 				lws_lec_int(ctx, LWS_CBOR_MAJTYP_ARRAY, n == -1,
 							(uint64_t)n);
 				goto stack_push_l;
 			case '{':
 				n = format_scan(&fmt[ctx->fmt_pos]);
 				if (n == -2)
-					return LWS_LECPCTX_RET_FAIL;
+					goto fail;
 				lws_lec_int(ctx, LWS_CBOR_MAJTYP_MAP, n == -1,
 							(uint64_t)n);
 				goto stack_push_l;
@@ -1758,12 +1758,12 @@ lws_lec_vsprintf(lws_lec_pctx_t *ctx, const char *fmt, va_list args)
 
 			case ']':
 				if (!ctx->sp || ctx->stack[ctx->sp - 1] != '[')
-					return LWS_LECPCTX_RET_FAIL;
+					goto fail;
 				ctx->sp--;
 				break;
 			case '}':
 				if (!ctx->sp || ctx->stack[ctx->sp - 1] != '{')
-					return LWS_LECPCTX_RET_FAIL;
+					goto fail;
 				ctx->sp--;
 				break;
 			case ')':
@@ -1776,7 +1776,7 @@ lws_lec_vsprintf(lws_lec_pctx_t *ctx, const char *fmt, va_list args)
 				break;
 			case '>':
 				if (!ctx->sp || ctx->stack[ctx->sp - 1] != '<')
-					return LWS_LECPCTX_RET_FAIL;
+					goto fail;
 				ctx->scratch[ctx->scratch_len++] =
 						(uint8_t)(LWS_CBOR_MAJTYP_FLOAT |
 							LWS_CBOR_M7_BREAK);
@@ -1786,7 +1786,7 @@ lws_lec_vsprintf(lws_lec_pctx_t *ctx, const char *fmt, va_list args)
 				n = format_scan(&fmt[ctx->fmt_pos]);
 				// lwsl_notice("%s: quote fs %d\n", __func__, n);
 				if (n < 0)
-					return LWS_LECPCTX_RET_FAIL;
+					goto fail;
 				lws_lec_int(ctx, LWS_CBOR_MAJTYP_TSTR, 0,
 								(uint64_t)n);
 				ctx->state = CBPS_STRING_LIT;
@@ -2049,7 +2049,7 @@ tag_body_l:
 
 stack_push_l:
 				if (ctx->sp >= sizeof(ctx->stack))
-					return LWS_LECPCTX_RET_FAIL;
+					goto fail;
 				ctx->stack[ctx->sp] = (uint8_t)c;
 				ctx->indet[ctx->sp++] = (uint8_t)(n == -1);
 				// lwsl_notice("%s: pushed %c\n", __func__, c);
@@ -2080,7 +2080,7 @@ stack_push_l:
 
 		case CBPS_CONTYPE:
 			if (c != 't' && c != 'b')
-				return LWS_LECPCTX_RET_FAIL;
+				goto fail;
 
 			lws_lec_int(ctx, c == 't' ? LWS_CBOR_MAJTYP_TSTR :
 						    LWS_CBOR_MAJTYP_BSTR, 1, 0);
@@ -2106,8 +2106,16 @@ stack_push_l:
 fail:
 	lwsl_notice("%s: failed\n", __func__);
 
-	ctx->fmt_pos = 0;
-	ctx->vaa_pos = 0;
+	/*
+	 * What the failed format emitted is incomplete, but the context must
+	 * not stay part-way through it: the next format would resume from the
+	 * failed one's position and parser state
+	 */
+
+	ctx->fmt_pos	= 0;
+	ctx->vaa_pos	= 0;
+	ctx->state	= CBPS_IDLE;
+	ctx->escflag	= 0;
 
 	return LWS_LECPCTX_RET_FAIL;
 }
