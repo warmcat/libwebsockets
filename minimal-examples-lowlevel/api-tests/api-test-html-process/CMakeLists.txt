@@ -14,8 +14,17 @@ require_lws_config(LWS_WITH_SERVER 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
-	add_test(NAME api-test-html-process COMMAND lws-api-test-html-process)
-	set_tests_properties(api-test-html-process PROPERTIES TIMEOUT 20)
+
+	lws_get_free_port(PORT_HP_H1)
+	lws_get_free_port(PORT_HP_H2C)
+
+	add_test(NAME api-test-html-process
+		 COMMAND lws-api-test-html-process
+			 --server ${LWS_CTEST_SERVER_RESOLVE}
+			 -p ${PORT_HP_H1} --h2c-port ${PORT_HP_H2C})
+	set_tests_properties(api-test-html-process PROPERTIES
+			     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+			     TIMEOUT 60)
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})

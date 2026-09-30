@@ -688,7 +688,15 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		if (n > (int)strlen(pvo->name) &&
 		    !strcmp(&path[(unsigned int)n - strlen(pvo->name)], pvo->name)) {
 			wsi->interpreting = 1;
-			if (!wsi->mux_substream)
+			/*
+			 * On h1 the interpreter's output goes chunked, since
+			 * its length isn't known until it is made.  An empty
+			 * file is never given to the interpreter: it goes as
+			 * the empty body it is, with a Content-Length of 0,
+			 * since nothing would send a chunked one's last-chunk
+			 */
+			if (!wsi->mux_substream &&
+			    lws_vfs_get_length(wsi->http.fop_fd))
 				wsi->sending_chunked = 1;
 
 			/*

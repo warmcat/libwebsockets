@@ -22,8 +22,28 @@ It also checks a substitution with no room to grow into is refused without
 writing past the buffer, and that a last lump that comes to nothing is just
 the last-chunk.
 
+Then it does the same through a server: a file mount on `./docroot` has its
+`.html` files interpreted by a protocol that uses
+`lws_chunked_html_process()`, with a small `pt_serv_buf_size` so a page is
+read in several lumps, and the lws client fetches, over h1 (chunked) and h2
+with prior knowledge:
+
+|file|expected|
+|---|---|
+|`page.html`, a unit with two variables 150 times|200, every unit with its variables replaced|
+|`empty.html`, empty|200, an empty body (on h1 not announced as chunked, since no last-chunk would follow)|
+
 ## running it
 
+Run it with the test directory as the cwd, it serves `./docroot`.
+
 ```
-$ ./lws-api-test-html-process
+$ ./lws-api-test-html-process -p 7681 --h2c-port 7682
 ```
+
+Option|Meaning
+---|---
+-d <loglevel>|Debug verbosity in decimal, eg, -d15
+-p <port>|Port for the h1 server vhost (default 7681)
+--h2c-port <port>|Port for the h2 prior-knowledge server vhost (default 7682)
+--server <address>|Address the client connects to (default 127.0.0.1)
