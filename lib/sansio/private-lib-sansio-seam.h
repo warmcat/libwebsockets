@@ -262,9 +262,10 @@ lws_io_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 /*
  * quic runs the tls handshake in its own packets: it asks for its session
  * to be made, feeds it the CRYPTO frames' bytes, sets and gets the transport
- * parameters, and asks what the handshake settled: whether the server's
- * certificate is acceptable under the connection's LCCSCF_ flags, the AEAD,
- * the alert, the alpn
+ * parameters, and asks what the handshake settled: whether the peer's
+ * certificate is acceptable (a client's view of the server's under the
+ * connection's LCCSCF_ flags, a server's of the client's under its vhost's
+ * policy), the AEAD, the alert, the alpn
  */
 static LWS_INLINE int
 lws_tls_quic_session(struct lws *wsi, lws_tls_quic_secret_cb cb)
@@ -295,14 +296,13 @@ lws_io_tls_quic_get_tp(struct lws *wsi, const uint8_t **tp, size_t *tp_len)
 	return wsi->a.context->io_ops->tls_quic_get_tp(wsi, tp, tp_len);
 }
 
-#if defined(LWS_WITH_CLIENT)
+/* IO's lws_tls_quic_confirm_peer(): is the peer acceptable, either role */
 static LWS_INLINE int
-lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
+lws_tls_quic_confirm_peer(struct lws *wsi, char *ebuf, size_t ebuf_len)
 {
 	return wsi->a.context->io_ops->tls_confirm_peer_cert(wsi, ebuf,
 							     ebuf_len);
 }
-#endif
 
 static LWS_INLINE int
 lws_tls_quic_aead_type(struct lws *wsi)

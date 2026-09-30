@@ -331,6 +331,18 @@ enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi);
 int
 lws_tls_server_accept_completed(struct lws *wsi, int n);
+/*
+ * The backend's judgement of the client cert a completed server handshake
+ * presented, under the policy of the vhost the connection is bound to: 0 if
+ * he may go on.  The backends that carry quic implement it, since quic's
+ * handshake completion never passes through their lws_tls_server_accept().
+ */
+int
+lws_tls_server_client_cert_check(struct lws *wsi);
+#if defined(LWS_ROLE_QUIC)
+int
+lws_tls_quic_server_confirm_peer(struct lws *wsi, char *ebuf, size_t ebuf_len);
+#endif
 enum lws_ssl_capable_status
 lws_tls_server_abort_connection(struct lws *wsi);
 #else

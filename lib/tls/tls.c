@@ -207,6 +207,30 @@ lws_tls_quic_session(struct lws *wsi, lws_tls_quic_secret_cb cb)
 
 	return 0;
 }
+
+/*
+ * A quic connection's handshake completed: is the peer acceptable, as tls
+ * over tcp would decide it?  On a client, the server's certificate under the
+ * connection's LCCSCF_ flags; on a server, the client's certificate under the
+ * client-certificate policy of the vhost it ends up bound to.  0 if so, else
+ * nonzero with the reason in ebuf.
+ */
+int
+lws_tls_quic_confirm_peer(struct lws *wsi, char *ebuf, size_t ebuf_len)
+{
+#if defined(LWS_WITH_CLIENT)
+	if (lwsi_role_client(wsi))
+		return lws_tls_client_confirm_peer_cert(wsi, ebuf, ebuf_len);
+#endif
+
+#if defined(LWS_WITH_SERVER)
+	return lws_tls_quic_server_confirm_peer(wsi, ebuf, ebuf_len);
+#else
+	lws_snprintf(ebuf, ebuf_len, "no server support");
+
+	return 1;
+#endif
+}
 #endif
 
 #if (!defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL) && \

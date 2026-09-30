@@ -1615,6 +1615,36 @@ tp_ok:
 			}
 		}
 
+		/*
+		 * A server must not process 1-RTT packets before its handshake
+		 * is complete (RFC 9001 5.7), even though it has their keys
+		 * from when it sent its Finished.  Until then the client's
+		 * certificate has not been confirmed against the vhost's
+		 * policy (lws_tls_quic_confirm_peer()), so a request in one
+		 * would be served to a peer that may yet be refused... and
+		 * the handshake keys, which the client's Finished still
+		 * needs, are discarded below on the first 1-RTT packet.  So
+		 * drop it undecrypted: it is not acknowledged, and the
+		 * client's loss recovery sends its frames again.
+		 *
+		 * 0-RTT is served before the handshake completes by design,
+		 * with nothing yet known about this client: a vhost that
+		 * asks for client certificates takes none of it the same way.
+		 */
+
+		if (nwsi->quic.qn->is_server && !nwsi->quic.qn->handshake_done &&
+		    (level == LWS_QUIC_LEVEL_APP ||
+		     (level == LWS_QUIC_LEVEL_EARLY && nwsi->a.vhost &&
+		      lws_check_opt(nwsi->a.vhost->options,
+			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)))) {
+			lwsl_wsi_info(wsi, "QUIC RX: level %d before the handshake "
+					   "completed, dropping %zu bytes",
+					   level, packet_size);
+			p += packet_size;
+			n -= (int)packet_size;
+			continue;
+		}
+
 		struct lws_quic_keys *k = nwsi->quic.qn->keys[level];
 
 		if (!k || !k->el_hp_rx.len) {
@@ -2383,11 +2413,23 @@ lws_quic_queue_connection_close(struct lws *nwsi, uint64_t err_code,
 		}
 	}
 
-	/* Clear pending queues, we are closing, but keep CRYPTO frames so peer can derive keys! */
+	/*
+	 * Clear pending queues, we are closing, but keep the handshake's
+	 * CRYPTO frames so peer can derive keys!
+	 *
+	 * Not the 1-RTT ones though: they only carry post-handshake messages,
+	 * nothing needed for keys, and the one they do carry at the end of a
+	 * server handshake is a NewSessionTicket.  A connection closed because
+	 * its peer was refused, eg, a client cert its vhost does not accept,
+	 * must not hand him a ticket to resume what was refused, possibly
+	 * with 0-RTT served before anything checks him again.
+	 */
 	for (level = 0; level < LWS_QUIC_LEVEL_COUNT; level++) {
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->pending_tx[level].head) {
 			struct lws_quic_tx_frame *tf = lws_container_of(d, struct lws_quic_tx_frame, list);
-			if (tf->type != LWS_QUIC_FT_CRYPTO && tf->type != LWS_QUIC_FT_HANDSHAKE_DONE) {
+			if ((tf->type != LWS_QUIC_FT_CRYPTO ||
+			     level == LWS_QUIC_LEVEL_APP) &&
+			    tf->type != LWS_QUIC_FT_HANDSHAKE_DONE) {
 				lws_dll2_remove(&tf->list);
 				lws_free(tf);
 			}

@@ -528,6 +528,46 @@ lws_tls_server_abort_connection(struct lws *wsi)
 	return 0;
 }
 
+/*
+ * A server handshake completed: does the client cert it presented satisfy
+ * the vhost's policy?  tcp's accept below and quic's handshake completion
+ * (lws_tls_quic_server_confirm_peer()) both ask.  0 if he may go on.
+ */
+int
+lws_tls_server_client_cert_check(struct lws *wsi)
+{
+	uint32_t f;
+	char vi[256];
+
+	if (!lws_check_opt(wsi->a.vhost->options,
+			   LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT))
+		return 0;
+
+	/*
+	 * With LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED the authmode had to
+	 * stay VERIFY_OPTIONAL, and mbedtls completes the handshake under that
+	 * whatever the cert turned out to be, just recording the result here.
+	 *
+	 * openssl's SSL_VERIFY_PEER (which is what lws asks for there) means
+	 * "no cert is OK, a bad cert is not".  So tolerate only the absence of
+	 * a cert: anything that was presented and failed must fail the
+	 * accept, otherwise an app reading the CN or SAN afterwards to
+	 * authorize is reading an unvalidated identity.
+	 */
+
+	f = mbedtls_ssl_get_verify_result(&wsi->io->tls.ssl->ssl);
+	f &= ~((uint32_t)MBEDTLS_X509_BADCERT_MISSING |
+	       (uint32_t)MBEDTLS_X509_BADCERT_SKIP_VERIFY);
+	if (!f)
+		return 0;
+
+	mbedtls_x509_crt_verify_info(vi, sizeof(vi), "  ! ", f);
+	lwsl_notice("%s: %s: client cert rejected: %s\n", __func__,
+		    lws_wsi_tag(wsi), vi);
+
+	return 1;
+}
+
 #if defined(LWS_WITH_TCP_TLS)
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
@@ -559,39 +599,8 @@ lws_tls_server_accept(struct lws *wsi)
 			return LWS_SSL_CAPABLE_ERROR;
 		}
 
-		if (lws_check_opt(wsi->a.vhost->options,
-			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)) {
-			uint32_t f = mbedtls_ssl_get_verify_result(
-							&wsi->io->tls.ssl->ssl);
-
-			/*
-			 * With LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED the
-			 * authmode had to stay VERIFY_OPTIONAL, and mbedtls
-			 * completes the handshake under that whatever the cert
-			 * turned out to be, just recording the result here.
-			 *
-			 * openssl's SSL_VERIFY_PEER (which is what lws asks
-			 * for there) means "no cert is OK, a bad cert is not".
-			 * So tolerate only the absence of a cert: anything
-			 * that was presented and failed must fail the accept,
-			 * otherwise an app reading the CN or SAN afterwards to
-			 * authorize is reading an unvalidated identity.
-			 */
-
-			f &= ~((uint32_t)MBEDTLS_X509_BADCERT_MISSING |
-			       (uint32_t)MBEDTLS_X509_BADCERT_SKIP_VERIFY);
-
-			if (f) {
-				char vi[256];
-
-				mbedtls_x509_crt_verify_info(vi, sizeof(vi),
-							     "  ! ", f);
-				lwsl_notice("%s: %s: client cert rejected: %s\n",
-					    __func__, lws_wsi_tag(wsi), vi);
-
-				return LWS_SSL_CAPABLE_ERROR;
-			}
-		}
+		if (lws_tls_server_client_cert_check(wsi))
+			return LWS_SSL_CAPABLE_ERROR;
 
 		n = lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME,
 					   &ir, sizeof(ir.ns.name));

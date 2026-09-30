@@ -1940,6 +1940,30 @@ lws_tls_schannel_server_client_cert(struct lws *wsi)
 	return 0;
 }
 
+#if defined(LWS_WITH_SERVER)
+/*
+ * A server handshake completed: does the client cert it presented satisfy
+ * the vhost's policy?  quic's handshake completion
+ * (lws_tls_quic_server_confirm_peer()) asks, the tcp accept judges it with
+ * lws_tls_schannel_server_client_cert() directly.  0 if he may go on.
+ *
+ * quic's server handshake does not ask for a client cert (no
+ * ASC_REQ_MUTUAL_AUTH), so on a vhost that requires one there is none, and
+ * he is refused: fail-closed rather than served unauthenticated.
+ */
+int
+lws_tls_server_client_cert_check(struct lws *wsi)
+{
+	if (!lws_check_opt(wsi->a.vhost->options,
+			   LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT) &&
+	    !lws_check_opt(wsi->a.vhost->options,
+		LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE))
+		return 0;
+
+	return lws_tls_schannel_server_client_cert(wsi);
+}
+#endif
+
 	int
 lws_ssl_get_error(struct lws *wsi, int n)
 {

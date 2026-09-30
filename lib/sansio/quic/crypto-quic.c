@@ -1109,23 +1109,27 @@ error_handling:
 			return -1;
 		}
 
-#if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+#if defined(LWS_WITH_TLS)
 		/*
-		 * Nothing on the QUIC path passes through
-		 * lws_ssl_client_connect2(), which is where the TCP TLS client
-		 * confirms the peer certificate and applies the connection's
-		 * LCCSCF_ flags to the result... so the client has to do it
-		 * here, before it treats the handshake as done, otherwise it
-		 * accepts any server certificate at all
+		 * Nothing on the QUIC path passes through what TLS over TCP
+		 * does once its handshake completes: on a client,
+		 * lws_ssl_client_connect2() confirming the server's
+		 * certificate under the connection's LCCSCF_ flags, on a
+		 * server, the backend's accept judging the client's
+		 * certificate and lws_tls_server_accept_completed() applying
+		 * the client-certificate policy of the vhost the SNI chose.
+		 * So either role has it done here, before the handshake is
+		 * treated as done and anything is served, otherwise a client
+		 * accepts any server certificate at all (C-344), and an mTLS
+		 * vhost serves any client certificate, or none (C-656)
 		 */
 
-		if (!wsi->quic.qn->is_server) {
+		{
 			struct lws *twsi = lws_tls_session_ptr(orig_wsi) ? orig_wsi : wsi;
 			char ebuf[128];
 
 			ebuf[0] = '\0';
-			if (lws_tls_client_confirm_peer_cert(twsi, ebuf,
-							     sizeof(ebuf))) {
+			if (lws_tls_quic_confirm_peer(twsi, ebuf, sizeof(ebuf))) {
 				lwsl_wsi_err(twsi, "QUIC peer cert rejected: %s",
 					     ebuf);
 				lws_quic_enter_closing_state(wsi, 0x0100 +

@@ -884,9 +884,7 @@ const lws_io_ops_t lws_io_ops_default = {
 	.tls_quic_handshake	= lws_tls_quic_advance_handshake,
 	.tls_quic_set_tp	= lws_tls_quic_set_transport_parameters,
 	.tls_quic_get_tp	= lws_tls_quic_get_transport_parameters,
-#if defined(LWS_WITH_CLIENT)
-	.tls_confirm_peer_cert	= lws_tls_client_confirm_peer_cert,
-#endif
+	.tls_confirm_peer_cert	= lws_tls_quic_confirm_peer,
 	.tls_quic_aead		= lws_tls_quic_aead_type,
 	.tls_quic_alert		= lws_tls_quic_alert,
 	.tls_quic_alpn		= lws_tls_quic_alpn,
@@ -968,9 +966,7 @@ lws_io_ops_check(const lws_io_ops_t *ops)
 	lws_io_ops_required(tls_quic_aead)
 	lws_io_ops_required(tls_quic_alert)
 	lws_io_ops_required(tls_quic_alpn)
-#if defined(LWS_WITH_CLIENT)
 	lws_io_ops_required(tls_confirm_peer_cert)
-#endif
 #endif
 
 #undef lws_io_ops_required

@@ -930,6 +930,42 @@ lws_tls_server_abort_connection(struct lws *wsi)
 	return LWS_SSL_CAPABLE_DONE;
 }
 
+/*
+ * A server handshake completed: does the client cert it presented satisfy
+ * the vhost's policy?  quic's handshake completion
+ * (lws_tls_quic_server_confirm_peer()) asks.  0 if he may go on.
+ *
+ * openssl judges the cert inside the handshake, under the verify mode and
+ * OpenSSL_verify_callback() of the SSL_CTX the SNI selected, and fails the
+ * handshake on a cert that did not verify, unless the application's
+ * LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION cleared the error...
+ * in which case the recorded result is X509_V_OK as well.  So a presented
+ * cert whose recorded result is anything else was never judged under the
+ * vhost's policy (eg, a ctx without its verify mode): refuse it.  Absence is
+ * the verify mode's, and lws_vhost_mtls_unsatisfied()'s, business.
+ */
+int
+lws_tls_server_client_cert_check(struct lws *wsi)
+{
+	union lws_tls_cert_info_results ir;
+
+	if (!lws_check_opt(wsi->a.vhost->options,
+			   LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT))
+		return 0;
+
+	if (lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VERIFIED, &ir,
+				   sizeof(ir.ns.name)))
+		return 0; /* none presented */
+
+	if (ir.verified)
+		return 0;
+
+	lwsl_wsi_notice(wsi, "vh %s: client cert did not verify",
+			wsi->a.vhost->name);
+
+	return 1;
+}
+
 #if defined(LWS_WITH_TCP_TLS)
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)

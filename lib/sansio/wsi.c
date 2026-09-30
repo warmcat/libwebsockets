@@ -241,11 +241,11 @@ lws_wsi_hs_ca_id(struct lws *wsi)
 	if (id)
 		return id;
 	/*
-	 * Nothing was recorded at handshake time... that is the case for
-	 * quic, whose handshake completion does not pass through
-	 * lws_tls_server_accept_completed().  Nothing moves those onto
-	 * another vhost before the peer names one either, so the vhost he is
-	 * on now is the one his handshake completed under.
+	 * Nothing was recorded at handshake time.  Every server handshake
+	 * records it when it completes, tcp's accept and quic's alike
+	 * (lws_tls_server_accept_completed(), lws_tls_quic_confirm_peer()),
+	 * so this is a connection that has not completed one yet: the vhost
+	 * he is on now is the only one his handshake can be under.
 	 */
 
 	return wsi->a.vhost ? wsi->a.vhost->tls.client_ca_id : NULL;

@@ -476,7 +476,7 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 }
 #endif
 
-#if defined(LWS_WITH_TCP_TLS)
+#if defined(LWS_WITH_TCP_TLS) || defined(LWS_ROLE_QUIC)
 
 /*
  * Which vhost owns the tls ctx this connection actually handshaked under?
@@ -523,36 +523,22 @@ lws_tls_vhost_owning_ctx(struct lws_context *cx, lws_tls_ctx *ctx)
 	return NULL;
 }
 
-int
-lws_tls_server_accept_completed(struct lws *wsi, int n)
+/*
+ * The client-certificate policy a completed server handshake has to satisfy
+ * before the connection is served, whichever transport carried it: tcp's
+ * accept (lws_tls_server_accept_completed()) and quic's handshake completion
+ * (lws_tls_quic_server_confirm_peer()) both come here, so that neither can
+ * miss what the other does.
+ *
+ * Returns 0 if he may be served from the vhost he is bound to afterwards,
+ * else nonzero and he must be dropped.
+ */
+
+static int
+lws_tls_server_handshake_policy(struct lws *wsi)
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_vhost *vh;
-
-	lwsl_info("SSL_accept says %d\n", n);
-	switch (n) {
-	case LWS_SSL_CAPABLE_DONE:
-		lws_tls_restrict_return_handshake(wsi);
-		break;
-	case LWS_SSL_CAPABLE_ERROR:
-		lws_tls_restrict_return_handshake(wsi);
-		lwsl_info("%s: SSL_accept failed socket %u: %d\n",
-				__func__, wsi->io->desc.sockfd, n);
-		lwsi_set_skt_unusable(wsi, 1);
-		return 1;
-
-	default: /* MORE_SERVICE */
-		// lwsl_notice("%s: %s: MORE_SERVICE (%d), setting LRS_SSL_ACK_PENDING\n", __func__, lws_wsi_tag(wsi), n);
-		if (n == LWS_SSL_CAPABLE_MORE_SERVICE_READ) {
-			if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
-				return 1;
-		} else if (n == LWS_SSL_CAPABLE_MORE_SERVICE_WRITE) {
-			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
-				return 1;
-		}
-		lws_wsi_event(wsi, LWS_WSIEV_TLS_ACCEPT_PENDING);
-		return 0;
-	}
 
 	/*
 	 * Adapt our vhost to match the SNI SSL_CTX that was chosen.
@@ -609,6 +595,90 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 		lwsl_wsi_notice(wsi, "dropping: vh %s requires a client cert "
 				     "this handshake did not provide",
 				     wsi->a.vhost->name);
+
+		return 1;
+	}
+
+	return 0;
+}
+
+#if defined(LWS_ROLE_QUIC)
+/*
+ * A quic server connection's handshake completed.  None of tcp's accept path
+ * runs for it: not the backend's lws_tls_server_accept(), which is where
+ * gnutls and mbedtls judge a presented client cert, nor
+ * lws_tls_server_accept_completed(), which moves him to the vhost his SNI
+ * handshaked under, records which CA verified him and refuses an mTLS vhost
+ * he did not satisfy.  Without them an mTLS vhost with h3 in its alpn serves
+ * a peer the same vhost refuses over tcp, eg, on gnutls, any self-signed
+ * cert, since GNUTLS_CERT_REQUIRE only asks for one to be present.
+ *
+ * So the same policy, and the backend's own judgement of the cert, are
+ * applied here before quic treats the handshake as done.  Returns 0 if he may
+ * be served, else nonzero with the reason in ebuf.
+ */
+
+int
+lws_tls_quic_server_confirm_peer(struct lws *wsi, char *ebuf, size_t ebuf_len)
+{
+	if (!wsi->io->tls.ssl) {
+		lws_snprintf(ebuf, ebuf_len, "no tls session");
+
+		return 1;
+	}
+
+	if (lws_tls_server_handshake_policy(wsi)) {
+		lws_snprintf(ebuf, ebuf_len, "vhost client cert policy");
+
+		return 1;
+	}
+
+	/* on the vhost he is bound to now, after any SNI move */
+
+	if (wsi->a.vhost && lws_tls_server_client_cert_check(wsi)) {
+		lws_snprintf(ebuf, ebuf_len, "client cert rejected");
+
+		return 1;
+	}
+
+	return 0;
+}
+#endif
+#endif
+
+#if defined(LWS_WITH_TCP_TLS)
+
+int
+lws_tls_server_accept_completed(struct lws *wsi, int n)
+{
+	struct lws_context *context = wsi->a.context;
+
+	lwsl_info("SSL_accept says %d\n", n);
+	switch (n) {
+	case LWS_SSL_CAPABLE_DONE:
+		lws_tls_restrict_return_handshake(wsi);
+		break;
+	case LWS_SSL_CAPABLE_ERROR:
+		lws_tls_restrict_return_handshake(wsi);
+		lwsl_info("%s: SSL_accept failed socket %u: %d\n",
+				__func__, wsi->io->desc.sockfd, n);
+		lwsi_set_skt_unusable(wsi, 1);
+		return 1;
+
+	default: /* MORE_SERVICE */
+		// lwsl_notice("%s: %s: MORE_SERVICE (%d), setting LRS_SSL_ACK_PENDING\n", __func__, lws_wsi_tag(wsi), n);
+		if (n == LWS_SSL_CAPABLE_MORE_SERVICE_READ) {
+			if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
+				return 1;
+		} else if (n == LWS_SSL_CAPABLE_MORE_SERVICE_WRITE) {
+			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+				return 1;
+		}
+		lws_wsi_event(wsi, LWS_WSIEV_TLS_ACCEPT_PENDING);
+		return 0;
+	}
+
+	if (lws_tls_server_handshake_policy(wsi)) {
 		lwsi_set_skt_unusable(wsi, 1);
 
 		return 1;

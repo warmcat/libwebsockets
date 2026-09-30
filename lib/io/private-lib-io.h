@@ -493,6 +493,8 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len);
 int
 lws_tls_quic_session(struct lws *wsi, lws_tls_quic_secret_cb cb);
 int
+lws_tls_quic_confirm_peer(struct lws *wsi, char *ebuf, size_t ebuf_len);
+int
 lws_tls_quic_aead_type(struct lws *wsi);
 int
 lws_tls_quic_alert(struct lws *wsi);

@@ -602,7 +602,14 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	}
 
 #if GNUTLS_VERSION_NUMBER >= 0x030605
-        if (wsi->a.vhost->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA) {
+	/*
+	 * Early data is served before the handshake completes, ie, before
+	 * anything about the client certificate is known: a vhost that asks
+	 * for one does not take it (quic drops its 0-RTT packets there too)
+	 */
+        if ((wsi->a.vhost->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA) &&
+	    !lws_check_opt(wsi->a.vhost->options,
+			   LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)) {
                 flags |= GNUTLS_ENABLE_EARLY_DATA;
 #if defined(LWS_ROLE_QUIC) && GNUTLS_VERSION_NUMBER >= 0x030702
                 extern const struct lws_role_ops role_ops_quic;

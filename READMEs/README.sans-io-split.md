@@ -215,7 +215,7 @@ embedder carries nothing that needs it.
 | tls | `tls_quic_session` | make quic's session | `lws_tls_quic_session()` |
 | tls | `tls_quic_handshake` | feed quic's CRYPTO bytes to the handshake | `lws_tls_quic_advance_handshake()` |
 | tls | `tls_quic_set_tp`, `tls_quic_get_tp` | quic's transport parameters | `lws_tls_quic_set/get_transport_parameters()` |
-| tls | `tls_confirm_peer_cert` | is the server's certificate acceptable | `lws_tls_client_confirm_peer_cert()` |
+| tls | `tls_confirm_peer_cert` | is the peer's certificate acceptable: the server's on a client, the client's under its vhost's policy on a server | `lws_tls_quic_confirm_peer()` |
 | tls | `tls_quic_aead`, `tls_quic_alert`, `tls_quic_alpn` | what quic's handshake settled | `lws_tls_quic_aead_type()`, `_alert()`, `_alpn()` |
 | tx | `tx_push` | take these framed bytes now (the push) | `lws_io_tx_push()` |
 | tx | `tx_now` (optional) | pull a datagram connection's tx now | `lws_io_tx_now()` |

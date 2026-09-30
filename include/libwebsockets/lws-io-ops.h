@@ -55,7 +55,7 @@
  * The version of lws_io_ops_t: its members, their order and what they
  * mean.  Any change to them changes it.
  */
-#define LWS_IO_OPS_ABI_VERSION 1
+#define LWS_IO_OPS_ABI_VERSION 2
 
 /*
  * The close request reaches the transport in phases, in this order over a
@@ -240,10 +240,12 @@ typedef struct lws_io_ops {
 	 * handshake, *tp_len long.  0 ok, nonzero when there are none yet. */
 	int (*tls_confirm_peer_cert)(struct lws *wsi, char *ebuf,
 				     size_t ebuf_len);
-	/**< the client quic connection wsi's handshake is done: is the
-	 * server's certificate acceptable under its LCCSCF_ flags, as tls
-	 * over tcp decides it.  0 yes, else nonzero with the reason in
-	 * ebuf. */
+	/**< the quic connection wsi's handshake is done: is the peer's
+	 * certificate acceptable, as tls over tcp decides it... on a client,
+	 * the server's under its LCCSCF_ flags, on a server, the client's
+	 * under the client-certificate policy of the vhost it is bound to
+	 * (since ABI version 2; before, it was asked only on a client).  0
+	 * yes, else nonzero with the reason in ebuf. */
 	int (*tls_quic_aead)(struct lws *wsi);
 	/**< the packet protection AEAD wsi's handshake negotiated, an enum
 	 * lws_tls_quic_aead. */

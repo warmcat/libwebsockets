@@ -164,6 +164,88 @@ lws_ssl_close(struct lws *wsi)
 	return 0;
 }
 
+#if defined(LWS_WITH_SERVER)
+/*
+ * A server handshake completed: does the client cert it presented satisfy
+ * the vhost's policy?  tcp's accept below and quic's handshake completion
+ * (lws_tls_quic_server_confirm_peer()) both ask.  0 if he may go on.
+ */
+int
+lws_tls_server_client_cert_check(struct lws *wsi)
+{
+	gnutls_session_t session = (gnutls_session_t)wsi->io->tls.ssl;
+	int opt_req = lws_check_opt(wsi->a.vhost->options,
+			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT);
+	int opt_opt = lws_check_opt(wsi->a.vhost->options,
+			LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED);
+	union lws_tls_cert_info_results ir;
+	unsigned int status = 0;
+	gnutls_datum_t out;
+	char rbuf[160];
+
+	if (!opt_req && !opt_opt)
+		return 0;
+
+	/*
+	 * The vhost asked for client certs.  gnutls does not verify presented
+	 * client certs as part of the handshake by itself (GNUTLS_CERT_REQUIRE
+	 * only requires one to be there), so the outcome is both enforced and
+	 * made visible here
+	 */
+
+	if (gnutls_certificate_verify_peers2(session, &status) < 0) {
+		lwsl_notice("%s: vh %s: mTLS: no client cert presented\n",
+			    __func__, wsi->a.vhost->name);
+
+		/* absent cert is only OK if it was optional */
+		return !opt_opt;
+	}
+
+	if (status) {
+		/*
+		 * Presented, but did not verify: reject.
+		 *
+		 * LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED does not excuse
+		 * this.  openssl's SSL_VERIFY_PEER (which is what lws asks for
+		 * there) means "no cert is OK, a bad cert is not", and mbedtls
+		 * was brought to the same rule in C-359: only the *absence* of
+		 * a cert is tolerated, since an app reading the CN or SAN
+		 * afterwards to authorize would otherwise be reading an
+		 * unvalidated identity.
+		 */
+
+		rbuf[0] = '\0';
+		if (!gnutls_certificate_verification_status_print(status,
+				gnutls_certificate_type_get(session), &out, 0)) {
+			lws_strncpy(rbuf, (const char *)out.data,
+				    sizeof(rbuf) - 1);
+			gnutls_free(out.data);
+		}
+
+		lwsl_notice("%s: vh %s: mTLS: rejecting client cert: %s\n",
+			    __func__, wsi->a.vhost->name,
+			    rbuf[0] ? rbuf : "verification failed");
+
+		return 1;
+	}
+
+	/*
+	 * Anything that did not verify was refused above, so this really is
+	 * an authenticated identity.  The app can ask for the same answer
+	 * with LWS_TLS_CERT_INFO_VERIFIED
+	 */
+
+	if (lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME,
+				   &ir, sizeof(ir.ns.name)))
+		lws_strncpy(ir.ns.name, "unknown", sizeof(ir.ns.name));
+
+	lwsl_notice("%s: vh %s: mTLS: accepted verified client cert CN=%s\n",
+		    __func__, wsi->a.vhost->name, ir.ns.name);
+
+	return 0;
+}
+#endif
+
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_TCP_TLS)
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
@@ -191,86 +273,8 @@ lws_tls_server_accept(struct lws *wsi)
 #endif
 
 	if (n == GNUTLS_E_SUCCESS) {
-		int opt_req = lws_check_opt(wsi->a.vhost->options,
-				LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT);
-		int opt_opt = lws_check_opt(wsi->a.vhost->options,
-				LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED);
-
-		if (opt_req || opt_opt) {
-			/*
-			 * The vhost asked for client certs.  gnutls does not
-			 * verify presented client certs as part of the
-			 * handshake by itself, so the outcome is both
-			 * enforced and made visible here
-			 */
-			unsigned int status = 0;
-
-			if (gnutls_certificate_verify_peers2(
-					(gnutls_session_t)wsi->io->tls.ssl,
-					&status) < 0) {
-				lwsl_notice("%s: vh %s: mTLS: no client cert presented\n",
-					    __func__, wsi->a.vhost->name);
-
-				/* absent cert is only OK if it was optional */
-				if (!opt_opt)
-					return LWS_SSL_CAPABLE_ERROR;
-			} else if (status) {
-				/*
-				 * Presented, but did not verify: reject.
-				 *
-				 * LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED does
-				 * not excuse this.  openssl's SSL_VERIFY_PEER
-				 * (which is what lws asks for there) means "no
-				 * cert is OK, a bad cert is not", and mbedtls
-				 * was brought to the same rule in C-359: only
-				 * the *absence* of a cert is tolerated, since
-				 * an app reading the CN or SAN afterwards to
-				 * authorize would otherwise be reading an
-				 * unvalidated identity.
-				 */
-				gnutls_datum_t out;
-				char rbuf[160];
-
-				rbuf[0] = '\0';
-				if (!gnutls_certificate_verification_status_print(
-						status,
-						gnutls_certificate_type_get(
-							(gnutls_session_t)wsi->io->tls.ssl),
-						&out, 0)) {
-					lws_strncpy(rbuf, (const char *)out.data,
-						    sizeof(rbuf) - 1);
-					gnutls_free(out.data);
-				}
-
-				lwsl_notice("%s: vh %s: mTLS: rejecting client "
-					    "cert: %s\n", __func__,
-					    wsi->a.vhost->name,
-					    rbuf[0] ? rbuf : "verification failed");
-
-				return LWS_SSL_CAPABLE_ERROR;
-			} else {
-				union lws_tls_cert_info_results ir;
-				char cn[80];
-
-				if (!lws_tls_peer_cert_info(wsi,
-						LWS_TLS_CERT_INFO_COMMON_NAME,
-						&ir, sizeof(ir.ns.name)))
-					lws_strncpy(cn, ir.ns.name, sizeof(cn));
-				else
-					lws_strncpy(cn, "unknown", sizeof(cn));
-
-				/*
-				 * Anything that did not verify was refused
-				 * above, so this really is an authenticated
-				 * identity.  The app can ask for the same
-				 * answer with LWS_TLS_CERT_INFO_VERIFIED
-				 */
-
-				lwsl_notice("%s: vh %s: mTLS: accepted verified "
-					    "client cert CN=%s\n", __func__,
-					    wsi->a.vhost->name, cn);
-			}
-		}
+		if (lws_tls_server_client_cert_check(wsi))
+			return LWS_SSL_CAPABLE_ERROR;
 
 		return LWS_SSL_CAPABLE_DONE;
 	}
