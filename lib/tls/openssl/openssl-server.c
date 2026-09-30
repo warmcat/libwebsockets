@@ -173,6 +173,9 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 /* not all the openssl-alikes carry the RFC 6066 alert number */
 #define SSL_AD_UNRECOGNIZED_NAME 112
 #endif
+#if !defined(SSL_AD_INTERNAL_ERROR)
+#define SSL_AD_INTERNAL_ERROR 80
+#endif
 
 static int
 lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
@@ -180,20 +183,26 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 	struct lws_context *context = (struct lws_context *)arg;
 	struct lws_vhost *vhost, *vh;
 	const char *servername;
+	struct lws *wsi;
 
 	if (!ssl)
 		return SSL_TLSEXT_ERR_NOACK;
 
 	/*
-	 * We can only get ssl accepted connections by using a vhost's ssl_ctx
-	 * find out which listening one took us and only match vhosts on the
-	 * same port.
+	 * Which vhost accepted him?  Only vhosts on the same port are
+	 * candidates for his SNI name.  The SSL was made from the accepting
+	 * vhost's ctx, but a cert rotation since then may have retired that
+	 * ctx, so ask the connection, which stays bound to the accepting vhost
+	 * until the handshake has completed.
 	 */
-	vh = lws_tls_vhost_from_ssl_ctx(context, ssl);
-
+	wsi = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
+	vh = wsi && wsi->a.vhost ? wsi->a.vhost :
+				   lws_tls_vhost_from_ssl_ctx(context, ssl);
 	if (!vh) {
-		assert(vh); /* can't match the incoming vh? */
-		return SSL_TLSEXT_ERR_OK;
+		lwsl_cx_warn(context, "SNI: can't find the accepting vhost");
+		*ad = SSL_AD_INTERNAL_ERROR;
+
+		return SSL_TLSEXT_ERR_ALERT_FATAL;
 	}
 
 	servername = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
