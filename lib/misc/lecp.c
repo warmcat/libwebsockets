@@ -426,6 +426,16 @@ lecp_parse(struct lecp_ctx *ctx, const uint8_t *cbor, size_t len)
 	int ret;
 
 	/*
+	 * A rejected parse stops wherever it was, with its stacks and string
+	 * chunk half-updated: a caller that goes on feeding us after a reject
+	 * just gets the reject again
+	 */
+	if (ctx->failed) {
+		ctx->used_in = 0;
+		return ctx->failed;
+	}
+
+	/*
 	 * Notice we must consume len inside the loop... `while (len--)` leaves
 	 * len at (size_t)-1 after the last byte, making the used_in computation
 	 * below report one more byte than we were given
@@ -1190,6 +1200,7 @@ reject:
 	 * of his buffer we ate before that so he can account for it too
 	 */
 	ctx->used_in = olen - len;
+	ctx->failed = (int8_t)ret;
 
 	ctx->pst[ctx->pst_sp].cb(ctx, LECPCB_FAILED);
 

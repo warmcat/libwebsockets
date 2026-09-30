@@ -310,6 +310,7 @@ struct lecp_ctx {
 	char			present; /* temp for cb reason to use */
 
 	uint8_t			be; /* big endian */
+	int8_t			failed; /* 0, or the LECP_... reject */
 
 	/* at end so we can memset the rest of it */
 

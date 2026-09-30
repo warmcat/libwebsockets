@@ -350,6 +350,7 @@ struct lejp_ctx {
 	uint8_t wildcount;
 	uint8_t pst_sp; /* parsing stack head */
 	uint8_t outer_array;
+	int8_t failed; /* 0, or the LEJP_REJECT_... this ctx failed with */
 };
 
 LWS_VISIBLE LWS_EXTERN void

@@ -80,6 +80,7 @@ lejp_construct(struct lejp_ctx *ctx,
 	ctx->ipos = 0;
 	ctx->uni_hi = 0;
 	ctx->outer_array = 0;
+	ctx->failed = 0;
 	ctx->path_match = 0;
 	ctx->path_stride = 0;
 	ctx->path[0] = '\0';
@@ -350,6 +351,15 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 	 * parsed completely with no bytes left over", for a rejected parse
 	 */
 	int ret = LEJP_REJECT_UNKNOWN, e;
+
+	/*
+	 * A rejected parse stops wherever it was, stacks, indexes and the
+	 * string chunk half-updated, and nothing about that state is fit to
+	 * parse more input with.  A caller that goes on feeding us after a
+	 * reject just gets the reject again.
+	 */
+	if (ctx->failed)
+		return ctx->failed;
 
 	if (!ctx->sp && !ctx->pst[ctx->pst_sp].ppos)
 		ctx->pst[ctx->pst_sp].callback(ctx, LEJPCB_START);
@@ -1152,6 +1162,7 @@ reject_callback:
 	ret = LEJP_REJECT_CALLBACK;
 
 reject:
+	ctx->failed = (int8_t)ret;
 	ctx->pst[ctx->pst_sp].callback(ctx, LEJPCB_FAILED);
 	return ret;
 }
