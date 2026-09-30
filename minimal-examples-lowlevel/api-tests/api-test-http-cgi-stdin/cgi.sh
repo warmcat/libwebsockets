@@ -12,7 +12,8 @@
 # style), so the test can check the stamped value got here and the
 # client's own attempt at the same header did not.
 #
-# The third line is the QUERY_STRING as lws exported it.
+# The third line is the QUERY_STRING as lws exported it, and the fourth the
+# CONTENT_LENGTH.
 
 # Some paths ask for a script that misbehaves instead:
 #
@@ -41,7 +42,8 @@ GET|HEAD)
 esac
 b="bytes=$n
 stamp=$HTTP_X_TEST_STAMP
-qs=$QUERY_STRING"
+qs=$QUERY_STRING
+clen=$CONTENT_LENGTH"
 
 printf 'content-type: text/plain\r\n'
 printf 'content-length: %d\r\n' "$(( ${#b} + 1 ))"

@@ -409,12 +409,15 @@ postbody_completion:
 				lws_set_timeout(wsi, PENDING_TIMEOUT_CGI,
 						(int)wsi->a.context->timeout_secs);
 				/*
-				 * A chunked body has no Content-Length for the
-				 * stdin relay to count down: its end is here,
-				 * so end the child's stdin here
+				 * However it was framed, the body is complete:
+				 * end the child's stdin.  A chunked body, or an
+				 * h2 / h3 one ended by the stream, has no
+				 * Content-Length for the stdin relay to count
+				 * down, so this is its only end; one with a
+				 * Content-Length was ended by the countdown
+				 * already, and this does nothing.
 				 */
-				if (wsi->http.rx_chunked)
-					lws_cgi_stdin_body_end(wsi);
+				lws_cgi_stdin_body_end(wsi);
 			} else
 #endif
 				lws_h1_body_timeout(wsi, 0);

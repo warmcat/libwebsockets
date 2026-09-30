@@ -27,6 +27,11 @@
  * decode it, hand the CGI only the payload, and close the CGI's stdin at the
  * last-chunk so the script's read sees EOF.
  *
+ * With --put, the same body goes as an h1 PUT; with --h2-post as an h2 POST,
+ * and with --h2-post-stream as an h2 POST with no Content-Length, ended by
+ * the stream: whatever the method or http version, the script must get the
+ * whole body, see its end, and be told its Content-Length if it had one.
+ *
  * With --no-headers, the script exits without writing anything: the
  * transaction must fail at once, not after the cgi timeout, and without the
  * service loop spinning on the hangup of the script's stdout meanwhile.
@@ -99,6 +104,7 @@ enum body_type {
 	BODY_NONE,
 	BODY_CONTENT_LENGTH,
 	BODY_CHUNKED,
+	BODY_STREAM,		/* h2: no length, the stream ends it */
 };
 
 enum expect {
@@ -122,11 +128,16 @@ struct tcase {
 static const struct tcase cases[] = {
 	{ "post", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT, 0, 0 },
 	{ "chunked", "POST", "/", BODY_CHUNKED, EXPECT_BODY_COUNT, 0, 0 },
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
+	{ "put", "PUT", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT, 0, 0 },
+#endif
 	{ "fd-budget", "GET", "/", BODY_NONE, EXPECT_FD_BUDGET, 0, 0 },
 	{ "no-headers", "GET", "/nohdr", BODY_NONE, EXPECT_NO_ANSWER, 0, 0 },
 	{ "query", "GET", "/?x=%C3%A9&y=a%20b", BODY_NONE, EXPECT_QUERY, 0, 0 },
 #if defined(LWS_ROLE_H2)
 	{ "h2-starve", "GET", "/big", BODY_NONE, EXPECT_BIG_BODY, 1, 1 },
+	{ "h2-post", "POST", "/", BODY_CONTENT_LENGTH, EXPECT_BODY_COUNT, 1, 0 },
+	{ "h2-post-stream", "POST", "/", BODY_STREAM, EXPECT_BODY_COUNT, 1, 0 },
 #endif
 };
 
@@ -218,13 +229,17 @@ sul_timeout_cb(lws_sorted_usec_list_t *sul)
 	run_done();
 }
 
-/* the script's answer to a POST: did it get the whole body? */
+/*
+ * The script's answer to a request with a body: did it get all of it, and
+ * was it told its length if it had one?
+ */
 
 static int
 check_body_count(void)
 {
 	const char *p = strstr(run.rx, "bytes=");
 	unsigned long expect = (unsigned long)CHUNKS * CHUNK, seen = 0;
+	char clen[32];
 
 	if (!p) {
 		lwsl_err("--- no byte count in response, rx '%s' ---\n", run.rx);
@@ -237,6 +252,17 @@ check_body_count(void)
 	if (seen != expect) {
 		lwsl_err("--- cgi received %lu bytes, expected %lu ---\n",
 			 seen, expect);
+		return 1;
+	}
+
+	if (tc->body == BODY_CONTENT_LENGTH)
+		lws_snprintf(clen, sizeof(clen), "clen=%lu\n", expect);
+	else
+		lws_strncpy(clen, "clen=\n", sizeof(clen));
+
+	if (!strstr(run.rx, clen)) {
+		lwsl_err("--- cgi env CONTENT_LENGTH wrong, rx '%s' ---\n",
+			 run.rx);
 		return 1;
 	}
 
@@ -317,6 +343,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 						(lws_filepos_t)CHUNKS * CHUNK,
 						pp, end))
 				return -1;
+			break;
+		case BODY_STREAM:
+			/* nothing: the END_STREAM on the last DATA ends it */
 			break;
 		}
 
@@ -568,7 +597,7 @@ int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	unsigned int budget;
-	int result = 1;
+	int result = 1, a;
 	const char *p;
 	size_t n;
 
@@ -580,14 +609,14 @@ int main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		server = p;
 
-	tc = &cases[0];
-	for (n = 1; n < LWS_ARRAY_SIZE(cases); n++) {
-		char opt[32];
+	/* the case is named by a --<name> switch, the whole of it */
 
-		lws_snprintf(opt, sizeof(opt), "--%s", cases[n].name);
-		if (lws_cmdline_option(argc, argv, opt))
-			tc = &cases[n];
-	}
+	tc = &cases[0];
+	for (a = 1; a < argc; a++)
+		for (n = 1; n < LWS_ARRAY_SIZE(cases); n++)
+			if (!strncmp(argv[a], "--", 2) &&
+			    !strcmp(argv[a] + 2, cases[n].name))
+				tc = &cases[n];
 
 	signal(SIGINT, sigint_handler);
 

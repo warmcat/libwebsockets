@@ -414,26 +414,32 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 		      lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING)))
 			goto bail;
 	}
-	if (cgiinfo->script_uri_path_len >= 0 &&
-	    uritok == WSI_TOKEN_POST_URI) {
+	/*
+	 * A request body goes to the script's stdin whatever the method or
+	 * the http version (on h2 / h3 there are no method URI tokens, and
+	 * PUT and PATCH have bodies as well as POST): the script is told its
+	 * type, and its length when it has one, the one the request framing
+	 * validated.  The relay counts that length down, and ends the stdin
+	 * when it reaches 0; a body without one is ended at its end.
+	 */
+	if (cgiinfo->script_uri_path_len >= 0) {
 		if (lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
 			if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
 					  "CONTENT_TYPE=%s",
 			  lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)))
 				goto bail;
 		}
-		if (lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
+		if (lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
+		    cgiinfo->wsi->http.content_length_given) {
 			if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array),
-					    &p, end, "CONTENT_LENGTH=%s",
-					    lws_hdr_simple_ptr(cgiinfo->wsi,
-					    WSI_TOKEN_HTTP_CONTENT_LENGTH)))
+					    &p, end, "CONTENT_LENGTH=%llu",
+					    (unsigned long long)
+					    cgiinfo->wsi->http.rx_content_length))
 				goto bail;
-		}
 
-		if (lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH))
-			cgiinfo->wsi->http.cgi->post_in_expected = (lws_filepos_t)
-				atoll(lws_hdr_simple_ptr(cgiinfo->wsi,
-						WSI_TOKEN_HTTP_CONTENT_LENGTH));
+			cgiinfo->wsi->http.cgi->post_in_expected =
+					cgiinfo->wsi->http.rx_content_length;
+		}
 	}
 
 	/*

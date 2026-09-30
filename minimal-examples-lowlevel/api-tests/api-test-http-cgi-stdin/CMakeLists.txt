@@ -62,6 +62,19 @@ if (requirements)
 				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 				     TIMEOUT 60)
 
+		set(has_put 1)
+		require_lws_config(LWS_WITH_HTTP_UNCOMMON_HEADERS 1 has_put)
+		if (has_put)
+			lws_get_free_port(PORT_HTTP_CGI_PUT)
+
+			add_test(NAME api-test-http-cgi-put
+				 COMMAND lws-api-test-http-cgi-stdin --put
+					 -p ${PORT_HTTP_CGI_PUT})
+			set_tests_properties(api-test-http-cgi-put PROPERTIES
+					     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+					     TIMEOUT 60)
+		endif()
+
 		lws_get_free_port(PORT_HTTP_CGI_QUERY)
 
 		add_test(NAME api-test-http-cgi-query
@@ -80,6 +93,24 @@ if (requirements)
 				 COMMAND lws-api-test-http-cgi-stdin --h2-starve
 					 -p ${PORT_HTTP_CGI_H2_STARVE})
 			set_tests_properties(api-test-http-cgi-h2-starve PROPERTIES
+					     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+					     TIMEOUT 60)
+
+			lws_get_free_port(PORT_HTTP_CGI_H2_POST)
+
+			add_test(NAME api-test-http-cgi-h2-post
+				 COMMAND lws-api-test-http-cgi-stdin --h2-post
+					 -p ${PORT_HTTP_CGI_H2_POST})
+			set_tests_properties(api-test-http-cgi-h2-post PROPERTIES
+					     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+					     TIMEOUT 60)
+
+			lws_get_free_port(PORT_HTTP_CGI_H2_POST_STREAM)
+
+			add_test(NAME api-test-http-cgi-h2-post-stream
+				 COMMAND lws-api-test-http-cgi-stdin --h2-post-stream
+					 -p ${PORT_HTTP_CGI_H2_POST_STREAM})
+			set_tests_properties(api-test-http-cgi-h2-post-stream PROPERTIES
 					     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 					     TIMEOUT 60)
 		endif()
