@@ -2608,7 +2608,7 @@ rops_check_upgrades_h3(struct lws *wsi)
 		if (hit && lws_h3_wt_basic_auth(wsi, hit->basic_auth_login_file,
 						hit->auth_mask & AUTH_MODE_MASK,
 						&r))
-			return r;
+			return (int)r;
 #endif
 
 		if (hit && (hit->protocol ||
@@ -2621,7 +2621,7 @@ rops_check_upgrades_h3(struct lws *wsi)
 			prot = lws_h3_wt_protocol(vh, hit->protocol ?
 						  hit->protocol : hit->origin);
 			if (!prot)
-				return lws_h3_wt_refuse(wsi,
+				return (int)lws_h3_wt_refuse(wsi,
 						HTTP_STATUS_NOT_FOUND,
 						"mount protocol takes no wt");
 		} else if (lws_hdr_custom_length(wsi, "wt-available-protocols:",
@@ -2640,7 +2640,7 @@ rops_check_upgrades_h3(struct lws *wsi)
 						     "wt-available-protocols:",
 						     23);
 			if (cp_len <= 0)
-				return lws_h3_wt_refuse(wsi,
+				return (int)lws_h3_wt_refuse(wsi,
 						HTTP_STATUS_BAD_REQUEST,
 						"protocol list too long");
 
@@ -2660,7 +2660,7 @@ rops_check_upgrades_h3(struct lws *wsi)
 			} while (!prot && e > 0);
 
 			if (!prot)
-				return lws_h3_wt_refuse(wsi,
+				return (int)lws_h3_wt_refuse(wsi,
 						HTTP_STATUS_NOT_FOUND,
 						"no offered protocol takes wt");
 		} else {
@@ -2674,7 +2674,7 @@ rops_check_upgrades_h3(struct lws *wsi)
 				prot = lws_h3_wt_protocol(vh,
 					vh->protocols[vh->default_protocol_index].name);
 			if (!prot)
-				return lws_h3_wt_refuse(wsi,
+				return (int)lws_h3_wt_refuse(wsi,
 						HTTP_STATUS_NOT_FOUND,
 						"no default wt protocol");
 		}
