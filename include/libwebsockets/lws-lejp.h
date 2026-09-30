@@ -325,7 +325,10 @@ struct lejp_ctx {
  * disagree about what the document says, and lejp's view is the one the
  * security decision is made on.  So it's off by default and network-facing
  * parses must leave it off; it exists for hand-written, locally-owned config
- * files, and in-tree only lejp-conf.c (the lwsws config parser) sets it.
+ * files.  In-tree, lejp-conf.c (the lwsws config parser) sets it, and so does
+ * the Secure Streams policy parser in policy-json.c: policies are
+ * operator-authored, even when fetched from the operator's own server, and
+ * their format has always allowed comments.
  *
  * Deliberately not part of LEJP_FLAG_LATEST, which means "the best current
  * behaviours", ie, the strictest.

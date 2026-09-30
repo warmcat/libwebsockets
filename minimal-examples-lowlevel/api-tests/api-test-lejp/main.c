@@ -964,6 +964,47 @@ int main(int argc, const char **argv)
 		}
 	}
 
+	/*
+	 * C-079 / C-600: nothing may put a NUL inside a decoded key or value,
+	 * since consumers treat ctx->path and ctx->buf as C strings and would
+	 * silently see them truncated.  A '\\' followed by a raw NUL byte is
+	 * not a JSON escape and \u0000 must be refused too.  The lengths are
+	 * explicit, since the documents contain NULs.
+	 */
+	{
+		static const struct {
+			const char	*j;
+			int		len;
+			int		expect;
+		} nt[] = {
+#define LEJPT_NUL(_j, _e) { _j, (int)sizeof(_j) - 1, _e }
+			/* in a key */
+			LEJPT_NUL("{\"a\\\0b\":1}",
+				  LEJP_REJECT_MP_STRING_ESC_ILLEGAL_ESC),
+			/* in a value */
+			LEJPT_NUL("{\"a\":\"b\\\0c\"}",
+				  LEJP_REJECT_MP_STRING_ESC_ILLEGAL_ESC),
+			LEJPT_NUL("{\"a\":\"b\\u0000c\"}",
+				  LEJP_REJECT_MP_ILLEGAL_CTRL),
+#undef LEJPT_NUL
+		};
+		size_t q;
+
+		for (q = 0; q < LWS_ARRAY_SIZE(nt); q++) {
+			lejp_construct(&ctx, quiet_cb, NULL, NULL, 0);
+			n = lejp_parse(&ctx, (const unsigned char *)nt[q].j,
+				       nt[q].len);
+			lejp_destruct(&ctx);
+
+			if (n != nt[q].expect) {
+				lwsl_err("%s: NUL case %d: got %d (%s), "
+					 "expected %d\n", __func__, (int)q, n,
+					 lejp_error_to_string(n), nt[q].expect);
+				e++;
+			}
+		}
+	}
+
 	if (e)
 		goto bail;
 

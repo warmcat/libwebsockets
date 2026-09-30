@@ -511,7 +511,15 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 			if (ctx->uni_hi)
 				/* only \u can complete a surrogate pair */
 				goto reject_esc;
-			for (n = 0; n < sizeof(esc_char); n++) {
+			/*
+			 * Only the escape letters themselves, not esc_char's
+			 * string terminator: a raw NUL after the '\\' would
+			 * otherwise "match" it and be emitted as an escaped
+			 * NUL, the same silent truncation for C string
+			 * consumers of ctx->buf / ctx->path that \u0000 is
+			 * refused for below
+			 */
+			for (n = 0; n < sizeof(esc_char) - 1; n++) {
 				if (c != esc_char[n])
 					continue;
 				/* found it */
