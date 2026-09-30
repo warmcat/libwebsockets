@@ -1024,6 +1024,9 @@ char *
 lws_strdup(const char *s);
 
 int
+lws_environment_untrusted(void);
+
+int
 lws_b64_selftest(void);
 
 #define FIRST_LENGTH_CODE_INDEX		257

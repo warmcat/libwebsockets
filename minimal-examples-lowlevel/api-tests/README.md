@@ -9,6 +9,7 @@ api-test-stdin-cmdline|stdin folded into the commandline by `lws_system_adopt_st
 api-test-region|Scratch buffer region ownership tracking: claims, overlaps, trims, hand-overs and stale handles
 api-test-sansio-link|The sansIO half linked alone, with every unresolved symbol an error (`-DLWS_WITH_SANSIO_LINK_TEST=1`), loads and runs
 api-test-random-prng|Fault injection's seeded PRNG in place of the platform random source: same seed, same bytes, a known vector, independent of other faults (`-DLWS_WITH_SYS_FAULT_INJECTION=1`)
+api-test-evlib-custom|An app's own event lib (`info->event_lib_custom`) is bound with the app's own loop object and gets every fd back at destroy; run again with `LWS_EVLIB=uv` in the environment, which must not displace it
 api-test-fts|LWS Full-text Search api
 api-test-gencrypto|LWS Generic Crypto apis
 api-test-jose|LWS JOSE apis

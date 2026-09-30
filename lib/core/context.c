@@ -467,10 +467,17 @@ static const char * const dlist[] = {
  * assign info.options wholesale after calling that helper.  It lets an entire
  * ctest run be pointed at a built-in event library without editing any test:
  * LWS_EVLIB=uv ctest ...
+ *
+ * Any event library choice the app made itself wins: an evlib option bit, a
+ * custom event lib, or foreign loops.  Foreign loop objects are typed by the
+ * event lib the app built them for (eg, a custom lib's own struct), so handing
+ * them to a different event lib is type confusion, not a preference.  And like
+ * LD_LIBRARY_PATH for the plugin scan, the environment of a set-id process
+ * does not get to choose what event lib code it runs.
  */
 
 static uint64_t
-lws_evlib_options_from_env(uint64_t options)
+lws_evlib_options_from_env(const struct lws_context_creation_info *info)
 {
 	static const struct {
 		const char	*name;
@@ -484,10 +491,23 @@ lws_evlib_options_from_env(uint64_t options)
 		{ "uloop",	LWS_SERVER_OPTION_ULOOP },
 	};
 	const char *e = getenv("LWS_EVLIB");
+	uint64_t options = info->options;
 	size_t n;
 
 	if (!e || !*e || (options & LWS_EVLIB_OPTION_MASK))
 		return options;
+
+	if (info->event_lib_custom || info->foreign_loops) {
+		lwsl_notice("%s: ignoring LWS_EVLIB, app chose its event lib\n",
+			    __func__);
+		return options;
+	}
+
+	if (lws_environment_untrusted()) {
+		lwsl_notice("%s: ignoring LWS_EVLIB in set-id process\n",
+			    __func__);
+		return options;
+	}
 
 	for (n = 0; n < LWS_ARRAY_SIZE(names); n++)
 		if (!strcmp(e, names[n].name))
@@ -614,7 +634,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_NETWORK)
 	const lws_plugin_evlib_t *plev = NULL;
 #if defined(LWS_WITH_EVENT_LIBS)
-	uint64_t ev_options = lws_evlib_options_from_env(info->options);
+	uint64_t ev_options = lws_evlib_options_from_env(info);
 #endif
 	unsigned short count_threads = 1;
 	uint8_t *u;

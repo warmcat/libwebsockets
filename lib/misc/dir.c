@@ -32,10 +32,6 @@
 #include "private-lib-core.h"
 #include <string.h>
 #include <stdio.h>
-#if defined(__linux__) && defined(__GLIBC__)
-#include <sys/auxv.h>
-#endif
-
 #include <sys/stat.h>
 #if defined(WIN32)
 #include <direct.h>
@@ -655,14 +651,8 @@ lws_plugins_init(struct lws_plugin **pplugin, const char * const *d,
 	 * for plugins to dlopen() would reintroduce that.  Honour the same
 	 * rule.
 	 */
-#if defined(__linux__) && defined(__GLIBC__)
-	if (ld_env && getauxval(AT_SECURE))
+	if (ld_env && lws_environment_untrusted())
 		ld_env = NULL;
-#elif defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || \
-      defined(__APPLE__)
-	if (ld_env && issetugid())
-		ld_env = NULL;
-#endif
 	if (ld_env) {
 		char temp[128];
 		struct lws_tokenize ts;

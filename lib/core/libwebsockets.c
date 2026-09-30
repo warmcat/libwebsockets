@@ -28,6 +28,9 @@
 #include <sys/types.h>
 #endif
 #include <signal.h>
+#if defined(__linux__) && defined(__GLIBC__)
+#include <sys/auxv.h>
+#endif
 
 void
 lws_ser_wu16be(uint8_t *b, uint16_t u)
@@ -1036,6 +1039,28 @@ lws_http_rel_to_url(char *dest, size_t len, const char *base, const char *rel)
 	lws_strncpy(dest + n, rel, len - n);
 
 	return 0;
+}
+
+/*
+ * The dynamic loader ignores LD_LIBRARY_PATH and friends for set-uid / set-gid
+ * / file-capability (AT_SECURE) processes precisely so an unprivileged caller
+ * cannot steer what the privileged process does.  Environment variables that
+ * make lws pick code to load or run have to follow the same rule, or they
+ * reintroduce what the loader closed off.  Nonzero means the environment came
+ * from a less-privileged caller and must not be acted on.
+ */
+
+int
+lws_environment_untrusted(void)
+{
+#if defined(__linux__) && defined(__GLIBC__)
+	return !!getauxval(AT_SECURE);
+#elif defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || \
+      defined(__APPLE__)
+	return !!issetugid();
+#else
+	return 0;
+#endif
 }
 
 #if !defined(LWS_PLAT_FREERTOS)

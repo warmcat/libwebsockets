@@ -1109,6 +1109,9 @@ lws_cmdline_option_cx_argv0(const struct lws_context *cx);
  * --uloop (the same ones the eventlib-foreign example takes), or the
  * LWS_EVLIB environment variable with the switch name without the dashes,
  * so any example, and so any ctest, can be run on a built-in event library.
+ * LWS_EVLIB is applied at context creation only if the app did not choose an
+ * event lib itself (an evlib option, info->event_lib_custom or
+ * info->foreign_loops), and is ignored in set-uid / set-gid processes.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_cmdline_option_handle_builtin(int argc, const char **argv,
