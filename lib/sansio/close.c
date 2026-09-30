@@ -776,6 +776,12 @@ just_kill_connection:
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (wsi->http.pending_return_headers)
 		lws_free_set_NULL(wsi->http.pending_return_headers);
+	/*
+	 * An interceptor's onward headers are otherwise only freed when the
+	 * transaction completes, which a connection closed during it never
+	 * does
+	 */
+	lws_free_set_NULL(wsi->http.extra_onward_headers);
 #endif
 
 	/*
