@@ -11,6 +11,8 @@
 # as lws exports it to the CGI env (HTTP_ + the header name, RFC 3875
 # style), so the test can check the stamped value got here and the
 # client's own attempt at the same header did not.
+#
+# The third line is the QUERY_STRING as lws exported it.
 
 # Some paths ask for a script that misbehaves instead:
 #
@@ -38,7 +40,8 @@ GET|HEAD)
 	n=$(wc -c | tr -d ' \t\r\n') ;;
 esac
 b="bytes=$n
-stamp=$HTTP_X_TEST_STAMP"
+stamp=$HTTP_X_TEST_STAMP
+qs=$QUERY_STRING"
 
 printf 'content-type: text/plain\r\n'
 printf 'content-length: %d\r\n' "$(( ${#b} + 1 ))"

@@ -38,6 +38,10 @@
  * spent sleeping in poll(), not spinning, and all of the answer must arrive
  * once the window opens.
  *
+ * With --query, the client GETs the script with URI arguments holding a UTF-8
+ * character and a space, percent-encoded: the script must see them in its
+ * QUERY_STRING percent-encoded again, byte for byte, the space as '+'.
+ *
  * With --fd-budget, the client GETs the script over and over, each time in a
  * new context with one less place in its fds table, starting from a budget
  * with room for everything.  The cgi's three stdio pipes each need a place
@@ -102,6 +106,7 @@ enum expect {
 	EXPECT_FD_BUDGET,	/* 200s, then a 500 as the budget shrinks */
 	EXPECT_NO_ANSWER,	/* the connection goes, with no response */
 	EXPECT_BIG_BODY,	/* 200 and all of the script's /big answer */
+	EXPECT_QUERY,		/* 200 and the QUERY_STRING the script saw */
 };
 
 struct tcase {
@@ -119,6 +124,7 @@ static const struct tcase cases[] = {
 	{ "chunked", "POST", "/", BODY_CHUNKED, EXPECT_BODY_COUNT, 0, 0 },
 	{ "fd-budget", "GET", "/", BODY_NONE, EXPECT_FD_BUDGET, 0, 0 },
 	{ "no-headers", "GET", "/nohdr", BODY_NONE, EXPECT_NO_ANSWER, 0, 0 },
+	{ "query", "GET", "/?x=%C3%A9&y=a%20b", BODY_NONE, EXPECT_QUERY, 0, 0 },
 #if defined(LWS_ROLE_H2)
 	{ "h2-starve", "GET", "/big", BODY_NONE, EXPECT_BIG_BODY, 1, 1 },
 #endif
@@ -150,6 +156,9 @@ static lws_sorted_usec_list_t sul_timeout, sul_grant;
 static uint8_t body[LWS_PRE + CHUNK];
 
 static const char cgi_script_path[] = CGI_SCRIPT_PATH;
+
+/* what --query's URI arguments must come to in the script's QUERY_STRING */
+#define QUERY_SEEN	"qs=x=%C3%A9&y=a+b\n"
 
 #define STAMP_HDR	"x-test-stamp"
 #define STAMP_VAL	"42"
@@ -598,6 +607,7 @@ int main(int argc, const char **argv)
 	switch (tc->expect) {
 	case EXPECT_BODY_COUNT:
 	case EXPECT_BIG_BODY:
+	case EXPECT_QUERY:
 		if (run_one(&info, info.fd_limit_per_thread) || !run.completed)
 			goto done;
 
@@ -606,10 +616,12 @@ int main(int argc, const char **argv)
 			goto done;
 		}
 
-		if (tc->expect == EXPECT_BODY_COUNT) {
+		switch (tc->expect) {
+		case EXPECT_BODY_COUNT:
 			if (check_body_count())
 				goto done;
-		} else
+			break;
+		case EXPECT_BIG_BODY:
 			if (run.rx_total != BIG_BODY || run.not_x) {
 				lwsl_err("--- got %u bytes (%d wrong), "
 					 "expected %u ---\n",
@@ -617,6 +629,15 @@ int main(int argc, const char **argv)
 					 (unsigned int)BIG_BODY);
 				goto done;
 			}
+			break;
+		default:
+			if (!strstr(run.rx, QUERY_SEEN)) {
+				lwsl_err("--- script saw the wrong QUERY_STRING,"
+					 " rx '%s' ---\n", run.rx);
+				goto done;
+			}
+			break;
+		}
 
 		result = 0;
 		goto done;

@@ -62,6 +62,15 @@ if (requirements)
 				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 				     TIMEOUT 60)
 
+		lws_get_free_port(PORT_HTTP_CGI_QUERY)
+
+		add_test(NAME api-test-http-cgi-query
+			 COMMAND lws-api-test-http-cgi-stdin --query
+				 -p ${PORT_HTTP_CGI_QUERY})
+		set_tests_properties(api-test-http-cgi-query PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+				     TIMEOUT 60)
+
 		set(has_h2 1)
 		require_lws_config(LWS_ROLE_H2 1 has_h2)
 		if (has_h2)

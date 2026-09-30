@@ -44,24 +44,30 @@ urlencode(const char *in, int inlen, char *out, int outlen)
 	char *start = out, *end = out + outlen;
 
 	while (inlen-- && out < end - 4) {
-		if ((*in >= 'A' && *in <= 'Z') ||
-		    (*in >= 'a' && *in <= 'z') ||
-		    (*in >= '0' && *in <= '9') ||
-		    *in == '-' ||
-		    *in == '_' ||
-		    *in == '.' ||
-		    *in == '~') {
-			*out++ = *in++;
+		/*
+		 * As unsigned: a byte >= 0x80, eg, UTF-8, is negative as a
+		 * char where char is signed, and would index hex[] before
+		 * its start
+		 */
+		unsigned char c = (unsigned char)*in++;
+
+		if ((c >= 'A' && c <= 'Z') ||
+		    (c >= 'a' && c <= 'z') ||
+		    (c >= '0' && c <= '9') ||
+		    c == '-' ||
+		    c == '_' ||
+		    c == '.' ||
+		    c == '~') {
+			*out++ = (char)c;
 			continue;
 		}
-		if (*in == ' ') {
+		if (c == ' ') {
 			*out++ = '+';
-			in++;
 			continue;
 		}
 		*out++ = '%';
-		*out++ = hex[(*in) >> 4];
-		*out++ = hex[(*in++) & 15];
+		*out++ = hex[c >> 4];
+		*out++ = hex[c & 15];
 	}
 	*out = '\0';
 
