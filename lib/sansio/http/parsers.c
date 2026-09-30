@@ -93,6 +93,15 @@ _lws_header_table_reset(struct allocated_headers *ah)
 	ah->http_response = 0;
 	ah->parser_state = WSI_TOKEN_NAME_PART;
 	ah->lextable_pos = 0;
+	/*
+	 * nor URI decode state: a request that ended partway through a %XX
+	 * or a /../ must not make the ah's next user decode its URI from
+	 * there
+	 */
+	ah->ues = URIES_IDLE;
+	ah->ups = URIPS_IDLE;
+	ah->esc_stash = 0;
+	ah->post_literal_equal = 0;
 	/* no stale limit from the ah's last user for h2 / h3 :path */
 	ah->current_token_limit = 0;
 	ah->unk_pos = 0;

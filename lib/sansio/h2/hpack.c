@@ -1931,6 +1931,14 @@ add_it:
 		/* a reference to a lost entry makes us sink the rest */
 		ah = lws_h2_hpack_sinking(wsi) ? h2n->hpack_sink : wsi->stream.ah;
 
+		/* a :path may not end partway through a %XX, as on h1 */
+		if (m == WSI_TOKEN_HTTP_COLON_PATH &&
+		    h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&
+		    !lws_h2_hpack_no_store(wsi) &&
+		    ah->ues != URIES_IDLE)
+			return lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
+					     "Unterminated escape in :path");
+
 		if (m == WSI_TOKEN_HTTP_COLON_PATH &&
 		    h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&
 		    !lws_h2_hpack_no_store(wsi) &&

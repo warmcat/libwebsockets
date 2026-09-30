@@ -727,6 +727,13 @@ lws_h3_parse_path(struct lws *wsi, const char *value, size_t value_len)
 		ah->frags[ah->nfrag].len++;
 	}
 
+	/* a :path may not end partway through a %XX, as on h1 */
+	if (ah->ues != URIES_IDLE) {
+		lwsl_wsi_notice(wsi, "Unterminated escape in H3 path");
+		lws_quic_enter_closing_state(nwsi, LWS_H3_MESSAGE_ERROR, 0, 1);
+		return -1;
+	}
+
 	if (ah->ups == URIPS_SEEN_SLASH_DOT_DOT) {
 		if (ah->frags[ah->nfrag].len > 2) {
 			ah->pos--;
