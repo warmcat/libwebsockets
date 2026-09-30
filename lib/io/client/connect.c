@@ -611,7 +611,6 @@ bail:
 #endif
 
 	lws_metrics_caliper_cancel(wsi->cal_conn);
-	lws_fi_destroy(&wsi->fic);
 
 	lws_context_lock(i->context, __func__);
 

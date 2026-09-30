@@ -331,6 +331,13 @@ __lws_free_wsi(struct lws *wsi)
 
 	lwsi_set_skt_unusable(wsi, 1); /* !!! */
 
+	/*
+	 * Every path that frees a created wsi comes through here, so the fault
+	 * injection entries it inherited go here too, rather than relying on
+	 * each caller to remember
+	 */
+	lws_fi_destroy(&wsi->fic);
+
 	__lws_lc_untag(wsi->a.context, &wsi->lc);
 	lws_free(wsi);
 }
@@ -1092,10 +1099,6 @@ _lws_close_free_wsi_final(struct lws *wsi)
 
 #ifdef LWS_WITH_CGI
 	lws_cgi_release(wsi);
-#endif
-
-#if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	lws_fi_destroy(&wsi->fic);
 #endif
 
 	__lws_wsi_remove_from_sul(wsi);
