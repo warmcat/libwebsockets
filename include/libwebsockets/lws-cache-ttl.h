@@ -46,11 +46,41 @@
  * you allocate new objects (to keep the whole cache under the specified limit),
  * or when their expiry time arrives.  So you shouldn't keep copies of pointers
  * to cached objects after returning to the event loop.
+ *
+ * The apis are threadsafe with LWS_MAX_SMP > 1: each call holds the lock of
+ * the cache and the levels chained to it while it works.  But then another
+ * service thread may also destroy an item as soon as the call that gave you
+ * a pointer into the cache returns.  If you use pointers from
+ * lws_cache_item_get() or lws_cache_lookup() after the call, and other
+ * threads may use the same cache, hold lws_cache_lock() over the call and
+ * your use of the pointer.
  */
 ///@{
 
 
 struct lws_cache_ttl_lru;
+
+/**
+ * lws_cache_lock() - hold the lock of a cache and the levels chained to it
+ *
+ * \param cache: any level of the cache
+ *
+ * Only needed to keep pointers into the cache valid while using them when
+ * other service threads may use the same cache (LWS_MAX_SMP > 1).  The lock
+ * may be taken again by the same thread, eg, by calling the cache apis while
+ * holding it.  Don't take other locks, or call apis that might, while holding
+ * it.  Without SMP it has no locking effect.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_cache_lock(struct lws_cache_ttl_lru *cache);
+
+/**
+ * lws_cache_unlock() - release the lock taken by lws_cache_lock()
+ *
+ * \param cache: the same level given to lws_cache_lock()
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_cache_unlock(struct lws_cache_ttl_lru *cache);
 
 /**
  * lws_cache_write_through() - add a new cache item object in all layers
@@ -225,7 +255,9 @@ struct lws_cache_creation_info {
 	const char			*name;
 	/**< Mandatory: short cache name */
 	lws_cache_item_destroy_cb	cb;
-	/**< NULL, or a callback that can hook cache item destory */
+	/**< NULL, or a callback that can hook cache item destory.  It is
+	 * called with the cache lock held, so it must not call cache or sul
+	 * apis or take other locks */
 	struct lws_cache_ttl_lru	*parent;
 	/**< NULL, or next cache level */
 	const struct lws_cache_ops	*ops;

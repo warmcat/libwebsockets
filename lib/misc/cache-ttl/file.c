@@ -749,16 +749,17 @@ expiry_cb(lws_sorted_usec_list_t *sul)
 	lws_cache_nscookiejar_t *cache = (lws_cache_nscookiejar_t *)
 			lws_container_of(sul, lws_cache_ttl_lru_t, sul);
 
+	lws_cache_lock(&cache->cache); /* ---------------------- cache { */
+
 	/*
 	 * regen the cookie jar without changes, so expired are removed and
 	 * new earliest expired computed
 	 */
-	if (nsc_regen(cache, NULL, NULL, 0))
-		return;
-
-	if (cache->earliest_expiry)
+	if (!nsc_regen(cache, NULL, NULL, 0) && cache->earliest_expiry)
 		lws_cache_schedule(&cache->cache, expiry_cb,
 				   cache->earliest_expiry);
+
+	lws_cache_unlock(&cache->cache); /* --------------------- } cache */
 }
 
 
@@ -986,7 +987,7 @@ lws_cache_nscookiejar_create(const struct lws_cache_creation_info *info)
 	if (!cache)
 		return NULL;
 
-	cache->cache.info = *info;
+	lws_cache_base_init(&cache->cache, info);
 
 	/*
 	 * We need to scan the file, if it exists, and find the earliest

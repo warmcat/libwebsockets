@@ -395,12 +395,19 @@ solo:
 		size_t clen;
 
 		lws_snprintf(key, sizeof(key), "alpn_%s_%u", adsin, wsi->c_port);
-		if (!lws_cache_item_get(wsi->a.context->alpn_cache, key, (const void **)&cached_alpn, &clen)) {
-			lws_strncpy(wsi->io->alpn_discovered, cached_alpn, sizeof(wsi->io->alpn_discovered));
-			lwsl_wsi_notice(wsi, "ALPN cache hit for %s: %s", key, wsi->io->alpn_discovered);
-		} else {
-			wsi->io->alpn_discovered[0] = '\0';
-		}
+		wsi->io->alpn_discovered[0] = '\0';
+
+		/* another service thread may drop the item after the get */
+		lws_cache_lock(wsi->a.context->alpn_cache);
+		if (!lws_cache_item_get(wsi->a.context->alpn_cache, key,
+					(const void **)&cached_alpn, &clen))
+			lws_strnncpy(wsi->io->alpn_discovered, cached_alpn,
+				     clen, sizeof(wsi->io->alpn_discovered));
+		lws_cache_unlock(wsi->a.context->alpn_cache);
+
+		if (wsi->io->alpn_discovered[0])
+			lwsl_wsi_notice(wsi, "ALPN cache hit for %s: %s", key,
+					wsi->io->alpn_discovered);
 	}
 #endif
 
@@ -453,15 +460,17 @@ solo:
 
 			lws_snprintf(key, sizeof(key), "altsvc_%s_%u",
 				     adsin, wsi->c_port);
+			lws_cache_lock(wsi->a.context->altsvc_cache);
 			if (!lws_cache_item_get(wsi->a.context->altsvc_cache,
 						 key, (const void **)&payload,
 						 &plen) &&
-			    plen == 2) {
+			    plen == 2)
 				alt_port = (uint16_t)
 					(((uint16_t)payload[0] << 8) | payload[1]);
-				if (alt_port)
-					try_quic = 1;
-			}
+			lws_cache_unlock(wsi->a.context->altsvc_cache);
+
+			if (alt_port)
+				try_quic = 1;
 		}
 
 		if (!pinned && !try_quic && wsi->io->alpn_discovered[0] &&

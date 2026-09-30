@@ -380,18 +380,30 @@ __lws_tls_jit_trust_vhost_bind(struct lws_context *cx, const char *address,
 	int n;
 
 	if (!cx->trust_cache ||
-	    lws_tls_jit_trust_key(key, sizeof(key), address, port, host) ||
-	    lws_cache_item_get(cx->trust_cache, key, (const void **)&ci,
-									&size) ||
-	    size != sizeof(jci))
+	    lws_tls_jit_trust_key(key, sizeof(key), address, port, host))
+		return 1;
+
+	/*
+	 * The gotten cache item may be evicted by jit_trust_query, or by the
+	 * cache's expiry on another service thread: take a copy under the
+	 * cache lock
+	 */
+
+	n = 1;
+	lws_cache_lock(cx->trust_cache);
+	if (!lws_cache_item_get(cx->trust_cache, key, (const void **)&ci,
+				&size) && size == sizeof(jci)) {
+		jci = *ci;
+		n = 0;
+	}
+	lws_cache_unlock(cx->trust_cache);
+
+	if (n)
 		/*
 		 * There's no cached info, we have to start from scratch on
 		 * this one
 		 */
 		return 1;
-
-	/* gotten cache item may be evicted by jit_trust_query */
-	jci = *ci;
 
 	if (jci.count_skids <= 0 ||
 	    jci.count_skids > (int)LWS_ARRAY_SIZE(jci.skids))
@@ -503,16 +515,27 @@ __lws_tls_jit_trust_peer_rejected(struct lws *wsi)
 	struct lws_context *cx = wsi->a.context;
 	char key[LWS_JIT_TRUST_KEY_MAX], vhtag[32];
 	lws_tls_jit_cache_item_t *ci;
+	uint32_t xor_tag = 0;
 	size_t size;
+	int n = 1;
 
 	if (!cx->trust_cache || !wsi->a.vhost || !wsi->a.vhost->name ||
-	    lws_tls_jit_trust_wsi_key(wsi, key, sizeof(key)) ||
-	    lws_cache_item_get(cx->trust_cache, key, (const void **)&ci,
-			       &size) ||
-	    size != sizeof(*ci))
+	    lws_tls_jit_trust_wsi_key(wsi, key, sizeof(key)))
 		return;
 
-	tag_to_vh_name(vhtag, sizeof(vhtag), ci->xor_tag);
+	/* the cache's expiry may drop it on another service thread */
+	lws_cache_lock(cx->trust_cache);
+	if (!lws_cache_item_get(cx->trust_cache, key, (const void **)&ci,
+				&size) && size == sizeof(*ci)) {
+		xor_tag = ci->xor_tag;
+		n = 0;
+	}
+	lws_cache_unlock(cx->trust_cache);
+
+	if (n)
+		return;
+
+	tag_to_vh_name(vhtag, sizeof(vhtag), xor_tag);
 	if (strcmp(vhtag, wsi->a.vhost->name))
 		return;
 

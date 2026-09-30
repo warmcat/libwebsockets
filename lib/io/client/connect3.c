@@ -1461,6 +1461,9 @@ ads_known:
 		if (wsi->a.context->h3_cap_cache && wsi->stash && wsi->stash->cis[CIS_HOST]) {
 			const void *item = NULL;
 			size_t item_len = 0;
+
+			/* another service thread may drop the item after the get */
+			lws_cache_lock(wsi->a.context->h3_cap_cache);
 			if (!lws_cache_item_get(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_HOST], &item, &item_len) &&
 			    item_len == sizeof(lws_h3_cap_info_t)) {
 				const lws_h3_cap_info_t *cap = (const lws_h3_cap_info_t *)item;
@@ -1469,6 +1472,7 @@ ads_known:
 				else if (cap->state == LWS_H3_STATE_HTTPS_RECORD_EXISTS)
 					grace_us = LWS_QUIC_GRACE_DEFAULT_US;
 			}
+			lws_cache_unlock(wsi->a.context->h3_cap_cache);
 		}
 #if defined(LWS_ROLE_QUIC)
 		/*

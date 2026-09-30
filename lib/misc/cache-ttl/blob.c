@@ -192,9 +192,13 @@ blob_maintain_cb(lws_sorted_usec_list_t *sul)
 						cache.sul);
 	int secs;
 
-	lws_diskcache_trim(bc->lds);
+	/* the scan state is shared with gets and writes on other threads */
 
+	lws_cache_lock(&bc->cache); /* ------------------------- cache { */
+	lws_diskcache_trim(bc->lds);
 	secs = lws_diskcache_secs_to_idle(bc->lds);
+	lws_cache_unlock(&bc->cache); /* ------------------------ } cache */
+
 	if (secs < 0)
 		secs = 0;
 
@@ -224,7 +228,7 @@ lws_cache_blob_create(const struct lws_cache_creation_info *info)
 	if (!bc)
 		return NULL;
 
-	bc->cache.info = *info;
+	lws_cache_base_init(&bc->cache, info);
 
 	bc->lds = lws_diskcache_create(info->u.blob.dir,
 				       info->max_footprint);

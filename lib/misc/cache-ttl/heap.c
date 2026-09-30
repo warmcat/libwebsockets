@@ -185,6 +185,8 @@ expiry_cb(lws_sorted_usec_list_t *sul)
 
 	lwsl_cache("%s: %s\n", __func__, cache->cache.info.name);
 
+	lws_cache_lock(&cache->cache); /* ---------------------- cache { */
+
 	while(!lws_dll2_is_empty(&cache->items_expiry)) {
 		lws_cache_ttl_item_heap_t *item;
 
@@ -192,10 +194,12 @@ expiry_cb(lws_sorted_usec_list_t *sul)
 					lws_cache_ttl_item_heap_t, list_expiry);
 
 		if (item->expiry > now)
-			return;
+			break;
 
 		lws_cache_heap_item_destroy(cache, item, 1);
 	}
+
+	lws_cache_unlock(&cache->cache); /* --------------------- } cache */
 }
 
 /*
@@ -233,7 +237,7 @@ update_sul(lws_cache_ttl_lru_t_heap_t *cache)
 
 	/* figure out the next soonest expiring item */
 	if (earliest_expiry(cache, &earliest)) {
-		lws_sul_cancel(&cache->cache.sul);
+		lws_cache_unschedule(&cache->cache);
 		return;
 	}
 
@@ -527,7 +531,7 @@ lws_cache_heap_create(const struct lws_cache_creation_info *info)
 	if (!cache)
 		return NULL;
 
-	cache->cache.info = *info;
+	lws_cache_base_init(&cache->cache, info);
 	if (info->parent)
 		info->parent->child = &cache->cache;
 

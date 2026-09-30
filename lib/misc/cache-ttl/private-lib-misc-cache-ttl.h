@@ -62,6 +62,21 @@ typedef struct lws_cache_ttl_lru {
 	lws_sorted_usec_list_t		sul;
 	struct lws_cache_ttl_lru	*child;
 	uint64_t			current_footprint;
+
+#if LWS_MAX_SMP > 1
+	struct lws_mutex_refcount	mr;
+	/**< only the outermost level's is used, for the whole chain */
+#endif
+	int				lock_depth;
+	/**< outermost level only: how deep the chain lock is held */
+
+	/*
+	 * The sul change a level wants, noted while the chain is locked and
+	 * applied by lws_cache_unlock() once it is not (see lws-cache-ttl.c)
+	 */
+	sul_cb_t			sul_pending_cb; /* NULL = cancel */
+	lws_usec_t			sul_pending_at;
+	char				sul_pending;
 } lws_cache_ttl_lru_t;
 
 /*
@@ -98,7 +113,14 @@ void
 lws_cache_clear_matches(lws_dll2_owner_t *results_owner);
 
 void
+lws_cache_base_init(struct lws_cache_ttl_lru *cache,
+		    const struct lws_cache_creation_info *info);
+
+void
 lws_cache_schedule(struct lws_cache_ttl_lru *cache, sul_cb_t cb, lws_usec_t e);
+
+void
+lws_cache_unschedule(struct lws_cache_ttl_lru *cache);
 
 #endif
 
